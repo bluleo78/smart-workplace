@@ -95,26 +95,18 @@ public class DriveBulkService {
       long callerId, long spaceId, List<Long> fileIds, List<Long> folderIds, Long targetFolderId) {
     perms.requireRole(spaceId, callerId, "EDITOR");
     // 항목별 단건 move 는 각자의 공간에서 검증되므로, 통지는 실제 이동된 항목의 공간별로 묶는다.
+    // 단건 move 가 해결한 공간 id 를 반환하므로 항목마다 공간을 사전 조회하지 않는다(없는 항목은 move 가 404 를 던진다).
     Map<Long, List<Long>> idsBySpace = new LinkedHashMap<>();
     if (folderIds != null) {
       for (Long folderId : folderIds) {
-        long fSpace =
-            folders
-                .findSpaceId(folderId)
-                .orElseThrow(() -> new DriveFolderNotFoundException(folderId));
+        long fSpace = folderService.move(callerId, folderId, targetFolderId, false);
         idsBySpace.computeIfAbsent(fSpace, k -> new ArrayList<>()).add(folderId);
-        folderService.move(callerId, folderId, targetFolderId, false);
       }
     }
     if (fileIds != null) {
       for (Long fileId : fileIds) {
-        long fSpace =
-            files
-                .findRow(fileId)
-                .orElseThrow(() -> new DriveFileNotFoundException(fileId))
-                .spaceId();
+        long fSpace = fileService.move(callerId, fileId, targetFolderId, false);
         idsBySpace.computeIfAbsent(fSpace, k -> new ArrayList<>()).add(fileId);
-        fileService.move(callerId, fileId, targetFolderId, false);
       }
     }
     // 단건 move 는 notify=false 로 발행을 껐으므로 여기서 공간당 1건으로 묶어 발행한다(같은 공간이면 1건).

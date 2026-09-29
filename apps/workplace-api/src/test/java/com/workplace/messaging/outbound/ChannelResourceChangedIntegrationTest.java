@@ -9,7 +9,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 import com.workplace.global.realtime.SseRegistry;
@@ -19,17 +18,16 @@ import com.workplace.messaging.service.ChannelMemberService;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.DmService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ResourceChangedCapture;
+import com.workplace.support.ResourceChangedCapture.Captured;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -69,23 +67,10 @@ class ChannelResourceChangedIntegrationTest extends IntegrationTestBase {
     TenantContext.clear();
   }
 
-  /** resource/op 조합의 resource.changed 를 캡처해 (수신자, payload) 로 돌려준다. */
-  @SuppressWarnings("unchecked")
+  /** resource/op 조합의 resource.changed 를 캡처해 (수신자, payload) 를 돌려준다 — 공용 헬퍼 위임. */
   private Captured capture(String resource, String op) {
-    ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-    verify(registry, timeout(2000).atLeastOnce())
-        .fanOut(ids.capture(), eq("resource.changed"), payload.capture());
-    for (int i = 0; i < payload.getAllValues().size(); i++) {
-      var p = (Map<String, Object>) payload.getAllValues().get(i);
-      if (resource.equals(p.get("resource")) && op.equals(p.get("op"))) {
-        return new Captured(ids.getAllValues().get(i), p);
-      }
-    }
-    throw new AssertionError("resource.changed " + resource + "/" + op + " 미수신");
+    return ResourceChangedCapture.capture(registry, resource, op);
   }
-
-  private record Captured(Collection<Long> recipients, Map<String, Object> payload) {}
 
   private ChannelResponse newChannel(String visibility) {
     return channelService.create(owner, "rc-" + UUID.randomUUID(), visibility);

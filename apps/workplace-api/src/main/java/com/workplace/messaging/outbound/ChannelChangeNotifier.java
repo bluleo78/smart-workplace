@@ -6,7 +6,6 @@ import com.workplace.tenant.outbound.TenantAudienceResolver;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
@@ -20,6 +19,11 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class ChannelChangeNotifier {
 
+  /** 리소스 이름 — 프론트 무효화 맵(resourceInvalidation RULES) 키와 계약 테스트로 일치를 고정한다. */
+  public static final String RESOURCE_CHANNEL = "channel";
+
+  public static final String RESOURCE_DM = "dm";
+
   private final ApplicationEventPublisher publisher;
 
   /** 채널 자체 변경(생성·이름·보관·삭제). isPublic 이면 테넌트 전원, 아니면 멤버 + extra. */
@@ -27,7 +31,7 @@ public class ChannelChangeNotifier {
       String op, long channelId, boolean isPublic, Long actorId, Collection<Long> extra) {
     if (isPublic) {
       publish(
-          "channel",
+          RESOURCE_CHANNEL,
           op,
           TenantAudienceResolver.SCOPE,
           TenantContext.require(),
@@ -35,14 +39,21 @@ public class ChannelChangeNotifier {
           actorId,
           extra);
     } else {
-      publish("channel", op, ChannelAudienceResolver.SCOPE, channelId, channelId, actorId, extra);
+      publish(
+          RESOURCE_CHANNEL,
+          op,
+          ChannelAudienceResolver.SCOPE,
+          channelId,
+          channelId,
+          actorId,
+          extra);
     }
   }
 
   /** 멤버십 변경(참여·추가·제거·나가기·역할) — 멤버 + extra(제거된 사용자). */
   public void membershipChanged(long channelId, Long actorId, Collection<Long> extra) {
     publish(
-        "channel",
+        RESOURCE_CHANNEL,
         ResourceChangedEvent.OP_UPDATED,
         ChannelAudienceResolver.SCOPE,
         channelId,
@@ -54,13 +65,13 @@ public class ChannelChangeNotifier {
   /** DM 생성 — DM 멤버 전원(사이드바 DM 목록). */
   public void dmCreated(long channelId, Long actorId) {
     publish(
-        "dm",
+        RESOURCE_DM,
         ResourceChangedEvent.OP_CREATED,
         ChannelAudienceResolver.SCOPE,
         channelId,
         channelId,
         actorId,
-        Set.of());
+        List.of());
   }
 
   private void publish(
@@ -72,7 +83,7 @@ public class ChannelChangeNotifier {
       Long actorId,
       Collection<Long> extra) {
     publisher.publishEvent(
-        new ResourceChangedEvent(
+        ResourceChangedEvent.of(
             resource,
             op,
             scope,
@@ -80,6 +91,6 @@ public class ChannelChangeNotifier {
             List.of(channelId),
             Map.of("channelId", channelId),
             actorId,
-            Set.copyOf(extra)));
+            extra));
   }
 }

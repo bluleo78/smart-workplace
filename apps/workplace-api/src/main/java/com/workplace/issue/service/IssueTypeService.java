@@ -66,7 +66,8 @@ public class IssueTypeService {
     String name = req.name().trim();
     try {
       var row = repo.insert(project.id(), name, color, icon, false, 99);
-      changeNotifier.changed("issue-type", OP_CREATED, project, row.id(), callerId);
+      changeNotifier.changed(
+          ProjectChangeNotifier.RESOURCE_ISSUE_TYPE, OP_CREATED, project, row.id(), callerId);
       return toResponse(row);
     } catch (DuplicateKeyException e) {
       throw new TypeNameDuplicatedException(name);
@@ -92,7 +93,8 @@ public class IssueTypeService {
     } catch (DuplicateKeyException e) {
       throw new TypeNameDuplicatedException(name);
     }
-    changeNotifier.changed("issue-type", OP_UPDATED, project, typeId, callerId);
+    changeNotifier.changed(
+        ProjectChangeNotifier.RESOURCE_ISSUE_TYPE, OP_UPDATED, project, typeId, callerId);
     return toResponse(repo.findById(typeId).orElseThrow());
   }
 
@@ -111,7 +113,8 @@ public class IssueTypeService {
       throw new TypeInUseException(inUse);
     }
     repo.delete(typeId);
-    changeNotifier.changed("issue-type", OP_DELETED, project, typeId, callerId);
+    changeNotifier.changed(
+        ProjectChangeNotifier.RESOURCE_ISSUE_TYPE, OP_DELETED, project, typeId, callerId);
   }
 
   private IssueTypeResponse toResponse(IssueTypeRow r) {

@@ -5,7 +5,6 @@ import com.workplace.project.outbound.ProjectAudienceResolver;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
@@ -19,6 +18,9 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class ChatThreadChangeNotifier {
 
+  /** 리소스 이름 — 프론트 무효화 맵(resourceInvalidation RULES) 키와 계약 테스트로 일치를 고정한다. */
+  public static final String RESOURCE_CHAT_THREAD = "chat-thread";
+
   private final ApplicationEventPublisher publisher;
 
   public void membersChanged(
@@ -29,14 +31,14 @@ public class ChatThreadChangeNotifier {
       Long actorId,
       Collection<Long> extra) {
     publisher.publishEvent(
-        new ResourceChangedEvent(
-            "chat-thread",
+        ResourceChangedEvent.of(
+            RESOURCE_CHAT_THREAD,
             ResourceChangedEvent.OP_UPDATED,
             ProjectAudienceResolver.SCOPE,
             projectId,
             List.of(threadId),
             Map.of("projectKey", projectKey, "issueNumber", issueNumber),
             actorId,
-            Set.copyOf(extra)));
+            extra));
   }
 }

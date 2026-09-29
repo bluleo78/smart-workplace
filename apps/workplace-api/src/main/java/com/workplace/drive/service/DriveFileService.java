@@ -342,16 +342,17 @@ public class DriveFileService {
 
   /**
    * 이동 본체. notify=false 면 resource.changed 를 발행하지 않는다 — 벌크 이동이 항목마다 발행하지 않고 끝에서 1건으로 묶기 위함(WP-63).
+   * 반환값은 파일이 속한 공간 id(no-op 이동 포함) — 벌크 이동이 공간별 통지를 묶을 때 항목마다 사전 조회하지 않게 한다.
    */
   @Transactional
-  public void move(long callerId, long driveFileId, Long targetFolderId, boolean notify) {
+  public long move(long callerId, long driveFileId, Long targetFolderId, boolean notify) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
     validateTargetSameSpace(row.spaceId(), targetFolderId);
     // 같은 폴더로의 이동은 no-op — 자기 자신과의 이름 충돌로 인한 잘못된 409 방지
     if (java.util.Objects.equals(row.folderId(), targetFolderId)) {
-      return;
+      return row.spaceId();
     }
     // 대상 폴더에 동명 활성 파일이 있으면 충돌(#79 부분 유니크 인덱스 대응)
     if (files.findActiveByName(row.spaceId(), targetFolderId, row.name()).isPresent()) {
@@ -361,6 +362,7 @@ public class DriveFileService {
     if (notify) {
       notifier.itemsChanged(OP_UPDATED, row.spaceId(), List.of(driveFileId), callerId);
     }
+    return row.spaceId();
   }
 
   /** 복사 — blob 물리 복제(영구) 후 새 drive_file 바인딩. 단일 txn(promote 단계 없음). */

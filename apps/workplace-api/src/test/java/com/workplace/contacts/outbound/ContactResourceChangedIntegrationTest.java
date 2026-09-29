@@ -5,10 +5,7 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.verify;
 
 import com.workplace.contacts.dto.ExternalContactRequest;
 import com.workplace.contacts.dto.FavoriteRequest;
@@ -17,17 +14,16 @@ import com.workplace.contacts.service.ContactService;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ResourceChangedCapture;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -99,19 +95,8 @@ class ContactResourceChangedIntegrationTest extends IntegrationTestBase {
         "rc-" + UUID.randomUUID(), null, null, null, null, null, visibility);
   }
 
-  @SuppressWarnings("unchecked")
   private Collection<Long> capture(String op) {
-    ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-    verify(registry, timeout(2000).atLeastOnce())
-        .fanOut(ids.capture(), eq("resource.changed"), payload.capture());
-    for (int i = 0; i < payload.getAllValues().size(); i++) {
-      var p = (Map<String, Object>) payload.getAllValues().get(i);
-      if ("contact".equals(p.get("resource")) && op.equals(p.get("op"))) {
-        return ids.getAllValues().get(i);
-      }
-    }
-    throw new AssertionError("resource.changed contact/" + op + " 미수신");
+    return ResourceChangedCapture.capture(registry, "contact", op).recipients();
   }
 
   @Test

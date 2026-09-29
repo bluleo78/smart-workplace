@@ -11,7 +11,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 import com.workplace.global.outbound.AiAgentEventClient;
@@ -24,20 +23,19 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ResourceChangedCapture;
 import com.workplace.view.dto.SaveViewRequest;
 import com.workplace.view.service.SavedViewService;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -88,20 +86,10 @@ class ProjectResourceChangedIntegrationTest extends IntegrationTestBase {
   }
 
   /** resource/op 조합의 resource.changed 수신자를 캡처한다. */
-  @SuppressWarnings("unchecked")
   private Collection<Long> captureRecipients(String resource, String op) {
-    ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-    verify(registry, timeout(2000).atLeastOnce())
-        .fanOut(ids.capture(), eq("resource.changed"), payload.capture());
-    for (int i = 0; i < payload.getAllValues().size(); i++) {
-      var p = (Map<String, Object>) payload.getAllValues().get(i);
-      if (resource.equals(p.get("resource")) && op.equals(p.get("op"))) {
-        assertThat(p).containsEntry("projectKey", key);
-        return ids.getAllValues().get(i);
-      }
-    }
-    throw new AssertionError("resource.changed " + resource + "/" + op + " 미수신");
+    var c = ResourceChangedCapture.capture(registry, resource, op);
+    assertThat(c.payload()).containsEntry("projectKey", key);
+    return c.recipients();
   }
 
   @Test

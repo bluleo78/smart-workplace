@@ -5,7 +5,6 @@ import com.workplace.global.realtime.UserAudienceResolver;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
@@ -19,6 +18,11 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class MailChangeNotifier {
 
+  /** 리소스 이름 — 프론트 무효화 맵(resourceInvalidation RULES) 키와 계약 테스트로 일치를 고정한다. */
+  public static final String RESOURCE_MAIL = "mail";
+
+  public static final String RESOURCE_MAIL_ACCOUNT = "mail-account";
+
   private final ApplicationEventPublisher publisher;
 
   /**
@@ -30,28 +34,26 @@ public class MailChangeNotifier {
     attrs.put("accountId", accountId);
     if (messageId != null) attrs.put("messageId", messageId);
     publisher.publishEvent(
-        new ResourceChangedEvent(
-            "mail",
+        ResourceChangedEvent.of(
+            RESOURCE_MAIL,
             ResourceChangedEvent.OP_UPDATED,
             UserAudienceResolver.SCOPE,
             ownerId,
             messageId == null ? List.of() : List.of(messageId),
             attrs,
-            actorId,
-            Set.of()));
+            actorId));
   }
 
   /** 메일 계정 생성·수정·삭제·일괄 설정. accountId 0 은 "사용자의 모든 계정"(전역 토글) 을 뜻한다. */
   public void accountChanged(String op, long ownerId, long accountId, Long actorId) {
     publisher.publishEvent(
-        new ResourceChangedEvent(
-            "mail-account",
+        ResourceChangedEvent.of(
+            RESOURCE_MAIL_ACCOUNT,
             op,
             UserAudienceResolver.SCOPE,
             ownerId,
             accountId == 0 ? List.of() : List.of(accountId),
             Map.of("accountId", accountId),
-            actorId,
-            Set.of()));
+            actorId));
   }
 }

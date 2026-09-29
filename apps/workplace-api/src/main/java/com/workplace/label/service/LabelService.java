@@ -47,7 +47,8 @@ public class LabelService {
     String name = req.name().trim();
     try {
       var row = labelRepository.insert(project.id(), name, color);
-      changeNotifier.changed("label", OP_CREATED, project, row.id(), callerId);
+      changeNotifier.changed(
+          ProjectChangeNotifier.RESOURCE_LABEL, OP_CREATED, project, row.id(), callerId);
       return toResponse(row);
     } catch (DuplicateKeyException e) {
       throw new LabelNameDuplicatedException(name);
@@ -70,7 +71,8 @@ public class LabelService {
     } catch (DuplicateKeyException e) {
       throw new LabelNameDuplicatedException(name);
     }
-    changeNotifier.changed("label", OP_UPDATED, project, labelId, callerId);
+    changeNotifier.changed(
+        ProjectChangeNotifier.RESOURCE_LABEL, OP_UPDATED, project, labelId, callerId);
     return toResponse(labelRepository.findById(labelId).orElseThrow());
   }
 
@@ -83,7 +85,8 @@ public class LabelService {
       throw new LabelNotFoundException(labelId);
     }
     labelRepository.delete(labelId);
-    changeNotifier.changed("label", OP_DELETED, project, labelId, callerId);
+    changeNotifier.changed(
+        ProjectChangeNotifier.RESOURCE_LABEL, OP_DELETED, project, labelId, callerId);
   }
 
   /** LabelRow → LabelResponse 변환. */

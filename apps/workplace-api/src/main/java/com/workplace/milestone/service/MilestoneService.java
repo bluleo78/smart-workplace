@@ -46,7 +46,8 @@ public class MilestoneService {
     String name = req.name().trim();
     try {
       var row = milestoneRepository.insert(project.id(), name, req.dueDate(), req.description());
-      changeNotifier.changed("milestone", OP_CREATED, project, row.id(), callerId);
+      changeNotifier.changed(
+          ProjectChangeNotifier.RESOURCE_MILESTONE, OP_CREATED, project, row.id(), callerId);
       return toResponse(row);
     } catch (DuplicateKeyException e) {
       throw new MilestoneNameDuplicatedException(name);
@@ -64,7 +65,8 @@ public class MilestoneService {
     } catch (DuplicateKeyException e) {
       throw new MilestoneNameDuplicatedException(name);
     }
-    changeNotifier.changed("milestone", OP_UPDATED, project, milestoneId, callerId);
+    changeNotifier.changed(
+        ProjectChangeNotifier.RESOURCE_MILESTONE, OP_UPDATED, project, milestoneId, callerId);
     return toResponse(milestoneRepository.findById(milestoneId).orElseThrow());
   }
 
@@ -73,7 +75,8 @@ public class MilestoneService {
     var project = accessGuard.assertMember(projectKey, callerId);
     loadInProject(milestoneId, project.id());
     milestoneRepository.deleteById(milestoneId);
-    changeNotifier.changed("milestone", OP_DELETED, project, milestoneId, callerId);
+    changeNotifier.changed(
+        ProjectChangeNotifier.RESOURCE_MILESTONE, OP_DELETED, project, milestoneId, callerId);
   }
 
   /** 마일스톤이 존재하고 해당 프로젝트 소속인지 확인 후 row 반환. Task 4 의 이슈 milestoneId 검증(다른 프로젝트 마일스톤 연결 차단)이 재사용한다. */

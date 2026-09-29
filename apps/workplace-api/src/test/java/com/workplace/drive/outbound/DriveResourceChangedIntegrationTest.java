@@ -3,13 +3,9 @@ package com.workplace.drive.outbound;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.DRIVE_SPACE;
 import static com.workplace.jooq.Tables.FILE;
-import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.verify;
 
 import com.workplace.drive.dto.DriveSpaceResponse;
 import com.workplace.drive.service.DriveFileService;
@@ -18,17 +14,17 @@ import com.workplace.drive.service.DriveSpaceService;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ResourceChangedCapture;
+import com.workplace.support.ResourceChangedCapture.Captured;
+import com.workplace.support.TestFixtures;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -56,9 +52,9 @@ class DriveResourceChangedIntegrationTest extends IntegrationTestBase {
   @BeforeEach
   void seed() {
     TenantContext.set(1L);
-    owner = seedUser("owner");
-    member = seedUser("member");
-    outsider = seedUser("outsider");
+    owner = seedUser();
+    member = seedUser();
+    outsider = seedUser();
   }
 
   @AfterEach
@@ -74,23 +70,10 @@ class DriveResourceChangedIntegrationTest extends IntegrationTestBase {
     TenantContext.clear();
   }
 
-  /** resource/op 조합의 resource.changed 를 캡처해 (수신자, payload) 로 돌려준다. */
-  @SuppressWarnings("unchecked")
+  /** resource/op 조합의 resource.changed 를 캡처해 (수신자, payload) 를 돌려준다 — 공용 헬퍼 위임. */
   private Captured capture(String resource, String op) {
-    ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-    verify(registry, timeout(2000).atLeastOnce())
-        .fanOut(ids.capture(), eq("resource.changed"), payload.capture());
-    for (int i = 0; i < payload.getAllValues().size(); i++) {
-      var p = (Map<String, Object>) payload.getAllValues().get(i);
-      if (resource.equals(p.get("resource")) && op.equals(p.get("op"))) {
-        return new Captured(ids.getAllValues().get(i), p);
-      }
-    }
-    throw new AssertionError("resource.changed " + resource + "/" + op + " 미수신");
+    return ResourceChangedCapture.capture(registry, resource, op);
   }
-
-  private record Captured(Collection<Long> recipients, Map<String, Object> payload) {}
 
   private DriveSpaceResponse newTeamSpace() {
     DriveSpaceResponse sp = spaceService.createTeamSpace(owner, "rc-" + UUID.randomUUID());
@@ -155,23 +138,9 @@ class DriveResourceChangedIntegrationTest extends IntegrationTestBase {
     assertThat(c.payload()).containsEntry("spaceId", personal.id());
   }
 
-  private long seedUser(String prefix) {
-    String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    long id =
-        dsl.insertInto(USER)
-            .set(USER.USERNAME, prefix + "_" + s)
-            .set(USER.PASSWORD, "pw")
-            .set(USER.NAME, prefix + s)
-            .set(USER.EMAIL, prefix + "_" + s + "@example.com")
-            .returning(USER.ID)
-            .fetchOne()
-            .getId();
-    // 테넌트#1 ACTIVE 멤버십 — addMember 의 MembershipGuard 검증 통과용.
-    dsl.insertInto(MEMBERSHIP)
-        .set(MEMBERSHIP.USER_ID, id)
-        .set(MEMBERSHIP.TENANT_ID, 1L)
-        .set(MEMBERSHIP.STATUS, "ACTIVE")
-        .execute();
+  /** 테넌트#1 ACTIVE 멤버 HUMAN 1명 — addMember 의 MembershipGuard 검증 통과용. 공용 픽스처로 만들고 정리 목록에 넣는다. */
+  private long seedUser() {
+    long id = withMembership(TestFixtures.createHuman(dsl));
     userIds.add(id);
     return id;
   }

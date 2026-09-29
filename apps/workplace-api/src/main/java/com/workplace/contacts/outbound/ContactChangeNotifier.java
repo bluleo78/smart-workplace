@@ -6,7 +6,6 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.tenant.outbound.TenantAudienceResolver;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
@@ -20,6 +19,9 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class ContactChangeNotifier {
 
+  /** 리소스 이름 — 프론트 무효화 맵(resourceInvalidation RULES) 키와 계약 테스트로 일치를 고정한다. */
+  public static final String RESOURCE_CONTACT = "contact";
+
   private final ApplicationEventPublisher publisher;
 
   /**
@@ -31,21 +33,20 @@ public class ContactChangeNotifier {
     String scope = sharedBeforeOrAfter ? TenantAudienceResolver.SCOPE : UserAudienceResolver.SCOPE;
     long scopeId = sharedBeforeOrAfter ? TenantContext.require() : ownerId;
     publisher.publishEvent(
-        new ResourceChangedEvent(
-            "contact", op, scope, scopeId, List.of(contactId), Map.of(), actorId, Set.of()));
+        ResourceChangedEvent.of(
+            RESOURCE_CONTACT, op, scope, scopeId, List.of(contactId), Map.of(), actorId));
   }
 
   /** 즐겨찾기 추가·해제 — 호출자 본인의 목록(즐겨찾기 필터)에만 영향. */
   public void favoriteChanged(String op, long callerId) {
     publisher.publishEvent(
-        new ResourceChangedEvent(
-            "contact",
+        ResourceChangedEvent.of(
+            RESOURCE_CONTACT,
             op,
             UserAudienceResolver.SCOPE,
             callerId,
             List.of(),
             Map.of(),
-            callerId,
-            Set.of()));
+            callerId));
   }
 }

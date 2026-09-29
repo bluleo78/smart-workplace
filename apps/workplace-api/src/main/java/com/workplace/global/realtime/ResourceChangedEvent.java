@@ -1,5 +1,6 @@
 package com.workplace.global.realtime;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -34,6 +35,42 @@ public record ResourceChangedEvent(
     ids = ids == null ? List.of() : List.copyOf(ids);
     attrs = attrs == null ? Map.of() : Map.copyOf(attrs);
     extraRecipients = extraRecipients == null ? Set.of() : Set.copyOf(extraRecipients);
+  }
+
+  /**
+   * 추가 수신자 없는 이벤트 팩토리. 호출부(*ChangeNotifier)가 List.copyOf·Set.of() 를 반복 조립하지 않도록 임의 {@link
+   * Collection} 을 받아 복사한다 (null 은 빈 값으로 정규화).
+   */
+  public static ResourceChangedEvent of(
+      String resource,
+      String op,
+      String scopeType,
+      long scopeId,
+      Collection<Long> ids,
+      Map<String, Object> attrs,
+      Long actorId) {
+    return of(resource, op, scopeType, scopeId, ids, attrs, actorId, null);
+  }
+
+  /** 추가 수신자(extraRecipients — 커밋 후 scope 조회에서 빠지는 사용자) 포함 팩토리. 컬렉션은 불변 복사, null 은 빈 값. */
+  public static ResourceChangedEvent of(
+      String resource,
+      String op,
+      String scopeType,
+      long scopeId,
+      Collection<Long> ids,
+      Map<String, Object> attrs,
+      Long actorId,
+      Collection<Long> extraRecipients) {
+    return new ResourceChangedEvent(
+        resource,
+        op,
+        scopeType,
+        scopeId,
+        ids == null ? null : List.copyOf(ids),
+        attrs,
+        actorId,
+        extraRecipients == null ? null : Set.copyOf(extraRecipients));
   }
 
   public static final String OP_CREATED = "created";

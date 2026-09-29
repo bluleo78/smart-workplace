@@ -11,7 +11,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 import com.workplace.global.outbound.AiAgentEventClient;
@@ -24,8 +23,8 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ResourceChangedCapture;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -34,7 +33,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -94,21 +92,18 @@ class IssueResourceChangedIntegrationTest extends IntegrationTestBase {
   }
 
   /** 지정 op 의 resource.changed 1건을 캡처해 수신자·payload 를 검증. */
-  @SuppressWarnings("unchecked")
   private Map<String, Object> captureChanged(String op, int number) {
-    ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-    verify(registry, timeout(2000).atLeastOnce())
-        .fanOut(ids.capture(), eq("resource.changed"), payload.capture());
-    for (int i = 0; i < payload.getAllValues().size(); i++) {
-      var p = (Map<String, Object>) payload.getAllValues().get(i);
-      if (op.equals(p.get("op")) && Integer.valueOf(number).equals(p.get("issueNumber"))) {
-        assertThat(ids.getAllValues().get(i)).containsExactlyInAnyOrder(owner, viewer);
-        assertThat(p).containsEntry("resource", "issue").containsEntry("projectKey", key);
-        return p;
-      }
-    }
-    throw new AssertionError("resource.changed op=" + op + " #" + number + " 미수신");
+    var c =
+        ResourceChangedCapture.capture(
+            registry,
+            p ->
+                "issue".equals(p.get("resource"))
+                    && op.equals(p.get("op"))
+                    && Integer.valueOf(number).equals(p.get("issueNumber")),
+            "issue/" + op + " #" + number);
+    assertThat(c.recipients()).containsExactlyInAnyOrder(owner, viewer);
+    assertThat(c.payload()).containsEntry("projectKey", key);
+    return c.payload();
   }
 
   @Test

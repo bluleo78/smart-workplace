@@ -1,10 +1,7 @@
 package com.workplace.chat.outbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.verify;
 
 import com.workplace.chat.service.ChatFixtures;
 import com.workplace.chat.service.ChatMembershipService;
@@ -13,13 +10,12 @@ import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ResourceChangedCapture;
 import java.util.Collection;
-import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -51,22 +47,14 @@ class ChatThreadResourceChangedIntegrationTest extends IntegrationTestBase {
     TenantContext.clear();
   }
 
-  @SuppressWarnings("unchecked")
   private Collection<Long> captureChatThread() {
-    ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-    verify(registry, timeout(2000).atLeastOnce())
-        .fanOut(ids.capture(), eq("resource.changed"), payload.capture());
-    for (int i = 0; i < payload.getAllValues().size(); i++) {
-      var p = (Map<String, Object>) payload.getAllValues().get(i);
-      if ("chat-thread".equals(p.get("resource"))) {
-        assertThat(p)
-            .containsEntry("projectKey", s.projectKey())
-            .containsEntry("issueNumber", s.issueNumber());
-        return ids.getAllValues().get(i);
-      }
-    }
-    throw new AssertionError("resource.changed chat-thread 미수신");
+    var c =
+        ResourceChangedCapture.capture(
+            registry, p -> "chat-thread".equals(p.get("resource")), "chat-thread");
+    assertThat(c.payload())
+        .containsEntry("projectKey", s.projectKey())
+        .containsEntry("issueNumber", s.issueNumber());
+    return c.recipients();
   }
 
   @Test

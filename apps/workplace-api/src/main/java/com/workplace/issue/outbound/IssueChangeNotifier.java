@@ -2,9 +2,9 @@ package com.workplace.issue.outbound;
 
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.project.dto.ProjectRow;
+import com.workplace.project.outbound.ProjectAudienceResolver;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
@@ -18,7 +18,8 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class IssueChangeNotifier {
 
-  public static final String RESOURCE = "issue";
+  /** 리소스 이름 — 프론트 무효화 맵(resourceInvalidation RULES) 키와 계약 테스트로 일치를 고정한다. */
+  public static final String RESOURCE_ISSUE = "issue";
 
   private final ApplicationEventPublisher publisher;
 
@@ -40,14 +41,13 @@ public class IssueChangeNotifier {
   // 행위자 수신 규칙은 ResourceSseDispatcher 가 공통으로 처리하므로 extraRecipients 는 비운다.
   private void changed(ProjectRow project, int issueNumber, long issueId, String op, Long actorId) {
     publisher.publishEvent(
-        new ResourceChangedEvent(
-            RESOURCE,
+        ResourceChangedEvent.of(
+            RESOURCE_ISSUE,
             op,
-            "PROJECT",
+            ProjectAudienceResolver.SCOPE,
             project.id(),
             List.of(issueId),
             Map.of("projectKey", project.key(), "issueNumber", issueNumber),
-            actorId,
-            Set.of()));
+            actorId));
   }
 }

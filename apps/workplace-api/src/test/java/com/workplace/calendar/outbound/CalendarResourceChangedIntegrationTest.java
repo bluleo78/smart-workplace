@@ -5,11 +5,8 @@ import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
@@ -27,18 +24,17 @@ import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ResourceChangedCapture;
+import com.workplace.support.ResourceChangedCapture.Captured;
+import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -82,7 +78,6 @@ class CalendarResourceChangedIntegrationTest extends IntegrationTestBase {
   private static final OffsetDateTime NOW = OffsetDateTime.parse("2026-07-01T09:00:00Z");
 
   private final List<Long> userIds = new ArrayList<>();
-  private final List<Long> eventIds = new ArrayList<>();
   private final List<Long> accountIds = new ArrayList<>();
   private Long owner;
   private Long attendee;
@@ -90,8 +85,8 @@ class CalendarResourceChangedIntegrationTest extends IntegrationTestBase {
   @BeforeEach
   void seed() {
     TenantContext.set(1L);
-    owner = createHuman("owner");
-    attendee = createHuman("att");
+    owner = createHuman();
+    attendee = createHuman();
   }
 
   @AfterEach
@@ -102,27 +97,13 @@ class CalendarResourceChangedIntegrationTest extends IntegrationTestBase {
     dsl.deleteFrom(USER).where(USER.ID.in(userIds)).execute();
     accountIds.clear();
     userIds.clear();
-    eventIds.clear();
     TenantContext.clear();
   }
 
-  /** resource/op 조합의 resource.changed 를 캡처해 (수신자, payload) 를 돌려준다. */
-  @SuppressWarnings("unchecked")
+  /** resource/op 조합의 resource.changed 를 캡처해 (수신자, payload) 를 돌려준다 — 공용 헬퍼 위임. */
   private Captured capture(String resource, String op) {
-    ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
-    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-    verify(registry, timeout(2000).atLeastOnce())
-        .fanOut(ids.capture(), eq("resource.changed"), payload.capture());
-    for (int i = 0; i < payload.getAllValues().size(); i++) {
-      var p = (Map<String, Object>) payload.getAllValues().get(i);
-      if (resource.equals(p.get("resource")) && op.equals(p.get("op"))) {
-        return new Captured(ids.getAllValues().get(i), p);
-      }
-    }
-    throw new AssertionError("resource.changed " + resource + "/" + op + " 미수신");
+    return ResourceChangedCapture.capture(registry, resource, op);
   }
-
-  private record Captured(Collection<Long> recipients, Map<String, Object> payload) {}
 
   private CalendarEventRequest req(List<Long> attendees) {
     return new CalendarEventRequest(
@@ -133,8 +114,7 @@ class CalendarResourceChangedIntegrationTest extends IntegrationTestBase {
   @DisplayName("일정 생성은 소유자와 참석자에게")
   void create_withAttendee_reachesOwnerAndAttendee() {
     clearInvocations(registry);
-    long id = eventService.create(owner, req(List.of(attendee))).id();
-    eventIds.add(id);
+    eventService.create(owner, req(List.of(attendee)));
     assertThat(capture("calendar-event", "created").recipients())
         .containsExactlyInAnyOrder(owner, attendee);
   }
@@ -152,7 +132,6 @@ class CalendarResourceChangedIntegrationTest extends IntegrationTestBase {
   @DisplayName("참석자 제거는 제거된 사용자에게도")
   void removeAttendee_reachesRemovedUser() {
     long id = eventService.create(owner, req(List.of(attendee))).id();
-    eventIds.add(id);
     clearInvocations(registry);
     eventService.removeAttendee(owner, id, attendee);
     assertThat(capture("calendar-event", "updated").recipients()).contains(owner, attendee);
@@ -162,7 +141,6 @@ class CalendarResourceChangedIntegrationTest extends IntegrationTestBase {
   @DisplayName("RSVP 응답은 소유자에게")
   void rsvp_reachesOwner() {
     long id = eventService.create(owner, req(List.of(attendee))).id();
-    eventIds.add(id);
     clearInvocations(registry);
     eventService.respondRsvp(attendee, id, "ACCEPTED");
     assertThat(capture("calendar-event", "updated").recipients()).contains(owner);
@@ -216,19 +194,9 @@ class CalendarResourceChangedIntegrationTest extends IntegrationTestBase {
     return accountRepo.insert(userId, r, encryption.encrypt("pw"));
   }
 
-  private Long createHuman(String prefix) {
-    String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-    long id =
-        dsl.insertInto(USER)
-            .set(USER.USERNAME, prefix + "_" + suffix)
-            .set(USER.PASSWORD, "pw")
-            .set(USER.NAME, prefix)
-            .set(USER.EMAIL, prefix + "_" + suffix + "@example.com")
-            .set(USER.KIND, "HUMAN")
-            .returning(USER.ID)
-            .fetchOne()
-            .getId();
-    withMembership(id);
+  /** 테넌트#1 ACTIVE 멤버 HUMAN 1명 — 공용 픽스처로 만들고 정리 목록에 넣는다. */
+  private Long createHuman() {
+    long id = withMembership(TestFixtures.createHuman(dsl));
     userIds.add(id);
     return id;
   }

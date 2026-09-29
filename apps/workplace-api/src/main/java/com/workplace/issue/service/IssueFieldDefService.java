@@ -57,7 +57,8 @@ public class IssueFieldDefService {
     String name = req.name().trim();
     try {
       var row = repo.insert(project.id(), name, type, req.options(), 99);
-      changeNotifier.changed("field-def", OP_CREATED, project, row.id(), callerId);
+      changeNotifier.changed(
+          ProjectChangeNotifier.RESOURCE_FIELD_DEF, OP_CREATED, project, row.id(), callerId);
       return toResponse(row);
     } catch (DuplicateKeyException e) {
       throw new FieldNameDuplicatedException(name);
@@ -91,7 +92,8 @@ public class IssueFieldDefService {
     } catch (DuplicateKeyException e) {
       throw new FieldNameDuplicatedException(name);
     }
-    changeNotifier.changed("field-def", OP_UPDATED, project, fieldId, callerId);
+    changeNotifier.changed(
+        ProjectChangeNotifier.RESOURCE_FIELD_DEF, OP_UPDATED, project, fieldId, callerId);
     return toResponse(repo.findById(fieldId).orElseThrow());
   }
 
@@ -122,7 +124,8 @@ public class IssueFieldDefService {
       throw new FieldNotFoundException(fieldId);
     }
     repo.delete(fieldId);
-    changeNotifier.changed("field-def", OP_DELETED, project, fieldId, callerId);
+    changeNotifier.changed(
+        ProjectChangeNotifier.RESOURCE_FIELD_DEF, OP_DELETED, project, fieldId, callerId);
   }
 
   private IssueFieldDefResponse toResponse(IssueFieldDefRow r) {

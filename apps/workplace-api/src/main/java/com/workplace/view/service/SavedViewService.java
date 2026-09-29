@@ -4,7 +4,6 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 
-import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.view.dto.SaveViewRequest;
@@ -48,8 +47,8 @@ public class SavedViewService {
     String visibility = normalizeVisibility(req.visibility());
     try {
       var row = repository.insert(project.id(), callerId, name, req.query(), visibility);
-      notifyView(
-          OP_CREATED, project, row.id(), callerId, callerId, false, "SHARED".equals(visibility));
+      changeNotifier.savedView(
+          OP_CREATED, project, row.id(), callerId, callerId, "SHARED".equals(visibility));
       return toResponse(row, callerId);
     } catch (DuplicateKeyException e) {
       throw new SavedViewNameDuplicatedException(name);
@@ -70,14 +69,13 @@ public class SavedViewService {
       String visibility = normalizeVisibility(req.visibility());
       repository.update(viewId, name, req.query(), visibility);
       // 공유→비공개로 바뀌면 프로젝트 멤버 화면에서도 사라져야 하므로 전/후 어느 쪽이든 SHARED 면 프로젝트에 알린다.
-      notifyView(
+      changeNotifier.savedView(
           OP_UPDATED,
           project,
           viewId,
           callerId,
           row.ownerId(),
-          "SHARED".equals(row.visibility()),
-          "SHARED".equals(visibility));
+          "SHARED".equals(row.visibility()) || "SHARED".equals(visibility));
     } catch (DuplicateKeyException e) {
       throw new SavedViewNameDuplicatedException(name);
     }
@@ -95,14 +93,8 @@ public class SavedViewService {
       throw new SavedViewAccessDeniedException("뷰를 삭제할 권한이 없습니다");
     }
     repository.delete(viewId);
-    notifyView(
-        OP_DELETED,
-        project,
-        viewId,
-        callerId,
-        row.ownerId(),
-        "SHARED".equals(row.visibility()),
-        "SHARED".equals(row.visibility()));
+    changeNotifier.savedView(
+        OP_DELETED, project, viewId, callerId, row.ownerId(), "SHARED".equals(row.visibility()));
   }
 
   /** 저장된 뷰 고정/해제. 본인 소유 뷰만 가능. */
@@ -115,28 +107,9 @@ public class SavedViewService {
       throw new SavedViewAccessDeniedException("본인의 뷰만 고정할 수 있습니다");
     }
     repository.setPinned(viewId, pinned);
-    boolean shared = "SHARED".equals(row.visibility());
-    notifyView(OP_UPDATED, project, viewId, callerId, row.ownerId(), shared, shared);
+    changeNotifier.savedView(
+        OP_UPDATED, project, viewId, callerId, row.ownerId(), "SHARED".equals(row.visibility()));
     return toResponse(repository.findById(viewId).orElseThrow(), callerId);
-  }
-
-  /**
-   * 저장된 뷰 변경 알림. 전/후 어느 한쪽이라도 SHARED 면 프로젝트 멤버 전원에게, 둘 다 PRIVATE 이면 소유자에게만 보낸다 — 개인 뷰의 존재가 다른 멤버에게
-   * 새지 않게 하려는 것이다.
-   */
-  private void notifyView(
-      String op,
-      ProjectRow project,
-      long viewId,
-      Long callerId,
-      Long ownerId,
-      boolean wasShared,
-      boolean isShared) {
-    if (wasShared || isShared) {
-      changeNotifier.changed("saved-view", op, project, viewId, callerId);
-    } else {
-      changeNotifier.privateView(op, project, viewId, ownerId);
-    }
   }
 
   /** 호출자가 프로젝트 OWNER 역할인지 — assertWithRole 통과 여부로 판정. */

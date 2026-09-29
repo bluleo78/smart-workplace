@@ -8,11 +8,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,7 +44,7 @@ class DriveBulkServiceNotifyTest {
     long spaceId = 11L;
     stubFileSpace(1L, spaceId);
     stubFileSpace(2L, spaceId);
-    when(folders.findSpaceId(3L)).thenReturn(Optional.of(spaceId));
+    stubFolderSpace(3L, spaceId);
 
     bulk.bulkMove(caller, spaceId, List.of(1L, 2L), List.of(3L), 99L);
 
@@ -57,6 +57,8 @@ class DriveBulkServiceNotifyTest {
     verify(folderService, never()).move(anyLong(), anyLong(), any());
     verify(fileService, never()).move(anyLong(), anyLong(), any(), eq(true));
     verify(folderService, never()).move(anyLong(), anyLong(), any(), eq(true));
+    // 공간 id 는 단건 move 반환값으로 얻는다 — 항목별 사전 조회(파일·폴더 리포지토리)는 하지 않는다.
+    verifyNoInteractions(files, folders);
   }
 
   @Test
@@ -65,7 +67,7 @@ class DriveBulkServiceNotifyTest {
     long caller = 7L;
     stubFileSpace(1L, 11L);
     stubFileSpace(2L, 22L);
-    when(folders.findSpaceId(3L)).thenReturn(Optional.of(11L));
+    stubFolderSpace(3L, 11L);
 
     bulk.bulkMove(caller, 11L, List.of(1L, 2L), List.of(3L), 99L);
 
@@ -75,11 +77,13 @@ class DriveBulkServiceNotifyTest {
         .itemsChanged(eq(OP_UPDATED), eq(22L), argThat(ids -> ids.equals(List.of(2L))), eq(caller));
   }
 
+  /** 단건 파일 move(notify=false) 가 해결한 공간 id 를 돌려주도록 스텁. */
   private void stubFileSpace(long fileId, long spaceId) {
-    when(files.findRow(fileId))
-        .thenReturn(
-            Optional.of(
-                new com.workplace.drive.repository.DriveFileRepository.DriveFileRow(
-                    fileId, spaceId, fileId, "f", null)));
+    when(fileService.move(anyLong(), eq(fileId), any(), eq(false))).thenReturn(spaceId);
+  }
+
+  /** 단건 폴더 move(notify=false) 가 해결한 공간 id 를 돌려주도록 스텁. */
+  private void stubFolderSpace(long folderId, long spaceId) {
+    when(folderService.move(anyLong(), eq(folderId), any(), eq(false))).thenReturn(spaceId);
   }
 }

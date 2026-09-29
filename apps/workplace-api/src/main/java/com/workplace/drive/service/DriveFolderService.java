@@ -151,9 +151,10 @@ public class DriveFolderService {
 
   /**
    * 이동 본체. notify=false 면 resource.changed 를 발행하지 않는다 — 벌크 이동이 항목마다 발행하지 않고 끝에서 1건으로 묶기 위함(WP-63).
+   * 반환값은 폴더가 속한 공간 id(no-op 이동 포함) — 벌크 이동이 공간별 통지를 묶을 때 항목마다 사전 조회하지 않게 한다.
    */
   @Transactional
-  public void move(long callerId, long folderId, Long targetParentId, boolean notify) {
+  public long move(long callerId, long folderId, Long targetParentId, boolean notify) {
     DriveFolderResponse self =
         folders.findById(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
     long spaceId =
@@ -162,7 +163,7 @@ public class DriveFolderService {
     validateTarget(spaceId, folderId, targetParentId);
     // 같은 부모로의 이동은 no-op — 자기 자신과의 이름 충돌로 인한 잘못된 409 방지
     if (java.util.Objects.equals(self.parentId(), targetParentId)) {
-      return;
+      return spaceId;
     }
     if (folders.existsInSpace(spaceId, targetParentId, self.name())) {
       throw new DriveDuplicateNameException(self.name());
@@ -171,6 +172,7 @@ public class DriveFolderService {
     if (notify) {
       notifier.itemsChanged(OP_UPDATED, spaceId, List.of(folderId), callerId);
     }
+    return spaceId;
   }
 
   /**

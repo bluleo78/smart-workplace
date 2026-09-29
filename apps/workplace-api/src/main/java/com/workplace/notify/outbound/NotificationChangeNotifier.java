@@ -3,9 +3,7 @@ package com.workplace.notify.outbound;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.realtime.UserAudienceResolver;
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
@@ -18,19 +16,21 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class NotificationChangeNotifier {
 
+  /** 리소스 이름 — 프론트 무효화 맵(resourceInvalidation RULES) 키와 계약 테스트로 일치를 고정한다. */
+  public static final String RESOURCE_NOTIFICATION = "notification";
+
   private final ApplicationEventPublisher publisher;
 
   /** 읽음 처리 — ids 는 읽음 처리한 알림 id(전체 읽음이면 알 수 없어 빈 목록). */
   public void read(long recipientId, Collection<Long> ids) {
     publisher.publishEvent(
-        new ResourceChangedEvent(
-            "notification",
+        ResourceChangedEvent.of(
+            RESOURCE_NOTIFICATION,
             ResourceChangedEvent.OP_UPDATED,
             UserAudienceResolver.SCOPE,
             recipientId,
-            List.copyOf(ids),
+            ids,
             Map.of(),
-            recipientId,
-            Set.of()));
+            recipientId));
   }
 }

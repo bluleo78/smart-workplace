@@ -170,12 +170,16 @@ public class CalendarEventService {
 
     // 주최자 본인 행: 항상 ORGANIZER/ACCEPTED, invited_by=null.
     attendeeRepo.insert(id, callerId, null, "ORGANIZER", "ACCEPTED");
+    // 통지 대상 내부 참석자 — 방금 삽입한 행과 같은 집합이라 삽입 후 재조회하지 않고 여기서 모은다.
+    Set<Long> attendeeUserIds = new HashSet<>();
+    attendeeUserIds.add(callerId);
 
     // 초대 참석자 삽입(주최자 중복·null 건너뜀). AGENT 사용자는 ACCEPTED 강제, HUMAN 은 NEEDS_ACTION.
     for (Long uid : req.attendeeUserIdsOrEmpty()) {
       if (uid == null || uid == callerId) continue;
       String status = isAgent(uid) ? "ACCEPTED" : "NEEDS_ACTION";
       attendeeRepo.insert(id, uid, callerId, "ATTENDEE", status);
+      attendeeUserIds.add(uid);
       // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행.
       if (!isAgent(uid)) {
         eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(id, uid, callerId));
@@ -183,7 +187,7 @@ public class CalendarEventService {
     }
     // 생성 → 소유자 + 내부 참석자에게 resource.changed (외부 쓰기 분기의 로컬 저장도 이 메서드를 거친다).
     changeNotifier.eventChanged(
-        ResourceChangedEvent.OP_CREATED, id, callerId, internalAttendeeIds(id), callerId);
+        ResourceChangedEvent.OP_CREATED, id, callerId, attendeeUserIds, callerId);
     return get(callerId, id);
   }
 
@@ -661,7 +665,8 @@ public class CalendarEventService {
             List<Long> beforeAttendees = internalAttendeeIds(id);
             long ownerId = repo.findOwnerId(id).orElse(callerId);
             repo.delete(id);
-            publishEventChanged(
+            // 삭제는 참석자를 늘리지 않으므로(cascade 로 사라질 뿐) 삭제 전 명단만으로 충분 — 재조회하지 않는다.
+            changeNotifier.eventChanged(
                 ResourceChangedEvent.OP_DELETED, id, ownerId, beforeAttendees, callerId);
             return null;
           });
@@ -673,7 +678,8 @@ public class CalendarEventService {
           List<Long> beforeAttendees = internalAttendeeIds(id);
           long ownerId = repo.findOwnerId(id).orElse(callerId);
           doDeleteLocal(callerId, id, scope, occurrenceDate);
-          publishEventChanged(
+          // 회차 취소·시리즈 절단도 이 일정(id)의 참석자를 늘리지 않으므로 삭제 전 명단만으로 충분 — 재조회하지 않는다.
+          changeNotifier.eventChanged(
               ResourceChangedEvent.OP_DELETED, id, ownerId, beforeAttendees, callerId);
           return null;
         });
