@@ -104,4 +104,29 @@ class SsoLoginServiceTest {
     assertThat(reason.getValue()).doesNotContain("\r", "\n").hasSizeLessThanOrEqualTo(200);
     assertThat(description.getValue()).doesNotContain("\r", "\n");
   }
+
+  @Test
+  void auditFailure_doesNotBreakRedirect() {
+    org.mockito.Mockito.doThrow(new IllegalStateException("db down"))
+        .when(audit)
+        .log(
+            any(),
+            anyString(),
+            anyString(),
+            anyString(),
+            any(),
+            anyString(),
+            any(),
+            any(),
+            anyString(),
+            any(),
+            any());
+
+    var r =
+        service.callback(
+            new SsoLoginService.CallbackParams(null, "st", "access_denied", null, null), "raw");
+
+    assertThat(r.location()).startsWith("/login?sso_error=");
+    assertThat(r.cookies()).containsExactly(clearTx);
+  }
 }

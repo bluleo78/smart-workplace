@@ -191,6 +191,19 @@ class SsoLoginFlowTest extends SsoIntegrationTestBase {
   }
 
   @Test
+  void adminConsentDenied_errorOnlyWithoutState_redirectsConsent() throws Exception {
+    // 관리자 동의 화면 취소 시 Microsoft 는 state·admin_consent 없이 error 만 보낸다.
+    MvcResult r =
+        mvc.perform(
+                get("/api/v1/auth/sso/callback")
+                    .param("error", "access_denied")
+                    .param("error_description", "AADSTS65004: User declined to consent"))
+            .andReturn();
+    assertThat(r.getResponse().getRedirectedUrl()).isEqualTo("/login?sso_error=consent");
+    assertThat(FAKE.tokenCalls()).isZero();
+  }
+
+  @Test
   void adminConsentReturn_withoutCookie_showsNotice() throws Exception {
     MvcResult r =
         mvc.perform(

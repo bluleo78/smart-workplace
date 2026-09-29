@@ -79,6 +79,12 @@ public class SsoLoginService {
               : errorPath(SsoLoginException.CONSENT);
       return new Redirect(location, List.of(clearTx));
     }
+    if (p.state() == null && p.error() != null) {
+      // 관리자 동의 화면에서 취소/거부하면 Microsoft 는 admin_consent·state 없이 error 만 붙여 복귀시킨다
+      // (동의 URL 은 state 를 싣지 않음). 정상 로그인 callback 은 항상 state 를 가지므로 state 검사는 약해지지 않는다.
+      auditFailure(SsoLoginException.CONSENT, "admin_consent_denied: " + sanitize(p.error()));
+      return new Redirect(errorPath(SsoLoginException.CONSENT), List.of(clearTx));
+    }
     try {
       Optional<SsoTransactionCookie.Tx> tx =
           rawTxCookie == null ? Optional.empty() : txCookie.read(rawTxCookie);
@@ -123,6 +129,23 @@ public class SsoLoginService {
         log.info("SSO 로그인 실패 code={} reason={}", e.webCode(), reason);
         return new Redirect(errorPath(e.webCode()), List.of(clearTx));
       }
+      auditFailure(e.webCode(), reason);
+      log.info("SSO 로그인 실패 code={} reason={}", e.webCode(), reason);
+      return new Redirect(errorPath(e.webCode()), List.of(clearTx));
+    } catch (RuntimeException e) {
+      // 예상 못 한 예외(DB·JSON 등)도 사용자에겐 재시도 안내로 돌려보내고 트랜잭션 쿠키를 지운다.
+      // 메시지·스택에 토큰/코드가 섞일 수 있어 예외 타입만 남긴다.
+      log.warn("SSO 로그인 처리 중 예외 type={}", e.getClass().getName());
+      return new Redirect(errorPath(SsoLoginException.RETRY), List.of(clearTx));
+    }
+  }
+
+  /**
+   * 실패 감사 기록. 감사 저장소 오류(DB 등)가 callback 을 500 으로 깨뜨려 "항상 302 + 트랜잭션 쿠키 삭제" 계약을 어기지 않도록 삼키고 경고만 남긴다.
+   * 메시지에 민감 정보가 섞일 수 있어 예외 타입만 기록한다.
+   */
+  private void auditFailure(String webCode, String reason) {
+    try {
       auditLogService.log(
           null,
           AUDIT_USERNAME,
@@ -134,14 +157,9 @@ public class SsoLoginService {
           null,
           "FAILURE",
           reason,
-          Map.of("method", "sso", "code", e.webCode()));
-      log.info("SSO 로그인 실패 code={} reason={}", e.webCode(), reason);
-      return new Redirect(errorPath(e.webCode()), List.of(clearTx));
+          Map.of("method", "sso", "code", webCode));
     } catch (RuntimeException e) {
-      // 예상 못 한 예외(DB·JSON 등)도 사용자에겐 재시도 안내로 돌려보내고 트랜잭션 쿠키를 지운다.
-      // 메시지·스택에 토큰/코드가 섞일 수 있어 예외 타입만 남긴다.
-      log.warn("SSO 로그인 처리 중 예외 type={}", e.getClass().getName());
-      return new Redirect(errorPath(SsoLoginException.RETRY), List.of(clearTx));
+      log.warn("SSO 실패 감사 기록 실패 type={}", e.getClass().getName());
     }
   }
 
