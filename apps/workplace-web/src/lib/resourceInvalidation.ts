@@ -118,6 +118,35 @@ const RULES: Record<string, Rule> = {
     ...(p.spaceId != null ? [{ queryKey: ['drive', 'space', p.spaceId] }, { queryKey: ['drive', 'items', p.spaceId] }] : []),
   ],
   dm: () => [{ queryKey: ['messaging', 'dms'] }, { queryKey: ['messaging-summary'] }],
+  // 연락처·알림 — 즐겨찾기/전체 읽음처럼 ids 가 비어도 루트 전체를 갱신한다.
+  contact: () => [{ queryKey: ['contacts'] }],
+  notification: () => [{ queryKey: ['notifications'] }],
+  // 이슈 채팅 스레드 응답(멤버 목록 포함)만 — 메시지 캐시(['chat','messages',…])는 chat.* 핸들러가 패치.
+  'chat-thread': (p) =>
+    p.projectKey && p.issueNumber != null ? [{ queryKey: ['chat', 'thread', p.projectKey, p.issueNumber] }] : [],
+  // 메시지별 AI 요약(['mail-summary', id])은 재생성 비용이 커서 위젯 키만 exact 로.
+  mail: (p) => [
+    ...(p.accountId != null
+      ? [{ queryKey: ['mail-messages', p.accountId] }, { queryKey: ['mail-needs-reply-count', p.accountId] }]
+      : []),
+    ...(p.messageId != null
+      ? [{ queryKey: ['mail-message', p.messageId] }, { queryKey: ['mail', 'linked-issue', p.messageId] }]
+      : []),
+    { queryKey: ['mail-summary'], exact: true },
+  ],
+  // 계정 추가·해제는 모든 계정 목록과 외부 캘린더 표시에 영향
+  'mail-account': () => [
+    { queryKey: ['mail-accounts'] },
+    { queryKey: ['mail-messages'] },
+    { queryKey: ['mail-needs-reply-count'] },
+    { queryKey: ['mail-summary'], exact: true },
+    { queryKey: ['calendar'] },
+  ],
+  'wiki-space': (p) => [
+    { queryKey: ['wiki', 'spaces'] },
+    ...(p.spaceId != null ? [{ queryKey: ['wiki', 'members', p.spaceId] }, { queryKey: ['wiki', 'tree', p.spaceId] }] : []),
+  ],
+  'wiki-attachment': (p) => (p.pageId != null ? [{ queryKey: ['wiki', 'page', p.pageId] }] : []),
 };
 
 export function invalidationTargets(p: ResourceChangedPayload): InvalidationTarget[] {

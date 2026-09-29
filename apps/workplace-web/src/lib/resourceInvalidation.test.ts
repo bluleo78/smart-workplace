@@ -158,6 +158,13 @@ const SAMPLES: ResourceChangedPayload[] = [
   // 드라이브 — attrs 는 spaceId 만(ids 는 비어 있을 수 있음).
   { resource: 'drive', op: 'updated', scopeType: 'USER', scopeId: 1, spaceId: 2 },
   { resource: 'drive-space', op: 'updated', scopeType: 'USER', scopeId: 1, spaceId: 2 },
+  { resource: 'contact', op: 'updated', scopeType: 'USER', scopeId: 1 },
+  { resource: 'notification', op: 'updated', scopeType: 'USER', scopeId: 1 },
+  { resource: 'chat-thread', op: 'updated', projectKey: 'EX', issueNumber: 1 },
+  { resource: 'mail', op: 'updated', accountId: 5, messageId: 9 },
+  { resource: 'mail-account', op: 'updated', accountId: 5 },
+  { resource: 'wiki-space', op: 'updated', spaceId: 2 },
+  { resource: 'wiki-attachment', op: 'updated', spaceId: 2, pageId: 8 },
   ...['project', 'project-member', 'label', 'milestone', 'cycle', 'field-def', 'issue-type', 'saved-view'].map(
     (resource) => ({ resource, op: 'updated' as const, projectKey: 'EX' }),
   ),
