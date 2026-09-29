@@ -17,6 +17,7 @@ import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.InvalidIssueDateRangeException;
 import com.workplace.issue.exception.InvalidParentException;
 import com.workplace.issue.exception.InvalidTypeForProjectException;
+import com.workplace.issue.exception.IssueConflictException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.exception.ParentCannotBeSubtaskException;
 import com.workplace.issue.exception.ParentNotAllowedException;
@@ -395,9 +396,10 @@ public class IssueService {
   public IssueDetailResponse update(
       Long callerId, String projectKey, int number, UpdateIssueRequest req) {
     var project = accessGuard.resolve(projectKey);
+    // #611 읽은 값에 요청 필드를 병합해 전 컬럼을 다시 쓰므로 행을 잠가 동시 수정이 서로를 되돌리지 않게 한다.
     var before =
         issueRepository
-            .findByProjectAndNumber(project.id(), number)
+            .findByProjectAndNumberForUpdate(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
 
     // 권한: 멤버/ADMIN 은 전 필드(내용+워크플로), OPEN reporter 는 내용(제목/본문)만.
@@ -419,6 +421,11 @@ public class IssueService {
       if (touchesWorkflow) {
         throw new ProjectAccessDeniedException("상태·우선순위·마감일은 처리팀(멤버)만 변경할 수 있습니다");
       }
+    }
+
+    // #611 클라이언트가 읽은 뒤 다른 편집이 먼저 반영됐으면 덮어쓰지 않고 409 로 알린다.
+    if (req.version() != null && req.version() != before.version()) {
+      throw new IssueConflictException(project.key() + "-" + number);
     }
 
     String newTitle = req.title() != null ? req.title() : before.title();
@@ -537,7 +544,8 @@ public class IssueService {
   public IssueDetailResponse updateStatus(
       Long callerId, String projectKey, int number, String newStatus) {
     var req =
-        new UpdateIssueRequest(null, null, newStatus, null, null, false, null, false, null, false);
+        new UpdateIssueRequest(
+            null, null, newStatus, null, null, false, null, false, null, false, null);
     return update(callerId, projectKey, number, req);
   }
 

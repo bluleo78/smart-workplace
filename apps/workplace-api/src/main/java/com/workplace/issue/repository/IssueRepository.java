@@ -20,6 +20,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.SelectField;
 import org.springframework.stereotype.Repository;
 
 /** issue 테이블 jOOQ 리포지토리. 모든 조회는 soft-delete(deleted_at IS NULL) 기준 활성 row 만 대상. */
@@ -28,6 +29,27 @@ import org.springframework.stereotype.Repository;
 public class IssueRepository {
 
   private final DSLContext dsl;
+
+  /** {@link #mapToRow} 가 읽는 이슈 행 컬럼 — 조회·INSERT RETURNING 이 한 목록을 공유해 컬럼 추가 시 한 곳만 고친다. */
+  private static final SelectField<?>[] ROW_FIELDS = {
+    ISSUE.ID,
+    ISSUE.PROJECT_ID,
+    ISSUE.NUMBER,
+    ISSUE.TITLE,
+    ISSUE.BODY,
+    ISSUE.STATUS,
+    ISSUE.PRIORITY,
+    ISSUE.DUE_DATE,
+    ISSUE.REPORTER_ID,
+    ISSUE.CREATED_AT,
+    ISSUE.UPDATED_AT,
+    ISSUE.CLOSED_AT,
+    ISSUE.TYPE_ID,
+    ISSUE.PARENT_ISSUE_ID,
+    ISSUE.START_DATE,
+    ISSUE.MILESTONE_ID,
+    ISSUE.VERSION
+  };
 
   /**
    * SELECT 결과를 {@link IssueRow} 로 매핑. OffsetDateTime → Instant 변환. typeId 는 V10 이후 NOT NULL,
@@ -53,28 +75,31 @@ public class IssueRepository {
         r.get(ISSUE.TYPE_ID),
         r.get(ISSUE.PARENT_ISSUE_ID),
         r.get(ISSUE.START_DATE),
-        r.get(ISSUE.MILESTONE_ID));
+        r.get(ISSUE.MILESTONE_ID),
+        r.get(ISSUE.VERSION));
+  }
+
+  /**
+   * #611 수정용 활성 이슈 조회 + 행 잠금(SELECT ... FOR NO KEY UPDATE — 키는 안 바뀌므로 코멘트·담당자 등 FK 참조 INSERT 는 막지
+   * 않는다). 수정은 읽은 값에 요청 필드를 병합해 전 컬럼을 다시 쓰므로, 잠그지 않으면 동시에 들어온 두 수정이 같은 옛 값을 읽어 뒤에 쓴 쪽이 앞의 변경을
+   * 되돌린다(version 을 보내지 않는 호출자 포함). 트랜잭션 끝까지 유지된다.
+   */
+  public Optional<IssueRow> findByProjectAndNumberForUpdate(Long projectId, int number) {
+    return dsl.select(ROW_FIELDS)
+        .from(ISSUE)
+        .where(
+            ISSUE
+                .PROJECT_ID
+                .eq(projectId)
+                .and(ISSUE.NUMBER.eq(number))
+                .and(ISSUE.DELETED_AT.isNull()))
+        .forNoKeyUpdate()
+        .fetchOptional(this::mapToRow);
   }
 
   /** id 로 활성 이슈 조회. */
   public Optional<IssueRow> findById(Long id) {
-    return dsl.select(
-            ISSUE.ID,
-            ISSUE.PROJECT_ID,
-            ISSUE.NUMBER,
-            ISSUE.TITLE,
-            ISSUE.BODY,
-            ISSUE.STATUS,
-            ISSUE.PRIORITY,
-            ISSUE.DUE_DATE,
-            ISSUE.REPORTER_ID,
-            ISSUE.CREATED_AT,
-            ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID,
-            ISSUE.START_DATE,
-            ISSUE.MILESTONE_ID)
+    return dsl.select(ROW_FIELDS)
         .from(ISSUE)
         .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
         .fetchOptional(this::mapToRow);
@@ -82,23 +107,7 @@ public class IssueRepository {
 
   /** projectId + number 로 활성 이슈 조회. */
   public Optional<IssueRow> findByProjectAndNumber(Long projectId, int number) {
-    return dsl.select(
-            ISSUE.ID,
-            ISSUE.PROJECT_ID,
-            ISSUE.NUMBER,
-            ISSUE.TITLE,
-            ISSUE.BODY,
-            ISSUE.STATUS,
-            ISSUE.PRIORITY,
-            ISSUE.DUE_DATE,
-            ISSUE.REPORTER_ID,
-            ISSUE.CREATED_AT,
-            ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID,
-            ISSUE.START_DATE,
-            ISSUE.MILESTONE_ID)
+    return dsl.select(ROW_FIELDS)
         .from(ISSUE)
         .where(
             ISSUE
@@ -111,23 +120,7 @@ public class IssueRepository {
 
   /** 프로젝트 내 활성 이슈를 updated_at desc 정렬로 페이지 조회. */
   public List<IssueRow> findByProject(Long projectId, int page, int size) {
-    return dsl.select(
-            ISSUE.ID,
-            ISSUE.PROJECT_ID,
-            ISSUE.NUMBER,
-            ISSUE.TITLE,
-            ISSUE.BODY,
-            ISSUE.STATUS,
-            ISSUE.PRIORITY,
-            ISSUE.DUE_DATE,
-            ISSUE.REPORTER_ID,
-            ISSUE.CREATED_AT,
-            ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID,
-            ISSUE.START_DATE,
-            ISSUE.MILESTONE_ID)
+    return dsl.select(ROW_FIELDS)
         .from(ISSUE)
         .where(ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull()))
         .orderBy(ISSUE.UPDATED_AT.desc())
@@ -171,23 +164,7 @@ public class IssueRepository {
         .set(ISSUE.REPORTER_ID, reporterId)
         .set(ISSUE.TYPE_ID, typeId)
         .set(ISSUE.PARENT_ISSUE_ID, parentIssueId)
-        .returning(
-            ISSUE.ID,
-            ISSUE.PROJECT_ID,
-            ISSUE.NUMBER,
-            ISSUE.TITLE,
-            ISSUE.BODY,
-            ISSUE.STATUS,
-            ISSUE.PRIORITY,
-            ISSUE.DUE_DATE,
-            ISSUE.REPORTER_ID,
-            ISSUE.CREATED_AT,
-            ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID,
-            ISSUE.START_DATE,
-            ISSUE.MILESTONE_ID)
+        .returning(ROW_FIELDS)
         .fetchOptional()
         .map(this::mapToRow)
         .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"));
@@ -248,8 +225,8 @@ public class IssueRepository {
   }
 
   /**
-   * 모든 변경 가능 필드 일괄 갱신. updated_at = now(). closedAt 은 호출자가 계산하여 전달. type 변경은 별도 {@link
-   * #updateType}.
+   * 모든 변경 가능 필드 일괄 갱신. updated_at = now(), version + 1(#611). closedAt 은 호출자가 계산하여 전달. type 변경은 별도
+   * {@link #updateType}.
    */
   public void updateAll(
       Long id,
@@ -271,11 +248,15 @@ public class IssueRepository {
         .set(ISSUE.MILESTONE_ID, milestoneId)
         .set(ISSUE.CLOSED_AT, closedAt != null ? closedAt.atOffset(java.time.ZoneOffset.UTC) : null)
         .set(ISSUE.UPDATED_AT, OffsetDateTime.now())
+        .set(ISSUE.VERSION, ISSUE.VERSION.plus(1))
         .where(ISSUE.ID.eq(id))
         .execute();
   }
 
-  /** 유형만 갱신 — updated_at 동기. 서비스에서 fast-return / history 기록과 함께 사용. */
+  /**
+   * 유형만 갱신 — updated_at 동기. 서비스에서 fast-return / history 기록과 함께 사용. version 은 올리지 않는다(#611 — PATCH 가
+   * 덮어쓰는 필드가 아니라 lost-update 대상이 아니고, 올리면 제목·본문 편집 중 유형만 바꿔도 저장이 거짓 409 가 된다).
+   */
   public void updateType(Long id, Long newTypeId) {
     dsl.update(ISSUE)
         .set(ISSUE.TYPE_ID, newTypeId)
@@ -284,7 +265,10 @@ public class IssueRepository {
         .execute();
   }
 
-  /** 부모(SUBTASK) 갱신 — newParentId null 이면 해제. updated_at 동기. (Phase 4a) */
+  /**
+   * 부모(SUBTASK) 갱신 — newParentId null 이면 해제. updated_at 동기. version 은 올리지 않는다({@link #updateType} 과
+   * 같은 이유). (Phase 4a)
+   */
   public void updateParent(Long id, Long newParentId) {
     dsl.update(ISSUE)
         .set(ISSUE.PARENT_ISSUE_ID, newParentId)
@@ -458,23 +442,7 @@ public class IssueRepository {
           where.and(ISSUE.UPDATED_AT.lt(ts).or(ISSUE.UPDATED_AT.eq(ts).and(ISSUE.ID.lt(cursorId))));
     }
 
-    return dsl.select(
-            ISSUE.ID,
-            ISSUE.PROJECT_ID,
-            ISSUE.NUMBER,
-            ISSUE.TITLE,
-            ISSUE.BODY,
-            ISSUE.STATUS,
-            ISSUE.PRIORITY,
-            ISSUE.DUE_DATE,
-            ISSUE.REPORTER_ID,
-            ISSUE.CREATED_AT,
-            ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID,
-            ISSUE.START_DATE,
-            ISSUE.MILESTONE_ID)
+    return dsl.select(ROW_FIELDS)
         .from(ISSUE)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
@@ -685,23 +653,7 @@ public class IssueRepository {
           where.and(ISSUE.UPDATED_AT.lt(ts).or(ISSUE.UPDATED_AT.eq(ts).and(ISSUE.ID.lt(cursorId))));
     }
 
-    return dsl.select(
-            ISSUE.ID,
-            ISSUE.PROJECT_ID,
-            ISSUE.NUMBER,
-            ISSUE.TITLE,
-            ISSUE.BODY,
-            ISSUE.STATUS,
-            ISSUE.PRIORITY,
-            ISSUE.DUE_DATE,
-            ISSUE.REPORTER_ID,
-            ISSUE.CREATED_AT,
-            ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID,
-            ISSUE.START_DATE,
-            ISSUE.MILESTONE_ID)
+    return dsl.select(ROW_FIELDS)
         .from(ISSUE)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
@@ -860,23 +812,7 @@ public class IssueRepository {
       where =
           where.and(ISSUE.UPDATED_AT.lt(ts).or(ISSUE.UPDATED_AT.eq(ts).and(ISSUE.ID.lt(cursorId))));
     }
-    return dsl.select(
-            ISSUE.ID,
-            ISSUE.PROJECT_ID,
-            ISSUE.NUMBER,
-            ISSUE.TITLE,
-            ISSUE.BODY,
-            ISSUE.STATUS,
-            ISSUE.PRIORITY,
-            ISSUE.DUE_DATE,
-            ISSUE.REPORTER_ID,
-            ISSUE.CREATED_AT,
-            ISSUE.UPDATED_AT,
-            ISSUE.CLOSED_AT,
-            ISSUE.TYPE_ID,
-            ISSUE.PARENT_ISSUE_ID,
-            ISSUE.START_DATE,
-            ISSUE.MILESTONE_ID)
+    return dsl.select(ROW_FIELDS)
         .from(ISSUE)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())

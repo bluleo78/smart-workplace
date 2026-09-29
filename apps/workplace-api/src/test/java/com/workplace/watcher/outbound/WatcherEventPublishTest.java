@@ -85,7 +85,8 @@ class WatcherEventPublishTest {
             1L,
             null,
             null,
-            null);
+            null,
+            1);
     when(accessGuard.assertMember(PROJECT_KEY, CALLER_ID)).thenReturn(project);
     when(issueRepository.findByProjectAndNumber(PROJECT_ID, ISSUE_NUMBER))
         .thenReturn(Optional.of(issue));

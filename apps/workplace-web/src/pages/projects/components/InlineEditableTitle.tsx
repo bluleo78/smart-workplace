@@ -11,10 +11,14 @@ export function InlineEditableTitle({
   title,
   onSave,
   disabled,
+  onEditStart,
 }: {
   title: string;
-  onSave: (next: string) => void;
+  // Promise<false> 를 돌려주면(저장 실패) 입력한 제목을 버리지 않고 편집을 다시 연다(#611).
+  onSave: (next: string) => void | Promise<boolean>;
   disabled: boolean;
+  // 편집 진입 알림 — 호출부가 이 시점의 이슈 version 을 저장 기준으로 고정할 때 쓴다(#611).
+  onEditStart?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
@@ -26,6 +30,7 @@ export function InlineEditableTitle({
   const enter = () => {
     setDraft(title);
     setEditing(true);
+    onEditStart?.();
   };
 
   // 무엇을: 단일 저장 경로(blur). Enter 는 blur() 를 호출해 이 경로로 합류.
@@ -40,7 +45,9 @@ export function InlineEditableTitle({
     setEditing(false);
     // 왜: zod min(1) 위반(빈 제목)·불변 요청은 무의미하므로 UI 에서 차단.
     if (!trimmed || trimmed === title) return;
-    onSave(trimmed);
+    void Promise.resolve(onSave(trimmed)).then((ok) => {
+      if (ok === false) setEditing(true);
+    });
   };
 
   if (!editing) {

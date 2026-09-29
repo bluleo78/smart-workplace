@@ -84,7 +84,8 @@ class IssueSearchServiceParentTest extends IntegrationTestBase {
         owner,
         p.key(),
         c1.number(),
-        new UpdateIssueRequest(null, null, "DONE", null, null, false, null, false, null, false));
+        new UpdateIssueRequest(
+            null, null, "DONE", null, null, false, null, false, null, false, null));
 
     Map<String, String> params = new HashMap<>();
     var resp = searchService.search(owner, p.key(), params);

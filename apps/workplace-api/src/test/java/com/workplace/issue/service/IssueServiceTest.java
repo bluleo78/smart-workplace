@@ -10,6 +10,7 @@ import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.EpicHasIncompleteChildrenException;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
+import com.workplace.issue.exception.IssueConflictException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -33,6 +34,7 @@ class IssueServiceTest extends IntegrationTestBase {
   @Autowired private ProjectService projectService;
   @Autowired private com.workplace.issue.repository.IssueTypeRepository typeRepository;
   @Autowired private DSLContext dsl;
+  @Autowired private com.workplace.issue.repository.IssueRepository issueRepository;
 
   private Long ownerId;
   private Long otherUserId;
@@ -221,13 +223,14 @@ class IssueServiceTest extends IntegrationTestBase {
         projectKey,
         created.number(),
         new UpdateIssueRequest(
-            null, null, "IN_PROGRESS", null, null, null, null, false, null, false));
+            null, null, "IN_PROGRESS", null, null, null, null, false, null, false, null));
     // IN_PROGRESS → DONE
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest(null, null, "DONE", null, null, null, null, false, null, false));
+        new UpdateIssueRequest(
+            null, null, "DONE", null, null, null, null, false, null, false, null));
 
     var closedAt =
         dsl.select(ISSUE.CLOSED_AT)
@@ -248,13 +251,15 @@ class IssueServiceTest extends IntegrationTestBase {
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest(null, null, "DONE", null, null, null, null, false, null, false));
+        new UpdateIssueRequest(
+            null, null, "DONE", null, null, null, null, false, null, false, null));
     // DONE → TODO 재오픈
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest(null, null, "TODO", null, null, null, null, false, null, false));
+        new UpdateIssueRequest(
+            null, null, "TODO", null, null, null, null, false, null, false, null));
 
     var closedAt =
         dsl.select(ISSUE.CLOSED_AT)
@@ -276,7 +281,8 @@ class IssueServiceTest extends IntegrationTestBase {
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest("renamed", null, null, null, null, null, null, false, null, false));
+        new UpdateIssueRequest(
+            "renamed", null, null, null, null, null, null, false, null, false, null));
 
     int historyCount =
         dsl.fetchCount(
@@ -334,7 +340,8 @@ class IssueServiceTest extends IntegrationTestBase {
         ownerId,
         projectKey,
         created.number(),
-        new UpdateIssueRequest("renamed", null, null, null, null, null, null, false, null, false));
+        new UpdateIssueRequest(
+            "renamed", null, null, null, null, null, null, false, null, false, null));
     // 코멘트 1개 추가
     dsl.insertInto(ISSUE_COMMENT)
         .set(ISSUE_COMMENT.ISSUE_ID, created.id())
@@ -397,5 +404,87 @@ class IssueServiceTest extends IntegrationTestBase {
     String statusAfter =
         dsl.select(ISSUE.STATUS).from(ISSUE).where(ISSUE.ID.eq(epic.id())).fetchOne(ISSUE.STATUS);
     assertThat(statusAfter).isEqualTo("DONE");
+  }
+
+  // ---------------------------------------------------------------- #611 낙관적 동시성
+
+  /** 제목만 바꾸는 요청 — version 을 지정할 수 있다. */
+  private static UpdateIssueRequest titleOnly(String title, Integer version) {
+    return new UpdateIssueRequest(
+        title, null, null, null, null, null, null, null, null, null, version);
+  }
+
+  private IssueResponse newIssue(String title) {
+    return issueService.create(
+        ownerId,
+        projectKey,
+        new CreateIssueRequest(title, null, null, null, null, null, null, null));
+  }
+
+  /** 읽은 version 을 그대로 보내면 성공하고 version 이 1 오른다. */
+  @Test
+  void update_matchingVersion_succeedsAndBumpsVersion() {
+    IssueResponse created = newIssue("v");
+    assertThat(created.version()).isEqualTo(1);
+
+    IssueDetailResponse updated =
+        issueService.update(ownerId, projectKey, created.number(), titleOnly("v2", 1));
+
+    assertThat(updated.summary().title()).isEqualTo("v2");
+    assertThat(updated.summary().version()).isEqualTo(2);
+  }
+
+  /** 읽은 뒤 다른 편집이 먼저 반영됐으면(옛 version) 덮어쓰지 않고 409 예외 — 앞선 변경이 보존된다. */
+  @Test
+  void update_staleVersion_throwsConflictAndKeepsEarlierEdit() {
+    IssueResponse created = newIssue("v");
+    issueService.update(ownerId, projectKey, created.number(), titleOnly("탭A", 1));
+
+    assertThatThrownBy(
+            () -> issueService.update(ownerId, projectKey, created.number(), titleOnly("탭B", 1)))
+        .isInstanceOf(IssueConflictException.class)
+        .hasMessageContaining(projectKey + "-" + created.number());
+    assertThat(issueService.get(ownerId, projectKey, created.number()).summary().title())
+        .isEqualTo("탭A");
+  }
+
+  /** version 을 보내지 않는 호출자(보드 드래그·AI 도구)는 검사 없이 반영되고 version 은 오른다. */
+  @Test
+  void update_withoutVersion_skipsCheck() {
+    IssueResponse created = newIssue("v");
+    issueService.update(ownerId, projectKey, created.number(), titleOnly("a", null));
+    IssueDetailResponse again =
+        issueService.update(ownerId, projectKey, created.number(), titleOnly("b", null));
+    assertThat(again.summary().title()).isEqualTo("b");
+    assertThat(again.summary().version()).isEqualTo(3);
+  }
+
+  /** 유형·부모 변경은 PATCH 가 덮어쓰는 필드가 아니라 version 을 올리지 않는다 — 제목·본문 편집 중 유형을 바꿔도 거짓 409 가 나지 않게. */
+  @Test
+  void setTypeAndParent_doNotBumpVersion() {
+    var epicType = typeRepository.findByProjectAndName(projectId, "EPIC").orElseThrow();
+    IssueResponse epic = newIssue("에픽");
+    IssueResponse task = newIssue("작업");
+
+    assertThat(
+            issueService
+                .setType(ownerId, projectKey, epic.number(), epicType.id())
+                .summary()
+                .version())
+        .isEqualTo(1);
+    assertThat(
+            issueService
+                .setParent(ownerId, projectKey, task.number(), epic.number())
+                .summary()
+                .version())
+        .isEqualTo(1);
+  }
+
+  /** 메일 출처 기록 같은 부가 쓰기는 version 을 올리지 않는다 — 올리면 편집 중인 탭이 이유 없이 충돌한다. */
+  @Test
+  void updateSource_doesNotBumpVersion() {
+    IssueResponse created = newIssue("v");
+    issueRepository.updateSource(created.id(), "MAIL", 999L);
+    assertThat(issueRepository.findById(created.id()).orElseThrow().version()).isEqualTo(1);
   }
 }

@@ -708,3 +708,60 @@ test('보드 모달 헤더에서도 제목을 인라인 편집 → PATCH { title
   await expect.poll(() => patchBodies).toContainEqual({ title: '보드 최종본' });
   await expect(modal.getByTestId('personal-task-panel-title')).toContainText('보드 최종본');
 });
+
+// #611 — 상세를 보고 있지 않은 체크리스트 행에서 409 가 나면, 캐시에 남은 옛 version 을 버리고 최신을 다시 불러와
+// 다음 토글은 성공해야 한다(비활성 상세 캐시를 다시 불러오지 않으면 같은 옛 version 으로 409 가 반복된다).
+test('체크리스트 토글이 409 로 충돌하면 최신 version 을 다시 불러와 다음 토글은 성공한다 (#611)', async ({
+  authenticatedPage: page,
+}) => {
+  const server = { version: 1, status: 'TODO' as 'TODO' | 'DONE', patches: [] as Record<string, unknown>[] };
+  const issue = () => createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: server.status, version: server.version });
+  await mockPersonal(page, [issue()]);
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+    (route) =>
+      route.request().method() === 'GET' ? route.fulfill({ json: createIssueSearchResponse([issue()]) }) : route.fallback(),
+  );
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues/1`,
+    (route) => {
+      if (route.request().method() === 'PATCH') {
+        const body = route.request().postDataJSON() as Record<string, unknown>;
+        server.patches.push(body);
+        if (body.version !== undefined && body.version !== server.version) {
+          return route.fulfill({ status: 409, json: { status: 409, message: '다른 사용자가 먼저 이 이슈를 수정했습니다' } });
+        }
+        if (body.status === 'TODO' || body.status === 'DONE') server.status = body.status;
+        server.version += 1;
+      }
+      return route.fulfill({ json: createIssueDetail({ summary: issue(), body: '' }) });
+    },
+  );
+  const thread = createChatThread();
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/1/chat/thread`, thread);
+  await mockApi(page, 'GET', `/api/v1/chat/threads/${thread.threadId}/messages`, createChatMessagePage([]));
+
+  // 패널을 한 번 열어 상세 캐시(version 1)를 채운 뒤 닫는다 — 이후 체크리스트 행만 남는다.
+  await page.goto(`/projects/${KEY}?task=1`);
+  await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
+
+  // 다른 곳에서 먼저 수정됨.
+  server.version = 2;
+
+  // 409 뒤 상세를 보고 있지 않아도 상세가 다시 조회돼야 한다(옛 version 폐기).
+  const refetched = page.waitForResponse(
+    (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === `/api/v1/projects/${KEY}/issues/1`,
+  );
+  await page.getByTestId('personal-task-check-1').click();
+  await expect(page.getByText('다른 사용자가 먼저 이 이슈를 수정했습니다')).toBeVisible();
+  expect(server.patches[0].version).toBe(1);
+  await refetched;
+
+  // 최신 version 을 다시 불러온 뒤의 토글은 성공한다.
+  await page.getByTestId('personal-task-check-1').click();
+  await expect.poll(() => server.status).toBe('DONE');
+  expect(server.patches).toHaveLength(2);
+  expect(server.patches[1].version).toBe(2);
+});

@@ -23,4 +23,5 @@ public record IssueRow(
     Long typeId,
     Long parentIssueId,
     LocalDate startDate,
-    Long milestoneId) {}
+    Long milestoneId,
+    int version) {}

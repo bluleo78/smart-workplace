@@ -183,6 +183,11 @@ public class Issue extends TableImpl<IssueRecord> {
      */
     public final TableField<IssueRecord, Long> MILESTONE_ID = createField(DSL.name("milestone_id"), SQLDataType.BIGINT, this, "");
 
+    /**
+     * The column <code>public.issue.version</code>.
+     */
+    public final TableField<IssueRecord, Integer> VERSION = createField(DSL.name("version"), SQLDataType.INTEGER.nullable(false).defaultValue(DSL.field(DSL.raw("1"), SQLDataType.INTEGER)), this, "");
+
     private Issue(Name alias, Table<IssueRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

@@ -1,7 +1,8 @@
 // 이슈 상세 — 본문 + 코멘트 + 우측 사이드바(상태/우선순위/마감일 인라인 편집 + 라벨 + watch 토글 + 활동).
 
+import { isAxiosError } from 'axios';
 import { Eye, EyeOff, FileQuestion, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -36,7 +37,6 @@ import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle'
 import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
-import { handleApiError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueChatButton } from './components/chat/IssueChatButton';
 import { IssueChatDrawer } from './components/chat/IssueChatDrawer';
@@ -85,12 +85,16 @@ function InlineEditableBody({
   disabled,
   projectKey,
   issueNumber,
+  onEditStart,
 }: {
   body: string | null;
-  onSave: (next: string) => void;
+  // 저장 성공 여부 — false 면 입력을 버리지 않고 편집을 다시 연다(#611 충돌 시 본문 유실 방지).
+  onSave: (next: string) => Promise<boolean>;
   disabled: boolean;
   projectKey: string;
   issueNumber: number;
+  // 편집 진입 알림 — 호출부가 이 시점의 이슈 version 을 저장 기준으로 고정한다(#611).
+  onEditStart?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(body ?? '');
@@ -122,6 +126,7 @@ function InlineEditableBody({
     const stored = readBodyDraft(draftKey);
     setShowDraftBanner(stored != null && stored !== (body ?? ''));
     setEditing(true);
+    onEditStart?.();
   };
   // 배너 [불러오기] — 저장된 초안을 draft 로 복원.
   const restoreDraft = () => {
@@ -135,11 +140,17 @@ function InlineEditableBody({
     setShowDraftBanner(false);
   };
   // 저장 — 빈 값 허용, 변화 없으면 무의미 요청 차단. 저장 후 초안은 정리해 남기지 않는다.
-  const save = () => {
+  const save = async () => {
     setEditing(false);
     setShowDraftBanner(false);
-    clearBodyDraft(draftKey);
-    if (draft !== (body ?? '')) onSave(draft);
+    if (draft === (body ?? '')) {
+      clearBodyDraft(draftKey);
+      return;
+    }
+    // #611 초안은 저장이 성공한 뒤에만 지운다 — 충돌(409)·오류로 실패하면 입력한 본문을 그대로 두고 편집을 다시 연다.
+    writeBodyDraft(draftKey, draft);
+    if (await onSave(draft)) clearBodyDraft(draftKey);
+    else setEditing(true);
   };
   // 취소 — draft 폐기, 편집 종료. 초안도 함께 정리(#824 — 취소 시 남기지 않음).
   const cancel = () => {
@@ -257,6 +268,10 @@ export default function IssueDetailPage() {
   const project = useProject(key);
   const { data, isLoading, refetch } = useIssue(key, issueNumber);
   const update = useUpdateIssue(key, issueNumber);
+  // #611 제목·본문은 편집을 시작한 순간의 version 을 저장 기준으로 고정한다 — 편집하는 사이 코멘트 SSE·창 포커스 리페치로 캐시 version 이
+  // 올라가도, 그 사이 다른 사람이 바꾼 내용을 모른 채 덮어쓰지 않고 409 로 알 수 있게.
+  const titleBaseVersion = useRef<number | undefined>(undefined);
+  const bodyBaseVersion = useRef<number | undefined>(undefined);
   const remove = useDeleteIssue(key, issueNumber);
   // AI 현황 요약 온디맨드 생성 mutation — Rules of Hooks: 조기 반환 이전에 선언.
   const genSummary = useGenerateAiSummary(key, issueNumber);
@@ -338,12 +353,25 @@ export default function IssueDetailPage() {
   // 인라인 편집 patch — 단일 필드 변경마다 호출되며 onSuccess invalidate 로 detail 재조회.
   // silent: true 면 성공 토스트를 억제 — AI 분류 적용(handleClassify)처럼 여러 필드 변경을
   // 하나의 통합 토스트로 묶는 호출부에서 사용 (#578).
-  const patch = async (changes: UpdateIssueRequest, options?: { silent?: boolean }) => {
+  // 성공 여부를 돌려준다 — 제목·본문 편집기가 실패 시 입력을 버리지 않고 편집을 다시 열 때 쓴다(#611).
+  const patch = async (changes: UpdateIssueRequest, options?: { silent?: boolean }): Promise<boolean> => {
+    const savedFrom = data?.summary.version;
     try {
-      await update.mutateAsync(changes);
+      const updated = await update.mutateAsync(changes);
+      // #611 내 저장으로 오른 version 은 충돌이 아니다 — 저장 직전 최신이던 편집 기준 version 을 함께 올려, 본문을 쓰는 중에 상태만
+      // 바꾼 뒤 본문을 저장해도 스스로와 충돌하지 않게 한다(그 사이 다른 사람의 변경이 있었다면 기준이 이미 달라 그대로 409).
+      for (const base of [titleBaseVersion, bodyBaseVersion]) {
+        if (base.current !== undefined && base.current === savedFrom) base.current = updated.summary.version;
+      }
       if (!options?.silent) toast.success('이슈 필드가 업데이트되었습니다');
+      return true;
     } catch (e) {
-      handleApiError(e, '변경에 실패했습니다');
+      // 실패 토스트(409 충돌 안내 포함)는 useUpdateIssue 가 띄운다. 409 면 편집 기준을 풀어 다시 저장할 때 새로 불러온 최신 version 을 쓰게 한다.
+      if (isAxiosError(e) && e.response?.status === 409) {
+        titleBaseVersion.current = undefined;
+        bodyBaseVersion.current = undefined;
+      }
+      return false;
     }
   };
 
@@ -453,7 +481,8 @@ export default function IssueDetailPage() {
               <h1 className="text-2xl leading-8 font-semibold tracking-tight" aria-label={summary.title}>
                 <InlineEditableTitle
                   title={summary.title}
-                  onSave={(t) => patch({ title: t })}
+                  onSave={(t) => patch({ title: t, version: titleBaseVersion.current })}
+                  onEditStart={() => (titleBaseVersion.current = summary.version)}
                   disabled={!canEditContent || update.isPending}
                 />
               </h1>
@@ -490,7 +519,8 @@ export default function IssueDetailPage() {
               <h2 className="text-base leading-6 font-medium">본문</h2>
               <InlineEditableBody
                 body={body}
-                onSave={(b) => patch({ body: b })}
+                onSave={(b) => patch({ body: b, version: bodyBaseVersion.current })}
+                onEditStart={() => (bodyBaseVersion.current = summary.version)}
                 disabled={!canEditContent || update.isPending}
                 projectKey={key}
                 issueNumber={issueNumber}

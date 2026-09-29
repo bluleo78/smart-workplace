@@ -35,7 +35,9 @@ public record IssueResponse(
     List<IssueLinkSummary> blockedBy,
     List<IssueLinkSummary> blocks,
     boolean blocked,
-    List<IssueFieldEntry> customFields) {
+    List<IssueFieldEntry> customFields,
+    // #611 낙관적 동시성 토큰 — PATCH 에 그대로 실어 보내면 그 사이 다른 편집이 있었는지 서버가 판정한다.
+    int version) {
 
   /**
    * projectKey + 내부 row → 응답 변환. labels/type/assignees null, attachmentCount 0 — Phase 1·2 호출자 호환.
@@ -65,7 +67,8 @@ public record IssueResponse(
         List.of(),
         List.of(),
         false,
-        List.of());
+        List.of(),
+        r.version());
   }
 
   /**
@@ -97,7 +100,8 @@ public record IssueResponse(
         List.of(),
         List.of(),
         false,
-        List.of());
+        List.of(),
+        r.version());
   }
 
   /** 라벨 + 첨부 카운트까지 채운 버전 — Phase 3b 호출자 호환. type null, assignees 빈 리스트. */
@@ -126,7 +130,8 @@ public record IssueResponse(
         List.of(),
         List.of(),
         false,
-        List.of());
+        List.of(),
+        r.version());
   }
 
   /** 라벨 + 첨부 카운트 + 담당자까지 채운 풀버전 — Phase 3c 호출자 호환. type null. */
@@ -159,7 +164,8 @@ public record IssueResponse(
         List.of(),
         List.of(),
         false,
-        List.of());
+        List.of(),
+        r.version());
   }
 
   /** Phase 4 — 라벨 + 첨부 카운트 + 유형 + 담당자 모두 채운 풀버전. */
@@ -193,7 +199,8 @@ public record IssueResponse(
         List.of(),
         List.of(),
         false,
-        List.of());
+        List.of(),
+        r.version());
   }
 
   /**
@@ -233,7 +240,8 @@ public record IssueResponse(
         List.of(),
         List.of(),
         false,
-        List.of());
+        List.of(),
+        r.version());
   }
 
   /** Phase 4b — 의존성(blockedBy/blocks/blocked) 까지 채운 최신 풀버전. 검색/상세 경로에서 사용. */
@@ -273,7 +281,8 @@ public record IssueResponse(
         blockedBy == null ? List.of() : blockedBy,
         blocks == null ? List.of() : blocks,
         blocked,
-        List.of());
+        List.of(),
+        r.version());
   }
 
   /**
@@ -316,6 +325,7 @@ public record IssueResponse(
         blockedBy == null ? List.of() : blockedBy,
         blocks == null ? List.of() : blocks,
         blocked,
-        customFields == null ? List.of() : customFields);
+        customFields == null ? List.of() : customFields,
+        r.version());
   }
 }

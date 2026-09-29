@@ -42,6 +42,8 @@ export interface IssueResponse {
   reporterId: number;
   createdAt: string;
   updatedAt: string;
+  // #611 낙관적 동시성 토큰 — 수정 요청에 실어 보내면 그 사이 다른 편집이 있었을 때 서버가 409 로 알린다.
+  version?: number;
   // 부착된 라벨 — 백엔드가 항상 배열로 내려준다 (없으면 빈 배열).
   labels: LabelSummary[];
   // 이슈에 부착된 첨부 개수 — N+1 회피용 카운트 (목록 카드 표시).
@@ -173,6 +175,8 @@ export interface UpdateIssueRequest {
   milestoneId?: number;
   // milestoneId 단독 비우기(연결 해제) 플래그.
   clearMilestone?: boolean;
+  // #611 마지막으로 읽은 이슈 version — 생략하면 서버가 충돌 검사를 하지 않는다.
+  version?: number;
 }
 
 export interface CreateCommentRequest { body: string }

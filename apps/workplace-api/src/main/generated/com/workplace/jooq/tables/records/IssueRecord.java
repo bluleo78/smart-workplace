@@ -301,6 +301,20 @@ public class IssueRecord extends UpdatableRecordImpl<IssueRecord> {
         return (Long) get(19);
     }
 
+    /**
+     * Setter for <code>public.issue.version</code>.
+     */
+    public void setVersion(Integer value) {
+        set(20, value);
+    }
+
+    /**
+     * Getter for <code>public.issue.version</code>.
+     */
+    public Integer getVersion() {
+        return (Integer) get(20);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -324,7 +338,7 @@ public class IssueRecord extends UpdatableRecordImpl<IssueRecord> {
     /**
      * Create a detached, initialised IssueRecord
      */
-    public IssueRecord(Long id, Long projectId, Integer number, String title, String body, String status, String priority, LocalDate dueDate, Long reporterId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime closedAt, OffsetDateTime deletedAt, Long typeId, Long parentIssueId, Long tenantId, String sourceType, Long sourceId, LocalDate startDate, Long milestoneId) {
+    public IssueRecord(Long id, Long projectId, Integer number, String title, String body, String status, String priority, LocalDate dueDate, Long reporterId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime closedAt, OffsetDateTime deletedAt, Long typeId, Long parentIssueId, Long tenantId, String sourceType, Long sourceId, LocalDate startDate, Long milestoneId, Integer version) {
         super(Issue.ISSUE);
 
         setId(id);
@@ -347,6 +361,7 @@ public class IssueRecord extends UpdatableRecordImpl<IssueRecord> {
         setSourceId(sourceId);
         setStartDate(startDate);
         setMilestoneId(milestoneId);
+        setVersion(version);
         resetChangedOnNotNull();
     }
 }

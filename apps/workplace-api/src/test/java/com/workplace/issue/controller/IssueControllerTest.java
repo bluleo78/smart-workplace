@@ -107,7 +107,8 @@ class IssueControllerTest {
         List.of(),
         List.of(),
         false,
-        List.of());
+        List.of(),
+        1);
   }
 
   private IssueDetailResponse sampleDetail() {
@@ -203,6 +204,38 @@ class IssueControllerTest {
         .andExpect(status().isOk());
   }
 
+  /** #611 옛 version 으로 수정하면 409 + 충돌 안내 문구. */
+  @Test
+  void patch_staleVersion_returns409() throws Exception {
+    mockAuthentication("issue:write");
+    when(issueService.update(eq(1L), eq("WP"), eq(1), any()))
+        .thenThrow(new com.workplace.issue.exception.IssueConflictException("WP-1"));
+
+    mockMvc
+        .perform(
+            patch("/api/v1/projects/WP/issues/1")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"x\",\"version\":1}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("먼저")));
+  }
+
+  /** #611 응답 요약에 version 이 실린다 — 클라이언트가 다음 저장에 그대로 보낸다. */
+  @Test
+  void patch_responseExposesVersion() throws Exception {
+    mockAuthentication("issue:write");
+    when(issueService.update(eq(1L), eq("WP"), eq(1), any())).thenReturn(sampleDetail());
+
+    mockMvc
+        .perform(
+            patch("/api/v1/projects/WP/issues/1")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"x\"}"))
+        .andExpect(jsonPath("$.summary.version").value(1));
+  }
+
   @Test
   void patch_invalidStatus_returns400() throws Exception {
     mockAuthentication("issue:write");
@@ -215,7 +248,8 @@ class IssueControllerTest {
                 .content(
                     objectMapper.writeValueAsString(
                         new UpdateIssueRequest(
-                            null, null, "UNKNOWN", null, null, null, null, false, null, false))))
+                            null, null, "UNKNOWN", null, null, null, null, false, null, false,
+                            null))))
         .andExpect(status().isBadRequest());
   }
 
