@@ -51,16 +51,23 @@ export function reconnectCatchUp(qc: QueryClient) {
   });
 }
 
+const CATCHUP_MIN_INTERVAL_MS = 30_000;
+
 /**
  * SSE onOpen 콜백 팩토리. 첫 연결은 초기 로딩 직후라 건너뛰고, 재연결에서만 catch-up 한다 (WP-59).
  */
-export function createCatchUp(qc: QueryClient): () => void {
+export function createCatchUp(qc: QueryClient, now: () => number = Date.now): () => void {
   let opened = false;
+  let lastRun = -Infinity;
   return () => {
     if (!opened) {
       opened = true;
       return;
     }
+    // 연결이 계속 끊겼다 붙는 경우(SseRegistry 오래된 연결 축출 등) 전체 재조회 폭주 방지 — 30초 안의 재연결은 건너뛴다.
+    const t = now();
+    if (t - lastRun < CATCHUP_MIN_INTERVAL_MS) return;
+    lastRun = t;
     reconnectCatchUp(qc);
   };
 }

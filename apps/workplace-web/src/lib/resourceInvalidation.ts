@@ -48,8 +48,9 @@ const RULES: Record<string, Rule> = {
 };
 
 export function invalidationTargets(p: ResourceChangedPayload): InvalidationTarget[] {
-  const rule = p && RULES[p.resource];
-  return rule ? rule(p) : [];
+  // RULES 는 plain object 라 'toString'/'constructor' 같은 상속 키가 함수로 풀린다 — 자기 키만 인정.
+  if (!p || !Object.hasOwn(RULES, p.resource)) return [];
+  return RULES[p.resource](p);
 }
 
 /**
@@ -61,17 +62,19 @@ export function isProtectedKey(key: QueryKey): boolean {
   if (a === 'mail-summary') return key.length > 1;
   if (a === 'messaging' && b === 'catchup') return true;
   if (a === 'home' && b === 'sessions') return true;
-  return a === 'drive-file-summary' || a === 'drive-thumbnail' || a === 'priority-items' || a === 'chat';
+  return a === 'drive-file-summary' || a === 'drive-thumbnail' || a === 'priority-items' || a === 'chat' || a === 'api-blob'; // api-blob: 이미지/첨부 blob 재다운로드 방지
 }
 
 /**
  * 짧은 간격의 연속 이벤트를 모아 한 번만 invalidate 하는 배처. MCP update_issue 처럼 한 번의 AI 작업이 여러 엔드포인트를 호출하면
  * 이벤트가 연달아 오는데, 건마다 invalidate 하면 같은 목록을 여러 번 재조회한다.
  */
-export function createInvalidationBatcher(qc: QueryClient, delayMs = 100) {
+export function createInvalidationBatcher(qc: QueryClient, delayMs = 100, maxWaitMs = 500) {
   const pending = new Map<string, InvalidationTarget>();
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let firstAt = 0; // 대기 중인 첫 이벤트 시각 — maxWait 기준
   const flush = () => {
+    if (timer) clearTimeout(timer);
     timer = null;
     const targets = [...pending.values()];
     pending.clear();
@@ -80,7 +83,12 @@ export function createInvalidationBatcher(qc: QueryClient, delayMs = 100) {
   return {
     enqueue(targets: InvalidationTarget[]) {
       for (const t of targets) pending.set(`${t.exact ? 'x' : 'p'}:${JSON.stringify(t.queryKey)}`, t);
-      if (!timer && pending.size > 0) timer = setTimeout(flush, delayMs);
+      if (pending.size === 0) return;
+      // 트레일링 디바운스 — 요청 지연으로 벌어진 연속 이벤트도 한 번에 모으되, 첫 이벤트 후 maxWaitMs 를 넘기지 않는다.
+      const now = Date.now();
+      if (!timer) firstAt = now;
+      else clearTimeout(timer);
+      timer = setTimeout(flush, Math.max(0, Math.min(delayMs, firstAt + maxWaitMs - now)));
     },
   };
 }

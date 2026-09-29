@@ -86,3 +86,22 @@ describe('createCatchUp', () => {
     expect(arg.refetchType).toBe('active');
   });
 });
+
+describe('createCatchUp 최소 간격', () => {
+  it('첫 open 생략 · 두 번째 실행 · 30초 내 세 번째 생략 · 30초 후 네 번째 실행', () => {
+    const qc = { invalidateQueries: vi.fn() } as unknown as QueryClient;
+    let t = 1_000_000;
+    const catchUp = createCatchUp(qc, () => t);
+    const calls = () => (qc.invalidateQueries as ReturnType<typeof vi.fn>).mock.calls.length;
+    catchUp(); // 첫 연결
+    expect(calls()).toBe(0);
+    catchUp(); // 재연결 → 실행
+    expect(calls()).toBe(1);
+    t += 29_999;
+    catchUp(); // 30초 내 → 생략
+    expect(calls()).toBe(1);
+    t += 1;
+    catchUp(); // 30초 경과 → 실행
+    expect(calls()).toBe(2);
+  });
+});

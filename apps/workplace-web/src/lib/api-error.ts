@@ -75,3 +75,12 @@ export async function handleApiErrorAsync(
   const message = await extractApiErrorAsync(error, fallback);
   toast.error(message);
 }
+
+/**
+ * 조회 에러가 HTTP 404(대상 삭제됨) 인지 판별한다.
+ * resource.changed(deleted) 로 열린 상세가 재조회에서 404 를 받아도 TanStack Query 는 마지막 성공 data 를
+ * 유지하므로, 화면이 error 를 먼저 보고 stale data 대신 not-found 상태를 그리는 데 쓴다.
+ */
+export function isNotFoundError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 404;
+}

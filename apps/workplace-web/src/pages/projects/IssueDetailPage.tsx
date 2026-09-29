@@ -37,6 +37,7 @@ import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle'
 import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { isNotFoundError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueChatButton } from './components/chat/IssueChatButton';
 import { IssueChatDrawer } from './components/chat/IssueChatDrawer';
@@ -266,7 +267,7 @@ export default function IssueDetailPage() {
   const navigate = useNavigate();
   // 개인 프로젝트 여부 판별 — 개인 프로젝트의 이슈는 풀페이지 대신 패널로 귀결시킨다.
   const project = useProject(key);
-  const { data, isLoading, refetch } = useIssue(key, issueNumber);
+  const { data, isLoading, error, refetch } = useIssue(key, issueNumber);
   const update = useUpdateIssue(key, issueNumber);
   // #611 제목·본문은 편집을 시작한 순간의 version 을 저장 기준으로 고정한다 — 편집하는 사이 코멘트 SSE·창 포커스 리페치로 캐시 version 이
   // 올라가도, 그 사이 다른 사람이 바꾼 내용을 모른 채 덮어쓰지 않고 409 로 알 수 있게.
@@ -322,6 +323,18 @@ export default function IssueDetailPage() {
   }
 
   if (isLoading) return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;
+  // 원격 삭제(resource.changed deleted) 후 재조회가 404 면 TanStack Query 가 마지막 data 를 남기므로,
+  // data 유무보다 먼저 404 를 확인해 stale 이슈(편집 컨트롤 포함) 대신 not-found 상태를 보여준다.
+  if (isNotFoundError(error))
+    return (
+      <ResourceErrorState
+        icon={FileQuestion}
+        title="이슈를 찾을 수 없습니다"
+        description="이슈가 삭제되었거나 접근 권한이 없습니다."
+        actionLabel="프로젝트로 돌아가기"
+        onAction={() => navigate(`/projects/${key}`)}
+      />
+    );
   if (!data) return (
     <div className="w-full p-6 text-center">
       <p className="text-sm text-destructive mb-2">태스크를 찾을 수 없습니다</p>

@@ -52,13 +52,14 @@ public class ResourceSseDispatcher {
     if (e.extraRecipients() != null) recipients.addAll(e.extraRecipients());
 
     Map<String, Object> p = new LinkedHashMap<>();
+    // attrs 를 먼저 깔고 고정 필드를 나중에 넣는다 — attrs 가 resource/op/... 예약 키를 덮어쓰지 못하게 한다.
+    if (e.attrs() != null) p.putAll(e.attrs());
     p.put("resource", e.resource());
     p.put("op", e.op());
     p.put("scopeType", e.scopeType());
     p.put("scopeId", e.scopeId());
     p.put("ids", e.ids() == null ? List.of() : e.ids());
     p.put("actorId", e.actorId());
-    if (e.attrs() != null) p.putAll(e.attrs());
     registry.fanOut((Collection<Long>) recipients, EVENT_NAME, p);
   }
 }

@@ -9,6 +9,7 @@ import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { useIssue, useUpdateIssue } from '@/hooks/queries/useIssue';
+import { isNotFoundError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 
 import { AssigneePickerPopover } from '../components/AssigneePickerPopover';
@@ -114,6 +115,9 @@ export function PersonalTaskDetail({
 }) {
   const q = useIssue(projectKey, number);
   const update = useUpdateIssue(projectKey, number);
+  // 원격 삭제 후 재조회 404 — stale q.data 가 남아도 필드/제목을 숨기고 not-found 만 보여준다.
+  const gone = isNotFoundError(q.error);
+  const data = gone ? undefined : q.data;
 
   return (
     // 스크롤 컨테이너 — 외부 wrapper가 h-full flex flex-col이므로 flex-1로 남은 높이 채움.
@@ -128,11 +132,11 @@ export function PersonalTaskDetail({
           data-testid="personal-task-panel-title"
         >
           {asModal && (
-            <DialogTitle className="sr-only">{q.data?.summary.title ?? '작업'}</DialogTitle>
+            <DialogTitle className="sr-only">{data?.summary.title ?? '작업'}</DialogTitle>
           )}
           <InlineEditableTitle
-            title={q.data?.summary.title ?? '작업'}
-            disabled={!q.data || update.isPending}
+            title={data?.summary.title ?? '작업'}
+            disabled={!data || update.isPending}
             onSave={(t) => update.mutate({ title: t })}
           />
         </div>
@@ -163,20 +167,20 @@ export function PersonalTaskDetail({
       )}
 
       {/* 필드 영역 — 필드 다이어트: 상태·우선순위·마감·담당자·라벨·메모·AI대화만 */}
-      {q.data && (
+      {data && (
         <div className="space-y-4 p-4">
           <Field label="상태">
             <IssueStatusSelect
-              value={q.data.summary.status}
+              value={data.summary.status}
               disabled={update.isPending}
               onChange={(v) => update.mutate({ status: v })}
-              blockedBy={q.data.summary.blockedBy}
+              blockedBy={data.summary.blockedBy}
               projectKey={projectKey}
             />
           </Field>
           <Field label="우선순위">
             <IssuePrioritySelect
-              value={q.data.summary.priority}
+              value={data.summary.priority}
               disabled={update.isPending}
               onChange={(v) => update.mutate({ priority: v })}
             />
@@ -184,7 +188,7 @@ export function PersonalTaskDetail({
           <Field label="마감">
             <input
               type="date"
-              value={q.data.summary.dueDate ?? ''}
+              value={data.summary.dueDate ?? ''}
               disabled={update.isPending}
               onChange={(e) =>
                 update.mutate(e.target.value ? { dueDate: e.target.value } : { clearDueDate: true })
@@ -196,24 +200,24 @@ export function PersonalTaskDetail({
             <AssigneePickerPopover
               projectKey={projectKey}
               issueNumber={number}
-              current={q.data.summary.assignees}
+              current={data.summary.assignees}
             />
           </Field>
           <Field label="라벨">
             <div className="flex flex-wrap items-center gap-1">
-              {q.data.summary.labels.map((l) => (
+              {data.summary.labels.map((l) => (
                 <LabelChip key={l.id} label={l} size="sm" />
               ))}
               <LabelPickerPopover
                 projectKey={projectKey}
                 issueNumber={number}
-                current={q.data.summary.labels}
+                current={data.summary.labels}
               />
             </div>
           </Field>
           <Field label="메모">
             <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-              {q.data.body || '본문 없음'}
+              {data.body || '본문 없음'}
             </p>
           </Field>
 

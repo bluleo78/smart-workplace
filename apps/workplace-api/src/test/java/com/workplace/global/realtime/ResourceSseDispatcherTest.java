@@ -89,4 +89,33 @@ class ResourceSseDispatcherTest {
     verify(registry)
         .fanOut(argThat((Collection<Long> c) -> c.isEmpty()), eq("resource.changed"), any());
   }
+
+  /** attrs 가 예약 키(op 등)를 담아도 고정 필드가 이겨야 한다. */
+  @Test
+  void attrsCannotOverwriteReservedPayloadKeys() {
+    dispatcher()
+        .onChanged(
+            new ResourceChangedEvent(
+                "issue",
+                "updated",
+                "PROJECT",
+                7L,
+                List.of(39L),
+                Map.of("op", "hacked", "resource", "evil", "projectKey", "EX"),
+                1L,
+                Set.of()));
+
+    verify(registry)
+        .fanOut(
+            any(),
+            eq("resource.changed"),
+            argThat(
+                (Object o) -> {
+                  @SuppressWarnings("unchecked")
+                  var p = (Map<String, Object>) o;
+                  return "updated".equals(p.get("op"))
+                      && "issue".equals(p.get("resource"))
+                      && "EX".equals(p.get("projectKey"));
+                }));
+  }
 }
