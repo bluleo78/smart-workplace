@@ -9,6 +9,9 @@ import { mockApi } from './api-mock'
 // - 실제 백엔드 없이 인증된 상태 / 관리자 권한 상태의 page 를 제공.
 // - 모든 시나리오에서 /api/v1/auth/refresh 도 미리 모킹 (StrictMode 마운트 시 호출).
 
+// 기본 /api/v1/events 스텁 응답을 '열린 스트림'으로 바꿔치기하라는 표식 헤더(아래 fetch 래퍼가 인식).
+const SSE_HOLD_HEADER = 'x-e2e-sse-hold'
+
 const MOCK_USER_ROLE: RoleResponse = {
   id: 2, name: 'USER', description: '일반 사용자', isSystem: true,
 }
@@ -126,10 +129,43 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
   // 통합 SSE 단일 스트림 (#506): /api/v1/events 가 chat·messaging·notify 모두 대체.
   // 미스텁 시 백엔드 프록시로 누수되며, 백엔드 부재 시 503 재연결이 페이지 네비게이션과 레이스를
   // 일으켜(page.goto ERR_ABORTED/frame detached) 상세→목록 이동 테스트가 타임아웃된다.
-  // 즉시 닫히는 빈 event-stream 으로 스텁한다.
+  // 기본 스텁은 '열린 채 유지되는' 스트림이어야 한다(WP-59): 유한 본문은 응답 직후 끝나 클라이언트가 ~1초 뒤
+  // 재연결하고, 재연결 catch-up(활성 쿼리 전체 재조회)이 스펙의 요청 카운트·시도 카운터·캐시를 흔든다.
+  // route.fulfill 은 스트리밍 본문을 지원하지 않으므로 마커 헤더만 붙여 응답하고, 아래 fetch 래퍼가
+  // 마커 응답을 '닫히지 않는 본문'으로 바꿔치기한다(onOpen 은 첫 연결 1회만 → catch-up 없음, isConnected=true 유지).
+  // 미완료 route 핸들러를 남기지 않으므로 teardown 이 멈추지 않는다. SSE 를 검증하는 스펙은 자체 route 를
+  // 나중에 등록(LIFO 우선)하며, 마커가 없으므로 기존처럼 동작한다.
   await page.route('**/api/v1/events', (route) =>
-    route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }),
+    route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      headers: { [SSE_HOLD_HEADER]: '1' },
+      body: '',
+    }),
   )
+  await page.addInitScript((holdHeader) => {
+    const origFetch = window.fetch.bind(window)
+    window.fetch = async (input, init) => {
+      const res = await origFetch(input, init)
+      if (res.headers.get(holdHeader) !== '1') return res
+      // 요청 signal abort(언마운트·재연결 정리) 시에만 본문을 에러로 끝내 reader.read() 루프를 풀어준다.
+      const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const abort = () => {
+            try {
+              controller.error(new DOMException('Aborted', 'AbortError'))
+            } catch {
+              // 이미 닫힌 스트림이면 무시
+            }
+          }
+          if (signal?.aborted) abort()
+          else signal?.addEventListener('abort', abort, { once: true })
+        },
+      })
+      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers })
+    }
+  }, SSE_HOLD_HEADER)
   // 인증 컨텍스트가 마운트 시점에 hasSession 플래그를 보고 refresh 를 시도하므로
   // 미리 스토리지에 플래그를 심는다.
   await page.addInitScript(() => window.localStorage.setItem('hasSession', '1'))

@@ -72,17 +72,8 @@ async function stubChannelDetailErrorThenOk(page: Page, channelId: number) {
       }),
   )
 
-  // SSE 스트림 — 빈 keepalive
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: ':\n\n',
-      }),
-  )
+  // SSE 는 auth.fixture 기본 스텁(열린 채 유지되는 스트림)을 쓴다 — 유한 스트림 재연결의 catch-up 이
+  // 채널 상세 시도 카운터를 소모해 오류 화면이 사라지는 것을 막는다(WP-59).
 }
 
 // 연락처 목록 — 500 에러 시 에러 메시지 + 재시도 버튼 표시, 버튼 클릭 시 재조회 성공.

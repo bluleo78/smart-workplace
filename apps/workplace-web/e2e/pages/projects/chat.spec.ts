@@ -2,6 +2,7 @@
 // page.route 로 7 endpoint 모킹. 5 케이스: happy path / mention typeahead / AGENT 시각 / 수정·삭제 / mark-read.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { mockGatedEvents } from '../../fixtures/gatedEvents';
 import {
   createChatMember,
   createChatMessage,
@@ -762,27 +763,21 @@ test.describe('이슈 chat panel', () => {
     const stubs = freshStubs();
     await setupChatStubs(page, stubs);
 
-    // SSE 스트림 모킹 — 매 연결마다 typing 이벤트(본인 + 다른 멤버)를 흘려보낸다.
-    // 컴포넌트 구독 시점과의 경합을 피하려 재연결마다 재방출(스트림은 finite → 재연결됨).
+    // SSE 게이트 모킹(WP-59) — 패널이 마운트돼 typing 버스를 구독한 뒤 typing 이벤트(본인 + 다른 멤버)를 1회 흘린다.
+    // 예전엔 유한 스트림 재연결마다 재방출했는데, 재연결 catch-up(활성 쿼리 전체 재조회)이 함께 돌아 스텁을 흔들었다.
     // 본인(ME_ID) 이벤트는 self-filter 로 무시되고, 다른 멤버만 인디케이터에 보여야 한다.
-    await page.route(
-      (url) => url.pathname === '/api/v1/events',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          headers: { 'cache-control': 'no-cache' },
-          body:
-            `event: chat.thread.typing\n` +
-            `data: ${JSON.stringify({ threadId: THREAD_ID, userId: ME_ID, name: '테스트 사용자' })}\n\n` +
-            `event: chat.thread.typing\n` +
-            `data: ${JSON.stringify({ threadId: THREAD_ID, userId: 99, name: 'AI Agent' })}\n\n`,
-        }),
-    );
+    const events = await mockGatedEvents(page);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
     await page.getByTestId('issue-chat-open').click();
+    await expect(page.getByTestId('chat-composer-input')).toBeVisible();
+    events.deliver(
+      `event: chat.thread.typing\n` +
+        `data: ${JSON.stringify({ threadId: THREAD_ID, userId: ME_ID, name: '테스트 사용자' })}\n\n` +
+        `event: chat.thread.typing\n` +
+        `data: ${JSON.stringify({ threadId: THREAD_ID, userId: 99, name: 'AI Agent' })}\n\n`,
+    );
 
     // 다른 멤버 typing → 인디케이터 노출. 본인 이벤트는 self-filter 로 표시되지 않는다.
     // (TTL 소멸은 재방출 모킹과 경합해 안정적으로 검증하기 어려워 생략 — TTL 로직은 단위 미검증.)

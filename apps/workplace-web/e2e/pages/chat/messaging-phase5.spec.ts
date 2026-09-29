@@ -9,6 +9,7 @@ import {
   createReaction,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { mockGatedEvents } from '../../fixtures/gatedEvents'
 
 // auth.fixture 의 createUser() 기본 id = 1 → "본인" 메시지 판정 기준.
 const ME_ID = 1
@@ -449,31 +450,10 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
 
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    // React StrictMode 가 첫 SSE 연결을 abort 하므로 gate 패턴은 동작하지 않는다.
-    // 대신: 초기 연결은 모두 즉시 heartbeat 반환 → 재연결이 ~1s 주기로 계속 시도.
-    // 답글 제출 후 deliverEvent=true 를 세우면 다음 재연결에서 self-echo 이벤트를
-    // 정확히 1회 발화한다. 이 시점에 messages 캐시가 이미 채워져 bumpReplyCount 가 동작.
-    let deliverEvent = false
-    await page.route(
-      (url) => url.pathname === '/api/v1/events',
-      (route) => {
-        if (deliverEvent) {
-          deliverEvent = false
-          return route.fulfill({
-            status: 200,
-            contentType: 'text/event-stream',
-            headers: { 'cache-control': 'no-cache' },
-            body: sse,
-          })
-        }
-        return route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          headers: { 'cache-control': 'no-cache' },
-          body: `:\n\n`,
-        })
-      },
-    )
+    // 게이트 SSE(WP-59): deliver() 전 도착한 연결(StrictMode 로 취소되는 것 포함)은 보류했다가 답글 제출 후 self-echo 를
+    // 1회 흘린다. 이 연결이 '첫 연결'이 되므로 재연결 catch-up 이 돌지 않는다 — 예전처럼 재연결마다 heartbeat 를 주고
+    // 재연결 시 이벤트를 싣던 방식은 catch-up 이 정적 스텁(replyCount 0)으로 messages 를 재조회해 bump 를 덮어썼다.
+    const events = await mockGatedEvents(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
     await stubMessages(page, CHANNEL_ID, [parent])
@@ -517,8 +497,8 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     await composer.fill('내 답글')
     await page.getByTestId('thread-panel').getByTestId('message-composer-submit').click()
 
-    // 답글 제출 후 플래그 활성화 → 다음 SSE 재연결에서 self-echo 이벤트를 정확히 1회 발화.
-    deliverEvent = true
+    // 답글 제출 후 self-echo 이벤트를 정확히 1회 발화(이때 messages 캐시가 채워져 있어 bumpReplyCount 가 동작).
+    events.deliver(sse)
 
     // SSE self-echo 적용 후 "답글 1개" (2개 아님 — 이중 카운트 없음).
     await expect(page.getByTestId(`message-thread-link-${PARENT_ID}`)).toHaveText('답글 1개')

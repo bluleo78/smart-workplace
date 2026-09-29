@@ -1,6 +1,6 @@
 // 메일 작성·발송·답장·보낸편지함 E2E — 백엔드 없이 page.route 모킹.
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
-import { mockApi } from '../../fixtures/api-mock'
+import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 
 test.describe('메일 작성·발송', () => {
@@ -167,8 +167,9 @@ test.describe('메일 작성·발송', () => {
   })
 
   test('메일 모듈 이탈 후 복귀 시 작성 도크 draft 유지 (#183)', async ({ authenticatedPage: page }) => {
-    // /projects 이동을 위해 프로젝트 목록 API 모킹.
-    await mockApi(page, 'GET', '/api/v1/projects', [])
+    // /projects 이동을 위해 프로젝트 목록 API 모킹. 실제 응답 형태(페이지 응답)여야 한다 — 배열 [] 을 주면
+    // ProjectListPage 가 content.length 에서 크래시해 최상위 에러 바운더리가 앱 레일까지 갈아엎는다(부하 시 복귀 클릭 실패).
+    await mockApi(page, 'GET', '/api/v1/projects', createPageResponse([]))
 
     await page.goto('/mail/1')
     await page.getByTestId('mail-compose-new').click()
