@@ -100,6 +100,33 @@ test('비-홈(이슈) 페이지에서 챗 제출 시 제자리에서 어시스�
   await expect(page.getByTestId('home-widget')).toHaveCount(0)
 })
 
+test('AI 채팅 입력 — Shift+Enter 는 줄바꿈, Enter 는 전송(query 에 \\n 보존)', async ({
+  authenticatedPage: page,
+}) => {
+  // 과거 버그: 단일행 <input> 이라 줄바꿈 자체가 불가능했다 → textarea + Enter/Shift+Enter 규칙.
+  let composePayload: { query?: string } | null = null;
+  await mockHomeChatGeneration(page, {
+    onStart: (body) => {
+      composePayload = body as { query?: string };
+    },
+    frames: [{ event: 'done', data: { sessionId: 's-multiline' } }],
+  });
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  const input = page.getByTestId('chat-input')
+  await input.click()
+  await page.keyboard.type('첫 줄')
+  await page.keyboard.press('Shift+Enter')
+  await page.keyboard.type('둘째 줄')
+  // Shift+Enter 로는 전송되지 않고(전송됐다면 입력창이 비워짐) 입력창에 줄바꿈이 남는다.
+  await expect(input).toHaveValue('첫 줄\n둘째 줄')
+
+  await page.keyboard.press('Enter')
+  await expect.poll(() => composePayload?.query).toBe('첫 줄\n둘째 줄')
+  await expect(input).toHaveValue('')
+})
+
 // 세션 삭제 확인 다이얼로그 (#193)
 // 휴지통 클릭 시 AlertDialog 로 확인 후 삭제 — 즉시 삭제 금지.
 

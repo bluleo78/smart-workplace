@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
 import { Button } from '@/components/ui/button';
+import { isSubmitEnter } from '@/lib/submitEnter';
 
 import { MentionList, type MentionListHandle } from './MentionList';
 import { bodyToDoc, serializeToBody } from './mentionSerialize';
@@ -229,7 +230,7 @@ export function RichInput({
       },
       handleKeyDown: (_view, event) => {
         // suggestion 팝업이 열려있으면 Enter 는 mention 플러그인이 먼저 처리(키 위임)하므로 여기선 무시.
-        if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+        if (isSubmitEnter(event)) {
           // 이 인스턴스의 팝업이 열려있으면 mention 처리에 양보 (인스턴스-로컬 플래그).
           if (popupOpenRef.current) return false;
           event.preventDefault();

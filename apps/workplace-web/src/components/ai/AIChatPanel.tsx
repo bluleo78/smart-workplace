@@ -17,11 +17,12 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { visibleSteps } from '@/lib/aiToolLabels';
+import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
 
 interface Props extends AssistantChat {
@@ -57,7 +58,7 @@ export function AIChatPanel({
   // 세션 스위처 드롭다운 open 상태(#451) — 세션 항목이 DropdownMenuItem 이 아닌 일반 button 이라
   // Radix 자동 닫힘이 동작하지 않으므로, controlled 로 두고 선택 직후 명시적으로 닫는다.
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // 자동 하단 스크롤(#452) — 전송/스트리밍 델타/도구 단계/확인 카드 변화를 depKey 로 묶어,
   // 사용자가 하단 근처를 보고 있을 때만 새 내용으로 따라 내려간다(useStickToBottom 정책).
@@ -368,12 +369,21 @@ export function AIChatPanel({
         }}
         className="border-t p-2"
       >
-        <div className="flex gap-2">
-          <Input
+        <div className="flex items-end gap-2">
+          {/* 여러 줄 입력 — Enter 전송, Shift+Enter 줄바꿈(isSubmitEnter, RichInput 과 공용 규칙). */}
+          <Textarea
             ref={inputRef}
+            rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (isSubmitEnter(e.nativeEvent)) {
+                e.preventDefault();
+                submit();
+              }
+            }}
             placeholder="AI 에게 요청…  (⌘K)"
+            className="field-sizing-content max-h-40 min-h-9 resize-none py-1.5"
             data-testid="chat-input"
           />
           {/* #335: 스트리밍 중에는 '보내기'를 '중단' 버튼으로 전환 — 클릭 시 진행 중 응답을 멈춘다. */}
