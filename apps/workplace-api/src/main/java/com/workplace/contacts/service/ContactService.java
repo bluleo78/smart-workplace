@@ -11,9 +11,11 @@ import com.workplace.contacts.dto.UpdateExternalContactRequest;
 import com.workplace.contacts.exception.ContactDuplicateWarningException;
 import com.workplace.contacts.exception.ContactForbiddenException;
 import com.workplace.contacts.exception.ContactNotFoundException;
+import com.workplace.contacts.outbound.ContactChangeNotifier;
 import com.workplace.contacts.repository.ContactCursorCodec;
 import com.workplace.contacts.repository.ContactRepository;
 import com.workplace.contacts.repository.FavoriteRepository;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.TenantContext;
 import java.util.List;
@@ -31,6 +33,7 @@ public class ContactService {
   private final ContactRepository repo;
   private final PermissionChecker permissionChecker;
   private final FavoriteRepository favoriteRepo;
+  private final ContactChangeNotifier notifier;
 
   /** 통합 목록/검색. favorite=true 면 즐겨찾기 항목만. type 기본 ALL. */
   @Transactional(readOnly = true)
@@ -108,6 +111,8 @@ public class ContactService {
       throw new ContactDuplicateWarningException(req.name());
     }
     long id = repo.insert(callerId, req);
+    notifier.contactChanged(
+        ResourceChangedEvent.OP_CREATED, id, callerId, isShared(req.visibility()), callerId);
     return getExternal(callerId, id);
   }
 
@@ -124,7 +129,7 @@ public class ContactService {
       long callerId, long id, UpdateExternalContactRequest req, boolean force) {
     // ADMIN 여부는 권한 판정과 현재 행 조회에 모두 쓰이므로 한 번만 계산한다.
     boolean admin = permissionChecker.userHasRole(callerId, "ADMIN");
-    requireWritable(callerId, id, admin);
+    var before = requireWritable(callerId, id, admin);
     // requireWritable 통과 = owner 또는 ADMIN 이므로 현재 행은 반드시 보인다.
     ExternalContactDetail cur =
         repo.findExternal(callerId, admin, id)
@@ -142,6 +147,13 @@ public class ContactService {
       throw new ContactDuplicateWarningException(merged.name());
     }
     repo.update(id, merged);
+    // 공유→개인 전환도 다른 구성원 목록에서 사라져야 하므로 변경 전·후 중 하나라도 SHARED 면 테넌트 전체에 알린다.
+    notifier.contactChanged(
+        ResourceChangedEvent.OP_UPDATED,
+        id,
+        before.ownerId(),
+        isShared(before.visibility()) || isShared(merged.visibility()),
+        callerId);
     return getExternal(callerId, id);
   }
 
@@ -153,8 +165,10 @@ public class ContactService {
   /** 외부 연락처 삭제. update 와 동일한 권한 규칙. */
   @Transactional
   public void delete(long callerId, long id) {
-    validateDeletable(callerId, id);
+    var ov = requireWritable(callerId, id);
     repo.delete(id);
+    notifier.contactChanged(
+        ResourceChangedEvent.OP_DELETED, id, ov.ownerId(), isShared(ov.visibility()), callerId);
   }
 
   /**
@@ -173,12 +187,14 @@ public class ContactService {
   public void addFavorite(long callerId, FavoriteRequest req) {
     requireVisibleTarget(callerId, req.targetType(), req.targetId());
     favoriteRepo.add(callerId, req.targetType(), req.targetId());
+    notifier.favoriteChanged(ResourceChangedEvent.OP_UPDATED, callerId);
   }
 
   /** 즐겨찾기 해제 — 멱등(부재여도 정상). */
   @Transactional
   public void removeFavorite(long callerId, FavoriteRequest req) {
     favoriteRepo.remove(callerId, req.targetType(), req.targetId());
+    notifier.favoriteChanged(ResourceChangedEvent.OP_UPDATED, callerId);
   }
 
   /** 즐겨찾기 타깃이 호출자에게 보이는지 검증. MEMBER=현재 테넌트 활성 멤버, EXTERNAL=가시(SHARED|owner|ADMIN). 아니면 404. */
@@ -199,20 +215,23 @@ public class ContactService {
    * 쓰기 권한 판정 — 읽기 격리와 일치: 미존재→404, PERSONAL & 비-owner & 비-admin→404(존재 은닉), SHARED & 비-owner &
    * 비-admin→403.
    */
-  private void requireWritable(long callerId, long id) {
-    requireWritable(callerId, id, permissionChecker.userHasRole(callerId, "ADMIN"));
+  private ContactRepository.OwnerVisibility requireWritable(long callerId, long id) {
+    return requireWritable(callerId, id, permissionChecker.userHasRole(callerId, "ADMIN"));
   }
 
   /** ADMIN 여부를 이미 계산한 호출부(update)용 — 역할 조회를 중복하지 않는다. */
-  private void requireWritable(long callerId, long id, boolean admin) {
+  private ContactRepository.OwnerVisibility requireWritable(long callerId, long id, boolean admin) {
     var ov =
         repo.findOwnerVisibility(id)
             .orElseThrow(() -> new ContactNotFoundException("EXTERNAL", id));
-    if (ov.ownerId() == callerId) return;
-    if (admin) return;
+    if (ov.ownerId() == callerId || admin) return ov;
     if ("PERSONAL".equals(ov.visibility())) {
       throw new ContactNotFoundException("EXTERNAL", id); // 존재 은닉
     }
     throw new ContactForbiddenException(id, callerId);
+  }
+
+  private static boolean isShared(String visibility) {
+    return "SHARED".equals(visibility);
   }
 }

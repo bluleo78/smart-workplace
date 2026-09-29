@@ -6,6 +6,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.push.InboxPushRequestedEvent;
+import com.workplace.notify.outbound.NotificationChangeNotifier;
 import com.workplace.notify.repository.NotificationRepository;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.util.ArrayList;
@@ -30,6 +31,7 @@ public class NotificationService {
   private final SseRegistry registry;
   private final IssueWatcherRepository watcherRepo;
   private final ApplicationEventPublisher publisher;
+  private final NotificationChangeNotifier changeNotifier;
 
   /** 수신자 확정(actor 제외·중복 제거) → batch insert → SSE fan-out. 빈 수신자면 no-op. */
   @Transactional
@@ -117,13 +119,19 @@ public class NotificationService {
     return repo.countUnread(recipientId);
   }
 
+  /** 단건 읽음. 실제로 바뀐 경우(>0)에만 다른 탭·기기에 resource.changed 를 발행한다. */
   @Transactional
   public int markRead(long recipientId, long id) {
-    return repo.markRead(recipientId, id);
+    int n = repo.markRead(recipientId, id);
+    if (n > 0) changeNotifier.read(recipientId, List.of(id));
+    return n;
   }
 
+  /** 전체 읽음. 읽을 것이 있었을 때(>0)만 발행하며, 대상 id 는 알 수 없어 빈 목록으로 보낸다. */
   @Transactional
   public int markAllRead(long recipientId) {
-    return repo.markAllRead(recipientId);
+    int n = repo.markAllRead(recipientId);
+    if (n > 0) changeNotifier.read(recipientId, List.of());
+    return n;
   }
 }
