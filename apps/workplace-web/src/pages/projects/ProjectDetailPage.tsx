@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 
 import { useProject } from '../../hooks/queries/useProjects';
 import { useEpicPanelOpen } from '../../hooks/useEpicPanelOpen';
-import { parseFilters, parseGroupBy, parseView } from '../../lib/issueFilters';
+import { parseFilters, parseGroupBy, parseView, withDefaultIssueScope } from '../../lib/issueFilters';
 import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCreateDialog } from './components/IssueCreateDialog';
@@ -119,7 +119,8 @@ function IssueArea({
         {view === 'board' ? (
           <IssueBoardView
             projectKey={projectKey}
-            filters={filters}
+            // 팀 보드 기본 범위 — 에픽 카드 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(목록과 동일 규칙).
+            filters={withDefaultIssueScope(filters)}
             groupBy={groupBy}
             onOpenCreate={onOpenCreate}
             canDragStatus={canDragStatus}

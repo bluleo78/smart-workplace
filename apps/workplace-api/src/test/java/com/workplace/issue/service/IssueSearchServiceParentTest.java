@@ -201,4 +201,97 @@ class IssueSearchServiceParentTest extends IntegrationTestBase {
     assertThat(titles).contains("root", "epic", "epicChild"); // 비SUBTASK 는 유지
     assertThat(titles).doesNotContain("sub", "orphan"); // SUBTASK 는 고아 포함 전부 제외
   }
+
+  /**
+   * 보드·목록 기본 뷰(excludeSubtasks + excludeEpics): EPIC 행은 숨기고 에픽 하위 이슈·루트 이슈는 남긴다. SUBTASK 는 기존대로 제외.
+   * 프로젝트 단위로 조회하므로 신규 프로젝트 시드만 대상이다(공유 test DB 데이터 무관).
+   */
+  @Test
+  void exclude_epics_hides_epic_rows_but_keeps_epic_children() {
+    Long owner = createUser("e");
+    var p = newProject(owner, "PS5");
+    Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
+    Long epicId = typeRepository.findByProjectAndName(p.id(), "EPIC").orElseThrow().id();
+
+    var root =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("root", null, null, null, null, null, null, null));
+    var epic =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("epic", null, null, null, null, epicId, null, null));
+    issueService.create(
+        owner,
+        p.key(),
+        new CreateIssueRequest("epicChild", null, null, null, null, null, epic.number(), null));
+    issueService.create(
+        owner,
+        p.key(),
+        new CreateIssueRequest("sub", null, null, null, null, subId, root.number(), null));
+
+    var params = new HashMap<String, String>();
+    params.put("excludeSubtasks", "true");
+    params.put("excludeEpics", "true");
+    var titles =
+        searchService.search(owner, p.key(), params).items().stream().map(i -> i.title()).toList();
+
+    assertThat(titles).containsExactlyInAnyOrder("root", "epicChild");
+  }
+
+  /** 「에픽 미할당」 = topLevel + excludeEpics: 부모 없는 비EPIC 이슈만. 에픽 자신과 에픽 하위 이슈는 제외된다. */
+  @Test
+  void top_level_with_exclude_epics_returns_unassigned_issues_only() {
+    Long owner = createUser("f");
+    var p = newProject(owner, "PS6");
+    Long epicId = typeRepository.findByProjectAndName(p.id(), "EPIC").orElseThrow().id();
+
+    issueService.create(
+        owner, p.key(), new CreateIssueRequest("root", null, null, null, null, null, null, null));
+    var epic =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("epic", null, null, null, null, epicId, null, null));
+    issueService.create(
+        owner,
+        p.key(),
+        new CreateIssueRequest("epicChild", null, null, null, null, null, epic.number(), null));
+
+    var params = new HashMap<String, String>();
+    params.put("topLevel", "true");
+    params.put("excludeEpics", "true");
+    var titles =
+        searchService.search(owner, p.key(), params).items().stream().map(i -> i.title()).toList();
+
+    assertThat(titles).containsExactly("root");
+  }
+
+  /** parent 지정(에픽 선택) 시 excludeEpics 는 무시되어 해당 에픽의 하위 이슈가 그대로 나온다. */
+  @Test
+  void exclude_epics_is_ignored_when_parent_is_given() {
+    Long owner = createUser("g");
+    var p = newProject(owner, "PS7");
+    Long epicId = typeRepository.findByProjectAndName(p.id(), "EPIC").orElseThrow().id();
+
+    var epic =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("epic", null, null, null, null, epicId, null, null));
+    issueService.create(
+        owner,
+        p.key(),
+        new CreateIssueRequest("epicChild", null, null, null, null, null, epic.number(), null));
+
+    var params = new HashMap<String, String>();
+    params.put("parent", String.valueOf(epic.number()));
+    params.put("excludeEpics", "true");
+    var titles =
+        searchService.search(owner, p.key(), params).items().stream().map(i -> i.title()).toList();
+
+    assertThat(titles).containsExactly("epicChild");
+  }
 }

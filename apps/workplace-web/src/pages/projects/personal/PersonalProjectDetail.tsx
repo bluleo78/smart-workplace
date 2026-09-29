@@ -42,7 +42,9 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
   const key = project.key;
   const [params] = useSearchParams();
   const view = parseView(params);
-  const filters = parseFilters(params);
+  // 개인 뷰는 기존대로 최상위 이슈만 — topLevel 기본값이 팀 보드·목록 기본 범위(에픽 제외·하위 노출)로 바뀌어도
+  // 개인 보드/체크리스트의 노출 범위는 유지한다.
+  const filters = { ...parseFilters(params), topLevel: true };
   const groupBy = parseGroupBy(params);
   const [createOpen, setCreateOpen] = useState(false);
 

@@ -208,12 +208,14 @@ export interface IssueFilters {
   typeIds: number[];
   // 특정 부모(번호) 의 자식만 보기 (Phase 4a) — UI 노출은 deferred, URL 직렬화만.
   parentNumber: number | null;
-  // 최상위(부모 없는) 이슈만 보기 (Phase 4a) — UI 노출 deferred.
+  // 최상위(부모 없는) 이슈만 보기 (Phase 4a) — URL 에 topLevel=true 로 명시될 때만 켜진다(에픽 패널 「에픽 미할당」).
   topLevel: boolean;
   // 차단된(blocked) 이슈만 보기 (Phase 4b) — UI 노출 deferred, URL 직렬화만.
   blocked: boolean;
   // SUBTASK 유형 이슈를 목록에서 제외 — 목록 뷰 기본값(에픽 자식 등 비SUBTASK 는 유지).
   excludeSubtasks: boolean;
+  // EPIC 유형 이슈 제외 — URL 로 직렬화하지 않는 파생 필드. 보드·목록 기본 범위(withDefaultIssueScope)만 주입한다.
+  excludeEpics?: boolean;
 }
 
 // 프로젝트 상세에서 이슈 목록을 표시하는 두 가지 뷰.

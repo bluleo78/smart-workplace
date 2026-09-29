@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -357,8 +358,8 @@ public class IssueRepository {
       where = where.and(ISSUE.TYPE_ID.in(query.typeIds()));
     }
     // Phase 4a — parentNumber 가 지정되면 해당 부모의 자식만. 아니면 topLevel(루트만) /
-    // excludeSubtasks(SUBTASK 유형 제외) 를 적용한다. 둘은 직교하며 AND 결합 가능하지만,
-    // parentNumber 로 특정 부모의 자식을 볼 때는 둘 다 무시한다(자식을 숨기면 결과가 비므로).
+    // excludeSubtasks(SUBTASK 유형 제외) / excludeEpics(EPIC 유형 제외) 를 적용한다. 셋은 직교하며 AND 결합되지만,
+    // parentNumber 로 특정 부모의 자식을 볼 때는 모두 무시한다(자식을 숨기면 결과가 비므로).
     if (query.parentNumber() != null) {
       Long parentId =
           dsl.select(ISSUE.ID)
@@ -376,10 +377,13 @@ public class IssueRepository {
       if (Boolean.TRUE.equals(query.topLevel())) {
         where = where.and(ISSUE.PARENT_ISSUE_ID.isNull());
       }
-      if (Boolean.TRUE.equals(query.excludeSubtasks())) {
-        // SUBTASK 유형 이슈만 제외 — 에픽 직속 자식 등 비SUBTASK 는 목록에 남긴다. 부모 해제된
-        // 고아 SUBTASK(parent_issue_id IS NULL) 도 유형 기준이므로 함께 차단된다. 프로젝트에
-        // SUBTASK 유형이 없으면(PERSONAL) 서브쿼리가 비어 NOT IN 이 전체 참 → 아무것도 제외 안 함.
+      // 유형 이름 기준 제외 — SUBTASK 는 부모 해제된 고아(parent_issue_id IS NULL)까지 함께 차단되고(에픽 직속
+      // 자식 등 비SUBTASK 는 유지), EPIC 은 보드·목록 기본 뷰에서 숨긴다(에픽 패널·타임라인이 담당).
+      // 프로젝트에 해당 유형이 없으면(PERSONAL) 서브쿼리가 비어 NOT IN 이 전체 참 → 아무것도 제외 안 함.
+      List<String> excludedTypeNames = new ArrayList<>(2);
+      if (Boolean.TRUE.equals(query.excludeSubtasks())) excludedTypeNames.add("SUBTASK");
+      if (Boolean.TRUE.equals(query.excludeEpics())) excludedTypeNames.add("EPIC");
+      if (!excludedTypeNames.isEmpty()) {
         where =
             where.and(
                 ISSUE.TYPE_ID.notIn(
@@ -389,7 +393,7 @@ public class IssueRepository {
                             ISSUE_TYPE_DEF
                                 .PROJECT_ID
                                 .eq(projectId)
-                                .and(ISSUE_TYPE_DEF.NAME.eq("SUBTASK")))));
+                                .and(ISSUE_TYPE_DEF.NAME.in(excludedTypeNames)))));
       }
     }
     // Phase 4b — blocked=true: 활성 차단자(미완료, 미삭제)가 존재하는 이슈만. 자기참조 회피를 위해 blocker self-alias 사용.

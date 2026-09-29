@@ -71,34 +71,27 @@ export function EpicSidePanel({
     queryClient.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
   }
 
-  function selectEpic(epicNumber: number) {
-    const next = filters.parentNumber === epicNumber ? null : epicNumber;
-    setParams(filtersToParams({ ...filters, parentNumber: next }, view, groupBy), { replace: true });
-    // 새 에픽 선택(next != null)은 필터/queryKey 자체가 새로 생겨 캐시가 stale-block 하지 않으므로
-    // 무효화 불필요 — 선택 해제(재클릭으로 null 복귀)일 때만 무효화해 불필요한 패널 자체 재조회를 막는다.
-    if (next === null) invalidateBodyIssueSearch();
+  // 패널의 세 선택지(전체·미할당·특정 에픽)는 parent/topLevel 두 값의 조합이다 — 한 곳에서만 URL 에 반영해
+  // 서로 배타가 깨지지 않게 한다. 사용자가 건 유형 등 다른 필터는 보존.
+  // invalidate: 캐시된 동일 queryKey 로 되돌아가는 전환(해제)일 때만 true — 새 필터는 queryKey 가 새로 생겨 불필요.
+  function applyEpicScope(parentNumber: number | null, topLevel: boolean, invalidate: boolean) {
+    setParams(filtersToParams({ ...filters, parentNumber, topLevel }, view, groupBy), { replace: true });
+    if (invalidate) invalidateBodyIssueSearch();
   }
 
-  // 「에픽 미할당」 = 기본 목록(topLevel) 중 유형이 EPIC 이 아닌 이슈.
-  // 백엔드에 "부모 없음" 전용 파라미터가 없어 typeIds(전체 유형 − EPIC) 로 표현한다.
-  const nonEpicTypeIds = (types.data ?? []).filter((t) => t.name !== 'EPIC').map((t) => t.id);
-  // 활성 판정: parent 필터 없음 + typeIds 집합이 정확히 (전체 유형 − EPIC).
-  // (FacetFilter 로 동일 집합을 직접 만든 경우도 활성으로 취급 — 의미상 동일 필터.)
-  const sortedKey = (ids: number[]) => [...ids].sort((a, b) => a - b).join(',');
-  const unassignedActive =
-    filters.parentNumber == null &&
-    nonEpicTypeIds.length > 0 &&
-    filters.typeIds.length > 0 &&
-    sortedKey(filters.typeIds) === sortedKey(nonEpicTypeIds);
+  function selectEpic(epicNumber: number) {
+    const next = filters.parentNumber === epicNumber ? null : epicNumber;
+    // 「에픽 미할당」(topLevel)과 상호 배타 — 에픽을 고르면 미할당은 해제된다. 재클릭(null 복귀)만 무효화.
+    applyEpicScope(next, false, next === null);
+  }
 
-  // 미할당 토글 — 활성 상태에서 재클릭하면 유형 필터를 비워 「전체 이슈」 상태로 복귀.
+  // 「에픽 미할당」 = 부모 없는(topLevel) 비EPIC 이슈. 보드·목록 기본 범위가 EPIC 을 이미 제외하므로
+  // topLevel=true 하나로 표현된다(유형 필터는 건드리지 않음 — 사용자가 건 유형 필터와 독립).
+  const unassignedActive = filters.parentNumber == null && filters.topLevel;
+
+  // 미할당 토글 — 활성 상태에서 재클릭하면 「전체 이슈」 상태로 복귀.
   function selectUnassigned() {
-    const next = unassignedActive ? [] : nonEpicTypeIds;
-    setParams(filtersToParams({ ...filters, parentNumber: null, typeIds: next }, view, groupBy), {
-      replace: true,
-    });
-    // 해제(빈 필터 복귀)는 캐시된 동일 queryKey 로 돌아가므로 무효화 필요(선택 해제와 동일 근거).
-    if (unassignedActive) invalidateBodyIssueSearch();
+    applyEpicScope(null, !unassignedActive, unassignedActive);
   }
 
   return (
@@ -117,26 +110,8 @@ export function EpicSidePanel({
 
       <button
         type="button"
-        onClick={() => {
-          // 미할당 유래 유형 필터(현재 typeIds === 전체 유형 − EPIC)만 함께 해제한다.
-          // unassignedActive 플래그로 판정하면 안 된다 — 중간에 특정 에픽을 선택(selectEpic)해
-          // parentNumber 만 바뀌고 typeIds 는 그대로 남는 경우, 클릭 시점의 unassignedActive 는
-          // (parentNumber != null 이라) 이미 false 로 계산돼 있어 stale 한 typeIds 를 그대로
-          // 들고 가버린다. 대신 현재 typeIds 집합 자체를 nonEpicTypeIds 와 직접 비교해 판정하면
-          // parentNumber 값과 무관하게 항상 올바르게 해제된다. 사용자가 FacetFilter 로 건
-          // 무관한 유형 필터는 이 집합과 다르므로 보존된다.
-          const isUnassignedTypeIds =
-            nonEpicTypeIds.length > 0 && sortedKey(filters.typeIds) === sortedKey(nonEpicTypeIds);
-          setParams(
-            filtersToParams(
-              { ...filters, parentNumber: null, typeIds: isUnassignedTypeIds ? [] : filters.typeIds },
-              view,
-              groupBy,
-            ),
-            { replace: true },
-          );
-          invalidateBodyIssueSearch();
-        }}
+        // 에픽 선택·미할당을 모두 해제한다.
+        onClick={() => applyEpicScope(null, false, true)}
         aria-pressed={filters.parentNumber == null && !unassignedActive}
         data-testid="epic-filter-all"
         className={cn(

@@ -81,6 +81,7 @@ export function IssueBoardView({
   canDragStatus?: boolean;
 }) {
   // 보드는 한 화면에 많은 카드를 보여줘야 하므로 페이지 크기를 100 으로 키운다.
+  // 노출 범위(에픽 제외 등)는 호출처가 정한다 — 팀 보드는 withDefaultIssueScope, 개인 보드는 최상위만.
   const { data, fetchNextPage, hasNextPage, isFetching } = useIssueSearch(
     projectKey,
     filters,

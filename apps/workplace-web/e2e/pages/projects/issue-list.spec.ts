@@ -6,6 +6,27 @@ import { createMember, createProject } from '../../factories/project.factory';
 
 const KEY = 'WP';
 
+// 이슈 검색 요청 캡처 — 프로젝트 메타 스텁 + 검색 GET 의 마지막 요청 URL 을 돌려주는 getter 반환(행 1개 응답).
+async function captureSearch(page: import('@playwright/test').Page) {
+  await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+  );
+  let searchUrl: URL | null = null;
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      searchUrl = new URL(route.request().url());
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse([createIssue({ number: 7 })], null)),
+      });
+    },
+  );
+  return () => searchUrl;
+}
+
 async function mock(page: import('@playwright/test').Page, issues: ReturnType<typeof createIssue>[]) {
   await page.route(`**/api/v1/projects/${KEY}`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
@@ -47,32 +68,27 @@ test.describe('팀 리스트 뷰', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/7$`));
   });
 
-  test('필터 없이 진입하면 검색 요청에 topLevel 없이 excludeSubtasks=true 가 실린다 (에픽 자식 유지·SUBTASK 숨김)', async ({ authenticatedPage: page }) => {
-    // 목록 기본(Jira 관례): 루트 + 에픽 직속 자식은 노출하되 SUBTASK 는 숨긴다.
-    // → topLevel(루트만) 은 끄고(미송신), excludeSubtasks(SUBTASK 제외) 는 켜서 요청한다.
+  test('필터 없이 진입하면 검색 요청에 topLevel 없이 excludeSubtasks·excludeEpics=true 가 실린다 (에픽 행 숨김·에픽 자식 유지·SUBTASK 숨김)', async ({ authenticatedPage: page }) => {
+    // 목록 기본(Jira 관례, #874): 에픽 행은 숨기고, 루트 + 에픽 직속 자식은 노출하되 SUBTASK 는 숨긴다.
+    // → topLevel(루트만) 은 끄고(미송신), excludeSubtasks·excludeEpics 는 켜서 요청한다.
     // 백엔드 필터링 대신 요청 쿼리 파라미터를 직접 검증(견고).
-    await page.route(`**/api/v1/projects/${KEY}`, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
-    );
-    let searchUrl: URL | null = null;
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
-      (route) => {
-        if (route.request().method() !== 'GET') return route.fallback();
-        searchUrl = new URL(route.request().url());
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(createIssueSearchResponse([createIssue({ number: 7 })], null)),
-        });
-      },
-    );
+    const lastSearch = await captureSearch(page);
 
     await page.goto(`/projects/${KEY}`);
     await expect(page.getByTestId('issue-row-7')).toBeVisible();
-    expect(searchUrl).not.toBeNull();
-    expect(searchUrl!.searchParams.get('topLevel')).toBeNull();
-    expect(searchUrl!.searchParams.get('excludeSubtasks')).toBe('true');
+    expect(lastSearch()).not.toBeNull();
+    expect(lastSearch()!.searchParams.get('topLevel')).toBeNull();
+    expect(lastSearch()!.searchParams.get('excludeSubtasks')).toBe('true');
+    expect(lastSearch()!.searchParams.get('excludeEpics')).toBe('true');
+  });
+
+  test('유형 필터를 명시하면 excludeEpics 를 보내지 않는다 (EPIC 을 직접 고를 수 있게, #874)', async ({ authenticatedPage: page }) => {
+    const lastSearch = await captureSearch(page);
+
+    await page.goto(`/projects/${KEY}?type=6`);
+    await expect(page.getByTestId('issue-row-7')).toBeVisible();
+    expect(lastSearch()!.searchParams.get('type')).toBe('6');
+    expect(lastSearch()!.searchParams.get('excludeEpics')).toBeNull();
   });
 
   test('하위(SUBTASK)를 가진 부모 이슈 행에는 진행률(└ done/total) 배지가 표시된다', async ({ authenticatedPage: page }) => {
@@ -92,27 +108,12 @@ test.describe('팀 리스트 뷰', () => {
 
   test('topLevel=true 를 명시하면(저장뷰 등) 요청에도 그대로 실린다', async ({ authenticatedPage: page }) => {
     // 사용자가 명시적으로 상위 이슈만 보기를 선택한 경우는 여전히 존중해야 한다.
-    await page.route(`**/api/v1/projects/${KEY}`, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
-    );
-    let searchUrl: URL | null = null;
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
-      (route) => {
-        if (route.request().method() !== 'GET') return route.fallback();
-        searchUrl = new URL(route.request().url());
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(createIssueSearchResponse([createIssue({ number: 7 })], null)),
-        });
-      },
-    );
+    const lastSearch = await captureSearch(page);
 
     await page.goto(`/projects/${KEY}?topLevel=true`);
     await expect(page.getByTestId('issue-row-7')).toBeVisible();
-    expect(searchUrl).not.toBeNull();
-    expect(searchUrl!.searchParams.get('topLevel')).toBe('true');
+    expect(lastSearch()).not.toBeNull();
+    expect(lastSearch()!.searchParams.get('topLevel')).toBe('true');
   });
 
   test('에픽 하위 이슈 행에는 소속 에픽 칩이 제목 오른쪽에 표시되고 클릭 시 에픽 상세로 이동한다', async ({ authenticatedPage: page }) => {

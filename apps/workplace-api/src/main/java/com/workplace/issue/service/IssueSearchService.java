@@ -228,6 +228,8 @@ public class IssueSearchService {
     // 목록 화면 전용 — SUBTASK 유형 제외. "true" 만 활성화, 그 외는 null (필터 미적용).
     Boolean excludeSubtasks =
         "true".equalsIgnoreCase(p.get("excludeSubtasks")) ? Boolean.TRUE : null;
+    // 보드·목록 기본 뷰 전용 — EPIC 유형 제외. "true" 만 활성화, 그 외는 null (필터 미적용).
+    Boolean excludeEpics = "true".equalsIgnoreCase(p.get("excludeEpics")) ? Boolean.TRUE : null;
 
     // Phase 4c — fieldId / fieldValue. fieldId 가 숫자가 아니면 null 로 무시 (필터 미적용).
     Long fieldId = null;
@@ -261,7 +263,8 @@ public class IssueSearchService {
         reporterIds,
         cycleIds,
         milestoneIds,
-        excludeSubtasks);
+        excludeSubtasks,
+        excludeEpics);
   }
 
   private static String trimToNull(String s) {

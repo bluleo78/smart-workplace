@@ -53,16 +53,15 @@ export async function searchIssues(
   if (filters.cycleIds.length) params.set('cycle', filters.cycleIds.join(','));
   if (filters.milestoneIds.length) params.set('milestone', filters.milestoneIds.join(','));
   if (filters.typeIds.length) params.set('type', filters.typeIds.join(','));
-  // Phase 4a — parent / topLevel 직렬화. parent 가 지정되면 topLevel 은 무시(서버 우선순위와 정합).
-  // topLevel 기본 true → 보드/목록은 상위 이슈만 요청. false(전체)면 미송신(백엔드 기본=전체). (#168)
+  // Phase 4a — parent / topLevel 직렬화. parent 가 지정되면 topLevel·excludeSubtasks·excludeEpics 는
+  // 서버가 무시하므로 송신하지 않는다(서버 우선순위와 정합). false 는 미송신(백엔드 기본=전체). (#168)
   if (filters.parentNumber != null && filters.parentNumber > 0) {
     params.set('parent', String(filters.parentNumber));
-  } else if (filters.topLevel) {
-    params.set('topLevel', 'true');
-  }
-  // 목록 뷰 SUBTASK 제외 송신 — parent 지정 시엔 서버가 무시하므로 parent 없을 때만 의미. (에픽 자식은 유지)
-  if (filters.excludeSubtasks && !(filters.parentNumber != null && filters.parentNumber > 0)) {
-    params.set('excludeSubtasks', 'true');
+  } else {
+    if (filters.topLevel) params.set('topLevel', 'true');
+    // SUBTASK 제외(에픽 자식은 유지) / EPIC 제외 — 보드·목록 기본 범위(withDefaultIssueScope)가 주입.
+    if (filters.excludeSubtasks) params.set('excludeSubtasks', 'true');
+    if (filters.excludeEpics) params.set('excludeEpics', 'true');
   }
   // Phase 4b — blocked 검색 송신. UI 노출은 deferred.
   if (filters.blocked) params.set('blocked', 'true');

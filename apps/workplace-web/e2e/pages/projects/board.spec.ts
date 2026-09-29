@@ -10,6 +10,7 @@ import {
   createIssueDetail,
   createIssueSearchResponse,
 } from '../../factories/issue.factory';
+import { makeEpicType, makeSubtaskType } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import type { IssueResponse } from '../../../src/types/issue';
 
@@ -431,6 +432,76 @@ test.describe('태스크 보드/검색', () => {
     await expect(card.getByTestId('user-avatar-11-agent-marker')).toHaveCount(0);
     await expect(humanAvatar).toHaveAttribute('aria-label', '양동희');
     await expect(humanAvatar).not.toHaveAttribute('data-agent');
+  });
+
+  test('보드 기본 검색은 에픽 카드를 빼고 에픽 하위 이슈를 노출한다 (excludeEpics·excludeSubtasks, topLevel 미송신) (#874)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    let searchUrl: URL | null = null;
+    await routeIssueSearch(page, (route, url) => {
+      searchUrl = url;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse([createIssue({ id: 1, number: 7 })])),
+      });
+    });
+
+    await page.goto(`/projects/WP?view=board`);
+    await expect(page.getByTestId('issue-card-7')).toBeVisible();
+    expect(searchUrl!.searchParams.get('excludeEpics')).toBe('true');
+    expect(searchUrl!.searchParams.get('excludeSubtasks')).toBe('true');
+    expect(searchUrl!.searchParams.get('topLevel')).toBeNull();
+  });
+
+  test('보드 카드: 에픽 하위 이슈는 소속 에픽 배지를 표시하고, 긴 제목도 카드 폭을 넘지 않는다 (#874)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    // 실데이터 폭 검증: 이슈·에픽 제목 모두 긴 케이스.
+    const child = createIssue({
+      id: 1,
+      number: 8,
+      title: '로그인 폼 컴포넌트 리팩터링 및 접근성 개선 — 키보드 포커스 트랩 대응',
+      parent: { number: 3, title: '인증/온보딩 사용자 경험 전면 개선 에픽 — 2026 하반기 로드맵', type: makeEpicType() },
+    });
+    // 대조군: 부모 없는 이슈 / SUBTASK(헤더 └ KEY-N 표시, 에픽 배지 없음).
+    const plain = createIssue({ id: 2, number: 9, title: '문구 수정' });
+    const subtask = createIssue({
+      id: 3,
+      number: 10,
+      title: '버튼 라벨',
+      type: makeSubtaskType(),
+      parent: { number: 9, title: '문구 수정', type: plain.type! },
+    });
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse([child, plain, subtask])),
+      }),
+    );
+
+    await page.goto(`/projects/WP?view=board`);
+    const card = page.getByTestId('issue-card-8');
+    const badge = card.getByTestId('issue-card-8-epic');
+    await expect(badge).toBeVisible();
+    await expect(badge).toContainText('인증/온보딩');
+    await expect(badge).toHaveAttribute('title', /WP-3 · 인증\/온보딩/);
+    // 배지가 카드 경계 안에 머문다(말줄임).
+    const cardBox = (await card.boundingBox())!;
+    const badgeBox = (await badge.boundingBox())!;
+    expect(badgeBox.x + badgeBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+    await expect(page.getByTestId('issue-card-9-epic')).toHaveCount(0);
+    await expect(page.getByTestId('issue-card-10-epic')).toHaveCount(0);
+    await expect(page.getByTestId('issue-card-10-parent')).toBeVisible();
+
+    await page.screenshot({ path: 'test-results/tc/board/epic-badge-card.png', fullPage: false });
+
+    // 배지는 정적 — 카드 클릭(배지 영역 포함)은 이슈 상세로 이동한다.
+    await badge.click();
+    await expect(page).toHaveURL(/\/projects\/WP\/issues\/8$/);
   });
 
   test('카드: 우선순위 막대 렌더 + 카드 전체(담당자 영역) 클릭으로 상세 이동 (#234)', async ({

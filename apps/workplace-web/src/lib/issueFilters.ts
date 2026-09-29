@@ -40,8 +40,9 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
   const parentRaw = params.get('parent');
   const parentNum = parentRaw == null ? NaN : Number(parentRaw);
   const parentNumber = Number.isFinite(parentNum) && parentNum > 0 ? parentNum : null;
-  // 보드/목록 기본은 상위 이슈만(서브태스크는 부모 상세에서 관리). 'false' 일 때만 끔 → 기본 true.
-  const topLevel = params.get('topLevel') !== 'false';
+  // 최상위 이슈만 — 'true' 로 명시될 때만 켠다(에픽 패널 「에픽 미할당」). 기본 범위는 withDefaultIssueScope 가 결정.
+  // (구 URL 의 topLevel=false 는 기본값과 같아져 자연히 흡수된다.)
+  const topLevel = params.get('topLevel') === 'true';
   // Phase 4b — blocked 도 'true' 만 통과. UI 노출은 deferred.
   const blocked = params.get('blocked') === 'true';
   // 목록 뷰 전용 — SUBTASK 제외. 'true' 만 통과(기본 false). 목록 진입 시 뷰가 기본값을 주입.
@@ -66,6 +67,21 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     topLevel,
     blocked,
     excludeSubtasks,
+  };
+}
+
+// 보드·목록 공통 기본 범위(Jira 관례) — 에픽은 작업 카드가 아닌 묶음이라 카드/행으로 보여주지 않고
+// (에픽 패널·타임라인·이슈 상세가 담당), 에픽 하위 이슈는 노출하며, SUBTASK 는 부모 상세에서만 본다.
+// - 유형 필터를 명시하면 그 선택이 우선한다(EPIC·SUBTASK 유형을 직접 고르면 해당 이슈도 조회 가능).
+// - topLevel=true(에픽 미할당)는 "부모 없는 비에픽" 의미라 유형 필터와 무관하게 에픽을 제외하고,
+//   루트만 보므로 SUBTASK 제외는 URL 값 그대로 둔다.
+// 타임라인은 에픽이 그룹 행이라 이 헬퍼를 쓰지 않는다.
+export function withDefaultIssueScope(f: IssueFilters): IssueFilters {
+  const explicitTypes = f.typeIds.length > 0;
+  return {
+    ...f,
+    excludeSubtasks: f.topLevel || explicitTypes ? f.excludeSubtasks : true,
+    excludeEpics: f.topLevel || !explicitTypes,
   };
 }
 
@@ -106,8 +122,8 @@ export function filtersToParams(
   if (f.typeIds.length) p.set('type', f.typeIds.join(','));
   // Phase 4a — parent / topLevel 직렬화. UI 노출은 deferred.
   if (f.parentNumber != null && f.parentNumber > 0) p.set('parent', String(f.parentNumber));
-  // 기본(상위 이슈만)은 빈 정규형 유지 — false(전체 표시)일 때만 URL 에 명시. (#168)
-  if (!f.topLevel) p.set('topLevel', 'false');
+  // 기본(false)은 빈 정규형 유지 — 최상위만 보기(true)일 때만 URL 에 명시. 다른 필터 변경에도 보존된다.
+  if (f.topLevel) p.set('topLevel', 'true');
   // Phase 4b — blocked 직렬화. UI 노출은 deferred.
   if (f.blocked) p.set('blocked', 'true');
   // 목록 뷰 SUBTASK 제외 직렬화 — true 일 때만 명시(기본 false 는 빈 정규형).

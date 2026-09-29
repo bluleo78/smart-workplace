@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
+import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
@@ -157,6 +158,14 @@ export function IssueCard({
           {issue.dueDate && <span>~{issue.dueDate}</span>}
         </div>
       </div>
+
+      {/* 소속 에픽 배지(Jira 카드 관례) — 보드는 에픽 카드를 숨기므로 카드에서 소속을 드러낸다.
+          SUBTASK 는 헤더의 └ KEY-N 로 부모를 표시하므로 제외(비SUBTASK 의 부모는 EPIC). */}
+      {!isSubtask && issue.parent && (
+        <div className="mt-2 flex min-w-0">
+          <ParentChip projectKey={projectKey} parent={issue.parent} issueNumber={issue.number} variant="card" />
+        </div>
+      )}
 
       {issue.labels.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">

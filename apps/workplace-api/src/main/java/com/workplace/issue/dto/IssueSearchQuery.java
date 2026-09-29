@@ -38,4 +38,7 @@ public record IssueSearchQuery(
     List<Long> milestoneIds,
     // 목록 화면 전용 — true 면 SUBTASK 유형 이슈를 제외한다(에픽 자식 등 비SUBTASK 는 그대로 노출).
     // topLevel(루트만) 과 직교하며, parentNumber 지정 시(특정 부모 자식 보기)에는 무시된다.
-    Boolean excludeSubtasks) {}
+    Boolean excludeSubtasks,
+    // 보드·목록 기본 뷰 전용 — true 면 EPIC 유형 이슈를 제외한다(Jira 관례: 에픽은 작업 카드가 아닌 묶음 단위).
+    // excludeSubtasks 와 동일하게 parentNumber 지정 시 무시된다(특정 부모의 자식에는 에픽이 없으므로 의미 없음).
+    Boolean excludeEpics) {}

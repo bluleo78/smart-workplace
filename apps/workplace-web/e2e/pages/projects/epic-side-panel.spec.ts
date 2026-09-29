@@ -108,7 +108,9 @@ test.describe('에픽 왼쪽 패널', () => {
     },
   );
 
-  test('에픽 미할당 클릭 시 EPIC 제외 유형 필터가 적용되고, 재클릭 시 해제된다', async ({ authenticatedPage: page }) => {
+  test('에픽 미할당 클릭 시 topLevel+excludeEpics 로 조회하고(유형 필터 불변), 재클릭 시 해제된다 (#874)', async ({
+    authenticatedPage: page,
+  }) => {
     await stubProjectMeta(page);
     await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
 
@@ -133,39 +135,27 @@ test.describe('에픽 왼쪽 패널', () => {
     await page.goto(`/projects/${PROJECT_KEY}`);
     await openEpicPanel(page);
 
-    // 클릭 → type=(EPIC 제외 전 유형) 쿼리로 본문 이슈 검색.
-    const expected = systemTypes()
-      .filter((t) => t.name !== 'EPIC')
-      .map((t) => t.id)
-      .sort((a, b) => a - b)
-      .join(',');
+    // 클릭 → 부모 없음(topLevel) + EPIC 제외로 본문 이슈 검색. 유형 필터는 건드리지 않는다.
     await page.getByTestId('epic-filter-unassigned').click();
-    await expect
-      .poll(() =>
-        (lastBodyIssuesUrl?.searchParams.get('type') ?? '')
-          .split(',')
-          .filter(Boolean)
-          .map(Number)
-          .sort((a, b) => a - b)
-          .join(','),
-      )
-      .toBe(expected);
+    await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('topLevel')).toBe('true');
+    expect(lastBodyIssuesUrl!.searchParams.get('excludeEpics')).toBe('true');
+    expect(lastBodyIssuesUrl!.searchParams.get('type')).toBeNull();
+    await expect(page).toHaveURL(/topLevel=true/);
     await expect(page.getByTestId('epic-filter-unassigned')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('epic-filter-all')).toHaveAttribute('aria-pressed', 'false');
 
-    // 재클릭 → 해제(전체 이슈 상태 복귀).
+    // 재클릭 → 해제(전체 이슈 상태 복귀: 기본 범위 = 에픽 하위 노출).
     await page.getByTestId('epic-filter-unassigned').click();
-    await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('type')).toBeNull();
+    await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('topLevel')).toBeNull();
+    expect(lastBodyIssuesUrl!.searchParams.get('excludeEpics')).toBe('true');
     await expect(page.getByTestId('epic-filter-all')).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('미할당 → 특정 에픽 → 전체 이슈 순서로 클릭해도 상호 배타성이 깨지지 않는다', async ({
     authenticatedPage: page,
   }) => {
-    // 회귀 재현: 「에픽 미할당」(typeIds=nonEpic) → 특정 에픽 클릭(selectEpic, typeIds 미변경) →
-    // 「전체 이슈」 클릭 시, 클릭 시점의 unassignedActive(이미 parentNumber!=null 이라 false)로
-    // typeIds 를 판단하면 stale 한 nonEpicTypeIds 가 그대로 남아 전체 이슈가 아닌 「에픽 미할당」
-    // 상태로 되돌아가버린다. 현재 typeIds 집합 직접비교로 고쳤는지 검증한다.
+    // 「에픽 미할당」(topLevel) → 특정 에픽 클릭(parent 지정, 미할당 해제) → 「전체 이슈」 클릭 시
+    // 미할당으로 되돌아가지 않고 parent/topLevel 모두 해제되는지 검증한다.
     await stubProjectMeta(page);
     await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
 
@@ -190,31 +180,19 @@ test.describe('에픽 왼쪽 패널', () => {
     await page.goto(`/projects/${PROJECT_KEY}`);
     await openEpicPanel(page);
 
-    const nonEpicIds = systemTypes()
-      .filter((t) => t.name !== 'EPIC')
-      .map((t) => t.id)
-      .sort((a, b) => a - b)
-      .join(',');
-    const sortedParam = () =>
-      (lastBodyIssuesUrl?.searchParams.get('type') ?? '')
-        .split(',')
-        .filter(Boolean)
-        .map(Number)
-        .sort((a, b) => a - b)
-        .join(',');
-
-    // 1) 「에픽 미할당」 클릭 → type=(EPIC 제외 전 유형).
+    // 1) 「에픽 미할당」 클릭 → topLevel=true.
     await page.getByTestId('epic-filter-unassigned').click();
-    await expect.poll(sortedParam).toBe(nonEpicIds);
+    await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('topLevel')).toBe('true');
 
-    // 2) 특정 에픽 클릭(selectEpic) → parent=10, typeIds 는 코드상 손대지 않음.
+    // 2) 특정 에픽 클릭 → parent=10, 미할당 해제.
     await page.getByTestId('epic-filter-10').click();
     await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('parent')).toBe('10');
+    await expect(page.getByTestId('epic-filter-unassigned')).toHaveAttribute('aria-pressed', 'false');
 
-    // 3) 「전체 이슈」 클릭 → type/parent 모두 해제되어야 한다(에픽 미할당으로 되돌아가면 안 됨).
+    // 3) 「전체 이슈」 클릭 → parent/topLevel 모두 해제되어야 한다(에픽 미할당으로 되돌아가면 안 됨).
     await page.getByTestId('epic-filter-all').click();
     await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('parent')).toBeNull();
-    await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('type')).toBeNull();
+    expect(lastBodyIssuesUrl!.searchParams.get('topLevel')).toBeNull();
     await expect(page.getByTestId('epic-filter-all')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('epic-filter-unassigned')).toHaveAttribute('aria-pressed', 'false');
   });

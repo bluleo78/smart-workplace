@@ -40,7 +40,7 @@ import {
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { formatDateKorean } from '../../../lib/formatters';
-import { filtersToParams } from '../../../lib/issueFilters';
+import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { groupIssues } from '../../../lib/issueGrouping';
 import type {
   IssueFilters,
@@ -71,15 +71,9 @@ export function IssueListView({
 }) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [params, setParams] = useSearchParams();
-  // 목록 화면 기본(Jira 관례): 루트 + 에픽 직속 자식은 보이되 SUBTASK 는 숨긴다.
-  // URL 에 topLevel 이 명시되지 않은 경우에만 topLevel 을 끄고(자식 노출) excludeSubtasks 를 켠다.
-  // → 에픽 자식(비SUBTASK)은 남고, 일반 이슈의 서브태스크는 부모 상세에서만 보인다.
-  const effectiveFilters: IssueFilters =
-    params.get('topLevel') == null
-      ? { ...filters, topLevel: false, excludeSubtasks: true }
-      : filters;
+  // 보드와 같은 기본 범위 — 에픽 행 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(withDefaultIssueScope).
   const { data, fetchNextPage, hasNextPage, isFetching, isLoading } =
-    useIssueSearch(projectKey, effectiveFilters);
+    useIssueSearch(projectKey, withDefaultIssueScope(filters));
 
   // #606: 다중 선택 상태 — 이슈 number 집합. 필터/그룹 변경 시 초기화(아래 useEffect).
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -131,7 +125,7 @@ export function IssueListView({
     data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [];
 
   // 검색어·필터가 하나라도 적용된 상태인지 판별.
-  // filtersToParams 는 기본값(빈 배열, 빈 문자열, topLevel=true 등)을 URL 에서 생략하므로
+  // filtersToParams 는 기본값(빈 배열, 빈 문자열, topLevel=false 등)을 URL 에서 생략하므로
   // toString() === '' 이면 실질 필터가 없는 초기 상태임.
   const hasActiveFilters = filtersToParams(filters, 'list', null).toString() !== '';
 
