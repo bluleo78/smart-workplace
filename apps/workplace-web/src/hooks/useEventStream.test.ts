@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { QueryClient } from '@tanstack/react-query';
 
 vi.mock('./useChatStream', () => ({ handleChatEvent: vi.fn() }));
 vi.mock('./useMessageStream', () => ({ handleMessagingEvent: vi.fn() }));
@@ -9,7 +10,7 @@ vi.mock('../lib/aiEventBus', () => ({ emitAiStreamEvent: vi.fn() }));
 
 import { emitAiStreamEvent } from '../lib/aiEventBus';
 import { handleChatEvent } from './useChatStream';
-import { routeStreamEvent } from './useEventStream';
+import { reconnectCatchUp, routeStreamEvent } from './useEventStream';
 import { handleIssueEvent } from './useIssueStream';
 import { handleMessagingEvent } from './useMessageStream';
 import { handleNotifyEvent } from './useNotificationStream';
@@ -54,5 +55,17 @@ describe('routeStreamEvent', () => {
 
   it('알 수 없는 prefix 는 무시', () => {
     expect(() => routeStreamEvent('wiki.x', {}, { qc, currentUserId: 9 })).not.toThrow();
+  });
+});
+
+describe('reconnectCatchUp', () => {
+  it('보호 키를 뺀 활성 쿼리를 무효화한다', () => {
+    const qc = { invalidateQueries: vi.fn() } as unknown as QueryClient;
+    reconnectCatchUp(qc);
+    const arg = (qc.invalidateQueries as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(arg.refetchType).toBe('active');
+    expect(arg.predicate({ queryKey: ['issues', 'search', 'EX'] })).toBe(true);
+    expect(arg.predicate({ queryKey: ['mail-summary', 3] })).toBe(false);
+    expect(arg.predicate({ queryKey: ['chat', 'messages', 1] })).toBe(false);
   });
 });

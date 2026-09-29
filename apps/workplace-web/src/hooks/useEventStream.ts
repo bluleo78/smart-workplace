@@ -8,8 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { emitAiStreamEvent } from '../lib/aiEventBus';
 import { subscribeEventStream } from '../lib/eventStream';
-import { messagingKeys } from './queries/messagingKeys';
-import { notificationKeys } from './queries/notificationKeys';
+import { isProtectedKey } from '../lib/resourceInvalidation';
 import { handleChatEvent } from './useChatStream';
 import { handleIssueEvent } from './useIssueStream';
 import { handleMessagingEvent } from './useMessageStream';
@@ -40,6 +39,18 @@ export function routeStreamEvent(
   else if (name.startsWith('wiki.')) handleWikiEvent(ctx.qc, name, data);
 }
 
+/**
+ * SSE 재연결 직후 catch-up (WP-59). SseRegistry 는 best-effort 라 끊김 동안의 resource.changed 는 유실된다 —
+ * 화면에 떠 있는(active) 쿼리만 재조회해 놓친 변경을 따라잡는다. AI 요약·세션 등 보호 키는 제외(재생성 비용).
+ * 알림·채널·DM 도 이 전체 무효화에 포함된다(기존 3개 키 catch-up 을 대체).
+ */
+export function reconnectCatchUp(qc: QueryClient) {
+  void qc.invalidateQueries({
+    refetchType: 'active',
+    predicate: (q) => !isProtectedKey(q.queryKey),
+  });
+}
+
 export function useEventStream(currentUserId: number): { isConnected: boolean } {
   const qc = useQueryClient();
   // 재연결(스트림 재구독) 없이 최신 userId 를 참조하기 위해 ref 로 보관.
@@ -50,11 +61,14 @@ export function useEventStream(currentUserId: number): { isConnected: boolean } 
   });
 
   useEffect(() => {
-    // 재연결 직후 catch-up — 끊김 동안 놓친 알림·사이드바 미읽음을 따라잡는다(과거 notify/messaging 동작 보존).
+    let opened = false;
     const catchUp = () => {
-      qc.invalidateQueries({ queryKey: notificationKeys.all });
-      qc.invalidateQueries({ queryKey: messagingKeys.channels() });
-      qc.invalidateQueries({ queryKey: messagingKeys.dms() });
+      // 첫 연결은 초기 로딩 직후라 건너뛴다 — 재연결에서만 끊김 동안 놓친 변경을 따라잡는다.
+      if (!opened) {
+        opened = true;
+        return;
+      }
+      reconnectCatchUp(qc);
     };
     const cleanup = subscribeEventStream({
       url: '/api/v1/events',
