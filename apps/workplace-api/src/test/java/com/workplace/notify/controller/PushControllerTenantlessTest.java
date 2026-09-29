@@ -34,7 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>이 클래스는 {@link #defaultTenantId()} 를 {@code null} 로 오버라이드해 GUC 주입 자체를 차단한 채로 구독 등록과 설정 조회/수정을
  * 수행한다. {@code push_subscription}/{@code notification_preference} 는 RLS 가 없는 글로벌
- * 테이블이라(V134__web_push.sql 참고) GUC 없이도 정상 동작해야 하며, 이 테스트가 그 사실을 고정한다 — 다른 RLS 재발 사례(#444, #492,
+ * 테이블이라(V137__web_push.sql 참고) GUC 없이도 정상 동작해야 하며, 이 테스트가 그 사실을 고정한다 — 다른 RLS 재발 사례(#444, #492,
  * #630)처럼 조용히 깨지는 것을 막는다.
  */
 @Transactional

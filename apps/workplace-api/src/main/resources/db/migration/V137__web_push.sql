@@ -1,4 +1,4 @@
--- V134: Web Push — 기기별 구독, 사용자 알림 종류 설정, 서버 VAPID 키.
+-- V137: Web Push — 기기별 구독, 사용자 알림 종류 설정, 서버 VAPID 키.
 -- 세 테이블 모두 글로벌(비-RLS): 한 기기가 여러 테넌트 알림을 받고(membership 과 같은 성격),
 -- 발송 경로는 수신자 기준으로 테넌트와 무관하게 구독을 조회한다. app_tenant 권한은 V44 DEFAULT PRIVILEGES 로 자동.
 
