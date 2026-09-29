@@ -8,17 +8,9 @@ import { clearNeedsReplyDone, coachDraft, fetchMailAttachmentDataUri, generateIs
 import { handleApiError } from '../../lib/api-error';
 import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
 import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
+import { mailMessageKeys } from './mailMessageKeys';
 
-export const mailMessageKeys = {
-  // #469: unread 필터를 캐시 키에 포함(읽음 목록과 안읽음 목록 캐시 분리).
-  // P2: category/needsReply 필터도 캐시 키에 포함.
-  list: (accountId: number, folder: MailFolder, query: string, unread = false,
-         category = '', needsReply = false) =>
-    ['mail-messages', accountId, folder, query, unread, category, needsReply] as const,
-  detail: (messageId: number) => ['mail-message', messageId] as const,
-  summary: (messageId: number) => ['mail-summary', messageId] as const,
-  syncStatus: (accountId: number) => ['mail-sync-status', accountId] as const,
-};
+export { mailMessageKeys };
 
 /** 계정의 메시지 목록(폴더·검색어·unread·category·needsReply 필터). accountId 가 없으면 비활성. */
 export function useMailMessages(

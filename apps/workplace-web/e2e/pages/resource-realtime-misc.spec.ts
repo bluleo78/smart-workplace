@@ -4,11 +4,11 @@ import { external, member, page as makePage } from '../factories/contacts.factor
 import { mailAccount, summary as mailSummary } from '../factories/mail.factory'
 import { mockApi } from '../fixtures/api-mock'
 import { expect, test } from '../fixtures/auth.fixture'
-import { mockGatedEvents } from '../fixtures/gatedEvents'
+import { mockGatedEvents, resourceChangedFrame } from '../fixtures/gatedEvents'
 
 // 서버 ResourceSseDispatcher 가 보내는 resource.changed 프레임.
 function frame(data: Record<string, unknown>) {
-  return `event: resource.changed\ndata: ${JSON.stringify({ scopeType: 'USER', scopeId: 1, ids: [], actorId: 99, ...data })}\n\n`
+  return resourceChangedFrame({ scopeType: 'USER', scopeId: 1, ids: [], actorId: 99, ...data })
 }
 
 test.describe('알림·연락처·메일 실시간 반영 (WP-64)', () => {

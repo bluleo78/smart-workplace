@@ -3,7 +3,7 @@
 import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
-import { mockGatedEvents } from '../../fixtures/gatedEvents';
+import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 
@@ -58,7 +58,7 @@ async function setup(page: Page, initial: Issue[]) {
     state.issues = next;
     state.detailGone = opts.gone ?? false;
     const data = { resource: 'issue', op, scopeType: 'PROJECT', scopeId: 1, ids: [issue.id], actorId: 99, projectKey: KEY, issueNumber: issue.number };
-    events.deliver(`event: resource.changed\ndata: ${JSON.stringify(data)}\n\n`);
+    events.deliver(resourceChangedFrame(data));
   };
   return { release };
 }

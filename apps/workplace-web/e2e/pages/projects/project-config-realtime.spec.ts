@@ -2,7 +2,7 @@
 // /api/v1/events 를 게이트 모킹해 resource.changed 프레임을 첫 렌더 *뒤에* 흘려보내고, 재조회로 화면이 바뀌는지 본다.
 import { createPageResponse } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
-import { mockGatedEvents } from '../../fixtures/gatedEvents';
+import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents';
 import { createLabel } from '../../factories/label.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 
@@ -34,7 +34,7 @@ test.describe('프로젝트 설정 변경 실시간 반영 (WP-60)', () => {
 
     labels = [...labels, createLabel({ id: 5, name: 'AI 라벨' })];
     const data = { resource: 'label', op: 'created', scopeType: 'PROJECT', scopeId: 1, ids: [5], actorId: 99, projectKey: KEY };
-    events.deliver(`event: resource.changed\ndata: ${JSON.stringify(data)}\n\n`);
+    events.deliver(resourceChangedFrame(data));
 
     await expect(page.getByTestId('label-row-5')).toContainText('AI 라벨');
   });
@@ -64,7 +64,7 @@ test.describe('프로젝트 설정 변경 실시간 반영 (WP-60)', () => {
 
     list = [p1];
     const data = { resource: 'project-member', op: 'deleted', scopeType: 'PROJECT', scopeId: 2, ids: [1], actorId: 99, projectKey: 'P2' };
-    events.deliver(`event: resource.changed\ndata: ${JSON.stringify(data)}\n\n`);
+    events.deliver(resourceChangedFrame(data));
 
     await expect(page.getByTestId('personal-project-P2')).toHaveCount(0);
     await expect(page.getByTestId('personal-project-P1')).toBeVisible();

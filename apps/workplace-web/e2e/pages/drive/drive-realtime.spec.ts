@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test'
 
 import { createFile, createSpace, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { mockGatedEvents } from '../../fixtures/gatedEvents'
+import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents'
 
 const SPACE_ID = 1
 
@@ -33,7 +33,7 @@ async function stubItems(page: Page, getState: () => { folders: unknown[]; files
 // resource.changed 프레임 — 서버가 보내는 drive/drive-space payload(attrs 는 spaceId 만).
 function frame(resource: 'drive' | 'drive-space', op: 'created' | 'updated' | 'deleted', ids: number[] = []) {
   const data = { resource, op, scopeType: 'USER', scopeId: 1, spaceId: SPACE_ID, ids, actorId: 99 }
-  return `event: resource.changed\ndata: ${JSON.stringify(data)}\n\n`
+  return resourceChangedFrame(data)
 }
 
 test.describe('드라이브 실시간 반영 (WP-63)', () => {

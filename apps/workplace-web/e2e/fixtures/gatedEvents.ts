@@ -1,6 +1,11 @@
 // /api/v1/events 게이트 SSE 모킹 공용 픽스처 (WP-59).
 import type { Page } from '@playwright/test';
 
+/** 서버 ResourceSseDispatcher 가 보내는 resource.changed SSE 프레임 문자열 — spec 마다 인라인 조립을 반복하지 않게 한다. */
+export function resourceChangedFrame(data: object): string {
+  return `event: resource.changed\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
 /**
  * /api/v1/events 를 게이트된 단일 프레임으로 모킹한다.
  * - deliver() 이전에 도착한 요청은 보류한다. StrictMode 이중 마운트로 첫 연결 요청이 2번 올 수 있어(앞선 것은 취소됨)

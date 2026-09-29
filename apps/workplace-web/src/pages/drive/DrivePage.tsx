@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { FileText, Folder, FolderOpen, SearchX, Upload } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -40,8 +40,8 @@ import { RowOverflowMenu } from '../../components/drive/RowOverflowMenu'
 import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
 import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
 import { SearchInput } from '../../components/ui/search-input'
+import { driveKeys } from '../../hooks/queries/driveKeys'
 import { useDriveItems } from '../../hooks/queries/useDriveItems'
-import { driveQuotaKeys } from '../../hooks/queries/useDriveQuota'
 import { useDriveSearch } from '../../hooks/queries/useDriveSearch'
 import { useDriveSpace } from '../../hooks/queries/useDriveSpace'
 import { useDriveTrash } from '../../hooks/queries/useDriveTrash'
@@ -77,7 +77,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // DriveSidebar 는 이 페이지와 별도 컴포넌트라 리마운트 없이 재조회되게 하려면 공유 쿼리 키가 필요하다.
   const queryClient = useQueryClient()
   function invalidateQuota() {
-    void queryClient.invalidateQueries({ queryKey: driveQuotaKeys.all })
+    void queryClient.invalidateQueries({ queryKey: driveKeys.quota })
   }
   const sid = spaceIdProp ?? Number(params.spaceId)
   const embedded = spaceIdProp != null
@@ -186,10 +186,15 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 선택 집합과 현재 뷰(검색 중이면 검색 결과, 아니면 폴더 목록) id 의 교집합으로 걸러 쓴다.
   // 선택 수·벌크 작업 body·전체선택 판정·체크 상태 모두 이 걸러진 집합을 기준으로 한다.
   const viewItems = results ?? actualItems
-  const viewFileIds = new Set(viewItems.files.map((f) => f.id))
-  const viewFolderIds = new Set(viewItems.folders.map((f) => f.id))
-  const visibleSelFiles = new Set([...selFiles].filter((id) => viewFileIds.has(id)))
-  const visibleSelFolders = new Set([...selFolders].filter((id) => viewFolderIds.has(id)))
+  // 렌더마다 Set 을 새로 만들지 않도록 입력(뷰 목록·선택 집합)이 바뀔 때만 다시 계산한다.
+  const visibleSelFiles = useMemo(() => {
+    const ids = new Set(viewItems.files.map((f) => f.id))
+    return new Set([...selFiles].filter((id) => ids.has(id)))
+  }, [viewItems.files, selFiles])
+  const visibleSelFolders = useMemo(() => {
+    const ids = new Set(viewItems.folders.map((f) => f.id))
+    return new Set([...selFolders].filter((id) => ids.has(id)))
+  }, [viewItems.folders, selFolders])
   const selCount = visibleSelFiles.size + visibleSelFolders.size
 
   // 토글 헬퍼 — 집합에 id 가 있으면 제거, 없으면 추가해 새 집합 반환.
@@ -224,9 +229,15 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 선택 해제는 여기서 하지 않는다(원격 무효화 재조회에서는 선택을 유지) — 액션 핸들러가 clearSel() 을 호출.
   async function reload() {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['drive', 'items', sid] }),
-      queryClient.invalidateQueries({ queryKey: ['drive', 'search', sid] }),
+      queryClient.invalidateQueries({ queryKey: driveKeys.itemsAll(sid) }),
+      queryClient.invalidateQueries({ queryKey: driveKeys.searchAll(sid) }),
     ])
+  }
+
+  // 사용자 액션 성공 후 공통 마무리 — 목록 재조회 완료를 기다린 뒤 선택을 비운다.
+  async function reloadAndClear() {
+    await reload()
+    clearSel()
   }
 
   // 폴더 진입 시 조상 경로(폴더명) 로드. 루트(null)면 비움. 실패 시 빈 경로로 폴백.
@@ -311,12 +322,10 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     try {
       if (dialog.mode === 'create') {
         await driveApi.createFolder(sid, folderId, nameInput)
-        await reload()
-        clearSel()
+        await reloadAndClear()
       } else if (dialog.folderId != null) {
         await driveApi.renameFolder(dialog.folderId, nameInput)
-        await reload()
-        clearSel()
+        await reloadAndClear()
       }
     } catch (e) {
       handleApiError(e, dialog.mode === 'create' ? '폴더를 만들지 못했습니다.' : '폴더 이름을 변경하지 못했습니다.')
@@ -376,8 +385,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     setDropProgress(null)
     uploadAbortRef.current = null
     invalidateQuota()
-    await reload()
-    clearSel()
+    await reloadAndClear()
     if (cancelled) {
       toast.message('업로드를 취소했습니다.')
     } else if (failures.length > 0) {
@@ -423,8 +431,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       try {
         await driveApi.uploadFile(sid, folderId, file, controller.signal)
         invalidateQuota()
-        await reload()
-        clearSel()
+        await reloadAndClear()
       } catch (err) {
         if (isUploadAborted(err)) {
           toast.message('업로드를 취소했습니다.')
@@ -472,8 +479,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         }
       }
       invalidateQuota()
-      await reload()
-      clearSel()
+      await reloadAndClear()
       if (cancelled) {
         toast.message('업로드를 취소했습니다.')
       } else if (failures.length > 0) {
@@ -507,8 +513,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         try {
           await driveApi.deleteFolder(id)
           invalidateQuota()
-          await reload()
-          clearSel()
+          await reloadAndClear()
         } catch (e) {
           handleApiError(e, '폴더를 삭제하지 못했습니다.')
         }
@@ -524,8 +529,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         try {
           await driveApi.deleteFile(id)
           invalidateQuota()
-          await reload()
-          clearSel()
+          await reloadAndClear()
         } catch (e) {
           handleApiError(e, '파일을 삭제하지 못했습니다.')
         }
@@ -549,8 +553,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       handleApiError(e, '이동/복사할 수 없는 위치입니다.')
     } finally {
       setPicker(null)
-      await reload()
-      clearSel()
+      await reloadAndClear()
     }
   }
 
@@ -579,8 +582,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         try {
           await driveApi.bulkDelete(sid, body)
           invalidateQuota()
-          await reload()
-          clearSel()
+          await reloadAndClear()
         } catch (e) {
           handleApiError(e, '삭제에 실패했습니다.')
         }
@@ -595,8 +597,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       handleApiError(e, '이동할 수 없는 위치입니다.')
     } finally {
       setBulkPicker(false)
-      await reload()
-      clearSel()
+      await reloadAndClear()
     }
   }
 
@@ -612,7 +613,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     // 사용자 의도 없이 휴지통 뷰로 바뀌므로, fetchQuery(staleTime 0 = 항상 새로 조회)로 먼저 확인한 뒤 연다.
     try {
       await queryClient.fetchQuery({
-        queryKey: ['drive', 'trash', sid],
+        queryKey: driveKeys.trash(sid),
         queryFn: () => driveApi.listTrash(sid).then((r) => r.data),
         staleTime: 0,
       })
@@ -623,11 +624,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }
   // WP-63: 휴지통 액션 후 갱신 — 휴지통 쿼리를 무효화(재조회 완료까지 대기).
   async function reloadTrash() {
-    await queryClient.invalidateQueries({ queryKey: ['drive', 'trash', sid] })
+    await queryClient.invalidateQueries({ queryKey: driveKeys.trash(sid) })
   }
   function closeTrash() {
     setTrashOpen(false)
-    void reload().then(clearSel)
+    void reloadAndClear()
   }
   // 복원 실패 시 사용자에게 오류 피드백 제공 (try/catch 추가)
   async function onRestore(it: DriveTrashItem) {

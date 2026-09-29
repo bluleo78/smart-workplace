@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test'
 import type { CalendarEvent } from '../../../src/types/calendar'
 import { calendarEvent } from '../../factories/calendar.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { mockGatedEvents } from '../../fixtures/gatedEvents'
+import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents'
 
 test.describe('캘린더 일정 변경 실시간 반영 (WP-61)', () => {
   // 브라우저가 쓰기 요청을 보내면 안 되는 시나리오 — GET 외에는 404 로 드러낸다. store 는 테스트가 직접 바꾼다.
@@ -34,7 +34,7 @@ test.describe('캘린더 일정 변경 실시간 반영 (WP-61)', () => {
 
     store = [...store, calendarEvent({ id: 77, title: 'AI 가 잡은 미팅', startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' })]
     const data = { resource: 'calendar-event', op: 'created', scopeType: 'USER', scopeId: 1, ids: [77], actorId: 99 }
-    events.deliver(`event: resource.changed\ndata: ${JSON.stringify(data)}\n\n`)
+    events.deliver(resourceChangedFrame(data))
 
     await expect(page.getByTestId('calendar-event-77')).toContainText('AI 가 잡은 미팅')
   })
@@ -51,7 +51,7 @@ test.describe('캘린더 일정 변경 실시간 반영 (WP-61)', () => {
 
     store = store.filter((e) => e.id !== 2)
     const data = { resource: 'calendar-event', op: 'deleted', scopeType: 'USER', scopeId: 1, ids: [2], actorId: 99 }
-    events.deliver(`event: resource.changed\ndata: ${JSON.stringify(data)}\n\n`)
+    events.deliver(resourceChangedFrame(data))
 
     await expect(page.getByTestId('calendar-event-2')).toHaveCount(0)
     await expect(page.getByTestId('calendar-event-1')).toBeVisible()

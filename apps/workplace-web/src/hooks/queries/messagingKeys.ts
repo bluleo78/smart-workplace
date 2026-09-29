@@ -2,6 +2,8 @@
 export const messagingKeys = {
   all: ['messaging'] as const,
   channels: () => [...messagingKeys.all, 'channels'] as const,
+  /** 탐색 결과 전체 prefix(검색어 무관) — 무효화용. */
+  discoverAll: () => [...messagingKeys.all, 'discover'] as const,
   discover: (q: string) => [...messagingKeys.all, 'discover', q] as const,
   detail: (channelId: number) => [...messagingKeys.all, 'detail', channelId] as const,
   members: (channelId: number) => [...messagingKeys.all, 'members', channelId] as const,

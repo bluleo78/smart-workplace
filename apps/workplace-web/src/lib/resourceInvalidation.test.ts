@@ -1,12 +1,14 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import resourceContract from './resource-contract.json';
 import {
   createInvalidationBatcher,
   type InvalidationTarget,
   invalidationTargets,
   isProtectedKey,
   type ResourceChangedPayload,
+  ruleResourceNames,
 } from './resourceInvalidation';
 
 describe('invalidationTargets', () => {
@@ -65,6 +67,35 @@ describe('프로젝트 설정 규칙 (WP-60)', () => {
     expect(keysOf('project-member', 'deleted')).toEqual(
       expect.arrayContaining([['projects'], ['issues', 'search', 'EX']]),
     );
+  });
+
+  it('project-member created/updated → projects 만 (담당자 해제가 없어 이슈 대상 불필요)', () => {
+    expect(keysOf('project-member', 'created')).toEqual([['projects']]);
+    expect(keysOf('project-member', 'updated')).toEqual([['projects']]);
+  });
+
+  it('설정 수정·삭제의 이슈 대상은 목록·상세·내 이슈·워치만 (의존성·첨부·홈 위젯 제외)', () => {
+    expect(keysOf('label', 'updated')).toEqual([
+      ['labels', 'EX'],
+      ['issues', 'search', 'EX'],
+      ['issues', 'EX'],
+      ['me-issues'],
+      ['watched-issues'],
+    ]);
+    expect(keysOf('milestone', 'deleted')).not.toContainEqual(['home', 'activity']);
+  });
+
+  it('cycle 수정·삭제 → cycles·cycleProgress·issueCycles + 이슈 값 대상', () => {
+    expect(keysOf('cycle', 'deleted')).toEqual([
+      ['cycles', 'EX'],
+      ['cycleProgress', 'EX'],
+      ['issueCycles', 'EX'],
+      ['issues', 'search', 'EX'],
+      ['issues', 'EX'],
+      ['me-issues'],
+      ['watched-issues'],
+    ]);
+    expect(keysOf('cycle', 'created')).toEqual([['cycles', 'EX'], ['cycleProgress', 'EX'], ['issueCycles', 'EX']]);
   });
 
   it('saved-view → savedViews + pinnedViews', () => {
@@ -143,6 +174,105 @@ describe('캘린더 규칙', () => {
         { queryKey: ['calendar'] },
       ]);
     }
+  });
+});
+
+// 키 팩토리(driveKeys·messagingKeys·wikiKeys …)로 바꿔도 실제 키 값이 그대로인지 리터럴로 고정한다 — 팩토리로 기대값을 만들면 같은 실수를 검증하지 못한다.
+describe('규칙 키 값 고정', () => {
+  const keys = (p: ResourceChangedPayload) => invalidationTargets(p);
+
+  it('channel → 채널 목록·탐색·상세·멤버·요약·드라이브 공간 목록', () => {
+    expect(keys({ resource: 'channel', op: 'updated', channelId: 3 })).toEqual([
+      { queryKey: ['messaging', 'channels'] },
+      { queryKey: ['messaging', 'discover'] },
+      { queryKey: ['messaging', 'detail', 3] },
+      { queryKey: ['messaging', 'members', 3] },
+      { queryKey: ['messaging-summary'] },
+      { queryKey: ['drive', 'spaces'] },
+    ]);
+  });
+
+  it('dm → DM 목록·요약', () => {
+    expect(keys({ resource: 'dm', op: 'created', channelId: 4 })).toEqual([
+      { queryKey: ['messaging', 'dms'] },
+      { queryKey: ['messaging-summary'] },
+    ]);
+  });
+
+  it('drive → 공간 prefix(items·trash·search) + quota·첨부·백링크', () => {
+    expect(keys({ resource: 'drive', op: 'updated', spaceId: 2 })).toEqual([
+      { queryKey: ['drive', 'items', 2] },
+      { queryKey: ['drive', 'trash', 2] },
+      { queryKey: ['drive', 'search', 2] },
+      { queryKey: ['drive', 'quota'] },
+      { queryKey: ['drive-attachments'] },
+      { queryKey: ['drive-file-backlinks'] },
+    ]);
+  });
+
+  it('drive-space → 공간 목록·단건·items prefix', () => {
+    expect(keys({ resource: 'drive-space', op: 'updated', spaceId: 2 })).toEqual([
+      { queryKey: ['drive', 'spaces'] },
+      { queryKey: ['drive', 'space', 2] },
+      { queryKey: ['drive', 'items', 2] },
+    ]);
+  });
+
+  it('contact·notification → 루트 전체', () => {
+    expect(keys({ resource: 'contact', op: 'updated' })).toEqual([{ queryKey: ['contacts'] }]);
+    expect(keys({ resource: 'notification', op: 'updated' })).toEqual([{ queryKey: ['notifications'] }]);
+  });
+
+  it('mail → 계정 목록 prefix·회신필요 수·상세·연결 이슈·요약 위젯(exact)', () => {
+    expect(keys({ resource: 'mail', op: 'updated', accountId: 5, messageId: 9 })).toEqual([
+      { queryKey: ['mail-messages', 5] },
+      { queryKey: ['mail-needs-reply-count', 5] },
+      { queryKey: ['mail-message', 9] },
+      { queryKey: ['mail', 'linked-issue', 9] },
+      { queryKey: ['mail-summary'], exact: true },
+    ]);
+  });
+
+  it('wiki-space·wiki-attachment → 스페이스 목록·멤버·트리 / 페이지', () => {
+    expect(keys({ resource: 'wiki-space', op: 'updated', spaceId: 2 })).toEqual([
+      { queryKey: ['wiki', 'spaces'] },
+      { queryKey: ['wiki', 'members', 2] },
+      { queryKey: ['wiki', 'tree', 2] },
+    ]);
+    expect(keys({ resource: 'wiki-attachment', op: 'created', spaceId: 2, pageId: 8 })).toEqual([
+      { queryKey: ['wiki', 'page', 8] },
+    ]);
+  });
+
+  it('chat-thread → 스레드 응답만', () => {
+    expect(keys({ resource: 'chat-thread', op: 'updated', projectKey: 'EX', issueNumber: 1 })).toEqual([
+      { queryKey: ['chat', 'thread', 'EX', 1] },
+    ]);
+  });
+});
+
+describe('mail-account 규칙 범위', () => {
+  const keysOf = (op: ResourceChangedPayload['op'], accountId: number) =>
+    invalidationTargets({ resource: 'mail-account', op, accountId }).map((t) => t.queryKey);
+
+  it('개별 계정 수정 → 그 계정 메일 목록만, 캘린더는 유지(M365 연결이 updated 로 온다)', () => {
+    const keys = keysOf('updated', 5);
+    expect(keys).toContainEqual(['mail-messages', 5]);
+    expect(keys).not.toContainEqual(['mail-messages']);
+    expect(keys).toContainEqual(['calendar']);
+  });
+
+  it('일괄 설정(accountId 0)·생성·삭제 → 전체 메일 목록 prefix', () => {
+    expect(keysOf('updated', 0)).toContainEqual(['mail-messages']);
+    expect(keysOf('created', 5)).toContainEqual(['mail-messages']);
+    expect(keysOf('deleted', 5)).toContainEqual(['mail-messages']);
+    expect(keysOf('deleted', 5)).toContainEqual(['calendar']);
+  });
+});
+
+describe('리소스 이름 계약', () => {
+  it('RULES 키 목록 = resource-contract.json (백엔드 ResourceChangedContractTest 가 같은 파일을 RESOURCE_* 상수와 비교)', () => {
+    expect([...ruleResourceNames()].sort()).toEqual([...resourceContract].sort());
   });
 });
 

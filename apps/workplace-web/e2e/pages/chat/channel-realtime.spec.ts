@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
 
 import { createChannel } from '../../factories/messaging.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
-import { mockGatedEvents } from '../../fixtures/gatedEvents';
+import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents';
 
 type Channel = ReturnType<typeof createChannel>;
 
@@ -40,8 +40,6 @@ async function stubChannels(page: Page, getStore: () => Channel[]) {
   );
 }
 
-const frame = (data: object) => `event: resource.changed\ndata: ${JSON.stringify(data)}\n\n`;
-
 test.describe('채널 변경 실시간 반영 (WP-62)', () => {
   test('채널 생성 — 사이드바에 새 채널이 나타난다', async ({ authenticatedPage: page }) => {
     let store = [createChannel({ id: 1, name: '일반' })];
@@ -53,7 +51,7 @@ test.describe('채널 변경 실시간 반영 (WP-62)', () => {
     await expect(page.getByTestId('channel-link-9')).toHaveCount(0);
 
     store = [...store, createChannel({ id: 9, name: 'ai-채널' })];
-    events.deliver(frame({ resource: 'channel', op: 'created', scopeType: 'TENANT', scopeId: 1, channelId: 9, actorId: 99 }));
+    events.deliver(resourceChangedFrame({ resource: 'channel', op: 'created', scopeType: 'TENANT', scopeId: 1, channelId: 9, actorId: 99 }));
 
     await expect(page.getByTestId('channel-link-9')).toContainText('ai-채널');
   });
@@ -70,7 +68,7 @@ test.describe('채널 변경 실시간 반영 (WP-62)', () => {
     await expect(page.getByTestId('channel-link-5')).toBeVisible();
 
     store = store.filter((c) => c.id !== 5);
-    events.deliver(frame({ resource: 'channel', op: 'updated', scopeType: 'CHANNEL', scopeId: 5, channelId: 5, actorId: 99 }));
+    events.deliver(resourceChangedFrame({ resource: 'channel', op: 'updated', scopeType: 'CHANNEL', scopeId: 5, channelId: 5, actorId: 99 }));
 
     await expect(page.getByTestId('channel-link-5')).toHaveCount(0);
     await expect(page.getByTestId('channel-not-found')).toBeVisible();

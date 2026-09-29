@@ -4,6 +4,15 @@
 
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 
+// 쿼리 키는 api 모듈을 끌어오지 않는 순수 *Keys 팩토리에서만 가져온다(훅 파일 import 시 api·axios 가 딸려 온다).
+import { calendarKeys } from '../hooks/queries/calendarKeys';
+import { contactKeys } from '../hooks/queries/contactKeys';
+import { driveKeys } from '../hooks/queries/driveKeys';
+import { mailMessageKeys } from '../hooks/queries/mailMessageKeys';
+import { messagingKeys } from '../hooks/queries/messagingKeys';
+import { notificationKeys } from '../hooks/queries/notificationKeys';
+import { wikiKeys } from '../hooks/queries/wikiKeys';
+
 /** 서버 ResourceSseDispatcher payload — attrs 는 평탄화되어 온다. */
 export interface ResourceChangedPayload {
   resource: string;
@@ -48,13 +57,23 @@ export function issueTargets(pk: string): InvalidationTarget[] {
   ];
 }
 
+// 설정 값이 표시되는 이슈 화면 — 목록·보드·상세와 내 이슈·워치 목록. 의존성·첨부·워처·드라이브 링크·홈 위젯은 설정 변경과 무관해 뺀다.
+function issueValueTargets(pk: string): InvalidationTarget[] {
+  return [
+    { queryKey: ['issues', 'search', pk] },
+    { queryKey: ['issues', pk] },
+    { queryKey: ['me-issues'] },
+    { queryKey: ['watched-issues'] },
+  ];
+}
+
 // 설정 삭제·수정은 이슈 값을 간접적으로 바꾼다(라벨·사이클 cascade, 마일스톤 SET NULL, 필드값 cascade, 표시명) — 생성만 이슈를 건드리지 않는다.
 const configRule =
   (own: (pk: string) => InvalidationTarget[]): Rule =>
   (p) => {
     const pk = p.projectKey;
     if (!pk) return [];
-    return p.op === 'created' ? own(pk) : [...own(pk), ...issueTargets(pk)];
+    return p.op === 'created' ? own(pk) : [...own(pk), ...issueValueTargets(pk)];
   };
 
 // 내 이슈·홈 계열 — 프로젝트 삭제 시 다른 프로젝트 화면의 내 이슈 목록에서도 빠져야 한다.
@@ -74,12 +93,19 @@ const RULES: Record<string, Rule> = {
     { queryKey: ['pinnedViews'] },
     ...(p.op === 'deleted' ? MY_ISSUE_TARGETS : []),
   ],
-  // 멤버 추가·제거는 사이드바 프로젝트 목록(본인 추가/제거)과 담당자 선택기, 제거 시 담당자 해제된 이슈에 영향
+  // 멤버 추가·역할 변경은 사이드바 프로젝트 목록(본인 추가)과 담당자 선택기(['projects',…] 아래)만 바꾼다.
+  // 제거만 담당자 해제로 이슈 값을 바꾸므로 그때만 이슈 대상을 더한다.
   'project-member': (p) =>
-    p.projectKey ? [{ queryKey: ['projects'] }, ...issueTargets(p.projectKey)] : [{ queryKey: ['projects'] }],
+    p.op === 'deleted' && p.projectKey
+      ? [{ queryKey: ['projects'] }, ...issueTargets(p.projectKey)]
+      : [{ queryKey: ['projects'] }],
   label: configRule((pk) => [{ queryKey: ['labels', pk] }]),
   milestone: configRule((pk) => [{ queryKey: ['milestones', pk] }]),
-  cycle: configRule((pk) => [{ queryKey: ['cycles', pk] }, { queryKey: ['cycleProgress', pk] }]),
+  cycle: configRule((pk) => [
+    { queryKey: ['cycles', pk] },
+    { queryKey: ['cycleProgress', pk] },
+    { queryKey: ['issueCycles', pk] },
+  ]),
   'field-def': configRule((pk) => [{ queryKey: ['customFields', pk] }]),
   'issue-type': configRule((pk) => [{ queryKey: ['issueTypes', pk] }]),
   'saved-view': (p) => [
@@ -87,40 +113,40 @@ const RULES: Record<string, Rule> = {
     { queryKey: ['pinnedViews'] },
   ],
   // 범위 목록·상세(['calendar','events',…]·['calendar','event',id])·캘린더 목록·홈 위젯이 모두 ['calendar'] 아래에 있다.
-  'calendar-event': () => [{ queryKey: ['calendar'] }],
-  calendar: () => [{ queryKey: ['calendar'] }],
+  'calendar-event': () => [{ queryKey: calendarKeys.all }],
+  calendar: () => [{ queryKey: calendarKeys.all }],
   // 메시지 캐시(['messaging','messages'|'thread'…])는 기존 messaging.* 핸들러가 패치하므로 건드리지 않는다 — 목록·상세·멤버만.
   // 채널 멤버십은 연결된 드라이브 채널 스페이스 멤버도 바꾼다(ChannelDriveListener) → 드라이브 스페이스 목록도 무효화.
   channel: (p) => [
-    { queryKey: ['messaging', 'channels'] },
-    { queryKey: ['messaging', 'discover'] },
+    { queryKey: messagingKeys.channels() },
+    { queryKey: messagingKeys.discoverAll() },
     ...(p.channelId != null
-      ? [{ queryKey: ['messaging', 'detail', p.channelId] }, { queryKey: ['messaging', 'members', p.channelId] }]
+      ? [{ queryKey: messagingKeys.detail(p.channelId) }, { queryKey: messagingKeys.members(p.channelId) }]
       : []),
     { queryKey: ['messaging-summary'] },
-    { queryKey: ['drive', 'spaces'] },
+    { queryKey: driveKeys.spaces() },
   ],
   // 콘텐츠(의미) 검색·파일 요약·썸네일은 재계산 비용이 커서 제외 — 목록·휴지통·이름 검색·용량·첨부 뷰만. spaceId 로만 무효화(ids 비의존).
   drive: (p) => [
     ...(p.spaceId != null
       ? [
-          { queryKey: ['drive', 'items', p.spaceId] },
-          { queryKey: ['drive', 'trash', p.spaceId] },
-          { queryKey: ['drive', 'search', p.spaceId] },
+          { queryKey: driveKeys.itemsAll(p.spaceId) },
+          { queryKey: driveKeys.trash(p.spaceId) },
+          { queryKey: driveKeys.searchAll(p.spaceId) },
         ]
       : []),
-    { queryKey: ['drive', 'quota'] },
+    { queryKey: driveKeys.quota },
     { queryKey: ['drive-attachments'] },
     { queryKey: ['drive-file-backlinks'] },
   ],
   'drive-space': (p) => [
-    { queryKey: ['drive', 'spaces'] },
-    ...(p.spaceId != null ? [{ queryKey: ['drive', 'space', p.spaceId] }, { queryKey: ['drive', 'items', p.spaceId] }] : []),
+    { queryKey: driveKeys.spaces() },
+    ...(p.spaceId != null ? [{ queryKey: driveKeys.space(p.spaceId) }, { queryKey: driveKeys.itemsAll(p.spaceId) }] : []),
   ],
-  dm: () => [{ queryKey: ['messaging', 'dms'] }, { queryKey: ['messaging-summary'] }],
+  dm: () => [{ queryKey: messagingKeys.dms() }, { queryKey: ['messaging-summary'] }],
   // 연락처·알림 — 즐겨찾기/전체 읽음처럼 ids 가 비어도 루트 전체를 갱신한다.
-  contact: () => [{ queryKey: ['contacts'] }],
-  notification: () => [{ queryKey: ['notifications'] }],
+  contact: () => [{ queryKey: contactKeys.all }],
+  notification: () => [{ queryKey: notificationKeys.all }],
   // 이슈 채팅 스레드 응답(멤버 목록 포함)만 — 메시지 캐시(['chat','messages',…])는 chat.* 핸들러가 패치.
   'chat-thread': (p) =>
     p.projectKey && p.issueNumber != null ? [{ queryKey: ['chat', 'thread', p.projectKey, p.issueNumber] }] : [],
@@ -130,24 +156,33 @@ const RULES: Record<string, Rule> = {
       ? [{ queryKey: ['mail-messages', p.accountId] }, { queryKey: ['mail-needs-reply-count', p.accountId] }]
       : []),
     ...(p.messageId != null
-      ? [{ queryKey: ['mail-message', p.messageId] }, { queryKey: ['mail', 'linked-issue', p.messageId] }]
+      ? [{ queryKey: mailMessageKeys.detail(p.messageId) }, { queryKey: ['mail', 'linked-issue', p.messageId] }]
       : []),
     { queryKey: ['mail-summary'], exact: true },
   ],
-  // 계정 추가·해제는 모든 계정 목록과 외부 캘린더 표시에 영향
-  'mail-account': () => [
+  // 계정 추가·해제는 모든 계정 목록에 영향 — 개별 계정 수정(accountId>0)은 그 계정의 메일 목록만 다시 받는다(0 은 전 계정 일괄 설정).
+  // ['calendar'] 는 op 와 무관하게 유지: M365 연결(신규·IMAP→Graph 전환)이 upsert 라 updated 로 오는데 외부 캘린더 표시가 생긴다.
+  'mail-account': (p) => [
     { queryKey: ['mail-accounts'] },
-    { queryKey: ['mail-messages'] },
+    {
+      queryKey:
+        p.op === 'updated' && p.accountId != null && p.accountId > 0 ? ['mail-messages', p.accountId] : ['mail-messages'],
+    },
     { queryKey: ['mail-needs-reply-count'] },
     { queryKey: ['mail-summary'], exact: true },
-    { queryKey: ['calendar'] },
+    { queryKey: calendarKeys.all },
   ],
   'wiki-space': (p) => [
-    { queryKey: ['wiki', 'spaces'] },
-    ...(p.spaceId != null ? [{ queryKey: ['wiki', 'members', p.spaceId] }, { queryKey: ['wiki', 'tree', p.spaceId] }] : []),
+    { queryKey: wikiKeys.spaces() },
+    ...(p.spaceId != null ? [{ queryKey: wikiKeys.members(p.spaceId) }, { queryKey: wikiKeys.tree(p.spaceId) }] : []),
   ],
-  'wiki-attachment': (p) => (p.pageId != null ? [{ queryKey: ['wiki', 'page', p.pageId] }] : []),
+  'wiki-attachment': (p) => (p.pageId != null ? [{ queryKey: wikiKeys.page(p.pageId) }] : []),
 };
+
+/** 무효화 규칙이 있는 리소스 이름 — 백엔드 RESOURCE_* 상수와의 계약 테스트(resource-contract.json)용. */
+export function ruleResourceNames(): string[] {
+  return Object.keys(RULES);
+}
 
 export function invalidationTargets(p: ResourceChangedPayload): InvalidationTarget[] {
   // RULES 는 plain object 라 'toString'/'constructor' 같은 상속 키가 함수로 풀린다 — 자기 키만 인정.

@@ -37,6 +37,7 @@ import { formatFileSize } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 
 import { driveApi } from '../../api/drive'
+import { driveKeys } from '../../hooks/queries/driveKeys'
 import { useDriveQuota } from '../../hooks/queries/useDriveQuota'
 import { useDriveSpaces } from '../../hooks/queries/useDriveSpaces'
 import type { DriveSpace } from '../../types/drive'
@@ -94,7 +95,7 @@ export function DriveSidebar() {
 
   // 생성·이름 변경·삭제 후 공간 목록 갱신 — 재조회 완료까지 대기해 이후 navigate 시점에 목록이 최신이게 한다.
   async function reload() {
-    await queryClient.invalidateQueries({ queryKey: ['drive', 'spaces'] })
+    await queryClient.invalidateQueries({ queryKey: driveKeys.spaces() })
   }
 
   /**
