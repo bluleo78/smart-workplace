@@ -50,10 +50,11 @@ export default function SsoSettingsPage() {
               켜면 구성원이 Microsoft 계정으로 로그인할 수 있고, 비밀번호 없는 "SSO 전용" 구성원을 등록할 수 있습니다.
             </CardDescription>
           </div>
+          {/* 운영자 env 가 사라져(available=false) 켤 수는 없어도, 이미 켜져 있으면 끌 수는 있어야 한다. */}
           <Switch
             aria-labelledby="sso-toggle-label"
             checked={data?.enabled ?? false}
-            disabled={!data?.available || setEnabled.isPending}
+            disabled={(!data?.available && !data?.enabled) || setEnabled.isPending}
             onCheckedChange={onToggle}
           />
         </CardHeader>

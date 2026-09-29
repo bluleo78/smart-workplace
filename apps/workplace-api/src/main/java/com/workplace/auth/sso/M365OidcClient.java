@@ -2,8 +2,10 @@ package com.workplace.auth.sso;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -153,6 +155,8 @@ public class M365OidcClient {
           created.setJwtValidator(
               new DelegatingOAuth2TokenValidator<>(
                   new JwtTimestampValidator(),
+                  // JwtTimestampValidator 는 exp 가 없으면 만료 검사를 건너뛴다 — 무기한 토큰을 막기 위해 exp 존재를 강제.
+                  new JwtClaimValidator<Instant>(JwtClaimNames.EXP, Objects::nonNull),
                   tenantIssuerValidator(),
                   new JwtClaimValidator<List<String>>(
                       JwtClaimNames.AUD, aud -> aud != null && aud.contains(props.clientId()))));

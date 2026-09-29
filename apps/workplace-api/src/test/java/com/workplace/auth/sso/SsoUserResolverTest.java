@@ -157,6 +157,29 @@ class SsoUserResolverTest extends SsoIntegrationTestBase {
     assertDenied(token("oid-14", Map.of("upn", email)), "agent");
   }
 
+  /** 이미 연결된 계정도 비활성화되면 재로그인이 거부된다 — 연결 조회 경로도 진입 검사를 거친다. */
+  @Test
+  void relogin_deniedAfterDeactivation() {
+    String email = SsoTestData.uniqueEmail("gone");
+    long id = member(email);
+    resolver.resolve(token("oid-15", Map.of("upn", email)));
+    dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(id)).execute();
+    assertDenied(token("oid-15", Map.of("upn", email)), "inactive");
+  }
+
+  /** 이미 연결된 계정도 워크스페이스가 SSO 를 끄면 재로그인이 거부된다(SSO 켜진 워크스페이스 없음). */
+  @Test
+  void relogin_deniedAfterSsoDisabled() {
+    String email = SsoTestData.uniqueEmail("ssooff");
+    member(email);
+    resolver.resolve(token("oid-16", Map.of("upn", email)));
+    dsl.update(com.workplace.jooq.Tables.TENANT)
+        .set(com.workplace.jooq.Tables.TENANT.SSO_ENABLED, false)
+        .where(com.workplace.jooq.Tables.TENANT.ID.eq(ssoTenant))
+        .execute();
+    assertDenied(token("oid-16", Map.of("upn", email)), "no_workspace");
+  }
+
   private void assertDenied(Jwt jwt, String reason) {
     assertThatThrownBy(() -> resolver.resolve(jwt))
         .isInstanceOf(SsoLoginException.class)

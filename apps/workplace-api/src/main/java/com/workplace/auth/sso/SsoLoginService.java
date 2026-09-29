@@ -33,6 +33,12 @@ public class SsoLoginService {
   /** 실패 감사의 username — audit_log.username 이 NOT NULL 이고 실패 시점엔 사용자가 확정되지 않는다. */
   private static final String AUDIT_USERNAME = "sso";
 
+  /** Microsoft 왕복 전 state/쿠키 검증 실패 사유 — 감사하지 않는다. */
+  private static final String STATE_INVALID = "state_invalid";
+
+  /** 로그/감사 사유 최대 길이. */
+  private static final int MAX_REASON_LENGTH = 200;
+
   private final SsoProperties props;
   private final SsoTransactionCookie txCookie;
   private final M365OidcClient oidc;
@@ -77,7 +83,7 @@ public class SsoLoginService {
       Optional<SsoTransactionCookie.Tx> tx =
           rawTxCookie == null ? Optional.empty() : txCookie.read(rawTxCookie);
       if (tx.isEmpty() || p.state() == null || !p.state().equals(tx.get().state())) {
-        throw new SsoLoginException(SsoLoginException.RETRY, "state_invalid");
+        throw new SsoLoginException(SsoLoginException.RETRY, STATE_INVALID);
       }
       if (p.error() != null) {
         throw new SsoLoginException(
@@ -110,21 +116,42 @@ public class SsoLoginService {
               + URLEncoder.encode(tx.get().returnTo(), StandardCharsets.UTF_8);
       return new Redirect(location, List.of(clearTx, refreshCookies.issue(session.refreshToken())));
     } catch (SsoLoginException e) {
+      // 사유에는 IdP 가 보낸 error 파라미터 등 외부 입력이 섞인다 — 로그/감사 주입을 막기 위해 개행 제거·길이 제한.
+      String reason = sanitize(e.reason());
+      if (STATE_INVALID.equals(reason)) {
+        // state 불일치/쿠키 없음은 Microsoft 왕복 전 단계라 누구나 무한히 유발할 수 있다 — 감사 테이블을 채우지 않게 로그만 남긴다.
+        log.info("SSO 로그인 실패 code={} reason={}", e.webCode(), reason);
+        return new Redirect(errorPath(e.webCode()), List.of(clearTx));
+      }
       auditLogService.log(
           null,
           AUDIT_USERNAME,
           "LOGIN_FAILED",
           "auth",
           null,
-          "SSO 로그인 실패: " + e.reason(),
+          "SSO 로그인 실패: " + reason,
           null,
           null,
           "FAILURE",
-          e.reason(),
+          reason,
           Map.of("method", "sso", "code", e.webCode()));
-      log.info("SSO 로그인 실패 code={} reason={}", e.webCode(), e.reason());
+      log.info("SSO 로그인 실패 code={} reason={}", e.webCode(), reason);
       return new Redirect(errorPath(e.webCode()), List.of(clearTx));
+    } catch (RuntimeException e) {
+      // 예상 못 한 예외(DB·JSON 등)도 사용자에겐 재시도 안내로 돌려보내고 트랜잭션 쿠키를 지운다.
+      // 메시지·스택에 토큰/코드가 섞일 수 있어 예외 타입만 남긴다.
+      log.warn("SSO 로그인 처리 중 예외 type={}", e.getClass().getName());
+      return new Redirect(errorPath(SsoLoginException.RETRY), List.of(clearTx));
     }
+  }
+
+  /** 로그/감사에 넣을 외부 유래 문자열 정제 — CR/LF 제거, 최대 {@value #MAX_REASON_LENGTH}자. */
+  private static String sanitize(String value) {
+    if (value == null) {
+      return null;
+    }
+    String flat = value.replace('\r', ' ').replace('\n', ' ');
+    return flat.length() > MAX_REASON_LENGTH ? flat.substring(0, MAX_REASON_LENGTH) : flat;
   }
 
   private static String errorPath(String code) {

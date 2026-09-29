@@ -27,6 +27,16 @@ test('운영자 미설정이면 토글이 비활성이고 안내가 보인다', 
   await expect(page.getByText('SSO 를 사용하려면 운영자 설정이 필요합니다.')).toBeVisible()
 })
 
+test('운영자 설정이 사라져도 켜져 있으면 끌 수 있다', async ({ adminPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/admin/sso', settings({ available: false, enabled: true, adminConsentUrl: null }))
+  const put = await mockApi(page, 'PUT', '/api/v1/admin/sso/enabled', null, { status: 204, capture: true })
+  await page.goto('/settings/sso')
+  const toggle = page.getByRole('switch', { name: 'SSO 로그인 사용' })
+  await expect(toggle).toBeEnabled()
+  await toggle.click()
+  await expect.poll(() => put.lastRequest()?.payload).toEqual({ enabled: false })
+})
+
 test('동의 링크를 복사한다', async ({ adminPage: page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await mockApi(page, 'GET', '/api/v1/admin/sso', settings())

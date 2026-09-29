@@ -100,6 +100,15 @@ class M365OidcClientTest extends SsoIntegrationTestBase {
     assertThatThrownBy(() -> client.decode(idToken, "n1")).isInstanceOf(SsoLoginException.class);
   }
 
+  /** exp 없는 id_token 은 만료 검사를 건너뛰므로(JwtTimestampValidator) 명시적으로 거부한다(WP-48). */
+  @Test
+  void decode_rejectsMissingExp() {
+    FAKE.claims(
+        f -> FAKE.claimsBuilder(TID, "oid-1").claim("nonce", "n1").expirationTime(null).build());
+    String idToken = client.exchange("c", "v");
+    assertThatThrownBy(() -> client.decode(idToken, "n1")).isInstanceOf(SsoLoginException.class);
+  }
+
   @Test
   void decode_rejectsUnpublishedSigningKey() throws Exception {
     FAKE.signWithUnpublishedKey();
