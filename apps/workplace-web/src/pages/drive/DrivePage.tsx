@@ -1114,8 +1114,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             {/* #82/#588: 벌크 툴바 + 전체선택 — 검색 결과 분기와 공유하는 렌더 헬퍼. */}
             {renderBulkToolbar()}
             {renderSelectAll(
-              items.folders.map((f) => f.id),
-              items.files.map((f) => f.id),
+              actualItems.folders.map((f) => f.id),
+              actualItems.files.map((f) => f.id),
             )}
             {/* #799: 3열(이름/크기/수정일) 헤더 — 비인터랙티브 레이블(정렬 없음). */}
             {renderColumnHeader()}

@@ -11,6 +11,8 @@ export function useDriveItems(spaceId?: number, folderId?: number, options?: { k
     queryFn: () => driveApi.listItems(spaceId as number, folderId ?? null).then((r) => r.data),
     enabled: typeof spaceId === 'number',
     retry: false,
-    placeholderData: options?.keepPrevious ? keepPreviousData : undefined,
+    // 같은 공간 안의 폴더 전환일 때만 이전 목록을 유지 — 공간이 바뀌면 다른 공간 행이 새 sid 의 액션과 섞이므로 비운다.
+    placeholderData: (prev, prevQuery) =>
+      options?.keepPrevious && prevQuery?.queryKey[2] === spaceId ? keepPreviousData(prev) : undefined,
   })
 }

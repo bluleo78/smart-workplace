@@ -117,3 +117,57 @@ test.describe('드라이브 실시간 반영 (WP-63)', () => {
     await expect(page.getByTestId('select-file-20')).toBeVisible()
   })
 })
+
+test.describe('드라이브 전환 중 목록 유지 (WP-63)', () => {
+  test('같은 공간의 폴더 전환 — 새 목록이 오기 전까지 이전 목록을 유지하고 빈 폴더 문구를 숨긴다', async ({ authenticatedPage: page }) => {
+    await stubSpaces(page, () => [personalSpace(), createSpace()])
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+      async (route) => {
+        const inFolder = new URL(route.request().url()).searchParams.get('parentId') === '10'
+        if (inFolder) await new Promise((r) => setTimeout(r, 1500))
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            inFolder
+              ? { folders: [], files: [createFile({ id: 31, name: 'inner.txt', folderId: 10 })] }
+              : { folders: [{ id: 10, parentId: null, name: '문서', createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z' }], files: [createFile({ id: 20, name: 'root.txt' })] },
+          ),
+        })
+      },
+    )
+    await mockGatedEvents(page)
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await expect(page.getByText('root.txt')).toBeVisible()
+
+    await page.getByText('문서', { exact: true }).first().click()
+    await expect(page.getByText('root.txt')).toBeVisible()
+    await expect(page.getByTestId('drive-empty-folder')).toHaveCount(0)
+    await expect(page.getByText('inner.txt')).toBeVisible()
+    await expect(page.getByText('root.txt')).toHaveCount(0)
+  })
+
+  test('공간 전환 — 새 공간 응답 전에 이전 공간 파일이 보이지 않는다', async ({ authenticatedPage: page }) => {
+    await stubSpaces(page, () => [personalSpace(), createSpace(), createSpace({ id: 2, name: '두번째' })])
+    await page.route(
+      (url) => /^\/api\/v1\/drive\/spaces\/[12]\/items$/.test(url.pathname),
+      async (route) => {
+        const two = route.request().url().includes('/spaces/2/')
+        if (two) await new Promise((r) => setTimeout(r, 1500))
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ folders: [], files: [two ? createFile({ id: 41, name: 'space2.txt' }) : createFile({ id: 40, name: 'space1.txt' })] }),
+        })
+      },
+    )
+    await mockGatedEvents(page)
+    await page.goto('/drive/spaces/1')
+    await expect(page.getByText('space1.txt')).toBeVisible()
+
+    await page.getByTestId('drive-space-list').getByText('두번째').click()
+    await expect(page.getByText('space1.txt')).toHaveCount(0)
+    await expect(page.getByText('space2.txt')).toBeVisible()
+  })
+})
