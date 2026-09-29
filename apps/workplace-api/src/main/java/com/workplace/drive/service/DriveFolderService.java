@@ -1,5 +1,9 @@
 package com.workplace.drive.service;
 
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
+
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.DriveFolderPathSegment;
 import com.workplace.drive.dto.DriveFolderResponse;
@@ -7,6 +11,7 @@ import com.workplace.drive.dto.DriveItemListResponse;
 import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
+import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.file.service.FileUploadService;
@@ -32,6 +37,9 @@ public class DriveFolderService {
   private final FileUploadService fileUpload;
   private final org.jooq.DSLContext dsl;
 
+  /** 드라이브 변경 resource.changed 발행(WP-63). */
+  private final DriveChangeNotifier notifier;
+
   @Transactional
   public DriveFolderResponse create(long callerId, long spaceId, Long parentId, String name) {
     perms.requireRole(spaceId, callerId, "EDITOR");
@@ -40,6 +48,7 @@ public class DriveFolderService {
       throw new DriveDuplicateNameException(name);
     }
     long id = folders.insert(spaceId, parentId, name);
+    notifier.itemsChanged(OP_CREATED, spaceId, List.of(id), callerId);
     return folders.findById(id).orElseThrow(() -> new DriveFolderNotFoundException(id));
   }
 
@@ -58,15 +67,18 @@ public class DriveFolderService {
         .orElseGet(
             () -> {
               long id = folders.insert(spaceId, parentId, nfcName);
+              // 실제로 생성했을 때만 발행 — 기존 폴더 재사용(merge)은 변경이 아니다.
+              notifier.itemsChanged(OP_CREATED, spaceId, List.of(id), callerId);
               return folders.findById(id).orElseThrow(() -> new DriveFolderNotFoundException(id));
             });
   }
 
   @Transactional
   public DriveFolderResponse rename(long callerId, long folderId, String name) {
-    requireFolderSpace(callerId, folderId, "EDITOR");
+    long spaceId = requireFolderSpace(callerId, folderId, "EDITOR");
     name = UnicodeNames.toNfc(name); // 폴더명 NFC 정규화(검색 일관).
     folders.rename(folderId, name);
+    notifier.itemsChanged(OP_UPDATED, spaceId, List.of(folderId), callerId);
     return folders.findById(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
   }
 
@@ -87,8 +99,12 @@ public class DriveFolderService {
   @Transactional
   public void delete(long callerId, long folderId) {
     validateDeletable(callerId, folderId);
+    // validateDeletable 통과 = 폴더 존재 — 삭제 전 공간 id 를 확보해 발행에 쓴다.
+    long spaceId =
+        folders.findSpaceId(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
     long opId = dsl.nextval(com.workplace.jooq.Sequences.DRIVE_TRASH_OP_SEQ);
     folders.markSubtreeTrashed(folderId, opId);
+    notifier.itemsChanged(OP_DELETED, spaceId, List.of(folderId), callerId);
   }
 
   @Transactional(readOnly = true)
@@ -130,6 +146,14 @@ public class DriveFolderService {
   /** 이동 — 같은 공간 내 다른 부모로 parent_id 변경. 자신·하위로의 이동은 거부. */
   @Transactional
   public void move(long callerId, long folderId, Long targetParentId) {
+    move(callerId, folderId, targetParentId, true);
+  }
+
+  /**
+   * 이동 본체. notify=false 면 resource.changed 를 발행하지 않는다 — 벌크 이동이 항목마다 발행하지 않고 끝에서 1건으로 묶기 위함(WP-63).
+   */
+  @Transactional
+  public void move(long callerId, long folderId, Long targetParentId, boolean notify) {
     DriveFolderResponse self =
         folders.findById(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
     long spaceId =
@@ -144,6 +168,9 @@ public class DriveFolderService {
       throw new DriveDuplicateNameException(self.name());
     }
     folders.updateParent(folderId, targetParentId);
+    if (notify) {
+      notifier.itemsChanged(OP_UPDATED, spaceId, List.of(folderId), callerId);
+    }
   }
 
   /**
@@ -165,6 +192,7 @@ public class DriveFolderService {
       throw new DriveDuplicateNameException(src.name());
     }
     long newRootId = copyTree(callerId, spaceId, folderId, targetParentId, src.name());
+    notifier.itemsChanged(OP_CREATED, spaceId, List.of(newRootId), callerId);
     return folders
         .findById(newRootId)
         .orElseThrow(() -> new DriveFolderNotFoundException(newRootId));

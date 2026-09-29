@@ -28,6 +28,14 @@ public class DriveSpaceMemberRepository {
         .execute();
   }
 
+  /** 스페이스 멤버 userId — DRIVE_SPACE SSE 수신자. PERSONAL 스페이스도 소유자 OWNER 행이 있어 한 쿼리로 모든 유형을 커버한다. */
+  public List<Long> memberUserIds(long spaceId) {
+    return dsl.select(DRIVE_SPACE_MEMBER.USER_ID)
+        .from(DRIVE_SPACE_MEMBER)
+        .where(DRIVE_SPACE_MEMBER.SPACE_ID.eq(spaceId))
+        .fetch(DRIVE_SPACE_MEMBER.USER_ID);
+  }
+
   public Optional<String> findRole(long spaceId, long userId) {
     return dsl.select(DRIVE_SPACE_MEMBER.ROLE)
         .from(DRIVE_SPACE_MEMBER)

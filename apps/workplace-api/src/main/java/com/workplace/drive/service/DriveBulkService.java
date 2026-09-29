@@ -1,12 +1,17 @@
 package com.workplace.drive.service;
 
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
+
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
+import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.user.repository.UserRepository;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +33,9 @@ public class DriveBulkService {
   private final UserRepository userRepository;
   private final DriveFileService fileService;
   private final DriveFolderService folderService;
+
+  /** 드라이브 변경 resource.changed 발행(WP-63) — 일괄 작업은 이벤트 1건에 ids 를 묶는다. */
+  private final DriveChangeNotifier notifier;
 
   /**
    * 벌크 삭제 — 선택된 파일/폴더를 휴지통으로(soft). 배치 전체가 동일 op-id 공유. 항목이 요청 공간(spaceId)에 속하지 않으면
@@ -74,6 +82,7 @@ public class DriveBulkService {
             Map.of("spaceId", spaceId, "fileName", row.name(), "bulkOpId", opId));
       }
     }
+    notifier.itemsChanged(OP_DELETED, spaceId, union(fileIds, folderIds), callerId);
   }
 
   /**
@@ -86,14 +95,24 @@ public class DriveBulkService {
     perms.requireRole(spaceId, callerId, "EDITOR");
     if (folderIds != null) {
       for (Long folderId : folderIds) {
-        folderService.move(callerId, folderId, targetFolderId);
+        folderService.move(callerId, folderId, targetFolderId, false);
       }
     }
     if (fileIds != null) {
       for (Long fileId : fileIds) {
-        fileService.move(callerId, fileId, targetFolderId);
+        fileService.move(callerId, fileId, targetFolderId, false);
       }
     }
+    // 단건 move 는 notify=false 로 발행을 껐으므로 여기서 1건으로 묶어 발행한다.
+    notifier.itemsChanged(OP_UPDATED, spaceId, union(fileIds, folderIds), callerId);
+  }
+
+  /** null 허용 두 id 목록의 합집합(이벤트 ids 용). */
+  private static List<Long> union(List<Long> a, List<Long> b) {
+    List<Long> all = new ArrayList<>();
+    if (a != null) all.addAll(a);
+    if (b != null) all.addAll(b);
+    return all;
   }
 
   /** 감사 로그용 사용자명. 없으면 id 문자열. */

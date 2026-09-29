@@ -1,5 +1,9 @@
 package com.workplace.drive.service;
 
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
+
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.FileSummaryResponse;
@@ -7,6 +11,7 @@ import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
+import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.outbound.DriveFileUploadedEvent;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
@@ -51,6 +56,9 @@ public class DriveFileService {
 
   /** 파일 콘텐츠 요약 읽기(#526) — file_extraction.summary 조회. */
   private final com.workplace.drive.repository.DriveFileSummaryRepository summaries;
+
+  /** 드라이브 변경 resource.changed 발행(WP-63). */
+  private final DriveChangeNotifier notifier;
 
   /**
    * 업로드 → 쿼터 검사(advisory lock) → file core 저장 → 영구화 → drive_file 바인딩. 동명 활성 파일이 있으면 새 버전으로 흡수(#79),
@@ -128,6 +136,8 @@ public class DriveFileService {
             file.getSize(),
             storageKey != null ? storageKey : ""));
 
+    // 새 버전 흡수도 created 로 둔다(프론트는 op 구분 없이 목록을 갱신).
+    notifier.itemsChanged(OP_CREATED, spaceId, List.of(driveFileId), callerId);
     final long fid = driveFileId;
     return files.listInFolder(spaceId, folderId).stream()
         .filter(f -> f.id() == fid)
@@ -228,6 +238,7 @@ public class DriveFileService {
         "SUCCESS",
         null,
         Map.of("spaceId", row.spaceId(), "fileName", row.name()));
+    notifier.itemsChanged(OP_DELETED, row.spaceId(), List.of(driveFileId), callerId);
   }
 
   /** 추출 파이프라인 이벤트 발행용 — 업로드 커밋 후 FileExtractionListener 가 file_extraction 행 생성. */
@@ -300,6 +311,7 @@ public class DriveFileService {
         callerId,
         "v" + targetVersionNo + "에서 복원");
     files.setCurrentVersion(driveFileId, newFileId, newVersionNo);
+    notifier.itemsChanged(OP_UPDATED, row.spaceId(), List.of(driveFileId), callerId);
 
     auditLogService.log(
         callerId,
@@ -325,6 +337,14 @@ public class DriveFileService {
   /** 이동 — 같은 공간 다른 폴더로 folder_id 변경. 같은 폴더면 no-op. 동명 충돌 시 409. */
   @Transactional
   public void move(long callerId, long driveFileId, Long targetFolderId) {
+    move(callerId, driveFileId, targetFolderId, true);
+  }
+
+  /**
+   * 이동 본체. notify=false 면 resource.changed 를 발행하지 않는다 — 벌크 이동이 항목마다 발행하지 않고 끝에서 1건으로 묶기 위함(WP-63).
+   */
+  @Transactional
+  public void move(long callerId, long driveFileId, Long targetFolderId, boolean notify) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
@@ -338,6 +358,9 @@ public class DriveFileService {
       throw new DriveDuplicateNameException(row.name());
     }
     files.updateFolder(driveFileId, targetFolderId);
+    if (notify) {
+      notifier.itemsChanged(OP_UPDATED, row.spaceId(), List.of(driveFileId), callerId);
+    }
   }
 
   /** 복사 — blob 물리 복제(영구) 후 새 drive_file 바인딩. 단일 txn(promote 단계 없음). */
@@ -374,6 +397,7 @@ public class DriveFileService {
             row.name(),
             copiedSizeBytes == null ? 0L : copiedSizeBytes,
             callerId);
+    notifier.itemsChanged(OP_CREATED, row.spaceId(), List.of(newDriveFileId), callerId);
     return files.listInFolder(row.spaceId(), targetFolderId).stream()
         .filter(f -> f.id() == newDriveFileId)
         .findFirst()

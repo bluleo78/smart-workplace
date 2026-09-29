@@ -1,8 +1,12 @@
 package com.workplace.drive.service;
 
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
+
 import com.workplace.drive.dto.DriveFolderResponse;
 import com.workplace.drive.dto.DriveTrashItemResponse;
 import com.workplace.drive.dto.DriveTrashListResponse;
+import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFileVersionRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
@@ -25,6 +29,9 @@ public class DriveTrashService {
   private final DriveFileRepository files;
   private final DriveFileVersionRepository versions; // 전 버전 blob file_id 조회 (#79)
   private final DrivePermissions perms;
+
+  /** 드라이브 변경 resource.changed 발행(WP-63). purgeExpired(스케줄 잡)는 발행하지 않는다 — 결정 6. */
+  private final DriveChangeNotifier notifier;
 
   /** 휴지통 보존기간(일). 경과 시 자동 영구삭제. */
   @Value("${drive.trash.retention-days:30}")
@@ -91,6 +98,7 @@ public class DriveTrashService {
     // 3) 안전한 이름/부모 확정 후 op 단위 일괄 복원(trashed_at=NULL)
     folders.restoreByOp(meta.opId());
     files.restoreByOp(meta.opId());
+    notifier.itemsChanged(OP_UPDATED, meta.spaceId(), List.of(folderId), callerId);
   }
 
   /**
@@ -121,6 +129,7 @@ public class DriveTrashService {
     // 3) 안전한 이름 확정 후 op 단위 복원(trashed_at=NULL)
     folders.restoreByOp(meta.opId());
     files.restoreByOp(meta.opId());
+    notifier.itemsChanged(OP_UPDATED, meta.spaceId(), List.of(driveFileId), callerId);
   }
 
   /** 파일 영구삭제 — trash_root 확인 후 blob 만료 + 행 하드삭제. EDITOR. */
@@ -137,6 +146,7 @@ public class DriveTrashService {
     // 현재 버전뿐 아니라 전 버전 blob 모두 만료 처리 (#79)
     files.expireFiles(versions.fileIdsForDriveFile(driveFileId));
     files.delete(driveFileId);
+    notifier.itemsChanged(OP_DELETED, meta.spaceId(), List.of(driveFileId), callerId);
   }
 
   /** 폴더 영구삭제 — 서브트리 blob 만료 + 행 하드삭제(CASCADE). EDITOR. */
@@ -151,6 +161,7 @@ public class DriveTrashService {
     perms.requireRole(meta.spaceId(), callerId, "EDITOR");
     files.expireFiles(folders.findFileIdsUnderFolder(folderId)); // 서브트리(중첩 op 포함) 전체
     folders.delete(folderId); // CASCADE
+    notifier.itemsChanged(OP_DELETED, meta.spaceId(), List.of(folderId), callerId);
   }
 
   /** 휴지통 비우기 — 공간의 모든 trashed 행 제거. EDITOR. */
@@ -160,6 +171,8 @@ public class DriveTrashService {
     files.expireFiles(files.trashedFileIds(spaceId));
     files.deleteTrashedInSpace(spaceId); // 파일 행 먼저
     folders.deleteTrashedRootsInSpace(spaceId); // 폴더(CASCADE)
+    // 대상이 다수·불특정이라 ids 는 비우고 spaceId 로 목록 전체를 무효화하게 한다.
+    notifier.itemsChanged(OP_DELETED, spaceId, List.of(), callerId);
   }
 
   /** cutoff 이전 trash_root 전체 영구삭제(스케줄 잡 진입). 권한 검사 없음(시스템). */

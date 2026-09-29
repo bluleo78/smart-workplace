@@ -1,5 +1,7 @@
 package com.workplace.drive.service;
 
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
+
 import com.workplace.drive.api.AttachmentSourceProvider;
 import com.workplace.drive.api.DriveLinkSourceResolver;
 import com.workplace.drive.dto.BacklinkResponse;
@@ -9,6 +11,7 @@ import com.workplace.drive.dto.VirtualAttachmentPage;
 import com.workplace.drive.dto.VirtualAttachmentResponse;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveForbiddenException;
+import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRefRepository;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.file.service.FileUploadService;
@@ -36,6 +39,9 @@ public class DriveLinkService {
   private final DrivePermissions perms;
   private final FileUploadService fileUpload;
 
+  /** 드라이브 변경 resource.changed 발행(WP-63). */
+  private final DriveChangeNotifier notifier;
+
   /** sourceType → resolver 인덱스 (백링크 해석용). */
   private final Map<String, DriveLinkSourceResolver> resolvers;
 
@@ -47,12 +53,14 @@ public class DriveLinkService {
       DriveFileRepository fileRepo,
       DrivePermissions perms,
       FileUploadService fileUpload,
+      DriveChangeNotifier notifier,
       List<DriveLinkSourceResolver> resolverList,
       List<AttachmentSourceProvider> providerList) {
     this.refRepo = refRepo;
     this.fileRepo = fileRepo;
     this.perms = perms;
     this.fileUpload = fileUpload;
+    this.notifier = notifier;
     this.resolvers =
         resolverList.stream()
             .collect(Collectors.toMap(DriveLinkSourceResolver::sourceType, Function.identity()));
@@ -282,6 +290,7 @@ public class DriveLinkService {
     String name = fileRepo.findFileOriginalName(fileId);
     long driveFileId = fileRepo.insert(spaceId, folderId, fileId, name);
     fileRepo.promoteFile(fileId); // expires_at = NULL(영구화)
+    notifier.itemsChanged(OP_CREATED, spaceId, List.of(driveFileId), callerId);
     return fileRepo
         .findResponse(driveFileId)
         .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
