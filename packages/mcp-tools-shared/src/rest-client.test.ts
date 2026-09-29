@@ -8,6 +8,39 @@ function mockHttp() {
   return { http, client: createSharedToolClient(http as HttpLike) };
 }
 
+describe('createSharedToolClient 연락처 부가 기능 경로(#839)', () => {
+  it('즐겨찾기 해제는 DELETE 본문(config.data)으로 대상을 보낸다', async () => {
+    const { http, client } = mockHttp();
+    await client.addContactFavorite({ targetType: 'MEMBER', targetId: 3 });
+    expect(http.post).toHaveBeenCalledWith('/contacts/favorites', { targetType: 'MEMBER', targetId: 3 });
+    await client.removeContactFavorite({ targetType: 'EXTERNAL', targetId: 9 });
+    expect(http.delete).toHaveBeenCalledWith('/contacts/favorites', { data: { targetType: 'EXTERNAL', targetId: 9 } });
+  });
+
+  it('facets·그룹 조회/생성/수정/멤버 경로', async () => {
+    const { http, client } = mockHttp();
+    await client.getContactFacets();
+    expect(http.get).toHaveBeenCalledWith('/contacts/facets');
+    await client.listUserGroups();
+    expect(http.get).toHaveBeenCalledWith('/user-groups');
+    await client.getUserGroup(10);
+    expect(http.get).toHaveBeenCalledWith('/user-groups/10');
+    await client.createUserGroup({ name: 'g', visibility: 'PERSONAL' });
+    expect(http.post).toHaveBeenCalledWith('/user-groups', { name: 'g', visibility: 'PERSONAL' });
+    await client.updateUserGroup(10, { name: 'g', moveToRoot: true });
+    expect(http.patch).toHaveBeenCalledWith('/user-groups/10', { name: 'g', moveToRoot: true });
+    await client.addUserGroupMember(10, { targetType: 'MEMBER', targetId: 3 });
+    expect(http.post).toHaveBeenCalledWith('/user-groups/10/members', { targetType: 'MEMBER', targetId: 3 });
+    await client.removeUserGroupMember(10, { targetType: 'EXTERNAL', targetId: 9 });
+    expect(http.delete).toHaveBeenCalledWith('/user-groups/10/members/EXTERNAL/9');
+  });
+
+  it('listUserGroups 는 빈 응답을 {} 로 채운다', async () => {
+    const { client } = mockHttp();
+    expect(await client.listUserGroups()).toEqual({});
+  });
+});
+
 describe('createSharedToolClient 경로 매핑', () => {
   it('issueKey → /projects/{key}/issues/{number}', async () => {
     const { http, client } = mockHttp();

@@ -25,6 +25,7 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.UpdateMemberRoleRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.user.dto.SetRolesByNamesRequest;
+import com.workplace.user.service.UserGroupService;
 import com.workplace.user.service.UserService;
 import com.workplace.wiki.service.WikiPageService;
 import jakarta.validation.ConstraintViolation;
@@ -68,6 +69,7 @@ public class ConfirmActionDispatcher {
   private final IssueCommentService commentService; // #856 코멘트 삭제
   private final ChannelMemberService channelMemberService; // #856 채널 멤버 초대
   private final WikiPageService wikiPageService; // #856 노트 페이지 삭제
+  private final UserGroupService userGroupService; // #839 사용자 그룹 삭제
   private final PermissionChecker permissionChecker;
   private final Validator validator;
   private final ObjectMapper objectMapper;
@@ -115,7 +117,10 @@ public class ConfirmActionDispatcher {
           Map.entry("messaging.leave_channel", ""), // 본인 나가기 — OWNER 이양 필요 경계를 서비스가 강제(#860)
           Map.entry("issue.delete", "issue:write"), // reporter·OWNER·ADMIN 경계는 서비스가 강제
           Map.entry("issue.delete_comment", "issue:write"), // 작성자·OWNER 경계는 서비스가 강제
-          Map.entry("wiki.delete_page", "")); // 공간 역할(EDITOR) 경계를 서비스가 강제
+          Map.entry("wiki.delete_page", ""), // 공간 역할(EDITOR) 경계를 서비스가 강제
+          // #839 — UserGroupController 와 같은 contact:read. SHARED=user-group:manage / PERSONAL=소유자
+          // 경계는 서비스가 강제.
+          Map.entry("contacts.delete_user_group", "contact:read"));
 
   /**
    * 확인 카드 승인 실행 — 준비(prepare) 후 실행(execute).
@@ -377,6 +382,14 @@ public class ConfirmActionDispatcher {
         return new PreparedAction(
             () -> wikiPageService.validateDeletable(callerId, id),
             deleted(id, () -> wikiPageService.delete(callerId, id)));
+      }
+      case "contacts.delete_user_group" -> {
+        // #839 그룹 삭제는 하위 그룹·멤버십까지 캐스케이드되고 복원 API 가 없어 확인 카드를 거친다.
+        requireOnly(params, "id");
+        long id = requireLong(params, "id");
+        return new PreparedAction(
+            () -> userGroupService.validateDeletable(callerId, id),
+            deleted(id, () -> userGroupService.delete(callerId, id)));
       }
       default -> {
         return null;

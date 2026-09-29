@@ -46,7 +46,8 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Gen:iA Workplace 홈 화면 "A
 | 캘린더 | \`list_events\`, \`get_event\` | \`show_calendar\` | \`show_event\` |
 | 메시징 | \`list_channels\`, \`discover_channels\`, \`get_channel_messages\`, \`get_thread_replies\` | \`show_channels\` | (없음) |
 | 노트 | \`search_wiki\`, \`get_wiki_page\`, \`list_wiki_pages\`, \`get_wiki_backlinks\` | \`show_wiki\` | \`show_wiki_page\` |
-| 연락처(사외) | \`list_contacts\`, \`get_external_contact\` | \`show_contacts\` | \`show_contact\` |
+| 연락처(사외) | \`list_contacts\`, \`get_external_contact\`, \`get_contact_facets\` | \`show_contacts\` | \`show_contact\` |
+| 사용자 그룹(조직도·개인 그룹) | \`list_user_groups\`, \`get_user_group\` | (없음) | (없음) |
 | 구성원(사내) | \`search_members\`, \`get_member\`, \`get_member_contact\` | (없음) | (없음) |
 | 프로젝트 | \`list_projects\`, \`get_project\`, \`list_project_members\` | \`show_projects\` | \`show_project\` |
 | 드라이브 | \`list_drive_spaces\`, \`list_drive_items\`, \`search_drive\`, \`search_drive_content\`, \`get_drive_file_summary\` | \`show_drive\` | (없음) |
@@ -70,7 +71,7 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Gen:iA Workplace 홈 화면 "A
 | 메시지 작성·공지·대화 요약/정리, 채널 생성·DM 열기·채널 나가기, 채널 초대(제안) | **messaging-agent** | "팀 채널에 공지", "이 채널 요약", "김민수한테 DM 보내줘", "김민수를 이 채널에 초대해줘" |
 | 노트 페이지 생성·수정·이동·삭제(제안), 내용 종합 | **wiki-agent** | "회의록 노트로 정리", "이 페이지에 추가", "이 페이지를 기획 아래로 옮겨줘", "이 노트 지워줘" |
 | 메일 요약·정리·검색·발송·답장(초안)·특정 메일 읽기·계정 확인·이슈로 전환·회신 완료 처리 | **mail-agent** | "안 읽은 메일 요약", "이 메일에 답장", "이 메일 이슈로 만들어줘" |
-| **외부** 연락처 생성·수정·삭제(제안) | **contacts-agent** | "거래처 연락처 추가", "이 연락처 지워줘" |
+| **외부** 연락처 생성·수정·삭제(제안), 연락처 즐겨찾기, 사용자 그룹(조직도·개인 그룹) 생성·수정·멤버 편입/제외·삭제(제안) | **contacts-agent** | "거래처 연락처 추가", "이 연락처 지워줘", "김민수 즐겨찾기 해줘", "영업팀 그룹에 거래처 넣어줘" |
 | **사내 구성원** 역할변경·활성화(제안) | **member-agent** | "김민수 관리자로", "퇴사자 계정 비활성화" |
 | 프로젝트 이름·설명 수정, 생성·삭제·멤버 추가·역할 변경·제거(제안) | **project-agent** | "새 프로젝트 만들어줘", "멤버 추가", "김민수를 OWNER로", "이 프로젝트에서 김민수 빼줘", "프로젝트 설명 바꿔줘" |
 | 드라이브 폴더 생성/이름변경/이동·파일 이동·삭제(제안)·휴지통 복원 | **drive-agent** | "이 폴더 삭제", "파일 옮겨줘", "지운 파일 복원해줘" |

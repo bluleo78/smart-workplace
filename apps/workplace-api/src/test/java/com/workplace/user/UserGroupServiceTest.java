@@ -143,6 +143,14 @@ class UserGroupServiceTest extends IntegrationTestBase {
         .anyMatch(m -> m.targetType().equals("MEMBER") && m.targetId() == memberUser);
     assertThat(after.members())
         .anyMatch(m -> m.targetType().equals("EXTERNAL") && m.targetId() == contactId);
+    // #839: MEMBER 는 username 을 실어 AI 도구가 숫자 id 대신 username 으로 가리키게 한다. EXTERNAL 은 null.
+    String expectedUsername =
+        dsl.select(USER.USERNAME).from(USER).where(USER.ID.eq(memberUser)).fetchOne(USER.USERNAME);
+    assertThat(after.members())
+        .anyMatch(m -> m.targetType().equals("MEMBER") && expectedUsername.equals(m.username()));
+    assertThat(after.members())
+        .filteredOn(m -> m.targetType().equals("EXTERNAL"))
+        .allMatch(m -> m.username() == null);
   }
 
   /** 편입 이후 비활성화된 멤버는 그룹 상세(조직도)에서도 사라진다(#832) — 목록/상세와 동일 술어. 행 자체는 남으므로 재활성화 시 되살아난다. */
@@ -251,7 +259,9 @@ class UserGroupServiceTest extends IntegrationTestBase {
     long plain = user();
     UserGroupDetail g = service.create(admin, req("부서", null, "SHARED"));
     assertThatThrownBy(
-            () -> service.update(plain, g.id(), new UpdateUserGroupRequest("수정", null, null, 0)))
+            () ->
+                service.update(
+                    plain, g.id(), new UpdateUserGroupRequest("수정", null, null, null, null, null)))
         .isInstanceOf(UserGroupForbiddenException.class);
   }
 
@@ -264,7 +274,9 @@ class UserGroupServiceTest extends IntegrationTestBase {
     assertThatThrownBy(
             () ->
                 service.update(
-                    caller, parent.id(), new UpdateUserGroupRequest("부모", child.id(), null, 0)))
+                    caller,
+                    parent.id(),
+                    new UpdateUserGroupRequest(null, child.id(), null, null, null, null)))
         .isInstanceOf(InvalidUserGroupException.class);
   }
 
@@ -289,8 +301,79 @@ class UserGroupServiceTest extends IntegrationTestBase {
     UserGroupDetail parent = service.create(caller, req("부모", null, "PERSONAL"));
     UserGroupDetail child = service.create(caller, req("자식", parent.id(), "PERSONAL"));
     UserGroupDetail updated =
-        service.update(caller, child.id(), new UpdateUserGroupRequest("자식", null, null, 0));
+        service.update(
+            caller, child.id(), new UpdateUserGroupRequest(null, null, true, null, null, null));
     assertThat(updated.parentId()).isNull();
+  }
+
+  @Test
+  void update_partial_keepsOmittedFields() {
+    // #839: 이름만 보내면 parent·code·sortOrder 는 현재 값 유지(이전엔 전체 교체라 최상위로 튀고 code 가 지워졌다).
+    long caller = user();
+    UserGroupDetail parent =
+        service.create(caller, req("부모" + UUID.randomUUID(), null, "PERSONAL"));
+    UserGroupDetail child =
+        service.create(caller, new CreateUserGroupRequest("자식", parent.id(), "PERSONAL", "C-1", 7));
+    UserGroupDetail updated =
+        service.update(
+            caller, child.id(), new UpdateUserGroupRequest("새이름", null, null, null, null, null));
+    assertThat(updated.name()).isEqualTo("새이름");
+    assertThat(updated.parentId()).isEqualTo(parent.id());
+    assertThat(updated.code()).isEqualTo("C-1");
+    assertThat(updated.sortOrder()).isEqualTo(7);
+  }
+
+  @Test
+  void update_clearCode_nullsCodeAndKeepsName() {
+    long caller = user();
+    String name = "코드그룹" + UUID.randomUUID();
+    UserGroupDetail g =
+        service.create(caller, new CreateUserGroupRequest(name, null, "PERSONAL", "X-9", 0));
+    UserGroupDetail updated =
+        service.update(
+            caller, g.id(), new UpdateUserGroupRequest(null, null, null, null, true, null));
+    assertThat(updated.code()).isNull();
+    assertThat(updated.name()).isEqualTo(name);
+  }
+
+  @Test
+  void update_valueWithClearFlag_throwsInvalid() {
+    // 값과 비우기 플래그를 함께 주면 모호 — 400(InvalidUserGroupException).
+    long caller = user();
+    UserGroupDetail parent =
+        service.create(caller, req("부모" + UUID.randomUUID(), null, "PERSONAL"));
+    UserGroupDetail g = service.create(caller, req("대상" + UUID.randomUUID(), null, "PERSONAL"));
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    caller,
+                    g.id(),
+                    new UpdateUserGroupRequest(null, parent.id(), true, null, null, null)))
+        .isInstanceOf(InvalidUserGroupException.class);
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    caller, g.id(), new UpdateUserGroupRequest(null, null, null, "C", true, null)))
+        .isInstanceOf(InvalidUserGroupException.class);
+  }
+
+  @Test
+  void update_renameOnly_checksSiblingNameUnderCurrentParent() {
+    // 병합 후 값으로 유니크 검사 — 이름만 바꿔도 현재 부모 아래 형제와 겹치면 거절.
+    long caller = user();
+    UserGroupDetail parent =
+        service.create(caller, req("부모" + UUID.randomUUID(), null, "PERSONAL"));
+    String taken = "형제" + UUID.randomUUID();
+    service.create(caller, req(taken, parent.id(), "PERSONAL"));
+    UserGroupDetail target =
+        service.create(caller, req("대상" + UUID.randomUUID(), parent.id(), "PERSONAL"));
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    caller,
+                    target.id(),
+                    new UpdateUserGroupRequest(taken, null, null, null, null, null)))
+        .isInstanceOf(InvalidUserGroupException.class);
   }
 
   @Test
@@ -356,7 +439,9 @@ class UserGroupServiceTest extends IntegrationTestBase {
     assertThatThrownBy(
             () ->
                 service.update(
-                    caller, target.id(), new UpdateUserGroupRequest(taken, null, null, 0)))
+                    caller,
+                    target.id(),
+                    new UpdateUserGroupRequest(taken, null, null, null, null, null)))
         .isInstanceOf(InvalidUserGroupException.class);
   }
 
@@ -367,7 +452,8 @@ class UserGroupServiceTest extends IntegrationTestBase {
     UserGroupDetail g = service.create(caller, req(name, null, "PERSONAL"));
     // 자기 자신의 이름으로 재저장 — excludeId 로 자기 자신은 제외되어 통과해야 함
     UserGroupDetail updated =
-        service.update(caller, g.id(), new UpdateUserGroupRequest(name, null, null, 0));
+        service.update(
+            caller, g.id(), new UpdateUserGroupRequest(name, null, null, null, null, null));
     assertThat(updated.name()).isEqualTo(name);
   }
 

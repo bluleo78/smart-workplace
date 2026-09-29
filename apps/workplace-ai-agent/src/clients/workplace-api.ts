@@ -64,7 +64,7 @@ export interface ContactItem {
 // #333 M4: 드라이브 폴더 생성/이름변경 응답 단건.
 export interface DriveFolderItem { id: number; parentId: number | null; name: string; createdAt: string; }
 
-// #333 M3: 외부연락처 생성/수정 입력 (선택 필드는 undefined 시 JSON 에서 생략).
+// #333 M3: 외부연락처 생성 입력 (선택 필드는 undefined 시 JSON 에서 생략).
 export interface ExternalContactInput {
   name: string;
   email?: string;
@@ -74,6 +74,9 @@ export interface ExternalContactInput {
   notes?: string;
   visibility: 'SHARED' | 'PERSONAL';
 }
+
+// #839: 외부연락처 부분 수정 입력 — 생략(undefined) 필드는 서버가 현재 값을 유지하고, 빈 문자열은 비운다.
+export type ExternalContactPatch = Partial<ExternalContactInput>;
 
 // 6c: 이슈 첨부 메타.
 export interface AttachmentMeta {
@@ -117,8 +120,9 @@ export interface WorkplaceApiClient {
   // #333 M4: 메일 수동 동기화.
   syncMail(agentId: number, accountId: number): Promise<unknown>;
   // #333 M3: 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).
-  createExternalContact(agentId: number, input: ExternalContactInput): Promise<ContactItem>;
-  updateExternalContact(agentId: number, id: number, input: ExternalContactInput): Promise<ContactItem>;
+  // #839: force=true 면 이름+이메일 중복 경고(409)를 무시하고 저장한다. 수정은 부분 수정.
+  createExternalContact(agentId: number, input: ExternalContactInput, force?: boolean): Promise<ContactItem>;
+  updateExternalContact(agentId: number, id: number, input: ExternalContactPatch, force?: boolean): Promise<ContactItem>;
   // #333 M4: 드라이브 폴더/파일 쓰기 — 이동은 204(void).
   createFolder(agentId: number, spaceId: number, parentId: number | null, name: string): Promise<DriveFolderItem>;
   renameFolder(agentId: number, folderId: number, name: string): Promise<DriveFolderItem>;
@@ -195,6 +199,13 @@ export function createWorkplaceApiClient(opts: {
         ? { 'X-On-Behalf-Of-Tenant': String(opts.onBehalfOfTenantId) }
         : {}),
     },
+  });
+
+  // #839: 외부연락처 생성/수정 요청 설정 — force 는 쿼리 파라미터(서버 @RequestParam)라 신원 헤더 설정과 병합한다.
+  // 미지정이면 붙이지 않는다(서버 기본 false).
+  const withForce = (agentId: number, force?: boolean) => ({
+    ...onBehalfOf(agentId),
+    ...(force ? { params: { force } } : {}),
   });
 
   return {
@@ -338,12 +349,12 @@ export function createWorkplaceApiClient(opts: {
     },
 
 
-    async createExternalContact(agentId, input) {
-      const r = await http.post(`/contacts/external`, input, onBehalfOf(agentId));
+    async createExternalContact(agentId, input, force) {
+      const r = await http.post(`/contacts/external`, input, withForce(agentId, force));
       return r.data as ContactItem;
     },
-    async updateExternalContact(agentId, id, input) {
-      const r = await http.patch(`/contacts/external/${id}`, input, onBehalfOf(agentId));
+    async updateExternalContact(agentId, id, input, force) {
+      const r = await http.patch(`/contacts/external/${id}`, input, withForce(agentId, force));
       return r.data as ContactItem;
     },
 

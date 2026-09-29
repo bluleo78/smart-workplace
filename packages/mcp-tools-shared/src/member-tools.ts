@@ -2,7 +2,8 @@
 //
 // 구성원(userId = user.id)과 외부 연락처(externalId = contact_entry.id)는 네임스페이스가 다르다. 이전에는 연락처 id 를
 // userId 로 오용하는 사고가 있었으므로 도구 표면에서 이름을 분리한다. 사람은 username 으로 가리키고 숫자 id 는 노출을 최소화한다.
-// 쓰기(외부 연락처 생성·수정, 구성원 역할·활성 변경)는 확인 카드가 있는 ai-agent 쪽에만 있다.
+// 외부 연락처 생성·수정·삭제와 구성원 역할·활성 변경은 ai-agent 쪽에만 있다(삭제·구성원 변경은 확인 카드).
+// 즐겨찾기·facets·사용자 그룹(#839)은 contact-tools.ts — 사용자 본인 범위의 되돌릴 수 있는 쓰기라 공유 도구로 둔다.
 import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
 import type { MemberRow, MemberToolClient } from './tool-client.js';

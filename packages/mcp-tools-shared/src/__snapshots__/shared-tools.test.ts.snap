@@ -4,15 +4,19 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
 {
   "add_channel_message": "write",
   "add_comment": "write",
+  "add_contact_favorite": "write",
   "add_issue_dependency": "write",
+  "add_user_group_member": "write",
   "create_channel": "write",
   "create_issue": "write",
   "create_issue_from_mail": "write",
+  "create_user_group": "write",
   "create_wiki_page": "write",
   "draft_issue_from_mail": "read",
   "draft_mail_reply": "read",
   "edit_comment": "write",
   "get_channel_messages": "read",
+  "get_contact_facets": "read",
   "get_drive_file_summary": "read",
   "get_event": "read",
   "get_external_contact": "read",
@@ -23,6 +27,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "get_member_contact": "read",
   "get_project": "read",
   "get_thread_replies": "read",
+  "get_user_group": "read",
   "get_wiki_backlinks": "read",
   "get_wiki_page": "read",
   "leave_channel": "write",
@@ -37,13 +42,16 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "list_mail_accounts": "read",
   "list_notifications": "read",
   "list_projects": "read",
+  "list_user_groups": "read",
   "list_wiki_pages": "read",
   "list_wiki_spaces": "read",
   "mark_all_notifications_read": "write",
   "mark_notification_read": "write",
   "move_wiki_page": "write",
   "open_dm": "write",
+  "remove_contact_favorite": "write",
   "remove_issue_dependency": "write",
+  "remove_user_group_member": "write",
   "restore_drive_item": "write",
   "rsvp_event": "write",
   "search_drive": "read",
@@ -54,6 +62,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "unwatch_issue": "write",
   "update_issue": "write",
   "update_project": "write",
+  "update_user_group": "write",
   "update_wiki_page": "write",
   "watch_issue": "write",
 }
@@ -107,6 +116,25 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "add_contact_favorite",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "externalId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "username": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+  },
+  {
     "name": "add_issue_dependency",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -132,6 +160,33 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "issueKey",
         "otherIssueKey",
         "direction",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "add_user_group_member",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "externalId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "groupId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "username": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "groupId",
       ],
       "type": "object",
     },
@@ -268,6 +323,47 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "create_user_group",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "type": "string",
+        },
+        "name": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string",
+        },
+        "parentGroupId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "sortOrder": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer",
+        },
+        "visibility": {
+          "default": "PERSONAL",
+          "enum": [
+            "SHARED",
+            "PERSONAL",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "name",
+        "visibility",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "create_wiki_page",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -382,6 +478,15 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "channelId",
         "limit",
       ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_contact_facets",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
       "type": "object",
     },
   },
@@ -557,6 +662,24 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "messageId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "get_user_group",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "groupId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "groupId",
       ],
       "type": "object",
     },
@@ -900,6 +1023,15 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "list_user_groups",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+  },
+  {
     "name": "list_wiki_pages",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1012,6 +1144,25 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "remove_contact_favorite",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "externalId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "username": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+  },
+  {
     "name": "remove_issue_dependency",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1037,6 +1188,33 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "issueKey",
         "otherIssueKey",
         "direction",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "remove_user_group_member",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "externalId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "groupId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "username": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "groupId",
       ],
       "type": "object",
     },
@@ -1374,6 +1552,50 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "projectKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "update_user_group",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "clearCode": {
+          "type": "boolean",
+        },
+        "code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string",
+        },
+        "groupId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "moveToRoot": {
+          "type": "boolean",
+        },
+        "name": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string",
+        },
+        "parentGroupId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "sortOrder": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "groupId",
       ],
       "type": "object",
     },

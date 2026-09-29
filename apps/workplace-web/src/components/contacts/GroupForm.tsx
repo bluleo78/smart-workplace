@@ -106,10 +106,14 @@ export function GroupForm({
   const onSubmit = form.handleSubmit(async (data) => {
     try {
       if (isEdit && group) {
-        // 편집 시 기존 code 값 보존 — 덮어써서 null 로 만들지 않음
+        // 부분 수정 — 폼이 다루지 않는 code·sortOrder 는 생략해 서버가 현재 값을 유지한다.
+        // 상위 그룹 '최상위'(null) 선택은 parentId 가 아닌 moveToRoot 플래그로 보낸다.
         await update.mutateAsync({
           id: group.id,
-          body: { name: data.name, parentId: data.parentId, code: group.code ?? null, sortOrder: group.sortOrder },
+          body: {
+            name: data.name,
+            ...(data.parentId == null ? { moveToRoot: true } : { parentId: data.parentId }),
+          },
         })
         // 멤버 diff 적용
         const before = group.members

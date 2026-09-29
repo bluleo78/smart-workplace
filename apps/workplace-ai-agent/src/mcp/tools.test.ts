@@ -77,6 +77,16 @@ function sharedMock(): MockedShared {
     getMemberContact: vi.fn().mockResolvedValue({}),
     listContacts: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     getExternalContact: vi.fn().mockResolvedValue({}),
+    // 연락처 부가 기능(#839)
+    getContactFacets: vi.fn().mockResolvedValue({ organizations: [], titles: [] }),
+    addContactFavorite: vi.fn().mockResolvedValue(undefined),
+    removeContactFavorite: vi.fn().mockResolvedValue(undefined),
+    listUserGroups: vi.fn().mockResolvedValue({ shared: [], personal: [] }),
+    getUserGroup: vi.fn().mockResolvedValue({ id: 1, name: 'g', visibility: 'PERSONAL' }),
+    createUserGroup: vi.fn().mockResolvedValue({ id: 1, name: 'g', visibility: 'PERSONAL' }),
+    updateUserGroup: vi.fn().mockResolvedValue({ id: 1, name: 'g', visibility: 'PERSONAL' }),
+    addUserGroupMember: vi.fn().mockResolvedValue({ id: 1, name: 'g', visibility: 'PERSONAL' }),
+    removeUserGroupMember: vi.fn().mockResolvedValue(undefined),
     // 메시징
     listChannels: vi.fn().mockResolvedValue([]),
     getChannelMessages: vi.fn().mockResolvedValue([]),
@@ -233,6 +243,9 @@ describe('프로필 구성', () => {
       // 연락처·구성원(#833)
       'list_contacts', 'get_external_contact', 'create_external_contact', 'update_external_contact', 'propose_delete_contact',
       'search_members', 'get_member', 'get_member_contact', 'propose_set_member_role', 'propose_set_member_active',
+      // 연락처 부가 기능(#839)
+      'get_contact_facets', 'add_contact_favorite', 'remove_contact_favorite', 'list_user_groups', 'get_user_group',
+      'create_user_group', 'update_user_group', 'add_user_group_member', 'remove_user_group_member', 'propose_delete_user_group',
       // 프로젝트
       'list_projects', 'get_project', 'list_project_members',
       'propose_create_project', 'propose_delete_project', 'propose_add_project_member',
@@ -755,6 +768,15 @@ describe('propose_send_mail / propose_delete_contact / 드라이브 삭제 제�
     });
   });
 
+  it('propose_delete_user_group 은 groupId 를 실행기 params.id 로 매핑한다(#839)', async () => {
+    await withSidecar(async (sidecar) => {
+      await find(buildTools(client(), 7, 'assistant'), 'propose_delete_user_group').handler({ groupId: 12, summary: '영업팀 그룹 삭제' });
+      const [w] = readLines(sidecar);
+      expect(w.actionType).toBe('contacts.delete_user_group');
+      expect(w.params).toEqual({ id: 12 });
+    });
+  });
+
   it('propose_delete_file 은 driveFileId 를 params.id 로 매핑한다(#840)', async () => {
     await withSidecar(async (sidecar) => {
       await find(buildTools(client(), 7, 'assistant'), 'propose_delete_file').handler({ driveFileId: 99, summary: '보고서.pdf 삭제' });
@@ -1041,7 +1063,7 @@ describe('외부 연락처 쓰기', () => {
     vi.mocked(c.createExternalContact).mockResolvedValue({ id: 3, name: '김거래' } as never);
     const input = { name: '김거래', email: 'k@x.com', visibility: 'SHARED' as const };
     const out = await find(buildTools(c, AGENT_ID, 'assistant'), 'create_external_contact').handler(input);
-    expect(c.createExternalContact).toHaveBeenCalledWith(AGENT_ID, input);
+    expect(c.createExternalContact).toHaveBeenCalledWith(AGENT_ID, input, undefined);
     expect(JSON.parse(out)).toEqual({ id: 3, name: '김거래' });
   });
 
@@ -1050,7 +1072,29 @@ describe('외부 연락처 쓰기', () => {
     await find(buildTools(c, AGENT_ID, 'assistant'), 'update_external_contact').handler({
       externalId: 9, name: '김거래', visibility: 'PERSONAL',
     });
-    expect(c.updateExternalContact).toHaveBeenCalledWith(AGENT_ID, 9, { name: '김거래', visibility: 'PERSONAL' });
+    expect(c.updateExternalContact).toHaveBeenCalledWith(AGENT_ID, 9, { name: '김거래', visibility: 'PERSONAL' }, undefined);
+  });
+
+  it('create_external_contact 의 force 는 본문이 아니라 별도 인자로 넘긴다(#839 중복 경고 우회)', async () => {
+    const c = client();
+    await find(buildTools(c, AGENT_ID, 'assistant'), 'create_external_contact').handler({
+      name: '김거래', email: 'k@x.com', visibility: 'SHARED', force: true,
+    });
+    expect(c.createExternalContact).toHaveBeenCalledWith(AGENT_ID, { name: '김거래', email: 'k@x.com', visibility: 'SHARED' }, true);
+  });
+
+  it('update_external_contact 는 부분 수정 — 준 필드만 보내고 force 를 분리한다(#839)', async () => {
+    const c = client();
+    await find(buildTools(c, AGENT_ID, 'assistant'), 'update_external_contact').handler({ externalId: 9, phone: '010-1', force: true });
+    expect(c.updateExternalContact).toHaveBeenCalledWith(AGENT_ID, 9, { phone: '010-1' }, true);
+  });
+
+  it('update_external_contact 는 바꿀 필드가 없으면 호출하지 않고 거절한다', async () => {
+    const c = client();
+    await expect(find(buildTools(c, AGENT_ID, 'assistant'), 'update_external_contact').handler({ externalId: 9 })).rejects.toThrow(
+      '하나 이상',
+    );
+    expect(c.updateExternalContact).not.toHaveBeenCalled();
   });
 
   it('visibility 누락은 스키마가 거부한다', async () => {

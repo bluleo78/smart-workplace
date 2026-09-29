@@ -144,6 +144,18 @@ class UserGroupControllerTest {
   }
 
   @Test
+  void update_blankName_returns400() throws Exception {
+    // #839 부분 수정: name 생략은 유지지만, 공백 문자열로 보내면 비울 수 없는 이름이라 400 이다.
+    mockMvc
+        .perform(
+            patch("/api/v1/user-groups/5")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"   \"}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void delete_returns204() throws Exception {
     mockMvc
         .perform(delete("/api/v1/user-groups/5").header("Authorization", "Bearer v"))

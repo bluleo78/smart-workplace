@@ -7,7 +7,6 @@ import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 
 import com.workplace.user.dto.CreateUserGroupRequest;
-import com.workplace.user.dto.UpdateUserGroupRequest;
 import com.workplace.user.dto.UserGroupMemberSummary;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -93,7 +92,7 @@ public class UserGroupRepository {
    */
   public List<UserGroupMemberSummary> findMembers(long tenantId, long groupId) {
     List<UserGroupMemberSummary> all = new ArrayList<>();
-    dsl.select(USER.ID, USER.NAME, USER.EMAIL, USER.TITLE)
+    dsl.select(USER.ID, USER.NAME, USER.EMAIL, USER.TITLE, USER.USERNAME)
         .from(USER_GROUP_MEMBER)
         .join(USER)
         .on(USER.ID.eq(USER_GROUP_MEMBER.TARGET_ID))
@@ -115,7 +114,8 @@ public class UserGroupRepository {
                         r.get(USER.NAME),
                         r.get(USER.EMAIL),
                         r.get(USER.TITLE),
-                        null)));
+                        null,
+                        r.get(USER.USERNAME))));
     dsl.select(
             CONTACT_ENTRY.ID,
             CONTACT_ENTRY.NAME,
@@ -137,7 +137,8 @@ public class UserGroupRepository {
                         r.get(CONTACT_ENTRY.NAME),
                         r.get(CONTACT_ENTRY.EMAIL),
                         r.get(CONTACT_ENTRY.TITLE),
-                        r.get(CONTACT_ENTRY.ORGANIZATION))));
+                        r.get(CONTACT_ENTRY.ORGANIZATION),
+                        null)));
     all.sort(Comparator.comparing(UserGroupMemberSummary::name, String.CASE_INSENSITIVE_ORDER));
     return all;
   }
@@ -156,13 +157,16 @@ public class UserGroupRepository {
         .getId();
   }
 
-  /** 그룹 수정(name/parent/code/sort). visibility 는 불변. */
-  public void update(long id, UpdateUserGroupRequest req) {
+  /**
+   * 그룹 수정(name/parent/code/sort). visibility 는 불변. 서비스가 현재 값과 병합한 최종 값을 받아 전체 컬럼을 쓴다(부분 수정 해석은 서비스
+   * 책임, #839).
+   */
+  public void update(long id, String name, Long parentId, String code, int sortOrder) {
     dsl.update(USER_GROUP)
-        .set(USER_GROUP.NAME, req.name())
-        .set(USER_GROUP.PARENT_ID, req.parentId())
-        .set(USER_GROUP.CODE, nullIfBlank(req.code()))
-        .set(USER_GROUP.SORT_ORDER, req.sortOrder() == null ? 0 : req.sortOrder())
+        .set(USER_GROUP.NAME, name)
+        .set(USER_GROUP.PARENT_ID, parentId)
+        .set(USER_GROUP.CODE, nullIfBlank(code))
+        .set(USER_GROUP.SORT_ORDER, sortOrder)
         .where(USER_GROUP.ID.eq(id))
         .execute();
   }

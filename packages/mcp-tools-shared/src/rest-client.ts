@@ -6,9 +6,11 @@
 import { parseIssueKey } from './parse.js';
 import type { SharedToolClient } from './shared-tools.js';
 
-/** 요청 설정 — 쿼리 파라미터만 쓴다(인증 헤더는 HTTP 인스턴스가 붙인다). */
+/** 요청 설정 — 쿼리 파라미터와 DELETE 본문만 쓴다(인증 헤더는 HTTP 인스턴스가 붙인다). */
 export interface HttpRequestConfig {
   params?: unknown;
+  /** DELETE 요청 본문(axios config.data) — 서버가 @RequestBody 로 받는 DELETE(즐겨찾기 해제)에 쓴다(#839). */
+  data?: unknown;
 }
 
 /** 응답 본문 — 서버 DTO 마다 모양이 달라 여기서 좁히지 않는다(해석은 도구 핸들러). */
@@ -198,6 +200,36 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async getExternalContact(externalId) {
       return (await http.get(`/contacts/external/${externalId}`)).data;
+    },
+
+    // ── 연락처 부가 기능(#839) ──
+    async getContactFacets() {
+      return (await http.get('/contacts/facets')).data;
+    },
+    async addContactFavorite(target) {
+      await http.post('/contacts/favorites', target);
+    },
+    async removeContactFavorite(target) {
+      // 서버가 DELETE 본문(@RequestBody)으로 대상을 받는다.
+      await http.delete('/contacts/favorites', { data: target });
+    },
+    async listUserGroups() {
+      return (await http.get('/user-groups')).data ?? {};
+    },
+    async getUserGroup(groupId) {
+      return (await http.get(`/user-groups/${groupId}`)).data;
+    },
+    async createUserGroup(body) {
+      return (await http.post('/user-groups', body)).data;
+    },
+    async updateUserGroup(groupId, body) {
+      return (await http.patch(`/user-groups/${groupId}`, body)).data;
+    },
+    async addUserGroupMember(groupId, target) {
+      return (await http.post(`/user-groups/${groupId}/members`, target)).data;
+    },
+    async removeUserGroupMember(groupId, { targetType, targetId }) {
+      await http.delete(`/user-groups/${groupId}/members/${targetType}/${targetId}`);
     },
 
     // ── 메시징 ──

@@ -10,15 +10,32 @@ describe('contacts-agent 정의', () => {
   it('loadSubagents 로 contacts-agent 가 로드된다', () => {
     expect(loaded['contacts-agent']).toBeDefined();
   });
-  it('tools 는 읽기+내부쓰기+삭제제안', () => {
+  it('tools 는 읽기+내부쓰기+삭제제안 + 즐겨찾기·facets·사용자 그룹(#839)', () => {
     expect(loaded['contacts-agent'].tools).toEqual([
       'mcp__workplace__list_contacts',
       'mcp__workplace__get_external_contact',
       'mcp__workplace__create_external_contact',
       'mcp__workplace__update_external_contact',
       'mcp__workplace__propose_delete_contact',
+      'mcp__workplace__get_contact_facets',
+      'mcp__workplace__add_contact_favorite',
+      'mcp__workplace__remove_contact_favorite',
+      'mcp__workplace__search_members',
+      'mcp__workplace__list_user_groups',
+      'mcp__workplace__get_user_group',
+      'mcp__workplace__create_user_group',
+      'mcp__workplace__update_user_group',
+      'mcp__workplace__add_user_group_member',
+      'mcp__workplace__remove_user_group_member',
+      'mcp__workplace__propose_delete_user_group',
       'mcp__workplace__submit_response',
     ]);
+  });
+  it('#839: force 는 사용자 확인 후에만, 그룹 삭제는 제안으로만 안내한다', () => {
+    const prompt = loaded['contacts-agent'].prompt;
+    expect(prompt).toMatch(/force: true/);
+    expect(prompt).toMatch(/확인받은 경우에만/);
+    expect(prompt).toMatch(/propose_delete_user_group/);
   });
   it('maxTurns 설정 + 본문에 연락처·삭제 안내', () => {
     expect(loaded['contacts-agent'].maxTurns).toBeGreaterThan(0);

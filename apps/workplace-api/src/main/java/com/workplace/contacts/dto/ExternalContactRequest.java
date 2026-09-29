@@ -6,7 +6,10 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
-/** 외부 연락처 생성/수정 요청. PATCH 는 부분 패치가 아닌 전체 교체(모든 필드 제출). optional 필드의 빈 문자열은 서비스에서 null 로 정규화한다. */
+/**
+ * 외부 연락처 생성 요청(및 부분 수정 병합 결과). optional 필드의 빈 문자열은 저장 시 null 로 정규화한다. PATCH 요청 본문은 {@link
+ * UpdateExternalContactRequest}(부분 수정, #839).
+ */
 public record ExternalContactRequest(
     @NotBlank @Size(max = 120) String name,
     @Email @Size(max = 255) String email,
