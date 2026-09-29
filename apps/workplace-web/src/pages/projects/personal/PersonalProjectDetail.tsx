@@ -28,6 +28,7 @@ const PERSONAL_COLUMNS = [
 const PERSONAL_FILTER_OPTIONS: IssueFilterBarOptions = {
   showCycle: false,
   showType: false,
+  showClosedToggle: false,
   listLabel: '체크리스트',
   listIcon: ListChecks,
   groupOptions: [

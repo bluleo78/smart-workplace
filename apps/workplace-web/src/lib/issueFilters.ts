@@ -47,6 +47,8 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
   const blocked = params.get('blocked') === 'true';
   // 목록 뷰 전용 — SUBTASK 제외. 'true' 만 통과(기본 false). 목록 진입 시 뷰가 기본값을 주입.
   const excludeSubtasks = params.get('excludeSubtasks') === 'true';
+  // 「완료 모두 보기」 — 'all' 만 통과(기본 false = 활성 사이클 밖 종료 이슈 숨김).
+  const showAllClosed = params.get('closed') === 'all';
   return {
     q: params.get('q') ?? '',
     statuses: csv(params.get('status')).filter((s) =>
@@ -67,6 +69,7 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     topLevel,
     blocked,
     excludeSubtasks,
+    showAllClosed,
   };
 }
 
@@ -82,7 +85,21 @@ export function withDefaultIssueScope(f: IssueFilters): IssueFilters {
     ...f,
     excludeSubtasks: f.topLevel || explicitTypes ? f.excludeSubtasks : true,
     excludeEpics: f.topLevel || !explicitTypes,
+    // 종료(완료·취소) 이슈는 활성 사이클 소속만 남긴다(#876). 「완료 모두 보기」를 켜거나 묶음 필터를 명시하면 해제.
+    hideInactiveClosed: !f.showAllClosed && !overridesClosedHiding(f),
   };
+}
+
+// 종료 이슈 숨김(#876)을 무력화하는 명시 필터 — 완료 상태 선택, 지난 사이클·마일스톤 선택, 특정 부모의 자식 보기는
+// 그 묶음 전체가 대상이라 숨기지 않는다. 묶음을 고르는 필터 필드를 새로 추가하면 여기 포함 여부를 결정할 것.
+// (검색어 q 는 의도적으로 제외 — 검색도 기본 범위 안에서 동작하고, 지난 이슈는 「완료 모두 보기」로 찾는다.)
+export function overridesClosedHiding(f: IssueFilters): boolean {
+  return (
+    f.statuses.length > 0 ||
+    f.cycleIds.length > 0 ||
+    f.milestoneIds.length > 0 ||
+    f.parentNumber != null
+  );
 }
 
 // view 파라미터가 'board' 일 때만 board, 그 외에는 기본 list.
@@ -128,6 +145,8 @@ export function filtersToParams(
   if (f.blocked) p.set('blocked', 'true');
   // 목록 뷰 SUBTASK 제외 직렬화 — true 일 때만 명시(기본 false 는 빈 정규형).
   if (f.excludeSubtasks) p.set('excludeSubtasks', 'true');
+  // 「완료 모두 보기」 직렬화 — 켰을 때만 명시(기본 숨김은 빈 정규형).
+  if (f.showAllClosed) p.set('closed', 'all');
   return p;
 }
 

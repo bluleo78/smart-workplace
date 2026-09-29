@@ -41,4 +41,7 @@ public record IssueSearchQuery(
     Boolean excludeSubtasks,
     // 보드·목록 기본 뷰 전용 — true 면 EPIC 유형 이슈를 제외한다(Jira 관례: 에픽은 작업 카드가 아닌 묶음 단위).
     // excludeSubtasks 와 동일하게 parentNumber 지정 시 무시된다(특정 부모의 자식에는 에픽이 없으므로 의미 없음).
-    Boolean excludeEpics) {}
+    Boolean excludeEpics,
+    // 보드·목록 기본 뷰 전용 — true 면 종료(DONE·CANCELED) 이슈 중 ACTIVE 사이클에 연결되지 않은 것을 제외한다.
+    // 진행 중 사이클의 완료분은 남겨 사이클 진척을 보이고, 그 외 종료 이슈는 보드·목록에 쌓이지 않게 한다(#876).
+    Boolean hideInactiveClosed) {}

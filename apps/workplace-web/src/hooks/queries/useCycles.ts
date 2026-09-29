@@ -53,6 +53,8 @@ export function useUpdateCycle(projectKey: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cycles', projectKey] });
       qc.invalidateQueries({ queryKey: ['cycleProgress', projectKey] });
+      // 사이클 상태(ACTIVE 전환·종료)가 보드·목록의 종료 이슈 노출 범위를 바꾸므로 검색도 무효화(#876).
+      qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
       toast.success('사이클을 수정했습니다');
     },
     onError: (e) => handleApiError(e, '사이클 수정에 실패했습니다'),

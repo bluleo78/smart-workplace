@@ -773,3 +773,66 @@ test.describe('태스크 보드/검색', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
   });
 });
+
+// #876 — 활성 사이클 밖 종료(완료·취소) 이슈 숨김 + 「완료 모두 보기」 토글.
+test.describe('종료 이슈 숨김 (#876)', () => {
+  test('보드 기본 검색은 hideInactiveClosed 를 보내고, 토글을 켜면 URL closed=all 로 숨김을 해제한다', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    const requests: URL[] = [];
+    await routeIssueSearch(page, (route, url) => {
+      requests.push(url);
+      // 토글 전: 서버가 숨긴 결과(진행 중만) / 토글 후: 완료 이슈 포함.
+      const showAll = url.searchParams.get('hideInactiveClosed') == null;
+      const items = [createIssue({ id: 1, number: 7, title: '진행 중 작업', status: 'IN_PROGRESS' })];
+      if (showAll) items.push(createIssue({ id: 2, number: 8, title: '지난달 끝난 작업', status: 'DONE' }));
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(items)),
+      });
+    });
+
+    await page.goto(`/projects/WP?view=board`);
+    await expect(page.getByTestId('issue-card-7')).toBeVisible();
+    await expect(page.getByTestId('issue-card-8')).toHaveCount(0);
+    expect(requests.at(-1)!.searchParams.get('hideInactiveClosed')).toBe('true');
+
+    const toggle = page.getByTestId('show-all-closed-toggle');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await toggle.click();
+
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(page).toHaveURL(/closed=all/);
+    await expect(page.getByTestId('issue-card-8')).toBeVisible();
+    expect(requests.at(-1)!.searchParams.get('hideInactiveClosed')).toBeNull();
+  });
+
+  test('목록도 기본 숨김이며, 상태 필터를 명시하면 숨김 파라미터를 보내지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    const requests: URL[] = [];
+    await routeIssueSearch(page, (route, url) => {
+      requests.push(url);
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse([createIssue({ id: 1, number: 7 })])),
+      });
+    });
+
+    await page.goto(`/projects/WP`);
+    await expect.poll(() => requests.length).toBeGreaterThan(0);
+    expect(requests.at(-1)!.searchParams.get('hideInactiveClosed')).toBe('true');
+
+    await page.goto(`/projects/WP?status=DONE`);
+    await expect.poll(() => requests.at(-1)!.searchParams.get('status')).toBe('DONE');
+    expect(requests.at(-1)!.searchParams.get('hideInactiveClosed')).toBeNull();
+    // 명시 필터가 이미 숨김을 해제했으므로 토글은 눌린 상태로 비활성화된다.
+    const toggle = page.getByTestId('show-all-closed-toggle');
+    await expect(toggle).toBeDisabled();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  });
+});

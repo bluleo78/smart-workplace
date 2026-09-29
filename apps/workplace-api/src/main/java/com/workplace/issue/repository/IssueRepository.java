@@ -1,9 +1,12 @@
 package com.workplace.issue.repository;
 
+import static com.workplace.jooq.Tables.CYCLE;
 import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.ISSUE_CYCLE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
 import static org.jooq.impl.DSL.count;
+import static org.jooq.impl.DSL.exists;
 
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueTypeSummary;
@@ -292,6 +295,26 @@ public class IssueRepository {
     }
     if (query.statuses() != null && !query.statuses().isEmpty()) {
       where = where.and(ISSUE.STATUS.in(query.statuses()));
+    }
+    if (Boolean.TRUE.equals(query.hideInactiveClosed())) {
+      // #876 — 종료(DONE·CANCELED) 이슈는 ACTIVE 사이클에 연결된 경우에만 남긴다. 미종료 이슈는 그대로 통과.
+      // 사이클은 프로젝트 스코프라 이슈에 연결된 사이클은 모두 같은 프로젝트 소속 — 프로젝트 조건 불필요.
+      where =
+          where.and(
+              ISSUE
+                  .STATUS
+                  .notIn("DONE", "CANCELED")
+                  .or(
+                      exists(
+                          dsl.selectOne()
+                              .from(ISSUE_CYCLE)
+                              .join(CYCLE)
+                              .on(CYCLE.ID.eq(ISSUE_CYCLE.CYCLE_ID))
+                              .where(
+                                  ISSUE_CYCLE
+                                      .ISSUE_ID
+                                      .eq(ISSUE.ID)
+                                      .and(CYCLE.STATUS.eq("ACTIVE"))))));
     }
     if (query.priorities() != null && !query.priorities().isEmpty()) {
       where = where.and(ISSUE.PRIORITY.in(query.priorities()));

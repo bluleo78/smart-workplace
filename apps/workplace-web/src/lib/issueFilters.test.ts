@@ -92,6 +92,30 @@ describe('withDefaultIssueScope — 보드·목록 기본 범위 (#874)', () => 
   });
 });
 
+describe('withDefaultIssueScope — 활성 사이클 밖 종료 이슈 숨김 (#876)', () => {
+  it('기본: 숨김 켜짐, URL 에는 직렬화되지 않는다', () => {
+    const f = withDefaultIssueScope(parseFilters(new URLSearchParams()));
+    expect(f.hideInactiveClosed).toBe(true);
+    const p = filtersToParams(f, 'list', null);
+    expect(p.get('hideInactiveClosed')).toBeNull();
+    expect(p.get('closed')).toBeNull();
+  });
+
+  it('closed=all(완료 모두 보기)이면 숨기지 않고 URL 왕복된다', () => {
+    const parsed = parseFilters(new URLSearchParams('closed=all'));
+    expect(parsed.showAllClosed).toBe(true);
+    expect(withDefaultIssueScope(parsed).hideInactiveClosed).toBe(false);
+    expect(filtersToParams(parsed, 'board', null).get('closed')).toBe('all');
+  });
+
+  it('상태·사이클·마일스톤·부모를 명시하면 그 선택이 우선해 숨기지 않는다', () => {
+    expect(withDefaultIssueScope(parseFilters(new URLSearchParams('milestone=4'))).hideInactiveClosed).toBe(false);
+    expect(withDefaultIssueScope(parseFilters(new URLSearchParams('parent=12'))).hideInactiveClosed).toBe(false);
+    expect(withDefaultIssueScope(parseFilters(new URLSearchParams('status=DONE'))).hideInactiveClosed).toBe(false);
+    expect(withDefaultIssueScope(parseFilters(new URLSearchParams('cycle=3'))).hideInactiveClosed).toBe(false);
+  });
+});
+
 describe('excludeSubtasks 필터 (목록 SUBTASK 숨김)', () => {
   it('빈 URL 의 excludeSubtasks 기본값은 false (뷰가 진입 시 주입)', () => {
     expect(parseFilters(new URLSearchParams()).excludeSubtasks).toBe(false);

@@ -216,6 +216,10 @@ export interface IssueFilters {
   excludeSubtasks: boolean;
   // EPIC 유형 이슈 제외 — URL 로 직렬화하지 않는 파생 필드. 보드·목록 기본 범위(withDefaultIssueScope)만 주입한다.
   excludeEpics?: boolean;
+  // 「완료 모두 보기」 토글 — URL closed=all. 끄면(기본) 활성 사이클 밖 종료 이슈를 보드·목록에서 숨긴다(#876).
+  showAllClosed: boolean;
+  // 활성 사이클 밖 종료(DONE·CANCELED) 이슈 제외 — URL 비직렬화 파생 필드. withDefaultIssueScope 만 주입한다.
+  hideInactiveClosed?: boolean;
 }
 
 // 프로젝트 상세에서 이슈 목록을 표시하는 두 가지 뷰.

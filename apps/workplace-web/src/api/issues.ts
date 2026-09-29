@@ -63,6 +63,8 @@ export async function searchIssues(
     if (filters.excludeSubtasks) params.set('excludeSubtasks', 'true');
     if (filters.excludeEpics) params.set('excludeEpics', 'true');
   }
+  // 활성 사이클 밖 종료 이슈 숨김(#876) — 보드·목록 기본 범위(withDefaultIssueScope)가 주입.
+  if (filters.hideInactiveClosed) params.set('hideInactiveClosed', 'true');
   // Phase 4b — blocked 검색 송신. UI 노출은 deferred.
   if (filters.blocked) params.set('blocked', 'true');
   if (cursor) params.set('cursor', cursor);

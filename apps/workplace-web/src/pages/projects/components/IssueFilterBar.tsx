@@ -1,7 +1,7 @@
 // 태스크 필터/검색 + 뷰(list/board) 토글 바.
 // URL 의 SearchParams 가 단일 source of truth — 내부 state 는 q 입력 debounce 버퍼뿐.
 
-import { LayoutGrid, List, type LucideIcon } from 'lucide-react';
+import { CircleCheckBig, LayoutGrid, List, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -21,6 +21,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
@@ -30,7 +31,13 @@ import { useCycles } from '../../../hooks/queries/useCycles';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../../hooks/queries/useLabels';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
-import { filtersToParams, parseFilters, parseGroupBy, parseView } from '../../../lib/issueFilters';
+import {
+  filtersToParams,
+  overridesClosedHiding,
+  parseFilters,
+  parseGroupBy,
+  parseView,
+} from '../../../lib/issueFilters';
 import type { IssueFilters, IssueGroupBy, IssuePriority, IssueStatus, IssueView } from '../../../types/issue';
 
 const STATUS_OPTIONS = [
@@ -59,6 +66,7 @@ const GROUP_OPTIONS: { value: IssueGroupBy | null; label: string }[] = [
 export interface IssueFilterBarOptions {
   showCycle?: boolean; // 기본 true
   showType?: boolean; // 기본 true
+  showClosedToggle?: boolean; // 「완료 모두 보기」 노출. 기본 true — 종료 이슈 숨김 범위를 안 쓰는 화면(개인)은 false
   groupOptions?: { value: IssueGroupBy | null; label: string }[]; // 기본 GROUP_OPTIONS
   listLabel?: string; // 뷰토글의 'list' 버튼 접근성 라벨. 기본 '리스트'
   listIcon?: LucideIcon; // 뷰토글의 'list' 버튼 아이콘. 기본 List(목록). 개인=ListChecks(체크리스트)
@@ -73,6 +81,7 @@ export function IssueFilterBar({
 }) {
   const showCycle = options?.showCycle ?? true;
   const showType = options?.showType ?? true;
+  const showClosedToggle = options?.showClosedToggle ?? true;
   const groupOptions = options?.groupOptions ?? GROUP_OPTIONS;
   const listLabel = options?.listLabel ?? '리스트';
   const ListIcon = options?.listIcon ?? List;
@@ -131,6 +140,9 @@ export function IssueFilterBar({
     if (groupBy) p.set('group', groupBy);
     setParams(p, { replace: true });
   }
+
+  // 명시 필터가 이미 종료 이슈 숨김을 해제했는지 — 토글 표시 상태에 반영(#876).
+  const closedHidingOverridden = overridesClosedHiding(filters);
 
   // 적용된 필터가 하나라도 있을 때만 초기화 버튼을 노출 — 평소엔 숨겨 툴바를 깔끔하게.
   const hasActiveFilters =
@@ -266,33 +278,55 @@ export function IssueFilterBar({
 
       <FacetFilter facets={facets} value={filterValue} onChange={handleFilterChange} />
 
-      {/* 그룹 기준 — 셀렉트(드롭다운). null='none' 으로 매핑. */}
-      <div className="flex items-center gap-1 ml-auto">
-        <span className="text-xs text-muted-foreground">그룹</span>
-        <Select
-          value={groupBy ?? 'none'}
-          onValueChange={(v) => setGroupBy(v === 'none' ? null : (v as IssueGroupBy))}
-        >
-          <SelectTrigger
+      <div className="ml-auto flex items-center gap-2">
+        {/* 「완료 모두 보기」 — 종료 이슈 숨김 기본 범위(withDefaultIssueScope)를 쓰는 화면만 노출.
+            상태·사이클 등 명시 필터가 이미 숨김을 해제했으면 눌린 상태로 비활성화한다. */}
+        {showClosedToggle && (
+          <Button
+            variant="ghost"
             size="sm"
-            className="w-28"
-            aria-label="그룹 기준"
-            data-testid="group-by-trigger"
+            data-testid="show-all-closed-toggle"
+            aria-pressed={filters.showAllClosed || closedHidingOverridden}
+            disabled={closedHidingOverridden}
+            onClick={() =>
+              writeFilters({ ...filters, showAllClosed: !filters.showAllClosed }, view, groupBy)
+            }
+            className={cn(
+              'transition-colors',
+              (filters.showAllClosed || closedHidingOverridden) && 'bg-accent',
+            )}
           >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {groupOptions.map((opt) => (
-              <SelectItem
-                key={opt.value ?? 'none'}
-                value={opt.value ?? 'none'}
-                data-testid={`group-by-${opt.value ?? 'none'}`}
-              >
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            <CircleCheckBig aria-hidden="true" /> 완료 모두 보기
+          </Button>
+        )}
+        {/* 그룹 기준 — 셀렉트(드롭다운). null='none' 으로 매핑. */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground">그룹</span>
+          <Select
+            value={groupBy ?? 'none'}
+            onValueChange={(v) => setGroupBy(v === 'none' ? null : (v as IssueGroupBy))}
+          >
+            <SelectTrigger
+              size="sm"
+              className="w-28"
+              aria-label="그룹 기준"
+              data-testid="group-by-trigger"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {groupOptions.map((opt) => (
+                <SelectItem
+                  key={opt.value ?? 'none'}
+                  value={opt.value ?? 'none'}
+                  data-testid={`group-by-${opt.value ?? 'none'}`}
+                >
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* 뷰 전환 — 아이콘 토글. AppRail 과 동일하게 shadcn Tooltip 사용(키보드 포커스 툴팁 지원). */}
