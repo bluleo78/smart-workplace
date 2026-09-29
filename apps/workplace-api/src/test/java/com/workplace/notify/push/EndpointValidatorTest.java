@@ -35,6 +35,7 @@ class EndpointValidatorTest {
         "https://[fd00::1]/x", // ULA
         "https:///nohost",
         "not a url",
+        "https://[64:ff9b::7f00:1]/x", // NAT64 well-known prefix — 내장 IPv4(127.0.0.1) 로 SSRF 우회 가능
       })
   void rejectsInternalOrMalformed(String ep) {
     assertThat(v.isAllowed(ep)).isFalse();

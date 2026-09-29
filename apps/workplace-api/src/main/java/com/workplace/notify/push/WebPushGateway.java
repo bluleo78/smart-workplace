@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
 /**
  * RestClient 기반 PushGateway. 상태코드 해석은 PushSender 가 하므로 여기서는 전송과 코드 반환만 한다. RestClient 는 연결·응답 타임아웃
@@ -39,15 +38,25 @@ public class WebPushGateway implements PushGateway {
 
   @Override
   public int deliver(String endpoint, byte[] body, Map<String, String> headers) {
+    // endpoint 파싱 자체가 실패할 수 있다(잘못된 URI 문자열) — URI.create 는 IllegalArgumentException 을 던지므로
+    // 전송 예외와 별도로 먼저 처리하고, 이후 로그에서 재파싱하지 않도록 파싱된 값을 재사용한다.
+    URI uri;
+    try {
+      uri = URI.create(endpoint);
+    } catch (RuntimeException e) {
+      log.debug("[push] endpoint 파싱 실패: {}", e.getMessage());
+      return -1;
+    }
     try {
       return client
           .post()
-          .uri(URI.create(endpoint))
+          .uri(uri)
           .headers(h -> headers.forEach(h::set))
           .body(body)
           .exchange((req, res) -> res.getStatusCode().value());
-    } catch (RestClientException e) {
-      log.debug("[push] 전송 실패 host={}: {}", URI.create(endpoint).getHost(), e.getMessage());
+    } catch (RuntimeException e) {
+      // 네트워크 오류·타임아웃·기타 런타임 예외를 모두 -1 로 흡수한다 — deliver 는 절대 던지지 않는다는 계약(PushGateway).
+      log.debug("[push] 전송 실패 host={}: {}", uri.getHost(), e.getMessage());
       return -1;
     }
   }

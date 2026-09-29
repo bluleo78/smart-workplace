@@ -32,7 +32,10 @@ public class EndpointValidator {
     }
   }
 
-  /** 루프백·사설·링크로컬·미지정·멀티캐스트·CGNAT(100.64/10)·IPv6 ULA(fc00::/7). */
+  /**
+   * 루프백·사설·링크로컬·미지정·멀티캐스트·CGNAT(100.64/10)·IPv6 ULA(fc00::/7)·NAT64 well-known prefix
+   * (64:ff9b::/96).
+   */
   static boolean isInternal(InetAddress a) {
     if (a.isLoopbackAddress()
         || a.isSiteLocalAddress()
@@ -44,7 +47,20 @@ public class EndpointValidator {
       return (b[0] & 0xff) == 100 && (b[1] & 0xc0) == 64;
     }
     if (a instanceof Inet6Address) {
-      return (b[0] & 0xfe) == 0xfc;
+      if ((b[0] & 0xfe) == 0xfc) return true;
+      // NAT64 well-known prefix — 뒤 32비트에 임의 IPv4(예: 루프백)를 실어 내부망을 우회할 수 있어 전체 /96 차단
+      return b[0] == 0x00
+          && b[1] == 0x64
+          && b[2] == (byte) 0xff
+          && b[3] == (byte) 0x9b
+          && b[4] == 0
+          && b[5] == 0
+          && b[6] == 0
+          && b[7] == 0
+          && b[8] == 0
+          && b[9] == 0
+          && b[10] == 0
+          && b[11] == 0;
     }
     return false;
   }
