@@ -52,7 +52,6 @@ export default function ProjectDetailPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader
-        contained
         title={project.data?.name ?? ''}
         meta={<span className="text-muted-foreground">{project.data?.key}</span>}
         actions={
@@ -75,7 +74,7 @@ export default function ProjectDetailPage() {
       <div className="flex-1 overflow-y-auto">
         {/* min-h-full + flex-col: 내용이 짧아도 뷰포트 높이를 채우고, 길면 스크롤로 자라게 한다.
             에픽 패널의 self-stretch 가 채울 수 있도록 아래 section 에 flex-1 을 부여. */}
-        <div className="flex min-h-full w-full flex-col p-6">
+        <div className="flex min-h-full w-full flex-col px-4 py-6">
           <IssueArea
             projectKey={key}
             onOpenCreate={canCreateIssue ? () => setOpen(true) : undefined}

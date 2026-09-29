@@ -14,10 +14,10 @@ interface PageHeaderProps {
   actions?: ReactNode
   className?: string
   /**
-   * 본문이 `container mx-auto p-6` 로 센터링되는 페이지(이슈/프로젝트 상세)에서 true.
+   * 본문이 `container mx-auto p-6` 로 센터링되는 페이지(프로젝트 목록 등)에서 true.
    * 헤더 테두리(border-b)는 전체폭을 유지하되, 내부 제목·액션을 본문과 동일한
    * `container mx-auto px-6` 축에 정렬시켜 헤더-본문 좌/우 정렬을 맞춘다.
-   * 기본 false(전체폭 px-4) — 메일/드라이브처럼 p-4 전체폭 본문 페이지와의 정렬을 보존한다.
+   * 기본 false(전체폭 px-4) — 메일/드라이브·프로젝트 상세·타임라인처럼 전체폭 본문 페이지와의 정렬을 보존한다.
    */
   contained?: boolean
   /** 기존 테스트 호환용 testid override(기본 'page-header'). */

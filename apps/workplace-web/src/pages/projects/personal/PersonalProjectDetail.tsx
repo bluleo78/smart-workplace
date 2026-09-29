@@ -66,12 +66,12 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
           actions={<Button onClick={() => setCreateOpen(true)}>+ 빠른 추가</Button>}
         />
         {/* 팀과 동일한 상단 툴바(검색·필터·그룹·뷰토글). 개인 옵션으로 사이클·유형 숨김. */}
-        <div className="border-b px-6">
+        <div className="border-b px-4">
           <IssueFilterBar projectKey={key} options={PERSONAL_FILTER_OPTIONS} />
         </div>
         <div className="flex-1 overflow-y-auto">
-          {/* 개인 화면 본문 — 전체폭. 팀 화면은 건드리지 않음. */}
-          <div className="w-full px-6 py-6">
+          {/* 개인 화면 본문 — 전체폭. 좌우 여백은 헤더(px-4) 축과 맞춘다. */}
+          <div className="w-full px-4 py-6">
             {view === 'board' ? (
               <IssueBoardView
                 projectKey={key}

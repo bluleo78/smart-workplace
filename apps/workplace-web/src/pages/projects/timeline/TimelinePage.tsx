@@ -111,7 +111,6 @@ export default function TimelinePage() {
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="timeline-page">
       <PageHeader
-        contained
         icon={
           <Button
             variant="ghost"
@@ -166,10 +165,10 @@ export default function TimelinePage() {
           </div>
         }
       />
-      <div className="border-b px-6 py-1">
+      <div className="border-b px-4 py-1">
         <TimelineFilterBar projectKey={key} />
       </div>
-      <div className="min-h-0 flex-1 p-6" data-testid="timeline-gantt">
+      <div className="min-h-0 flex-1 px-4 py-6" data-testid="timeline-gantt">
         <TimelineGantt
           groups={groups}
           expandedKeys={expandedKeys}
