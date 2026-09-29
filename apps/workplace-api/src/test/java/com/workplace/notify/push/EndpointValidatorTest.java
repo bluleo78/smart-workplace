@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/** 푸시 endpoint SSRF 방지 — https + 공인 주소만 허용. IP 리터럴만 써서 DNS 없이 결정적으로 검증. */
+/**
+ * 푸시 endpoint SSRF 방지 — https + 공인 주소만 허용. 대부분은 IP 리터럴만 써서 DNS 없이 결정적으로 검증하지만, BLOCKED/UNRESOLVED
+ * 구분 검증 1건은 RFC 2606 예약 TLD(.invalid)로 실제 DNS 조회 실패를 재현한다.
+ */
 class EndpointValidatorTest {
 
   final EndpointValidator v = new EndpointValidator();
@@ -44,5 +47,18 @@ class EndpointValidatorTest {
   @org.junit.jupiter.api.Test
   void rejectsTooLong() {
     assertThat(v.isAllowed("https://203.0.113.10/" + "a".repeat(2100))).isFalse();
+  }
+
+  @org.junit.jupiter.api.Test
+  void check_distinguishesBlockedFromUnresolved() {
+    // 내부 대역 — 영구 차단(BLOCKED).
+    assertThat(v.check("https://127.0.0.1/x")).isEqualTo(EndpointValidator.Outcome.BLOCKED);
+    // DNS 조회 자체가 실패 — 일시적일 수 있어 차단과 구분(UNRESOLVED). RFC 2606 예약 TLD 라 결코 실제로 등록되지 않는다.
+    assertThat(v.check("https://this-host-never-resolves.invalid/push"))
+        .isEqualTo(EndpointValidator.Outcome.UNRESOLVED);
+    // isAllowed() 는 등록 API 용 — BLOCKED·UNRESOLVED 모두 false 로 뭉뚱그린다(등록 시점은 구분하지 않음).
+    assertThat(v.isAllowed("https://this-host-never-resolves.invalid/push")).isFalse();
+    assertThat(v.check("https://203.0.113.10/push/abc"))
+        .isEqualTo(EndpointValidator.Outcome.ALLOWED);
   }
 }

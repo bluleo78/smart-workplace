@@ -20,7 +20,8 @@ public class PushContentService {
   /** 인박스 이벤트 → PushMessage. 대상(이슈/일정)이 없거나 삭제됐으면 null. */
   @Transactional(readOnly = true)
   public PushMessage forInbox(InboxPushRequestedEvent e) {
-    String actor = e.actorId() == null ? "" : repo.findUserName(e.actorId()).orElse("");
+    // 행위자 없음/탈퇴 등으로 이름 조회 실패 시 "시스템" — 프론트 InboxPanel 의 `n.actorName ?? '시스템'` 과 표기 통일.
+    String actor = e.actorId() == null ? "시스템" : repo.findUserName(e.actorId()).orElse("시스템");
     PushCategory category = PushCategory.of(e.type());
     if (category == PushCategory.ISSUE) {
       if (e.issueId() == null) return null;

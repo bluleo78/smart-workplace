@@ -15,7 +15,13 @@ public class PushSubscriptionService {
   private final PushSubscriptionRepository repo;
   private final EndpointValidator endpointValidator;
 
-  /** 구독 등록(같은 endpoint 면 소유자 이전). 검증 실패는 IllegalArgumentException(400). */
+  /**
+   * 구독 등록(같은 endpoint 면 소유자 이전). 검증 실패는 IllegalArgumentException(400).
+   *
+   * <p>등록 시점은 발송(PushSender)과 달리 BLOCKED(내부 주소·형식 오류)·UNRESOLVED(DNS 조회 실패) 를 구분하지 않고 모두 거부한다 — 지금
+   * 검증할 수 없는 endpoint 를 일단 저장했다가 나중에 재시도할 이유가 없고(사용자가 다시 토글하면 그만), 등록은 발송처럼 대량 구독을 다루지 않아 일시 장애로 정상
+   * 사용자가 피해를 볼 여지도 적다.
+   */
   @Transactional
   public void register(long userId, String endpoint, String p256dh, String auth, String userAgent) {
     if (!endpointValidator.isAllowed(endpoint)) {

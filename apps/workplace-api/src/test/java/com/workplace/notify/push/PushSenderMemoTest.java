@@ -48,7 +48,7 @@ class PushSenderMemoTest {
                 new PushSubscriptionRow(1, 7, a1, "AAAA", "AAAA"),
                 new PushSubscriptionRow(2, 7, a2, "AAAA", "AAAA"),
                 new PushSubscriptionRow(3, 7, b1, "AAAA", "AAAA")));
-    when(validator.isAllowed(anyString())).thenReturn(true);
+    when(validator.check(anyString())).thenReturn(EndpointValidator.Outcome.ALLOWED);
     when(signer.authorization(anyString())).thenReturn("vapid t=x, k=y");
     when(encryptor.encrypt(any(), any(), any())).thenReturn(new byte[] {1});
     when(gateway.deliver(anyString(), any(), anyMap())).thenReturn(201);
@@ -57,9 +57,9 @@ class PushSenderMemoTest {
         List.of(7L), new PushMessage(1L, PushCategory.DM, "t", "b", "/", "ch-1", "high", 60));
 
     // fcm.example.com 2건은 첫 구독에서만 검증·서명, other 는 따로 1회.
-    verify(validator, times(1)).isAllowed(a1);
-    verify(validator, times(0)).isAllowed(a2);
-    verify(validator, times(1)).isAllowed(b1);
+    verify(validator, times(1)).check(a1);
+    verify(validator, times(0)).check(a2);
+    verify(validator, times(1)).check(b1);
     verify(signer, times(2)).authorization(anyString());
     verify(gateway, times(3)).deliver(anyString(), any(), anyMap());
     verify(subs).markSuccess(eq(2L));

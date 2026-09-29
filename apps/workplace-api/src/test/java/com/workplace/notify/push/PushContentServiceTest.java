@@ -80,6 +80,17 @@ class PushContentServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void forInbox_actorMissing_usesSystemLabel() {
+    // 행위자가 없는 경우(actorId == null) — 프론트 InboxPanel 의 `n.actorName ?? '시스템'` 과 표기를 통일한다.
+    seedIssue();
+    PushMessage m =
+        content.forInbox(
+            new InboxPushRequestedEvent(
+                1L, NotificationType.STATUS_CHANGED, List.of(99L), null, issueId, null));
+    assertThat(m.body()).isEqualTo("시스템님이 상태를 변경했습니다");
+  }
+
+  @Test
   void forInbox_deletedIssue_returnsNull() {
     PushMessage m =
         content.forInbox(

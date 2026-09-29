@@ -96,6 +96,35 @@ class PushSenderTest extends IntegrationTestBase {
   }
 
   @Test
+  void send_dnsUnresolved_doesNotDeleteButCountsAsFailure() {
+    // RFC 2606 예약 TLD(.invalid) — 실제로는 절대 등록되지 않아 DNS 조회가 결정적으로 실패(UnknownHostException)한다.
+    // 내부 주소로 재해석된 것(BLOCKED)이 아니라 조회 자체가 실패한 것(UNRESOLVED)이므로 곧바로 삭제되면 안 되고,
+    // 다른 일시적 발송 실패(5xx 등)와 같은 방식으로 5회 누적돼야 삭제된다.
+    String ep = "https://dns-fail.invalid/push/" + UUID.randomUUID();
+    subs.upsert(user, ep, p256dh, auth, null);
+
+    for (int i = 0; i < 4; i++) sender.send(List.of(user), msg());
+    assertThat(subs.findOwner(ep)).isPresent();
+    verify(gateway, never()).deliver(eq(ep), any(), anyMap());
+
+    sender.send(List.of(user), msg());
+    assertThat(subs.findOwner(ep)).isEmpty();
+  }
+
+  @Test
+  void send_blockedInternalAddress_deletesImmediately() {
+    // register() 검증을 거치지 않고 직접 저장(재바인딩 등으로 이미 등록된 뒤 내부 주소로 재해석되는 상황 재현) —
+    // BLOCKED 는 UNRESOLVED 와 달리 즉시 삭제되고, 발송 시도(gateway.deliver) 자체가 없어야 한다.
+    String ep = "https://127.0.0.1/push/" + UUID.randomUUID();
+    subs.upsert(user, ep, p256dh, auth, null);
+
+    sender.send(List.of(user), msg());
+
+    assertThat(subs.findOwner(ep)).isEmpty();
+    verify(gateway, never()).deliver(eq(ep), any(), anyMap());
+  }
+
+  @Test
   void send_categoryDisabled_skips() {
     addSub();
     prefs.upsert(user, PushCategory.DM, false);

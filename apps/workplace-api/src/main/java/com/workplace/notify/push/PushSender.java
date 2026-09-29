@@ -43,11 +43,13 @@ public class PushSender {
     byte[] json = payload(props.preview() ? message : message.redacted());
     // 한 번의 send 안에서만 재사용하는 캐시 — 같은 푸시 서비스(FCM 등)로 가는 구독이 대부분이라 origin 별 DNS 검증과 origin(aud)별 VAPID
     // 서명을 1회로 줄인다. 전역 캐시를 두지 않는 이유: 발송 직전 재검증(DNS 재바인딩 완화)과 JWT 만료 관리를 단순하게 유지하기 위해.
-    Map<String, Boolean> allowedByOrigin = new HashMap<>();
+    // 캐시 값은 Outcome 전체(단순 boolean 아님) — DNS 조회 실패(UNRESOLVED)를 BLOCKED 로 뭉개면 일시적 네트워크 문제로
+    // 그 origin 의 모든 구독이 영구 삭제되는 사고가 난다.
+    Map<String, EndpointValidator.Outcome> outcomeByOrigin = new HashMap<>();
     Map<String, String> authByOrigin = new HashMap<>();
     for (PushSubscriptionRow sub : subs) {
       try {
-        deliverOne(sub, json, message, allowedByOrigin, authByOrigin);
+        deliverOne(sub, json, message, outcomeByOrigin, authByOrigin);
       } catch (Exception e) {
         log.warn("[push] 구독 {} 발송 중 예외: {}", sub.id(), e.getMessage());
         failed(sub);
@@ -76,12 +78,25 @@ public class PushSender {
       PushSubscriptionRow sub,
       byte[] json,
       PushMessage m,
-      Map<String, Boolean> allowedByOrigin,
+      Map<String, EndpointValidator.Outcome> outcomeByOrigin,
       Map<String, String> authByOrigin) {
     URI uri = parse(sub.endpoint());
-    if (uri == null || !allowed(sub.endpoint(), uri, allowedByOrigin)) {
-      subscriptions.deleteById(sub.id()); // 파싱 불가 또는 재해석 결과 내부 주소 — 폐기
+    if (uri == null) {
+      subscriptions.deleteById(sub.id()); // 파싱 불가 — 폐기
       return;
+    }
+    switch (outcomeFor(sub.endpoint(), uri, outcomeByOrigin)) {
+      case BLOCKED -> {
+        subscriptions.deleteById(sub.id()); // 재해석 결과 내부 주소·형식 오류 — 폐기
+        return;
+      }
+      case UNRESOLVED -> {
+        failed(sub); // DNS 조회 실패 — 일시적일 수 있어 삭제 대신 발송 실패로만 집계(재시도 여지)
+        return;
+      }
+      case ALLOWED -> {
+        // 계속 진행
+      }
     }
     byte[] body = encryptor.encrypt(json, EcKeys.b64d(sub.p256dh()), EcKeys.b64d(sub.auth()));
     Map<String, String> headers = new LinkedHashMap<>();
@@ -117,9 +132,10 @@ public class PushSender {
    * EndpointValidator 결과를 origin 단위로 재사용한다(DNS 조회가 비싼 부분). 검증 결과는 scheme·host 로만 정해지고 길이 제한만
    * endpoint 별이라 길이는 매번 따로 본다.
    */
-  private boolean allowed(String endpoint, URI uri, Map<String, Boolean> cache) {
-    if (endpoint.length() > EndpointValidator.MAX_LENGTH) return false;
-    return cache.computeIfAbsent(origin(uri), k -> endpointValidator.isAllowed(endpoint));
+  private EndpointValidator.Outcome outcomeFor(
+      String endpoint, URI uri, Map<String, EndpointValidator.Outcome> cache) {
+    if (endpoint.length() > EndpointValidator.MAX_LENGTH) return EndpointValidator.Outcome.BLOCKED;
+    return cache.computeIfAbsent(origin(uri), k -> endpointValidator.check(endpoint));
   }
 
   /** VAPID aud 와 같은 기준(scheme://host[:port])의 origin — 서명 캐시 키. */
