@@ -492,4 +492,17 @@ public class UserRepository {
         .forEach(r -> result.put(r.get(USER.ID), r.get(USER.NAME)));
     return result;
   }
+
+  /** WP-48: 테넌트의 ACTIVE 구성원 중 비밀번호가 없는 활성 HUMAN 수 — SSO 끄기 전 확인 다이얼로그용. */
+  public long countPasswordlessHumanMembers(Long tenantId) {
+    return dsl.selectCount()
+        .from(USER)
+        .join(MEMBERSHIP).on(MEMBERSHIP.USER_ID.eq(USER.ID))
+        .where(MEMBERSHIP.TENANT_ID.eq(tenantId))
+        .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+        .and(USER.PASSWORD.isNull())
+        .and(USER.KIND.eq("HUMAN"))
+        .and(USER.IS_ACTIVE.isTrue())
+        .fetchOne(0, long.class);
+  }
 }
