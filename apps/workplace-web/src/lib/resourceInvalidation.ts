@@ -89,6 +89,18 @@ const RULES: Record<string, Rule> = {
   // 범위 목록·상세(['calendar','events',…]·['calendar','event',id])·캘린더 목록·홈 위젯이 모두 ['calendar'] 아래에 있다.
   'calendar-event': () => [{ queryKey: ['calendar'] }],
   calendar: () => [{ queryKey: ['calendar'] }],
+  // 메시지 캐시(['messaging','messages'|'thread'…])는 기존 messaging.* 핸들러가 패치하므로 건드리지 않는다 — 목록·상세·멤버만.
+  // 채널 멤버십은 연결된 드라이브 채널 스페이스 멤버도 바꾼다(ChannelDriveListener) → 드라이브 스페이스 목록도 무효화.
+  channel: (p) => [
+    { queryKey: ['messaging', 'channels'] },
+    { queryKey: ['messaging', 'discover'] },
+    ...(p.channelId != null
+      ? [{ queryKey: ['messaging', 'detail', p.channelId] }, { queryKey: ['messaging', 'members', p.channelId] }]
+      : []),
+    { queryKey: ['messaging-summary'] },
+    { queryKey: ['drive', 'spaces'] },
+  ],
+  dm: () => [{ queryKey: ['messaging', 'dms'] }, { queryKey: ['messaging-summary'] }],
 };
 
 export function invalidationTargets(p: ResourceChangedPayload): InvalidationTarget[] {

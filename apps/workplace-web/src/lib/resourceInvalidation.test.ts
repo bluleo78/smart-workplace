@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createInvalidationBatcher,
+  type InvalidationTarget,
   invalidationTargets,
   isProtectedKey,
-  type InvalidationTarget,
   type ResourceChangedPayload,
 } from './resourceInvalidation';
 
@@ -152,6 +152,9 @@ const SAMPLES: ResourceChangedPayload[] = [
   // 캘린더 — calendar-event(ids)·calendar 는 projectKey 없이 scope USER 로 온다.
   { resource: 'calendar-event', op: 'updated', scopeType: 'USER', scopeId: 1, ids: [7] },
   { resource: 'calendar', op: 'updated', scopeType: 'USER', scopeId: 1, ids: [3] },
+  // 채널·DM — attrs 는 channelId 만.
+  { resource: 'channel', op: 'updated', scopeType: 'CHANNEL', scopeId: 3, channelId: 3 },
+  { resource: 'dm', op: 'created', scopeType: 'CHANNEL', scopeId: 4, channelId: 4 },
   ...['project', 'project-member', 'label', 'milestone', 'cycle', 'field-def', 'issue-type', 'saved-view'].map(
     (resource) => ({ resource, op: 'updated' as const, projectKey: 'EX' }),
   ),
