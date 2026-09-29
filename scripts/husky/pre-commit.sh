@@ -6,6 +6,7 @@
 #   - workplace-web 공유 영역/매핑 모호: 전체 E2E
 #   - 도메인(admin) 단독: 전역 smoke + 해당 도메인 non-smoke
 #   - workplace-web 외만 변경: gradle 만
+#   - workplace-web 변경 시 vitest 단위 테스트는 항상 전체 실행(수 초)
 # - 풀 회귀 안전망은 .husky/pre-push 가 담당
 #
 # 본 스크립트는 husky 외부에서도 테스트 가능하도록 분리됨.
@@ -32,6 +33,15 @@ NEEDS_REGRESSION=$(printf '%s\n' "$CHANGED" | grep -vE '^(docs/|.*\.md$|LICENSE.
 if [ -z "$NEEDS_REGRESSION" ]; then
   echo "[pre-commit] 비코드 변경만 감지 — E2E + gradle test skip"
   exit 0
+fi
+
+# 3.5) workplace-web 단위 테스트(vitest) — web 변경이 있으면 항상 전체 실행 (WP-79).
+# 400여 건이 수 초면 끝나므로 선택 실행 없이 돌리고, E2E 보다 먼저 돌려 순수 로직 회귀를 빠르게 실패시킨다.
+# 브라우저가 필요 없는 검증은 E2E 대신 vitest 로 두므로, 이 단계가 빠지면 해당 회귀가 게이트를 통과한다.
+WEB_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/' || true)
+if [ -n "$WEB_CHANGED" ]; then
+  echo "[pre-commit] workplace-web 변경 — vitest 단위 테스트 실행"
+  [ -n "$PRECOMMIT_DRY_RUN" ] || (cd apps/workplace-web && pnpm test)
 fi
 
 # 4) workplace-web 변경 영역 분석

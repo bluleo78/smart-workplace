@@ -21,6 +21,10 @@ test.describe('메일 인용문 보존', () => {
   /** 목록 1건 + 상세(완전 문서 bodyHtml). bodyText 는 null — 있으면 프론트가 그쪽을 우선한다. */
   async function mockInbox(page: import('@playwright/test').Page, bodyHtml = FULL_DOC_BODY) {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    // 상세 진입 시 함께 나가는 부가 조회도 고정 응답으로 둔다 — 모킹이 빠지면 오류 응답·재시도가
+    // 상세 영역을 다시 그리는 타이밍에 답장 클릭이 겹칠 수 있다(작성 창이 안 열린 flaky 의 유력 원인, WP-82).
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
+    await mockApi(page, 'GET', '/api/v1/mail/messages/5/summary', { summary: null })
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
       (route) =>
@@ -49,8 +53,9 @@ test.describe('메일 인용문 보존', () => {
         }),
     )
     await page.goto('/mail/1')
-    // 상세 진입 — 목록 행 클릭.
+    // 상세 진입 — 목록 행 클릭. 상세 헤더의 답장 버튼이 뜬 뒤에 돌려줘 호출부가 준비된 상세에서 답장을 누르게 한다.
     await page.getByText('4분기 인프라 예산 재검토 요청').first().click()
+    await expect(page.getByTestId('mail-reply')).toBeVisible()
   }
 
   test('답장 인용문은 기본 접힘이고 펼치면 원문 서식이 그대로 보인다', async ({

@@ -30,7 +30,7 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커(+이슈 컨텍스트 chat)
 
 - **한국어 주석 필수**: 클래스·메서드·주요 로직에 무엇을·왜. 상세는 [코딩 컨벤션](docs/CODING_CONVENTION.md)
 - **커밋/배포 금지**: 사용자 명시적 승인 후에만 실행
-- **테스트 필수**: backend → JUnit 통합 테스트, frontend → Playwright E2E
+- **테스트 필수**: backend → JUnit 통합 테스트, frontend → Playwright E2E(브라우저가 필요 없는 순수 로직은 vitest 단위 테스트 — `apps/workplace-web/CLAUDE.md` 참조)
 - **이슈 관리**: 작업 착수 시 GitHub Projects #4 이슈 상태 변경 + 현재 이터레이션 할당 (위 "이슈 관리" 참조)
 - **스크린샷**: 탐색 → `test-results/exploratory/<기능>/<timestamp>/screenshots/`, TC → `test-results/tc/<suite>/`
 

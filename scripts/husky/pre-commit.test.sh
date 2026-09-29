@@ -92,6 +92,17 @@ run_case "main.tsx 변경 → 전체 E2E(config 취급 유지)" \
   "apps/workplace-web/src/main.tsx" \
   "전체 E2E 실행"
 
+# 11) web 변경 → vitest 단위 테스트 실행 (WP-79)
+run_case "web 변경 → vitest 실행" \
+  "apps/workplace-web/src/lib/notifGrouping.ts" \
+  "vitest 단위 테스트 실행"
+
+# 12) api 만 변경 → vitest 미실행
+run_case "api 만 변경 → vitest 미실행" \
+  "apps/workplace-api/src/main/java/com/workplace/auth/service/AuthService.java" \
+  '--tests "*AuthServiceTest"' \
+  "vitest 단위 테스트 실행"
+
 echo
 echo "=== 결과: PASS=$PASS FAIL=$FAIL ==="
 [ "$FAIL" -eq 0 ]

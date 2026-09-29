@@ -402,6 +402,8 @@ test('위키 변형 — 단일 undo 로 변형 전 원본으로 복원된다', a
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
   await typeAndSelectAll(page, '원본 문장')
+  // 의도된 고정 대기 — ProseMirror history 는 newGroupDelay(500ms) 안의 변경을 한 undo 그룹으로 묶는다.
+  // 입력과 AI 변형이 같은 그룹이 되면 undo 가 입력까지 지워 "원본으로 복원"을 검증할 수 없다(WP-82 에서 확인).
   await page.waitForTimeout(600)
 
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
