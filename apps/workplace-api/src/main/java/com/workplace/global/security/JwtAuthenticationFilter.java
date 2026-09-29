@@ -145,6 +145,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         permissions.stream().map(SimpleGrantedAuthority::new).toList();
     UsernamePasswordAuthenticationToken authentication =
         new UsernamePasswordAuthenticationToken(userId, null, authorities);
+    if (authMethod != null) {
+      authentication.setDetails(new AuthDetails(authMethod));
+    }
     SecurityContextHolder.getContext().setAuthentication(authentication);
   }
 }

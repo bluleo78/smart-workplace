@@ -65,6 +65,24 @@ class SsoSessionConstraintTest extends SsoIntegrationTestBase {
         .andExpect(jsonPath("$[?(@.tenantId == " + plain + ")]").isEmpty());
   }
 
+  /** 실제 JwtAuthenticationFilter 경로 — Bearer JWT 의 amr 클레임이 details 로 전달되는지 검증(WP-48). */
+  @Test
+  void realFilter_ssoBearerToken_appliesWorkspaceConstraint() throws Exception {
+    String username = userRepository.findById(userId).orElseThrow().username();
+    String bearer = "Bearer " + jwt.generateAccessToken(userId, username, null, AuthDetails.SSO);
+
+    mvc.perform(get("/api/v1/auth/memberships").header("Authorization", bearer))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(2))
+        .andExpect(jsonPath("$[?(@.tenantId == " + plain + ")]").isEmpty());
+    mvc.perform(post("/api/v1/auth/select-tenant").header("Authorization", bearer)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"tenantId\":" + plain + "}"))
+        .andExpect(status().isForbidden());
+    mvc.perform(post("/api/v1/auth/select-tenant").header("Authorization", bearer)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"tenantId\":" + ssoA + "}"))
+        .andExpect(status().isOk());
+  }
+
   @Test
   void passwordMemberships_unchanged() throws Exception {
     var pw = new UsernamePasswordAuthenticationToken(userId, null, java.util.List.of());
