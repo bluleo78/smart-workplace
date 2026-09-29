@@ -1,8 +1,7 @@
 import { Folder } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
-import { driveApi } from '../../api/drive'
-import type { DriveFile, DriveFolder } from '../../types/drive'
+import { useDriveItems } from '../../hooks/queries/useDriveItems'
 import {
   Dialog,
   DialogContent,
@@ -42,15 +41,11 @@ export function FolderPickerModal({
   onClose,
 }: Props) {
   const [current, setCurrent] = useState<number | null>(null)
-  const [folders, setFolders] = useState<DriveFolder[]>([])
-  const [files, setFiles] = useState<DriveFile[]>([])
-
-  useEffect(() => {
-    void driveApi.listItems(spaceId, current).then(({ data }) => {
-      setFolders(data.folders)
-      setFiles(data.files)
-    })
-  }, [spaceId, current])
+  // WP-63: 현재 탐색 폴더의 내용 — DrivePage 와 같은 ['drive','items',spaceId,folderId] 키로 캐시를 공유해
+  // resource.changed 무효화 시 함께 갱신된다. 폴더·파일은 응답에서 그대로 분리해 쓴다(미로드 시 빈 목록).
+  const { data, isLoading } = useDriveItems(spaceId, current ?? undefined)
+  const folders = data?.folders ?? []
+  const files = data?.files ?? []
 
   return (
     // open 고정 true — 부모가 마운트/언마운트로 열기·닫기 제어함
@@ -100,7 +95,8 @@ export function FolderPickerModal({
                 </button>
               </li>
             ))}
-          {(mode === 'folder' ? folders.length === 0 : files.length === 0) && (
+          {/* WP-63: 첫 조회 중엔 빈 목록 문구를 숨긴다 — 폴더 이동 직후 거짓 "없음" 깜빡임 방지 */}
+          {!isLoading && (mode === 'folder' ? folders.length === 0 : files.length === 0) && (
             <li className="py-4 text-center text-xs text-muted-foreground">
               {mode === 'file' ? '파일 없음' : '하위 폴더 없음'}
             </li>

@@ -40,8 +40,12 @@ import { RowOverflowMenu } from '../../components/drive/RowOverflowMenu'
 import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
 import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
 import { SearchInput } from '../../components/ui/search-input'
+import { useDriveItems } from '../../hooks/queries/useDriveItems'
 import { driveQuotaKeys } from '../../hooks/queries/useDriveQuota'
-import type { DriveFile, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveSpace, DriveTrashItem } from '../../types/drive'
+import { useDriveSearch } from '../../hooks/queries/useDriveSearch'
+import { useDriveSpace } from '../../hooks/queries/useDriveSpace'
+import { useDriveTrash } from '../../hooks/queries/useDriveTrash'
+import type { DriveFile, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveTrashItem } from '../../types/drive'
 import { type DroppedFile,readDroppedTree } from './folderUpload'
 import { useFolderNavigation } from './useFolderNavigation'
 
@@ -52,6 +56,9 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 function isUploadAborted(err: unknown): boolean {
   return axios.isCancel(err)
 }
+
+// WP-63: 폴더 목록 미로드(조회 전·실패) 시 쓰는 빈 목록 — 매 렌더 새 객체를 만들지 않도록 모듈 상수로 둔다.
+const EMPTY_ITEMS: DriveItemList = { folders: [], files: [] }
 
 // breadcrumb 접기 — 4개 초과면 [첫, null(…), 마지막2개]. null 은 생략 표식.
 function collapseCrumbs(
@@ -77,9 +84,17 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const folderNav = useFolderNavigation(embedded ? 'state' : 'url')
   const folderId = folderNav.folderId
 
+  // WP-63: 쿼리 훅에 넘길 공간 id — URL 파라미터가 숫자가 아니면(NaN) 조회 비활성.
+  // typeof NaN === 'number' 라 훅의 enabled 판정을 통과하므로 여기서 undefined 로 바꾼다.
+  const validSid = Number.isNaN(sid) ? undefined : sid
+
   // #76: 공간 메타데이터 — archived 여부로 읽기 전용 배너·액션 버튼 비활성 결정.
-  const [space, setSpace] = useState<DriveSpace | null>(null)
-  const [items, setItems] = useState<DriveItemList>({ folders: [], files: [] })
+  // WP-63: useQuery 전환 — 실패 시 data 가 없어 배너 미표시로 폴백(기존 동작 유지).
+  const space = useDriveSpace(validSid).data ?? null
+  // WP-63: 폴더 내용 — DriveWidget 과 같은 키(['drive','items',sid,folderId])로 캐시를 공유한다.
+  // resource.changed 무효화나 사용자 액션 후 reload() 가 이 키를 재조회한다.
+  const itemsQuery = useDriveItems(validSid, folderId ?? undefined)
+  const items = itemsQuery.data ?? EMPTY_ITEMS
   const fileInput = useRef<HTMLInputElement>(null)
   const [picker, setPicker] = useState<
     { mode: 'move' | 'copy'; kind: 'file' | 'folder'; id: number; name: string } | null
@@ -92,7 +107,19 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
 
   // 검색 상태 — query 길이 ≥2 면 results/contentResults 로 목록을 대체(파일명+콘텐츠 통합 검색).
   const [query, setQuery] = useState('')
+  // WP-63: 디바운스(300ms)·최소 길이(2자) 판정을 통과한 파일명 검색어. 빈 문자열이면 검색 모드 아님.
+  // 파일명 검색은 이 값을 키로 useQuery 가 조회하고, 콘텐츠 검색은 비용이 커 기존 useState 로 둔다.
+  const [searchQ, setSearchQ] = useState('')
+  const searchQuery = useDriveSearch(validSid, searchQ)
+  // 화면에 표시할 검색 결과 — 기존 동작 보존: 검색어가 바뀌는 동안(새 응답 전)은 이전 결과를 유지하고,
+  // 검색 모드를 벗어나면(searchQ='') 즉시 비운다. 렌더 중 state 조정 패턴으로 응답 도착·재조회를 반영한다.
+  const searchData = searchQ ? searchQuery.data : undefined
   const [results, setResults] = useState<DriveSearchResult | null>(null)
+  if (!searchQ) {
+    if (results !== null) setResults(null)
+  } else if (searchData && searchData !== results) {
+    setResults(searchData)
+  }
   const [contentResults, setContentResults] = useState<DriveContentHit[] | null>(null)
   // 콘텐츠 검색 진행 중 여부 — 파일명 검색이 먼저 빈 결과로 응답해도 콘텐츠 검색 완료 전엔
   // "검색 결과가 없습니다"를 보여주지 않기 위한 가드(깜빡임 방지).
@@ -104,7 +131,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const [overviewQuery, setOverviewQuery] = useState('')
 
   // 휴지통 뷰 — trash != null 이면 휴지통 모드.
-  const [trash, setTrash] = useState<DriveTrashItem[] | null>(null)
+  // WP-63: 열림 여부만 state 로 두고 목록은 useQuery 로 조회. 기존처럼 첫 응답이 올 때까지는
+  // 휴지통 뷰로 전환하지 않도록 data 가 있을 때만 trash 를 채운다.
+  const [trashOpen, setTrashOpen] = useState(false)
+  const trashQuery = useDriveTrash(validSid, trashOpen)
+  const trash: DriveTrashItem[] | null = trashOpen && trashQuery.data ? trashQuery.data.items : null
 
   // 폴더 이름 입력 다이얼로그 — 새 폴더 생성(create) / 이름 변경(rename). window.prompt 대체 (#135).
   const [nameDialog, setNameDialog] = useState<{
@@ -129,7 +160,26 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const [selFiles, setSelFiles] = useState<Set<number>>(new Set())
   const [selFolders, setSelFolders] = useState<Set<number>>(new Set())
   const [bulkPicker, setBulkPicker] = useState(false)
-  const selCount = selFiles.size + selFolders.size
+
+  // 폴더/공간 변경 시 선택 초기화 — stale 선택이 벌크 작업에 섞이지 않도록(기존 reload effect 의 동작 유지).
+  // effect 대신 렌더 중 state 조정 패턴으로 이전 위치와 비교해 바뀌었을 때만 비운다.
+  const selLocation = `${sid}:${folderId ?? ''}`
+  const [prevSelLocation, setPrevSelLocation] = useState(selLocation)
+  if (prevSelLocation !== selLocation) {
+    setPrevSelLocation(selLocation)
+    setSelFiles(new Set())
+    setSelFolders(new Set())
+  }
+
+  // WP-63: 선택은 재조회(원격 무효화 등)로 지워지지 않으므로, 현재 보이는 목록에서 사라진 항목은
+  // 선택 집합과 현재 뷰(검색 중이면 검색 결과, 아니면 폴더 목록) id 의 교집합으로 걸러 쓴다.
+  // 선택 수·벌크 작업 body·전체선택 판정·체크 상태 모두 이 걸러진 집합을 기준으로 한다.
+  const viewItems = results ?? items
+  const viewFileIds = new Set(viewItems.files.map((f) => f.id))
+  const viewFolderIds = new Set(viewItems.folders.map((f) => f.id))
+  const visibleSelFiles = new Set([...selFiles].filter((id) => viewFileIds.has(id)))
+  const visibleSelFolders = new Set([...selFolders].filter((id) => viewFolderIds.has(id)))
+  const selCount = visibleSelFiles.size + visibleSelFolders.size
 
   // 토글 헬퍼 — 집합에 id 가 있으면 제거, 없으면 추가해 새 집합 반환.
   function toggleSel(set: Set<number>, id: number): Set<number> {
@@ -156,34 +206,17 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // breadcrumb 경로(루트→현재 폴더). folderId 가 있을 때 서버에서 폴더명 경로를 로드.
   const [crumbs, setCrumbs] = useState<DriveFolderPathSegment[]>([])
 
+  // WP-63: 사용자 액션 후 목록 갱신 — 이 공간의 폴더 목록과 파일명 검색 캐시를 무효화한다.
+  // 활성 쿼리의 재조회가 끝나야 resolve 하므로 호출측의 await 이후엔 기존처럼 최신 목록이 반영돼 있다.
+  // #588: 검색 결과 화면에서 벌크 작업 후에도 결과가 갱신되도록 검색 캐시도 함께 무효화 —
+  // 검색 중이 아니어도 무효화해 두어야 나중에 같은 검색어로 돌아왔을 때 삭제된 항목이 남지 않는다.
+  // 선택 해제는 여기서 하지 않는다(원격 무효화 재조회에서는 선택을 유지) — 액션 핸들러가 clearSel() 을 호출.
   async function reload() {
-    const { data } = await driveApi.listItems(sid, folderId)
-    setItems(data)
-    // #588: 검색 결과 화면에서 벌크 작업(이동/삭제) 후에도 검색 결과가 갱신되도록
-    // 검색 중이면 동일 질의로 재검색 — 아니면 삭제/이동된 항목이 결과에 잔존 표시됨.
-    const q = query.trim()
-    if (results != null && q.length >= 2) {
-      const { data: searchData } = await driveApi.search(sid, q)
-      setResults(searchData)
-    }
-    // 폴더/공간 변경 시 선택 초기화 — stale 선택이 벌크 작업에 섞이지 않도록.
-    clearSel()
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['drive', 'items', sid] }),
+      queryClient.invalidateQueries({ queryKey: ['drive', 'search', sid] }),
+    ])
   }
-  // 아이템 목록은 공간/폴더 변경 시마다 갱신(폴더 진입 포함).
-  useEffect(() => {
-    if (!Number.isNaN(sid)) void reload()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sid, folderId])
-
-  // #76: 공간 메타데이터(archived 등)는 공간 변경 시 1회 조회 — 실패 시 배너 미표시로 폴백.
-  useEffect(() => {
-    if (!Number.isNaN(sid)) {
-      driveApi
-        .getSpace(sid)
-        .then((r) => setSpace(r.data))
-        .catch(() => undefined)
-    }
-  }, [sid])
 
   // 폴더 진입 시 조상 경로(폴더명) 로드. 루트(null)면 비움. 실패 시 빈 경로로 폴백.
   useEffect(() => {
@@ -210,7 +243,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   useEffect(() => {
     const q = query.trim()
     if (q.length < 2) {
-      setResults(null)
+      setSearchQ('')
       setContentResults(null)
       setContentLoading(false)
       setShowOverview(false)
@@ -218,7 +251,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     }
     setContentLoading(true)
     const t = setTimeout(() => {
-      void driveApi.search(sid, q).then(({ data }) => setResults(data))
+      // 파일명 검색은 검색어 확정만 하면 useDriveSearch 가 조회한다.
+      setSearchQ(q)
       void searchDriveContent(q, sid)
         .then((data) => setContentResults(data.hits))
         // 콘텐츠 검색 실패 시에도 로딩 가드를 반드시 풀어야 "검색 결과가 없습니다"가
@@ -240,7 +274,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
 
   function openFolder(id: number) {
     setQuery('')
-    setResults(null)
+    setSearchQ('')
     setContentResults(null)
     setContentLoading(false)
     setShowOverview(false)
@@ -267,9 +301,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       if (dialog.mode === 'create') {
         await driveApi.createFolder(sid, folderId, nameInput)
         await reload()
+        clearSel()
       } else if (dialog.folderId != null) {
         await driveApi.renameFolder(dialog.folderId, nameInput)
         await reload()
+        clearSel()
       }
     } catch (e) {
       handleApiError(e, dialog.mode === 'create' ? '폴더를 만들지 못했습니다.' : '폴더 이름을 변경하지 못했습니다.')
@@ -330,6 +366,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     uploadAbortRef.current = null
     invalidateQuota()
     await reload()
+    clearSel()
     if (cancelled) {
       toast.message('업로드를 취소했습니다.')
     } else if (failures.length > 0) {
@@ -376,6 +413,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         await driveApi.uploadFile(sid, folderId, file, controller.signal)
         invalidateQuota()
         await reload()
+        clearSel()
       } catch (err) {
         if (isUploadAborted(err)) {
           toast.message('업로드를 취소했습니다.')
@@ -424,6 +462,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       }
       invalidateQuota()
       await reload()
+      clearSel()
       if (cancelled) {
         toast.message('업로드를 취소했습니다.')
       } else if (failures.length > 0) {
@@ -458,6 +497,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           await driveApi.deleteFolder(id)
           invalidateQuota()
           await reload()
+          clearSel()
         } catch (e) {
           handleApiError(e, '폴더를 삭제하지 못했습니다.')
         }
@@ -474,6 +514,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           await driveApi.deleteFile(id)
           invalidateQuota()
           await reload()
+          clearSel()
         } catch (e) {
           handleApiError(e, '파일을 삭제하지 못했습니다.')
         }
@@ -498,12 +539,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     } finally {
       setPicker(null)
       await reload()
+      clearSel()
     }
   }
 
   // #82: 벌크 작업 공통 선택 body 생성.
   function selectionBody() {
-    return { fileIds: [...selFiles], folderIds: [...selFolders] }
+    return { fileIds: [...visibleSelFiles], folderIds: [...visibleSelFolders] }
   }
 
   async function onBulkZip() {
@@ -527,6 +569,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           await driveApi.bulkDelete(sid, body)
           invalidateQuota()
           await reload()
+          clearSel()
         } catch (e) {
           handleApiError(e, '삭제에 실패했습니다.')
         }
@@ -542,25 +585,28 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     } finally {
       setBulkPicker(false)
       await reload()
+      clearSel()
     }
   }
 
   async function openTrash() {
     setQuery('')
-    setResults(null)
+    setSearchQ('')
     setContentResults(null)
     setContentLoading(false)
     setShowOverview(false)
-    const { data } = await driveApi.listTrash(sid)
-    setTrash(data.items)
+    // WP-63: 열 때마다 새로 조회(기존 동작) — staleTime 안의 캐시가 있으면 enabled 전환만으론
+    // 재조회되지 않아 목록 화면에서 삭제한 항목이 빠진 옛 휴지통이 보이므로 먼저 리셋한다.
+    await queryClient.resetQueries({ queryKey: ['drive', 'trash', sid] })
+    setTrashOpen(true)
   }
+  // WP-63: 휴지통 액션 후 갱신 — 휴지통 쿼리를 무효화(재조회 완료까지 대기).
   async function reloadTrash() {
-    const { data } = await driveApi.listTrash(sid)
-    setTrash(data.items)
+    await queryClient.invalidateQueries({ queryKey: ['drive', 'trash', sid] })
   }
   function closeTrash() {
-    setTrash(null)
-    void reload()
+    setTrashOpen(false)
+    void reload().then(clearSel)
   }
   // 복원 실패 시 사용자에게 오류 피드백 제공 (try/catch 추가)
   async function onRestore(it: DriveTrashItem) {
@@ -902,7 +948,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                       {/* #588: 폴더 행 체크박스 — 멀티셀렉트용. */}
                       <input
                         type="checkbox"
-                        checked={selFolders.has(f.id)}
+                        checked={visibleSelFolders.has(f.id)}
                         onChange={() => setSelFolders((s) => toggleSel(s, f.id))}
                         data-testid={`select-folder-${f.id}`}
                         aria-label={`${f.name} 선택`}
@@ -932,7 +978,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                       {/* #588: 파일 행 체크박스 — 멀티셀렉트용. */}
                       <input
                         type="checkbox"
-                        checked={selFiles.has(f.id)}
+                        checked={visibleSelFiles.has(f.id)}
                         onChange={() => setSelFiles((s) => toggleSel(s, f.id))}
                         data-testid={`select-file-${f.id}`}
                         aria-label={`${f.name} 선택`}
@@ -1066,7 +1112,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 {/* #82: 폴더 행 체크박스 — 멀티셀렉트용. */}
                 <input
                   type="checkbox"
-                  checked={selFolders.has(f.id)}
+                  checked={visibleSelFolders.has(f.id)}
                   onChange={() => setSelFolders((s) => toggleSel(s, f.id))}
                   data-testid={`select-folder-${f.id}`}
                   aria-label={`${f.name} 선택`}
@@ -1125,7 +1171,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 {/* #82: 파일 행 체크박스 — 멀티셀렉트용. */}
                 <input
                   type="checkbox"
-                  checked={selFiles.has(f.id)}
+                  checked={visibleSelFiles.has(f.id)}
                   onChange={() => setSelFiles((s) => toggleSel(s, f.id))}
                   data-testid={`select-file-${f.id}`}
                   aria-label={`${f.name} 선택`}
@@ -1216,7 +1262,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 </div>
               </li>
             ))}
-            {items.folders.length === 0 && items.files.length === 0 && (
+            {/* WP-63: 첫 조회 중(isLoading)엔 빈 폴더 문구를 숨긴다 — 폴더 이동 직후 거짓 "빈 폴더" 깜빡임 방지.
+                실패 시엔 isLoading=false 라 기존처럼 빈 상태로 폴백(별도 오류 UI 는 기존에도 없음). */}
+            {!itemsQuery.isLoading && items.folders.length === 0 && items.files.length === 0 && (
               // 빈 폴더 empty state — DS §2.5: 아이콘+제목+설명+CTA 4요소.
               <li
                 className="flex flex-col items-center gap-2 px-4 py-12 text-center"

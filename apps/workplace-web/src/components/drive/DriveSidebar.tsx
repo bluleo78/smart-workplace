@@ -1,5 +1,6 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { HardDrive, MoreHorizontal, Paperclip, Plus } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -37,6 +38,7 @@ import { cn } from '@/lib/utils'
 
 import { driveApi } from '../../api/drive'
 import { useDriveQuota } from '../../hooks/queries/useDriveQuota'
+import { useDriveSpaces } from '../../hooks/queries/useDriveSpaces'
 import type { DriveSpace } from '../../types/drive'
 
 /** 사용량 바 경고 단계 — 임계치 기반 색상 분기(#822). */
@@ -60,9 +62,14 @@ const USAGE_BAR_CLASS: Record<DriveUsageLevel, string> = {
   critical: 'bg-destructive',
 }
 
+// WP-63: 공간 목록 미로드 시 빈 배열 — 매 렌더 새 배열을 만들지 않도록 모듈 상수로 둔다.
+const EMPTY_SPACES: DriveSpace[] = []
+
 /** 좌측 2차 사이드바 — 내 드라이브 + 팀 공간 목록, 팀 공간 생성. */
 export function DriveSidebar() {
-  const [spaces, setSpaces] = useState<DriveSpace[]>([])
+  // WP-63: 공간 목록 — useDriveSpaces(['drive','spaces']) 로 조회해 resource.changed 무효화 대상이 되게 한다.
+  const { data: spaces = EMPTY_SPACES } = useDriveSpaces()
+  const queryClient = useQueryClient()
   const navigate = useNavigate()
   // 팀 공간 생성 다이얼로그 — window.prompt 대체 (#148).
   const [spaceDialogOpen, setSpaceDialogOpen] = useState(false)
@@ -85,13 +92,10 @@ export function DriveSidebar() {
   const [renameTarget, setRenameTarget] = useState<DriveSpace | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DriveSpace | null>(null)
 
+  // 생성·이름 변경·삭제 후 공간 목록 갱신 — 재조회 완료까지 대기해 이후 navigate 시점에 목록이 최신이게 한다.
   async function reload() {
-    const { data } = await driveApi.listSpaces()
-    setSpaces(data)
+    await queryClient.invalidateQueries({ queryKey: ['drive', 'spaces'] })
   }
-  useEffect(() => {
-    void reload()
-  }, [])
 
   /**
    * 팀 공간 생성 — 다이얼로그 확인 시 호출. 이름 중복(409)이면 다이얼로그를 유지한 채
