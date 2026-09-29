@@ -44,11 +44,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 메시지 작성/조회 + MessageCreatedEvent 발행 (AFTER_COMMIT SSE fan-out). */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MessageService {
@@ -127,44 +129,62 @@ public class MessageService {
   }
 
   /**
-   * 메시지 푸시 대상 계산 후 발행. DM: 작성자 외 HUMAN 멤버 전원. 멘션: 채널 멤버인 HUMAN(작성자 제외). 둘 다 없으면 발행하지 않는다. 같은 트랜잭션
-   * 안이라 멤버 조회에 RLS GUC 가 적용된다.
+   * 메시지 푸시 대상 계산 후 발행. DM: 작성자 외 HUMAN 멤버 전원. 멘션: 채널 멤버인 HUMAN(작성자 제외). 둘 다 없으면 발행하지 않는다.
+   *
+   * <p>테넌트 미선택(TenantContext.get()==null)이면 즉시 스킵하고, 계산 도중 어떤 예외가 나도 삼켜 로그만 남긴다 — 푸시는 부가 기능이라 메시지
+   * 작성(이미 커밋 확정된 트랜잭션)을 절대 실패시키거나 롤백해서는 안 된다(스펙 §5.4 best-effort 원칙, 리뷰 #866).
+   *
+   * <p>제안 카드 메시지(MessagingProposalService 가 messageRepo.insert 를 직접 호출하는 경로)와 메시지 수정(update())은 이
+   * 메서드를 거치지 않으므로 의도적으로 푸시 대상에서 제외된다 — 신규 채팅 메시지만 알림 대상.
    */
   private void publishPushRequest(long channelId, MessageResponse saved) {
-    String kind = channelRepo.findKind(channelId);
-    boolean dm = "DM".equals(kind);
-    java.util.Set<Long> memberIds = new java.util.HashSet<>(memberRepo.findMemberIds(channelId));
-    java.util.List<Long> dmRecipients =
-        dm
-            ? memberRepo.listMembers(channelId).stream()
-                .filter(m -> !m.userId().equals(saved.authorId()) && !"AGENT".equals(m.kind()))
-                .map(ChannelMemberResponse::userId)
-                .toList()
-            : java.util.List.of();
-    java.util.List<Long> mentioned =
-        saved.mentions().stream()
-            .filter(m -> !"AGENT".equals(m.kind()))
-            .map(MentionResponse::id)
-            .filter(id -> memberIds.contains(id) && !id.equals(saved.authorId()))
-            .distinct()
-            .toList();
-    if (dmRecipients.isEmpty() && mentioned.isEmpty()) return;
-    boolean hasAttachments =
-        (saved.attachments() != null && !saved.attachments().isEmpty())
-            || (saved.driveLinks() != null && !saved.driveLinks().isEmpty());
-    publisher.publishEvent(
-        new MessagePushRequestedEvent(
-            TenantContext.require(),
-            channelId,
-            kind,
-            dm ? null : channelRepo.findName(channelId).orElse(null),
-            saved.id(),
-            saved.parentMessageId(),
-            saved.authorId(),
-            saved.authorName(),
-            MessagePushPreview.of(saved.body(), saved.mentions(), hasAttachments),
-            dmRecipients,
-            mentioned));
+    Long tenantId = TenantContext.get();
+    if (tenantId == null) return; // 테넌트 미선택 호출(배치 등) — 메시지 작성 자체는 그대로 진행
+    try {
+      String kind = channelRepo.findKind(channelId);
+      boolean dm = "DM".equals(kind);
+      // 멘션 없는 일반 채널 메시지(채널 메시지 대다수)는 멤버 조회조차 없이 즉시 스킵.
+      if (!dm && saved.mentions().isEmpty()) return;
+      // 멤버 조회는 한 번만(listMembers) — DM 수신자 목록과 멘션 유효성 검증(memberIds)에 함께 쓴다.
+      java.util.List<ChannelMemberResponse> members = memberRepo.listMembers(channelId);
+      java.util.List<Long> dmRecipients =
+          dm
+              ? members.stream()
+                  .filter(m -> !m.userId().equals(saved.authorId()) && !"AGENT".equals(m.kind()))
+                  .map(ChannelMemberResponse::userId)
+                  .toList()
+              : java.util.List.of();
+      java.util.Set<Long> memberIds =
+          members.stream()
+              .map(ChannelMemberResponse::userId)
+              .collect(java.util.stream.Collectors.toSet());
+      java.util.List<Long> mentioned =
+          saved.mentions().stream()
+              .filter(m -> !"AGENT".equals(m.kind()))
+              .map(MentionResponse::id)
+              .filter(id -> memberIds.contains(id) && !id.equals(saved.authorId()))
+              .distinct()
+              .toList();
+      if (dmRecipients.isEmpty() && mentioned.isEmpty()) return;
+      boolean hasAttachments =
+          (saved.attachments() != null && !saved.attachments().isEmpty())
+              || (saved.driveLinks() != null && !saved.driveLinks().isEmpty());
+      publisher.publishEvent(
+          new MessagePushRequestedEvent(
+              tenantId,
+              channelId,
+              kind,
+              dm ? null : channelRepo.findName(channelId).orElse(null),
+              saved.id(),
+              saved.parentMessageId(),
+              saved.authorId(),
+              saved.authorName(),
+              MessagePushPreview.of(saved.body(), saved.mentions(), hasAttachments),
+              dmRecipients,
+              mentioned));
+    } catch (RuntimeException ex) {
+      log.warn("[push] 메시지 푸시 이벤트 계산 실패 channelId={}: {}", channelId, ex.getMessage());
+    }
   }
 
   /**

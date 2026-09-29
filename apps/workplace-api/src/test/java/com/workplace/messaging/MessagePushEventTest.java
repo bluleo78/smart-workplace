@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
+import com.workplace.messaging.dto.MessageResponse;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessagePushRequestedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.service.ChannelService;
@@ -113,6 +114,31 @@ class MessagePushEventTest extends IntegrationTestBase {
             .create(me, "push-" + UUID.randomUUID().toString().substring(0, 8), "PUBLIC")
             .id();
     messageService.create(me, ch, new CreateMessageRequest("그냥 메시지"));
+    assertThat(events.stream(MessagePushRequestedEvent.class)).isEmpty();
+  }
+
+  /**
+   * 리뷰 #866: 스펙 제약(푸시는 메시지 작성을 절대 실패/롤백시키지 않는다)에 따라 publishPushRequest 는 TenantContext.get()==null
+   * 이면 즉시 스킵한다. 트랜잭션은 IntegrationTestBase 의 @BeforeTransaction 이 이미 tenantId=1 로 GUC 를 주입했으므로(테스트
+   * 트랜잭션 시작 시점), TenantContext 를 지워도 멤버십 조회·RLS 는 그대로 통과하고 메시지 작성 자체는 영향받지 않는다 — 오직 이벤트 발행만 스킵됨을
+   * 검증한다.
+   */
+  @Test
+  void create_noTenantContext_stillCreatesMessage_noEvent() {
+    long me = seedUser("HUMAN");
+    long member = seedUser("HUMAN");
+    long ch =
+        channelService
+            .create(me, "push-" + UUID.randomUUID().toString().substring(0, 8), "PUBLIC")
+            .id();
+    memberRepo.add(ch, member, "MEMBER");
+
+    TenantContext.clear();
+    MessageResponse saved =
+        messageService.create(me, ch, new CreateMessageRequest("<@" + member + "> 확인"));
+
+    assertThat(saved).isNotNull();
+    assertThat(saved.body()).contains("확인");
     assertThat(events.stream(MessagePushRequestedEvent.class)).isEmpty();
   }
 }
