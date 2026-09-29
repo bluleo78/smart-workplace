@@ -152,6 +152,30 @@ class MailAiServiceTest extends IntegrationTestBase {
   }
 
   /**
+   * #484: 온디맨드 요약에서 LLM 이 빈 응답 → 요약 없음(null) 200 응답 + 시도 시각 기록. 재조회 시 LLM 을 다시 부르지 않고 같은 '요약 없음'을
+   * 돌려준다(매 상세 조회 재요약 비용 누수 방지).
+   */
+  @Test
+  void summarize_LLM빈응답_요약없음_재조회시_재호출없음() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai-svc-blank@test.local", true);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId = insertMessage(accountId, folderId, "svc-blank-1@test.local", "svc-blank-t1");
+
+    stubAssistant();
+    when(mailClient.summarize(any())).thenReturn(new SummarizeResult(" \n\t "));
+
+    assertThat(mailAiService.summarize(userId, msgId).summary()).isNull();
+    assertThat(mailAiService.summarize(userId, msgId).summary()).isNull();
+
+    verify(mailClient, times(1)).summarize(any());
+    EmailMessageRepository.AiContext ctx =
+        messageRepo.findAiContextByIdAndUser(userId, msgId).orElseThrow();
+    assertThat(ctx.summary()).isNull(); // 빈 요약은 저장하지 않음
+    assertThat(ctx.summaryAttempted()).isTrue(); // 시도 시각만 기록
+  }
+
+  /**
    * ai_enabled=false + 공통비서 없음 → 503(MailAiUnavailableException). 새 모델: ai_enabled=false 자체는 게이트가
    * 아님 — 공통비서(resolveWorkspaceOrEmpty)로 T1 시도 후 둘 다 없으면 503.
    */

@@ -3,6 +3,8 @@ package com.workplace.mail.service;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.workplace.auth.repository.PersonalAssistantRepository;
@@ -195,21 +197,48 @@ class MailTwoTierSummaryTest extends IntegrationTestBase {
         .isNull();
   }
 
-  /** LLM 응답이 빈 문자열일 때 → 저장하지 않음(무한 재시도 방지). 다음 호출 시 같은 skip 조건으로 LLM 재호출하지 않는다. */
+  /**
+   * #484: LLM 빈 응답 → ai_summary 는 NULL(빈 요약 캐싱 금지), ai_summarized_at 만 기록('시도했으나 결과 없음'). 실제
+   * summarize→updateSummary DB 경로로 검증하고, 배치 대상에서 빠지며 재호출 시 LLM 을 다시 부르지 않음을 확인한다.
+   */
   @Test
-  void ensureObjectiveSummary_doesNotPersist_whenLlmReturnsBlank() {
+  void ensureObjectiveSummary_marksAttemptOnly_whenLlmReturnsBlank() {
     seedWorkspaceAssistantWithToken();
     long msg = seedInboxMessageWithBody(accountAiDisabled);
 
-    // Mock LLM 응답을 빈 문자열로 설정
+    // Mock LLM 응답을 공백으로 설정
     when(mailClient.summarize(any())).thenReturn(new SummarizeResult("   "));
 
     service.ensureObjectiveSummary(ownerOf(accountAiDisabled), msg);
 
-    // 빈 응답은 저장되지 않으므로 summary 는 null 또는 blank 여야 함
     AiContext ctx =
         messageRepo.findAiContextByIdAndUser(ownerOf(accountAiDisabled), msg).orElseThrow();
-    assertThat(ctx.summary()).isNullOrEmpty();
+    assertThat(ctx.summary()).isNull(); // 빈 요약은 저장하지 않음
+    assertThat(ctx.summaryAttempted()).isTrue(); // 시도 시각은 기록
+    // 배치 대상(summarized_at IS NULL)에서 제외 — 무한 재시도 차단
+    assertThat(messageRepo.listRecentUnreadUnsummarizedIds(accountAiDisabled, 20))
+        .doesNotContain(msg);
+
+    // 재호출해도 LLM 을 다시 부르지 않는다
+    service.ensureObjectiveSummary(ownerOf(accountAiDisabled), msg);
+    verify(mailClient, times(1)).summarize(any());
+  }
+
+  /** #484: 정상 응답은 저장되고 배치 대상에서 빠진다(실 DB 경로). */
+  @Test
+  void ensureObjectiveSummary_persistsSummary_andLeavesBatchTargets() {
+    seedWorkspaceAssistantWithToken();
+    long msg = seedInboxMessageWithBody(accountAiDisabled);
+    assertThat(messageRepo.listRecentUnreadUnsummarizedIds(accountAiDisabled, 20)).contains(msg);
+
+    service.ensureObjectiveSummary(ownerOf(accountAiDisabled), msg);
+
+    AiContext ctx =
+        messageRepo.findAiContextByIdAndUser(ownerOf(accountAiDisabled), msg).orElseThrow();
+    assertThat(ctx.summary()).isEqualTo("• AI요약");
+    assertThat(ctx.summaryAttempted()).isTrue();
+    assertThat(messageRepo.listRecentUnreadUnsummarizedIds(accountAiDisabled, 20))
+        .doesNotContain(msg);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -246,6 +275,39 @@ class MailTwoTierSummaryTest extends IntegrationTestBase {
                 .orElseThrow()
                 .personalSummary())
         .isNull();
+  }
+
+  /** #484: 개인 요약도 LLM 빈 응답이면 시도 시각만 기록 → 개인 배치 대상 제외 + 재호출 없음. */
+  @Test
+  void ensurePersonalSummary_marksAttemptOnly_whenLlmReturnsBlank() {
+    seedPersonalAssistantWithToken(ownerOf(accountAiEnabled));
+    long msg = seedInboxMessageWithBody(accountAiEnabled);
+    when(mailClient.summarize(any())).thenReturn(new SummarizeResult(""));
+
+    service.ensurePersonalSummary(ownerOf(accountAiEnabled), msg);
+
+    AiContext ctx =
+        messageRepo.findAiContextByIdAndUser(ownerOf(accountAiEnabled), msg).orElseThrow();
+    assertThat(ctx.personalSummary()).isNull();
+    assertThat(ctx.personalSummaryAttempted()).isTrue();
+    assertThat(messageRepo.listRecentUnreadUnpersonalizedIds(accountAiEnabled, 20))
+        .doesNotContain(msg);
+
+    service.ensurePersonalSummary(ownerOf(accountAiEnabled), msg);
+    verify(mailClient, times(1)).summarize(any());
+  }
+
+  /** #484: 온디맨드(개인 티어) — 빈 응답이면 요약 없음(null) 반환, 재조회 시 LLM 재호출 없음. */
+  @Test
+  void summarize_onDemand_returnsNoSummary_andDoesNotRecall_whenLlmReturnsBlank() {
+    seedPersonalAssistantWithToken(ownerOf(accountAiEnabled));
+    long msg = seedInboxMessageWithBody(accountAiEnabled);
+    when(mailClient.summarize(any())).thenReturn(new SummarizeResult(" "));
+
+    assertThat(service.summarize(ownerOf(accountAiEnabled), msg).summary()).isNull();
+    assertThat(service.summarize(ownerOf(accountAiEnabled), msg).summary()).isNull();
+
+    verify(mailClient, times(1)).summarize(any());
   }
 
   // ──────────────────────────────────────────────────────────────────────────

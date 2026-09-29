@@ -32,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.util.StringUtils;
 
 /**
  * 메일 AI 오케스트레이션(7d): 분류(동기화 잡 best-effort)·요약(캐시)·답장 초안. 모든 경로는 계정 ai_enabled 게이트. 비서 사양은 home 과
@@ -114,17 +115,19 @@ public class MailAiService {
    */
   public void ensureObjectiveSummary(long userId, long messageId) {
     AiContext ctx = readContext(userId, messageId);
-    if (ctx == null || (ctx.summary() != null && !ctx.summary().isBlank())) {
-      return; // 미존재 또는 이미 공통요약 있음
+    if (ctx == null || ctx.summaryAttempted()) {
+      return; // 미존재 또는 이미 공통요약 시도됨(#484: 빈 결과였어도 재요약하지 않음)
     }
     AssistantSpec spec = assistantResolver.resolveWorkspaceOrEmpty().orElse(null);
     if (spec == null) {
       return; // 공통비서 미설정 — T1 skip
     }
-    String summary = callSummarize(ctx, spec);
-    if (summary == null) {
-      return; // 빈본문
+    String body = summarizableBody(ctx);
+    if (body == null) {
+      return; // 빈본문 — LLM 미호출이라 시도 기록도 남기지 않음
     }
+    String summary = callSummarize(ctx, body, spec);
+    // #484: LLM 빈 결과면 저장소가 summary=NULL 로 시도 시각만 기록('시도했으나 결과 없음')
     txTemplate.executeWithoutResult(status -> messageRepo.updateSummary(messageId, summary));
   }
 
@@ -137,17 +140,19 @@ public class MailAiService {
     if (ctx == null || !ctx.aiEnabled()) {
       return; // 미존재 또는 개인 AI opt-in 아님
     }
-    if (ctx.personalSummary() != null && !ctx.personalSummary().isBlank()) {
-      return; // 이미 개인요약 있음
+    if (ctx.personalSummaryAttempted()) {
+      return; // 이미 개인요약 시도됨(#484: 빈 결과였어도 재요약하지 않음)
     }
     AssistantSpec spec = assistantResolver.resolvePersonalOrEmpty(userId).orElse(null);
     if (spec == null) {
       return; // 진짜 개인비서 없음 — T2 skip
     }
-    String summary = callSummarize(ctx, spec);
-    if (summary == null) {
-      return;
+    String body = summarizableBody(ctx);
+    if (body == null) {
+      return; // 빈본문 — 시도 기록 없음
     }
+    String summary = callSummarize(ctx, body, spec);
+    // #484: LLM 빈 결과면 저장소가 summary=NULL 로 시도 시각만 기록
     txTemplate.executeWithoutResult(
         status -> messageRepo.updatePersonalSummary(messageId, summary));
   }
@@ -157,6 +162,9 @@ public class MailAiService {
    *
    * <p>RLS GUC(app.tenant_id)는 트랜잭션-로컬이라 컨텍스트 조회·캐시 쓰기만 짧은 트랜잭션({@code txTemplate})으로 감싼다. LLM 호출은
    * 트랜잭션 밖(#232). 비서 사양 해석은 자체 @Transactional(readOnly) 로 GUC 를 주입한다.
+   *
+   * <p>#484: 선택된 티어가 이미 '시도했으나 결과 없음'이면 재요약하지 않고 {@code summary=null}(요약 없음)로 응답한다 — 매 상세 조회마다 LLM
+   * 을 다시 부르는 비용 누수 방지. 프론트는 null 요약이면 카드를 숨긴다.
    */
   public MailSummary summarize(long userId, long messageId) {
     AiContext ctx = readContextOrThrow(userId, messageId);
@@ -164,42 +172,57 @@ public class MailAiService {
     if (display != null) {
       return new MailSummary(display);
     }
-    // 캐시 미스 — 생성 시도.
-    if (ctx.aiEnabled() && assistantResolver.resolvePersonalOrEmpty(userId).isPresent()) {
+    // 캐시 미스 — 티어 선택: aiEnabled+개인비서면 개인요약, 아니면 공통요약.
+    boolean personalTier =
+        ctx.aiEnabled() && assistantResolver.resolvePersonalOrEmpty(userId).isPresent();
+    // ensure* 도 같은 검사를 하지만, 여기서 먼저 끊으면 재조회 왕복 없이 바로 응답한다.
+    if (attemptedFor(ctx, personalTier)) {
+      return new MailSummary(null); // 이미 시도했으나 결과 없음 — 재요약 금지
+    }
+    if (personalTier) {
       ensurePersonalSummary(userId, messageId);
     } else {
       ensureObjectiveSummary(userId, messageId);
     }
     AiContext after = readContextOrThrow(userId, messageId);
     String result = firstNonBlank(after.personalSummary(), after.summary());
-    if (result == null) {
-      throw new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
+    if (result != null) {
+      return new MailSummary(result);
     }
-    return new MailSummary(result);
+    if (attemptedFor(after, personalTier)) {
+      return new MailSummary(null); // 방금 시도했으나 LLM 이 빈 결과 — 요약 없음
+    }
+    // 시도조차 못함(비서 미설정 등) — 기존 계약대로 503
+    throw new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
   }
 
-  /** 공통비서/개인비서 spec 으로 본문 요약 LLM 호출. 본문이 비거나 LLM 응답이 비면 null(저장 skip 신호). */
-  private String callSummarize(AiContext ctx, AssistantSpec spec) {
+  /** 선택된 티어(개인/공통)의 요약 시도 여부(summarized_at 존재). */
+  private static boolean attemptedFor(AiContext ctx, boolean personalTier) {
+    return personalTier ? ctx.personalSummaryAttempted() : ctx.summaryAttempted();
+  }
+
+  /**
+   * 요약할 본문(없으면 null). 빈본문은 LLM 을 부르지 않고 시도로도 기록하지 않는다 — 온디맨드 경로는 IMAP 본문 적재 전에 올 수 있어 '진짜 빈 메일'과
+   * '아직 미적재'를 구분할 수 없다. 기록하면 본문이 나중에 적재돼도 영구히 요약 대상에서 빠진다.
+   */
+  private static String summarizableBody(AiContext ctx) {
     String body = MailBodyText.effectiveBody(ctx.bodyText(), ctx.bodyHtml());
-    if (body == null || body.isBlank()) {
-      return null;
-    }
+    return StringUtils.hasText(body) ? body : null;
+  }
+
+  /** 공통비서/개인비서 spec 으로 본문 요약 LLM 호출. 빈/공백 응답의 NULL 정규화는 저장소(updateSummary)가 담당(#484). */
+  private String callSummarize(AiContext ctx, String body, AssistantSpec spec) {
     SummarizeResult r =
         mailClient.summarize(
             new SummarizeRequest(
                 nz(ctx.subject()),
                 nz(ctx.fromAddress()),
-                nz(body),
+                body,
                 spec.agentUserId(),
                 spec.model(),
                 MAX_TURNS,
                 spec.timeoutMs()));
-    String summary = r.summary();
-    // 빈 LLM 응답을 저장하면 skip 조건이 false 라 무한 재시도되므로 저장하지 않음.
-    if (summary == null || summary.isBlank()) {
-      return null;
-    }
-    return summary;
+    return r.summary();
   }
 
   /** RLS GUC 주입 짧은 트랜잭션으로 컨텍스트 조회(없으면 null). */
@@ -217,10 +240,10 @@ public class MailAiService {
   }
 
   private String firstNonBlank(String a, String b) {
-    if (a != null && !a.isBlank()) {
+    if (StringUtils.hasText(a)) {
       return a;
     }
-    return (b != null && !b.isBlank()) ? b : null;
+    return StringUtils.hasText(b) ? b : null;
   }
 
   /**

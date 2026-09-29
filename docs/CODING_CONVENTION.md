@@ -101,13 +101,18 @@ private static final long ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000L;
 | 상대시간 | `formatRelativeTime` | `5분 전`, `3개월 전` | 피드·알림·목록 보조 표기 |
 | 시각만 — 채팅 버블 | `formatClockTime` | `오후 3:24` | `Asia/Seoul` 고정 |
 | 시각만 — 컴팩트 거터 | `formatClockTimeCompact` | `15:24` | 24시간제, 좁은 폭 |
-| (deprecated) | `formatDateShort` | `2026. 7. 15.` | 로케일 의존. 신규 사용 금지 → `formatDateOnly`. 기존 1곳 표기 유지용(#828) |
+| 시각만 — 캘린더 로컬 | `formatLocalClockTime24` | `14:30` | 24시간제, **브라우저 로컬 타임존**(캘린더 날짜 계산과 기준 일치) |
+| 시각만 — 오전/오후 zero-pad | `formatClockTimePadded` | `오후 02:30` | 캘린더 그리드·메일 목록(오늘) |
+| 좁은 목록 — 월·일 zero-pad | `formatDateMonthDayPadded` | `07. 15.` | 메일 목록(오늘 이전) |
+| 설정/관리 — 로케일 일시 | `formatDateTimeLocale` | `2026. 7. 15. 오후 2:30:00` | 토큰·에이전트·버전 이력 기존 표기 유지 |
+| 숫자 천단위 | `formatNumber` | `9,007,199,254,740,991` | 날짜 아님(구문 기반 린트 규칙 대응) |
+| 로케일 날짜 | `formatDateShort` | `2026. 7. 15.` | 기존 표기 유지용(토큰·드라이브 휴지통). 신규 목록은 `formatDateOnly` 우선 |
 
 모든 포매터는 `null`/`undefined`/무효 입력 시 `'-'` 를 반환한다(`formatDateMonthDay` 만 `''`).
 
 ### 기존 직접 호출 잔존분
 
-린트 활성화 시점에 남아 있던 직접 호출은 표기 변경을 피하기 위해 교체하지 않고 `eslint-disable-next-line no-restricted-syntax -- TODO(#828)` 로 임시 허용해 두었다. 마이그레이션은 #828 에서 처리하며, **새 예외를 추가하지 않는다**.
+린트 활성화 시점(#632)에 임시 허용했던 직접 호출은 #828 에서 모두 공용 포매터로 이전했다. **새 `eslint-disable` 예외를 추가하지 않는다** — 필요한 포맷은 `formatters.ts` 에 추가한다.
 
 ### 회귀 레퍼런스 — #617 오프셋 파싱
 

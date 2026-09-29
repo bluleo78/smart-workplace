@@ -28,34 +28,13 @@ import {
 } from '@/components/ui/table';
 import { TableEmptyRow } from '@/components/ui/table-empty';
 import { TableSkeletonRows } from '@/components/ui/table-skeleton';
+import { formatDateShort, formatDateTimeLocale } from '@/lib/formatters';
 
 import { useIssueMyToken, useMyTokens, useRevokeMyToken } from '../../hooks/queries/useUserTokens';
 import { TokenIssueDialog } from './components/TokenIssueDialog';
 import { TokenIssueFormDialog } from './components/TokenIssueFormDialog';
 
 const COLUMN_COUNT = 6;
-
-// 시간 표시 공통 — null/빈값 폴백. 전체 일시는 title 툴팁으로만 노출(테이블 폭 오버플로 방지 — #655).
-function fmtDateTime(iso: string | null): string {
-  if (!iso) return '-';
-  try {
-    // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
-    return new Date(iso).toLocaleString('ko-KR');
-  } catch {
-    return iso;
-  }
-}
-
-// 컬럼에 표시하는 짧은 날짜(시각 생략) — 전체 일시는 title 로 확인.
-function fmtDate(iso: string | null): string {
-  if (!iso) return '-';
-  try {
-    // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
-    return new Date(iso).toLocaleDateString('ko-KR');
-  } catch {
-    return iso;
-  }
-}
 
 export default function TokenSettingsPage() {
   const tokens = useMyTokens();
@@ -127,15 +106,15 @@ export default function TokenSettingsPage() {
                     {t.tokenPrefix}…
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {t.expiresAt ? fmtDate(t.expiresAt) : '무기한'}
+                    {t.expiresAt ? formatDateShort(t.expiresAt) : '무기한'}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {fmtDate(t.lastUsedAt)}
+                    {formatDateShort(t.lastUsedAt)}
                   </TableCell>
                   <TableCell>
                     <Badge
                       variant={t.revokedAt == null ? 'default' : 'secondary'}
-                      title={t.revokedAt == null ? undefined : fmtDateTime(t.revokedAt)}
+                      title={t.revokedAt == null ? undefined : formatDateTimeLocale(t.revokedAt)}
                     >
                       {t.revokedAt == null ? '활성' : '폐기됨'}
                     </Badge>

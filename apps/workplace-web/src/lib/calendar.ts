@@ -87,15 +87,6 @@ export function isoToLocalInput(iso: string | null | undefined): string {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 }
 
-// 시:분 표기. null/빈 문자열 입력 시 '-' 반환.
-export function hhmm(iso: string | null | undefined): string {
-  if (!iso) return '-'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '-'
-  // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
-  return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-}
-
 export { addDays, endOfMonth, startOfMonth }
 
 // 사이드바 표시 토글 상태.

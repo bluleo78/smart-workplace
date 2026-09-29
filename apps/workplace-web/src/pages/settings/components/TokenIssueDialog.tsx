@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { formatDateShort } from '@/lib/formatters';
 
 interface TokenIssueDialogProps {
   plaintextToken: string | null;
@@ -70,8 +71,7 @@ export function TokenIssueDialog({
           </Button>
 
           <p className="text-sm text-muted-foreground" data-testid="token-issue-expiry">
-            {/* eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632) */}
-            유효기간: {expiresAt ? new Date(expiresAt).toLocaleDateString('ko-KR') + '까지' : '무기한'}
+            유효기간: {expiresAt ? formatDateShort(expiresAt) + '까지' : '무기한'}
           </p>
 
           <div className="space-y-1.5 pt-2">

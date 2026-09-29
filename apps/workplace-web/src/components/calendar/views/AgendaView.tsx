@@ -3,8 +3,9 @@ import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { Flag } from 'lucide-react'
 
-import { allDayLocalDate, hhmm } from '@/lib/calendar'
+import { allDayLocalDate } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
+import { formatClockTimePadded } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 import type { ViewProps } from './TimeGrid'
@@ -52,7 +53,7 @@ export function AgendaView({ events, issueDues, onSelectEvent, onSelectIssue }: 
               </span>
               {/* 시간 — 종일 이벤트는 '종일' 표시 */}
               <span className="text-sm text-muted-foreground w-16 shrink-0">
-                {row.event.allDay ? '종일' : hhmm(row.event.startsAt)}
+                {row.event.allDay ? '종일' : formatClockTimePadded(row.event.startsAt)}
               </span>
               {/* 색 점 — effectiveColor 기반 */}
               <span

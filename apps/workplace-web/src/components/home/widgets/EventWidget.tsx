@@ -2,25 +2,18 @@ import { MapPin } from 'lucide-react';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCalendarEvent } from '@/hooks/queries/useCalendarEvent';
+import { formatDateMonthDay, formatLocalClockTime24 } from '@/lib/formatters';
 
 import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
 
 // 일정 기간 텍스트 — 날짜 + 시각(allDay 면 날짜만).
 function formatRange(startsAt: string, endsAt: string, allDay: boolean): string {
-  const start = new Date(startsAt);
-  const end = new Date(endsAt);
-  const dateOpt: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-  const timeOpt: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: false };
-  // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
-  const startDate = start.toLocaleDateString('ko-KR', dateOpt);
+  const startDate = formatDateMonthDay(startsAt);
   if (allDay) return startDate;
-  // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
-  const startTime = start.toLocaleTimeString('ko-KR', timeOpt);
-  // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
-  const endTime = end.toLocaleTimeString('ko-KR', timeOpt);
-  // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
-  const endDate = end.toLocaleDateString('ko-KR', dateOpt);
+  const startTime = formatLocalClockTime24(startsAt);
+  const endTime = formatLocalClockTime24(endsAt);
+  const endDate = formatDateMonthDay(endsAt);
   if (startDate === endDate) return `${startDate} ${startTime} – ${endTime}`;
   return `${startDate} ${startTime} – ${endDate} ${endTime}`;
 }

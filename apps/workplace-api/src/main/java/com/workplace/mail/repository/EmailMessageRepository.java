@@ -30,6 +30,7 @@ import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
+import org.springframework.util.StringUtils;
 
 /**
  * email_message jOOQ 리포지토리. 목록/검색은 account 스코프, 상세는 소유 검증을 위해 email_account 와 조인한다. 첨부 메타는 message
@@ -603,10 +604,16 @@ public class EmailMessageRepository {
             .and(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT.isNull()));
   }
 
-  /** 요약 캐시 저장 — 슬라이스②: 공유 email_content 에 기록(envelope 조인으로 content 특정). */
+  /**
+   * 요약 캐시 저장 — 슬라이스②: 공유 email_content 에 기록(envelope 조인으로 content 특정).
+   *
+   * <p>#484: summary 가 null/공백이면 '요약을 시도했으나 LLM 이 빈 결과를 냈다'는 상태로 기록한다(ai_summary=NULL,
+   * ai_summarized_at=now()). 배치 대상 조회가 ai_summarized_at 기준이라 같은 메일을 매 배치 재요약하는 비용 누수를 막는다. 공백→NULL
+   * 정규화를 저장 계층 한 곳에서 해 '요약이 있으면 공백이 아니다' 불변식을 모든 쓰기 경로에 보장한다.
+   */
   public void updateSummary(long messageId, String summary) {
     dsl.update(EMAIL_CONTENT)
-        .set(EMAIL_CONTENT.AI_SUMMARY, summary)
+        .set(EMAIL_CONTENT.AI_SUMMARY, blankToNull(summary))
         .set(EMAIL_CONTENT.AI_SUMMARIZED_AT, OffsetDateTime.now())
         .from(EMAIL_MESSAGE)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
@@ -614,20 +621,32 @@ public class EmailMessageRepository {
         .execute();
   }
 
-  /** 개인 비서(T2) 맞춤 요약 저장 — envelope(사람별) email_message 에 기록. */
+  /**
+   * 개인 비서(T2) 맞춤 요약 저장 — envelope(사람별) email_message 에 기록.
+   *
+   * <p>#484: summary 가 null/공백이면 '시도했으나 결과 없음'(ai_personal_summary=NULL,
+   * ai_personal_summarized_at=now()).
+   */
   public void updatePersonalSummary(long messageId, String summary) {
     dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY, summary)
+        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY, blankToNull(summary))
         .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT, OffsetDateTime.now())
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .execute();
   }
 
+  /** #484: 공백 요약은 '결과 없음'(NULL)으로 저장 — 읽는 쪽이 공백 여부를 다시 판정하지 않게 한다. */
+  private static String blankToNull(String s) {
+    return StringUtils.hasText(s) ? s : null;
+  }
+
   /**
-   * T2 개인 요약 대상 — INBOX 안읽음 중 개인 요약 미생성(email_message.ai_personal_summary IS NULL) 최근 limit건.
+   * T2 개인 요약 대상 — INBOX 안읽음 중 개인 요약 미시도(email_message.ai_personal_summarized_at IS NULL) 최근 limit건.
    *
-   * <p>⚠️ listRecentUnreadUnsummarizedIds(공통 content.ai_summary 기준)와 별개다 — 공통 요약이 이미 있어도 개인 요약이 없으면
-   * 포함해야 하므로 envelope 컬럼으로 스캔한다.
+   * <p>#484: 요약 컬럼이 아닌 시도 시각 기준 — LLM 이 빈 결과를 낸 메일(summary NULL·summarized_at 세팅)은 재선택하지 않는다.
+   *
+   * <p>⚠️ listRecentUnreadUnsummarizedIds(공통 content.ai_summarized_at 기준)와 별개다 — 공통 요약이 이미 있어도 개인
+   * 요약이 없으면 포함해야 하므로 envelope 컬럼으로 스캔한다.
    */
   public List<Long> listRecentUnreadUnpersonalizedIds(long accountId, int limit) {
     return dsl.select(EMAIL_MESSAGE.ID)
@@ -637,7 +656,7 @@ public class EmailMessageRepository {
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_FOLDER.NAME.eq("INBOX"))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
-        .and(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY.isNull())
+        .and(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT.isNull()) // #484: 시도 여부 기준
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
         .fetch(EMAIL_MESSAGE.ID);
@@ -654,7 +673,12 @@ public class EmailMessageRepository {
         .execute();
   }
 
-  /** 선제 배치 요약 대상 — INBOX 안읽음 중 공유 content 미요약(c.ai_summary IS NULL) 최근 limit건. */
+  /**
+   * 선제 배치 요약 대상 — INBOX 안읽음 중 공유 content 미시도(c.ai_summarized_at IS NULL) 최근 limit건.
+   *
+   * <p>#484: ai_summary IS NULL 기준이면 LLM 이 빈 결과를 낸 메일이 매 배치 재선택돼 LIMIT 슬롯을 영구 점유하고 LLM 비용이 샌다. 시도
+   * 시각 기준으로 '시도했으나 결과 없음' 행을 제외한다.
+   */
   public List<Long> listRecentUnreadUnsummarizedIds(long accountId, int limit) {
     return dsl.select(EMAIL_MESSAGE.ID)
         .from(EMAIL_MESSAGE)
@@ -665,7 +689,7 @@ public class EmailMessageRepository {
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_FOLDER.NAME.eq("INBOX"))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
-        .and(EMAIL_CONTENT.AI_SUMMARY.isNull()) // 슬라이스②: 공유 content 미요약 기준
+        .and(EMAIL_CONTENT.AI_SUMMARIZED_AT.isNull()) // 슬라이스② content 기준 + #484 시도 시각 기준
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
         .fetch(EMAIL_MESSAGE.ID);
@@ -848,7 +872,9 @@ public class EmailMessageRepository {
             EMAIL_CONTENT.BODY_TEXT, // content 에서 읽음
             EMAIL_CONTENT.BODY_HTML, // content 에서 읽음
             EMAIL_CONTENT.AI_SUMMARY, // 슬라이스②: 공통(객관적) 요약 — content 공유
-            EMAIL_MESSAGE.AI_PERSONAL_SUMMARY) // Task3: 개인 요약 — envelope(사람별)
+            EMAIL_MESSAGE.AI_PERSONAL_SUMMARY, // Task3: 개인 요약 — envelope(사람별)
+            EMAIL_CONTENT.AI_SUMMARIZED_AT, // #484: 공통 요약 시도 여부
+            EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT) // #484: 개인 요약 시도 여부
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -867,7 +893,9 @@ public class EmailMessageRepository {
                     r.get(EMAIL_CONTENT.BODY_TEXT),
                     r.get(EMAIL_CONTENT.BODY_HTML),
                     r.get(EMAIL_CONTENT.AI_SUMMARY), // 슬라이스②: content 출처
-                    r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY))); // Task3: envelope 출처
+                    r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY), // Task3: envelope 출처
+                    r.get(EMAIL_CONTENT.AI_SUMMARIZED_AT) != null,
+                    r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT) != null));
   }
 
   /**
@@ -953,7 +981,10 @@ public class EmailMessageRepository {
       String bodyText,
       String bodyHtml,
       String summary,
-      String personalSummary) {}
+      String personalSummary,
+      // #484: 요약 '시도' 여부(summarized_at 존재). summary 가 null 이어도 true 면 LLM 이 빈 결과를 낸 것 → 재요약 금지.
+      boolean summaryAttempted,
+      boolean personalSummaryAttempted) {}
 
   /** Task6: subject·snippet 은 email_content 에서 읽는다(LEFT JOIN 후 호출). */
   private EmailMessageSummary toSummary(Record r) {

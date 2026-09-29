@@ -28,7 +28,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { extractApiError, handleApiError } from '@/lib/api-error'
-import { formatDateOnly, formatFileSize } from '@/lib/formatters'
+import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 
 import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
 import { driveApi } from '../../api/drive'
@@ -864,8 +864,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                     {/* autoPurgeAt이 null이면 날짜 표시 생략(서버가 미설정한 경우) */}
                     {it.autoPurgeAt && (
                       <span className="ml-2 text-xs text-muted-foreground">
-                        {/* eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632) */}
-                        {new Date(it.autoPurgeAt).toLocaleDateString()} 삭제 예정
+                        {formatDateShort(it.autoPurgeAt)} 삭제 예정
                       </span>
                     )}
                   </span>

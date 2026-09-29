@@ -4,8 +4,9 @@ import { format, isToday } from 'date-fns'
 import { ko } from 'date-fns/locale'
 
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
-import { eventsOnDay, hhmm, HOURS, issueDuesOnDay } from '@/lib/calendar'
+import { eventsOnDay, HOURS, issueDuesOnDay } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
+import { formatClockTimePadded } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 // ─────────────────────────────────────────────────────────────
@@ -161,7 +162,7 @@ export function TimeGrid({
                     }}
                     className={`text-xs text-left px-1 rounded ${resolvePalette(e.effectiveColor).chipClass} overflow-hidden`}
                   >
-                    {hhmm(e.startsAt)} {e.title}
+                    {formatClockTimePadded(e.startsAt)} {e.title}
                   </button>
                 )
               })}

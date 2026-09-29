@@ -15,8 +15,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 선제 배치 요약 — 안읽은 최근 메일의 본문을 (필요 시 IMAP) 적재한 뒤 두 패스로 요약을 미리 채운다.
  *
  * <ul>
- *   <li>T1 객관적(공통): content.ai_summary 미생성 대상 → ensureObjectiveSummary (공통비서, ai_enabled 무관)
- *   <li>T2 개인: email_message.ai_personal_summary 미생성 대상 → ensurePersonalSummary (개인비서)
+ *   <li>T1 객관적(공통): content.ai_summarized_at 미시도 대상(#484) → ensureObjectiveSummary (공통비서,
+ *       ai_enabled 무관)
+ *   <li>T2 개인: email_message.ai_personal_summarized_at 미시도 대상(#484) → ensurePersonalSummary (개인비서)
  * </ul>
  *
  * best-effort: 메시지별 실패는 삼키고 다음으로. 빈본문·비서 없음은 각 ensure 메서드 내부에서 skip.

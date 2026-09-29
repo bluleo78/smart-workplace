@@ -44,6 +44,7 @@ import {
 } from '../../../hooks/queries/useAssistant';
 import { useAuth } from '../../../hooks/useAuth';
 import { handleApiError } from '../../../lib/api-error';
+import { formatDateTimeLocale } from '../../../lib/formatters';
 import { presetLabelFor } from '../../../lib/opencode-presets';
 import type { ThinkingDepth } from '../../../types/assistant';
 import { ProviderCredentialDialog } from './ProviderCredentialDialog';
@@ -54,17 +55,6 @@ const DEPTHS: { value: ThinkingDepth; label: string }[] = [
   { value: 'NORMAL', label: '보통' },
   { value: 'DEEP', label: '깊게' },
 ];
-
-// 시간 표시 공통 — null/빈값 폴백.
-function fmtDateTime(iso: string | null): string {
-  if (!iso) return '-';
-  try {
-    // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
-    return new Date(iso).toLocaleString('ko-KR');
-  } catch {
-    return iso;
-  }
-}
 
 interface Props {
   agentUserId: number;
@@ -219,11 +209,11 @@ export function AgentConnectionSection({ agentUserId }: Props) {
               ) : null}
               <div>
                 <span className="text-muted-foreground">등록일: </span>
-                <span>{fmtDateTime(meta.createdAt)}</span>
+                <span>{formatDateTimeLocale(meta.createdAt)}</span>
               </div>
               <div>
                 <span className="text-muted-foreground">최근 사용: </span>
-                <span>{meta.lastUsedAt ? fmtDateTime(meta.lastUsedAt) : '미사용'}</span>
+                <span>{meta.lastUsedAt ? formatDateTimeLocale(meta.lastUsedAt) : '미사용'}</span>
               </div>
             </div>
           ) : (

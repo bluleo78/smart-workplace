@@ -18,7 +18,7 @@ export const MAIL_DRAFT_COACHING_PROMPT = `당신은 이메일 작성 코치입�
 {"notes":[{"dimension":"TONE|CLARITY|COMPLETENESS 중 하나","message":"한국어 한 문장 코칭"}],"improvedBodyHtml":"<p>다듬은 본문 HTML</p>"}
 - notes: 핵심만 3개 이내. dimension 은 TONE(어조·정중함), CLARITY(모호함·구조), COMPLETENESS(원 요청 누락; 원문 없으면 사용 금지).
 - 문제가 없으면 notes 는 빈 배열로.
-- improvedBodyHtml: 사용자의 의도와 사실은 보존하되 톤·명료성을 개선한 전체 본문. 단순 <p> 단락 위주의 HTML. 확정할 수 없는 사실은 [ ] 로 남기세요.
+- improvedBodyHtml: 사용자의 의도와 사실은 보존하되 톤·명료성을 개선한 "내 초안" 본문 전체(원문 대화·인용문은 포함하지 마세요 — 인용문은 시스템이 따로 붙입니다). 단순 <p> 단락 위주의 HTML. 확정할 수 없는 사실은 [ ] 로 남기세요.
 - 사용자의 문체를 통째로 바꾸지 말고, 자연스럽게 다듬는 선에서.`;
 
 // #520 메일→이슈 초안: 제목·본문·우선순위 + 후보 프로젝트 중 추천 key.

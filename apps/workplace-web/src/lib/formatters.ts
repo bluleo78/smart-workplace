@@ -25,11 +25,38 @@ export function parseUtcDate(dateStr: string | null | undefined): Date {
 }
 
 /**
- * @deprecated 로케일 의존("2026. 7. 15.") — 신규 코드는 `formatDateOnly`(YYYY-MM-DD)를 사용.
- * 기존 호출부(UserDetailPage)의 표기를 바꾸지 않기 위해 유지. 후속 마이그레이션 #828.
+ * ko-KR 로케일 표기 공통 경로 — 파싱 후 무효 입력(null/undefined 포함)이면 '-', 아니면 render 결과(#828).
+ * 로케일 표기 포매터들이 같은 가드를 반복하지 않도록 모은다.
  */
-export function formatDateShort(dateStr: string): string {
-  return parseUtcDate(dateStr).toLocaleDateString('ko-KR');
+function formatLocaleOrDash(dateStr: string | null | undefined, render: (d: Date) => string): string {
+  const d = parseUtcDate(dateStr);
+  return Number.isNaN(d.getTime()) ? '-' : render(d);
+}
+
+/**
+ * 로케일 날짜 — "2026. 7. 15." (브라우저 로컬 타임존). 신규 목록/테이블은 `formatDateOnly`(YYYY-MM-DD)를 우선 사용.
+ * 기존 화면(UserDetailPage·토큰 설정/발급·드라이브 휴지통 삭제 예정일)의 표기 유지용(#828). null/undefined/무효 입력 → '-'.
+ */
+export function formatDateShort(dateStr: string | null | undefined): string {
+  return formatLocaleOrDash(dateStr, (d) => d.toLocaleDateString('ko-KR'));
+}
+
+/**
+ * 한국어 로케일 전체 일시 — "2026. 7. 15. 오후 2:30:00" (브라우저 로컬 타임존).
+ * `toLocaleString('ko-KR')` 표기를 쓰던 기존 화면(토큰 설정·에이전트 관리·드라이브 버전 이력)의
+ * 표기를 유지하기 위한 포매터(#828). 신규 코드는 `formatDateTime`(YYYY-MM-DD HH:mm:ss)을 우선 사용.
+ * null/undefined/무효 입력 → '-'.
+ */
+export function formatDateTimeLocale(dateStr: string | null | undefined): string {
+  return formatLocaleOrDash(dateStr, (d) => d.toLocaleString('ko-KR'));
+}
+
+/**
+ * 월·일 2자리 — "07. 15." (브라우저 로컬 타임존). 메일 목록처럼 폭이 일정해야 하는 좁은 컬럼용(#828).
+ * null/undefined/무효 입력 → '-'.
+ */
+export function formatDateMonthDayPadded(dateStr: string | null | undefined): string {
+  return formatLocaleOrDash(dateStr, (d) => d.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }));
 }
 
 /** 월·일만("8월 12일") — 좁은 칩/배지용. 무효 입력이면 빈 문자열(호출부가 세그먼트 생략). */
@@ -348,4 +375,32 @@ export function formatClockTimeCompact(dateStr: string | null | undefined): stri
   return new Intl.DateTimeFormat('ko-KR', {
     hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Seoul',
   }).format(d);
+}
+
+/**
+ * 컴팩트 시각(24시간 "HH:mm") — 브라우저 로컬 타임존 기준(#828).
+ * `formatClockTimeCompact` 와 표기는 같지만 타임존을 고정하지 않는다 — 캘린더 화면은 날짜 판정·배치를
+ * 모두 로컬 타임존으로 하므로 시각만 Asia/Seoul 로 고정하면 비-KST 사용자에게 날짜/시각이 어긋난다.
+ * 홈 캘린더/일정 위젯처럼 로컬 날짜와 함께 쓰는 곳에 사용. null/undefined/무효 입력 → '-'.
+ */
+export function formatLocalClockTime24(dateStr: string | null | undefined): string {
+  return formatLocaleOrDash(dateStr, (d) => d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }));
+}
+
+/**
+ * 시각 2자리 12시간제 — "오후 02:30" (브라우저 로컬 타임존, #828).
+ * 시(時)가 zero-pad 되어 폭이 일정 — 캘린더 타임그리드/아젠다, 메일 목록(오늘 수신)용.
+ * `formatClockTime`("오후 2:30", Asia/Seoul 고정)과 달리 zero-pad·로컬 타임존. null/undefined/무효 입력 → '-'.
+ */
+export function formatClockTimePadded(dateStr: string | null | undefined): string {
+  return formatLocaleOrDash(dateStr, (d) => d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+}
+
+/**
+ * 숫자 천단위 구분 — 9007199254740991 → "9,007,199,254,740,991" (#828).
+ * 표시 전용(입력 파싱에는 사용하지 않는다). 날짜가 아니지만 `toLocaleString` 직접 호출이
+ * 린트 규칙(구문 기반)에 걸리므로 이 파일에 둔다.
+ */
+export function formatNumber(n: number): string {
+  return n.toLocaleString('ko-KR');
 }

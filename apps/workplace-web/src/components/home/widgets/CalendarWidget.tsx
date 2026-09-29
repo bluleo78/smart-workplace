@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents';
+import { formatLocalClockTime24 } from '@/lib/formatters';
 import type { CalendarEvent } from '@/types/calendar';
 
 import { WidgetError } from './WidgetError';
@@ -36,14 +37,6 @@ function resolveRange(params?: Record<string, unknown>): { from: string; to: str
   const toExclusive = new Date(Math.max(toDay.getTime(), fromDate.getTime()));
   toExclusive.setDate(toExclusive.getDate() + 1);
   return { from: fromDate.toISOString(), to: toExclusive.toISOString() };
-}
-
-// 일정 시작시각을 로컬 HH:mm 으로 포맷.
-function shortTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
-  return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 /**
@@ -93,7 +86,7 @@ export default function CalendarWidget({
                 className="flex items-center gap-2 py-2 text-sm hover:text-ai-accent"
               >
                 <span className="w-12 shrink-0 text-xs text-muted-foreground">
-                  {ev.allDay ? '종일' : shortTime(ev.startsAt)}
+                  {ev.allDay ? '종일' : formatLocalClockTime24(ev.startsAt)}
                 </span>
                 <span className="flex-1 truncate">{ev.title}</span>
               </Link>

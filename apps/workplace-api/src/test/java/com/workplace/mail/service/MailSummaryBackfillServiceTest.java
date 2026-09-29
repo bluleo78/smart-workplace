@@ -62,11 +62,20 @@ class MailSummaryBackfillServiceTest {
 
   /**
    * AiContext 생성 헬퍼 — 필드 순서: aiEnabled, selfAddress, subject, fromAddress, bodyText, bodyHtml,
-   * summary, personalSummary
+   * summary, personalSummary, summaryAttempted, personalSummaryAttempted
    */
   private static AiContext aiContext(String bodyText, String bodyHtml) {
     return new AiContext(
-        true, "self@test.local", "제목", "from@test.local", bodyText, bodyHtml, null, null);
+        true,
+        "self@test.local",
+        "제목",
+        "from@test.local",
+        bodyText,
+        bodyHtml,
+        null,
+        null,
+        false,
+        false);
   }
 
   // ─── T1 objective pass ────────────────────────────────────────────────────

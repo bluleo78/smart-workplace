@@ -35,7 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { formatDateOnly } from '@/lib/formatters';
+import { formatDateOnly, formatDateTimeLocale } from '@/lib/formatters';
 
 import { AgentBadge } from '../../components/users/AgentBadge';
 import {
@@ -50,17 +50,6 @@ import { AgentConnectionSection } from './components/AgentConnectionSection';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
 import { NewAgentDialog } from './components/NewAgentDialog';
-
-// 시간 표시 공통 — null/빈값 폴백.
-function fmtDateTime(iso: string | null): string {
-  if (!iso) return '-';
-  try {
-    // eslint-disable-next-line no-restricted-syntax -- TODO(#828): 공용 포매터(src/lib/formatters.ts)로 교체 — 표기 유지를 위해 임시 허용(#632)
-    return new Date(iso).toLocaleString('ko-KR');
-  } catch {
-    return iso;
-  }
-}
 
 export default function AgentManagementPage() {
   // 개인 비서(자동 생성 AGENT) 포함 여부 토글. 기본 표시 — 토글로 숨김 가능.
@@ -340,13 +329,13 @@ export default function AgentManagementPage() {
                               <td className="py-2 px-3 font-mono">{k.keyPrefix}…</td>
                               <td className="px-3">{k.label ?? '-'}</td>
                               <td className="px-3 text-xs text-muted-foreground">
-                                {fmtDateTime(k.createdAt)}
+                                {formatDateTimeLocale(k.createdAt)}
                               </td>
                               <td className="px-3 text-xs text-muted-foreground">
-                                {fmtDateTime(k.lastUsedAt)}
+                                {formatDateTimeLocale(k.lastUsedAt)}
                               </td>
                               <td className="px-3 text-xs text-muted-foreground">
-                                {fmtDateTime(k.revokedAt)}
+                                {formatDateTimeLocale(k.revokedAt)}
                               </td>
                               <td className="px-3">
                                 {k.revokedAt == null && (
