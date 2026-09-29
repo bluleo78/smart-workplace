@@ -81,7 +81,8 @@ class UserControllerTest {
             LocalDateTime.now(),
             List.of(new RoleResponse(1L, "USER", "Regular user", true)),
             "HUMAN",
-            false);
+            false,
+            true);
     when(userService.getMyProfile(1L)).thenReturn(detail);
 
     mockMvc
@@ -120,7 +121,7 @@ class UserControllerTest {
                 .content(objectMapper.writeValueAsString(request)))
         .andExpect(status().isNoContent());
 
-    verify(userService).changePassword(1L, "oldpassword", "newPassword123");
+    verify(userService).changePassword(1L, "oldpassword", "newPassword123", null);
   }
 
   @Test
@@ -201,7 +202,8 @@ class UserControllerTest {
             LocalDateTime.now(),
             List.of(),
             "HUMAN",
-            false);
+            false,
+            true);
     when(userService.getUserById(2L)).thenReturn(detail);
 
     mockMvc

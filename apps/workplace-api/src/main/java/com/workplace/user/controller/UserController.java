@@ -58,7 +58,11 @@ public class UserController {
   public ResponseEntity<Void> changeMyPassword(
       Authentication authentication, @Valid @RequestBody ChangePasswordRequest request) {
     Long userId = (Long) authentication.getPrincipal();
-    userService.changePassword(userId, request.currentPassword(), request.newPassword());
+    userService.changePassword(
+        userId,
+        request.currentPassword(),
+        request.newPassword(),
+        com.workplace.global.security.AuthDetails.methodOf(authentication));
     return ResponseEntity.noContent().build();
   }
 

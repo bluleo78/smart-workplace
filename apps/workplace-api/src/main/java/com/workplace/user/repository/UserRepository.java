@@ -208,6 +208,11 @@ public class UserRepository {
         .fetchOptional(r -> r.get(USER.PASSWORD));
   }
 
+  /** WP-48: 비밀번호 보유 여부(SSO 전용 계정이면 false). */
+  public boolean hasPassword(Long id) {
+    return dsl.fetchExists(dsl.selectFrom(USER).where(USER.ID.eq(id)).and(USER.PASSWORD.isNotNull()));
+  }
+
   public boolean existsByUsername(String username) {
     return dsl.fetchExists(dsl.selectOne().from(USER).where(USER.USERNAME.eq(username)));
   }

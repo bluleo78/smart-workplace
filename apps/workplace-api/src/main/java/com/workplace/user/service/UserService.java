@@ -9,6 +9,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.role.repository.RoleRepository;
 import com.workplace.tenant.repository.MembershipRepository;
+import com.workplace.tenant.repository.TenantRepository;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.CreateAgentRequest;
 import com.workplace.user.dto.CreateMemberRequest;
@@ -36,6 +37,8 @@ public class UserService {
   private final PasswordEncoder passwordEncoder;
   private final AuditLogService auditLogService;
   private final MembershipRepository membershipRepository;
+  // WP-48: SSO 전용 구성원 등록 시 워크스페이스 SSO 켜짐 여부 확인
+  private final TenantRepository tenantRepository;
   // AI 가용성 해석 — 개인/공통 비서 중 active token 보유 여부를 판단. /users/me 응답에 aiAvailable 노출.
   private final AssistantResolver assistantResolver;
 
@@ -112,7 +115,8 @@ public class UserService {
         user.createdAt(),
         roles,
         user.kind(),
-        aiAvailable);
+        aiAvailable,
+        userRepository.hasPassword(id));
   }
 
   /** Phase 5a — kind 별 사용자 목록 (AGENT 관리 화면 등). active 테넌트 멤버로 스코프된다. */
@@ -173,6 +177,10 @@ public class UserService {
     return created;
   }
 
+  // WP-48: SSO 전용 구성원 아이디(=회사 계정 주소) 형식 검사
+  private static final java.util.regex.Pattern EMAIL =
+      java.util.regex.Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+
   /**
    * 테넌트 관리자가 새 구성원을 추가한다(고객 콘솔 셀프서비스).
    *
@@ -182,8 +190,28 @@ public class UserService {
    */
   @Transactional
   public MemberResponse createMember(CreateMemberRequest req, Long callerId) {
-    // 아이디(로그인 ID) 중복 → 409
-    if (userRepository.existsByUsername(req.username())) {
+    // 인증된 ADMIN 경로이므로 active 테넌트가 반드시 있어야 한다(테넌트 없는 고아 계정 방지) — createAgent 동일 가드.
+    Long tenantId = TenantContext.get();
+    if (tenantId == null) {
+      throw new IllegalStateException("구성원 추가에는 active 테넌트 컨텍스트가 필요합니다.");
+    }
+    // WP-48: 비밀번호를 비우면 SSO 전용 구성원. 워크스페이스 SSO 가 켜져 있어야 하고(아니면 로그인 불가 계정이 생김),
+    // 첫 SSO 로그인 매칭 키가 username 이므로 회사 계정 주소(이메일) 형식이어야 한다. 소문자로 정규화해 대소문자만 다른 중복을 막는다.
+    boolean ssoOnly = req.password() == null || req.password().isBlank();
+    String username = req.username().trim();
+    if (ssoOnly) {
+      if (!tenantRepository.isSsoEnabled(tenantId)) {
+        throw new IllegalStateException("SSO 로그인이 꺼져 있어 비밀번호 없이 구성원을 추가할 수 없습니다.");
+      }
+      if (!EMAIL.matcher(username).matches()) {
+        throw new IllegalArgumentException("SSO 전용 구성원의 아이디는 회사 SSO 계정 주소(이메일)여야 합니다.");
+      }
+      username = username.toLowerCase(java.util.Locale.ROOT);
+      if (!userRepository.findIdsByUsernameIgnoreCase(username).isEmpty()) {
+        throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
+      }
+    } else if (userRepository.existsByUsername(username)) {
+      // 아이디(로그인 ID) 중복 → 409
       throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
     }
     // 이메일은 선택값. 공백/널이면 null 로 저장하고, 값이 있으면 중복 검사.
@@ -191,14 +219,9 @@ public class UserService {
     if (email != null && userRepository.existsByEmail(email)) {
       throw new EmailAlreadyExistsException("이미 사용 중인 이메일입니다.");
     }
-    // 인증된 ADMIN 경로이므로 active 테넌트가 반드시 있어야 한다(테넌트 없는 고아 계정 방지) — createAgent 동일 가드.
-    Long tenantId = TenantContext.get();
-    if (tenantId == null) {
-      throw new IllegalStateException("구성원 추가에는 active 테넌트 컨텍스트가 필요합니다.");
-    }
-    // 계정 생성 — 로그인이 검증하는 동일 인코더로. is_active 는 DB DEFAULT TRUE(즉시 로그인 가능).
-    String encoded = passwordEncoder.encode(req.password());
-    UserResponse user = userRepository.save(req.username(), email, encoded, req.name());
+    // 계정 생성 — 로그인이 검증하는 동일 인코더로. SSO 전용은 password=NULL(비밀번호 로그인 불가).
+    String encoded = ssoOnly ? null : passwordEncoder.encode(req.password());
+    UserResponse user = userRepository.save(username, email, encoded, req.name());
 
     // 멤버십 직위는 항상 MEMBER.
     membershipRepository.createWithRole(user.id(), tenantId, "ACTIVE", "MEMBER");
@@ -223,7 +246,13 @@ public class UserService {
         null,
         "SUCCESS",
         null,
-        java.util.Map.of("username", user.username(), "role", req.role()));
+        java.util.Map.of(
+            "username",
+            user.username(),
+            "role",
+            req.role(),
+            "loginMethod",
+            ssoOnly ? "SSO" : "PASSWORD"));
 
     return new MemberResponse(
         user.id(), user.username(), user.name(), user.email(), req.role(), "ACTIVE");
@@ -335,17 +364,36 @@ public class UserService {
   }
 
   @Transactional
-  public void changePassword(Long userId, String currentPassword, String newPassword) {
-    String storedPassword =
-        userRepository
-            .findPasswordById(userId)
-            .orElseThrow(() -> UserNotFoundException.ofId(userId));
+  public void changePassword(
+      Long userId, String currentPassword, String newPassword, String authMethod) {
+    if (!userRepository.existsById(userId)) throw UserNotFoundException.ofId(userId);
+    java.util.Optional<String> storedPassword = userRepository.findPasswordById(userId);
 
+    // WP-48: 비밀번호 없는(SSO 전용) 계정의 최초 설정 — 현재 비밀번호 대신 "지금 SSO 로 로그인한 세션"이 본인 확인이다.
+    // PAT(swp_)·Internal 인증은 amr 이 없으므로 거부 — 유출된 PAT 가 영구 비밀번호 로그인으로 바뀌는 경로를 막는다.
+    if (storedPassword.isEmpty()) {
+      if (!com.workplace.global.security.AuthDetails.SSO.equals(authMethod)) {
+        throw new IllegalArgumentException("SSO 로 로그인한 상태에서만 비밀번호를 설정할 수 있습니다");
+      }
+      userRepository.updatePassword(userId, passwordEncoder.encode(newPassword));
+      auditLogService.log(
+          userId,
+          resolveUsername(userId),
+          "PASSWORD_SET",
+          "user",
+          String.valueOf(userId),
+          "SSO 전용 계정 비밀번호 설정",
+          null,
+          null,
+          "SUCCESS",
+          null,
+          null);
+      return;
+    }
     // 현재 비밀번호 불일치 시 400 Bad Request로 명확한 한국어 메시지 반환 (#27)
-    if (!passwordEncoder.matches(currentPassword, storedPassword)) {
+    if (currentPassword == null || !passwordEncoder.matches(currentPassword, storedPassword.get())) {
       throw new IllegalArgumentException("현재 비밀번호가 올바르지 않습니다");
     }
-
     userRepository.updatePassword(userId, passwordEncoder.encode(newPassword));
   }
 
