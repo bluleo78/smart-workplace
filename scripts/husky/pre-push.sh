@@ -6,6 +6,8 @@
 
 set -e
 
+# web 단위 테스트(vitest, 수 초) — E2E 보다 먼저 돌려 순수 로직 회귀를 빠르게 실패시킨다 (WP-79)
+(cd apps/workplace-web && pnpm test)
 # web 전체 E2E 는 preview 서버(빌드 결과물 서빙)로 실행 — 워커 4 기준 dev 13.3분 → 7.9분 (WP-76)
 (cd apps/workplace-web && E2E_SERVER=preview pnpm test:e2e)
 (cd apps/workplace-admin && pnpm test:e2e)

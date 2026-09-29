@@ -97,7 +97,8 @@ describe('groupNotifications', () => {
     expect(updates[0].key).toBe('event:5')
     expect(updates[0].title).toBe('주간 회의')
     expect(updates[0].deltaSummary).toBe('일정 알림')
-    expect(updates[0].target).toBe('/calendar')
+    // 알림 딥링크(#659) — 해당 일정 상세를 바로 연다.
+    expect(updates[0].target).toBe('/calendar?eventId=5')
   })
 
   it('CALENDAR_INVITED/CALENDAR_RSVP_CHANGED 도 event 키로 묶고 캘린더로 딥링크한다 (#585)', () => {
@@ -114,7 +115,7 @@ describe('groupNotifications', () => {
     expect(updates[0].key).toBe('event:6')
     expect(updates[0].title).toBe('분기 킥오프')
     expect(updates[0].deltaSummary).toBe('일정 초대')
-    expect(updates[0].target).toBe('/calendar')
+    expect(updates[0].target).toBe('/calendar?eventId=6')
 
     const { updates: updates2 } = groupNotifications([
       notif({
@@ -128,6 +129,6 @@ describe('groupNotifications', () => {
     ])
     expect(updates2[0].key).toBe('event:7')
     expect(updates2[0].deltaSummary).toBe('참석 응답 변경')
-    expect(updates2[0].target).toBe('/calendar')
+    expect(updates2[0].target).toBe('/calendar?eventId=7')
   })
 })

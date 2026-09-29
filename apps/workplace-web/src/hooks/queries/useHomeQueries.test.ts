@@ -79,9 +79,11 @@ describe('chatStream', () => {
     await promise;
 
     expect(onProgress).toHaveBeenCalledWith('위임 중');
-    expect(onPendingAction).toHaveBeenCalledWith([
-      { actionType: 'calendar.create_event', params: {} },
-    ]);
+    // 두 번째 인자는 확인 카드가 속한 sessionId — 봉투에 없으면 undefined 로 전달된다.
+    expect(onPendingAction).toHaveBeenCalledWith(
+      [{ actionType: 'calendar.create_event', params: {} }],
+      undefined,
+    );
     expect(onTool).toHaveBeenCalledWith(
       expect.objectContaining({ phase: 'start', seq: 1, toolName: 'show_issue_list' }),
     );
