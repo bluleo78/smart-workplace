@@ -8,9 +8,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,6 +42,9 @@ class DriveBulkServiceNotifyTest {
   void bulkMove_publishesOnceAndSilencesSingles() {
     long caller = 7L;
     long spaceId = 11L;
+    stubFileSpace(1L, spaceId);
+    stubFileSpace(2L, spaceId);
+    when(folders.findSpaceId(3L)).thenReturn(Optional.of(spaceId));
 
     bulk.bulkMove(caller, spaceId, List.of(1L, 2L), List.of(3L), 99L);
 
@@ -52,5 +57,29 @@ class DriveBulkServiceNotifyTest {
     verify(folderService, never()).move(anyLong(), anyLong(), any());
     verify(fileService, never()).move(anyLong(), anyLong(), any(), eq(true));
     verify(folderService, never()).move(anyLong(), anyLong(), any(), eq(true));
+  }
+
+  @Test
+  @DisplayName("서로 다른 공간의 항목 bulkMove → 공간별 발행 2건")
+  void bulkMove_publishesPerActualSpace() {
+    long caller = 7L;
+    stubFileSpace(1L, 11L);
+    stubFileSpace(2L, 22L);
+    when(folders.findSpaceId(3L)).thenReturn(Optional.of(11L));
+
+    bulk.bulkMove(caller, 11L, List.of(1L, 2L), List.of(3L), 99L);
+
+    verify(notifier, times(1))
+        .itemsChanged(eq(OP_UPDATED), eq(11L), argThat(ids -> ids.size() == 2), eq(caller));
+    verify(notifier, times(1))
+        .itemsChanged(eq(OP_UPDATED), eq(22L), argThat(ids -> ids.equals(List.of(2L))), eq(caller));
+  }
+
+  private void stubFileSpace(long fileId, long spaceId) {
+    when(files.findRow(fileId))
+        .thenReturn(
+            Optional.of(
+                new com.workplace.drive.repository.DriveFileRepository.DriveFileRow(
+                    fileId, spaceId, fileId, "f", null)));
   }
 }

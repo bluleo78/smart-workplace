@@ -12,6 +12,7 @@ import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -93,18 +94,31 @@ public class DriveBulkService {
   public void bulkMove(
       long callerId, long spaceId, List<Long> fileIds, List<Long> folderIds, Long targetFolderId) {
     perms.requireRole(spaceId, callerId, "EDITOR");
+    // 항목별 단건 move 는 각자의 공간에서 검증되므로, 통지는 실제 이동된 항목의 공간별로 묶는다.
+    Map<Long, List<Long>> idsBySpace = new LinkedHashMap<>();
     if (folderIds != null) {
       for (Long folderId : folderIds) {
+        long fSpace =
+            folders
+                .findSpaceId(folderId)
+                .orElseThrow(() -> new DriveFolderNotFoundException(folderId));
+        idsBySpace.computeIfAbsent(fSpace, k -> new ArrayList<>()).add(folderId);
         folderService.move(callerId, folderId, targetFolderId, false);
       }
     }
     if (fileIds != null) {
       for (Long fileId : fileIds) {
+        long fSpace =
+            files
+                .findRow(fileId)
+                .orElseThrow(() -> new DriveFileNotFoundException(fileId))
+                .spaceId();
+        idsBySpace.computeIfAbsent(fSpace, k -> new ArrayList<>()).add(fileId);
         fileService.move(callerId, fileId, targetFolderId, false);
       }
     }
-    // 단건 move 는 notify=false 로 발행을 껐으므로 여기서 1건으로 묶어 발행한다.
-    notifier.itemsChanged(OP_UPDATED, spaceId, union(fileIds, folderIds), callerId);
+    // 단건 move 는 notify=false 로 발행을 껐으므로 여기서 공간당 1건으로 묶어 발행한다(같은 공간이면 1건).
+    idsBySpace.forEach((sid, ids) -> notifier.itemsChanged(OP_UPDATED, sid, ids, callerId));
   }
 
   /** null 허용 두 id 목록의 합집합(이벤트 ids 용). */

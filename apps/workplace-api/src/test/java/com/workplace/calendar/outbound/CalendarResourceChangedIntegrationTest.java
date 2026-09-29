@@ -169,6 +169,16 @@ class CalendarResourceChangedIntegrationTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("캘린더 초기화는 삭제 전에 수집한 내부 참석자에게도")
+  void resetEvents_reachesAttendee() {
+    long calId = calendarService.list(owner).get(0).id();
+    eventService.create(owner, req(List.of(attendee)));
+    clearInvocations(registry);
+    calendarService.resetEvents(owner, calId);
+    assertThat(capture("calendar", "updated").recipients()).contains(owner, attendee);
+  }
+
+  @Test
   @DisplayName("캘린더 생성은 소유자에게만")
   void calendarCreate_ownerOnly() {
     clearInvocations(registry);

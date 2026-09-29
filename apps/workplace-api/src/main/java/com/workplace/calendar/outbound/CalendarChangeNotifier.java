@@ -38,6 +38,12 @@ public class CalendarChangeNotifier {
 
   /** 캘린더(컨테이너) 변경 — 소유자 전용. */
   public void calendarChanged(String op, long calendarId, long ownerId, Long actorId) {
+    calendarChanged(op, calendarId, ownerId, Set.of(), actorId);
+  }
+
+  /** 캘린더 변경 + 추가 수신자. 캘린더 초기화처럼 소속 일정의 내부 참석자도 영향받는 경우, 하드 삭제로 참석자 행이 사라지기 전에 수집한 userId 를 싣는다. */
+  public void calendarChanged(
+      String op, long calendarId, long ownerId, Collection<Long> extraUserIds, Long actorId) {
     publisher.publishEvent(
         new ResourceChangedEvent(
             "calendar",
@@ -47,6 +53,6 @@ public class CalendarChangeNotifier {
             List.of(calendarId),
             Map.of(),
             actorId,
-            Set.of()));
+            Set.copyOf(extraUserIds)));
   }
 }

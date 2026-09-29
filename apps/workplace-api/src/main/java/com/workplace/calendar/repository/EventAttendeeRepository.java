@@ -1,5 +1,6 @@
 package com.workplace.calendar.repository;
 
+import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.USER;
 
@@ -73,6 +74,17 @@ public class EventAttendeeRepository {
         .set(EVENT_ATTENDEE.RSVP_STATUS, rsvpStatus)
         .onDuplicateKeyIgnore()
         .execute();
+  }
+
+  /** 한 캘린더 소속 일정들의 내부 참석자 userId(중복 제거, user_id NULL 인 외부 참석자 제외). 캘린더 초기화 통지 수신자 수집용. */
+  public List<Long> findInternalUserIdsByCalendar(long calendarId) {
+    return dsl.selectDistinct(EVENT_ATTENDEE.USER_ID)
+        .from(EVENT_ATTENDEE)
+        .join(CALENDAR_EVENT)
+        .on(CALENDAR_EVENT.ID.eq(EVENT_ATTENDEE.EVENT_ID))
+        .where(CALENDAR_EVENT.CALENDAR_ID.eq(calendarId))
+        .and(EVENT_ATTENDEE.USER_ID.isNotNull())
+        .fetch(EVENT_ATTENDEE.USER_ID);
   }
 
   /** 단일 이벤트의 참석자 목록 조회. findByEvents 위임으로 코드 중복 제거. */

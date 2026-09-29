@@ -10,6 +10,7 @@ import com.workplace.calendar.exception.ExternalCalendarResetNotAllowedException
 import com.workplace.calendar.exception.ReadOnlyCalendarException;
 import com.workplace.calendar.outbound.CalendarChangeNotifier;
 import com.workplace.calendar.repository.CalendarRepository;
+import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,8 @@ public class CalendarService {
   private final CalendarRepository repo;
   // 캘린더 변경 → resource.changed 발행(WP-61). 각 @Transactional 메서드 안에서 호출.
   private final CalendarChangeNotifier changeNotifier;
+  // 초기화 전 내부 참석자 수집용(하드 삭제 cascade 로 참석자 행이 사라지므로).
+  private final EventAttendeeRepository attendeeRepo;
 
   /** 소유자의 캘린더 목록. 비어 있으면 기본 캘린더를 lazy 생성 후 반환(신규/제로-일정 유저). */
   @Transactional
@@ -89,9 +92,12 @@ public class CalendarService {
     if (repo.isExternal(calendarId)) {
       throw new ExternalCalendarResetNotAllowedException(calendarId);
     }
+    // 청중 축소(하드 삭제 cascade): 삭제 전에 내부 참석자를 수집해 extra 수신자로 넘긴다.
+    List<Long> attendeeIds = attendeeRepo.findInternalUserIdsByCalendar(calendarId);
     repo.deleteAllEventsByCalendar(calendarId);
     // 일정만 지워지고 캘린더는 남으므로 updated (['calendar'] prefix 무효화로 일정 목록도 갱신).
-    changeNotifier.calendarChanged(ResourceChangedEvent.OP_UPDATED, calendarId, callerId, callerId);
+    changeNotifier.calendarChanged(
+        ResourceChangedEvent.OP_UPDATED, calendarId, callerId, attendeeIds, callerId);
   }
 
   /** 소유 캘린더 검증 — 미존재/비소유 모두 404(존재 은닉). 일정 chokepoint 도 사용. */
