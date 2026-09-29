@@ -11,11 +11,13 @@ import { Skeleton } from './components/ui/skeleton'
 // 페이지는 라우트 진입 시점에만 로드해 초기 번들을 가볍게 유지한다.
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const SignupPage = lazy(() => import('./pages/SignupPage'))
+const SsoCompletePage = lazy(() => import('./pages/SsoCompletePage'))
 const HomePage = lazy(() => import('./pages/HomePage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const UserListPage = lazy(() => import('./pages/admin/UserListPage'))
 const UserDetailPage = lazy(() => import('./pages/admin/UserDetailPage'))
 const RoleListPage = lazy(() => import('./pages/admin/RoleListPage'))
+const SsoSettingsPage = lazy(() => import('./pages/admin/SsoSettingsPage'))
 const RoleDetailPage = lazy(() => import('./pages/admin/RoleDetailPage'))
 const AuditLogListPage = lazy(() => import('./pages/admin/AuditLogListPage'))
 const AgentManagementPage = lazy(() => import('./pages/admin/AgentManagementPage'))
@@ -117,6 +119,8 @@ export default function App() {
           {/* 공개 라우트 */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          {/* WP-48 SSO 완료 착지 — 토큰 없이 도착하므로 ProtectedRoute 밖 */}
+          <Route path="/login/sso/complete" element={<SsoCompletePage />} />
           {/* 공유 링크 다운로드 랜딩 — 인증 불필요 */}
           <Route path="/s/:token" element={<ShareLinkPage />} />
           {/* M365 OAuth 팝업 콜백 — 토큰 없는 팝업이 착지하므로 ProtectedRoute 밖 공개 라우트 */}
@@ -206,6 +210,7 @@ export default function App() {
                   <Route path="settings/users/:id" element={<UserDetailPage />} />
                   <Route path="settings/roles" element={<RoleListPage />} />
                   <Route path="settings/roles/:id" element={<RoleDetailPage />} />
+                  <Route path="settings/sso" element={<SsoSettingsPage />} />
                   <Route path="settings/audit-logs" element={<AuditLogListPage />} />
                   <Route path="settings/agents" element={<AgentManagementPage />} />
                 </Route>

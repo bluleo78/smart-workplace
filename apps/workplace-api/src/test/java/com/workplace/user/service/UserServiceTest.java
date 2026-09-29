@@ -331,7 +331,7 @@ class UserServiceTest extends IntegrationTestBase {
 
   @Test
   void changePassword_success() {
-    userService.changePassword(testUserId, "Password123", "newpassword");
+    userService.changePassword(testUserId, "Password123", "newpassword", null);
 
     String storedPassword =
         dsl.select(USER.PASSWORD).from(USER).where(USER.ID.eq(testUserId)).fetchOne(USER.PASSWORD);
@@ -341,7 +341,7 @@ class UserServiceTest extends IntegrationTestBase {
   @Test
   void changePassword_wrongCurrentPassword_throwsException() {
     // 현재 비밀번호 불일치 → 400 Bad Request를 위한 IllegalArgumentException (#27)
-    assertThatThrownBy(() -> userService.changePassword(testUserId, "wrongpass", "newpass"))
+    assertThatThrownBy(() -> userService.changePassword(testUserId, "wrongpass", "newpass", null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("현재 비밀번호가 올바르지 않습니다");
   }

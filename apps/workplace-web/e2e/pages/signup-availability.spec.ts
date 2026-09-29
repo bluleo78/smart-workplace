@@ -73,6 +73,8 @@ test.describe('회원가입 가용성 게이트 (#495)', () => {
   // 로그인 페이지: 가용=false 이면 회원가입 링크를 숨긴다.
   test('로그인 페이지는 가용=false 이면 회원가입 링크를 숨긴다', async ({ page }) => {
     await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: false })
+    // WP-48 — 로그인 페이지가 마운트 시 SSO 가용성(/auth/sso/status)도 조회한다. 미스텁 시 로컬 백엔드로 누수돼 401 → refresh 실패 → /login 강제 이동으로 테스트가 깨진다.
+    await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: false })
 
     await page.goto('/login')
 
@@ -83,6 +85,8 @@ test.describe('회원가입 가용성 게이트 (#495)', () => {
   // 로그인 페이지: 가용=true 이면 회원가입 링크가 보인다.
   test('로그인 페이지는 가용=true 이면 회원가입 링크가 보인다', async ({ page }) => {
     await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
+    // WP-48 — 로그인 페이지가 마운트 시 SSO 가용성(/auth/sso/status)도 조회한다. 미스텁 시 로컬 백엔드로 누수돼 401 → refresh 실패 → /login 강제 이동으로 테스트가 깨진다.
+    await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: false })
 
     await page.goto('/login')
 

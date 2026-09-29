@@ -182,6 +182,38 @@ class UserTokenAuthenticationFilterTest extends IntegrationTestBase {
         .isEqualTo(HttpStatus.UNAUTHORIZED);
   }
 
+  /**
+   * WP-48: PAT 는 브라우저 로그인 세션이 아니므로 워크스페이스 선택/멤버십 조회를 할 수 없다. 허용하면 amr 없는 토큰이 발급돼 SSO 켜진 워크스페이스 제약을
+   * 우회할 수 있다.
+   */
+  @Test
+  void swp_cannot_select_tenant_403() {
+    UserApiTokenIssueResponse res = issueToken();
+    HttpHeaders headers = new HttpHeaders();
+    headers.set("Authorization", "Bearer " + res.plaintextToken());
+    headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+    ResponseEntity<String> r;
+    try {
+      r =
+          rest.exchange(
+              "http://localhost:" + port + "/api/v1/auth/select-tenant",
+              HttpMethod.POST,
+              new HttpEntity<>("{\"tenantId\":" + DEFAULT_TENANT_ID + "}", headers),
+              String.class);
+    } catch (org.springframework.web.client.HttpStatusCodeException e) {
+      r = ResponseEntity.status(e.getStatusCode()).body(e.getResponseBodyAsString());
+    }
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+  }
+
+  /** WP-48: PAT 로 멤버십 목록도 조회할 수 없다(워크스페이스 선택 흐름 전용 API). */
+  @Test
+  void swp_cannot_list_memberships_403() {
+    UserApiTokenIssueResponse res = issueToken();
+    assertThat(call("Bearer " + res.plaintextToken(), "/api/v1/auth/memberships").getStatusCode())
+        .isEqualTo(HttpStatus.FORBIDDEN);
+  }
+
   @Test
   void last_used_at_updated_after_successful_call() {
     UserApiTokenIssueResponse res = issueToken();

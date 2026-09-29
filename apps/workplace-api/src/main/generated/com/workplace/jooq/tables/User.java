@@ -56,6 +56,7 @@ import com.workplace.jooq.tables.ThreadReadState.ThreadReadStatePath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.UserApiToken.UserApiTokenPath;
 import com.workplace.jooq.tables.UserDashboard.UserDashboardPath;
+import com.workplace.jooq.tables.UserExternalIdentity.UserExternalIdentityPath;
 import com.workplace.jooq.tables.UserGroup.UserGroupPath;
 import com.workplace.jooq.tables.UserPriorityItem.UserPriorityItemPath;
 import com.workplace.jooq.tables.UserRole.UserRolePath;
@@ -919,6 +920,19 @@ public class User extends TableImpl<UserRecord> {
             _userDashboard = new UserDashboardPath(this, null, Keys.USER_DASHBOARD__USER_DASHBOARD_USER_ID_FKEY.getInverseKey());
 
         return _userDashboard;
+    }
+
+    private transient UserExternalIdentityPath _userExternalIdentity;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.user_external_identity</code> table
+     */
+    public UserExternalIdentityPath userExternalIdentity() {
+        if (_userExternalIdentity == null)
+            _userExternalIdentity = new UserExternalIdentityPath(this, null, Keys.USER_EXTERNAL_IDENTITY__USER_EXTERNAL_IDENTITY_USER_ID_FKEY.getInverseKey());
+
+        return _userExternalIdentity;
     }
 
     private transient UserGroupPath _userGroup;

@@ -1,6 +1,6 @@
 // apps/workplace-web/src/components/layout/SettingsSidebar.tsx
 // 설정 앱 2차 사이드바 — 개인 설정(전체) + 워크스페이스 관리(어드민 전용) 2그룹.
-import { Bell, Bot, FileText, KeyRound, Mail, Settings, Shield, User, Users } from 'lucide-react'
+import { Bell, Bot, FileText, KeyRound, LogIn, Mail, Settings, Shield, User, Users } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -20,6 +20,7 @@ const ADMIN_ITEMS = [
   { label: '구성원', href: '/settings/users', icon: Users },
   { label: '에이전트', href: '/settings/agents', icon: Bot },
   { label: '역할', href: '/settings/roles', icon: Shield },
+  { label: 'SSO', href: '/settings/sso', icon: LogIn },
   { label: '감사 로그', href: '/settings/audit-logs', icon: FileText },
 ]
 

@@ -5,7 +5,8 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public record ChangePasswordRequest(
-    @NotBlank String currentPassword,
+    // WP-48: 비밀번호가 없는(SSO 전용) 계정의 최초 설정은 현재 비밀번호 없이 허용 — 서비스가 분기한다.
+    String currentPassword,
     @NotBlank
         @Size(min = 8, max = 128)
         @Pattern(

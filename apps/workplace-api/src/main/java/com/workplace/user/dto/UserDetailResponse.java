@@ -15,4 +15,6 @@ public record UserDetailResponse(
     // Phase 5a — HUMAN | AGENT
     String kind,
     // AI 가용성 — 개인/공통 비서(active token) 중 하나라도 있으면 true. 프론트 AI affordance 게이트용.
-    boolean aiAvailable) {}
+    boolean aiAvailable,
+    // WP-48: 비밀번호 보유 여부 — 프로필이 "비밀번호 설정"/"비밀번호 변경" 카드를 고른다.
+    boolean hasPassword) {}

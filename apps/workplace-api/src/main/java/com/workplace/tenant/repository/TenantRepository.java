@@ -15,6 +15,21 @@ public class TenantRepository {
 
   private final DSLContext dsl;
 
+  /** WP-48: 테넌트가 ACTIVE 이고 SSO 로그인이 켜져 있는가. SSO 세션의 선택/갱신 게이트. */
+  @Transactional(readOnly = true)
+  public boolean isSsoEnabled(Long tenantId) {
+    return dsl.fetchExists(
+        dsl.selectFrom(TENANT)
+            .where(TENANT.ID.eq(tenantId))
+            .and(TENANT.STATUS.eq("ACTIVE"))
+            .and(TENANT.SSO_ENABLED.isTrue()));
+  }
+
+  /** WP-48: 워크스페이스 SSO 로그인 켜기/끄기. tenant 는 RLS 비대상 전역 테이블. */
+  public void setSsoEnabled(Long tenantId, boolean enabled) {
+    dsl.update(TENANT).set(TENANT.SSO_ENABLED, enabled).where(TENANT.ID.eq(tenantId)).execute();
+  }
+
   /** 테넌트가 존재하고 ACTIVE 인지(SUSPENDED 차단용). */
   @Transactional(readOnly = true)
   public boolean isActive(Long tenantId) {

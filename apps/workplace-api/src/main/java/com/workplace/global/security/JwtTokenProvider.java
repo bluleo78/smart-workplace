@@ -29,6 +29,11 @@ public class JwtTokenProvider {
 
   /** tenant 가 null 이면 pre-auth(테넌트 미선택) 토큰. */
   public String generateAccessToken(Long userId, String username, Long tenantId) {
+    return generateAccessToken(userId, username, tenantId, null);
+  }
+
+  /** tenant 가 null 이면 pre-auth(테넌트 미선택) 토큰. amr 이 있으면 인증 수단(예: "sso")을 싣는다(WP-48). */
+  public String generateAccessToken(Long userId, String username, Long tenantId, String amr) {
     Date now = new Date();
     var builder =
         Jwts.builder()
@@ -41,6 +46,9 @@ public class JwtTokenProvider {
     if (tenantId != null) {
       builder.claim("tenant", tenantId);
     }
+    if (amr != null) {
+      builder.claim("amr", amr);
+    }
     return builder.signWith(key).compact();
   }
 
@@ -50,6 +58,11 @@ public class JwtTokenProvider {
   }
 
   public String generateRefreshToken(Long userId, Long tenantId) {
+    return generateRefreshToken(userId, tenantId, null);
+  }
+
+  /** amr 은 회전(refresh) 시에도 유지돼야 SSO 세션 제약이 계속 적용된다(WP-48). */
+  public String generateRefreshToken(Long userId, Long tenantId, String amr) {
     Date now = new Date();
     var builder =
         Jwts.builder()
@@ -62,6 +75,9 @@ public class JwtTokenProvider {
             .expiration(new Date(now.getTime() + refreshExpiration));
     if (tenantId != null) {
       builder.claim("tenant", tenantId);
+    }
+    if (amr != null) {
+      builder.claim("amr", amr);
     }
     return builder.signWith(key).compact();
   }
@@ -114,6 +130,12 @@ public class JwtTokenProvider {
   public Long getTenantIdFromToken(String token) {
     Object t = parseClaims(token).get("tenant");
     return t == null ? null : ((Number) t).longValue();
+  }
+
+  /** 인증 수단(amr). 비밀번호 로그인 토큰이면 null. */
+  public String getAuthMethodFromToken(String token) {
+    Object amr = parseClaims(token).get("amr");
+    return amr == null ? null : amr.toString();
   }
 
   public Long getUserIdFromToken(String token) {

@@ -1,5 +1,6 @@
 // apps/workplace-web/src/pages/settings/ProfileSettingsPage.tsx
 // 설정 > 개인 > 프로필 — 프로필 정보 수정 + 비밀번호 변경. (구 ProfilePage 에서 이전)
+// WP-48: SSO 전용 계정이면 "비밀번호 설정" 카드로 대체.
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
@@ -17,6 +18,8 @@ import { useAuth } from '@/hooks/useAuth'
 import { extractApiError } from '@/lib/api-error'
 import type { ChangePasswordFormData, UpdateProfileFormData } from '@/lib/validations/user'
 import { changePasswordSchema, updateProfileSchema } from '@/lib/validations/user'
+
+import { SetPasswordCard } from './components/SetPasswordCard'
 
 export default function ProfileSettingsPage() {
   const { user, refreshUser } = useAuth()
@@ -113,42 +116,46 @@ export default function ProfileSettingsPage() {
 
       <Separator />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>비밀번호 변경</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
-            <FormField
-              label="현재 비밀번호"
-              htmlFor="current-password"
-              error={passwordForm.formState.errors.currentPassword?.message}
-            >
-              <PasswordInput id="current-password" {...passwordForm.register('currentPassword')} autoComplete="current-password" />
-            </FormField>
-            <FormField
-              label="새 비밀번호"
-              htmlFor="new-password"
-              error={passwordForm.formState.errors.newPassword?.message}
-            >
-              <PasswordInput id="new-password" {...passwordForm.register('newPassword')} autoComplete="new-password" />
-            </FormField>
-            <FormField
-              label="비밀번호 확인"
-              htmlFor="confirm-password"
-              error={passwordForm.formState.errors.confirmPassword?.message}
-            >
-              <PasswordInput id="confirm-password" {...passwordForm.register('confirmPassword')} autoComplete="new-password" />
-            </FormField>
-            {passwordForm.formState.errors.root && (
-              <p className="text-sm text-destructive">{passwordForm.formState.errors.root.message}</p>
-            )}
-            <Button type="submit" disabled={passwordForm.formState.isSubmitting}>
-              {passwordForm.formState.isSubmitting ? '변경 중...' : '비밀번호 변경'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+      {user?.hasPassword === false ? (
+        <SetPasswordCard onDone={refreshUser} />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>비밀번호 변경</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
+              <FormField
+                label="현재 비밀번호"
+                htmlFor="current-password"
+                error={passwordForm.formState.errors.currentPassword?.message}
+              >
+                <PasswordInput id="current-password" {...passwordForm.register('currentPassword')} autoComplete="current-password" />
+              </FormField>
+              <FormField
+                label="새 비밀번호"
+                htmlFor="new-password"
+                error={passwordForm.formState.errors.newPassword?.message}
+              >
+                <PasswordInput id="new-password" {...passwordForm.register('newPassword')} autoComplete="new-password" />
+              </FormField>
+              <FormField
+                label="비밀번호 확인"
+                htmlFor="confirm-password"
+                error={passwordForm.formState.errors.confirmPassword?.message}
+              >
+                <PasswordInput id="confirm-password" {...passwordForm.register('confirmPassword')} autoComplete="new-password" />
+              </FormField>
+              {passwordForm.formState.errors.root && (
+                <p className="text-sm text-destructive">{passwordForm.formState.errors.root.message}</p>
+              )}
+              <Button type="submit" disabled={passwordForm.formState.isSubmitting}>
+                {passwordForm.formState.isSubmitting ? '변경 중...' : '비밀번호 변경'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
     </SettingsPage>
   )
 }

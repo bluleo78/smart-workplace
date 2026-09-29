@@ -58,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       createdAt: userDetail.createdAt,
       kind: userDetail.kind,
       aiAvailable: userDetail.aiAvailable,
+      hasPassword: userDetail.hasPassword,
     };
     setUser(userResponse);
     setRoles(userDetail.roles);
@@ -142,6 +143,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.assign(redirectTo);
   }, []);
 
+  // WP-48 SSO 완료 — 콜백이 심어 둔 refresh 쿠키로 세션을 받는다. 서버가 SSO 켜진 워크스페이스 1개면 이미 자동 선택했으므로
+  // 멤버십 수로 분기: 1개 → 바로 진입, 여러 개 → 선택 카드, 0개 → 세션 정리.
+  const completeSsoLogin = useCallback(async (): Promise<'entered' | 'select' | 'none'> => {
+    setTenantOptions(null);
+    const { data: tokens } = await deduplicatedRefresh();
+    setAccessToken(tokens.accessToken);
+    const { data: memberships } = await authApi.memberships();
+    if (memberships.length === 0) {
+      setAccessToken(null);
+      return 'none';
+    }
+    if (memberships.length > 1) {
+      setTenantOptions(memberships);
+      return 'select';
+    }
+    const only = memberships[0];
+    writeActiveTenant(only);
+    setActiveTenant(only);
+    localStorage.setItem(AUTH_FLAG_KEY, 'true');
+    await fetchUserWithRoles();
+    return 'entered';
+  }, [fetchUserWithRoles]);
+
   const signup = useCallback(async (data: SignupFormData) => {
     // confirmPassword는 클라이언트 검증 전용이므로 서버 페이로드에서 제외
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -187,10 +211,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const ctxValue = useMemo(
     () => ({
       user, roles, isLoading, isAuthenticated, activeTenant, tenantOptions,
-      login, signup, logout, selectTenant, hasRole, isAdmin, refreshUser,
+      login, signup, logout, selectTenant, completeSsoLogin, hasRole, isAdmin, refreshUser,
     }),
     [user, roles, isLoading, isAuthenticated, activeTenant, tenantOptions,
-      login, signup, logout, selectTenant, hasRole, isAdmin, refreshUser]
+      login, signup, logout, selectTenant, completeSsoLogin, hasRole, isAdmin, refreshUser]
   );
 
   return (

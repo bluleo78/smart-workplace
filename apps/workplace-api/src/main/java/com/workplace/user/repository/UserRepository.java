@@ -2,6 +2,7 @@ package com.workplace.user.repository;
 
 import static com.workplace.jooq.Tables.*;
 import static org.jooq.impl.DSL.count;
+import static org.jooq.impl.DSL.lower;
 import static org.jooq.impl.DSL.trueCondition;
 import static org.jooq.impl.DSL.val;
 
@@ -9,6 +10,7 @@ import com.workplace.global.util.LikePatternUtils;
 import com.workplace.user.dto.UserResponse;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
@@ -78,6 +80,18 @@ public class UserRepository {
         .from(USER)
         .where(USER.ID.in(ids))
         .fetch(this::mapToUserResponse);
+  }
+
+  /**
+   * WP-48: username 대소문자 무시 조회 — SSO 최초 연결 매칭용. username 유니크 제약은 대소문자를 구분하므로 대소문자만 다른 두 계정이 공존할 수
+   * 있다. 호출자가 그 경우를 충돌로 처리하도록 최대 2건을 돌려준다.
+   */
+  public List<Long> findIdsByUsernameIgnoreCase(String username) {
+    return dsl.select(USER.ID)
+        .from(USER)
+        .where(lower(USER.USERNAME).eq(username.toLowerCase(Locale.ROOT)))
+        .limit(2)
+        .fetch(USER.ID);
   }
 
   public Optional<UserResponse> findById(Long id) {
@@ -194,6 +208,12 @@ public class UserRepository {
         .from(USER)
         .where(USER.ID.eq(id))
         .fetchOptional(r -> r.get(USER.PASSWORD));
+  }
+
+  /** WP-48: 비밀번호 보유 여부(SSO 전용 계정이면 false). */
+  public boolean hasPassword(Long id) {
+    return dsl.fetchExists(
+        dsl.selectFrom(USER).where(USER.ID.eq(id)).and(USER.PASSWORD.isNotNull()));
   }
 
   public boolean existsByUsername(String username) {
@@ -479,5 +499,19 @@ public class UserRepository {
         .fetch()
         .forEach(r -> result.put(r.get(USER.ID), r.get(USER.NAME)));
     return result;
+  }
+
+  /** WP-48: 테넌트의 ACTIVE 구성원 중 비밀번호가 없는 활성 HUMAN 수 — SSO 끄기 전 확인 다이얼로그용. */
+  public long countPasswordlessHumanMembers(Long tenantId) {
+    return dsl.selectCount()
+        .from(USER)
+        .join(MEMBERSHIP)
+        .on(MEMBERSHIP.USER_ID.eq(USER.ID))
+        .where(MEMBERSHIP.TENANT_ID.eq(tenantId))
+        .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+        .and(USER.PASSWORD.isNull())
+        .and(USER.KIND.eq("HUMAN"))
+        .and(USER.IS_ACTIVE.isTrue())
+        .fetchOne(0, long.class);
   }
 }

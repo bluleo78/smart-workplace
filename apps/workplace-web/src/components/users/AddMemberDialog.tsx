@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -16,30 +16,33 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useSsoSettings } from '@/hooks/queries/useSsoSettings'
 import { useCreateMember } from '@/hooks/queries/useUsers'
 import { extractApiError } from '@/lib/api-error'
+import { passwordRule } from '@/lib/validations/user'
 
-// 구성원 추가 폼 — 아이디(로그인 ID)/이메일(선택)/이름/역할/초기 비밀번호.
-// 비밀번호 규칙은 백엔드와 동일. role 라벨은 한국어, API 로는 ADMIN/USER 원시값 전송.
-const addMemberSchema = z.object({
-  // trim 후 검사 — 공백만 입력한 값(length>0이지만 실질 값 없음)이 통과해 서버로
-  // 전송되는 것을 클라이언트에서 먼저 차단한다.
-  username: z
-    .string()
-    .trim()
-    .min(1, '아이디를 입력하세요')
-    .max(50, '아이디는 50자 이하여야 합니다'),
-  email: z.email('올바른 이메일 형식이 아닙니다').optional().or(z.literal('')),
-  name: z.string().trim().min(1, '이름을 입력하세요').max(50, '이름은 50자 이하여야 합니다'),
-  password: z
-    .string()
-    .min(8, '비밀번호는 8자 이상이어야 합니다')
-    .max(128, '비밀번호는 128자 이하여야 합니다')
-    .regex(/[A-Z]/, '대문자를 1자 이상 포함해야 합니다')
-    .regex(/[a-z]/, '소문자를 1자 이상 포함해야 합니다')
-    .regex(/[0-9]/, '숫자를 1자 이상 포함해야 합니다'),
-  role: z.enum(['ADMIN', 'USER']),
-})
+// 구성원 추가 폼 — 아이디(로그인 ID)/이메일(선택)/이름/역할 + 로그인 방식(WP-48).
+// SSO 전용이면 비밀번호를 받지 않고 아이디는 회사 SSO 계정 주소(이메일)여야 한다(첫 SSO 로그인 매칭 키).
+const addMemberSchema = z
+  .object({
+    loginMethod: z.enum(['SSO', 'PASSWORD']),
+    // trim 후 검사 — 공백만 입력한 값이 서버로 전송되는 것을 클라이언트에서 먼저 차단한다.
+    username: z.string().trim().min(1, '아이디를 입력하세요').max(50, '아이디는 50자 이하여야 합니다'),
+    email: z.email('올바른 이메일 형식이 아닙니다').optional().or(z.literal('')),
+    name: z.string().trim().min(1, '이름을 입력하세요').max(50, '이름은 50자 이하여야 합니다'),
+    password: z.string().optional(),
+    role: z.enum(['ADMIN', 'USER']),
+  })
+  .superRefine((v, ctx) => {
+    if (v.loginMethod === 'SSO') {
+      if (!z.email().safeParse(v.username).success) {
+        ctx.addIssue({ code: 'custom', path: ['username'], message: 'SSO 전용 구성원의 아이디는 이메일 형식이어야 합니다' })
+      }
+      return
+    }
+    const r = passwordRule.safeParse(v.password ?? '')
+    if (!r.success) ctx.addIssue({ code: 'custom', path: ['password'], message: r.error.issues[0].message })
+  })
 
 type AddMemberFormData = z.infer<typeof addMemberSchema>
 
@@ -60,15 +63,29 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
   // 제출을 차단한다. #581/#582 와 동일 패턴.
   const submittingRef = useRef(false)
 
+  // WP-48: 워크스페이스 SSO 가 켜져 있을 때만 로그인 방식 선택을 노출(기본 SSO 전용).
+  const { data: ssoSettings } = useSsoSettings(open)
+  const ssoOn = ssoSettings?.enabled === true
+  // 로그인 방식 기본값 — SSO 가 켜져 있으면 SSO 전용, 아니면 비밀번호.
+  const defaultMethod = ssoOn ? 'SSO' : 'PASSWORD'
+
   const {
     register,
     handleSubmit,
     reset,
+    setValue,
+    watch,
     formState: { errors },
   } = useForm<AddMemberFormData>({
     resolver: zodResolver(addMemberSchema),
-    defaultValues: { role: 'USER' },
+    defaultValues: { role: 'USER', loginMethod: 'PASSWORD' },
   })
+  const loginMethod = watch('loginMethod')
+
+  // SSO 가 켜져 있으면 다이얼로그를 열 때 SSO 전용을 기본 선택으로 맞춘다.
+  useEffect(() => {
+    if (open && ssoOn) setValue('loginMethod', defaultMethod)
+  }, [open, ssoOn, defaultMethod, setValue])
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
@@ -87,14 +104,27 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
     if (submittingRef.current) return
     submittingRef.current = true
     setServerError('')
-    // 이메일 빈 문자열은 전송에서 제외(백엔드 선택값).
-    const payload = { ...data, email: data.email ? data.email : undefined }
+    // 이메일 빈 문자열은 전송에서 제외(백엔드 선택값). SSO 전용은 password 를 보내지 않는다(WP-48).
+    const { loginMethod: method, password, ...rest } = data
+    const payload = {
+      ...rest,
+      email: rest.email ? rest.email : undefined,
+      ...(method === 'PASSWORD' ? { password } : {}),
+    }
     createMember.mutate(payload, {
       onSuccess: () => {
         toast.success('구성원을 추가했습니다.')
         if (keepOpenAfterSubmit) {
           // 다이얼로그는 유지 — 폼만 비워 바로 다음 구성원을 입력할 수 있게 한다.
-          reset()
+          // 부분 reset 은 명시하지 않은 필드를 이전 값으로 남기므로 모든 필드를 빈 값으로 명시한다.
+          reset({
+            username: '',
+            email: '',
+            name: '',
+            password: '',
+            role: 'USER',
+            loginMethod: defaultMethod,
+          })
           submittingRef.current = false
           return
         }
@@ -130,16 +160,33 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
             Radix Checkbox 는 소속 form 의 reset 이벤트에 반응해 스스로 onCheckedChange(false) 를
             발화하는데, onSuccess 의 react-hook-form reset() 이 그 reset 을 유발한다 → 폼 안에 두면
             첫 저장 직후 체크가 풀려 '계속 추가'가 깨진다(#655 연속등록 flake 의 진짜 원인). */}
-        {/* eslint-disable-next-line react-hooks/refs */}
         <form id="add-member-form" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {serverError && (
             <p className="text-sm text-destructive" data-testid="add-member-error">
               {serverError}
             </p>
           )}
+          {ssoOn && (
+            <div className="space-y-2">
+              <Label>로그인 방식</Label>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="radio" value="SSO" data-testid="add-member-login-sso" {...register('loginMethod')} />
+                  SSO 전용 (비밀번호 없음)
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="radio" value="PASSWORD" data-testid="add-member-login-password" {...register('loginMethod')} />
+                  비밀번호
+                </label>
+              </div>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="member-username">아이디 (로그인 ID)</Label>
             <Input id="member-username" data-testid="add-member-username" {...register('username')} />
+            {loginMethod === 'SSO' && (
+              <p className="text-xs text-muted-foreground">회사 SSO 계정 주소(이메일)와 같게 입력하세요.</p>
+            )}
             {errors.username && <p className="text-sm text-destructive">{errors.username.message}</p>}
           </div>
           <div className="space-y-2">
@@ -152,17 +199,19 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
             <Input id="member-name" data-testid="add-member-name" {...register('name')} />
             {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="member-password">초기 비밀번호</Label>
-            <Input
-              id="member-password"
-              type="password"
-              placeholder="8자 이상, 영문 대/소문자·숫자 포함"
-              data-testid="add-member-password"
-              {...register('password')}
-            />
-            {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
-          </div>
+          {loginMethod === 'PASSWORD' && (
+            <div className="space-y-2">
+              <Label htmlFor="member-password">초기 비밀번호</Label>
+              <Input
+                id="member-password"
+                type="password"
+                placeholder="8자 이상, 영문 대/소문자·숫자 포함"
+                data-testid="add-member-password"
+                {...register('password')}
+              />
+              {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
+            </div>
+          )}
           <div className="space-y-2">
             <Label>역할</Label>
             <div className="flex flex-col gap-2" data-testid="add-member-role">

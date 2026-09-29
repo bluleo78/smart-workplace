@@ -60,6 +60,8 @@ test.describe('/push-open', () => {
 
 test('미로그인 → 로그인 후 목적지', async ({ page }) => {
   await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
+  // WP-48 — 로그인 페이지가 마운트 시 SSO 가용성(/auth/sso/status)도 조회한다. 미스텁 시 로컬 백엔드로 누수돼 401 → refresh 실패 → /login 강제 이동으로 테스트가 깨진다.
+  await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: false })
   await page.goto('/push-open?t=1&to=' + encodeURIComponent('/calendar'))
   await expect(page).toHaveURL(/\/login$/)
   const pending = await page.evaluate(() => sessionStorage.getItem('pendingPushTarget'))

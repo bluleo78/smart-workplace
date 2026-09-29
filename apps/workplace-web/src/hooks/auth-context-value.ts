@@ -21,6 +21,8 @@ export interface AuthContextValue {
   logout: () => Promise<void>;
   /** 테넌트 전환 — 토큰 재발급 후 redirectTo(기본 '/')로 전체 리로드. 알림 탭 이동은 목적지를 넘긴다. */
   selectTenant(membership: Membership, redirectTo?: string): Promise<void>;
+  /** WP-48 SSO 완료 — refresh 쿠키로 세션 확보 후 진입('entered')/선택 필요('select')/워크스페이스 없음('none'). */
+  completeSsoLogin: () => Promise<'entered' | 'select' | 'none'>;
   hasRole: (roleName: string) => boolean;
   isAdmin: boolean;
   refreshUser: () => Promise<void>;

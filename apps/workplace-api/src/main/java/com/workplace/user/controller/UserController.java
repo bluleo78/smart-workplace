@@ -1,6 +1,7 @@
 package com.workplace.user.controller;
 
 import com.workplace.global.dto.PageResponse;
+import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.user.dto.*;
 import com.workplace.user.service.UserService;
@@ -58,7 +59,11 @@ public class UserController {
   public ResponseEntity<Void> changeMyPassword(
       Authentication authentication, @Valid @RequestBody ChangePasswordRequest request) {
     Long userId = (Long) authentication.getPrincipal();
-    userService.changePassword(userId, request.currentPassword(), request.newPassword());
+    userService.changePassword(
+        userId,
+        request.currentPassword(),
+        request.newPassword(),
+        AuthDetails.methodOf(authentication));
     return ResponseEntity.noContent().build();
   }
 

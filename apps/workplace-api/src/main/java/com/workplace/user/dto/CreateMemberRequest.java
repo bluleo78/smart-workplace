@@ -14,8 +14,8 @@ public record CreateMemberRequest(
     @NotBlank @Size(max = 50, message = "아이디는 50자 이하여야 합니다") String username,
     @Email(message = "올바른 이메일 형식이 아닙니다") String email,
     @NotBlank @Size(max = 50, message = "이름은 50자 이하여야 합니다") String name,
-    @NotBlank
-        @Size(min = 8, max = 128)
+    // WP-48: 비우면(null) SSO 전용 구성원 — 서비스가 워크스페이스 SSO 켜짐·이메일 아이디를 검증한다.
+    @Size(min = 8, max = 128)
         @Pattern(
             regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).+$",
             message = "비밀번호는 영문 대문자·소문자·숫자를 각각 1자 이상 포함해야 합니다")

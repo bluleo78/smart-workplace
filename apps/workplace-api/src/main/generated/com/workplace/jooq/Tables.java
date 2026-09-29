@@ -91,6 +91,7 @@ import com.workplace.jooq.tables.ThreadReadState;
 import com.workplace.jooq.tables.User;
 import com.workplace.jooq.tables.UserApiToken;
 import com.workplace.jooq.tables.UserDashboard;
+import com.workplace.jooq.tables.UserExternalIdentity;
 import com.workplace.jooq.tables.UserGroup;
 import com.workplace.jooq.tables.UserGroupMember;
 import com.workplace.jooq.tables.UserPriorityItem;
@@ -750,6 +751,11 @@ public class Tables {
      * The table <code>public.user_dashboard</code>.
      */
     public static final UserDashboard USER_DASHBOARD = UserDashboard.USER_DASHBOARD;
+
+    /**
+     * The table <code>public.user_external_identity</code>.
+     */
+    public static final UserExternalIdentity USER_EXTERNAL_IDENTITY = UserExternalIdentity.USER_EXTERNAL_IDENTITY;
 
     /**
      * The table <code>public.user_group</code>.

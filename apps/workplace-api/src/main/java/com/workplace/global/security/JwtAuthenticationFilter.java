@@ -90,7 +90,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       if (tenantId != null) {
         TenantContext.set(tenantId);
       }
-      setSecurityContext(userId);
+      // WP-48: 브라우저 JWT 세션은 항상 인증 수단을 details 로 운반한다(amr 없으면 비밀번호 세션).
+      // select-tenant/memberships 는 details 가 없는 PAT·API 키·Internal 인증을 거부하고, SSO 세션은 SSO 켜진
+      // 워크스페이스로 제한한다.
+      String amr = jwtTokenProvider.getAuthMethodFromToken(token);
+      setSecurityContext(userId, amr != null ? amr : AuthDetails.PASSWORD);
     }
   }
 
@@ -128,18 +132,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       if (resolved != null) {
         TenantContext.set(resolved);
       }
-      setSecurityContext(userId);
+      setSecurityContext(userId, null);
     } catch (NumberFormatException ignored) {
       // Invalid userId, skip authentication
     }
   }
 
-  private void setSecurityContext(Long userId) {
+  private void setSecurityContext(Long userId, String authMethod) {
     Set<String> permissions = permissionService.getUserPermissions(userId);
     List<SimpleGrantedAuthority> authorities =
         permissions.stream().map(SimpleGrantedAuthority::new).toList();
     UsernamePasswordAuthenticationToken authentication =
         new UsernamePasswordAuthenticationToken(userId, null, authorities);
+    if (authMethod != null) {
+      authentication.setDetails(new AuthDetails(authMethod));
+    }
     SecurityContextHolder.getContext().setAuthentication(authentication);
   }
 }

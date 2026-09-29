@@ -15,6 +15,8 @@ async function setupHomeBattery(page: Page) {
   await mockApi(page, 'POST', '/api/v1/auth/refresh', createTokenResponse())
   // #495 — 로그인 페이지가 마운트 시 가입 가용성을 조회하므로 기본 스텁으로 백엔드 누수 방지.
   await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
+  // WP-48 — 로그인 페이지가 마운트 시 SSO 가용성(/auth/sso/status)도 조회한다. 미스텁 시 로컬 백엔드로 누수돼 401 → refresh 실패 → /login 강제 이동으로 테스트가 깨진다.
+  await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: false })
   await mockApi(page, 'GET', '/api/v1/users/me', createUserDetail())
   // 홈 셸 기본 위젯 데이터(my_tasks/issue_list/activity/pinned-views/sessions).
   await mockApi(page, 'GET', '/api/v1/me/issues', { items: [], nextCursor: null, hasMore: false })
@@ -92,6 +94,8 @@ test('무소속(NO_WORKSPACE) 로그인 → 선택 카드 없이 전용 안내 �
   await mockApi(page, 'POST', '/api/v1/auth/login', createLoginResponse({ memberships: [] }))
   // #495 — 로그인 페이지의 가입 가용성 조회 기본 스텁(백엔드 누수 방지).
   await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
+  // WP-48 — 로그인 페이지가 마운트 시 SSO 가용성(/auth/sso/status)도 조회한다. 미스텁 시 로컬 백엔드로 누수돼 401 → refresh 실패 → /login 강제 이동으로 테스트가 깨진다.
+  await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: false })
 
   await page.goto('/login')
   await page.getByLabel('아이디').fill('user@example.com')
@@ -114,6 +118,8 @@ test('다중소속 로그인 → select-tenant 실패(5xx) 시 에러 안내 + �
   await mockApi(page, 'POST', '/api/v1/auth/select-tenant', { message: '서버 오류' }, { status: 500 })
   // #495 — 로그인 페이지의 가입 가용성 조회 기본 스텁(백엔드 누수 방지).
   await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
+  // WP-48 — 로그인 페이지가 마운트 시 SSO 가용성(/auth/sso/status)도 조회한다. 미스텁 시 로컬 백엔드로 누수돼 401 → refresh 실패 → /login 강제 이동으로 테스트가 깨진다.
+  await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: false })
 
   await page.goto('/login')
   await page.getByLabel('아이디').fill('user@example.com')

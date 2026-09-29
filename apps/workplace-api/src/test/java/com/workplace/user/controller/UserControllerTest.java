@@ -81,7 +81,8 @@ class UserControllerTest {
             LocalDateTime.now(),
             List.of(new RoleResponse(1L, "USER", "Regular user", true)),
             "HUMAN",
-            false);
+            false,
+            true);
     when(userService.getMyProfile(1L)).thenReturn(detail);
 
     mockMvc
@@ -120,7 +121,13 @@ class UserControllerTest {
                 .content(objectMapper.writeValueAsString(request)))
         .andExpect(status().isNoContent());
 
-    verify(userService).changePassword(1L, "oldpassword", "newPassword123");
+    // WP-48: amr 없는 브라우저 JWT 는 비밀번호 세션(PASSWORD) details 로 전달된다.
+    verify(userService)
+        .changePassword(
+            1L,
+            "oldpassword",
+            "newPassword123",
+            com.workplace.global.security.AuthDetails.PASSWORD);
   }
 
   @Test
@@ -201,7 +208,8 @@ class UserControllerTest {
             LocalDateTime.now(),
             List.of(),
             "HUMAN",
-            false);
+            false,
+            true);
     when(userService.getUserById(2L)).thenReturn(detail);
 
     mockMvc

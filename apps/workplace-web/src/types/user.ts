@@ -14,6 +14,8 @@ export interface UserDetailResponse {
   kind: UserKind;
   // AI 가용성 — 개인/공통 비서 보유 여부. AI affordance 게이트용.
   aiAvailable: boolean;
+  // WP-48 비밀번호 보유 여부 — SSO 전용 계정이면 false.
+  hasPassword: boolean;
 }
 
 
@@ -23,7 +25,7 @@ export interface UpdateProfileRequest {
 }
 
 export interface ChangePasswordRequest {
-  currentPassword: string;
+  currentPassword?: string; // WP-48 비밀번호 없는 계정의 최초 설정은 생략
   newPassword: string;
 }
 
@@ -48,7 +50,7 @@ export interface CreateMemberRequest {
   username: string;
   email?: string;
   name: string;
-  password: string;
+  password?: string; // WP-48 비우면 SSO 전용 구성원
   role: 'ADMIN' | 'USER';
 }
 
