@@ -103,7 +103,7 @@ class PermissionServiceTest extends IntegrationTestBase {
 
     assertThat(result)
         .hasSize(30); // V42 audit:read, V70 platform:* 4종, V120 milestone:manage, V132 member:read,
-    // V137 sso:manage 추가 → 30
+    // V138 sso:manage 추가 → 30
     // V20 저장된 뷰 권한 + V26 사이클 권한 + V31 연락처 권한 + V39 캘린더 권한이 시드에 포함되는지 함께 확인.
     assertThat(result)
         .extracting(PermissionResponse::code)
@@ -151,7 +151,7 @@ class PermissionServiceTest extends IntegrationTestBase {
   /**
    * "user" 카테고리 권한 7개(user:read, user:read:self, user:write:self, user:write, user:delete,
    * member:read, sso:manage)가 반환되어야 한다. member:read 는 V132(#833) 에서 추가된 구성원 디렉터리 조회 권한이다 — 계정 관리와
-   * 분리된 조회 전용 권한이라 같은 user 카테고리에 둔다. sso:manage 는 V137(WP-48) 의 SSO 설정 관리 권한이다.
+   * 분리된 조회 전용 권한이라 같은 user 카테고리에 둔다. sso:manage 는 V138(WP-48) 의 SSO 설정 관리 권한이다.
    */
   @Test
   void getPermissionsByCategory_userCategory_returns7Permissions() {

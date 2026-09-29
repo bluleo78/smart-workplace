@@ -59,7 +59,7 @@ workplace:
 - `redirect-uri` 는 설정값으로 고정(Host 헤더로 만들지 않음). https 필수, localhost 만 http 허용.
 - 반영 위치: `.env.example`, `docker-compose.prod.yml`, 레포 밖 Helm 차트(`~/k8s/smart-workplace`) values.
 
-### 3.2 데이터 (Flyway V137~)
+### 3.2 데이터 (Flyway V138~)
 
 ```sql
 -- 워크스페이스별 SSO 켜기/끄기. tenant 는 RLS 없는 전역 테이블이라 로그인 전 단계에서도 읽힌다.
