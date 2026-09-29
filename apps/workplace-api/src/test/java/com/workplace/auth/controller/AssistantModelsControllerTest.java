@@ -1,14 +1,17 @@
 package com.workplace.auth.controller;
 
+import static com.workplace.jooq.Tables.AI_AGENT_CREDENTIAL;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -23,6 +26,7 @@ import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -35,6 +39,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,8 +67,9 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
     TenantContext.clear();
   }
 
-  private Authentication authWith(Long userId) {
-    return new UsernamePasswordAuthenticationToken(userId, "n/a", java.util.List.of());
+  private Authentication authWith(Long userId, String... permissions) {
+    var authorities = Arrays.stream(permissions).map(SimpleGrantedAuthority::new).toList();
+    return new UsernamePasswordAuthenticationToken(userId, "n/a", authorities);
   }
 
   @Test
@@ -155,22 +161,107 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
         .andExpect(status().isForbidden());
   }
 
-  @Test
-  void 개인비서_anthropic_모델목록_정적목록_반환() throws Exception {
-    Long human = createHumanUserForTest("USER");
-    var creReq = new RegisterAssistantCredentialRequest(null, "X".repeat(64), null, null, "내 토큰");
+  /** 개인 비서 anthropic 자격증명 등록(구독 토큰). 등록 시 model 은 기본값(AssistantDefaults.MODEL)으로 채워진다. */
+  private void registerMyAnthropic(Long human, String token) throws Exception {
+    var creReq = new RegisterAssistantCredentialRequest(null, token, null, null, "내 토큰");
     mvc.perform(
-            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
-                    "/api/v1/users/me/assistant/credential")
+            put("/api/v1/users/me/assistant/credential")
                 .with(authentication(authWith(human)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(creReq)))
         .andExpect(status().isNoContent());
+  }
+
+  @Test // #873: anthropic 은 저장된 토큰으로 실시간 조회 — 응답 순서(최신순)·display_name 라벨 그대로
+  void 개인비서_anthropic_모델목록_실시간조회_결과반환() throws Exception {
+    Long human = createHumanUserForTest("USER");
+    String token = "sk-ant-oat01-" + "X".repeat(64);
+    registerMyAnthropic(human, token);
+    when(modelsClient.listAnthropicModels(token))
+        .thenReturn(
+            List.of(
+                new ModelOption("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+                new ModelOption("claude-opus-5-5", "Claude Opus 5.5")));
 
     mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.provider").value("anthropic"))
-        .andExpect(jsonPath("$.models[0].id").value("claude-sonnet-5"));
+        .andExpect(jsonPath("$.models.length()").value(2))
+        .andExpect(jsonPath("$.models[0].id").value("claude-sonnet-5-5"))
+        .andExpect(jsonPath("$.models[0].label").value("Claude Sonnet 5.5"));
+    verify(modelsClient).listAnthropicModels(token);
+  }
+
+  @Test // #873: 실시간 조회 실패는 502 가 아니라 정적 목록 폴백(드롭다운이 비어 설정이 막히지 않게)
+  void 개인비서_anthropic_실시간조회_실패시_정적목록_폴백() throws Exception {
+    Long human = createHumanUserForTest("USER");
+    registerMyAnthropic(human, "X".repeat(64));
+    when(modelsClient.listAnthropicModels(any()))
+        .thenThrow(new AssistantModelsProbeException("down"));
+
+    mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.provider").value("anthropic"))
+        .andExpect(jsonPath("$.models[0].id").value("claude-sonnet-5-5"))
+        .andExpect(jsonPath("$.models.length()").value(4));
+  }
+
+  @Test // #873: 토큰 복호화 실패(키 교체·손상 행)도 500 이 아니라 정적 목록 폴백
+  void 개인비서_anthropic_토큰복호화_실패시_정적목록_폴백() throws Exception {
+    Long human = createHumanUserForTest("USER");
+    registerMyAnthropic(human, "X".repeat(64));
+    Long agentId = personalAssistantRepository.findAgentId(human).orElseThrow();
+    dsl.update(AI_AGENT_CREDENTIAL)
+        .set(AI_AGENT_CREDENTIAL.ENCRYPTED_TOKEN, "AAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAAAA")
+        .where(AI_AGENT_CREDENTIAL.USER_ID.eq(agentId))
+        .execute();
+
+    mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.models[0].id").value("claude-sonnet-5-5"));
+    verifyNoInteractions(modelsClient);
+  }
+
+  @Test // #873: 저장된 모델(별칭 등)이 목록에 없으면 맨 앞에 덧붙여 드롭다운이 현재값을 빈칸으로 표시하지 않게
+  void 개인비서_anthropic_저장모델이_목록에없으면_앞에_포함() throws Exception {
+    Long human = createHumanUserForTest("USER");
+    registerMyAnthropic(human, "X".repeat(64));
+    mvc.perform(
+            put("/api/v1/users/me/assistant/settings")
+                .with(authentication(authWith(human)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"model\":\"claude-haiku-4-5\"}"))
+        .andExpect(status().is2xxSuccessful());
+    when(modelsClient.listAnthropicModels(any()))
+        .thenReturn(List.of(new ModelOption("claude-haiku-4-5-20251001", "Claude Haiku 4.5")));
+
+    mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.models.length()").value(2))
+        .andExpect(jsonPath("$.models[0].id").value("claude-haiku-4-5"))
+        .andExpect(jsonPath("$.models[1].id").value("claude-haiku-4-5-20251001"));
+  }
+
+  @Test // #873: 관리자 AGENT 모델 목록도 anthropic 이면 실시간 조회
+  void 관리자_AGENT_anthropic_모델목록_실시간조회() throws Exception {
+    Long admin = createHumanUserForTest("ADMIN");
+    Long agent = createAgentUser("models-agent");
+    String token = "sk-ant-oat01-" + "Y".repeat(64);
+    mvc.perform(
+            post("/api/v1/admin/agents/" + agent + "/provider-credential")
+                .with(authentication(authWith(admin, "user:write")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"token\":\"" + token + "\",\"label\":\"t\"}"))
+        .andExpect(status().isCreated());
+    when(modelsClient.listAnthropicModels(token))
+        .thenReturn(List.of(new ModelOption("claude-opus-5-5", "Claude Opus 5.5")));
+
+    mvc.perform(
+            get("/api/v1/admin/agents/" + agent + "/models")
+                .with(authentication(authWith(admin, "user:write"))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.provider").value("anthropic"))
+        .andExpect(jsonPath("$.models[?(@.id=='claude-opus-5-5')].label").value("Claude Opus 5.5"));
   }
 
   @Test
@@ -182,8 +273,7 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
     var creReq =
         new RegisterAssistantCredentialRequest("opencode", null, config, "gpt-4.1", "opencode");
     mvc.perform(
-            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
-                    "/api/v1/users/me/assistant/credential")
+            put("/api/v1/users/me/assistant/credential")
                 .with(authentication(authWith(human)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(creReq)))
@@ -195,7 +285,9 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
     mvc.perform(get("/api/v1/users/me/assistant/models").with(authentication(authWith(human))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.provider").value("opencode"))
-        .andExpect(jsonPath("$.models[0].id").value("bedrock/openai.gpt-oss-120b-1:0"));
+        // 저장된 모델("gpt-4.1")은 프로브 목록에 없어 맨 앞에 유지(#873), 프로브 결과는 providerId/ 접두
+        .andExpect(jsonPath("$.models[0].id").value("gpt-4.1"))
+        .andExpect(jsonPath("$.models[1].id").value("bedrock/openai.gpt-oss-120b-1:0"));
     verify(modelsClient).probeModels(any());
   }
 
@@ -215,8 +307,7 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
     var creReq =
         new RegisterAssistantCredentialRequest("opencode", null, config, "gpt-4.1", "opencode");
     mvc.perform(
-            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
-                    "/api/v1/users/me/assistant/credential")
+            put("/api/v1/users/me/assistant/credential")
                 .with(authentication(authWith(human)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(creReq)))
@@ -250,8 +341,7 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
         new RegisterAssistantCredentialRequest("opencode", null, config, "gpt-4.1", "opencode");
 
     mvc.perform(
-            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
-                    "/api/v1/users/me/assistant/credential")
+            put("/api/v1/users/me/assistant/credential")
                 .with(authentication(authWith(human)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(creReq)))

@@ -97,3 +97,72 @@ describe('POST /models/list', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('POST /models/anthropic/list', () => {
+  const ANTHROPIC = 'https://api.anthropic.com';
+
+  it('구독 OAuth 토큰 → Bearer+oauth 베타 헤더로 조회, 최신순 {id,label} 반환', async () => {
+    nock(ANTHROPIC)
+      .matchHeader('authorization', 'Bearer sk-ant-oat01-x')
+      .matchHeader('anthropic-beta', /oauth-2025-04-20/)
+      .get('/v1/models')
+      .query(true)
+      .reply(200, {
+        data: [
+          { type: 'model', id: 'claude-sonnet-5-5', display_name: 'Claude Sonnet 5.5', created_at: '2026-09-28T00:00:00Z' },
+          { type: 'model', id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5', created_at: '2026-09-21T00:00:00Z' },
+        ],
+        has_more: false,
+        first_id: 'claude-sonnet-5-5',
+        last_id: 'claude-opus-5-5',
+      });
+
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-oat01-x' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      models: [
+        { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
+        { id: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
+      ],
+    });
+  });
+
+  it('API 키 → x-api-key 헤더로 조회', async () => {
+    nock(ANTHROPIC)
+      .matchHeader('x-api-key', 'sk-ant-api03-x')
+      .get('/v1/models')
+      .query(true)
+      .reply(200, {
+        data: [{ type: 'model', id: 'claude-haiku-4-5-20251001', display_name: 'Claude Haiku 4.5', created_at: '2025-10-15T00:00:00Z' }],
+        has_more: false,
+      });
+
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-api03-x' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.models).toEqual([{ id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' }]);
+  });
+
+  it('upstream 401 → 502 (토큰 비노출)', async () => {
+    nock(ANTHROPIC).get('/v1/models').query(true).reply(401, { type: 'error', error: { type: 'authentication_error' } });
+
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-oat01-secret' });
+
+    expect(res.status).toBe(502);
+    expect(JSON.stringify(res.body)).not.toContain('sk-ant-oat01-secret');
+  });
+
+  it('빈 목록 → 502', async () => {
+    nock(ANTHROPIC).get('/v1/models').query(true).reply(200, { data: [], has_more: false });
+
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({ token: 'sk-ant-oat01-x' });
+
+    expect(res.status).toBe(502);
+  });
+
+  it('token 누락 → 400', async () => {
+    const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({});
+    expect(res.status).toBe(400);
+  });
+});

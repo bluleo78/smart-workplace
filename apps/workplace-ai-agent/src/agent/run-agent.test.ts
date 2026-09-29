@@ -169,6 +169,6 @@ describe('runAgent (인-프로세스 SDK)', () => {
     });
     await runAgent(envWithAgent(), { client: c });
     const arg = vi.mocked(runSdkCollect).mock.calls[0][0];
-    expect(arg.model).toBe('claude-sonnet-5');
+    expect(arg.model).toBe('claude-sonnet-5-5');
   });
 });

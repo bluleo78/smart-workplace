@@ -106,7 +106,7 @@ describe('runChatAgent', () => {
     });
     await runChatAgent(env, d);
     const runCall = vi.mocked(streamSpy).mock.calls[0][0] as { model?: string };
-    expect(runCall.model).toBe('claude-sonnet-5');
+    expect(runCall.model).toBe('claude-sonnet-5-5');
   });
 });
 

@@ -17,10 +17,11 @@
     "format": "prettier --write src/"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.45",
-    "@smart-workplace/mcp-tools-shared": "workspace:*",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.284",
+    "@anthropic-ai/sdk": "^0.129.0",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "@opencode-ai/sdk": "^1.17.13",
+    "@smart-workplace/mcp-tools-shared": "workspace:*",
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",

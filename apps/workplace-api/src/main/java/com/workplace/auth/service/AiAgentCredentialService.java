@@ -79,7 +79,7 @@ public class AiAgentCredentialService {
 
     // opencode→anthropic 전환처럼 provider 가 바뀌면 이전 provider 형식의 model 문자열
     // (예: "amazon-bedrock-openai/google.gemma-...")이 새 provider 에는 무의미해진다. anthropic 은
-    // 등록 폼에 model 입력이 없어 model 인자가 항상 null 이므로, 그 경우 정적 기본값(claude-sonnet-5)
+    // 등록 폼에 model 입력이 없어 model 인자가 항상 null 이므로, 그 경우 정적 기본값(AssistantDefaults.MODEL)
     // 으로 덮어써 stale 값이 새 provider 에 그대로 흘러가는 걸 막는다(실측 버그: anthropic 재등록 후
     // assistant_config.model 이 이전 opencode 모델 문자열로 남아 실행 시점 오류로 이어짐).
     String effectiveModel =

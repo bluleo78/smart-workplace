@@ -26,7 +26,7 @@ RUN pnpm --filter @smart-workplace/mcp-tools-shared build
 RUN pnpm --filter @smart-workplace/workplace-ai-agent build
 
 # --prod deploy: /prod/node_modules 에 claude-agent-sdk 네이티브 `claude` 바이너리(glibc optionalDependency)
-# 를 동봉한다. SDK(0.2.141)는 이 번들 바이너리를 인-프로세스로 쓰므로 별도 `npm install -g claude-code` 불필요(#462).
+# 를 동봉한다. SDK(0.3.284)는 이 번들 바이너리를 인-프로세스로 쓰므로 별도 `npm install -g claude-code` 불필요(#462).
 RUN pnpm --filter @smart-workplace/workplace-ai-agent deploy --legacy --prod /prod
 
 # opencode 바이너리 벤더링 — 런타임에 `opencode serve`로 spawn되므로 PATH에 있어야 한다.
