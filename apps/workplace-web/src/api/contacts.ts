@@ -33,7 +33,7 @@ export const contactsApi = {
   createExternal: (body: ExternalContactRequest, force = false) =>
     client.post<ExternalContactDetail>('/contacts/external', body, { params: { force } }),
 
-  // 외부 연락처 수정(전체 교체). force 의미는 createExternal 과 동일.
+  // 외부 연락처 수정. 서버는 부분 수정(생략=유지, ""=비우기, #839)이지만 폼은 전 필드를 보낸다. force 의미는 createExternal 과 동일.
   updateExternal: (id: number, body: ExternalContactRequest, force = false) =>
     client.patch<ExternalContactDetail>(`/contacts/external/${id}`, body, { params: { force } }),
 

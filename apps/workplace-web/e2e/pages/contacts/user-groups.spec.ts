@@ -157,7 +157,7 @@ test('비-admin: 조직도 헤더 + 버튼 미노출', async ({ authenticatedPag
   await expect(page.getByTestId('org-create')).toHaveCount(0)
 })
 
-test('admin: 조직도 노드 수정(PATCH, code 보존)', async ({ adminPage: page }) => {
+test('admin: 조직도 노드 수정(PATCH 부분 수정 — code 생략으로 보존, 최상위는 moveToRoot)', async ({ adminPage: page }) => {
   let patchBody: any
   await stubContacts(page)
   await stubTree(page)
@@ -185,7 +185,8 @@ test('admin: 조직도 노드 수정(PATCH, code 보존)', async ({ adminPage: p
   await page.getByTestId('g-name').fill('개발본부(수정)')
   await page.getByTestId('g-save').click()
   await expect(page.getByTestId('group-form-dialog')).toBeHidden()
-  expect(patchBody).toMatchObject({ name: '개발본부(수정)', code: 'DEV' })
+  // #839 부분 수정 계약: 폼이 다루지 않는 code·sortOrder 는 생략(서버가 유지), 상위 '최상위'는 moveToRoot 플래그
+  expect(patchBody).toEqual({ name: '개발본부(수정)', moveToRoot: true })
 })
 
 test('admin: 조직도 노드 하위 그룹 추가(POST parentId)', async ({ adminPage: page }) => {

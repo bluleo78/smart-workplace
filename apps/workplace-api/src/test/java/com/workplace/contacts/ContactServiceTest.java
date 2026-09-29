@@ -172,11 +172,61 @@ class ContactServiceTest extends IntegrationTestBase {
         service.update(
             c,
             id,
-            new com.workplace.contacts.dto.ExternalContactRequest(
+            new com.workplace.contacts.dto.UpdateExternalContactRequest(
                 "new", null, null, null, null, null, "SHARED"),
             false);
     assertThat(d.name()).isEqualTo("new");
     assertThat(d.visibility()).isEqualTo("SHARED");
+  }
+
+  /** #839: 부분 수정 — 생략(null) 필드는 유지, 빈 문자열은 비운다. */
+  @Test
+  void update_partial_keepsOmittedFields_andBlankClears() {
+    long c = caller();
+    var created =
+        service.create(
+            c,
+            new com.workplace.contacts.dto.ExternalContactRequest(
+                "부분", "part@x.com", "010", "Acme", "대표", "메모", "PERSONAL"),
+            false);
+    var d =
+        service.update(
+            c,
+            created.id(),
+            new com.workplace.contacts.dto.UpdateExternalContactRequest(
+                null, null, "011", null, "", null, null),
+            false);
+    assertThat(d.name()).isEqualTo("부분"); // 유지
+    assertThat(d.email()).isEqualTo("part@x.com"); // 유지
+    assertThat(d.phone()).isEqualTo("011"); // 변경
+    assertThat(d.organization()).isEqualTo("Acme"); // 유지
+    assertThat(d.title()).isNull(); // "" → 비움
+    assertThat(d.notes()).isEqualTo("메모"); // 유지
+    assertThat(d.visibility()).isEqualTo("PERSONAL"); // 유지
+  }
+
+  /** #839: 중복 경고는 병합 후 이름+이메일로 판정 — 이메일만 바꿔 기존 연락처와 겹쳐도 409, force 면 강행. */
+  @Test
+  void update_partial_duplicateJudgedOnMergedValues_forceBypasses() {
+    long c = caller();
+    String tag = "dupm" + UUID.randomUUID().toString().substring(0, 6);
+    service.create(
+        c,
+        new com.workplace.contacts.dto.ExternalContactRequest(
+            tag, tag + "@x.com", null, null, null, null, "PERSONAL"),
+        false);
+    var other =
+        service.create(
+            c,
+            new com.workplace.contacts.dto.ExternalContactRequest(
+                tag, "other@x.com", null, null, null, null, "PERSONAL"),
+            false);
+    var onlyEmail =
+        new com.workplace.contacts.dto.UpdateExternalContactRequest(
+            null, tag + "@x.com", null, null, null, null, null);
+    assertThatThrownBy(() -> service.update(c, other.id(), onlyEmail, false))
+        .isInstanceOf(com.workplace.contacts.exception.ContactDuplicateWarningException.class);
+    assertThat(service.update(c, other.id(), onlyEmail, true).email()).isEqualTo(tag + "@x.com");
   }
 
   @Test
@@ -189,7 +239,7 @@ class ContactServiceTest extends IntegrationTestBase {
                 service.update(
                     other,
                     id,
-                    new com.workplace.contacts.dto.ExternalContactRequest(
+                    new com.workplace.contacts.dto.UpdateExternalContactRequest(
                         "x", null, null, null, null, null, "PERSONAL"),
                     false))
         .isInstanceOf(ContactNotFoundException.class);
@@ -205,7 +255,7 @@ class ContactServiceTest extends IntegrationTestBase {
                 service.update(
                     other,
                     id,
-                    new com.workplace.contacts.dto.ExternalContactRequest(
+                    new com.workplace.contacts.dto.UpdateExternalContactRequest(
                         "x", null, null, null, null, null, "SHARED"),
                     false))
         .isInstanceOf(com.workplace.contacts.exception.ContactForbiddenException.class);
@@ -221,7 +271,7 @@ class ContactServiceTest extends IntegrationTestBase {
         service.update(
             admin,
             id,
-            new com.workplace.contacts.dto.ExternalContactRequest(
+            new com.workplace.contacts.dto.UpdateExternalContactRequest(
                 "byadmin", null, null, null, null, null, "SHARED"),
             false);
     assertThat(d.name()).isEqualTo("byadmin");
@@ -282,7 +332,7 @@ class ContactServiceTest extends IntegrationTestBase {
                 service.update(
                     c,
                     99_999_999L,
-                    new com.workplace.contacts.dto.ExternalContactRequest(
+                    new com.workplace.contacts.dto.UpdateExternalContactRequest(
                         "x", null, null, null, null, null, "PERSONAL"),
                     false))
         .isInstanceOf(ContactNotFoundException.class);
@@ -357,7 +407,7 @@ class ContactServiceTest extends IntegrationTestBase {
         service.update(
             admin,
             id,
-            new com.workplace.contacts.dto.ExternalContactRequest(
+            new com.workplace.contacts.dto.UpdateExternalContactRequest(
                 "byadmin", null, null, null, null, null, "PERSONAL"),
             false);
     assertThat(d.name()).isEqualTo("byadmin");

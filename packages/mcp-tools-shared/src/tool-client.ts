@@ -151,6 +151,81 @@ export interface MemberToolClient {
   getExternalContact(externalId: number): Promise<unknown>;
 }
 
+/** 연락처 대상(즐겨찾기·그룹 멤버) — MEMBER=user.id, EXTERNAL=contact_entry.id. 서버 FavoriteRequest/AddMemberRequest 와 1:1. */
+export interface ContactTarget {
+  targetType: 'MEMBER' | 'EXTERNAL';
+  targetId: number;
+}
+
+/** 그룹 상세 멤버 행(UserGroupMemberSummary) — 뷰 가공(숫자 id → username/externalId)이 읽는 필드만 고정한다. */
+export interface UserGroupMemberRow {
+  targetType: 'MEMBER' | 'EXTERNAL';
+  targetId: number;
+  name: string;
+  email?: string | null;
+  title?: string | null;
+  organization?: string | null;
+  /** MEMBER 만(#839). EXTERNAL 은 null. */
+  username?: string | null;
+}
+
+/** 그룹 트리 노드·상세 공통 필드(UserGroupNode/UserGroupDetail). */
+interface UserGroupRowBase {
+  id: number;
+  code?: string | null;
+  name: string;
+  parentId?: number | null;
+  ownerId?: number | null;
+  visibility: 'SHARED' | 'PERSONAL';
+  sortOrder?: number;
+}
+
+/** 그룹 트리 노드(UserGroupNode). */
+export interface UserGroupNodeRow extends UserGroupRowBase {
+  children?: UserGroupNodeRow[];
+}
+
+/** 그룹 상세(UserGroupDetail) — 직속 멤버 포함. */
+export interface UserGroupDetailRow extends UserGroupRowBase {
+  members?: UserGroupMemberRow[];
+}
+
+/**
+ * 연락처 부가 기능(#839) — 즐겨찾기·필터 facets·사용자 그룹. 권한은 서버가 강제한다(그룹: SHARED=user-group:manage,
+ * PERSONAL=소유자).
+ */
+export interface ContactToolClient {
+  /** GET /contacts/facets — { organizations, titles } 원형. */
+  getContactFacets(): Promise<unknown>;
+  /** POST/DELETE /contacts/favorites — 멱등. */
+  addContactFavorite(target: ContactTarget): Promise<void>;
+  removeContactFavorite(target: ContactTarget): Promise<void>;
+  /** GET /user-groups — { shared, personal } 트리 원형. */
+  listUserGroups(): Promise<{ shared?: UserGroupNodeRow[]; personal?: UserGroupNodeRow[] }>;
+  getUserGroup(groupId: number): Promise<UserGroupDetailRow>;
+  createUserGroup(body: {
+    name: string;
+    parentId?: number;
+    visibility: 'SHARED' | 'PERSONAL';
+    code?: string;
+    sortOrder?: number;
+  }): Promise<UserGroupDetailRow>;
+  /** PATCH /user-groups/{id} — 부분 수정(생략=유지). 최상위 이동은 moveToRoot, 코드 비우기는 clearCode 플래그. */
+  updateUserGroup(
+    groupId: number,
+    body: {
+      name?: string;
+      parentId?: number;
+      moveToRoot?: boolean;
+      code?: string;
+      clearCode?: boolean;
+      sortOrder?: number;
+    },
+  ): Promise<UserGroupDetailRow>;
+  addUserGroupMember(groupId: number, target: ContactTarget): Promise<UserGroupDetailRow>;
+  removeUserGroupMember(groupId: number, target: ContactTarget): Promise<void>;
+}
+
 export interface MessagingToolClient {
   listChannels(): Promise<unknown>;
   getChannelMessages(channelId: number, limit: number): Promise<unknown>;

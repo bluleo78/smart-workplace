@@ -7,6 +7,7 @@ import com.workplace.contacts.dto.ExternalContactDetail;
 import com.workplace.contacts.dto.ExternalContactRequest;
 import com.workplace.contacts.dto.FavoriteRequest;
 import com.workplace.contacts.dto.MemberDetail;
+import com.workplace.contacts.dto.UpdateExternalContactRequest;
 import com.workplace.contacts.exception.ContactDuplicateWarningException;
 import com.workplace.contacts.exception.ContactForbiddenException;
 import com.workplace.contacts.exception.ContactNotFoundException;
@@ -111,19 +112,42 @@ public class ContactService {
   }
 
   /**
-   * 외부 연락처 전체 교체. owner||ADMIN 만; 아니면 PERSONAL→404 / SHARED→403.
+   * 외부 연락처 부분 수정(#839). owner||ADMIN 만; 아니면 PERSONAL→404 / SHARED→403.
    *
-   * <p>create 와 동일한 소프트 중복 경고 규칙(자기 자신은 제외).
+   * <p>생략(null) 필드는 현재 값을 유지하고, 빈 문자열은 비운다(저장 시 null 정규화). 현재 행과 병합한 전체 값으로 저장한다.
+   *
+   * <p>create 와 동일한 소프트 중복 경고 규칙(자기 자신은 제외) — 판정은 **병합 후** 이름+이메일로 한다. 요청 원문으로 판정하면 전화번호만 고치는
+   * 요청(name=null)이 중복 검사를 건너뛰거나, 이메일만 바꿔 기존 연락처와 겹치는 경우를 놓친다.
    */
   @Transactional
   public ExternalContactDetail update(
-      long callerId, long id, ExternalContactRequest req, boolean force) {
-    requireWritable(callerId, id);
-    if (!force && repo.existsDuplicate(callerId, req.name(), req.email(), id)) {
-      throw new ContactDuplicateWarningException(req.name());
+      long callerId, long id, UpdateExternalContactRequest req, boolean force) {
+    // ADMIN 여부는 권한 판정과 현재 행 조회에 모두 쓰이므로 한 번만 계산한다.
+    boolean admin = permissionChecker.userHasRole(callerId, "ADMIN");
+    requireWritable(callerId, id, admin);
+    // requireWritable 통과 = owner 또는 ADMIN 이므로 현재 행은 반드시 보인다.
+    ExternalContactDetail cur =
+        repo.findExternal(callerId, admin, id)
+            .orElseThrow(() -> new ContactNotFoundException("EXTERNAL", id));
+    ExternalContactRequest merged =
+        new ExternalContactRequest(
+            keep(req.name(), cur.name()),
+            keep(req.email(), cur.email()),
+            keep(req.phone(), cur.phone()),
+            keep(req.organization(), cur.organization()),
+            keep(req.title(), cur.title()),
+            keep(req.notes(), cur.notes()),
+            keep(req.visibility(), cur.visibility()));
+    if (!force && repo.existsDuplicate(callerId, merged.name(), merged.email(), id)) {
+      throw new ContactDuplicateWarningException(merged.name());
     }
-    repo.update(id, req);
+    repo.update(id, merged);
     return getExternal(callerId, id);
+  }
+
+  /** 부분 수정 병합 — 요청값이 null(생략)이면 현재 값을 유지한다. 빈 문자열은 그대로 두어 저장 시 null 로 비워진다. */
+  private static String keep(String requested, String current) {
+    return requested != null ? requested : current;
   }
 
   /** 외부 연락처 삭제. update 와 동일한 권한 규칙. */
@@ -176,11 +200,16 @@ public class ContactService {
    * 비-admin→403.
    */
   private void requireWritable(long callerId, long id) {
+    requireWritable(callerId, id, permissionChecker.userHasRole(callerId, "ADMIN"));
+  }
+
+  /** ADMIN 여부를 이미 계산한 호출부(update)용 — 역할 조회를 중복하지 않는다. */
+  private void requireWritable(long callerId, long id, boolean admin) {
     var ov =
         repo.findOwnerVisibility(id)
             .orElseThrow(() -> new ContactNotFoundException("EXTERNAL", id));
     if (ov.ownerId() == callerId) return;
-    if (permissionChecker.userHasRole(callerId, "ADMIN")) return;
+    if (admin) return;
     if ("PERSONAL".equals(ov.visibility())) {
       throw new ContactNotFoundException("EXTERNAL", id); // 존재 은닉
     }

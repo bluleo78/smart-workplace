@@ -77,10 +77,28 @@ public class UserGroupService {
     return toDetail(repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
   }
 
-  /** 그룹 수정. requireWritable + 부모 사이클 방지. */
+  /**
+   * 그룹 부분 수정(#839). null 필드는 현재 값을 유지하고, moveToRoot/clearCode 플래그로만 최상위 이동·코드 비우기를 한다. 현재 행과 한
+   * 트랜잭션에서 병합한 뒤, 사이클·부모 검증과 형제 이름 유니크 검사는 **병합 후 값**으로 한다 — 이름만 바꾸는 요청도 현재 부모 기준으로 중복을 본다.
+   */
   @Transactional
   public UserGroupDetail update(long callerId, long id, UpdateUserGroupRequest req) {
+    boolean moveToRoot = Boolean.TRUE.equals(req.moveToRoot());
+    boolean clearCode = Boolean.TRUE.equals(req.clearCode());
+    // 값과 "비우기" 플래그를 함께 주면 의도가 모호하다 — 추측하지 않고 거절한다.
+    if (moveToRoot && req.parentId() != null) {
+      throw new InvalidUserGroupException("parentId 와 moveToRoot 는 함께 지정할 수 없습니다");
+    }
+    if (clearCode && req.code() != null) {
+      throw new InvalidUserGroupException("code 와 clearCode 는 함께 지정할 수 없습니다");
+    }
     FlatGroup g = requireWritable(callerId, id);
+    String name = req.name() != null ? req.name() : g.name();
+    Long parentId = moveToRoot ? null : (req.parentId() != null ? req.parentId() : g.parentId());
+    String code = clearCode ? null : (req.code() != null ? req.code() : g.code());
+    int sortOrder = req.sortOrder() != null ? req.sortOrder() : g.sortOrder();
+
+    // 부모를 새로 지정할 때만 사이클·부모 검증 — 유지되는 부모는 이미 검증된 상태다.
     if (req.parentId() != null) {
       if (req.parentId() == id) {
         throw new InvalidUserGroupException("그룹을 자기 자신의 하위로 옮길 수 없습니다");
@@ -90,18 +108,30 @@ public class UserGroupService {
       }
       validateParent(callerId, g.visibility(), req.parentId());
     }
-    if (repo.existsSiblingName(req.parentId(), g.visibility(), g.ownerId(), req.name(), id)) {
-      throw new InvalidUserGroupException("이미 존재하는 그룹 이름입니다: " + req.name());
+    if (repo.existsSiblingName(parentId, g.visibility(), g.ownerId(), name, id)) {
+      throw new InvalidUserGroupException("이미 존재하는 그룹 이름입니다: " + name);
     }
-    repo.update(id, req);
+    repo.update(id, name, parentId, code, sortOrder);
     return toDetail(repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
   }
 
   /** 그룹 삭제(서브트리·멤버십 캐스케이드). */
   @Transactional
   public void delete(long callerId, long id) {
-    requireWritable(callerId, id);
+    validateDeletable(callerId, id);
     repo.delete(id);
+  }
+
+  /**
+   * 그룹 삭제 사전검증(#839) — delete 와 같은 술어(requireWritable)를 쓰기 없이 수행한다. AI 확인 카드(user_group.delete) 생성
+   * 전에 존재·권한 실패를 드러내 승인 시점에야 실패하는 카드를 만들지 않는다.
+   *
+   * @throws UserGroupNotFoundException 미존재 또는 PERSONAL 비소유자(존재 은닉)
+   * @throws UserGroupForbiddenException SHARED 인데 user-group:manage 없음
+   */
+  @Transactional(readOnly = true)
+  public void validateDeletable(long callerId, long id) {
+    requireWritable(callerId, id);
   }
 
   /** 멤버 편입. 대상 검증 후 멱등 삽입. */

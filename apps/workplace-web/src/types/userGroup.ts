@@ -48,11 +48,17 @@ export interface CreateUserGroupRequest {
   code: string | null
   sortOrder: number
 }
+/**
+ * 그룹 부분 수정 요청(#839) — 생략 필드는 서버가 현재 값을 유지한다.
+ * 최상위 이동은 parentId 대신 moveToRoot, 코드 비우기는 code 대신 clearCode 플래그로 표현한다(값과 함께 보내면 400).
+ */
 export interface UpdateUserGroupRequest {
-  name: string
-  parentId: number | null
-  code: string | null
-  sortOrder: number
+  name?: string
+  parentId?: number
+  moveToRoot?: boolean
+  code?: string
+  clearCode?: boolean
+  sortOrder?: number
 }
 export interface AddMemberRequest {
   targetType: GroupMemberType

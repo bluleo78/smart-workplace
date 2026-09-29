@@ -51,9 +51,18 @@ const externalContactFields = {
   notes: z.string().optional(),
   visibility: z.enum(['SHARED', 'PERSONAL']),
 };
-const createExternalContactInput = z.object(externalContactFields);
-const updateExternalContactInput = z.object({ externalId: z.number().int().positive(), ...externalContactFields });
+// #839: 이름+이메일이 겹치는 연락처가 이미 있으면 서버가 409 경고를 준다 — 사용자가 그래도 저장하라고 확인했을 때만 true.
+const forceField = { force: z.boolean().optional() };
+const createExternalContactInput = z.object({ ...externalContactFields, ...forceField });
+// #839: 수정은 부분 수정(서버 PATCH 가 null=유지) — 모든 필드 optional. 빈 문자열은 비우기(이름 제외).
+const updateExternalContactInput = z.object({
+  externalId: z.number().int().positive(),
+  ...z.object(externalContactFields).partial().shape,
+  ...forceField,
+});
 const proposeDeleteContactInput = z.object({ externalId: z.number().int().positive(), summary: z.string().min(1) });
+// #839: 사용자 그룹 삭제 제안 — 하위 그룹·멤버십까지 캐스케이드, 복원 API 없음.
+const proposeDeleteUserGroupInput = z.object({ groupId: z.number().int().positive(), summary: z.string().min(1) });
 
 // #333 M3: 프로젝트 제안 입력. #846: 프로젝트는 조회 도구(get_project 등)와 같은 이름 projectKey 로 가리킨다.
 // 실행기(ConfirmActionDispatcher)는 params.key 를 읽으므로 핸들러가 key 로 옮겨 담는다.
@@ -783,22 +792,29 @@ export function buildTools(
   // #333 M3: 외부 연락처 쓰기(생성·수정은 직접 실행, 삭제는 제안) — assistant 프로파일 전용.
   const createExternalContactTool: McpTool = {
     name: 'create_external_contact',
-    description: '외부 연락처를 생성합니다. visibility 는 SHARED(공유)/PERSONAL(개인). 생성 결과를 JSON 으로 반환합니다.',
+    description:
+      '외부 연락처를 생성합니다. visibility 는 SHARED(공유)/PERSONAL(개인). 생성 결과를 JSON 으로 반환합니다. ' +
+      '같은 이름+이메일의 연락처가 이미 있으면 중복 경고 오류가 납니다 — 사용자에게 알리고, 그래도 만들라고 확인받은 경우에만 force: true 로 다시 호출하세요.',
     inputSchema: createExternalContactInput,
     async handler(args) {
-      const input = createExternalContactInput.parse(args);
-      return JSON.stringify(await client.createExternalContact(agentId, input));
+      const { force, ...input } = createExternalContactInput.parse(args);
+      return JSON.stringify(await client.createExternalContact(agentId, input, force));
     },
   };
   const updateExternalContactTool: McpTool = {
     name: 'update_external_contact',
     description:
-      '외부 연락처를 수정합니다(전체 교체). 모든 필드를 현재 값 기준으로 채워 보내세요. ' +
+      '외부 연락처를 수정합니다. 준 필드만 바뀌고 나머지는 유지됩니다(빈 문자열 "" 은 그 값 비우기, 이름은 비울 수 없음). ' +
+      '수정 결과 이름+이메일이 다른 연락처와 겹치면 중복 경고 오류가 납니다 — 사용자 확인 후에만 force: true 로 다시 호출하세요. ' +
       'externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원의 userId 를 넣으면 엉뚱한 사람의 연락처가 바뀝니다.',
     inputSchema: updateExternalContactInput,
     async handler(args) {
-      const { externalId, ...input } = updateExternalContactInput.parse(args);
-      return JSON.stringify(await client.updateExternalContact(agentId, externalId, input));
+      const { externalId, force, ...patch } = updateExternalContactInput.parse(args);
+      // 생략 필드는 JSON 에서 빠져 서버가 유지한다. 아무것도 안 바꾸는 호출은 LLM 의 실수라 조용히 성공시키지 않는다.
+      if (Object.values(patch).every((v) => v === undefined)) {
+        throw new Error('바꿀 필드(name·email·phone·organization·title·notes·visibility) 중 하나 이상을 지정하세요.');
+      }
+      return JSON.stringify(await client.updateExternalContact(agentId, externalId, patch, force));
     },
   };
   const proposeDeleteContactTool: McpTool = {
@@ -811,6 +827,20 @@ export function buildTools(
       const { summary, externalId } = proposeDeleteContactInput.parse(args);
       // 실행기(contacts.delete_contact)는 params.id 를 읽는다 — 도구 표면만 externalId 로 명시하고 여기서 매핑.
       return await writeProposal('contacts.delete_contact', summary, { id: externalId });
+    },
+  };
+  // #839: 사용자 그룹 삭제는 하위 그룹·멤버십까지 캐스케이드되고 복원 API 가 없다 — 직접 도구 없이 확인 카드로만.
+  const proposeDeleteUserGroupTool: McpTool = {
+    name: 'propose_delete_user_group',
+    description:
+      '사용자 그룹 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. 하위 그룹과 그룹 멤버십도 함께 사라집니다(사람·연락처 자체는 유지). ' +
+      'summary 에 어떤 그룹을 지우는지(하위 그룹이 있으면 그 사실도) 한 줄로 넣으세요. groupId 는 list_user_groups 로 확보합니다. ' +
+      '개인 그룹은 소유자만, 공유 조직도 그룹은 조직도 관리 권한이 있어야 하며, 권한이 없으면 제안 단계에서 거절됩니다.',
+    inputSchema: proposeDeleteUserGroupInput,
+    async handler(args) {
+      const { summary, groupId } = proposeDeleteUserGroupInput.parse(args);
+      // 실행기(contacts.delete_user_group)는 params.id 를 읽는다 — 도구 표면은 조회 도구와 같은 groupId 로 받고 여기서 매핑.
+      return await writeProposal('contacts.delete_user_group', summary, { id: groupId });
     },
   };
 
@@ -1200,6 +1230,11 @@ export function buildTools(
       sharedTool('list_mail'), sharedTool('get_mail'), proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안
       sharedTool('list_mail_accounts'), syncMailTool, // #333 M4: 메일 계정 목록 + 수동 동기화
       sharedTool('list_contacts'), sharedTool('get_external_contact'), createExternalContactTool, updateExternalContactTool, proposeDeleteContactTool, // #333 M3: 연락처
+      // #839: 연락처 facets·즐겨찾기·사용자 그룹. AI Chat 은 요청자 신원으로 호출하므로 개인 그룹·즐겨찾기는 사람의 것이 된다
+      // (에이전트 신원 프로필엔 두지 않는다 — 에이전트 계정의 개인 그룹이 생긴다).
+      sharedTool('get_contact_facets'), sharedTool('add_contact_favorite'), sharedTool('remove_contact_favorite'),
+      sharedTool('list_user_groups'), sharedTool('get_user_group'), sharedTool('create_user_group'), sharedTool('update_user_group'),
+      sharedTool('add_user_group_member'), sharedTool('remove_user_group_member'), proposeDeleteUserGroupTool,
       sharedTool('search_members'), sharedTool('get_member'), sharedTool('get_member_contact'), // #833: 구성원(설정>구성원) 조회 — 연락처와 분리된 도메인
       proposeSetMemberRoleTool, proposeSetMemberActiveTool, // #833: 구성원 쓰기 제안(확인 카드 경유)
       sharedTool('list_projects'), sharedTool('get_project'), listProjectMembersTool,

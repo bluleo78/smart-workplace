@@ -6,6 +6,7 @@ import com.workplace.contacts.dto.ExternalContactDetail;
 import com.workplace.contacts.dto.ExternalContactRequest;
 import com.workplace.contacts.dto.FavoriteRequest;
 import com.workplace.contacts.dto.MemberDetail;
+import com.workplace.contacts.dto.UpdateExternalContactRequest;
 import com.workplace.contacts.service.ContactService;
 import com.workplace.global.security.RequirePermission;
 import jakarta.validation.Valid;
@@ -76,13 +77,15 @@ public class ContactController {
     return ResponseEntity.status(HttpStatus.CREATED).body(service.create(callerId, req, force));
   }
 
-  /** 외부 연락처 수정(전체 교체). owner/ADMIN 만. force 의미는 createExternal 과 동일(#790). */
+  /**
+   * 외부 연락처 부분 수정(#839) — 생략 필드는 유지, 빈 문자열은 비움. owner/ADMIN 만. force 의미는 createExternal 과 동일(#790).
+   */
   @PatchMapping("/external/{id}")
   @RequirePermission("contact:write")
   public ResponseEntity<ExternalContactDetail> updateExternal(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long id,
-      @Valid @RequestBody ExternalContactRequest req,
+      @Valid @RequestBody UpdateExternalContactRequest req,
       @RequestParam(value = "force", required = false, defaultValue = "false") boolean force) {
     return ResponseEntity.ok(service.update(callerId, id, req, force));
   }

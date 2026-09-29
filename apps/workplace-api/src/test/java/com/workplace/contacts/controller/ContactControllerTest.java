@@ -229,6 +229,70 @@ class ContactControllerTest {
         .andExpect(status().isNotFound());
   }
 
+  /** #839: PATCH 는 부분 수정 — 필드 일부만 담긴 본문도 검증을 통과하고 생략 필드는 null(=유지)로 서비스에 전달된다. */
+  @Test
+  void updateExternal_partialBody_returns200_andPassesNullForOmittedFields() throws Exception {
+    when(permissionService.getUserPermissions(1L))
+        .thenReturn(Set.of("contact:read", "contact:write"));
+    when(service.update(
+            eq(1L),
+            eq(100L),
+            eq(
+                new com.workplace.contacts.dto.UpdateExternalContactRequest(
+                    null, null, "010-1234", null, null, null, null)),
+            eq(false)))
+        .thenReturn(
+            new ExternalContactDetail(
+                100L,
+                "홍길동",
+                null,
+                "010-1234",
+                null,
+                null,
+                null,
+                "PERSONAL",
+                true,
+                false,
+                null,
+                null));
+    mockMvc
+        .perform(
+            patch("/api/v1/contacts/external/100")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"phone\":\"010-1234\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.phone").value("010-1234"));
+  }
+
+  /** #839: 이름은 생략(유지)은 되지만 공백으로 비울 수는 없다 → 400. */
+  @Test
+  void updateExternal_blankName_returns400() throws Exception {
+    when(permissionService.getUserPermissions(1L))
+        .thenReturn(Set.of("contact:read", "contact:write"));
+    mockMvc
+        .perform(
+            patch("/api/v1/contacts/external/100")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"   \"}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  /** #839: visibility 도 생략 가능하지만 주어지면 SHARED|PERSONAL 만 허용. */
+  @Test
+  void updateExternal_invalidVisibility_returns400() throws Exception {
+    when(permissionService.getUserPermissions(1L))
+        .thenReturn(Set.of("contact:read", "contact:write"));
+    mockMvc
+        .perform(
+            patch("/api/v1/contacts/external/100")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"visibility\":\"PUBLIC\"}"))
+        .andExpect(status().isBadRequest());
+  }
+
   @Test
   void deleteExternal_returns204() throws Exception {
     when(permissionService.getUserPermissions(1L))
