@@ -1,4 +1,5 @@
 import { BookOpen, FileQuestion } from 'lucide-react'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { AiLabel } from '@/components/ai/AiLabel'
@@ -8,13 +9,32 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 import { useCreatePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiPage } from '../../hooks/queries/useWikiPage'
+import { useWikiLastVisitedKey } from '../../hooks/useWikiLastVisitedKey'
+import {
+  clearWikiLastVisited,
+  isWikiPageGone,
+  readWikiLastVisited,
+  writeWikiLastVisited,
+} from '../../lib/wikiLastVisited'
 import { WikiEditor } from './WikiEditor'
 
 /** 선택된 페이지를 로드해 에디터를 마운트. 미선택 시 DS §2.5 빈 상태(4요소) 표시. */
 export function WikiPageView({ pageId, spaceId }: { pageId: number | null; spaceId: number }) {
-  const { data: page, isLoading, isError } = useWikiPage(pageId)
+  const { data: page, isLoading, isError, error } = useWikiPage(pageId)
   const createPage = useCreatePage(spaceId)
   const navigate = useNavigate()
+  const lastVisitedKey = useWikiLastVisitedKey()
+
+  // 로드에 성공한 페이지를 "마지막으로 본 노트"로 기록 — /wiki 재진입 시 WikiIndexRedirect 가 복원한다.
+  // 보던 중 삭제·권한 상실(404/403)된 페이지가 기록돼 있으면 지워, 에러 화면의 「노트 목록으로」가
+  // 같은 페이지로 되돌아오지 않게 한다.
+  const loadedPageId = isError ? undefined : page?.id
+  const gone = isError && isWikiPageGone(error)
+  useEffect(() => {
+    if (!lastVisitedKey) return
+    if (loadedPageId != null) writeWikiLastVisited(lastVisitedKey, loadedPageId)
+    else if (gone && pageId != null && readWikiLastVisited(lastVisitedKey) === pageId) clearWikiLastVisited(lastVisitedKey)
+  }, [lastVisitedKey, loadedPageId, gone, pageId])
 
   if (pageId == null) {
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 + CTA 버튼 4요소 */
