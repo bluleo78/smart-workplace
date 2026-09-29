@@ -91,6 +91,11 @@ dependencies {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    // 테스트 워커 힙: Gradle 기본 512m 은 캐시된 Spring 컨텍스트 + 마지막 ArchUnit 전체 클래스 임포트에서
+    // OOM("Java heap space")으로 워커가 죽는다(main 도 495~511M 로 한계). 여유를 두고 1.5g 로 올리고,
+    // 재발 시 원인 분석용 힙 덤프를 남긴다.
+    maxHeapSize = "1536m"
+    jvmArgs("-XX:+HeapDumpOnOutOfMemoryError")
     // OrbStack: 기본 docker.sock 이 죽은 Docker Desktop 을 가리킬 때 Testcontainers 가 못 붙는다.
     // DOCKER_HOST 미설정 + OrbStack 소켓 존재 시 자동 주입(로컬 편의; 명시 설정이 있으면 존중).
     if (System.getenv("DOCKER_HOST") == null) {
