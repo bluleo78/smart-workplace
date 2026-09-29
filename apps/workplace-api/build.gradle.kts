@@ -57,6 +57,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-jooq")
     implementation("org.springframework.boot:spring-boot-starter-security")
+    // WP-48 SSO — id_token 서명 검증(NimbusJwtDecoder)만 사용한다. oauth2Login() 은 서버 세션 전제라 쓰지 않는다.
+    implementation("org.springframework.security:spring-security-oauth2-jose")
     // SMTP 테스트(설정 UI) — settings 모듈 SMTP 검증 엔드포인트
     implementation("org.springframework.boot:spring-boot-starter-mail")
 

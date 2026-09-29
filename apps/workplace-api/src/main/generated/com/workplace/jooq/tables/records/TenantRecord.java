@@ -106,6 +106,20 @@ public class TenantRecord extends UpdatableRecordImpl<TenantRecord> {
         return (Long) get(5);
     }
 
+    /**
+     * Setter for <code>public.tenant.sso_enabled</code>.
+     */
+    public void setSsoEnabled(Boolean value) {
+        set(6, value);
+    }
+
+    /**
+     * Getter for <code>public.tenant.sso_enabled</code>.
+     */
+    public Boolean getSsoEnabled() {
+        return (Boolean) get(6);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -129,7 +143,7 @@ public class TenantRecord extends UpdatableRecordImpl<TenantRecord> {
     /**
      * Create a detached, initialised TenantRecord
      */
-    public TenantRecord(Long id, String slug, String name, String status, LocalDateTime createdAt, Long quotaBytes) {
+    public TenantRecord(Long id, String slug, String name, String status, LocalDateTime createdAt, Long quotaBytes, Boolean ssoEnabled) {
         super(Tenant.TENANT);
 
         setId(id);
@@ -138,6 +152,7 @@ public class TenantRecord extends UpdatableRecordImpl<TenantRecord> {
         setStatus(status);
         setCreatedAt(createdAt);
         setQuotaBytes(quotaBytes);
+        setSsoEnabled(ssoEnabled);
         resetChangedOnNotNull();
     }
 }

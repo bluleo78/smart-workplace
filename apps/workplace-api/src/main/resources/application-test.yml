@@ -45,6 +45,14 @@ app:
 
 # ai-agent 발사: 테스트 기본 off. 통합 테스트는 @TestPropertySource 로 override.
 workplace:
+  auth:
+    sso:
+      m365:
+        # 테스트는 SSO 사용 가능 상태. authority 는 SsoIntegrationTestBase 가 가짜 IdP 주소로 덮어쓴다.
+        client-id: test-client
+        client-secret: test-secret
+        redirect-uri: http://localhost/api/v1/auth/sso/callback
+        authority-base-url: http://127.0.0.1:1
   ai-agent:
     base-url: http://localhost:7070
     internal-token: test-token

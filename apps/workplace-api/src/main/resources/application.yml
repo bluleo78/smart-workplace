@@ -37,6 +37,15 @@ workplace:
     mail:
       ttl-days: 7
       max-cache-bytes: 26214400   # 25MB — 이보다 큰 첨부는 캐시 안 함(on-demand)
+  auth:
+    sso:
+      m365:
+        # WP-48 로그인 전용 멀티테넌트 Entra 앱. client-id 가 비면 SSO 전체 비활성. secret 은 env 로만 주입.
+        client-id: ${SSO_M365_CLIENT_ID:}
+        client-secret: ${SSO_M365_CLIENT_SECRET:}
+        # 웹 오리진 경유(vite /api 프록시·운영 리버스 프록시) — callback 의 상대경로 302 가 웹으로 가도록.
+        redirect-uri: ${SSO_M365_REDIRECT_URI:http://localhost:6173/api/v1/auth/sso/callback}
+        authority-base-url: ${SSO_M365_AUTHORITY:https://login.microsoftonline.com}
   mail:
     m365:
       # M365 Graph OAuth2 설정 — client-secret 은 반드시 환경변수로만 주입(평문 커밋 금지)

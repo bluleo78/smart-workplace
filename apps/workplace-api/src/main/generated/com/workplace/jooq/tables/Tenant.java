@@ -165,6 +165,11 @@ public class Tenant extends TableImpl<TenantRecord> {
      */
     public final TableField<TenantRecord, Long> QUOTA_BYTES = createField(DSL.name("quota_bytes"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("'10737418240'::bigint"), SQLDataType.BIGINT)), this, "드라이브 저장 한도(바이트). 기본 10GB.");
 
+    /**
+     * The column <code>public.tenant.sso_enabled</code>.
+     */
+    public final TableField<TenantRecord, Boolean> SSO_ENABLED = createField(DSL.name("sso_enabled"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
     private Tenant(Name alias, Table<TenantRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
