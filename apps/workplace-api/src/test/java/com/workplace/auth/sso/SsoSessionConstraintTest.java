@@ -75,11 +75,17 @@ class SsoSessionConstraintTest extends SsoIntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.length()").value(2))
         .andExpect(jsonPath("$[?(@.tenantId == " + plain + ")]").isEmpty());
-    mvc.perform(post("/api/v1/auth/select-tenant").header("Authorization", bearer)
-            .contentType(MediaType.APPLICATION_JSON).content("{\"tenantId\":" + plain + "}"))
+    mvc.perform(
+            post("/api/v1/auth/select-tenant")
+                .header("Authorization", bearer)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"tenantId\":" + plain + "}"))
         .andExpect(status().isForbidden());
-    mvc.perform(post("/api/v1/auth/select-tenant").header("Authorization", bearer)
-            .contentType(MediaType.APPLICATION_JSON).content("{\"tenantId\":" + ssoA + "}"))
+    mvc.perform(
+            post("/api/v1/auth/select-tenant")
+                .header("Authorization", bearer)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"tenantId\":" + ssoA + "}"))
         .andExpect(status().isOk());
   }
 

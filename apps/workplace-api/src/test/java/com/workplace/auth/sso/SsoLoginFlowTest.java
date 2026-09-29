@@ -45,24 +45,40 @@ class SsoLoginFlowTest extends SsoIntegrationTestBase {
   private record Started(Cookie tx, String state, String nonce) {}
 
   private Started start(String returnTo) throws Exception {
-    MvcResult r = mvc.perform(get("/api/v1/auth/sso/start").param("returnTo", returnTo))
-        .andExpect(status().isFound()).andReturn();
-    var q = UriComponentsBuilder.fromUri(URI.create(r.getResponse().getRedirectedUrl())).build().getQueryParams();
-    return new Started(r.getResponse().getCookie(SsoTransactionCookie.NAME), q.getFirst("state"), q.getFirst("nonce"));
+    MvcResult r =
+        mvc.perform(get("/api/v1/auth/sso/start").param("returnTo", returnTo))
+            .andExpect(status().isFound())
+            .andReturn();
+    var q =
+        UriComponentsBuilder.fromUri(URI.create(r.getResponse().getRedirectedUrl()))
+            .build()
+            .getQueryParams();
+    return new Started(
+        r.getResponse().getCookie(SsoTransactionCookie.NAME),
+        q.getFirst("state"),
+        q.getFirst("nonce"));
   }
 
   private MvcResult callback(Started s, String state) throws Exception {
-    return mvc.perform(get("/api/v1/auth/sso/callback").cookie(s.tx()).param("code", "c1").param("state", state))
-        .andExpect(status().isFound()).andReturn();
+    return mvc.perform(
+            get("/api/v1/auth/sso/callback")
+                .cookie(s.tx())
+                .param("code", "c1")
+                .param("state", state))
+        .andExpect(status().isFound())
+        .andReturn();
   }
 
   private void idpReturns(String oid, String upn, Started s) {
-    FAKE.claims(f -> FAKE.claimsBuilder(TID, oid).claim("nonce", s.nonce()).claim("upn", upn).build());
+    FAKE.claims(
+        f -> FAKE.claimsBuilder(TID, oid).claim("nonce", s.nonce()).claim("upn", upn).build());
   }
 
   @Test
   void status_reportsAvailability() throws Exception {
-    mvc.perform(get("/api/v1/auth/sso/status")).andExpect(status().isOk()).andExpect(jsonPath("$.m365").value(true));
+    mvc.perform(get("/api/v1/auth/sso/status"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.m365").value(true));
   }
 
   @Test
@@ -80,11 +96,16 @@ class SsoLoginFlowTest extends SsoIntegrationTestBase {
 
     MvcResult r = callback(s, s.state());
 
-    assertThat(r.getResponse().getRedirectedUrl()).isEqualTo("/login/sso/complete?returnTo=%2Fprojects%2FWP");
+    assertThat(r.getResponse().getRedirectedUrl())
+        .isEqualTo("/login/sso/complete?returnTo=%2Fprojects%2FWP");
     assertThat(r.getResponse().getCookie("refreshToken").getValue()).isNotBlank();
     assertThat(r.getResponse().getCookie(SsoTransactionCookie.NAME).getMaxAge()).isZero();
-    assertThat(dsl.fetchCount(USER_EXTERNAL_IDENTITY, USER_EXTERNAL_IDENTITY.USER_ID.eq(userId))).isEqualTo(1);
-    assertThat(dsl.fetchCount(AUDIT_LOG, AUDIT_LOG.USER_ID.eq(userId).and(AUDIT_LOG.ACTION_TYPE.eq("USER_SSO_LINK"))))
+    assertThat(dsl.fetchCount(USER_EXTERNAL_IDENTITY, USER_EXTERNAL_IDENTITY.USER_ID.eq(userId)))
+        .isEqualTo(1);
+    assertThat(
+            dsl.fetchCount(
+                AUDIT_LOG,
+                AUDIT_LOG.USER_ID.eq(userId).and(AUDIT_LOG.ACTION_TYPE.eq("USER_SSO_LINK"))))
         .isEqualTo(1);
   }
 
@@ -97,8 +118,14 @@ class SsoLoginFlowTest extends SsoIntegrationTestBase {
 
     assertThat(r.getResponse().getRedirectedUrl()).isEqualTo("/login?sso_error=denied");
     assertThat(r.getResponse().getCookie("refreshToken")).isNull();
-    assertThat(dsl.fetchCount(AUDIT_LOG, AUDIT_LOG.ACTION_TYPE.eq("LOGIN_FAILED")
-        .and(AUDIT_LOG.DESCRIPTION.contains("not_registered")))).isPositive();
+    assertThat(
+            dsl.fetchCount(
+                AUDIT_LOG,
+                AUDIT_LOG
+                    .ACTION_TYPE
+                    .eq("LOGIN_FAILED")
+                    .and(AUDIT_LOG.DESCRIPTION.contains("not_registered"))))
+        .isPositive();
   }
 
   @Test
@@ -112,8 +139,10 @@ class SsoLoginFlowTest extends SsoIntegrationTestBase {
 
   @Test
   void callbackWithoutCookie_isRetryWithoutTokenCall() throws Exception {
-    MvcResult r = mvc.perform(get("/api/v1/auth/sso/callback").param("code", "c1").param("state", "s"))
-        .andExpect(status().isFound()).andReturn();
+    MvcResult r =
+        mvc.perform(get("/api/v1/auth/sso/callback").param("code", "c1").param("state", "s"))
+            .andExpect(status().isFound())
+            .andReturn();
     assertThat(r.getResponse().getRedirectedUrl()).isEqualTo("/login?sso_error=retry");
     assertThat(FAKE.tokenCalls()).isZero();
   }
@@ -122,8 +151,13 @@ class SsoLoginFlowTest extends SsoIntegrationTestBase {
   void tamperedCookie_isRetryWithoutTokenCall() throws Exception {
     Started s = start("/");
     Cookie bad = new Cookie(SsoTransactionCookie.NAME, "x" + s.tx().getValue().substring(1));
-    MvcResult r = mvc.perform(get("/api/v1/auth/sso/callback").cookie(bad).param("code", "c").param("state", s.state()))
-        .andReturn();
+    MvcResult r =
+        mvc.perform(
+                get("/api/v1/auth/sso/callback")
+                    .cookie(bad)
+                    .param("code", "c")
+                    .param("state", s.state()))
+            .andReturn();
     assertThat(r.getResponse().getRedirectedUrl()).isEqualTo("/login?sso_error=retry");
     assertThat(FAKE.tokenCalls()).isZero();
   }
@@ -131,27 +165,39 @@ class SsoLoginFlowTest extends SsoIntegrationTestBase {
   @Test
   void userCancel_isRetry() throws Exception {
     Started s = start("/");
-    MvcResult r = mvc.perform(get("/api/v1/auth/sso/callback").cookie(s.tx())
-            .param("state", s.state()).param("error", "access_denied")
-            .param("error_description", "AADSTS65004: User declined to consent"))
-        .andReturn();
+    MvcResult r =
+        mvc.perform(
+                get("/api/v1/auth/sso/callback")
+                    .cookie(s.tx())
+                    .param("state", s.state())
+                    .param("error", "access_denied")
+                    .param("error_description", "AADSTS65004: User declined to consent"))
+            .andReturn();
     assertThat(r.getResponse().getRedirectedUrl()).isEqualTo("/login?sso_error=retry");
   }
 
   @Test
   void adminConsentRequired_isConsent() throws Exception {
     Started s = start("/");
-    MvcResult r = mvc.perform(get("/api/v1/auth/sso/callback").cookie(s.tx())
-            .param("state", s.state()).param("error", "access_denied")
-            .param("error_description", "AADSTS90094: admin approval required"))
-        .andReturn();
+    MvcResult r =
+        mvc.perform(
+                get("/api/v1/auth/sso/callback")
+                    .cookie(s.tx())
+                    .param("state", s.state())
+                    .param("error", "access_denied")
+                    .param("error_description", "AADSTS90094: admin approval required"))
+            .andReturn();
     assertThat(r.getResponse().getRedirectedUrl()).isEqualTo("/login?sso_error=consent");
   }
 
   @Test
   void adminConsentReturn_withoutCookie_showsNotice() throws Exception {
-    MvcResult r = mvc.perform(get("/api/v1/auth/sso/callback").param("admin_consent", "True").param("tenant", TID))
-        .andReturn();
+    MvcResult r =
+        mvc.perform(
+                get("/api/v1/auth/sso/callback")
+                    .param("admin_consent", "True")
+                    .param("tenant", TID))
+            .andReturn();
     assertThat(r.getResponse().getRedirectedUrl()).isEqualTo("/login?sso_notice=consented");
     assertThat(FAKE.tokenCalls()).isZero();
   }
@@ -160,13 +206,15 @@ class SsoLoginFlowTest extends SsoIntegrationTestBase {
   void invalidGrant_isRetry() throws Exception {
     Started s = start("/");
     FAKE.failTokenEndpoint(400, "{\"error\":\"invalid_grant\"}");
-    assertThat(callback(s, s.state()).getResponse().getRedirectedUrl()).isEqualTo("/login?sso_error=retry");
+    assertThat(callback(s, s.state()).getResponse().getRedirectedUrl())
+        .isEqualTo("/login?sso_error=retry");
   }
 
   @Test
   void returnTo_isSanitized() throws Exception {
     Started s = start("//evil.com");
     idpReturns("oid-flow", email, s);
-    assertThat(callback(s, s.state()).getResponse().getRedirectedUrl()).isEqualTo("/login/sso/complete?returnTo=%2F");
+    assertThat(callback(s, s.state()).getResponse().getRedirectedUrl())
+        .isEqualTo("/login/sso/complete?returnTo=%2F");
   }
 }

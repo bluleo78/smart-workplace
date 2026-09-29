@@ -14,7 +14,8 @@ import org.springframework.http.ResponseCookie;
 class SsoTransactionCookieTest {
 
   private static final JwtProperties JWT =
-      new JwtProperties("dGVzdC1qd3Qtc2VjcmV0LWtleS1mb3ItaW50ZWdyYXRpb24tdGVzdHMtb25seS11c2U=", 1, 1, 1);
+      new JwtProperties(
+          "dGVzdC1qd3Qtc2VjcmV0LWtleS1mb3ItaW50ZWdyYXRpb24tdGVzdHMtb25seS11c2U=", 1, 1, 1);
 
   private final Instant now = Instant.parse("2026-09-29T00:00:00Z");
   private final SsoTransactionCookie cookie =
@@ -49,16 +50,19 @@ class SsoTransactionCookieTest {
   @Test
   void otherSecret_isRejected() {
     JwtProperties other =
-        new JwtProperties("b3RoZXItc2VjcmV0LWtleS1mb3ItaW50ZWdyYXRpb24tdGVzdHMtb25seS11c2U=", 1, 1, 1);
+        new JwtProperties(
+            "b3RoZXItc2VjcmV0LWtleS1mb3ItaW50ZWdyYXRpb24tdGVzdHMtb25seS11c2U=", 1, 1, 1);
     String value = cookie.toCookie(cookie.create("/a")).getValue();
-    assertThat(new SsoTransactionCookie(other, true, Clock.fixed(now, ZoneOffset.UTC)).read(value)).isEmpty();
+    assertThat(new SsoTransactionCookie(other, true, Clock.fixed(now, ZoneOffset.UTC)).read(value))
+        .isEmpty();
   }
 
   @Test
   void expired_isRejected() {
     String value = cookie.toCookie(cookie.create("/a")).getValue();
     SsoTransactionCookie later =
-        new SsoTransactionCookie(JWT, true, Clock.fixed(now.plus(Duration.ofMinutes(11)), ZoneOffset.UTC));
+        new SsoTransactionCookie(
+            JWT, true, Clock.fixed(now.plus(Duration.ofMinutes(11)), ZoneOffset.UTC));
     assertThat(later.read(value)).isEmpty();
   }
 

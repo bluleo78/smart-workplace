@@ -56,13 +56,18 @@ class M365OidcClientTest extends SsoIntegrationTestBase {
     String idToken = client.exchange("c", "v");
     assertThatThrownBy(() -> client.decode(idToken, "n1"))
         .isInstanceOf(SsoLoginException.class)
-        .extracting("webCode").isEqualTo("retry");
+        .extracting("webCode")
+        .isEqualTo("retry");
   }
 
   @Test
   void decode_rejectsIssuerNotMatchingTid() {
-    FAKE.claims(f -> FAKE.claimsBuilder(TID, "oid-1").claim("nonce", "n1")
-        .issuer(FAKE.authority() + "/99999999-2222-3333-4444-555555555555/v2.0").build());
+    FAKE.claims(
+        f ->
+            FAKE.claimsBuilder(TID, "oid-1")
+                .claim("nonce", "n1")
+                .issuer(FAKE.authority() + "/99999999-2222-3333-4444-555555555555/v2.0")
+                .build());
     String idToken = client.exchange("c", "v");
     assertThatThrownBy(() -> client.decode(idToken, "n1")).isInstanceOf(SsoLoginException.class);
   }
@@ -77,15 +82,20 @@ class M365OidcClientTest extends SsoIntegrationTestBase {
 
   @Test
   void decode_rejectsWrongAudience() {
-    FAKE.claims(f -> FAKE.claimsBuilder(TID, "oid-1").claim("nonce", "n1").audience("other-app").build());
+    FAKE.claims(
+        f -> FAKE.claimsBuilder(TID, "oid-1").claim("nonce", "n1").audience("other-app").build());
     String idToken = client.exchange("c", "v");
     assertThatThrownBy(() -> client.decode(idToken, "n1")).isInstanceOf(SsoLoginException.class);
   }
 
   @Test
   void decode_rejectsExpired() {
-    FAKE.claims(f -> FAKE.claimsBuilder(TID, "oid-1").claim("nonce", "n1")
-        .expirationTime(new Date(System.currentTimeMillis() - 600_000)).build());
+    FAKE.claims(
+        f ->
+            FAKE.claimsBuilder(TID, "oid-1")
+                .claim("nonce", "n1")
+                .expirationTime(new Date(System.currentTimeMillis() - 600_000))
+                .build());
     String idToken = client.exchange("c", "v");
     assertThatThrownBy(() -> client.decode(idToken, "n1")).isInstanceOf(SsoLoginException.class);
   }
@@ -103,14 +113,17 @@ class M365OidcClientTest extends SsoIntegrationTestBase {
     FAKE.failTokenEndpoint(400, "{\"error\":\"invalid_grant\"}");
     assertThatThrownBy(() -> client.exchange("c", "v"))
         .isInstanceOf(SsoLoginException.class)
-        .extracting("webCode").isEqualTo("retry");
+        .extracting("webCode")
+        .isEqualTo("retry");
   }
 
   @Test
   void exchange_consentRequiredIsConsent() {
-    FAKE.failTokenEndpoint(400, "{\"error\":\"invalid_grant\",\"error_description\":\"AADSTS65001: not consented\"}");
+    FAKE.failTokenEndpoint(
+        400, "{\"error\":\"invalid_grant\",\"error_description\":\"AADSTS65001: not consented\"}");
     assertThatThrownBy(() -> client.exchange("c", "v"))
         .isInstanceOf(SsoLoginException.class)
-        .extracting("webCode").isEqualTo("consent");
+        .extracting("webCode")
+        .isEqualTo("consent");
   }
 }

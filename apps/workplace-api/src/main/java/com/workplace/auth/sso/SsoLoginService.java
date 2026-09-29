@@ -55,7 +55,8 @@ public class SsoLoginService {
     }
     SsoTransactionCookie.Tx tx = txCookie.create(returnTo);
     String url =
-        oidc.authorizationUrl(tx.state(), tx.nonce(), SsoTransactionCookie.challenge(tx.codeVerifier()));
+        oidc.authorizationUrl(
+            tx.state(), tx.nonce(), SsoTransactionCookie.challenge(tx.codeVerifier()));
     return new Redirect(url, List.of(txCookie.toCookie(tx)));
   }
 
@@ -91,8 +92,17 @@ public class SsoLoginService {
       SsoUserResolver.Resolution r = resolver.resolve(jwt);
       if (r.newlyLinked()) {
         auditLogService.log(
-            r.user().id(), r.user().username(), "USER_SSO_LINK", "auth", String.valueOf(r.user().id()),
-            "SSO 계정 연결", null, null, "SUCCESS", null, Map.of("provider", "M365", "tid", r.tid()));
+            r.user().id(),
+            r.user().username(),
+            "USER_SSO_LINK",
+            "auth",
+            String.valueOf(r.user().id()),
+            "SSO 계정 연결",
+            null,
+            null,
+            "SUCCESS",
+            null,
+            Map.of("provider", "M365", "tid", r.tid()));
       }
       AuthService.SsoSession session = authService.issueSsoSession(r.user());
       String location =
@@ -101,8 +111,17 @@ public class SsoLoginService {
       return new Redirect(location, List.of(clearTx, refreshCookies.issue(session.refreshToken())));
     } catch (SsoLoginException e) {
       auditLogService.log(
-          null, AUDIT_USERNAME, "LOGIN_FAILED", "auth", null, "SSO 로그인 실패: " + e.reason(),
-          null, null, "FAILURE", e.reason(), Map.of("method", "sso", "code", e.webCode()));
+          null,
+          AUDIT_USERNAME,
+          "LOGIN_FAILED",
+          "auth",
+          null,
+          "SSO 로그인 실패: " + e.reason(),
+          null,
+          null,
+          "FAILURE",
+          e.reason(),
+          Map.of("method", "sso", "code", e.webCode()));
       log.info("SSO 로그인 실패 code={} reason={}", e.webCode(), e.reason());
       return new Redirect(errorPath(e.webCode()), List.of(clearTx));
     }

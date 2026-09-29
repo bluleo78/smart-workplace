@@ -33,7 +33,11 @@ class SsoSchemaTest extends IntegrationTestBase {
             .returning(TENANT.ID)
             .fetchOne()
             .getId();
-    assertThat(dsl.select(TENANT.SSO_ENABLED).from(TENANT).where(TENANT.ID.eq(id)).fetchOne(TENANT.SSO_ENABLED))
+    assertThat(
+            dsl.select(TENANT.SSO_ENABLED)
+                .from(TENANT)
+                .where(TENANT.ID.eq(id))
+                .fetchOne(TENANT.SSO_ENABLED))
         .isFalse();
   }
 
@@ -61,8 +65,10 @@ class SsoSchemaTest extends IntegrationTestBase {
         dsl.fetchExists(
             dsl.select()
                 .from(ROLE_PERMISSION)
-                .join(ROLE).on(ROLE.ID.eq(ROLE_PERMISSION.ROLE_ID))
-                .join(PERMISSION).on(PERMISSION.ID.eq(ROLE_PERMISSION.PERMISSION_ID))
+                .join(ROLE)
+                .on(ROLE.ID.eq(ROLE_PERMISSION.ROLE_ID))
+                .join(PERMISSION)
+                .on(PERMISSION.ID.eq(ROLE_PERMISSION.PERMISSION_ID))
                 .where(ROLE.NAME.eq("ADMIN"))
                 .and(PERMISSION.CODE.eq("sso:manage")));
     assertThat(granted).isTrue();

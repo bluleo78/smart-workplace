@@ -27,10 +27,14 @@ class SsoSettingsServiceTest {
     var props = new SsoProperties(null, null, null, null);
     var service =
         new SsoSettingsService(
-            props, mock(M365OidcClient.class), tenantRepository, mock(UserRepository.class),
+            props,
+            mock(M365OidcClient.class),
+            tenantRepository,
+            mock(UserRepository.class),
             mock(AuditLogService.class));
 
-    assertThatThrownBy(() -> service.setEnabled(true, 1L)).isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(() -> service.setEnabled(true, 1L))
+        .isInstanceOf(IllegalStateException.class);
     verifyNoInteractions(tenantRepository);
   }
 }

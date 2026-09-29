@@ -44,7 +44,8 @@ public class SsoAuthController {
       @CookieValue(name = SsoTransactionCookie.NAME, required = false) String tx) {
     return redirect(
         loginService.callback(
-            new SsoLoginService.CallbackParams(code, state, error, errorDescription, adminConsent), tx));
+            new SsoLoginService.CallbackParams(code, state, error, errorDescription, adminConsent),
+            tx));
   }
 
   private static ResponseEntity<Void> redirect(SsoLoginService.Redirect r) {

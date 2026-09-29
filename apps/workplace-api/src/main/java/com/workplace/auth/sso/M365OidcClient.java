@@ -29,9 +29,9 @@ import org.springframework.web.util.UriComponentsBuilder;
 /**
  * 전역 멀티테넌트 Entra 앱의 OIDC 호출(WP-48) — 인가 URL, 토큰 교환(PKCE + client_secret_post), id_token 검증.
  *
- * <p>멀티테넌트라 issuer 가 고정값이 아니다. 토큰의 tid 가 GUID 이고 개인 MSA 테넌트가 아니며 iss 가 정확히
- * {@code {authority}/{tid}/v2.0} 인지로 검증한다(Microsoft 권장 방식). 모든 HTTP 호출은 5초 타임아웃 — IdP 가 느리면 로그인
- * 요청 스레드가 그만큼 묶인다. 예외 메시지에 응답 본문·시크릿을 싣지 않는다(로그로 나간다).
+ * <p>멀티테넌트라 issuer 가 고정값이 아니다. 토큰의 tid 가 GUID 이고 개인 MSA 테넌트가 아니며 iss 가 정확히 {@code
+ * {authority}/{tid}/v2.0} 인지로 검증한다(Microsoft 권장 방식). 모든 HTTP 호출은 5초 타임아웃 — IdP 가 느리면 로그인 요청 스레드가
+ * 그만큼 묶인다. 예외 메시지에 응답 본문·시크릿을 싣지 않는다(로그로 나간다).
  */
 @Slf4j
 @Component
@@ -61,7 +61,8 @@ public class M365OidcClient {
 
   /** Microsoft 인가 엔드포인트 URL — PKCE S256, response_mode=query. */
   public String authorizationUrl(String state, String nonce, String codeChallenge) {
-    return UriComponentsBuilder.fromUriString(props.authority() + "/organizations/oauth2/v2.0/authorize")
+    return UriComponentsBuilder.fromUriString(
+            props.authority() + "/organizations/oauth2/v2.0/authorize")
         .queryParam("client_id", props.clientId())
         .queryParam("response_type", "code")
         .queryParam("redirect_uri", props.redirectUri())
@@ -78,7 +79,8 @@ public class M365OidcClient {
 
   /** 고객사 Entra 관리자가 조직 전체를 대신해 한 번 동의하는 URL. 워크스페이스 SSO 설정 화면에 노출. */
   public String adminConsentUrl() {
-    return UriComponentsBuilder.fromUriString(props.authority() + "/organizations/v2.0/adminconsent")
+    return UriComponentsBuilder.fromUriString(
+            props.authority() + "/organizations/v2.0/adminconsent")
         .queryParam("client_id", props.clientId())
         .queryParam("scope", SCOPE)
         .queryParam("redirect_uri", props.redirectUri())
@@ -115,7 +117,8 @@ public class M365OidcClient {
       throw new SsoLoginException(
           OidcErrorClassifier.fromTokenError(body), "token_error_" + e.getStatusCode().value());
     } catch (RestClientException | IllegalArgumentException e) {
-      throw new SsoLoginException(SsoLoginException.RETRY, "token_exchange_failed: " + e.getClass().getSimpleName());
+      throw new SsoLoginException(
+          SsoLoginException.RETRY, "token_exchange_failed: " + e.getClass().getSimpleName());
     }
     if (res == null || !(res.get("id_token") instanceof String idToken)) {
       throw new SsoLoginException(SsoLoginException.RETRY, "no_id_token");
@@ -173,7 +176,8 @@ public class M365OidcClient {
               && (props.authority() + "/" + tid + "/v2.0").equals(iss);
       return ok
           ? OAuth2TokenValidatorResult.success()
-          : OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "tid/iss 불일치", null));
+          : OAuth2TokenValidatorResult.failure(
+              new OAuth2Error("invalid_token", "tid/iss 불일치", null));
     };
   }
 }

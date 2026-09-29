@@ -30,7 +30,8 @@ import java.util.function.Function;
  * 테스트용 멀티테넌트 Entra IdP(WP-48). JDK HttpServer 로 JWKS·토큰 엔드포인트를 낸다 — 테스트 의존성을 늘리지 않는다.
  *
  * <p>JVM 당 하나({@link #INSTANCE})만 띄워 SSO 테스트 클래스들이 같은 authority 로 Spring 컨텍스트를 공유하게 한다. 테스트는
- * {@code @BeforeEach} 에서 {@link #reset()} 으로 상태를 되돌린다. issuer 는 Entra 와 같이 {@code {authority}/{tid}/v2.0}.
+ * {@code @BeforeEach} 에서 {@link #reset()} 으로 상태를 되돌린다. issuer 는 Entra 와 같이 {@code
+ * {authority}/{tid}/v2.0}.
  */
 public final class FakeEntraProvider {
 
@@ -60,15 +61,20 @@ public final class FakeEntraProvider {
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     // 데몬 스레드 — 테스트 JVM 종료를 막지 않는다.
     server.setExecutor(
-        Executors.newCachedThreadPool(r -> {
-          Thread t = new Thread(r, "fake-entra");
-          t.setDaemon(true);
-          return t;
-        }));
+        Executors.newCachedThreadPool(
+            r -> {
+              Thread t = new Thread(r, "fake-entra");
+              t.setDaemon(true);
+              return t;
+            }));
     server.createContext(
         "/common/discovery/v2.0/keys",
-        ex -> json(ex, 200,
-            new JWKSet(published.stream().map(k -> (JWK) k.toPublicJWK()).toList()).toString()));
+        ex ->
+            json(
+                ex,
+                200,
+                new JWKSet(published.stream().map(k -> (JWK) k.toPublicJWK()).toList())
+                    .toString()));
     server.createContext("/organizations/oauth2/v2.0/token", this::token);
     server.start();
     reset();
@@ -83,7 +89,10 @@ public final class FakeEntraProvider {
   public void reset() {
     tokenStatus = 200;
     tokenErrorBody = null;
-    claims = form -> { throw new IllegalStateException("테스트가 claims 를 지정하지 않았습니다"); };
+    claims =
+        form -> {
+          throw new IllegalStateException("테스트가 claims 를 지정하지 않았습니다");
+        };
     tokenCalls.set(0);
     lastForm = Map.of();
     if (!published.contains(key)) key = published.get(0);
@@ -136,8 +145,12 @@ public final class FakeEntraProvider {
               new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.getKeyID()).build(),
               claims.apply(lastForm));
       jwt.sign(new RSASSASigner(key));
-      json(ex, 200,
-          "{\"access_token\":\"at\",\"token_type\":\"Bearer\",\"id_token\":\"" + jwt.serialize() + "\"}");
+      json(
+          ex,
+          200,
+          "{\"access_token\":\"at\",\"token_type\":\"Bearer\",\"id_token\":\""
+              + jwt.serialize()
+              + "\"}");
     } catch (JOSEException | RuntimeException e) {
       json(ex, 500, "{\"error\":\"fake_failure\"}");
     }

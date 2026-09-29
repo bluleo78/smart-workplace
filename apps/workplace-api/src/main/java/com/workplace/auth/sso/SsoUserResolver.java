@@ -18,10 +18,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 검증된 id_token 클레임으로 로그인할 사용자를 결정한다(WP-48).
  *
- * <p>순서가 규칙이다: (1) (tid, oid) 연결 → (2) 없으면 도메인이 검증된 값(xms_edov=true 인 email, #EXT# 없는 upn)을 username 과만
- * 대소문자 무시로 매칭 → (3) 진입 검사(HUMAN·활성·SSO 켜진 워크스페이스 소속) → (4) 최초 연결 저장. 진입 검사를 연결 저장보다 먼저 해 거부된
- * 로그인은 연결을 남기지 않는다. 자동 계정 생성(JIT)은 하지 않는다. email 클레임은 임의 Entra 테넌트가 위조할 수 있어(nOAuth)
- * xms_edov 없이는 믿지 않는다.
+ * <p>순서가 규칙이다: (1) (tid, oid) 연결 → (2) 없으면 도메인이 검증된 값(xms_edov=true 인 email, #EXT# 없는 upn)을
+ * username 과만 대소문자 무시로 매칭 → (3) 진입 검사(HUMAN·활성·SSO 켜진 워크스페이스 소속) → (4) 최초 연결 저장. 진입 검사를 연결 저장보다 먼저
+ * 해 거부된 로그인은 연결을 남기지 않는다. 자동 계정 생성(JIT)은 하지 않는다. email 클레임은 임의 Entra 테넌트가 위조할 수 있어(nOAuth) xms_edov
+ * 없이는 믿지 않는다.
  */
 @Component
 @RequiredArgsConstructor

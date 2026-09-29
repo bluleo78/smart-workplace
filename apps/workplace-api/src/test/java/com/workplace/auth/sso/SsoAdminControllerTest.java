@@ -40,13 +40,15 @@ class SsoAdminControllerTest extends SsoIntegrationTestBase {
   // audit_log.user_id 가 user(id) FK 라 실제 존재하는 사용자를 호출자로 쓴다(빈 DB 에는 id=1 이 없을 수 있음).
   private UsernamePasswordAuthenticationToken admin() {
     long callerId = SsoTestData.user(dsl, SsoTestData.uniqueEmail("admin"), "hash");
-    return new UsernamePasswordAuthenticationToken(callerId, null, List.of(new SimpleGrantedAuthority("sso:manage")));
+    return new UsernamePasswordAuthenticationToken(
+        callerId, null, List.of(new SimpleGrantedAuthority("sso:manage")));
   }
 
   @Test
   void get_requiresPermission() throws Exception {
     var noPerm = new UsernamePasswordAuthenticationToken(1L, null, List.of());
-    mvc.perform(get("/api/v1/admin/sso").with(authentication(noPerm))).andExpect(status().isForbidden());
+    mvc.perform(get("/api/v1/admin/sso").with(authentication(noPerm)))
+        .andExpect(status().isForbidden());
   }
 
   @Test
@@ -55,16 +57,25 @@ class SsoAdminControllerTest extends SsoIntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.available").value(true))
         .andExpect(jsonPath("$.enabled").value(false))
-        .andExpect(jsonPath("$.adminConsentUrl").value(org.hamcrest.Matchers.containsString("/organizations/v2.0/adminconsent")))
+        .andExpect(
+            jsonPath("$.adminConsentUrl")
+                .value(org.hamcrest.Matchers.containsString("/organizations/v2.0/adminconsent")))
         .andExpect(jsonPath("$.passwordlessMemberCount").isNumber());
   }
 
   @Test
   void put_togglesTenantFlag() throws Exception {
-    mvc.perform(put("/api/v1/admin/sso/enabled").with(authentication(admin()))
-            .contentType(MediaType.APPLICATION_JSON).content("{\"enabled\":true}"))
+    mvc.perform(
+            put("/api/v1/admin/sso/enabled")
+                .with(authentication(admin()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"enabled\":true}"))
         .andExpect(status().isNoContent());
-    assertThat(dsl.select(TENANT.SSO_ENABLED).from(TENANT).where(TENANT.ID.eq(tenantId)).fetchOne(TENANT.SSO_ENABLED))
+    assertThat(
+            dsl.select(TENANT.SSO_ENABLED)
+                .from(TENANT)
+                .where(TENANT.ID.eq(tenantId))
+                .fetchOne(TENANT.SSO_ENABLED))
         .isTrue();
   }
 

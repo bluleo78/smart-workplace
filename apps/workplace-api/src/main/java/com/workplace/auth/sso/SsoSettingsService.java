@@ -45,8 +45,16 @@ public class SsoSettingsService {
     String callerName =
         userRepository.findById(callerId).map(u -> u.username()).orElse(String.valueOf(callerId));
     auditLogService.log(
-        callerId, callerName, "SSO_SETTING_CHANGED", "tenant", String.valueOf(tenantId),
-        enabled ? "SSO 로그인 사용" : "SSO 로그인 해제", null, null, "SUCCESS", null,
+        callerId,
+        callerName,
+        "SSO_SETTING_CHANGED",
+        "tenant",
+        String.valueOf(tenantId),
+        enabled ? "SSO 로그인 사용" : "SSO 로그인 해제",
+        null,
+        null,
+        "SUCCESS",
+        null,
         Map.of("enabled", enabled));
   }
 

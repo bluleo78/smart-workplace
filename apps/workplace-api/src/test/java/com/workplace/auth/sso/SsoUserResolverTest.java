@@ -34,7 +34,8 @@ class SsoUserResolverTest extends SsoIntegrationTestBase {
   private Jwt token(String oid, Map<String, Object> extra) {
     Map<String, Object> claims = new HashMap<>(Map.of("tid", TID, "oid", oid, "sub", "s"));
     claims.putAll(extra);
-    return new Jwt("t", Instant.now(), Instant.now().plusSeconds(60), Map.of("alg", "RS256"), claims);
+    return new Jwt(
+        "t", Instant.now(), Instant.now().plusSeconds(60), Map.of("alg", "RS256"), claims);
   }
 
   private long member(String username) {
@@ -52,7 +53,8 @@ class SsoUserResolverTest extends SsoIntegrationTestBase {
 
     assertThat(r.user().id()).isEqualTo(id);
     assertThat(r.newlyLinked()).isTrue();
-    assertThat(dsl.fetchCount(USER_EXTERNAL_IDENTITY, USER_EXTERNAL_IDENTITY.USER_ID.eq(id))).isEqualTo(1);
+    assertThat(dsl.fetchCount(USER_EXTERNAL_IDENTITY, USER_EXTERNAL_IDENTITY.USER_ID.eq(id)))
+        .isEqualTo(1);
   }
 
   @Test
@@ -91,13 +93,16 @@ class SsoUserResolverTest extends SsoIntegrationTestBase {
   @Test
   void rejects_guestUpn() {
     member("guest_acme.test#EXT#@fabrikam.onmicrosoft.com");
-    assertDenied(token("oid-6", Map.of("upn", "guest_acme.test#EXT#@fabrikam.onmicrosoft.com")), "unverified");
+    assertDenied(
+        token("oid-6", Map.of("upn", "guest_acme.test#EXT#@fabrikam.onmicrosoft.com")),
+        "unverified");
   }
 
   @Test
   void rejects_notRegistered_noJit() {
     long before = dsl.fetchCount(USER);
-    assertDenied(token("oid-7", Map.of("upn", SsoTestData.uniqueEmail("nobody"))), "not_registered");
+    assertDenied(
+        token("oid-7", Map.of("upn", SsoTestData.uniqueEmail("nobody"))), "not_registered");
     assertThat(dsl.fetchCount(USER)).isEqualTo(before);
   }
 
@@ -132,7 +137,8 @@ class SsoUserResolverTest extends SsoIntegrationTestBase {
     long id = member(email);
     dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(id)).execute();
     assertDenied(token("oid-12", Map.of("upn", email)), "inactive");
-    assertThat(dsl.fetchCount(USER_EXTERNAL_IDENTITY, USER_EXTERNAL_IDENTITY.USER_ID.eq(id))).isZero();
+    assertThat(dsl.fetchCount(USER_EXTERNAL_IDENTITY, USER_EXTERNAL_IDENTITY.USER_ID.eq(id)))
+        .isZero();
   }
 
   @Test
@@ -154,10 +160,11 @@ class SsoUserResolverTest extends SsoIntegrationTestBase {
   private void assertDenied(Jwt jwt, String reason) {
     assertThatThrownBy(() -> resolver.resolve(jwt))
         .isInstanceOf(SsoLoginException.class)
-        .satisfies(e -> {
-          SsoLoginException s = (SsoLoginException) e;
-          assertThat(s.webCode()).isEqualTo("denied");
-          assertThat(s.reason()).isEqualTo(reason);
-        });
+        .satisfies(
+            e -> {
+              SsoLoginException s = (SsoLoginException) e;
+              assertThat(s.webCode()).isEqualTo("denied");
+              assertThat(s.reason()).isEqualTo(reason);
+            });
   }
 }

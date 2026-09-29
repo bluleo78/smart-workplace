@@ -87,7 +87,8 @@ public class UserRepository {
   public List<Long> findIdsByUsernameIgnoreCase(String username) {
     return dsl.select(USER.ID)
         .from(USER)
-        .where(org.jooq.impl.DSL.lower(USER.USERNAME).eq(username.toLowerCase(java.util.Locale.ROOT)))
+        .where(
+            org.jooq.impl.DSL.lower(USER.USERNAME).eq(username.toLowerCase(java.util.Locale.ROOT)))
         .limit(2)
         .fetch(USER.ID);
   }
@@ -210,7 +211,8 @@ public class UserRepository {
 
   /** WP-48: 비밀번호 보유 여부(SSO 전용 계정이면 false). */
   public boolean hasPassword(Long id) {
-    return dsl.fetchExists(dsl.selectFrom(USER).where(USER.ID.eq(id)).and(USER.PASSWORD.isNotNull()));
+    return dsl.fetchExists(
+        dsl.selectFrom(USER).where(USER.ID.eq(id)).and(USER.PASSWORD.isNotNull()));
   }
 
   public boolean existsByUsername(String username) {
@@ -502,7 +504,8 @@ public class UserRepository {
   public long countPasswordlessHumanMembers(Long tenantId) {
     return dsl.selectCount()
         .from(USER)
-        .join(MEMBERSHIP).on(MEMBERSHIP.USER_ID.eq(USER.ID))
+        .join(MEMBERSHIP)
+        .on(MEMBERSHIP.USER_ID.eq(USER.ID))
         .where(MEMBERSHIP.TENANT_ID.eq(tenantId))
         .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
         .and(USER.PASSWORD.isNull())

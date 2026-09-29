@@ -32,14 +32,15 @@ class SsoUserResolverConcurrencyTest extends SsoIntegrationTestBase {
   long tenantId;
 
   /**
-   * 비-트랜잭션 테스트라 커밋된 시드를 직접 지운다. 사용자 삭제는 연결·멤버십을 FK CASCADE 로 함께 지운다. tenant 삭제는 런타임 롤
-   * (app_tenant)에 V46 이 REVOKE 했으므로 소유자(app) 커넥션으로 수행한다.
+   * 비-트랜잭션 테스트라 커밋된 시드를 직접 지운다. 사용자 삭제는 연결·멤버십을 FK CASCADE 로 함께 지운다. tenant 삭제는 런타임 롤 (app_tenant)에
+   * V46 이 REVOKE 했으므로 소유자(app) 커넥션으로 수행한다.
    */
   @AfterEach
   void cleanup() throws Exception {
     dsl.deleteFrom(USER).where(USER.ID.eq(userId)).execute();
     var c = PostgresTestContainer.INSTANCE;
-    try (Connection conn = DriverManager.getConnection(c.getJdbcUrl(), c.getUsername(), c.getPassword());
+    try (Connection conn =
+            DriverManager.getConnection(c.getJdbcUrl(), c.getUsername(), c.getPassword());
         PreparedStatement ps = conn.prepareStatement("DELETE FROM tenant WHERE id = ?")) {
       ps.setLong(1, tenantId);
       ps.executeUpdate();
@@ -52,19 +53,38 @@ class SsoUserResolverConcurrencyTest extends SsoIntegrationTestBase {
     tenantId = SsoTestData.tenant(dsl, true);
     userId = SsoTestData.user(dsl, email, null);
     SsoTestData.member(dsl, userId, tenantId);
-    Jwt jwt = new Jwt("t", Instant.now(), Instant.now().plusSeconds(60), Map.of("alg", "RS256"),
-        Map.of("tid", "11111111-2222-3333-4444-555555555555", "oid", "oid-race", "sub", "s", "upn", email));
+    Jwt jwt =
+        new Jwt(
+            "t",
+            Instant.now(),
+            Instant.now().plusSeconds(60),
+            Map.of("alg", "RS256"),
+            Map.of(
+                "tid",
+                "11111111-2222-3333-4444-555555555555",
+                "oid",
+                "oid-race",
+                "sub",
+                "s",
+                "upn",
+                email));
 
     ExecutorService pool = Executors.newFixedThreadPool(4);
     CountDownLatch go = new CountDownLatch(1);
     List<Future<Long>> results = new ArrayList<>();
     for (int i = 0; i < 4; i++) {
-      results.add(pool.submit(() -> { go.await(); return resolver.resolve(jwt).user().id(); }));
+      results.add(
+          pool.submit(
+              () -> {
+                go.await();
+                return resolver.resolve(jwt).user().id();
+              }));
     }
     go.countDown();
     for (Future<Long> f : results) assertThat(f.get()).isEqualTo(userId);
     pool.shutdown();
 
-    assertThat(dsl.fetchCount(USER_EXTERNAL_IDENTITY, USER_EXTERNAL_IDENTITY.USER_ID.eq(userId))).isEqualTo(1);
+    assertThat(dsl.fetchCount(USER_EXTERNAL_IDENTITY, USER_EXTERNAL_IDENTITY.USER_ID.eq(userId)))
+        .isEqualTo(1);
   }
 }

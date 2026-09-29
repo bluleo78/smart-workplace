@@ -23,8 +23,8 @@ import org.springframework.stereotype.Component;
  * 인가 요청과 콜백 사이의 OIDC 트랜잭션(state·nonce·PKCE verifier·returnTo)을 서버 저장 없이 쿠키에 싣는다(WP-48).
  *
  * <p>값은 {@code base64url(json).base64url(hmac)} 이고 서명은 인코딩된 페이로드 문자열 위에 건다. 서버에 상태를 두지 않으므로 인스턴스가
- * 여러 개여도 동작한다(기존 인메모리 OAuthStateStore 와 다른 점). HMAC 키는 JWT 시크릿에서 라벨로 도메인 분리해 파생한다 — JWT 서명
- * 키를 그대로 쓰면 한쪽 서명이 다른 쪽 검증을 통과할 여지가 생긴다.
+ * 여러 개여도 동작한다(기존 인메모리 OAuthStateStore 와 다른 점). HMAC 키는 JWT 시크릿에서 라벨로 도메인 분리해 파생한다 — JWT 서명 키를 그대로
+ * 쓰면 한쪽 서명이 다른 쪽 검증을 통과할 여지가 생긴다.
  */
 @Component
 public class SsoTransactionCookie {
@@ -51,7 +51,8 @@ public class SsoTransactionCookie {
   private final Clock clock;
 
   @Autowired
-  public SsoTransactionCookie(JwtProperties jwt, @Value("${app.cookie.secure:true}") boolean secure) {
+  public SsoTransactionCookie(
+      JwtProperties jwt, @Value("${app.cookie.secure:true}") boolean secure) {
     this(jwt, secure, Clock.systemUTC());
   }
 
@@ -75,7 +76,10 @@ public class SsoTransactionCookie {
           B64.encodeToString(
               JSON.writeValueAsBytes(
                   new Wire(
-                      tx.state(), tx.nonce(), tx.codeVerifier(), tx.returnTo(),
+                      tx.state(),
+                      tx.nonce(),
+                      tx.codeVerifier(),
+                      tx.returnTo(),
                       tx.expiresAt().getEpochSecond())));
     } catch (Exception e) {
       throw new IllegalStateException("SSO 트랜잭션 직렬화 실패", e);
@@ -109,14 +113,19 @@ public class SsoTransactionCookie {
   public static String challenge(String verifier) {
     try {
       return B64.encodeToString(
-          MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII)));
+          MessageDigest.getInstance("SHA-256")
+              .digest(verifier.getBytes(StandardCharsets.US_ASCII)));
     } catch (GeneralSecurityException e) {
       throw new IllegalStateException(e);
     }
   }
 
   private ResponseCookie.ResponseCookieBuilder base(String value) {
-    return ResponseCookie.from(NAME, value).httpOnly(true).secure(secure).sameSite("Lax").path(PATH);
+    return ResponseCookie.from(NAME, value)
+        .httpOnly(true)
+        .secure(secure)
+        .sameSite("Lax")
+        .path(PATH);
   }
 
   private static String random() {

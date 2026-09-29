@@ -391,7 +391,8 @@ public class UserService {
       return;
     }
     // 현재 비밀번호 불일치 시 400 Bad Request로 명확한 한국어 메시지 반환 (#27)
-    if (currentPassword == null || !passwordEncoder.matches(currentPassword, storedPassword.get())) {
+    if (currentPassword == null
+        || !passwordEncoder.matches(currentPassword, storedPassword.get())) {
       throw new IllegalArgumentException("현재 비밀번호가 올바르지 않습니다");
     }
     userRepository.updatePassword(userId, passwordEncoder.encode(newPassword));

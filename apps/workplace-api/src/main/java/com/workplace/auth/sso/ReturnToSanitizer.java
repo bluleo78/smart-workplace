@@ -6,8 +6,8 @@ import java.nio.charset.StandardCharsets;
 /**
  * 로그인 뒤 돌아갈 경로 정제 — same-origin 상대경로만 통과시켜 오픈 리다이렉트를 막는다(WP-48).
  *
- * <p>인코딩된 변형(%2F%2F, %5C)은 한 번 디코드한 값으로도 검사한다. 제어 문자는 통째로 거부한다 — 브라우저가 URL 의 탭·개행을 지우고
- * 해석해 "/\t/evil.com" 이 "//evil.com" 이 되기 때문이다. (iacloud_eis 구현 이식)
+ * <p>인코딩된 변형(%2F%2F, %5C)은 한 번 디코드한 값으로도 검사한다. 제어 문자는 통째로 거부한다 — 브라우저가 URL 의 탭·개행을 지우고 해석해
+ * "/\t/evil.com" 이 "//evil.com" 이 되기 때문이다. (iacloud_eis 구현 이식)
  */
 final class ReturnToSanitizer {
 

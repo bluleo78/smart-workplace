@@ -34,21 +34,31 @@ class CreateMemberSsoOnlyTest extends SsoIntegrationTestBase {
 
   @BeforeEach
   void seed() {
-    dsl.update(com.workplace.jooq.Tables.TENANT).set(com.workplace.jooq.Tables.TENANT.SSO_ENABLED, true)
-        .where(com.workplace.jooq.Tables.TENANT.ID.eq(tenantId)).execute();
+    dsl.update(com.workplace.jooq.Tables.TENANT)
+        .set(com.workplace.jooq.Tables.TENANT.SSO_ENABLED, true)
+        .where(com.workplace.jooq.Tables.TENANT.ID.eq(tenantId))
+        .execute();
     adminId = SsoTestData.user(dsl, SsoTestData.uniqueEmail("admin"), "hash");
     SsoTestData.member(dsl, adminId, tenantId);
   }
 
   private UsernamePasswordAuthenticationToken admin() {
-    return new UsernamePasswordAuthenticationToken(adminId, null,
-        List.of(new SimpleGrantedAuthority("user:write"), new SimpleGrantedAuthority("role:assign")));
+    return new UsernamePasswordAuthenticationToken(
+        adminId,
+        null,
+        List.of(
+            new SimpleGrantedAuthority("user:write"), new SimpleGrantedAuthority("role:assign")));
   }
 
-  private org.springframework.test.web.servlet.ResultActions create(String username, String passwordJson) throws Exception {
-    String body = "{\"username\":\"" + username + "\",\"name\":\"홍\",\"role\":\"USER\"" + passwordJson + "}";
-    return mvc.perform(post("/api/v1/users").with(authentication(admin()))
-        .contentType(MediaType.APPLICATION_JSON).content(body));
+  private org.springframework.test.web.servlet.ResultActions create(
+      String username, String passwordJson) throws Exception {
+    String body =
+        "{\"username\":\"" + username + "\",\"name\":\"홍\",\"role\":\"USER\"" + passwordJson + "}";
+    return mvc.perform(
+        post("/api/v1/users")
+            .with(authentication(admin()))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(body));
   }
 
   @Test
@@ -62,8 +72,10 @@ class CreateMemberSsoOnlyTest extends SsoIntegrationTestBase {
 
   @Test
   void ssoOnly_rejectedWhenTenantSsoOff() throws Exception {
-    dsl.update(com.workplace.jooq.Tables.TENANT).set(com.workplace.jooq.Tables.TENANT.SSO_ENABLED, false)
-        .where(com.workplace.jooq.Tables.TENANT.ID.eq(tenantId)).execute();
+    dsl.update(com.workplace.jooq.Tables.TENANT)
+        .set(com.workplace.jooq.Tables.TENANT.SSO_ENABLED, false)
+        .where(com.workplace.jooq.Tables.TENANT.ID.eq(tenantId))
+        .execute();
     create(SsoTestData.uniqueEmail("off"), "").andExpect(status().isConflict());
   }
 
@@ -81,15 +93,19 @@ class CreateMemberSsoOnlyTest extends SsoIntegrationTestBase {
 
   @Test
   void passwordMember_unchanged() throws Exception {
-    create("pw-user-" + System.nanoTime(), ",\"password\":\"Password123\"").andExpect(status().isCreated());
+    create("pw-user-" + System.nanoTime(), ",\"password\":\"Password123\"")
+        .andExpect(status().isCreated());
   }
 
   @Test
   void ssoOnlyAccount_passwordLoginFailsGenerically() throws Exception {
     String email = SsoTestData.uniqueEmail("nopw");
     create(email, "").andExpect(status().isCreated());
-    mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
-            .content("{\"username\":\"" + email.toLowerCase() + "\",\"password\":\"Anything123\"}"))
+    mvc.perform(
+            post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"username\":\"" + email.toLowerCase() + "\",\"password\":\"Anything123\"}"))
         .andExpect(status().isUnauthorized());
   }
 }
