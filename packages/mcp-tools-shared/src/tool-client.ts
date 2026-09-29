@@ -4,7 +4,7 @@
 // 인증 방식만 다르다. 그래서 클라이언트는 "경로 호출 + 응답 래퍼 벗기기"까지만 맡고 **raw 를 그대로 반환**한다.
 // LLM 에 보여줄 형태로 가공(식별자 이름 바꾸기·필드 고르기)은 공유 도구 핸들러가 한 곳에서 한다 —
 // 가공이 앱마다 클라이언트에 흩어져 있던 것이 드리프트의 원인이었다(연락처 id→userId 를 한쪽만 하던 식).
-import type { ProjectMetaClient } from './resolve.js';
+import type { CurrentUserClient, ProjectMetaClient } from './resolve.js';
 
 /** 구성원 디렉터리 행(GET /members). 핸들러가 username·userId·name 을 읽으므로 그 필드만 타입으로 고정한다. */
 export interface MemberRow {
@@ -65,7 +65,7 @@ export interface IssueRow {
 export type IssueListQuery = Record<string, string | number | boolean>;
 
 /** 이슈 도구 — issueKey(WP-12) 기준. 코멘트 API 의 숫자 issue id 해석은 구현(rest-client)이 흡수한다. */
-export interface IssueToolClient extends ProjectMetaClient {
+export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   /** 이슈 상세 — 백엔드 raw JSON 반환(정규화는 도구 핸들러가 normalizeIssueDetail 로 수행). */
   getIssueDetail(issueKey: string): Promise<unknown>;
   /** 이슈 생성 — 생성 응답 raw 반환. */

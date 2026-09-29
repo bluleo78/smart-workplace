@@ -42,6 +42,7 @@ function sharedMock(): MockedShared {
     // 프로젝트 메타·목록(ProjectToolClient)
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectMembers: vi.fn().mockResolvedValue([]),
+    getMe: vi.fn().mockResolvedValue({ id: 1, username: 'me' }),
     getProjectLabels: vi.fn().mockResolvedValue([]),
     getProjectMilestones: vi.fn().mockResolvedValue([]),
     getProjectCycles: vi.fn().mockResolvedValue([]),

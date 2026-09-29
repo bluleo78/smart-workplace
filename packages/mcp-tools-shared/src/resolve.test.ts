@@ -6,12 +6,14 @@ import {
   resolveLabelIds,
   resolveMilestoneId,
   resolveTypeId,
+  type CurrentUserClient,
   type ProjectMetaClient,
 } from './resolve.js';
 
-/** 리졸브 소스만 채운 mock 클라이언트. */
-function client(): ProjectMetaClient {
+/** 리졸브 소스만 채운 mock 클라이언트. 호출자(me)는 alice(10). */
+function client(): ProjectMetaClient & CurrentUserClient {
   return {
+    getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
     getProjectTypes: vi.fn().mockResolvedValue([
       { id: 1, name: 'TASK' },
       { id: 2, name: 'BUG' },
@@ -50,6 +52,33 @@ describe('resolveAssigneeIds', () => {
   it('없는 username 이면 유효 목록을 담아 throw', async () => {
     await expect(resolveAssigneeIds(client(), 'WP', ['carol'])).rejects.toThrow(
       "멤버 'carol' 을(를) 찾을 수 없습니다. 사용 가능 username: alice, bob",
+    );
+  });
+  // WP-53: "나에게 할당해줘" — 'me' 는 호출자 본인(PAT 소유자 / X-On-Behalf-Of 신원)으로 해석한다.
+  it("'me' 는 호출자 본인의 userId 로 변환한다", async () => {
+    const c = client();
+    await expect(resolveAssigneeIds(c, 'WP', ['me'])).resolves.toEqual([10]);
+    expect(c.getMe).toHaveBeenCalledTimes(1);
+  });
+  it("'me' 는 대소문자·앞뒤 공백을 무시한다", async () => {
+    await expect(resolveAssigneeIds(client(), 'WP', [' ME '])).resolves.toEqual([10]);
+  });
+  it("'me' 와 다른 username 을 섞어 쓸 수 있다", async () => {
+    await expect(resolveAssigneeIds(client(), 'WP', ['bob', 'me'])).resolves.toEqual([11, 10]);
+  });
+  it("본인 username 과 'me' 를 함께 넘기면 중복 없이 한 번만 담는다", async () => {
+    await expect(resolveAssigneeIds(client(), 'WP', ['alice', 'bob', 'me'])).resolves.toEqual([10, 11]);
+  });
+  it("'me' 가 없으면 호출자 조회를 하지 않는다", async () => {
+    const c = client();
+    await resolveAssigneeIds(c, 'WP', ['bob']);
+    expect(c.getMe).not.toHaveBeenCalled();
+  });
+  it('호출자가 프로젝트 멤버가 아니면 본인 지정 불가 사유로 throw', async () => {
+    const c = client();
+    vi.mocked(c.getMe).mockResolvedValue({ id: 99, username: 'dave' });
+    await expect(resolveAssigneeIds(c, 'WP', ['me'])).rejects.toThrow(
+      "현재 사용자 'dave' 은(는) 프로젝트 WP 의 멤버가 아니라 담당자로 지정할 수 없습니다.",
     );
   });
 });

@@ -11,6 +11,12 @@ describe('ASSISTANT_SYSTEM_PROMPT', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/general-purpose.*절대 금지|절대 금지.*general-purpose/s);
   });
 
+  // WP-53: 본인 담당 지정은 계정을 되묻지 않고 issue-agent 에 "me" 로 넘긴다.
+  it('본인 담당 지정은 issue-agent 에 요청자 본인(me)으로 위임하도록 안내', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('나에게 할당해줘');
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('담당자: 요청자 본인(me)');
+  });
+
   it('show_* 표시 도구를 메인이 직접 쓸 수 있음을 안내', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('show_');
   });

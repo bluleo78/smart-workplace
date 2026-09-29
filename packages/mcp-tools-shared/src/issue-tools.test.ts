@@ -7,6 +7,7 @@ function mockClient(): IssueToolClient {
   return {
     getProjectTypes: vi.fn().mockResolvedValue([{ id: 2, name: 'BUG' }]),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
+    getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
     getProjectLabels: vi.fn().mockResolvedValue([{ id: 100, name: 'urgent' }]),
     getIssueDetail: vi.fn(),
     createIssue: vi.fn().mockResolvedValue({ ok: true }),
@@ -80,6 +81,22 @@ describe('buildSharedIssueTools', () => {
     expect(out.results).toEqual({ content: 'ok', assignees: 'ok' });
     expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { title: '수정' });
     expect(c.replaceIssueAssignees).toHaveBeenCalledWith('WP-12', [10]);
+  });
+
+  // WP-53: "나에게 할당해줘" — assignees 의 'me' 는 호출자 본인으로 지정된다.
+  it("update_issue 는 assignees 'me' 를 호출자 userId 로 교체한다", async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(await t.handler({ issueKey: 'WP-12', assignees: ['me'] }));
+    expect(out.results).toEqual({ assignees: 'ok' });
+    expect(c.replaceIssueAssignees).toHaveBeenCalledWith('WP-12', [10]);
+  });
+
+  it("create_issue 는 assignees 'me' 를 호출자 userId 로 생성한다", async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await t.handler({ projectKey: 'WP', title: '새 이슈', assignees: ['me'] });
+    expect(c.createIssue).toHaveBeenCalledWith('WP', expect.objectContaining({ assigneeIds: [10] }));
   });
 
   it('update_issue 는 milestone 이름을 milestoneId 로, cycles 이름을 집합 교체로 보낸다 (#854)', async () => {

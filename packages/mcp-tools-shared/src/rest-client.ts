@@ -66,6 +66,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async getProjectCycles(key) {
       return (await http.get(`${project(key)}/cycles`)).data ?? [];
     },
+    async getMe() {
+      // 호출자 신원 — PAT 는 소유자, Internal+X-On-Behalf-Of 는 대리 대상이 된다(담당자 "me" 치환·토큰 검증).
+      return (await http.get('/auth/me')).data;
+    },
     async updateProject(key, body) {
       return (await http.patch(project(key), body)).data;
     },

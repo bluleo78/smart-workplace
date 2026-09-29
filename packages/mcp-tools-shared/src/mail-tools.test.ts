@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildMailTools } from './mail-tools.js';
-import type { ProjectMetaClient } from './resolve.js';
+import type { AssigneeResolverClient } from './resolve.js';
 import type { MailToolClient } from './tool-client.js';
 
-type Client = MailToolClient & Pick<ProjectMetaClient, 'getProjectMembers'>;
+type Client = MailToolClient & AssigneeResolverClient;
 
 /** 메일 클라이언트 mock(메일→이슈 담당자 해석용 프로젝트 멤버 조회 포함). */
 function mockClient(): Client {
@@ -18,6 +18,7 @@ function mockClient(): Client {
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-9' }),
     setMailNeedsReplyDone: vi.fn().mockResolvedValue(undefined),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
+    getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
   };
 }
 

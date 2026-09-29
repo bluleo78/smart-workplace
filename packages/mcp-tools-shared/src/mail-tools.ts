@@ -2,7 +2,7 @@
 // 발송은 ai-agent 의 propose_send_mail(확인 카드)만 — 답장 초안 도구는 본문을 돌려줄 뿐 저장·발송하지 않는다.
 import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
-import { resolveAssigneeIds, type ProjectMetaClient } from './resolve.js';
+import { resolveAssigneeIds, type AssigneeResolverClient } from './resolve.js';
 import type { MailToolClient } from './tool-client.js';
 
 export const listMailInput = z.object({
@@ -32,7 +32,7 @@ export const setMailNeedsReplyDoneInput = z.object({
  * 메일 도구(list_mail_accounts/list_mail/get_mail/get_mail_summary/draft_mail_reply/draft_issue_from_mail/
  * create_issue_from_mail/set_mail_needs_reply_done). 모두 내 메일만 다룬다(남의 메일이면 서버가 404).
  */
-export function buildMailTools(client: MailToolClient & Pick<ProjectMetaClient, 'getProjectMembers'>): SharedTool[] {
+export function buildMailTools(client: MailToolClient & AssigneeResolverClient): SharedTool[] {
   return [
     {
       name: 'list_mail_accounts',
@@ -105,7 +105,7 @@ export function buildMailTools(client: MailToolClient & Pick<ProjectMetaClient, 
       name: 'create_issue_from_mail',
       kind: 'write',
       description:
-        '메일을 이슈로 등록하고 메일과 이슈를 서로 연결합니다. assignees 는 프로젝트 멤버 username 배열입니다. ' +
+        '메일을 이슈로 등록하고 메일과 이슈를 서로 연결합니다. assignees 는 프로젝트 멤버 username 배열입니다("me"=나, 호출자 본인). ' +
         '이미 이 메일로 만든 이슈가 있으면 새로 만들지 않고 그 issueKey 를 알려줍니다. 결과 { issueKey, created } 를 반환합니다.',
       inputSchema: createIssueFromMailInput,
       async handler(args) {

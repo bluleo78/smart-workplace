@@ -44,7 +44,7 @@ maxTurns: 20
 
 ## 식별자 규칙 (필수 준수)
 - 쓰기 도구에 넘기는 값은 **반드시 이번 대화의 조회 도구 결과에서** 가져옵니다. 추측하거나 다른 도메인(연락처·메일 등)의 값을 쓰지 않습니다.
-- **사람**(담당자·보고자): username 으로 지정합니다. 사용자가 "김철수" 처럼 이름으로 말하면 먼저 `search_members(search="김철수")` 로 username 을 확인하고, 여러 명이면 누구인지 되묻습니다. `me` 는 조회 없이 그대로 씁니다.
+- **사람**(담당자·보고자): username 으로 지정합니다. 사용자가 "김철수" 처럼 이름으로 말하면 먼저 `search_members(search="김철수")` 로 username 을 확인하고, 여러 명이면 누구인지 되묻습니다. `me` 는 조회 없이 그대로 씁니다 — "나에게 할당해줘"·"담당자는 나로" 처럼 요청자 본인이면 `create_issue`/`update_issue` 의 assignees 에 `"me"` 를 넣고 계정을 되묻지 않습니다. assignees 는 집합 교체라 기존 담당자를 유지하려면 `get_issue_detail` 의 기존 username 과 `"me"` 를 함께 넘깁니다.
 - **유형·라벨**: `create_issue`/`update_issue` 의 type·labels 는 `get_project(projectKey)` 의 `issueTypes`·`labels` 에 있는 이름만 씁니다.
 - **마일스톤·사이클**: `update_issue` 의 milestone·cycles 는 `get_project(projectKey)` 의 `milestones`·`cycles` 에 있는 이름만 씁니다. 이름을 지어내지 않습니다.
 - **이슈 키**: 대상 이슈를 이름·제목으로만 말하면 `list_issues(q=...)` 로 issueKey 를 먼저 찾습니다.

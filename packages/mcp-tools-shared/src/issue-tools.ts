@@ -31,7 +31,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       name: 'create_issue',
       kind: 'write',
       description:
-        '프로젝트에 새 이슈를 등록합니다. type 은 유형 이름(예: BUG), assignees 는 username 배열, ' +
+        '프로젝트에 새 이슈를 등록합니다. type 은 유형 이름(예: BUG), assignees 는 username 배열("me"=나, 호출자 본인), ' +
         'parent 는 부모 이슈 번호입니다. type/assignees 이름이 유효하지 않으면 오류에 사용 가능한 값 목록이 포함됩니다.',
       inputSchema: createIssueInput,
       async handler(args) {
@@ -58,7 +58,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       description:
         '이슈를 부분 수정합니다. 전달한 필드만 변경됩니다. status/priority 는 enum, type 은 유형 이름, ' +
-        'assignees 는 username 배열(집합 교체), labels 는 라벨명 배열(집합 교체), parent 는 부모 이슈 번호(null=해제)입니다. ' +
+        'assignees 는 username 배열("me"=나, 집합 교체), labels 는 라벨명 배열(집합 교체), parent 는 부모 이슈 번호(null=해제)입니다. ' +
         'milestone 은 마일스톤 이름(null=해제), cycles 는 사이클 이름 배열(집합 교체, []=전부 해제)입니다. ' +
         'clearDueDate/clearStartDate 로 날짜를 비웁니다. 각 항목은 독립 저장되며 결과를 { ok, results } 로 보고합니다.',
       inputSchema: updateIssueInput,

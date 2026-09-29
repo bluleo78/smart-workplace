@@ -29,14 +29,38 @@ export async function resolveTypeId(client: ProjectMetaClient, projectKey: strin
   return idByName(await client.getProjectTypes(projectKey), typeName, '유형');
 }
 
-/** username 배열 → userId 배열. 하나라도 없으면 사용 가능한 username 을 담아 throw. */
+/** 호출자 본인 조회(GET /auth/me) — 담당자 "me" 를 호출자로 치환할 때 쓴다. */
+export interface CurrentUserClient {
+  getMe(): Promise<{ id: number; username: string }>;
+}
+
+/** 담당자 리졸브에 필요한 클라이언트 — 프로젝트 멤버 + 호출자 조회. */
+export type AssigneeResolverClient = Pick<ProjectMetaClient, 'getProjectMembers'> & CurrentUserClient;
+
+/** 담당자 값이 "me"(호출자 본인) 별칭인지 — list_issues 의 assignee="me" 와 같은 어휘. 대소문자·앞뒤 공백 무시. */
+const isMeAlias = (u: string) => u.trim().toLowerCase() === 'me';
+
+/**
+ * username 배열 → userId 배열. 하나라도 없으면 사용 가능한 username 을 담아 throw.
+ * WP-53: "me" 는 호출자 본인(PAT 소유자 / X-On-Behalf-Of 대리 대상)으로 치환한다 — LLM 이 사용자의 username 을 몰라도
+ * "나에게 할당해줘"를 처리하게 한다. 이슈 이벤트 경로(에이전트 신원)에서는 에이전트 자신이 된다. 호출자 조회는 "me" 가 있을 때만 한다.
+ */
 export async function resolveAssigneeIds(
-  client: Pick<ProjectMetaClient, 'getProjectMembers'>,
+  client: AssigneeResolverClient,
   projectKey: string,
   usernames: string[],
 ): Promise<number[]> {
-  const members = await client.getProjectMembers(projectKey);
-  return usernames.map((u) => {
+  const [members, me] = await Promise.all([
+    client.getProjectMembers(projectKey),
+    usernames.some(isMeAlias) ? client.getMe() : undefined,
+  ]);
+  // 본인은 userId 로 한 번만 매칭한다. 멤버가 아니면 일반 "사용 가능 목록" 대신 본인 지정 불가 사유를 알린다.
+  const self = me && members.find((x) => x.userId === me.id);
+  if (me && !self) {
+    throw new Error(`현재 사용자 '${me.username}' 은(는) 프로젝트 ${projectKey} 의 멤버가 아니라 담당자로 지정할 수 없습니다.`);
+  }
+  const ids = usernames.map((u) => {
+    if (self && isMeAlias(u)) return self.userId;
     const m = members.find((x) => x.username === u);
     if (!m) {
       throw new Error(
@@ -47,6 +71,8 @@ export async function resolveAssigneeIds(
     }
     return m.userId;
   });
+  // 기존 담당자 + "me" 를 함께 넘길 때 본인이 이미 담당자면 같은 id 가 두 번 나온다 — 순서를 지키며 중복 제거.
+  return [...new Set(ids)];
 }
 
 /** 라벨 이름 배열 → labelId 배열. */

@@ -31,7 +31,7 @@ maxTurns: 20
 - AI 요약: `get_mail_summary(messageId)` — 메일의 AI 요약. 긴 메일 요약 요청에 먼저 씁니다.
 - 답장 초안: `draft_mail_reply(messageId)` — AI 가 답장 본문 초안(`draftBody`)을 만듭니다. 저장·발송하지 않으므로, 보내려면 그 초안으로 `propose_send_mail` 확인 카드를 만듭니다.
 - 이슈 초안: `draft_issue_from_mail(messageId)` — 메일을 이슈로 옮길 때의 제목·본문 초안과 추천 프로젝트를 돌려줍니다. 이슈는 만들지 않습니다.
-- 이슈 생성: `create_issue_from_mail(messageId, projectKey, title, body?, priority?, assignees?)` — 메일에서 이슈를 만들고 메일과 연결합니다(직접 실행). assignees 는 username 배열(`search_members` 로 확인). 이미 연결된 이슈가 있으면 새로 만들지 않고 그 이슈 키를 돌려주니, 그대로 안내합니다.
+- 이슈 생성: `create_issue_from_mail(messageId, projectKey, title, body?, priority?, assignees?)` — 메일에서 이슈를 만들고 메일과 연결합니다(직접 실행). assignees 는 username 배열(`search_members` 로 확인). 요청자 본인("나에게")이면 조회 없이 `"me"` 를 넣습니다. 이미 연결된 이슈가 있으면 새로 만들지 않고 그 이슈 키를 돌려주니, 그대로 안내합니다.
 - 회신 완료 처리: `set_mail_needs_reply_done(accountId, messageId, done?)` — "회신 필요" 메일을 처리 완료로 표시합니다(done 기본 true, false 면 완료 해제).
 
 ## 식별자 규칙 (필수 준수)

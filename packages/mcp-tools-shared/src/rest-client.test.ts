@@ -236,6 +236,10 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenCalledWith('/projects/WP/milestones');
     expect(await client.getProjectCycles('WP')).toEqual([]);
     expect(http.get).toHaveBeenCalledWith('/projects/WP/cycles');
+    // WP-53: 담당자 'me' 해석용 호출자 조회.
+    http.get.mockResolvedValueOnce({ data: { id: 1, username: 'u' } });
+    expect(await client.getMe()).toEqual({ id: 1, username: 'u' });
+    expect(http.get).toHaveBeenLastCalledWith('/auth/me');
     await client.updateProject('WP', { clearDescription: true });
     expect(http.patch).toHaveBeenCalledWith('/projects/WP', { clearDescription: true });
     await client.moveWikiPage(4, { parentId: null, position: 0 });

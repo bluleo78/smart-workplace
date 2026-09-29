@@ -42,4 +42,11 @@ describe('issue-agent 정의', () => {
     expect(loaded['issue-agent'].description.length).toBeGreaterThan(0);
     expect(loaded['issue-agent'].prompt).toContain('이슈');
   });
+
+  // WP-53: "나에게 할당해줘" 에서 계정을 되묻지 않고 assignees "me" 를 쓰도록 안내한다.
+  it('본인 담당 지정은 assignees "me" 로 처리하도록 안내한다', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('나에게 할당해줘');
+    expect(prompt).toContain('assignees 에 `"me"`');
+  });
 });
