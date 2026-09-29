@@ -1,5 +1,6 @@
 package com.workplace.platform;
 
+import static com.workplace.jooq.Tables.REFRESH_TOKEN;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
@@ -15,6 +16,7 @@ import com.workplace.platform.exception.PlatformAccessDeniedException;
 import com.workplace.platform.repository.PlatformRoleRepository;
 import com.workplace.platform.service.PlatformAuthService;
 import com.workplace.support.IntegrationTestBase;
+import java.time.LocalDateTime;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -110,14 +112,10 @@ class PlatformAuthServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void refresh_platformRefreshToken_issuesNewPlatformToken() throws InterruptedException {
+  void refresh_platformRefreshToken_issuesNewPlatformToken() {
     String username = createHumanUser("admin", true, true);
     PlatformAuthService.PlatformLoginResult login =
         platformAuthService.login(new PlatformLoginRequest(username, RAW_PASSWORD));
-
-    // JWT 는 초 단위 정밀도라 같은 초 안에 재발급하면 토큰이 동일(hash UNIQUE 충돌). 새 토큰을 보장한다.
-    Thread.sleep(1100);
-
     PlatformAuthService.PlatformLoginResult refreshed =
         platformAuthService.refresh(login.refreshToken());
 
@@ -141,17 +139,13 @@ class PlatformAuthServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void refresh_reuseWithinGracePeriod_issuesNewTokenInsteadOfRevokingFamily()
-      throws InterruptedException {
+  void refresh_reuseWithinGracePeriod_issuesNewTokenInsteadOfRevokingFamily() {
     // 크로스탭 경쟁 재현: 운영자 콘솔의 한 탭이 A로 refresh해 B를 받은 직후(그레이스 윈도우 내),
     // 다른 탭이 여전히 A로 refresh를 시도.
     String username = createHumanUser("admin", true, true);
     PlatformAuthService.PlatformLoginResult login =
         platformAuthService.login(new PlatformLoginRequest(username, RAW_PASSWORD));
     String tokenA = login.refreshToken();
-
-    Thread.sleep(1100);
-
     PlatformAuthService.PlatformLoginResult afterFirstRefresh =
         platformAuthService.refresh(tokenA); // A → B (정상 회전)
     String tokenB = afterFirstRefresh.refreshToken();
@@ -164,22 +158,19 @@ class PlatformAuthServiceTest extends IntegrationTestBase {
     assertThat(afterSecondRefresh.refreshToken()).isNotEqualTo(tokenB);
 
     // grace로 살아난 family이므로 B도 여전히 유효해야 한다(정상 탭까지 로그아웃되지 않음 확인).
-    Thread.sleep(1100);
     PlatformAuthService.PlatformLoginResult afterUsingB = platformAuthService.refresh(tokenB);
     assertThat(afterUsingB.accessToken()).isNotBlank();
   }
 
   @Test
-  void refresh_reuseAfterGracePeriodExpired_revokesEntireFamily() throws InterruptedException {
+  void refresh_reuseAfterGracePeriodExpired_revokesEntireFamily() {
     String username = createHumanUser("admin", true, true);
     PlatformAuthService.PlatformLoginResult login =
         platformAuthService.login(new PlatformLoginRequest(username, RAW_PASSWORD));
     String tokenA = login.refreshToken();
-
-    Thread.sleep(1100);
     platformAuthService.refresh(tokenA); // A → B
 
-    Thread.sleep(2100); // application-test.yml: refresh-grace-period-seconds=2 초과 대기
+    expireRefreshGrace(); // grace(2초) 만료를 sleep 없이 재현
 
     assertThatThrownBy(() -> platformAuthService.refresh(tokenA))
         .isInstanceOf(InvalidTokenException.class)
@@ -200,5 +191,19 @@ class PlatformAuthServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> platformAuthService.refresh(login.refreshToken()))
         .isInstanceOf(InvalidTokenException.class)
         .hasMessage("이미 사용된 토큰입니다. 다시 로그인해 주세요.");
+  }
+
+  /**
+   * refresh grace period(테스트 설정 2초) 만료를 sleep 없이 재현한다 — 방금 폐기된 토큰의 revoked_at 을 grace 밖(1시간 전)으로
+   * 당긴다. 클래스 {@code @Transactional} 이라 테스트 종료 시 롤백된다. "방금 폐기" 조건으로 이 테스트가 만든 행만 건드린다.
+   */
+  private void expireRefreshGrace() {
+    LocalDateTime now = LocalDateTime.now();
+    baseDsl
+        .update(REFRESH_TOKEN)
+        .set(REFRESH_TOKEN.REVOKED_AT, now.minusHours(1))
+        .where(REFRESH_TOKEN.REVOKED.isTrue())
+        .and(REFRESH_TOKEN.REVOKED_AT.gt(now.minusMinutes(1)))
+        .execute();
   }
 }

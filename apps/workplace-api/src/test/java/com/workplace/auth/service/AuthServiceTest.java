@@ -1,6 +1,7 @@
 package com.workplace.auth.service;
 
 import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.REFRESH_TOKEN;
 import static com.workplace.jooq.Tables.TENANT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -18,6 +19,7 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserDeactivatedException;
 import com.workplace.user.repository.UserRepository;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.jdbc.Sql;
@@ -205,13 +207,10 @@ class AuthServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void refresh_success() throws InterruptedException {
+  void refresh_success() {
     authService.signup(
         new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
     var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
-
-    Thread.sleep(1100); // JWT uses second-precision timestamps; ensure new token differs
-
     TokenResponse result = authService.refresh(loginResult.refreshToken());
 
     assertThat(result.accessToken()).isNotBlank();
@@ -244,22 +243,19 @@ class AuthServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void refresh_reusedToken_revokesEntireFamily() throws InterruptedException {
+  void refresh_reusedToken_revokesEntireFamily() {
     authService.signup(
         new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
     var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
 
     String firstRefreshToken = loginResult.refreshToken();
-
-    Thread.sleep(1100);
-
     // Normal rotation: use first token to get second token
     TokenResponse secondResult = authService.refresh(firstRefreshToken);
     String secondRefreshToken = secondResult.refreshToken();
 
     // grace period(테스트 설정 2초)를 지나야 진짜 탈취 시나리오가 된다 — grace 이내 재사용은
     // 크로스탭 경쟁으로 간주되어 관용되므로(별도 테스트로 커버) 여기서는 grace 만료 후 재사용을 재현한다.
-    Thread.sleep(2100);
+    expireRefreshGrace(); // grace(2초) 만료를 sleep 없이 재현
 
     // Simulate attacker reusing the first (already rotated) token
     // This should revoke the entire token family, including the second token
@@ -273,16 +269,12 @@ class AuthServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void refresh_reuseWithinGracePeriod_issuesNewTokenInsteadOfRevokingFamily()
-      throws InterruptedException {
+  void refresh_reuseWithinGracePeriod_issuesNewTokenInsteadOfRevokingFamily() {
     // 크로스탭 경쟁 재현: 한 탭이 A로 refresh해 B를 받은 "직후"(그레이스 윈도우 내) 다른 탭이 여전히 A로 refresh를 시도.
     authService.signup(
         new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
     var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
     String tokenA = loginResult.refreshToken();
-
-    Thread.sleep(1100);
-
     TokenResponse afterFirstRefresh = authService.refresh(tokenA); // A → B (정상 회전)
     String tokenB = afterFirstRefresh.refreshToken();
 
@@ -294,22 +286,19 @@ class AuthServiceTest extends IntegrationTestBase {
     assertThat(afterSecondRefresh.refreshToken()).isNotEqualTo(tokenB);
 
     // grace로 살아난 family이므로 B도 여전히 유효해야 한다(정상 탭까지 로그아웃되지 않음 확인).
-    Thread.sleep(1100);
     TokenResponse afterUsingB = authService.refresh(tokenB);
     assertThat(afterUsingB.accessToken()).isNotBlank();
   }
 
   @Test
-  void refresh_reuseAfterGracePeriodExpired_revokesEntireFamily() throws InterruptedException {
+  void refresh_reuseAfterGracePeriodExpired_revokesEntireFamily() {
     authService.signup(
         new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
     var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
     String tokenA = loginResult.refreshToken();
-
-    Thread.sleep(1100);
     authService.refresh(tokenA); // A → B
 
-    Thread.sleep(2100); // application-test.yml: refresh-grace-period-seconds=2 초과 대기
+    expireRefreshGrace(); // grace(2초) 만료를 sleep 없이 재현
 
     assertThatThrownBy(() -> authService.refresh(tokenA))
         .isInstanceOf(InvalidTokenException.class)
@@ -464,5 +453,19 @@ class AuthServiceTest extends IntegrationTestBase {
     assertThat(jwtTokenProvider.getTenantIdFromToken(result.accessToken())).isNull();
     assertThat(result.memberships()).hasSize(2);
     // @Transactional 클래스 어노테이션으로 테스트 종료 시 롤백 — 별도 cleanup 불필요.
+  }
+
+  /**
+   * refresh grace period(테스트 설정 2초) 만료를 sleep 없이 재현한다 — 방금 폐기된 토큰의 revoked_at 을 grace 밖(1시간 전)으로
+   * 당긴다. 클래스 {@code @Transactional} 이라 테스트 종료 시 롤백된다. "방금 폐기" 조건으로 이 테스트가 만든 행만 건드린다.
+   */
+  private void expireRefreshGrace() {
+    LocalDateTime now = LocalDateTime.now();
+    baseDsl
+        .update(REFRESH_TOKEN)
+        .set(REFRESH_TOKEN.REVOKED_AT, now.minusHours(1))
+        .where(REFRESH_TOKEN.REVOKED.isTrue())
+        .and(REFRESH_TOKEN.REVOKED_AT.gt(now.minusMinutes(1)))
+        .execute();
   }
 }
