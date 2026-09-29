@@ -13,6 +13,7 @@ import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.MailSecurity;
+import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.service.MailAutoSyncScheduler;
 import com.workplace.mail.service.MailBackfillService;
@@ -61,6 +62,13 @@ class MailAutoSyncSchedulerTest extends IntegrationTestBase {
 
   /** 비동기 본문 보충 목킹 — sync 의 백필 트리거를 무동작으로 만들어 메타전용 단언을 결정적으로 만든다. */
   @MockitoBean MailBackfillService backfillService;
+
+  /**
+   * Graph API 목킹 — syncAllTenants 는 공유 테스트 DB 의 전 테넌트 활성 계정을 순회하므로, 다른 테스트가 남긴 M365 계정 때문에 실제
+   * graph.microsoft.com 을 호출했다(401, WP-84). 목은 실패로 처리되어 계정별 실패 격리 경로를 타고, 이 테스트의 GreenMail 계정 단언에는
+   * 영향이 없다.
+   */
+  @MockitoBean GraphApiClient graphApiClient;
 
   /** 테스트에서 생성한 user/account id — AfterEach 에서 삭제 대상. (tenantId, accountId, userId) 튜플로 보관. */
   private final List<long[]> seeded = new ArrayList<>();
