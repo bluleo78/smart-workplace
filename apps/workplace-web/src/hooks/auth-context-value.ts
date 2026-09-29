@@ -19,8 +19,8 @@ export interface AuthContextValue {
   login: (data: LoginFormData) => Promise<void>;
   signup: (data: SignupFormData) => Promise<void>;
   logout: () => Promise<void>;
-  /** 테넌트 선택/전환 — tenant-scoped 토큰 재발급 후 루트로 전체 리로드. */
-  selectTenant: (membership: Membership) => Promise<void>;
+  /** 테넌트 전환 — 토큰 재발급 후 redirectTo(기본 '/')로 전체 리로드. 알림 탭 이동은 목적지를 넘긴다. */
+  selectTenant(membership: Membership, redirectTo?: string): Promise<void>;
   hasRole: (roleName: string) => boolean;
   isAdmin: boolean;
   refreshUser: () => Promise<void>;

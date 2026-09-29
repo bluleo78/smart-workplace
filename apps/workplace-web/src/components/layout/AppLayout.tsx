@@ -1,7 +1,7 @@
 // src/components/layout/AppLayout.tsx
 // 전역 셸 — 좌측 앱 런처 LNB + 모듈 콘텐츠 + AI 어시스턴트(칩/사이드/풀스크린). 상단 GNB 없음.
 import { useEffect, useMemo } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useNavigate } from 'react-router-dom'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { AIChip } from '@/components/ai/AIChip'
@@ -16,10 +16,11 @@ import { MessagingConnectionContext } from '@/hooks/MessagingConnectionContext'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
+import { openPushTarget, takePendingPushTarget } from '@/lib/push/openTarget'
 import { syncPushOnLogin } from '@/lib/push/subscription'
 
 export function AppLayout() {
-  const { user } = useAuth()
+  const { user, activeTenant, selectTenant } = useAuth()
   // AI 가용성 — 비서 없으면 AIChip·AISidePanel·AIFullscreen 미렌더.
   const aiAvailable = useAiAvailable()
   // 인증된 앱 셸에서 통합 실시간 SSE 를 1회 구독(유저당 단일 커넥션). chat·messaging·notify 이벤트를
@@ -32,6 +33,28 @@ export function AppLayout() {
   useEffect(() => {
     void syncPushOnLogin()
   }, [user?.id])
+
+  const navigate = useNavigate()
+  // 로그인 전에 알림을 탭했다면 저장된 목적지로 1회 이동.
+  useEffect(() => {
+    const pending = takePendingPushTarget()
+    if (pending) void openPushTarget(pending, { activeTenantId: activeTenant?.tenantId ?? null, selectTenant, navigate })
+    // 최초 진입 1회만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // 열린 창에서 알림을 탭하면 SW 가 보내는 이동 요청.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type !== 'push-navigate') return
+      void openPushTarget(
+        { tenantId: typeof e.data.tenantId === 'number' ? e.data.tenantId : null, url: e.data.url },
+        { activeTenantId: activeTenant?.tenantId ?? null, selectTenant, navigate },
+      )
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage)
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage)
+  }, [activeTenant, selectTenant, navigate])
 
   return (
     <MailComposeProvider>

@@ -132,14 +132,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [fetchUserWithRoles]);
 
-  const selectTenant = useCallback(async (membership: Membership) => {
+  const selectTenant = useCallback(async (membership: Membership, redirectTo = '/') => {
     // tenant-scoped 토큰 재발급(refresh 쿠키도 tenant-scoped 로 세팅됨).
     const { data: token } = await authApi.selectTenant(membership.tenantId);
     setAccessToken(token.accessToken);
     writeActiveTenant(membership);
     localStorage.setItem(AUTH_FLAG_KEY, 'true');
-    // 캐시(React Query/Context)를 새 테넌트로 깨끗이 초기화하기 위해 루트로 전체 리로드.
-    window.location.assign('/');
+    // 캐시(React Query/Context)를 새 테넌트로 깨끗이 초기화하기 위해 전체 리로드 — 알림 탭 이동은 원래 목적지로.
+    window.location.assign(redirectTo);
   }, []);
 
   const signup = useCallback(async (data: SignupFormData) => {

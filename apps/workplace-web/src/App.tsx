@@ -82,6 +82,8 @@ const MailInboxPage = lazy(() =>
   import('./pages/mail/MailInboxPage').then((m) => ({ default: m.MailInboxPage })),
 )
 const M365CallbackPage = lazy(() => import('./pages/oauth/M365CallbackPage'))
+// 알림 탭으로 새 창이 열릴 때의 진입점 — 미인증도 접근 가능(로그인 후 목적지로 복귀).
+const PushOpenPage = lazy(() => import('./pages/PushOpenPage'))
 const ProfileSettingsPage = lazy(() => import('./pages/settings/ProfileSettingsPage'))
 const MailSettingsPage = lazy(() => import('./pages/settings/MailSettingsPage'))
 const NotificationSettingsPage = lazy(() => import('./pages/settings/NotificationSettingsPage'))
@@ -119,6 +121,8 @@ export default function App() {
           <Route path="/s/:token" element={<ShareLinkPage />} />
           {/* M365 OAuth 팝업 콜백 — 토큰 없는 팝업이 착지하므로 ProtectedRoute 밖 공개 라우트 */}
           <Route path="/oauth/m365/callback" element={<M365CallbackPage />} />
+          {/* 알림 탭 진입점 — 공개 라우트(미로그인이면 목적지를 저장하고 로그인으로) */}
+          <Route path="/push-open" element={<PushOpenPage />} />
           {/* 인증 필요 — ProtectedRoute 가 미인증 시 /login 리다이렉트, 통과 시 AppLayout 렌더 */}
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
