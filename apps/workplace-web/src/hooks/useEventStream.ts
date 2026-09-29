@@ -51,6 +51,20 @@ export function reconnectCatchUp(qc: QueryClient) {
   });
 }
 
+/**
+ * SSE onOpen 콜백 팩토리. 첫 연결은 초기 로딩 직후라 건너뛰고, 재연결에서만 catch-up 한다 (WP-59).
+ */
+export function createCatchUp(qc: QueryClient): () => void {
+  let opened = false;
+  return () => {
+    if (!opened) {
+      opened = true;
+      return;
+    }
+    reconnectCatchUp(qc);
+  };
+}
+
 export function useEventStream(currentUserId: number): { isConnected: boolean } {
   const qc = useQueryClient();
   // 재연결(스트림 재구독) 없이 최신 userId 를 참조하기 위해 ref 로 보관.
@@ -61,15 +75,7 @@ export function useEventStream(currentUserId: number): { isConnected: boolean } 
   });
 
   useEffect(() => {
-    let opened = false;
-    const catchUp = () => {
-      // 첫 연결은 초기 로딩 직후라 건너뛴다 — 재연결에서만 끊김 동안 놓친 변경을 따라잡는다.
-      if (!opened) {
-        opened = true;
-        return;
-      }
-      reconnectCatchUp(qc);
-    };
+    const catchUp = createCatchUp(qc);
     const cleanup = subscribeEventStream({
       url: '/api/v1/events',
       onEvent: (name, data) =>

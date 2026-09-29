@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import type { QueryClient } from '@tanstack/react-query';
+import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('./useChatStream', () => ({ handleChatEvent: vi.fn() }));
 vi.mock('./useMessageStream', () => ({ handleMessagingEvent: vi.fn() }));
@@ -10,7 +10,7 @@ vi.mock('../lib/aiEventBus', () => ({ emitAiStreamEvent: vi.fn() }));
 
 import { emitAiStreamEvent } from '../lib/aiEventBus';
 import { handleChatEvent } from './useChatStream';
-import { reconnectCatchUp, routeStreamEvent } from './useEventStream';
+import { createCatchUp, reconnectCatchUp, routeStreamEvent } from './useEventStream';
 import { handleIssueEvent } from './useIssueStream';
 import { handleMessagingEvent } from './useMessageStream';
 import { handleNotifyEvent } from './useNotificationStream';
@@ -67,5 +67,22 @@ describe('reconnectCatchUp', () => {
     expect(arg.predicate({ queryKey: ['issues', 'search', 'EX'] })).toBe(true);
     expect(arg.predicate({ queryKey: ['mail-summary', 3] })).toBe(false);
     expect(arg.predicate({ queryKey: ['chat', 'messages', 1] })).toBe(false);
+  });
+});
+
+describe('createCatchUp', () => {
+  it('첫 연결은 catch-up 생략, 재연결은 실행한다', () => {
+    const qc = { invalidateQueries: vi.fn() } as unknown as QueryClient;
+    const catchUp = createCatchUp(qc);
+
+    // 첫 번째 onOpen (초기 연결) — catch-up 실행 안 함
+    catchUp();
+    expect((qc.invalidateQueries as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+
+    // 두 번째 onOpen (재연결) — catch-up 실행
+    catchUp();
+    expect((qc.invalidateQueries as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+    const arg = (qc.invalidateQueries as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(arg.refetchType).toBe('active');
   });
 });
