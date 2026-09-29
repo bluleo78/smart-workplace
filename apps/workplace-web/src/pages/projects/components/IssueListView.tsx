@@ -5,7 +5,7 @@
 // (상태 변경/담당자 지정/삭제) — 보드 뷰(칸반)는 업계 관행(Linear/Jira/GitHub 등)대로 제외.
 
 import { LayoutList, SearchX, UserPlus } from 'lucide-react';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
@@ -39,6 +39,7 @@ import {
 } from '../../../hooks/queries/useBulkIssueActions';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
+import { useLoadMoreSentinel } from '../../../hooks/useLoadMoreSentinel';
 import { formatDateKorean } from '../../../lib/formatters';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { groupIssues } from '../../../lib/issueGrouping';
@@ -69,11 +70,12 @@ export function IssueListView({
   /** 초기 빈 상태 CTA — "새 태스크 만들기" 버튼에 연결 */
   onOpenCreate?: () => void;
 }) {
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [params, setParams] = useSearchParams();
   // 보드와 같은 기본 범위 — 에픽 행 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(withDefaultIssueScope).
-  const { data, fetchNextPage, hasNextPage, isFetching, isLoading } =
-    useIssueSearch(projectKey, withDefaultIssueScope(filters));
+  const searchQuery = useIssueSearch(projectKey, withDefaultIssueScope(filters));
+  const { data, isFetching, isLoading } = searchQuery;
+  // sentinel 진입 시 다음 페이지 로드(공용 훅).
+  const sentinelRef = useLoadMoreSentinel(searchQuery);
 
   // #606: 다중 선택 상태 — 이슈 number 집합. 필터/그룹 변경 시 초기화(아래 useEffect).
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -100,22 +102,6 @@ export function IssueListView({
   useEffect(() => {
     clearSelected();
   }, [filters, groupBy]);
-
-  // IntersectionObserver — sentinel 진입 시 다음 페이지 로드.
-  useEffect(() => {
-    const node = sentinelRef.current;
-    if (!node) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting && hasNextPage && !isFetching) {
-          void fetchNextPage();
-        }
-      },
-      { rootMargin: '200px' },
-    );
-    io.observe(node);
-    return () => io.disconnect();
-  }, [hasNextPage, isFetching, fetchNextPage]);
 
   if (isLoading) {
     return <p className="text-muted-foreground py-4">로딩 중…</p>;

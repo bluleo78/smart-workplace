@@ -1,6 +1,6 @@
 // 4 컬럼 칸반 보드 — @dnd-kit.
-// list 뷰와 동일한 useIssueSearch 쿼리 키를 공유해 캐시를 재사용한다.
-// 첫 페이지가 가득 차면 자동으로 두번째 페이지까지 prefetch.
+// 상태 보드는 컬럼마다 독립 무한 쿼리(useIssueBoardColumns)로 각 컬럼 끝까지 스크롤하며 이어 받는다(#875).
+// 담당자·우선순위 그룹 보드는 그룹이 동적이라 단일 쿼리로 마지막 페이지까지 순차 로드한다.
 
 import {
   closestCorners,
@@ -22,12 +22,17 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { Inbox, Plus } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 
+import {
+  type BoardColumnQuery,
+  useIssueBoardColumns,
+} from '../../../hooks/queries/useIssueBoardColumns';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
+import { useLoadMoreSentinel } from '../../../hooks/useLoadMoreSentinel';
 import { groupIssues, type IssueGroup } from '../../../lib/issueGrouping';
 import type {
   IssueFilters,
@@ -80,38 +85,47 @@ export function IssueBoardView({
   // 서버 플래그 — 상태 drag-to-change 허용 여부(멤버만). false 이면 DnD 이벤트를 무시한다.
   canDragStatus?: boolean;
 }) {
-  // 보드는 한 화면에 많은 카드를 보여줘야 하므로 페이지 크기를 100 으로 키운다.
   // 노출 범위(에픽 제외 등)는 호출처가 정한다 — 팀 보드는 withDefaultIssueScope, 개인 보드는 최상위만.
-  const { data, fetchNextPage, hasNextPage, isFetching } = useIssueSearch(
-    projectKey,
-    filters,
-    100,
-  );
+  const grouped = groupBy != null && groupBy !== 'status';
+  const statuses = columns.map((c) => c.status);
+  // 상태 보드 — 컬럼별 쿼리. 그룹 보드에서는 비활성.
+  const columnQueries = useIssueBoardColumns(projectKey, filters, statuses, !grouped);
+  // 그룹 보드 — 단일 쿼리. 상태 보드에서는 비활성.
+  const groupQuery = useIssueSearch(projectKey, filters, 100, grouped);
   const updateStatus = useUpdateIssueStatus(projectKey);
 
-  // 첫 페이지 도착 후 다음 페이지가 있으면 한 번 더 자동 로드 (최대 200 카드).
+  // 그룹 보드는 컬럼(그룹)이 페이지 순서와 무관하게 동적으로 생기므로 컬럼별 스크롤 로드가 불가 →
+  // 마지막 페이지까지 순차로 모두 받는다(기존 200건 상한 + "필터로 좁혀주세요" 대체).
+  // 다음 페이지 요청이 실패하면 멈춘다 — 안 그러면 isFetching 해제가 effect 를 다시 돌려 무한 재요청한다.
+  const { hasNextPage: groupHasNext, isFetching: groupFetching, isFetchNextPageError: groupNextError, fetchNextPage } =
+    groupQuery;
   useEffect(() => {
-    if (data && data.pages.length === 1 && hasNextPage && !isFetching) {
-      void fetchNextPage();
-    }
-  }, [data, hasNextPage, isFetching, fetchNextPage]);
+    if (grouped && groupHasNext && !groupFetching && !groupNextError) void fetchNextPage();
+  }, [grouped, groupHasNext, groupFetching, groupNextError, fetchNextPage]);
 
   // 응답 모양이 예상과 다른 경우(p.items 누락) flatMap 이 [undefined] 를 만들지 못하게 방어.
-  const allIssues: IssueResponse[] = useMemo(
-    () =>
-      data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [],
-    [data],
-  );
+  // 상태 보드는 모든 컬럼 쿼리를 합친 뒤 id 로 중복 제거하고 아래 byStatus 에서 it.status 로 다시 나눈다 —
+  // DnD 낙관적 패치는 원래 컬럼 쿼리 캐시 안에서 status 만 바꾸므로, 쿼리 단위가 아니라 status 로 나눠야
+  // 드롭 즉시 대상 컬럼에 카드가 나타난다.
+  const pages = grouped
+    ? (groupQuery.data?.pages ?? [])
+    : statuses.flatMap((s) => columnQueries[s]?.data?.pages ?? []);
+  const allIssues: IssueResponse[] = [];
+  const seen = new Set<number>();
+  for (const p of pages) {
+    for (const it of p.items ?? []) {
+      if (it == null || seen.has(it.id)) continue;
+      seen.add(it.id);
+      allIssues.push(it);
+    }
+  }
 
   // byStatus 는 columns 기준으로 동적 생성 — 컬럼에 없는 상태(개인 CANCELED)는 자연 제외.
-  const byStatus = useMemo(() => {
-    const map: Record<string, IssueResponse[]> = {};
-    for (const col of columns) map[col.status] = [];
-    for (const it of allIssues) {
-      if (map[it.status]) map[it.status].push(it);
-    }
-    return map;
-  }, [allIssues, columns]);
+  const byStatus: Record<string, IssueResponse[]> = {};
+  for (const col of columns) byStatus[col.status] = [];
+  for (const it of allIssues) {
+    byStatus[it.status]?.push(it);
+  }
 
   // PointerSensor distance:5 — 짧은 클릭으로 Link 가 발화되도록 보장.
   const sensors = useSensors(
@@ -150,25 +164,33 @@ export function IssueBoardView({
 
   // group 이 상태/없음이 아니면(담당자·우선순위) 동적 읽기전용 그룹 컬럼을 렌더한다.
   // 상태 그룹/그룹 없음은 기존 드래그-상태변경 보드를 그대로 유지한다 (#58).
-  if (groupBy && groupBy !== 'status') {
+  if (grouped) {
     // 개인 3컬럼 보드에서 우선순위 그룹 시 CANCELED 누출 방지 — columns 에 없는 상태는 그룹 전에 제거.
     // 팀(DEFAULT_COLUMNS=4상태)은 모든 상태가 허용돼 필터가 아무것도 제거하지 않아 출력이 byte-identical.
     const allowedStatuses = new Set(columns.map((c) => c.status));
     const visibleIssues = allIssues.filter((it) => allowedStatuses.has(it.status));
-    const grouped = groupIssues(visibleIssues, groupBy);
+    const groups = groupIssues(visibleIssues, groupBy);
     return (
       <>
         {/* 무엇을: 컬럼을 가로 스크롤 flex 행으로 배치(컬럼별 min-w-[240px]).
             왜: 좁은 폭(1024px 등)에서 4-track grid 가 컬럼을 ~160px 로 압축해 truncate 제목이 식별 불가 →
                 컬럼 min-width + 가로 스크롤로 식별성 보존(넓은 폭은 flex-1 로 4-up 유지). */}
         <div className="flex gap-3 overflow-x-auto">
-          {grouped.map((g) => (
+          {groups.map((g) => (
             <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} onOpenCreate={onOpenCreate} />
           ))}
         </div>
-        {hasNextPage && (
-          <p className="text-xs text-muted-foreground mt-3">
-            더 많은 결과가 있습니다 — 필터로 좁혀주세요.
+        {groupHasNext && !groupNextError && (
+          <p className="text-xs text-muted-foreground mt-3" data-testid="board-loading-more">
+            나머지 이슈를 불러오는 중…
+          </p>
+        )}
+        {groupNextError && (
+          <p className="text-xs text-destructive mt-3" data-testid="board-load-error">
+            나머지 이슈를 불러오지 못했습니다.{' '}
+            <button type="button" className="underline" onClick={() => void fetchNextPage()}>
+              다시 시도
+            </button>
           </p>
         )}
       </>
@@ -193,6 +215,7 @@ export function IssueBoardView({
             status={col.status}
             label={col.label}
             issues={byStatus[col.status] ?? []}
+            query={columnQueries[col.status]}
             projectKey={projectKey}
             cardTo={cardTo}
             showType={showType}
@@ -200,11 +223,6 @@ export function IssueBoardView({
           />
         ))}
       </div>
-      {hasNextPage && (
-        <p className="text-xs text-muted-foreground mt-3">
-          더 많은 결과가 있습니다 — 필터로 좁혀주세요.
-        </p>
-      )}
       {/* DragOverlay — 컬럼 경계를 넘어도 ghost 가 포인터를 그대로 따라간다. */}
       <DragOverlay dropAnimation={null}>
         {activeIssue ? (
@@ -226,6 +244,7 @@ function BoardColumn({
   status,
   label,
   issues,
+  query,
   projectKey,
   cardTo,
   showType = true,
@@ -234,6 +253,8 @@ function BoardColumn({
   status: string;
   label: string;
   issues: IssueResponse[];
+  // 이 컬럼 전용 무한 쿼리 — 끝 sentinel 로 다음 페이지를 받고, 남은 페이지가 있으면 카운트에 "+" 표시.
+  query?: BoardColumnQuery;
   projectKey: string;
   // 카드 링크 대상 빌더 — 부모에서 thread.
   cardTo?: (issue: IssueResponse) => string;
@@ -255,7 +276,11 @@ function BoardColumn({
     >
       <header className="flex items-center justify-between px-1 pb-2 text-sm font-semibold text-foreground">
         <span>{label}</span>
-        <span>{issues.length}</span>
+        {/* 아직 받지 않은 페이지가 있으면 로드분이 전체가 아니므로 "N+" 로 표시 */}
+        <span data-testid={`board-col-count-${status}`}>
+          {issues.length}
+          {query?.hasNextPage ? '+' : ''}
+        </span>
       </header>
       <SortableContext
         items={issues.map((i) => `issue-${i.id}`)}
@@ -287,7 +312,26 @@ function BoardColumn({
           </div>
         )}
       </SortableContext>
+      {query && <ColumnLoadMore status={status} query={query} />}
     </section>
+  );
+}
+
+// 컬럼 끝 sentinel — 화면에 들어오면 이 컬럼의 다음 페이지를 받는다(짧은 컬럼은 끝까지 연속 로드).
+// 다음 페이지 요청이 실패하면 자동 로드를 멈추고 "다시 시도" 버튼을 보인다.
+function ColumnLoadMore({ status, query }: { status: string; query: BoardColumnQuery }) {
+  const ref = useLoadMoreSentinel(query);
+  if (!query.hasNextPage) return null;
+  return (
+    <div ref={ref} data-testid={`board-col-more-${status}`} className="py-2 text-center text-xs text-muted-foreground">
+      {query.isFetchNextPageError ? (
+        <button type="button" className="text-destructive underline" onClick={() => void query.fetchNextPage()}>
+          불러오지 못했습니다 — 다시 시도
+        </button>
+      ) : (
+        query.isFetching && '불러오는 중…'
+      )}
+    </div>
   );
 }
 

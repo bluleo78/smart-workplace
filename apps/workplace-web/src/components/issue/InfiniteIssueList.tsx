@@ -2,8 +2,8 @@
 // filter 를 주면 페이지 합본에 클라이언트 필터 적용(AI 위임 작업: assignee.kind==='AGENT').
 import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query'
 import { ClipboardList, type LucideIcon } from 'lucide-react'
-import { useEffect, useRef } from 'react'
 
+import { useLoadMoreSentinel } from '../../hooks/useLoadMoreSentinel'
 import type { IssueResponse, IssueSearchResponse } from '../../types/issue'
 import { IssueListTable } from './IssueListTable'
 
@@ -28,22 +28,9 @@ export function InfiniteIssueList({
   // 담당자 컬럼 표시 여부 — AI 위임 페이지(opt-in)만 켜고, 내 작업 뷰는 기본 off(IssueListTable 기본값).
   showAssignees?: boolean
 }) {
-  const { data, fetchNextPage, hasNextPage, isFetching, isLoading } = query
-  const sentinel = useRef<HTMLDivElement | null>(null)
-
-  // sentinel 진입 → 다음 페이지 자동 fetch.
-  useEffect(() => {
-    const node = sentinel.current
-    if (!node) return
-    const io = new IntersectionObserver(
-      (es) => {
-        if (es[0]?.isIntersecting && hasNextPage && !isFetching) void fetchNextPage()
-      },
-      { rootMargin: '200px' },
-    )
-    io.observe(node)
-    return () => io.disconnect()
-  }, [hasNextPage, isFetching, fetchNextPage])
+  const { data, hasNextPage, isFetching, isLoading } = query
+  // sentinel 진입 → 다음 페이지 자동 fetch(공용 훅).
+  const sentinel = useLoadMoreSentinel(query)
 
   let items = data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? []
   if (filter) items = items.filter(filter)
