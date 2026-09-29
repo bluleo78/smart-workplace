@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./useChatStream', () => ({ handleChatEvent: vi.fn() }));
 vi.mock('./useMessageStream', () => ({ handleMessagingEvent: vi.fn() }));
@@ -73,7 +73,7 @@ describe('reconnectCatchUp', () => {
 describe('createCatchUp', () => {
   it('첫 연결은 catch-up 생략, 재연결은 실행한다', () => {
     const qc = { invalidateQueries: vi.fn() } as unknown as QueryClient;
-    const catchUp = createCatchUp(qc);
+    const { onOpen: catchUp } = createCatchUp(qc);
 
     // 첫 번째 onOpen (초기 연결) — catch-up 실행 안 함
     catchUp();
@@ -87,21 +87,60 @@ describe('createCatchUp', () => {
   });
 });
 
-describe('createCatchUp 최소 간격', () => {
-  it('첫 open 생략 · 두 번째 실행 · 30초 내 세 번째 생략 · 30초 후 네 번째 실행', () => {
+describe('createCatchUp 최소 간격(trailing 유예)', () => {
+  const setup = () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
     const qc = { invalidateQueries: vi.fn() } as unknown as QueryClient;
-    let t = 1_000_000;
-    const catchUp = createCatchUp(qc, () => t);
+    const h = createCatchUp(qc);
     const calls = () => (qc.invalidateQueries as ReturnType<typeof vi.fn>).mock.calls.length;
-    catchUp(); // 첫 연결
+    return { h, calls };
+  };
+  afterEach(() => vi.useRealTimers());
+
+  it('첫 open 생략 · 두 번째 즉시 실행 · 창 안의 세 번째는 창 끝에 1회 실행', () => {
+    const { h, calls } = setup();
+    h.onOpen(); // 첫 연결
     expect(calls()).toBe(0);
-    catchUp(); // 재연결 → 실행
+    h.onOpen(); // 재연결 → 즉시
     expect(calls()).toBe(1);
-    t += 29_999;
-    catchUp(); // 30초 내 → 생략
+    vi.advanceTimersByTime(10_000);
+    h.onOpen(); // 창 안 → 즉시 실행 없음
     expect(calls()).toBe(1);
-    t += 1;
-    catchUp(); // 30초 경과 → 실행
+    vi.advanceTimersByTime(19_999);
+    expect(calls()).toBe(1);
+    vi.advanceTimersByTime(1); // lastRun+30s
     expect(calls()).toBe(2);
+  });
+
+  it('창 안 재연결이 여러 번이어도 유예 실행은 정확히 1회', () => {
+    const { h, calls } = setup();
+    h.onOpen();
+    h.onOpen();
+    vi.advanceTimersByTime(5_000);
+    h.onOpen();
+    vi.advanceTimersByTime(5_000);
+    h.onOpen();
+    vi.advanceTimersByTime(60_000);
+    expect(calls()).toBe(2);
+  });
+
+  it('30초 경과 후 재연결은 즉시 실행', () => {
+    const { h, calls } = setup();
+    h.onOpen();
+    h.onOpen();
+    vi.advanceTimersByTime(30_000);
+    h.onOpen();
+    expect(calls()).toBe(2);
+  });
+
+  it('dispose 는 대기 중인 유예 실행을 취소한다', () => {
+    const { h, calls } = setup();
+    h.onOpen();
+    h.onOpen();
+    h.onOpen(); // 유예 예약
+    h.dispose();
+    vi.advanceTimersByTime(60_000);
+    expect(calls()).toBe(1);
   });
 });

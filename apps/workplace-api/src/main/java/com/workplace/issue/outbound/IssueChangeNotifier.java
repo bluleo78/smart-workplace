@@ -33,6 +33,7 @@ public class IssueChangeNotifier {
             List.of(issueId),
             Map.of("projectKey", project.key(), "issueNumber", issueNumber),
             actorId,
-            Set.of()));
+            // 행위자는 프로젝트 비멤버(OPEN 프로젝트 보고자·ADMIN)여도 자기 다른 탭/기기에서 변경을 받아야 한다.
+            actorId == null ? Set.of() : Set.of(actorId)));
   }
 }
