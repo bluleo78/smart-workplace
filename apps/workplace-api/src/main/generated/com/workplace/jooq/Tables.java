@@ -28,7 +28,6 @@ import com.workplace.jooq.tables.DriveFileVersion;
 import com.workplace.jooq.tables.DriveFolder;
 import com.workplace.jooq.tables.DriveShareLink;
 import com.workplace.jooq.tables.DriveShareLinkAttempts;
-import com.workplace.jooq.tables.DriveShareLinkResolve;
 import com.workplace.jooq.tables.DriveSpace;
 import com.workplace.jooq.tables.DriveSpaceMember;
 import com.workplace.jooq.tables.EmailAccount;
@@ -70,7 +69,6 @@ import com.workplace.jooq.tables.Milestone;
 import com.workplace.jooq.tables.Notification;
 import com.workplace.jooq.tables.NotificationPreference;
 import com.workplace.jooq.tables.Permission;
-import com.workplace.jooq.tables.PgpArmorHeaders;
 import com.workplace.jooq.tables.PlatformRole;
 import com.workplace.jooq.tables.PlatformRolePermission;
 import com.workplace.jooq.tables.PlatformUserRole;
@@ -80,8 +78,6 @@ import com.workplace.jooq.tables.ProjectMember;
 import com.workplace.jooq.tables.PushSubscription;
 import com.workplace.jooq.tables.PushVapidKey;
 import com.workplace.jooq.tables.RefreshToken;
-import com.workplace.jooq.tables.RegexpMatches;
-import com.workplace.jooq.tables.RegexpSplitToTable;
 import com.workplace.jooq.tables.Role;
 import com.workplace.jooq.tables.RolePermission;
 import com.workplace.jooq.tables.SavedView;
@@ -104,14 +100,6 @@ import com.workplace.jooq.tables.WikiSpace;
 import com.workplace.jooq.tables.WikiSpaceMember;
 import com.workplace.jooq.tables.WorkerJob;
 import com.workplace.jooq.tables.WorkspaceAssistant;
-import com.workplace.jooq.tables.records.DriveShareLinkResolveRecord;
-import com.workplace.jooq.tables.records.PgpArmorHeadersRecord;
-import com.workplace.jooq.tables.records.RegexpMatchesRecord;
-import com.workplace.jooq.tables.records.RegexpSplitToTableRecord;
-
-import org.jooq.Configuration;
-import org.jooq.Field;
-import org.jooq.Result;
 
 
 /**
@@ -239,45 +227,6 @@ public class Tables {
      * 공유 링크 비밀번호 실패 카운터 (브루트포스 방어, #700)
      */
     public static final DriveShareLinkAttempts DRIVE_SHARE_LINK_ATTEMPTS = DriveShareLinkAttempts.DRIVE_SHARE_LINK_ATTEMPTS;
-
-    /**
-     * p_token_hash character varying
-     */
-    public static final DriveShareLinkResolve DRIVE_SHARE_LINK_RESOLVE = DriveShareLinkResolve.DRIVE_SHARE_LINK_RESOLVE;
-
-    /**
-     * Call <code>public.drive_share_link_resolve</code>.
-     */
-    public static Result<DriveShareLinkResolveRecord> DRIVE_SHARE_LINK_RESOLVE(
-          Configuration configuration
-        , String pTokenHash
-    ) {
-        return configuration.dsl().selectFrom(com.workplace.jooq.tables.DriveShareLinkResolve.DRIVE_SHARE_LINK_RESOLVE.call(
-              pTokenHash
-        )).fetch();
-    }
-
-    /**
-     * Get <code>public.drive_share_link_resolve</code> as a table.
-     */
-    public static DriveShareLinkResolve DRIVE_SHARE_LINK_RESOLVE(
-          String pTokenHash
-    ) {
-        return com.workplace.jooq.tables.DriveShareLinkResolve.DRIVE_SHARE_LINK_RESOLVE.call(
-            pTokenHash
-        );
-    }
-
-    /**
-     * Get <code>public.drive_share_link_resolve</code> as a table.
-     */
-    public static DriveShareLinkResolve DRIVE_SHARE_LINK_RESOLVE(
-          Field<String> pTokenHash
-    ) {
-        return com.workplace.jooq.tables.DriveShareLinkResolve.DRIVE_SHARE_LINK_RESOLVE.call(
-            pTokenHash
-        );
-    }
 
     /**
      * The table <code>public.drive_space</code>.
@@ -486,45 +435,6 @@ public class Tables {
     public static final Permission PERMISSION = Permission.PERMISSION;
 
     /**
-     * text, OUT key text, OUT value text
-     */
-    public static final PgpArmorHeaders PGP_ARMOR_HEADERS = PgpArmorHeaders.PGP_ARMOR_HEADERS;
-
-    /**
-     * Call <code>public.pgp_armor_headers</code>.
-     */
-    public static Result<PgpArmorHeadersRecord> PGP_ARMOR_HEADERS(
-          Configuration configuration
-        , String __1
-    ) {
-        return configuration.dsl().selectFrom(com.workplace.jooq.tables.PgpArmorHeaders.PGP_ARMOR_HEADERS.call(
-              __1
-        )).fetch();
-    }
-
-    /**
-     * Get <code>public.pgp_armor_headers</code> as a table.
-     */
-    public static PgpArmorHeaders PGP_ARMOR_HEADERS(
-          String __1
-    ) {
-        return com.workplace.jooq.tables.PgpArmorHeaders.PGP_ARMOR_HEADERS.call(
-            __1
-        );
-    }
-
-    /**
-     * Get <code>public.pgp_armor_headers</code> as a table.
-     */
-    public static PgpArmorHeaders PGP_ARMOR_HEADERS(
-          Field<String> __1
-    ) {
-        return com.workplace.jooq.tables.PgpArmorHeaders.PGP_ARMOR_HEADERS.call(
-            __1
-        );
-    }
-
-    /**
      * 플랫폼(운영자) 평면 역할 — 테넌트 role 과 분리된 전역 RBAC
      */
     public static final PlatformRole PLATFORM_ROLE = PlatformRole.PLATFORM_ROLE;
@@ -568,144 +478,6 @@ public class Tables {
      * The table <code>public.refresh_token</code>.
      */
     public static final RefreshToken REFRESH_TOKEN = RefreshToken.REFRESH_TOKEN;
-
-    /**
-     * string citext, pattern citext, flags text
-     */
-    public static final RegexpMatches REGEXP_MATCHES = RegexpMatches.REGEXP_MATCHES;
-
-    /**
-     * @deprecated Unknown data type. Parameter type or return type is unknown.
-     * If this is a qualified, user-defined type, it may have been excluded from
-     * code generation. If this is a built-in type, you can define an explicit
-     * {@link org.jooq.Binding} to specify how this type should be handled.
-     * Deprecation can be turned off using {@literal
-     * <deprecationOnUnknownTypes/>} in your code generator configuration.
-     */
-    @Deprecated
-    public static Result<RegexpMatchesRecord> REGEXP_MATCHES(
-          Configuration configuration
-        , Object string
-        , Object pattern
-        , String flags
-    ) {
-        return configuration.dsl().selectFrom(com.workplace.jooq.tables.RegexpMatches.REGEXP_MATCHES.call(
-              string
-            , pattern
-            , flags
-        )).fetch();
-    }
-
-    /**
-     * @deprecated Unknown data type. Parameter type or return type is unknown.
-     * If this is a qualified, user-defined type, it may have been excluded from
-     * code generation. If this is a built-in type, you can define an explicit
-     * {@link org.jooq.Binding} to specify how this type should be handled.
-     * Deprecation can be turned off using {@literal
-     * <deprecationOnUnknownTypes/>} in your code generator configuration.
-     */
-    @Deprecated
-    public static RegexpMatches REGEXP_MATCHES(
-          Object string
-        , Object pattern
-        , String flags
-    ) {
-        return com.workplace.jooq.tables.RegexpMatches.REGEXP_MATCHES.call(
-            string,
-            pattern,
-            flags
-        );
-    }
-
-    /**
-     * @deprecated Unknown data type. Parameter type or return type is unknown.
-     * If this is a qualified, user-defined type, it may have been excluded from
-     * code generation. If this is a built-in type, you can define an explicit
-     * {@link org.jooq.Binding} to specify how this type should be handled.
-     * Deprecation can be turned off using {@literal
-     * <deprecationOnUnknownTypes/>} in your code generator configuration.
-     */
-    @Deprecated
-    public static RegexpMatches REGEXP_MATCHES(
-          Field<Object> string
-        , Field<Object> pattern
-        , Field<String> flags
-    ) {
-        return com.workplace.jooq.tables.RegexpMatches.REGEXP_MATCHES.call(
-            string,
-            pattern,
-            flags
-        );
-    }
-
-    /**
-     * string citext, pattern citext, flags text
-     */
-    public static final RegexpSplitToTable REGEXP_SPLIT_TO_TABLE = RegexpSplitToTable.REGEXP_SPLIT_TO_TABLE;
-
-    /**
-     * @deprecated Unknown data type. Parameter type or return type is unknown.
-     * If this is a qualified, user-defined type, it may have been excluded from
-     * code generation. If this is a built-in type, you can define an explicit
-     * {@link org.jooq.Binding} to specify how this type should be handled.
-     * Deprecation can be turned off using {@literal
-     * <deprecationOnUnknownTypes/>} in your code generator configuration.
-     */
-    @Deprecated
-    public static Result<RegexpSplitToTableRecord> REGEXP_SPLIT_TO_TABLE(
-          Configuration configuration
-        , Object string
-        , Object pattern
-        , String flags
-    ) {
-        return configuration.dsl().selectFrom(com.workplace.jooq.tables.RegexpSplitToTable.REGEXP_SPLIT_TO_TABLE.call(
-              string
-            , pattern
-            , flags
-        )).fetch();
-    }
-
-    /**
-     * @deprecated Unknown data type. Parameter type or return type is unknown.
-     * If this is a qualified, user-defined type, it may have been excluded from
-     * code generation. If this is a built-in type, you can define an explicit
-     * {@link org.jooq.Binding} to specify how this type should be handled.
-     * Deprecation can be turned off using {@literal
-     * <deprecationOnUnknownTypes/>} in your code generator configuration.
-     */
-    @Deprecated
-    public static RegexpSplitToTable REGEXP_SPLIT_TO_TABLE(
-          Object string
-        , Object pattern
-        , String flags
-    ) {
-        return com.workplace.jooq.tables.RegexpSplitToTable.REGEXP_SPLIT_TO_TABLE.call(
-            string,
-            pattern,
-            flags
-        );
-    }
-
-    /**
-     * @deprecated Unknown data type. Parameter type or return type is unknown.
-     * If this is a qualified, user-defined type, it may have been excluded from
-     * code generation. If this is a built-in type, you can define an explicit
-     * {@link org.jooq.Binding} to specify how this type should be handled.
-     * Deprecation can be turned off using {@literal
-     * <deprecationOnUnknownTypes/>} in your code generator configuration.
-     */
-    @Deprecated
-    public static RegexpSplitToTable REGEXP_SPLIT_TO_TABLE(
-          Field<Object> string
-        , Field<Object> pattern
-        , Field<String> flags
-    ) {
-        return com.workplace.jooq.tables.RegexpSplitToTable.REGEXP_SPLIT_TO_TABLE.call(
-            string,
-            pattern,
-            flags
-        );
-    }
 
     /**
      * The table <code>public.role</code>.

@@ -227,6 +227,11 @@ tasks.register("generateJooq") {
                                     .withName("org.jooq.meta.postgres.PostgresDatabase")
                                     .withInputSchema("public")
                                     .withExcludes("flyway_schema_history")
+                                    // DB 함수(루틴·테이블 값 함수)는 생성하지 않는다(WP-86). citext 등 확장의 같은 이름
+                                    // 오버로드(regexp_split_to_table 2·3인자)를 jOOQ 가 카탈로그 순서대로 골라 재생성마다
+                                    // 결과가 바뀌어 커밋 훅 diff 검사가 헛경보를 냈다. 함수는 SQL 문자열로만 호출하므로 불필요.
+                                    .withIncludeRoutines(false)
+                                    .withTableValuedFunctions(false)
                             )
                             .withTarget(
                                 org.jooq.meta.jaxb.Target()
