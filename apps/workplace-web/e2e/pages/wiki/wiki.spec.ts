@@ -355,6 +355,10 @@ test('위키 — 제목 입력 중 Enter 시 본문 에디터로 포커스 이�
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${TITLE_ENTER_PAGE_ID}`)
 
+  // Enter 핸들러는 editor 인스턴스로 포커스를 옮긴다 — 부하가 큰 전체 실행에서 에디터 생성 전에 Enter 를 치면
+  // 이동할 대상이 없어 이후 타이핑이 제목에 붙는다(플래키). 본문 에디터가 편집 가능해진 뒤 시작한다.
+  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+
   // 1) 제목 입력 후 Enter — 줄바꿈도, submit 도 일어나지 않고 포커스만 본문으로 이동해야 한다.
   const titleInput = page.getByPlaceholder('제목 없음')
   await titleInput.click()

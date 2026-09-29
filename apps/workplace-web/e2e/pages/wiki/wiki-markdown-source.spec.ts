@@ -41,7 +41,10 @@ test('메뉴에서 마크다운 소스를 열면 현재 본문 원문이 보인�
   // setSourceMarkdown(page.body) 로 "단순화"돼 미저장 편집분이 사라져도 이 테스트는
   // 여전히 통과한다 — 그게 바로 §4.2 설계 결정("현재 에디터 상태")이 지켜지는지 보는 지점.
   const UNSAVED_MARK = '미저장 편집분 확인용 문장'
+  // 편집 가능 전환(setEditable effect)·포커스가 끝나기 전에 치면 부하 시 첫 글자가 유실된다(플래키) → 둘 다 기다린다.
+  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
   await page.locator('.ProseMirror').click()
+  await expect(page.locator('.ProseMirror')).toBeFocused()
   await page.keyboard.press('End')
   await page.keyboard.type(UNSAVED_MARK)
   await expect(page.locator('.ProseMirror')).toContainText(UNSAVED_MARK)
