@@ -14,12 +14,14 @@ import com.workplace.calendar.exception.ReadOnlyCalendarException;
 import com.workplace.calendar.exception.RecurringNotSupportedOnExternalCalendarException;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarRsvpChangedEvent;
+import com.workplace.calendar.outbound.CalendarChangeNotifier;
 import com.workplace.calendar.repository.CalendarEventExceptionRepository;
 import com.workplace.calendar.repository.CalendarEventRepository;
 import com.workplace.calendar.repository.CalendarRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository.AttendeeRow;
 import com.workplace.calendar.repository.EventReminderRepository;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
@@ -74,6 +76,8 @@ public class CalendarEventService {
   private final List<CalendarTransport> transports;
   // 비-@Transactional 오케스트레이터의 모든 DB 접근을 감싸는 트랜잭션 템플릿(GraphCalendarFetcher 패턴).
   private final TransactionTemplate txTemplate;
+  // 일정 변경 → resource.changed 발행(WP-61). 반드시 txTemplate 쓰기 람다/@Transactional 안에서 호출.
+  private final CalendarChangeNotifier changeNotifier;
 
   /**
    * 명시적 생성자 — TransactionTemplate 을 PlatformTransactionManager 로 구성해야 하므로 @RequiredArgsConstructor
@@ -92,7 +96,8 @@ public class CalendarEventService {
       CalendarRepository calendarRepo,
       EmailAccountRepository emailAccountRepo,
       List<CalendarTransport> transports,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      CalendarChangeNotifier changeNotifier) {
     this.repo = repo;
     this.reminderRepo = reminderRepo;
     this.exceptionRepo = exceptionRepo;
@@ -106,6 +111,7 @@ public class CalendarEventService {
     this.emailAccountRepo = emailAccountRepo;
     this.transports = transports;
     this.txTemplate = new TransactionTemplate(txManager);
+    this.changeNotifier = changeNotifier;
   }
 
   /**
@@ -175,7 +181,29 @@ public class CalendarEventService {
         eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(id, uid, callerId));
       }
     }
+    // 생성 → 소유자 + 내부 참석자에게 resource.changed (외부 쓰기 분기의 로컬 저장도 이 메서드를 거친다).
+    changeNotifier.eventChanged(
+        ResourceChangedEvent.OP_CREATED, id, callerId, internalAttendeeIds(id), callerId);
     return get(callerId, id);
+  }
+
+  /** 일정의 내부 참석자 userId — 외부 이메일 참석자(userId null)는 SSE 대상이 아니다. */
+  private List<Long> internalAttendeeIds(long eventId) {
+    return attendeeRepo.findByEvent(eventId).stream()
+        .map(AttendeeRow::userId)
+        .filter(Objects::nonNull)
+        .toList();
+  }
+
+  /**
+   * 일정 변경 발행 — 변경 전 명단({@code before})과 변경 후 명단의 합집합에게 보낸다(제거·삭제된 참석자도 갱신을 받아야 하므로). 삭제 후에는 현재 명단이
+   * 비어 before 만 쓰인다. 반드시 쓰기 트랜잭션 안에서 호출.
+   */
+  private void publishEventChanged(
+      String op, long eventId, long ownerId, List<Long> before, long callerId) {
+    Set<Long> audience = new HashSet<>(before);
+    audience.addAll(internalAttendeeIds(eventId));
+    changeNotifier.eventChanged(op, eventId, ownerId, audience, callerId);
   }
 
   /**
@@ -428,6 +456,7 @@ public class CalendarEventService {
       // ③ 로컬 반영 — 필드만 갱신(캘린더 이동 없음). 동기화 컨테이너 유지. 최종 get() 도 tx 안.
       return txTemplate.execute(
           s -> {
+            List<Long> beforeAttendees = internalAttendeeIds(id);
             CalendarEventResponse before =
                 repo.findById(callerId, id)
                     .orElseThrow(() -> new CalendarEventNotFoundException(id));
@@ -436,11 +465,29 @@ public class CalendarEventService {
             boolean scheduleChanged = !before.startsAt().equals(req.startsAt());
             applyReminder(
                 id, req.reminderMinutes(), req.startsAt(), req.recurrenceRule(), scheduleChanged);
+            publishEventChanged(
+                ResourceChangedEvent.OP_UPDATED,
+                id,
+                repo.findOwnerId(id).orElse(callerId),
+                beforeAttendees,
+                callerId);
             return get(callerId, id);
           });
     }
 
-    return txTemplate.execute(s -> doUpdateLocal(callerId, id, req, scope, occurrenceDate));
+    return txTemplate.execute(
+        s -> {
+          List<Long> beforeAttendees = internalAttendeeIds(id);
+          CalendarEventResponse updated = doUpdateLocal(callerId, id, req, scope, occurrenceDate);
+          // THIS/THIS_AND_FOLLOWING 은 새 행(id)이 생길 수 있으나 ids 는 원본 id — 프론트가 ['calendar'] 전체를 무효화한다.
+          publishEventChanged(
+              ResourceChangedEvent.OP_UPDATED,
+              id,
+              repo.findOwnerId(id).orElse(callerId),
+              beforeAttendees,
+              callerId);
+          return updated;
+        });
   }
 
   /**
@@ -610,7 +657,12 @@ public class CalendarEventService {
       // ③ 로컬 삭제 — 외부 일정은 단일이라 scope 무관(마스터 행 제거). 동기화 prune 은 external_id 부재로 영향 없음.
       txTemplate.execute(
           s -> {
+            // 삭제 시 참석자 행이 cascade 로 사라지므로 삭제 전에 명단·소유자를 확보한다.
+            List<Long> beforeAttendees = internalAttendeeIds(id);
+            long ownerId = repo.findOwnerId(id).orElse(callerId);
             repo.delete(id);
+            publishEventChanged(
+                ResourceChangedEvent.OP_DELETED, id, ownerId, beforeAttendees, callerId);
             return null;
           });
       return;
@@ -618,7 +670,11 @@ public class CalendarEventService {
 
     txTemplate.execute(
         s -> {
+          List<Long> beforeAttendees = internalAttendeeIds(id);
+          long ownerId = repo.findOwnerId(id).orElse(callerId);
           doDeleteLocal(callerId, id, scope, occurrenceDate);
+          publishEventChanged(
+              ResourceChangedEvent.OP_DELETED, id, ownerId, beforeAttendees, callerId);
           return null;
         });
   }
@@ -701,6 +757,12 @@ public class CalendarEventService {
               eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(eventId, uid, callerId));
             }
           }
+          publishEventChanged(
+              ResourceChangedEvent.OP_UPDATED,
+              eventId,
+              repo.findOwnerId(eventId).orElse(callerId),
+              List.of(),
+              callerId);
           return null;
         });
   }
@@ -721,7 +783,15 @@ public class CalendarEventService {
 
     txTemplate.execute(
         s -> {
+          // 제거 대상은 커밋 후 명단에서 빠지므로 삭제 전 명단을 before 로 넘겨 본인도 갱신을 받게 한다.
+          List<Long> beforeAttendees = internalAttendeeIds(eventId);
           attendeeRepo.deleteByEventAndUser(eventId, userId);
+          publishEventChanged(
+              ResourceChangedEvent.OP_UPDATED,
+              eventId,
+              repo.findOwnerId(eventId).orElse(callerId),
+              beforeAttendees,
+              callerId);
           return null;
         });
   }
@@ -851,9 +921,16 @@ public class CalendarEventService {
     // 주최자에게 RSVP 변경 알림 발행(주최자==caller 이면 self-notify — service 에서 skip).
     repo.findOwnerId(eventId)
         .ifPresent(
-            ownerId ->
-                eventPublisher.publishEvent(
-                    new CalendarRsvpChangedEvent(eventId, ownerId, callerId)));
+            ownerId -> {
+              eventPublisher.publishEvent(new CalendarRsvpChangedEvent(eventId, ownerId, callerId));
+              // RSVP 변경 → 소유자·다른 참석자의 참석자 수/상태 표시 갱신.
+              changeNotifier.eventChanged(
+                  ResourceChangedEvent.OP_UPDATED,
+                  eventId,
+                  ownerId,
+                  internalAttendeeIds(eventId),
+                  callerId);
+            });
   }
 
   /**

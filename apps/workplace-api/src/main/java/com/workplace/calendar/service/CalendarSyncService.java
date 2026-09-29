@@ -2,6 +2,8 @@ package com.workplace.calendar.service;
 
 import static java.util.stream.Collectors.toMap;
 
+import com.workplace.calendar.outbound.CalendarChangeNotifier;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.repository.EmailAccountRepository;
@@ -36,13 +38,18 @@ public class CalendarSyncService {
   /** 공급자 → fetcher 맵. Spring 이 CalendarFetcher 빈 목록을 자동 주입한다. */
   private final Map<MailProvider, CalendarFetcher> fetchers;
 
+  // 동기화 완료 → 계정 소유자에게 resource.changed 발행(WP-61).
+  private final CalendarChangeNotifier changeNotifier;
+
   public CalendarSyncService(
       EmailAccountRepository accountRepo,
       PlatformTransactionManager txManager,
-      List<CalendarFetcher> fetchers) {
+      List<CalendarFetcher> fetchers,
+      CalendarChangeNotifier changeNotifier) {
     this.accountRepo = accountRepo;
     this.txTemplate = new TransactionTemplate(txManager);
     this.fetchers = fetchers.stream().collect(toMap(CalendarFetcher::provider, f -> f));
+    this.changeNotifier = changeNotifier;
   }
 
   /**
@@ -72,5 +79,10 @@ public class CalendarSyncService {
     }
 
     fetcher.sync(userId, accountId, account);
+
+    // 동기화 성공 후 소유자에게만 알린다(다른 내부 참석자는 알려진 한계). 백그라운드라 actor 는 null.
+    // AFTER_COMMIT 리스너가 발화하도록 짧은 트랜잭션 안에서 발행한다(fetcher 자체 tx 는 이미 커밋됨).
+    txTemplate.executeWithoutResult(
+        s -> changeNotifier.calendarChanged(ResourceChangedEvent.OP_UPDATED, 0L, userId, null));
   }
 }

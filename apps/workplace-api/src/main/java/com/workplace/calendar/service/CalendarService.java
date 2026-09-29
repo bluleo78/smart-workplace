@@ -8,7 +8,9 @@ import com.workplace.calendar.exception.DefaultCalendarDeletionException;
 import com.workplace.calendar.exception.ExternalCalendarDeletionNotAllowedException;
 import com.workplace.calendar.exception.ExternalCalendarResetNotAllowedException;
 import com.workplace.calendar.exception.ReadOnlyCalendarException;
+import com.workplace.calendar.outbound.CalendarChangeNotifier;
 import com.workplace.calendar.repository.CalendarRepository;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,6 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class CalendarService {
   private final CalendarRepository repo;
+  // 캘린더 변경 → resource.changed 발행(WP-61). 각 @Transactional 메서드 안에서 호출.
+  private final CalendarChangeNotifier changeNotifier;
 
   /** 소유자의 캘린더 목록. 비어 있으면 기본 캘린더를 lazy 생성 후 반환(신규/제로-일정 유저). */
   @Transactional
@@ -40,6 +44,7 @@ public class CalendarService {
     validateColor(req.color());
     int pos = req.position() != null ? req.position() : repo.maxPosition(callerId) + 1;
     long id = repo.insert(callerId, req.name(), req.color(), false, pos);
+    changeNotifier.calendarChanged(ResourceChangedEvent.OP_CREATED, id, callerId, callerId);
     return repo.findByIdForOwner(callerId, id).orElseThrow(() -> new CalendarNotFoundException(id));
   }
 
@@ -50,6 +55,7 @@ public class CalendarService {
     if (repo.isReadOnly(id)) throw new ReadOnlyCalendarException(id);
     validateColor(req.color());
     repo.update(id, req.name(), req.color(), req.position());
+    changeNotifier.calendarChanged(ResourceChangedEvent.OP_UPDATED, id, callerId, callerId);
     return repo.findByIdForOwner(callerId, id).orElseThrow(() -> new CalendarNotFoundException(id));
   }
 
@@ -72,6 +78,8 @@ public class CalendarService {
     long defaultId = ensureDefault(callerId);
     repo.moveEventsToCalendar(id, defaultId);
     repo.delete(id);
+    // 소속 일정이 기본 캘린더로 이동하지만 프론트는 ['calendar'] 한 prefix 로 일정까지 함께 무효화한다.
+    changeNotifier.calendarChanged(ResourceChangedEvent.OP_DELETED, id, callerId, callerId);
   }
 
   /** 한 캘린더의 모든 일정을 하드 삭제(강제 리셋). 로컬 캘린더만 허용, 연동 캘린더는 409. */
@@ -82,6 +90,8 @@ public class CalendarService {
       throw new ExternalCalendarResetNotAllowedException(calendarId);
     }
     repo.deleteAllEventsByCalendar(calendarId);
+    // 일정만 지워지고 캘린더는 남으므로 updated (['calendar'] prefix 무효화로 일정 목록도 갱신).
+    changeNotifier.calendarChanged(ResourceChangedEvent.OP_UPDATED, calendarId, callerId, callerId);
   }
 
   /** 소유 캘린더 검증 — 미존재/비소유 모두 404(존재 은닉). 일정 chokepoint 도 사용. */
