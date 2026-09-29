@@ -107,6 +107,48 @@ class IssueServiceTest extends IntegrationTestBase {
     assertThat(second.number()).isEqualTo(2);
   }
 
+  /**
+   * 생성 응답에 유형·담당자·부모가 채워져야 한다(#877). 예전엔 부분 응답(from)이라 저장은 됐는데 응답이 비어 MCP create_issue 호출자가 미반영으로
+   * 오판했다.
+   */
+  @Test
+  void create_responseIncludesTypeAssigneesAndParent() {
+    projectService.addMember(ownerId, projectKey, new AddMemberRequest(otherUserId, "MEMBER"));
+    var epicType = typeRepository.findByProjectAndName(projectId, "EPIC").orElseThrow();
+    var bugType = typeRepository.findByProjectAndName(projectId, "BUG").orElseThrow();
+    IssueResponse epic =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("epic", null, null, null, null, epicType.id(), null, null));
+
+    IssueResponse bug =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest(
+                "bug", null, null, null, List.of(otherUserId), bugType.id(), epic.number(), null));
+
+    assertThat(bug.type().name()).isEqualTo("BUG");
+    assertThat(bug.assignees()).extracting(a -> a.id()).containsExactly(otherUserId);
+    assertThat(bug.parent().number()).isEqualTo(epic.number());
+    assertThat(bug.parent().type().name()).isEqualTo("EPIC");
+  }
+
+  /** typeId 미지정이면 응답 유형은 TASK fallback 값이어야 한다(null 아님, #877). */
+  @Test
+  void create_withoutType_responseTypeIsTaskFallback() {
+    IssueResponse issue =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("plain", null, null, null, null, null, null, null));
+
+    assertThat(issue.type().name()).isEqualTo("TASK");
+    assertThat(issue.assignees()).isEmpty();
+    assertThat(issue.parent()).isNull();
+  }
+
   /** 개인 프로젝트: AGENT 가 멤버가 아니면 담당자로 지정 불가. 멤버 등록 후에는 담당 가능 (#418 정책 통일). */
   @Test
   void create_personalRequiresAgentMembership() {

@@ -274,7 +274,15 @@ public class IssueService {
               occurredAt));
     }
 
-    return IssueResponse.from(project.key(), row);
+    // 6) 응답에 유형·담당자·부모를 채운다(#877) — 부분 응답(from)이면 저장은 됐어도 호출자(MCP create_issue 등)가 미반영으로 오판한다.
+    //    새 이슈라 라벨·첨부·자식은 없다.
+    var type = typeRepository.findByIds(List.of(row.typeId())).get(row.typeId());
+    var parentRef =
+        row.parentIssueId() == null
+            ? null
+            : issueRepository.findParentRefsByIssueIds(List.of(row.id())).get(row.id());
+    return IssueResponse.fromWithSubtasks(
+        project.key(), row, List.of(), 0, type, assigneeSummaries, parentRef, 0, 0);
   }
 
   /** 프로젝트 내 이슈 목록 페이지 조회. */
