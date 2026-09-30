@@ -11,6 +11,8 @@ import {
   useState,
 } from 'react';
 
+import { MOBILE_MEDIA_QUERY } from '@/lib/mobile/breakpoint';
+
 /** AI 어시스턴트 표시 모드. closed=닫힘, side=우측 도킹, fullscreen=콘텐츠 영역 2단. */
 export type AIMode = 'closed' | 'side' | 'fullscreen';
 
@@ -44,6 +46,11 @@ function readInitialWidth(): number {
   return Math.min(SIDE_MAX_WIDTH, Math.max(SIDE_MIN_WIDTH, n));
 }
 
+/** 모바일(<lg)에는 사이드 패널이 없으므로 side 요청은 fullscreen 으로 승격한다(WP-121). */
+function resolveMode(m: Exclude<AIMode, 'closed'>): Exclude<AIMode, 'closed'> {
+  return m === 'side' && window.matchMedia(MOBILE_MEDIA_QUERY).matches ? 'fullscreen' : m;
+}
+
 const AIAssistantContext = createContext<AIAssistantValue | null>(null);
 
 export function AIAssistantProvider({ children }: { children: ReactNode }) {
@@ -56,19 +63,21 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
   };
 
   const open = useCallback((m: Exclude<AIMode, 'closed'>) => {
-    localStorage.setItem(MODE_KEY, m);
-    setMode(m);
+    const next = resolveMode(m);
+    localStorage.setItem(MODE_KEY, next);
+    setMode(next);
   }, []);
   const close = useCallback(() => setMode('closed'), []);
   const cycleMode = useCallback(() => {
     setMode((cur) => {
-      const next: AIMode = cur === 'closed' ? 'side' : cur === 'side' ? 'fullscreen' : 'closed';
+      const next: AIMode =
+        cur === 'closed' ? resolveMode('side') : cur === 'side' ? 'fullscreen' : 'closed';
       if (next !== 'closed') localStorage.setItem(MODE_KEY, next);
       return next;
     });
   }, []);
   const toggle = useCallback(() => {
-    setMode((cur) => (cur === 'closed' ? lastOpen() : 'closed'));
+    setMode((cur) => (cur === 'closed' ? resolveMode(lastOpen()) : 'closed'));
   }, []);
   // 드래그 중에는 상태만 갱신(매 pointermove 마다 localStorage 쓰기 방지), 종료 시 persist 로 1회 영속.
   const resize = useCallback((w: number, persist = false) => {
