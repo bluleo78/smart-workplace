@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
  * <p>동기화 시점 지문(Message-ID + 헤더 + 본문 구조)으로 공유된 content 라도, 이 envelope 가 실제로 내려받은 본문 해시나 첨부 목록이 이미
  * 기록된 것과 다르면 다른 메일로 판단해 이 envelope 만 새 content 로 분리한다. 공유 본문은 첫 적재자만 기록하고 이후에는 덮어쓰지 않는다.
  *
- * <p>호출자(본문 로더)의 트랜잭션 안에서 실행된다 — 선점·비교·분리·재연결이 한 트랜잭션으로 묶인다.
+ * <p>호출자(본문 로더)의 트랜잭션 안에서 실행된다.
  */
 @Slf4j
 @Service
@@ -43,8 +43,9 @@ public class MailContentShareGate {
       String bodyHtml,
       String snippet,
       List<ParsedAttachment> attachments) {
-    // 같은 content 에 대한 동시 적재를 직렬화 — 선점·비교·분리가 서로 끼어들지 않게 한다
-    contentRepo.lockForUpdate(contentId);
+    // 행 잠금은 쓰지 않는다 — 호출 트랜잭션이 AI 분류(LLM)까지 이어져 잠금이 길게 유지된다. 동시 적재 경합은 claimBody 조건부
+    // UPDATE(한 쪽만 선점)와 manifest find-or-create 의 불일치 예외로 막고, 부분 적재는 fetched_at 미설정 → 재시도 시
+    // insertAll 의 교체 삽입으로 수렴한다.
     // 1) 첨부 목록이 공유 manifest 와 어긋나면 첫 적재자라도 공유하지 않는다(manifest 가 먼저 생긴 legacy 행 방어)
     boolean sameAttachments = contentAttachmentRepo.matchesManifest(contentId, attachments);
     // 2) 첫 적재자: 본문 기록(이후 수신자는 덮어쓰지 못함)

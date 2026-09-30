@@ -68,8 +68,8 @@ public class ContentAttachmentRepository {
   }
 
   /**
-   * 공유 manifest 의 같은 ordinal 에 다른 첨부가 이미 있음(WP-130). 본문 로더는 예외를 삼키므로(커밋됨) 공유 게이트의 잠금·사전 검증으로 이 경로에
-   * 닿지 않게 유지한다. 예외를 전파하는 경로(인라인 첨부 백필)는 트랜잭션이 롤백된다.
+   * 공유 manifest 의 같은 ordinal 에 다른 첨부가 이미 있음(WP-130). 본문 로더는 예외를 삼키므로 부분 적재가 커밋될 수 있으나, envelope 가
+   * 미적재로 남아 재시도되고 재시도는 게이트 사전 검증으로 분리된 뒤 교체 삽입된다. 예외를 전파하는 경로(인라인 첨부 백필)는 롤백된다.
    */
   public static class ManifestMismatchException extends IllegalStateException {
     public ManifestMismatchException(long contentId, int ordinal) {
