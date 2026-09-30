@@ -19,6 +19,7 @@ export interface MobileTabDef {
 const under = (...prefixes: string[]) => (p: string) =>
   prefixes.some((x) => p === x || p.startsWith(`${x}/`))
 
+/** 탭바·더보기 그리드에 노출 가능한 앱 레지스트리 — match 는 현재 경로가 이 탭에 속하는지 판정. */
 export const MOBILE_TABS: Record<MobileTabId, MobileTabDef> = {
   home: { id: 'home', label: '홈', icon: Home, path: '/', match: (p) => p === '/' },
   chat: { id: 'chat', label: '채팅', icon: MessageSquare, path: '/chat', match: under('/chat') },

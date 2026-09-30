@@ -20,6 +20,7 @@ export function parseTabSlots(raw: string | null): MobileTabId[] {
   }
 }
 
+/** localStorage 에서 탭 구성을 읽는다 — 접근 불가·손상 값이면 기본 구성. */
 export function loadTabSlots(): MobileTabId[] {
   try {
     return parseTabSlots(localStorage.getItem(TAB_SLOTS_KEY))
@@ -28,6 +29,7 @@ export function loadTabSlots(): MobileTabId[] {
   }
 }
 
+/** 탭 구성을 localStorage 에 저장한다 — 저장 불가 환경에선 조용히 무시. */
 export function saveTabSlots(slots: MobileTabId[]): void {
   try {
     localStorage.setItem(TAB_SLOTS_KEY, JSON.stringify(slots))
