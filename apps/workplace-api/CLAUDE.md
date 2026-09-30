@@ -121,3 +121,7 @@ docker exec smart-workplace-db-1 psql -U app -d workplace -c 'SELECT * FROM "use
 - 새 모듈은 기존 구조를 따름: `controller/service/repository + dto/exception`
 - `@RequirePermission` 은 메서드/클래스 레벨 모두 지원
 - Spotless(Google Java Format 1.34.1) — `./gradlew spotlessApply` 로 자동 포맷
+
+## AI 화면 컨텍스트 (WP-54)
+
+`HomeChatRequest.screenContext`(`home/dto/AiScreenContext.java`, Bean Validation 상한) → `ChatRequest.screenContext` 로 1:1 전달한다. DB 에는 저장하지 않는다.

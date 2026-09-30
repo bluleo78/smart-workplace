@@ -458,6 +458,15 @@ export function cn(...inputs: ClassValue[]) {
 </div>
 ```
 
+### 패턴 5. AI 화면 컨텍스트 칩 (`components/ai/ScreenContextChip.tsx`)
+
+AI 채팅 입력 위에서 "지금 화면 정보를 AI 에 함께 보낸다" 를 알리는 칩.
+
+- 기본: `bg-ai-accent-subtle text-ai-accent border-ai-accent/30`, `text-xs leading-4`, Eye 아이콘 `h-3 w-3` + `aria-hidden`, 눈에 보이는 "화면 참고" 접두어, `max-w-[min(100%,36rem)]`
+- 제외 상태: 점선(dashed) muted 칩 "화면 정보 빼고 보내요 · 되돌리기" (다음 전송 1회만 제외)
+- × 버튼: Radix Tooltip + `aria-label` + `focus-visible` ring, 히트 영역 40px 이상(`after:-inset-2`)
+- 칩 영역은 `aria-live="polite"` 로 상태 변화를 알린다
+
 ---
 
 ## E. Button 사용 규칙
