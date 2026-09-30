@@ -468,6 +468,37 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
     await expect(title).toHaveValue('주간회의 (수정)')
   })
 
+  test('패널의 대화 선택 드롭다운·삭제 확인을 써도 다이얼로그는 유지된다', async ({ authenticatedPage: page }) => {
+    await captureChat(page)
+    await mockCalendar(page)
+    await mockApi(page, 'GET', '/api/v1/home/sessions', {
+      items: [{ id: 'sc1', title: '테스트 대화', lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 0 }],
+      nextCursor: null,
+    })
+    await page.goto('/calendar')
+    await page.getByTestId('chat-launcher').click()
+    await page.getByTestId('calendar-event-42').click()
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(dialog).toBeVisible()
+
+    // 드롭다운(body 포털, 포커스 이동) — 열고 Esc 로 닫아도 다이얼로그 유지.
+    await page.getByTestId('chat-session-switcher').click()
+    await expect(page.getByTestId('chat-session-item')).toHaveCount(1)
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('chat-session-item')).toHaveCount(0)
+    await expect(dialog).toBeVisible()
+
+    // 삭제 확인 AlertDialog(패널에서 연 modal 레이어) — 열고 취소해도 다이얼로그 유지.
+    await page.getByTestId('chat-session-switcher').click()
+    await page.getByTestId('chat-session-delete').click()
+    await expect(page.getByRole('alertdialog')).toBeVisible()
+    await expect(dialog).toBeVisible()
+    await page.getByRole('button', { name: '취소' }).click()
+    await expect(page.getByRole('alertdialog')).toBeHidden()
+    await expect(dialog).toBeVisible()
+  })
+
   test('모바일(<lg): 패널은 다이얼로그 위 풀스크린으로 입력 가능하고, 닫으면 다이얼로그로 돌아온다', async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await captureChat(page)

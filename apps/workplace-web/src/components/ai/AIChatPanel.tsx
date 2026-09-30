@@ -134,7 +134,8 @@ export function AIChatPanel({
               <span className="max-w-[16rem] truncate">{current?.title ?? '대화 선택'}</span>
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="z-[80] w-72">
+            {/* WP-54: body 포털이라 패널 DOM 밖 — AI 표면으로 표시해 non-modal 엔티티 다이얼로그가 포커스 이동에 닫히지 않게. */}
+            <DropdownMenuContent data-ai-panel align="start" className="z-[80] w-72">
               {sessions.length === 0 ? (
                 <div className="px-2 py-1.5 text-sm text-muted-foreground">저장된 대화가 없어요</div>
               ) : (
