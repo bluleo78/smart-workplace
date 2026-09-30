@@ -4,16 +4,14 @@ import { type ReactNode, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
-import { isTabRoot } from '@/lib/mobile/routes'
 import { cn } from '@/lib/utils'
 
-import { useMobileChrome } from './MobileChromeContext'
 import { MobileTabBar } from './MobileTabBar'
+import { useTabBarVisible } from './useTabBarVisible'
 
 /** 모바일 레이아웃 셸. overlay 는 본문 영역만 덮는 AI 풀스크린 등(탭바는 남는다). */
 export function MobileShell({ children, overlay }: { children: ReactNode; overlay?: ReactNode }) {
   const { pathname } = useLocation()
-  const chrome = useMobileChrome()
   const { open: inboxOpen, setOpen: setInboxOpen } = useInboxPanel()
   const navigate = useNavigate()
   // 셸이 마운트될 때 이미 열려 있던 인박스 = 데스크톱에서 연 레일 Popover 가 lg 경계를 넘어온 것.
@@ -31,8 +29,8 @@ export function MobileShell({ children, overlay }: { children: ReactNode; overla
     // 이미 알림 화면이면 replace 로 이동해 중복 히스토리 항목이 쌓이지 않게 한다.
     navigate('/notifications', { replace: pathname === '/notifications' })
   }, [inboxOpen, setInboxOpen, navigate, pathname])
-  // 알림(/notifications)은 사용자가 탭바에 고정했을 때만 탭 루트 — 슬롯 구성을 함께 넘긴다(U1-5).
-  const showTabBar = isTabRoot(pathname, chrome?.slots) && !chrome?.tabBarHidden
+  // 알림(/notifications)은 사용자가 탭바에 고정했을 때만 탭 루트 — 판정은 AI 풀스크린과 공유(U1-5·U2-3).
+  const showTabBar = useTabBarVisible()
   return (
     <div data-testid="mobile-shell" className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
       {/* 탭바가 숨은 화면(상세·작성기)은 탭바의 하단 안전영역 여백이 사라지므로 본문이 직접 홈 인디케이터 영역을 비운다(U1-6). */}

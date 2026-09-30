@@ -6,7 +6,7 @@ import { isTabRoot, moduleRootFor, norm, resolveBackTarget } from './routes'
 describe('isTabRoot', () => {
   it.each([
     '/', '/chat', '/mail', '/mail/3', '/tasks', '/calendar', '/drive', '/wiki',
-    '/contacts', '/apps', '/apps/tabs',
+    '/contacts', '/apps',
   ])('%s 는 탭 루트', (p) => expect(isTabRoot(p)).toBe(true))
 
   it('/notifications 는 탭바에 고정됐을 때만 탭 루트(기본 구성에선 푸시 화면)', () => {
@@ -19,7 +19,7 @@ describe('isTabRoot', () => {
     '/chat/channels/1', '/chat/dms/2', '/chat/new', '/chat/threads/inbox',
     '/projects', '/projects/MOB', '/projects/MOB/issues/1', '/me/tasks/assigned', '/me/ai-tasks',
     '/drive/spaces/5', '/drive/attachments', '/wiki/spaces/1', '/wiki/spaces/1/pages/2',
-    '/settings/profile', '/settings', '/profile',
+    '/settings/profile', '/settings', '/profile', '/apps/tabs',
   ])('%s 는 상세', (p) => expect(isTabRoot(p)).toBe(false))
 
   it('끝 슬래시를 무시한다', () => expect(isTabRoot('/chat/')).toBe(true))

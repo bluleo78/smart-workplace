@@ -668,7 +668,7 @@ export function Dashboard() {
           )
         }
         // 모바일: [편집]/[위젯 추가] 텍스트 버튼 대신 같은 testid 의 아이콘 액션 하나(⋯ 없음, U1-2·U1-3).
-        // 홈 아이콘(homeIcon)은 장식이라 모바일 헤더에선 생략된다(PageHeader keepIconOnMobile 미지정).
+        // 홈 아이콘(homeIcon)은 장식이라 모바일 헤더에선 생략된다(PageHeader 는 모바일에서 icon 을 그리지 않음).
         mobilePrimaryAction={
           !editing ? (
             <HeaderIconAction label="홈 편집" data-testid="dashboard-edit-toggle" onClick={enterEdit}>

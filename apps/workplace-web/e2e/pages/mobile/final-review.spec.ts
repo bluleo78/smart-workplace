@@ -67,8 +67,7 @@ test('캘린더 헤더: 390px 에서 제목이 읽히고 뷰 전환이 가능하
   expect((await h1.boundingBox())!.width).toBeGreaterThan(80)
   // 제목이 잘리지 않는다(스크롤 폭 ≤ 표시 폭).
   expect(await h1.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false)
-  // 뷰 전환 select 는 제목 폭(22px 탭 루트 제목)을 지키려 ⋯ 메뉴 안에 있다(U1-2·U1-3).
-  await page.getByTestId('mobile-header-more').click()
+  // 뷰 전환 select 는 제목 폭(22px 탭 루트 제목)을 지키려 헤더 아래 도구 줄에 있다(U2-5).
   const select = page.getByTestId('calendar-view-select')
   await expect(select).toBeVisible()
   await expect(page.getByTestId('calendar-view-month')).toBeVisible()

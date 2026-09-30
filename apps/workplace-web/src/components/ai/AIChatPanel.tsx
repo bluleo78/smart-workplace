@@ -1,7 +1,7 @@
 // src/components/ai/AIChatPanel.tsx
 // AI 어시스턴트 공유 채팅 본문 — 세션 스위처 헤더 + 메시지 이력 + 입력바.
 // side(AISidePanel) / fullscreen(AIFullscreen) 모두 재사용. 컨테이너(폭/포지션)는 호출측 책임.
-import { ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square, Trash2 } from 'lucide-react';
+import { ArrowUp, ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square, Trash2 } from 'lucide-react';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ActionResultLine } from '@/components/ai/ActionResultLine';
@@ -22,6 +22,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
@@ -58,6 +59,8 @@ export function AIChatPanel({
   const current = sessions.find((s) => s.id === currentSessionId);
   const [input, setInput] = useState('');
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  // 모바일 입력 영역 분기(플레이스홀더·포커스 링·원형 전송 버튼) — 데스크톱 DOM 은 그대로.
+  const isMobile = useIsMobile();
   // 세션 스위처 드롭다운 open 상태(#451) — 세션 항목이 DropdownMenuItem 이 아닌 일반 button 이라
   // Radix 자동 닫힘이 동작하지 않으므로, controlled 로 두고 선택 직후 명시적으로 닫는다.
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
@@ -417,8 +420,13 @@ export function AIChatPanel({
                 submit();
               }
             }}
-            placeholder="AI 에게 요청…  (⌘K)"
-            className="field-sizing-content max-h-40 min-h-9 resize-none py-1.5"
+            // 모바일엔 하드웨어 키보드 단축키(⌘K)가 없으므로 힌트를 뺀다(U2-3).
+            placeholder={isMobile ? 'AI 에게 요청…' : 'AI 에게 요청…  (⌘K)'}
+            // 모바일: 링 오프셋(2px 배경 띠)이 테두리와 겹쳐 이중 링처럼 보이던 것을 단일 링으로(U2-3). 데스크톱 불변.
+            className={cn(
+              'field-sizing-content max-h-40 min-h-9 resize-none py-1.5',
+              isMobile && 'min-h-10 rounded-2xl focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-offset-0',
+            )}
             data-testid="chat-input"
           />
           {/* #335: 스트리밍 중에는 '보내기'를 '중단' 버튼으로 전환 — 클릭 시 진행 중 응답을 멈춘다. */}
@@ -431,6 +439,17 @@ export function AIChatPanel({
               data-testid="chat-stop"
             >
               <Square className="h-4 w-4 fill-current" /> 중단
+            </Button>
+          ) : isMobile ? (
+            // 모바일: 40px 원형 아이콘 버튼(메신저 관례) — 접근 이름은 데스크톱과 같은 '보내기'.
+            <Button
+              type="submit"
+              size="icon"
+              aria-label="보내기"
+              disabled={!input.trim()}
+              className="h-10 w-10 shrink-0 rounded-full bg-ai-accent text-ai-accent-foreground"
+            >
+              <ArrowUp className="h-5 w-5" />
             </Button>
           ) : (
             <Button

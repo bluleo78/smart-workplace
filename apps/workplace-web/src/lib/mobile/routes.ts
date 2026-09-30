@@ -4,9 +4,10 @@
 import { DEFAULT_TAB_SLOTS } from './tabConfig'
 import { ALL_TAB_IDS, MOBILE_TABS, type MobileTabId, under } from './tabs'
 
-// 탭바를 보이는 루트 경로(정확 일치) — 탭 레지스트리의 각 탭 루트 + 앱 목록 화면들.
+// 탭바를 보이는 루트 경로(정확 일치) — 탭 레지스트리의 각 탭 루트 + 앱 목록.
+// 탭바 순서 편집(/apps/tabs)은 ‹·[저장] 헤더의 푸시 화면이라 탭바를 숨긴다(U2-2).
 // '/mail/:accountId' 는 계정별 받은편지함 = 루트(isTabRoot 의 별도 규칙).
-const EXACT_ROOTS = new Set([...ALL_TAB_IDS.map((id) => MOBILE_TABS[id].path), '/apps', '/apps/tabs'])
+const EXACT_ROOTS = new Set([...ALL_TAB_IDS.map((id) => MOBILE_TABS[id].path), '/apps'])
 
 // 탭 레지스트리에 없는 모듈의 상세 → 뒤로가기 시 돌아갈 루트(탭 match 보다 먼저 본다).
 // 설정은 자체 목록(/settings)으로, 프로필·앱 목록 하위는 앱 목록으로 돌아간다.

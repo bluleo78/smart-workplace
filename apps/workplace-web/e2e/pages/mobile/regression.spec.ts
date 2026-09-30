@@ -8,7 +8,7 @@ import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
-test('AI 탭으로 풀스크린을 열고 닫기 버튼으로 닫는다 (구 WP-111 이관)', async ({ authenticatedPage: page }) => {
+test('AI 탭으로 풀스크린을 열고 다른 탭으로 닫는다 — 탭 루트에선 × 대신 탭 전환(구 WP-111 이관, U2-3)', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   await page.getByTestId('mobile-tab-ai').click()
@@ -23,7 +23,9 @@ test('AI 탭으로 풀스크린을 열고 닫기 버튼으로 닫는다 (구 WP-
   const box = (await fs.boundingBox())!
   expect(box.width).toBeGreaterThan(380)
   await expectNoHorizontalOverflow(page)
-  await page.getByTestId('ai-panel-close').click()
+  // 탭바가 보이는 탭 루트에선 × 를 두지 않는다 — 탭 전환이 닫기.
+  await expect(page.getByTestId('ai-panel-close')).toHaveCount(0)
+  await page.getByTestId('mobile-tab-home').click()
   await expect(fs).toHaveCount(0)
 })
 

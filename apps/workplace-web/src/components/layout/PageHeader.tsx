@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils'
 interface PageHeaderProps {
   /** 좌측 제목 — 사이드바 타이틀과 동일한 무게(appTitleTextClass). 생략 시 제목 영역 미렌더(다른 위치 표시자로 대체 가능 — 예: 드라이브의 브레드크럼). */
   title?: ReactNode
-  /** 선택: 제목 앞 아이콘/컨트롤(사이드바 타이틀 아이콘과 대칭). 모바일에선 keepIconOnMobile 일 때만 그린다. */
+  /** 선택: 제목 앞 아이콘/컨트롤(사이드바 타이틀 아이콘과 대칭). 데스크톱 전용 — 모바일 헤더는 제목 폭을 위해 그리지 않는다. */
   icon?: ReactNode
   /** 선택: 제목 옆 보조 메타(키·멤버수·뱃지 등). */
   meta?: ReactNode
@@ -43,8 +43,6 @@ interface PageHeaderProps {
   /** 모바일 전용: ⋯ 트리거 아이콘·라벨 교체(메뉴가 검색 하나뿐인 메일 → 🔍). */
   mobileMenuIcon?: ReactNode
   mobileMenuLabel?: string
-  /** 모바일 전용: icon 이 인터랙티브 컨트롤(캘린더 오늘/이전/다음)이라 모바일에서도 남길 때 true. 장식 아이콘은 기본 생략. */
-  keepIconOnMobile?: boolean
 }
 
 /** 모바일 헤더 전용 — 탭 루트에서만 🔔 를 보인다. useLocation 구독을 모바일 분기에 가둬 데스크톱 헤더가 경로 변경마다 재렌더되지 않게 분리. */
@@ -69,7 +67,6 @@ export function PageHeader({
   mobileActions,
   mobileMenuIcon,
   mobileMenuLabel,
-  keepIconOnMobile = false,
   ...rest
 }: PageHeaderProps) {
   const isMobile = useIsMobile()
@@ -108,8 +105,7 @@ export function PageHeader({
     // 탭 루트 헤더: MobileListHeader 와 같은 규격(h-14·좌16·22px bold) + 우측 [클러스터] [🔔] (U1-3).
     return (
       <header data-testid={rest['data-testid'] ?? 'page-header'} className={cn('relative z-[45] border-b bg-background', mobileRootHeaderClass, className)}>
-        {/* icon 은 인터랙티브일 때만(캘린더 이동 컨트롤) 선두 슬롯으로 둔다 — 장식 아이콘은 제목 폭을 위해 생략. */}
-        {keepIconOnMobile && icon && <div className="-ml-2 flex shrink-0 items-center">{icon}</div>}
+        {/* icon 은 모바일에서 생략 — 장식 아이콘은 제목 폭을 위해, 인터랙티브 컨트롤(캘린더 이동)은 페이지가 헤더 아래 도구 줄로 옮긴다. */}
         {title != null ? <h1 className={mobileRootTitleClass}>{title}</h1> : <div className="flex-1" />}
         {cluster}
         <MobileTabRootBell />

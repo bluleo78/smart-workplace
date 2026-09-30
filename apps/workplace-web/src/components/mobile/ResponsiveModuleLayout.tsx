@@ -20,12 +20,15 @@ export function ResponsiveModuleLayout({
   rootPath,
   title,
   scroll = 'auto',
+  listClassName,
 }: {
   sidebar: ReactNode
   rootPath: string
   title: string
   /** 데스크톱 Outlet 래퍼 overflow — 모듈별 기존 값 보존(auto=overflow-y-auto, none=없음). */
   scroll?: 'auto' | 'none'
+  /** 모바일 목록 모드 래퍼에 덧붙일 모듈 전용 클래스(설정 행 › 셰브런 등). 데스크톱엔 쓰이지 않는다. */
+  listClassName?: string
 }) {
   const isMobile = useIsMobile()
   const { pathname } = useLocation()
@@ -56,7 +59,7 @@ export function ResponsiveModuleLayout({
         {/* 탭 루트(/chat 등)는 탭바가 보이므로 큰 제목 헤더. 탭 루트가 아닌 모듈 목록(/settings — 앱 목록에서 진입)은
             탭바가 숨으므로 막다른 길이 되지 않게 뒤로가기 바(→ /apps, ✦ 포함)를 대신 둔다. */}
         {isTabRoot(rootPath) ? <MobileListHeader title={title} /> : <MobileBackBar title={title} />}
-        <div data-testid="mobile-module-list" className={mobileSidebarListClass}>{sidebar}</div>
+        <div data-testid="mobile-module-list" className={cn(mobileSidebarListClass, listClassName)}>{sidebar}</div>
       </div>
     )
   }

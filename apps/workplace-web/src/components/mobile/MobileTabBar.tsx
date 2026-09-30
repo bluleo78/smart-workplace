@@ -140,7 +140,16 @@ export function MobileTabBar() {
         >
           {/* 다른 탭과 같은 선상 — 위로 돌출시키면 탭 루트 화면 본문 하단(목록 끝·입력창)을 가리므로,
               높이는 아이콘(20px)과 같게 두고(-my-0.5 로 24px 캡슐의 여분 상쇄) 그라데이션 캡슐로만 1급 액션을 강조한다. */}
-          <span className="-my-0.5 flex h-6 w-11 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-primary text-white shadow-sm">
+          {/* 비활성 = 옅은 AI 틴트(다른 탭과 무게를 맞춤), 활성(AI 열림) = 그라데이션으로 "지금 여기"를 강조(U2-3).
+              ai-accent 토큰이라 다크 모드에서도 대응 색으로 바뀐다. */}
+          <span
+            data-testid="mobile-tab-ai-capsule"
+            data-active={aiOpen ? 'true' : undefined}
+            className={cn(
+              '-my-0.5 flex h-6 w-11 items-center justify-center rounded-full',
+              aiOpen ? 'bg-gradient-to-br from-violet-600 to-primary text-white shadow-sm' : 'bg-ai-accent-subtle text-ai-accent',
+            )}
+          >
             <Sparkles className="h-4 w-4" />
           </span>
           AI

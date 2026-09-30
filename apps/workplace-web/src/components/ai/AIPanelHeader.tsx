@@ -9,8 +9,11 @@ import { cn } from '@/lib/utils';
 
 const iconBtn = 'rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground';
 
-/** 표시 모드 전환 + 닫기 버튼 묶음. 사이드 패널 헤더와 풀스크린 상단 바에서 공용. */
-export function AIPanelControls() {
+/**
+ * 표시 모드 전환 + 닫기 버튼 묶음. 사이드 패널 헤더와 풀스크린 상단 바에서 공용.
+ * hideClose: 모바일 탭 루트의 풀스크린 — 하단 탭바가 보이면 탭 전환이 곧 닫기라 × 를 생략한다(U2-3).
+ */
+export function AIPanelControls({ hideClose = false }: { hideClose?: boolean }) {
   const { mode, open, close } = useAssistant();
 
   // 모드 버튼 — 현재 모드는 눌린 상태(aria-pressed)로 강조하고, 다른 모드를 누르면 그 모드로 전환한다.
@@ -35,16 +38,18 @@ export function AIPanelControls() {
         {modeButton('side', '사이드 패널로 보기', PanelRight)}
         {modeButton('fullscreen', '전체 화면으로 보기', Monitor)}
       </div>
-      <button
-        type="button"
-        aria-label="닫기"
-        title="닫기"
-        data-testid="ai-panel-close"
-        onClick={close}
-        className={iconBtn}
-      >
-        <X className="h-4 w-4" />
-      </button>
+      {!hideClose && (
+        <button
+          type="button"
+          aria-label="닫기"
+          title="닫기"
+          data-testid="ai-panel-close"
+          onClick={close}
+          className={iconBtn}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 }

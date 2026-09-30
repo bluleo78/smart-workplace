@@ -71,10 +71,12 @@ export function CalendarPage() {
   // 새 일정 딥링크(?new=true) — 홈 대시보드 "오늘 일정" 위젯 빈 상태 CTA(#653) 등에서 진입.
   const deepLinkNew = searchParams.get('new') === 'true'
   const [view, setView] = useState<CalendarViewType>('month')
-  // 모바일(<lg) 헤더는 ☰·오늘‹›·🔔 가 이미 폭을 차지해 뷰 버튼 4개를 두면 제목이 잘린다 → 단일 선택 컨트롤로 축약.
+  // 모바일(<lg): 오늘/‹/› 와 뷰 전환(단일 select)을 헤더 아래 도구 줄로 내린다(U2-5).
+  // 390px 헤더에 44×44 이동 버튼 3개(≈152px)와 ☰·🔔 를 함께 두면 22px 제목('2026년 12월' ≈120px)에 ~100px 만 남아 잘린다.
   const isMobile = useIsMobile()
-  // 모바일은 오늘/‹/› 좌우 여백을 줄여 제목 폭을 확보한다(375px 급 기기에서도 'yyyy년 MM월' 이 잘리지 않게). 데스크톱은 기본값.
-  const navBtnClass = isMobile ? 'px-2' : undefined
+  // 모바일 이동 버튼 — 44×44 터치 타깃. 데스크톱은 기본 크기(sm) 그대로.
+  const navBtnClass = isMobile ? 'h-11 min-w-11 px-3' : undefined
+  const arrowBtnClass = isMobile ? 'h-11 w-11 px-0 text-lg' : undefined
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()))
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<CalendarEvent | null>(null)
@@ -340,6 +342,43 @@ export function CalendarPage() {
     onCreateAt: openNew,
   }
 
+  // 오늘/이전/다음 — 데스크톱은 헤더 제목 앞(icon 슬롯), 모바일은 헤더 아래 도구 줄 왼쪽에 둔다.
+  const navControls = (
+    <div className="flex items-center gap-1">
+      <Button
+        variant="outline"
+        size="sm"
+        data-testid="calendar-today"
+        className={navBtnClass}
+        onClick={() => setAnchor(startOfDay(new Date()))}
+      >
+        오늘
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        data-testid="calendar-prev"
+        className={arrowBtnClass}
+        // 글리프(‹)만으로는 accessible name이 무의미해 뷰별 구체적 라벨 지정 (#818).
+        // step() 은 month=한달, day=하루, 그 외(week/agenda)=7일 단위로 이동한다.
+        aria-label={view === 'month' ? '이전 달' : view === 'day' ? '이전 날' : '이전 주'}
+        onClick={() => step(-1)}
+      >
+        ‹
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        data-testid="calendar-next"
+        className={arrowBtnClass}
+        aria-label={view === 'month' ? '다음 달' : view === 'day' ? '다음 날' : '다음 주'}
+        onClick={() => step(1)}
+      >
+        ›
+      </Button>
+    </div>
+  )
+
   return (
     <>
       {/* 모바일: 사이드바는 바텀시트(☰), 데스크톱: 기존 가로 배치 */}
@@ -362,62 +401,11 @@ export function CalendarPage() {
         }
       >
         <div className="flex min-w-0 flex-1 flex-col">
-          {/* 상단 네비게이션 바 — 오늘/이전/다음 + 뷰 전환 */}
+          {/* 상단 네비게이션 바 — 오늘/이전/다음 + 뷰 전환. 모바일은 헤더에 제목만, 이동·뷰 전환은 아래 도구 줄(U2-5). */}
           <PageHeader
-            // 오늘/이전/다음은 인터랙티브 컨트롤이라 모바일 헤더에서도 제목 앞에 남긴다(장식 아이콘과 구분).
-            keepIconOnMobile
-            // 모바일: 뷰 전환 select 는 22px 제목(2026년 12월)이 잘리지 않도록 ⋯ 메뉴 안에 둔다(인라인이면 제목 폭 < 텍스트 폭).
-            mobileMenuLabel="보기 전환"
-            icon={
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  data-testid="calendar-today"
-                  className={navBtnClass}
-                  onClick={() => setAnchor(startOfDay(new Date()))}
-                >
-                  오늘
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  data-testid="calendar-prev"
-                  className={navBtnClass}
-                  // 글리프(‹)만으로는 accessible name이 무의미해 뷰별 구체적 라벨 지정 (#818).
-                  // step() 은 month=한달, day=하루, 그 외(week/agenda)=7일 단위로 이동한다.
-                  aria-label={view === 'month' ? '이전 달' : view === 'day' ? '이전 날' : '이전 주'}
-                  onClick={() => step(-1)}
-                >
-                  ‹
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  data-testid="calendar-next"
-                  className={navBtnClass}
-                  aria-label={view === 'month' ? '다음 달' : view === 'day' ? '다음 날' : '다음 주'}
-                  onClick={() => step(1)}
-                >
-                  ›
-                </Button>
-              </div>
-            }
+            icon={isMobile ? undefined : navControls}
             title={<span data-testid="calendar-title">{format(anchor, 'yyyy년 M월')}</span>}
-            actions={isMobile ? (
-              // 모바일: 네이티브 select — OS 피커(iOS 휠)로 열리고 현재 뷰를 한 칸에 보여준다. 데스크톱 버튼 testid 는 그대로.
-              <select
-                data-testid="calendar-view-select"
-                aria-label="보기 전환"
-                value={view}
-                onChange={(e) => setView(e.target.value as CalendarViewType)}
-                className="h-9 shrink-0 rounded-md border bg-background px-2 text-sm"
-              >
-                {CALENDAR_VIEWS.map((v) => (
-                  <option key={v.key} value={v.key}>{v.label}</option>
-                ))}
-              </select>
-            ) : CALENDAR_VIEWS.map((v) => (
+            actions={isMobile ? undefined : CALENDAR_VIEWS.map((v) => (
               <Button
                 key={v.key}
                 size="sm"
@@ -431,6 +419,24 @@ export function CalendarPage() {
               </Button>
             ))}
           />
+          {isMobile && (
+            <div data-testid="calendar-mobile-toolbar" className="flex h-12 shrink-0 items-center gap-1 border-b px-2">
+              {navControls}
+              <div className="flex-1" />
+              {/* 네이티브 select — OS 피커(iOS 휠)로 열리고 현재 뷰를 한 칸에 보여준다. 데스크톱 뷰 버튼 testid 는 그대로. */}
+              <select
+                data-testid="calendar-view-select"
+                aria-label="보기 전환"
+                value={view}
+                onChange={(e) => setView(e.target.value as CalendarViewType)}
+                className="h-11 shrink-0 rounded-md border bg-background px-2 text-sm"
+              >
+                {CALENDAR_VIEWS.map((v) => (
+                  <option key={v.key} value={v.key}>{v.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* 뷰 렌더링 */}
           {view === 'month' && <MonthView {...viewProps} />}
