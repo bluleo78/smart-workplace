@@ -8,22 +8,28 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AssistantSpec;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.outbound.AiAgentCatchupClient;
+import com.workplace.messaging.outbound.dto.CatchupSummarizeRequest;
 import com.workplace.messaging.outbound.dto.CatchupSummarizeResult;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +53,11 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
   @Autowired ChannelService channelService;
   @Autowired MessageService messageService;
   @MockBean AiAgentCatchupClient catchupClient;
+  @MockBean AssistantResolver assistantResolver;
+
+  /** 해석될 비서 사양 — 하드코딩 id(2) 가 아닌 이 값이 AI 요청에 실려야 한다(WP-110). */
+  private static final AssistantSpec SPEC =
+      new AssistantSpec(777L, "test-model", "NORMAL", 8, 60_000);
 
   private long callerA;
   private long userB;
@@ -57,6 +68,7 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
     callerA = seedUser("a");
     userB = seedUser("b");
     userC = seedUser("c");
+    when(assistantResolver.resolveOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
   }
 
   /** 고유 사용자 시드 헬퍼. */
@@ -248,6 +260,41 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
 
     // 내가 보낸 mA 는 제외, 상대 mB 만.
     assertThat(res.yourTurn()).extracting("messageId").containsExactly(mB);
+  }
+
+  @Test
+  void AI_요청은_caller_기준으로_해석한_비서로_보낸다() {
+    long channelId = seedChannelWithMembers();
+    long m1 = postByB(channelId, "요약해줘", null);
+
+    when(catchupClient.summarize(any()))
+        .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
+
+    service.summarize(callerA, channelId, m1 - 1);
+
+    // 하드코딩 id(2)가 아니라 caller 의 비서(개인 → 공용)가 실려야 한다 — 운영에서 id 2 는 HUMAN 이라 400 이었다.
+    verify(assistantResolver).resolveOrEmpty(callerA);
+    ArgumentCaptor<CatchupSummarizeRequest> req =
+        ArgumentCaptor.forClass(CatchupSummarizeRequest.class);
+    verify(catchupClient).summarize(req.capture());
+    assertThat(req.getValue().assistantAgentId()).isEqualTo(777L);
+    assertThat(req.getValue().model()).isEqualTo("test-model");
+  }
+
+  @Test
+  void 비서가_없으면_AI_없이_내차례만_돌려준다() {
+    long channelId = seedChannelWithMembers();
+    long m1 = postByB(channelId, "@A 확인 부탁", callerA);
+    when(assistantResolver.resolveOrEmpty(anyLong())).thenReturn(Optional.empty());
+
+    var res = service.summarize(callerA, channelId, m1 - 1);
+
+    // AI 요약은 비고, 결정론적 "내 차례"·미읽음 수는 그대로.
+    verify(catchupClient, never()).summarize(any());
+    assertThat(res.unreadCount()).isEqualTo(1);
+    assertThat(res.yourTurn()).extracting("messageId").containsExactly(m1);
+    assertThat(res.decisions()).isEmpty();
+    assertThat(res.discussion()).isEmpty();
   }
 
   /** 트랜잭션-로컬 GUC 설정(true = 현재 tx 안에서만 유효, 롤백 시 사라짐). */

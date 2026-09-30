@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.outbound.AiAgentMessagingClient;
 import com.workplace.messaging.outbound.dto.MessagingClassifyResult;
@@ -15,6 +17,7 @@ import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.messaging.service.MessagingAttentionService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -38,6 +41,7 @@ class MessagingAttentionRlsTest extends IntegrationTestBase {
 
   @Autowired private MessagingAttentionService svc;
   @MockBean private AiAgentMessagingClient aiClient;
+  @MockBean private AssistantResolver assistantResolver;
   @Autowired private DSLContext dsl;
   @Autowired private PlatformTransactionManager txManager;
   @Autowired private ChannelRepository channelRepo;
@@ -106,7 +110,9 @@ class MessagingAttentionRlsTest extends IntegrationTestBase {
                   return uid;
                 });
 
-    // ── 2) aiClient 스텁: memberId 를 relevant 로 반환
+    // ── 2) 공용 비서 해석 + aiClient 스텁: memberId 를 relevant 로 반환
+    when(assistantResolver.resolveWorkspaceOrEmpty())
+        .thenReturn(Optional.of(new AssistantSpec(777L, "test-model", "NORMAL", 8, 60_000)));
     when(aiClient.classify(any()))
         .thenReturn(
             new MessagingClassifyResult(
