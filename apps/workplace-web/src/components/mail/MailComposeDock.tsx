@@ -111,7 +111,8 @@ export function MailComposeDock() {
       // 패널에 아무 role/label 도 없어 스크린리더가 새 UI 등장을 안내하지 못하던 문제 수정 —
       // 헤더 텍스트를 프로그램적 이름으로 연결 (#802).
       aria-labelledby="mail-compose-dock-title"
-      className="fixed bottom-0 right-4 z-50 flex w-[32rem] max-w-[calc(100vw-2rem)] flex-col rounded-t-lg border border-b-0 bg-background shadow-2xl"
+      // 모바일(<lg)은 하단 탭바(64px + 안전영역)가 있으므로 그 위로 띄워 탭바를 가리지 않게 한다.
+      className="fixed bottom-[calc(env(safe-area-inset-bottom)+64px)] right-4 z-50 lg:bottom-0 flex w-[32rem] max-w-[calc(100vw-2rem)] flex-col rounded-t-lg border border-b-0 bg-background shadow-2xl"
     >
       {/* 헤더 */}
       <div className="flex items-center justify-between rounded-t-lg bg-muted px-3 py-2">
