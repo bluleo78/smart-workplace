@@ -6,6 +6,7 @@ import { createIssue, createIssueDetail, createIssueSearchResponse } from '../fa
 import { createChatMessagePage, createChatThread } from '../factories/chat.factory'
 import { createProject } from '../factories/project.factory'
 import { detail, mailAccount, summary } from '../factories/mail.factory'
+import { calendar, calendarEvent } from '../factories/calendar.factory'
 import type { AiScreenContext } from '../../src/types/aiScreenContext'
 
 // 전송 body 를 순서대로 모은다.
@@ -346,5 +347,54 @@ test.describe('AI 채팅 화면 컨텍스트 — 메일', () => {
       focus: { type: '메일', label: '견적 요청', refs: { messageId: '91' } },
       scope: { refs: { accountId: '3', folder: 'INBOX' }, count: 1 },
     })
+  })
+})
+
+test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
+  // 오늘 정오(UTC) 일정 — 기본 월 보기에 항상 보이도록 팩토리 기본 날짜(2026-06)를 덮어쓴다.
+  const startsAt = new Date(new Date().toISOString().slice(0, 10) + 'T03:00:00Z')
+  const ev = calendarEvent({
+    id: 42, title: '주간회의', location: '3층',
+    startsAt: startsAt.toISOString(), endsAt: new Date(startsAt.getTime() + 3600_000).toISOString(),
+  })
+  async function mockCalendar(page: Parameters<typeof mockApi>[0]) {
+    await mockApi(page, 'GET', '/api/v1/calendars', [calendar()])
+    await mockApi(page, 'GET', '/api/v1/calendar/events', [ev])
+    await mockApi(page, 'GET', '/api/v1/calendar/events/42', ev)
+  }
+
+  test('?eventId 딥링크로 열린 일정이 칩에 반영된다', async ({ authenticatedPage: page }) => {
+    await captureChat(page)
+    await mockCalendar(page)
+    await page.goto('/calendar?eventId=42')
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+    // 모달 다이얼로그가 런처 클릭을 가로막을 수 있어 ⌘K 로 AI 패널을 연다.
+    await page.keyboard.press('ControlOrMeta+k')
+    await expect(page.getByTestId('chat-context-chip')).toContainText('일정 주간회의')
+  })
+
+  test('보기 기간·일정 수와 열린 일정의 eventId 가 전송 body 에 실린다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockCalendar(page)
+    await page.goto('/calendar')
+    await expect(page.getByTestId('calendar-event-42')).toBeVisible()
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('월 보기')
+    // 모달이 열리면 포커스 트랩 때문에 패널에 입력할 수 없으므로, 먼저 입력해 두고 일정을 연다.
+    await page.getByTestId('chat-input').fill('이 회의 참석자 알려줘')
+    await page.getByTestId('calendar-event-42').click({ force: true })
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('일정 주간회의')
+    // 모달이 패널을 aria-hidden 처리·덮고 있어 role/포인터로는 못 누른다 — 전송 버튼에 DOM click 을 직접 디스패치한다.
+    await page.getByTestId('chat-panel').locator('button[type=submit]').dispatchEvent('click')
+
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({
+      view: '캘린더',
+      focus: { type: '일정', label: '주간회의', refs: { eventId: '42' } },
+      scope: { label: '월 보기', count: 1 },
+    })
+    expect(bodies[0].screenContext!.scope!.refs).toHaveProperty('from')
+    expect(bodies[0].screenContext!.focus!.facts).toContainEqual({ label: '장소', value: '3층' })
   })
 })
