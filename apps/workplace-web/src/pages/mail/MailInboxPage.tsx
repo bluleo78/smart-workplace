@@ -8,6 +8,7 @@ import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { Button } from '@/components/ui/button'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
@@ -472,6 +473,8 @@ export function MailInboxPage() {
   const [selectedId, setSelectedId] = useState<number | null>(
     () => Number(params.get('messageId')) || null,
   )
+  // 모바일: 본문(상세)이 열려 있으면 하단 탭바를 숨긴다(WP-125).
+  useHideTabBar(selectedId != null)
 
   // 폴더 파라미터: ?folder=sent → SENT, 기본 INBOX.
   const folderParam = (params.get('folder') === 'sent' ? 'SENT' : 'INBOX') as MailFolder

@@ -102,8 +102,11 @@ test('연락처 전폭 헤더 + 좁은 화면 뒤로가기', { tag: '@smoke' }, 
   await firstRow.click()
   await expect(page.getByTestId('contact-back')).toBeVisible()
   await expect(page.getByTestId('contact-list')).toBeHidden()
+  // 모바일 셸(WP-125): 상세가 열리면 하단 탭바 숨김, 뒤로가기 시 복귀
+  await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
   await page.getByTestId('contact-back').click()
   await expect(page.getByTestId('contact-list')).toBeVisible()
+  await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
 })
 
 // #113 그룹 뷰에서도 헤더의 새 외부 연락처 버튼 노출(공통 헤더로 이동).

@@ -12,6 +12,7 @@ import { AgendaView } from '@/components/calendar/views/AgendaView'
 import { MonthView } from '@/components/calendar/views/MonthView'
 import { DayView, WeekView } from '@/components/calendar/views/WeekView'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { MobileSidebarSheet } from '@/components/mobile/MobileSidebarSheet'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -336,151 +337,158 @@ export function CalendarPage() {
 
   return (
     <>
-      <CalendarSidebar
-        onNew={() => openNew()}
-        anchor={anchor}
-        onSelectDate={(d) => setAnchor(startOfDay(d))}
-        layers={layers}
-        onToggleLayer={toggleLayer}
-        calendars={calendars}
-        onToggleCalendar={onToggleCalendar}
-        onAddCalendar={openAddCalendar}
-        onEditCalendar={openEditCalendar}
-        onResetCalendar={openResetCalendar}
-        markedDates={markedDates}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* 상단 네비게이션 바 — 오늘/이전/다음 + 뷰 전환 */}
-        <PageHeader
-          icon={
-            <div className="flex items-center gap-1">
+      {/* 모바일: 사이드바는 바텀시트(☰), 데스크톱: 기존 가로 배치 */}
+      <MobileSidebarSheet
+        title="캘린더"
+        sidebar={
+          <CalendarSidebar
+            onNew={() => openNew()}
+            anchor={anchor}
+            onSelectDate={(d) => setAnchor(startOfDay(d))}
+            layers={layers}
+            onToggleLayer={toggleLayer}
+            calendars={calendars}
+            onToggleCalendar={onToggleCalendar}
+            onAddCalendar={openAddCalendar}
+            onEditCalendar={openEditCalendar}
+            onResetCalendar={openResetCalendar}
+            markedDates={markedDates}
+          />
+        }
+      >
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* 상단 네비게이션 바 — 오늘/이전/다음 + 뷰 전환 */}
+          <PageHeader
+            icon={
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-testid="calendar-today"
+                  onClick={() => setAnchor(startOfDay(new Date()))}
+                >
+                  오늘
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  data-testid="calendar-prev"
+                  // 글리프(‹)만으로는 accessible name이 무의미해 뷰별 구체적 라벨 지정 (#818).
+                  // step() 은 month=한달, day=하루, 그 외(week/agenda)=7일 단위로 이동한다.
+                  aria-label={view === 'month' ? '이전 달' : view === 'day' ? '이전 날' : '이전 주'}
+                  onClick={() => step(-1)}
+                >
+                  ‹
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  data-testid="calendar-next"
+                  aria-label={view === 'month' ? '다음 달' : view === 'day' ? '다음 날' : '다음 주'}
+                  onClick={() => step(1)}
+                >
+                  ›
+                </Button>
+              </div>
+            }
+            title={<span data-testid="calendar-title">{format(anchor, 'yyyy년 M월')}</span>}
+            actions={CALENDAR_VIEWS.map((v) => (
               <Button
-                variant="outline"
+                key={v.key}
                 size="sm"
-                data-testid="calendar-today"
-                onClick={() => setAnchor(startOfDay(new Date()))}
+                variant={view === v.key ? 'default' : 'ghost'}
+                // 시각적으로만(배경색) 표현되던 선택 상태를 프로그램적으로도 노출 (#818).
+                aria-pressed={view === v.key}
+                data-testid={`calendar-view-${v.key}-btn`}
+                onClick={() => setView(v.key)}
               >
-                오늘
+                {v.label}
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                data-testid="calendar-prev"
-                // 글리프(‹)만으로는 accessible name이 무의미해 뷰별 구체적 라벨 지정 (#818).
-                // step() 은 month=한달, day=하루, 그 외(week/agenda)=7일 단위로 이동한다.
-                aria-label={view === 'month' ? '이전 달' : view === 'day' ? '이전 날' : '이전 주'}
-                onClick={() => step(-1)}
-              >
-                ‹
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                data-testid="calendar-next"
-                aria-label={view === 'month' ? '다음 달' : view === 'day' ? '다음 날' : '다음 주'}
-                onClick={() => step(1)}
-              >
-                ›
-              </Button>
-            </div>
-          }
-          title={<span data-testid="calendar-title">{format(anchor, 'yyyy년 M월')}</span>}
-          actions={CALENDAR_VIEWS.map((v) => (
-            <Button
-              key={v.key}
-              size="sm"
-              variant={view === v.key ? 'default' : 'ghost'}
-              // 시각적으로만(배경색) 표현되던 선택 상태를 프로그램적으로도 노출 (#818).
-              aria-pressed={view === v.key}
-              data-testid={`calendar-view-${v.key}-btn`}
-              onClick={() => setView(v.key)}
-            >
-              {v.label}
-            </Button>
-          ))}
+            ))}
+          />
+
+          {/* 뷰 렌더링 */}
+          {view === 'month' && <MonthView {...viewProps} />}
+          {view === 'week' && <WeekView {...viewProps} />}
+          {view === 'day' && <DayView {...viewProps} />}
+          {view === 'agenda' && <AgendaView {...viewProps} />}
+        </div>
+
+        {/* 일정 생성/편집 다이얼로그 */}
+        <EventDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          event={editing ?? undefined}
+          defaultStart={defaultStart}
+          onSubmit={submit}
+          onDelete={onDelete}
+          isPending={create.isPending || update.isPending}
         />
 
-        {/* 뷰 렌더링 */}
-        {view === 'month' && <MonthView {...viewProps} />}
-        {view === 'week' && <WeekView {...viewProps} />}
-        {view === 'day' && <DayView {...viewProps} />}
-        {view === 'agenda' && <AgendaView {...viewProps} />}
-      </div>
-
-      {/* 일정 생성/편집 다이얼로그 */}
-      <EventDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        event={editing ?? undefined}
-        defaultStart={defaultStart}
-        onSubmit={submit}
-        onDelete={onDelete}
-        isPending={create.isPending || update.isPending}
-      />
-
-      {/* 캘린더 컨테이너 추가/편집 다이얼로그 */}
-      <CalendarEditDialog
-        open={calEditOpen}
-        onOpenChange={setCalEditOpen}
-        calendar={editingCal}
-        onSubmit={submitCalendar}
-        onDelete={deleteCalendar}
-        isPending={createCal.isPending || updateCal.isPending}
-      />
-
-      {/* 반복 회차 수정/삭제 시 적용 범위 선택 */}
-      {scopeMode && (
-        <RecurrenceScopeDialog
-          open={!!scopeMode}
-          mode={scopeMode}
-          onPick={onPickScope}
-          onCancel={cancelScope}
+        {/* 캘린더 컨테이너 추가/편집 다이얼로그 */}
+        <CalendarEditDialog
+          open={calEditOpen}
+          onOpenChange={setCalEditOpen}
+          calendar={editingCal}
+          onSubmit={submitCalendar}
+          onDelete={deleteCalendar}
+          isPending={createCal.isPending || updateCal.isPending}
         />
-      )}
 
-      {/* 캘린더 강제 리셋(모든 일정 삭제) 확인 다이얼로그 */}
-      <AlertDialog open={resettingCal != null} onOpenChange={(o) => !o && setResettingCal(null)}>
-        <AlertDialogContent data-testid="calendar-reset-confirm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>모든 일정 삭제</AlertDialogTitle>
-            <AlertDialogDescription>
-              {resettingCal?.name}의 모든 일정을 영구 삭제합니다. 되돌릴 수 없습니다.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction
-              data-testid="calendar-reset-confirm-submit"
-              variant="destructive"
-              onClick={confirmResetCalendar}
-            >
-              삭제
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        {/* 반복 회차 수정/삭제 시 적용 범위 선택 */}
+        {scopeMode && (
+          <RecurrenceScopeDialog
+            open={!!scopeMode}
+            mode={scopeMode}
+            onPick={onPickScope}
+            onCancel={cancelScope}
+          />
+        )}
 
-      {/* 단일 일정 삭제 확인 다이얼로그 */}
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent data-testid="calendar-confirm-delete-dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>일정 삭제</AlertDialogTitle>
-            <AlertDialogDescription>
-              정말 삭제하시겠습니까? 되돌릴 수 없습니다.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="calendar-confirm-delete-cancel">취소</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              data-testid="calendar-confirm-delete-confirm"
-              onClick={confirmDelete}
-            >
-              삭제
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        {/* 캘린더 강제 리셋(모든 일정 삭제) 확인 다이얼로그 */}
+        <AlertDialog open={resettingCal != null} onOpenChange={(o) => !o && setResettingCal(null)}>
+          <AlertDialogContent data-testid="calendar-reset-confirm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>모든 일정 삭제</AlertDialogTitle>
+              <AlertDialogDescription>
+                {resettingCal?.name}의 모든 일정을 영구 삭제합니다. 되돌릴 수 없습니다.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>취소</AlertDialogCancel>
+              <AlertDialogAction
+                data-testid="calendar-reset-confirm-submit"
+                variant="destructive"
+                onClick={confirmResetCalendar}
+              >
+                삭제
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* 단일 일정 삭제 확인 다이얼로그 */}
+        <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+          <AlertDialogContent data-testid="calendar-confirm-delete-dialog">
+            <AlertDialogHeader>
+              <AlertDialogTitle>일정 삭제</AlertDialogTitle>
+              <AlertDialogDescription>
+                정말 삭제하시겠습니까? 되돌릴 수 없습니다.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="calendar-confirm-delete-cancel">취소</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                data-testid="calendar-confirm-delete-confirm"
+                onClick={confirmDelete}
+              >
+                삭제
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </MobileSidebarSheet>
     </>
   )
 }

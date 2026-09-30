@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { Button } from '@/components/ui/button'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { cn } from '@/lib/utils'
@@ -136,6 +137,8 @@ export function ContactsPage() {
   const groupId = parseGroupId(groupParam)
 
   const [selected, setSelected] = useState<ContactSelection | null>(null)
+  // 모바일: 상세가 열려 있으면 하단 탭바를 숨긴다(WP-125).
+  useHideTabBar(selected != null)
   const [createOpen, setCreateOpen] = useState(false)
 
   // 보던 조직도 그룹이 삭제되면 URL group 파라미터 제거 → 통합 목록 복귀.
