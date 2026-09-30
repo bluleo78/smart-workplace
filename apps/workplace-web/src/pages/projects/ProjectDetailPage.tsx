@@ -11,6 +11,7 @@ import { useCycles } from '../../hooks/queries/useCycles';
 import { useIssueTypes } from '../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../hooks/queries/useLabels';
 import { useMilestones } from '../../hooks/queries/useMilestones';
+import { useProjectEpics } from '../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useProject } from '../../hooks/queries/useProjects';
 import { useEpicPanelOpen } from '../../hooks/useEpicPanelOpen';
@@ -21,6 +22,7 @@ import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCreateDialog } from './components/IssueCreateDialog';
 import { IssueCycleGroupedList, IssueCycleListSkeleton } from './components/IssueCycleGroupedList';
+import { IssueDndProvider, useIssueDnd } from './components/IssueDndProvider';
 import { IssueFilterBar } from './components/IssueFilterBar';
 import { IssueListView } from './components/IssueListView';
 import { ViewChipBar } from './components/ViewChipBar';
@@ -97,6 +99,7 @@ export default function ProjectDetailPage() {
 
 // IssueFilterBar 와 활성 뷰(list/board) 를 묶는 영역.
 // FilterBar 가 URL 을 갱신하면 useSearchParams 의 재렌더로 자식 뷰가 같이 갱신된다.
+// 패널+보드/목록을 하나의 드래그 컨텍스트로 감싸 이슈를 에픽 패널로 끌어다 놓을 수 있게 한다.
 function IssueArea({
   projectKey,
   onOpenCreate,
@@ -105,6 +108,23 @@ function IssueArea({
   projectKey: string;
   onOpenCreate?: () => void;
   canDragStatus?: boolean;
+}) {
+  return (
+    <IssueDndProvider projectKey={projectKey}>
+      <ProjectIssuesSection projectKey={projectKey} onOpenCreate={onOpenCreate} canDragStatus={canDragStatus} />
+    </IssueDndProvider>
+  );
+}
+
+// 패널+보드/목록 영역 — provider 안에서 드래그 상태(activeIssue)를 읽어야 하므로 분리.
+function ProjectIssuesSection({
+  projectKey,
+  onOpenCreate,
+  canDragStatus,
+}: {
+  projectKey: string;
+  onOpenCreate?: () => void;
+  canDragStatus: boolean;
 }) {
   const [params] = useSearchParams();
   // params 가 바뀔 때만 새 필터 객체 — 매 렌더 새 객체면 아래 화면 컨텍스트 useMemo 가 매번 재계산된다.
@@ -115,6 +135,10 @@ function IssueArea({
   const { groupBy, pending: groupPending } = useIssueGroupBy(projectKey, true);
   // 에픽 패널 열림 상태 — ViewChipBar(토글 버튼)와 EpicSidePanel(조건 마운트)이 공유.
   const { open: epicPanelOpen, toggle: toggleEpicPanel } = useEpicPanelOpen(projectKey);
+  const dragging = useIssueDnd()?.activeIssue != null;
+  // 패널이 닫혀 있어도 드래그 시작 즉시 에픽이 보이도록 에픽 목록을 미리 받아 둔다(패널과 같은 캐시).
+  // 드래그 권한(멤버)이 있을 때만 — 비멤버는 드래그 자체가 없으므로 불필요한 요청을 막는다.
+  useProjectEpics(projectKey, canDragStatus);
 
   // WP-54: 필터 id → 이름 해석용 목록(IssueFilterBar 와 같은 쿼리 키 → 캐시 공유) + 프로젝트 이름.
   const project = useProject(projectKey);
@@ -191,7 +215,7 @@ function IssueArea({
           ) : groupPending ? (
             <IssueCycleListSkeleton />
           ) : groupBy === 'cycle' ? (
-            <IssueCycleGroupedList projectKey={projectKey} filters={filters} />
+            <IssueCycleGroupedList projectKey={projectKey} filters={filters} canDrag={canDragStatus} />
           ) : (
             <IssueListView
               projectKey={projectKey}
@@ -199,10 +223,13 @@ function IssueArea({
               groupBy={toClientGroupBy(groupBy)}
               onOpenCreate={onOpenCreate}
               onLoadedChange={onLoadedChange}
+              canDrag={canDragStatus}
             />
           )}
         </div>
       </div>
+      {/* 닫힌 패널은 드래그 동안만 떠 있는 드롭 대상으로 잠시 띄운다 — 저장된 열림 설정은 그대로. */}
+      {!epicPanelOpen && dragging && <EpicSidePanel projectKey={projectKey} floating />}
     </section>
   );
 }

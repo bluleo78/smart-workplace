@@ -24,6 +24,7 @@ export function IssueListView({
   groupBy,
   onOpenCreate,
   onLoadedChange,
+  canDrag = false,
 }: {
   projectKey: string;
   filters: IssueFilters;
@@ -32,6 +33,8 @@ export function IssueListView({
   onOpenCreate?: () => void;
   /** WP-54: 로드된 건수·추가 로드 가능 여부를 상위(IssueArea)로 알린다 — AI 화면 컨텍스트 건수용. */
   onLoadedChange?: (count: number, hasMore: boolean) => void;
+  /** 프로젝트 멤버만 행을 에픽 패널로 끌 수 있다 */
+  canDrag?: boolean;
 }) {
   // 보드와 같은 기본 범위 — 에픽 행 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(withDefaultIssueScope).
   const searchQuery = useIssueSearch(projectKey, withDefaultIssueScope(filters));
@@ -159,6 +162,9 @@ export function IssueListView({
                     projectKey={projectKey}
                     selected={selected.has(it.number)}
                     onToggleSelect={toggleSelected}
+                    canDrag={canDrag}
+                    // 다중 담당자 이슈는 여러 그룹에 보이므로 그룹별로 드래그 id 를 구분한다.
+                    dragScope={g.key}
                   />
                 ))}
               </tbody>
@@ -172,6 +178,7 @@ export function IssueListView({
                   projectKey={projectKey}
                   selected={selected.has(it.number)}
                   onToggleSelect={toggleSelected}
+                  canDrag={canDrag}
                 />
               ))}
             </tbody>

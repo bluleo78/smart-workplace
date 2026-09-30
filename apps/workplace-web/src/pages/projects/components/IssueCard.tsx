@@ -13,6 +13,7 @@ import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
+import type { IssueDragData } from '../../../lib/epicDnd';
 import type { IssueResponse } from '../../../types/issue';
 
 export function IssueCard({
@@ -22,6 +23,8 @@ export function IssueCard({
   to,
   showType = true,
   showStatus = false,
+  dragDisabled = false,
+  dragScope,
 }: {
   projectKey: string;
   issue: IssueResponse;
@@ -34,11 +37,18 @@ export function IssueCard({
   showType?: boolean;
   // 상태 아이콘 표시(기본 false). 비-상태 그룹(담당자/우선순위) 컬럼에서만 true — 컬럼이 상태를 안 드러내므로.
   showStatus?: boolean;
+  // 비멤버는 드래그 자체를 막는다(상태·에픽 모두 서버 assertMember 대상).
+  dragDisabled?: boolean;
+  // 한 이슈가 여러 컬럼에 보일 때(담당자 그룹의 다중 담당자) 드래그 id 를 컬럼별로 구분하는 범위 키.
+  // dnd-kit 은 id 로 노드를 등록하므로 겹치면 두 사본이 함께 흐려지고 고스트가 다른 사본 위치에서 뜬다.
+  // 상태 보드는 SortableContext items(`issue-{id}`)와 맞아야 하므로 지정하지 않는다.
+  dragScope?: string;
 }) {
   const sortable = useSortable({
-    id: `issue-${issue.id}`,
-    data: { issueNumber: issue.number, status: issue.status },
-    disabled: asOverlay,
+    id: dragScope ? `issue-${dragScope}-${issue.id}` : `issue-${issue.id}`,
+    // issueNumber/status: 보드 상태 드롭용, issue/source/showType: 에픽 드롭·오버레이용(IssueDragData).
+    data: { issueNumber: issue.number, status: issue.status, issue, source: 'card', showType } satisfies IssueDragData,
+    disabled: asOverlay || dragDisabled,
   });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     sortable;
@@ -66,10 +76,15 @@ export function IssueCard({
       style={style}
       {...(asOverlay ? {} : attributes)}
       {...(asOverlay ? {} : listeners)}
-      className={`group relative rounded-md border bg-card p-3 text-sm shadow-sm transition-colors hover:bg-accent/30 ${
-        asOverlay ? 'shadow-xl ring-2 ring-primary/40' : 'cursor-grab active:cursor-grabbing'
+      // 오버레이(드래그 고스트)는 불투명 표면(bg-popover)만 쓴다 — 포인터가 항상 위에 있어 hover:bg-accent/30(반투명)이
+      // 배경을 덮고, 다크의 --card 는 3% 알파라 아래 에픽 패널 글자가 비쳐 보였다(11-dark-mode: 떠 있는 레이어는 솔리드).
+      className={`group relative rounded-md border p-3 text-sm transition-colors ${
+        asOverlay
+          ? 'bg-popover shadow-xl ring-2 ring-primary/40'
+          : `bg-card shadow-sm hover:bg-accent/30${dragDisabled ? '' : ' cursor-grab active:cursor-grabbing'}`
       }`}
-      data-testid={`issue-card-${issue.number}`}
+      // 오버레이는 별도 testid — 원본 카드와 testid 가 겹치면 드래그 중 카드 조회가 모호해진다.
+      data-testid={asOverlay ? 'issue-card-drag-overlay' : `issue-card-${issue.number}`}
     >
       {/* 드래그 핸들 — hover 시만 표시. pointer-events-none 으로 클릭/드래그 방해 없음. */}
       {!asOverlay && (

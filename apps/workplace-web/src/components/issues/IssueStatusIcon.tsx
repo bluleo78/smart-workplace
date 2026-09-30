@@ -2,16 +2,9 @@
 // 아이콘 전용이라 접근성 위해 한글 라벨을 aria-label/title 로 노출(role=img).
 import { Circle, CircleCheckBig, CircleDashed, CircleX } from 'lucide-react';
 
+import { ISSUE_STATUS_LABEL } from '@/lib/issueGrouping';
 import { cn } from '@/lib/utils';
 import type { IssueStatus } from '@/types/issue';
-
-// 한글 라벨 — 아이콘 단독 표시 시 스크린리더/툴팁용.
-const STATUS_LABEL: Record<IssueStatus, string> = {
-  TODO: '할 일',
-  IN_PROGRESS: '진행 중',
-  DONE: '완료',
-  CANCELED: '취소',
-};
 
 export function IssueStatusIcon({
   status,
@@ -27,7 +20,7 @@ export function IssueStatusIcon({
   const base = cn('h-[18px] w-[18px] shrink-0', className);
   const a11yProps = decorative
     ? { 'aria-hidden': true as const }
-    : { role: 'img' as const, 'aria-label': `상태: ${STATUS_LABEL[status]}` };
+    : { role: 'img' as const, 'aria-label': `상태: ${ISSUE_STATUS_LABEL[status]}` };
   switch (status) {
     case 'DONE':
       return <CircleCheckBig className={cn(base, 'text-success')} {...a11yProps} />;

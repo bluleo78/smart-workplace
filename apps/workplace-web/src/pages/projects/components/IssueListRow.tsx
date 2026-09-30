@@ -1,7 +1,8 @@
 // 이슈 목록 테이블 행 — 평면/그룹 목록(IssueListView)과 사이클 구간 목록(IssueCycleGroupedList, #878)이 공유한다.
 // 행 전체 클릭으로 상세 이동(#234), 체크박스로 다중 선택(#606).
 
-import { memo } from 'react';
+import { useDraggable } from '@dnd-kit/core';
+import { memo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
@@ -10,7 +11,9 @@ import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
+import type { IssueDragData } from '../../../lib/epicDnd';
 import { formatDateKorean } from '../../../lib/formatters';
+import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
 
 // 목록 컬럼 수(체크박스·상태·우선순위·ID·제목·담당자·마감) — 그룹 헤더 colSpan 등에 쓴다.
@@ -24,19 +27,52 @@ export const IssueRow = memo(function IssueRow({
   projectKey,
   selected,
   onToggleSelect,
+  canDrag = false,
+  dragScope,
 }: {
   issue: IssueResponse;
   projectKey: string;
   selected: boolean;
   onToggleSelect: (number: number) => void;
+  /** 프로젝트 멤버만 행을 에픽 패널로 끌 수 있다(비멤버·미지정이면 평범한 행). */
+  canDrag?: boolean;
+  /** 드래그 id 구분자 — 같은 이슈가 여러 곳(사이클 구간 M:N)에 동시에 렌더될 때 id 가 겹치지 않게 한다. */
+  dragScope?: string;
 }) {
   const navigate = useNavigate();
   const to = `/projects/${projectKey}/issues/${it.number}`;
 
+  // 행 전체가 드래그 소스 — 에픽 패널로 끌어 놓아 에픽을 바꾼다. 활성화 노드=행 자신(지정하지 않으면
+  // KeyboardSensor 가 제목 링크 등 자손의 키 입력까지 받아 드래그를 시작한다, #881).
+  // dnd-kit 은 id 로 노드를 등록하므로 한 이슈가 여러 구간에 보이면 dragScope 로 id 를 구분해야 엉뚱한 행이 잡히지 않는다.
+  const { setNodeRef, setActivatorNodeRef, attributes, listeners, isDragging } = useDraggable({
+    id: dragScope ? `issue-row-${dragScope}-${it.id}` : `issue-row-${it.id}`,
+    data: { issue: it, source: 'row' } satisfies IssueDragData,
+    disabled: !canDrag,
+    // dnd-kit 기본 role=button 은 표 의미를 깨뜨린다 — 행 역할 유지.
+    attributes: { role: 'row' },
+  });
+  const ref = useCallback(
+    (el: HTMLTableRowElement | null) => {
+      setNodeRef(el);
+      setActivatorNodeRef(el);
+    },
+    [setNodeRef, setActivatorNodeRef],
+  );
+  // 비활성이면 dnd-kit 의 role·tabIndex·리스너를 붙이지 않는다(평범한 행).
+  const dragProps = canDrag
+    ? { ...attributes, ...listeners, 'aria-roledescription': '드래그 가능한 이슈' }
+    : {};
+
   return (
     <tr
+      ref={ref}
+      {...dragProps}
       onClick={() => navigate(to)}
-      className="border-b hover:bg-accent cursor-pointer"
+      className={cn(
+        'border-b hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        isDragging && 'opacity-40',
+      )}
       data-testid={`issue-row-${it.number}`}
     >
       <td className="py-2" onClick={(e) => e.stopPropagation()}>
@@ -44,6 +80,8 @@ export const IssueRow = memo(function IssueRow({
           type="checkbox"
           checked={selected}
           onChange={() => onToggleSelect(it.number)}
+          // 체크박스에서 시작한 포인터가 행 드래그로 이어지지 않게 한다.
+          onPointerDown={(e) => e.stopPropagation()}
           aria-label={`${it.title} 선택`}
           data-testid={`select-issue-${it.number}`}
           className="h-4 w-4"

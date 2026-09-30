@@ -10,7 +10,7 @@ export interface IssueGroup {
   issues: IssueResponse[];
 }
 
-/** 이슈 상태 → 표시 라벨. 보드/리스트 그룹 헤더와 AI 화면 컨텍스트(WP-54)가 같은 문구를 쓰도록 공용으로 둔다. */
+/** 이슈 상태 → 표시 라벨. 상태 아이콘(IssueStatusIcon)·보드/리스트 그룹 헤더·드래그 스크린리더 안내·AI 화면 컨텍스트(WP-54)가 같은 문구를 쓰도록 공용으로 둔다. */
 export const ISSUE_STATUS_LABEL: Record<IssueStatus, string> = {
   TODO: '할 일',
   IN_PROGRESS: '진행 중',
@@ -41,6 +41,11 @@ const toOrder = (labels: Record<string, string>) => Object.entries(labels).map((
 
 // 상태 버킷: enum 순서로 고정, 빈 버킷도 항상 노출(칸반 컬럼 관례).
 const STATUS_ORDER: { key: string; label: string }[] = toOrder(ISSUE_STATUS_LABEL);
+
+// 상태 한글 라벨 — 버킷 밖에서 상태명을 읽을 때(드래그 스크린리더 안내 등). 모르는 값은 그대로.
+export function statusLabel(status: string): string {
+  return Object.hasOwn(ISSUE_STATUS_LABEL, status) ? ISSUE_STATUS_LABEL[status as IssueStatus] : status;
+}
 
 // 우선순위 버킷: 높음→보통→낮음 고정 순서.
 const PRIORITY_ORDER: { key: string; label: string }[] = toOrder(ISSUE_PRIORITY_LABEL);

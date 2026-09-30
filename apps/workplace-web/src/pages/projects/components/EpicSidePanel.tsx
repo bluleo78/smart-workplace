@@ -2,46 +2,39 @@
 // 이슈 검색을 단일 필터링한다(Jira 클래식 보드의 에픽 패널 패턴). 백엔드 변경 없이 기존
 // type=EPIC 검색 + parent=<epicNumber> 필터 + childCount/childDoneCount 를 재사용한다.
 // 열림/닫힘은 ViewChipBar 의 「에픽」 토글이 단일 진입점(조건 마운트).
+// 이슈 드래그 중에는 「에픽 미할당」·각 에픽이 드롭 대상이 된다(IssueDndProvider 안일 때). floating 이면 닫힌 패널을
+// 드래그 동안만 뷰포트 오른쪽에 띄우는 임시 모드.
+import { useDroppable } from '@dnd-kit/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { Layers, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { type RefObject, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
-import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
-import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
+import { useProjectEpics } from '../../../hooks/queries/useProjectEpics';
 import { avatarColorClass } from '../../../lib/avatarColor';
+import {
+  EPIC_DROP_NONE_ID,
+  EPIC_PANEL_ZONE_ID,
+  epicDragBlockReason,
+  type EpicDropData,
+  epicDropId,
+  type EpicDropState,
+  epicDropState,
+} from '../../../lib/epicDnd';
 import { filtersToParams, parseFilters, parseGroupParam, parseView } from '../../../lib/issueFilters';
-import type { IssueFilters } from '../../../types/issue';
+import type { IssueResponse, ParentRef } from '../../../types/issue';
 import { IssueCreateDialog } from './IssueCreateDialog';
+import { useIssueDnd } from './IssueDndProvider';
 
-// EPIC 자체를 조회할 때 쓰는 필터 — 다른 필터는 모두 기본값, typeIds 만 EPIC 으로 좁힌다.
-function epicListFilters(epicTypeId: number): IssueFilters {
-  return {
-    q: '',
-    statuses: [],
-    priorities: [],
-    assigneeIds: [],
-    includeUnassigned: false,
-    dueFrom: null,
-    dueTo: null,
-    labelIds: [],
-    cycleIds: [],
-    milestoneIds: [],
-    typeIds: [epicTypeId],
-    parentNumber: null,
-    topLevel: true,
-    blocked: false,
-    excludeSubtasks: false,
-    showAllClosed: false,
-  };
-}
+// 패널 항목 공통 버튼 스타일.
+const ITEM_BASE = 'w-full rounded px-2 py-1.5 text-left text-sm transition-colors';
 
 export function EpicSidePanel({
-  projectKey, canCreateIssue = false,
-}: { projectKey: string; canCreateIssue?: boolean }) {
+  projectKey, canCreateIssue = false, floating = false,
+}: { projectKey: string; canCreateIssue?: boolean; floating?: boolean }) {
   const [params, setParams] = useSearchParams();
   const filters = parseFilters(params);
   const view = parseView(params);
@@ -51,21 +44,17 @@ export function EpicSidePanel({
   // 「＋ 에픽 만들기」 다이얼로그 열림 상태.
   const [createOpen, setCreateOpen] = useState(false);
 
-  const types = useIssueTypes(projectKey);
-  const epicType = types.data?.find((t) => t.name === 'EPIC');
+  const { epicType, epics, loading } = useProjectEpics(projectKey);
+  // 에픽 목록 스크롤 컨테이너 — 에픽 드롭 대상의 clip 으로 실어, 스크롤로 가려진 항목은 드롭 판정에서 뺀다(epicDnd).
+  const listRef = useRef<HTMLDivElement>(null);
 
-  // 훅 순서 고정을 위해 epicType 미확정 시에도 훅은 항상 호출하고, enabled 로 실제 네트워크 요청만 막는다.
-  // (필터의 typeIds: [-1] 는 enabled=false 상태에서는 사용되지 않는 자리채움용일 뿐이다.)
-  const epicSearch = useIssueSearch(
-    projectKey,
-    epicType ? epicListFilters(epicType.id) : epicListFilters(-1),
-    100,
-    !!epicType,
-  );
-
-  const epics = epicSearch.data?.pages.flatMap((p) => p.items ?? []) ?? [];
-  // 로딩: 유형 목록 로딩 중이거나, EPIC 유형 확정 후 에픽 검색 로딩 중.
-  const loading = types.isLoading || (!!epicType && epicSearch.isLoading);
+  // 드래그 상태 — provider 밖(다른 화면에서 재사용)이면 드래그 없음으로 본다.
+  const dnd = useIssueDnd();
+  const activeIssue = dnd?.activeIssue ?? null;
+  const blockReason = activeIssue ? epicDragBlockReason(activeIssue) : null;
+  // 패널 전체 영역 존 — 드래그 중에만 활성. 패널 위(비허용 항목·배너·여백)에 놓으면 no-op 이 되고 아래 보드로 새지 않는다.
+  // data 에 epic 키가 없으므로 provider 의 에픽 드롭·보드 상태 모니터 모두 무시한다.
+  const { setNodeRef: setZoneRef } = useDroppable({ id: EPIC_PANEL_ZONE_ID, data: { zone: true }, disabled: activeIssue == null });
 
   // 에픽 필터 전환 후 본문 이슈 검색을 무효화한다 — 전역 staleTime(30s) 내 동일 필터로
   // 되돌아가도(예: 같은 에픽 재클릭) 캐시된 결과가 아니라 최신 목록을 즉시 다시 조회한다.
@@ -98,9 +87,19 @@ export function EpicSidePanel({
 
   return (
     <aside
+      ref={setZoneRef}
       aria-label="에픽 필터"
       data-testid="epic-side-panel"
-      className="flex w-56 shrink-0 flex-col self-stretch border-r pr-3"
+      // 드래그 자동 스크롤 제한(IssueDndProvider)이 포인터가 패널 위인지 판정할 때 찾는 표식.
+      data-epic-panel=""
+      data-floating={floating || undefined}
+      className={
+        floating
+          // 뷰포트 기준 — 긴 목록 스크롤과 무관하게 헤더(h-14) 아래 오른쪽에 뜬다.
+          // 떠 있는 레이어라 솔리드 bg-popover — 다크에서는 그림자가 거의 안 보여 표면 고도로 분리한다(11-dark-mode).
+          ? 'fixed right-4 top-24 bottom-4 z-30 flex w-56 flex-col rounded-md border bg-popover text-popover-foreground p-3 shadow-lg'
+          : 'flex w-56 shrink-0 flex-col self-stretch border-r pr-3'
+      }
     >
       {/* 헤더 — 레이블 + 에픽 개수. 접기 버튼 없음(진입점은 뷰 탭 바 토글). */}
       <div className="flex items-center justify-between px-1 pb-2">
@@ -110,6 +109,20 @@ export function EpicSidePanel({
         </span>
       </div>
 
+      {/* 드래그 중 안내 — 허용이면 드롭 방법, 차단이면 사유(role=status 로 스크린리더에도 전달). */}
+      {activeIssue && (
+        <p
+          role="status"
+          data-testid={blockReason ? 'epic-drop-blocked-reason' : 'epic-drop-hint'}
+          className={cn(
+            'mb-2 rounded px-2 py-1.5 text-xs',
+            blockReason ? 'bg-warning-subtle text-warning-foreground' : 'bg-primary/10 text-primary',
+          )}
+        >
+          {blockReason ?? '에픽에 놓으면 연결됩니다'}
+        </p>
+      )}
+
       <button
         type="button"
         // 에픽 선택·미할당을 모두 해제한다.
@@ -117,32 +130,27 @@ export function EpicSidePanel({
         aria-pressed={filters.parentNumber == null && !unassignedActive}
         data-testid="epic-filter-all"
         className={cn(
-          'w-full rounded px-2 py-1.5 text-left text-sm transition-colors',
+          ITEM_BASE,
           filters.parentNumber == null && !unassignedActive ? 'bg-accent font-medium' : 'hover:bg-muted/50',
+          // 드롭 대상이 아님 — 드래그 중에는 흐려 놓을 수 있는 항목과 구분한다.
+          activeIssue && 'opacity-50',
         )}
       >
         전체 이슈
       </button>
 
       {epicType && (
-        <button
-          type="button"
-          onClick={selectUnassigned}
-          aria-pressed={unassignedActive}
-          data-testid="epic-filter-unassigned"
-          className={cn(
-            'w-full rounded px-2 py-1.5 text-left text-sm transition-colors',
-            unassignedActive ? 'bg-accent font-medium' : 'hover:bg-muted/50',
-          )}
-        >
-          에픽 미할당
-        </button>
+        <UnassignedButton active={unassignedActive} activeIssue={activeIssue} onClick={selectUnassigned} />
       )}
 
       <div className="my-2 border-t" />
 
       {/* 에픽 목록 — 내부 스크롤(헤더/고정 항목/푸터는 고정). */}
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+      <div
+        ref={listRef}
+        data-testid="epic-panel-list"
+        className="min-h-0 flex-1 space-y-1 overflow-y-auto"
+      >
         {loading ? (
           <div className="space-y-3 px-2 py-2" data-testid="epic-panel-skeleton">
             {[0, 1, 2].map((i) => (
@@ -165,43 +173,16 @@ export function EpicSidePanel({
             </p>
           </div>
         ) : (
-          epics.map((ep) => {
-            const pct = ep.childCount > 0 ? Math.round((ep.childDoneCount / ep.childCount) * 100) : 0;
-            const selected = filters.parentNumber === ep.number;
-            // avatarColorClass 는 "bg-x-500 text-white" 복합 문자열 — 색점/진행바에는 bg-* 만 사용.
-            const colorBg = avatarColorClass(ep.number).split(' ')[0];
-            return (
-              <button
-                key={ep.number}
-                type="button"
-                onClick={() => selectEpic(ep.number)}
-                aria-pressed={selected}
-                data-testid={`epic-filter-${ep.number}`}
-                className={cn(
-                  'w-full rounded px-2 py-1.5 text-left text-sm transition-colors',
-                  selected ? 'bg-accent font-medium' : 'hover:bg-muted/50',
-                )}
-              >
-                <span className="flex items-center gap-2">
-                  <span className={cn('h-2 w-2 shrink-0 rounded-full', colorBg)} aria-hidden="true" />
-                  <span className="min-w-0 flex-1 truncate" title={ep.title}>{ep.title}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {ep.childDoneCount}/{ep.childCount}
-                  </span>
-                </span>
-                {/* 진행바 — FreshnessBar 패턴(h-1 rounded-full bg-muted 트랙 + 색 채움). button 내부라 span 만 사용. */}
-                <span
-                  role="progressbar"
-                  aria-valuenow={pct}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  className="mt-1.5 ml-4 block h-1 overflow-hidden rounded-full bg-muted"
-                >
-                  <span className={cn('block h-full rounded-full', colorBg)} style={{ width: `${pct}%` }} />
-                </span>
-              </button>
-            );
-          })
+          epics.map((ep) => (
+            <EpicItemButton
+              key={ep.number}
+              epic={ep}
+              selected={filters.parentNumber === ep.number}
+              activeIssue={activeIssue}
+              clip={listRef}
+              onClick={() => selectEpic(ep.number)}
+            />
+          ))
         )}
       </div>
 
@@ -212,7 +193,10 @@ export function EpicSidePanel({
             type="button"
             data-testid="epic-create-button"
             onClick={() => setCreateOpen(true)}
-            className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50"
+            className={cn(
+              'flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50',
+              activeIssue && 'opacity-50',
+            )}
           >
             <Plus className="h-4 w-4" aria-hidden="true" /> 에픽 만들기
           </button>
@@ -225,5 +209,109 @@ export function EpicSidePanel({
         </div>
       )}
     </aside>
+  );
+}
+
+// 패널 항목을 에픽 드롭 대상으로 만든다 — 허용 상태일 때만 활성(비허용은 over 가 되지 않아 놓아도 무시).
+// clip: 항목을 감싼 스크롤 컨테이너(에픽 목록만) — 가려진 항목이 포인터 판정에 잡히지 않게 한다.
+function useEpicDroppable(
+  epic: ParentRef | null,
+  activeIssue: IssueResponse | null,
+  clip?: RefObject<HTMLElement | null>,
+) {
+  const state = epicDropState(activeIssue, epic?.number ?? null);
+  const { setNodeRef, isOver } = useDroppable({
+    id: epic ? epicDropId(epic.number) : EPIC_DROP_NONE_ID,
+    data: { epic, clip } satisfies EpicDropData,
+    disabled: state !== 'allowed',
+  });
+  const dropState = state === 'allowed' && isOver ? 'over' : state;
+  return { setNodeRef, dropState, dropClass: DROP_CLASS[dropState] };
+}
+
+// 드롭 상태별 항목 스타일 — 점선=놓을 수 있음, 실선+진한 배경=지금 놓으면 여기로, 흐림=현재/차단.
+// 점선은 알파 없는 outline-primary — /60 은 비텍스트 대비 3:1 미달(라이트 ~2.96, 다크 ~2.76). 오버와는 선 모양·두께·배경으로 구분.
+const DROP_CLASS: Record<EpicDropState | 'over', string> = {
+  idle: '',
+  allowed: 'outline-dashed outline-1 -outline-offset-1 outline-primary bg-primary/5',
+  over: 'outline outline-2 -outline-offset-2 outline-primary bg-primary/15',
+  current: 'opacity-50',
+  blocked: 'opacity-50',
+};
+
+// 드롭 대상 항목(미할당·에픽) 공통 클래스 — 드래그 중에는 선택 배경보다 드롭 상태 표시가 우선.
+function dropItemClass(selected: boolean, activeIssue: IssueResponse | null, dropClass: string) {
+  return cn(ITEM_BASE, !activeIssue && (selected ? 'bg-accent font-medium' : 'hover:bg-muted/50'), dropClass);
+}
+
+// 「에픽 미할당」 버튼 — 클릭은 미할당 필터 토글, 드래그 중에는 부모 해제 드롭 대상.
+function UnassignedButton({
+  active, activeIssue, onClick,
+}: { active: boolean; activeIssue: IssueResponse | null; onClick: () => void }) {
+  const { setNodeRef, dropState, dropClass } = useEpicDroppable(null, activeIssue);
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      data-testid="epic-filter-unassigned"
+      data-drop-state={dropState}
+      className={dropItemClass(active, activeIssue, dropClass)}
+    >
+      에픽 미할당
+    </button>
+  );
+}
+
+// 에픽 항목 버튼 — 클릭은 해당 에픽 필터 토글, 드래그 중에는 그 에픽으로 연결하는 드롭 대상.
+function EpicItemButton({
+  epic: ep, selected, activeIssue, clip, onClick,
+}: {
+  epic: IssueResponse;
+  selected: boolean;
+  activeIssue: IssueResponse | null;
+  clip: RefObject<HTMLElement | null>;
+  onClick: () => void;
+}) {
+  // 검색 응답은 type 이 항상 채워진다 — 낙관적 반영에 쓸 ParentRef 로 좁힌다.
+  const { setNodeRef, dropState, dropClass } = useEpicDroppable(
+    { number: ep.number, title: ep.title, type: ep.type! },
+    activeIssue,
+    clip,
+  );
+  const pct = ep.childCount > 0 ? Math.round((ep.childDoneCount / ep.childCount) * 100) : 0;
+  // avatarColorClass 는 "bg-x-500 text-white" 복합 문자열 — 색점/진행바에는 bg-* 만 사용.
+  const colorBg = avatarColorClass(ep.number).split(' ')[0];
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      data-testid={`epic-filter-${ep.number}`}
+      data-drop-state={dropState}
+      className={dropItemClass(selected, activeIssue, dropClass)}
+    >
+      <span className="flex items-center gap-2">
+        <span className={cn('h-2 w-2 shrink-0 rounded-full', colorBg)} aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate" title={ep.title}>{ep.title}</span>
+        {/* 드래그 중인 이슈가 이미 속한 에픽 — 놓아도 변화가 없음을 알린다. */}
+        {dropState === 'current' && <span className="text-xs text-muted-foreground">현재</span>}
+        <span className="text-xs text-muted-foreground">
+          {ep.childDoneCount}/{ep.childCount}
+        </span>
+      </span>
+      {/* 진행바 — FreshnessBar 패턴(h-1 rounded-full bg-muted 트랙 + 색 채움). button 내부라 span 만 사용. */}
+      <span
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        className="mt-1.5 ml-4 block h-1 overflow-hidden rounded-full bg-muted"
+      >
+        <span className={cn('block h-full rounded-full', colorBg)} style={{ width: `${pct}%` }} />
+      </span>
+    </button>
   );
 }

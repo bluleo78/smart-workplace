@@ -89,6 +89,7 @@ export function IssueCycleSection({
   selected,
   onToggleSelect,
   onSetSelected,
+  canDrag = false,
 }: {
   def: CycleSectionDef;
   expanded: boolean;
@@ -105,6 +106,8 @@ export function IssueCycleSection({
   onToggleSelect: (number: number) => void;
   /** 구간 전체 선택/해제 — 여러 구간에 걸친 선택은 목록이 합쳐 관리한다. */
   onSetSelected: (numbers: number[], checked: boolean) => void;
+  /** 프로젝트 멤버만 행을 에픽 패널로 끌 수 있다. */
+  canDrag?: boolean;
 }) {
   const bodyId = useId();
   const cycle = def.kind === 'cycle' ? def.cycle : null;
@@ -262,6 +265,7 @@ export function IssueCycleSection({
             projectKey={projectKey}
             selected={selected}
             onToggleSelect={onToggleSelect}
+            canDrag={canDrag}
           />
           <div ref={sentinelRef} aria-hidden="true" className="h-px" />
           {query?.isFetchingNextPage && (
@@ -292,6 +296,7 @@ function SectionBody({
   projectKey,
   selected,
   onToggleSelect,
+  canDrag,
 }: {
   query: ReturnType<typeof useCycleSectionIssues>;
   items: IssueResponse[];
@@ -300,6 +305,7 @@ function SectionBody({
   projectKey: string;
   selected: Set<number>;
   onToggleSelect: (number: number) => void;
+  canDrag: boolean;
 }) {
   if (!query || query.isLoading) {
     return (
@@ -339,6 +345,9 @@ function SectionBody({
             projectKey={projectKey}
             selected={selected.has(it.number)}
             onToggleSelect={onToggleSelect}
+            canDrag={canDrag}
+            // 한 이슈가 여러 사이클 구간에 동시에 보일 수 있어(M:N) 구간 키로 드래그 id 를 구분한다.
+            dragScope={testKey}
           />
         ))}
       </tbody>

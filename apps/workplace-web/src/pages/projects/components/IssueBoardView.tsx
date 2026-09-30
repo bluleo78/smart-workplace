@@ -2,25 +2,8 @@
 // 상태 보드는 컬럼마다 독립 무한 쿼리(useIssueBoardColumns)로 각 컬럼 끝까지 스크롤하며 이어 받는다(#875).
 // 담당자·우선순위 그룹 보드는 그룹이 동적이라 단일 쿼리로 마지막 페이지까지 순차 로드한다.
 
-import {
-  closestCorners,
-  type CollisionDetection,
-  DndContext,
-  type DragEndEvent,
-  DragOverlay,
-  type DragStartEvent,
-  KeyboardSensor,
-  PointerSensor,
-  pointerWithin,
-  useDroppable,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
+import { type DragEndEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Inbox, Plus } from 'lucide-react';
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
 
@@ -40,18 +23,7 @@ import type {
   IssueResponse,
 } from '../../../types/issue';
 import { IssueCard } from './IssueCard';
-
-// 빈 컬럼 드롭 무반응 (#774) — closestCorners 단독 사용 시, populated 컬럼은 카드마다 개별
-// droppable(SortableContext) 이 등록돼 코너 거리 후보가 많은 반면 빈 컬럼은 <section> 전체
-// (세로로 긴 rect) 하나뿐이라 인접 populated 컬럼의 카드 droppable 에 밀려 최근접으로 뽑히지 못한다.
-// dnd-kit 공식 패턴대로 pointerWithin(커서가 실제로 들어간 droppable) 을 우선 사용하고,
-// 없을 때만 closestCorners 로 폴백 — 카드 위에서는 pointerWithin 이 그 카드를 바로 잡아주므로
-// populated 컬럼 내 재정렬(SortableContext) UX 는 그대로 유지된다.
-const boardCollisionDetection: CollisionDetection = (args) => {
-  const pointerCollisions = pointerWithin(args);
-  if (pointerCollisions.length > 0) return pointerCollisions;
-  return closestCorners(args);
-};
+import { IssueDndProvider, useIssueDnd } from './IssueDndProvider';
 
 // 기본 4컬럼(팀). 개인은 3컬럼(CANCELED 제외) 을 주입한다.
 const DEFAULT_COLUMNS: { status: string; label: string }[] = [
@@ -61,7 +33,7 @@ const DEFAULT_COLUMNS: { status: string; label: string }[] = [
   { status: 'CANCELED', label: '취소' },
 ];
 
-export function IssueBoardView({
+function IssueBoardViewInner({
   projectKey,
   filters,
   groupBy,
@@ -127,23 +99,7 @@ export function IssueBoardView({
     byStatus[it.status]?.push(it);
   }
 
-  // PointerSensor distance:5 — 짧은 클릭으로 Link 가 발화되도록 보장.
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  // DragOverlay 로 띄울 활성 카드. 드래그 중 원본은 반투명 placeholder, overlay 가 포인터를 따라간다.
-  const [activeIssue, setActiveIssue] = useState<IssueResponse | null>(null);
-
-  function handleDragStart(e: DragStartEvent) {
-    const id = e.active.id;
-    const found = allIssues.find((i) => `issue-${i.id}` === id);
-    setActiveIssue(found ?? null);
-  }
-
   function handleDragEnd(e: DragEndEvent) {
-    setActiveIssue(null);
     // 비멤버는 상태 변경 권한 없음 — drag 이벤트 무시.
     if (!canDragStatus) return;
     const { active, over } = e;
@@ -191,20 +147,15 @@ export function IssueBoardView({
         }
       >
         {groups.map((g) => (
-          <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} onOpenCreate={onOpenCreate} />
+          <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} onOpenCreate={onOpenCreate} dragDisabled={!canDragStatus} />
         ))}
       </BoardScroll>
     );
   }
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={boardCollisionDetection}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onDragCancel={() => setActiveIssue(null)}
-    >
+    <>
+      <BoardStatusDropMonitor onDragEnd={handleDragEnd} />
       <BoardScroll>
         {columns.map((col) => (
           <BoardColumn
@@ -217,23 +168,33 @@ export function IssueBoardView({
             cardTo={cardTo}
             showType={showType}
             onOpenCreate={onOpenCreate}
+            dragDisabled={!canDragStatus}
           />
         ))}
       </BoardScroll>
-      {/* DragOverlay — 컬럼 경계를 넘어도 ghost 가 포인터를 그대로 따라간다. */}
-      <DragOverlay dropAnimation={null}>
-        {activeIssue ? (
-          <IssueCard
-            projectKey={projectKey}
-            issue={activeIssue}
-            asOverlay
-            to={cardTo?.(activeIssue)}
-            showType={showType}
-          />
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+    </>
   );
+}
+
+type IssueBoardViewProps = Parameters<typeof IssueBoardViewInner>[0];
+
+// provider(페이지)가 있으면 그 DndContext 를 쓰고, 없으면(개인 보드) 자체 provider 로 감싼다 —
+// dnd-kit 은 context 없는 draggable 을 오류 없이 조용히 죽이므로 반드시 둘 중 하나가 있어야 한다.
+export function IssueBoardView(props: IssueBoardViewProps) {
+  const dnd = useIssueDnd();
+  if (dnd) return <IssueBoardViewInner {...props} />;
+  return (
+    <IssueDndProvider projectKey={props.projectKey}>
+      <IssueBoardViewInner {...props} />
+    </IssueDndProvider>
+  );
+}
+
+// 상태 보드 전용 — 공용 provider 의 드롭 이벤트를 구독해 컬럼/카드 대상일 때만 상태를 바꾼다.
+// 그룹 보드에는 두지 않는다: 다른 그룹 카드 위에 놓았을 때 그 카드의 status 로 바뀌면 안 되므로.
+function BoardStatusDropMonitor({ onDragEnd }: { onDragEnd: (e: DragEndEvent) => void }) {
+  useDndMonitor({ onDragEnd });
+  return null;
 }
 
 // 보드 스크롤 컨테이너 — 컬럼 끝 sentinel 이 IntersectionObserver root 로 쓰도록 컨텍스트로 내려준다.
@@ -272,6 +233,7 @@ function BoardColumn({
   cardTo,
   showType = true,
   onOpenCreate,
+  dragDisabled = false,
 }: {
   status: string;
   label: string;
@@ -285,10 +247,13 @@ function BoardColumn({
   showType?: boolean;
   // 빈 컬럼 CTA 콜백 — 제공 시 "이슈 추가" 버튼 표시.
   onOpenCreate?: () => void;
+  // 비멤버는 카드 드래그 차단.
+  dragDisabled?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `col-${status}`,
-    data: { status },
+    // label: 스크린리더 드래그 안내가 컬럼 이름을 읽는 데 쓴다(epicDnd.describeDropTarget).
+    data: { status, label },
   });
   return (
     <section
@@ -330,7 +295,7 @@ function BoardColumn({
         ) : (
           <div className="flex flex-col gap-2">
             {issues.map((it) => (
-              <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} />
+              <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled={dragDisabled} />
             ))}
           </div>
         )}
@@ -366,6 +331,7 @@ function ReadOnlyColumn({
   cardTo,
   showType = true,
   onOpenCreate,
+  dragDisabled = false,
 }: {
   group: IssueGroup;
   projectKey: string;
@@ -375,6 +341,8 @@ function ReadOnlyColumn({
   showType?: boolean;
   // 빈 컬럼 CTA 콜백 — 제공 시 "이슈 추가" 버튼 표시.
   onOpenCreate?: () => void;
+  // 비멤버는 카드 드래그 차단.
+  dragDisabled?: boolean;
 }) {
   return (
     <section
@@ -407,7 +375,8 @@ function ReadOnlyColumn({
       ) : (
         <div className="flex flex-col gap-2">
           {group.issues.map((it) => (
-            <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} showStatus />
+            // dragScope: 다중 담당자 이슈는 여러 그룹 컬럼에 보이므로 컬럼별로 드래그 id 를 구분한다.
+            <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} showStatus dragDisabled={dragDisabled} dragScope={group.key} />
           ))}
         </div>
       )}

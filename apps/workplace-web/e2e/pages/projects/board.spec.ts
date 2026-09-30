@@ -977,3 +977,45 @@ test.describe('종료 이슈 숨김 (#876)', () => {
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   });
 });
+
+// 회귀 가드: 그룹 보드는 읽기전용이라 다른 그룹 카드 위에 놓아도 그 카드의 status 로 바뀌면 안 된다.
+// (공용 DndContext 이관 후에도 그룹 보드에 상태 드롭 모니터가 붙지 않는지 확인)
+test('담당자 그룹 보드에서 카드를 다른 그룹 카드 위에 놓아도 상태가 바뀌지 않는다', async ({
+  authenticatedPage: page,
+}) => {
+  await stubProjectMeta(page);
+  const alice = { id: 1, username: 'alice', name: 'Alice', kind: 'HUMAN' as const };
+  const bob = { id: 2, username: 'bob', name: 'Bob', kind: 'HUMAN' as const };
+  const a = createIssue({ id: 1, number: 1, title: 'A', status: 'TODO', assignees: [alice] });
+  const b = createIssue({ id: 2, number: 2, title: 'B', status: 'DONE', assignees: [bob] });
+  await routeIssueSearch(page, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(createIssueSearchResponse([a, b])),
+    }),
+  );
+  let statusPatched = false;
+  await page.route('**/issues/*/status', (route) => {
+    statusPatched = true;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(createIssueDetail()),
+    });
+  });
+  await page.goto(`/projects/${PROJECT_KEY}?view=board&group=assignee`);
+  // dragCardTo 를 풀어 쓴다 — 놓기 전에 드래그가 실제로 시작됐는지(원본 흐림·고스트) 확인해 헛통과를 막는다.
+  const card = page.getByTestId('issue-card-1');
+  await card.hover();
+  await page.mouse.down();
+  await page.mouse.move(0, 0);
+  const box = (await page.getByTestId('issue-card-2').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
+  await expect(card).toHaveCSS('opacity', '0.4');
+  await expect(page.getByTestId('issue-card-drag-overlay')).toBeVisible();
+  await page.mouse.up();
+  // 부재 확인 — 상태 PATCH 가 나가지 않음은 기다릴 조건이 없어 짧게 흘려보낸 뒤 단언(WP-82 예외).
+  await page.waitForTimeout(300);
+  expect(statusPatched).toBe(false);
+});

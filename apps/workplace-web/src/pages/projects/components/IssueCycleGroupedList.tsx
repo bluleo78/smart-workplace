@@ -40,9 +40,12 @@ export function IssueCycleListSkeleton() {
 export function IssueCycleGroupedList({
   projectKey,
   filters,
+  canDrag = false,
 }: {
   projectKey: string;
   filters: IssueFilters;
+  /** 프로젝트 멤버만 행을 에픽 패널로 끌 수 있다 — 평면 목록과 같은 행(IssueRow)이라 동작도 같다. */
+  canDrag?: boolean;
 }) {
   const cycles = useCycles(projectKey);
   const progress = useCycleProgress(projectKey);
@@ -117,6 +120,7 @@ export function IssueCycleGroupedList({
             selected={selected}
             onToggleSelect={toggleSelected}
             onSetSelected={setMany}
+            canDrag={canDrag}
           />
         ))}
       </div>
