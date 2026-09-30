@@ -1,11 +1,12 @@
 // src/components/ai/AIFullscreen.tsx
 // 풀스크린(2단) — 콘텐츠 영역만 덮는다(<main>의 absolute inset-0 자식, AppRail 미포함).
 // 좌: 세션 목록 / 우: 채팅 본문.
-import { ChevronDown, MessageSquare, Plus, Trash2, X } from 'lucide-react';
+import { ChevronDown, MessageSquare, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AIChatPanel } from '@/components/ai/AIChatPanel';
+import { AIPanelControls, AIPanelTitle } from '@/components/ai/AIPanelHeader';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { relTime } from '@/components/ai/relTime';
 import {
@@ -18,7 +19,7 @@ import { cn } from '@/lib/utils';
 
 /** mode==='fullscreen' 일 때만 렌더. */
 export function AIFullscreen() {
-  const { mode, close } = useAssistant();
+  const { mode } = useAssistant();
   const chat = useAssistantChat();
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   // 모바일 세션 스위처 드롭다운 open 상태(#451) — 선택 직후 명시적으로 닫는다.
@@ -30,9 +31,11 @@ export function AIFullscreen() {
   const currentSession = chat.sessions.find((s) => s.id === chat.currentSessionId);
 
   return (
+    // z-[46] — PageHeader(relative z-[45])보다 위여야 상단 바(모드 전환·닫기)가 헤더에 가려지지 않는다(WP-111).
+    // 이전 z-40 에선 페이지 헤더가 상단 바 전체를 덮어 닫기 X 가 보이지도 눌리지도 않았다. 오버레이(z-50)보다는 아래.
     <div
       data-testid="ai-fullscreen"
-      className="absolute inset-0 z-40 flex bg-background animate-in fade-in duration-200"
+      className="absolute inset-0 z-[46] flex bg-background animate-in fade-in duration-200"
     >
       {/* 삭제 확인 다이얼로그 */}
       <DeleteSessionDialog
@@ -167,17 +170,10 @@ export function AIFullscreen() {
               <Plus className="h-4 w-4" />
             </button>
           </div>
-          {/* md+ 에서는 좌측 세션목록이 있으므로 빈 div 로 justify-between 정렬 유지 */}
-          <div className="hidden md:block" />
-          <button
-            type="button"
-            aria-label="닫기"
-            data-testid="ai-fs-close"
-            onClick={close}
-            className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          {/* md+ 좌측엔 타이틀(모바일은 세션 드롭다운이 대신) — 사이드 패널 헤더와 같은 레이어 구성(WP-111). */}
+          <AIPanelTitle className="max-md:hidden" />
+          {/* 모드 전환(사이드로 돌아가기)·닫기 — 사이드 패널과 공용 컨트롤. */}
+          <AIPanelControls />
         </div>
         {/* 헤더 아래 영역에 채팅 패널 배치 — 첫 turn 이 헤더 영역 아래로 내려가 occlusion 해소. */}
         <div className="min-h-0 flex-1">

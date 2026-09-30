@@ -290,6 +290,75 @@ test('⌘K 로 side 패널이 열리고 Esc 로 닫힌다', async ({ authenticat
   await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
 })
 
+test('사이드 패널 헤더 닫기 버튼으로 패널이 닫히고 본문이 다시 넓어진다 (WP-111)', async ({
+  authenticatedPage: page,
+}) => {
+  // 사이드 패널 상단 레이어: ✦ AI 어시스턴트 타이틀 + 모드 전환(사이드/전체 화면) + 닫기(X).
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/')
+  const main = page.locator('main')
+  const before = (await main.boundingBox())!.width
+
+  await page.getByTestId('chat-launcher').click() // → side
+  const panel = page.getByTestId('ai-side-panel')
+  await expect(panel).toBeVisible()
+  const header = panel.getByTestId('ai-panel-header')
+  await expect(header).toContainText('AI 어시스턴트')
+  // 현재 모드(side) 버튼이 눌린 상태로 표시된다.
+  await expect(header.getByTestId('ai-mode-side')).toHaveAttribute('aria-pressed', 'true')
+  await expect(header.getByTestId('ai-mode-fullscreen')).toHaveAttribute('aria-pressed', 'false')
+  // 패널 헤더가 대화 선택 스위처 위 레이어에 위치한다.
+  const headerBox = (await header.boundingBox())!
+  const switcherBox = (await page.getByTestId('chat-session-switcher').boundingBox())!
+  expect(headerBox.y + headerBox.height).toBeLessThanOrEqual(switcherBox.y)
+
+  // 닫기 → 패널 제거 + 본문 폭 복원 + 칩 상태 closed
+  await page.getByRole('button', { name: '닫기' }).click()
+  await expect(panel).toHaveCount(0)
+  await expect(page.getByTestId('chat-launcher')).toHaveAttribute('data-mode', 'closed')
+  await expect.poll(async () => (await main.boundingBox())!.width).toBe(before)
+
+  // 기존 열기 방법(칩)으로 다시 열 수 있다.
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+})
+
+test('헤더 모드 버튼으로 사이드 ↔ 전체 화면을 전환한다 (WP-111)', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click() // → side
+
+  // 사이드 → 전체 화면
+  await page.getByTestId('ai-mode-fullscreen').click()
+  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
+  await expect(page.getByTestId('ai-mode-fullscreen')).toHaveAttribute('aria-pressed', 'true')
+
+  // 전체 화면 → 사이드
+  await page.getByTestId('ai-mode-side').click()
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
+
+  // 전체 화면에서도 같은 닫기 버튼으로 닫힌다.
+  await page.getByTestId('ai-mode-fullscreen').click()
+  await page.getByTestId('ai-panel-close').click()
+  await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
+  await expect(page.getByTestId('chat-launcher')).toHaveAttribute('data-mode', 'closed')
+})
+
+test('모바일 뷰포트에서도 사이드 오버레이를 닫기 버튼으로 닫을 수 있다 (WP-111)', async ({
+  authenticatedPage: page,
+}) => {
+  // 모바일(<lg)에선 side 가 풀스크린 오버레이라 모드 버튼은 숨기고 닫기만 노출한다.
+  await page.setViewportSize({ width: 480, height: 800 })
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  await expect(page.getByTestId('ai-mode-fullscreen')).toBeHidden()
+  await page.getByTestId('ai-panel-close').click()
+  await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
+})
+
 test('사이드 패널이 본문을 밀어낸다(reflow) + 핸들 드래그 후 리사이즈 영속', async ({
   authenticatedPage: page,
 }) => {
@@ -445,7 +514,7 @@ test('풀스크린에서 메시지 전송 시 첫 chat-turn 이 상단 AI 칩·�
   authenticatedPage: page,
 }) => {
   // 회귀(#206): 풀스크린 우측 채팅 pane 에 상단 헤더가 없어, 첫 USER turn(우상단 정렬)이
-  // 상단 고정 AI 칩(chat-launcher)과 우상단 닫기 X(ai-fs-close)에 가려졌다(occlusion).
+  // 상단 고정 AI 칩(chat-launcher)과 우상단 닫기 X(ai-panel-close)에 가려졌다(occlusion).
   // 수정: 우측 pane 상단에 h-12 헤더 바를 추가하고 닫기 X 를 그 안 일반 배치로 옮겨 여백 확보.
   // 검증: 첫 chat-turn 의 top 이 칩의 bottom 이상이고, 닫기 X rect 와 겹치지 않는다.
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -477,7 +546,7 @@ test('풀스크린에서 메시지 전송 시 첫 chat-turn 이 상단 AI 칩·�
 
   const turnBox = (await firstTurn.boundingBox())!
   const chipBox = (await page.getByTestId('chat-launcher').boundingBox())!
-  const closeBox = (await page.getByTestId('ai-fs-close').boundingBox())!
+  const closeBox = (await page.getByTestId('ai-panel-close').boundingBox())!
 
   // 1) 첫 turn 의 top 이 칩 bottom 이상 → 칩과 수직 비겹침(칩에 가려지지 않음)
   expect(turnBox.y).toBeGreaterThanOrEqual(chipBox.y + chipBox.height)
