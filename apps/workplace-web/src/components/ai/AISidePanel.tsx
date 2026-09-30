@@ -44,6 +44,8 @@ export function AISidePanel() {
   return (
     <aside
       data-testid="ai-side-panel"
+      // WP-54: AI 표면 표식 — 엔티티 다이얼로그가 열려 있어도 이 영역 상호작용은 다이얼로그를 닫지 않는다(useAiPanelAwareDialog).
+      data-ai-panel
       style={{ width: sidePanelWidth }}
       // 모바일: 인라인 width 무력화(!w-full) + 풀스크린 오버레이. 데스크톱: 정적 도킹.
       className="relative z-[60] flex shrink-0 flex-col border-l bg-card transition-[width] duration-200 ease-in-out max-lg:!fixed max-lg:inset-0 max-lg:!w-full lg:z-10"

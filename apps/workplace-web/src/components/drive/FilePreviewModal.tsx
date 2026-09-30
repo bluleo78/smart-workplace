@@ -5,9 +5,11 @@ import { useDriveFileSummary } from '../../hooks/queries/useDriveFileSummary'
 import { useFileBacklinks } from '../../hooks/queries/useFileBacklinks'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
 import { resolvePreviewKind } from '../../lib/previewKind'
+import { cn } from '../../lib/utils'
 import type { DriveFile, VirtualAttachment } from '../../types/drive'
 import { AiContent } from '../ai/AiContent'
 import { MarkdownMessage } from '../ai/MarkdownMessage'
+import { useAiPanelAwareDialog } from '../ai/useAiPanelAwareDialog'
 import { Button } from '../ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import { CsvTablePreview } from './preview/CsvTablePreview'
@@ -34,6 +36,8 @@ export function FilePreviewModal({
   attachment?: VirtualAttachment
   onClose: () => void
 }) {
+  // WP-54: AI 사이드 패널과 공존하는 다이얼로그 props(넓은 미리보기 프리셋 — 패널 폭만큼 클램프).
+  const aiAware = useAiPanelAwareDialog({ size: 'wide' })
   const isAttachment = attachment != null
   // 미리보기 대상 정규화 — 파일/첨부 공통 모델.
   const name = attachment?.name ?? file!.name
@@ -137,15 +141,24 @@ export function FilePreviewModal({
   }, [fileIdForContent, kind, contentPath])
 
   return (
+    // WP-54: AI 사이드 패널이 열려 있으면 non-modal — 미리보기를 연 채 "이 파일 요약해줘" 를 AI 에 물을 수 있다.
     <Dialog
       open
+      modal={aiAware.modal}
       onOpenChange={(o) => {
         if (!o) onClose()
       }}
     >
+      {aiAware.overlay}
       {/* #731: 사용자가 우하단 코너를 드래그해 크기 조절(CSS 네이티브 resize). 세션 동안만 유지(닫으면 리셋).
           base 의 grid→flex-col 로 전환해 본문이 늘어난 높이를 채우게 하고, sm:max-w-lg 도 함께 덮어 초기 폭 확보. */}
-      <DialogContent className="flex resize flex-col overflow-hidden h-[80vh] max-h-[95vh] min-h-[20rem] w-[64rem] max-w-[95vw] min-w-[24rem] sm:max-w-[95vw]">
+      <DialogContent
+        className={cn(
+          'flex resize flex-col overflow-hidden h-[80vh] max-h-[95vh] min-h-[20rem] w-[64rem] max-w-[95vw] min-w-[24rem] sm:max-w-[95vw]',
+          aiAware.contentClassName,
+        )}
+        {...aiAware.contentProps}
+      >
         {/* 상단 툴바: 파일명 + 다운로드 액션 */}
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 pr-6">

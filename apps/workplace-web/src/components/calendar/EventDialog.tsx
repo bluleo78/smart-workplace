@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
+import { useAiPanelAwareDialog } from '@/components/ai/useAiPanelAwareDialog'
 import { AttendeeSection, type SelectedMember } from '@/components/calendar/AttendeeSection'
 import { RsvpControls } from '@/components/calendar/RsvpControls'
 import { Button } from '@/components/ui/button'
@@ -36,6 +37,7 @@ import { useCalendars } from '@/hooks/queries/useCalendars'
 import { useAuth } from '@/hooks/useAuth'
 import { PALETTE_KEYS, resolvePalette } from '@/lib/calendarPalette'
 import { buildRRule, parseRRule, type RecurrenceForm } from '@/lib/recurrence'
+import { cn } from '@/lib/utils'
 import type { CalendarEvent, CalendarEventRequest } from '@/types/calendar'
 
 // ────────────────────────────────────────────────────────────
@@ -250,6 +252,8 @@ export function EventDialog({
     myAttendee.kind !== 'AGENT' &&
     eventWithDetail?.myRsvpStatus != null
 
+  // WP-54: AI 사이드 패널과 공존하는 다이얼로그 props(side 모드면 non-modal + 페이지 영역 dim).
+  const aiAware = useAiPanelAwareDialog()
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -378,8 +382,14 @@ export function EventDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="calendar-event-dialog" className="max-h-[85vh] overflow-y-auto">
+    // WP-54: AI 사이드 패널이 열려 있으면 non-modal — 다이얼로그를 연 채 "이 회의…" 를 AI 에 물을 수 있다.
+    <Dialog open={open} onOpenChange={onOpenChange} modal={aiAware.modal}>
+      {aiAware.overlay}
+      <DialogContent
+        data-testid="calendar-event-dialog"
+        className={cn('max-h-[85vh] overflow-y-auto', aiAware.contentClassName)}
+        {...aiAware.contentProps}
+      >
         <DialogHeader>
           <DialogTitle>{isEdit ? '일정 수정' : '새 일정'}</DialogTitle>
           <DialogDescription className="sr-only">{isEdit ? '일정 수정' : '새 일정'}</DialogDescription>

@@ -373,20 +373,21 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
     await expect(page.getByTestId('chat-context-chip')).toContainText('일정 주간회의')
   })
 
-  test('보기 기간·일정 수와 열린 일정의 eventId 가 전송 body 에 실린다', async ({ authenticatedPage: page }) => {
+  test('사이드 패널을 연 채 일정을 열고, 다이얼로그 위에서 패널에 입력·전송하면 eventId 가 실린다', async ({ authenticatedPage: page }) => {
     const bodies = await captureChat(page)
     await mockCalendar(page)
     await page.goto('/calendar')
     await expect(page.getByTestId('calendar-event-42')).toBeVisible()
     await page.getByTestId('chat-launcher').click()
     await expect(page.getByTestId('chat-context-chip')).toContainText('월 보기')
-    // 모달이 열리면 포커스 트랩 때문에 패널에 입력할 수 없으므로, 먼저 입력해 두고 일정을 연다.
-    await page.getByTestId('chat-input').fill('이 회의 참석자 알려줘')
-    await page.getByTestId('calendar-event-42').click({ force: true })
-    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+    // 실사용 흐름 — 일정 클릭으로 다이얼로그를 연 뒤 패널 입력창을 실제로 클릭·타이핑·전송한다(force/dispatch 없음).
+    await page.getByTestId('calendar-event-42').click()
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(dialog).toBeVisible()
     await expect(page.getByTestId('chat-context-chip')).toContainText('일정 주간회의')
-    // 모달이 패널을 aria-hidden 처리·덮고 있어 role/포인터로는 못 누른다 — 전송 버튼에 DOM click 을 직접 디스패치한다.
-    await page.getByTestId('chat-panel').locator('button[type=submit]').dispatchEvent('click')
+    await page.getByTestId('chat-input').click()
+    await page.getByTestId('chat-input').fill('이 회의 참석자 알려줘')
+    await page.getByRole('button', { name: '보내기' }).click()
 
     await expect.poll(() => bodies.length).toBe(1)
     expect(bodies[0].screenContext).toMatchObject({
@@ -396,5 +397,148 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
     })
     expect(bodies[0].screenContext!.scope!.refs).toHaveProperty('from')
     expect(bodies[0].screenContext!.focus!.facts).toContainEqual({ label: '장소', value: '3층' })
+    // 패널 조작 후에도 다이얼로그는 열려 있다.
+    await expect(dialog).toBeVisible()
+  })
+
+  test('패널 클릭은 다이얼로그를 유지하고, 페이지 영역 클릭은 다이얼로그를 닫는다', async ({ authenticatedPage: page }) => {
+    await captureChat(page)
+    await mockCalendar(page)
+    await page.goto('/calendar')
+    await page.getByTestId('chat-launcher').click()
+    await page.getByTestId('calendar-event-42').click()
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(dialog).toBeVisible()
+
+    // 패널 내부(입력창·패널 본문) 클릭 → 다이얼로그 유지.
+    await page.getByTestId('chat-input').click()
+    await page.getByTestId('ai-side-panel').click({ position: { x: 40, y: 200 } })
+    await expect(dialog).toBeVisible()
+    // 패널 dim 없음 — 오버레이는 페이지 영역만 덮는다(패널 좌단에서 끝남).
+    const overlay = await page.getByTestId('ai-aware-dialog-overlay').boundingBox()
+    const panel = await page.getByTestId('ai-side-panel').boundingBox()
+    expect(overlay!.x + overlay!.width).toBeLessThanOrEqual(panel!.x + 1)
+    // 다이얼로그도 패널을 가리지 않는다.
+    const dlg = await dialog.boundingBox()
+    expect(dlg!.x + dlg!.width).toBeLessThanOrEqual(panel!.x + 1)
+
+    // 페이지 영역(다이얼로그 바깥, 패널 아님) 클릭 → 닫힘.
+    await page.mouse.click(dlg!.x - 40, dlg!.y + 40)
+    await expect(dialog).toBeHidden()
+    await expect(page.getByTestId('ai-aware-dialog-overlay')).toHaveCount(0)
+    await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  })
+
+  test('패널 입력창의 Esc 는 패널만 닫고 다이얼로그는 유지된다(이후 모달 복귀)', async ({ authenticatedPage: page }) => {
+    await captureChat(page)
+    await mockCalendar(page)
+    await page.goto('/calendar')
+    await page.getByTestId('chat-launcher').click()
+    await page.getByTestId('calendar-event-42').click()
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(dialog).toBeVisible()
+    await page.getByTestId('chat-input').click()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('ai-side-panel')).toBeHidden()
+    await expect(dialog).toBeVisible()
+    // 패널이 닫히면 다시 modal — Radix 오버레이가 돌아오고 포커스가 다이얼로그 안에 있다.
+    await expect(page.locator('[data-slot=dialog-overlay]')).toBeVisible()
+    await expect.poll(() => dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true)
+    // 다이얼로그 안의 Esc 는 기존처럼 다이얼로그를 닫는다.
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+  })
+
+  test('다이얼로그를 연 채 ⌘K 로 패널을 열면 곧바로 입력되고, 편집 중인 값은 유지된다', async ({ authenticatedPage: page }) => {
+    await captureChat(page)
+    await mockCalendar(page)
+    await page.goto('/calendar')
+    await page.getByTestId('calendar-event-42').click()
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(dialog).toBeVisible()
+    const title = dialog.getByLabel('제목')
+    await title.fill('주간회의 (수정)')
+    await page.keyboard.press('ControlOrMeta+k')
+    await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+    // 클릭 없이 바로 타이핑 — 포커스가 패널 입력창으로 가야 한다.
+    await expect(page.getByTestId('chat-input')).toBeFocused()
+    await page.keyboard.type('참석자?')
+    await expect(page.getByTestId('chat-input')).toHaveValue('참석자?')
+    await expect(dialog).toBeVisible()
+    await expect(title).toHaveValue('주간회의 (수정)')
+  })
+
+  test('모바일(<lg): 패널은 다이얼로그 위 풀스크린으로 입력 가능하고, 닫으면 다이얼로그로 돌아온다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await captureChat(page)
+    await mockCalendar(page)
+    await page.goto('/calendar?eventId=42')
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('ControlOrMeta+k')
+    // 풀스크린 패널(z-[60])이 다이얼로그(z-50)를 덮고, 입력창은 실제 클릭·타이핑된다.
+    await page.getByTestId('chat-input').click()
+    await page.getByTestId('chat-input').fill('참석자?')
+    await expect(page.getByTestId('chat-input')).toHaveValue('참석자?')
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('ai-side-panel')).toBeHidden()
+    await expect(dialog).toBeVisible()
+    await expect(page.locator('[data-slot=dialog-overlay]')).toBeVisible()
+  })
+
+  test('스크린샷 — 일정 다이얼로그와 사이드 패널 동시 표시(라이트/다크)', async ({ authenticatedPage: page }) => {
+    for (const theme of ['light', 'dark'] as const) {
+      await page.addInitScript((t) => window.localStorage.setItem('theme', t), theme)
+      await captureChat(page)
+      await mockCalendar(page)
+      await page.goto('/calendar')
+      await page.getByTestId('chat-launcher').click()
+      await page.getByTestId('calendar-event-42').click()
+      await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+      await page.getByTestId('chat-input').fill('이 회의 참석자 알려줘')
+      await page.screenshot({ path: `test-results/tc/ai-screen-context/modal-with-panel-${theme}.png` })
+    }
+  })
+})
+
+test.describe('AI 채팅 — 드라이브 미리보기 모달 위 입력', () => {
+  // drive-preview-formats.spec.ts 의 파일목록 + 미리보기 목 집합을 최소로 재사용한다.
+  const FILE = {
+    id: 80, folderId: null, fileId: 300, name: 'notes.txt', mimeType: 'text/plain',
+    sizeBytes: 12, category: 'TEXT', createdAt: '2026-01-01T00:00:00Z',
+  }
+  async function mockDrive(page: Parameters<typeof mockApi>[0]) {
+    await mockApi(page, 'GET', '/api/v1/drive/spaces', [
+      { id: 1, type: 'PERSONAL', name: '내 드라이브', ownerId: 1, role: 'OWNER', archived: false, createdAt: '2026-06-01T00:00:00Z' },
+    ])
+    await mockApi(page, 'GET', '/api/v1/drive/quota', { usedBytes: 0, quotaBytes: 10737418240 })
+    await mockApi(page, 'GET', '/api/v1/drive/spaces/1/items', { folders: [], files: [FILE] })
+    await page.route((u) => u.pathname === `/api/v1/drive/files/${FILE.id}/thumbnail`, (r) => r.fulfill({ status: 404, body: '' }))
+    await page.route((u) => u.pathname === `/api/v1/drive/files/${FILE.id}/content`, (r) =>
+      r.fulfill({ status: 200, contentType: 'text/plain', body: 'hello notes' }))
+    await mockApi(page, 'GET', `/api/v1/drive/files/${FILE.id}/summary`, { summary: null, status: 'PENDING' })
+    await mockApi(page, 'GET', `/api/v1/drive/files/${FILE.id}/backlinks`, [])
+  }
+
+  test('미리보기 모달을 연 채 사이드 패널에 입력·전송할 수 있고 모달은 유지된다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockDrive(page)
+    await page.goto('/drive/spaces/1')
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+    await page.getByRole('button', { name: 'notes.txt' }).click()
+    const preview = page.getByTestId('preview-body')
+    await expect(preview).toBeVisible()
+
+    await page.getByTestId('chat-input').click()
+    await page.getByTestId('chat-input').fill('이 파일 요약해줘')
+    await page.getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].query).toBe('이 파일 요약해줘')
+    await expect(preview).toBeVisible()
+    // 넓은 미리보기(w-[64rem])도 패널을 가리지 않도록 페이지 영역 안으로 클램프된다.
+    const dlg = await page.getByRole('dialog').boundingBox()
+    const panel = await page.getByTestId('ai-side-panel').boundingBox()
+    expect(dlg!.x + dlg!.width).toBeLessThanOrEqual(panel!.x + 1)
   })
 })
