@@ -56,9 +56,10 @@ export function saveTabSlots(slots: MobileTabId[]): void {
 /**
  * 슬롯 하나를 제자리 교체한다 — 앱 목록의 "탭바에 고정(○○ 대신)"·"다른 앱으로 교체"가 공유.
  * 위치를 보존해야 사용자가 고른 칸에 새 앱이 들어간다. 교체 대상이 슬롯에 없거나 새 앱이 이미 슬롯에 있으면
- * (중복 금지 규칙) 원본 복사본을 그대로 돌려준다.
+ * (중복 금지 규칙) 원본 배열 참조를 그대로 돌려준다 — 호출부가 `next === slots` 로 "바뀌지 않음"을 판별해
+ * 불필요한 저장·성공 토스트를 건너뛸 수 있게.
  */
 export function replaceSlot(slots: MobileTabId[], from: MobileTabId, to: MobileTabId): MobileTabId[] {
-  if (!slots.includes(from) || slots.includes(to)) return [...slots]
+  if (!slots.includes(from) || slots.includes(to)) return slots
   return slots.map((id) => (id === from ? to : id))
 }

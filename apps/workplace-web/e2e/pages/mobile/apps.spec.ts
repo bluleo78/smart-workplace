@@ -174,25 +174,10 @@ test('계정 시트의 로그아웃은 로그인 화면으로', async ({ authent
   await expect(page).toHaveURL(/\/login/)
 })
 
-test('구 경로 /more · /more/tabs 는 /apps · /apps/tabs 로 리다이렉트', async ({ authenticatedPage: page }) => {
-  await stubChat(page)
-  await page.goto('/more')
-  await expect(page).toHaveURL(/\/apps$/)
-  await expect(page.getByTestId('apps-app-home')).toBeVisible()
-  await expectNoHorizontalOverflow(page)
-  await page.goto('/more/tabs')
-  await expect(page).toHaveURL(/\/apps\/tabs$/)
-  await expect(page.getByText('탭바 순서 편집')).toBeVisible()
-  await expect(page.getByTestId('mobile-tab-apps')).toHaveAttribute('aria-current', 'page')
-  await expectNoHorizontalOverflow(page)
-})
-
-test('데스크톱 폭에서 /apps · /more 는 홈으로(모바일 전용 화면)', async ({ authenticatedPage: page }) => {
+test('데스크톱 폭에서 /apps 는 홈으로(모바일 전용 화면)', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/apps')
-  await expect(page).toHaveURL(/\/$/)
-  await page.goto('/more')
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
 })

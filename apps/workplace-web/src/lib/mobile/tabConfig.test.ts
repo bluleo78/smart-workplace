@@ -19,10 +19,14 @@ describe('replaceSlot', () => {
     expect(replaceSlot(['home', 'chat', 'mail'], 'mail', 'calendar')).toEqual(['home', 'chat', 'calendar']))
   it('가운데 칸도 제자리', () =>
     expect(replaceSlot(['home', 'chat', 'mail'], 'chat', 'drive')).toEqual(['home', 'drive', 'mail']))
-  it('교체 대상이 슬롯에 없으면 그대로', () =>
-    expect(replaceSlot(['home', 'chat', 'mail'], 'wiki', 'drive')).toEqual(['home', 'chat', 'mail']))
-  it('새 앱이 이미 슬롯에 있으면(중복) 그대로', () =>
-    expect(replaceSlot(['home', 'chat', 'mail'], 'home', 'mail')).toEqual(['home', 'chat', 'mail']))
+  it('교체 대상이 슬롯에 없으면 같은 참조 그대로(변경 없음 판별용)', () => {
+    const s: MobileTabId[] = ['home', 'chat', 'mail']
+    expect(replaceSlot(s, 'wiki', 'drive')).toBe(s)
+  })
+  it('새 앱이 이미 슬롯에 있으면(중복) 같은 참조 그대로', () => {
+    const s: MobileTabId[] = ['home', 'chat', 'mail']
+    expect(replaceSlot(s, 'home', 'mail')).toBe(s)
+  })
   it('원본 배열을 바꾸지 않는다', () => {
     const s: MobileTabId[] = ['home', 'chat', 'mail']
     replaceSlot(s, 'mail', 'calendar')

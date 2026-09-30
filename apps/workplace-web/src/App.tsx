@@ -149,9 +149,6 @@ export default function App() {
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="apps" element={<MobileOnly><AppsPage /></MobileOnly>} />
               <Route path="apps/tabs" element={<MobileOnly><TabEditPage /></MobileOnly>} />
-              {/* 구 더보기 경로 하위호환 — 앱 목록으로 치환(대상이 MobileOnly 이므로 데스크톱은 결국 홈). */}
-              <Route path="more" element={<Navigate to="/apps" replace />} />
-              <Route path="more/tabs" element={<Navigate to="/apps/tabs" replace />} />
 
               {/* 이슈 모듈 — 2차 사이드바(내 태스크 + 프로젝트 목록) 가 감싼다 */}
               <Route element={<IssueModuleLayout />}>

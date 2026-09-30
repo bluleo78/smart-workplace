@@ -1,47 +1,54 @@
 // 모바일 계정 시트 — 앱 목록 우상단 아바타에서 여는 하단 시트(Teams·Slack 방식).
 // 데스크톱 레일의 WorkspaceSwitcher·AppRailUserMenu 가 하던 일(워크스페이스 전환·프로필·로그아웃)을
 // 드롭다운 대신 터치에 맞는 목록으로 보여준다(테마 전환 포함 — 모바일에서 기능이 사라지지 않게). 모바일 앱 목록(/apps) 전용.
+// 멤버십 lazy fetch·로그아웃·테마 전환은 데스크톱 컴포넌트와 같은 공용 훅을 쓴다.
 import { Building2, Check, LogOut, Moon, Sun, User as UserIcon } from 'lucide-react'
-import { useTheme } from 'next-themes'
-import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { authApi } from '@/api/auth'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { useAuth } from '@/hooks/useAuth'
-import type { Membership } from '@/types/auth'
+import { useSignOut } from '@/hooks/useSignOut'
+import { useThemeToggle } from '@/hooks/useThemeToggle'
+import { useWorkspaceOptions } from '@/hooks/useWorkspaceOptions'
+import { cn, displayNameOf, initialOf } from '@/lib/utils'
 
-/** 표시 이름의 첫 글자 — 아바타 이니셜(이름이 없으면 아이디, 그것도 없으면 가운뎃점). */
-// eslint-disable-next-line react-refresh/only-export-components
-export function userInitial(name?: string | null): string {
-  return name?.trim().charAt(0) || '·'
+/** 시트의 한 줄 동작(프로필·테마·로그아웃) — 위 구분선 + 44px 전폭 버튼. */
+function SheetRow({ testId, onClick, className, children }: {
+  testId: string
+  onClick: () => void
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <div className="border-t">
+      <button
+        type="button"
+        data-testid={testId}
+        onClick={onClick}
+        className={cn('flex min-h-11 w-full items-center gap-3 px-1 text-left text-sm', className)}
+      >
+        {children}
+      </button>
+    </div>
+  )
 }
 
 /**
- * 워크스페이스 목록 — 시트가 열릴 때만 멤버십을 불러온다(WorkspaceSwitcher 와 같은 lazy fetch).
+ * 워크스페이스 목록 — 시트가 열릴 때만 멤버십을 불러온다(WorkspaceSwitcher 와 같은 훅).
  * 실패 시 현재 워크스페이스만 보여 전환 불가 상태로 둔다. 활성 테넌트가 없으면 섹션 자체를 숨긴다.
  */
 function WorkspaceList({ open }: { open: boolean }) {
-  const { activeTenant, selectTenant } = useAuth()
-  const [options, setOptions] = useState<Membership[] | null>(null)
-
-  useEffect(() => {
-    if (!open || !activeTenant || options !== null) return
-    let ignore = false
-    authApi.memberships()
-      .then(({ data }) => { if (!ignore) setOptions(data) })
-      .catch(() => { if (!ignore) setOptions([activeTenant]) })
-    return () => { ignore = true }
-  }, [open, activeTenant, options])
-
+  const { selectTenant } = useAuth()
+  const { activeTenant, list, isCurrent } = useWorkspaceOptions(open)
   if (!activeTenant) return null
-  const list = options ?? [activeTenant]
   return (
     <section>
       <h3 className="px-1 pb-1 text-xs font-semibold text-muted-foreground">워크스페이스</h3>
       <ul>
         {list.map((m) => {
-          const current = m.tenantId === activeTenant.tenantId
+          const current = isCurrent(m)
           return (
             <li key={m.tenantId}>
               <button
@@ -70,17 +77,16 @@ function WorkspaceList({ open }: { open: boolean }) {
 /** 계정 하단 시트 — 사용자 이름·아이디/이메일, 워크스페이스 목록, 프로필, 테마 전환, 로그아웃. */
 export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate()
-  const { user, logout } = useAuth()
-  // 테마 전환 — AppRailUserMenu 와 같은 next-themes 동작(현재 적용 테마의 반대로). 시트는 닫지 않아 결과를 바로 본다.
-  const { resolvedTheme, setTheme } = useTheme()
-  const dark = resolvedTheme === 'dark'
-  const displayName = user?.name || user?.username || '사용자'
+  const { user } = useAuth()
+  // 테마 전환 — 시트는 닫지 않아 결과를 바로 본다.
+  const { dark, toggle } = useThemeToggle()
+  const signOut = useSignOut()
+  const displayName = displayNameOf(user)
 
-  // 로그아웃 — AppRailUserMenu 와 동일하게 서버 세션 종료 후 로그인 화면으로(뒤로가기로 돌아오지 않게 replace).
-  const handleLogout = async () => {
+  // 로그아웃 — 시트를 먼저 닫고 서버 세션 종료 후 로그인 화면으로.
+  const handleLogout = () => {
     onOpenChange(false)
-    await logout()
-    navigate('/login', { replace: true })
+    void signOut()
   }
 
   return (
@@ -92,9 +98,9 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
       >
         <div aria-hidden className="mx-auto h-1 w-8 rounded-full bg-muted-foreground/30" />
         <div className="flex items-center gap-3 py-2 pr-8">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">
-            {userInitial(displayName)}
-          </span>
+          <Avatar size="lg">
+            <AvatarFallback className="bg-primary/10 font-semibold text-primary">{initialOf(displayName)}</AvatarFallback>
+          </Avatar>
           <div className="min-w-0">
             <SheetTitle className="truncate text-base">{displayName}</SheetTitle>
             <p className="truncate text-xs text-muted-foreground">{user?.email || user?.username}</p>
@@ -102,36 +108,15 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
         </div>
         <SheetDescription className="sr-only">계정 정보와 워크스페이스 전환, 프로필, 로그아웃</SheetDescription>
         <WorkspaceList open={open} />
-        <div className="border-t">
-          <button
-            type="button"
-            data-testid="apps-profile"
-            onClick={() => { onOpenChange(false); navigate('/settings/profile') }}
-            className="flex min-h-11 w-full items-center gap-3 px-1 text-left text-sm"
-          >
-            <UserIcon className="h-4 w-4" /> 프로필
-          </button>
-        </div>
-        <div className="border-t">
-          <button
-            type="button"
-            data-testid="apps-account-theme"
-            onClick={() => setTheme(dark ? 'light' : 'dark')}
-            className="flex min-h-11 w-full items-center gap-3 px-1 text-left text-sm"
-          >
-            {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />} 테마 전환
-          </button>
-        </div>
-        <div className="border-t">
-          <button
-            type="button"
-            data-testid="apps-logout"
-            onClick={() => void handleLogout()}
-            className="flex min-h-11 w-full items-center gap-3 px-1 text-left text-sm text-destructive"
-          >
-            <LogOut className="h-4 w-4" /> 로그아웃
-          </button>
-        </div>
+        <SheetRow testId="apps-profile" onClick={() => { onOpenChange(false); navigate('/settings/profile') }}>
+          <UserIcon className="h-4 w-4" /> 프로필
+        </SheetRow>
+        <SheetRow testId="apps-account-theme" onClick={toggle}>
+          {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />} 테마 전환
+        </SheetRow>
+        <SheetRow testId="apps-logout" onClick={handleLogout} className="text-destructive">
+          <LogOut className="h-4 w-4" /> 로그아웃
+        </SheetRow>
       </SheetContent>
     </Sheet>
   )
