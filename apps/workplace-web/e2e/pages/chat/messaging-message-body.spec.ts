@@ -237,8 +237,9 @@ test.describe('@멘션 칩 시맨틱 토큰', () => {
     const mentionMsg = createMessage({
       id: 10,
       channelId: MENTION_CHANNEL_ID,
-      authorId: 1,
-      authorName: 'me',
+      // 타인 메시지 — 본인 말풍선 안 칩은 별도 스타일(bg-background)이라 기존 칩 토큰은 타인 행에서 검증한다(#884).
+      authorId: 5,
+      authorName: '다른사람',
       authorKind: 'HUMAN',
       body: '안녕 <@10> <@99>',
       mentions: [
@@ -396,6 +397,20 @@ async function setupSplitChannel(page: Page) {
     body: '에이전트 메시지', createdAt: '2026-06-06T03:02:00',
   })
 
+  // 36·37: 사람·에이전트를 함께 멘션한 본인/타인 메시지 — 칩 대비(#884) 검증용.
+  const mentions = [
+    { id: 20, username: 'peer', name: '동료', kind: 'HUMAN' as const },
+    { id: 99, username: 'myai', name: 'My AI', kind: 'AGENT' as const },
+  ]
+  const ownMention = createMessage({
+    id: 36, channelId: OWN_CHANNEL_ID, authorId: 1, authorName: 'me', authorKind: 'HUMAN',
+    body: '<@99> 요약해줘 <@20>', mentions, createdAt: '2026-06-06T03:03:00',
+  })
+  const peerMention = createMessage({
+    id: 37, channelId: OWN_CHANNEL_ID, authorId: 20, authorName: '동료', authorKind: 'HUMAN',
+    body: '<@99> 확인 부탁', mentions, createdAt: '2026-06-06T03:04:00',
+  })
+
   await stubChannelsList(page, [channel])
   await stubDmsList(page)
   await stubStream(page)
@@ -406,7 +421,7 @@ async function setupSplitChannel(page: Page) {
     createChannelMember({ userId: 99, name: 'My AI', kind: 'AGENT' }),
   ])
   // API 는 DESC(최신순).
-  await stubMessages(page, OWN_CHANNEL_ID, [agentMsg, peerMsg, ownAttachmentOnly, ownDeleted, ownFollow, ownFirst])
+  await stubMessages(page, OWN_CHANNEL_ID, [peerMention, ownMention, agentMsg, peerMsg, ownAttachmentOnly, ownDeleted, ownFollow, ownFirst])
   await stubMarkRead(page, OWN_CHANNEL_ID)
   await stubUsers(page)
 
@@ -474,7 +489,7 @@ test.describe('메시지 좌/우 분리', () => {
     const peerRow = page.getByTestId('message-31')
     await expect(peerRow).toHaveAttribute('data-own', 'false')
     await expect(peerRow).not.toHaveClass(/justify-end/)
-    await expect(page.getByTestId('chat-avatar-20')).toBeVisible()
+    await expect(peerRow.getByTestId('chat-avatar-20')).toBeVisible()
     await expect(peerRow.getByText('동료', { exact: true })).toBeVisible()
     await expect(page.getByTestId('message-body-31')).not.toHaveClass(/rounded-2xl/)
     await expect(page.getByTestId('message-body-31')).not.toHaveClass(/bg-primary\/10/)
@@ -577,8 +592,23 @@ test.describe('메시지 좌/우 분리', () => {
     expect(Math.abs(peerPill.x - peerBody.x)).toBeLessThan(1)
   })
 
+  test('본인 말풍선 안 멘션 칩은 배경과 구분되고, 타인 메시지 칩은 기존 스타일 유지', async ({ authenticatedPage: page }) => {
+    const ownBody = page.getByTestId('message-body-36')
+    await expect(ownBody.getByTestId('mention-chip-99')).toHaveClass(/bg-background/)
+    await expect(ownBody.getByTestId('mention-chip-20')).toHaveClass(/bg-background/)
+    const peerBody = page.getByTestId('message-body-37')
+    await expect(peerBody.getByTestId('mention-chip-99')).toHaveClass(/bg-primary\/15/)
+    await expect(peerBody.getByTestId('mention-chip-99')).not.toHaveClass(/bg-background/)
+  })
+
   test('수정됨 표시는 말풍선 안, 삭제된 본인 메시지는 우측 점선 말풍선', async ({ authenticatedPage: page }) => {
     await expect(page.getByTestId('message-body-33').getByTestId('message-edited-33')).toHaveText('(수정됨)')
+    // wrap-anywhere 말풍선에서도 '(수정됨)' 이 낱말 중간에서 끊기지 않는다(한 줄 높이).
+    // 줄바꿈 위치는 폭에 좌우되므로 여러 폭에서 확인한다.
+    for (let width = 900; width <= 1440; width += 12) {
+      await page.setViewportSize({ width, height: 800 })
+      expect((await box(page, 'message-edited-33')).height, `width ${width}`).toBeLessThan(24)
+    }
 
     await expect(page.getByTestId('message-34')).toHaveClass(/justify-end/)
     const deletedBody = page.getByTestId('message-body-34')

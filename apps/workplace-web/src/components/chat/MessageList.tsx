@@ -220,9 +220,14 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                     key={i}
                     data-testid={`mention-chip-${seg.id}`}
                     className={`rounded px-1 font-medium ${
-                      seg.kind === 'AGENT'
-                        ? 'bg-primary/15 text-primary' // 에이전트: 브랜드 컬러 기반 시맨틱 토큰
-                        : 'bg-accent text-accent-foreground' // 사용자: accent 시맨틱 토큰 (다크모드 자동 대응)
+                      ownBubble
+                        ? // 본인 말풍선(bg-primary/10) 안에서는 반투명/accent 칩이 배경에 묻히므로 불투명 배경 토큰으로 띄운다.
+                          seg.kind === 'AGENT'
+                          ? 'bg-background text-primary'
+                          : 'bg-background text-foreground'
+                        : seg.kind === 'AGENT'
+                          ? 'bg-primary/15 text-primary' // 에이전트: 브랜드 컬러 기반 시맨틱 토큰
+                          : 'bg-accent text-accent-foreground' // 사용자: accent 시맨틱 토큰 (다크모드 자동 대응)
                     }`}
                   >
                     @{seg.name}
@@ -230,12 +235,13 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                 ),
               )
             )}
-            {/* 수정됨 표시 — 본문 끝에 인라인(본인은 말풍선 안). 삭제됨 메시지는 제외. */}
+            {/* 수정됨 표시 — 본문 끝에 인라인(본인은 말풍선 안). 삭제됨 메시지는 제외.
+                whitespace-nowrap: 말풍선의 wrap-anywhere 때문에 '(수정'/'됨)' 으로 쪼개지는 것을 막는다. */}
             {m.editedAt && !m.deleted && (
               <span
                 aria-label="수정됨"
                 data-testid={`message-edited-${m.id}`}
-                className="ml-1 align-baseline text-xs text-muted-foreground"
+                className="ml-1 whitespace-nowrap align-baseline text-xs text-muted-foreground"
               >
                 (수정됨)
               </span>
