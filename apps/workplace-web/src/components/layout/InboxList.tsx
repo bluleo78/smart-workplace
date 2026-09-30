@@ -35,18 +35,19 @@ const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
  * @param enabled 조회 활성 여부(Popover 는 열렸을 때만 조회)
  * @param onNavigate 행 클릭 후 이동 직전에 호출(Popover 닫기 등). 닫을 것이 없는 화면(모바일 /notifications)은 생략
  * @param scrollClassName 스크롤 영역 클래스(모바일 페이지는 'min-h-0 flex-1 overflow-y-auto')
- * @param hideTitle 자체 '알림' 제목 숨김(모바일 /notifications 는 큰 제목 헤더가 이미 있어 중복). '모두 읽음' 은 유지
+ * @param hideHeader 자체 제목 행('알림' + 모두 읽음) 숨김 — 모바일 /notifications 는 화면 헤더가 제목을 갖고
+ *   '모두 읽음' 은 헤더 액션 자리(MarkAllReadButton)로 옮겨 별도 한 줄을 쓰지 않는다(U1-7).
  */
 export function InboxList({
   enabled,
   onNavigate,
   scrollClassName = 'max-h-96 overflow-y-auto',
-  hideTitle = false,
+  hideHeader = false,
 }: {
   enabled: boolean
   onNavigate?: () => void
   scrollClassName?: string
-  hideTitle?: boolean
+  hideHeader?: boolean
 }) {
   const navigate = useNavigate()
   const { data: unread = 0 } = useUnreadCount()
@@ -74,19 +75,21 @@ export function InboxList({
 
   return (
     <>
-      <div className={cn('flex items-center border-b px-3 py-2', hideTitle ? 'justify-end' : 'justify-between')}>
-        {!hideTitle && <span className="text-sm font-semibold">알림</span>}
-        <button
-          type="button"
-          data-testid="inbox-mark-all"
-          onClick={() => markAll.mutate()}
-          // 알림 없거나 모두 읽음 상태이거나 처리 중이면 비활성화
-          disabled={items.length === 0 || unread === 0 || markAll.isPending}
-          className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          모두 읽음
-        </button>
-      </div>
+      {!hideHeader && (
+        <div className="flex items-center justify-between border-b px-3 py-2">
+          <span className="text-sm font-semibold">알림</span>
+          <button
+            type="button"
+            data-testid="inbox-mark-all"
+            onClick={() => markAll.mutate()}
+            // 알림 없거나 모두 읽음 상태이거나 처리 중이면 비활성화
+            disabled={items.length === 0 || unread === 0 || markAll.isPending}
+            className="text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            모두 읽음
+          </button>
+        </div>
+      )}
       <PushPromptBanner />
       <div
         onScroll={onScroll}
@@ -177,5 +180,27 @@ export function InboxList({
         )}
       </div>
     </>
+  )
+}
+
+/**
+ * 모바일 알림 화면 헤더용 '모두 읽음' — InboxList 제목 행의 버튼과 같은 규칙(알림 없음·모두 읽음·처리 중이면 비활성)·testid.
+ * 목록과 같은 쿼리 키를 쓰므로 추가 요청 없이 캐시를 공유한다.
+ */
+export function MarkAllReadButton() {
+  const { data: unread = 0 } = useUnreadCount()
+  const { data } = useNotifications(true)
+  const items = flattenNotificationPages(data?.pages)
+  const markAll = useMarkAllNotificationsRead()
+  return (
+    <button
+      type="button"
+      data-testid="inbox-mark-all"
+      onClick={() => markAll.mutate()}
+      disabled={items.length === 0 || unread === 0 || markAll.isPending}
+      className="flex h-11 shrink-0 items-center px-3 text-sm text-primary disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60"
+    >
+      모두 읽음
+    </button>
   )
 }

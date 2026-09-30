@@ -243,6 +243,8 @@ test('알림 화면: 빈 상태', async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
   await page.goto('/notifications')
   await expect(page.getByTestId('inbox-empty')).toBeVisible()
-  await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
+  // 탭바에 고정하지 않은 알림은 🔔 로 여는 푸시 화면 — 탭바 없이 뒤로가기 헤더(U1-5).
+  await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
+  await expect(page.getByTestId('mobile-back')).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
