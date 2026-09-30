@@ -3,7 +3,7 @@
 // 데스크톱은 기존 가로 배치(sidebar + children) 그대로(DOM 불변).
 import { type ReactNode, useMemo, useState } from 'react'
 
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { useIsMobile } from '@/hooks/useIsMobile'
 
 import { MobileSidebarSheetCtx } from './MobileSidebarSheetContext'
@@ -28,6 +28,8 @@ export function MobileSidebarSheet({ title, sidebar, children }: { title: string
         >
           <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-muted-foreground/30" />
           <SheetTitle className="px-4 pt-2 text-base">{title}</SheetTitle>
+          {/* Radix Dialog 접근성 경고(Description 누락) 해소 — 시각적으로는 숨긴 스크린리더용 설명. */}
+          <SheetDescription className="sr-only">{title} 목록에서 이동할 항목을 고르세요.</SheetDescription>
           <div className={mobileSidebarListClass}>{sidebar}</div>
         </SheetContent>
       </Sheet>

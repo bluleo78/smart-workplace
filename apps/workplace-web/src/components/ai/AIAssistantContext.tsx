@@ -58,7 +58,8 @@ const AIAssistantContext = createContext<AIAssistantValue | null>(null);
 
 export function AIAssistantProvider({ children }: { children: ReactNode }) {
   // rawMode = 사용자가 요청한 모드(side 유지). 모바일에서만 노출값(mode)이 fullscreen 으로 승격되므로
-  // 데스크톱 복귀 시 side 가 복원되고, localStorage(ai-mode)에도 요청 모드만 저장된다.
+  // 데스크톱 복귀 시 side 가 복원된다. localStorage(ai-mode)는 데스크톱 ⌘K 복원용이라 데스크톱에서 연 모드만 저장하고,
+  // 모바일에서 연 것(항상 풀스크린)은 저장하지 않아 데스크톱 ⌘K 기본값을 건드리지 않는다.
   const [rawMode, setMode] = useState<AIMode>('closed');
   const isMobile = useIsMobile();
   const mode = effectiveMode(rawMode, isMobile);
@@ -70,7 +71,7 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
   };
 
   const open = useCallback((m: Exclude<AIMode, 'closed'>) => {
-    localStorage.setItem(MODE_KEY, m);
+    if (!nowMobile()) localStorage.setItem(MODE_KEY, m);
     setMode(m);
   }, []);
   const close = useCallback(() => setMode('closed'), []);
@@ -79,7 +80,7 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
       // 모바일에선 side 가 곧 fullscreen 이므로 현재 노출 모드 기준으로 순환한다.
       const eff = effectiveMode(cur, nowMobile());
       const next: AIMode = eff === 'closed' ? 'side' : eff === 'side' ? 'fullscreen' : 'closed';
-      if (next !== 'closed') localStorage.setItem(MODE_KEY, next);
+      if (next !== 'closed' && !nowMobile()) localStorage.setItem(MODE_KEY, next);
       return next;
     });
   }, []);

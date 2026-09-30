@@ -30,13 +30,13 @@ export function MobileChromeProvider({ children }: { children: ReactNode }) {
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
-/** 셸 밖(데스크톱)에서도 안전하게 호출되도록 null 허용. */
+/** Provider 는 AppLayout 이 데스크톱·모바일 공통으로 감싸지만, Provider 밖(테스트·독립 렌더)에서도 안전하도록 null 허용. */
 // eslint-disable-next-line react-refresh/only-export-components
 export function useMobileChrome() {
   return useContext(Ctx)
 }
 
-/** hidden=true 인 동안 탭바를 숨긴다. 데스크톱(Provider 없음)에선 아무 일도 하지 않는다. */
+/** hidden=true 인 동안 탭바를 숨긴다. 데스크톱에선 카운트만 바뀌고 탭바가 없으니 화면 영향 없음(Provider 밖이면 무동작). */
 // eslint-disable-next-line react-refresh/only-export-components
 export function useHideTabBar(hidden: boolean) {
   const ctx = useContext(Ctx)

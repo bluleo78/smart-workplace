@@ -35,7 +35,9 @@ export function AIFullscreen() {
     // 이전 z-40 에선 페이지 헤더가 상단 바 전체를 덮어 닫기 X 가 보이지도 눌리지도 않았다. 오버레이(z-50)보다는 아래.
     <div
       data-testid="ai-fullscreen"
-      className="absolute inset-0 z-[46] flex bg-background animate-in fade-in duration-200"
+      // 모바일(<lg): 셸 main 의 상단 안전영역 패딩까지 덮으므로(inset-0) 상단 바가 iOS 노치 아래로 들어간다 →
+      // 오버레이 자체에 안전영역 패딩을 줘 배경은 노치까지 칠하고 내용만 내린다. 데스크톱은 max-lg 가 적용되지 않아 불변.
+      className="absolute inset-0 z-[46] flex bg-background animate-in fade-in duration-200 max-lg:pt-[env(safe-area-inset-top)]"
     >
       {/* 삭제 확인 다이얼로그 */}
       <DeleteSessionDialog

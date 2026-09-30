@@ -23,7 +23,8 @@ export default function NotificationsPage() {
     <div className="flex h-full min-h-0 flex-col">
       {/* 벨은 이 화면 자체이므로 숨긴다. */}
       <MobileListHeader title="알림" hideBell />
-      <InboxList enabled onNavigate={() => {}} scrollClassName="min-h-0 flex-1 overflow-y-auto" />
+      {/* 큰 제목이 위에 있으므로 목록 자체 제목 행의 '알림' 은 숨기고 '모두 읽음' 만 남긴다. */}
+      <InboxList enabled hideTitle onNavigate={() => {}} scrollClassName="min-h-0 flex-1 overflow-y-auto" />
     </div>
   )
 }

@@ -36,15 +36,18 @@ const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
  * @param enabled 조회 활성 여부(Popover 는 열렸을 때만 조회)
  * @param onNavigate 행 클릭 후 이동 직전에 호출(Popover 닫기 등)
  * @param scrollClassName 스크롤 영역 클래스(모바일 페이지는 'min-h-0 flex-1 overflow-y-auto')
+ * @param hideTitle 자체 '알림' 제목 숨김(모바일 /notifications 는 큰 제목 헤더가 이미 있어 중복). '모두 읽음' 은 유지
  */
 export function InboxList({
   enabled,
   onNavigate,
   scrollClassName = 'max-h-96 overflow-y-auto',
+  hideTitle = false,
 }: {
   enabled: boolean
   onNavigate: () => void
   scrollClassName?: string
+  hideTitle?: boolean
 }) {
   const navigate = useNavigate()
   const { data: unread = 0 } = useUnreadCount()
@@ -73,8 +76,8 @@ export function InboxList({
 
   return (
     <>
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <span className="text-sm font-semibold">알림</span>
+      <div className={hideTitle ? 'flex items-center justify-end border-b px-3 py-2' : 'flex items-center justify-between border-b px-3 py-2'}>
+        {!hideTitle && <span className="text-sm font-semibold">알림</span>}
         <button
           type="button"
           data-testid="inbox-mark-all"

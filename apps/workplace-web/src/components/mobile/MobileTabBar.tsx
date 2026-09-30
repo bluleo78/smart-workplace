@@ -8,9 +8,11 @@ import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useUnreadCount } from '@/hooks/queries/useUnreadCount'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
+import { DEFAULT_TAB_SLOTS } from '@/lib/mobile/tabConfig'
 import { MOBILE_TABS, type MobileTabId } from '@/lib/mobile/tabs'
 import { cn } from '@/lib/utils'
 
+import { CountBadge } from './CountBadge'
 import { useMobileChrome } from './MobileChromeContext'
 
 // 탭별 배지 수 — 채팅 = 채널+DM 미읽음 합, 알림 = 인박스 미읽음. 메일은 합계 API 가 없어 1차 미표시.
@@ -22,6 +24,20 @@ function useTabBadges(): Partial<Record<MobileTabId, number>> {
   return { chat, notifications: inbox }
 }
 
+/**
+ * 본문을 맨 위로 — [data-mobile-scroll-root] 자체는 overflow-hidden 이라 스크롤되지 않고, 실제 스크롤은
+ * 화면마다 다른 하위 컨테이너(목록 래퍼·페이지 자체 overflow-y-auto 등)에서 일어난다.
+ * 어느 것이 스크롤 중인지 화면별로 알 수 없으므로 루트 아래에서 스크롤된(scrollTop>0) 요소를 모두 0 으로 되돌린다.
+ * 재탭 시점에만 1회 순회하므로 비용은 무시할 만하다.
+ */
+function scrollBodyToTop() {
+  const root = document.querySelector<HTMLElement>('[data-mobile-scroll-root]')
+  if (!root) return
+  for (const el of [root, ...root.querySelectorAll<HTMLElement>('*')]) {
+    if (el.scrollTop > 0) el.scrollTo({ top: 0 })
+  }
+}
+
 /** 하단 탭바 — 슬롯 탭·AI 돌출 버튼·더보기. */
 export function MobileTabBar() {
   const { pathname } = useLocation()
@@ -30,14 +46,15 @@ export function MobileTabBar() {
   const aiAvailable = useAiAvailable()
   const chrome = useMobileChrome()
   const badges = useTabBadges()
-  const slots = chrome?.slots ?? []
+  // Provider 는 AppLayout 이 항상 감싸지만, 혹시 밖에서 렌더돼도 빈 슬롯(undefined 탭) 대신 기본 구성을 쓴다.
+  const slots = chrome?.slots ?? DEFAULT_TAB_SLOTS
   const aiOpen = mode !== 'closed'
 
   // 슬롯 탭: AI 가 열려 있으면 닫고 이동. 이미 그 탭 루트면 본문을 맨 위로(모바일 관례).
   const go = (path: string) => {
     if (aiOpen) close()
     if (pathname === path) {
-      document.querySelector('[data-mobile-scroll-root]')?.scrollTo({ top: 0 })
+      scrollBodyToTop()
       return
     }
     navigate(path)
@@ -63,14 +80,7 @@ export function MobileTabBar() {
       >
         <Icon className="h-5 w-5" />
         {t.label}
-        {count > 0 && (
-          <span
-            data-testid={`mobile-tab-badge-${id}`}
-            className="absolute right-[calc(50%-18px)] top-0.5 min-w-4 rounded-full bg-destructive px-1 text-[9px] leading-4 text-white"
-          >
-            {count > 99 ? '99+' : count}
-          </span>
-        )}
+        <CountBadge count={count} data-testid={`mobile-tab-badge-${id}`} className="right-[calc(50%-18px)] top-0.5" />
       </button>
     )
   }
