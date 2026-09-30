@@ -12,9 +12,13 @@ import { downloadChatDriveLink } from '@/api/driveLinks';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList';
-import { MESSAGE_TOOLBAR_CLASS, OWN_ATTACHMENTS_CLASS } from '@/components/chat/messageToolbar';
+import {
+  MESSAGE_TOOLBAR_CLASS,
+  OWN_ATTACHMENTS_CLASS,
+  TOOLBAR_POSITION,
+} from '@/components/chat/messageToolbar';
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
-import { useTapReveal } from '@/hooks/useTapReveal';
+import { useToolbarReveal } from '@/hooks/useToolbarReveal';
 
 import { Button } from '../../../../components/ui/button';
 import { AgentBadge } from '../../../../components/users/AgentBadge';
@@ -49,8 +53,9 @@ export function ChatMessageRow({
         .map((seg) => (seg.type === 'text' ? seg.value : `@${seg.name}`))
         .join('');
   // 터치 기기: 행을 탭하면 툴바 노출. 행마다 독립 상태라 다른 행을 탭하면 이 행은 닫힌다.
-  // 훅은 조건 없이 호출하되(훅 규칙), 툴바가 있는 본인 행에만 탭 노출 props 를 펼친다.
-  const tapProps = useTapReveal()(message.id);
+  // 드러날 때 스크롤 영역 위 끝에 잘리면 툴바를 아래로 뒤집는다.
+  // 훅은 조건 없이 호출하되(훅 규칙), 툴바가 있는 본인 행에만 props 를 펼친다.
+  const toolbarRowProps = useToolbarReveal()(message.id);
   // 첨부만 있고 본문이 빈 본인 메시지는 빈 말풍선을 그리지 않는다.
   const hasBody = message.deleted || message.body.trim() !== '';
 
@@ -59,7 +64,8 @@ export function ChatMessageRow({
   const toolbar = showToolbar && (
     <div
       data-testid={`chat-message-toolbar-${message.id}`}
-      className={`absolute bottom-0 right-full mr-1.5 ${MESSAGE_TOOLBAR_CLASS}`}
+      data-message-toolbar=""
+      className={`${TOOLBAR_POSITION.ownHeader} ${MESSAGE_TOOLBAR_CLASS}`}
     >
       <Button
         size="icon"
@@ -150,7 +156,7 @@ export function ChatMessageRow({
       data-agent={isAgent ? 'true' : undefined}
       data-pending={isPending ? 'true' : undefined}
       data-own={isOwn ? 'true' : 'false'}
-      {...(isOwn ? tapProps : {})}
+      {...(isOwn ? toolbarRowProps : {})}
       className={`group relative flex gap-2 px-3 py-2 ${
         isAgent ? 'border-l-2 border-ai-accent' : ''
       } ${isPending ? 'opacity-60' : ''} ${isOwn ? 'justify-end' : ''}`}

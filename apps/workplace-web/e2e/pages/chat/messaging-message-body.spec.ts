@@ -582,6 +582,60 @@ test.describe('메시지 좌/우 분리', () => {
     expect(toolbar.y).toBeGreaterThanOrEqual(await scrollViewportTop(page, 'message-list'))
   })
 
+  test('스크롤 영역 위 끝에 걸린 메시지의 툴바는 아래로 뒤집혀 잘리지 않는다', async ({ authenticatedPage: page }) => {
+    // 목록이 스크롤되도록 창 높이를 줄인다.
+    await page.setViewportSize({ width: 1280, height: 420 })
+    const viewport = page.getByTestId('message-scroll-area')
+    // 행의 위 끝을 스크롤 영역 위 끝에 딱 붙인다 → 위쪽 툴바는 영역 밖으로 나간다.
+    // 창 크기 변경 뒤 목록의 "맨 아래 유지" 스크롤이 늦게 올 수 있어, 두 번 연속 정렬된 상태로 남을 때까지 반복한다.
+    const alignRowToTop = (id: number) =>
+      expect
+        .poll(() =>
+          viewport.evaluate((el, rowId) => {
+            const row = el.querySelector(`[data-testid="message-${rowId}"]`)!
+            const d = row.getBoundingClientRect().top - el.getBoundingClientRect().top
+            el.scrollTop += d
+            return Math.abs(d)
+          }, id),
+        )
+        .toBeLessThan(1)
+    // 한 번의 evaluate 로 재서 측정 사이에 스크롤이 끼어들지 않게 한다.
+    const measure = (id: number) =>
+      viewport.evaluate((el, rowId) => {
+        const q = (t: string) => el.querySelector(`[data-testid="${t}"]`)!.getBoundingClientRect()
+        const body = el.querySelector(`[data-testid="message-body-${rowId}"]`)?.getBoundingClientRect()
+        return {
+          flip: el.querySelector(`[data-testid="message-${rowId}"]`)!.getAttribute('data-toolbar-flip'),
+          toolbarTop: q(`message-toolbar-${rowId}`).top,
+          viewportTop: el.getBoundingClientRect().top,
+          bodyTop: body?.top ?? 0,
+          bodyBottom: body?.bottom ?? 0,
+        }
+      }, id)
+
+    // 본인 후속 줄(말풍선 위 툴바) · 본인 묶음 첫 줄(시각 왼쪽 툴바) · 타인(행 우상단 툴바) 세 위치 모두.
+    for (const id of [33, 30, 31]) {
+      await page.mouse.move(0, 0)
+      await alignRowToTop(id)
+      await page.getByTestId(`message-${id}`).hover()
+      await expect(page.getByTestId(`message-toolbar-${id}`), `#${id}`).toHaveCSS('opacity', '1')
+      const m = await measure(id)
+      expect(m.flip, `#${id}`).toBe('true')
+      expect(m.toolbarTop, `#${id}`).toBeGreaterThanOrEqual(m.viewportTop)
+      // 본인 후속 줄은 말풍선 아래로 뒤집혀 말풍선을 가리지 않는다.
+      if (id === 33) expect(m.toolbarTop).toBeGreaterThanOrEqual(m.bodyBottom - 0.5)
+    }
+
+    // 목록 맨 위로 돌아가 잘리지 않으면 원래의 위쪽 배치(말풍선 위)로 돌아온다.
+    await page.mouse.move(0, 0)
+    await viewport.evaluate((el) => { el.scrollTop = 0 })
+    await page.getByTestId('message-33').hover()
+    await expect(page.getByTestId('message-toolbar-33')).toHaveCSS('opacity', '1')
+    const back = await measure(33)
+    expect(back.flip).toBeNull()
+    expect(back.toolbarTop).toBeLessThan(back.bodyTop)
+  })
+
   test('상대 메시지 툴바 — 반응만 있고 수정·삭제는 없다', async ({ authenticatedPage: page }) => {
     await page.getByTestId('message-31').hover()
     await expect(page.getByTestId('message-toolbar-31')).toHaveCSS('opacity', '1')
@@ -790,7 +844,7 @@ test.describe('메시지 좌/우 분리 — 터치', () => {
     await expect(page.getByTestId('message-toolbar-30')).toHaveCSS('opacity', '1')
 
     // 메시지 행이 아닌 곳(컴포저 영역)을 탭하면 활성 행이 닫힌다 —
-    // useTapReveal 의 "행이 아닌 곳에서 pointerdown" 분기. 에뮬레이트된 hover 로 opacity 가 1 일 수 있어
+    // useToolbarReveal 의 "행이 아닌 곳에서 pointerdown" 분기. 에뮬레이트된 hover 로 opacity 가 1 일 수 있어
     // 판별은 opacity 가 아니라 data-tap-active 로 한다.
     await page.getByTestId('message-composer-input').tap()
     await expect(page.getByTestId('message-30')).not.toHaveAttribute('data-tap-active', 'true')

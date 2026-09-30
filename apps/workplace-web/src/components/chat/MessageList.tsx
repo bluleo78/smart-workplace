@@ -16,7 +16,12 @@ import { DateDivider } from '@/components/chat/DateDivider'
 import { EmojiPicker } from '@/components/chat/EmojiPicker'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
 import { MessageImage } from '@/components/chat/MessageImage'
-import { HOVER_TIME_REVEAL_CLASS, MESSAGE_TOOLBAR_CLASS, OWN_ATTACHMENTS_CLASS } from '@/components/chat/messageToolbar'
+import {
+  HOVER_TIME_REVEAL_CLASS,
+  MESSAGE_TOOLBAR_CLASS,
+  OWN_ATTACHMENTS_CLASS,
+  TOOLBAR_POSITION,
+} from '@/components/chat/messageToolbar'
 import { ProposalCard } from '@/components/chat/ProposalCard'
 import { ReactionBar } from '@/components/chat/ReactionBar'
 import { UnreadDivider } from '@/components/chat/UnreadDivider'
@@ -29,7 +34,7 @@ import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useProposalActions } from '@/hooks/queries/useProposalActions'
 import { useToggleReaction } from '@/hooks/queries/useToggleReaction'
 import { useUpdateMessage } from '@/hooks/queries/useUpdateMessage'
-import { useTapReveal } from '@/hooks/useTapReveal'
+import { useToolbarReveal } from '@/hooks/useToolbarReveal'
 import { deleteMessageWithUndo } from '@/lib/deleteWithUndo'
 import { formatClockTime, formatClockTimeCompact, getDateKey } from '@/lib/formatters'
 import { shouldStartNewGroup } from '@/lib/messageGrouping'
@@ -65,7 +70,8 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   // L3 위임 제안 승인/거부 뮤테이션 — 성공 시 이 채널 메시지 목록 무효화.
   const proposalActions = useProposalActions(channelId)
   // 터치 기기: 행을 탭하면 툴바 노출(hover 가 없으므로). 바깥을 탭하면 닫힌다.
-  const tapRowProps = useTapReveal()
+  // 드러날 때마다 스크롤 영역 위 끝에 잘리는지 재서 툴바를 아래로 뒤집는다.
+  const toolbarRowProps = useToolbarReveal()
 
   // 마지막(최신) 메시지가 viewport 진입하면 읽음 처리(mark-read). 중복 억제는 훅 내부 ref 가 담당.
   const markRead = useMarkMessageRead(channelId)
@@ -114,14 +120,19 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
         //   타인: 행 우상단 오버레이.
         //   본인·묶음 첫 줄: 시각 줄 안에서 시각의 왼쪽(시각도 윗 메시지도 가리지 않음).
         //   본인·후속 줄: 말풍선 오른쪽 끝 위(bottom-full 이라 말풍선과 겹치지 않음).
+        //   스크롤 영역 위 끝에 잘리면 아래로 뒤집힌다(TOOLBAR_POSITION 주석 참조).
         const toolbarPosition = !isOwn
-          ? 'absolute -top-3 right-2'
+          ? TOOLBAR_POSITION.peer
           : startsGroup
-            ? 'absolute bottom-0 right-full mr-1.5'
-            : 'absolute bottom-full right-0'
+            ? TOOLBAR_POSITION.ownHeader
+            : TOOLBAR_POSITION.ownBubble
 
         const toolbar = !isEditing && (
-          <div data-testid={`message-toolbar-${m.id}`} className={`${toolbarPosition} ${MESSAGE_TOOLBAR_CLASS}`}>
+          <div
+            data-testid={`message-toolbar-${m.id}`}
+            data-message-toolbar=""
+            className={`${toolbarPosition} ${MESSAGE_TOOLBAR_CLASS}`}
+          >
             {/* 낙관적 미확정 메시지(id<0)엔 리액션 불가 — 음수 id 로 POST 하면 실패하므로 숨김. */}
             {!isPending && (
               <EmojiPicker
@@ -310,7 +321,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
               data-pending={isPending ? 'true' : undefined}
               data-group-start={startsGroup ? 'true' : 'false'}
               data-own={isOwn ? 'true' : 'false'}
-              {...tapRowProps(m.id)}
+              {...toolbarRowProps(m.id)}
               className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''} ${
                 ownBubble ? 'justify-end' : ''
               }`}

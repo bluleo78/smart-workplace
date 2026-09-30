@@ -7,7 +7,7 @@
 // 항상 레이아웃·tab 순서에 남긴다. 노출 경로는 세 가지다.
 //   - 마우스: 행 hover (group-hover)
 //   - 키보드: 행 안 포커스 (group-focus-within)
-//   - 터치: 행 탭 (useTapReveal 이 행에 data-tap-active="true" 를 붙인다)
+//   - 터치: 행 탭 (useToolbarReveal 이 행에 data-tap-active="true" 를 붙인다)
 // 터치(coarse 포인터) 기기에서는 버튼을 44px 터치 타깃으로 키운다. 버튼은 호출처가 h-6 w-6 으로
 // 그리므로 자손 선택자로 덮는다(선택자 우선순위가 더 높다). 이모지 피커 팝오버는 portal 이라 영향 없음.
 export const MESSAGE_TOOLBAR_CLASS =
@@ -28,3 +28,35 @@ export const HOVER_TIME_REVEAL_CLASS =
   'text-xs leading-4 tabular-nums text-muted-foreground whitespace-nowrap opacity-0 transition-opacity ' +
   'group-hover:opacity-100 group-data-[tap-active=true]:opacity-100'
 
+// 툴바 위치(absolute 좌표). 기본은 "메시지 위"(Teams식)이고, 스크롤 영역 위 끝에 걸려 잘리면
+// flipToolbarIfClipped 가 행에 data-toolbar-flip="true" 를 붙여 아래쪽으로 뒤집는다.
+export const TOOLBAR_POSITION = {
+  // 타인: 행 우상단 → 뒤집히면 행 우하단.
+  peer: 'absolute -top-3 right-2 group-data-[toolbar-flip=true]:top-auto group-data-[toolbar-flip=true]:-bottom-3',
+  // 본인·묶음 첫 줄: 시각 줄 안에서 시각 왼쪽(아래 끝 맞춤) → 뒤집히면 시각 줄 위 끝에 맞춰 아래로 늘어진다.
+  ownHeader:
+    'absolute bottom-0 right-full mr-1.5 group-data-[toolbar-flip=true]:bottom-auto group-data-[toolbar-flip=true]:top-0',
+  // 본인·후속 줄: 말풍선 오른쪽 끝 위 → 뒤집히면 말풍선 아래.
+  ownBubble:
+    'absolute bottom-full right-0 group-data-[toolbar-flip=true]:bottom-auto group-data-[toolbar-flip=true]:top-full',
+} as const
+
+/**
+ * 행의 툴바가 기본 위치(위쪽)에서 가장 가까운 스크롤 영역(없으면 창) 위 끝 밖으로 나가면 아래로 뒤집는다.
+ * 툴바가 드러나는 순간(hover·포커스·터치 탭)마다 호출한다. opacity 0 이어도 레이아웃은 있으므로 측정된다.
+ * 규칙을 위치별로 하드코딩하지 않고 툴바 자체의 박스를 재므로, 터치용 44px 툴바처럼 높이가 달라도 맞다.
+ */
+export function flipToolbarIfClipped(row: HTMLElement) {
+  const toolbar = row.querySelector('[data-message-toolbar]')
+  if (!toolbar) return
+  // 이전 판정을 지우고 기본 위치에서 잰다(뒤집힌 채로 재면 항상 "안 잘림"으로 보인다).
+  row.removeAttribute('data-toolbar-flip')
+  let clipTop = 0
+  for (let n = row.parentElement; n; n = n.parentElement) {
+    if (getComputedStyle(n).overflowY !== 'visible') {
+      clipTop = Math.max(clipTop, n.getBoundingClientRect().top)
+      break
+    }
+  }
+  if (toolbar.getBoundingClientRect().top < clipTop) row.setAttribute('data-toolbar-flip', 'true')
+}
