@@ -1,10 +1,11 @@
-import { FolderX } from 'lucide-react';
+import { FolderX, Plus } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
+import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { Button } from '@/components/ui/button';
 
 import { useCycles } from '../../hooks/queries/useCycles';
@@ -79,6 +80,17 @@ export default function ProjectDetailPage() {
             {canCreateIssue && (
               <Button onClick={() => setOpen(true)}>+ 새 태스크</Button>
             )}
+          </>
+        }
+        // 모바일: 주 액션(새 태스크)만 ＋ 아이콘으로 인라인, 사이클·타임라인·설정은 ⋯ 메뉴로(U1-2).
+        mobilePrimaryAction={canCreateIssue && (
+          <HeaderIconAction label="새 태스크" data-testid="mobile-new-issue" onClick={() => setOpen(true)}><Plus /></HeaderIconAction>
+        )}
+        mobileActions={
+          <>
+            <Link to={`/projects/${key}/cycles`}><Button variant="outline">사이클</Button></Link>
+            <Link to={`/projects/${key}/timeline`}><Button variant="outline">타임라인</Button></Link>
+            <Link to={`/projects/${key}/settings`}><Button variant="outline">설정</Button></Link>
           </>
         }
       />

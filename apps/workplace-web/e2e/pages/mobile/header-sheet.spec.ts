@@ -44,11 +44,12 @@ test('캘린더: 모바일 헤더에도 오늘/이전/다음이 보이고 다음
   await expectNoHorizontalOverflow(page)
 })
 
-test('프로젝트 하위 페이지(사이클): 뒤로가기 버튼이 모바일 헤더에 보인다', async ({ authenticatedPage: page }) => {
+test('프로젝트 하위 페이지(사이클): 뒤로가기(‹)가 모바일 헤더 안에 보인다', async ({ authenticatedPage: page }) => {
   await page.route('**/api/v1/projects/WP', (r) => r.fulfill({ json: createProject() }))
   await page.route('**/api/v1/projects/WP/cycles', (r) => r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fallback())
   await page.route('**/api/v1/projects/WP/cycles/progress', (r) => r.fulfill({ json: [] }))
   await page.goto('/projects/WP/cycles')
-  await expect(page.getByRole('button', { name: '프로젝트로 돌아가기' })).toBeVisible()
+  // 병합 헤더(U1-1): 페이지의 "프로젝트로 돌아가기" 아이콘 대신 헤더 선두 ‹ 하나(딥링크 대상도 그 프로젝트).
+  await expect(page.getByTestId('page-header').getByTestId('mobile-back')).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })

@@ -364,6 +364,10 @@ export function CalendarPage() {
         <div className="flex min-w-0 flex-1 flex-col">
           {/* 상단 네비게이션 바 — 오늘/이전/다음 + 뷰 전환 */}
           <PageHeader
+            // 오늘/이전/다음은 인터랙티브 컨트롤이라 모바일 헤더에서도 제목 앞에 남긴다(장식 아이콘과 구분).
+            keepIconOnMobile
+            // 모바일: 뷰 전환 select 는 22px 제목(2026년 12월)이 잘리지 않도록 ⋯ 메뉴 안에 둔다(인라인이면 제목 폭 < 텍스트 폭).
+            mobileMenuLabel="보기 전환"
             icon={
               <div className="flex items-center gap-1">
                 <Button

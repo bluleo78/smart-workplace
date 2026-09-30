@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { PageHeader } from '@/components/layout/PageHeader';
+import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 
@@ -60,6 +61,20 @@ export default function CyclesPage() {
             <Plus /> 새 사이클
           </Button>
         }
+        // 모바일: 단일 주 액션은 ⋯ 로 접지 않고 ＋ 아이콘으로 인라인(같은 testid — actions 는 모바일에서 렌더 안 함).
+        mobilePrimaryAction={
+          <HeaderIconAction
+            label="새 사이클"
+            data-testid="cycle-new"
+            onClick={() => {
+              setEditing(undefined);
+              setOpen(true);
+            }}
+          >
+            <Plus />
+          </HeaderIconAction>
+        }
+        mobileActions={null}
       />
       <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl p-6">

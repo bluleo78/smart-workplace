@@ -9,6 +9,8 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 import { ISSUE_TYPE_ICONS } from '../../../lib/issueTypeIcons';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
@@ -41,6 +43,24 @@ export function IssueBreadcrumbHeader({
   onBack: () => void;
   actions: ReactNode;
 }) {
+  const isMobile = useIsMobile();
+  if (isMobile) {
+    // 모바일: 브레드크럼 대신 병합 상세 헤더(‹ + 이슈 키 + ⋯ + ✦) 한 줄 — 레이아웃 뒤로가기 바와 두 줄로 쌓이지 않는다(U1-1).
+    // 채팅·구독·삭제 등 actions 는 모두 ⋯ 메뉴로(파괴적 액션은 인라인에 두지 않음, U1-2). 데스크톱 마크업은 아래 그대로.
+    return (
+      <PageHeader
+        title={
+          <span className="inline-flex items-center gap-1" data-testid="breadcrumb-current">
+            {type && <BreadcrumbTypeIcon type={type} />}
+            <span className="font-mono">
+              {projectKey}-{number}
+            </span>
+          </span>
+        }
+        actions={actions}
+      />
+    );
+  }
   return (
     <header
       data-testid="page-header"

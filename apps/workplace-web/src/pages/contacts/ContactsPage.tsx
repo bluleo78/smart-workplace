@@ -1,9 +1,10 @@
-import { Star } from 'lucide-react'
+import { Plus, Star } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { ListBackRow } from '@/components/mobile/ListBackRow'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { Button } from '@/components/ui/button'
@@ -182,6 +183,11 @@ export function ContactsPage() {
               새 외부 연락처
             </Button>
           }
+          // 모바일: 같은 액션을 ＋ 아이콘으로 인라인(⋯ 없음) — testid 를 공유하므로 actions 는 모바일에서 렌더되지 않게 null.
+          mobilePrimaryAction={
+            <HeaderIconAction label="새 외부 연락처" data-testid="contact-create" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>
+          }
+          mobileActions={null}
         />
         <div className="flex min-h-0 flex-1">
           {/* 목록 (마스터) — 좁은 화면 + 선택 시 숨김 */}

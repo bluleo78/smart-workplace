@@ -1,11 +1,13 @@
 // 채널 헤더 — 이름·멤버수·아카이브 뱃지. 설정 드롭다운(OWNER/ADMIN: 이름변경·아카이브/해제),
 // 멤버 버튼, 시스템 ADMIN: 삭제. 권한 없는 액션은 렌더하지 않는다(1차 방어).
 import { ChevronDown, Folder, Lock, Users } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { messagingApi } from '@/api/messaging'
 import { DriveSpaceDrawer } from '@/components/drive/DriveSpaceDrawer'
+import { PageHeader } from '@/components/layout/PageHeader'
 import { appTitleTextClass } from '@/components/layout/sidebar-link'
 import {
   AlertDialog,
@@ -32,6 +34,7 @@ import {
   useUnarchiveChannel,
 } from '@/hooks/queries/useChannelMutations'
 import { useAuth } from '@/hooks/useAuth'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { cn } from '@/lib/utils'
 import type { ChannelResponse } from '@/types/messaging'
 
@@ -60,6 +63,101 @@ export function ChannelHeader({
   async function openFiles() {
     const { data } = await messagingApi.ensureChannelDriveSpace(channel.id)
     setFilesSpaceId(data.spaceId)
+  }
+
+  // 삭제 확인 다이얼로그·파일 드로워 — 데스크톱 헤더 안(기존 위치) 또는 모바일 병합 헤더 옆에 둔다.
+  const overlays: ReactNode = (
+    <>
+      {/* 삭제 확인 다이얼로그 — 제어형 AlertDialog 사용(DeleteConfirmDialog 는 trigger 기반). */}
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>채널 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              채널과 모든 메시지가 영구 삭제됩니다. 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            {/* 파괴적 작업임을 시각적으로 표시 */}
+            <AlertDialogAction
+              variant="destructive"
+              data-testid="channel-delete-confirm"
+              onClick={async () => {
+                await del.mutateAsync(channel.id)
+                navigate('/chat')
+              }}
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 채널 파일 드로워 — 대화 컨텍스트를 유지한 채 연동 드라이브 공간 표시. */}
+      <DriveSpaceDrawer
+        spaceId={filesSpaceId}
+        title={channel.name}
+        onClose={() => setFilesSpaceId(null)}
+      />
+    </>
+  )
+
+  const isMobile = useIsMobile()
+  if (isMobile) {
+    // 모바일: 병합 상세 헤더(‹ + 채널명 + 멤버 수 + ⋯ + ✦) 한 줄(U1-1). 파일·관리 액션은 ⋯ 메뉴의 평평한 항목으로(U1-2) —
+    // 드롭다운 안의 드롭다운을 피하려 설정 하위 항목을 메뉴에 그대로 펼친다(권한 규칙은 데스크톱과 동일).
+    return (
+      <>
+        <PageHeader
+          data-testid="channel-header"
+          title={
+            <span className="flex min-w-0 items-center gap-1">
+              {channel.visibility === 'PRIVATE' && <Lock className="h-4 w-4 shrink-0 text-muted-foreground" />}
+              <span className="truncate" title={channel.name} data-testid="channel-header-name">{channel.name}</span>
+              {channel.archived && (
+                <Badge variant="secondary" data-testid="channel-archived-badge">보관됨</Badge>
+              )}
+            </span>
+          }
+          mobilePrimaryAction={
+            <button
+              type="button"
+              data-testid="channel-members-btn"
+              aria-label={`멤버 ${channel.memberCount}명`}
+              onClick={onOpenMembers}
+              className="flex h-11 shrink-0 items-center gap-1 px-2 text-sm text-muted-foreground"
+            >
+              <Users className="h-4 w-4" />
+              <span data-testid="channel-header-membercount">{channel.memberCount}</span>
+            </button>
+          }
+          mobileActions={
+            <>
+              <button type="button" data-testid="channel-files-button" onClick={() => void openFiles()}>
+                <Folder className="h-4 w-4" /> 파일
+              </button>
+              {canManage && (
+                <>
+                  <button type="button" data-testid="channel-rename-action" onClick={onOpenRename}>이름 변경</button>
+                  {channel.archived ? (
+                    <button type="button" data-testid="channel-unarchive-action" onClick={() => unarchive.mutate()}>보관 해제</button>
+                  ) : (
+                    <button type="button" data-testid="channel-archive-action" onClick={() => archive.mutate()}>보관</button>
+                  )}
+                </>
+              )}
+              {isAdmin && (
+                <button type="button" data-testid="channel-delete-action" className="text-destructive" onClick={() => setConfirmDelete(true)}>
+                  채널 삭제
+                </button>
+              )}
+            </>
+          }
+        />
+        {overlays}
+      </>
+    )
   }
 
   return (
@@ -155,38 +253,7 @@ export function ChannelHeader({
         )}
       </div>
 
-      {/* 삭제 확인 다이얼로그 — 제어형 AlertDialog 사용(DeleteConfirmDialog 는 trigger 기반). */}
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>채널 삭제</AlertDialogTitle>
-            <AlertDialogDescription>
-              채널과 모든 메시지가 영구 삭제됩니다. 되돌릴 수 없습니다.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            {/* 파괴적 작업임을 시각적으로 표시 */}
-            <AlertDialogAction
-              variant="destructive"
-              data-testid="channel-delete-confirm"
-              onClick={async () => {
-                await del.mutateAsync(channel.id)
-                navigate('/chat')
-              }}
-            >
-              삭제
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* 채널 파일 드로워 — 대화 컨텍스트를 유지한 채 연동 드라이브 공간 표시. */}
-      <DriveSpaceDrawer
-        spaceId={filesSpaceId}
-        title={channel.name}
-        onClose={() => setFilesSpaceId(null)}
-      />
+      {overlays}
     </div>
   )
 }

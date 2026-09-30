@@ -3,7 +3,7 @@
 // 모바일(list-detail): 모듈 루트면 사이드바를 전체폭 목록(탭 첫 화면)으로, 그 외 경로면 뒤로가기 바 + Outlet 만.
 // 사이드바 컴포넌트는 손대지 않고 래퍼 CSS 로 폭(w-56→전체)·테두리·자체 제목 헤더를 정리한다
 // (8개 사이드바 모두 <aside> 첫 자식이 sidebarTitleClass 제목 헤더라는 구조 규약에 기대어 숨김).
-import type { ReactNode } from 'react'
+import { type ReactNode, useCallback, useMemo, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -11,6 +11,7 @@ import { isTabRoot, norm } from '@/lib/mobile/routes'
 import { cn } from '@/lib/utils'
 
 import { MobileBackBar } from './MobileBackBar'
+import { MobileDetailCtx } from './MobileDetailContext'
 import { MobileListHeader } from './MobileListHeader'
 import { mobileSidebarListClass } from './sidebarListClass'
 
@@ -29,6 +30,14 @@ export function ResponsiveModuleLayout({
   const isMobile = useIsMobile()
   const { pathname } = useLocation()
   const outletClass = cn('min-w-0 flex-1', scroll === 'auto' && 'overflow-y-auto')
+  // 상세 분기: 페이지 헤더 등록 수 — 1 이상이면 페이지 헤더가 ‹·✦ 를 품으므로 뒤로가기 바를 그리지 않는다(헤더는 하나, U1-1).
+  // 훅 규칙상 분기 전에 선언한다(데스크톱·목록 분기에선 쓰이지 않음).
+  const [headerCount, setHeaderCount] = useState(0)
+  const register = useCallback(() => {
+    setHeaderCount((n) => n + 1)
+    return () => setHeaderCount((n) => n - 1)
+  }, [])
+  const detailCtx = useMemo(() => ({ title, register }), [title, register])
 
   if (!isMobile) {
     return (
@@ -53,11 +62,13 @@ export function ResponsiveModuleLayout({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
-      <MobileBackBar title={title} />
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        <Outlet />
+    <MobileDetailCtx.Provider value={detailCtx}>
+      <div className="flex h-full min-h-0 flex-1 flex-col">
+        {headerCount === 0 && <MobileBackBar title={title} />}
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <Outlet />
+        </div>
       </div>
-    </div>
+    </MobileDetailCtx.Provider>
   )
 }

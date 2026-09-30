@@ -1,11 +1,12 @@
 // 개인 프로젝트 전용 상세 셸 — 팀과 동일 레이아웃으로 재수렴.
 // 상단 팀 툴바(IssueFilterBar, 개인 옵션) + 공유 보드(IssueBoardView, 개인 컬럼·drawer cardTo)
 // + 그룹핑 연동 체크리스트. URL = single source of truth: /projects/:key?view=&group=&task=
-import { ListChecks } from 'lucide-react';
+import { ListChecks, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { PageHeader } from '@/components/layout/PageHeader';
+import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { Button } from '@/components/ui/button';
 import type { IssueResponse } from '@/types/issue';
 import type { ProjectResponse } from '@/types/project';
@@ -65,6 +66,9 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
         <PageHeader
           title={project.name}
           actions={<Button onClick={() => setCreateOpen(true)}>+ 빠른 추가</Button>}
+          // 모바일: 단일 주 액션은 ＋ 아이콘으로 인라인(⋯ 없음).
+          mobilePrimaryAction={<HeaderIconAction label="빠른 추가" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>}
+          mobileActions={null}
         />
         {/* 팀과 동일한 상단 툴바(검색·필터·그룹·뷰토글). 개인 옵션으로 사이클·유형 숨김. */}
         <div className="border-b px-4">
