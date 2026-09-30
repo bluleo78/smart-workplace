@@ -73,3 +73,25 @@ test('AI 미사용이면 AI 칸 없이 4칸', async ({ authenticatedPage: page }
   await expect(page.getByTestId('mobile-tab-ai')).toHaveCount(0)
   await expect(page.getByTestId('mobile-tabbar').locator('[data-testid^="mobile-tab-"]:not([data-testid^="mobile-tab-badge"])')).toHaveCount(4)
 })
+
+test('AI 버튼은 다른 탭과 같은 선상 — 탭바 위로 돌출되지 않고, AI 풀스크린 입력창을 가리지 않는다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await page.goto('/')
+  const bar = (await page.getByTestId('mobile-tabbar').boundingBox())!
+  const capsule = (await page.getByTestId('mobile-tab-ai').locator('span').first().boundingBox())!
+  // 돌출 금지: 캡슐이 탭바 윗변 안쪽에 있어야 본문 하단(목록 끝 등)을 가리지 않는다.
+  expect(capsule.y).toBeGreaterThanOrEqual(bar.y)
+  // 같은 선상: AI 칸 라벨과 홈 칸 라벨의 세로 위치가 같다(±1px).
+  const labelBottom = (id: string) =>
+    page.getByTestId(id).evaluate((el) => {
+      const r = document.createRange()
+      r.selectNodeContents(el.lastChild as Node)
+      return r.getBoundingClientRect().bottom
+    })
+  expect(Math.abs((await labelBottom('mobile-tab-ai')) - (await labelBottom('mobile-tab-home')))).toBeLessThanOrEqual(1)
+  // AI 풀스크린 입력창 하단이 탭바 윗변보다 위.
+  await page.getByTestId('mobile-tab-ai').click()
+  const input = (await page.getByTestId('ai-fullscreen').getByPlaceholder(/AI 에게 요청/).boundingBox())!
+  expect(input.y + input.height).toBeLessThanOrEqual(bar.y + 0.5)
+  await expectNoHorizontalOverflow(page)
+})

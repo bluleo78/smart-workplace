@@ -1,4 +1,4 @@
-// 모바일 하단 탭바 — [slot0, slot1, AI, slot2, 더보기]. AI 는 가운데 돌출 원형 버튼(AI 미사용이면 제외).
+// 모바일 하단 탭바 — [slot0, slot1, AI, slot2, 더보기]. AI 는 가운데 칸의 그라데이션 캡슐(다른 탭과 같은 선상, AI 미사용이면 제외).
 // Slack(탭바 회귀)·Teams(앱 1급 노출)·Linear(구성 변경) 패턴을 따른다.
 import { Menu, Sparkles } from 'lucide-react'
 import { useEffect, useRef } from 'react'
@@ -65,7 +65,7 @@ function useTabBarHeightVar() {
   return ref
 }
 
-/** 하단 탭바 — 슬롯 탭·AI 돌출 버튼·더보기. */
+/** 하단 탭바 — 슬롯 탭·AI 캡슐 버튼·더보기. */
 export function MobileTabBar() {
   const navRef = useTabBarHeightVar()
   const { pathname } = useLocation()
@@ -131,13 +131,17 @@ export function MobileTabBar() {
           aria-label="AI 비서"
           aria-current={aiOpen ? 'page' : undefined}
           onClick={() => open('fullscreen')}
-          className="flex flex-1 flex-col items-center justify-start text-[10px] text-muted-foreground"
+          className={cn(
+            'flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 text-[10px]',
+            aiOpen ? 'font-semibold text-primary' : 'text-muted-foreground',
+          )}
         >
-          {/* 가운데 돌출 원형 — 1급 액션임을 시각적으로 강조 */}
-          <span className="-mt-4 flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-primary text-white shadow-lg">
-            <Sparkles className="h-5 w-5" />
+          {/* 다른 탭과 같은 선상 — 위로 돌출시키면 탭 루트 화면 본문 하단(목록 끝·입력창)을 가리므로,
+              높이는 아이콘(20px)과 같게 두고(-my-0.5 로 24px 캡슐의 여분 상쇄) 그라데이션 캡슐로만 1급 액션을 강조한다. */}
+          <span className="-my-0.5 flex h-6 w-11 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-primary text-white shadow-sm">
+            <Sparkles className="h-4 w-4" />
           </span>
-          <span className={cn(aiOpen && 'font-semibold text-primary')}>AI</span>
+          AI
         </button>
       )}
       {renderSlot(slots[2])}
