@@ -1,5 +1,5 @@
 // src/components/ai/AIChip.tsx
-// 상단 중앙 AI 칩(FAB) — fire-hub 치수 정합. 클릭 시 모드 순환. ⌘K·Esc 는 useAssistantHotkeys(AppLayout)가 전역 처리.
+// 상단 중앙 AI 칩(FAB) — fire-hub 치수 정합. 클릭 시 모드 순환. ⌘K·Esc 는 AIAssistantProvider 가 전역 처리.
 import { Sparkles } from 'lucide-react';
 import { createPortal } from 'react-dom';
 

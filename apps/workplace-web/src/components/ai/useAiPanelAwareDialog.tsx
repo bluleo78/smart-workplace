@@ -88,7 +88,7 @@ export function useAiPanelAwareDialog({ open, size = 'default' }: Options): Resu
   }, []);
 
   // Esc: AI 표면에서 누르면 다이얼로그가 아니라 패널만 닫는다.
-  // Radix 의 Esc 리스너(document)가 useAssistantHotkeys 의 window 리스너보다 먼저 돌고, 여기서 preventDefault 하면
+  // Radix 의 Esc 리스너(document)가 AIAssistantProvider 단축키의 window 리스너보다 먼저 돌고, 여기서 preventDefault 하면
   // 전역 리스너는 defaultPrevented 라 패널을 닫지 않으므로 패널 닫기를 직접 호출한다(둘이 동시에 닫히지 않음).
   const onEscapeKeyDown = useCallback(
     (e: KeyboardEvent) => {
