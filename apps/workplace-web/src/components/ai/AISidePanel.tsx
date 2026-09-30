@@ -1,10 +1,11 @@
 // src/components/ai/AISidePanel.tsx
 // 우측 도킹 사이드 패널 — 데스크톱은 flex 형제로 본문을 밀어내고(reflow), 모바일은 풀스크린 오버레이.
-// 좌측 핸들 드래그로 폭 조절(320~600, 영속).
+// 좌측 핸들 드래그로 폭 조절(320~600, 영속). 상단에 타이틀·모드 전환·닫기 헤더(WP-111).
 import { useCallback, useRef } from 'react';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AIChatPanel } from '@/components/ai/AIChatPanel';
+import { AIPanelHeader } from '@/components/ai/AIPanelHeader';
 import { useAssistantChat } from '@/hooks/useAssistantChat';
 
 /** mode==='side' 일 때만 렌더. 데스크톱 reflow + 리사이즈, 모바일 오버레이. */
@@ -54,8 +55,12 @@ export function AISidePanel() {
         aria-hidden
         className="absolute left-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 max-lg:hidden"
       />
-      <div className="min-h-0 flex-1 pl-1">
-        <AIChatPanel {...chat} autoFocus />
+      {/* 패널 조작 레이어(타이틀·모드·닫기) 아래에 대화 조작 레이어(대화 선택·새 대화)가 오도록 쌓는다. */}
+      <div className="flex min-h-0 flex-1 flex-col pl-1">
+        <AIPanelHeader />
+        <div className="min-h-0 flex-1">
+          <AIChatPanel {...chat} autoFocus />
+        </div>
       </div>
     </aside>
   );
