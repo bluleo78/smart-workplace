@@ -1,11 +1,17 @@
 // URL SearchParams 와 IssueFilters / IssueView 사이의 양방향 직렬화.
 // 모든 필터 동작은 이 두 함수만 통과한다 — 화면/상태/URL 의 단일 진입점.
 
-import type { IssueFilters, IssueGroupBy, IssueView } from '../types/issue';
+import type {
+  IssueClientGroupBy,
+  IssueFilters,
+  IssueGroupBy,
+  IssueGroupParam,
+  IssueView,
+} from '../types/issue';
 
 const STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'] as const;
 const PRIORITIES = ['LOW', 'MID', 'HIGH'] as const;
-const GROUP_BYS = ['status', 'assignee', 'priority'] as const;
+const GROUP_BYS = ['status', 'assignee', 'priority', 'cycle'] as const;
 
 // 알려진 토큰만 통과시켜 잘못된 URL 입력에 대해 안전하게 동작.
 export function parseFilters(params: URLSearchParams): IssueFilters {
@@ -108,20 +114,48 @@ export function parseView(params: URLSearchParams): IssueView {
   return params.get('view') === 'board' ? 'board' : 'list';
 }
 
-// group 파라미터가 알려진 값일 때만 통과, 그 외(부재 포함)는 null(그룹 없음). (#58)
-export function parseGroupBy(params: URLSearchParams): IssueGroupBy | null {
+// group 파라미터 원값 — 알려진 그룹 또는 'none'(그룹 없음 명시, #878). 부재·미지값은 null(= 화면 기본값).
+// 필터를 다시 쓸 때는 이 원값을 그대로 보존해야 한다 — 파싱값(null)으로 쓰면 명시한 'none' 이 사라져 기본값으로 되돌아간다.
+export function parseGroupParam(params: URLSearchParams): IssueGroupParam | null {
   const g = params.get('group');
+  if (g === 'none') return 'none';
   return (GROUP_BYS as readonly string[]).includes(g ?? '')
     ? (g as IssueGroupBy)
     : null;
 }
 
-// IssueFilters + view + groupBy → URLSearchParams. 기본값(list, 빈 필터, 그룹 없음)은 키 생략.
+// group 파라미터가 알려진 값일 때만 통과, 그 외(부재·'none' 포함)는 null(그룹 없음). (#58)
+// 기본값이 있는 팀 목록(#878)은 parseGroupParam + resolveListGroupBy 를 쓴다.
+export function parseGroupBy(params: URLSearchParams): IssueGroupBy | null {
+  const g = parseGroupParam(params);
+  return g === 'none' ? null : g;
+}
+
+// 클라이언트 그룹핑용 기준 — 'cycle' 은 팀 목록 전용(구간별 서버 쿼리)이라 보드·개인 화면에선 그룹 없음으로 본다.
+export function toClientGroupBy(g: IssueGroupBy | null): IssueClientGroupBy | null {
+  return g === 'cycle' ? null : g;
+}
+
+// 팀 목록의 유효 그룹 기준(#878) — URL 에 group 이 없으면 진행 중·예정 사이클이 있을 때 사이클 그룹이 기본.
+// openCycleCount 가 undefined(사이클 목록 로딩 중)면 판정을 보류해 undefined 를 돌려준다 —
+// 호출처는 그동안 스켈레톤을 보여 평면 목록이 잠깐 떴다 바뀌는 깜빡임을 막는다.
+export function resolveListGroupBy(
+  raw: IssueGroupParam | null,
+  openCycleCount: number | undefined,
+): IssueGroupBy | null | undefined {
+  if (raw === 'none') return null;
+  if (raw) return raw;
+  if (openCycleCount === undefined) return undefined;
+  return openCycleCount > 0 ? 'cycle' : null;
+}
+
+// IssueFilters + view + groupBy → URLSearchParams. 기본값(list, 빈 필터, group 미지정)은 키 생략.
 // groupBy 는 필수 인자 — 컴파일러가 모든 호출처에서 group 영속을 강제(저장 뷰 라운드트립 누락 방지).
+// 'none'(그룹 없음 명시)은 그대로 직렬화한다 — null(부재)과 달리 화면 기본 그룹을 끈다는 의미(#878).
 export function filtersToParams(
   f: IssueFilters,
   view: IssueView,
-  groupBy: IssueGroupBy | null,
+  groupBy: IssueGroupParam | null,
 ): URLSearchParams {
   const p = new URLSearchParams();
   if (view !== 'list') p.set('view', view);

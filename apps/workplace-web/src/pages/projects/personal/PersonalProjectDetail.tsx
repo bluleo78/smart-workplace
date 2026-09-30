@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import type { IssueResponse } from '@/types/issue';
 import type { ProjectResponse } from '@/types/project';
 
-import { parseFilters, parseGroupBy, parseView } from '../../../lib/issueFilters';
+import { parseFilters, parseGroupBy, parseView, toClientGroupBy } from '../../../lib/issueFilters';
 import { IssueBoardView } from '../components/IssueBoardView';
 import { IssueCreateDialog } from '../components/IssueCreateDialog';
 import { IssueFilterBar, type IssueFilterBarOptions } from '../components/IssueFilterBar';
@@ -46,7 +46,8 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
   // 개인 뷰는 기존대로 최상위 이슈만 — topLevel 기본값이 팀 보드·목록 기본 범위(에픽 제외·하위 노출)로 바뀌어도
   // 개인 보드/체크리스트의 노출 범위는 유지한다.
   const filters = { ...parseFilters(params), topLevel: true };
-  const groupBy = parseGroupBy(params);
+  // 개인 화면엔 사이클이 없다 — URL 에 group=cycle 이 와도(팀 링크 복사 등) 그룹 없음으로 본다.
+  const groupBy = toClientGroupBy(parseGroupBy(params));
   const [createOpen, setCreateOpen] = useState(false);
 
   // 개인 보드 카드 클릭 → 같은 라우트의 ?task=N drawer 오픈(view=board 보존). 풀페이지 이동 없음.

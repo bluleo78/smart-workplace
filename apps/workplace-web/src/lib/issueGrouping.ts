@@ -1,7 +1,7 @@
 // 이슈 목록을 group 기준(상태/우선순위/담당자)으로 클라이언트에서 묶는 순수 함수 (#58).
 // 보드 뷰와 리스트 뷰가 동일한 그룹 결과를 공유한다.
 
-import type { IssueGroupBy, IssueResponse } from '../types/issue';
+import type { IssueClientGroupBy, IssueResponse } from '../types/issue';
 
 // 하나의 그룹 — key 는 React key·data-testid·droppable id 에 사용, label 은 헤더 표시.
 export interface IssueGroup {
@@ -34,7 +34,7 @@ const PRIORITY_ORDER: { key: string; label: string }[] = [
  */
 export function groupIssues(
   issues: IssueResponse[],
-  groupBy: IssueGroupBy,
+  groupBy: IssueClientGroupBy,
 ): IssueGroup[] {
   if (groupBy === 'status') {
     return STATUS_ORDER.map((s) => ({

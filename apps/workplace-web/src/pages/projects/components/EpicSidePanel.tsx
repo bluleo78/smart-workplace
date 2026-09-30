@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { avatarColorClass } from '../../../lib/avatarColor';
-import { filtersToParams, parseFilters, parseGroupBy, parseView } from '../../../lib/issueFilters';
+import { filtersToParams, parseFilters, parseGroupParam, parseView } from '../../../lib/issueFilters';
 import type { IssueFilters } from '../../../types/issue';
 import { IssueCreateDialog } from './IssueCreateDialog';
 
@@ -45,7 +45,8 @@ export function EpicSidePanel({
   const [params, setParams] = useSearchParams();
   const filters = parseFilters(params);
   const view = parseView(params);
-  const groupBy = parseGroupBy(params);
+  // group 원값(부재/none/값) 그대로 보존 — parseGroupBy 는 none 을 null 로 바꿔 「그룹 없음」 명시가 사라진다(#878).
+  const groupParam = parseGroupParam(params);
   const queryClient = useQueryClient();
   // 「＋ 에픽 만들기」 다이얼로그 열림 상태.
   const [createOpen, setCreateOpen] = useState(false);
@@ -76,7 +77,7 @@ export function EpicSidePanel({
   // 서로 배타가 깨지지 않게 한다. 사용자가 건 유형 등 다른 필터는 보존.
   // invalidate: 캐시된 동일 queryKey 로 되돌아가는 전환(해제)일 때만 true — 새 필터는 queryKey 가 새로 생겨 불필요.
   function applyEpicScope(parentNumber: number | null, topLevel: boolean, invalidate: boolean) {
-    setParams(filtersToParams({ ...filters, parentNumber, topLevel }, view, groupBy), { replace: true });
+    setParams(filtersToParams({ ...filters, parentNumber, topLevel }, view, groupParam), { replace: true });
     if (invalidate) invalidateBodyIssueSearch();
   }
 

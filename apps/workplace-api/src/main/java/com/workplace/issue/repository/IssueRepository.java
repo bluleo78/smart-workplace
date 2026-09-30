@@ -285,8 +285,8 @@ public class IssueRepository {
 
   /**
    * 사이클 필터 조건 — search·searchMemberOf 두 경로가 공유해 결과가 어긋나지 않게 한다. 지정 사이클 중 하나라도 연결(EXISTS) 또는
-   * includeNoCycle 이면 issue_cycle 연결이 하나도 없는(NOT EXISTS) 이슈를 OR 로 매칭한다(#878). 사이클 상태(COMPLETED 등)와
-   * 무관하게 연결이 하나라도 있으면 미할당이 아니다. 둘 다 없으면 조건 미적용.
+   * includeNoOpenCycle(백로그) 이면 진행 중(ACTIVE)·예정(PLANNED) 사이클 연결이 없는(NOT EXISTS) 이슈를 OR 로 매칭한다(#878).
+   * 완료(COMPLETED) 사이클 연결만 있는 이슈는 백로그로 본다 — 끝난 스프린트의 미완료 이슈가 백로그로 돌아오는 Jira 관례. 둘 다 없으면 조건 미적용.
    */
   private org.jooq.Condition cycleCondition(com.workplace.issue.dto.IssueSearchQuery query) {
     org.jooq.Condition cond = noCondition();
@@ -303,12 +303,20 @@ public class IssueRepository {
                               .eq(ISSUE.ID)
                               .and(ISSUE_CYCLE.CYCLE_ID.in(query.cycleIds())))));
     }
-    if (query.includeNoCycle()) {
-      // 사이클 미할당 — M:N 매핑에 행이 하나도 없는 이슈
+    if (query.includeNoOpenCycle()) {
+      // 백로그 — 진행 중·예정 사이클과의 M:N 연결이 하나도 없는 이슈(연결 없음 + 완료 사이클에만 연결).
       cond =
           cond.or(
               notExists(
-                  dsl.selectOne().from(ISSUE_CYCLE).where(ISSUE_CYCLE.ISSUE_ID.eq(ISSUE.ID))));
+                  dsl.selectOne()
+                      .from(ISSUE_CYCLE)
+                      .join(CYCLE)
+                      .on(CYCLE.ID.eq(ISSUE_CYCLE.CYCLE_ID))
+                      .where(
+                          ISSUE_CYCLE
+                              .ISSUE_ID
+                              .eq(ISSUE.ID)
+                              .and(CYCLE.STATUS.in("ACTIVE", "PLANNED")))));
     }
     return cond;
   }

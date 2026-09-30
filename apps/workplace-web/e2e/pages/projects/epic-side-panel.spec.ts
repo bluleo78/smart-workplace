@@ -391,4 +391,30 @@ test.describe('에픽 왼쪽 패널', () => {
       await expect(colHeader).toBeInViewport();
     });
   });
+
+  test('에픽 선택·해제 후에도 group=none(그룹 없음 명시)이 유지된다 (#878)', async ({ authenticatedPage: page }) => {
+    await stubProjectMeta(page);
+    await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
+    const epics = [epic(10, '결제 리뉴얼', 6, 10)];
+    await routeIssueSearch(page, (route, url) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          createIssueSearchResponse(url.searchParams.get('type') === String(makeEpicType().id) ? epics : []),
+        ),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}?group=none`);
+    await openEpicPanel(page);
+
+    await page.getByTestId('epic-filter-10').click();
+    await expect(page).toHaveURL(/parent=10/);
+    await expect(page).toHaveURL(/group=none/);
+
+    await page.getByTestId('epic-filter-unassigned').click();
+    await expect(page).toHaveURL(/topLevel=true/);
+    await expect(page).toHaveURL(/group=none/);
+  });
 });

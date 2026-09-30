@@ -621,7 +621,9 @@ test.describe('사이클 필터', () => {
         return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
       });
 
-      await page.goto(`/projects/${KEY}`);
+      // group=none — 진행 중 사이클이 있으면 목록 기본이 사이클 그룹(#878)이라 진행 중 구간이 이미 cycle=1 로 요청한다.
+      // 이 테스트는 facet 선택이 평면 목록 검색 요청에 실리는지를 보므로 그룹 없음으로 고정한다.
+      await page.goto(`/projects/${KEY}?group=none`);
 
       // ＋필터 팝오버를 열어 사이클 facet 이 노출되는지 확인(필터바 로드 대기 겸).
       await page.getByTestId('add-filter-trigger').click();

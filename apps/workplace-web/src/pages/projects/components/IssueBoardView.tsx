@@ -35,8 +35,8 @@ import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatu
 import { useLoadMoreSentinel } from '../../../hooks/useLoadMoreSentinel';
 import { groupIssues, type IssueGroup } from '../../../lib/issueGrouping';
 import type {
+  IssueClientGroupBy,
   IssueFilters,
-  IssueGroupBy,
   IssueResponse,
 } from '../../../types/issue';
 import { IssueCard } from './IssueCard';
@@ -73,7 +73,7 @@ export function IssueBoardView({
 }: {
   projectKey: string;
   filters: IssueFilters;
-  groupBy: IssueGroupBy | null;
+  groupBy: IssueClientGroupBy | null;
   // 컬럼 세트 override(기본 팀 4컬럼). 컬럼에 없는 상태의 이슈는 렌더 제외.
   columns?: { status: string; label: string }[];
   // 카드 링크 대상 빌더(기본 미지정 = IssueCard 기본 상세 경로). 개인은 drawer 경로 주입.

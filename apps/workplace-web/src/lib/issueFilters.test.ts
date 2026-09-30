@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { filtersToParams, parseFilters, parseGroupBy, withDefaultIssueScope } from './issueFilters';
+import {
+  filtersToParams,
+  parseFilters,
+  parseGroupBy,
+  parseGroupParam,
+  resolveListGroupBy,
+  toClientGroupBy,
+  withDefaultIssueScope,
+} from './issueFilters';
 
 const EMPTY = parseFilters(new URLSearchParams());
 
@@ -14,6 +22,40 @@ describe('parseGroupBy', () => {
   it('부재/미지값은 null', () => {
     expect(parseGroupBy(new URLSearchParams(''))).toBeNull();
     expect(parseGroupBy(new URLSearchParams('group=bogus'))).toBeNull();
+  });
+
+  it('cycle 은 통과, none(그룹 없음 명시)은 null (#878)', () => {
+    expect(parseGroupBy(new URLSearchParams('group=cycle'))).toBe('cycle');
+    expect(parseGroupBy(new URLSearchParams('group=none'))).toBeNull();
+  });
+});
+
+describe('parseGroupParam / resolveListGroupBy (#878)', () => {
+  it('원값은 none 과 부재를 구분한다', () => {
+    expect(parseGroupParam(new URLSearchParams('group=none'))).toBe('none');
+    expect(parseGroupParam(new URLSearchParams(''))).toBeNull();
+    expect(parseGroupParam(new URLSearchParams('group=bogus'))).toBeNull();
+  });
+
+  it('group 부재: 진행 중·예정 사이클이 있으면 cycle, 없으면 그룹 없음, 로딩 중이면 보류', () => {
+    expect(resolveListGroupBy(null, 2)).toBe('cycle');
+    expect(resolveListGroupBy(null, 0)).toBeNull();
+    expect(resolveListGroupBy(null, undefined)).toBeUndefined();
+  });
+
+  it('명시값은 사이클 유무와 무관하게 그대로 따른다', () => {
+    expect(resolveListGroupBy('none', 3)).toBeNull();
+    expect(resolveListGroupBy('assignee', undefined)).toBe('assignee');
+    expect(resolveListGroupBy('cycle', 0)).toBe('cycle');
+  });
+
+  it('none 은 URL 로 왕복된다', () => {
+    expect(filtersToParams(EMPTY, 'list', 'none').toString()).toBe('group=none');
+  });
+
+  it('클라이언트 그룹핑은 cycle 을 그룹 없음으로 본다', () => {
+    expect(toClientGroupBy('cycle')).toBeNull();
+    expect(toClientGroupBy('status')).toBe('status');
   });
 });
 
