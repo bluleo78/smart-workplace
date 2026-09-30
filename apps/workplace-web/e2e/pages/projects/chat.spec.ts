@@ -610,6 +610,45 @@ test.describe('이슈 chat panel', () => {
     expect(overflows).toBe(false);
   });
 
+  // #884 후속: 드로워를 열면 바로 입력할 수 있게 컴포저에 포커스가 간다(툴바는 드러나지 않는다).
+  // 첫 열기(스레드 로드 후 컴포저 마운트)와 재열기(캐시로 즉시 마운트) 두 경로를 모두 본다.
+  test('드로워를 열면 컴포저에 포커스 — 첫 열기·재열기 (#884)', async ({ authenticatedPage: page }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '포커스' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    stubs.thread = {
+      ...stubs.thread,
+      recentMessages: [
+        createChatMessage({
+          id: 620,
+          threadId: THREAD_ID,
+          authorId: ME_ID,
+          authorName: '테스트 사용자',
+          authorKind: 'HUMAN',
+          body: '본인 메시지 — 툴바가 포커스로 드러나면 안 된다',
+        }),
+      ],
+    };
+    await setupChatStubs(page, stubs);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const input = page.getByTestId('chat-composer-input');
+    const toolbar = page.getByTestId('chat-message-toolbar-620');
+    for (const round of ['첫 열기', '재열기']) {
+      await page.getByTestId('issue-chat-open').click();
+      await expect(input, round).toBeFocused();
+      // 여는 클릭의 포인터가 행 위에 남아 hover 로 판정되지 않도록 치운다.
+      await page.mouse.move(0, 0);
+      await expect(toolbar, round).toHaveCSS('opacity', '0');
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('issue-chat-drawer')).toHaveCount(0);
+    }
+  });
+
   test('본인 메시지 수정 + 삭제', async ({ authenticatedPage: page }) => {
     const detailRef = {
       current: createIssueDetail({

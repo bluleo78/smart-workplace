@@ -37,6 +37,7 @@ export function IssueChatDrawer({
         // #884: Radix 는 열릴 때 내용 안 첫 tabbable 에 포커스를 준다. 본인 메시지 툴바가 opacity 토글이라
         // (hidden 이 아님) 그 버튼이 첫 tabbable 이 되어, 열자마자 첫 본인 메시지 툴바가 포커스로 드러난다.
         // 포커스를 컨테이너 자체로 돌려 툴바는 hover/키보드 탐색 때만 나타나게 한다.
+        // 스레드 로드 후 컴포저가 마운트되면 컴포저가 autoFocus 로 포커스를 가져간다(정밀 포인터 한정).
         onOpenAutoFocus={(e) => {
           e.preventDefault();
           if (e.currentTarget instanceof HTMLElement) e.currentTarget.focus();
