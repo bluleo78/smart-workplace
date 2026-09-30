@@ -30,6 +30,12 @@ interface PageHeaderProps {
   'data-testid'?: string
 }
 
+/** 모바일 헤더 전용 — 탭 루트에서만 🔔 를 보인다. useLocation 구독을 모바일 분기에 가둬 데스크톱 헤더가 경로 변경마다 재렌더되지 않게 분리. */
+function MobileTabRootBell() {
+  const { pathname } = useLocation()
+  return isTabRoot(pathname) ? <NotificationBell /> : null
+}
+
 /**
  * 컨텐츠 영역 표준 헤더 바 — h-14·border-b 고정 바로 사이드바 헤더(sidebarTitleClass)와
  * 한 선 정렬. 페이지가 필요할 때만 둔다(옵션). 홈 canvas-header 패턴을 컴포넌트화한 것.
@@ -44,7 +50,6 @@ export function PageHeader({
   ...rest
 }: PageHeaderProps) {
   const isMobile = useIsMobile()
-  const { pathname } = useLocation()
   const sheet = useMobileSidebarSheet()
   if (isMobile) {
     // 모바일: 선두 icon 슬롯, 좌측 ☰(사이드바 시트가 있을 때), 우측 actions + 탭 루트면 🔔.
@@ -61,7 +66,7 @@ export function PageHeader({
         {icon && <div className="flex shrink-0 items-center">{icon}</div>}
         {title != null && <h1 className={cn(appTitleTextClass, 'min-w-0 flex-1 truncate px-1')}>{title}</h1>}
         <div className="flex min-w-0 shrink items-center gap-1 overflow-x-auto">{actions}</div>
-        {isTabRoot(pathname) && <NotificationBell />}
+        <MobileTabRootBell />
       </header>
     )
   }

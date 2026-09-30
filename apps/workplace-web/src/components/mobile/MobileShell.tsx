@@ -31,24 +31,6 @@ export function MobileShell({ children, overlay }: { children: ReactNode; overla
     navigate('/notifications', { replace: pathname === '/notifications' })
   }, [inboxOpen, setInboxOpen, navigate, pathname])
   const showTabBar = isTabRoot(pathname) && !chrome?.tabBarHidden
-  // 실제 탭바 높이(안전영역 포함)를 CSS 변수로 공개한다 — 메일 작성 도크 등 fixed 부품이 탭바 위로 뜨게 하되,
-  // 탭바가 숨은 화면에선 0 이 되어 화면 하단에 붙는다. 고정 px 를 복제하지 않도록 렌더된 높이를 관측한다.
-  useEffect(() => {
-    const root = document.documentElement
-    const bar = showTabBar ? document.querySelector<HTMLElement>('[data-testid="mobile-tabbar"]') : null
-    if (!bar) {
-      root.style.setProperty('--mobile-tabbar-h', '0px')
-      return () => root.style.removeProperty('--mobile-tabbar-h')
-    }
-    const sync = () => root.style.setProperty('--mobile-tabbar-h', `${bar.offsetHeight}px`)
-    sync()
-    const ro = new ResizeObserver(sync)
-    ro.observe(bar)
-    return () => {
-      ro.disconnect()
-      root.style.removeProperty('--mobile-tabbar-h')
-    }
-  }, [showTabBar])
   return (
     <div data-testid="mobile-shell" className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
       <main data-mobile-scroll-root className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pt-[env(safe-area-inset-top)]">

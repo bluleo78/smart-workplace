@@ -15,8 +15,8 @@ export interface MobileTabDef {
   match: (pathname: string) => boolean
 }
 
-// 접두 경로 매칭 헬퍼 — '/chat' 은 '/chat', '/chat/…' 만('/chatx' 제외).
-const under = (...prefixes: string[]) => (p: string) =>
+/** 접두 경로 매칭 헬퍼 — '/chat' 은 '/chat', '/chat/…' 만('/chatx' 제외). 탭 match·경로 판정·더보기 활성 판정이 공유. */
+export const under = (...prefixes: string[]) => (p: string) =>
   prefixes.some((x) => p === x || p.startsWith(`${x}/`))
 
 /** 탭바·더보기 그리드에 노출 가능한 앱 레지스트리 — match 는 현재 경로가 이 탭에 속하는지 판정. */

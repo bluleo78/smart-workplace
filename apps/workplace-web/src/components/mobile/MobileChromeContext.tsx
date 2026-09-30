@@ -2,6 +2,7 @@
 // 탭 편집 화면이 바꾼 구성을 탭바에 즉시 반영하기 위한 컨텍스트.
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { loadTabSlots, saveTabSlots } from '@/lib/mobile/tabConfig'
 import type { MobileTabId } from '@/lib/mobile/tabs'
 
@@ -36,16 +37,21 @@ export function useMobileChrome() {
   return useContext(Ctx)
 }
 
-/** hidden=true 인 동안 탭바를 숨긴다. 데스크톱에선 카운트만 바뀌고 탭바가 없으니 화면 영향 없음(Provider 밖이면 무동작). */
+/**
+ * hidden=true 인 동안 탭바를 숨긴다. 데스크톱엔 탭바가 없으므로 카운트를 건드리지 않는다 — 불필요한
+ * Provider 재렌더(앱 전체 소비자)를 막기 위해. lg 경계를 넘으면 isMobile 변화로 이펙트가 다시 돌아 카운트가 맞춰진다.
+ * Provider 밖이면 무동작.
+ */
 // eslint-disable-next-line react-refresh/only-export-components
 export function useHideTabBar(hidden: boolean) {
   const ctx = useContext(Ctx)
   const setHideCount = ctx?.setHideCount
+  const isMobile = useIsMobile()
   useEffect(() => {
-    if (!hidden || !setHideCount) return
+    if (!hidden || !isMobile || !setHideCount) return
     setHideCount((n) => n + 1)
     return () => setHideCount((n) => n - 1)
-  }, [hidden, setHideCount])
+  }, [hidden, isMobile, setHideCount])
 }
 
 /** 탭 편집 화면용 — 현재 구성과 저장 함수. */

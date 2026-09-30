@@ -1,18 +1,19 @@
 // 모바일 하단 탭바 — [slot0, slot1, AI, slot2, 더보기]. AI 는 가운데 돌출 원형 버튼(AI 미사용이면 제외).
 // Slack(탭바 회귀)·Teams(앱 1급 노출)·Linear(구성 변경) 패턴을 따른다.
 import { Menu, Sparkles } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useAssistant } from '@/components/ai/AIAssistantContext'
+import { CountBadge } from '@/components/CountBadge'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useUnreadCount } from '@/hooks/queries/useUnreadCount'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { DEFAULT_TAB_SLOTS } from '@/lib/mobile/tabConfig'
-import { MOBILE_TABS, type MobileTabId } from '@/lib/mobile/tabs'
+import { MOBILE_TABS, type MobileTabId, under } from '@/lib/mobile/tabs'
 import { cn } from '@/lib/utils'
 
-import { CountBadge } from './CountBadge'
 import { useMobileChrome } from './MobileChromeContext'
 
 // 탭별 배지 수 — 채팅 = 채널+DM 미읽음 합, 알림 = 인박스 미읽음. 메일은 합계 API 가 없어 1차 미표시.
@@ -38,8 +39,35 @@ function scrollBodyToTop() {
   }
 }
 
+// 탭 배지 — 공용 CountBadge 를 탭 아이콘 우상단에 겹치도록 작게(16px·9px 글꼴) 줄여 절대 배치한다.
+const TAB_BADGE_CLASS = 'absolute right-[calc(50%-18px)] top-0.5 h-4 min-w-4 text-[9px] font-normal leading-4'
+
+/**
+ * 실제 탭바 높이(안전영역 포함)를 :root 의 --mobile-tabbar-h 로 공개한다 — 메일 작성 도크 등 fixed 부품이
+ * 탭바 위로 뜨게 하되, 탭바가 숨으면(언마운트) 변수를 지워 폴백 0 으로 화면 하단에 붙는다.
+ * 고정 px 를 복제하지 않도록 렌더된 높이를 ResizeObserver 로 관측한다.
+ */
+function useTabBarHeightVar() {
+  const ref = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const bar = ref.current
+    if (!bar) return
+    const root = document.documentElement
+    const sync = () => root.style.setProperty('--mobile-tabbar-h', `${bar.offsetHeight}px`)
+    sync()
+    const ro = new ResizeObserver(sync)
+    ro.observe(bar)
+    return () => {
+      ro.disconnect()
+      root.style.removeProperty('--mobile-tabbar-h')
+    }
+  }, [])
+  return ref
+}
+
 /** 하단 탭바 — 슬롯 탭·AI 돌출 버튼·더보기. */
 export function MobileTabBar() {
+  const navRef = useTabBarHeightVar()
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const { mode, open, close } = useAssistant()
@@ -80,15 +108,16 @@ export function MobileTabBar() {
       >
         <Icon className="h-5 w-5" />
         {t.label}
-        <CountBadge count={count} data-testid={`mobile-tab-badge-${id}`} className="right-[calc(50%-18px)] top-0.5" />
+        <CountBadge count={count} data-testid={`mobile-tab-badge-${id}`} className={TAB_BADGE_CLASS} />
       </button>
     )
   }
 
-  const moreActive = !aiOpen && (pathname === '/more' || pathname.startsWith('/more/'))
+  const moreActive = !aiOpen && under('/more')(pathname)
 
   return (
     <nav
+      ref={navRef}
       aria-label="하단 탭"
       data-testid="mobile-tabbar"
       className="flex shrink-0 items-stretch border-t bg-background px-1 pb-[env(safe-area-inset-bottom)] pt-1"
