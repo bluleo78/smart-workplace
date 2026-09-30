@@ -8,6 +8,7 @@ import { useProjects } from '@/hooks/queries/useProjects'
 import { useMyPinnedViews } from '@/hooks/queries/useSavedViews'
 import { useProjectFavorites } from '@/hooks/useProjectFavorites'
 import { projectColor, projectInitial } from '@/lib/project-color'
+import { savedViewQueryToParams } from '@/lib/savedViewQuery'
 import { ProjectCreateDialog } from '@/pages/projects/components/ProjectCreateDialog'
 
 export function IssueSidebar() {
@@ -58,7 +59,8 @@ export function IssueSidebar() {
               {(pinned.data ?? []).map((v) => (
                 <NavLink
                   key={v.id}
-                  to={`/projects/${v.projectKey}?${v.query}`}
+                  // group 없는 (사이클 그룹 도입 전) 저장 뷰는 group=none 을 붙여 예전처럼 평면 목록으로 연다(#878).
+                  to={`/projects/${v.projectKey}?${savedViewQueryToParams(v.query).toString()}`}
                   data-testid={`pinned-view-${v.id}`}
                   className={sidebarLinkClass}
                 >

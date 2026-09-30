@@ -123,6 +123,16 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
   // 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // 고정뷰를 검증하는 spec 은 더 구체적 목록을 나중에 등록 → 그쪽이 우선한다.
   await mockApi(page, 'GET', '/api/v1/me/pinned-views', [])
+  // #878: 팀 프로젝트 목록은 사이클 유무로 기본 그룹(사이클/없음)을 정하므로 /cycles 응답을 기다린다.
+  // 미스텁이면 503+재시도 동안 스켈레톤이 떠 목록 단언이 느려지므로 빈 기본 스텁(=사이클 없음 → 평면 목록)을 깐다.
+  // 사이클을 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.
+  await page.route(
+    (url) => /^\/api\/v1\/projects\/[^/]+\/cycles(\/progress)?$/.test(url.pathname),
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+        : route.fallback(),
+  )
   // Phase 7d — "/" 홈 셸 마운트 시 세션 스위처가 /home/sessions 를 페치한다. 모든 인증 테스트가
   // 결국 "/" 에 착지하므로 빈 기본 목록 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // 세션을 검증하는 spec 은 더 구체적 목록을 나중에 등록 → 그쪽이 우선한다.

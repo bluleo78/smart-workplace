@@ -1,21 +1,36 @@
 // 저장된 뷰 쿼리스트링 정규화 — 활성 칩 판정용.
 // 이슈 필터 직렬화를 한 번 통과시켜 키 순서/미지정 파라미터를 제거한 canonical 문자열을 만든다.
 
+import type { IssueGroupParam } from '../types/issue';
 import {
   filtersToParams,
   parseFilters,
-  parseGroupBy,
+  parseGroupParam,
   parseView,
 } from './issueFilters';
 
+// 저장 뷰 쿼리의 group 해석(#878) — 사이클 그룹 기본값 도입 전 저장된 뷰는 group 이 없고 "그룹 없음"으로 열렸다.
+// 부재를 'none' 으로 읽어야 기존 뷰가 이전과 같게 열리고, 활성 칩 판정도 명시 저장된 새 뷰와 같은 기준이 된다.
+function savedGroup(params: URLSearchParams): IssueGroupParam {
+  return parseGroupParam(params) ?? 'none';
+}
+
+// 저장 뷰를 적용할 URL 파라미터 — group 이 없으면 'none' 을 명시해 기본(사이클) 그룹으로 바뀌지 않게 한다.
+// 뷰 칩 클릭과 사이드바 고정 뷰 링크가 같은 규칙을 쓴다.
+export function savedViewQueryToParams(query: string): URLSearchParams {
+  const params = new URLSearchParams(query);
+  if (!params.has('group')) params.set('group', 'none');
+  return params;
+}
+
 // 쿼리스트링 → canonical 쿼리스트링(이슈 필터로 round-trip).
-// group 도 포함해야 활성 칩 판정/저장 뷰 비교에서 그룹 차이가 반영된다.
+// group 도 포함해야 활성 칩 판정/저장 뷰 비교에서 그룹 차이가 반영된다. group 부재는 'none'(저장 뷰 해석, #878).
 export function normalizeIssueQuery(query: string): string {
   const params = new URLSearchParams(query);
   return filtersToParams(
     parseFilters(params),
     parseView(params),
-    parseGroupBy(params),
+    savedGroup(params),
   ).toString();
 }
 
@@ -34,7 +49,7 @@ export function normalizeIssueQueryIgnoringView(query: string): string {
   return filtersToParams(
     parseFilters(params),
     'list',
-    parseGroupBy(params),
+    savedGroup(params),
   ).toString();
 }
 

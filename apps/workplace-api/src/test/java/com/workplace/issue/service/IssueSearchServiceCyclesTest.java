@@ -20,7 +20,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
-/** IssueSearchService cycle 필터 검증 — OR 시맨틱 (지정 사이클 중 하나라도 연결된 이슈만 매칭) + cycle=null 미할당 토큰(#878). */
+/**
+ * IssueSearchService cycle 필터 검증 — OR 시맨틱 (지정 사이클 중 하나라도 연결된 이슈만 매칭) + cycle=null 백로그 토큰(#878). 백로그
+ * = 진행 중(ACTIVE)·예정(PLANNED) 사이클에 연결되지 않은 이슈 — 완료 사이클에만 남은 이슈는 백로그로 돌아온다.
+ */
 @Transactional
 class IssueSearchServiceCyclesTest extends IntegrationTestBase {
 
@@ -125,10 +128,10 @@ class IssueSearchServiceCyclesTest extends IntegrationTestBase {
     assertThat(resp.items()).extracting("number").containsExactlyInAnyOrder(i1, i2);
   }
 
-  // ── #878: cycle=null 토큰 — 사이클 미할당(issue_cycle 연결 0개) 이슈 ──
+  // ── #878: cycle=null 토큰 — 백로그(진행 중·예정 사이클에 연결되지 않은 이슈) ──
 
   @Test
-  void cycle_null_alone_returns_only_unlinked_issues_and_no_number_format_error() {
+  void cycle_null_alone_excludes_open_cycle_issue_and_no_number_format_error() {
     Long owner = createUser("cyn");
     ProjectResponse p = newProject(owner, "CYN");
     var c1 =
@@ -159,14 +162,14 @@ class IssueSearchServiceCyclesTest extends IntegrationTestBase {
     issueCycleService.replace(owner, p.key(), inC1, List.of(c1.id()));
     issueCycleService.replace(owner, p.key(), inC2, List.of(c2.id()));
 
-    // cycle=null,c1 → 미할당 OR 사이클1 (사이클2 전용 이슈는 제외)
+    // cycle=null,c1 → 백로그 OR 사이클1 (예정 사이클2 전용 이슈는 제외)
     var resp = searchService.search(owner, p.key(), Map.of("cycle", "null," + c1.id()));
 
     assertThat(resp.items()).extracting("number").containsExactlyInAnyOrder(inC1, none);
   }
 
   @Test
-  void cycle_null_excludes_multi_cycle_and_completed_only_issues() {
+  void cycle_null_includes_completed_only_and_excludes_open_cycle_links() {
     Long owner = createUser("cym");
     ProjectResponse p = newProject(owner, "CYM");
     var active =
@@ -179,17 +182,27 @@ class IssueSearchServiceCyclesTest extends IntegrationTestBase {
             owner, p.key(), new CreateCycleRequest("Done", null, null, null, "COMPLETED"));
 
     int multi = newIssue(owner, p, "multi");
+    int activeOnly = newIssue(owner, p, "active-only");
+    int plannedOnly = newIssue(owner, p, "planned-only");
     int completedOnly = newIssue(owner, p, "completed-only");
+    int completedAndActive = newIssue(owner, p, "completed-and-active");
     int none = newIssue(owner, p, "none");
-    // M:N — 여러 사이클에 동시 연결
+    // M:N — 진행 중·예정 동시 연결
     issueCycleService.replace(owner, p.key(), multi, List.of(active.id(), planned.id()));
-    // 종료된 사이클에만 연결 — 사이클 상태와 무관하게 "미할당" 이 아니다
+    issueCycleService.replace(owner, p.key(), activeOnly, List.of(active.id()));
+    issueCycleService.replace(owner, p.key(), plannedOnly, List.of(planned.id()));
+    // 완료 사이클에만 연결 — 끝난 스프린트의 이슈는 백로그로 돌아온다
     issueCycleService.replace(owner, p.key(), completedOnly, List.of(completed.id()));
+    // 완료 + 진행 중 동시 연결 — 열린 사이클에 있으므로 백로그가 아니다
+    issueCycleService.replace(
+        owner, p.key(), completedAndActive, List.of(completed.id(), active.id()));
 
     var resp = searchService.search(owner, p.key(), Map.of("cycle", "null"));
 
-    assertThat(resp.items()).extracting("number").containsExactly(none);
-    assertThat(resp.items()).extracting("number").doesNotContain(multi, completedOnly);
+    assertThat(resp.items()).extracting("number").containsExactlyInAnyOrder(none, completedOnly);
+    assertThat(resp.items())
+        .extracting("number")
+        .doesNotContain(multi, activeOnly, plannedOnly, completedAndActive);
   }
 
   @Test
@@ -199,17 +212,29 @@ class IssueSearchServiceCyclesTest extends IntegrationTestBase {
     var c1 =
         cycleService.create(owner, p.key(), new CreateCycleRequest("S1", null, null, null, null));
 
+    var done =
+        cycleService.create(
+            owner, p.key(), new CreateCycleRequest("Done", null, null, null, "COMPLETED"));
+
     int linked = newIssue(owner, p, "linked");
     int unlinked = newIssue(owner, p, "unlinked");
+    int completedOnly = newIssue(owner, p, "completed-only");
     issueCycleService.replace(owner, p.key(), linked, List.of(c1.id()));
+    issueCycleService.replace(owner, p.key(), completedOnly, List.of(done.id()));
 
     // 프로젝트 검색(search)과 횡단 검색(searchMemberOf) 두 술어 경로가 같은 결과를 내야 한다.
     var project = searchService.search(owner, p.key(), Map.of("cycle", "null"));
     var mine = searchService.searchMine(owner, Map.of("cycle", "null"));
     var mineOr = searchService.searchMine(owner, Map.of("cycle", "null," + c1.id()));
 
-    assertThat(project.items()).extracting("number").containsExactly(unlinked);
-    assertThat(mine.items()).extracting("number").containsExactly(unlinked);
-    assertThat(mineOr.items()).extracting("number").containsExactlyInAnyOrder(linked, unlinked);
+    assertThat(project.items())
+        .extracting("number")
+        .containsExactlyInAnyOrder(unlinked, completedOnly);
+    assertThat(mine.items())
+        .extracting("number")
+        .containsExactlyInAnyOrder(unlinked, completedOnly);
+    assertThat(mineOr.items())
+        .extracting("number")
+        .containsExactlyInAnyOrder(linked, unlinked, completedOnly);
   }
 }

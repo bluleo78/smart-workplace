@@ -50,7 +50,7 @@ export async function searchIssues(
   if (filters.dueFrom) params.set('dueFrom', filters.dueFrom);
   if (filters.dueTo) params.set('dueTo', filters.dueTo);
   if (filters.labelIds.length) params.set('label', filters.labelIds.join(','));
-  // cycle — 사이클 id 목록 + 사이클 미할당('null' 토큰, assignee 의 미지정 토큰과 동일 패턴 · #878).
+  // cycle — 사이클 id 목록 + 백로그('null' 토큰 = 진행 중·예정 사이클 밖, assignee 의 미지정 토큰과 같은 패턴 · #878).
   const cycleTokens: string[] = [
     ...filters.cycleIds.map(String),
     ...(filters.cycleUnassigned ? ['null'] : []),

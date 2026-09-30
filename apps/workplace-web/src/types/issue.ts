@@ -220,7 +220,8 @@ export interface IssueFilters {
   showAllClosed: boolean;
   // 활성 사이클 밖 종료(DONE·CANCELED) 이슈 제외 — URL 비직렬화 파생 필드. withDefaultIssueScope 만 주입한다.
   hideInactiveClosed?: boolean;
-  // 사이클 미할당 이슈 포함 — URL 비직렬화 파생 필드. 사이클 백로그 섹션만 주입하며 cycle 파라미터에 'null' 토큰으로 송신한다(#878).
+  // 백로그 이슈 포함 — 진행 중·예정 사이클에 연결되지 않은 이슈(완료 사이클에만 남은 이슈 포함). URL 비직렬화 파생 필드로,
+  // 목록 사이클 그룹의 백로그 구간만 주입하며 cycle 파라미터에 'null' 토큰으로 송신한다(#878). 이름은 토큰 도입 당시 그대로 둔다.
   cycleUnassigned?: boolean;
 }
 
@@ -239,6 +240,13 @@ export interface IssueAiClassifyResponse {
   reason: string;
 }
 
-// 보드/리스트 그룹 기준 (#58). null/부재 = 그룹 없음(평탄 리스트 / 상태 보드).
+// 보드/리스트 그룹 기준 (#58). null = 그룹 없음(평탄 리스트 / 상태 보드).
 // view 와 동일하게 IssueFilters 와 분리된 URL 쿼리스트링 키('group')로 다룬다.
-export type IssueGroupBy = 'status' | 'assignee' | 'priority';
+// 'cycle'(#878)은 팀 목록 전용 — 구간(진행 중·예정·백로그)마다 서버 쿼리를 따로 두므로 클라이언트 그룹핑 대상이 아니다.
+export type IssueGroupBy = 'status' | 'assignee' | 'priority' | 'cycle';
+
+// 클라이언트에서 받은 이슈를 묶는 그룹 기준 — 보드·개인 체크리스트·평탄 목록 그룹이 쓴다(cycle 제외).
+export type IssueClientGroupBy = Exclude<IssueGroupBy, 'cycle'>;
+
+// URL group 파라미터 원값 — 'none' 은 "그룹 없음" 명시(#878). 부재(null)는 화면별 기본값에 맡긴다.
+export type IssueGroupParam = IssueGroupBy | 'none';

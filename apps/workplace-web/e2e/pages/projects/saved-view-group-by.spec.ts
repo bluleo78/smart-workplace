@@ -112,10 +112,11 @@ test.describe('Saved View group-by', () => {
     // view 는 유지
     await expect(page).toHaveURL(/view=board/);
 
-    // 없음으로 되돌리면 group 키 제거
+    // 없음으로 되돌리면 group=none 명시 — 키를 지우면 사이클이 있는 프로젝트는 기본 사이클 그룹으로 돌아가므로(#878)
     await page.getByTestId('group-by-trigger').click();
     await page.getByTestId('group-by-none').click();
-    await expect(page).not.toHaveURL(/group=/);
+    await expect(page).toHaveURL(/group=none/);
+    await expect(page).not.toHaveURL(/group=assignee/);
   });
 
   test('group 설정 상태에서 뷰 저장 → POST query 에 group 영속', async ({

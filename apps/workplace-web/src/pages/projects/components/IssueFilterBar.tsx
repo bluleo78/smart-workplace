@@ -31,14 +31,21 @@ import { useCycles } from '../../../hooks/queries/useCycles';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../../hooks/queries/useLabels';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
+import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
 import {
   filtersToParams,
   overridesClosedHiding,
   parseFilters,
-  parseGroupBy,
   parseView,
 } from '../../../lib/issueFilters';
-import type { IssueFilters, IssueGroupBy, IssuePriority, IssueStatus, IssueView } from '../../../types/issue';
+import type {
+  IssueFilters,
+  IssueGroupBy,
+  IssueGroupParam,
+  IssuePriority,
+  IssueStatus,
+  IssueView,
+} from '../../../types/issue';
 
 const STATUS_OPTIONS = [
   { value: 'TODO', label: '할 일' },
@@ -55,8 +62,10 @@ const PRIORITY_OPTIONS = [
 ];
 
 // 그룹 기준 옵션 (#58). null = 그룹 없음(평탄 리스트 / 상태 보드).
+// 사이클(#878)은 팀 목록 전용 — 보드·사이클 비사용 화면에선 목록에서 빠진다(아래 visibleGroupOptions).
 const GROUP_OPTIONS: { value: IssueGroupBy | null; label: string }[] = [
   { value: null, label: '없음' },
+  { value: 'cycle', label: '사이클' },
   { value: 'status', label: '상태' },
   { value: 'assignee', label: '담당자' },
   { value: 'priority', label: '우선순위' },
@@ -88,7 +97,9 @@ export function IssueFilterBar({
   const [params, setParams] = useSearchParams();
   const filters = parseFilters(params);
   const view = parseView(params);
-  const groupBy = parseGroupBy(params);
+  // groupParam = URL 원값(부재/none/값) — 필터를 다시 쓸 때 그대로 보존해야 명시한 「없음」이 기본값으로 되돌지 않는다.
+  // groupBy = 실제 적용 중인 그룹(사이클 기본값 반영) — 셀렉트 표시용.
+  const { raw: groupParam, groupBy } = useIssueGroupBy(projectKey, showCycle);
   const [qDraft, setQDraft] = useState(filters.q);
   const labels = useLabels(projectKey);
   // useCycles/useIssueTypes/useProjectMembers 는 훅 규칙상 항상 호출하지만,
@@ -109,7 +120,7 @@ export function IssueFilterBar({
   useEffect(() => {
     if (qDraft === filters.q) return;
     const t = setTimeout(() => {
-      writeFilters({ ...filters, q: qDraft }, view, groupBy);
+      writeFilters({ ...filters, q: qDraft }, view, groupParam);
     }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,27 +130,33 @@ export function IssueFilterBar({
   function writeFilters(
     next: IssueFilters,
     nextView: IssueView,
-    nextGroupBy: IssueGroupBy | null,
+    nextGroupBy: IssueGroupParam | null,
   ) {
     setParams(filtersToParams(next, nextView, nextGroupBy), { replace: true });
   }
 
   function setView(v: IssueView) {
-    writeFilters(filters, v, groupBy);
+    writeFilters(filters, v, groupParam);
   }
 
   // 그룹 기준 변경 — 필터/view 는 유지하고 group 만 교체 (#58).
+  // 「없음」은 group=none 으로 명시한다 — 키를 지우면 사이클이 있는 프로젝트는 기본 사이클 그룹으로 되돌아간다(#878).
   function setGroupBy(g: IssueGroupBy | null) {
-    writeFilters(filters, view, g);
+    writeFilters(filters, view, g ?? 'none');
   }
 
   // 초기화는 view·group 은 유지하고 나머지 필터만 비운다.
   function reset() {
     const p = new URLSearchParams();
     if (view === 'board') p.set('view', 'board');
-    if (groupBy) p.set('group', groupBy);
+    if (groupParam) p.set('group', groupParam);
     setParams(p, { replace: true });
   }
+
+  // 셀렉트에 보일 그룹 옵션 — 사이클 그룹은 사이클을 쓰는 화면의 목록 뷰에서만 고를 수 있다.
+  const visibleGroupOptions = groupOptions.filter(
+    (o) => o.value !== 'cycle' || (showCycle && view === 'list'),
+  );
 
   // 명시 필터가 이미 종료 이슈 숨김을 해제했는지 — 토글 표시 상태에 반영(#876).
   const closedHidingOverridden = overridesClosedHiding(filters);
@@ -262,7 +279,7 @@ export function IssueFilterBar({
         assigneeIds: (next.assignee ?? []) as number[],
       },
       view,
-      groupBy,
+      groupParam,
     );
   }
 
@@ -289,7 +306,7 @@ export function IssueFilterBar({
             aria-pressed={filters.showAllClosed || closedHidingOverridden}
             disabled={closedHidingOverridden}
             onClick={() =>
-              writeFilters({ ...filters, showAllClosed: !filters.showAllClosed }, view, groupBy)
+              writeFilters({ ...filters, showAllClosed: !filters.showAllClosed }, view, groupParam)
             }
             className={cn(
               'transition-colors',
@@ -315,7 +332,7 @@ export function IssueFilterBar({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {groupOptions.map((opt) => (
+              {visibleGroupOptions.map((opt) => (
                 <SelectItem
                   key={opt.value ?? 'none'}
                   value={opt.value ?? 'none'}

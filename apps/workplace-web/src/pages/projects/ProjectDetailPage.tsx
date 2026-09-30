@@ -8,10 +8,12 @@ import { Button } from '@/components/ui/button';
 
 import { useProject } from '../../hooks/queries/useProjects';
 import { useEpicPanelOpen } from '../../hooks/useEpicPanelOpen';
-import { parseFilters, parseGroupBy, parseView, withDefaultIssueScope } from '../../lib/issueFilters';
+import { useIssueGroupBy } from '../../hooks/useIssueGroupBy';
+import { parseFilters, parseView, toClientGroupBy, withDefaultIssueScope } from '../../lib/issueFilters';
 import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCreateDialog } from './components/IssueCreateDialog';
+import { IssueCycleGroupedList, IssueCycleListSkeleton } from './components/IssueCycleGroupedList';
 import { IssueFilterBar } from './components/IssueFilterBar';
 import { IssueListView } from './components/IssueListView';
 import { ViewChipBar } from './components/ViewChipBar';
@@ -101,7 +103,9 @@ function IssueArea({
   const [params] = useSearchParams();
   const filters = parseFilters(params);
   const view = parseView(params);
-  const groupBy = parseGroupBy(params);
+  // 그룹 기준 — URL 에 없으면 진행 중·예정 사이클이 있을 때 사이클 그룹이 목록 기본값(#878).
+  // pending(사이클 목록 로딩 중)엔 스켈레톤 — 평면 목록이 잠깐 떴다 구간 목록으로 바뀌는 깜빡임과 헛요청을 막는다.
+  const { groupBy, pending: groupPending } = useIssueGroupBy(projectKey, true);
   // 에픽 패널 열림 상태 — ViewChipBar(토글 버튼)와 EpicSidePanel(조건 마운트)이 공유.
   const { open: epicPanelOpen, toggle: toggleEpicPanel } = useEpicPanelOpen(projectKey);
 
@@ -120,12 +124,21 @@ function IssueArea({
             projectKey={projectKey}
             // 팀 보드 기본 범위 — 에픽 카드 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(목록과 동일 규칙).
             filters={withDefaultIssueScope(filters)}
-            groupBy={groupBy}
+            groupBy={toClientGroupBy(groupBy)}
             onOpenCreate={onOpenCreate}
             canDragStatus={canDragStatus}
           />
+        ) : groupPending ? (
+          <IssueCycleListSkeleton />
+        ) : groupBy === 'cycle' ? (
+          <IssueCycleGroupedList projectKey={projectKey} filters={filters} />
         ) : (
-          <IssueListView projectKey={projectKey} filters={filters} groupBy={groupBy} onOpenCreate={onOpenCreate} />
+          <IssueListView
+            projectKey={projectKey}
+            filters={filters}
+            groupBy={toClientGroupBy(groupBy)}
+            onOpenCreate={onOpenCreate}
+          />
         )}
       </div>
     </section>

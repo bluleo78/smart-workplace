@@ -1,6 +1,6 @@
 // 개인 체크리스트 그룹화 — 마감(due) 버킷 + 상태/우선순위 평탄 섹션.
 // 활성(미완료·미취소)만 섹션화하고 완료는 따로 반환(due 모드). 정렬은 우선순위→마감 공유.
-import type { IssueGroupBy, IssueResponse } from '@/types/issue';
+import type { IssueClientGroupBy, IssueResponse } from '@/types/issue';
 
 export type PersonalBucketKey = 'overdue' | 'today' | 'thisWeek' | 'upcoming' | 'noDue';
 export interface PersonalGroup {
@@ -79,7 +79,7 @@ export interface ChecklistGrouping {
 // groupBy=null → 마감 버킷(+완료 접힘). status/priority → 평탄 섹션(CANCELED 제외).
 export function groupChecklist(
   items: IssueResponse[],
-  groupBy: IssueGroupBy | null,
+  groupBy: IssueClientGroupBy | null,
   now: Date = new Date(),
 ): ChecklistGrouping {
   if (groupBy === 'status') {
