@@ -35,6 +35,7 @@ import { WikiBacklinksPanel } from './WikiBacklinksPanel'
 import { buildBreadcrumb } from './wikiBreadcrumb'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
+import { trackWikiFlush } from './wikiFlushRegistry'
 import { WikiImage } from './wikiImageNode'
 import { WikiMarkdownSourceDialog } from './WikiMarkdownSourceDialog'
 import { WikiMarkdownText } from './wikiMarkdownText'
@@ -475,15 +476,19 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 저장 성공 후 page prop 의 version 이 갱신돼도 상태를 리셋하지 않는다
   // (리셋하면 '저장됨' 이 즉시 사라지고, 매 자동저장마다 snapshot=true 가 되어 리비전 캐던스가 깨진다).
 
+  // flush=true(언마운트 flush)면 mutateAsync 의 promise 를 돌려준다 — 컴포넌트가 사라지는 중이라 저장 상태 UI 갱신은
+  // 의미가 없고, 대신 WikiPageView 가 이 promise 로 재마운트 시점을 잡는다(wikiFlushRegistry).
   const doSave = useCallback(
-    (nextTitle: string) => {
+    (nextTitle: string, flush = false): Promise<unknown> | undefined => {
       if (!editor) return
       if (saveState === 'conflict') return
       const body = editor.storage.markdown.getMarkdown()
       const snapshot = firstSaveRef.current
+      const vars = { pageId: page.id, req: { title: nextTitle, body, version: versionRef.current, snapshot } }
+      if (flush) return save.mutateAsync(vars)
       setSaveState('saving')
       save.mutate(
-        { pageId: page.id, req: { title: nextTitle, body, version: versionRef.current, snapshot } },
+        vars,
         {
           onSuccess: (data) => {
             versionRef.current = data.version
@@ -529,6 +534,9 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 트리 교체)으로 에디터가 사라질 때 마지막 편집을 잃지 않게 한다. 타이머는 반드시 해제해 늦게 한 번 더
   // (옛 version 으로) PUT 해 409 가 나는 일을 막는다. useEditor 의 destroy 는 다음 틱으로 예약되므로
   // 이 시점엔 에디터 문서를 아직 직렬화할 수 있다.
+  // flush promise 는 wikiFlushRegistry 에 등록 — 리마운트된 에디터가 flush 전 캐시(옛 본문·version)로 뜨지 않게
+  // WikiPageView 가 끝날 때까지 skeleton 을 보인다(key=page.id 라 page.id 는 이 인스턴스 동안 불변).
+  const pageId = page.id
   useEffect(() => {
     return () => {
       if (!timerRef.current) return
@@ -536,9 +544,11 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       timerRef.current = null
       const pending = pendingTitleRef.current
       pendingTitleRef.current = null
-      if (pending != null) doSaveRef.current(pending)
+      if (pending == null) return
+      const p = doSaveRef.current(pending, true)
+      if (p) trackWikiFlush(pageId, p)
     }
-  }, [])
+  }, [pageId])
 
   useEffect(() => {
     if (!editor) return

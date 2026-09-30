@@ -780,3 +780,58 @@ test('위키 — 디바운스 대기 중 리마운트(뷰포트 lg 경계 전환
   await page.waitForTimeout(1000)
   expect(puts).toHaveLength(1)
 })
+
+// WP-121(리뷰 C2): flush 직후 리마운트된 에디터는 flush 전 캐시(옛 본문·version)로 뜨면 안 된다 —
+// 방금 친 글자가 사라지고 다음 편집이 옛 version 으로 PUT 돼 409 가 났다. flush 가 끝날 때까지 skeleton 을 보이고
+// 끝나면 최신 본문·version 으로 다시 마운트해야 한다.
+test('위키 — lg 경계 전환 리마운트 후 에디터는 방금 친 글자를 보이고 다음 저장은 새 version 을 싣는다', async ({
+  authenticatedPage: page,
+}) => {
+  // 서버 흉내: version 불일치면 409(낙관적 동시성), 일치하면 본문 저장 + version+1.
+  const server = { version: 1, body: '' }
+  const puts: { version: number; status: number }[] = []
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) => route.fulfill({ json: [personalSpace()] }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
+    (route) =>
+      route.fulfill({ json: [{ id: NEW_PAGE_ID, parentId: null, title: NEW_TITLE, position: 0, aiLastUsedAt: null }] }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${NEW_PAGE_ID}`,
+    async (route) => {
+      if (route.request().method() === 'PUT') {
+        const req = route.request().postDataJSON() as { body: string; version: number }
+        if (req.version !== server.version) {
+          puts.push({ version: req.version, status: 409 })
+          return route.fulfill({ status: 409, json: { message: 'conflict' } })
+        }
+        // 응답을 조금 늦춰 "flush 진행 중 리마운트" 창을 확실히 만든다.
+        await new Promise((r) => setTimeout(r, 300))
+        server.body = req.body
+        server.version += 1
+        puts.push({ version: req.version, status: 200 })
+        return route.fulfill({ json: { ...pageDetail(NEW_TITLE, server.version), body: server.body } })
+      }
+      return route.fulfill({ json: { ...pageDetail(NEW_TITLE, server.version), body: server.body } })
+    },
+  )
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${NEW_PAGE_ID}`)
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('플러시')
+  // 디바운스 전에 모바일 폭으로 → 에디터 리마운트 + 언마운트 flush.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(() => puts.length).toBe(1)
+  // 리마운트된 에디터가 방금 친 글자를 보인다(옛 캐시 본문으로 뜨지 않음).
+  const editor = page.locator('.ProseMirror')
+  await expect(editor).toContainText('플러시')
+  // 다음 편집 → 자동저장은 flush 응답의 새 version(2)을 싣고 409 없이 성공.
+  await editor.click()
+  await page.keyboard.press('End')
+  await page.keyboard.type('!')
+  await expect.poll(() => puts.length).toBe(2)
+  expect(puts[1]).toEqual({ version: 2, status: 200 })
+  await expect(editor).toContainText('플러시!')
+})
