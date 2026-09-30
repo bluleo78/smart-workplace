@@ -2,9 +2,10 @@
 // Phase 5: 우측 스레드 패널(ThreadPanel) — openThreadId state 로 토글.
 // A9: AI 에이전트 작업 중 유령 버블 — onMessagingProgress 구독으로 채널별 진행 상태 렌더.
 import { Hash, Sparkles } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble'
 import { ChannelCatchupCard } from '@/components/chat/ChannelCatchupCard'
 import { ChannelHeader } from '@/components/chat/ChannelHeader'
@@ -28,9 +29,44 @@ import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
+import { buildChannelContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { firstUnreadMessageId, unreadFromOthersCount } from '@/lib/unreadBoundary'
-import type { MessageResponse, UserKind } from '@/types/messaging'
+import type { ChannelResponse, MessageResponse, UserKind } from '@/types/messaging'
+
+// WP-54: 채널 화면 컨텍스트 등록 훅. 채널 상세 로드 전/오류 시 null(미등록).
+// 메모 의존성은 원시값만 사용 — 메시지 캐시 배열 참조가 바뀌어도 내용이 같으면 재등록하지 않는다.
+// (컴포넌트 밖 훅으로 분리: React Compiler 가 본문 내 수동 메모의 보존 불가를 지적하는 것을 피한다.)
+function useChannelScreenContext(
+  channelId: number | undefined,
+  detail: ChannelResponse | undefined,
+  threadParent: MessageResponse | null,
+) {
+  const threadId = threadParent?.id
+  const threadAuthor = threadParent?.authorName ?? ''
+  const threadBody = threadParent?.body ?? ''
+  const threadReplies = threadParent?.replyCount ?? 0
+  const name = detail?.name
+  const memberCount = detail?.memberCount
+  const archived = detail?.archived
+  const ctx = useMemo(
+    () =>
+      name != null && memberCount != null && archived != null && channelId != null
+        ? buildChannelContext({
+            channelId,
+            name,
+            memberCount,
+            archived,
+            thread:
+              threadId != null
+                ? { id: threadId, authorName: threadAuthor, body: threadBody, replyCount: threadReplies }
+                : null,
+          })
+        : null,
+    [channelId, name, memberCount, archived, threadId, threadAuthor, threadBody, threadReplies],
+  )
+  useRegisterAiScreenContext(ctx)
+}
 
 export default function ChannelPage() {
   const { id } = useParams()
@@ -79,6 +115,9 @@ export default function ChannelPage() {
       ? messages.find((m) => m.id === openThreadId) ??
         (stateParent && stateParent.id === openThreadId ? stateParent : null)
       : null
+
+  // WP-54: 채널 화면 컨텍스트 등록 — 채널 + 열린 스레드(루트 메시지).
+  useChannelScreenContext(channelId, detail.data, openThreadParent)
 
   // AI 작업 중 유령 버블 상태 관리 — streamId → 이벤트+타임스탬프 Map.
   // phase done/error 이벤트 수신 시 해당 항목 제거, 신규 AGENT 메시지 도착 시 전체 초기화.

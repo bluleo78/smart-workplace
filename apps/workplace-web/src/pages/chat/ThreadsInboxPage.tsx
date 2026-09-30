@@ -1,17 +1,31 @@
 // #65 2단계: 크로스채널 미읽음 스레드 인박스. 카드 클릭 → 해당 채널 + 스레드 패널(?thread=).
 import { Inbox } from 'lucide-react'
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { useThreadsInbox } from '@/hooks/queries/useThreadsInbox'
+import { buildThreadsInboxContext } from '@/lib/aiScreenContext/builders/messaging'
 import type { ThreadInboxItem } from '@/types/messaging'
 
 export default function ThreadsInboxPage() {
   const navigate = useNavigate()
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useThreadsInbox()
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError } =
+    useThreadsInbox()
   const items: ThreadInboxItem[] = data?.pages.flatMap((p) => p.items) ?? []
+
+  // WP-54: 스레드 모아보기 화면 컨텍스트 — 로드된 스레드 수. 로딩/오류 중엔 미등록(미로드 수치 전송 금지).
+  const screenContext = useMemo(
+    () =>
+      data && !isError
+        ? buildThreadsInboxContext({ count: data.pages.flatMap((p) => p.items).length, hasMore: !!hasNextPage })
+        : null,
+    [data, isError, hasNextPage],
+  )
+  useRegisterAiScreenContext(screenContext)
 
   // 카드 클릭 → 채널로 이동 + ?thread= 로 스레드 패널 오픈. rootMessage 를 navigate state 로 넘겨
   // 채널 메시지 캐시에 없어도 패널을 열 수 있게 한다.

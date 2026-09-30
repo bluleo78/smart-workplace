@@ -8,6 +8,7 @@ import { createProject } from '../factories/project.factory'
 import { detail, mailAccount, summary } from '../factories/mail.factory'
 import { calendar, calendarEvent } from '../factories/calendar.factory'
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../factories/wiki.factory'
+import { createChannel, createChannelMember, createDm, createDmParticipant, createMessage, createThreadInboxItem } from '../factories/messaging.factory'
 import type { AiScreenContext } from '../../src/types/aiScreenContext'
 
 // 전송 body 를 순서대로 모은다.
@@ -664,5 +665,93 @@ test.describe('AI 채팅 화면 컨텍스트 — 위키', () => {
       focus: { refs: { pageId: '10' } },
       scope: { label: '위키 스페이스 개발', refs: { spaceId: '2' } },
     })
+  })
+})
+
+// 채팅 화면 공통 목(사이드바 채널·DM 목록). /api/v1/events 는 captureChat 이 처리한다.
+async function mockChatSidebar(page: Parameters<typeof mockApi>[0], channels: ReturnType<typeof createChannel>[], dms: ReturnType<typeof createDm>[]) {
+  await mockApi(page, 'GET', '/api/v1/messaging/channels', channels)
+  await mockApi(page, 'GET', '/api/v1/messaging/dms', dms)
+  await mockApi(page, 'GET', '/api/v1/messaging/threads/inbox/unread-count', { count: 0 })
+}
+
+test.describe('AI 채팅 화면 컨텍스트 — 채팅', () => {
+  test('채널 + 열린 스레드가 실린다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    const channel = createChannel({ id: 5, name: 'dev', memberCount: 8 })
+    const root = createMessage({ id: 77, channelId: 5, authorId: 2, authorName: '김철수', body: '배포 언제?\n내일 가능?', replyCount: 3 })
+    await mockChatSidebar(page, [channel], [])
+    await mockApi(page, 'GET', '/api/v1/messaging/channels/5', channel)
+    await mockApi(page, 'GET', '/api/v1/messaging/channels/5/members', [createChannelMember({ userId: 1, name: '나' })])
+    await mockApi(page, 'GET', '/api/v1/messaging/channels/5/messages', { items: [root], nextCursor: null, hasMore: false })
+    await mockApi(page, 'GET', '/api/v1/messaging/messages/77/replies', { items: [], nextCursor: null, hasMore: false })
+    await page.goto('/chat/channels/5?thread=77')
+    await page.getByTestId('chat-launcher').click()
+    // 채널 상세 + 메시지 목록(스레드 루트)이 모두 반영된 최종 칩을 확인한 뒤 전송 — 부분 payload 경합 방지.
+    await expect(page.getByTestId('chat-context-chip')).toContainText('스레드 김철수: 배포 언제?')
+    await page.getByTestId('chat-input').fill('이 스레드 정리해줘')
+    await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({
+      view: '채널',
+      focus: { type: '스레드', refs: { messageId: '77' } },
+      scope: { label: '채널 #dev', refs: { channelId: '5' } },
+    })
+    expect(bodies[0].screenContext!.scope!.facts).toContainEqual({ label: '멤버', value: '8' })
+  })
+
+  test('채널 — 스레드 없이 채널만 실린다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    const channel = createChannel({ id: 5, name: 'dev', memberCount: 8 })
+    await mockChatSidebar(page, [channel], [])
+    await mockApi(page, 'GET', '/api/v1/messaging/channels/5', channel)
+    await mockApi(page, 'GET', '/api/v1/messaging/channels/5/members', [createChannelMember({ userId: 1, name: '나' })])
+    await mockApi(page, 'GET', '/api/v1/messaging/channels/5/messages', { items: [], nextCursor: null, hasMore: false })
+    await page.goto('/chat/channels/5')
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('채널 #dev')
+    await page.getByTestId('chat-input').fill('요약해줘')
+    await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({ view: '채널', scope: { label: '채널 #dev', refs: { channelId: '5' } } })
+    expect(bodies[0].screenContext).not.toHaveProperty('focus')
+  })
+
+  test('DM 은 상대 이름과 channelId 가 실린다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    const dm = createDm({
+      id: 9,
+      participants: [createDmParticipant({ userId: 1, name: '나' }), createDmParticipant({ userId: 2, name: '김철수' })],
+    })
+    await mockChatSidebar(page, [], [dm])
+    await mockApi(page, 'GET', '/api/v1/messaging/channels/9/messages', { items: [], nextCursor: null, hasMore: false })
+    await page.goto('/chat/dms/9')
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('DM · 김철수')
+    await page.getByTestId('chat-input').fill('무슨 얘기 했지?')
+    await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({ view: 'DM', scope: { label: 'DM · 김철수', refs: { channelId: '9' } } })
+  })
+
+  test('스레드 모아보기는 로드된 스레드 수가 실린다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockChatSidebar(page, [], [])
+    await mockApi(page, 'GET', '/api/v1/messaging/threads/inbox', {
+      items: [
+        createThreadInboxItem({ rootMessage: { id: 11, channelId: 5, body: 'A' } }),
+        createThreadInboxItem({ rootMessage: { id: 12, channelId: 5, body: 'B' } }),
+      ],
+      nextCursor: null,
+      hasMore: false,
+    })
+    await page.goto('/chat/threads/inbox')
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('thread-inbox-card-12')).toBeVisible()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('내 스레드 모아보기')
+    await page.getByTestId('chat-input').fill('정리해줘')
+    await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({ view: '스레드 모아보기', scope: { count: 2, hasMore: false } })
   })
 })
