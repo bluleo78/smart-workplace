@@ -87,6 +87,9 @@ const MailInboxPage = lazy(() =>
 )
 const M365CallbackPage = lazy(() => import('./pages/oauth/M365CallbackPage'))
 // 알림 탭으로 새 창이 열릴 때의 진입점 — 미인증도 접근 가능(로그인 후 목적지로 복귀).
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'))
+const MorePage = lazy(() => import('./pages/more/MorePage'))
+const TabEditPage = lazy(() => import('./pages/more/TabEditPage'))
 const PushOpenPage = lazy(() => import('./pages/PushOpenPage'))
 const ProfileSettingsPage = lazy(() => import('./pages/settings/ProfileSettingsPage'))
 const MailSettingsPage = lazy(() => import('./pages/settings/MailSettingsPage'))
@@ -138,6 +141,10 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
               <Route index element={<HomePage />} />
+              {/* 모바일 전용 화면(WP-126) — 데스크톱 접근은 각 페이지에서 홈으로 되돌린다. */}
+              <Route path="notifications" element={<NotificationsPage />} />
+              <Route path="more" element={<MorePage />} />
+              <Route path="more/tabs" element={<TabEditPage />} />
 
               {/* 이슈 모듈 — 2차 사이드바(내 태스크 + 프로젝트 목록) 가 감싼다 */}
               <Route element={<IssueModuleLayout />}>
