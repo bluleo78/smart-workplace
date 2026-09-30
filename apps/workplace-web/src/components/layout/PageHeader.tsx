@@ -47,7 +47,7 @@ export function PageHeader({
   const { pathname } = useLocation()
   const sheet = useMobileSidebarSheet()
   if (isMobile) {
-    // 모바일: 아이콘 숨김, 좌측 ☰(사이드바 시트가 있을 때), 우측 actions + 탭 루트면 🔔.
+    // 모바일: 선두 icon 슬롯, 좌측 ☰(사이드바 시트가 있을 때), 우측 actions + 탭 루트면 🔔.
     // 넘치는 actions 는 가로 스크롤 영역에 가둬 페이지 전체 가로 넘침을 막는다(화면별 ⋯ 접기는 2차).
     return (
       <header data-testid={rest['data-testid'] ?? 'page-header'} className={cn('relative z-[45] flex h-14 shrink-0 items-center gap-1 border-b bg-background px-2', className)}>
@@ -57,8 +57,9 @@ export function PageHeader({
             <Menu className="h-5 w-5" />
           </button>
         )}
+        {/* icon 은 인터랙티브(캘린더 이동·뒤로가기 버튼)일 수 있어 숨기지 않고 축소 선두 슬롯으로 둔다. meta 는 모바일에서 렌더하지 않음. */}
+        {icon && <div className="flex shrink-0 items-center">{icon}</div>}
         {title != null && <h1 className={cn(appTitleTextClass, 'min-w-0 flex-1 truncate px-1')}>{title}</h1>}
-        {meta && <div className="hidden">{meta}</div>}
         <div className="flex min-w-0 shrink items-center gap-1 overflow-x-auto">{actions}</div>
         {isTabRoot(pathname) && <NotificationBell />}
       </header>

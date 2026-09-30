@@ -1,4 +1,5 @@
 // 모바일 헤더(WP-125) — 탭 루트 🔔 배지, 메일·캘린더·연락처 사이드바 바텀시트, 메일 본문 열림 시 탭바 숨김.
+import { createProject } from '../../factories/project.factory'
 import { mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
@@ -29,4 +30,25 @@ test('메일: 계정 사이드바는 바텀시트로 연다', async ({ authentic
   await expect(page.getByTestId('mail-sidebar')).toBeHidden()
   await page.getByTestId('mobile-sidebar-trigger').click()
   await expect(page.getByTestId('mobile-sidebar-sheet').getByTestId('mail-sidebar')).toBeVisible()
+})
+
+test('캘린더: 모바일 헤더에도 오늘/이전/다음이 보이고 다음 클릭 시 제목이 바뀐다', async ({ authenticatedPage: page }) => {
+  await page.goto('/calendar')
+  await expect(page.getByTestId('calendar-today')).toBeVisible()
+  await expect(page.getByTestId('calendar-prev')).toBeVisible()
+  await expect(page.getByTestId('calendar-next')).toBeVisible()
+  const title = page.getByTestId('calendar-title')
+  const before = await title.textContent()
+  await page.getByTestId('calendar-next').click()
+  await expect(title).not.toHaveText(before ?? '')
+  await expectNoHorizontalOverflow(page)
+})
+
+test('프로젝트 하위 페이지(사이클): 뒤로가기 버튼이 모바일 헤더에 보인다', async ({ authenticatedPage: page }) => {
+  await page.route('**/api/v1/projects/WP', (r) => r.fulfill({ json: createProject() }))
+  await page.route('**/api/v1/projects/WP/cycles', (r) => r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fallback())
+  await page.route('**/api/v1/projects/WP/cycles/progress', (r) => r.fulfill({ json: [] }))
+  await page.goto('/projects/WP/cycles')
+  await expect(page.getByRole('button', { name: '프로젝트로 돌아가기' })).toBeVisible()
+  await expectNoHorizontalOverflow(page)
 })
