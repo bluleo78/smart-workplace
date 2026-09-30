@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
 import { isTabRoot } from '@/lib/mobile/routes'
+import { cn } from '@/lib/utils'
 
 import { useMobileChrome } from './MobileChromeContext'
 import { MobileTabBar } from './MobileTabBar'
@@ -30,10 +31,18 @@ export function MobileShell({ children, overlay }: { children: ReactNode; overla
     // 이미 알림 화면이면 replace 로 이동해 중복 히스토리 항목이 쌓이지 않게 한다.
     navigate('/notifications', { replace: pathname === '/notifications' })
   }, [inboxOpen, setInboxOpen, navigate, pathname])
-  const showTabBar = isTabRoot(pathname) && !chrome?.tabBarHidden
+  // 알림(/notifications)은 사용자가 탭바에 고정했을 때만 탭 루트 — 슬롯 구성을 함께 넘긴다(U1-5).
+  const showTabBar = isTabRoot(pathname, chrome?.slots) && !chrome?.tabBarHidden
   return (
     <div data-testid="mobile-shell" className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
-      <main data-mobile-scroll-root className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pt-[env(safe-area-inset-top)]">
+      {/* 탭바가 숨은 화면(상세·작성기)은 탭바의 하단 안전영역 여백이 사라지므로 본문이 직접 홈 인디케이터 영역을 비운다(U1-6). */}
+      <main
+        data-mobile-scroll-root
+        className={cn(
+          'relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pt-[env(safe-area-inset-top)]',
+          !showTabBar && 'pb-[env(safe-area-inset-bottom)]',
+        )}
+      >
         {children}
         {/* AIFullscreen(absolute inset-0) — 본문만 덮고 탭바는 남긴다. */}
         {overlay}

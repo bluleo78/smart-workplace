@@ -113,8 +113,9 @@ export function MobileTabBar() {
     )
   }
 
-  // 앱 목록(/apps)과 그 하위(탭바 순서 편집)에서 활성.
-  const appsActive = !aiOpen && under('/apps')(pathname)
+  // 앱 목록(/apps)과 그 하위(탭바 순서 편집)에서 활성. 어느 슬롯 탭에도 속하지 않는 화면(앱 목록에서 연 캘린더·설정 등)도
+  // 앱에서 들어온 것이므로 앱을 활성으로 둔다 — 활성 탭이 하나도 없는 탭바를 만들지 않는다(U1-5).
+  const appsActive = !aiOpen && (under('/apps')(pathname) || !slots.some((id) => MOBILE_TABS[id].match(pathname)))
 
   return (
     <nav

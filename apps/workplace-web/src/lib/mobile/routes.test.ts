@@ -6,8 +6,14 @@ import { isTabRoot, moduleRootFor, norm, resolveBackTarget } from './routes'
 describe('isTabRoot', () => {
   it.each([
     '/', '/chat', '/mail', '/mail/3', '/tasks', '/calendar', '/drive', '/wiki',
-    '/contacts', '/notifications', '/apps', '/apps/tabs',
+    '/contacts', '/apps', '/apps/tabs',
   ])('%s 는 탭 루트', (p) => expect(isTabRoot(p)).toBe(true))
+
+  it('/notifications 는 탭바에 고정됐을 때만 탭 루트(기본 구성에선 푸시 화면)', () => {
+    expect(isTabRoot('/notifications')).toBe(false)
+    expect(isTabRoot('/notifications', ['home', 'chat', 'mail'])).toBe(false)
+    expect(isTabRoot('/notifications', ['home', 'notifications', 'mail'])).toBe(true)
+  })
 
   it.each([
     '/chat/channels/1', '/chat/dms/2', '/chat/new', '/chat/threads/inbox',
@@ -22,7 +28,11 @@ describe('isTabRoot', () => {
 describe('moduleRootFor', () => {
   it.each([
     ['/chat/channels/1', '/chat'],
-    ['/projects/MOB/issues/1', '/tasks'],
+    // 프로젝트 하위 화면은 그 프로젝트로(병합 헤더의 ‹ 가 "프로젝트로 돌아가기" 아이콘을 대체).
+    ['/projects/MOB/issues/1', '/projects/MOB'],
+    ['/projects/MOB/cycles', '/projects/MOB'],
+    ['/projects/MOB', '/tasks'],
+    ['/notifications', '/'],
     ['/me/tasks/assigned', '/tasks'],
     ['/drive/spaces/5', '/drive'],
     ['/wiki/spaces/1/pages/2', '/wiki'],
@@ -40,7 +50,8 @@ describe('resolveBackTarget', () => {
   it('앱 내 히스토리가 있으면 -1', () => expect(resolveBackTarget('/chat/channels/1', 3)).toBe(-1))
   it('딥링크 첫 진입(idx 0)이면 모듈 루트', () => expect(resolveBackTarget('/chat/channels/1', 0)).toBe('/chat'))
   it('설정 목록 딥링크는 앱 목록으로', () => expect(resolveBackTarget('/settings', 0)).toBe('/apps'))
-  it('idx 가 없으면 모듈 루트', () => expect(resolveBackTarget('/projects/MOB/issues/1', undefined)).toBe('/tasks'))
+  it('idx 가 없으면 모듈 루트', () => expect(resolveBackTarget('/me/tasks/assigned', undefined)).toBe('/tasks'))
+  it('알림 딥링크는 홈으로', () => expect(resolveBackTarget('/notifications', 0)).toBe('/'))
 })
 
 describe('norm', () => {
