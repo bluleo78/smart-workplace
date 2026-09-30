@@ -37,5 +37,6 @@ public record AiScreenContext(
       Boolean hasMore) {}
 
   /** 라벨:값 표시 문자열 한 쌍. value 는 빈 문자열은 허용하되 null 은 거부(ai-agent zod 가 string 필수라 전달 후 실패하지 않게). */
-  public record Fact(@NotBlank @Size(max = 30) String label, @NotNull @Size(max = 200) String value) {}
+  public record Fact(
+      @NotBlank @Size(max = 30) String label, @NotNull @Size(max = 200) String value) {}
 }
