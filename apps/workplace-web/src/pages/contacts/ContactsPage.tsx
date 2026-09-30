@@ -2,17 +2,21 @@ import { Star } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
+import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { cn } from '@/lib/utils'
 
 import { ContactDetailPanel } from '../../components/contacts/ContactDetailPanel'
 import { ExternalContactFormDialog } from '../../components/contacts/ExternalContactFormDialog'
 import { GroupContactView } from '../../components/contacts/GroupContactView'
-import { parseGroupId } from '../../components/contacts/groupTree.helpers'
+import { findNode, parseGroupId } from '../../components/contacts/groupTree.helpers'
 import type { ContactSelection } from '../../hooks/queries/useContactDetail'
+import { useContactDetail } from '../../hooks/queries/useContactDetail'
 import { useContacts } from '../../hooks/queries/useContacts'
 import { useToggleFavorite } from '../../hooks/queries/useFavoriteMutations'
+import { useUserGroups } from '../../hooks/queries/useUserGroups'
 import type { ContactSummary, ContactTypeFilter } from '../../types/contact'
 
 // 한 줄 목록 항목 — 멤버/외부 배지 + 이름·보조정보 + 호버 시 즐겨찾기 별 버튼.
@@ -69,6 +73,55 @@ function ContactRow({
   )
 }
 
+// WP-54: 연락처 화면 컨텍스트 등록 — 목록 필터 + 선택 연락처. 컨텍스트는 직렬화 키로 중복 제거되므로 useMemo 없이 매 렌더 만든다.
+// 미로드 데이터는 보내지 않는다: 건수·hasMore 는 통합 목록 조회가 끝난 뒤(그룹 뷰에서는 통합 목록이 화면에 없어 생략)에만,
+// 구성원 username 은 상세 쿼리가 끝난 뒤에만 싣는다(그 전에는 refs 비움 — 틀린 id 미전송).
+function useContactsScreenContext(input: {
+  q: string
+  type: ContactTypeFilter
+  organization: string
+  title: string
+  groupId: number | null
+  selected: ContactSelection | null
+  items: ContactSummary[]
+  listLoaded: boolean
+  hasMore: boolean
+}) {
+  const { q, type, organization, title, groupId, selected, items, listLoaded, hasMore } = input
+  const detail = useContactDetail(selected).data
+  const tree = useUserGroups().data
+  const groupName =
+    groupId != null && tree ? (findNode([...tree.shared, ...tree.personal], groupId)?.name ?? null) : null
+  const row = selected ? items.find((c) => c.type === selected.type && c.id === selected.id) : undefined
+  // 그룹 뷰에서는 통합 목록 행이 없으므로 상세 응답으로 이름·부가정보를 채운다. 둘 다 없으면 focus 를 만들지 않는다.
+  const ext = selected?.type === 'EXTERNAL' ? (detail as { organization?: string | null } | undefined) : undefined
+  const name = row?.name ?? detail?.name
+  const showCount = groupId == null && listLoaded
+  const ctx = buildContactsContext({
+    q,
+    type,
+    organization: organization || null,
+    title: title || null,
+    groupId,
+    groupName,
+    count: showCount ? items.length : undefined,
+    hasMore: showCount ? hasMore : undefined,
+    selected:
+      selected && name
+        ? {
+            type: selected.type,
+            id: selected.id,
+            name,
+            username: selected.type === 'MEMBER' ? ((detail as { username?: string } | undefined)?.username ?? null) : null,
+            organization: row?.organization ?? ext?.organization ?? null,
+            title: row?.title ?? detail?.title ?? null,
+            email: row?.email ?? detail?.email ?? null,
+          }
+        : null,
+  })
+  useRegisterAiScreenContext(ctx)
+}
+
 /** 통합 연락처 목록 + 마스터-디테일. 검색·타입은 URL searchParams 와 공유(ContactSidebar). */
 export function ContactsPage() {
   const [params, setParams] = useSearchParams()
@@ -97,6 +150,18 @@ export function ContactsPage() {
     useContacts(search, type, organization, title)
 
   const items = data?.pages.flatMap((p) => p.items) ?? []
+
+  useContactsScreenContext({
+    q: search,
+    type,
+    organization,
+    title,
+    groupId,
+    selected,
+    items,
+    listLoaded: data != null,
+    hasMore: !!hasNextPage,
+  })
 
   return (
     <>

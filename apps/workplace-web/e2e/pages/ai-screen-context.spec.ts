@@ -10,6 +10,13 @@ import { calendar, calendarEvent } from '../factories/calendar.factory'
 import { createFile, createFolder, createSpace } from '../factories/drive.factory'
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../factories/wiki.factory'
 import { createChannel, createChannelMember, createDm, createDmParticipant, createMessage, createThreadInboxItem } from '../factories/messaging.factory'
+import {
+  external as contactExternal,
+  externalDetail as contactExternalDetail,
+  member as contactMember,
+  memberDetail as contactMemberDetail,
+  page as contactsPage,
+} from '../factories/contacts.factory'
 import type { AiScreenContext } from '../../src/types/aiScreenContext'
 
 // 전송 body 를 순서대로 모은다.
@@ -842,5 +849,71 @@ test.describe('AI 채팅 화면 컨텍스트 — 드라이브', () => {
       focus: { refs: { driveFileId: '300' } },
       scope: { label: '드라이브 팀 드라이브', refs: { spaceId: '4', parentId: '11' } },
     })
+  })
+})
+
+// 연락처 화면 목 — 통합 목록(외부 김철수 55 + 구성원 김멤버 1)·상세·사이드바용 facets/그룹 트리.
+async function mockContactsScreen(page: Parameters<typeof mockApi>[0]) {
+  const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+  await page.route(
+    (url) => url.pathname === '/api/v1/contacts',
+    (route, req) => {
+      const type = new URL(req.url()).searchParams.get('type') ?? 'ALL'
+      const all = [contactMember(), contactExternal({ id: 55, name: '김철수', email: 'cs@corp.com', organization: '에이사' })]
+      return route.fulfill(json(contactsPage(type === 'ALL' ? all : all.filter((c) => c.type === type))))
+    },
+  )
+  await page.route((url) => url.pathname === '/api/v1/contacts/facets', (route) => route.fulfill(json({ organizations: [], titles: [] })))
+  await page.route((url) => url.pathname === '/api/v1/user-groups', (route) => route.fulfill(json({ shared: [], personal: [] })))
+  await page.route(
+    (url) => url.pathname === '/api/v1/contacts/external/55',
+    (route) => route.fulfill(json(contactExternalDetail({ id: 55, name: '김철수', email: 'cs@corp.com', organization: '에이사' }))),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/contacts/members/1',
+    (route) => route.fulfill(json(contactMemberDetail({ username: 'kim' }))),
+  )
+}
+
+test.describe('AI 채팅 화면 컨텍스트 — 연락처', () => {
+  test('외부 연락처 선택 시 externalId 와 필터·건수가 실린다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockContactsScreen(page)
+    await page.goto('/contacts?type=EXTERNAL')
+    await page.getByTestId('contact-row-EXTERNAL-55').getByRole('button', { name: /김철수/ }).click()
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('연락처 김철수')
+    await page.getByTestId('chat-input').fill('이 사람이랑 최근 메일')
+    await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({
+      view: '연락처',
+      focus: { type: '연락처', label: '김철수', refs: { externalId: '55' } },
+      scope: { label: '연락처', facts: [{ label: '유형', value: '외부' }], count: 1, hasMore: false },
+    })
+    expect(bodies[0].screenContext!.focus!.facts).toContainEqual({ label: '구분', value: '외부' })
+  })
+
+  test('구성원 선택은 상세 응답이 온 뒤 username 이 실린다(userId 아님)', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockContactsScreen(page)
+    await page.goto('/contacts')
+    const detailLoaded = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/contacts/members/1')
+    await page.getByTestId('contact-row-MEMBER-1').getByRole('button', { name: /김멤버/ }).click()
+    await detailLoaded
+    // 상세 패널에 응답 내용(그룹)이 그려진 뒤에야 컨텍스트가 username 을 가진다.
+    await expect(page.getByTestId('contact-detail')).toContainText('개발팀')
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('연락처 김멤버')
+    await page.getByTestId('chat-input').fill('이 사람 연락처')
+    await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({
+      focus: { label: '김멤버', refs: { username: 'kim' } },
+      scope: { count: 2, hasMore: false },
+    })
+    expect(bodies[0].screenContext!.focus!.facts).toContainEqual({ label: '구분', value: '구성원' })
+    // 구성원 focus 에 externalId 가 섞이지 않는다.
+    expect(bodies[0].screenContext!.focus!.refs).not.toHaveProperty('externalId')
   })
 })
