@@ -10,17 +10,21 @@ import { FolderPickerModal } from '@/components/drive/FolderPickerModal'
 import { convertPlaintextMentions } from '@/components/mentions/mentionSerialize'
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
-import { useAttachmentDraft } from '@/hooks/useAttachmentDraft'
+import { type PendingFile, useAttachmentDraft } from '@/hooks/useAttachmentDraft'
 
 export function MessageComposer({
   channelId,
   members,
   onSend,
+  uploadFn,
   disabled = false,
   archived = false,
 }: {
   // 첨부 사전 업로드 대상 채널.
   channelId: number
+  // 첨부 업로드 함수 오버라이드 — 채널이 아직 없는 새 메시지 화면은 전송 시점까지 업로드를 미룬다(WP-99).
+  // 생략하면 channelId 로 즉시 사전 업로드.
+  uploadFn?: (files: File[]) => Promise<{ data: PendingFile[] }>
   // @멘션 후보 = 해당 채널/DM 의 구성원.
   members: MentionCandidate[]
   // 전송 성공 시 resolved Promise, 실패 시 rejected Promise 를 반환해야 한다.
@@ -51,7 +55,7 @@ export function MessageComposer({
     removeDrive,
     addDrive,
     reset,
-  } = useAttachmentDraft((files) => messagingApi.uploadAttachments(channelId, files))
+  } = useAttachmentDraft(uploadFn ?? ((files) => messagingApi.uploadAttachments(channelId, files)))
 
   // 보관된 채널은 입력기를 띄우지 않고 안내만 표시(전송 자체를 차단).
   if (archived) {
