@@ -8,8 +8,6 @@ export interface IssueSelection {
   setSelected: Dispatch<SetStateAction<Set<number>>>;
   /** 한 이슈 선택 토글. */
   toggle: (number: number) => void;
-  /** 여러 이슈를 한꺼번에 선택/해제 — 다른 이슈의 선택은 건드리지 않는다. */
-  setMany: (numbers: number[], checked: boolean) => void;
   clear: () => void;
 }
 
@@ -36,17 +34,7 @@ export function useIssueSelection(scopeKey: string): IssueSelection {
       return next;
     });
   }, []);
-  const setMany = useCallback((numbers: number[], checked: boolean) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const n of numbers) {
-        if (checked) next.add(n);
-        else next.delete(n);
-      }
-      return next;
-    });
-  }, []);
   const clear = useCallback(() => setSelected(new Set()), []);
 
-  return { selected, setSelected, toggle, setMany, clear };
+  return { selected, setSelected, toggle, clear };
 }

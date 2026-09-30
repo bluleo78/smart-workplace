@@ -53,7 +53,7 @@ export function IssueCycleGroupedList({
   // 다중 선택 — 이슈 number 집합(구간 공통). 필터(직렬화 값)가 바뀌면 이전 기준 선택은 의미가 없어 초기화한다.
   const filterKey = filtersToParams(filters, 'list', null).toString();
   const hasActiveFilters = filterKey !== '';
-  const { selected, toggle: toggleSelected, setMany, clear: clearSelected } = useIssueSelection(filterKey);
+  const { selected, toggle: toggleSelected, clear: clearSelected } = useIssueSelection(filterKey);
 
   const sections = useMemo(
     () => buildCycleSections(cycles.data ?? [], filters.cycleIds),
@@ -119,7 +119,6 @@ export function IssueCycleGroupedList({
             now={now}
             selected={selected}
             onToggleSelect={toggleSelected}
-            onSetSelected={setMany}
             canDrag={canDrag}
           />
         ))}

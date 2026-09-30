@@ -2,6 +2,7 @@
 // 구간 하나 = <section> 하나로 분리해 두어 이후 드래그 앤 드롭(#881)에서 구간 전체를 드롭 대상으로 감싸기 쉽게 한다.
 // 행은 평면 목록과 같은 IssueRow 를 쓰고, 선택 상태는 목록 전체(IssueCycleGroupedList)가 공유한다.
 
+import { useDroppable } from '@dnd-kit/core';
 import { ChevronRight } from 'lucide-react';
 import { useId, useMemo } from 'react';
 
@@ -11,8 +12,15 @@ import { TableSkeletonRows } from '@/components/ui/table-skeleton';
 import { cn } from '@/lib/utils';
 
 import { CycleProgressBar } from '../../../components/cycle/CycleProgressBar';
-import { useCycleSectionIssues } from '../../../hooks/queries/useCycleSectionIssues';
+import { cycleSectionQueryKey, useCycleSectionIssues } from '../../../hooks/queries/useCycleSectionIssues';
 import { useLoadMoreSentinel } from '../../../hooks/useLoadMoreSentinel';
+import {
+  type CycleDropData,
+  cycleSectionDropId,
+  type CycleSectionRef,
+  type IssueDragData,
+  sameCycleSection,
+} from '../../../lib/epicDnd';
 import {
   backlogSectionFilters,
   type CycleSectionDef,
@@ -88,7 +96,6 @@ export function IssueCycleSection({
   now,
   selected,
   onToggleSelect,
-  onSetSelected,
   canDrag = false,
 }: {
   def: CycleSectionDef;
@@ -104,9 +111,7 @@ export function IssueCycleSection({
   now: Date;
   selected: Set<number>;
   onToggleSelect: (number: number) => void;
-  /** 구간 전체 선택/해제 — 여러 구간에 걸친 선택은 목록이 합쳐 관리한다. */
-  onSetSelected: (numbers: number[], checked: boolean) => void;
-  /** 프로젝트 멤버만 행을 에픽 패널로 끌 수 있다. */
+  /** 프로젝트 멤버만 행을 끌 수 있다(에픽 패널·다른 사이클 구간으로). */
   canDrag?: boolean;
 }) {
   const bodyId = useId();
@@ -126,8 +131,28 @@ export function IssueCycleSection({
   const title = cycle ? cycle.name : '백로그';
   // 남은 일수는 진행 중 사이클에만 의미가 있다(예정·완료는 기간만).
   const remaining = active && cycle ? remainingLabel(cycle.endDate, now) : null;
-  const numbers = items.map((it) => it.number);
-  const allSelected = numbers.length > 0 && numbers.every((n) => selected.has(n));
+  // 드래그 이동(#881) — 구간 전체(헤더 포함, 접혀도)가 드롭 대상. 구간 식별 + 이 구간 검색 캐시 키를 실어
+  // 행(출발)과 구간(도착)이 같은 정보로 낙관적 이동을 한다. 완료 사이클(사이클 필터로만 보임)은 드롭 불가.
+  const sectionRef = useMemo<CycleSectionRef>(
+    () => ({
+      cycle: cycle ? { id: cycle.id, name: cycle.name, status: cycle.status } : null,
+      queryKey: cycleSectionQueryKey(projectKey, sectionFilters),
+      // 종료 이슈 숨김 여부는 백로그로 보낼 때의 안내에만 쓴다.
+      hidesClosed: !cycle && !!sectionFilters.hideInactiveClosed,
+    }),
+    [cycle, projectKey, sectionFilters],
+  );
+  const dropDisabled = cycle?.status === 'COMPLETED';
+  const { setNodeRef, isOver, active: dragging } = useDroppable({
+    id: cycleSectionDropId(def.key),
+    data: { cycleSection: sectionRef, keyboardExactOnly: true } satisfies CycleDropData,
+    disabled: dropDisabled,
+  });
+  // 드래그 중인 행이 사이클 구간 출신일 때만 반응 — 보드 카드·평면 목록 행은 출발 구간을 몰라 이동할 수 없다.
+  const dragFrom = (dragging?.data.current as IssueDragData | undefined)?.cycleSection;
+  const fromHere = dragFrom != null && sameCycleSection(dragFrom, sectionRef);
+  const dropTarget = isOver && !!dragFrom && !fromHere;
+  const blocked = !!dragFrom && dropDisabled;
   // 백로그 헤더 건수 — 로드된 행 수이고, 다음 페이지가 남았으면 "+" 로 하한임을 알린다.
   // 사이클 구간은 건수 대신 진행률을 보인다 — 행은 에픽·SUBTASK 를 뺀 범위라 progress(전체 기준)와 숫자가 어긋나기 때문.
   const backlogCount =
@@ -139,15 +164,21 @@ export function IssueCycleSection({
 
   return (
     <section
+      ref={setNodeRef}
       data-testid={`list-cycle-section-${def.key}`}
+      data-drop-target={dropTarget ? 'true' : undefined}
+      data-drop-blocked={blocked ? 'true' : undefined}
       data-active={active ? 'true' : undefined}
       data-expanded={expanded ? 'true' : 'false'}
       aria-label={title}
       // 모든 구간이 같은 테두리·왼쪽 여백(pl-1)을 가져 컬럼이 어긋나지 않는다. 진행 중 강조선은 그 여백 위에 겹쳐 그리는
       // before: 오버레이라 레이아웃에 영향이 없다(border-l-4 를 쓰면 진행 중 구간만 컬럼이 밀린다).
       className={cn(
-        'relative min-w-0 overflow-hidden rounded-md border pl-1',
+        'relative min-w-0 overflow-hidden rounded-md border pl-1 transition-colors',
         active && "before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary before:content-['']",
+        // 드롭 대상 강조 — 구간 전체 테두리+틴트(ring-inset 은 레이아웃을 밀지 않는다).
+        dropTarget && 'bg-primary/10 ring-2 ring-primary ring-inset',
+        blocked && 'opacity-50',
       )}
     >
       {/* 헤더 — 기존 그룹 헤더(bg-muted/40)와 같은 톤, 진행 중만 옅은 primary 틴트로 강조. -ml-1 pl-1 로 배경을 왼쪽 여백까지 채운다. */}
@@ -159,19 +190,9 @@ export function IssueCycleSection({
         data-testid={`list-cycle-header-${def.key}`}
       >
         <div className="flex min-w-0 flex-[1_1_12rem] items-center">
-          {/* 행 체크박스 컬럼(w-9)과 같은 폭의 슬롯 — 구간 전체 선택. 행이 보일 때만 노출. */}
-          <span className="flex w-9 shrink-0">
-            {numbers.length > 0 && (
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={() => onSetSelected(numbers, !allSelected)}
-                aria-label={`${title} 구간 전체 선택`}
-                data-testid={`list-cycle-select-all-${def.key}`}
-                className="h-4 w-4"
-              />
-            )}
-          </span>
+          {/* 행 체크박스 컬럼(w-9)과 같은 폭의 빈 슬롯 — 제목을 행 제목 열에 맞춘다. 구간(사이클)은 이슈가 아니므로
+              행과 같은 체크박스를 두지 않는다(이슈 선택으로 오인). */}
+          <span className="w-9 shrink-0" aria-hidden="true" />
           <button
             type="button"
             onClick={() => onToggleExpanded(def.key)}
@@ -207,6 +228,26 @@ export function IssueCycleSection({
                 data-testid={`list-cycle-count-${def.key}`}
               >
                 {backlogCount}
+              </span>
+            )}
+            {/* 드롭 안내 — 이름 바로 뒤(토글 안). 헤더 오른쪽 끝에 두면 드래그 중 떠 있는 에픽 패널에 가려진다.
+                스크린리더는 DndContext 안내 문구가 대상을 읽어 주므로 여기선 숨긴다. */}
+            {dropTarget && (
+              <span
+                aria-hidden="true"
+                className="shrink-0 text-xs font-medium text-primary"
+                data-testid={`list-cycle-drop-hint-${def.key}`}
+              >
+                여기에 놓아 이동
+              </span>
+            )}
+            {blocked && (
+              <span
+                aria-hidden="true"
+                className="shrink-0 text-xs text-destructive"
+                data-testid={`list-cycle-drop-blocked-${def.key}`}
+              >
+                완료된 사이클에는 놓을 수 없음
               </span>
             )}
           </button>
@@ -266,6 +307,9 @@ export function IssueCycleSection({
             selected={selected}
             onToggleSelect={onToggleSelect}
             canDrag={canDrag}
+            // 완료 사이클 구간의 행은 사이클 이동에서 뺀다 — 끝난 스프린트 이력을 드래그 한 번으로 바꾸고, 되돌리기(완료 사이클
+            // 재연결)도 서버가 거부해 복구할 수 없다. 에픽 패널로 끄는 것은 그대로 허용.
+            cycleSection={dropDisabled ? undefined : sectionRef}
           />
           <div ref={sentinelRef} aria-hidden="true" className="h-px" />
           {query?.isFetchingNextPage && (
@@ -297,6 +341,7 @@ function SectionBody({
   selected,
   onToggleSelect,
   canDrag,
+  cycleSection,
 }: {
   query: ReturnType<typeof useCycleSectionIssues>;
   items: IssueResponse[];
@@ -306,6 +351,8 @@ function SectionBody({
   selected: Set<number>;
   onToggleSelect: (number: number) => void;
   canDrag: boolean;
+  /** 이 구간 — 행 드래그 데이터의 출발 구간(사이클 이동 from). 없으면 사이클 이동 불가(완료 구간). */
+  cycleSection: CycleSectionRef | undefined;
 }) {
   if (!query || query.isLoading) {
     return (
@@ -348,6 +395,7 @@ function SectionBody({
             canDrag={canDrag}
             // 한 이슈가 여러 사이클 구간에 동시에 보일 수 있어(M:N) 구간 키로 드래그 id 를 구분한다.
             dragScope={testKey}
+            cycleSection={cycleSection}
           />
         ))}
       </tbody>

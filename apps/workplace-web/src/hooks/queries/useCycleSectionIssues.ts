@@ -3,10 +3,15 @@
 
 import type { IssueFilters } from '../../types/issue';
 import type { BoardColumnQuery } from './useIssueBoardColumns';
-import { useIssueSearch } from './useIssueSearch';
+import { issueSearchKey, useIssueSearch } from './useIssueSearch';
 
 // 구간당 한 페이지 크기 — 보드 컬럼(BOARD_COLUMN_PAGE_SIZE)과 같은 기준.
 const CYCLE_SECTION_PAGE_SIZE = 50;
+
+/** 구간 쿼리 키 — 드래그 이동의 낙관적 캐시 패치가 출발·도착 구간을 정확히 짚는 데 쓴다(#881). */
+export function cycleSectionQueryKey(projectKey: string, filters: IssueFilters) {
+  return issueSearchKey(projectKey, filters, CYCLE_SECTION_PAGE_SIZE);
+}
 
 /**
  * 구간 이슈 쿼리 — 펼친 구간만 요청한다.

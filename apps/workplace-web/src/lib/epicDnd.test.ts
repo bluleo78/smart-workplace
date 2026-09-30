@@ -9,6 +9,7 @@ import {
   describeDropTarget,
   epicDragBlockReason,
   epicDropState,
+  isCycleDropData,
   isEpicDropData,
   issueCollision,
   issueDndAnnouncements,
@@ -208,6 +209,16 @@ describe('issueKeyboardCoordinates — 목록 행', () => {
     keyboard('ArrowUp', [a, b], row, 'epic-11', rect(0, 300, 10, 10));
     expect(clip.current.scrollTop).toBe(120 - 352);
   });
+  it('에픽 항목 다음에 사이클 구간을 위→아래로 순회한다(#881) — top 이 더 작아도 구간은 에픽 뒤', () => {
+    const e = drop('epic-10', { epic: { number: 10 } }, rect(0, 400, 200, 30), true);
+    const s1 = drop('cycle-section-cycle-1', { cycleSection: {} }, rect(300, 100, 500, 200), true);
+    const s2 = drop('cycle-section-backlog', { cycleSection: {} }, rect(300, 320, 500, 200), true);
+    const targets = [s2, e, s1];
+    expect(keyboard('ArrowDown', targets, row, null, rect(0, 0, 10, 10))).toEqual({ x: 0, y: 400 });
+    expect(keyboard('ArrowDown', targets, row, 'epic-10', rect(0, 400, 10, 10))).toEqual({ x: 300, y: 100 });
+    expect(keyboard('ArrowDown', targets, row, 'cycle-section-cycle-1', rect(300, 100, 10, 10))).toEqual({ x: 300, y: 320 });
+    expect(keyboard('ArrowUp', targets, row, 'cycle-section-cycle-1', rect(300, 100, 10, 10))).toEqual({ x: 0, y: 400 });
+  });
   it('이미 보이는 에픽이면 스크롤하지 않는다', () => {
     const clip = clipOf(clipBox);
     const a = drop('epic-10', { epic: { number: 10 }, clip }, rect(0, 250, 200, 30), true);
@@ -247,11 +258,34 @@ describe('issueCollision — 키보드(포인터 없음)', () => {
   });
 });
 
+describe('issueCollision — 키보드, 사이클 구간(#881)', () => {
+  const kb = (cs: DroppableContainer[], r: ClientRect) =>
+    issueCollision({
+      active: { id: 'issue-row-1', data: { current: {} }, rect: { current: { initial: null, translated: null } } },
+      collisionRect: r,
+      droppableRects: new Map<UniqueIdentifier, ClientRect>(cs.map((c) => [c.id, c.rect.current!])),
+      droppableContainers: cs,
+      pointerCoordinates: null,
+    } as never);
+  it('집은 직후 가장 가까운 대상 후보에서 사이클 구간을 뺀다 — 바로 아래 접힌 구간이 over 가 되지 않게', () => {
+    const below = drop('cycle-section-cycle-3', { cycleSection: {}, keyboardExactOnly: true }, rect(0, 510, 800, 40));
+    expect(ids(kb([below], rect(0, 470, 800, 36)))).toEqual([]);
+  });
+  it('방향키로 고른 구간(좌상단 정확히 일치)은 대상이 된다', () => {
+    const below = drop('cycle-section-cycle-3', { cycleSection: {}, keyboardExactOnly: true }, rect(0, 510, 800, 40));
+    expect(ids(kb([below], rect(0, 510, 800, 36)))).toEqual(['cycle-section-cycle-3']);
+  });
+});
+
 describe('스크린리더 안내', () => {
   const over = (data: unknown) => ({ data: { current: data } }) as never;
   it('대상 이름은 한국어 — 원시 id 를 읽지 않는다', () => {
     expect(describeDropTarget(over({ epic: { number: 10, title: '결제 리뉴얼' } }), 'WP')).toBe('에픽 「결제 리뉴얼」');
     expect(describeDropTarget(over({ epic: null }), 'WP')).toBe('「에픽 미할당」');
+    expect(
+      describeDropTarget(over({ cycleSection: { cycle: { id: 1, name: '스프린트 12', status: 'ACTIVE' }, queryKey: [] } }), 'WP'),
+    ).toBe('사이클 「스프린트 12」');
+    expect(describeDropTarget(over({ cycleSection: { cycle: null, queryKey: [] } }), 'WP')).toBe('「백로그」');
     expect(describeDropTarget(over({ status: 'DONE', label: '완료' }), 'WP')).toBe('「완료」 컬럼');
     expect(describeDropTarget(over({ issue: mk({ number: 7, status: 'IN_PROGRESS' }), status: 'IN_PROGRESS' }), 'WP')).toBe('WP-7 카드(진행 중)');
     expect(describeDropTarget(over({ zone: true }), 'WP')).toBe('에픽 패널(놓을 수 없는 곳)');
@@ -266,5 +300,22 @@ describe('스크린리더 안내', () => {
     expect(a.onDragEnd({ active, over: over({ zone: true }) })).toBe('WP-3 이슈를 놓았습니다. 변경 사항이 없습니다.');
     expect(a.onDragEnd({ active, over: null })).toBe('WP-3 이슈를 놓았습니다. 변경 사항이 없습니다.');
     expect(a.onDragCancel({ active, over: null })).toBe('WP-3 이슈 이동을 취소했습니다.');
+  });
+  it('같은 사이클 구간에 놓으면 변경 없음으로 읽는다(#881)', () => {
+    const a = issueDndAnnouncements('WP');
+    const key = ['issues', 'search', 'WP', 'k1', 50];
+    const s1 = { cycle: { id: 1, name: 'S1', status: 'ACTIVE' }, queryKey: key };
+    const active = { data: { current: { issue: mk({ number: 3 }), source: 'row', cycleSection: s1 } } } as never;
+    expect(a.onDragEnd({ active, over: over({ cycleSection: s1 }) })).toBe('WP-3 이슈를 놓았습니다. 변경 사항이 없습니다.');
+    const s2 = { cycle: { id: 2, name: 'S2', status: 'ACTIVE' }, queryKey: ['other'] };
+    expect(a.onDragEnd({ active, over: over({ cycleSection: s2 }) })).toBe('WP-3 이슈를 사이클 「S2」에 놓았습니다.');
+  });
+});
+
+describe('isCycleDropData (#881)', () => {
+  it('cycleSection 키가 있으면 사이클 구간 드롭 대상', () => {
+    expect(isCycleDropData({ cycleSection: { cycle: null, queryKey: [] } })).toBe(true);
+    expect(isCycleDropData({ epic: null })).toBe(false);
+    expect(isCycleDropData(undefined)).toBe(false);
   });
 });

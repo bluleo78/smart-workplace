@@ -11,7 +11,7 @@ import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
-import type { IssueDragData } from '../../../lib/epicDnd';
+import type { CycleSectionRef, IssueDragData } from '../../../lib/epicDnd';
 import { formatDateKorean } from '../../../lib/formatters';
 import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
@@ -29,6 +29,7 @@ export const IssueRow = memo(function IssueRow({
   onToggleSelect,
   canDrag = false,
   dragScope,
+  cycleSection,
 }: {
   issue: IssueResponse;
   projectKey: string;
@@ -38,6 +39,8 @@ export const IssueRow = memo(function IssueRow({
   canDrag?: boolean;
   /** 드래그 id 구분자 — 같은 이슈가 여러 곳(사이클 구간 M:N)에 동시에 렌더될 때 id 가 겹치지 않게 한다. */
   dragScope?: string;
+  /** 사이클 그룹 목록의 행이면 속한 구간 — 다른 사이클 구간으로 끌어 사이클을 옮길 때 출발지(#881). */
+  cycleSection?: CycleSectionRef;
 }) {
   const navigate = useNavigate();
   const to = `/projects/${projectKey}/issues/${it.number}`;
@@ -47,7 +50,7 @@ export const IssueRow = memo(function IssueRow({
   // dnd-kit 은 id 로 노드를 등록하므로 한 이슈가 여러 구간에 보이면 dragScope 로 id 를 구분해야 엉뚱한 행이 잡히지 않는다.
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, isDragging } = useDraggable({
     id: dragScope ? `issue-row-${dragScope}-${it.id}` : `issue-row-${it.id}`,
-    data: { issue: it, source: 'row' } satisfies IssueDragData,
+    data: { issue: it, source: 'row', cycleSection } satisfies IssueDragData,
     disabled: !canDrag,
     // dnd-kit 기본 role=button 은 표 의미를 깨뜨린다 — 행 역할 유지.
     attributes: { role: 'row' },

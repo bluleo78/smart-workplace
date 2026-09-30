@@ -1,7 +1,7 @@
 // 프로젝트 이슈 화면 공용 드래그 앤 드롭 컨텍스트.
 // 왜: dnd-kit 은 같은 DndContext 안의 droppable 에만 드롭을 인식한다. 보드가 자기 DndContext 를 가지면 옆의 에픽 패널로
 //     놓을 수 없으므로, 페이지가 패널+보드/목록을 이 provider 하나로 감싼다.
-// - 에픽 드롭(epic-{n}/epic-none)은 여기서 처리, 보드 상태 드롭은 보드가 useDndMonitor 로 구독(관심사 분리).
+// - 에픽 드롭(epic-{n}/epic-none)·사이클 구간 드롭(cycle-section-*, #881)은 여기서 처리, 보드 상태 드롭은 보드가 useDndMonitor 로 구독(관심사 분리).
 // - DragOverlay 도 여기서 그린다(card=IssueCard 고스트, row=행 요약 칩).
 import {
   DndContext,
@@ -17,15 +17,18 @@ import {
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
+import { useMoveIssueCycle } from '../../../hooks/queries/useMoveIssueCycle';
 import { useMoveIssueEpic } from '../../../hooks/queries/useMoveIssueEpic';
 import {
   epicDropState,
+  isCycleDropData,
   isEpicDropData,
   ISSUE_DND_SCREEN_READER_INSTRUCTIONS,
   issueCollision,
   issueDndAnnouncements,
   type IssueDragData,
   issueKeyboardCoordinates,
+  sameCycleSection,
 } from '../../../lib/epicDnd';
 import type { IssueResponse } from '../../../types/issue';
 import { IssueCard } from './IssueCard';
@@ -42,6 +45,7 @@ export function useIssueDnd() {
 export function IssueDndProvider({ projectKey, children }: { projectKey: string; children: ReactNode }) {
   const [active, setActive] = useState<IssueDragData | null>(null);
   const moveEpic = useMoveIssueEpic(projectKey);
+  const moveCycle = useMoveIssueCycle(projectKey);
   // PointerSensor distance:5 — 짧은 클릭은 링크/행 이동으로 남긴다.
   // 키보드 시작은 Space 만 — Enter 는 카드·행 안 링크의 상세 이동으로 남긴다(#881).
   const sensors = useSensors(
@@ -104,7 +108,15 @@ export function IssueDndProvider({ projectKey, children }: { projectKey: string;
     setActive(null);
     const src = e.active.data.current as IssueDragData | undefined;
     const dst = e.over?.data.current;
-    if (!src || !isEpicDropData(dst)) return;
+    if (!src) return;
+    // 사이클 구간 드롭(#881) — 사이클 그룹 목록의 행만(출발 구간을 알아야 from 을 정한다). 같은 구간이면 변화 없음.
+    if (isCycleDropData(dst)) {
+      const from = src.cycleSection;
+      if (!from || sameCycleSection(from, dst.cycleSection)) return;
+      moveCycle.mutate({ issue: src.issue, from, to: dst.cycleSection });
+      return;
+    }
+    if (!isEpicDropData(dst)) return;
     // 비허용 대상은 droppable 이 disabled 라 over 가 되지 않지만, 규칙을 한 번 더 확인해 방어한다.
     if (epicDropState(src.issue, dst.epic?.number ?? null) !== 'allowed') return;
     moveEpic.mutate({ issue: src.issue, to: dst.epic });

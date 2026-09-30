@@ -9,6 +9,11 @@ import type { IssueFilters, IssueSearchResponse } from '../../types/issue';
 // queryKey 는 ['issues', 'search', projectKey, filters, size] — URL 이 바뀌면 자동으로 재실행된다.
 // pageParam 은 nextCursor 문자열(또는 null) 이며 백엔드가 base64url 로 인코딩한 불투명 토큰이다.
 // enabled 는 호출자가 (필터 준비 등) 추가 조건으로 실제 네트워크 요청을 막고 싶을 때 사용한다.
+/** 이슈 검색 쿼리 키 — 훅과 낙관적 캐시 패치(사이클 구간 드래그 이동 등)가 같은 키를 짚도록 한 곳에서 만든다. */
+export function issueSearchKey(projectKey: string, filters: IssueFilters, size: number) {
+  return ['issues', 'search', projectKey, filters, size] as const;
+}
+
 export function useIssueSearch(
   projectKey: string,
   filters: IssueFilters,
@@ -16,7 +21,7 @@ export function useIssueSearch(
   enabled = true,
 ) {
   return useInfiniteQuery<IssueSearchResponse, Error>({
-    queryKey: ['issues', 'search', projectKey, filters, size],
+    queryKey: issueSearchKey(projectKey, filters, size),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
       searchIssues(projectKey, filters, pageParam as string | null, size),

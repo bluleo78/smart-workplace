@@ -368,9 +368,10 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await expect(inHotfix).toBeChecked();
     await expect(page.getByTestId('issue-bulk-toolbar')).toContainText('선택 1개');
 
-    // 다른 구간 선택을 더한다 — 구간 전체 선택(백로그) 포함.
+    // 다른 구간 선택을 더한다. 구간 헤더엔 체크박스가 없다 — 사이클은 이슈가 아니라 이슈 선택으로 오인되지 않게(#881).
     await section(page, 'cycle-2').getByTestId('select-issue-21').check();
-    await page.getByTestId('list-cycle-select-all-backlog').check();
+    await expect(page.getByTestId('list-cycle-header-backlog').getByRole('checkbox')).toHaveCount(0);
+    await section(page, 'backlog').getByTestId('select-issue-41').check();
     await expect(page.getByTestId('issue-bulk-toolbar')).toContainText('선택 3개');
     // 체크박스 클릭이 상세 이동을 일으키지 않는다.
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));

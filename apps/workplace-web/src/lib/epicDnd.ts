@@ -34,14 +34,42 @@ const isBoardColumnId = (id: UniqueIdentifier) => String(id).startsWith('col-');
 // 에픽 항목 드롭 대상 id.
 export const epicDropId = (n: number) => `epic-${n}`;
 
+// 목록 사이클 구간 식별(#881) — cycle=null 이면 백로그. queryKey 는 그 구간의 검색 캐시 키(낙관적 이동 패치용).
+// hidesClosed: 이 구간이 종료 이슈를 숨기는지(백로그 기본 스코프) — 종료 이슈를 백로그로 보냈을 때 "안 보임" 안내 판단용.
+export type CycleSectionRef = {
+  cycle: { id: number; name: string; status: string } | null;
+  queryKey: readonly unknown[];
+  hidesClosed?: boolean;
+};
+
 // 드래그 소스가 싣는 데이터 — 보드 카드(card)·목록 행(row) 공통. 보드 상태 드롭용 issueNumber/status 는 카드만.
+// cycleSection: 사이클 그룹 목록의 행만 — 출발 구간(사이클 이동의 from). 행에는 사이클 집합이 없어 구간이 출처를 알려준다.
 export type IssueDragData = {
   issue: IssueResponse;
   source: 'card' | 'row';
   showType?: boolean;
   issueNumber?: number;
   status?: string;
+  cycleSection?: CycleSectionRef;
 };
+
+// 사이클 구간 드롭 대상 데이터(#881) — 놓으면 출발 구간 사이클 해제 + 이 구간 사이클 추가(백로그면 해제만).
+// keyboardExactOnly: 키보드 드래그에서 방향키로 고른 경우만 대상(아래 issueCollision 참고).
+export type CycleDropData = { cycleSection: CycleSectionRef; keyboardExactOnly: true };
+
+// 사이클 구간 드롭 대상 id — 에픽(epic-*)·보드 컬럼(col-*)과 앞머리가 겹치지 않아 포인터 충돌 판정을 바꿀 필요가 없다.
+export const cycleSectionDropId = (key: string) => `cycle-section-${key}`;
+const isCycleSectionId = (id: UniqueIdentifier) => String(id).startsWith('cycle-section-');
+
+// 같은 구간인지 — 사이클 id(백로그는 null)로 비교한다. 캐시 키 참조 비교는 상위 memo 가 바뀌면 조용히 깨진다.
+export function sameCycleSection(a: CycleSectionRef, b: CycleSectionRef): boolean {
+  return (a.cycle?.id ?? null) === (b.cycle?.id ?? null);
+}
+
+// over.data 가 사이클 구간 드롭 대상인지.
+export function isCycleDropData(d: unknown): d is CycleDropData {
+  return typeof d === 'object' && d != null && 'cycleSection' in d;
+}
 
 // 에픽 드롭 대상 데이터 — epic=null 이면 「에픽 미할당」. ParentRef 전체를 실어 낙관적 반영에 그대로 쓴다.
 // clip: 항목을 감싼 스크롤 컨테이너(에픽 목록). dnd-kit 의 droppable 사각형은 스크롤 조상의 잘림을 모르므로,
@@ -127,7 +155,12 @@ export const issueCollision: CollisionDetection = (args) => {
       return r != null && Math.abs(r.left - r0.left) < 1 && Math.abs(r.top - r0.top) < 1;
     });
     if (exact) return [{ id: exact.id, data: { droppableContainer: exact, value: 0 } }];
-    return closestCorners({ ...args, droppableContainers: candidates });
+    // keyboardExactOnly 대상(사이클 구간)은 방향키로 고른 경우(exact)만 — 가장 가까운 대상 후보에 두면 Space 로 집은 직후
+    // 행 바로 아래 (접힌) 구간이 자기 구간보다 가까워 over 가 되고, 방향키 없이 Space 를 다시 누르면 옮겨진다(#881).
+    return closestCorners({
+      ...args,
+      droppableContainers: candidates.filter((c) => c.data.current?.keyboardExactOnly !== true),
+    });
   }
   const hits = pointerWithin(args).filter(
     (h) => !isEpicItemId(h.id) || visibleInClip(h.data?.droppableContainer?.data.current, p),
@@ -205,19 +238,21 @@ const cardKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
 };
 
 // 목록 행 — 자기 droppable 이 없어 sortableKeyboardCoordinates 가 아무것도 반환하지 않으므로(activeDroppable 필요),
-// 방향키로 활성 에픽 항목 사이를 위(←/↑)·아래(→/↓)로 옮긴다. 반환값은 이동한 사각형의 좌상단.
+// 방향키로 활성 대상 사이를 위(←/↑)·아래(→/↓)로 옮긴다. 반환값은 이동한 사각형의 좌상단.
+// 순서: 에픽 항목(위→아래) 다음 사이클 구간(위→아래, #881) — 패널과 목록이 나란히 있어 top 만으로 섞으면 오가는 순서가 튄다.
 const rowKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
   const { droppableContainers, droppableRects, over } = args.context;
   const down = event.code === 'ArrowDown' || event.code === 'ArrowRight';
   const up = event.code === 'ArrowUp' || event.code === 'ArrowLeft';
   if (!down && !up) return undefined;
   event.preventDefault();
+  const group = (id: UniqueIdentifier) => (isEpicItemId(id) ? 0 : isCycleSectionId(id) ? 1 : -1);
   const targets = droppableContainers
     .getEnabled()
-    .filter((c) => isEpicItemId(c.id))
+    .filter((c) => group(c.id) >= 0)
     .map((c) => ({ container: c, rect: droppableRects.get(c.id) }))
     .filter((t): t is { container: DroppableContainer; rect: ClientRect } => t.rect != null)
-    .sort((a, b) => a.rect.top - b.rect.top);
+    .sort((a, b) => group(a.container.id) - group(b.container.id) || a.rect.top - b.rect.top);
   if (targets.length === 0) return undefined;
   const i = targets.findIndex((t) => t.container.id === over?.id);
   const next = i < 0 ? targets[0] : targets[Math.min(targets.length - 1, Math.max(0, i + (down ? 1 : -1)))];
@@ -230,6 +265,7 @@ export function describeDropTarget(over: Pick<Over, 'data'> | null, projectKey: 
   const d = over?.data.current as Record<string, unknown> | undefined;
   if (!d) return null;
   if (isEpicDropData(d)) return d.epic ? `에픽 「${d.epic.title}」` : '「에픽 미할당」';
+  if (isCycleDropData(d)) return d.cycleSection.cycle ? `사이클 「${d.cycleSection.cycle.name}」` : '「백로그」';
   if (d.zone) return '에픽 패널(놓을 수 없는 곳)';
   if (typeof d.label === 'string') return `「${d.label}」 컬럼`;
   const issue = d.issue as IssueResponse | undefined;
@@ -251,7 +287,11 @@ export function issueDndAnnouncements(projectKey: string): Announcements {
     },
     onDragEnd: ({ active, over }) => {
       const target = describeDropTarget(over, projectKey);
-      return target && over?.data.current?.zone !== true
+      // 같은 사이클 구간에 놓으면 이동하지 않는다(handleDragEnd no-op) — "놓았습니다" 로 읽지 않는다.
+      const fromSection = (active.data.current as IssueDragData | undefined)?.cycleSection;
+      const sameSection =
+        fromSection != null && isCycleDropData(over?.data.current) && sameCycleSection(fromSection, over.data.current.cycleSection);
+      return target && over?.data.current?.zone !== true && !sameSection
         ? `${key(active)} 이슈를 ${target}에 놓았습니다.`
         : `${key(active)} 이슈를 놓았습니다. 변경 사항이 없습니다.`;
     },
@@ -261,5 +301,5 @@ export function issueDndAnnouncements(projectKey: string): Announcements {
 
 // 드래그 가능 항목의 스크린리더 사용법 안내(aria-describedby).
 export const ISSUE_DND_SCREEN_READER_INSTRUCTIONS = {
-  draggable: 'Space 키로 이슈를 집고, 방향키로 에픽이나 상태 컬럼을 고른 뒤 Space 키로 놓으세요. Esc 키를 누르면 취소됩니다.',
+  draggable: 'Space 키로 이슈를 집고, 방향키로 에픽·상태 컬럼·사이클 구간을 고른 뒤 Space 키로 놓으세요. Esc 키를 누르면 취소됩니다.',
 };
