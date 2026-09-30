@@ -640,3 +640,14 @@
 [data-sonner-toaster] {
   z-index: 40 !important;
 }
+
+/* 헤더가 토스트 위에 그려지므로 토스트를 헤더 아래 8px 에서 시작시켜 잘림을 막는다 (WP-95).
+   <lg 는 햄버거 영역(AppLayout pt-12) + PageHeader(h-14), lg 이상은 헤더만. Sonner offset prop 은
+   600px 에서 모바일 값이 갈려 레이아웃 기준(lg)과 어긋나므로 CSS 에서 lg 기준으로 지정한다. */
+[data-sonner-toaster][data-y-position='top'] {
+  top: calc(3rem + 3.5rem + 0.5rem) !important;
+
+  @variant lg {
+    top: calc(3.5rem + 0.5rem) !important;
+  }
+}
