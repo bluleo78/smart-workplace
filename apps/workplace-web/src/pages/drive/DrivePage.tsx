@@ -72,7 +72,7 @@ function collapseCrumbs(
 
 // WP-54: 드라이브 화면 컨텍스트 등록 — React Compiler 메모이제이션 보존을 위해 원시값 deps 로 모듈 훅에 둔다.
 // embedded(채널 서랍 안)는 채널 화면이 주인이므로 등록하지 않는다.
-// 미로드 데이터는 보내지 않는다: 폴더 진입 중이라 경로(crumbs)가 아직 현재 폴더와 맞지 않으면 등록 보류(null),
+// 미로드 데이터는 보내지 않는다: 폴더 경로(crumbs)가 현재 폴더와 맞지 않으면 경로 세그먼트만 생략,
 // 폴더·파일 개수는 목록 조회가 끝난 뒤에만 싣는다(placeholder 도 제외).
 function useDriveScreenContext(input: {
   embedded: boolean
@@ -93,13 +93,14 @@ function useDriveScreenContext(input: {
   const previewUpdatedAt = preview?.updatedAt
   const ctx = useMemo(() => {
     if (embedded || spaceId == null) return null
-    // 폴더 안인데 경로가 아직 로드 전(또는 이전 폴더 것)이면 잘못된 경로를 보내지 않도록 보류.
-    if (folderId != null && crumbs[crumbs.length - 1]?.id !== folderId) return null
+    // 폴더 안인데 경로가 아직 로드 전·실패·이전 폴더 것이면 경로 세그먼트만 비운다(잘못된 경로 미전송).
+    // spaceId/parentId 는 URL·state 기준이라 확실하므로 컨텍스트는 유지한다.
+    const pathReady = folderId != null && crumbs[crumbs.length - 1]?.id === folderId
     return buildDriveContext({
       spaceId,
       spaceName: spaceName ?? null,
       folderId,
-      folderPath: folderId == null ? [] : crumbs.map((c) => c.name),
+      folderPath: pathReady ? crumbs.map((c) => c.name) : [],
       q,
       folderCount,
       fileCount,

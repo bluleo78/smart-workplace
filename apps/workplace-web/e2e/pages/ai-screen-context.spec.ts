@@ -7,6 +7,7 @@ import { createChatMessagePage, createChatThread } from '../factories/chat.facto
 import { createProject } from '../factories/project.factory'
 import { detail, mailAccount, summary } from '../factories/mail.factory'
 import { calendar, calendarEvent } from '../factories/calendar.factory'
+import { createFile, createFolder, createSpace } from '../factories/drive.factory'
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../factories/wiki.factory'
 import { createChannel, createChannelMember, createDm, createDmParticipant, createMessage, createThreadInboxItem } from '../factories/messaging.factory'
 import type { AiScreenContext } from '../../src/types/aiScreenContext'
@@ -753,5 +754,93 @@ test.describe('AI 채팅 화면 컨텍스트 — 채팅', () => {
     await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
     await expect.poll(() => bodies.length).toBe(1)
     expect(bodies[0].screenContext).toMatchObject({ view: '스레드 모아보기', scope: { count: 2, hasMore: false } })
+  })
+})
+
+// 드라이브 화면 목 — 스페이스 4('팀 드라이브'), 폴더 11(경로 기획/2026), 파일 drive_file id=300 (core fileId=999 와 구분).
+async function mockDriveScreen(page: Parameters<typeof mockApi>[0], opts: { folderId: number | null; pathFails?: boolean }) {
+  const FILE = createFile({
+    id: 300, fileId: 999, name: '회의록.txt', mimeType: 'text/plain', sizeBytes: 2048,
+    folderId: opts.folderId, updatedAt: '2026-09-29T00:00:00Z',
+  })
+  await mockApi(page, 'GET', '/api/v1/drive/spaces', [createSpace({ id: 4, name: '팀 드라이브' })])
+  await mockApi(page, 'GET', '/api/v1/drive/spaces/4', createSpace({ id: 4, name: '팀 드라이브' }))
+  await mockApi(page, 'GET', '/api/v1/drive/quota', { usedBytes: 0, quotaBytes: 10737418240 })
+  await mockApi(page, 'GET', '/api/v1/drive/spaces/4/items', {
+    folders: opts.folderId == null ? [createFolder({ id: 11, name: '2026' })] : [],
+    files: [FILE],
+  })
+  await page.route('**/api/v1/drive/folders/11/path', (r) =>
+    opts.pathFails
+      ? r.fulfill({ status: 500, json: { message: 'fail' } })
+      : r.fulfill({ json: [{ id: 5, name: '기획' }, { id: 11, name: '2026' }] }))
+  await page.route((u) => u.pathname === `/api/v1/drive/files/${FILE.id}/thumbnail`, (r) => r.fulfill({ status: 404, body: '' }))
+  await page.route((u) => u.pathname === `/api/v1/drive/files/${FILE.id}/content`, (r) =>
+    r.fulfill({ status: 200, contentType: 'text/plain', body: '회의 내용' }))
+  await mockApi(page, 'GET', `/api/v1/drive/files/${FILE.id}/summary`, { summary: null, status: 'PENDING' })
+  await mockApi(page, 'GET', `/api/v1/drive/files/${FILE.id}/backlinks`, [])
+}
+
+test.describe('AI 채팅 화면 컨텍스트 — 드라이브', () => {
+  test('폴더 scope(스페이스·경로·parentId)와 항목 개수가 실린다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockDriveScreen(page, { folderId: 11 })
+    const pathLoaded = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/drive/folders/11/path')
+    const itemsLoaded = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/drive/spaces/4/items')
+    await page.goto('/drive/spaces/4?folderId=11')
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('드라이브 팀 드라이브 / 기획 / 2026')
+    await pathLoaded
+    await itemsLoaded
+    await page.getByTestId('chat-input').fill('이 폴더 정리해줘')
+    await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({
+      view: '드라이브',
+      scope: {
+        label: '드라이브 팀 드라이브 / 기획 / 2026',
+        refs: { spaceId: '4', parentId: '11' },
+        facts: [{ label: '항목', value: '폴더 0 · 파일 1' }],
+      },
+    })
+    expect(bodies[0].screenContext?.focus).toBeUndefined()
+  })
+
+  test('사이드 패널을 연 채 미리보기를 열고 전송하면 파일 focus 에 driveFileId 가 실린다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockDriveScreen(page, { folderId: null })
+    await page.goto('/drive/spaces/4')
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+    await page.getByRole('button', { name: '회의록.txt' }).click()
+    await expect(page.getByTestId('preview-body')).toBeVisible()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('파일 회의록.txt')
+    await page.getByTestId('chat-input').fill('이 파일 요약')
+    await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({
+      focus: { type: '파일', label: '회의록.txt', refs: { driveFileId: '300' } },
+      scope: { label: '드라이브 팀 드라이브', refs: { spaceId: '4' } },
+    })
+    // core fileId(999)는 보내지 않는다.
+    expect(JSON.stringify(bodies[0].screenContext)).not.toContain('999')
+  })
+
+  test('폴더 경로 조회가 실패해도 spaceId·parentId·파일 focus 는 실린다(경로만 생략)', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockDriveScreen(page, { folderId: 11, pathFails: true })
+    await page.goto('/drive/spaces/4?folderId=11')
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+    await page.getByRole('button', { name: '회의록.txt' }).click()
+    await expect(page.getByTestId('preview-body')).toBeVisible()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('파일 회의록.txt')
+    await page.getByTestId('chat-input').fill('이 파일 요약')
+    await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({
+      focus: { refs: { driveFileId: '300' } },
+      scope: { label: '드라이브 팀 드라이브', refs: { spaceId: '4', parentId: '11' } },
+    })
   })
 })

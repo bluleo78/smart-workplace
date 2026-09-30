@@ -29,4 +29,13 @@ describe('buildDriveContext', () => {
     expect(ctx.scope!.label).toBe('드라이브 #4');
     expect(ctx.scope!.facts ?? []).toEqual([]);
   });
+  it('경로 미확보(folderPath 빈 배열)여도 parentId 는 유지, 라벨은 스페이스만', () => {
+    const ctx = buildDriveContext({ ...base, folderPath: [] });
+    expect(ctx.scope!.label).toBe('드라이브 팀 드라이브');
+    expect(ctx.scope!.refs).toEqual({ spaceId: '4', parentId: '11' });
+  });
+  it('검색 중에는 항목 개수 fact 를 생략하고 검색어만 싣는다', () => {
+    const ctx = buildDriveContext({ ...base, q: '회의록' });
+    expect(ctx.scope!.facts).toEqual([{ label: '검색어', value: '회의록' }]);
+  });
 });

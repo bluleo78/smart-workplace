@@ -29,8 +29,9 @@ export function buildDriveContext(input: {
   preview: { id: number; name: string; size: number | null; updatedAt: string | null } | null;
 }): AiScreenContext {
   const path = [input.spaceName ?? `#${input.spaceId}`, ...input.folderPath].join(' / ');
+  // 검색 중에는 화면이 검색 결과라 폴더 목록 개수와 다르다 — 개수 fact 생략.
   const counts =
-    input.folderCount != null && input.fileCount != null ? `폴더 ${input.folderCount} · 파일 ${input.fileCount}` : null;
+    !input.q && input.folderCount != null && input.fileCount != null ? `폴더 ${input.folderCount} · 파일 ${input.fileCount}` : null;
   const ctx: AiScreenContext = {
     view: '드라이브',
     scope: {
