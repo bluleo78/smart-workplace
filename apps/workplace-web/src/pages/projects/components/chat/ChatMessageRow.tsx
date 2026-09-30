@@ -12,7 +12,7 @@ import { downloadChatDriveLink } from '@/api/driveLinks';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList';
-import { MESSAGE_TOOLBAR_CLASS } from '@/components/chat/messageToolbar';
+import { MESSAGE_TOOLBAR_CLASS, OWN_ATTACHMENTS_CLASS } from '@/components/chat/messageToolbar';
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
 import { useTapReveal } from '@/hooks/useTapReveal';
 
@@ -49,6 +49,7 @@ export function ChatMessageRow({
         .map((seg) => (seg.type === 'text' ? seg.value : `@${seg.name}`))
         .join('');
   // 터치 기기: 행을 탭하면 툴바 노출. 행마다 독립 상태라 다른 행을 탭하면 이 행은 닫힌다.
+  // 훅은 조건 없이 호출하되(훅 규칙), 툴바가 있는 본인 행에만 탭 노출 props 를 펼친다.
   const tapProps = useTapReveal()(message.id);
   // 첨부만 있고 본문이 빈 본인 메시지는 빈 말풍선을 그리지 않는다.
   const hasBody = message.deleted || message.body.trim() !== '';
@@ -149,7 +150,7 @@ export function ChatMessageRow({
       data-agent={isAgent ? 'true' : undefined}
       data-pending={isPending ? 'true' : undefined}
       data-own={isOwn ? 'true' : 'false'}
-      {...tapProps}
+      {...(isOwn ? tapProps : {})}
       className={`group relative flex gap-2 px-3 py-2 ${
         isAgent ? 'border-l-2 border-ai-accent' : ''
       } ${isPending ? 'opacity-60' : ''} ${isOwn ? 'justify-end' : ''}`}
@@ -169,9 +170,8 @@ export function ChatMessageRow({
             )}
           </div>
           {hasBody && body}
-          {/* 첨부 목록은 max-content 폭이라 긴 파일명이 컬럼(75%)을 넘어 왼쪽이 잘린다.
-              w-full 로 컬럼 폭에 묶고 items-end 로 우측 정렬을 유지하며, 목록·카드(button)는 max-w-full 로 min-content 폭 확장을 막아 카드 안에서 파일명이 말줄임되게 한다. */}
-          {attachments && <div className="flex w-full min-w-0 flex-col items-end [&>*]:max-w-full [&_button]:max-w-full">{attachments}</div>}
+          {/* 본인 컬럼 폭(75%)에 묶는 첨부 래퍼 — 이유는 OWN_ATTACHMENTS_CLASS 주석 참조. */}
+          {attachments && <div className={OWN_ATTACHMENTS_CLASS}>{attachments}</div>}
         </div>
       ) : (
         <>

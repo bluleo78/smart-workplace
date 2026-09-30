@@ -565,6 +565,10 @@ test.describe('메시지 좌/우 분리', () => {
     // 좁은 채팅 컬럼에서도 동일.
     await page.setViewportSize({ width: 700, height: 800 })
     await assertCardInside()
+    // 카드가 좁아져도 크기 라벨("48 KB")은 줄바꿈되지 않고 한 줄로 남는다(파일명만 줄어든다).
+    const size = page.getByTestId('attachment-card-900').getByText('48 KB')
+    await expect(size).toHaveCSS('white-space', 'nowrap')
+    expect((await size.boundingBox())!.height).toBeLessThan(24)
   })
 
   test('목록 맨 위 메시지의 툴바가 목록 영역 밖으로 잘리지 않는다', async ({ authenticatedPage: page }) => {
@@ -572,6 +576,8 @@ test.describe('메시지 좌/우 분리', () => {
     // (scrollIntoViewIfNeeded 는 행 top 을 스크롤 영역 top 에 딱 붙여 상단 패딩이 사라지므로 scrollTop=0 으로 직접 올린다.)
     await page.getByTestId('message-scroll-area').evaluate((el) => { el.scrollTop = 0 })
     await page.getByTestId('message-30').hover()
+    // 툴바가 숨겨진 채로 통과하지 못하게 실제로 보이는지 먼저 확인한다.
+    await expect(page.getByTestId('message-toolbar-30')).toHaveCSS('opacity', '1')
     const toolbar = await box(page, 'message-toolbar-30')
     expect(toolbar.y).toBeGreaterThanOrEqual(await scrollViewportTop(page, 'message-list'))
   })
@@ -615,9 +621,10 @@ test.describe('메시지 좌/우 분리', () => {
 
   test('수정됨 표시는 말풍선 안, 삭제된 본인 메시지는 우측 점선 말풍선', async ({ authenticatedPage: page }) => {
     await expect(page.getByTestId('message-body-33').getByTestId('message-edited-33')).toHaveText('(수정됨)')
-    // wrap-anywhere 말풍선에서도 '(수정됨)' 이 낱말 중간에서 끊기지 않는다(한 줄 높이).
-    // 줄바꿈 위치는 폭에 좌우되므로 여러 폭에서 확인한다.
-    for (let width = 900; width <= 1440; width += 12) {
+    // wrap-anywhere 말풍선에서도 '(수정됨)' 이 낱말 중간에서 끊기지 않는다.
+    // 불변식은 white-space:nowrap 이고, 실제 한 줄 높이는 대표 폭 두 곳에서만 확인한다.
+    await expect(page.getByTestId('message-edited-33')).toHaveCSS('white-space', 'nowrap')
+    for (const width of [900, 1200]) {
       await page.setViewportSize({ width, height: 800 })
       expect((await box(page, 'message-edited-33')).height, `width ${width}`).toBeLessThan(24)
     }
@@ -652,6 +659,115 @@ test.describe('메시지 좌/우 분리', () => {
   })
 })
 
+// ── 384px 스레드 패널 — 본인 부모 메시지 + 긴 본문·반응 6종·긴 파일명 답글 ──────────
+// 완료 기준에 명시된 좁은 표면. 과거 스크린샷에서 페이지 전체가 ~32px 밀린 적이 있어
+// 가로 넘침·툴바 잘림·조상 스크롤 오프셋을 함께 회귀 고정한다.
+const THREAD_CHANNEL_ID = 704
+const THREAD_PARENT_ID = 8800
+
+test.describe('메시지 좌/우 분리 — 스레드 패널(384px)', () => {
+  test('본인 부모·답글이 패널 안에 갇히고, 툴바가 잘리거나 페이지가 밀리지 않는다', async ({ authenticatedPage: page }) => {
+    const channel = createChannel({ id: THREAD_CHANNEL_ID, name: '스레드정렬', memberCount: 2 })
+    const parent = createMessage({
+      id: THREAD_PARENT_ID, channelId: THREAD_CHANNEL_ID, authorId: 1, authorName: 'me', authorKind: 'HUMAN',
+      body: '내 부모 메시지', createdAt: '2026-06-06T03:00:00', replyCount: 3,
+    })
+    const longParagraph = '스레드 패널 폭에서 줄바꿈되어야 하는 아주 긴 문단입니다. '.repeat(8) + LONG_URL
+    const emojis = ['👍', '❤️', '😂', '🎉', '🙏', '👀']
+    const ownReply = createMessage({
+      id: THREAD_PARENT_ID + 1, channelId: THREAD_CHANNEL_ID, parentMessageId: THREAD_PARENT_ID,
+      authorId: 1, authorName: 'me', authorKind: 'HUMAN', body: longParagraph, createdAt: '2026-06-06T03:01:00',
+      reactions: emojis.map((emoji, i) => ({ emoji, count: i + 1, reacted: i % 2 === 0 })),
+      attachments: [
+        { fileId: 901, messageId: THREAD_PARENT_ID + 1, originalName: `2026-10-01_스레드첨부_${'아주긴파일명_'.repeat(14)}.xlsx`, mimeType: 'application/vnd.ms-excel', sizeBytes: 49152, attachedById: 1, attachedByName: 'me', attachedAt: '2026-06-06T03:01:00' },
+      ],
+    })
+    const peerReply = createMessage({
+      id: THREAD_PARENT_ID + 2, channelId: THREAD_CHANNEL_ID, parentMessageId: THREAD_PARENT_ID,
+      authorId: 20, authorName: '동료', authorKind: 'HUMAN', body: '동료 답글', createdAt: '2026-06-06T03:02:00',
+    })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, THREAD_CHANNEL_ID, [
+      createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
+      createChannelMember({ userId: 20, name: '동료', kind: 'HUMAN' }),
+    ])
+    await stubMessages(page, THREAD_CHANNEL_ID, [parent])
+    // 답글은 ASC 페이지.
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/messages/${THREAD_PARENT_ID}/replies`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ items: [ownReply, peerReply], nextCursor: null, hasMore: false }),
+            })
+          : route.fallback(),
+    )
+    await stubMarkRead(page, THREAD_CHANNEL_ID)
+    await stubUsers(page)
+
+    await page.goto(`/chat/channels/${THREAD_CHANNEL_ID}`)
+    await page.getByTestId(`message-thread-link-${THREAD_PARENT_ID}`).click()
+    const panel = page.getByTestId('thread-panel')
+    await expect(panel).toBeVisible()
+    await expect(panel.getByTestId(`message-${THREAD_PARENT_ID + 1}`)).toBeVisible()
+    await expect(panel.getByTestId('attachment-card-901')).toBeVisible()
+
+    // 패널 폭은 384px 고정.
+    expect((await box(page, 'thread-panel')).width).toBeCloseTo(384, 0)
+
+    // (c) 페이지·조상이 밀리지 않았는지 — 패널 자신의 스크롤 컨테이너(overflow-y:auto) 위쪽 조상은 scrollTop 이 0 이어야 한다.
+    //     스크롤 컨테이너 자체는 답글이 길어 스크롤될 수 있으므로 제외한다.
+    const assertNoPageShift = async (when: string) => {
+      const r = await page.evaluate(() => {
+        const panelEl = document.querySelector('[data-testid="thread-panel"]')!
+        const inner = panelEl.querySelector(':scope > div.overflow-y-auto')
+        const bad: string[] = []
+        for (let n: Element | null = panelEl; n; n = n.parentElement) {
+          if (n.scrollTop !== 0 || n.scrollLeft !== 0) bad.push(`${n.tagName}.${(n as HTMLElement).className}:${n.scrollTop}/${n.scrollLeft}`)
+        }
+        return { scrollY: window.scrollY, docTop: document.documentElement.scrollTop, bad, innerFound: !!inner }
+      })
+      expect(r.innerFound, `${when} 패널 스크롤 컨테이너`).toBe(true)
+      expect(r.scrollY, `${when} window.scrollY`).toBe(0)
+      expect(r.docTop, `${when} documentElement.scrollTop`).toBe(0)
+      expect(r.bad, `${when} 패널·조상의 scroll 오프셋`).toEqual([])
+    }
+    await assertNoPageShift('열기 직후')
+
+    // (a) 가로 넘침 없음 — 패널과 그 조상 전부.
+    expect(await hasHorizontalOverflow(page, 'thread-panel')).toBe(false)
+
+    // (b) 부모 hover → 툴바 표시, 툴바 top 이 패널 스크롤 뷰포트 위로 나가지 않는다.
+    const parentRow = panel.getByTestId(`message-${THREAD_PARENT_ID}`)
+    await parentRow.hover()
+    const toolbar = panel.getByTestId(`message-toolbar-${THREAD_PARENT_ID}`)
+    await expect(toolbar).toHaveCSS('opacity', '1')
+    const tb = (await toolbar.boundingBox())!
+    const viewportTop = await panel.evaluate((el) => el.querySelector(':scope > div.overflow-y-auto')!.getBoundingClientRect().top)
+    expect(tb.y).toBeGreaterThanOrEqual(viewportTop)
+    await assertNoPageShift('hover 후')
+
+    // 툴바 버튼 포커스 후에도 스크롤 오프셋이 생기지 않는다(focus 로 인한 scrollIntoView 회귀).
+    await toolbar.getByRole('button').first().focus()
+    await assertNoPageShift('버튼 포커스 후')
+    expect(await hasHorizontalOverflow(page, 'thread-panel')).toBe(false)
+
+    // 긴 문단 답글·첨부는 패널(384px) 밖으로 나가지 않는다.
+    const panelBox = await box(page, 'thread-panel')
+    const card = (await panel.getByTestId('attachment-card-901').boundingBox())!
+    expect(card.x).toBeGreaterThanOrEqual(panelBox.x)
+    expect(card.x + card.width).toBeLessThanOrEqual(panelBox.x + panelBox.width + 1)
+    const reply = (await panel.getByTestId(`message-body-${THREAD_PARENT_ID + 1}`).boundingBox())!
+    expect(reply.x + reply.width).toBeLessThanOrEqual(panelBox.x + panelBox.width + 1)
+  })
+})
+
 test.describe('메시지 좌/우 분리 — 터치', () => {
   // hover 가 없는 터치 입력에서는 탭으로 툴바를 드러낸다.
   test.use({ hasTouch: true })
@@ -670,6 +786,12 @@ test.describe('메시지 좌/우 분리 — 터치', () => {
     await expect(peerRow).not.toHaveAttribute('data-tap-active', 'true')
     await expect(page.getByTestId('message-30')).toHaveAttribute('data-tap-active', 'true')
     await expect(page.getByTestId('message-toolbar-30')).toHaveCSS('opacity', '1')
+
+    // 메시지 행이 아닌 곳(컴포저 영역)을 탭하면 활성 행이 닫힌다 —
+    // useTapReveal 의 "행이 아닌 곳에서 pointerdown" 분기. 에뮬레이트된 hover 로 opacity 가 1 일 수 있어
+    // 판별은 opacity 가 아니라 data-tap-active 로 한다.
+    await page.getByTestId('message-composer-input').tap()
+    await expect(page.getByTestId('message-30')).not.toHaveAttribute('data-tap-active', 'true')
   })
 })
 

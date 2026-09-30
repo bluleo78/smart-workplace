@@ -13,3 +13,14 @@ export const MESSAGE_TOOLBAR_CLASS =
   'group-hover:pointer-events-auto group-hover:opacity-100 ' +
   'group-focus-within:pointer-events-auto group-focus-within:opacity-100 ' +
   'group-data-[tap-active=true]:pointer-events-auto group-data-[tap-active=true]:opacity-100'
+
+// 본인(오른쪽) 컬럼의 첨부 목록 래퍼. 첨부 목록은 max-content 폭이라 긴 파일명이 컬럼(75%)을 넘어
+// 왼쪽이 잘린다. w-full 로 컬럼 폭에 묶고 items-end 로 우측 정렬을 유지하며, 자식(이미지 span)은
+// max-w-full 로 제한한다. 카드 버튼의 max-w-full min-w-0 는 MessageAttachmentList 가 직접 가진다.
+export const OWN_ATTACHMENTS_CLASS = 'flex w-full min-w-0 flex-col items-end [&>*]:max-w-full'
+
+// 본인 후속 줄의 hover 시각(말풍선 왼쪽 옆). 자리는 항상 예약하고 opacity 로만 토글해
+// hover 전후로 행 높이·말풍선 위치가 변하지 않게 한다. 노출은 hover·터치 탭 두 경로.
+export const HOVER_TIME_REVEAL_CLASS =
+  'text-xs leading-4 tabular-nums text-muted-foreground whitespace-nowrap opacity-0 transition-opacity ' +
+  'group-hover:opacity-100 group-data-[tap-active=true]:opacity-100'

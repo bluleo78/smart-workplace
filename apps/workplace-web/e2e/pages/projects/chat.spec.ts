@@ -12,6 +12,7 @@ import {
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import { hydrateMentions } from '../../../src/lib/chat-mentions';
+import { formatChatTimestamp } from '../../../src/pages/projects/components/chat/formatChatTimestamp';
 import type { ChatMessageResponse } from '../../../src/types/chat';
 import type { IssueDetailResponse } from '../../../src/types/issue';
 
@@ -542,6 +543,15 @@ test.describe('이슈 chat panel', () => {
     await expect(peerHumanChip).toHaveClass(/bg-muted/);
     await expect(peerHumanChip).toHaveClass(/text-foreground/);
     await expect(peerHumanChip).not.toHaveClass(/bg-background/);
+
+    // 회귀: 본인 메시지도 hover 없이 시각이 보인다(시각 줄 = 툴바와 같은 relative 컨테이너의 span).
+    const ownTime = ownRow
+      .locator('div.relative')
+      .first()
+      .locator('span', { hasText: formatChatTimestamp(stubs.thread.recentMessages[1].createdAt) })
+      .first();
+    await expect(ownTime).toBeVisible();
+    await expect(ownTime).toHaveCSS('opacity', '1');
 
     // 본인 "(수정됨)" 은 좁은 시각 줄에서 단어 중간에 끊기지 않는다.
     await expect(ownRow.getByLabel('수정됨')).toHaveClass(/whitespace-nowrap/);

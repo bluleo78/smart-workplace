@@ -16,7 +16,7 @@ import { DateDivider } from '@/components/chat/DateDivider'
 import { EmojiPicker } from '@/components/chat/EmojiPicker'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
 import { MessageImage } from '@/components/chat/MessageImage'
-import { MESSAGE_TOOLBAR_CLASS } from '@/components/chat/messageToolbar'
+import { HOVER_TIME_REVEAL_CLASS, MESSAGE_TOOLBAR_CLASS, OWN_ATTACHMENTS_CLASS } from '@/components/chat/messageToolbar'
 import { ProposalCard } from '@/components/chat/ProposalCard'
 import { ReactionBar } from '@/components/chat/ReactionBar'
 import { UnreadDivider } from '@/components/chat/UnreadDivider'
@@ -321,7 +321,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                       hover 전후로 말풍선 위치·행 높이가 변하지 않는다(a78a39b7 회귀 방지). */}
                   {!startsGroup && (
                     <span
-                      className="shrink-0 self-start whitespace-nowrap pt-2 text-xs leading-4 tabular-nums text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-data-[tap-active=true]:opacity-100"
+                      className={`shrink-0 self-start pt-2 ${HOVER_TIME_REVEAL_CLASS}`}
                       data-testid={`message-hovertime-${m.id}`}
                     >
                       {formatClockTimeCompact(m.createdAt)}
@@ -342,9 +342,8 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                       {!startsGroup && toolbar}
                       {body}
                     </div>
-                    {/* 첨부 목록은 max-content 폭이라 긴 파일명이 컬럼(75%)을 넘어 왼쪽이 잘린다.
-                        w-full 로 컬럼 폭에 묶고 items-end 로 우측 정렬을 유지하며, 목록·카드(button)는 max-w-full 로 min-content 폭 확장을 막아 카드 안에서 파일명이 말줄임되게 한다. */}
-                    {attachments && <div className="flex w-full min-w-0 flex-col items-end [&>*]:max-w-full [&_button]:max-w-full">{attachments}</div>}
+                    {/* 본인 컬럼 폭(75%)에 묶는 첨부 래퍼 — 이유는 OWN_ATTACHMENTS_CLASS 주석 참조. */}
+                    {attachments && <div className={OWN_ATTACHMENTS_CLASS}>{attachments}</div>}
                     {reactions}
                     {threadLink}
                   </div>
@@ -359,7 +358,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                         <ChatAvatar userId={m.authorId} name={m.authorName} kind={m.authorKind} />
                       ) : (
                         <span
-                          className="block whitespace-nowrap pt-px text-right text-xs leading-4 tabular-nums text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-data-[tap-active=true]:opacity-100"
+                          className={`block pt-px text-right ${HOVER_TIME_REVEAL_CLASS}`}
                           data-testid={`message-hovertime-${m.id}`}
                         >
                           {formatClockTimeCompact(m.createdAt)}
