@@ -7,6 +7,8 @@ WORKDIR /app
 
 # 워크스페이스 설정·lockfile·.npmrc(shamefully-hoist) 먼저 복사 → 의존성 캐싱
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
+# pnpm-workspace.yaml 의 patchedDependencies(WP-113) 가 참조 — 없으면 frozen install 이 실패한다
+COPY patches ./patches
 COPY apps/workplace-web/package.json ./apps/workplace-web/
 COPY packages/mcp-tools-shared/package.json ./packages/mcp-tools-shared/
 

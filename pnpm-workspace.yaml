@@ -1,3 +1,8 @@
 packages:
   - apps/*
   - packages/*
+patchedDependencies:
+  # WP-113: locator 단언·액션 재시도 backoff 꼬리값 500ms → 100ms (설정 옵션 없음, coreBundle.js 한 줄).
+  # 화면이 ~300ms 뒤 뜨면 원본은 다음 확인까지 최대 500ms 를 헛대기해 E2E 전체가 10.0분 → 7.5분으로 줄었다.
+  # Playwright 버전을 올리면 이 patch 가 적용되지 않으므로 새 버전 기준으로 `pnpm patch` 로 다시 만든다.
+  playwright-core@1.60.0: patches/playwright-core@1.60.0.patch

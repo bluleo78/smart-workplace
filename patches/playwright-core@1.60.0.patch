@@ -1,0 +1,13 @@
+diff --git a/lib/coreBundle.js b/lib/coreBundle.js
+index bc601fcf741792e3fc76884a28a3c43f80c6472f..bd9d65f316309a9b13815ff2ef77844e5d460450 100644
+--- a/lib/coreBundle.js
++++ b/lib/coreBundle.js
+@@ -17977,7 +17977,7 @@ var init_frames = __esm({
+         return result2;
+       }
+       async retryWithProgressAndBackoff(progress2, action) {
+-        const backoffScale = [20, 50, 100, 100, 500];
++        const backoffScale = [20, 50, 100, 100, 100];
+         if (progress2.timeout) {
+           while (backoffScale.length && backoffScale[backoffScale.length - 1] > progress2.timeout / 5)
+             backoffScale.pop();

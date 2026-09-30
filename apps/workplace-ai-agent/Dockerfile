@@ -14,6 +14,8 @@ WORKDIR /app
 # .npmrc(shamefully-hoist=true) 포함 — 미포함 시 node_modules 비평탄화로 tsc TS2742
 # (@types/express-serve-static-core 명명 불가) 빌드 실패.
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
+# pnpm-workspace.yaml 의 patchedDependencies(WP-113) 가 참조 — 없으면 frozen install 이 실패한다
+COPY patches ./patches
 COPY apps/workplace-ai-agent/package.json ./apps/workplace-ai-agent/
 COPY packages/mcp-tools-shared/package.json ./packages/mcp-tools-shared/
 
