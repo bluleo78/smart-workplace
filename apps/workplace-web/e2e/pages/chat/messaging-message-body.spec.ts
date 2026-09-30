@@ -237,8 +237,9 @@ test.describe('@멘션 칩 시맨틱 토큰', () => {
     const mentionMsg = createMessage({
       id: 10,
       channelId: MENTION_CHANNEL_ID,
-      authorId: 1,
-      authorName: 'me',
+      // 타인 메시지 — 본인 말풍선 안 칩은 별도 스타일(bg-background)이라 기존 칩 토큰은 타인 행에서 검증한다(#884).
+      authorId: 5,
+      authorName: '다른사람',
       authorKind: 'HUMAN',
       body: '안녕 <@10> <@99>',
       mentions: [
@@ -353,127 +354,513 @@ test.describe('@멘션 칩 시맨틱 토큰', () => {
   )
 })
 
-// ── 균일 좌측 정렬(Slack식) ──────────────────────────────────────────────────
-// 본인/타인/AGENT 모두 동일한 좌측 행(아바타 거터 + 이름 헤더). 우측 버블·우측 정렬 없음.
+// ── 좌/우 분리 (#884) ───────────────────────────────────────────────────────
+// 본인 메시지는 우측 말풍선(아바타·이름 없음), 타인·AGENT 는 좌측 평문(아바타 거터 + 이름 헤더).
+// a78a39b7 이 고쳤던 세 가지(호버 시 행 점프, 툴바와 말풍선 겹침, 본인 시각 미표시)를 회귀 단언으로 유지한다.
 
 const OWN_CHANNEL_ID = 702
+// 공백 없는 긴 문자열 — 말풍선이 75% 안에서 줄바꿈되는지 확인용.
+const LONG_URL = `https://example.com/${'very-long-path-segment-'.repeat(12)}end`
 
-test.describe('메시지 균일 좌측 정렬', () => {
+async function setupSplitChannel(page: Page) {
+  const channel = createChannel({ id: OWN_CHANNEL_ID, name: '정렬테스트', memberCount: 3 })
+
+  // 30·33·34·35: 본인(authorId=1) 연속 4건 — 30 이 묶음 첫 줄이자 목록 맨 위.
+  const ownFirst = createMessage({
+    id: 30, channelId: OWN_CHANNEL_ID, authorId: 1, authorName: 'me', authorKind: 'HUMAN',
+    body: '내 메시지', createdAt: '2026-06-06T03:00:00',
+  })
+  const ownFollow = createMessage({
+    id: 33, channelId: OWN_CHANNEL_ID, authorId: 1, authorName: 'me', authorKind: 'HUMAN',
+    body: LONG_URL, createdAt: '2026-06-06T03:00:20', editedAt: '2026-06-06T03:00:25',
+    reactions: [{ emoji: '👍', count: 2, reacted: true }],
+  })
+  const ownDeleted = createMessage({
+    id: 34, channelId: OWN_CHANNEL_ID, authorId: 1, authorName: 'me', authorKind: 'HUMAN',
+    body: '', deleted: true, createdAt: '2026-06-06T03:00:30',
+  })
+  // 본문 없이 첨부만 있는 본인 메시지.
+  const ownAttachmentOnly = createMessage({
+    id: 35, channelId: OWN_CHANNEL_ID, authorId: 1, authorName: 'me', authorKind: 'HUMAN',
+    body: '', createdAt: '2026-06-06T03:00:40',
+    attachments: [
+      { fileId: 900, messageId: 35, originalName: `2026-10-01_운영배포_체크리스트_최종_v3_${'아주긴파일명_'.repeat(14)}.xlsx`, mimeType: 'application/vnd.ms-excel', sizeBytes: 49152, attachedById: 1, attachedByName: 'me', attachedAt: '2026-06-06T03:00:40' },
+    ],
+  })
+  const peerMsg = createMessage({
+    id: 31, channelId: OWN_CHANNEL_ID, authorId: 20, authorName: '동료', authorKind: 'HUMAN',
+    body: '동료 메시지', createdAt: '2026-06-06T03:01:00',
+    reactions: [{ emoji: '👍', count: 1, reacted: false }],
+  })
+  const agentMsg = createMessage({
+    id: 32, channelId: OWN_CHANNEL_ID, authorId: 99, authorName: 'My AI', authorKind: 'AGENT',
+    body: '에이전트 메시지', createdAt: '2026-06-06T03:02:00',
+  })
+
+  // 36·37: 사람·에이전트를 함께 멘션한 본인/타인 메시지 — 칩 대비(#884) 검증용.
+  const mentions = [
+    { id: 20, username: 'peer', name: '동료', kind: 'HUMAN' as const },
+    { id: 99, username: 'myai', name: 'My AI', kind: 'AGENT' as const },
+  ]
+  const ownMention = createMessage({
+    id: 36, channelId: OWN_CHANNEL_ID, authorId: 1, authorName: 'me', authorKind: 'HUMAN',
+    body: '<@99> 요약해줘 <@20>', mentions, createdAt: '2026-06-06T03:03:00',
+  })
+  const peerMention = createMessage({
+    id: 37, channelId: OWN_CHANNEL_ID, authorId: 20, authorName: '동료', authorKind: 'HUMAN',
+    body: '<@99> 확인 부탁', mentions, createdAt: '2026-06-06T03:04:00',
+  })
+
+  await stubChannelsList(page, [channel])
+  await stubDmsList(page)
+  await stubStream(page)
+  await stubChannelDetail(page, channel)
+  await stubMembers(page, OWN_CHANNEL_ID, [
+    createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
+    createChannelMember({ userId: 20, name: '동료', kind: 'HUMAN' }),
+    createChannelMember({ userId: 99, name: 'My AI', kind: 'AGENT' }),
+  ])
+  // API 는 DESC(최신순).
+  await stubMessages(page, OWN_CHANNEL_ID, [peerMention, ownMention, agentMsg, peerMsg, ownAttachmentOnly, ownDeleted, ownFollow, ownFirst])
+  await stubMarkRead(page, OWN_CHANNEL_ID)
+  await stubUsers(page)
+
+  await page.goto(`/chat/channels/${OWN_CHANNEL_ID}`)
+  await expect(page.getByTestId('message-list')).toBeVisible()
+}
+
+/**
+ * testId 요소와 그 조상 중 가로로 넘치는(scrollWidth > clientWidth) 것이 있는지.
+ * message-list 자체가 아니라 실제 스크롤 컨테이너(MessageScrollArea 등)가 넓어지는 경우까지 잡는다.
+ */
+async function hasHorizontalOverflow(page: Page, testId: string) {
+  return page.getByTestId(testId).evaluate((el) => {
+    for (let n: Element | null = el; n; n = n.parentElement) {
+      if (n.scrollWidth > n.clientWidth + 1) return true
+    }
+    return false
+  })
+}
+
+/** testId 요소의 가장 가까운 세로 스크롤 조상의 화면상 top. 툴바가 이 위로 나가면 잘린다. */
+async function scrollViewportTop(page: Page, testId: string) {
+  return page.getByTestId(testId).evaluate((el) => {
+    for (let n: Element | null = el.parentElement; n; n = n.parentElement) {
+      const oy = getComputedStyle(n).overflowY
+      if (oy === 'auto' || oy === 'scroll' || oy === 'hidden') return n.getBoundingClientRect().top
+    }
+    return 0
+  })
+}
+
+/** 요소의 boundingBox 를 non-null 로 돌려준다(없으면 테스트 실패). */
+async function box(page: Page, testId: string) {
+  const b = await page.getByTestId(testId).boundingBox()
+  expect(b, `${testId} boundingBox`).not.toBeNull()
+  return b!
+}
+
+test.describe('메시지 좌/우 분리', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
-    const channel = createChannel({ id: OWN_CHANNEL_ID, name: '정렬테스트', memberCount: 3 })
+    await setupSplitChannel(page)
+  })
 
-    // id 30: 본인(authorId=1), id 31: 타인(id=20), id 32: AGENT(id=99)
-    const ownMsg = createMessage({
-      id: 30,
-      channelId: OWN_CHANNEL_ID,
-      authorId: 1,
-      authorName: 'me',
-      authorKind: 'HUMAN',
-      body: '내 메시지',
-      createdAt: '2026-06-06T03:00:00',
+  test(
+    '본인 메시지는 우측 말풍선 — 아바타·이름 없음',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      const ownRow = page.getByTestId('message-30')
+      await expect(ownRow).toHaveAttribute('data-own', 'true')
+      await expect(ownRow).toHaveClass(/justify-end/)
+      await expect(page.getByTestId('message-body-30')).toHaveClass(/rounded-2xl/)
+      await expect(page.getByTestId('message-body-30')).toHaveClass(/bg-primary\/10/)
+      // 본인 행에는 아바타·이름을 그리지 않는다.
+      await expect(ownRow.getByTestId('chat-avatar-1')).toHaveCount(0)
+      // 이름은 화면에 보이지 않는다(스크린리더용 sr-only 텍스트만 존재).
+      await expect(ownRow.getByText('me', { exact: true })).toHaveClass(/sr-only/)
+      // 말풍선이 실제로 목록 오른쪽 절반에 있다(클래스만이 아니라 좌표로 확인).
+      const list = await box(page, 'message-list')
+      const body = await box(page, 'message-body-30')
+      expect(body.x).toBeGreaterThan(list.x + list.width / 2)
+    },
+  )
+
+  test('타인·AGENT 메시지는 좌측 평문 — 아바타·이름 표시, 말풍선 없음', async ({ authenticatedPage: page }) => {
+    const peerRow = page.getByTestId('message-31')
+    await expect(peerRow).toHaveAttribute('data-own', 'false')
+    await expect(peerRow).not.toHaveClass(/justify-end/)
+    await expect(peerRow.getByTestId('chat-avatar-20')).toBeVisible()
+    await expect(peerRow.getByText('동료', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('message-body-31')).not.toHaveClass(/rounded-2xl/)
+    await expect(page.getByTestId('message-body-31')).not.toHaveClass(/bg-primary\/10/)
+
+    await expect(page.getByTestId('message-32')).toHaveAttribute('data-own', 'false')
+    await expect(page.getByTestId('chat-avatar-agent-99')).toBeVisible()
+
+    // 본문이 목록 왼쪽에서 시작한다(거터 40px + 여백 안쪽).
+    const list = await box(page, 'message-list')
+    const body = await box(page, 'message-body-31')
+    expect(body.x).toBeLessThan(list.x + 100)
+  })
+
+  test('내 묶음 첫 말풍선 — 시각 항상 표시, 툴바는 시각 왼쪽이고 말풍선과 겹치지 않는다', async ({ authenticatedPage: page }) => {
+    // 회귀 3: 본인 메시지에도 시각이 보인다(호버 없이).
+    await expect(page.getByTestId('message-time-30')).toBeVisible()
+    await expect(page.getByTestId('message-time-30')).toHaveCSS('opacity', '1')
+
+    await page.getByTestId('message-30').hover()
+    await expect(page.getByTestId('message-toolbar-30')).toHaveCSS('opacity', '1')
+
+    const toolbar = await box(page, 'message-toolbar-30')
+    const time = await box(page, 'message-time-30')
+    const body = await box(page, 'message-body-30')
+    // 툴바는 시각의 왼쪽에 나란히.
+    expect(toolbar.x + toolbar.width).toBeLessThanOrEqual(time.x + 0.5)
+    // 회귀 2: 툴바가 말풍선과 겹치지 않는다(툴바 아래 끝이 말풍선 위 끝보다 위).
+    expect(toolbar.y + toolbar.height).toBeLessThanOrEqual(body.y + 0.5)
+  })
+
+  test('내 후속 말풍선 — 호버 시각은 왼쪽 옆, 툴바는 말풍선 위, 호버 전후 말풍선 위치 불변', async ({ authenticatedPage: page }) => {
+    const hoverTime = page.getByTestId('message-hovertime-33')
+    const before = await box(page, 'message-body-33')
+    await expect(hoverTime).toHaveCSS('opacity', '0')
+
+    await page.getByTestId('message-33').hover()
+    await expect(hoverTime).toHaveCSS('opacity', '1')
+    await expect(page.getByTestId('message-toolbar-33')).toHaveCSS('opacity', '1')
+
+    // 회귀 1: 호버로 행이 흔들리지 않는다.
+    const after = await box(page, 'message-body-33')
+    expect(after).toEqual(before)
+
+    const toolbar = await box(page, 'message-toolbar-33')
+    const time = await box(page, 'message-hovertime-33')
+    // 회귀 2: 툴바는 말풍선 위에 있고 겹치지 않는다.
+    expect(toolbar.y + toolbar.height).toBeLessThanOrEqual(after.y + 0.5)
+    // 호버 시각은 말풍선 왼쪽 옆, 한 줄(줄 높이 16px + 위 패딩 8px = 24px. 두 줄이면 40px).
+    expect(time.x + time.width).toBeLessThanOrEqual(after.x + 0.5)
+    expect(time.height).toBeLessThan(30)
+  })
+
+  test('공백 없는 긴 문자열도 말풍선 안에서 줄바꿈 — 가로 스크롤 없음', async ({ authenticatedPage: page }) => {
+    const list = await box(page, 'message-list')
+    const body = await box(page, 'message-body-33')
+    // 말풍선은 목록 폭의 75% 를 넘지 않는다.
+    expect(body.width).toBeLessThanOrEqual(list.width * 0.75 + 1)
+    expect(await hasHorizontalOverflow(page, 'message-list')).toBe(false)
+  })
+
+  test('첨부만 있는 본인 메시지 — 빈 말풍선을 그리지 않고 첨부는 오른쪽, 긴 파일명은 카드 안에서 잘린다', async ({ authenticatedPage: page }) => {
+    await expect(page.getByTestId('message-body-35')).toHaveCount(0)
+    // 카드가 본인 컬럼(목록 폭의 75%)을 넘거나 목록 왼쪽 밖으로 잘리지 않고 오른쪽 끝에 붙는다.
+    const assertCardInside = async () => {
+      const list = await box(page, 'message-list')
+      const card = await box(page, 'attachment-card-900')
+      expect(card.width).toBeLessThanOrEqual(list.width * 0.75 + 1)
+      expect(card.x).toBeGreaterThanOrEqual(list.x)
+      expect(card.x + card.width).toBeGreaterThan(list.x + list.width - 40)
+      expect(await hasHorizontalOverflow(page, 'message-list')).toBe(false)
+    }
+    await assertCardInside()
+    // 좁은 채팅 컬럼에서도 동일.
+    await page.setViewportSize({ width: 700, height: 800 })
+    await assertCardInside()
+    // 카드가 좁아져도 크기 라벨("48 KB")은 줄바꿈되지 않고 한 줄로 남는다(파일명만 줄어든다).
+    const size = page.getByTestId('attachment-card-900').getByText('48 KB')
+    await expect(size).toHaveCSS('white-space', 'nowrap')
+    expect((await size.boundingBox())!.height).toBeLessThan(24)
+  })
+
+  test('목록 맨 위 메시지의 툴바가 목록 영역 밖으로 잘리지 않는다', async ({ authenticatedPage: page }) => {
+    // 목록을 맨 위로 올린 상태에서, 툴바 위 끝이 스크롤 영역의 위 끝보다 아래에 있어야 한다.
+    // (scrollIntoViewIfNeeded 는 행 top 을 스크롤 영역 top 에 딱 붙여 상단 패딩이 사라지므로 scrollTop=0 으로 직접 올린다.)
+    await page.getByTestId('message-scroll-area').evaluate((el) => { el.scrollTop = 0 })
+    await page.getByTestId('message-30').hover()
+    // 툴바가 숨겨진 채로 통과하지 못하게 실제로 보이는지 먼저 확인한다.
+    await expect(page.getByTestId('message-toolbar-30')).toHaveCSS('opacity', '1')
+    const toolbar = await box(page, 'message-toolbar-30')
+    expect(toolbar.y).toBeGreaterThanOrEqual(await scrollViewportTop(page, 'message-list'))
+  })
+
+  test('스크롤 영역 위 끝에 걸린 메시지의 툴바는 아래로 뒤집혀 잘리지 않는다', async ({ authenticatedPage: page }) => {
+    // 목록이 스크롤되도록 창 높이를 줄인다.
+    await page.setViewportSize({ width: 1280, height: 420 })
+    const viewport = page.getByTestId('message-scroll-area')
+    // 행의 위 끝을 스크롤 영역 위 끝에 딱 붙인다 → 위쪽 툴바는 영역 밖으로 나간다.
+    // 창 크기 변경 뒤 목록의 "맨 아래 유지" 스크롤이 늦게 올 수 있어, 두 번 연속 정렬된 상태로 남을 때까지 반복한다.
+    const alignRowToTop = (id: number) =>
+      expect
+        .poll(() =>
+          viewport.evaluate((el, rowId) => {
+            const row = el.querySelector(`[data-testid="message-${rowId}"]`)!
+            const d = row.getBoundingClientRect().top - el.getBoundingClientRect().top
+            el.scrollTop += d
+            return Math.abs(d)
+          }, id),
+        )
+        .toBeLessThan(1)
+    // 한 번의 evaluate 로 재서 측정 사이에 스크롤이 끼어들지 않게 한다.
+    const measure = (id: number) =>
+      viewport.evaluate((el, rowId) => {
+        const q = (t: string) => el.querySelector(`[data-testid="${t}"]`)!.getBoundingClientRect()
+        const body = el.querySelector(`[data-testid="message-body-${rowId}"]`)?.getBoundingClientRect()
+        return {
+          flip: el.querySelector(`[data-testid="message-${rowId}"]`)!.getAttribute('data-toolbar-flip'),
+          toolbarTop: q(`message-toolbar-${rowId}`).top,
+          viewportTop: el.getBoundingClientRect().top,
+          bodyTop: body?.top ?? 0,
+          bodyBottom: body?.bottom ?? 0,
+        }
+      }, id)
+
+    // 본인 후속 줄(말풍선 위 툴바) · 본인 묶음 첫 줄(시각 왼쪽 툴바) · 타인(행 우상단 툴바) 세 위치 모두.
+    for (const id of [33, 30, 31]) {
+      await page.mouse.move(0, 0)
+      await alignRowToTop(id)
+      await page.getByTestId(`message-${id}`).hover()
+      await expect(page.getByTestId(`message-toolbar-${id}`), `#${id}`).toHaveCSS('opacity', '1')
+      const m = await measure(id)
+      expect(m.flip, `#${id}`).toBe('true')
+      expect(m.toolbarTop, `#${id}`).toBeGreaterThanOrEqual(m.viewportTop)
+      // 본인 후속 줄은 말풍선 아래로 뒤집혀 말풍선을 가리지 않는다.
+      if (id === 33) expect(m.toolbarTop).toBeGreaterThanOrEqual(m.bodyBottom - 0.5)
+    }
+
+    // 목록 맨 위로 돌아가 잘리지 않으면 원래의 위쪽 배치(말풍선 위)로 돌아온다.
+    await page.mouse.move(0, 0)
+    await viewport.evaluate((el) => { el.scrollTop = 0 })
+    await page.getByTestId('message-33').hover()
+    await expect(page.getByTestId('message-toolbar-33')).toHaveCSS('opacity', '1')
+    const back = await measure(33)
+    expect(back.flip).toBeNull()
+    expect(back.toolbarTop).toBeLessThan(back.bodyTop)
+  })
+
+  test('상대 메시지 툴바 — 반응만 있고 수정·삭제는 없다', async ({ authenticatedPage: page }) => {
+    await page.getByTestId('message-31').hover()
+    await expect(page.getByTestId('message-toolbar-31')).toHaveCSS('opacity', '1')
+    await expect(page.getByTestId('message-31-react')).toBeVisible()
+    await expect(page.getByTestId('message-edit-31')).toHaveCount(0)
+    await expect(page.getByTestId('message-delete-31')).toHaveCount(0)
+    // 본인 메시지에는 수정·삭제가 있다.
+    await page.getByTestId('message-30').hover()
+    await expect(page.getByTestId('message-edit-30')).toBeVisible()
+    await expect(page.getByTestId('message-delete-30')).toBeVisible()
+    // 마우스(fine 포인터)에서는 버튼이 기존 24px 그대로다(44px 는 터치 전용).
+    expect((await box(page, 'message-edit-30')).height).toBe(24)
+  })
+
+  test('반응 칩은 메시지와 같은 쪽으로 정렬된다', async ({ authenticatedPage: page }) => {
+    await expect(page.getByTestId('reaction-bar-33')).toHaveClass(/justify-end/)
+    await expect(page.getByTestId('reaction-bar-31')).not.toHaveClass(/justify-end/)
+    // 본인: 칩의 오른쪽 끝이 말풍선 오른쪽 끝과 맞는다.
+    const body = await box(page, 'message-body-33')
+    const pill = await box(page, 'reaction-pill-33-👍')
+    expect(Math.abs(pill.x + pill.width - (body.x + body.width))).toBeLessThan(1)
+    // 상대: 칩의 왼쪽 끝이 본문 왼쪽 끝과 맞는다.
+    const peerBody = await box(page, 'message-body-31')
+    const peerPill = await box(page, 'reaction-pill-31-👍')
+    expect(Math.abs(peerPill.x - peerBody.x)).toBeLessThan(1)
+  })
+
+  test('본인 말풍선 안 멘션 칩은 배경과 구분되고, 타인 메시지 칩은 기존 스타일 유지', async ({ authenticatedPage: page }) => {
+    const ownBody = page.getByTestId('message-body-36')
+    await expect(ownBody.getByTestId('mention-chip-99')).toHaveClass(/bg-background/)
+    await expect(ownBody.getByTestId('mention-chip-20')).toHaveClass(/bg-background/)
+    // 본인 말풍선의 wrap-anywhere 로 칩이 '@' 와 이름 사이에서 끊기지 않게 한다.
+    await expect(ownBody.getByTestId('mention-chip-99')).toHaveClass(/whitespace-nowrap/)
+    await expect(ownBody.getByTestId('mention-chip-20')).toHaveClass(/whitespace-nowrap/)
+    const peerBody = page.getByTestId('message-body-37')
+    await expect(peerBody.getByTestId('mention-chip-99')).toHaveClass(/bg-primary\/15/)
+    await expect(peerBody.getByTestId('mention-chip-99')).not.toHaveClass(/bg-background/)
+  })
+
+  test('수정됨 표시는 말풍선 안, 삭제된 본인 메시지는 우측 점선 말풍선', async ({ authenticatedPage: page }) => {
+    await expect(page.getByTestId('message-body-33').getByTestId('message-edited-33')).toHaveText('(수정됨)')
+    // wrap-anywhere 말풍선에서도 '(수정됨)' 이 낱말 중간에서 끊기지 않는다.
+    // 불변식은 white-space:nowrap 이고, 실제 한 줄 높이는 대표 폭 두 곳에서만 확인한다.
+    await expect(page.getByTestId('message-edited-33')).toHaveCSS('white-space', 'nowrap')
+    for (const width of [900, 1200]) {
+      await page.setViewportSize({ width, height: 800 })
+      expect((await box(page, 'message-edited-33')).height, `width ${width}`).toBeLessThan(24)
+    }
+
+    await expect(page.getByTestId('message-34')).toHaveClass(/justify-end/)
+    const deletedBody = page.getByTestId('message-body-34')
+    await expect(deletedBody).toHaveText('(삭제됨)')
+    await expect(deletedBody).toHaveClass(/border-dashed/)
+    await expect(deletedBody).not.toHaveClass(/bg-primary\/10/)
+    await expect(page.getByTestId('message-edit-34')).toHaveCount(0)
+    await expect(page.getByTestId('message-delete-34')).toHaveCount(0)
+  })
+
+  test('본인 메시지 수정 중에는 전폭 에디터로 바뀐다', async ({ authenticatedPage: page }) => {
+    await page.getByTestId('message-30').hover()
+    await page.getByTestId('message-edit-30').click()
+    const list = await box(page, 'message-list')
+    const editor = await box(page, 'message-editor-30')
+    // 말풍선 폭(75%)에 눌리지 않는다.
+    expect(editor.width).toBeGreaterThan(list.width * 0.8)
+    await expect(page.getByTestId('message-toolbar-30')).toHaveCount(0)
+  })
+
+  // #809 — hover 없이 키보드 포커스만으로 버튼에 도달할 수 있어야 한다.
+  test('본인 메시지 툴바 — hover 없이 키보드 포커스만으로 접근 가능하다 (#809)', async ({ authenticatedPage: page }) => {
+    const toolbar = page.getByTestId('message-toolbar-33')
+    const editButton = toolbar.getByRole('button', { name: '수정' })
+    await expect(toolbar).toHaveCSS('opacity', '0')
+    await editButton.focus()
+    await expect(toolbar).toHaveCSS('opacity', '1')
+    await expect(editButton).toBeFocused()
+  })
+})
+
+// ── 384px 스레드 패널 — 본인 부모 메시지 + 긴 본문·반응 6종·긴 파일명 답글 ──────────
+// 완료 기준에 명시된 좁은 표면. 과거 스크린샷에서 페이지 전체가 ~32px 밀린 적이 있어
+// 가로 넘침·툴바 잘림·조상 스크롤 오프셋을 함께 회귀 고정한다.
+const THREAD_CHANNEL_ID = 704
+const THREAD_PARENT_ID = 8800
+
+test.describe('메시지 좌/우 분리 — 스레드 패널(384px)', () => {
+  test('본인 부모·답글이 패널 안에 갇히고, 툴바가 잘리거나 페이지가 밀리지 않는다', async ({ authenticatedPage: page }) => {
+    const channel = createChannel({ id: THREAD_CHANNEL_ID, name: '스레드정렬', memberCount: 2 })
+    const parent = createMessage({
+      id: THREAD_PARENT_ID, channelId: THREAD_CHANNEL_ID, authorId: 1, authorName: 'me', authorKind: 'HUMAN',
+      body: '내 부모 메시지', createdAt: '2026-06-06T03:00:00', replyCount: 3,
     })
-    const peerMsg = createMessage({
-      id: 31,
-      channelId: OWN_CHANNEL_ID,
-      authorId: 20,
-      authorName: '동료',
-      authorKind: 'HUMAN',
-      body: '동료 메시지',
-      createdAt: '2026-06-06T03:01:00',
+    const longParagraph = '스레드 패널 폭에서 줄바꿈되어야 하는 아주 긴 문단입니다. '.repeat(8) + LONG_URL
+    const emojis = ['👍', '❤️', '😂', '🎉', '🙏', '👀']
+    const ownReply = createMessage({
+      id: THREAD_PARENT_ID + 1, channelId: THREAD_CHANNEL_ID, parentMessageId: THREAD_PARENT_ID,
+      authorId: 1, authorName: 'me', authorKind: 'HUMAN', body: longParagraph, createdAt: '2026-06-06T03:01:00',
+      reactions: emojis.map((emoji, i) => ({ emoji, count: i + 1, reacted: i % 2 === 0 })),
+      attachments: [
+        { fileId: 901, messageId: THREAD_PARENT_ID + 1, originalName: `2026-10-01_스레드첨부_${'아주긴파일명_'.repeat(14)}.xlsx`, mimeType: 'application/vnd.ms-excel', sizeBytes: 49152, attachedById: 1, attachedByName: 'me', attachedAt: '2026-06-06T03:01:00' },
+      ],
     })
-    const agentMsg = createMessage({
-      id: 32,
-      channelId: OWN_CHANNEL_ID,
-      authorId: 99,
-      authorName: 'My AI',
-      authorKind: 'AGENT',
-      body: '에이전트 메시지',
-      createdAt: '2026-06-06T03:02:00',
+    const peerReply = createMessage({
+      id: THREAD_PARENT_ID + 2, channelId: THREAD_CHANNEL_ID, parentMessageId: THREAD_PARENT_ID,
+      authorId: 20, authorName: '동료', authorKind: 'HUMAN', body: '동료 답글', createdAt: '2026-06-06T03:02:00',
     })
 
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
     await stubStream(page)
     await stubChannelDetail(page, channel)
-    await stubMembers(page, OWN_CHANNEL_ID, [
+    await stubMembers(page, THREAD_CHANNEL_ID, [
       createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
       createChannelMember({ userId: 20, name: '동료', kind: 'HUMAN' }),
-      createChannelMember({ userId: 99, name: 'My AI', kind: 'AGENT' }),
     ])
-    await stubMessages(page, OWN_CHANNEL_ID, [agentMsg, peerMsg, ownMsg]) // DESC
-    await stubMarkRead(page, OWN_CHANNEL_ID)
+    await stubMessages(page, THREAD_CHANNEL_ID, [parent])
+    // 답글은 ASC 페이지.
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/messages/${THREAD_PARENT_ID}/replies`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ items: [ownReply, peerReply], nextCursor: null, hasMore: false }),
+            })
+          : route.fallback(),
+    )
+    await stubMarkRead(page, THREAD_CHANNEL_ID)
     await stubUsers(page)
 
-    await page.goto(`/chat/channels/${OWN_CHANNEL_ID}`)
-    await expect(page.getByTestId('message-list')).toBeVisible()
+    await page.goto(`/chat/channels/${THREAD_CHANNEL_ID}`)
+    await page.getByTestId(`message-thread-link-${THREAD_PARENT_ID}`).click()
+    const panel = page.getByTestId('thread-panel')
+    await expect(panel).toBeVisible()
+    await expect(panel.getByTestId(`message-${THREAD_PARENT_ID + 1}`)).toBeVisible()
+    await expect(panel.getByTestId('attachment-card-901')).toBeVisible()
+
+    // 패널 폭은 384px 고정.
+    expect((await box(page, 'thread-panel')).width).toBeCloseTo(384, 0)
+
+    // (c) 페이지·조상이 밀리지 않았는지 — 패널 자신의 스크롤 컨테이너(overflow-y:auto) 위쪽 조상은 scrollTop 이 0 이어야 한다.
+    //     스크롤 컨테이너 자체는 답글이 길어 스크롤될 수 있으므로 제외한다.
+    const assertNoPageShift = async (when: string) => {
+      const r = await page.evaluate(() => {
+        const panelEl = document.querySelector('[data-testid="thread-panel"]')!
+        const inner = panelEl.querySelector(':scope > div.overflow-y-auto')
+        const bad: string[] = []
+        for (let n: Element | null = panelEl; n; n = n.parentElement) {
+          if (n.scrollTop !== 0 || n.scrollLeft !== 0) bad.push(`${n.tagName}.${(n as HTMLElement).className}:${n.scrollTop}/${n.scrollLeft}`)
+        }
+        return { scrollY: window.scrollY, docTop: document.documentElement.scrollTop, bad, innerFound: !!inner }
+      })
+      expect(r.innerFound, `${when} 패널 스크롤 컨테이너`).toBe(true)
+      expect(r.scrollY, `${when} window.scrollY`).toBe(0)
+      expect(r.docTop, `${when} documentElement.scrollTop`).toBe(0)
+      expect(r.bad, `${when} 패널·조상의 scroll 오프셋`).toEqual([])
+    }
+    await assertNoPageShift('열기 직후')
+
+    // (a) 가로 넘침 없음 — 패널과 그 조상 전부.
+    expect(await hasHorizontalOverflow(page, 'thread-panel')).toBe(false)
+
+    // (b) 부모 hover → 툴바 표시, 툴바 top 이 패널 스크롤 뷰포트 위로 나가지 않는다.
+    const parentRow = panel.getByTestId(`message-${THREAD_PARENT_ID}`)
+    await parentRow.hover()
+    const toolbar = panel.getByTestId(`message-toolbar-${THREAD_PARENT_ID}`)
+    await expect(toolbar).toHaveCSS('opacity', '1')
+    const tb = (await toolbar.boundingBox())!
+    const viewportTop = await panel.evaluate((el) => el.querySelector(':scope > div.overflow-y-auto')!.getBoundingClientRect().top)
+    expect(tb.y).toBeGreaterThanOrEqual(viewportTop)
+    await assertNoPageShift('hover 후')
+
+    // 툴바 버튼 포커스 후에도 스크롤 오프셋이 생기지 않는다(focus 로 인한 scrollIntoView 회귀).
+    await toolbar.getByRole('button').first().focus()
+    await assertNoPageShift('버튼 포커스 후')
+    expect(await hasHorizontalOverflow(page, 'thread-panel')).toBe(false)
+
+    // 긴 문단 답글·첨부는 패널(384px) 밖으로 나가지 않는다.
+    const panelBox = await box(page, 'thread-panel')
+    const card = (await panel.getByTestId('attachment-card-901').boundingBox())!
+    expect(card.x).toBeGreaterThanOrEqual(panelBox.x)
+    expect(card.x + card.width).toBeLessThanOrEqual(panelBox.x + panelBox.width + 1)
+    const reply = (await panel.getByTestId(`message-body-${THREAD_PARENT_ID + 1}`).boundingBox())!
+    expect(reply.x + reply.width).toBeLessThanOrEqual(panelBox.x + panelBox.width + 1)
+  })
+})
+
+test.describe('메시지 좌/우 분리 — 터치', () => {
+  // hover 가 없는 터치 입력에서는 탭으로 툴바를 드러낸다.
+  test.use({ hasTouch: true })
+
+  test('메시지를 탭하면 툴바가 보이고, 다른 곳을 탭하면 닫힌다', async ({ authenticatedPage: page }) => {
+    await setupSplitChannel(page)
+    const peerRow = page.getByTestId('message-31')
+    await expect(peerRow).not.toHaveAttribute('data-tap-active', 'true')
+
+    await page.getByTestId('message-body-31').tap()
+    await expect(peerRow).toHaveAttribute('data-tap-active', 'true')
+    await expect(page.getByTestId('message-toolbar-31')).toHaveCSS('opacity', '1')
+
+    // 다른 메시지를 탭하면 활성 행이 옮겨간다.
+    await page.getByTestId('message-body-30').tap()
+    await expect(peerRow).not.toHaveAttribute('data-tap-active', 'true')
+    await expect(page.getByTestId('message-30')).toHaveAttribute('data-tap-active', 'true')
+    await expect(page.getByTestId('message-toolbar-30')).toHaveCSS('opacity', '1')
+
+    // 메시지 행이 아닌 곳(컴포저 영역)을 탭하면 활성 행이 닫힌다 —
+    // useToolbarReveal 의 "행이 아닌 곳에서 pointerdown" 분기. 에뮬레이트된 hover 로 opacity 가 1 일 수 있어
+    // 판별은 opacity 가 아니라 data-tap-active 로 한다.
+    await page.getByTestId('message-composer-input').tap()
+    await expect(page.getByTestId('message-30')).not.toHaveAttribute('data-tap-active', 'true')
   })
 
-  test(
-    '본인 메시지도 좌측 정렬 — 우측 버블 없음, 이름 헤더 표시',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      // 본인 메시지: data-own=true 는 유지(편집권한 메타)하되, 우측 정렬/버블은 제거됨.
-      const ownRow = page.getByTestId('message-30')
-      await expect(ownRow).toHaveAttribute('data-own', 'true')
-      await expect(ownRow).not.toHaveClass(/justify-end/)
-      // 본문은 버블 스타일(둥근 모서리/배경)을 쓰지 않는다(균일 plain text).
-      await expect(page.getByTestId('message-body-30')).not.toHaveClass(/rounded-2xl/)
-      await expect(page.getByTestId('message-body-30')).not.toHaveClass(/bg-primary\/10/)
-      // 균일 좌측이므로 본인 메시지도 아바타 거터 + 이름('me') 헤더가 노출된다.
-      await expect(page.getByTestId('chat-avatar-1')).toBeVisible()
-      await expect(ownRow.getByText('me', { exact: true })).toBeVisible()
-    },
-  )
-
-  test(
-    '타인·AGENT 메시지도 좌측(아바타) — 본인과 동일 레이아웃',
-    async ({ authenticatedPage: page }) => {
-      // 동료(타인) 메시지: 좌측, 아바타·이름 노출, 버블 없음.
-      await expect(page.getByTestId('message-31')).toHaveAttribute('data-own', 'false')
-      await expect(page.getByTestId('chat-avatar-20')).toBeVisible()
-      await expect(page.getByTestId('message-body-31')).not.toHaveClass(/bg-primary\/10/)
-
-      // AGENT 도 좌측 동일.
-      await expect(page.getByTestId('message-32')).toHaveAttribute('data-own', 'false')
-      await expect(page.getByTestId('chat-avatar-agent-99')).toBeVisible()
-    },
-  )
-
-  test(
-    '본인 메시지 hover 툴바 — 우상단(right-2) 오버레이로 표시됨',
-    async ({ authenticatedPage: page }) => {
-      const ownRow = page.getByTestId('message-30')
-      const toolbar = page.getByTestId('message-toolbar-30')
-
-      // 본인 메시지 행에 호버 → 툴바가 flex로 나타남
-      await ownRow.hover()
-      await expect(toolbar).toBeVisible()
-
-      // 툴바는 행 우측(right-2) 오버레이. 좌측정렬 본문 위가 아닌 우측 빈 공간에 떠야 한다.
-      const toolbarBox = await toolbar.boundingBox()
-      const viewportSize = page.viewportSize()
-      expect(toolbarBox).not.toBeNull()
-      expect(viewportSize).not.toBeNull()
-      // 툴바 왼쪽 끝이 뷰포트 우측 절반에 위치(중앙 기준 우측).
-      expect(toolbarBox!.x).toBeGreaterThan(viewportSize!.width / 2)
-    },
-  )
-
-  // #809 — hover 없이 키보드 포커스만으로 반응/답글/수정/삭제 버튼에 도달할 수 있어야 한다.
-  test(
-    '본인 메시지 툴바 — hover 없이 키보드 포커스만으로 접근 가능하다 (#809)',
-    async ({ authenticatedPage: page }) => {
-      const toolbar = page.getByTestId('message-toolbar-30')
-      const editButton = toolbar.getByRole('button', { name: '수정' })
-      // hover 전에는 opacity-0 으로 시각적으로 감춰져 있다(레이아웃/tab 순서에는 항상 존재).
-      await expect(toolbar).toHaveCSS('opacity', '0')
-
-      await editButton.focus()
-      await expect(toolbar).toHaveCSS('opacity', '1')
-      await expect(editButton).toBeFocused()
-    },
-  )
-
+  test('터치 기기에서는 툴바 버튼이 44px 터치 타깃이다', async ({ authenticatedPage: page }) => {
+    await setupSplitChannel(page)
+    // 에뮬레이션이 coarse 포인터로 잡히지 않으면 아래 크기 단언이 의미가 없으므로 먼저 확인한다.
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
+    await page.getByTestId('message-body-30').tap()
+    for (const id of ['message-30-react', 'message-edit-30', 'message-delete-30']) {
+      const b = await box(page, id)
+      expect(b.width, id).toBeGreaterThanOrEqual(44)
+      expect(b.height, id).toBeGreaterThanOrEqual(44)
+    }
+  })
 })
 
 // ── 후속 줄 hover 시각(거터) — 컴팩트 24h + opacity 토글(레이아웃 점프 방지) ──────────

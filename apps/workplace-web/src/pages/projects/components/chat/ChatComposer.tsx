@@ -22,9 +22,11 @@ interface ChatComposerProps {
   ) => void | Promise<unknown>;
   // 입력 중일 때마다 호출 (타이핑 송신). 호출처에서 throttle.
   onTyping?: () => void;
+  // 마운트 시 입력창에 포커스(드로워로 채팅을 연 직후 바로 입력하도록).
+  autoFocus?: boolean;
 }
 
-export function ChatComposer({ threadId, members, onSubmit, onTyping }: ChatComposerProps) {
+export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus }: ChatComposerProps) {
   // inputRef 를 별도 구조분해 — react-hooks/refs 가 객체 전체를 ref로 오판하는 오탐 방지.
   const {
     inputRef: attachInputRef,
@@ -102,6 +104,7 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping }: ChatComp
         onSubmit={handleSubmit}
         onChange={onTyping}
         clearOnSubmit
+        autoFocus={autoFocus}
         allowEmptySubmit={hasAny}
         disableWhenEmpty
         submitLabel={uploading ? '업로드 중…' : '보내기'}

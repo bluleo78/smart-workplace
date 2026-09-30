@@ -134,7 +134,7 @@ export function RichInput({
   // (RichInput 내부 버튼 행을 justify-between 구조로 확장해 composer 와 editor 간 레이아웃 통합)
 
   const editor = useEditor({
-    // 자동 포커스는 본문 끝에 둔다 — autoFocus 호출처는 모두 기존 메시지·코멘트 수정이라 이어 쓰기가 자연스럽다.
+    // 자동 포커스는 본문 끝에 둔다 — 기존 메시지·코멘트 수정은 이어 쓰기가 자연스럽고, 빈 컴포저(이슈 채팅 드로워)는 끝=처음이다.
     // true(=start)는 마운트 직후 비동기로 커서를 맨 앞으로 옮겨, 그 사이 사용자가 끝으로 옮긴 커서를 되돌렸다(WP-85 flaky).
     autofocus: autoFocus ? 'end' : false,
     // 본문이 바뀔 때마다(타이핑) 호출. 호출처에서 throttle.

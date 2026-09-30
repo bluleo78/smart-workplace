@@ -267,8 +267,9 @@ export default function ChannelPage() {
   const channel = detail.data
   return (
     <div className="flex h-full min-h-0">
-      {/* 채널 본문 컬럼 — 스레드 패널과 가로 분할. */}
-      <div className="flex h-full min-h-0 flex-1 flex-col">
+      {/* 채널 본문 컬럼 — 스레드 패널과 가로 분할.
+          min-w-0: flex 자식의 기본 min-width:auto 때문에 긴 첨부 파일명의 min-content 폭만큼 컬럼이 부모를 넘어 커지는 것을 막는다. */}
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         <ChannelHeader
           channel={channel}
           onOpenMembers={() => setMembersOpen(true)}

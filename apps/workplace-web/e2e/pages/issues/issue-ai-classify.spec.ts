@@ -167,7 +167,7 @@ test.describe('이슈 AI 분류 제안', () => {
       (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/members`,
       (route) => route.fulfill({ json: [] }),
     );
-    // 채팅 스레드 — IssueChatPanel 이 항상 호출.
+    // 채팅 스레드 — IssueChatButton(미읽음 배지)이 항상 호출.
     await page.route(
       (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/chat/thread`,
       (route) => route.fulfill({ json: createChatThread({ threadId: 1, recentMessages: [] }) }),

@@ -90,7 +90,7 @@ async function mockIssueDetail(
     (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
-  // IssueChatPanel 이 항상 렌더되므로 기본 빈 thread stub 등록.
+  // IssueChatButton(미읽음 배지)이 항상 thread 를 조회하므로 기본 빈 thread stub 등록.
   // 무엇을: 개별 테스트가 mockChatThread 로 override 할 수 있도록 default stub 을 마지막에 등록.
   // 왜: Playwright 은 마지막 등록 route 가 우선 — mockChatThread 를 뒤에 호출하면 덮어씀.
   await page.route(
@@ -126,7 +126,7 @@ async function mockAttachmentList(
 }
 
 // chat thread endpoint 모킹.
-// 무엇을: IssueChatPanel 이 호출하는 thread GET 과 messages GET 엔드포인트를 stub.
+// 무엇을: IssueChatButton·IssueChatSection 이 호출하는 thread GET 과 messages GET 엔드포인트를 stub.
 // 왜: recentMessages 를 제어해 패널 자동 펼침/접힘 동작을 결정론적으로 검증하기 위해.
 async function mockChatThread(
   page: import('@playwright/test').Page,
