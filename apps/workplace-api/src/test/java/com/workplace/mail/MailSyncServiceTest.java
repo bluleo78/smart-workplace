@@ -10,8 +10,6 @@ import static org.mockito.Mockito.verify;
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
 import com.icegreen.greenmail.user.GreenMailUser;
-import com.icegreen.greenmail.util.GreenMailUtil;
-import com.icegreen.greenmail.util.ServerSetupTest;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
@@ -50,17 +48,17 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * MailSyncService 통합 테스트 — GreenMail(IMAP 3143)로 실제 INBOX 를 채우고 메타 전용 동기화를 검증한다. 동기화는 본문을 저장하지
- * 않으며(메타만), 본문/첨부/분류는 백그라운드 보충(MailBackfillService) 또는 OnDemand 적재로 이관됐다 — 본 테스트에서 backfillService
- * 를 목킹해 메타전용 단언을 결정적으로 만든다. 검증 포인트: 신규 메타 페치/저장, 2차 동기화 멱등(no-op), 스레드 그룹핑(루트 Message-ID), 소유
- * 격리(404), 동시성 가드, 본문 미저장.
+ * MailSyncService 통합 테스트 — GreenMail(MailTestPorts.IMAP)로 실제 INBOX 를 채우고 메타 전용 동기화를 검증한다. 동기화는 본문을
+ * 저장하지 않으며(메타만), 본문/첨부/분류는 백그라운드 보충(MailBackfillService) 또는 OnDemand 적재로 이관됐다 — 본 테스트에서
+ * backfillService 를 목킹해 메타전용 단언을 결정적으로 만든다. 검증 포인트: 신규 메타 페치/저장, 2차 동기화 멱등(no-op), 스레드 그룹핑(루트
+ * Message-ID), 소유 격리(404), 동시성 가드, 본문 미저장.
  */
 @Transactional
 class MailSyncServiceTest extends IntegrationTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(ServerSetupTest.SMTP_IMAP)
+      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("box@test.local", "box@test.local", "pw"));
 
@@ -94,8 +92,8 @@ class MailSyncServiceTest extends IntegrationTestBase {
   void sync_fetchesAndSavesNewMessages() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = insertAccount(user);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "alice@example.com", "안녕하세요", "본문입니다");
-    GreenMailUtil.sendTextEmailTest("box@test.local", "bob@example.com", "두번째", "두번째 본문");
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "안녕하세요", "본문입니다");
+    MailTestPorts.sendText("box@test.local", "bob@example.com", "두번째", "두번째 본문");
     greenMail.waitForIncomingEmail(2);
 
     MailSyncResult result = syncService.sync(user, accountId);
@@ -143,7 +141,7 @@ class MailSyncServiceTest extends IntegrationTestBase {
   void sync_secondRunIsNoOp() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = insertAccount(user);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "alice@example.com", "한건", "본문");
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "한건", "본문");
     greenMail.waitForIncomingEmail(1);
 
     MailSyncResult first = syncService.sync(user, accountId);
@@ -224,8 +222,8 @@ class MailSyncServiceTest extends IntegrationTestBase {
   void sync_searchFiltersBySubjectAndSender() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = insertAccount(user);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "alice@example.com", "프로젝트 회의", "본문");
-    GreenMailUtil.sendTextEmailTest("box@test.local", "bob@example.com", "점심 메뉴", "본문");
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "프로젝트 회의", "본문");
+    MailTestPorts.sendText("box@test.local", "bob@example.com", "점심 메뉴", "본문");
     greenMail.waitForIncomingEmail(2);
     syncService.sync(user, accountId);
 
@@ -249,7 +247,7 @@ class MailSyncServiceTest extends IntegrationTestBase {
   void sync_savesMetadataOnly_noBody() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = insertAccount(user, false);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "alice@example.com", "제목", "본문입니다");
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "제목", "본문입니다");
     greenMail.waitForIncomingEmail(1);
 
     MailSyncResult result = syncService.sync(user, accountId);
@@ -272,7 +270,7 @@ class MailSyncServiceTest extends IntegrationTestBase {
   void syncUpdatesLastSyncedAt() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = insertAccount(user);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "sender@example.com", "제목", "본문");
+    MailTestPorts.sendText("box@test.local", "sender@example.com", "제목", "본문");
     greenMail.waitForIncomingEmail(1);
 
     syncService.sync(user, accountId);
@@ -307,7 +305,7 @@ class MailSyncServiceTest extends IntegrationTestBase {
   void sync_doesNotClassify() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = insertAccount(user, true);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "sender@example.com", "업무 보고", "보고서 내용");
+    MailTestPorts.sendText("box@test.local", "sender@example.com", "업무 보고", "보고서 내용");
     greenMail.waitForIncomingEmail(1);
 
     syncService.sync(user, accountId);
@@ -390,7 +388,7 @@ class MailSyncServiceTest extends IntegrationTestBase {
   void sync_완료후_선제요약_트리거() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = insertAccount(user, true);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "sender@example.com", "요약 대상 메일", "본문입니다");
+    MailTestPorts.sendText("box@test.local", "sender@example.com", "요약 대상 메일", "본문입니다");
     greenMail.waitForIncomingEmail(1);
 
     syncService.sync(user, accountId);
@@ -407,7 +405,7 @@ class MailSyncServiceTest extends IntegrationTestBase {
   void sync_aiOff_선제요약_미트리거() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = insertAccount(user, false);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "sender@example.com", "요약 대상 메일", "본문입니다");
+    MailTestPorts.sendText("box@test.local", "sender@example.com", "요약 대상 메일", "본문입니다");
     greenMail.waitForIncomingEmail(1);
 
     syncService.sync(user, accountId);

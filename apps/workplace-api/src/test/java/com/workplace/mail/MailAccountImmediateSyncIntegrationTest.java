@@ -8,8 +8,6 @@ import static org.awaitility.Awaitility.await;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
-import com.icegreen.greenmail.util.GreenMailUtil;
-import com.icegreen.greenmail.util.ServerSetupTest;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
@@ -44,7 +42,7 @@ class MailAccountImmediateSyncIntegrationTest extends IntegrationTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(ServerSetupTest.SMTP_IMAP)
+      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("box@test.local", "box@test.local", "pw"));
 
@@ -78,17 +76,17 @@ class MailAccountImmediateSyncIntegrationTest extends IntegrationTestBase {
     TenantContext.clear();
   }
 
-  /** GreenMail(IMAP 3143 / SMTP 3025)을 가리키는 계정 등록 요청. */
+  /** GreenMail(IMAP/SMTP — MailTestPorts)을 가리키는 계정 등록 요청. */
   private EmailAccountRequest greenMailRequest() {
     return new EmailAccountRequest(
         "box@test.local",
         "테스트박스",
         "127.0.0.1",
-        3143,
+        MailTestPorts.IMAP,
         MailSecurity.NONE,
         "box@test.local",
         "127.0.0.1",
-        3025,
+        MailTestPorts.SMTP,
         MailSecurity.NONE,
         "box@test.local",
         "pw",
@@ -106,7 +104,7 @@ class MailAccountImmediateSyncIntegrationTest extends IntegrationTestBase {
     createdUserId = TestFixtures.createHuman(dsl);
 
     // 계정 등록 전에 메일박스에 한 통 도착시켜 둔다 — 첫 즉시 sync 가 이 메일을 적재해야 한다.
-    GreenMailUtil.sendTextEmailTest("box@test.local", "sender@example.com", "즉시동기화-제목", "본문");
+    MailTestPorts.sendText("box@test.local", "sender@example.com", "즉시동기화-제목", "본문");
     greenMail.waitForIncomingEmail(1);
 
     // production 경로: create() 커밋 → AFTER_COMMIT → @Async 즉시 sync.

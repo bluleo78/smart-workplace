@@ -8,7 +8,6 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
-import com.icegreen.greenmail.util.ServerSetupTest;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
@@ -26,19 +25,19 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * EmailAccountService CRUD·암복호화·연결 테스트 게이트·소유 격리 통합 테스트. GreenMail(IMAP 3143 / SMTP 3025, 평문)로 실연결을
- * 검증하므로 host=127.0.0.1, security=NONE 으로 요청을 구성한다.
+ * EmailAccountService CRUD·암복호화·연결 테스트 게이트·소유 격리 통합 테스트. GreenMail(IMAP/SMTP — MailTestPorts, 평문)로
+ * 실연결을 검증하므로 host=127.0.0.1, security=NONE 으로 요청을 구성한다.
  */
 @Transactional
 class EmailAccountServiceTest extends IntegrationTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(ServerSetupTest.SMTP_IMAP)
+      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("box@test.local", "box@test.local", "pw"));
 
@@ -48,7 +47,7 @@ class EmailAccountServiceTest extends IntegrationTestBase {
   @Autowired EncryptionService encryption;
 
   /** AI 분류 백필 서비스 — 호출 여부만 검증하므로 mock. */
-  @MockBean MailClassifyBackfillService classifyBackfillService;
+  @MockitoBean MailClassifyBackfillService classifyBackfillService;
 
   /** GreenMail 에 붙는 정상 요청(비밀번호 password). */
   private EmailAccountRequest greenMailReq(String password) {
@@ -56,11 +55,11 @@ class EmailAccountServiceTest extends IntegrationTestBase {
         "box@test.local",
         "테스트박스",
         "127.0.0.1",
-        3143,
+        MailTestPorts.IMAP,
         MailSecurity.NONE,
         "box@test.local",
         "127.0.0.1",
-        3025,
+        MailTestPorts.SMTP,
         MailSecurity.NONE,
         "box@test.local",
         password,
@@ -122,11 +121,11 @@ class EmailAccountServiceTest extends IntegrationTestBase {
             "box@test.local",
             "새표시명",
             "127.0.0.1",
-            3143,
+            MailTestPorts.IMAP,
             MailSecurity.NONE,
             "box@test.local",
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             "box@test.local",
             "",
@@ -219,11 +218,11 @@ class EmailAccountServiceTest extends IntegrationTestBase {
             "box@test.local",
             "테스트박스",
             "127.0.0.1",
-            3143,
+            MailTestPorts.IMAP,
             MailSecurity.NONE,
             "box@test.local",
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             "box@test.local",
             "pw",
@@ -247,11 +246,11 @@ class EmailAccountServiceTest extends IntegrationTestBase {
             "box2@test.local",
             "B",
             "127.0.0.1",
-            3143,
+            MailTestPorts.IMAP,
             MailSecurity.NONE,
             "box2@test.local",
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             "box2@test.local",
             "pw",

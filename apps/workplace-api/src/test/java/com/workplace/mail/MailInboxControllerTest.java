@@ -20,7 +20,6 @@ import java.time.Instant;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,7 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
  * MailInboxController P2 엔드포인트 통합 테스트. 처리완료(POST/DELETE) + 카운트(GET) + 소유권 거부 검증. 실 JWT + MockMvc로
  * 전체 보안 체인 통과. @Transactional로 공유 test DB 무오염 보장.
  */
-@AutoConfigureMockMvc
 @Transactional
 class MailInboxControllerTest extends IntegrationTestBase {
 
@@ -47,11 +45,11 @@ class MailInboxControllerTest extends IntegrationTestBase {
             email,
             "테스트박스",
             "127.0.0.1",
-            3143,
+            MailTestPorts.IMAP,
             MailSecurity.NONE,
             email,
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             email,
             "pw",

@@ -12,7 +12,6 @@ import static org.mockito.Mockito.when;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
-import com.icegreen.greenmail.util.ServerSetupTest;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailMessageSummary;
@@ -62,7 +61,7 @@ class MailComposeServiceTest extends IntegrationTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(ServerSetupTest.SMTP_IMAP)
+      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("me@test.local", "me@test.local", "pw"));
 
@@ -83,11 +82,11 @@ class MailComposeServiceTest extends IntegrationTestBase {
             "me@test.local",
             "나",
             "127.0.0.1",
-            3143,
+            MailTestPorts.IMAP,
             MailSecurity.NONE,
             "me@test.local",
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             "me@test.local",
             "pw",

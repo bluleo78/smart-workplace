@@ -7,8 +7,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
-import com.icegreen.greenmail.util.GreenMailUtil;
-import com.icegreen.greenmail.util.ServerSetupTest;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.EmailAccountRequest;
@@ -50,7 +48,7 @@ class MailAutoSyncSchedulerTest extends IntegrationTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(ServerSetupTest.SMTP_IMAP)
+      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("box@test.local", "box@test.local", "pw"));
 
@@ -105,8 +103,8 @@ class MailAutoSyncSchedulerTest extends IntegrationTestBase {
   }
 
   /**
-   * GreenMail(IMAP 3143)을 가리키는 계정을 현재 테넌트 컨텍스트에 삽입한다. GUC 세팅 후 insert 하면 RLS WITH CHECK 가 tenant_id
-   * 자동 주입.
+   * GreenMail(MailTestPorts.IMAP)을 가리키는 계정을 현재 테넌트 컨텍스트에 삽입한다. GUC 세팅 후 insert 하면 RLS WITH CHECK 가
+   * tenant_id 자동 주입.
    */
   private long insertAccount(long userId) {
     return MailTestSupport.insertAccount(accountRepo, encryption, userId, false);
@@ -131,7 +129,7 @@ class MailAutoSyncSchedulerTest extends IntegrationTestBase {
             MailSecurity.NONE,
             "bad@test.local",
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             "bad@test.local",
             "pw",
@@ -161,7 +159,7 @@ class MailAutoSyncSchedulerTest extends IntegrationTestBase {
 
   /** GreenMail 을 통해 box@test.local 로 메일 1통 전달. */
   private void deliverMessage(String subject) {
-    GreenMailUtil.sendTextEmailTest("box@test.local", "sender@example.com", subject, "본문");
+    MailTestPorts.sendText("box@test.local", "sender@example.com", subject, "본문");
     greenMail.waitForIncomingEmail(1);
   }
 

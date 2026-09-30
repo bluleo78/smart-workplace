@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
 import com.icegreen.greenmail.util.GreenMailUtil;
-import com.icegreen.greenmail.util.ServerSetupTest;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.MailSummaryResponse;
@@ -45,7 +44,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(ServerSetupTest.SMTP_IMAP)
+      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("box@test.local", "box@test.local", "pw"));
 
@@ -65,7 +64,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
   void get_loadsBodyOnDemand_whenMissing() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "제목", "온디맨드 본문");
+    MailTestPorts.sendText("box@test.local", "a@x.com", "제목", "온디맨드 본문");
     greenMail.waitForIncomingEmail(1);
     syncService.sync(user, accountId); // 메타만
     long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
@@ -81,7 +80,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
   void get_marksSeen_whenUnseen() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "읽음처리 테스트", "본문");
+    MailTestPorts.sendText("box@test.local", "a@x.com", "읽음처리 테스트", "본문");
     greenMail.waitForIncomingEmail(1);
     syncService.sync(user, accountId);
     long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
@@ -102,7 +101,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
   void get_idempotent_whenAlreadySeen() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "이미읽음 테스트", "본문");
+    MailTestPorts.sendText("box@test.local", "a@x.com", "이미읽음 테스트", "본문");
     greenMail.waitForIncomingEmail(1);
     syncService.sync(user, accountId);
     long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
@@ -118,8 +117,8 @@ class MailMessageServiceTest extends IntegrationTestBase {
   void listByAccount_unreadOnly_returnsOnlyUnseen() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "안읽음1", "본문");
-    GreenMailUtil.sendTextEmailTest("box@test.local", "b@x.com", "곧읽음", "본문");
+    MailTestPorts.sendText("box@test.local", "a@x.com", "안읽음1", "본문");
+    MailTestPorts.sendText("box@test.local", "b@x.com", "곧읽음", "본문");
     greenMail.waitForIncomingEmail(2);
     syncService.sync(user, accountId);
 
@@ -141,8 +140,8 @@ class MailMessageServiceTest extends IntegrationTestBase {
   void list_unread_passesThroughToRepo() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "남을것", "본문");
-    GreenMailUtil.sendTextEmailTest("box@test.local", "b@x.com", "읽을것", "본문");
+    MailTestPorts.sendText("box@test.local", "a@x.com", "남을것", "본문");
+    MailTestPorts.sendText("box@test.local", "b@x.com", "읽을것", "본문");
     greenMail.waitForIncomingEmail(2);
     syncService.sync(user, accountId);
     long readId = messageRepo.listByAccount(accountId, "INBOX", "읽을것", 10).get(0).id();
@@ -172,7 +171,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
   void listByAccount_returns_accountId() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "accountId 테스트", "본문");
+    MailTestPorts.sendText("box@test.local", "a@x.com", "accountId 테스트", "본문");
     greenMail.waitForIncomingEmail(1);
     syncService.sync(user, accountId);
 
@@ -187,7 +186,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
   void listRecentUnread_returns_accountId() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "accountId in unread", "본문");
+    MailTestPorts.sendText("box@test.local", "a@x.com", "accountId in unread", "본문");
     greenMail.waitForIncomingEmail(1);
     syncService.sync(user, accountId);
 
@@ -206,9 +205,9 @@ class MailMessageServiceTest extends IntegrationTestBase {
     long user = TestFixtures.createHuman(dsl);
     long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, true);
     // 회신필요 메일을 먼저(가장 오래됨/작은 id) → 그 뒤 회신불필요 2건(더 최신/큰 id).
-    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "회신필요-오래됨", "본문");
-    GreenMailUtil.sendTextEmailTest("box@test.local", "b@x.com", "뉴스레터1", "본문");
-    GreenMailUtil.sendTextEmailTest("box@test.local", "c@x.com", "뉴스레터2", "본문");
+    MailTestPorts.sendText("box@test.local", "a@x.com", "회신필요-오래됨", "본문");
+    MailTestPorts.sendText("box@test.local", "b@x.com", "뉴스레터1", "본문");
+    MailTestPorts.sendText("box@test.local", "c@x.com", "뉴스레터2", "본문");
     greenMail.waitForIncomingEmail(3);
     syncService.sync(user, accountId);
 
@@ -230,10 +229,10 @@ class MailMessageServiceTest extends IntegrationTestBase {
     long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, true);
 
     // 메일 4건 동기화 (3번째=분류됨, 4번째=미분류 pending)
-    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "회신필요-안읽음", "본문");
-    GreenMailUtil.sendTextEmailTest("box@test.local", "b@x.com", "회신불필요-안읽음", "본문");
-    GreenMailUtil.sendTextEmailTest("box@test.local", "c@x.com", "회신필요-읽음", "본문");
-    GreenMailUtil.sendTextEmailTest("box@test.local", "d@x.com", "미분류-pending", "본문");
+    MailTestPorts.sendText("box@test.local", "a@x.com", "회신필요-안읽음", "본문");
+    MailTestPorts.sendText("box@test.local", "b@x.com", "회신불필요-안읽음", "본문");
+    MailTestPorts.sendText("box@test.local", "c@x.com", "회신필요-읽음", "본문");
+    MailTestPorts.sendText("box@test.local", "d@x.com", "미분류-pending", "본문");
     greenMail.waitForIncomingEmail(4);
     syncService.sync(user, accountId);
 
@@ -280,8 +279,8 @@ class MailMessageServiceTest extends IntegrationTestBase {
     // aiEnabled=true 계정 → classificationActive=true
     long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, true);
 
-    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "회신필요건", "본문");
-    GreenMailUtil.sendTextEmailTest("box@test.local", "b@x.com", "회신불요건", "본문");
+    MailTestPorts.sendText("box@test.local", "a@x.com", "회신필요건", "본문");
+    MailTestPorts.sendText("box@test.local", "b@x.com", "회신불요건", "본문");
     greenMail.waitForIncomingEmail(2);
     syncService.sync(user, accountId);
 

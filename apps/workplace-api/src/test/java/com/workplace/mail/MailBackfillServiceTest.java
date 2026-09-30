@@ -4,8 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
-import com.icegreen.greenmail.util.GreenMailUtil;
-import com.icegreen.greenmail.util.ServerSetupTest;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.repository.EmailAccountRepository;
@@ -22,7 +20,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * MailBackfillService 통합 테스트 — GreenMail(IMAP 3143)로 INBOX 를 채우고 메타 전용 동기화 후 누락 본문을 일괄 보충함을 검증한다.
+ * MailBackfillService 통합 테스트 — GreenMail(MailTestPorts.IMAP)로 INBOX 를 채우고 메타 전용 동기화 후 누락 본문을 일괄
+ * 보충함을 검증한다.
  *
  * <p>비동기 진입점 {@code backfill(@Async)} 은 별도 스레드/트랜잭션이라 @Transactional 테스트의 미커밋 데이터를 보지 못하고 경쟁한다. 따라서
  * 동기 본체 {@link MailBackfillService#backfillNow(long, long)} 을 직접 호출해 같은 스레드/트랜잭션에서 결과를 단언한다.
@@ -36,7 +35,7 @@ class MailBackfillServiceTest extends IntegrationTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(ServerSetupTest.SMTP_IMAP)
+      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("box@test.local", "box@test.local", "pw"));
 
@@ -55,8 +54,8 @@ class MailBackfillServiceTest extends IntegrationTestBase {
   void backfillNow_fillsAllMissingBodies() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
-    GreenMailUtil.sendTextEmailTest("box@test.local", "a@x.com", "1", "본문1");
-    GreenMailUtil.sendTextEmailTest("box@test.local", "b@x.com", "2", "본문2");
+    MailTestPorts.sendText("box@test.local", "a@x.com", "1", "본문1");
+    MailTestPorts.sendText("box@test.local", "b@x.com", "2", "본문2");
     greenMail.waitForIncomingEmail(2);
 
     syncService.sync(user, accountId); // 메타만 저장(본문 미적재)

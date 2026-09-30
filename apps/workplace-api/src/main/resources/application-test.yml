@@ -45,6 +45,11 @@ app:
 
 # ai-agent 발사: 테스트 기본 off. 통합 테스트는 @TestPropertySource 로 override.
 workplace:
+  storage:
+    # Gradle 테스트 포크(maxParallelForks)마다 별도 저장소 루트를 쓴다(WP-114). 포크는 각자 Testcontainers DB 를 가지므로
+    # 루트를 공유하면 한 포크의 메일 orphan 스윕이 다른 포크의 blob(내용 해시 경로라 이름도 겹친다)을 고아로 보고 지울 수 있다.
+    # org.gradle.test.worker 는 Gradle 이 각 테스트 JVM 에 주입하는 워커 번호(IDE 단독 실행 시 0).
+    root-dir: ./build/test-storage/worker-${org.gradle.test.worker:0}
   # @Scheduled 작업 비활성 — 캐시된 테스트 컨텍스트마다 스케줄러가 돌며 외부 API 호출·데이터 경합을 일으킨다(SchedulingConfig, WP-80).
   scheduling:
     enabled: false

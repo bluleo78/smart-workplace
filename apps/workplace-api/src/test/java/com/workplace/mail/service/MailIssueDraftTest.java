@@ -27,7 +27,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** #520 메일 이슈 초안 — RLS-safe 컨텍스트 조회 + 후보 프로젝트 포함 + ai-agent 응답 매핑 + 소유권 가드 통합 테스트. */
 class MailIssueDraftTest extends IntegrationTestBase {
@@ -37,10 +37,10 @@ class MailIssueDraftTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
 
   /** ai-agent HTTP 목(실 HTTP 호출 없음). */
-  @MockBean AiAgentMailClient mailClient;
+  @MockitoBean AiAgentMailClient mailClient;
 
   /** AssistantResolver 목(비서 미설정 환경에서도 통과). */
-  @MockBean AssistantResolver assistantResolver;
+  @MockitoBean AssistantResolver assistantResolver;
 
   /** 테스트용 고정 AssistantSpec. */
   private static final AssistantSpec MOCK_SPEC =

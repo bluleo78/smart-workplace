@@ -7,7 +7,6 @@ import static org.mockito.Mockito.when;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
-import com.icegreen.greenmail.util.ServerSetupTest;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
@@ -38,7 +37,7 @@ class MailSentAppenderTest {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(ServerSetupTest.SMTP_IMAP)
+      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("me@test.local", "me@test.local", "pw"));
 
@@ -62,11 +61,11 @@ class MailSentAppenderTest {
         "me@test.local",
         "나",
         "127.0.0.1",
-        3143,
+        MailTestPorts.IMAP,
         MailSecurity.NONE,
         "me@test.local",
         "127.0.0.1",
-        3025,
+        MailTestPorts.SMTP,
         MailSecurity.NONE,
         "me@test.local",
         null,
@@ -120,7 +119,7 @@ class MailSentAppenderTest {
     props.put("mail.store.protocol", "imap");
     Session session = Session.getInstance(props);
     Store store = session.getStore("imap");
-    store.connect("127.0.0.1", 3143, "me@test.local", "pw");
+    store.connect("127.0.0.1", MailTestPorts.IMAP, "me@test.local", "pw");
     return store;
   }
 }

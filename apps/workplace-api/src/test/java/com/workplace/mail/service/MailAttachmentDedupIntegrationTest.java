@@ -21,6 +21,7 @@ import static org.mockito.Mockito.withSettings;
 
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.mail.MailTestPorts;
 import com.workplace.mail.exception.EmailAttachmentNotFoundException;
 import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.MailAttachmentBlobRepository;
@@ -131,7 +132,7 @@ class MailAttachmentDedupIntegrationTest extends IntegrationTestBase {
                       .set(EMAIL_ACCOUNT.USER_ID, userA)
                       .set(EMAIL_ACCOUNT.EMAIL_ADDRESS, "acca-" + nano + "@test.local")
                       .set(EMAIL_ACCOUNT.IMAP_HOST, "127.0.0.1")
-                      .set(EMAIL_ACCOUNT.IMAP_PORT, 3143)
+                      .set(EMAIL_ACCOUNT.IMAP_PORT, MailTestPorts.IMAP)
                       .set(EMAIL_ACCOUNT.IMAP_SECURITY, "NONE")
                       .set(EMAIL_ACCOUNT.IMAP_USERNAME, "acca-" + nano + "@test.local")
                       .set(EMAIL_ACCOUNT.ENCRYPTED_PASSWORD, encPw)
@@ -148,7 +149,7 @@ class MailAttachmentDedupIntegrationTest extends IntegrationTestBase {
                       .set(EMAIL_ACCOUNT.USER_ID, userB)
                       .set(EMAIL_ACCOUNT.EMAIL_ADDRESS, "accb-" + nano + "@test.local")
                       .set(EMAIL_ACCOUNT.IMAP_HOST, "127.0.0.1")
-                      .set(EMAIL_ACCOUNT.IMAP_PORT, 3143)
+                      .set(EMAIL_ACCOUNT.IMAP_PORT, MailTestPorts.IMAP)
                       .set(EMAIL_ACCOUNT.IMAP_SECURITY, "NONE")
                       .set(EMAIL_ACCOUNT.IMAP_USERNAME, "accb-" + nano + "@test.local")
                       .set(EMAIL_ACCOUNT.ENCRYPTED_PASSWORD, encPw)

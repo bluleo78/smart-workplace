@@ -98,6 +98,12 @@ tasks.withType<Test> {
     // 재발 시 원인 분석용 힙 덤프를 남긴다.
     maxHeapSize = "1536m"
     jvmArgs("-XX:+HeapDumpOnOutOfMemoryError")
+    // 테스트 클래스를 여러 JVM 포크로 나눠 병렬 실행(WP-114). 포크마다 Testcontainers DB·저장소 루트
+    // (application-test.yml, worker 번호별)가 따로라 격리가 유지된다. JVM 내부 병렬은 쓰지 않는다 —
+    // IntegrationTestBase 의 세션 GUC 리셋이 단일 스레드 실행을 전제로 한다.
+    // 기본 2 — 포크마다 힙 1.5g + DB 컨테이너가 붙고 병렬 세션·E2E 와 머신을 나눠 쓰므로 과도하게 올리지 않는다.
+    // -PtestForks=N 으로 조정(예: 디버깅 시 1).
+    maxParallelForks = (findProperty("testForks") as String?)?.toInt() ?: 2
     // OrbStack: 기본 docker.sock 이 죽은 Docker Desktop 을 가리킬 때 Testcontainers 가 못 붙는다.
     // DOCKER_HOST 미설정 + OrbStack 소켓 존재 시 자동 주입(로컬 편의; 명시 설정이 있으면 존중).
     if (System.getenv("DOCKER_HOST") == null) {

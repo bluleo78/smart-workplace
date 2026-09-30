@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.mail.MailTestPorts;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.ParsedMessage;
@@ -20,7 +21,6 @@ import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,7 +29,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 메일을 검증한다. 테스트 프로파일은 connection-init 으로 app.tenant_id=1 을 주입하므로(DashboardEndpointTest 참고) 동일 풀
  * 커넥션으로 시드한 메일 행은 tenant RLS 하에서도 읽힌다(별도 멤버십 시드 불필요).
  */
-@AutoConfigureMockMvc
 @Transactional
 class MeMailSummaryControllerTest extends IntegrationTestBase {
 
@@ -48,11 +47,11 @@ class MeMailSummaryControllerTest extends IntegrationTestBase {
             "box@test.local",
             "테스트박스",
             "127.0.0.1",
-            3143,
+            MailTestPorts.IMAP,
             MailSecurity.NONE,
             "box@test.local",
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             "box@test.local",
             "pw",

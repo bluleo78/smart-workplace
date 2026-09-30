@@ -11,7 +11,7 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import java.time.OffsetDateTime;
 import org.jooq.DSLContext;
 
-/** 메일 통합 테스트 공용 헬퍼. GreenMail(IMAP 3143/SMTP 3025)을 가리키는 계정을 직접 삽입(연결테스트 우회)한다. */
+/** 메일 통합 테스트 공용 헬퍼. GreenMail(IMAP/SMTP — MailTestPorts)을 가리키는 계정을 직접 삽입(연결테스트 우회)한다. */
 final class MailTestSupport {
 
   private MailTestSupport() {}
@@ -90,11 +90,11 @@ final class MailTestSupport {
             "box@test.local",
             "테스트박스",
             "127.0.0.1",
-            3143,
+            MailTestPorts.IMAP,
             MailSecurity.NONE,
             "box@test.local",
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             "box@test.local",
             "pw",

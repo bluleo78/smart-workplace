@@ -14,6 +14,7 @@ import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.mail.MailTestPorts;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.ParsedMessage;
@@ -252,11 +253,11 @@ class MailSummarySchedulerTest extends IntegrationTestBase {
             email,
             "표시명",
             "127.0.0.1",
-            3143,
+            MailTestPorts.IMAP,
             MailSecurity.NONE,
             email,
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             email,
             "pw",

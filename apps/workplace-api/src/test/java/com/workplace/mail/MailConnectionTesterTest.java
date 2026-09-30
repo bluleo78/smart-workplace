@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
-import com.icegreen.greenmail.util.ServerSetupTest;
 import com.workplace.mail.dto.ConnectionTestResult;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.service.MailConnectionTester;
@@ -12,14 +11,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 /**
- * MailConnectionTester 의 IMAP/SMTP 실연결 검증. GreenMail(SMTP 3025 / IMAP 3143, 평문)에 사용자
+ * MailConnectionTester 의 IMAP/SMTP 실연결 검증. GreenMail(SMTP/IMAP — MailTestPorts, 평문)에 사용자
  * u@test.local/pw 를 미리 등록하고 NONE 보안으로 접속한다.
  */
 class MailConnectionTesterTest {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
-      new GreenMailExtension(ServerSetupTest.SMTP_IMAP)
+      new GreenMailExtension(MailTestPorts.SMTP_IMAP)
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("u@test.local", "u@test.local", "pw"));
 
@@ -30,11 +29,11 @@ class MailConnectionTesterTest {
     ConnectionTestResult r =
         tester.test(
             "127.0.0.1",
-            3143,
+            MailTestPorts.IMAP,
             MailSecurity.NONE,
             "u@test.local",
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             "u@test.local",
             "pw");
@@ -48,11 +47,11 @@ class MailConnectionTesterTest {
     ConnectionTestResult r =
         tester.test(
             "127.0.0.1",
-            3143,
+            MailTestPorts.IMAP,
             MailSecurity.NONE,
             "u@test.local",
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             "u@test.local",
             "wrong-pw");
@@ -65,11 +64,11 @@ class MailConnectionTesterTest {
     ConnectionTestResult r =
         tester.test(
             "127.0.0.1",
-            3143,
+            MailTestPorts.IMAP,
             MailSecurity.NONE,
             "u@test.local",
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             "u@test.local",
             "wrong-pw");
@@ -87,7 +86,7 @@ class MailConnectionTesterTest {
             MailSecurity.NONE,
             "u@test.local",
             "127.0.0.1",
-            3025,
+            MailTestPorts.SMTP,
             MailSecurity.NONE,
             "u@test.local",
             "pw");
