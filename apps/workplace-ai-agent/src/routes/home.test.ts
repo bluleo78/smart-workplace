@@ -80,6 +80,16 @@ describe('chatSchema', () => {
   it('tenantId 가 0 이하면 파싱 실패', () => {
     expect(chatSchema.safeParse(validBody({ tenantId: 0 })).success).toBe(false);
   });
+  // WP-54: 화면 컨텍스트 — 정상·null 허용, 상한 초과는 거부.
+  it('screenContext 정상/null 은 파싱 성공하고 값이 보존된다', () => {
+    const ctx = { view: '이슈 상세', focus: { type: '이슈', label: 'WP-1 a', refs: { issueKey: 'WP-1' } } };
+    const parsed = chatSchema.safeParse(validBody({ screenContext: ctx }));
+    expect(parsed.success && parsed.data.screenContext).toEqual(ctx);
+    expect(chatSchema.safeParse(validBody({ screenContext: null })).success).toBe(true);
+  });
+  it('screenContext 상한 초과 → 파싱 실패', () => {
+    expect(chatSchema.safeParse(validBody({ screenContext: { view: 'x'.repeat(51) } })).success).toBe(false);
+  });
 });
 
 describe('POST /ai/chat', () => {

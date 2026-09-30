@@ -11,6 +11,7 @@ import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
 import { log } from '../logger.js';
+import { screenContextSchema } from '../agent/screen-context.js';
 
 // 홈 우선순위 분류 요청 바디 검증 — workplace-api AiAgentPriorityClient 가 보내는 계약과 필드명이 정확히 일치해야 한다.
 const priorityClassifySchema = z.object({
@@ -44,6 +45,8 @@ export const chatSchema = z.object({
   thinkingDepth: z.enum(['NONE', 'NORMAL', 'DEEP']),
   maxTurns: z.number().int().positive(),
   timeoutMs: z.number().int().positive(),
+  // WP-54: 현재 화면 컨텍스트(nullable). plain z.object 는 미정의 키를 버리므로 명시해야 전달된다.
+  screenContext: screenContextSchema.nullish(),
 });
 
 export function createHomeRouter(deps: RunAgentDeps): Router {

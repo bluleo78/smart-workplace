@@ -17,6 +17,7 @@ import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
 import type { ProviderCredential } from './agent-runner.js';
 import type { HostBridge } from '../mcp/tools.js';
+import { formatScreenContext, type ScreenContext } from './screen-context.js';
 
 export interface ContextMessage {
   // 'USER' | 'ASSISTANT' | 'ACTION_DONE' | 'ACTION_FAILED' | 'ACTION_REJECTED'(#843 확인카드 처리 결과)
@@ -44,6 +45,8 @@ export interface ChatInput {
   timeoutMs: number;
   // 요청 단위 추적 ID — 로그를 한 요청으로 묶는다(home.ts 가 생성·전달).
   requestId?: string;
+  // WP-54: 사용자가 보고 있는 화면(대상·목록 상태). user 메시지 prefix 로 임베드(시스템 프롬프트 규칙과 짝).
+  screenContext?: ScreenContext | null;
 }
 
 // #404: show_issue_detail 위젯에서 존재하지 않는 이슈 번호를 결정론적으로 차단한다.
@@ -90,12 +93,14 @@ function contextLabel(m: ContextMessage): string {
   return '사용자';
 }
 
-// recentContext 를 단발 --print 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
+// recentContext·화면 컨텍스트를 단발 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
+// 순서: 이전 대화 → 현재 화면 → (미확인 승인 결과) → 현재 요청. 둘 다 없으면 query 원문.
 function buildChatUserMessage(input: ChatInput): string {
   const ctx = input.recentContext ?? [];
-  if (ctx.length === 0) return input.query;
-  const lines = ctx.map((m) => `${contextLabel(m)}: ${m.content}`);
-  return `이전 대화:\n${lines.join('\n')}\n\n${unseenResultsBlock(ctx)}현재 요청: ${input.query}`;
+  const screen = input.screenContext ? `${formatScreenContext(input.screenContext)}\n\n` : '';
+  if (ctx.length === 0 && !screen) return input.query;
+  const history = ctx.length ? `이전 대화:\n${ctx.map((m) => `${contextLabel(m)}: ${m.content}`).join('\n')}\n\n` : '';
+  return `${history}${screen}${unseenResultsBlock(ctx)}현재 요청: ${input.query}`;
 }
 
 // #849: AI 가 아직 언급하지 않은 승인 결과(마지막 AI 답 이후의 ACTION_* 행)를 현재 요청 바로 앞에 다시 둔다.
