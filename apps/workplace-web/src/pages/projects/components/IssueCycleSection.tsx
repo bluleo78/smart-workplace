@@ -171,20 +171,20 @@ export function IssueCycleSection({
       data-active={active ? 'true' : undefined}
       data-expanded={expanded ? 'true' : 'false'}
       aria-label={title}
-      // 모든 구간이 같은 테두리·왼쪽 여백(pl-1)을 가져 컬럼이 어긋나지 않는다. 진행 중 강조선은 그 여백 위에 겹쳐 그리는
+      // 모든 구간이 같은 테두리·왼쪽 여백(pl-3)을 가져 컬럼이 어긋나지 않는다. 진행 중 강조선은 그 여백 위에 겹쳐 그리는
       // before: 오버레이라 레이아웃에 영향이 없다(border-l-4 를 쓰면 진행 중 구간만 컬럼이 밀린다).
       className={cn(
-        'relative min-w-0 overflow-hidden rounded-md border pl-1 transition-colors',
+        'relative min-w-0 overflow-hidden rounded-md border pl-3 transition-colors',
         active && "before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary before:content-['']",
         // 드롭 대상 강조 — 구간 전체 테두리+틴트(ring-inset 은 레이아웃을 밀지 않는다).
         dropTarget && 'bg-primary/10 ring-2 ring-primary ring-inset',
         blocked && 'opacity-50',
       )}
     >
-      {/* 헤더 — 기존 그룹 헤더(bg-muted/40)와 같은 톤, 진행 중만 옅은 primary 틴트로 강조. -ml-1 pl-1 로 배경을 왼쪽 여백까지 채운다. */}
+      {/* 헤더 — 기존 그룹 헤더(bg-muted/40)와 같은 톤, 진행 중만 옅은 primary 틴트로 강조. -ml-3 pl-3 로 배경을 왼쪽 여백까지 채운다. */}
       <div
         className={cn(
-          '-ml-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 pl-1 pr-3',
+          '-ml-3 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 pl-3 pr-3',
           active ? 'bg-primary/5 dark:bg-primary/10' : 'bg-muted/40',
         )}
         data-testid={`list-cycle-header-${def.key}`}

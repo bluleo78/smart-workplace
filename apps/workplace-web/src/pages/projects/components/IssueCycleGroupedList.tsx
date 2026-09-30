@@ -21,8 +21,8 @@ export function IssueCycleListSkeleton() {
   return (
     <div className="space-y-3" data-testid="issue-list-pending" aria-busy="true" aria-label="이슈 목록 불러오는 중">
       {[0, 1].map((i) => (
-        <div key={i} className="overflow-hidden rounded-md border pl-1">
-          <div className="-ml-1 flex items-center gap-3 bg-muted/40 py-2 pl-10 pr-3">
+        <div key={i} className="overflow-hidden rounded-md border pl-3">
+          <div className="-ml-3 flex items-center gap-3 bg-muted/40 py-2 pl-12 pr-3">
             <Skeleton className="h-4 w-48" />
             <Skeleton className="ml-auto h-3 w-24" />
           </div>
@@ -98,9 +98,9 @@ export function IssueCycleGroupedList({
   return (
     <div data-testid="issue-cycle-grouped-list">
       <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} />
-      {/* 컬럼명 — 구간마다 반복하지 않고 첫 구간 위에 한 번만. 구간과 같은 테두리·여백(border+pl-1)으로 컬럼을 맞춘다.
+      {/* 컬럼명 — 구간마다 반복하지 않고 첫 구간 위에 한 번만. 구간과 같은 테두리·여백(border+pl-3)으로 컬럼을 맞춘다.
           구간 테이블마다 스크린리더용 컬럼명이 있으므로 이 행은 보조기기에서 숨긴다. */}
-      <div className="border border-transparent pl-1" aria-hidden="true">
+      <div className="border border-transparent pl-3" aria-hidden="true">
         <table className="w-full table-fixed">
           <CycleSectionColumnHead visible />
         </table>
