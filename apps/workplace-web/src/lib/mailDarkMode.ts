@@ -24,12 +24,18 @@ const NEUTRAL_BG_KEYWORDS = new Set(['', 'transparent', 'none', 'initial', 'inhe
 /** 이 이상이면 거의 흰색(#f5f5f5 등)으로 본다 */
 const NEAR_WHITE = 240
 
-/** 명도 반전 대상 상한 — 이보다 밝은 색(강조 오렌지 등)은 다크 배경에서도 읽히므로 유지 */
+/**
+ * '어두운 글자색' 판정 기준(WCAG 상대 휘도). 다크 배경(휘도 ≈0.005)과의 대비가 4.5:1 이 되는 지점 —
+ * 이보다 밝은 색(강조 오렌지 등)은 그대로 읽히므로 유지하고, 미만이면 이 휘도 이상이 될 때까지 밝힌다.
+ * HSL 명도만 보면 순수 파랑(#0000FF, L=0.5)처럼 명도는 중간인데 휘도가 낮은 색이 빠진다.
+ */
+const MIN_LUMINANCE = 0.2
+/** HSL 명도 반전 매핑의 기준 — L∈[0, 0.5) 를 [0.93, 0.5] 로 뒤집는다 */
 const DARK_LIGHTNESS = 0.5
 /** 순흑(L=0)이 반전됐을 때의 명도 — 앱 --foreground(oklch 0.93) 과 비슷하게 순백보다 살짝 낮춘다 */
 const MAX_LIGHTNESS = 0.93
 
-/** 자주 쓰이는 이름 색(어두운 색 + 흰색) — 나머지 이름 색은 해석하지 않고 둔다 */
+/** 메일에 자주 쓰이는 이름 색(어두운 색 + 흰색) — 클래식 Outlook `a:link{color:blue}`·`a:visited{color:purple}` 등. 나머지는 해석하지 않고 둔다 */
 const NAMED: Record<string, [number, number, number]> = {
   black: [0, 0, 0],
   gray: [128, 128, 128],
@@ -40,6 +46,20 @@ const NAMED: Record<string, [number, number, number]> = {
   darkblue: [0, 0, 139],
   maroon: [128, 0, 0],
   darkgreen: [0, 100, 0],
+  green: [0, 128, 0],
+  blue: [0, 0, 255],
+  purple: [128, 0, 128],
+  darkred: [139, 0, 0],
+  red: [255, 0, 0],
+  indigo: [75, 0, 130],
+  midnightblue: [25, 25, 112],
+  darkslateblue: [72, 61, 139],
+  darkslategray: [47, 79, 79],
+  darkslategrey: [47, 79, 79],
+  darkmagenta: [139, 0, 139],
+  teal: [0, 128, 128],
+  olive: [128, 128, 0],
+  brown: [165, 42, 42],
   windowtext: [0, 0, 0],
   white: [255, 255, 255],
 }
@@ -65,17 +85,30 @@ export function parseCssColor(value: string): Rgba | null {
 }
 
 /**
- * 어두운 색이면 색상(hue)은 유지한 채 명도만 밝게 뒤집은 rgb 문자열을, 이미 밝은 색이거나 해석 불가면 null 을 돌려준다.
- * 명도 L∈[0, 0.5) 를 [0.93, 0.5] 로 선형 매핑 — 검정은 밝은 회백, 회색 계열은 비례해 밝아진다.
+ * 어두운 색(휘도 < MIN_LUMINANCE)이면 색상(hue)은 유지한 채 명도만 밝힌 rgb 문자열을, 이미 읽히는 색이거나 해석 불가면 null 을 돌려준다.
+ * 명도 L∈[0, 0.5) 는 [0.93, 0.5] 로 선형 매핑(검정 → 밝은 회백, 회색은 비례)하고, 그래도 휘도가 모자라면
+ * (파랑·보라처럼 명도 대비 휘도가 낮은 색) 기준 휘도에 닿을 때까지 명도를 더 올린다.
  */
 export function lightenDarkColor(value: string): string | null {
   const c = parseCssColor(value)
-  if (!c) return null
+  if (!c || relativeLuminance(c.r, c.g, c.b) >= MIN_LUMINANCE) return null
   const [h, s, l] = rgbToHsl(c.r, c.g, c.b)
-  if (l >= DARK_LIGHTNESS) return null
-  const nl = MAX_LIGHTNESS - (l / DARK_LIGHTNESS) * (MAX_LIGHTNESS - DARK_LIGHTNESS)
-  const [r, g, b] = hslToRgb(h, s, nl)
+  let nl = l < DARK_LIGHTNESS ? MAX_LIGHTNESS - (l / DARK_LIGHTNESS) * (MAX_LIGHTNESS - DARK_LIGHTNESS) : l
+  let [r, g, b] = hslToRgb(h, s, nl)
+  while (relativeLuminance(r, g, b) < MIN_LUMINANCE && nl < MAX_LIGHTNESS) {
+    nl = Math.min(MAX_LIGHTNESS, nl + 0.02)
+    ;[r, g, b] = hslToRgb(h, s, nl)
+  }
   return c.a < 1 ? `rgba(${r}, ${g}, ${b}, ${c.a})` : `rgb(${r}, ${g}, ${b})`
+}
+
+/** WCAG 상대 휘도(0 검정 ~ 1 흰색) — 사람 눈에 보이는 밝기로, 대비 판정의 기준 */
+function relativeLuminance(r: number, g: number, b: number): number {
+  const lin = (v: number) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 }
 
 /** 흰색·거의 흰색·투명 등 '배경 없음'과 같게 볼 수 있는 배경색인지 */
