@@ -211,6 +211,8 @@ test.describe('AI 채팅 화면 컨텍스트 — 이슈 목록', () => {
     // 범위 라벨이 화면 이름을 포함하므로 중복 없이 범위 라벨만 표시한다.
     await expect(page.getByTestId('chat-context-chip')).toContainText('프로젝트 Workplace 이슈 목록')
     await expect(page.getByTestId('chat-context-chip')).not.toContainText('이슈 목록 · ')
+    // count/hasMore 는 이슈 목록 fetch 결과에서 오므로 행이 렌더된 뒤 전송한다(칩 라벨은 프로젝트 fetch 만으로 뜬다).
+    await expect(page.getByTestId('issue-row-1')).toBeVisible()
     await page.getByTestId('chat-input').fill('여기서 급한 거')
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(() => bodies.length).toBe(1)
@@ -545,7 +547,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
     await expect(page.locator('main')).not.toHaveAttribute('inert')
   })
 
-  test('패널을 닫아 modal 로 돌아가면 inert 는 해제되고(모달 aria-hidden 으로 대체), 패널 툴팁 클릭은 다이얼로그를 닫지 않는다', async ({ authenticatedPage: page }) => {
+  test('패널 칩 툴팁(body 포털)을 클릭해도 다이얼로그는 닫히지 않는다', async ({ authenticatedPage: page }) => {
     await captureChat(page)
     await mockCalendar(page)
     await page.goto('/calendar')
@@ -554,18 +556,35 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
     const dialog = page.getByTestId('calendar-event-dialog')
     await expect(dialog).toBeVisible()
 
-    // 패널 칩 라벨 툴팁(body 포털) 내용을 클릭해도 다이얼로그 유지.
     await page.getByTestId('chat-context-label').hover()
     const tip = page.locator('[data-slot=tooltip-content]')
     await expect(tip).toBeVisible()
     await tip.click()
     await expect(dialog).toBeVisible()
+  })
 
+  test('패널을 닫아 modal 로 돌아가면 inert 는 해제되고 페이지 영역은 모달 aria-hidden 으로 가려진다', async ({ authenticatedPage: page }) => {
+    await captureChat(page)
+    await mockCalendar(page)
+    await page.goto('/calendar')
+    await page.getByTestId('chat-launcher').click()
+    await page.getByTestId('calendar-event-42').click()
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(page.getByTestId('app-rail')).toHaveAttribute('inert', '')
+
+    // 툴팁이 떠 있으면(퇴장 애니메이션 중 포함) 최상위 DismissableLayer 가 Escape 를 가로채므로,
+    // 입력창 클릭 후 툴팁이 DOM 에서 완전히 사라진 것을 확인한 뒤 Escape 로 패널을 닫는다.
     await page.getByTestId('chat-input').click()
+    await expect(page.locator('[data-slot=tooltip-content]')).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('ai-side-panel')).toBeHidden()
     await expect(dialog).toBeVisible()
     await expect(page.getByTestId('app-rail')).not.toHaveAttribute('inert')
+    // modal 복귀 — Radix hideOthers 가 AppRail(또는 그 조상)에 aria-hidden="true" 를 건다.
+    await expect
+      .poll(() => page.getByTestId('app-rail').evaluate((el) => el.closest('[aria-hidden="true"]') !== null))
+      .toBe(true)
   })
 
   test('모바일(<lg): 패널은 다이얼로그 위 풀스크린으로 입력 가능하고, 닫으면 다이얼로그로 돌아온다', async ({ authenticatedPage: page }) => {

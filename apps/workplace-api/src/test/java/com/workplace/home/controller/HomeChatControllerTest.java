@@ -123,6 +123,24 @@ class HomeChatControllerTest {
         .andExpect(status().isBadRequest());
   }
 
+  /** WP-54: fact value · refs 값이 null 이면 400 — ai-agent zod(string 필수)로 넘어가 실패하지 않게 api 에서 거른다. */
+  @Test
+  void chat_화면_컨텍스트_null_값은_400() throws Exception {
+    for (String ctx :
+        new String[] {
+          "{\"view\":\"v\",\"scope\":{\"label\":\"l\",\"facts\":[{\"label\":\"상태\",\"value\":null}]}}",
+          "{\"view\":\"v\",\"focus\":{\"type\":\"t\",\"label\":\"l\",\"refs\":{\"issueKey\":null}}}"
+        }) {
+      mockMvc
+          .perform(
+              post("/api/v1/ai/chat")
+                  .header("Authorization", "Bearer v")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"query\":\"q\",\"screenContext\":" + ctx + "}"))
+          .andExpect(status().isBadRequest());
+    }
+  }
+
   /** WP-54: refs 6개(상한 5) · view 누락은 400. */
   @Test
   void chat_화면_컨텍스트_refs_초과_view_누락은_400() throws Exception {

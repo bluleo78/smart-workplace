@@ -18,7 +18,7 @@ describe('buildMailContext', () => {
       folder: 'SENT',
       q: '견적',
       needsReply: true,
-      selected: { id: 91, subject: '견적 요청', fromName: '김철수', fromAddress: 'kim@a.com', receivedAt: '2026-09-29T00:30:00Z', aiCategory: 'WORK', aiNeedsReply: true },
+      selected: { id: 91, subject: '견적 요청', fromName: '김철수', fromAddress: 'kim@a.com', receivedAt: '2026-09-29T00:30:00Z', aiCategory: '업무', aiNeedsReply: true },
     });
     expect(ctx.focus).toEqual({
       type: '메일',
@@ -27,7 +27,7 @@ describe('buildMailContext', () => {
       facts: [
         { label: '보낸이', value: '김철수 <kim@a.com>' },
         { label: '수신', value: '2026-09-29 09:30' },
-        { label: 'AI 분류', value: 'WORK' },
+        { label: 'AI 분류', value: '업무' },
         { label: '답장 필요', value: '예' },
       ],
     });
@@ -38,6 +38,16 @@ describe('buildMailContext', () => {
     const sel = { id: 1, subject: null, fromName: null, fromAddress: 'a@b.c', receivedAt: '2026-09-29T00:00:00Z', aiCategory: null, aiNeedsReply: null };
     expect(buildMailContext({ ...base, selected: sel }).focus!.label).toBe('(제목 없음)');
     expect(buildMailContext({ ...base, selected: { ...sel, subject: 's'.repeat(300) } }).focus!.label).toHaveLength(200);
+  });
+
+  // 분류 값은 백엔드 MailAiService.CATEGORIES 의 한글 표시값('업무' 등) 그대로 — UI 배지·사이드바와 같은 문자열.
+  it('분류 필터 fact 는 화면 표시값 그대로', () => {
+    expect(buildMailContext({ ...base, category: '업무' }).scope!.facts).toEqual([{ label: '분류', value: '업무' }]);
+  });
+
+  it('보낸 주소가 비면 이름만(“이름 <>” 금지)', () => {
+    const sel = { id: 2, subject: 's', fromName: '김철수', fromAddress: '', receivedAt: '2026-09-29T00:00:00Z', aiCategory: null, aiNeedsReply: null };
+    expect(buildMailContext({ ...base, selected: sel }).focus!.facts).toContainEqual({ label: '보낸이', value: '김철수' });
   });
 
   it('count 미제공이면 scope.count 없음', () => {

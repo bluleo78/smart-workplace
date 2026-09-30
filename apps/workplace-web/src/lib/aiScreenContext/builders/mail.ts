@@ -43,7 +43,8 @@ export function buildMailContext(input: MailContextInput): AiScreenContext {
       label: clip(s.subject?.trim() || '(제목 없음)', LIMITS.label),
       refs: buildRefs({ messageId: s.id }),
       facts: buildFacts([
-        ['보낸이', s.fromName ? `${s.fromName} <${s.fromAddress}>` : s.fromAddress],
+        // 주소가 비면 '이름 <>' 대신 이름만 — 둘 다 비면 buildFacts 가 항목을 뺀다.
+        ['보낸이', s.fromName && s.fromAddress ? `${s.fromName} <${s.fromAddress}>` : s.fromName || s.fromAddress],
         ['수신', fmtKst(s.receivedAt)],
         ['AI 분류', s.aiCategory],
         ['답장 필요', s.aiNeedsReply === true],

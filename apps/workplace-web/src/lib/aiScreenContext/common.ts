@@ -83,8 +83,3 @@ export function contextIdentity(ctx: AiScreenContext | null): string | null {
     scopeRefs: ctx.scope?.refs ?? null,
   });
 }
-
-/** 컨텍스트 전체 직렬화 키 — 내용 동일성 비교용(× 상태 비교에는 contextIdentity 를 쓴다). */
-export function contextKey(ctx: AiScreenContext | null): string | null {
-  return ctx ? JSON.stringify(ctx) : null;
-}
