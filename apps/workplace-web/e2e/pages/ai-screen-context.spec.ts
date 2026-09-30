@@ -650,9 +650,13 @@ test.describe('AI 채팅 화면 컨텍스트 — 위키', () => {
   test('페이지 pageId·스페이스가 실린다', async ({ authenticatedPage: page }) => {
     const bodies = await captureChat(page)
     await mockWiki(page)
+    // 스페이스 목록(useWikiSpaces) 로드가 뒤늦게 될 수 있어 병렬 로드에서 플레이키 (가능성 낮음)
+    // → goto 전에 대기 시작, send 전에 완료 확인하여 scope.label 이 항상 '위키 스페이스 개발' 으로 결정론적 도착
+    const spacesLoaded = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/wiki/spaces' && r.request().method() === 'GET')
     await page.goto('/wiki/spaces/2/pages/10')
     await page.getByTestId('chat-launcher').click()
     await expect(page.getByTestId('chat-context-chip')).toContainText('위키 페이지 배포 가이드')
+    await spacesLoaded
     await page.getByTestId('chat-input').fill('이 문서 요약')
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(() => bodies.length).toBe(1)
