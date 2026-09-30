@@ -220,6 +220,9 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                     key={i}
                     data-testid={`mention-chip-${seg.id}`}
                     className={`rounded px-1 font-medium ${
+                      // 본인 말풍선은 wrap-anywhere 라 칩이 '@' 와 이름 사이에서 끊길 수 있어 한 덩어리로 유지한다.
+                      ownBubble ? 'whitespace-nowrap' : ''
+                    } ${
                       ownBubble
                         ? // 본인 말풍선(bg-primary/10) 안에서는 반투명/accent 칩이 배경에 묻히므로 불투명 배경 토큰으로 띄운다.
                           seg.kind === 'AGENT'
@@ -339,7 +342,9 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                       {!startsGroup && toolbar}
                       {body}
                     </div>
-                    {attachments}
+                    {/* 첨부 목록은 max-content 폭이라 긴 파일명이 컬럼(75%)을 넘어 왼쪽이 잘린다.
+                        w-full 로 컬럼 폭에 묶고 items-end 로 우측 정렬을 유지하며, 목록·카드(button)는 max-w-full 로 min-content 폭 확장을 막아 카드 안에서 파일명이 말줄임되게 한다. */}
+                    {attachments && <div className="flex w-full min-w-0 flex-col items-end [&>*]:max-w-full [&_button]:max-w-full">{attachments}</div>}
                     {reactions}
                     {threadLink}
                   </div>

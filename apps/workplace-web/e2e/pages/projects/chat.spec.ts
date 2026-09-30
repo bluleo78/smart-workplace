@@ -486,6 +486,27 @@ test.describe('이슈 chat panel', () => {
           mentions: hydrateMentions('<@99> <@20>', members),
           editedAt: '2026-01-01T10:00:00Z',
         }),
+        // 긴 파일명 첨부만 있는 본인 메시지 — 카드가 본인 컬럼을 넘지 않는지 확인.
+        createChatMessage({
+          id: 612,
+          threadId: THREAD_ID,
+          authorId: ME_ID,
+          authorName: '테스트 사용자',
+          authorKind: 'HUMAN',
+          body: '',
+          attachments: [
+            {
+              fileId: 950,
+              messageId: 612,
+              originalName: `2026-10-01_운영배포_체크리스트_최종_v3_${'아주긴파일명_'.repeat(14)}.xlsx`,
+              mimeType: 'application/vnd.ms-excel',
+              sizeBytes: 49152,
+              attachedById: ME_ID,
+              attachedByName: '테스트 사용자',
+              attachedAt: '2026-01-01T10:00:00Z',
+            },
+          ],
+        }),
       ],
     };
     stubs.messages = stubs.thread.recentMessages;
@@ -532,6 +553,22 @@ test.describe('이슈 chat panel', () => {
     const humanChip = ownRow.getByTestId('chat-mention-chip-20');
     await expect(humanChip).toHaveClass(/bg-background/);
     await expect(humanChip).toHaveClass(/text-foreground/);
+    // wrap-anywhere 말풍선 안에서 칩이 '@' 와 이름 사이에서 끊기지 않는다.
+    await expect(agentChip).toHaveClass(/whitespace-nowrap/);
+    await expect(humanChip).toHaveClass(/whitespace-nowrap/);
+
+    // 첨부 카드: 본인 행 안에 들어오고 75% 를 넘지 않는다(기본 + 320px 폭).
+    const assertCardInsideRow = async () => {
+      const row = (await page.getByTestId('chat-message-612').boundingBox())!;
+      const card = (await page.getByTestId('attachment-card-950').boundingBox())!;
+      expect(card.x).toBeGreaterThanOrEqual(row.x);
+      expect(card.x + card.width).toBeLessThanOrEqual(row.x + row.width + 1);
+      expect(card.width).toBeLessThanOrEqual(row.width * 0.75 + 1);
+    };
+    await assertCardInsideRow();
+    await page.setViewportSize({ width: 320, height: 800 });
+    await assertCardInsideRow();
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // 좌표: 본인 말풍선은 타인 본문보다 오른쪽에서 끝난다.
     const ownBox = (await ownBody.boundingBox())!;

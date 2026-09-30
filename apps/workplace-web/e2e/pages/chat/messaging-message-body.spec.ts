@@ -384,7 +384,7 @@ async function setupSplitChannel(page: Page) {
     id: 35, channelId: OWN_CHANNEL_ID, authorId: 1, authorName: 'me', authorKind: 'HUMAN',
     body: '', createdAt: '2026-06-06T03:00:40',
     attachments: [
-      { fileId: 900, messageId: 35, originalName: '2026-10-01_운영배포_체크리스트_최종_v3.xlsx', mimeType: 'application/vnd.ms-excel', sizeBytes: 49152, attachedById: 1, attachedByName: 'me', attachedAt: '2026-06-06T03:00:40' },
+      { fileId: 900, messageId: 35, originalName: `2026-10-01_운영배포_체크리스트_최종_v3_${'아주긴파일명_'.repeat(14)}.xlsx`, mimeType: 'application/vnd.ms-excel', sizeBytes: 49152, attachedById: 1, attachedByName: 'me', attachedAt: '2026-06-06T03:00:40' },
     ],
   })
   const peerMsg = createMessage({
@@ -550,19 +550,28 @@ test.describe('메시지 좌/우 분리', () => {
     expect(await hasHorizontalOverflow(page, 'message-list')).toBe(false)
   })
 
-  test('첨부만 있는 본인 메시지 — 빈 말풍선을 그리지 않고 첨부는 오른쪽', async ({ authenticatedPage: page }) => {
+  test('첨부만 있는 본인 메시지 — 빈 말풍선을 그리지 않고 첨부는 오른쪽, 긴 파일명은 카드 안에서 잘린다', async ({ authenticatedPage: page }) => {
     await expect(page.getByTestId('message-body-35')).toHaveCount(0)
-    const list = await box(page, 'message-list')
-    const card = await box(page, 'attachment-card-900')
-    // 카드가 전폭으로 늘어나지 않고 오른쪽 끝에 붙는다.
-    expect(card.width).toBeLessThan(list.width * 0.75 + 1)
-    expect(card.x + card.width).toBeGreaterThan(list.x + list.width - 40)
+    // 카드가 본인 컬럼(목록 폭의 75%)을 넘거나 목록 왼쪽 밖으로 잘리지 않고 오른쪽 끝에 붙는다.
+    const assertCardInside = async () => {
+      const list = await box(page, 'message-list')
+      const card = await box(page, 'attachment-card-900')
+      expect(card.width).toBeLessThanOrEqual(list.width * 0.75 + 1)
+      expect(card.x).toBeGreaterThanOrEqual(list.x)
+      expect(card.x + card.width).toBeGreaterThan(list.x + list.width - 40)
+      expect(await hasHorizontalOverflow(page, 'message-list')).toBe(false)
+    }
+    await assertCardInside()
+    // 좁은 채팅 컬럼에서도 동일.
+    await page.setViewportSize({ width: 700, height: 800 })
+    await assertCardInside()
   })
 
   test('목록 맨 위 메시지의 툴바가 목록 영역 밖으로 잘리지 않는다', async ({ authenticatedPage: page }) => {
-    await page.getByTestId('message-30').hover()
     // 목록을 맨 위로 올린 상태에서, 툴바 위 끝이 스크롤 영역의 위 끝보다 아래에 있어야 한다.
-    await page.getByTestId('message-30').scrollIntoViewIfNeeded()
+    // (scrollIntoViewIfNeeded 는 행 top 을 스크롤 영역 top 에 딱 붙여 상단 패딩이 사라지므로 scrollTop=0 으로 직접 올린다.)
+    await page.getByTestId('message-scroll-area').evaluate((el) => { el.scrollTop = 0 })
+    await page.getByTestId('message-30').hover()
     const toolbar = await box(page, 'message-toolbar-30')
     expect(toolbar.y).toBeGreaterThanOrEqual(await scrollViewportTop(page, 'message-list'))
   })
@@ -596,6 +605,9 @@ test.describe('메시지 좌/우 분리', () => {
     const ownBody = page.getByTestId('message-body-36')
     await expect(ownBody.getByTestId('mention-chip-99')).toHaveClass(/bg-background/)
     await expect(ownBody.getByTestId('mention-chip-20')).toHaveClass(/bg-background/)
+    // 본인 말풍선의 wrap-anywhere 로 칩이 '@' 와 이름 사이에서 끊기지 않게 한다.
+    await expect(ownBody.getByTestId('mention-chip-99')).toHaveClass(/whitespace-nowrap/)
+    await expect(ownBody.getByTestId('mention-chip-20')).toHaveClass(/whitespace-nowrap/)
     const peerBody = page.getByTestId('message-body-37')
     await expect(peerBody.getByTestId('mention-chip-99')).toHaveClass(/bg-primary\/15/)
     await expect(peerBody.getByTestId('mention-chip-99')).not.toHaveClass(/bg-background/)

@@ -109,6 +109,9 @@ export function ChatMessageRow({
               // 본인 말풍선(bg-primary/10) 안에서는 기존 칩 배경이 말풍선에 묻혀 사라지므로
               // bg-background 로 대비를 확보한다(타인 메시지는 기존 클래스 유지).
               className={`rounded px-1 font-medium ${
+                // 본인 말풍선은 wrap-anywhere 라 칩이 '@' 와 이름 사이에서 끊길 수 있어 한 덩어리로 유지한다.
+                isOwn ? 'whitespace-nowrap ' : ''
+              }${
                 seg.kind === 'AGENT'
                   ? `${isOwn ? 'bg-background' : 'bg-ai-accent-subtle'} text-ai-accent`
                   : `${isOwn ? 'bg-background' : 'bg-muted'} text-foreground`
@@ -166,7 +169,9 @@ export function ChatMessageRow({
             )}
           </div>
           {hasBody && body}
-          {attachments}
+          {/* 첨부 목록은 max-content 폭이라 긴 파일명이 컬럼(75%)을 넘어 왼쪽이 잘린다.
+              w-full 로 컬럼 폭에 묶고 items-end 로 우측 정렬을 유지하며, 목록·카드(button)는 max-w-full 로 min-content 폭 확장을 막아 카드 안에서 파일명이 말줄임되게 한다. */}
+          {attachments && <div className="flex w-full min-w-0 flex-col items-end [&>*]:max-w-full [&_button]:max-w-full">{attachments}</div>}
         </div>
       ) : (
         <>
