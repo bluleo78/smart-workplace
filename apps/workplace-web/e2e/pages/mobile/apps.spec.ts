@@ -133,6 +133,37 @@ test('아바타 → 계정 시트: 이름·이메일, 워크스페이스(✓ 현
   await expect(page).toHaveURL(/\/settings\/profile$/)
 })
 
+test('계정 시트의 테마 전환은 html 의 dark 클래스를 토글한다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  // 시스템 테마 영향 없이 라이트에서 시작.
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto('/apps')
+  await page.getByTestId('apps-account').click()
+  const theme = page.getByTestId('apps-account-theme')
+  await expect(theme).toHaveText(/테마 전환/)
+  await expectNoHorizontalOverflow(page)
+  const html = page.locator('html')
+  await expect(html).not.toHaveClass(/\bdark\b/)
+  await theme.click()
+  await expect(html).toHaveClass(/\bdark\b/)
+  await theme.click()
+  await expect(html).not.toHaveClass(/\bdark\b/)
+})
+
+test('우클릭으로 메뉴를 연 뒤 닫고 키보드 Enter 로 누르면 정상 이동(클릭 억제가 새지 않음)', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await page.goto('/apps')
+  const cal = page.getByTestId('apps-app-calendar')
+  await cal.click({ button: 'right' })
+  await expect(page.getByTestId('apps-menu')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('apps-menu')).toHaveCount(0)
+  await expectNoHorizontalOverflow(page)
+  await cal.focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/\/calendar$/)
+})
+
 test('계정 시트의 로그아웃은 로그인 화면으로', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await mockApi(page, 'POST', '/api/v1/auth/logout', {})

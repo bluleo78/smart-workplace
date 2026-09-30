@@ -1,7 +1,8 @@
 // 모바일 계정 시트 — 앱 목록 우상단 아바타에서 여는 하단 시트(Teams·Slack 방식).
 // 데스크톱 레일의 WorkspaceSwitcher·AppRailUserMenu 가 하던 일(워크스페이스 전환·프로필·로그아웃)을
-// 드롭다운 대신 터치에 맞는 목록으로 보여준다. 모바일 앱 목록(/apps) 전용.
-import { Building2, Check, LogOut, User as UserIcon } from 'lucide-react'
+// 드롭다운 대신 터치에 맞는 목록으로 보여준다(테마 전환 포함 — 모바일에서 기능이 사라지지 않게). 모바일 앱 목록(/apps) 전용.
+import { Building2, Check, LogOut, Moon, Sun, User as UserIcon } from 'lucide-react'
+import { useTheme } from 'next-themes'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -66,10 +67,13 @@ function WorkspaceList({ open }: { open: boolean }) {
   )
 }
 
-/** 계정 하단 시트 — 사용자 이름·아이디/이메일, 워크스페이스 목록, 프로필, 로그아웃. */
+/** 계정 하단 시트 — 사용자 이름·아이디/이메일, 워크스페이스 목록, 프로필, 테마 전환, 로그아웃. */
 export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  // 테마 전환 — AppRailUserMenu 와 같은 next-themes 동작(현재 적용 테마의 반대로). 시트는 닫지 않아 결과를 바로 본다.
+  const { resolvedTheme, setTheme } = useTheme()
+  const dark = resolvedTheme === 'dark'
   const displayName = user?.name || user?.username || '사용자'
 
   // 로그아웃 — AppRailUserMenu 와 동일하게 서버 세션 종료 후 로그인 화면으로(뒤로가기로 돌아오지 않게 replace).
@@ -106,6 +110,16 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
             className="flex min-h-11 w-full items-center gap-3 px-1 text-left text-sm"
           >
             <UserIcon className="h-4 w-4" /> 프로필
+          </button>
+        </div>
+        <div className="border-t">
+          <button
+            type="button"
+            data-testid="apps-account-theme"
+            onClick={() => setTheme(dark ? 'light' : 'dark')}
+            className="flex min-h-11 w-full items-center gap-3 px-1 text-left text-sm"
+          >
+            {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />} 테마 전환
           </button>
         </div>
         <div className="border-t">

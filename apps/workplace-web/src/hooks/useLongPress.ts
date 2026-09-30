@@ -16,7 +16,8 @@ const MOVE_TOLERANCE = 10
 export function useLongPress(onLongPress: () => void, onClick: () => void) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const start = useRef<{ x: number; y: number } | null>(null)
-  // 이번 누름에서 길게 누르기가 발동했는가 — 뒤따르는 click 억제용. 다음 pointerdown 에서 초기화.
+  // 이번 누름에서 길게 누르기가 발동했는가 — 바로 뒤따르는 click 1회 억제용.
+  // 다음 pointerdown·keydown 에서 초기화해, 우클릭 뒤의 키보드 활성화(Enter/Space → click)는 삼키지 않는다.
   const fired = useRef(false)
 
   const cancel = useCallback(() => {
@@ -55,6 +56,10 @@ export function useLongPress(onLongPress: () => void, onClick: () => void) {
       cancel()
       fired.current = true
       onLongPress()
+    },
+    // 키보드 활성화는 keydown 이 click 보다 먼저 오므로 여기서 플래그를 풀면 그 click 은 정상 이동한다.
+    onKeyDown: () => {
+      fired.current = false
     },
     onClick: () => {
       if (fired.current) {
