@@ -16,6 +16,9 @@
 
 set -e
 
+# 무거운 단계(vitest·E2E·gradle)는 저장소 전역에서 한 번에 하나만 — test-lock.sh 참조 (WP-98)
+. "$(dirname "$0")/test-lock.sh"
+
 # 1) 변경 파일 목록 (테스트용 주입 우선, 없으면 git stage 에서 추출)
 if [ -n "$PRECOMMIT_CHANGED_FILES" ]; then
   CHANGED="$PRECOMMIT_CHANGED_FILES"
@@ -41,7 +44,7 @@ fi
 WEB_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/' || true)
 if [ -n "$WEB_CHANGED" ]; then
   echo "[pre-commit] workplace-web 변경 — vitest 단위 테스트 실행"
-  [ -n "$PRECOMMIT_DRY_RUN" ] || (cd apps/workplace-web && pnpm test)
+  [ -n "$PRECOMMIT_DRY_RUN" ] || (cd apps/workplace-web && run_locked pnpm test)
 fi
 
 # 4) workplace-web 변경 영역 분석
@@ -70,7 +73,7 @@ if [ -n "$CONFIG_FORCE_FULL" ] || [ -n "$NON_DOMAIN_PAGE" ] || [ "$GRAPH_DOMAINS
   echo "[pre-commit] 공유 영역/매핑 외 변경 감지 — 전체 E2E 실행"
   # 전체 스위트는 빌드 비용보다 병렬화 이득이 커서 preview 서버로 실행 (playwright.config.ts 참조).
   # 도메인 한정 실행(아래)은 빌드(~1분)가 테스트 시간과 비슷해 dev 서버를 유지한다.
-  [ -n "$PRECOMMIT_DRY_RUN" ] || (cd apps/workplace-web && E2E_SERVER=preview pnpm test:e2e)
+  [ -n "$PRECOMMIT_DRY_RUN" ] || (cd apps/workplace-web && run_locked env E2E_SERVER=preview pnpm test:e2e)
 elif [ -n "$WEB_PAGE_CHANGES" ] || [ -n "$GRAPH_DOMAINS" ]; then
   # 5) 도메인 단독 변경 → 전역 smoke + 해당 도메인의 non-smoke (중복 0)
   PAGE_DOMAINS=$(printf '%s\n' "$WEB_PAGE_CHANGES" | sed -E 's|^apps/workplace-web/src/pages/([^/]+)/.*$|\1|' | sort -u)
@@ -91,9 +94,9 @@ elif [ -n "$WEB_PAGE_CHANGES" ] || [ -n "$GRAPH_DOMAINS" ]; then
     # grep 은 파일 경로가 포함된 전체 타이틀에 매칭되므로 "@smoke|pages/<도메인>/" 하나로 두 집합의
     # 합집합을 고른다(겹치는 도메인 smoke 도 1회만). 2회 호출 시 서버 기동·세션 락 대기가 두 번 든다.
     if [ -n "$DOMAIN_RE" ]; then
-      npx playwright test --grep "@smoke|pages/($DOMAIN_RE)/"
+      run_locked npx playwright test --grep "@smoke|pages/($DOMAIN_RE)/"
     else
-      npx playwright test --grep "@smoke"
+      run_locked npx playwright test --grep "@smoke"
     fi
     cd - >/dev/null
   fi
@@ -122,7 +125,7 @@ fi
 MIGRATION_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-api/src/main/resources/db/migration/' || true)
 if [ -n "$MIGRATION_CHANGED" ] && [ -z "$PRECOMMIT_DRY_RUN" ]; then
   echo "[pre-commit] 마이그레이션 변경 감지 — jOOQ 재생성(Docker 필요)"
-  (cd apps/workplace-api && ./gradlew generateJooq --no-daemon)
+  (cd apps/workplace-api && run_locked ./gradlew generateJooq --no-daemon)
   if ! git diff --quiet -- apps/workplace-api/src/main/generated; then
     echo "[pre-commit] ✗ 마이그레이션 변경으로 jOOQ 생성 코드가 갱신됨 — 함께 스테이지/커밋하세요:"
     echo "    git add apps/workplace-api/src/main/generated"
@@ -185,4 +188,4 @@ if [ -n "$PRECOMMIT_DRY_RUN" ]; then
   echo "[pre-commit][dry-run] $CMD"
   exit 0
 fi
-eval "$CMD"
+eval "run_locked $CMD"

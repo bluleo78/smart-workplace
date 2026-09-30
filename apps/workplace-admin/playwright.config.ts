@@ -11,7 +11,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : '80%',
+  // 로컬 워커 3 고정 — 코어 비율은 Chromium 초과 구독으로 시스템을 포화시킨다 (WP-98, web 과 동일).
+  workers: process.env.CI ? 1 : 3,
   reporter: 'html',
 
   use: {
