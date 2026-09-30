@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, type ReactNode, Suspense } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { AdminRoute } from './components/AdminRoute'
@@ -7,11 +7,13 @@ import { AppLayout } from './components/layout/AppLayout'
 import { PageErrorBoundary } from './components/PageErrorBoundary'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { Skeleton } from './components/ui/skeleton'
+import { useIsMobile } from './hooks/useIsMobile'
 
 // 페이지는 라우트 진입 시점에만 로드해 초기 번들을 가볍게 유지한다.
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const SignupPage = lazy(() => import('./pages/SignupPage'))
 const SsoCompletePage = lazy(() => import('./pages/SsoCompletePage'))
+const TasksHubPage = lazy(() => import('./pages/TasksHubPage').then((m) => ({ default: m.TasksHubPage })))
 const HomePage = lazy(() => import('./pages/HomePage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const UserListPage = lazy(() => import('./pages/admin/UserListPage'))
@@ -95,6 +97,11 @@ const SettingsModuleLayout = lazy(() =>
   import('./components/layout/SettingsModuleLayout').then((m) => ({ default: m.SettingsModuleLayout })),
 )
 
+// 모바일(<lg)에선 모듈 루트가 "사이드바 목록" 화면이므로 인덱스 리다이렉트를 건너뛴다(WP-124).
+function DesktopOnly({ children }: { children: ReactNode }) {
+  return useIsMobile() ? null : <>{children}</>
+}
+
 // 구 /admin/* 딥링크를 /settings/* 로 치환 리다이렉트(하위경로·쿼리 보존).
 function AdminRedirect() {
   const { pathname, search } = useLocation()
@@ -135,6 +142,7 @@ export default function App() {
               {/* 이슈 모듈 — 2차 사이드바(내 태스크 + 프로젝트 목록) 가 감싼다 */}
               <Route element={<IssueModuleLayout />}>
                 {/* 프로젝트 / 이슈 */}
+                <Route path="tasks" element={<TasksHubPage />} />
                 <Route path="projects" element={<ProjectListPage />} />
                 <Route path="projects/:key" element={<ProjectDetailPage />} />
                 <Route path="projects/:key/settings" element={<ProjectSettingsPage />} />
@@ -165,7 +173,7 @@ export default function App() {
 
               {/* 드라이브 모듈 — 2차 사이드바(공간 목록) 가 감싼다 */}
               <Route element={<DriveModuleLayout />}>
-                <Route path="drive" element={<DriveIndexRedirect />} />
+                <Route path="drive" element={<DesktopOnly><DriveIndexRedirect /></DesktopOnly>} />
                 <Route path="drive/spaces/:spaceId" element={<DrivePage />} />
                 {/* #80: 가상 첨부 뷰 — 이슈/메시지 업로드 파일 크로스링크 */}
                 <Route path="drive/attachments" element={<DriveAttachmentsView />} />
@@ -173,7 +181,7 @@ export default function App() {
 
               {/* 위키 모듈 — 2차 사이드바(스페이스/페이지 트리) 가 감싼다 */}
               <Route element={<WikiModuleLayout />}>
-                <Route path="wiki" element={<WikiIndexRedirect />} />
+                <Route path="wiki" element={<DesktopOnly><WikiIndexRedirect /></DesktopOnly>} />
                 <Route path="wiki/spaces/:spaceId" element={<WikiPage />} />
                 <Route path="wiki/spaces/:spaceId/pages/:pageId" element={<WikiPage />} />
               </Route>
@@ -197,7 +205,7 @@ export default function App() {
               {/* 설정 모듈 — 2차 사이드바(개인/관리) 가 감싼다 */}
               <Route element={<SettingsModuleLayout />}>
                 {/* 개인 설정 — 전체 로그인 사용자 */}
-                <Route path="settings" element={<Navigate to="/settings/profile" replace />} />
+                <Route path="settings" element={<DesktopOnly><Navigate to="/settings/profile" replace /></DesktopOnly>} />
                 <Route path="settings/profile" element={<ProfileSettingsPage />} />
                 <Route path="settings/mail" element={<MailSettingsPage />} />
                 <Route path="settings/notifications" element={<NotificationSettingsPage />} />
@@ -217,7 +225,7 @@ export default function App() {
               </Route>
 
               {/* 호환 리다이렉트 — 구 경로 흡수 */}
-              <Route path="profile" element={<Navigate to="/settings/profile" replace />} />
+              <Route path="profile" element={<DesktopOnly><Navigate to="/settings/profile" replace /></DesktopOnly>} />
               <Route path="admin/*" element={<AdminRedirect />} />
             </Route>
           </Route>
