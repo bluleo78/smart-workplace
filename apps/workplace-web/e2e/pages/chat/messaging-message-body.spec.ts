@@ -592,6 +592,8 @@ test.describe('메시지 좌/우 분리', () => {
     await page.getByTestId('message-30').hover()
     await expect(page.getByTestId('message-edit-30')).toBeVisible()
     await expect(page.getByTestId('message-delete-30')).toBeVisible()
+    // 마우스(fine 포인터)에서는 버튼이 기존 24px 그대로다(44px 는 터치 전용).
+    expect((await box(page, 'message-edit-30')).height).toBe(24)
   })
 
   test('반응 칩은 메시지와 같은 쪽으로 정렬된다', async ({ authenticatedPage: page }) => {
@@ -792,6 +794,18 @@ test.describe('메시지 좌/우 분리 — 터치', () => {
     // 판별은 opacity 가 아니라 data-tap-active 로 한다.
     await page.getByTestId('message-composer-input').tap()
     await expect(page.getByTestId('message-30')).not.toHaveAttribute('data-tap-active', 'true')
+  })
+
+  test('터치 기기에서는 툴바 버튼이 44px 터치 타깃이다', async ({ authenticatedPage: page }) => {
+    await setupSplitChannel(page)
+    // 에뮬레이션이 coarse 포인터로 잡히지 않으면 아래 크기 단언이 의미가 없으므로 먼저 확인한다.
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
+    await page.getByTestId('message-body-30').tap()
+    for (const id of ['message-30-react', 'message-edit-30', 'message-delete-30']) {
+      const b = await box(page, id)
+      expect(b.width, id).toBeGreaterThanOrEqual(44)
+      expect(b.height, id).toBeGreaterThanOrEqual(44)
+    }
   })
 })
 

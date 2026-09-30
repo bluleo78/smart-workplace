@@ -8,8 +8,11 @@
 //   - 마우스: 행 hover (group-hover)
 //   - 키보드: 행 안 포커스 (group-focus-within)
 //   - 터치: 행 탭 (useTapReveal 이 행에 data-tap-active="true" 를 붙인다)
+// 터치(coarse 포인터) 기기에서는 버튼을 44px 터치 타깃으로 키운다. 버튼은 호출처가 h-6 w-6 으로
+// 그리므로 자손 선택자로 덮는다(선택자 우선순위가 더 높다). 이모지 피커 팝오버는 portal 이라 영향 없음.
 export const MESSAGE_TOOLBAR_CLASS =
   'z-10 flex items-center gap-0.5 rounded-md border bg-popover p-0.5 opacity-0 shadow-sm pointer-events-none transition-opacity ' +
+  'pointer-coarse:[&_button]:size-11 pointer-coarse:[&_svg]:size-4 ' +
   'group-hover:pointer-events-auto group-hover:opacity-100 ' +
   'group-focus-within:pointer-events-auto group-focus-within:opacity-100 ' +
   'group-data-[tap-active=true]:pointer-events-auto group-data-[tap-active=true]:opacity-100'
@@ -24,3 +27,4 @@ export const OWN_ATTACHMENTS_CLASS = 'flex w-full min-w-0 flex-col items-end [&>
 export const HOVER_TIME_REVEAL_CLASS =
   'text-xs leading-4 tabular-nums text-muted-foreground whitespace-nowrap opacity-0 transition-opacity ' +
   'group-hover:opacity-100 group-data-[tap-active=true]:opacity-100'
+
