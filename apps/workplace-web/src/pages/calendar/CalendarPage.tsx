@@ -32,6 +32,7 @@ import {
 } from '@/hooks/queries/useCalendarMutations'
 import { useCalendars, useCreateCalendar, useDeleteCalendar, useResetCalendarEvents, useUpdateCalendar } from '@/hooks/queries/useCalendars'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { buildCalendarContext } from '@/lib/aiScreenContext/builders/calendar'
 import {
   CALENDAR_VIEWS,
@@ -70,6 +71,10 @@ export function CalendarPage() {
   // 새 일정 딥링크(?new=true) — 홈 대시보드 "오늘 일정" 위젯 빈 상태 CTA(#653) 등에서 진입.
   const deepLinkNew = searchParams.get('new') === 'true'
   const [view, setView] = useState<CalendarViewType>('month')
+  // 모바일(<lg) 헤더는 ☰·오늘‹›·🔔 가 이미 폭을 차지해 뷰 버튼 4개를 두면 제목이 잘린다 → 단일 선택 컨트롤로 축약.
+  const isMobile = useIsMobile()
+  // 모바일은 오늘/‹/› 좌우 여백을 줄여 제목 폭을 확보한다(375px 급 기기에서도 'yyyy년 MM월' 이 잘리지 않게). 데스크톱은 기본값.
+  const navBtnClass = isMobile ? 'px-2' : undefined
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()))
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<CalendarEvent | null>(null)
@@ -365,6 +370,7 @@ export function CalendarPage() {
                   variant="outline"
                   size="sm"
                   data-testid="calendar-today"
+                  className={navBtnClass}
                   onClick={() => setAnchor(startOfDay(new Date()))}
                 >
                   오늘
@@ -373,6 +379,7 @@ export function CalendarPage() {
                   variant="ghost"
                   size="sm"
                   data-testid="calendar-prev"
+                  className={navBtnClass}
                   // 글리프(‹)만으로는 accessible name이 무의미해 뷰별 구체적 라벨 지정 (#818).
                   // step() 은 month=한달, day=하루, 그 외(week/agenda)=7일 단위로 이동한다.
                   aria-label={view === 'month' ? '이전 달' : view === 'day' ? '이전 날' : '이전 주'}
@@ -384,6 +391,7 @@ export function CalendarPage() {
                   variant="ghost"
                   size="sm"
                   data-testid="calendar-next"
+                  className={navBtnClass}
                   aria-label={view === 'month' ? '다음 달' : view === 'day' ? '다음 날' : '다음 주'}
                   onClick={() => step(1)}
                 >
@@ -392,7 +400,20 @@ export function CalendarPage() {
               </div>
             }
             title={<span data-testid="calendar-title">{format(anchor, 'yyyy년 M월')}</span>}
-            actions={CALENDAR_VIEWS.map((v) => (
+            actions={isMobile ? (
+              // 모바일: 네이티브 select — OS 피커(iOS 휠)로 열리고 현재 뷰를 한 칸에 보여준다. 데스크톱 버튼 testid 는 그대로.
+              <select
+                data-testid="calendar-view-select"
+                aria-label="보기 전환"
+                value={view}
+                onChange={(e) => setView(e.target.value as CalendarViewType)}
+                className="h-9 shrink-0 rounded-md border bg-background px-2 text-sm"
+              >
+                {CALENDAR_VIEWS.map((v) => (
+                  <option key={v.key} value={v.key}>{v.label}</option>
+                ))}
+              </select>
+            ) : CALENDAR_VIEWS.map((v) => (
               <Button
                 key={v.key}
                 size="sm"
