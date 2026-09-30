@@ -4,12 +4,17 @@ import type { MessageResponse } from '@/types/messaging'
 interface ReactionBarProps {
   message: MessageResponse
   onToggle: (emoji: string) => void
+  // 칩 정렬 방향. 본인 메시지(우측 말풍선) 아래에서는 'end' 로 말풍선과 같은 쪽에 붙인다.
+  align?: 'start' | 'end'
 }
 
-export function ReactionBar({ message, onToggle }: ReactionBarProps) {
+export function ReactionBar({ message, onToggle, align = 'start' }: ReactionBarProps) {
   if (message.reactions.length === 0) return null
   return (
-    <div className="mt-1 flex flex-wrap gap-1" data-testid={`reaction-bar-${message.id}`}>
+    <div
+      className={`mt-1 flex flex-wrap gap-1 ${align === 'end' ? 'justify-end' : ''}`}
+      data-testid={`reaction-bar-${message.id}`}
+    >
       {message.reactions.map((r) => (
         <button
           key={r.emoji}
