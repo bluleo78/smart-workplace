@@ -1192,8 +1192,12 @@ test('FolderPickerModal — 오버레이(배경) 클릭으로 닫힌다', async 
 
   // 오버레이(배경) 클릭 → 모달이 닫혀야 한다 (Radix Dialog pointerDownOutside 핸들러)
   // 뷰포트 좌상단(모달 콘텐츠 밖 영역)을 클릭하여 오버레이 클릭을 시뮬레이션
-  await page.mouse.click(10, 10)
-  await expect(page.getByTestId('folder-picker')).not.toBeVisible()
+  // Radix 는 바깥 클릭 리스너를 마운트 직후가 아니라 setTimeout(0) 뒤에 붙인다 — 부하가 걸리면 모달이 보인 직후의
+  // 클릭이 리스너보다 먼저 들어가 무시되므로(전체 스위트에서만 실패), 닫힐 때까지 클릭을 다시 시도한다.
+  await expect(async () => {
+    await page.mouse.click(10, 10)
+    await expect(page.getByTestId('folder-picker')).not.toBeVisible({ timeout: 1000 })
+  }).toPass()
 })
 
 // 용량 초과(409) 업로드 거부 토스트 — 서버 메시지가 그대로 표시돼야 한다.
