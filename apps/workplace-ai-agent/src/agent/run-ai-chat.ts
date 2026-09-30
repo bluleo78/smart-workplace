@@ -46,58 +46,6 @@ export interface ChatInput {
   requestId?: string;
 }
 
-// #405: 생성일 필터 쿼리 감지 — "이번 주 생성된 이슈" 처럼 생성일 범위로 이슈를 조회하는 요청.
-// show_issue_list 는 dueFrom/dueTo(마감일)만 지원하고 생성일 필터는 없으므로,
-// haiku 가 dueFrom 으로 오해석하는 비결정적 동작을 런타임에서 차단한다.
-// "이슈 생성해줘" 처럼 이슈를 새로 만드는 요청은 제외(오탐 방지).
-function isCreatedDateFilterQuery(query: string): boolean {
-  // 이슈 생성(create) 요청은 제외
-  if (/이슈.*(만들|생성|추가|등록)해|새.*이슈|이슈.*새로/i.test(query)) return false;
-  // 생성 관련 키워드 + 기간/시간 범위 키워드가 함께 있을 때만 감지
-  const hasCreated = /생성|만들어진|만들어졌|created/i.test(query);
-  const hasTimeRange = /이번\s*주|지난\s*주|오늘|어제|이번\s*달|지난\s*달|최근|last\s*week|this\s*week|\d+일\s*(이내|전|내)|이후|전/i.test(query);
-  return hasCreated && hasTimeRange;
-}
-
-// #406/#415: 쿼리에 담당 해제 의도가 있는지 감지하는 공통 헬퍼.
-// isUnassignCompoundQuery / isSimpleUnassignQuery 양쪽에서 재사용해 정규식 중복을 방지한다.
-// WP-45: 예전 `담당자.*나` 패턴이 "담당자는 나로 설정해줘" 같은 **지정** 요청까지 해제로 분류해
-//   #415 가드가 성공 답변을 실패 문구로 바꿨다(복합 요청이면 #406 이 실제로 해제까지 호출할 수 있었다).
-//   그래서 해제 동사(해제/제외/빼)가 있어야만 매칭하고, "나로/나에게" 같은 본인 지정 표현이 있으면
-//   명시적 해제 단어(해제/unassign)가 함께 있을 때만 해제로 본다 — "WP-1 빼고 담당자 나로" 의 '빼' 오탐 방지.
-function hasUnassignIntent(query: string): boolean {
-  const assignToMe = /(나|저|본인|내)\s*(로|으로|에게|한테|게)\s*(설정|지정|바꿔|변경|할당|배정|해|맡)/.test(query);
-  if (assignToMe && !/해제|unassign/i.test(query)) return false;
-  return /담당.*(해제|제외|빼)|unassign|나.*빼줘/i.test(query);
-}
-
-// #406: 이슈 담당 해제 의도가 포함된 복합 쿼리 감지.
-// "담당자에서 나 해제해줘", "나 빼줘", "unassign" 등의 표현을 포함하며
-// 동시에 다른 작업(상태변경·코멘트 등)도 요청하는 복합 요청을 식별한다.
-// 단순 해제 전용 쿼리(다른 요청 없음)는 issue-agent 가 잘 처리하므로 제외.
-function isUnassignCompoundQuery(query: string): boolean {
-  if (!hasUnassignIntent(query)) return false;
-  // 다른 작업이 함께 있는지 확인(상태변경·코멘트)
-  const hasOtherTask = /바꾸|변경|코멘트|댓글|남겨|IN_PROGRESS|진행중|완료|DONE/i.test(query);
-  return hasOtherTask;
-}
-
-// #415: 단순 담당 해제 쿼리 감지 — 다른 작업(상태변경·코멘트)이 없는 순수 해제 요청.
-// isUnassignCompoundQuery 가 복합 요청만 처리하므로, 단순 해제 쿼리에서
-// issue-agent 가 unassign_self 없이 허위 성공을 환각하는 경우를 별도로 방어한다.
-function isSimpleUnassignQuery(query: string): boolean {
-  if (!hasUnassignIntent(query)) return false;
-  const hasOtherTask = /바꾸|변경|코멘트|댓글|남겨|IN_PROGRESS|진행중|완료|DONE/i.test(query);
-  return !hasOtherTask;
-}
-
-// #406: 쿼리 텍스트에서 이슈 키(예: "EX-2", "SW-123") 추출.
-// 패턴: 대문자 영문자(2~10자) + 하이픈 + 숫자(1~6자리).
-function extractIssueKeyFromQuery(query: string): string | null {
-  const m = query.match(/\b([A-Z]{2,10})-(\d{1,6})\b/);
-  return m ? m[0] : null;
-}
-
 // #404: show_issue_detail 위젯에서 존재하지 않는 이슈 번호를 결정론적으로 차단한다.
 // haiku가 이슈 존재 여부 확인 없이 show_issue_detail을 호출하는 비결정적 동작을
 // 서버 검증으로 이중 방어한다. projectKey 가 없으면 검증 불가이므로 통과(pass-through).
@@ -132,26 +80,8 @@ async function filterIssueDetailWidgets(
   return result;
 }
 
-// #400 #409: 비가역 작업 제안 후 승인 발화 시 haiku 가 propose 없이 완료 환각 응답을 내보내는
-// 비결정적 동작을 차단한다. 이전 AI 발화에 캘린더·연락처·드라이브 등 임의 도메인의 제안 문구가 있고
-// 현재 쿼리가 짧은 승인 발화일 때만 감지. 길이 제한(30자)으로 "일정 잡아줘" 같은 새 요청 오탐 방지.
-function isProposalApprovalHallucination(query: string, recentContext: ContextMessage[]): boolean {
-  const q = query.trim();
-  // 너무 길면 새 요청이므로 제외
-  if (q.length > 30) return false;
-  // 승인 발화 키워드가 포함되는지 확인
-  if (!/네|예|응|좋아|승인|확인|진행|부탁|ㅇㅇ|ㅇㅋ|ok|okay|yes|그래|알겠|좋습니다/i.test(q)) return false;
-  // 이전 AI 발화 중 제안 패턴 확인 — 캘린더(제안했습니다/확인 카드) + 일반 비가역 작업(하겠습니다+확인해주세요)
-  // #843: 마지막 승인 결과 이후의 AI 발화만 본다. 카드가 이미 승인/실패/거절됐으면 그 제안은 끝난 것이라,
-  // 이어지는 짧은 "응 고마워" 같은 발화를 승인 환각으로 오판하지 않게 한다.
-  const lastResult = recentContext.map(isActionResult).lastIndexOf(true);
-  const prevAi = recentContext
-    .slice(lastResult + 1)
-    .filter((m) => m.role === 'ASSISTANT')
-    .map((m) => m.content)
-    .join('\n');
-  return /제안했습니다|확인 카드|일정.*생성.*제안|propose|(삭제|추가|생성|수정|변경)하겠습니다.*확인해주세요|확인.*부탁드립니다/i.test(prevAi);
-}
+// unassign_self 도구 결과(HostBridge.onUnassignResult 페이로드).
+type UnassignResult = { ok: boolean; canonical?: string };
 
 // 이전 대화 줄 라벨 — ACTION_* 는 사용자 발화로 오인되지 않게 [승인 결과] 로 표시(시스템 프롬프트 규칙 7 과 짝).
 function contextLabel(m: ContextMessage): string {
@@ -198,19 +128,6 @@ export async function runAiChatStream(
   onTool?: (line: ToolUseLine) => void, // 도구 호출 라이브 발행(인-프로세스 어댑터에서 직접 emit)
   onDelta?: (text: string) => void, // #463: 라우터 자유 prose 라이브 스트리밍(text_delta 단위)
 ): Promise<{ fullText: string; widgets: unknown; pendingActions: unknown[]; usage: import('./chat-parser.js').Usage | null }> {
-  // #405: 생성일 필터 쿼리 — LLM 호출 전 결정론적으로 차단. dueFrom 오해석 방지.
-  if (isCreatedDateFilterQuery(input.query)) {
-    log.warn('ai-chat', 'fallback', {
-      requestId: input.requestId,
-      reason: 'created_date_filter_blocked',
-    });
-    return {
-      fullText: '생성 날짜 필터는 지원하지 않습니다. 마감일(dueFrom/dueTo), 담당자, 상태, 우선순위 필터를 사용해 보세요.',
-      widgets: null,
-      pendingActions: [],
-      usage: null, // #432: LLM 미호출 — 사용량 없음
-    };
-  }
   const agentId = input.assistantAgentId;
   let credential: ProviderCredential;
   const tokenStart = Date.now();
@@ -237,10 +154,8 @@ export async function runAiChatStream(
   // #467: 한 턴에 ≥2 서브에이전트로 위임될 수 있다(예: 채널 공지 + 이슈 코멘트). 과거엔 첫 답만
   // 보존하는 first-write-guard 로 두 번째 이후 답이 조용히 누락됐다 — 배열로 전부 누적해 결합한다.
   const subagentTexts: string[] = [];
-  // unassign 타입 명시: 클로저 내 할당(onUnassignResult)만으로는 TS 가 never 로 좁히므로 명시 필수.
-  // unassign 은 onUnassignResult 콜백 + 복합재처리 두 곳에서 재할당되므로 let 이 정확하다.
-  // as 캐스트는 TS 제어 흐름 좁힘(never 추론) 우회에 필수 — 삭제 시 line 323 타입 에러.
-  let unassign: { ok: boolean; canonical?: string } | null = null as { ok: boolean; canonical?: string } | null;
+  // 클로저(onUnassignResult)에서만 할당돼 TS 가 never 로 좁히므로 as 캐스트로 타입을 고정한다.
+  let unassign = null as UnassignResult | null;
 
   // HostBridge: MCP 도구(propose/submit_response/unassign_self)가 파일 대신 이 콜백으로 결과를 전달.
   const hostBridge: HostBridge = {
@@ -251,7 +166,7 @@ export async function runAiChatStream(
     onSubmitResponse: (text: string) => {
       subagentTexts.push(text);
     },
-    onUnassignResult: (result: { ok: boolean; canonical?: string }) => {
+    onUnassignResult: (result: UnassignResult) => {
       unassign = result;
     },
   };
@@ -264,8 +179,6 @@ export async function runAiChatStream(
   const events: RunnerEvent[] = [];
   // #463: 라우터 자유 prose 를 onDelta 로 라이브 emit 하면서 동시에 누적. 완료 후 답 결정에 사용.
   let streamedText = '';
-  // #381: Agent 위임 발생 여부 추적 — #406/#415 의 unassign 재처리 가드에서 사용한다.
-  let delegated = false;
 
   // 우선순위: 요청 body(input.model) > redeem 응답(credential.model) > env/기본값.
   const model = input.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
@@ -338,11 +251,7 @@ export async function runAiChatStream(
         const rawSub = (ev.input as { subagent_type?: unknown })?.subagent_type;
         const subType = typeof rawSub === 'string' ? rawSub : '';
         const label = delegationLabel(subType);
-        if (label) {
-          // 위임 발생 → 플래그 설정. onProgress 있으면 라벨 발행.
-          delegated = true;
-          if (onProgress) onProgress(label);
-        }
+        if (label && onProgress) onProgress(label);
       }
     },
   );
@@ -353,48 +262,6 @@ export async function runAiChatStream(
 
   await handle.done;
 
-  // #406: 복합 요청에서 unassign_self 미처리 시 userId 로 직접 API 재처리.
-  // 배경: MCP unassign_self 는 agentId 로 호출되므로 실제 사용자(userId) 해제 불가.
-  // unassign?.ok 가 아닌 경우 = HostBridge 콜백이 성공을 받지 못함(미호출 포함).
-  if (isUnassignCompoundQuery(input.query) && delegated && !unassign?.ok) {
-    const issueKey = extractIssueKeyFromQuery(input.query);
-    if (issueKey) {
-      try {
-        // #719: 위와 동일한 대리 경로 — tenant 스코프 클라이언트를 써야 fail-closed 를 피한다.
-        await mcpClient.unassignSelf(input.userId, issueKey);
-        // userId 직접 재처리 성공 — unassign 상태를 성공으로 갱신해 아래 에러 override 차단.
-        unassign = { ok: true };
-      } catch {
-        // userId 재처리도 실패 — 기존 unassign 상태 유지(canonical override 허용).
-      }
-    }
-  }
-  // #415: 단순 담당 해제 쿼리 + 위임 시도 + unassign_self 미처리 → 허위 성공 응답 차단.
-  // delegated=true 이나 성공/에러 콜백 모두 없으면 issue-agent 가 도구 없이 성공을
-  // 환각한 케이스. 에러 콜백이 있으면 아래 canonical override 가 처리하므로 통과.
-  // 성공 콜백이 있으면 실제 해제됐으므로 통과.
-  if (isSimpleUnassignQuery(input.query) && delegated && unassign === null) {
-    log.warn('ai-chat', 'fallback', {
-      requestId: input.requestId,
-      reason: 'unassign_not_executed',
-    });
-    return {
-      fullText: '담당 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.',
-      widgets: null,
-      pendingActions: [],
-      usage: null, // #432: override 응답 — 사용량 보고 생략
-    };
-  }
-  // #400 #409: 비가역 작업 제안 후 사용자 "승인" 발화 시 haiku가 propose 없이 완료 환각 응답.
-  // proposals 가 비어있는데 승인 발화이고 직전 AI 발화에 제안 문구가 있으면 LLM 응답을 버리고
-  // 고정 안내로 override 한다. proposals 가 있으면 정상 제안이므로 통과.
-  if (proposals.length === 0 && isProposalApprovalHallucination(input.query, input.recentContext ?? [])) {
-    log.warn('ai-chat', 'fallback', {
-      requestId: input.requestId,
-      reason: 'hallucination_guard',
-    });
-    return { fullText: '확인 카드에서 승인해주세요. 에이전트가 직접 작업을 수행하지 않습니다.', widgets: null, pendingActions: [], usage: null };
-  }
   // #351: HostBridge.onProposal 콜백이 누산한 제안 배열(proposals).
   const pendingActions: unknown[] = proposals;
   // #378: unassign_self 실패 시 HostBridge.onUnassignResult 가 {ok:false,canonical} 를 전달.
