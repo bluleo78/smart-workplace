@@ -243,7 +243,11 @@ public class EmailMessageRepository {
       where = where.and(EMAIL_MESSAGE.SEEN.isFalse());
     }
     if (category != null && !category.isBlank()) {
-      where = where.and(EMAIL_CONTENT.AI_CATEGORY.eq(category)); // 슬라이스②: content 출처
+      // 슬라이스②: content 출처. WP-130: 검증 전 envelope 로 공유 content 의 분류를 추론하지 못하게 fetched_at 필수
+      where =
+          where
+              .and(EMAIL_CONTENT.AI_CATEGORY.eq(category))
+              .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull());
     }
     if (needsReply) {
       // 회신필요 통일 술어: AI 판정=true + 사용자 처리완료 아님
@@ -260,14 +264,19 @@ public class EmailMessageRepository {
       // "user@domain.com" 같은 패턴은 FTS 로 매칭이 불가함).
       String q = query.trim();
       String like = "%" + q + "%";
+      // WP-130: 본문 FTS 는 자기 사본을 적재·검증한 envelope 에만 — 검증 전 매칭 여부로 공유 본문 단어를 추론하지 못하게 한다
       Condition ftsCond =
-          DSL.condition("email_content.search_tv @@ plainto_tsquery('simple', {0})", q);
+          DSL.condition("email_content.search_tv @@ plainto_tsquery('simple', {0})", q)
+              .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull());
       Condition envelopeCond =
           EMAIL_MESSAGE
               .FROM_ADDRESS
               .likeIgnoreCase(like)
               .or(EMAIL_MESSAGE.FROM_NAME.likeIgnoreCase(like));
-      where = where.and(ftsCond.or(envelopeCond));
+      // 검증 전 envelope 는 본문 FTS 대신 제목(동기화 지문의 공개 헤더)만 부분 일치로 찾는다 — 적재 전 새 메일도 제목 검색 가능
+      Condition unverifiedSubjectCond =
+          EMAIL_MESSAGE.FETCHED_AT.isNull().and(EMAIL_CONTENT.SUBJECT.likeIgnoreCase(like));
+      where = where.and(ftsCond.or(unverifiedSubjectCond).or(envelopeCond));
     }
     return dsl.select(
             EMAIL_MESSAGE.ID,
@@ -600,12 +609,14 @@ public class EmailMessageRepository {
 
   /** 분류 결과 저장(동기화 잡, best-effort) — 슬라이스②: category 는 공유 content, needs_reply 는 envelope(사람별). */
   public void updateClassification(long messageId, String category, boolean needsReply) {
-    // category → 공유 email_content (envelope 조인으로 content 특정)
+    // category → 공유 email_content (envelope 조인으로 content 특정).
+    // WP-130: 자기 사본을 적재·검증한 envelope 만 공유 분류를 쓴다 — 검증 전 envelope 가 다른 수신자의 분류를 덮어쓰지 못하게.
     dsl.update(EMAIL_CONTENT)
         .set(EMAIL_CONTENT.AI_CATEGORY, category)
         .from(EMAIL_MESSAGE)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
         .execute();
     // needs_reply → envelope 잔류(#485 통일 술어 소비)
     dsl.update(EMAIL_MESSAGE)
@@ -747,6 +758,8 @@ public class EmailMessageRepository {
         .and(EMAIL_FOLDER.NAME.eq("INBOX"))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
         .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isNull())
+        // WP-130: 본문 적재·검증 전 envelope 는 스니펫이 가려져 분류 품질이 떨어지므로 적재 후에 분류한다
+        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
         .fetch(EMAIL_MESSAGE.ID);

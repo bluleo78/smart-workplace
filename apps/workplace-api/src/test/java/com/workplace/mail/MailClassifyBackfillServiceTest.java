@@ -100,29 +100,33 @@ class MailClassifyBackfillServiceTest extends IntegrationTestBase {
 
   /** 테스트용 안읽음·미분류 메시지를 INBOX 에 직접 삽입하고 id 를 반환. aiNeedsReply 는 null(미분류 상태)로 둔다. */
   private long insertMessage(long accountId, long folderId) {
-    return dsl.insertInto(
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ACCOUNT_ID,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FOLDER_ID,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.MESSAGE_ID,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.THREAD_ID,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FROM_ADDRESS,
-            // subject/snippet 은 email_content 로 이전(Task9: envelope 컬럼 제거)
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.SEEN,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.HAS_ATTACHMENT,
-            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.RECEIVED_AT)
-        .values(
-            accountId,
-            folderId,
-            "msg-backfill-" + System.nanoTime() + "@test.local",
-            "thread-backfill-" + System.nanoTime(),
-            "sender@example.com",
-            // subject/snippet 값 제거
-            false, // seen=false (안읽음)
-            false,
-            java.time.OffsetDateTime.ofInstant(Instant.now(), java.time.ZoneOffset.UTC))
-        .returning(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID)
-        .fetchOne()
-        .get(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID);
+    long id =
+        dsl.insertInto(
+                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE,
+                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ACCOUNT_ID,
+                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FOLDER_ID,
+                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.MESSAGE_ID,
+                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.THREAD_ID,
+                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FROM_ADDRESS,
+                // subject/snippet 은 email_content 로 이전(Task9: envelope 컬럼 제거)
+                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.SEEN,
+                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.HAS_ATTACHMENT,
+                com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.RECEIVED_AT)
+            .values(
+                accountId,
+                folderId,
+                "msg-backfill-" + System.nanoTime() + "@test.local",
+                "thread-backfill-" + System.nanoTime(),
+                "sender@example.com",
+                // subject/snippet 값 제거
+                false, // seen=false (안읽음)
+                false,
+                java.time.OffsetDateTime.ofInstant(Instant.now(), java.time.ZoneOffset.UTC))
+            .returning(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID)
+            .fetchOne()
+            .get(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID);
+    // WP-130: 분류 백필은 본문 적재·검증된 envelope 만 대상
+    TestFixtures.markMailFetched(dsl, id);
+    return id;
   }
 }

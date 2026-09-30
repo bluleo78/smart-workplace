@@ -82,6 +82,8 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
             null,
             List.of());
     long envId = messageRepo.insertIgnoreConflict(accountId, folderId, parsed).orElseThrow();
+    // WP-130: 본문 유래 값(분류·요약)은 적재·검증된 envelope 에만 노출·기록
+    TestFixtures.markMailFetched(dsl, envId);
     // updateSummary 경로 검증용: aiSummary 있으면 content 에 요약 기록
     if (aiSummary != null) {
       Long contentId =

@@ -60,6 +60,8 @@ class EmailMessageRepositoryClassifyBackfillTest extends IntegrationTestBase {
             .returning(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID)
             .fetchOne()
             .get(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID);
+    // WP-130: 분류는 본문 적재·검증된 envelope 만 대상
+    TestFixtures.markMailFetched(dsl, id);
     // aiNeedsReply 가 명시된 경우 updateClassification 으로 반영(null 은 그대로 두어 미분류 상태 유지)
     if (aiNeedsReply != null) {
       messageRepo.updateClassification(id, "업무", aiNeedsReply);
