@@ -11,7 +11,6 @@ import {
   useState,
 } from 'react';
 
-import { useAiAvailable } from '@/hooks/useAiAvailable';
 import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile';
 
 /** AI 어시스턴트 표시 모드. closed=닫힘, side=우측 도킹, fullscreen=콘텐츠 영역 2단. */
@@ -61,7 +60,8 @@ function persist(m: Exclude<AIMode, 'closed'>): void {
 
 const AIAssistantContext = createContext<AIAssistantValue | null>(null);
 
-export function AIAssistantProvider({ children }: { children: ReactNode }) {
+/** hotkeysEnabled — AI 가용 여부(AppLayout 이 이미 계산). false 면 ⌘K/Esc 리스너를 달지 않는다(인증 훅 결합을 피하려 prop 으로 받는다). */
+export function AIAssistantProvider({ children, hotkeysEnabled }: { children: ReactNode; hotkeysEnabled: boolean }) {
   // rawMode = 사용자가 요청한 모드(side 유지). 모바일에서만 노출값(mode)이 fullscreen 으로 승격되므로
   // 데스크톱 복귀 시 side 가 복원된다. localStorage(ai-mode)는 데스크톱 ⌘K 복원용이라 데스크톱에서 연 모드만 저장하고,
   // 모바일에서 연 것(항상 풀스크린)은 저장하지 않아 데스크톱 ⌘K 기본값을 건드리지 않는다.
@@ -100,9 +100,8 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
 
   // AI 전역 단축키 — ⌘K/Ctrl+K 토글, Esc 닫기. 셸(데스크톱·모바일)과 무관하게 Provider 가 한 번만 등록한다
   // (예전엔 데스크톱 전용 AI 칩 안에 있어 lg 미만에서 사라졌다). AI 미사용 워크스페이스면 리스너를 달지 않는다.
-  const aiAvailable = useAiAvailable();
   useEffect(() => {
-    if (!aiAvailable) return;
+    if (!hotkeysEnabled) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -115,7 +114,7 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [aiAvailable, toggle, close]);
+  }, [hotkeysEnabled, toggle, close]);
 
   // side 모드일 때만 현재 사이드 패널 폭을 :root CSS 변수로 노출한다.
   // AIChip 은 document.body 로 portal 되므로(콘텐츠 flex 트리 밖) 패널 폭을 직접 알 수 없다.

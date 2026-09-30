@@ -70,7 +70,7 @@ export function AppLayout() {
     <MailComposeProvider>
       <MobileChromeProvider>
       <ChatSessionProvider>
-        <AIAssistantProvider>
+        <AIAssistantProvider hotkeysEnabled={aiAvailable}>
           {/* WP-54: 화면 컨텍스트 store — 페이지(Outlet)가 등록하고 AI 패널이 읽는다. */}
           <AiScreenContextProvider>
             {/* 인박스 패널 오픈 상태를 AppRail(InboxPanel)·본문이 공유 — 합성 레이어가 패널을 연다. */}
