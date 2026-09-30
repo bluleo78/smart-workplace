@@ -86,8 +86,8 @@ const MailInboxPage = lazy(() =>
 )
 const M365CallbackPage = lazy(() => import('./pages/oauth/M365CallbackPage'))
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'))
-const MorePage = lazy(() => import('./pages/more/MorePage'))
-const TabEditPage = lazy(() => import('./pages/more/TabEditPage'))
+const AppsPage = lazy(() => import('./pages/apps/AppsPage'))
+const TabEditPage = lazy(() => import('./pages/apps/TabEditPage'))
 // 알림 탭으로 새 창이 열릴 때의 진입점 — 미인증도 접근 가능(로그인 후 목적지로 복귀).
 const PushOpenPage = lazy(() => import('./pages/PushOpenPage'))
 const ProfileSettingsPage = lazy(() => import('./pages/settings/ProfileSettingsPage'))
@@ -104,7 +104,7 @@ function DesktopOnly({ children }: { children: ReactNode }) {
   return useIsMobile() ? null : <>{children}</>
 }
 
-// 모바일 전용 화면(더보기·탭바 편집) 가드 — 데스크톱엔 해당 화면이 없으므로 홈으로 되돌린다(WP-126).
+// 모바일 전용 화면(앱 목록·탭바 순서 편집) 가드 — 데스크톱엔 해당 화면이 없으므로 홈으로 되돌린다(WP-126).
 function MobileOnly({ children }: { children: ReactNode }) {
   return useIsMobile() ? <>{children}</> : <Navigate to="/" replace />
 }
@@ -145,10 +145,13 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
               <Route index element={<HomePage />} />
-              {/* 모바일 전용 화면(WP-126) — 알림은 데스크톱 접근 시 홈 + 인박스 Popover 로(페이지 자체 처리), 더보기류는 MobileOnly 가 홈으로. */}
+              {/* 모바일 전용 화면(WP-126) — 알림은 데스크톱 접근 시 홈 + 인박스 Popover 로(페이지 자체 처리), 앱 목록류는 MobileOnly 가 홈으로. */}
               <Route path="notifications" element={<NotificationsPage />} />
-              <Route path="more" element={<MobileOnly><MorePage /></MobileOnly>} />
-              <Route path="more/tabs" element={<MobileOnly><TabEditPage /></MobileOnly>} />
+              <Route path="apps" element={<MobileOnly><AppsPage /></MobileOnly>} />
+              <Route path="apps/tabs" element={<MobileOnly><TabEditPage /></MobileOnly>} />
+              {/* 구 더보기 경로 하위호환 — 앱 목록으로 치환(대상이 MobileOnly 이므로 데스크톱은 결국 홈). */}
+              <Route path="more" element={<Navigate to="/apps" replace />} />
+              <Route path="more/tabs" element={<Navigate to="/apps/tabs" replace />} />
 
               {/* 이슈 모듈 — 2차 사이드바(내 태스크 + 프로젝트 목록) 가 감싼다 */}
               <Route element={<IssueModuleLayout />}>

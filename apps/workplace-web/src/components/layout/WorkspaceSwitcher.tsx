@@ -19,7 +19,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
 import type { Membership } from '@/types/auth'
 
-// side: 드롭다운 열림 방향 — 데스크톱 레일은 right, 모바일 더보기 화면은 화면 밖으로 잘리지 않게 top(WP-126).
+// side: 드롭다운 열림 방향 — 데스크톱 레일은 right, 그 외 좁은 배치에서 화면 밖으로 잘리지 않게 top(WP-126).
 export function WorkspaceSwitcher({ expanded = false, side = 'right' }: { expanded?: boolean; side?: 'right' | 'top' }) {
   const { activeTenant, selectTenant } = useAuth()
   const [options, setOptions] = useState<Membership[] | null>(null)

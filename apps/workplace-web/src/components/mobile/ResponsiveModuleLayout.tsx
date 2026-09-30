@@ -44,8 +44,8 @@ export function ResponsiveModuleLayout({
   if (norm(pathname) === rootPath) {
     return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
-        {/* 탭 루트(/chat 등)는 탭바가 보이므로 큰 제목 헤더. 탭 루트가 아닌 모듈 목록(/settings — 더보기에서 진입)은
-            탭바가 숨으므로 막다른 길이 되지 않게 뒤로가기 바(→ /more, ✦ 포함)를 대신 둔다. */}
+        {/* 탭 루트(/chat 등)는 탭바가 보이므로 큰 제목 헤더. 탭 루트가 아닌 모듈 목록(/settings — 앱 목록에서 진입)은
+            탭바가 숨으므로 막다른 길이 되지 않게 뒤로가기 바(→ /apps, ✦ 포함)를 대신 둔다. */}
         {isTabRoot(rootPath) ? <MobileListHeader title={title} /> : <MobileBackBar title={title} />}
         <div data-testid="mobile-module-list" className={mobileSidebarListClass}>{sidebar}</div>
       </div>

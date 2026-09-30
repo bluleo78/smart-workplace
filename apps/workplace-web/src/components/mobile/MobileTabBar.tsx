@@ -1,6 +1,6 @@
-// 모바일 하단 탭바 — [slot0, slot1, AI, slot2, 더보기]. AI 는 가운데 칸의 그라데이션 캡슐(다른 탭과 같은 선상, AI 미사용이면 제외).
+// 모바일 하단 탭바 — [slot0, slot1, AI, slot2, 앱]. AI 는 가운데 칸의 그라데이션 캡슐(다른 탭과 같은 선상, AI 미사용이면 제외).
 // Slack(탭바 회귀)·Teams(앱 1급 노출)·Linear(구성 변경) 패턴을 따른다.
-import { Menu, Sparkles } from 'lucide-react'
+import { LayoutGrid, Sparkles } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
@@ -65,7 +65,7 @@ function useTabBarHeightVar() {
   return ref
 }
 
-/** 하단 탭바 — 슬롯 탭·AI 캡슐 버튼·더보기. */
+/** 하단 탭바 — 슬롯 탭·AI 캡슐 버튼·앱 목록. */
 export function MobileTabBar() {
   const navRef = useTabBarHeightVar()
   const { pathname } = useLocation()
@@ -113,7 +113,8 @@ export function MobileTabBar() {
     )
   }
 
-  const moreActive = !aiOpen && under('/more')(pathname)
+  // 앱 목록(/apps)과 그 하위(탭바 순서 편집)에서 활성.
+  const appsActive = !aiOpen && under('/apps')(pathname)
 
   return (
     <nav
@@ -147,17 +148,17 @@ export function MobileTabBar() {
       {renderSlot(slots[2])}
       <button
         type="button"
-        data-testid="mobile-tab-more"
-        aria-label="더보기"
-        aria-current={moreActive ? 'page' : undefined}
-        onClick={() => go('/more')}
+        data-testid="mobile-tab-apps"
+        aria-label="앱"
+        aria-current={appsActive ? 'page' : undefined}
+        onClick={() => go('/apps')}
         className={cn(
           'flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 text-[10px]',
-          moreActive ? 'font-semibold text-primary' : 'text-muted-foreground',
+          appsActive ? 'font-semibold text-primary' : 'text-muted-foreground',
         )}
       >
-        <Menu className="h-5 w-5" />
-        더보기
+        <LayoutGrid className="h-5 w-5" />
+        앱
       </button>
     </nav>
   )

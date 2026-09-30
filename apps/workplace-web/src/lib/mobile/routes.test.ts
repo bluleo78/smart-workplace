@@ -6,7 +6,7 @@ import { isTabRoot, moduleRootFor, norm, resolveBackTarget } from './routes'
 describe('isTabRoot', () => {
   it.each([
     '/', '/chat', '/mail', '/mail/3', '/tasks', '/calendar', '/drive', '/wiki',
-    '/contacts', '/notifications', '/more', '/more/tabs',
+    '/contacts', '/notifications', '/apps', '/apps/tabs',
   ])('%s 는 탭 루트', (p) => expect(isTabRoot(p)).toBe(true))
 
   it.each([
@@ -27,11 +27,11 @@ describe('moduleRootFor', () => {
     ['/drive/spaces/5', '/drive'],
     ['/wiki/spaces/1/pages/2', '/wiki'],
     ['/settings/notifications', '/settings'],
-    // /settings 목록 자체는 탭 루트가 아니므로 진입점(더보기)으로 — 자기 자신으로의 루프 방지.
-    ['/settings', '/more'],
-    ['/settings/', '/more'],
+    // /settings 목록 자체는 탭 루트가 아니므로 진입점(앱 목록)으로 — 자기 자신으로의 루프 방지.
+    ['/settings', '/apps'],
+    ['/settings/', '/apps'],
     ['/mail/3', '/mail'],
-    ['/profile', '/more'],
+    ['/profile', '/apps'],
     ['/unknown', '/'],
   ])('%s → %s', (p, root) => expect(moduleRootFor(p)).toBe(root))
 })
@@ -39,7 +39,7 @@ describe('moduleRootFor', () => {
 describe('resolveBackTarget', () => {
   it('앱 내 히스토리가 있으면 -1', () => expect(resolveBackTarget('/chat/channels/1', 3)).toBe(-1))
   it('딥링크 첫 진입(idx 0)이면 모듈 루트', () => expect(resolveBackTarget('/chat/channels/1', 0)).toBe('/chat'))
-  it('설정 목록 딥링크는 더보기로', () => expect(resolveBackTarget('/settings', 0)).toBe('/more'))
+  it('설정 목록 딥링크는 앱 목록으로', () => expect(resolveBackTarget('/settings', 0)).toBe('/apps'))
   it('idx 가 없으면 모듈 루트', () => expect(resolveBackTarget('/projects/MOB/issues/1', undefined)).toBe('/tasks'))
 })
 

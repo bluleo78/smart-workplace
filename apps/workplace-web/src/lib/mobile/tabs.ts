@@ -1,4 +1,4 @@
-// 모바일 하단 탭 레지스트리 — 탭바·더보기 그리드·탭 편집이 공유하는 단일 정의.
+// 모바일 하단 탭 레지스트리 — 탭바·앱 목록 그리드·탭 편집이 공유하는 단일 정의.
 // match 는 해당 탭이 "활성"으로 보일 경로 범위(상세 경로 포함).
 import {
   Bell, BookOpen, CalendarDays, HardDrive, Home, LayoutList, type LucideIcon, Mail, MessageSquare, Users,
@@ -15,11 +15,11 @@ export interface MobileTabDef {
   match: (pathname: string) => boolean
 }
 
-/** 접두 경로 매칭 헬퍼 — '/chat' 은 '/chat', '/chat/…' 만('/chatx' 제외). 탭 match·경로 판정·더보기 활성 판정이 공유. */
+/** 접두 경로 매칭 헬퍼 — '/chat' 은 '/chat', '/chat/…' 만('/chatx' 제외). 탭 match·경로 판정·앱 목록 활성 판정이 공유. */
 export const under = (...prefixes: string[]) => (p: string) =>
   prefixes.some((x) => p === x || p.startsWith(`${x}/`))
 
-/** 탭바·더보기 그리드에 노출 가능한 앱 레지스트리 — match 는 현재 경로가 이 탭에 속하는지 판정. */
+/** 탭바·앱 목록 그리드에 노출 가능한 앱 레지스트리 — match 는 현재 경로가 이 탭에 속하는지 판정. */
 export const MOBILE_TABS: Record<MobileTabId, MobileTabDef> = {
   home: { id: 'home', label: '홈', icon: Home, path: '/', match: (p) => p === '/' },
   chat: { id: 'chat', label: '채팅', icon: MessageSquare, path: '/chat', match: under('/chat') },

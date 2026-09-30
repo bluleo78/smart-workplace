@@ -2,14 +2,14 @@
 import { createUser } from '../../factories/auth.factory'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
-test('홈에서 5칸 탭바(홈·채팅 | AI | 메일·더보기)가 보이고 레일·햄버거는 없다', async ({ authenticatedPage: page }) => {
+test('홈에서 5칸 탭바(홈·채팅 | AI | 메일·앱)가 보이고 레일·햄버거는 없다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   const bar = page.getByTestId('mobile-tabbar')
   await expect(bar).toBeVisible()
   const ids = await bar.locator('[data-testid^="mobile-tab-"]:not([data-testid^="mobile-tab-badge"])')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
-  expect(ids).toEqual(['mobile-tab-home', 'mobile-tab-chat', 'mobile-tab-ai', 'mobile-tab-mail', 'mobile-tab-more'])
+  expect(ids).toEqual(['mobile-tab-home', 'mobile-tab-chat', 'mobile-tab-ai', 'mobile-tab-mail', 'mobile-tab-apps'])
   await expect(page.getByTestId('mobile-tab-home')).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('app-rail')).toHaveCount(0)
   await expect(page.getByTestId('rail-mobile-toggle')).toHaveCount(0)

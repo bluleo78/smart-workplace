@@ -31,27 +31,27 @@ test('연락처 상세(탭바 숨김)에서도 ✦ 로 AI 풀스크린을 연다
   await expectNoHorizontalOverflow(page)
 })
 
-test('설정: 더보기 → 설정 → ‹ 는 더보기로 돌아간다', async ({ authenticatedPage: page }) => {
+test('설정: 앱 → 설정 → ‹ 는 앱 목록으로 돌아간다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
-  await page.goto('/more')
-  await page.getByTestId('more-app-settings').click()
+  await page.goto('/apps')
+  await page.getByTestId('apps-app-settings').click()
   await expect(page).toHaveURL(/\/settings$/)
   // 목록은 그대로 보이고, 탭 루트가 아니므로 큰 제목 대신 뒤로가기 바가 뜬다.
   await expect(page.getByTestId('settings-sidebar')).toBeVisible()
   await expect(page.getByTestId('mobile-list-header')).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
   await page.getByTestId('mobile-back').click()
-  await expect(page).toHaveURL(/\/more$/)
+  await expect(page).toHaveURL(/\/apps$/)
 })
 
-test('설정 딥링크: /settings/notifications → ‹ → /settings → ‹ → /more', async ({ authenticatedPage: page }) => {
+test('설정 딥링크: /settings/notifications → ‹ → /settings → ‹ → /apps', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/settings/notifications')
   await page.getByTestId('mobile-back').click()
   await expect(page).toHaveURL(/\/settings$/)
   await expect(page.getByTestId('settings-sidebar')).toBeVisible()
   await page.getByTestId('mobile-back').click()
-  await expect(page).toHaveURL(/\/more$/)
+  await expect(page).toHaveURL(/\/apps$/)
 })
 
 test('캘린더 헤더: 390px 에서 제목이 읽히고 뷰 전환이 가능하다', async ({ authenticatedPage: page }) => {

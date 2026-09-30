@@ -1,4 +1,4 @@
-// 모바일 탭바 사용자 구성(가운데 AI·끝 더보기를 제외한 3칸) — localStorage 기기별 저장.
+// 모바일 탭바 사용자 구성(가운데 AI·끝 앱 목록을 제외한 3칸) — localStorage 기기별 저장.
 // 손상·구버전 값은 조용히 기본값으로 복구한다(프라이빗 모드 등 storage 예외도 무시).
 import { ALL_TAB_IDS, type MobileTabId } from './tabs'
 
@@ -51,4 +51,14 @@ export function saveTabSlots(slots: MobileTabId[]): void {
   } catch {
     // 저장 불가 환경 — 이번 세션 메모리 상태로만 동작.
   }
+}
+
+/**
+ * 슬롯 하나를 제자리 교체한다 — 앱 목록의 "탭바에 고정(○○ 대신)"·"다른 앱으로 교체"가 공유.
+ * 위치를 보존해야 사용자가 고른 칸에 새 앱이 들어간다. 교체 대상이 슬롯에 없거나 새 앱이 이미 슬롯에 있으면
+ * (중복 금지 규칙) 원본 복사본을 그대로 돌려준다.
+ */
+export function replaceSlot(slots: MobileTabId[], from: MobileTabId, to: MobileTabId): MobileTabId[] {
+  if (!slots.includes(from) || slots.includes(to)) return [...slots]
+  return slots.map((id) => (id === from ? to : id))
 }

@@ -1,4 +1,5 @@
-// /more/tabs — 탭바 3칸 구성 편집(WP-126). AI(가운데)·더보기(끝)는 고정 표시만.
+// /apps/tabs — 탭바 3칸 구성·순서 편집(WP-126). AI(가운데)·앱(끝)은 고정 표시만.
+// 앱 목록의 길게 누르기(고정·교체)가 빠른 교체라면, 이 화면은 칸 순서 조정까지 하는 상세 편집이다.
 // 드래그 대신 위/아래·추가/제거 버튼으로 편집한다(접근성·단순성). 모바일 전용.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -17,8 +18,8 @@ export default function TabEditPage() {
   const candidates = ALL_TAB_IDS.filter((id) => !draft.includes(id))
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
-      <MobileListHeader title="탭바 편집" hideBell />
-      <p className="px-4 text-xs text-muted-foreground">가운데 AI 와 끝의 더보기는 고정입니다. 나머지 3칸을 고르세요.</p>
+      <MobileListHeader title="탭바 순서 편집" hideBell />
+      <p className="px-4 text-xs text-muted-foreground">가운데 AI 와 끝의 앱은 고정입니다. 나머지 3칸을 고르세요.</p>
       <ul className="mt-2 border-y">
         {draft.map((id, i) => {
           const t = MOBILE_TABS[id]
@@ -46,7 +47,7 @@ export default function TabEditPage() {
           )
         })}
       </ul>
-      <button data-testid="tab-edit-save" disabled={draft.length !== 3} onClick={() => { save(draft); navigate('/more') }}
+      <button data-testid="tab-edit-save" disabled={draft.length !== 3} onClick={() => { save(draft); navigate('/apps') }}
         className="mx-4 my-4 rounded-lg bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-40">저장</button>
     </div>
   )
