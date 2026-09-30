@@ -11,6 +11,7 @@ import {
   useState,
 } from 'react';
 
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { MOBILE_MEDIA_QUERY } from '@/lib/mobile/breakpoint';
 
 /** AI 어시스턴트 표시 모드. closed=닫힘, side=우측 도킹, fullscreen=콘텐츠 영역 2단. */
@@ -46,15 +47,21 @@ function readInitialWidth(): number {
   return Math.min(SIDE_MAX_WIDTH, Math.max(SIDE_MIN_WIDTH, n));
 }
 
-/** 모바일(<lg)에는 사이드 패널이 없으므로 side 요청은 fullscreen 으로 승격한다(WP-121). */
-function resolveMode(m: Exclude<AIMode, 'closed'>): Exclude<AIMode, 'closed'> {
-  return m === 'side' && window.matchMedia(MOBILE_MEDIA_QUERY).matches ? 'fullscreen' : m;
+/** 모바일(<lg)에는 사이드 패널이 없으므로 side 는 fullscreen 으로 승격해 보여준다(WP-121). */
+function effectiveMode(m: AIMode, isMobile: boolean): AIMode {
+  return isMobile && m === 'side' ? 'fullscreen' : m;
 }
+/** 콜백 안에서 쓰는 즉시 판정(렌더 값이 아닌 현재 뷰포트 기준). */
+const nowMobile = () => window.matchMedia(MOBILE_MEDIA_QUERY).matches;
 
 const AIAssistantContext = createContext<AIAssistantValue | null>(null);
 
 export function AIAssistantProvider({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<AIMode>('closed');
+  // rawMode = 사용자가 요청한 모드(side 유지). 모바일에서만 노출값(mode)이 fullscreen 으로 승격되므로
+  // 데스크톱 복귀 시 side 가 복원되고, localStorage(ai-mode)에도 요청 모드만 저장된다.
+  const [rawMode, setMode] = useState<AIMode>('closed');
+  const isMobile = useIsMobile();
+  const mode = effectiveMode(rawMode, isMobile);
   const [sidePanelWidth, setWidth] = useState<number>(readInitialWidth);
   // ⌘K 토글 시 복원할 직전 open 모드(기본 side). localStorage(ai-mode)에 마지막 open 모드 보관.
   const lastOpen = (): Exclude<AIMode, 'closed'> => {
@@ -63,21 +70,21 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
   };
 
   const open = useCallback((m: Exclude<AIMode, 'closed'>) => {
-    const next = resolveMode(m);
-    localStorage.setItem(MODE_KEY, next);
-    setMode(next);
+    localStorage.setItem(MODE_KEY, m);
+    setMode(m);
   }, []);
   const close = useCallback(() => setMode('closed'), []);
   const cycleMode = useCallback(() => {
     setMode((cur) => {
-      const next: AIMode =
-        cur === 'closed' ? resolveMode('side') : cur === 'side' ? 'fullscreen' : 'closed';
+      // 모바일에선 side 가 곧 fullscreen 이므로 현재 노출 모드 기준으로 순환한다.
+      const eff = effectiveMode(cur, nowMobile());
+      const next: AIMode = eff === 'closed' ? 'side' : eff === 'side' ? 'fullscreen' : 'closed';
       if (next !== 'closed') localStorage.setItem(MODE_KEY, next);
       return next;
     });
   }, []);
   const toggle = useCallback(() => {
-    setMode((cur) => (cur === 'closed' ? resolveMode(lastOpen()) : 'closed'));
+    setMode((cur) => (cur === 'closed' ? lastOpen() : 'closed'));
   }, []);
   // 드래그 중에는 상태만 갱신(매 pointermove 마다 localStorage 쓰기 방지), 종료 시 persist 로 1회 영속.
   const resize = useCallback((w: number, persist = false) => {

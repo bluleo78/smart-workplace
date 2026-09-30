@@ -50,6 +50,20 @@ test('뷰포트 전환 — 데스크톱 폭이 되면 레일, 다시 좁히면 �
   await expect(page).toHaveURL(/\/chat$/)
 })
 
+test('데스크톱에서 연 side 패널은 좁히면 풀스크린으로, 다시 넓히면 side 로 복원된다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expect(page.getByTestId('mobile-tab-ai')).toHaveAttribute('aria-current', 'page')
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
+})
+
 // authenticatedPage 는 aiAvailable:true 고정 — /api/v1/users/me 를 나중에 등록해 덮어쓴다(page.route 는 LIFO).
 test('AI 미사용이면 AI 칸 없이 4칸', async ({ authenticatedPage: page }) => {
   await page.route((u) => u.pathname === '/api/v1/users/me', (r) =>
