@@ -472,7 +472,8 @@ test.describe('이슈 chat panel', () => {
           authorId: 20,
           authorName: '동료',
           authorKind: 'HUMAN',
-          body: '스테이징에서 메일 동기화 스케줄러가 3분 주기로 도는지 확인했습니다.',
+          body: '스테이징에서 메일 동기화 스케줄러가 3분 주기로 도는지 확인했습니다. <@99> <@1>',
+          mentions: hydrateMentions('<@99> <@1>', members),
         }),
         createChatMessage({
           id: 611,
@@ -483,6 +484,7 @@ test.describe('이슈 chat panel', () => {
           // 공백 없는 긴 문자열 포함 — ScrollArea 안에서 말풍선이 패널을 옆으로 넓히지 않는지 확인.
           body: `확인했습니다 <@99> <@20> 참고: https://example.com/${'very-long-path-segment-'.repeat(12)}end`,
           mentions: hydrateMentions('<@99> <@20>', members),
+          editedAt: '2026-01-01T10:00:00Z',
         }),
       ],
     };
@@ -510,6 +512,18 @@ test.describe('이슈 chat panel', () => {
     await expect(peerRow.getByTestId('chat-avatar-20')).toBeVisible();
     await expect(peerRow.getByText('동료', { exact: true })).toBeVisible();
     await expect(page.getByTestId('chat-message-body-610')).not.toHaveClass(/rounded-2xl/);
+    // 타인 메시지의 멘션 칩은 기존 클래스를 유지한다(본인 말풍선 전용 bg-background 로 새지 않음).
+    const peerAgentChip = peerRow.getByTestId('chat-mention-chip-99');
+    await expect(peerAgentChip).toHaveClass(/bg-ai-accent-subtle/);
+    await expect(peerAgentChip).toHaveClass(/text-ai-accent/);
+    await expect(peerAgentChip).not.toHaveClass(/bg-background/);
+    const peerHumanChip = peerRow.getByTestId('chat-mention-chip-1');
+    await expect(peerHumanChip).toHaveClass(/bg-muted/);
+    await expect(peerHumanChip).toHaveClass(/text-foreground/);
+    await expect(peerHumanChip).not.toHaveClass(/bg-background/);
+
+    // 본인 "(수정됨)" 은 좁은 시각 줄에서 단어 중간에 끊기지 않는다.
+    await expect(ownRow.getByLabel('수정됨')).toHaveClass(/whitespace-nowrap/);
 
     // 본인 말풍선(bg-primary/10) 안에서 멘션 칩이 배경에 묻히지 않도록 칩은 bg-background 를 쓴다.
     const agentChip = ownRow.getByTestId('chat-mention-chip-99');
