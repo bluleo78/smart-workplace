@@ -88,6 +88,25 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
   await mockApi(page, 'GET', '/api/v1/me/issues', { items: [], nextCursor: null, hasMore: false })
   await mockApi(page, 'GET', '/api/v1/me/watched-issues', { items: [], nextCursor: null, hasMore: false })
   await mockApi(page, 'GET', '/api/v1/me/activity', { items: [], nextCursor: null })
+  // 공통 부가 조회 빈 기본 스텁(WP-85). 전체 E2E 에서 모킹 누락으로 503 이 가장 많이 난 목록·개수 조회들이다
+  // (프로젝트 목록 543회, 드라이브 스페이스 285회, 사이클 252회, 유형 215회 …). 503 은 에러 토스트·재시도로 화면을
+  // 다시 그려 클릭 타이밍 flaky 의 원인이 될 수 있어 빈 성공 응답으로 고정한다. 각 spec 이 나중에 등록한 라우트가 우선한다.
+  const emptyPage = { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 }
+  await mockApi(page, 'GET', '/api/v1/projects', emptyPage)
+  await mockApi(page, 'GET', '/api/v1/members', emptyPage)
+  await mockApi(page, 'GET', '/api/v1/drive/spaces', [])
+  await mockApi(page, 'GET', '/api/v1/calendars', [])
+  await mockApi(page, 'GET', '/api/v1/messaging/threads/inbox/unread-count', { count: 0 })
+  // 프로젝트 하위 목록(/projects/{key}/cycles 등)과 이슈 하위 목록(/projects/{key}/issues/{n}/cycles 등).
+  const projectLists = /^\/api\/v1\/projects\/[^/]+\/(cycles|types|milestones|labels|members|saved-views)$/
+  const issueLists = /^\/api\/v1\/projects\/[^/]+\/issues\/\d+\/(cycles|drive-links)$/
+  await page.route(
+    (url) => projectLists.test(url.pathname) || issueLists.test(url.pathname),
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+        : route.fallback(),
+  )
   // 고정 홈 대시보드(Dashboard)가 "/" 마운트 시 레이아웃·위젯 데이터를 페치한다.
   // 모든 인증 테스트가 결국 "/" 에 착지하므로 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // 대시보드를 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.
