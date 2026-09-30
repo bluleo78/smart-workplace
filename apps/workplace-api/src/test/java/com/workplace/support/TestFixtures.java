@@ -112,4 +112,15 @@ public final class TestFixtures {
         creatorId, agentId, "anthropic", "sk-ant-oat-" + "x".repeat(40), "test", null);
     return agentId;
   }
+
+  /**
+   * 메일 envelope 를 본문 적재·검증 완료로 표시한다(WP-130). 공유 content 의 본문·스니펫·AI 값은 fetched_at 이 있는 envelope 에만
+   * 노출되므로, content 에 본문을 직접 시드한 테스트는 이 표시를 해야 실제 적재 후 상태와 같아진다.
+   */
+  public static void markMailFetched(DSLContext dsl, long envelopeId) {
+    dsl.update(com.workplace.jooq.Tables.EMAIL_MESSAGE)
+        .set(com.workplace.jooq.Tables.EMAIL_MESSAGE.FETCHED_AT, java.time.OffsetDateTime.now())
+        .where(com.workplace.jooq.Tables.EMAIL_MESSAGE.ID.eq(envelopeId))
+        .execute();
+  }
 }

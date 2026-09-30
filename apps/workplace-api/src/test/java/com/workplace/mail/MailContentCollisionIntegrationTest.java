@@ -210,6 +210,18 @@ class MailContentCollisionIntegrationTest extends IntegrationTestBase {
           long envX =
               sync(x, imapHeader(2, msgId, "ceo@corp.test", "A 기밀 제목", SENT_A, STRUCTURE_A));
           soft.assertThat(contentIdOf(envX)).as("지문 일치 → 동기화 시점엔 공유").isEqualTo(contentIdOf(envA));
+          // 자기 사본 적재·검증 전에는 공유 본문·스니펫이 가려져야 한다(Graph 는 지문이 헤더뿐이라 이 단계가 유일한 방어선)
+          var before = messageRepo.findDetailByIdAndUser(x[0], envX).orElseThrow();
+          soft.assertThat(before.bodyText()).as("검증 전 X 본문").isNull();
+          soft.assertThat(before.bodyHtml()).as("검증 전 X HTML").isNull();
+          soft.assertThat(
+                  messageRepo.listByAccount(x[1], "INBOX", null, 10).stream()
+                      .filter(r -> r.id() == envX)
+                      .findFirst()
+                      .orElseThrow()
+                      .snippet())
+              .as("검증 전 X 목록 스니펫")
+              .isNull();
 
           loadBody(
               envX, "X 위조 본문", new ParsedAttachment("x.pdf", "application/pdf", 20L, null, null));

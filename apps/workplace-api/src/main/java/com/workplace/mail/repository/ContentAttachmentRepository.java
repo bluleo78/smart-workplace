@@ -67,7 +67,10 @@ public class ContentAttachmentRepository {
         && Objects.equals(sizeBytes, s2);
   }
 
-  /** 공유 manifest 의 같은 ordinal 에 다른 첨부가 이미 있음(WP-130). 호출 트랜잭션을 롤백시켜 부분 적재를 남기지 않는다. */
+  /**
+   * 공유 manifest 의 같은 ordinal 에 다른 첨부가 이미 있음(WP-130). 본문 로더는 예외를 삼키므로(커밋됨) 공유 게이트의 잠금·사전 검증으로 이 경로에
+   * 닿지 않게 유지한다. 예외를 전파하는 경로(인라인 첨부 백필)는 트랜잭션이 롤백된다.
+   */
   public static class ManifestMismatchException extends IllegalStateException {
     public ManifestMismatchException(long contentId, int ordinal) {
       super("공유 첨부 manifest 불일치 (contentId=" + contentId + ", ordinal=" + ordinal + ")");

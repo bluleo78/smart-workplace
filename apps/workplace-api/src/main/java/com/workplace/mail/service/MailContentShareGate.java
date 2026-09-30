@@ -43,27 +43,47 @@ public class MailContentShareGate {
       String bodyHtml,
       String snippet,
       List<ParsedAttachment> attachments) {
-    // 1) 첫 적재자: 본문 기록(이후 수신자는 덮어쓰지 못함)
-    if (contentRepo.claimBody(contentId, bodyText, bodyHtml, snippet)) {
+    // 같은 content 에 대한 동시 적재를 직렬화 — 선점·비교·분리가 서로 끼어들지 않게 한다
+    contentRepo.lockForUpdate(contentId);
+    // 1) 첨부 목록이 공유 manifest 와 어긋나면 첫 적재자라도 공유하지 않는다(manifest 가 먼저 생긴 legacy 행 방어)
+    boolean sameAttachments = contentAttachmentRepo.matchesManifest(contentId, attachments);
+    // 2) 첫 적재자: 본문 기록(이후 수신자는 덮어쓰지 못함)
+    if (sameAttachments && contentRepo.claimBody(contentId, bodyText, bodyHtml, snippet)) {
       return contentId;
     }
-    // 2) 이미 기록된 본문·첨부와 일치하면 그대로 공유
+    // 3) 이미 기록된 본문·첨부와 일치하면 그대로 공유
     boolean sameBody =
         Objects.equals(
             contentRepo.findContentHash(contentId), MailContentHash.of(bodyText, bodyHtml));
-    if (sameBody && contentAttachmentRepo.matchesManifest(contentId, attachments)) {
+    if (sameAttachments && sameBody) {
       return contentId;
     }
-    // 3) 불일치 → 이 envelope 만 새 content 로 분리(원본 수신자의 본문·첨부·AI 요약은 그대로)
-    long forked = contentRepo.forkHeaders(contentId);
-    contentRepo.claimBody(forked, bodyText, bodyHtml, snippet);
-    messageRepo.repointContent(envelopeId, forked);
+    // 4) 불일치 → 이 envelope 만 새 content 로 분리(원본 수신자의 본문·첨부·AI 요약은 그대로)
+    long forked = fork(envelopeId, contentId, bodyText, bodyHtml, snippet);
     log.warn(
-        "공유 메일 content 불일치 — envelope 분리 (envelopeId={}, from={}, to={}, sameBody={})",
+        "공유 메일 content 불일치 — envelope 분리 (envelopeId={}, from={}, to={}, sameBody={}, sameAttachments={})",
         envelopeId,
         contentId,
         forked,
-        sameBody);
+        sameBody,
+        sameAttachments);
+    return forked;
+  }
+
+  /**
+   * 서버에서 사라져 본문을 받을 수 없는 envelope 를 빈 전용 content 로 분리한다. 검증하지 못한 공유 본문이 노출되지 않게 하고, 공유 content 를 빈
+   * 본문으로 선점해 다른 수신자를 모두 분리시키는 일도 피한다.
+   */
+  public void detachUnverifiable(long envelopeId, long contentId) {
+    fork(envelopeId, contentId, null, null, null);
+  }
+
+  /** 헤더만 복사한 새 content 에 본문을 기록하고 envelope 를 옮긴다. */
+  private long fork(
+      long envelopeId, long contentId, String bodyText, String bodyHtml, String snippet) {
+    long forked = contentRepo.forkHeaders(contentId);
+    contentRepo.claimBody(forked, bodyText, bodyHtml, snippet); // 방금 만든 행이라 항상 성공
+    messageRepo.repointContent(envelopeId, forked);
     return forked;
   }
 }

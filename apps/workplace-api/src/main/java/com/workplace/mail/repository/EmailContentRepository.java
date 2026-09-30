@@ -101,6 +101,15 @@ public class EmailContentRepository {
         > 0;
   }
 
+  /** content 행 잠금(SELECT ... FOR UPDATE) — 본문 적재 공유 게이트의 동시성 직렬화용. */
+  public void lockForUpdate(long contentId) {
+    dsl.select(EMAIL_CONTENT.ID)
+        .from(EMAIL_CONTENT)
+        .where(EMAIL_CONTENT.ID.eq(contentId))
+        .forUpdate()
+        .execute();
+  }
+
   /** 기록된 본문 해시. 본문 미적재 또는 해시 미계산이면 null. */
   public String findContentHash(long contentId) {
     return dsl.select(EMAIL_CONTENT.CONTENT_HASH)

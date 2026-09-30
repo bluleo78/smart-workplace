@@ -123,6 +123,8 @@ class EmailContentDedupIntegrationTest extends IntegrationTestBase {
             .fetchOne()
             .getId();
 
+    TestFixtures.markMailFetched(dsl, envId);
+
     return new long[] {uid, accId, fldId, envId};
   }
 

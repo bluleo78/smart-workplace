@@ -28,6 +28,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -60,6 +61,15 @@ public class EmailMessageRepository {
 
     // 마지막 envelope 가 사라진 content 만 삭제(다른 envelope 가 참조 중이면 유지)
     contentRepo.deleteOrphans(affectedContentIds);
+  }
+
+  /**
+   * 공유 content 의 본문 유래 값(본문·스니펫·AI 요약/분류)은 이 envelope 가 자기 사본을 적재·검증한 뒤(fetched_at)에만 노출한다(WP-130).
+   * 동기화 지문은 발신자가 정할 수 있는 헤더라, 검증 전에 공유 본문을 보여 주면 위조 메일로 다른 사람 본문을 열람할 수 있다. 별칭을 원래 컬럼명으로 둬 {@code
+   * r.get(EMAIL_CONTENT.X)} 조회를 그대로 쓴다.
+   */
+  private static <T> Field<T> verified(Field<T> contentField) {
+    return DSL.when(EMAIL_MESSAGE.FETCHED_AT.isNotNull(), contentField).as(contentField.getName());
   }
 
   /**
@@ -266,11 +276,11 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.FROM_ADDRESS,
             EMAIL_MESSAGE.FROM_NAME,
             EMAIL_CONTENT.SUBJECT, // content 에서 읽음
-            EMAIL_CONTENT.SNIPPET, // content 에서 읽음
+            verified(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
-            EMAIL_CONTENT.AI_CATEGORY, // 슬라이스②: content 에서 읽음
+            verified(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
             EMAIL_MESSAGE.AI_NEEDS_REPLY,
             EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT) // P2
         .from(EMAIL_MESSAGE)
@@ -338,11 +348,11 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.FROM_ADDRESS,
             EMAIL_MESSAGE.FROM_NAME,
             EMAIL_CONTENT.SUBJECT, // content 에서 읽음
-            EMAIL_CONTENT.SNIPPET, // content 에서 읽음
+            verified(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
-            EMAIL_CONTENT.AI_CATEGORY, // 슬라이스②: content 에서 읽음
+            verified(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
             EMAIL_MESSAGE.AI_NEEDS_REPLY,
             EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT) // P2: toSummary 매퍼에서 필요
         .from(EMAIL_MESSAGE)
@@ -423,6 +433,8 @@ public class EmailMessageRepository {
         .set(EMAIL_MESSAGE.SEEN, true)
         .set(EMAIL_MESSAGE.HAS_ATTACHMENT, false)
         .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
+        // 본문을 직접 기록한 전용 content — 적재·검증 완료로 표시해야 본문이 노출된다(WP-130 verified)
+        .set(EMAIL_MESSAGE.FETCHED_AT, OffsetDateTime.now())
         .returning(EMAIL_MESSAGE.ID)
         .fetchOne()
         .get(EMAIL_MESSAGE.ID);
@@ -474,8 +486,8 @@ public class EmailMessageRepository {
                 EMAIL_MESSAGE.SENT_AT,
                 EMAIL_MESSAGE.RECEIVED_AT,
                 EMAIL_MESSAGE.SEEN,
-                EMAIL_CONTENT.BODY_TEXT,
-                EMAIL_CONTENT.BODY_HTML)
+                verified(EMAIL_CONTENT.BODY_TEXT),
+                verified(EMAIL_CONTENT.BODY_HTML))
             .from(EMAIL_MESSAGE)
             .join(EMAIL_ACCOUNT)
             .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -896,9 +908,9 @@ public class EmailMessageRepository {
             EMAIL_ACCOUNT.EMAIL_ADDRESS,
             EMAIL_CONTENT.SUBJECT, // content 에서 읽음
             EMAIL_MESSAGE.FROM_ADDRESS,
-            EMAIL_CONTENT.BODY_TEXT, // content 에서 읽음
-            EMAIL_CONTENT.BODY_HTML, // content 에서 읽음
-            EMAIL_CONTENT.AI_SUMMARY, // 슬라이스②: 공통(객관적) 요약 — content 공유
+            verified(EMAIL_CONTENT.BODY_TEXT), // content 에서 읽음
+            verified(EMAIL_CONTENT.BODY_HTML), // content 에서 읽음
+            verified(EMAIL_CONTENT.AI_SUMMARY), // 슬라이스②: 공통(객관적) 요약 — content 공유
             EMAIL_MESSAGE.AI_PERSONAL_SUMMARY, // Task3: 개인 요약 — envelope(사람별)
             EMAIL_CONTENT.AI_SUMMARIZED_AT, // #484: 공통 요약 시도 여부
             EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT, // #484: 개인 요약 시도 여부
@@ -948,8 +960,8 @@ public class EmailMessageRepository {
     return dsl.select(
             EMAIL_MESSAGE.FROM_ADDRESS,
             EMAIL_MESSAGE.RECEIVED_AT,
-            EMAIL_CONTENT.BODY_TEXT, // content 에서 읽음
-            EMAIL_CONTENT.BODY_HTML) // content 에서 읽음
+            verified(EMAIL_CONTENT.BODY_TEXT), // content 에서 읽음
+            verified(EMAIL_CONTENT.BODY_HTML)) // content 에서 읽음
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -981,7 +993,7 @@ public class EmailMessageRepository {
     return dsl.select(
             EMAIL_CONTENT.SUBJECT, // content 에서 읽음
             EMAIL_MESSAGE.FROM_ADDRESS,
-            EMAIL_CONTENT.SNIPPET) // content 에서 읽음
+            verified(EMAIL_CONTENT.SNIPPET)) // content 에서 읽음
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))

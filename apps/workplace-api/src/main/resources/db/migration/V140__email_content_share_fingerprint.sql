@@ -15,3 +15,11 @@ DROP INDEX IF EXISTS email_content_tenant_message_uk;
 CREATE UNIQUE INDEX email_content_tenant_message_fp_uk
     ON email_content (tenant_id, message_id, fingerprint)
     WHERE message_id IS NOT NULL AND fingerprint IS NOT NULL;
+
+-- 공유 content 의 본문 유래 값은 envelope 가 자기 사본을 적재·검증한 뒤(fetched_at)에만 노출한다(EmailMessageRepository.verified).
+-- 로컬 보낸메일 행은 본문을 직접 기록하지만 fetched_at 을 표시하지 않았으므로(V97 이후 생성분) 여기서 채운다 — 누락 시 보낸편지함 본문이 비어 보인다.
+UPDATE email_message
+SET fetched_at = COALESCE(sent_at, now())
+WHERE imap_uid IS NULL
+  AND provider_message_id IS NULL
+  AND fetched_at IS NULL;

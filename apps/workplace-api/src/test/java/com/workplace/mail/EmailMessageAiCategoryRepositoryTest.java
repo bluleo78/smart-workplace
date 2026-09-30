@@ -79,6 +79,7 @@ class EmailMessageAiCategoryRepositoryTest extends IntegrationTestBase {
             .where(EMAIL_MESSAGE.ID.eq(envId))
             .fetchOneInto(Long.class);
     contentRepo.updateBody(contentId, "본문", null, "스니펫");
+    TestFixtures.markMailFetched(dsl, envId);
     return envId;
   }
 

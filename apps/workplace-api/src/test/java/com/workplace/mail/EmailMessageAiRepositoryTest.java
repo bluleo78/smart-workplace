@@ -92,6 +92,7 @@ class EmailMessageAiRepositoryTest extends IntegrationTestBase {
             .where(EMAIL_MESSAGE.ID.eq(envId))
             .fetchOneInto(Long.class);
     contentRepo.updateBody(contentId, bodyText, null, "스니펫");
+    TestFixtures.markMailFetched(dsl, envId);
     return envId;
   }
 
@@ -224,6 +225,7 @@ class EmailMessageAiRepositoryTest extends IntegrationTestBase {
             .fetchOneInto(Long.class);
     // HTML 전용: body_text=null, body_html=bodyHtml
     contentRepo.updateBody(contentId, null, bodyHtml, "스니펫");
+    TestFixtures.markMailFetched(dsl, envId);
     return envId;
   }
 

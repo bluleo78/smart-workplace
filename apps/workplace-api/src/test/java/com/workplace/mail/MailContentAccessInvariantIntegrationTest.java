@@ -86,6 +86,7 @@ class MailContentAccessInvariantIntegrationTest extends IntegrationTestBase {
             .returning(EMAIL_MESSAGE.ID)
             .fetchOne()
             .getId();
+    TestFixtures.markMailFetched(dsl, envId);
     return new long[] {uid, accId, envId};
   }
 

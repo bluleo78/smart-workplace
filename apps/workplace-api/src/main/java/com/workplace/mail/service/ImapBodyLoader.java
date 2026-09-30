@@ -46,8 +46,8 @@ public class ImapBodyLoader implements MailBodyLoader {
   }
 
   /**
-   * IMAP 에서 단건 메시지 본문을 적재한다. INBOX 폴더를 UID 로 조회해 본문·스니펫·첨부를 파싱하고 DB 에 캐시한다. 서버에서 사라진 메시지는 빈 본문으로
-   * 표시해 영구 재시도를 방지한다. 네트워크/파싱 실패는 삼킨다(best-effort).
+   * IMAP 에서 단건 메시지 본문을 적재한다. INBOX 폴더를 UID 로 조회해 본문·스니펫·첨부를 파싱하고 DB 에 캐시한다. 서버에서 사라진 메시지는 빈 전용
+   * content 로 분리해 영구 재시도를 방지한다. 네트워크/파싱 실패는 삼킨다(best-effort).
    *
    * <p>Task5: 본문·스니펫은 email_content 에 기록(MailContentShareGate — 첫 적재자 선점, 불일치 시 분리). has_attachment
    * 만 envelope 에 남긴다. contentId 가 0 이면 content 행이 미연결된 legacy envelope — 적재 불가(false 반환)해 재시도 가능
@@ -78,9 +78,10 @@ public class ImapBodyLoader implements MailBodyLoader {
       folder.open(Folder.READ_ONLY);
       Message msg = ((UIDFolder) folder).getMessageByUID(target.imapUid());
       if (msg == null) {
-        // 서버에서 사라진 메시지 — envelope 만 적재 완료로 표시해 영구 재시도(무한 정지)를 방지한다.
-        // WP-130: 공유 content 는 건드리지 않는다. 빈 본문을 먼저 선점하면 같은 메일의 다른 수신자가 모두 해시 불일치로 분리된다.
+        // 서버에서 사라진 메시지 — 적재 완료로 표시해 영구 재시도(무한 정지)를 방지한다.
+        // WP-130: 검증 못 한 공유 본문이 노출되지 않도록 빈 전용 content 로 분리한다(공유 content 는 건드리지 않음).
         log.warn("본문 적재 대상 메시지 없음 (messageId={}, uid={})", target.messageId(), target.imapUid());
+        shareGate.detachUnverifiable(target.messageId(), target.contentId());
         messageRepo.markHasAttachment(target.messageId(), false);
         messageRepo.markFetched(target.messageId()); // V97: per-envelope 마커
         return true;
