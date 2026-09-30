@@ -716,94 +716,6 @@ describe('runAiChatStream — wiki 위임 답 / 미위임 fallback (#381, ex-#43
   });
 });
 
-// #400 #409: 비가역 작업 제안 후 승인 발화 시 haiku 환각 응답 차단.
-describe('runAiChatStream — proposal approval hallucination guard (#400, #409)', () => {
-  it('승인 발화 + 직전 AI 제안 문구 + pendingActions 없음 → 고정 안내 반환', async () => {
-    streamSpy.mockImplementation(makeRunnerImpl([
-      textDelta('팀 회의 일정이 생성됐습니다. 오늘 오후 4시~5시에 예약되어 있습니다.'),
-      result(''),
-    ])); // onProposal 콜백 없음
-    const recentContext = [
-      { role: 'USER', content: '오늘 오후 4시에 팀 회의 일정 만들어줘' },
-      { role: 'ASSISTANT', content: '오늘 오후 4시 팀 회의 1시간 일정 생성을 제안했습니다. 확인 카드에서 승인해주세요.' },
-    ];
-    const out = await runAiChatStream(
-      baseInput({ query: '네, 승인합니다', recentContext }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(out.fullText).toContain('확인 카드에서 승인해주세요');
-    expect(out.fullText).not.toContain('생성됐습니다');
-    expect(out.pendingActions).toEqual([]);
-  });
-
-  it('승인 발화이지만 pending_action 이 있으면 정상 흐름 통과', async () => {
-    streamSpy.mockImplementation(makeRunnerImpl([result('')], { pendingAction: { actionType: 'calendar.create_event', summary: '4시 팀 회의', params: {} } }));
-    const recentContext = [
-      { role: 'ASSISTANT', content: '팀 회의 제안했습니다. 확인 카드에서 승인해주세요.' },
-    ];
-    const out = await runAiChatStream(
-      baseInput({ query: '네', recentContext }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(out.pendingActions.length).toBeGreaterThan(0);
-  });
-
-  it('일반 쿼리("네 알겠어")는 제안 컨텍스트 없으면 guard 미적용(streamedText 답 통과)', async () => {
-    streamSpy.mockImplementation(makeRunnerImpl([
-      textDelta('안녕하세요.'),
-      result(''),
-    ]));
-    const out = await runAiChatStream(
-      baseInput({ query: '네 알겠어', recentContext: [] }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(out.fullText).toBe('안녕하세요.');
-    expect(out.fullText).not.toContain('확인 카드에서 승인해주세요');
-  });
-
-  it('#409 연락처 삭제 제안("삭제하겠습니다. 확인해주세요") 후 승인 → 고정 안내 반환', async () => {
-    streamSpy.mockImplementation(makeRunnerImpl([
-      textDelta('김철수 연락처 삭제를 완료했습니다.'),
-      result(''),
-    ]));
-    const recentContext = [
-      { role: 'USER', content: '김철수 연락처 삭제해줘' },
-      { role: 'ASSISTANT', content: '김철수 연락처를 삭제하겠습니다. 확인해주세요.' },
-    ];
-    const out = await runAiChatStream(
-      baseInput({ query: '확인', recentContext }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(out.fullText).toContain('확인 카드에서 승인해주세요');
-    expect(out.fullText).not.toContain('완료했습니다');
-    expect(out.pendingActions).toEqual([]);
-  });
-
-  // #843: 카드가 이미 처리됐으면(승인 결과 행 존재) 그 제안은 끝난 것 — 이어지는 짧은 발화를 환각으로 오판하지 않는다.
-  it('제안 뒤에 승인 결과가 기록돼 있으면 guard 미적용', async () => {
-    streamSpy.mockImplementation(makeRunnerImpl([textDelta('천만에요.'), result('')]));
-    const recentContext = [
-      { role: 'ASSISTANT', content: '팀 회의 일정 생성을 제안했습니다. 확인 카드에서 승인해주세요.' },
-      { role: 'ACTION_DONE', content: '승인 완료: 팀 회의 (id: 42)' },
-    ];
-    const out = await runAiChatStream(
-      baseInput({ query: '응 고마워', recentContext }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(out.fullText).toBe('천만에요.');
-  });
-});
-
 // #843: 확인카드 처리 결과(ACTION_*)는 "사용자" 발화가 아니라 [승인 결과] 로 라벨링돼 AI 에게 전달된다.
 describe('runAiChatStream — 승인 결과 맥락 라벨 (#843)', () => {
   it('ACTION_* 행을 [승인 결과] 로, USER/ASSISTANT 는 기존 라벨로 프롬프트에 싣는다', async () => {
@@ -1133,136 +1045,6 @@ describe('runAiChatStream — show_issue_detail not-found guard (#404)', () => {
   });
 });
 
-// #405: 생성일 필터 쿼리 사전 차단.
-describe('runAiChatStream — 생성일 필터 쿼리 사전 차단 (#405)', () => {
-  it('이번 주 생성된 이슈 쿼리 → LLM 미호출, 고정 안내 반환', async () => {
-    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
-    const out = await runAiChatStream(
-      baseInput({ query: '이번 주 생성된 이슈 보여줘' }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(out.fullText).toContain('생성 날짜 필터는 지원하지 않습니다');
-    expect(out.widgets).toBeNull();
-    expect(out.pendingActions).toEqual([]);
-    expect((fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential).not.toHaveBeenCalled();
-  });
-
-  it('최근 생성된 이슈 쿼리 → 고정 안내 반환', async () => {
-    const out = await runAiChatStream(
-      baseInput({ query: '최근 생성된 이슈 목록 보여줘' }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(out.fullText).toContain('생성 날짜 필터는 지원하지 않습니다');
-  });
-
-  it('지난 주 만들어진 이슈 → 고정 안내 반환', async () => {
-    const out = await runAiChatStream(
-      baseInput({ query: '지난 주 만들어진 이슈 뭐 있어?' }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(out.fullText).toContain('생성 날짜 필터는 지원하지 않습니다');
-  });
-
-  it('이슈 생성 요청("이슈 만들어줘") → guard 미적용, LLM 호출됨', async () => {
-    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
-    await runAiChatStream(
-      baseInput({ query: '이번 주 이슈 만들어줘' }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    expect((fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential).toHaveBeenCalled();
-  });
-
-  it('마감일 필터 요청("이번 주 마감 이슈") → guard 미적용, LLM 호출됨', async () => {
-    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
-    await runAiChatStream(
-      baseInput({ query: '이번 주 마감 이슈 보여줘' }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    expect((fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential).toHaveBeenCalled();
-  });
-});
-
-// #406: 복합 요청에서 unassign_self 미처리 시 직접 API 재처리.
-describe('runAiChatStream — 복합 요청 unassign 재처리 (#406)', () => {
-  it('복합 해제 쿼리 + issue-agent 위임 + onUnassignResult 없음 → unassignSelf 호출', async () => {
-    const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), toolClient: () => ({ getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }) }), unassignSelf } as never;
-    streamSpy.mockImplementation(makeRunnerImpl([
-      agentDelegation('issue-agent'),
-      result(''),
-    ])); // onUnassignResult 콜백 없음
-    await runAiChatStream(
-      baseInput({ query: 'EX-2 이슈 진행중으로 바꾸고 코멘트 남겨줘 그리고 담당자에서 나 해제해줘', userId: 1 }),
-      { client: client406 },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(unassignSelf).toHaveBeenCalledWith(1, 'EX-2');
-  });
-
-  it('복합 해제 쿼리 + onUnassignResult({ok:true}) 있음 → unassignSelf 미호출(이미 처리됨)', async () => {
-    const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), toolClient: () => ({ getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }) }), unassignSelf } as never;
-    streamSpy.mockImplementation(makeRunnerImpl([
-      agentDelegation('issue-agent'),
-      result(''),
-    ], { unassignSuccess: {} })); // onUnassignResult({ok:true})
-    await runAiChatStream(
-      baseInput({ query: 'EX-2 이슈 진행중으로 바꾸고 코멘트 남겨줘 그리고 담당자에서 나 해제해줘', userId: 1 }),
-      { client: client406 },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(unassignSelf).not.toHaveBeenCalled();
-  });
-
-  it('복합 해제 쿼리 + onUnassignResult({ok:false}) → userId 재처리 시도(unassignSelf 호출)', async () => {
-    const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), toolClient: () => ({ getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }) }), unassignSelf } as never;
-    const canonical = '담당자 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.';
-    streamSpy.mockImplementation(makeRunnerImpl([
-      agentDelegation('issue-agent'),
-      result(''),
-    ], { unassignError: { canonical } }));
-    const out = await runAiChatStream(
-      baseInput({ query: 'EX-2 이슈 진행중으로 바꾸고 코멘트 남겨줘 그리고 담당자에서 나 해제해줘', userId: 1 }),
-      { client: client406 },
-      () => {},
-      new AbortController().signal,
-    );
-    // unassignSelf 성공 → unassign.ok=true 로 갱신 → unassignError override 미발동
-    expect(unassignSelf).toHaveBeenCalledWith(1, 'EX-2');
-    // userId 재처리 성공이면 canonical override 없이 fallback(위임 답 없음)
-    expect(out.fullText).toBe('요청을 처리하지 못했어요. 다시 시도해 주세요.');
-  });
-
-  it('단순 해제 쿼리(복합 아님) → unassignSelf 미호출(issue-agent 가 직접 처리)', async () => {
-    const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client406 = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), toolClient: () => ({ getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }) }), unassignSelf } as never;
-    streamSpy.mockImplementation(makeRunnerImpl([
-      agentDelegation('issue-agent'),
-      result(''),
-    ]));
-    await runAiChatStream(
-      baseInput({ query: 'EX-2 담당자에서 나 해제해줘', userId: 1 }),
-      { client: client406 },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(unassignSelf).not.toHaveBeenCalled();
-  });
-});
-
 // #440→#381: 홈 라우터 위임 preamble 누수 가드.
 describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381, ex-#440)', () => {
   const driveDelegation = agentDelegation('drive-agent');
@@ -1398,22 +1180,8 @@ describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381,
   });
 });
 
-// #415: 단순 해제 쿼리 + 위임 시도 + unassign_self 미처리 → 허위 성공 응답 차단.
-describe('runAiChatStream — 단순 해제 허위 성공 환각 차단 (#415)', () => {
-  it('단순 해제 쿼리 + 위임 + onUnassignResult 없음 → 실패 안내 반환(허위 성공 차단)', async () => {
-    streamSpy.mockImplementation(makeRunnerImpl([
-      agentDelegation('issue-agent'),
-      result('EX-2 이슈에서 담당이 해제되었습니다.'),
-    ])); // onUnassignResult 없음 → unassign === null
-    const out = await runAiChatStream(
-      baseInput({ query: 'EX-2 이슈에서 내 담당을 해제해줘', userId: 1 }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(out.fullText).toBe('담당 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.');
-  });
-
+// #378: unassign_self 도구 콜백(성공/실패) 기반 결과 처리 — 쿼리 텍스트 판정 없이 구조적 신호만 쓴다.
+describe('runAiChatStream — unassign_self 결과 처리 (#378)', () => {
   it('단순 해제 쿼리 + 위임 + onUnassignResult({ok:true}) → subagent 답 통과(실제 해제됨)', async () => {
     streamSpy.mockImplementation(makeRunnerImpl([
       agentDelegation('issue-agent'),
@@ -1440,48 +1208,8 @@ describe('runAiChatStream — 단순 해제 허위 성공 환각 차단 (#415)',
       () => {},
       new AbortController().signal,
     );
-    // #415 가드 미발동(unassign !== null) → #378 canonical override 발동
+    // onUnassignResult({ok:false}) → #378 canonical override 발동
     expect(out.fullText).toBe(canonical);
-  });
-});
-
-// WP-45: "담당자는 나로" 같은 본인 지정 요청이 해제 의도로 오분류되면 안 된다.
-describe('runAiChatStream — 담당 지정 요청 해제 오분류 방지 (WP-45)', () => {
-  // 위임 + unassign 콜백 없음 → 해제로 오분류되면 #415 가드가 실패 문구로 바꾼다.
-  const assignQueries = [
-    '현재 모든 이슈의 담당자는 나로 설정해줘',
-    '담당자는 나로 하고 완료된 건 제외해줘',
-    'WP-1 빼고 담당자 나로 바꿔줘',
-    'EX-2 담당자를 나에게 할당해줘',
-  ];
-  it.each(assignQueries)('지정 요청 "%s" → subagent 답 그대로(해제 실패 문구로 바뀌지 않음)', async (query) => {
-    streamSpy.mockImplementation(makeRunnerImpl([
-      agentDelegation('issue-agent'),
-      result(''),
-    ], { subagent: '담당자를 지정했습니다.' }));
-    const out = await runAiChatStream(baseInput({ query, userId: 1 }), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(out.fullText).toBe('담당자를 지정했습니다.');
-  });
-
-  it('지정 + 상태변경 복합 요청 → #406 해제 재처리(unassignSelf)를 호출하지 않는다', async () => {
-    const unassignSelf = vi.fn().mockResolvedValue(undefined);
-    const client = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }), toolClient: () => ({ getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-2' }) }), unassignSelf } as never;
-    streamSpy.mockImplementation(makeRunnerImpl([agentDelegation('issue-agent'), result('')], { subagent: '완료했습니다.' }));
-    await runAiChatStream(
-      baseInput({ query: 'EX-2 담당자는 나로 바꾸고 진행중으로 변경해줘', userId: 1 }),
-      { client },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(unassignSelf).not.toHaveBeenCalled();
-  });
-
-  // 기존 해제 표현은 여전히 해제로 인식해야 한다(#415 가드 유지).
-  const unassignQueries = ['담당자에서 나 해제해줘', 'EX-2 나 빼줘', 'EX-2 unassign 해줘', 'EX-2 이슈에서 내 담당을 해제해줘', '나에게 할당된 EX-2 담당 해제해줘'];
-  it.each(unassignQueries)('해제 요청 "%s" + 위임 + unassign 미처리 → 실패 안내(가드 유지)', async (query) => {
-    streamSpy.mockImplementation(makeRunnerImpl([agentDelegation('issue-agent'), result('해제되었습니다.')]));
-    const out = await runAiChatStream(baseInput({ query, userId: 1 }), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(out.fullText).toBe('담당 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.');
   });
 });
 
@@ -1512,34 +1240,57 @@ describe('runAiChatStream — onTool passthrough (#462)', () => {
   });
 });
 
-describe('runAiChatStream 로그', () => {
+// WP-100: 쿼리 텍스트 정규식 가드(#405/#406/#415/#400·#409) 제거 — 어떤 문장이든 LLM 에 도달해야 한다.
+// 과거 #405 가 "…이미지 전송 등 필요 … 스토리 생성해줘" 를 생성일 필터로 오인('생성'+'전송'의 '전')해
+// LLM 을 부르지 않고 고정 문구만 돌려 AI Chat 이 먹통처럼 보였다.
+describe('runAiChatStream — 쿼리 정규식 가드 제거 회귀 (WP-100)', () => {
   beforeEach(() => {
-    logMock.info.mockClear();
     logMock.warn.mockClear();
-    logMock.error.mockClear();
   });
 
-  it('생성일 필터 쿼리는 fallback(reason=created_date_filter_blocked) 을 발행한다', async () => {
-    const deps = { client: { getProviderCredential: vi.fn() } } as never;
-    await runAiChatStream(
-      {
-        query: '이번 주 생성된 이슈 보여줘',
-        assistantAgentId: 2,
-        userId: 1,
-        model: 'claude-sonnet-4-6',
-        thinkingDepth: 'NORMAL',
-        maxTurns: 8,
-        timeoutMs: 1000,
-        requestId: 'rq1',
-      },
-      deps,
+  it.each([
+    '채팅에 텍스트 에디터가 없음(굵기, 기울림, 밑줄 등) 차후 표나 코드 블럭등 추가 필요하며, 이미지 드래그 앤 드롭, 클립보드 이미지 전송 등 필요\n===\n이 내용으로 스토리 생성해줘.',
+    '이번 주 생성된 이슈 보여줘',
+  ])('"%s" → 러너를 호출하고 LLM 답을 그대로 반환(fallback 없음)', async (query) => {
+    streamSpy.mockImplementation(makeRunnerImpl([textDelta('처리했어요.'), result('')]));
+    const out = await runAiChatStream(
+      baseInput({ query }),
+      { client: fakeClient },
       () => {},
       new AbortController().signal,
     );
-    expect(logMock.warn).toHaveBeenCalledWith(
-      'ai-chat',
-      'fallback',
-      expect.objectContaining({ requestId: 'rq1', reason: 'created_date_filter_blocked' }),
+    expect(streamSpy).toHaveBeenCalled();
+    expect(out.fullText).toBe('처리했어요.');
+    expect(logMock.warn).not.toHaveBeenCalledWith('ai-chat', 'fallback', expect.anything());
+  });
+
+  it('제안 문구 뒤 짧은 승인 발화도 LLM 답을 덮어쓰지 않는다(ex-#400/#409)', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([textDelta('어떤 걸 진행할까요?'), result('')]));
+    const out = await runAiChatStream(
+      baseInput({
+        query: '응',
+        recentContext: [{ role: 'ASSISTANT', content: '일정 생성을 제안했습니다. 확인 카드에서 확인해주세요.' }],
+      }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
     );
+    expect(out.fullText).toBe('어떤 걸 진행할까요?');
+  });
+
+  it('해제 요청 + 위임 + unassign 콜백 없음 → 서버 재처리 없이 LLM 답 통과(ex-#406/#415)', async () => {
+    const unassignSelf = vi.fn();
+    streamSpy.mockImplementation(makeRunnerImpl([
+      agentDelegation('issue-agent'),
+      result(''),
+    ], { subagent: 'EX-2 이슈 담당 해제 완료.' }));
+    const out = await runAiChatStream(
+      baseInput({ query: 'EX-2 담당 해제하고 상태 완료로 바꿔줘', userId: 1 }),
+      { client: { ...(fakeClient as object), unassignSelf } as never },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(out.fullText).toBe('EX-2 이슈 담당 해제 완료.');
+    expect(unassignSelf).not.toHaveBeenCalled();
   });
 });
