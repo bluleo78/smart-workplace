@@ -799,6 +799,35 @@ test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내
   }
 })
 
+// WP-95 — 헤더(z-45)가 토스트(z-40) 위에 그려지므로 토스트가 헤더에 걸치면 윗부분이 잘린다.
+// 390px 는 Sonner 모바일 규칙(≤600px), 800px 는 Sonner 데스크톱 규칙인데 레이아웃은 모바일(햄버거 영역)인 구간,
+// 1280px 는 데스크톱 레이아웃. 세 구간 모두 토스트 상단이 헤더 하단 아래여야 한다.
+for (const width of [390, 800, 1280]) {
+  test(`폭 ${width}px 에서 토스트가 헤더에 가려 잘리지 않는다`, async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await stubSpaces(page)
+    await stubItems(page, () => ({ folders: [], files: [] }))
+    // 작은 파일 + 업로드 400 → 에러 토스트. 위치만 보면 되므로 가장 가벼운 토스트 경로를 쓴다.
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
+      (route) =>
+        route.request().method() === 'POST'
+          ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ status: 400, message: '업로드 실패' }) })
+          : route.fallback(),
+    )
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await expect(page.getByTestId('drive-page')).toBeVisible()
+    await page.getByTestId('file-input').setInputFiles({ name: 'memo.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') })
+
+    // 진입 애니메이션이 아닌 최종 위치에서 잰다.
+    const toast = page.locator('[data-sonner-toast]').first()
+    await expect(toast).toHaveAttribute('data-mounted', 'true')
+    const [headerBox, toastBox] = await Promise.all([page.getByTestId('page-header').boundingBox(), toast.boundingBox()])
+    expect(toastBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height)
+  })
+}
+
 // #260 — 빈 폴더 empty state: 아이콘+제목+설명+CTA 4요소 검증 (DS §2.5)
 test('빈 폴더 진입 시 empty state 4요소가 표시되고 업로드 CTA가 파일 입력을 트리거한다', async ({ authenticatedPage: page }) => {
   const state = { folders: [] as unknown[], files: [] as unknown[] }
