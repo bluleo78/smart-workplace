@@ -10,6 +10,7 @@ import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAi
 import { PageHeader } from '@/components/layout/PageHeader'
 import { ListBackRow } from '@/components/mobile/ListBackRow'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
+import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { Button } from '@/components/ui/button'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -640,22 +641,24 @@ export function MailInboxPage() {
       return <Navigate to={`/mail/${accounts[0].id}`} replace />
     }
     if (isMobile) {
-      // 모바일(U1-4): 탭 루트 헤더("메일" + 🔔)는 유지하고, 알림 빈 상태와 같은 가운데 정렬 빈 화면 + 44pt 주 버튼.
+      // 모바일(U1-4): 탭 루트 헤더("메일" + 🔔)는 유지하고, 알림 빈 상태와 같은 공용 빈 화면(U3-R11) + 44pt 주 버튼.
       // 헤더가 사라지면 탭 루트인데도 제목·알림 진입점이 없는 빈 화면이 된다.
+      // ☰ 는 숨긴다(U3-R12) — 계정이 없으면 시트(폴더 목록)에 볼 것이 없다.
       return (
         <div className="flex h-full min-h-0 flex-col">
-          <PageHeader title="메일" />
-          <div
+          <PageHeader title="메일" mobileHideSheetTrigger />
+          <MobileEmptyState
             data-testid="mail-empty-accounts"
-            className="flex flex-1 flex-col items-center justify-center gap-2 px-8 pb-16 text-center"
-          >
-            <Mail className="h-12 w-12 text-muted-foreground/40" aria-hidden />
-            <p className="text-[17px] font-semibold">연결된 메일 계정이 없습니다</p>
-            <p className="text-sm text-muted-foreground">메일 계정을 연결하면 받은편지함을 여기서 볼 수 있어요.</p>
-            <Button asChild className="mt-3 h-11 px-5" data-testid="mail-connect-account">
-              <Link to="/settings/mail">메일 계정 연결</Link>
-            </Button>
-          </div>
+            className="flex-1"
+            icon={Mail}
+            title="연결된 메일 계정이 없습니다"
+            description="메일 계정을 연결하면 받은편지함을 여기서 볼 수 있어요."
+            action={
+              <Button asChild className="h-11 px-5" data-testid="mail-connect-account">
+                <Link to="/settings/mail">메일 계정 연결</Link>
+              </Button>
+            }
+          />
         </div>
       )
     }

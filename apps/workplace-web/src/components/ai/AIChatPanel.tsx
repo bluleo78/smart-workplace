@@ -422,10 +422,10 @@ export function AIChatPanel({
             }}
             // 모바일엔 하드웨어 키보드 단축키(⌘K)가 없으므로 힌트를 뺀다(U2-3).
             placeholder={isMobile ? 'AI 에게 요청…' : 'AI 에게 요청…  (⌘K)'}
-            // 모바일: 링 오프셋(2px 배경 띠)이 테두리와 겹쳐 이중 링처럼 보이던 것을 단일 링으로(U2-3). 데스크톱 불변.
+            // 모바일: 링 오프셋(2px 배경 띠)이 테두리와 겹쳐 이중 링처럼 보이던 것을 단일 링으로(U2-3), 색은 AI 보라 토큰(ai-accent, U3-R4). 데스크톱 불변.
             className={cn(
               'field-sizing-content max-h-40 min-h-9 resize-none py-1.5',
-              isMobile && 'min-h-10 rounded-2xl focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-offset-0',
+              isMobile && 'min-h-10 rounded-2xl focus-visible:border-ai-accent focus-visible:ring-1 focus-visible:ring-ai-accent focus-visible:ring-offset-0',
             )}
             data-testid="chat-input"
           />

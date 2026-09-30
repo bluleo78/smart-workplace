@@ -86,11 +86,12 @@ export default function ProjectDetailPage() {
         mobilePrimaryAction={canCreateIssue && (
           <HeaderIconAction label="새 태스크" data-testid="mobile-new-issue" onClick={() => setOpen(true)}><Plus /></HeaderIconAction>
         )}
+        // 메뉴 항목은 링크 하나씩(포커스 한 번) — Link 안에 Button 을 중첩하지 않는다(U3-C3). 모양은 ⋯ 패널이 입힌다.
         mobileActions={
           <>
-            <Link to={`/projects/${key}/cycles`}><Button variant="outline">사이클</Button></Link>
-            <Link to={`/projects/${key}/timeline`}><Button variant="outline">타임라인</Button></Link>
-            <Link to={`/projects/${key}/settings`}><Button variant="outline">설정</Button></Link>
+            <Link to={`/projects/${key}/cycles`}>사이클</Link>
+            <Link to={`/projects/${key}/timeline`}>타임라인</Link>
+            <Link to={`/projects/${key}/settings`}>설정</Link>
           </>
         }
       />

@@ -95,13 +95,15 @@ function PinnableTile({ app, id, pinned, open, onOpenMenu, onCloseMenu, menu }: 
         <div className={cn('relative flex justify-center transition-transform duration-150', open && 'z-[41] scale-[1.08]')}>
           <AppButton app={app} pinned={pinned} lifted={open} onMenu={onOpenMenu} />
           {pinned && (
-            // 28px 투명 터치 영역 안에 16px 배지 — 아이콘(48px, 칸 가운데) 우상단 모서리에 걸친다.
+            // 28px 투명 버튼 안에 16px 배지 — 아이콘(48px, 칸 가운데) 우상단 모서리에 걸친다.
+            // 터치 영역은 ::after 로 44px 까지 넓히되 버튼의 왼쪽·아래 변에 붙여 위·오른쪽(칸 바깥)으로만 키운다(U3-R8) —
+            // 아이콘 쪽으로 넓히면 칸의 주 탭 영역(앱 열기)을 가로챈다.
             <button
               type="button"
               data-testid={`apps-pinned-${id}`}
               aria-label={`${app.label} 탭바 고정 메뉴`}
               onClick={onOpenMenu}
-              className="absolute -top-1.5 left-[calc(50%+6px)] flex h-7 w-7 items-center justify-center"
+              className="absolute -top-1.5 left-[calc(50%+6px)] flex h-7 w-7 items-center justify-center after:absolute after:bottom-0 after:left-0 after:h-11 after:w-11 after:content-['']"
             >
               <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
                 <Pin className="h-2.5 w-2.5" />
@@ -178,7 +180,8 @@ export default function AppsPage() {
           </button>
         </div>
       )}
-      <div className="grid grid-cols-4 gap-x-1 gap-y-3 px-3 py-2">
+      {/* 줄 간격 16px — 📌 배지의 넓힌 터치 영역(위로 16px)이 윗줄 칸 이름을 덮지 않게 한다(U3-R8). */}
+      <div className="grid grid-cols-4 gap-x-1 gap-y-4 px-3 py-2">
         {APPS.map((app) => {
           if (app.id === 'settings') return <AppButton key={app.id} app={app} pinned={false} />
           const id = app.id

@@ -2,27 +2,9 @@
 // 히스토리가 없으면(딥링크) 모듈 루트로 replace. 상세에선 탭바가 숨으므로 ✦ 가 AI 진입점이다(스펙 3.9) —
 // 페이지가 등록한 화면 컨텍스트(AiScreenContext)를 그대로 가진 채 풀스크린을 연다.
 // 페이지가 자체 헤더(PageHeader 등)를 가지면 그 헤더가 ‹·✦ 를 품어(병합 헤더) 이 바는 그리지 않는다(ResponsiveModuleLayout).
-import { ChevronLeft } from 'lucide-react'
-
-import { DetailAiButton } from './DetailAiButton'
-import { useMobileBack } from './useMobileBack'
+// 모양은 병합 상세 헤더와 같다(56px·17px semibold 제목, U3-R2) — 헤더가 없는 화면(/settings 목록 등)만 흐린 작은 제목이던 차이를 없앤다.
+import { MobileDetailBar } from './MobileDetailBar'
 
 export function MobileBackBar({ title }: { title: string }) {
-  // 히스토리가 있으면 한 단계 뒤로, 없으면(딥링크) 모듈 루트로 교체 이동해 앱 밖으로 나가지 않게 한다.
-  const onBack = useMobileBack()
-  return (
-    <div className="flex h-11 shrink-0 items-center gap-1 border-b bg-background px-1">
-      <button
-        type="button"
-        data-testid="mobile-back"
-        aria-label="뒤로"
-        onClick={onBack}
-        className="flex h-11 min-w-11 items-center justify-center text-primary"
-      >
-        <ChevronLeft className="h-6 w-6" />
-      </button>
-      <span data-testid="mobile-back-title" className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{title}</span>
-      <DetailAiButton data-testid="mobile-back-ai" />
-    </div>
-  )
+  return <MobileDetailBar title={title} />
 }

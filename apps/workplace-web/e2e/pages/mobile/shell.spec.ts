@@ -7,7 +7,7 @@ test('홈에서 5칸 탭바(홈·채팅 | AI | 메일·앱)가 보이고 레일�
   await page.goto('/')
   const bar = page.getByTestId('mobile-tabbar')
   await expect(bar).toBeVisible()
-  const ids = await bar.locator('[data-testid^="mobile-tab-"]:not([data-testid^="mobile-tab-badge"])')
+  const ids = await bar.locator('[data-testid^="mobile-tab-"]:not([data-testid^="mobile-tab-badge"]):not([data-testid="mobile-tab-ai-capsule"])')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
   expect(ids).toEqual(['mobile-tab-home', 'mobile-tab-chat', 'mobile-tab-ai', 'mobile-tab-mail', 'mobile-tab-apps'])
   await expect(page.getByTestId('mobile-tab-home')).toHaveAttribute('aria-current', 'page')
@@ -71,7 +71,7 @@ test('AI 미사용이면 AI 칸 없이 4칸', async ({ authenticatedPage: page }
   await stubChat(page)
   await page.goto('/')
   await expect(page.getByTestId('mobile-tab-ai')).toHaveCount(0)
-  await expect(page.getByTestId('mobile-tabbar').locator('[data-testid^="mobile-tab-"]:not([data-testid^="mobile-tab-badge"])')).toHaveCount(4)
+  await expect(page.getByTestId('mobile-tabbar').locator('[data-testid^="mobile-tab-"]:not([data-testid^="mobile-tab-badge"]):not([data-testid="mobile-tab-ai-capsule"])')).toHaveCount(4)
 })
 
 test('AI 버튼은 다른 탭과 같은 선상 — 탭바 위로 돌출되지 않고, AI 풀스크린 입력창을 가리지 않는다', async ({ authenticatedPage: page }) => {

@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { isCalendarType, notifTarget } from '@/components/home/notifTarget'
 import { PushPromptBanner } from '@/components/layout/PushPromptBanner'
+import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { useMarkAllNotificationsRead } from '@/hooks/queries/useMarkAllNotificationsRead'
 import { useMarkNotificationRead } from '@/hooks/queries/useMarkNotificationRead'
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
@@ -37,17 +38,21 @@ const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
  * @param scrollClassName 스크롤 영역 클래스(모바일 페이지는 'min-h-0 flex-1 overflow-y-auto')
  * @param hideHeader 자체 제목 행('알림' + 모두 읽음) 숨김 — 모바일 /notifications 는 화면 헤더가 제목을 갖고
  *   '모두 읽음' 은 헤더 액션 자리(MarkAllReadButton)로 옮겨 별도 한 줄을 쓰지 않는다(U1-7).
+ * @param screenEmpty 빈 상태를 전체 화면 규격으로(모바일 /notifications, U3-R11)
  */
 export function InboxList({
   enabled,
   onNavigate,
   scrollClassName = 'max-h-96 overflow-y-auto',
   hideHeader = false,
+  screenEmpty = false,
 }: {
   enabled: boolean
   onNavigate?: () => void
   scrollClassName?: string
   hideHeader?: boolean
+  /** 빈 상태를 전체 화면 규격(MobileEmptyState)으로 — 모바일 /notifications 전용. 데스크톱 Popover 는 기존 작은 빈 상태. */
+  screenEmpty?: boolean
 }) {
   const navigate = useNavigate()
   const { data: unread = 0 } = useUnreadCount()
@@ -98,6 +103,15 @@ export function InboxList({
       >
         {isLoading ? (
           <p className="px-3 py-6 text-center text-sm text-muted-foreground">불러오는 중…</p>
+        ) : items.length === 0 && screenEmpty ? (
+          // 모바일 전체 화면: 메일 계정 없음과 같은 공용 빈 상태 규격(U3-R11).
+          <MobileEmptyState
+            data-testid="inbox-empty"
+            className="h-full"
+            icon={Bell}
+            title="새 알림이 없습니다"
+            description="이슈 배정, 코멘트, 상태 변경 알림이 여기에 표시됩니다."
+          />
         ) : items.length === 0 ? (
           // 빈 상태: 아이콘 + 제목 + 설명 (디자인 시스템 §2.5 Empty State 4요소)
           <div

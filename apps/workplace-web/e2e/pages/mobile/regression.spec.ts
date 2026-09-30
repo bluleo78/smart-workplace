@@ -54,7 +54,8 @@ test('AI 풀스크린: 좌측 세션목록이 숨겨지고 헤더 드롭다운�
 
   // 드롭다운 열기 → 세션 선택 시 메뉴가 닫힌다(#451).
   await page.getByTestId('ai-fs-mobile-session-switcher').click()
-  const menu = page.getByRole('menu', { name: '대화 선택' })
+  // 탭바에서 연 AI 는 탭 루트 헤더 — 스위처는 "대화 목록" 아이콘 버튼(U3-R4).
+  const menu = page.getByRole('menu', { name: '대화 목록' })
   await expect(menu).toBeVisible()
   await menu.getByText('모바일 대화 1').click()
   await expect(menu).toHaveCount(0)

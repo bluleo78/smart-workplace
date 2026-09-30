@@ -11,6 +11,7 @@ import {
 import { Fragment } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
+import { aiSignalBadgeClass } from '@/components/ai/aiMarker'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { useMobileDetailHeader } from '@/components/mobile/MobileDetailContext'
@@ -19,6 +20,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -189,7 +191,32 @@ export function WikiPageHeader({
       >
         <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className={isMobile ? 'w-64' : undefined}>
+        {/* 모바일: 헤더의 AI ▾ 대신 이 메뉴 맨 위 "AI 작성" 묶음(U3-R1) — 헤더의 AI 아이콘은 ✦(어시스턴트) 하나로 둔다.
+            터치엔 툴팁이 없으므로 비활성 사유는 묶음 머리에 글자로 보인다(흐리게 칠하지 않음). */}
+        {isMobile && (
+          <>
+            <DropdownMenuLabel className="text-xs text-muted-foreground">AI 작성</DropdownMenuLabel>
+            {(disabledReason ?? (aiBusy ? '생성 중…' : null)) && (
+              <p data-testid="wiki-ai-menu-reason" className="px-2 pb-1 text-xs text-foreground">
+                {disabledReason ?? '생성 중…'}
+              </p>
+            )}
+            {GENERATE_ACTIONS.map((a) => (
+              <DropdownMenuItem
+                key={a.key}
+                data-testid={`wiki-ai-header-${a.key}`}
+                disabled={disabledReason != null || aiBusy}
+                onSelect={() => setTimeout(() => onAiAction(a.key), 0)}
+                className="flex-col items-start gap-0.5"
+              >
+                <span className="text-sm font-medium leading-5">{a.label}</span>
+                <span className="text-xs leading-4 text-muted-foreground">{a.hint}</span>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+          </>
+        )}
         {/* 소스 보기는 읽기 권한만으로 충분하다 — 이 드롭다운 자체가 권한 분기 밖에 있다. */}
         <DropdownMenuItem
           data-testid="wiki-menu-source"
@@ -208,11 +235,23 @@ export function WikiPageHeader({
   // 모바일 상세(노트 페이지): 레이아웃 뒤로가기 바와 두 줄로 쌓지 않고 ‹·✦ 를 품은 한 줄 헤더로 병합한다(U1-1 방식).
   // 제목 = 현재 페이지(브레드크럼 마지막) — 조상 경로는 좁은 폭에서 생략한다.
   if (detail) {
+    // AI 생성 이력(#736)은 메뉴를 열지 않아도 보이게 제목 바로 뒤 작은 글자 칩으로(U3-C1) — ✦ 아이콘은 붙이지 않는다(R1: 헤더의 AI 아이콘은 ✦ 하나).
     return (
       <MobileDetailBar
         data-testid="wiki-page-header"
         title={crumbs[crumbs.length - 1]?.title ?? detail.title}
-        trailing={<div className="flex shrink-0 items-center gap-1">{saveBadge}{aiControl}{pageMenu}</div>}
+        titleAccessory={
+          aiAttributed ? (
+            <span
+              data-testid="wiki-page-ai-attribution-badge"
+              title="AI가 생성한 콘텐츠를 포함합니다"
+              className={cn(aiSignalBadgeClass('info'), 'shrink-0 whitespace-nowrap text-[11px]')}
+            >
+              AI 생성<span className="sr-only"> 콘텐츠 포함</span>
+            </span>
+          ) : undefined
+        }
+        trailing={<div className="flex shrink-0 items-center gap-1">{saveBadge}{pageMenu}</div>}
       />
     )
   }

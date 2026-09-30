@@ -103,9 +103,10 @@ test('프로젝트 상세: ＋ 새 태스크는 인라인, 사이클·타임라�
   await expect(page.getByRole('button', { name: '사이클' })).toBeHidden()
   await page.getByTestId('mobile-header-more').click()
   const menu = page.getByTestId('mobile-header-more-menu')
-  await expect(menu.getByRole('button', { name: '사이클' })).toBeVisible()
-  await expect(menu.getByRole('button', { name: '타임라인' })).toBeVisible()
-  await menu.getByRole('button', { name: '설정' }).click()
+  // 메뉴 항목은 링크 하나씩(role=menuitem, U3-C3·R13).
+  await expect(menu.getByRole('menuitem', { name: '사이클' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '타임라인' })).toBeVisible()
+  await menu.getByRole('menuitem', { name: '설정' }).click()
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/settings$`))
   await expectNoHorizontalOverflow(page)
 })
@@ -123,14 +124,15 @@ test('프로젝트 하위(사이클) 딥링크: ‹ 는 그 프로젝트로 돌�
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`))
 })
 
-test('채널 상세: 채널 헤더가 ‹·✦ 를 품은 한 줄 헤더이고 파일은 ⋯ 메뉴에 있다', async ({ authenticatedPage: page }) => {
+test('채널 상세: 채널 헤더가 ‹·✦ 를 품은 한 줄 헤더이고, 항목이 파일 하나면 ⋯ 없이 인라인', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/chat/channels/1')
   await expectSingleMergedHeader(page, 'channel-header')
   await expect(page.getByTestId('channel-header-name')).toHaveText('모바일-개편')
   await expect(page.getByTestId('channel-members-btn')).toBeVisible()
-  await page.getByTestId('mobile-header-more').click()
-  await expect(page.getByTestId('mobile-header-more-menu').getByTestId('channel-files-button')).toBeVisible()
+  // 관리 권한이 없으면 남는 항목은 "파일" 하나 — ⋯ 없이 헤더에 바로 둔다(U3-R7).
+  await expect(page.getByTestId('mobile-header-more')).toHaveCount(0)
+  await expect(page.getByTestId('channel-header').getByTestId('channel-files-button')).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
 
@@ -140,7 +142,7 @@ test('설정 상세: 설정 페이지 제목이 병합 헤더 제목이 된다',
   await expect(page.getByTestId('mobile-back-title')).toHaveText('알림')
 })
 
-test('헤더가 없는 상세 화면(드라이브 첨부 모아보기)은 기존 뒤로가기 바를 유지한다', async ({ authenticatedPage: page }) => {
+test('헤더가 없는 상세 화면(드라이브 첨부 모아보기)은 뒤로가기 바(병합 헤더와 같은 규격)를 둔다', async ({ authenticatedPage: page }) => {
   await page.goto('/drive/attachments')
   await expect(page.getByTestId('mobile-back')).toHaveCount(1)
   await expect(page.getByTestId('mobile-back-ai')).toBeVisible()

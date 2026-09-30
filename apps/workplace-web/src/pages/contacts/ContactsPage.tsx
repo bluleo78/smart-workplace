@@ -193,7 +193,8 @@ export function ContactsPage() {
           {/* 목록 (마스터) — 좁은 화면 + 선택 시 숨김 */}
           <div
             className={cn(
-              'flex min-w-0 flex-1 flex-col border-r',
+              // 우측 구분선은 목록·상세가 나란히 있는 데스크톱(lg+)에서만 — 모바일 전체폭 목록 끝에 선이 남지 않게(U3-R14).
+              'flex min-w-0 flex-1 flex-col lg:border-r',
               selected != null && 'hidden lg:flex',
             )}
             data-testid="contact-list"

@@ -280,7 +280,7 @@ const WIKI_PAGE: WikiPageDetail = {
   updatedBy: 1, updatedAt: '2026-06-01T00:00:00Z', aiLastUsedAt: null, aiLastAction: null,
 }
 
-test('노트 페이지: ‹·페이지 제목·AI·⋯·✦ 가 한 줄 헤더(레이아웃 뒤로가기 바와 두 줄로 쌓이지 않음)', async ({ authenticatedPage: page }) => {
+test('노트 페이지: ‹·페이지 제목·⋯·✦ 가 한 줄 헤더(레이아웃 뒤로가기 바와 두 줄로 쌓이지 않음)', async ({ authenticatedPage: page }) => {
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) => r.fulfill({ json: [SPACE] }))
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces/1/pages', (r) =>
     r.fulfill({ json: [{ id: 100, parentId: null, title: WIKI_PAGE.title, position: 0, aiLastUsedAt: null }] }))
@@ -291,7 +291,8 @@ test('노트 페이지: ‹·페이지 제목·AI·⋯·✦ 가 한 줄 헤더(�
   await expect(page.getByTestId('mobile-back')).toHaveCount(1)
   await expect(header.getByTestId('mobile-back')).toBeVisible()
   await expect(header.getByTestId('mobile-back-title')).toHaveText(WIKI_PAGE.title)
-  await expect(header.getByTestId('wiki-ai-header-button')).toBeVisible()
+  // AI 작성(▾)은 헤더가 아니라 ⋯ 메뉴 안(U3-R1) — 헤더의 AI 진입점은 ✦ 하나.
+  await expect(header.getByTestId('wiki-ai-header-button')).toHaveCount(0)
   await expect(header.getByTestId('mobile-back-ai')).toBeVisible()
   expect((await header.boundingBox())!.height).toBeLessThanOrEqual(57)
   // 페이지 메뉴는 44px 터치 타깃이고 소스 보기 항목이 열린다.

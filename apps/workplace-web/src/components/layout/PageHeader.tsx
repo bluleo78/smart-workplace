@@ -43,6 +43,8 @@ interface PageHeaderProps {
   /** 모바일 전용: ⋯ 트리거 아이콘·라벨 교체(메뉴가 검색 하나뿐인 메일 → 🔍). */
   mobileMenuIcon?: ReactNode
   mobileMenuLabel?: string
+  /** 모바일 전용: ☰(사이드바 시트) 트리거 숨김 — 시트에 볼 것이 없는 화면(메일 계정 없음, U3-R12). */
+  mobileHideSheetTrigger?: boolean
 }
 
 /** 모바일 헤더 전용 — 탭 루트에서만 🔔 를 보인다. useLocation 구독을 모바일 분기에 가둬 데스크톱 헤더가 경로 변경마다 재렌더되지 않게 분리. */
@@ -67,6 +69,7 @@ export function PageHeader({
   mobileActions,
   mobileMenuIcon,
   mobileMenuLabel,
+  mobileHideSheetTrigger = false,
   ...rest
 }: PageHeaderProps) {
   const isMobile = useIsMobile()
@@ -83,7 +86,7 @@ export function PageHeader({
         {menu != null && menu !== false && (
           <MobileHeaderMore icon={mobileMenuIcon} label={mobileMenuLabel}>{menu}</MobileHeaderMore>
         )}
-        {sheet && (
+        {sheet && !mobileHideSheetTrigger && (
           <button type="button" data-testid="mobile-sidebar-trigger" aria-label="목록 열기" onClick={sheet.openSheet}
             className="flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground">
             <Menu className="h-5 w-5" />
@@ -103,8 +106,9 @@ export function PageHeader({
       )
     }
     // 탭 루트 헤더: MobileListHeader 와 같은 규격(h-14·좌16·22px bold) + 우측 [클러스터] [🔔] (U1-3).
+    // 하단 구분선 없음 — MobileListHeader(채팅·작업)와 같게, 큰 제목 헤더는 본문과 한 면으로 보인다(U3-R3).
     return (
-      <header data-testid={rest['data-testid'] ?? 'page-header'} className={cn('relative z-[45] border-b bg-background', mobileRootHeaderClass, className)}>
+      <header data-testid={rest['data-testid'] ?? 'page-header'} className={cn('relative z-[45] bg-background', mobileRootHeaderClass, className)}>
         {/* icon 은 모바일에서 생략 — 장식 아이콘은 제목 폭을 위해, 인터랙티브 컨트롤(캘린더 이동)은 페이지가 헤더 아래 도구 줄로 옮긴다. */}
         {title != null ? <h1 className={mobileRootTitleClass}>{title}</h1> : <div className="flex-1" />}
         {cluster}

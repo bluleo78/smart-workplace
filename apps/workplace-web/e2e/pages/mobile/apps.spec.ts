@@ -13,7 +13,7 @@ async function tabIds(page: Page) {
   // evaluateAll 은 자동 대기가 없으므로 탭바(끝 칸)가 그려진 뒤 수집한다.
   await expect(page.getByTestId('mobile-tab-apps')).toBeVisible()
   return page.getByTestId('mobile-tabbar')
-    .locator('[data-testid^="mobile-tab-"]:not([data-testid^="mobile-tab-badge"])')
+    .locator('[data-testid^="mobile-tab-"]:not([data-testid^="mobile-tab-badge"]):not([data-testid="mobile-tab-ai-capsule"])')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
 }
 

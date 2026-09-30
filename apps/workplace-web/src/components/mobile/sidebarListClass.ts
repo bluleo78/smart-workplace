@@ -19,7 +19,19 @@ export const mobileSidebarListClass = cn(
   '[&_.justify-between:has(>.uppercase)]:min-h-8',
   '[&_.justify-between:has(>.uppercase)_:is(a,button)]:relative [&_.justify-between:has(>.uppercase)_:is(a,button)]:min-h-0',
   "[&_.justify-between:has(>.uppercase)_:is(a,button)]:after:absolute [&_.justify-between:has(>.uppercase)_:is(a,button)]:after:-inset-2.5 [&_.justify-between:has(>.uppercase)_:is(a,button)]:after:content-['']",
+  // 머리말 아이콘(＋·🔍)은 본문색 — 채팅(ghost 버튼) 기준에 드라이브·노트의 흐린 ＋ 를 맞춘다(U3-R5).
+  '[&_.justify-between:has(>.uppercase)_:is(a,button)]:text-foreground',
 )
+
+// 노트 목록 전용(U3-R5) — 노트 사이드바는 "페이지" 머리말이 스크롤 래퍼(p-3) 없이 aside 바로 아래(px-3)라 채팅·드라이브(24px)보다
+// 왼쪽(12px)에서 시작한다 → 24px 로 맞춘다. ＋ 는 글리프 문자라 아이콘(16px)보다 작아 보여 크기·폭을 채팅 ＋ 버튼(24px 칸)과 맞춘다.
+export const mobileWikiListClass = cn(
+  '[&>aside>.justify-between:has(>.uppercase)]:px-6',
+  "[&_button[aria-label='새_페이지']]:flex [&_button[aria-label='새_페이지']]:h-6 [&_button[aria-label='새_페이지']]:w-6 [&_button[aria-label='새_페이지']]:items-center [&_button[aria-label='새_페이지']]:justify-center [&_button[aria-label='새_페이지']]:px-0 [&_button[aria-label='새_페이지']]:text-xl [&_button[aria-label='새_페이지']]:leading-none",
+)
+
+// 드라이브 목록 전용(U3-R5) — "첨부 모아보기"는 데스크톱 하단 보조 링크(12px)라 목록 행(14px)보다 작다 → 행 글자 크기로.
+export const mobileDriveListClass = "[&_[data-testid='drive-nav-attachments']]:text-sm"
 
 // 설정 목록 전용 — 각 행 끝에 › 셰브런(하위 화면으로 들어간다는 표시, iOS 설정 관례). 다른 모듈 목록엔 적용하지 않는다.
 export const mobileSettingsListClass = "[&_nav_a]:after:ml-auto [&_nav_a]:after:text-lg [&_nav_a]:after:leading-none [&_nav_a]:after:text-muted-foreground [&_nav_a]:after:content-['›']"

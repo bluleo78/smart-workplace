@@ -23,17 +23,22 @@ export default function TabEditPage() {
     setDraft((s) => { const n = [...s]; [n[i], n[i + d]] = [n[i + d], n[i]]; return n })
   const candidates = ALL_TAB_IDS.filter((id) => !draft.includes(id))
   const full = draft.length >= SLOT_COUNT
+  // 저장은 바뀐 것이 있을 때만(U3-R9) — 순서까지 같은지 칸별로 비교한다. 3칸을 다 채워야 저장할 수 있다.
+  const changed = draft.length !== saved.length || draft.some((id, i) => id !== saved[i])
+  const canSave = draft.length === SLOT_COUNT && changed
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* 저장은 헤더 우측(스크롤 안에 두지 않음) — 3칸을 채워야 활성. 뒤로가기 = 앱 목록(moduleRootFor). */}
+      {/* 저장은 헤더 우측(스크롤 안에 두지 않음) — 3칸을 채우고 바뀐 것이 있어야 활성. 뒤로가기 = 앱 목록(moduleRootFor). */}
+      {/* ✦ 없음 — 탭바 구성 화면이라 AI 에 물을 화면 컨텍스트가 없다(U3-R9). */}
       <MobileDetailBar
         data-testid="tab-edit-header"
         title="탭바 순서 편집"
+        showAi={false}
         trailing={
           <button
             type="button"
             data-testid="tab-edit-save"
-            disabled={draft.length !== SLOT_COUNT}
+            disabled={!canSave}
             onClick={() => { save(draft); navigate('/apps') }}
             className="flex h-11 shrink-0 items-center px-3 text-[15px] font-semibold text-primary disabled:text-muted-foreground disabled:opacity-60"
           >

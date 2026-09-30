@@ -35,7 +35,7 @@ export default function NotificationsPage() {
         // 뒤로가기: 히스토리가 있으면 이전 화면, 딥링크면 홈(moduleRootFor('/notifications') = '/').
         <MobileDetailBar data-testid="notifications-header" title="알림" trailing={<MarkAllReadButton />} />
       )}
-      <InboxList enabled hideHeader scrollClassName="min-h-0 flex-1 overflow-y-auto" />
+      <InboxList enabled hideHeader screenEmpty scrollClassName="min-h-0 flex-1 overflow-y-auto" />
     </div>
   )
 }

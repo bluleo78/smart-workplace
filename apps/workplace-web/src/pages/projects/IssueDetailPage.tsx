@@ -39,6 +39,7 @@ import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle'
 import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
 import { useReturnOnEscape, useReturnToIssueOrigin } from '../../hooks/useIssueOrigin';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '../../lib/api-error';
@@ -299,6 +300,10 @@ export default function IssueDetailPage() {
   const watchers = useWatchers(key, issueNumber);
   const toggleWatch = useWatchToggle(key, issueNumber, user?.id ?? null);
   const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
+  // 모바일 ⋯ 메뉴 항목 문구 — 메뉴 안에선 동작("구독하기")·상태("구독 중 · n명")를 글자로 풀어 쓴다(U3-R6). 데스크톱은 기존 버튼 그대로.
+  const isMobile = useIsMobile();
+  const watcherCount = watchers.data?.length ?? 0;
+  const mobileWatchLabel = isWatching ? `구독 중 · ${watcherCount}명` : '구독하기';
   // 삭제 확인 다이얼로그 open 상태 — shadcn AlertDialog 제어형.
   const [deletePending, setDeletePending] = useState(false);
   // 채팅 드로워 open 상태 — 헤더 채팅 버튼으로 토글.
@@ -472,15 +477,21 @@ export default function IssueDetailPage() {
               size="sm"
               onClick={() => toggleWatch.mutate(!isWatching)}
               aria-pressed={isWatching}
-              aria-label={isWatching ? '구독 중' : '구독'}
+              aria-label={isMobile ? mobileWatchLabel : isWatching ? '구독 중' : '구독'}
               data-testid="watch-toggle"
               disabled={toggleWatch.isPending}
             >
               {isWatching ? <Eye className="h-4 w-4 mr-1" /> : <EyeOff className="h-4 w-4 mr-1" />}
-              {isWatching ? '구독 중' : '구독'}
-              <span className="ml-1 text-xs text-muted-foreground">
-                {watchers.data?.length ?? 0}
-              </span>
+              {isMobile ? (
+                mobileWatchLabel
+              ) : (
+                <>
+                  {isWatching ? '구독 중' : '구독'}
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    {watchers.data?.length ?? 0}
+                  </span>
+                </>
+              )}
             </Button>
             {canDelete && (
               <Button
@@ -490,6 +501,8 @@ export default function IssueDetailPage() {
                 aria-label="태스크 삭제"
                 data-testid="issue-delete"
                 disabled={remove.isPending}
+                // 모바일 ⋯ 메뉴에선 파괴적 항목을 빨간 글자로(메뉴가 text-destructive 색을 유지한다, U3-R6).
+                className={isMobile ? 'text-destructive' : undefined}
               >
                 <Trash2 className="h-4 w-4 mr-1" />
                 삭제

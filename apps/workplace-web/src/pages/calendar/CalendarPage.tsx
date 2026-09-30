@@ -355,7 +355,8 @@ export function CalendarPage() {
         오늘
       </Button>
       <Button
-        variant="ghost"
+        // 모바일 도구 줄에선 [오늘]·보기 선택과 같은 테두리 버튼(U3-R10). 데스크톱은 기존 ghost.
+        variant={isMobile ? 'outline' : 'ghost'}
         size="sm"
         data-testid="calendar-prev"
         className={arrowBtnClass}
@@ -367,7 +368,7 @@ export function CalendarPage() {
         ‹
       </Button>
       <Button
-        variant="ghost"
+        variant={isMobile ? 'outline' : 'ghost'}
         size="sm"
         data-testid="calendar-next"
         className={arrowBtnClass}

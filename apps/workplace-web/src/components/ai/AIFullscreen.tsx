@@ -1,7 +1,7 @@
 // src/components/ai/AIFullscreen.tsx
 // 풀스크린(2단) — 콘텐츠 영역만 덮는다(<main>의 absolute inset-0 자식, AppRail 미포함).
 // 좌: 세션 목록 / 우: 채팅 본문.
-import { ChevronDown, MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, History, MessageSquare, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
@@ -10,6 +10,7 @@ import { AIPanelControls, AIPanelTitle } from '@/components/ai/AIPanelHeader';
 import { markAiPanelEvent } from '@/components/ai/aiPanelSurface';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { relTime } from '@/components/ai/relTime';
+import { mobileRootHeaderClass, mobileRootTitleClass } from '@/components/mobile/headerClass';
 import { useTabBarVisible } from '@/components/mobile/useTabBarVisible';
 import {
   DropdownMenu,
@@ -27,7 +28,7 @@ export function AIFullscreen() {
   // 모바일엔 side 패널이 없어 풀스크린이 유일한 AI 표면 — 열린 엔티티 다이얼로그 위에서 질문할 수 있게(WP-54 모바일판)
   // AI 표면 표식·이벤트 기록을 달고 다이얼로그(z-50)보다 위(z-[60])에 둔다. 데스크톱 DOM 은 그대로.
   const isMobile = useIsMobile();
-  // 모바일에서 탭바가 보이면(탭 루트) 탭 전환이 닫기 역할 → × 생략. 상세 화면(✦ 로 연 경우)은 탭바가 없어 × 유지.
+  // 모바일에서 탭바가 보이면(탭 루트) 탭 루트 헤더를 쓰고 × 는 없다(탭 전환이 닫기). 상세 화면(✦ 로 연 경우)은 탭바가 없어 × 유지.
   const tabBarVisible = useTabBarVisible();
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   // 모바일 세션 스위처 드롭다운 open 상태(#451) — 선택 직후 명시적으로 닫는다.
@@ -37,6 +38,52 @@ export function AIFullscreen() {
 
   // 모바일 헤더 드롭다운에서 현재 세션 제목 표시용
   const currentSession = chat.sessions.find((s) => s.id === chat.currentSessionId);
+  // 모바일 세션 목록 드롭다운 내용 — 상세(✦)용 상단 바와 탭 루트 헤더가 공유한다.
+  const sessionMenuContent = (
+    <DropdownMenuContent align="start" className="z-[80] w-72">
+      {chat.sessions.length === 0 ? (
+        <div className="px-2 py-1.5 text-sm text-muted-foreground">
+          저장된 대화가 없어요
+        </div>
+      ) : (
+        chat.sessions.map((s) => (
+          <div
+            key={s.id}
+            className={cn(
+              'flex items-center gap-2 rounded px-2 py-1.5 text-sm',
+              s.id === chat.currentSessionId && 'bg-ai-accent-subtle',
+            )}
+          >
+            <button
+              type="button"
+              className="min-w-0 flex-1 text-left"
+              onClick={() => {
+                chat.onSelectSession(s.id);
+                setMobileSessionMenuOpen(false); // 선택 후 드롭다운 닫기(#451)
+              }}
+            >
+              <div className="truncate">{s.title}</div>
+              <div className="text-xs text-muted-foreground">{relTime(s.lastMessageAt)}</div>
+            </button>
+            <button
+              type="button"
+              aria-label="대화 삭제"
+              className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive"
+              onClick={(e) => {
+                e.stopPropagation();
+                setPendingDeleteId(s.id);
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))
+      )}
+    </DropdownMenuContent>
+  );
+  // 모바일 탭 루트(탭바의 AI 로 연 경우): 다른 탭 루트와 같은 큰 제목 헤더 — "AI" 22px + 우측 [대화 목록 ▾][＋](U3-R4).
+  // 탭 전환이 곧 닫기라 × 는 두지 않는다(U2-3). ✦ 로 연 상세 화면은 아래 기존 상단 바(× 포함)를 그대로 쓴다.
+  const tabRootHeader = isMobile && tabBarVisible;
 
   return (
     // z-[46] — PageHeader(relative z-[45])보다 위여야 상단 바(모드 전환·닫기)가 헤더에 가려지지 않는다(WP-111).
@@ -119,7 +166,33 @@ export function AIFullscreen() {
           기존엔 닫기 X 가 absolute 라 헤더 여백이 없어, 첫 chat-turn 이 상단 고정 AI 칩과
           우상단 닫기 X 에 가려졌다. 헤더 바로 여백을 확보하고 닫기 버튼을 일반 배치로 옮긴다. */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* 상단 바 — 높이/구분선 정합. 모바일 세션 드롭다운 + 닫기. */}
+        {tabRootHeader ? (
+          <div data-testid="ai-fs-root-header" className={mobileRootHeaderClass}>
+            <h1 className={mobileRootTitleClass}>AI</h1>
+            <DropdownMenu open={mobileSessionMenuOpen} onOpenChange={setMobileSessionMenuOpen}>
+              <DropdownMenuTrigger
+                aria-label="대화 목록"
+                title={currentSession?.title ?? '대화 목록'}
+                className="flex h-11 shrink-0 items-center gap-0.5 px-2 text-muted-foreground md:hidden"
+                data-testid="ai-fs-mobile-session-switcher"
+              >
+                <History className="h-5 w-5" />
+                <ChevronDown className="h-4 w-4" />
+              </DropdownMenuTrigger>
+              {sessionMenuContent}
+            </DropdownMenu>
+            <button
+              type="button"
+              aria-label="새 대화"
+              data-testid="ai-fs-new-session"
+              onClick={chat.onNewSession}
+              className="flex h-11 w-11 shrink-0 items-center justify-center text-primary md:hidden"
+            >
+              <Plus className="h-5 w-5" />
+            </button>
+          </div>
+        ) : (
+        /* 상단 바 — 높이/구분선 정합. 모바일 세션 드롭다운 + 닫기. */
         <div className="flex h-12 shrink-0 items-center justify-between border-b px-3">
           {/* 모바일 전용 세션 스위처 — md+ 에서는 좌측 패널이 대신 */}
           <div className="flex items-center gap-1 md:hidden">
@@ -134,46 +207,7 @@ export function AIFullscreen() {
                 </span>
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="z-[80] w-72">
-                {chat.sessions.length === 0 ? (
-                  <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                    저장된 대화가 없어요
-                  </div>
-                ) : (
-                  chat.sessions.map((s) => (
-                    <div
-                      key={s.id}
-                      className={cn(
-                        'flex items-center gap-2 rounded px-2 py-1.5 text-sm',
-                        s.id === chat.currentSessionId && 'bg-ai-accent-subtle',
-                      )}
-                    >
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 text-left"
-                        onClick={() => {
-                          chat.onSelectSession(s.id);
-                          setMobileSessionMenuOpen(false); // 선택 후 드롭다운 닫기(#451)
-                        }}
-                      >
-                        <div className="truncate">{s.title}</div>
-                        <div className="text-xs text-muted-foreground">{relTime(s.lastMessageAt)}</div>
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="대화 삭제"
-                        className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPendingDeleteId(s.id);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </DropdownMenuContent>
+              {sessionMenuContent}
             </DropdownMenu>
             <button
               type="button"
@@ -187,8 +221,9 @@ export function AIFullscreen() {
           {/* md+ 좌측엔 타이틀(모바일은 세션 드롭다운이 대신) — 사이드 패널 헤더와 같은 레이어 구성(WP-111). */}
           <AIPanelTitle className="max-md:hidden" />
           {/* 모드 전환(사이드로 돌아가기)·닫기 — 사이드 패널과 공용 컨트롤. */}
-          <AIPanelControls hideClose={isMobile && tabBarVisible} />
+          <AIPanelControls />
         </div>
+        )}
         {/* 헤더 아래 영역에 채팅 패널 배치 — 첫 turn 이 헤더 영역 아래로 내려가 occlusion 해소. */}
         <div className="min-h-0 flex-1">
           <AIChatPanel {...chat} showSessionSwitcher={false} autoFocus />

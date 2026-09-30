@@ -11,13 +11,19 @@ import { useMobileBack } from './useMobileBack'
 
 export function MobileDetailBar({
   title,
+  titleAccessory,
   trailing,
+  showAi = true,
   className,
   'data-testid': testId,
 }: {
   title?: ReactNode
+  /** 제목 바로 뒤에 붙는 작은 표식(노트의 "AI 생성" 칩 등). 제목(h1) 밖에 두어 제목 텍스트·접근 이름은 그대로다. */
+  titleAccessory?: ReactNode
   /** ✦ 앞 우측 클러스터(주 액션·⋯ 메뉴 등). */
   trailing?: ReactNode
+  /** ✦(AI) 버튼 표시 — 탭 편집처럼 화면 컨텍스트가 없는 설정 화면은 끈다(U3-R9). */
+  showAi?: boolean
   className?: string
   'data-testid'?: string
 }) {
@@ -37,9 +43,17 @@ export function MobileDetailBar({
       >
         <ChevronLeft className="h-6 w-6" />
       </button>
-      <h1 data-testid="mobile-back-title" className={mobileDetailTitleClass}>{title}</h1>
+      {titleAccessory == null ? (
+        <h1 data-testid="mobile-back-title" className={mobileDetailTitleClass}>{title}</h1>
+      ) : (
+        // 표식이 있으면 제목과 표식을 한 묶음으로 — 제목이 먼저 말줄임되고 표식은 제목 바로 뒤에 남는다.
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <h1 data-testid="mobile-back-title" className={cn(mobileDetailTitleClass, 'flex-initial')}>{title}</h1>
+          {titleAccessory}
+        </div>
+      )}
       {trailing}
-      <DetailAiButton data-testid="mobile-back-ai" />
+      {showAi && <DetailAiButton data-testid="mobile-back-ai" />}
     </header>
   )
 }
