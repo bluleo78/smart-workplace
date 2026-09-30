@@ -159,7 +159,9 @@ export default function AppsPage() {
       data-testid="apps-account"
       aria-label="내 계정"
       onClick={() => setAccountOpen(true)}
-      className="flex h-11 w-11 shrink-0 items-center justify-center"
+      // mr-1.5 — 헤더 우 여백(pr-1)은 44px 아이콘 버튼의 글리프 기준이라, 32px 원형 아바타는 그대로 두면 화면 끝 10px 에 붙는다.
+      // 원 가장자리를 다른 헤더 글리프와 같은 우측 약 16px 선에 맞춘다.
+      className="mr-1.5 flex h-11 w-11 shrink-0 items-center justify-center"
     >
       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
         {userInitial(user?.name || user?.username)}

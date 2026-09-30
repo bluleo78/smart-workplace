@@ -2,7 +2,7 @@
 // 탭 루트 헤더 규격 통일, 메일 계정 없음 빈 상태, 탭바 활성 폴백·알림 푸시 화면을 고정한다.
 import type { Page } from '@playwright/test'
 
-import { member, page as makeContactPage } from '../../factories/contacts.factory'
+import { external, externalDetail, member, page as makeContactPage } from '../../factories/contacts.factory'
 import { createIssue, createIssueDetail } from '../../factories/issue.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
@@ -146,14 +146,30 @@ test('헤더가 없는 상세 화면(드라이브 첨부 모아보기)은 기존
   await expect(page.getByTestId('mobile-back-ai')).toBeVisible()
 })
 
-test('연락처: 새 외부 연락처는 ＋ 아이콘 하나로 인라인, 누르면 작성 다이얼로그가 열린다', async ({ authenticatedPage: page }) => {
+test('연락처: 새 외부 연락처는 ＋ 아이콘 하나로 인라인 — 입력 → POST payload → 다이얼로그 닫힘 → 목록 반영', async ({ authenticatedPage: page }) => {
   await page.route((u) => u.pathname === '/api/v1/contacts', (r) => r.fulfill({ json: makeContactPage([member()]) }))
+  let posted: Record<string, unknown> | null = null
+  await page.route((u) => u.pathname === '/api/v1/contacts/external', (r) => {
+    posted = r.request().postDataJSON()
+    return r.fulfill({ status: 201, json: externalDetail({ id: 200, name: '신규연락처' }) })
+  })
   await page.goto('/contacts')
   await expect(page.getByTestId('mobile-header-more')).toHaveCount(0)
   const create = page.getByTestId('contact-create')
   await expect(create).toHaveCount(1)
   await create.click()
-  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByTestId('external-contact-dialog')).toBeVisible()
+  await page.getByTestId('c-name').fill('신규연락처')
+  await page.getByTestId('c-email').fill('new@corp.com')
+  // 저장 뒤 재조회되는 목록엔 신규 행 포함(마지막 등록 라우트 우선).
+  await page.route((u) => u.pathname === '/api/v1/contacts', (r) =>
+    r.fulfill({ json: makeContactPage([member(), external({ id: 200, name: '신규연락처' })]) }))
+  await page.getByTestId('c-save').click()
+  await expect.poll(() => posted).not.toBeNull()
+  expect(posted!.name).toBe('신규연락처')
+  expect(posted!.email).toBe('new@corp.com')
+  await expect(page.getByTestId('external-contact-dialog')).toHaveCount(0)
+  await expect(page.getByTestId('contact-row-EXTERNAL-200')).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
 

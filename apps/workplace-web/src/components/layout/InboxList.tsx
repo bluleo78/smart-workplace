@@ -76,7 +76,7 @@ export function InboxList({
   return (
     <>
       {!hideHeader && (
-        <div className="flex items-center justify-between border-b px-3 py-2">
+        <div className="flex items-center border-b px-3 py-2 justify-between">
           <span className="text-sm font-semibold">알림</span>
           <button
             type="button"
