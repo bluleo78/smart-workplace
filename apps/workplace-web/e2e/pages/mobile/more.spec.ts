@@ -20,12 +20,14 @@ test('탭 편집: 메일을 빼고 캘린더를 넣으면 새로고침 후에도
   await page.reload()
   await expect(page.getByTestId('mobile-tab-calendar')).toBeVisible()
   await expect(page.getByTestId('mobile-tab-mail')).toHaveCount(0)
+  await expectNoHorizontalOverflow(page)
 })
 
 test('탭 편집: 3칸 미만이면 저장 불가', async ({ authenticatedPage: page }) => {
   await page.goto('/more/tabs')
   await page.getByTestId('tab-edit-remove-0').click()
   await expect(page.getByTestId('tab-edit-save')).toBeDisabled()
+  await expectNoHorizontalOverflow(page)
 })
 
 test('홈 멘션 셀(openInbox) 은 모바일에서 /notifications 로 이동', async ({ authenticatedPage: page }) => {
@@ -38,6 +40,7 @@ test('홈 멘션 셀(openInbox) 은 모바일에서 /notifications 로 이동', 
   await page.goto('/')
   await page.getByTestId('dashboard-counts').getByRole('button', { name: /^멘션/ }).click()
   await expect(page).toHaveURL(/\/notifications$/)
+  await expectNoHorizontalOverflow(page)
 })
 
 test('알림 화면: 빈 상태', async ({ authenticatedPage: page }) => {
@@ -46,4 +49,5 @@ test('알림 화면: 빈 상태', async ({ authenticatedPage: page }) => {
   await page.goto('/notifications')
   await expect(page.getByTestId('inbox-empty')).toBeVisible()
   await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
+  await expectNoHorizontalOverflow(page)
 })

@@ -19,8 +19,9 @@ export function MobileShell({ children, overlay }: { children: ReactNode; overla
   useEffect(() => {
     if (!inboxOpen) return
     setInboxOpen(false)
-    navigate('/notifications')
-  }, [inboxOpen, setInboxOpen, navigate])
+    // 이미 알림 화면이면 replace 로 이동해 중복 히스토리 항목이 쌓이지 않게 한다.
+    navigate('/notifications', { replace: pathname === '/notifications' })
+  }, [inboxOpen, setInboxOpen, navigate, pathname])
   const showTabBar = isTabRoot(pathname) && !chrome?.tabBarHidden
   return (
     <div data-testid="mobile-shell" className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
