@@ -1,21 +1,18 @@
 // 인라인 "새 메시지" compose — 모달 대신 대화 영역 전체를 차지(Slack 패턴).
-// 상단 "받는 사람:" 칩 + 검색 팝오버(본인 제외), 하단 MessageComposer.
+// 상단 "받는 사람:" 인라인 검색 입력(RecipientInput, 본인 제외), 하단 MessageComposer.
 // 첫 전송 시 find-or-create DM → (첨부 있으면) 그 DM 으로 업로드 → 메시지 전송 → /chat/dms/{id} 이동.
-import { X } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { messagingApi } from '@/api/messaging'
 import { MessageComposer } from '@/components/chat/MessageComposer'
+import { RecipientInput } from '@/components/chat/RecipientInput'
 import type { MentionCandidate } from '@/components/mentions/types'
-import { Button } from '@/components/ui/button'
-import { AgentBadge } from '@/components/users/AgentBadge'
 import { useCreateDm } from '@/hooks/queries/useCreateDm'
 import type { MemberPickerCandidate } from '@/hooks/queries/useUserSearch'
 import type { PendingFile } from '@/hooks/useAttachmentDraft'
 import { useAuth } from '@/hooks/useAuth'
 import { handleApiError } from '@/lib/api-error'
-import { MemberSearchPopover } from '@/pages/projects/components/MemberSearchPopover'
 
 // 본인 포함 최대 8명 → 타겟 최대 7명.
 const MAX_TARGETS = 7
@@ -26,7 +23,6 @@ export default function NewMessagePage() {
   const myId = user?.id ?? 0
   const createDm = useCreateDm()
   const [selected, setSelected] = useState<MemberPickerCandidate[]>([])
-  const [pickerOpen, setPickerOpen] = useState(false)
   const [sending, setSending] = useState(false)
   // 전송 전까지 보관하는 첨부(임시 음수 id → 원본 File + 업로드 결과). DM 이 아직 없어 사전 업로드할 채널이 없기 때문(WP-99).
   // uploaded 는 업로드 후 메시지 전송만 실패했을 때 재시도에서 같은 파일을 다시 올려 고아 파일이 쌓이지 않게 한다
@@ -36,7 +32,6 @@ export default function NewMessagePage() {
   )
   const nextTempId = useRef(-1)
 
-  const selectedIds = new Set(selected.map((u) => u.id))
   // @멘션 후보 — 선택된 수신자들을 채널 멤버로 전달
   const members: MentionCandidate[] = selected.map((u) => ({
     userId: u.id,
@@ -46,8 +41,9 @@ export default function NewMessagePage() {
   }))
 
   const addRecipient = (u: MemberPickerCandidate) => {
-    if (selectedIds.has(u.id) || selected.length >= MAX_TARGETS) return
-    setSelected((prev) => [...prev, u])
+    setSelected((prev) =>
+      prev.some((p) => p.id === u.id) || prev.length >= MAX_TARGETS ? prev : [...prev, u],
+    )
   }
   const removeRecipient = (id: number) => setSelected((prev) => prev.filter((u) => u.id !== id))
 
@@ -107,46 +103,15 @@ export default function NewMessagePage() {
     <div className="flex h-full min-h-0 flex-col" data-testid="new-message-page">
       <header className="border-b px-4 py-2">
         <div className="text-sm font-semibold">새 메시지</div>
-        <div className="mt-2 flex flex-wrap items-center gap-1" data-testid="new-message-recipients">
-          <span className="text-xs text-muted-foreground">받는 사람:</span>
-          {selected.map((u) => (
-            <span
-              key={u.id}
-              data-testid={`recipient-chip-${u.id}`}
-              className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-sm"
-            >
-              {u.name}
-              {/* AGENT 수신자면 보라색 봇 배지 표시 */}
-              {u.kind === 'AGENT' && <AgentBadge size="xs" />}
-              {/* hover 피드백 + 클릭 영역 확보 (p-0.5 → 최소 16×16px, rounded-full + transition) */}
-              <button
-                type="button"
-                aria-label={`${u.name} 제거`}
-                onClick={() => removeRecipient(u.id)}
-                className="rounded-full p-0.5 hover:bg-accent-foreground/10 transition-colors"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-          <MemberSearchPopover
-            open={pickerOpen}
-            onOpenChange={setPickerOpen}
-            existingMemberIds={selectedIds}
+        <div className="mt-2">
+          {/* 진입 즉시 상대를 고를 수 있게 자동 포커스 — 포커스되면 후보 목록이 바로 열린다(#883). */}
+          <RecipientInput
+            selected={selected}
+            onAdd={addRecipient}
+            onRemove={removeRecipient}
+            max={MAX_TARGETS}
             excludeUserIds={new Set([myId])}
-            // DM 수신자는 사람뿐 아니라 AI 에이전트도 될 수 있다 — 검색 결과에 AGENT 포함(#691).
-            includeAgents
-            onSelect={addRecipient}
-            trigger={
-              <Button
-                size="sm"
-                variant="ghost"
-                data-testid="new-message-add-recipient"
-                disabled={selected.length >= MAX_TARGETS}
-              >
-                추가
-              </Button>
-            }
+            autoFocus
           />
         </div>
       </header>

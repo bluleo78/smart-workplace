@@ -1,5 +1,5 @@
 // messaging 인라인 compose + self-DM E2E
-// (A) MemberSearchPopover 가 본인(id=1)을 결과에서 제외하는지 검증 (클라이언트 측 필터).
+// (A) 받는 사람 후보 목록(RecipientInput)이 본인(id=1)을 결과에서 제외하는지 검증 (클라이언트 측 필터).
 // (B) /chat/new 에서 수신자 선택 → 메시지 전송 → DM 페이지 이동 happy path.
 // (C) 사이드바 self-DM 링크 레이블 + /chat/dms/self 클릭 → POST {userIds:[1]} → DM 페이지 이동.
 // 백엔드 없이 page.route() 모킹.
@@ -65,7 +65,7 @@ async function stubUserSearch(
 // ── test suite ─────────────────────────────────────────────────────────────────
 
 test.describe('messaging 인라인 compose + self-DM', () => {
-  // (A) MemberSearchPopover 자기 자신 제외 검증
+  // (A) 받는 사람 후보 목록 자기 자신 제외 검증
   test(
     '피커가 본인(id=1)을 검색 결과에서 제외한다',
     async ({ authenticatedPage: page }) => {
@@ -78,7 +78,6 @@ test.describe('messaging 인라인 compose + self-DM', () => {
 
       await page.goto('/chat/new')
       await expect(page.getByTestId('new-message-page')).toBeVisible()
-      await page.getByTestId('new-message-add-recipient').click()
       await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('사용자')
 
       // 본인 row 는 렌더되지 않아야 한다.
@@ -114,7 +113,6 @@ test.describe('messaging 인라인 compose + self-DM', () => {
 
       await page.goto('/chat/new')
       await expect(page.getByTestId('new-message-page')).toBeVisible()
-      await page.getByTestId('new-message-add-recipient').click()
       await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('My AI')
 
       // 요청 쿼리에 kind=ALL 이 실제로 전달됐는지 확인 — 누락되면 AGENT 가 제외된다(회귀 재현 조건).
@@ -210,7 +208,6 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await expect(page.getByTestId('new-message-page')).toBeVisible()
 
       // 수신자 선택
-      await page.getByTestId('new-message-add-recipient').click()
       await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
       await page.getByTestId('member-search-row-2').click()
       await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
@@ -318,7 +315,6 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       )
 
       await page.goto('/chat/new')
-      await page.getByTestId('new-message-add-recipient').click()
       await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
       await page.getByTestId('member-search-row-2').click()
       await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
@@ -409,7 +405,6 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       )
 
       await page.goto('/chat/new')
-      await page.getByTestId('new-message-add-recipient').click()
       await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
       await page.getByTestId('member-search-row-2').click()
       await page.getByTestId('composer-file-input').setInputFiles({
@@ -451,7 +446,6 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await expect(page.getByTestId('message-composer-input')).toHaveCount(0)
 
       // 수신자 1명 추가 → 입력기 정상 노출, 여전히 "보관됨" 문구 없음.
-      await page.getByTestId('new-message-add-recipient').click()
       await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
       await page.getByTestId('member-search-row-2').click()
       await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
@@ -471,7 +465,6 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await expect(page.getByTestId('new-message-page')).toBeVisible()
 
       // 수신자 추가
-      await page.getByTestId('new-message-add-recipient').click()
       await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
       await page.getByTestId('member-search-row-2').click()
       const chip = page.getByTestId('recipient-chip-2')

@@ -72,6 +72,25 @@ async function stubMarkRead(page: Page, dmId: number) {
   )
 }
 
+// 구성원 디렉터리(/members) stub — 받는 사람 후보 목록. 실제 백엔드처럼 search 로 이름·아이디를 거른다.
+async function stubMembers(
+  page: Page,
+  content: { userId: number; name: string; username: string; kind: 'HUMAN' | 'AGENT' }[],
+) {
+  await page.route(
+    (url) => url.pathname === '/api/v1/members',
+    (route) => {
+      const search = new URL(route.request().url()).searchParams.get('search') ?? ''
+      const matched = content.filter((m) => m.name.includes(search) || m.username.includes(search))
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ content: matched, totalElements: matched.length }),
+      })
+    },
+  )
+}
+
 test.describe('messaging DM', () => {
   test('새 1:1 DM 생성 → DM 섹션 등장 → 진입', { tag: '@smoke' }, async ({
     authenticatedPage: page,
@@ -131,7 +150,7 @@ test.describe('messaging DM', () => {
         })
       },
     )
-    // 구성원 검색(MemberSearchPopover) stub — userId=2 '밥'. PageResponse<MemberSummary> 형태(#833).
+    // 구성원 검색(RecipientInput) stub — userId=2 '밥'. PageResponse<MemberSummary> 형태(#833).
     await page.route(
       (url) => url.pathname === '/api/v1/members',
       (route) =>
@@ -151,8 +170,12 @@ test.describe('messaging DM', () => {
     await expect(page).toHaveURL(/\/chat\/new$/)
     await expect(page.getByTestId('new-message-page')).toBeVisible()
 
+    // '+' 로 들어오면 별도 조작 없이 입력이 포커스되고 후보 목록이 바로 보인다 — '추가' 버튼은 없다(#883).
+    await expect(page.getByTestId('new-message-recipient-input')).toBeFocused()
+    await expect(page.getByTestId('recipient-suggestions')).toBeVisible()
+    await expect(page.getByRole('button', { name: '추가', exact: true })).toHaveCount(0)
+
     // 수신자 선택
-    await page.getByTestId('new-message-add-recipient').click()
     await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
     await page.getByTestId('member-search-row-2').click()
     await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
@@ -247,8 +270,7 @@ test.describe('messaging DM', () => {
 
     await page.goto('/chat/new')
     await expect(page.getByTestId('new-message-page')).toBeVisible()
-    await page.getByTestId('new-message-add-recipient').click()
-    // MemberSearchPopover 는 select 시 닫히지 않고 쿼리만 비운다 → 같은 입력에 이어서 검색.
+    // 후보 목록은 select 시 닫히지 않고 쿼리만 비운다 → 같은 입력에 이어서 검색.
     await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
     await page.getByTestId('member-search-row-2').click()
     await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
@@ -334,9 +356,8 @@ test.describe('messaging DM', () => {
     authenticatedPage: page,
   }) => {
     // 후보 8명(ids 2~9) — 7명까지 선택 후 8번째 시도가 무시됨을 검증.
-    // 참고: 구 NewDmModal 은 7명 도달 시 추가 버튼을 disabled 처리했으나,
-    // 인라인 compose(NewMessagePage)는 addRecipient 로직에서 초과를 무시하고 버튼 disabled 는 없다.
-    // 이는 UX 어포던스 차이이며, 상한 로직 자체는 정상 동작함을 이 테스트로 검증한다.
+    // 상한에 도달하면 후보 목록 자리에 안내 문구가 뜨고 더 고를 수 없다. 입력은 disabled 가 아니다 —
+    // 포커스와 Backspace 제거가 살아 있어야 하므로(#883).
     const candidates = [
       { id: 2, name: '밥', username: 'bob' },
       { id: 3, name: '캐럴', username: 'carol' },
@@ -348,39 +369,133 @@ test.describe('messaging DM', () => {
     ]
     const extra = { id: 9, name: '아이반', username: 'ivan', kind: 'HUMAN' }
     await stubLists(page, [])
-    await page.route(
-      (url) => url.pathname === '/api/v1/members',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          // MemberSummary 는 id 가 아니라 userId 다 — 로컬 픽스처의 id 를 경계에서 변환한다(#833).
-          body: JSON.stringify({
-            content: [...candidates, extra].map(({ id, ...rest }) => ({ userId: id, ...rest, kind: 'HUMAN' })),
-            totalElements: candidates.length + 1,
-          }),
-        }),
+    // MemberSummary 는 id 가 아니라 userId 다 — 로컬 픽스처의 id 를 경계에서 변환한다(#833).
+    await stubMembers(
+      page,
+      [...candidates, extra].map(({ id, name, username }) => ({ userId: id, name, username, kind: 'HUMAN' })),
     )
 
     await page.goto('/chat/new')
     await expect(page.getByTestId('new-message-page')).toBeVisible()
-    await page.getByTestId('new-message-add-recipient').click()
-    // popover 는 select 시 닫히지 않으므로 같은 입력에 이어서 7명을 누적 선택.
+    // 후보 목록은 select 시 닫히지 않으므로 같은 입력에 이어서 7명을 누적 선택.
     for (const c of candidates) {
       await page.getByPlaceholder('이름·아이디·이메일로 검색').fill(c.name)
       await page.getByTestId(`member-search-row-${c.id}`).click()
       await expect(page.getByTestId(`recipient-chip-${c.id}`)).toBeVisible()
     }
 
-    // 8번째(아이반) 시도 — addRecipient 가 MAX_TARGETS(7) 초과로 무시해야 한다.
-    await page.getByPlaceholder('이름·아이디·이메일로 검색').fill(extra.name)
-    await page.getByTestId(`member-search-row-${extra.id}`).click()
+    // 8번째(아이반) 시도 — 후보 행 대신 상한 안내가 보이고, Enter 로도 추가되지 않는다.
+    const input = page.getByTestId('new-message-recipient-input')
+    await input.fill(extra.name)
+    await expect(page.getByTestId('recipient-limit-notice')).toHaveText('최대 7명까지 선택할 수 있습니다')
+    await expect(page.getByTestId(`member-search-row-${extra.id}`)).toHaveCount(0)
+    await input.press('Enter')
 
     // 칩이 여전히 7개 — 8번째 추가 거부 확인.
-    await expect(
-      page.getByTestId('new-message-recipients').locator('[data-testid^="recipient-chip-"]'),
-    ).toHaveCount(7)
+    const chips = page.getByTestId('new-message-recipients').locator('[data-testid^="recipient-chip-"]')
+    await expect(chips).toHaveCount(7)
     await expect(page.getByTestId(`recipient-chip-${extra.id}`)).toHaveCount(0)
+
+    // 입력은 살아 있다 — 검색어를 비우고 Backspace 로 마지막 칩을 지우면 다시 후보를 고를 수 있다.
+    await expect(input).toBeEnabled()
+    await input.fill('')
+    await input.press('Backspace')
+    await expect(chips).toHaveCount(6)
+    await expect(page.getByTestId('recipient-limit-notice')).toHaveCount(0)
+    await expect(page.getByTestId(`member-search-row-${extra.id}`)).toBeVisible()
+  })
+
+  test('받는 사람 입력 — 포커스 이탈·Esc 로 닫히고 재포커스로 다시 열린다 (#883)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubLists(page, [])
+    await stubMembers(page, [
+      { userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' },
+      { userId: 3, name: '캐럴', username: 'carol', kind: 'HUMAN' },
+    ])
+
+    await page.goto('/chat/new')
+    const input = page.getByTestId('new-message-recipient-input')
+    const list = page.getByTestId('recipient-suggestions')
+    // 자동 포커스 → 검색어 없이도 기본 후보가 보인다.
+    await expect(input).toBeFocused()
+    await expect(page.getByTestId('member-search-row-2')).toBeVisible()
+
+    // Esc — 목록만 닫히고 포커스는 입력에 남는다. 타이핑하면 다시 열린다.
+    await expect(input).toHaveAttribute('aria-expanded', 'true')
+    await input.press('Escape')
+    await expect(list).toHaveCount(0)
+    await expect(input).toBeFocused()
+    await expect(input).toHaveAttribute('aria-expanded', 'false')
+    await input.pressSequentially('b')
+    await expect(list).toBeVisible()
+    await input.fill('')
+
+    // "받는 사람:" 라벨을 눌러도 포커스는 입력에 남는다(타이핑이 계속 먹어야 한다).
+    await page.getByText('받는 사람:').click()
+    await expect(input).toBeFocused()
+
+    // 포커스 이탈(페이지 제목 클릭) → 닫힘. 다시 입력을 포커스하면 열린다.
+    await page.getByText('새 메시지', { exact: true }).click()
+    await expect(input).not.toBeFocused()
+    await expect(list).toHaveCount(0)
+    await input.focus()
+    await expect(list).toBeVisible()
+  })
+
+  test('받는 사람 입력 — 키보드만으로 연속 선택·제거 후 Tab 으로 메시지 입력 이동 (#883)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubLists(page, [])
+    await stubMembers(page, [
+      { userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' },
+      { userId: 3, name: '캐럴', username: 'carol', kind: 'HUMAN' },
+      { userId: 4, name: '데이브', username: 'dave', kind: 'HUMAN' },
+    ])
+
+    await page.goto('/chat/new')
+    const input = page.getByTestId('new-message-recipient-input')
+    await expect(page.getByTestId('member-search-row-2')).toBeVisible()
+
+    // 검색 → 곧바로 Enter: 결과가 오기 전(디바운스 중)의 Enter 는 이전 목록의 첫 후보(밥)를 고르지 않는다.
+    await input.fill('dave')
+    await input.press('Enter')
+    await expect(page.getByTestId('member-search-row-2')).toHaveCount(0)
+    await expect(page.getByTestId('member-search-row-4')).toBeVisible()
+    await expect(page.getByTestId('recipient-chip-2')).toHaveCount(0)
+    await input.fill('')
+    await expect(page.getByTestId('member-search-row-2')).toBeVisible()
+
+    // Enter = 하이라이트된 첫 후보 선택. 목록은 유지되고 고른 상대는 목록에서 빠진다.
+    await input.press('Enter')
+    await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
+    await expect(page.getByTestId('recipient-suggestions')).toBeVisible()
+    await expect(page.getByTestId('member-search-row-2')).toHaveCount(0)
+    // 곧바로 ↓ + Enter — 남은 후보(캐럴, 데이브) 중 두 번째를 고른다.
+    await input.press('ArrowDown')
+    await input.press('Enter')
+    await expect(page.getByTestId('recipient-chip-4')).toBeVisible()
+    await expect(input).toBeFocused()
+
+    // 검색어가 있으면 Backspace 는 글자만 지운다(칩 유지). 비어 있으면 마지막 칩을 지운다.
+    await input.pressSequentially('a')
+    await input.press('Backspace')
+    await expect(page.getByTestId('recipient-chip-4')).toBeVisible()
+    await input.press('Backspace')
+    await expect(page.getByTestId('recipient-chip-4')).toHaveCount(0)
+    await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
+
+    // x 버튼으로 제거해도 포커스는 입력으로 돌아와 목록이 유지된다.
+    await page.getByRole('button', { name: '밥 제거' }).click()
+    await expect(page.getByTestId('recipient-chip-2')).toHaveCount(0)
+    await expect(input).toBeFocused()
+
+    // Tab — 목록의 탭 버튼을 거치지 않고 메시지 입력으로 넘어가며 목록은 닫힌다.
+    await input.press('Enter')
+    await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
+    await input.press('Tab')
+    await expect(page.getByTestId('recipient-suggestions')).toHaveCount(0)
+    await expect(page.getByTestId('message-composer-input')).toBeFocused()
   })
 
   test('DM 생성 400 → 에러 토스트', async ({ authenticatedPage: page }) => {
@@ -416,7 +531,6 @@ test.describe('messaging DM', () => {
 
     await page.goto('/chat/new')
     await expect(page.getByTestId('new-message-page')).toBeVisible()
-    await page.getByTestId('new-message-add-recipient').click()
     await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
     await page.getByTestId('member-search-row-2').click()
     await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
