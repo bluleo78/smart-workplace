@@ -1,6 +1,7 @@
 // 받은편지함 E2E — 계정 선택·목록·검색·상세·동기화 (백엔드 없이 page.route 모킹).
 import type { Page } from '@playwright/test'
 
+import type { EmailMessageDetail } from '../../../src/types/mailMessage'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -447,6 +448,93 @@ test.describe('받은편지함', () => {
     const frame = page.frameLocator('[data-testid="mail-body-html"]')
     await expect(frame.locator('#inline')).toHaveAttribute('src', 'cid:7dc8b642.png')
     expect(calls).toBeGreaterThanOrEqual(1)
+  })
+
+  // WP-103 — 다크 테마에서 배경 지정 없는 메일(Outlook 사내 메일처럼 글자색만 검정으로 박힌 것)은 어두운 배경 + 밝은 글자로,
+  // 배경을 지정한 메일은 원본 그대로. 테마를 바꾸면 본문도 즉시 따라간다(html.dark class 관찰).
+  test.describe('다크 테마 메일 본문', () => {
+    // 다크 테마로 받은편지함을 열고 10번 메일(본문 bodyHtml)을 선택 — 본문 frame 과 요소 글자색 조회 헬퍼를 돌려준다
+    async function openDarkMail(page: Page, bodyHtml: string, extra: Partial<EmailMessageDetail> = {}) {
+      await page.emulateMedia({ colorScheme: 'dark' })
+      await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+      await stubMessages(page)
+      await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail({ bodyText: null, bodyHtml, ...extra }))
+      await mockApi(page, 'GET', '/api/v1/mail/messages/11', detail({ id: 11, bodyText: null, bodyHtml }))
+      await page.goto('/mail/1')
+      await page.getByTestId('mail-row-10').click()
+      const frame = page.frameLocator('[data-testid="mail-body-html"]')
+      const color = (id: string) => frame.locator(`#${id}`).evaluate((el) => getComputedStyle(el).color)
+      return { frame, color }
+    }
+
+    test('배경 없는 메일을 어둡게 변환·원본 보기 토글·라이트 전환 시 원본으로', async ({ authenticatedPage: page }) => {
+      // 1x1 투명 PNG — 다크 변환 후에도 cid 인라인 이미지 치환이 유지되는지 함께 본다
+      const png = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+        'base64',
+      )
+      await page.route(
+        (url) => url.pathname === '/api/v1/mail/attachments/5/content',
+        (route) => route.fulfill({ status: 200, headers: { 'content-type': 'image/png' }, body: png }),
+      )
+      const { frame, color } = await openDarkMail(
+        page,
+        '<html><head><style>p{margin-top:0}</style></head><body>' +
+          '<div id="text" style="font-size:12pt; color:rgb(0,0,0); background-color:white">안녕하세요.</div>' +
+          '<span id="accent" style="color:rgb(243,112,33)">M.</span><img id="inline" src="cid:7dc8b642.png"></body></html>',
+        {
+          attachments: [
+            { id: 5, filename: '7dc8b642.png', contentType: 'image/png', sizeBytes: png.length, contentId: null },
+          ],
+        },
+      )
+
+      await expect(frame.locator('#text')).toHaveText('안녕하세요.')
+      // 배경은 흰색이 아닌 앱 다크 토큰, 검정 글자는 밝게, 강조 오렌지는 유지, 인라인 흰 배경은 투명으로
+      await expect
+        .poll(() => frame.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor))
+        .not.toMatch(/^rgba?\(255, 255, 255|^rgba\(0, 0, 0, 0\)/)
+      await expect.poll(() => color('text')).toBe('rgb(237, 237, 237)')
+      await expect.poll(() => color('accent')).toBe('rgb(243, 112, 33)')
+      await expect
+        .poll(() => frame.locator('#text').evaluate((el) => getComputedStyle(el).backgroundColor))
+        .toBe('rgba(0, 0, 0, 0)')
+      await expect(frame.locator('#inline')).toHaveAttribute('src', /^data:image\/png;base64,/)
+
+      // "원본 배경으로 보기" → 변환 전 원본(검정 글자, 인라인 이미지 유지), 다시 누르면 다크 변환으로
+      const toggle = page.getByTestId('mail-body-theme-toggle')
+      await expect(toggle).toHaveText('원본 배경으로 보기')
+      await toggle.click()
+      await expect(toggle).toHaveText('다크 배경으로 보기')
+      await expect.poll(() => color('text')).toBe('rgb(0, 0, 0)')
+      await expect(frame.locator('#inline')).toHaveAttribute('src', /^data:image\/png;base64,/)
+      await toggle.click()
+      await expect(toggle).toHaveText('원본 배경으로 보기')
+      await expect.poll(() => color('text')).toBe('rgb(237, 237, 237)')
+
+      // 원본 보기는 해당 메일에만 — 다른 메일을 열면 다크 기본값으로 돌아간다
+      await toggle.click()
+      await expect(toggle).toHaveText('다크 배경으로 보기')
+      await page.getByTestId('mail-row-11').click()
+      await expect(toggle).toHaveText('원본 배경으로 보기')
+      await expect.poll(() => color('text')).toBe('rgb(237, 237, 237)')
+
+      // 라이트로 전환하면 주입 스타일 없이 원본(검정 글자)으로 돌아가고, 변환이 없으므로 토글도 없다
+      await page.emulateMedia({ colorScheme: 'light' })
+      await expect.poll(() => color('text')).toBe('rgb(0, 0, 0)')
+      await expect(page.getByTestId('mail-body-html')).not.toHaveAttribute('srcdoc', /color-scheme:dark/)
+      await expect(toggle).toHaveCount(0)
+    })
+
+    test('배경을 지정한 메일은 원본 그대로·토글 없음', async ({ authenticatedPage: page }) => {
+      const bodyHtml = '<table bgcolor="#ffffff"><tr><td id="cell" style="color:#000000">뉴스레터</td></tr></table>'
+      const { frame, color } = await openDarkMail(page, bodyHtml)
+
+      await expect(frame.locator('#cell')).toHaveText('뉴스레터')
+      await expect(page.getByTestId('mail-body-html')).toHaveAttribute('srcdoc', bodyHtml)
+      await expect.poll(() => color('cell')).toBe('rgb(0, 0, 0)')
+      await expect(page.getByTestId('mail-body-theme-toggle')).toHaveCount(0)
+    })
   })
 
   // WP-70 — text 본문이 표시되면 HTML(인라인 이미지)이 안 보이므로 이미지 첨부를 목록에서 숨기지 않고 조회도 하지 않는다.

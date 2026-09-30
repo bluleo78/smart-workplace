@@ -80,6 +80,7 @@ Workplace 다크 모드의 핵심 특징은 **솔리드 회색이 아니라 흰�
 4. **시맨틱 토큰 사용**: 항상 `bg-background`, `text-foreground`, `border-border`, `text-primary` 등을 사용하고 색상 하드코딩을 금지한다.
 5. **상태/도메인 색에 다크 변형 필수**: `--success`/`--warning`/`--info`/`--ai-accent` 등 새 색상 토큰을 추가할 때 반드시 `.dark` 값도 함께 정의한다.
 6. **커스텀 효과는 다크 분기 작성**: box-shadow에 의존하는 효과는 `.dark` 셀렉터에 별도 규칙(밝은 표면·glow·border)을 추가해 다크에서도 분리감이 유지되게 한다.
+7. **외부 HTML(메일 본문 iframe)은 조건부 변환**: sandbox iframe 안에는 앱 토큰이 닿지 않는다. 메일 본문은 흰색·투명 외의 배경 지정이 없을 때만 배경·글자·링크를 토큰 계산값으로 주입하고, 흰 배경은 투명으로, 어두운 글자색(인라인·`<style>`)만 명도를 뒤집는다(`src/lib/mailDarkMode.ts`, WP-103). 유색·이미지 배경이나 `bgcolor` 를 쓰는 메일과 답장 인용 미리보기(`MailQuoteBlock`)는 원본(흰 바탕)을 유지하고, 변환된 본문에는 "원본 배경으로 보기" 토글을 둔다.
 
 ---
 

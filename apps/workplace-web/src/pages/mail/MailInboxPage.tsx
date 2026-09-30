@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Download, Forward, Loader2, Mail, Paperclip, RefreshCw, Reply, ReplyAll, Sparkles } from 'lucide-react'
+import { Check, Download, Forward, Loader2, Mail, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Sparkles, Sun } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -9,6 +9,7 @@ import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
+import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
 import { cn } from '@/lib/utils'
@@ -230,12 +231,20 @@ function MessageDetailPanel({
   const { data: summaryData, isFetching: summaryFetching } = useMailSummary(messageId, aiAvailable)
   // #520 연결된 이슈 키 조회 — issueKey 있으면 배지 표시.
   const linked = useLinkedIssue(messageId, aiEnabled)
-  // WP-65 본문 인라인 이미지(cid:)를 data URI 로 치환한 HTML — 조기 return 이전에 호출(훅 순서 고정).
-  // HTML 본문은 text 본문이 없을 때만 iframe 으로 보인다 — 인라인 치환·첨부 숨김 모두 이때만 적용
+  // HTML 본문은 text 본문이 없을 때만 iframe 으로 보인다 — 다크 변환·인라인 치환·첨부 숨김 모두 이때만 적용.
+  // 아래 훅들은 조기 return 이전에 호출(훅 순서 고정).
   const rawHtml = detail?.bodyHtml ?? null
   const attachments = detail?.attachments
   const showsHtml = !!rawHtml && !detail?.bodyText
-  const { html: bodyHtml, inlinedIds } = useInlineMailHtml(rawHtml, attachments, showsHtml)
+  // WP-103 다크 테마면 배경 지정 없는 메일을 어두운 배경으로 변환 — base64 치환 전 원문에 적용해 파싱 비용을 줄인다.
+  // 변환이 실제로 일어난 메일에만 "원본 보기" 토글을 둔다(Outlook 의 배경 전환과 같은 역할).
+  // 원본 보기는 해당 메시지에만 유효 — id 로 기억해 다른 메일을 열면 effect 없이 다크 기본값으로 돌아간다.
+  const darkHtml = useMailDarkHtml(showsHtml ? rawHtml : null)
+  const [originalShownId, setOriginalShownId] = useState<number | null>(null)
+  const darkened = showsHtml && darkHtml !== rawHtml
+  const showOriginal = darkened && originalShownId === messageId
+  // WP-65 본문 인라인 이미지(cid:)를 data URI 로 치환 — 다크 변환 결과(또는 원본 보기 시 원문)에 적용
+  const { html: bodyHtml, inlinedIds } = useInlineMailHtml(showOriginal ? rawHtml : darkHtml, attachments, showsHtml)
   // WP-70 본문 cid 로 표시되는 인라인 이미지(서명 로고 등)는 첨부 목록에서 뺀다. 매칭되지 않았거나 조회에 실패한 첨부는
   // 그대로 표시 — 본문에서도 목록에서도 사라지지 않게.
   const listedAttachments = useMemo(
@@ -394,13 +403,28 @@ function MessageDetailPanel({
         {detail.bodyText ? (
           <pre className="whitespace-pre-wrap break-words font-sans text-sm">{detail.bodyText}</pre>
         ) : bodyHtml ? (
-          <iframe
-            data-testid="mail-body-html"
-            title="메일 본문"
-            sandbox=""
-            srcDoc={bodyHtml}
-            className="h-full min-h-[300px] w-full border-0"
-          />
+          <div className="flex h-full flex-col gap-2">
+            {darkened && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                data-testid="mail-body-theme-toggle"
+                className="self-end text-muted-foreground"
+                onClick={() => setOriginalShownId(showOriginal ? null : messageId)}
+              >
+                {showOriginal ? <Moon aria-hidden /> : <Sun aria-hidden />}
+                {showOriginal ? '다크 배경으로 보기' : '원본 배경으로 보기'}
+              </Button>
+            )}
+            <iframe
+              data-testid="mail-body-html"
+              title="메일 본문"
+              sandbox=""
+              srcDoc={bodyHtml}
+              className="min-h-[300px] w-full flex-1 border-0"
+            />
+          </div>
         ) : (
           <div className="text-sm text-muted-foreground">본문이 없습니다</div>
         )}
