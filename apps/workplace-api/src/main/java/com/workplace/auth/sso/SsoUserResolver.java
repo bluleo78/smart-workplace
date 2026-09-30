@@ -56,16 +56,25 @@ public class SsoUserResolver {
     }
 
     UserResponse user = load(matchCandidate(idToken));
-    if (identityRepository.existsForUser(user.id(), PROVIDER)) throw denied("conflict");
+    // 이미 연결이 있는 사용자 — 첫 조회 뒤 동시 최초 로그인이 같은 (tid,oid) 를 먼저 커밋한 경우만 통과시키고,
+    // 다른 Microsoft 계정에 연결된 사용자면 충돌이다(진입 검사보다 먼저 판정).
+    boolean alreadyLinked = identityRepository.existsForUser(user.id(), PROVIDER);
+    if (alreadyLinked) requireLinkedTo(user, tid, oid);
     var memberships = checkEntry(user);
+    if (alreadyLinked) return new Resolution(user, false, tid, oid, memberships);
 
     if (!identityRepository.insert(user.id(), PROVIDER, tid, oid)) {
-      // 동시 최초 로그인 — 같은 (tid,oid) 가 같은 사용자로 먼저 연결됐으면 성공, 아니면 충돌.
-      Long winner = identityRepository.findUserId(PROVIDER, tid, oid).orElse(null);
-      if (!user.id().equals(winner)) throw denied("conflict");
+      // 동시 최초 로그인 — 저장 직전에 다른 요청이 먼저 연결했다.
+      requireLinkedTo(user, tid, oid);
       return new Resolution(user, false, tid, oid, memberships);
     }
     return new Resolution(user, true, tid, oid, memberships);
+  }
+
+  /** (tid,oid) 가 바로 이 사용자에 연결돼 있어야 한다 — 다른 사용자거나 연결이 없으면 conflict. */
+  private void requireLinkedTo(UserResponse user, String tid, String oid) {
+    Long winner = identityRepository.findUserId(PROVIDER, tid, oid).orElse(null);
+    if (!user.id().equals(winner)) throw denied("conflict");
   }
 
   /** upn 으로 username 매칭. 게스트(#EXT#)·upn 없음은 unverified, 대소문자만 다른 중복 계정은 conflict. */
