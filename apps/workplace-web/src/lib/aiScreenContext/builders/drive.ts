@@ -1,0 +1,52 @@
+// 드라이브 화면 컨텍스트 builder(WP-54). 파일은 drive_file id(driveFileId) — core fileId 는 보내지 않는다.
+// 폴더는 list_drive_items 인자명 parentId 로 보낸다.
+import type { AiScreenContext } from '@/types/aiScreenContext';
+
+import { buildFacts, buildRefs, clip, fmtKst, LIMITS } from '../common';
+
+// 바이트 → 사람이 읽는 크기(1024 기준, 소수 1자리).
+function humanSize(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let v = bytes;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return i === 0 ? `${v} B` : `${v.toFixed(1)} ${units[i]}`;
+}
+
+/** 드라이브 화면 — 스페이스/폴더 scope + (미리보기가 열린 경우) 파일 focus.
+ *  folderCount/fileCount 는 목록 조회 전이면 null — 미로드 값은 보내지 않는다(항목 fact 생략). */
+export function buildDriveContext(input: {
+  spaceId: number;
+  spaceName: string | null;
+  folderId: number | null;
+  folderPath: string[];
+  q: string;
+  folderCount: number | null;
+  fileCount: number | null;
+  preview: { id: number; name: string; size: number | null; updatedAt: string | null } | null;
+}): AiScreenContext {
+  const path = [input.spaceName ?? `#${input.spaceId}`, ...input.folderPath].join(' / ');
+  const counts =
+    input.folderCount != null && input.fileCount != null ? `폴더 ${input.folderCount} · 파일 ${input.fileCount}` : null;
+  const ctx: AiScreenContext = {
+    view: '드라이브',
+    scope: {
+      label: clip(`드라이브 ${path}`, LIMITS.label),
+      refs: buildRefs({ spaceId: input.spaceId, parentId: input.folderId }),
+      facts: buildFacts([['검색어', input.q], ['항목', counts]]),
+    },
+  };
+  const p = input.preview;
+  if (p) {
+    ctx.focus = {
+      type: '파일',
+      label: clip(p.name, LIMITS.label),
+      refs: buildRefs({ driveFileId: p.id }),
+      facts: buildFacts([['크기', p.size != null ? humanSize(p.size) : null], ['수정', p.updatedAt ? fmtKst(p.updatedAt) : null]]),
+    };
+  }
+  return ctx;
+}
