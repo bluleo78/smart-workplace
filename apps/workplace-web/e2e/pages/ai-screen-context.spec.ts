@@ -275,14 +275,14 @@ test.describe('AI 채팅 화면 컨텍스트 — 내 작업 · AI 위임', () =>
     await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([createIssue()]))
     await page.goto('/me/tasks/reported?status=IN_PROGRESS')
     await page.getByTestId('chat-launcher').click()
-    await expect(page.getByTestId('chat-context-chip')).toContainText('내 작업 · 내가 보고')
+    await expect(page.getByTestId('chat-context-chip')).toContainText('내 작업 · 내가 만든')
     await expect(page.getByTestId('chat-context-chip')).not.toContainText('내 작업 · 내 작업')
     await page.getByTestId('chat-input').fill('이 중 급한 거')
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(() => bodies.length).toBe(1)
     expect(bodies[0].screenContext).toEqual({
       view: '내 작업',
-      scope: { label: '내 작업 · 내가 보고', facts: [{ label: '상태', value: '진행 중' }] },
+      scope: { label: '내 작업 · 내가 만든', facts: [{ label: '상태', value: '진행 중' }] },
     })
   })
 

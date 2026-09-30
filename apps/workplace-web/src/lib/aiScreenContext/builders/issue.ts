@@ -2,12 +2,12 @@
 // 필터 id 는 이미 로드된 라벨/멤버/유형/사이클/마일스톤 목록으로 이름 해석(AI 도구가 이름을 받음). 모르는 id 는 #id.
 // 상태·우선순위·그룹 라벨은 화면(보드 헤더·필터 바)과 같은 공용 맵을 쓴다 — 사용자와 AI 가 같은 단어로 말하게.
 import { ISSUE_GROUP_BY_LABEL, ISSUE_PRIORITY_LABEL, ISSUE_STATUS_LABEL } from '@/lib/issueGrouping';
+import { MY_TASKS_TAB_LABEL } from '@/pages/me/myTasksTabs';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { IssueFilters, IssueGroupBy, IssueResponse, IssueView } from '@/types/issue';
 
 import { buildFacts, buildRefs, clip, LIMITS, withListState } from '../common';
 
-const TAB_LABEL = { assigned: '내가 담당', reported: '내가 보고', watched: '관찰 중' } as const;
 
 // enum 밖 값(facet CSV 의 오타 등)은 원문 그대로 표시한다.
 const joinMapped = (vals: string[], map: Readonly<Record<string, string>>) => vals.map((v) => map[v] ?? v).join(', ');
@@ -115,12 +115,12 @@ function facetListContext(
 }
 
 export function buildMyTasksContext(input: {
-  tab: keyof typeof TAB_LABEL;
+  tab: keyof typeof MY_TASKS_TAB_LABEL;
   facets: Record<string, string>;
   count?: number;
   hasMore?: boolean;
 }): AiScreenContext {
-  return facetListContext('내 작업', `내 작업 · ${TAB_LABEL[input.tab]}`, input);
+  return facetListContext('내 작업', `내 작업 · ${MY_TASKS_TAB_LABEL[input.tab]}`, input);
 }
 
 export function buildAiTasksContext(input: { facets: Record<string, string>; count?: number }): AiScreenContext {

@@ -117,7 +117,7 @@ describe('buildMyTasksContext / buildAiTasksContext', () => {
     expect(ctx).toEqual({
       view: '내 작업',
       scope: {
-        label: '내 작업 · 내가 담당',
+        label: '내 작업 · 할당',
         facts: [
           { label: '상태', value: '할 일' },
           { label: '우선순위', value: '높음, 보통' },
