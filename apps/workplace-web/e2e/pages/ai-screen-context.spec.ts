@@ -143,10 +143,11 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     await expect(chip).toContainText('화면 참고')
     // × Hover → "이번 1회" 의미 툴팁.
     await page.getByTestId('chat-context-remove').hover()
-    await expect(page.getByRole('tooltip')).toContainText('이번 질문에만 빼기 · 보낸 뒤 다시 포함돼요')
+    await expect(page.getByRole('tooltip', { name: '이번 질문에만 빼기 · 보낸 뒤 다시 포함돼요' })).toBeVisible()
     // 라벨 Focus(키보드) → 전체 라벨 툴팁.
+    // 포인터가 × 위에 남아 있어 × 툴팁(Hover)과 라벨 툴팁(Focus)이 동시에 떠 있을 수 있다 — 이름으로 특정한다.
     await page.getByTestId('chat-context-label').focus()
-    await expect(page.getByRole('tooltip')).toContainText('이슈 WP-12 로그인 버그 수정')
+    await expect(page.getByRole('tooltip', { name: '이슈 WP-12 로그인 버그 수정' })).toBeVisible()
     // 스크린리더 알림 영역에 현재 화면 정보가 실려 있다.
     await expect(page.getByTestId('chat-context-live')).toHaveText('화면 정보: 이슈 WP-12 로그인 버그 수정')
     await page.getByTestId('chat-context-remove').click()
