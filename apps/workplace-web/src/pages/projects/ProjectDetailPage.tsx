@@ -1,14 +1,21 @@
 import { FolderX } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import { Button } from '@/components/ui/button';
 
+import { useCycles } from '../../hooks/queries/useCycles';
+import { useIssueTypes } from '../../hooks/queries/useIssueTypes';
+import { useLabels } from '../../hooks/queries/useLabels';
+import { useMilestones } from '../../hooks/queries/useMilestones';
+import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useProject } from '../../hooks/queries/useProjects';
 import { useEpicPanelOpen } from '../../hooks/useEpicPanelOpen';
 import { useIssueGroupBy } from '../../hooks/useIssueGroupBy';
+import { buildIssueListContext } from '../../lib/aiScreenContext/builders/issue';
 import { parseFilters, parseView, toClientGroupBy, withDefaultIssueScope } from '../../lib/issueFilters';
 import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
@@ -100,13 +107,47 @@ function IssueArea({
   canDragStatus?: boolean;
 }) {
   const [params] = useSearchParams();
-  const filters = parseFilters(params);
+  // params 가 바뀔 때만 새 필터 객체 — 매 렌더 새 객체면 아래 화면 컨텍스트 useMemo 가 매번 재계산된다.
+  const filters = useMemo(() => parseFilters(params), [params]);
   const view = parseView(params);
   // 그룹 기준 — URL 에 없으면 진행 중·예정 사이클이 있을 때 사이클 그룹이 목록 기본값(#878).
   // pending(사이클 목록 로딩 중)엔 스켈레톤 — 평면 목록이 잠깐 떴다 구간 목록으로 바뀌는 깜빡임과 헛요청을 막는다.
   const { groupBy, pending: groupPending } = useIssueGroupBy(projectKey, true);
   // 에픽 패널 열림 상태 — ViewChipBar(토글 버튼)와 EpicSidePanel(조건 마운트)이 공유.
   const { open: epicPanelOpen, toggle: toggleEpicPanel } = useEpicPanelOpen(projectKey);
+
+  // WP-54: 필터 id → 이름 해석용 목록(IssueFilterBar 와 같은 쿼리 키 → 캐시 공유) + 프로젝트 이름.
+  const project = useProject(projectKey);
+  const members = useProjectMembers(projectKey);
+  const labels = useLabels(projectKey);
+  const types = useIssueTypes(projectKey);
+  const cycles = useCycles(projectKey);
+  const milestones = useMilestones(projectKey);
+  // 리스트 뷰가 보고하는 로드 건수 — 보드는 컬럼별 로드, 사이클 그룹(#878)은 구간별 로드라 건수를 싣지 않는다.
+  const [loaded, setLoaded] = useState<{ count: number; hasMore: boolean } | null>(null);
+  const onLoadedChange = useCallback((count: number, hasMore: boolean) => setLoaded({ count, hasMore }), []);
+  const listLoaded = view === 'board' || groupBy === 'cycle' ? null : loaded;
+  const screenContext = useMemo(
+    () =>
+      buildIssueListContext({
+        projectKey,
+        projectName: project.data?.name ?? projectKey,
+        view,
+        groupBy,
+        filters,
+        lookups: {
+          members: members.data ?? [],
+          labels: labels.data ?? [],
+          types: types.data ?? [],
+          cycles: cycles.data ?? [],
+          milestones: milestones.data ?? [],
+        },
+        count: listLoaded?.count,
+        hasMore: listLoaded?.hasMore,
+      }),
+    [projectKey, project.data?.name, view, groupBy, filters, members.data, labels.data, types.data, cycles.data, milestones.data, listLoaded],
+  );
+  useRegisterAiScreenContext(screenContext);
 
   return (
     <section aria-label="태스크" className="flex min-h-0 flex-1 items-stretch gap-4">
@@ -144,6 +185,7 @@ function IssueArea({
               filters={filters}
               groupBy={toClientGroupBy(groupBy)}
               onOpenCreate={onOpenCreate}
+              onLoadedChange={onLoadedChange}
             />
           )}
         </div>

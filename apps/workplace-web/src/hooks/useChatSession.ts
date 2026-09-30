@@ -8,6 +8,7 @@ import { chatStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQ
 import { widgetTypeFromToolName } from '@/lib/aiToolLabels';
 import { extractApiError, handleApiError } from '@/lib/api-error';
 import { pushTextBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
+import type { AiScreenContext } from '@/types/aiScreenContext';
 import type {
   ActionOutcome,
   ChatTurn,
@@ -86,8 +87,9 @@ export function useChatSession() {
 
   // 챗 명령 → SSE AI chat. 빈 assistant 턴을 먼저 추가하고,
   // delta 마다 마지막 턴의 content 에 누적 → done 에서 sessionId 확정.
+  // WP-54: screenContext — 패널 칩이 활성일 때만 넘어오는 현재 화면 컨텍스트(없으면 요청 본문에서 키 생략).
   const submitQuery = useCallback(
-    (query: string) => {
+    (query: string, screenContext?: AiScreenContext) => {
       const gen = ++opSeq.current;
       // 사용자 턴 + 빈 어시스턴트 턴을 즉시 추가 — 빈 어시스턴트 턴이 있을 때만 3-dot 표시.
       setTurns((t) => [...t, { role: 'user', content: query }, { role: 'assistant', content: '' }]);
@@ -96,7 +98,7 @@ export function useChatSession() {
       setPending(true);
       setPendingActions([]);      // #351: 새 제출 — 이전 확인 카드 배열 폐기
       chatStream(
-        { sessionId: sessionIdRef.current, query },
+        { sessionId: sessionIdRef.current, query, ...(screenContext ? { screenContext } : {}) },
         (delta) => {
           // stale 세대(newSession/restore 가 끼어든 경우)면 델타를 버린다.
           if (opSeq.current !== gen) return;
@@ -398,6 +400,7 @@ export function useChatSession() {
    */
   const requestProposalFix = useCallback(
     (card: ProposalCard) => {
+      // WP-54: 실패 카드 재제안은 화면과 무관 — 화면 컨텍스트 없이 보낸다.
       submitQuery(`「${card.summary}」 승인이 실패했어요. 실패 사유를 반영해서 다시 제안해 줘.`);
     },
     [submitQuery],

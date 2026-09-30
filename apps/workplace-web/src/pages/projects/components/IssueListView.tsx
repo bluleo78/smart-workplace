@@ -5,7 +5,7 @@
 // (상태 변경/담당자 지정/삭제) — 보드 뷰(칸반)는 업계 관행(Linear/Jira/GitHub 등)대로 제외.
 
 import { LayoutList } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Button } from '../../../components/ui/button';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
@@ -23,12 +23,15 @@ export function IssueListView({
   filters,
   groupBy,
   onOpenCreate,
+  onLoadedChange,
 }: {
   projectKey: string;
   filters: IssueFilters;
   groupBy: IssueClientGroupBy | null;
   /** 초기 빈 상태 CTA — "새 태스크 만들기" 버튼에 연결 */
   onOpenCreate?: () => void;
+  /** WP-54: 로드된 건수·추가 로드 가능 여부를 상위(IssueArea)로 알린다 — AI 화면 컨텍스트 건수용. */
+  onLoadedChange?: (count: number, hasMore: boolean) => void;
 }) {
   // 보드와 같은 기본 범위 — 에픽 행 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(withDefaultIssueScope).
   const searchQuery = useIssueSearch(projectKey, withDefaultIssueScope(filters));
@@ -45,6 +48,13 @@ export function IssueListView({
     toggle: toggleSelected,
     clear: clearSelected,
   } = useIssueSelection(filtersToParams(filters, 'list', groupBy).toString());
+
+  // WP-54: 로드된 건수(무한 스크롤 누적)·다음 페이지 유무를 상위로 보고 — isLoading 조기 반환 전에 둔다.
+  const loadedCount = data?.pages.reduce((n, p) => n + (p.items?.length ?? 0), 0);
+  const hasMore = searchQuery.hasNextPage ?? false;
+  useEffect(() => {
+    if (loadedCount != null) onLoadedChange?.(loadedCount, hasMore);
+  }, [loadedCount, hasMore, onLoadedChange]);
 
   if (isLoading) {
     return <p className="text-muted-foreground py-4">로딩 중…</p>;

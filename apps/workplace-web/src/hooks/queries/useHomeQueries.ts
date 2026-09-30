@@ -119,7 +119,12 @@ export async function chatStream(
 ): Promise<{ sessionId?: string; widgets?: WidgetSpec[] }> {
   if (signal.aborted) throw abortError();
 
-  const startRes = await homeApi.startChat({ sessionId: body.sessionId, query: body.query });
+  // WP-54: screenContext 는 있을 때만 키를 싣는다(없는 요청은 기존 본문과 동일).
+  const startRes = await homeApi.startChat({
+    sessionId: body.sessionId,
+    query: body.query,
+    ...(body.screenContext ? { screenContext: body.screenContext } : {}),
+  });
   const correlationId = startRes.data.correlationId;
 
   if (signal.aborted) {

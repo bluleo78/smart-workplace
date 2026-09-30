@@ -7,6 +7,8 @@
 // 사용자 액션(전송 클릭)보다 먼저 도착해 유실된다.
 import type { Page } from '@playwright/test'
 
+import type { AiScreenContext } from '../../src/types/aiScreenContext'
+
 /** home.chat.* 프레임 1개 — event 이름은 'home.chat.' 프리픽스를 뺀 부분만 지정한다. */
 export interface HomeChatFrame {
   event: 'delta' | 'progress' | 'pending_action' | 'tool' | 'done' | 'error'
@@ -25,7 +27,7 @@ export function buildHomeChatSse(frames: HomeChatFrame[], correlationId: string)
 
 /**
  * POST /api/v1/ai/chat 시작(JSON correlationId) + /api/v1/events(SSE, 그 correlationId 로 프레임)
- * 를 함께 설정한다. onStart 로 요청 payload(sessionId/query)를 캡처할 수 있다.
+ * 를 함께 설정한다. onStart 로 요청 payload(sessionId/query/screenContext — WP-54)를 캡처할 수 있다.
  *
  * 델타/누적 텍스트 대신 완성된 frames 배열을 그대로 넘기면 되므로, 기존에
  * `event: delta\ndata: {...}` 형태로 직접 SSE 본문을 조립하던 스펙들은 frames 배열로만 옮기면 된다.
@@ -35,7 +37,7 @@ export async function mockHomeChatGeneration(
   opts: {
     frames: HomeChatFrame[]
     correlationId?: string
-    onStart?: (body: { sessionId: string | null; query: string }) => void
+    onStart?: (body: { sessionId: string | null; query: string; screenContext?: AiScreenContext }) => void
   },
 ) {
   let resolveStarted: (correlationId: string) => void
@@ -47,7 +49,7 @@ export async function mockHomeChatGeneration(
     (url) => url.pathname === '/api/v1/ai/chat',
     (route) => {
       if (route.request().method() !== 'POST') return route.fallback()
-      const body = route.request().postDataJSON() as { sessionId: string | null; query: string }
+      const body = route.request().postDataJSON() as { sessionId: string | null; query: string; screenContext?: AiScreenContext }
       opts.onStart?.(body)
       const correlationId = opts.correlationId ?? `corr-${Math.random().toString(36).slice(2)}`
       resolveStarted(correlationId)

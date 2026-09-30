@@ -7,7 +7,7 @@ import { buildFacts, buildRefs, clip, LIMITS } from '../common';
 
 const STATUS_LABEL: Record<string, string> = { TODO: '할 일', IN_PROGRESS: '진행 중', DONE: '완료', CANCELED: '취소' };
 const PRIORITY_LABEL: Record<string, string> = { HIGH: '높음', MID: '보통', LOW: '낮음' };
-const GROUP_LABEL: Record<string, string> = { status: '상태', assignee: '담당자', priority: '우선순위' };
+const GROUP_LABEL: Record<string, string> = { cycle: '사이클', status: '상태', assignee: '담당자', priority: '우선순위' };
 const TAB_LABEL = { assigned: '내가 담당', reported: '내가 보고', watched: '관찰 중' } as const;
 
 const joinMapped = (vals: string[], map: Record<string, string>) => vals.map((v) => map[v] ?? v).join(', ');

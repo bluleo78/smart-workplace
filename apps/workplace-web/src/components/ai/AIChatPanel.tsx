@@ -1,7 +1,7 @@
 // src/components/ai/AIChatPanel.tsx
 // AI 어시스턴트 공유 채팅 본문 — 세션 스위처 헤더 + 메시지 이력 + 입력바.
 // side(AISidePanel) / fullscreen(AIFullscreen) 모두 재사용. 컨테이너(폭/포지션)는 호출측 책임.
-import { ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square, Trash2 } from 'lucide-react';
+import { ChevronDown, CircleAlert, Eye, Loader2, MessageSquare, Plus, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
 import { ActionResultLine } from '@/components/ai/ActionResultLine';
@@ -9,6 +9,7 @@ import { AiLabel } from '@/components/ai/AiLabel';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { relTime } from '@/components/ai/relTime';
+import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { ToolStepList } from '@/components/ai/ToolStepList';
 import { getChatWidget } from '@/components/home/widgets/chatWidgetRegistry';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
+import { chipLabel, contextKey } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
@@ -85,10 +87,18 @@ export function AIChatPanel({
     if (newSessionNonce > 0) setInput('');
   }, [newSessionNonce]);
 
+  // WP-54: 현재 화면 컨텍스트 + 칩 × 상태. × 는 그 시점 컨텍스트 키를 기억해 다음 1회 전송만 뺀다.
+  // 화면이 바뀌면 키가 달라져 자동으로 칩이 복원된다(effect 불필요).
+  const screenContext = useAiScreenContext();
+  const screenKey = contextKey(screenContext);
+  const [suppressedKey, setSuppressedKey] = useState<string | null>(null);
+  const contextActive = screenContext != null && suppressedKey !== screenKey;
+
   const submit = () => {
     const query = input.trim();
     if (!query || pending) return;
-    onSubmit(query);
+    onSubmit(query, contextActive ? screenContext : undefined);
+    setSuppressedKey(null); // 1회 제외는 이번 전송으로 소진 — 다음 전송부터 다시 포함.
     setInput('');
   };
 
@@ -369,6 +379,31 @@ export function AIChatPanel({
         }}
         className="border-t p-2"
       >
+        {/* WP-54: 현재 화면 컨텍스트 칩 — × 는 다음 1회 전송만 제외.
+            디자인 시스템: AI 기능이라 ai-accent 토큰(다크 모드 자동), text-xs, 배지 내부 아이콘 h-3 w-3.
+            Eye 아이콘 = "보고 있는 화면"(Paperclip 은 실제 첨부와 혼동). 긴 라벨은 truncate + title 로 전체 노출.
+            × 는 음수 마진으로 칩을 키우지 않으면서 24px(size-6) 히트 영역을 확보한다(10-accessibility). */}
+        {contextActive && screenContext && (
+          <div
+            data-testid="chat-context-chip"
+            className="mb-1.5 flex w-fit max-w-full items-center gap-1 rounded-full border border-ai-accent/20 bg-ai-accent-subtle py-0.5 pl-2 pr-1.5 text-xs text-ai-accent"
+          >
+            <Eye className="h-3 w-3 shrink-0" aria-hidden />
+            <span className="min-w-0 truncate" title={chipLabel(screenContext)}>
+              <span className="sr-only">AI 에게 함께 보낼 화면 정보: </span>
+              {chipLabel(screenContext)}
+            </span>
+            <button
+              type="button"
+              data-testid="chat-context-remove"
+              aria-label="이번 질문에서 화면 정보 빼기"
+              onClick={() => setSuppressedKey(screenKey)}
+              className="-my-1 -mr-1.5 inline-flex size-6 shrink-0 items-center justify-center rounded-full hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              <X className="h-3 w-3" aria-hidden />
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-2">
           {/* 여러 줄 입력 — Enter 전송, Shift+Enter 줄바꿈(isSubmitEnter, RichInput 과 공용 규칙). */}
           <Textarea
