@@ -14,8 +14,8 @@ test('데스크톱에서 앱 레일은 축소 시 아이콘 전용이다(워드�
   await expect(page.getByTestId('workspace-switcher')).toHaveCount(0)
   // 홈은 모듈 런처의 '홈' 링크로 접근(헤더 마크는 토글 전용).
   await expect(page.getByTestId('rail-link-/')).toBeVisible()
-  // 축소 상태 — 브랜드 워드마크("Workplace")는 시각적으로 숨김(lg:hidden).
-  await expect(page.getByTestId('app-rail').getByText('Workplace')).toBeHidden()
+  // 축소 상태 — 브랜드 워드마크("Works")는 시각적으로 숨김(lg:hidden).
+  await expect(page.getByTestId('app-rail').getByText('Works', { exact: true })).toBeHidden()
 })
 
 // 브랜드 케이싱 회귀 가드 — 워드마크 첫 줄은 "Gen:iA" 그대로여야 한다.
@@ -110,10 +110,10 @@ test('앱 레일 — 마크 클릭으로 펼치고 로고 클릭으로 접는다
   await expect(markToggle).toHaveAttribute('aria-label', '사이드바 펼치기')
   await expect(page.getByTestId('rail-link-/chat').getByText('대화')).toBeHidden()
 
-  // 펼치기 → 라벨 + 워드마크("Workplace") 노출, 로고가 접기 토글로 노출.
+  // 펼치기 → 라벨 + 워드마크("Works") 노출, 로고가 접기 토글로 노출.
   await markToggle.click()
   await expect(page.getByTestId('rail-link-/chat').getByText('대화')).toBeVisible()
-  await expect(page.getByTestId('app-rail').getByText('Workplace')).toBeVisible()
+  await expect(page.getByTestId('app-rail').getByText('Works', { exact: true })).toBeVisible()
   await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
   const collapse = page.getByTestId('rail-collapse')
   await expect(collapse).toBeVisible()

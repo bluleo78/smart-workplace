@@ -12,7 +12,7 @@ test.describe('PWA 셸', () => {
     const res = await page.request.get(href!)
     expect(res.ok()).toBeTruthy()
     const manifest = await res.json()
-    expect(manifest.name).toBe('Gen:iA Workplace')
+    expect(manifest.name).toBe('Gen:iA Works')
     expect(manifest.display).toBe('standalone')
     expect(manifest.icons.some((i: { sizes: string }) => i.sizes === '512x512')).toBeTruthy()
   })

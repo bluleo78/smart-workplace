@@ -23,7 +23,7 @@ const FALLBACK: PushPayload = {
   v: 1,
   tenantId: null,
   category: 'UNKNOWN',
-  title: 'Gen:iA Workplace',
+  title: 'Gen:iA Works',
   body: '새 알림이 있습니다',
   url: '/',
   tag: null,

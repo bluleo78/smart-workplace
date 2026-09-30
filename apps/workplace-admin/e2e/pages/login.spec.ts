@@ -19,8 +19,8 @@ test.describe('운영자 로그인', () => {
     await expect(page.getByTestId('admin-home')).toBeVisible()
   })
 
-  // (a-2) 로그인 화면 타이틀 — 'Platform' 배지 + '플랫폼 콘솔'(주인공) + 'Gen:iA Workplace'(브랜드 보조).
-  // 고객 포탈(Gen:iA Workplace 로그인)과 구분되는 플랫폼 전용 표기인지 검증.
+  // (a-2) 로그인 화면 타이틀 — 'Platform' 배지 + '플랫폼 콘솔'(주인공) + 'Gen:iA Works'(브랜드 보조).
+  // 고객 포탈(Gen:iA Works 로그인)과 구분되는 플랫폼 전용 표기인지 검증.
   // exact 매칭이 회귀 가드를 겸한다 — 과거의 한 줄 혼합 표기처럼 브랜드 뒤에 문구가 붙으면 실패한다.
   test('로그인 화면이 플랫폼 콘솔 타이틀로 표기된다', async ({ page }) => {
     await setupPlatformAuthMocks(page)
@@ -28,7 +28,7 @@ test.describe('운영자 로그인', () => {
 
     await expect(page.getByTestId('login-platform-badge')).toBeVisible()
     await expect(page.getByText('플랫폼 콘솔')).toBeVisible()
-    await expect(page.getByText('Gen:iA Workplace', { exact: true })).toBeVisible()
+    await expect(page.getByText('Gen:iA Works', { exact: true })).toBeVisible()
   })
 
   // (b) login 403 → "운영자 권한이 없습니다." 표시, 미인증 유지

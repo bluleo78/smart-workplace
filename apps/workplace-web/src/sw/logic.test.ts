@@ -61,7 +61,7 @@ describe('parsePushPayload', () => {
   it('깨진 JSON·다른 버전·빈 값은 일반 문구', () => {
     for (const raw of ['{', JSON.stringify({ v: 2 }), null]) {
       const p = parsePushPayload(raw)
-      expect(p.title).toBe('Gen:iA Workplace')
+      expect(p.title).toBe('Gen:iA Works')
       expect(p.body).toBe('새 알림이 있습니다')
       expect(p.url).toBe('/')
     }

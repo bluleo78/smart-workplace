@@ -498,7 +498,7 @@ test('공개 랜딩 — 404/410 응답 시 다음 행동 안내 표시', async (
 // ── 랜딩 페이지 — 대체 내비게이션 수단(브랜드/홈 링크) 노출 (#677) ──
 test('공개 랜딩 — 브랜드/홈 링크로 앱 복귀 가능', async ({ page }) => {
   await page.goto('/s/sl_abc')
-  const homeLink = page.getByRole('link', { name: 'Gen:iA Workplace' })
+  const homeLink = page.getByRole('link', { name: 'Gen:iA Works' })
   await expect(homeLink).toBeVisible()
   await expect(homeLink).toHaveAttribute('href', '/')
 })

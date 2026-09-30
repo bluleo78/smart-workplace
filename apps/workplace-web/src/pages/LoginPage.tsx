@@ -74,7 +74,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Gen:iA Workplace</CardTitle>
+          <CardTitle className="text-2xl">Gen:iA Works</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="mb-4 empty:hidden">

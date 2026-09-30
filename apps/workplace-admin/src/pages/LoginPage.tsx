@@ -71,16 +71,16 @@ export default function LoginPage() {
       <Card className="w-full max-w-md">
         {/*
           타이틀 위계로 한·영 혼합(브랜드명 + "운영자 콘솔" 한 줄)을 해소하고 고객 포탈과 구분한다.
-          - Platform 배지: 고객 포탈(Gen:iA Workplace 로그인)엔 없는 플랫폼 전용 마커 → 잘못 들어온 화면임을 즉시 인지.
+          - Platform 배지: 고객 포탈(Gen:iA Works 로그인)엔 없는 플랫폼 전용 마커 → 잘못 들어온 화면임을 즉시 인지.
           - "플랫폼 콘솔"(주인공): 테넌트-레벨 관리자(ADMIN)와 층위가 다른 플랫폼 운영 surface 임을 명확히.
-          - "Gen:iA Workplace"(보조·뮤트): 브랜드는 부제로 내려 혼합을 제거.
+          - "Gen:iA Works"(보조·뮤트): 브랜드는 부제로 내려 혼합을 제거.
         */}
         <CardHeader className="items-center space-y-2 text-center">
           <Badge variant="secondary" className="uppercase tracking-wider" data-testid="login-platform-badge">
             Platform
           </Badge>
           <CardTitle className="text-2xl">플랫폼 콘솔</CardTitle>
-          <p className="text-sm text-muted-foreground">Gen:iA Workplace</p>
+          <p className="text-sm text-muted-foreground">Gen:iA Works</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">

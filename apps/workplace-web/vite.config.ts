@@ -66,7 +66,7 @@ export default defineConfig({
       registerType: 'prompt',
       injectRegister: false, // PwaUpdatePrompt 의 useRegisterSW 가 등록한다
       manifest: {
-        name: 'Gen:iA Workplace',
+        name: 'Gen:iA Works',
         short_name: 'Gen:iA',
         description: '사람과 AI가 함께 일하는 워크플레이스',
         lang: 'ko',

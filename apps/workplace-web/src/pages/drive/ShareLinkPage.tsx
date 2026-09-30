@@ -58,7 +58,7 @@ export default function ShareLinkPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
       {/* 브랜드/홈 링크 — AppLayout 밖 독립 페이지라 대체 내비게이션 수단이 전혀 없어 추가 (#677) */}
       <Link to="/" className="mb-6 text-sm font-medium text-muted-foreground hover:text-foreground">
-        Gen:iA Workplace
+        Gen:iA Works
       </Link>
       <div className="w-full max-w-sm space-y-6 rounded-xl border border-border bg-card p-8 shadow-sm">
         {/* 헤더 */}
