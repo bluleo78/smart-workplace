@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
@@ -37,6 +38,7 @@ import { useUpdateIssueType } from '../../hooks/queries/useUpdateIssueType';
 import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle';
 import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
+import { useReturnOnEscape, useReturnToIssueOrigin } from '../../hooks/useIssueOrigin';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '../../lib/api-error';
@@ -314,6 +316,15 @@ export default function IssueDetailPage() {
   );
   useRegisterAiScreenContext(screenContext);
 
+  // #885 이전 화면으로 돌아가기 — 헤더 ← 버튼과 ESC 가 같은 복귀 동작을 쓴다.
+  // 로딩·오류·개인 프로젝트 리다이렉트 중에는 헤더가 없으므로 ESC 도 걸지 않는다.
+  // AI 패널이 열려 있으면 ESC 는 패널을 닫는 데 쓰이므로(AIChip) 그동안은 양보한다.
+  const returnToOrigin = useReturnToIssueOrigin(key);
+  const { mode: aiMode } = useAssistant();
+  const canReturn =
+    !!data && project.data?.type !== 'PERSONAL' && !isNotFoundError(error) && aiMode === 'closed';
+  useReturnOnEscape(returnToOrigin, canReturn);
+
   // 프로젝트 타입이 확정되기 전에는 렌더 보류 — 팀 화면 반짝임 방지.
   if (project.isLoading) return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;
   if (project.error)
@@ -445,6 +456,7 @@ export default function IssueDetailPage() {
         parent={summary.parent}
         number={summary.number}
         type={summary.type}
+        onBack={returnToOrigin}
         actions={
           <>
             {/* 채팅 드로워 토글 — actions(우측 고정) 슬롯. meta/icon 슬롯은 제목 길이에 따라

@@ -17,6 +17,7 @@ import { MessagingConnectionContext } from '@/hooks/MessagingConnectionContext'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
+import { useIssueOriginTracker } from '@/hooks/useIssueOrigin'
 import { openPushTarget, takePendingPushTarget } from '@/lib/push/openTarget'
 import { syncPushOnLogin } from '@/lib/push/subscription'
 
@@ -34,6 +35,9 @@ export function AppLayout() {
   useEffect(() => {
     void syncPushOnLogin()
   }, [user?.id])
+
+  // 이슈 상세의 "이전 화면으로 돌아가기"가 출발 화면을 찾도록 히스토리 위치를 기록(#885).
+  useIssueOriginTracker()
 
   const navigate = useNavigate()
   // 로그인 전에 알림을 탭했다면 저장된 목적지로 1회 이동.

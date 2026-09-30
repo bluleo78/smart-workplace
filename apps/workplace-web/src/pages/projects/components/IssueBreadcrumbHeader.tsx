@@ -4,9 +4,11 @@
 // 하위 이슈(SUBTASK)면 부모 크럼이 한 단계 더 끼어든다 — 나중에 에픽 등 상위 레벨이 생기면
 // 이 nav 는 그대로 두고 크럼 배열 앞에 한 단계를 추가하면 된다.
 
-import { ChevronRight } from 'lucide-react';
+import { ArrowLeft, ChevronRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+
+import { Button } from '@/components/ui/button';
 
 import { ISSUE_TYPE_ICONS } from '../../../lib/issueTypeIcons';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
@@ -27,6 +29,7 @@ export function IssueBreadcrumbHeader({
   parent,
   number,
   type,
+  onBack,
   actions,
 }: {
   projectKey: string;
@@ -34,6 +37,8 @@ export function IssueBreadcrumbHeader({
   parent: ParentRef | null;
   number: number;
   type: IssueTypeSummary | null;
+  /** 이전 화면(상세로 들어오기 직전 화면)으로 돌아가기 — 헤더 맨 왼쪽 ← 버튼(#885). */
+  onBack: () => void;
   actions: ReactNode;
 }) {
   return (
@@ -42,39 +47,52 @@ export function IssueBreadcrumbHeader({
       className="flex h-14 shrink-0 items-center border-b"
     >
       <div className="container mx-auto flex w-full min-w-0 items-center justify-between gap-2 px-6">
-        <nav aria-label="이슈 경로" className="flex min-w-0 items-center gap-1.5 text-sm">
-          <Link
-            to={`/projects/${projectKey}`}
-            className="truncate text-muted-foreground hover:text-foreground"
+        {/* ← 는 "경로"가 아니라 동작이므로 nav 밖에 둔다. 고정폭(shrink-0)이라 크럼 길이에 흔들리지 않는다. */}
+        <div className="flex min-w-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            aria-label="이전 화면으로 돌아가기"
+            data-testid="issue-back"
+            onClick={onBack}
           >
-            {projectName}
-          </Link>
-          {parent && (
-            <>
-              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-              <Link
-                to={`/projects/${projectKey}/issues/${parent.number}`}
-                className="inline-flex shrink-0 items-center gap-1 text-muted-foreground hover:text-foreground"
-                data-testid={`breadcrumb-parent-${parent.number}`}
-              >
-                <BreadcrumbTypeIcon type={parent.type} />
-                <span className="font-mono">
-                  {projectKey}-{parent.number}
-                </span>
-              </Link>
-            </>
-          )}
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-          <span
-            className="inline-flex shrink-0 items-center gap-1 font-medium text-foreground"
-            data-testid="breadcrumb-current"
-          >
-            {type && <BreadcrumbTypeIcon type={type} />}
-            <span className="font-mono">
-              {projectKey}-{number}
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <nav aria-label="이슈 경로" className="flex min-w-0 items-center gap-1.5 text-sm">
+            <Link
+              to={`/projects/${projectKey}`}
+              className="truncate text-muted-foreground hover:text-foreground"
+            >
+              {projectName}
+            </Link>
+            {parent && (
+              <>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+                <Link
+                  to={`/projects/${projectKey}/issues/${parent.number}`}
+                  className="inline-flex shrink-0 items-center gap-1 text-muted-foreground hover:text-foreground"
+                  data-testid={`breadcrumb-parent-${parent.number}`}
+                >
+                  <BreadcrumbTypeIcon type={parent.type} />
+                  <span className="font-mono">
+                    {projectKey}-{parent.number}
+                  </span>
+                </Link>
+              </>
+            )}
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+            <span
+              className="inline-flex shrink-0 items-center gap-1 font-medium text-foreground"
+              data-testid="breadcrumb-current"
+            >
+              {type && <BreadcrumbTypeIcon type={type} />}
+              <span className="font-mono">
+                {projectKey}-{number}
+              </span>
             </span>
-          </span>
-        </nav>
+          </nav>
+        </div>
         <div className="flex shrink-0 items-center gap-2">{actions}</div>
       </div>
     </header>
