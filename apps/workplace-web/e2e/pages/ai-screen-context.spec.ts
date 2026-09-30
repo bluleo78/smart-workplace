@@ -55,8 +55,13 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     await page.goto('/projects/WP/issues/12')
     await page.getByTestId('chat-launcher').click()
 
+    const chipHeight = (await page.getByTestId('chat-context-chip').boundingBox())!.height
     await page.getByTestId('chat-context-remove').click()
+    // 칩은 사라지지 않고 흐린 "제외" 칩으로 바뀐다 — 뺀 상태가 보이고 되돌릴 수 있어야 한다.
     await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
+    await expect(page.getByTestId('chat-context-chip-excluded')).toContainText('화면 정보 빼고 보내요')
+    // 두 상태 높이가 같아 입력 영역이 흔들리지 않는다(레이아웃 이동 없음).
+    expect((await page.getByTestId('chat-context-chip-excluded').boundingBox())!.height).toBe(chipHeight)
     await page.getByTestId('chat-input').fill('첫 질문')
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(() => bodies.length).toBe(1)
@@ -64,25 +69,27 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
 
     // 전송 후 칩 복원 → 두 번째 전송은 컨텍스트 포함.
     await expect(page.getByTestId('chat-context-chip')).toBeVisible()
+    await expect(page.getByTestId('chat-context-chip-excluded')).toHaveCount(0)
     await page.getByTestId('chat-input').fill('두 번째 질문')
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(() => bodies.length).toBe(2)
     expect(bodies[1].screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
   })
 
-  test('× 는 키보드(포커스 + Enter)로도 동작하고 다음 전송에서 컨텍스트를 뺀다', async ({ authenticatedPage: page }) => {
+  test('× 는 키보드(Tab 이동 + Enter)로도 동작하고 입력창으로 포커스가 돌아온다', async ({ authenticatedPage: page }) => {
     const bodies = await captureChat(page)
     await mockIssueDetail(page)
     await page.goto('/projects/WP/issues/12')
     await page.getByTestId('chat-launcher').click()
 
-    // 접근성 이름이 있는 실제 버튼인지 + 포커스 가능한지 확인 후 Enter 로 활성화.
-    const remove = page.getByRole('button', { name: '이번 질문에서 화면 정보 빼기' })
-    await expect(remove).toHaveAttribute('data-testid', 'chat-context-remove')
-    await remove.focus()
+    // 입력창에서 Shift+Tab 한 번 → 바로 앞(칩의 ×)으로 이동. 접근성 이름으로 찾아 실제 버튼인지 확인.
+    await page.getByTestId('chat-input').click()
+    await page.keyboard.press('Shift+Tab')
+    const remove = page.getByRole('button', { name: '이번 질문에만 화면 정보 빼기(보낸 뒤 다시 포함)' })
     await expect(remove).toBeFocused()
+    await expect(remove).toHaveAttribute('data-testid', 'chat-context-remove')
     await page.keyboard.press('Enter')
-    await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
+    await expect(page.getByTestId('chat-context-chip-excluded')).toBeVisible()
     // × 가 사라져도 키보드 포커스를 잃지 않게 입력창으로 이동한다.
     await expect(page.getByTestId('chat-input')).toBeFocused()
 
@@ -92,6 +99,45 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     expect(bodies[0]).not.toHaveProperty('screenContext')
   })
 
+  test('되돌리기는 제외를 취소해 칩을 복원하고 다음 전송에 컨텍스트를 싣는다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockIssueDetail(page)
+    await page.goto('/projects/WP/issues/12')
+    await page.getByTestId('chat-launcher').click()
+
+    await page.getByTestId('chat-context-remove').click()
+    await expect(page.getByTestId('chat-context-chip-excluded')).toBeVisible()
+    await page.getByTestId('chat-context-restore').click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('이슈 WP-12 로그인 버그 수정')
+    await expect(page.getByTestId('chat-context-chip-excluded')).toHaveCount(0)
+    await expect(page.getByTestId('chat-input')).toBeFocused()
+
+    await page.getByTestId('chat-input').fill('되돌린 뒤 질문')
+    await page.getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
+  })
+
+  test('칩은 목적 문구를 보이고, × 와 라벨에 툴팁(Hover·Focus)을 띄운다', async ({ authenticatedPage: page }) => {
+    await captureChat(page)
+    await mockIssueDetail(page)
+    await page.goto('/projects/WP/issues/12')
+    await page.getByTestId('chat-launcher').click()
+
+    const chip = page.getByTestId('chat-context-chip')
+    await expect(chip).toContainText('화면 참고')
+    // × Hover → "이번 1회" 의미 툴팁.
+    await page.getByTestId('chat-context-remove').hover()
+    await expect(page.getByRole('tooltip')).toContainText('이번 질문에만 빼기 · 보낸 뒤 다시 포함돼요')
+    // 라벨 Focus(키보드) → 전체 라벨 툴팁.
+    await page.getByTestId('chat-context-label').focus()
+    await expect(page.getByRole('tooltip')).toContainText('이슈 WP-12 로그인 버그 수정')
+    // 스크린리더 알림 영역에 현재 화면 정보가 실려 있다.
+    await expect(page.getByTestId('chat-context-live')).toHaveText('화면 정보: 이슈 WP-12 로그인 버그 수정')
+    await page.getByTestId('chat-context-remove').click()
+    await expect(page.getByTestId('chat-context-live')).toHaveText('화면 정보 빼고 보내요')
+  })
+
   test('× 후 다른 화면에 갔다 돌아오면 칩이 복원되고 전송에 다시 포함된다', async ({ authenticatedPage: page }) => {
     const bodies = await captureChat(page)
     await mockIssueDetail(page)
@@ -99,7 +145,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     await page.goto('/projects/WP/issues/12')
     await page.getByTestId('chat-launcher').click()
     await page.getByTestId('chat-context-remove').click()
-    await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
+    await expect(page.getByTestId('chat-context-chip-excluded')).toBeVisible()
 
     // 앱 내부 이동(브레드크럼 → 프로젝트 목록) 후 뒤로가기 — 새로고침 없이 패널 상태가 유지되는 경로.
     await page.getByRole('navigation', { name: '이슈 경로' }).getByRole('link', { name: 'Workplace' }).click()
@@ -118,6 +164,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     await page.goto('/')
     await page.getByTestId('chat-launcher').click()
     await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
+    await expect(page.getByTestId('chat-context-chip-excluded')).toHaveCount(0)
     await page.getByTestId('chat-input').fill('안녕')
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(() => bodies.length).toBe(1)
@@ -184,11 +231,12 @@ test.describe('AI 채팅 화면 컨텍스트 — × 유지', () => {
     await page.getByTestId('chat-launcher').click()
     await expect(page.getByTestId('chat-context-chip')).toContainText('프로젝트 Workplace 이슈 목록')
     await page.getByTestId('chat-context-remove').click()
-    await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
+    await expect(page.getByTestId('chat-context-chip-excluded')).toBeVisible()
 
     release()
     await expect(page.getByTestId('issue-row-7')).toBeVisible()
-    // 건수는 휘발 값이라 화면 정체성이 같다 → 칩은 계속 숨김, 이번 전송엔 컨텍스트 없음.
+    // 건수는 휘발 값이라 화면 정체성이 같다 → 제외 상태 유지, 이번 전송엔 컨텍스트 없음.
+    await expect(page.getByTestId('chat-context-chip-excluded')).toBeVisible()
     await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
     await page.getByTestId('chat-input').fill('건수 도착 후 질문')
     await page.getByRole('button', { name: '보내기' }).click()
