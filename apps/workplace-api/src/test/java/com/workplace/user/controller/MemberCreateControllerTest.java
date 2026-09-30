@@ -20,7 +20,6 @@ import org.hamcrest.Matchers;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,7 +30,6 @@ import org.springframework.transaction.annotation.Transactional;
  * tenant 클레임으로 TenantContext+GUC 를 주입해야 한다. 권한도 DB(user_role+role_permission)에서 실제 조회되므로 ADMIN 역할을
  * 시드한다(ADMIN=전체 권한, V2 시드).
  */
-@AutoConfigureMockMvc
 @Transactional
 class MemberCreateControllerTest extends IntegrationTestBase {
 

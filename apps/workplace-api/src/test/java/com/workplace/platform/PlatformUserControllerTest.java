@@ -13,12 +13,10 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 운영자 콘솔 — 전역 사용자 이메일 조회 컨트롤러 통합 테스트. */
-@AutoConfigureMockMvc
 @Transactional
 class PlatformUserControllerTest extends IntegrationTestBase {
 

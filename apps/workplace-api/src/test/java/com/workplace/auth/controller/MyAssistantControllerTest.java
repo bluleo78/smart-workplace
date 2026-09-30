@@ -21,7 +21,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -32,7 +31,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 멀티 프로바이더(#opencode) 확장: MyAssistantController `PUT /credential` 통합 테스트 — 구 `/token` 경로는
  * 제거되었다(하위호환 라우트 없음).
  */
-@AutoConfigureMockMvc
 @Transactional
 class MyAssistantControllerTest extends IntegrationTestBase {
 

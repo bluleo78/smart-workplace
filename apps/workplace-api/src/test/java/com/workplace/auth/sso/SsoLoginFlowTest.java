@@ -13,14 +13,12 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.util.UriComponentsBuilder;
 
 /** SSO 로그인 흐름 — start·callback 을 가짜 IdP 로 끝까지. state 검증이 토큰 교환보다 먼저다. */
-@AutoConfigureMockMvc
 @Transactional
 class SsoLoginFlowTest extends SsoIntegrationTestBase {
 

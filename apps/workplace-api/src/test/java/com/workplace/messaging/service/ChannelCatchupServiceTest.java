@@ -31,7 +31,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -39,7 +39,8 @@ import org.springframework.web.server.ResponseStatusException;
  * ChannelCatchupService 통합 테스트.
  *
  * <p>클래스 레벨 @Transactional 로 인프로세스 롤백(MessagingSummaryRepositoryTest 패턴). 시드·조회는 모두 기본 테넌트(GUC=1)
- * 아래에서 동작하므로 별도 GUC 주입 불필요. AiAgentCatchupClient 는 @MockBean 으로 대체해 AI 호출 경로(캐시·정직성·호출 횟수)를 검증한다.
+ * 아래에서 동작하므로 별도 GUC 주입 불필요. AiAgentCatchupClient 는 @MockitoBean 으로 대체해 AI 호출 경로(캐시·정직성·호출 횟수)를
+ * 검증한다.
  *
  * <p>케이스: ①내 차례=나를 멘션한 미읽음만 ②환각 id 필터 ③미읽음0=AI 미호출+빈응답 ④캐시 히트=AI 1회 ⑤비멤버 403 ⑥타테넌트 채널=RLS
  * fail-closed 403.
@@ -52,8 +53,8 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
   @Autowired ChannelRepository channelRepo;
   @Autowired ChannelService channelService;
   @Autowired MessageService messageService;
-  @MockBean AiAgentCatchupClient catchupClient;
-  @MockBean AssistantResolver assistantResolver;
+  @MockitoBean AiAgentCatchupClient catchupClient;
+  @MockitoBean AssistantResolver assistantResolver;
 
   /** 해석될 비서 사양 — 하드코딩 id(2) 가 아닌 이 값이 AI 요청에 실려야 한다(WP-110). */
   private static final AssistantSpec SPEC =

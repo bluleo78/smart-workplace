@@ -21,12 +21,10 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /** GET /api/v1/projects/{key}/issue-dependencies 통합 테스트 — 타임라인 화살표용 프로젝트 전체 의존 엣지. */
-@AutoConfigureMockMvc
 @Transactional
 class IssueDependencyEdgesTest extends IntegrationTestBase {
 

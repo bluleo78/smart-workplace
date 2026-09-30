@@ -22,7 +22,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -34,7 +33,6 @@ import org.springframework.test.web.servlet.MockMvc;
  * progress 를 POST 하면, api 가 채널 전 멤버에게 {@code messaging.message.progress} 이벤트를 fan-out 함을 검증한다. SSE
  * 수신은 {@link SseRegistry} 를 mock 으로 가로채어 fanOut 호출을 단언한다(실 스트림 소비 대신).
  */
-@AutoConfigureMockMvc
 class MessagingProgressIntegrationTest extends IntegrationTestBase {
 
   /** 운영 application-test.yml 의 workplace.ai-agent.internal-token 값. */

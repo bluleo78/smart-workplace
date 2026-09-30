@@ -17,7 +17,6 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,7 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>이로써 Task 3 보안 경계의 (d)(플랫폼 토큰 게이트 통과)를 실제 엔드포인트로 확정한다.
  */
-@AutoConfigureMockMvc
 @Transactional
 class PlatformTenantControllerTest extends IntegrationTestBase {
 

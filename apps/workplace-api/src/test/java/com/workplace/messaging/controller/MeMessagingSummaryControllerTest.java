@@ -14,7 +14,6 @@ import com.workplace.support.TestFixtures;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,7 +22,6 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>실 JWT + MockMvc 로 전체 보안 체인을 통과시켜 대화 요약 API 를 검증한다. MeMailSummaryControllerTest 패턴 미러.
  */
-@AutoConfigureMockMvc
 @Transactional
 class MeMessagingSummaryControllerTest extends IntegrationTestBase {
 

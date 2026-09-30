@@ -19,14 +19,12 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /** amr=sso 세션은 SSO 켜진 워크스페이스만 선택·전환·갱신할 수 있다. 비밀번호 세션은 영향 없음. */
-@AutoConfigureMockMvc
 @Transactional
 class SsoSessionConstraintTest extends SsoIntegrationTestBase {
 

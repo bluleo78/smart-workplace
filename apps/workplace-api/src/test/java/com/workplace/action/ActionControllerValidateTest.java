@@ -23,7 +23,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,7 +33,6 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>무엇을·왜: 사전검증 엔드포인트의 응답 계약을 고정한다 — 통과는 204(본문 없음), 실패는 승인(confirm)과 동일한 상태코드와 {@code
  * ErrorResponse.message} 로 사유가 전달돼야 AI 가 그 문구로 자가교정할 수 있다.
  */
-@AutoConfigureMockMvc
 @Transactional
 class ActionControllerValidateTest extends IntegrationTestBase {
 

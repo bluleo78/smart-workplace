@@ -33,7 +33,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -49,15 +49,15 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
   @Autowired private ProjectService projectService;
   @Autowired private DSLContext dsl;
 
-  @MockBean private AiAgentIssueClient client;
-  @MockBean private AssistantResolver assistantResolver;
+  @MockitoBean private AiAgentIssueClient client;
+  @MockitoBean private AssistantResolver assistantResolver;
 
   /**
    * MailSummaryScheduler 가 @Scheduled(fixedRate=600_000) 로 TenantScopedRunner.forEachActiveTenant
    * 콜백 안에서 resolveWorkspaceOrEmpty() 를 호출해 verify 카운트를 오염시킨다. TenantScopedRunner 를 목으로 교체하면 콜백 자체가
    * 실행되지 않아 오염이 원천 차단된다.
    */
-  @MockBean private TenantScopedRunner tenantScopedRunner;
+  @MockitoBean private TenantScopedRunner tenantScopedRunner;
 
   /** 테스트용 고정 AssistantSpec — agentUserId=999. */
   private static final AssistantSpec MOCK_SPEC =

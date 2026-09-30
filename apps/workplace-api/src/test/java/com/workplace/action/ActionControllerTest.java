@@ -16,13 +16,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 중립 확인 엔드포인트 — actionType 라우팅(여기선 issue.create 로 검증). */
-@AutoConfigureMockMvc
 @Transactional
 class ActionControllerTest extends IntegrationTestBase {
 

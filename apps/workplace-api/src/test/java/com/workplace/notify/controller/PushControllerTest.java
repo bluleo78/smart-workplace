@@ -20,7 +20,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +29,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 설정 기본값·부분 업데이트, config 응답.
  */
 @Transactional
-@AutoConfigureMockMvc
 class PushControllerTest extends IntegrationTestBase {
 
   @Autowired MockMvc mvc;

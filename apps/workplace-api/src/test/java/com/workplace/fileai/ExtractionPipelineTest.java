@@ -29,7 +29,6 @@ import org.jooq.JSONB;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -47,7 +46,6 @@ import org.springframework.web.client.RestClientException;
  * enabled 가드에 걸려 PENDING 유지(Task 2 하드닝). 이 클래스의 테스트는 실제 디스패치 경로(EXTRACTING·워커호출)를 검증하므로 명시적으로
  * 활성화한다.
  */
-@AutoConfigureMockMvc
 @TestPropertySource(properties = "workplace.worker.enabled=true")
 class ExtractionPipelineTest extends IntegrationTestBase {
 

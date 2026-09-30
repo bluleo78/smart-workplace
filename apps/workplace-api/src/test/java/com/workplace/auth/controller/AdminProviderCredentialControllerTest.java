@@ -19,7 +19,6 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -31,7 +30,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 멀티 프로바이더(#opencode) 확장: AdminProviderCredentialController 통합 테스트 — 권한/HTTP/응답 형태 검증. 구
  * `/oauth-token` 경로는 제거되었다(하위호환 라우트 없음).
  */
-@AutoConfigureMockMvc
 @Transactional
 class AdminProviderCredentialControllerTest extends IntegrationTestBase {
 

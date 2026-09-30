@@ -26,7 +26,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** 일정 제안 승인(confirmWithBody) 통합 테스트 — 일정 생성 + 결과 메시지 + 편집 override + 멱등/위임자 가드. */
 class MessagingCalendarConfirmTest extends IntegrationTestBase {
@@ -37,7 +37,7 @@ class MessagingCalendarConfirmTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
 
   // AiAgentMessagingClient 모킹 — MessagingAttentionDispatcher 차단.
-  @MockBean com.workplace.messaging.outbound.AiAgentMessagingClient aiClient;
+  @MockitoBean com.workplace.messaging.outbound.AiAgentMessagingClient aiClient;
 
   // 테스트 격리: 생성된 id 추적 → AfterEach 회수.
   private final List<Long> createdUserIds = new ArrayList<>();

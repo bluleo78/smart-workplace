@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.support.IntegrationTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,7 +14,6 @@ import org.springframework.transaction.annotation.Transactional;
  * mockMvc 만으로는 재현 까다로움. 본 테스트는 인증 없이 4xx 만 검증하고 (실제 동작은 service 통합 테스트 + ai-agent nock 기반 테스트 + 수동
  * e2e 로 갈음).
  */
-@AutoConfigureMockMvc
 @Transactional
 class MyProviderCredentialControllerTest extends IntegrationTestBase {
 

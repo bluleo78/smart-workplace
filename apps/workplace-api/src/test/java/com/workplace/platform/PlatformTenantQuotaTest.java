@@ -17,7 +17,6 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,7 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>클래스-레벨 {@code @Transactional}: 공유 test DB 오염 방지. {@link PlatformTenantControllerTest} 와 동일 패턴.
  */
-@AutoConfigureMockMvc
 @Transactional
 class PlatformTenantQuotaTest extends IntegrationTestBase {
 

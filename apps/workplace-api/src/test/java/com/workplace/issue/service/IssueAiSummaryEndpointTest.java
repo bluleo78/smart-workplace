@@ -26,15 +26,15 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * Task 5 통합 테스트 — 엔드포인트 오케스트레이션 + 읽기경로 aiContext 항상 반환.
  *
  * <p>컨트롤러 빈을 직접 호출해 각 @Transactional 단계가 프록시를 경유하고 GUC 가 주입됨을 실제 DB 로 검증한다. ai-agent HTTP
- * 는 @MockBean(AiAgentIssueClient), AssistantResolver 도 @MockBean 으로 스텁한다.
+ * 는 @MockitoBean(AiAgentIssueClient), AssistantResolver 도 @MockitoBean 으로 스텁한다.
  */
 class IssueAiSummaryEndpointTest extends IntegrationTestBase {
 
@@ -45,8 +45,8 @@ class IssueAiSummaryEndpointTest extends IntegrationTestBase {
   @Autowired private IssueAiSummaryRepository summaryRepo;
   @Autowired private DSLContext dsl;
 
-  @MockBean private AiAgentIssueClient client;
-  @MockBean private AssistantResolver assistantResolver;
+  @MockitoBean private AiAgentIssueClient client;
+  @MockitoBean private AssistantResolver assistantResolver;
 
   /** 테스트용 고정 AssistantSpec. */
   private static final AssistantSpec MOCK_SPEC =

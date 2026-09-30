@@ -20,7 +20,6 @@ import org.jooq.DSLContext;
 import org.jooq.JSONB;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +29,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 거부(400)·레거시(문자열 배열) 읽기 호환을 검증한다. 테스트 프로파일은 connection-init 으로 app.tenant_id=1 이 주입되므로 tenant RLS
  * 하에서도 본인 행을 읽고 쓸 수 있다(별도 멤버십 시드 불필요).
  */
-@AutoConfigureMockMvc
 @Transactional
 class DashboardEndpointTest extends IntegrationTestBase {
 

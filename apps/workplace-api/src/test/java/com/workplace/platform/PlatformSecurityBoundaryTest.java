@@ -13,7 +13,6 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
  * /api/platform 컨트롤러가 아직 없으므로(Task 5), 검증은 security chain 의 응답 코드로 한다 — 컨트롤러 도달 전 거부는 401/403, 게이트
  * 통과 시 핸들러가 없어 404. 따라서 "403 이 아님(404)" 으로 게이트가 열렸는지를 판별한다.
  */
-@AutoConfigureMockMvc
 @Transactional
 class PlatformSecurityBoundaryTest extends IntegrationTestBase {
 

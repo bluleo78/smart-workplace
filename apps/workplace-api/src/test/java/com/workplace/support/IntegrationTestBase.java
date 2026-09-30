@@ -10,6 +10,7 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -21,6 +22,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
+// MockMvc 를 모든 통합 테스트 컨텍스트에 공통으로 둔다(WP-115). 서브클래스마다 붙이면 MockMvc 유무만 다른 구성이
+// 별도 Spring 컨텍스트로 캐시돼 같은 앱이 여러 번 기동한다. 서브클래스에서 다시 선언하지 않는다.
+@AutoConfigureMockMvc
 public abstract class IntegrationTestBase {
 
   /**

@@ -26,8 +26,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** 일정 제안(calendar.create_event) propose 통합 테스트 — 프로젝트 후보 계산 없이 일정 payload 가 저장되는지. */
 class MessagingCalendarProposalTest extends IntegrationTestBase {
@@ -38,7 +38,7 @@ class MessagingCalendarProposalTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired ObjectMapper objectMapper;
 
-  @MockBean com.workplace.messaging.outbound.AiAgentMessagingClient aiClient;
+  @MockitoBean com.workplace.messaging.outbound.AiAgentMessagingClient aiClient;
 
   private long human;
   private long agentId;

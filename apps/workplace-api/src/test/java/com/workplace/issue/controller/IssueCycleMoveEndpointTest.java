@@ -19,7 +19,6 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -29,7 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
  * POST /api/v1/projects/{key}/issues/{number}/cycles/move 통합 테스트(#881). 실 JWT + MockMvc 로 보안 체인·예외
  * 매핑(완료 사이클 400, 비멤버 403)까지 검증한다. 이동 규칙 자체는 IssueCycleServiceTest 가 맡는다.
  */
-@AutoConfigureMockMvc
 @Transactional
 class IssueCycleMoveEndpointTest extends IntegrationTestBase {
 

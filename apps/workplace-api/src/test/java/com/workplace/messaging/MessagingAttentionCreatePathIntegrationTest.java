@@ -31,8 +31,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * 메시징 어텐션 도착 트리거 production 경로 통합 (#476 C1).
@@ -58,9 +58,9 @@ class MessagingAttentionCreatePathIntegrationTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
 
   /** ai-agent 분류 호출을 모킹 — relevant 반환으로 conversation_attention 기록을 강제. */
-  @MockBean AiAgentMessagingClient aiClient;
+  @MockitoBean AiAgentMessagingClient aiClient;
 
-  @MockBean AssistantResolver assistantResolver;
+  @MockitoBean AssistantResolver assistantResolver;
 
   private final List<Long> createdChannelIds = new ArrayList<>();
   private final List<Long> createdUserIds = new ArrayList<>();

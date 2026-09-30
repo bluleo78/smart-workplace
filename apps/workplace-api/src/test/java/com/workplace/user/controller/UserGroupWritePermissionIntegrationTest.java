@@ -20,7 +20,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,7 +32,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 보므로, 실제 보안 체인·서비스·예외 매핑을 통과시켜 "manage 권한 없는 일반 구성원의 공유 그룹 쓰기 = 403, 남의 개인 그룹 = 404(존재 은닉)" 를
  * 고정한다. AI 도구(MCP)가 그룹 쓰기를 노출하면서 이 서버 경계가 유일한 방어선이 된다.
  */
-@AutoConfigureMockMvc
 @Transactional
 class UserGroupWritePermissionIntegrationTest extends IntegrationTestBase {
 

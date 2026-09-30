@@ -36,7 +36,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -47,7 +46,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>(1) 업로드→추출→TEXT_READY→요약→DONE E2E. (2) 이중 요약 경합: 동시 2회 summarizePending → ai-agent 1회만 호출(CAS
  * 검증). (3) 요약 실패 → TEXT_READY 유지 → 재시도 → DONE.
  */
-@AutoConfigureMockMvc
 class ExtractionE2eTest extends IntegrationTestBase {
 
   private static final String INTERNAL_TOKEN = "test-token";

@@ -27,7 +27,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -40,7 +39,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ApiErrorDescriber 가 GlobalExceptionHandler 를 재사용하는지를 엔드포인트 계층에서 고정한다. 승인은 독립 트랜잭션(REQUIRES_NEW)을
  * 열기 때문에 테스트 트랜잭션으로 감쌀 수 없어 픽스처를 커밋하고 정리한다.
  */
-@AutoConfigureMockMvc
 class HomeProposalControllerTest extends IntegrationTestBase {
 
   @Autowired MockMvc mockMvc;

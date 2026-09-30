@@ -12,7 +12,6 @@ import com.workplace.user.service.UserService;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,7 +22,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 도구(open_dm·search_members)가 403 으로 실패했다. 실제 생성 경로(UserService.createAgent)로 에이전트를 만들고 ai-agent
  * 콜백과 같은 Internal 토큰 + X-On-Behalf-Of 로 호출해 필터→권한 인터셉터 전 구간을 검증한다. 시드는 @Transactional 롤백으로 회수된다.
  */
-@AutoConfigureMockMvc
 class RolelessAgentMemberDirectoryTest extends IntegrationTestBase {
 
   /** application-test.yml 의 workplace.ai-agent.internal-token 값. */

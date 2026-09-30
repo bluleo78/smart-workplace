@@ -23,7 +23,7 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -40,8 +40,8 @@ class MessagingAttentionRlsTest extends IntegrationTestBase {
   private static final long PHANTOM_TENANT_ID = 999_999L;
 
   @Autowired private MessagingAttentionService svc;
-  @MockBean private AiAgentMessagingClient aiClient;
-  @MockBean private AssistantResolver assistantResolver;
+  @MockitoBean private AiAgentMessagingClient aiClient;
+  @MockitoBean private AssistantResolver assistantResolver;
   @Autowired private DSLContext dsl;
   @Autowired private PlatformTransactionManager txManager;
   @Autowired private ChannelRepository channelRepo;

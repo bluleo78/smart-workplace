@@ -16,7 +16,6 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
  * GET /api/v1/me/priority-items 통합 테스트. 실 JWT 발급 + MockMvc 로 전체 보안 체인을 통과시켜 점수 합산 내림차순 정렬을
  * 검증한다(DashboardEndpointTest 패턴 미러 — connection-init 이 tenant GUC 를 주입하므로 별도 TenantContext 조작 불필요).
  */
-@AutoConfigureMockMvc
 @Transactional
 class PriorityItemControllerTest extends IntegrationTestBase {
 

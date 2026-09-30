@@ -33,7 +33,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.TestPropertySource;
@@ -46,7 +45,6 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>업로드 크기/개수 한도는 테스트를 가볍게 하려고 프로퍼티로 낮춰 override 한다(운영 기본값 10MB/50건은 그대로 서비스 코드에 있음).
  */
-@AutoConfigureMockMvc
 @Transactional
 @TestPropertySource(
     properties = {
