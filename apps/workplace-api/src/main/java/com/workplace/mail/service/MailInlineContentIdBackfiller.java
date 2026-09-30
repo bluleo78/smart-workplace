@@ -108,12 +108,9 @@ public class MailInlineContentIdBackfiller {
                 List<ParsedAttachment> attachments =
                     graphBodyLoader.fetchAttachmentMeta(
                         accessToken, target.providerMessageId(), messageId, true);
-                // WP-130: 공유 manifest 와 어긋나면 다른 메일 첨부를 물려받게 되므로 적재하지 않는다(fail-closed)
-                if (!contentAttachmentRepo.matchesManifest(target.contentId(), attachments)) {
-                  log.warn("인라인 첨부 목록이 공유 manifest 와 불일치 — 적재 생략 messageId={}", messageId);
-                  return false;
-                }
-                graphBodyLoader.insertAttachments(messageId, target.contentId(), attachments);
+                // WP-130: 공유 manifest 와 어긋나면 ManifestMismatchException 으로 롤백 → 아래 catch 에서
+                // false(fail-closed)
+                attachmentRepo.insertAll(messageId, target.contentId(), attachments);
                 return attachmentRepo.existsForMessage(messageId);
               });
       return Boolean.TRUE.equals(loaded);

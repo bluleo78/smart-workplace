@@ -95,4 +95,22 @@ class ContentAttachmentRepositoryTest extends IntegrationTestBase {
         TENANT_ID,
         () -> dsl.deleteFrom(EMAIL_CONTENT).where(EMAIL_CONTENT.ID.eq(contentId)).execute());
   }
+
+  /** WP-130: 같은 ordinal 에 메타가 다른 첨부를 넣으면 기존 행을 채택하지 않고 예외(fail-closed). */
+  @Test
+  void findOrCreate_메타불일치면_예외() {
+    long contentId = seedContent();
+    new TransactionTemplate(txManager)
+        .executeWithoutResult(
+            status -> {
+              repo.findOrCreate(contentId, 0, "a.pdf", "application/pdf", 100L, null);
+              org.assertj.core.api.Assertions.assertThatThrownBy(
+                      () -> repo.findOrCreate(contentId, 0, "x.pdf", "application/pdf", 100L, null))
+                  .isInstanceOf(ContentAttachmentRepository.ManifestMismatchException.class);
+              status.setRollbackOnly();
+            });
+    cleanupInTenant(
+        TENANT_ID,
+        () -> dsl.deleteFrom(EMAIL_CONTENT).where(EMAIL_CONTENT.ID.eq(contentId)).execute());
+  }
 }

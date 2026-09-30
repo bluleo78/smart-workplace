@@ -14,6 +14,7 @@ import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.Store;
 import jakarta.mail.UIDFolder;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -85,7 +86,7 @@ public class ImapBodyLoader implements MailBodyLoader {
         return true;
       }
       ParsedBody body = parser.parseBody(msg);
-      java.util.List<ParsedAttachment> attachments = body.attachments();
+      List<ParsedAttachment> attachments = body.attachments();
       // 본문·스니펫은 공유 content 에 기록 — WP-130: 이미 기록돼 있으면 해시·첨부 목록을 검증하고, 다르면 이 envelope 만 분리
       long contentId =
           shareGate.storeFetchedBody(
@@ -97,11 +98,8 @@ public class ImapBodyLoader implements MailBodyLoader {
               attachments);
       // has_attachment 는 envelope 속성(첨부 존재 표시)으로 유지
       messageRepo.markHasAttachment(target.messageId(), body.hasAttachment());
-      for (int i = 0; i < attachments.size(); i++) {
-        // ordinal = MIME 순서(0-based). content_attachment 를 find-or-create 해 같은 메일 수신자끼리 manifest
-        // 공유. 분리됐으면 새 content 기준(target.contentId() 는 낡은 값).
-        attachmentRepo.insert(target.messageId(), contentId, i, attachments.get(i));
-      }
+      // ordinal = MIME 순서(0-based). 분리됐으면 새 content 기준(target.contentId() 는 낡은 값).
+      attachmentRepo.insertAll(target.messageId(), contentId, attachments);
       // V97: per-envelope 마커 — 이 envelope 의 첨부 적재가 완료됐음을 기록
       messageRepo.markFetched(target.messageId());
       return true;

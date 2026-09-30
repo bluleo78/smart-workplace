@@ -118,7 +118,7 @@ public class GraphBodyLoader implements MailBodyLoader {
               target.messageId(), target.contentId(), bodyText, bodyHtml, snippet, attachments);
       // has_attachment 는 envelope 속성(첨부 존재 표시)으로 유지
       messageRepo.markHasAttachment(target.messageId(), hasAttachment);
-      insertAttachments(target.messageId(), contentId, attachments);
+      attachmentRepo.insertAll(target.messageId(), contentId, attachments);
       // V97: per-envelope 마커 — 이 envelope 의 본문/첨부 적재가 완료됐음을 기록
       messageRepo.markFetched(target.messageId());
       return true;
@@ -131,7 +131,8 @@ public class GraphBodyLoader implements MailBodyLoader {
   }
 
   /**
-   * Graph 첨부 메타를 조회한다(DB 쓰기 없음 — 삽입은 {@link #insertAttachments}). 실패는 best-effort 로 빈 목록.
+   * Graph 첨부 메타를 조회한다(DB 쓰기 없음 — 삽입은 {@link EmailAttachmentRepository#insertAll}). 실패는 best-effort
+   * 로 빈 목록.
    *
    * <p>GET /me/messages/{id}/attachments?$select=id,name,contentType,size,isInline —
    * 바이너리(contentBytes) 는 요청하지 않는다(메타만). id 를 provider_attachment_id 로 저장해 다운로드 시 ordinal 의존 없이 직접
@@ -176,16 +177,6 @@ public class GraphBodyLoader implements MailBodyLoader {
       // 첨부 메타 조회 실패는 best-effort — 본문 적재는 계속(첨부 없음으로 처리)
       log.warn("Graph 첨부 메타 조회 실패 (messageId={}): {}", messageId, e.toString());
       return List.of();
-    }
-  }
-
-  /**
-   * 조회한 첨부 메타를 envelope 첨부로 삽입한다. ordinal = Graph 응답 배열 인덱스(0-based) — content_attachment manifest
-   * 의 안정 좌표.
-   */
-  void insertAttachments(long messageId, long contentId, List<ParsedAttachment> attachments) {
-    for (int i = 0; i < attachments.size(); i++) {
-      attachmentRepo.insert(messageId, contentId, i, attachments.get(i));
     }
   }
 

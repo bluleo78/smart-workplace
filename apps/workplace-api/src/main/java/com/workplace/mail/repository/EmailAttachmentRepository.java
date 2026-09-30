@@ -118,6 +118,16 @@ public class EmailAttachmentRepository {
   }
 
   /**
+   * 첨부 목록을 envelope 첨부로 삽입한다. ordinal = 목록 인덱스(0-based) — content_attachment manifest 의 안정 좌표이자
+   * {@link ContentAttachmentRepository#matchesManifest} 비교 기준.
+   */
+  public void insertAll(long messageId, long contentId, List<ParsedAttachment> attachments) {
+    for (int i = 0; i < attachments.size(); i++) {
+      insert(messageId, contentId, i, attachments.get(i));
+    }
+  }
+
+  /**
    * Content-ID 지연 백필 후보(WP-68) — Graph 계정 소유 메시지의 이미지 첨부 중 mime_content_id 가 NULL 이고 단건 조회 가능한
    * (provider_attachment_id 보유) 소용량 행.
    *

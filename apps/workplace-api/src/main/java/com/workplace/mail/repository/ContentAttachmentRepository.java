@@ -40,11 +40,38 @@ public class ContentAttachmentRepository {
         .onConflict(CONTENT_ATTACHMENT.CONTENT_ID, CONTENT_ATTACHMENT.ORDINAL)
         .doNothing()
         .execute();
-    return dsl.select(CONTENT_ATTACHMENT.ID)
-        .from(CONTENT_ATTACHMENT)
-        .where(CONTENT_ATTACHMENT.CONTENT_ID.eq(contentId))
-        .and(CONTENT_ATTACHMENT.ORDINAL.eq(ordinal))
-        .fetchOne(CONTENT_ATTACHMENT.ID);
+    var row =
+        dsl.select(
+                CONTENT_ATTACHMENT.ID,
+                CONTENT_ATTACHMENT.FILENAME,
+                CONTENT_ATTACHMENT.CONTENT_TYPE,
+                CONTENT_ATTACHMENT.SIZE_BYTES)
+            .from(CONTENT_ATTACHMENT)
+            .where(CONTENT_ATTACHMENT.CONTENT_ID.eq(contentId))
+            .and(CONTENT_ATTACHMENT.ORDINAL.eq(ordinal))
+            .fetchSingle();
+    // WP-130: 기존 manifest 행이 다른 첨부면 채택하지 않는다(fail-closed) — 채택하면 그 행의 content_hash(첨부 캐시 키)로 다른 사람
+    // 첨부
+    // 바이트를 받게 된다. 공유 게이트가 사전 검증하므로 정상 흐름에선 발생하지 않고, 검증 없는 새 쓰기 경로를 막는 최종 방어선이다.
+    if (!sameMeta(row.value2(), row.value3(), row.value4(), filename, contentType, sizeBytes)) {
+      throw new ManifestMismatchException(contentId, ordinal);
+    }
+    return row.value1();
+  }
+
+  /** 공유 manifest 행과 파싱한 첨부의 메타(파일명·타입·크기) 일치 여부. */
+  private static boolean sameMeta(
+      String filename, String contentType, Long sizeBytes, String f2, String t2, Long s2) {
+    return Objects.equals(filename, f2)
+        && Objects.equals(contentType, t2)
+        && Objects.equals(sizeBytes, s2);
+  }
+
+  /** 공유 manifest 의 같은 ordinal 에 다른 첨부가 이미 있음(WP-130). 호출 트랜잭션을 롤백시켜 부분 적재를 남기지 않는다. */
+  public static class ManifestMismatchException extends IllegalStateException {
+    public ManifestMismatchException(long contentId, int ordinal) {
+      super("공유 첨부 manifest 불일치 (contentId=" + contentId + ", ordinal=" + ordinal + ")");
+    }
   }
 
   /**
@@ -53,6 +80,9 @@ public class ContentAttachmentRepository {
    * manifest 에 없는 ordinal 은 비교하지 않는다(각 envelope 는 자기 email_attachment 가 가리키는 행만 본다).
    */
   public boolean matchesManifest(long contentId, List<ParsedAttachment> attachments) {
+    if (attachments.isEmpty()) {
+      return true; // 비교할 ordinal 없음 — 조회 생략(대부분의 메일)
+    }
     var rows =
         dsl.select(
                 CONTENT_ATTACHMENT.ORDINAL,
@@ -61,16 +91,12 @@ public class ContentAttachmentRepository {
                 CONTENT_ATTACHMENT.SIZE_BYTES)
             .from(CONTENT_ATTACHMENT)
             .where(CONTENT_ATTACHMENT.CONTENT_ID.eq(contentId))
+            .and(CONTENT_ATTACHMENT.ORDINAL.lt(attachments.size()))
             .fetch();
     for (var r : rows) {
-      int ord = r.value1();
-      if (ord >= attachments.size()) {
-        continue;
-      }
-      ParsedAttachment a = attachments.get(ord);
-      if (!Objects.equals(r.value2(), a.filename())
-          || !Objects.equals(r.value3(), a.contentType())
-          || !Objects.equals(r.value4(), a.sizeBytes())) {
+      ParsedAttachment a = attachments.get(r.value1());
+      if (!sameMeta(
+          r.value2(), r.value3(), r.value4(), a.filename(), a.contentType(), a.sizeBytes())) {
         return false;
       }
     }

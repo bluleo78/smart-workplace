@@ -67,46 +67,40 @@ public class EmailMessageRepository {
    * empty 를 반환한다.
    */
   public Optional<Long> insertIgnoreConflict(long accountId, long folderId, ParsedMessage m) {
+    // 이미 있는 envelope(재동기화)면 content 를 만들지 않는다 — 지문 없는 content 는 매번 새 행이 생겨 고아가 된다(WP-130)
+    if (dsl.fetchExists(
+        EMAIL_MESSAGE,
+        EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId),
+        EMAIL_MESSAGE.FOLDER_ID.eq(folderId),
+        EMAIL_MESSAGE.IMAP_UID.eq(m.imapUid()))) {
+      return Optional.empty();
+    }
     // 현재 GUC 와 일치하는 테넌트 ID 로 email_content 를 공유 생성(find-or-create).
     // TenantContext.get() 은 TenantAwareTransactionManager 가 GUC 로 주입한 값과 동일하다.
     long tenantId = requireTenantId();
     long contentId = contentRepo.findOrCreate(tenantId, m, ContentSource.IMAP);
-    Optional<Long> inserted =
-        dsl.insertInto(EMAIL_MESSAGE)
-            .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
-            .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
-            .set(EMAIL_MESSAGE.IMAP_UID, m.imapUid())
-            .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
-            .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
-            .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
-            .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
-            .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
-            .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
-            .set(EMAIL_MESSAGE.TO_ADDRESSES, m.toAddresses())
-            .set(EMAIL_MESSAGE.CC_ADDRESSES, m.ccAddresses())
-            // subject 는 email_content.subject 에 저장(Task9: envelope 중복 제거)
-            .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
-            .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
-            .set(EMAIL_MESSAGE.SEEN, m.seen())
-            .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
-            .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
-            .onConflictDoNothing()
-            .returning(EMAIL_MESSAGE.ID)
-            .fetchOptional()
-            .map(r -> r.get(EMAIL_MESSAGE.ID));
-    if (inserted.isEmpty()) {
-      discardIfUnreferenced(contentId);
-    }
-    return inserted;
-  }
-
-  /**
-   * 이미 있는 envelope 재동기화로 envelope 삽입이 무시됐을 때, 이번에 새로 만든 content 를 즉시 정리한다(WP-130). 지문이 없는
-   * content(V140 이전 행·분리 행·구조 요약 실패)는 재동기화 때마다 새 행이 만들어지므로, 백스톱 GC 까지 고아가 쌓이지 않게 한다. 공유 중인 content
-   * 는 참조가 있어 삭제되지 않는다.
-   */
-  private void discardIfUnreferenced(long contentId) {
-    contentRepo.deleteOrphans(List.of(contentId));
+    return dsl.insertInto(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
+        .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
+        .set(EMAIL_MESSAGE.IMAP_UID, m.imapUid())
+        .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
+        .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
+        .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
+        .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
+        .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
+        .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
+        .set(EMAIL_MESSAGE.TO_ADDRESSES, m.toAddresses())
+        .set(EMAIL_MESSAGE.CC_ADDRESSES, m.ccAddresses())
+        // subject 는 email_content.subject 에 저장(Task9: envelope 중복 제거)
+        .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
+        .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
+        .set(EMAIL_MESSAGE.SEEN, m.seen())
+        .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
+        .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
+        .onConflictDoNothing()
+        .returning(EMAIL_MESSAGE.ID)
+        .fetchOptional()
+        .map(r -> r.get(EMAIL_MESSAGE.ID));
   }
 
   /**
@@ -125,37 +119,36 @@ public class EmailMessageRepository {
    */
   public boolean upsertByProviderId(
       long accountId, long folderId, ParsedMessage m, String providerMessageId) {
+    // 이미 있는 envelope(delta 재전송)면 content 를 만들지 않는다 — 지문 없는 content 는 매번 새 행이 생겨 고아가 된다(WP-130)
+    if (findByProviderId(accountId, providerMessageId).isPresent()) {
+      return false;
+    }
     // Graph 경로도 동일하게 email_content 공유(find-or-create).
     long tenantId = requireTenantId();
     long contentId = contentRepo.findOrCreate(tenantId, m, ContentSource.GRAPH);
-    boolean inserted =
-        dsl.insertInto(EMAIL_MESSAGE)
-            .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
-            .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
-            .set(EMAIL_MESSAGE.IMAP_UID, (Long) null) // Graph 계정: IMAP UID 없음
-            .set(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID, providerMessageId)
-            .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
-            .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
-            .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
-            .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
-            .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
-            .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
-            .set(EMAIL_MESSAGE.TO_ADDRESSES, m.toAddresses())
-            .set(EMAIL_MESSAGE.CC_ADDRESSES, m.ccAddresses())
-            // subject 는 email_content.subject 에 저장(Task9: envelope 중복 제거)
-            .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
-            .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
-            .set(EMAIL_MESSAGE.SEEN, m.seen())
-            .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
-            .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
-            .onConflictDoNothing()
-            .returning(EMAIL_MESSAGE.ID)
-            .fetchOptional()
-            .isPresent();
-    if (!inserted) {
-      discardIfUnreferenced(contentId);
-    }
-    return inserted;
+    return dsl.insertInto(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
+        .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
+        .set(EMAIL_MESSAGE.IMAP_UID, (Long) null) // Graph 계정: IMAP UID 없음
+        .set(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID, providerMessageId)
+        .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
+        .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
+        .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
+        .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
+        .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
+        .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
+        .set(EMAIL_MESSAGE.TO_ADDRESSES, m.toAddresses())
+        .set(EMAIL_MESSAGE.CC_ADDRESSES, m.ccAddresses())
+        // subject 는 email_content.subject 에 저장(Task9: envelope 중복 제거)
+        .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
+        .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
+        .set(EMAIL_MESSAGE.SEEN, m.seen())
+        .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
+        .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
+        .onConflictDoNothing()
+        .returning(EMAIL_MESSAGE.ID)
+        .fetchOptional()
+        .isPresent();
   }
 
   /**
@@ -405,9 +398,10 @@ public class EmailMessageRepository {
             null,
             List.of());
 
-    // email_content find-or-create + 본문 즉시 적재(보낸메일은 전송 시점에 본문 확정)
+    // 본문 즉시 적재(보낸메일은 전송 시점에 본문 확정)
     long tenantId = requireTenantId();
-    long contentId = contentRepo.findOrCreate(tenantId, sentAsMsg, ContentSource.SENT);
+    // WP-130: 수신 사본과 공유하지 않는 전용 content — 아래 updateBody 는 첫 적재자 선점 없이 무조건 기록하므로 전용이어야 안전하다
+    long contentId = contentRepo.createDedicated(tenantId, sentAsMsg);
     contentRepo.updateBody(contentId, m.bodyText(), m.bodyHtml(), m.snippet());
 
     return dsl.insertInto(EMAIL_MESSAGE)
@@ -542,7 +536,7 @@ public class EmailMessageRepository {
 
   /**
    * per-envelope 본문 적재 완료 마커(V97). 이 envelope 의 본문/첨부 적재가 완료됐음을 기록한다. 공유
-   * email_content.body_fetched_at 과 분리된 per-envelope 게이트로, 같은 message_id 를 수신한 다른 수신자의 fetch 가 이
+   * email_content.body_fetched_at 과 분리된 per-envelope 게이트로, 같은 content 를 공유하는 다른 수신자의 fetch 가 이
    * envelope 를 건너뛰지 않도록 보장한다.
    */
   public void markFetched(long messageId) {
@@ -752,8 +746,8 @@ public class EmailMessageRepository {
    * <p>IMAP 계정: imap_uid IS NOT NULL 조건으로 필터. Graph 계정: provider_message_id 가 있으므로 포함.
    *
    * <p>V97(per-envelope): 미적재 판정을 email_message.fetched_at IS NULL 기준으로 변경. content.body_fetched_at
-   * 이 설정된 경우에도 이 envelope 의 fetched_at 이 NULL 이면 재적재 대상이 된다 — 같은 message_id 를 수신한 두 번째 수신자도 자신의 첨부
-   * 행을 생성할 수 있도록 보장한다(공유 콘텐츠 첨부 누락 회귀 수정).
+   * 이 설정된 경우에도 이 envelope 의 fetched_at 이 NULL 이면 재적재 대상이 된다 — 같은 content 를 공유하는 두 번째 수신자도 자신의 첨부 행을
+   * 생성할 수 있도록 보장한다(공유 콘텐츠 첨부 누락 회귀 수정).
    */
   public List<BodyTarget> listMissingBody(long accountId, int limit) {
     return dsl.select(

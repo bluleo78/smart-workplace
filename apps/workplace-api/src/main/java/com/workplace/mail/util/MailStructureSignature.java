@@ -3,6 +3,7 @@ package com.workplace.mail.util;
 import jakarta.mail.Multipart;
 import jakarta.mail.Part;
 import jakarta.mail.internet.ContentType;
+import jakarta.mail.internet.MimePart;
 import java.util.Locale;
 
 /**
@@ -46,8 +47,7 @@ public final class MailStructureSignature {
         append(sb, mp.getBodyPart(i), depth + 1, false);
       }
     } else {
-      sb.append(';')
-          .append(lower(p instanceof jakarta.mail.internet.MimePart mp ? mp.getEncoding() : null));
+      sb.append(';').append(lower(p instanceof MimePart mp ? mp.getEncoding() : null));
       if (!top) {
         sb.append(';').append(p.getSize());
       }

@@ -13,13 +13,14 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.InsertSetMoreStep;
+import org.jooq.UpdateSetMoreStep;
 import org.springframework.stereotype.Repository;
 
 /**
  * email_content 접근 레포지터리.
  *
- * <p>테넌트 내 {@code message_id} 단위로 find-or-create 를 제공하고, 후속 본문 적재(lazy)를 {@code updateBody} 로 기록한다.
- * 모든 메서드는 호출자가 테넌트 GUC 가 주입된 트랜잭션 내에서 실행해야 한다 — RLS WITH CHECK 위반 방지.
+ * <p>테넌트 내 (message_id, 공유 지문) 단위로 find-or-create 를 제공하고(WP-130), 후속 본문 적재(lazy)는 {@code claimBody}
+ * 로 첫 적재자만 기록한다. 모든 메서드는 호출자가 테넌트 GUC 가 주입된 트랜잭션 내에서 실행해야 한다 — RLS WITH CHECK 위반 방지.
  */
 @Repository
 @RequiredArgsConstructor
@@ -46,10 +47,7 @@ public class EmailContentRepository {
 
     // 공유 불가(message_id 또는 지문 없음) → 부분 유니크 인덱스 제외 대상이라 항상 신규 삽입
     if (fingerprint == null) {
-      return insertContent(tenantId, m, null)
-          .returning(EMAIL_CONTENT.ID)
-          .fetchOne()
-          .get(EMAIL_CONTENT.ID);
+      return createDedicated(tenantId, m);
     }
 
     Optional<Long> existing = findShared(tenantId, m.messageId(), fingerprint);
@@ -96,12 +94,7 @@ public class EmailContentRepository {
    * @return true: 이번 호출이 본문을 기록함. false: 이미 다른 envelope 가 기록함(호출자가 해시 비교).
    */
   public boolean claimBody(long contentId, String bodyText, String bodyHtml, String snippet) {
-    return dsl.update(EMAIL_CONTENT)
-            .set(EMAIL_CONTENT.BODY_TEXT, bodyText)
-            .set(EMAIL_CONTENT.BODY_HTML, bodyHtml)
-            .set(EMAIL_CONTENT.SNIPPET, snippet)
-            .set(EMAIL_CONTENT.CONTENT_HASH, MailContentHash.of(bodyText, bodyHtml))
-            .set(EMAIL_CONTENT.BODY_FETCHED_AT, OffsetDateTime.now())
+    return setBody(bodyText, bodyHtml, snippet)
             .where(EMAIL_CONTENT.ID.eq(contentId))
             .and(EMAIL_CONTENT.BODY_FETCHED_AT.isNull())
             .execute()
@@ -123,40 +116,59 @@ public class EmailContentRepository {
    * @return 새 email_content.id
    */
   public long forkHeaders(long contentId) {
-    var src = dsl.selectFrom(EMAIL_CONTENT).where(EMAIL_CONTENT.ID.eq(contentId)).fetchSingle();
+    // 헤더 컬럼만 조회 — 원본 본문(대용량 가능)은 옮기지 않는다
+    var src =
+        dsl.select(
+                EMAIL_CONTENT.TENANT_ID,
+                EMAIL_CONTENT.MESSAGE_ID,
+                EMAIL_CONTENT.SUBJECT,
+                EMAIL_CONTENT.IN_REPLY_TO,
+                EMAIL_CONTENT.MAIL_REFERENCES,
+                EMAIL_CONTENT.THREAD_ID)
+            .from(EMAIL_CONTENT)
+            .where(EMAIL_CONTENT.ID.eq(contentId))
+            .fetchSingle();
     return dsl.insertInto(EMAIL_CONTENT)
-        .set(EMAIL_CONTENT.TENANT_ID, src.getTenantId())
-        .set(EMAIL_CONTENT.MESSAGE_ID, src.getMessageId())
-        .set(EMAIL_CONTENT.SUBJECT, src.getSubject())
-        .set(EMAIL_CONTENT.IN_REPLY_TO, src.getInReplyTo())
-        .set(EMAIL_CONTENT.MAIL_REFERENCES, src.getMailReferences())
-        .set(EMAIL_CONTENT.THREAD_ID, src.getThreadId())
+        .set(EMAIL_CONTENT.TENANT_ID, src.value1())
+        .set(EMAIL_CONTENT.MESSAGE_ID, src.value2())
+        .set(EMAIL_CONTENT.SUBJECT, src.value3())
+        .set(EMAIL_CONTENT.IN_REPLY_TO, src.value4())
+        .set(EMAIL_CONTENT.MAIL_REFERENCES, src.value5())
+        .set(EMAIL_CONTENT.THREAD_ID, src.value6())
         .returning(EMAIL_CONTENT.ID)
         .fetchOne()
         .get(EMAIL_CONTENT.ID);
   }
 
   /**
-   * 본문을 무조건 기록한다. 막 만든 전용 content(보낸메일)에만 쓴다 — 공유 content 에는 {@link #claimBody} 를 쓴다.
+   * 공유하지 않는 전용 content 를 헤더만으로 만든다(보낸메일 행 — WP-130). 지문이 NULL 이라 어떤 수신과도 공유되지 않는다.
    *
-   * <p>lazy 본문 적재: 본문·snippet·해시·fetched_at 을 기록한다.
-   *
-   * <p>content_hash 는 {@link MailContentHash#of} 로 계산 — V93 백필 마이그레이션과 동일 알고리즘·구분자.
-   *
-   * @param contentId email_content.id
-   * @param bodyText 평문 본문 (nullable)
-   * @param bodyHtml HTML 본문 (nullable)
-   * @param snippet 미리보기 텍스트 (nullable)
+   * @return 새 email_content.id
+   */
+  public long createDedicated(long tenantId, ParsedMessage m) {
+    return insertContent(tenantId, m, null)
+        .returning(EMAIL_CONTENT.ID)
+        .fetchOne()
+        .get(EMAIL_CONTENT.ID);
+  }
+
+  /**
+   * 본문을 무조건 기록한다(덮어쓰기). 공유되지 않는 전용 content({@link #createDedicated})에만 쓴다 — 공유 가능한 content 에는
+   * {@link #claimBody} 를 쓴다. content_hash 는 {@link MailContentHash#of} — V93 백필과 동일 알고리즘·구분자.
    */
   public void updateBody(long contentId, String bodyText, String bodyHtml, String snippet) {
-    dsl.update(EMAIL_CONTENT)
+    setBody(bodyText, bodyHtml, snippet).where(EMAIL_CONTENT.ID.eq(contentId)).execute();
+  }
+
+  /** 본문·snippet·해시·fetched_at 기록 단계(claimBody/updateBody 공통). */
+  private UpdateSetMoreStep<EmailContentRecord> setBody(
+      String bodyText, String bodyHtml, String snippet) {
+    return dsl.update(EMAIL_CONTENT)
         .set(EMAIL_CONTENT.BODY_TEXT, bodyText)
         .set(EMAIL_CONTENT.BODY_HTML, bodyHtml)
         .set(EMAIL_CONTENT.SNIPPET, snippet)
         .set(EMAIL_CONTENT.CONTENT_HASH, MailContentHash.of(bodyText, bodyHtml))
-        .set(EMAIL_CONTENT.BODY_FETCHED_AT, OffsetDateTime.now())
-        .where(EMAIL_CONTENT.ID.eq(contentId))
-        .execute();
+        .set(EMAIL_CONTENT.BODY_FETCHED_AT, OffsetDateTime.now());
   }
 
   /**
