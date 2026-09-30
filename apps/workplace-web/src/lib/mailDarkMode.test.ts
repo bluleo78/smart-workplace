@@ -47,6 +47,22 @@ describe('lightenDarkColor', () => {
     expect(lightenDarkColor('#fff')).toBeNull()
   })
 
+  // 다크 배경(휘도 ≈0.005) 대비 4.5:1 ⇔ 휘도 0.2 이상
+  const luminance = (v: string) => {
+    const c = parseCssColor(v)!
+    const lin = (x: number) => ((x /= 255) <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+  }
+
+  it.each(['blue', '#0000FF', 'purple', '#0563C1', 'indigo', 'midnightblue', 'darkred', 'rgb(119, 119, 119)'])(
+    '명도는 중간이어도 휘도가 낮은 %s 는 다크 배경에서 읽히도록(휘도 ≥ 0.2) 밝힌다',
+    (v) => {
+      const next = lightenDarkColor(v)
+      expect(next).not.toBeNull()
+      expect(luminance(next!)).toBeGreaterThanOrEqual(0.2)
+    },
+  )
+
   it('색상(hue)을 유지한다 — 남색은 밝은 파랑 계열', () => {
     const c = parseCssColor(lightenDarkColor('navy')!)!
     expect(c.b).toBeGreaterThan(c.r)
