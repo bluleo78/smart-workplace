@@ -82,6 +82,7 @@ public class ImapBodyLoader implements MailBodyLoader {
         // WP-130: 검증 못 한 공유 본문이 노출되지 않도록 빈 전용 content 로 분리한다(공유 content 는 건드리지 않음).
         log.warn("본문 적재 대상 메시지 없음 (messageId={}, uid={})", target.messageId(), target.imapUid());
         shareGate.detachUnverifiable(target.messageId(), target.contentId());
+        attachmentRepo.deleteByMessage(target.messageId()); // 부분 적재로 남은 이전 content 첨부 행 정리
         messageRepo.markHasAttachment(target.messageId(), false);
         messageRepo.markFetched(target.messageId()); // V97: per-envelope 마커
         return true;
