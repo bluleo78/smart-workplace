@@ -2,7 +2,6 @@
 // 인박스 목록 — 데스크톱 Popover(InboxPanel)와 모바일 /notifications 화면이 공유한다(WP-126).
 // 헤더(모두 읽음) + 푸시 유도 배너 + 무한스크롤 목록. 기존 testid 를 그대로 유지한다.
 import { Bell } from 'lucide-react'
-import { useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { isCalendarType, notifTarget } from '@/components/home/notifTarget'
@@ -34,7 +33,7 @@ const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
 /**
  * 인박스 목록 본체.
  * @param enabled 조회 활성 여부(Popover 는 열렸을 때만 조회)
- * @param onNavigate 행 클릭 후 이동 직전에 호출(Popover 닫기 등)
+ * @param onNavigate 행 클릭 후 이동 직전에 호출(Popover 닫기 등). 닫을 것이 없는 화면(모바일 /notifications)은 생략
  * @param scrollClassName 스크롤 영역 클래스(모바일 페이지는 'min-h-0 flex-1 overflow-y-auto')
  * @param hideTitle 자체 '알림' 제목 숨김(모바일 /notifications 는 큰 제목 헤더가 이미 있어 중복). '모두 읽음' 은 유지
  */
@@ -45,7 +44,7 @@ export function InboxList({
   hideTitle = false,
 }: {
   enabled: boolean
-  onNavigate: () => void
+  onNavigate?: () => void
   scrollClassName?: string
   hideTitle?: boolean
 }) {
@@ -57,7 +56,6 @@ export function InboxList({
   const markAll = useMarkAllNotificationsRead()
 
   // 스크롤 영역이 바닥 근처에 도달하면 다음 페이지 로드(#610 무한스크롤).
-  const scrollRef = useRef<HTMLDivElement>(null)
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget
     const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
@@ -70,13 +68,13 @@ export function InboxList({
   // 딥링크 규칙은 notifTarget() 공용 유틸과 동일(캘린더 알림→캘린더, 식별정보 없으면 인박스 대용 폴백).
   const onRowClick = (n: NotificationResponse) => {
     if (!n.read) markRead.mutate(n.id)
-    onNavigate()
+    onNavigate?.()
     navigate(notifTarget(n))
   }
 
   return (
     <>
-      <div className={hideTitle ? 'flex items-center justify-end border-b px-3 py-2' : 'flex items-center justify-between border-b px-3 py-2'}>
+      <div className={cn('flex items-center border-b px-3 py-2', hideTitle ? 'justify-end' : 'justify-between')}>
         {!hideTitle && <span className="text-sm font-semibold">알림</span>}
         <button
           type="button"
@@ -91,7 +89,6 @@ export function InboxList({
       </div>
       <PushPromptBanner />
       <div
-        ref={scrollRef}
         onScroll={onScroll}
         data-testid="inbox-scroll-area"
         className={scrollClassName}

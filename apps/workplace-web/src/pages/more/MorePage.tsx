@@ -1,20 +1,16 @@
 // /more — 탭바에 없는 앱 그리드 + 탭바 편집 + 설정 + 워크스페이스·계정(Teams 더보기 패턴). 모바일 전용(WP-126).
 import { Settings } from 'lucide-react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 
 import { AppRailUserMenu } from '@/components/layout/AppRailUserMenu'
 import { WorkspaceSwitcher } from '@/components/layout/WorkspaceSwitcher'
 import { useTabSlots } from '@/components/mobile/MobileChromeContext'
 import { MobileListHeader } from '@/components/mobile/MobileListHeader'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { useIsMobile } from '@/hooks/useIsMobile'
 import { ALL_TAB_IDS, MOBILE_TABS } from '@/lib/mobile/tabs'
 
 export default function MorePage() {
-  const isMobile = useIsMobile()
   const [slots] = useTabSlots()
-  // 데스크톱엔 더보기 화면이 없다.
-  if (!isMobile) return <Navigate to="/" replace />
   // 탭바에 이미 있는 앱과 알림(헤더 벨로 접근)은 그리드에서 제외한다.
   const rest = ALL_TAB_IDS.filter((id) => !slots.includes(id) && id !== 'notifications')
   return (

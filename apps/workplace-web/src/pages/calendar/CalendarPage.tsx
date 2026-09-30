@@ -434,82 +434,82 @@ export function CalendarPage() {
           {view === 'day' && <DayView {...viewProps} />}
           {view === 'agenda' && <AgendaView {...viewProps} />}
         </div>
-
-        {/* 일정 생성/편집 다이얼로그 */}
-        <EventDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          event={editing ?? undefined}
-          defaultStart={defaultStart}
-          onSubmit={submit}
-          onDelete={onDelete}
-          isPending={create.isPending || update.isPending}
-        />
-
-        {/* 캘린더 컨테이너 추가/편집 다이얼로그 */}
-        <CalendarEditDialog
-          open={calEditOpen}
-          onOpenChange={setCalEditOpen}
-          calendar={editingCal}
-          onSubmit={submitCalendar}
-          onDelete={deleteCalendar}
-          isPending={createCal.isPending || updateCal.isPending}
-        />
-
-        {/* 반복 회차 수정/삭제 시 적용 범위 선택 */}
-        {scopeMode && (
-          <RecurrenceScopeDialog
-            open={!!scopeMode}
-            mode={scopeMode}
-            onPick={onPickScope}
-            onCancel={cancelScope}
-          />
-        )}
-
-        {/* 캘린더 강제 리셋(모든 일정 삭제) 확인 다이얼로그 */}
-        <AlertDialog open={resettingCal != null} onOpenChange={(o) => !o && setResettingCal(null)}>
-          <AlertDialogContent data-testid="calendar-reset-confirm">
-            <AlertDialogHeader>
-              <AlertDialogTitle>모든 일정 삭제</AlertDialogTitle>
-              <AlertDialogDescription>
-                {resettingCal?.name}의 모든 일정을 영구 삭제합니다. 되돌릴 수 없습니다.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>취소</AlertDialogCancel>
-              <AlertDialogAction
-                data-testid="calendar-reset-confirm-submit"
-                variant="destructive"
-                onClick={confirmResetCalendar}
-              >
-                삭제
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        {/* 단일 일정 삭제 확인 다이얼로그 */}
-        <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-          <AlertDialogContent data-testid="calendar-confirm-delete-dialog">
-            <AlertDialogHeader>
-              <AlertDialogTitle>일정 삭제</AlertDialogTitle>
-              <AlertDialogDescription>
-                정말 삭제하시겠습니까? 되돌릴 수 없습니다.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel data-testid="calendar-confirm-delete-cancel">취소</AlertDialogCancel>
-              <AlertDialogAction
-                variant="destructive"
-                data-testid="calendar-confirm-delete-confirm"
-                onClick={confirmDelete}
-              >
-                삭제
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </MobileSidebarSheet>
+
+      {/* 일정 생성/편집 다이얼로그 */}
+      <EventDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        event={editing ?? undefined}
+        defaultStart={defaultStart}
+        onSubmit={submit}
+        onDelete={onDelete}
+        isPending={create.isPending || update.isPending}
+      />
+
+      {/* 캘린더 컨테이너 추가/편집 다이얼로그 */}
+      <CalendarEditDialog
+        open={calEditOpen}
+        onOpenChange={setCalEditOpen}
+        calendar={editingCal}
+        onSubmit={submitCalendar}
+        onDelete={deleteCalendar}
+        isPending={createCal.isPending || updateCal.isPending}
+      />
+
+      {/* 반복 회차 수정/삭제 시 적용 범위 선택 */}
+      {scopeMode && (
+        <RecurrenceScopeDialog
+          open={!!scopeMode}
+          mode={scopeMode}
+          onPick={onPickScope}
+          onCancel={cancelScope}
+        />
+      )}
+
+      {/* 캘린더 강제 리셋(모든 일정 삭제) 확인 다이얼로그 */}
+      <AlertDialog open={resettingCal != null} onOpenChange={(o) => !o && setResettingCal(null)}>
+        <AlertDialogContent data-testid="calendar-reset-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>모든 일정 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              {resettingCal?.name}의 모든 일정을 영구 삭제합니다. 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="calendar-reset-confirm-submit"
+              variant="destructive"
+              onClick={confirmResetCalendar}
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 단일 일정 삭제 확인 다이얼로그 */}
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent data-testid="calendar-confirm-delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>일정 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              정말 삭제하시겠습니까? 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="calendar-confirm-delete-cancel">취소</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              data-testid="calendar-confirm-delete-confirm"
+              onClick={confirmDelete}
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

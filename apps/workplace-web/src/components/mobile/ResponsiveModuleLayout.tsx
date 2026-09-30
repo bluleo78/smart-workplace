@@ -23,12 +23,12 @@ export function ResponsiveModuleLayout({
   sidebar: ReactNode
   rootPath: string
   title: string
-  /** 데스크톱 Outlet 래퍼 overflow — 모듈별 기존 값 보존(auto=overflow-y-auto, hidden=overflow-hidden, none=없음). */
-  scroll?: 'auto' | 'hidden' | 'none'
+  /** 데스크톱 Outlet 래퍼 overflow — 모듈별 기존 값 보존(auto=overflow-y-auto, none=없음). */
+  scroll?: 'auto' | 'none'
 }) {
   const isMobile = useIsMobile()
   const { pathname } = useLocation()
-  const outletClass = cn('min-w-0 flex-1', scroll === 'auto' && 'overflow-y-auto', scroll === 'hidden' && 'overflow-hidden')
+  const outletClass = cn('min-w-0 flex-1', scroll === 'auto' && 'overflow-y-auto')
 
   if (!isMobile) {
     return (

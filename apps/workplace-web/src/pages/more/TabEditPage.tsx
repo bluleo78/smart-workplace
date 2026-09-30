@@ -1,20 +1,17 @@
 // /more/tabs — 탭바 3칸 구성 편집(WP-126). AI(가운데)·더보기(끝)는 고정 표시만.
 // 드래그 대신 위/아래·추가/제거 버튼으로 편집한다(접근성·단순성). 모바일 전용.
 import { useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 
 import { useTabSlots } from '@/components/mobile/MobileChromeContext'
 import { MobileListHeader } from '@/components/mobile/MobileListHeader'
-import { useIsMobile } from '@/hooks/useIsMobile'
 import { ALL_TAB_IDS, MOBILE_TABS, type MobileTabId } from '@/lib/mobile/tabs'
 
 export default function TabEditPage() {
-  const isMobile = useIsMobile()
   const [saved, save] = useTabSlots()
   // 저장 전까지는 로컬 초안만 바꾼다(저장 시 탭바·localStorage 에 반영).
   const [draft, setDraft] = useState<MobileTabId[]>(saved)
   const navigate = useNavigate()
-  if (!isMobile) return <Navigate to="/" replace />
   const move = (i: number, d: -1 | 1) =>
     setDraft((s) => { const n = [...s]; [n[i], n[i + d]] = [n[i + d], n[i]]; return n })
   const candidates = ALL_TAB_IDS.filter((id) => !draft.includes(id))

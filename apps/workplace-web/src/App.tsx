@@ -13,7 +13,6 @@ import { useIsMobile } from './hooks/useIsMobile'
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const SignupPage = lazy(() => import('./pages/SignupPage'))
 const SsoCompletePage = lazy(() => import('./pages/SsoCompletePage'))
-const TasksHubPage = lazy(() => import('./pages/TasksHubPage').then((m) => ({ default: m.TasksHubPage })))
 const HomePage = lazy(() => import('./pages/HomePage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const UserListPage = lazy(() => import('./pages/admin/UserListPage'))
@@ -105,6 +104,11 @@ function DesktopOnly({ children }: { children: ReactNode }) {
   return useIsMobile() ? null : <>{children}</>
 }
 
+// 모바일 전용 화면(더보기·탭바 편집) 가드 — 데스크톱엔 해당 화면이 없으므로 홈으로 되돌린다(WP-126).
+function MobileOnly({ children }: { children: ReactNode }) {
+  return useIsMobile() ? <>{children}</> : <Navigate to="/" replace />
+}
+
 // 구 /admin/* 딥링크를 /settings/* 로 치환 리다이렉트(하위경로·쿼리 보존).
 function AdminRedirect() {
   const { pathname, search } = useLocation()
@@ -141,15 +145,16 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
               <Route index element={<HomePage />} />
-              {/* 모바일 전용 화면(WP-126) — 데스크톱 접근은 각 페이지에서 홈으로 되돌린다. */}
+              {/* 모바일 전용 화면(WP-126) — 알림은 데스크톱 접근 시 홈 + 인박스 Popover 로(페이지 자체 처리), 더보기류는 MobileOnly 가 홈으로. */}
               <Route path="notifications" element={<NotificationsPage />} />
-              <Route path="more" element={<MorePage />} />
-              <Route path="more/tabs" element={<TabEditPage />} />
+              <Route path="more" element={<MobileOnly><MorePage /></MobileOnly>} />
+              <Route path="more/tabs" element={<MobileOnly><TabEditPage /></MobileOnly>} />
 
               {/* 이슈 모듈 — 2차 사이드바(내 태스크 + 프로젝트 목록) 가 감싼다 */}
               <Route element={<IssueModuleLayout />}>
                 {/* 프로젝트 / 이슈 */}
-                <Route path="tasks" element={<TasksHubPage />} />
+                {/* /tasks — 작업 모듈 허브. 데스크톱은 기존 진입점으로, 모바일은 IssueModuleLayout 이 rootPath 에서 사이드바 목록을 그려 본문 불필요. */}
+                <Route path="tasks" element={<DesktopOnly><Navigate to="/me/tasks/assigned" replace /></DesktopOnly>} />
                 <Route path="projects" element={<ProjectListPage />} />
                 <Route path="projects/:key" element={<ProjectDetailPage />} />
                 <Route path="projects/:key/settings" element={<ProjectSettingsPage />} />
