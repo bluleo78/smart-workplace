@@ -225,7 +225,7 @@ export default function App() {
               </Route>
 
               {/* 호환 리다이렉트 — 구 경로 흡수 */}
-              <Route path="profile" element={<DesktopOnly><Navigate to="/settings/profile" replace /></DesktopOnly>} />
+              <Route path="profile" element={<Navigate to="/settings/profile" replace />} />
               <Route path="admin/*" element={<AdminRedirect />} />
             </Route>
           </Route>

@@ -52,3 +52,10 @@ test('드라이브: /drive 는 스페이스 목록을 보인다', async ({ authe
   await expect(page).toHaveURL(/\/drive$/)
   await expect(page.getByTestId('drive-sidebar')).toBeVisible()
 })
+
+test('호환 리다이렉트: /profile 은 모바일에서도 /settings/profile 로 이동해 본문을 보인다', async ({ authenticatedPage: page }) => {
+  await page.goto('/profile')
+  await expect(page).toHaveURL(/\/settings\/profile$/)
+  await expect(page.getByTestId('mobile-back')).toBeVisible()
+  await expect(page.locator('main, [data-mobile-scroll-root]').first()).not.toBeEmpty()
+})
