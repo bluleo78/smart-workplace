@@ -341,7 +341,8 @@ test.describe('이슈 chat panel', () => {
     const agentChip = page.getByTestId('chat-mention-chip-99');
     await expect(agentChip).toHaveText('@AI Agent');
     // #208: AGENT 멘션칩은 ai-accent 토큰(raw purple 회귀 방지).
-    await expect(agentChip).toHaveClass(/bg-ai-accent-subtle/);
+    // #884: 이 메시지는 본인 말풍선(bg-primary/10) 안이라 칩 배경은 bg-background (타인 메시지는 bg-ai-accent-subtle).
+    await expect(agentChip).toHaveClass(/bg-background/);
     await expect(agentChip).toHaveClass(/text-ai-accent/);
     await expect(agentChip).not.toHaveClass(/purple/);
   });
@@ -444,6 +445,108 @@ test.describe('이슈 chat panel', () => {
     const badge = row.getByTestId('agent-badge');
     await expect(badge).toHaveClass(/bg-ai-accent-subtle/);
     await expect(badge).toHaveClass(/text-ai-accent/);
+  });
+
+  test('본인 메시지는 우측 말풍선, 타인은 좌측 — 툴바는 말풍선 위·키보드 접근 가능 (#884)', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '좌우 분리' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    // 멘션 hydrate 용 멤버 — 에이전트(99)와 동료(20).
+    const members = [
+      ...stubs.thread.members,
+      createChatMember({ userId: 20, username: 'peer', name: '동료' }),
+    ];
+    stubs.thread = {
+      ...stubs.thread,
+      members,
+      recentMessages: [
+        createChatMessage({
+          id: 610,
+          threadId: THREAD_ID,
+          authorId: 20,
+          authorName: '동료',
+          authorKind: 'HUMAN',
+          body: '스테이징에서 메일 동기화 스케줄러가 3분 주기로 도는지 확인했습니다.',
+        }),
+        createChatMessage({
+          id: 611,
+          threadId: THREAD_ID,
+          authorId: ME_ID,
+          authorName: '테스트 사용자',
+          authorKind: 'HUMAN',
+          // 공백 없는 긴 문자열 포함 — ScrollArea 안에서 말풍선이 패널을 옆으로 넓히지 않는지 확인.
+          body: `확인했습니다 <@99> <@20> 참고: https://example.com/${'very-long-path-segment-'.repeat(12)}end`,
+          mentions: hydrateMentions('<@99> <@20>', members),
+        }),
+      ],
+    };
+    stubs.messages = stubs.thread.recentMessages;
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
+    await page.getByTestId('issue-chat-open').click();
+
+    // 본인: 우측 말풍선, 아바타·이름 없음.
+    const ownRow = page.getByTestId('chat-message-611');
+    await expect(ownRow).toHaveAttribute('data-own', 'true');
+    await expect(ownRow).toHaveClass(/justify-end/);
+    const ownBody = page.getByTestId('chat-message-body-611');
+    await expect(ownBody).toHaveClass(/rounded-2xl/);
+    await expect(ownBody).toHaveClass(/bg-primary\/10/);
+    await expect(ownRow.getByTestId(`chat-avatar-${ME_ID}`)).toHaveCount(0);
+    await expect(ownRow.getByText('테스트 사용자', { exact: true })).toHaveCount(0);
+
+    // 타인: 좌측, 아바타·이름 있음, 말풍선 없음.
+    const peerRow = page.getByTestId('chat-message-610');
+    await expect(peerRow).toHaveAttribute('data-own', 'false');
+    await expect(peerRow).not.toHaveClass(/justify-end/);
+    await expect(peerRow.getByTestId('chat-avatar-20')).toBeVisible();
+    await expect(peerRow.getByText('동료', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('chat-message-body-610')).not.toHaveClass(/rounded-2xl/);
+
+    // 본인 말풍선(bg-primary/10) 안에서 멘션 칩이 배경에 묻히지 않도록 칩은 bg-background 를 쓴다.
+    const agentChip = ownRow.getByTestId('chat-mention-chip-99');
+    await expect(agentChip).toHaveClass(/bg-background/);
+    await expect(agentChip).toHaveClass(/text-ai-accent/);
+    const humanChip = ownRow.getByTestId('chat-mention-chip-20');
+    await expect(humanChip).toHaveClass(/bg-background/);
+    await expect(humanChip).toHaveClass(/text-foreground/);
+
+    // 좌표: 본인 말풍선은 타인 본문보다 오른쪽에서 끝난다.
+    const ownBox = (await ownBody.boundingBox())!;
+    const peerBox = (await page.getByTestId('chat-message-body-610').boundingBox())!;
+    expect(ownBox.x).toBeGreaterThan(peerBox.x);
+
+    // 툴바: hover 전 opacity 0 이지만 tab 순서에는 있다 → 포커스만으로 드러난다.
+    const toolbar = page.getByTestId('chat-message-toolbar-611');
+    // 드로어를 여는 클릭 위치의 포인터가 행 위에 남아 hover 로 판정되지 않도록 치운다.
+    await page.mouse.move(0, 0);
+    await expect(toolbar).toHaveCSS('opacity', '0');
+    await page.getByTestId('chat-message-edit-611').focus();
+    await expect(toolbar).toHaveCSS('opacity', '1');
+
+    // 툴바는 말풍선 위에 있고 겹치지 않는다.
+    const toolbarBox = (await toolbar.boundingBox())!;
+    expect(toolbarBox.y + toolbarBox.height).toBeLessThanOrEqual(ownBox.y + 0.5);
+
+    // 타인 메시지에는 툴바가 없다(수정·삭제는 본인만).
+    await expect(page.getByTestId('chat-message-toolbar-610')).toHaveCount(0);
+
+    // 긴 URL 이 있어도 목록과 그 조상(ScrollArea 뷰포트 포함) 어디에도 가로 넘침이 없다.
+    const overflows = await page.getByTestId('chat-message-611').evaluate((el) => {
+      for (let n: Element | null = el; n; n = n.parentElement) {
+        if (n.scrollWidth > n.clientWidth + 1) return true;
+      }
+      return false;
+    });
+    expect(overflows).toBe(false);
   });
 
   test('본인 메시지 수정 + 삭제', async ({ authenticatedPage: page }) => {

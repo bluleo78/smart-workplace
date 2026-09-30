@@ -140,6 +140,8 @@ export function ChatMessageList({
                 <div ref={isLast ? (lastRef as unknown as React.Ref<HTMLDivElement>) : undefined}>
                   <ChatMessageRow
                     message={m}
+                    // canEdit 은 "작성자 본인" 과 같은 조건 — 정렬(우측 말풍선)에도 같은 값을 쓴다.
+                    isOwn={canEdit}
                     canEdit={canEdit}
                     isPending={isPending}
                     onEdit={onEdit}
