@@ -17,6 +17,7 @@ import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
+import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.dto.HomeProposalResponse;
 import com.workplace.home.outbound.AiAgentChatClient;
@@ -129,6 +130,57 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
   private void stubAssistant() {
     when(assistantResolver.resolve(anyLong()))
         .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
+  }
+
+  /** WP-54: 화면 컨텍스트를 ChatRequest.screenContext 로 1:1 전달하고, USER 메시지에는 query 만 저장한다. */
+  @Test
+  void 화면_컨텍스트를_ChatRequest_로_전달하고_USER_메시지에는_저장하지_않는다() throws Exception {
+    long uid = seedAgent("fwd-screen-ctx");
+    stubAssistant();
+
+    CountDownLatch latch = new CountDownLatch(1);
+    var reqCaptor = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
+    doAnswer(
+            inv -> {
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("처리했어요", null);
+              latch.countDown();
+              return null;
+            })
+        .when(chatClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+
+    AiScreenContext ctx =
+        new AiScreenContext(
+            "이슈 상세",
+            new AiScreenContext.Focus(
+                "이슈",
+                "WP-12 버그",
+                Map.of("issueKey", "WP-12"),
+                List.of(new AiScreenContext.Fact("상태", "진행 중"))),
+            null);
+    serviceCapturing(new ArrayList<>()).startChat(uid, null, "이거 요약", ctx);
+
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+    org.mockito.Mockito.verify(chatClient)
+        .composeStream(reqCaptor.capture(), any(), any(), any(), any(), any(), any());
+    assertThat(reqCaptor.getValue().screenContext()).isEqualTo(ctx);
+
+    // USER 메시지는 query 원문만(컨텍스트 비저장).
+    UUID sid = sessionService.list(uid, null, 10).items().get(0).id();
+    assertThat(sessionService.getMessages(uid, sid))
+        .filteredOn(m -> "USER".equals(m.role()))
+        .extracting(HomeMessageResponse::content)
+        .containsExactly("이거 요약");
+  }
+
+  /** WP-54: NON_NULL — 빈 선택 필드는 직렬화에서 생략된다. */
+  @Test
+  void 화면_컨텍스트_직렬화는_null_필드를_생략한다() throws Exception {
+    AiScreenContext ctx =
+        new AiScreenContext("캘린더", null, new AiScreenContext.Scope("주 보기", null, null, 3, null));
+    String json = objectMapper.writeValueAsString(ctx);
+    assertThat(json).isEqualTo("{\"view\":\"캘린더\",\"scope\":{\"label\":\"주 보기\",\"count\":3}}");
   }
 
   /**

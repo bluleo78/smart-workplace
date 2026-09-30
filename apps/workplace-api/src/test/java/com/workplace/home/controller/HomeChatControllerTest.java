@@ -1,5 +1,7 @@
 package com.workplace.home.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
@@ -18,6 +20,7 @@ import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
+import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.service.HomeChatService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
@@ -67,7 +70,7 @@ class HomeChatControllerTest {
 
   @Test
   void chat_시작하면_correlationId_즉시_반환() throws Exception {
-    when(chatService.startChat(eq(1L), isNull(), eq("내 할 일"))).thenReturn("corr-1");
+    when(chatService.startChat(eq(1L), isNull(), eq("내 할 일"), isNull())).thenReturn("corr-1");
 
     mockMvc
         .perform(
@@ -77,6 +80,66 @@ class HomeChatControllerTest {
                 .content("{\"query\":\"내 할 일\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.correlationId").value("corr-1"));
+  }
+
+  /** WP-54: 화면 컨텍스트가 역직렬화돼 서비스로 전달된다. */
+  @Test
+  void chat_화면_컨텍스트를_서비스로_전달한다() throws Exception {
+    when(chatService.startChat(eq(1L), isNull(), eq("이거 요약"), any())).thenReturn("corr-2");
+    String body =
+        """
+        {"query":"이거 요약","screenContext":{"view":"이슈 상세",
+          "focus":{"type":"이슈","label":"WP-12 버그","refs":{"issueKey":"WP-12"},
+                   "facts":[{"label":"상태","value":"진행 중"}]},
+          "scope":{"label":"프로젝트 WP","refs":{"projectKey":"WP"},"count":3,"hasMore":false}}}
+        """;
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isOk());
+    var captor = org.mockito.ArgumentCaptor.forClass(AiScreenContext.class);
+    verify(chatService).startChat(eq(1L), isNull(), eq("이거 요약"), captor.capture());
+    assertThat(captor.getValue().focus().refs()).containsEntry("issueKey", "WP-12");
+    assertThat(captor.getValue().scope().count()).isEqualTo(3);
+  }
+
+  /** WP-54: 상한 초과(label 201자)는 400. */
+  @Test
+  void chat_화면_컨텍스트_상한_초과는_400() throws Exception {
+    String longLabel = "x".repeat(201);
+    String body =
+        "{\"query\":\"q\",\"screenContext\":{\"view\":\"v\",\"scope\":{\"label\":\""
+            + longLabel
+            + "\"}}}";
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest());
+  }
+
+  /** WP-54: refs 6개(상한 5) · view 누락은 400. */
+  @Test
+  void chat_화면_컨텍스트_refs_초과_view_누락은_400() throws Exception {
+    String refs6 = "{\"a\":\"1\",\"b\":\"1\",\"c\":\"1\",\"d\":\"1\",\"e\":\"1\",\"f\":\"1\"}";
+    for (String ctx :
+        new String[] {
+          "{\"view\":\"v\",\"focus\":{\"type\":\"t\",\"label\":\"l\",\"refs\":" + refs6 + "}}",
+          "{\"scope\":{\"label\":\"l\"}}"
+        }) {
+      mockMvc
+          .perform(
+              post("/api/v1/ai/chat")
+                  .header("Authorization", "Bearer v")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"query\":\"q\",\"screenContext\":" + ctx + "}"))
+          .andExpect(status().isBadRequest());
+    }
   }
 
   @Test
