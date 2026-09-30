@@ -1,5 +1,7 @@
 package com.workplace.messaging.service;
 
+import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AssistantSpec;
 import com.workplace.messaging.dto.ChannelCatchupResponse;
 import com.workplace.messaging.dto.ChannelCatchupResponse.MentionItem;
 import com.workplace.messaging.dto.ChannelCatchupResponse.SummaryGroup;
@@ -28,16 +30,18 @@ public class ChannelCatchupService {
   /** 요약 입력 미읽음 상한(비용·프롬프트 길이). */
   private static final int CATCHUP_LIMIT = 200;
 
-  /** 기존 MessagingAttentionService 와 동일한 워크스페이스 비서 에이전트. */
-  private static final long ASSISTANT_AGENT_ID = 2L;
-
-  private static final String CATCHUP_MODEL = "claude-sonnet-5-5";
   private static final int SNIPPET_MAX = 140;
+
+  /** 캐치업 요약 1회 호출 예산 — 비서 설정(대화형 compose 기준)과 무관한 요약 전용 값. */
+  private static final int CATCHUP_MAX_TURNS = 3;
+
+  private static final long CATCHUP_TIMEOUT_MS = 60_000L;
 
   private final MessageRepository messageRepo;
   private final ChannelMemberRepository memberRepo;
   private final AiAgentCatchupClient catchupClient;
   private final CatchupSummaryCache cache;
+  private final AssistantResolver assistantResolver;
 
   @Transactional(readOnly = true)
   public ChannelCatchupResponse summarize(long callerId, long channelId, long since) {
@@ -68,15 +72,22 @@ public class ChannelCatchupService {
     // AI 요약 — 캐시 (channelId, since, maxId).
     CatchupSummarizeResult ai = cache.get(channelId, since, maxId);
     if (ai == null) {
+      // caller 의 비서(개인 → 공용, 토큰 보유)로 요약한다. 예전엔 id 2 를 하드코딩해 운영에서 HUMAN 계정을 가리켜
+      // 토큰 발급 400 → 매 진입 502 였다(WP-110). 비서가 없으면 AI 요약만 생략하고 "내 차례" 는 그대로 준다.
+      // 캐시 키는 caller 무관(채널 단위) — 모든 멤버가 같은 메시지를 보므로 첫 요청자 비서의 요약을 공유한다.
+      AssistantSpec spec = assistantResolver.resolveOrEmpty(callerId).orElse(null);
+      if (spec == null) {
+        return new ChannelCatchupResponse(unread.size(), List.of(), yourTurn, List.of());
+      }
       var req =
           new CatchupSummarizeRequest(
               unread.stream()
                   .map(m -> new CatchupSummarizeRequest.Msg(m.id(), m.authorName(), m.body()))
                   .toList(),
-              ASSISTANT_AGENT_ID,
-              CATCHUP_MODEL,
-              3,
-              60_000L);
+              spec.agentUserId(),
+              spec.model(),
+              CATCHUP_MAX_TURNS,
+              CATCHUP_TIMEOUT_MS);
       ai = catchupClient.summarize(req);
       cache.put(channelId, since, maxId, ai);
     }

@@ -1,5 +1,7 @@
 package com.workplace.messaging.service;
 
+import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AssistantSpec;
 import com.workplace.messaging.outbound.AiAgentMessagingClient;
 import com.workplace.messaging.outbound.dto.MessagingClassifyRequest;
 import com.workplace.messaging.repository.ChannelMemberRepository;
@@ -34,15 +36,18 @@ public class MessagingAttentionService {
   private final ConversationAttentionRepository attnRepo;
   private final MessagingClassifyWatermarkRepository wmRepo;
   private final AiAgentMessagingClient aiClient;
+  private final AssistantResolver assistantResolver;
 
   /** 한 배치에서 가져올 최대 메시지 수. */
   private static final int BATCH_LIMIT = 30;
 
-  /** ai-agent 어시스턴트 기본 ID (메일과 동일). */
-  private static final long ASSISTANT_AGENT_ID = 2L;
-
-  /** 분류에 사용할 haiku 모델. */
+  /** 분류에 사용할 haiku 모델 — 비용 깔때기 설계상 비서 설정 모델이 아닌 고정값. */
   private static final String CLASSIFY_MODEL = "claude-haiku-4-5-20251001";
+
+  /** 분류 1회 호출 예산 — 비서 설정(대화형 compose 기준)과 무관한 분류 전용 값. */
+  private static final int CLASSIFY_MAX_TURNS = 4;
+
+  private static final long CLASSIFY_TIMEOUT_MS = 30_000L;
 
   /**
    * 비동기 진입점 — @Async 스레드에서 새 트랜잭션을 열어 tenant GUC 를 주입한다. (작성자 스레드 컨텍스트에 의존하지 않음 — fail-safe RLS).
@@ -117,6 +122,14 @@ public class MessagingAttentionService {
       return;
     }
 
+    // 채널 단위 작업이라 공용 비서(토큰 보유)로 호출한다. 예전엔 id 2 하드코딩이라 운영에서 HUMAN 을 가리켰다(WP-110).
+    // 비서가 없으면 이름필터 skip 과 같이 watermark 만 전진 — 설정 후 과거 배치를 몰아 재분류하지 않는다.
+    AssistantSpec spec = assistantResolver.resolveWorkspaceOrEmpty().orElse(null);
+    if (spec == null) {
+      wmRepo.advance(channelId, newWatermark);
+      return;
+    }
+
     // ⑤ AI 호출 1회 — 배치 메시지 + 멤버 목록을 haiku 에 전달.
     var req =
         new MessagingClassifyRequest(
@@ -126,10 +139,10 @@ public class MessagingAttentionService {
             members.stream()
                 .map(m -> new MessagingClassifyRequest.Member(m.userId(), m.name()))
                 .toList(),
-            ASSISTANT_AGENT_ID,
+            spec.agentUserId(),
             CLASSIFY_MODEL,
-            4,
-            30_000L);
+            CLASSIFY_MAX_TURNS,
+            CLASSIFY_TIMEOUT_MS);
     log.info("messaging-classify 호출 channel={} batch={}", channelId, batch.size());
     var res = aiClient.classify(req);
 

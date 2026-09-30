@@ -8,7 +8,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AssistantSpec;
 import com.workplace.messaging.outbound.AiAgentMessagingClient;
+import com.workplace.messaging.outbound.dto.MessagingClassifyRequest;
 import com.workplace.messaging.outbound.dto.MessagingClassifyResult;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
@@ -18,10 +21,12 @@ import com.workplace.messaging.repository.MessagingClassifyWatermarkRepository;
 import com.workplace.messaging.service.MessagingAttentionService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +40,7 @@ class MessagingAttentionServiceTest extends IntegrationTestBase {
 
   @Autowired MessagingAttentionService svc;
   @MockBean AiAgentMessagingClient aiClient;
+  @MockBean AssistantResolver assistantResolver;
   @Autowired ConversationAttentionRepository attnRepo;
   @Autowired MessagingClassifyWatermarkRepository wmRepo;
   @Autowired MessageRepository messageRepo;
@@ -46,6 +52,9 @@ class MessagingAttentionServiceTest extends IntegrationTestBase {
   @BeforeEach
   void tenant() {
     dsl.execute("set app.tenant_id='1'");
+    // 공용 비서가 설정된 상태를 기본으로 — 하드코딩 id(2) 대신 이 id 가 요청에 실려야 한다(WP-110).
+    when(assistantResolver.resolveWorkspaceOrEmpty())
+        .thenReturn(Optional.of(new AssistantSpec(777L, "test-model", "NORMAL", 8, 60_000)));
   }
 
   /** 채널을 PUBLIC 으로 생성하고, 주어진 이름의 멤버를 추가한 뒤 채널 ID 반환. 멤버 이름은 USER.NAME 필드에 저장된다(이름 프리필터 매핑 기준). */
@@ -146,5 +155,34 @@ class MessagingAttentionServiceTest extends IntegrationTestBase {
     assertThat(wmRepo.get(ch)).isEqualTo(mid); // 결과 없어도 watermark 전진
     svc.onChannelMessageSync(ch);
     verify(aiClient, times(1)).classify(any()); // 재분류 안 함
+  }
+
+  @Test
+  void classify_요청은_공용_비서_id로_보내고_모델은_haiku_유지() {
+    long ch = seedChannelWithMembers(List.of("양동희"));
+    seedMessage(ch, "김PM", "동희 확인?", List.of());
+    when(aiClient.classify(any())).thenReturn(new MessagingClassifyResult(List.of()));
+
+    svc.onChannelMessageSync(ch);
+
+    ArgumentCaptor<MessagingClassifyRequest> req =
+        ArgumentCaptor.forClass(MessagingClassifyRequest.class);
+    verify(aiClient).classify(req.capture());
+    assertThat(req.getValue().assistantAgentId()).isEqualTo(777L);
+    // 비용 깔때기 설계상 분류는 비서 설정 모델이 아닌 haiku 고정.
+    assertThat(req.getValue().model()).startsWith("claude-haiku");
+  }
+
+  @Test
+  void 공용_비서가_없으면_AI_미호출_watermark_전진() {
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+    long ch = seedChannelWithMembers(List.of("양동희"));
+    long mid = seedMessage(ch, "김PM", "동희 봤어?", List.of());
+
+    svc.onChannelMessageSync(ch);
+
+    verifyNoInteractions(aiClient);
+    // 이름필터 skip 과 동일하게 전진 — 비서 설정 후 과거 배치를 몰아 재분류하지 않는다.
+    assertThat(wmRepo.get(ch)).isEqualTo(mid);
   }
 }

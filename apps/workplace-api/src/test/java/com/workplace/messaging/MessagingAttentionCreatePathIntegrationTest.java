@@ -9,6 +9,8 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.outbound.AiAgentMessagingClient;
@@ -21,6 +23,7 @@ import com.workplace.support.IntegrationTestBase;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -56,6 +59,8 @@ class MessagingAttentionCreatePathIntegrationTest extends IntegrationTestBase {
 
   /** ai-agent 분류 호출을 모킹 — relevant 반환으로 conversation_attention 기록을 강제. */
   @MockBean AiAgentMessagingClient aiClient;
+
+  @MockBean AssistantResolver assistantResolver;
 
   private final List<Long> createdChannelIds = new ArrayList<>();
   private final List<Long> createdUserIds = new ArrayList<>();
@@ -112,6 +117,9 @@ class MessagingAttentionCreatePathIntegrationTest extends IntegrationTestBase {
     memberRepo.add(channelId, owner, "MEMBER");
     memberRepo.add(channelId, author, "MEMBER");
 
+    // 공용 비서가 설정된 상태(WP-110 — 하드코딩 id 대신 해석).
+    when(assistantResolver.resolveWorkspaceOrEmpty())
+        .thenReturn(Optional.of(new AssistantSpec(777L, "test-model", "NORMAL", 8, 60_000)));
     // 분류는 owner(양동희)를 relevant 로 반환하도록 모킹 — 이름 토큰("동희")이 본문에 등장해 프리필터 통과.
     when(aiClient.classify(any()))
         .thenReturn(
