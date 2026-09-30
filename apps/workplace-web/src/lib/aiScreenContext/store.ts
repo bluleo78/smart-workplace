@@ -13,17 +13,20 @@ export interface ScreenContextStore {
 }
 
 export function createScreenContextStore(): ScreenContextStore {
-  const entries = new Map<symbol, AiScreenContext>();
+  // 등록자별 { 컨텍스트, 직렬화 키 } — 비교용 JSON 은 등록 시 한 번만 만든다.
+  const entries = new Map<symbol, { ctx: AiScreenContext; key: string }>();
   let current: AiScreenContext | null = null;
   let currentKey: string | null = null;
   const listeners = new Set<() => void>();
 
-  // 가장 최근 등록 항목을 현재 값으로 재계산 — 내용이 같으면 참조·알림 유지.
+  // 가장 최근 등록 항목을 현재 값으로 재계산 — 내용(키)이 같으면 참조·알림 유지.
+  // Map 은 삽입 순서를 보장하므로 마지막으로 순회된 항목이 최신 — 배열 복사 없이 찾는다.
   const recompute = () => {
-    const last = [...entries.values()].pop() ?? null;
-    const key = last ? JSON.stringify(last) : null;
+    let last: { ctx: AiScreenContext; key: string } | null = null;
+    for (const entry of entries.values()) last = entry;
+    const key = last?.key ?? null;
     if (key === currentKey) return;
-    current = last;
+    current = last?.ctx ?? null;
     currentKey = key;
     listeners.forEach((fn) => fn());
   };
@@ -33,11 +36,11 @@ export function createScreenContextStore(): ScreenContextStore {
       if (!ctx) {
         entries.delete(token);
       } else {
-        const prev = entries.get(token);
+        const key = JSON.stringify(ctx);
         // 같은 토큰의 동일 내용 재등록은 순서를 바꾸지 않는다(다른 등록자보다 앞질러 가지 않게).
-        if (prev && JSON.stringify(prev) === JSON.stringify(ctx)) return;
+        if (entries.get(token)?.key === key) return;
         entries.delete(token); // 새 값은 "가장 최근" 으로 이동
-        entries.set(token, ctx);
+        entries.set(token, { ctx, key });
       }
       recompute();
     },

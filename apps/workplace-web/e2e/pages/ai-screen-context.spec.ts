@@ -19,8 +19,11 @@ import {
 } from '../factories/contacts.factory'
 import type { AiScreenContext } from '../../src/types/aiScreenContext'
 
+// 목 헬퍼들이 받는 Playwright Page 타입.
+type Page = Parameters<typeof mockApi>[0]
+
 // 전송 body 를 순서대로 모은다.
-async function captureChat(page: Parameters<typeof mockHomeChatGeneration>[0]) {
+async function captureChat(page: Page) {
   const bodies: { query: string; screenContext?: AiScreenContext }[] = []
   await mockHomeChatGeneration(page, {
     onStart: (b) => bodies.push(b),
@@ -30,7 +33,7 @@ async function captureChat(page: Parameters<typeof mockHomeChatGeneration>[0]) {
 }
 
 // 이슈 상세 화면 목 — projects.spec.ts 의 이슈 상세 단계와 같은 목 집합.
-async function mockIssueDetail(page: Parameters<typeof mockApi>[0]) {
+async function mockIssueDetail(page: Page) {
   await mockApi(page, 'GET', '/api/v1/projects/WP', createProject())
   await mockApi(
     page, 'GET', '/api/v1/projects/WP/issues/12',
@@ -369,7 +372,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
     id: 42, title: '주간회의', location: '3층',
     startsAt: startsAt.toISOString(), endsAt: new Date(startsAt.getTime() + 3600_000).toISOString(),
   })
-  async function mockCalendar(page: Parameters<typeof mockApi>[0]) {
+  async function mockCalendar(page: Page) {
     await mockApi(page, 'GET', '/api/v1/calendars', [calendar()])
     await mockApi(page, 'GET', '/api/v1/calendar/events', [ev])
     await mockApi(page, 'GET', '/api/v1/calendar/events/42', ev)
@@ -626,7 +629,7 @@ test.describe('AI 채팅 — 드라이브 미리보기 모달 위 입력', () =>
     id: 80, folderId: null, fileId: 300, name: 'notes.txt', mimeType: 'text/plain',
     sizeBytes: 12, category: 'TEXT', createdAt: '2026-01-01T00:00:00Z',
   }
-  async function mockDrive(page: Parameters<typeof mockApi>[0]) {
+  async function mockDrive(page: Page) {
     await mockApi(page, 'GET', '/api/v1/drive/spaces', [
       { id: 1, type: 'PERSONAL', name: '내 드라이브', ownerId: 1, role: 'OWNER', archived: false, createdAt: '2026-06-01T00:00:00Z' },
     ])
@@ -663,7 +666,7 @@ test.describe('AI 채팅 — 드라이브 미리보기 모달 위 입력', () =>
 })
 
 // 위키 화면 목 — 스페이스 목록·트리·페이지 상세·백링크·멘션 (e2e/pages/wiki/wiki-header.spec.ts 와 같은 집합).
-async function mockWiki(page: Parameters<typeof mockApi>[0]) {
+async function mockWiki(page: Page) {
   await mockApi(page, 'GET', '/api/v1/wiki/spaces', [wikiSpace({ id: 2, name: '개발' })])
   await mockApi(page, 'GET', '/api/v1/wiki/spaces/2/pages', [wikiPageSummary({ id: 10, title: '배포 가이드' })])
   await mockApi(page, 'GET', '/api/v1/wiki/pages/10/backlinks', [])
@@ -696,7 +699,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 위키', () => {
 })
 
 // 채팅 화면 공통 목(사이드바 채널·DM 목록). /api/v1/events 는 captureChat 이 처리한다.
-async function mockChatSidebar(page: Parameters<typeof mockApi>[0], channels: ReturnType<typeof createChannel>[], dms: ReturnType<typeof createDm>[]) {
+async function mockChatSidebar(page: Page, channels: ReturnType<typeof createChannel>[], dms: ReturnType<typeof createDm>[]) {
   await mockApi(page, 'GET', '/api/v1/messaging/channels', channels)
   await mockApi(page, 'GET', '/api/v1/messaging/dms', dms)
   await mockApi(page, 'GET', '/api/v1/messaging/threads/inbox/unread-count', { count: 0 })
@@ -784,7 +787,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 채팅', () => {
 })
 
 // 드라이브 화면 목 — 스페이스 4('팀 드라이브'), 폴더 11(경로 기획/2026), 파일 drive_file id=300 (core fileId=999 와 구분).
-async function mockDriveScreen(page: Parameters<typeof mockApi>[0], opts: { folderId: number | null; pathFails?: boolean }) {
+async function mockDriveScreen(page: Page, opts: { folderId: number | null; pathFails?: boolean }) {
   const FILE = createFile({
     id: 300, fileId: 999, name: '회의록.txt', mimeType: 'text/plain', sizeBytes: 2048,
     folderId: opts.folderId, updatedAt: '2026-09-29T00:00:00Z',
@@ -872,7 +875,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 드라이브', () => {
 })
 
 // 연락처 화면 목 — 통합 목록(외부 김철수 55 + 구성원 김멤버 1)·상세·사이드바용 facets/그룹 트리.
-async function mockContactsScreen(page: Parameters<typeof mockApi>[0]) {
+async function mockContactsScreen(page: Page) {
   const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
   await page.route(
     (url) => url.pathname === '/api/v1/contacts',

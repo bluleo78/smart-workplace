@@ -2,7 +2,7 @@
 // AI 어시스턴트 공유 채팅 본문 — 세션 스위처 헤더 + 메시지 이력 + 입력바.
 // side(AISidePanel) / fullscreen(AIFullscreen) 모두 재사용. 컨테이너(폭/포지션)는 호출측 책임.
 import { ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square, Trash2 } from 'lucide-react';
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ActionResultLine } from '@/components/ai/ActionResultLine';
 import { AiLabel } from '@/components/ai/AiLabel';
@@ -91,7 +91,8 @@ export function AIChatPanel({
   // WP-54: 현재 화면 컨텍스트 + 칩 × 상태. × 는 그 시점 화면 정체성(contextIdentity)을 기억해 다음 1회 전송만 뺀다.
   // 정체성은 건수·facts 같은 휘발 값을 제외하므로, 같은 화면에서 목록 건수가 바뀌어도 × 가 유지된다.
   const screenContext = useAiScreenContext();
-  const screenIdentity = contextIdentity(screenContext);
+  // store 는 내용이 바뀔 때만 새 참조를 주므로 참조 기준 메모로 매 렌더 직렬화를 피한다.
+  const screenIdentity = useMemo(() => contextIdentity(screenContext), [screenContext]);
   const [suppressedIdentity, setSuppressedIdentity] = useState<string | null>(null);
   // 다른 화면으로 바뀌면 × 상태를 해제 — A 에서 × → B → 다시 A 로 와도 칩이 복원되게.
   // effect 대신 렌더 중 조정("prop 변화 시 state 조정" 패턴)이라 칩이 한 프레임 깜빡이지 않는다.

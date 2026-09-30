@@ -111,10 +111,10 @@ export function useAiPanelAwareDialog({ open, size = 'default' }: Options): Resu
   // 닫힘 자동 포커스: 이 콜백이 렌더될 때의 modal 과 지금 modal 이 다르면 "닫힘"이 아니라 모드 전환에 따른
   // Content 교체다 → 포커스 복원을 막는다(안 막으면 패널 입력창의 포커스를 트리거가 뺏는다).
   // 실제 닫힘이면 세션 첫 열림 때 캡처한 요소로 포커스를 돌려준다(shadcn 래퍼와 같은 규칙, 교체에도 안전).
-  const renderedModal = modal;
+  // (클로저의 modal 은 이 콜백이 만들어진 렌더 시점 값, modalRef.current 는 지금 값이다.)
   const onCloseAutoFocus = useCallback(
     (e: Event) => {
-      if (renderedModal !== modalRef.current) {
+      if (modal !== modalRef.current) {
         e.preventDefault();
         return;
       }
@@ -126,7 +126,7 @@ export function useAiPanelAwareDialog({ open, size = 'default' }: Options): Resu
         target.focus();
       }
     },
-    [renderedModal],
+    [modal],
   );
 
   return {

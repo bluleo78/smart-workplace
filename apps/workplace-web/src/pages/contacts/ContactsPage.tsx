@@ -1,5 +1,5 @@
 import { Star } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
@@ -90,8 +90,11 @@ function useContactsScreenContext(input: {
   const { q, type, organization, title, groupId, selected, items, listLoaded, hasMore } = input
   const detail = useContactDetail(selected).data
   const tree = useUserGroups().data
-  const groupName =
-    groupId != null && tree ? (findNode([...tree.shared, ...tree.personal], groupId)?.name ?? null) : null
+  // 그룹 트리 전체 탐색은 트리·그룹이 바뀔 때만 — 목록 로드·선택 변경 렌더마다 반복하지 않는다.
+  const groupName = useMemo(
+    () => (groupId != null && tree ? (findNode([...tree.shared, ...tree.personal], groupId)?.name ?? null) : null),
+    [tree, groupId],
+  )
   const row = selected ? items.find((c) => c.type === selected.type && c.id === selected.id) : undefined
   // 그룹 뷰에서는 통합 목록 행이 없으므로 상세 응답으로 이름·부가정보를 채운다. 둘 다 없으면 focus 를 만들지 않는다.
   const ext = selected?.type === 'EXTERNAL' ? (detail as { organization?: string | null } | undefined) : undefined

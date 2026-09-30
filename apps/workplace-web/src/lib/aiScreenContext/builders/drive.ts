@@ -1,20 +1,10 @@
 // 드라이브 화면 컨텍스트 builder(WP-54). 파일은 drive_file id(driveFileId) — core fileId 는 보내지 않는다.
 // 폴더는 list_drive_items 인자명 parentId 로 보낸다.
+// 파일 크기는 드라이브 화면과 같은 포매터(formatFileSize)로 — 사용자와 AI 가 같은 표기를 본다.
+import { formatFileSize } from '@/lib/formatters';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
 import { buildFacts, buildRefs, clip, fmtKst, LIMITS } from '../common';
-
-// 바이트 → 사람이 읽는 크기(1024 기준, 소수 1자리).
-function humanSize(bytes: number): string {
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let v = bytes;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return i === 0 ? `${v} B` : `${v.toFixed(1)} ${units[i]}`;
-}
 
 /** 드라이브 화면 — 스페이스/폴더 scope + (미리보기가 열린 경우) 파일 focus.
  *  folderCount/fileCount 는 목록 조회 전이면 null — 미로드 값은 보내지 않는다(항목 fact 생략). */
@@ -46,7 +36,7 @@ export function buildDriveContext(input: {
       type: '파일',
       label: clip(p.name, LIMITS.label),
       refs: buildRefs({ driveFileId: p.id }),
-      facts: buildFacts([['크기', p.size != null ? humanSize(p.size) : null], ['수정', p.updatedAt ? fmtKst(p.updatedAt) : null]]),
+      facts: buildFacts([['크기', p.size != null ? formatFileSize(p.size) : null], ['수정', p.updatedAt ? fmtKst(p.updatedAt) : null]]),
     };
   }
   return ctx;

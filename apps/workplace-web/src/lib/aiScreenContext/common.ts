@@ -59,6 +59,20 @@ export function buildRefs(obj: Record<string, string | number | null | undefined
   return out;
 }
 
+/**
+ * 목록 상태(건수·추가 로드 여부)를 scope 에 덧붙인다 — 값이 있는(!= null) 키만 싣는다.
+ * 조회 전 미로드 값(undefined)을 0건·끝으로 오인시키지 않도록 키 자체를 생략하기 위함.
+ */
+export function withListState<T extends object>(
+  scope: T,
+  s: { count?: number; hasMore?: boolean },
+): T & { count?: number; hasMore?: boolean } {
+  const out: T & { count?: number; hasMore?: boolean } = { ...scope };
+  if (s.count != null) out.count = s.count;
+  if (s.hasMore != null) out.hasMore = s.hasMore;
+  return out;
+}
+
 const KST_DATE = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
 const KST_TIME = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 

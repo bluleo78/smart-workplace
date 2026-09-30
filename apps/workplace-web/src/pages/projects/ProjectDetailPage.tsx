@@ -133,7 +133,12 @@ function IssueArea({
     setPrevListIdentity(listIdentity);
     setLoaded(null);
   }
-  const onLoadedChange = useCallback((count: number, hasMore: boolean) => setLoaded({ count, hasMore }), []);
+  // 값이 같으면 이전 상태를 그대로 돌려 리렌더·컨텍스트 재계산을 건너뛴다(리스트가 data 변경마다 보고하므로).
+  const onLoadedChange = useCallback(
+    (count: number, hasMore: boolean) =>
+      setLoaded((prev) => (prev && prev.count === count && prev.hasMore === hasMore ? prev : { count, hasMore })),
+    [],
+  );
   const listLoaded = view === 'board' || groupBy === 'cycle' ? null : loaded;
   const screenContext = useMemo(
     () =>

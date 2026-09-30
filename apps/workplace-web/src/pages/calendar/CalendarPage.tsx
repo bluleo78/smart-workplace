@@ -33,6 +33,7 @@ import { useCalendars, useCreateCalendar, useDeleteCalendar, useResetCalendarEve
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { buildCalendarContext } from '@/lib/aiScreenContext/builders/calendar'
 import {
+  CALENDAR_VIEWS,
   type CalendarLayers,
   eventsOnDay,
   isCalendarVisible,
@@ -53,13 +54,6 @@ import type {
   IssueDueMarker,
 } from '@/types/calendar'
 
-// 뷰 전환 탭 목록 — key 는 CalendarViewType 과 대응
-const VIEWS: { key: CalendarViewType; label: string }[] = [
-  { key: 'month', label: '월' },
-  { key: 'week', label: '주' },
-  { key: 'day', label: '일' },
-  { key: 'agenda', label: '목록' },
-]
 
 /** 캘린더 페이지 — 뷰 전환·날짜 네비·일정 CRUD + 캘린더 컨테이너 CRUD + 필터를 통합 관리. */
 export function CalendarPage() {
@@ -391,7 +385,7 @@ export function CalendarPage() {
             </div>
           }
           title={<span data-testid="calendar-title">{format(anchor, 'yyyy년 M월')}</span>}
-          actions={VIEWS.map((v) => (
+          actions={CALENDAR_VIEWS.map((v) => (
             <Button
               key={v.key}
               size="sm"

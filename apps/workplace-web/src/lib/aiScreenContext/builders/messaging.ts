@@ -1,7 +1,7 @@
 // 채팅 화면 컨텍스트 builder(WP-54). DM 도 channelId(get_channel_messages 인자). 스레드는 루트 메시지 id(get_thread_replies 인자).
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
-import { buildFacts, buildRefs, clip, LIMITS } from '../common';
+import { buildFacts, buildRefs, clip, LIMITS, withListState } from '../common';
 
 /** 채널 화면 — 채널 scope + (열린 경우) 스레드 focus. */
 export function buildChannelContext(input: {
@@ -42,5 +42,5 @@ export function buildDmContext(input: { channelId: number; participantNames: str
 
 /** 스레드 모아보기 — 로드된 스레드 수(count)와 추가 페이지 여부. */
 export function buildThreadsInboxContext(input: { count: number; hasMore: boolean }): AiScreenContext {
-  return { view: '스레드 모아보기', scope: { label: '내 스레드 모아보기', count: input.count, hasMore: input.hasMore } };
+  return { view: '스레드 모아보기', scope: withListState({ label: '내 스레드 모아보기' }, input) };
 }

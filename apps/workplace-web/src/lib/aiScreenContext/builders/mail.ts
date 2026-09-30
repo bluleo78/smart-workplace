@@ -1,7 +1,7 @@
 // 메일함 화면 컨텍스트 builder(WP-54). messageId 는 숫자 id(get_mail 인자) — RFC Message-ID 문자열이 아니다.
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
-import { buildFacts, buildRefs, clip, fmtKst, LIMITS } from '../common';
+import { buildFacts, buildRefs, clip, fmtKst, LIMITS, withListState } from '../common';
 
 /** 메일함 화면 입력 — 선택된 메일은 목록 행 요약에서 뽑은 값. */
 export interface MailContextInput {
@@ -27,13 +27,14 @@ export interface MailContextInput {
 /** 메일함 화면 → AI 화면 컨텍스트. scope=계정·폴더·필터, focus=열린 메일. */
 export function buildMailContext(input: MailContextInput): AiScreenContext {
   const folderLabel = input.folder === 'SENT' ? '보낸편지함' : '받은편지함';
-  const scope: NonNullable<AiScreenContext['scope']> = {
-    label: clip(input.accountEmail ? `${input.accountEmail} · ${folderLabel}` : folderLabel, LIMITS.label),
-    refs: buildRefs({ accountId: input.accountId, folder: input.folder }),
-  };
-  const facts = buildFacts([['검색어', input.q], ['분류', input.category], ['답장 필요만', input.needsReply]]);
-  if (facts) scope.facts = facts;
-  if (input.count != null) scope.count = input.count;
+  const scope = withListState(
+    {
+      label: clip(input.accountEmail ? `${input.accountEmail} · ${folderLabel}` : folderLabel, LIMITS.label),
+      refs: buildRefs({ accountId: input.accountId, folder: input.folder }),
+      facts: buildFacts([['검색어', input.q], ['분류', input.category], ['답장 필요만', input.needsReply]]),
+    },
+    { count: input.count },
+  );
 
   const ctx: AiScreenContext = { view: '메일함', scope };
   const s = input.selected;

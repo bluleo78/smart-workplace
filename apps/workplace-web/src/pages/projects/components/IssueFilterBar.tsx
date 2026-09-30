@@ -38,6 +38,7 @@ import {
   parseFilters,
   parseView,
 } from '../../../lib/issueFilters';
+import { ISSUE_GROUP_BY_LABEL } from '../../../lib/issueGrouping';
 import type {
   IssueFilters,
   IssueGroupBy,
@@ -63,12 +64,10 @@ const PRIORITY_OPTIONS = [
 
 // 그룹 기준 옵션 (#58). null = 그룹 없음(평탄 리스트 / 상태 보드).
 // 사이클(#878)은 팀 목록 전용 — 보드·사이클 비사용 화면에선 목록에서 빠진다(아래 visibleGroupOptions).
+// 라벨은 ISSUE_GROUP_BY_LABEL 공용 맵에서 — AI 화면 컨텍스트(WP-54)와 같은 문구를 쓴다(키 순서 = 옵션 순서).
 const GROUP_OPTIONS: { value: IssueGroupBy | null; label: string }[] = [
   { value: null, label: '없음' },
-  { value: 'cycle', label: '사이클' },
-  { value: 'status', label: '상태' },
-  { value: 'assignee', label: '담당자' },
-  { value: 'priority', label: '우선순위' },
+  ...(Object.entries(ISSUE_GROUP_BY_LABEL) as [IssueGroupBy, string][]).map(([value, label]) => ({ value, label })),
 ];
 
 // 개인 프로젝트 등에서 일부 컨트롤을 숨기거나 라벨을 바꾸기 위한 옵션. 기본값 = 팀 전체 동작.

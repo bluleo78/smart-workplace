@@ -2,7 +2,7 @@
 // 외부는 externalId(get_external_contact 인자). 두 id 공간이 겹치므로 구분을 facts 로도 명시한다.
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
-import { buildFacts, buildRefs, clip, LIMITS } from '../common';
+import { buildFacts, buildRefs, clip, LIMITS, withListState } from '../common';
 
 const TYPE_LABEL = { ALL: null, MEMBER: '구성원', EXTERNAL: '외부', FAVORITE: '즐겨찾기' } as const;
 
@@ -29,18 +29,20 @@ export interface ContactsContextInput {
 
 /** 연락처 화면 — 필터/그룹 scope + (선택된 경우) 연락처 focus. */
 export function buildContactsContext(input: ContactsContextInput): AiScreenContext {
-  const scope: NonNullable<AiScreenContext['scope']> = { label: '연락처' };
-  if (input.groupId != null) scope.refs = buildRefs({ groupId: input.groupId });
-  const facts = buildFacts([
-    ['검색어', input.q],
-    ['유형', TYPE_LABEL[input.type]],
-    ['소속', input.organization],
-    ['직함', input.title],
-    ['그룹', input.groupId != null ? (input.groupName ?? `#${input.groupId}`) : null],
-  ]);
-  if (facts) scope.facts = facts;
-  if (input.count != null) scope.count = input.count;
-  if (input.hasMore != null) scope.hasMore = input.hasMore;
+  const scope = withListState(
+    {
+      label: '연락처',
+      refs: input.groupId != null ? buildRefs({ groupId: input.groupId }) : undefined,
+      facts: buildFacts([
+        ['검색어', input.q],
+        ['유형', TYPE_LABEL[input.type]],
+        ['소속', input.organization],
+        ['직함', input.title],
+        ['그룹', input.groupId != null ? (input.groupName ?? `#${input.groupId}`) : null],
+      ]),
+    },
+    input,
+  );
 
   const ctx: AiScreenContext = { view: '연락처', scope };
   const s = input.selected;
