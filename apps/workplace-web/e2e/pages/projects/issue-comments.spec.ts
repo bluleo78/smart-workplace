@@ -210,6 +210,48 @@ test.describe('IssueCommentList @멘션 자동완성 (#785)', () => {
     await expect.poll(() => patchPayloads.length).toBe(1);
     expect(patchPayloads[0].body).toBe('검토 요청 <@99> <@1>');
   });
+
+  // WP-85 — 수정 진입 시 자동 포커스가 본문 끝에 놓여, 클릭·End 없이 바로 이어 쓸 수 있다.
+  // (autofocus=start 는 마운트 직후 비동기로 커서를 맨 앞으로 옮겨 입력이 앞에 붙는 flaky 를 냈다)
+  test('수정 입력창 — 자동 포커스가 본문 끝이라 바로 이어 쓴다', async ({ authenticatedPage: page }) => {
+    const members = [createMember({ userId: 1, name: 'Tester' }), createAgentMember()];
+    const myComment: IssueCommentResponse = createComment({
+      id: 23,
+      issueId: ISSUE_ID,
+      authorId: ME_ID,
+      body: '검토 요청 <@99>',
+    });
+    const detailRef = { current: createIssueDetail({ comments: [myComment] }) };
+    await setupIssueStubs(page, detailRef, members);
+
+    const patchPayloads: { body: string }[] = [];
+    await page.route(
+      (url) => /\/api\/v1\/issues\/\d+\/comments\/\d+$/.test(url.pathname),
+      (route) => {
+        if (route.request().method() !== 'PATCH') return route.fallback();
+        const payload = route.request().postDataJSON() as { body: string };
+        patchPayloads.push(payload);
+        const updated: IssueCommentResponse = { ...myComment, body: payload.body };
+        detailRef.current = createIssueDetail({ comments: [updated] });
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(updated) });
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    const commentItem = page.locator('section[aria-label="코멘트"] ul li').first();
+    await commentItem.hover();
+    await commentItem.locator('button[aria-label="코멘트 수정"]').click();
+
+    const editInput = page.getByTestId('issue-comment-edit-input');
+    await expect(editInput).toContainText('@AI Agent');
+    // 클릭·End 없이 자동 포커스 위치에서 바로 입력 — 포커스가 편집기 안에 잡힌 뒤 타이핑한다.
+    await expect(editInput).toBeFocused();
+    await page.keyboard.type(' 추가');
+    await page.getByTestId('issue-comment-edit-save').click();
+
+    await expect.poll(() => patchPayloads.length).toBe(1);
+    expect(patchPayloads[0].body).toBe('검토 요청 <@99> 추가');
+  });
 });
 
 test.describe('IssueCommentList 코멘트 본문 디자인 시스템 body-secondary (#344)', () => {

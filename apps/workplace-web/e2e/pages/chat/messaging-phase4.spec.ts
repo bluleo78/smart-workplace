@@ -167,9 +167,12 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
-    await stubMessages(page, CHANNEL_ID, [
+    // 목록 스텁은 요청 시점에 이 배열을 직렬화한다. 아래 PATCH·DELETE 핸들러가 배열을 갱신해 뒤늦은 목록 재조회도
+    // 실제 서버처럼 바뀐 상태를 돌려주게 한다 — 고정 응답이면 재조회가 수정·삭제를 "원본"으로 되돌려 flaky 였다(WP-85).
+    const messages = [
       createMessage({ id: MSG_ID, channelId: CHANNEL_ID, authorId: ME_ID, authorName: '나', body: '원본' }),
-    ])
+    ]
+    await stubMessages(page, CHANNEL_ID, messages)
 
     // PATCH /messaging/messages/{id} — editedAt 채워 반환 → (수정됨) 배지 노출.
     await page.route(
@@ -178,19 +181,18 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
         if (route.request().method() !== 'PATCH') return route.fallback()
         const payload = route.request().postDataJSON() as { body: string }
         expect(payload.body).toBe('원본 수정됨')
+        messages[0] = createMessage({
+          id: MSG_ID,
+          channelId: CHANNEL_ID,
+          authorId: ME_ID,
+          authorName: '나',
+          body: '원본 수정됨',
+          editedAt: new Date('2026-06-02T01:00:00Z').toISOString(),
+        })
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(
-            createMessage({
-              id: MSG_ID,
-              channelId: CHANNEL_ID,
-              authorId: ME_ID,
-              authorName: '나',
-              body: '원본 수정됨',
-              editedAt: new Date('2026-06-02T01:00:00Z').toISOString(),
-            }),
-          ),
+          body: JSON.stringify(messages[0]),
         })
       },
     )
@@ -202,9 +204,12 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
 
     // toolbar 는 group-hover 로만 노출. hover 후 클릭 사이에 재렌더가 끼면 마우스가 고정된 채
     // group-hover 가 풀려 toolbar 가 사라진다 → hover+click 을 한 단위로 재시도한다.
+    // 편집기가 실제로 열렸는지까지 한 단위로 재시도한다 — 클릭 직후 재렌더로 toolbar 가 사라지면 클릭이 빗나가
+    // 편집기가 안 열린 채 다음 단계가 15초 대기하던 flaky 가 있었다(WP-85).
     await expect(async () => {
       await page.getByTestId(`message-${MSG_ID}`).hover()
       await page.getByTestId(`message-edit-${MSG_ID}`).click({ timeout: 2000 })
+      await expect(page.getByTestId(`message-editor-input-${MSG_ID}`)).toBeVisible({ timeout: 2000 })
     }).toPass()
 
     // 인라인 에디터에서 본문 변경(append). 변경 없으면 submit 이 no-op 이라 PATCH 미발생.
@@ -221,10 +226,11 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     // DELETE /messaging/messages/{id} — 204 → 캐시에서 deleted=true, (삭제됨) 마스킹.
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}`,
-      (route) =>
-        route.request().method() === 'DELETE'
-          ? route.fulfill({ status: 204 })
-          : route.fallback(),
+      (route) => {
+        if (route.request().method() !== 'DELETE') return route.fallback()
+        messages[0] = { ...messages[0], deleted: true }
+        return route.fulfill({ status: 204 })
+      },
     )
 
     await expect(async () => {
