@@ -499,6 +499,65 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
     await expect(dialog).toBeVisible()
   })
 
+  test('side 모드 다이얼로그가 열린 동안 페이지 영역은 inert — Tab 이 흐린 페이지로 새지 않고, 닫으면 해제된다', async ({ authenticatedPage: page }) => {
+    await captureChat(page)
+    await mockCalendar(page)
+    await page.goto('/calendar')
+    await page.getByTestId('chat-launcher').click()
+    await page.getByTestId('calendar-event-42').click()
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(dialog).toBeVisible()
+
+    // 페이지 영역(AppRail·main)은 inert, AI 패널은 아님.
+    await expect(page.getByTestId('app-rail')).toHaveAttribute('inert', '')
+    await expect(page.locator('main')).toHaveAttribute('inert', '')
+    await expect(page.getByTestId('ai-side-panel')).not.toHaveAttribute('inert')
+
+    // 다이얼로그 마지막 컨트롤에서 Tab 을 여러 번 눌러도 포커스는 다이얼로그·AI 표면 안에만 머문다.
+    const lastControl = dialog.locator('button, input, [tabindex]:not([tabindex="-1"])').last()
+    await lastControl.focus()
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press('Tab')
+      const where = await page.evaluate(() => {
+        const a = document.activeElement
+        if (!a || a === document.body) return 'body'
+        if (a.closest('[data-testid=calendar-event-dialog]')) return 'dialog'
+        if (a.closest('[data-ai-panel]')) return 'panel'
+        return 'page'
+      })
+      expect(where).not.toBe('page')
+    }
+
+    // 닫으면 inert 가 남지 않는다.
+    await dialog.getByRole('button', { name: '닫기' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(page.getByTestId('app-rail')).not.toHaveAttribute('inert')
+    await expect(page.locator('main')).not.toHaveAttribute('inert')
+  })
+
+  test('패널을 닫아 modal 로 돌아가면 inert 는 해제되고(모달 aria-hidden 으로 대체), 패널 툴팁 클릭은 다이얼로그를 닫지 않는다', async ({ authenticatedPage: page }) => {
+    await captureChat(page)
+    await mockCalendar(page)
+    await page.goto('/calendar')
+    await page.getByTestId('chat-launcher').click()
+    await page.getByTestId('calendar-event-42').click()
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(dialog).toBeVisible()
+
+    // 패널 칩 라벨 툴팁(body 포털) 내용을 클릭해도 다이얼로그 유지.
+    await page.getByTestId('chat-context-label').hover()
+    const tip = page.locator('[data-slot=tooltip-content]')
+    await expect(tip).toBeVisible()
+    await tip.click()
+    await expect(dialog).toBeVisible()
+
+    await page.getByTestId('chat-input').click()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('ai-side-panel')).toBeHidden()
+    await expect(dialog).toBeVisible()
+    await expect(page.getByTestId('app-rail')).not.toHaveAttribute('inert')
+  })
+
   test('모바일(<lg): 패널은 다이얼로그 위 풀스크린으로 입력 가능하고, 닫으면 다이얼로그로 돌아온다', async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await captureChat(page)

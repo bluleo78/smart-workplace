@@ -4,23 +4,17 @@
 // 왜: Radix modal Dialog 는 포커스 트랩·바깥 aria-hidden·body pointer-events 차단을 걸어
 // "이 회의 참석자 알려줘" 처럼 모달이 열린 대상에 대한 질문을 막는다.
 // 무엇을: AI 패널이 side 모드일 때만 다이얼로그를 non-modal 로 바꾸고,
-//  - AI 표면([data-ai-panel]: 사이드 패널·AI 칩) 상호작용은 다이얼로그를 닫지 않게 하고,
+//  - AI 표면(사이드 패널·AI 칩·패널에서 연 포털 레이어 — aiPanelSurface.ts) 상호작용은 다이얼로그를 닫지 않게 하고,
+//  - 열린 동안 페이지 영역을 inert 로 만들어 포커스·보조기기가 흐린 페이지로 새지 않게 하고,
 //  - 페이지 영역만 덮는 dim 오버레이를 직접 렌더(non-modal 이면 Radix 가 Overlay 를 그리지 않으므로)하고,
 //  - 데스크톱(lg+)에서는 다이얼로그를 페이지 영역 중앙으로 옮기고 폭을 클램프해 패널을 가리지 않게 한다.
 // closed/fullscreen 에서는 기존 modal 동작(접근성) 그대로다.
 // shadcn primitive(components/ui/dialog.tsx)는 편집하지 않고 호출부 props/className 조합으로만 적용한다.
-import { type ReactNode, useCallback, useLayoutEffect, useRef } from 'react';
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
+import { inertPageArea, isAiPanelInteraction, isInAiPanelDom } from '@/components/ai/aiPanelSurface';
 import { DialogPortal } from '@/components/ui/dialog';
-
-/** AI 표면(사이드 패널·AI 칩) 판별용 데이터 속성 선택자. */
-export const AI_PANEL_SELECTOR = '[data-ai-panel]';
-
-/** 이벤트 대상이 AI 표면 내부인지 — Element 가 아닐 수 있어(document 등) 가드한다. */
-function isInAiPanel(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest(AI_PANEL_SELECTOR) !== null;
-}
 
 // side 모드 데스크톱 배치 — 페이지 영역(뷰포트 - 패널 폭) 중앙 + 폭 클램프.
 // Tailwind 는 정적 클래스만 수집하므로 크기별 리터럴로 둔다.
@@ -33,6 +27,8 @@ const SIDE_CONTENT_CLASS = {
 } as const;
 
 interface Options {
+  /** 다이얼로그 열림 여부 — side 모드에서 열린 동안만 페이지 영역을 inert 로 만든다. */
+  open: boolean;
   /** 콘텐츠 폭 프리셋 — 기본 다이얼로그(default) / 넓은 미리보기(wide). */
   size?: keyof typeof SIDE_CONTENT_CLASS;
 }
@@ -57,9 +53,17 @@ interface Result {
 }
 
 /** AI 사이드 패널과 공존하는 다이얼로그 props 를 만든다. */
-export function useAiPanelAwareDialog({ size = 'default' }: Options = {}): Result {
+export function useAiPanelAwareDialog({ open, size = 'default' }: Options): Result {
   const { mode, close } = useAssistant();
   const modal = mode !== 'side';
+
+  // side 모드에서 열린 동안 페이지 영역(AppRail·main)을 inert — 포커스 트랩 대신 Tab 이 흐린 페이지로 새지 않고
+  // 보조기기에서도 페이지가 숨겨진다(AI 패널·다이얼로그 포털은 제외). 닫힘·모드 전환·언마운트 시 cleanup 으로 해제.
+  // aria-modal 은 달지 않는다 — 보조기기가 다이얼로그 밖(AI 패널)까지 무시하게 되어 "모달 위 AI 질문"이 막히므로.
+  useEffect(() => {
+    if (!open || modal) return;
+    return inertPageArea();
+  }, [open, modal]);
 
   // 최신 modal 값 — Radix 가 언마운트 시 늦게(setTimeout) 부르는 포커스 콜백에서 "지금" 값을 보기 위함.
   // 커밋 직후(layout effect) 갱신하므로 그 setTimeout 콜백 시점엔 항상 최신이다.
@@ -76,7 +80,7 @@ export function useAiPanelAwareDialog({ size = 'default' }: Options = {}): Resul
   // AI 표면을 누르거나 포커스가 그리로 가도 다이얼로그는 닫지 않는다(pointerdown·focusin 모두 이 콜백을 거친다).
   // 그 외 페이지 영역(dim 포함) 상호작용은 기본 동작 — 닫힘.
   const onInteractOutside = useCallback((e: Event) => {
-    if (isInAiPanel(e.target)) e.preventDefault();
+    if (isAiPanelInteraction(e)) e.preventDefault();
   }, []);
 
   // Esc: AI 표면에서 누르면 다이얼로그가 아니라 패널만 닫는다.
@@ -84,7 +88,7 @@ export function useAiPanelAwareDialog({ size = 'default' }: Options = {}): Resul
   // AIChip 은 defaultPrevented 라 패널을 닫지 않으므로 패널 닫기를 직접 호출한다(둘이 동시에 닫히지 않음).
   const onEscapeKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (!isInAiPanel(e.target)) return;
+      if (!isInAiPanelDom(e.target)) return;
       e.preventDefault();
       close();
     },
@@ -134,10 +138,12 @@ export function useAiPanelAwareDialog({ size = 'default' }: Options = {}): Resul
     // DialogPortal 은 다이얼로그가 열려 있을 때만 렌더되므로 닫히면 함께 사라진다. 클릭 시 바깥 클릭으로 닫힘.
     overlay: modal ? null : (
       <DialogPortal>
+        {/* data-state 를 직접 달아 DialogOverlay 와 같은 진입/퇴장 페이드 — DialogPortal 의 Presence 가 퇴장 애니메이션을 기다린다. */}
         <div
           aria-hidden
+          data-state={open ? 'open' : 'closed'}
           data-testid="ai-aware-dialog-overlay"
-          className="fixed inset-0 z-50 bg-black/50 animate-in fade-in-0 lg:right-[var(--ai-side-width,0px)]"
+          className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 lg:right-[var(--ai-side-width,0px)]"
         />
       </DialogPortal>
     ),

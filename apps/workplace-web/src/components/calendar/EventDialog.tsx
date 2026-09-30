@@ -253,7 +253,7 @@ export function EventDialog({
     eventWithDetail?.myRsvpStatus != null
 
   // WP-54: AI 사이드 패널과 공존하는 다이얼로그 props(side 모드면 non-modal + 페이지 영역 dim).
-  const aiAware = useAiPanelAwareDialog()
+  const aiAware = useAiPanelAwareDialog({ open })
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {

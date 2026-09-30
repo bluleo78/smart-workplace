@@ -37,7 +37,7 @@ export function FilePreviewModal({
   onClose: () => void
 }) {
   // WP-54: AI 사이드 패널과 공존하는 다이얼로그 props(넓은 미리보기 프리셋 — 패널 폭만큼 클램프).
-  const aiAware = useAiPanelAwareDialog({ size: 'wide' })
+  const aiAware = useAiPanelAwareDialog({ open: true, size: 'wide' })
   const isAttachment = attachment != null
   // 미리보기 대상 정규화 — 파일/첨부 공통 모델.
   const name = attachment?.name ?? file!.name

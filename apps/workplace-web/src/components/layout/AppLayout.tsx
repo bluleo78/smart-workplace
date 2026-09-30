@@ -67,7 +67,8 @@ export function AppLayout() {
             <InboxProvider>
               {/* 메시징 SSE 연결 상태를 하위 채팅 UI(ChatModuleLayout 끊김 배너)로 전달 */}
               <MessagingConnectionContext.Provider value={messagingConn}>
-                <div className="flex h-screen overflow-hidden bg-background text-foreground">
+                {/* WP-54: 페이지 영역 컨테이너 표식 — side 모드 엔티티 다이얼로그가 열리면 AI 패널 외 자식(AppRail·main)을 inert. */}
+                <div data-ai-page-root className="flex h-screen overflow-hidden bg-background text-foreground">
                   <AppRail />
                   <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden pt-12 lg:pt-0">
                     <Outlet />

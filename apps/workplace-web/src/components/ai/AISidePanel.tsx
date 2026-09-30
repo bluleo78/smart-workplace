@@ -6,6 +6,7 @@ import { useCallback, useRef } from 'react';
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AIChatPanel } from '@/components/ai/AIChatPanel';
 import { AIPanelHeader } from '@/components/ai/AIPanelHeader';
+import { markAiPanelEvent } from '@/components/ai/aiPanelSurface';
 import { useAssistantChat } from '@/hooks/useAssistantChat';
 
 /** mode==='side' 일 때만 렌더. 데스크톱 reflow + 리사이즈, 모바일 오버레이. */
@@ -46,6 +47,10 @@ export function AISidePanel() {
       data-testid="ai-side-panel"
       // WP-54: AI 표면 표식 — 엔티티 다이얼로그가 열려 있어도 이 영역 상호작용은 다이얼로그를 닫지 않는다(useAiPanelAwareDialog).
       data-ai-panel
+      // WP-54: 패널 React 트리의 pointerdown/focus 를 기록 — 여기서 연 포털 레이어(Tooltip·Dropdown·AlertDialog 등)도
+      // 별도 표식 없이 AI 표면으로 판별돼 열린 엔티티 다이얼로그를 닫지 않는다. 새 팝오버는 패널 트리 안에 렌더하면 충분.
+      onPointerDownCapture={markAiPanelEvent}
+      onFocusCapture={markAiPanelEvent}
       style={{ width: sidePanelWidth }}
       // 모바일: 인라인 width 무력화(!w-full) + 풀스크린 오버레이. 데스크톱: 정적 도킹.
       className="relative z-[60] flex shrink-0 flex-col border-l bg-card transition-[width] duration-200 ease-in-out max-lg:!fixed max-lg:inset-0 max-lg:!w-full lg:z-10"
