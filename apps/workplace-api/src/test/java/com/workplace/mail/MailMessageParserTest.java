@@ -50,6 +50,14 @@ class MailMessageParserTest {
     assertThat(m.attachments()).isEmpty();
   }
 
+  /** WP-130: 동기화 단계에서 공유 지문용 본문 구조 요약을 채우고, 같은 원문이면 결정적이다. */
+  @Test
+  void parseMetadata_fillsStructureSignature() throws Exception {
+    ParsedMessage m1 = parser.parseMetadata(1L, mime(raw()));
+    ParsedMessage m2 = parser.parseMetadata(2L, mime(raw()));
+    assertThat(m1.structure()).isNotBlank().isEqualTo(m2.structure());
+  }
+
   @Test
   void parseBody_extractsText() throws Exception {
     ParsedBody b = parser.parseBody(mime(raw()));

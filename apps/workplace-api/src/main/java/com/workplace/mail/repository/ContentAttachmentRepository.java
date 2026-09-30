@@ -2,6 +2,9 @@ package com.workplace.mail.repository;
 
 import static com.workplace.jooq.Tables.CONTENT_ATTACHMENT;
 
+import com.workplace.mail.dto.ParsedAttachment;
+import java.util.List;
+import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -42,6 +45,36 @@ public class ContentAttachmentRepository {
         .where(CONTENT_ATTACHMENT.CONTENT_ID.eq(contentId))
         .and(CONTENT_ATTACHMENT.ORDINAL.eq(ordinal))
         .fetchOne(CONTENT_ATTACHMENT.ID);
+  }
+
+  /**
+   * 이 envelope 가 파싱한 첨부 목록이 공유 manifest 와 겹치는 ordinal 에서 모두 일치하는지(WP-130). 파일명·타입·크기 중 하나라도 다르면 다른
+   * 메일로 보고 content 를 분리해야 한다 — 그대로 공유하면 manifest 의 content_hash(첨부 캐시 키)로 다른 사람 첨부 바이트를 받게 된다.
+   * manifest 에 없는 ordinal 은 비교하지 않는다(각 envelope 는 자기 email_attachment 가 가리키는 행만 본다).
+   */
+  public boolean matchesManifest(long contentId, List<ParsedAttachment> attachments) {
+    var rows =
+        dsl.select(
+                CONTENT_ATTACHMENT.ORDINAL,
+                CONTENT_ATTACHMENT.FILENAME,
+                CONTENT_ATTACHMENT.CONTENT_TYPE,
+                CONTENT_ATTACHMENT.SIZE_BYTES)
+            .from(CONTENT_ATTACHMENT)
+            .where(CONTENT_ATTACHMENT.CONTENT_ID.eq(contentId))
+            .fetch();
+    for (var r : rows) {
+      int ord = r.value1();
+      if (ord >= attachments.size()) {
+        continue;
+      }
+      ParsedAttachment a = attachments.get(ord);
+      if (!Objects.equals(r.value2(), a.filename())
+          || !Objects.equals(r.value3(), a.contentType())
+          || !Objects.equals(r.value4(), a.sizeBytes())) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** content_hash 가 NULL 일 때만 기록(첫 다운로드 시 1회 — 불변 식별자). */

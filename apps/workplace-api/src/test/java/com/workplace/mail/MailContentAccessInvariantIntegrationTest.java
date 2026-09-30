@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.mail.dto.ContentSource;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
@@ -129,7 +130,7 @@ class MailContentAccessInvariantIntegrationTest extends IntegrationTestBase {
                         null,
                         null,
                         List.of());
-                long contentId = contentRepo.findOrCreate(1L, pm);
+                long contentId = contentRepo.findOrCreate(1L, pm, ContentSource.GRAPH);
                 // 본문에 식별 단어 "needle-xyzzy" 삽입 — FTS 가 이를 색인해야 검색에 걸린다
                 contentRepo.updateBody(contentId, "needle-xyzzy in body", null, "snip");
 
@@ -159,7 +160,7 @@ class MailContentAccessInvariantIntegrationTest extends IntegrationTestBase {
                         null,
                         null,
                         List.of());
-                long contentIdB = contentRepo.findOrCreate(1L, pmB);
+                long contentIdB = contentRepo.findOrCreate(1L, pmB, ContentSource.GRAPH);
                 contentRepo.updateBody(contentIdB, "completely unrelated content", null, "other");
                 long[] seedB = seedEnvelopeForUser(1L, contentIdB, msgIdB);
                 long accB = seedB[1];
@@ -232,7 +233,7 @@ class MailContentAccessInvariantIntegrationTest extends IntegrationTestBase {
                         null,
                         null,
                         List.of());
-                long contentId = contentRepo.findOrCreate(1L, pm);
+                long contentId = contentRepo.findOrCreate(1L, pm, ContentSource.GRAPH);
                 contentRepo.updateBody(contentId, "SECRET", null, "SECRET-SNIP");
 
                 // 2. 사용자 A의 envelope 생성 (content 를 소유·링크)

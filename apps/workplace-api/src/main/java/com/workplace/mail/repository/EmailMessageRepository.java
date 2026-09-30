@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
+import com.workplace.mail.dto.ContentSource;
 import com.workplace.mail.dto.EmailAttachmentMeta;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
@@ -69,7 +70,7 @@ public class EmailMessageRepository {
     // 현재 GUC 와 일치하는 테넌트 ID 로 email_content 를 공유 생성(find-or-create).
     // TenantContext.get() 은 TenantAwareTransactionManager 가 GUC 로 주입한 값과 동일하다.
     long tenantId = requireTenantId();
-    long contentId = contentRepo.findOrCreate(tenantId, m);
+    long contentId = contentRepo.findOrCreate(tenantId, m, ContentSource.IMAP);
     return dsl.insertInto(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
         .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
@@ -112,7 +113,7 @@ public class EmailMessageRepository {
       long accountId, long folderId, ParsedMessage m, String providerMessageId) {
     // Graph 경로도 동일하게 email_content 공유(find-or-create).
     long tenantId = requireTenantId();
-    long contentId = contentRepo.findOrCreate(tenantId, m);
+    long contentId = contentRepo.findOrCreate(tenantId, m, ContentSource.GRAPH);
     return dsl.insertInto(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
         .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
@@ -387,7 +388,7 @@ public class EmailMessageRepository {
 
     // email_content find-or-create + 본문 즉시 적재(보낸메일은 전송 시점에 본문 확정)
     long tenantId = requireTenantId();
-    long contentId = contentRepo.findOrCreate(tenantId, sentAsMsg);
+    long contentId = contentRepo.findOrCreate(tenantId, sentAsMsg, ContentSource.SENT);
     contentRepo.updateBody(contentId, m.bodyText(), m.bodyHtml(), m.snippet());
 
     return dsl.insertInto(EMAIL_MESSAGE)
@@ -510,6 +511,14 @@ public class EmailMessageRepository {
 
   private static String emptyToNull(String v) {
     return v == null || v.isEmpty() ? null : v;
+  }
+
+  /** envelope 를 다른 content 로 옮긴다(WP-130 공유 content 분리). */
+  public void repointContent(long messageId, long contentId) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
   }
 
   /**

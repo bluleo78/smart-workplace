@@ -3,6 +3,8 @@ package com.workplace.mail.repository;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.tables.EmailContent.EMAIL_CONTENT;
 
+import com.workplace.jooq.tables.records.EmailContentRecord;
+import com.workplace.mail.dto.ContentSource;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.util.MailContentHash;
 import java.time.OffsetDateTime;
@@ -10,6 +12,7 @@ import java.util.Collection;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.InsertSetMoreStep;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -25,66 +28,118 @@ public class EmailContentRepository {
   private final DSLContext dsl;
 
   /**
-   * (tenant_id, message_id) 로 기존 content 를 찾거나, 없으면 헤더만으로 신규 생성해 id 를 반환한다.
+   * 공유 가능한 기존 content 를 찾거나, 없으면 헤더만으로 신규 생성해 id 를 반환한다.
+   *
+   * <p>WP-130: 공유 키 = (tenant_id, message_id, fingerprint). fingerprint 는 {@link
+   * MailContentHash#fingerprint} — 수신 경로·발신자·Date·제목·[IMAP] 본문 구조. Message-ID 만 같은 위조 메일은 지문이 달라 별도
+   * content 가 된다. message_id 가 없거나 지문을 만들 수 없으면(IMAP 구조 요약 실패) 공유하지 않고 항상 신규 생성한다.
    *
    * <p>동시 삽입 경쟁(race) 처리: {@code ON CONFLICT DO NOTHING} 이 충돌하면 returning 결과가 없으므로 재조회로 폴백한다.
-   * {@code message_id} 가 NULL 이면 중복 체크 없이 항상 신규 생성한다.
    *
    * @param tenantId 현재 테넌트
    * @param m 파싱된 메시지(헤더 정보 사용, 본문은 사용하지 않음 — lazy 적재)
+   * @param source 수신 경로(지문 재료 — 경로가 다르면 공유하지 않음)
    * @return email_content.id
    */
-  public long findOrCreate(long tenantId, ParsedMessage m) {
-    // message_id 가 있으면 기존 content 먼저 조회(중복 방지)
-    if (m.messageId() != null) {
-      Optional<Long> existing =
-          dsl.select(EMAIL_CONTENT.ID)
-              .from(EMAIL_CONTENT)
-              .where(EMAIL_CONTENT.TENANT_ID.eq(tenantId))
-              .and(EMAIL_CONTENT.MESSAGE_ID.eq(m.messageId()))
-              .fetchOptionalInto(Long.class);
-      if (existing.isPresent()) return existing.get();
-    }
+  public long findOrCreate(long tenantId, ParsedMessage m, ContentSource source) {
+    String fingerprint = m.messageId() == null ? null : MailContentHash.fingerprint(source, m);
 
-    // message_id NULL 행은 부분 인덱스 제외 → 항상 신규 삽입 가능
-    if (m.messageId() == null) {
-      return dsl.insertInto(EMAIL_CONTENT)
-          .set(EMAIL_CONTENT.TENANT_ID, tenantId)
-          .set(EMAIL_CONTENT.SUBJECT, m.subject())
-          .set(EMAIL_CONTENT.IN_REPLY_TO, m.inReplyTo())
-          .set(EMAIL_CONTENT.MAIL_REFERENCES, m.references())
-          .set(EMAIL_CONTENT.THREAD_ID, m.threadId())
+    // 공유 불가(message_id 또는 지문 없음) → 부분 유니크 인덱스 제외 대상이라 항상 신규 삽입
+    if (fingerprint == null) {
+      return insertContent(tenantId, m, null)
           .returning(EMAIL_CONTENT.ID)
           .fetchOne()
           .get(EMAIL_CONTENT.ID);
     }
 
-    // message_id 있는 경우: INSERT ON CONFLICT DO NOTHING 후 재조회
-    // 부분 인덱스(WHERE message_id IS NOT NULL) — onConflictDoNothing() 은 타겟 미지정으로 안전하게 충돌 억제
-    dsl.insertInto(EMAIL_CONTENT)
-        .set(EMAIL_CONTENT.TENANT_ID, tenantId)
-        .set(EMAIL_CONTENT.MESSAGE_ID, m.messageId())
-        .set(EMAIL_CONTENT.SUBJECT, m.subject())
-        .set(EMAIL_CONTENT.IN_REPLY_TO, m.inReplyTo())
-        .set(EMAIL_CONTENT.MAIL_REFERENCES, m.references())
-        .set(EMAIL_CONTENT.THREAD_ID, m.threadId())
-        .onConflictDoNothing()
-        .execute();
+    Optional<Long> existing = findShared(tenantId, m.messageId(), fingerprint);
+    if (existing.isPresent()) return existing.get();
+
+    // 부분 유니크 인덱스(email_content_tenant_message_fp_uk) — 타겟 미지정 onConflictDoNothing 으로 경쟁 삽입 흡수
+    insertContent(tenantId, m, fingerprint).onConflictDoNothing().execute();
 
     // 삽입 또는 기존 행 재조회 — 행을 찾지 못하면 RLS GUC 미설정 의심으로 명시적 예외
-    return dsl.select(EMAIL_CONTENT.ID)
-        .from(EMAIL_CONTENT)
-        .where(EMAIL_CONTENT.TENANT_ID.eq(tenantId))
-        .and(EMAIL_CONTENT.MESSAGE_ID.eq(m.messageId()))
-        .fetchOptionalInto(Long.class)
+    return findShared(tenantId, m.messageId(), fingerprint)
         .orElseThrow(
             () ->
                 new IllegalStateException(
-                    "email_content find-or-create 재조회 실패: tenant/message_id 행을 찾지 못함 (RLS GUC 미설정 의심)"));
+                    "email_content find-or-create 재조회 실패: tenant/message_id/fingerprint 행을 찾지 못함 (RLS GUC 미설정 의심)"));
+  }
+
+  private Optional<Long> findShared(long tenantId, String messageId, String fingerprint) {
+    return dsl.select(EMAIL_CONTENT.ID)
+        .from(EMAIL_CONTENT)
+        .where(EMAIL_CONTENT.TENANT_ID.eq(tenantId))
+        .and(EMAIL_CONTENT.MESSAGE_ID.eq(messageId))
+        .and(EMAIL_CONTENT.FINGERPRINT.eq(fingerprint))
+        .fetchOptionalInto(Long.class);
+  }
+
+  private InsertSetMoreStep<EmailContentRecord> insertContent(
+      long tenantId, ParsedMessage m, String fingerprint) {
+    return dsl.insertInto(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.TENANT_ID, tenantId)
+        .set(EMAIL_CONTENT.MESSAGE_ID, m.messageId())
+        .set(EMAIL_CONTENT.FINGERPRINT, fingerprint)
+        .set(EMAIL_CONTENT.SUBJECT, m.subject())
+        .set(EMAIL_CONTENT.IN_REPLY_TO, m.inReplyTo())
+        .set(EMAIL_CONTENT.MAIL_REFERENCES, m.references())
+        .set(EMAIL_CONTENT.THREAD_ID, m.threadId());
   }
 
   /**
-   * lazy 본문 적재: 본문·snippet·해시·fetched_at 을 기록한다.
+   * 아직 본문이 없는 content 에 한해 본문을 기록한다(첫 적재자 선점). WP-130: 공유 본문은 한 번 기록되면 다른 수신자의 적재로 덮어쓰지 않는다 — 덮어쓰기는
+   * 위조 메일이 원본 수신자들의 본문을 바꾸는 경로였다.
+   *
+   * <p>조건부 UPDATE({@code body_fetched_at IS NULL})라 동시 적재 경쟁에서도 정확히 한 쪽만 true 를 받는다(행 잠금 후 재평가).
+   *
+   * @return true: 이번 호출이 본문을 기록함. false: 이미 다른 envelope 가 기록함(호출자가 해시 비교).
+   */
+  public boolean claimBody(long contentId, String bodyText, String bodyHtml, String snippet) {
+    return dsl.update(EMAIL_CONTENT)
+            .set(EMAIL_CONTENT.BODY_TEXT, bodyText)
+            .set(EMAIL_CONTENT.BODY_HTML, bodyHtml)
+            .set(EMAIL_CONTENT.SNIPPET, snippet)
+            .set(EMAIL_CONTENT.CONTENT_HASH, MailContentHash.of(bodyText, bodyHtml))
+            .set(EMAIL_CONTENT.BODY_FETCHED_AT, OffsetDateTime.now())
+            .where(EMAIL_CONTENT.ID.eq(contentId))
+            .and(EMAIL_CONTENT.BODY_FETCHED_AT.isNull())
+            .execute()
+        > 0;
+  }
+
+  /** 기록된 본문 해시. 본문 미적재 또는 해시 미계산이면 null. */
+  public String findContentHash(long contentId) {
+    return dsl.select(EMAIL_CONTENT.CONTENT_HASH)
+        .from(EMAIL_CONTENT)
+        .where(EMAIL_CONTENT.ID.eq(contentId))
+        .fetchOneInto(String.class);
+  }
+
+  /**
+   * 공유 content 에서 분리할 envelope 용 새 content 를 만든다(WP-130). 헤더(제목·스레드)만 복사하고 본문은 비운다. fingerprint 는
+   * NULL 이라 다른 수신과 다시 공유되지 않는다.
+   *
+   * @return 새 email_content.id
+   */
+  public long forkHeaders(long contentId) {
+    var src = dsl.selectFrom(EMAIL_CONTENT).where(EMAIL_CONTENT.ID.eq(contentId)).fetchSingle();
+    return dsl.insertInto(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.TENANT_ID, src.getTenantId())
+        .set(EMAIL_CONTENT.MESSAGE_ID, src.getMessageId())
+        .set(EMAIL_CONTENT.SUBJECT, src.getSubject())
+        .set(EMAIL_CONTENT.IN_REPLY_TO, src.getInReplyTo())
+        .set(EMAIL_CONTENT.MAIL_REFERENCES, src.getMailReferences())
+        .set(EMAIL_CONTENT.THREAD_ID, src.getThreadId())
+        .returning(EMAIL_CONTENT.ID)
+        .fetchOne()
+        .get(EMAIL_CONTENT.ID);
+  }
+
+  /**
+   * 본문을 무조건 기록한다. 막 만든 전용 content(보낸메일)에만 쓴다 — 공유 content 에는 {@link #claimBody} 를 쓴다.
+   *
+   * <p>lazy 본문 적재: 본문·snippet·해시·fetched_at 을 기록한다.
    *
    * <p>content_hash 는 {@link MailContentHash#of} 로 계산 — V93 백필 마이그레이션과 동일 알고리즘·구분자.
    *

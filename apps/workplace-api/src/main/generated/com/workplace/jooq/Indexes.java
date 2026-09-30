@@ -110,7 +110,7 @@ public class Indexes {
 
     public static final Index EMAIL_CONTENT_SEARCH_TV_IDX = Internal.createIndex(DSL.name("email_content_search_tv_idx"), EmailContent.EMAIL_CONTENT, new OrderField[] { EmailContent.EMAIL_CONTENT.SEARCH_TV }, false);
     public static final Index EMAIL_CONTENT_TENANT_HASH_IDX = Internal.createIndex(DSL.name("email_content_tenant_hash_idx"), EmailContent.EMAIL_CONTENT, new OrderField[] { EmailContent.EMAIL_CONTENT.TENANT_ID, EmailContent.EMAIL_CONTENT.CONTENT_HASH }, false);
-    public static final Index EMAIL_CONTENT_TENANT_MESSAGE_UK = Internal.createIndex(DSL.name("email_content_tenant_message_uk"), EmailContent.EMAIL_CONTENT, new OrderField[] { EmailContent.EMAIL_CONTENT.TENANT_ID, EmailContent.EMAIL_CONTENT.MESSAGE_ID }, true);
+    public static final Index EMAIL_CONTENT_TENANT_MESSAGE_FP_UK = Internal.createIndex(DSL.name("email_content_tenant_message_fp_uk"), EmailContent.EMAIL_CONTENT, new OrderField[] { EmailContent.EMAIL_CONTENT.TENANT_ID, EmailContent.EMAIL_CONTENT.MESSAGE_ID, EmailContent.EMAIL_CONTENT.FINGERPRINT }, true);
     public static final Index EMAIL_MESSAGE_CONTENT_ID_IDX = Internal.createIndex(DSL.name("email_message_content_id_idx"), EmailMessage.EMAIL_MESSAGE, new OrderField[] { EmailMessage.EMAIL_MESSAGE.CONTENT_ID }, false);
     public static final Index EVENT_ATTENDEE_EXTERNAL_UQ = Internal.createIndex(DSL.name("event_attendee_external_uq"), EventAttendee.EVENT_ATTENDEE, new OrderField[] { EventAttendee.EVENT_ATTENDEE.EVENT_ID, EventAttendee.EVENT_ATTENDEE.EXTERNAL_EMAIL }, true);
     public static final Index IDX_AAC_USER = Internal.createIndex(DSL.name("idx_aac_user"), AiAgentCredential.AI_AGENT_CREDENTIAL, new OrderField[] { AiAgentCredential.AI_AGENT_CREDENTIAL.USER_ID }, false);
