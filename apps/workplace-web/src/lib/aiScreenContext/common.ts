@@ -23,17 +23,29 @@ export function clip(s: string, max: number): string {
 
 export type FactValue = string | number | boolean | null | undefined;
 
-/** [라벨, 값] 목록 → facts. 빈 값·false 는 제외(해당 필터 미적용), true 는 '예'. 모두 비면 undefined. */
-export function buildFacts(pairs: Array<[string, FactValue]>): AiScreenFact[] | undefined {
-  const out: AiScreenFact[] = [];
+/**
+ * [라벨, 값] 목록 → facts. 빈 값·false 는 제외(해당 필터 미적용), true 는 '예'. 모두 비면 undefined.
+ * 유효 항목이 상한(LIMITS.facts)을 넘으면 앞 (상한-1)개만 남기고, 버려진 항목의 "라벨"을 모아
+ * 마지막 1개 fact(라벨 overflowLabel, 기본 '기타')로 요약한다 — 조용히 잘려 AI 가 실제보다 넓은 목록으로 오해하는 것을 막는다.
+ * 그래서 호출자는 영향이 큰 항목을 앞에 두어야 한다.
+ */
+export function buildFacts(
+  pairs: Array<[string, FactValue]>,
+  opts: { overflowLabel?: string } = {},
+): AiScreenFact[] | undefined {
+  const all: AiScreenFact[] = [];
   for (const [label, raw] of pairs) {
     if (raw == null || raw === false || raw === '') continue;
     const value = raw === true ? '예' : String(raw);
     if (!value.trim()) continue;
-    out.push({ label: clip(label, LIMITS.factLabel), value: clip(value, LIMITS.factValue) });
-    if (out.length === LIMITS.facts) break;
+    all.push({ label: clip(label, LIMITS.factLabel), value: clip(value, LIMITS.factValue) });
   }
-  return out.length ? out : undefined;
+  if (!all.length) return undefined;
+  if (all.length <= LIMITS.facts) return all;
+  const kept = all.slice(0, LIMITS.facts - 1);
+  const dropped = all.slice(LIMITS.facts - 1).map((f) => f.label).join(', ');
+  kept.push({ label: clip(opts.overflowLabel ?? '기타', LIMITS.factLabel), value: clip(dropped, LIMITS.factValue) });
+  return kept;
 }
 
 /** 식별자 맵 — null/undefined 제외, 값은 문자열. 최대 5개. */

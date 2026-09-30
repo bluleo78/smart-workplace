@@ -70,23 +70,27 @@ export function buildIssueListContext(input: IssueListContextInput): AiScreenCon
   const scope: NonNullable<AiScreenContext['scope']> = {
     label: clip(`프로젝트 ${input.projectName} 이슈 목록`, LIMITS.label),
     refs: buildRefs({ projectKey: input.projectKey }),
-    facts: buildFacts([
-      ['보기', input.view === 'board' ? '보드' : '리스트'],
-      ['그룹', input.groupBy ? GROUP_LABEL[input.groupBy] : null],
-      ['검색어', f.q],
-      ['상태', joinMapped(f.statuses, STATUS_LABEL)],
-      ['우선순위', joinMapped(f.priorities, PRIORITY_LABEL)],
-      ['담당', assignee],
-      ['라벨', names(f.labelIds, lookups.labels)],
-      ['유형', names(f.typeIds, lookups.types)],
-      ['사이클', names(f.cycleIds, lookups.cycles)],
-      ['마일스톤', names(f.milestoneIds, lookups.milestones)],
-      ['마감', dueRange(f.dueFrom, f.dueTo)],
-      ['상위 이슈', f.parentNumber != null ? `${input.projectKey}-${f.parentNumber}` : null],
-      ['최상위만', f.topLevel],
-      ['차단됨', f.blocked],
-      ['종료 모두 보기', f.showAllClosed],
-    ]),
+    // 결과 집합에 미치는 영향 순 — 상한(12) 초과 시 뒤쪽(표시 전용 보기·그룹 등)이 '기타 필터' 요약으로 밀려난다.
+    facts: buildFacts(
+      [
+        ['검색어', f.q],
+        ['상태', joinMapped(f.statuses, STATUS_LABEL)],
+        ['담당', assignee],
+        ['우선순위', joinMapped(f.priorities, PRIORITY_LABEL)],
+        ['라벨', names(f.labelIds, lookups.labels)],
+        ['유형', names(f.typeIds, lookups.types)],
+        ['마감', dueRange(f.dueFrom, f.dueTo)],
+        ['차단됨', f.blocked],
+        ['상위 이슈', f.parentNumber != null ? `${input.projectKey}-${f.parentNumber}` : null],
+        ['최상위만', f.topLevel],
+        ['사이클', names(f.cycleIds, lookups.cycles)],
+        ['마일스톤', names(f.milestoneIds, lookups.milestones)],
+        ['종료 모두 보기', f.showAllClosed],
+        ['보기', input.view === 'board' ? '보드' : '리스트'],
+        ['그룹', input.groupBy ? GROUP_LABEL[input.groupBy] : null],
+      ],
+      { overflowLabel: '기타 필터' },
+    ),
   };
   if (input.count != null) scope.count = input.count;
   if (input.hasMore != null) scope.hasMore = input.hasMore;

@@ -26,6 +26,14 @@ describe('buildFacts', () => {
     expect(out).toHaveLength(LIMITS.facts);
     expect(out[0].value).toHaveLength(LIMITS.factValue);
   });
+  it('상한 초과 시 앞 11개 + 밀린 라벨 요약(기본 라벨 기타, overflowLabel 지정 가능)', () => {
+    const many = Array.from({ length: 14 }, (_, i) => [`k${i}`, 'v'] as [string, string]);
+    const out = buildFacts(many)!;
+    expect(out).toHaveLength(LIMITS.facts);
+    expect(out[10]).toEqual({ label: 'k10', value: 'v' });
+    expect(out[11]).toEqual({ label: '기타', value: 'k11, k12, k13' });
+    expect(buildFacts(many, { overflowLabel: '기타 필터' })![11].label).toBe('기타 필터');
+  });
 });
 
 describe('buildRefs', () => {

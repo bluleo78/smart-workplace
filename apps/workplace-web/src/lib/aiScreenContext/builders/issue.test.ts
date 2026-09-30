@@ -69,12 +69,12 @@ describe('buildIssueListContext', () => {
       label: '프로젝트 Workplace 이슈 목록',
       refs: { projectKey: 'WP' },
       facts: [
-        { label: '보기', value: '리스트' },
-        { label: '그룹', value: '상태' },
         { label: '검색어', value: '로그인' },
         { label: '상태', value: '할 일, 진행 중' },
         { label: '담당', value: '양동희, #99, 미할당' },
         { label: '라벨', value: '버그' },
+        { label: '보기', value: '리스트' },
+        { label: '그룹', value: '상태' },
       ],
       count: 23,
       hasMore: true,
@@ -88,6 +88,26 @@ describe('buildIssueListContext', () => {
     });
     expect(ctx.scope!.facts).toEqual([{ label: '보기', value: '보드' }]);
     expect(ctx.scope!.count).toBeUndefined();
+  });
+});
+
+describe('buildIssueListContext 상한 초과', () => {
+  it('모든 필터가 켜지면 12개로 자르되 밀린 필터 이름을 "기타 필터"로 요약', () => {
+    const ctx = buildIssueListContext({
+      projectKey: 'WP', projectName: 'Workplace', view: 'board', groupBy: 'status',
+      filters: {
+        ...emptyFilters, q: 'a', statuses: ['TODO'], priorities: ['HIGH'], assigneeIds: [1], labelIds: [5], typeIds: [2],
+        dueFrom: '2026-10-01', dueTo: null, blocked: true, parentNumber: 3, topLevel: true, cycleIds: [7], milestoneIds: [8], showAllClosed: true,
+      },
+      lookups: {
+        members: [{ userId: 1, name: '양' }], labels: [{ id: 5, name: 'L' }], types: [{ id: 2, name: 'T' }],
+        cycles: [{ id: 7, name: 'C' }], milestones: [{ id: 8, name: 'M' }],
+      },
+    });
+    const facts = ctx.scope!.facts!;
+    expect(facts).toHaveLength(12);
+    expect(facts.map((f) => f.label)).toContain('차단됨');
+    expect(facts[11]).toEqual({ label: '기타 필터', value: '마일스톤, 종료 모두 보기, 보기, 그룹' });
   });
 });
 
