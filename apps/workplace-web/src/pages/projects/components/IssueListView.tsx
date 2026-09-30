@@ -75,7 +75,9 @@ export function IssueListView({
   const searchQuery = useIssueSearch(projectKey, withDefaultIssueScope(filters));
   const { data, isFetching, isLoading } = searchQuery;
   // sentinel 진입 시 다음 페이지 로드(공용 훅).
-  const sentinelRef = useLoadMoreSentinel(searchQuery);
+  // 테이블 스크롤 컨테이너 — sentinel 의 IntersectionObserver root 로 쓴다(콜백 ref 라 마운트 후 재부착).
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const sentinelRef = useLoadMoreSentinel(searchQuery, scrollEl);
 
   // #606: 다중 선택 상태 — 이슈 number 집합. 필터/그룹 변경 시 초기화(아래 useEffect).
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -204,12 +206,14 @@ export function IssueListView({
   }
 
   return (
-    <div className="overflow-x-auto">
+    // 부모가 높이를 주면(h-full) 벌크 툴바는 위에 고정, 테이블 영역만 가로·세로 스크롤한다.
+    // 높이를 안 주는 부모에서는 h-full 이 무시돼 기존처럼 콘텐츠 높이대로 늘어난다.
+    <div className="flex h-full flex-col">
       {/* #606: 선택된 항목이 있을 때만 노출되는 벌크 액션 툴바 — Drive DrivePage.tsx 패턴 재사용. */}
       {selected.size > 0 && (
         <div
           data-testid="issue-bulk-toolbar"
-          className="mb-2 flex items-center gap-2 rounded bg-muted px-3 py-2 text-sm"
+          className="mb-2 flex shrink-0 items-center gap-2 rounded bg-muted px-3 py-2 text-sm"
         >
           <span>선택 {selected.size}개</span>
           <DropdownMenu>
@@ -286,41 +290,57 @@ export function IssueListView({
           </button>
         </div>
       )}
-      <table className="w-full text-sm" role="table">
-        <thead>
-          <tr className="text-left text-muted-foreground border-b">
-            <th className="w-9 py-2">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={toggleSelectAll}
-                aria-label="전체선택"
-                data-testid="issue-select-all"
-                className="h-4 w-4"
-              />
-            </th>
-            {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
-            <th className="w-9 py-2"><span className="sr-only">상태</span></th>
-            <th className="w-9"><span className="sr-only">우선순위</span></th>
-            <th className="w-28">ID</th>
-            <th>제목</th>
-            <th className="w-20">담당자</th>
-            <th className="w-32">마감</th>
-          </tr>
-        </thead>
-        {groups ? (
-          groups.map((g) => (
-            <tbody key={g.key} data-testid={`list-group-${g.key}`}>
-              <tr className="bg-muted/40 border-b">
-                <td
-                  colSpan={7}
-                  className="py-1.5 px-1 text-xs font-semibold text-muted-foreground"
-                >
-                  {g.label}
-                  <span className="ml-2 font-normal">{g.issues.length}</span>
-                </td>
-              </tr>
-              {g.issues.map((it) => (
+      {/* 테이블 스크롤 영역 — thead 가 이 컨테이너 기준 sticky 로 붙는다(래퍼가 overflow-x 만 가지면 sticky 가 무력화됨).
+          border-collapse 표에서 sticky 행은 테두리가 사라지므로 하단 구분선은 tr border 대신 inset shadow 로 그린다. */}
+      <div ref={setScrollEl} className="min-h-0 flex-1 overflow-auto" data-testid="issue-list-scroll">
+        <table className="w-full text-sm" role="table">
+          <thead className="sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_var(--color-border)]">
+            <tr className="text-left text-muted-foreground">
+              <th className="w-9 py-2">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  aria-label="전체선택"
+                  data-testid="issue-select-all"
+                  className="h-4 w-4"
+                />
+              </th>
+              {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
+              <th className="w-9 py-2"><span className="sr-only">상태</span></th>
+              <th className="w-9"><span className="sr-only">우선순위</span></th>
+              <th className="w-28">ID</th>
+              <th>제목</th>
+              <th className="w-20">담당자</th>
+              <th className="w-32">마감</th>
+            </tr>
+          </thead>
+          {groups ? (
+            groups.map((g) => (
+              <tbody key={g.key} data-testid={`list-group-${g.key}`}>
+                <tr className="bg-muted/40 border-b">
+                  <td
+                    colSpan={7}
+                    className="py-1.5 px-1 text-xs font-semibold text-muted-foreground"
+                  >
+                    {g.label}
+                    <span className="ml-2 font-normal">{g.issues.length}</span>
+                  </td>
+                </tr>
+                {g.issues.map((it) => (
+                  <IssueRow
+                    key={it.id}
+                    issue={it}
+                    projectKey={projectKey}
+                    selected={selected.has(it.number)}
+                    onToggleSelect={toggleSelected}
+                  />
+                ))}
+              </tbody>
+            ))
+          ) : (
+            <tbody>
+              {items.map((it) => (
                 <IssueRow
                   key={it.id}
                   issue={it}
@@ -330,23 +350,11 @@ export function IssueListView({
                 />
               ))}
             </tbody>
-          ))
-        ) : (
-          <tbody>
-            {items.map((it) => (
-              <IssueRow
-                key={it.id}
-                issue={it}
-                projectKey={projectKey}
-                selected={selected.has(it.number)}
-                onToggleSelect={toggleSelected}
-              />
-            ))}
-          </tbody>
-        )}
-      </table>
-      <div ref={sentinelRef} aria-hidden="true" className="h-1" />
-      {isFetching && <p className="text-muted-foreground py-2">불러오는 중…</p>}
+          )}
+        </table>
+        <div ref={sentinelRef} aria-hidden="true" className="h-1" />
+        {isFetching && <p className="text-muted-foreground py-2">불러오는 중…</p>}
+      </div>
 
       {/* #606: 벌크 삭제 확인 — IssueDetailPage 단건 삭제와 동일한 제어형 AlertDialog 패턴. */}
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>

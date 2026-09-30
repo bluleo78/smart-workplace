@@ -9,7 +9,13 @@ type LoadMoreQuery = Pick<
   'hasNextPage' | 'isFetching' | 'isFetchNextPageError' | 'fetchNextPage'
 >;
 
-export function useLoadMoreSentinel<T extends HTMLElement = HTMLDivElement>(query: LoadMoreQuery) {
+// root: sentinel 을 감싼 스크롤 컨테이너(목록/보드가 자체 스크롤할 때). 생략·null 이면 뷰포트.
+// 왜 명시적으로 받나: 뷰포트를 root 로 두면 rootMargin(선행 로드 여유)이 컨테이너 클리핑에 먹혀
+// 끝에 닿아야 로드된다. 조상을 추측해 고르면 높이가 고정되지 않은 overflow 요소를 root 로 잡아 연쇄 로드한다(WP-94).
+export function useLoadMoreSentinel<T extends HTMLElement = HTMLDivElement>(
+  query: LoadMoreQuery,
+  root: Element | null = null,
+) {
   const ref = useRef<T | null>(null);
   const { hasNextPage, isFetching, isFetchNextPageError, fetchNextPage } = query;
 
@@ -23,11 +29,11 @@ export function useLoadMoreSentinel<T extends HTMLElement = HTMLDivElement>(quer
       (entries) => {
         if (entries[0]?.isIntersecting && !isFetching) void fetchNextPage();
       },
-      { rootMargin: '200px' },
+      { root, rootMargin: '200px' },
     );
     io.observe(node);
     return () => io.disconnect();
-  }, [hasNextPage, isFetching, isFetchNextPageError, fetchNextPage]);
+  }, [hasNextPage, isFetching, isFetchNextPageError, fetchNextPage, root]);
 
   return ref;
 }

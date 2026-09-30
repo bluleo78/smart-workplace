@@ -22,7 +22,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { Inbox, Plus } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 
@@ -171,29 +171,29 @@ export function IssueBoardView({
     const visibleIssues = allIssues.filter((it) => allowedStatuses.has(it.status));
     const groups = groupIssues(visibleIssues, groupBy);
     return (
-      <>
-        {/* 무엇을: 컬럼을 가로 스크롤 flex 행으로 배치(컬럼별 min-w-[240px]).
-            왜: 좁은 폭(1024px 등)에서 4-track grid 가 컬럼을 ~160px 로 압축해 truncate 제목이 식별 불가 →
-                컬럼 min-width + 가로 스크롤로 식별성 보존(넓은 폭은 flex-1 로 4-up 유지). */}
-        <div className="flex gap-3 overflow-x-auto">
-          {groups.map((g) => (
-            <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} onOpenCreate={onOpenCreate} />
-          ))}
-        </div>
-        {groupHasNext && !groupNextError && (
-          <p className="text-xs text-muted-foreground mt-3" data-testid="board-loading-more">
-            나머지 이슈를 불러오는 중…
-          </p>
-        )}
-        {groupNextError && (
-          <p className="text-xs text-destructive mt-3" data-testid="board-load-error">
-            나머지 이슈를 불러오지 못했습니다.{' '}
-            <button type="button" className="underline" onClick={() => void fetchNextPage()}>
-              다시 시도
-            </button>
-          </p>
-        )}
-      </>
+      <BoardScroll
+        footer={
+          <>
+            {groupHasNext && !groupNextError && (
+              <p className="text-xs text-muted-foreground mt-3" data-testid="board-loading-more">
+                나머지 이슈를 불러오는 중…
+              </p>
+            )}
+            {groupNextError && (
+              <p className="text-xs text-destructive mt-3" data-testid="board-load-error">
+                나머지 이슈를 불러오지 못했습니다.{' '}
+                <button type="button" className="underline" onClick={() => void fetchNextPage()}>
+                  다시 시도
+                </button>
+              </p>
+            )}
+          </>
+        }
+      >
+        {groups.map((g) => (
+          <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} onOpenCreate={onOpenCreate} />
+        ))}
+      </BoardScroll>
     );
   }
 
@@ -205,10 +205,7 @@ export function IssueBoardView({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveIssue(null)}
     >
-      {/* 무엇을: 컬럼을 가로 스크롤 flex 행으로 배치(컬럼별 min-w-[240px]).
-          왜: 좁은 폭(1024px 등)에서 4-track grid 가 컬럼을 ~160px 로 압축해 truncate 제목이 식별 불가 →
-              컬럼 min-width + 가로 스크롤로 식별성 보존(넓은 폭은 flex-1 로 4-up 유지). */}
-      <div className="flex gap-3 overflow-x-auto">
+      <BoardScroll>
         {columns.map((col) => (
           <BoardColumn
             key={col.status}
@@ -222,7 +219,7 @@ export function IssueBoardView({
             onOpenCreate={onOpenCreate}
           />
         ))}
-      </div>
+      </BoardScroll>
       {/* DragOverlay — 컬럼 경계를 넘어도 ghost 가 포인터를 그대로 따라간다. */}
       <DragOverlay dropAnimation={null}>
         {activeIssue ? (
@@ -238,6 +235,32 @@ export function IssueBoardView({
     </DndContext>
   );
 }
+
+// 보드 스크롤 컨테이너 — 컬럼 끝 sentinel 이 IntersectionObserver root 로 쓰도록 컨텍스트로 내려준다.
+const BoardScrollRootContext = createContext<Element | null>(null);
+
+// 무엇을: 보드 자체가 가로·세로 스크롤 컨테이너(부모가 준 높이를 h-full 로 채움) — 컬럼은 min-w-[240px] flex 행.
+// 왜: 좁은 폭(1024px 등)에서 4-track grid 가 컬럼을 ~160px 로 압축해 truncate 제목이 식별 불가 →
+//     컬럼 min-width + 가로 스크롤로 식별성 보존(넓은 폭은 flex-1 로 4-up 유지).
+//     세로 스크롤도 같은 컨테이너가 맡아야 가로 스크롤바가 콘텐츠 끝이 아닌 영역 하단에 늘 보이고,
+//     컬럼 헤더 sticky 가 이 컨테이너 기준으로 붙는다. 행은 min-h-full 로 컬럼(드롭 영역)을 영역 높이까지 늘린다.
+//     상태 보드·그룹 보드가 같은 구조를 쓴다.
+function BoardScroll({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  return (
+    <div ref={setEl} className="h-full overflow-auto" data-testid="board-scroll">
+      <BoardScrollRootContext.Provider value={el}>
+        <div className="flex min-h-full gap-3">{children}</div>
+        {footer}
+      </BoardScrollRootContext.Provider>
+    </div>
+  );
+}
+
+// 컬럼 헤더 — 보드 스크롤 컨테이너 기준 sticky 라 긴 컬럼을 내려도 라벨·개수가 보인다.
+// -mx-2 -mt-2 / px-3 pt-2 는 컬럼의 p-2 를 상쇄해 배경이 컬럼 폭을 덮게 한다(컬럼 패딩과 함께 바꿀 것).
+const COLUMN_HEADER_CLASS =
+  'sticky top-0 z-10 -mx-2 -mt-2 flex items-center justify-between rounded-t-md bg-background px-3 pt-2 pb-2 text-sm font-semibold text-foreground';
 
 // 각 컬럼은 droppable + 내부 카드들이 SortableContext 에 묶여 있다.
 function BoardColumn({
@@ -274,7 +297,7 @@ function BoardColumn({
       data-testid={`board-col-${status}`}
       className={`rounded-md border p-2 min-h-[200px] min-w-[240px] flex-1 ${isOver ? 'bg-accent/30' : ''}`}
     >
-      <header className="flex items-center justify-between px-1 pb-2 text-sm font-semibold text-foreground">
+      <header className={COLUMN_HEADER_CLASS}>
         <span>{label}</span>
         {/* 아직 받지 않은 페이지가 있으면 로드분이 전체가 아니므로 "N+" 로 표시 */}
         <span data-testid={`board-col-count-${status}`}>
@@ -320,7 +343,7 @@ function BoardColumn({
 // 컬럼 끝 sentinel — 화면에 들어오면 이 컬럼의 다음 페이지를 받는다(짧은 컬럼은 끝까지 연속 로드).
 // 다음 페이지 요청이 실패하면 자동 로드를 멈추고 "다시 시도" 버튼을 보인다.
 function ColumnLoadMore({ status, query }: { status: string; query: BoardColumnQuery }) {
-  const ref = useLoadMoreSentinel(query);
+  const ref = useLoadMoreSentinel(query, useContext(BoardScrollRootContext));
   if (!query.hasNextPage) return null;
   return (
     <div ref={ref} data-testid={`board-col-more-${status}`} className="py-2 text-center text-xs text-muted-foreground">
@@ -359,7 +382,7 @@ function ReadOnlyColumn({
       data-testid={`board-col-${group.key}`}
       className="rounded-md border p-2 min-h-[200px] min-w-[240px] flex-1"
     >
-      <header className="flex items-center justify-between px-1 pb-2 text-sm font-semibold text-foreground">
+      <header className={COLUMN_HEADER_CLASS}>
         <span>{group.label}</span>
         <span>{group.issues.length}</span>
       </header>

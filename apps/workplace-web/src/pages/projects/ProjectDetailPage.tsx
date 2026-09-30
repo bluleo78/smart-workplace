@@ -71,16 +71,15 @@ export default function ProjectDetailPage() {
           </>
         }
       />
-      <div className="flex-1 overflow-y-auto">
-        {/* min-h-full + flex-col: 내용이 짧아도 뷰포트 높이를 채우고, 길면 스크롤로 자라게 한다.
-            에픽 패널의 self-stretch 가 채울 수 있도록 아래 section 에 flex-1 을 부여. */}
-        <div className="flex min-h-full w-full flex-col px-4 py-6">
-          <IssueArea
-            projectKey={key}
-            onOpenCreate={canCreateIssue ? () => setOpen(true) : undefined}
-            canDragStatus={canDragStatus}
-          />
-        </div>
+      {/* 본문 래퍼는 스크롤하지 않고 남은 높이만 고정한다. 스크롤은 IssueArea 안에서
+          에픽 패널(자체 목록 스크롤)과 우측 목록/보드 영역이 각자 독립적으로 담당한다.
+          (래퍼가 스크롤하면 패널과 목록이 한 덩어리로 같이 스크롤된다.) */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-6">
+        <IssueArea
+          projectKey={key}
+          onOpenCreate={canCreateIssue ? () => setOpen(true) : undefined}
+          canDragStatus={canDragStatus}
+        />
       </div>
       <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} />
     </div>
@@ -108,25 +107,33 @@ function IssueArea({
   return (
     <section aria-label="태스크" className="flex min-h-0 flex-1 items-stretch gap-4">
       {epicPanelOpen && <EpicSidePanel projectKey={projectKey} canCreateIssue={onOpenCreate != null} />}
-      <div className="min-w-0 flex-1">
-        <ViewChipBar
-          projectKey={projectKey}
-          epicPanelOpen={epicPanelOpen}
-          onToggleEpicPanel={toggleEpicPanel}
-        />
-        <IssueFilterBar projectKey={projectKey} />
-        {view === 'board' ? (
-          <IssueBoardView
+      {/* 우측 영역: 뷰 칩바·필터바는 고정, 아래 콘텐츠 슬롯에서 목록/보드가 스스로 스크롤한다
+          (목록=테이블 영역, 보드=컬럼 행 — 각자 가로·세로 스크롤 + 헤더 sticky). 에픽 패널은 따로 고정. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="shrink-0">
+          <ViewChipBar
             projectKey={projectKey}
-            // 팀 보드 기본 범위 — 에픽 카드 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(목록과 동일 규칙).
-            filters={withDefaultIssueScope(filters)}
-            groupBy={groupBy}
-            onOpenCreate={onOpenCreate}
-            canDragStatus={canDragStatus}
+            epicPanelOpen={epicPanelOpen}
+            onToggleEpicPanel={toggleEpicPanel}
           />
-        ) : (
-          <IssueListView projectKey={projectKey} filters={filters} groupBy={groupBy} onOpenCreate={onOpenCreate} />
-        )}
+          <IssueFilterBar projectKey={projectKey} />
+        </div>
+        {/* overflow-auto: 목록/보드는 h-full 로 슬롯을 정확히 채워 자체 스크롤하고,
+            로딩·빈 상태처럼 자체 스크롤이 없는 화면이 넘칠 때만 이 슬롯이 스크롤한다. */}
+        <div className="min-h-0 flex-1 overflow-auto">
+          {view === 'board' ? (
+            <IssueBoardView
+              projectKey={projectKey}
+              // 팀 보드 기본 범위 — 에픽 카드 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(목록과 동일 규칙).
+              filters={withDefaultIssueScope(filters)}
+              groupBy={groupBy}
+              onOpenCreate={onOpenCreate}
+              canDragStatus={canDragStatus}
+            />
+          ) : (
+            <IssueListView projectKey={projectKey} filters={filters} groupBy={groupBy} onOpenCreate={onOpenCreate} />
+          )}
+        </div>
       </div>
     </section>
   );

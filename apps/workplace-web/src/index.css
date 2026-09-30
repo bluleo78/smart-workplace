@@ -98,6 +98,9 @@
   --border: oklch(0.94 0.005 264);
   --input: oklch(0.92 0.005 264);
   --ring: oklch(0.55 0.15 264);
+  /* 전역 슬림 스크롤바 thumb 색 — 라이트 캔버스에서 보이되 콘텐츠보다 튀지 않는 톤. */
+  --scrollbar-thumb: oklch(0.82 0.005 264);
+  --scrollbar-thumb-hover: oklch(0.7 0.005 264);
   --chart-1: oklch(0.45 0.2 264);
   --chart-2: oklch(0.55 0.15 195);
   --chart-3: oklch(0.5 0.18 300);
@@ -165,6 +168,8 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 12%);
   --ring: oklch(0.65 0.2 264);
+  --scrollbar-thumb: oklch(1 0 0 / 18%);
+  --scrollbar-thumb-hover: oklch(1 0 0 / 30%);
   --chart-1: oklch(0.65 0.2 264);
   --chart-2: oklch(0.7 0.15 195);
   --chart-3: oklch(0.65 0.2 300);
@@ -224,6 +229,30 @@
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+}
+
+/* 전역 슬림 스크롤바 — OS 기본(약 15px) 대신 얇은 thumb + 투명 트랙. 항상 표시한다.
+   왜 항상 표시: 자동 숨김을 전역에 걸면 스크롤 가능 여부가 안 보이는 영역이 생긴다
+   (macOS 오버레이 스크롤바에선 티가 안 나고 Windows/Linux 에서만 드러나는 회귀).
+   scrollbar-width/scrollbar-color 는 표준 속성(Firefox·Chrome 121+·Safari 18.2+),
+   ::-webkit-scrollbar-* 는 표준 속성을 모르는 구형 WebKit 용 폴백이다. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 /* ===== OCEAN THEME ===== */
