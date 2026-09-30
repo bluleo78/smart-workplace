@@ -7,6 +7,7 @@ import { createChatMessagePage, createChatThread } from '../factories/chat.facto
 import { createProject } from '../factories/project.factory'
 import { detail, mailAccount, summary } from '../factories/mail.factory'
 import { calendar, calendarEvent } from '../factories/calendar.factory'
+import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../factories/wiki.factory'
 import type { AiScreenContext } from '../../src/types/aiScreenContext'
 
 // 전송 body 를 순서대로 모은다.
@@ -630,5 +631,34 @@ test.describe('AI 채팅 — 드라이브 미리보기 모달 위 입력', () =>
     const dlg = await page.getByRole('dialog').boundingBox()
     const panel = await page.getByTestId('ai-side-panel').boundingBox()
     expect(dlg!.x + dlg!.width).toBeLessThanOrEqual(panel!.x + 1)
+  })
+})
+
+// 위키 화면 목 — 스페이스 목록·트리·페이지 상세·백링크·멘션 (e2e/pages/wiki/wiki-header.spec.ts 와 같은 집합).
+async function mockWiki(page: Parameters<typeof mockApi>[0]) {
+  await mockApi(page, 'GET', '/api/v1/wiki/spaces', [wikiSpace({ id: 2, name: '개발' })])
+  await mockApi(page, 'GET', '/api/v1/wiki/spaces/2/pages', [wikiPageSummary({ id: 10, title: '배포 가이드' })])
+  await mockApi(page, 'GET', '/api/v1/wiki/pages/10/backlinks', [])
+  await mockApi(page, 'GET', '/api/v1/wiki/pages/10/mentions', [])
+  await mockApi(
+    page, 'GET', '/api/v1/wiki/pages/10',
+    wikiPageDetail({ id: 10, spaceId: 2, title: '배포 가이드', updatedAt: '2026-09-29T05:00:00Z' }),
+  )
+}
+
+test.describe('AI 채팅 화면 컨텍스트 — 위키', () => {
+  test('페이지 pageId·스페이스가 실린다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockWiki(page)
+    await page.goto('/wiki/spaces/2/pages/10')
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('위키 페이지 배포 가이드')
+    await page.getByTestId('chat-input').fill('이 문서 요약')
+    await page.getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({
+      focus: { refs: { pageId: '10' } },
+      scope: { label: '위키 스페이스 개발', refs: { spaceId: '2' } },
+    })
   })
 })
