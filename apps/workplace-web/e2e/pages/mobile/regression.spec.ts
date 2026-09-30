@@ -3,7 +3,8 @@
 // 전역 부품(메일 작성 도크)이 탭바와 겹치지 않는지 확인한다.
 // 이관 사유: 모바일(<1024px)엔 AI 칩(chat-launcher)·side 모드가 없고 AI 는 탭바 가운데 탭 = 풀스크린이다.
 import { calendar, calendarEvent } from '../../factories/calendar.factory'
-import { mailAccount, summary } from '../../factories/mail.factory'
+import { detail, mailAccount, summary } from '../../factories/mail.factory'
+import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
@@ -15,6 +16,7 @@ test('AI 탭으로 풀스크린을 열고 닫기 버튼으로 닫는다 (구 WP-
   await expect(fs).toBeVisible()
   // 모바일엔 side 가 없다 — 사이드 패널·모드 전환 버튼·칩이 렌더되지 않는다.
   await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
+  // 모드 전환 버튼은 DOM 에 있되 모바일에서 CSS 로 숨겨진다(count 0 이 아니라 hidden).
   await expect(page.getByTestId('ai-mode-fullscreen')).toBeHidden()
   await expect(page.getByTestId('chat-launcher')).toHaveCount(0)
   // 풀스크린은 화면 폭 가득(구 "side 가 풀스크린 오버레이로 렌더된다" 이관).
@@ -84,8 +86,9 @@ test('메일 작성 도크가 탭바와 겹치지 않는다', async ({ authentic
   await page.getByTestId('mobile-sidebar-sheet').getByTestId('mail-compose-new').click()
   const dock = page.getByTestId('mail-compose-dock')
   await expect(dock).toBeVisible()
-  // 시트가 남아 있으면 닫아 탭바를 드러낸다.
-  if (await page.getByTestId('mobile-sidebar-sheet').isVisible()) await page.keyboard.press('Escape')
+  // 작성을 눌러도 시트는 열린 채이므로 Esc 로 명시적으로 닫아 탭바를 드러낸다.
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('mobile-sidebar-sheet')).toBeHidden()
   const bar = page.getByTestId('mobile-tabbar')
   await expect(bar).toBeVisible()
   const d = (await dock.boundingBox())!
@@ -93,4 +96,45 @@ test('메일 작성 도크가 탭바와 겹치지 않는다', async ({ authentic
   // 도크 하단이 탭바 상단 이상으로 내려가지 않아야 한다.
   expect(d.y + d.height).toBeLessThanOrEqual(b.y + 0.5)
   await expectNoHorizontalOverflow(page)
+})
+
+test('탭바가 숨은 메일 본문에서는 작성 도크가 화면 하단에 붙는다', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
+  await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
+  await page.goto('/mail/1')
+  await page.getByTestId('mail-row-10').click()
+  await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
+  await page.getByTestId('mail-reply').click()
+  const dock = page.getByTestId('mail-compose-dock')
+  await expect(dock).toBeVisible()
+  const d = (await dock.boundingBox())!
+  const vh = page.viewportSize()!.height
+  // 탭바가 없으면 오프셋 0 — 도크 하단이 뷰포트 하단에 닿는다.
+  expect(Math.abs(d.y + d.height - vh)).toBeLessThanOrEqual(1)
+})
+
+test('탭 루트가 아닌 PageHeader 화면(사이클)에도 뒤로가기 바 ✦ 로 AI 풀스크린을 열 수 있다', async ({ authenticatedPage: page }) => {
+  // 탭바가 없는 비루트 화면의 AI 진입점 검증 — 비루트 PageHeader 화면은 모두 ResponsiveModuleLayout 의
+  // 뒤로가기 바(mobile-back-ai) 아래에 있어 별도 헤더 ✦ 가 필요 없다(/calendar 등은 탭 루트라 탭바가 보인다).
+  await page.route('**/api/v1/projects/WP', (r) => r.fulfill({ json: createProject() }))
+  await page.route('**/api/v1/projects/WP/cycles', (r) => r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fallback())
+  await page.route('**/api/v1/projects/WP/cycles/progress', (r) => r.fulfill({ json: [] }))
+  await stubChat(page)
+  await page.goto('/projects/WP/cycles')
+  await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
+  await expect(page.getByTestId('page-header')).toBeVisible()
+  await page.getByTestId('mobile-back-ai').click()
+  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expectNoHorizontalOverflow(page)
+})
+
+test('캘린더는 탭 루트라 탭바(AI 탭)가 항상 보인다', async ({ authenticatedPage: page }) => {
+  await page.goto('/calendar')
+  await expect(page.getByTestId('mobile-tab-ai')).toBeVisible()
+})
+
+test('탭 루트 헤더에는 🔔 이 보인다', async ({ authenticatedPage: page }) => {
+  await page.goto('/')
+  await expect(page.getByTestId('mobile-bell')).toBeVisible()
 })
