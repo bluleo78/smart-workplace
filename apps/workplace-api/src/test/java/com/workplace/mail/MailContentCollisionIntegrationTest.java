@@ -276,4 +276,24 @@ class MailContentCollisionIntegrationTest extends IntegrationTestBase {
           soft.assertThat(contentIdOf(envA)).isNotEqualTo(contentIdOf(envB));
         });
   }
+
+  /** 이미 있는 envelope 재동기화(삽입 무시) 시 지문 없는 content 가 새로 생겨 고아로 남지 않는다. */
+  @Test
+  void resyncOfExistingEnvelope_leavesNoOrphanContent() {
+    long nano = System.nanoTime();
+    String msgId = "<resync-" + nano + "@corp.test>";
+    inRollbackTx(
+        soft -> {
+          long[] a = seedMailbox("a-" + nano + "@corp.test");
+          // 구조 요약 없음 → 지문 없음 → 재동기화마다 findOrCreate 가 새 content 를 만든다
+          ParsedMessage m = imapHeader(7, msgId, "ceo@corp.test", "제목", SENT_A, null);
+          sync(a, m);
+          soft.assertThat(messageRepo.insertIgnoreConflict(a[1], a[2], m)).as("재동기화는 무시").isEmpty();
+          long contents =
+              dsl.fetchCount(
+                  com.workplace.jooq.Tables.EMAIL_CONTENT,
+                  com.workplace.jooq.Tables.EMAIL_CONTENT.MESSAGE_ID.eq(msgId));
+          soft.assertThat(contents).as("content 행 수").isEqualTo(1);
+        });
+  }
 }
