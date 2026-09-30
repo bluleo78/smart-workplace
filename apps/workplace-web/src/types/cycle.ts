@@ -46,10 +46,3 @@ export interface CycleProgress {
   done: number;
   byStatus: Record<string, number>;
 }
-
-// 이슈 사이클 이동 결과 (#881) — 이동 후 집합 + 실제 적용한 차분(되돌리기는 이 차분만 역적용한다).
-export interface MoveIssueCycleResult {
-  cycles: CycleSummary[];
-  removedFrom: boolean;
-  addedTo: boolean;
-}
