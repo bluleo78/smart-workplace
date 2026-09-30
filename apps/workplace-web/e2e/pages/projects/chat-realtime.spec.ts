@@ -103,10 +103,9 @@ test.describe('chat 실시간 SSE', () => {
           summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'SSE 실시간 테스트' }),
         }),
       };
-      // 패널 자동 펼침을 위해 기존 메시지 1건 시드 — SSE 전달 메시지는 id=999(별개).
-      // 무엇을: IssueChatPanel 이 recentMessages 로 자동 펼침 판정하므로, 빈 목록이면
-      //         패널 접힘 → IssueChatSection 미마운트 → useChatMessages 캐시 미생성
-      //         → upsertMessage 가 캐시 없어 no-op → SSE 메시지 유실. 기존 메시지로 펼침 보장.
+      // 기존 메시지 1건 시드 — SSE 전달 메시지는 id=999(별개).
+      // 무엇을: 드로워를 연 뒤 목록 캐시가 이미 있는 상태에서 SSE 메시지가 upsert 되는지 본다.
+      //         (구 IssueChatPanel 은 recentMessages 로 자동 펼침을 판정해 시드가 필수였다.)
       const existingMsg = createChatMessage({
         id: 1,
         threadId: THREAD_ID,
