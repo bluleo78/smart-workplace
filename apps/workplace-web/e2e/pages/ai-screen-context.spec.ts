@@ -5,6 +5,7 @@ import { mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../factories/issue.factory'
 import { createChatMessagePage, createChatThread } from '../factories/chat.factory'
 import { createProject } from '../factories/project.factory'
+import { detail, mailAccount, summary } from '../factories/mail.factory'
 import type { AiScreenContext } from '../../src/types/aiScreenContext'
 
 // 전송 body 를 순서대로 모은다.
@@ -319,6 +320,31 @@ test.describe('AI 채팅 화면 컨텍스트 — 개인 프로젝트', () => {
       view: '이슈 상세',
       focus: { refs: { issueKey: 'PME-1' } },
       scope: { label: '개인 프로젝트', refs: { projectKey: KEY } },
+    })
+  })
+})
+
+test.describe('AI 채팅 화면 컨텍스트 — 메일', () => {
+  test('열린 메일의 messageId·제목과 폴더가 실린다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    // 메일 계정/목록/상세 목 — mail-inbox.spec.ts 와 같은 팩토리. 계정 id=3, 목록에 id=91 '견적 요청' 1건.
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ id: 3 })])
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/3/messages', [
+      summary({ id: 91, accountId: 3, subject: '견적 요청', fromName: '김철수', fromAddress: 'kim@a.com' }),
+    ])
+    await mockApi(page, 'GET', '/api/v1/mail/messages/91', detail({ id: 91, subject: '견적 요청' }))
+    await page.goto('/mail/3?messageId=91')
+    await page.getByTestId('chat-launcher').click()
+
+    await expect(page.getByTestId('chat-context-chip')).toContainText('메일 견적 요청')
+    await page.getByTestId('chat-input').fill('이 메일 요약해줘')
+    await page.getByRole('button', { name: '보내기' }).click()
+
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({
+      view: '메일함',
+      focus: { type: '메일', label: '견적 요청', refs: { messageId: '91' } },
+      scope: { refs: { accountId: '3', folder: 'INBOX' }, count: 1 },
     })
   })
 })

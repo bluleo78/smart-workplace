@@ -6,10 +6,12 @@ import { toast } from 'sonner'
 
 import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
+import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
 import { cn } from '@/lib/utils'
@@ -527,6 +529,40 @@ export function MailInboxPage() {
   const selfAddress = currentAccount?.emailAddress ?? ''
   // 현재 계정의 AI 사용 여부 — 요약 스트립 표시 여부에 사용.
   const aiEnabled = currentAccount?.aiEnabled ?? false
+
+  // WP-54: 메일함 화면 컨텍스트 — 계정·폴더·필터 + 열린 메일(목록 행 요약으로 라벨 구성).
+  // 훅이므로 아래 !accountId 조기 return 보다 앞에 둔다. 목록에 없는 메일(딥링크 등)은 focus 없이 scope 만 싣는다.
+  const selectedSummary = useMemo(
+    () => messages?.find((m) => m.id === selectedId) ?? null,
+    [messages, selectedId],
+  )
+  const screenContext = useMemo(
+    () =>
+      accountIdNum != null
+        ? buildMailContext({
+            accountId: accountIdNum,
+            accountEmail: currentAccount?.emailAddress ?? null,
+            folder: folderParam,
+            q: search,
+            category: categoryParam || null,
+            needsReply: needsReplyParam,
+            count: messages?.length ?? 0,
+            selected: selectedSummary
+              ? {
+                  id: selectedSummary.id,
+                  subject: selectedSummary.subject,
+                  fromName: selectedSummary.fromName,
+                  fromAddress: selectedSummary.fromAddress ?? '',
+                  receivedAt: selectedSummary.receivedAt ?? '',
+                  aiCategory: selectedSummary.aiCategory,
+                  aiNeedsReply: selectedSummary.aiNeedsReply,
+                }
+              : null,
+          })
+        : null,
+    [accountIdNum, currentAccount?.emailAddress, folderParam, search, categoryParam, needsReplyParam, messages?.length, selectedSummary],
+  )
+  useRegisterAiScreenContext(screenContext)
 
   // 답장 draft 생성.
   function buildReply(detail: EmailMessageDetail, all: boolean): ComposeDraft {
