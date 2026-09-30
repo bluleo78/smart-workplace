@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { ListBackRow } from '@/components/mobile/ListBackRow'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { Button } from '@/components/ui/button'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
@@ -243,15 +244,8 @@ export function ContactsPage() {
             )}
             data-testid="contact-detail"
           >
-            {/* 좁은 화면 뒤로가기 — lg 이상에서는 숨김 */}
-            <button
-              type="button"
-              data-testid="contact-back"
-              onClick={() => setSelected(null)}
-              className="flex items-center gap-1 border-b px-4 py-2 text-sm text-primary lg:hidden"
-            >
-              ‹ 목록
-            </button>
+            {/* 좁은 화면 뒤로가기 — lg 이상에서는 숨김. 모바일은 탭바가 숨으므로 ✦(AI) 를 함께 둔다. */}
+            <ListBackRow data-testid="contact-back" onBack={() => setSelected(null)} />
             <ContactDetailPanel selected={selected} onDeleted={() => setSelected(null)} />
           </div>
         </div>

@@ -8,6 +8,7 @@ import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { ListBackRow } from '@/components/mobile/ListBackRow'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { Button } from '@/components/ui/button'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
@@ -763,15 +764,8 @@ export function MailInboxPage() {
           )}
           data-testid="mail-detail-pane"
         >
-          {/* 좁은 화면 뒤로가기 버튼 — 선택 상태에서만 표시 */}
-          <button
-            type="button"
-            data-testid="mail-back"
-            onClick={() => setSelectedId(null)}
-            className="flex items-center gap-1 border-b px-4 py-2 text-sm text-primary lg:hidden"
-          >
-            ‹ 목록
-          </button>
+          {/* 좁은 화면 뒤로가기 버튼 — 선택 상태에서만 표시. 모바일은 탭바가 숨으므로 ✦(AI) 를 함께 둔다. */}
+          <ListBackRow data-testid="mail-back" onBack={() => setSelectedId(null)} />
           <MessageDetailPanel
             messageId={selectedId}
             aiEnabled={aiEnabled}

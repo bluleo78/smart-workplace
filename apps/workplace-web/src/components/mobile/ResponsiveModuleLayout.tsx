@@ -7,14 +7,12 @@ import type { ReactNode } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { isTabRoot, norm } from '@/lib/mobile/routes'
 import { cn } from '@/lib/utils'
 
 import { MobileBackBar } from './MobileBackBar'
 import { MobileListHeader } from './MobileListHeader'
 import { mobileSidebarListClass } from './sidebarListClass'
-
-// 끝 슬래시를 제거해 '/chat/' 와 '/chat' 을 같은 루트로 취급한다.
-const norm = (p: string) => (p.length > 1 ? p.replace(/\/+$/, '') : p)
 
 export function ResponsiveModuleLayout({
   sidebar,
@@ -46,7 +44,9 @@ export function ResponsiveModuleLayout({
   if (norm(pathname) === rootPath) {
     return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
-        <MobileListHeader title={title} />
+        {/* 탭 루트(/chat 등)는 탭바가 보이므로 큰 제목 헤더. 탭 루트가 아닌 모듈 목록(/settings — 더보기에서 진입)은
+            탭바가 숨으므로 막다른 길이 되지 않게 뒤로가기 바(→ /more, ✦ 포함)를 대신 둔다. */}
+        {isTabRoot(rootPath) ? <MobileListHeader title={title} /> : <MobileBackBar title={title} />}
         <div data-testid="mobile-module-list" className={mobileSidebarListClass}>{sidebar}</div>
       </div>
     )
