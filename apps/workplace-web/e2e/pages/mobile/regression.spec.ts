@@ -62,8 +62,8 @@ test('AI 풀스크린: 좌측 세션목록이 숨겨지고 헤더 드롭다운�
 test('캘린더 일정 다이얼로그: 칩·사이드 패널 없이 열리고 Esc 로 닫힌다 (구 ai-screen-context 모바일 케이스 대체)', async ({
   authenticatedPage: page,
 }) => {
-  // 구 케이스는 ⌘K 로 side→풀스크린 패널을 다이얼로그 위에 띄웠으나, 모바일 셸엔 칩·⌘K 가 없고
-  // AI 는 탭바(탭 루트에서만 노출) 로만 열린다. 여기선 다이얼로그가 셸 안에서 정상 동작함만 확인한다.
+  // 다이얼로그가 셸 안에서 정상 동작함(칩·사이드 패널 없음, Esc 닫힘)을 확인한다. ⌘K 로 다이얼로그 위에 AI 를 띄우는
+  // 흐름은 아래 "다이얼로그 위 풀스크린" 케이스가 검증한다.
   const ev = calendarEvent({ id: 42, title: '주간회의' })
   await mockApi(page, 'GET', '/api/v1/calendars', [calendar()])
   await mockApi(page, 'GET', '/api/v1/calendar/events', [ev])
@@ -76,6 +76,47 @@ test('캘린더 일정 다이얼로그: 칩·사이드 패널 없이 열리고 E
   await expectNoHorizontalOverflow(page)
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
+})
+
+test('모바일(<lg): ⌘K 로 다이얼로그 위 풀스크린 AI 를 열어 입력하고, Esc 로 AI 만 닫으면 다이얼로그로 돌아온다 (구 ai-screen-context 모바일 케이스 복원)', async ({
+  authenticatedPage: page,
+}) => {
+  const ev = calendarEvent({ id: 42, title: '주간회의' })
+  await mockApi(page, 'GET', '/api/v1/calendars', [calendar()])
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [ev])
+  await mockApi(page, 'GET', '/api/v1/calendar/events/42', ev)
+  await page.goto('/calendar?eventId=42')
+  const dialog = page.getByTestId('calendar-event-dialog')
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+k')
+  const fs = page.getByTestId('ai-fullscreen')
+  await expect(fs).toBeVisible()
+  // 풀스크린(z-[60])이 다이얼로그(z-50) 위에 있고, 입력창은 실제 클릭·타이핑된다(가려지거나 inert 면 클릭이 실패).
+  await page.getByTestId('chat-input').click()
+  await page.getByTestId('chat-input').fill('참석자?')
+  await expect(page.getByTestId('chat-input')).toHaveValue('참석자?')
+  // AI 에서 Esc → AI 만 닫히고 다이얼로그는 그대로(모달 dim 복귀).
+  await page.keyboard.press('Escape')
+  await expect(fs).toHaveCount(0)
+  await expect(dialog).toBeVisible()
+  await expect(page.locator('[data-slot=dialog-overlay]')).toBeVisible()
+  await expectNoHorizontalOverflow(page)
+})
+
+test('모바일(<lg): ⌘K 는 AI 풀스크린을 토글하고 Esc 는 닫는다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await page.goto('/')
+  // AI 사용 가능 여부가 확정된 뒤(탭바 AI 칸 노출)에 단축키가 등록된다.
+  await expect(page.getByTestId('mobile-tab-ai')).toBeVisible()
+  const fs = page.getByTestId('ai-fullscreen')
+  await page.keyboard.press('ControlOrMeta+k')
+  await expect(fs).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+k')
+  await expect(fs).toHaveCount(0)
+  await page.keyboard.press('ControlOrMeta+k')
+  await expect(fs).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(fs).toHaveCount(0)
 })
 
 test('메일 작성 도크가 탭바와 겹치지 않는다', async ({ authenticatedPage: page }) => {

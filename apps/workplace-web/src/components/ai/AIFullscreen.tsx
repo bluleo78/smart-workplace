@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AIChatPanel } from '@/components/ai/AIChatPanel';
 import { AIPanelControls, AIPanelTitle } from '@/components/ai/AIPanelHeader';
+import { markAiPanelEvent } from '@/components/ai/aiPanelSurface';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { relTime } from '@/components/ai/relTime';
 import {
@@ -15,12 +16,16 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAssistantChat } from '@/hooks/useAssistantChat';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
 
 /** mode==='fullscreen' 일 때만 렌더. */
 export function AIFullscreen() {
   const { mode } = useAssistant();
   const chat = useAssistantChat();
+  // 모바일엔 side 패널이 없어 풀스크린이 유일한 AI 표면 — 열린 엔티티 다이얼로그 위에서 질문할 수 있게(WP-54 모바일판)
+  // AI 표면 표식·이벤트 기록을 달고 다이얼로그(z-50)보다 위(z-[60])에 둔다. 데스크톱 DOM 은 그대로.
+  const isMobile = useIsMobile();
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   // 모바일 세션 스위처 드롭다운 open 상태(#451) — 선택 직후 명시적으로 닫는다.
   const [mobileSessionMenuOpen, setMobileSessionMenuOpen] = useState(false);
@@ -35,9 +40,13 @@ export function AIFullscreen() {
     // 이전 z-40 에선 페이지 헤더가 상단 바 전체를 덮어 닫기 X 가 보이지도 눌리지도 않았다. 오버레이(z-50)보다는 아래.
     <div
       data-testid="ai-fullscreen"
+      data-ai-panel={isMobile ? '' : undefined}
+      onPointerDownCapture={isMobile ? markAiPanelEvent : undefined}
+      onFocusCapture={isMobile ? markAiPanelEvent : undefined}
       // 모바일(<lg): 셸 main 의 상단 안전영역 패딩까지 덮으므로(inset-0) 상단 바가 iOS 노치 아래로 들어간다 →
       // 오버레이 자체에 안전영역 패딩을 줘 배경은 노치까지 칠하고 내용만 내린다. 데스크톱은 max-lg 가 적용되지 않아 불변.
-      className="absolute inset-0 z-[46] flex bg-background animate-in fade-in duration-200 max-lg:pt-[env(safe-area-inset-top)]"
+      // max-lg:z-[60] — 모바일에서 열린 엔티티 다이얼로그(z-50) 위로(데스크톱 side 패널 z-[60] 과 같은 층).
+      className="absolute inset-0 z-[46] flex bg-background animate-in fade-in duration-200 max-lg:z-[60] max-lg:pt-[env(safe-area-inset-top)]"
     >
       {/* 삭제 확인 다이얼로그 */}
       <DeleteSessionDialog

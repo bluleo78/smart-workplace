@@ -8,6 +8,7 @@ import { AIChip } from '@/components/ai/AIChip'
 import { AIFullscreen } from '@/components/ai/AIFullscreen'
 import { AISidePanel } from '@/components/ai/AISidePanel'
 import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
+import { useAssistantHotkeys } from '@/components/ai/useAssistantHotkeys'
 import { AppRail } from '@/components/layout/AppRail'
 import { InboxProvider } from '@/components/layout/InboxContext'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
@@ -23,6 +24,12 @@ import { useIssueOriginTracker } from '@/hooks/useIssueOrigin'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { openPushTarget, takePendingPushTarget } from '@/lib/push/openTarget'
 import { syncPushOnLogin } from '@/lib/push/subscription'
+
+/** AI 전역 단축키(⌘K·Esc) 등록 전용 — useAssistant 가 Provider 안에서만 동작하므로 Provider 자식으로 렌더한다. 데스크톱·모바일 공통. */
+function AssistantHotkeys({ enabled }: { enabled: boolean }) {
+  useAssistantHotkeys(enabled)
+  return null
+}
 
 export function AppLayout() {
   const { user, activeTenant, selectTenant } = useAuth()
@@ -72,6 +79,8 @@ export function AppLayout() {
       <ChatSessionProvider>
         <AIAssistantProvider>
           {/* WP-54: 화면 컨텍스트 store — 페이지(Outlet)가 등록하고 AI 패널이 읽는다. */}
+          {/* ⌘K 토글·Esc 닫기 — 셸과 무관하게 한 번만 등록(예전엔 데스크톱 전용 AIChip 안에 있어 lg 미만에서 사라졌다). */}
+          <AssistantHotkeys enabled={aiAvailable} />
           <AiScreenContextProvider>
             {/* 인박스 패널 오픈 상태를 AppRail(InboxPanel)·본문이 공유 — 합성 레이어가 패널을 연다. */}
             <InboxProvider>

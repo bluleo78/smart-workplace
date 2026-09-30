@@ -1,7 +1,6 @@
 // src/components/ai/AIChip.tsx
-// 상단 중앙 AI 칩(FAB) — fire-hub 치수 정합. 클릭 시 모드 순환, ⌘K 토글, Esc 닫기.
+// 상단 중앙 AI 칩(FAB) — fire-hub 치수 정합. 클릭 시 모드 순환. ⌘K·Esc 는 useAssistantHotkeys(AppLayout)가 전역 처리.
 import { Sparkles } from 'lucide-react';
-import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
@@ -10,25 +9,9 @@ import { cn } from '@/lib/utils';
 
 /** AI 진입 칩. mode/pending 에 따라 스타일이 바뀐다. */
 export function AIChip() {
-  const { mode, cycleMode, toggle, close } = useAssistant();
+  const { mode, cycleMode } = useAssistant();
   const { pending } = useAssistantChat();
   const open = mode !== 'closed';
-
-  // ⌘K/Ctrl+K 토글 + Esc 닫기.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        toggle();
-      } else if (e.key === 'Escape' && !e.defaultPrevented) {
-        // Radix AlertDialog/DropdownMenu 가 Esc 를 먼저 처리하면 defaultPrevented=true →
-        // 그 경우 패널까지 닫지 않는다(다이얼로그만 닫힘).
-        close();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [toggle, close]);
 
   return createPortal(
     <button
