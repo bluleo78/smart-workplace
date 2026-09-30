@@ -80,6 +80,9 @@ async function filterIssueDetailWidgets(
   return result;
 }
 
+// unassign_self 도구 결과(HostBridge.onUnassignResult 페이로드).
+type UnassignResult = { ok: boolean; canonical?: string };
+
 // 이전 대화 줄 라벨 — ACTION_* 는 사용자 발화로 오인되지 않게 [승인 결과] 로 표시(시스템 프롬프트 규칙 7 과 짝).
 function contextLabel(m: ContextMessage): string {
   if (m.role === 'ASSISTANT') return 'AI';
@@ -151,9 +154,8 @@ export async function runAiChatStream(
   // #467: 한 턴에 ≥2 서브에이전트로 위임될 수 있다(예: 채널 공지 + 이슈 코멘트). 과거엔 첫 답만
   // 보존하는 first-write-guard 로 두 번째 이후 답이 조용히 누락됐다 — 배열로 전부 누적해 결합한다.
   const subagentTexts: string[] = [];
-  // unassign 타입 명시: 클로저 내 할당(onUnassignResult)만으로는 TS 가 never 로 좁히므로 명시 필수.
-  // as 캐스트는 TS 제어 흐름 좁힘(never 추론) 우회에 필수 — 삭제 시 아래 canonical override 에서 타입 에러.
-  let unassign: { ok: boolean; canonical?: string } | null = null as { ok: boolean; canonical?: string } | null;
+  // 클로저(onUnassignResult)에서만 할당돼 TS 가 never 로 좁히므로 as 캐스트로 타입을 고정한다.
+  let unassign = null as UnassignResult | null;
 
   // HostBridge: MCP 도구(propose/submit_response/unassign_self)가 파일 대신 이 콜백으로 결과를 전달.
   const hostBridge: HostBridge = {
@@ -164,7 +166,7 @@ export async function runAiChatStream(
     onSubmitResponse: (text: string) => {
       subagentTexts.push(text);
     },
-    onUnassignResult: (result: { ok: boolean; canonical?: string }) => {
+    onUnassignResult: (result: UnassignResult) => {
       unassign = result;
     },
   };

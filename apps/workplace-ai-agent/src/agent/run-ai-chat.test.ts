@@ -425,7 +425,7 @@ describe('runAiChatStream — unassignError HostBridge override (#378)', () => {
     expect(out.pendingActions).toEqual([]);
   });
 
-  it('onUnassignResult 콜백 없으면 subagent 답을 그대로 사용', async () => {
+  it('onUnassignResult({ok:true}) 콜백 → subagent 답을 그대로 사용', async () => {
     streamSpy.mockImplementation(makeRunnerImpl([
       agentDelegation('issue-agent'),
       result(''),
@@ -1180,39 +1180,6 @@ describe('runAiChatStream — 홈 라우터 위임 preamble 누수 가드 (#381,
   });
 });
 
-// #378: unassign_self 도구 콜백(성공/실패) 기반 결과 처리 — 쿼리 텍스트 판정 없이 구조적 신호만 쓴다.
-describe('runAiChatStream — unassign_self 결과 처리 (#378)', () => {
-  it('단순 해제 쿼리 + 위임 + onUnassignResult({ok:true}) → subagent 답 통과(실제 해제됨)', async () => {
-    streamSpy.mockImplementation(makeRunnerImpl([
-      agentDelegation('issue-agent'),
-      result(''),
-    ], { unassignSuccess: {}, subagent: 'EX-2 이슈 담당 해제 완료.' }));
-    const out = await runAiChatStream(
-      baseInput({ query: 'EX-2 이슈에서 내 담당을 해제해줘', userId: 1 }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    expect(out.fullText).toBe('EX-2 이슈 담당 해제 완료.');
-  });
-
-  it('단순 해제 쿼리 + 위임 + onUnassignResult({ok:false}) → unassignError canonical override 통과', async () => {
-    const canonical = '담당자 해제 요청을 처리하지 못했습니다. 이슈 화면에서 직접 변경해주세요.';
-    streamSpy.mockImplementation(makeRunnerImpl([
-      agentDelegation('issue-agent'),
-      result('처리 중 오류가 발생했습니다.'),
-    ], { unassignError: { canonical } }));
-    const out = await runAiChatStream(
-      baseInput({ query: 'EX-2 이슈에서 내 담당을 해제해줘', userId: 1 }),
-      { client: fakeClient },
-      () => {},
-      new AbortController().signal,
-    );
-    // onUnassignResult({ok:false}) → #378 canonical override 발동
-    expect(out.fullText).toBe(canonical);
-  });
-});
-
 // onTool passthrough — mcp.onTool 이 러너 stream 입력에 전달되고, 러너가 이벤트를 발행하면 caller 의 onTool 콜백이 수신하는지 검증.
 describe('runAiChatStream — onTool passthrough (#462)', () => {
   it('onTool 콜백을 mcp 설정으로 전달하고 이벤트가 caller 까지 도달한다', async () => {
@@ -1244,10 +1211,6 @@ describe('runAiChatStream — onTool passthrough (#462)', () => {
 // 과거 #405 가 "…이미지 전송 등 필요 … 스토리 생성해줘" 를 생성일 필터로 오인('생성'+'전송'의 '전')해
 // LLM 을 부르지 않고 고정 문구만 돌려 AI Chat 이 먹통처럼 보였다.
 describe('runAiChatStream — 쿼리 정규식 가드 제거 회귀 (WP-100)', () => {
-  beforeEach(() => {
-    logMock.warn.mockClear();
-  });
-
   it.each([
     '채팅에 텍스트 에디터가 없음(굵기, 기울림, 밑줄 등) 차후 표나 코드 블럭등 추가 필요하며, 이미지 드래그 앤 드롭, 클립보드 이미지 전송 등 필요\n===\n이 내용으로 스토리 생성해줘.',
     '이번 주 생성된 이슈 보여줘',
