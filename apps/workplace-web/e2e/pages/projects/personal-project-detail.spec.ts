@@ -7,6 +7,7 @@ import { createLabel, toLabelSummary } from '../../factories/label.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import type { IssueStatus } from '../../../src/types/issue';
 import type { UserSummary } from '../../../src/types/user';
 
 const KEY = 'PME';
@@ -765,4 +766,42 @@ test('체크리스트 토글이 409 로 충돌하면 최신 version 을 다시 �
   await expect.poll(() => server.status).toBe('DONE');
   expect(server.patches).toHaveLength(2);
   expect(server.patches[1].version).toBe(2);
+});
+
+// 회귀(WP-94 코드리뷰): sentinel root 인 board-scroll 이 높이를 받지 못하면(실제로 스크롤하지 않는 overflow 요소)
+// sentinel 이 늘 root 안이라 보임 판정 → 마운트만으로 전 페이지 연쇄 로드된다. 개인 보드도 높이를 받아 자체 스크롤해야 한다.
+// 첫 페이지가 화면보다 길면(스크롤 전) 다음 페이지 요청이 없어야 한다.
+test('개인 보드는 스크롤 전에는 컬럼 다음 페이지를 요청하지 않는다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await mockPersonal(page);
+  // 컬럼마다 status 로 좁혀 조회한다 — 모든 컬럼이 화면보다 길게 채워지도록 요청 status 로 30건을 만든다
+  // (빈 컬럼은 sentinel 이 화면 안이라 다음 페이지 로드가 정상 동작이다). id 는 컬럼별로 겹치지 않게 — 보드가 id 로 합친다.
+  const STATUS_BASE: Partial<Record<IssueStatus, number>> = { TODO: 500, IN_PROGRESS: 600, DONE: 700 };
+  const longPage = (status: IssueStatus) =>
+    Array.from({ length: 30 }, (_, i) => {
+      const id = (STATUS_BASE[status] ?? 800) + i;
+      return createIssue({ id, number: id, projectKey: KEY, status, title: `${status} 긴 컬럼 이슈 ${i}` });
+    });
+  let nextPageRequests = 0;
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+    async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      const params = new URL(route.request().url()).searchParams;
+      const cursor = params.get('cursor');
+      if (cursor) nextPageRequests += 1;
+      const status = (params.get('status') ?? 'TODO') as IssueStatus;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(cursor ? createIssueSearchResponse([]) : createIssueSearchResponse(longPage(status), 'next-1')),
+      });
+    },
+  );
+
+  await page.goto(`/projects/${KEY}?view=board`);
+  await expect(page.getByTestId('board-col-TODO')).toContainText('TODO 긴 컬럼 이슈 29');
+  // 부재 확인이라 조건 대기가 불가 — 연쇄 로드는 마운트 직후 일어나므로 잠시 두고 요청 수를 본다(WP-82 예외).
+  await page.waitForTimeout(1000);
+  expect(nextPageRequests).toBe(0);
 });

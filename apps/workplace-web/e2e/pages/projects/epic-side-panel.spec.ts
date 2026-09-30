@@ -1,5 +1,5 @@
 // 왼쪽 에픽 패널 E2E — 목록/진행률 노출, 단일 선택 필터(재클릭 해제), 뷰 탭 바 토글로 열림/닫힘(프로젝트별 영속), 빈 상태(EPIC 미보유 포함).
-import type { Route } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
@@ -11,7 +11,7 @@ import type { IssueResponse } from '../../../src/types/issue';
 const PROJECT_KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${PROJECT_KEY}/issues`;
 
-async function stubProjectMeta(page: import('@playwright/test').Page) {
+async function stubProjectMeta(page: Page) {
   await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}`, createProject({ key: PROJECT_KEY, type: 'TEAM' }));
   await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/members`, []);
 }
@@ -29,7 +29,7 @@ function epic(number: number, title: string, done: number, total: number): Issue
 
 // 이슈 검색 라우트: query 의 type/parent 로 "에픽 목록 조회"와 "본문 이슈 목록 조회"를 구분한다.
 function routeIssueSearch(
-  page: import('@playwright/test').Page,
+  page: Page,
   handler: (route: Route, url: URL) => Promise<void> | void,
 ) {
   return page.route(
@@ -42,7 +42,7 @@ function routeIssueSearch(
 }
 
 // 패널은 기본 닫힘 — 각 테스트는 탭 바 토글로 연다.
-async function openEpicPanel(page: import('@playwright/test').Page) {
+async function openEpicPanel(page: Page) {
   await page.getByTestId('epic-panel-toggle').click();
   await expect(page.getByTestId('epic-side-panel')).toBeVisible();
 }
@@ -294,8 +294,8 @@ test.describe('에픽 왼쪽 패널', () => {
 
   test('보드가 짧아도(빈 프로젝트) 에픽 패널이 영역 높이를 채운다', async ({ authenticatedPage: page }) => {
     // 회귀: 이전에는 aside 의 self-stretch 가 짧은 빈 보드의 콘텐츠 높이에만 맞춰져
-    // '에픽 만들기'가 중간쯤 떠 있었다. wrapper 에 min-h-full + section flex-1 을 부여해
-    // 뷰포트 높이를 채우도록 고쳤는지, 패널 높이와 하단 버튼 위치로 검증한다.
+    // '에픽 만들기'가 중간쯤 떠 있었다. 본문 래퍼가 남은 높이를 고정하고 section 이 flex-1 로 채워
+    // 뷰포트 높이를 채우는지, 패널 높이와 하단 버튼 위치로 검증한다.
     await page.setViewportSize({ width: 1280, height: 800 });
     await stubProjectMeta(page);
     await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
@@ -318,5 +318,77 @@ test.describe('에픽 왼쪽 패널', () => {
     // '에픽 만들기' 버튼은 패널 하단부에 고정(패널 바닥에서 120px 이내)돼 있어야 한다.
     const btnBox = await page.getByTestId('epic-create-button').boundingBox();
     expect(btnBox!.y).toBeGreaterThan(panelBox!.y + panelBox!.height - 120);
+  });
+
+  test.describe('스크롤 영역 (WP-94)', () => {
+    // 60건 목록 — 에픽 조회에는 에픽 1건, 본문 조회에는 긴 목록을 돌려준다.
+    async function stubLongList(page: Page, viewport = { width: 1280, height: 800 }) {
+      await page.setViewportSize(viewport);
+      await stubProjectMeta(page);
+      await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
+      const manyIssues = Array.from({ length: 60 }, (_, i) =>
+        createIssue({ id: 100 + i, number: 100 + i, title: `긴 목록 이슈 ${i}` }),
+      );
+      await routeIssueSearch(page, async (route, url) => {
+        const isEpicQuery = url.searchParams.get('type') === String(makeEpicType().id);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssueSearchResponse(isEpicQuery ? [epic(10, '결제 리뉴얼', 1, 2)] : manyIssues)),
+        });
+      });
+    }
+
+    // 스크롤 컨테이너 위에서 휠을 굴리고 실제로 스크롤됐는지 확인한다.
+    async function wheelScroll(page: Page, testId: string) {
+      const scroller = page.getByTestId(testId);
+      await scroller.hover();
+      await page.mouse.wheel(0, 3000);
+      await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    }
+
+    test('목록을 스크롤해도 에픽 패널·뷰 칩바·테이블 헤더는 제자리에 있다', async ({ authenticatedPage: page }) => {
+      // 회귀: 본문 래퍼 하나가 스크롤 컨테이너여서 에픽 패널·툴바·목록이 함께 스크롤됐다.
+      await stubLongList(page);
+      await page.goto(`/projects/${PROJECT_KEY}`);
+      await openEpicPanel(page);
+      await expect(page.getByText('긴 목록 이슈 59')).toBeAttached();
+
+      const panel = page.getByTestId('epic-side-panel');
+      const toggle = page.getByTestId('epic-panel-toggle');
+      const header = page.getByRole('columnheader', { name: '제목' });
+      const before = { panel: await panel.boundingBox(), toggle: await toggle.boundingBox(), header: await header.boundingBox() };
+
+      await wheelScroll(page, 'issue-list-scroll');
+
+      // 같이 스크롤됐다면 y 가 위로 밀린다.
+      expect((await panel.boundingBox())!.y).toBe(before.panel!.y);
+      expect((await toggle.boundingBox())!.y).toBe(before.toggle!.y);
+      expect((await header.boundingBox())!.y).toBe(before.header!.y);
+      await expect(page.getByTestId('epic-create-button')).toBeInViewport();
+      await expect(header).toBeInViewport();
+    });
+
+    test('보드를 세로 스크롤해도 컬럼 헤더가 보이고, 보드 하단(가로 스크롤바)이 화면 안에 있다', async ({
+      authenticatedPage: page,
+    }) => {
+      // 좁은 폭 — 컬럼 min-w 로 가로 스크롤이 생기는 조건.
+      await stubLongList(page, { width: 900, height: 700 });
+      await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+      await expect(page.getByTestId('board-col-TODO')).toContainText('긴 목록 이슈 59');
+
+      const scroller = page.getByTestId('board-scroll');
+      // 보드 스크롤 컨테이너 자체가 뷰포트 안에서 끝난다 → 가로 스크롤바가 콘텐츠 끝이 아닌 화면 하단에 보인다.
+      const box = (await scroller.boundingBox())!;
+      expect(box.y + box.height).toBeLessThanOrEqual(700);
+      expect(await scroller.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+
+      const colHeader = page.getByTestId('board-col-TODO').locator('header');
+      const before = (await colHeader.boundingBox())!;
+      await wheelScroll(page, 'board-scroll');
+      // sticky 헤더 — 세로 스크롤 후에도 같은 위치에 남는다(컬럼 상단 테두리 1px 만큼만 올라간다).
+      expect(Math.abs((await colHeader.boundingBox())!.y - before.y)).toBeLessThanOrEqual(1);
+      await expect(colHeader).toBeInViewport();
+    });
   });
 });
