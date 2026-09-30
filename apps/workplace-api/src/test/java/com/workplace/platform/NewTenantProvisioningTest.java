@@ -11,12 +11,14 @@ import com.workplace.platform.dto.CreateTenantRequest;
 import com.workplace.platform.dto.TenantDetailResponse;
 import com.workplace.platform.service.PlatformTenantService;
 import com.workplace.support.IntegrationTestBase;
+import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -63,6 +65,27 @@ class NewTenantProvisioningTest extends IntegrationTestBase {
     dsl.execute("select set_config('app.tenant_id', ?, true)", tenantId);
   }
 
+  /** 해당 테넌트 GUC 로 전환한 뒤 시스템 역할 id 를 찾는다(RLS 상 GUC 가 맞아야 보인다). */
+  private Long systemRoleId(long tenantId, String roleName) {
+    setGuc(Long.toString(tenantId));
+    Long roleId =
+        dsl.select(ROLE.ID)
+            .from(ROLE)
+            .where(ROLE.NAME.eq(roleName))
+            .and(ROLE.TENANT_ID.eq(tenantId))
+            .fetchOne(ROLE.ID);
+    assertThat(roleId).isNotNull();
+    return roleId;
+  }
+
+  /** 해당 테넌트 시스템 역할의 permission code 집합. */
+  private Set<String> roleCodes(long tenantId, String roleName) {
+    Long roleId = systemRoleId(tenantId, roleName);
+    return permissionRepository.findByRoleId(roleId).stream()
+        .map(PermissionResponse::code)
+        .collect(Collectors.toSet());
+  }
+
   @Test
   void createTenant_seedsUsableRbac_andIsolatesByTenant() {
     long owner = createHumanUser("owner");
@@ -98,62 +121,63 @@ class NewTenantProvisioningTest extends IntegrationTestBase {
 
   @Test
   void createTenant_seedsAgentRole_withCuratedPermissions() {
-    // #278: 신규 테넌트는 AGENT 시스템 역할을 받고, USER 에서 project:manage 를 뺀 12개 권한 + member:read(#833) 를 갖는다.
+    // #278: 신규 테넌트는 AGENT 시스템 역할을 받고, tenant#1 AGENT(V75 + V132)와 같은 권한 집합을 갖는다.
     long owner = createHumanUser("owner");
     TenantDetailResponse detail =
         service.createTenant(new CreateTenantRequest("AgentRoleCheck", uniqueSlug(), owner));
 
-    setGuc(detail.id().toString());
-    Long agentRoleId =
-        dsl.select(ROLE.ID)
-            .from(ROLE)
-            .where(ROLE.NAME.eq("AGENT"))
-            .and(ROLE.TENANT_ID.eq(detail.id()))
-            .fetchOne(ROLE.ID);
-    assertThat(agentRoleId).isNotNull();
-
-    Set<String> agentCodes =
-        permissionRepository.findByRoleId(agentRoleId).stream()
-            .map(PermissionResponse::code)
-            .collect(Collectors.toSet());
-    assertThat(agentCodes)
-        .containsExactlyInAnyOrder(
-            "project:read",
-            "project:write",
-            "issue:write",
-            "label:manage",
-            "savedview:manage",
-            "cycle:manage",
-            "contact:read",
-            "contact:write",
-            "calendar:read",
-            "calendar:write",
-            // #833: 구성원 디렉터리 조회 — AI 가 이름으로 userId 를 확정하는 경로.
-            "member:read",
-            "user:read:self",
-            "user:write:self");
+    Set<String> agentCodes = roleCodes(detail.id(), "AGENT");
+    // #833: 구성원 디렉터리 조회 — AI 가 이름으로 userId 를 확정하는 경로.
+    assertThat(agentCodes).contains("member:read", "contact:read", "issue:write");
+    // 관리성 권한은 AGENT 에 주지 않는다.
+    assertThat(agentCodes).doesNotContain("project:manage", "milestone:manage", "role:assign");
+    // 드리프트 가드: 마이그레이션이 AGENT 에 권한을 추가하면 시드 상수도 같이 바꿔야 한다.
+    assertThat(agentCodes).isEqualTo(roleCodes(1L, "AGENT"));
   }
 
   @Test
-  void createTenant_userRole_hasOnlyV2SelfPermissions() {
+  void createTenant_userRole_hasWorkPermissions_sameAsTenant1User() {
+    // WP-104: 신규 테넌트 USER 가 self 권한만 받아 연락처·프로젝트·이슈·캘린더가 전부 403 이던 문제.
+    // 일반 구성원이 실제로 일할 수 있도록 tenant#1 USER(마이그레이션으로 누적된 권한)와 같은 집합을 받아야 한다.
     long owner = createHumanUser("owner");
     TenantDetailResponse detail =
         service.createTenant(new CreateTenantRequest("UserRoleCheck", uniqueSlug(), owner));
 
-    // 신규 테넌트 GUC 로 USER 역할의 권한이 V2 기준(self 권한 2개)과 동일한지 검증.
-    setGuc(detail.id().toString());
-    Long userRoleId =
-        dsl.select(ROLE.ID)
-            .from(ROLE)
-            .where(ROLE.NAME.eq("USER"))
-            .and(ROLE.TENANT_ID.eq(detail.id()))
-            .fetchOne(ROLE.ID);
-    Set<String> userCodes =
-        permissionRepository.findByRoleId(userRoleId).stream()
-            .map(PermissionResponse::code)
-            .collect(Collectors.toSet());
-    // #833: 일반 구성원도 구성원 디렉터리는 볼 수 있어야 한다(계정 관리 권한은 여전히 ADMIN 전용).
-    assertThat(userCodes)
-        .containsExactlyInAnyOrder("member:read", "user:read:self", "user:write:self");
+    Set<String> userCodes = roleCodes(detail.id(), "USER");
+    // 연락처 화면(WP-104 증상)을 비롯한 업무 API 권한이 있어야 한다.
+    assertThat(userCodes).contains("contact:read", "project:read", "issue:write", "calendar:read");
+    // 계정 관리(user:read/user:write/role:assign)는 여전히 ADMIN 전용이라 포함되지 않는다.
+    assertThat(userCodes).doesNotContain("user:read", "user:write", "role:assign");
+    // 드리프트 가드: tenant#1 USER 와 집합이 어긋나면(한쪽에만 권한 추가) 신규 테넌트가 다시 약해진다.
+    assertThat(userCodes).isEqualTo(roleCodes(1L, "USER"));
+  }
+
+  @Test
+  void v139_backfillsMissingUserPermissions_forExistingTenant() throws Exception {
+    // WP-104: 수정 전 시드로 만들어진 테넌트(USER = self 권한 3개)를 재현한 뒤, V139 스크립트를 다시 실행하면
+    // tenant#1 USER 와 같은 집합이 채워져야 한다. Flyway 는 기동 시 tenant#1 만 있는 DB 에 V139 를 적용하므로
+    // 다른 테넌트 보충 경로는 스크립트를 직접 실행해서 검증한다.
+    long owner = createHumanUser("owner");
+    TenantDetailResponse detail =
+        service.createTenant(new CreateTenantRequest("BackfillCheck", uniqueSlug(), owner));
+    long tenantId = detail.id();
+
+    Long userRoleId = systemRoleId(tenantId, "USER");
+    // 수정 전 시드 상태로 되돌린다 — self 권한 3개만 남긴다.
+    dsl.execute(
+        "delete from role_permission rp using permission p"
+            + " where rp.permission_id = p.id and rp.role_id = ?"
+            + " and p.code not in ('member:read', 'user:read:self', 'user:write:self')",
+        userRoleId);
+    assertThat(permissionRepository.findByRoleId(userRoleId)).hasSize(3);
+
+    String script =
+        new ClassPathResource("db/migration/V139__backfill_tenant_user_role_permissions.sql")
+            .getContentAsString(StandardCharsets.UTF_8);
+    dsl.execute(script);
+    // 재실행해도 중복 INSERT(PK 충돌) 없이 같은 결과여야 한다.
+    dsl.execute(script);
+
+    assertThat(roleCodes(tenantId, "USER")).isEqualTo(roleCodes(1L, "USER"));
   }
 }

@@ -19,29 +19,46 @@ public class TenantProvisioningService {
   private final PlatformTenantRepository platformTenantRepository;
 
   /**
-   * USER 역할에 부여할 permission code 목록 — V2{@code __init_identity.sql} 의 USER 시드와 동일(self 프로필 권한만).
+   * USER 역할(일반 구성원)에 부여할 permission code — tenant#1 USER 가 마이그레이션(V2·V6·V31·V33·V120·V132 등)으로 누적한
+   * 업무 권한 집합과 동일하다.
    *
-   * <p>{@code member:read}(구성원 디렉터리 조회)는 V132(#833)에서 추가했다 — 사람을 찾는 일이 ADMIN 전용 계정 API 나 연락처 우회 둘 중
-   * 하나였고, 후자가 연락처 id 를 userId 로 오용하던 원인이었다. 계정 관리 권한({@code user:read}/{@code user:write}/ {@code
-   * role:assign})은 그대로 ADMIN 전용이다 — "디렉터리를 본다"와 "계정을 관리한다"는 다른 일이다.
+   * <p>WP-104: 예전에는 V2 기준 self 권한만 시드해서 신규 테넌트의 일반 구성원은 연락처·프로젝트·이슈·캘린더 API 가 전부 403 이었다. 일반 구성원이
+   * 실제로 일할 수 있어야 하므로 tenant#1 USER 와 같은 집합을 준다. 기존 테넌트는 V139 가 보충한다. 계정 관리 권한({@code
+   * user:read}/{@code user:write}/{@code role:assign})은 그대로 ADMIN 전용이다.
    *
-   * <p>주의: tenant#1(과도기 테넌트)의 USER 역할은 이후 마이그레이션(V6 {@code project:manage}, V33 {@code
-   * contact:write})으로 권한이 추가됐다. 여기서는 의도적으로 V2 기준만 시드하므로, 신규 테넌트의 USER 는 tenant#1 보다 약하다(설계 결정 — 운영자
-   * 콘솔 보고서의 우려사항 참조).
+   * <p>USER 에 권한을 추가하는 마이그레이션을 쓸 때는 이 목록도 함께 갱신해야 한다 — {@code NewTenantProvisioningTest} 가 tenant#1
+   * USER 와의 집합 일치를 검증한다.
    */
   private static final List<String> USER_ROLE_PERMISSION_CODES =
-      List.of("member:read", "user:read:self", "user:write:self");
+      List.of(
+          "project:read",
+          "project:write",
+          "project:manage",
+          "issue:write",
+          "label:manage",
+          "savedview:manage",
+          "cycle:manage",
+          "milestone:manage",
+          "contact:read",
+          "contact:write",
+          "calendar:read",
+          "calendar:write",
+          "member:read",
+          "user:read:self",
+          "user:write:self");
 
   /**
-   * AGENT 역할(개인 비서 기본 역할)에 부여할 permission code — USER 의 비-관리 업무 권한에서 {@code project:manage}(프로젝트
-   * 삭제·멤버관리·스키마변경)만 제외한 12개 (#278) + 구성원 디렉터리 조회 {@code member:read} (#833) = 13개. 업무별 에이전트는 관리자가
-   * 별도 역할을 부여한다.
+   * AGENT 역할(개인 비서 기본 역할)에 부여할 permission code — USER 의 업무 권한에서 관리성 권한({@code project:manage} 프로젝트
+   * 삭제·멤버관리·스키마변경, {@code milestone:manage})을 뺀 집합 (#278) + 구성원 디렉터리 조회 {@code member:read} (#833).
+   * 업무별 에이전트는 관리자가 별도 역할을 부여한다. AI 에게 주는 권한이라 USER 에서 파생하지 않고 명시 목록으로 둔다 — USER 에 권한이 늘어도 AGENT 로
+   * 자동 전파되지 않게 하기 위함.
    *
    * <p>{@code member:read} 는 AI 가 사람 이름으로 구성원을 찾아 userId 를 확정하는 경로(search_members)에 필요하다. 이것이 없으면
    * 연락처 목록이 유일한 사람 검색 경로가 되어 연락처 id 를 userId 로 오용하게 된다. 조회 전용이며, 역할변경·활성토글은 확인 카드가 사람의 권한으로 실행하므로
    * AGENT 에 쓰기 권한을 주지 않는다.
    *
-   * <p>마이그레이션 V75 + V132 의 시드 코드 집합과 동일하게 유지해야 한다.
+   * <p>마이그레이션 V75 + V132 의 시드 코드 집합과 동일하게 유지해야 한다 — {@code NewTenantProvisioningTest} 가 tenant#1
+   * AGENT 와의 집합 일치를 검증한다.
    */
   private static final List<String> AGENT_ROLE_PERMISSION_CODES =
       List.of(
@@ -74,7 +91,7 @@ public class TenantProvisioningService {
       Long userRoleId = platformTenantRepository.insertRole("USER", "일반 사용자", true);
       // AGENT = AI 에이전트(개인 비서) 기본 역할. (#278)
       Long agentRoleId = platformTenantRepository.insertRole("AGENT", "AI 에이전트(개인 비서)", true);
-      // ADMIN = 전체 권한, USER = V2 기준 self 권한만, AGENT = 비-관리 업무 권한 12개.
+      // ADMIN = 전체 권한, USER = tenant#1 USER 와 같은 업무 권한(WP-104), AGENT = 비-관리 업무 권한.
       platformTenantRepository.grantAllPermissions(adminRoleId);
       platformTenantRepository.grantPermissionsByCode(userRoleId, USER_ROLE_PERMISSION_CODES);
       platformTenantRepository.grantPermissionsByCode(agentRoleId, AGENT_ROLE_PERMISSION_CODES);
