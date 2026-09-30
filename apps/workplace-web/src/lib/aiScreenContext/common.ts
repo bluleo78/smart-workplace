@@ -58,14 +58,33 @@ export function fmtKst(iso: string, withTime = true): string {
   return withTime ? `${date} ${KST_TIME.format(d)}` : date;
 }
 
-/** 입력창 위 칩 표시 문자열 — 대상이 있으면 대상, 없으면 화면·범위. */
+/**
+ * 입력창 위 칩 표시 문자열 — 대상이 있으면 대상, 없으면 화면·범위.
+ * 범위 라벨이 이미 화면 이름을 포함하면(예: '프로젝트 X 이슈 목록') 중복 표기('이슈 목록 · 프로젝트 X 이슈 목록')를 피해 범위 라벨만 쓴다.
+ */
 export function chipLabel(ctx: AiScreenContext): string {
   if (ctx.focus) return `${ctx.focus.type} ${ctx.focus.label}`;
-  if (ctx.scope) return `${ctx.view} · ${ctx.scope.label}`;
+  if (ctx.scope) return ctx.scope.label.includes(ctx.view) ? ctx.scope.label : `${ctx.view} · ${ctx.scope.label}`;
   return ctx.view;
 }
 
-/** 컨텍스트 동일성 키 — 칩 × (1회 제외) 상태가 화면 전환 시 자동 해제되도록 비교에 쓴다. */
+/**
+ * 화면 정체성 키 — 칩 ×(1회 제외)를 "같은 화면"에 묶는 비교 키.
+ * 건수(count)·추가 로드 여부(hasMore)·facts 처럼 같은 화면에서도 수시로 바뀌는 값은 제외한다 —
+ * 이런 휘발 데이터 변화로 사용자가 누른 × 가 풀려 칩이 다시 뜨면 안 되기 때문. 화면(view)·대상/범위 식별자만 본다.
+ */
+export function contextIdentity(ctx: AiScreenContext | null): string | null {
+  if (!ctx) return null;
+  return JSON.stringify({
+    view: ctx.view,
+    focusType: ctx.focus?.type ?? null,
+    focusRefs: ctx.focus?.refs ?? null,
+    scopeLabel: ctx.scope?.label ?? null,
+    scopeRefs: ctx.scope?.refs ?? null,
+  });
+}
+
+/** 컨텍스트 전체 직렬화 키 — 내용 동일성 비교용(× 상태 비교에는 contextIdentity 를 쓴다). */
 export function contextKey(ctx: AiScreenContext | null): string | null {
   return ctx ? JSON.stringify(ctx) : null;
 }

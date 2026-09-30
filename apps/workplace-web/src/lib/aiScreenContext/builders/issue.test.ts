@@ -110,6 +110,6 @@ describe('buildMyTasksContext / buildAiTasksContext', () => {
     });
   });
   it('AI 위임 작업', () => {
-    expect(buildAiTasksContext({ facets: {}, count: 2 })).toEqual({ view: 'AI 위임 작업', scope: { label: 'AI 에게 위임한 작업', count: 2 } });
+    expect(buildAiTasksContext({ facets: {}, count: 2 })).toEqual({ view: 'AI 위임 작업', scope: { label: 'AI 위임 작업', count: 2 } });
   });
 });

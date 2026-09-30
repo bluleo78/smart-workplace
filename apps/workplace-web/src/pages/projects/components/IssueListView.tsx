@@ -50,11 +50,13 @@ export function IssueListView({
   } = useIssueSelection(filtersToParams(filters, 'list', groupBy).toString());
 
   // WP-54: 로드된 건수(무한 스크롤 누적)·다음 페이지 유무를 상위로 보고 — isLoading 조기 반환 전에 둔다.
-  const loadedCount = data?.pages.reduce((n, p) => n + (p.items?.length ?? 0), 0);
+  // data 객체(쿼리 결과)가 바뀔 때마다 보고한다 — 필터 변경으로 상위가 건수를 비운 뒤, 캐시된 새 결과의 건수가
+  // 우연히 이전과 같아도 다시 채워지도록(건수 숫자만 의존하면 effect 가 돌지 않아 건수가 비어 남는다).
   const hasMore = searchQuery.hasNextPage ?? false;
   useEffect(() => {
-    if (loadedCount != null) onLoadedChange?.(loadedCount, hasMore);
-  }, [loadedCount, hasMore, onLoadedChange]);
+    if (!data) return;
+    onLoadedChange?.(data.pages.reduce((n, p) => n + (p.items?.length ?? 0), 0), hasMore);
+  }, [data, hasMore, onLoadedChange]);
 
   if (isLoading) {
     return <p className="text-muted-foreground py-4">로딩 중…</p>;

@@ -22,7 +22,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
-import { chipLabel, contextKey } from '@/lib/aiScreenContext/common';
+import { chipLabel, contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
@@ -87,18 +87,25 @@ export function AIChatPanel({
     if (newSessionNonce > 0) setInput('');
   }, [newSessionNonce]);
 
-  // WP-54: 현재 화면 컨텍스트 + 칩 × 상태. × 는 그 시점 컨텍스트 키를 기억해 다음 1회 전송만 뺀다.
-  // 화면이 바뀌면 키가 달라져 자동으로 칩이 복원된다(effect 불필요).
+  // WP-54: 현재 화면 컨텍스트 + 칩 × 상태. × 는 그 시점 화면 정체성(contextIdentity)을 기억해 다음 1회 전송만 뺀다.
+  // 정체성은 건수·facts 같은 휘발 값을 제외하므로, 같은 화면에서 목록 건수가 바뀌어도 × 가 유지된다.
   const screenContext = useAiScreenContext();
-  const screenKey = contextKey(screenContext);
-  const [suppressedKey, setSuppressedKey] = useState<string | null>(null);
-  const contextActive = screenContext != null && suppressedKey !== screenKey;
+  const screenIdentity = contextIdentity(screenContext);
+  const [suppressedIdentity, setSuppressedIdentity] = useState<string | null>(null);
+  // 다른 화면으로 바뀌면 × 상태를 해제 — A 에서 × → B → 다시 A 로 와도 칩이 복원되게.
+  // effect 대신 렌더 중 조정("prop 변화 시 state 조정" 패턴)이라 칩이 한 프레임 깜빡이지 않는다.
+  const [prevIdentity, setPrevIdentity] = useState<string | null>(screenIdentity);
+  if (prevIdentity !== screenIdentity) {
+    setPrevIdentity(screenIdentity);
+    setSuppressedIdentity(null);
+  }
+  const contextActive = screenContext != null && suppressedIdentity !== screenIdentity;
 
   const submit = () => {
     const query = input.trim();
     if (!query || pending) return;
     onSubmit(query, contextActive ? screenContext : undefined);
-    setSuppressedKey(null); // 1회 제외는 이번 전송으로 소진 — 다음 전송부터 다시 포함.
+    setSuppressedIdentity(null); // 1회 제외는 이번 전송으로 소진 — 다음 전송부터 다시 포함.
     setInput('');
   };
 
@@ -397,7 +404,11 @@ export function AIChatPanel({
               type="button"
               data-testid="chat-context-remove"
               aria-label="이번 질문에서 화면 정보 빼기"
-              onClick={() => setSuppressedKey(screenKey)}
+              onClick={() => {
+                setSuppressedIdentity(screenIdentity);
+                // × 가 사라지며 키보드 포커스가 body 로 떨어지지 않게 입력창으로 옮긴다(10-accessibility).
+                inputRef.current?.focus();
+              }}
               className="-my-1 -mr-1.5 inline-flex size-6 shrink-0 items-center justify-center rounded-full hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             >
               <X className="h-3 w-3" aria-hidden />

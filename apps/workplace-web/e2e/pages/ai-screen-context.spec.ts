@@ -60,7 +60,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     await page.getByTestId('chat-input').fill('첫 질문')
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toBeUndefined()
+    expect(bodies[0]).not.toHaveProperty('screenContext')
 
     // 전송 후 칩 복원 → 두 번째 전송은 컨텍스트 포함.
     await expect(page.getByTestId('chat-context-chip')).toBeVisible()
@@ -83,11 +83,34 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     await expect(remove).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
+    // × 가 사라져도 키보드 포커스를 잃지 않게 입력창으로 이동한다.
+    await expect(page.getByTestId('chat-input')).toBeFocused()
 
     await page.getByTestId('chat-input').fill('키보드로 뺀 뒤 질문')
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(() => bodies.length).toBe(1)
     expect(bodies[0]).not.toHaveProperty('screenContext')
+  })
+
+  test('× 후 다른 화면에 갔다 돌아오면 칩이 복원되고 전송에 다시 포함된다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockIssueDetail(page)
+    await mockApi(page, 'GET', '/api/v1/projects/WP/issues', { items: [createIssue({ number: 12 })], nextCursor: null, hasMore: false })
+    await page.goto('/projects/WP/issues/12')
+    await page.getByTestId('chat-launcher').click()
+    await page.getByTestId('chat-context-remove').click()
+    await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
+
+    // 앱 내부 이동(브레드크럼 → 프로젝트 목록) 후 뒤로가기 — 새로고침 없이 패널 상태가 유지되는 경로.
+    await page.getByRole('navigation', { name: '이슈 경로' }).getByRole('link', { name: 'Workplace' }).click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('프로젝트 Workplace 이슈 목록')
+    await page.goBack()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('이슈 WP-12 로그인 버그 수정')
+
+    await page.getByTestId('chat-input').fill('돌아와서 질문')
+    await page.getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
   })
 
   test('등록 화면이 없는 홈에서는 칩이 없고 screenContext 를 보내지 않는다', async ({ authenticatedPage: page }) => {
@@ -108,6 +131,9 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     await page.getByTestId('chat-launcher').click()
     // 사이드 → 풀스크린 전환 버튼(global-chat.spec 의 풀스크린 전환 셀렉터와 동일한 것을 사용).
     await page.getByTestId('chat-launcher').click()
+    // 실제로 풀스크린에 도달했는지 확인(global-chat.spec 의 모드 순환 검증과 동일 신호).
+    await expect(page.getByTestId('chat-launcher')).toHaveAttribute('data-mode', 'fullscreen')
+    await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
     await expect(page.getByTestId('chat-context-chip')).toContainText('WP-12')
     await page.getByTestId('chat-input').fill('이거')
     await page.getByRole('button', { name: '보내기' }).click()
@@ -123,7 +149,9 @@ test.describe('AI 채팅 화면 컨텍스트 — 이슈 목록', () => {
     await mockApi(page, 'GET', '/api/v1/projects/WP/issues', { items: [createIssue()], nextCursor: null, hasMore: false })
     await page.goto('/projects/WP?status=TODO&q=%EB%A1%9C%EA%B7%B8%EC%9D%B8')
     await page.getByTestId('chat-launcher').click()
-    await expect(page.getByTestId('chat-context-chip')).toContainText('이슈 목록 · 프로젝트 Workplace 이슈 목록')
+    // 범위 라벨이 화면 이름을 포함하므로 중복 없이 범위 라벨만 표시한다.
+    await expect(page.getByTestId('chat-context-chip')).toContainText('프로젝트 Workplace 이슈 목록')
+    await expect(page.getByTestId('chat-context-chip')).not.toContainText('이슈 목록 · ')
     await page.getByTestId('chat-input').fill('여기서 급한 거')
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(() => bodies.length).toBe(1)
@@ -134,13 +162,56 @@ test.describe('AI 채팅 화면 컨텍스트 — 이슈 목록', () => {
   })
 })
 
+test.describe('AI 채팅 화면 컨텍스트 — × 유지', () => {
+  test('같은 화면에서 목록 건수가 뒤늦게 도착해도 × 상태가 유지된다', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ name: 'Workplace' }))
+    // 이슈 목록 응답을 × 클릭 뒤까지 붙잡아 둔다 — 건수(count·hasMore)가 × 이후에 결정론적으로 도착하도록.
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    await page.route(
+      (url) => url.pathname === '/api/v1/projects/WP/issues',
+      async (route) => {
+        await gate
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ items: [createIssue({ number: 7 })], nextCursor: null, hasMore: false }),
+        })
+      },
+    )
+    await page.goto('/projects/WP')
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('프로젝트 Workplace 이슈 목록')
+    await page.getByTestId('chat-context-remove').click()
+    await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
+
+    release()
+    await expect(page.getByTestId('issue-row-7')).toBeVisible()
+    // 건수는 휘발 값이라 화면 정체성이 같다 → 칩은 계속 숨김, 이번 전송엔 컨텍스트 없음.
+    await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
+    await page.getByTestId('chat-input').fill('건수 도착 후 질문')
+    await page.getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0]).not.toHaveProperty('screenContext')
+
+    // 전송 후에는 복원되고, 도착한 건수가 실린다.
+    await expect(page.getByTestId('chat-context-chip')).toBeVisible()
+    await page.getByTestId('chat-input').fill('다음 질문')
+    await page.getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(2)
+    expect(bodies[1].screenContext?.scope).toMatchObject({ count: 1, hasMore: false })
+  })
+})
+
 test.describe('AI 채팅 화면 컨텍스트 — 내 작업 · AI 위임', () => {
   test('내 작업 탭과 상태 facet 이 목록 범위로 실린다', async ({ authenticatedPage: page }) => {
     const bodies = await captureChat(page)
     await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([createIssue()]))
     await page.goto('/me/tasks/reported?status=IN_PROGRESS')
     await page.getByTestId('chat-launcher').click()
-    await expect(page.getByTestId('chat-context-chip')).toContainText('내가 보고')
+    await expect(page.getByTestId('chat-context-chip')).toContainText('내 작업 · 내가 보고')
+    await expect(page.getByTestId('chat-context-chip')).not.toContainText('내 작업 · 내 작업')
     await page.getByTestId('chat-input').fill('이 중 급한 거')
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(() => bodies.length).toBe(1)
@@ -165,10 +236,11 @@ test.describe('AI 채팅 화면 컨텍스트 — 내 작업 · AI 위임', () =>
     await page.goto('/me/ai-tasks')
     await expect(page.getByTestId('ai-row-31')).toBeVisible()
     await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('AI 위임 작업')
     await page.getByTestId('chat-input').fill('진행 상황 알려줘')
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toEqual({ view: 'AI 위임 작업', scope: { label: 'AI 에게 위임한 작업', count: 2 } })
+    expect(bodies[0].screenContext).toEqual({ view: 'AI 위임 작업', scope: { label: 'AI 위임 작업', count: 2 } })
   })
 })
 

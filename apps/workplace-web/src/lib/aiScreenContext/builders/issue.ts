@@ -118,7 +118,8 @@ export function buildMyTasksContext(input: {
 }
 
 export function buildAiTasksContext(input: { facets: Record<string, string>; count?: number }): AiScreenContext {
-  const scope: NonNullable<AiScreenContext['scope']> = { label: 'AI 에게 위임한 작업' };
+  // 칩은 scope.label 이 view 를 포함하면 범위 라벨만 보여 준다 → 'AI 위임 작업' 한 번만 표시.
+  const scope: NonNullable<AiScreenContext['scope']> = { label: 'AI 위임 작업' };
   const facts = facetFacts(input.facets);
   if (facts) scope.facts = facts;
   if (input.count != null) scope.count = input.count;

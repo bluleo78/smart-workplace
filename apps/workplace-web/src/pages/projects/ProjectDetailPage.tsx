@@ -125,6 +125,14 @@ function IssueArea({
   const milestones = useMilestones(projectKey);
   // 리스트 뷰가 보고하는 로드 건수 — 보드는 컬럼별 로드, 사이클 그룹(#878)은 구간별 로드라 건수를 싣지 않는다.
   const [loaded, setLoaded] = useState<{ count: number; hasMore: boolean } | null>(null);
+  // 목록 정체성(보기 + 리스트 쿼리 키와 같은 기본 범위 적용 필터)이 바뀌면 이전 건수를 버린다 —
+  // 필터 변경 직후 전송 시 새 필터와 옛 건수가 짝지어지지 않게. 렌더 중 조정이라 한 프레임도 옛 건수가 남지 않는다.
+  const listIdentity = `${view}:${JSON.stringify(withDefaultIssueScope(filters))}`;
+  const [prevListIdentity, setPrevListIdentity] = useState(listIdentity);
+  if (prevListIdentity !== listIdentity) {
+    setPrevListIdentity(listIdentity);
+    setLoaded(null);
+  }
   const onLoadedChange = useCallback((count: number, hasMore: boolean) => setLoaded({ count, hasMore }), []);
   const listLoaded = view === 'board' || groupBy === 'cycle' ? null : loaded;
   const screenContext = useMemo(
