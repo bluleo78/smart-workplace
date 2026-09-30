@@ -2,11 +2,12 @@
 
 import { isAxiosError } from 'axios';
 import { Eye, EyeOff, FileQuestion, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import {
   AlertDialog,
@@ -37,6 +38,7 @@ import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle'
 import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueChatButton } from './components/chat/IssueChatButton';
@@ -303,6 +305,14 @@ export default function IssueDetailPage() {
   const members = useProjectMembers(key);
   const isOwner =
     members.data?.some((m) => m.userId === user?.id && m.role === 'OWNER') ?? false;
+
+  // WP-54: AI 채팅 화면 컨텍스트 — 이 이슈를 "보고 있는 대상"으로 등록(데이터 로딩 전엔 미등록).
+  // Rules of Hooks: 아래 조기 반환 이전에 호출한다. 개인 프로젝트 리다이렉트 경로에선 곧 언마운트되어 해제된다.
+  const screenContext = useMemo(
+    () => (data ? buildIssueDetailContext({ projectKey: key, issue: data.summary }) : null),
+    [data, key],
+  );
+  useRegisterAiScreenContext(screenContext);
 
   // 프로젝트 타입이 확정되기 전에는 렌더 보류 — 팀 화면 반짝임 방지.
   if (project.isLoading) return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;

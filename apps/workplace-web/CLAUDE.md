@@ -113,3 +113,7 @@ test('로그인 페이지가 보인다', { tag: '@smoke' }, async ({ page }) => 
 4. 상태 변경 → UI 즉시 반영
 5. 에러 처리 (4xx/5xx 메시지 표시)
 6. 유효성 검사 (zod 룰이 UI 에러로 반영되는지)
+
+## AI 화면 컨텍스트 (WP-54)
+
+새 화면에서 AI 가 "이거" 를 알게 하려면 `src/lib/aiScreenContext/builders/` 에 순수 builder 를 두고, 페이지에서 `useRegisterAiScreenContext` 를 **화면당 1회, early return 전에** 등록한다(React Compiler memo lint 가 불평하면 primitive deps 를 받는 모듈 레벨 훅으로 분리). 로드되지 않은 데이터는 절대 보내지 않고, `refs` 키는 MCP 도구 인자명과 일치시킨다. 칩은 `src/components/ai/ScreenContextChip.tsx`(× = 다음 전송 1회만 제외, "되돌리기" 가능), 전송은 `AIChatPanel` 이 처리한다. AI 입력을 열어둔 채 써야 하는 엔티티 다이얼로그는 `useAiPanelAwareDialog`(`src/components/ai/useAiPanelAwareDialog.tsx`)를 쓴다 — side 모드 전용이며 페이지 영역만 inert 처리. 알려진 한계: `/drive/attachments` 뷰(`DriveAttachmentsView`)의 첨부 미리보기는 컨텍스트를 등록하지 않고(드라이브 파일 미리보기는 등록한다), 전체화면 AI 모드에서는 엔티티 다이얼로그가 여전히 modal 이다.

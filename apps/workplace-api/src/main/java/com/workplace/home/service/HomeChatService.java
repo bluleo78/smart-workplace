@@ -9,6 +9,7 @@ import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.exception.HomeChatUnavailableException;
 import com.workplace.home.outbound.AiAgentChatClient;
@@ -92,6 +93,11 @@ public class HomeChatService {
     this.sseRegistry = sseRegistry;
   }
 
+  /** 화면 컨텍스트 없는 호출(기존 호출부·테스트 호환) — null 컨텍스트로 위임. */
+  public String startChat(long callerId, UUID sessionId, String query) {
+    return startChat(callerId, sessionId, query, null);
+  }
+
   /**
    * enabled 확인·세션 ensure·recentContext 구성·비서 해석·USER 영속을 동기 수행한 뒤, 펌프를 레지스트리에 등록하고 correlationId 를
    * 즉시 반환한다.
@@ -102,9 +108,11 @@ public class HomeChatService {
    * @param callerId 요청 사용자 ID
    * @param sessionId null 이면 새 세션 생성
    * @param query 자연어 명령
+   * @param screenContext 현재 화면 컨텍스트(WP-54, nullable) — 저장하지 않고 이번 요청에만 ai-agent 로 전달
    * @return 발급된 correlationId
    */
-  public String startChat(long callerId, UUID sessionId, String query) {
+  public String startChat(
+      long callerId, UUID sessionId, String query, AiScreenContext screenContext) {
     // 1) enabled 확인 — 비활성이면 시작 전 예외로 단락.
     if (!aiAgentProperties.enabled()) {
       throw new HomeChatUnavailableException("AI 채팅 기능이 현재 비활성화되어 있어요.");
@@ -144,7 +152,9 @@ public class HomeChatService {
             spec.thinkingDepth(),
             spec.maxTurns(),
             // #456: compose 는 다중 도메인 위임으로 기본 60s 를 넘기 쉬워 하한(180s)을 적용.
-            Math.max(spec.timeoutMs(), COMPOSE_MIN_TIMEOUT_MS));
+            Math.max(spec.timeoutMs(), COMPOSE_MIN_TIMEOUT_MS),
+            // WP-54: 화면 컨텍스트 1:1 전달(USER 메시지 영속에는 포함하지 않는다).
+            screenContext);
 
     // 위임 라벨 + 도구 호출을 도착 순서로 누적(done 시 home_message.tool_calls 로 영속).
     // CopyOnWriteArrayList: 펌프 스레드에서 쓰고 done 핸들러에서 읽는 구조에 안전.

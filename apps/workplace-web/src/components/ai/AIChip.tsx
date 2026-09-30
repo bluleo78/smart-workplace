@@ -34,6 +34,8 @@ export function AIChip() {
     <button
       type="button"
       data-testid="chat-launcher"
+      // WP-54: AI 표면 표식 — non-modal 다이얼로그가 열린 채 칩을 눌러도 다이얼로그가 닫히지 않게(useAiPanelAwareDialog).
+      data-ai-panel
       data-mode={mode}
       aria-label="AI 어시스턴트"
       aria-expanded={open}

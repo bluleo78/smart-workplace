@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import {
   AlertDialog,
@@ -27,6 +28,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 
@@ -66,6 +68,49 @@ function collapseCrumbs(
 ): (DriveFolderPathSegment | null)[] {
   if (crumbs.length <= 4) return crumbs
   return [crumbs[0], null, crumbs[crumbs.length - 2], crumbs[crumbs.length - 1]]
+}
+
+// WP-54: 드라이브 화면 컨텍스트 등록 — React Compiler 메모이제이션 보존을 위해 원시값 deps 로 모듈 훅에 둔다.
+// embedded(채널 서랍 안)는 채널 화면이 주인이므로 등록하지 않는다.
+// 미로드 데이터는 보내지 않는다: 폴더 경로(crumbs)가 현재 폴더와 맞지 않으면 경로 세그먼트만 생략,
+// 폴더·파일 개수는 목록 조회가 끝난 뒤에만 싣는다(placeholder 도 제외).
+function useDriveScreenContext(input: {
+  embedded: boolean
+  spaceId: number | undefined
+  spaceName: string | undefined
+  folderId: number | null
+  crumbs: DriveFolderPathSegment[]
+  q: string
+  counts: { folders: number; files: number } | null
+  preview: DriveFile | null
+}) {
+  const { embedded, spaceId, spaceName, folderId, crumbs, q, counts, preview } = input
+  const folderCount = counts?.folders ?? null
+  const fileCount = counts?.files ?? null
+  const previewId = preview?.id
+  const previewName = preview?.name
+  const previewSize = preview?.sizeBytes
+  const previewUpdatedAt = preview?.updatedAt
+  const ctx = useMemo(() => {
+    if (embedded || spaceId == null) return null
+    // 폴더 안인데 경로가 아직 로드 전·실패·이전 폴더 것이면 경로 세그먼트만 비운다(잘못된 경로 미전송).
+    // spaceId/parentId 는 URL·state 기준이라 확실하므로 컨텍스트는 유지한다.
+    const pathReady = folderId != null && crumbs[crumbs.length - 1]?.id === folderId
+    return buildDriveContext({
+      spaceId,
+      spaceName: spaceName ?? null,
+      folderId,
+      folderPath: pathReady ? crumbs.map((c) => c.name) : [],
+      q,
+      folderCount,
+      fileCount,
+      preview:
+        previewId != null && previewName != null
+          ? { id: previewId, name: previewName, size: previewSize ?? null, updatedAt: previewUpdatedAt ?? null }
+          : null,
+    })
+  }, [embedded, spaceId, spaceName, folderId, crumbs, q, folderCount, fileCount, previewId, previewName, previewSize, previewUpdatedAt])
+  useRegisterAiScreenContext(ctx)
 }
 
 /** 폴더 브라우저 — 검색 + 브레드크럼 + 폴더·파일 목록 + 업로드/새폴더/이름변경/삭제/미리보기/다운로드.
@@ -259,6 +304,21 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       alive = false
     }
   }, [folderId])
+
+  // WP-54: 드라이브 화면 컨텍스트 등록(early return 전 — 훅 순서 보장).
+  useDriveScreenContext({
+    embedded,
+    spaceId: validSid,
+    spaceName: space?.name,
+    folderId: folderId ?? null,
+    crumbs,
+    q: searchQ,
+    counts:
+      itemsQuery.data && !itemsQuery.isPlaceholderData
+        ? { folders: itemsQuery.data.folders.length, files: itemsQuery.data.files.length }
+        : null,
+    preview,
+  })
 
   // 검색 디바운스(300ms). 2자 미만이면 결과 해제(브라우즈 복귀).
   // 파일명 검색(driveApi.search)과 콘텐츠 검색(searchDriveContent)을 동시 호출 — 두 검색창을 하나로 통합.

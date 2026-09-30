@@ -87,3 +87,7 @@ pnpm test --coverage                   # 커버리지 (./coverage)
 workplace-api 호출 시 `Authorization: Internal <token>` + `X-On-Behalf-Of: <agentId>` 헤더로
 그 AGENT 자격을 부여받는다. 5a 의 AGENT API key 는 ai-agent 부트스트랩과 무관 — 외부 서비스가
 AGENT 자격으로 workplace-api 를 직접 호출할 때만 사용.
+
+## AI 화면 컨텍스트 (WP-54)
+
+`screenContext`(`routes/home.ts` chatSchema) → `formatScreenContext`(`src/agent/screen-context.ts`) 가 user 메시지 앞에 `## 현재 화면` 블록을 붙인다. 라우터 규칙은 `assistant-system-prompt.ts` 의 `## 현재 화면 맥락`(subagent 위임 시 식별자 복사)에 있다.

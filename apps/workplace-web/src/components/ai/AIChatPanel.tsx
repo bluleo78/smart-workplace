@@ -2,13 +2,15 @@
 // AI 어시스턴트 공유 채팅 본문 — 세션 스위처 헤더 + 메시지 이력 + 입력바.
 // side(AISidePanel) / fullscreen(AIFullscreen) 모두 재사용. 컨테이너(폭/포지션)는 호출측 책임.
 import { ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square, Trash2 } from 'lucide-react';
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ActionResultLine } from '@/components/ai/ActionResultLine';
 import { AiLabel } from '@/components/ai/AiLabel';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { relTime } from '@/components/ai/relTime';
+import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
+import { ScreenContextChip } from '@/components/ai/ScreenContextChip';
 import { ToolStepList } from '@/components/ai/ToolStepList';
 import { getChatWidget } from '@/components/home/widgets/chatWidgetRegistry';
 import { Button } from '@/components/ui/button';
@@ -21,6 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
+import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
@@ -85,10 +88,26 @@ export function AIChatPanel({
     if (newSessionNonce > 0) setInput('');
   }, [newSessionNonce]);
 
+  // WP-54: 현재 화면 컨텍스트 + 칩 × 상태. × 는 그 시점 화면 정체성(contextIdentity)을 기억해 다음 1회 전송만 뺀다.
+  // 정체성은 건수·facts 같은 휘발 값을 제외하므로, 같은 화면에서 목록 건수가 바뀌어도 × 가 유지된다.
+  const screenContext = useAiScreenContext();
+  // store 는 내용이 바뀔 때만 새 참조를 주므로 참조 기준 메모로 매 렌더 직렬화를 피한다.
+  const screenIdentity = useMemo(() => contextIdentity(screenContext), [screenContext]);
+  const [suppressedIdentity, setSuppressedIdentity] = useState<string | null>(null);
+  // 다른 화면으로 바뀌면 × 상태를 해제 — A 에서 × → B → 다시 A 로 와도 칩이 복원되게.
+  // effect 대신 렌더 중 조정("prop 변화 시 state 조정" 패턴)이라 칩이 한 프레임 깜빡이지 않는다.
+  const [prevIdentity, setPrevIdentity] = useState<string | null>(screenIdentity);
+  if (prevIdentity !== screenIdentity) {
+    setPrevIdentity(screenIdentity);
+    setSuppressedIdentity(null);
+  }
+  const contextActive = screenContext != null && suppressedIdentity !== screenIdentity;
+
   const submit = () => {
     const query = input.trim();
     if (!query || pending) return;
-    onSubmit(query);
+    onSubmit(query, contextActive ? screenContext : undefined);
+    setSuppressedIdentity(null); // 1회 제외는 이번 전송으로 소진 — 다음 전송부터 다시 포함.
     setInput('');
   };
 
@@ -116,6 +135,8 @@ export function AIChatPanel({
               <span className="max-w-[16rem] truncate">{current?.title ?? '대화 선택'}</span>
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             </DropdownMenuTrigger>
+            {/* WP-54: body 포털이라 DOM 상 패널 밖이지만, React 이벤트가 패널 루트로 전파돼 AI 표면으로 판별된다
+                (aiPanelSurface.markAiPanelEvent) — 열린 엔티티 다이얼로그가 닫히지 않음. 패널 트리 밖에서 렌더하면 안 된다. */}
             <DropdownMenuContent align="start" className="z-[80] w-72">
               {sessions.length === 0 ? (
                 <div className="px-2 py-1.5 text-sm text-muted-foreground">저장된 대화가 없어요</div>
@@ -369,6 +390,20 @@ export function AIChatPanel({
         }}
         className="border-t p-2"
       >
+        {/* WP-54: 현재 화면 컨텍스트 칩 — 포함/제외(이번 1회) 상태 + 되돌리기. 상세는 ScreenContextChip. */}
+        <ScreenContextChip
+          context={screenContext}
+          excluded={!contextActive}
+          onExclude={() => {
+            setSuppressedIdentity(screenIdentity);
+            // 칩이 제외 상태로 바뀌며 × 가 사라지므로 키보드 포커스를 입력창으로 옮긴다(10-accessibility).
+            inputRef.current?.focus();
+          }}
+          onRestore={() => {
+            setSuppressedIdentity(null);
+            inputRef.current?.focus();
+          }}
+        />
         <div className="flex items-end gap-2">
           {/* 여러 줄 입력 — Enter 전송, Shift+Enter 줄바꿈(isSubmitEnter, RichInput 과 공용 규칙). */}
           <Textarea

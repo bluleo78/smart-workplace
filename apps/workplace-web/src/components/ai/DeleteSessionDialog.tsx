@@ -23,6 +23,7 @@ interface Props {
 export function DeleteSessionDialog({ sessionId, onConfirm, onCancel }: Props) {
   return (
     <AlertDialog open={sessionId !== null} onOpenChange={(v) => !v && onCancel()}>
+      {/* WP-54: 포털 레이어지만 패널 React 트리 안에서 렌더돼 AI 표면으로 판별된다(aiPanelSurface.markAiPanelEvent). */}
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>대화 삭제</AlertDialogTitle>

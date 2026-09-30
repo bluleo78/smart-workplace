@@ -1,5 +1,6 @@
 import type {
   ActivityPage,
+  ChatRequest,
   HomeMessage,
   HomeSessionPage,
   PendingAction,
@@ -55,7 +56,7 @@ export const homeApi = {
   rejectProposal: (id: number) => client.post<ProposalOutcome>(`/home/proposals/${id}/reject`),
 
   /** AI 채팅 생성 시작(#593 편입) — correlationId 즉시 반환, 실제 델타는 /events 로 도착. */
-  startChat: (body: { sessionId: string | null; query: string }) =>
+  startChat: (body: ChatRequest) =>
     client.post<{ correlationId: string }>('/ai/chat', body),
 
   /** 진행 중인 채팅 생성 취소. */

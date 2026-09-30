@@ -5,6 +5,20 @@ import {
 
 import type { Calendar, CalendarEvent, CalendarViewType, IssueDueMarker } from '../types/calendar'
 
+// 보기 → 사용자에게 보이는 탭 이름. 캘린더 헤더의 뷰 전환 탭과 AI 화면 컨텍스트(WP-54, '<이름> 보기')가 공유한다.
+export const CALENDAR_VIEW_LABEL: Record<CalendarViewType, string> = {
+  month: '월',
+  week: '주',
+  day: '일',
+  agenda: '목록',
+}
+
+// 뷰 전환 탭 목록(표시 순서 = CALENDAR_VIEW_LABEL 키 순서).
+export const CALENDAR_VIEWS = (Object.keys(CALENDAR_VIEW_LABEL) as CalendarViewType[]).map((key) => ({
+  key,
+  label: CALENDAR_VIEW_LABEL[key],
+}))
+
 // 월 그리드: 해당 월을 포함하는 일요일 시작 6주(42칸).
 export function monthMatrix(anchor: Date): Date[] {
   const first = startOfWeek(startOfMonth(anchor), { weekStartsOn: 0 })

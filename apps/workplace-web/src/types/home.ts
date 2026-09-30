@@ -1,5 +1,7 @@
 // 7c: 홈 AI chat/위젯 계약. 백엔드 HomeComposeResponse·ActivityEntryResponse 와 1:1.
 
+import type { AiScreenContext } from './aiScreenContext';
+
 // 위젯 타입(WidgetLayout/WidgetType/WidgetSpec)은 AI 비서 응답(show_* 도구)이 지시하는
 // 표시 위젯 계약이다. #431 에서 챗 도크 인라인 렌더로 부활(chatWidgetRegistry).
 // AI chat done 이벤트의 widgets[] 및 복원용 HomeMessage.widgets 가 이 형태를 따른다.
@@ -23,6 +25,8 @@ export interface WidgetSpec {
 export interface ChatRequest {
   sessionId: string | null;
   query: string;
+  /** WP-54: 현재 화면 컨텍스트 — 없으면 키 자체를 생략한다. */
+  screenContext?: AiScreenContext;
 }
 
 /** AI 도구 호출/위임 단계 — 어시스턴트 턴 인라인 표시 + 복원. */

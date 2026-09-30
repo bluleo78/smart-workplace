@@ -1,14 +1,16 @@
 // 개인 작업 상세 — 뷰별 하이브리드: 리스트/체크리스트=인플로우 사이드 패널, 보드=중앙 모달(#231).
 // ?task=N 이 있을 때만 표시. 기존 필드 위젯 + 이슈 chat 재사용. ESC·✕·같은 행 재클릭으로 닫힘.
 import { X } from 'lucide-react';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { LabelChip } from '@/components/labels/LabelChip';
 import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { useIssue, useUpdateIssue } from '@/hooks/queries/useIssue';
+import { buildIssueDetailContext } from '@/lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 
@@ -118,6 +120,16 @@ export function PersonalTaskDetail({
   // 원격 삭제 후 재조회 404 — stale q.data 가 남아도 필드/제목을 숨기고 not-found 만 보여준다.
   const gone = isNotFoundError(q.error);
   const data = gone ? undefined : q.data;
+  // WP-54: 열린 개인 태스크를 AI 화면 컨텍스트 대상(focus)으로 등록 — 범위는 '개인 프로젝트'로 덮어쓴다.
+  // 패널이 닫혀 언마운트되거나 이슈가 없으면(로딩·404) 해제된다.
+  const screenContext = useMemo(
+    () =>
+      data
+        ? { ...buildIssueDetailContext({ projectKey, issue: data.summary }), scope: { label: '개인 프로젝트', refs: { projectKey } } }
+        : null,
+    [data, projectKey],
+  );
+  useRegisterAiScreenContext(screenContext);
 
   return (
     // 스크롤 컨테이너 — 외부 wrapper가 h-full flex flex-col이므로 flex-1로 남은 높이 채움.

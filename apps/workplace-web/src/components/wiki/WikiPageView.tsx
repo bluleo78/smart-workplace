@@ -1,14 +1,17 @@
 import { BookOpen, FileQuestion } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { AiLabel } from '@/components/ai/AiLabel'
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { buildWikiContext } from '@/lib/aiScreenContext/builders/wiki'
 
 import { useCreatePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiPage } from '../../hooks/queries/useWikiPage'
+import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { useWikiLastVisitedKey } from '../../hooks/useWikiLastVisitedKey'
 import {
   clearWikiLastVisited,
@@ -24,6 +27,22 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
   const createPage = useCreatePage(spaceId)
   const navigate = useNavigate()
   const lastVisitedKey = useWikiLastVisitedKey()
+
+  // WP-54: 위키 화면 컨텍스트 — 스페이스 이름은 캐시된 스페이스 목록에서(WikiSidebar 와 같은 쿼리).
+  // 스페이스 루트(pageId 없음)·로딩·에러 중에는 page=null 로 scope 만 싣는다(미로딩 데이터를 사실로 보내지 않음).
+  // 스페이스 루트도 이 컴포넌트가 렌더하므로 페이지당 등록은 1개다.
+  const spaces = useWikiSpaces()
+  const spaceName = spaces.data?.find((s) => s.id === spaceId)?.name ?? null
+  const screenContext = useMemo(
+    () =>
+      buildWikiContext({
+        spaceId,
+        spaceName,
+        page: pageId != null && !isError && page ? { id: page.id, title: page.title, updatedAt: page.updatedAt } : null,
+      }),
+    [spaceId, spaceName, pageId, isError, page],
+  )
+  useRegisterAiScreenContext(screenContext)
 
   // 로드에 성공한 페이지를 "마지막으로 본 노트"로 기록 — /wiki 재진입 시 WikiIndexRedirect 가 복원한다.
   // 보던 중 삭제·권한 상실(404/403)된 페이지가 기록돼 있으면 지워, 에러 화면의 「노트 목록으로」가

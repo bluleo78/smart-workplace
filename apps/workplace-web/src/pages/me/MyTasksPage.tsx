@@ -1,14 +1,18 @@
 // 내 작업 — 할당/내가 만든/구독 3탭. 경로 기반(/me/tasks/:tab)으로 공유 가능한 URL.
+import { useMemo } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { InfiniteIssueList } from '@/components/issue/InfiniteIssueList'
 import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useMeIssues } from '@/hooks/queries/useMeIssues'
 import { useWatchedIssues } from '@/hooks/queries/useWatchedIssues'
+import { buildMyTasksContext } from '@/lib/aiScreenContext/builders/issue'
 
 import { meFacetParams } from './meFacetParams'
 import { MeTaskFilterBar } from './MeTaskFilterBar'
+import { MY_TASKS_TAB_LABEL } from './myTasksTabs'
 
 // 할당/내가 만든 탭은 /me/issues 기반이라 status/priority facet 을 서버 쿼리로 합친다.
 function AssignedTab() {
@@ -43,15 +47,20 @@ export default function MyTasksPage() {
   const { tab } = useParams<{ tab: string }>()
   // 잘못된 탭은 할당으로 폴백(에러 아님).
   const active: Tab = (TABS as readonly string[]).includes(tab ?? '') ? (tab as Tab) : 'assigned'
+  // WP-54: 탭 + facet 을 AI 화면 컨텍스트(목록 상태)로 등록 — 건수는 탭 하위 목록이 소유해 이번 범위에선 생략.
+  // 구독 탭은 facet 을 적용하지 않으므로(필터 바 미노출) URL 에 남은 facet 을 싣지 않는다.
+  const [params] = useSearchParams()
+  const facets = useMemo(() => (active === 'watched' ? {} : meFacetParams(params)), [active, params])
+  useRegisterAiScreenContext(useMemo(() => buildMyTasksContext({ tab: active, facets }), [active, facets]))
 
   return (
     <div className="container mx-auto p-6 space-y-4">
       <h1 className={pageTitleClass}>내 작업</h1>
       <Tabs value={active} onValueChange={(v) => navigate(`/me/tasks/${v}`)}>
         <TabsList>
-          <TabsTrigger value="assigned" data-testid="tab-assigned">할당</TabsTrigger>
-          <TabsTrigger value="reported" data-testid="tab-reported">내가 만든</TabsTrigger>
-          <TabsTrigger value="watched" data-testid="tab-watched">구독</TabsTrigger>
+          <TabsTrigger value="assigned" data-testid="tab-assigned">{MY_TASKS_TAB_LABEL.assigned}</TabsTrigger>
+          <TabsTrigger value="reported" data-testid="tab-reported">{MY_TASKS_TAB_LABEL.reported}</TabsTrigger>
+          <TabsTrigger value="watched" data-testid="tab-watched">{MY_TASKS_TAB_LABEL.watched}</TabsTrigger>
         </TabsList>
       </Tabs>
       {/* facet 바는 /me/issues 기반 탭(할당·내가 만든)에서만 노출 — 구독은 다른 엔드포인트라 제외. */}

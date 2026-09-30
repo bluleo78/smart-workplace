@@ -1,5 +1,6 @@
 package com.workplace.home.outbound;
 
+import com.workplace.home.dto.AiScreenContext;
 import java.util.List;
 
 /** ai-agent /ai/compose 요청 계약 (7b). 응답은 SSE 스트림으로 받으므로 본 파일은 요청 본문만 정의한다. */
@@ -11,6 +12,7 @@ public final class ChatMessages {
    * 사용자 ID. ai-agent 가 MCP 도구(드라이브·캘린더 등) 컨텍스트를 assistantAgentId 아닌 실제 요청자 기준으로 실행하기 위해 전달한다(refs
    * #376). tenantId — 요청자의 active-tenant(nullable). ai-agent 가 workplace-api 대리 호출 시
    * X-On-Behalf-Of-Tenant 로 실어 보내, 다중/무 멤버십일 때 AgentTenantResolver 가 fail-closed 되는 것을 막는다(#719).
+   * screenContext — 현재 화면 컨텍스트(WP-54, nullable). ai-agent 가 user 메시지 prefix 로 임베드.
    */
   public record ChatRequest(
       String query,
@@ -21,7 +23,8 @@ public final class ChatMessages {
       String model,
       String thinkingDepth,
       int maxTurns,
-      int timeoutMs) {}
+      int timeoutMs,
+      AiScreenContext screenContext) {}
 
   /** 세션 최근 메시지(텍스트만 — 위젯 jsonb 제외). */
   public record ContextMessage(String role, String content) {}

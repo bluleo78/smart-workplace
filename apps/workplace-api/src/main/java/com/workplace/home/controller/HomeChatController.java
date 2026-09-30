@@ -31,7 +31,8 @@ public class HomeChatController {
   public StreamingGenerationStartedResponse chat(
       @AuthenticationPrincipal Long callerId, @Valid @RequestBody HomeChatRequest request) {
     return new StreamingGenerationStartedResponse(
-        chatService.startChat(callerId, request.sessionId(), request.query()));
+        chatService.startChat(
+            callerId, request.sessionId(), request.query(), request.screenContext()));
   }
 
   /** DELETE /api/v1/ai/chat/{correlationId} — 진행 중인 생성을 취소한다. */

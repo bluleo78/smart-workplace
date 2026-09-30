@@ -3,6 +3,7 @@
 // 어시스턴트는 어느 경로에서든 제자리(in-place)에서 답한다 — 홈으로 강제 이동/캔버스 구성 없음.
 import { useChatSessionContext } from '@/hooks/chat-session-context';
 import { useSessions } from '@/hooks/queries/useHomeQueries';
+import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { ChatTurn, HomeSessionSummary, ProposalCard } from '@/types/home';
 
 export interface AssistantChat {
@@ -12,7 +13,8 @@ export interface AssistantChat {
   currentSessionId: string | null;
   /** '새 대화' 전이 신호(nonce) — 증가 시 패널이 미전송 입력 초안을 비운다(#204). */
   newSessionNonce: number;
-  onSubmit: (query: string) => void;
+  /** WP-54: screenContext — 패널이 칩 상태를 반영해 넘기는 현재 화면 컨텍스트(없으면 미전송). */
+  onSubmit: (query: string, screenContext?: AiScreenContext) => void;
   /** #335: 스트리밍 중단 — 진행 중 AI 응답을 멈춘다(부분 응답은 보존). */
   onStop: () => void;
   onNewSession: () => void;

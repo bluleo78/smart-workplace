@@ -2,9 +2,10 @@
 // #345: DM 도 채널이므로 백엔드가 AI 진행 progress 를 fan-out 한다 → ChannelPage 와 동일하게
 // onMessagingProgress 를 구독해 작업 중 유령 버블을 렌더(dm.id 기준).
 import { MessageSquare, Sparkles } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble'
 import { ChannelCatchupCard } from '@/components/chat/ChannelCatchupCard'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
@@ -24,6 +25,7 @@ import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
+import { buildDmContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { dmDisplayName } from '@/lib/dm'
 import { firstUnreadMessageId, unreadFromOthersCount } from '@/lib/unreadBoundary'
@@ -168,6 +170,15 @@ export default function DmPage() {
   const create = useCreateMessage(dmId ?? 0, me)
 
   const dm = dms?.find((d) => d.id === dmId)
+
+  // WP-54: DM 화면 컨텍스트 — 상대 이름(본인 제외, 헤더 표시와 동일 기준. self-DM 이면 본인).
+  const screenContext = useMemo(() => {
+    if (!dm || dmId == null) return null
+    const others = dm.participants.filter((p) => p.userId !== user?.id)
+    const names = (others.length > 0 ? others : dm.participants).map((p) => p.name)
+    return buildDmContext({ channelId: dmId, participantNames: names })
+  }, [dm, dmId, user?.id])
+  useRegisterAiScreenContext(screenContext)
   const aiAvailable = useAiAvailable()
   // @멘션 후보 = DM 참여자. RichInput 이 기대하는 chat 멤버 형태로 매핑(username 은 name 으로 대체).
   // 비서 비가용(aiAvailable=false)이면 AGENT 후보 제외 — AI 와의 DM 자체는 유지, 멘션만 게이트.

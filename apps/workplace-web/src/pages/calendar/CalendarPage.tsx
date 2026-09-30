@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { CalendarEditDialog } from '@/components/calendar/CalendarEditDialog'
 import { CalendarSidebar } from '@/components/calendar/CalendarSidebar'
 import { EventDialog } from '@/components/calendar/EventDialog'
@@ -30,7 +31,9 @@ import {
 } from '@/hooks/queries/useCalendarMutations'
 import { useCalendars, useCreateCalendar, useDeleteCalendar, useResetCalendarEvents, useUpdateCalendar } from '@/hooks/queries/useCalendars'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
+import { buildCalendarContext } from '@/lib/aiScreenContext/builders/calendar'
 import {
+  CALENDAR_VIEWS,
   type CalendarLayers,
   eventsOnDay,
   isCalendarVisible,
@@ -51,13 +54,6 @@ import type {
   IssueDueMarker,
 } from '@/types/calendar'
 
-// 뷰 전환 탭 목록 — key 는 CalendarViewType 과 대응
-const VIEWS: { key: CalendarViewType; label: string }[] = [
-  { key: 'month', label: '월' },
-  { key: 'week', label: '주' },
-  { key: 'day', label: '일' },
-  { key: 'agenda', label: '목록' },
-]
 
 /** 캘린더 페이지 — 뷰 전환·날짜 네비·일정 CRUD + 캘린더 컨테이너 CRUD + 필터를 통합 관리. */
 export function CalendarPage() {
@@ -105,7 +101,7 @@ export function CalendarPage() {
 
   // anchor·view 변경 시에만 from/to 재계산
   const { from, to } = useMemo(() => visibleRange(view, anchor), [view, anchor])
-  const { data: events = [] } = useCalendarEvents(from, to)
+  const { data: events = [], isSuccess: eventsLoaded } = useCalendarEvents(from, to)
   // 내게 할당된 이슈 마감일을 같은 가시 범위로 조회해 읽기전용 오버레이.
   const { data: issueDues = [] } = useMyIssueDues(from, to)
 
@@ -124,6 +120,36 @@ export function CalendarPage() {
   )
 
   const visibleEvents = useMemo(() => events.filter(filterByCalendar), [events, filterByCalendar])
+
+  // WP-54: 캘린더 화면 컨텍스트 — 보기·기간·일정 수 + 열린 일정(다이얼로그).
+  // 일정 수는 조회 성공 후에만 싣는다(로딩 중 0건으로 오인 방지). 다이얼로그가 닫히면 editing 이 남아 있어도 focus 를 뺀다.
+  const openEditing = dialogOpen ? editing : null
+  const screenContext = useMemo(
+    () =>
+      buildCalendarContext({
+        view,
+        from,
+        to,
+        count: eventsLoaded ? visibleEvents.length : undefined,
+        creating: dialogOpen && editing == null,
+        editing: openEditing
+          ? {
+              id: openEditing.id,
+              masterEventId: openEditing.masterEventId ?? null,
+              title: openEditing.title,
+              startsAt: openEditing.startsAt,
+              endsAt: openEditing.endsAt,
+              allDay: openEditing.allDay,
+              location: openEditing.location,
+              calendarName: openEditing.calendarName,
+              myRsvpStatus: openEditing.myRsvpStatus ?? null,
+              occurrenceDate: openEditing.occurrenceDate ?? null,
+            }
+          : null,
+      }),
+    [view, from, to, eventsLoaded, visibleEvents.length, dialogOpen, editing, openEditing],
+  )
+  useRegisterAiScreenContext(screenContext)
 
   // 점 찍을 날 — 표시 토글을 존중.
   const markedDates = useMemo(
@@ -359,7 +385,7 @@ export function CalendarPage() {
             </div>
           }
           title={<span data-testid="calendar-title">{format(anchor, 'yyyy년 M월')}</span>}
-          actions={VIEWS.map((v) => (
+          actions={CALENDAR_VIEWS.map((v) => (
             <Button
               key={v.key}
               size="sm"
