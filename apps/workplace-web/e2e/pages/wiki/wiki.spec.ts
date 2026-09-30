@@ -737,3 +737,46 @@ test('위키 사이드바 — 스페이스 선택기가 shadcn Select로 렌더�
   await page.getByRole('option', { name: '두 번째 스페이스' }).click()
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_B_ID}`), { timeout: 3000 })
 })
+
+// WP-121: lg 경계를 넘으면(데스크톱↔모바일 셸) 페이지가 리마운트된다. 디바운스(800ms) 대기 중이던
+// 자동저장은 언마운트 시 즉시 flush 되어야 한다 — 예전엔 타이머가 언마운트 뒤에야(최대 800ms 후) 떠서,
+// 그 사이 새 에디터가 옛 version 을 들고 뜨거나 탭이 닫히면 편집이 유실될 수 있었다.
+test('위키 — 디바운스 대기 중 리마운트(뷰포트 lg 경계 전환)되면 자동저장을 즉시 flush 한다', async ({
+  authenticatedPage: page,
+}) => {
+  const puts: { at: number; body: string }[] = []
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) => route.fulfill({ json: [personalSpace()] }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
+    (route) =>
+      route.fulfill({ json: [{ id: NEW_PAGE_ID, parentId: null, title: NEW_TITLE, position: 0, aiLastUsedAt: null }] }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${NEW_PAGE_ID}`,
+    (route) => {
+      if (route.request().method() === 'PUT') {
+        const body = route.request().postDataJSON() as { body: string; version: number }
+        puts.push({ at: Date.now(), body: body.body })
+        return route.fulfill({ json: pageDetail(NEW_TITLE, body.version + 1) })
+      }
+      return route.fulfill({ json: pageDetail(NEW_TITLE, 1) })
+    },
+  )
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${NEW_PAGE_ID}`)
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('플러시')
+  // 디바운스(800ms)가 끝나기 전에 모바일 폭으로 좁혀 에디터를 리마운트시킨다.
+  const t0 = Date.now()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(() => puts.length).toBeGreaterThan(0)
+  // flush 는 언마운트 즉시 — 디바운스 잔여 시간(수백 ms)을 기다리지 않는다.
+  expect(puts[0].at - t0).toBeLessThan(400)
+  expect(puts[0].body).toContain('플러시')
+  // 옛 타이머가 뒤늦게 한 번 더 PUT 하지 않는다(중복 저장·409 방지). 디바운스 창(800ms)을 넘겨 부재 확인 —
+  // "일어나지 않음" 확인이라 고정 대기가 불가피하다.
+  await page.waitForTimeout(1000)
+  expect(puts).toHaveLength(1)
+})
