@@ -231,6 +231,210 @@ test.describe('messaging 인라인 compose + self-DM', () => {
     },
   )
 
+  // (G) 회귀: /chat/new 에서 파일 첨부 시 channelId=0 으로 사전 업로드해 403 나던 문제 (WP-99)
+  // 전송 전엔 업로드하지 않고, 전송 시 DM 생성 → 그 DM 으로 업로드 → 실제 fileId 로 첫 메시지 전송.
+  test(
+    '첨부는 전송 시 생성된 DM 으로 업로드되고 channels/0 업로드는 발생하지 않는다',
+    async ({ authenticatedPage: page }) => {
+      const DM_ID = 201
+      const UPLOADED_FILE_ID = 77
+      const dm = createDm({
+        id: DM_ID,
+        participants: [
+          createDmParticipant({ userId: MY_ID, name: MY_NAME }),
+          createDmParticipant({ userId: 2, name: '밥' }),
+        ],
+      })
+
+      await stubSidebarLists(page)
+      await stubUserSearch(page, [{ userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
+
+      // 호출 순서 기록 — DM 생성이 업로드보다 먼저여야 한다.
+      const calls: string[] = []
+      // 채널 0(미생성 DM) 업로드 시도 감지 — 한 번이라도 오면 회귀.
+      let zeroChannelUploads = 0
+      await page.route(
+        (url) => url.pathname === '/api/v1/messaging/channels/0/attachments',
+        (route) => {
+          zeroChannelUploads++
+          return route.fulfill({ status: 403, contentType: 'application/json', body: '{}' })
+        },
+      )
+      await page.route(
+        (url) => url.pathname === '/api/v1/messaging/dms',
+        (route) => {
+          const m = route.request().method()
+          if (m === 'GET') {
+            return route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(calls.includes('dm') ? [dm] : []),
+            })
+          }
+          if (m === 'POST') {
+            calls.push('dm')
+            return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(dm) })
+          }
+          return route.fallback()
+        },
+      )
+      await page.route(
+        (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/attachments`,
+        (route) => {
+          calls.push('upload')
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([
+              { fileId: UPLOADED_FILE_ID, originalName: 'report.txt', mimeType: 'text/plain', sizeBytes: 5 },
+            ]),
+          })
+        },
+      )
+      let capturedMsgPayload: { body: string; fileIds?: number[] } | null = null
+      await page.route(
+        (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/messages`,
+        (route) => {
+          const m = route.request().method()
+          if (m === 'POST') {
+            calls.push('message')
+            capturedMsgPayload = route.request().postDataJSON() as { body: string; fileIds?: number[] }
+            return route.fulfill({
+              status: 201,
+              contentType: 'application/json',
+              body: JSON.stringify(createMessage({ id: 11, channelId: DM_ID, authorId: MY_ID, body: '' })),
+            })
+          }
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
+          })
+        },
+      )
+      await page.route(
+        (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/read`,
+        (route) => route.fulfill({ status: 204, body: '' }),
+      )
+
+      await page.goto('/chat/new')
+      await page.getByTestId('new-message-add-recipient').click()
+      await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
+      await page.getByTestId('member-search-row-2').click()
+      await expect(page.getByTestId('recipient-chip-2')).toBeVisible()
+
+      // 파일 선택 → 업로드 없이 첨부 칩만 표시.
+      await page.getByTestId('composer-file-input').setInputFiles({
+        name: 'report.txt',
+        mimeType: 'text/plain',
+        buffer: Buffer.from('hello'),
+      })
+      await expect(page.getByTestId('composer-attachments')).toContainText('report.txt')
+      expect(calls).toEqual([])
+
+      // 본문 없이 첨부만으로 전송.
+      await page.getByTestId('message-composer-submit').click()
+
+      await expect.poll(() => capturedMsgPayload?.fileIds).toEqual([UPLOADED_FILE_ID])
+      expect(calls).toEqual(['dm', 'upload', 'message'])
+      expect(zeroChannelUploads).toBe(0)
+      await expect(page).toHaveURL(new RegExp(`/chat/dms/${DM_ID}$`))
+    },
+  )
+
+  // (H) WP-99: 첫 메시지 전송이 실패하면 본문·첨부를 유지하고, 재시도 시 이미 올린 첨부는 다시 올리지 않는다.
+  test(
+    '전송 실패 시 본문·첨부가 유지되고 재시도는 첨부를 재업로드하지 않는다',
+    async ({ authenticatedPage: page }) => {
+      const DM_ID = 202
+      const UPLOADED_FILE_ID = 88
+      const dm = createDm({
+        id: DM_ID,
+        participants: [
+          createDmParticipant({ userId: MY_ID, name: MY_NAME }),
+          createDmParticipant({ userId: 2, name: '밥' }),
+        ],
+      })
+      await stubSidebarLists(page)
+      await stubUserSearch(page, [{ userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
+      await page.route(
+        (url) => url.pathname === '/api/v1/messaging/dms',
+        (route) =>
+          route.request().method() === 'POST'
+            ? route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(dm) })
+            : route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      )
+      let uploads = 0
+      await page.route(
+        (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/attachments`,
+        (route) => {
+          uploads++
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([
+              { fileId: UPLOADED_FILE_ID, originalName: 'report.txt', mimeType: 'text/plain', sizeBytes: 5 },
+            ]),
+          })
+        },
+      )
+      // 첫 메시지 POST 는 500, 이후엔 201.
+      let messagePosts = 0
+      let lastMsgPayload: { body: string; fileIds?: number[] } | null = null
+      await page.route(
+        (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/messages`,
+        (route) => {
+          if (route.request().method() !== 'POST') {
+            return route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
+            })
+          }
+          messagePosts++
+          lastMsgPayload = route.request().postDataJSON() as { body: string; fileIds?: number[] }
+          if (messagePosts === 1) {
+            return route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
+          }
+          return route.fulfill({
+            status: 201,
+            contentType: 'application/json',
+            body: JSON.stringify(createMessage({ id: 12, channelId: DM_ID, authorId: MY_ID, body: '보고서' })),
+          })
+        },
+      )
+      await page.route(
+        (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/read`,
+        (route) => route.fulfill({ status: 204, body: '' }),
+      )
+
+      await page.goto('/chat/new')
+      await page.getByTestId('new-message-add-recipient').click()
+      await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('밥')
+      await page.getByTestId('member-search-row-2').click()
+      await page.getByTestId('composer-file-input').setInputFiles({
+        name: 'report.txt',
+        mimeType: 'text/plain',
+        buffer: Buffer.from('hello'),
+      })
+      await page.getByTestId('message-composer-input').click()
+      await page.keyboard.type('보고서')
+      await page.getByTestId('message-composer-submit').click()
+
+      // 실패: 페이지에 머물고 본문·첨부 칩이 그대로 남는다.
+      await expect.poll(() => messagePosts).toBe(1)
+      await expect(page).toHaveURL(/\/chat\/new$/)
+      await expect(page.getByTestId('message-composer-input')).toContainText('보고서')
+      await expect(page.getByTestId('composer-attachments')).toContainText('report.txt')
+
+      // 재시도: 첨부는 다시 올리지 않고 첫 업로드의 fileId 로 전송된다.
+      await page.getByTestId('message-composer-submit').click()
+      await expect(page).toHaveURL(new RegExp(`/chat/dms/${DM_ID}$`))
+      expect(uploads).toBe(1)
+      expect(lastMsgPayload).toEqual({ body: '보고서', fileIds: [UPLOADED_FILE_ID] })
+    },
+  )
+
   // (D) 회귀: /chat/new 수신자 미선택 상태에서 "보관됨" 오표시 금지 (#118)
   test(
     '수신자 미선택 시 "이 채널은 보관되었습니다" 가 표시되지 않는다',
