@@ -11,7 +11,8 @@ export interface MailContextInput {
   q: string;
   category: string | null;
   needsReply: boolean;
-  count: number;
+  /** 목록 로딩 전에는 undefined — 0건으로 오인시키지 않도록 scope.count 를 싣지 않는다. */
+  count?: number;
   selected: {
     id: number;
     subject: string | null;
@@ -32,7 +33,7 @@ export function buildMailContext(input: MailContextInput): AiScreenContext {
   };
   const facts = buildFacts([['검색어', input.q], ['분류', input.category], ['답장 필요만', input.needsReply]]);
   if (facts) scope.facts = facts;
-  scope.count = input.count;
+  if (input.count != null) scope.count = input.count;
 
   const ctx: AiScreenContext = { view: '메일함', scope };
   const s = input.selected;

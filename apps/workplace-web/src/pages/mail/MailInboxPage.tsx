@@ -546,7 +546,7 @@ export function MailInboxPage() {
             q: search,
             category: categoryParam || null,
             needsReply: needsReplyParam,
-            count: messages?.length ?? 0,
+            count: messages?.length,
             selected: selectedSummary
               ? {
                   id: selectedSummary.id,

@@ -39,4 +39,8 @@ describe('buildMailContext', () => {
     expect(buildMailContext({ ...base, selected: sel }).focus!.label).toBe('(제목 없음)');
     expect(buildMailContext({ ...base, selected: { ...sel, subject: 's'.repeat(300) } }).focus!.label).toHaveLength(200);
   });
+
+  it('count 미제공이면 scope.count 없음', () => {
+    expect(buildMailContext({ ...base, count: undefined }).scope).not.toHaveProperty('count');
+  });
 });
