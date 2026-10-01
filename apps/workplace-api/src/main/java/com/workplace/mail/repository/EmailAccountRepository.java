@@ -153,6 +153,9 @@ public class EmailAccountRepository {
    * WP-151 재분석 선점 — 버전이 낮고 AI 사용·활성인 계정이면 버전을 {@code version} 으로 올린다(조건부 UPDATE). 같은 계정을 두 레플리카·두
    * 경로가 동시에 집어도 한 곳만 1행을 갱신하므로 재분석은 계정당 1회다. AI 를 그사이 끈 계정은 선점되지 않는다.
    *
+   * <p>테넌트 트랜잭션(RLS GUC) 안에서 호출해야 한다 — 밖에서 부르면 RLS 가 모든 행을 가려 0행이 갱신되고(fail-closed), "이미 선점됨" 과
+   * 구분되지 않는다.
+   *
    * @return 이번 호출이 선점했으면 true
    */
   public boolean claimClassifyVersion(long accountId, int version) {

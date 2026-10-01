@@ -157,7 +157,14 @@ class MailReanalysisRepositoryTest extends IntegrationTestBase {
     long archiveFolder =
         dsl.insertInto(
                 EMAIL_FOLDER, EMAIL_FOLDER.ACCOUNT_ID, EMAIL_FOLDER.NAME, EMAIL_FOLDER.TENANT_ID)
-            .values(box.accountId(), "Archive", 1L)
+            .values(
+                box.accountId(),
+                "Archive",
+                // 픽스처 계정의 테넌트를 그대로 쓴다(하드코딩 대신)
+                dsl.select(EMAIL_ACCOUNT.TENANT_ID)
+                    .from(EMAIL_ACCOUNT)
+                    .where(EMAIL_ACCOUNT.ID.eq(box.accountId()))
+                    .fetchOne(EMAIL_ACCOUNT.TENANT_ID))
             .returning(EMAIL_FOLDER.ID)
             .fetchOne()
             .getId();
