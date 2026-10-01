@@ -6,19 +6,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaMethod;
-import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
-import org.junit.jupiter.api.Test;
 import org.springframework.scheduling.annotation.Scheduled;
 
 /**
@@ -42,17 +38,9 @@ public class ScheduledLockArchTest {
   private static final Set<String> UNLOCKED =
       Set.of("SseRegistry.sendHeartbeat", "MailReanalysisScheduler.tick");
 
-  /** 운영 클래스 임포트는 비싸다(전체 클래스) — 두 @Test 가 한 번만 임포트해 나눠 쓴다. */
-  private static JavaClasses productionClasses;
-
-  private static synchronized Stream<JavaMethod> productionMethods() {
-    if (productionClasses == null) {
-      productionClasses =
-          new ClassFileImporter()
-              .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
-              .importPackages("com.workplace");
-    }
-    return productionClasses.stream().flatMap(c -> c.getMethods().stream());
+  /** 클래스의 메서드 전체 — @ArchTest 메서드는 @AnalyzeClasses 가 캐시한 임포트를 받는다(전체 클래스를 다시 임포트하지 않는다). */
+  private static Stream<JavaMethod> methodsOf(JavaClasses classes) {
+    return classes.stream().flatMap(c -> c.getMethods().stream());
   }
 
   private static String key(JavaMethod m) {
@@ -70,24 +58,21 @@ public class ScheduledLockArchTest {
           .because("롤링 배포 중 파드가 겹치면 잠금 없는 스케줄러가 파드마다 동시에 돈다(WP-165)");
 
   /** 잠금 이름이 겹치면 서로 다른 작업이 한 잠금을 나눠 써 한쪽이 건너뛰어진다 — 이름은 작업마다 유일해야 한다. */
-  @Test
-  void 잠금_이름은_작업마다_유일하다() {
+  @ArchTest
+  static void 잠금_이름은_작업마다_유일하다(JavaClasses classes) {
     List<String> names =
-        productionMethods()
+        methodsOf(classes)
             .filter(m -> m.isAnnotatedWith(SchedulerLock.class))
             .map(m -> m.getAnnotationOfType(SchedulerLock.class).name())
             .toList();
-    Map<String, Long> counts =
-        names.stream().collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
-    assertThat(names).isNotEmpty();
-    assertThat(counts).allSatisfy((name, count) -> assertThat(count).as(name).isEqualTo(1L));
+    assertThat(names).isNotEmpty().doesNotHaveDuplicates();
   }
 
   /** 예외 목록이 실제 메서드를 가리키는지 — 이름이 바뀌어 예외가 허공을 가리키면 새 메서드가 몰래 예외를 얻는 것과 같다. */
-  @Test
-  void 잠금_예외는_실제_스케줄_작업이다() {
+  @ArchTest
+  static void 잠금_예외는_실제_스케줄_작업이다(JavaClasses classes) {
     Set<String> scheduled =
-        productionMethods()
+        methodsOf(classes)
             .filter(m -> m.isAnnotatedWith(Scheduled.class))
             .map(ScheduledLockArchTest::key)
             .collect(Collectors.toSet());

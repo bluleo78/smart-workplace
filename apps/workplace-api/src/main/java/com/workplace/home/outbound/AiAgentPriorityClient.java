@@ -38,10 +38,15 @@ public class AiAgentPriorityClient {
           .retrieve()
           .body(PriorityClassifyResult.class);
     } catch (HttpStatusCodeException e) {
-      log.error(
-          "ai-agent priority classify 실패: status={} body={}",
-          e.getStatusCode(),
-          e.getResponseBodyAsString());
+      // 503 은 ai-agent 일시 불가(재기동 등) — 호출부가 연속 횟수로 판단하므로 WARN, 그 외 상태는 요청 자체의 문제라 ERROR(WP-166)
+      if (e.getStatusCode().value() == 503) {
+        log.warn("ai-agent priority classify 불가(503): {}", e.getResponseBodyAsString());
+      } else {
+        log.error(
+            "ai-agent priority classify 실패: status={} body={}",
+            e.getStatusCode(),
+            e.getResponseBodyAsString());
+      }
       throw new PriorityAiException("AI 우선순위 분류 요청에 실패했어요.", e);
     } catch (RestClientException e) {
       // 연결·읽기 실패는 ai-agent 재기동 중에도 난다 — 호출부(스케줄러)가 연속 횟수로 판단하므로 여기선 WARN 으로 남긴다(WP-166)

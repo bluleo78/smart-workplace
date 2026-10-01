@@ -1,6 +1,5 @@
 package com.workplace.mail.service;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -107,15 +106,14 @@ class MailSummaryBackfillServiceTest {
   }
 
   @Test
-  void agentUnavailable_threeInARow_stopsPass_andRethrows() {
+  void agentUnavailable_threeInARow_stopsPass() {
     given(messageRepo.listRecentUnreadUnsummarizedIds(ACCOUNT, 20))
         .willReturn(List.of(60L, 61L, 62L, 63L, 64L));
     given(messageRepo.findBodyTargetForUser(eq(USER), anyLong())).willReturn(Optional.empty());
     doThrow(agentDown()).when(analysis).analyzeContent(eq(USER), anyLong());
 
-    // 연속 3회 불가에서 멈추고 그 예외를 던진다 — 남은 2건은 부르지 않는다(스케줄러가 회차를 멈출 신호)
-    assertThatThrownBy(() -> service.summarizeObjectiveRecentNow(USER, ACCOUNT))
-        .isInstanceOf(MailAiException.class);
+    // 연속 3회 불가에서 패스를 멈춘다 — 남은 2건은 부르지 않는다(스케줄러는 같은 guard 로 회차를 멈춘다)
+    service.summarizeObjectiveRecentNow(USER, ACCOUNT);
     verify(analysis, times(3)).analyzeContent(eq(USER), anyLong());
     verify(analysis, never()).analyzeContent(USER, 63L);
   }
@@ -139,7 +137,7 @@ class MailSummaryBackfillServiceTest {
   }
 
   @Test
-  void asyncEntry_agentUnavailable_isSwallowed_andSkipsPersonalPass() {
+  void asyncEntry_agentUnavailable_skipsPersonalPass() {
     TenantContext.set(1L);
     try {
       given(messageRepo.listRecentUnreadUnsummarizedIds(ACCOUNT, 20))
@@ -147,7 +145,7 @@ class MailSummaryBackfillServiceTest {
       given(messageRepo.findBodyTargetForUser(eq(USER), anyLong())).willReturn(Optional.empty());
       doThrow(agentDown()).when(analysis).analyzeContent(eq(USER), anyLong());
 
-      // 동기화 직후 비동기 진입점 — 비동기 예외(ERROR)로 새지 않고, 같은 agent 를 부르는 ④ 패스도 건너뛴다
+      // 동기화 직후 비동기 진입점 — ③ 이 agent 불가로 멈추면 같은 agent 를 부르는 ④ 패스도 건너뛴다
       service.summarizeRecentUnread(USER, ACCOUNT);
 
       verify(messageRepo, never()).listRecentUnreadUnanalyzedIds(anyLong(), anyInt());
@@ -167,8 +165,8 @@ class MailSummaryBackfillServiceTest {
     doThrow(agentDown()).when(analysis).analyzeContent(USER, 92L);
     doThrow(agentDown()).when(analysis).analyzeContent(USER, 94L);
 
-    assertThatThrownBy(() -> service.summarizeObjectiveRecentNow(USER, ACCOUNT))
-        .isInstanceOf(MailAiException.class);
+    service.summarizeObjectiveRecentNow(USER, ACCOUNT);
+
     verify(analysis, never()).analyzeContent(USER, 95L);
   }
 }

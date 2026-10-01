@@ -2,12 +2,9 @@ package com.workplace.global.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.workplace.auth.service.LoginAttemptCleanupScheduler;
-import com.workplace.calendar.service.CalendarReminderScheduler;
 import com.workplace.support.IntegrationTestBase;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -20,27 +17,35 @@ import net.javacrumbs.shedlock.core.LockConfiguration;
 import net.javacrumbs.shedlock.core.LockProvider;
 import net.javacrumbs.shedlock.core.LockingTaskExecutor;
 import net.javacrumbs.shedlock.core.LockingTaskExecutor.TaskResult;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.aop.AopAutoConfiguration;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.jdbc.datasource.DelegatingDataSource;
 
 /**
  * 스케줄러 분산 잠금(WP-165) 통합 검증 — 실제 Postgres {@code shedlock} 테이블과 런타임 롤(app_tenant)로 잠금이 동작하는지 본다.
  *
- * <p>테스트 프로파일은 잠금을 끄므로({@code workplace.scheduling.lock-enabled=false}) 여기서만 켠다. 스케줄링 자체는 꺼진 채라 작업은
- * 테스트가 직접 호출할 때만 돈다.
+ * <p>테스트 프로파일은 잠금을 끈다({@code workplace.scheduling.lock-enabled=false}). 속성을 바꿔 켜면 Spring 컨텍스트가 하나 더
+ * 뜨므로, 공유 컨텍스트의 DataSource 로 운영과 같은 잠금 제공자({@link SchedulerLockConfig#lockProvider})를 직접 만들고, 잠금
+ * AOP 는 {@link ApplicationContextRunner} 로 작은 컨텍스트에서 확인한다.
  */
-@TestPropertySource(properties = "workplace.scheduling.lock-enabled=true")
 class SchedulerLockIntegrationTest extends IntegrationTestBase {
 
-  @Autowired private LockProvider lockProvider;
   @Autowired private DataSource dataSource;
-  @Autowired private CalendarReminderScheduler reminderScheduler;
-  @Autowired private LoginAttemptCleanupScheduler loginAttemptCleanup;
 
-  /** 잠금 행은 커밋된다(비-트랜잭션 테스트) — 다른 테스트가 같은 이름을 잡지 못하게 지운다. shedlock 은 비-RLS 라 GUC 불필요. */
+  private LockProvider lockProvider;
+
+  @BeforeEach
+  void setUpProvider() {
+    lockProvider = new SchedulerLockConfig().lockProvider(dataSource);
+  }
+
   @AfterEach
   void clearLocks() {
     new JdbcTemplate(dataSource).update("DELETE FROM shedlock");
@@ -125,21 +130,46 @@ class SchedulerLockIntegrationTest extends IntegrationTestBase {
     }
   }
 
+  /** {@code @SchedulerLock} 이 붙은 빈 — 잠금 AOP 가 가로채는지 호출 횟수로 확인한다. */
+  public static class LockedJob {
+    final AtomicInteger runs = new AtomicInteger();
+
+    @SchedulerLock(name = "test.proxy")
+    public void run() {
+      runs.incrementAndGet();
+    }
+
+    /** 호출 횟수 — 빈은 CGLIB 프록시라 필드를 직접 읽으면 프록시 자신의 빈 필드가 보인다. 메서드로 읽는다. */
+    public int runCount() {
+      return runs.get();
+    }
+  }
+
   /**
-   * 실제 스케줄러 빈 호출이 잠금 AOP 를 거치는지 — 작업 이름의 잠금 행이 생기고 lockAtLeastFor(기본 10초) 동안 유지된다. 부작용이 작은 작업(리마인더
-   * 폴링·로그인 시도 정리)으로 확인한다. 잠금 대상 메서드는 프록시가 가로채도록 모두 public 이다.
+   * 운영 설정(SchedulerLockConfig)으로 띄운 빈 호출이 잠금 AOP 를 거치는지 — 작업 이름의 잠금 행이 생기고, lockAtLeastFor(기본 10초)
+   * 안의 재호출은 건너뛰어진다. 잠금 대상 메서드는 프록시가 가로채도록 public 이어야 한다.
    */
   @Test
-  void 스케줄러_빈을_호출하면_작업_이름으로_잠금을_잡는다() {
-    reminderScheduler.poll();
-    loginAttemptCleanup.cleanupExpired();
+  void 잠금이_붙은_빈을_호출하면_잠금을_잡고_곧바로_다시_부르면_건너뛴다() {
+    new ApplicationContextRunner()
+        .withConfiguration(AutoConfigurations.of(AopAutoConfiguration.class))
+        .withUserConfiguration(SchedulerLockConfig.class)
+        // 공유 컨텍스트의 Hikari 풀을 직접 넘기면 이 작은 컨텍스트가 닫힐 때 close() 로 풀까지 닫힌다 — close 가 없는 래퍼로 넘긴다
+        .withBean(DataSource.class, () -> new DelegatingDataSource(dataSource))
+        .withBean(LockedJob.class)
+        .run(
+            ctx -> {
+              LockedJob job = ctx.getBean(LockedJob.class);
+              job.run();
+              job.run();
 
-    List<String> names =
-        new JdbcTemplate(dataSource)
-            .queryForList(
-                "SELECT name FROM shedlock WHERE lock_until > timezone('utc', CURRENT_TIMESTAMP)",
-                String.class);
-    assertThat(names)
-        .contains("CalendarReminderScheduler.poll", "LoginAttemptCleanupScheduler.cleanupExpired");
+              assertThat(job.runCount()).isEqualTo(1);
+              assertThat(
+                      new JdbcTemplate(dataSource)
+                          .queryForList(
+                              "SELECT name FROM shedlock WHERE lock_until > timezone('utc', CURRENT_TIMESTAMP)",
+                              String.class))
+                  .contains("test.proxy");
+            });
   }
 }

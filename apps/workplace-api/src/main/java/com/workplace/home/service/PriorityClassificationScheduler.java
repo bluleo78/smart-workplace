@@ -2,6 +2,7 @@ package com.workplace.home.service;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.dto.PriorityItemRow;
@@ -35,15 +36,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>MailSummaryScheduler 와 동일한 2단계 패턴: ① {@link TenantScopedRunner} 로 테넌트별 짧은 트랜잭션(GUC 주입)에서 대상
  * 사용자만 수집, ② 트랜잭션 밖에서 사용자별로 후보 수집(짧은 tx) → ai-agent HTTP(tx 밖) → 저장(짧은 tx). 사용자 단위 실패는 격리(로그만, 다음
- * 사용자 계속) — 이전 배치 결과는 실패 시 그대로 유지된다(저장을 아예 시도하지 않으므로). 단 ai-agent 불가(연결 실패·503)가 연속 {@value
- * #MAX_CONSECUTIVE_UNAVAILABLE}회면 그 회차를 멈춘다(WP-166) — 재기동 중인 agent 에 사용자 수만큼 실패를 쌓지 않는다.
+ * 사용자 계속) — 이전 배치 결과는 실패 시 그대로 유지된다(저장을 아예 시도하지 않으므로). 단 ai-agent 불가(연결 실패·503)가 연속되면 {@link
+ * AgentOutageGuard} 기준으로 그 회차를 멈춘다(WP-166) — 재기동 중인 agent 에 사용자 수만큼 실패를 쌓지 않는다.
  */
 @Slf4j
 @Component
 public class PriorityClassificationScheduler {
-
-  /** ai-agent 불가(연결 실패·503)가 이만큼 연속되면 그 회차를 멈춘다 — MailReanalysisService 와 같은 기준. */
-  static final int MAX_CONSECUTIVE_UNAVAILABLE = 3;
 
   /** 소스당 후보 상한 — ai-agent 요청 폭주 방지(배치 입력 상한, SynthesisLayer 표시 상한과는 별개). */
   private static final int SOURCE_LIMIT = 20;
@@ -103,35 +101,32 @@ public class PriorityClassificationScheduler {
           }
         });
     // ② 실행: Runner 트랜잭션 밖. 사용자마다 TenantContext 주입 → 각 단계 내부 트랜잭션이 GUC 주입.
-    int unavailableStreak = 0;
-    for (int i = 0; i < targets.size(); i++) {
-      TenantUser t = targets.get(i);
+    AgentOutageGuard guard = new AgentOutageGuard();
+    for (TenantUser t : targets) {
+      if (guard.tripped()) {
+        // ai-agent 재기동 중 등 — 남은 사용자에게 같은 실패를 쌓지 않는다. 이전 결과는 그대로, 다음 주기에 다시 처리.
+        log.warn(
+            "ai-agent 불가 {}회 연속 — 이번 우선순위 분류 회차 중단", AgentOutageGuard.MAX_CONSECUTIVE_UNAVAILABLE);
+        return;
+      }
       TenantContext.set(t.tenantId());
       try {
         if (processUser(t.userId())) {
-          unavailableStreak = 0; // agent 가 응답했다 — 후보가 없어 부르지 않은 사용자는 판단 근거가 아니므로 리셋하지 않는다
+          guard.recordResponse(); // 후보·비서가 없어 agent 를 부르지 않은 사용자는 판단 근거가 아니다
         }
       } catch (RuntimeException e) {
-        if (!(e instanceof PriorityAiException ai && ai.isTransient())) {
-          // 그 사용자만의 실패(잘못된 응답·4xx 등) — 다음 사용자로 계속
-          unavailableStreak = 0;
+        if (e instanceof PriorityAiException ai && ai.isTransient()) {
+          // 읽기 타임아웃도 여기 들어오므로 첫 실패에서 멈추지는 않는다(연속 횟수로 판단). 스택은 남기지 않는다.
+          guard.recordUnavailable();
+          log.warn(
+              "우선순위 분류 실패(ai-agent 불가) tenant={} user={}: {}",
+              t.tenantId(),
+              t.userId(),
+              AgentOutageGuard.describe(e));
+        } else {
+          guard.recordResponse(); // 그 사용자만의 실패(잘못된 응답·4xx·DB 등) — 다음 사용자로 계속
           log.warn(
               "우선순위 분류 실패 tenant={} user={} — 이전 결과 유지, 다음 사용자로 계속", t.tenantId(), t.userId(), e);
-          continue;
-        }
-        // ai-agent 불가(재기동 중 등) — 남은 사용자에게 같은 실패를 쌓지 않고 연속 N회에서 이번 회차를 멈춘다.
-        // 읽기 타임아웃도 같은 예외라 첫 실패에서 멈추지 않는다(느린 LLM 한 건 때문에 전원을 건너뛰지 않게). 스택은 남기지 않는다.
-        log.warn(
-            "우선순위 분류 실패(ai-agent 불가) tenant={} user={}: {}",
-            t.tenantId(),
-            t.userId(),
-            e.getCause() != null ? e.getCause().toString() : e.toString());
-        if (++unavailableStreak >= MAX_CONSECUTIVE_UNAVAILABLE) {
-          log.warn(
-              "ai-agent 불가 {}회 연속 — 이번 회차 중단, 남은 {}명은 다음 주기에 처리(이전 결과 유지)",
-              unavailableStreak,
-              targets.size() - i - 1);
-          return;
         }
       } finally {
         TenantContext.clear();

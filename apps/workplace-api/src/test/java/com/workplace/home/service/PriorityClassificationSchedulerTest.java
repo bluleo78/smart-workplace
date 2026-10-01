@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.exception.PriorityAiException;
 import com.workplace.home.outbound.AiAgentPriorityClient;
@@ -192,8 +193,7 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     scheduler.runOnce();
 
     // 후보가 있는 사용자는 4명 이상이지만 연속 3회에서 멈춘다. 후보 없는 사용자(다른 테스트 잔여)는 agent 를 부르지 않아 횟수에 영향이 없다.
-    verify(aiClient, times(PriorityClassificationScheduler.MAX_CONSECUTIVE_UNAVAILABLE))
-        .classify(any());
+    verify(aiClient, times(AgentOutageGuard.MAX_CONSECUTIVE_UNAVAILABLE)).classify(any());
   }
 
   /** 시드한 issue 의 reporter(=담당자=시드 시 지정한 userId) 를 되짚어 찾는다. */

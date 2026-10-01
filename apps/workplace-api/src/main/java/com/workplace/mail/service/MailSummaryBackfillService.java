@@ -1,5 +1,6 @@
 package com.workplace.mail.service;
 
+import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.exception.MailAiException;
@@ -56,14 +57,12 @@ public class MailSummaryBackfillService {
       return;
     }
     AgentOutageGuard guard = new AgentOutageGuard(); // 두 패스가 같은 agent 를 부른다 — 한 카운터로 센다
-    try {
-      summarizeObjectiveRecentNow(userId, accountId, guard);
+    summarizeObjectiveRecentNow(userId, accountId, guard);
+    if (!guard.tripped()) {
       summarizePersonalRecentNow(userId, accountId, guard);
-    } catch (RuntimeException e) {
-      if (!MailAiException.isAgentUnavailable(e)) {
-        throw e;
-      }
-      // 패스가 ai-agent 불가로 멈췄다 — 비동기 예외(ERROR)로 새지 않게 한 줄만. 남은 메일은 다음 동기화·주기 배치가 다시 집는다.
+    }
+    if (guard.tripped()) {
+      // ai-agent 불가로 멈췄다 — 남은 메일은 다음 동기화·주기 배치가 다시 집는다
       log.warn("선제 분석 중단 — ai-agent 불가 accountId={}", accountId);
     }
   }
@@ -96,33 +95,31 @@ public class MailSummaryBackfillService {
   /**
    * 공통 루프 — 대상별 본문 ensure 후 분석. 메시지별 실패는 삼킨다.
    *
-   * <p>단 ai-agent 불가({@link MailAiException#isAgentUnavailable})가 연속 상한({@link AgentOutageGuard})에
-   * 닿으면 남은 메일에 같은 실패를 쌓지 않고 그 예외를 다시 던져 패스를 멈춘다(WP-166) — 호출부(스케줄러)가 이번 회차의 남은 계정까지 멈출 수 있게. 분석에
-   * 실패한 메일은 시도 기록이 남지 않아 다음 주기에 다시 대상이 된다.
+   * <p>단 ai-agent 불가({@link MailAiException#isAgentUnavailable})가 연속돼 {@code guard} 가 멈춤 상태가 되면 남은
+   * 메일에 같은 실패를 쌓지 않고 패스를 끝낸다(WP-166) — 호출부(스케줄러)도 같은 guard 를 보고 이번 회차의 남은 계정을 건너뛴다. 분석에 실패한 메일은 시도
+   * 기록이 남지 않아 다음 주기에 다시 대상이 된다.
    */
   private void runPass(long userId, List<Long> ids, Predicate<Long> step, AgentOutageGuard guard) {
     if (ids == null) {
       return;
     }
     for (Long id : ids) {
+      if (guard.tripped()) {
+        return;
+      }
       try {
         ensureBody(userId, id);
         if (step.test(id)) {
           guard.recordResponse(); // agent 가 응답했다 — 비서 없음·빈 본문 등으로 부르지 않은 메일은 근거가 아니다
         }
       } catch (RuntimeException e) {
-        if (!MailAiException.isAgentUnavailable(e)) {
+        if (MailAiException.isAgentUnavailable(e)) {
+          // agent 재기동 중 등 — 스택 없이 한 줄. 읽기 타임아웃도 여기 들어오므로 첫 실패에서 멈추지는 않는다.
+          guard.recordUnavailable();
+          log.warn("선제 분석 실패(ai-agent 불가) messageId={}: {}", id, AgentOutageGuard.describe(e));
+        } else {
           // 본문 적재(IMAP) 실패 등 — agent 응답 여부를 알 수 없으므로 연속 횟수는 그대로 둔다
           log.warn("선제 분석 실패 messageId={} — 건너뜀", id, e);
-          continue;
-        }
-        // agent 재기동 중 등 — 스택 없이 한 줄. 읽기 타임아웃도 여기 들어오므로 첫 실패에서 멈추지는 않는다.
-        log.warn(
-            "선제 분석 실패(ai-agent 불가) messageId={}: {}",
-            id,
-            e.getCause() != null ? e.getCause().toString() : e.toString()); // 503 은 원인 예외가 없다
-        if (guard.recordUnavailable()) {
-          throw e;
         }
       }
     }

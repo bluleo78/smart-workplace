@@ -65,7 +65,7 @@ public class AiAgentMailClient {
     } catch (HttpStatusCodeException e) {
       String b = e.getResponseBodyAsString();
       if (e.getStatusCode().value() == 503) {
-        log.error("ai-agent mail 미설정/불가: {}", b);
+        log.warn("ai-agent mail 미설정/불가: {}", b); // 재기동 중에도 난다 — 배치가 연속 횟수로 판단(WP-166)
         throw new MailAiUnavailableException("AI 비서를 사용할 수 없어요. 잠시 후 다시 시도해주세요.");
       }
       log.error("ai-agent mail 실패: status={} body={}", e.getStatusCode(), b);
