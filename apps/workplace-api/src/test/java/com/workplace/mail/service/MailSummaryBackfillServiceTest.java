@@ -121,11 +121,12 @@ class MailSummaryBackfillServiceTest {
   }
 
   @Test
-  void agentUnavailable_streakResetsOnSuccessOrOtherFailure() {
+  void agentUnavailable_streakResetsOnlyOnAgentResponse() {
     given(messageRepo.listRecentUnreadUnsummarizedIds(ACCOUNT, 20))
         .willReturn(List.of(70L, 71L, 72L, 73L, 74L, 75L));
     given(messageRepo.findBodyTargetForUser(eq(USER), anyLong())).willReturn(Optional.empty());
-    // 불가 2 → 성공(73) → 불가(503) 1 → 메일 단위 실패 → 불가 1: 연속 3회가 없으므로 끝까지 돈다
+    // 불가 2 → agent 응답(72) 으로 리셋 → 불가(503) 1 → 메일 단위 실패(리셋 없음) → 불가 1: 연속 3회가 없으므로 끝까지 돈다
+    given(analysis.analyzeContent(USER, 72L)).willReturn(true);
     doThrow(agentDown()).when(analysis).analyzeContent(USER, 70L);
     doThrow(agentDown()).when(analysis).analyzeContent(USER, 71L);
     doThrow(new MailAiUnavailableException("503")).when(analysis).analyzeContent(USER, 73L);
@@ -154,5 +155,20 @@ class MailSummaryBackfillServiceTest {
     } finally {
       TenantContext.clear();
     }
+  }
+
+  @Test
+  void agentUnavailable_mailsThatSkipAgent_doNotResetStreak() {
+    given(messageRepo.listRecentUnreadUnsummarizedIds(ACCOUNT, 20))
+        .willReturn(List.of(90L, 91L, 92L, 93L, 94L, 95L));
+    given(messageRepo.findBodyTargetForUser(eq(USER), anyLong())).willReturn(Optional.empty());
+    // agent 불가와 "agent 를 부르지 않은 메일(빈 본문 등, false)"이 번갈아 와도 연속 횟수는 이어진다 — 95 앞에서 멈춘다
+    doThrow(agentDown()).when(analysis).analyzeContent(USER, 90L);
+    doThrow(agentDown()).when(analysis).analyzeContent(USER, 92L);
+    doThrow(agentDown()).when(analysis).analyzeContent(USER, 94L);
+
+    assertThatThrownBy(() -> service.summarizeObjectiveRecentNow(USER, ACCOUNT))
+        .isInstanceOf(MailAiException.class);
+    verify(analysis, never()).analyzeContent(USER, 95L);
   }
 }

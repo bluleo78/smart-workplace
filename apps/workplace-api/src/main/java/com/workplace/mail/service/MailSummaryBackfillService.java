@@ -5,7 +5,7 @@ import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.repository.EmailMessageRepository;
 import java.util.List;
-import java.util.function.Consumer;
+import java.util.function.Predicate;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -100,23 +100,27 @@ public class MailSummaryBackfillService {
    * 닿으면 남은 메일에 같은 실패를 쌓지 않고 그 예외를 다시 던져 패스를 멈춘다(WP-166) — 호출부(스케줄러)가 이번 회차의 남은 계정까지 멈출 수 있게. 분석에
    * 실패한 메일은 시도 기록이 남지 않아 다음 주기에 다시 대상이 된다.
    */
-  private void runPass(long userId, List<Long> ids, Consumer<Long> step, AgentOutageGuard guard) {
+  private void runPass(long userId, List<Long> ids, Predicate<Long> step, AgentOutageGuard guard) {
     if (ids == null) {
       return;
     }
     for (Long id : ids) {
       try {
         ensureBody(userId, id);
-        step.accept(id);
-        guard.recordResponse();
+        if (step.test(id)) {
+          guard.recordResponse(); // agent 가 응답했다 — 비서 없음·빈 본문 등으로 부르지 않은 메일은 근거가 아니다
+        }
       } catch (RuntimeException e) {
         if (!MailAiException.isAgentUnavailable(e)) {
-          guard.recordResponse();
+          // 본문 적재(IMAP) 실패 등 — agent 응답 여부를 알 수 없으므로 연속 횟수는 그대로 둔다
           log.warn("선제 분석 실패 messageId={} — 건너뜀", id, e);
           continue;
         }
         // agent 재기동 중 등 — 스택 없이 한 줄. 읽기 타임아웃도 여기 들어오므로 첫 실패에서 멈추지는 않는다.
-        log.warn("선제 분석 실패(ai-agent 불가) messageId={}: {}", id, String.valueOf(e.getCause()));
+        log.warn(
+            "선제 분석 실패(ai-agent 불가) messageId={}: {}",
+            id,
+            e.getCause() != null ? e.getCause().toString() : e.toString()); // 503 은 원인 예외가 없다
         if (guard.recordUnavailable()) {
           throw e;
         }

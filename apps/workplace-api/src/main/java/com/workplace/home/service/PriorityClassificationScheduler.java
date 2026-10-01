@@ -125,7 +125,7 @@ public class PriorityClassificationScheduler {
             "우선순위 분류 실패(ai-agent 불가) tenant={} user={}: {}",
             t.tenantId(),
             t.userId(),
-            String.valueOf(e.getCause()));
+            e.getCause() != null ? e.getCause().toString() : e.toString());
         if (++unavailableStreak >= MAX_CONSECUTIVE_UNAVAILABLE) {
           log.warn(
               "ai-agent 불가 {}회 연속 — 이번 회차 중단, 남은 {}명은 다음 주기에 처리(이전 결과 유지)",
