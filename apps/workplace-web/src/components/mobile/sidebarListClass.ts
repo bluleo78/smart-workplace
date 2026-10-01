@@ -8,6 +8,9 @@ import { cn } from '@/lib/utils'
 export const mobileSidebarListClass = cn(
   'min-h-0 flex-1 overflow-y-auto',
   '[&>aside]:w-full [&>aside]:border-r-0 [&>aside]:bg-background',
+  // 사이드바를 목록 영역 높이만큼 채운다 — 데스크톱처럼 하단 그룹(드라이브 사용량 등)은 맨 아래에, 빈 상태는 가운데에 오게(WP-143).
+  // 목록이 화면보다 길면 영향 없음(래퍼가 스크롤).
+  '[&>aside]:min-h-full',
   '[&>aside>:first-child]:hidden',
   // 행(링크·버튼) 터치 영역 최소 44px(모바일 관례) — 섹션 머리말 안의 아이콘 버튼은 아래에서 되돌린다.
   '[&_a]:min-h-11 [&_button]:min-h-11',

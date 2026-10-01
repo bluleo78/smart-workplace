@@ -2,6 +2,7 @@
 // → 생성 후 새 스페이스로 이동 + 목록 반영 + 빈 이름 가드 (백엔드 없이 page.route 모킹).
 import type { WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { mockWikiNoSpaces } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const NEW_SPACE_ID = 5
@@ -74,6 +75,24 @@ test('노트 — 드롭다운에서 새 팀 스페이스 생성 후 이동', { t
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${NEW_SPACE_ID}`))
   await page.getByRole('combobox').click()
   await expect(page.getByRole('option', { name: '제품팀 노트' })).toBeVisible()
+})
+
+test('노트 — 스페이스가 하나도 없으면 /wiki 가 "준비 중"에 멈추지 않고 빈 상태에서 공간을 만든다(WP-143)', async ({ authenticatedPage: page }) => {
+  const state = await mockWikiNoSpaces(page, NEW_SPACE_ID)
+
+  await page.goto('/wiki')
+  await expect(page.getByTestId('wiki-no-spaces')).toBeVisible()
+  await expect(page.getByText('노트 공간을 준비 중…')).toHaveCount(0)
+  // 데스크톱 사이드바는 빈 선택 상자를 그리지 않는다(빈 상태는 본문 한 곳).
+  await expect(page.getByRole('combobox')).toHaveCount(0)
+  await expect(page.getByTestId('wiki-no-spaces')).toHaveCount(1)
+
+  await page.getByTestId('wiki-no-spaces-create').click()
+  await page.getByTestId('wiki-space-create-input').fill('제품팀 노트')
+  await page.getByTestId('wiki-space-create-confirm').click()
+  await expect.poll(() => state.postBody).toEqual({ name: '제품팀 노트' })
+  await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${NEW_SPACE_ID}`))
+  await expect(page.getByRole('combobox')).toBeVisible()
 })
 
 test('노트 — 스페이스 이름이 비면 생성 요청이 나가지 않는다', async ({ authenticatedPage: page }) => {
