@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.mail.exception.MailAiException;
+import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
@@ -35,6 +36,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.ResourceAccessException;
 
 /**
  * WP-151 새 기준 재분석 — ai_classify_version 이 낮은 AI 사용 계정만, 계정당 1회만. 옛 기준 분류 행을 ④ + ⑤ 로 다시 판정하고, 기존 개인
@@ -239,7 +241,7 @@ class MailReanalysisServiceTest extends IntegrationTestBase {
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env = legacyEnvelope(box, content, "minsu@acme.com", box.address(), true);
     legacyEnvelope(box, content, "minsu@acme.com", box.address(), true);
-    when(mailClient.analyzePersonal(any())).thenThrow(new MailAiException("down", null));
+    when(mailClient.analyzePersonal(any())).thenThrow(new MailAiUnavailableException("down"));
 
     assertThat(reanalysis.reanalyzeAccountNow(box.userId(), box.accountId())).isTrue();
 
@@ -254,13 +256,68 @@ class MailReanalysisServiceTest extends IntegrationTestBase {
     for (int i = 0; i < 10; i++) {
       legacyEnvelope(box, content, "minsu@acme.com", box.address(), true);
     }
-    when(mailClient.analyzePersonal(any())).thenThrow(new MailAiException("down", null));
+    when(mailClient.analyzePersonal(any())).thenThrow(new MailAiUnavailableException("down"));
 
     reanalysis.reanalyzeAccountNow(box.userId(), box.accountId());
 
     verify(mailClient, times(MailReanalysisService.MAX_CONSECUTIVE_FAILURES))
         .analyzePersonal(any());
     assertThat(version(box.accountId())).isZero();
+  }
+
+  @Test
+  void alwaysFailingParseErrors_allAttempted_versionKept() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    for (int i = 0; i < 10; i++) {
+      legacyEnvelope(box, content, "minsu@acme.com", box.address(), true);
+    }
+    when(mailClient.analyzePersonal(any()))
+        .thenThrow(new IllegalStateException("bad output"))
+        .thenThrow(new IllegalStateException("bad output"))
+        .thenThrow(new IllegalStateException("bad output"))
+        .thenReturn(reply(false));
+
+    reanalysis.reanalyzeAccountNow(box.userId(), box.accountId());
+
+    // 메일 단위 실패는 멈추지 않고 계속 — 10건 모두 시도, 선점 유지(무한 재시도 방지)
+    verify(mailClient, times(10)).analyzePersonal(any());
+    assertThat(version(box.accountId())).isEqualTo(MailReanalysisService.CURRENT_CLASSIFY_VERSION);
+  }
+
+  @Test
+  void unavailableThenTimeoutWrapped_stopsAtThree_andReleases() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    for (int i = 0; i < 10; i++) {
+      legacyEnvelope(box, content, "minsu@acme.com", box.address(), true);
+    }
+    when(mailClient.analyzePersonal(any()))
+        .thenThrow(new MailAiUnavailableException("503"))
+        .thenThrow(new MailAiException("timeout", new ResourceAccessException("read timed out")))
+        .thenThrow(new MailAiUnavailableException("503"));
+
+    reanalysis.reanalyzeAccountNow(box.userId(), box.accountId());
+
+    verify(mailClient, times(3)).analyzePersonal(any());
+    assertThat(version(box.accountId())).isZero();
+  }
+
+  @Test
+  void oneSuccessThenThreeUnavailable_stops_versionKept() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    for (int i = 0; i < 10; i++) {
+      legacyEnvelope(box, content, "minsu@acme.com", box.address(), true);
+    }
+    when(mailClient.analyzePersonal(any()))
+        .thenReturn(reply(false))
+        .thenThrow(new MailAiUnavailableException("503"));
+
+    reanalysis.reanalyzeAccountNow(box.userId(), box.accountId());
+
+    verify(mailClient, times(4)).analyzePersonal(any());
+    assertThat(version(box.accountId())).isEqualTo(MailReanalysisService.CURRENT_CLASSIFY_VERSION);
   }
 
   @Test
@@ -293,7 +350,7 @@ class MailReanalysisServiceTest extends IntegrationTestBase {
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     legacyEnvelope(box, content, "minsu@acme.com", box.address(), true);
-    when(mailClient.analyzePersonal(any())).thenThrow(new MailAiException("down", null));
+    when(mailClient.analyzePersonal(any())).thenThrow(new MailAiUnavailableException("down"));
     // 전부 실패 → 되돌리기 경로, 그런데 되돌리기 자체도 실패해도 예외가 밖으로 새지 않는다
     doThrow(new IllegalStateException("db down"))
         .when(accountRepo)
