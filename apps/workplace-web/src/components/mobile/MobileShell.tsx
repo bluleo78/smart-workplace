@@ -39,7 +39,9 @@ export function MobileShell({ children, overlay }: { children: ReactNode; overla
   return (
     <div
       data-testid="mobile-shell"
-      className="flex h-[var(--vvh,100dvh)] flex-col overflow-hidden bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground">
+      // 키보드가 열리면 셸을 보이는 영역(visualViewport) 위치에 고정한다 — iOS 는 문서를 스크롤하지 않고 보이는 영역 자체를
+      // 레이아웃 뷰포트 아래로 옮기기도 해(offsetTop>0, scrollY=0) scrollTo 로는 되돌릴 수 없다. 실기기에서 kb=true 인데도 밀림(WP-154).
+      className="flex h-[var(--vvh,100dvh)] flex-col overflow-hidden bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground [:root[data-keyboard-open]_&]:fixed [:root[data-keyboard-open]_&]:inset-x-0 [:root[data-keyboard-open]_&]:top-[var(--vv-top)]">
       {/* 탭바가 숨은 화면(상세·작성기)은 탭바의 하단 안전영역 여백이 사라지므로 본문이 직접 홈 인디케이터 영역을 비운다(U1-6). */}
       <main
         data-mobile-scroll-root

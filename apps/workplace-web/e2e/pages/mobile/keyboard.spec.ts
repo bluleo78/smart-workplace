@@ -25,16 +25,17 @@ test.beforeEach(async ({ authenticatedPage: page }) => {
  * 가짜 visualViewport 높이·배율을 바꾸고 resize 를 알린다 — 키보드 높이만큼 줄이면 '열림'.
  * 키보드 위로 보이는 높이(px)를 돌려준다.
  */
-async function setKeyboard(page: Page, open: boolean, { px = KEYBOARD_PX, scale = 1 } = {}): Promise<number> {
+async function setKeyboard(page: Page, open: boolean, { px = KEYBOARD_PX, scale = 1, offsetTop = 0 } = {}): Promise<number> {
   return page.evaluate(
-    ([isOpen, kb, s]) => {
+    ([isOpen, kb, s, top]) => {
       const vv = (window as unknown as { __vv: FakeViewport }).__vv
       vv.height = isOpen ? window.innerHeight - (kb as number) : window.innerHeight
       vv.scale = s as number
+      vv.offsetTop = isOpen ? (top as number) : 0
       vv.dispatchEvent(new Event('resize'))
       return vv.height
     },
-    [open, px, scale] as const,
+    [open, px, scale, offsetTop] as const,
   )
 }
 
@@ -92,6 +93,22 @@ test('키보드가 열리면 셸이 보이는 높이로 줄어 헤더는 제자�
   await setKeyboard(page, false)
   await expectKeyboardClosed(page)
   await expect.poll(async () => (await shell.boundingBox())?.height).toBe(innerHeight)
+})
+
+test('iOS 가 보이는 영역을 아래로 옮겨도(offsetTop>0) 셸이 그 위치를 따라가 헤더가 보이는 영역 맨 위에 남는다', async ({ authenticatedPage: page }) => {
+  await stubChannelMessages(page)
+  await page.goto('/chat/channels/1')
+  const shell = page.getByTestId('mobile-shell')
+  await page.getByTestId('message-composer-input').click()
+  // 실기기 관찰(WP-154): kb=true 인데도 밀림 — scrollY 는 0 이고 보이는 영역만 레이아웃 아래로 이동한 상황을 흉내 낸다.
+  const visible = await setKeyboard(page, true, { offsetTop: 200 })
+  await expect.poll(async () => (await shell.boundingBox())?.y).toBe(200)
+  expect((await shell.boundingBox())?.height).toBe(visible)
+  // 헤더는 보이는 영역의 위쪽 끝(offsetTop) 이상에 있다.
+  expect((await page.getByTestId('channel-header').boundingBox())!.y).toBeGreaterThanOrEqual(200)
+  // 키보드가 닫히면 고정이 풀려 원래 자리(0)로 돌아온다.
+  await setKeyboard(page, false)
+  await expect.poll(async () => (await shell.boundingBox())?.y).toBe(0)
 })
 
 test('주소창 높이 변화 정도(임계값 미만)로는 키보드 열림으로 보지 않는다', async ({ authenticatedPage: page }) => {
