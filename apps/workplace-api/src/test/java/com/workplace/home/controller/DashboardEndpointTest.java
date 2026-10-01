@@ -518,7 +518,7 @@ class DashboardEndpointTest extends IntegrationTestBase {
   @Test
   void mobile_get_ignores_legacy_desktop_row_and_cleans_mobile_row() throws Exception {
     long userId = createUser("dv9");
-    // V142 이전 레거시 행(device 미지정 → DEFAULT 'DESKTOP', 문자열 배열)은 모바일 GET 으로 새지 않는다.
+    // V146 이전 레거시 행(device 미지정 → DEFAULT 'DESKTOP', 문자열 배열)은 모바일 GET 으로 새지 않는다.
     dsl.insertInto(USER_DASHBOARD)
         .set(USER_DASHBOARD.USER_ID, userId)
         .set(USER_DASHBOARD.WIDGETS, JSONB.valueOf("[\"calendar_today\"]"))
