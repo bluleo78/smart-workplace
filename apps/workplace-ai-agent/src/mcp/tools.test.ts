@@ -72,7 +72,7 @@ function sharedMock(): MockedShared {
     draftIssueFromMail: vi.fn().mockResolvedValue({}),
     getMailLinkedIssue: vi.fn().mockResolvedValue(null),
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-1' }),
-    setMailNeedsReplyDone: vi.fn().mockResolvedValue(undefined),
+    markMailRead: vi.fn().mockResolvedValue(undefined),
     // 구성원·연락처
     searchMembers: vi.fn().mockResolvedValue([]),
     getMemberContact: vi.fn().mockResolvedValue({}),

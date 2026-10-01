@@ -16,7 +16,7 @@ function mockClient(): Client {
     draftIssueFromMail: vi.fn().mockResolvedValue({ title: 't' }),
     getMailLinkedIssue: vi.fn().mockResolvedValue(null),
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-9' }),
-    setMailNeedsReplyDone: vi.fn().mockResolvedValue(undefined),
+    markMailRead: vi.fn().mockResolvedValue(undefined),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
     getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
   };
@@ -121,13 +121,14 @@ describe('메일 AI·처리 (#855)', () => {
     expect(c.promoteMailToIssue).not.toHaveBeenCalled();
   });
 
-  it('set_mail_needs_reply_done → done 기본 true, false 면 해제', async () => {
+  it('mark_mail_read → client.markMailRead(messageId) 호출 후 ok', async () => {
     const c = mockClient();
-    await tool(c, 'set_mail_needs_reply_done').handler({ accountId: 1, messageId: 3 });
-    await tool(c, 'set_mail_needs_reply_done').handler({ accountId: 1, messageId: 3, done: false });
-    expect(vi.mocked(c.setMailNeedsReplyDone).mock.calls).toEqual([
-      [1, 3, true],
-      [1, 3, false],
-    ]);
+    const out = await tool(c, 'mark_mail_read').handler({ messageId: 3 });
+    expect(out).toBe('ok');
+    expect(c.markMailRead).toHaveBeenCalledWith(3);
+  });
+
+  it('set_mail_needs_reply_done 도구는 더 이상 없다(WP-146)', () => {
+    expect(buildMailTools(mockClient()).map((t) => t.name)).not.toContain('set_mail_needs_reply_done');
   });
 });

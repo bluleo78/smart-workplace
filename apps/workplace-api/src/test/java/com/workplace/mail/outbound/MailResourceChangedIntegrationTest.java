@@ -221,4 +221,23 @@ class MailResourceChangedIntegrationTest extends IntegrationTestBase {
       restoreImapFetcher(original);
     }
   }
+
+  @Test
+  @DisplayName("읽음 처리는 소유자에게만 mail updated, 이미 읽은 메일은 재발행하지 않음")
+  void markRead_ownerOnly_andIdempotent() {
+    clearInvocations(registry);
+    messageService.markRead(owner, messageId);
+    var c = capture("mail", "updated");
+    assertThat(c.recipients()).containsExactly(owner);
+    assertThat(c.payload().get("accountId")).isEqualTo(accountId);
+    assertThat(c.payload().get("messageId")).isEqualTo(messageId);
+
+    clearInvocations(registry);
+    messageService.markRead(owner, messageId); // 이미 읽음 — 발행 없음
+    verify(registry, after(500).never())
+        .fanOut(
+            org.mockito.ArgumentMatchers.any(),
+            eq("resource.changed"),
+            org.mockito.ArgumentMatchers.any());
+  }
 }

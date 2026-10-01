@@ -22,15 +22,12 @@ export const createIssueFromMailInput = z.object({
   priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
   assignees: z.array(z.string()).optional(), // username[] → assigneeIds
 });
-export const setMailNeedsReplyDoneInput = z.object({
-  accountId: z.number().int().positive(),
-  messageId: z.number().int().positive(),
-  done: z.boolean().default(true), // false=처리완료 해제(다시 회신필요)
-});
+// WP-146: 처리완료 도구를 대신하는 명시적 읽음 처리 입력
+export const markMailReadInput = z.object({ messageId: z.number().int().positive() });
 
 /**
  * 메일 도구(list_mail_accounts/list_mail/get_mail/get_mail_summary/draft_mail_reply/draft_issue_from_mail/
- * create_issue_from_mail/set_mail_needs_reply_done). 모두 내 메일만 다룬다(남의 메일이면 서버가 404).
+ * create_issue_from_mail/mark_mail_read). 모두 내 메일만 다룬다(남의 메일이면 서버가 404).
  */
 export function buildMailTools(client: MailToolClient & AssigneeResolverClient): SharedTool[] {
   return [
@@ -124,14 +121,14 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       },
     },
     {
-      name: 'set_mail_needs_reply_done',
+      name: 'mark_mail_read',
       kind: 'write',
       description:
-        '회신이 필요한 메일을 처리완료로 표시합니다(done=false 면 처리완료를 해제). accountId·messageId 는 list_mail 에서 확인하세요.',
-      inputSchema: setMailNeedsReplyDoneInput,
+        '메일을 읽음으로 표시합니다. 사용자가 읽음 처리를 명시적으로 요청할 때만 호출하세요. 읽으면 "회신 필요"에서도 빠집니다. messageId 는 list_mail 결과 항목의 id 입니다.',
+      inputSchema: markMailReadInput,
       async handler(args) {
-        const { accountId, messageId, done } = setMailNeedsReplyDoneInput.parse(args);
-        await client.setMailNeedsReplyDone(accountId, messageId, done);
+        const { messageId } = markMailReadInput.parse(args);
+        await client.markMailRead(messageId);
         return 'ok';
       },
     },

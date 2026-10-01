@@ -46,6 +46,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "list_wiki_pages": "read",
   "list_wiki_spaces": "read",
   "mark_all_notifications_read": "write",
+  "mark_mail_read": "write",
   "mark_notification_read": "write",
   "move_wiki_page": "write",
   "open_dm": "write",
@@ -58,7 +59,6 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "search_drive_content": "read",
   "search_members": "read",
   "search_wiki": "read",
-  "set_mail_needs_reply_done": "write",
   "unwatch_issue": "write",
   "update_issue": "write",
   "update_project": "write",
@@ -1068,6 +1068,24 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "mark_mail_read",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "messageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "messageId",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "mark_notification_read",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1373,35 +1391,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "query",
-      ],
-      "type": "object",
-    },
-  },
-  {
-    "name": "set_mail_needs_reply_done",
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "accountId": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer",
-        },
-        "done": {
-          "default": true,
-          "type": "boolean",
-        },
-        "messageId": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer",
-        },
-      },
-      "required": [
-        "accountId",
-        "messageId",
-        "done",
       ],
       "type": "object",
     },

@@ -273,10 +273,8 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/mail/messages/3/issue-draft');
     await client.promoteMailToIssue(3, { projectKey: 'WP', title: 't' });
     expect(http.post).toHaveBeenCalledWith('/mail/messages/3/issue', { projectKey: 'WP', title: 't' });
-    await client.setMailNeedsReplyDone(1, 3, true);
-    expect(http.post).toHaveBeenCalledWith('/mail/accounts/1/messages/3/needs-reply-done');
-    await client.setMailNeedsReplyDone(1, 3, false);
-    expect(http.delete).toHaveBeenCalledWith('/mail/accounts/1/messages/3/needs-reply-done');
+    await client.markMailRead(3);
+    expect(http.post).toHaveBeenCalledWith('/mail/messages/3/read');
   });
 
   it('getMailLinkedIssue 는 서버의 { issueKey: null } 을 null 로 바꾼다', async () => {

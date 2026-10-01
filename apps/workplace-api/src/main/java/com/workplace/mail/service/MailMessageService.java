@@ -146,14 +146,7 @@ public class MailMessageService {
     requestContentIdBackfillIfNeeded(userId, detail);
     // 읽음 처리 — seen=false 인 메시지를 true 로 업데이트하고 DTO 도 동기화
     if (!detail.seen()) {
-      txTemplate.executeWithoutResult(status -> messageRepo.markSeen(messageId));
-      // markSeen 커밋 완료 후 역동기화 이벤트 발행 — @Async @TransactionalEventListener(AFTER_COMMIT,
-      // fallbackExecution=true) 리스너가 수신해 원본 서버에 isRead 를 반영한다(best-effort).
-      // TenantContext 가 null 이면 테넌트 컨텍스트 없는 내부 경로이므로 발행 생략(방어적).
-      Long tenantId = TenantContext.get();
-      if (tenantId != null) {
-        eventPublisher.publishEvent(new MessageMarkedReadEvent(tenantId, userId, messageId));
-      }
+      markSeenAndPublish(userId, messageId);
       detail =
           new EmailMessageDetail(
               detail.id(),
@@ -173,6 +166,40 @@ public class MailMessageService {
               detail.attachments());
     }
     return detail;
+  }
+
+  /**
+   * 명시적 읽음 처리(WP-146, MCP mark_mail_read). 본인 메일이 아니면 404. 이미 읽었으면 아무것도 하지 않는다(멱등 — 역동기화·
+   * resource.changed 재발행 없음). 읽음으로 바뀌면 열려 있는 웹 탭이 목록·카운트를 갱신하도록 mail updated 를 소유자에게 보낸다.
+   */
+  public void markRead(long userId, long messageId) {
+    BodyTarget target =
+        txTemplate.execute(
+            status ->
+                messageRepo
+                    .findBodyTargetForUser(userId, messageId)
+                    .orElseThrow(() -> new EmailMessageNotFoundException(messageId)));
+    EmailMessageDetail detail = loadDetail(userId, messageId);
+    if (detail.seen()) {
+      return;
+    }
+    markSeenAndPublish(userId, messageId);
+    // MailChangeNotifier 는 트랜잭션 안에서 호출해야 한다(AFTER_COMMIT 디스패처는 트랜잭션 밖 발행을 유실) — 짧은 트랜잭션으로 감싼다.
+    txTemplate.executeWithoutResult(
+        status -> notifier.mailChanged(userId, target.accountId(), messageId, userId));
+  }
+
+  /**
+   * seen=true 기록 후 원본 서버 역동기화 이벤트 발행 — @Async @TransactionalEventListener(AFTER_COMMIT,
+   * fallbackExecution=true) 리스너가 isRead 를 반영한다(best-effort). TenantContext 가 null 이면 내부 경로이므로 발행
+   * 생략(방어적).
+   */
+  private void markSeenAndPublish(long userId, long messageId) {
+    txTemplate.executeWithoutResult(status -> messageRepo.markSeen(messageId));
+    Long tenantId = TenantContext.get();
+    if (tenantId != null) {
+      eventPublisher.publishEvent(new MessageMarkedReadEvent(tenantId, userId, messageId));
+    }
   }
 
   /**

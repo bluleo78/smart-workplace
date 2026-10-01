@@ -77,6 +77,12 @@ public class MailInboxController {
     return messageService.get(callerId, messageId);
   }
 
+  /** WP-146: 명시적 읽음 처리(MCP mark_mail_read). 본인 메일이 아니면 404, 이미 읽었으면 그대로 200. */
+  @PostMapping("/messages/{messageId}/read")
+  public void markRead(@AuthenticationPrincipal Long callerId, @PathVariable long messageId) {
+    messageService.markRead(callerId, messageId);
+  }
+
   /** 계정 동기화 진행 상태(폴링용). */
   @GetMapping("/accounts/{accountId}/sync-status")
   public MailSyncStatus syncStatus(

@@ -1254,7 +1254,7 @@ export function buildTools(
       sharedTool('list_drive_trash'), sharedTool('restore_drive_item'), sharedTool('rsvp_event'),
       sharedTool('create_channel'), sharedTool('open_dm'), sharedTool('leave_channel'),
       sharedTool('get_mail_summary'), sharedTool('draft_mail_reply'), sharedTool('draft_issue_from_mail'),
-      sharedTool('create_issue_from_mail'), sharedTool('set_mail_needs_reply_done'),
+      sharedTool('create_issue_from_mail'), sharedTool('mark_mail_read'),
       submitResponseTool,        // #381: 서브에이전트 전용 — 최종 답변 구조화 제출(사이드카 기록)
       ...buildShowTools(),
       // #460 Layer2: 도메인 단순 조회 표시 위젯 — 위임(서브에이전트 nested loop, 느림) 대신 직접 표시.

@@ -20,8 +20,8 @@ describe('mail-agent 정의', () => {
       'mcp__workplace__propose_send_mail',
       'mcp__workplace__list_mail_accounts',
       'mcp__workplace__sync_mail',
-      // #855: 회신 완료 처리 + 메일→이슈 초안·생성
-      'mcp__workplace__set_mail_needs_reply_done',
+      // #855 · WP-146: 읽음 처리 + 메일→이슈 초안·생성
+      'mcp__workplace__mark_mail_read',
       'mcp__workplace__draft_issue_from_mail',
       'mcp__workplace__create_issue_from_mail',
       // #844: 참석자·수신자 이메일 조달 — 구성원 + 외부 연락처

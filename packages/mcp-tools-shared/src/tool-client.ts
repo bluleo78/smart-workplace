@@ -139,8 +139,8 @@ export interface MailToolClient {
     messageId: number,
     body: { projectKey: string; title: string; body?: string; priority?: string; assigneeIds?: number[] },
   ): Promise<{ issueKey: string }>;
-  /** POST/DELETE .../needs-reply-done — 회신필요 처리완료 표시/해제. */
-  setMailNeedsReplyDone(accountId: number, messageId: number, done: boolean): Promise<void>;
+  /** POST /mail/messages/{id}/read — 명시적 읽음 처리(WP-146). 사용자가 요청할 때만 쓴다. */
+  markMailRead(messageId: number): Promise<void>;
 }
 
 export interface MemberToolClient {

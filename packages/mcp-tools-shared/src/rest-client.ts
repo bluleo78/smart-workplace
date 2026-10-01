@@ -185,9 +185,8 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async promoteMailToIssue(messageId, body) {
       return (await http.post(`/mail/messages/${messageId}/issue`, body)).data;
     },
-    async setMailNeedsReplyDone(accountId, messageId, done) {
-      const url = `/mail/accounts/${accountId}/messages/${messageId}/needs-reply-done`;
-      await (done ? http.post(url) : http.delete(url));
+    async markMailRead(messageId) {
+      await http.post(`/mail/messages/${messageId}/read`);
     },
 
     // ── 구성원·연락처 ──
