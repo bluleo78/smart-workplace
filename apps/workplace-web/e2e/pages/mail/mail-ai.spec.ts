@@ -99,6 +99,99 @@ test.describe('메일 AI 비서', () => {
     await expect(summaryEl).toContainText('AI 아우라 요약 텍스트')
   })
 
+  /** 목록 1건 + 상세 + 요약 GET/POST 모킹 — POST 응답과 요청 수를 돌려준다(WP-149). */
+  async function mockSummaryFlow(
+    page: Page,
+    getBody: { summary: string | null; status: 'READY' | 'SKIPPED' | 'EMPTY' },
+    post: { status: number; body: unknown },
+  ) {
+    await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify([summary({ id: 7 })]) }))
+    await mockApi(page, 'GET', '/api/v1/mail/messages/7', detail({ id: 7, bodyText: '본문' }))
+    const calls = { post: 0 }
+    await page.route((u) => u.pathname === '/api/v1/mail/messages/7/summary', (route) => {
+      if (route.request().method() === 'POST') {
+        calls.post += 1
+        return route.fulfill({ status: post.status, contentType: 'application/json', body: JSON.stringify(post.body) })
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(getBody) })
+    })
+    return calls
+  }
+
+  test('요약 생략 메일 — "AI 요약" 버튼을 누르면 만든 요약이 카드로 보인다', async ({ authenticatedPage: page }) => {
+    const calls = await mockSummaryFlow(page, { summary: null, status: 'SKIPPED' },
+      { status: 200, body: { summary: '• 버튼으로 만든 요약', status: 'READY' } })
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+
+    const button = page.getByTestId('mail-ai-summary-generate')
+    await expect(button).toBeVisible()
+    await expect(button).toContainText('AI 요약')
+    await expect(page.getByTestId('mail-ai-summary')).not.toBeVisible()
+
+    await button.click()
+
+    await expect(page.getByTestId('mail-ai-summary')).toContainText('버튼으로 만든 요약')
+    await expect(button).not.toBeVisible()
+    expect(calls.post).toBe(1)
+  })
+
+  test('요약 없음(EMPTY) — 카드도 버튼도 보이지 않는다', async ({ authenticatedPage: page }) => {
+    await mockSummaryFlow(page, { summary: null, status: 'EMPTY' }, { status: 200, body: {} })
+    const summaryLoaded = page.waitForResponse((r) => r.url().endsWith('/api/v1/mail/messages/7/summary'))
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+    await summaryLoaded
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
+
+    await expect(page.getByTestId('mail-ai-summary')).not.toBeVisible()
+    await expect(page.getByTestId('mail-ai-summary-generate')).not.toBeVisible()
+  })
+
+  test('"AI 요약" 생성 중 다른 메일로 옮기면 결과는 원래 메일에만 들어간다', async ({ authenticatedPage: page }) => {
+    await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify([summary({ id: 7 }), summary({ id: 8 })]) }))
+    await mockApi(page, 'GET', '/api/v1/mail/messages/7', detail({ id: 7, bodyText: '본문 7' }))
+    await mockApi(page, 'GET', '/api/v1/mail/messages/8', detail({ id: 8, bodyText: '본문 8' }))
+    let releasePost: () => void = () => {}
+    const postHeld = new Promise<void>((resolve) => { releasePost = resolve })
+    await page.route((u) => /\/api\/v1\/mail\/messages\/[78]\/summary$/.test(u.pathname), async (route) => {
+      if (route.request().method() === 'POST') {
+        await postHeld // 생성 응답을 붙잡아 둔 채 다른 메일을 연다
+        return route.fulfill({ status: 200, contentType: 'application/json',
+          body: JSON.stringify({ summary: '• 7번 요약', status: 'READY' }) })
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ summary: null, status: 'SKIPPED' }) })
+    })
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+    await page.getByTestId('mail-ai-summary-generate').click()
+
+    await page.getByTestId('mail-row-8').click()
+    await expect(page.getByTestId('mail-ai-summary-generate')).toBeVisible() // 8번은 생성 중이 아님
+    releasePost()
+    await expect(page.getByTestId('mail-ai-summary')).not.toBeVisible() // 7번 결과가 8번에 새지 않음
+
+    await page.getByTestId('mail-row-7').click()
+    await expect(page.getByTestId('mail-ai-summary')).toContainText('7번 요약')
+  })
+
+  test('"AI 요약" 실패 — 에러 토스트, 버튼은 남는다', async ({ authenticatedPage: page }) => {
+    await mockSummaryFlow(page, { summary: null, status: 'SKIPPED' },
+      { status: 502, body: { message: 'AI 요청에 실패했어요. 잠시 후 다시 시도해주세요.' } })
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+
+    await page.getByTestId('mail-ai-summary-generate').click()
+
+    await expect(page.getByText('AI 요청에 실패했어요. 잠시 후 다시 시도해주세요.')).toBeVisible()
+    await expect(page.getByTestId('mail-ai-summary-generate')).toBeVisible()
+  })
+
   test('AI 답장 초안 → 작성 도크 본문 프리필', async ({ authenticatedPage: page }) => {
     await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages',
       (route) => route.fulfill({ status: 200, contentType: 'application/json',

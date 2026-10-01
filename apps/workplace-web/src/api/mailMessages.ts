@@ -4,6 +4,7 @@ import type {
   DraftCoachingRequest,
   EmailMessageDetail,
   EmailMessageSummary,
+  MailAiSummary,
   MailDraftCoaching,
   MailFolder,
   MailIssueDraft,
@@ -73,9 +74,15 @@ export async function getMessage(messageId: number): Promise<EmailMessageDetail>
   return data;
 }
 
-/** 메일 요약(캐시 우선). */
-export async function getMailSummary(messageId: number): Promise<{ summary: string | null }> {
-  const { data } = await client.get<{ summary: string | null }>(`/mail/messages/${messageId}/summary`)
+/** 메일 요약(캐시 우선, 미분석이면 서버가 즉시 생성). WP-149: status 로 카드·버튼·숨김을 고른다. */
+export async function getMailSummary(messageId: number): Promise<MailAiSummary> {
+  const { data } = await client.get<MailAiSummary>(`/mail/messages/${messageId}/summary`)
+  return data
+}
+
+/** WP-149 "AI 요약" 버튼 — 요약 생략을 무시하고 강제 생성(서버가 결과를 캐시). */
+export async function generateMailSummary(messageId: number): Promise<MailAiSummary> {
+  const { data } = await client.post<MailAiSummary>(`/mail/messages/${messageId}/summary`)
   return data
 }
 
