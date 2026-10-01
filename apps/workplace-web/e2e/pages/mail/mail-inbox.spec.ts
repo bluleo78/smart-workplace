@@ -734,6 +734,14 @@ test.describe('받은편지함', () => {
     await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
     await expect(page.getByTestId('mail-unread-bar-11')).toHaveCount(0)
 
+    // 막대는 자기 행 높이 안에만 그려져야 한다 — 행에 relative 가 없으면 바깥 컨테이너
+    // 기준으로 배치되어 목록 왼쪽 전체가 파랗게 덮인다(모바일에서 발견).
+    const rowBox = (await page.getByTestId('mail-row-10').boundingBox())!
+    const barBox = (await page.getByTestId('mail-unread-bar-10').boundingBox())!
+    expect(barBox.x).toBeCloseTo(rowBox.x, 0)
+    expect(barBox.y).toBeGreaterThanOrEqual(rowBox.y - 0.5)
+    expect(barBox.y + barBox.height).toBeLessThanOrEqual(rowBox.y + rowBox.height + 0.5)
+
     // 열람 → 목록 캐시 seen=true → 막대 제거
     await page.getByTestId('mail-row-10').click()
     await expect(page.getByTestId('mail-detail')).toBeVisible()
