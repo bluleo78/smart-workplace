@@ -404,3 +404,40 @@ export function formatClockTimePadded(dateStr: string | null | undefined): strin
 export function formatNumber(n: number): string {
   return n.toLocaleString('ko-KR');
 }
+
+// 날짜 비교·표기 기준 타임존 — 기존 formatClockTime 과 같은 Asia/Seoul 고정(CI 타임존 비의존).
+const LIST_TZ = 'Asia/Seoul'
+// 표기 문구는 ICU 로케일 데이터(small-icu 에선 ko 누락 → "PM 1:05")에 기대지 않고, 숫자 부품만 뽑아 직접 조립한다.
+const listTimeParts = new Intl.DateTimeFormat('en-US', {
+  timeZone: LIST_TZ, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hourCycle: 'h23',
+})
+
+type Ymdhm = { y: number; m: number; d: number; h: number; min: number }
+
+/** Asia/Seoul 기준 연·월·일·시·분 숫자 부품. */
+function kstParts(date: Date): Ymdhm {
+  const o: Record<string, number> = {}
+  for (const p of listTimeParts.formatToParts(date)) if (p.type !== 'literal') o[p.type] = Number(p.value)
+  return { y: o.year, m: o.month, d: o.day, h: o.hour % 24, min: o.minute }
+}
+
+const sameDay = (a: Ymdhm, b: Ymdhm) => a.y === b.y && a.m === b.m && a.d === b.d
+
+/**
+ * 목록 행 오른쪽 시간 — 오늘은 시각, 어제는 "어제", 올해는 "M월 D일", 그 이전은 "YYYY. M. D.".
+ * 메신저 목록 관례(최근일수록 정밀). 무효 입력이면 빈 문자열(칸을 비운다).
+ */
+export function formatListTime(at: string, now: Date = new Date()): string {
+  const date = parseUtcDate(at)
+  if (Number.isNaN(date.getTime())) return ''
+  const t = kstParts(date)
+  const n = kstParts(now)
+  if (sameDay(t, n)) {
+    const h12 = t.h % 12 === 0 ? 12 : t.h % 12
+    return `${t.h < 12 ? '오전' : '오후'} ${h12}:${String(t.min).padStart(2, '0')}`
+  }
+  // Asia/Seoul 은 DST 가 없으므로 24시간 전의 날짜 = 어제.
+  if (sameDay(t, kstParts(new Date(now.getTime() - 86_400_000)))) return '어제'
+  if (t.y === n.y) return `${t.m}월 ${t.d}일`
+  return `${t.y}. ${t.m}. ${t.d}.`
+}

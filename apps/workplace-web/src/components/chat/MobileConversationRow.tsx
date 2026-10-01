@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
-import { formatListTime } from '@/lib/conversationPreview'
+import { formatListTime } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 
 interface Props {

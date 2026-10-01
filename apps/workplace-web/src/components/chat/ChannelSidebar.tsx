@@ -14,7 +14,7 @@ import { useThreadsInboxUnreadCount } from '@/hooks/queries/useThreadsInboxUnrea
 import { useAuth } from '@/hooks/useAuth'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { previewLine } from '@/lib/conversationPreview'
-import { dmDisplayName } from '@/lib/dm'
+import { dmDisplayName, isSelfDm } from '@/lib/dm'
 import { cn } from '@/lib/utils'
 
 import { ChannelBrowser } from './ChannelBrowser'
@@ -47,7 +47,7 @@ export function ChannelSidebar() {
   const myId = user?.id ?? 0
   const isMobile = useIsMobile()
   // 셀프 DM(참여자가 나뿐) — 모바일 행 미리보기용
-  const selfDm = dms?.find((dm) => dm.participants.every((p) => p.userId === myId))
+  const selfDm = dms?.find((dm) => isSelfDm(dm, myId))
   const [createOpen, setCreateOpen] = useState(false)
   const [browseOpen, setBrowseOpen] = useState(false)
 
@@ -235,7 +235,7 @@ export function ChannelSidebar() {
           </Link>
           )}
           {dms
-            ?.filter((dm) => dm.participants.filter((p) => p.userId !== myId).length > 0)
+            ?.filter((dm) => dm.participants.some((p) => p.userId !== myId))
             .map((dm) => {
               // 대표 상대(첫 비-본인 참여자) 이니셜 아바타로 DM 을 시각 구분.
               const other = dm.participants.find((p) => p.userId !== myId)
