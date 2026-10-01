@@ -100,6 +100,21 @@ class ConversationLastMessageTest extends IntegrationTestBase {
   }
 
   @Test
+  void multipleChannelsEachGetOwnLastMessage() {
+    long me = seedUser("나사용자");
+    long ch1 = seedChannel(me);
+    long ch2 = seedChannel(me);
+    long ch3 = seedChannel(me); // 메시지 없는 채널은 null
+    messageRepo.insert(ch1, me, "채널1 첫", List.of(), null);
+    long last1 = messageRepo.insert(ch1, me, "채널1 끝", List.of(), null);
+    long last2 = messageRepo.insert(ch2, me, "채널2 끝", List.of(), null);
+
+    assertThat(myChannel(me, ch1).lastMessage().id()).isEqualTo(last1);
+    assertThat(myChannel(me, ch2).lastMessage().id()).isEqualTo(last2);
+    assertThat(myChannel(me, ch3).lastMessage()).isNull();
+  }
+
+  @Test
   void threadReplyIsExcluded() {
     long me = seedUser("나사용자");
     long ch = seedChannel(me);
