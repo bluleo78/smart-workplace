@@ -68,7 +68,12 @@ export function buildContentAnalysisPrompt(flags: ContentAnalysisFlags): string 
   ].join('\n');
 }
 
-/** ④ 개인 분석 — [나] 기준 회신필요·개인 요약(·공통 비서가 없을 때 분류). */
+// WP-150 ④ 입력 블록 안내 — 개인 분석 프롬프트에만. 블록은 정보가 있을 때만 오므로 "없으면 정보 없음" 을 함께 알린다.
+const PERSONAL_BLOCKS_NOTE =
+  '입력 블록: [나]=내 이름·다른 이름·직함·소속·주소, [보낸 사람]=보낸 사람과 나의 관계(참고 신호), [받는 사람]=To/CC 에서 나의 위치, ' +
+  '[이전 메일]=같은 스레드의 직전 메일(새로 쓴 부분만, 오래된 순), [연결 이슈]=이 메일로 이미 만든 이슈, [첨부]=첨부 파일 이름. 없는 블록은 정보가 없다는 뜻입니다.';
+
+/** ④ 개인 분석 — [나] 기준 회신필요·개인 요약(·공통 비서가 없을 때 분류). 내용은 플래그로만 정해진다(블록 유무와 무관). */
 export function buildPersonalAnalysisPrompt(flags: PersonalAnalysisFlags): string {
   const fields: string[] = [];
   const rules: string[] = [];
@@ -77,7 +82,9 @@ export function buildPersonalAnalysisPrompt(flags: PersonalAnalysisFlags): strin
     rules.push(
       '- needsReply: [나]에게 직접 질문·요청·승인·의견·일정 확인을 구하고, 내가 답하지 않으면 일이 진행되지 않을 때만 true.',
       '  · false: 공지, 단순 공유("공유드립니다", "참고 바랍니다"), 감사·확인 응답, 자동 알림·영수증, 나 아닌 사람에게 한 요청.',
-      '  · [받는 사람]에서 내가 CC 이면, 본문이 [나]를 이름·직함·주소로 직접 지칭해 요청할 때만 true.',
+      '  · [받는 사람]에서 내가 CC 이면, 본문이 [나]를 이름·다른 이름·직함·주소로 직접 지칭해 요청할 때만 true.',
+      '  · [이전 메일]에서 [나]가 이미 답했고 새 메일에 새 질문·요청이 없으면(감사·확인·결과 공유) false.',
+      '  · [보낸 사람]의 관계(사내 구성원·같은 조직·즐겨찾기)는 참고 신호일 뿐이니 관계만으로 true 로 판단하지 마세요.',
       '  · 애매하면 false.',
     );
   }
@@ -85,8 +92,8 @@ export function buildPersonalAnalysisPrompt(flags: PersonalAnalysisFlags): strin
     fields.push('"personalSummary":"• 불릿 요약" 또는 null');
     rules.push(
       '- personalSummary: [나] 기준 3줄 이내 불릿(•).',
-      '  · 첫 줄 "• 나에게: …" 는 [나]에게 요청이 있을 때만(누가·무엇을·언제까지).',
-      '  · 이어서 "• 핵심: …", 필요하면 "• 참고: …".',
+      '  · 첫 줄 "• 나에게: …" 는 [나]에게 요청이 있을 때만(누가·무엇을·언제까지). 누가는 [보낸 사람]의 이름·직함(예: 김민수 팀장).',
+      '  · 이어서 "• 핵심: …", 필요하면 "• 참고: …"(연결 이슈 키·첨부 이름·이전 메일 맥락).',
       '  · 요약이 필요 없으면 null.',
     );
   }
@@ -96,6 +103,7 @@ export function buildPersonalAnalysisPrompt(flags: PersonalAnalysisFlags): strin
   }
   return [
     '당신은 [나]의 메일 비서입니다. 주어진 메일을 [나]의 입장에서 분석하세요.',
+    PERSONAL_BLOCKS_NOTE,
     AUTO_GENERATED_NOTE,
     JSON_ONLY,
     `{${fields.join(',')}}`,

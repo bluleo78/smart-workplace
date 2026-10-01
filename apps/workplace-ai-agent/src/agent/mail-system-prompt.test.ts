@@ -38,4 +38,16 @@ describe('buildPersonalAnalysisPrompt', () => {
     expect(p).not.toContain('personalSummary');
     expect(p).not.toContain('"category"');
   });
+  it('WP-150 보강 블록 안내와 관계·이전 메일 규칙', () => {
+    const p = buildPersonalAnalysisPrompt({ includeNeedsReply: true, includePersonalSummary: true, includeCategory: false });
+    expect(p).toContain('[이전 메일]=같은 스레드의 직전 메일');
+    expect(p).toContain('관계만으로 true 로 판단하지 마세요');
+    expect(p).toContain('[나]가 이미 답했고');
+    expect(p).toContain('이름·다른 이름·직함·주소로 직접 지칭');
+    expect(p).toContain('연결 이슈 키');
+  });
+
+  it('원본 분석 프롬프트에는 개인 블록 안내가 없다', () => {
+    expect(buildContentAnalysisPrompt({ includeCategory: true, includeSummary: true })).not.toContain('[이전 메일]=');
+  });
 });

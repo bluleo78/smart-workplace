@@ -130,10 +130,55 @@ describe('POST /mail/analyze-personal', () => {
     expect(res.status).toBe(200);
     expect(res.body.needsReply).toBe(true);
   });
-  it('모르는 키(WP-150 확장 필드)는 무시하고 200', async () => {
+  it('모르는 키는 무시하고 200', async () => {
     vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null });
-    const res = await request(app()).post('/mail/analyze-personal').send({ ...valid, thread: [{ from: 'x' }] });
+    const res = await request(app()).post('/mail/analyze-personal').send({ ...valid, futureField: 1 });
     expect(res.status).toBe(200);
+  });
+  it('WP-150 보강 블록을 받아 러너에 넘긴다', async () => {
+    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: true, personalSummary: null, personalSummaryValid: false, category: null });
+    const res = await request(app())
+      .post('/mail/analyze-personal')
+      .send({
+        ...valid,
+        me: { addresses: ['me@x.com'], name: '홍길동', otherNames: [], title: '팀장', groups: ['개발팀'] },
+        sender: { relation: 'MEMBER', name: '김민수', title: null, organization: null, sameGroups: ['개발팀'], favorite: true },
+        thread: [{ fromMe: true, from: 'me@x.com', date: '2026-09-30T00:00Z', body: '이전' }],
+        linkedIssue: { key: 'WP-1', title: 't', status: 'TODO' },
+        attachments: ['a.pdf'],
+      });
+    expect(res.status).toBe(200);
+    const input = vi.mocked(runMailAnalyzePersonal).mock.calls[0][0];
+    expect(input.me.name).toBe('홍길동');
+    expect(input.sender?.relation).toBe('MEMBER');
+    expect(input.thread).toHaveLength(1);
+    expect(input.linkedIssue?.key).toBe('WP-1');
+    expect(input.attachments).toEqual(['a.pdf']);
+  });
+  it('보강 블록이 null 이어도 200(api 가 조회 실패 블록을 비워 보냄)', async () => {
+    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null });
+    const res = await request(app())
+      .post('/mail/analyze-personal')
+      .send({
+        ...valid,
+        me: { addresses: ['me@x.com'], name: null, otherNames: null, title: null, groups: null },
+        sender: null,
+        thread: null,
+        linkedIssue: null,
+        attachments: null,
+      });
+    expect(res.status).toBe(200);
+  });
+  it('형식이 틀린 보강 블록은 그 블록만 버리고 200', async () => {
+    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null });
+    const res = await request(app())
+      .post('/mail/analyze-personal')
+      .send({ ...valid, sender: { relation: 'BOSS' }, thread: [{ from: 'x' }], attachments: ['a.pdf'] });
+    expect(res.status).toBe(200);
+    const input = vi.mocked(runMailAnalyzePersonal).mock.calls[0][0];
+    expect(input.sender).toBeUndefined();
+    expect(input.thread).toBeUndefined();
+    expect(input.attachments).toEqual(['a.pdf']);
   });
   it('myRole 이 정의 밖이면 400', async () => {
     const res = await request(app()).post('/mail/analyze-personal').send({ ...valid, recipient: { myRole: 'BCC', toCount: 0, ccCount: 0 } });
