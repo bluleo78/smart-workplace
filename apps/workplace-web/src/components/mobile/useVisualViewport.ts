@@ -6,6 +6,8 @@
 // 모두 CSS 로 같은 값을 읽으므로 React 상태·리렌더가 필요 없다.
 import { useEffect } from 'react'
 
+import { readUrlFlag } from '@/lib/mobile/debugFlags'
+
 // 레이아웃 뷰포트보다 이만큼 이상 작아지면 키보드가 열린 것으로 본다(주소창 높이 변화 정도는 무시).
 const KEYBOARD_THRESHOLD_PX = 150
 // 키보드를 띄우지 않는 input 유형 — 포커스돼 있어도 키보드 열림 근거가 아니다.
@@ -20,13 +22,26 @@ function isEditableFocused(): boolean {
 }
 
 /**
- * 키보드 열림 판정. 핀치 줌도 visualViewport.height 를 줄이므로 배율이 1 일 때만 본다 —
- * 줌 상태를 키보드로 오인하면 셸이 줄고 패닝마다 scrollTo(0,0) 로 튕긴다.
+ * 키보드 열림 판정. 기준 높이는 innerHeight 가 아니라 '이 폭에서 지금까지 본 가장 큰 높이'다 —
+ * iOS 홈 화면 앱(standalone)·Android 는 키보드와 함께 innerHeight 도 줄어 innerHeight 비교로는 놓친다(ghostly#651).
+ * 핀치 줌도 visualViewport.height 를 줄이므로 배율이 1 일 때만 본다 — 줌을 키보드로 오인하면 셸이 줄고 패닝마다 튕긴다.
  */
-function detectKeyboard(vv: VisualViewport): boolean {
+function detectKeyboard(vv: VisualViewport, baseHeight: number): boolean {
   if (Math.abs(vv.scale - 1) > 0.01) return false
-  return window.innerHeight - vv.height > KEYBOARD_THRESHOLD_PX && isEditableFocused()
+  return baseHeight - vv.height > KEYBOARD_THRESHOLD_PX && isEditableFocused()
 }
+
+/**
+ * iOS 가 화면을 위로 민 양(px). visualViewport.offsetTop 은 iOS 26 홈 화면 앱에서 늦거나 0 으로 남는 버그가 있어
+ * (Apple 포럼 800154·bot_project#69) 문서의 실제 위치(getBoundingClientRect)로 잰 이동량과 큰 쪽을 쓴다.
+ */
+function measurePan(vv: VisualViewport): number {
+  const docShift = -document.documentElement.getBoundingClientRect().top
+  return Math.max(0, vv.offsetTop, docShift)
+}
+
+// iOS 키보드 애니메이션 중 값이 늦게 갱신되므로 이벤트 뒤 이 시점들에 한 번 더 맞춘다(bot_project#69 의 70/240ms + 여유).
+const RESYNC_DELAYS_MS = [70, 240, 500]
 
 /** :root 에 쓰는 키보드 값 — 키보드가 닫히면 전부 지워 기존 레이아웃(var 폴백)에 영향을 주지 않는다. */
 const ROOT_VARS = ['--vvh', '--vv-top', '--kb-inset'] as const
@@ -42,6 +57,12 @@ export function useVisualViewport(): void {
     const root = document.documentElement
     // 마지막으로 쓴 값 — 같은 값 재기록(스타일 무효화)을 건너뛴다. null = 닫힘(아무것도 안 씀).
     let published: string[] | null = null
+    // [실기기 검증 중 — WP-154] ?kbfix=1 로 켠 기기만 새 처리(최대 높이 기준 판정·실측 이동량·지연 재동기화)를 쓴다.
+    // 꺼져 있으면 이전 처리(innerHeight 기준·offsetTop 만·재동기화 없음) — 검증 후 플래그를 걷어내고 새 처리만 남긴다.
+    const robust = readUrlFlag('kbfix')
+    // 키보드 판정 기준 높이 — 폭이 바뀌면(회전) 새로 잰다.
+    let base = { width: window.innerWidth, height: Math.max(window.innerHeight, vv.height) }
+    const timers = new Set<number>()
 
     const clear = () => {
       if (!published) return
@@ -51,10 +72,14 @@ export function useVisualViewport(): void {
     }
 
     const sync = () => {
-      if (!detectKeyboard(vv)) return clear()
+      if (window.innerWidth !== base.width) base = { width: window.innerWidth, height: 0 }
+      base.height = Math.max(base.height, window.innerHeight, vv.height)
+      if (!detectKeyboard(vv, robust ? base.height : window.innerHeight)) return clear()
       // iOS 가 입력창을 보이려고 문서를 밀어 올린 것을 되돌린다 — 셸이 보이는 높이에 맞춰지므로 밀 필요가 없다.
       if (window.scrollY !== 0) window.scrollTo(0, 0)
-      const next = [vv.height, vv.offsetTop, Math.max(0, window.innerHeight - vv.height - vv.offsetTop)].map((v) => `${v}px`)
+      // 되돌린 뒤에도 남은 이동량(보이는 영역 자체의 이동)만큼 셸을 내려 보이는 영역을 따라가게 한다.
+      const pan = robust ? measurePan(vv) : vv.offsetTop
+      const next = [vv.height, pan, Math.max(0, window.innerHeight - vv.height - pan)].map((v) => `${v}px`)
       if (!published) root.setAttribute('data-keyboard-open', 'true')
       ROOT_VARS.forEach((name, i) => {
         if (published?.[i] !== next[i]) root.style.setProperty(name, next[i])
@@ -62,12 +87,30 @@ export function useVisualViewport(): void {
       published = next
     }
 
+    // 즉시 맞추고, 늦게 오는 값을 위해 몇 번 더 맞춘다. 포커스 변화도 판정 조건이라 같은 경로로 처리한다.
+    const schedule = () => {
+      sync()
+      if (!robust) return
+      for (const ms of RESYNC_DELAYS_MS) {
+        const id = window.setTimeout(() => {
+          timers.delete(id)
+          sync()
+        }, ms)
+        timers.add(id)
+      }
+    }
+
     sync()
-    vv.addEventListener('resize', sync)
+    vv.addEventListener('resize', schedule)
     vv.addEventListener('scroll', sync)
+    document.addEventListener('focusin', schedule)
+    document.addEventListener('focusout', schedule)
     return () => {
-      vv.removeEventListener('resize', sync)
+      vv.removeEventListener('resize', schedule)
       vv.removeEventListener('scroll', sync)
+      document.removeEventListener('focusin', schedule)
+      document.removeEventListener('focusout', schedule)
+      for (const id of timers) window.clearTimeout(id)
       clear()
     }
   }, [])

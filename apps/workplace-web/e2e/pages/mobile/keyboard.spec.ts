@@ -15,7 +15,17 @@ type FakeViewport = EventTarget & { height: number; offsetTop: number; scale: nu
 test.beforeEach(async ({ authenticatedPage: page }) => {
   // 앱 스크립트보다 먼저 실행돼야 훅이 가짜 visualViewport 를 구독한다.
   await page.addInitScript(() => {
-    const vv = Object.assign(new EventTarget(), { height: window.innerHeight, offsetTop: 0, scale: 1 })
+    // [WP-154 실기기 검증 중] 새 키보드 처리는 kbfix 플래그로 켠다 — 이 스펙은 새 처리를 검증한다.
+    localStorage.setItem('kbfix', '1')
+    // height 는 덮어쓰기 전엔 현재 innerHeight 를 따른다 — init 시점 innerHeight 는 레이아웃 전 값(1669 등)이라 고정하면 기준 높이가 틀어진다.
+    let override: number | null = null
+    const vv = Object.assign(new EventTarget(), { offsetTop: 0, scale: 1 })
+    Object.defineProperty(vv, 'height', {
+      get: () => override ?? window.innerHeight,
+      set: (v: number) => {
+        override = v
+      },
+    })
     Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true })
     ;(window as unknown as { __vv: typeof vv }).__vv = vv
   })
@@ -178,4 +188,19 @@ test('키보드가 열리면 메일 작성 도크가 탭바 위·키보드 위�
     const b = (await bar.boundingBox())!
     return Math.round(d.y + d.height) <= Math.round(b.y) && d.y >= 0
   }).toBe(true)
+})
+
+test('홈 화면 앱처럼 innerHeight 도 키보드와 함께 줄어도 키보드 열림으로 판정한다(지금까지 본 최대 높이 기준)', async ({ authenticatedPage: page }) => {
+  await stubChannelMessages(page)
+  await page.goto('/chat/channels/1')
+  await page.getByTestId('message-composer-input').click()
+  // iOS standalone·Android: innerHeight 가 보이는 높이와 같이 줄어든다 — innerHeight 대비 비교로는 차이가 0 이다.
+  await page.evaluate((kb) => {
+    const shrunk = window.innerHeight - kb
+    Object.defineProperty(window, 'innerHeight', { configurable: true, get: () => shrunk })
+    const vv = (window as unknown as { __vv: EventTarget & { height: number } }).__vv
+    vv.height = shrunk
+    vv.dispatchEvent(new Event('resize'))
+  }, KEYBOARD_PX)
+  await expect(page.locator('html')).toHaveAttribute('data-keyboard-open', 'true')
 })

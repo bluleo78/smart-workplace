@@ -20,3 +20,21 @@ test('?kbdebug=1 로 켜면 뷰포트 값이 보이고, 새로고침 후에도 �
   await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
   await expect(overlay).toHaveCount(0)
 })
+
+test('편집 요소에 포커스하면 그 동안의 뷰포트 값을 기록해, 포커스가 빠진 뒤에도 상자에 남긴다', async ({ authenticatedPage: page }) => {
+  await page.goto('/?kbdebug=1')
+  const overlay = page.getByTestId('kb-debug-overlay')
+  await expect(overlay).toBeVisible()
+  await expect(overlay).not.toContainText('마지막 입력 포커스 기록')
+  // 임의 입력칸으로 포커스 → 해제 — 기록 구간의 시작(focusin)·끝(focusout)이 남아야 한다.
+  await page.evaluate(() => {
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+  })
+  await expect(overlay).toContainText('focusin')
+  await expect(overlay).toContainText('t300')
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur())
+  await expect(overlay).toContainText('focusout')
+  await expect(overlay).toContainText('마지막 입력 포커스 기록')
+})
