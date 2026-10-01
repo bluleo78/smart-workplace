@@ -143,7 +143,8 @@ export function RecipientInput({
           }
         }}
       >
-        <span className="text-xs text-muted-foreground">받는 사람:</span>
+        {/* 모바일은 입력 글자(16px)와 격차가 커 보여 한 단계 키운다(M3). */}
+        <span className="text-xs text-muted-foreground max-lg:text-sm">받는 사람:</span>
         {selected.map((u) => (
           <span
             key={u.id}
@@ -207,6 +208,8 @@ export function RecipientInput({
                     aria-selected={kindFilter === k}
                     // Tab 은 입력에서 곧바로 메시지 입력창으로 넘어가야 한다 — 탭 버튼은 포인터 전용.
                     tabIndex={-1}
+                    // 터치(coarse)에선 44px 터치 타깃(M3). 마우스 환경은 sm 높이 그대로.
+                    className="pointer-coarse:min-h-11"
                     data-testid={`member-search-filter-${k}`}
                   >
                     {KIND_LABEL[k]}
@@ -231,11 +234,14 @@ export function RecipientInput({
                         value={String(u.id)}
                         onSelect={() => handleSelect(u)}
                         data-testid={`member-search-row-${u.id}`}
-                        className="flex items-center gap-2"
+                        className="flex items-center gap-2 pointer-coarse:min-h-11"
                       >
                         {/* 폭이 좁으면 아이디부터 줄인다 — 이름과 에이전트 배지가 먼저 보여야 상대를 구분할 수 있다. */}
                         <span className="max-w-[60%] shrink-0 truncate font-medium">{u.name}</span>
-                        <span className="min-w-0 truncate text-xs text-muted-foreground">@{u.username}</span>
+                        {/* 아이디가 이메일이면 이미 '@' 가 있어 앞에 또 붙이면 '@a@b.com' 이 된다 — 그대로 보인다. */}
+                        <span className="min-w-0 truncate text-xs text-muted-foreground">
+                          {u.username.includes('@') ? u.username : `@${u.username}`}
+                        </span>
                         {u.kind === 'AGENT' && <AgentBadge size="xs" />}
                       </CommandItem>
                     ))}
