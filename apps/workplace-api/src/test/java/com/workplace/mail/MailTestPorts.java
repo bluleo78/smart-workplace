@@ -6,8 +6,12 @@ import com.icegreen.greenmail.util.ServerSetupTest;
 import jakarta.mail.Flags;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
+import jakarta.mail.MessagingException;
 import jakarta.mail.Session;
 import jakarta.mail.Store;
+import jakarta.mail.Transport;
+import jakarta.mail.internet.InternetAddress;
+import jakarta.mail.internet.MimeMessage;
 import java.util.Properties;
 
 /**
@@ -75,6 +79,22 @@ public final class MailTestPorts {
       }
     } finally {
       store.close();
+    }
+  }
+
+  /** 헤더 1개를 덧붙인 평문 메일 1통을 보낸다(WP-149 자동 발송 헤더 판정 테스트용). */
+  public static void sendWithHeader(
+      String to, String from, String subject, String body, String headerName, String headerValue) {
+    try {
+      MimeMessage m = new MimeMessage(GreenMailUtil.getSession(SMTP_SETUP));
+      m.setFrom(new InternetAddress(from));
+      m.setRecipient(Message.RecipientType.TO, new InternetAddress(to));
+      m.setSubject(subject, "UTF-8");
+      m.setText(body, "UTF-8");
+      m.setHeader(headerName, headerValue);
+      Transport.send(m);
+    } catch (MessagingException e) {
+      throw new IllegalStateException(e);
     }
   }
 }

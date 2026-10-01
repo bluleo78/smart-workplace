@@ -400,6 +400,48 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
         return (Boolean) get(26);
     }
 
+    /**
+     * Setter for <code>public.email_message.ai_needs_reply_raw</code>.
+     */
+    public void setAiNeedsReplyRaw(Boolean value) {
+        set(27, value);
+    }
+
+    /**
+     * Getter for <code>public.email_message.ai_needs_reply_raw</code>.
+     */
+    public Boolean getAiNeedsReplyRaw() {
+        return (Boolean) get(27);
+    }
+
+    /**
+     * Setter for <code>public.email_message.ai_analyzed_at</code>.
+     */
+    public void setAiAnalyzedAt(OffsetDateTime value) {
+        set(28, value);
+    }
+
+    /**
+     * Getter for <code>public.email_message.ai_analyzed_at</code>.
+     */
+    public OffsetDateTime getAiAnalyzedAt() {
+        return (OffsetDateTime) get(28);
+    }
+
+    /**
+     * Setter for <code>public.email_message.ai_personal_summary_skipped</code>.
+     */
+    public void setAiPersonalSummarySkipped(Boolean value) {
+        set(29, value);
+    }
+
+    /**
+     * Getter for <code>public.email_message.ai_personal_summary_skipped</code>.
+     */
+    public Boolean getAiPersonalSummarySkipped() {
+        return (Boolean) get(29);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -423,7 +465,7 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
     /**
      * Create a detached, initialised EmailMessageRecord
      */
-    public EmailMessageRecord(Long id, Long accountId, Long folderId, Long imapUid, String messageId, String threadId, String inReplyTo, String mailReferences, String fromAddress, String fromName, String toAddresses, String ccAddresses, OffsetDateTime sentAt, OffsetDateTime receivedAt, Boolean seen, Boolean hasAttachment, OffsetDateTime createdAt, String bccAddresses, Boolean aiNeedsReply, Long tenantId, OffsetDateTime needsReplyDoneAt, String providerMessageId, Long contentId, OffsetDateTime fetchedAt, String aiPersonalSummary, OffsetDateTime aiPersonalSummarizedAt, Boolean seenPushPending) {
+    public EmailMessageRecord(Long id, Long accountId, Long folderId, Long imapUid, String messageId, String threadId, String inReplyTo, String mailReferences, String fromAddress, String fromName, String toAddresses, String ccAddresses, OffsetDateTime sentAt, OffsetDateTime receivedAt, Boolean seen, Boolean hasAttachment, OffsetDateTime createdAt, String bccAddresses, Boolean aiNeedsReply, Long tenantId, OffsetDateTime needsReplyDoneAt, String providerMessageId, Long contentId, OffsetDateTime fetchedAt, String aiPersonalSummary, OffsetDateTime aiPersonalSummarizedAt, Boolean seenPushPending, Boolean aiNeedsReplyRaw, OffsetDateTime aiAnalyzedAt, Boolean aiPersonalSummarySkipped) {
         super(EmailMessage.EMAIL_MESSAGE);
 
         setId(id);
@@ -453,6 +495,9 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
         setAiPersonalSummary(aiPersonalSummary);
         setAiPersonalSummarizedAt(aiPersonalSummarizedAt);
         setSeenPushPending(seenPushPending);
+        setAiNeedsReplyRaw(aiNeedsReplyRaw);
+        setAiAnalyzedAt(aiAnalyzedAt);
+        setAiPersonalSummarySkipped(aiPersonalSummarySkipped);
         resetChangedOnNotNull();
     }
 }

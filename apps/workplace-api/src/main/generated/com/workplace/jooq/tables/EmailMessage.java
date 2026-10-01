@@ -200,6 +200,21 @@ public class EmailMessage extends TableImpl<EmailMessageRecord> {
      */
     public final TableField<EmailMessageRecord, Boolean> SEEN_PUSH_PENDING = createField(DSL.name("seen_push_pending"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "로컬 열람 후 원본 서버 반영 대기 — true 인 동안 동기화가 seen 을 덮어쓰지 않음 (WP-148)");
 
+    /**
+     * The column <code>public.email_message.ai_needs_reply_raw</code>.
+     */
+    public final TableField<EmailMessageRecord, Boolean> AI_NEEDS_REPLY_RAW = createField(DSL.name("ai_needs_reply_raw"), SQLDataType.BOOLEAN, this, "");
+
+    /**
+     * The column <code>public.email_message.ai_analyzed_at</code>.
+     */
+    public final TableField<EmailMessageRecord, OffsetDateTime> AI_ANALYZED_AT = createField(DSL.name("ai_analyzed_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column <code>public.email_message.ai_personal_summary_skipped</code>.
+     */
+    public final TableField<EmailMessageRecord, Boolean> AI_PERSONAL_SUMMARY_SKIPPED = createField(DSL.name("ai_personal_summary_skipped"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
     private EmailMessage(Name alias, Table<EmailMessageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
