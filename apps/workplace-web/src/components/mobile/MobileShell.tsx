@@ -31,8 +31,9 @@ export function MobileShell({ children, overlay }: { children: ReactNode; overla
   }, [inboxOpen, setInboxOpen, navigate, pathname])
   // 알림(/notifications)은 사용자가 탭바에 고정했을 때만 탭 루트 — 판정은 AI 풀스크린과 공유(U1-5·U2-3).
   const showTabBar = useTabBarVisible()
+  // viewport-fit=cover(index.html)라 가로 모드에선 노치가 좌우 본문을 가린다 — 셸 좌우를 안전영역만큼 비운다.
   return (
-    <div data-testid="mobile-shell" className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
+    <div data-testid="mobile-shell" className="flex h-[100dvh] flex-col overflow-hidden bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground">
       {/* 탭바가 숨은 화면(상세·작성기)은 탭바의 하단 안전영역 여백이 사라지므로 본문이 직접 홈 인디케이터 영역을 비운다(U1-6). */}
       <main
         data-mobile-scroll-root
