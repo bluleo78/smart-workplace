@@ -60,7 +60,7 @@ class MailAnalysisAfterLoadTest extends IntegrationTestBase {
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(true, null, false, null));
 
-    analysis.analyzeAfterLoad(box.userId(), env); // 예외가 새지 않는다
+    analysis.analyzeAfterLoad(box.userId(), env, analysis.newProfileCache()); // 예외가 새지 않는다
 
     verify(mailClient).analyzeContent(any());
     verify(mailClient).analyzePersonal(any());
@@ -76,7 +76,7 @@ class MailAnalysisAfterLoadTest extends IntegrationTestBase {
     MailAnalysisFixtures.markSeen(dsl, env);
     when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", "• 요약"));
 
-    analysis.analyzeAfterLoad(box.userId(), env);
+    analysis.analyzeAfterLoad(box.userId(), env, analysis.newProfileCache());
 
     verify(mailClient).analyzeContent(any());
     verify(mailClient, never()).analyzePersonal(any());
@@ -93,7 +93,7 @@ class MailAnalysisAfterLoadTest extends IntegrationTestBase {
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(true, null, false, null));
 
-    analysis.analyzeAfterLoad(box.userId(), env);
+    analysis.analyzeAfterLoad(box.userId(), env, analysis.newProfileCache());
 
     verify(mailClient).analyzeContent(any());
     verify(mailClient).analyzePersonal(any());
@@ -108,7 +108,7 @@ class MailAnalysisAfterLoadTest extends IntegrationTestBase {
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
     MailAnalysisFixtures.markSeen(dsl, env);
 
-    analysis.analyzeAfterLoad(box.userId(), env);
+    analysis.analyzeAfterLoad(box.userId(), env, analysis.newProfileCache());
 
     verify(mailClient, never()).analyzeContent(any());
     verify(mailClient, never()).analyzePersonal(any());
@@ -123,7 +123,7 @@ class MailAnalysisAfterLoadTest extends IntegrationTestBase {
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
     when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", "• 요약"));
 
-    analysis.analyzeAfterLoad(box.userId(), env);
+    analysis.analyzeAfterLoad(box.userId(), env, analysis.newProfileCache());
 
     verify(mailClient).analyzeContent(any());
     verify(mailClient, never()).analyzePersonal(any());
@@ -138,7 +138,7 @@ class MailAnalysisAfterLoadTest extends IntegrationTestBase {
         MailAnalysisFixtures.envelope(
             dsl, box.accountId(), sent, content, box.address(), "x@acme.com", null);
 
-    analysis.analyzeAfterLoad(box.userId(), env);
+    analysis.analyzeAfterLoad(box.userId(), env, analysis.newProfileCache());
 
     verify(mailClient, never()).analyzeContent(any());
     verify(mailClient, never()).analyzePersonal(any());

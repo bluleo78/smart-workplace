@@ -81,7 +81,7 @@ class MailPersonalContextTest extends IntegrationTestBase {
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(true, null, false, null));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     Sender s = captured().sender();
     assertThat(s.relation()).isEqualTo("MEMBER");
@@ -100,7 +100,7 @@ class MailPersonalContextTest extends IntegrationTestBase {
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(true, null, false, null));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     AnalyzePersonalRequest req = captured();
     assertThat(req.sender()).isNull();
@@ -157,7 +157,7 @@ class MailPersonalContextTest extends IntegrationTestBase {
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(true, null, false, null));
 
-    analysis.analyzePersonal(box.userId(), cur);
+    analysis.analyzePersonal(box.userId(), cur, analysis.newProfileCache());
 
     AnalyzePersonalRequest req = captured();
     assertThat(req.thread()).hasSize(1);
@@ -179,7 +179,7 @@ class MailPersonalContextTest extends IntegrationTestBase {
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(true, null, false, null));
 
-    analysis.analyzePersonal(box.userId(), cur);
+    analysis.analyzePersonal(box.userId(), cur, analysis.newProfileCache());
 
     AnalyzePersonalRequest req = captured();
     assertThat(req.thread()).isEmpty();

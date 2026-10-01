@@ -20,11 +20,7 @@ public final class UserMailProfileCache {
 
   /** 사용자의 프로필 — 이 배치에서 처음이면 조회한다. */
   public UserMailProfile get(long userId) {
-    UserMailProfile p = byUser.get(userId);
-    if (p == null) {
-      p = builder.build(userId);
-      byUser.put(userId, p);
-    }
-    return p;
+    // computeIfAbsent 는 빌더가 예외를 던지면 매핑을 남기지 않는다 — 조회 실패는 캐시되지 않는다
+    return byUser.computeIfAbsent(userId, builder::build);
   }
 }

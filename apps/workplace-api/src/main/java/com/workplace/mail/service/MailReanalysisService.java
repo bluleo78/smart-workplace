@@ -10,7 +10,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.client.ResourceAccessException;
 
 /**
  * 새 기준 재분석(WP-151) — 회신필요 판정 기준이 바뀐 뒤(WP-149 ④ 개인 분석 + ⑤ 최종 판정) AI 사용 계정마다 정확히 1회, 새 흐름으로 아직 분석하지
@@ -20,9 +19,10 @@ import org.springframework.web.client.ResourceAccessException;
  * 집어도 한 곳만 실행한다. 비서가 없으면 선점하지 않아(버전 소진 방지) 비서 설정 후 다시 대상이 된다. 시도가 전부 실패하면(agent 다운 등) 선점을 되돌려 다음
  * 주기에 다시 시도한다 — ai_analyzed_at 가드로 이미 성공한 메일은 재호출되지 않는다.
  *
- * <p>실패 처리: agent 불가(503·타임아웃)는 연속 3회에서 루프를 멈추고, 그 실행에서 분석된 메일이 하나도 없을 때만 선점을 되돌린다. 그 외 메일 단위
- * 실패(잘못된 agent 출력·4xx)는 건너뛰고 계속하며 선점을 유지한다 — 항상 실패하는 메일 때문에 매 주기 재시도·LLM 비용이 무한히 반복되지 않게 하고 호출은 계정당
- * 최대 {@value #LIMIT}회로 묶는다. 대상 조회 실패는 되돌린다.
+ * <p>실패 처리: agent 불가(503·타임아웃)는 연속 3회에서 루프를 멈추고(aborted), 그 실행에서 분석된 메일이 하나도 없을 때만 선점을 되돌린다. 중단되지
+ * 않았다면(연속 3회 미만) 마지막 1건이 장애여도 되돌리지 않는다 — 장애가 아닌 메일 단위 실패와 같이 취급한다. 그 외 메일 단위 실패(잘못된 agent 출력·4xx)는
+ * 건너뛰고 계속하며 선점을 유지한다 — 항상 실패하는 메일 때문에 매 주기 재시도·LLM 비용이 무한히 반복되지 않게 하고 호출은 계정당 최대 {@value #LIMIT}회로
+ * 묶는다. 대상 조회 실패는 되돌린다.
  *
  * <p>④ 는 공개 진입점 {@link MailAnalysisService#analyzePersonal(long, long, UserMailProfileCache)} 를 그대로
  * 쓴다(배포 전 행은 ai_analyzed_at 이 NULL 이라 가드를 통과한다). "나" 프로필 캐시({@link
@@ -93,21 +93,19 @@ public class MailReanalysisService {
     // "나" 프로필 캐시 — 이 계정 재분석 동안 1개(WP-150 배치 캐시). 메일마다 주소·이름·소속을 다시 읽지 않고, 다음 계정과는 공유하지 않는다.
     UserMailProfileCache profiles = analysis.newProfileCache();
     int done = 0;
-    int failed = 0;
     int unavailableStreak = 0;
-    boolean stoppedUnavailable = false;
+    boolean aborted = false;
     for (Long id : ids) {
       try {
         analysis.analyzePersonal(userId, id, profiles);
         done++;
         unavailableStreak = 0;
       } catch (RuntimeException e) {
-        failed++;
         log.warn("재분석 건너뜀 (messageId={}): {}", id, e.toString());
         if (isUnavailable(e)) {
           // agent 다운·지연 — 남은 메일에 타임아웃을 계속 쌓지 않고 연속 3회에서 멈춘다
           if (++unavailableStreak >= MAX_CONSECUTIVE_FAILURES) {
-            stoppedUnavailable = true;
+            aborted = true;
             break;
           }
         } else {
@@ -117,31 +115,21 @@ public class MailReanalysisService {
         }
       }
     }
-    if (unavailableStreak > 0 && done == 0) {
-      // agent 불가로 끝났고(마지막이 장애) 실제로 분석된 메일이 없다 — 버전을 되돌려 다음 주기에 다시 시도. 일부라도 분석됐으면 되돌리지 않는다:
+    if (aborted && done == 0) {
+      // agent 불가가 연속으로 쌓여 중단됐고 실제로 분석된 메일이 없다 — 버전을 되돌려 다음 주기에 다시 시도. 일부라도 분석됐으면 되돌리지 않는다:
       // 되돌리면 ai_analyzed_at 필터 때문에 재시도가 그다음 50건을 골라 계정당 상한(50)을 넘게 된다.
       release(accountId);
-      log.warn("재분석 agent 불가로 중단 — 선점 되돌림 accountId={} 실패={}", accountId, failed);
+      log.warn("재분석 agent 불가로 중단 — 선점 되돌림 accountId={}", accountId);
     } else {
-      log.info(
-          "재분석 완료 accountId={} 대상={} 성공={} 실패={} 장애중단={}",
-          accountId,
-          ids.size(),
-          done,
-          failed,
-          stoppedUnavailable);
+      log.info("재분석 완료 accountId={} 대상={} 성공={} 장애중단={}", accountId, ids.size(), done, aborted);
     }
     return true;
   }
 
-  /**
-   * 일시 불가 판정 — 503({@link MailAiUnavailableException})이거나, 연결·읽기 타임아웃(클라이언트가 {@link
-   * MailAiException} 으로 감싼 {@link ResourceAccessException} 원인)이면 agent 장애로 본다. 그 외(파싱 실패·4xx 등)는 메일
-   * 단위 실패다.
-   */
+  /** 일시 불가 판정 — 503 이거나 {@link MailAiException#isTransient()} 이면 agent 장애. 그 외는 메일 단위 실패다. */
   private static boolean isUnavailable(RuntimeException e) {
     return e instanceof MailAiUnavailableException
-        || (e instanceof MailAiException && e.getCause() instanceof ResourceAccessException);
+        || (e instanceof MailAiException ai && ai.isTransient());
   }
 
   /**

@@ -191,11 +191,6 @@ public class MailAnalysisService {
     return ctx != null && ctx.fetched() && ctx.contentId() != null && !ctx.contentAttempted();
   }
 
-  /** 본문 적재 직후 분석 — 배치 밖 단건 호출용(새 "나" 프로필 캐시로 위임). */
-  public void analyzeAfterLoad(long userId, long messageId) {
-    analyzeAfterLoad(userId, messageId, newProfileCache());
-  }
-
   /**
    * WP-149 "본문 적재 직후" 분석(백그라운드 본문 보충이 커밋 후 호출, 호출부가 최근 20건으로 제한). 안 읽은 INBOX 메일: ③ 은 공통 비서 조건
    * 그대로(계정 AI 설정과 무관), ④ 는 계정 AI 사용 시(판단 13 — 회신필요는 안 읽은 메일에만 의미가 있다). 읽은 INBOX 메일: ③ 만, 그것도 계정
@@ -247,12 +242,9 @@ public class MailAnalysisService {
    *
    * <p>LLM·파싱 실패, needsReply 누락은 예외 — ai_analyzed_at 이 남지 않아 다음 백필 대상이 된다. 개인 요약만 형식이 틀리면
    * needsReply 는 저장하고 개인 요약은 미시도로 둔다(열람 시 요약만 다시 시도). 읽음 여부는 보지 않는다 — 선제 호출부가 안 읽은 메일만 고른다(판단 13).
+   *
+   * @param profiles 이 배치 동안 공유하는 "나" 프로필 캐시(WP-150)
    */
-  public void analyzePersonal(long userId, long messageId) {
-    analyzePersonal(userId, messageId, newProfileCache());
-  }
-
-  /** {@link #analyzePersonal(long, long)} 의 배치 변형 — profiles 로 "나" 프로필을 배치 동안 한 번만 읽는다(WP-150). */
   public void analyzePersonal(long userId, long messageId, UserMailProfileCache profiles) {
     AnalysisContext pre = readContext(userId, messageId);
     if (!personalAnalyzable(pre)) {
@@ -348,7 +340,7 @@ public class MailAnalysisService {
       return false;
     }
     if (!force && !ctx.personalAnalyzed()) {
-      analyzePersonal(userId, messageId);
+      analyzePersonal(userId, messageId, newProfileCache());
       return true;
     }
     Runnable work = () -> runPersonalSummaryOnly(userId, messageId, spec, force);

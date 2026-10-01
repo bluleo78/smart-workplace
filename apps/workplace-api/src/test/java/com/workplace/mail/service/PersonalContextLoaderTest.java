@@ -69,14 +69,14 @@ class PersonalContextLoaderTest {
 
   @Test
   void cuts_doNotSplitSurrogatePair() {
-    // 500번째 글자 위치에 이모지(서로게이트 쌍)가 걸치면 한 글자 일찍 자른다
+    // 코드 포인트 기준으로 센다 — 500번째 자리의 이모지(서로게이트 쌍)가 반쪽으로 잘리지 않고 통째로 남는다
     String body = "가".repeat(499) + "😀" + "나".repeat(10);
-    assertThat(PersonalContextLoader.excerpt(body)).isEqualTo("가".repeat(499) + "…");
+    assertThat(PersonalContextLoader.excerpt(body)).isEqualTo("가".repeat(499) + "😀…");
 
     String name = "a".repeat(99) + "😀.pdf";
     List<String> names =
         PersonalContextLoader.attachmentNames(
             List.of(new AttachmentRow(name, "application/pdf", null)));
-    assertThat(names).containsExactly("a".repeat(99) + "…");
+    assertThat(names).containsExactly("a".repeat(99) + "😀…");
   }
 }

@@ -3,11 +3,12 @@ package com.workplace.mail.service;
 import com.workplace.mail.dto.UserMailProfile;
 import com.workplace.mail.repository.MailPeopleRepository;
 import com.workplace.mail.repository.MailPeopleRepository.ProfileBasics;
-import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.stream.Collectors;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -67,19 +68,15 @@ public class UserMailProfileBuilder {
     if (b == null) {
       return UserMailProfile.addressesOnly(userId, addresses);
     }
-    List<String> displayNames =
-        b.accountDisplayNames().stream()
-            .map(UserMailProfile::oneLine)
-            .filter(StringUtils::hasText)
-            .collect(
-                Collectors.toMap(
-                    n -> n.toLowerCase(Locale.ROOT),
-                    n -> n,
-                    (first, dup) -> first, // 대소문자만 다른 중복은 먼저 나온 표기를 남긴다
-                    LinkedHashMap::new))
-            .values()
-            .stream()
-            .toList();
+    // 대소문자만 다른 중복은 먼저 나온 표기를 남긴다
+    Set<String> seen = new HashSet<>();
+    List<String> displayNames = new ArrayList<>();
+    for (String raw : b.accountDisplayNames()) {
+      String n = UserMailProfile.oneLine(raw);
+      if (StringUtils.hasText(n) && seen.add(n.toLowerCase(Locale.ROOT))) {
+        displayNames.add(n);
+      }
+    }
     String userName = UserMailProfile.oneLine(b.name());
     // 이름이 비었으면 첫 계정 표시 이름을 이름으로 쓴다
     String name =
@@ -91,7 +88,8 @@ public class UserMailProfileBuilder {
             .filter(n -> name == null || !n.equalsIgnoreCase(name))
             .limit(OTHER_NAMES_MAX)
             .toList();
-    String title = StringUtils.hasText(b.title()) ? UserMailProfile.oneLine(b.title()) : null;
+    String titleLine = UserMailProfile.oneLine(b.title());
+    String title = StringUtils.hasText(titleLine) ? titleLine : null;
     return new UserMailProfile(
         userId, name, others, title, addresses, peopleRepo.listSharedGroupNames(userId));
   }

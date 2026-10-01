@@ -921,6 +921,36 @@ public class IssueRepository {
         .execute();
   }
 
+  /**
+   * 출처로 연결된 이슈 중 호출자가 멤버인 프로젝트의 활성 이슈 최신 1건(key·title·status). 가시성은 {@link #findVisibleRefsByIds} 와
+   * 같은 PROJECT_MEMBER 멤버십 EXISTS — 프로젝트에서 빠진 사용자에게 제목·상태를 새지 않게 한다. 테넌트 RLS 안의 이슈만 보인다.
+   */
+  public Optional<com.workplace.issue.dto.SourceIssueRef> findVisibleSourceIssue(
+      long callerId, String sourceType, long sourceId) {
+    return dsl.select(PROJECT.KEY, ISSUE.NUMBER, ISSUE.TITLE, ISSUE.STATUS)
+        .from(ISSUE)
+        .join(PROJECT)
+        .on(ISSUE.PROJECT_ID.eq(PROJECT.ID))
+        .where(ISSUE.SOURCE_TYPE.eq(sourceType))
+        .and(ISSUE.SOURCE_ID.eq(sourceId))
+        .and(ISSUE.DELETED_AT.isNull())
+        .and(
+            org.jooq.impl.DSL.exists(
+                dsl.selectOne()
+                    .from(com.workplace.jooq.Tables.PROJECT_MEMBER)
+                    .where(
+                        com.workplace.jooq.Tables.PROJECT_MEMBER
+                            .PROJECT_ID
+                            .eq(ISSUE.PROJECT_ID)
+                            .and(com.workplace.jooq.Tables.PROJECT_MEMBER.USER_ID.eq(callerId)))))
+        .orderBy(ISSUE.ID.desc())
+        .limit(1)
+        .fetchOptional(
+            r ->
+                new com.workplace.issue.dto.SourceIssueRef(
+                    r.value1() + "-" + r.value2(), r.value3(), r.value4()));
+  }
+
   /** #520 출처로 연결된 이슈 키 조회(메일 배지용). 반환값은 "{projectKey}-{number}". 테넌트 RLS 내에서만 보이는 이슈로 한정된다. */
   public Optional<String> findSourceIssueKey(String sourceType, long sourceId) {
     return dsl.select(PROJECT.KEY, ISSUE.NUMBER)

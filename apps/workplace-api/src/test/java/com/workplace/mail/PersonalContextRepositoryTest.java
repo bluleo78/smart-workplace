@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.issue.service.IssueLookupService;
 import com.workplace.mail.outbound.MailAiMessages.IssueRef;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.PersonalContextRepository;
@@ -29,8 +30,16 @@ class PersonalContextRepositoryTest extends IntegrationTestBase {
   @Autowired PersonalContextRepository repo;
   @Autowired DSLContext dsl;
   @Autowired EmailContentRepository contentRepo;
+  @Autowired IssueLookupService issueLookup;
 
   private static final OffsetDateTime T0 = OffsetDateTime.parse("2026-09-28T00:00:00Z");
+
+  /** 연결 이슈 조회 — 가시성은 issue 모듈의 공개 조회 서비스가 판정한다(PersonalContextLoader 와 같은 호출). */
+  private Optional<IssueRef> linked(long userId, long messageId) {
+    return issueLookup
+        .findVisibleSourceIssue(userId, "MAIL", messageId)
+        .map(r -> new IssueRef(r.key(), r.title(), r.status()));
+  }
 
   private long mail(Box box, long folderId, String thread, int hour, String from, String body) {
     return PersonalContextFixtures.threadMail(
@@ -99,10 +108,10 @@ class PersonalContextRepositoryTest extends IntegrationTestBase {
         .where(ISSUE.ID.eq(deleted.issueId()))
         .execute();
 
-    Optional<IssueRef> ref = repo.findLinkedIssue(box.userId(), env);
+    Optional<IssueRef> ref = linked(box.userId(), env);
 
     assertThat(ref).contains(new IssueRef(live.key(), "배포 일정 확정", "IN_PROGRESS"));
-    assertThat(repo.findLinkedIssue(box.userId(), env + 999_999)).isEmpty();
+    assertThat(linked(box.userId(), env + 999_999)).isEmpty();
   }
 
   @Test
@@ -116,13 +125,13 @@ class PersonalContextRepositoryTest extends IntegrationTestBase {
             .where(ISSUE.ID.eq(seed.issueId()))
             .fetchOne(ISSUE.PROJECT_ID);
 
-    assertThat(repo.findLinkedIssue(box.userId(), env)).isPresent(); // 멤버 — 보인다
+    assertThat(linked(box.userId(), env)).isPresent(); // 멤버 — 보인다
 
     // 프로젝트에서 빠지면 보이지 않는다
     dsl.deleteFrom(PROJECT_MEMBER)
         .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId))
         .and(PROJECT_MEMBER.USER_ID.eq(box.userId()))
         .execute();
-    assertThat(repo.findLinkedIssue(box.userId(), env)).isEmpty();
+    assertThat(linked(box.userId(), env)).isEmpty();
   }
 }

@@ -105,7 +105,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(true, null, false, "업무"));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     AnalyzePersonalRequest req = captured();
     assertThat(req.includeNeedsReply()).isTrue();
@@ -136,7 +136,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(true, null, false, "업무"));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     assertThat(captured().includeCategory()).isFalse();
     assertThat(contentCategory(content)).isEqualTo("알림");
@@ -153,7 +153,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
     when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     assertThat(captured().includeCategory()).isFalse();
   }
@@ -167,7 +167,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
             dsl, box, content, "minsu@acme.com", "team@acme.com", box.address());
     when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     assertThat(captured().recipient().myRole()).isEqualTo("CC");
     assertThat(envelope(env).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isTrue();
@@ -181,7 +181,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", "team@acme.com", null);
     when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     assertThat(captured().recipient().myRole()).isEqualTo("NONE");
     assertThat(envelope(env).get(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)).isTrue();
@@ -197,7 +197,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
             dsl, box, content, box.address().toUpperCase(), box.address(), null);
     when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     assertThat(envelope(env).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
   }
@@ -211,7 +211,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
             dsl, box, content, "no-reply@service.com", box.address(), null);
     when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     assertThat(envelope(env).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
   }
@@ -226,7 +226,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(true, "• 나에게: 금요일까지 일정 확인", true, null));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     assertThat(captured().includePersonalSummary()).isTrue();
     Record row = envelope(env);
@@ -244,7 +244,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
     when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     assertThat(captured().includePersonalSummary()).isFalse();
     Record row = envelope(env);
@@ -263,7 +263,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
             dsl, box, content, "noreply@service.com", box.address(), null);
     when(mailClient.analyzePersonal(any())).thenReturn(reply(false));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     assertThat(captured().includePersonalSummary()).isFalse(); // 규칙에 걸려도 LLM 은 부르되 요약은 요청 안 함
     assertThat(envelope(env).get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED)).isTrue();
@@ -279,7 +279,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(true, null, false, null));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     Record row = envelope(env);
     assertThat(row.get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isTrue();
@@ -297,7 +297,8 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     when(mailClient.analyzePersonal(any()))
         .thenThrow(new MailAiException("AI 요청에 실패했어요.", new RuntimeException("boom")));
 
-    assertThatThrownBy(() -> analysis.analyzePersonal(box.userId(), env))
+    assertThatThrownBy(
+            () -> analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache()))
         .isInstanceOf(MailAiException.class);
 
     assertThat(envelope(env).get(EMAIL_MESSAGE.AI_ANALYZED_AT)).isNull();
@@ -313,7 +314,8 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     when(mailClient.analyzePersonal(any()))
         .thenReturn(new AnalyzePersonalResult(null, null, false, null));
 
-    assertThatThrownBy(() -> analysis.analyzePersonal(box.userId(), env))
+    assertThatThrownBy(
+            () -> analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache()))
         .isInstanceOf(IllegalStateException.class);
 
     assertThat(envelope(env).get(EMAIL_MESSAGE.AI_ANALYZED_AT)).isNull();
@@ -327,8 +329,8 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
     when(mailClient.analyzePersonal(any())).thenReturn(reply(false));
 
-    analysis.analyzePersonal(box.userId(), env);
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     verify(mailClient, times(1)).analyzePersonal(any());
   }
@@ -340,7 +342,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     long env =
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     verify(mailClient, never()).analyzePersonal(any());
   }
@@ -353,7 +355,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     long env =
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     verify(mailClient, never()).analyzePersonal(any());
   }
@@ -371,11 +373,12 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     long contentFirst =
         MailAnalysisFixtures.envelope(dsl, box, contentB, "shop@corp.com", box.address(), null);
 
-    analysis.analyzePersonal(box.userId(), personalFirst); // ④ 먼저 → 이 시점엔 true
+    analysis.analyzePersonal(
+        box.userId(), personalFirst, analysis.newProfileCache()); // ④ 먼저 → 이 시점엔 true
     assertThat(envelope(personalFirst).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isTrue();
     analysis.analyzeContent(box.userId(), personalFirst); // ③ 늦게 → 재계산
     analysis.analyzeContent(box.userId(), contentFirst); // ③ 먼저
-    analysis.analyzePersonal(box.userId(), contentFirst); // ④ 늦게
+    analysis.analyzePersonal(box.userId(), contentFirst, analysis.newProfileCache()); // ④ 늦게
 
     assertThat(envelope(personalFirst).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
     assertThat(envelope(contentFirst).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
@@ -389,7 +392,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
     when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     // 저장 트랜잭션 안 1회 + ③ 과 겹침을 메우는 커밋 후 1회
     verify(finalizer, times(2)).recompute(env);
@@ -416,7 +419,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
         .when(finalizer)
         .recompute(env);
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     assertThat(envelope(env).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
   }
@@ -431,9 +434,9 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
         .thenReturn(reply(true)) // A: 분류 없음
         .thenReturn(new AnalyzePersonalResult(true, null, false, "프로모션")); // B: 분류 보충
 
-    analysis.analyzePersonal(box.userId(), a);
+    analysis.analyzePersonal(box.userId(), a, analysis.newProfileCache());
     assertThat(envelope(a).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isTrue();
-    analysis.analyzePersonal(box.userId(), b);
+    analysis.analyzePersonal(box.userId(), b, analysis.newProfileCache());
 
     assertThat(contentCategory(content)).isEqualTo("프로모션");
     assertThat(envelope(a).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
@@ -451,7 +454,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
             dsl, box, content, "minsu@acme.com", userEmail.toUpperCase(), null);
     when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     AnalyzePersonalRequest req = captured();
     assertThat(req.recipient().myRole()).isEqualTo("TO");
@@ -470,7 +473,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
     when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
 
-    analysis.analyzePersonal(box.userId(), env);
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
     Me me = captured().me();
     assertThat(me.name()).isEqualTo("홍길동");

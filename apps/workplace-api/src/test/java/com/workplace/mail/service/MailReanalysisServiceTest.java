@@ -241,6 +241,7 @@ class MailReanalysisServiceTest extends IntegrationTestBase {
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env = legacyEnvelope(box, content, "minsu@acme.com", box.address(), true);
     legacyEnvelope(box, content, "minsu@acme.com", box.address(), true);
+    legacyEnvelope(box, content, "minsu@acme.com", box.address(), true); // 연속 3회 → 중단(aborted)
     when(mailClient.analyzePersonal(any())).thenThrow(new MailAiUnavailableException("down"));
 
     assertThat(reanalysis.reanalyzeAccountNow(box.userId(), box.accountId())).isTrue();
@@ -301,6 +302,21 @@ class MailReanalysisServiceTest extends IntegrationTestBase {
 
     verify(mailClient, times(3)).analyzePersonal(any());
     assertThat(version(box.accountId())).isZero();
+  }
+
+  @Test
+  void twoUnavailableOnly_notAborted_versionKept() {
+    // 연속 3회 미만이면 중단(aborted)이 아니라 대상이 소진된 것 — 마지막이 장애여도 선점을 되돌리지 않는다(WP-151 단순화)
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    legacyEnvelope(box, content, "minsu@acme.com", box.address(), true);
+    legacyEnvelope(box, content, "minsu@acme.com", box.address(), true);
+    when(mailClient.analyzePersonal(any())).thenThrow(new MailAiUnavailableException("503"));
+
+    reanalysis.reanalyzeAccountNow(box.userId(), box.accountId());
+
+    verify(mailClient, times(2)).analyzePersonal(any());
+    assertThat(version(box.accountId())).isEqualTo(MailReanalysisService.CURRENT_CLASSIFY_VERSION);
   }
 
   @Test
