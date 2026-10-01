@@ -54,4 +54,12 @@ class UserMailProfileTest {
     assertThat(p.otherNames()).isEmpty();
     assertThat(p.groups()).isEmpty();
   }
+
+  @Test
+  void oneLine_unicodeWhitespace_trimmedAndFolded() {
+    // NBSP·전각 공백은 TS trim 처럼 양끝에서 제거되고, NBSP 가 낀 줄바꿈도 한 칸으로 접힌다
+    assertThat(UserMailProfile.oneLine("\u00A0\u3000김민수\u00A0")).isEqualTo("김민수");
+    assertThat(UserMailProfile.oneLine("a\u00A0\n\u00A0b")).isEqualTo("a b");
+    assertThat(UserMailProfile.oneLine(null)).isEmpty();
+  }
 }

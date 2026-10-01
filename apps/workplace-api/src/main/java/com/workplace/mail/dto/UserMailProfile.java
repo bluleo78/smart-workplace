@@ -66,9 +66,14 @@ public record UserMailProfile(
     return addressText == null ? first : first + "\n     " + addressText;
   }
 
-  /** 한 줄 값 — 줄바꿈을 공백으로 접어 이름 등으로 블록 줄을 위조하지 못하게 한다. null → 빈 문자열. */
+  /**
+   * 한 줄 값 — 줄바꿈을 공백으로 접어 이름 등으로 블록 줄을 위조하지 못하게 한다. 공백은 유니코드 기준(NBSP 등 포함 — ai-agent TS 의 trim 과
+   * 같다). null → 빈 문자열.
+   */
   public static String oneLine(String s) {
-    return s == null ? "" : s.replaceAll("\\s*[\\r\\n]+\\s*", " ").trim();
+    return s == null
+        ? ""
+        : s.replaceAll("(?U)\\s*[\\r\\n]+\\s*", " ").replaceAll("(?U)^\\s+|\\s+$", "");
   }
 
   private static List<String> oneLines(List<String> list) {

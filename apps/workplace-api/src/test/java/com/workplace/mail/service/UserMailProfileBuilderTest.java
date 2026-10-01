@@ -62,6 +62,20 @@ class UserMailProfileBuilderTest extends IntegrationTestBase {
   }
 
   @Test
+  void build_otherNames_caseInsensitiveDedup_keepsFirstSpelling() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    MailPeopleFixtures.setProfile(dsl, box.userId(), "홍길동", null);
+    long n = System.nanoTime();
+    MailPeopleFixtures.addAccount(dsl, box.userId(), "a" + n + "@x.com", "Gildong Hong");
+    MailPeopleFixtures.addAccount(dsl, box.userId(), "b" + n + "@x.com", "GILDONG HONG");
+    MailPeopleFixtures.addAccount(dsl, box.userId(), "c" + n + "@x.com", "Gil");
+
+    UserMailProfile p = builder.build(box.userId());
+
+    assertThat(p.otherNames()).containsExactly("Gildong Hong", "Gil");
+  }
+
+  @Test
   void build_blankName_fallsBackToAccountDisplayName() {
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     MailPeopleFixtures.setProfile(dsl, box.userId(), " ", null);

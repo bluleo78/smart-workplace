@@ -22,9 +22,10 @@ import org.springframework.stereotype.Repository;
 /**
  * 메일 개인 분석(WP-150)의 사람 정보 조회 — "나" 프로필(주소·이름·직함·소속)과 보낸 사람 관계(사내 구성원·외부 연락처·즐겨찾기).
  *
- * <p>user·membership 은 tenant_id/RLS 가 없는 전역 테이블이라 테넌트 조건을 직접 건다(#832).
- * email_account·user_group(_member)· contact_* 는 RLS(app.tenant_id GUC)로 현재 테넌트만 보인다 — 호출자는 테넌트
- * 트랜잭션 안에서 부른다. 다른 도메인 패키지(contacts·user)를 import 하지 않도록 jOOQ 테이블만 쓴다.
+ * <p>user·membership 은 tenant_id/RLS 가 없는 전역 테이블이다. 프로필 조회(주소·이름·직함)는 사용자 id 로 본인 행만 읽으므로 테넌트 조건이
+ * 필요 없고, 사내 구성원 판정({@link #findMemberByAddress})만 membership 조인과 tenant_id 조건으로 타 테넌트 사용자를
+ * 걸러낸다(#832). email_account·user_group(_member)· contact_* 는 RLS(app.tenant_id GUC)로 현재 테넌트만 보인다 —
+ * 호출자는 테넌트 트랜잭션 안에서 부른다. 다른 도메인 패키지(contacts·user)를 import 하지 않도록 jOOQ 테이블만 쓴다.
  */
 @Repository
 @RequiredArgsConstructor
