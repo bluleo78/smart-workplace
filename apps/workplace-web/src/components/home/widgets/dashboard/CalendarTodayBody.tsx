@@ -3,43 +3,13 @@ import { Link } from 'react-router-dom'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents'
-import { formatLocalClockTime24, parseUtcDate } from '@/lib/formatters'
+import { todayRange } from '@/lib/calendarRange'
 import { cn } from '@/lib/utils'
 import type { CalendarEvent } from '@/types/calendar'
 
 import { WidgetError } from '../WidgetError'
+import { eventTime, sortKey, type TimeKind } from './bodyRules'
 import { WidgetEmptyState } from './WidgetEmptyState'
-
-// 오늘 00:00~24:00(로컬) 범위의 ISO 문자열을 만들어 캘린더 쿼리에 전달.
-function todayRange(): { from: string; to: string } {
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(start)
-  end.setDate(end.getDate() + 1)
-  return { from: start.toISOString(), to: end.toISOString() }
-}
-
-// 일정 종류 — allday(종일)/timed(시각 있음)/untimed(시작시각 미정).
-type TimeKind = 'allday' | 'timed' | 'untimed'
-
-// 리딩 컬럼에 표시할 라벨 + 종류. startsAt 이 null/빈 문자열이면
-// '-'(의미 없는 placeholder) 대신 '미정' 으로 명시한다.
-function eventTime(ev: CalendarEvent): { label: string; kind: TimeKind } {
-  if (ev.allDay) return { label: '종일', kind: 'allday' }
-  const d = parseUtcDate(ev.startsAt)
-  if (Number.isNaN(d.getTime())) return { label: '미정', kind: 'untimed' }
-  // 대시보드 컴팩트 표기 — 24시간제(예: 14:30)로 폭을 일정하게 유지.
-  return {
-    label: formatLocalClockTime24(ev.startsAt),
-    kind: 'timed',
-  }
-}
-
-// 정렬 키 — 시작시각 오름차순. 미정(NaN)은 Infinity 로 밀어 항상 맨 뒤에 둔다.
-function sortKey(ev: CalendarEvent): number {
-  const t = parseUtcDate(ev.startsAt).getTime()
-  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t
-}
 
 // 종류별 리딩 점 마커 스타일(시맨틱 토큰만). 미정은 hollow(테두리만)로 구분.
 const DOT_CLASS: Record<TimeKind, string> = {

@@ -29,3 +29,12 @@ export function resolveCalendarRange(params?: Record<string, unknown> | null): {
   toExclusive.setDate(toExclusive.getDate() + 1)
   return { from: fromDate.toISOString(), to: toExclusive.toISOString() }
 }
+
+/**
+ * 오늘 00:00~내일 00:00(로컬) ISO 범위 — 오늘 일정 본문(CalendarTodayBody)·요약 위젯(SynthesisLayer·useSynthesisCounts)·
+ * 모바일 오늘 일정 요약이 모두 이 범위로 캘린더를 조회한다. 쿼리 키(from/to)가 어긋나면 TanStack Query 가 요청을
+ * 합치지 못하므로 복제하지 않고 인자 없는 resolveCalendarRange(=오늘 하루)에 위임해 단일 출처로 둔다(WP-142).
+ */
+export function todayRange(): { from: string; to: string } {
+  return resolveCalendarRange()
+}

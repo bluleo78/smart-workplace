@@ -14,7 +14,7 @@ export function useDashboardLayout(device: DashboardDevice) {
  * 저장 변수 — 어느 기기 레이아웃인지 함께 넘긴다. 편집을 시작한 기기로 저장해야 하므로(편집 중 화면 폭이 바뀌어도)
  * 렌더 시점의 device 로 훅을 고정하지 않는다.
  */
-export interface SaveDashboardVars {
+interface SaveDashboardVars {
   device: DashboardDevice
   widgets: DashboardWidgetConfig[]
 }
@@ -29,7 +29,7 @@ export function useSaveDashboardLayout() {
 }
 
 /** 접기 토글 변수 — 어느 위젯을 접을지/펼칠지. */
-export interface ToggleCollapsedVars {
+interface ToggleCollapsedVars {
   id: string
   collapsed: boolean
 }
@@ -39,6 +39,7 @@ const COLLAPSE_MUTATION_KEY = [...dashboardKeys.all, 'collapse'] as const
 
 // 위젯별 "마지막 토글" 순번 — 실패한 토글은 자신이 그 위젯의 마지막 토글일 때만 롤백한다. 모듈 수준에 두는 이유:
 // 대기 중인 mutation 은 컴포넌트가 다시 마운트돼도 살아 있으므로 순번도 컴포넌트 수명과 무관해야 한다.
+// 마지막 토글이 끝나면(onSettled) 항목을 지워 위젯 id 가 바뀌어 가며 맵이 끝없이 자라지 않게 한다.
 let collapseSeq = 0
 const latestCollapseSeq = new Map<string, number>()
 
@@ -53,8 +54,9 @@ function patchCollapsed(layout: DashboardLayout | undefined, id: string, collaps
  *
  * - 같은 scope 는 직렬 실행: 빠른 연타의 PUT 이 서로 추월해 이전 상태가 마지막에 저장되는 일을 막는다.
  * - PUT 본문은 실행 시점 캐시(앞선 토글·롤백이 모두 반영된 최신 낙관 상태)에서 만든다.
- * - 성공 응답으로 캐시를 덮지 않는다: 늦게 온 앞 응답이 뒤 토글의 낙관 상태를 되돌리는 깜빡임을 막는다.
- *   대신 마지막 토글이 끝났을 때만 재조회해 서버 상태와 맞춘다(그 사이 창 포커스 재조회는 onMutate 의 cancel 로 막힘).
+ * - 중간 토글의 성공 응답으로는 캐시를 덮지 않는다: 늦게 온 앞 응답이 뒤 토글의 낙관 상태를 되돌리는 깜빡임을 막는다.
+ *   마지막 토글이 끝났을 때만 서버 상태와 맞춘다 — 성공이면 그 PUT 응답(=저장된 최신 레이아웃)을 캐시에 넣어 재조회(GET)를
+ *   아끼고, 실패면 무엇이 저장됐는지 모르므로 재조회한다(그 사이 창 포커스 재조회는 onMutate 의 cancel 로 막힘).
  * - 실패하면 그 위젯만 이전 값으로 되돌리고 토스트. 단, 같은 위젯을 그 뒤에 또 눌렀다면 롤백하지 않는다 —
  *   뒤 탭의 낙관 상태가 사용자의 마지막 의도이고, 뒤 PUT 이 그 상태(실행 시점 캐시)를 저장한다.
  *   토스트는 mutate 개별 콜백이 아닌 여기 둔다 —
@@ -81,9 +83,15 @@ export function useToggleWidgetCollapsed() {
       }
       handleApiError(err, '위젯 접기 상태를 저장하지 못했습니다')
     },
-    onSettled: () => {
-      // 이 토글이 진행 중인 마지막 토글일 때만(=자기 자신 1건) 재조회.
+    onSettled: (data, err, { id }, ctx) => {
+      // 이 위젯의 마지막 토글이면 순번 항목 정리(onError 의 롤백 판정이 끝난 뒤라 안전).
+      if (ctx && latestCollapseSeq.get(id) === ctx.seq) latestCollapseSeq.delete(id)
+      // 이 토글이 진행 중인 마지막 토글일 때만(=자기 자신 1건) 서버 상태와 맞춘다.
       if (qc.isMutating({ mutationKey: COLLAPSE_MUTATION_KEY }) === 1) {
+        if (!err && data) {
+          qc.setQueryData(key, data)
+          return
+        }
         return qc.invalidateQueries({ queryKey: key })
       }
     },

@@ -38,7 +38,7 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react'
-import { createElement, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
@@ -72,8 +72,9 @@ const MAX_WIDGETS = 12
 // 위젯 추가 강조 표시 지속 시간(ms) — 카드의 `duration-700` 강조 트랜지션과 짝을 이루며,
 // e2e/pages/home.spec.ts 의 fastForward 경계값과도 결합되어 있으니 값을 바꿀 때 두 곳을 함께 확인한다.
 const HIGHLIGHT_DURATION_MS = 4000
-// 모바일 편집에서 새로 추가하는 시스템 위젯의 항목 수 — 서버 모바일 기본값(DashboardService.MOBILE_DEFAULT_COUNT)과 일치.
-const MOBILE_DEFAULT_COUNT = 3
+// 편집에서 새로 추가하는 시스템 위젯의 기기별 기본 항목 수 — 데스크톱은 기존 5(요청 형태 불변), 모바일은 서버 모바일
+// 기본값(DashboardService.MOBILE_DEFAULT_COUNT)과 일치하는 3.
+const DEFAULT_COUNT: Record<DashboardDevice, number> = { desktop: 5, mobile: 3 }
 
 /** 그리드 한 항목 = 알려진 위젯 정의(시스템|카탈로그) + 그 구성. 알 수 없는 타입은 미리 걸러진다. */
 type ResolvedEntry =
@@ -243,6 +244,73 @@ function WidgetCountSelect({
   )
 }
 
+/**
+ * 편집 카드 공용 컨트롤 — 숨김 토글·(카탈로그)설정·삭제(WP-142). 데스크톱(size-8)·모바일(size-11, 44px 터치) 편집 카드가
+ * 크기만 달리 같은 버튼을 쓴다. 데스크톱은 숨김과 설정 사이에 "테두리 없음" 토글이 있어 afterHide 슬롯으로 끼우고,
+ * 부모 flex 줄의 DOM 을 그대로 두려고 래퍼 없이 Fragment 로 그린다(testid·aria-label 동일).
+ */
+function WidgetEditControls({
+  entry,
+  title,
+  buttonClassName,
+  onToggleHidden,
+  onApplyCatalogConfig,
+  onRemove,
+  afterHide,
+}: {
+  entry: ResolvedEntry
+  title: string
+  buttonClassName: 'size-8' | 'size-11'
+  onToggleHidden: () => void
+  onApplyCatalogConfig: (patch: { params: Record<string, unknown>; label: string | null }) => void
+  onRemove: () => void
+  afterHide?: ReactNode
+}) {
+  const { cfg } = entry
+  return (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={buttonClassName}
+        data-testid="widget-hide-toggle"
+        aria-label={cfg.hidden ? `표시: ${title}` : `숨김: ${title}`}
+        aria-pressed={cfg.hidden}
+        onClick={onToggleHidden}
+      >
+        {cfg.hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </Button>
+      {afterHide}
+      {entry.kind === 'catalog' && entry.def.fields.length > 0 && (
+        <WidgetSettingsPopover catalogDef={entry.def} cfg={cfg} onApply={onApplyCatalogConfig}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={buttonClassName}
+            data-testid="widget-settings"
+            aria-label={`설정: ${title}`}
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+        </WidgetSettingsPopover>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={buttonClassName}
+        data-testid="widget-remove"
+        aria-label={`삭제: ${title}`}
+        onClick={onRemove}
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </>
+  )
+}
+
 /** 편집 모드 위젯 카드 — 본문 + 표시/숨김·이동·(시스템)항목수/(카탈로그)설정·삭제 컨트롤. 숨김은 dimmed 로 잔류(재표시 경로). */
 function EditableWidgetCard({
   entry,
@@ -347,64 +415,33 @@ function EditableWidgetCard({
             >
               <ArrowDown className="h-4 w-4" />
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              data-testid="widget-hide-toggle"
-              aria-label={cfg.hidden ? `표시: ${title}` : `숨김: ${title}`}
-              aria-pressed={cfg.hidden}
-              onClick={onToggleHidden}
-            >
-              {cfg.hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </Button>
-            <Button
-              type="button"
-              variant={cfg.chromeless ? 'default' : 'ghost'}
-              size="icon"
-              className="size-8"
-              data-testid="widget-chromeless-toggle"
-              aria-label={cfg.chromeless ? `테두리·제목 표시: ${title}` : `테두리·제목 숨김: ${title}`}
-              aria-pressed={Boolean(cfg.chromeless)}
-              onClick={onToggleChromeless}
-            >
-              {/* Eye/EyeOff 와 동일 관례 — 아이콘이 "현재 상태"를 나타낸다(테두리 있음/없음). */}
-              {cfg.chromeless ? (
-                <PanelTopClose className="h-4 w-4" />
-              ) : (
-                <PanelTop className="h-4 w-4" />
-              )}
-            </Button>
-            {entry.kind === 'catalog' && entry.def.fields.length > 0 && (
-              <WidgetSettingsPopover
-                catalogDef={entry.def}
-                cfg={cfg}
-                onApply={onApplyCatalogConfig}
-              >
+            <WidgetEditControls
+              entry={entry}
+              title={title}
+              buttonClassName="size-8"
+              onToggleHidden={onToggleHidden}
+              onApplyCatalogConfig={onApplyCatalogConfig}
+              onRemove={onRemove}
+              afterHide={
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant={cfg.chromeless ? 'default' : 'ghost'}
                   size="icon"
                   className="size-8"
-                  data-testid="widget-settings"
-                  aria-label={`설정: ${title}`}
+                  data-testid="widget-chromeless-toggle"
+                  aria-label={cfg.chromeless ? `테두리·제목 표시: ${title}` : `테두리·제목 숨김: ${title}`}
+                  aria-pressed={Boolean(cfg.chromeless)}
+                  onClick={onToggleChromeless}
                 >
-                  <Settings className="h-4 w-4" />
+                  {/* Eye/EyeOff 와 동일 관례 — 아이콘이 "현재 상태"를 나타낸다(테두리 있음/없음). */}
+                  {cfg.chromeless ? (
+                    <PanelTopClose className="h-4 w-4" />
+                  ) : (
+                    <PanelTop className="h-4 w-4" />
+                  )}
                 </Button>
-              </WidgetSettingsPopover>
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              data-testid="widget-remove"
-              aria-label={`삭제: ${title}`}
-              onClick={onRemove}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+              }
+            />
           </div>
         </div>
       </CardHeader>
@@ -455,43 +492,14 @@ function MobileEditableWidgetCard({
       >
         <GripVertical className="h-4 w-4" />
       </button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="size-11"
-        data-testid="widget-hide-toggle"
-        aria-label={cfg.hidden ? `표시: ${title}` : `숨김: ${title}`}
-        aria-pressed={cfg.hidden}
-        onClick={onToggleHidden}
-      >
-        {cfg.hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-      </Button>
-      {entry.kind === 'catalog' && entry.def.fields.length > 0 && (
-        <WidgetSettingsPopover catalogDef={entry.def} cfg={cfg} onApply={onApplyCatalogConfig}>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-11"
-            data-testid="widget-settings"
-            aria-label={`설정: ${title}`}
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-        </WidgetSettingsPopover>
-      )}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="size-11"
-        data-testid="widget-remove"
-        aria-label={`삭제: ${title}`}
-        onClick={onRemove}
-      >
-        <Trash2 className="h-4 w-4" />
-      </Button>
+      <WidgetEditControls
+        entry={entry}
+        title={title}
+        buttonClassName="size-11"
+        onToggleHidden={onToggleHidden}
+        onApplyCatalogConfig={onApplyCatalogConfig}
+        onRemove={onRemove}
+      />
     </div>
   )
   return (
@@ -721,8 +729,8 @@ export function Dashboard() {
     if (sys) {
       if (draft.some((w) => w.type === type)) return
       snapshot()
-      // 모바일 편집에서 추가하면 모바일 기본 항목 수(3) — 데스크톱은 기존 5 그대로(요청 형태 불변).
-      const count = editDevice === 'mobile' ? MOBILE_DEFAULT_COUNT : 5
+      // 편집 중인 기기의 기본 항목 수(편집 밖 호출은 없지만 null 이면 기존처럼 데스크톱 5).
+      const count = DEFAULT_COUNT[editDevice ?? 'desktop']
       setDraft((prev) => [...prev, { id: type, type, count, hidden: false }])
       setLiveMsg(`${sys.title} 위젯을 추가했습니다`)
       setRecentlyAddedId(type)

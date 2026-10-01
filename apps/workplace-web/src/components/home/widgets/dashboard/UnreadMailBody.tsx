@@ -10,15 +10,11 @@ import { isNeedsReply } from '@/lib/mailNeedsReply'
 import type { MailSummaryItem } from '@/types/dashboard'
 
 import { WidgetError } from '../WidgetError'
+import { mailSender } from './bodyRules'
 
-// 발신자 표시명 — name 우선, 없으면 주소, 둘 다 없으면 '(알 수 없음)'.
-function sender(item: MailSummaryItem): string {
-  return item.fromName?.trim() || item.fromAddress || '(알 수 없음)'
-}
-
-// 아바타 이니셜 — 발신자명 첫 글자.
+// 아바타 이니셜 — 발신자명(bodyRules.mailSender — 모바일 요약과 같은 규칙) 첫 글자.
 function initial(item: MailSummaryItem): string {
-  return sender(item).charAt(0)
+  return mailSender(item).charAt(0)
 }
 
 /**
@@ -119,7 +115,7 @@ export default function UnreadMailBody({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-medium">{sender(m)}</span>
+                  <span className="truncate text-sm font-medium">{mailSender(m)}</span>
                   {/* 회신필요 배지 — AI action 스타일(빨강 제거). 비-AI 멘션/회신대기 배지와 시각적으로 구분. */}
                   {classificationActive && isNeedsReply(m) && (
                     <AiSignalBadge variant="action" data-testid="dash-mail-badge-reply">

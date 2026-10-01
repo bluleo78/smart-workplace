@@ -7,12 +7,12 @@ import type { MailSummary, MailSummaryItem } from '@/types/dashboard'
 import type { ChannelResponse } from '@/types/messaging'
 import type { NotificationResponse } from '@/types/notification'
 
+import { mailSender } from '../../dashboard/bodyRules'
 import {
   eventTimeLabel,
   joinNames,
   latestUnreadNotification,
   mailBadgeCount,
-  mailSender,
   pickBusiestChannel,
   pickLatestMail,
   pickNextEvent,
@@ -53,6 +53,11 @@ describe('pickNextEvent', () => {
     expect(pickNextEvent([ev(1, '2026-10-01T01:00:00Z'), ev(2, '2026-09-30T15:00:00Z', true)], NOW)?.id).toBe(2)
     expect(eventTimeLabel(ev(2, '2026-09-30T15:00:00Z', true))).toBe('종일')
     expect(pickNextEvent([ev(1, '2026-10-01T01:00:00Z')], NOW)).toBeNull()
+  })
+  it('시작시각 미정 일정은 다음 일정으로 고르지 않고, 동시각이면 앞선 일정', () => {
+    expect(pickNextEvent([ev(1, ''), ev(2, '2026-09-30T15:00:00Z', true)], NOW)?.id).toBe(2)
+    expect(pickNextEvent([ev(1, '2026-10-01T05:00:00Z'), ev(2, '2026-10-01T05:00:00Z')], NOW)?.id).toBe(1)
+    expect(eventTimeLabel(ev(3, ''))).toBe('미정')
   })
 })
 

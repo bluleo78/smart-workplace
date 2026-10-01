@@ -2,7 +2,7 @@
 // vitest 는 TZ=Asia/Seoul 고정(vitest.config.ts).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { resolveCalendarRange } from './calendarRange'
+import { resolveCalendarRange, todayRange } from './calendarRange'
 
 describe('resolveCalendarRange', () => {
   beforeEach(() => {
@@ -16,6 +16,10 @@ describe('resolveCalendarRange', () => {
       from: '2026-09-30T15:00:00.000Z',
       to: '2026-10-01T15:00:00.000Z',
     })
+  })
+
+  it('todayRange 는 기존 오늘 범위(00:00~다음날 00:00 로컬)와 같다 — 오늘 일정 본문·요약 위젯이 같은 쿼리 키를 쓴다', () => {
+    expect(todayRange()).toEqual({ from: '2026-09-30T15:00:00.000Z', to: '2026-10-01T15:00:00.000Z' })
   })
 
   it('range=week 면 오늘부터 7일(종료 exclusive)', () => {

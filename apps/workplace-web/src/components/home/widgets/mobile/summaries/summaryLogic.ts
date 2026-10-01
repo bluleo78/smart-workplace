@@ -1,40 +1,54 @@
 // 모바일 요약 한 줄의 순수 선택 규칙(WP-142) — 접힘·타일에 무엇을 보일지 컴포넌트에서 떼어 vitest 로 결정적으로 검증한다.
-// 규칙은 각 위젯 본문(PriorityQuadrantBody·UnreadMailBody·SynthesisLayer)과 같은 기준을 따른다.
+// 규칙은 각 위젯 본문(PriorityQuadrantBody·UnreadMailBody·SynthesisLayer)과 같은 기준을 따른다 — 본문과 겹치는 판정
+// (일정 시각·사분면·발신자)은 본문 쪽 bodyRules 를 그대로 가져다 쓴다(복제 금지).
 import type { PriorityItem } from '@/api/priorityItems'
-import { formatLocalClockTime24, parseUtcDate } from '@/lib/formatters'
+import { parseUtcDate } from '@/lib/formatters'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import type { CalendarEvent } from '@/types/calendar'
 import type { MailSummary, MailSummaryItem } from '@/types/dashboard'
 import type { ChannelResponse } from '@/types/messaging'
 import type { NotificationResponse } from '@/types/notification'
 
+import { eventTime, type QuadrantKey, quadrantOf, sortKey } from '../../dashboard/bodyRules'
+
 // 이름 나열 최대 개수 — 한 줄 말줄임에 어차피 가려질 뒷부분까지 만들지 않는다.
 const MAX_NAMES = 5
 
-/** 다음 일정 — 지금 이후 시작하는 시각 일정 중 가장 이른 것, 없으면 종일 일정, 그것도 없으면 null(남은 일정 없음). */
+/**
+ * 다음 일정 — 지금 이후 시작하는 시각 일정 중 가장 이른 것, 없으면 종일 일정, 그것도 없으면 null(남은 일정 없음).
+ * 정렬 없이 한 번 훑는다. 시작시각 미정은 sortKey 가 Infinity 라 `t < nextT` 에서 걸러지고, 동시각은 먼저 온 것이 남는다.
+ */
 export function pickNextEvent(events: CalendarEvent[], now: Date): CalendarEvent | null {
-  const upcoming = events
-    .filter((e) => !e.allDay)
-    .map((e) => ({ e, t: parseUtcDate(e.startsAt).getTime() }))
-    .filter(({ t }) => !Number.isNaN(t) && t >= now.getTime())
-    .sort((a, b) => a.t - b.t)
-  if (upcoming.length > 0) return upcoming[0].e
-  return events.find((e) => e.allDay) ?? null
+  const nowT = now.getTime()
+  let next: CalendarEvent | null = null
+  let nextT = Number.POSITIVE_INFINITY
+  for (const e of events) {
+    if (e.allDay) continue
+    const t = sortKey(e)
+    if (t >= nowT && t < nextT) {
+      next = e
+      nextT = t
+    }
+  }
+  return next ?? events.find((e) => e.allDay) ?? null
 }
 
-/** 일정 시각 라벨 — 종일은 '종일', 그 외 대시보드 공용 24시간제(HH:mm). */
+/** 일정 시각 라벨 — 오늘 일정 본문의 리딩 라벨과 같다(종일·HH:mm·미정). */
 export function eventTimeLabel(ev: CalendarEvent): string {
-  return ev.allDay ? '종일' : formatLocalClockTime24(ev.startsAt)
+  return eventTime(ev).label
 }
 
-/** AI 우선순위 사분면 라벨 — PriorityQuadrantBody 와 같은 임계값(50). */
-export function quadrantLabel(item: PriorityItem): '긴급·중요' | '중요' | '긴급' | '낮음' {
-  const important = item.importanceScore >= 50
-  const urgent = item.urgencyScore >= 50
-  if (important && urgent) return '긴급·중요'
-  if (important) return '중요'
-  if (urgent) return '긴급'
-  return '낮음'
+// 모바일 요약 칩의 짧은 사분면 라벨 — 좁은 한 줄이라 본문 분면 제목('긴급 + 중요')보다 짧게 쓴다.
+const QUADRANT_SHORT_LABEL = {
+  'urgent-important': '긴급·중요',
+  important: '중요',
+  urgent: '긴급',
+  low: '낮음',
+} as const satisfies Record<QuadrantKey, string>
+
+/** AI 우선순위 사분면 라벨 — 판정은 PriorityQuadrantBody 와 같은 bodyRules.quadrantOf(임계값 50). */
+export function quadrantLabel(item: PriorityItem): (typeof QUADRANT_SHORT_LABEL)[QuadrantKey] {
+  return QUADRANT_SHORT_LABEL[quadrantOf(item)]
 }
 
 /** 최상위 우선순위 항목 — 중요도+긴급도 합이 가장 큰 것(동점은 응답 순서 유지). */
@@ -46,8 +60,12 @@ export function topPriorityItem(items: PriorityItem[]): PriorityItem | null {
   return best
 }
 
-/** 메일 건수 배지 — AI 분류가 켜졌으면 회신 필요, 아니면 안 읽음(SynthesisLayer KPI 와 같은 스왑 규칙). */
-export function mailBadgeCount(s: MailSummary): number {
+/**
+ * 메일 건수 배지 — AI 분류가 켜졌으면 회신 필요, 아니면 안 읽음. 데스크톱 요약 KPI(SynthesisLayer)·모바일 접힘 한 줄
+ * (useSynthesisCounts)·메일 요약이 모두 이 스왑 규칙 하나를 쓴다. 데이터가 아직 없으면(로딩) 0.
+ */
+export function mailBadgeCount(s: MailSummary | undefined): number {
+  if (!s) return 0
   return s.classificationActive ? s.needsReplyCount : s.unreadCount
 }
 
@@ -56,18 +74,19 @@ export function pickLatestMail(recent: MailSummaryItem[]): MailSummaryItem | nul
   return recent.find((m) => isNeedsReply(m)) ?? recent[0] ?? null
 }
 
-/** 발신자 표시명 — UnreadMailBody 와 같은 규칙(이름 → 주소 → 알 수 없음). */
-export function mailSender(m: Pick<MailSummaryItem, 'fromName' | 'fromAddress'>): string {
-  return m.fromName?.trim() || m.fromAddress || '(알 수 없음)'
-}
-
-/** 가장 최근의 안 읽은 알림(createdAt 내림차순 첫 건). 없으면 null. */
+/** 가장 최근의 안 읽은 알림(createdAt 가장 늦은 것, 동시각은 앞선 항목). 없으면 null. 정렬 없이 한 번 훑는다. */
 export function latestUnreadNotification(items: NotificationResponse[]): NotificationResponse | null {
-  return (
-    items
-      .filter((n) => !n.read)
-      .sort((a, b) => parseUtcDate(b.createdAt).getTime() - parseUtcDate(a.createdAt).getTime())[0] ?? null
-  )
+  let latest: NotificationResponse | null = null
+  let latestT = Number.NEGATIVE_INFINITY
+  for (const n of items) {
+    if (n.read) continue
+    const t = parseUtcDate(n.createdAt).getTime()
+    if (!latest || t > latestT) {
+      latest = n
+      latestT = t
+    }
+  }
+  return latest
 }
 
 /** 채널 안 읽음 합계 — 타일 건수 배지. */

@@ -19,6 +19,7 @@ import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
+import { todayRange } from '@/lib/calendarRange'
 import { parseUtcDate } from '@/lib/formatters'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -26,7 +27,8 @@ import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
 
 import { isMentionLike, notifLabel, notifTarget } from '../notifTarget'
-import { dueQueryFrom, localDateKey, todayRange } from './synthesisDates'
+import { mailBadgeCount } from '../widgets/mobile/summaries/summaryLogic'
+import { dueQueryFrom, localDateKey } from './synthesisDates'
 
 // 위젯 추가 모달 프리뷰 전용(#브레인스토밍 2026-07-03) — 6개 하위 훅 각각의 응답을 그대로 미러링한
 // 목데이터 뭉치. previewData 가 있으면 6개 훅 전부 enabled:false 로 끄고 이 값으로만 렌더한다.
@@ -168,9 +170,8 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   const mentionCount = notifItems.filter((n) => isMentionLike(n) && !n.read).length
 
   const mailData = previewData?.mail ?? mail.data
-  // 메일 카운트 — AI 분류 활성이면 "회신 필요 N", 비활성이면 "안 읽음 N".
-  const unreadMail = mailData?.unreadCount ?? 0
-  const needsReply = mailData?.needsReplyCount ?? 0
+  // 메일 카운트 — AI 분류 활성이면 "회신 필요 N", 비활성이면 "안 읽음 N"(모바일 요약과 같은 mailBadgeCount 스왑 규칙).
+  const mailCount = mailBadgeCount(mailData)
   // classificationActive: 하나라도 aiEnabled 계정이 있으면 true(백엔드 집계).
   const classifyOn = mailData?.classificationActive ?? false
 
@@ -307,8 +308,8 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
     { label: '멘션', count: mentionCount, onClick: () => openInbox(), q: previewData ? noQuery : notifs },
     // 메일 KPI 스왑: 분류 활성 시 "회신 필요 N"(Sparkles), 비활성 시 "안 읽음 N".
     classifyOn
-      ? { label: '회신 필요', count: needsReply, to: '/mail', q: previewData ? noQuery : mail, ai: true }
-      : { label: '안 읽음', count: unreadMail, to: '/mail', q: previewData ? noQuery : mail },
+      ? { label: '회신 필요', count: mailCount, to: '/mail', q: previewData ? noQuery : mail, ai: true }
+      : { label: '안 읽음', count: mailCount, to: '/mail', q: previewData ? noQuery : mail },
     { label: '오늘 일정', count: todayEventCount, to: '/calendar', q: previewData ? noQuery : events },
     // 메시징 KPI — 회신대기 + AI 발굴 합산. AI 신호 배지 표시. 딥링크: /chat.
     { label: '확인 필요', count: chatNeedsAttention, to: '/chat', q: previewData ? noQuery : messaging, ai: true, testId: 'kpi-messaging' },

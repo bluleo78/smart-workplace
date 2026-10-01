@@ -1,6 +1,5 @@
 package com.workplace.home.dto;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.NotBlank;
 
@@ -30,28 +29,9 @@ public record DashboardWidgetConfig(
     Boolean collapsed) {
 
   /**
-   * 정규 생성자 — 보조 생성자가 있어도 Jackson 이 이 생성자(레코드 컴포넌트 전체)로 역직렬화하도록 명시한다. 빠지면 버전에 따라 7인자 생성자가 선택돼
-   * collapsed 가 조용히 버려질 수 있다.
-   */
-  @JsonCreator
-  public DashboardWidgetConfig {}
-
-  /**
    * 시스템 위젯(싱글턴) 편의 생성자 — id=type, params/label 없음, chromeless=false, collapsed 미지정. 기존 호출부 하위호환.
    */
   public DashboardWidgetConfig(String type, int count, boolean hidden) {
     this(type, type, count, hidden, null, null, false, null);
-  }
-
-  /** collapsed 도입(WP-142) 이전 7인자 호출부 하위호환 — collapsed 미지정(null). */
-  public DashboardWidgetConfig(
-      String id,
-      String type,
-      int count,
-      boolean hidden,
-      JsonNode params,
-      String label,
-      boolean chromeless) {
-    this(id, type, count, hidden, params, label, chromeless, null);
   }
 }

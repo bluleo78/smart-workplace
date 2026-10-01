@@ -6,9 +6,11 @@ import { useMailSummary } from '@/hooks/queries/useMailSummary'
 import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
+import { todayRange } from '@/lib/calendarRange'
 
 import { isMentionLike } from '../notifTarget'
-import { dueQueryFrom, localDateKey, todayRange } from './synthesisDates'
+import { mailBadgeCount } from '../widgets/mobile/summaries/summaryLogic'
+import { dueQueryFrom, localDateKey } from './synthesisDates'
 
 /** KPI 한 칸 — short 는 접힘 한 줄용 짧은 라벨, error 면 숫자 대신 '–'. */
 export interface SynthesisCountCell {
@@ -48,7 +50,7 @@ export function useSynthesisCounts(): { loading: boolean; cells: SynthesisCountC
     {
       key: 'mail',
       short: classifyOn ? '회신' : '안 읽음',
-      count: classifyOn ? (mail.data?.needsReplyCount ?? 0) : (mail.data?.unreadCount ?? 0),
+      count: mailBadgeCount(mail.data),
       error: mail.isError,
     },
     { key: 'event', short: '일정', count: (events.data ?? []).length, error: events.isError },

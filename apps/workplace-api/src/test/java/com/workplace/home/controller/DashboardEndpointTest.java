@@ -223,7 +223,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
                         false,
                         om.readTree("{\"assignee\":\"all\"}"),
                         "보안팀 이슈",
-                        false),
+                        false,
+                        null),
                     new DashboardWidgetConfig(
                         "mkt-1",
                         "issue_list",
@@ -231,7 +232,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
                         false,
                         om.readTree("{\"assignee\":\"me\"}"),
                         "마케팅팀 이슈",
-                        false),
+                        false,
+                        null),
                     new DashboardWidgetConfig("my_tasks", 5, false))));
 
     mvc.perform(
@@ -264,7 +266,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
         om.writeValueAsString(
             new DashboardUpdateRequest(
                 List.of(
-                    new DashboardWidgetConfig(null, "mail_list", 0, false, null, null, false))));
+                    new DashboardWidgetConfig(
+                        null, "mail_list", 0, false, null, null, false, null))));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -281,7 +284,8 @@ class DashboardEndpointTest extends IntegrationTestBase {
     long userId = createUser("n");
     List<DashboardWidgetConfig> widgets = new java.util.ArrayList<>();
     for (int i = 0; i < 13; i++) {
-      widgets.add(new DashboardWidgetConfig("chan-" + i, "channels", 0, false, null, null, false));
+      widgets.add(
+          new DashboardWidgetConfig("chan-" + i, "channels", 0, false, null, null, false, null));
     }
     String body = om.writeValueAsString(new DashboardUpdateRequest(widgets));
 
@@ -301,7 +305,14 @@ class DashboardEndpointTest extends IntegrationTestBase {
             new DashboardUpdateRequest(
                 List.of(
                     new DashboardWidgetConfig(
-                        "act-1", "activity", 0, false, om.readTree("[1,2,3]"), null, false))));
+                        "act-1",
+                        "activity",
+                        0,
+                        false,
+                        om.readTree("[1,2,3]"),
+                        null,
+                        false,
+                        null))));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -318,8 +329,9 @@ class DashboardEndpointTest extends IntegrationTestBase {
         om.writeValueAsString(
             new DashboardUpdateRequest(
                 List.of(
-                    new DashboardWidgetConfig("dup-1", "wiki", 0, false, null, null, false),
-                    new DashboardWidgetConfig("dup-1", "wiki", 0, false, null, null, false))));
+                    new DashboardWidgetConfig("dup-1", "wiki", 0, false, null, null, false, null),
+                    new DashboardWidgetConfig(
+                        "dup-1", "wiki", 0, false, null, null, false, null))));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
@@ -338,7 +350,7 @@ class DashboardEndpointTest extends IntegrationTestBase {
             new DashboardUpdateRequest(
                 List.of(
                     new DashboardWidgetConfig(
-                        "quick_actions", "quick_actions", 5, false, null, null, true))));
+                        "quick_actions", "quick_actions", 5, false, null, null, true, null))));
 
     mvc.perform(
             put("/api/v1/me/dashboard")
