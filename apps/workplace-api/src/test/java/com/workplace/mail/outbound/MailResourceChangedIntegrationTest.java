@@ -189,7 +189,7 @@ class MailResourceChangedIntegrationTest extends IntegrationTestBase {
   @Test
   @DisplayName("동기화로 새 메일이 저장되면 소유자에게 actor 없이 발행")
   void sync_withSaved_publishesToOwnerWithoutActor() {
-    MailFetcher original = swapImapFetcher(new MailSyncResult(1, 1));
+    MailFetcher original = swapImapFetcher(new MailSyncResult(1, 1, 0));
     try {
       clearInvocations(registry);
       TenantContext.set(1L);
@@ -207,7 +207,7 @@ class MailResourceChangedIntegrationTest extends IntegrationTestBase {
   @Test
   @DisplayName("동기화로 저장된 게 없으면 발행하지 않음")
   void sync_withNothingSaved_publishesNothing() {
-    MailFetcher original = swapImapFetcher(new MailSyncResult(3, 0));
+    MailFetcher original = swapImapFetcher(new MailSyncResult(3, 0, 0));
     try {
       clearInvocations(registry);
       TenantContext.set(1L);

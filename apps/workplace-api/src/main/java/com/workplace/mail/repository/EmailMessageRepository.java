@@ -168,8 +168,7 @@ public class EmailMessageRepository {
               .set(EMAIL_MESSAGE.SEEN, m.seen())
               .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
               .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
-              .and(EMAIL_MESSAGE.SEEN.ne(m.seen()))
-              .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isFalse()) // 로컬 열람의 서버 반영 대기 행은 덮어쓰지 않음
+              .and(serverSeenApplicable(m.seen()))
               .execute();
       return changed > 0 ? UpsertOutcome.SEEN_CHANGED : UpsertOutcome.UNCHANGED;
     }
@@ -247,6 +246,22 @@ public class EmailMessageRepository {
         .fetchOptional(EMAIL_MESSAGE.ID);
   }
 
+  /**
+   * 서버 읽음 상태를 로컬에 반영해도 되는 행 조건(WP-148 단일 규칙): 값이 실제로 다르고({@code seen != 서버값}), 로컬 열람의 서버 반영 대기 중이
+   * 아니어야 한다. 대기 중인 행을 서버 상태로 덮으면 방금 로컬에서 읽은 메일이 안읽음으로 되돌아간다. 서버 반영이 예외로 실패한 메일만 대기가 남으므로, 그 메일은 이후
+   * 서버 안읽음 되돌림이 반영되지 않는 한계가 있다.
+   */
+  private static Condition serverSeenApplicable(boolean serverSeen) {
+    return EMAIL_MESSAGE.SEEN.ne(serverSeen).and(seenPushNotPending());
+  }
+
+  /**
+   * 서버 반영 대기가 아닌 행 조건 — {@link #serverSeenApplicable} 과 {@link #listRecentImapSeenStates} 가 공유한다.
+   */
+  private static Condition seenPushNotPending() {
+    return EMAIL_MESSAGE.SEEN_PUSH_PENDING.isFalse();
+  }
+
   /** IMAP 읽음 동기화 대상 한 건(WP-148) — 로컬 envelope 의 UID 와 현재 seen. */
   public record ImapSeenState(long imapUid, boolean seen) {}
 
@@ -261,7 +276,7 @@ public class EmailMessageRepository {
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
         .and(EMAIL_MESSAGE.IMAP_UID.isNotNull())
-        .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isFalse()) // 서버 반영 대기 행은 서버 상태로 덮어쓰지 않으므로 재조회 제외
+        .and(seenPushNotPending()) // 서버 반영 대기 행은 서버 상태로 덮어쓰지 않으므로 재조회 제외
         .and(EMAIL_MESSAGE.RECEIVED_AT.ge(since))
         .orderBy(EMAIL_MESSAGE.IMAP_UID.desc())
         .limit(limit)
@@ -280,8 +295,7 @@ public class EmailMessageRepository {
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
         .and(EMAIL_MESSAGE.IMAP_UID.eq(imapUid))
-        .and(EMAIL_MESSAGE.SEEN.ne(seen))
-        .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isFalse()) // 후보 조회 뒤 로컬 열람으로 대기가 된 행 보호
+        .and(serverSeenApplicable(seen))
         .execute();
   }
 
@@ -672,8 +686,8 @@ public class EmailMessageRepository {
 
   /**
    * 로컬 열람 읽음 처리 — seen=true 와 함께 seen_push_pending=true(원본 서버 반영 대기)로 업데이트. 이미 읽은 건은
-   * 스킵(SEEN.isFalse 조건). 실제 갱신된 행 수(0|1)를 반환한다. 대기 표시는 서버 반영 성공 시 {@link #clearSeenPushPending} 로
-   * 풀린다(WP-148).
+   * 스킵(SEEN.isFalse 조건). 실제 갱신된 행 수(0|1)를 반환한다. 대기 표시는 서버 반영이 예외 없이 끝나거나 반영할 방법이 없을 때 {@link
+   * #clearSeenPushPending} 로 풀린다(WP-148).
    */
   public int markSeen(long messageId) {
     return dsl.update(EMAIL_MESSAGE)

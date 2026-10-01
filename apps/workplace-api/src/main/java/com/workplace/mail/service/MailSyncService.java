@@ -83,7 +83,7 @@ public class MailSyncService {
 
     // 계정당 동시 실행 가드 — try 진입 전에 점유 시도. 이미 진행 중이면 즉시 빈 결과.
     if (!progress.tryStart(accountId)) {
-      return new MailSyncResult(0, 0);
+      return new MailSyncResult(0, 0, 0);
     }
     boolean triggeredBackfill = false;
     try {

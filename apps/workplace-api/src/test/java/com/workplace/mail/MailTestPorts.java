@@ -3,6 +3,12 @@ package com.workplace.mail;
 import com.icegreen.greenmail.util.GreenMailUtil;
 import com.icegreen.greenmail.util.ServerSetup;
 import com.icegreen.greenmail.util.ServerSetupTest;
+import jakarta.mail.Flags;
+import jakarta.mail.Folder;
+import jakarta.mail.Message;
+import jakarta.mail.Session;
+import jakarta.mail.Store;
+import java.util.Properties;
 
 /**
  * GreenMail 테스트 서버 포트(WP-114). Gradle 테스트 포크(JVM)마다 서로 다른 고정 포트 쌍을 쓴다.
@@ -44,5 +50,31 @@ public final class MailTestPorts {
    */
   public static void sendText(String to, String from, String subject, String body) {
     GreenMailUtil.sendTextEmail(to, from, subject, body, SMTP_SETUP);
+  }
+
+  /**
+   * WP-148: 외부 클라이언트(Outlook·모바일)가 읽음을 바꾼 것처럼 GreenMail 서버 쪽 \Seen 을 직접 바꾼다. 제목이 일치하는 INBOX 메시지만
+   * 대상이며 계정은 {@code box@test.local/pw} 로 고정이다.
+   */
+  public static void setServerSeen(String subject, boolean seen) throws Exception {
+    Properties props = new Properties();
+    props.put("mail.store.protocol", "imap");
+    Store store = Session.getInstance(props).getStore("imap");
+    store.connect("127.0.0.1", IMAP, "box@test.local", "pw");
+    try {
+      Folder inbox = store.getFolder("INBOX");
+      inbox.open(Folder.READ_WRITE);
+      try {
+        for (Message m : inbox.getMessages()) {
+          if (subject.equals(m.getSubject())) {
+            m.setFlag(Flags.Flag.SEEN, seen);
+          }
+        }
+      } finally {
+        inbox.close(false);
+      }
+    } finally {
+      store.close();
+    }
   }
 }

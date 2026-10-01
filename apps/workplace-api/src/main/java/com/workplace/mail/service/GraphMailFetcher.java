@@ -128,7 +128,7 @@ public class GraphMailFetcher implements MailFetcher {
           final boolean syncSeen = m.isRead() != null;
           EmailMessageRepository.UpsertOutcome outcome =
               txTemplate.execute(
-                  s2 ->
+                  s ->
                       messageRepo.upsertByProviderId(
                           accountId, folder.id(), parsed, msgId, syncSeen));
           if (outcome == EmailMessageRepository.UpsertOutcome.INSERTED) {

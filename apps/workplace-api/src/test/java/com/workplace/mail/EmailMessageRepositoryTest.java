@@ -276,29 +276,14 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
             .from(EMAIL_MESSAGE)
             .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
             .fetchOne(EMAIL_MESSAGE.ID);
-    assertThat(
-            dsl.select(EMAIL_MESSAGE.SEEN_PUSH_PENDING)
-                .from(EMAIL_MESSAGE)
-                .where(EMAIL_MESSAGE.ID.eq(id))
-                .fetchOne(EMAIL_MESSAGE.SEEN_PUSH_PENDING))
-        .isFalse();
+    assertThat(pending(id)).isFalse();
 
     messageRepo.markSeen(id);
-    assertThat(
-            dsl.select(EMAIL_MESSAGE.SEEN_PUSH_PENDING)
-                .from(EMAIL_MESSAGE)
-                .where(EMAIL_MESSAGE.ID.eq(id))
-                .fetchOne(EMAIL_MESSAGE.SEEN_PUSH_PENDING))
-        .isTrue();
+    assertThat(pending(id)).isTrue();
 
     assertThat(messageRepo.clearSeenPushPending(id)).isEqualTo(1);
     assertThat(messageRepo.clearSeenPushPending(id)).isZero();
-    assertThat(
-            dsl.select(EMAIL_MESSAGE.SEEN_PUSH_PENDING)
-                .from(EMAIL_MESSAGE)
-                .where(EMAIL_MESSAGE.ID.eq(id))
-                .fetchOne(EMAIL_MESSAGE.SEEN_PUSH_PENDING))
-        .isFalse();
+    assertThat(pending(id)).isFalse();
   }
 
   /** WP-148: 서버 반영 대기 행은 IMAP 읽음 재조회 대상에서 빠지고 updateSeenByImapUid 가 덮어쓰지 않는다. */
@@ -323,5 +308,14 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     assertThat(messageRepo.listRecentImapSeenStates(accountId, folderId, since, 500))
         .containsExactly(new EmailMessageRepository.ImapSeenState(9, true));
     assertThat(messageRepo.updateSeenByImapUid(accountId, folderId, 9, false)).isEqualTo(1);
+  }
+
+  /** 메시지의 seen_push_pending 값을 읽는다. */
+  private boolean pending(long id) {
+    return Boolean.TRUE.equals(
+        dsl.select(EMAIL_MESSAGE.SEEN_PUSH_PENDING)
+            .from(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ID.eq(id))
+            .fetchOne(EMAIL_MESSAGE.SEEN_PUSH_PENDING));
   }
 }

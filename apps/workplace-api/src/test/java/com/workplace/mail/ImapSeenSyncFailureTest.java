@@ -24,12 +24,6 @@ import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
-import jakarta.mail.Flags;
-import jakarta.mail.Folder;
-import jakarta.mail.Message;
-import jakarta.mail.Session;
-import jakarta.mail.Store;
-import java.util.Properties;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -99,29 +93,6 @@ class ImapSeenSyncFailureTest extends IntegrationTestBase {
     progress.finish(seededAccount); // 백필 목킹으로 남은 진행 상태 해제
   }
 
-  /** 서버 쪽 \Seen 을 외부 클라이언트처럼 바꾼다(제목 일치 메시지). */
-  private void setServerSeen(String subject, boolean seen) throws Exception {
-    Properties props = new Properties();
-    props.put("mail.store.protocol", "imap");
-    Store store = Session.getInstance(props).getStore("imap");
-    store.connect("127.0.0.1", MailTestPorts.IMAP, "box@test.local", "pw");
-    try {
-      Folder inbox = store.getFolder("INBOX");
-      inbox.open(Folder.READ_WRITE);
-      try {
-        for (Message m : inbox.getMessages()) {
-          if (subject.equals(m.getSubject())) {
-            m.setFlag(Flags.Flag.SEEN, seen);
-          }
-        }
-      } finally {
-        inbox.close(false);
-      }
-    } finally {
-      store.close();
-    }
-  }
-
   /** 읽음 재조회 대상 조회가 실패해도 새 메일은 적재되고 동기화는 성공한다. */
   @Test
   void seenCandidateLookupFails_newMailStillSaved() {
@@ -145,7 +116,7 @@ class ImapSeenSyncFailureTest extends IntegrationTestBase {
   @Test
   void seenApplyFails_newMailStillSaved() throws Exception {
     seedFirstSync();
-    setServerSeen("기존 메일", true); // 반영 단계까지 가도록 실제 변화를 만든다
+    MailTestPorts.setServerSeen("기존 메일", true); // 반영 단계까지 가도록 실제 변화를 만든다
     doThrow(new IllegalStateException("seen apply boom"))
         .when(messageRepo)
         .updateSeenByImapUid(anyLong(), anyLong(), anyLong(), anyBoolean());

@@ -28,29 +28,24 @@ public class MailReadSyncDispatcher {
   /**
    * 이벤트의 messageId 로 역동기화 식별자와 계정을 조회하고, 해당 공급자의 {@link MailReadSyncer} 를 호출한다.
    *
-   * <p>@Transactional: RLS GUC(app.tenant_id) 가 이 트랜잭션 경계 내에서만 유효하므로 조회를 트랜잭션 안에서 수행한다. locator 또는
-   * account 가 없으면(메시지 삭제 경쟁 등) 조용히 반환 — best-effort.
+   * <p>@Transactional: RLS GUC(app.tenant_id) 가 이 트랜잭션 경계 내에서만 유효하므로 조회를 트랜잭션 안에서 수행한다.
+   *
+   * <p>"서버 반영 대기" 표시 규칙(WP-148): syncer 가 예외 없이 끝나면(건너뜀 포함) 해제하고, locator·계정·syncer 가 없어 반영할 방법이 없을
+   * 때도 해제한다(아무도 반영하지 않으므로 표시를 남길 이유가 없음). 예외는 그대로 전파(리스너가 흡수)해 표시를 유지한다 — 서버 반영이 예외로 실패한 메일만 대기 표시가
+   * 남아 이후 서버 안읽음 되돌림이 반영되지 않는다.
    */
   @Transactional
-  public void dispatch(MessageMarkedReadEvent ev) {
+  public void dispatch(MessageMarkedReadEvent ev) throws Exception {
     ReadSyncLocator loc = messageRepo.findReadSyncLocator(ev.messageId()).orElse(null);
-    if (loc == null) {
-      return;
-    }
     EmailAccountResponse account =
-        accountRepo.findByIdAndUser(ev.userId(), loc.accountId()).orElse(null);
-    if (account == null) {
-      return;
+        loc == null ? null : accountRepo.findByIdAndUser(ev.userId(), loc.accountId()).orElse(null);
+    MailReadSyncer syncer =
+        account == null
+            ? null
+            : syncers.stream().filter(s -> s.provider() == loc.provider()).findFirst().orElse(null);
+    if (syncer != null) {
+      syncer.markReadOnServer(ev.userId(), account, loc); // 실패 시 예외 전파 → 대기 유지
     }
-    syncers.stream()
-        .filter(s -> s.provider() == loc.provider())
-        .findFirst()
-        .ifPresent(
-            s -> {
-              // 서버 반영에 성공했을 때만 "반영 대기" 를 푼다 — 실패 시 대기가 유지되어 동기화가 로컬 읽음을 되돌리지 않는다(WP-148)
-              if (s.markReadOnServer(ev.userId(), account, loc)) {
-                messageRepo.clearSeenPushPending(ev.messageId());
-              }
-            });
+    messageRepo.clearSeenPushPending(ev.messageId());
   }
 }

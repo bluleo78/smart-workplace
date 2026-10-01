@@ -26,12 +26,10 @@ import com.workplace.mail.service.MailSyncService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
-import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Part;
 import jakarta.mail.Session;
-import jakarta.mail.Store;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
@@ -318,29 +316,6 @@ class MailSyncServiceTest extends IntegrationTestBase {
     org.mockito.Mockito.verify(mailClient, never()).classify(any());
   }
 
-  /** WP-148: 외부 클라이언트(Outlook·모바일)가 읽음을 바꾼 것처럼 GreenMail 서버 쪽 \Seen 을 직접 바꾼다. 제목이 일치하는 메시지만 대상. */
-  private void setServerSeen(String subject, boolean seen) throws Exception {
-    Properties props = new Properties();
-    props.put("mail.store.protocol", "imap");
-    Store store = Session.getInstance(props).getStore("imap");
-    store.connect("127.0.0.1", MailTestPorts.IMAP, "box@test.local", "pw");
-    try {
-      Folder inbox = store.getFolder("INBOX");
-      inbox.open(Folder.READ_WRITE);
-      try {
-        for (Message m : inbox.getMessages()) {
-          if (subject.equals(m.getSubject())) {
-            m.setFlag(Flags.Flag.SEEN, seen);
-          }
-        }
-      } finally {
-        inbox.close(false);
-      }
-    } finally {
-      store.close();
-    }
-  }
-
   /** WP-148: 제목으로 로컬 envelope 의 seen 을 읽는다. */
   private boolean localSeen(long accountId, String subject) {
     return messageRepo.listByAccount(accountId, null, 50).stream()
@@ -466,7 +441,7 @@ class MailSyncServiceTest extends IntegrationTestBase {
 
     // 서버에서 읽음 → 로컬 읽음
     progress.finish(accountId); // 백필 목킹으로 남은 진행 상태 해제(2차 sync 가 가드에 막히지 않게)
-    setServerSeen("읽음 동기화", true);
+    MailTestPorts.setServerSeen("읽음 동기화", true);
     MailSyncResult read = syncService.sync(user, accountId);
     assertThat(read.saved()).isZero();
     assertThat(read.seenChanged()).isEqualTo(1);
@@ -474,7 +449,7 @@ class MailSyncServiceTest extends IntegrationTestBase {
 
     // 서버에서 안읽음으로 되돌림 → 로컬도 안읽음
     progress.finish(accountId);
-    setServerSeen("읽음 동기화", false);
+    MailTestPorts.setServerSeen("읽음 동기화", false);
     MailSyncResult unread = syncService.sync(user, accountId);
     assertThat(unread.seenChanged()).isEqualTo(1);
     assertThat(localSeen(accountId, "읽음 동기화")).isFalse();
@@ -499,7 +474,7 @@ class MailSyncServiceTest extends IntegrationTestBase {
         .execute();
 
     progress.finish(accountId);
-    setServerSeen("오래된 메일", true);
+    MailTestPorts.setServerSeen("오래된 메일", true);
     MailSyncResult r = syncService.sync(user, accountId);
 
     assertThat(r.seenChanged()).isZero();
@@ -516,7 +491,7 @@ class MailSyncServiceTest extends IntegrationTestBase {
     syncService.sync(user, accountId);
 
     progress.finish(accountId);
-    setServerSeen("기존 메일", true);
+    MailTestPorts.setServerSeen("기존 메일", true);
     MailTestPorts.sendText("box@test.local", "bob@example.com", "새 메일", "본문");
     greenMail.waitForIncomingEmail(2);
     MailSyncResult r = syncService.sync(user, accountId);

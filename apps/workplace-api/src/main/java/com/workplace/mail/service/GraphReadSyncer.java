@@ -26,10 +26,9 @@ public class GraphReadSyncer implements MailReadSyncer {
    * <p>account 파라미터는 Graph 구현에서 불필요(토큰+providerMessageId 만 사용)하나 인터페이스 시그니처 상 받는다.
    */
   @Override
-  public boolean markReadOnServer(long userId, EmailAccountResponse account, ReadSyncLocator loc) {
+  public void markReadOnServer(long userId, EmailAccountResponse account, ReadSyncLocator loc) {
     String token = tokenService.getAccessToken(userId, loc.accountId());
     graphApiClient.patch(token, "/me/messages/" + loc.providerMessageId(), "{\"isRead\":true}");
     // 예외(429 등)는 전파되어 호출 측(리스너)이 흡수하고, 반영 대기 표시는 유지된다
-    return true;
   }
 }
