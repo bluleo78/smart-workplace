@@ -179,7 +179,7 @@ test('목록 밀도(/chat): 행 44~56px·본문색, 섹션 머리말 ≤36px, �
   for (const id of ['sidebar-threads-link', 'channel-link-1', 'dm-self-link']) {
     const h = (await list.getByTestId(id).boundingBox())!.height
     expect(h, id).toBeGreaterThanOrEqual(44)
-    expect(h, id).toBeLessThanOrEqual(56)
+    expect(h, id).toBeLessThanOrEqual(72) // 대화 행은 미리보기 2줄 구성(WP-135) — 56px 이상
   }
   // 행 글자는 본문색(흐린 muted 아님).
   const fg = await page.evaluate(() => getComputedStyle(document.body).color)
@@ -194,9 +194,9 @@ test('목록 밀도(/chat): 행 44~56px·본문색, 섹션 머리말 ≤36px, �
   })
   expect(after.pos).toBe('absolute')
   expect(after.top).toBe('-10px')
-  // 미읽음 배지가 있는 채널 행은 굵게.
-  expect(Number(await list.getByTestId('channel-link-1').evaluate((el) => getComputedStyle(el).fontWeight))).toBeGreaterThanOrEqual(600)
-  expect(Number(await list.getByTestId('dm-self-link').evaluate((el) => getComputedStyle(el).fontWeight))).toBeLessThan(600)
+  // 미읽음 배지가 있는 채널 행은 이름이 굵게(WP-135: 행 전체가 아니라 이름 요소).
+  expect(Number(await list.getByTestId('conv-name-1').evaluate((el) => getComputedStyle(el).fontWeight))).toBeGreaterThanOrEqual(600)
+  expect(Number(await list.getByTestId('conv-name-self').evaluate((el) => getComputedStyle(el).fontWeight))).toBeLessThan(600)
   await expectNoHorizontalOverflow(page)
 })
 

@@ -465,8 +465,28 @@ test('대화 사이드바 — 채널·DM 링크에 transition-colors 적용', as
   await page.goto(`/chat/channels/${CHANNEL_ID}`);
   // 채널 링크 — hover 페이드를 위한 transition-colors 유틸리티가 className 에 포함되어야 한다
   await expect(page.getByTestId(`channel-link-${CHANNEL_ID}`)).toHaveClass(/transition-colors/);
+  // WP-135: 미리보기 행은 모바일 전용 — 데스크톱 사이드바엔 없다.
+  await expect(page.getByTestId(`conv-preview-${CHANNEL_ID}`)).toHaveCount(0);
   // self-DM("나") 링크도 동일 DM 목록 패턴 → 동일하게 적용
   await expect(page.getByTestId('dm-self-link')).toHaveClass(/transition-colors/);
+});
+
+// 회귀 — 긴 채널명 옆 미읽음 배지(99+)가 이름에 밀려 찌그러지지 않는다(배지 shrink-0).
+test('대화 사이드바 — 긴 채널명이어도 미읽음 배지가 줄어들지 않는다', async ({ authenticatedPage: page }) => {
+  const longName = 'smart-workplace-모바일-개선-태스크포스-2026-하반기-로드맵'
+  await setupChannelStubs(
+    page,
+    [createChannel({ id: CHANNEL_ID, member: true, name: longName, unreadCount: 150 })],
+    `:\n\n`,
+  );
+  await page.goto(`/chat/channels/${CHANNEL_ID}`);
+  const badge = page.getByTestId(`channel-unread-${CHANNEL_ID}`);
+  await expect(badge).toHaveText('99+');
+  // 배지 내용이 잘리지 않고(스크롤폭 ≤ 표시폭) 행 안에 온전히 들어온다.
+  expect(await badge.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  const row = (await page.getByTestId(`channel-link-${CHANNEL_ID}`).boundingBox())!;
+  const b = (await badge.boundingBox())!;
+  expect(b.x + b.width).toBeLessThanOrEqual(row.x + row.width);
 });
 
 // 회귀(#338) — 팀 채팅 멀티데이 대화에서 날짜 구분선이 렌더되어야 한다.

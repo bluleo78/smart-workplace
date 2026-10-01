@@ -150,11 +150,15 @@ export function handleMessagingEvent(
       mentions: d.mentions as MessageResponse['mentions'],
       editedAt: d.editedAt as string | null,
     });
+    // 목록 행 미리보기(WP-135)가 이 메시지일 수 있으므로 채널·DM 목록 재조회.
+    invalidateLists(qc);
   } else if (eventName === 'messaging.message.deleted') {
     // payload: {channelId,id}
     const id = Number(d.id);
     if (!id) return;
     patchMessage(qc, channelId, id, { deleted: true, body: '(삭제됨)' });
+    // 목록 행 미리보기(WP-135)가 이 메시지일 수 있으므로 채널·DM 목록 재조회.
+    invalidateLists(qc);
     // 인박스(크로스채널 미읽음 스레드)도 답글 삭제 시 갱신.
     qc.invalidateQueries({ queryKey: messagingKeys.threadsInbox() });
     qc.invalidateQueries({ queryKey: messagingKeys.threadsInboxUnreadCount() });
