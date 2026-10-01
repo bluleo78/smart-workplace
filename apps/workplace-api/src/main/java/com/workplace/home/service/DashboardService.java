@@ -2,6 +2,7 @@ package com.workplace.home.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.home.dto.DashboardDevice;
 import com.workplace.home.dto.DashboardResponse;
 import com.workplace.home.dto.DashboardWidgetConfig;
 import com.workplace.home.repository.DashboardRepository;
@@ -43,6 +44,22 @@ public class DashboardService {
           "unread_mail");
 
   /**
+   * 모바일 기본 레이아웃(WP-142) — 좁은 화면 핵심 위젯만, 데스크톱 복사가 아닌 별도 시작 구성. 모두 펼침·목록형 3건. 모두 SYSTEM_WIDGETS
+   * 부분집합이라 화이트리스트는 기기 공통으로 유지된다.
+   */
+  static final List<String> MOBILE_DEFAULT_WIDGETS =
+      List.of(
+          "synthesis",
+          "my_tasks",
+          "calendar_today",
+          "notifications",
+          "unread_mail",
+          "recent_chats");
+
+  /** 모바일 기본 항목 수 — 375px 한 화면에 위젯 여러 개가 보이도록 데스크톱(5)보다 짧게. */
+  static final int MOBILE_DEFAULT_COUNT = 3;
+
+  /**
    * 시스템 위젯 — 타입당 1개(싱글턴), count 기반. synthesis/quick_actions/priority_quadrant 는 count 를 받지만 컴포넌트가
    * 무시한다(항목 수 고정). priority_quadrant 는 DEFAULT_WIDGETS 에는 없지만(기본 미노출) 여기엔 포함되어 화이트리스트 통과· "위젯 추가"
    * 노출은 그대로 유지된다.
@@ -82,22 +99,23 @@ public class DashboardService {
   private final ObjectMapper objectMapper;
 
   /**
-   * 사용자의 대시보드 레이아웃. 미설정이면 기본 레이아웃, 있으면 알 수 없는 위젯을 제거하고 시스템 위젯 type 중복 및 id 중복을 정리해 반환한다. 레거시(문자열
-   * 배열) 저장본도 기본 설정 객체로 변환해 호환한다. GET 은 관용적(tolerant) — 깨진/구버전 행도 렌더 가능하게 한다.
+   * 기기별 대시보드 레이아웃. 해당 기기 행이 없으면 그 기기의 기본 레이아웃, 있으면 알 수 없는 위젯을 제거하고 시스템 위젯 type 중복 및 id 중복을 정리해
+   * 반환한다. 레거시(문자열 배열) 저장본도 기본 설정 객체로 변환해 호환한다. GET 은 관용적(tolerant) — 깨진/구버전 행도 렌더 가능하게 한다. 정리 규칙은
+   * 기기 공통.
    */
   @Transactional(readOnly = true)
-  public DashboardResponse get(long userId) {
-    Optional<String> json = repository.findWidgetsJson(userId);
+  public DashboardResponse get(long userId, DashboardDevice device) {
+    Optional<String> json = repository.findWidgetsJson(userId, device);
     if (json.isEmpty()) {
-      return new DashboardResponse(defaultConfigs());
+      return new DashboardResponse(defaultConfigs(device));
     }
     List<DashboardWidgetConfig> stored;
     try {
       stored = parse(json.get());
     } catch (RuntimeException e) {
-      // GET 은 관용적 — 손상된 한 행이 대시보드를 깨뜨리지 않도록 기본 레이아웃으로 폴백한다.
-      log.warn("대시보드 위젯 파싱 실패(userId={}), 기본 레이아웃으로 폴백", userId, e);
-      return new DashboardResponse(defaultConfigs());
+      // GET 은 관용적 — 손상된 한 행이 대시보드를 깨뜨리지 않도록 해당 기기 기본 레이아웃으로 폴백한다.
+      log.warn("대시보드 위젯 파싱 실패(userId={}, device={}), 기본 레이아웃으로 폴백", userId, device, e);
+      return new DashboardResponse(defaultConfigs(device));
     }
     List<DashboardWidgetConfig> filtered = new ArrayList<>();
     Set<String> seenSystemTypes = new LinkedHashSet<>();
@@ -119,14 +137,15 @@ public class DashboardService {
   }
 
   /**
-   * 레이아웃 저장(전체 교체). PUT 은 엄격(strict) — 알 수 없는 type / 허용 외 count / 시스템 위젯 type 중복 / 위젯 id 중복 /
-   * params 형식 오류 / 총 개수 초과는 400 으로 거부한다. 카탈로그 위젯은 동일 type 다중 인스턴스를 허용한다. 숨김(hidden) 위젯도 순서·설정 보존을
-   * 위해 그대로 영속한다.
+   * 기기별 레이아웃 저장(전체 교체). 한 기기의 PUT 은 다른 기기 행을 건드리지 않는다. PUT 은 엄격(strict) — 알 수 없는 type / 허용 외 count
+   * / 시스템 위젯 type 중복 / 위젯 id 중복 / params 형식 오류 / 총 개수 초과는 400 으로 거부한다(기기 공통). 카탈로그 위젯은 동일 type 다중
+   * 인스턴스를 허용한다. 숨김(hidden)·접힘(collapsed) 위젯도 순서·설정 보존을 위해 그대로 영속한다.
    *
    * @return 실제 저장된 위젯 목록
    */
   @Transactional
-  public DashboardResponse save(long userId, List<DashboardWidgetConfig> widgets) {
+  public DashboardResponse save(
+      long userId, DashboardDevice device, List<DashboardWidgetConfig> widgets) {
     if (widgets.isEmpty()) {
       // GlobalExceptionHandler 에서 IllegalArgumentException → 400 으로 매핑된다.
       throw new IllegalArgumentException("유효한 위젯이 하나도 없습니다.");
@@ -150,7 +169,7 @@ public class DashboardService {
       }
       validated.add(v);
     }
-    repository.upsert(userId, write(validated));
+    repository.upsert(userId, device, write(validated));
     return new DashboardResponse(validated);
   }
 
@@ -181,7 +200,8 @@ public class DashboardService {
         w.hidden(),
         isCatalog ? params : null,
         w.label(),
-        w.chromeless());
+        w.chromeless(),
+        w.collapsed());
   }
 
   /** GET 정규화 — id 미지정 보정, count 는 시스템 위젯만 허용 외/0 이면 기본값으로 보정(읽기는 거부하지 않음). */
@@ -197,11 +217,23 @@ public class DashboardService {
         w.hidden(),
         isCatalog ? params : null,
         w.label(),
-        w.chromeless());
+        w.chromeless(),
+        w.collapsed());
   }
 
-  /** 기본 레이아웃을 기본 설정(count 5, hidden false, id=type) 객체 목록으로. */
-  private List<DashboardWidgetConfig> defaultConfigs() {
+  /**
+   * 기기별 기본 레이아웃. 데스크톱은 기존 그대로(count 5, collapsed 미지정), 모바일은 MOBILE_DEFAULT_WIDGETS 를 count 3·펼침
+   * (collapsed=false 명시)으로 — 프런트가 "모두 펼침" 상태를 값으로 받게 한다.
+   */
+  private List<DashboardWidgetConfig> defaultConfigs(DashboardDevice device) {
+    if (device == DashboardDevice.MOBILE) {
+      return MOBILE_DEFAULT_WIDGETS.stream()
+          .map(
+              t ->
+                  new DashboardWidgetConfig(
+                      t, t, MOBILE_DEFAULT_COUNT, false, null, null, false, false))
+          .toList();
+    }
     return DEFAULT_WIDGETS.stream()
         .map(t -> new DashboardWidgetConfig(t, DEFAULT_COUNT, false))
         .toList();

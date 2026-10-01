@@ -15,6 +15,8 @@ import jakarta.validation.constraints.NotBlank;
  * @param label 사용자 지정 표시 이름(선택). 미지정 시 프론트가 기본 제목 + 필터 요약을 사용.
  * @param chromeless 테두리·제목 헤더 없이 본문만 표시할지 여부(선택, 기본 false). 위젯 종류 무관 공통 표시 옵션 — 백엔드는 통과값
  *     검증(boolean) 외 별도 로직 없음.
+ * @param collapsed 모바일 본문형 위젯의 접힘 여부(선택, WP-142). null = 미지정(펼침으로 본다). 데스크톱에서도 저장은 되지만 프런트가 무시한다 —
+ *     백엔드는 값 통과 외 별도 로직 없음.
  */
 public record DashboardWidgetConfig(
     String id,
@@ -23,10 +25,13 @@ public record DashboardWidgetConfig(
     boolean hidden,
     JsonNode params,
     String label,
-    boolean chromeless) {
+    boolean chromeless,
+    Boolean collapsed) {
 
-  /** 시스템 위젯(싱글턴) 편의 생성자 — id=type, params/label 없음, chromeless=false. 기존 5종 호출부 하위호환. */
+  /**
+   * 시스템 위젯(싱글턴) 편의 생성자 — id=type, params/label 없음, chromeless=false, collapsed 미지정. 기존 호출부 하위호환.
+   */
   public DashboardWidgetConfig(String type, int count, boolean hidden) {
-    this(type, type, count, hidden, null, null, false);
+    this(type, type, count, hidden, null, null, false, null);
   }
 }

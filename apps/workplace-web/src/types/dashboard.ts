@@ -1,8 +1,12 @@
 // 홈 대시보드 데이터 타입 — 백엔드 DTO 와 1:1 매칭.
 import type { EmailMessageSummary } from './mailMessage'
 
+// 레이아웃을 따로 저장하는 기기 구분(WP-142) — 백엔드 DashboardDevice 와 1:1(쿼리 값은 소문자).
+export type DashboardDevice = 'desktop' | 'mobile'
+
 // 위젯 한 개의 구성 — id(인스턴스 식별자) + 타입 키 + 항목 수(시스템 위젯 전용) + 숨김 여부
-// + params(카탈로그 위젯 필터, opaque) + label(사용자 지정 표시 이름) + chromeless(테두리·제목 숨김).
+// + params(카탈로그 위젯 필터, opaque) + label(사용자 지정 표시 이름) + chromeless(테두리·제목 숨김)
+// + collapsed(모바일 본문형 접힘).
 // 백엔드 객체-배열 컨트랙트와 1:1. count 는 시스템 위젯만 {3,5,10} 허용(서버가 그 외 400).
 export interface DashboardWidgetConfig {
   id: string
@@ -13,6 +17,8 @@ export interface DashboardWidgetConfig {
   label?: string | null
   // 위젯 종류 무관 공통 표시 옵션 — true 면 카드 테두리·제목 헤더 없이 본문만 렌더.
   chromeless?: boolean
+  // 모바일 본문형 위젯 접힘(WP-142). null/미지정 = 펼침. 데스크톱은 이 값을 무시한다.
+  collapsed?: boolean | null
 }
 
 // 홈 대시보드 레이아웃 — 위젯 구성의 정렬된 배열(순서 = 렌더 순서).

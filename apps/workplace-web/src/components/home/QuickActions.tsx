@@ -18,7 +18,8 @@ const ACTIONS = [
 /** ② 빠른 액션 행 — 모듈 생성 흐름으로 진입하는 버튼들(전부 실제 타깃). */
 export function QuickActions() {
   return (
-    <div className="flex flex-wrap gap-2" data-testid="dashboard-quickactions">
+    // 모바일은 버튼 2열 격자(좁은 폭에서 줄바꿈이 들쭉날쭉하지 않게), 데스크톱은 기존 가로 줄(WP-142).
+    <div className="grid grid-cols-2 gap-2 lg:flex lg:flex-wrap" data-testid="dashboard-quickactions">
       {ACTIONS.map((a) => (
         <Button key={a.label} asChild variant="outline" size="sm">
           <Link to={a.to} aria-label={a.label}>

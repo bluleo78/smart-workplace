@@ -11,6 +11,18 @@ import {
 } from 'lucide-react'
 import { type ComponentType, lazy, type LazyExoticComponent } from 'react'
 
+import {
+  CalendarTodaySummary,
+  MyTasksSummary,
+  NotificationsSummary,
+  PriorityQuadrantSummary,
+  QuickActionsSummary,
+  RecentChatsSummary,
+  SynthesisSummary,
+  UnreadMailSummary,
+} from './mobile/summaries/systemSummaries'
+import type { MobileWidgetDef } from './mobile/types'
+
 // ---------------------------------------------------------------------------
 // 대시보드 레지스트리 — 고정 홈 대시보드가 사용자 저장 레이아웃 순서로 렌더한다.
 // 앱 횡단(app-agnostic): 각 위젯은 자체 훅으로 데이터를 가져오는 본문 컴포넌트 + 메타.
@@ -37,6 +49,8 @@ export interface DashboardWidget {
   // #브레인스토밍 2026-07-02: 카운트 스트립·2x2 분면·가로 버튼처럼 1/3 폭에 찌그러지는 위젯용 —
   // true 면 lg:col-span-3(그리드 전체 폭). tall 과 독립적으로 조합 가능.
   wide?: boolean
+  // 모바일 표시(WP-142) — 본문형(접기 가능)인지 타일형(한 줄)인지 + 접힘·타일 요약 한 줄.
+  mobile: MobileWidgetDef
 }
 
 // 키 → 위젯 정의. 새 위젯 추가 = 항목 한 줄.
@@ -50,6 +64,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     icon: ClipboardList,
     Component: lazy(() => import('./dashboard/MyTasksBody')),
     deepLink: '/me/tasks/assigned',
+    mobile: { body: true, Summary: MyTasksSummary },
   },
   calendar_today: {
     type: 'calendar_today',
@@ -58,6 +73,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     icon: CalendarDays,
     Component: lazy(() => import('./dashboard/CalendarTodayBody')),
     deepLink: '/calendar',
+    mobile: { body: true, Summary: CalendarTodaySummary },
   },
   notifications: {
     type: 'notifications',
@@ -67,6 +83,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     Component: lazy(() => import('./dashboard/NotificationsBody')),
     // 활동/알림은 피드성 → 2행 span(게이트 §1.2). 그 외 위젯은 standard.
     tall: true,
+    mobile: { body: true, Summary: NotificationsSummary },
   },
   recent_chats: {
     type: 'recent_chats',
@@ -75,6 +92,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     icon: MessageSquare,
     Component: lazy(() => import('./dashboard/ConversationsBody')),
     deepLink: '/chat',
+    mobile: { body: true, Summary: RecentChatsSummary },
   },
   unread_mail: {
     type: 'unread_mail',
@@ -83,6 +101,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     icon: Mail,
     Component: lazy(() => import('./dashboard/UnreadMailBody')),
     deepLink: '/mail',
+    mobile: { body: true, Summary: UnreadMailSummary },
   },
   synthesis: {
     type: 'synthesis',
@@ -91,6 +110,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     icon: AlertTriangle,
     Component: lazy(() => import('./dashboard/SynthesisBody')),
     wide: true,
+    mobile: { body: true, Summary: SynthesisSummary },
   },
   quick_actions: {
     type: 'quick_actions',
@@ -100,6 +120,7 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     icon: Zap,
     Component: lazy(() => import('./dashboard/QuickActionsBody')),
     wide: true,
+    mobile: { body: true, Summary: QuickActionsSummary },
   },
   priority_quadrant: {
     type: 'priority_quadrant',
@@ -108,6 +129,8 @@ const dashboardRegistry: Record<string, DashboardWidget> = {
     icon: Sparkles,
     Component: lazy(() => import('./dashboard/PriorityQuadrantBody')),
     wide: true,
+    // 2x2 분면은 375px 에 담기지 않는다 → 타일(최상위 1건).
+    mobile: { body: false, Summary: PriorityQuadrantSummary },
   },
 }
 

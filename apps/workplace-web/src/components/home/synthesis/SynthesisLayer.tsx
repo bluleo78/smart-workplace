@@ -19,6 +19,7 @@ import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
+import { todayRange } from '@/lib/calendarRange'
 import { parseUtcDate } from '@/lib/formatters'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -26,6 +27,8 @@ import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
 
 import { isMentionLike, notifLabel, notifTarget } from '../notifTarget'
+import { mailBadgeCount } from '../widgets/mobile/summaries/summaryLogic'
+import { dueQueryFrom, localDateKey } from './synthesisDates'
 
 // 위젯 추가 모달 프리뷰 전용(#브레인스토밍 2026-07-03) — 6개 하위 훅 각각의 응답을 그대로 미러링한
 // 목데이터 뭉치. previewData 가 있으면 6개 훅 전부 enabled:false 로 끄고 이 값으로만 렌더한다.
@@ -36,23 +39,6 @@ export interface SynthesisPreviewData {
   events: CalendarEvent[]
   messaging: MessagingSummary
   priorityItems: PriorityItem[]
-}
-
-// 오늘 00:00~24:00(로컬) ISO 범위 — CalendarTodayBody 와 동일 규칙으로 캘린더 쿼리 dedupe.
-function todayRange(): { from: string; to: string } {
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(start)
-  end.setDate(end.getDate() + 1)
-  return { from: start.toISOString(), to: end.toISOString() }
-}
-
-// yyyy-MM-dd(로컬) — 마감일(LocalDate) 비교용.
-function localDateKey(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
 }
 
 // 지금 신경 쓸 일 한 행의 표준 모델.
@@ -108,7 +94,8 @@ function CountCell({
           {ai && !error && <Sparkles className="inline h-3 w-3 text-ai-accent" />}
         </span>
       )}
-      <span className="text-xs text-muted-foreground">{label}</span>
+      {/* 라벨은 모바일 3열에서 한 줄 고정(꺾이면 셀 높이가 들쭉날쭉해진다, WP-142). 데스크톱 CSS 는 그대로(lg:whitespace-normal). */}
+      <span className="whitespace-nowrap text-xs text-muted-foreground lg:whitespace-normal">{label}</span>
     </>
   )
 
@@ -153,9 +140,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   const { from, to } = todayRange()
 
   // 마감 이슈 — 1년 전~오늘로 한 번에 조회해 '오늘 마감' 카운트와 '지남+오늘' 주의 행을 분리 산출.
-  const dueFrom = new Date(today)
-  dueFrom.setFullYear(dueFrom.getFullYear() - 1)
-  const dues = useMyIssueDues(dueFrom.toISOString(), to, { enabled: !previewData })
+  const dues = useMyIssueDues(dueQueryFrom(today), to, { enabled: !previewData })
 
   // 멘션(코멘트 프록시) — 알림 목록 재사용(위젯과 동일 키 → dedupe).
   const notifs = useNotifications(!previewData)
@@ -185,9 +170,8 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   const mentionCount = notifItems.filter((n) => isMentionLike(n) && !n.read).length
 
   const mailData = previewData?.mail ?? mail.data
-  // 메일 카운트 — AI 분류 활성이면 "회신 필요 N", 비활성이면 "안 읽음 N".
-  const unreadMail = mailData?.unreadCount ?? 0
-  const needsReply = mailData?.needsReplyCount ?? 0
+  // 메일 카운트 — AI 분류 활성이면 "회신 필요 N", 비활성이면 "안 읽음 N"(모바일 요약과 같은 mailBadgeCount 스왑 규칙).
+  const mailCount = mailBadgeCount(mailData)
   // classificationActive: 하나라도 aiEnabled 계정이 있으면 true(백엔드 집계).
   const classifyOn = mailData?.classificationActive ?? false
 
@@ -324,8 +308,8 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
     { label: '멘션', count: mentionCount, onClick: () => openInbox(), q: previewData ? noQuery : notifs },
     // 메일 KPI 스왑: 분류 활성 시 "회신 필요 N"(Sparkles), 비활성 시 "안 읽음 N".
     classifyOn
-      ? { label: '회신 필요', count: needsReply, to: '/mail', q: previewData ? noQuery : mail, ai: true }
-      : { label: '안 읽음', count: unreadMail, to: '/mail', q: previewData ? noQuery : mail },
+      ? { label: '회신 필요', count: mailCount, to: '/mail', q: previewData ? noQuery : mail, ai: true }
+      : { label: '안 읽음', count: mailCount, to: '/mail', q: previewData ? noQuery : mail },
     { label: '오늘 일정', count: todayEventCount, to: '/calendar', q: previewData ? noQuery : events },
     // 메시징 KPI — 회신대기 + AI 발굴 합산. AI 신호 배지 표시. 딥링크: /chat.
     { label: '확인 필요', count: chatNeedsAttention, to: '/chat', q: previewData ? noQuery : messaging, ai: true, testId: 'kpi-messaging' },
@@ -333,10 +317,15 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
 
   return (
     // 합성 레이어 카드 — 규칙 기반 집계이므로 외부 카드는 표준 Card. AI 발굴 행은 포커스 카드 내 AiContent 로 마킹.
-    <Card data-testid="dashboard-synthesis">
-      <CardContent className="space-y-4 pt-4">
+    // 모바일(lg 미만)에서는 위젯 카드 안에 카드가 한 번 더 들어가 여백이 이중이 되므로 테두리·패딩·그림자·배경을 걷어낸다.
+    // lg: 접두로 데스크톱 값(gap-6·border·py-6·shadow-sm·bg-card)을 그대로 복원한다(WP-142, 데스크톱 불변).
+    <Card
+      data-testid="dashboard-synthesis"
+      className="gap-0 border-0 bg-transparent py-0 shadow-none lg:gap-6 lg:border lg:bg-card lg:py-6 lg:shadow-sm"
+    >
+      <CardContent className="space-y-4 px-0 pt-0 lg:px-6 lg:pt-4">
         {/* 상태 카운트 스트립 — 5셀(이슈·멘션·메일·일정·메시징), 각 셀 모듈 딥링크. */}
-        <div className="grid grid-cols-5 gap-4" data-testid="dashboard-counts">
+        <div className="grid grid-cols-3 gap-2 lg:grid-cols-5 lg:gap-4" data-testid="dashboard-counts">
           {cells.map((c) => (
             <CountCell
               key={c.label}

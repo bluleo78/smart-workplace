@@ -91,6 +91,20 @@ public class UserDashboardRecord extends UpdatableRecordImpl<UserDashboardRecord
         return (OffsetDateTime) get(4);
     }
 
+    /**
+     * Setter for <code>public.user_dashboard.device</code>.
+     */
+    public void setDevice(String value) {
+        set(5, value);
+    }
+
+    /**
+     * Getter for <code>public.user_dashboard.device</code>.
+     */
+    public String getDevice() {
+        return (String) get(5);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -114,7 +128,7 @@ public class UserDashboardRecord extends UpdatableRecordImpl<UserDashboardRecord
     /**
      * Create a detached, initialised UserDashboardRecord
      */
-    public UserDashboardRecord(Long id, Long tenantId, Long userId, JSONB widgets, OffsetDateTime updatedAt) {
+    public UserDashboardRecord(Long id, Long tenantId, Long userId, JSONB widgets, OffsetDateTime updatedAt, String device) {
         super(UserDashboard.USER_DASHBOARD);
 
         setId(id);
@@ -122,6 +136,7 @@ public class UserDashboardRecord extends UpdatableRecordImpl<UserDashboardRecord
         setUserId(userId);
         setWidgets(widgets);
         setUpdatedAt(updatedAt);
+        setDevice(device);
         resetChangedOnNotNull();
     }
 }

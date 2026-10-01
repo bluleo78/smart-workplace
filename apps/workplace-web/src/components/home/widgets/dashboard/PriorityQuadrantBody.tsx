@@ -7,6 +7,8 @@ import type { PriorityItem } from '@/api/priorityItems'
 import { Skeleton } from '@/components/ui/skeleton'
 import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
 
+import { type QuadrantKey,quadrantOf } from './bodyRules'
+
 const SOURCE_ICON: Record<string, typeof CalendarClock> = {
   ISSUE_DUE: CalendarClock,
   MENTION: MessageSquare,
@@ -18,12 +20,13 @@ const SOURCE_ICON: Record<string, typeof CalendarClock> = {
 // AgendaView.tsx 의 "size-2 rounded-full" 점 패턴을 미러 — 시맨틱 색 토큰 클래스만 사용.
 // 배치(2열 그리드 순서 = 좌상단→우상단→좌하단→우하단): 긴급도를 X축(오른쪽 증가), 중요도를 Y축(위
 // 증가)으로 보면 우상단이 "긴급+중요" — 통상적인 아이젠하워 매트릭스 배치와 일치.
-const QUADRANTS = [
-  { key: 'important', label: '중요', dotClassName: 'bg-warning', test: (i: PriorityItem) => i.importanceScore >= 50 && i.urgencyScore < 50 },
-  { key: 'urgent-important', label: '긴급 + 중요', dotClassName: 'bg-destructive', test: (i: PriorityItem) => i.importanceScore >= 50 && i.urgencyScore >= 50 },
-  { key: 'low', label: '낮음', dotClassName: 'bg-muted-foreground/40', test: (i: PriorityItem) => i.importanceScore < 50 && i.urgencyScore < 50 },
-  { key: 'urgent', label: '긴급', dotClassName: 'bg-orange-500', test: (i: PriorityItem) => i.importanceScore < 50 && i.urgencyScore >= 50 },
-] as const
+// 분면 판정(임계값 50)은 모바일 요약 칩과 같은 기준을 쓰도록 bodyRules.quadrantOf 단일 출처를 따른다(WP-142).
+const QUADRANTS: { key: QuadrantKey; label: string; dotClassName: string }[] = [
+  { key: 'important', label: '중요', dotClassName: 'bg-warning' },
+  { key: 'urgent-important', label: '긴급 + 중요', dotClassName: 'bg-destructive' },
+  { key: 'low', label: '낮음', dotClassName: 'bg-muted-foreground/40' },
+  { key: 'urgent', label: '긴급', dotClassName: 'bg-orange-500' },
+]
 
 const MAX_PER_QUADRANT = 3
 
@@ -71,7 +74,7 @@ export default function PriorityQuadrantBody({
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2" data-testid="priority-quadrant">
       {QUADRANTS.map((q) => {
         const bucket = items
-          .filter(q.test)
+          .filter((i) => quadrantOf(i) === q.key)
           .sort((a, b) => b.importanceScore + b.urgencyScore - (a.importanceScore + a.urgencyScore))
         return (
           <div key={q.key} className="rounded-md border border-border p-2" data-testid={`priority-quadrant-${q.key}`}>

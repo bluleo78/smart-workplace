@@ -10,6 +10,19 @@ import {
   Mail,
 } from 'lucide-react'
 
+import {
+  ActivitySummary,
+  CalendarSummary,
+  ChannelsSummary,
+  ContactsSummary,
+  DriveSummary,
+  IssueListSummary,
+  MailListSummary,
+  ProjectsSummary,
+  WikiSummary,
+} from './mobile/summaries/catalogSummaries'
+import type { MobileWidgetDef } from './mobile/types'
+
 // ---------------------------------------------------------------------------
 // 카탈로그 위젯 레지스트리 — 대시보드에 다중 인스턴스로 추가 가능한 위젯 메타데이터.
 // 렌더링은 신규 컴포넌트를 만들지 않고 chatWidgetRegistry(AI 챗 위젯)를 그대로 재사용한다.
@@ -41,6 +54,8 @@ export interface CatalogWidget {
    * URL 을 만든다. 대상 화면 URL 쿼리에 대응이 없는 params 는 조용히 버리고 모듈 루트로 폴백한다.
    */
   deepLink: (params: CatalogParams) => string
+  /** 모바일 표시(WP-142) — 카탈로그 위젯은 좁은 화면에서 모두 타일형(한 줄, 탭하면 deepLink). */
+  mobile: MobileWidgetDef
 }
 
 /** 위젯 params — 저장 레이아웃의 params 는 null/undefined 일 수 있어 느슨하게 받는다. */
@@ -105,6 +120,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
         priority: str(params, 'priority'),
       })}`
     },
+    mobile: { body: false, Summary: IssueListSummary },
   },
   mail_list: {
     type: 'mail_list',
@@ -130,6 +146,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
     // 메일함은 ?folder=sent(소문자)만 인식. unreadOnly 는 URL 대응이 없어 폐기(폴백).
     deepLink: (params) =>
       `/mail${qs({ folder: str(params, 'folder') === 'SENT' ? 'sent' : undefined })}`,
+    mobile: { body: false, Summary: MailListSummary },
   },
   calendar: {
     type: 'calendar',
@@ -152,6 +169,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
     ],
     // 캘린더 화면은 URL 로 뷰/기간을 받지 않는다 → range 폐기, 모듈 루트 폴백.
     deepLink: () => '/calendar',
+    mobile: { body: false, Summary: CalendarSummary },
   },
   activity: {
     type: 'activity',
@@ -174,6 +192,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
     ],
     // 전용 활동 피드 화면이 없다 — 활동 행이 이슈로 링크되므로 프로젝트 루트로 폴백(actorKind 폐기).
     deepLink: () => '/projects',
+    mobile: { body: false, Summary: ActivitySummary },
   },
   wiki: {
     type: 'wiki',
@@ -187,6 +206,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
     fields: [{ key: 'query', label: '검색어', kind: 'text', placeholder: '페이지 제목 검색' }],
     // 노트 화면은 검색어 URL 쿼리를 받지 않는다 → query 폐기, 모듈 루트 폴백.
     deepLink: () => '/wiki',
+    mobile: { body: false, Summary: WikiSummary },
   },
   contacts: {
     type: 'contacts',
@@ -219,6 +239,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
         type: type && type !== 'ALL' ? type : undefined,
       })}`
     },
+    mobile: { body: false, Summary: ContactsSummary },
   },
   projects: {
     type: 'projects',
@@ -230,6 +251,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
     defaultParams: {},
     fields: [],
     deepLink: () => '/projects',
+    mobile: { body: false, Summary: ProjectsSummary },
   },
   drive: {
     type: 'drive',
@@ -241,6 +263,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
     defaultParams: {},
     fields: [],
     deepLink: () => '/drive',
+    mobile: { body: false, Summary: DriveSummary },
   },
   channels: {
     type: 'channels',
@@ -252,6 +275,7 @@ const catalogRegistry: Record<string, CatalogWidget> = {
     defaultParams: {},
     fields: [],
     deepLink: () => '/chat',
+    mobile: { body: false, Summary: ChannelsSummary },
   },
 }
 

@@ -2962,3 +2962,52 @@ test('기존 저장 레이아웃에 신규 위젯 3종이 없으면 위젯 추�
   await expect(modal.getByText('요약')).toBeVisible()
   await expect(modal.getByText('빠른 액션')).toBeVisible()
 })
+
+test('데스크톱 — 레이아웃 조회·저장에 device 쿼리를 붙이지 않는다(WP-142)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  // 문자열 glob 목('**/api/v1/me/dashboard')은 쿼리 문자열이 붙으면 매칭되지 않는다 — 데스크톱은 device 를 생략해야 한다.
+  const getCapture = await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks', 'unread_mail']), {
+    capture: true,
+  })
+  const putCapture = await mockApi(page, 'PUT', '/api/v1/me/dashboard', layout(['my_tasks', 'unread_mail']), {
+    capture: true,
+  })
+  await page.goto('/')
+  const get = await getCapture.waitForRequest()
+  expect(get.searchParams.has('device')).toBe(false)
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.getByTestId('dashboard-edit-save').click()
+  const put = await putCapture.waitForRequest()
+  expect(put.searchParams.has('device')).toBe(false)
+})
+
+test('데스크톱 — 저장본에 collapsed 가 있어도 무시하고 본문을 렌더한다(WP-142)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/dashboard',
+    layout([{ id: 'my_tasks', type: 'my_tasks', count: 5, hidden: false, collapsed: true }]),
+  )
+  await page.goto('/')
+  await expect(page.getByTestId('dash-mytasks')).toBeVisible()
+  await expect(page.getByTestId('mobile-widget-collapse')).toHaveCount(0)
+  await expect(page.locator('[data-testid="dashboard-widget"][data-mobile-kind]')).toHaveCount(0)
+})
+
+test('데스크톱 — 요약 KPI 5칸 한 줄·안쪽 카드 테두리 유지(WP-142 반응형 회귀 가드)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
+  await page.goto('/')
+  const cells = page.getByTestId('dashboard-counts').locator(':scope > *')
+  await expect(cells).toHaveCount(5)
+  const ys = await cells.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().y))
+  expect(new Set(ys).size).toBe(1)
+  await expect(page.getByTestId('dashboard-synthesis')).toHaveCSS('border-top-width', '1px')
+})

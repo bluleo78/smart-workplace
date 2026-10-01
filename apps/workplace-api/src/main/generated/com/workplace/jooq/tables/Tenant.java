@@ -1211,18 +1211,10 @@ public class Tenant extends TableImpl<TenantRecord> {
 
     /**
      * Get the implicit many-to-many join path to the <code>public.user</code>
-     * table, via the <code>membership_user_id_fkey</code> key
+     * table
      */
-    public UserPath membershipUserIdFkey() {
+    public UserPath user() {
         return membership().user();
-    }
-
-    /**
-     * Get the implicit many-to-many join path to the <code>public.user</code>
-     * table, via the <code>user_dashboard_user_id_fkey</code> key
-     */
-    public UserPath userDashboardUserIdFkey() {
-        return userDashboard().user();
     }
 
     @Override
