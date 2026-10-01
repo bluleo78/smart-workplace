@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -400,7 +401,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
     when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
     // 첫 recompute(저장 트랜잭션 안) 직후 ③ 이 분류를 저장한 상황을 흉내 낸다
-    org.mockito.Mockito.doAnswer(
+    doAnswer(
             inv -> {
               Object r = inv.callRealMethod();
               dsl.update(EMAIL_CONTENT)
@@ -416,5 +417,24 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     analysis.analyzePersonal(box.userId(), env);
 
     assertThat(envelope(env).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
+  }
+
+  @Test
+  void categoryFilledByLaterEnvelope_recomputesEarlierSibling() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long a = MailAnalysisFixtures.envelope(dsl, box, content, "shop@corp.com", box.address(), null);
+    long b = MailAnalysisFixtures.envelope(dsl, box, content, "shop@corp.com", box.address(), null);
+    when(mailClient.analyzePersonal(any()))
+        .thenReturn(reply(true)) // A: 분류 없음
+        .thenReturn(new AnalyzePersonalResult(true, null, false, "프로모션")); // B: 분류 보충
+
+    analysis.analyzePersonal(box.userId(), a);
+    assertThat(envelope(a).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isTrue();
+    analysis.analyzePersonal(box.userId(), b);
+
+    assertThat(contentCategory(content)).isEqualTo("프로모션");
+    assertThat(envelope(a).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
+    assertThat(envelope(b).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
   }
 }

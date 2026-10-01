@@ -220,18 +220,25 @@ public class MailAnalysisService {
     boolean writePersonal = wantPersonal && r.personalSummaryValid();
     boolean markSkipped = personalPending && skipPersonal;
     String category = wantCategory ? validCategory(r.category()) : null;
-    txTemplate.executeWithoutResult(
-        status -> {
-          contentRepo.lockForAnalysis(ctx.contentId()); // ③ 저장과 직렬화 — 이후 읽는 분류가 최신
-          if (!messageRepo.savePersonalAnalysis(
-              messageId, r.needsReply(), writePersonal, r.personalSummary(), markSkipped)) {
-            return; // 다른 실행이 먼저 기록
-          }
-          if (category != null) {
-            messageRepo.fillContentCategoryIfEmpty(messageId, category);
-          }
-          finalizer.recompute(messageId);
-        });
+    Boolean saved =
+        txTemplate.execute(
+            status -> {
+              contentRepo.lockForAnalysis(ctx.contentId()); // ③ 저장과 직렬화 — 이후 읽는 분류가 최신
+              if (!messageRepo.savePersonalAnalysis(
+                  messageId, r.needsReply(), writePersonal, r.personalSummary(), markSkipped)) {
+                return false; // 다른 실행이 먼저 기록
+              }
+              // 공유 원본 분류를 이번에 채웠다면 같은 원본의 다른 사본(이미 분석됨)도 ⑤ 를 다시 계산해야 한다.
+              if (category != null && messageRepo.fillContentCategoryIfEmpty(messageId, category)) {
+                finalizer.recomputeForContent(ctx.contentId()); // 이 사본도 포함(raw 저장됨)
+              } else {
+                finalizer.recompute(messageId);
+              }
+              return true;
+            });
+    if (!Boolean.TRUE.equals(saved)) {
+      return;
+    }
     // 커밋 뒤 한 번 더 — ③ 저장(recomputeForContent)과 ④ 저장이 READ COMMITTED 로 겹치면 서로의 결과(분류·raw)를 못 보고 ⑤ 를
     // 계산할 수 있다.
     // 두 저장이 모두 커밋된 뒤 새 트랜잭션에서 다시 계산해 분류가 반영된 최종값으로 수렴시킨다(멱등·LLM 없음).

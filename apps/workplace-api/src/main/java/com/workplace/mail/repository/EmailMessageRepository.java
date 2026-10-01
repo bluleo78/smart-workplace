@@ -1475,14 +1475,15 @@ public class EmailMessageRepository {
    * WP-149: 공통 비서가 없을 때 ④ 가 받은 분류로 공유 content 분류를 보충한다 — 비어 있을 때만(덮어쓰기 금지, 원자적 조건부 UPDATE). 자기 사본을
    * 적재·검증한 envelope 만 쓴다(WP-130).
    */
-  public void fillContentCategoryIfEmpty(long messageId, String category) {
-    dsl.update(EMAIL_CONTENT)
-        .set(EMAIL_CONTENT.AI_CATEGORY, category)
-        .from(EMAIL_MESSAGE)
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
-        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
-        .and(EMAIL_CONTENT.AI_CATEGORY.isNull())
-        .execute();
+  public boolean fillContentCategoryIfEmpty(long messageId, String category) {
+    return dsl.update(EMAIL_CONTENT)
+            .set(EMAIL_CONTENT.AI_CATEGORY, category)
+            .from(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+            .and(EMAIL_CONTENT.AI_CATEGORY.isNull())
+            .execute()
+        > 0;
   }
 }
