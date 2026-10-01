@@ -14,8 +14,13 @@ import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyRequest;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyResult;
+import com.workplace.mail.outbound.MailAiMessages.Me;
+import com.workplace.mail.outbound.MailAiMessages.Recipient;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -92,6 +97,40 @@ class AiAgentMailClientTest {
             new AnalyzeContentRequest("s", "a@b", "x", true, true, false, 5L, "m", 1, 60000));
     assertThat(r.category()).isEqualTo("알림");
     assertThat(r.summary()).isNull();
+    server.verify();
+  }
+
+  @Test
+  void 개인분석_정상_역직렬화() {
+    server
+        .expect(requestTo("http://ai-agent.test/mail/analyze-personal"))
+        .andExpect(method(HttpMethod.POST))
+        .andExpect(jsonPath("$.recipient.myRole").value("CC"))
+        .andExpect(jsonPath("$.me.addresses[0]").value("me@x.com"))
+        .andRespond(
+            withSuccess(
+                "{\"needsReply\":true,\"personalSummary\":null,\"personalSummaryValid\":true,\"category\":null}",
+                MediaType.APPLICATION_JSON));
+
+    AnalyzePersonalResult r =
+        client.analyzePersonal(
+            new AnalyzePersonalRequest(
+                "s",
+                "a@b.com",
+                "",
+                "x",
+                false,
+                new Me(List.of("me@x.com")),
+                new Recipient("CC", 1, 1),
+                true,
+                true,
+                false,
+                5L,
+                "m",
+                1,
+                60000));
+    assertThat(r.needsReply()).isTrue();
+    assertThat(r.personalSummaryValid()).isTrue();
     server.verify();
   }
 }

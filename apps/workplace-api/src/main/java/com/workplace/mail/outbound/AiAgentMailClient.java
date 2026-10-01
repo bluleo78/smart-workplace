@@ -4,6 +4,8 @@ import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyRequest;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyResult;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
@@ -90,5 +92,10 @@ public class AiAgentMailClient {
   /** WP-149 ③ 원본 분석 → 분류·객관 요약(요청한 항목만). */
   public AnalyzeContentResult analyzeContent(AnalyzeContentRequest req) {
     return post("/mail/analyze-content", req, AnalyzeContentResult.class);
+  }
+
+  /** WP-149 ④ 개인 분석 → 회신필요 원판정·개인 요약·보조 분류(요청한 항목만). */
+  public AnalyzePersonalResult analyzePersonal(AnalyzePersonalRequest req) {
+    return post("/mail/analyze-personal", req, AnalyzePersonalResult.class);
   }
 }

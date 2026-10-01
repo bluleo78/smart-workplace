@@ -5,11 +5,19 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
+import com.workplace.mail.outbound.MailAiMessages.Me;
+import com.workplace.mail.outbound.MailAiMessages.Recipient;
+import com.workplace.mail.repository.EmailAccountRepository;
+import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.AnalysisContext;
+import com.workplace.mail.util.NeedsReplyRules;
 import com.workplace.mail.util.NewContentExtractor;
 import com.workplace.mail.util.SingleFlight;
 import java.time.Duration;
+import java.util.List;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -43,6 +51,8 @@ public class MailAnalysisService {
 
   private final AiAgentMailClient mailClient;
   private final EmailMessageRepository messageRepo;
+  private final EmailContentRepository contentRepo;
+  private final EmailAccountRepository accountRepo;
   private final AssistantResolver assistantResolver;
   private final NeedsReplyFinalizer finalizer;
   private final TransactionTemplate txTemplate;
@@ -51,11 +61,15 @@ public class MailAnalysisService {
   public MailAnalysisService(
       AiAgentMailClient mailClient,
       EmailMessageRepository messageRepo,
+      EmailContentRepository contentRepo,
+      EmailAccountRepository accountRepo,
       AssistantResolver assistantResolver,
       NeedsReplyFinalizer finalizer,
       PlatformTransactionManager txManager) {
     this.mailClient = mailClient;
     this.messageRepo = messageRepo;
+    this.contentRepo = contentRepo;
+    this.accountRepo = accountRepo;
     this.assistantResolver = assistantResolver;
     this.finalizer = finalizer;
     this.txTemplate = new TransactionTemplate(txManager);
@@ -114,6 +128,136 @@ public class MailAnalysisService {
   /** ③ 대상: 적재·검증된 사본 + content 연결 + 미시도. */
   private static boolean contentAnalyzable(AnalysisContext ctx) {
     return ctx != null && ctx.fetched() && ctx.contentId() != null && !ctx.contentAttempted();
+  }
+
+  /**
+   * ④ 개인 분석 — 계정 AI 사용 + 비서(개인→공통) + 사본 미분석이면 회신필요 원판정(raw)을 받고, 개인 비서면 개인 요약도(생략 조건 제외), 공통 비서가 없고
+   * 원본 분류가 비었으면 분류도 받는다. 규칙에 걸려도 LLM 은 부른다(raw 는 ⑤ 재계산 입력) — 개인 요약만 요청하지 않는다.
+   *
+   * <p>LLM·파싱 실패, needsReply 누락은 예외 — ai_analyzed_at 이 남지 않아 다음 백필 대상이 된다. 개인 요약만 형식이 틀리면
+   * needsReply 는 저장하고 개인 요약은 미시도로 둔다(열람 시 요약만 다시 시도). 읽음 여부는 보지 않는다 — 선제 호출부가 안 읽은 메일만 고른다(판단 13).
+   */
+  public void analyzePersonal(long userId, long messageId) {
+    AnalysisContext pre = readContext(userId, messageId);
+    if (!personalAnalyzable(pre)) {
+      return;
+    }
+    AssistantSpec spec = assistantResolver.resolveOrEmpty(userId).orElse(null);
+    if (spec == null) {
+      return; // 비서 미설정 — 분석 생략
+    }
+    singleFlight.run(personalKey(messageId), () -> runPersonalAnalysis(userId, messageId, spec));
+  }
+
+  private void runPersonalAnalysis(long userId, long messageId, AssistantSpec spec) {
+    AnalysisContext ctx = readContext(userId, messageId);
+    if (!personalAnalyzable(ctx)) {
+      return;
+    }
+    String newBody = newBody(ctx);
+    if (!StringUtils.hasText(newBody)) {
+      return;
+    }
+    Set<String> me = ownAddresses(userId);
+    NeedsReplyRules.Input rules = ruleInput(ctx, me);
+    // 개인 요약은 개인 비서일 때만(공통 비서로 만들면 객관 요약과 중복). 이미 시도·생략했으면 다시 요청하지 않는다.
+    boolean personalPending =
+        assistantResolver.resolvePersonalOrEmpty(userId).isPresent()
+            && !ctx.personalAttempted()
+            && !ctx.personalSummarySkipped();
+    boolean skipPersonal = personalSummarySkip(ctx, newBody, rules);
+    boolean wantPersonal = personalPending && !skipPersonal;
+    // 분류는 ③(공통 비서)이 맡는다 — 공통 비서가 없고 원본 분류가 비었을 때만 보충
+    boolean wantCategory =
+        ctx.contentCategory() == null && assistantResolver.resolveWorkspaceOrEmpty().isEmpty();
+    AnalyzePersonalResult r =
+        mailClient.analyzePersonal(
+            personalRequest(
+                ctx, bodyInput(ctx, newBody), me, rules, true, wantPersonal, wantCategory, spec));
+    if (r.needsReply() == null) {
+      throw new IllegalStateException("개인 분석 응답에 needsReply 가 없음 (messageId=" + messageId + ")");
+    }
+    boolean writePersonal = wantPersonal && r.personalSummaryValid();
+    boolean markSkipped = personalPending && skipPersonal;
+    String category = wantCategory ? validCategory(r.category()) : null;
+    txTemplate.executeWithoutResult(
+        status -> {
+          contentRepo.lockForAnalysis(ctx.contentId()); // ③ 저장과 직렬화 — 이후 읽는 분류가 최신
+          if (!messageRepo.savePersonalAnalysis(
+              messageId, r.needsReply(), writePersonal, r.personalSummary(), markSkipped)) {
+            return; // 다른 실행이 먼저 기록
+          }
+          if (category != null) {
+            messageRepo.fillContentCategoryIfEmpty(messageId, category);
+          }
+          finalizer.recompute(messageId);
+        });
+    // 커밋 뒤 한 번 더 — ③ 저장(recomputeForContent)과 ④ 저장이 READ COMMITTED 로 겹치면 서로의 결과(분류·raw)를 못 보고 ⑤ 를
+    // 계산할 수 있다.
+    // 두 저장이 모두 커밋된 뒤 새 트랜잭션에서 다시 계산해 분류가 반영된 최종값으로 수렴시킨다(멱등·LLM 없음).
+    txTemplate.executeWithoutResult(status -> finalizer.recompute(messageId));
+  }
+
+  /** ④ 대상: 적재·검증된 사본 + content 연결 + 계정 AI 사용 + 미분석. */
+  private static boolean personalAnalyzable(AnalysisContext ctx) {
+    return ctx != null
+        && ctx.fetched()
+        && ctx.contentId() != null
+        && ctx.aiEnabled()
+        && !ctx.personalAnalyzed();
+  }
+
+  /** "나" 주소(사용자의 모든 계정 주소). WP-150 에서 "나" 프로필로 바뀐다. */
+  Set<String> ownAddresses(long userId) {
+    return txTemplate.execute(status -> accountRepo.listOwnAddresses(userId));
+  }
+
+  /** ⑤ 규칙 입력 — 사본의 보낸 사람·수신자 + 원본의 자동 발송·분류. */
+  static NeedsReplyRules.Input ruleInput(AnalysisContext ctx, Set<String> me) {
+    return NeedsReplyRules.Input.of(
+        ctx.fromAddress(),
+        me,
+        ctx.toAddresses(),
+        ctx.ccAddresses(),
+        ctx.autoGenerated(),
+        ctx.contentCategory());
+  }
+
+  /** 개인 요약 생략: 새 본문 ≤ 400자 · 자동 발송 · 규칙에 걸림 · 원본 분류가 알림성. */
+  static boolean personalSummarySkip(
+      AnalysisContext ctx, String newBody, NeedsReplyRules.Input rules) {
+    return newBody.length() <= SUMMARY_MIN_CHARS
+        || ctx.autoGenerated()
+        || NeedsReplyRules.blockedByRules(rules)
+        || NeedsReplyRules.blockedByCategory(ctx.contentCategory());
+  }
+
+  /** ④ 요청 조립. WP-150 이 프로필·관계·스레드·연결 이슈·첨부를 여기에서 덧붙인다. */
+  static AnalyzePersonalRequest personalRequest(
+      AnalysisContext ctx,
+      String body,
+      Set<String> me,
+      NeedsReplyRules.Input rules,
+      boolean includeNeedsReply,
+      boolean includePersonalSummary,
+      boolean includeCategory,
+      AssistantSpec spec) {
+    return new AnalyzePersonalRequest(
+        nz(ctx.subject()),
+        nz(ctx.fromAddress()),
+        nz(ctx.fromName()),
+        body,
+        ctx.autoGenerated(),
+        new Me(List.copyOf(me)),
+        new Recipient(
+            NeedsReplyRules.recipientRole(rules).name(), rules.to().size(), rules.cc().size()),
+        includeNeedsReply,
+        includePersonalSummary,
+        includeCategory,
+        spec.agentUserId(),
+        spec.model(),
+        MAX_TURNS,
+        spec.timeoutMs());
   }
 
   /** 새로 쓴 부분(인용·서명 제거, 상한 적용) — ③·④·요약 상태 판정이 같은 값을 쓰도록 한 곳에서만 계산한다. */
