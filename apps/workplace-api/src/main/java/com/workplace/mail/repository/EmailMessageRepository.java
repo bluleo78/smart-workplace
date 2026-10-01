@@ -44,6 +44,14 @@ public class EmailMessageRepository {
 
   private final DSLContext dsl;
 
+  /**
+   * 회신필요 단일 술어(WP-146) — AI 판정 true + 안 읽음. 목록 필터·사이드바·홈 카운트가 모두 이 메서드만 써서 화면마다 기준이 어긋나지 않게 한다(#485
+   * 드리프트 방지). pending(NULL)·false 는 isTrue() 가 제외한다.
+   */
+  public static Condition needsReplyCondition() {
+    return EMAIL_MESSAGE.AI_NEEDS_REPLY.isTrue().and(EMAIL_MESSAGE.SEEN.isFalse());
+  }
+
   /** email_content 공유 저장소 — sync 단계에서 envelope 에 content_id 를 연결할 때 사용한다. */
   private final EmailContentRepository contentRepo;
 
@@ -223,9 +231,8 @@ public class EmailMessageRepository {
   }
 
   /**
-   * P2: 계정 + 폴더 스코프 목록(최신순, 본문 제외). category/needsReply 필터 추가. 회신필요는 통일 술어(ai_needs_reply IS TRUE
-   * AND done_at IS NULL). query 가 있으면 제목/보낸사람/스니펫 부분일치. unreadOnly=true 면 seen=false(안 읽은) 메일만
-   * 반환한다. 소유 검증은 호출 측에서 수행.
+   * P2: 계정 + 폴더 스코프 목록(최신순, 본문 제외). category/needsReply 필터 추가. 회신필요는 단일 술어 needsReplyCondition().
+   * query 가 있으면 제목/보낸사람/스니펫 부분일치. unreadOnly=true 면 seen=false(안 읽은) 메일만 반환한다. 소유 검증은 호출 측에서 수행.
    *
    * <p>Task6: subject·snippet SELECT 를 email_content 로 전환. 검색 WHERE 는 Task8 에서 전환(현재 email_message
    * 컬럼 유지).
@@ -250,11 +257,8 @@ public class EmailMessageRepository {
               .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull());
     }
     if (needsReply) {
-      // 회신필요 통일 술어: AI 판정=true + 사용자 처리완료 아님
-      where =
-          where
-              .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isTrue())
-              .and(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT.isNull());
+      // 회신필요 단일 술어(AI 판정 true + 안 읽음)
+      where = where.and(needsReplyCondition());
     }
     if (query != null && !query.isBlank()) {
       // Task8: email_content.search_tv(tsvector) 를 FTS 로 검색.
@@ -290,8 +294,7 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
             verified(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
-            EMAIL_MESSAGE.AI_NEEDS_REPLY,
-            EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT) // P2
+            EMAIL_MESSAGE.AI_NEEDS_REPLY)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
@@ -324,8 +327,8 @@ public class EmailMessageRepository {
   /**
    * 홈 위젯용 — 사용자 본인 INBOX 의 "회신 필요" 메일 건수(#474).
    *
-   * <p>countUnread 와 동일한 소유·INBOX·seen=false 조건에 {@code ai_needs_reply = true} 를 추가한다.
-   * pending(null) 과 false 는 제외된다 — isTrue() 가 null-safe FALSE 처리를 포함한다.
+   * <p>countUnread 와 동일한 소유·INBOX·seen=false 조건에 needsReplyCondition() 을 추가한다. pending(null) 과
+   * false 는 제외된다 — isTrue() 가 null-safe FALSE 처리를 포함한다.
    */
   public long countNeedsReply(long callerId) {
     return dsl.fetchCount(
@@ -338,9 +341,7 @@ public class EmailMessageRepository {
             .where(EMAIL_ACCOUNT.USER_ID.eq(callerId))
             .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
             .and(EMAIL_FOLDER.NAME.eq("INBOX"))
-            .and(EMAIL_MESSAGE.SEEN.isFalse())
-            .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isTrue())
-            .and(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT.isNull())); // P2: 처리완료 제외(통일 술어)
+            .and(needsReplyCondition())); // WP-146: 회신필요 단일 술어
   }
 
   /**
@@ -362,8 +363,7 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
             verified(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
-            EMAIL_MESSAGE.AI_NEEDS_REPLY,
-            EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT) // P2: toSummary 매퍼에서 필요
+            EMAIL_MESSAGE.AI_NEEDS_REPLY)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -625,23 +625,7 @@ public class EmailMessageRepository {
         .execute();
   }
 
-  /** P2: 회신필요 처리완료(해결) 마커 기록. 계정 소유 스코프(account_id)로 타 계정 메시지 차단. 반환값=갱신된 행 수(1=성공, 0=미존재). */
-  public int markNeedsReplyDone(long messageId, long accountId) {
-    return dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT, OffsetDateTime.now())
-        .where(EMAIL_MESSAGE.ID.eq(messageId).and(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId)))
-        .execute();
-  }
-
-  /** P2: 처리완료 되돌리기. done_at 을 null 로. 반환값=갱신된 행 수(1=성공, 0=미존재). */
-  public int clearNeedsReplyDone(long messageId, long accountId) {
-    return dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT, (OffsetDateTime) null)
-        .where(EMAIL_MESSAGE.ID.eq(messageId).and(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId)))
-        .execute();
-  }
-
-  /** P2: 사이드바용 — 특정 계정 INBOX 의 미처리 회신필요 건수. 목록 필터(needsReply)와 일치해야 하므로 seen 무관(seen 축 제외). */
+  /** 사이드바용 — 특정 계정 INBOX 의 회신필요 건수. 목록 필터(needsReply)와 같은 단일 술어를 쓴다(WP-146). */
   public long countNeedsReplyForAccount(long accountId) {
     return dsl.fetchCount(
         dsl.selectOne()
@@ -650,8 +634,7 @@ public class EmailMessageRepository {
             .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
             .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
             .and(EMAIL_FOLDER.NAME.eq("INBOX"))
-            .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isTrue())
-            .and(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT.isNull()));
+            .and(needsReplyCondition()));
   }
 
   /**
@@ -1045,7 +1028,6 @@ public class EmailMessageRepository {
   /** Task6: subject·snippet 은 email_content 에서 읽는다(LEFT JOIN 후 호출). */
   private EmailMessageSummary toSummary(Record r) {
     OffsetDateTime received = r.get(EMAIL_MESSAGE.RECEIVED_AT);
-    OffsetDateTime doneAt = r.get(EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT); // P2
     return new EmailMessageSummary(
         r.get(EMAIL_MESSAGE.ID),
         r.get(EMAIL_MESSAGE.ACCOUNT_ID),
@@ -1058,8 +1040,7 @@ public class EmailMessageRepository {
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.HAS_ATTACHMENT)),
         r.get(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
-        r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY),
-        doneAt == null ? null : doneAt.toInstant()); // P2
+        r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY));
   }
 
   /**

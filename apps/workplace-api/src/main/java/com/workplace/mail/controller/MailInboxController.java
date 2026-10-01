@@ -18,7 +18,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -59,24 +58,6 @@ public class MailInboxController {
       @RequestParam(required = false, defaultValue = "0") int limit) {
     return messageService.list(
         callerId, accountId, folder, query, unread, category, needsReply, limit);
-  }
-
-  /** P2: 회신필요 처리완료(해결). needs_reply_done_at 에 현재 시각 기록. */
-  @PostMapping("/accounts/{accountId}/messages/{messageId}/needs-reply-done")
-  public void markNeedsReplyDone(
-      @AuthenticationPrincipal Long callerId,
-      @PathVariable long accountId,
-      @PathVariable long messageId) {
-    messageService.markNeedsReplyDone(callerId, accountId, messageId);
-  }
-
-  /** P2: 처리완료 되돌리기. needs_reply_done_at 을 NULL 로 초기화. */
-  @DeleteMapping("/accounts/{accountId}/messages/{messageId}/needs-reply-done")
-  public void clearNeedsReplyDone(
-      @AuthenticationPrincipal Long callerId,
-      @PathVariable long accountId,
-      @PathVariable long messageId) {
-    messageService.clearNeedsReplyDone(callerId, accountId, messageId);
   }
 
   /** P2: 사이드바용 계정단위 회신필요 건수. */

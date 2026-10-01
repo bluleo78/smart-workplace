@@ -139,17 +139,6 @@ class MailResourceChangedIntegrationTest extends IntegrationTestBase {
   }
 
   @Test
-  @DisplayName("회신필요 처리완료는 소유자에게만, accountId·messageId 포함")
-  void needsReplyDone_ownerOnly() {
-    clearInvocations(registry);
-    messageService.markNeedsReplyDone(owner, accountId, messageId);
-    var c = capture("mail", "updated");
-    assertThat(c.recipients()).containsExactly(owner);
-    assertThat(c.payload().get("accountId")).isEqualTo(accountId);
-    assertThat(c.payload().get("messageId")).isEqualTo(messageId);
-  }
-
-  @Test
   @DisplayName("메일→이슈 승격은 메시지 id 를 담은 mail updated 를 소유자에게")
   void promoteToIssue_publishesMailUpdatedWithMessageId() {
     String key = "MR" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);

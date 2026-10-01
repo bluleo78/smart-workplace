@@ -229,11 +229,11 @@ public class PriorityClassificationScheduler {
       }
     }
 
-    // 메일 회신필요 — "회신필요" 술어는 ai_needs_reply IS TRUE AND done_at IS NULL 로 통일됐다(#485, 5개
-    // 소비처 공유 chokepoint). seen(안읽음) 은 더 이상 이 판정에 쓰지 않는다 — 드리프트 방지.
+    // 메일 회신필요 — 단일 술어(AI 판정 true + 안 읽음, WP-146). #485 에서 seen 을 술어에서 뺐다가 "읽으면 해제"로 되돌렸다.
+    // recent 는 이미 안읽은 메일만이지만, 술어를 명시해 다른 소비처와 같은 기준임을 드러낸다.
     var mail = mailMessageService.summary(userId, SOURCE_LIMIT);
     for (var m : mail.recent()) {
-      if (Boolean.TRUE.equals(m.aiNeedsReply()) && m.needsReplyDoneAt() == null) {
+      if (Boolean.TRUE.equals(m.aiNeedsReply()) && !m.seen()) {
         out.add(
             new PriorityCandidate(
                 userId,

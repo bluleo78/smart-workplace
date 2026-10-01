@@ -116,7 +116,7 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     assertThat(ids).containsExactly(unreadUnsummarized);
   }
 
-  /** P2: listByAccount — category/needsReply 필터 + done_at 제외 검증. */
+  /** WP-146: listByAccount — category/needsReply 필터. 회신필요는 단일 술어(AI 판정 true + 안 읽음)라 읽은 메일은 빠진다. */
   @Test
   void listByAccount_filtersByCategoryAndNeedsReply() {
     long userId = TestFixtures.createHuman(dsl);
@@ -124,19 +124,19 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
     long work = seedMessage(accountId, inbox, false, null);
     long promo = seedMessage(accountId, inbox, false, null);
-    long workDone = seedMessage(accountId, inbox, false, null);
+    long workRead = seedMessage(accountId, inbox, false, null);
     messageRepo.updateClassification(work, "업무", true);
     messageRepo.updateClassification(promo, "프로모션", false);
-    messageRepo.updateClassification(workDone, "업무", true);
-    messageRepo.markNeedsReplyDone(workDone, accountId); // 처리완료된 회신필요
+    messageRepo.updateClassification(workRead, "업무", true);
+    messageRepo.markSeen(workRead); // 읽은 회신필요 — 회신필요에서 빠져야 한다
 
-    // category=업무 → work, workDone (2건)
+    // category=업무 → work, workRead (분류 필터는 읽음 여부와 무관)
     var byCat = messageRepo.listByAccount(accountId, "INBOX", null, false, "업무", false, 50);
     assertThat(byCat)
         .extracting(com.workplace.mail.dto.EmailMessageSummary::id)
-        .containsExactlyInAnyOrder(work, workDone);
+        .containsExactlyInAnyOrder(work, workRead);
 
-    // needsReply=true → work 만 (workDone 은 done_at 으로 제외)
+    // needsReply=true → work 만 (workRead 는 읽음으로 제외)
     var byReply = messageRepo.listByAccount(accountId, "INBOX", null, false, null, true, 50);
     assertThat(byReply)
         .extracting(com.workplace.mail.dto.EmailMessageSummary::id)
@@ -178,27 +178,29 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     assertThat(ids).contains(a).doesNotContain(b);
   }
 
-  /** P2: markNeedsReplyDone — 처리완료가 3 소비처(목록·계정카운트·홈카운트)에서 동시에 빠지는지 검증. */
+  /** WP-146: 읽으면 회신필요 3 소비처(목록 필터·계정 카운트·홈 카운트)에서 동시에 빠진다. pending/false 는 처음부터 제외. */
   @Test
-  void markNeedsReplyDone_removesFromAllNeedsReplyConsumers() {
+  void markSeen_removesFromAllNeedsReplyConsumers() {
     long userId = TestFixtures.createHuman(dsl);
     long accountId = createAccount(userId, "g@test.local");
     long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
     long m = seedMessage(accountId, inbox, false, null); // seen=false
     messageRepo.updateClassification(m, "업무", true);
+    seedMessage(accountId, inbox, false, null); // pending(ai_needs_reply NULL) — 제외
+    long no = seedMessage(accountId, inbox, false, null);
+    messageRepo.updateClassification(no, "업무", false); // false — 제외
 
+    assertThat(messageRepo.listByAccount(accountId, "INBOX", null, false, null, true, 50))
+        .extracting(com.workplace.mail.dto.EmailMessageSummary::id)
+        .containsExactly(m);
     assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isEqualTo(1);
     assertThat(messageRepo.countNeedsReply(userId)).isEqualTo(1);
 
-    assertThat(messageRepo.markNeedsReplyDone(m, accountId)).isEqualTo(1);
+    messageRepo.markSeen(m);
 
     assertThat(messageRepo.listByAccount(accountId, "INBOX", null, false, null, true, 50))
         .isEmpty();
     assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isZero();
     assertThat(messageRepo.countNeedsReply(userId)).isZero();
-
-    // 되돌리기 → 복귀
-    assertThat(messageRepo.clearNeedsReplyDone(m, accountId)).isEqualTo(1);
-    assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isEqualTo(1);
   }
 }

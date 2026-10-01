@@ -1,9 +1,6 @@
 package com.workplace.mail;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -96,67 +93,29 @@ class MailInboxControllerTest extends IntegrationTestBase {
     return msg;
   }
 
-  /** 처리완료 POST→카운트 0→처리완료 DELETE→카운트 1 왕복 검증. 회신필요 메시지를 처리완료하면 카운트에서 제외되고, 되돌리면 다시 포함된다. */
+  /** WP-146: 회신필요 메일을 상세 조회(=열람)하면 계정 회신필요 카운트 API 가 0 이 된다 — 읽으면 해제. */
   @Test
-  void needsReplyDone_marksAndClears() throws Exception {
-    // 시드: 사용자/계정/INBOX 폴더/회신필요 메시지
+  void needsReplyCount_dropsAfterOpeningMessage() throws Exception {
     long userId = TestFixtures.createHuman(dsl);
-    long accountId = createAccount(userId, "mark-test-" + System.nanoTime() + "@test.local");
+    long accountId = createAccount(userId, "open-test-" + System.nanoTime() + "@test.local");
     long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
     long m = seedMessage(accountId, inbox, false, null);
-    // ai_needs_reply=true 로 분류해 회신필요 카운트에 잡히게 함
     messageRepo.updateClassification(m, "업무", true);
-
     String token = jwtTokenProvider.generateAccessToken(userId, "user-" + userId);
 
-    // 회신필요 카운트 초기값 = 1
-    assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isEqualTo(1);
-
-    // POST: 처리완료 마킹
     mvc.perform(
-            post("/api/v1/mail/accounts/{a}/messages/{m}/needs-reply-done", accountId, m)
+            get("/api/v1/mail/accounts/{a}/needs-reply-count", accountId)
                 .header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.count").value(1));
+
+    mvc.perform(get("/api/v1/mail/messages/{m}", m).header("Authorization", "Bearer " + token))
         .andExpect(status().isOk());
 
-    // 처리완료 후 DB 반영 검증
-    assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isZero();
-
-    // GET: 카운트 API 검증
     mvc.perform(
             get("/api/v1/mail/accounts/{a}/needs-reply-count", accountId)
                 .header("Authorization", "Bearer " + token))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.count").value(0));
-
-    // DELETE: 처리완료 해제
-    mvc.perform(
-            delete("/api/v1/mail/accounts/{a}/messages/{m}/needs-reply-done", accountId, m)
-                .header("Authorization", "Bearer " + token))
-        .andExpect(status().isOk());
-
-    // 해제 후 다시 카운트 1 복원
-    assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isEqualTo(1);
-  }
-
-  /** 다른 사용자 소유 계정에 처리완료 시도 시 404. 계정 소유 검사가 실제로 차단하는지 검증하고, DB는 변경되지 않음을 확인한다. */
-  @Test
-  void needsReplyDone_deniedForOtherUsersAccount() throws Exception {
-    // 계정 소유자(owner)와 다른 사용자(other)
-    long owner = TestFixtures.createHuman(dsl);
-    long other = TestFixtures.createHuman(dsl);
-    long accountId = createAccount(owner, "owner-" + System.nanoTime() + "@test.local");
-    long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
-    long m = seedMessage(accountId, inbox, false, null);
-    messageRepo.updateClassification(m, "업무", true);
-
-    // other 사용자로 처리완료 시도 → 404
-    String otherToken = jwtTokenProvider.generateAccessToken(other, "user-" + other);
-    mvc.perform(
-            post("/api/v1/mail/accounts/{a}/messages/{m}/needs-reply-done", accountId, m)
-                .header("Authorization", "Bearer " + otherToken))
-        .andExpect(status().isNotFound());
-
-    // DB 미변경 — 여전히 회신필요 1건
-    assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isEqualTo(1);
   }
 }
