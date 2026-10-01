@@ -1,5 +1,6 @@
 package com.workplace.mail;
 
+import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -25,10 +26,12 @@ import com.workplace.mail.service.MailSyncService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
+import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Part;
 import jakarta.mail.Session;
+import jakarta.mail.Store;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
@@ -36,6 +39,7 @@ import jakarta.mail.internet.MimeMultipart;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.List;
@@ -314,6 +318,38 @@ class MailSyncServiceTest extends IntegrationTestBase {
     org.mockito.Mockito.verify(mailClient, never()).classify(any());
   }
 
+  /** WP-148: 외부 클라이언트(Outlook·모바일)가 읽음을 바꾼 것처럼 GreenMail 서버 쪽 \Seen 을 직접 바꾼다. 제목이 일치하는 메시지만 대상. */
+  private void setServerSeen(String subject, boolean seen) throws Exception {
+    Properties props = new Properties();
+    props.put("mail.store.protocol", "imap");
+    Store store = Session.getInstance(props).getStore("imap");
+    store.connect("127.0.0.1", MailTestPorts.IMAP, "box@test.local", "pw");
+    try {
+      Folder inbox = store.getFolder("INBOX");
+      inbox.open(Folder.READ_WRITE);
+      try {
+        for (Message m : inbox.getMessages()) {
+          if (subject.equals(m.getSubject())) {
+            m.setFlag(Flags.Flag.SEEN, seen);
+          }
+        }
+      } finally {
+        inbox.close(false);
+      }
+    } finally {
+      store.close();
+    }
+  }
+
+  /** WP-148: 제목으로 로컬 envelope 의 seen 을 읽는다. */
+  private boolean localSeen(long accountId, String subject) {
+    return messageRepo.listByAccount(accountId, null, 50).stream()
+        .filter(s -> subject.equals(s.subject()))
+        .findFirst()
+        .orElseThrow()
+        .seen();
+  }
+
   /**
    * Message-ID/In-Reply-To/References 를 제어한 단순 텍스트 메시지. saveChanges 가 Message-ID 를 덮어쓰지 않도록 보존한다.
    */
@@ -416,5 +452,78 @@ class MailSyncServiceTest extends IntegrationTestBase {
 
   private Session session() {
     return Session.getInstance(new Properties());
+  }
+
+  /** WP-148: 서버에서 읽음/안읽음을 바꾸면 다음 동기화에서 로컬 seen 이 양방향으로 따라간다(서버 기준). 새 메일로 세지 않는다. */
+  @Test
+  void sync_serverSeenChange_reflectedBothWays() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "읽음 동기화", "본문");
+    greenMail.waitForIncomingEmail(1);
+    syncService.sync(user, accountId);
+    assertThat(localSeen(accountId, "읽음 동기화")).isFalse();
+
+    // 서버에서 읽음 → 로컬 읽음
+    progress.finish(accountId); // 백필 목킹으로 남은 진행 상태 해제(2차 sync 가 가드에 막히지 않게)
+    setServerSeen("읽음 동기화", true);
+    MailSyncResult read = syncService.sync(user, accountId);
+    assertThat(read.saved()).isZero();
+    assertThat(read.seenChanged()).isEqualTo(1);
+    assertThat(localSeen(accountId, "읽음 동기화")).isTrue();
+
+    // 서버에서 안읽음으로 되돌림 → 로컬도 안읽음
+    progress.finish(accountId);
+    setServerSeen("읽음 동기화", false);
+    MailSyncResult unread = syncService.sync(user, accountId);
+    assertThat(unread.seenChanged()).isEqualTo(1);
+    assertThat(localSeen(accountId, "읽음 동기화")).isFalse();
+
+    // 변화 없으면 0건(순환 없음)
+    progress.finish(accountId);
+    assertThat(syncService.sync(user, accountId).seenChanged()).isZero();
+  }
+
+  /** WP-148: 최근 14일 밖의 로컬 메일은 읽음 재조회 범위 밖이라 서버가 바뀌어도 건드리지 않는다(알려진 한계). */
+  @Test
+  void sync_outOfRangeMessage_notTouched() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "오래된 메일", "본문");
+    greenMail.waitForIncomingEmail(1);
+    syncService.sync(user, accountId);
+    // 첫 동기화는 7일만 가져오므로, 적재 후 로컬 수신 시각을 15일 전으로 옮겨 범위 밖 메일을 만든다.
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.RECEIVED_AT, OffsetDateTime.now().minusDays(15))
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .execute();
+
+    progress.finish(accountId);
+    setServerSeen("오래된 메일", true);
+    MailSyncResult r = syncService.sync(user, accountId);
+
+    assertThat(r.seenChanged()).isZero();
+    assertThat(localSeen(accountId, "오래된 메일")).isFalse();
+  }
+
+  /** WP-148: 같은 동기화에서 새로 들어온 메일은 그대로 적재되고, 기존 메일의 읽음 변화만 따로 센다. */
+  @Test
+  void sync_newMailAndSeenChange_countedSeparately() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "기존 메일", "본문");
+    greenMail.waitForIncomingEmail(1);
+    syncService.sync(user, accountId);
+
+    progress.finish(accountId);
+    setServerSeen("기존 메일", true);
+    MailTestPorts.sendText("box@test.local", "bob@example.com", "새 메일", "본문");
+    greenMail.waitForIncomingEmail(2);
+    MailSyncResult r = syncService.sync(user, accountId);
+
+    assertThat(r.saved()).isEqualTo(1);
+    assertThat(r.seenChanged()).isEqualTo(1);
+    assertThat(localSeen(accountId, "기존 메일")).isTrue();
+    assertThat(localSeen(accountId, "새 메일")).isFalse();
   }
 }

@@ -1,5 +1,7 @@
 package com.workplace.mail.service;
 
+import static java.util.stream.Collectors.toMap;
+
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
@@ -9,7 +11,9 @@ import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailSyncException;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.repository.EmailMessageRepository.ImapSeenState;
 import jakarta.mail.FetchProfile;
+import jakarta.mail.Flags;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
@@ -18,10 +22,14 @@ import jakarta.mail.UIDFolder;
 import jakarta.mail.search.ComparisonTerm;
 import jakarta.mail.search.ReceivedDateTerm;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.angus.mail.imap.IMAPFolder;
 import org.springframework.stereotype.Service;
@@ -33,7 +41,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 디스패처가 될 수 있도록 추출했다(#499). 비밀번호 복호화·INBOX 폴더 보장·메타 전용 FETCH 를 담당한다.
  *
  * <p>IMAP 세션(네트워크 I/O)은 트랜잭션 밖에서 수행하고, DB 쓰기(메시지 저장)만 메시지 단위 짧은 트랜잭션({@code txTemplate})으로 처리해 DB
- * 커넥션을 최소로 점유한다(#232).
+ * 커넥션을 최소로 점유한다(#232). 신규 적재 후 같은 세션에서 최근 범위 기존 메일의 FLAGS 만 다시 읽어 서버 읽음 상태를 반영한다(WP-148,
+ * best-effort).
  */
 @Slf4j
 @Service
@@ -44,6 +53,12 @@ public class ImapMailFetcher implements MailFetcher {
 
   /** 첫 동기화 시 가져올 최근 기간(일). */
   private static final int INITIAL_WINDOW_DAYS = 7;
+
+  /** 읽음 상태 재조회 기간(일) — 이 기간 안의 기존 메일만 서버 FLAGS 를 다시 본다(WP-148). */
+  static final int SEEN_SYNC_WINDOW_DAYS = 14;
+
+  /** 읽음 상태 재조회 상한(건) — 기간과 건수 중 작은 쪽. 큰 메일함에서 FETCH 비용을 묶는다(WP-148). */
+  static final int SEEN_SYNC_MAX = 500;
 
   private final EmailFolderRepository folderRepo;
   private final EmailMessageRepository messageRepo;
@@ -113,6 +128,9 @@ public class ImapMailFetcher implements MailFetcher {
    *
    * <p>1단계(IMAP 네트워크 I/O, 트랜잭션 밖)에서 메타를 {@link ParsedMessage} DTO 로 수집만 하고, 2단계(DB 쓰기)에서 메시지별 짧은
    * 트랜잭션으로 저장한다 — IMAP 세션 동안 DB 커넥션을 점유하지 않으면서도 각 쓰기에 RLS GUC 를 주입한다(#232).
+   *
+   * <p>WP-148: 같은 세션에서 최근 범위 기존 메일의 FLAGS 만 다시 읽고(1단계), 신규 저장 뒤 \Seen 차이를 반영한다(2단계). 이 단계의 실패는 경고
+   * 로그만 남기고 신규 적재·커서 전진을 막지 않는다.
    */
   private MailSyncResult fetchMetadata(
       EmailAccountResponse account,
@@ -120,6 +138,9 @@ public class ImapMailFetcher implements MailFetcher {
       String password,
       EmailFolderRepository.FolderSyncState folder)
       throws MessagingException {
+    // WP-148: 읽음 재조회 대상(로컬 기존 메일 중 최근 범위)을 IMAP 세션을 열기 전에 짧은 트랜잭션으로 고른다. 첫 동기화면 대상 없음.
+    List<ImapSeenState> seenCandidates = loadSeenCandidates(accountId, folder);
+
     // === 1단계: IMAP 네트워크 I/O (트랜잭션 밖) — 메타 파싱 후 DTO 로 수집만 하고 DB 는 건드리지 않는다. ===
     Store store = null;
     Folder inbox = null;
@@ -128,6 +149,7 @@ public class ImapMailFetcher implements MailFetcher {
     int fetched = 0;
     long maxUid;
     List<ParsedMessage> parsedList = new ArrayList<>();
+    List<ImapSeenState> seenChanges = List.of();
     try {
       store = imapConnector.connect(account, password);
       inbox = store.getFolder(INBOX);
@@ -171,6 +193,11 @@ public class ImapMailFetcher implements MailFetcher {
           maxUid = uid;
         }
       }
+
+      // WP-148: 같은 세션에서 기존 메일의 FLAGS 만 재조회(본문 미조회). UIDVALIDITY 가 바뀌었으면 저장된 UID 가 무의미해 건너뛴다.
+      if (!uidValidityChanged) {
+        seenChanges = fetchSeenChanges(uidFolder, inbox, seenCandidates);
+      }
     } finally {
       closeQuietly(inbox, store);
     }
@@ -197,11 +224,101 @@ public class ImapMailFetcher implements MailFetcher {
         log.warn("메일 메타 저장 중 건너뜀: {}", e.toString());
       }
     }
+    // WP-148: 신규 저장 뒤 읽음 변화 반영(best-effort — 실패해도 커서 저장·동기화 성공은 그대로)
+    int seenChanged = applySeenChanges(accountId, folder.id(), seenChanges);
     long finalMaxUid = maxUid;
     long finalUidValidity = uidValidity;
     txTemplate.executeWithoutResult(
         status -> folderRepo.updateSyncState(folder.id(), finalUidValidity, finalMaxUid));
-    return new MailSyncResult(fetched, saved);
+    return new MailSyncResult(fetched, saved, seenChanged);
+  }
+
+  /**
+   * 읽음 재조회 대상 로컬 메일(WP-148). 첫 동기화(uidValidity 미기록)면 비교할 기존 메일이 없어 빈 목록. 조회 실패는 경고 로그 후 빈 목록 — 신규
+   * 적재를 막지 않는다.
+   */
+  private List<ImapSeenState> loadSeenCandidates(
+      long accountId, EmailFolderRepository.FolderSyncState folder) {
+    if (folder.uidValidity() == null) {
+      return List.of();
+    }
+    try {
+      OffsetDateTime since = OffsetDateTime.now().minusDays(SEEN_SYNC_WINDOW_DAYS);
+      List<ImapSeenState> found =
+          txTemplate.execute(
+              status ->
+                  messageRepo.listRecentImapSeenStates(
+                      accountId, folder.id(), since, SEEN_SYNC_MAX));
+      return found == null ? List.of() : found;
+    } catch (Exception e) {
+      log.warn("IMAP 읽음 동기화 대상 조회 실패(신규 적재는 계속): accountId={} {}", accountId, e.toString());
+      return List.of();
+    }
+  }
+
+  /**
+   * 열린 세션에서 대상 UID 의 FLAGS 만 받아 로컬과 \Seen 이 다른 것만 돌려준다(WP-148). 서버에서 지워진 UID(null)는 건너뛴다 — 삭제 반영은 이
+   * 작업 범위 밖. 실패는 경고 로그 후 빈 목록.
+   */
+  private List<ImapSeenState> fetchSeenChanges(
+      UIDFolder uidFolder, Folder inbox, List<ImapSeenState> candidates) {
+    if (candidates.isEmpty()) {
+      return List.of();
+    }
+    try {
+      long[] uids = candidates.stream().mapToLong(ImapSeenState::imapUid).toArray();
+      Message[] present =
+          Arrays.stream(uidFolder.getMessagesByUID(uids))
+              .filter(Objects::nonNull)
+              .toArray(Message[]::new);
+      if (present.length == 0) {
+        return List.of();
+      }
+      // UID·FLAGS 만 일괄 선반입 — 본문·헤더는 받지 않는다
+      FetchProfile fp = new FetchProfile();
+      fp.add(UIDFolder.FetchProfileItem.UID);
+      fp.add(FetchProfile.Item.FLAGS);
+      inbox.fetch(present, fp);
+
+      Map<Long, Boolean> localSeen =
+          candidates.stream().collect(toMap(ImapSeenState::imapUid, ImapSeenState::seen));
+      List<ImapSeenState> changes = new ArrayList<>();
+      for (Message msg : present) {
+        long uid = uidFolder.getUID(msg);
+        boolean serverSeen = msg.isSet(Flags.Flag.SEEN);
+        Boolean local = localSeen.get(uid);
+        // 서버 기준 — 로컬과 다르면 서버 값으로(안읽음 되돌림 포함)
+        if (local != null && local != serverSeen) {
+          changes.add(new ImapSeenState(uid, serverSeen));
+        }
+      }
+      return changes;
+    } catch (Exception e) {
+      log.warn("IMAP 읽음 상태 재조회 실패(신규 적재는 계속): {}", e.toString());
+      return List.of();
+    }
+  }
+
+  /** 읽음 변화를 한 트랜잭션으로 반영하고 실제 바뀐 건수를 돌려준다(WP-148). 실패는 경고 로그 후 0 — 동기화 성공은 유지. */
+  private int applySeenChanges(long accountId, long folderId, List<ImapSeenState> changes) {
+    if (changes.isEmpty()) {
+      return 0;
+    }
+    try {
+      Integer changed =
+          txTemplate.execute(
+              status -> {
+                int n = 0;
+                for (ImapSeenState c : changes) {
+                  n += messageRepo.updateSeenByImapUid(accountId, folderId, c.imapUid(), c.seen());
+                }
+                return n;
+              });
+      return changed == null ? 0 : changed;
+    } catch (Exception e) {
+      log.warn("IMAP 읽음 상태 반영 실패(신규 적재는 계속): accountId={} {}", accountId, e.toString());
+      return 0;
+    }
   }
 
   /** 최근 {@value #INITIAL_WINDOW_DAYS}일 수신 메시지 검색(첫 동기화 범위 한정). */

@@ -14,6 +14,8 @@ import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -202,5 +204,63 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
         .isEmpty();
     assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isZero();
     assertThat(messageRepo.countNeedsReply(userId)).isZero();
+  }
+
+  /** WP-148: UID·수신 시각·읽음을 지정해 IMAP envelope 를 심는다(읽음 동기화 범위 단언용). */
+  private void seedImap(long accountId, long folderId, long uid, Instant receivedAt, boolean seen) {
+    ParsedMessage parsed =
+        new ParsedMessage(
+            uid,
+            "imap-" + uid + "-" + System.nanoTime() + "@test.local",
+            "thread-" + System.nanoTime(),
+            null,
+            null,
+            "sender@example.com",
+            null,
+            null,
+            null,
+            "제목 " + uid,
+            receivedAt,
+            receivedAt,
+            seen,
+            false,
+            null,
+            null,
+            null,
+            List.of());
+    messageRepo.insertIgnoreConflict(accountId, folderId, parsed).orElseThrow();
+  }
+
+  /** WP-148: 읽음 재조회 대상은 기간(since) 안에서 UID 큰 순으로 limit 건 — 기간과 건수 중 작은 쪽. */
+  @Test
+  void listRecentImapSeenStates_appliesWindowAndLimit() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "seen-range-" + System.nanoTime() + "@test.local");
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    Instant now = Instant.now();
+    seedImap(accountId, folderId, 10, now, false);
+    seedImap(accountId, folderId, 20, now, true);
+    seedImap(accountId, folderId, 5, now.minus(20, ChronoUnit.DAYS), false); // 기간 밖
+    OffsetDateTime since = OffsetDateTime.now().minusDays(14);
+
+    assertThat(messageRepo.listRecentImapSeenStates(accountId, folderId, since, 500))
+        .containsExactly(
+            new EmailMessageRepository.ImapSeenState(20, true),
+            new EmailMessageRepository.ImapSeenState(10, false));
+    assertThat(messageRepo.listRecentImapSeenStates(accountId, folderId, since, 1))
+        .containsExactly(new EmailMessageRepository.ImapSeenState(20, true));
+  }
+
+  /** WP-148: 값이 다를 때만 갱신(1), 같으면 0 — 재동기화 순환·불필요 SSE 방지. */
+  @Test
+  void updateSeenByImapUid_updatesOnlyWhenDifferent() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "seen-upd-" + System.nanoTime() + "@test.local");
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    seedImap(accountId, folderId, 7, Instant.now(), false);
+
+    assertThat(messageRepo.updateSeenByImapUid(accountId, folderId, 7, true)).isEqualTo(1);
+    assertThat(messageRepo.updateSeenByImapUid(accountId, folderId, 7, true)).isZero();
+    assertThat(messageRepo.updateSeenByImapUid(accountId, folderId, 7, false)).isEqualTo(1);
   }
 }

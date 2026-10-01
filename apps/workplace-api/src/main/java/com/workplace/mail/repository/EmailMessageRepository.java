@@ -243,6 +243,42 @@ public class EmailMessageRepository {
         .fetchOptional(EMAIL_MESSAGE.ID);
   }
 
+  /** IMAP 읽음 동기화 대상 한 건(WP-148) — 로컬 envelope 의 UID 와 현재 seen. */
+  public record ImapSeenState(long imapUid, boolean seen) {}
+
+  /**
+   * IMAP 읽음 상태 재조회 대상(WP-148). 같은 계정·폴더에서 {@code received_at >= since} 인 행을 UID 큰 순으로 {@code limit}
+   * 건 — "최근 N일 또는 최근 M건 중 작은 쪽". 범위 밖 메일의 외부 열람은 반영하지 않는다(알려진 한계 — 서버 FETCH 비용 상한).
+   */
+  public List<ImapSeenState> listRecentImapSeenStates(
+      long accountId, long folderId, OffsetDateTime since, int limit) {
+    return dsl.select(EMAIL_MESSAGE.IMAP_UID, EMAIL_MESSAGE.SEEN)
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
+        .and(EMAIL_MESSAGE.IMAP_UID.isNotNull())
+        .and(EMAIL_MESSAGE.RECEIVED_AT.ge(since))
+        .orderBy(EMAIL_MESSAGE.IMAP_UID.desc())
+        .limit(limit)
+        .fetch(r -> new ImapSeenState(r.value1(), Boolean.TRUE.equals(r.value2())));
+  }
+
+  /**
+   * IMAP UID 로 seen 을 서버 값으로 맞춘다(WP-148, 서버 기준 — 안읽음 되돌림 포함). 값이 같으면 갱신하지 않아(0) 로컬→서버 역동기화 후 재동기화
+   * 순환·불필요 SSE 가 생기지 않는다.
+   *
+   * @return 실제 갱신 행 수(0|1)
+   */
+  public int updateSeenByImapUid(long accountId, long folderId, long imapUid, boolean seen) {
+    return dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.SEEN, seen)
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
+        .and(EMAIL_MESSAGE.IMAP_UID.eq(imapUid))
+        .and(EMAIL_MESSAGE.SEEN.ne(seen))
+        .execute();
+  }
+
   /** 기존 호출 호환(받은편지함). 폴더 미지정은 INBOX 로 스코프. */
   public List<EmailMessageSummary> listByAccount(long accountId, String query, int limit) {
     return listByAccount(accountId, "INBOX", query, limit);
