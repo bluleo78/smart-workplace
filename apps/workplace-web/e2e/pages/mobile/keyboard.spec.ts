@@ -4,8 +4,9 @@
 import type { Locator, Page } from '@playwright/test'
 
 import { mailAccount, summary } from '../../factories/mail.factory'
+import { createMessage } from '../../factories/messaging.factory'
 import { mockApi } from '../../fixtures/api-mock'
-import { stubChannelMessages } from '../../fixtures/mobile-chat'
+import { json, stubChannelMessages } from '../../fixtures/mobile-chat'
 import { expect, test } from '../../fixtures/mobile.fixture'
 
 const KEYBOARD_PX = 300
@@ -201,4 +202,26 @@ test('홈 화면 앱처럼 innerHeight 도 키보드와 함께 줄어도 키보�
     vv.dispatchEvent(new Event('resize'))
   }, KEYBOARD_PX)
   await expect(page.locator('html')).toHaveAttribute('data-keyboard-open', 'true')
+})
+
+test('목록 바닥을 보던 중 키보드가 열려 목록이 줄어도 바닥(최신 메시지)에 그대로 붙어 있다', async ({ authenticatedPage: page }) => {
+  await stubChannelMessages(page)
+  // 스크롤이 생기도록 메시지를 넉넉히 — 나중에 등록한 라우트가 우선한다.
+  const items = Array.from({ length: 40 }, (_, i) =>
+    createMessage({ id: 100 + i, channelId: 1, authorId: 20, authorName: '동료', body: `메시지 ${i}`, createdAt: `2026-09-30T04:${String(i).padStart(2, '0')}:00Z` }),
+  ).reverse()
+  await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/messages', (r) =>
+    r.request().method() === 'GET' ? r.fulfill(json({ items, nextCursor: null, hasMore: false })) : r.fallback())
+  await page.goto('/chat/channels/1')
+  const area = page.getByTestId('message-scroll-area')
+  const distFromBottom = () => area.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)
+  await expect(page.getByText('메시지 39')).toBeVisible()
+  await expect.poll(distFromBottom).toBeLessThanOrEqual(1)
+
+  await page.getByTestId('message-composer-input').click()
+  await setKeyboard(page, true)
+  await expect(page.locator('html')).toHaveAttribute('data-keyboard-open', 'true')
+  // 목록 높이가 키보드만큼 줄어도 바닥에 붙어 있고, 마지막 메시지가 보인다.
+  await expect.poll(distFromBottom).toBeLessThanOrEqual(1)
+  await expect(page.getByText('메시지 39')).toBeInViewport()
 })
