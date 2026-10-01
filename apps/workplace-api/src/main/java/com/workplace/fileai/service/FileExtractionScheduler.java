@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -31,7 +32,8 @@ public class FileExtractionScheduler {
 
   /** 3분 주기 백필. */
   @Scheduled(fixedRate = 180_000)
-  void runOnce() {
+  @SchedulerLock(name = "FileExtractionScheduler.runOnce")
+  public void runOnce() {
     // ① 테넌트별 재개 대상 수집 — Runner 가 테넌트별 짧은 트랜잭션 + GUC 주입(RLS 통과).
     List<TenantFile> targets = new ArrayList<>();
     tenantRunner.forEachActiveTenant(

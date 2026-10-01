@@ -81,6 +81,7 @@ import com.workplace.jooq.tables.RefreshToken;
 import com.workplace.jooq.tables.Role;
 import com.workplace.jooq.tables.RolePermission;
 import com.workplace.jooq.tables.SavedView;
+import com.workplace.jooq.tables.Shedlock;
 import com.workplace.jooq.tables.Tenant;
 import com.workplace.jooq.tables.TenantCanary;
 import com.workplace.jooq.tables.ThreadReadState;
@@ -510,6 +511,11 @@ public class Public extends SchemaImpl {
     public final SavedView SAVED_VIEW = SavedView.SAVED_VIEW;
 
     /**
+     * The table <code>public.shedlock</code>.
+     */
+    public final Shedlock SHEDLOCK = Shedlock.SHEDLOCK;
+
+    /**
      * 테넌트(고객사 워크스페이스) — 글로벌
      */
     public final Tenant TENANT = Tenant.TENANT;
@@ -704,6 +710,7 @@ public class Public extends SchemaImpl {
             Role.ROLE,
             RolePermission.ROLE_PERMISSION,
             SavedView.SAVED_VIEW,
+            Shedlock.SHEDLOCK,
             Tenant.TENANT,
             TenantCanary.TENANT_CANARY,
             ThreadReadState.THREAD_READ_STATE,

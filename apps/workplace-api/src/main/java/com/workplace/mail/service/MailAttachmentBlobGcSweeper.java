@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Value;
@@ -75,6 +76,7 @@ public class MailAttachmentBlobGcSweeper {
 
   /** 스케줄 진입점 — 이전 사이클 완료 후 1시간 뒤 재실행. 기동 후 2분 뒤 첫 실행으로 초기화를 기다린다. */
   @Scheduled(fixedDelay = 3_600_000, initialDelay = 120_000)
+  @SchedulerLock(name = "MailAttachmentBlobGcSweeper.scheduled")
   public void scheduled() {
     sweepAllTenants();
   }

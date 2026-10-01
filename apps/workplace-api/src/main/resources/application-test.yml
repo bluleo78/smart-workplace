@@ -53,6 +53,9 @@ workplace:
   # @Scheduled 작업 비활성 — 캐시된 테스트 컨텍스트마다 스케줄러가 돌며 외부 API 호출·데이터 경합을 일으킨다(SchedulingConfig, WP-80).
   scheduling:
     enabled: false
+    # 스케줄러 분산 잠금 AOP 도 끈다 — 켜면 테스트가 스케줄러 메서드를 연달아 직접 호출할 때 두 번째가 잠금에 막혀 건너뛰어진다
+    # (SchedulerLockConfig, WP-165). 잠금 동작은 SchedulerLockIntegrationTest 가 켜서 검증한다.
+    lock-enabled: false
   auth:
     sso:
       m365:

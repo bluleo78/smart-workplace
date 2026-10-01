@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -45,6 +46,7 @@ public class CalendarReminderScheduler {
 
   /** 매분 폴링 — 활성 테넌트마다 테넌트별 트랜잭션에서 리마인더를 처리한다. */
   @Scheduled(fixedRate = 60_000)
+  @SchedulerLock(name = "CalendarReminderScheduler.poll", lockAtMostFor = "PT50S")
   public void poll() {
     tenantRunner.forEachActiveTenant(tenantId -> pollForCurrentTenant());
   }

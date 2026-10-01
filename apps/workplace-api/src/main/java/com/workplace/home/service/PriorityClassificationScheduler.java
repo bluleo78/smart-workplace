@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -80,6 +81,7 @@ public class PriorityClassificationScheduler {
 
   /** 15분 주기 — 활성 테넌트의 HUMAN 사용자마다 후보 수집→AI 분류→저장. */
   @Scheduled(fixedRate = 900_000)
+  @SchedulerLock(name = "PriorityClassificationScheduler.runOnce")
   public void runOnce() {
     // ① 수집: 테넌트별 짧은 트랜잭션(GUC 주입) 안에서 대상 사용자만 모은다.
     List<TenantUser> targets = new ArrayList<>();

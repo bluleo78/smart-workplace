@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiConsumer;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -49,7 +50,8 @@ public class MailSummaryScheduler {
 
   /** 10분 주기 — ③ 원본 분석(공통비서 테넌트 전체 계정) + ④ 개인 분석(AI 계정). */
   @Scheduled(fixedRate = 600_000)
-  void runOnce() {
+  @SchedulerLock(name = "MailSummaryScheduler.runOnce")
+  public void runOnce() {
     // ① 수집: 테넌트별 짧은 트랜잭션(GUC 주입) 안에서 대상 계정만 모은다.
     List<TenantAccount> objectiveTargets = new ArrayList<>();
     List<TenantAccount> personalTargets = new ArrayList<>();
