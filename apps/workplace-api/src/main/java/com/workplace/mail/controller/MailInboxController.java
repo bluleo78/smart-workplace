@@ -70,11 +70,18 @@ public class MailInboxController {
   /** P2: 사이드바 카운트 응답 DTO. */
   public record NeedsReplyCount(long count) {}
 
-  /** 메시지 단건 상세(본문 + 첨부 메타). 본문 미적재면 OnDemand 로 적재 후 반환. */
+  /**
+   * 메시지 단건 상세(본문 + 첨부 메타). 본문 미적재면 OnDemand 로 적재 후 반환.
+   *
+   * <p>WP-147: markSeen=false 면 읽음 처리·원본 서버 역동기화를 하지 않는다 — AI(MCP get_mail)가 메일을 읽는 것은 사용자가 읽은 것이
+   * 아니므로, 회신필요(AI 판정 && 안 읽음)가 AI 요약만으로 비워지지 않게 한다. 기본값 true(웹 열람).
+   */
   @GetMapping("/messages/{messageId}")
   public EmailMessageDetail message(
-      @AuthenticationPrincipal Long callerId, @PathVariable long messageId) {
-    return messageService.get(callerId, messageId);
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long messageId,
+      @RequestParam(defaultValue = "true") boolean markSeen) {
+    return messageService.get(callerId, messageId, markSeen);
   }
 
   /** WP-146: 명시적 읽음 처리(MCP mark_mail_read). 본인 메일이 아니면 404, 이미 읽었으면 그대로 200. */

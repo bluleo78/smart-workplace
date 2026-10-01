@@ -121,6 +121,26 @@ class MailInboxControllerTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.count").value(0));
   }
 
+  /** WP-147: AI 조회(markSeen=false)는 읽음 처리하지 않는다 — 응답 seen=false, 회신필요 카운트 유지. */
+  @Test
+  void getMessage_markSeenFalse_keepsUnread() throws Exception {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai-read-" + System.nanoTime() + "@test.local");
+    long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long m = seedMessage(accountId, inbox, false, null);
+    messageRepo.updateClassification(m, "업무", true);
+    String token = jwtTokenProvider.generateAccessToken(userId, "user-" + userId);
+
+    mvc.perform(
+            get("/api/v1/mail/messages/{m}", m)
+                .param("markSeen", "false")
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.seen").value(false));
+
+    assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isEqualTo(1);
+  }
+
   /** WP-146: POST /messages/{m}/read — 회신필요 메일을 읽음 처리하면 카운트가 0, 두 번 불러도 200(멱등). */
   @Test
   void markRead_marksSeenIdempotently() throws Exception {

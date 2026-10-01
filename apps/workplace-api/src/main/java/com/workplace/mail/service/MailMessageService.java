@@ -108,6 +108,11 @@ public class MailMessageService {
         messageRepo.listRecentUnread(userId, recentLimit));
   }
 
+  /** 웹 열람용 상세 — 읽음 처리 포함(기존 계약). */
+  public EmailMessageDetail get(long userId, long messageId) {
+    return get(userId, messageId, true);
+  }
+
   /**
    * 메시지 단건 상세. 본인 소유가 아니거나 없으면 404. 본문이 미적재(text/html 모두 null)면 OnDemand 로 IMAP 에서 적재 후 다시 읽어 반환한다.
    *
@@ -115,8 +120,10 @@ public class MailMessageService {
    * 스코프 SELECT 가 빈 결과 → 거짓 404. 미적재 본문 적재({@link MailBodyFetcher#fetchBody})는 IMAP 왕복을 포함하므로 메시지 단위
    * 짧은 트랜잭션으로 감싸(backfill 과 동일 패턴) 커넥션 점유를 그 메시지 적재 구간으로 한정한다. 본문 적재가 필요 없는 warm 경로에서는 DB 커넥션을
    * 조회/읽음처리 사이에 즉시 반납한다(#232).
+   *
+   * @param markSeen false 면 읽음 처리·역동기화 생략(AI 조회, WP-147)
    */
-  public EmailMessageDetail get(long userId, long messageId) {
+  public EmailMessageDetail get(long userId, long messageId, boolean markSeen) {
     EmailMessageDetail detail = loadDetail(userId, messageId);
     if (detail.bodyText() == null && detail.bodyHtml() == null) {
       // 미적재 대상 조회는 짧은 트랜잭션으로. 로컬 보낸메일(서버 좌표 없음)/이미 적재된 건은 가드로 스킵.
@@ -144,8 +151,8 @@ public class MailMessageService {
       detail = loadDetail(userId, messageId);
     }
     requestContentIdBackfillIfNeeded(userId, detail);
-    // 읽음 처리 — seen=false 인 메시지를 true 로 업데이트하고 DTO 도 동기화
-    if (!detail.seen()) {
+    // 읽음 처리 — markSeen(웹 열람)이고 seen=false 일 때만. AI 조회(markSeen=false)는 건너뛴다(WP-147).
+    if (markSeen && !detail.seen()) {
       txTemplate.executeWithoutResult(status -> messageRepo.markSeen(messageId));
       publishMarkedRead(userId, messageId);
       detail =

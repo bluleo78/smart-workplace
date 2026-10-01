@@ -10,6 +10,7 @@ import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.MailSummaryResponse;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.event.InlineContentIdBackfillRequestedEvent;
+import com.workplace.mail.event.MessageMarkedReadEvent;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
@@ -353,5 +354,26 @@ class MailMessageServiceTest extends IntegrationTestBase {
     messageService.get(user, id);
 
     assertThat(events.stream(InlineContentIdBackfillRequestedEvent.class)).isEmpty();
+  }
+
+  /** WP-147: markSeen=false 조회는 읽음 처리·원본 서버 역동기화 이벤트(MessageMarkedReadEvent)를 하지 않는다. */
+  @Test
+  void get_markSeenFalse_doesNotPublishMarkedRead() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, false);
+    deliverHtmlWithImage("<p>AI 조회</p>");
+    syncService.sync(user, accountId);
+    long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
+
+    EmailMessageDetail first = messageService.get(user, id, false);
+    EmailMessageDetail second = messageService.get(user, id, false);
+
+    assertThat(first.seen()).isFalse();
+    assertThat(second.seen()).isFalse();
+    assertThat(events.stream(MessageMarkedReadEvent.class)).isEmpty();
+
+    // 기본(웹 열람, markSeen=true)은 읽음 처리 + 이벤트 발행 — 대조군
+    assertThat(messageService.get(user, id).seen()).isTrue();
+    assertThat(events.stream(MessageMarkedReadEvent.class)).hasSize(1);
   }
 }
