@@ -312,6 +312,8 @@ export function MailInboxPage() {
 }
 ```
 
+**안 읽음 표시 (WP-155)** — 목록 행은 굵기(보낸사람 `font-semibold`·제목 `font-medium`) + 행 왼쪽 3px `bg-primary` 막대(`absolute inset-y-0 left-0`, `aria-hidden`)로 구분한다. 홈 위젯처럼 좁은 행은 같은 색의 `bg-primary` 점을 쓴다. 글자색은 바꾸지 않는다 — 행 안의 AI 배지(`ai-accent`)와 색이 경쟁하지 않게 하기 위함이고, `ai-accent` 는 AI 의미 전용이라 안 읽음 표식에 쓰지 않는다.
+
 ### C-2. 본문 ↔ 보조 패널 (채팅 스레드)
 
 ```tsx
