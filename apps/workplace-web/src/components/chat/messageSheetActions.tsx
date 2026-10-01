@@ -3,6 +3,8 @@
 import { Copy, MessageSquare, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { copyText } from '@/lib/copyText'
+
 import type { MessageSheetAction } from './MessageActionSheet'
 
 export const threadAction = (onSelect: () => void): MessageSheetAction => ({
@@ -20,11 +22,9 @@ export const copyAction = (text: string): MessageSheetAction => ({
   key: 'copy',
   label: '복사',
   icon: <Copy />,
+  // 클립보드 API 가 없거나(비보안 컨텍스트) 거부돼도 조용히 끝나지 않게 — 대체 복사까지 실패하면 오류 토스트(C3).
   onSelect: () => {
-    void navigator.clipboard?.writeText(text).then(
-      () => toast.success('메시지를 복사했습니다'),
-      () => toast.error('복사하지 못했습니다'),
-    )
+    void copyText(text).then((ok) => (ok ? toast.success('메시지를 복사했습니다') : toast.error('복사하지 못했어요')))
   },
 })
 

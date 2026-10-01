@@ -10,6 +10,7 @@ import { messagingApi } from '@/api/messaging'
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
 import { EmojiPicker } from '@/components/chat/EmojiPicker'
+import { MessageActionsButton } from '@/components/chat/MessageActionsButton'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
 import { MessageImage } from '@/components/chat/MessageImage'
 import {
@@ -305,7 +306,8 @@ export function MessageRow({
         ownBubble ? 'justify-end' : ''
       } ${
         // 터치 셸: 길게 누르기가 작업 시트를 열므로 iOS 텍스트 선택·콜아웃(복사/공유 말풍선)이 같이 뜨지 않게 막는다(복사는 시트가 제공).
-        touchShell ? 'select-none [-webkit-touch-callout:none]' : ''
+        // 수정 중인 행은 풀어 둔다(C2) — 에디터에서 커서 이동·선택·붙여넣기가 되어야 한다.
+        touchShell && !isEditing ? 'select-none [-webkit-touch-callout:none]' : ''
       }`}
     >
       {ownBubble ? (
@@ -384,6 +386,7 @@ export function MessageRow({
           </div>
         </>
       )}
+      {onLongPress && <MessageActionsButton onOpen={onLongPress} />}
     </div>
   )
 }

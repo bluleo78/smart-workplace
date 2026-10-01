@@ -130,8 +130,11 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
               rowProps={toolbarRowProps(m.id)}
               touchShell={touchShell}
               // 반응(확정 메시지)이나 작업 행이 하나라도 있을 때만 길게 누르기를 단다 — 빈 시트는 열지 않는다.
+              // 수정 중인 행은 제외한다(C2) — 에디터 안의 길게 누르기는 커서 이동·붙여넣기·선택(네이티브 메뉴)이어야 한다.
               onLongPress={
-                touchShell && (m.id >= 0 || sheetActionsFor(m).length > 0) ? () => setSheet({ id: m.id, open: true }) : undefined
+                touchShell && editingId !== m.id && (m.id >= 0 || sheetActionsFor(m).length > 0)
+                  ? () => setSheet({ id: m.id, open: true })
+                  : undefined
               }
               onOpenThread={onOpenThread}
               onStartEdit={() => setEditingId(m.id)}

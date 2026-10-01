@@ -11,6 +11,7 @@ import { chatApi } from '@/api/chat';
 import { downloadChatDriveLink } from '@/api/driveLinks';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
+import { MessageActionsButton } from '@/components/chat/MessageActionsButton';
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList';
 import {
   MESSAGE_TOOLBAR_CLASS,
@@ -222,6 +223,7 @@ export function ChatMessageRow({
           </div>
         </>
       )}
+      {onLongPress && <MessageActionsButton onOpen={onLongPress} />}
     </li>
   );
 }

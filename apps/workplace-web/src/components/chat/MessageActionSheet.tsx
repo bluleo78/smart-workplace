@@ -2,7 +2,7 @@
 // 첫 줄은 빠른 반응 이모지(데스크톱 피커와 같은 집합, ＋ 로 전체 목록 펼침), 그 아래 이 메시지에 허용된 작업 행(44px).
 // 팀 채팅(MessageList)과 이슈 채팅(ChatMessageList)이 목록당 하나씩 두고, 어떤 메시지·작업인지는 호출처가 정한다.
 import { Plus } from 'lucide-react'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 
 import { PICKER_EMOJIS, QUICK_EMOJIS } from '@/components/chat/emojiSets'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
@@ -39,8 +39,13 @@ export function MessageActionSheet({
     setAllEmojis(false)
     onClose()
   }
+  // 작업 행(스레드·복사·수정·삭제)으로 닫혔는가 — 그때는 포커스를 되돌리지 않는다(onCloseAutoFocus 참조).
+  const ranAction = useRef(false)
+  // 열 때 포커스가 있던 요소(스크린리더용 "메시지 작업" 버튼 등). 트리거(SheetTrigger)가 없는 시트라 Radix 가 직접 되돌려 주지 않는다.
+  const returnFocus = useRef<HTMLElement | null>(null)
   // 시트를 먼저 닫고 작업을 실행한다 — 삭제 실행 취소 토스트(z-40)가 시트 오버레이(z-50) 밑에 깔리지 않게.
-  const run = (fn: () => void) => {
+  const run = (fn: () => void, isAction = false) => {
+    ranAction.current = isAction
     close()
     fn()
   }
@@ -64,8 +69,26 @@ export function MessageActionSheet({
         showCloseButton={false}
         data-testid="message-action-sheet"
         className="max-h-[85dvh] gap-0 rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]"
-        // 닫힐 때 Radix 가 직전 포커스로 되돌리면 "수정" 으로 연 인라인 에디터의 자동 포커스를 빼앗는다.
-        onCloseAutoFocus={(e) => e.preventDefault()}
+        // 포커스 이동 전(마운트 직후)에 호출되므로 activeElement 는 아직 시트를 연 쪽이다.
+        onOpenAutoFocus={() => {
+          const el = document.activeElement
+          returnFocus.current = el instanceof HTMLElement && el !== document.body ? el : null
+        }}
+        // 닫힘 포커스는 직접 정한다. 작업 행으로 닫히면 되돌리지 않는다 — "수정" 으로 연 인라인 에디터·스레드 패널의 자동 포커스를
+        // 빼앗지 않게. 그냥 닫거나(바깥 탭·ESC) 반응만 달았을 땐 연 버튼으로 되돌린다 — "메시지 작업" 버튼(A1)으로 연
+        // 스크린리더 사용자가 제자리를 잃지 않게. 입력칸은 되돌리지 않는다(모바일 가상 키보드가 다시 튀어 오른다).
+        onCloseAutoFocus={(e) => {
+          e.preventDefault()
+          const el = returnFocus.current
+          returnFocus.current = null
+          if (ranAction.current) {
+            ranAction.current = false
+            return
+          }
+          if (el?.isConnected && !el.isContentEditable && !(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) {
+            el.focus({ preventScroll: true })
+          }
+        }}
       >
         <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-muted-foreground/30" />
         <SheetTitle className="sr-only">메시지 작업</SheetTitle>
@@ -98,7 +121,7 @@ export function MessageActionSheet({
               key={a.key}
               type="button"
               data-testid={`message-action-${a.key}`}
-              onClick={() => run(a.onSelect)}
+              onClick={() => run(a.onSelect, true)}
               className={cn(
                 'flex min-h-11 w-full items-center gap-3 px-4 text-left text-base active:bg-accent [&_svg]:size-5 [&_svg]:shrink-0',
                 a.destructive ? 'text-destructive' : 'text-foreground [&_svg]:text-muted-foreground',
