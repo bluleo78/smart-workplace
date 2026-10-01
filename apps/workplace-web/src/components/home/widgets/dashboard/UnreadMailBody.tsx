@@ -6,6 +6,7 @@ import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { relTime } from '@/components/ai/relTime'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMailSummary } from '@/hooks/queries/useMailSummary'
+import { isNeedsReply } from '@/lib/mailNeedsReply'
 import type { MailSummaryItem } from '@/types/dashboard'
 
 import { WidgetError } from '../WidgetError'
@@ -48,7 +49,7 @@ export default function UnreadMailBody({
 
   const recent = previewData ?? queryData?.recent ?? []
   const unreadCount = previewData ? previewData.filter((m) => !m.seen).length : (queryData?.unreadCount ?? 0)
-  const needsReplyCount = previewData ? previewData.filter((m) => m.aiNeedsReply && !m.seen).length : (queryData?.needsReplyCount ?? 0)
+  const needsReplyCount = previewData ? previewData.filter(isNeedsReply).length : (queryData?.needsReplyCount ?? 0)
   const classificationActive = previewData ? true : (queryData?.classificationActive ?? false)
 
   if (recent.length === 0)
@@ -77,7 +78,7 @@ export default function UnreadMailBody({
 
   // WP-146: 단일 술어 — 회신필요 = AI 판정 && 안 읽음.
   // 토글 켜짐 → 회신 필요만. recent 는 회신필요 우선 정렬이라 상단부터 채워진다.
-  const visible = needsReplyOnly ? rows.filter((m) => m.aiNeedsReply && !m.seen) : rows
+  const visible = needsReplyOnly ? rows.filter(isNeedsReply) : rows
 
   return (
     <div data-testid="dash-mail">
@@ -120,7 +121,7 @@ export default function UnreadMailBody({
                 <span className="flex items-center gap-1.5">
                   <span className="truncate text-sm font-medium">{sender(m)}</span>
                   {/* 회신필요 배지 — AI action 스타일(빨강 제거). 비-AI 멘션/회신대기 배지와 시각적으로 구분. */}
-                  {classificationActive && m.aiNeedsReply && !m.seen && (
+                  {classificationActive && isNeedsReply(m) && (
                     <AiSignalBadge variant="action" data-testid="dash-mail-badge-reply">
                       회신필요
                     </AiSignalBadge>

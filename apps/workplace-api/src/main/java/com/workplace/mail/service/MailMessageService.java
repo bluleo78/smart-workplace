@@ -146,7 +146,8 @@ public class MailMessageService {
     requestContentIdBackfillIfNeeded(userId, detail);
     // 읽음 처리 — seen=false 인 메시지를 true 로 업데이트하고 DTO 도 동기화
     if (!detail.seen()) {
-      markSeenAndPublish(userId, messageId);
+      txTemplate.executeWithoutResult(status -> messageRepo.markSeen(messageId));
+      publishMarkedRead(userId, messageId);
       detail =
           new EmailMessageDetail(
               detail.id(),
@@ -173,36 +174,24 @@ public class MailMessageService {
    * resource.changed 재발행 없음). 읽음으로 바뀌면 열려 있는 웹 탭이 목록·카운트를 갱신하도록 mail updated 를 소유자에게 보낸다.
    */
   public void markRead(long userId, long messageId) {
-    BodyTarget target =
-        txTemplate.execute(
-            status ->
-                messageRepo
-                    .findBodyTargetForUser(userId, messageId)
-                    .orElseThrow(() -> new EmailMessageNotFoundException(messageId)));
-    // 상세 전체를 읽지 않고 UPDATE 반환 행 수로 "이번에 읽음으로 바뀐 건"만 판별한다(동시 호출에서도 한 번만 발행).
+    // 소유 확인(없으면 404)과 읽음 갱신을 한 트랜잭션으로 처리한다. UPDATE 반환 행 수로 "이번에 읽음으로 바뀐 건"만 판별(동시 호출에서도 한 번만 발행).
     // MailChangeNotifier 는 트랜잭션 안에서 호출해야 한다(AFTER_COMMIT 디스패처는 트랜잭션 밖 발행을 유실) — markSeen 과 같은 트랜잭션.
-    Integer updated =
+    Boolean changed =
         txTemplate.execute(
             status -> {
-              int n = messageRepo.markSeen(messageId);
-              if (n > 0) {
-                notifier.mailChanged(userId, target.accountId(), messageId, userId);
+              BodyTarget target =
+                  messageRepo
+                      .findBodyTargetForUser(userId, messageId)
+                      .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
+              if (messageRepo.markSeen(messageId) <= 0) {
+                return false;
               }
-              return n;
+              notifier.mailChanged(userId, target.accountId(), messageId, userId);
+              return true;
             });
-    if (updated != null && updated > 0) {
+    if (Boolean.TRUE.equals(changed)) {
       publishMarkedRead(userId, messageId);
     }
-  }
-
-  /**
-   * seen=true 기록 후 원본 서버 역동기화 이벤트 발행 — @Async @TransactionalEventListener(AFTER_COMMIT,
-   * fallbackExecution=true) 리스너가 isRead 를 반영한다(best-effort). TenantContext 가 null 이면 내부 경로이므로 발행
-   * 생략(방어적).
-   */
-  private void markSeenAndPublish(long userId, long messageId) {
-    txTemplate.executeWithoutResult(status -> messageRepo.markSeen(messageId));
-    publishMarkedRead(userId, messageId);
   }
 
   /** 역동기화 이벤트 발행 공용부 — TenantContext 가 null 이면 내부 경로이므로 생략(방어적). */

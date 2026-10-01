@@ -17,6 +17,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
+import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
 import { cn } from '@/lib/utils'
 
@@ -57,6 +58,8 @@ function MessageRow({
   onSelect: () => void
 }) {
   const navigate = useNavigate()
+  // WP-146: 회신필요 판정은 행마다 한 번만 계산.
+  const needsReply = isNeedsReply(m)
   return (
     // div role="button" — 내부 AiSignalBadge 가 실제 <button>이므로 바깥을 <button>으로
     // 감싸면 버튼 중첩(HTML 유효성 위반 + a11y 위험, #577)이 발생해 카드형 클릭 영역 패턴으로 전환.
@@ -109,7 +112,7 @@ function MessageRow({
         </span>
       )}
       {/* WP-146: 회신필요 = AI 판정 && 안 읽음 — 읽으면 배지 숨김. 분류 배지는 클릭 필터. */}
-      {(m.aiCategory || (m.aiNeedsReply && !m.seen)) && (
+      {(m.aiCategory || needsReply) && (
         <span className="mt-0.5 flex items-center gap-1">
           {/* AI 분류 배지 — 클릭 시 해당 분류 필터로 이동(onClick + stopPropagation 으로 행 선택과 분리). */}
           {m.aiCategory && (
@@ -125,7 +128,7 @@ function MessageRow({
             </AiSignalBadge>
           )}
           {/* 회신필요 배지 — action 변형으로 사용자 행동 필요를 강조. 읽으면 숨김. */}
-          {m.aiNeedsReply && !m.seen && (
+          {needsReply && (
             <AiSignalBadge variant="action" data-testid={`mail-badge-needsreply-${m.id}`}>
               답장필요
             </AiSignalBadge>
@@ -519,27 +522,13 @@ export function MailInboxPage() {
 
   // WP-54: 메일함 화면 컨텍스트 — 계정·폴더·필터 + 열린 메일(목록 행 요약으로 라벨 구성).
   // 훅이므로 아래 !accountId 조기 return 보다 앞에 둔다. 목록에 없는 메일(딥링크 등)은 focus 없이 scope 만 싣는다.
-  // 상세 쿼리는 상세 패널과 같은 키라 중복 요청 없이 캐시를 공유한다.
   // 회신필요 필터(?needsReply=true)에서는 메일을 열면 읽음 처리돼 다음 목록 refetch 에서 목록을 빠져나간다 —
-  // 상세 패널은 열려 있는데 AI 컨텍스트만 사라지지 않도록, 목록에 없으면 상세 데이터로 같은 형태를 채운다.
-  const { data: openedDetail } = useMailMessage(selectedId)
-  const selectedSummary = useMemo(() => {
-    const fromList = messages?.find((m) => m.id === selectedId)
-    if (fromList) return fromList
-    if (openedDetail && openedDetail.id === selectedId) {
-      return {
-        id: openedDetail.id,
-        subject: openedDetail.subject,
-        fromName: openedDetail.fromName,
-        fromAddress: openedDetail.fromAddress,
-        receivedAt: openedDetail.receivedAt,
-        // 상세 응답엔 AI 분류가 없다 — 열린(=읽은) 메일이므로 회신필요 아님/분류 미상으로 둔다.
-        aiCategory: null,
-        aiNeedsReply: false,
-      }
-    }
-    return null
-  }, [messages, selectedId, openedDetail])
+  // 상세 패널은 열려 있는데 AI 컨텍스트만 사라지지 않도록, 마지막으로 본 목록 행을 기억해 두었다가 쓴다.
+  const rememberedRef = useRef<EmailMessageSummary | null>(null)
+  const found = messages?.find((m) => m.id === selectedId)
+  if (found) rememberedRef.current = found
+  const remembered = rememberedRef.current
+  const selectedSummary = found ?? (remembered?.id === selectedId ? remembered : null)
   const screenContext = useMemo(
     () =>
       accountIdNum != null

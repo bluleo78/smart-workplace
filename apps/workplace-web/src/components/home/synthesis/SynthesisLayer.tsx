@@ -20,6 +20,7 @@ import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
 import { parseUtcDate } from '@/lib/formatters'
+import { isNeedsReply } from '@/lib/mailNeedsReply'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
@@ -244,7 +245,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   // pending(aiNeedsReply null)은 제외 — AI 판정 전 상태라 노이즈.
   if (previewData || !mail.isError) {
     for (const m of mailData?.recent ?? []) {
-      if (m.aiNeedsReply === true && !m.seen) {
+      if (isNeedsReply(m)) {
         rows.push({
           key: `mail-${m.id}`,
           source: '메일',
