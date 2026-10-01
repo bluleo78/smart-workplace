@@ -29,3 +29,83 @@ export const MAIL_ISSUE_DRAFT_PROMPT = `당신은 이메일을 업무 이슈 초
 - body: 메일의 요청·배경·기한을 요약하고 할 일을 정리. HTML 금지(마크다운 텍스트).
 - priority: 메일 내용/긴급도에서 추론. 명시 없으면 "MID".
 - projectKey: 후보 목록에 가장 적합한 것이 있으면 그 key. 애매하면 필드 자체를 생략(개인 프로젝트로 폴백됨).`;
+
+// ───────────────────────────── WP-149 원본/개인 분석 ─────────────────────────────
+// 요청 플래그로 받을 항목을 고른다. 생략한 항목은 지시·출력 필드 자체를 빼서 모델이 만들지 않게 한다(요약 생략·요약만 모드).
+
+/** ③ 원본 분석에서 받을 항목. */
+export interface ContentAnalysisFlags {
+  includeCategory: boolean;
+  includeSummary: boolean;
+}
+
+/** ④ 개인 분석에서 받을 항목. */
+export interface PersonalAnalysisFlags {
+  includeNeedsReply: boolean;
+  includePersonalSummary: boolean;
+  includeCategory: boolean;
+}
+
+const CATEGORY_FIELD = '"category":"업무|개인|알림|프로모션|뉴스레터 중 하나"';
+const CATEGORY_RULE =
+  '- category: 메일의 성격. 업무=일/협업, 개인=지인, 알림=시스템/거래/영수증, 프로모션=광고/할인, 뉴스레터=구독 소식.';
+const AUTO_GENERATED_NOTE = '[자동 발송] 표시가 있으면 대량·자동 발송 메일이며, 본문 대신 미리보기만 주어질 수 있습니다.';
+const JSON_ONLY = '반드시 아래 JSON 한 줄만 출력하세요(설명·코드펜스 금지). 문자열 안의 줄바꿈은 \\n 으로 쓰세요:';
+
+/** ③ 원본 분석 — 특정 수신자 관점이 아닌 객관 분석. */
+export function buildContentAnalysisPrompt(flags: ContentAnalysisFlags): string {
+  const fields: string[] = [];
+  const rules: string[] = [];
+  if (flags.includeCategory) {
+    fields.push(CATEGORY_FIELD);
+    rules.push(CATEGORY_RULE);
+  }
+  if (flags.includeSummary) {
+    fields.push('"summary":"• 불릿 요약" 또는 null');
+    rules.push(
+      '- summary: 한국어 3줄 이내 불릿(•). 인사말·서명·면책문구는 빼고 요청·일정·결정사항 중심. 요약할 내용이 없으면 null.',
+    );
+  }
+  return [
+    '당신은 이메일 분석기입니다. 특정 수신자의 입장이 아니라 메일 자체를 객관적으로 분석하세요.',
+    AUTO_GENERATED_NOTE,
+    JSON_ONLY,
+    `{${fields.join(',')}}`,
+    ...rules,
+  ].join('\n');
+}
+
+/** ④ 개인 분석 — [나] 기준 회신필요·개인 요약(·공통 비서가 없을 때 분류). */
+export function buildPersonalAnalysisPrompt(flags: PersonalAnalysisFlags): string {
+  const fields: string[] = [];
+  const rules: string[] = [];
+  if (flags.includeNeedsReply) {
+    fields.push('"needsReply":true 또는 false');
+    rules.push(
+      '- needsReply: [나]에게 직접 질문·요청·승인·의견·일정 확인을 구하고, 내가 답하지 않으면 일이 진행되지 않을 때만 true.',
+      '  · false: 공지, 단순 공유("공유드립니다", "참고 바랍니다"), 감사·확인 응답, 자동 알림·영수증, 나 아닌 사람에게 한 요청.',
+      '  · [받는 사람]에서 내가 CC 이면, 본문이 [나]를 이름·직함·주소로 직접 지칭해 요청할 때만 true.',
+      '  · 애매하면 false.',
+    );
+  }
+  if (flags.includePersonalSummary) {
+    fields.push('"personalSummary":"• 불릿 요약" 또는 null');
+    rules.push(
+      '- personalSummary: [나] 기준 3줄 이내 불릿(•).',
+      '  · 첫 줄 "• 나에게: …" 는 [나]에게 요청이 있을 때만(누가·무엇을·언제까지).',
+      '  · 이어서 "• 핵심: …", 필요하면 "• 참고: …".',
+      '  · 요약이 필요 없으면 null.',
+    );
+  }
+  if (flags.includeCategory) {
+    fields.push(CATEGORY_FIELD);
+    rules.push(CATEGORY_RULE);
+  }
+  return [
+    '당신은 [나]의 메일 비서입니다. 주어진 메일을 [나]의 입장에서 분석하세요.',
+    AUTO_GENERATED_NOTE,
+    JSON_ONLY,
+    `{${fields.join(',')}}`,
+    ...rules,
+  ].join('\n');
+}

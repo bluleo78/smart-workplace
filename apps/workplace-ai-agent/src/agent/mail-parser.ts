@@ -64,3 +64,117 @@ export function parseIssueDraftJson(text: string): {
     typeof obj.projectKey === 'string' && obj.projectKey.trim() ? obj.projectKey.trim() : undefined;
   return { title, body, priority, projectKey };
 }
+
+// ───────────────────────────── WP-149 원본/개인 분석 파서 ─────────────────────────────
+
+/**
+ * 모델 출력에서 JSON 객체 하나를 꺼낸다. 코드펜스·앞뒤 잡설을 걷고 첫 '{' ~ 마지막 '}' 를 읽는다(요약 안의 중괄호 허용).
+ * 모델이 문자열 안에 날 줄바꿈을 넣으면 JSON.parse 가 실패하므로 문자열 안 제어문자만 이스케이프해 한 번 더 읽는다 —
+ * 그렇지 않으면 같은 메일이 매 백필마다 실패·재시도된다.
+ */
+export function extractJsonObject(text: string): Record<string, unknown> {
+  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error(`분석 JSON 없음: ${text.slice(0, 120)}`);
+  const raw = cleaned.slice(start, end + 1);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = JSON.parse(escapeControlCharsInStrings(raw));
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`분석 JSON 이 객체가 아님: ${text.slice(0, 120)}`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/** JSON 문자열 리터럴 안의 \n·\r·\t 만 이스케이프한다(바깥 공백은 그대로). */
+function escapeControlCharsInStrings(s: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (const ch of s) {
+    if (!inString) {
+      if (ch === '"') inString = true;
+      out += ch;
+      continue;
+    }
+    if (escaped) {
+      out += ch;
+      escaped = false;
+    } else if (ch === '\\') {
+      out += ch;
+      escaped = true;
+    } else if (ch === '"') {
+      out += ch;
+      inString = false;
+    } else if (ch === '\n') {
+      out += '\\n';
+    } else if (ch === '\r') {
+      out += '\\r';
+    } else if (ch === '\t') {
+      out += '\\t';
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/** 허용 카테고리만(미지 값은 null — 예전 '업무' 폴백은 원본 분류를 오염시켰다). */
+function pickCategory(v: unknown): string | null {
+  return typeof v === 'string' && CATEGORIES.includes(v.trim()) ? v.trim() : null;
+}
+
+/** 공백 아닌 문자열만(공백·비문자열 → null). */
+function pickText(v: unknown): string | null {
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+/** ③ 응답 파싱. 요청하지 않은 항목은 null. */
+export function parseContentAnalysisJson(
+  text: string,
+  flags: { includeCategory: boolean; includeSummary: boolean },
+): { category: string | null; summary: string | null } {
+  const obj = extractJsonObject(text);
+  return {
+    category: flags.includeCategory ? pickCategory(obj.category) : null,
+    summary: flags.includeSummary ? pickText(obj.summary) : null,
+  };
+}
+
+/**
+ * ④ 응답 파싱. needsReply 를 요청했는데 boolean 이 아니면 throw(→ 502 → api 는 시도 기록 안 함, 다음 백필 재시도).
+ * personalSummary 는 문자열(공백이면 null)·null 이면 유효, 그 외(누락·숫자 등)는 personalSummaryValid=false 로 알려
+ * api 가 needsReply 만 저장하게 한다.
+ */
+export function parsePersonalAnalysisJson(
+  text: string,
+  flags: { includeNeedsReply: boolean; includePersonalSummary: boolean; includeCategory: boolean },
+): { needsReply: boolean | null; personalSummary: string | null; personalSummaryValid: boolean; category: string | null } {
+  const obj = extractJsonObject(text);
+  let needsReply: boolean | null = null;
+  if (flags.includeNeedsReply) {
+    if (typeof obj.needsReply !== 'boolean') throw new Error(`needsReply 누락: ${text.slice(0, 120)}`);
+    needsReply = obj.needsReply;
+  }
+  let personalSummary: string | null = null;
+  let personalSummaryValid = false;
+  if (flags.includePersonalSummary) {
+    const v = obj.personalSummary;
+    if (v === null) {
+      personalSummaryValid = true;
+    } else if (typeof v === 'string') {
+      personalSummaryValid = true;
+      personalSummary = v.trim() || null;
+    }
+  }
+  return {
+    needsReply,
+    personalSummary,
+    personalSummaryValid,
+    category: flags.includeCategory ? pickCategory(obj.category) : null,
+  };
+}
