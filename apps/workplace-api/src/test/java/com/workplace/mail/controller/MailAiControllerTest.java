@@ -18,6 +18,8 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.mail.dto.MailReplyDraft;
 import com.workplace.mail.dto.MailSummary;
+import com.workplace.mail.exception.EmailMessageNotFoundException;
+import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.service.MailAiService;
 import com.workplace.mail.service.MailIssueService;
@@ -99,6 +101,39 @@ class MailAiControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.summary").value("• 강제 요약"))
         .andExpect(jsonPath("$.status").value("READY"));
+  }
+
+  /** 타인 메일 POST …/summary → 404. */
+  @Test
+  void generateSummary_otherUsersMessage_returns404() throws Exception {
+    when(aiService.forceSummarize(anyLong(), eq(5L)))
+        .thenThrow(new EmailMessageNotFoundException(5L));
+
+    mockMvc
+        .perform(post("/api/v1/mail/messages/5/summary").header("Authorization", "Bearer v"))
+        .andExpect(status().isNotFound());
+  }
+
+  /** 비서 없음 POST …/summary → 503. */
+  @Test
+  void generateSummary_noAssistant_returns503() throws Exception {
+    when(aiService.forceSummarize(anyLong(), eq(5L)))
+        .thenThrow(new MailAiUnavailableException("꺼짐"));
+
+    mockMvc
+        .perform(post("/api/v1/mail/messages/5/summary").header("Authorization", "Bearer v"))
+        .andExpect(status().isServiceUnavailable());
+  }
+
+  /** LLM 호출 실패(MailAiException) POST …/summary → 502(MailExceptionHandler 매핑). */
+  @Test
+  void generateSummary_llmFailure_returns502() throws Exception {
+    when(aiService.forceSummarize(anyLong(), eq(5L)))
+        .thenThrow(new MailAiException("실패", new RuntimeException("x")));
+
+    mockMvc
+        .perform(post("/api/v1/mail/messages/5/summary").header("Authorization", "Bearer v"))
+        .andExpect(status().isBadGateway());
   }
 
   /** AI 비서 미활성 → 503 서비스 불가. */
