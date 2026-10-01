@@ -38,9 +38,10 @@ public final class NewContentExtractor {
   private static final Pattern KO_WROTE = Pattern.compile("^.+님이 작성:$");
   private static final Pattern HEADER_FROM =
       Pattern.compile("^(from|보낸 사람|보낸사람)\\s*:.*", Pattern.CASE_INSENSITIVE);
-  private static final Pattern HEADER_OTHER =
-      Pattern.compile(
-          "^(sent|date|to|cc|subject|보낸 날짜|날짜|받는 사람|참조|제목)\\s*:.*", Pattern.CASE_INSENSITIVE);
+
+  /** 헤더 블록 확정에 필요한 "강한" 후속 헤더. to/cc/date 만으로는 일정표("From: 10:00 / To: 11:00")와 구분되지 않는다. */
+  private static final Pattern HEADER_STRONG =
+      Pattern.compile("^(sent|subject|보낸 날짜|제목)\\s*:.*", Pattern.CASE_INSENSITIVE);
 
   /** From 줄 뒤 이 줄 수 안에 다른 헤더 줄이 있어야 헤더 블록으로 본다("From: our team…" 같은 본문 줄 오판 방지). */
   private static final int HEADER_LOOKAHEAD = 4;
@@ -117,7 +118,7 @@ public final class NewContentExtractor {
   private static boolean hasHeaderFollower(String[] lines, int fromIndex) {
     int end = Math.min(lines.length, fromIndex + 1 + HEADER_LOOKAHEAD);
     for (int j = fromIndex + 1; j < end; j++) {
-      if (HEADER_OTHER.matcher(lines[j].strip()).matches()) {
+      if (HEADER_STRONG.matcher(lines[j].strip()).matches()) {
         return true;
       }
     }
@@ -145,7 +146,7 @@ public final class NewContentExtractor {
       return "";
     }
     String s =
-        html.replaceAll("(?is)<(style|script|head)[^>]*>.*?</\\1>", " ")
+        html.replaceAll("(?is)<(style|script|head)\\b[^>]*>.*?</\\1\\s*>", " ")
             .replaceAll("(?s)<!--.*?-->", " ")
             .replaceAll("(?i)<br\\s*/?>", "\n")
             .replaceAll("(?i)</(p|div|tr|li|h[1-6]|blockquote|table)\\s*>", "\n")

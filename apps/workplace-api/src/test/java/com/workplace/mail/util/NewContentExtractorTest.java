@@ -134,4 +134,21 @@ class NewContentExtractorTest {
     String body = "가".repeat(NewContentExtractor.MAX_CHARS);
     assertThat(text(body)).isEqualTo(body);
   }
+
+  @Test
+  void scheduleLikeFromTo_isNotCut() {
+    String body = "일정 안내\nFrom: 10:00\nTo: 11:00\n장소: 3층 회의실";
+    assertThat(text(body)).isEqualTo(body);
+  }
+
+  @Test
+  void koreanFullHeaderBlock_withStrongFollower_cut() {
+    String body = "확인\n보낸 사람: 김\n받는 사람: 홍\n제목: 배포\n\n이전";
+    assertThat(text(body)).isEqualTo("확인");
+  }
+
+  @Test
+  void html_headerTag_contentKept() {
+    assertThat(html("<header>머리말 내용</header><p>본문</p>")).contains("머리말 내용").contains("본문");
+  }
 }
