@@ -26,6 +26,7 @@ import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
 
 import { isMentionLike, notifLabel, notifTarget } from '../notifTarget'
+import { dueQueryFrom, localDateKey, todayRange } from './synthesisDates'
 
 // 위젯 추가 모달 프리뷰 전용(#브레인스토밍 2026-07-03) — 6개 하위 훅 각각의 응답을 그대로 미러링한
 // 목데이터 뭉치. previewData 가 있으면 6개 훅 전부 enabled:false 로 끄고 이 값으로만 렌더한다.
@@ -36,23 +37,6 @@ export interface SynthesisPreviewData {
   events: CalendarEvent[]
   messaging: MessagingSummary
   priorityItems: PriorityItem[]
-}
-
-// 오늘 00:00~24:00(로컬) ISO 범위 — CalendarTodayBody 와 동일 규칙으로 캘린더 쿼리 dedupe.
-function todayRange(): { from: string; to: string } {
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(start)
-  end.setDate(end.getDate() + 1)
-  return { from: start.toISOString(), to: end.toISOString() }
-}
-
-// yyyy-MM-dd(로컬) — 마감일(LocalDate) 비교용.
-function localDateKey(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
 }
 
 // 지금 신경 쓸 일 한 행의 표준 모델.
@@ -153,9 +137,7 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   const { from, to } = todayRange()
 
   // 마감 이슈 — 1년 전~오늘로 한 번에 조회해 '오늘 마감' 카운트와 '지남+오늘' 주의 행을 분리 산출.
-  const dueFrom = new Date(today)
-  dueFrom.setFullYear(dueFrom.getFullYear() - 1)
-  const dues = useMyIssueDues(dueFrom.toISOString(), to, { enabled: !previewData })
+  const dues = useMyIssueDues(dueQueryFrom(today), to, { enabled: !previewData })
 
   // 멘션(코멘트 프록시) — 알림 목록 재사용(위젯과 동일 키 → dedupe).
   const notifs = useNotifications(!previewData)
