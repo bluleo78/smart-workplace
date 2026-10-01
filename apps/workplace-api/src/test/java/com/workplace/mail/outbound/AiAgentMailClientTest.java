@@ -98,6 +98,8 @@ class AiAgentMailClientTest {
         .andExpect(method(HttpMethod.POST))
         .andExpect(jsonPath("$.recipient.myRole").value("CC"))
         .andExpect(jsonPath("$.me.addresses[0]").value("me@x.com"))
+        .andExpect(jsonPath("$.me.name").value("홍길동"))
+        .andExpect(jsonPath("$.me.groups[0]").value("개발팀"))
         .andRespond(
             withSuccess(
                 "{\"needsReply\":true,\"personalSummary\":null,\"personalSummaryValid\":true,\"category\":null}",
@@ -111,8 +113,12 @@ class AiAgentMailClientTest {
                 "",
                 "x",
                 false,
-                new Me(List.of("me@x.com")),
+                new Me(List.of("me@x.com"), "홍길동", List.of(), "팀장", List.of("개발팀")),
                 new Recipient("CC", 1, 1),
+                null,
+                List.of(),
+                null,
+                List.of(),
                 true,
                 true,
                 false,

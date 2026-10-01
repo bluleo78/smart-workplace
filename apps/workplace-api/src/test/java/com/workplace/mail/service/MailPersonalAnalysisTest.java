@@ -21,6 +21,7 @@ import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
+import com.workplace.mail.outbound.MailAiMessages.Me;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
 import com.workplace.support.IntegrationTestBase;
@@ -113,7 +114,8 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     assertThat(req.recipient().myRole()).isEqualTo("TO");
     assertThat(req.recipient().toCount()).isEqualTo(1);
     assertThat(req.recipient().ccCount()).isEqualTo(2);
-    assertThat(req.me().addresses()).containsExactly(box.address());
+    assertThat(req.me().addresses())
+        .containsExactly(box.address(), MailPeopleFixtures.userEmail(dsl, box.userId()));
     Record row = envelope(env);
     assertThat(row.get(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)).isTrue();
     assertThat(row.get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isTrue();
@@ -436,5 +438,43 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     assertThat(contentCategory(content)).isEqualTo("프로모션");
     assertThat(envelope(a).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
     assertThat(envelope(b).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isFalse();
+  }
+
+  @Test
+  void toUserEmailOnly_treatedAsMe() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    String userEmail = MailPeopleFixtures.userEmail(dsl, box.userId());
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    // 계정 주소가 아닌 사용자 이메일(별칭)로만 받은 메일
+    long env =
+        MailAnalysisFixtures.envelope(
+            dsl, box, content, "minsu@acme.com", userEmail.toUpperCase(), null);
+    when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
+
+    analysis.analyzePersonal(box.userId(), env);
+
+    AnalyzePersonalRequest req = captured();
+    assertThat(req.recipient().myRole()).isEqualTo("TO");
+    assertThat(req.me().addresses()).contains(userEmail);
+    assertThat(envelope(env).get(EMAIL_MESSAGE.AI_NEEDS_REPLY)).isTrue();
+  }
+
+  @Test
+  void meBlock_carriesNameTitleAndGroups() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    MailPeopleFixtures.setProfile(dsl, box.userId(), "홍길동", "팀장");
+    String dev = "개발팀-" + System.nanoTime();
+    MailPeopleFixtures.sharedGroup(dsl, dev, box.userId());
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
+
+    analysis.analyzePersonal(box.userId(), env);
+
+    Me me = captured().me();
+    assertThat(me.name()).isEqualTo("홍길동");
+    assertThat(me.title()).isEqualTo("팀장");
+    assertThat(me.groups()).containsExactly(dev);
   }
 }

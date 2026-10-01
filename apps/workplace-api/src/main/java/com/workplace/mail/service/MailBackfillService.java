@@ -97,9 +97,10 @@ public class MailBackfillService {
     // 분석은 finish 뒤에서 한다: 분석 중 다음 동기화가 tryStart 한 진행 상태를 여기서 다시 finish 로 지우면
     // 진행바가 꺼지고 동기화가 중복 시작될 수 있다. analyzeAfterLoad 는 각 단계 예외를 스스로 삼키지만 방어적으로 감싼다.
     // loaded 는 listMissingBody(received_at DESC) 순서 그대로라 앞 N건이 최근 수신 메일이다.
+    UserMailProfileCache profiles = analysis.newProfileCache(); // 이 배치 동안 "나" 프로필 1회 조회(WP-150)
     for (Long id : loaded.subList(0, Math.min(loaded.size(), ANALYZE_AFTER_LOAD_LIMIT))) {
       try {
-        analysis.analyzeAfterLoad(userId, id);
+        analysis.analyzeAfterLoad(userId, id, profiles);
       } catch (RuntimeException e) {
         log.warn("적재 후 분석 실패 (messageId={}): {}", id, e.toString());
       }

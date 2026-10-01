@@ -53,6 +53,6 @@ class MailBackfillNullGuardTest {
     verify(bodyFetcher, never()).fetchBody(Mockito.anyLong(), Mockito.any());
     // 진행률은 정상 종료 처리(stuck 방지).
     verify(progress).finish(42L);
-    verify(analysis, never()).analyzeAfterLoad(Mockito.anyLong(), Mockito.anyLong());
+    verify(analysis, never()).analyzeAfterLoad(Mockito.anyLong(), Mockito.anyLong(), Mockito.any());
   }
 }

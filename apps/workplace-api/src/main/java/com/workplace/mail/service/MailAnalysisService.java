@@ -2,6 +2,7 @@ package com.workplace.mail.service;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.mail.dto.UserMailProfile;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
@@ -9,7 +10,6 @@ import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.outbound.MailAiMessages.Me;
 import com.workplace.mail.outbound.MailAiMessages.Recipient;
-import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.AnalysisContext;
@@ -17,7 +17,6 @@ import com.workplace.mail.util.NeedsReplyRules;
 import com.workplace.mail.util.NewContentExtractor;
 import com.workplace.mail.util.SingleFlight;
 import java.time.Duration;
-import java.util.List;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -52,7 +51,7 @@ public class MailAnalysisService {
   private final AiAgentMailClient mailClient;
   private final EmailMessageRepository messageRepo;
   private final EmailContentRepository contentRepo;
-  private final EmailAccountRepository accountRepo;
+  private final UserMailProfileBuilder profileBuilder;
   private final AssistantResolver assistantResolver;
   private final NeedsReplyFinalizer finalizer;
   private final TransactionTemplate txTemplate;
@@ -62,14 +61,14 @@ public class MailAnalysisService {
       AiAgentMailClient mailClient,
       EmailMessageRepository messageRepo,
       EmailContentRepository contentRepo,
-      EmailAccountRepository accountRepo,
+      UserMailProfileBuilder profileBuilder,
       AssistantResolver assistantResolver,
       NeedsReplyFinalizer finalizer,
       PlatformTransactionManager txManager) {
     this.mailClient = mailClient;
     this.messageRepo = messageRepo;
     this.contentRepo = contentRepo;
-    this.accountRepo = accountRepo;
+    this.profileBuilder = profileBuilder;
     this.assistantResolver = assistantResolver;
     this.finalizer = finalizer;
     this.txTemplate = new TransactionTemplate(txManager);
@@ -188,14 +187,21 @@ public class MailAnalysisService {
     return ctx != null && ctx.fetched() && ctx.contentId() != null && !ctx.contentAttempted();
   }
 
+  /** 본문 적재 직후 분석 — 배치 밖 단건 호출용(새 "나" 프로필 캐시로 위임). */
+  public void analyzeAfterLoad(long userId, long messageId) {
+    analyzeAfterLoad(userId, messageId, newProfileCache());
+  }
+
   /**
    * WP-149 "본문 적재 직후" 분석(백그라운드 본문 보충이 커밋 후 호출, 호출부가 최근 20건으로 제한). 안 읽은 INBOX 메일: ③ 은 공통 비서 조건
    * 그대로(계정 AI 설정과 무관), ④ 는 계정 AI 사용 시(판단 13 — 회신필요는 안 읽은 메일에만 의미가 있다). 읽은 INBOX 메일: ③ 만, 그것도 계정
    * ai_enabled 일 때만 — WP-149 이전의 분류 범위와 같게 두어 AI 를 끈 계정의 읽은 메일에 LLM 비용을 쓰지 않는다. 비-INBOX 는 열람 시 요약
    * GET 이 온디맨드로 만든다. ③ 을 먼저 해 분류가 있으면 ④ 가 알림성 메일의 개인 요약을 생략할 수 있다. 각 단계 실패는 경고 로그로 삼키고 다음 단계를
    * 진행한다(다음 백필이 재시도).
+   *
+   * @param profiles 이 배치 동안 공유하는 "나" 프로필 캐시(WP-150)
    */
-  public void analyzeAfterLoad(long userId, long messageId) {
+  public void analyzeAfterLoad(long userId, long messageId, UserMailProfileCache profiles) {
     boolean unread;
     try {
       AnalysisContext ctx = readContext(userId, messageId);
@@ -220,10 +226,15 @@ public class MailAnalysisService {
       return; // 읽은 메일의 ④(회신필요·개인 요약)는 열람 시 요약 GET 이 온디맨드로 만든다
     }
     try {
-      analyzePersonal(userId, messageId);
+      analyzePersonal(userId, messageId, profiles);
     } catch (RuntimeException e) {
       log.warn("개인 분석 건너뜀 (messageId={}): {}", messageId, e.toString());
     }
+  }
+
+  /** 분석 배치 하나 동안 쓸 "나" 프로필 캐시 — 배치 호출부(백필 루프)가 패스마다 1개 만든다. */
+  public UserMailProfileCache newProfileCache() {
+    return profileBuilder.newCache();
   }
 
   /**
@@ -234,6 +245,11 @@ public class MailAnalysisService {
    * needsReply 는 저장하고 개인 요약은 미시도로 둔다(열람 시 요약만 다시 시도). 읽음 여부는 보지 않는다 — 선제 호출부가 안 읽은 메일만 고른다(판단 13).
    */
   public void analyzePersonal(long userId, long messageId) {
+    analyzePersonal(userId, messageId, newProfileCache());
+  }
+
+  /** {@link #analyzePersonal(long, long)} 의 배치 변형 — profiles 로 "나" 프로필을 배치 동안 한 번만 읽는다(WP-150). */
+  public void analyzePersonal(long userId, long messageId, UserMailProfileCache profiles) {
     AnalysisContext pre = readContext(userId, messageId);
     if (!personalAnalyzable(pre)) {
       return;
@@ -242,10 +258,12 @@ public class MailAnalysisService {
     if (spec == null) {
       return; // 비서 미설정 — 분석 생략
     }
-    singleFlight.run(personalKey(messageId), () -> runPersonalAnalysis(userId, messageId, spec));
+    singleFlight.run(
+        personalKey(messageId), () -> runPersonalAnalysis(userId, messageId, spec, profiles));
   }
 
-  private void runPersonalAnalysis(long userId, long messageId, AssistantSpec spec) {
+  private void runPersonalAnalysis(
+      long userId, long messageId, AssistantSpec spec, UserMailProfileCache profiles) {
     AnalysisContext ctx = readContext(userId, messageId);
     if (!personalAnalyzable(ctx)) {
       return;
@@ -254,8 +272,9 @@ public class MailAnalysisService {
     if (!StringUtils.hasText(newBody)) {
       return;
     }
-    Set<String> me = ownAddresses(userId);
-    NeedsReplyRules.Input rules = ruleInput(ctx, me);
+    // "나" 프로필 — 주소는 ⑤ 규칙 입력이라 조회 실패 시 예외(미기록 → 다음 백필), 이름·직함·소속은 실패해도 빠질 뿐이다(빌더가 처리)
+    UserMailProfile me = profiles.get(userId);
+    NeedsReplyRules.Input rules = ruleInput(ctx, me.addressSet());
     // 개인 요약은 개인 비서일 때만(공통 비서로 만들면 객관 요약과 중복). 이미 시도·생략했으면 다시 요청하지 않는다.
     boolean personalPending =
         assistantResolver.resolvePersonalOrEmpty(userId).isPresent()
@@ -269,7 +288,15 @@ public class MailAnalysisService {
     AnalyzePersonalResult r =
         mailClient.analyzePersonal(
             personalRequest(
-                ctx, bodyInput(ctx, newBody), me, rules, true, wantPersonal, wantCategory, spec));
+                ctx,
+                bodyInput(ctx, newBody),
+                me,
+                rules,
+                PersonalContext.EMPTY,
+                true,
+                wantPersonal,
+                wantCategory,
+                spec));
     if (r.needsReply() == null) {
       throw new IllegalStateException("개인 분석 응답에 needsReply 가 없음 (messageId=" + messageId + ")");
     }
@@ -342,15 +369,16 @@ public class MailAnalysisService {
     if (!StringUtils.hasText(newBody)) {
       return;
     }
-    Set<String> me = ownAddresses(userId);
-    NeedsReplyRules.Input rules = ruleInput(ctx, me);
+    UserMailProfile me = profileBuilder.build(userId); // 요약 GET·버튼 단건 경로라 배치 캐시 없이 읽는다
+    NeedsReplyRules.Input rules = ruleInput(ctx, me.addressSet());
     if (!force && personalSummarySkip(ctx, newBody, rules)) {
       txTemplate.executeWithoutResult(status -> messageRepo.markPersonalSummarySkipped(messageId));
       return;
     }
     String body = force ? newBody : bodyInput(ctx, newBody);
     AnalyzePersonalResult r =
-        mailClient.analyzePersonal(personalRequest(ctx, body, me, rules, false, true, false, spec));
+        mailClient.analyzePersonal(
+            personalRequest(ctx, body, me, rules, PersonalContext.EMPTY, false, true, false, spec));
     String summary = r.personalSummaryValid() ? r.personalSummary() : null;
     txTemplate.executeWithoutResult(status -> messageRepo.savePersonalSummary(messageId, summary));
   }
@@ -362,11 +390,6 @@ public class MailAnalysisService {
         && ctx.contentId() != null
         && ctx.aiEnabled()
         && !ctx.personalAnalyzed();
-  }
-
-  /** "나" 주소(사용자의 모든 계정 주소). WP-150 에서 "나" 프로필로 바뀐다. */
-  Set<String> ownAddresses(long userId) {
-    return txTemplate.execute(status -> accountRepo.listOwnAddresses(userId));
   }
 
   /** ⑤ 규칙 입력 — 사본의 보낸 사람·수신자 + 원본의 자동 발송·분류. */
@@ -389,12 +412,18 @@ public class MailAnalysisService {
         || NeedsReplyRules.blockedByCategory(ctx.contentCategory());
   }
 
-  /** ④ 요청 조립. WP-150 이 프로필·관계·스레드·연결 이슈·첨부를 여기에서 덧붙인다. */
+  /**
+   * ④ 요청 조립 — "나" 프로필·받는 사람 위치·보강 블록(WP-150). extra 의 비어 있는 블록은 agent 가 뺀다.
+   *
+   * @param me "나" 프로필(주소는 rules 와 같은 집합)
+   * @param extra 보낸 사람 관계·이전 메일·연결 이슈·첨부(없으면 {@link PersonalContext#EMPTY})
+   */
   static AnalyzePersonalRequest personalRequest(
       AnalysisContext ctx,
       String body,
-      Set<String> me,
+      UserMailProfile me,
       NeedsReplyRules.Input rules,
+      PersonalContext extra,
       boolean includeNeedsReply,
       boolean includePersonalSummary,
       boolean includeCategory,
@@ -405,9 +434,13 @@ public class MailAnalysisService {
         nz(ctx.fromName()),
         body,
         ctx.autoGenerated(),
-        new Me(List.copyOf(me)),
+        meWire(me),
         new Recipient(
             NeedsReplyRules.recipientRole(rules).name(), rules.to().size(), rules.cc().size()),
+        extra.sender(),
+        extra.thread(),
+        extra.linkedIssue(),
+        extra.attachments(),
         includeNeedsReply,
         includePersonalSummary,
         includeCategory,
@@ -415,6 +448,11 @@ public class MailAnalysisService {
         spec.model(),
         MAX_TURNS,
         spec.timeoutMs());
+  }
+
+  /** "나" 프로필 → 와이어 [나] 블록. */
+  static Me meWire(UserMailProfile p) {
+    return new Me(p.addresses(), p.name(), p.otherNames(), p.title(), p.groups());
   }
 
   /** 새로 쓴 부분(인용·서명 제거, 상한 적용) — ③·④·요약 상태 판정이 같은 값을 쓰도록 한 곳에서만 계산한다. */

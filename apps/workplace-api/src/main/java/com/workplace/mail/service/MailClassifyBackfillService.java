@@ -56,9 +56,10 @@ public class MailClassifyBackfillService {
     if (ids == null) {
       return;
     }
+    UserMailProfileCache profiles = analysis.newProfileCache(); // 이 백필 동안 "나" 프로필 1회 조회(WP-150)
     for (Long id : ids) {
       try {
-        analysis.analyzePersonal(userId, id);
+        analysis.analyzePersonal(userId, id, profiles);
       } catch (RuntimeException e) {
         log.warn("개인 분석 백필 건너뜀 (messageId={}): {}", id, e.toString());
       }

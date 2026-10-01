@@ -1,5 +1,6 @@
 package com.workplace.mail.service;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -59,7 +60,7 @@ class MailSummaryBackfillServiceTest {
     verify(analysis).analyzeContent(USER, 10L);
     verify(bodyFetcher).fetchBody(USER, fetchNeeded);
     verify(analysis).analyzeContent(USER, 11L);
-    verify(analysis, never()).analyzePersonal(anyLong(), anyLong());
+    verify(analysis, never()).analyzePersonal(anyLong(), anyLong(), any());
   }
 
   @Test
@@ -69,7 +70,7 @@ class MailSummaryBackfillServiceTest {
 
     service.summarizePersonalRecentNow(USER, ACCOUNT);
 
-    verify(analysis).analyzePersonal(USER, 20L);
+    verify(analysis).analyzePersonal(eq(USER), eq(20L), any());
     verify(analysis, never()).analyzeContent(anyLong(), anyLong());
   }
 

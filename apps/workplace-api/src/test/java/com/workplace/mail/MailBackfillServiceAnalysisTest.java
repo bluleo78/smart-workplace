@@ -1,6 +1,8 @@
 package com.workplace.mail;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.calls;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -46,8 +48,8 @@ class MailBackfillServiceAnalysisTest {
 
     InOrder order = inOrder(progress, analysis);
     order.verify(progress, calls(1)).finish(9L);
-    order.verify(analysis).analyzeAfterLoad(7L, 1L);
-    verify(analysis, never()).analyzeAfterLoad(7L, 2L);
+    order.verify(analysis).analyzeAfterLoad(eq(7L), eq(1L), any());
+    verify(analysis, never()).analyzeAfterLoad(eq(7L), eq(2L), any());
     verify(progress, times(1)).finish(9L); // 분석 뒤 두 번째 finish 가 다음 동기화 상태를 지우지 않는다
   }
 
@@ -66,12 +68,12 @@ class MailBackfillServiceAnalysisTest {
     when(repo.listMissingBody(9L, MailBackfillService.BATCH_LIMIT)).thenReturn(List.of(a, b));
     when(fetcher.fetchBody(7L, a)).thenReturn(true);
     when(fetcher.fetchBody(7L, b)).thenReturn(true);
-    doThrow(new RuntimeException("boom")).when(analysis).analyzeAfterLoad(7L, 1L);
+    doThrow(new RuntimeException("boom")).when(analysis).analyzeAfterLoad(eq(7L), eq(1L), any());
 
     new MailBackfillService(repo, fetcher, progress, analysis, tx).backfillNow(7L, 9L);
 
     verify(progress, times(1)).finish(9L);
-    verify(analysis).analyzeAfterLoad(7L, 2L);
+    verify(analysis).analyzeAfterLoad(eq(7L), eq(2L), any());
   }
 
   /** 적재가 21건이어도 적재 후 분석은 최근 수신 순 상위 20건만(공유 executor 점유 제한). */
@@ -96,10 +98,9 @@ class MailBackfillServiceAnalysisTest {
     new MailBackfillService(repo, fetcher, progress, analysis, tx).backfillNow(7L, 9L);
 
     verify(analysis, times(MailBackfillService.ANALYZE_AFTER_LOAD_LIMIT))
-        .analyzeAfterLoad(
-            org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.anyLong());
-    verify(analysis).analyzeAfterLoad(7L, 1L);
-    verify(analysis).analyzeAfterLoad(7L, 20L);
-    verify(analysis, never()).analyzeAfterLoad(7L, 21L);
+        .analyzeAfterLoad(eq(7L), anyLong(), any());
+    verify(analysis).analyzeAfterLoad(eq(7L), eq(1L), any());
+    verify(analysis).analyzeAfterLoad(eq(7L), eq(20L), any());
+    verify(analysis, never()).analyzeAfterLoad(eq(7L), eq(21L), any());
   }
 }

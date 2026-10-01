@@ -69,7 +69,8 @@ public class MailSummaryBackfillService {
   public void summarizePersonalRecentNow(long userId, long accountId) {
     List<Long> ids =
         txTemplate.execute(status -> messageRepo.listRecentUnreadUnanalyzedIds(accountId, LIMIT));
-    runPass(userId, ids, id -> analysis.analyzePersonal(userId, id));
+    UserMailProfileCache profiles = analysis.newProfileCache(); // 이 패스 동안 "나" 프로필 1회 조회(WP-150)
+    runPass(userId, ids, id -> analysis.analyzePersonal(userId, id, profiles));
   }
 
   /** 공통 루프 — 대상별 본문 ensure 후 분석. 메시지별 실패는 삼킨다. */

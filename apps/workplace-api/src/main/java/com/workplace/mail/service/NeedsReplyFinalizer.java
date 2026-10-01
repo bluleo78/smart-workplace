@@ -1,8 +1,8 @@
 package com.workplace.mail.service;
 
-import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.RuleRow;
+import com.workplace.mail.repository.MailPeopleRepository;
 import com.workplace.mail.util.NeedsReplyRules;
 import java.util.HashMap;
 import java.util.Map;
@@ -13,14 +13,15 @@ import org.springframework.stereotype.Component;
 /**
  * ⑤ 최종 회신필요 저장(WP-149) — 저장된 raw·수신자·자동 발송·분류로 {@link NeedsReplyRules#finalValue} 를 계산해
  * ai_needs_reply 에 쓴다. ③·④ 중 늦게 끝난 쪽이 부른다(④ 는 자기 사본, ③ 은 같은 content 의 분석된 형제 사본 전부). 호출자 트랜잭션 안에서
- * 실행된다.
+ * 실행된다. "나" 주소는 ④ 와 같은 {@link MailPeopleRepository#listOwnAddresses}(계정 주소 + user.email, WP-150)를
+ * 써서 실행 순서와 무관하게 같은 결과가 나온다.
  */
 @Component
 @RequiredArgsConstructor
 public class NeedsReplyFinalizer {
 
   private final EmailMessageRepository messageRepo;
-  private final EmailAccountRepository accountRepo;
+  private final MailPeopleRepository peopleRepo;
 
   /** 한 사본 재계산. raw 가 없으면(미분석·배포 전 분류) 그대로 둔다. */
   public void recompute(long messageId) {
@@ -40,7 +41,9 @@ public class NeedsReplyFinalizer {
     if (row == null || row.raw() == null) {
       return;
     }
-    Set<String> me = addressCache.computeIfAbsent(row.userId(), accountRepo::listOwnAddresses);
+    Set<String> me =
+        addressCache.computeIfAbsent(
+            row.userId(), userId -> Set.copyOf(peopleRepo.listOwnAddresses(userId)));
     NeedsReplyRules.Input in =
         NeedsReplyRules.Input.of(
             row.fromAddress(),

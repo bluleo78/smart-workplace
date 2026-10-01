@@ -8,14 +8,9 @@ import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSecurity;
-import com.workplace.mail.util.MailAddresses;
 import java.time.OffsetDateTime;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
@@ -474,22 +469,5 @@ public class EmailAccountRepository {
         .set(EMAIL_ACCOUNT.UPDATED_AT, OffsetDateTime.now())
         .where(EMAIL_ACCOUNT.ID.eq(accountId))
         .execute();
-  }
-
-  /**
-   * WP-149: 사용자의 모든 메일 계정 주소(소문자) — ⑤ "나 자신이 보냄"·"To/CC 에 내가 없음" 규칙의 "나". 비활성 계정 주소도 내 주소라 포함한다.
-   * 정규화는 수신자 헤더와 같은 {@link MailAddresses#normalize} 로 해 비교가 어긋나지 않게 한다. WP-150 에서 "나"
-   * 프로필(user.email 포함)로 확장된다.
-   */
-  public Set<String> listOwnAddresses(long userId) {
-    return dsl
-        .select(EMAIL_ACCOUNT.EMAIL_ADDRESS)
-        .from(EMAIL_ACCOUNT)
-        .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
-        .fetch(EMAIL_ACCOUNT.EMAIL_ADDRESS)
-        .stream()
-        .filter(Objects::nonNull)
-        .map(MailAddresses::normalize)
-        .collect(Collectors.toCollection(LinkedHashSet::new));
   }
 }
