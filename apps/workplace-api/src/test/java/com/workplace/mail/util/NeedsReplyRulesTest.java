@@ -123,6 +123,15 @@ class NeedsReplyRulesTest {
     assertThat(NeedsReplyRules.finalValue(true, in)).isTrue();
   }
 
+  @Test
+  void myAddresses_normalizedInsideInput() {
+    // 호출부가 대소문자 섞인 주소·null 을 넘겨도 규칙이 같은 결과를 내야 한다
+    Input mixed = Input.of("GD@Acme.com", Set.of("Gd@ACME.com"), "x@acme.com", null, false, "업무");
+    assertThat(NeedsReplyRules.finalValue(true, mixed)).isFalse();
+    Input nullMine = Input.of("minsu@acme.com", null, "team@acme.com", null, false, "업무");
+    assertThat(NeedsReplyRules.finalValue(true, nullMine)).isTrue();
+  }
+
   @ParameterizedTest
   @ValueSource(strings = {"알림", "프로모션", "뉴스레터"})
   void nonReplyCategory_isFalse(String category) {
