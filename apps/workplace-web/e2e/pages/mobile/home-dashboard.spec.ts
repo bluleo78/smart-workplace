@@ -35,11 +35,12 @@ interface DashboardStub {
 /**
  * /me/dashboard 를 서버처럼 기기별 상태로 흉내 낸다 — GET 은 해당 기기 저장본, PUT 은 저장 후 에코.
  * device 생략은 서버와 같이 desktop. holdFirstPut 이 있으면 첫 PUT 응답을 그 Promise 가 풀릴 때까지 붙잡는다(직렬화 검증용).
+ * failFirstPut 이면 첫 PUT 만 500(저장하지 않음), 이후 PUT 은 정상 저장.
  */
 async function stubDashboard(
   page: Page,
   initial: Partial<Record<Device, DashboardLayout>>,
-  opts: { putStatus?: number; holdFirstPut?: Promise<void> } = {},
+  opts: { putStatus?: number; holdFirstPut?: Promise<void>; failFirstPut?: boolean } = {},
 ): Promise<DashboardStub> {
   const stub: DashboardStub = {
     stored: { mobile: initial.mobile ?? { widgets: [] }, desktop: initial.desktop ?? { widgets: [] } },
@@ -59,6 +60,7 @@ async function stubDashboard(
       stub.puts.push({ device: deviceParam, widgets: body.widgets })
       if (stub.puts.length === 1 && opts.holdFirstPut) await opts.holdFirstPut
       if (opts.putStatus && opts.putStatus >= 400) return route.fulfill({ status: opts.putStatus, json: {} })
+      if (opts.failFirstPut && stub.puts.length === 1) return route.fulfill({ status: 500, json: {} })
       stub.stored[device] = body
       return route.fulfill({ json: body })
     },
@@ -184,6 +186,35 @@ test('⌃ 연타 — PUT 이 직렬로 나가 마지막 상태(펼침)가 저장
   // 마지막 토글 완료 후 재조회해도 펼침 — 늦게 온 첫 응답이 최종 상태를 덮어쓰지 않는다.
   await expect(card.getByTestId('mobile-widget-collapse')).toHaveAttribute('aria-expanded', 'true')
   await expect(card.getByTestId('dash-mytasks')).toBeVisible()
+  // 서버에 최종 저장된 값도 화면과 같은 펼침이다.
+  await expect.poll(() => stub.stored.mobile.widgets[0].collapsed).toBe(false)
+})
+
+test('첫 접기 저장이 실패해도 그 사이 다시 누른 마지막 상태가 화면·서버에 남는다', async ({
+  authenticatedPage: page,
+}) => {
+  await stubWidgetData(page)
+  let release!: () => void
+  const hold = new Promise<void>((r) => (release = r))
+  const stub = await stubDashboard(page, { mobile: layout(['my_tasks']) }, { holdFirstPut: hold, failFirstPut: true })
+  await page.goto('/')
+  const card = page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')
+  const toggle = card.getByTestId('mobile-widget-collapse')
+  await toggle.click() // 접기 — 첫 PUT 은 붙잡혔다가 500
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await toggle.click() // 펼치기(대기열)
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await toggle.click() // 다시 접기(대기열) — 사용자의 마지막 의도
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  release()
+  await expect(page.getByText('위젯 접기 상태를 저장하지 못했습니다')).toBeVisible()
+  await expect.poll(() => stub.puts.length).toBe(3)
+  // 앞선 실패의 롤백이 뒤에 누른 상태를 덮어쓰지 않는다 — 뒤 PUT 들은 마지막 탭(접힘)을 보낸다.
+  expect(stub.puts[1].widgets[0].collapsed).toBe(true)
+  expect(stub.puts[2].widgets[0].collapsed).toBe(true)
+  await expect.poll(() => stub.stored.mobile.widgets[0].collapsed).toBe(true)
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(card.getByTestId('mobile-widget-summary-text')).toHaveText('로그인 버그 재현')
 })
 
 test('접기 저장 실패 → 펼침으로 롤백 + 오류 토스트', async ({ authenticatedPage: page }) => {
@@ -273,6 +304,12 @@ test('모바일 편집 — 컨트롤은 핸들·숨김·설정·삭제만, 저�
   const hide = myTasks.getByTestId('widget-hide-toggle')
   const box = await hide.boundingBox()
   expect(box!.width).toBeGreaterThanOrEqual(44)
+  // 항목 수(3/5/10) 버튼도 모바일 편집에서는 44px 터치 대상.
+  for (const n of [3, 5, 10]) {
+    const countBox = await myTasks.getByTestId('widget-count-select').getByRole('button', { name: `${n}개` }).boundingBox()
+    expect(countBox!.width).toBeGreaterThanOrEqual(44)
+    expect(countBox!.height).toBeGreaterThanOrEqual(44)
+  }
   await expectNoHorizontalOverflow(page)
 
   await hide.click()

@@ -199,15 +199,21 @@ function hasCountSelect(entry: ResolvedEntry): boolean {
   return entry.kind === 'system' && !entry.def.wide
 }
 
+// 항목 수 버튼 크기 — 데스크톱 기본(28px)은 기존 그대로, 모바일 편집은 44px 터치 대상.
+const COUNT_BUTTON_CLASS = { desktop: 'h-7 min-w-9 px-2', mobile: 'h-11 min-w-11 px-2' } as const
+
 /** 편집 모드 항목 수(3/5/10) 선택 — 데스크톱·모바일 편집 카드 공용. 노출 조건은 hasCountSelect. */
 function WidgetCountSelect({
   entry,
   title,
   onCount,
+  size = 'desktop',
 }: {
   entry: ResolvedEntry
   title: string
   onCount: (count: number) => void
+  /** 버튼 크기 — 모바일 편집 카드만 'mobile'(44px). */
+  size?: keyof typeof COUNT_BUTTON_CLASS
 }) {
   if (!hasCountSelect(entry)) return null
   return (
@@ -224,7 +230,7 @@ function WidgetCountSelect({
           type="button"
           variant={entry.cfg.count === n ? 'default' : 'outline'}
           size="sm"
-          className="h-7 min-w-9 px-2"
+          className={COUNT_BUTTON_CLASS[size]}
           aria-pressed={entry.cfg.count === n}
           aria-label={`${n}개`}
           onClick={() => onCount(n)}
@@ -499,7 +505,7 @@ function MobileEditableWidgetCard({
         // 항목 수(3/5/10)는 데스크톱 편집 카드와 같은 공용 선택기·같은 노출 조건. 해당 없으면 보조 줄 자체를 생략한다
         // (빈 줄 여백이 머리와 요약 사이에 끼지 않게).
         extra: hasCountSelect(entry) ? (
-          <WidgetCountSelect entry={entry} title={title} onCount={onCount} />
+          <WidgetCountSelect entry={entry} title={title} onCount={onCount} size="mobile" />
         ) : undefined,
         frameRef: (el) => {
           setNodeRef(el)
