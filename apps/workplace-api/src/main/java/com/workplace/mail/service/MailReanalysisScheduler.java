@@ -71,6 +71,9 @@ public class MailReanalysisScheduler {
           () -> {
             try {
               runPendingNow();
+            } catch (RuntimeException e) {
+              // 수집 단계 실패(DB·테넌트 순회 등)가 조용히 사라지지 않게 남긴다 — 다음 주기에 다시 시도
+              log.warn("재분석 실행 실패 — 다음 주기에 재시도: {}", e.toString());
             } finally {
               running.set(false);
             }

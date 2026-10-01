@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -107,5 +108,17 @@ class MailReanalysisSchedulerTest {
     scheduler().runPendingNow();
 
     verify(reanalysis, times(refs.size())).reanalyzeAccountNow(anyLong(), anyLong());
+  }
+
+  @Test
+  void tick_runFailure_isSwallowed_andNextTickSubmitsAgain() {
+    doThrow(new IllegalStateException("db down")).when(tenantRunner).forEachActiveTenant(any());
+    MailReanalysisScheduler s = scheduler();
+
+    s.tick();
+    submitted.get(0).run(); // 수집 단계 실패 — 예외가 밖으로 새지 않고 겹침 표시가 풀린다
+    s.tick();
+
+    assertThat(submitted).hasSize(2);
   }
 }
