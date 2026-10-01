@@ -95,9 +95,16 @@ export const analyzePersonalSchema = z
       ccCount: z.number().int().nonnegative(),
     }),
     sender: senderSchema.nullish().catch(undefined),
-    thread: z.array(priorMailSchema).max(5).nullish().catch(undefined),
+    // 상한을 넘으면 블록을 버리지 않고 앞에서부터 자른다(항목 형식은 그대로 검증)
+    thread: z
+      .array(priorMailSchema)
+      .transform((a) => a.slice(0, 5))
+      .nullish().catch(undefined),
     linkedIssue: linkedIssueSchema.nullish().catch(undefined),
-    attachments: z.array(z.string()).max(20).nullish().catch(undefined),
+    attachments: z
+      .array(z.string())
+      .transform((a) => a.slice(0, 20))
+      .nullish().catch(undefined),
     includeNeedsReply: z.boolean(),
     includePersonalSummary: z.boolean(),
     includeCategory: z.boolean(),

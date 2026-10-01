@@ -169,6 +169,17 @@ describe('POST /mail/analyze-personal', () => {
       });
     expect(res.status).toBe(200);
   });
+  it('이전 메일 6건·첨부 21개는 버리지 않고 5건·20개로 자른다', async () => {
+    vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null });
+    const thread = Array.from({ length: 6 }, (_, i) => ({ fromMe: false, from: 'a', date: 'd', body: `b${i}` }));
+    const attachments = Array.from({ length: 21 }, (_, i) => `f${i}.pdf`);
+    const res = await request(app()).post('/mail/analyze-personal').send({ ...valid, thread, attachments });
+    expect(res.status).toBe(200);
+    const input = vi.mocked(runMailAnalyzePersonal).mock.calls[0][0];
+    expect(input.thread).toHaveLength(5);
+    expect(input.thread?.[4].body).toBe('b4');
+    expect(input.attachments).toHaveLength(20);
+  });
   it('형식이 틀린 보강 블록은 그 블록만 버리고 200', async () => {
     vi.mocked(runMailAnalyzePersonal).mockResolvedValue({ needsReply: false, personalSummary: null, personalSummaryValid: false, category: null });
     const res = await request(app())
