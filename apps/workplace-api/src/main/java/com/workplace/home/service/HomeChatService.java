@@ -64,6 +64,9 @@ public class HomeChatService {
    */
   private static final int CONTEXT_ROW_CAP = 20;
 
+  /** MCP 프리픽스(mcp__workplace__update_status → update_status). 도구 이름 판별 전에 벗겨낸다. */
+  private static final Pattern MCP_PREFIX = Pattern.compile("^mcp__[^_]+__");
+
   /** WP-158: 위젯 도구 이름 → 위젯 타입(show_issue_list → issue_list). 웹 widgetTypeFromToolName 과 같은 규칙. */
   private static final Pattern SHOW_TOOL = Pattern.compile("show_([a-z_]+)$");
 
@@ -187,8 +190,8 @@ public class HomeChatService {
                     // done: ASSISTANT 영속 → home.chat.done fanOut.
                     (fullText, widgets) -> {
                       String wJson = serializeWidgets(widgets);
-                      String toolCallsJson = serializeSteps(steps);
-                      String blocksJson = serializeBlocks(blocks.finish(fullText));
+                      String toolCallsJson = serializeList(steps, "tool_calls");
+                      String blocksJson = serializeList(blocks.finish(fullText), "content_blocks");
                       try {
                         sessionService.appendMessage(
                             callerId, sid, "ASSISTANT", fullText, wJson, toolCallsJson, blocksJson);
@@ -308,8 +311,7 @@ public class HomeChatService {
    * submit_response 는 내부 응답 배관으로 사용자에게 의미 없는 반복 정보다.
    */
   private boolean isDisplayableTool(String toolName) {
-    // MCP 프리픽스 제거: mcp__workplace__update_status → update_status
-    String n = toolName.replaceAll("^mcp__[^_]+__(.+)$", "$1");
+    String n = stripMcpPrefix(toolName);
     if (n.startsWith("show_") || n.startsWith("propose_")) return false;
     if (n.equals("respond_chat") || n.equals("submit_response")) return false;
     return true;
@@ -352,7 +354,7 @@ public class HomeChatService {
    * 로 대조하므로 형태가 일치해야 한다.
    */
   private Map<String, Object> widgetOf(String toolName, JsonNode args) {
-    Matcher m = SHOW_TOOL.matcher(toolName.replaceAll("^mcp__[^_]+__(.+)$", "$1"));
+    Matcher m = SHOW_TOOL.matcher(stripMcpPrefix(toolName));
     if (!m.find()) return null;
     Map<String, Object> w = new LinkedHashMap<>();
     w.put("type", m.group(1));
@@ -364,28 +366,24 @@ public class HomeChatService {
     return w;
   }
 
-  /** WP-158: 블록 목록 → 영속용 JSON 문자열. null 이면 null(웹 폴백 렌더). */
-  private String serializeBlocks(List<Map<String, Object>> list) {
-    if (list == null) return null;
-    try {
-      return objectMapper.writeValueAsString(list);
-    } catch (Exception e) {
-      // 직렬화 실패는 치명적이지 않음 — 블록 순서 없이(폴백 렌더) 메시지만 보존.
-      log.warn("content_blocks 직렬화 실패 — null 로 저장: {}", e.getMessage());
-      return null;
-    }
+  private static String stripMcpPrefix(String toolName) {
+    return MCP_PREFIX.matcher(toolName).replaceFirst("");
   }
 
-  /** 누적 steps → 영속용 JSON 문자열. 빈 리스트면 null(tool_calls 미저장 컨벤션과 동일). */
-  private String serializeSteps(List<Map<String, Object>> steps) {
-    if (steps == null || steps.isEmpty()) {
+  /**
+   * 누적 목록(tool_calls·content_blocks) → 영속용 JSON 문자열. null/빈 목록이면 null(미저장 컨벤션 — 웹은 폴백 렌더).
+   *
+   * @param column 실패 로그용 컬럼 이름
+   */
+  private String serializeList(List<?> list, String column) {
+    if (list == null || list.isEmpty()) {
       return null;
     }
     try {
-      return objectMapper.writeValueAsString(steps);
+      return objectMapper.writeValueAsString(list);
     } catch (JsonProcessingException e) {
-      // 직렬화 실패는 응답 자체를 막을 만큼 치명적이지 않음 — tool_calls 없이 메시지만 보존.
-      log.warn("tool_calls 직렬화 실패 — null 로 저장: {}", e.getMessage());
+      // 직렬화 실패는 응답 자체를 막을 만큼 치명적이지 않음 — 해당 컬럼 없이 메시지만 보존.
+      log.warn("{} 직렬화 실패 — null 로 저장: {}", column, e.getMessage());
       return null;
     }
   }

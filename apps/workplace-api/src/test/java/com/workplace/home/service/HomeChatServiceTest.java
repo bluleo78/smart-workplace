@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.realtime.SseRegistry;
@@ -26,6 +27,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -281,14 +284,11 @@ class HomeChatServiceTest extends IntegrationTestBase {
   /** 스트림 시나리오 — composeStream 콜백(delta/progress/tool)을 받아 이벤트를 흘린 뒤 최종 fullText 를 돌려준다. */
   @FunctionalInterface
   private interface StreamScript {
-    String run(
-        java.util.function.Consumer<String> delta,
-        java.util.function.Consumer<String> progress,
-        ToolEmitter tool)
+    String run(Consumer<String> delta, Consumer<String> progress, ToolEmitter tool)
         throws Exception;
   }
 
-  /** 도구 이벤트 발행 헬퍼 — phase/seq/toolName(+args JSON) 으로 tool 노드를 만든다. */
+  /** 도구 이벤트 발행 헬퍼 — phase/seq/toolName(+args JSON, null 이면 생략) 으로 tool 노드를 만든다. */
   @FunctionalInterface
   private interface ToolEmitter {
     void emit(String phase, int seq, String toolName, String argsJson) throws Exception;
@@ -301,23 +301,21 @@ class HomeChatServiceTest extends IntegrationTestBase {
     CountDownLatch doneLatch = new CountDownLatch(1);
     doAnswer(
             inv -> {
-              java.util.function.Consumer<String> onDelta = inv.getArgument(1);
-              java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
-              java.util.function.Consumer<String> onProgress = inv.getArgument(4);
-              java.util.function.Consumer<JsonNode> onTool = inv.getArgument(6);
+              Consumer<String> onDelta = inv.getArgument(1);
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              Consumer<String> onProgress = inv.getArgument(4);
+              Consumer<JsonNode> onTool = inv.getArgument(6);
               ToolEmitter tool =
-                  (phase, seq, name, args) ->
-                      onTool.accept(
-                          objectMapper.readTree(
-                              "{\"phase\":\""
-                                  + phase
-                                  + "\",\"seq\":"
-                                  + seq
-                                  + ",\"toolName\":\""
-                                  + name
-                                  + "\""
-                                  + (args == null ? "" : ",\"args\":" + args)
-                                  + "}"));
+                  (phase, seq, name, args) -> {
+                    ObjectNode node =
+                        objectMapper
+                            .createObjectNode()
+                            .put("phase", phase)
+                            .put("seq", seq)
+                            .put("toolName", name);
+                    if (args != null) node.set("args", objectMapper.readTree(args));
+                    onTool.accept(node);
+                  };
               onDone.accept(script.run(onDelta, onProgress, tool), null);
               doneLatch.countDown();
               return null;
