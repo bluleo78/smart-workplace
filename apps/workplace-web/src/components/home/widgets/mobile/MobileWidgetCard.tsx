@@ -15,8 +15,8 @@ import type { MobileSummaryData, MobileWidgetDef } from './types'
 
 // 카드 크롬 — 데스크톱 Card 와 같은 둥근 모서리·테두리·그림자 + 좌측 ai-accent 줄. 여백만 16px(px-4)로 줄인다.
 const FRAME = 'block rounded-xl border border-l-2 border-l-ai-accent bg-card text-card-foreground shadow-sm'
-// 머리 — 시안 .hd(위 14px·좌우 16px·아래 6px), 아이콘 h-4 + text-sm font-medium muted.
-const HEAD = 'flex items-center gap-2 px-4 pt-3.5 pb-1.5 text-sm font-medium text-muted-foreground'
+// 머리 — 시안 .hd(위 14px·좌우 16px·아래 6px, 접힘·타일은 아래 4px), 아이콘 h-4 + text-sm font-medium muted.
+const HEAD = 'flex items-center gap-2 px-4 pt-3.5 text-sm font-medium text-muted-foreground'
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
 
 /** 편집 모드 전용 — dnd-kit 정렬·포커스 복원·숨김/강조 표시를 카드 바깥 틀에 붙인다. */
@@ -147,7 +147,7 @@ export function MobileWidgetCard({
     ) : null
 
   const head = (badge: ReactNode, trailing: ReactNode) => (
-    <div className={HEAD}>
+    <div className={cn(HEAD, collapsed ? 'pb-1' : 'pb-1.5')}>
       {headLabel}
       {badge}
       <span className="flex-1" />
@@ -205,7 +205,8 @@ export function MobileWidgetCard({
         const trailing = edit
           ? edit.controls
           : isTile
-            ? to && <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
+            ? // mr-1: ⌄ 버튼(44px, -mr-2.5) 아이콘 중심과 › 중심을 같은 세로선에 맞춘다.
+              to && <ChevronRight className="mr-1 h-4 w-4 shrink-0" aria-hidden />
             : collapseButton
         return frame(
           <>

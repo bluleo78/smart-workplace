@@ -87,8 +87,10 @@ export function AddWidgetModal({
           <DialogTitle>위젯 추가</DialogTitle>
         </DialogHeader>
         {/* lg 이상에서 행 높이를 고정(h-[70vh])해 카테고리 전환 시 카드 개수에 따라 모달 크기가
-            요동치지 않게 한다 — 각 컬럼은 내부 overflow-y-auto 로만 스크롤. */}
-        <div className="flex flex-col gap-4 lg:h-[70vh] lg:flex-row">
+            요동치지 않게 한다 — 각 컬럼은 내부 overflow-y-auto 로만 스크롤.
+            min-w-0: DialogContent 는 grid 라 자식 최소 폭이 내용(가로 스크롤 카테고리 탭)만큼 커져 좁은 화면에서
+            오른쪽 여백이 사라진다(WP-142, 375px). lg 이상은 기존 렌더 그대로(min-w-auto). */}
+        <div className="flex min-w-0 flex-col gap-4 lg:h-[70vh] lg:min-w-auto lg:flex-row">
           <div className="flex shrink-0 gap-1 overflow-x-auto lg:h-full lg:w-32 lg:flex-col lg:overflow-y-auto lg:space-y-1" data-testid="add-widget-categories">
             {categories.map((c) => (
               <button
