@@ -83,7 +83,7 @@ public class MailAiService {
         MailSummaryDecider.decide(
             MailSummaryDecider.stateOf(contextOrThrow(userId, messageId), personalTier));
     if (after.decision() == Decision.GENERATE) {
-      throw new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
+      throw unavailable(personalTier);
     }
     return toResponse(after);
   }
@@ -103,11 +103,22 @@ public class MailAiService {
             ? analysis.generatePersonalSummary(userId, messageId, true)
             : analysis.generateContentSummary(userId, messageId, true);
     if (!ran) {
-      throw new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
+      throw unavailable(personalTier(userId, ctx));
     }
     AnalysisContext after = contextOrThrow(userId, messageId);
     String result = firstNonBlank(after.personalSummary(), after.contentSummary());
     return result != null ? MailSummary.ready(result) : MailSummary.empty();
+  }
+
+  /**
+   * 요약 503 — 비서가 실제로 없을 때만 "미설정" 문구, 그 외(본문 미적재·동시 분석 대기 실패 등)는 일반 문구로 구분한다. 개인 티어면 개인 비서가 있다는 뜻이므로
+   * 공통 비서 유무만 본다.
+   */
+  private MailAiUnavailableException unavailable(boolean personalTier) {
+    if (!personalTier && assistantResolver.resolveWorkspaceOrEmpty().isEmpty()) {
+      return new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
+    }
+    return new MailAiUnavailableException("요약을 아직 만들 수 없어요. 잠시 후 다시 시도해 주세요.");
   }
 
   /** 개인 티어 여부 — AI 사용 계정 + 개인 비서(현행 규칙). */

@@ -86,8 +86,8 @@ public class MailAnalysisService {
    * 발송이면 본문 대신 미리보기를 보낸다. 저장 후 같은 content 의 분석된 사본들의 ⑤ 를 재계산한다.
    *
    * <p>빈 본문은 LLM 을 부르지 않고 시도로도 기록하지 않는다(아직 미적재일 수 있음). LLM·파싱 실패는 예외를 그대로 던진다 — 시도 기록이 남지 않아 다음 백필
-   * 대상이 되고, 백그라운드 호출자가 삼킨다. 읽음 여부는 보지 않는다 — 선제 호출부(본문 적재 직후·백필 대상 술어)가 안 읽은 메일만 고르고, 열람 시 요약 GET 은
-   * 읽은 메일에도 이 메서드를 쓴다(판단 13).
+   * 대상이 되고, 백그라운드 호출자가 삼킨다. 읽음 여부는 보지 않는다 — 선제 호출부(본문 적재 직후는 INBOX 전체, 백필 대상 술어는 안 읽은 메일)가 대상을 고르고,
+   * 열람 시 요약 GET 은 읽은 메일에도 이 메서드를 쓴다.
    */
   public void analyzeContent(long userId, long messageId) {
     AnalysisContext pre = readContext(userId, messageId);
@@ -126,8 +126,8 @@ public class MailAnalysisService {
   }
 
   /**
-   * 공통 티어 요약 생성(요약 GET·"AI 요약" 버튼). force=false: 미분석이면 ③ 전체 실행. force=true: 생략을 무시하고 새 본문으로 요약만 받아
-   * 저장(분류 불변, 자동 발송이어도 미리보기 대신 본문).
+   * 공통 티어 요약 생성(요약 GET·"AI 요약" 버튼). force=false: 미분석이면 ③ 전체 실행. force=true: 생략을 무시하고 새 본문으로 요약을 받아
+   * 저장(자동 발송이어도 미리보기 대신 본문, 분류는 비어 있을 때만 함께 받아 채움).
    *
    * @return 시도 가능 여부(공통 비서 없음·미적재면 false)
    */
@@ -158,11 +158,19 @@ public class MailAnalysisService {
     if (!StringUtils.hasText(newBody)) {
       return;
     }
-    // 강제 생성은 자동 발송이어도 미리보기 대신 새 본문으로 요약만 받는다(분류 불변)
+    // 강제 생성은 자동 발송이어도 미리보기 대신 새 본문으로 요약만 받는다. 단 ③ 이 안 돌아 분류가 비어 있으면 분류도 함께 받는다 —
+    // 강제 생성이 ai_summarized_at 을 기록해 이후 ③ 이 다시 돌지 않으므로, 여기서 못 채우면 분류가 영구히 빈다(기존 분류는 불변).
+    boolean wantCategory = ctx.contentCategory() == null;
     AnalyzeContentResult r =
-        mailClient.analyzeContent(contentRequest(ctx, newBody, false, true, spec));
+        mailClient.analyzeContent(contentRequest(ctx, newBody, wantCategory, true, spec));
+    String category = wantCategory ? validCategory(r.category()) : null;
     txTemplate.executeWithoutResult(
-        status -> messageRepo.saveForcedContentSummary(messageId, r.summary()));
+        status -> {
+          messageRepo.saveForcedContentSummary(messageId, r.summary());
+          if (category != null && messageRepo.fillContentCategoryIfEmpty(messageId, category)) {
+            finalizer.recomputeForContent(ctx.contentId()); // 늦게 채운 분류를 ⑤ 에 반영
+          }
+        });
   }
 
   /** ③ 대상: 적재·검증된 사본 + content 연결 + 미시도. */
@@ -171,17 +179,19 @@ public class MailAnalysisService {
   }
 
   /**
-   * WP-149 "본문 적재 직후" 분석(백그라운드 본문 보충이 커밋 후 호출). 받은편지함의 안 읽은 메일만(판단 13) — 회신필요는 안 읽은 메일에만 의미가 있고, 첫
-   * 동기화(본문 보충 상한 200건)의 LLM 비용을 제한한다. 보낸 메일·읽은 메일은 열람 시 요약 GET 이 온디맨드로 만든다. ③ 을 먼저 해 분류가 있으면 ④ 가
-   * 알림성 메일의 개인 요약을 생략할 수 있다. 각 단계 실패는 경고 로그로 삼키고 다음 단계를 진행한다(다음 백필이 재시도).
+   * WP-149 "본문 적재 직후" 분석(백그라운드 본문 보충이 커밋 후 호출). ③ 은 받은편지함 전체(읽은 메일 포함 — 사이드바 분류 필터가 비지 않게), ④ 는 안
+   * 읽은 받은편지함 메일만(판단 13 — 회신필요는 안 읽은 메일에만 의미가 있고 LLM 비용을 제한한다). 비-INBOX 는 열람 시 요약 GET 이 온디맨드로 만든다. ③
+   * 을 먼저 해 분류가 있으면 ④ 가 알림성 메일의 개인 요약을 생략할 수 있다. 각 단계 실패는 경고 로그로 삼키고 다음 단계를 진행한다(다음 백필이 재시도).
    */
   public void analyzeAfterLoad(long userId, long messageId) {
+    boolean unread;
     try {
       AnalysisContext ctx = readContext(userId, messageId);
-      // 본문 보충 대상(listMissingBody)은 읽음 여부를 가리지 않으므로 여기서 안 읽은 INBOX 만 남긴다
-      if (ctx == null || !"INBOX".equals(ctx.folderName()) || ctx.seen()) {
+      // 본문 보충 대상(listMissingBody)은 폴더를 가리지 않으므로 여기서 INBOX 만 남긴다(④ 의 읽음 제한은 아래)
+      if (ctx == null || !"INBOX".equals(ctx.folderName())) {
         return;
       }
+      unread = !ctx.seen();
     } catch (RuntimeException e) {
       log.warn("적재 후 분석 대상 조회 실패 (messageId={}): {}", messageId, e.toString());
       return;
@@ -190,6 +200,9 @@ public class MailAnalysisService {
       analyzeContent(userId, messageId);
     } catch (RuntimeException e) {
       log.warn("원본 분석 건너뜀 (messageId={}): {}", messageId, e.toString());
+    }
+    if (!unread) {
+      return; // 읽은 메일의 ④(회신필요·개인 요약)는 열람 시 요약 GET 이 온디맨드로 만든다
     }
     try {
       analyzePersonal(userId, messageId);

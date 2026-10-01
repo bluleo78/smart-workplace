@@ -211,8 +211,63 @@ class MailAiServiceTest extends IntegrationTestBase {
     long msgId = insertMessage(accountId, folderId, "svc-msg-2@test.local", "svc-thread-2");
 
     assertThatThrownBy(() -> mailAiService.summarize(userId, msgId))
-        .isInstanceOf(MailAiUnavailableException.class);
+        .isInstanceOf(MailAiUnavailableException.class)
+        .hasMessageContaining("AI 비서가 아직 설정되지 않았어요");
     verify(mailClient, never()).analyzeContent(any());
+  }
+
+  /** M4: 비서는 있지만 본문이 아직 적재되지 않았으면 "비서 미설정" 이 아닌 일반 문구의 503. */
+  @Test
+  void summarize_notFetched_503_genericMessage() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "nf@test.local", false);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId = insertMessage(accountId, folderId, "svc-nf@test.local", "svc-nf-t");
+    dsl.update(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE)
+        .set(
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FETCHED_AT,
+            (java.time.OffsetDateTime) null)
+        .where(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID.eq(msgId))
+        .execute();
+    stubAssistant();
+
+    assertThatThrownBy(() -> mailAiService.summarize(userId, msgId))
+        .isInstanceOf(MailAiUnavailableException.class)
+        .hasMessageContaining("요약을 아직 만들 수 없어요")
+        .hasMessageNotContaining("설정되지 않았어요");
+  }
+
+  /** M2: ③ 이 안 돈 메일에 강제 요약을 하면 category 도 함께 받아 채우고 같은 원본 사본의 ⑤ 를 재계산한다. */
+  @Test
+  void forceSummarize_fillsEmptyCategory_andRecomputesNeedsReply() {
+    var box = MailAnalysisFixtures.mailbox(dsl, false);
+    long content =
+        MailAnalysisFixtures.content(dsl, contentRepo, MailAnalysisFixtures.LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "boss@corp.com", box.address(), null);
+    MailAnalysisFixtures.markPersonallyAnalyzed(dsl, env, true); // raw=true, 최종=true
+    stubAssistant();
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("알림", "• 강제 요약"));
+
+    assertThat(mailAiService.forceSummarize(box.userId(), env))
+        .isEqualTo(MailSummary.ready("• 강제 요약"));
+
+    ArgumentCaptor<AnalyzeContentRequest> req =
+        ArgumentCaptor.forClass(AnalyzeContentRequest.class);
+    verify(mailClient).analyzeContent(req.capture());
+    assertThat(req.getValue().includeCategory()).isTrue();
+    assertThat(
+            dsl.select(com.workplace.jooq.tables.EmailContent.EMAIL_CONTENT.AI_CATEGORY)
+                .from(com.workplace.jooq.tables.EmailContent.EMAIL_CONTENT)
+                .where(com.workplace.jooq.tables.EmailContent.EMAIL_CONTENT.ID.eq(content))
+                .fetchOneInto(String.class))
+        .isEqualTo("알림");
+    assertThat(
+            dsl.select(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.AI_NEEDS_REPLY)
+                .from(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE)
+                .where(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID.eq(env))
+                .fetchOneInto(Boolean.class))
+        .isFalse(); // 알림 분류 → ⑤ 가 false 로 재계산
   }
 
   /** 짧은 본문은 요약 생략 → EMPTY(버튼도 숨김), 두 번째 GET 은 LLM 을 다시 부르지 않는다. */

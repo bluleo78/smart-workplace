@@ -11,6 +11,7 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.outbound.AiAgentMailClient;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
@@ -25,7 +26,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
-/** WP-149 본문 적재 직후 분석 — 안 읽은 INBOX 만(판단 13), ③ 실패해도 ④ 는 진행(best-effort). */
+/** WP-149 본문 적재 직후 분석 — ③ 은 INBOX 전체·④ 는 안 읽은 INBOX(판단 13 수정), ③ 실패해도 ④ 는 진행(best-effort). */
 @Transactional
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MailAnalysisAfterLoadTest extends IntegrationTestBase {
@@ -65,19 +66,37 @@ class MailAnalysisAfterLoadTest extends IntegrationTestBase {
     verify(mailClient).analyzePersonal(any());
   }
 
-  /** 판단 13: 읽은 INBOX 메일은 적재 직후 선제 분석하지 않는다(요약은 열람 시 GET …/summary 가 만든다). */
+  /** I1: 읽은 INBOX 메일도 ③(분류)은 선제 실행하고 ④(회신필요·개인 요약)만 안 읽은 메일로 제한한다. */
   @Test
-  void readInbox_skipsBackgroundAnalysis() {
+  void readInbox_runsContentOnly() {
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env =
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
     MailAnalysisFixtures.markSeen(dsl, env);
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", "• 요약"));
 
     analysis.analyzeAfterLoad(box.userId(), env);
 
-    verify(mailClient, never()).analyzeContent(any());
+    verify(mailClient).analyzeContent(any());
     verify(mailClient, never()).analyzePersonal(any());
+  }
+
+  /** 안 읽은 INBOX 는 ③·④ 모두 실행한다. */
+  @Test
+  void unreadInbox_runsBoth() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", "• 요약"));
+    when(mailClient.analyzePersonal(any()))
+        .thenReturn(new AnalyzePersonalResult(true, null, false, null));
+
+    analysis.analyzeAfterLoad(box.userId(), env);
+
+    verify(mailClient).analyzeContent(any());
+    verify(mailClient).analyzePersonal(any());
   }
 
   @Test
