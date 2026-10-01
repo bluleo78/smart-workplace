@@ -171,6 +171,34 @@ public class MailAnalysisService {
   }
 
   /**
+   * WP-149 "본문 적재 직후" 분석(백그라운드 본문 보충이 커밋 후 호출). 받은편지함의 안 읽은 메일만(판단 13) — 회신필요는 안 읽은 메일에만 의미가 있고, 첫
+   * 동기화(본문 보충 상한 200건)의 LLM 비용을 제한한다. 보낸 메일·읽은 메일은 열람 시 요약 GET 이 온디맨드로 만든다. ③ 을 먼저 해 분류가 있으면 ④ 가
+   * 알림성 메일의 개인 요약을 생략할 수 있다. 각 단계 실패는 경고 로그로 삼키고 다음 단계를 진행한다(다음 백필이 재시도).
+   */
+  public void analyzeAfterLoad(long userId, long messageId) {
+    try {
+      AnalysisContext ctx = readContext(userId, messageId);
+      // 본문 보충 대상(listMissingBody)은 읽음 여부를 가리지 않으므로 여기서 안 읽은 INBOX 만 남긴다
+      if (ctx == null || !"INBOX".equals(ctx.folderName()) || ctx.seen()) {
+        return;
+      }
+    } catch (RuntimeException e) {
+      log.warn("적재 후 분석 대상 조회 실패 (messageId={}): {}", messageId, e.toString());
+      return;
+    }
+    try {
+      analyzeContent(userId, messageId);
+    } catch (RuntimeException e) {
+      log.warn("원본 분석 건너뜀 (messageId={}): {}", messageId, e.toString());
+    }
+    try {
+      analyzePersonal(userId, messageId);
+    } catch (RuntimeException e) {
+      log.warn("개인 분석 건너뜀 (messageId={}): {}", messageId, e.toString());
+    }
+  }
+
+  /**
    * ④ 개인 분석 — 계정 AI 사용 + 비서(개인→공통) + 사본 미분석이면 회신필요 원판정(raw)을 받고, 개인 비서면 개인 요약도(생략 조건 제외), 공통 비서가 없고
    * 원본 분류가 비었으면 분류도 받는다. 규칙에 걸려도 LLM 은 부른다(raw 는 ⑤ 재계산 입력) — 개인 요약만 요청하지 않는다.
    *

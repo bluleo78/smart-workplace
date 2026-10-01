@@ -3,6 +3,7 @@ package com.workplace.mail.service;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.repository.EmailMessageRepository;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -21,6 +22,7 @@ public class MailBackfillService {
   private final EmailMessageRepository messageRepo;
   private final MailBodyFetcher bodyFetcher;
   private final MailSyncProgress progress;
+  private final MailAnalysisService analysis;
   private final TransactionTemplate txTemplate;
 
   /**
@@ -33,10 +35,12 @@ public class MailBackfillService {
       EmailMessageRepository messageRepo,
       MailBodyFetcher bodyFetcher,
       MailSyncProgress progress,
+      MailAnalysisService analysis,
       PlatformTransactionManager txManager) {
     this.messageRepo = messageRepo;
     this.bodyFetcher = bodyFetcher;
     this.progress = progress;
+    this.analysis = analysis;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -57,18 +61,29 @@ public class MailBackfillService {
     backfillNow(userId, accountId);
   }
 
-  /** 동기 보충 본체. 테스트는 이 메서드를 직접 호출해 같은 스레드에서 검증한다. */
+  /**
+   * 동기 보충 본체. 테스트는 이 메서드를 직접 호출해 같은 스레드에서 검증한다.
+   *
+   * <p>WP-149 "본문 적재 직후" 분석: 본문을 모두 적재해 진행바를 끝낸 뒤, 이번에 적재된 메일마다 ③+④ 를 트랜잭션 밖에서 실행한다(INBOX 만,
+   * best-effort). 분석은 메시지당 LLM 을 최대 두 번 부르므로 진행바를 붙잡지 않는다.
+   */
   public void backfillNow(long userId, long accountId) {
     try {
       // 대상 목록 조회(RLS 테이블) — 짧은 트랜잭션으로 GUC 주입.
       List<BodyTarget> targets =
           txTemplate.execute(status -> messageRepo.listMissingBody(accountId, BATCH_LIMIT));
-      // 본문 적재는 IMAP 네트워크 I/O 를 포함하므로 메시지별 짧은 트랜잭션으로 감싼다 — DB 커넥션을
-      // 네트워크 I/O 동안 장시간 점유하지 않으면서도(풀 고갈 방지), fetchBody 의 RLS write 에 GUC 가
-      // 주입되도록 한다(fetchBody 의 기존 "짧은 커넥션" 설계 의도와도 일치).
+      List<Long> loaded = new ArrayList<>();
+      // 본문 적재는 IMAP 네트워크 I/O 를 포함하므로 메시지별 짧은 트랜잭션으로 감싼다(풀 고갈 방지 + RLS write GUC 주입).
       for (BodyTarget t : targets) {
-        txTemplate.executeWithoutResult(status -> bodyFetcher.fetchBody(userId, t));
+        Boolean ok = txTemplate.execute(status -> bodyFetcher.fetchBody(userId, t));
         progress.incBody(accountId);
+        if (Boolean.TRUE.equals(ok)) {
+          loaded.add(t.messageId());
+        }
+      }
+      progress.finish(accountId); // 본문 보충 완료 — 분석은 진행바와 무관하게 이어서
+      for (Long id : loaded) {
+        analysis.analyzeAfterLoad(userId, id);
       }
     } catch (Exception e) {
       log.warn("본문 백그라운드 보충 실패 (accountId={}): {}", accountId, e.toString());

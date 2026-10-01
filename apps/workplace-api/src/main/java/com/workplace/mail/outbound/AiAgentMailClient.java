@@ -6,14 +6,10 @@ import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
-import com.workplace.mail.outbound.MailAiMessages.ClassifyRequest;
-import com.workplace.mail.outbound.MailAiMessages.ClassifyResult;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftRequest;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftResult;
-import com.workplace.mail.outbound.MailAiMessages.SummarizeRequest;
-import com.workplace.mail.outbound.MailAiMessages.SummarizeResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.HttpStatusCodeException;
@@ -21,8 +17,9 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 /**
- * ai-agent 의 POST /mail/{classify,summarize,reply-draft} 동기 호출(7d). 무재시도(CLI cold-start 동기). 503 →
- * MailAiUnavailableException(친화 메시지), 그 외 실패 → MailAiException(502). AiAgentComposeClient 미러.
+ * ai-agent 의 POST /mail/{analyze-content,analyze-personal,reply-draft,draft-coaching,issue-draft}
+ * 동기 호출(7d · WP-149). 무재시도(CLI cold-start 동기). 503 → MailAiUnavailableException(친화 메시지), 그 외 실패 →
+ * MailAiException(502). AiAgentComposeClient 미러.
  */
 @Slf4j
 public class AiAgentMailClient {
@@ -33,16 +30,6 @@ public class AiAgentMailClient {
   public AiAgentMailClient(RestClient.Builder builder, String internalToken) {
     this.restClient = builder.build();
     this.internalToken = internalToken;
-  }
-
-  /** 메일 분류 요청 → 카테고리·답장필요 여부. */
-  public ClassifyResult classify(ClassifyRequest req) {
-    return post("/mail/classify", req, ClassifyResult.class);
-  }
-
-  /** 메일 요약 요청 → 요약문. */
-  public SummarizeResult summarize(SummarizeRequest req) {
-    return post("/mail/summarize", req, SummarizeResult.class);
   }
 
   /** 답장 초안 요청 → 초안 본문. */

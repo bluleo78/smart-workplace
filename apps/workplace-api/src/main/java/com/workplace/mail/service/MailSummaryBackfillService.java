@@ -12,99 +12,89 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 선제 배치 요약 — 안읽은 최근 메일의 본문을 (필요 시 IMAP) 적재한 뒤 두 패스로 요약을 미리 채운다.
+ * 선제 백필(WP-149) — 안읽은 최근 메일의 본문을 (필요 시) 적재한 뒤 미분석분을 분석한다.
  *
  * <ul>
- *   <li>T1 객관적(공통): content.ai_summarized_at 미시도 대상(#484) → ensureObjectiveSummary (공통비서,
- *       ai_enabled 무관)
- *   <li>T2 개인: email_message.ai_personal_summarized_at 미시도 대상(#484) → ensurePersonalSummary (개인비서)
+ *   <li>③ 원본 분석 패스: content.ai_summarized_at 미시도 대상(#484) → {@link
+ *       MailAnalysisService#analyzeContent}(공통 비서, ai_enabled 무관)
+ *   <li>④ 개인 분석 패스: email_message.ai_analyzed_at 미시도 + 배포 전 미분류 대상 → {@link
+ *       MailAnalysisService#analyzePersonal}(개인→공통 비서, AI 사용 계정)
  * </ul>
  *
- * best-effort: 메시지별 실패는 삼키고 다음으로. 빈본문·비서 없음은 각 ensure 메서드 내부에서 skip.
+ * 메서드 이름(summarize*)은 호출부(MailSyncService·스케줄러) 호환을 위해 유지한다. best-effort: 메시지별 실패는 삼키고 다음으로. 비서
+ * 없음·빈 본문은 분석 서비스가 건너뛴다.
  */
 @Slf4j
 @Service
 public class MailSummaryBackfillService {
 
-  /** 한 회 요약 상한 — 첫 백필 부담 완화(IMAP fetch + LLM 각 LIMIT 회). */
+  /** 한 회 상한 — 첫 백필 부담 완화(본문 적재 + LLM 각 LIMIT 회). */
   public static final int LIMIT = 20;
 
   private final EmailMessageRepository messageRepo;
   private final MailBodyFetcher bodyFetcher;
-  private final MailAiService mailAiService;
+  private final MailAnalysisService analysis;
   private final TransactionTemplate txTemplate;
 
   public MailSummaryBackfillService(
       EmailMessageRepository messageRepo,
       MailBodyFetcher bodyFetcher,
-      MailAiService mailAiService,
+      MailAnalysisService analysis,
       PlatformTransactionManager txManager) {
     this.messageRepo = messageRepo;
     this.bodyFetcher = bodyFetcher;
-    this.mailAiService = mailAiService;
+    this.analysis = analysis;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
-  /** 동기화 직후 비동기 진입점 — 객관적·개인 두 패스 모두. TenantContext 는 TaskDecorator 가 전파. */
+  /** 동기화 직후 비동기 진입점 — ③·④ 두 패스. TenantContext 는 TaskDecorator 가 전파. */
   @Async("aiAgentEventExecutor")
   public void summarizeRecentUnread(long userId, long accountId) {
     if (TenantContext.get() == null) {
-      log.warn("요약 백필 skip — TenantContext 없음 accountId={}", accountId);
+      log.warn("선제 분석 skip — TenantContext 없음 accountId={}", accountId);
       return;
     }
     summarizeObjectiveRecentNow(userId, accountId);
     summarizePersonalRecentNow(userId, accountId);
   }
 
-  /** T1 객관적 — content 미요약 대상. 공통비서 없으면 ensureObjectiveSummary 가 알아서 skip. */
+  /** ③ 원본 분석 패스 — content 미시도 대상. */
   public void summarizeObjectiveRecentNow(long userId, long accountId) {
     List<Long> ids =
         txTemplate.execute(status -> messageRepo.listRecentUnreadUnsummarizedIds(accountId, LIMIT));
-    runPass(userId, ids, id -> mailAiService.ensureObjectiveSummary(userId, id));
+    runPass(userId, ids, id -> analysis.analyzeContent(userId, id));
   }
 
-  /** T2 개인 — envelope 미개인요약 대상. 개인비서 없으면 ensurePersonalSummary 가 알아서 skip. */
+  /** ④ 개인 분석 패스 — 사본 미시도 + 배포 전 미분류 대상. */
   public void summarizePersonalRecentNow(long userId, long accountId) {
     List<Long> ids =
-        txTemplate.execute(
-            status -> messageRepo.listRecentUnreadUnpersonalizedIds(accountId, LIMIT));
-    runPass(userId, ids, id -> mailAiService.ensurePersonalSummary(userId, id));
+        txTemplate.execute(status -> messageRepo.listRecentUnreadUnanalyzedIds(accountId, LIMIT));
+    runPass(userId, ids, id -> analysis.analyzePersonal(userId, id));
   }
 
-  /**
-   * 공통 루프 — 대상별 본문 ensure 후 summarizer 적용. 메시지별 실패는 삼킨다.
-   *
-   * @param userId 호출자 userId — RLS GUC 주입 및 비서 조회에 사용
-   * @param ids 처리 대상 메시지 ID 목록 (null 이면 txTemplate 이 반환한 것 — skip)
-   * @param summarizer 메시지 ID 를 받아 요약 저장을 수행하는 단계 (userId 는 람다로 캡처)
-   */
-  private void runPass(long userId, List<Long> ids, Consumer<Long> summarizer) {
+  /** 공통 루프 — 대상별 본문 ensure 후 분석. 메시지별 실패는 삼킨다. */
+  private void runPass(long userId, List<Long> ids, Consumer<Long> step) {
     if (ids == null) {
       return;
     }
     for (Long id : ids) {
       try {
-        // 본문 미적재 시 IMAP fetch 선행, 이후 ensure*(best-effort, 빈본문·비서 없음은 내부 skip)
         ensureBody(userId, id);
-        summarizer.accept(id);
+        step.accept(id);
       } catch (RuntimeException e) {
-        log.warn("선제 요약 실패 messageId={} — 건너뜀", id, e);
+        log.warn("선제 분석 실패 messageId={} — 건너뜀", id, e);
       }
     }
   }
 
-  /**
-   * 본문 미적재면 IMAP fetch. bodyFetchedAt == null && imapUid != 0 인 경우만 IMAP 왕복.
-   *
-   * <p>MailMessageService.get() 과 동일 가드/패턴. 각 단계 짧은 트랜잭션으로 RLS GUC 주입.
-   */
+  /** 본문 미적재면 적재(IMAP uid 또는 Graph id 가 있을 때만). 각 단계 짧은 트랜잭션으로 RLS GUC 주입. */
   private void ensureBody(long userId, long messageId) {
     BodyTarget target =
         txTemplate.execute(
             status ->
                 messageRepo
                     .findBodyTargetForUser(userId, messageId)
-                    // WP-130: Graph 도 적재 — 적재·검증 전엔 공유 본문이 가려져 요약할 수 없다
+                    // WP-130: Graph 도 적재 — 적재·검증 전엔 공유 본문이 가려져 분석할 수 없다
                     .filter(
                         t ->
                             t.bodyFetchedAt() == null

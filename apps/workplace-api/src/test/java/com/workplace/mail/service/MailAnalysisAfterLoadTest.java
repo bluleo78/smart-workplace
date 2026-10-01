@@ -1,8 +1,6 @@
-package com.workplace.mail;
+package com.workplace.mail.service;
 
-import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.mail.service.MailAnalysisFixtures.LONG_BODY;
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
@@ -11,12 +9,12 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.repository.EmailContentRepository;
-import com.workplace.mail.service.MailAnalysisFixtures;
+import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
-import com.workplace.mail.service.MailClassifyBackfillService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.Optional;
 import org.jooq.DSLContext;
@@ -27,80 +25,73 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * WP-149 AI 켬(off→on) 백필 — 최근 안읽은 미분석 INBOX 메일에 ④ + ⑤ 를 실행한다. 배포 전에 분류된 메일(ai_needs_reply 있음)은 대상이
- * 아니다(재분석은 WP-151). 동기 본체 {@code classifyRecentUnreadNow} 를 직접 호출한다.
- */
+/** WP-149 본문 적재 직후 분석 — 안 읽은 INBOX 만(판단 13), ③ 실패해도 ④ 는 진행(best-effort). */
 @Transactional
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class MailClassifyBackfillServiceTest extends IntegrationTestBase {
+class MailAnalysisAfterLoadTest extends IntegrationTestBase {
 
   private static final AssistantSpec SPEC =
-      new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000);
+      new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
 
+  @Autowired MailAnalysisService analysis;
   @Autowired DSLContext dsl;
-  @Autowired MailClassifyBackfillService classifyBackfillService;
   @Autowired EmailContentRepository contentRepo;
+  @Autowired EmailFolderRepository folderRepo;
 
   @MockitoBean AiAgentMailClient mailClient;
   @MockitoBean AssistantResolver assistantResolver;
 
   @BeforeEach
   void assistants() {
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(SPEC));
+    when(assistantResolver.resolveOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.empty());
-    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
-  }
-
-  private Boolean needsReply(long id) {
-    return dsl.select(EMAIL_MESSAGE.AI_NEEDS_REPLY)
-        .from(EMAIL_MESSAGE)
-        .where(EMAIL_MESSAGE.ID.eq(id))
-        .fetchOneInto(Boolean.class);
   }
 
   @Test
-  void classifyRecentUnreadNow_analyzesUnanalyzed() {
-    when(assistantResolver.resolveOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
+  void inbox_contentFailure_stillRunsPersonal() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    when(mailClient.analyzeContent(any()))
+        .thenThrow(new MailAiException("AI 요청에 실패했어요.", new RuntimeException("boom")));
     when(mailClient.analyzePersonal(any()))
-        .thenReturn(new AnalyzePersonalResult(true, null, false, "업무"));
-    Box box = MailAnalysisFixtures.mailbox(dsl, true);
-    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
-    long env =
-        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+        .thenReturn(new AnalyzePersonalResult(true, null, false, null));
 
-    classifyBackfillService.classifyRecentUnreadNow(box.userId(), box.accountId());
+    analysis.analyzeAfterLoad(box.userId(), env); // 예외가 새지 않는다
 
-    assertThat(needsReply(env)).isTrue();
+    verify(mailClient).analyzeContent(any());
+    verify(mailClient).analyzePersonal(any());
   }
 
+  /** 판단 13: 읽은 INBOX 메일은 적재 직후 선제 분석하지 않는다(요약은 열람 시 GET …/summary 가 만든다). */
   @Test
-  void classifyRecentUnreadNow_noAssistant_skips() {
-    when(assistantResolver.resolveOrEmpty(anyLong())).thenReturn(Optional.empty());
+  void readInbox_skipsBackgroundAnalysis() {
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env =
         MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    MailAnalysisFixtures.markSeen(dsl, env);
 
-    classifyBackfillService.classifyRecentUnreadNow(box.userId(), box.accountId());
+    analysis.analyzeAfterLoad(box.userId(), env);
 
+    verify(mailClient, never()).analyzeContent(any());
     verify(mailClient, never()).analyzePersonal(any());
-    assertThat(needsReply(env)).isNull();
   }
 
   @Test
-  void classifyRecentUnreadNow_legacyClassified_notReanalyzed() {
-    when(assistantResolver.resolveOrEmpty(anyLong())).thenReturn(Optional.of(SPEC));
+  void nonInboxFolder_skipsBackgroundAnalysis() {
     Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long sent = folderRepo.ensureFolder(box.accountId(), "SENT").id();
     long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
     long env =
-        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
-    dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.AI_NEEDS_REPLY, false)
-        .where(EMAIL_MESSAGE.ID.eq(env))
-        .execute();
+        MailAnalysisFixtures.envelope(
+            dsl, box.accountId(), sent, content, box.address(), "x@acme.com", null);
 
-    classifyBackfillService.classifyRecentUnreadNow(box.userId(), box.accountId());
+    analysis.analyzeAfterLoad(box.userId(), env);
 
+    verify(mailClient, never()).analyzeContent(any());
     verify(mailClient, never()).analyzePersonal(any());
   }
 }

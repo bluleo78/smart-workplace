@@ -5,6 +5,7 @@ import static org.mockito.Mockito.verify;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.MailAnalysisService;
 import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailBodyFetcher;
 import com.workplace.mail.service.MailSyncProgress;
@@ -23,6 +24,7 @@ class MailBackfillNullGuardTest {
   private EmailMessageRepository messageRepo;
   private MailBodyFetcher bodyFetcher;
   private MailSyncProgress progress;
+  private MailAnalysisService analysis;
   private MailBackfillService service;
 
   @BeforeEach
@@ -30,8 +32,9 @@ class MailBackfillNullGuardTest {
     messageRepo = Mockito.mock(EmailMessageRepository.class);
     bodyFetcher = Mockito.mock(MailBodyFetcher.class);
     progress = Mockito.mock(MailSyncProgress.class);
+    analysis = Mockito.mock(MailAnalysisService.class);
     PlatformTransactionManager txManager = Mockito.mock(PlatformTransactionManager.class);
-    service = new MailBackfillService(messageRepo, bodyFetcher, progress, txManager);
+    service = new MailBackfillService(messageRepo, bodyFetcher, progress, analysis, txManager);
   }
 
   @AfterEach
@@ -50,5 +53,6 @@ class MailBackfillNullGuardTest {
     verify(bodyFetcher, never()).fetchBody(Mockito.anyLong(), Mockito.any());
     // 진행률은 정상 종료 처리(stuck 방지).
     verify(progress).finish(42L);
+    verify(analysis, never()).analyzeAfterLoad(Mockito.anyLong(), Mockito.anyLong());
   }
 }

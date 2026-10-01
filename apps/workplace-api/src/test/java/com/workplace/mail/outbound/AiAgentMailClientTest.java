@@ -16,8 +16,6 @@ import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
-import com.workplace.mail.outbound.MailAiMessages.ClassifyRequest;
-import com.workplace.mail.outbound.MailAiMessages.ClassifyResult;
 import com.workplace.mail.outbound.MailAiMessages.Me;
 import com.workplace.mail.outbound.MailAiMessages.Recipient;
 import java.util.List;
@@ -44,25 +42,15 @@ class AiAgentMailClientTest {
   }
 
   @Test
-  void 분류_정상_역직렬화() {
-    server
-        .expect(requestTo("http://ai-agent.test/mail/classify"))
-        .andExpect(method(HttpMethod.POST))
-        .andExpect(header(HttpHeaders.AUTHORIZATION, "Internal tok-123"))
-        .andRespond(
-            withSuccess("{\"category\":\"업무\",\"needsReply\":true}", MediaType.APPLICATION_JSON));
-
-    ClassifyResult r = client.classify(new ClassifyRequest("s", "a@b", "x", 5L, "m", 1, 60000));
-    assertThat(r.category()).isEqualTo("업무");
-    assertThat(r.needsReply()).isTrue();
-    server.verify();
-  }
-
-  @Test
   void 서버오류_무재시도_MailAiException() {
-    server.expect(requestTo("http://ai-agent.test/mail/classify")).andRespond(withServerError());
+    server
+        .expect(requestTo("http://ai-agent.test/mail/analyze-content"))
+        .andRespond(withServerError());
     assertThatThrownBy(
-            () -> client.classify(new ClassifyRequest("s", "a@b", "x", 5L, "m", 1, 60000)))
+            () ->
+                client.analyzeContent(
+                    new AnalyzeContentRequest(
+                        "s", "a@b", "x", false, true, false, 5L, "m", 1, 60000)))
         .isInstanceOf(MailAiException.class);
     server.verify();
   }
@@ -70,13 +58,16 @@ class AiAgentMailClientTest {
   @Test
   void _503_은_MailAiUnavailableException() {
     server
-        .expect(requestTo("http://ai-agent.test/mail/classify"))
+        .expect(requestTo("http://ai-agent.test/mail/analyze-content"))
         .andRespond(
             withStatus(HttpStatus.SERVICE_UNAVAILABLE)
                 .body("{}")
                 .contentType(MediaType.APPLICATION_JSON));
     assertThatThrownBy(
-            () -> client.classify(new ClassifyRequest("s", "a@b", "x", 5L, "m", 1, 60000)))
+            () ->
+                client.analyzeContent(
+                    new AnalyzeContentRequest(
+                        "s", "a@b", "x", false, true, false, 5L, "m", 1, 60000)))
         .isInstanceOf(MailAiUnavailableException.class);
     server.verify();
   }

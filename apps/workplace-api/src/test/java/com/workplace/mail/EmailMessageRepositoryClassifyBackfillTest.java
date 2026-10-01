@@ -15,10 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * EmailMessageRepository.listRecentUnreadUnclassifiedIds 통합 테스트. 안읽음·미분류·INBOX 조건에 맞는 메시지 id 만
- * 반환하고, 읽은/분류완료 메시지는 제외되는지 검증한다.
- */
+/** WP-149 listRecentUnreadUnanalyzedIds — 안읽음·INBOX·④ 미분석·배포 전 미분류·본문 적재 완료만. */
 @Transactional
 class EmailMessageRepositoryClassifyBackfillTest extends IntegrationTestBase {
 
@@ -69,18 +66,32 @@ class EmailMessageRepositoryClassifyBackfillTest extends IntegrationTestBase {
     return id;
   }
 
-  /** 안읽음·미분류(null) 메시지만 포함하고, 분류완료(true)·읽음(seen=true)은 제외되는지 검증. */
+  /** 안읽음·미분석·미분류·적재 완료만 포함. 배포 전 분류(ai_needs_reply 있음)·④ 시도함·읽음·본문 미적재는 제외. */
   @Test
-  void listRecentUnreadUnclassifiedIds_filters_correctly() {
+  void listRecentUnreadUnanalyzedIds_filters_correctly() {
     long userId = TestFixtures.createHuman(dsl);
     long accountId = createAccountWithInbox(userId);
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
 
-    long target = insertMessage(accountId, folderId, /*seen*/ false, /*aiNeedsReply*/ null); // 포함
-    insertMessage(accountId, folderId, /*seen*/ false, /*aiNeedsReply*/ Boolean.TRUE); // 제외(분류완료)
-    insertMessage(accountId, folderId, /*seen*/ true, /*aiNeedsReply*/ null); // 제외(읽음)
+    long target = insertMessage(accountId, folderId, false, null); // 포함
+    insertMessage(accountId, folderId, false, Boolean.TRUE); // 제외(배포 전 분류)
+    insertMessage(accountId, folderId, true, null); // 제외(읽음)
+    long analyzed = insertMessage(accountId, folderId, false, null);
+    dsl.update(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE)
+        .set(
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.AI_ANALYZED_AT,
+            java.time.OffsetDateTime.now())
+        .where(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID.eq(analyzed))
+        .execute(); // 제외(④ 시도함 — LLM 이 raw 를 냈지만 최종값이 아직 NULL 인 경우 포함)
+    long unfetched = insertMessage(accountId, folderId, false, null);
+    dsl.update(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE)
+        .set(
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FETCHED_AT,
+            (java.time.OffsetDateTime) null)
+        .where(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID.eq(unfetched))
+        .execute(); // 제외(본문 미적재·미검증 — WP-130, 판단 6)
 
-    List<Long> ids = messageRepo.listRecentUnreadUnclassifiedIds(accountId, 50);
+    List<Long> ids = messageRepo.listRecentUnreadUnanalyzedIds(accountId, 50);
 
     assertThat(ids).containsExactly(target);
   }

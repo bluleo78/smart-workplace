@@ -12,14 +12,10 @@ import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
-import com.workplace.mail.outbound.MailAiMessages.ClassifyRequest;
-import com.workplace.mail.outbound.MailAiMessages.ClassifyResult;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftRequest;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftResult;
-import com.workplace.mail.outbound.MailAiMessages.SummarizeRequest;
-import com.workplace.mail.outbound.MailAiMessages.SummarizeResult;
 import com.workplace.mail.outbound.MailAiMessages.ThreadMessage;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
@@ -27,26 +23,20 @@ import com.workplace.mail.repository.EmailMessageRepository.AiContext;
 import com.workplace.mail.repository.EmailMessageRepository.AnalysisContext;
 import com.workplace.mail.service.MailSummaryDecider.Decision;
 import com.workplace.mail.service.MailSummaryDecider.Outcome;
-import com.workplace.mail.util.MailBodyText;
 import java.util.List;
-import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 /**
- * 메일 AI 오케스트레이션(7d): 분류(동기화 잡 best-effort)·요약(캐시)·답장 초안. 모든 경로는 계정 ai_enabled 게이트. 비서 사양은 home 과
- * 동일하게 AssistantResolver 로 해석(개인→공용, 미설정 시 분류 생략/요약·답장 503).
+ * 메일 AI 사용자 기능(7d · WP-149): 요약 표시·강제 생성("AI 요약" 버튼)·답장 초안·초안 코칭. 분류·요약 생성 자체는 {@link
+ * MailAnalysisService} (③ 원본 분석 · ④ 개인 분석)가 맡는다. 비서 사양은 home 과 동일하게 AssistantResolver 로 해석(미설정 시
+ * 503).
  */
 @Slf4j
 @Service
 public class MailAiService {
-
-  /** 분류 허용 카테고리(미지 값은 폐기). ⚠️ 프론트 MailSidebar.CATEGORIES 와 값·순서 일치 유지 */
-  private static final Set<String> CATEGORIES = Set.of("업무", "개인", "알림", "프로모션", "뉴스레터");
 
   /** 단발 호출이라 turn 1 고정. */
   private static final int MAX_TURNS = 1;
@@ -57,110 +47,17 @@ public class MailAiService {
   private final EmailAccountRepository accountRepo;
   private final AssistantResolver assistantResolver;
 
-  /**
-   * 짧은-트랜잭션용 TransactionTemplate — @Primary {@code TenantAwareTransactionManager} 로 구성해 트랜잭션 진입 시
-   * RLS GUC(app.tenant_id) 가 주입된다.
-   */
-  private final TransactionTemplate txTemplate;
-
   public MailAiService(
       MailAnalysisService analysis,
       AiAgentMailClient mailClient,
       EmailMessageRepository messageRepo,
       EmailAccountRepository accountRepo,
-      AssistantResolver assistantResolver,
-      PlatformTransactionManager txManager) {
+      AssistantResolver assistantResolver) {
     this.analysis = analysis;
     this.mailClient = mailClient;
     this.messageRepo = messageRepo;
     this.accountRepo = accountRepo;
     this.assistantResolver = assistantResolver;
-    this.txTemplate = new TransactionTemplate(txManager);
-  }
-
-  /** 동기화 잡용 비서 사양. 미설정이면 null → 분류 생략(예외 전파 안 함). */
-  public AssistantSpec resolveSpecOrNull(long userId) {
-    try {
-      return assistantResolver.resolve(userId);
-    } catch (Exception e) {
-      log.warn("메일 AI 비서 미설정 — 분류 생략 (userId={}): {}", userId, e.toString());
-      return null;
-    }
-  }
-
-  /**
-   * messageId 기준 분류(본문 적재 후 호출). subject/from/snippet 을 DB 에서 읽어 분류한다. best-effort: 어떤 실패도 삼키고 적재
-   * 흐름을 막지 않는다.
-   */
-  public void classifyAndStore(long userId, long messageId, AssistantSpec spec) {
-    try {
-      var ctx = messageRepo.findClassifyContextByIdAndUser(userId, messageId).orElse(null);
-      if (ctx == null) {
-        return;
-      }
-      ClassifyResult r =
-          mailClient.classify(
-              new ClassifyRequest(
-                  nz(ctx.subject()),
-                  nz(ctx.fromAddress()),
-                  nz(ctx.snippet()),
-                  spec.agentUserId(),
-                  spec.model(),
-                  MAX_TURNS,
-                  spec.timeoutMs()));
-      String category = CATEGORIES.contains(r.category()) ? r.category() : null;
-      messageRepo.updateClassification(messageId, category, r.needsReply());
-    } catch (Exception e) {
-      log.warn("메일 분류 건너뜀 (messageId={}): {}", messageId, e.toString());
-    }
-  }
-
-  /**
-   * T1 객관적 요약(공통비서 전용, best-effort). 공통비서가 없거나·이미 요약됐거나·본문이 비면 skip. 계정 ai_enabled 와 무관 — 공통비서가 있으면
-   * 모든 메일을 객관적으로 요약한다.
-   */
-  public void ensureObjectiveSummary(long userId, long messageId) {
-    AiContext ctx = readContext(userId, messageId);
-    if (ctx == null || ctx.summaryAttempted()) {
-      return; // 미존재 또는 이미 공통요약 시도됨(#484: 빈 결과였어도 재요약하지 않음)
-    }
-    AssistantSpec spec = assistantResolver.resolveWorkspaceOrEmpty().orElse(null);
-    if (spec == null) {
-      return; // 공통비서 미설정 — T1 skip
-    }
-    String body = summarizableBody(ctx);
-    if (body == null) {
-      return; // 빈본문 — LLM 미호출이라 시도 기록도 남기지 않음
-    }
-    String summary = callSummarize(ctx, body, spec);
-    // #484: LLM 빈 결과면 저장소가 summary=NULL 로 시도 시각만 기록('시도했으나 결과 없음')
-    txTemplate.executeWithoutResult(status -> messageRepo.updateSummary(messageId, summary));
-  }
-
-  /**
-   * T2 개인 맞춤 요약(개인비서 전용, best-effort). aiEnabled=false 거나·개인비서 없거나·이미 개인요약됐거나· 본문이 비면 skip. 공통비서로
-   * 폴백하지 않는다(객관적 요약 중복 방지).
-   */
-  public void ensurePersonalSummary(long userId, long messageId) {
-    AiContext ctx = readContext(userId, messageId);
-    if (ctx == null || !ctx.aiEnabled()) {
-      return; // 미존재 또는 개인 AI opt-in 아님
-    }
-    if (ctx.personalSummaryAttempted()) {
-      return; // 이미 개인요약 시도됨(#484: 빈 결과였어도 재요약하지 않음)
-    }
-    AssistantSpec spec = assistantResolver.resolvePersonalOrEmpty(userId).orElse(null);
-    if (spec == null) {
-      return; // 진짜 개인비서 없음 — T2 skip
-    }
-    String body = summarizableBody(ctx);
-    if (body == null) {
-      return; // 빈본문 — 시도 기록 없음
-    }
-    String summary = callSummarize(ctx, body, spec);
-    // #484: LLM 빈 결과면 저장소가 summary=NULL 로 시도 시각만 기록
-    txTemplate.executeWithoutResult(
-        status -> messageRepo.updatePersonalSummary(messageId, summary));
   }
 
   /**
@@ -233,36 +130,6 @@ public class MailAiService {
       case SKIPPED -> MailSummary.skipped();
       default -> MailSummary.empty();
     };
-  }
-
-  /**
-   * 요약할 본문(없으면 null). 빈본문은 LLM 을 부르지 않고 시도로도 기록하지 않는다 — 온디맨드 경로는 IMAP 본문 적재 전에 올 수 있어 '진짜 빈 메일'과
-   * '아직 미적재'를 구분할 수 없다. 기록하면 본문이 나중에 적재돼도 영구히 요약 대상에서 빠진다.
-   */
-  private static String summarizableBody(AiContext ctx) {
-    String body = MailBodyText.effectiveBody(ctx.bodyText(), ctx.bodyHtml());
-    return StringUtils.hasText(body) ? body : null;
-  }
-
-  /** 공통비서/개인비서 spec 으로 본문 요약 LLM 호출. 빈/공백 응답의 NULL 정규화는 저장소(updateSummary)가 담당(#484). */
-  private String callSummarize(AiContext ctx, String body, AssistantSpec spec) {
-    SummarizeResult r =
-        mailClient.summarize(
-            new SummarizeRequest(
-                nz(ctx.subject()),
-                nz(ctx.fromAddress()),
-                body,
-                spec.agentUserId(),
-                spec.model(),
-                MAX_TURNS,
-                spec.timeoutMs()));
-    return r.summary();
-  }
-
-  /** RLS GUC 주입 짧은 트랜잭션으로 컨텍스트 조회(없으면 null). */
-  private AiContext readContext(long userId, long messageId) {
-    return txTemplate.execute(
-        status -> messageRepo.findAiContextByIdAndUser(userId, messageId).orElse(null));
   }
 
   private String firstNonBlank(String a, String b) {

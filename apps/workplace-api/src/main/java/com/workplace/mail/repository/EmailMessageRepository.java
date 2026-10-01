@@ -709,7 +709,10 @@ public class EmailMessageRepository {
         .execute();
   }
 
-  /** 분류 결과 저장(동기화 잡, best-effort) — 슬라이스②: category 는 공유 content, needs_reply 는 envelope(사람별). */
+  /**
+   * 분류 결과 저장(동기화 잡, best-effort) — 슬라이스②: category 는 공유 content, needs_reply 는 envelope(사람별). 운영
+   * 경로는 WP-149 부터 MailAnalysisService 의 저장 메서드를 쓴다.
+   */
   public void updateClassification(long messageId, String category, boolean needsReply) {
     // category → 공유 email_content (envelope 조인으로 content 특정).
     // WP-130: 자기 사본을 적재·검증한 envelope 만 공유 분류를 쓴다 — 검증 전 envelope 가 다른 수신자의 분류를 덮어쓰지 못하게.
@@ -740,7 +743,8 @@ public class EmailMessageRepository {
   }
 
   /**
-   * 요약 캐시 저장 — 슬라이스②: 공유 email_content 에 기록(envelope 조인으로 content 특정).
+   * 요약 캐시 저장 — 슬라이스②: 공유 email_content 에 기록(envelope 조인으로 content 특정). 운영 경로는 WP-149 부터
+   * MailAnalysisService 의 저장 메서드를 쓴다.
    *
    * <p>#484: summary 가 null/공백이면 '요약을 시도했으나 LLM 이 빈 결과를 냈다'는 상태로 기록한다(ai_summary=NULL,
    * ai_summarized_at=now()). 배치 대상 조회가 ai_summarized_at 기준이라 같은 메일을 매 배치 재요약하는 비용 누수를 막는다. 공백→NULL
@@ -757,7 +761,8 @@ public class EmailMessageRepository {
   }
 
   /**
-   * 개인 비서(T2) 맞춤 요약 저장 — envelope(사람별) email_message 에 기록.
+   * 개인 비서(T2) 맞춤 요약 저장 — envelope(사람별) email_message 에 기록. 운영 경로는 WP-149 부터 MailAnalysisService 의
+   * 저장 메서드를 쓴다.
    *
    * <p>#484: summary 가 null/공백이면 '시도했으나 결과 없음'(ai_personal_summary=NULL,
    * ai_personal_summarized_at=now()).
@@ -773,28 +778,6 @@ public class EmailMessageRepository {
   /** #484: 공백 요약은 '결과 없음'(NULL)으로 저장 — 읽는 쪽이 공백 여부를 다시 판정하지 않게 한다. */
   private static String blankToNull(String s) {
     return StringUtils.hasText(s) ? s : null;
-  }
-
-  /**
-   * T2 개인 요약 대상 — INBOX 안읽음 중 개인 요약 미시도(email_message.ai_personal_summarized_at IS NULL) 최근 limit건.
-   *
-   * <p>#484: 요약 컬럼이 아닌 시도 시각 기준 — LLM 이 빈 결과를 낸 메일(summary NULL·summarized_at 세팅)은 재선택하지 않는다.
-   *
-   * <p>⚠️ listRecentUnreadUnsummarizedIds(공통 content.ai_summarized_at 기준)와 별개다 — 공통 요약이 이미 있어도 개인
-   * 요약이 없으면 포함해야 하므로 envelope 컬럼으로 스캔한다.
-   */
-  public List<Long> listRecentUnreadUnpersonalizedIds(long accountId, int limit) {
-    return dsl.select(EMAIL_MESSAGE.ID)
-        .from(EMAIL_MESSAGE)
-        .join(EMAIL_FOLDER)
-        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
-        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
-        .and(EMAIL_FOLDER.NAME.eq("INBOX"))
-        .and(EMAIL_MESSAGE.SEEN.isFalse())
-        .and(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT.isNull()) // #484: 시도 여부 기준
-        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
-        .limit(limit)
-        .fetch(EMAIL_MESSAGE.ID);
   }
 
   /**
@@ -831,10 +814,14 @@ public class EmailMessageRepository {
   }
 
   /**
-   * classify 백필용 — 계정의 최근 안읽은·미분류(ai_needs_reply IS NULL) INBOX 메일 id N건(최신순). 본문 유무는 가리지 않는다(분류는
-   * subject/from/snippet 으로 best-effort 동작).
+   * WP-149 ④ 백필 대상 — INBOX 안읽음 중 개인 분석 미시도(ai_analyzed_at IS NULL) 최근 limit건(최신순). 동기화 후 ④ 패스와 AI 켬
+   * 백필이 함께 쓴다. 읽은 메일은 선제 분석하지 않는다(판단 13 — 열람 시 요약 GET 이 온디맨드로 만든다).
+   *
+   * <p>배포 전에 이미 분류된 메일(ai_needs_reply 있음)은 제외한다 — 새 기준 재분석은 WP-151 이 계정별 1회로 통제한다. WP-130: 본문을
+   * 적재·검증한 사본만 고른다 — AI 켬 백필은 본문을 적재하지 않으므로 미적재 행이 상한 슬롯을 차지한 채 건너뛰어지지 않게 한다. 미적재 새 메일의 ④ 는 본문 보충
+   * 직후(MailBackfillService → analyzeAfterLoad)가 맡는다.
    */
-  public List<Long> listRecentUnreadUnclassifiedIds(long accountId, int limit) {
+  public List<Long> listRecentUnreadUnanalyzedIds(long accountId, int limit) {
     return dsl.select(EMAIL_MESSAGE.ID)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
@@ -842,8 +829,8 @@ public class EmailMessageRepository {
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_FOLDER.NAME.eq("INBOX"))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .and(EMAIL_MESSAGE.AI_ANALYZED_AT.isNull())
         .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isNull())
-        // WP-130: 본문 적재·검증 전 envelope 는 스니펫이 가려져 분류 품질이 떨어지므로 적재 후에 분류한다
         .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
@@ -1080,36 +1067,6 @@ public class EmailMessageRepository {
                     MailBodyText.effectiveBody(
                         r.get(EMAIL_CONTENT.BODY_TEXT), r.get(EMAIL_CONTENT.BODY_HTML))));
   }
-
-  /**
-   * 분류 입력 컨텍스트(subject/from/snippet) 조회. 본문 적재 후 messageId 로 분류할 때 사용. 소유 검증을 위해 email_account 와
-   * 조인해 account.user_id = userId 인 경우만 반환.
-   *
-   * <p>Task6: subject·snippet 은 email_content LEFT JOIN 으로 읽는다. FROM_ADDRESS 는 envelope 봉투 속성 유지.
-   */
-  public Optional<ClassifyContext> findClassifyContextByIdAndUser(long userId, long messageId) {
-    return dsl.select(
-            EMAIL_CONTENT.SUBJECT, // content 에서 읽음
-            EMAIL_MESSAGE.FROM_ADDRESS,
-            verified(EMAIL_CONTENT.SNIPPET)) // content 에서 읽음
-        .from(EMAIL_MESSAGE)
-        .join(EMAIL_ACCOUNT)
-        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
-        .leftJoin(EMAIL_CONTENT) // subject·snippet 을 content 에서 읽기 위한 LEFT JOIN
-        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
-        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
-        .fetchOptional(
-            r ->
-                new ClassifyContext(
-                    r.get(EMAIL_CONTENT.SUBJECT),
-                    r.get(EMAIL_MESSAGE.FROM_ADDRESS),
-                    r.get(EMAIL_CONTENT.SNIPPET)));
-  }
-
-  /** 분류 입력 행(제목/보낸사람/미리보기). */
-  public record ClassifyContext(String subject, String fromAddress, String snippet) {}
 
   /** AI 컨텍스트 행. summary=공통(객관적, content), personalSummary=개인(envelope). */
   public record AiContext(

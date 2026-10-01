@@ -300,11 +300,11 @@ class MailSyncServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 메타 전용 동기화는 ai_enabled=true 라도 분류하지 않는다 — 분류는 본문 적재(MailBodyFetcher/MailBackfillService) 단계로
-   * 이관됐다(해당 분류 커버리지는 MailBodyFetcherTest 등이 담당). sync 자체는 classify 를 호출하지 않음을 보장한다.
+   * 메타 전용 동기화는 ai_enabled=true 라도 분석하지 않는다 — 분석은 본문 적재 후(MailBackfillService → analyzeAfterLoad)·선제
+   * 백필 단계다(WP-149).
    */
   @Test
-  void sync_doesNotClassify() {
+  void sync_doesNotAnalyze() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = insertAccount(user, true);
     MailTestPorts.sendText("box@test.local", "sender@example.com", "업무 보고", "보고서 내용");
@@ -312,8 +312,9 @@ class MailSyncServiceTest extends IntegrationTestBase {
 
     syncService.sync(user, accountId);
 
-    // 메타 전용 — sync 경로에서는 ai 활성화 여부와 무관하게 classify 가 호출되지 않는다(분류는 본문 적재로 이관).
-    org.mockito.Mockito.verify(mailClient, never()).classify(any());
+    // 메타 전용 — sync 경로에서는 원본·개인 분석이 호출되지 않는다(본문 보충·선제 백필은 이 테스트에서 mock).
+    org.mockito.Mockito.verify(mailClient, never()).analyzeContent(any());
+    org.mockito.Mockito.verify(mailClient, never()).analyzePersonal(any());
   }
 
   /** WP-148: 제목으로 로컬 envelope 의 seen 을 읽는다. */
