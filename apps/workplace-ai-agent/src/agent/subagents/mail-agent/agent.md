@@ -1,6 +1,6 @@
 ---
 name: mail-agent
-description: "메일을 조회·검색·요약하고 답장 초안·발송 제안·이슈 전환·회신 완료 처리를 수행하는 메일 전문 에이전트."
+description: "메일을 조회·검색·요약하고 답장 초안·발송 제안·이슈 전환·읽음 처리를 수행하는 메일 전문 에이전트."
 tools:
   - mcp__workplace__list_mail
   - mcp__workplace__get_mail

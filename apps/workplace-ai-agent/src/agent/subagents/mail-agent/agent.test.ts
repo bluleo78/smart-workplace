@@ -10,7 +10,7 @@ describe('mail-agent 정의', () => {
   it('loadSubagents 로 mail-agent 가 로드된다', () => {
     expect(loaded['mail-agent']).toBeDefined();
   });
-  it('tools 는 읽기(list/get/요약) + 답장 초안 + 발송 제안 + 계정 목록/동기화 + 회신완료·이슈 전환', () => {
+  it('tools 는 읽기(list/get/요약) + 답장 초안 + 발송 제안 + 계정 목록/동기화 + 읽음 처리·이슈 전환', () => {
     expect(loaded['mail-agent'].tools).toEqual([
       'mcp__workplace__list_mail',
       'mcp__workplace__get_mail',

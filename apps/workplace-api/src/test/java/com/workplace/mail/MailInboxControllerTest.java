@@ -23,8 +23,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * MailInboxController P2 엔드포인트 통합 테스트. 처리완료(POST/DELETE) + 카운트(GET) + 소유권 거부 검증. 실 JWT + MockMvc로
- * 전체 보안 체인 통과. @Transactional로 공유 test DB 무오염 보장.
+ * MailInboxController P2 엔드포인트 통합 테스트. 읽음 처리(POST /read) + 회신필요 카운트(GET) + 소유권 거부 검증. 실 JWT +
+ * MockMvc로 전체 보안 체인 통과. @Transactional로 공유 test DB 무오염 보장.
  */
 @Transactional
 class MailInboxControllerTest extends IntegrationTestBase {

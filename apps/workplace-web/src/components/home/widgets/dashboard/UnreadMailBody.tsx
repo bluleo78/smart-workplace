@@ -22,7 +22,7 @@ function initial(item: MailSummaryItem): string {
 
 /**
  * 안 읽은 메일 위젯 — "회신 의무로 분류한 받은편지함 엿보기".
- * 회신필요(aiNeedsReply) 먼저 → 최신순. 발신자·제목·미리보기·시각·배지/첨부.
+ * 회신필요(AI 판정 && 안 읽음) 먼저 → 최신순. 발신자·제목·미리보기·시각·배지/첨부.
  * 행 클릭 = 해당 메일 딥링크(/mail/{accountId}?messageId={id}) — MailInboxPage 가
  * ?messageId 를 읽어 상세 패널을 자동으로 연다(#447). 헤더/프레임은 Dashboard 담당.
  */
@@ -34,7 +34,7 @@ export default function UnreadMailBody({
   previewData?: MailSummaryItem[]
 }) {
   const { data: queryData, isLoading, isError, refetch } = useMailSummary({ enabled: !previewData })
-  // "회신 필요" 토글 — 켜면 aiNeedsReply 메일만 필터(헤더 칩 클릭). 위젯 로컬 상태.
+  // "회신 필요" 토글 — 켜면 회신필요(AI 판정 && 안 읽음) 메일만 필터(헤더 칩 클릭). 위젯 로컬 상태.
   const [needsReplyOnly, setNeedsReplyOnly] = useState(false)
 
   // I3(a11y): 로딩 영역에 aria-busy + 라벨.
@@ -120,7 +120,7 @@ export default function UnreadMailBody({
                 <span className="flex items-center gap-1.5">
                   <span className="truncate text-sm font-medium">{sender(m)}</span>
                   {/* 회신필요 배지 — AI action 스타일(빨강 제거). 비-AI 멘션/회신대기 배지와 시각적으로 구분. */}
-                  {classificationActive && m.aiNeedsReply && (
+                  {classificationActive && m.aiNeedsReply && !m.seen && (
                     <AiSignalBadge variant="action" data-testid="dash-mail-badge-reply">
                       회신필요
                     </AiSignalBadge>

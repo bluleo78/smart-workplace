@@ -179,14 +179,20 @@ public class MailMessageService {
                 messageRepo
                     .findBodyTargetForUser(userId, messageId)
                     .orElseThrow(() -> new EmailMessageNotFoundException(messageId)));
-    EmailMessageDetail detail = loadDetail(userId, messageId);
-    if (detail.seen()) {
-      return;
+    // 상세 전체를 읽지 않고 UPDATE 반환 행 수로 "이번에 읽음으로 바뀐 건"만 판별한다(동시 호출에서도 한 번만 발행).
+    // MailChangeNotifier 는 트랜잭션 안에서 호출해야 한다(AFTER_COMMIT 디스패처는 트랜잭션 밖 발행을 유실) — markSeen 과 같은 트랜잭션.
+    Integer updated =
+        txTemplate.execute(
+            status -> {
+              int n = messageRepo.markSeen(messageId);
+              if (n > 0) {
+                notifier.mailChanged(userId, target.accountId(), messageId, userId);
+              }
+              return n;
+            });
+    if (updated != null && updated > 0) {
+      publishMarkedRead(userId, messageId);
     }
-    markSeenAndPublish(userId, messageId);
-    // MailChangeNotifier 는 트랜잭션 안에서 호출해야 한다(AFTER_COMMIT 디스패처는 트랜잭션 밖 발행을 유실) — 짧은 트랜잭션으로 감싼다.
-    txTemplate.executeWithoutResult(
-        status -> notifier.mailChanged(userId, target.accountId(), messageId, userId));
   }
 
   /**
@@ -196,6 +202,11 @@ public class MailMessageService {
    */
   private void markSeenAndPublish(long userId, long messageId) {
     txTemplate.executeWithoutResult(status -> messageRepo.markSeen(messageId));
+    publishMarkedRead(userId, messageId);
+  }
+
+  /** 역동기화 이벤트 발행 공용부 — TenantContext 가 null 이면 내부 경로이므로 생략(방어적). */
+  private void publishMarkedRead(long userId, long messageId) {
     Long tenantId = TenantContext.get();
     if (tenantId != null) {
       eventPublisher.publishEvent(new MessageMarkedReadEvent(tenantId, userId, messageId));

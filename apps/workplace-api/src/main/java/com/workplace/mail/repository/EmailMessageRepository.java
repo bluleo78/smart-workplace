@@ -44,6 +44,9 @@ public class EmailMessageRepository {
 
   private final DSLContext dsl;
 
+  /** email_content 공유 저장소 — sync 단계에서 envelope 에 content_id 를 연결할 때 사용한다. */
+  private final EmailContentRepository contentRepo;
+
   /**
    * 회신필요 단일 술어(WP-146) — AI 판정 true + 안 읽음. 목록 필터·사이드바·홈 카운트가 모두 이 메서드만 써서 화면마다 기준이 어긋나지 않게 한다(#485
    * 드리프트 방지). pending(NULL)·false 는 isTrue() 가 제외한다.
@@ -51,9 +54,6 @@ public class EmailMessageRepository {
   public static Condition needsReplyCondition() {
     return EMAIL_MESSAGE.AI_NEEDS_REPLY.isTrue().and(EMAIL_MESSAGE.SEEN.isFalse());
   }
-
-  /** email_content 공유 저장소 — sync 단계에서 envelope 에 content_id 를 연결할 때 사용한다. */
-  private final EmailContentRepository contentRepo;
 
   /** UIDVALIDITY 변경 시 폴더의 기존 메시지를 모두 삭제(서버가 UID 를 재사용하므로 stale 충돌 방지). */
   public void deleteByFolder(long folderId) {
@@ -327,8 +327,8 @@ public class EmailMessageRepository {
   /**
    * 홈 위젯용 — 사용자 본인 INBOX 의 "회신 필요" 메일 건수(#474).
    *
-   * <p>countUnread 와 동일한 소유·INBOX·seen=false 조건에 needsReplyCondition() 을 추가한다. pending(null) 과
-   * false 는 제외된다 — isTrue() 가 null-safe FALSE 처리를 포함한다.
+   * <p>countUnread 와 동일한 소유·INBOX 조건에 needsReplyCondition()(AI 판정 true + 안 읽음)을 적용한다. pending(null)
+   * 과 false 는 제외된다 — isTrue() 가 null-safe FALSE 처리를 포함한다.
    */
   public long countNeedsReply(long callerId) {
     return dsl.fetchCount(
@@ -598,9 +598,9 @@ public class EmailMessageRepository {
                     r.value5()));
   }
 
-  /** 메시지 읽음 처리 — seen=true 로 업데이트. 이미 읽은 건은 스킵(SEEN.isFalse 조건). */
-  public void markSeen(long messageId) {
-    dsl.update(EMAIL_MESSAGE)
+  /** 메시지 읽음 처리 — seen=true 로 업데이트. 이미 읽은 건은 스킵(SEEN.isFalse 조건). 실제 갱신된 행 수(0|1)를 반환한다. */
+  public int markSeen(long messageId) {
+    return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN, true)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
@@ -618,7 +618,7 @@ public class EmailMessageRepository {
         .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
         .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
         .execute();
-    // needs_reply → envelope 잔류(#485 통일 술어 소비)
+    // needs_reply → envelope 잔류(조회는 needsReplyCondition() 단일 술어가 소비, WP-146)
     dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.AI_NEEDS_REPLY, needsReply)
         .where(EMAIL_MESSAGE.ID.eq(messageId))

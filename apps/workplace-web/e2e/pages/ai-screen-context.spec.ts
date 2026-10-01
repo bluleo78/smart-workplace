@@ -366,6 +366,44 @@ test.describe('AI 채팅 화면 컨텍스트 — 메일', () => {
   })
 })
 
+test.describe('AI 채팅 화면 컨텍스트 — 메일 회신필요 필터', () => {
+  test('열린 메일이 목록 refetch 로 빠져도 컨텍스트에 유지된다(WP-146)', async ({ authenticatedPage: page }) => {
+    const bodies = await captureChat(page)
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ id: 3, aiEnabled: true })])
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/3/needs-reply-count', { count: 1 })
+    // 목록: 처음엔 회신필요 1건, 열람 후 refetch 부터는 읽음 처리돼 빈 목록.
+    let listCalls = 0
+    await page.route((url) => url.pathname === '/api/v1/mail/accounts/3/messages', (route) => {
+      listCalls += 1
+      const body = listCalls === 1
+        ? [summary({ id: 91, accountId: 3, subject: '견적 요청', fromName: '김철수', fromAddress: 'kim@a.com', aiNeedsReply: true, seen: false })]
+        : []
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    })
+    await mockApi(page, 'GET', '/api/v1/mail/messages/91', detail({ id: 91, subject: '견적 요청', fromName: '김철수', fromAddress: 'kim@a.com' }))
+    // 가상 시계 — 목록 60초 주기 refetch 를 실시간 대기 없이 발생시키기 위함. 타이머는 계속 흐르게 둔다.
+    await page.clock.install()
+    await page.goto('/mail/3?needsReply=true')
+    await page.clock.resume()
+    await page.getByTestId('mail-row-91').click()
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
+    // 목록 refetch(포커스/주기 갱신 대체)로 빈 목록을 받게 한다.
+    await page.clock.fastForward(61_000) // refetchInterval(60s) 을 가상 시계로 앞당긴다
+    await expect.poll(() => listCalls).toBeGreaterThanOrEqual(2)
+    await expect(page.getByTestId('mail-row-91')).toHaveCount(0)
+
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('chat-context-chip')).toContainText('메일 견적 요청')
+    await page.getByTestId('chat-input').fill('이 메일 요약해줘')
+    await page.getByRole('button', { name: '보내기' }).click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0].screenContext).toMatchObject({
+      view: '메일함',
+      focus: { type: '메일', label: '견적 요청', refs: { messageId: '91' } },
+    })
+  })
+})
+
 test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
   // 오늘 정오(UTC) 일정 — 기본 월 보기에 항상 보이도록 팩토리 기본 날짜(2026-06)를 덮어쓴다.
   const startsAt = new Date(new Date().toISOString().slice(0, 10) + 'T03:00:00Z')

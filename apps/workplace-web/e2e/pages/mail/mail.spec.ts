@@ -121,6 +121,8 @@ test.describe('회신필요 — 읽으면 해제', () => {
     await page.getByTestId('mail-row-10').click()
     await expect(page.getByTestId('mail-badge-needsreply-10')).toHaveCount(0)
     await expect.poll(() => countCalls).toBeGreaterThanOrEqual(2)
+    // 재조회 결과 0건 → 사이드바 회신필요 필터 항목 자체가 사라진다(count > 0 일 때만 렌더).
+    await expect(page.getByTestId('mail-filter-needsreply')).toHaveCount(0)
   })
 
   test('회신필요 0건 → 긍정 빈 상태', async ({ authenticatedPage: page }) => {

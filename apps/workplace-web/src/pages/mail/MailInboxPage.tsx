@@ -519,10 +519,27 @@ export function MailInboxPage() {
 
   // WP-54: 메일함 화면 컨텍스트 — 계정·폴더·필터 + 열린 메일(목록 행 요약으로 라벨 구성).
   // 훅이므로 아래 !accountId 조기 return 보다 앞에 둔다. 목록에 없는 메일(딥링크 등)은 focus 없이 scope 만 싣는다.
-  const selectedSummary = useMemo(
-    () => messages?.find((m) => m.id === selectedId) ?? null,
-    [messages, selectedId],
-  )
+  // 상세 쿼리는 상세 패널과 같은 키라 중복 요청 없이 캐시를 공유한다.
+  // 회신필요 필터(?needsReply=true)에서는 메일을 열면 읽음 처리돼 다음 목록 refetch 에서 목록을 빠져나간다 —
+  // 상세 패널은 열려 있는데 AI 컨텍스트만 사라지지 않도록, 목록에 없으면 상세 데이터로 같은 형태를 채운다.
+  const { data: openedDetail } = useMailMessage(selectedId)
+  const selectedSummary = useMemo(() => {
+    const fromList = messages?.find((m) => m.id === selectedId)
+    if (fromList) return fromList
+    if (openedDetail && openedDetail.id === selectedId) {
+      return {
+        id: openedDetail.id,
+        subject: openedDetail.subject,
+        fromName: openedDetail.fromName,
+        fromAddress: openedDetail.fromAddress,
+        receivedAt: openedDetail.receivedAt,
+        // 상세 응답엔 AI 분류가 없다 — 열린(=읽은) 메일이므로 회신필요 아님/분류 미상으로 둔다.
+        aiCategory: null,
+        aiNeedsReply: false,
+      }
+    }
+    return null
+  }, [messages, selectedId, openedDetail])
   const screenContext = useMemo(
     () =>
       accountIdNum != null
