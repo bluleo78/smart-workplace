@@ -2962,3 +2962,23 @@ test('기존 저장 레이아웃에 신규 위젯 3종이 없으면 위젯 추�
   await expect(modal.getByText('요약')).toBeVisible()
   await expect(modal.getByText('빠른 액션')).toBeVisible()
 })
+
+test('데스크톱 — 레이아웃 조회·저장에 device 쿼리를 붙이지 않는다(WP-142)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  // 문자열 glob 목('**/api/v1/me/dashboard')은 쿼리 문자열이 붙으면 매칭되지 않는다 — 데스크톱은 device 를 생략해야 한다.
+  const getCapture = await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks', 'unread_mail']), {
+    capture: true,
+  })
+  const putCapture = await mockApi(page, 'PUT', '/api/v1/me/dashboard', layout(['my_tasks', 'unread_mail']), {
+    capture: true,
+  })
+  await page.goto('/')
+  const get = await getCapture.waitForRequest()
+  expect(get.searchParams.has('device')).toBe(false)
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.getByTestId('dashboard-edit-save').click()
+  const put = await putCapture.waitForRequest()
+  expect(put.searchParams.has('device')).toBe(false)
+})

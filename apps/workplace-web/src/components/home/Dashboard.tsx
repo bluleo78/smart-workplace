@@ -42,8 +42,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useDashboardLayout, useSaveDashboardLayout } from '@/hooks/queries/useDashboard'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { handleApiError } from '@/lib/api-error'
-import type { DashboardWidgetConfig } from '@/types/dashboard'
+import type { DashboardDevice, DashboardWidgetConfig } from '@/types/dashboard'
 
 import { AddWidgetModal } from './widgets/AddWidgetModal'
 import { allCatalogWidgets, type CatalogWidget, getCatalogWidget } from './widgets/catalogRegistry'
@@ -58,6 +59,8 @@ const MAX_WIDGETS = 12
 // 위젯 추가 강조 표시 지속 시간(ms) — 카드의 `duration-700` 강조 트랜지션과 짝을 이루며,
 // e2e/pages/home.spec.ts 의 fastForward 경계값과도 결합되어 있으니 값을 바꿀 때 두 곳을 함께 확인한다.
 const HIGHLIGHT_DURATION_MS = 4000
+// 모바일 편집에서 새로 추가하는 시스템 위젯의 항목 수 — 서버 모바일 기본값(DashboardService.MOBILE_DEFAULT_COUNT)과 일치.
+const MOBILE_DEFAULT_COUNT = 3
 
 /** 그리드 한 항목 = 알려진 위젯 정의(시스템|카탈로그) + 그 구성. 알 수 없는 타입은 미리 걸러진다. */
 type ResolvedEntry =
@@ -385,11 +388,18 @@ function DashboardSkeleton() {
 
 /** 홈 대시보드 — 위젯 그리드(저장 레이아웃 기반) + 편집. */
 export function Dashboard() {
-  const { data, isLoading } = useDashboardLayout()
+  // 기기 판단은 셸과 같은 기준(lg 미만 = 모바일). 폭이 lg 경계를 넘으면 그 기기 레이아웃을 새로 조회한다(WP-142).
+  const isMobile = useIsMobile()
+  const device: DashboardDevice = isMobile ? 'mobile' : 'desktop'
+  const { data, isLoading } = useDashboardLayout(device)
   const save = useSaveDashboardLayout()
 
-  // 편집 상태 — 로컬 드래프트 + 단일-레벨 undo 스냅샷. 저장 전까지 아무것도 영속화되지 않는다.
-  const [editing, setEditing] = useState(false)
+  // 편집 상태 — 편집을 시작한 기기 + 로컬 드래프트 + 단일-레벨 undo 스냅샷. 저장 전까지 아무것도 영속화되지 않는다.
+  // 편집은 시작한 기기에 묶인다(editing = 시작 기기 === 현재 기기, 저장도 시작 기기로). 지금은 lg 경계를 넘으면
+  // AppLayout 이 셸을 바꿔 이 컴포넌트가 다시 마운트되므로 편집이 끝나지만, 셸 구조가 바뀌어도 한 기기 초안이
+  // 다른 기기 레이아웃에 저장되지 않도록 하는 이중 안전장치다(WP-142).
+  const [editDevice, setEditDevice] = useState<DashboardDevice | null>(null)
+  const editing = editDevice === device
   const [draft, setDraft] = useState<DashboardWidgetConfig[]>([])
   const [undoSnapshot, setUndoSnapshot] = useState<DashboardWidgetConfig[] | null>(null)
   const [addModalOpen, setAddModalOpen] = useState(false)
@@ -447,11 +457,11 @@ export function Dashboard() {
     setLiveMsg('')
     setAddModalOpen(false)
     setRecentlyAddedId(null)
-    setEditing(true)
+    setEditDevice(device)
   }
 
   function cancelEdit() {
-    setEditing(false)
+    setEditDevice(null)
     setUndoSnapshot(null)
     setLiveMsg('')
     setAddModalOpen(false)
@@ -554,7 +564,9 @@ export function Dashboard() {
     if (sys) {
       if (draft.some((w) => w.type === type)) return
       snapshot()
-      setDraft((prev) => [...prev, { id: type, type, count: 5, hidden: false }])
+      // 모바일 편집에서 추가하면 모바일 기본 항목 수(3) — 데스크톱은 기존 5 그대로(요청 형태 불변).
+      const count = editDevice === 'mobile' ? MOBILE_DEFAULT_COUNT : 5
+      setDraft((prev) => [...prev, { id: type, type, count, hidden: false }])
       setLiveMsg(`${sys.title} 위젯을 추가했습니다`)
       setRecentlyAddedId(type)
       return
@@ -604,14 +616,19 @@ export function Dashboard() {
   }
 
   function saveEdit() {
-    save.mutate(draft, {
-      onSuccess: () => {
-        setEditing(false)
-        setUndoSnapshot(null)
-        setLiveMsg('대시보드 레이아웃을 저장했습니다')
+    // 편집을 시작한 기기 레이아웃에만 저장한다(렌더 시점 device 가 아님).
+    if (!editDevice) return
+    save.mutate(
+      { device: editDevice, widgets: draft },
+      {
+        onSuccess: () => {
+          setEditDevice(null)
+          setUndoSnapshot(null)
+          setLiveMsg('대시보드 레이아웃을 저장했습니다')
+        },
+        onError: (err) => handleApiError(err, '대시보드 저장에 실패했습니다'),
       },
-      onError: (err) => handleApiError(err, '대시보드 저장에 실패했습니다'),
-    })
+    )
   }
 
   const homeIcon = <Home className="h-5 w-5 text-muted-foreground" />
