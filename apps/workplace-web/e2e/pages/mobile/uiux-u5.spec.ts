@@ -45,7 +45,7 @@ test.describe('C2 수정 중인 메시지는 길게 누르기 대상이 아니�
 })
 
 test.describe('C3 복사 실패는 안내한다', () => {
-  test('클립보드 API 가 없고 대체 복사도 실패하면 "복사하지 못했어요" 토스트', async ({ authenticatedPage: page }) => {
+  test('클립보드 API 가 없고 대체 복사도 실패하면 "메시지를 복사하지 못했습니다" 토스트', async ({ authenticatedPage: page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'clipboard', { configurable: true, get: () => undefined })
       document.execCommand = () => false
@@ -54,10 +54,10 @@ test.describe('C3 복사 실패는 안내한다', () => {
     await page.goto('/chat/channels/1')
     await longPress(page, page.getByTestId('message-body-11'))
     await page.getByTestId('message-action-copy').tap()
-    await expect(page.getByText('복사하지 못했어요')).toBeVisible()
+    await expect(page.getByText('메시지를 복사하지 못했습니다')).toBeVisible()
   })
 
-  test('writeText 가 거부되고 대체 복사도 실패하면 "복사하지 못했어요" 토스트', async ({ authenticatedPage: page }) => {
+  test('writeText 가 거부되고 대체 복사도 실패하면 "메시지를 복사하지 못했습니다" 토스트', async ({ authenticatedPage: page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'clipboard', {
         configurable: true,
@@ -69,7 +69,7 @@ test.describe('C3 복사 실패는 안내한다', () => {
     await page.goto('/chat/channels/1')
     await longPress(page, page.getByTestId('message-body-11'))
     await page.getByTestId('message-action-copy').tap()
-    await expect(page.getByText('복사하지 못했어요')).toBeVisible()
+    await expect(page.getByText('메시지를 복사하지 못했습니다')).toBeVisible()
   })
 
   test('writeText 성공 시 멘션은 @이름 평문으로 복사된다', async ({ authenticatedPage: page }) => {

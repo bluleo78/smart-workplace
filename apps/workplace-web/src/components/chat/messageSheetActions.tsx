@@ -78,7 +78,7 @@ function copyAction(text: string): MessageSheetAction {
     label: '복사',
     icon: <Copy />,
     onSelect: () => {
-      void copyText(text).then((ok) => (ok ? toast.success('메시지를 복사했습니다') : toast.error('복사하지 못했어요')))
+      void copyText(text).then((ok) => (ok ? toast.success('메시지를 복사했습니다') : toast.error('메시지를 복사하지 못했습니다')))
     },
   }
 }
