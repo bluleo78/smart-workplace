@@ -30,7 +30,8 @@ import org.springframework.util.StringUtils;
  *
  * <p>LLM 호출은 트랜잭션 밖에서 하고 컨텍스트 조회·결과 저장만 짧은 트랜잭션({@code txTemplate}, @Primary
  * TenantAwareTransactionManager 라 RLS GUC 주입)으로 감싼다(#232). 같은 원본·사본을 동시에 분석하지 않도록 {@link
- * SingleFlight} 로 묶는다.
+ * SingleFlight} 로 묶는다. ④ 입력에는 "나" 프로필({@link UserMailProfileBuilder})과 보강 블록({@link
+ * PersonalContextLoader})을 더한다(WP-150).
  */
 @Slf4j
 @Service
@@ -52,6 +53,7 @@ public class MailAnalysisService {
   private final EmailMessageRepository messageRepo;
   private final EmailContentRepository contentRepo;
   private final UserMailProfileBuilder profileBuilder;
+  private final PersonalContextLoader contextLoader;
   private final AssistantResolver assistantResolver;
   private final NeedsReplyFinalizer finalizer;
   private final TransactionTemplate txTemplate;
@@ -62,6 +64,7 @@ public class MailAnalysisService {
       EmailMessageRepository messageRepo,
       EmailContentRepository contentRepo,
       UserMailProfileBuilder profileBuilder,
+      PersonalContextLoader contextLoader,
       AssistantResolver assistantResolver,
       NeedsReplyFinalizer finalizer,
       PlatformTransactionManager txManager) {
@@ -69,6 +72,7 @@ public class MailAnalysisService {
     this.messageRepo = messageRepo;
     this.contentRepo = contentRepo;
     this.profileBuilder = profileBuilder;
+    this.contextLoader = contextLoader;
     this.assistantResolver = assistantResolver;
     this.finalizer = finalizer;
     this.txTemplate = new TransactionTemplate(txManager);
@@ -292,7 +296,7 @@ public class MailAnalysisService {
                 bodyInput(ctx, newBody),
                 me,
                 rules,
-                PersonalContext.EMPTY,
+                contextLoader.load(userId, ctx, me),
                 true,
                 wantPersonal,
                 wantCategory,
@@ -378,7 +382,16 @@ public class MailAnalysisService {
     String body = force ? newBody : bodyInput(ctx, newBody);
     AnalyzePersonalResult r =
         mailClient.analyzePersonal(
-            personalRequest(ctx, body, me, rules, PersonalContext.EMPTY, false, true, false, spec));
+            personalRequest(
+                ctx,
+                body,
+                me,
+                rules,
+                contextLoader.load(userId, ctx, me),
+                false,
+                true,
+                false,
+                spec));
     String summary = r.personalSummaryValid() ? r.personalSummary() : null;
     txTemplate.executeWithoutResult(status -> messageRepo.savePersonalSummary(messageId, summary));
   }

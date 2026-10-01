@@ -1,6 +1,10 @@
 package com.workplace.mail.service;
 
+import static com.workplace.jooq.Tables.CONTACT_ENTRY;
+import static com.workplace.jooq.Tables.CONTACT_FAVORITE;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
@@ -76,5 +80,70 @@ public final class MailPeopleFixtures {
           .set(USER_GROUP_MEMBER.TARGET_ID, u)
           .execute();
     }
+  }
+
+  /** 지정 테넌트의 ACTIVE 멤버십을 가진 활성 HUMAN 사용자(#832 — 사내 구성원 판정은 멤버십 기준). */
+  public static long member(
+      DSLContext dsl, long tenantId, String email, String name, String title) {
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "m-" + System.nanoTime())
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, name)
+            .set(USER.TITLE, title)
+            .set(USER.EMAIL, email)
+            .set(USER.KIND, "HUMAN")
+            .set(USER.IS_ACTIVE, true)
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, tenantId)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+    return id;
+  }
+
+  /** 격리 검증용 보조 테넌트(membership FK 를 만족하도록 실제 행). */
+  public static long tenant(DSLContext dsl) {
+    String t = Long.toString(System.nanoTime(), 36);
+    return dsl.insertInto(TENANT)
+        .set(TENANT.SLUG, "t-" + t)
+        .set(TENANT.NAME, "tenant " + t)
+        .set(TENANT.STATUS, "ACTIVE")
+        .returning(TENANT.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** 외부 연락처(visibility = SHARED | PERSONAL). */
+  public static long contact(
+      DSLContext dsl,
+      long ownerId,
+      String visibility,
+      String email,
+      String name,
+      String organization,
+      String title) {
+    return dsl.insertInto(CONTACT_ENTRY)
+        .set(CONTACT_ENTRY.NAME, name)
+        .set(CONTACT_ENTRY.EMAIL, email)
+        .set(CONTACT_ENTRY.ORGANIZATION, organization)
+        .set(CONTACT_ENTRY.TITLE, title)
+        .set(CONTACT_ENTRY.OWNER_ID, ownerId)
+        .set(CONTACT_ENTRY.VISIBILITY, visibility)
+        .returning(CONTACT_ENTRY.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** 즐겨찾기(targetType = MEMBER | EXTERNAL). */
+  public static void favorite(DSLContext dsl, long ownerId, String targetType, long targetId) {
+    dsl.insertInto(CONTACT_FAVORITE)
+        .set(CONTACT_FAVORITE.OWNER_ID, ownerId)
+        .set(CONTACT_FAVORITE.TARGET_TYPE, targetType)
+        .set(CONTACT_FAVORITE.TARGET_ID, targetId)
+        .execute();
   }
 }

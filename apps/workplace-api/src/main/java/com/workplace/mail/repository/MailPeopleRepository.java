@@ -1,6 +1,9 @@
 package com.workplace.mail.repository;
 
+import static com.workplace.jooq.Tables.CONTACT_ENTRY;
+import static com.workplace.jooq.Tables.CONTACT_FAVORITE;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
@@ -13,6 +16,7 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record2;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -27,6 +31,7 @@ import org.springframework.stereotype.Repository;
 public class MailPeopleRepository {
 
   private final DSLContext dsl;
+  private final EmailMessageRepository messageRepo;
 
   /** 프로필 기본값 — user 의 이름·직함과 이 테넌트 내 계정들의 표시 이름(id 순, null 제외). */
   public record ProfileBasics(String name, String title, List<String> accountDisplayNames) {}
@@ -82,6 +87,94 @@ public class MailPeopleRepository {
         .and(USER_GROUP.VISIBILITY.eq("SHARED"))
         .orderBy(USER_GROUP.SORT_ORDER.asc(), USER_GROUP.NAME.asc())
         .fetch(USER_GROUP.NAME);
+  }
+
+  /** 사내 구성원 일치 결과. */
+  public record MemberMatch(long userId, String name, String title) {}
+
+  /** 외부 연락처 일치 결과. */
+  public record ContactMatch(long id, String name, String title, String organization) {}
+
+  /**
+   * 현재 테넌트 id — TenantContext(요청·비동기 전파) 우선, 없으면 커넥션 GUC. 둘 다 없으면 예외(관계 블록만 빠진다). user·membership 이
+   * 전역 테이블이라 사내 구성원 판정에 테넌트를 직접 넘겨야 한다. 판정 로직은 {@link EmailMessageRepository#requireTenantId} 하나만
+   * 둔다.
+   */
+  public long currentTenantId() {
+    return messageRepo.requireTenantId();
+  }
+
+  /**
+   * 주소(소문자)가 이 테넌트 활성 구성원(ACTIVE 멤버십 · HUMAN · is_active)의 user.email 또는 그 사람의 이 테넌트 메일 계정 주소와 일치하면
+   * 그 사람(여럿이면 id 최소). 나 자신은 제외한다. 멤버십 조건은 ContactRepository.findPage 와 같다(#832 — 없으면 타 테넌트 사용자가
+   * 보인다). 메일 도메인으로 추정하지 않는다.
+   */
+  public Optional<MemberMatch> findMemberByAddress(long tenantId, String address, long selfUserId) {
+    var accountMatch =
+        DSL.exists(
+            DSL.selectOne()
+                .from(EMAIL_ACCOUNT)
+                .where(EMAIL_ACCOUNT.USER_ID.eq(USER.ID))
+                .and(EMAIL_ACCOUNT.TENANT_ID.eq(tenantId))
+                .and(DSL.lower(DSL.trim(EMAIL_ACCOUNT.EMAIL_ADDRESS)).eq(address)));
+    return dsl.select(USER.ID, USER.NAME, USER.TITLE)
+        .from(USER)
+        .join(MEMBERSHIP)
+        .on(MEMBERSHIP.USER_ID.eq(USER.ID))
+        .where(MEMBERSHIP.TENANT_ID.eq(tenantId))
+        .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+        .and(USER.KIND.eq("HUMAN"))
+        .and(USER.IS_ACTIVE.isTrue())
+        .and(USER.ID.ne(selfUserId))
+        .and(DSL.lower(DSL.trim(USER.EMAIL)).eq(address).or(accountMatch))
+        .orderBy(USER.ID.asc())
+        .limit(1)
+        .fetchOptional(r -> new MemberMatch(r.value1(), r.value2(), r.value3()));
+  }
+
+  /** 두 사람이 함께 MEMBER 로 직접 속한 공유(SHARED) 그룹 이름 — "같은 조직". 개인 그룹·상위 그룹은 보지 않는다. */
+  public List<String> listCommonSharedGroupNames(long userA, long userB) {
+    var a = USER_GROUP_MEMBER.as("ma");
+    var b = USER_GROUP_MEMBER.as("mb");
+    return dsl.select(USER_GROUP.NAME)
+        .from(USER_GROUP)
+        .join(a)
+        .on(a.GROUP_ID.eq(USER_GROUP.ID))
+        .and(a.TARGET_TYPE.eq("MEMBER"))
+        .and(a.TARGET_ID.eq(userA))
+        .join(b)
+        .on(b.GROUP_ID.eq(USER_GROUP.ID))
+        .and(b.TARGET_TYPE.eq("MEMBER"))
+        .and(b.TARGET_ID.eq(userB))
+        .where(USER_GROUP.VISIBILITY.eq("SHARED"))
+        .orderBy(USER_GROUP.SORT_ORDER.asc(), USER_GROUP.NAME.asc())
+        .fetch(USER_GROUP.NAME);
+  }
+
+  /**
+   * 내가 볼 수 있는 외부 연락처(SHARED 전체 + 내 PERSONAL — 타인 PERSONAL 제외, ContactRepository 목록과 같은 가시성) 중
+   * 이메일(소문자)이 같은 것 1건. 내 연락처를 공유 연락처보다 먼저, 그다음 id 순.
+   */
+  public Optional<ContactMatch> findVisibleContactByEmail(long callerId, String address) {
+    return dsl.select(
+            CONTACT_ENTRY.ID, CONTACT_ENTRY.NAME, CONTACT_ENTRY.TITLE, CONTACT_ENTRY.ORGANIZATION)
+        .from(CONTACT_ENTRY)
+        .where(DSL.lower(DSL.trim(CONTACT_ENTRY.EMAIL)).eq(address))
+        .and(CONTACT_ENTRY.VISIBILITY.eq("SHARED").or(CONTACT_ENTRY.OWNER_ID.eq(callerId)))
+        .orderBy(
+            DSL.when(CONTACT_ENTRY.OWNER_ID.eq(callerId), DSL.inline(0)).otherwise(DSL.inline(1)),
+            CONTACT_ENTRY.ID.asc())
+        .limit(1)
+        .fetchOptional(r -> new ContactMatch(r.value1(), r.value2(), r.value3(), r.value4()));
+  }
+
+  /** 내 즐겨찾기 여부(targetType = MEMBER | EXTERNAL). */
+  public boolean isFavorite(long ownerId, String targetType, long targetId) {
+    return dsl.fetchExists(
+        CONTACT_FAVORITE,
+        CONTACT_FAVORITE.OWNER_ID.eq(ownerId),
+        CONTACT_FAVORITE.TARGET_TYPE.eq(targetType),
+        CONTACT_FAVORITE.TARGET_ID.eq(targetId));
   }
 
   /** 정규화해 주소다운 값(@ 포함)만 담는다. */

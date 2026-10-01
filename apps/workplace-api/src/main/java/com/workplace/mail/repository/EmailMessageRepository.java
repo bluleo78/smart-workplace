@@ -1102,8 +1102,10 @@ public class EmailMessageRepository {
    * </ol>
    *
    * <p>두 경로 모두 실패하면 RLS fail-closed 방어를 위해 예외를 던진다.
+   *
+   * <p>같은 패키지의 MailPeopleRepository 도 사내 구성원 판정 테넌트로 쓴다(WP-150 — 같은 로직 복사 금지).
    */
-  private long requireTenantId() {
+  long requireTenantId() {
     Long id = TenantContext.get();
     if (id != null) return id;
     // 테스트 환경 fallback: 세션 수준 GUC(connection-init-sql)에서 읽음
