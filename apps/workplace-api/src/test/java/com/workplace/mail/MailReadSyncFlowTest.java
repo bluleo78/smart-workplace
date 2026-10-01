@@ -91,7 +91,7 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
 
     // 서비스 호출: 테넌트 컨텍스트를 세팅해 RLS GUC 주입이 동작하도록 한다
     TenantContext.set(1L);
-    messageService.get(seededUser, seededMessage); // seen false→true 커밋 → AFTER_COMMIT 이벤트
+    messageService.get(seededUser, seededMessage, true); // seen false→true 커밋 → AFTER_COMMIT 이벤트
 
     // 비동기 리스너가 Graph PATCH 를 호출하는지 최대 5초 대기
     verify(graphApiClient, org.mockito.Mockito.timeout(5_000))
@@ -128,7 +128,7 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
             .getId();
 
     TenantContext.set(1L);
-    messageService.get(seededUser, seededMessage); // seen=true 이미라 markSeen 분기 미진입
+    messageService.get(seededUser, seededMessage, true); // seen=true 이미라 markSeen 분기 미진입
 
     // PATCH 가 호출되지 않아야 한다(짧은 대기 후 0건 검증)
     org.mockito.Mockito.verifyNoInteractions(graphApiClient);

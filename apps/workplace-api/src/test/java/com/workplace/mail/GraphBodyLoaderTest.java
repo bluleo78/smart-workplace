@@ -465,12 +465,12 @@ class GraphBodyLoaderTest extends IntegrationTestBase {
             eq("TEST_AT"), contains("G14/attachments/ATT-Z"), eq(GraphAttachmentContentId.class)))
         .thenReturn(new GraphAttachmentContentId("<ii_z>"));
 
-    EmailMessageDetail d = messageService.get(userId, messageId);
+    EmailMessageDetail d = messageService.get(userId, messageId, true);
 
     assertThat(d.attachments()).extracting("contentId").containsExactly("ii_z");
 
     clearInvocations(graphApiClient);
-    assertThat(messageService.get(userId, messageId).attachments()).hasSize(1);
+    assertThat(messageService.get(userId, messageId, true).attachments()).hasSize(1);
     verify(graphApiClient, never())
         .get(anyString(), contains("G14/attachments?"), eq(GraphAttachmentList.class));
   }

@@ -70,7 +70,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
     syncService.sync(user, accountId); // 메타만
     long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
 
-    EmailMessageDetail d = messageService.get(user, id); // OnDemand 적재 후 반환
+    EmailMessageDetail d = messageService.get(user, id, true); // OnDemand 적재 후 반환
 
     assertThat(d.bodyText()).contains("온디맨드 본문");
     assertThat(messageRepo.findBodyTarget(accountId, id).orElseThrow().bodyFetchedAt()).isNotNull();
@@ -89,7 +89,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
     // 동기화 직후 seen=false 이어야 함
     assertThat(messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).seen()).isFalse();
 
-    EmailMessageDetail d = messageService.get(user, id);
+    EmailMessageDetail d = messageService.get(user, id, true);
 
     // 반환 DTO 에도 seen=true 반영
     assertThat(d.seen()).isTrue();
@@ -107,8 +107,8 @@ class MailMessageServiceTest extends IntegrationTestBase {
     syncService.sync(user, accountId);
     long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
 
-    messageService.get(user, id); // 1회 → seen=true
-    EmailMessageDetail d2 = messageService.get(user, id); // 2회 → 정상 반환
+    messageService.get(user, id, true); // 1회 → seen=true
+    EmailMessageDetail d2 = messageService.get(user, id, true); // 2회 → 정상 반환
 
     assertThat(d2.seen()).isTrue();
   }
@@ -125,7 +125,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
 
     // 한 건을 get() 으로 읽음 처리(seen=true)
     long readId = messageRepo.listByAccount(accountId, "INBOX", "곧읽음", 10).get(0).id();
-    messageService.get(user, readId);
+    messageService.get(user, readId, true);
 
     // unreadOnly=true → 읽음 처리한 "곧읽음" 은 빠지고 "안읽음1" 만 남는다
     var unread = messageRepo.listByAccount(accountId, "INBOX", null, true, 10);
@@ -146,7 +146,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
     greenMail.waitForIncomingEmail(2);
     syncService.sync(user, accountId);
     long readId = messageRepo.listByAccount(accountId, "INBOX", "읽을것", 10).get(0).id();
-    messageService.get(user, readId);
+    messageService.get(user, readId, true);
 
     var unread = messageService.list(user, accountId, "INBOX", null, true, null, false, 10);
     assertThat(unread).extracting(s -> s.subject()).containsExactly("남을것");
@@ -247,7 +247,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
     messageRepo.updateClassification(noReplyUnread, "일반", false);
     messageRepo.updateClassification(needsReplyRead, "업무", true);
     // "회신필요-읽음" 을 읽음 처리(seen=true)
-    messageService.get(user, needsReplyRead);
+    messageService.get(user, needsReplyRead, true);
 
     // aiNeedsReply=true && seen=false 인 건만 1건
     assertThat(messageRepo.countNeedsReply(user)).isEqualTo(1);
@@ -331,7 +331,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
     syncService.sync(user, accountId);
     long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
 
-    messageService.get(user, id);
+    messageService.get(user, id, true);
 
     assertThat(events.stream(InlineContentIdBackfillRequestedEvent.class))
         .singleElement()
@@ -351,7 +351,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
     syncService.sync(user, accountId);
     long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
 
-    messageService.get(user, id);
+    messageService.get(user, id, true);
 
     assertThat(events.stream(InlineContentIdBackfillRequestedEvent.class)).isEmpty();
   }
@@ -365,6 +365,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
     syncService.sync(user, accountId);
     long id = messageRepo.listByAccount(accountId, "INBOX", null, 10).get(0).id();
 
+    // 1회차는 본문 OnDemand 적재(cold), 2회차는 적재된 본문(warm) — 두 경로 모두 읽음 처리하지 않아야 한다.
     EmailMessageDetail first = messageService.get(user, id, false);
     EmailMessageDetail second = messageService.get(user, id, false);
 
@@ -372,8 +373,8 @@ class MailMessageServiceTest extends IntegrationTestBase {
     assertThat(second.seen()).isFalse();
     assertThat(events.stream(MessageMarkedReadEvent.class)).isEmpty();
 
-    // 기본(웹 열람, markSeen=true)은 읽음 처리 + 이벤트 발행 — 대조군
-    assertThat(messageService.get(user, id).seen()).isTrue();
+    // 기본(웹 열람, markSeen=true)은 읽음 처리 + 이벤트 발행 — 대조군(markSeen=true)
+    assertThat(messageService.get(user, id, true).seen()).isTrue();
     assertThat(events.stream(MessageMarkedReadEvent.class)).hasSize(1);
   }
 }

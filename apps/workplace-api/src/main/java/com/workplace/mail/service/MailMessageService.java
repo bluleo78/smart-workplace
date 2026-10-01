@@ -108,11 +108,6 @@ public class MailMessageService {
         messageRepo.listRecentUnread(userId, recentLimit));
   }
 
-  /** 웹 열람용 상세 — 읽음 처리 포함(기존 계약). */
-  public EmailMessageDetail get(long userId, long messageId) {
-    return get(userId, messageId, true);
-  }
-
   /**
    * 메시지 단건 상세. 본인 소유가 아니거나 없으면 404. 본문이 미적재(text/html 모두 null)면 OnDemand 로 IMAP 에서 적재 후 다시 읽어 반환한다.
    *

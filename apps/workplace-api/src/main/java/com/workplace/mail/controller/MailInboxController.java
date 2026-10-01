@@ -73,8 +73,7 @@ public class MailInboxController {
   /**
    * 메시지 단건 상세(본문 + 첨부 메타). 본문 미적재면 OnDemand 로 적재 후 반환.
    *
-   * <p>WP-147: markSeen=false 면 읽음 처리·원본 서버 역동기화를 하지 않는다 — AI(MCP get_mail)가 메일을 읽는 것은 사용자가 읽은 것이
-   * 아니므로, 회신필요(AI 판정 && 안 읽음)가 AI 요약만으로 비워지지 않게 한다. 기본값 true(웹 열람).
+   * <p>markSeen 기본 true(웹 열람). false 는 AI 조회용으로 읽음 처리를 생략한다(WP-147, 서비스 Javadoc 참조).
    */
   @GetMapping("/messages/{messageId}")
   public EmailMessageDetail message(
