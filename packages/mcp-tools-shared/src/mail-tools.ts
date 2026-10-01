@@ -55,7 +55,8 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
     {
       name: 'get_mail',
       kind: 'read',
-      description: '단일 메일 본문(텍스트/HTML)을 JSON 으로 반환합니다. messageId 는 list_mail 결과 항목의 id 입니다.',
+      description:
+        '단일 메일 본문(텍스트/HTML)을 JSON 으로 반환합니다. 조회만으로는 읽음 처리되지 않습니다(읽음 처리는 mark_mail_read). messageId 는 list_mail 결과 항목의 id 입니다.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);

@@ -236,7 +236,7 @@ describe('createPatApiClient', () => {
   });
 
   it('getMail 은 GET /mail/messages/{id} 를 호출한다', async () => {
-    const scope = nock(BASE).get('/mail/messages/9').reply(200, { id: 9, body: '본문' });
+    const scope = nock(BASE).get('/mail/messages/9').query({ markSeen: 'false' }).reply(200, { id: 9, body: '본문' });
     const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
     const res = await client.getMail(9);
     expect(res).toEqual({ id: 9, body: '본문' });

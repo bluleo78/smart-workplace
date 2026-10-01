@@ -253,6 +253,12 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/drive/folders/6/restore');
   });
 
+  it('WP-147: getMail 은 AI 조회라 항상 markSeen=false 로 부른다(읽음 처리 안 함)', async () => {
+    const { http, client } = mockHttp();
+    await client.getMail(3);
+    expect(http.get).toHaveBeenCalledWith('/mail/messages/3', { params: { markSeen: false } });
+  });
+
   it('#855 소통 쓰기 경로: RSVP·채널·DM·메일 AI·회신필요', async () => {
     const { http, client } = mockHttp();
     await client.rsvpEvent(7, 'TENTATIVE');

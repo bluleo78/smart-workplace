@@ -166,7 +166,8 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       return (await http.get(`/mail/accounts/${accountId}/messages`, { params })).data ?? [];
     },
     async getMail(messageId) {
-      return (await http.get(`/mail/messages/${messageId}`)).data;
+      // WP-147: AI 조회는 사용자가 읽은 것이 아니다 — 읽음 처리·역동기화를 하지 않도록 markSeen=false.
+      return (await http.get(`/mail/messages/${messageId}`, { params: { markSeen: false } })).data;
     },
     async getMailSummary(messageId) {
       return (await http.get(`/mail/messages/${messageId}/summary`)).data;
