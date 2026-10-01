@@ -6,6 +6,7 @@ import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { member, page as makeContactPage } from '../../factories/contacts.factory'
 import { createIssue, createIssueDetail } from '../../factories/issue.factory'
+import { mailAccount, summary } from '../../factories/mail.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
@@ -177,7 +178,7 @@ test('R4 탭바에서 연 AI: "AI" 22px 제목 + [대화 목록 ▾][＋], × �
   expect(Math.round((await h1.boundingBox())!.x)).toBe(16)
   expect(Math.round((await header.boundingBox())!.height)).toBe(56)
   const switcher = header.getByTestId('ai-fs-mobile-session-switcher')
-  await expect(switcher).toHaveAccessibleName('대화 목록')
+  await expect(switcher).toHaveText('대화 목록')
   const add = header.getByRole('button', { name: '새 대화' })
   expect((await add.boundingBox())!.width).toBeGreaterThanOrEqual(44)
   // ＋ 가 오른쪽 끝, 대화 목록이 그 앞.
@@ -238,6 +239,26 @@ test('R7 여러 항목·검색 입력 메뉴는 그대로 ⋯/🔍 로 남는다
   await stubIssueDetail(page)
   await page.goto(`/projects/${KEY}/issues/${NUM}`)
   await expect(page.getByTestId('mobile-header-more')).toBeVisible()
+  // 메일: 메뉴 내용이 검색 입력 하나 — 입력은 인라인 대상이 아니므로 🔍 트리거가 남는다.
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
+  await page.goto('/mail')
+  const search = page.getByTestId('mobile-header-more')
+  await expect(search).toHaveAccessibleName('메일 검색')
+  await search.click()
+  await expect(page.getByTestId('mobile-header-more-menu').locator('input')).toBeVisible()
+})
+
+test('R1 노트: AI 작성 실행 중에는 헤더에 생성 중 스피너가 남는다(AI ▾ 가 메뉴로 들어간 뒤에도)', async ({ authenticatedPage: page }) => {
+  await stubWiki(page)
+  // 응답을 끝내지 않아 생성 중 상태를 유지한다.
+  await page.route('**/api/v1/wiki/pages/*/ai', () => {})
+  await page.goto('/wiki/spaces/1/pages/100')
+  const header = page.getByTestId('wiki-page-header')
+  await expect(header.getByTestId('wiki-ai-header-busy')).toHaveCount(0)
+  await header.getByRole('button', { name: '페이지 메뉴' }).click()
+  await page.getByTestId('wiki-ai-header-summarize').click()
+  await expect(header.getByTestId('wiki-ai-header-busy')).toBeVisible()
 })
 
 test('R8 📌 배지 터치 영역은 44px — 위·오른쪽으로만 넓어지고 아이콘(앱 열기) 영역은 가리지 않는다', async ({ authenticatedPage: page }) => {

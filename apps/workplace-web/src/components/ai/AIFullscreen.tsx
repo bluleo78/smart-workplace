@@ -1,7 +1,7 @@
 // src/components/ai/AIFullscreen.tsx
 // 풀스크린(2단) — 콘텐츠 영역만 덮는다(<main>의 absolute inset-0 자식, AppRail 미포함).
 // 좌: 세션 목록 / 우: 채팅 본문.
-import { ChevronDown, History, MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, MessageSquare, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
@@ -171,13 +171,12 @@ export function AIFullscreen() {
             <h1 className={mobileRootTitleClass}>AI</h1>
             <DropdownMenu open={mobileSessionMenuOpen} onOpenChange={setMobileSessionMenuOpen}>
               <DropdownMenuTrigger
-                aria-label="대화 목록"
                 title={currentSession?.title ?? '대화 목록'}
-                className="flex h-11 shrink-0 items-center gap-0.5 px-2 text-muted-foreground md:hidden"
+                className="flex h-11 shrink-0 items-center gap-1 rounded-md px-2 text-sm font-medium text-foreground md:hidden"
                 data-testid="ai-fs-mobile-session-switcher"
               >
-                <History className="h-5 w-5" />
-                <ChevronDown className="h-4 w-4" />
+                대화 목록
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
               </DropdownMenuTrigger>
               {sessionMenuContent}
             </DropdownMenu>

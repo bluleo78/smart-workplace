@@ -251,7 +251,16 @@ export function WikiPageHeader({
             </span>
           ) : undefined
         }
-        trailing={<div className="flex shrink-0 items-center gap-1">{saveBadge}{pageMenu}</div>}
+        // 생성 중 표시 — AI ▾ 버튼(스피너)이 메뉴로 들어가 헤더에서 사라졌으므로 작은 스피너로 남긴다(공지는 에디터의 라이브 리전 담당).
+        trailing={
+          <div className="flex shrink-0 items-center gap-1">
+            {aiBusy && (
+              <Loader2 data-testid="wiki-ai-header-busy" className="h-4 w-4 animate-spin text-ai-accent motion-reduce:animate-none" aria-hidden="true" />
+            )}
+            {saveBadge}
+            {pageMenu}
+          </div>
+        }
       />
     )
   }
