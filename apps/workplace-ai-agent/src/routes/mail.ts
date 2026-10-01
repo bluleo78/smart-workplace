@@ -107,8 +107,6 @@ export function createMailRouter(deps: RunAgentDeps): Router {
   // WP-149 ④ 개인 분석: {needsReply, personalSummary, personalSummaryValid, category} — 사본별 1회(개인→공통 비서).
   router.post('/mail/analyze-personal', handler(analyzePersonalSchema, runMailAnalyzePersonal, deps, 'mail-analyze-personal'));
 
-  // 메일 분류: category + needsReply 반환.
-  // 메일 요약: summary 텍스트 반환.
   // 답장 초안 생성: draft 텍스트 반환.
   router.post('/mail/reply-draft', handler(replyDraftSchema, runMailReplyDraft, deps, 'mail-reply-draft'));
   // 초안 코칭: notes + improvedBodyHtml 반환.
