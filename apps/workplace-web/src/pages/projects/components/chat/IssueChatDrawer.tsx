@@ -6,7 +6,11 @@
 
 import { ChevronLeft } from 'lucide-react';
 
-import { mobileDetailTitleClass } from '@/components/mobile/headerClass';
+import {
+  mobileBackButtonClass,
+  mobileDetailBarClass,
+  mobileDetailTitleClass,
+} from '@/components/mobile/headerClass';
 import {
   Sheet,
   SheetContent,
@@ -53,15 +57,15 @@ export function IssueChatDrawer({
         }}
       >
         {isMobile ? (
-          // 병합 상세 헤더(MobileDetailBar)와 같은 치수. 그 컴포넌트를 쓰지 않는 이유: 뒤 페이지 헤더와 testid(mobile-back)가
+          // 병합 상세 헤더(MobileDetailBar)와 같은 치수(headerClass 공용 클래스). 그 컴포넌트를 쓰지 않는 이유: 뒤 페이지 헤더와 testid(mobile-back)가
           // 겹치고, ✦·히스토리 뒤로가기 규칙까지 따라온다 — 여기서 ‹ 는 "드로워 닫기"(onClose → ?chat=1 되돌림)다.
-          <div className="flex h-14 shrink-0 items-center gap-0.5 border-b px-1">
+          <div className={mobileDetailBarClass}>
             <button
               type="button"
               data-testid="issue-chat-drawer-back"
               aria-label="채팅 닫기"
               onClick={onClose}
-              className="flex h-11 w-11 shrink-0 items-center justify-center text-primary"
+              className={mobileBackButtonClass}
             >
               <ChevronLeft className="h-6 w-6" />
             </button>

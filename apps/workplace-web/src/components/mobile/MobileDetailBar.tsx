@@ -6,7 +6,7 @@ import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 import { DetailAiButton } from './DetailAiButton'
-import { mobileDetailTitleClass } from './headerClass'
+import { mobileBackButtonClass, mobileDetailBarClass, mobileDetailTitleClass } from './headerClass'
 import { useMobileBack } from './useMobileBack'
 
 export function MobileDetailBar({
@@ -36,14 +36,14 @@ export function MobileDetailBar({
     <header
       data-testid={testId}
       // relative z-45 — ⋯ 메뉴 패널이 본문 위로 뜨도록(데스크톱 PageHeader 와 같은 층, 오버레이 z-50 보다는 아래).
-      className={cn('relative z-[45] flex h-14 shrink-0 items-center gap-0.5 border-b bg-background px-1', className)}
+      className={cn('relative z-[45] bg-background', mobileDetailBarClass, className)}
     >
       <button
         type="button"
         data-testid="mobile-back"
         aria-label="뒤로"
         onClick={onBack}
-        className="flex h-11 w-11 shrink-0 items-center justify-center text-primary"
+        className={mobileBackButtonClass}
       >
         <ChevronLeft className="h-6 w-6" />
       </button>

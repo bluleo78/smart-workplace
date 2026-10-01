@@ -10,3 +10,9 @@ export function isSubmitEnter(event: KeyboardEvent): boolean {
     event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229 && !getIsTouchShell()
   );
 }
+
+/**
+ * Enter 가 전송이 아닐 때(터치 셸) 쓰는 메시지 입력 안내 — "Shift+Enter 로 줄바꿈" 안내가 맞지 않으므로 키 안내 없이.
+ * 팀 채팅 컴포저(MessageComposer)는 항상, 이슈 채팅 컴포저(ChatComposer)는 터치 셸에서만 쓴다(isSubmitEnter 와 같은 판정).
+ */
+export const MESSAGE_PLACEHOLDER = '메시지를 입력하세요';
