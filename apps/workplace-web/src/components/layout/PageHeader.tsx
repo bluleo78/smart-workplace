@@ -45,6 +45,8 @@ interface PageHeaderProps {
   mobileMenuLabel?: string
   /** 모바일 전용: ☰(사이드바 시트) 트리거 숨김 — 시트에 볼 것이 없는 화면(메일 계정 없음, U3-R12). */
   mobileHideSheetTrigger?: boolean
+  /** 모바일 병합 상세 헤더의 ‹ 동작 재정의(이슈 상세의 출발 화면 복귀 등). */
+  mobileOnBack?: () => void
 }
 
 /** 모바일 헤더 전용 — 탭 루트에서만 🔔 를 보인다. useLocation 구독을 모바일 분기에 가둬 데스크톱 헤더가 경로 변경마다 재렌더되지 않게 분리. */
@@ -70,6 +72,7 @@ export function PageHeader({
   mobileMenuIcon,
   mobileMenuLabel,
   mobileHideSheetTrigger = false,
+  mobileOnBack,
   ...rest
 }: PageHeaderProps) {
   const isMobile = useIsMobile()
@@ -102,6 +105,7 @@ export function PageHeader({
           className={className}
           title={title ?? detail.title}
           trailing={cluster}
+          onBack={mobileOnBack}
         />
       )
     }

@@ -8,8 +8,8 @@ import { ArrowLeft, ChevronRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
-import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
 import { ISSUE_TYPE_ICONS } from '../../../lib/issueTypeIcons';
@@ -58,6 +58,8 @@ export function IssueBreadcrumbHeader({
           </span>
         }
         actions={actions}
+        // ‹ 도 데스크톱 ← 와 같은 규칙 — 상세로 들어오기 직전 화면으로(없으면 프로젝트 화면, #885).
+        mobileOnBack={onBack}
       />
     );
   }

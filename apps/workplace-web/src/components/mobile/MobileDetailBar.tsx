@@ -14,6 +14,7 @@ export function MobileDetailBar({
   titleAccessory,
   trailing,
   showAi = true,
+  onBack: onBackOverride,
   className,
   'data-testid': testId,
 }: {
@@ -24,10 +25,13 @@ export function MobileDetailBar({
   trailing?: ReactNode
   /** ✦(AI) 버튼 표시 — 탭 편집처럼 화면 컨텍스트가 없는 설정 화면은 끈다(U3-R9). */
   showAi?: boolean
+  /** ‹ 동작 재정의 — 화면이 자체 복귀 규칙을 가질 때(이슈 상세: 들어오기 직전 화면으로, #885). 없으면 히스토리/모듈 루트. */
+  onBack?: () => void
   className?: string
   'data-testid'?: string
 }) {
-  const onBack = useMobileBack()
+  const defaultBack = useMobileBack()
+  const onBack = onBackOverride ?? defaultBack
   return (
     <header
       data-testid={testId}
