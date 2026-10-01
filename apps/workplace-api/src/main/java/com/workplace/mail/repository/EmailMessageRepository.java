@@ -1212,4 +1212,208 @@ public class EmailMessageRepository {
   private static OffsetDateTime toOffset(java.time.Instant instant) {
     return instant == null ? null : OffsetDateTime.ofInstant(instant, ZoneOffset.UTC);
   }
+
+  /**
+   * WP-149 분석 입력 컨텍스트 — ③ 원본 분석·④ 개인 분석·요약 상태 판정이 함께 쓴다. 소유 검증 포함(타인 메일이면 empty).
+   *
+   * <p>공유 content 의 본문 유래 값(본문·스니펫·AI 분류·요약)은 verified() 로 감싸 이 envelope 가 자기 사본을 적재·검증한 뒤에만 노출한다
+   * (WP-130). 시도 시각·생략 표시는 상태 판정용이라 그대로 읽는다.
+   */
+  public Optional<AnalysisContext> findAnalysisContextByIdAndUser(long userId, long messageId) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_MESSAGE.CONTENT_ID,
+            EMAIL_ACCOUNT.AI_ENABLED,
+            EMAIL_FOLDER.NAME,
+            EMAIL_MESSAGE.FETCHED_AT,
+            EMAIL_MESSAGE.SEEN,
+            EMAIL_CONTENT.SUBJECT,
+            EMAIL_MESSAGE.FROM_ADDRESS,
+            EMAIL_MESSAGE.FROM_NAME,
+            EMAIL_MESSAGE.TO_ADDRESSES,
+            EMAIL_MESSAGE.CC_ADDRESSES,
+            verified(EMAIL_CONTENT.BODY_TEXT),
+            verified(EMAIL_CONTENT.BODY_HTML),
+            verified(EMAIL_CONTENT.SNIPPET),
+            EMAIL_CONTENT.AUTO_GENERATED,
+            verified(EMAIL_CONTENT.AI_CATEGORY),
+            verified(EMAIL_CONTENT.AI_SUMMARY),
+            EMAIL_CONTENT.AI_SUMMARIZED_AT,
+            EMAIL_CONTENT.AI_SUMMARY_SKIPPED,
+            EMAIL_MESSAGE.AI_ANALYZED_AT,
+            EMAIL_MESSAGE.AI_PERSONAL_SUMMARY,
+            EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT,
+            EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .leftJoin(EMAIL_CONTENT)
+        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetchOptional(
+            r ->
+                new AnalysisContext(
+                    r.get(EMAIL_MESSAGE.ID),
+                    r.get(EMAIL_MESSAGE.ACCOUNT_ID),
+                    r.get(EMAIL_MESSAGE.CONTENT_ID),
+                    Boolean.TRUE.equals(r.get(EMAIL_ACCOUNT.AI_ENABLED)),
+                    r.get(EMAIL_FOLDER.NAME),
+                    r.get(EMAIL_MESSAGE.FETCHED_AT) != null,
+                    Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
+                    r.get(EMAIL_CONTENT.SUBJECT),
+                    r.get(EMAIL_MESSAGE.FROM_ADDRESS),
+                    r.get(EMAIL_MESSAGE.FROM_NAME),
+                    r.get(EMAIL_MESSAGE.TO_ADDRESSES),
+                    r.get(EMAIL_MESSAGE.CC_ADDRESSES),
+                    r.get(EMAIL_CONTENT.BODY_TEXT),
+                    r.get(EMAIL_CONTENT.BODY_HTML),
+                    r.get(EMAIL_CONTENT.SNIPPET),
+                    Boolean.TRUE.equals(r.get(EMAIL_CONTENT.AUTO_GENERATED)),
+                    r.get(EMAIL_CONTENT.AI_CATEGORY),
+                    r.get(EMAIL_CONTENT.AI_SUMMARY),
+                    r.get(EMAIL_CONTENT.AI_SUMMARIZED_AT) != null,
+                    Boolean.TRUE.equals(r.get(EMAIL_CONTENT.AI_SUMMARY_SKIPPED)),
+                    r.get(EMAIL_MESSAGE.AI_ANALYZED_AT) != null,
+                    r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY),
+                    r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT) != null,
+                    Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED))));
+  }
+
+  /**
+   * WP-149 ③ 결과 저장 — 공유 content 에 분류·객관 요약·생략 표시·시도 시각을 기록한다. 원본별 1회라 시도 기록이 없을 때만 쓴다(조건부 UPDATE —
+   * 동시·다중 인스턴스에서도 한 번만). 분류가 null(미지 값)이면 기존 값(④ 보충값)을 지우지 않는다.
+   *
+   * @return 이번 호출이 기록했으면 true(⑤ 형제 재계산 트리거)
+   */
+  public boolean saveContentAnalysis(
+      long messageId, String category, String summary, boolean summarySkipped) {
+    return dsl.update(EMAIL_CONTENT)
+            .set(
+                EMAIL_CONTENT.AI_CATEGORY,
+                DSL.coalesce(
+                    DSL.val(category, EMAIL_CONTENT.AI_CATEGORY), EMAIL_CONTENT.AI_CATEGORY))
+            .set(EMAIL_CONTENT.AI_SUMMARY, blankToNull(summary))
+            .set(EMAIL_CONTENT.AI_SUMMARY_SKIPPED, summarySkipped)
+            .set(EMAIL_CONTENT.AI_SUMMARIZED_AT, OffsetDateTime.now())
+            .from(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            // WP-130: 자기 사본을 적재·검증한 envelope 만 공유 분석을 쓴다
+            .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+            .and(EMAIL_CONTENT.AI_SUMMARIZED_AT.isNull())
+            .execute()
+        > 0;
+  }
+
+  /** WP-149 온디맨드 강제 요약(공통 티어) — 생략 표시를 지우고 요약·시도 시각을 기록한다. 분류는 건드리지 않는다. */
+  public void saveForcedContentSummary(long messageId, String summary) {
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.AI_SUMMARY, blankToNull(summary))
+        .set(EMAIL_CONTENT.AI_SUMMARY_SKIPPED, false)
+        .set(EMAIL_CONTENT.AI_SUMMARIZED_AT, OffsetDateTime.now())
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+        .execute();
+  }
+
+  /** WP-149 ⑤: content 를 공유하는 사본 중 ④ 원판정(raw)이 있는 것 — ③ 분류가 늦게 왔을 때 재계산 대상. */
+  public List<Long> listAnalyzedSiblingIds(long contentId) {
+    return dsl.select(EMAIL_MESSAGE.ID)
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.CONTENT_ID.eq(contentId))
+        .and(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW.isNotNull())
+        .fetch(EMAIL_MESSAGE.ID);
+  }
+
+  /** WP-149 ⑤ 규칙 입력 행(소유자·보낸 사람·수신자·자동 발송·분류·raw). 형제 사본은 소유자가 달라 userId 를 함께 읽는다. */
+  public Optional<RuleRow> findRuleRow(long messageId) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_ACCOUNT.USER_ID,
+            EMAIL_MESSAGE.FROM_ADDRESS,
+            EMAIL_MESSAGE.TO_ADDRESSES,
+            EMAIL_MESSAGE.CC_ADDRESSES,
+            EMAIL_CONTENT.AUTO_GENERATED,
+            EMAIL_CONTENT.AI_CATEGORY,
+            EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .leftJoin(EMAIL_CONTENT)
+        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .fetchOptional(
+            r ->
+                new RuleRow(
+                    r.get(EMAIL_MESSAGE.ID),
+                    r.get(EMAIL_ACCOUNT.USER_ID),
+                    r.get(EMAIL_MESSAGE.FROM_ADDRESS),
+                    r.get(EMAIL_MESSAGE.TO_ADDRESSES),
+                    r.get(EMAIL_MESSAGE.CC_ADDRESSES),
+                    Boolean.TRUE.equals(r.get(EMAIL_CONTENT.AUTO_GENERATED)),
+                    r.get(EMAIL_CONTENT.AI_CATEGORY),
+                    r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)));
+  }
+
+  /** WP-149 ⑤ 최종값 저장 — ai_needs_reply 는 회신필요 술어(needsReplyCondition)가 읽는 값이다. */
+  public void updateFinalNeedsReply(long messageId, Boolean value) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.AI_NEEDS_REPLY, value)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
+
+  /**
+   * WP-149 분석 컨텍스트 행.
+   *
+   * @param contentId 공유 content id(레거시 envelope 는 null — 분석 불가)
+   * @param fetched 이 envelope 가 자기 사본을 적재·검증했는지(아니면 본문 유래 값이 가려져 있다)
+   * @param seen 읽음 여부 — 선제 분석(본문 적재 직후)은 안 읽은 메일만 한다(판단 13). 온디맨드 요약은 보지 않는다
+   * @param contentAttempted ③ 시도 여부(content.ai_summarized_at — 생략해도 기록됨)
+   * @param personalAnalyzed ④ 시도 여부(ai_analyzed_at)
+   * @param personalAttempted 개인 요약 시도 여부(ai_personal_summarized_at)
+   */
+  public record AnalysisContext(
+      long messageId,
+      long accountId,
+      Long contentId,
+      boolean aiEnabled,
+      String folderName,
+      boolean fetched,
+      boolean seen,
+      String subject,
+      String fromAddress,
+      String fromName,
+      String toAddresses,
+      String ccAddresses,
+      String bodyText,
+      String bodyHtml,
+      String snippet,
+      boolean autoGenerated,
+      String contentCategory,
+      String contentSummary,
+      boolean contentAttempted,
+      boolean contentSummarySkipped,
+      boolean personalAnalyzed,
+      String personalSummary,
+      boolean personalAttempted,
+      boolean personalSummarySkipped) {}
+
+  /** WP-149 ⑤ 규칙 입력 행. raw 가 null 이면 ④ 미분석(또는 배포 전 분류) — 재계산하지 않는다. */
+  public record RuleRow(
+      long messageId,
+      long userId,
+      String fromAddress,
+      String toAddresses,
+      String ccAddresses,
+      boolean autoGenerated,
+      String category,
+      Boolean raw) {}
 }

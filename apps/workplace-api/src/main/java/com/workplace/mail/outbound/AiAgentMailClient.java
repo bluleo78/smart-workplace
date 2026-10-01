@@ -2,6 +2,8 @@ package com.workplace.mail.outbound;
 
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyRequest;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyResult;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
@@ -83,5 +85,10 @@ public class AiAgentMailClient {
       log.error("ai-agent mail 실패: {}", e.getMessage());
       throw new MailAiException("AI 요청에 실패했어요. 잠시 후 다시 시도해주세요.", e);
     }
+  }
+
+  /** WP-149 ③ 원본 분석 → 분류·객관 요약(요청한 항목만). */
+  public AnalyzeContentResult analyzeContent(AnalyzeContentRequest req) {
+    return post("/mail/analyze-content", req, AnalyzeContentResult.class);
   }
 }
