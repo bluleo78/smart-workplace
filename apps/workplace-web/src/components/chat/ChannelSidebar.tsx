@@ -26,7 +26,7 @@ function UnreadBadge({ testId, count }: { testId: string; count: number }) {
   return (
     <span
       data-testid={testId}
-      className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
+      className="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
     >
       {count > 99 ? '99+' : count}
     </span>
@@ -77,7 +77,7 @@ export function ChannelSidebar() {
           {threadUnread > 0 && (
             <span
               data-testid="sidebar-threads-badge"
-              className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
+              className="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
             >
               {threadUnread > 99 ? '99+' : threadUnread}
             </span>
@@ -173,7 +173,7 @@ export function ChannelSidebar() {
               {c.unreadCount === 0 && c.hasUnreadThreads && (
                 <span
                   data-testid={`channel-unread-threads-${c.id}`}
-                  className="ml-auto h-2 w-2 rounded-full bg-muted-foreground"
+                  className="ml-auto h-2 w-2 shrink-0 rounded-full bg-muted-foreground"
                   aria-label="미읽은 스레드 있음"
                 />
               )}
