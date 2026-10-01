@@ -719,3 +719,23 @@ test.describe('받은편지함', () => {
     // 열람 후: 행 10 의 font-semibold 가 사라져야 함(읽음 처리)
     await expect(page.getByTestId('mail-row-10').locator('.font-semibold')).toHaveCount(0)
   })
+
+  // WP-155 — 안 읽은 메일은 행 왼쪽 강조 막대로 구분하고, 열람하면 막대가 사라져야 한다.
+  test('안 읽은 메일 행에만 왼쪽 강조 막대 표시 + 열람 시 사라짐 (WP-155)', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page) // 행 10: seen=false, 행 11: seen=true
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', { ...detail(), seen: true })
+
+    await page.goto('/mail/1')
+
+    // 안 읽은 행 10 에만 막대가 있고, 읽은 행 11 에는 없다
+    await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
+    await expect(page.getByTestId('mail-unread-bar-11')).toHaveCount(0)
+
+    // 열람 → 목록 캐시 seen=true → 막대 제거
+    await page.getByTestId('mail-row-10').click()
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
+    await expect(page.getByTestId('mail-unread-bar-10')).toHaveCount(0)
+  })

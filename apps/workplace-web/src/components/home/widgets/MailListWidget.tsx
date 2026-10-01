@@ -34,10 +34,10 @@ function MessageRows({ items }: { items: EmailMessageSummary[] }) {
             aria-label={`메일 열기: ${m.subject?.trim() || '(제목 없음)'}`}
             className="flex items-center gap-2 py-2 text-sm hover:text-ai-accent"
           >
-            {/* 미읽음 표식 — ai-accent 점. 읽음이면 자리만 차지(정렬 유지). */}
+            {/* 미읽음 표식 — primary 점(메일함 행 막대와 같은 색, WP-155). 읽음이면 자리만 차지(정렬 유지). */}
             <span
               aria-hidden
-              className={`size-1.5 shrink-0 rounded-full ${m.seen ? 'bg-transparent' : 'bg-ai-accent'}`}
+              className={`size-1.5 shrink-0 rounded-full ${m.seen ? 'bg-transparent' : 'bg-primary'}`}
             />
             <span className="w-10 shrink-0 text-xs text-muted-foreground">
               {shortDate(m.receivedAt)}

@@ -83,6 +83,15 @@ function MessageRow({
         active ? 'bg-accent' : 'hover:bg-accent/50',
       )}
     >
+      {/* WP-155: 안 읽음은 굵기만으로는 훑어볼 때 잘 안 보여 왼쪽 primary 막대로 보강.
+          글자색은 바꾸지 않는다(AI 배지 색과 경쟁 방지). 장식이라 SR 에서 제외. */}
+      {!m.seen && (
+        <span
+          aria-hidden="true"
+          data-testid={`mail-unread-bar-${m.id}`}
+          className="absolute inset-y-0 left-0 w-[3px] bg-primary"
+        />
+      )}
       <span className="flex items-center gap-2">
         <span
           className={cn(
