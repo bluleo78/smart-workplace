@@ -9,9 +9,12 @@
 --   같으면 공유를 유지하고, 다르면 그 envelope 만 분리한다 — 미리 쪼개지 않으므로 실제로 다른 메일만 분리된다.
 --   - 첨부 행은 첫 적재자 manifest 를 가리키므로 지운다(재적재 시 자기 첨부 목록으로 교체 삽입).
 --   - 개인 AI 요약은 남의 본문으로 만들어졌을 수 있으므로 지운다.
+--   - 저장된 본문의 주인 envelope 1개는 그대로 둔다. V140 이전 updateBody 는 무조건 덮어썼으므로 본문은 마지막 적재자의 것이고,
+--     그 envelope 의 fetched_at 이 content.body_fetched_at 과 가장 가깝다. 주인까지 되돌리면 서버에서 이미 지워지거나 옮겨진
+--     메일은 다시 받을 수 없어, 맞는 본문을 영구히 잃거나(IMAP 분리) 계속 숨겨진다(Graph 재시도 실패).
 --
 -- 대상 한정: fingerprint 가 NULL(V140 이전 공유분)이고 이미 검증 표시된 envelope 만. 원본을 다시 받을 수 없는 로컬 보낸메일
---   (imap_uid·provider_message_id 모두 NULL)은 제외한다. 대상이 끝나면 재실행해도 아무것도 바뀌지 않는다.
+--   (imap_uid·provider_message_id 모두 NULL)은 제외한다. 재실행하면 주인만 남은 그룹이라 아무것도 바뀌지 않는다.
 --
 -- RLS: email_message·email_content·email_attachment 는 FORCE RLS 지만 Flyway 소유자 app 은 superuser 라 전 테넌트에 적용된다.
 --   테넌트 경계는 content 가 tenant 별이라 그룹이 테넌트를 넘지 않는다.
@@ -22,17 +25,28 @@ WITH suspect AS (
     WHERE c.fingerprint IS NULL
     GROUP BY m.content_id
     HAVING count(*) > 1
-       AND (count(DISTINCT lower(m.from_address)) > 1
-            OR count(DISTINCT date_trunc('second', m.sent_at)) > 1
+       -- NULL 도 하나의 값으로 비교한다(count DISTINCT 는 NULL 을 무시).
+       AND (count(DISTINCT coalesce(lower(m.from_address), '')) > 1
+            OR count(DISTINCT coalesce(date_trunc('second', m.sent_at), '-infinity'::timestamptz)) > 1
             OR count(DISTINCT coalesce(m.to_addresses, '')) > 1
             OR count(DISTINCT coalesce(m.cc_addresses, '')) > 1)
 ),
-target AS (
-    SELECT m.id
+ranked AS (
+    SELECT m.id, m.imap_uid, m.provider_message_id,
+           row_number() OVER (
+               PARTITION BY m.content_id
+               ORDER BY abs(extract(epoch FROM m.fetched_at - c.body_fetched_at)) NULLS LAST, m.id
+           ) AS rn
     FROM email_message m
     JOIN suspect s ON s.content_id = m.content_id
+    JOIN email_content c ON c.id = m.content_id
     WHERE m.fetched_at IS NOT NULL
-      AND (m.imap_uid IS NOT NULL OR m.provider_message_id IS NOT NULL)
+),
+target AS (
+    SELECT id
+    FROM ranked
+    WHERE rn > 1 -- 저장 본문의 주인(rn = 1)은 유지
+      AND (imap_uid IS NOT NULL OR provider_message_id IS NOT NULL)
 ),
 detached AS (
     DELETE FROM email_attachment a

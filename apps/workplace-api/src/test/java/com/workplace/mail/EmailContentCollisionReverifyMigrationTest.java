@@ -82,6 +82,17 @@ class EmailContentCollisionReverifyMigrationTest extends IntegrationTestBase {
   /** 검증 완료(fetched_at) 상태 envelope. imapUid 가 null 이면 로컬 보낸메일 모양. */
   private long seedEnvelope(
       long[] box, long contentId, Long imapUid, String to, OffsetDateTime sentAt) {
+    return seedEnvelope(box, contentId, imapUid, to, sentAt, FETCHED);
+  }
+
+  /** fetchedAt 을 지정한 envelope. content.body_fetched_at(FETCHED)과 가장 가까운 envelope 가 저장 본문의 주인이다. */
+  private long seedEnvelope(
+      long[] box,
+      long contentId,
+      Long imapUid,
+      String to,
+      OffsetDateTime sentAt,
+      OffsetDateTime fetchedAt) {
     return dsl.insertInto(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.TENANT_ID, 1L)
         .set(EMAIL_MESSAGE.ACCOUNT_ID, box[0])
@@ -92,7 +103,7 @@ class EmailContentCollisionReverifyMigrationTest extends IntegrationTestBase {
         .set(EMAIL_MESSAGE.TO_ADDRESSES, to)
         .set(EMAIL_MESSAGE.SENT_AT, sentAt)
         .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
-        .set(EMAIL_MESSAGE.FETCHED_AT, FETCHED)
+        .set(EMAIL_MESSAGE.FETCHED_AT, fetchedAt)
         .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY, "개인 요약")
         .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT, FETCHED)
         .returning(EMAIL_MESSAGE.ID)
@@ -153,36 +164,49 @@ class EmailContentCollisionReverifyMigrationTest extends IntegrationTestBase {
     }
   }
 
-  /** 발신 시각이 다른 공유 그룹은 미검증으로 되돌리고, 재적재 시 게이트가 다른 본문만 분리한다. */
+  /**
+   * 발신 시각이 다른 공유 그룹은 저장 본문의 주인만 남기고 미검증으로 되돌리며, 재적재 시 게이트가 다른 본문만 분리한다. V140 이전 updateBody 는 덮어쓰기라
+   * 본문은 마지막 적재자(A)의 것이다.
+   */
   @Test
-  void suspectGroup_isReverified_andGateSplitsOnlyDifferentBody() {
+  void suspectGroup_keepsOwner_reverifiesOthers_andGateSplitsOnlyDifferentBody() {
     long nano = System.nanoTime();
     inRollbackTx(
         soft -> {
           long[] a = seedMailbox("a-" + nano + "@corp.test");
           long[] b = seedMailbox("b-" + nano + "@corp.test");
+          long[] c = seedMailbox("c-" + nano + "@corp.test");
           long content = seedContent("<noti-" + nano + "@corp.test>", null);
-          long envA = seedEnvelope(a, content, 1L, "a@corp.test", T0);
-          long envB = seedEnvelope(b, content, 1L, "b@corp.test", T0.plusSeconds(30));
-          attachmentRepo.insert(envA, content, 0, ATT);
-          attachmentRepo.insert(envB, content, 0, ATT);
+          long envA = seedEnvelope(a, content, 1L, "a@corp.test", T0, FETCHED);
+          long envB =
+              seedEnvelope(
+                  b, content, 1L, "b@corp.test", T0.plusSeconds(30), FETCHED.minusMinutes(10));
+          long envC =
+              seedEnvelope(
+                  c, content, 1L, "c@corp.test", T0.plusSeconds(60), FETCHED.minusMinutes(20));
+          for (long env : new long[] {envA, envB, envC}) {
+            attachmentRepo.insert(env, content, 0, ATT);
+          }
 
           runV141();
 
-          for (long env : new long[] {envA, envB}) {
+          soft.assertThat(fetched(envA)).as("주인은 검증 유지").isTrue();
+          soft.assertThat(personalSummary(envA)).as("주인 개인 요약 유지").isEqualTo("개인 요약");
+          soft.assertThat(attachmentCount(envA)).as("주인 첨부 유지").isEqualTo(1);
+          for (long env : new long[] {envB, envC}) {
             soft.assertThat(fetched(env)).as("미검증으로 되돌림 %d", env).isFalse();
             soft.assertThat(personalSummary(env)).as("개인 요약 삭제 %d", env).isNull();
             soft.assertThat(attachmentCount(env)).as("첨부 행 삭제 %d", env).isZero();
             soft.assertThat(contentIdOf(env)).as("미리 분리하지 않음 %d", env).isEqualTo(content);
           }
 
-          // 재적재: A 는 같은 본문 → 공유 유지, B 는 다른 본문 → B 만 분리.
-          long contentA =
-              shareGate.storeFetchedBody(envA, content, "첫 수신자 본문", null, "첫 수신자 본문", List.of(ATT));
+          // 재적재: C 는 같은 본문 → 공유 유지, B 는 다른 본문 → B 만 분리.
+          long contentC =
+              shareGate.storeFetchedBody(envC, content, "첫 수신자 본문", null, "첫 수신자 본문", List.of(ATT));
           long contentB =
               shareGate.storeFetchedBody(
                   envB, content, "두 번째 수신자 본문", null, "두 번째 수신자 본문", List.of(ATT));
-          soft.assertThat(contentA).as("같은 본문은 공유 유지").isEqualTo(content);
+          soft.assertThat(contentC).as("같은 본문은 공유 유지").isEqualTo(content);
           soft.assertThat(contentB).as("다른 본문은 분리").isNotEqualTo(content);
         });
   }
@@ -211,7 +235,14 @@ class EmailContentCollisionReverifyMigrationTest extends IntegrationTestBase {
           long sent = seedEnvelope(a, withSent, null, "x@corp.test", T0);
           long recv = seedEnvelope(b, withSent, 4L, "b@corp.test", T0.plusSeconds(5));
 
+          // 한쪽만 sent_at 이 NULL 인 그룹 — NULL 도 다른 값으로 본다.
+          long nullDate = seedContent("<null-" + nano + "@corp.test>", null);
+          long d1 = seedEnvelope(a, nullDate, 5L, "a@corp.test", T0);
+          long d2 = seedEnvelope(b, nullDate, 5L, "a@corp.test", null, FETCHED.minusMinutes(1));
+
           runV141();
+          soft.assertThat(fetched(d1)).as("NULL 날짜 그룹 주인 유지").isTrue();
+          soft.assertThat(fetched(d2)).as("NULL 날짜 그룹은 의심 대상").isFalse();
           soft.assertThat(fetched(recv)).as("의심 그룹 수신 envelope 는 되돌림").isFalse();
           runV141(); // 재실행: 대상이 이미 미검증이라 아무것도 바뀌지 않아야 한다.
 
