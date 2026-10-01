@@ -37,7 +37,12 @@ export function getToolDetail(_toolName: string, args?: Record<string, unknown>)
   return parts.length ? parts.slice(0, 2).join(' · ') : null;
 }
 
-// 필터 적용한 steps — 표시 불가 tool 은 제거(delegation 은 유지).
+// 단계 표시 여부 — 표시 불가 tool 은 숨김(delegation 은 유지). 렌더 필터·도구 그룹 블록 생성(WP-157)이 같은 규칙을 쓴다.
+export function isVisibleStep(s: ToolStep): boolean {
+  return s.kind === 'delegation' || (s.toolName ? isDisplayableTool(s.toolName) : true);
+}
+
+// 필터 적용한 steps.
 export function visibleSteps(steps: ToolStep[]): ToolStep[] {
-  return steps.filter((s) => s.kind === 'delegation' || (s.toolName ? isDisplayableTool(s.toolName) : true));
+  return steps.filter(isVisibleStep);
 }

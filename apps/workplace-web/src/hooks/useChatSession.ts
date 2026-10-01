@@ -5,9 +5,9 @@ import { toast } from 'sonner';
 
 import { homeApi } from '@/api/home';
 import { chatStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQueries';
-import { widgetTypeFromToolName } from '@/lib/aiToolLabels';
+import { isVisibleStep, widgetTypeFromToolName } from '@/lib/aiToolLabels';
 import { extractApiError, handleApiError } from '@/lib/api-error';
-import { pushTextBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
+import { pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type {
   ActionOutcome,
@@ -16,6 +16,7 @@ import type {
   PendingAction,
   ProposalCard,
   ToolEventDto,
+  ToolStep,
   WidgetSpec,
   WidgetType,
 } from '@/types/home';
@@ -123,8 +124,11 @@ export function useChatSession() {
             const next = [...t];
             const last = next[next.length - 1];
             if (last?.role !== 'assistant') return t;
-            const steps = [...(last.steps ?? []), { kind: 'delegation' as const, label }];
-            next[next.length - 1] = { ...last, steps };
+            const prev = last.steps ?? [];
+            const steps = [...prev, { kind: 'delegation' as const, label }];
+            // WP-157: 도착 위치에 도구 그룹 블록을 남겨 텍스트 사이에 순서대로 렌더한다.
+            const contentBlocks = pushToolsBlock(last.contentBlocks ?? [], prev.length);
+            next[next.length - 1] = { ...last, steps, contentBlocks };
             return next;
           });
         },
@@ -151,7 +155,10 @@ export function useChatSession() {
             // #463: contentBlocks — 위젯 도착 시 pushWidgetBlock 으로 도착순 인터리브 유지.
             let contentBlocks = last.contentBlocks ?? [];
             if (evt.phase === 'start') {
-              steps.push({ kind: 'tool', seq: evt.seq, toolName: evt.toolName, args: evt.args, status: 'running' });
+              const step: ToolStep = { kind: 'tool', seq: evt.seq, toolName: evt.toolName, args: evt.args, status: 'running' };
+              // WP-157: 표시되는 단계만 그룹 블록을 연다 — 숨김 도구(show_* 등)가 빈 풍선을 만들거나 텍스트를 끊지 않게.
+              if (isVisibleStep(step)) contentBlocks = pushToolsBlock(contentBlocks, steps.length);
+              steps.push(step);
               const wtype = evt.toolName ? widgetTypeFromToolName(evt.toolName) : null;
               if (wtype) {
                 const w: WidgetSpec = {

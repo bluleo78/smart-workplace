@@ -113,6 +113,49 @@ test('숨김 도구(show_*/respond_chat) 의 tool 이벤트는 tool-step-tool �
   await expect(toolRows.first()).toContainText('코멘트 작성')
 })
 
+// ── 케이스 3a: 도구↔텍스트 인터리브 (WP-157) ───────────────────────────────
+// 도구A → 텍스트1 → 도구B → 텍스트2 순서로 오면 풍선 4개가 도착순으로 분리돼야 한다.
+// 회귀: 도구B 가 첫 도구 풍선에, 텍스트2 가 텍스트1 풍선에 합쳐지던 문제.
+
+test('도구 호출과 텍스트가 도착순으로 각각 새 풍선에 분리 렌더된다 (WP-157)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockHomeChatGeneration(page, {
+    frames: [
+      { event: 'tool', data: { seq: 1, phase: 'start', toolName: 'get_issue_detail', args: { issueKey: 'EX-1' } } },
+      { event: 'tool', data: { seq: 1, phase: 'result', toolName: 'get_issue_detail', isError: false } },
+      { event: 'delta', data: { text: 'EX-1 을 확인했어요. ' } },
+      { event: 'delta', data: { text: '상태를 바꿀게요.' } },
+      { event: 'tool', data: { seq: 2, phase: 'start', toolName: 'update_status', args: { issueKey: 'EX-1', status: '진행중' } } },
+      { event: 'tool', data: { seq: 2, phase: 'result', toolName: 'update_status', isError: false } },
+      { event: 'delta', data: { text: '진행중으로 변경했어요.' } },
+      { event: 'done', data: { sessionId: 's-tool-interleave' } },
+    ],
+  })
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-input').fill('EX-1 확인하고 진행중으로')
+  await page.getByRole('button', { name: '보내기' }).click()
+
+  // DOM 순서대로 도구 풍선·텍스트 풍선을 모은다.
+  const bubbles = page.locator('[data-testid="chat-block-tools"], [data-testid="chat-block"]')
+  await expect(bubbles).toHaveCount(4)
+
+  // 1) 도구A 만 담긴 풍선
+  await expect(bubbles.nth(0).getByTestId('tool-step-tool')).toHaveCount(1)
+  await expect(bubbles.nth(0)).toContainText('이슈 상세 조회')
+  // 2) 텍스트1 — 연속 delta 는 한 풍선, 텍스트2 는 섞이지 않는다
+  await expect(bubbles.nth(1)).toContainText('EX-1 을 확인했어요. 상태를 바꿀게요.')
+  await expect(bubbles.nth(1)).not.toContainText('진행중으로 변경했어요.')
+  // 3) 도구B 는 새 풍선(완료 상태 전이도 반영)
+  await expect(bubbles.nth(2).getByTestId('tool-step-tool')).toHaveCount(1)
+  await expect(bubbles.nth(2)).toContainText('상태 변경')
+  await expect(bubbles.nth(2)).toContainText('✓')
+  // 4) 텍스트2 는 새 풍선
+  await expect(bubbles.nth(3)).toHaveText('진행중으로 변경했어요.')
+})
+
 // ── 케이스 3b: 라벨 — 신규 도구도 한국어 라벨로 표시(#879) ─────────────────
 
 test('신규 도구(search_members·update_issue)도 원래 이름이 아닌 한국어 라벨로 표시된다 (#879)', async ({

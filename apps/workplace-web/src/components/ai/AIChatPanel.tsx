@@ -26,6 +26,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
+import { sliceRange } from '@/lib/chatBlocks';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
 
@@ -219,17 +220,24 @@ export function AIChatPanel({
               >
                 {t.role === 'assistant' ? (
                   t.contentBlocks?.length ? (
-                    // #463: 라이브 인터리브 — 블록 도착순으로 text↔widget 렌더.
+                    // #463: 라이브 인터리브 — 블록 도착순으로 text↔widget↔도구 그룹(WP-157) 렌더.
                     <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
-                      {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
-                      {t.contentBlocks.map((b, bi) => {
+                      {t.contentBlocks.map((b, bi, blocks) => {
+                        if (b.kind === 'tools') {
+                          // WP-157: 도구 그룹 = steps[stepStart ~ 다음 tools 블록의 stepStart). result 이벤트는 steps 만
+                          // 갱신하므로 상태 전이(실행 중→✓)가 그대로 반영된다. 표시할 단계가 없으면 ToolStepList 가 null.
+                          const [from, to] = sliceRange(blocks, bi);
+                          return (
+                            <div key={bi} className="self-start" data-testid="chat-block-tools">
+                              <ToolStepList steps={(t.steps ?? []).slice(from, to)} />
+                            </div>
+                          );
+                        }
                         if (b.kind === 'text') {
                           // 이 텍스트 블록의 범위 = textStart ~ 다음 text 블록의 textStart(없으면 끝까지).
-                          // 위젯 블록은 textStart 가 없어 슬라이스에 영향 없음 → 위젯 사이 텍스트도 정확 분리.
-                          const next = t.contentBlocks!.slice(bi + 1).find((x) => x.kind === 'text') as
-                            | { kind: 'text'; textStart: number }
-                            | undefined;
-                          const text = t.content.slice(b.textStart, next?.textStart);
+                          // 위젯·도구 블록은 오프셋 공간이 달라 범위 계산에서 제외 → 사이 텍스트도 정확 분리.
+                          const [from, to] = sliceRange(blocks, bi);
+                          const text = t.content.slice(from, to);
                           if (!text.trim()) return null;
                           return (
                             <div key={bi} className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground" data-testid="chat-block">

@@ -55,7 +55,9 @@ export interface ToolEventDto {
  */
 export type ContentBlock =
   | { kind: 'text'; textStart: number }
-  | { kind: 'widget'; widget: WidgetSpec };
+  | { kind: 'widget'; widget: WidgetSpec }
+  // WP-157: 연속 도구 호출/위임 그룹 — steps[stepStart ~ 다음 tools 블록의 stepStart) 구간을 한 풍선으로 렌더.
+  | { kind: 'tools'; stepStart: number };
 
 /** #843: 확인카드 처리 결과 종류 — 대화 이력의 ACTION_* 메시지와 1:1. */
 export type ActionOutcome = 'done' | 'failed' | 'rejected';
@@ -81,7 +83,7 @@ export interface MessageTurn {
   widgets?: WidgetSpec[];
   /** AI 도구 호출/위임 단계(인라인 표시). */
   steps?: ToolStep[];
-  /** #463: 도착 순 인터리브 블록(텍스트/위젯). Task 6 렌더러가 소비. */
+  /** #463: 도착 순 인터리브 블록(텍스트/위젯/도구 그룹 — WP-157). AIChatPanel 이 블록 순서대로 렌더. */
   contentBlocks?: ContentBlock[];
 }
 

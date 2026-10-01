@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ContentBlock } from '@/types/home';
 
-import { pushTextBlock, pushWidgetBlock, reconcileBlocks } from './chatBlocks';
+import { pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks, sliceRange } from './chatBlocks';
 
 // #463: ContentBlock 인터리브 누적 로직 — delta·tool 이벤트 시퀀스 검증.
 describe('pushTextBlock', () => {
@@ -98,5 +98,60 @@ describe('delta→tool→delta 인터리브 시퀀스', () => {
     expect(blocks[0]).toEqual({ kind: 'text', textStart: 0 });
     expect(blocks[1]).toEqual({ kind: 'widget', widget: { type: 'issue_list', params: { projectId: 1 } } });
     expect(blocks[2]).toEqual({ kind: 'text', textStart: 5 });
+  });
+});
+
+// WP-157: 도구 호출 그룹 블록 — 텍스트 사이에 끼어 다음 텍스트/도구가 새 풍선으로 분리되게 한다.
+describe('pushToolsBlock', () => {
+  it('직전 블록이 tools 가 아니면 새 tools 블록을 추가한다(stepStart=현재 steps 길이)', () => {
+    const blocks: ContentBlock[] = [{ kind: 'text', textStart: 0 }];
+    const result = pushToolsBlock(blocks, 2);
+    expect(result).toEqual([
+      { kind: 'text', textStart: 0 },
+      { kind: 'tools', stepStart: 2 },
+    ]);
+  });
+
+  it('직전 블록이 tools 면 같은 그룹으로 취급해 새 블록을 만들지 않는다', () => {
+    const blocks: ContentBlock[] = [{ kind: 'tools', stepStart: 0 }];
+    expect(pushToolsBlock(blocks, 1)).toBe(blocks);
+  });
+});
+
+describe('sliceRange', () => {
+  const blocks: ContentBlock[] = [
+    { kind: 'tools', stepStart: 0 },
+    { kind: 'text', textStart: 0 },
+    { kind: 'tools', stepStart: 2 },
+    { kind: 'text', textStart: 7 },
+  ];
+
+  it('같은 종류의 다음 블록 시작 오프셋까지를 범위로 돌려준다', () => {
+    expect(sliceRange(blocks, 0)).toEqual([0, 2]);
+    expect(sliceRange(blocks, 1)).toEqual([0, 7]);
+  });
+
+  it('같은 종류의 다음 블록이 없으면 끝(undefined)까지다', () => {
+    expect(sliceRange(blocks, 2)).toEqual([2, undefined]);
+    expect(sliceRange(blocks, 3)).toEqual([7, undefined]);
+  });
+});
+
+describe('tool→delta→tool→delta 인터리브 시퀀스 (WP-157)', () => {
+  it('[tools, text, tools, text] 순으로 분리 누적된다', () => {
+    let blocks: ContentBlock[] = [];
+    blocks = pushToolsBlock(blocks, 0); // 도구A start (steps 0개 상태)
+    blocks = pushTextBlock(blocks, 0); // 텍스트1 첫 delta
+    blocks = pushTextBlock(blocks, 4); // 텍스트1 연속 delta
+    blocks = pushToolsBlock(blocks, 1); // 도구B start (steps 1개 상태)
+    blocks = pushToolsBlock(blocks, 2); // 도구C 연속 — 같은 그룹
+    blocks = pushTextBlock(blocks, 8); // 텍스트2 — 새 풍선
+
+    expect(blocks).toEqual([
+      { kind: 'tools', stepStart: 0 },
+      { kind: 'text', textStart: 0 },
+      { kind: 'tools', stepStart: 1 },
+      { kind: 'text', textStart: 8 },
+    ]);
   });
 });
