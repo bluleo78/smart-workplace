@@ -33,6 +33,7 @@ export function AddWidgetModal({
   catalogWidgets,
   disabled,
   onAdd,
+  mobile = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -43,6 +44,8 @@ export function AddWidgetModal({
   /** 총 인스턴스 상한 도달 시 카드 클릭 비활성화. */
   disabled: boolean
   onAdd: (type: string) => void
+  /** 모바일 레이아웃 편집 중인지 — 타일형 위젯에 "한 줄 타일" 안내를 붙인다(데스크톱은 안내 없음, WP-142). */
+  mobile?: boolean
 }) {
   const [category, setCategory] = useState<string>(ALL_CATEGORY)
   const [selectedType, setSelectedType] = useState<string | null>(null)
@@ -130,6 +133,12 @@ export function AddWidgetModal({
                   <span className="text-xs text-muted-foreground">
                     {kind === 'system' ? `기본 위젯 · ${systemSizeLabel(widget)}` : `${widget.category} · ${widget.size}`}
                   </span>
+                  {/* 모바일에선 본문 대신 한 줄 타일로 보이는 위젯 — 고르기 전에 알 수 있게 카드에 바로 표시. */}
+                  {mobile && !widget.mobile.body && (
+                    <span className="text-xs text-ai-accent" data-testid="add-widget-mobile-tile-note">
+                      모바일에서는 한 줄 타일로 표시
+                    </span>
+                  )}
                 </button>
               )
             })}

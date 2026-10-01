@@ -1002,6 +1002,7 @@ export function Dashboard() {
             catalogWidgets={allCatalogWidgets()}
             disabled={draft.length >= MAX_WIDGETS}
             onAdd={addWidget}
+            mobile={isMobile}
           />
         )}
       </div>

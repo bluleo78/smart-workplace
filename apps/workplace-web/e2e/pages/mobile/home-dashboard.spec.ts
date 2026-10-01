@@ -415,3 +415,24 @@ test('빠른 액션 — 모바일은 버튼 2열 격자', async ({ authenticated
   expect(Math.abs(boxes[0].width - boxes[1].width)).toBeLessThan(2)
   await expectNoHorizontalOverflow(page)
 })
+
+test('모바일 위젯 추가 — 타일형에는 안내가 붙고, 추가는 모바일 레이아웃(count 3)에만 저장된다', async ({
+  authenticatedPage: page,
+}) => {
+  await stubWidgetData(page)
+  const stub = await stubDashboard(page, { mobile: layout(['my_tasks']) })
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.getByTestId('dashboard-add-widget-open').click()
+  const modal = page.getByTestId('add-widget-modal')
+  const card = (type: string) => modal.locator(`[data-testid="add-widget-card"][data-widget-type="${type}"]`)
+  await expect(card('drive').getByTestId('add-widget-mobile-tile-note')).toHaveText('모바일에서는 한 줄 타일로 표시')
+  await expect(card('priority_quadrant').getByTestId('add-widget-mobile-tile-note')).toBeVisible()
+  await expect(card('calendar_today').getByTestId('add-widget-mobile-tile-note')).toHaveCount(0)
+  await card('calendar_today').click()
+  await modal.getByTestId('add-widget-confirm').click()
+  await page.getByTestId('dashboard-edit-save').click()
+  await expect.poll(() => stub.puts.length).toBe(1)
+  expect(stub.puts[0].device).toBe('mobile')
+  expect(stub.puts[0].widgets.find((w) => w.type === 'calendar_today')?.count).toBe(3)
+})
