@@ -94,7 +94,7 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
               .where(EMAIL_MESSAGE.ID.eq(envId))
               .fetchOneInto(Long.class);
       contentRepo.updateBody(contentId, aiSummary, null, null); // body 에 텍스트를 채워 요약으로 간주
-      messageRepo.updateSummary(envId, aiSummary);
+      MailTestSupport.seedSummary(dsl, envId, aiSummary);
     }
     return envId;
   }
@@ -127,9 +127,9 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     long work = seedMessage(accountId, inbox, false, null);
     long promo = seedMessage(accountId, inbox, false, null);
     long workRead = seedMessage(accountId, inbox, false, null);
-    messageRepo.updateClassification(work, "업무", true);
-    messageRepo.updateClassification(promo, "프로모션", false);
-    messageRepo.updateClassification(workRead, "업무", true);
+    MailTestSupport.classify(dsl, work, "업무", true);
+    MailTestSupport.classify(dsl, promo, "프로모션", false);
+    MailTestSupport.classify(dsl, workRead, "업무", true);
     messageRepo.markSeen(workRead); // 읽은 회신필요 — 회신필요에서 빠져야 한다
 
     // category=업무 → work, workRead (분류 필터는 읽음 여부와 무관)
@@ -157,7 +157,7 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     long userId = TestFixtures.createHuman(dsl);
     long accountId = createAccount(userId, "personal-t1-" + System.nanoTime() + "@test.local");
     long messageId = seedInboxMessageWithContent(accountId);
-    messageRepo.updatePersonalSummary(messageId, "• 개인 맞춤 요약");
+    MailTestSupport.seedPersonalSummary(dsl, messageId, "• 개인 맞춤 요약");
     EmailMessageRepository.AiContext ctx =
         messageRepo.findAiContextByIdAndUser(userId, messageId).orElseThrow();
     assertThat(ctx.personalSummary()).isEqualTo("• 개인 맞춤 요약");
@@ -170,10 +170,10 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     long accountId = createAccount(userId, "g@test.local");
     long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
     long m = seedMessage(accountId, inbox, false, null); // seen=false
-    messageRepo.updateClassification(m, "업무", true);
+    MailTestSupport.classify(dsl, m, "업무", true);
     seedMessage(accountId, inbox, false, null); // pending(ai_needs_reply NULL) — 제외
     long no = seedMessage(accountId, inbox, false, null);
-    messageRepo.updateClassification(no, "업무", false); // false — 제외
+    MailTestSupport.classify(dsl, no, "업무", false); // false — 제외
 
     assertThat(messageRepo.listByAccount(accountId, "INBOX", null, false, null, true, 50))
         .extracting(com.workplace.mail.dto.EmailMessageSummary::id)

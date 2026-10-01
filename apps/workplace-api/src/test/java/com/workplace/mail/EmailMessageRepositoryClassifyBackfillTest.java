@@ -61,7 +61,7 @@ class EmailMessageRepositoryClassifyBackfillTest extends IntegrationTestBase {
     TestFixtures.markMailFetched(dsl, id);
     // aiNeedsReply 가 명시된 경우 updateClassification 으로 반영(null 은 그대로 두어 미분류 상태 유지)
     if (aiNeedsReply != null) {
-      messageRepo.updateClassification(id, "업무", aiNeedsReply);
+      MailTestSupport.classify(dsl, id, "업무", aiNeedsReply);
     }
     return id;
   }

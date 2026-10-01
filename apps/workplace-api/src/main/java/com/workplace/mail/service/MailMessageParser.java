@@ -280,9 +280,9 @@ public class MailMessageParser {
     return v.isEmpty() ? null : v;
   }
 
-  private String firstHeader(Part part, String name) throws MessagingException {
-    String[] h = part.getHeader(name);
-    return (h != null && h.length > 0) ? h[0] : null;
+  private String firstHeader(Part part, String name) {
+    List<String> values = headerValues(part, name);
+    return values.isEmpty() ? null : values.get(0);
   }
 
   private String addressesToString(Address[] addrs) {

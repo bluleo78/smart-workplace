@@ -709,27 +709,6 @@ public class EmailMessageRepository {
         .execute();
   }
 
-  /**
-   * 분류 결과 저장(동기화 잡, best-effort) — 슬라이스②: category 는 공유 content, needs_reply 는 envelope(사람별). 운영
-   * 경로는 WP-149 부터 MailAnalysisService 의 저장 메서드를 쓴다.
-   */
-  public void updateClassification(long messageId, String category, boolean needsReply) {
-    // category → 공유 email_content (envelope 조인으로 content 특정).
-    // WP-130: 자기 사본을 적재·검증한 envelope 만 공유 분류를 쓴다 — 검증 전 envelope 가 다른 수신자의 분류를 덮어쓰지 못하게.
-    dsl.update(EMAIL_CONTENT)
-        .set(EMAIL_CONTENT.AI_CATEGORY, category)
-        .from(EMAIL_MESSAGE)
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
-        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
-        .execute();
-    // needs_reply → envelope 잔류(조회는 needsReplyCondition() 단일 술어가 소비, WP-146)
-    dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.AI_NEEDS_REPLY, needsReply)
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .execute();
-  }
-
   /** 사이드바용 — 특정 계정 INBOX 의 회신필요 건수. 목록 필터(needsReply)와 같은 단일 술어를 쓴다(WP-146). */
   public long countNeedsReplyForAccount(long accountId) {
     return dsl.fetchCount(
@@ -740,39 +719,6 @@ public class EmailMessageRepository {
             .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
             .and(EMAIL_FOLDER.NAME.eq("INBOX"))
             .and(needsReplyCondition()));
-  }
-
-  /**
-   * 요약 캐시 저장 — 슬라이스②: 공유 email_content 에 기록(envelope 조인으로 content 특정). 운영 경로는 WP-149 부터
-   * MailAnalysisService 의 저장 메서드를 쓴다.
-   *
-   * <p>#484: summary 가 null/공백이면 '요약을 시도했으나 LLM 이 빈 결과를 냈다'는 상태로 기록한다(ai_summary=NULL,
-   * ai_summarized_at=now()). 배치 대상 조회가 ai_summarized_at 기준이라 같은 메일을 매 배치 재요약하는 비용 누수를 막는다. 공백→NULL
-   * 정규화를 저장 계층 한 곳에서 해 '요약이 있으면 공백이 아니다' 불변식을 모든 쓰기 경로에 보장한다.
-   */
-  public void updateSummary(long messageId, String summary) {
-    dsl.update(EMAIL_CONTENT)
-        .set(EMAIL_CONTENT.AI_SUMMARY, blankToNull(summary))
-        .set(EMAIL_CONTENT.AI_SUMMARIZED_AT, OffsetDateTime.now())
-        .from(EMAIL_MESSAGE)
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
-        .execute();
-  }
-
-  /**
-   * 개인 비서(T2) 맞춤 요약 저장 — envelope(사람별) email_message 에 기록. 운영 경로는 WP-149 부터 MailAnalysisService 의
-   * 저장 메서드를 쓴다.
-   *
-   * <p>#484: summary 가 null/공백이면 '시도했으나 결과 없음'(ai_personal_summary=NULL,
-   * ai_personal_summarized_at=now()).
-   */
-  public void updatePersonalSummary(long messageId, String summary) {
-    dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY, blankToNull(summary))
-        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT, OffsetDateTime.now())
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .execute();
   }
 
   /** #484: 공백 요약은 '결과 없음'(NULL)으로 저장 — 읽는 쪽이 공백 여부를 다시 판정하지 않게 한다. */
@@ -1323,9 +1269,11 @@ public class EmailMessageRepository {
 
   /** WP-149 ⑤ 최종값 저장 — ai_needs_reply 는 회신필요 술어(needsReplyCondition)가 읽는 값이다. */
   public void updateFinalNeedsReply(long messageId, Boolean value) {
+    // 값이 바뀔 때만 UPDATE — 재계산이 같은 값을 다시 쓰는 불필요한 쓰기(행 버전·WAL)를 피한다(NULL 안전 비교)
     dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.AI_NEEDS_REPLY, value)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isDistinctFrom(value))
         .execute();
   }
 

@@ -20,36 +20,30 @@ public final class MailSummaryDecider {
     GENERATE
   }
 
-  /** 판정 입력. contentAttempted 는 생략 시에도 true(③ 은 생략해도 시도 시각을 남김). */
-  public record State(
-      boolean personalTier,
-      String personalSummary,
-      String contentSummary,
-      boolean personalAttempted,
-      boolean personalSkipped,
-      boolean contentAttempted,
-      boolean contentSkipped,
-      int newBodyLength) {}
-
   /** 판정 + 표시 텍스트(READY 일 때만). */
   public record Outcome(Decision decision, String text) {}
 
   private MailSummaryDecider() {}
 
-  /** 상태 판정. */
-  public static Outcome decide(State s) {
-    String display =
-        StringUtils.hasText(s.personalSummary())
-            ? s.personalSummary()
-            : (StringUtils.hasText(s.contentSummary()) ? s.contentSummary() : null);
+  /** 표시 규칙 — 개인 요약 우선, 없으면 공통 요약. 둘 다 없으면 null. */
+  public static String display(AnalysisContext ctx) {
+    if (StringUtils.hasText(ctx.personalSummary())) {
+      return ctx.personalSummary();
+    }
+    return StringUtils.hasText(ctx.contentSummary()) ? ctx.contentSummary() : null;
+  }
+
+  /** 상태 판정. 새 본문 길이는 생략 분기에서만 추출한다(분석 서비스와 같은 {@code MailAnalysisService.newBody}, 400자 기준). */
+  public static Outcome decide(AnalysisContext ctx, boolean personalTier) {
+    String display = display(ctx);
     if (display != null) {
       return new Outcome(Decision.READY, display);
     }
-    boolean skipped = s.personalTier() ? s.personalSkipped() : s.contentSkipped();
-    boolean attempted = s.personalTier() ? s.personalAttempted() : s.contentAttempted();
+    boolean skipped = personalTier ? ctx.personalSummarySkipped() : ctx.contentSummarySkipped();
+    boolean attempted = personalTier ? ctx.personalAttempted() : ctx.contentAttempted();
     if (skipped) {
       return new Outcome(
-          s.newBodyLength() > MailAnalysisService.SUMMARY_MIN_CHARS
+          MailAnalysisService.newBody(ctx).length() > MailAnalysisService.SUMMARY_MIN_CHARS
               ? Decision.SKIPPED
               : Decision.EMPTY,
           null);
@@ -58,20 +52,5 @@ public final class MailSummaryDecider {
       return new Outcome(Decision.EMPTY, null);
     }
     return new Outcome(Decision.GENERATE, null);
-  }
-
-  /** 분석 컨텍스트 → 판정 입력(새 본문 길이 포함). */
-  public static State stateOf(AnalysisContext ctx, boolean personalTier) {
-    // 새 본문 길이 — 분석 서비스와 같은 추출 결과(MailAnalysisService.newBody)로 400자 기준을 판정한다
-    int len = MailAnalysisService.newBody(ctx).length();
-    return new State(
-        personalTier,
-        ctx.personalSummary(),
-        ctx.contentSummary(),
-        ctx.personalAttempted(),
-        ctx.personalSummarySkipped(),
-        ctx.contentAttempted(),
-        ctx.contentSummarySkipped(),
-        len);
   }
 }

@@ -13,7 +13,7 @@ import java.util.Set;
 public final class NeedsReplyRules {
 
   /** 자동 발신자 로컬파트(확실한 것만). "+태그"는 떼고 비교한다. 테스트로 목록을 고정한다. */
-  public static final Set<String> AUTO_LOCAL_PARTS =
+  static final Set<String> AUTO_LOCAL_PARTS =
       Set.of(
           "noreply",
           "no-reply",

@@ -46,6 +46,17 @@ public final class NewContentExtractor {
   /** From 줄 뒤 이 줄 수 안에 다른 헤더 줄이 있어야 헤더 블록으로 본다("From: our team…" 같은 본문 줄 오판 방지). */
   private static final int HEADER_LOOKAHEAD = 4;
 
+  // htmlToLines 정규식 — 호출마다 컴파일하지 않도록 상수로 둔다
+  private static final Pattern STYLE_SCRIPT_HEAD =
+      Pattern.compile("(?is)<(style|script|head)\\b[^>]*>.*?</\\1\\s*>");
+  private static final Pattern HTML_COMMENT = Pattern.compile("(?s)<!--.*?-->");
+  private static final Pattern BR_TAG = Pattern.compile("(?i)<br\\s*/?>");
+  private static final Pattern BLOCK_CLOSE_TAG =
+      Pattern.compile("(?i)</(p|div|tr|li|h[1-6]|blockquote|table)\\s*>");
+  private static final Pattern ANY_TAG = Pattern.compile("(?s)<[^>]+>");
+  private static final Pattern INLINE_SPACES = Pattern.compile("[ \\t]+");
+  private static final Pattern BLANK_LINES = Pattern.compile("\n{3,}");
+
   private NewContentExtractor() {}
 
   /**
@@ -57,17 +68,19 @@ public final class NewContentExtractor {
    */
   public static String extract(String bodyText, String bodyHtml, String snippet) {
     boolean hasText = bodyText != null && !bodyText.isBlank();
-    String original = hasText ? normalize(bodyText).strip() : htmlToLines(bodyHtml);
+    String original = hasText ? normalize(bodyText).strip() : null;
     String cut = hasText ? cutQuoted(original) : cutQuoted(htmlToLines(cutHtmlQuote(bodyHtml)));
-    String result;
     if (!cut.isBlank()) {
-      result = cut;
-    } else if (!original.isBlank()) {
-      result = original;
-    } else {
-      result = snippet == null ? "" : snippet.strip();
+      return cap(cut);
     }
-    return cap(result);
+    // 폴백용 원문은 잘라낸 결과가 비었을 때만 계산한다(HTML 평문화 비용 절약)
+    if (!hasText) {
+      original = htmlToLines(bodyHtml);
+    }
+    if (!original.isBlank()) {
+      return cap(original);
+    }
+    return cap(snippet == null ? "" : snippet.strip());
   }
 
   /** 줄 단위 인용·서명 규칙으로 첫 인용 지점 앞까지만 남긴다. */
@@ -145,18 +158,17 @@ public final class NewContentExtractor {
     if (html == null || html.isBlank()) {
       return "";
     }
-    String s =
-        html.replaceAll("(?is)<(style|script|head)\\b[^>]*>.*?</\\1\\s*>", " ")
-            .replaceAll("(?s)<!--.*?-->", " ")
-            .replaceAll("(?i)<br\\s*/?>", "\n")
-            .replaceAll("(?i)</(p|div|tr|li|h[1-6]|blockquote|table)\\s*>", "\n")
-            .replaceAll("(?s)<[^>]+>", " ");
+    String s = STYLE_SCRIPT_HEAD.matcher(html).replaceAll(" ");
+    s = HTML_COMMENT.matcher(s).replaceAll(" ");
+    s = BR_TAG.matcher(s).replaceAll("\n");
+    s = BLOCK_CLOSE_TAG.matcher(s).replaceAll("\n");
+    s = ANY_TAG.matcher(s).replaceAll(" ");
     s = HtmlUtils.htmlUnescape(s).replace('\u00A0', ' ');
     StringBuilder out = new StringBuilder();
     for (String line : s.split("\r?\n", -1)) {
-      out.append(line.replaceAll("[ \\t]+", " ").strip()).append('\n');
+      out.append(INLINE_SPACES.matcher(line).replaceAll(" ").strip()).append('\n');
     }
-    return out.toString().replaceAll("\n{3,}", "\n\n").strip();
+    return BLANK_LINES.matcher(out.toString()).replaceAll("\n\n").strip();
   }
 
   /** CRLF·CR → LF. */

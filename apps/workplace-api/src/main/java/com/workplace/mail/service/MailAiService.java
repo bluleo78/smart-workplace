@@ -27,7 +27,6 @@ import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 /**
  * 메일 AI 사용자 기능(7d · WP-149): 요약 표시·강제 생성("AI 요약" 버튼)·답장 초안·초안 코칭. 분류·요약 생성 자체는 {@link
@@ -70,7 +69,7 @@ public class MailAiService {
   public MailSummary summarize(long userId, long messageId) {
     AnalysisContext ctx = contextOrThrow(userId, messageId);
     boolean personalTier = personalTier(userId, ctx);
-    Outcome first = MailSummaryDecider.decide(MailSummaryDecider.stateOf(ctx, personalTier));
+    Outcome first = MailSummaryDecider.decide(ctx, personalTier);
     if (first.decision() != Decision.GENERATE) {
       return toResponse(first);
     }
@@ -79,9 +78,7 @@ public class MailAiService {
     } else {
       analysis.generateContentSummary(userId, messageId, false);
     }
-    Outcome after =
-        MailSummaryDecider.decide(
-            MailSummaryDecider.stateOf(contextOrThrow(userId, messageId), personalTier));
+    Outcome after = MailSummaryDecider.decide(contextOrThrow(userId, messageId), personalTier);
     if (after.decision() == Decision.GENERATE) {
       throw unavailable(personalTier);
     }
@@ -94,19 +91,20 @@ public class MailAiService {
    */
   public MailSummary forceSummarize(long userId, long messageId) {
     AnalysisContext ctx = contextOrThrow(userId, messageId);
-    String display = firstNonBlank(ctx.personalSummary(), ctx.contentSummary());
+    String display = MailSummaryDecider.display(ctx);
     if (display != null) {
       return MailSummary.ready(display);
     }
+    boolean personalTier = personalTier(userId, ctx);
     boolean ran =
-        personalTier(userId, ctx)
+        personalTier
             ? analysis.generatePersonalSummary(userId, messageId, true)
             : analysis.generateContentSummary(userId, messageId, true);
     if (!ran) {
-      throw unavailable(personalTier(userId, ctx));
+      throw unavailable(personalTier);
     }
     AnalysisContext after = contextOrThrow(userId, messageId);
-    String result = firstNonBlank(after.personalSummary(), after.contentSummary());
+    String result = MailSummaryDecider.display(after);
     return result != null ? MailSummary.ready(result) : MailSummary.empty();
   }
 
@@ -141,13 +139,6 @@ public class MailAiService {
       case SKIPPED -> MailSummary.skipped();
       default -> MailSummary.empty();
     };
-  }
-
-  private String firstNonBlank(String a, String b) {
-    if (StringUtils.hasText(a)) {
-      return a;
-    }
-    return StringUtils.hasText(b) ? b : null;
   }
 
   /**
