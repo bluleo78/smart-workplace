@@ -14,7 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 선제 배치 요약 주기 트리거 — 10분마다 두 패스로 요약을 미리 채운다.
+ * 선제 배치 요약 주기 트리거 — 10분마다 두 패스로 원본·개인 분석을 미리 해 둔다.
  *
  * <ul>
  *   <li>③ 원본 분석: 공통 비서가 있는 테넌트의 모든 활성 계정(ai_enabled 무관)
@@ -47,7 +47,7 @@ public class MailSummaryScheduler {
     this.backfill = backfill;
   }
 
-  /** 10분 주기 — T1 객관적(공통비서 테넌트 전체 계정) + T2 개인(AI 계정). */
+  /** 10분 주기 — ③ 원본 분석(공통비서 테넌트 전체 계정) + ④ 개인 분석(AI 계정). */
   @Scheduled(fixedRate = 600_000)
   void runOnce() {
     // ① 수집: 테넌트별 짧은 트랜잭션(GUC 주입) 안에서 대상 계정만 모은다.
@@ -61,7 +61,7 @@ public class MailSummaryScheduler {
               objectiveTargets.add(new TenantAccount(tenantId, a.userId(), a.accountId()));
             }
           }
-          // T2: AI 켠 계정만.
+          // ④ 개인 분석: AI 켠 계정만.
           for (AiAccountRef ref : accountRepo.listAiEnabledAccounts()) {
             personalTargets.add(new TenantAccount(tenantId, ref.userId(), ref.accountId()));
           }

@@ -68,11 +68,11 @@ public class MailBackfillService {
    * best-effort). 분석은 메시지당 LLM 을 최대 두 번 부르므로 진행바를 붙잡지 않는다.
    */
   public void backfillNow(long userId, long accountId) {
+    List<Long> loaded = new ArrayList<>();
     try {
       // 대상 목록 조회(RLS 테이블) — 짧은 트랜잭션으로 GUC 주입.
       List<BodyTarget> targets =
           txTemplate.execute(status -> messageRepo.listMissingBody(accountId, BATCH_LIMIT));
-      List<Long> loaded = new ArrayList<>();
       // 본문 적재는 IMAP 네트워크 I/O 를 포함하므로 메시지별 짧은 트랜잭션으로 감싼다(풀 고갈 방지 + RLS write GUC 주입).
       for (BodyTarget t : targets) {
         Boolean ok = txTemplate.execute(status -> bodyFetcher.fetchBody(userId, t));
@@ -81,14 +81,19 @@ public class MailBackfillService {
           loaded.add(t.messageId());
         }
       }
-      progress.finish(accountId); // 본문 보충 완료 — 분석은 진행바와 무관하게 이어서
-      for (Long id : loaded) {
-        analysis.analyzeAfterLoad(userId, id);
-      }
     } catch (Exception e) {
       log.warn("본문 백그라운드 보충 실패 (accountId={}): {}", accountId, e.toString());
     } finally {
-      progress.finish(accountId);
+      progress.finish(accountId); // 정확히 한 번 — 분석(수 분 소요 가능) 전에 끝낸다
+    }
+    // 분석은 finish 뒤에서 한다: 분석 중 다음 동기화가 tryStart 한 진행 상태를 여기서 다시 finish 로 지우면
+    // 진행바가 꺼지고 동기화가 중복 시작될 수 있다. analyzeAfterLoad 는 각 단계 예외를 스스로 삼키지만 방어적으로 감싼다.
+    for (Long id : loaded) {
+      try {
+        analysis.analyzeAfterLoad(userId, id);
+      } catch (RuntimeException e) {
+        log.warn("적재 후 분석 실패 (messageId={}): {}", id, e.toString());
+      }
     }
   }
 }
