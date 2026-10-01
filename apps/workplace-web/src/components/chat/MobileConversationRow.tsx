@@ -63,14 +63,17 @@ export function MobileConversationRow({
           {preview}
         </span>
       </span>
-      <span className="flex shrink-0 flex-col items-end justify-center gap-1 self-stretch">
+      {/* 오른쪽 열은 왼쪽 열(이름 20px + 미리보기 18px)과 줄 높이를 맞춰 거울처럼 쌓는다.
+          배지 슬롯은 비어 있어도 항상 렌더해 높이를 예약 — 그래야 시간이 배지 유무와 무관하게
+          항상 이름 줄 높이에 고정되고 행마다 위아래로 흔들리지 않는다. */}
+      <span className="flex shrink-0 flex-col items-end justify-center self-stretch">
         <span
           data-testid={`conv-time-${testKey}`}
-          className={cn('text-xs', unread ? 'font-semibold text-primary' : 'text-muted-foreground')}
+          className={cn('text-xs leading-5', unread ? 'font-semibold text-primary' : 'text-muted-foreground')}
         >
           {at ? formatListTime(at) : ''}
         </span>
-        {badge}
+        <span className="flex h-[18px] items-center">{badge}</span>
       </span>
     </Link>
   )

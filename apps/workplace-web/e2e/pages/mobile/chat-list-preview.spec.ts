@@ -37,6 +37,13 @@ test('미리보기·시간이 보이고 미읽음 행은 굵다', async ({ authe
   expect(await weight('conv-name-3')).toBeLessThan(600)
   expect(await weight('conv-name-10')).toBeGreaterThanOrEqual(600)
 
+  // 시간은 배지 유무와 무관하게 이름 줄과 같은 높이(상단 정렬).
+  for (const id of ['1', '3']) {
+    const t = (await list.getByTestId(`conv-time-${id}`).boundingBox())!
+    const n = (await list.getByTestId(`conv-name-${id}`).boundingBox())!
+    expect(Math.abs(t.y - n.y), `conv-time-${id}`).toBeLessThanOrEqual(4)
+  }
+
   // 행 높이 56px 이상.
   expect((await list.getByTestId('channel-link-1').boundingBox())!.height).toBeGreaterThanOrEqual(56)
   await expectNoHorizontalOverflow(page)
