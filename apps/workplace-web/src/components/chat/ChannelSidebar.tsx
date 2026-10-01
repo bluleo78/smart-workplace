@@ -12,11 +12,26 @@ import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useThreadsInboxUnreadCount } from '@/hooks/queries/useThreadsInboxUnreadCount'
 import { useAuth } from '@/hooks/useAuth'
+import { useIsMobile } from '@/hooks/useIsMobile'
+import { previewLine } from '@/lib/conversationPreview'
 import { dmDisplayName } from '@/lib/dm'
 import { cn } from '@/lib/utils'
 
 import { ChannelBrowser } from './ChannelBrowser'
 import { CreateChannelModal } from './CreateChannelModal'
+import { MobileConversationRow } from './MobileConversationRow'
+
+// 미읽음 숫자 배지 — 데스크톱·모바일 행 공용(testid·99+ 상한 동일).
+function UnreadBadge({ testId, count }: { testId: string; count: number }) {
+  return (
+    <span
+      data-testid={testId}
+      className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}
 
 export function ChannelSidebar() {
   const { id } = useParams()
@@ -30,6 +45,9 @@ export function ChannelSidebar() {
   const { data: dms } = useMyDms()
   const { user } = useAuth()
   const myId = user?.id ?? 0
+  const isMobile = useIsMobile()
+  // 셀프 DM(참여자가 나뿐) — 모바일 행 미리보기용
+  const selfDm = dms?.find((dm) => dm.participants.every((p) => p.userId === myId))
   const [createOpen, setCreateOpen] = useState(false)
   const [browseOpen, setBrowseOpen] = useState(false)
 
@@ -98,7 +116,41 @@ export function ChannelSidebar() {
         </div>
         {isLoading && <div className="px-3 text-sm text-muted-foreground">불러오는 중…</div>}
         <nav className="mt-2 space-y-1">
-          {channels?.map((c) => (
+          {channels?.map((c) =>
+            isMobile ? (
+              <MobileConversationRow
+                key={c.id}
+                to={`/chat/channels/${c.id}`}
+                testId={`channel-link-${c.id}`}
+                testKey={String(c.id)}
+                active={!isDmRoute && activeId === c.id}
+                icon={
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                    {c.visibility === 'PRIVATE' ? (
+                      <Lock className="h-[18px] w-[18px]" data-testid={`channel-lock-${c.id}`} />
+                    ) : (
+                      <Hash className="h-[18px] w-[18px]" />
+                    )}
+                  </span>
+                }
+                name={c.name}
+                preview={previewLine(c.lastMessage, { meId: myId, isOneToOneDm: false })}
+                empty={!c.lastMessage}
+                at={c.lastMessage?.createdAt}
+                unread={c.unreadCount > 0}
+                badge={
+                  c.unreadCount > 0 ? (
+                    <UnreadBadge testId={`channel-unread-${c.id}`} count={c.unreadCount} />
+                  ) : c.hasUnreadThreads ? (
+                    <span
+                      data-testid={`channel-unread-threads-${c.id}`}
+                      className="h-2 w-2 rounded-full bg-muted-foreground"
+                      aria-label="미읽은 스레드 있음"
+                    />
+                  ) : null
+                }
+              />
+            ) : (
             <Link
               key={c.id}
               to={`/chat/channels/${c.id}`}
@@ -116,14 +168,7 @@ export function ChannelSidebar() {
                 <Hash className="h-4 w-4 shrink-0" />
               )}
               <span className="truncate">{c.name}</span>
-              {c.unreadCount > 0 && (
-                <span
-                  data-testid={`channel-unread-${c.id}`}
-                  className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
-                >
-                  {c.unreadCount > 99 ? '99+' : c.unreadCount}
-                </span>
-              )}
+              {c.unreadCount > 0 && <UnreadBadge testId={`channel-unread-${c.id}`} count={c.unreadCount} />}
               {/* 채널 미읽음 없고 팔로우 중인 미읽음 스레드가 있으면 점 표시(숫자 뱃지보다 낮은 우선순위). */}
               {c.unreadCount === 0 && c.hasUnreadThreads && (
                 <span
@@ -133,7 +178,8 @@ export function ChannelSidebar() {
                 />
               )}
             </Link>
-          ))}
+            ),
+          )}
         </nav>
 
         {/* DM 섹션 헤더 — 내 DM 목록 + 새 메시지 버튼. */}
@@ -156,6 +202,20 @@ export function ChannelSidebar() {
         </div>
         <nav className="mt-2 space-y-1" data-testid="dm-list">
           {/* self-DM("나") 고정 항목 — 항상 맨 위. 클릭 시 find-or-create 후 진입. */}
+          {isMobile ? (
+            <MobileConversationRow
+              to="/chat/dms/self"
+              testId="dm-self-link"
+              testKey="self"
+              active={location.pathname === '/chat/dms/self'}
+              icon={<UserAvatar user={{ id: myId, username: user?.username ?? '', name: user?.name ?? '나' }} size="lg" />}
+              name={user?.name ? `${user.name} (나)` : '나'}
+              preview={previewLine(selfDm?.lastMessage, { meId: myId, isOneToOneDm: true })}
+              empty={!selfDm?.lastMessage}
+              at={selfDm?.lastMessage?.createdAt}
+              unread={false}
+            />
+          ) : (
           <Link
             to="/chat/dms/self"
             data-testid="dm-self-link"
@@ -173,11 +233,42 @@ export function ChannelSidebar() {
             />
             <span className="truncate">{user?.name ? `${user.name} (나)` : '나'}</span>
           </Link>
+          )}
           {dms
             ?.filter((dm) => dm.participants.filter((p) => p.userId !== myId).length > 0)
             .map((dm) => {
               // 대표 상대(첫 비-본인 참여자) 이니셜 아바타로 DM 을 시각 구분.
               const other = dm.participants.find((p) => p.userId !== myId)
+              if (isMobile) {
+                return (
+                  <MobileConversationRow
+                    key={dm.id}
+                    to={`/chat/dms/${dm.id}`}
+                    testId={`dm-link-${dm.id}`}
+                    testKey={String(dm.id)}
+                    active={isDmRoute && activeId === dm.id}
+                    icon={
+                      other ? (
+                        <UserAvatar user={{ id: other.userId, username: '', name: other.name }} size="lg" />
+                      ) : (
+                        <MessageSquare className="h-5 w-5" />
+                      )
+                    }
+                    name={dmDisplayName(dm, myId)}
+                    nameAdornment={
+                      dm.participants.some((p) => p.kind === 'AGENT' && p.userId !== myId) ? <AgentBadge size="xs" /> : undefined
+                    }
+                    preview={previewLine(dm.lastMessage, {
+                      meId: myId,
+                      isOneToOneDm: dm.participants.filter((p) => p.userId !== myId).length === 1,
+                    })}
+                    empty={!dm.lastMessage}
+                    at={dm.lastMessage?.createdAt}
+                    unread={dm.unreadCount > 0}
+                    badge={dm.unreadCount > 0 ? <UnreadBadge testId={`dm-unread-${dm.id}`} count={dm.unreadCount} /> : null}
+                  />
+                )
+              }
               return (
               <Link
                 key={dm.id}
@@ -204,14 +295,7 @@ export function ChannelSidebar() {
                 {dm.participants.some((p) => p.kind === 'AGENT' && p.userId !== myId) && (
                   <AgentBadge size="xs" />
                 )}
-                {dm.unreadCount > 0 && (
-                  <span
-                    data-testid={`dm-unread-${dm.id}`}
-                    className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold leading-none text-destructive-foreground"
-                  >
-                    {dm.unreadCount > 99 ? '99+' : dm.unreadCount}
-                  </span>
-                )}
+                {dm.unreadCount > 0 && <UnreadBadge testId={`dm-unread-${dm.id}`} count={dm.unreadCount} />}
               </Link>
               )
             })}

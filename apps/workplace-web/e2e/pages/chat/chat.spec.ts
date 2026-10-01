@@ -465,6 +465,8 @@ test('대화 사이드바 — 채널·DM 링크에 transition-colors 적용', as
   await page.goto(`/chat/channels/${CHANNEL_ID}`);
   // 채널 링크 — hover 페이드를 위한 transition-colors 유틸리티가 className 에 포함되어야 한다
   await expect(page.getByTestId(`channel-link-${CHANNEL_ID}`)).toHaveClass(/transition-colors/);
+  // WP-135: 미리보기 행은 모바일 전용 — 데스크톱 사이드바엔 없다.
+  await expect(page.getByTestId(`conv-preview-${CHANNEL_ID}`)).toHaveCount(0);
   // self-DM("나") 링크도 동일 DM 목록 패턴 → 동일하게 적용
   await expect(page.getByTestId('dm-self-link')).toHaveClass(/transition-colors/);
 });

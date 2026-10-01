@@ -12,10 +12,11 @@ import type { UserSummary } from '../../types/user';
 type AvatarUser = Pick<UserSummary, 'id' | 'username' | 'name'>;
 
 // 사이즈별 Tailwind 클래스 묶음.
-const SIZE_CLASS: Record<'xs' | 'sm' | 'md', string> = {
+const SIZE_CLASS: Record<'xs' | 'sm' | 'md' | 'lg', string> = {
   xs: 'h-5 w-5 text-xs',
   sm: 'h-6 w-6 text-xs',
   md: 'h-8 w-8 text-sm',
+  lg: 'h-9 w-9 text-sm',
 };
 
 export function UserAvatar({
@@ -25,7 +26,7 @@ export function UserAvatar({
   agent = false,
 }: {
   user: AvatarUser;
-  size?: 'xs' | 'sm' | 'md';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   // 보드 카드처럼 겹쳐 보일 때 배경색과 경계를 줄 때만 켠다.
   ring?: boolean;
   // AGENT(AI) 담당자 식별 표식. 보드 카드처럼 텍스트 배지(AgentBadge)가 들어갈 공간이
