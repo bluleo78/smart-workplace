@@ -16,6 +16,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import org.jooq.Check;
 import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.ForeignKey;
@@ -37,6 +38,7 @@ import org.jooq.TableField;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -86,6 +88,11 @@ public class UserDashboard extends TableImpl<UserDashboardRecord> {
      * The column <code>public.user_dashboard.updated_at</code>.
      */
     public final TableField<UserDashboardRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
+
+    /**
+     * The column <code>public.user_dashboard.device</code>.
+     */
+    public final TableField<UserDashboardRecord, String> DEVICE = createField(DSL.name("device"), SQLDataType.VARCHAR(16).nullable(false).defaultValue(DSL.field(DSL.raw("'DESKTOP'::character varying"), SQLDataType.VARCHAR)), this, "");
 
     private UserDashboard(Name alias, Table<UserDashboardRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
@@ -201,6 +208,13 @@ public class UserDashboard extends TableImpl<UserDashboardRecord> {
             _user = new UserPath(this, Keys.USER_DASHBOARD__USER_DASHBOARD_USER_ID_FKEY, null);
 
         return _user;
+    }
+
+    @Override
+    public List<Check<UserDashboardRecord>> getChecks() {
+        return Arrays.asList(
+            Internal.createCheck(this, DSL.name("user_dashboard_device_chk"), "(((device)::text = ANY ((ARRAY['DESKTOP'::character varying, 'MOBILE'::character varying])::text[])))", true)
+        );
     }
 
     @Override

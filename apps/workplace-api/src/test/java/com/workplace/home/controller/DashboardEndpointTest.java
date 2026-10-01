@@ -371,4 +371,167 @@ class DashboardEndpointTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.widgets[0].type").value("my_tasks"))
         .andExpect(jsonPath("$.widgets[0].chromeless").value(false));
   }
+
+  /** device 쿼리를 붙인 GET 요청 빌더(테스트 가독성용). */
+  private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder getDash(
+      long userId, String device) {
+    var b = get("/api/v1/me/dashboard").header("Authorization", "Bearer " + tokenFor(userId));
+    return device == null ? b : b.param("device", device);
+  }
+
+  /** device 쿼리를 붙인 PUT 요청 빌더. */
+  private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder putDash(
+      long userId, String device, List<DashboardWidgetConfig> widgets) throws Exception {
+    var b =
+        put("/api/v1/me/dashboard")
+            .header("Authorization", "Bearer " + tokenFor(userId))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(om.writeValueAsString(new DashboardUpdateRequest(widgets)));
+    return device == null ? b : b.param("device", device);
+  }
+
+  @Test
+  void get_without_device_returns_desktop_layout() throws Exception {
+    long userId = createUser("dv1");
+    // desktop 으로 저장한 레이아웃을 device 생략 GET 이 그대로 돌려준다(기존 클라이언트 호환).
+    mvc.perform(
+            putDash(
+                userId, "desktop", List.of(new DashboardWidgetConfig("calendar_today", 5, false))))
+        .andExpect(status().isOk());
+    mvc.perform(getDash(userId, null))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets.length()").value(1))
+        .andExpect(jsonPath("$.widgets[0].type").value("calendar_today"));
+  }
+
+  @Test
+  void blank_device_falls_back_to_desktop() throws Exception {
+    long userId = createUser("dv2");
+    // ?device= (빈 값)은 생략과 같다 — 400 이 아니라 데스크톱 기본 7종.
+    mvc.perform(getDash(userId, ""))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets.length()").value(7));
+  }
+
+  @Test
+  void get_mobile_returns_mobile_defaults_when_unset() throws Exception {
+    long userId = createUser("dv3");
+    mvc.perform(getDash(userId, "mobile"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets.length()").value(6))
+        .andExpect(jsonPath("$.widgets[0].type").value("synthesis"))
+        .andExpect(jsonPath("$.widgets[1].type").value("my_tasks"))
+        .andExpect(jsonPath("$.widgets[2].type").value("calendar_today"))
+        .andExpect(jsonPath("$.widgets[3].type").value("notifications"))
+        .andExpect(jsonPath("$.widgets[4].type").value("unread_mail"))
+        .andExpect(jsonPath("$.widgets[5].type").value("recent_chats"))
+        .andExpect(jsonPath("$.widgets[1].count").value(3))
+        .andExpect(jsonPath("$.widgets[1].collapsed").value(false))
+        .andExpect(jsonPath("$.widgets[1].hidden").value(false));
+  }
+
+  @Test
+  void device_is_case_insensitive() throws Exception {
+    long userId = createUser("dv4");
+    mvc.perform(getDash(userId, "MOBILE"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets.length()").value(6));
+  }
+
+  @Test
+  void mobile_and_desktop_layouts_are_independent() throws Exception {
+    long userId = createUser("dv5");
+    // 모바일 PUT 은 데스크톱 행을 만들거나 바꾸지 않는다 → 데스크톱은 여전히 기본 7종.
+    mvc.perform(putDash(userId, "mobile", List.of(new DashboardWidgetConfig("my_tasks", 3, false))))
+        .andExpect(status().isOk());
+    mvc.perform(getDash(userId, "desktop")).andExpect(jsonPath("$.widgets.length()").value(7));
+    // 반대로 데스크톱 PUT 은 모바일 행을 건드리지 않는다.
+    mvc.perform(
+            putDash(userId, "desktop", List.of(new DashboardWidgetConfig("unread_mail", 5, false))))
+        .andExpect(status().isOk());
+    mvc.perform(getDash(userId, "mobile"))
+        .andExpect(jsonPath("$.widgets.length()").value(1))
+        .andExpect(jsonPath("$.widgets[0].type").value("my_tasks"))
+        .andExpect(jsonPath("$.widgets[0].count").value(3));
+    mvc.perform(getDash(userId, "desktop"))
+        .andExpect(jsonPath("$.widgets.length()").value(1))
+        .andExpect(jsonPath("$.widgets[0].type").value("unread_mail"));
+  }
+
+  @Test
+  void put_then_get_roundtrips_collapsed_on_mobile() throws Exception {
+    long userId = createUser("dv6");
+    // collapsed 는 nullable — true/false/미지정(null) 세 상태가 Jackson 레코드 역직렬화(8번째 컴포넌트,
+    // 7인자 보조 생성자 공존)를 거쳐 그대로 왕복해야 한다.
+    List<DashboardWidgetConfig> widgets =
+        List.of(
+            new DashboardWidgetConfig("my_tasks", "my_tasks", 3, false, null, null, false, true),
+            new DashboardWidgetConfig(
+                "unread_mail", "unread_mail", 3, false, null, null, false, false),
+            new DashboardWidgetConfig("recent_chats", 3, false));
+    mvc.perform(putDash(userId, "mobile", widgets))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets[0].collapsed").value(true));
+    mvc.perform(getDash(userId, "mobile"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets[0].collapsed").value(true))
+        .andExpect(jsonPath("$.widgets[1].collapsed").value(false))
+        .andExpect(jsonPath("$.widgets[2].collapsed").doesNotExist());
+  }
+
+  @Test
+  void collapsed_json_body_is_deserialized() throws Exception {
+    long userId = createUser("dv7");
+    // 웹이 보내는 원시 JSON 그대로 — 레코드 보조 생성자가 있어도 정규 생성자로 collapsed 를 받는지.
+    String raw =
+        "{\"widgets\":[{\"id\":\"my_tasks\",\"type\":\"my_tasks\",\"count\":3,\"hidden\":false,\"collapsed\":true}]}";
+    mvc.perform(
+            put("/api/v1/me/dashboard")
+                .param("device", "mobile")
+                .header("Authorization", "Bearer " + tokenFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(raw))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets[0].collapsed").value(true));
+  }
+
+  @Test
+  void rejects_unknown_device_with_400() throws Exception {
+    long userId = createUser("dv8");
+    mvc.perform(getDash(userId, "tablet")).andExpect(status().isBadRequest());
+    mvc.perform(putDash(userId, "tablet", List.of(new DashboardWidgetConfig("my_tasks", 3, false))))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void mobile_get_ignores_legacy_desktop_row_and_cleans_mobile_row() throws Exception {
+    long userId = createUser("dv9");
+    // V142 이전 레거시 행(device 미지정 → DEFAULT 'DESKTOP', 문자열 배열)은 모바일 GET 으로 새지 않는다.
+    dsl.insertInto(USER_DASHBOARD)
+        .set(USER_DASHBOARD.USER_ID, userId)
+        .set(USER_DASHBOARD.WIDGETS, JSONB.valueOf("[\"calendar_today\"]"))
+        .execute();
+    mvc.perform(getDash(userId, "mobile"))
+        .andExpect(jsonPath("$.widgets.length()").value(6))
+        .andExpect(jsonPath("$.widgets[0].type").value("synthesis"));
+    // 모바일 행 안의 미등록 타입·시스템 위젯 중복은 GET 이 관용적으로 정리한다(PUT 은 400 — 기존 정책 공통).
+    dsl.insertInto(USER_DASHBOARD)
+        .set(USER_DASHBOARD.USER_ID, userId)
+        .set(USER_DASHBOARD.DEVICE, "MOBILE")
+        .set(
+            USER_DASHBOARD.WIDGETS,
+            JSONB.valueOf(
+                "[{\"id\":\"x\",\"type\":\"bogus\",\"count\":3,\"hidden\":false},"
+                    + "{\"id\":\"my_tasks\",\"type\":\"my_tasks\",\"count\":3,\"hidden\":false},"
+                    + "{\"id\":\"my_tasks2\",\"type\":\"my_tasks\",\"count\":3,\"hidden\":false}]"))
+        .execute();
+    mvc.perform(getDash(userId, "mobile"))
+        .andExpect(jsonPath("$.widgets.length()").value(1))
+        .andExpect(jsonPath("$.widgets[0].type").value("my_tasks"))
+        .andExpect(jsonPath("$.widgets[0].collapsed").doesNotExist());
+    // 데스크톱 레거시 행은 그대로 데스크톱에서 읽힌다.
+    mvc.perform(getDash(userId, null))
+        .andExpect(jsonPath("$.widgets.length()").value(1))
+        .andExpect(jsonPath("$.widgets[0].type").value("calendar_today"));
+  }
 }

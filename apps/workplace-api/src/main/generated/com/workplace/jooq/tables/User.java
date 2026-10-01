@@ -1067,9 +1067,9 @@ public class User extends TableImpl<UserRecord> {
 
     /**
      * Get the implicit many-to-many join path to the <code>public.tenant</code>
-     * table, via the <code>membership_tenant_id_fkey</code> key
+     * table
      */
-    public TenantPath membershipTenantIdFkey() {
+    public TenantPath tenant() {
         return membership().tenant();
     }
 
@@ -1079,14 +1079,6 @@ public class User extends TableImpl<UserRecord> {
      */
     public PlatformRolePath platformRole() {
         return platformUserRole().platformRole();
-    }
-
-    /**
-     * Get the implicit many-to-many join path to the <code>public.tenant</code>
-     * table, via the <code>user_dashboard_tenant_id_fkey</code> key
-     */
-    public TenantPath userDashboardTenantIdFkey() {
-        return userDashboard().tenant();
     }
 
     /**
