@@ -1,6 +1,9 @@
 package com.workplace.notify.push;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,11 +61,35 @@ public class WebPushGateway implements PushGateway {
           .uri(uri)
           .headers(h -> headers.forEach(h::set))
           .body(body)
-          .exchange((req, res) -> res.getStatusCode().value());
+          .exchange(
+              (req, res) -> {
+                int status = res.getStatusCode().value();
+                if (!res.getStatusCode().is2xxSuccessful()) logRejected(uri, status, res.getBody());
+                return status;
+              });
     } catch (RuntimeException e) {
       // 네트워크 오류·타임아웃·기타 런타임 예외를 모두 -1 로 흡수한다 — deliver 는 절대 던지지 않는다는 계약(PushGateway).
-      log.debug("[push] 전송 실패 host={}: {}", uri.getHost(), e.getMessage());
+      log.warn("[push] 전송 실패 host={}: {}", uri.getHost(), e.getMessage());
       return -1;
     }
+  }
+
+  /**
+   * 푸시 서비스 거부 응답 기록 — 사유가 남지 않으면 원인 파악이 어렵다(WP-152: Apple 이 VAPID sub 를 거부했지만 로그가 없어 DB 실패 횟수로 추적).
+   * endpoint 경로는 구독 토큰이라 host 만 남긴다. 404/410(만료 구독 정리)은 정상 흐름이라 debug. 본문(Apple {"reason":..} 등)은
+   * 200자까지.
+   */
+  private static void logRejected(URI uri, int status, InputStream body) {
+    if (status == 404 || status == 410) {
+      log.debug("[push] 만료 구독 host={} status={}", uri.getHost(), status);
+      return;
+    }
+    String reason;
+    try {
+      reason = new String(body.readNBytes(200), StandardCharsets.UTF_8).strip();
+    } catch (IOException e) {
+      reason = "";
+    }
+    log.warn("[push] 발송 거부 host={} status={} reason={}", uri.getHost(), status, reason);
   }
 }

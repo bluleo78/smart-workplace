@@ -7,6 +7,7 @@
 - HTTPS로 접근 가능한 서버(스테이징 또는 운영). `workplace.push.enabled=true`.
 - 서버에서 외부 푸시 서비스로 아웃바운드 연결 가능(`web.push.apple.com`, `fcm.googleapis.com`, `updates.push.services.mozilla.com`).
 - VAPID 공개 키·비공개 키 모두 설정됨 (`WORKPLACE_PUSH_VAPID_PUBLIC`, `WORKPLACE_PUSH_VAPID_PRIVATE` 환경 변수 또는 둘 다 없어서 자동 생성 DB 키).
+- **VAPID 연락처 `WORKPLACE_PUSH_SUBJECT` 에 실제 주소 설정**(예: `mailto:admin@회사도메인`). 미설정 시 기본값 `mailto:admin@localhost` 는 FCM 은 통과하지만 Apple(`web.push.apple.com`)이 거부해 **iPhone·iPad·Safari 만 알림이 오지 않는다**(WP-152). 잘못된 값이면 API 기동 로그에 `[push] VAPID subject ... ` 경고가 남는다.
 - 폐쇄망이면 `workplace.push.enabled=false` 설정 후 설정 화면에 "푸시 알림을 사용할 수 없습니다" 메시지가 정상 표시되는 것으로 검증.
 - 테스트 계정 2개(A: 수신자, B: 발신자), 두 계정이 같은 테넌트의 같은 채널 멤버. A는 두 번째 테넌트에도 소속.
 
@@ -189,3 +190,4 @@
   - 테스트ID: `push-disabled-notice`
   - 아웃바운드 HTTPS 불가 시 푸시 서비스로 전달 불가 → 알림 미도착(설계)
 - **VAPID 키**: 환경 변수 `WORKPLACE_PUSH_VAPID_PUBLIC` + `WORKPLACE_PUSH_VAPID_PRIVATE` 둘 다 설정되거나 둘 다 미설정이어야 함(이 경우 DB에서 자동 생성). 한쪽만 설정되면 환경 변수는 무시되고 DB 키가 대신 사용됨. 푸시 on/off는 `workplace.push.enabled` 값으로만 결정.
+- **발송 실패 추적**: 푸시 서비스가 거부하면 API 로그에 `[push] 발송 거부 host=... status=... reason=...`(네트워크 오류는 `[push] 전송 실패`)가 남는다. 구독별 연속 실패는 `push_subscription.failure_count`(5회면 구독 삭제), 성공은 `last_success_at` 로 확인.

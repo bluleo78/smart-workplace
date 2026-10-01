@@ -15,12 +15,17 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
-/** WebPushGateway — 헤더·본문 전달과 상태코드 그대로 반환(4xx/5xx 도 예외 없이), 예외 상황은 -1. */
+/** WebPushGateway — 헤더·본문 전달과 상태코드 그대로 반환(4xx/5xx 도 예외 없이), 예외 상황은 -1. 거부·실패는 사유를 로그로 남긴다. */
+@ExtendWith(OutputCaptureExtension.class)
 class WebPushGatewayTest {
 
   @Test
@@ -62,6 +67,60 @@ class WebPushGatewayTest {
     int status = gw.deliver("https://push.example.com/sub/3", new byte[] {1}, Map.of());
 
     assertThat(status).isEqualTo(-1);
+  }
+
+  /**
+   * 거부 응답(WP-152: Apple 403 BadJwtToken)은 status·host·사유를 warn 으로 남긴다. endpoint 경로(구독 토큰)는 로그에 남기지
+   * 않는다.
+   */
+  @Test
+  void deliver_logsRejectionReason_withoutEndpointPath(CapturedOutput output) {
+    RestClient.Builder b = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(b).build();
+    WebPushGateway gw = new WebPushGateway(b.build());
+    server
+        .expect(requestTo("https://web.push.apple.com/secret-token"))
+        .andRespond(
+            withStatus(HttpStatus.FORBIDDEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"reason\":\"BadJwtToken\"}"));
+
+    int status = gw.deliver("https://web.push.apple.com/secret-token", new byte[] {1}, Map.of());
+
+    assertThat(status).isEqualTo(403);
+    assertThat(output)
+        .contains("[push] 발송 거부 host=web.push.apple.com status=403")
+        .contains("BadJwtToken")
+        .doesNotContain("secret-token");
+  }
+
+  /** 만료 구독(410)은 정리 대상인 정상 흐름이라 warn 으로 남기지 않는다. */
+  @Test
+  void deliver_doesNotWarnOnGone(CapturedOutput output) {
+    RestClient.Builder b = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(b).build();
+    WebPushGateway gw = new WebPushGateway(b.build());
+    server
+        .expect(requestTo("https://push.example.com/sub/9"))
+        .andRespond(withStatus(HttpStatus.GONE));
+
+    gw.deliver("https://push.example.com/sub/9", new byte[] {1}, Map.of());
+
+    assertThat(output).doesNotContain("발송 거부");
+  }
+
+  @Test
+  void deliver_logsNetworkFailure(CapturedOutput output) {
+    RestClient.Builder b = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(b).build();
+    WebPushGateway gw = new WebPushGateway(b.build());
+    server
+        .expect(requestTo("https://push.example.com/sub/4"))
+        .andRespond(withException(new IOException("connection reset")));
+
+    gw.deliver("https://push.example.com/sub/4", new byte[] {1}, Map.of());
+
+    assertThat(output).contains("[push] 전송 실패 host=push.example.com");
   }
 
   @Test
