@@ -11,10 +11,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 계정 AI 사용 켬(off→on) 시 호출(WP-149) — 최근 안읽은·본문 적재된 미분석 INBOX 메일 50건에 ④ 개인 분석 + ⑤ 최종 판정을 실행해, 켠 직후
- * 홈·사이드바의 "회신 필요"가 의미를 갖게 한다. 읽은 메일은 대상이 아니다(판단 13). 배포 전 기준으로 분류된 메일(ai_needs_reply 있음)도 대상이 아니다 —
- * 그 메일들은 {@link MailReanalysisScheduler} 가 계정 ai_classify_version 이 낮으면 AI 를 켠 뒤 다음 주기(≤ 10분)에 1회 새
- * 기준으로 재분석한다(WP-151). 여기서 바로 부르지 않는 이유: 이 메서드는 계정 수정 트랜잭션 커밋 전에 비동기로 발사될 수 있어 버전 선점이 ai_enabled 를
- * 아직 false 로 읽을 수 있다. best-effort: 메시지별 실패는 삼킨다. LLM 은 트랜잭션 밖에서 부른다(#232).
+ * 홈·사이드바의 "회신 필요"가 의미를 갖게 한다. 읽은 메일은 대상이 아니다(판단 13). 배포 전 기준으로 분류된 메일(ai_needs_reply 있음 — 옛 true 는
+ * V147 이 NULL 로 되돌려 대상이 된다)도 대상이 아니다 — 그 메일들은 {@link MailReanalysisScheduler} 가 계정
+ * ai_classify_version 이 낮으면 AI 를 켠 뒤 다음 주기(≤ 10분)에 1회 새 기준으로 재분석한다(WP-151). 여기서 바로 부르지 않는 이유: 이
+ * 메서드는 계정 수정 트랜잭션 커밋 전에 비동기로 발사될 수 있어 버전 선점이 ai_enabled 를 아직 false 로 읽을 수 있다. best-effort: 메시지별 실패는
+ * 삼킨다. LLM 은 트랜잭션 밖에서 부른다(#232).
  *
  * <p>이름은 호출부 호환을 위해 유지하지만 실제 역할은 "AI 켬 개인 분석 백필"이다. {@link MailSummaryBackfillService} 의 ④ 패스와 달리
  * 본문을 새로 적재하지 않고(이미 적재된 메일만) 상한도 50건이라 의도적으로 분리해 둔다.

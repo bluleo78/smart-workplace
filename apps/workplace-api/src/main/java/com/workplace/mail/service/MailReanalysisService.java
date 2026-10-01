@@ -13,7 +13,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 새 기준 재분석(WP-151) — 회신필요 판정 기준이 바뀐 뒤(WP-149 ④ 개인 분석 + ⑤ 최종 판정) AI 사용 계정마다 정확히 1회, 새 흐름으로 아직 분석하지
- * 않은 안 읽은 INBOX 최근 {@value #LIMIT}건을 다시 판정해 배포 전 기준의 ai_needs_reply 를 바로잡는다.
+ * 않은 안 읽은 INBOX 최근 {@value #LIMIT}건을 다시 판정해 배포 전 기준의 ai_needs_reply 를 바로잡는다. 이 범위 밖의 옛 true 는 V147
+ * 이 NULL 로 되돌려 ④ 백필에 넘겼고, 옛 false 는 그대로 둔다.
  *
  * <p>1회 보장: 처리 직전에 email_account.ai_classify_version 을 조건부 UPDATE 로 선점한다 — 여러 레플리카·연속 주기가 같은 계정을
  * 집어도 한 곳만 실행한다. 비서가 없으면 선점하지 않아(버전 소진 방지) 비서 설정 후 다시 대상이 된다. 시도가 전부 실패하면(agent 다운 등) 선점을 되돌려 다음

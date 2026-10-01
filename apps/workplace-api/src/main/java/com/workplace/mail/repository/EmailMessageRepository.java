@@ -763,9 +763,9 @@ public class EmailMessageRepository {
    * WP-149 ④ 백필 대상 — INBOX 안읽음 중 개인 분석 미시도(ai_analyzed_at IS NULL) 최근 limit건(최신순). 동기화 후 ④ 패스와 AI 켬
    * 백필이 함께 쓴다. 읽은 메일은 선제 분석하지 않는다(판단 13 — 열람 시 요약 GET 이 온디맨드로 만든다).
    *
-   * <p>배포 전에 이미 분류된 메일(ai_needs_reply 있음)은 제외한다 — 새 기준 재분석은 WP-151 이 계정별 1회로 통제한다. WP-130: 본문을
-   * 적재·검증한 사본만 고른다 — AI 켬 백필은 본문을 적재하지 않으므로 미적재 행이 상한 슬롯을 차지한 채 건너뛰어지지 않게 한다. 미적재 새 메일의 ④ 는 본문 보충
-   * 직후(MailBackfillService → analyzeAfterLoad)가 맡는다.
+   * <p>배포 전 기준으로 분류된 메일(ai_needs_reply 있음 — 옛 false)은 제외한다(LLM 비용). 옛 true 는 V147 이 NULL 로 되돌려 여기서
+   * 점진 판정된다. WP-130: 본문을 적재·검증한 사본만 고른다 — AI 켬 백필은 본문을 적재하지 않으므로 미적재 행이 상한 슬롯을 차지한 채 건너뛰어지지 않게 한다.
+   * 미적재 새 메일의 ④ 는 본문 보충 직후(MailBackfillService → analyzeAfterLoad)가 맡는다.
    */
   public List<Long> listRecentUnreadUnanalyzedIds(long accountId, int limit) {
     return dsl.select(EMAIL_MESSAGE.ID)
