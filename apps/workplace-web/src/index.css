@@ -231,6 +231,20 @@
   }
 }
 
+/* 터치 기기 입력창 자동 확대 방지 — iOS Safari 는 글자 크기 16px 미만인 입력 요소에 포커스하면
+   화면을 확대해 모바일 레이아웃이 깨진다(채팅 입력창 text-sm=14px 등).
+   왜 viewport maximum-scale=1 이 아닌가: Android 에선 핀치 줌까지 막혀 접근성을 해친다.
+   왜 @layer 밖인가: 레이어 없는 규칙이 Tailwind utilities 레이어(text-sm 등)보다 우선해야 한다.
+   pointer: coarse 로 한정 — 데스크톱(마우스)의 기존 14px 밀도는 그대로 둔다. */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select,
+  [contenteditable]:not([contenteditable="false"]) {
+    font-size: 16px;
+  }
+}
+
 /* 전역 슬림 스크롤바 — OS 기본(약 15px) 대신 얇은 thumb + 투명 트랙. 항상 표시한다.
    왜 항상 표시: 자동 숨김을 전역에 걸면 스크롤 가능 여부가 안 보이는 영역이 생긴다
    (macOS 오버레이 스크롤바에선 티가 안 나고 Windows/Linux 에서만 드러나는 회귀).
