@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
+import com.workplace.mail.dto.ContentSource;
 import com.workplace.mail.dto.EmailAttachmentMeta;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
@@ -27,6 +28,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -62,14 +64,31 @@ public class EmailMessageRepository {
   }
 
   /**
+   * 공유 content 의 본문 유래 값(본문·스니펫·AI 요약/분류)은 이 envelope 가 자기 사본을 적재·검증한 뒤(fetched_at)에만 노출한다(WP-130).
+   * 동기화 지문은 발신자가 정할 수 있는 헤더라, 검증 전에 공유 본문을 보여 주면 위조 메일로 다른 사람 본문을 열람할 수 있다. 별칭을 원래 컬럼명으로 둬 {@code
+   * r.get(EMAIL_CONTENT.X)} 조회를 그대로 쓴다.
+   */
+  private static <T> Field<T> verified(Field<T> contentField) {
+    return DSL.when(EMAIL_MESSAGE.FETCHED_AT.isNotNull(), contentField).as(contentField.getName());
+  }
+
+  /**
    * 파싱된 메시지를 저장. (account_id, folder_id, imap_uid) 유니크 충돌 시 무시(재동기화 멱등성). 새로 삽입되면 생성 id 를, 이미 있으면
    * empty 를 반환한다.
    */
   public Optional<Long> insertIgnoreConflict(long accountId, long folderId, ParsedMessage m) {
+    // 이미 있는 envelope(재동기화)면 content 를 만들지 않는다 — 지문 없는 content 는 매번 새 행이 생겨 고아가 된다(WP-130)
+    if (dsl.fetchExists(
+        EMAIL_MESSAGE,
+        EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId),
+        EMAIL_MESSAGE.FOLDER_ID.eq(folderId),
+        EMAIL_MESSAGE.IMAP_UID.eq(m.imapUid()))) {
+      return Optional.empty();
+    }
     // 현재 GUC 와 일치하는 테넌트 ID 로 email_content 를 공유 생성(find-or-create).
     // TenantContext.get() 은 TenantAwareTransactionManager 가 GUC 로 주입한 값과 동일하다.
     long tenantId = requireTenantId();
-    long contentId = contentRepo.findOrCreate(tenantId, m);
+    long contentId = contentRepo.findOrCreate(tenantId, m, ContentSource.IMAP);
     return dsl.insertInto(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
         .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
@@ -110,9 +129,13 @@ public class EmailMessageRepository {
    */
   public boolean upsertByProviderId(
       long accountId, long folderId, ParsedMessage m, String providerMessageId) {
+    // 이미 있는 envelope(delta 재전송)면 content 를 만들지 않는다 — 지문 없는 content 는 매번 새 행이 생겨 고아가 된다(WP-130)
+    if (findByProviderId(accountId, providerMessageId).isPresent()) {
+      return false;
+    }
     // Graph 경로도 동일하게 email_content 공유(find-or-create).
     long tenantId = requireTenantId();
-    long contentId = contentRepo.findOrCreate(tenantId, m);
+    long contentId = contentRepo.findOrCreate(tenantId, m, ContentSource.GRAPH);
     return dsl.insertInto(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
         .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
@@ -220,7 +243,11 @@ public class EmailMessageRepository {
       where = where.and(EMAIL_MESSAGE.SEEN.isFalse());
     }
     if (category != null && !category.isBlank()) {
-      where = where.and(EMAIL_CONTENT.AI_CATEGORY.eq(category)); // 슬라이스②: content 출처
+      // 슬라이스②: content 출처. WP-130: 검증 전 envelope 로 공유 content 의 분류를 추론하지 못하게 fetched_at 필수
+      where =
+          where
+              .and(EMAIL_CONTENT.AI_CATEGORY.eq(category))
+              .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull());
     }
     if (needsReply) {
       // 회신필요 통일 술어: AI 판정=true + 사용자 처리완료 아님
@@ -237,14 +264,19 @@ public class EmailMessageRepository {
       // "user@domain.com" 같은 패턴은 FTS 로 매칭이 불가함).
       String q = query.trim();
       String like = "%" + q + "%";
+      // WP-130: 본문 FTS 는 자기 사본을 적재·검증한 envelope 에만 — 검증 전 매칭 여부로 공유 본문 단어를 추론하지 못하게 한다
       Condition ftsCond =
-          DSL.condition("email_content.search_tv @@ plainto_tsquery('simple', {0})", q);
+          DSL.condition("email_content.search_tv @@ plainto_tsquery('simple', {0})", q)
+              .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull());
       Condition envelopeCond =
           EMAIL_MESSAGE
               .FROM_ADDRESS
               .likeIgnoreCase(like)
               .or(EMAIL_MESSAGE.FROM_NAME.likeIgnoreCase(like));
-      where = where.and(ftsCond.or(envelopeCond));
+      // 검증 전 envelope 는 본문 FTS 대신 제목(동기화 지문의 공개 헤더)만 부분 일치로 찾는다 — 적재 전 새 메일도 제목 검색 가능
+      Condition unverifiedSubjectCond =
+          EMAIL_MESSAGE.FETCHED_AT.isNull().and(EMAIL_CONTENT.SUBJECT.likeIgnoreCase(like));
+      where = where.and(ftsCond.or(unverifiedSubjectCond).or(envelopeCond));
     }
     return dsl.select(
             EMAIL_MESSAGE.ID,
@@ -253,11 +285,11 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.FROM_ADDRESS,
             EMAIL_MESSAGE.FROM_NAME,
             EMAIL_CONTENT.SUBJECT, // content 에서 읽음
-            EMAIL_CONTENT.SNIPPET, // content 에서 읽음
+            verified(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
-            EMAIL_CONTENT.AI_CATEGORY, // 슬라이스②: content 에서 읽음
+            verified(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
             EMAIL_MESSAGE.AI_NEEDS_REPLY,
             EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT) // P2
         .from(EMAIL_MESSAGE)
@@ -325,11 +357,11 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.FROM_ADDRESS,
             EMAIL_MESSAGE.FROM_NAME,
             EMAIL_CONTENT.SUBJECT, // content 에서 읽음
-            EMAIL_CONTENT.SNIPPET, // content 에서 읽음
+            verified(EMAIL_CONTENT.SNIPPET), // content 에서 읽음
             EMAIL_MESSAGE.RECEIVED_AT,
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
-            EMAIL_CONTENT.AI_CATEGORY, // 슬라이스②: content 에서 읽음
+            verified(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
             EMAIL_MESSAGE.AI_NEEDS_REPLY,
             EMAIL_MESSAGE.NEEDS_REPLY_DONE_AT) // P2: toSummary 매퍼에서 필요
         .from(EMAIL_MESSAGE)
@@ -385,9 +417,10 @@ public class EmailMessageRepository {
             null,
             List.of());
 
-    // email_content find-or-create + 본문 즉시 적재(보낸메일은 전송 시점에 본문 확정)
+    // 본문 즉시 적재(보낸메일은 전송 시점에 본문 확정)
     long tenantId = requireTenantId();
-    long contentId = contentRepo.findOrCreate(tenantId, sentAsMsg);
+    // WP-130: 수신 사본과 공유하지 않는 전용 content — 아래 updateBody 는 첫 적재자 선점 없이 무조건 기록하므로 전용이어야 안전하다
+    long contentId = contentRepo.createDedicated(tenantId, sentAsMsg);
     contentRepo.updateBody(contentId, m.bodyText(), m.bodyHtml(), m.snippet());
 
     return dsl.insertInto(EMAIL_MESSAGE)
@@ -409,6 +442,8 @@ public class EmailMessageRepository {
         .set(EMAIL_MESSAGE.SEEN, true)
         .set(EMAIL_MESSAGE.HAS_ATTACHMENT, false)
         .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
+        // 본문을 직접 기록한 전용 content — 적재·검증 완료로 표시해야 본문이 노출된다(WP-130 verified)
+        .set(EMAIL_MESSAGE.FETCHED_AT, OffsetDateTime.now())
         .returning(EMAIL_MESSAGE.ID)
         .fetchOne()
         .get(EMAIL_MESSAGE.ID);
@@ -460,8 +495,8 @@ public class EmailMessageRepository {
                 EMAIL_MESSAGE.SENT_AT,
                 EMAIL_MESSAGE.RECEIVED_AT,
                 EMAIL_MESSAGE.SEEN,
-                EMAIL_CONTENT.BODY_TEXT,
-                EMAIL_CONTENT.BODY_HTML)
+                verified(EMAIL_CONTENT.BODY_TEXT),
+                verified(EMAIL_CONTENT.BODY_HTML))
             .from(EMAIL_MESSAGE)
             .join(EMAIL_ACCOUNT)
             .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -512,9 +547,17 @@ public class EmailMessageRepository {
     return v == null || v.isEmpty() ? null : v;
   }
 
+  /** envelope 를 다른 content 로 옮긴다(WP-130 공유 content 분리). */
+  public void repointContent(long messageId, long contentId) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
+
   /**
    * per-envelope 본문 적재 완료 마커(V97). 이 envelope 의 본문/첨부 적재가 완료됐음을 기록한다. 공유
-   * email_content.body_fetched_at 과 분리된 per-envelope 게이트로, 같은 message_id 를 수신한 다른 수신자의 fetch 가 이
+   * email_content.body_fetched_at 과 분리된 per-envelope 게이트로, 같은 content 를 공유하는 다른 수신자의 fetch 가 이
    * envelope 를 건너뛰지 않도록 보장한다.
    */
   public void markFetched(long messageId) {
@@ -566,12 +609,14 @@ public class EmailMessageRepository {
 
   /** 분류 결과 저장(동기화 잡, best-effort) — 슬라이스②: category 는 공유 content, needs_reply 는 envelope(사람별). */
   public void updateClassification(long messageId, String category, boolean needsReply) {
-    // category → 공유 email_content (envelope 조인으로 content 특정)
+    // category → 공유 email_content (envelope 조인으로 content 특정).
+    // WP-130: 자기 사본을 적재·검증한 envelope 만 공유 분류를 쓴다 — 검증 전 envelope 가 다른 수신자의 분류를 덮어쓰지 못하게.
     dsl.update(EMAIL_CONTENT)
         .set(EMAIL_CONTENT.AI_CATEGORY, category)
         .from(EMAIL_MESSAGE)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
         .execute();
     // needs_reply → envelope 잔류(#485 통일 술어 소비)
     dsl.update(EMAIL_MESSAGE)
@@ -713,6 +758,8 @@ public class EmailMessageRepository {
         .and(EMAIL_FOLDER.NAME.eq("INBOX"))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
         .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isNull())
+        // WP-130: 본문 적재·검증 전 envelope 는 스니펫이 가려져 분류 품질이 떨어지므로 적재 후에 분류한다
+        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
         .fetch(EMAIL_MESSAGE.ID);
@@ -724,8 +771,8 @@ public class EmailMessageRepository {
    * <p>IMAP 계정: imap_uid IS NOT NULL 조건으로 필터. Graph 계정: provider_message_id 가 있으므로 포함.
    *
    * <p>V97(per-envelope): 미적재 판정을 email_message.fetched_at IS NULL 기준으로 변경. content.body_fetched_at
-   * 이 설정된 경우에도 이 envelope 의 fetched_at 이 NULL 이면 재적재 대상이 된다 — 같은 message_id 를 수신한 두 번째 수신자도 자신의 첨부
-   * 행을 생성할 수 있도록 보장한다(공유 콘텐츠 첨부 누락 회귀 수정).
+   * 이 설정된 경우에도 이 envelope 의 fetched_at 이 NULL 이면 재적재 대상이 된다 — 같은 content 를 공유하는 두 번째 수신자도 자신의 첨부 행을
+   * 생성할 수 있도록 보장한다(공유 콘텐츠 첨부 누락 회귀 수정).
    */
   public List<BodyTarget> listMissingBody(long accountId, int limit) {
     return dsl.select(
@@ -874,9 +921,9 @@ public class EmailMessageRepository {
             EMAIL_ACCOUNT.EMAIL_ADDRESS,
             EMAIL_CONTENT.SUBJECT, // content 에서 읽음
             EMAIL_MESSAGE.FROM_ADDRESS,
-            EMAIL_CONTENT.BODY_TEXT, // content 에서 읽음
-            EMAIL_CONTENT.BODY_HTML, // content 에서 읽음
-            EMAIL_CONTENT.AI_SUMMARY, // 슬라이스②: 공통(객관적) 요약 — content 공유
+            verified(EMAIL_CONTENT.BODY_TEXT), // content 에서 읽음
+            verified(EMAIL_CONTENT.BODY_HTML), // content 에서 읽음
+            verified(EMAIL_CONTENT.AI_SUMMARY), // 슬라이스②: 공통(객관적) 요약 — content 공유
             EMAIL_MESSAGE.AI_PERSONAL_SUMMARY, // Task3: 개인 요약 — envelope(사람별)
             EMAIL_CONTENT.AI_SUMMARIZED_AT, // #484: 공통 요약 시도 여부
             EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT, // #484: 개인 요약 시도 여부
@@ -926,8 +973,8 @@ public class EmailMessageRepository {
     return dsl.select(
             EMAIL_MESSAGE.FROM_ADDRESS,
             EMAIL_MESSAGE.RECEIVED_AT,
-            EMAIL_CONTENT.BODY_TEXT, // content 에서 읽음
-            EMAIL_CONTENT.BODY_HTML) // content 에서 읽음
+            verified(EMAIL_CONTENT.BODY_TEXT), // content 에서 읽음
+            verified(EMAIL_CONTENT.BODY_HTML)) // content 에서 읽음
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -959,7 +1006,7 @@ public class EmailMessageRepository {
     return dsl.select(
             EMAIL_CONTENT.SUBJECT, // content 에서 읽음
             EMAIL_MESSAGE.FROM_ADDRESS,
-            EMAIL_CONTENT.SNIPPET) // content 에서 읽음
+            verified(EMAIL_CONTENT.SNIPPET)) // content 에서 읽음
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))

@@ -8,6 +8,7 @@ import static com.workplace.jooq.tables.EmailContent.EMAIL_CONTENT;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.mail.dto.ContentSource;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
@@ -218,7 +219,9 @@ class MailContentGcIntegrationTest extends IntegrationTestBase {
     new TransactionTemplate(txManager)
         .executeWithoutResult(
             status -> {
-              long contentId = contentRepo.findOrCreate(TENANT_ID, msg("<gc-shared-a@corp>"));
+              long contentId =
+                  contentRepo.findOrCreate(
+                      TENANT_ID, msg("<gc-shared-a@corp>"), ContentSource.GRAPH);
               contentIdHolder[0] = contentId;
               contentIds.add(contentId);
               long[] seedA = insertEnvelope(TENANT_ID, contentId);
@@ -258,7 +261,8 @@ class MailContentGcIntegrationTest extends IntegrationTestBase {
     new TransactionTemplate(txManager)
         .executeWithoutResult(
             status -> {
-              long contentId = contentRepo.findOrCreate(TENANT_ID, msg("<gc-prov-b@corp>"));
+              long contentId =
+                  contentRepo.findOrCreate(TENANT_ID, msg("<gc-prov-b@corp>"), ContentSource.GRAPH);
               contentIdHolder[0] = contentId;
               contentIds.add(contentId);
               long nano = System.nanoTime();
@@ -363,7 +367,9 @@ class MailContentGcIntegrationTest extends IntegrationTestBase {
     new TransactionTemplate(txManager)
         .executeWithoutResult(
             status -> {
-              long cId = contentRepo.findOrCreate(TENANT_ID, msg("<gc-orphan-c@corp>"));
+              long cId =
+                  contentRepo.findOrCreate(
+                      TENANT_ID, msg("<gc-orphan-c@corp>"), ContentSource.GRAPH);
               contentIdHolder[0] = cId;
               contentIds.add(cId);
             });

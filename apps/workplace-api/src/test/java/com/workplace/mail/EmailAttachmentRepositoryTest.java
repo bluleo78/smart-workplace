@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.mail.dto.ContentSource;
 import com.workplace.mail.dto.ParsedAttachment;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.repository.ContentAttachmentRepository;
@@ -119,7 +120,7 @@ class EmailAttachmentRepositoryTest extends IntegrationTestBase {
             null,
             null,
             List.of());
-    long contentId = contentRepo.findOrCreate(TENANT_ID, pm);
+    long contentId = contentRepo.findOrCreate(TENANT_ID, pm, ContentSource.GRAPH);
 
     // envelope(email_message) 생성
     Long messageId =

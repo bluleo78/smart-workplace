@@ -243,6 +243,7 @@ class MailSummarySchedulerTest extends IntegrationTestBase {
             .where(EMAIL_MESSAGE.ID.eq(envId))
             .fetchOneInto(Long.class);
     contentRepo.updateBody(contentId, "스케줄러 테스트 본문 내용", null, "스니펫");
+    TestFixtures.markMailFetched(dsl, envId);
     return envId;
   }
 

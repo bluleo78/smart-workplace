@@ -270,6 +270,20 @@ public class EmailContentRecord extends UpdatableRecordImpl<EmailContentRecord> 
         return (OffsetDateTime) get(16);
     }
 
+    /**
+     * Setter for <code>public.email_content.fingerprint</code>.
+     */
+    public void setFingerprint(String value) {
+        set(17, value);
+    }
+
+    /**
+     * Getter for <code>public.email_content.fingerprint</code>.
+     */
+    public String getFingerprint() {
+        return (String) get(17);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -293,7 +307,7 @@ public class EmailContentRecord extends UpdatableRecordImpl<EmailContentRecord> 
     /**
      * Create a detached, initialised EmailContentRecord
      */
-    public EmailContentRecord(Long id, Long tenantId, String messageId, String contentHash, String subject, String bodyText, String bodyHtml, String snippet, String inReplyTo, String mailReferences, String threadId, OffsetDateTime bodyFetchedAt, OffsetDateTime createdAt, Object searchTv, String aiSummary, String aiCategory, OffsetDateTime aiSummarizedAt) {
+    public EmailContentRecord(Long id, Long tenantId, String messageId, String contentHash, String subject, String bodyText, String bodyHtml, String snippet, String inReplyTo, String mailReferences, String threadId, OffsetDateTime bodyFetchedAt, OffsetDateTime createdAt, Object searchTv, String aiSummary, String aiCategory, OffsetDateTime aiSummarizedAt, String fingerprint) {
         super(EmailContent.EMAIL_CONTENT);
 
         setId(id);
@@ -313,6 +327,7 @@ public class EmailContentRecord extends UpdatableRecordImpl<EmailContentRecord> 
         setAiSummary(aiSummary);
         setAiCategory(aiCategory);
         setAiSummarizedAt(aiSummarizedAt);
+        setFingerprint(fingerprint);
         resetChangedOnNotNull();
     }
 }

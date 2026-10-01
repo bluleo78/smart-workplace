@@ -118,6 +118,28 @@ public class EmailAttachmentRepository {
   }
 
   /**
+   * envelope 의 첨부 행을 모두 지운다(WP-130). 부분 적재로 남은 행이 이전 content 의 manifest 를 가리킨 채 남으면 목록에 엉뚱한 첨부가
+   * 보이고, 그 content 의 고아 삭제가 RESTRICT FK 에 막힌다.
+   */
+  public void deleteByMessage(long messageId) {
+    dsl.deleteFrom(EMAIL_ATTACHMENT).where(EMAIL_ATTACHMENT.MESSAGE_ID.eq(messageId)).execute();
+  }
+
+  /**
+   * 첨부 목록을 envelope 첨부로 삽입한다. ordinal = 목록 인덱스(0-based) — content_attachment manifest 의 안정 좌표이자
+   * {@link ContentAttachmentRepository#matchesManifest} 비교 기준.
+   *
+   * <p>교체 삽입: 이 envelope 의 기존 첨부 행을 먼저 지운다. 적재 중 실패(로더가 예외를 삼켜 커밋됨)로 남은 부분 행이 재시도 때 중복되거나, 분리 전
+   * content 의 manifest 를 계속 가리키지 않게 한다. 호출 시점은 본문 미적재(fetched_at NULL) 또는 첨부 행이 없는 envelope 뿐이다.
+   */
+  public void insertAll(long messageId, long contentId, List<ParsedAttachment> attachments) {
+    deleteByMessage(messageId);
+    for (int i = 0; i < attachments.size(); i++) {
+      insert(messageId, contentId, i, attachments.get(i));
+    }
+  }
+
+  /**
    * Content-ID 지연 백필 후보(WP-68) — Graph 계정 소유 메시지의 이미지 첨부 중 mime_content_id 가 NULL 이고 단건 조회 가능한
    * (provider_attachment_id 보유) 소용량 행.
    *

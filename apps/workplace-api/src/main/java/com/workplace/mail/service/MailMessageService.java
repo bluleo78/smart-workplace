@@ -139,13 +139,17 @@ public class MailMessageService {
   public EmailMessageDetail get(long userId, long messageId) {
     EmailMessageDetail detail = loadDetail(userId, messageId);
     if (detail.bodyText() == null && detail.bodyHtml() == null) {
-      // 미적재 대상 조회는 짧은 트랜잭션으로. imap_uid 없는 로컬 보낸메일/이미 적재된 건은 가드로 스킵.
+      // 미적재 대상 조회는 짧은 트랜잭션으로. 로컬 보낸메일(서버 좌표 없음)/이미 적재된 건은 가드로 스킵.
       BodyTarget target =
           txTemplate.execute(
               status ->
                   messageRepo
                       .findBodyTargetForUser(userId, messageId)
-                      .filter(t -> t.bodyFetchedAt() == null && t.imapUid() != 0)
+                      // WP-130: Graph(provider_message_id)도 온디맨드 적재 — 적재·검증 전엔 공유 본문이 가려진다
+                      .filter(
+                          t ->
+                              t.bodyFetchedAt() == null
+                                  && (t.imapUid() != 0 || t.providerMessageId() != null))
                       .orElse(null));
       // 본문 적재(IMAP I/O + 소유 검증·쓰기)는 메시지 단위 짧은 트랜잭션으로 감싼다 — fetchBody 의 RLS write 에 GUC 가 주입되도록.
       if (target != null) {

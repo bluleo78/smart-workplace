@@ -3,6 +3,7 @@ package com.workplace.mail.service;
 import com.workplace.mail.dto.ParsedAttachment;
 import com.workplace.mail.dto.ParsedBody;
 import com.workplace.mail.dto.ParsedMessage;
+import com.workplace.mail.util.MailStructureSignature;
 import jakarta.mail.Address;
 import jakarta.mail.Flags;
 import jakarta.mail.Message;
@@ -86,7 +87,9 @@ public class MailMessageParser {
         null, // bodyText — 본문 적재 시 확정
         null, // bodyHtml — 본문 적재 시 확정
         null, // snippet — 본문 적재 시 확정
-        java.util.List.of());
+        java.util.List.of(),
+        // WP-130: 공유 지문 재료 — 선인출된 BODYSTRUCTURE 만 사용(본문 fetch 없음), 실패 시 null(공유 안 함)
+        MailStructureSignature.of(msg));
   }
 
   /** 본문/첨부만 파싱(OnDemand/백그라운드 본문 적재용). collectBody 로 IMAP 본문을 내려받아 text/html/스니펫/첨부를 수집한다. */

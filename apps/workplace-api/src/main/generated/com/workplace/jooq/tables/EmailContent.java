@@ -154,6 +154,11 @@ public class EmailContent extends TableImpl<EmailContentRecord> {
      */
     public final TableField<EmailContentRecord, OffsetDateTime> AI_SUMMARIZED_AT = createField(DSL.name("ai_summarized_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.email_content.fingerprint</code>.
+     */
+    public final TableField<EmailContentRecord, String> FINGERPRINT = createField(DSL.name("fingerprint"), SQLDataType.VARCHAR(64), this, "");
+
     private EmailContent(Name alias, Table<EmailContentRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -223,7 +228,7 @@ public class EmailContent extends TableImpl<EmailContentRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.EMAIL_CONTENT_SEARCH_TV_IDX, Indexes.EMAIL_CONTENT_TENANT_HASH_IDX, Indexes.EMAIL_CONTENT_TENANT_MESSAGE_UK);
+        return Arrays.asList(Indexes.EMAIL_CONTENT_SEARCH_TV_IDX, Indexes.EMAIL_CONTENT_TENANT_HASH_IDX, Indexes.EMAIL_CONTENT_TENANT_MESSAGE_FP_UK);
     }
 
     @Override

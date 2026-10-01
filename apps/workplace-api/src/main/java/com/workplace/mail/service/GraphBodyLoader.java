@@ -8,8 +8,8 @@ import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.ParsedAttachment;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.EmailAttachmentRepository;
-import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,8 +38,8 @@ public class GraphBodyLoader implements MailBodyLoader {
 
   private final EmailMessageRepository messageRepo;
 
-  /** Task5: 본문·스니펫을 email_content 에 기록한다. */
-  private final EmailContentRepository contentRepo;
+  /** WP-130: 본문을 공유 content 에 기록·검증(불일치 시 분리). */
+  private final MailContentShareGate shareGate;
 
   private final EmailAttachmentRepository attachmentRepo;
   private final GraphTokenService graphTokenService;
@@ -60,11 +60,11 @@ public class GraphBodyLoader implements MailBodyLoader {
    * bodyHtml 에, "text" 이면 bodyText 에 저장한다. 첨부 메타는 hasAttachments=true 이거나 본문이 cid: 를 참조할 때만 추가
    * 조회한다.
    *
-   * <p>Task5: 본문·스니펫은 email_content 에 기록(contentRepo.updateBody). has_attachment 만 envelope 에 남긴다.
-   * contentId=0 이면 content 미연결 — false 반환.
+   * <p>Task5: 본문·스니펫은 email_content 에 기록(MailContentShareGate — 첫 적재자 선점, 불일치 시 분리). has_attachment
+   * 만 envelope 에 남긴다. contentId=0 이면 content 미연결 — false 반환.
    *
-   * @return true: 적재 성공(contentRepo.updateBody 호출 완료). false: providerMessageId
-   *     없음·contentId=0·네트워크/파싱 실패(재시도 가능). 적재 실패 시 분류 skip — 빈 스니펫 기반 영구 오분류 방지(I1 수정).
+   * @return true: 적재 성공(공유 content 기록·검증 완료). false: providerMessageId 없음·contentId=0·네트워크/파싱
+   *     실패(재시도 가능). 적재 실패 시 분류 skip — 빈 스니펫 기반 영구 오분류 방지(I1 수정).
    */
   @Override
   public boolean loadBody(long userId, BodyTarget target, EmailAccountResponse account) {
@@ -103,18 +103,22 @@ public class GraphBodyLoader implements MailBodyLoader {
       String snippet = msgResp.bodyPreview();
       boolean hasAttachment = Boolean.TRUE.equals(msgResp.hasAttachments());
 
-      // 본문·스니펫은 공유 content 에 기록 — 같은 message_id 를 수신한 다른 envelope 도 즉시 본문 보유
-      contentRepo.updateBody(target.contentId(), bodyText, bodyHtml, snippet);
+      // 첨부 메타 조회 — hasAttachments=true 이거나 본문이 cid: 를 참조할 때만 추가 Graph 호출.
+      // Graph hasAttachments 는 인라인 첨부를 세지 않아, 인라인 이미지만 있는 메일도 cid 참조로 판정해 적재한다(WP-68).
+      // WP-130: 공유 content 검증에 첨부 목록이 필요하므로 본문 기록보다 먼저 조회한다.
+      boolean bodyRefsCid = InlineImageSupport.refsCid(bodyHtml);
+      List<ParsedAttachment> attachments =
+          hasAttachment || bodyRefsCid
+              ? fetchAttachmentMeta(accessToken, providerMessageId, target.messageId(), bodyRefsCid)
+              : List.of();
+
+      // 본문·스니펫은 공유 content 에 기록 — WP-130: 이미 기록돼 있으면 해시·첨부 목록을 검증하고, 다르면 이 envelope 만 분리
+      long contentId =
+          shareGate.storeFetchedBody(
+              target.messageId(), target.contentId(), bodyText, bodyHtml, snippet, attachments);
       // has_attachment 는 envelope 속성(첨부 존재 표시)으로 유지
       messageRepo.markHasAttachment(target.messageId(), hasAttachment);
-
-      // 첨부 메타 적재 — hasAttachments=true 이거나 본문이 cid: 를 참조할 때만 추가 Graph 호출.
-      // Graph hasAttachments 는 인라인 첨부를 세지 않아, 인라인 이미지만 있는 메일도 cid 참조로 판정해 적재한다(WP-68).
-      boolean bodyRefsCid = InlineImageSupport.refsCid(bodyHtml);
-      if (hasAttachment || bodyRefsCid) {
-        loadAttachmentMeta(
-            accessToken, providerMessageId, target.messageId(), target.contentId(), bodyRefsCid);
-      }
+      attachmentRepo.insertAll(target.messageId(), contentId, attachments);
       // V97: per-envelope 마커 — 이 envelope 의 본문/첨부 적재가 완료됐음을 기록
       messageRepo.markFetched(target.messageId());
       return true;
@@ -127,22 +131,18 @@ public class GraphBodyLoader implements MailBodyLoader {
   }
 
   /**
-   * Graph 첨부 메타 조회 후 DB 에 삽입한다.
+   * Graph 첨부 메타를 조회한다(DB 쓰기 없음 — 삽입은 {@link EmailAttachmentRepository#insertAll}). 실패는 best-effort
+   * 로 빈 목록.
    *
    * <p>GET /me/messages/{id}/attachments?$select=id,name,contentType,size,isInline —
    * 바이너리(contentBytes) 는 요청하지 않는다(메타만). id 를 provider_attachment_id 로 저장해 다운로드 시 ordinal 의존 없이 직접
-   * 조회할 수 있도록 한다. ordinal 은 Graph 응답 배열 인덱스(0-based)로 할당해 content_attachment manifest 의 안정 좌표로
-   * 사용한다.
+   * 조회할 수 있도록 한다. 반환 목록의 인덱스가 ordinal 이다.
    *
    * <p>WP-68: 본문이 cid: 를 참조하면 인라인·소용량 첨부만 단건 조회해 Content-ID 를 함께 저장한다(프론트가 cid → 첨부 매칭). 서명 로고 같은
    * 인라인 첨부는 거의 모든 메일에 있으므로, 본문에 cid 참조가 없으면 추가 호출하지 않는다.
    */
-  void loadAttachmentMeta(
-      String accessToken,
-      String providerMessageId,
-      long messageId,
-      long contentId,
-      boolean bodyRefsCid) {
+  List<ParsedAttachment> fetchAttachmentMeta(
+      String accessToken, String providerMessageId, long messageId, boolean bodyRefsCid) {
     try {
       String url =
           "/me/messages/"
@@ -152,11 +152,10 @@ public class GraphBodyLoader implements MailBodyLoader {
           graphApiClient.get(accessToken, url, GraphAttachmentList.class);
 
       if (listResp == null || listResp.value() == null) {
-        return;
+        return List.of();
       }
-      List<GraphAttachmentItem> items = listResp.value();
-      for (int i = 0; i < items.size(); i++) {
-        GraphAttachmentItem item = items.get(i);
+      List<ParsedAttachment> result = new ArrayList<>();
+      for (GraphAttachmentItem item : listResp.value()) {
         long size = item.size() != null ? item.size() : 0L;
         String mimeContentId =
             bodyRefsCid
@@ -164,20 +163,20 @@ public class GraphBodyLoader implements MailBodyLoader {
                     && size <= GraphInlineContentIdResolver.MAX_INLINE_BYTES
                 ? contentIdOrNull(accessToken, providerMessageId, item)
                 : null;
-        ParsedAttachment parsed =
+        result.add(
             new ParsedAttachment(
                 item.name(),
                 item.contentType(),
                 size,
                 mimeContentId,
                 item.id() // Graph 첨부 안정 id — 다운로드 경로에서 사용
-                );
-        // ordinal = Graph 응답 배열 인덱스(0-based). content_attachment find-or-create 로 manifest 공유.
-        attachmentRepo.insert(messageId, contentId, i, parsed);
+                ));
       }
+      return result;
     } catch (Exception e) {
-      // 첨부 메타 적재 실패는 best-effort — 본문 적재는 이미 완료
-      log.warn("Graph 첨부 메타 적재 실패 (messageId={}): {}", messageId, e.toString());
+      // 첨부 메타 조회 실패는 best-effort — 본문 적재는 계속(첨부 없음으로 처리)
+      log.warn("Graph 첨부 메타 조회 실패 (messageId={}): {}", messageId, e.toString());
+      return List.of();
     }
   }
 

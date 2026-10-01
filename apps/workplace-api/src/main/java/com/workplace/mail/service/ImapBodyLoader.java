@@ -9,12 +9,12 @@ import com.workplace.mail.dto.ParsedBody;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository;
-import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.Store;
 import jakarta.mail.UIDFolder;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -32,8 +32,8 @@ public class ImapBodyLoader implements MailBodyLoader {
   private final EmailAccountRepository accountRepo;
   private final EmailMessageRepository messageRepo;
 
-  /** Task5: 본문·스니펫을 email_content 에 기록한다. */
-  private final EmailContentRepository contentRepo;
+  /** WP-130: 본문을 공유 content 에 기록·검증(불일치 시 분리). */
+  private final MailContentShareGate shareGate;
 
   private final EmailAttachmentRepository attachmentRepo;
   private final EncryptionService encryption;
@@ -46,14 +46,15 @@ public class ImapBodyLoader implements MailBodyLoader {
   }
 
   /**
-   * IMAP 에서 단건 메시지 본문을 적재한다. INBOX 폴더를 UID 로 조회해 본문·스니펫·첨부를 파싱하고 DB 에 캐시한다. 서버에서 사라진 메시지는 빈 본문으로
-   * 표시해 영구 재시도를 방지한다. 네트워크/파싱 실패는 삼킨다(best-effort).
+   * IMAP 에서 단건 메시지 본문을 적재한다. INBOX 폴더를 UID 로 조회해 본문·스니펫·첨부를 파싱하고 DB 에 캐시한다. 서버에서 사라진 메시지는 빈 전용
+   * content 로 분리해 영구 재시도를 방지한다. 네트워크/파싱 실패는 삼킨다(best-effort).
    *
-   * <p>Task5: 본문·스니펫은 email_content 에 기록(contentRepo.updateBody). has_attachment 만 envelope 에 남긴다.
-   * contentId 가 0 이면 content 행이 미연결된 legacy envelope — 적재 불가(false 반환)해 재시도 가능 상태로 유지한다.
+   * <p>Task5: 본문·스니펫은 email_content 에 기록(MailContentShareGate — 첫 적재자 선점, 불일치 시 분리). has_attachment
+   * 만 envelope 에 남긴다. contentId 가 0 이면 content 행이 미연결된 legacy envelope — 적재 불가(false 반환)해 재시도 가능
+   * 상태로 유지한다.
    *
-   * @return true: 적재 성공(contentRepo.updateBody 호출 완료). false: 네트워크/파싱 실패 또는 contentId 미연결. 적재 실패 시
-   *     빈 스니펫으로 분류되면 영구 오분류 → 디스패처가 false 확인 후 분류 skip(I1 수정).
+   * @return true: 적재 성공(공유 content 기록·검증 완료). false: 네트워크/파싱 실패 또는 contentId 미연결. 적재 실패 시 빈 스니펫으로
+   *     분류되면 영구 오분류 → 디스패처가 false 확인 후 분류 skip(I1 수정).
    */
   @Override
   public boolean loadBody(long userId, BodyTarget target, EmailAccountResponse account) {
@@ -77,25 +78,30 @@ public class ImapBodyLoader implements MailBodyLoader {
       folder.open(Folder.READ_ONLY);
       Message msg = ((UIDFolder) folder).getMessageByUID(target.imapUid());
       if (msg == null) {
-        // 서버에서 사라진 메시지 — 빈 본문으로 content 에 적재 표시해 영구 재시도(무한 정지)를 방지한다.
-        // V97: per-envelope fetched_at 도 설정해 이 envelope 가 루프에서 재선택되지 않도록 한다.
+        // 서버에서 사라진 메시지 — 적재 완료로 표시해 영구 재시도(무한 정지)를 방지한다.
+        // WP-130: 검증 못 한 공유 본문이 노출되지 않도록 빈 전용 content 로 분리한다(공유 content 는 건드리지 않음).
         log.warn("본문 적재 대상 메시지 없음 (messageId={}, uid={})", target.messageId(), target.imapUid());
-        contentRepo.updateBody(target.contentId(), null, null, null);
+        shareGate.detachUnverifiable(target.messageId(), target.contentId());
+        attachmentRepo.deleteByMessage(target.messageId()); // 부분 적재로 남은 이전 content 첨부 행 정리
         messageRepo.markHasAttachment(target.messageId(), false);
         messageRepo.markFetched(target.messageId()); // V97: per-envelope 마커
         return true;
       }
       ParsedBody body = parser.parseBody(msg);
-      // 본문·스니펫은 공유 content 에 기록 — 같은 message_id 를 수신한 다른 envelope 도 즉시 본문 보유
-      contentRepo.updateBody(target.contentId(), body.bodyText(), body.bodyHtml(), body.snippet());
+      List<ParsedAttachment> attachments = body.attachments();
+      // 본문·스니펫은 공유 content 에 기록 — WP-130: 이미 기록돼 있으면 해시·첨부 목록을 검증하고, 다르면 이 envelope 만 분리
+      long contentId =
+          shareGate.storeFetchedBody(
+              target.messageId(),
+              target.contentId(),
+              body.bodyText(),
+              body.bodyHtml(),
+              body.snippet(),
+              attachments);
       // has_attachment 는 envelope 속성(첨부 존재 표시)으로 유지
       messageRepo.markHasAttachment(target.messageId(), body.hasAttachment());
-      java.util.List<ParsedAttachment> attachments = body.attachments();
-      for (int i = 0; i < attachments.size(); i++) {
-        // ordinal = MIME 순서(0-based). content_attachment 를 find-or-create 해 같은 메일 수신자끼리 manifest
-        // 공유.
-        attachmentRepo.insert(target.messageId(), target.contentId(), i, attachments.get(i));
-      }
+      // ordinal = MIME 순서(0-based). 분리됐으면 새 content 기준(target.contentId() 는 낡은 값).
+      attachmentRepo.insertAll(target.messageId(), contentId, attachments);
       // V97: per-envelope 마커 — 이 envelope 의 첨부 적재가 완료됐음을 기록
       messageRepo.markFetched(target.messageId());
       return true;

@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
+import com.workplace.mail.dto.ContentSource;
 import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.repository.EmailContentRepository;
@@ -92,7 +93,7 @@ class EmailContentDedupIntegrationTest extends IntegrationTestBase {
             null,
             null,
             List.of());
-    long contentId = contentRepo.findOrCreate(tenantId, pm);
+    long contentId = contentRepo.findOrCreate(tenantId, pm, ContentSource.GRAPH);
     contentRepo.updateBody(contentId, bodyText, bodyHtml, snippet);
 
     // email_message: subject/body/snippet 은 NULL — content_id 로만 연결
@@ -121,6 +122,8 @@ class EmailContentDedupIntegrationTest extends IntegrationTestBase {
             .returning(EMAIL_MESSAGE.ID)
             .fetchOne()
             .getId();
+
+    TestFixtures.markMailFetched(dsl, envId);
 
     return new long[] {uid, accId, fldId, envId};
   }
@@ -649,7 +652,9 @@ class EmailContentDedupIntegrationTest extends IntegrationTestBase {
                         null, // bodyText — sync 단계 null
                         null, // bodyHtml
                         null, // snippet
-                        List.of());
+                        List.of(),
+                        // WP-130: IMAP 경로 공유에는 BODYSTRUCTURE 요약이 필요(없으면 공유 안 함)
+                        "[text/plain;7bit;1;;]");
 
                 // 두 계정이 같은 메시지를 수신: content 1행, envelope 2행이어야 한다
                 messageRepo.insertIgnoreConflict(accA, fldA, msg);
@@ -857,7 +862,9 @@ class EmailContentDedupIntegrationTest extends IntegrationTestBase {
                         null, // bodyText — lazy
                         null,
                         null,
-                        List.of());
+                        List.of(),
+                        // WP-130: IMAP 경로 공유에는 BODYSTRUCTURE 요약이 필요(없으면 공유 안 함)
+                        "[text/plain;7bit;1;;]");
                 messageRepo.insertIgnoreConflict(accA, fldA, msg);
                 messageRepo.insertIgnoreConflict(accB, fldB, msg);
 
@@ -1093,7 +1100,9 @@ class EmailContentDedupIntegrationTest extends IntegrationTestBase {
                         null,
                         null,
                         null,
-                        List.of());
+                        List.of(),
+                        // WP-130: IMAP 경로 공유에는 BODYSTRUCTURE 요약이 필요(없으면 공유 안 함)
+                        "[text/plain;7bit;1;;]");
                 Long envA = messageRepo.insertIgnoreConflict(accA, fldA, msg).orElseThrow();
                 Long envB = messageRepo.insertIgnoreConflict(accB, fldB, msg).orElseThrow();
 

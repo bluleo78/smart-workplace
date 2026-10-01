@@ -126,6 +126,7 @@ class MailAiServiceTest extends IntegrationTestBase {
             .where(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID.eq(envId))
             .fetchOneInto(Long.class);
     contentRepo.updateBody(contentId, "테스트 본문", null, "스니펫");
+    TestFixtures.markMailFetched(dsl, envId);
     return envId;
   }
 

@@ -12,8 +12,8 @@ public interface MailBodyLoader {
   /**
    * 본문·스니펫·첨부를 공급자에서 읽어 DB 에 캐시한다.
    *
-   * @return true: 적재 성공(updateBody 가 실제로 호출됨 — body_fetched_at 설정 완료 또는 의도적 빈 본문). false: 네트워크/파싱
-   *     실패로 적재 미완료(body_fetched_at 미설정 — 재시도 가능).
+   * @return true: 적재 성공(공유 content 기록·검증 완료, 또는 서버에서 사라진 메일의 envelope 적재 완료 표시). false: 네트워크/파싱 실패로
+   *     적재 미완료(body_fetched_at 미설정 — 재시도 가능).
    */
   boolean loadBody(long userId, BodyTarget target, EmailAccountResponse account);
 }

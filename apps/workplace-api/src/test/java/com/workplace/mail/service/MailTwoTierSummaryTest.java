@@ -162,6 +162,7 @@ class MailTwoTierSummaryTest extends IntegrationTestBase {
             .where(EMAIL_MESSAGE.ID.eq(envId))
             .fetchOneInto(Long.class);
     contentRepo.updateBody(contentId, "테스트 본문 내용", null, "스니펫");
+    TestFixtures.markMailFetched(dsl, envId);
     return envId;
   }
 

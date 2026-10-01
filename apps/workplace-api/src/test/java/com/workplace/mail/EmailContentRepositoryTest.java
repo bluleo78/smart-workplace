@@ -3,6 +3,7 @@ package com.workplace.mail;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.mail.dto.ContentSource;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.util.MailContentHash;
@@ -60,8 +61,8 @@ class EmailContentRepositoryTest extends IntegrationTestBase {
       new TransactionTemplate(txManager)
           .execute(
               status -> {
-                long c1 = repo.findOrCreate(1L, msg("<dup@x>"));
-                long c2 = repo.findOrCreate(1L, msg("<dup@x>"));
+                long c1 = repo.findOrCreate(1L, msg("<dup@x>"), ContentSource.GRAPH);
+                long c2 = repo.findOrCreate(1L, msg("<dup@x>"), ContentSource.GRAPH);
                 assertThat(c2).isEqualTo(c1); // 같은 message_id → 같은 content
                 status.setRollbackOnly(); // 테스트 데이터 자동 정리
                 return null;
@@ -79,7 +80,7 @@ class EmailContentRepositoryTest extends IntegrationTestBase {
       new TransactionTemplate(txManager)
           .execute(
               status -> {
-                long c = repo.findOrCreate(1L, msg("<body@x>"));
+                long c = repo.findOrCreate(1L, msg("<body@x>"), ContentSource.GRAPH);
                 repo.updateBody(c, "hello", null, "hello");
                 var row = repo.findByIdForTest(c);
                 assertThat(row.bodyText()).isEqualTo("hello");

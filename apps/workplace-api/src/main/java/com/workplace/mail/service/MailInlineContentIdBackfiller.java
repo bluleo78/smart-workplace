@@ -2,6 +2,7 @@ package com.workplace.mail.service;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
+import com.workplace.mail.dto.ParsedAttachment;
 import com.workplace.mail.event.InlineContentIdBackfillRequestedEvent;
 import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository;
@@ -104,8 +105,12 @@ public class MailInlineContentIdBackfiller {
                 if (attachmentRepo.existsForMessage(messageId)) {
                   return false; // 동시 열람이 먼저 적재함
                 }
-                graphBodyLoader.loadAttachmentMeta(
-                    accessToken, target.providerMessageId(), messageId, target.contentId(), true);
+                List<ParsedAttachment> attachments =
+                    graphBodyLoader.fetchAttachmentMeta(
+                        accessToken, target.providerMessageId(), messageId, true);
+                // WP-130: 공유 manifest 와 어긋나면 ManifestMismatchException 으로 롤백 → 아래 catch 에서
+                // false(fail-closed)
+                attachmentRepo.insertAll(messageId, target.contentId(), attachments);
                 return attachmentRepo.existsForMessage(messageId);
               });
       return Boolean.TRUE.equals(loaded);

@@ -104,7 +104,11 @@ public class MailSummaryBackfillService {
             status ->
                 messageRepo
                     .findBodyTargetForUser(userId, messageId)
-                    .filter(t -> t.bodyFetchedAt() == null && t.imapUid() != 0)
+                    // WP-130: Graph 도 적재 — 적재·검증 전엔 공유 본문이 가려져 요약할 수 없다
+                    .filter(
+                        t ->
+                            t.bodyFetchedAt() == null
+                                && (t.imapUid() != 0 || t.providerMessageId() != null))
                     .orElse(null));
     if (target != null) {
       txTemplate.executeWithoutResult(status -> bodyFetcher.fetchBody(userId, target));
