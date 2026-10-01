@@ -9,6 +9,7 @@ import type {
   MailSummary,
   MessagingSummary,
 } from '../../../src/types/dashboard'
+import type { NotificationResponse } from '../../../src/types/notification'
 import { createSpace } from '../../factories/drive.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { mockApi } from '../../fixtures/api-mock'
@@ -435,4 +436,84 @@ test('모바일 위젯 추가 — 타일형에는 안내가 붙고, 추가는 �
   await expect.poll(() => stub.puts.length).toBe(1)
   expect(stub.puts[0].device).toBe('mobile')
   expect(stub.puts[0].widgets.find((w) => w.type === 'calendar_today')?.count).toBe(3)
+})
+
+test('접기 저장이 진행 중인 동안 편집 진입이 막혀 접기 PUT 이 편집 저장을 덮어쓰지 않는다', async ({
+  authenticatedPage: page,
+}) => {
+  await stubWidgetData(page)
+  let release!: () => void
+  const hold = new Promise<void>((r) => (release = r))
+  const stub = await stubDashboard(page, { mobile: layout(['my_tasks']) }, { holdFirstPut: hold })
+  await page.goto('/')
+  const editToggle = page.getByTestId('dashboard-edit-toggle')
+  await expect(editToggle).toBeEnabled()
+  await page.locator('[data-widget="my_tasks"]').getByTestId('mobile-widget-collapse').click()
+  // 접기 PUT 이 붙잡혀 있는 동안 편집 진입 불가.
+  await expect(editToggle).toBeDisabled()
+  release()
+  await expect.poll(() => stub.puts.length).toBe(1)
+  await expect(editToggle).toBeEnabled()
+})
+
+test('키보드로 ⌃/⌄ 를 눌러도 버튼 포커스가 유지되고 aria-expanded 가 바뀐다', async ({
+  authenticatedPage: page,
+}) => {
+  await stubWidgetData(page)
+  await stubDashboard(page, { mobile: layout(['my_tasks']) })
+  await page.goto('/')
+  const card = page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')
+  const toggle = card.getByTestId('mobile-widget-collapse')
+  await expect(card.getByTestId('dash-mytasks')).toBeVisible()
+  await toggle.focus()
+  await page.keyboard.press('Enter')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(toggle).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(toggle).toBeFocused()
+  await expect(card.getByTestId('dash-mytasks')).toBeVisible()
+})
+
+test('알림 배지는 첫 페이지가 아닌 전체 안 읽음 수(unread-count)를 보인다', async ({
+  authenticatedPage: page,
+}) => {
+  await stubWidgetData(page)
+  const notif: NotificationResponse = {
+    id: 1,
+    type: 'ASSIGNED',
+    actorId: 2,
+    actorName: '양동희',
+    actorKind: 'HUMAN',
+    issueId: 1,
+    projectKey: 'WP',
+    issueNumber: 7,
+    issueTitle: '리뷰 요청 이슈',
+    commentId: null,
+    eventId: null,
+    eventTitle: null,
+    eventStartsAt: null,
+    read: false,
+    createdAt: '2026-06-16T00:00:00Z',
+  }
+  await mockApi(page, 'GET', '/api/v1/notifications', [notif])
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 37 })
+  await stubDashboard(page, {
+    mobile: layout([{ id: 'notifications', type: 'notifications', count: 3, hidden: false, collapsed: true }]),
+  })
+  await page.goto('/')
+  await expect(page.locator('[data-widget="notifications"]').getByTestId('mobile-widget-count')).toHaveText('37')
+})
+
+test('이슈 목록 타일 — 다음 페이지가 있으면 건수 배지에 + 를 붙인다', async ({ authenticatedPage: page }) => {
+  await stubWidgetData(page)
+  const items = [1, 2].map((n) => createIssue({ id: n, projectKey: 'WP', number: n, title: `이슈 ${n}` }))
+  await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse(items, 'next-cursor'))
+  await stubDashboard(page, {
+    mobile: layout([
+      { id: 'il-1', type: 'issue_list', count: 0, hidden: false, params: { assignee: 'me' }, label: null },
+    ]),
+  })
+  await page.goto('/')
+  await expect(page.locator('[data-widget-id="il-1"]').getByTestId('mobile-widget-count')).toHaveText('2+')
 })

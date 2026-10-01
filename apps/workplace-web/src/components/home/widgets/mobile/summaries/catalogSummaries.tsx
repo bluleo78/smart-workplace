@@ -28,7 +28,9 @@ export function IssueListSummary({ params, render }: MobileSummaryProps) {
   if (!top) return render({ status: 'ready', text: <Muted>이슈 없음</Muted> })
   return render({
     status: 'ready',
+    // 한 페이지만 받으므로 다음 페이지가 있으면 "N+"(페이지 크기에서 멈춘 수를 전체로 오인하지 않게).
     count: items.length,
+    countMore: q.data?.hasMore === true,
     prefix: (
       <span className="text-xs text-muted-foreground">
         {top.projectKey}-{top.number}

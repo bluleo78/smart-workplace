@@ -48,8 +48,8 @@ interface MobileWidgetCardProps {
   edit?: MobileCardEdit
 }
 
-/** 머리 건수 배지 — 0 이하·미정이면 그리지 않는다(빈 배지로 주의를 끌지 않게). */
-function CountBadge({ count }: { count?: number }) {
+/** 머리 건수 배지 — 0 이하·미정이면 그리지 않는다(빈 배지로 주의를 끌지 않게). more 면 "N+"(다음 페이지 있음). */
+function CountBadge({ count, more }: { count?: number; more?: boolean }) {
   if (count == null || count <= 0) return null
   return (
     <span
@@ -57,6 +57,7 @@ function CountBadge({ count }: { count?: number }) {
       className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-ai-accent-subtle px-1.5 text-xs font-semibold text-ai-accent"
     >
       {count}
+      {more && '+'}
     </span>
   )
 }
@@ -185,40 +186,56 @@ export function MobileWidgetCard({
     )
   }
 
-  if (!collapsed) {
-    return frame(
-      <>
-        {head(null, edit ? edit.controls : collapseButton)}
-        {extra}
-        <div className="px-4 pt-1 pb-3.5">{body}</div>
-      </>,
+  // 타일 — 항상 접힌 모양. 머리 배지·한 줄·링크 경로가 모두 같은 요약 데이터에서 나오므로 Summary 가 틀 전체를 그린다
+  // (타일엔 접기 토글이 없어 상태 전환으로 다시 마운트될 일이 없다).
+  if (isTile) {
+    return (
+      <Summary
+        params={cfg.params}
+        render={(data) => {
+          // 위젯 deepLink 가 없으면(AI 우선순위) 요약이 준 항목 경로로, 그것도 없으면 링크 없는 카드.
+          const to = edit ? undefined : (data.to ?? headerLink)
+          const trailing = edit
+            ? edit.controls
+            : // mr-1: ⌄ 버튼(44px, -mr-2.5) 아이콘 중심과 › 중심을 같은 세로선에 맞춘다.
+              to && <ChevronRight className="mr-1 h-4 w-4 shrink-0" aria-hidden />
+          return frame(
+            <>
+              {head(<CountBadge count={data.count} more={data.countMore} />, trailing)}
+              {extra}
+              <div className="px-4 pb-3.5">
+                <SummaryLine data={data} />
+              </div>
+            </>,
+            to,
+          )
+        }}
+      />
     )
   }
 
-  // 접힘·타일 — 머리 배지와 한 줄이 같은 요약 데이터를 쓴다. 펼친 동안엔 Summary 를 마운트하지 않는다.
-  return (
-    <Summary
-      params={cfg.params}
-      render={(data) => {
-        // 위젯 deepLink 가 없으면(AI 우선순위) 요약이 준 항목 경로로, 그것도 없으면 링크 없는 카드.
-        const to = !edit && isTile ? (data.to ?? headerLink) : undefined
-        const trailing = edit
-          ? edit.controls
-          : isTile
-            ? // mr-1: ⌄ 버튼(44px, -mr-2.5) 아이콘 중심과 › 중심을 같은 세로선에 맞춘다.
-              to && <ChevronRight className="mr-1 h-4 w-4 shrink-0" aria-hidden />
-            : collapseButton
-        return frame(
-          <>
-            {head(<CountBadge count={data.count} />, trailing)}
-            {extra}
-            <div className="px-4 pb-3.5">
-              <SummaryLine data={data} />
-            </div>
-          </>,
-          to,
-        )
-      }}
-    />
+  // 본문형 — 펼침/접힘이 같은 틀·같은 머리를 공유한다. 상태마다 다른 루트를 그리면 토글 때 카드가 통째로 다시 마운트돼
+  // 방금 누른 ⌃/⌄ 버튼의 키보드 포커스가 사라진다(disclosure 패턴 깨짐). 접힘일 때만 Summary 를 마운트해 머리 배지와
+  // 요약 줄을 채운다 — 두 인스턴스지만 같은 쿼리 키라 요청은 하나다. 펼친 동안엔 Summary 를 마운트하지 않는다.
+  return frame(
+    <>
+      {head(
+        collapsed ? (
+          <Summary
+            params={cfg.params}
+            render={(data) => <CountBadge count={data.count} more={data.countMore} />}
+          />
+        ) : null,
+        edit ? edit.controls : collapseButton,
+      )}
+      {extra}
+      {collapsed ? (
+        <div className="px-4 pb-3.5">
+          <Summary params={cfg.params} render={(data) => <SummaryLine data={data} />} />
+        </div>
+      ) : (
+        <div className="px-4 pt-1 pb-3.5">{body}</div>
+      )}
+    </>,
   )
 }

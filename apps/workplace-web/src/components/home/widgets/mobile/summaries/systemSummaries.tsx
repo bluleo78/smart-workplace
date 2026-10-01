@@ -8,6 +8,7 @@ import { useMailSummary } from '@/hooks/queries/useMailSummary'
 import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
+import { useUnreadCount } from '@/hooks/queries/useUnreadCount'
 import { resolveCalendarRange } from '@/lib/calendarRange'
 import { buildMyTaskRows, dueLabel } from '@/lib/myTasks'
 
@@ -89,6 +90,8 @@ export function CalendarTodaySummary({ render }: MobileSummaryProps) {
 /** 알림 — 안 읽은 건수 배지 + 최신 1건 제목. NotificationsBody 와 같은 첫 페이지 쿼리. */
 export function NotificationsSummary({ render }: MobileSummaryProps) {
   const q = useNotifications(true)
+  // 배지 건수는 첫 페이지(20건)가 아닌 전체 안 읽음 수 — 앱 셸이 상시 구독하는 캐시를 그대로 쓴다.
+  const unread = useUnreadCount()
   if (q.isLoading) return render({ status: 'loading' })
   if (q.isError) return render({ status: 'error' })
   const items = flattenNotificationPages(q.data?.pages)
@@ -96,7 +99,7 @@ export function NotificationsSummary({ render }: MobileSummaryProps) {
   if (!latest) return render({ status: 'ready', text: <Muted>새 알림 없음</Muted> })
   return render({
     status: 'ready',
-    count: items.filter((n) => !n.read).length,
+    count: unread.data,
     text: notifLabel(latest),
   })
 }

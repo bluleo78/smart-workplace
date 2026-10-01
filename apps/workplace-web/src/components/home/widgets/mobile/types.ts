@@ -6,6 +6,8 @@ export interface MobileSummaryData {
   status: 'loading' | 'error' | 'ready'
   /** 머리 건수 배지(0·미지정이면 배지 생략). */
   count?: number
+  /** count 가 한 페이지 상한일 뿐 더 있음 — 배지를 "N+" 로 표시한다. */
+  countMore?: boolean
   /** 본문 앞 고정 조각(이슈 키·시각·사분면 칩) — 줄어들지 않는다. */
   prefix?: ReactNode
   /** 요약 본문 — 넘치면 말줄임. */

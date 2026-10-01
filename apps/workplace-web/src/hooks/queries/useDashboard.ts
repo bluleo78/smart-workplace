@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { dashboardApi } from '../../api/dashboard'
 import { handleApiError } from '../../lib/api-error'
@@ -88,4 +88,12 @@ export function useToggleWidgetCollapsed() {
       }
     },
   })
+}
+
+/**
+ * 접기 저장(대기 포함)이 진행 중인지. 편집 진입을 막는 데 쓴다 — 접기 PUT 은 편집 전 캐시로 레이아웃 전체를 보내므로
+ * 편집 저장 뒤에 도착하면 편집 결과를 덮어쓰고, 그 뒤 재조회가 편집 전 레이아웃을 보여 준다(WP-142).
+ */
+export function useIsCollapseSaving() {
+  return useIsMutating({ mutationKey: COLLAPSE_MUTATION_KEY }) > 0
 }

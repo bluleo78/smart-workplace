@@ -49,6 +49,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   useDashboardLayout,
+  useIsCollapseSaving,
   useSaveDashboardLayout,
   useToggleWidgetCollapsed,
 } from '@/hooks/queries/useDashboard'
@@ -544,6 +545,8 @@ export function Dashboard() {
   const { data, isLoading } = useDashboardLayout(device)
   const save = useSaveDashboardLayout()
   const toggleCollapse = useToggleWidgetCollapsed()
+  // 접기 저장 중엔 편집 진입을 막는다 — 늦게 도착한 접기 PUT 이 편집 저장을 덮어쓰지 않게(데스크톱은 접기가 없어 항상 false).
+  const collapseSaving = useIsCollapseSaving()
   // 알림처럼 경로 없는 위젯의 모바일 머리 동작(인박스 열기 → 모바일 셸에선 /notifications, #274).
   const { openInbox } = useInboxPanel()
 
@@ -605,6 +608,7 @@ export function Dashboard() {
   }, [data])
 
   function enterEdit() {
+    if (collapseSaving) return
     setDraft((data?.widgets ?? []).map((w) => ({ ...w })))
     setUndoSnapshot(null)
     setLiveMsg('')
@@ -826,6 +830,7 @@ export function Dashboard() {
               variant="outline"
               size="sm"
               data-testid="dashboard-edit-toggle"
+              disabled={collapseSaving}
               onClick={enterEdit}
             >
               <Pencil className="h-4 w-4" />
@@ -849,7 +854,12 @@ export function Dashboard() {
         // 홈 아이콘(homeIcon)은 장식이라 모바일 헤더에선 생략된다(PageHeader 는 모바일에서 icon 을 그리지 않음).
         mobilePrimaryAction={
           !editing ? (
-            <HeaderIconAction label="홈 편집" data-testid="dashboard-edit-toggle" onClick={enterEdit}>
+            <HeaderIconAction
+              label="홈 편집"
+              data-testid="dashboard-edit-toggle"
+              disabled={collapseSaving}
+              onClick={enterEdit}
+            >
               <Pencil />
             </HeaderIconAction>
           ) : (
