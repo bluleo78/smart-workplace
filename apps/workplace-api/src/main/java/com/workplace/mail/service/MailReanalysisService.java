@@ -113,9 +113,16 @@ public class MailReanalysisService {
     return true;
   }
 
-  /** 선점 되돌리기(CAS — 현재 버전일 때만 한 단계 내림). */
+  /**
+   * 선점 되돌리기(CAS — 현재 버전일 때만 한 단계 내림). 되돌리기 실패(DB 일시 장애 등)가 호출자(스케줄러)로 새지 않도록 삼키고 경고만 남긴다 — 실패하면 버전이
+   * 소진된 채 남아 해당 계정은 열람 시 자연 해제된다.
+   */
   private void release(long accountId) {
-    txTemplate.executeWithoutResult(
-        status -> accountRepo.releaseClassifyVersion(accountId, CURRENT_CLASSIFY_VERSION));
+    try {
+      txTemplate.executeWithoutResult(
+          status -> accountRepo.releaseClassifyVersion(accountId, CURRENT_CLASSIFY_VERSION));
+    } catch (RuntimeException e) {
+      log.warn("재분석 선점 되돌리기 실패 accountId={}: {}", accountId, e.toString());
+    }
   }
 }

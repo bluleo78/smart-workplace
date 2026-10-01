@@ -5,7 +5,9 @@ import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.mail.service.MailAnalysisFixtures.LONG_BODY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -17,6 +19,7 @@ import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
+import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
 import com.workplace.support.IntegrationTestBase;
@@ -53,6 +56,8 @@ class MailReanalysisServiceTest extends IntegrationTestBase {
   @MockitoBean AssistantResolver assistantResolver;
   // WP-150 "나" 프로필 빌더 — 계정 루프 동안 캐시 1개를 쓰는지(메일마다 다시 읽지 않는지) 호출 수로 확인한다
   @MockitoSpyBean UserMailProfileBuilder profileBuilder;
+  // 선점 되돌리기 실패 주입용
+  @MockitoSpyBean EmailAccountRepository accountRepo;
 
   @BeforeEach
   void assistants() {
@@ -281,5 +286,19 @@ class MailReanalysisServiceTest extends IntegrationTestBase {
 
     verify(mailClient, never()).analyzePersonal(any());
     assertThat(version(box.accountId())).isEqualTo(MailReanalysisService.CURRENT_CLASSIFY_VERSION);
+  }
+
+  @Test
+  void releaseFailure_doesNotEscape() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    legacyEnvelope(box, content, "minsu@acme.com", box.address(), true);
+    when(mailClient.analyzePersonal(any())).thenThrow(new MailAiException("down", null));
+    // 전부 실패 → 되돌리기 경로, 그런데 되돌리기 자체도 실패해도 예외가 밖으로 새지 않는다
+    doThrow(new IllegalStateException("db down"))
+        .when(accountRepo)
+        .releaseClassifyVersion(anyLong(), anyInt());
+
+    assertThat(reanalysis.reanalyzeAccountNow(box.userId(), box.accountId())).isTrue();
   }
 }
