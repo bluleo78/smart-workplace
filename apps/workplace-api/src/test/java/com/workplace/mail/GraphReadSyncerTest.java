@@ -28,7 +28,9 @@ class GraphReadSyncerTest extends IntegrationTestBase {
     ReadSyncLocator loc =
         new ReadSyncLocator(10L, MailProvider.M365_GRAPH, "AAGRAPHID", null, null);
 
-    syncer.markReadOnServer(1L, /* account */ null, loc); // account 미사용(Graph 는 token 만)
+    boolean ok =
+        syncer.markReadOnServer(1L, /* account */ null, loc); // account 미사용(Graph 는 token 만)
+    org.assertj.core.api.Assertions.assertThat(ok).isTrue(); // 성공 시 true(WP-148 반영 대기 해제 기준)
 
     verify(graphApiClient)
         .patch(eq("FAKE_TOKEN"), eq("/me/messages/AAGRAPHID"), contains("\"isRead\":true"));

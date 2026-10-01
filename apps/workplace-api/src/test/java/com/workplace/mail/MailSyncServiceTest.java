@@ -526,4 +526,27 @@ class MailSyncServiceTest extends IntegrationTestBase {
     assertThat(localSeen(accountId, "기존 메일")).isTrue();
     assertThat(localSeen(accountId, "새 메일")).isFalse();
   }
+
+  /** WP-148: 로컬 열람이 서버에 반영되기 전(서버 \\Seen 없음)에는 동기화가 로컬 읽음을 안읽음으로 되돌리지 않는다. */
+  @Test
+  void sync_pendingLocalRead_notRevertedByServerUnseen() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "대기 메일", "본문");
+    greenMail.waitForIncomingEmail(1);
+    syncService.sync(user, accountId);
+    long id =
+        messageRepo.listByAccount(accountId, null, 50).stream()
+            .filter(s -> "대기 메일".equals(s.subject()))
+            .findFirst()
+            .orElseThrow()
+            .id();
+    messageRepo.markSeen(id); // 로컬 열람 — 서버 반영은 아직(\\Seen 없음)
+
+    progress.finish(accountId);
+    MailSyncResult r = syncService.sync(user, accountId);
+
+    assertThat(r.seenChanged()).isZero();
+    assertThat(localSeen(accountId, "대기 메일")).isTrue();
+  }
 }

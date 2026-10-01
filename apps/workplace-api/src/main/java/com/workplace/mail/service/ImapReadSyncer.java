@@ -39,10 +39,10 @@ public class ImapReadSyncer implements MailReadSyncer {
    * <p>imapUid 가 null 이면 로컬 생성(예: SENT 행) 으로 간주해 스킵. 비밀번호 조회 실패 시도 스킵.
    */
   @Override
-  public void markReadOnServer(long userId, EmailAccountResponse account, ReadSyncLocator loc) {
+  public boolean markReadOnServer(long userId, EmailAccountResponse account, ReadSyncLocator loc) {
     // 로컬 생성 행(SENT 등)은 서버 UID 없음 — 스킵
     if (loc.imapUid() == null) {
-      return;
+      return false;
     }
     // 암호화된 비밀번호 조회 → 복호화
     String password =
@@ -52,7 +52,7 @@ public class ImapReadSyncer implements MailReadSyncer {
             .orElse(null);
     if (password == null) {
       log.debug("IMAP 읽음 역동기화 스킵: 비밀번호 없음 accountId={}", loc.accountId());
-      return;
+      return false;
     }
     String folderName = loc.folderName() != null ? loc.folderName() : "INBOX";
     try {
@@ -63,18 +63,21 @@ public class ImapReadSyncer implements MailReadSyncer {
         try {
           // UIDFolder 캐스팅: IMAPFolder 는 UIDFolder 를 구현한다.
           Message msg = ((UIDFolder) folder).getMessageByUID(loc.imapUid());
-          if (msg != null) {
-            msg.setFlag(Flags.Flag.SEEN, true);
+          if (msg == null) {
+            return false; // 서버에서 사라진 메일 — 반영 불가
           }
+          msg.setFlag(Flags.Flag.SEEN, true);
         } finally {
           folder.close(false);
         }
       } finally {
         store.close();
       }
+      return true;
     } catch (Exception e) {
       // best-effort — 자격증명·서버 주소 등 민감 정보 로그 금지
       log.debug("IMAP 읽음 역동기화 실패: accountId={} uid={}", loc.accountId(), loc.imapUid());
+      return false;
     }
   }
 }

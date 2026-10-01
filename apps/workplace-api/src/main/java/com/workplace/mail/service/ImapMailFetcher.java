@@ -236,6 +236,9 @@ public class ImapMailFetcher implements MailFetcher {
   /**
    * 읽음 재조회 대상 로컬 메일(WP-148). 첫 동기화(uidValidity 미기록)면 비교할 기존 메일이 없어 빈 목록. 조회 실패는 경고 로그 후 빈 목록 — 신규
    * 적재를 막지 않는다.
+   *
+   * <p>로컬 열람의 서버 반영 대기(seen_push_pending) 행은 제외된다. 한계: 반영이 끝내 실패한 메일은 이후 서버 쪽 안읽음 되돌림이 반영되지
+   * 않는다(WP-148 이전 동작과 같음).
    */
   private List<ImapSeenState> loadSeenCandidates(
       long accountId, EmailFolderRepository.FolderSyncState folder) {

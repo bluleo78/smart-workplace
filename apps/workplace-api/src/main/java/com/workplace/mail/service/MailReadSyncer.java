@@ -20,6 +20,7 @@ public interface MailReadSyncer {
    * @param userId 현재 사용자 id (Graph 토큰 조회 등에 사용)
    * @param account 메일 계정 응답 DTO (IMAP 접속 정보 등 — Graph 구현은 무시 가능)
    * @param loc 서버측 메시지 식별자 (providerMessageId 또는 imapUid+folderName)
+   * @return 서버 반영에 성공했으면 true. 예외·건너뜀(uid/비밀번호 없음 등)이면 false — 호출 측이 "서버 반영 대기" 표시를 풀지 판단한다
    */
-  void markReadOnServer(long userId, EmailAccountResponse account, ReadSyncLocator loc);
+  boolean markReadOnServer(long userId, EmailAccountResponse account, ReadSyncLocator loc);
 }

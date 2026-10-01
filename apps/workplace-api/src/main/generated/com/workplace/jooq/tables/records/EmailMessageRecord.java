@@ -384,6 +384,22 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
         return (OffsetDateTime) get(25);
     }
 
+    /**
+     * Setter for <code>public.email_message.seen_push_pending</code>. 로컬 열람 후
+     * 원본 서버 반영 대기 — true 인 동안 동기화가 seen 을 덮어쓰지 않음 (WP-148)
+     */
+    public void setSeenPushPending(Boolean value) {
+        set(26, value);
+    }
+
+    /**
+     * Getter for <code>public.email_message.seen_push_pending</code>. 로컬 열람 후
+     * 원본 서버 반영 대기 — true 인 동안 동기화가 seen 을 덮어쓰지 않음 (WP-148)
+     */
+    public Boolean getSeenPushPending() {
+        return (Boolean) get(26);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -407,7 +423,7 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
     /**
      * Create a detached, initialised EmailMessageRecord
      */
-    public EmailMessageRecord(Long id, Long accountId, Long folderId, Long imapUid, String messageId, String threadId, String inReplyTo, String mailReferences, String fromAddress, String fromName, String toAddresses, String ccAddresses, OffsetDateTime sentAt, OffsetDateTime receivedAt, Boolean seen, Boolean hasAttachment, OffsetDateTime createdAt, String bccAddresses, Boolean aiNeedsReply, Long tenantId, OffsetDateTime needsReplyDoneAt, String providerMessageId, Long contentId, OffsetDateTime fetchedAt, String aiPersonalSummary, OffsetDateTime aiPersonalSummarizedAt) {
+    public EmailMessageRecord(Long id, Long accountId, Long folderId, Long imapUid, String messageId, String threadId, String inReplyTo, String mailReferences, String fromAddress, String fromName, String toAddresses, String ccAddresses, OffsetDateTime sentAt, OffsetDateTime receivedAt, Boolean seen, Boolean hasAttachment, OffsetDateTime createdAt, String bccAddresses, Boolean aiNeedsReply, Long tenantId, OffsetDateTime needsReplyDoneAt, String providerMessageId, Long contentId, OffsetDateTime fetchedAt, String aiPersonalSummary, OffsetDateTime aiPersonalSummarizedAt, Boolean seenPushPending) {
         super(EmailMessage.EMAIL_MESSAGE);
 
         setId(id);
@@ -436,6 +452,7 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
         setFetchedAt(fetchedAt);
         setAiPersonalSummary(aiPersonalSummary);
         setAiPersonalSummarizedAt(aiPersonalSummarizedAt);
+        setSeenPushPending(seenPushPending);
         resetChangedOnNotNull();
     }
 }

@@ -144,6 +144,9 @@ public class EmailMessageRepository {
    * 도달하지 않고, {@code DO UPDATE … RETURNING} 은 갱신된 행도 반환해 신규 삽입과 구별되지 않는다. INSERT 의 {@code
    * onConflictDoNothing} 은 동시 삽입 경합 안전망으로 남긴다.
    *
+   * <p>한계: 로컬 열람의 서버 반영이 끝내 실패해 seen_push_pending 이 남은 메일은 이후 서버 쪽 안읽음 되돌림이 반영되지 않는다(WP-148 이전 동작과
+   * 같음).
+   *
    * <p>imapUid 는 Graph 계정에서 사용하지 않으므로 null 저장(IMAP 분기와 구별).
    *
    * @param accountId 계정 id
@@ -166,6 +169,7 @@ public class EmailMessageRepository {
               .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
               .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
               .and(EMAIL_MESSAGE.SEEN.ne(m.seen()))
+              .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isFalse()) // 로컬 열람의 서버 반영 대기 행은 덮어쓰지 않음
               .execute();
       return changed > 0 ? UpsertOutcome.SEEN_CHANGED : UpsertOutcome.UNCHANGED;
     }
@@ -257,6 +261,7 @@ public class EmailMessageRepository {
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
         .and(EMAIL_MESSAGE.IMAP_UID.isNotNull())
+        .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isFalse()) // 서버 반영 대기 행은 서버 상태로 덮어쓰지 않으므로 재조회 제외
         .and(EMAIL_MESSAGE.RECEIVED_AT.ge(since))
         .orderBy(EMAIL_MESSAGE.IMAP_UID.desc())
         .limit(limit)
@@ -276,6 +281,7 @@ public class EmailMessageRepository {
         .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
         .and(EMAIL_MESSAGE.IMAP_UID.eq(imapUid))
         .and(EMAIL_MESSAGE.SEEN.ne(seen))
+        .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isFalse()) // 후보 조회 뒤 로컬 열람으로 대기가 된 행 보호
         .execute();
   }
 
@@ -664,12 +670,26 @@ public class EmailMessageRepository {
                     r.value5()));
   }
 
-  /** 메시지 읽음 처리 — seen=true 로 업데이트. 이미 읽은 건은 스킵(SEEN.isFalse 조건). 실제 갱신된 행 수(0|1)를 반환한다. */
+  /**
+   * 로컬 열람 읽음 처리 — seen=true 와 함께 seen_push_pending=true(원본 서버 반영 대기)로 업데이트. 이미 읽은 건은
+   * 스킵(SEEN.isFalse 조건). 실제 갱신된 행 수(0|1)를 반환한다. 대기 표시는 서버 반영 성공 시 {@link #clearSeenPushPending} 로
+   * 풀린다(WP-148).
+   */
   public int markSeen(long messageId) {
     return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN, true)
+        .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .execute();
+  }
+
+  /** 서버 읽음 반영이 끝난 메시지의 "반영 대기" 표시를 푼다(WP-148). 실제 갱신된 행 수(0|1)를 반환한다. */
+  public int clearSeenPushPending(long messageId) {
+    return dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, false)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isTrue())
         .execute();
   }
 

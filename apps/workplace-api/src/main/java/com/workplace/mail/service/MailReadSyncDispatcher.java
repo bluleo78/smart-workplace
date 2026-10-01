@@ -45,6 +45,12 @@ public class MailReadSyncDispatcher {
     syncers.stream()
         .filter(s -> s.provider() == loc.provider())
         .findFirst()
-        .ifPresent(s -> s.markReadOnServer(ev.userId(), account, loc));
+        .ifPresent(
+            s -> {
+              // 서버 반영에 성공했을 때만 "반영 대기" 를 푼다 — 실패 시 대기가 유지되어 동기화가 로컬 읽음을 되돌리지 않는다(WP-148)
+              if (s.markReadOnServer(ev.userId(), account, loc)) {
+                messageRepo.clearSeenPushPending(ev.messageId());
+              }
+            });
   }
 }

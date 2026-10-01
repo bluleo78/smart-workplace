@@ -263,4 +263,65 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     assertThat(messageRepo.updateSeenByImapUid(accountId, folderId, 7, true)).isZero();
     assertThat(messageRepo.updateSeenByImapUid(accountId, folderId, 7, false)).isEqualTo(1);
   }
+
+  /** WP-148: 로컬 열람(markSeen)은 서버 반영 대기를 켜고, clearSeenPushPending 이 끈다. */
+  @Test
+  void markSeen_setsPushPending_andClearReleasesIt() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "pending-" + System.nanoTime() + "@test.local");
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    seedImap(accountId, folderId, 3, Instant.now(), false);
+    long id =
+        dsl.select(EMAIL_MESSAGE.ID)
+            .from(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+            .fetchOne(EMAIL_MESSAGE.ID);
+    assertThat(
+            dsl.select(EMAIL_MESSAGE.SEEN_PUSH_PENDING)
+                .from(EMAIL_MESSAGE)
+                .where(EMAIL_MESSAGE.ID.eq(id))
+                .fetchOne(EMAIL_MESSAGE.SEEN_PUSH_PENDING))
+        .isFalse();
+
+    messageRepo.markSeen(id);
+    assertThat(
+            dsl.select(EMAIL_MESSAGE.SEEN_PUSH_PENDING)
+                .from(EMAIL_MESSAGE)
+                .where(EMAIL_MESSAGE.ID.eq(id))
+                .fetchOne(EMAIL_MESSAGE.SEEN_PUSH_PENDING))
+        .isTrue();
+
+    assertThat(messageRepo.clearSeenPushPending(id)).isEqualTo(1);
+    assertThat(messageRepo.clearSeenPushPending(id)).isZero();
+    assertThat(
+            dsl.select(EMAIL_MESSAGE.SEEN_PUSH_PENDING)
+                .from(EMAIL_MESSAGE)
+                .where(EMAIL_MESSAGE.ID.eq(id))
+                .fetchOne(EMAIL_MESSAGE.SEEN_PUSH_PENDING))
+        .isFalse();
+  }
+
+  /** WP-148: 서버 반영 대기 행은 IMAP 읽음 재조회 대상에서 빠지고 updateSeenByImapUid 가 덮어쓰지 않는다. */
+  @Test
+  void pendingRow_excludedFromImapSeenSync() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "pending-imap-" + System.nanoTime() + "@test.local");
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    seedImap(accountId, folderId, 9, Instant.now(), false);
+    long id =
+        dsl.select(EMAIL_MESSAGE.ID)
+            .from(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+            .fetchOne(EMAIL_MESSAGE.ID);
+    messageRepo.markSeen(id); // seen=true + pending
+    OffsetDateTime since = OffsetDateTime.now().minusDays(14);
+
+    assertThat(messageRepo.listRecentImapSeenStates(accountId, folderId, since, 500)).isEmpty();
+    assertThat(messageRepo.updateSeenByImapUid(accountId, folderId, 9, false)).isZero();
+
+    messageRepo.clearSeenPushPending(id);
+    assertThat(messageRepo.listRecentImapSeenStates(accountId, folderId, since, 500))
+        .containsExactly(new EmailMessageRepository.ImapSeenState(9, true));
+    assertThat(messageRepo.updateSeenByImapUid(accountId, folderId, 9, false)).isEqualTo(1);
+  }
 }

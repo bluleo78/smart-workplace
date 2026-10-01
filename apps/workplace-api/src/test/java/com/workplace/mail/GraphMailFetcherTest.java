@@ -405,4 +405,37 @@ class GraphMailFetcherTest extends IntegrationTestBase {
     assertThat(read.isRead()).isTrue();
     assertThat(missing.isRead()).isNull();
   }
+
+  /** WP-148: 로컬 열람의 서버 반영 대기(pending) 중에는 delta 의 isRead=false 가 seen 을 되돌리지 못하고, 대기가 풀리면 반영된다. */
+  @Test
+  void fetchNewMessages_pendingPush_notOverwrittenUntilCleared() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId);
+    when(graphTokenService.getAccessToken(userId, accountId)).thenReturn("FAKE_TOKEN");
+    when(graphApiClient.get(eq("FAKE_TOKEN"), any(String.class), eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(message("G1", "제목")), null, "D1"));
+    when(graphApiClient.get(eq("FAKE_TOKEN"), eq("D1"), eq(GraphDeltaPage.class)))
+        .thenReturn(
+            new GraphDeltaPage(
+                List.of(message("G1", "제목", "sender@example.com", false)), null, "D2"));
+    when(graphApiClient.get(eq("FAKE_TOKEN"), eq("D2"), eq(GraphDeltaPage.class)))
+        .thenReturn(
+            new GraphDeltaPage(
+                List.of(message("G1", "제목", "sender@example.com", false)), null, "D3"));
+
+    graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    long g1 = messageRepo.findByProviderId(accountId, "G1").orElseThrow();
+    messageRepo.markSeen(g1); // 로컬 열람 — seen=true + 서버 반영 대기
+
+    MailSyncResult pending =
+        graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    assertThat(pending.seenChanged()).isZero();
+    assertThat(snapshot(g1).value1()).isTrue();
+
+    messageRepo.clearSeenPushPending(g1); // 서버 반영 완료
+    MailSyncResult released =
+        graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    assertThat(released.seenChanged()).isEqualTo(1);
+    assertThat(snapshot(g1).value1()).isFalse();
+  }
 }
