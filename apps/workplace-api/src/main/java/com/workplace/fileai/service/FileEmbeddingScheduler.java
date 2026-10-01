@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -35,6 +36,7 @@ public class FileEmbeddingScheduler {
 
   /** 10분 백스톱 백필 — 누락 또는 워커 크래시(lease 만료) 파일 재디스패치. */
   @Scheduled(fixedDelay = 600_000)
+  @SchedulerLock(name = "FileEmbeddingScheduler.backfill")
   public void backfill() {
     // 워커 비활성 또는 임베딩 게이트 off → 테넌트 순회 자체를 skip
     if (!props.enabled() || !props.embed().enabled()) {

@@ -59,7 +59,12 @@ public class MailReanalysisScheduler {
     this.executor = executor;
   }
 
-  /** 주기 트리거 — 전용 실행기에 넘기기만 하고 바로 돌아온다. 실행 중이면 건너뛴다. */
+  /**
+   * 주기 트리거 — 전용 실행기에 넘기기만 하고 바로 돌아온다. 실행 중이면 건너뛴다.
+   *
+   * <p>{@code @SchedulerLock} 을 붙이지 않는다(WP-165): tick 은 넘기자마자 끝나 잠금이 곧바로 풀리므로 실제 재분석 동안 다른 파드를 막지
+   * 못한다. 파드 간 중복은 계정 단위 선점(재분석 버전 CAS, {@link MailReanalysisService})이 막는다 — 같은 계정은 한 파드만 선점한다.
+   */
   @Scheduled(initialDelay = 120_000, fixedDelay = 600_000)
   void tick() {
     if (!running.compareAndSet(false, true)) {

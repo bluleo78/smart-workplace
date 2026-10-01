@@ -1,8 +1,8 @@
 package com.workplace.mail.service;
 
 import com.workplace.auth.service.AssistantResolver;
+import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.mail.exception.MailAiException;
-import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import java.util.List;
@@ -40,9 +40,6 @@ public class MailReanalysisService {
 
   /** 계정당 재분석 상한 — 홈 위젯·사이드바 표면(최근 안읽음)에 충분하고 LLM 비용을 묶는다. */
   public static final int LIMIT = 50;
-
-  /** agent 불가(503·타임아웃)가 연속 이만큼 쌓이면 그 계정의 루프를 멈춘다 — 장애 때 타임아웃 호출이 50회 쌓이지 않게. */
-  static final int MAX_CONSECUTIVE_FAILURES = 3;
 
   private final EmailAccountRepository accountRepo;
   private final EmailMessageRepository messageRepo;
@@ -94,28 +91,27 @@ public class MailReanalysisService {
     // "나" 프로필 캐시 — 이 계정 재분석 동안 1개(WP-150 배치 캐시). 메일마다 주소·이름·소속을 다시 읽지 않고, 다음 계정과는 공유하지 않는다.
     UserMailProfileCache profiles = analysis.newProfileCache();
     int done = 0;
-    int unavailableStreak = 0;
-    boolean aborted = false;
+    AgentOutageGuard guard = new AgentOutageGuard(); // 계정 단위 — 멈추면 이 계정의 선점을 되돌릴지 정한다
     for (Long id : ids) {
+      if (guard.tripped()) {
+        break; // agent 다운·지연 — 남은 메일에 타임아웃을 계속 쌓지 않는다
+      }
       try {
         analysis.analyzePersonal(userId, id, profiles);
         done++;
-        unavailableStreak = 0;
+        guard.recordResponse();
       } catch (RuntimeException e) {
         log.warn("재분석 건너뜀 (messageId={}): {}", id, e.toString());
-        if (isUnavailable(e)) {
-          // agent 다운·지연 — 남은 메일에 타임아웃을 계속 쌓지 않고 연속 3회에서 멈춘다
-          if (++unavailableStreak >= MAX_CONSECUTIVE_FAILURES) {
-            aborted = true;
-            break;
-          }
+        if (MailAiException.isAgentUnavailable(e)) {
+          guard.recordUnavailable();
         } else {
           // 그 메일만의 실패(잘못된 agent 출력·4xx 등) — 다음 메일로 계속한다. 멈추거나 되돌리면 항상 실패하는 메일이
           // 매 주기 같은 호출을 반복시키고 나머지는 영영 판정되지 않는다.
-          unavailableStreak = 0;
+          guard.recordResponse();
         }
       }
     }
+    boolean aborted = guard.tripped();
     if (aborted && done == 0) {
       // agent 불가가 연속으로 쌓여 중단됐고 실제로 분석된 메일이 없다 — 버전을 되돌려 다음 주기에 다시 시도. 일부라도 분석됐으면 되돌리지 않는다:
       // 되돌리면 ai_analyzed_at 필터 때문에 재시도가 그다음 50건을 골라 계정당 상한(50)을 넘게 된다.
@@ -125,12 +121,6 @@ public class MailReanalysisService {
       log.info("재분석 완료 accountId={} 대상={} 성공={} 장애중단={}", accountId, ids.size(), done, aborted);
     }
     return true;
-  }
-
-  /** 일시 불가 판정 — 503 이거나 {@link MailAiException#isTransient()} 이면 agent 장애. 그 외는 메일 단위 실패다. */
-  private static boolean isUnavailable(RuntimeException e) {
-    return e instanceof MailAiUnavailableException
-        || (e instanceof MailAiException ai && ai.isTransient());
   }
 
   /**

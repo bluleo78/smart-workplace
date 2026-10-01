@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.jooq.DSLContext;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -53,6 +54,7 @@ public class FileCleanupService {
    * TenantScopedRunner 가 제공한다(자기-호출 프록시 우회 방지).
    */
   @Scheduled(fixedRate = 3_600_000)
+  @SchedulerLock(name = "FileCleanupService.cleanupExpiredFiles")
   public void cleanupExpiredFiles() {
     tenantScopedRunner.forEachActiveTenant(tid -> cleanupExpiredForCurrentTenant());
   }

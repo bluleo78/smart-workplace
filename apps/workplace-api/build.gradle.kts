@@ -70,6 +70,11 @@ dependencies {
     // 반복 일정 RRULE(RFC 5545) 파싱/전개 — 회차 계산
     implementation("org.dmfs:lib-recur:0.17.1")
 
+    // 스케줄러 분산 잠금(WP-165) — 롤링 배포로 api 파드가 겹치는 동안 @Scheduled 작업이 파드마다 동시에 도는 것을 막는다.
+    // 6.x 가 Spring 6.2 / Boot 3.5 대응(7.x 는 Spring 7 / Boot 4).
+    implementation("net.javacrumbs.shedlock:shedlock-spring:6.10.0")
+    implementation("net.javacrumbs.shedlock:shedlock-provider-jdbc-template:6.10.0")
+
     // 마이그레이션
     implementation("org.flywaydb:flyway-core")
     implementation("org.flywaydb:flyway-database-postgresql")

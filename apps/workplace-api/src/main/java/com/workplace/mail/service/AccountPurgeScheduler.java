@@ -7,6 +7,7 @@ import com.workplace.tenant.repository.TenantRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -30,6 +31,7 @@ public class AccountPurgeScheduler {
 
   /** 스케줄 진입점 — 이전 사이클 완료 후 5분 뒤(fixedDelay), 기동 후 90초 뒤 첫 실행(initialDelay). */
   @Scheduled(fixedDelay = 300_000, initialDelay = 90_000)
+  @SchedulerLock(name = "AccountPurgeScheduler.scheduled")
   public void scheduled() {
     purgeAllTenants();
   }

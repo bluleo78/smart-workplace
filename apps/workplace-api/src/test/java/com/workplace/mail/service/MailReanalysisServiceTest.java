@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
@@ -261,8 +262,7 @@ class MailReanalysisServiceTest extends IntegrationTestBase {
 
     reanalysis.reanalyzeAccountNow(box.userId(), box.accountId());
 
-    verify(mailClient, times(MailReanalysisService.MAX_CONSECUTIVE_FAILURES))
-        .analyzePersonal(any());
+    verify(mailClient, times(AgentOutageGuard.MAX_CONSECUTIVE_UNAVAILABLE)).analyzePersonal(any());
     assertThat(version(box.accountId())).isZero();
   }
 

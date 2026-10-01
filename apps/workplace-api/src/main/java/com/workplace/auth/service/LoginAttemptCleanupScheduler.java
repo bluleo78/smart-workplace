@@ -3,6 +3,7 @@ package com.workplace.auth.service;
 import com.workplace.auth.repository.LoginAttemptRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -26,6 +27,7 @@ public class LoginAttemptCleanupScheduler {
 
   /** 시작 30초 후 첫 실행, 이후 1시간 간격. */
   @Scheduled(initialDelay = 30_000, fixedDelay = 3_600_000)
+  @SchedulerLock(name = "LoginAttemptCleanupScheduler.cleanupExpired")
   public void cleanupExpired() {
     int deleted = repository.deleteExpired();
     if (deleted > 0) {

@@ -7,6 +7,7 @@ import com.workplace.tenant.repository.TenantRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -36,6 +37,7 @@ public class MailAutoSyncScheduler {
    * 기다린다.
    */
   @Scheduled(fixedDelay = 180_000, initialDelay = 30_000)
+  @SchedulerLock(name = "MailAutoSyncScheduler.scheduled")
   public void scheduled() {
     syncAllTenants();
   }

@@ -7,6 +7,9 @@ import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.workplace.auth.repository.PersonalAssistantRepository;
@@ -18,6 +21,7 @@ import com.workplace.mail.MailTestPorts;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.ParsedMessage;
+import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
@@ -325,5 +329,33 @@ class MailSummarySchedulerTest extends IntegrationTestBase {
                       .personalSummary())
               .isNull();
         });
+  }
+
+  /**
+   * WP-166 — ai-agent 불가(재기동 중)면 회차 공용 카운터가 연속 3회에서 회차를 멈춘다. 계정마다 메일이 1통뿐이어도 계정을 넘어 세므로 멈추고, 같은
+   * agent 를 부르는 ④ 개인 패스도 건너뛴다.
+   */
+  @Test
+  @DisplayName("WP-166: ai-agent 불가가 연속 3회면 계정을 넘어 회차를 멈추고 개인 패스를 건너뛴다")
+  void runOnce_agentUnavailable_stopsRunAcrossAccounts() {
+    TenantContext.clear();
+    seedWorkspaceAssistantWithToken(tenantId);
+    seedPersonalAssistantWithToken(ownerOf(accountAiEnabled));
+    // 계정마다 1통 — 계정 안에서만 세면 연속 3회에 닿지 못한다
+    seedInboxMessageWithBody(accountAiDisabled);
+    seedInboxMessageWithBody(accountAiEnabled);
+    long thirdUser = TestFixtures.createHuman(dsl);
+    long third = createAccount(thirdUser, "sched2-x-" + System.nanoTime() + "@t.local", false);
+    accountOwner.put(third, thirdUser);
+    usersToDelete.add(thirdUser);
+    accountsToDelete.add(third);
+    seedInboxMessageWithBody(third);
+    when(mailClient.analyzeContent(any())).thenThrow(new MailAiUnavailableException("503"));
+
+    scheduler.runOnce();
+
+    // ③ 이 3회(다른 테스트 잔여 계정이 있어도 연속 불가는 3회에서 끊긴다) 후 멈추고 ④ 는 부르지 않는다
+    verify(mailClient, times(3)).analyzeContent(any());
+    verify(mailClient, never()).analyzePersonal(any());
   }
 }

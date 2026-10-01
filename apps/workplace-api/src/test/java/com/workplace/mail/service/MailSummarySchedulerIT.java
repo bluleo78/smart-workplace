@@ -218,7 +218,9 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
             })
         .when(backfill)
         .summarizeObjectiveRecentNow(
-            org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong());
+            org.mockito.ArgumentMatchers.anyLong(),
+            org.mockito.ArgumentMatchers.anyLong(),
+            org.mockito.ArgumentMatchers.any());
 
     String run = UUID.randomUUID().toString().substring(0, 8);
 
@@ -245,8 +247,17 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
     final long fU2 = user2;
     final long fA2 = account2;
     // 각 계정 T1 패스가 정확히 1회만 — 누수면 (userB, accountB) 가 2회 잡혀 깨진다.
-    verify(backfill, times(1)).summarizeObjectiveRecentNow(fU1, fA1);
-    verify(backfill, times(1)).summarizeObjectiveRecentNow(fU2, fA2);
+    // 스케줄러는 회차 공용 agent 불가 카운터를 넘기는 3-인자 오버로드를 부른다(WP-166)
+    verify(backfill, times(1))
+        .summarizeObjectiveRecentNow(
+            org.mockito.ArgumentMatchers.eq(fU1),
+            org.mockito.ArgumentMatchers.eq(fA1),
+            org.mockito.ArgumentMatchers.any());
+    verify(backfill, times(1))
+        .summarizeObjectiveRecentNow(
+            org.mockito.ArgumentMatchers.eq(fU2),
+            org.mockito.ArgumentMatchers.eq(fA2),
+            org.mockito.ArgumentMatchers.any());
 
     // 디스패치 컨텍스트 검증 — A 는 tenant 1, B 는 tid2 컨텍스트에서 요약(stage② TenantContext 주입 증명).
     Long ctxA =

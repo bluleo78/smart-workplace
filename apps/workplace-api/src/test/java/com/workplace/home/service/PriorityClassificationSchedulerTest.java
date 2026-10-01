@@ -9,11 +9,15 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.home.exception.PriorityAiException;
 import com.workplace.home.outbound.AiAgentPriorityClient;
 import com.workplace.home.outbound.dto.PriorityClassifyResult;
 import com.workplace.home.repository.PriorityItemRepository;
@@ -35,6 +39,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.web.client.ResourceAccessException;
 
 /**
  * PriorityClassificationScheduler 통합테스트 — RLS 격리(테넌트별 GUC 주입) + 사용자 단위 실패 격리를 검증한다. ai-agent HTTP 는
@@ -171,6 +176,24 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     assertThat(row.importanceScore()).isEqualTo(77);
     assertThat(row.urgencyScore()).isEqualTo(88);
     assertThat(row.reason()).isEqualTo("테스트 근거");
+  }
+
+  @Test
+  @DisplayName("ai-agent 연결 불가가 연속 3회면 이번 회차를 멈춘다 — 남은 사용자에게 호출을 쌓지 않는다(WP-166)")
+  void ai_agent_불가가_연속되면_회차를_중단한다() {
+    for (int n = 0; n < 4; n++) {
+      seedUserWithOverdueIssue("aaa-down" + n);
+    }
+    // 재기동 중인 ai-agent — 클라이언트가 연결 실패(ResourceAccessException)를 감싸 던지는 형태
+    when(aiClient.classify(any()))
+        .thenThrow(
+            new PriorityAiException(
+                "AI 우선순위 분류 요청에 실패했어요.", new ResourceAccessException("Connection refused")));
+
+    scheduler.runOnce();
+
+    // 후보가 있는 사용자는 4명 이상이지만 연속 3회에서 멈춘다. 후보 없는 사용자(다른 테스트 잔여)는 agent 를 부르지 않아 횟수에 영향이 없다.
+    verify(aiClient, times(AgentOutageGuard.MAX_CONSECUTIVE_UNAVAILABLE)).classify(any());
   }
 
   /** 시드한 issue 의 reporter(=담당자=시드 시 지정한 userId) 를 되짚어 찾는다. */

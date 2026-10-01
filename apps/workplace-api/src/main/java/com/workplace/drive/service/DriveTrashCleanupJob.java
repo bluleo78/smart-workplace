@@ -5,6 +5,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -22,6 +23,7 @@ public class DriveTrashCleanupJob {
    * 는 @Transactional(REQUIRED) 이라 Runner 가 연 트랜잭션에 합류한다.
    */
   @Scheduled(fixedRate = 3_600_000)
+  @SchedulerLock(name = "DriveTrashCleanupJob.run")
   public void run() {
     OffsetDateTime cutoff = OffsetDateTime.now(ZoneOffset.UTC).minusDays(trash.retentionDays());
     tenantScopedRunner.forEachActiveTenant(tid -> trash.purgeExpired(cutoff));
