@@ -84,9 +84,9 @@ public class WebPushGateway implements PushGateway {
   /** 거부 응답 본문 앞부분(Apple {"reason":..} 등) — 큰 본문을 다 읽지 않도록 상한까지만 읽는다. */
   private static String readReason(InputStream body) {
     try {
-      return Texts.truncateCodePoints(
-          new String(body.readNBytes(REASON_MAX_BYTES), StandardCharsets.UTF_8).strip(),
-          REASON_MAX_CHARS);
+      // 원격 본문이 그대로 로그에 들어가므로 개행·제어문자를 공백으로 바꿔 한 줄로 만든다(HTML 에러 페이지·로그 줄 주입 방지).
+      String raw = new String(body.readNBytes(REASON_MAX_BYTES), StandardCharsets.UTF_8);
+      return Texts.truncateCodePoints(raw.replaceAll("\\p{Cntrl}+", " ").strip(), REASON_MAX_CHARS);
     } catch (IOException e) {
       return "";
     }

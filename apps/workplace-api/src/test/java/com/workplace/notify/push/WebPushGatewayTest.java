@@ -88,6 +88,20 @@ class WebPushGatewayTest {
     assertThat(r).isEqualTo(new PushGateway.Result(403, "{\"reason\":\"BadJwtToken\"}"));
   }
 
+  /** 원격 본문(HTML 에러 페이지 등)의 개행·제어문자는 한 줄로 접는다 — 로그 줄 분리·주입 방지. */
+  @Test
+  void deliver_rejectionReason_isSingleLine() {
+    server
+        .expect(requestTo("https://push.example.com/sub/5"))
+        .andRespond(
+            withStatus(HttpStatus.BAD_GATEWAY)
+                .body("<html>\r\n<h1>502</h1>\n\tBad\u0000Gateway</html>"));
+
+    PushGateway.Result r = gw.deliver("https://push.example.com/sub/5", new byte[] {1}, Map.of());
+
+    assertThat(r.reason()).isEqualTo("<html> <h1>502</h1> Bad Gateway</html>");
+  }
+
   /** 네트워크 오류 사유는 근본 원인만 — RestClient 예외 메시지에 든 전체 URL(구독 토큰)은 담지 않는다. */
   @Test
   void deliver_networkFailureReason_excludesEndpointPath() {
