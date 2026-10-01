@@ -299,19 +299,6 @@ class MailTwoTierSummaryTest extends IntegrationTestBase {
     verify(mailClient, times(1)).summarize(any());
   }
 
-  /** #484: 온디맨드(개인 티어) — 빈 응답이면 요약 없음(null) 반환, 재조회 시 LLM 재호출 없음. */
-  @Test
-  void summarize_onDemand_returnsNoSummary_andDoesNotRecall_whenLlmReturnsBlank() {
-    seedPersonalAssistantWithToken(ownerOf(accountAiEnabled));
-    long msg = seedInboxMessageWithBody(accountAiEnabled);
-    when(mailClient.summarize(any())).thenReturn(new SummarizeResult(" "));
-
-    assertThat(service.summarize(ownerOf(accountAiEnabled), msg).summary()).isNull();
-    assertThat(service.summarize(ownerOf(accountAiEnabled), msg).summary()).isNull();
-
-    verify(mailClient, times(1)).summarize(any());
-  }
-
   // ──────────────────────────────────────────────────────────────────────────
   // 온디맨드 summarize — 표시 폴백(개인 ?? 공통)
   // ──────────────────────────────────────────────────────────────────────────

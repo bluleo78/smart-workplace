@@ -24,6 +24,9 @@ import com.workplace.mail.outbound.MailAiMessages.ThreadMessage;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.AiContext;
+import com.workplace.mail.repository.EmailMessageRepository.AnalysisContext;
+import com.workplace.mail.service.MailSummaryDecider.Decision;
+import com.workplace.mail.service.MailSummaryDecider.Outcome;
 import com.workplace.mail.util.MailBodyText;
 import java.util.List;
 import java.util.Set;
@@ -48,6 +51,7 @@ public class MailAiService {
   /** 단발 호출이라 turn 1 고정. */
   private static final int MAX_TURNS = 1;
 
+  private final MailAnalysisService analysis;
   private final AiAgentMailClient mailClient;
   private final EmailMessageRepository messageRepo;
   private final EmailAccountRepository accountRepo;
@@ -60,11 +64,13 @@ public class MailAiService {
   private final TransactionTemplate txTemplate;
 
   public MailAiService(
+      MailAnalysisService analysis,
       AiAgentMailClient mailClient,
       EmailMessageRepository messageRepo,
       EmailAccountRepository accountRepo,
       AssistantResolver assistantResolver,
       PlatformTransactionManager txManager) {
+    this.analysis = analysis;
     this.mailClient = mailClient;
     this.messageRepo = messageRepo;
     this.accountRepo = accountRepo;
@@ -158,47 +164,75 @@ public class MailAiService {
   }
 
   /**
-   * 온디맨드 표시용 요약. 개인 ?? 공통. 캐시 없으면 가능한 쪽을 생성: aiEnabled+개인비서면 개인요약, 아니면 공통비서면 객관적요약. 둘 다 불가하면 503.
+   * 메일 상세의 요약(WP-149). 표시 = 개인 ?? 공통. 요약이 없으면 상태(SKIPPED: "AI 요약" 버튼, EMPTY: 숨김)를 돌려주고, 선택 티어가 아직
+   * 분석 전이면 지금 분석해 결과를 돌려준다(선제 분석 지연 보완). 티어: AI 사용 + 개인 비서 → 개인, 아니면 공통.
    *
-   * <p>RLS GUC(app.tenant_id)는 트랜잭션-로컬이라 컨텍스트 조회·캐시 쓰기만 짧은 트랜잭션({@code txTemplate})으로 감싼다. LLM 호출은
-   * 트랜잭션 밖(#232). 비서 사양 해석은 자체 @Transactional(readOnly) 로 GUC 를 주입한다.
-   *
-   * <p>#484: 선택된 티어가 이미 '시도했으나 결과 없음'이면 재요약하지 않고 {@code summary=null}(요약 없음)로 응답한다 — 매 상세 조회마다 LLM
-   * 을 다시 부르는 비용 누수 방지. 프론트는 null 요약이면 카드를 숨긴다.
+   * <p>LLM 호출은 트랜잭션 밖(#232) — 컨텍스트 조회·저장은 분석 서비스의 짧은 트랜잭션이 맡는다. 시도조차 못 하면(비서 미설정·본문 미적재) 기존 계약대로
+   * 503 — 웹 쿼리는 재시도하고, EMPTY 를 캐시해 영구히 숨기지 않는다.
    */
   public MailSummary summarize(long userId, long messageId) {
-    AiContext ctx = readContextOrThrow(userId, messageId);
-    String display = firstNonBlank(ctx.personalSummary(), ctx.summary());
-    if (display != null) {
-      return new MailSummary(display);
-    }
-    // 캐시 미스 — 티어 선택: aiEnabled+개인비서면 개인요약, 아니면 공통요약.
-    boolean personalTier =
-        ctx.aiEnabled() && assistantResolver.resolvePersonalOrEmpty(userId).isPresent();
-    // ensure* 도 같은 검사를 하지만, 여기서 먼저 끊으면 재조회 왕복 없이 바로 응답한다.
-    if (attemptedFor(ctx, personalTier)) {
-      return new MailSummary(null); // 이미 시도했으나 결과 없음 — 재요약 금지
+    AnalysisContext ctx = contextOrThrow(userId, messageId);
+    boolean personalTier = personalTier(userId, ctx);
+    Outcome first = MailSummaryDecider.decide(MailSummaryDecider.stateOf(ctx, personalTier));
+    if (first.decision() != Decision.GENERATE) {
+      return toResponse(first);
     }
     if (personalTier) {
-      ensurePersonalSummary(userId, messageId);
+      analysis.generatePersonalSummary(userId, messageId, false);
     } else {
-      ensureObjectiveSummary(userId, messageId);
+      analysis.generateContentSummary(userId, messageId, false);
     }
-    AiContext after = readContextOrThrow(userId, messageId);
-    String result = firstNonBlank(after.personalSummary(), after.summary());
-    if (result != null) {
-      return new MailSummary(result);
+    Outcome after =
+        MailSummaryDecider.decide(
+            MailSummaryDecider.stateOf(contextOrThrow(userId, messageId), personalTier));
+    if (after.decision() == Decision.GENERATE) {
+      throw new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
     }
-    if (attemptedFor(after, personalTier)) {
-      return new MailSummary(null); // 방금 시도했으나 LLM 이 빈 결과 — 요약 없음
-    }
-    // 시도조차 못함(비서 미설정 등) — 기존 계약대로 503
-    throw new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
+    return toResponse(after);
   }
 
-  /** 선택된 티어(개인/공통)의 요약 시도 여부(summarized_at 존재). */
-  private static boolean attemptedFor(AiContext ctx, boolean personalTier) {
-    return personalTier ? ctx.personalSummaryAttempted() : ctx.summaryAttempted();
+  /**
+   * "AI 요약" 버튼(WP-149) — 생략을 무시하고 선택 티어로 요약을 강제 생성한다. 이미 요약이 있으면 그대로(캐시). 비서가 없으면 503, LLM 실패는
+   * 502(MailAiException).
+   */
+  public MailSummary forceSummarize(long userId, long messageId) {
+    AnalysisContext ctx = contextOrThrow(userId, messageId);
+    String display = firstNonBlank(ctx.personalSummary(), ctx.contentSummary());
+    if (display != null) {
+      return MailSummary.ready(display);
+    }
+    boolean ran =
+        personalTier(userId, ctx)
+            ? analysis.generatePersonalSummary(userId, messageId, true)
+            : analysis.generateContentSummary(userId, messageId, true);
+    if (!ran) {
+      throw new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
+    }
+    AnalysisContext after = contextOrThrow(userId, messageId);
+    String result = firstNonBlank(after.personalSummary(), after.contentSummary());
+    return result != null ? MailSummary.ready(result) : MailSummary.empty();
+  }
+
+  /** 개인 티어 여부 — AI 사용 계정 + 개인 비서(현행 규칙). */
+  private boolean personalTier(long userId, AnalysisContext ctx) {
+    return ctx.aiEnabled() && assistantResolver.resolvePersonalOrEmpty(userId).isPresent();
+  }
+
+  private AnalysisContext contextOrThrow(long userId, long messageId) {
+    AnalysisContext ctx = analysis.readContext(userId, messageId);
+    if (ctx == null) {
+      throw new EmailMessageNotFoundException(messageId);
+    }
+    return ctx;
+  }
+
+  /** 판정 → 응답(GENERATE 는 호출 전에 처리됨). */
+  private static MailSummary toResponse(Outcome o) {
+    return switch (o.decision()) {
+      case READY -> MailSummary.ready(o.text());
+      case SKIPPED -> MailSummary.skipped();
+      default -> MailSummary.empty();
+    };
   }
 
   /**
@@ -229,14 +263,6 @@ public class MailAiService {
   private AiContext readContext(long userId, long messageId) {
     return txTemplate.execute(
         status -> messageRepo.findAiContextByIdAndUser(userId, messageId).orElse(null));
-  }
-
-  private AiContext readContextOrThrow(long userId, long messageId) {
-    AiContext ctx = readContext(userId, messageId);
-    if (ctx == null) {
-      throw new EmailMessageNotFoundException(messageId);
-    }
-    return ctx;
   }
 
   private String firstNonBlank(String a, String b) {

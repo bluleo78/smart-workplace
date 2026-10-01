@@ -125,6 +125,46 @@ public class MailAnalysisService {
         });
   }
 
+  /**
+   * 공통 티어 요약 생성(요약 GET·"AI 요약" 버튼). force=false: 미분석이면 ③ 전체 실행. force=true: 생략을 무시하고 새 본문으로 요약만 받아
+   * 저장(분류 불변, 자동 발송이어도 미리보기 대신 본문).
+   *
+   * @return 시도 가능 여부(공통 비서 없음·미적재면 false)
+   */
+  public boolean generateContentSummary(long userId, long messageId, boolean force) {
+    AnalysisContext ctx = readContext(userId, messageId);
+    if (ctx == null || !ctx.fetched() || ctx.contentId() == null) {
+      return false;
+    }
+    AssistantSpec spec = assistantResolver.resolveWorkspaceOrEmpty().orElse(null);
+    if (spec == null) {
+      return false;
+    }
+    if (!force) {
+      analyzeContent(userId, messageId);
+      return true;
+    }
+    singleFlight.run(
+        contentKey(ctx.contentId()), () -> runForcedContentSummary(userId, messageId, spec));
+    return true;
+  }
+
+  private void runForcedContentSummary(long userId, long messageId, AssistantSpec spec) {
+    AnalysisContext ctx = readContext(userId, messageId);
+    if (ctx == null || StringUtils.hasText(ctx.contentSummary())) {
+      return; // 기다리는 동안 다른 실행이 요약을 만듦
+    }
+    String newBody = newBody(ctx);
+    if (!StringUtils.hasText(newBody)) {
+      return;
+    }
+    // 강제 생성은 자동 발송이어도 미리보기 대신 새 본문으로 요약만 받는다(분류 불변)
+    AnalyzeContentResult r =
+        mailClient.analyzeContent(contentRequest(ctx, newBody, false, true, spec));
+    txTemplate.executeWithoutResult(
+        status -> messageRepo.saveForcedContentSummary(messageId, r.summary()));
+  }
+
   /** ③ 대상: 적재·검증된 사본 + content 연결 + 미시도. */
   private static boolean contentAnalyzable(AnalysisContext ctx) {
     return ctx != null && ctx.fetched() && ctx.contentId() != null && !ctx.contentAttempted();
@@ -196,6 +236,56 @@ public class MailAnalysisService {
     // 계산할 수 있다.
     // 두 저장이 모두 커밋된 뒤 새 트랜잭션에서 다시 계산해 분류가 반영된 최종값으로 수렴시킨다(멱등·LLM 없음).
     txTemplate.executeWithoutResult(status -> finalizer.recompute(messageId));
+  }
+
+  /**
+   * 개인 티어 요약 생성. force=false: 미분석 사본이면 ④ 전체(회신필요 포함), 분석된 사본이면 요약만(생략 조건이면 생략 표시만). force=true: 생략을
+   * 무시하고 새 본문으로 요약만 받아 저장.
+   *
+   * @return 시도 가능 여부(AI 꺼짐·개인 비서 없음·미적재면 false)
+   */
+  public boolean generatePersonalSummary(long userId, long messageId, boolean force) {
+    AnalysisContext ctx = readContext(userId, messageId);
+    if (ctx == null || !ctx.fetched() || ctx.contentId() == null || !ctx.aiEnabled()) {
+      return false;
+    }
+    AssistantSpec spec = assistantResolver.resolvePersonalOrEmpty(userId).orElse(null);
+    if (spec == null) {
+      return false;
+    }
+    if (!force && !ctx.personalAnalyzed()) {
+      analyzePersonal(userId, messageId);
+      return true;
+    }
+    singleFlight.run(
+        personalKey(messageId), () -> runPersonalSummaryOnly(userId, messageId, spec, force));
+    return true;
+  }
+
+  private void runPersonalSummaryOnly(
+      long userId, long messageId, AssistantSpec spec, boolean force) {
+    AnalysisContext ctx = readContext(userId, messageId);
+    if (ctx == null || StringUtils.hasText(ctx.personalSummary())) {
+      return;
+    }
+    if (!force && (ctx.personalAttempted() || ctx.personalSummarySkipped())) {
+      return; // 기다리는 동안 다른 실행이 끝냄
+    }
+    String newBody = newBody(ctx);
+    if (!StringUtils.hasText(newBody)) {
+      return;
+    }
+    Set<String> me = ownAddresses(userId);
+    NeedsReplyRules.Input rules = ruleInput(ctx, me);
+    if (!force && personalSummarySkip(ctx, newBody, rules)) {
+      txTemplate.executeWithoutResult(status -> messageRepo.markPersonalSummarySkipped(messageId));
+      return;
+    }
+    String body = force ? newBody : bodyInput(ctx, newBody);
+    AnalyzePersonalResult r =
+        mailClient.analyzePersonal(personalRequest(ctx, body, me, rules, false, true, false, spec));
+    String summary = r.personalSummaryValid() ? r.personalSummary() : null;
+    txTemplate.executeWithoutResult(status -> messageRepo.savePersonalSummary(messageId, summary));
   }
 
   /** ④ 대상: 적재·검증된 사본 + content 연결 + 계정 AI 사용 + 미분석. */
