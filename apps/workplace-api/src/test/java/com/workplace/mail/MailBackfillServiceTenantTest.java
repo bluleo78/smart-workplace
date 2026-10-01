@@ -141,7 +141,7 @@ class MailBackfillServiceTenantTest extends IntegrationTestBase {
             inv -> {
               BodyTarget target = inv.getArgument(1);
               fetchedAccountIds.add(target.accountId());
-              return null;
+              return false;
             })
         .when(bodyFetcher)
         .fetchBody(anyLong(), org.mockito.ArgumentMatchers.any());

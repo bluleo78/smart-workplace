@@ -31,10 +31,17 @@ public class MailAiController {
   private final MailAiService aiService;
   private final MailIssueService issueService;
 
-  /** 메일 요약(캐시 우선, 없으면 생성·캐시). */
+  /** 메일 요약 — 캐시 우선, 미분석이면 즉시 생성. WP-149: status(READY/SKIPPED/EMPTY) 포함. */
   @GetMapping("/{messageId}/summary")
   public MailSummary summary(@AuthenticationPrincipal Long callerId, @PathVariable long messageId) {
     return aiService.summarize(callerId, messageId);
+  }
+
+  /** WP-149 "AI 요약" 버튼 — 생략을 무시하고 강제 생성(결과는 캐시). */
+  @PostMapping("/{messageId}/summary")
+  public MailSummary generateSummary(
+      @AuthenticationPrincipal Long callerId, @PathVariable long messageId) {
+    return aiService.forceSummarize(callerId, messageId);
   }
 
   /** AI 답장 초안(미영속). */

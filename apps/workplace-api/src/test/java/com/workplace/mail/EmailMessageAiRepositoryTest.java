@@ -105,7 +105,7 @@ class EmailMessageAiRepositoryTest extends IntegrationTestBase {
     long msgId = insertMessage(accountId, folderId, "msg-1@test.local", "thread-1", "본문 내용");
 
     // 분류 저장
-    messageRepo.updateClassification(msgId, "업무", true);
+    MailTestSupport.classify(dsl, msgId, "업무", true);
 
     // AiContext 조회 — 소유 검증(userId) + aiEnabled 반영
     Optional<AiContext> ctx = messageRepo.findAiContextByIdAndUser(userId, msgId);
@@ -125,7 +125,7 @@ class EmailMessageAiRepositoryTest extends IntegrationTestBase {
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
     long msgId = insertMessage(accountId, folderId, "msg-2@test.local", "thread-2", "긴 본문");
 
-    messageRepo.updateSummary(msgId, "요약된 내용");
+    MailTestSupport.seedSummary(dsl, msgId, "요약된 내용");
 
     Optional<AiContext> ctx = messageRepo.findAiContextByIdAndUser(userId, msgId);
     assertThat(ctx).isPresent();

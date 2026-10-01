@@ -90,7 +90,7 @@ class MailInboxControllerTest extends IntegrationTestBase {
             .get(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID);
 
     if (aiSummary != null) {
-      messageRepo.updateSummary(msg, aiSummary);
+      MailTestSupport.seedSummary(dsl, msg, aiSummary);
     }
     return msg;
   }
@@ -102,7 +102,7 @@ class MailInboxControllerTest extends IntegrationTestBase {
     long accountId = createAccount(userId, "open-test-" + System.nanoTime() + "@test.local");
     long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
     long m = seedMessage(accountId, inbox, false, null);
-    messageRepo.updateClassification(m, "업무", true);
+    MailTestSupport.classify(dsl, m, "업무", true);
     String token = jwtTokenProvider.generateAccessToken(userId, "user-" + userId);
 
     mvc.perform(
@@ -128,7 +128,7 @@ class MailInboxControllerTest extends IntegrationTestBase {
     long accountId = createAccount(userId, "ai-read-" + System.nanoTime() + "@test.local");
     long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
     long m = seedMessage(accountId, inbox, false, null);
-    messageRepo.updateClassification(m, "업무", true);
+    MailTestSupport.classify(dsl, m, "업무", true);
     String token = jwtTokenProvider.generateAccessToken(userId, "user-" + userId);
 
     mvc.perform(
@@ -148,7 +148,7 @@ class MailInboxControllerTest extends IntegrationTestBase {
     long accountId = createAccount(userId, "read-test-" + System.nanoTime() + "@test.local");
     long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
     long m = seedMessage(accountId, inbox, false, null);
-    messageRepo.updateClassification(m, "업무", true);
+    MailTestSupport.classify(dsl, m, "업무", true);
     String token = jwtTokenProvider.generateAccessToken(userId, "user-" + userId);
 
     mvc.perform(
@@ -169,7 +169,7 @@ class MailInboxControllerTest extends IntegrationTestBase {
     long accountId = createAccount(owner, "owner-read-" + System.nanoTime() + "@test.local");
     long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
     long m = seedMessage(accountId, inbox, false, null);
-    messageRepo.updateClassification(m, "업무", true);
+    MailTestSupport.classify(dsl, m, "업무", true);
     String otherToken = jwtTokenProvider.generateAccessToken(other, "user-" + other);
 
     mvc.perform(

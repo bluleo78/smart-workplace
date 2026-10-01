@@ -19,7 +19,7 @@ function isDarkClass(): boolean {
 }
 
 /**
- * WP-103 다크 테마일 때 HTML 메일 본문을 어두운 배경으로 변환한다. 라이트 테마거나 변환 대상이 아니면 입력을 그대로 돌려준다.
+ * WP-103 다크 테마일 때 HTML 메일 본문을 어두운 배경으로 변환한다(WP-159 부터 모든 HTML 메일 대상). 라이트 테마면 입력을 그대로 돌려준다.
  * cid 인라인 이미지 치환(useInlineMailHtml) **이전**의 원문을 넘긴다 — 치환 후엔 base64 이미지로 수 MB 가 돼 파싱 비용이 커진다.
  */
 export function useMailDarkHtml(html: string | null): string | null {

@@ -72,6 +72,9 @@ class EmailAttachmentRepositoryTest extends IntegrationTestBase {
    * @param ordinal 첨부 순서(0-based MIME 인덱스)
    */
   private Seeded seedSharedAttachment(String providerMsgId, String filename, int ordinal) {
+    // 고정 시각 — content 지문이 sentAt 초 단위를 포함하므로, 두 번 시드할 때 Instant.now() 가 초 경계를 넘으면
+    // 다른 content 로 갈라져 공유 검증이 간헐 실패한다.
+    Instant fixedAt = Instant.parse("2026-01-01T00:00:00Z");
     long nano = System.nanoTime();
 
     // 신규 사용자 생성
@@ -112,8 +115,8 @@ class EmailAttachmentRepositoryTest extends IntegrationTestBase {
             "recv@example.com",
             null,
             "Test Subject",
-            Instant.now(),
-            Instant.now(),
+            fixedAt,
+            fixedAt,
             false,
             true,
             null,

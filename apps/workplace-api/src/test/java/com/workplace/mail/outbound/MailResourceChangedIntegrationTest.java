@@ -189,7 +189,7 @@ class MailResourceChangedIntegrationTest extends IntegrationTestBase {
   @Test
   @DisplayName("동기화로 새 메일이 저장되면 소유자에게 actor 없이 발행")
   void sync_withSaved_publishesToOwnerWithoutActor() {
-    MailFetcher original = swapImapFetcher(new MailSyncResult(1, 1));
+    MailFetcher original = swapImapFetcher(new MailSyncResult(1, 1, 0));
     try {
       clearInvocations(registry);
       TenantContext.set(1L);
@@ -207,7 +207,7 @@ class MailResourceChangedIntegrationTest extends IntegrationTestBase {
   @Test
   @DisplayName("동기화로 저장된 게 없으면 발행하지 않음")
   void sync_withNothingSaved_publishesNothing() {
-    MailFetcher original = swapImapFetcher(new MailSyncResult(3, 0));
+    MailFetcher original = swapImapFetcher(new MailSyncResult(3, 0, 0));
     try {
       clearInvocations(registry);
       TenantContext.set(1L);
@@ -217,6 +217,23 @@ class MailResourceChangedIntegrationTest extends IntegrationTestBase {
               org.mockito.ArgumentMatchers.any(),
               eq("resource.changed"),
               org.mockito.ArgumentMatchers.any());
+    } finally {
+      restoreImapFetcher(original);
+    }
+  }
+
+  @Test
+  @DisplayName("WP-148: 새 메일 없이 읽음 상태만 바뀌어도 소유자에게 mail updated 발행")
+  void sync_withSeenChangedOnly_publishesToOwner() {
+    MailFetcher original = swapImapFetcher(new MailSyncResult(0, 0, 1));
+    try {
+      clearInvocations(registry);
+      TenantContext.set(1L);
+      syncService.sync(owner, accountId);
+      var c = capture("mail", "updated");
+      assertThat(c.recipients()).containsExactly(owner);
+      assertThat(c.payload().get("accountId")).isEqualTo(accountId);
+      assertThat(c.payload()).doesNotContainKey("messageId");
     } finally {
       restoreImapFetcher(original);
     }

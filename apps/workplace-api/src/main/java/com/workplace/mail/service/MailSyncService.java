@@ -83,7 +83,7 @@ public class MailSyncService {
 
     // 계정당 동시 실행 가드 — try 진입 전에 점유 시도. 이미 진행 중이면 즉시 빈 결과.
     if (!progress.tryStart(accountId)) {
-      return new MailSyncResult(0, 0);
+      return new MailSyncResult(0, 0, 0);
     }
     boolean triggeredBackfill = false;
     try {
@@ -104,15 +104,18 @@ public class MailSyncService {
         triggeredBackfill = true;
       }
       // 동기화 성공 — 마지막 동기화 시각 기록(자동·수동 공통). tx-local GUC 위해 txTemplate 사용.
-      // 새 메일이 적재됐으면(saved > 0) 같은 트랜잭션 안에서 소유자에게 resource.changed 를 발행한다 — 트랜잭션 밖 발행은 유실된다. 시스템 발화라
-      // actor 는 없다. TenantContext 는 호출자(스케줄러/컨트롤러)가 설정해 AFTER_COMMIT 시점에도 살아 있다.
+      // 새 메일이 적재됐거나(saved > 0) 서버 읽음 상태가 로컬에 반영됐으면(seenChanged > 0, WP-148) 같은 트랜잭션 안에서 소유자에게
+      // resource.changed 를 발행한다 — 트랜잭션 밖 발행은 유실된다. 읽음 변화도 사이드바·회신필요·홈 카운트를 바꾸므로 같은 이벤트로 무효화한다.
+      // 시스템 발화라 actor 는 없다. TenantContext 는 호출자(스케줄러/컨트롤러)가 설정해 AFTER_COMMIT 시점에도 살아 있다.
       txTemplate.executeWithoutResult(
           status -> {
             accountRepo.updateLastSyncedAt(accountId, OffsetDateTime.now());
-            if (result.saved() > 0) notifier.mailChanged(userId, accountId, null, null);
+            if (result.saved() > 0 || result.seenChanged() > 0) {
+              notifier.mailChanged(userId, accountId, null, null);
+            }
           });
       // 동기화로 적재된 새 메일을 선제 요약(@Async — 짧은 TX 들이 모두 커밋된 뒤 별도 스레드에서 실행되어 새 메일이 가시). best-effort.
-      // AI 게이트는 계정 단위(ai_enabled) — 호출자가 책임진다. 백필 유닛의 자체 게이트(resolveSpecOrNull)는
+      // AI 게이트는 계정 단위(ai_enabled) — 호출자가 책임진다. 분석 서비스의 자체 게이트(비서 해석)는
       // 유저/비서 설정 단위라 계정 ai_enabled 와 어긋나므로, 여기서 OFF 계정을 미리 거른다(불필요한 IMAP fetch·요약 예외 스팸 방지).
       if (account.aiEnabled()) {
         summaryBackfillService.summarizeRecentUnread(userId, accountId);

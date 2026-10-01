@@ -82,7 +82,7 @@ export function parseRelevantJson(text: string): { relevant: { userId: number; r
 
 /**
  * 메시징 분류: 안읽은 채널 메시지 배치 → 암묵적 관련 멤버 목록.
- * run-mail-ai.runMailClassify 미러.
+ * run-mail-ai.runMailAnalyzeContent 미러.
  */
 export async function runMessagingClassify(
   input: MessagingClassifyInput,

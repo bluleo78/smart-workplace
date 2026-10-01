@@ -4,7 +4,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 
-import { coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getNeedsReplyCount, getSyncStatus, listMessages, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
+import { coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getNeedsReplyCount, getSyncStatus, listMessages, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
 import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
@@ -137,6 +137,22 @@ export function useMailSummary(messageId: number | null, enabled: boolean) {
     queryFn: () => getMailSummary(messageId as number),
     enabled: !!messageId && enabled,
     staleTime: Infinity,
+  });
+}
+
+/**
+ * WP-149 요약 생략 메일의 "AI 요약" 버튼 — 누를 때만 강제 생성한다. 결과로 요약 캐시를 바로 덮어쓴다
+ * (useMailSummary 는 staleTime Infinity 라 무효화해도 다시 불리지 않는다).
+ */
+export function useGenerateMailSummary() {
+  const qc = useQueryClient();
+  return useMutation({
+    // 메일 id 를 변수로 받는다 — 생성 중에 다른 메일을 열어도 결과가 요청한 메일의 캐시에만 들어가게(클로저 캡처 금지)
+    mutationFn: (messageId: number) => generateMailSummary(messageId),
+    onSuccess: (data, messageId) => {
+      qc.setQueryData(mailMessageKeys.summary(messageId), data);
+    },
+    onError: (e) => handleApiError(e, 'AI 요약에 실패했습니다'),
   });
 }
 

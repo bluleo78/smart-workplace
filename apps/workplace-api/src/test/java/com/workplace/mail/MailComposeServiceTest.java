@@ -345,7 +345,7 @@ class MailComposeServiceTest extends IntegrationTestBase {
             null,
             null,
             List.of());
-    messageRepo.upsertByProviderId(accountId, folderId, m, pmid);
+    messageRepo.upsertByProviderId(accountId, folderId, m, pmid, true);
     long messageId = messageRepo.findByProviderId(accountId, pmid).orElseThrow();
     long contentId = messageRepo.findBodyTarget(accountId, messageId).orElseThrow().contentId();
     attachmentRepo.insert(

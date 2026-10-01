@@ -1,0 +1,515 @@
+package com.workplace.mail.service;
+
+import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AssistantSpec;
+import com.workplace.mail.dto.UserMailProfile;
+import com.workplace.mail.outbound.AiAgentMailClient;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
+import com.workplace.mail.outbound.MailAiMessages.Me;
+import com.workplace.mail.outbound.MailAiMessages.Recipient;
+import com.workplace.mail.repository.EmailContentRepository;
+import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.repository.EmailMessageRepository.AnalysisContext;
+import com.workplace.mail.util.NeedsReplyRules;
+import com.workplace.mail.util.NewContentExtractor;
+import com.workplace.mail.util.SingleFlight;
+import java.time.Duration;
+import java.util.Set;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.util.StringUtils;
+
+/**
+ * 메일 AI 분석(WP-149) — ③ 원본 분석(원본별 1회 · 공통 비서 · 분류+객관 요약)과 ④ 개인 분석(사본별 1회 · 개인→공통 비서)을 수행하고 ⑤ 최종
+ * 회신필요를 갱신한다.
+ *
+ * <p>LLM 호출은 트랜잭션 밖에서 하고 컨텍스트 조회·결과 저장만 짧은 트랜잭션({@code txTemplate}, @Primary
+ * TenantAwareTransactionManager 라 RLS GUC 주입)으로 감싼다(#232). 같은 원본·사본을 동시에 분석하지 않도록 {@link
+ * SingleFlight} 로 묶는다. ④ 입력에는 "나" 프로필({@link UserMailProfileBuilder})과 보강 블록({@link
+ * PersonalContextLoader})을 더한다(WP-150).
+ */
+@Slf4j
+@Service
+public class MailAnalysisService {
+
+  /** 분류 허용 카테고리(미지 값은 null). ⚠️ 프론트 MailSidebar.CATEGORIES 와 값·순서 일치 유지 */
+  static final Set<String> CATEGORIES = Set.of("업무", "개인", "알림", "프로모션", "뉴스레터");
+
+  /** 요약 생략 기준 — 새 본문이 이 길이 이하면 요약하지 않는다(짧은 메일은 본문이 곧 요약). */
+  public static final int SUMMARY_MIN_CHARS = 400;
+
+  /** 단발 호출이라 turn 1 고정. */
+  private static final int MAX_TURNS = 1;
+
+  /** 다른 스레드가 같은 메일을 분석 중일 때 기다리는 상한 — LLM 타임아웃보다 넉넉히. */
+  private static final Duration SINGLE_FLIGHT_WAIT = Duration.ofSeconds(150);
+
+  private final AiAgentMailClient mailClient;
+  private final EmailMessageRepository messageRepo;
+  private final EmailContentRepository contentRepo;
+  private final UserMailProfileBuilder profileBuilder;
+  private final PersonalContextLoader contextLoader;
+  private final AssistantResolver assistantResolver;
+  private final NeedsReplyFinalizer finalizer;
+  private final TransactionTemplate txTemplate;
+  private final SingleFlight singleFlight = new SingleFlight(SINGLE_FLIGHT_WAIT);
+
+  public MailAnalysisService(
+      AiAgentMailClient mailClient,
+      EmailMessageRepository messageRepo,
+      EmailContentRepository contentRepo,
+      UserMailProfileBuilder profileBuilder,
+      PersonalContextLoader contextLoader,
+      AssistantResolver assistantResolver,
+      NeedsReplyFinalizer finalizer,
+      PlatformTransactionManager txManager) {
+    this.mailClient = mailClient;
+    this.messageRepo = messageRepo;
+    this.contentRepo = contentRepo;
+    this.profileBuilder = profileBuilder;
+    this.contextLoader = contextLoader;
+    this.assistantResolver = assistantResolver;
+    this.finalizer = finalizer;
+    this.txTemplate = new TransactionTemplate(txManager);
+  }
+
+  /** 분석 컨텍스트(소유 검증 포함). 없으면 null. RLS GUC 주입 짧은 트랜잭션. */
+  public AnalysisContext readContext(long userId, long messageId) {
+    return txTemplate.execute(
+        status -> messageRepo.findAnalysisContextByIdAndUser(userId, messageId).orElse(null));
+  }
+
+  /**
+   * ③ 원본 분석 — 공통 비서가 있고 content 가 아직 분석되지 않았으면 분류(항상)와 객관 요약(새 본문 > 400자이고 자동 발송이 아닐 때)을 받는다. 자동
+   * 발송이면 본문 대신 미리보기를 보낸다. 저장 후 같은 content 의 분석된 사본들의 ⑤ 를 재계산한다.
+   *
+   * <p>빈 본문은 LLM 을 부르지 않고 시도로도 기록하지 않는다(아직 미적재일 수 있음). LLM·파싱 실패는 예외를 그대로 던진다 — 시도 기록이 남지 않아 다음 백필
+   * 대상이 되고, 백그라운드 호출자가 삼킨다. 읽음 여부는 보지 않는다 — 선제 호출부(본문 적재 직후는 INBOX 전체, 백필 대상 술어는 안 읽은 메일)가 대상을 고르고,
+   * 열람 시 요약 GET 은 읽은 메일에도 이 메서드를 쓴다.
+   */
+  public void analyzeContent(long userId, long messageId) {
+    AnalysisContext pre = readContext(userId, messageId);
+    if (!contentAnalyzable(pre)) {
+      return;
+    }
+    AssistantSpec spec = assistantResolver.resolveWorkspaceOrEmpty().orElse(null);
+    if (spec == null) {
+      return; // 공통 비서 없음 — ④ 가 분류를 보충한다
+    }
+    singleFlight.run(
+        contentKey(pre.contentId()), () -> runContentAnalysis(userId, messageId, spec));
+  }
+
+  private void runContentAnalysis(long userId, long messageId, AssistantSpec spec) {
+    AnalysisContext ctx = readContext(userId, messageId); // 다른 실행을 기다렸다면 그 결과를 반영
+    if (!contentAnalyzable(ctx)) {
+      return;
+    }
+    String newBody = newBody(ctx);
+    if (!StringUtils.hasText(newBody)) {
+      return;
+    }
+    boolean skipSummary = ctx.autoGenerated() || newBody.length() <= SUMMARY_MIN_CHARS;
+    AnalyzeContentResult r =
+        mailClient.analyzeContent(
+            contentRequest(ctx, bodyInput(ctx, newBody), true, !skipSummary, spec));
+    String category = validCategory(r.category());
+    String summary = skipSummary ? null : r.summary();
+    txTemplate.executeWithoutResult(
+        status -> {
+          if (messageRepo.saveContentAnalysis(messageId, category, summary, skipSummary)) {
+            finalizer.recomputeForContent(ctx.contentId());
+          }
+        });
+  }
+
+  /**
+   * 공통 티어 요약 생성(요약 GET·"AI 요약" 버튼). force=false: 미분석이면 ③ 전체 실행. force=true: 생략을 무시하고 새 본문으로 요약을 받아
+   * 저장(자동 발송이어도 미리보기 대신 본문, 분류는 비어 있을 때만 함께 받아 채움).
+   *
+   * @return 시도 가능 여부(공통 비서 없음·미적재면 false)
+   */
+  public boolean generateContentSummary(long userId, long messageId, boolean force) {
+    AnalysisContext ctx = readContext(userId, messageId);
+    if (ctx == null || !ctx.fetched() || ctx.contentId() == null) {
+      return false;
+    }
+    AssistantSpec spec = assistantResolver.resolveWorkspaceOrEmpty().orElse(null);
+    if (spec == null) {
+      return false;
+    }
+    if (!force) {
+      analyzeContent(userId, messageId);
+      return true;
+    }
+    runForced(contentKey(ctx.contentId()), () -> runForcedContentSummary(userId, messageId, spec));
+    return true;
+  }
+
+  /**
+   * 강제 생성용 단일 실행. 같은 키의 다른 실행(요약 GET 의 생략 처리 등)이 진행 중이면 {@code run} 은 기다리기만 하고 false 를 돌려주는데, 그대로
+   * 끝내면 강제 요청이 아무 일도 하지 않아 요약 없이 EMPTY 가 된다. 그래서 한 번 더 시도한다 — 작업은 컨텍스트를 다시 읽어 요약이 이미 있으면 아무것도 하지
+   * 않으므로 중복 LLM 호출은 없다. 두 번째도 기다리기만 했다면 그대로 끝낸다.
+   */
+  private void runForced(String key, Runnable work) {
+    if (!singleFlight.run(key, work)) {
+      singleFlight.run(key, work);
+    }
+  }
+
+  private void runForcedContentSummary(long userId, long messageId, AssistantSpec spec) {
+    AnalysisContext ctx = readContext(userId, messageId);
+    if (ctx == null || StringUtils.hasText(ctx.contentSummary())) {
+      return; // 기다리는 동안 다른 실행이 요약을 만듦
+    }
+    String newBody = newBody(ctx);
+    if (!StringUtils.hasText(newBody)) {
+      return;
+    }
+    // 강제 생성은 자동 발송이어도 미리보기 대신 새 본문으로 요약만 받는다. 단 ③ 이 안 돌아 분류가 비어 있으면 분류도 함께 받는다 —
+    // 강제 생성이 ai_summarized_at 을 기록해 이후 ③ 이 다시 돌지 않으므로, 여기서 못 채우면 분류가 영구히 빈다(기존 분류는 불변).
+    boolean wantCategory = ctx.contentCategory() == null;
+    AnalyzeContentResult r =
+        mailClient.analyzeContent(contentRequest(ctx, newBody, wantCategory, true, spec));
+    String category = wantCategory ? validCategory(r.category()) : null;
+    txTemplate.executeWithoutResult(
+        status -> {
+          messageRepo.saveForcedContentSummary(messageId, r.summary());
+          if (category != null && messageRepo.fillContentCategoryIfEmpty(messageId, category)) {
+            finalizer.recomputeForContent(ctx.contentId()); // 늦게 채운 분류를 ⑤ 에 반영
+          }
+        });
+  }
+
+  /** ③ 대상: 적재·검증된 사본 + content 연결 + 미시도. */
+  private static boolean contentAnalyzable(AnalysisContext ctx) {
+    return ctx != null && ctx.fetched() && ctx.contentId() != null && !ctx.contentAttempted();
+  }
+
+  /**
+   * WP-149 "본문 적재 직후" 분석(백그라운드 본문 보충이 커밋 후 호출, 호출부가 최근 20건으로 제한). 안 읽은 INBOX 메일: ③ 은 공통 비서 조건
+   * 그대로(계정 AI 설정과 무관), ④ 는 계정 AI 사용 시(판단 13 — 회신필요는 안 읽은 메일에만 의미가 있다). 읽은 INBOX 메일: ③ 만, 그것도 계정
+   * ai_enabled 일 때만 — WP-149 이전의 분류 범위와 같게 두어 AI 를 끈 계정의 읽은 메일에 LLM 비용을 쓰지 않는다. 비-INBOX 는 열람 시 요약
+   * GET 이 온디맨드로 만든다. ③ 을 먼저 해 분류가 있으면 ④ 가 알림성 메일의 개인 요약을 생략할 수 있다. 각 단계 실패는 경고 로그로 삼키고 다음 단계를
+   * 진행한다(다음 백필이 재시도).
+   *
+   * @param profiles 이 배치 동안 공유하는 "나" 프로필 캐시(WP-150)
+   */
+  public void analyzeAfterLoad(long userId, long messageId, UserMailProfileCache profiles) {
+    boolean unread;
+    try {
+      AnalysisContext ctx = readContext(userId, messageId);
+      // 본문 보충 대상(listMissingBody)은 폴더를 가리지 않으므로 여기서 INBOX 만 남긴다(④ 의 읽음 제한은 아래)
+      if (ctx == null || !"INBOX".equals(ctx.folderName())) {
+        return;
+      }
+      unread = !ctx.seen();
+      if (!unread && !ctx.aiEnabled()) {
+        return; // 읽은 메일은 AI 켠 계정만 — 꺼진 계정의 읽은 메일 비용 방지(열람 시 요약 GET 이 온디맨드로 처리)
+      }
+    } catch (RuntimeException e) {
+      log.warn("적재 후 분석 대상 조회 실패 (messageId={}): {}", messageId, e.toString());
+      return;
+    }
+    try {
+      analyzeContent(userId, messageId);
+    } catch (RuntimeException e) {
+      log.warn("원본 분석 건너뜀 (messageId={}): {}", messageId, e.toString());
+    }
+    if (!unread) {
+      return; // 읽은 메일의 ④(회신필요·개인 요약)는 열람 시 요약 GET 이 온디맨드로 만든다
+    }
+    try {
+      analyzePersonal(userId, messageId, profiles);
+    } catch (RuntimeException e) {
+      log.warn("개인 분석 건너뜀 (messageId={}): {}", messageId, e.toString());
+    }
+  }
+
+  /** 분석 배치 하나 동안 쓸 "나" 프로필 캐시 — 배치 호출부(백필 루프)가 패스마다 1개 만든다. */
+  public UserMailProfileCache newProfileCache() {
+    return profileBuilder.newCache();
+  }
+
+  /**
+   * ④ 개인 분석 — 계정 AI 사용 + 비서(개인→공통) + 사본 미분석이면 회신필요 원판정(raw)을 받고, 개인 비서면 개인 요약도(생략 조건 제외), 공통 비서가 없고
+   * 원본 분류가 비었으면 분류도 받는다. 규칙에 걸려도 LLM 은 부른다(raw 는 ⑤ 재계산 입력) — 개인 요약만 요청하지 않는다.
+   *
+   * <p>LLM·파싱 실패, needsReply 누락은 예외 — ai_analyzed_at 이 남지 않아 다음 백필 대상이 된다. 개인 요약만 형식이 틀리면
+   * needsReply 는 저장하고 개인 요약은 미시도로 둔다(열람 시 요약만 다시 시도). 읽음 여부는 보지 않는다 — 선제 호출부가 안 읽은 메일만 고른다(판단 13).
+   *
+   * @param profiles 이 배치 동안 공유하는 "나" 프로필 캐시(WP-150)
+   */
+  public void analyzePersonal(long userId, long messageId, UserMailProfileCache profiles) {
+    AnalysisContext pre = readContext(userId, messageId);
+    if (!personalAnalyzable(pre)) {
+      return;
+    }
+    AssistantSpec spec = assistantResolver.resolveOrEmpty(userId).orElse(null);
+    if (spec == null) {
+      return; // 비서 미설정 — 분석 생략
+    }
+    singleFlight.run(
+        personalKey(messageId), () -> runPersonalAnalysis(userId, messageId, spec, profiles));
+  }
+
+  private void runPersonalAnalysis(
+      long userId, long messageId, AssistantSpec spec, UserMailProfileCache profiles) {
+    AnalysisContext ctx = readContext(userId, messageId);
+    if (!personalAnalyzable(ctx)) {
+      return;
+    }
+    String newBody = newBody(ctx);
+    if (!StringUtils.hasText(newBody)) {
+      return;
+    }
+    // "나" 프로필 — 주소는 ⑤ 규칙 입력이라 조회 실패 시 예외(미기록 → 다음 백필), 이름·직함·소속은 실패해도 빠질 뿐이다(빌더가 처리)
+    UserMailProfile me = profiles.get(userId);
+    NeedsReplyRules.Input rules = ruleInput(ctx, me.addressSet());
+    // 개인 요약은 개인 비서일 때만(공통 비서로 만들면 객관 요약과 중복). 이미 시도·생략했으면 다시 요청하지 않는다.
+    boolean personalPending =
+        assistantResolver.resolvePersonalOrEmpty(userId).isPresent()
+            && !ctx.personalAttempted()
+            && !ctx.personalSummarySkipped();
+    boolean skipPersonal = personalSummarySkip(ctx, newBody, rules);
+    boolean wantPersonal = personalPending && !skipPersonal;
+    // 분류는 ③(공통 비서)이 맡는다 — 공통 비서가 없고 원본 분류가 비었을 때만 보충
+    boolean wantCategory =
+        ctx.contentCategory() == null && assistantResolver.resolveWorkspaceOrEmpty().isEmpty();
+    AnalyzePersonalResult r =
+        mailClient.analyzePersonal(
+            personalRequest(
+                ctx,
+                bodyInput(ctx, newBody),
+                me,
+                rules,
+                contextLoader.load(userId, ctx, me),
+                true,
+                wantPersonal,
+                wantCategory,
+                spec));
+    if (r.needsReply() == null) {
+      throw new IllegalStateException("개인 분석 응답에 needsReply 가 없음 (messageId=" + messageId + ")");
+    }
+    boolean writePersonal = wantPersonal && r.personalSummaryValid();
+    boolean markSkipped = personalPending && skipPersonal;
+    String category = wantCategory ? validCategory(r.category()) : null;
+    Boolean saved =
+        txTemplate.execute(
+            status -> {
+              contentRepo.lockForAnalysis(ctx.contentId()); // ③ 저장과 직렬화 — 이후 읽는 분류가 최신
+              if (!messageRepo.savePersonalAnalysis(
+                  messageId, r.needsReply(), writePersonal, r.personalSummary(), markSkipped)) {
+                return false; // 다른 실행이 먼저 기록
+              }
+              // 공유 원본 분류를 이번에 채웠다면 같은 원본의 다른 사본(이미 분석됨)도 ⑤ 를 다시 계산해야 한다.
+              if (category != null && messageRepo.fillContentCategoryIfEmpty(messageId, category)) {
+                finalizer.recomputeForContent(ctx.contentId()); // 이 사본도 포함(raw 저장됨)
+              } else {
+                finalizer.recompute(messageId);
+              }
+              return true;
+            });
+    if (!Boolean.TRUE.equals(saved)) {
+      return;
+    }
+    // 커밋 뒤 한 번 더 — ③ 저장(recomputeForContent)과 ④ 저장이 READ COMMITTED 로 겹치면 서로의 결과(분류·raw)를 못 보고 ⑤ 를
+    // 계산할 수 있다.
+    // 두 저장이 모두 커밋된 뒤 새 트랜잭션에서 다시 계산해 분류가 반영된 최종값으로 수렴시킨다(멱등·LLM 없음).
+    txTemplate.executeWithoutResult(status -> finalizer.recompute(messageId));
+  }
+
+  /**
+   * 개인 티어 요약 생성. force=false: 미분석 사본이면 ④ 전체(회신필요 포함), 분석된 사본이면 요약만(생략 조건이면 생략 표시만). force=true: 생략을
+   * 무시하고 새 본문으로 요약만 받아 저장.
+   *
+   * @return 시도 가능 여부(AI 꺼짐·개인 비서 없음·미적재면 false)
+   */
+  public boolean generatePersonalSummary(long userId, long messageId, boolean force) {
+    AnalysisContext ctx = readContext(userId, messageId);
+    if (ctx == null || !ctx.fetched() || ctx.contentId() == null || !ctx.aiEnabled()) {
+      return false;
+    }
+    AssistantSpec spec = assistantResolver.resolvePersonalOrEmpty(userId).orElse(null);
+    if (spec == null) {
+      return false;
+    }
+    if (!force && !ctx.personalAnalyzed()) {
+      analyzePersonal(userId, messageId, newProfileCache());
+      return true;
+    }
+    Runnable work = () -> runPersonalSummaryOnly(userId, messageId, spec, force);
+    if (force) {
+      runForced(personalKey(messageId), work);
+    } else {
+      singleFlight.run(personalKey(messageId), work);
+    }
+    return true;
+  }
+
+  private void runPersonalSummaryOnly(
+      long userId, long messageId, AssistantSpec spec, boolean force) {
+    AnalysisContext ctx = readContext(userId, messageId);
+    if (ctx == null || StringUtils.hasText(ctx.personalSummary())) {
+      return;
+    }
+    if (!force && (ctx.personalAttempted() || ctx.personalSummarySkipped())) {
+      return; // 기다리는 동안 다른 실행이 끝냄
+    }
+    String newBody = newBody(ctx);
+    if (!StringUtils.hasText(newBody)) {
+      return;
+    }
+    UserMailProfile me = profileBuilder.build(userId); // 요약 GET·버튼 단건 경로라 배치 캐시 없이 읽는다
+    NeedsReplyRules.Input rules = ruleInput(ctx, me.addressSet());
+    if (!force && personalSummarySkip(ctx, newBody, rules)) {
+      txTemplate.executeWithoutResult(status -> messageRepo.markPersonalSummarySkipped(messageId));
+      return;
+    }
+    String body = force ? newBody : bodyInput(ctx, newBody);
+    AnalyzePersonalResult r =
+        mailClient.analyzePersonal(
+            personalRequest(
+                ctx,
+                body,
+                me,
+                rules,
+                contextLoader.load(userId, ctx, me),
+                false,
+                true,
+                false,
+                spec));
+    String summary = r.personalSummaryValid() ? r.personalSummary() : null;
+    txTemplate.executeWithoutResult(status -> messageRepo.savePersonalSummary(messageId, summary));
+  }
+
+  /** ④ 대상: 적재·검증된 사본 + content 연결 + 계정 AI 사용 + 미분석. */
+  private static boolean personalAnalyzable(AnalysisContext ctx) {
+    return ctx != null
+        && ctx.fetched()
+        && ctx.contentId() != null
+        && ctx.aiEnabled()
+        && !ctx.personalAnalyzed();
+  }
+
+  /** ⑤ 규칙 입력 — 사본의 보낸 사람·수신자 + 원본의 자동 발송·분류. */
+  static NeedsReplyRules.Input ruleInput(AnalysisContext ctx, Set<String> me) {
+    return NeedsReplyRules.Input.of(
+        ctx.fromAddress(),
+        me,
+        ctx.toAddresses(),
+        ctx.ccAddresses(),
+        ctx.autoGenerated(),
+        ctx.contentCategory());
+  }
+
+  /** 개인 요약 생략: 새 본문 ≤ 400자 · 자동 발송 · 규칙에 걸림 · 원본 분류가 알림성. */
+  static boolean personalSummarySkip(
+      AnalysisContext ctx, String newBody, NeedsReplyRules.Input rules) {
+    return newBody.length() <= SUMMARY_MIN_CHARS
+        || ctx.autoGenerated()
+        || NeedsReplyRules.blockedByRules(rules)
+        || NeedsReplyRules.blockedByCategory(ctx.contentCategory());
+  }
+
+  /**
+   * ④ 요청 조립 — "나" 프로필·받는 사람 위치·보강 블록(WP-150). extra 의 비어 있는 블록은 agent 가 뺀다.
+   *
+   * @param me "나" 프로필(주소는 rules 와 같은 집합)
+   * @param extra 보낸 사람 관계·이전 메일·연결 이슈·첨부(없으면 {@link PersonalContext#EMPTY})
+   */
+  static AnalyzePersonalRequest personalRequest(
+      AnalysisContext ctx,
+      String body,
+      UserMailProfile me,
+      NeedsReplyRules.Input rules,
+      PersonalContext extra,
+      boolean includeNeedsReply,
+      boolean includePersonalSummary,
+      boolean includeCategory,
+      AssistantSpec spec) {
+    return new AnalyzePersonalRequest(
+        nz(ctx.subject()),
+        nz(ctx.fromAddress()),
+        nz(ctx.fromName()),
+        body,
+        ctx.autoGenerated(),
+        meWire(me),
+        new Recipient(
+            NeedsReplyRules.recipientRole(rules).name(), rules.to().size(), rules.cc().size()),
+        extra.sender(),
+        extra.thread(),
+        extra.linkedIssue(),
+        extra.attachments(),
+        includeNeedsReply,
+        includePersonalSummary,
+        includeCategory,
+        spec.agentUserId(),
+        spec.model(),
+        MAX_TURNS,
+        spec.timeoutMs());
+  }
+
+  /** "나" 프로필 → 와이어 [나] 블록. */
+  static Me meWire(UserMailProfile p) {
+    return new Me(p.addresses(), p.name(), p.otherNames(), p.title(), p.groups());
+  }
+
+  /** 새로 쓴 부분(인용·서명 제거, 상한 적용) — ③·④·요약 상태 판정이 같은 값을 쓰도록 한 곳에서만 계산한다. */
+  static String newBody(AnalysisContext ctx) {
+    return NewContentExtractor.extract(ctx.bodyText(), ctx.bodyHtml(), ctx.snippet());
+  }
+
+  /** ③ 요청 조립 — 선제 분석과 "AI 요약" 강제 생성(Task 7)이 함께 쓴다. */
+  static AnalyzeContentRequest contentRequest(
+      AnalysisContext ctx,
+      String body,
+      boolean includeCategory,
+      boolean includeSummary,
+      AssistantSpec spec) {
+    return new AnalyzeContentRequest(
+        nz(ctx.subject()),
+        sender(ctx),
+        body,
+        ctx.autoGenerated(),
+        includeCategory,
+        includeSummary,
+        spec.agentUserId(),
+        spec.model(),
+        MAX_TURNS,
+        spec.timeoutMs());
+  }
+
+  /** 허용 카테고리만(미지 값·null → null). Set.of 는 contains(null) 에서 NPE 를 던지므로 null 을 먼저 거른다. */
+  static String validCategory(String category) {
+    return category != null && CATEGORIES.contains(category) ? category : null;
+  }
+
+  /** 자동 발송이면 미리보기(있을 때), 아니면 새 본문. */
+  static String bodyInput(AnalysisContext ctx, String newBody) {
+    return ctx.autoGenerated() && StringUtils.hasText(ctx.snippet()) ? ctx.snippet() : newBody;
+  }
+
+  /** "이름 <주소>" 또는 주소. */
+  static String sender(AnalysisContext ctx) {
+    String addr = nz(ctx.fromAddress());
+    return StringUtils.hasText(ctx.fromName()) ? ctx.fromName() + " <" + addr + ">" : addr;
+  }
+
+  static String contentKey(long contentId) {
+    return "content:" + contentId;
+  }
+
+  static String personalKey(long messageId) {
+    return "personal:" + messageId;
+  }
+
+  static String nz(String s) {
+    return s == null ? "" : s;
+  }
+}

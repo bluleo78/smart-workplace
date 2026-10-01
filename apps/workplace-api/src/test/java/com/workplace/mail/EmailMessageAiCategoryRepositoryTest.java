@@ -90,7 +90,7 @@ class EmailMessageAiCategoryRepositoryTest extends IntegrationTestBase {
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
     long msgId = insertMessage(accountId, folderId, "cat-1@test.local");
 
-    messageRepo.updateClassification(msgId, "업무", true);
+    MailTestSupport.classify(dsl, msgId, "업무", true);
 
     // category 는 content 에 기록.
     Long contentId =

@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.jooq.tables.records.EmailMessageRecord;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.ContentSource;
 import com.workplace.mail.dto.EmailAttachmentMeta;
@@ -30,6 +31,7 @@ import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
+import org.jooq.UpdateSetMoreStep;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 import org.springframework.util.StringUtils;
@@ -122,51 +124,84 @@ public class EmailMessageRepository {
   }
 
   /**
+   * Graph upsert 결과(WP-148). 신규 삽입만 "새 메일"로 세고, 기존 행의 읽음 갱신은 따로 센다 — 읽음 갱신을 새 메일로 오인하면 새 메일 SSE·본문
+   * 백필 판단이 어긋난다.
+   */
+  public enum UpsertOutcome {
+    /** 새 envelope 삽입. */
+    INSERTED,
+    /** 기존 envelope 의 seen 만 서버 값으로 바뀜. */
+    SEEN_CHANGED,
+    /** 변화 없음(기존 행 · 같은 seen · 동시 삽입 충돌). */
+    UNCHANGED
+  }
+
+  /**
    * Graph provider_message_id 키로 메시지를 UPSERT 한다.
    *
-   * <p>부분 유니크 {@code (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL} 충돌 시
-   * NO-OP(멱등). 슬라이스1: read-state delta(isRead 변경 등) 갱신은 미구현 — 충돌 시 DO NOTHING 으로 첫 삽입만 유효.
+   * <p>이미 있는 envelope(delta 재전송)면 INSERT 하지 않는다 — 지문 없는 content 가 매번 새로 생겨 고아가 되기 때문(WP-130). 대신
+   * {@code syncSeen} 이면 <b>seen 만</b> 서버 isRead 로 맞춘다(WP-148, 서버 기준 — 안읽음 되돌림 포함). 다른 컬럼은 건드리지 않는다.
+   *
+   * <p>스펙의 "ON CONFLICT DO UPDATE SET seen" 을 기존-행 분기 UPDATE 로 구현한 이유: 위 사전 조회 때문에 ON CONFLICT 에
+   * 도달하지 않고, {@code DO UPDATE … RETURNING} 은 갱신된 행도 반환해 신규 삽입과 구별되지 않는다. INSERT 의 {@code
+   * onConflictDoNothing} 은 동시 삽입 경합 안전망으로 남긴다.
+   *
+   * <p>한계: 로컬 열람의 서버 반영이 끝내 실패해 seen_push_pending 이 남은 메일은 이후 서버 쪽 안읽음 되돌림이 반영되지 않는다(WP-148 이전 동작과
+   * 같음).
    *
    * <p>imapUid 는 Graph 계정에서 사용하지 않으므로 null 저장(IMAP 분기와 구별).
    *
    * @param accountId 계정 id
    * @param folderId 폴더 id
-   * @param m 매핑된 ParsedMessage(imapUid 는 무시됨)
+   * @param m 매핑된 ParsedMessage(imapUid 는 무시됨). 기존 행이면 {@code m.seen()} 만 쓴다
    * @param providerMessageId Graph 메시지 id
-   * @return 신규 삽입이면 true, 이미 존재(충돌 무시)하면 false
+   * @param syncSeen false 면 기존 행의 seen 을 건드리지 않는다(delta 항목에 isRead 가 없을 때)
+   * @return 삽입 · 읽음 변경 · 변화 없음
    */
-  public boolean upsertByProviderId(
-      long accountId, long folderId, ParsedMessage m, String providerMessageId) {
-    // 이미 있는 envelope(delta 재전송)면 content 를 만들지 않는다 — 지문 없는 content 는 매번 새 행이 생겨 고아가 된다(WP-130)
+  public UpsertOutcome upsertByProviderId(
+      long accountId, long folderId, ParsedMessage m, String providerMessageId, boolean syncSeen) {
     if (findByProviderId(accountId, providerMessageId).isPresent()) {
-      return false;
+      // 기존 행 — 서버 읽음 상태만 반영(값이 같으면 0건이라 SSE·순환 없음)
+      if (!syncSeen) {
+        return UpsertOutcome.UNCHANGED;
+      }
+      int changed =
+          dsl.update(EMAIL_MESSAGE)
+              .set(EMAIL_MESSAGE.SEEN, m.seen())
+              .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+              .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
+              .and(serverSeenApplicable(m.seen()))
+              .execute();
+      return changed > 0 ? UpsertOutcome.SEEN_CHANGED : UpsertOutcome.UNCHANGED;
     }
     // Graph 경로도 동일하게 email_content 공유(find-or-create).
     long tenantId = requireTenantId();
     long contentId = contentRepo.findOrCreate(tenantId, m, ContentSource.GRAPH);
-    return dsl.insertInto(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
-        .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
-        .set(EMAIL_MESSAGE.IMAP_UID, (Long) null) // Graph 계정: IMAP UID 없음
-        .set(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID, providerMessageId)
-        .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
-        .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
-        .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
-        .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
-        .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
-        .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
-        .set(EMAIL_MESSAGE.TO_ADDRESSES, m.toAddresses())
-        .set(EMAIL_MESSAGE.CC_ADDRESSES, m.ccAddresses())
-        // subject 는 email_content.subject 에 저장(Task9: envelope 중복 제거)
-        .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
-        .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
-        .set(EMAIL_MESSAGE.SEEN, m.seen())
-        .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
-        .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
-        .onConflictDoNothing()
-        .returning(EMAIL_MESSAGE.ID)
-        .fetchOptional()
-        .isPresent();
+    boolean inserted =
+        dsl.insertInto(EMAIL_MESSAGE)
+            .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
+            .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
+            .set(EMAIL_MESSAGE.IMAP_UID, (Long) null) // Graph 계정: IMAP UID 없음
+            .set(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID, providerMessageId)
+            .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
+            .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
+            .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
+            .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
+            .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
+            .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
+            .set(EMAIL_MESSAGE.TO_ADDRESSES, m.toAddresses())
+            .set(EMAIL_MESSAGE.CC_ADDRESSES, m.ccAddresses())
+            // subject 는 email_content.subject 에 저장(Task9: envelope 중복 제거)
+            .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
+            .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
+            .set(EMAIL_MESSAGE.SEEN, m.seen())
+            .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
+            .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
+            .onConflictDoNothing() // 동시 삽입 경합 안전망 — 충돌이면 새 메일로 세지 않는다
+            .returning(EMAIL_MESSAGE.ID)
+            .fetchOptional()
+            .isPresent();
+    return inserted ? UpsertOutcome.INSERTED : UpsertOutcome.UNCHANGED;
   }
 
   /**
@@ -211,6 +246,59 @@ public class EmailMessageRepository {
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
         .fetchOptional(EMAIL_MESSAGE.ID);
+  }
+
+  /**
+   * 서버 읽음 상태를 로컬에 반영해도 되는 행 조건(WP-148 단일 규칙): 값이 실제로 다르고({@code seen != 서버값}), 로컬 열람의 서버 반영 대기 중이
+   * 아니어야 한다. 대기 중인 행을 서버 상태로 덮으면 방금 로컬에서 읽은 메일이 안읽음으로 되돌아간다. 서버 반영이 예외로 실패한 메일만 대기가 남으므로, 그 메일은 이후
+   * 서버 안읽음 되돌림이 반영되지 않는 한계가 있다.
+   */
+  private static Condition serverSeenApplicable(boolean serverSeen) {
+    return EMAIL_MESSAGE.SEEN.ne(serverSeen).and(seenPushNotPending());
+  }
+
+  /**
+   * 서버 반영 대기가 아닌 행 조건 — {@link #serverSeenApplicable} 과 {@link #listRecentImapSeenStates} 가 공유한다.
+   */
+  private static Condition seenPushNotPending() {
+    return EMAIL_MESSAGE.SEEN_PUSH_PENDING.isFalse();
+  }
+
+  /** IMAP 읽음 동기화 대상 한 건(WP-148) — 로컬 envelope 의 UID 와 현재 seen. */
+  public record ImapSeenState(long imapUid, boolean seen) {}
+
+  /**
+   * IMAP 읽음 상태 재조회 대상(WP-148). 같은 계정·폴더에서 {@code received_at >= since} 인 행을 UID 큰 순으로 {@code limit}
+   * 건 — "최근 N일 또는 최근 M건 중 작은 쪽". 범위 밖 메일의 외부 열람은 반영하지 않는다(알려진 한계 — 서버 FETCH 비용 상한).
+   */
+  public List<ImapSeenState> listRecentImapSeenStates(
+      long accountId, long folderId, OffsetDateTime since, int limit) {
+    return dsl.select(EMAIL_MESSAGE.IMAP_UID, EMAIL_MESSAGE.SEEN)
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
+        .and(EMAIL_MESSAGE.IMAP_UID.isNotNull())
+        .and(seenPushNotPending()) // 서버 반영 대기 행은 서버 상태로 덮어쓰지 않으므로 재조회 제외
+        .and(EMAIL_MESSAGE.RECEIVED_AT.ge(since))
+        .orderBy(EMAIL_MESSAGE.IMAP_UID.desc())
+        .limit(limit)
+        .fetch(r -> new ImapSeenState(r.value1(), Boolean.TRUE.equals(r.value2())));
+  }
+
+  /**
+   * IMAP UID 로 seen 을 서버 값으로 맞춘다(WP-148, 서버 기준 — 안읽음 되돌림 포함). 값이 같으면 갱신하지 않아(0) 로컬→서버 역동기화 후 재동기화
+   * 순환·불필요 SSE 가 생기지 않는다.
+   *
+   * @return 실제 갱신 행 수(0|1)
+   */
+  public int updateSeenByImapUid(long accountId, long folderId, long imapUid, boolean seen) {
+    return dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.SEEN, seen)
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
+        .and(EMAIL_MESSAGE.IMAP_UID.eq(imapUid))
+        .and(serverSeenApplicable(seen))
+        .execute();
   }
 
   /** 기존 호출 호환(받은편지함). 폴더 미지정은 INBOX 로 스코프. */
@@ -598,30 +686,26 @@ public class EmailMessageRepository {
                     r.value5()));
   }
 
-  /** 메시지 읽음 처리 — seen=true 로 업데이트. 이미 읽은 건은 스킵(SEEN.isFalse 조건). 실제 갱신된 행 수(0|1)를 반환한다. */
+  /**
+   * 로컬 열람 읽음 처리 — seen=true 와 함께 seen_push_pending=true(원본 서버 반영 대기)로 업데이트. 이미 읽은 건은
+   * 스킵(SEEN.isFalse 조건). 실제 갱신된 행 수(0|1)를 반환한다. 대기 표시는 서버 반영이 예외 없이 끝나거나 반영할 방법이 없을 때 {@link
+   * #clearSeenPushPending} 로 풀린다(WP-148).
+   */
   public int markSeen(long messageId) {
     return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN, true)
+        .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
         .execute();
   }
 
-  /** 분류 결과 저장(동기화 잡, best-effort) — 슬라이스②: category 는 공유 content, needs_reply 는 envelope(사람별). */
-  public void updateClassification(long messageId, String category, boolean needsReply) {
-    // category → 공유 email_content (envelope 조인으로 content 특정).
-    // WP-130: 자기 사본을 적재·검증한 envelope 만 공유 분류를 쓴다 — 검증 전 envelope 가 다른 수신자의 분류를 덮어쓰지 못하게.
-    dsl.update(EMAIL_CONTENT)
-        .set(EMAIL_CONTENT.AI_CATEGORY, category)
-        .from(EMAIL_MESSAGE)
+  /** 서버 읽음 반영이 끝난 메시지의 "반영 대기" 표시를 푼다(WP-148). 실제 갱신된 행 수(0|1)를 반환한다. */
+  public int clearSeenPushPending(long messageId) {
+    return dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, false)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
-        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
-        .execute();
-    // needs_reply → envelope 잔류(조회는 needsReplyCondition() 단일 술어가 소비, WP-146)
-    dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.AI_NEEDS_REPLY, needsReply)
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isTrue())
         .execute();
   }
 
@@ -637,62 +721,9 @@ public class EmailMessageRepository {
             .and(needsReplyCondition()));
   }
 
-  /**
-   * 요약 캐시 저장 — 슬라이스②: 공유 email_content 에 기록(envelope 조인으로 content 특정).
-   *
-   * <p>#484: summary 가 null/공백이면 '요약을 시도했으나 LLM 이 빈 결과를 냈다'는 상태로 기록한다(ai_summary=NULL,
-   * ai_summarized_at=now()). 배치 대상 조회가 ai_summarized_at 기준이라 같은 메일을 매 배치 재요약하는 비용 누수를 막는다. 공백→NULL
-   * 정규화를 저장 계층 한 곳에서 해 '요약이 있으면 공백이 아니다' 불변식을 모든 쓰기 경로에 보장한다.
-   */
-  public void updateSummary(long messageId, String summary) {
-    dsl.update(EMAIL_CONTENT)
-        .set(EMAIL_CONTENT.AI_SUMMARY, blankToNull(summary))
-        .set(EMAIL_CONTENT.AI_SUMMARIZED_AT, OffsetDateTime.now())
-        .from(EMAIL_MESSAGE)
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
-        .execute();
-  }
-
-  /**
-   * 개인 비서(T2) 맞춤 요약 저장 — envelope(사람별) email_message 에 기록.
-   *
-   * <p>#484: summary 가 null/공백이면 '시도했으나 결과 없음'(ai_personal_summary=NULL,
-   * ai_personal_summarized_at=now()).
-   */
-  public void updatePersonalSummary(long messageId, String summary) {
-    dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY, blankToNull(summary))
-        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT, OffsetDateTime.now())
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .execute();
-  }
-
   /** #484: 공백 요약은 '결과 없음'(NULL)으로 저장 — 읽는 쪽이 공백 여부를 다시 판정하지 않게 한다. */
   private static String blankToNull(String s) {
     return StringUtils.hasText(s) ? s : null;
-  }
-
-  /**
-   * T2 개인 요약 대상 — INBOX 안읽음 중 개인 요약 미시도(email_message.ai_personal_summarized_at IS NULL) 최근 limit건.
-   *
-   * <p>#484: 요약 컬럼이 아닌 시도 시각 기준 — LLM 이 빈 결과를 낸 메일(summary NULL·summarized_at 세팅)은 재선택하지 않는다.
-   *
-   * <p>⚠️ listRecentUnreadUnsummarizedIds(공통 content.ai_summarized_at 기준)와 별개다 — 공통 요약이 이미 있어도 개인
-   * 요약이 없으면 포함해야 하므로 envelope 컬럼으로 스캔한다.
-   */
-  public List<Long> listRecentUnreadUnpersonalizedIds(long accountId, int limit) {
-    return dsl.select(EMAIL_MESSAGE.ID)
-        .from(EMAIL_MESSAGE)
-        .join(EMAIL_FOLDER)
-        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
-        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
-        .and(EMAIL_FOLDER.NAME.eq("INBOX"))
-        .and(EMAIL_MESSAGE.SEEN.isFalse())
-        .and(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT.isNull()) // #484: 시도 여부 기준
-        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
-        .limit(limit)
-        .fetch(EMAIL_MESSAGE.ID);
   }
 
   /**
@@ -729,10 +760,14 @@ public class EmailMessageRepository {
   }
 
   /**
-   * classify 백필용 — 계정의 최근 안읽은·미분류(ai_needs_reply IS NULL) INBOX 메일 id N건(최신순). 본문 유무는 가리지 않는다(분류는
-   * subject/from/snippet 으로 best-effort 동작).
+   * WP-149 ④ 백필 대상 — INBOX 안읽음 중 개인 분석 미시도(ai_analyzed_at IS NULL) 최근 limit건(최신순). 동기화 후 ④ 패스와 AI 켬
+   * 백필이 함께 쓴다. 읽은 메일은 선제 분석하지 않는다(판단 13 — 열람 시 요약 GET 이 온디맨드로 만든다).
+   *
+   * <p>배포 전에 이미 분류된 메일(ai_needs_reply 있음)은 제외한다 — 새 기준 재분석은 WP-151 이 계정별 1회로 통제한다. WP-130: 본문을
+   * 적재·검증한 사본만 고른다 — AI 켬 백필은 본문을 적재하지 않으므로 미적재 행이 상한 슬롯을 차지한 채 건너뛰어지지 않게 한다. 미적재 새 메일의 ④ 는 본문 보충
+   * 직후(MailBackfillService → analyzeAfterLoad)가 맡는다.
    */
-  public List<Long> listRecentUnreadUnclassifiedIds(long accountId, int limit) {
+  public List<Long> listRecentUnreadUnanalyzedIds(long accountId, int limit) {
     return dsl.select(EMAIL_MESSAGE.ID)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
@@ -740,8 +775,34 @@ public class EmailMessageRepository {
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_FOLDER.NAME.eq("INBOX"))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .and(EMAIL_MESSAGE.AI_ANALYZED_AT.isNull())
         .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isNull())
-        // WP-130: 본문 적재·검증 전 envelope 는 스니펫이 가려져 분류 품질이 떨어지므로 적재 후에 분류한다
+        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
+        .limit(limit)
+        .fetch(EMAIL_MESSAGE.ID);
+  }
+
+  /**
+   * WP-151 새 기준 재분석 대상 — INBOX 안읽음 · 본문 적재·검증(fetched_at) · 새 흐름(④) 미분석(ai_analyzed_at IS NULL) 최근
+   * limit건(최신순).
+   *
+   * <p>{@link #listRecentUnreadUnanalyzedIds} 와 달리 ai_needs_reply 조건이 없다 — 배포 전 기준으로 이미 분류된 행(옛 값)을
+   * 새 기준으로 다시 판정하는 것이 목적이다. 이미 새 흐름으로 분석된 행은 빼서 상한 슬롯을 낭비하지 않는다. 미적재 행은 빼고 본문도 새로 적재하지
+   * 않는다(IMAP/Graph 호출 비용 — 미적재 새 메일은 본문 보충 직후 analyzeAfterLoad 가 맡는다).
+   *
+   * <p>⚠️ "0→1" 전환 전용: WP-149 이전 행이 ai_analyzed_at NULL 이라는 사실에 기대므로, 판정 기준 버전을 2 로 올릴 때는
+   * ai_analyzed_at 을 되돌리는 별도 경로가 필요하다.
+   */
+  public List<Long> listReanalysisTargetIds(long accountId, int limit) {
+    return dsl.select(EMAIL_MESSAGE.ID)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_FOLDER.NAME.eq("INBOX"))
+        .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .and(EMAIL_MESSAGE.AI_ANALYZED_AT.isNull())
         .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
@@ -979,36 +1040,6 @@ public class EmailMessageRepository {
                         r.get(EMAIL_CONTENT.BODY_TEXT), r.get(EMAIL_CONTENT.BODY_HTML))));
   }
 
-  /**
-   * 분류 입력 컨텍스트(subject/from/snippet) 조회. 본문 적재 후 messageId 로 분류할 때 사용. 소유 검증을 위해 email_account 와
-   * 조인해 account.user_id = userId 인 경우만 반환.
-   *
-   * <p>Task6: subject·snippet 은 email_content LEFT JOIN 으로 읽는다. FROM_ADDRESS 는 envelope 봉투 속성 유지.
-   */
-  public Optional<ClassifyContext> findClassifyContextByIdAndUser(long userId, long messageId) {
-    return dsl.select(
-            EMAIL_CONTENT.SUBJECT, // content 에서 읽음
-            EMAIL_MESSAGE.FROM_ADDRESS,
-            verified(EMAIL_CONTENT.SNIPPET)) // content 에서 읽음
-        .from(EMAIL_MESSAGE)
-        .join(EMAIL_ACCOUNT)
-        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
-        .leftJoin(EMAIL_CONTENT) // subject·snippet 을 content 에서 읽기 위한 LEFT JOIN
-        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
-        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
-        .fetchOptional(
-            r ->
-                new ClassifyContext(
-                    r.get(EMAIL_CONTENT.SUBJECT),
-                    r.get(EMAIL_MESSAGE.FROM_ADDRESS),
-                    r.get(EMAIL_CONTENT.SNIPPET)));
-  }
-
-  /** 분류 입력 행(제목/보낸사람/미리보기). */
-  public record ClassifyContext(String subject, String fromAddress, String snippet) {}
-
   /** AI 컨텍스트 행. summary=공통(객관적, content), personalSummary=개인(envelope). */
   public record AiContext(
       boolean aiEnabled,
@@ -1097,8 +1128,10 @@ public class EmailMessageRepository {
    * </ol>
    *
    * <p>두 경로 모두 실패하면 RLS fail-closed 방어를 위해 예외를 던진다.
+   *
+   * <p>같은 패키지의 MailPeopleRepository 도 사내 구성원 판정 테넌트로 쓴다(WP-150 — 같은 로직 복사 금지).
    */
-  private long requireTenantId() {
+  long requireTenantId() {
     Long id = TenantContext.get();
     if (id != null) return id;
     // 테스트 환경 fallback: 세션 수준 GUC(connection-init-sql)에서 읽음
@@ -1111,5 +1144,279 @@ public class EmailMessageRepository {
 
   private static OffsetDateTime toOffset(java.time.Instant instant) {
     return instant == null ? null : OffsetDateTime.ofInstant(instant, ZoneOffset.UTC);
+  }
+
+  /**
+   * WP-149 분석 입력 컨텍스트 — ③ 원본 분석·④ 개인 분석·요약 상태 판정이 함께 쓴다. 소유 검증 포함(타인 메일이면 empty).
+   *
+   * <p>공유 content 의 본문 유래 값(본문·스니펫·AI 분류·요약)은 verified() 로 감싸 이 envelope 가 자기 사본을 적재·검증한 뒤에만 노출한다
+   * (WP-130). 시도 시각·생략 표시는 상태 판정용이라 그대로 읽는다.
+   */
+  public Optional<AnalysisContext> findAnalysisContextByIdAndUser(long userId, long messageId) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_MESSAGE.CONTENT_ID,
+            EMAIL_ACCOUNT.AI_ENABLED,
+            EMAIL_FOLDER.NAME,
+            EMAIL_MESSAGE.FETCHED_AT,
+            EMAIL_MESSAGE.SEEN,
+            EMAIL_CONTENT.SUBJECT,
+            EMAIL_MESSAGE.FROM_ADDRESS,
+            EMAIL_MESSAGE.FROM_NAME,
+            EMAIL_MESSAGE.TO_ADDRESSES,
+            EMAIL_MESSAGE.CC_ADDRESSES,
+            verified(EMAIL_CONTENT.BODY_TEXT),
+            verified(EMAIL_CONTENT.BODY_HTML),
+            verified(EMAIL_CONTENT.SNIPPET),
+            EMAIL_CONTENT.AUTO_GENERATED,
+            verified(EMAIL_CONTENT.AI_CATEGORY),
+            verified(EMAIL_CONTENT.AI_SUMMARY),
+            EMAIL_CONTENT.AI_SUMMARIZED_AT,
+            EMAIL_CONTENT.AI_SUMMARY_SKIPPED,
+            EMAIL_MESSAGE.AI_ANALYZED_AT,
+            EMAIL_MESSAGE.AI_PERSONAL_SUMMARY,
+            EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT,
+            EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .leftJoin(EMAIL_CONTENT)
+        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetchOptional(
+            r ->
+                new AnalysisContext(
+                    r.get(EMAIL_MESSAGE.ID),
+                    r.get(EMAIL_MESSAGE.ACCOUNT_ID),
+                    r.get(EMAIL_MESSAGE.CONTENT_ID),
+                    Boolean.TRUE.equals(r.get(EMAIL_ACCOUNT.AI_ENABLED)),
+                    r.get(EMAIL_FOLDER.NAME),
+                    r.get(EMAIL_MESSAGE.FETCHED_AT) != null,
+                    Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
+                    r.get(EMAIL_CONTENT.SUBJECT),
+                    r.get(EMAIL_MESSAGE.FROM_ADDRESS),
+                    r.get(EMAIL_MESSAGE.FROM_NAME),
+                    r.get(EMAIL_MESSAGE.TO_ADDRESSES),
+                    r.get(EMAIL_MESSAGE.CC_ADDRESSES),
+                    r.get(EMAIL_CONTENT.BODY_TEXT),
+                    r.get(EMAIL_CONTENT.BODY_HTML),
+                    r.get(EMAIL_CONTENT.SNIPPET),
+                    Boolean.TRUE.equals(r.get(EMAIL_CONTENT.AUTO_GENERATED)),
+                    r.get(EMAIL_CONTENT.AI_CATEGORY),
+                    r.get(EMAIL_CONTENT.AI_SUMMARY),
+                    r.get(EMAIL_CONTENT.AI_SUMMARIZED_AT) != null,
+                    Boolean.TRUE.equals(r.get(EMAIL_CONTENT.AI_SUMMARY_SKIPPED)),
+                    r.get(EMAIL_MESSAGE.AI_ANALYZED_AT) != null,
+                    r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY),
+                    r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT) != null,
+                    Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED))));
+  }
+
+  /**
+   * WP-149 ③ 결과 저장 — 공유 content 에 분류·객관 요약·생략 표시·시도 시각을 기록한다. 원본별 1회라 시도 기록이 없을 때만 쓴다(조건부 UPDATE —
+   * 동시·다중 인스턴스에서도 한 번만). 분류가 null(미지 값)이면 기존 값(④ 보충값)을 지우지 않는다.
+   *
+   * @return 이번 호출이 기록했으면 true(⑤ 형제 재계산 트리거)
+   */
+  public boolean saveContentAnalysis(
+      long messageId, String category, String summary, boolean summarySkipped) {
+    return dsl.update(EMAIL_CONTENT)
+            .set(
+                EMAIL_CONTENT.AI_CATEGORY,
+                DSL.coalesce(
+                    DSL.val(category, EMAIL_CONTENT.AI_CATEGORY), EMAIL_CONTENT.AI_CATEGORY))
+            .set(EMAIL_CONTENT.AI_SUMMARY, blankToNull(summary))
+            .set(EMAIL_CONTENT.AI_SUMMARY_SKIPPED, summarySkipped)
+            .set(EMAIL_CONTENT.AI_SUMMARIZED_AT, OffsetDateTime.now())
+            .from(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            // WP-130: 자기 사본을 적재·검증한 envelope 만 공유 분석을 쓴다
+            .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+            .and(EMAIL_CONTENT.AI_SUMMARIZED_AT.isNull())
+            .execute()
+        > 0;
+  }
+
+  /** WP-149 온디맨드 강제 요약(공통 티어) — 생략 표시를 지우고 요약·시도 시각을 기록한다. 분류는 건드리지 않는다. */
+  public void saveForcedContentSummary(long messageId, String summary) {
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.AI_SUMMARY, blankToNull(summary))
+        .set(EMAIL_CONTENT.AI_SUMMARY_SKIPPED, false)
+        .set(EMAIL_CONTENT.AI_SUMMARIZED_AT, OffsetDateTime.now())
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+        .execute();
+  }
+
+  /** WP-149 ⑤: content 를 공유하는 사본 중 ④ 원판정(raw)이 있는 것 — ③ 분류가 늦게 왔을 때 재계산 대상. */
+  public List<Long> listAnalyzedSiblingIds(long contentId) {
+    return dsl.select(EMAIL_MESSAGE.ID)
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.CONTENT_ID.eq(contentId))
+        .and(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW.isNotNull())
+        .fetch(EMAIL_MESSAGE.ID);
+  }
+
+  /** WP-149 ⑤ 규칙 입력 행(소유자·보낸 사람·수신자·자동 발송·분류·raw). 형제 사본은 소유자가 달라 userId 를 함께 읽는다. */
+  public Optional<RuleRow> findRuleRow(long messageId) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_ACCOUNT.USER_ID,
+            EMAIL_MESSAGE.FROM_ADDRESS,
+            EMAIL_MESSAGE.TO_ADDRESSES,
+            EMAIL_MESSAGE.CC_ADDRESSES,
+            EMAIL_CONTENT.AUTO_GENERATED,
+            EMAIL_CONTENT.AI_CATEGORY,
+            EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .leftJoin(EMAIL_CONTENT)
+        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .fetchOptional(
+            r ->
+                new RuleRow(
+                    r.get(EMAIL_MESSAGE.ID),
+                    r.get(EMAIL_ACCOUNT.USER_ID),
+                    r.get(EMAIL_MESSAGE.FROM_ADDRESS),
+                    r.get(EMAIL_MESSAGE.TO_ADDRESSES),
+                    r.get(EMAIL_MESSAGE.CC_ADDRESSES),
+                    Boolean.TRUE.equals(r.get(EMAIL_CONTENT.AUTO_GENERATED)),
+                    r.get(EMAIL_CONTENT.AI_CATEGORY),
+                    r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW)));
+  }
+
+  /** WP-149 ⑤ 최종값 저장 — ai_needs_reply 는 회신필요 술어(needsReplyCondition)가 읽는 값이다. */
+  public void updateFinalNeedsReply(long messageId, Boolean value) {
+    // 값이 바뀔 때만 UPDATE — 재계산이 같은 값을 다시 쓰는 불필요한 쓰기(행 버전·WAL)를 피한다(NULL 안전 비교)
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.AI_NEEDS_REPLY, value)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isDistinctFrom(value))
+        .execute();
+  }
+
+  /**
+   * WP-149 분석 컨텍스트 행.
+   *
+   * @param contentId 공유 content id(레거시 envelope 는 null — 분석 불가)
+   * @param fetched 이 envelope 가 자기 사본을 적재·검증했는지(아니면 본문 유래 값이 가려져 있다)
+   * @param seen 읽음 여부 — 선제 분석(본문 적재 직후)은 안 읽은 메일만 한다(판단 13). 온디맨드 요약은 보지 않는다
+   * @param contentAttempted ③ 시도 여부(content.ai_summarized_at — 생략해도 기록됨)
+   * @param personalAnalyzed ④ 시도 여부(ai_analyzed_at)
+   * @param personalAttempted 개인 요약 시도 여부(ai_personal_summarized_at)
+   */
+  public record AnalysisContext(
+      long messageId,
+      long accountId,
+      Long contentId,
+      boolean aiEnabled,
+      String folderName,
+      boolean fetched,
+      boolean seen,
+      String subject,
+      String fromAddress,
+      String fromName,
+      String toAddresses,
+      String ccAddresses,
+      String bodyText,
+      String bodyHtml,
+      String snippet,
+      boolean autoGenerated,
+      String contentCategory,
+      String contentSummary,
+      boolean contentAttempted,
+      boolean contentSummarySkipped,
+      boolean personalAnalyzed,
+      String personalSummary,
+      boolean personalAttempted,
+      boolean personalSummarySkipped) {}
+
+  /** WP-149 ⑤ 규칙 입력 행. raw 가 null 이면 ④ 미분석(또는 배포 전 분류) — 재계산하지 않는다. */
+  public record RuleRow(
+      long messageId,
+      long userId,
+      String fromAddress,
+      String toAddresses,
+      String ccAddresses,
+      boolean autoGenerated,
+      String category,
+      Boolean raw) {}
+
+  /**
+   * WP-149 ④ 결과 저장 — LLM 원판정(raw)·시도 시각, 그리고 개인 요약(요청해 받았으면) 또는 생략 표시. 사본별 1회라 ai_analyzed_at 이 없을
+   * 때만 쓴다(조건부 UPDATE).
+   *
+   * @param writePersonalSummary 개인 요약을 요청했고 형식이 맞았음 → 요약·시도 시각 기록(공백은 NULL, #484)
+   * @param personalSummarySkipped 개인 비서가 있으나 생략 조건이라 요청하지 않음 → 생략 표시
+   * @return 이번 호출이 기록했으면 true
+   */
+  public boolean savePersonalAnalysis(
+      long messageId,
+      boolean raw,
+      boolean writePersonalSummary,
+      String personalSummary,
+      boolean personalSummarySkipped) {
+    UpdateSetMoreStep<EmailMessageRecord> update =
+        dsl.update(EMAIL_MESSAGE)
+            .set(EMAIL_MESSAGE.AI_NEEDS_REPLY_RAW, raw)
+            .set(EMAIL_MESSAGE.AI_ANALYZED_AT, OffsetDateTime.now());
+    if (writePersonalSummary) {
+      update =
+          update
+              .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY, blankToNull(personalSummary))
+              .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT, OffsetDateTime.now())
+              .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED, false);
+    } else if (personalSummarySkipped) {
+      update = update.set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED, true);
+    }
+    return update
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .and(EMAIL_MESSAGE.AI_ANALYZED_AT.isNull())
+            .execute()
+        > 0;
+  }
+
+  /** WP-149 개인 요약만 저장(열람 시 요약만 모드·"AI 요약" 강제 생성) — 생략 표시를 지운다. 공백은 NULL(#484). */
+  public void savePersonalSummary(long messageId, String summary) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY, blankToNull(summary))
+        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT, OffsetDateTime.now())
+        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED, false)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
+
+  /** WP-149 개인 요약 생략 표시만 남긴다(열람 시 요약만 모드에서 생략 조건일 때). */
+  public void markPersonalSummarySkipped(long messageId) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED, true)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
+
+  /**
+   * WP-149: 공통 비서가 없을 때 ④ 가 받은 분류로 공유 content 분류를 보충한다 — 비어 있을 때만(덮어쓰기 금지, 원자적 조건부 UPDATE). 자기 사본을
+   * 적재·검증한 envelope 만 쓴다(WP-130).
+   */
+  public boolean fillContentCategoryIfEmpty(long messageId, String category) {
+    return dsl.update(EMAIL_CONTENT)
+            .set(EMAIL_CONTENT.AI_CATEGORY, category)
+            .from(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+            .and(EMAIL_CONTENT.AI_CATEGORY.isNull())
+            .execute()
+        > 0;
   }
 }

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-// 다크 테마 메일 본문 변환 테스트(WP-103).
+// 다크 테마 메일 본문 변환 테스트(WP-103, WP-159).
 import { describe, expect, it } from 'vitest'
 
-import { applyMailDarkMode, hasOwnBackground, isNeutralBackground, lightenDarkColor, parseCssColor } from './mailDarkMode'
+import { applyMailDarkMode, darkenLightBackground, lightenDarkColor, parseCssColor } from './mailDarkMode'
 
 const colors = { background: 'oklch(0.13 0.015 280)', foreground: 'oklch(0.93 0 0)', link: 'oklch(0.65 0.2 264)' }
 
@@ -23,6 +23,13 @@ p
 
 const parse = (html: string) => new DOMParser().parseFromString(html, 'text/html')
 
+// WCAG 상대 휘도 — 변환 결과의 대비 확인용
+const luminance = (v: string) => {
+  const c = parseCssColor(v)!
+  const lin = (x: number) => ((x /= 255) <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)
+  return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+}
+
 describe('parseCssColor', () => {
   it('rgb·hex·이름 색을 해석하고 모르는 값은 null', () => {
     expect(parseCssColor('rgb(0, 0, 0)')).toEqual({ r: 0, g: 0, b: 0, a: 1 })
@@ -30,8 +37,14 @@ describe('parseCssColor', () => {
     expect(parseCssColor('#333')).toEqual({ r: 51, g: 51, b: 51, a: 1 })
     expect(parseCssColor('#1F497D')).toEqual({ r: 31, g: 73, b: 125, a: 1 })
     expect(parseCssColor('Black')).toEqual({ r: 0, g: 0, b: 0, a: 1 })
+    expect(parseCssColor('#ffffff80')).toEqual({ r: 255, g: 255, b: 255, a: 128 / 255 })
+    expect(parseCssColor('rgb(100%, 50%, 0%)')).toEqual({ r: 255, g: 128, b: 0, a: 1 })
+    expect(parseCssColor('rgb(10 20 30 / 50%)')).toEqual({ r: 10, g: 20, b: 30, a: 0.5 })
+    expect(parseCssColor('hsl(0, 0%, 98%)')).toEqual({ r: 250, g: 250, b: 250, a: 1 })
+    expect(parseCssColor('hsl(60deg 100% 50%)')).toEqual({ r: 255, g: 255, b: 0, a: 1 })
     expect(parseCssColor('currentcolor')).toBeNull()
     expect(parseCssColor('oklch(0.5 0.1 200)')).toBeNull()
+    expect(parseCssColor('rgb(var(--x))')).toBeNull()
   })
 })
 
@@ -48,12 +61,6 @@ describe('lightenDarkColor', () => {
   })
 
   // 다크 배경(휘도 ≈0.005) 대비 4.5:1 ⇔ 휘도 0.2 이상
-  const luminance = (v: string) => {
-    const c = parseCssColor(v)!
-    const lin = (x: number) => ((x /= 255) <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)
-    return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
-  }
-
   it.each(['blue', '#0000FF', 'purple', '#0563C1', 'indigo', 'midnightblue', 'darkred', 'rgb(119, 119, 119)'])(
     '명도는 중간이어도 휘도가 낮은 %s 는 다크 배경에서 읽히도록(휘도 ≥ 0.2) 밝힌다',
     (v) => {
@@ -70,48 +77,30 @@ describe('lightenDarkColor', () => {
   })
 })
 
-describe('hasOwnBackground', () => {
-  it('margin 만 있는 <style> 과 인라인 글자색만 있는 Outlook 메일은 배경 없음', () => {
-    expect(hasOwnBackground(parse(OUTLOOK))).toBe(false)
+describe('darkenLightBackground', () => {
+  it('흰색·거의 흰색은 투명으로 — 앱 배경이 비치게', () => {
+    for (const v of ['white', 'window', '#fff', 'rgb(255, 255, 255)', '#f5f5f5', 'snow']) expect(darkenLightBackground(v)).toBe('transparent')
   })
 
-  it('클래스 이름에 Background 가 들어간 것만으로는 배경으로 보지 않는다(SharePoint 알림)', () => {
-    const html = '<style>.headerBackgroundMsoTable{border-spacing:0; width:100%}</style><table class="headerBackgroundMsoTable"><tr><td>x</td></tr></table>'
-    expect(hasOwnBackground(parse(html))).toBe(false)
+  it.each(['rgb(255, 255, 0)', '#ffeeaa', '#eee', '#ffffe0', '#336699', 'rgb(255, 102, 0)'])(
+    '밝은·중간 배경 %s 는 휘도 0.03 이하로 어둡게 — 밝힌 글자(휘도 ≥ 0.2)와 대비 3:1 이상',
+    (v) => {
+      const next = darkenLightBackground(v)!
+      expect(luminance(next)).toBeLessThanOrEqual(0.03)
+      expect((0.2 + 0.05) / (luminance(next) + 0.05)).toBeGreaterThanOrEqual(3)
+    },
+  )
+
+  it('색상(hue)을 유지한다 — 노란 형광펜은 짙은 노랑(올리브), 앱 배경과 구분되게', () => {
+    const c = parseCssColor(darkenLightBackground('rgb(255, 255, 0)')!)!
+    expect(c.r).toBe(c.g)
+    expect(c.b).toBeLessThan(c.r)
+    expect(c.r).toBeGreaterThan(30)
   })
 
-  it.each([
-    ['bgcolor 속성(흰색이어도)', '<table bgcolor="#ffffff"><tr><td>x</td></tr></table>'],
-    ['background 속성', '<table><tr><td background="bg.png">x</td></tr></table>'],
-    ['인라인 유색 배경', '<div style="background-color:#ffeeaa">x</div>'],
-    ['인라인 형광펜(노랑)', '<span style="background-color:rgb(255,255,0)">x</span>'],
-    ['인라인 배경 이미지', '<div style="background-image:url(a.png)">x</div>'],
-    ['<style> 유색 배경', '<style>body{background:#336699}</style><p>x</p>'],
-    ['<style> 배경 이미지', '<style>td{background:#fff url(a.png)}</style><p>x</p>'],
-    ['<style> background-image', '<style>td{background-image:url(a.png)}</style><p>x</p>'],
-  ])('%s → 배경 있음', (_, html) => {
-    expect(hasOwnBackground(parse(html))).toBe(true)
-  })
-
-  it.each([
-    ['인라인 흰 배경(붙여넣기)', '<div style="background-color:white; color:rgb(0,0,0)">x</div>'],
-    ['인라인 background 단축 #fff', '<p style="background:#fff">x</p>'],
-    ['인라인 거의 흰색', '<p style="background-color:#f5f5f5">x</p>'],
-    ['인라인 투명', '<p style="background-color:transparent">x</p>'],
-    ['<style> 흰 배경', '<style>#signDiv{background-color:#ffffff}</style><div id="signDiv">x</div>'],
-    ['<style> 글자색만(클래식 Outlook)', '<style>a:link{color:#0563C1} span.EmailStyle22{color:windowtext}</style><p>x</p>'],
-  ])('%s → 중립(변환 대상)', (_, html) => {
-    expect(hasOwnBackground(parse(html))).toBe(false)
-  })
-})
-
-describe('isNeutralBackground', () => {
-  it('흰색·거의 흰색·투명·키워드는 중립, 유색은 아님', () => {
-    for (const v of ['white', '#FFF', 'rgb(255, 255, 255)', '#f5f5f5', 'rgba(0,0,0,0)', 'transparent', 'initial', '']) {
-      expect(isNeutralBackground(v)).toBe(true)
-    }
-    for (const v of ['#eee', 'rgb(255,255,0)', '#336699', 'lightyellow']) {
-      expect(isNeutralBackground(v)).toBe(false)
+  it('이미 어두운 배경·투명·키워드·해석 불가 값은 유지(null)', () => {
+    for (const v of ['#000', 'rgb(20, 20, 40)', 'transparent', 'rgba(255,255,255,0)', 'none', 'url(a.png)', 'oklch(0.9 0 0)']) {
+      expect(darkenLightBackground(v)).toBeNull()
     }
   })
 })
@@ -153,13 +142,82 @@ describe('applyMailDarkMode', () => {
   })
 
   it('<font color> 도 보정한다', () => {
-    const doc = parse(applyMailDarkMode('<p><font id="f" color="#000000">x</font></p>', colors))
-    expect(doc.getElementById('f')!.getAttribute('color')).toBe('rgb(237, 237, 237)')
+    // 레거시 색 속성은 인라인 style 로 옮겨 같은 규칙을 탄다(# 없는 hex 도 해석), 해석 못 하는 값은 속성 그대로
+    const doc = parse(applyMailDarkMode('<p><font id="f" color="000000">x</font><font id="g" color="junk">y</font></p>', colors))
+    expect(doc.getElementById('f')!.hasAttribute('color')).toBe(false)
+    expect(doc.getElementById('f')!.style.color).toBe('rgb(237, 237, 237)')
+    expect(doc.getElementById('g')!.getAttribute('color')).toBe('junk')
   })
 
-  it('배경을 지정한 메일은 입력 문자열 그대로', () => {
-    const html = '<table bgcolor="#fff"><tr><td style="color:#000">x</td></tr></table>'
-    expect(applyMailDarkMode(html, colors)).toBe(html)
+  // WP-159 실제 메일(Gmail 작성)을 줄인 것 — 소제목 형광펜 하나 때문에 메일 전체가 원본(흰 바탕)으로 남던 문제
+  it('형광펜이 있는 메일도 다크로 — 형광펜은 짙은 노랑으로 남고 글자는 밝은 기본색', () => {
+    const html =
+      '<html><head></head><body><div dir="ltr"><p>안녕하세요.</p>' +
+      '<strong id="t" style="background-color:transparent">10월 생태계분과 회의</strong>' +
+      '<h3><font id="hl" size="2" style="background-color:rgb(255,255,0)">■ 일정/장소</font></h3></div></body></html>'
+    const doc = parse(applyMailDarkMode(html, colors))
+    expect(doc.head.querySelector('style')!.textContent).toContain(`background:${colors.background}`)
+    expect(doc.getElementById('t')!.style.backgroundColor).toBe('transparent')
+    const hl = doc.getElementById('hl')!.style.backgroundColor
+    expect(hl).not.toBe('rgb(255, 255, 0)')
+    expect(luminance(hl)).toBeLessThanOrEqual(0.03)
+  })
+
+  it('표 기반 뉴스레터 — bgcolor 를 인라인 배경으로 옮겨 어둡게(흰색은 투명), 어두운 배경은 유지', () => {
+    const html =
+      '<body bgcolor="#336699"><table id="outer" bgcolor="f4f4f4"><tr><td id="card" bgcolor="#FFFFCC" style="color:#000000">x</td>' +
+      '<td id="dark" bgcolor="#111111" style="color:#ffffff">y</td></tr></table></body>'
+    const doc = parse(applyMailDarkMode(html, colors))
+    expect(doc.querySelector('[bgcolor]')).toBeNull()
+    expect(doc.getElementById('outer')!.style.backgroundColor).toBe('transparent')
+    expect(luminance(doc.getElementById('card')!.style.backgroundColor)).toBeLessThanOrEqual(0.03)
+    expect(doc.getElementById('card')!.style.color).toBe('rgb(237, 237, 237)')
+    expect(doc.getElementById('dark')!.style.backgroundColor).toBe('rgb(17, 17, 17)')
+    expect(doc.getElementById('dark')!.style.color).toBe('rgb(255, 255, 255)')
+    // body 의 유색 배경도 인라인이라 기본 규칙(html,body{background})보다 우선
+    expect(luminance(doc.body.style.backgroundColor)).toBeLessThanOrEqual(0.03)
+  })
+
+  it('이름으로 쓴 밝은 배경(lightyellow·beige 등)도 어둡게 — 그 위 밝힌 글자가 읽히게', () => {
+    const html = '<table bgcolor="lightyellow"><tr><td id="c" style="background-color:beige; color:#000">x</td></tr></table>'
+    const doc = parse(applyMailDarkMode(html, colors))
+    expect(luminance(doc.querySelector('table')!.style.backgroundColor)).toBeLessThanOrEqual(0.03)
+    expect(luminance(doc.getElementById('c')!.style.backgroundColor)).toBeLessThanOrEqual(0.03)
+    for (const v of ['yellow', 'lightblue', 'silver', 'lightgrey']) expect(luminance(darkenLightBackground(v)!)).toBeLessThanOrEqual(0.03)
+  })
+
+  it('레거시 background 속성(셀 배경 그림)은 인라인 배경 이미지로 옮기고 덮개(inset box-shadow)로 어둡게', () => {
+    const doc = parse(applyMailDarkMode('<table><tr><td id="c" background="hero.jpg">x</td></tr></table>', colors))
+    const el = doc.getElementById('c')!
+    expect(el.hasAttribute('background')).toBe(false)
+    expect(el.style.backgroundImage).toContain('hero.jpg')
+    expect(el.style.boxShadow).toContain('inset')
+  })
+
+  it('브라우저가 반영하지 않는 요소의 bgcolor·background 속성은 옮기지 않는다(원래 안 보이던 배경을 만들지 않게)', () => {
+    const doc = parse(applyMailDarkMode('<div id="d" background="track.png" bgcolor="#ffeeaa">x</div>', colors))
+    const el = doc.getElementById('d')!
+    expect(el.getAttribute('style')).toBeNull()
+    expect(el.getAttribute('bgcolor')).toBe('#ffeeaa')
+  })
+
+  it('군더더기가 붙은 bgcolor(`#F2F2F2;`)도 앞쪽 hex 로 읽는다', () => {
+    const doc = parse(applyMailDarkMode('<table id="t" bgcolor="#FFFFCC;"><tr><td>x</td></tr></table>', colors))
+    expect(luminance(doc.getElementById('t')!.style.backgroundColor)).toBeLessThanOrEqual(0.03)
+  })
+
+  it('<style> 의 유색 배경은 어둡게, url(...) 안의 이름은 색으로 읽지 않는다', () => {
+    const html =
+      '<style>body{background:#ffeeaa} td{background:#fff url(white.png)} .x{background-image:url(a.png) !important}' +
+      ' .card{background:hsl(0,0%,98%);color:#333}</style><p>x</p>'
+    const css = [...parse(applyMailDarkMode(html, colors)).querySelectorAll('style')].map((st) => st.textContent).join('\n')
+    expect(css).not.toContain('#ffeeaa')
+    // 이미지가 있는 배경 선언 앞에 덮개를 끼운다 — 배경 레이어 목록은 그대로, !important 도 원래 선언에 남는다
+    const shade = 'box-shadow:inset 0 0 0 9999px rgba(0, 0, 0, 0.7);'
+    expect(css).toContain(`td{${shade}background:transparent url(white.png)}`)
+    expect(css).toContain(`.x{${shade}background-image:url(a.png) !important}`)
+    // hsl() 로 쓴 거의 흰 카드도 투명으로
+    expect(css).toContain('.card{background:transparent;')
   })
 
   it('원본 doctype 을 보존한다(표준/쿼크 모드 유지)', () => {

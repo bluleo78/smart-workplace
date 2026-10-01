@@ -542,8 +542,8 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
     var s = sessionService.create(uid);
     String toolCallsJson =
         "[{\"kind\":\"delegation\",\"label\":\"전문가 위임\"},{\"kind\":\"tool\",\"seq\":1,\"toolName\":\"get_issue\",\"status\":\"done\"}]";
-    sessionService.appendMessage(uid, s.id(), "USER", "이슈 조회해줘", null, null);
-    sessionService.appendMessage(uid, s.id(), "ASSISTANT", "조회했어요", null, toolCallsJson);
+    sessionService.appendMessage(uid, s.id(), "USER", "이슈 조회해줘", null, null, null);
+    sessionService.appendMessage(uid, s.id(), "ASSISTANT", "조회했어요", null, toolCallsJson, null);
 
     List<HomeMessageResponse> msgs = sessionService.getMessages(uid, s.id());
     HomeMessageResponse assistant =

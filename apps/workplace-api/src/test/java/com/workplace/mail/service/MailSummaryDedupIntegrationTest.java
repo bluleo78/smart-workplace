@@ -15,7 +15,7 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.outbound.AiAgentMailClient;
-import com.workplace.mail.outbound.MailAiMessages.SummarizeResult;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.support.IntegrationTestBase;
@@ -27,8 +27,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
- * 머지 게이트(advisor): 같은 테넌트 두 계정이 동일 메일(공유 content)을 받았을 때, 배치 요약을 두 계정에 구동해도 LLM 요약 호출은 정확히 1회여야
- * 한다(N→1 dedup). + content.ai_summary 채워짐 + 두 수신자가 모두 읽는다.
+ * 머지 게이트(advisor): 같은 테넌트 두 계정이 동일 메일(공유 content)을 받았을 때, ③ 원본 분석(원본별 1회)을 두 계정에 구동해도 LLM 호출은 정확히
+ * 1회여야 한다(N→1 dedup). + content.ai_summary 채워짐 + 두 수신자가 모두 읽는다.
  *
  * <p>실 entry point({@code summarizeRecentUnreadNow}, 스케줄러가 호출하는 동기 본체)를 구동한다 — repo 직접호출 금지. 외부
  * 경계(LLM 클라이언트·비서 해석)만 mock. non-@Transactional: 서비스가 자체 txTemplate 트랜잭션을 열어 seed 가 커밋돼 보여야 한다.
@@ -106,14 +106,13 @@ class MailSummaryDedupIntegrationTest extends IntegrationTestBase {
     String msgId = "<dedup-" + nano + "@corp>";
 
     // 비서 해석·LLM 호출 mock
-    // resolveSpecOrNull(backfill gate) 는 resolve() 사용. summarize() 는 resolveWorkspaceOrEmpty()
-    // 사용(2-tier).
+    // ③ 원본 분석은 resolveWorkspaceOrEmpty()(공통 비서)만 본다. resolve() 스텁은 다른 경로 대비 그대로 둔다.
     AssistantSpec spec = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
     given(assistantResolver.resolve(any(Long.class))).willReturn(spec);
     given(assistantResolver.resolveWorkspaceOrEmpty()).willReturn(java.util.Optional.of(spec));
     given(assistantResolver.resolvePersonalOrEmpty(any(Long.class)))
         .willReturn(java.util.Optional.empty());
-    given(mailClient.summarize(any())).willReturn(new SummarizeResult("DEDUP 요약"));
+    given(mailClient.analyzeContent(any())).willReturn(new AnalyzeContentResult("업무", "DEDUP 요약"));
 
     TenantContext.set(1L);
     // seed 는 세션 GUC(autocommit)로 커밋 — 서비스의 별도 트랜잭션에서 보이도록.
@@ -141,7 +140,7 @@ class MailSummaryDedupIntegrationTest extends IntegrationTestBase {
             .returning(EMAIL_CONTENT.ID)
             .fetchOne()
             .getId();
-    contentRepo.updateBody(contentId, "공유 본문 텍스트", null, "snip");
+    contentRepo.updateBody(contentId, MailAnalysisFixtures.LONG_BODY, null, "snip");
     envA = seedEnvelope(accA, fldA, "<thread-a-" + nano + ">", msgId);
     envB = seedEnvelope(accB, fldB, "<thread-b-" + nano + ">", msgId);
 
@@ -150,7 +149,7 @@ class MailSummaryDedupIntegrationTest extends IntegrationTestBase {
     backfill.summarizeObjectiveRecentNow(userId, accB);
 
     // [게이트] LLM 요약 호출은 정확히 1회(N→1). 가드 제거 시 2회로 FAIL.
-    verify(mailClient, times(1)).summarize(any());
+    verify(mailClient, times(1)).analyzeContent(any());
 
     // content 에 요약 영속.
     String stored =

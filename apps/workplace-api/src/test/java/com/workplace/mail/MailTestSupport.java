@@ -1,6 +1,7 @@
 package com.workplace.mail;
 
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+import static com.workplace.jooq.Tables.EMAIL_CONTENT;
 import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
@@ -100,5 +101,45 @@ final class MailTestSupport {
             "pw",
             aiEnabled);
     return repo.insert(userId, req, enc.encrypt("pw"));
+  }
+
+  /**
+   * 분류 결과 시드 — category 는 공유 content(자기 사본을 적재한 envelope 만), needs_reply 는 envelope. 운영 저장 경로는
+   * MailAnalysisService.
+   */
+  static void classify(DSLContext dsl, long messageId, String category, boolean needsReply) {
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.AI_CATEGORY, category)
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+        .execute();
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.AI_NEEDS_REPLY, needsReply)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
+
+  /** 공통 요약 시드 — 공유 content 에 기록. null/공백이면 '시도했으나 결과 없음'(ai_summary=NULL, 시각만 기록). */
+  static void seedSummary(DSLContext dsl, long messageId, String summary) {
+    dsl.update(EMAIL_CONTENT)
+        .set(EMAIL_CONTENT.AI_SUMMARY, summary == null || summary.isBlank() ? null : summary)
+        .set(EMAIL_CONTENT.AI_SUMMARIZED_AT, OffsetDateTime.now())
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .execute();
+  }
+
+  /** 개인 요약 시드 — envelope 에 기록. null/공백이면 '시도했으나 결과 없음'. */
+  static void seedPersonalSummary(DSLContext dsl, long messageId, String summary) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(
+            EMAIL_MESSAGE.AI_PERSONAL_SUMMARY,
+            summary == null || summary.isBlank() ? null : summary)
+        .set(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT, OffsetDateTime.now())
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
   }
 }

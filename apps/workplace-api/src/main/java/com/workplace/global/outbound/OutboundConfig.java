@@ -94,6 +94,25 @@ public class OutboundConfig {
   }
 
   /**
+   * 새 기준 메일 재분석(WP-151 MailReanalysisScheduler) 전용 단일 스레드 실행기.
+   *
+   * <p>재분석은 계정마다 LLM 을 최대 50회 순서대로 부르므로 수 분간 스레드를 점유한다. 단일 스레드인 스프링 스케줄러(다른 @Scheduled 작업이 밀림)나 이벤트
+   * 발사용 aiAgentEventExecutor(고갈 시 채팅·메시징 디스패치 지연)에서 돌리지 않도록 분리한다. core/max 1 이라 LLM 동시 호출이 없다(비용
+   * ·부하 페이싱). 겹침은 스케줄러의 running 플래그가 막으므로 queue 1 이면 충분하다. TenantContext 는 스케줄러가 계정별로 직접 설정하므로
+   * 데코레이터를 두지 않는다.
+   */
+  @Bean(name = "mailReanalysisExecutor")
+  public Executor mailReanalysisExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(1);
+    executor.setMaxPoolSize(1);
+    executor.setQueueCapacity(1);
+    executor.setThreadNamePrefix("mail-reanalysis-");
+    executor.initialize();
+    return executor;
+  }
+
+  /**
    * 이슈 Instant Context 요약 생성 전용 executor (#517). 요약 HTTP(read 90s)는 스레드를 장시간 점유하므로 경량
    * aiAgentEventExecutor(이벤트 발사)와 공유 금지(공유 시 이벤트 디스패치 고갈). 데코레이터로 TenantContext 전파 → @Async
    * AFTER_COMMIT 핸들러가 워커 스레드에서 트랜잭션 시작 시 GUC 주입(issue_ai_summary RLS fail-closed 회피).

@@ -265,10 +265,10 @@ class EmailContentDedupIntegrationTest extends IntegrationTestBase {
   }
 
   /**
-   * Task6 RED→GREEN: findClassifyContextByIdAndUser 가 subject/snippet 을 email_content 에서 읽어야 한다.
+   * Task6 RED→GREEN: findAnalysisContextByIdAndUser 가 subject/snippet 을 email_content 에서 읽어야 한다.
    */
   @Test
-  void findClassifyContext_readsSubjectAndSnippetFromContent() {
+  void findAnalysisContext_readsSubjectAndSnippetFromContent() {
     long nano = System.nanoTime();
     String msgId = "<t6-classify-" + nano + "@corp>";
     TenantContext.set(1L);
@@ -282,8 +282,8 @@ class EmailContentDedupIntegrationTest extends IntegrationTestBase {
                 long userId = seed[0];
                 long envId = seed[3];
 
-                var ctx = messageRepo.findClassifyContextByIdAndUser(userId, envId);
-                assertThat(ctx).as("findClassifyContextByIdAndUser 결과가 있어야 한다").isPresent();
+                var ctx = messageRepo.findAnalysisContextByIdAndUser(userId, envId);
+                assertThat(ctx).as("findAnalysisContextByIdAndUser 결과가 있어야 한다").isPresent();
                 assertThat(ctx.get().subject())
                     .as("subject 는 email_content 에서 읽어야 한다")
                     .isEqualTo("T6-CLASS-SUBJECT");

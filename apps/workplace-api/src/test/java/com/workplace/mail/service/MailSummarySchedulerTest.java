@@ -19,7 +19,8 @@ import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.outbound.AiAgentMailClient;
-import com.workplace.mail.outbound.MailAiMessages.SummarizeResult;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
@@ -104,8 +105,10 @@ class MailSummarySchedulerTest extends IntegrationTestBase {
     usersToDelete.add(userDisabled);
     accountsToDelete.add(accountAiEnabled);
     accountsToDelete.add(accountAiDisabled);
-    // LLM 은 항상 고정 요약 반환
-    when(mailClient.summarize(any())).thenReturn(new SummarizeResult("• 스케줄러 요약"));
+    // LLM 은 항상 고정 결과 — ③ 객관 요약, ④ 개인 요약
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", "• 스케줄러 요약"));
+    when(mailClient.analyzePersonal(any()))
+        .thenReturn(new AnalyzePersonalResult(false, "• 스케줄러 요약", true, null));
   }
 
   @AfterEach
@@ -242,7 +245,7 @@ class MailSummarySchedulerTest extends IntegrationTestBase {
             .from(EMAIL_MESSAGE)
             .where(EMAIL_MESSAGE.ID.eq(envId))
             .fetchOneInto(Long.class);
-    contentRepo.updateBody(contentId, "스케줄러 테스트 본문 내용", null, "스니펫");
+    contentRepo.updateBody(contentId, MailAnalysisFixtures.LONG_BODY, null, "스니펫");
     TestFixtures.markMailFetched(dsl, envId);
     return envId;
   }

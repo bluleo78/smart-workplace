@@ -18,6 +18,8 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.mail.dto.MailReplyDraft;
 import com.workplace.mail.dto.MailSummary;
+import com.workplace.mail.exception.EmailMessageNotFoundException;
+import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.service.MailAiService;
 import com.workplace.mail.service.MailIssueService;
@@ -68,12 +70,70 @@ class MailAiControllerTest {
   /** 요약 GET 200 — summarize 결과가 $.summary 로 반환된다. */
   @Test
   void summary_returns200() throws Exception {
-    when(aiService.summarize(anyLong(), eq(5L))).thenReturn(new MailSummary("• 요약"));
+    when(aiService.summarize(anyLong(), eq(5L))).thenReturn(MailSummary.ready("• 요약"));
 
     mockMvc
         .perform(get("/api/v1/mail/messages/5/summary").header("Authorization", "Bearer v"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.summary").value("• 요약"));
+        .andExpect(jsonPath("$.summary").value("• 요약"))
+        .andExpect(jsonPath("$.status").value("READY"));
+  }
+
+  /** WP-149 요약 생략 메일 — GET 은 status=SKIPPED, summary=null. */
+  @Test
+  void summary_skipped_returnsStatus() throws Exception {
+    when(aiService.summarize(anyLong(), eq(5L))).thenReturn(MailSummary.skipped());
+
+    mockMvc
+        .perform(get("/api/v1/mail/messages/5/summary").header("Authorization", "Bearer v"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.summary").doesNotExist())
+        .andExpect(jsonPath("$.status").value("SKIPPED"));
+  }
+
+  /** WP-149 "AI 요약" 버튼 — POST 는 강제 생성 결과를 돌려준다. */
+  @Test
+  void generateSummary_returnsForcedSummary() throws Exception {
+    when(aiService.forceSummarize(anyLong(), eq(5L))).thenReturn(MailSummary.ready("• 강제 요약"));
+
+    mockMvc
+        .perform(post("/api/v1/mail/messages/5/summary").header("Authorization", "Bearer v"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.summary").value("• 강제 요약"))
+        .andExpect(jsonPath("$.status").value("READY"));
+  }
+
+  /** 타인 메일 POST …/summary → 404. */
+  @Test
+  void generateSummary_otherUsersMessage_returns404() throws Exception {
+    when(aiService.forceSummarize(anyLong(), eq(5L)))
+        .thenThrow(new EmailMessageNotFoundException(5L));
+
+    mockMvc
+        .perform(post("/api/v1/mail/messages/5/summary").header("Authorization", "Bearer v"))
+        .andExpect(status().isNotFound());
+  }
+
+  /** 비서 없음 POST …/summary → 503. */
+  @Test
+  void generateSummary_noAssistant_returns503() throws Exception {
+    when(aiService.forceSummarize(anyLong(), eq(5L)))
+        .thenThrow(new MailAiUnavailableException("꺼짐"));
+
+    mockMvc
+        .perform(post("/api/v1/mail/messages/5/summary").header("Authorization", "Bearer v"))
+        .andExpect(status().isServiceUnavailable());
+  }
+
+  /** LLM 호출 실패(MailAiException) POST …/summary → 502(MailExceptionHandler 매핑). */
+  @Test
+  void generateSummary_llmFailure_returns502() throws Exception {
+    when(aiService.forceSummarize(anyLong(), eq(5L)))
+        .thenThrow(new MailAiException("실패", new RuntimeException("x")));
+
+    mockMvc
+        .perform(post("/api/v1/mail/messages/5/summary").header("Authorization", "Bearer v"))
+        .andExpect(status().isBadGateway());
   }
 
   /** AI 비서 미활성 → 503 서비스 불가. */

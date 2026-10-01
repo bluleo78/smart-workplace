@@ -103,6 +103,11 @@ public class HomeMessage extends TableImpl<HomeMessageRecord> {
      */
     public final TableField<HomeMessageRecord, JSONB> TOOL_CALLS = createField(DSL.name("tool_calls"), SQLDataType.JSONB, this, "");
 
+    /**
+     * The column <code>public.home_message.content_blocks</code>.
+     */
+    public final TableField<HomeMessageRecord, JSONB> CONTENT_BLOCKS = createField(DSL.name("content_blocks"), SQLDataType.JSONB, this, "");
+
     private HomeMessage(Name alias, Table<HomeMessageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

@@ -117,3 +117,12 @@ export interface PromoteToIssuePayload {
   priority?: 'LOW' | 'MID' | 'HIGH'
   assigneeIds?: number[]
 }
+
+/** WP-149 메일 AI 요약 표시 상태 — READY 카드 · SKIPPED "AI 요약" 버튼 · EMPTY 숨김. */
+export type MailAiSummaryStatus = 'READY' | 'SKIPPED' | 'EMPTY'
+
+/** GET/POST /mail/messages/{id}/summary 응답. status 는 WP-149 이전 응답 호환을 위해 선택. */
+export interface MailAiSummary {
+  summary: string | null
+  status?: MailAiSummaryStatus
+}

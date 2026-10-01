@@ -213,7 +213,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
     syncService.sync(user, accountId);
 
     long needsReply = messageRepo.listByAccount(accountId, "INBOX", "회신필요-오래됨", 10).get(0).id();
-    messageRepo.updateClassification(needsReply, "업무", true);
+    MailTestSupport.classify(dsl, needsReply, "업무", true);
 
     // limit=2 — 최신순만이면 뉴스레터 2건에 밀려 회신필요가 빠지지만, 회신필요 우선이라 맨 앞에 와야 한다.
     var rows = messageRepo.listRecentUnread(user, 2);
@@ -243,9 +243,9 @@ class MailMessageServiceTest extends IntegrationTestBase {
     long noReplyUnread = messageRepo.listByAccount(accountId, "INBOX", "회신불필요-안읽음", 10).get(0).id();
     long needsReplyRead = messageRepo.listByAccount(accountId, "INBOX", "회신필요-읽음", 10).get(0).id();
 
-    messageRepo.updateClassification(needsReplyUnread, "업무", true);
-    messageRepo.updateClassification(noReplyUnread, "일반", false);
-    messageRepo.updateClassification(needsReplyRead, "업무", true);
+    MailTestSupport.classify(dsl, needsReplyUnread, "업무", true);
+    MailTestSupport.classify(dsl, noReplyUnread, "일반", false);
+    MailTestSupport.classify(dsl, needsReplyRead, "업무", true);
     // "회신필요-읽음" 을 읽음 처리(seen=true)
     messageService.get(user, needsReplyRead, true);
 
@@ -286,7 +286,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
     syncService.sync(user, accountId);
 
     long replyId = messageRepo.listByAccount(accountId, "INBOX", "회신필요건", 10).get(0).id();
-    messageRepo.updateClassification(replyId, "업무", true);
+    MailTestSupport.classify(dsl, replyId, "업무", true);
 
     MailSummaryResponse resp = messageService.summary(user, 5);
 

@@ -1,5 +1,6 @@
 package com.workplace.mail;
 
+import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -36,6 +37,7 @@ import jakarta.mail.internet.MimeMultipart;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.List;
@@ -298,11 +300,11 @@ class MailSyncServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 메타 전용 동기화는 ai_enabled=true 라도 분류하지 않는다 — 분류는 본문 적재(MailBodyFetcher/MailBackfillService) 단계로
-   * 이관됐다(해당 분류 커버리지는 MailBodyFetcherTest 등이 담당). sync 자체는 classify 를 호출하지 않음을 보장한다.
+   * 메타 전용 동기화는 ai_enabled=true 라도 분석하지 않는다 — 분석은 본문 적재 후(MailBackfillService → analyzeAfterLoad)·선제
+   * 백필 단계다(WP-149).
    */
   @Test
-  void sync_doesNotClassify() {
+  void sync_doesNotAnalyze() {
     long user = TestFixtures.createHuman(dsl);
     long accountId = insertAccount(user, true);
     MailTestPorts.sendText("box@test.local", "sender@example.com", "업무 보고", "보고서 내용");
@@ -310,8 +312,18 @@ class MailSyncServiceTest extends IntegrationTestBase {
 
     syncService.sync(user, accountId);
 
-    // 메타 전용 — sync 경로에서는 ai 활성화 여부와 무관하게 classify 가 호출되지 않는다(분류는 본문 적재로 이관).
-    org.mockito.Mockito.verify(mailClient, never()).classify(any());
+    // 메타 전용 — sync 경로에서는 원본·개인 분석이 호출되지 않는다(본문 보충·선제 백필은 이 테스트에서 mock).
+    org.mockito.Mockito.verify(mailClient, never()).analyzeContent(any());
+    org.mockito.Mockito.verify(mailClient, never()).analyzePersonal(any());
+  }
+
+  /** WP-148: 제목으로 로컬 envelope 의 seen 을 읽는다. */
+  private boolean localSeen(long accountId, String subject) {
+    return messageRepo.listByAccount(accountId, null, 50).stream()
+        .filter(s -> subject.equals(s.subject()))
+        .findFirst()
+        .orElseThrow()
+        .seen();
   }
 
   /**
@@ -416,5 +428,101 @@ class MailSyncServiceTest extends IntegrationTestBase {
 
   private Session session() {
     return Session.getInstance(new Properties());
+  }
+
+  /** WP-148: 서버에서 읽음/안읽음을 바꾸면 다음 동기화에서 로컬 seen 이 양방향으로 따라간다(서버 기준). 새 메일로 세지 않는다. */
+  @Test
+  void sync_serverSeenChange_reflectedBothWays() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "읽음 동기화", "본문");
+    greenMail.waitForIncomingEmail(1);
+    syncService.sync(user, accountId);
+    assertThat(localSeen(accountId, "읽음 동기화")).isFalse();
+
+    // 서버에서 읽음 → 로컬 읽음
+    progress.finish(accountId); // 백필 목킹으로 남은 진행 상태 해제(2차 sync 가 가드에 막히지 않게)
+    MailTestPorts.setServerSeen("읽음 동기화", true);
+    MailSyncResult read = syncService.sync(user, accountId);
+    assertThat(read.saved()).isZero();
+    assertThat(read.seenChanged()).isEqualTo(1);
+    assertThat(localSeen(accountId, "읽음 동기화")).isTrue();
+
+    // 서버에서 안읽음으로 되돌림 → 로컬도 안읽음
+    progress.finish(accountId);
+    MailTestPorts.setServerSeen("읽음 동기화", false);
+    MailSyncResult unread = syncService.sync(user, accountId);
+    assertThat(unread.seenChanged()).isEqualTo(1);
+    assertThat(localSeen(accountId, "읽음 동기화")).isFalse();
+
+    // 변화 없으면 0건(순환 없음)
+    progress.finish(accountId);
+    assertThat(syncService.sync(user, accountId).seenChanged()).isZero();
+  }
+
+  /** WP-148: 최근 14일 밖의 로컬 메일은 읽음 재조회 범위 밖이라 서버가 바뀌어도 건드리지 않는다(알려진 한계). */
+  @Test
+  void sync_outOfRangeMessage_notTouched() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "오래된 메일", "본문");
+    greenMail.waitForIncomingEmail(1);
+    syncService.sync(user, accountId);
+    // 첫 동기화는 7일만 가져오므로, 적재 후 로컬 수신 시각을 15일 전으로 옮겨 범위 밖 메일을 만든다.
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.RECEIVED_AT, OffsetDateTime.now().minusDays(15))
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .execute();
+
+    progress.finish(accountId);
+    MailTestPorts.setServerSeen("오래된 메일", true);
+    MailSyncResult r = syncService.sync(user, accountId);
+
+    assertThat(r.seenChanged()).isZero();
+    assertThat(localSeen(accountId, "오래된 메일")).isFalse();
+  }
+
+  /** WP-148: 같은 동기화에서 새로 들어온 메일은 그대로 적재되고, 기존 메일의 읽음 변화만 따로 센다. */
+  @Test
+  void sync_newMailAndSeenChange_countedSeparately() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "기존 메일", "본문");
+    greenMail.waitForIncomingEmail(1);
+    syncService.sync(user, accountId);
+
+    progress.finish(accountId);
+    MailTestPorts.setServerSeen("기존 메일", true);
+    MailTestPorts.sendText("box@test.local", "bob@example.com", "새 메일", "본문");
+    greenMail.waitForIncomingEmail(2);
+    MailSyncResult r = syncService.sync(user, accountId);
+
+    assertThat(r.saved()).isEqualTo(1);
+    assertThat(r.seenChanged()).isEqualTo(1);
+    assertThat(localSeen(accountId, "기존 메일")).isTrue();
+    assertThat(localSeen(accountId, "새 메일")).isFalse();
+  }
+
+  /** WP-148: 로컬 열람이 서버에 반영되기 전(서버 \\Seen 없음)에는 동기화가 로컬 읽음을 안읽음으로 되돌리지 않는다. */
+  @Test
+  void sync_pendingLocalRead_notRevertedByServerUnseen() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "대기 메일", "본문");
+    greenMail.waitForIncomingEmail(1);
+    syncService.sync(user, accountId);
+    long id =
+        messageRepo.listByAccount(accountId, null, 50).stream()
+            .filter(s -> "대기 메일".equals(s.subject()))
+            .findFirst()
+            .orElseThrow()
+            .id();
+    messageRepo.markSeen(id); // 로컬 열람 — 서버 반영은 아직(\\Seen 없음)
+
+    progress.finish(accountId);
+    MailSyncResult r = syncService.sync(user, accountId);
+
+    assertThat(r.seenChanged()).isZero();
+    assertThat(localSeen(accountId, "대기 메일")).isTrue();
   }
 }

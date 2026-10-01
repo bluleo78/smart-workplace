@@ -11,4 +11,6 @@ public record HomeMessageResponse(
     JsonNode widgets,
     /** AI 도구 호출/위임 단계(ASSISTANT 전용). null 가능. */
     JsonNode toolCalls,
+    /** 표시 블록 순서(텍스트·도구 그룹·위젯, ASSISTANT 전용 — WP-158). null 이면 웹 폴백 렌더. */
+    JsonNode contentBlocks,
     Instant createdAt) {}

@@ -1,8 +1,10 @@
 package com.workplace.issue.service;
 
 import com.workplace.issue.dto.IssueRef;
+import com.workplace.issue.dto.SourceIssueRef;
 import com.workplace.issue.repository.IssueRepository;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,5 +23,11 @@ public class IssueLookupService {
   /** 전역 issue.id 목록 중 호출자가 멤버인 프로젝트의 활성 이슈만 경량 참조로 반환. 비가시/삭제/미존재 id 는 자연 배제. 빈 ids 면 빈 리스트. */
   public List<IssueRef> findVisibleByIds(long callerId, List<Long> issueIds) {
     return issueRepository.findVisibleRefsByIds(callerId, issueIds);
+  }
+
+  /** 출처(예: MAIL + 사본 id)로 연결된 이슈 중 호출자가 멤버인 프로젝트의 활성 최신 1건. 비가시/삭제/없음이면 빈 값. */
+  public Optional<SourceIssueRef> findVisibleSourceIssue(
+      long callerId, String sourceType, long sourceId) {
+    return issueRepository.findVisibleSourceIssue(callerId, sourceType, sourceId);
   }
 }

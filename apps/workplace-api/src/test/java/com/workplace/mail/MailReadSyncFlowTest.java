@@ -4,15 +4,20 @@ import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.USER;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.mail.event.MessageMarkedReadEvent;
 import com.workplace.mail.outbound.GraphApiClient;
+import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.service.GraphTokenService;
 import com.workplace.mail.service.MailMessageService;
+import com.workplace.mail.service.MailReadSyncDispatcher;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import org.jooq.DSLContext;
@@ -36,6 +41,9 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired MailMessageService messageService;
+  @Autowired MailReadSyncDispatcher dispatcher;
+  @Autowired EmailAccountRepository accountRepo;
+  @Autowired EncryptionService encryption;
 
   /** Graph HTTP 호출 차단 + 호출 검증 대상. */
   @MockitoBean GraphApiClient graphApiClient;
@@ -132,5 +140,86 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
 
     // PATCH 가 호출되지 않아야 한다(짧은 대기 후 0건 검증)
     org.mockito.Mockito.verifyNoInteractions(graphApiClient);
+  }
+
+  /** 서버 반영 대기 표시 조회(WP-148). */
+  private boolean pushPending(long messageId) {
+    return Boolean.TRUE.equals(
+        dsl.select(EMAIL_MESSAGE.SEEN_PUSH_PENDING)
+            .from(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ID.eq(messageId))
+            .fetchOne(EMAIL_MESSAGE.SEEN_PUSH_PENDING));
+  }
+
+  /** WP-148: Graph PATCH 성공 → dispatcher 가 서버 반영 대기를 푼다. */
+  @Test
+  void dispatch_success_clearsPushPending() throws Exception {
+    setSessionGuc(1L);
+    seededUser = TestFixtures.createHuman(dsl);
+    seededAccount = MailTestSupport.seedGraphAccount(dsl, seededUser);
+    seededMessage = MailTestSupport.seedUnseenGraphMessage(dsl, seededAccount, "AAGRAPHID_OK");
+    when(graphTokenService.getAccessToken(seededUser, seededAccount)).thenReturn("FAKE_TOKEN");
+
+    TenantContext.set(1L);
+    messageService.get(seededUser, seededMessage, true);
+    verify(graphApiClient, org.mockito.Mockito.timeout(5_000))
+        .patch(eq("FAKE_TOKEN"), any(), any());
+
+    long deadline = System.currentTimeMillis() + 5_000;
+    while (pushPending(seededMessage) && System.currentTimeMillis() < deadline) {
+      Thread.sleep(50);
+    }
+    org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isFalse();
+  }
+
+  /** WP-148: Graph PATCH 실패(예외) → 서버 반영 대기가 유지된다. */
+  @Test
+  void dispatch_failure_keepsPushPending() throws Exception {
+    setSessionGuc(1L);
+    seededUser = TestFixtures.createHuman(dsl);
+    seededAccount = MailTestSupport.seedGraphAccount(dsl, seededUser);
+    seededMessage = MailTestSupport.seedUnseenGraphMessage(dsl, seededAccount, "AAGRAPHID_FAIL");
+    when(graphTokenService.getAccessToken(seededUser, seededAccount)).thenReturn("FAKE_TOKEN");
+    org.mockito.Mockito.doThrow(new RuntimeException("429"))
+        .when(graphApiClient)
+        .patch(any(), any(), any());
+
+    TenantContext.set(1L);
+    messageService.get(seededUser, seededMessage, true);
+    verify(graphApiClient, org.mockito.Mockito.timeout(5_000))
+        .patch(eq("FAKE_TOKEN"), any(), any());
+    Thread.sleep(300); // 리스너가 예외를 흡수·종료할 시간
+
+    org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isTrue();
+  }
+
+  /** WP-148: 건너뜀(IMAP uid 없는 로컬 생성 행)은 다시 해도 반영할 수 없으므로 예외 없이 끝나고 대기 표시가 풀린다. */
+  @Test
+  void dispatch_skipped_clearsPushPending() throws Exception {
+    setSessionGuc(1L);
+    seededUser = TestFixtures.createHuman(dsl);
+    seededAccount = MailTestSupport.insertAccount(accountRepo, encryption, seededUser, false);
+    long folderId =
+        dsl.insertInto(EMAIL_FOLDER)
+            .set(EMAIL_FOLDER.ACCOUNT_ID, seededAccount)
+            .set(EMAIL_FOLDER.NAME, "INBOX")
+            .returning(EMAIL_FOLDER.ID)
+            .fetchOne()
+            .getId();
+    seededMessage =
+        dsl.insertInto(EMAIL_MESSAGE)
+            .set(EMAIL_MESSAGE.ACCOUNT_ID, seededAccount)
+            .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
+            .set(EMAIL_MESSAGE.THREAD_ID, "thread-skip")
+            .set(EMAIL_MESSAGE.SEEN, true)
+            .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true) // imap_uid 없음 → 서버 반영 불가(건너뜀)
+            .returning(EMAIL_MESSAGE.ID)
+            .fetchOne()
+            .getId();
+
+    TenantContext.set(1L);
+    dispatcher.dispatch(new MessageMarkedReadEvent(1L, seededUser, seededMessage));
+
+    org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isFalse();
   }
 }

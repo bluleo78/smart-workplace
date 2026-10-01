@@ -159,6 +159,16 @@ public class EmailContent extends TableImpl<EmailContentRecord> {
      */
     public final TableField<EmailContentRecord, String> FINGERPRINT = createField(DSL.name("fingerprint"), SQLDataType.VARCHAR(64), this, "");
 
+    /**
+     * The column <code>public.email_content.auto_generated</code>.
+     */
+    public final TableField<EmailContentRecord, Boolean> AUTO_GENERATED = createField(DSL.name("auto_generated"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
+    /**
+     * The column <code>public.email_content.ai_summary_skipped</code>.
+     */
+    public final TableField<EmailContentRecord, Boolean> AI_SUMMARY_SKIPPED = createField(DSL.name("ai_summary_skipped"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
     private EmailContent(Name alias, Table<EmailContentRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

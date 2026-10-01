@@ -17,19 +17,25 @@ import com.workplace.mail.dto.MailDraftCoaching;
 import com.workplace.mail.dto.MailDraftCoachingRequest;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.MailSummary;
+import com.workplace.mail.dto.MailSummaryStatus;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
+import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
+import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.outbound.MailAiMessages.CoachingNoteWire;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
-import com.workplace.mail.outbound.MailAiMessages.SummarizeResult;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailAiService;
+import com.workplace.mail.service.MailAnalysisFixtures;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
@@ -69,6 +75,7 @@ class MailAiServiceTest extends IntegrationTestBase {
     // summarize 는 resolveWorkspaceOrEmpty / resolvePersonalOrEmpty 경로 사용(2-tier)
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(spec));
     when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.empty());
+    when(assistantResolver.resolveOrEmpty(anyLong())).thenReturn(Optional.of(spec));
   }
 
   /** AI 활성화된 계정 생성 헬퍼. */
@@ -130,67 +137,357 @@ class MailAiServiceTest extends IntegrationTestBase {
     return envId;
   }
 
-  /** 캐시 miss 시 ai-agent 호출 후 저장, 두 번째 호출은 캐시 hit → 재호출 없음. */
+  /** 본문을 지정해 INBOX 메시지 삽입(기존 insertMessage 와 같은 경로). */
+  private long insertMessage(
+      long accountId, long folderId, String msgId, String threadId, String body) {
+    long envId = insertMessage(accountId, folderId, msgId, threadId);
+    Long contentId =
+        dsl.select(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.CONTENT_ID)
+            .from(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE)
+            .where(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID.eq(envId))
+            .fetchOneInto(Long.class);
+    contentRepo.updateBody(contentId, body, null, "스니펫");
+    return envId;
+  }
+
+  private Long contentIdOf(long envId) {
+    return dsl.select(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.CONTENT_ID)
+        .from(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE)
+        .where(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID.eq(envId))
+        .fetchOneInto(Long.class);
+  }
+
+  /** 공통 티어: 미분석이면 ③ 을 즉시 실행해 READY, 두 번째는 캐시 — LLM 1회. */
   @Test
-  void summarize_캐시miss_호출저장_두번째hit_재호출없음() {
+  void summarize_commonTier_generatesOnce_thenCached() {
     long userId = TestFixtures.createHuman(dsl);
-    long accountId = createAccount(userId, "ai-svc@test.local", true);
+    long accountId = createAccount(userId, "ai-svc@test.local", false);
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
-    long msgId = insertMessage(accountId, folderId, "svc-msg-1@test.local", "svc-thread-1");
-
+    long msgId =
+        insertMessage(
+            accountId,
+            folderId,
+            "svc-msg-1@test.local",
+            "svc-thread-1",
+            MailAnalysisFixtures.LONG_BODY);
     stubAssistant();
-    when(mailClient.summarize(any())).thenReturn(new SummarizeResult("• 캐시될요약"));
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", "• 캐시될요약"));
 
-    // 첫 번째 호출 — 캐시 miss, ai-agent 호출
     MailSummary first = mailAiService.summarize(userId, msgId);
-    assertThat(first.summary()).isEqualTo("• 캐시될요약");
-
-    // 두 번째 호출 — 캐시 hit, 재호출 없음
     MailSummary second = mailAiService.summarize(userId, msgId);
-    assertThat(second.summary()).isEqualTo("• 캐시될요약");
 
-    verify(mailClient, times(1)).summarize(any());
+    assertThat(first).isEqualTo(MailSummary.ready("• 캐시될요약"));
+    assertThat(second).isEqualTo(MailSummary.ready("• 캐시될요약"));
+    verify(mailClient, times(1)).analyzeContent(any());
   }
 
-  /**
-   * #484: 온디맨드 요약에서 LLM 이 빈 응답 → 요약 없음(null) 200 응답 + 시도 시각 기록. 재조회 시 LLM 을 다시 부르지 않고 같은 '요약 없음'을
-   * 돌려준다(매 상세 조회 재요약 비용 누수 방지).
-   */
+  /** #484: LLM 빈 응답 → EMPTY, 재조회 시 재호출 없음. */
   @Test
-  void summarize_LLM빈응답_요약없음_재조회시_재호출없음() {
+  void summarize_llmBlank_emptyAndNoRetry() {
     long userId = TestFixtures.createHuman(dsl);
-    long accountId = createAccount(userId, "ai-svc-blank@test.local", true);
+    long accountId = createAccount(userId, "ai-svc-blank@test.local", false);
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
-    long msgId = insertMessage(accountId, folderId, "svc-blank-1@test.local", "svc-blank-t1");
-
+    long msgId =
+        insertMessage(
+            accountId,
+            folderId,
+            "svc-blank-1@test.local",
+            "svc-blank-t1",
+            MailAnalysisFixtures.LONG_BODY);
     stubAssistant();
-    when(mailClient.summarize(any())).thenReturn(new SummarizeResult(" \n\t "));
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", " \n\t "));
 
-    assertThat(mailAiService.summarize(userId, msgId).summary()).isNull();
-    assertThat(mailAiService.summarize(userId, msgId).summary()).isNull();
-
-    verify(mailClient, times(1)).summarize(any());
-    EmailMessageRepository.AiContext ctx =
-        messageRepo.findAiContextByIdAndUser(userId, msgId).orElseThrow();
-    assertThat(ctx.summary()).isNull(); // 빈 요약은 저장하지 않음
-    assertThat(ctx.summaryAttempted()).isTrue(); // 시도 시각만 기록
+    assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.empty());
+    assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.empty());
+    verify(mailClient, times(1)).analyzeContent(any());
   }
 
-  /**
-   * ai_enabled=false + 공통비서 없음 → 503(MailAiUnavailableException). 새 모델: ai_enabled=false 자체는 게이트가
-   * 아님 — 공통비서(resolveWorkspaceOrEmpty)로 T1 시도 후 둘 다 없으면 503.
-   */
+  /** ai_enabled=false + 공통 비서 없음 → 503(시도조차 못함 — 기존 계약). */
   @Test
-  void summarize_aiEnabled_false_공통비서없음_요약차단() {
+  void summarize_aiDisabled_noWorkspace_503() {
     long userId = TestFixtures.createHuman(dsl);
     long accountId = createAccount(userId, "no-ai@test.local", false);
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
     long msgId = insertMessage(accountId, folderId, "svc-msg-2@test.local", "svc-thread-2");
 
     assertThatThrownBy(() -> mailAiService.summarize(userId, msgId))
-        .isInstanceOf(MailAiUnavailableException.class);
+        .isInstanceOf(MailAiUnavailableException.class)
+        .hasMessageContaining("AI 비서가 아직 설정되지 않았어요");
+    verify(mailClient, never()).analyzeContent(any());
+  }
 
-    verify(mailClient, never()).summarize(any());
+  /** M4: 비서는 있지만 본문이 아직 적재되지 않았으면 "비서 미설정" 이 아닌 일반 문구의 503. */
+  @Test
+  void summarize_notFetched_503_genericMessage() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "nf@test.local", false);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId = insertMessage(accountId, folderId, "svc-nf@test.local", "svc-nf-t");
+    dsl.update(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE)
+        .set(
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.FETCHED_AT,
+            (java.time.OffsetDateTime) null)
+        .where(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID.eq(msgId))
+        .execute();
+    stubAssistant();
+
+    assertThatThrownBy(() -> mailAiService.summarize(userId, msgId))
+        .isInstanceOf(MailAiUnavailableException.class)
+        .hasMessageContaining("요약을 아직 만들 수 없어요")
+        .hasMessageNotContaining("설정되지 않았어요");
+  }
+
+  /** M2: ③ 이 안 돈 메일에 강제 요약을 하면 category 도 함께 받아 채우고 같은 원본 사본의 ⑤ 를 재계산한다. */
+  @Test
+  void forceSummarize_fillsEmptyCategory_andRecomputesNeedsReply() {
+    var box = MailAnalysisFixtures.mailbox(dsl, false);
+    long content =
+        MailAnalysisFixtures.content(dsl, contentRepo, MailAnalysisFixtures.LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "boss@corp.com", box.address(), null);
+    MailAnalysisFixtures.markPersonallyAnalyzed(dsl, env, true); // raw=true, 최종=true
+    stubAssistant();
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("알림", "• 강제 요약"));
+
+    assertThat(mailAiService.forceSummarize(box.userId(), env))
+        .isEqualTo(MailSummary.ready("• 강제 요약"));
+
+    ArgumentCaptor<AnalyzeContentRequest> req =
+        ArgumentCaptor.forClass(AnalyzeContentRequest.class);
+    verify(mailClient).analyzeContent(req.capture());
+    assertThat(req.getValue().includeCategory()).isTrue();
+    assertThat(
+            dsl.select(com.workplace.jooq.tables.EmailContent.EMAIL_CONTENT.AI_CATEGORY)
+                .from(com.workplace.jooq.tables.EmailContent.EMAIL_CONTENT)
+                .where(com.workplace.jooq.tables.EmailContent.EMAIL_CONTENT.ID.eq(content))
+                .fetchOneInto(String.class))
+        .isEqualTo("알림");
+    assertThat(
+            dsl.select(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.AI_NEEDS_REPLY)
+                .from(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE)
+                .where(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID.eq(env))
+                .fetchOneInto(Boolean.class))
+        .isFalse(); // 알림 분류 → ⑤ 가 false 로 재계산
+  }
+
+  /** 짧은 본문은 요약 생략 → EMPTY(버튼도 숨김), 두 번째 GET 은 LLM 을 다시 부르지 않는다. */
+  @Test
+  void summarize_shortBody_emptyAndNoRetry() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai-short@test.local", false);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId = insertMessage(accountId, folderId, "svc-short@test.local", "svc-short-t", "짧은 본문");
+    stubAssistant();
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", null));
+
+    assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.empty());
+    assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.empty());
+    ArgumentCaptor<AnalyzeContentRequest> req =
+        ArgumentCaptor.forClass(AnalyzeContentRequest.class);
+    verify(mailClient, times(1)).analyzeContent(req.capture());
+    assertThat(req.getValue().includeSummary()).isFalse();
+  }
+
+  /** 자동 발송 + 긴 본문 → SKIPPED(버튼). 강제 생성은 미리보기가 아닌 새 본문으로 요약만 요청하고 READY. */
+  @Test
+  void summarize_autoGeneratedLong_skipped_thenForceReady() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai-auto@test.local", false);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId =
+        insertMessage(
+            accountId,
+            folderId,
+            "svc-auto@test.local",
+            "svc-auto-t",
+            MailAnalysisFixtures.LONG_BODY);
+    contentRepo.markAutoGenerated(contentIdOf(msgId));
+    stubAssistant();
+    when(mailClient.analyzeContent(any()))
+        .thenReturn(new AnalyzeContentResult("뉴스레터", null))
+        .thenReturn(new AnalyzeContentResult(null, "• 강제 요약"));
+
+    assertThat(mailAiService.summarize(userId, msgId).status())
+        .isEqualTo(MailSummaryStatus.SKIPPED);
+    assertThat(mailAiService.forceSummarize(userId, msgId)).isEqualTo(MailSummary.ready("• 강제 요약"));
+
+    ArgumentCaptor<AnalyzeContentRequest> req =
+        ArgumentCaptor.forClass(AnalyzeContentRequest.class);
+    verify(mailClient, times(2)).analyzeContent(req.capture());
+    AnalyzeContentRequest forced = req.getAllValues().get(1);
+    assertThat(forced.includeSummary()).isTrue();
+    assertThat(forced.includeCategory()).isFalse();
+    assertThat(forced.body()).contains("배포 일정"); // 미리보기("스니펫")가 아닌 새 본문
+    assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.ready("• 강제 요약"));
+  }
+
+  /** 개인 티어(AI 사용 + 개인 비서) + 미분석 → ④ 전체 분석으로 개인 요약 READY. */
+  @Test
+  void summarize_personalTier_notAnalyzed_runsPersonalAnalysis() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai-personal@test.local", true);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId =
+        insertMessage(
+            accountId, folderId, "svc-p@test.local", "svc-p-t", MailAnalysisFixtures.LONG_BODY);
+    stubAssistant();
+    AssistantSpec personal = new AssistantSpec(6L, "claude-sonnet-4-6", "NORMAL", 8, 60000);
+    when(assistantResolver.resolvePersonalOrEmpty(anyLong())).thenReturn(Optional.of(personal));
+    when(mailClient.analyzePersonal(any()))
+        .thenReturn(new AnalyzePersonalResult(false, "• 핵심: 배포 일정", true, null));
+
+    assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.ready("• 핵심: 배포 일정"));
+    verify(mailClient, times(1)).analyzePersonal(any());
+    verify(mailClient, never()).analyzeContent(any());
+  }
+
+  /** 개인 요약 생략(짧은 본문)은 GET 마다 재생성하지 않는다 — 생략 표시가 "시도함" 역할. */
+  @Test
+  void summarize_personalSkipped_notRegenerated() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai-pskip@test.local", true);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId = insertMessage(accountId, folderId, "svc-ps@test.local", "svc-ps-t", "짧은 본문");
+    stubAssistant();
+    when(assistantResolver.resolvePersonalOrEmpty(anyLong()))
+        .thenReturn(Optional.of(new AssistantSpec(6L, "claude-sonnet-4-6", "NORMAL", 8, 60000)));
+    when(mailClient.analyzePersonal(any()))
+        .thenReturn(new AnalyzePersonalResult(false, null, false, null));
+
+    assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.empty());
+    assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.empty());
+    verify(mailClient, times(1)).analyzePersonal(any());
+  }
+
+  /** 타인 메일은 요약 조회·강제 생성 모두 404(EmailMessageNotFoundException) — 존재 노출 금지, LLM 호출 없음. */
+  @Test
+  void summarizeAndForce_otherUsersMessage_notFound() {
+    long owner = TestFixtures.createHuman(dsl);
+    long other = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(owner, "ai-authz@test.local", false);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId =
+        insertMessage(
+            accountId,
+            folderId,
+            "svc-authz@test.local",
+            "svc-authz-t",
+            MailAnalysisFixtures.LONG_BODY);
+    stubAssistant();
+
+    assertThatThrownBy(() -> mailAiService.summarize(other, msgId))
+        .isInstanceOf(EmailMessageNotFoundException.class);
+    assertThatThrownBy(() -> mailAiService.forceSummarize(other, msgId))
+        .isInstanceOf(EmailMessageNotFoundException.class);
+    verify(mailClient, never()).analyzeContent(any());
+    verify(mailClient, never()).analyzePersonal(any());
+  }
+
+  /** 개인 티어 강제 생성: 자동 발송이라 개인 요약이 생략된 메일 → 버튼(POST)이 개인 경로로 새 본문 요약을 만들고 캐시한다. */
+  @Test
+  void forceSummarize_personalTier_generatesViaPersonalPath() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai-pforce@test.local", true);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId =
+        insertMessage(
+            accountId, folderId, "svc-pf@test.local", "svc-pf-t", MailAnalysisFixtures.LONG_BODY);
+    contentRepo.markAutoGenerated(contentIdOf(msgId));
+    stubAssistant();
+    when(assistantResolver.resolvePersonalOrEmpty(anyLong()))
+        .thenReturn(Optional.of(new AssistantSpec(6L, "claude-sonnet-4-6", "NORMAL", 8, 60000)));
+    when(mailClient.analyzePersonal(any()))
+        .thenReturn(new AnalyzePersonalResult(false, null, false, null))
+        .thenReturn(new AnalyzePersonalResult(false, "• 강제 개인 요약", true, null));
+
+    assertThat(mailAiService.summarize(userId, msgId).status())
+        .isEqualTo(MailSummaryStatus.SKIPPED);
+    assertThat(mailAiService.forceSummarize(userId, msgId))
+        .isEqualTo(MailSummary.ready("• 강제 개인 요약"));
+
+    ArgumentCaptor<AnalyzePersonalRequest> req =
+        ArgumentCaptor.forClass(AnalyzePersonalRequest.class);
+    verify(mailClient, times(2)).analyzePersonal(req.capture());
+    AnalyzePersonalRequest forced = req.getAllValues().get(1);
+    assertThat(forced.includePersonalSummary()).isTrue();
+    assertThat(forced.includeNeedsReply()).isFalse();
+    assertThat(forced.body()).contains("배포 일정"); // 미리보기가 아닌 새 본문
+    verify(mailClient, never()).analyzeContent(any());
+    assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.ready("• 강제 개인 요약"));
+    verify(mailClient, times(2)).analyzePersonal(any());
+  }
+
+  /** 이미 요약이 있으면 강제 생성은 캐시를 그대로 돌려주고 LLM 을 부르지 않는다. */
+  @Test
+  void forceSummarize_existingSummary_readyWithoutLlm() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai-fexist@test.local", false);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId =
+        insertMessage(
+            accountId, folderId, "svc-fe@test.local", "svc-fe-t", MailAnalysisFixtures.LONG_BODY);
+    stubAssistant();
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", "• 기존 요약"));
+    mailAiService.summarize(userId, msgId);
+
+    assertThat(mailAiService.forceSummarize(userId, msgId)).isEqualTo(MailSummary.ready("• 기존 요약"));
+    verify(mailClient, times(1)).analyzeContent(any());
+  }
+
+  /** 강제 생성인데 비서가 없으면 503. */
+  @Test
+  void forceSummarize_noAssistant_503() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai-force-none@test.local", false);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId = insertMessage(accountId, folderId, "svc-fn@test.local", "svc-fn-t");
+
+    assertThatThrownBy(() -> mailAiService.forceSummarize(userId, msgId))
+        .isInstanceOf(MailAiUnavailableException.class);
+  }
+
+  /** #484 개인 티어: LLM 이 빈 개인 요약을 내면 EMPTY, 재조회 시 재호출 없음(MailTwoTierSummaryTest 의 같은 검증을 옮김). */
+  @Test
+  void summarize_personalTier_llmBlank_emptyAndNoRetry() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai-pblank@test.local", true);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId =
+        insertMessage(
+            accountId, folderId, "svc-pb@test.local", "svc-pb-t", MailAnalysisFixtures.LONG_BODY);
+    stubAssistant();
+    when(assistantResolver.resolvePersonalOrEmpty(anyLong()))
+        .thenReturn(Optional.of(new AssistantSpec(6L, "claude-sonnet-4-6", "NORMAL", 8, 60000)));
+    when(mailClient.analyzePersonal(any()))
+        .thenReturn(new AnalyzePersonalResult(false, " ", true, null));
+
+    assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.empty());
+    assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.empty());
+    verify(mailClient, times(1)).analyzePersonal(any());
+  }
+
+  /**
+   * 판단 13: 읽은 메일은 선제 분석 대상이 아니지만, 상세를 열면 GET …/summary 가 "아직 분석 전 → 즉시 생성" 경로로 요약을 만든다 — seen 게이트가
+   * analyzeContent 에 들어가면 이 테스트가 깨진다.
+   */
+  @Test
+  void summarize_readMail_analyzedOnOpen() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai-read@test.local", false);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId =
+        insertMessage(
+            accountId,
+            folderId,
+            "svc-read@test.local",
+            "svc-read-t",
+            MailAnalysisFixtures.LONG_BODY);
+    messageRepo.markSeen(msgId); // 웹 열람과 같은 읽음 처리(WP-148: seen_push_pending 도 함께 켜짐 — 요약과 무관)
+    stubAssistant();
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", "• 읽은 메일 요약"));
+
+    assertThat(mailAiService.summarize(userId, msgId)).isEqualTo(MailSummary.ready("• 읽은 메일 요약"));
+    verify(mailClient, times(1)).analyzeContent(any());
   }
 
   /** 새 메일 초안(inReplyToMessageId=null): thread 빈 리스트로 호출, 결과 매핑. */

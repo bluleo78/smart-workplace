@@ -29,5 +29,6 @@ public class GraphReadSyncer implements MailReadSyncer {
   public void markReadOnServer(long userId, EmailAccountResponse account, ReadSyncLocator loc) {
     String token = tokenService.getAccessToken(userId, loc.accountId());
     graphApiClient.patch(token, "/me/messages/" + loc.providerMessageId(), "{\"isRead\":true}");
+    // 예외(429 등)는 전파되어 호출 측(리스너)이 흡수하고, 반영 대기 표시는 유지된다
   }
 }

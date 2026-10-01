@@ -25,6 +25,7 @@ import { downloadMailAttachment } from '../../api/mailMessages'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
+  useGenerateMailSummary,
   useInlineMailHtml,
   useIssueDraft,
   useLinkedIssue,
@@ -229,6 +230,13 @@ function MessageDetailPanel({
   // 비서가 있을 때만 요약 조회 — aiAvailable false면 fetch 자체를 생략해 불필요한 API 호출을 막는다.
   const aiAvailable = useAiAvailable()
   const { data: summaryData, isFetching: summaryFetching } = useMailSummary(messageId, aiAvailable)
+  // WP-149 요약 생략 메일의 "AI 요약" 버튼 — 누를 때만 생성(결과는 요약 캐시에 바로 반영)
+  const generateSummary = useGenerateMailSummary()
+  // 생성 중 표시는 이 메일을 생성 중일 때만 — 다른 메일로 옮겨도 스켈레톤이 따라오지 않게
+  const generatingThis = generateSummary.isPending && generateSummary.variables === messageId
+  const summaryLoading = summaryFetching || generatingThis
+  const showSummaryButton =
+    aiAvailable && !summaryLoading && !summaryData?.summary && summaryData?.status === 'SKIPPED'
   // #520 연결된 이슈 키 조회 — issueKey 있으면 배지 표시.
   const linked = useLinkedIssue(messageId, aiEnabled)
   // HTML 본문은 text 본문이 없을 때만 iframe 으로 보인다 — 다크 변환·인라인 치환·첨부 숨김 모두 이때만 적용.
@@ -236,8 +244,8 @@ function MessageDetailPanel({
   const rawHtml = detail?.bodyHtml ?? null
   const attachments = detail?.attachments
   const showsHtml = !!rawHtml && !detail?.bodyText
-  // WP-103 다크 테마면 배경 지정 없는 메일을 어두운 배경으로 변환 — base64 치환 전 원문에 적용해 파싱 비용을 줄인다.
-  // 변환이 실제로 일어난 메일에만 "원본 보기" 토글을 둔다(Outlook 의 배경 전환과 같은 역할).
+  // WP-103·WP-159 다크 테마면 HTML 메일을 색 단위로 어둡게 변환 — base64 치환 전 원문에 적용해 파싱 비용을 줄인다.
+  // 변환된 메일(다크 테마의 HTML 본문)에는 "원본 보기" 토글을 둔다(Outlook 의 배경 전환과 같은 역할).
   // 원본 보기는 해당 메시지에만 유효 — id 로 기억해 다른 메일을 열면 effect 없이 다크 기본값으로 돌아간다.
   const darkHtml = useMailDarkHtml(showsHtml ? rawHtml : null)
   const [originalShownId, setOriginalShownId] = useState<number | null>(null)
@@ -284,8 +292,8 @@ function MessageDetailPanel({
   return (
     <div data-testid="mail-detail" className="flex h-full flex-col overflow-y-auto">
       <div className="border-b p-4">
-        {/* AI 요약 카드 — 비서 있을 때만. 객관 요약은 동의 불필요. */}
-        {aiAvailable && (summaryData?.summary || summaryFetching) && (
+        {/* AI 요약 카드 — 비서 있을 때만. 객관 요약은 동의 불필요. 조회·생성 중에는 스켈레톤. */}
+        {aiAvailable && (summaryData?.summary || summaryLoading) && (
           <AiContent
             label="AI 요약"
             collapsible
@@ -303,6 +311,19 @@ function MessageDetailPanel({
               </div>
             )}
           </AiContent>
+        )}
+        {/* WP-149 요약을 생략한 메일(자동 발송 등) — 카드 대신 버튼. 서버가 SKIPPED 일 때만 내려준다(새 본문 400자 이하는 EMPTY). */}
+        {showSummaryButton && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="mail-ai-summary-generate"
+            className="mb-3 border-ai-accent/50 text-ai-accent hover:bg-ai-accent-subtle hover:text-ai-accent"
+            onClick={() => messageId && generateSummary.mutate(messageId)}
+          >
+            <Sparkles className="h-3.5 w-3.5" /> AI 요약
+          </Button>
         )}
         <h2 className="text-lg font-semibold">{detail.subject || '(제목 없음)'}</h2>
         {/* #520 이슈 승격 배지 — issueKey 있을 때만 표시. AI 표면이므로 ai-accent 시맨틱 토큰 사용. */}

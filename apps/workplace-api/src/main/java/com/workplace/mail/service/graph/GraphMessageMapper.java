@@ -63,7 +63,7 @@ public final class GraphMessageMapper {
         m.subject(),
         sentAt,
         receivedAt,
-        m.isRead() /* seen */,
+        Boolean.TRUE.equals(m.isRead()) /* seen — 누락(null)은 신규 삽입 시 안읽음 */,
         m.hasAttachments(),
         null /* bodyText — on-demand 적재 */,
         null /* bodyHtml — on-demand 적재 */,

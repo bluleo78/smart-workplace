@@ -64,9 +64,9 @@ public class HomeSessionService {
   @Transactional
   public HomeMessageResponse appendActionResult(
       long callerId, UUID sessionId, String role, String content) {
-    long id = appendMessage(callerId, sessionId, role, content, null, null);
+    long id = appendMessage(callerId, sessionId, role, content, null, null, null);
     // 결과 줄은 위젯·도구단계가 없고 화면은 createdAt 을 쓰지 않으므로 재조회 없이 응답을 만든다.
-    return new HomeMessageResponse(id, role, content, null, null, Instant.now());
+    return new HomeMessageResponse(id, role, content, null, null, null, Instant.now());
   }
 
   /**
@@ -74,6 +74,7 @@ public class HomeSessionService {
    *
    * @param widgetsJson ASSISTANT 위젯 스펙(nullable)
    * @param toolCallsJson AI 도구 호출/위임 단계 JSON(ASSISTANT 전용, nullable)
+   * @param contentBlocksJson 표시 블록 순서 JSON(ASSISTANT 전용, nullable — WP-158)
    */
   @Transactional
   public long appendMessage(
@@ -82,9 +83,11 @@ public class HomeSessionService {
       String role,
       String content,
       String widgetsJson,
-      String toolCallsJson) {
+      String toolCallsJson,
+      String contentBlocksJson) {
     ensureOwner(callerId, sessionId);
-    long id = messageRepo.insert(sessionId, role, content, widgetsJson, toolCallsJson);
+    long id =
+        messageRepo.insert(sessionId, role, content, widgetsJson, toolCallsJson, contentBlocksJson);
     String titleIfNull = "USER".equals(role) ? trimTitle(content) : null;
     sessionRepo.touch(sessionId, titleIfNull);
     return id;
@@ -117,6 +120,7 @@ public class HomeSessionService {
         m.content(),
         parse(m.widgetsJson()),
         parse(m.toolCallsJson()),
+        parse(m.contentBlocksJson()),
         m.createdAt());
   }
 
