@@ -92,7 +92,8 @@ function CountCell({
           {ai && !error && <Sparkles className="inline h-3 w-3 text-ai-accent" />}
         </span>
       )}
-      <span className="text-xs text-muted-foreground">{label}</span>
+      {/* 라벨은 모바일 3열에서 한 줄 고정(꺾이면 셀 높이가 들쭉날쭉해진다, WP-142). 데스크톱 CSS 는 그대로(lg:whitespace-normal). */}
+      <span className="whitespace-nowrap text-xs text-muted-foreground lg:whitespace-normal">{label}</span>
     </>
   )
 
@@ -315,10 +316,15 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
 
   return (
     // 합성 레이어 카드 — 규칙 기반 집계이므로 외부 카드는 표준 Card. AI 발굴 행은 포커스 카드 내 AiContent 로 마킹.
-    <Card data-testid="dashboard-synthesis">
-      <CardContent className="space-y-4 pt-4">
+    // 모바일(lg 미만)에서는 위젯 카드 안에 카드가 한 번 더 들어가 여백이 이중이 되므로 테두리·패딩·그림자·배경을 걷어낸다.
+    // lg: 접두로 데스크톱 값(gap-6·border·py-6·shadow-sm·bg-card)을 그대로 복원한다(WP-142, 데스크톱 불변).
+    <Card
+      data-testid="dashboard-synthesis"
+      className="gap-0 border-0 bg-transparent py-0 shadow-none lg:gap-6 lg:border lg:bg-card lg:py-6 lg:shadow-sm"
+    >
+      <CardContent className="space-y-4 px-0 pt-0 lg:px-6 lg:pt-4">
         {/* 상태 카운트 스트립 — 5셀(이슈·멘션·메일·일정·메시징), 각 셀 모듈 딥링크. */}
-        <div className="grid grid-cols-5 gap-4" data-testid="dashboard-counts">
+        <div className="grid grid-cols-3 gap-2 lg:grid-cols-5 lg:gap-4" data-testid="dashboard-counts">
           {cells.map((c) => (
             <CountCell
               key={c.label}

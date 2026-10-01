@@ -381,3 +381,37 @@ test('collapsed 필드 없는 저장본은 펼침으로, 미등록 위젯은 건
   await expect(card).toHaveAttribute('data-collapsed', 'false')
   await expect(card.getByTestId('dash-mytasks')).toBeVisible()
 })
+
+test('요약 — KPI 3열(3+2)·라벨 한 줄, 안쪽 카드 테두리 없음, 가로 넘침 없음', async ({
+  authenticatedPage: page,
+}) => {
+  await stubWidgetData(page)
+  await stubDashboard(page, { mobile: layout(['synthesis']) })
+  await page.goto('/')
+  const cells = page.getByTestId('dashboard-counts').locator(':scope > *')
+  await expect(cells).toHaveCount(5)
+  await expect(cells.first()).toBeVisible()
+  const boxes = await cells.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect))
+  // 첫 줄 3칸·둘째 줄 2칸.
+  expect(boxes[1].y).toBe(boxes[0].y)
+  expect(boxes[2].y).toBe(boxes[0].y)
+  expect(boxes[3].y).toBeGreaterThan(boxes[0].y)
+  // 라벨이 두 줄로 꺾이면 셀이 ~80px 로 커진다 — 한 줄이면 64px 안팎.
+  for (const b of boxes) expect(b.height).toBeLessThan(70)
+  // 이중 카드 해소 — 안쪽 Card 의 테두리가 모바일에선 없다.
+  await expect(page.getByTestId('dashboard-synthesis')).toHaveCSS('border-top-width', '0px')
+  await expectNoHorizontalOverflow(page)
+})
+
+test('빠른 액션 — 모바일은 버튼 2열 격자', async ({ authenticatedPage: page }) => {
+  await stubWidgetData(page)
+  await stubDashboard(page, { mobile: layout(['quick_actions']) })
+  await page.goto('/')
+  const links = page.getByTestId('dashboard-quickactions').getByRole('link')
+  await expect(links).toHaveCount(3)
+  const boxes = await links.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect))
+  expect(boxes[1].y).toBe(boxes[0].y)
+  expect(boxes[2].y).toBeGreaterThan(boxes[0].y)
+  expect(Math.abs(boxes[0].width - boxes[1].width)).toBeLessThan(2)
+  await expectNoHorizontalOverflow(page)
+})

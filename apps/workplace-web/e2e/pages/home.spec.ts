@@ -2998,3 +2998,16 @@ test('데스크톱 — 저장본에 collapsed 가 있어도 무시하고 본문�
   await expect(page.getByTestId('mobile-widget-collapse')).toHaveCount(0)
   await expect(page.locator('[data-testid="dashboard-widget"][data-mobile-kind]')).toHaveCount(0)
 })
+
+test('데스크톱 — 요약 KPI 5칸 한 줄·안쪽 카드 테두리 유지(WP-142 반응형 회귀 가드)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
+  await page.goto('/')
+  const cells = page.getByTestId('dashboard-counts').locator(':scope > *')
+  await expect(cells).toHaveCount(5)
+  const ys = await cells.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().y))
+  expect(new Set(ys).size).toBe(1)
+  await expect(page.getByTestId('dashboard-synthesis')).toHaveCSS('border-top-width', '1px')
+})
