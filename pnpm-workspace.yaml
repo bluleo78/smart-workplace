@@ -6,3 +6,6 @@ patchedDependencies:
   # 화면이 ~300ms 뒤 뜨면 원본은 다음 확인까지 최대 500ms 를 헛대기해 E2E 전체가 10.0분 → 7.5분으로 줄었다.
   # Playwright 버전을 올리면 이 patch 가 적용되지 않으므로 새 버전 기준으로 `pnpm patch` 로 다시 만든다.
   playwright-core@1.60.0: patches/playwright-core@1.60.0.patch
+# 이미지 빌드의 `pnpm deploy --prod` 에는 playwright(devDependency)가 없어 위 patch 가 미사용 → ERR_PNPM_UNUSED_PATCH 로 빌드 실패.
+# 미사용 patch 를 에러가 아닌 허용으로 둔다.
+allowUnusedPatches: true
