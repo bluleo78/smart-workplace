@@ -44,7 +44,8 @@ public class AiAgentPriorityClient {
           e.getResponseBodyAsString());
       throw new PriorityAiException("AI 우선순위 분류 요청에 실패했어요.", e);
     } catch (RestClientException e) {
-      log.error("ai-agent priority classify 실패: {}", e.getMessage());
+      // 연결·읽기 실패는 ai-agent 재기동 중에도 난다 — 호출부(스케줄러)가 연속 횟수로 판단하므로 여기선 WARN 으로 남긴다(WP-166)
+      log.warn("ai-agent priority classify 실패: {}", e.getMessage());
       throw new PriorityAiException("AI 우선순위 분류 요청에 실패했어요.", e);
     }
   }

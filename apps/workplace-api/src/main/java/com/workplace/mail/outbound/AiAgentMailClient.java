@@ -71,7 +71,8 @@ public class AiAgentMailClient {
       log.error("ai-agent mail 실패: status={} body={}", e.getStatusCode(), b);
       throw new MailAiException("AI 요청에 실패했어요. 잠시 후 다시 시도해주세요.", e);
     } catch (RestClientException e) {
-      log.error("ai-agent mail 실패: {}", e.getMessage());
+      // 연결·읽기 실패는 ai-agent 재기동 중에도 난다 — 배치 호출부가 연속 횟수로 판단하므로 WARN(WP-166)
+      log.warn("ai-agent mail 실패: {}", e.getMessage());
       throw new MailAiException("AI 요청에 실패했어요. 잠시 후 다시 시도해주세요.", e);
     }
   }

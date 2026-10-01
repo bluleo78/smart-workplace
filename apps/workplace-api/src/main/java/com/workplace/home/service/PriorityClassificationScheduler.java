@@ -5,6 +5,7 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.dto.PriorityItemRow;
+import com.workplace.home.exception.PriorityAiException;
 import com.workplace.home.outbound.AiAgentPriorityClient;
 import com.workplace.home.outbound.dto.PriorityClassifyRequest;
 import com.workplace.home.outbound.dto.PriorityClassifyResult;
@@ -34,11 +35,15 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>MailSummaryScheduler 와 동일한 2단계 패턴: ① {@link TenantScopedRunner} 로 테넌트별 짧은 트랜잭션(GUC 주입)에서 대상
  * 사용자만 수집, ② 트랜잭션 밖에서 사용자별로 후보 수집(짧은 tx) → ai-agent HTTP(tx 밖) → 저장(짧은 tx). 사용자 단위 실패는 격리(로그만, 다음
- * 사용자 계속) — 이전 배치 결과는 실패 시 그대로 유지된다(저장을 아예 시도하지 않으므로).
+ * 사용자 계속) — 이전 배치 결과는 실패 시 그대로 유지된다(저장을 아예 시도하지 않으므로). 단 ai-agent 불가(연결 실패·503)가 연속 {@value
+ * #MAX_CONSECUTIVE_UNAVAILABLE}회면 그 회차를 멈춘다(WP-166) — 재기동 중인 agent 에 사용자 수만큼 실패를 쌓지 않는다.
  */
 @Slf4j
 @Component
 public class PriorityClassificationScheduler {
+
+  /** ai-agent 불가(연결 실패·503)가 이만큼 연속되면 그 회차를 멈춘다 — MailReanalysisService 와 같은 기준. */
+  static final int MAX_CONSECUTIVE_UNAVAILABLE = 3;
 
   /** 소스당 후보 상한 — ai-agent 요청 폭주 방지(배치 입력 상한, SynthesisLayer 표시 상한과는 별개). */
   private static final int SOURCE_LIMIT = 20;
@@ -79,8 +84,12 @@ public class PriorityClassificationScheduler {
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
-  /** 15분 주기 — 활성 테넌트의 HUMAN 사용자마다 후보 수집→AI 분류→저장. */
-  @Scheduled(fixedRate = 900_000)
+  /**
+   * 15분 주기 — 활성 테넌트의 HUMAN 사용자마다 후보 수집→AI 분류→저장.
+   *
+   * <p>첫 실행은 기동 2분 뒤(WP-166): 배포 직후 api 가 ai-agent 보다 먼저 떠 곧바로 돌면 ai-agent 재기동 구간에 걸려 사용자 전원이 실패한다.
+   */
+  @Scheduled(initialDelay = 120_000, fixedRate = 900_000)
   @SchedulerLock(name = "PriorityClassificationScheduler.runOnce")
   public void runOnce() {
     // ① 수집: 테넌트별 짧은 트랜잭션(GUC 주입) 안에서 대상 사용자만 모은다.
@@ -94,35 +103,63 @@ public class PriorityClassificationScheduler {
           }
         });
     // ② 실행: Runner 트랜잭션 밖. 사용자마다 TenantContext 주입 → 각 단계 내부 트랜잭션이 GUC 주입.
-    for (TenantUser t : targets) {
+    int unavailableStreak = 0;
+    for (int i = 0; i < targets.size(); i++) {
+      TenantUser t = targets.get(i);
       TenantContext.set(t.tenantId());
       try {
-        processUser(t.userId());
+        if (processUser(t.userId())) {
+          unavailableStreak = 0; // agent 가 응답했다 — 후보가 없어 부르지 않은 사용자는 판단 근거가 아니므로 리셋하지 않는다
+        }
       } catch (RuntimeException e) {
+        if (!(e instanceof PriorityAiException ai && ai.isTransient())) {
+          // 그 사용자만의 실패(잘못된 응답·4xx 등) — 다음 사용자로 계속
+          unavailableStreak = 0;
+          log.warn(
+              "우선순위 분류 실패 tenant={} user={} — 이전 결과 유지, 다음 사용자로 계속", t.tenantId(), t.userId(), e);
+          continue;
+        }
+        // ai-agent 불가(재기동 중 등) — 남은 사용자에게 같은 실패를 쌓지 않고 연속 N회에서 이번 회차를 멈춘다.
+        // 읽기 타임아웃도 같은 예외라 첫 실패에서 멈추지 않는다(느린 LLM 한 건 때문에 전원을 건너뛰지 않게). 스택은 남기지 않는다.
         log.warn(
-            "우선순위 분류 실패 tenant={} user={} — 이전 결과 유지, 다음 사용자로 계속", t.tenantId(), t.userId(), e);
+            "우선순위 분류 실패(ai-agent 불가) tenant={} user={}: {}",
+            t.tenantId(),
+            t.userId(),
+            String.valueOf(e.getCause()));
+        if (++unavailableStreak >= MAX_CONSECUTIVE_UNAVAILABLE) {
+          log.warn(
+              "ai-agent 불가 {}회 연속 — 이번 회차 중단, 남은 {}명은 다음 주기에 처리(이전 결과 유지)",
+              unavailableStreak,
+              targets.size() - i - 1);
+          return;
+        }
       } finally {
         TenantContext.clear();
       }
     }
   }
 
-  /** 사용자 1명 처리 — 후보 수집(짧은 tx) → ai-agent 분류(tx 밖) → 저장(짧은 tx, replaceForUser). */
-  private void processUser(long userId) {
+  /**
+   * 사용자 1명 처리 — 후보 수집(짧은 tx) → ai-agent 분류(tx 밖) → 저장(짧은 tx, replaceForUser).
+   *
+   * @return ai-agent 를 실제로 불러 응답을 받았으면 true(후보·비서가 없어 부르지 않았으면 false) — 호출부가 "연속 불가" 횟수를 agent 응답
+   *     기준으로만 리셋하도록
+   */
+  private boolean processUser(long userId) {
     List<PriorityCandidate> candidates = collectCandidates(userId);
     if (candidates.isEmpty()) {
       // 진짜 "후보 없음" 케이스만 전량 삭제(replaceForUser 빈 리스트) — AI 호출 자체를 안 했으니 모호함이 없다.
       // 짧은 트랜잭션으로 감싸 TenantAwareTransactionManager.doBegin() 이 RLS GUC(app.tenant_id) 를
       // 주입하도록 보장 — 트랜잭션 밖 호출은 GUC 미주입으로 tenant_id NULL → NOT NULL 위반(Critical, 리뷰 지적).
       txTemplate.executeWithoutResult(status -> repo.replaceForUser(userId, List.of()));
-      return;
+      return false;
     }
     // 사용자 단위 배치이므로 개인 비서 우선(없으면 공용 비서로 폴백) — resolveWorkspaceOrEmpty() 는 개인 비서를
     // 무시해 개인화가 깨지므로 부적합(브리핑 Step1 확인 결과, resolveOrEmpty(userId) 로 교체).
     AssistantSpec spec = assistantResolver.resolveOrEmpty(userId).orElse(null);
     if (spec == null) {
       log.debug("비서 없음 — 우선순위 분류 생략 user={}", userId);
-      return;
+      return false;
     }
     PriorityClassifyRequest req =
         new PriorityClassifyRequest(
@@ -149,7 +186,7 @@ public class PriorityClassificationScheduler {
           "우선순위 분류 응답이 비어있음(candidates={}) — AI 파싱 실패 가능성, 이전 결과 유지하고 저장 생략 user={}",
           candidates.size(),
           userId);
-      return;
+      return true;
     }
 
     // sourceId 는 이슈/알림/메일/대화 4개의 독립된 BIGSERIAL 시퀀스에서 온 원시 PK 라 단독 키로 쓰면 충돌한다
@@ -183,10 +220,11 @@ public class PriorityClassificationScheduler {
           candidates.size(),
           result.results().size(),
           userId);
-      return;
+      return true;
     }
     // 짧은 트랜잭션으로 감싸 RLS GUC 주입 보장 (위 빈-후보 분기와 동일 이유).
     txTemplate.executeWithoutResult(status -> repo.replaceForUser(userId, rows));
+    return true;
   }
 
   /**

@@ -1,15 +1,21 @@
 package com.workplace.mail.service;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
+import com.workplace.mail.exception.MailAiException;
+import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.repository.EmailMessageRepository;
 import java.util.List;
 import java.util.Optional;
@@ -22,6 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.web.client.ResourceAccessException;
 
 /**
  * WP-149 동기화 후 선제 백필 단위 테스트 — ③ 패스는 원본 미분석(content.ai_summarized_at) 대상에 analyzeContent, ④ 패스는 사본
@@ -92,5 +99,60 @@ class MailSummaryBackfillServiceTest {
     service.summarizeObjectiveRecentNow(USER, ACCOUNT);
 
     verify(analysis).analyzeContent(USER, 51L);
+  }
+
+  /** ai-agent 연결 실패(재기동 중 등) — 클라이언트가 ResourceAccessException 을 감싼 형태. */
+  private static MailAiException agentDown() {
+    return new MailAiException("AI 요청 실패", new ResourceAccessException("Connection refused"));
+  }
+
+  @Test
+  void agentUnavailable_threeInARow_stopsPass_andRethrows() {
+    given(messageRepo.listRecentUnreadUnsummarizedIds(ACCOUNT, 20))
+        .willReturn(List.of(60L, 61L, 62L, 63L, 64L));
+    given(messageRepo.findBodyTargetForUser(eq(USER), anyLong())).willReturn(Optional.empty());
+    doThrow(agentDown()).when(analysis).analyzeContent(eq(USER), anyLong());
+
+    // 연속 3회 불가에서 멈추고 그 예외를 던진다 — 남은 2건은 부르지 않는다(스케줄러가 회차를 멈출 신호)
+    assertThatThrownBy(() -> service.summarizeObjectiveRecentNow(USER, ACCOUNT))
+        .isInstanceOf(MailAiException.class);
+    verify(analysis, times(3)).analyzeContent(eq(USER), anyLong());
+    verify(analysis, never()).analyzeContent(USER, 63L);
+  }
+
+  @Test
+  void agentUnavailable_streakResetsOnSuccessOrOtherFailure() {
+    given(messageRepo.listRecentUnreadUnsummarizedIds(ACCOUNT, 20))
+        .willReturn(List.of(70L, 71L, 72L, 73L, 74L, 75L));
+    given(messageRepo.findBodyTargetForUser(eq(USER), anyLong())).willReturn(Optional.empty());
+    // 불가 2 → 성공(73) → 불가(503) 1 → 메일 단위 실패 → 불가 1: 연속 3회가 없으므로 끝까지 돈다
+    doThrow(agentDown()).when(analysis).analyzeContent(USER, 70L);
+    doThrow(agentDown()).when(analysis).analyzeContent(USER, 71L);
+    doThrow(new MailAiUnavailableException("503")).when(analysis).analyzeContent(USER, 73L);
+    doThrow(new RuntimeException("파싱 오류")).when(analysis).analyzeContent(USER, 74L);
+    doThrow(agentDown()).when(analysis).analyzeContent(USER, 75L);
+
+    service.summarizeObjectiveRecentNow(USER, ACCOUNT);
+
+    verify(analysis, times(6)).analyzeContent(eq(USER), anyLong());
+  }
+
+  @Test
+  void asyncEntry_agentUnavailable_isSwallowed_andSkipsPersonalPass() {
+    TenantContext.set(1L);
+    try {
+      given(messageRepo.listRecentUnreadUnsummarizedIds(ACCOUNT, 20))
+          .willReturn(List.of(80L, 81L, 82L));
+      given(messageRepo.findBodyTargetForUser(eq(USER), anyLong())).willReturn(Optional.empty());
+      doThrow(agentDown()).when(analysis).analyzeContent(eq(USER), anyLong());
+
+      // 동기화 직후 비동기 진입점 — 비동기 예외(ERROR)로 새지 않고, 같은 agent 를 부르는 ④ 패스도 건너뛴다
+      service.summarizeRecentUnread(USER, ACCOUNT);
+
+      verify(messageRepo, never()).listRecentUnreadUnanalyzedIds(anyLong(), anyInt());
+      verify(analysis, never()).analyzePersonal(anyLong(), anyLong(), any());
+    } finally {
+      TenantContext.clear();
+    }
   }
 }

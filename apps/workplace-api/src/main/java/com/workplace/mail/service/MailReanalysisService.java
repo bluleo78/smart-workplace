@@ -2,7 +2,6 @@ package com.workplace.mail.service;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.mail.exception.MailAiException;
-import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import java.util.List;
@@ -103,7 +102,7 @@ public class MailReanalysisService {
         unavailableStreak = 0;
       } catch (RuntimeException e) {
         log.warn("재분석 건너뜀 (messageId={}): {}", id, e.toString());
-        if (isUnavailable(e)) {
+        if (MailAiException.isAgentUnavailable(e)) {
           // agent 다운·지연 — 남은 메일에 타임아웃을 계속 쌓지 않고 연속 3회에서 멈춘다
           if (++unavailableStreak >= MAX_CONSECUTIVE_FAILURES) {
             aborted = true;
@@ -125,12 +124,6 @@ public class MailReanalysisService {
       log.info("재분석 완료 accountId={} 대상={} 성공={} 장애중단={}", accountId, ids.size(), done, aborted);
     }
     return true;
-  }
-
-  /** 일시 불가 판정 — 503 이거나 {@link MailAiException#isTransient()} 이면 agent 장애. 그 외는 메일 단위 실패다. */
-  private static boolean isUnavailable(RuntimeException e) {
-    return e instanceof MailAiUnavailableException
-        || (e instanceof MailAiException ai && ai.isTransient());
   }
 
   /**

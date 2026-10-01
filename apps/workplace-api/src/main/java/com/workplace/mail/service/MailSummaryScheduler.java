@@ -4,6 +4,7 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.mail.dto.AiAccountRef;
+import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailAccountRepository.ActiveAccount;
 import java.util.ArrayList;
@@ -48,8 +49,13 @@ public class MailSummaryScheduler {
     this.backfill = backfill;
   }
 
-  /** 10분 주기 — ③ 원본 분석(공통비서 테넌트 전체 계정) + ④ 개인 분석(AI 계정). */
-  @Scheduled(fixedRate = 600_000)
+  /**
+   * 10분 주기 — ③ 원본 분석(공통비서 테넌트 전체 계정) + ④ 개인 분석(AI 계정).
+   *
+   * <p>첫 실행은 기동 2분 뒤(WP-166) — 배포 직후 ai-agent 재기동 구간과 겹치지 않게. ai-agent 불가로 패스가 멈추면 이번 회차의 남은 계정·다음
+   * 패스를 건너뛴다.
+   */
+  @Scheduled(initialDelay = 120_000, fixedRate = 600_000)
   @SchedulerLock(name = "MailSummaryScheduler.runOnce")
   public void runOnce() {
     // ① 수집: 테넌트별 짧은 트랜잭션(GUC 주입) 안에서 대상 계정만 모은다.
@@ -69,8 +75,13 @@ public class MailSummaryScheduler {
           }
         });
     // ② 실행: Runner 트랜잭션 밖. TenantContext 만 주입(backfill 내부가 짧은 트랜잭션으로 GUC 주입).
-    runTargets(objectiveTargets, backfill::summarizeObjectiveRecentNow, "원본 분석");
-    runTargets(personalTargets, backfill::summarizePersonalRecentNow, "개인 분석");
+    // agent 불가 카운터는 회차 전체(두 패스·모든 계정)가 공유한다 — 계정마다 메일이 적어도 연속 불가를 놓치지 않게(WP-166)
+    AgentOutageGuard guard = new AgentOutageGuard();
+    if (runTargets(
+        objectiveTargets, (u, a) -> backfill.summarizeObjectiveRecentNow(u, a, guard), "원본 분석")) {
+      runTargets(
+          personalTargets, (u, a) -> backfill.summarizePersonalRecentNow(u, a, guard), "개인 분석");
+    }
   }
 
   /**
@@ -79,17 +90,29 @@ public class MailSummaryScheduler {
    * @param targets 수집 단계에서 모인 (tenantId, userId, accountId) 목록
    * @param pass backfill 메서드 참조 (userId, accountId) 를 받는 BiConsumer
    * @param label 로그 레이블
+   * @return 끝까지 돌았으면 true, ai-agent 불가로 멈췄으면 false(호출부가 다음 패스를 건너뛴다)
    */
-  private void runTargets(List<TenantAccount> targets, BiConsumer<Long, Long> pass, String label) {
+  private boolean runTargets(
+      List<TenantAccount> targets, BiConsumer<Long, Long> pass, String label) {
     for (TenantAccount t : targets) {
       TenantContext.set(t.tenantId());
       try {
         pass.accept(t.userId(), t.accountId()); // (userId, accountId)
       } catch (RuntimeException e) {
+        if (MailAiException.isAgentUnavailable(e)) {
+          // 백필 패스가 연속 불가로 멈췄다 — 다른 계정도 같은 agent 를 부르므로 이번 회차는 여기서 멈춘다
+          log.warn(
+              "선제 요약({}) 중단 — ai-agent 불가, 이번 회차 남은 계정은 다음 주기에 처리 tenant={} account={}",
+              label,
+              t.tenantId(),
+              t.accountId());
+          return false;
+        }
         log.warn("선제 요약({}) 실패 tenant={} account={}", label, t.tenantId(), t.accountId(), e);
       } finally {
         TenantContext.clear();
       }
     }
+    return true;
   }
 }
