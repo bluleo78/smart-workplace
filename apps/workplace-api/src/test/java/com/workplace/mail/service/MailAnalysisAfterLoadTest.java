@@ -129,6 +129,21 @@ class MailAnalysisAfterLoadTest extends IntegrationTestBase {
     verify(mailClient, never()).analyzePersonal(any());
   }
 
+  /** 회신필요 기간(2일) 밖 옛 메일 → 본문을 막 적재했어도 ③·④ 를 하지 않는다(열람 시 온디맨드). */
+  @Test
+  void oldMail_outsideWindow_runsNothing() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    MailAnalysisFixtures.receivedDaysAgo(dsl, env, 3);
+
+    analysis.analyzeAfterLoad(box.userId(), env, analysis.newProfileCache());
+
+    verify(mailClient, never()).analyzeContent(any());
+    verify(mailClient, never()).analyzePersonal(any());
+  }
+
   @Test
   void nonInboxFolder_skipsBackgroundAnalysis() {
     Box box = MailAnalysisFixtures.mailbox(dsl, true);

@@ -100,6 +100,14 @@ public final class MailAnalysisFixtures {
         .execute();
   }
 
+  /** 수신 시각을 며칠 전으로 옮긴다(회신필요 기간 밖 옛 메일 검증용). */
+  public static void receivedDaysAgo(DSLContext dsl, long envelopeId, int days) {
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.RECEIVED_AT, OffsetDateTime.now().minusDays(days))
+        .where(EMAIL_MESSAGE.ID.eq(envelopeId))
+        .execute();
+  }
+
   /**
    * 사본을 읽음으로 바꾼다(판단 13: 읽은 메일은 선제 분석 대상이 아님을 검증). 서버 역동기화와 무관한 시드라 seen_push_pending(WP-148)은 건드리지
    * 않는다.

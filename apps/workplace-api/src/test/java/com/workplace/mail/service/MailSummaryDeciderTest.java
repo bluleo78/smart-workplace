@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.mail.repository.EmailMessageRepository.AnalysisContext;
 import com.workplace.mail.service.MailSummaryDecider.Decision;
+import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
 
 /** WP-149 요약 상태 판정 — 티어 × 시도 × 생략 × 요약 유무 × 새 본문 길이. */
@@ -42,7 +43,8 @@ class MailSummaryDeciderTest {
         false,
         personalSummary,
         personalAttempted,
-        personalSkipped);
+        personalSkipped,
+        OffsetDateTime.now());
   }
 
   private static AnalysisContext common(

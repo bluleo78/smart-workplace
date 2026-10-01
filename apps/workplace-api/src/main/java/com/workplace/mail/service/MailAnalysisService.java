@@ -208,6 +208,9 @@ public class MailAnalysisService {
       if (ctx == null || !"INBOX".equals(ctx.folderName())) {
         return;
       }
+      if (!EmailMessageRepository.isWithinNeedsReplyWindow(ctx.receivedAt())) {
+        return; // 회신필요 기간 밖 옛 메일은 선제 분석하지 않는다 — 열람 시 요약 GET 이 온디맨드로 처리
+      }
       unread = !ctx.seen();
       if (!unread && !ctx.aiEnabled()) {
         return; // 읽은 메일은 AI 켠 계정만 — 꺼진 계정의 읽은 메일 비용 방지(열람 시 요약 GET 이 온디맨드로 처리)

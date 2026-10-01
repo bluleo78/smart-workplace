@@ -21,6 +21,7 @@ import com.workplace.mail.dto.ReadSyncLocator;
 import com.workplace.mail.dto.ReplyContext;
 import com.workplace.mail.outbound.MailAiMessages;
 import com.workplace.mail.util.MailBodyText;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -50,11 +51,33 @@ public class EmailMessageRepository {
   private final EmailContentRepository contentRepo;
 
   /**
-   * 회신필요 단일 술어(WP-146) — AI 판정 true + 안 읽음. 목록 필터·사이드바·홈 카운트가 모두 이 메서드만 써서 화면마다 기준이 어긋나지 않게 한다(#485
-   * 드리프트 방지). pending(NULL)·false 는 isTrue() 가 제외한다.
+   * 회신필요 기간 — 받은 지 이 기간 안의 메일만 회신필요로 보고, 선제 분석(③ 원본·④ 개인)도 이 안에서만 한다. 오래된 메일에 "지금 답장 필요"를 붙이는 건 의미가
+   * 없고, 기간이 없으면 백필이 안 읽은 옛 메일까지 최근순으로 끝없이 내려가 LLM 을 쓴다(WP-151 후속). 기간 밖 메일은 열람 시 요약 GET 이 온디맨드로
+   * 분석한다.
+   */
+  public static final Duration NEEDS_REPLY_WINDOW = Duration.ofDays(2);
+
+  /** 회신필요 기간 술어 — received_at 이 기간 안. 수신 시각이 없는 행은 제외한다. */
+  public static Condition withinNeedsReplyWindow() {
+    return EMAIL_MESSAGE.RECEIVED_AT.ge(OffsetDateTime.now().minus(NEEDS_REPLY_WINDOW));
+  }
+
+  /** {@link #withinNeedsReplyWindow()} 의 자바 쪽 판정 — 이미 읽어 온 행(요약 DTO·분석 컨텍스트)에 같은 기준을 적용한다. */
+  public static boolean isWithinNeedsReplyWindow(OffsetDateTime receivedAt) {
+    return receivedAt != null
+        && !receivedAt.isBefore(OffsetDateTime.now().minus(NEEDS_REPLY_WINDOW));
+  }
+
+  /**
+   * 회신필요 단일 술어(WP-146) — AI 판정 true + 안 읽음 + 회신필요 기간 안. 목록 필터·사이드바·홈 카운트가 모두 이 메서드만 써서 화면마다 기준이
+   * 어긋나지 않게 한다(#485 드리프트 방지). pending(NULL)·false 는 isTrue() 가 제외한다.
    */
   public static Condition needsReplyCondition() {
-    return EMAIL_MESSAGE.AI_NEEDS_REPLY.isTrue().and(EMAIL_MESSAGE.SEEN.isFalse());
+    return EMAIL_MESSAGE
+        .AI_NEEDS_REPLY
+        .isTrue()
+        .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .and(withinNeedsReplyWindow());
   }
 
   /** UIDVALIDITY 변경 시 폴더의 기존 메시지를 모두 삭제(서버가 UID 를 재사용하므로 stale 충돌 방지). */
@@ -463,10 +486,10 @@ public class EmailMessageRepository {
         .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
         .and(EMAIL_FOLDER.NAME.eq("INBOX"))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
-        // 회신필요(aiNeedsReply=true) 우선 → 최신순. 적은 회신필요 메일이 항상 상위 N 에 끼게 해
-        // 홈 위젯/필터가 전역 needsReplyCount 와 어긋나지 않도록 한다(분류 off 면 전부 null → 최신순).
+        // 회신필요(needsReplyCondition — 기간 포함) 우선 → 최신순. 적은 회신필요 메일이 항상 상위 N 에 끼게 해
+        // 홈 위젯/필터가 전역 needsReplyCount 와 어긋나지 않도록 한다(분류 off 면 전부 해당 없음 → 최신순).
         .orderBy(
-            EMAIL_MESSAGE.AI_NEEDS_REPLY.desc().nullsLast(),
+            DSL.when(needsReplyCondition(), 1).otherwise(0).desc(),
             EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(),
             EMAIL_MESSAGE.ID.desc())
         .limit(limit)
@@ -754,6 +777,7 @@ public class EmailMessageRepository {
         .and(EMAIL_FOLDER.NAME.eq("INBOX"))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
         .and(EMAIL_CONTENT.AI_SUMMARIZED_AT.isNull()) // 슬라이스② content 기준 + #484 시도 시각 기준
+        .and(withinNeedsReplyWindow()) // 옛 메일까지 내려가지 않게 — 기간 밖은 열람 시 온디맨드
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
         .fetch(EMAIL_MESSAGE.ID);
@@ -778,6 +802,7 @@ public class EmailMessageRepository {
         .and(EMAIL_MESSAGE.AI_ANALYZED_AT.isNull())
         .and(EMAIL_MESSAGE.AI_NEEDS_REPLY.isNull())
         .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+        .and(withinNeedsReplyWindow()) // 옛 메일까지 내려가지 않게 — 기간 밖은 회신필요로 세지 않는다
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
         .fetch(EMAIL_MESSAGE.ID);
@@ -804,6 +829,7 @@ public class EmailMessageRepository {
         .and(EMAIL_MESSAGE.SEEN.isFalse())
         .and(EMAIL_MESSAGE.AI_ANALYZED_AT.isNull())
         .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+        .and(withinNeedsReplyWindow()) // 기간 밖은 회신필요로 세지 않으므로 다시 판정하지 않는다
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
         .limit(limit)
         .fetch(EMAIL_MESSAGE.ID);
@@ -1071,7 +1097,11 @@ public class EmailMessageRepository {
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.HAS_ATTACHMENT)),
         r.get(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
-        r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY));
+        // 회신필요 기간 밖의 true 는 false 로 내보낸다 — 웹·홈 우선순위가 aiNeedsReply 만 보고도 집계(needsReplyCondition)와 같게
+        Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY))
+                && !isWithinNeedsReplyWindow(received)
+            ? Boolean.FALSE
+            : r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY));
   }
 
   /**
@@ -1177,7 +1207,8 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.AI_ANALYZED_AT,
             EMAIL_MESSAGE.AI_PERSONAL_SUMMARY,
             EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT,
-            EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED)
+            EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED,
+            EMAIL_MESSAGE.RECEIVED_AT)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -1214,7 +1245,8 @@ public class EmailMessageRepository {
                     r.get(EMAIL_MESSAGE.AI_ANALYZED_AT) != null,
                     r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY),
                     r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARIZED_AT) != null,
-                    Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED))));
+                    Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.AI_PERSONAL_SUMMARY_SKIPPED)),
+                    r.get(EMAIL_MESSAGE.RECEIVED_AT)));
   }
 
   /**
@@ -1339,7 +1371,8 @@ public class EmailMessageRepository {
       boolean personalAnalyzed,
       String personalSummary,
       boolean personalAttempted,
-      boolean personalSummarySkipped) {}
+      boolean personalSummarySkipped,
+      OffsetDateTime receivedAt) {}
 
   /** WP-149 ⑤ 규칙 입력 행. raw 가 null 이면 ④ 미분석(또는 배포 전 분류) — 재계산하지 않는다. */
   public record RuleRow(

@@ -94,6 +94,7 @@ class MailSummaryDedupIntegrationTest extends IntegrationTestBase {
         .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
         .set(EMAIL_MESSAGE.TENANT_ID, 1L)
         .set(EMAIL_MESSAGE.FETCHED_AT, java.time.OffsetDateTime.now()) // 본문 적재 완료 → fetchBody skip
+        .set(EMAIL_MESSAGE.RECEIVED_AT, java.time.OffsetDateTime.now()) // 회신필요 기간 안 → 선제 분석 대상
         .returning(EMAIL_MESSAGE.ID)
         .fetchOne()
         .getId();
