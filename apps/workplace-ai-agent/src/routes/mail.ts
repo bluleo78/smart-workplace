@@ -7,11 +7,9 @@ import { type RunAgentDeps } from '../agent/run-agent.js';
 import {
   runMailAnalyzeContent,
   runMailAnalyzePersonal,
-  runMailClassify,
   runMailDraftCoaching,
   runMailIssueDraft,
   runMailReplyDraft,
-  runMailSummarize,
 } from '../agent/run-mail-ai.js';
 
 // 공통 assistant 설정 필드 — 모든 엔드포인트에서 공유.
@@ -22,8 +20,6 @@ const baseConfig = {
   timeoutMs: z.number().int().positive(),
 };
 
-export const classifySchema = z.object({ subject: z.string(), from: z.string(), snippet: z.string(), ...baseConfig });
-export const summarizeSchema = z.object({ subject: z.string(), from: z.string(), body: z.string(), ...baseConfig });
 export const replyDraftSchema = z.object({
   thread: z.array(z.object({ from: z.string(), date: z.string(), body: z.string() })),
   replyingAs: z.string(),
@@ -112,9 +108,7 @@ export function createMailRouter(deps: RunAgentDeps): Router {
   router.post('/mail/analyze-personal', handler(analyzePersonalSchema, runMailAnalyzePersonal, deps, 'mail-analyze-personal'));
 
   // 메일 분류: category + needsReply 반환.
-  router.post('/mail/classify', handler(classifySchema, runMailClassify, deps, 'mail-classify'));
   // 메일 요약: summary 텍스트 반환.
-  router.post('/mail/summarize', handler(summarizeSchema, runMailSummarize, deps, 'mail-summarize'));
   // 답장 초안 생성: draft 텍스트 반환.
   router.post('/mail/reply-draft', handler(replyDraftSchema, runMailReplyDraft, deps, 'mail-reply-draft'));
   // 초안 코칭: notes + improvedBodyHtml 반환.

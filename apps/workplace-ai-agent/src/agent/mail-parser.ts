@@ -1,18 +1,9 @@
-// 7d: 분류/코칭 등 JSON 파싱 유틸.
+// 7d·WP-149: 원본/개인 분석·코칭·이슈 초안 JSON 파싱 유틸.
 // ⚠️ 과거 CLI stream-json 라인 → 최종 텍스트 추출은 `extractResultText` 가 맡았으나,
 // collect 경로가 AgentRunner(Task 5)로 이관되며 provider-neutral `finalText`(runner-events.ts)
 // 로 대체됐다(의미 동일: result.text 우선, 없으면 assistant_text join). 이 함수는 제거.
 
 const CATEGORIES = ['업무', '개인', '알림', '프로모션', '뉴스레터'];
-
-// 모델이 코드펜스/잡설을 섞어도 첫 JSON 객체만 파싱. 카테고리 검증(미지 → 업무 폴백).
-export function parseClassifyJson(text: string): { category: string; needsReply: boolean } {
-  const m = text.match(/\{[\s\S]*?\}/);
-  if (!m) throw new Error(`분류 JSON 없음: ${text.slice(0, 120)}`);
-  const obj = JSON.parse(m[0]) as { category?: unknown; needsReply?: unknown };
-  const category = typeof obj.category === 'string' && CATEGORIES.includes(obj.category) ? obj.category : '업무';
-  return { category, needsReply: obj.needsReply === true };
-}
 
 /** 코칭 평가 차원 화이트리스트. */
 const COACHING_DIMENSIONS = ['TONE', 'CLARITY', 'COMPLETENESS'];

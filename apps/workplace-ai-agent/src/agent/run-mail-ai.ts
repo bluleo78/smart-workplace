@@ -1,9 +1,8 @@
 // 7d: 메일 AI 러너 — 비서 OAuth 토큰 fetch → SDK 단발 실행 → 파서.
-// 분류/요약/답장 모두 도구 미사용 텍스트 in/out. MCP 서버·임시 config 불필요.
+// 원본/개인 분석·답장·코칭·이슈 초안 모두 도구 미사용 텍스트 in/out. MCP 서버·임시 config 불필요.
 import { runnerFor } from './agent-runner.js';
 import { finalText } from './runner-events.js';
 import {
-  parseClassifyJson,
   parseContentAnalysisJson,
   parseDraftCoachingJson,
   parseIssueDraftJson,
@@ -12,11 +11,9 @@ import {
 import {
   buildContentAnalysisPrompt,
   buildPersonalAnalysisPrompt,
-  MAIL_CLASSIFY_PROMPT,
   MAIL_DRAFT_COACHING_PROMPT,
   MAIL_ISSUE_DRAFT_PROMPT,
   MAIL_REPLY_DRAFT_PROMPT,
-  MAIL_SUMMARIZE_PROMPT,
 } from './mail-system-prompt.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
@@ -27,8 +24,6 @@ interface BaseConfig {
   maxTurns: number;
   timeoutMs: number;
 }
-export interface ClassifyInput extends BaseConfig { subject: string; from: string; snippet: string; }
-export interface SummarizeInput extends BaseConfig { subject: string; from: string; body: string; }
 export interface ThreadMsg { from: string; date: string; body: string; }
 export interface ReplyDraftInput extends BaseConfig { thread: ThreadMsg[]; replyingAs: string; }
 export interface DraftCoachingInput extends BaseConfig {
@@ -60,24 +55,6 @@ export async function runText(
     includePartialMessages: false,
   });
   return finalText(events);
-}
-
-// 메일 분류: 제목·보낸사람·미리보기 → {category, needsReply}
-export async function runMailClassify(
-  input: ClassifyInput,
-  deps: RunAgentDeps,
-): Promise<{ category: string; needsReply: boolean }> {
-  const userMessage = `제목: ${input.subject}\n보낸사람: ${input.from}\n미리보기: ${input.snippet}`;
-  return parseClassifyJson(await runText(MAIL_CLASSIFY_PROMPT, userMessage, input, deps, 'mail-classify'));
-}
-
-// 메일 요약: 제목·보낸사람·본문 → {summary}
-export async function runMailSummarize(
-  input: SummarizeInput,
-  deps: RunAgentDeps,
-): Promise<{ summary: string }> {
-  const userMessage = `제목: ${input.subject}\n보낸사람: ${input.from}\n\n본문:\n${input.body}`;
-  return { summary: (await runText(MAIL_SUMMARIZE_PROMPT, userMessage, input, deps, 'mail-summarize')).trim() };
 }
 
 // 답장 초안: 스레드 전체 + 발신자 → {draftBody}
