@@ -129,7 +129,7 @@ class GraphBodyLoaderTest extends IntegrationTestBase {
             null,
             List.of());
 
-    messageRepo.upsertByProviderId(accountId, folderId, m, providerMessageId);
+    messageRepo.upsertByProviderId(accountId, folderId, m, providerMessageId, true);
     return messageRepo.findByProviderId(accountId, providerMessageId).orElseThrow();
   }
 

@@ -122,51 +122,81 @@ public class EmailMessageRepository {
   }
 
   /**
+   * Graph upsert 결과(WP-148). 신규 삽입만 "새 메일"로 세고, 기존 행의 읽음 갱신은 따로 센다 — 읽음 갱신을 새 메일로 오인하면 새 메일 SSE·본문
+   * 백필 판단이 어긋난다.
+   */
+  public enum UpsertOutcome {
+    /** 새 envelope 삽입. */
+    INSERTED,
+    /** 기존 envelope 의 seen 만 서버 값으로 바뀜. */
+    SEEN_CHANGED,
+    /** 변화 없음(기존 행 · 같은 seen · 동시 삽입 충돌). */
+    UNCHANGED
+  }
+
+  /**
    * Graph provider_message_id 키로 메시지를 UPSERT 한다.
    *
-   * <p>부분 유니크 {@code (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL} 충돌 시
-   * NO-OP(멱등). 슬라이스1: read-state delta(isRead 변경 등) 갱신은 미구현 — 충돌 시 DO NOTHING 으로 첫 삽입만 유효.
+   * <p>이미 있는 envelope(delta 재전송)면 INSERT 하지 않는다 — 지문 없는 content 가 매번 새로 생겨 고아가 되기 때문(WP-130). 대신
+   * {@code syncSeen} 이면 <b>seen 만</b> 서버 isRead 로 맞춘다(WP-148, 서버 기준 — 안읽음 되돌림 포함). 다른 컬럼은 건드리지 않는다.
+   *
+   * <p>스펙의 "ON CONFLICT DO UPDATE SET seen" 을 기존-행 분기 UPDATE 로 구현한 이유: 위 사전 조회 때문에 ON CONFLICT 에
+   * 도달하지 않고, {@code DO UPDATE … RETURNING} 은 갱신된 행도 반환해 신규 삽입과 구별되지 않는다. INSERT 의 {@code
+   * onConflictDoNothing} 은 동시 삽입 경합 안전망으로 남긴다.
    *
    * <p>imapUid 는 Graph 계정에서 사용하지 않으므로 null 저장(IMAP 분기와 구별).
    *
    * @param accountId 계정 id
    * @param folderId 폴더 id
-   * @param m 매핑된 ParsedMessage(imapUid 는 무시됨)
+   * @param m 매핑된 ParsedMessage(imapUid 는 무시됨). 기존 행이면 {@code m.seen()} 만 쓴다
    * @param providerMessageId Graph 메시지 id
-   * @return 신규 삽입이면 true, 이미 존재(충돌 무시)하면 false
+   * @param syncSeen false 면 기존 행의 seen 을 건드리지 않는다(delta 항목에 isRead 가 없을 때)
+   * @return 삽입 · 읽음 변경 · 변화 없음
    */
-  public boolean upsertByProviderId(
-      long accountId, long folderId, ParsedMessage m, String providerMessageId) {
-    // 이미 있는 envelope(delta 재전송)면 content 를 만들지 않는다 — 지문 없는 content 는 매번 새 행이 생겨 고아가 된다(WP-130)
+  public UpsertOutcome upsertByProviderId(
+      long accountId, long folderId, ParsedMessage m, String providerMessageId, boolean syncSeen) {
     if (findByProviderId(accountId, providerMessageId).isPresent()) {
-      return false;
+      // 기존 행 — 서버 읽음 상태만 반영(값이 같으면 0건이라 SSE·순환 없음)
+      if (!syncSeen) {
+        return UpsertOutcome.UNCHANGED;
+      }
+      int changed =
+          dsl.update(EMAIL_MESSAGE)
+              .set(EMAIL_MESSAGE.SEEN, m.seen())
+              .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+              .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
+              .and(EMAIL_MESSAGE.SEEN.ne(m.seen()))
+              .execute();
+      return changed > 0 ? UpsertOutcome.SEEN_CHANGED : UpsertOutcome.UNCHANGED;
     }
     // Graph 경로도 동일하게 email_content 공유(find-or-create).
     long tenantId = requireTenantId();
     long contentId = contentRepo.findOrCreate(tenantId, m, ContentSource.GRAPH);
-    return dsl.insertInto(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
-        .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
-        .set(EMAIL_MESSAGE.IMAP_UID, (Long) null) // Graph 계정: IMAP UID 없음
-        .set(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID, providerMessageId)
-        .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
-        .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
-        .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
-        .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
-        .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
-        .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
-        .set(EMAIL_MESSAGE.TO_ADDRESSES, m.toAddresses())
-        .set(EMAIL_MESSAGE.CC_ADDRESSES, m.ccAddresses())
-        // subject 는 email_content.subject 에 저장(Task9: envelope 중복 제거)
-        .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
-        .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
-        .set(EMAIL_MESSAGE.SEEN, m.seen())
-        .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
-        .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
-        .onConflictDoNothing()
-        .returning(EMAIL_MESSAGE.ID)
-        .fetchOptional()
-        .isPresent();
+    boolean inserted =
+        dsl.insertInto(EMAIL_MESSAGE)
+            .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
+            .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
+            .set(EMAIL_MESSAGE.IMAP_UID, (Long) null) // Graph 계정: IMAP UID 없음
+            .set(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID, providerMessageId)
+            .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
+            .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
+            .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
+            .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
+            .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
+            .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
+            .set(EMAIL_MESSAGE.TO_ADDRESSES, m.toAddresses())
+            .set(EMAIL_MESSAGE.CC_ADDRESSES, m.ccAddresses())
+            // subject 는 email_content.subject 에 저장(Task9: envelope 중복 제거)
+            .set(EMAIL_MESSAGE.SENT_AT, toOffset(m.sentAt()))
+            .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(m.receivedAt()))
+            .set(EMAIL_MESSAGE.SEEN, m.seen())
+            .set(EMAIL_MESSAGE.HAS_ATTACHMENT, m.hasAttachment())
+            .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
+            .onConflictDoNothing() // 동시 삽입 경합 안전망 — 충돌이면 새 메일로 세지 않는다
+            .returning(EMAIL_MESSAGE.ID)
+            .fetchOptional()
+            .isPresent();
+    return inserted ? UpsertOutcome.INSERTED : UpsertOutcome.UNCHANGED;
   }
 
   /**

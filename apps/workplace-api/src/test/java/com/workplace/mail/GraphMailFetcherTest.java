@@ -1,6 +1,7 @@
 package com.workplace.mail;
 
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+import static com.workplace.jooq.Tables.EMAIL_CONTENT;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -100,9 +101,14 @@ class GraphMailFetcherTest extends IntegrationTestBase {
         MailProvider.M365_GRAPH);
   }
 
-  /** 헬퍼: 신규(삭제 아님) GraphMessage 생성. */
+  /** 헬퍼: 신규(삭제 아님) GraphMessage 생성 — 기본 보낸사람·안읽음. */
   private GraphMessage message(String id, String subject) {
-    Recipient from = new Recipient(new EmailAddress("sender@example.com", "보낸사람"));
+    return message(id, subject, "sender@example.com", false);
+  }
+
+  /** 헬퍼: 보낸사람·읽음 여부를 지정한 GraphMessage. isRead 가 null 이면 delta 응답에 isRead 가 빠진 항목을 흉내 낸다(WP-148). */
+  private GraphMessage message(String id, String subject, String fromAddress, Boolean isRead) {
+    Recipient from = new Recipient(new EmailAddress(fromAddress, "보낸사람"));
     return new GraphMessage(
         id,
         subject,
@@ -111,11 +117,25 @@ class GraphMailFetcherTest extends IntegrationTestBase {
         List.of(),
         "2024-01-01T10:00:00Z",
         "2024-01-01T09:55:00Z",
-        false,
+        isRead,
         false,
         "<msg-" + id + "@example.com>",
         "conv-" + id,
         null /* @removed 없음 */);
+  }
+
+  /** 헬퍼: 메시지 행의 (seen, content_id, from_address, content.subject) 스냅샷 — 읽음 외 필드 불변 단언용. */
+  private org.jooq.Record4<Boolean, Long, String, String> snapshot(long messageId) {
+    return dsl.select(
+            EMAIL_MESSAGE.SEEN,
+            EMAIL_MESSAGE.CONTENT_ID,
+            EMAIL_MESSAGE.FROM_ADDRESS,
+            EMAIL_CONTENT.SUBJECT)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_CONTENT)
+        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .fetchOne();
   }
 
   /** 헬퍼: @removed 마커가 있는 GraphMessage(항목 삭제 지시). */
@@ -281,5 +301,108 @@ class GraphMailFetcherTest extends IntegrationTestBase {
 
     assertThat(m.id()).isEqualTo("DELETED1");
     assertThat(m.removed()).isNotNull();
+  }
+
+  /**
+   * WP-148: 이미 있는 메시지가 delta 로 다시 오면 seen 만 서버 isRead 로 갱신한다 — 제목·보낸사람·content 는 그대로이고, 새 메일로 세지
+   * 않는다(saved=0). 서버에서 안읽음으로 되돌리면 로컬도 되돌린다(서버 기준).
+   */
+  @Test
+  void fetchNewMessages_existingMessage_updatesSeenOnly() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId);
+    when(graphTokenService.getAccessToken(userId, accountId)).thenReturn("FAKE_TOKEN");
+
+    // 1차: 신규 G1(안읽음) → deltaLink D1
+    when(graphApiClient.get(eq("FAKE_TOKEN"), any(String.class), eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(message("G1", "원래 제목")), null, "D1"));
+    // 2차(D1): 같은 G1 이 제목·보낸사람이 다르고 isRead=true 로 옴 → seen 만 반영돼야 함
+    when(graphApiClient.get(eq("FAKE_TOKEN"), eq("D1"), eq(GraphDeltaPage.class)))
+        .thenReturn(
+            new GraphDeltaPage(
+                List.of(message("G1", "바뀐 제목", "other@example.com", true)), null, "D2"));
+    // 3차(D2): 서버에서 다시 안읽음으로 되돌림
+    when(graphApiClient.get(eq("FAKE_TOKEN"), eq("D2"), eq(GraphDeltaPage.class)))
+        .thenReturn(
+            new GraphDeltaPage(
+                List.of(message("G1", "바뀐 제목", "other@example.com", false)), null, "D3"));
+
+    MailSyncResult first =
+        graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    long g1 = messageRepo.findByProviderId(accountId, "G1").orElseThrow();
+    var before = snapshot(g1);
+    assertThat(first.saved()).isEqualTo(1);
+    assertThat(before.value1()).isFalse();
+
+    MailSyncResult second =
+        graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    var afterRead = snapshot(g1);
+    assertThat(second.saved()).isZero();
+    assertThat(second.seenChanged()).isEqualTo(1);
+    assertThat(afterRead.value1()).isTrue();
+    // 읽음 외 필드는 1차 적재 값 그대로
+    assertThat(afterRead.value2()).isEqualTo(before.value2());
+    assertThat(afterRead.value3()).isEqualTo("sender@example.com");
+    assertThat(afterRead.value4()).isEqualTo("원래 제목");
+
+    MailSyncResult third =
+        graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    assertThat(third.saved()).isZero();
+    assertThat(third.seenChanged()).isEqualTo(1);
+    assertThat(snapshot(g1).value1()).isFalse();
+  }
+
+  /** WP-148: 값이 같으면(서버도 안읽음) UPDATE 0건 — 읽음 변화로 세지 않아 불필요한 SSE 를 만들지 않는다. */
+  @Test
+  void fetchNewMessages_sameSeen_countsNothing() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId);
+    when(graphTokenService.getAccessToken(userId, accountId)).thenReturn("FAKE_TOKEN");
+    when(graphApiClient.get(eq("FAKE_TOKEN"), any(String.class), eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(message("G1", "제목")), null, "D1"));
+    when(graphApiClient.get(eq("FAKE_TOKEN"), eq("D1"), eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(message("G1", "제목")), null, "D2"));
+
+    graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    MailSyncResult second =
+        graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+
+    assertThat(second.saved()).isZero();
+    assertThat(second.seenChanged()).isZero();
+  }
+
+  /** WP-148: delta 항목에 isRead 가 없으면(null) 기존 행의 읽음 상태를 건드리지 않는다 — 누락을 안읽음으로 오인하지 않기 위함. */
+  @Test
+  void fetchNewMessages_missingIsRead_leavesSeenUntouched() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId);
+    when(graphTokenService.getAccessToken(userId, accountId)).thenReturn("FAKE_TOKEN");
+    when(graphApiClient.get(eq("FAKE_TOKEN"), any(String.class), eq(GraphDeltaPage.class)))
+        .thenReturn(
+            new GraphDeltaPage(
+                List.of(message("G1", "제목", "sender@example.com", true)), null, "D1"));
+    when(graphApiClient.get(eq("FAKE_TOKEN"), eq("D1"), eq(GraphDeltaPage.class)))
+        .thenReturn(
+            new GraphDeltaPage(
+                List.of(message("G1", "제목", "sender@example.com", null)), null, "D2"));
+
+    graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+    MailSyncResult second =
+        graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+
+    long g1 = messageRepo.findByProviderId(accountId, "G1").orElseThrow();
+    assertThat(second.seenChanged()).isZero();
+    assertThat(snapshot(g1).value1()).isTrue();
+  }
+
+  /** WP-148: isRead 는 JSON 에 있으면 그 값, 없으면 null 로 역직렬화된다(누락 감지의 전제). */
+  @Test
+  void graphMessage_parsesIsReadPresentAndMissing() throws Exception {
+    GraphMessage read =
+        objectMapper.readValue("{\"id\":\"R1\",\"isRead\":true}", GraphMessage.class);
+    GraphMessage missing = objectMapper.readValue("{\"id\":\"R2\"}", GraphMessage.class);
+
+    assertThat(read.isRead()).isTrue();
+    assertThat(missing.isRead()).isNull();
   }
 }

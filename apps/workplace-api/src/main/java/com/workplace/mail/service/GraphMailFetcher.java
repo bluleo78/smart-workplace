@@ -77,14 +77,14 @@ public class GraphMailFetcher implements MailFetcher {
    *
    * <p>흐름: 토큰 획득 → INBOX 폴더 보장 → deltaLink 있으면 해당 URL, 없으면 INITIAL_DELTA_URL →
    * {@code @odata.nextLink} 페이징 → 마지막 {@code @odata.deltaLink} 저장. 각 메시지는 {@code
-   * provider_message_id} 로 UPSERT, {@code @removed} 항목은 삭제.
+   * provider_message_id} 로 UPSERT, {@code @removed} 항목은 삭제. 기존 메시지는 seen 만 서버 isRead 로 맞춘다(WP-148).
    *
    * <p>Graph HTTP I/O 는 트랜잭션 밖, DB 쓰기는 메시지 단위 짧은 트랜잭션(RLS GUC 주입 보장 #232 패턴).
    *
    * @param userId 계정 소유자
    * @param accountId 메일 계정 id
    * @param account 계정 응답 DTO(provider=M365_GRAPH)
-   * @return 동기화 결과(fetched=처리 항목 수, saved=신규 삽입 수)
+   * @return 동기화 결과(fetched=처리 항목 수, saved=신규 삽입 수, seenChanged=기존 메일 읽음 상태 변경 수)
    * @throws MailSyncException 토큰 오류 · Graph API 오류 · 네트워크 오류 시
    */
   @Override
@@ -103,6 +103,7 @@ public class GraphMailFetcher implements MailFetcher {
 
     int fetched = 0;
     int saved = 0;
+    int seenChanged = 0; // WP-148: 서버 isRead 를 따라 seen 이 바뀐 기존 메일 수(새 메일 아님)
     String deltaLink = null;
 
     try {
@@ -120,15 +121,20 @@ public class GraphMailFetcher implements MailFetcher {
             continue;
           }
 
-          // 신규/변경 메시지 → ParsedMessage 매핑 후 UPSERT
+          // 신규/변경 메시지 → ParsedMessage 매핑 후 UPSERT. 기존 메시지는 seen 만 서버 isRead 로 갱신(WP-148).
           ParsedMessage parsed = GraphMessageMapper.toParsed(m);
           final String msgId = m.id();
-          boolean inserted =
-              Boolean.TRUE.equals(
-                  txTemplate.execute(
-                      s -> messageRepo.upsertByProviderId(accountId, folder.id(), parsed, msgId)));
-          if (inserted) {
+          // isRead 가 응답에 없으면 기존 행의 읽음 상태를 건드리지 않는다(누락을 안읽음으로 오인 방지).
+          final boolean syncSeen = m.isRead() != null;
+          EmailMessageRepository.UpsertOutcome outcome =
+              txTemplate.execute(
+                  s2 ->
+                      messageRepo.upsertByProviderId(
+                          accountId, folder.id(), parsed, msgId, syncSeen));
+          if (outcome == EmailMessageRepository.UpsertOutcome.INSERTED) {
             saved++;
+          } else if (outcome == EmailMessageRepository.UpsertOutcome.SEEN_CHANGED) {
+            seenChanged++;
           }
         }
 
@@ -147,8 +153,13 @@ public class GraphMailFetcher implements MailFetcher {
         txTemplate.executeWithoutResult(s -> folderRepo.setDeltaLink(folder.id(), dl));
       }
 
-      log.debug("M365 Graph 동기화 완료: accountId={} fetched={} saved={}", accountId, fetched, saved);
-      return new MailSyncResult(fetched, saved);
+      log.debug(
+          "M365 Graph 동기화 완료: accountId={} fetched={} saved={} seenChanged={}",
+          accountId,
+          fetched,
+          saved,
+          seenChanged);
+      return new MailSyncResult(fetched, saved, seenChanged);
 
     } catch (MailSyncException e) {
       throw e; // 이미 래핑된 오류는 그대로 전파

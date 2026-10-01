@@ -18,7 +18,11 @@ public record GraphMessage(
     List<Recipient> ccRecipients,
     String receivedDateTime,
     String sentDateTime,
-    boolean isRead,
+    /**
+     * 읽음 여부. delta 응답에 없으면 null — WP-148: 누락을 "안읽음"으로 오인해 로컬 읽음을 되돌리지 않도록 원시형 대신 Boolean. JSON 키를
+     * 명시해 is- 접두 레코드 컴포넌트 매핑을 Jackson 추론에 맡기지 않는다.
+     */
+    @JsonProperty("isRead") Boolean isRead,
     boolean hasAttachments,
     String internetMessageId,
     String conversationId,
