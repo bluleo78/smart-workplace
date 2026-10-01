@@ -35,6 +35,7 @@ const OUTCOME_BY_ROLE: Partial<Record<HomeMessage['role'], ActionOutcome>> = {
 /**
  * 영속 메시지 → 화면 턴. 스트리밍 결과·세션 복원이 같은 규칙을 쓴다.
  * #843: ACTION_* 는 사용자 말풍선이 아니라 확인카드 처리 결과 줄(role='action')로 복원한다.
+ * WP-158: 서버가 영속한 블록 순서가 있으면 라이브 done 과 같이 위젯 목록으로 재조정해 도착순 렌더를 재현한다.
  */
 function messageToTurn(m: HomeMessage): ChatTurn {
   const outcome = OUTCOME_BY_ROLE[m.role];
@@ -44,6 +45,7 @@ function messageToTurn(m: HomeMessage): ChatTurn {
     content: m.content,
     widgets: m.widgets ?? undefined,
     steps: m.toolCalls ?? undefined,
+    contentBlocks: m.contentBlocks ? reconcileBlocks(m.contentBlocks, m.widgets ?? []) : undefined,
   };
 }
 

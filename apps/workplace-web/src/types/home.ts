@@ -109,6 +109,8 @@ export interface HomeMessage {
   content: string;
   widgets: WidgetSpec[] | null;
   toolCalls: ToolStep[] | null;
+  /** WP-158: 표시 블록 순서(ASSISTANT 전용). 없으면(이전 메시지·순서 재현 불가) 폴백 렌더. */
+  contentBlocks?: ContentBlock[] | null;
   createdAt: string; // ISO 8601
 }
 

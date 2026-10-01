@@ -24,6 +24,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.AsyncTaskExecutor;
@@ -61,6 +63,9 @@ public class HomeChatService {
    * 결과 행이 폭증해도 맥락이 무한히 커지지 않게 전체 행 수를 제한한다.
    */
   private static final int CONTEXT_ROW_CAP = 20;
+
+  /** WP-158: 위젯 도구 이름 → 위젯 타입(show_issue_list → issue_list). 웹 widgetTypeFromToolName 과 같은 규칙. */
+  private static final Pattern SHOW_TOOL = Pattern.compile("show_([a-z_]+)$");
 
   private final HomeSessionService sessionService;
   private final HomeProposalService proposalService;
@@ -128,7 +133,7 @@ public class HomeChatService {
     AssistantSpec spec = assistantResolver.resolve(callerId);
 
     // 5) USER 메시지 영속 — 요청 스레드(요청 tx) 에서 즉시 저장(tool_calls 는 USER 메시지에 없음).
-    sessionService.appendMessage(callerId, sid, "USER", query, null, null);
+    sessionService.appendMessage(callerId, sid, "USER", query, null, null, null);
 
     // 6) 이전 턴의 미처리 확인카드 만료(#843) — 웹은 새 질문 시 카드를 비우므로, 복원 시 되살아나지 않게 서버도 맞춘다.
     // 새 세션이면 만료할 카드가 없다.
@@ -159,6 +164,8 @@ public class HomeChatService {
     // 위임 라벨 + 도구 호출을 도착 순서로 누적(done 시 home_message.tool_calls 로 영속).
     // CopyOnWriteArrayList: 펌프 스레드에서 쓰고 done 핸들러에서 읽는 구조에 안전.
     List<Map<String, Object>> steps = new CopyOnWriteArrayList<>();
+    // WP-158: 텍스트·도구 그룹·위젯의 도착 순서(done 시 home_message.content_blocks 로 영속 — 복원 시 같은 순서로 렌더).
+    ChatBlockRecorder blocks = new ChatBlockRecorder();
 
     return registry.start(
         callerId,
@@ -170,18 +177,21 @@ public class HomeChatService {
                 chatClient.composeStream(
                     req,
                     // delta: 즉시 fanOut(누적 버퍼는 더 이상 필요 없음 — done 은 ai-agent 가 준 fullText 사용).
-                    delta ->
-                        sseRegistry.fanOut(
-                            Set.of(callerId),
-                            "home.chat.delta",
-                            Map.of("correlationId", correlationId, "text", delta)),
+                    delta -> {
+                      blocks.onDelta(delta);
+                      sseRegistry.fanOut(
+                          Set.of(callerId),
+                          "home.chat.delta",
+                          Map.of("correlationId", correlationId, "text", delta));
+                    },
                     // done: ASSISTANT 영속 → home.chat.done fanOut.
                     (fullText, widgets) -> {
                       String wJson = serializeWidgets(widgets);
                       String toolCallsJson = serializeSteps(steps);
+                      String blocksJson = serializeBlocks(blocks.finish(fullText));
                       try {
                         sessionService.appendMessage(
-                            callerId, sid, "ASSISTANT", fullText, wJson, toolCallsJson);
+                            callerId, sid, "ASSISTANT", fullText, wJson, toolCallsJson, blocksJson);
                       } catch (Exception e) {
                         log.error("ASSISTANT 메시지 영속 실패: {}", e.getMessage(), e);
                       }
@@ -199,6 +209,7 @@ public class HomeChatService {
                             Map.of("correlationId", correlationId, "message", msg)),
                     // progress: 위임 라벨 누적 + fanOut.
                     label -> {
+                      blocks.onStep(steps.size());
                       steps.add(Map.of("kind", "delegation", "label", label));
                       sseRegistry.fanOut(
                           Set.of(callerId),
@@ -236,7 +247,11 @@ public class HomeChatService {
                                 "args", objectMapper.convertValue(toolNode.get("args"), Map.class));
                           }
                           step.put("status", "running");
+                          blocks.onStep(steps.size());
                           steps.add(step);
+                        } else {
+                          Map<String, Object> widget = widgetOf(toolName, toolNode.path("args"));
+                          if (widget != null) blocks.onWidget(widget);
                         }
                       } else {
                         boolean isError = toolNode.path("isError").asBoolean(false);
@@ -326,6 +341,37 @@ public class HomeChatService {
       return objectMapper.writeValueAsString(widgets);
     } catch (JsonProcessingException e) {
       // 위젯 직렬화 실패는 응답 자체를 막을 만큼 치명적이지 않음 — 위젯 없이 메시지만 보존.
+      return null;
+    }
+  }
+
+  /**
+   * WP-158: show_* 도구 시작 이벤트 → 웹 WidgetSpec 과 같은 {type, params, layout?}. show_* 가 아니면 null.
+   *
+   * <p>웹 useChatSession 이 라이브 위젯 블록을 만드는 규칙과 같다 — 복원 시 reconcileBlocks 가 done 위젯 목록과 (type+params)
+   * 로 대조하므로 형태가 일치해야 한다.
+   */
+  private Map<String, Object> widgetOf(String toolName, JsonNode args) {
+    Matcher m = SHOW_TOOL.matcher(toolName.replaceAll("^mcp__[^_]+__(.+)$", "$1"));
+    if (!m.find()) return null;
+    Map<String, Object> w = new LinkedHashMap<>();
+    w.put("type", m.group(1));
+    JsonNode params = args.path("params");
+    w.put("params", params.isObject() ? objectMapper.convertValue(params, Map.class) : Map.of());
+    if (args.path("layout").isObject()) {
+      w.put("layout", objectMapper.convertValue(args.get("layout"), Map.class));
+    }
+    return w;
+  }
+
+  /** WP-158: 블록 목록 → 영속용 JSON 문자열. null 이면 null(웹 폴백 렌더). */
+  private String serializeBlocks(List<Map<String, Object>> list) {
+    if (list == null) return null;
+    try {
+      return objectMapper.writeValueAsString(list);
+    } catch (Exception e) {
+      // 직렬화 실패는 치명적이지 않음 — 블록 순서 없이(폴백 렌더) 메시지만 보존.
+      log.warn("content_blocks 직렬화 실패 — null 로 저장: {}", e.getMessage());
       return null;
     }
   }

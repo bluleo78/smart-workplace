@@ -134,6 +134,20 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
         return (JSONB) get(7);
     }
 
+    /**
+     * Setter for <code>public.home_message.content_blocks</code>.
+     */
+    public void setContentBlocks(JSONB value) {
+        set(8, value);
+    }
+
+    /**
+     * Getter for <code>public.home_message.content_blocks</code>.
+     */
+    public JSONB getContentBlocks() {
+        return (JSONB) get(8);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -157,7 +171,7 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
     /**
      * Create a detached, initialised HomeMessageRecord
      */
-    public HomeMessageRecord(Long id, UUID sessionId, String role, String content, JSONB widgets, OffsetDateTime createdAt, Long tenantId, JSONB toolCalls) {
+    public HomeMessageRecord(Long id, UUID sessionId, String role, String content, JSONB widgets, OffsetDateTime createdAt, Long tenantId, JSONB toolCalls, JSONB contentBlocks) {
         super(HomeMessage.HOME_MESSAGE);
 
         setId(id);
@@ -168,6 +182,7 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
         setCreatedAt(createdAt);
         setTenantId(tenantId);
         setToolCalls(toolCalls);
+        setContentBlocks(contentBlocks);
         resetChangedOnNotNull();
     }
 }

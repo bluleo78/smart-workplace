@@ -38,13 +38,14 @@ class HomeSessionServiceTest extends IntegrationTestBase {
     long u = user("u" + System.nanoTime());
     HomeSessionResponse s = sessionService.create(u);
 
-    sessionService.appendMessage(u, s.id(), "USER", "막힌 내 이슈 보여줘", null, null);
+    sessionService.appendMessage(u, s.id(), "USER", "막힌 내 이슈 보여줘", null, null, null);
     sessionService.appendMessage(
         u,
         s.id(),
         "ASSISTANT",
         "차단된 이슈 2건이에요",
         "[{\"type\":\"issue_list\",\"params\":{\"blocked\":true}}]",
+        null,
         null);
 
     List<HomeSessionSummary> list = sessionService.list(u, null, 30).items();

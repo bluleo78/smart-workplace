@@ -59,7 +59,7 @@ Smart Workplace 의 **모듈러 모놀리스 백엔드**. identity(인증·권�
 - Repository 는 `DSLContext` 로 type-safe SQL 작성
 - 코드젠 결과: `src/main/generated/` (public 스키마)
 - 빌드와 codegen 은 분리(`generateSchemaSourceOnCompilation = false`) — 스키마 변경 후 명시적으로 `./gradlew generateJooq`
-- Flyway 마이그레이션: `src/main/resources/db/migration/V{n}__*.sql` (현재 V141 까지)
+- Flyway 마이그레이션: `src/main/resources/db/migration/V{n}__*.sql` (현재 V142 까지)
 - pgvector(V110, `vector` 타입) 사용 — 코드젠/테스트 이미지는 반드시 `pgvector/pgvector:pg18` 이어야 함
 
 ### Auth & Permission

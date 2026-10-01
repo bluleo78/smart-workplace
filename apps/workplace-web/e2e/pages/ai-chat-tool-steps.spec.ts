@@ -249,3 +249,54 @@ test('세션 복원 시 toolCalls 가 ToolStepList(위임+도구 행) 로 렌더
   // 텍스트 응답도 렌더된다.
   await expect(chatPanel).toContainText('상태를 완료로 변경했어요.')
 })
+
+// ── 케이스 4b: 복원 — contentBlocks 가 있으면 도착순 풍선을 재현 (WP-158) ──────
+
+test('세션 복원 시 contentBlocks 로 도구·텍스트 풍선을 스트리밍 때와 같은 순서로 재현한다 (WP-158)', async ({
+  authenticatedPage: page,
+}) => {
+  const sessions: HomeSessionPage = {
+    items: [{ id: 's-restore-order', title: '순서 복원', lastMessageAt: '2026-06-22T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  }
+  await mockApi(page, 'GET', '/api/v1/home/sessions', sessions)
+
+  const messages: HomeMessage[] = [
+    { id: 1, role: 'USER', content: 'EX-1 확인하고 진행중으로', widgets: null, toolCalls: null, createdAt: '2026-06-22T00:00:00Z' },
+    {
+      id: 2,
+      role: 'ASSISTANT',
+      content: 'EX-1 을 확인했어요. 진행중으로 변경했어요.',
+      widgets: null,
+      toolCalls: [
+        { kind: 'tool', seq: 1, toolName: 'get_issue_detail', args: { issueKey: 'EX-1' }, status: 'done' },
+        { kind: 'tool', seq: 2, toolName: 'update_status', args: { issueKey: 'EX-1', status: '진행중' }, status: 'done' },
+      ],
+      // 서버가 영속한 블록 순서 — 도구A → 텍스트1 → 도구B → 텍스트2 (textStart 14 = 'EX-1 을 확인했어요. ' 길이)
+      contentBlocks: [
+        { kind: 'tools', stepStart: 0 },
+        { kind: 'text', textStart: 0 },
+        { kind: 'tools', stepStart: 1 },
+        { kind: 'text', textStart: 14 },
+      ],
+      createdAt: '2026-06-22T00:00:01Z',
+    },
+  ]
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-restore-order/messages', messages)
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-launcher').click()
+  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await page.getByTestId('ai-fs-sessions').getByTestId('chat-session-select').first().click()
+
+  const bubbles = page
+    .getByTestId('chat-panel')
+    .locator('[data-testid="chat-block-tools"], [data-testid="chat-block"]')
+  await expect(bubbles).toHaveCount(4)
+  await expect(bubbles.nth(0)).toContainText('이슈 상세 조회')
+  await expect(bubbles.nth(0)).not.toContainText('상태 변경')
+  await expect(bubbles.nth(1)).toHaveText('EX-1 을 확인했어요.')
+  await expect(bubbles.nth(2)).toContainText('상태 변경')
+  await expect(bubbles.nth(3)).toHaveText('진행중으로 변경했어요.')
+})

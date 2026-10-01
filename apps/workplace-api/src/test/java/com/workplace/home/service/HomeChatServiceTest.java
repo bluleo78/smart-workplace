@@ -276,19 +276,157 @@ class HomeChatServiceTest extends IntegrationTestBase {
     assertThat(assistant.toolCalls()).isNull();
   }
 
+  // ── WP-158: 표시 블록 순서(content_blocks) 영속 ───────────────────────────────
+
+  /** 스트림 시나리오 — composeStream 콜백(delta/progress/tool)을 받아 이벤트를 흘린 뒤 최종 fullText 를 돌려준다. */
+  @FunctionalInterface
+  private interface StreamScript {
+    String run(
+        java.util.function.Consumer<String> delta,
+        java.util.function.Consumer<String> progress,
+        ToolEmitter tool)
+        throws Exception;
+  }
+
+  /** 도구 이벤트 발행 헬퍼 — phase/seq/toolName(+args JSON) 으로 tool 노드를 만든다. */
+  @FunctionalInterface
+  private interface ToolEmitter {
+    void emit(String phase, int seq, String toolName, String argsJson) throws Exception;
+  }
+
+  /** 시나리오를 돌려 영속된 ASSISTANT 메시지를 돌려준다. */
+  private HomeMessageResponse assistantAfter(StreamScript script) throws Exception {
+    long uid = user("blocks" + System.nanoTime());
+    stubAssistant();
+    CountDownLatch doneLatch = new CountDownLatch(1);
+    doAnswer(
+            inv -> {
+              java.util.function.Consumer<String> onDelta = inv.getArgument(1);
+              java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              java.util.function.Consumer<String> onProgress = inv.getArgument(4);
+              java.util.function.Consumer<JsonNode> onTool = inv.getArgument(6);
+              ToolEmitter tool =
+                  (phase, seq, name, args) ->
+                      onTool.accept(
+                          objectMapper.readTree(
+                              "{\"phase\":\""
+                                  + phase
+                                  + "\",\"seq\":"
+                                  + seq
+                                  + ",\"toolName\":\""
+                                  + name
+                                  + "\""
+                                  + (args == null ? "" : ",\"args\":" + args)
+                                  + "}"));
+              onDone.accept(script.run(onDelta, onProgress, tool), null);
+              doneLatch.countDown();
+              return null;
+            })
+        .when(chatClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+    composeService.startChat(uid, null, "질문");
+    assertThat(doneLatch.await(5, TimeUnit.SECONDS)).isTrue();
+    UUID sid = sessionService.list(uid, null, 10).items().get(0).id();
+    return sessionService.getMessages(uid, sid).get(1);
+  }
+
+  @Test
+  void 도구와_텍스트가_번갈아_오면_도착순_블록으로_영속() throws Exception {
+    HomeMessageResponse a =
+        assistantAfter(
+            (delta, progress, tool) -> {
+              tool.emit("start", 1, "get_issue_detail", "{\"issueKey\":\"EX-1\"}");
+              tool.emit("result", 1, "get_issue_detail", null);
+              delta.accept("확인했어요. ");
+              delta.accept("바꿀게요.");
+              tool.emit("start", 2, "update_status", "{\"issueKey\":\"EX-1\"}");
+              tool.emit("start", 3, "respond_chat", "{}"); // 숨김 도구 — 블록을 만들지 않는다
+              tool.emit("result", 2, "update_status", null);
+              delta.accept("변경했어요.");
+              return "확인했어요. 바꿀게요.변경했어요.";
+            });
+
+    assertThat(a.contentBlocks())
+        .isEqualTo(
+            objectMapper.readTree(
+                "[{\"kind\":\"tools\",\"stepStart\":0},{\"kind\":\"text\",\"textStart\":0},"
+                    + "{\"kind\":\"tools\",\"stepStart\":1},{\"kind\":\"text\",\"textStart\":12}]"));
+    assertThat(a.toolCalls()).hasSize(2);
+  }
+
+  @Test
+  void show_도구는_위젯_블록으로_영속() throws Exception {
+    HomeMessageResponse a =
+        assistantAfter(
+            (delta, progress, tool) -> {
+              delta.accept("목록이에요");
+              tool.emit(
+                  "start",
+                  1,
+                  "mcp__workplace__show_issue_list",
+                  "{\"params\":{\"assignee\":\"me\"},\"layout\":{\"w\":2}}");
+              return "목록이에요";
+            });
+
+    assertThat(a.contentBlocks())
+        .isEqualTo(
+            objectMapper.readTree(
+                "[{\"kind\":\"text\",\"textStart\":0},{\"kind\":\"widget\",\"widget\":"
+                    + "{\"type\":\"issue_list\",\"params\":{\"assignee\":\"me\"},\"layout\":{\"w\":2}}}]"));
+  }
+
+  /**
+   * 위임 답은 라우터 안내 문장 뒤에 delta 로 오지만 본문에는 위임 답만 저장된다 — 안내 문장 길이만큼 오프셋을 당기고, 안내 문장에만 해당하던 text 블록은
+   * 버리며, 그 결과 붙은 tools 그룹은 하나로 합친다.
+   */
+  @Test
+  void 위임_답이면_라우터_안내문장을_빼고_본문_기준으로_블록을_보정() throws Exception {
+    HomeMessageResponse a =
+        assistantAfter(
+            (delta, progress, tool) -> {
+              progress.accept("이슈 전문가에게 위임 중");
+              delta.accept("확인해 볼게요. ");
+              tool.emit("start", 1, "update_status", "{\"issueKey\":\"EX-2\"}");
+              delta.accept("상태를 바꿨어요.");
+              return "상태를 바꿨어요.";
+            });
+
+    assertThat(a.content()).isEqualTo("상태를 바꿨어요.");
+    assertThat(a.contentBlocks())
+        .isEqualTo(
+            objectMapper.readTree(
+                "[{\"kind\":\"tools\",\"stepStart\":0},{\"kind\":\"text\",\"textStart\":0}]"));
+    assertThat(a.toolCalls()).hasSize(2);
+  }
+
+  @Test
+  void 본문이_스트리밍_텍스트와_어긋나면_블록은_null_로_영속() throws Exception {
+    HomeMessageResponse a =
+        assistantAfter(
+            (delta, progress, tool) -> {
+              tool.emit("start", 1, "update_status", "{}");
+              delta.accept("스트리밍 텍스트");
+              return "전혀 다른 본문";
+            });
+
+    assertThat(a.contentBlocks()).isNull();
+    assertThat(a.toolCalls()).hasSize(1);
+  }
+
   /** 기존 세션의 최근 메시지를 recentContext 로 전달하는지 검증. */
   @Test
   void 기존_세션의_최근메시지를_recentContext_로_전달_현재query_제외() throws Exception {
     long uid = user("ctx" + System.nanoTime());
     var s = sessionService.create(uid);
     // 사전 대화 1턴 적재.
-    sessionService.appendMessage(uid, s.id(), "USER", "내 담당 보여줘", null, null);
+    sessionService.appendMessage(uid, s.id(), "USER", "내 담당 보여줘", null, null, null);
     sessionService.appendMessage(
         uid,
         s.id(),
         "ASSISTANT",
         "내 담당이에요",
         "[{\"type\":\"issue_list\",\"params\":{\"assignee\":\"me\"}}]",
+        null,
         null);
     stubAssistant();
 
@@ -323,8 +461,8 @@ class HomeChatServiceTest extends IntegrationTestBase {
     long uid = user("ctxa" + System.nanoTime());
     var s = sessionService.create(uid);
     for (int i = 1; i <= 4; i++) {
-      sessionService.appendMessage(uid, s.id(), "USER", "질문" + i, null, null);
-      sessionService.appendMessage(uid, s.id(), "ASSISTANT", "답" + i, null, null);
+      sessionService.appendMessage(uid, s.id(), "USER", "질문" + i, null, null, null);
+      sessionService.appendMessage(uid, s.id(), "ASSISTANT", "답" + i, null, null, null);
     }
     for (int i = 1; i <= 3; i++) {
       sessionService.appendActionResult(uid, s.id(), "ACTION_DONE", "승인 완료: 카드" + i);
