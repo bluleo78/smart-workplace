@@ -7,6 +7,8 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 
 import com.workplace.global.tenant.TenantContext;
 import java.util.UUID;
+import java.util.function.Consumer;
+import org.assertj.core.api.SoftAssertions;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -195,5 +197,22 @@ public abstract class IntegrationTestBase {
         .onConflictDoNothing()
         .execute();
     return userId;
+  }
+
+  /** 테넌트#1 롤백 트랜잭션 안에서 시나리오를 실행하고 soft 단언을 모아 검증한다(시드가 다른 테스트에 남지 않는다). */
+  protected void inRollbackTx(Consumer<SoftAssertions> scenario) {
+    TenantContext.set(1L);
+    try {
+      new TransactionTemplate(txManager)
+          .executeWithoutResult(
+              status -> {
+                SoftAssertions soft = new SoftAssertions();
+                scenario.accept(soft);
+                status.setRollbackOnly();
+                soft.assertAll();
+              });
+    } finally {
+      TenantContext.clear();
+    }
   }
 }
