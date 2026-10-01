@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { HardDrive, MoreHorizontal, Paperclip, Plus } from 'lucide-react'
+import { HardDrive, MoreHorizontal, Paperclip, Plus, User, Users } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
@@ -65,6 +65,12 @@ const USAGE_BAR_CLASS: Record<DriveUsageLevel, string> = {
 
 // WP-63: 공간 목록 미로드 시 빈 배열 — 매 렌더 새 배열을 만들지 않도록 모듈 상수로 둔다.
 const EMPTY_SPACES: DriveSpace[] = []
+
+/** 공간 행 아이콘 — 개인은 User, 팀은 Users(WP-143). */
+function SpaceTypeIcon({ personal }: { personal: boolean }) {
+  const Icon = personal ? User : Users
+  return <Icon className="h-4 w-4 shrink-0" data-testid="drive-space-icon" aria-hidden />
+}
 
 /** 좌측 2차 사이드바 — 내 드라이브 + 팀 공간 목록, 팀 공간 생성. */
 export function DriveSidebar() {
@@ -184,7 +190,9 @@ export function DriveSidebar() {
                 to={`/drive/spaces/${s.id}`}
                 className={({ isActive }) => sidebarLinkClass({ isActive }) + ' flex-1 pr-7'}
               >
-                {s.type === 'PERSONAL' ? '내 드라이브' : s.name}
+                {/* 공간 종류 아이콘(WP-143) — 개인은 User, 팀은 Users. 첨부 모아보기(Paperclip)와 함께 모든 행이 아이콘을 갖도록 통일 */}
+                <SpaceTypeIcon personal={s.type === 'PERSONAL'} />
+                <span className="min-w-0 break-words">{s.type === 'PERSONAL' ? '내 드라이브' : s.name}</span>
               </NavLink>
               {/* TEAM 공간 + OWNER 만 이름 변경/삭제 메뉴 노출(개인·채널 공간 제외) */}
               {s.type === 'TEAM' && s.role === 'OWNER' && (

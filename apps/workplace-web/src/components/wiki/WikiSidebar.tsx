@@ -16,7 +16,6 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import axios from 'axios'
 import { BookOpen } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -31,19 +30,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { extractApiError, handleApiError } from '@/lib/api-error'
+import { useIsMobile } from '@/hooks/useIsMobile'
 
 import {
   useCreatePage,
-  useCreateSpace,
   useDeletePage,
   useMovePage,
 } from '../../hooks/queries/useWikiMutations'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import type { WikiPageSummary } from '../../types/wiki'
-import { WikiCreateSpaceDialog } from './WikiCreateSpaceDialog'
+import { useWikiCreateSpaceDialog } from './useWikiCreateSpaceDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
+import { WikiNoSpaces } from './WikiNoSpaces'
 import { WikiSpaceMemberDialog } from './WikiSpaceMemberDialog'
 import { WikiTreeRow } from './WikiTreeRow'
 
@@ -180,30 +179,9 @@ export function WikiSidebar() {
   const movePage = useMovePage(spaceId ?? 0)
   // 멤버 관리 다이얼로그 열림 상태 — TEAM 스페이스에서만 노출.
   const [membersOpen, setMembersOpen] = useState(false)
-  // 스페이스 생성 다이얼로그 열림 상태 + 생성 mutation.
-  const [createOpen, setCreateOpen] = useState(false)
-  // 이름 중복(409) 인라인 에러 — 컨테이너류 이름 하드 차단 정책(#688/#696/#803).
-  const [createError, setCreateError] = useState<string | null>(null)
-  const createSpace = useCreateSpace()
-
-  // 새 스페이스 생성 → 목록 무효화(훅) 후 새 스페이스로 이동. 이름 중복(409)은 다이얼로그에
-  // 인라인 에러로도 노출(토스트만으로는 어느 필드가 문제인지 불명확) — 다른 실패는 토스트만.
-  const handleCreateSpace = (name: string) => {
-    setCreateError(null)
-    createSpace.mutate(name, {
-      onSuccess: (space) => {
-        setCreateOpen(false)
-        navigate(`/wiki/spaces/${space.id}`)
-      },
-      onError: (e) => {
-        const message = extractApiError(e, '')
-        if (axios.isAxiosError(e) && e.response?.status === 409 && message.startsWith('이미 존재하는 스페이스 이름입니다')) {
-          setCreateError(message)
-        }
-        handleApiError(e, '스페이스 생성에 실패했습니다.')
-      },
-    })
-  }
+  // 스페이스 생성 다이얼로그(선택 상자 "＋ 새 스페이스"·공간 0개 빈 상태의 [공간 만들기]가 함께 연다).
+  const { openCreateSpace, dialog: createSpaceDialog } = useWikiCreateSpaceDialog()
+  const isMobile = useIsMobile()
   // 접힌 노드 id 집합 — 영속화하지 않음(새로고침 시 전부 펼침).
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   // 삭제 확인 대상 pageId(없으면 닫힘).
@@ -340,6 +318,22 @@ export function WikiSidebar() {
     movePage.mutate({ pageId: aId, parentId, position })
   }
 
+  // 공간 0개(WP-143) — 선택 상자·페이지 트리 대신 빈 상태. 모바일은 이 목록이 화면 전체라 여기 그리고,
+  // 데스크톱은 본문(/wiki, WikiIndexRedirect)이 같은 빈 상태를 그리므로 사이드바는 타이틀만 남긴다.
+  if (spaces?.length === 0) {
+    return (
+      <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
+        {/* 앱 타이틀 헤더 — 레일과 동일한 아이콘 + 이름으로 "노트" 앱임을 명시(다른 앱과 한 선 정렬) */}
+        <div className={sidebarTitleClass}>
+          <BookOpen className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
+          노트
+        </div>
+        {isMobile && <WikiNoSpaces className="flex-1" onCreate={openCreateSpace} />}
+        {createSpaceDialog}
+      </aside>
+    )
+  }
+
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
       {/* 앱 타이틀 헤더 — 레일과 동일한 아이콘 + 이름으로 "노트" 앱임을 명시(다른 앱과 한 선 정렬) */}
@@ -354,7 +348,7 @@ export function WikiSidebar() {
           onValueChange={(v) => {
             // 생성 항목은 이동 대신 다이얼로그를 연다.
             if (v === CREATE_SENTINEL) {
-              setCreateOpen(true)
+              openCreateSpace()
               return
             }
             navigate(`/wiki/spaces/${v}`)
@@ -442,16 +436,7 @@ export function WikiSidebar() {
           onOpenChange={setMembersOpen}
         />
       )}
-      <WikiCreateSpaceDialog
-        open={createOpen}
-        onOpenChange={(open) => {
-          setCreateOpen(open)
-          if (!open) setCreateError(null)
-        }}
-        onCreate={handleCreateSpace}
-        pending={createSpace.isPending}
-        error={createError}
-      />
+      {createSpaceDialog}
       {/* 페이지 삭제 확인(사이드바 행 ⋯). hasChildren 은 flatItems 에서 파생. */}
       <WikiDeletePageDialog
         open={deleteTarget != null}
