@@ -99,6 +99,36 @@ class MailAnalysisAfterLoadTest extends IntegrationTestBase {
     verify(mailClient).analyzePersonal(any());
   }
 
+  /** 읽은 INBOX 메일 + 계정 AI 꺼짐 → ③ 도 하지 않는다(WP-149 이전 분류 범위와 동일 — 비용 방지). */
+  @Test
+  void readInbox_aiDisabled_runsNothing() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, false);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    MailAnalysisFixtures.markSeen(dsl, env);
+
+    analysis.analyzeAfterLoad(box.userId(), env);
+
+    verify(mailClient, never()).analyzeContent(any());
+    verify(mailClient, never()).analyzePersonal(any());
+  }
+
+  /** 안 읽은 INBOX 메일 + 계정 AI 꺼짐 → ③ 은 공통 비서 조건대로 실행, ④ 는 AI 꺼짐이라 미실행. */
+  @Test
+  void unreadInbox_aiDisabled_runsContentOnly() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, false);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", "• 요약"));
+
+    analysis.analyzeAfterLoad(box.userId(), env);
+
+    verify(mailClient).analyzeContent(any());
+    verify(mailClient, never()).analyzePersonal(any());
+  }
+
   @Test
   void nonInboxFolder_skipsBackgroundAnalysis() {
     Box box = MailAnalysisFixtures.mailbox(dsl, true);

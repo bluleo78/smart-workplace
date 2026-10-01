@@ -144,9 +144,19 @@ public class MailAnalysisService {
       analyzeContent(userId, messageId);
       return true;
     }
-    singleFlight.run(
-        contentKey(ctx.contentId()), () -> runForcedContentSummary(userId, messageId, spec));
+    runForced(contentKey(ctx.contentId()), () -> runForcedContentSummary(userId, messageId, spec));
     return true;
+  }
+
+  /**
+   * 강제 생성용 단일 실행. 같은 키의 다른 실행(요약 GET 의 생략 처리 등)이 진행 중이면 {@code run} 은 기다리기만 하고 false 를 돌려주는데, 그대로
+   * 끝내면 강제 요청이 아무 일도 하지 않아 요약 없이 EMPTY 가 된다. 그래서 한 번 더 시도한다 — 작업은 컨텍스트를 다시 읽어 요약이 이미 있으면 아무것도 하지
+   * 않으므로 중복 LLM 호출은 없다. 두 번째도 기다리기만 했다면 그대로 끝낸다.
+   */
+  private void runForced(String key, Runnable work) {
+    if (!singleFlight.run(key, work)) {
+      singleFlight.run(key, work);
+    }
   }
 
   private void runForcedContentSummary(long userId, long messageId, AssistantSpec spec) {
@@ -179,9 +189,11 @@ public class MailAnalysisService {
   }
 
   /**
-   * WP-149 "본문 적재 직후" 분석(백그라운드 본문 보충이 커밋 후 호출). ③ 은 받은편지함 전체(읽은 메일 포함 — 사이드바 분류 필터가 비지 않게), ④ 는 안
-   * 읽은 받은편지함 메일만(판단 13 — 회신필요는 안 읽은 메일에만 의미가 있고 LLM 비용을 제한한다). 비-INBOX 는 열람 시 요약 GET 이 온디맨드로 만든다. ③
-   * 을 먼저 해 분류가 있으면 ④ 가 알림성 메일의 개인 요약을 생략할 수 있다. 각 단계 실패는 경고 로그로 삼키고 다음 단계를 진행한다(다음 백필이 재시도).
+   * WP-149 "본문 적재 직후" 분석(백그라운드 본문 보충이 커밋 후 호출, 호출부가 최근 20건으로 제한). 안 읽은 INBOX 메일: ③ 은 공통 비서 조건
+   * 그대로(계정 AI 설정과 무관), ④ 는 계정 AI 사용 시(판단 13 — 회신필요는 안 읽은 메일에만 의미가 있다). 읽은 INBOX 메일: ③ 만, 그것도 계정
+   * ai_enabled 일 때만 — WP-149 이전의 분류 범위와 같게 두어 AI 를 끈 계정의 읽은 메일에 LLM 비용을 쓰지 않는다. 비-INBOX 는 열람 시 요약
+   * GET 이 온디맨드로 만든다. ③ 을 먼저 해 분류가 있으면 ④ 가 알림성 메일의 개인 요약을 생략할 수 있다. 각 단계 실패는 경고 로그로 삼키고 다음 단계를
+   * 진행한다(다음 백필이 재시도).
    */
   public void analyzeAfterLoad(long userId, long messageId) {
     boolean unread;
@@ -192,6 +204,9 @@ public class MailAnalysisService {
         return;
       }
       unread = !ctx.seen();
+      if (!unread && !ctx.aiEnabled()) {
+        return; // 읽은 메일은 AI 켠 계정만 — 꺼진 계정의 읽은 메일 비용 방지(열람 시 요약 GET 이 온디맨드로 처리)
+      }
     } catch (RuntimeException e) {
       log.warn("적재 후 분석 대상 조회 실패 (messageId={}): {}", messageId, e.toString());
       return;
@@ -305,8 +320,12 @@ public class MailAnalysisService {
       analyzePersonal(userId, messageId);
       return true;
     }
-    singleFlight.run(
-        personalKey(messageId), () -> runPersonalSummaryOnly(userId, messageId, spec, force));
+    Runnable work = () -> runPersonalSummaryOnly(userId, messageId, spec, force);
+    if (force) {
+      runForced(personalKey(messageId), work);
+    } else {
+      singleFlight.run(personalKey(messageId), work);
+    }
     return true;
   }
 

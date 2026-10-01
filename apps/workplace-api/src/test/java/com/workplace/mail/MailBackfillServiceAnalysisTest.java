@@ -73,4 +73,33 @@ class MailBackfillServiceAnalysisTest {
     verify(progress, times(1)).finish(9L);
     verify(analysis).analyzeAfterLoad(7L, 2L);
   }
+
+  /** 적재가 21건이어도 적재 후 분석은 최근 수신 순 상위 20건만(공유 executor 점유 제한). */
+  @Test
+  void backfillNow_analyzesOnlyTop20Loaded() {
+    EmailMessageRepository repo = mock(EmailMessageRepository.class);
+    MailBodyFetcher fetcher = mock(MailBodyFetcher.class);
+    MailSyncProgress progress = mock(MailSyncProgress.class);
+    MailAnalysisService analysis = mock(MailAnalysisService.class);
+    PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
+    when(tx.getTransaction(any(TransactionDefinition.class)))
+        .thenReturn(new SimpleTransactionStatus());
+    // listMissingBody 는 최근 수신 순 — id 1 이 가장 최신
+    List<BodyTarget> targets = new java.util.ArrayList<>();
+    for (long i = 1; i <= 21; i++) {
+      BodyTarget t = new BodyTarget(i, 9L, 100L + i, "INBOX", null, null, 200L + i);
+      targets.add(t);
+      when(fetcher.fetchBody(7L, t)).thenReturn(true);
+    }
+    when(repo.listMissingBody(9L, MailBackfillService.BATCH_LIMIT)).thenReturn(targets);
+
+    new MailBackfillService(repo, fetcher, progress, analysis, tx).backfillNow(7L, 9L);
+
+    verify(analysis, times(MailBackfillService.ANALYZE_AFTER_LOAD_LIMIT))
+        .analyzeAfterLoad(
+            org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.anyLong());
+    verify(analysis).analyzeAfterLoad(7L, 1L);
+    verify(analysis).analyzeAfterLoad(7L, 20L);
+    verify(analysis, never()).analyzeAfterLoad(7L, 21L);
+  }
 }

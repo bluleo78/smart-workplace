@@ -20,8 +20,11 @@ import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
+import com.workplace.mail.util.SingleFlight;
 import com.workplace.support.IntegrationTestBase;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.jooq.DSLContext;
 import org.jooq.Record4;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +33,8 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 /** WP-149 ③ 원본 분석 통합 테스트 — 원본 1회, 요약 생략 조건, 실패 시 미기록, 늦게 온 분류로 ⑤ 재계산. */
@@ -233,5 +238,54 @@ class MailContentAnalysisTest extends IntegrationTestBase {
     analysis.analyzeContent(a.userId(), env);
 
     verify(mailClient, times(1)).analyzeContent(any());
+  }
+
+  /**
+   * 같은 원본의 다른 실행(요약 GET 생략 처리 등)이 진행 중일 때 강제 요약은 기다린 뒤 자기 작업을 실행해야 한다 — 기다리기만 하고 끝나면 요약이 없는 채 EMPTY
+   * 로 버튼이 사라진다.
+   */
+  @Test
+  void forcedSummary_overlappingInFlight_waitsThenRunsOwnWork() throws Exception {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env = MailAnalysisFixtures.envelope(dsl, a, content, "boss@corp.com", a.address(), null);
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", "• 강제 요약"));
+    SingleFlight sf =
+        (SingleFlight)
+            ReflectionTestUtils.getField(
+                AopTestUtils.<Object>getTargetObject(analysis), "singleFlight");
+    CountDownLatch started = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    Thread other =
+        new Thread(
+            () ->
+                sf.run(
+                    MailAnalysisService.contentKey(content),
+                    () -> {
+                      started.countDown();
+                      try {
+                        release.await(5, TimeUnit.SECONDS);
+                      } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                      }
+                    }));
+    other.start();
+    assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+    new Thread(
+            () -> {
+              try {
+                Thread.sleep(300);
+              } catch (InterruptedException ignored) {
+              }
+              release.countDown();
+            })
+        .start();
+
+    boolean attempted = analysis.generateContentSummary(a.userId(), env, true);
+
+    other.join(5000);
+    assertThat(attempted).isTrue();
+    verify(mailClient, times(1)).analyzeContent(any());
+    assertThat(contentRow(content).value2()).isEqualTo("• 강제 요약");
   }
 }
