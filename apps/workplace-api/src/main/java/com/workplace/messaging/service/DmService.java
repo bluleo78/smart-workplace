@@ -27,14 +27,17 @@ public class DmService {
   private final UserRepository userRepo;
   private final MembershipRepository membershipRepo;
   private final ChannelChangeNotifier changeNotifier;
+  private final LastMessageLookup lastMessageLookup;
 
   /** create 결과 — 신규(201)/기존(200) 구분용. */
   public record DmResult(DmResponse dm, boolean created) {}
 
-  /** 내 DM 목록(최근순). RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  /** 내 DM 목록(최근순) + 모바일 목록 미리보기용 lastMessage(WP-135). RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
   @Transactional(readOnly = true)
   public List<DmResponse> listMyDms(long callerId) {
-    return channelRepo.findMyDms(callerId);
+    List<DmResponse> dms = channelRepo.findMyDms(callerId);
+    var last = lastMessageLookup.findByChannelIds(dms.stream().map(DmResponse::id).toList());
+    return dms.stream().map(d -> d.withLastMessage(last.get(d.id()))).toList();
   }
 
   /** caller + targets 멤버셋의 DM 을 찾거나 생성한다. 멤버셋 dedup(정렬 member_key). 1:1 은 타겟 1명 그룹 DM 의 특수 케이스. */
