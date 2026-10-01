@@ -59,6 +59,8 @@ function SheetContent({
       <SheetOverlay />
       <SheetPrimitive.Content
         data-slot="sheet-content"
+        // 방향을 속성으로 공개 — index.css 의 키보드 대응 규칙이 레이아웃 클래스명 대신 이것으로 시트 방향을 가린다(WP-154).
+        data-side={side}
         // 비밀번호 관리자(1Password 등) 자동완성 메뉴 클릭으로 시트가 닫히지 않도록 확장 UI 상호작용은 제외한다.
         onInteractOutside={(event) => {
           onInteractOutside?.(event)

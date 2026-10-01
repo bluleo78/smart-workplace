@@ -112,7 +112,8 @@ export function MailComposeDock() {
       // 헤더 텍스트를 프로그램적 이름으로 연결 (#802).
       aria-labelledby="mail-compose-dock-title"
       // 모바일 셸이 공개하는 --mobile-tabbar-h(탭바 표시 중일 때만 실높이, 숨김/데스크톱은 미설정=0)만큼 띄워 탭바를 가리지 않는다.
-      className="fixed bottom-[var(--mobile-tabbar-h,0px)] right-4 z-50 flex w-[32rem] max-w-[calc(100vw-2rem)] flex-col rounded-t-lg border border-b-0 bg-background shadow-2xl"
+      // 가상 키보드가 열리면 --kb-inset(키보드에 가려진 높이, 닫히면 미설정=0)만큼 더 띄워 키보드 위에 둔다(WP-154).
+      className="fixed bottom-[calc(var(--mobile-tabbar-h,0px)+var(--kb-inset,0px))] right-4 z-50 flex w-[32rem] max-w-[calc(100vw-2rem)] flex-col rounded-t-lg border border-b-0 bg-background shadow-2xl"
     >
       {/* 헤더 */}
       <div className="flex items-center justify-between rounded-t-lg bg-muted px-3 py-2">
@@ -141,8 +142,9 @@ export function MailComposeDock() {
         </div>
       </div>
 
+      {/* 본문 높이: 키보드가 열리면 보이는 높이(--vvh)에서 탭바·헤더를 뺀 만큼으로 제한해 도크 상단이 화면 밖으로 나가지 않게 한다. */}
       {!minimized && (
-        <div className="flex max-h-[75vh] flex-col gap-2 overflow-y-auto p-3">
+        <div className="flex max-h-[min(75vh,calc(var(--vvh,100vh)-var(--mobile-tabbar-h,0px)-3rem))] flex-col gap-2 overflow-y-auto p-3">
           {/* 수신자 */}
           <div className="flex items-center gap-2 border-b pb-2">
             <input

@@ -1,5 +1,5 @@
 // 모바일 셸 — 본문 + 하단 탭바. 데스크톱 AppRail·AISidePanel·AIChip 을 대체한다.
-// 100dvh 로 iOS 주소창 높이 변화를 따라가고, 탭 루트에서만 탭바를 보인다(상세는 전체 화면).
+// 100dvh 로 iOS 주소창 높이 변화를 따라가고(키보드가 열리면 --vvh), 탭 루트에서만 탭바를 보인다(상세는 전체 화면).
 import { type ReactNode, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 
 import { MobileTabBar } from './MobileTabBar'
 import { useTabBarVisible } from './useTabBarVisible'
+import { useVisualViewport } from './useVisualViewport'
 
 /** 모바일 레이아웃 셸. overlay 는 본문 영역만 덮는 AI 풀스크린 등(탭바는 남는다). */
 export function MobileShell({ children, overlay }: { children: ReactNode; overlay?: ReactNode }) {
@@ -31,15 +32,20 @@ export function MobileShell({ children, overlay }: { children: ReactNode; overla
   }, [inboxOpen, setInboxOpen, navigate, pathname])
   // 알림(/notifications)은 사용자가 탭바에 고정했을 때만 탭 루트 — 판정은 AI 풀스크린과 공유(U1-5·U2-3).
   const showTabBar = useTabBarVisible()
+  // 키보드가 열리면 :root 에 보이는 높이(--vvh)를 공개 — 셸이 그 높이로 줄어 iOS 의 페이지 밀어 올림을 막는다(헤더 고정·입력창은 키보드 바로 위).
+  useVisualViewport()
   // viewport-fit=cover(index.html)라 가로 모드에선 노치가 좌우 본문을 가린다 — 셸 좌우를 안전영역만큼 비운다.
   return (
-    <div data-testid="mobile-shell" className="flex h-[100dvh] flex-col overflow-hidden bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground">
+    <div
+      data-testid="mobile-shell"
+      className="flex h-[var(--vvh,100dvh)] flex-col overflow-hidden bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground">
       {/* 탭바가 숨은 화면(상세·작성기)은 탭바의 하단 안전영역 여백이 사라지므로 본문이 직접 홈 인디케이터 영역을 비운다(U1-6). */}
       <main
         data-mobile-scroll-root
         className={cn(
           'relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pt-[env(safe-area-inset-top)]',
-          !showTabBar && 'pb-[env(safe-area-inset-bottom)]',
+          // 키보드가 열려 있으면 홈 인디케이터는 키보드 아래라 여백이 필요 없다 — 입력창과 키보드 사이 빈칸을 없앤다.
+          !showTabBar && 'pb-[env(safe-area-inset-bottom)] [:root[data-keyboard-open]_&]:pb-0',
         )}
       >
         {children}
