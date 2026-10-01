@@ -567,13 +567,14 @@ test.describe('이슈 chat panel', () => {
     await expect(agentChip).toHaveClass(/whitespace-nowrap/);
     await expect(humanChip).toHaveClass(/whitespace-nowrap/);
 
-    // 첨부 카드: 본인 행 안에 들어오고 75% 를 넘지 않는다(기본 + 320px 폭).
+    // 첨부 카드: 본인 행 안에 들어오고 75%(lg 미만은 85% — U4-L1)를 넘지 않는다(기본 + 320px 폭).
     const assertCardInsideRow = async () => {
       const row = (await page.getByTestId('chat-message-612').boundingBox())!;
       const card = (await page.getByTestId('attachment-card-950').boundingBox())!;
+      const ratio = page.viewportSize()!.width < 1024 ? 0.85 : 0.75;
       expect(card.x).toBeGreaterThanOrEqual(row.x);
       expect(card.x + card.width).toBeLessThanOrEqual(row.x + row.width + 1);
-      expect(card.width).toBeLessThanOrEqual(row.width * 0.75 + 1);
+      expect(card.width).toBeLessThanOrEqual(row.width * ratio + 1);
     };
     await assertCardInsideRow();
     await page.setViewportSize({ width: 320, height: 800 });

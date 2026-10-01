@@ -2,7 +2,12 @@
 // 최신이 아래(Slack 스타일). 위로 스크롤 시 fetchNextPage.
 // 마지막 메시지가 viewport 진입하면 onMarkRead(lastId) 호출 — debounce 는 부모에서 처리.
 
-import { Fragment, useEffect, useMemo, useRef } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+
+import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet';
+import { copyAction, deleteAction, editAction } from '@/components/chat/messageSheetActions';
+import { messagePlainText } from '@/components/mentions/parseMessageSegments';
+import { useIsTouchShell } from '@/hooks/useIsTouchShell';
 
 import { DateDivider } from '../../../../components/chat/DateDivider';
 import { Button } from '../../../../components/ui/button';
@@ -41,6 +46,9 @@ export function ChatMessageList({
 }: ChatMessageListProps) {
   const lastRef = useRef<HTMLLIElement | null>(null);
   const scrollRootRef = useRef<HTMLDivElement | null>(null);
+  // 모바일 터치 셸: hover 툴바 대신 길게 누르기 → 작업 시트(목록에 하나). 대상 id 는 닫힘 애니메이션 동안 유지한다.
+  const touchShell = useIsTouchShell();
+  const [sheet, setSheet] = useState<{ id: number; open: boolean } | null>(null);
 
   // 메시지가 createdAt 기준 오름차순이 되도록 한 번 정렬.
   const sorted = useMemo(
@@ -76,6 +84,17 @@ export function ChatMessageList({
     io.observe(el);
     return () => io.disconnect();
   }, [lastId, onMarkRead]);
+
+  // 시트 작업 — 툴바와 같은 권한(본인·미삭제·확정 메시지만 수정·삭제) + 복사. 이슈 채팅엔 반응이 없다.
+  const sheetActionsFor = (m: ChatMessageResponse): MessageSheetAction[] => {
+    const out: MessageSheetAction[] = [];
+    if (!m.deleted && m.body.trim() !== '') out.push(copyAction(messagePlainText(m.body, m.mentions)));
+    if (m.authorId === currentUserId && !m.deleted && m.id >= 0) {
+      out.push(editAction(() => onEdit(m.id)), deleteAction(() => onDelete(m.id)));
+    }
+    return out;
+  };
+  const sheetTarget = sheet ? sorted.find((m) => m.id === sheet.id) : undefined;
 
   if (sorted.length === 0) {
     return (
@@ -146,6 +165,12 @@ export function ChatMessageList({
                     isPending={isPending}
                     onEdit={onEdit}
                     onDelete={onDelete}
+                    touchShell={touchShell}
+                    onLongPress={
+                      touchShell && sheetActionsFor(m).length > 0
+                        ? () => setSheet({ id: m.id, open: true })
+                        : undefined
+                    }
                   />
                 </div>
               </Fragment>
@@ -153,6 +178,18 @@ export function ChatMessageList({
           })}
         </ul>
       </div>
+      {touchShell && (
+        <MessageActionSheet
+          open={!!sheet?.open && sheetTarget !== undefined}
+          onClose={() => setSheet((s) => (s ? { ...s, open: false } : s))}
+          actions={sheetTarget ? sheetActionsFor(sheetTarget) : []}
+          preview={
+            sheetTarget
+              ? `${sheetTarget.authorName}: ${messagePlainText(sheetTarget.body, sheetTarget.mentions).slice(0, 40)}`
+              : undefined
+          }
+        />
+      )}
     </ScrollArea>
   );
 }

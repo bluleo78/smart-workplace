@@ -24,9 +24,13 @@ import { parseMessageSegments } from '@/components/mentions/parseMessageSegments
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
+import { MESSAGE_LONG_PRESS, useLongPress } from '@/hooks/useLongPress'
 import type { ToolbarRowProps } from '@/hooks/useToolbarReveal'
 import { formatClockTime, formatClockTimeCompact } from '@/lib/formatters'
 import type { MessageResponse } from '@/types/messaging'
+
+// 짧은 탭은 자식(멘션 칩·링크)이 제 클릭을 처리하므로 행 자체에는 할 일이 없다.
+const NOOP = () => {}
 
 // 제안 승인 인자 — ProposalCard 가 정의하는 형태를 그대로 따른다.
 type ProposalConfirmArg = Parameters<ComponentProps<typeof ProposalCard>['onConfirm']>[0]
@@ -44,6 +48,10 @@ interface MessageRowProps {
   rowRef?: Ref<HTMLDivElement>
   // useToolbarReveal 이 주는 행 props(터치 탭 노출·툴바 뒤집기).
   rowProps: ToolbarRowProps
+  // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트를 연다(onLongPress).
+  touchShell: boolean
+  // 길게 누르기 → 작업 시트. 터치 셸이 아니거나 이 메시지에 허용된 작업이 없으면 미전달(핸들러를 달지 않는다).
+  onLongPress?: () => void
   // 스레드 패널 오픈. 스레드 패널 내부 렌더 시엔 미전달(스레드 버튼·답글 링크 숨김).
   onOpenThread?: (messageId: number) => void
   onStartEdit: () => void
@@ -65,6 +73,8 @@ export function MessageRow({
   isEditing,
   rowRef,
   rowProps,
+  touchShell,
+  onLongPress,
   onOpenThread,
   onStartEdit,
   onCancelEdit,
@@ -97,7 +107,11 @@ export function MessageRow({
       ? TOOLBAR_POSITION.ownHeader
       : TOOLBAR_POSITION.ownBubble
 
-  const toolbar = !isEditing && (
+  // 길게 누르기 판정 — 발동 직후 click 은 캡처 단계에서 삼켜 멘션 칩·이미지·링크·답글 링크가 함께 눌리지 않게 한다.
+  const longPress = useLongPress(onLongPress, NOOP, MESSAGE_LONG_PRESS)
+
+  // 터치 셸에선 툴바 자체를 그리지 않는다 — 같은 작업은 길게 누르기 시트가 맡는다(탭 한 번으로 툴바가 뜨던 #884 터치 경로 대체).
+  const toolbar = !isEditing && !touchShell && (
     <div
       data-testid={`message-toolbar-${m.id}`}
       data-message-toolbar=""
@@ -281,8 +295,17 @@ export function MessageRow({
       data-group-start={startsGroup ? 'true' : 'false'}
       data-own={isOwn ? 'true' : 'false'}
       {...rowProps}
+      {...longPress}
+      // 탭 노출(rowProps, 후속 줄 시각)과 길게 누르기 취소(longPress)가 모두 pointerup 을 써서 합친다 — 펼치기만 하면 뒤엣것이 덮는다.
+      onPointerUp={(e) => {
+        longPress.onPointerUp?.()
+        rowProps.onPointerUp(e)
+      }}
       className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''} ${
         ownBubble ? 'justify-end' : ''
+      } ${
+        // 터치 셸: 길게 누르기가 작업 시트를 열므로 iOS 텍스트 선택·콜아웃(복사/공유 말풍선)이 같이 뜨지 않게 막는다(복사는 시트가 제공).
+        touchShell ? 'select-none [-webkit-touch-callout:none]' : ''
       }`}
     >
       {ownBubble ? (
@@ -298,7 +321,8 @@ export function MessageRow({
             </span>
           )}
           {/* 본인 컬럼 — 우측 정렬, 말풍선 최대 폭 75%. 아바타·이름은 그리지 않는다. */}
-          <div className="flex min-w-0 max-w-[75%] flex-col items-end">
+          {/* 모바일(lg 미만)은 화면이 좁아 75% 면 한 줄 글자 수가 너무 적다 — 85% 로 넓힌다(L1). */}
+          <div className="flex min-w-0 max-w-[75%] max-lg:max-w-[85%] flex-col items-end">
             {/* 화면에는 이름을 생략하지만 스크린리더에는 작성자를 알린다(묶음 첫 줄에만). */}
             {startsGroup && <span className="sr-only">{m.authorName}</span>}
             {/* 묶음 첫 줄: 말풍선 위 오른쪽에 시각(항상 표시). 툴바는 이 줄 안에서 시각 왼쪽에 뜬다. */}

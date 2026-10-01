@@ -17,7 +17,8 @@ import {
   OWN_ATTACHMENTS_CLASS,
   TOOLBAR_POSITION,
 } from '@/components/chat/messageToolbar';
-import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
+import { messagePlainText, parseMessageSegments } from '@/components/mentions/parseMessageSegments';
+import { MESSAGE_LONG_PRESS, useLongPress } from '@/hooks/useLongPress';
 import { useToolbarReveal } from '@/hooks/useToolbarReveal';
 
 import { Button } from '../../../../components/ui/button';
@@ -34,7 +35,14 @@ interface ChatMessageRowProps {
   isPending?: boolean;
   onEdit?: (id: number) => void;
   onDelete?: (id: number) => void;
+  // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트를 연다(팀 채팅 MessageRow 와 같은 규칙).
+  touchShell?: boolean;
+  // 길게 누르기 → 작업 시트. 터치 셸이 아니거나 허용된 작업이 없으면 미전달.
+  onLongPress?: () => void;
 }
+
+// 짧은 탭은 자식(멘션 칩·이미지)이 제 클릭을 처리하므로 행 자체에는 할 일이 없다.
+const NOOP = () => {};
 
 export function ChatMessageRow({
   message,
@@ -43,19 +51,20 @@ export function ChatMessageRow({
   isPending = false,
   onEdit,
   onDelete,
+  touchShell = false,
+  onLongPress,
 }: ChatMessageRowProps) {
   const isAgent = message.authorKind === 'AGENT';
-  const showToolbar = canEdit && !message.deleted && !isPending;
+  // 터치 셸에선 툴바를 그리지 않는다 — 수정·삭제는 길게 누르기 시트가 맡는다.
+  const showToolbar = canEdit && !message.deleted && !isPending && !touchShell;
   // aria-label 은 <@id> 토큰 대신 사람이 읽을 수 있는 형태(@이름)로 노출.
-  const plainBody = message.deleted
-    ? '(삭제됨)'
-    : parseMessageSegments(message.body, message.mentions)
-        .map((seg) => (seg.type === 'text' ? seg.value : `@${seg.name}`))
-        .join('');
+  const plainBody = message.deleted ? '(삭제됨)' : messagePlainText(message.body, message.mentions);
   // 터치 기기: 행을 탭하면 툴바 노출. 행마다 독립 상태라 다른 행을 탭하면 이 행은 닫힌다.
   // 드러날 때 스크롤 영역 위 끝에 잘리면 툴바를 아래로 뒤집는다.
   // 훅은 조건 없이 호출하되(훅 규칙), 툴바가 있는 본인 행에만 props 를 펼친다.
   const toolbarRowProps = useToolbarReveal()(message.id);
+  // 길게 누르기 — 발동 직후 click 은 캡처 단계에서 삼켜 멘션 칩·이미지가 함께 눌리지 않게 한다.
+  const longPress = useLongPress(onLongPress, NOOP, MESSAGE_LONG_PRESS);
   // 첨부만 있고 본문이 빈 본인 메시지는 빈 말풍선을 그리지 않는다.
   const hasBody = message.deleted || message.body.trim() !== '';
 
@@ -157,14 +166,23 @@ export function ChatMessageRow({
       data-pending={isPending ? 'true' : undefined}
       data-own={isOwn ? 'true' : 'false'}
       {...(isOwn ? toolbarRowProps : {})}
+      {...longPress}
+      // 탭 노출(본인 행)과 길게 누르기 취소가 모두 pointerup 을 써서 합친다 — 펼치기만 하면 뒤엣것이 덮는다.
+      onPointerUp={(e) => {
+        longPress.onPointerUp?.();
+        if (isOwn) toolbarRowProps.onPointerUp(e);
+      }}
       className={`group relative flex gap-2 px-3 py-2 ${
         isAgent ? 'border-l-2 border-ai-accent' : ''
-      } ${isPending ? 'opacity-60' : ''} ${isOwn ? 'justify-end' : ''}`}
+      } ${isPending ? 'opacity-60' : ''} ${isOwn ? 'justify-end' : ''} ${
+        // 터치 셸: 길게 누르기가 시트를 열므로 iOS 텍스트 선택·콜아웃이 같이 뜨지 않게 막는다(복사는 시트가 제공).
+        touchShell ? 'select-none [-webkit-touch-callout:none]' : ''
+      }`}
     >
       {isOwn ? (
-        // 본인 — 우측 정렬, 말풍선 최대 폭 75%. 아바타·이름은 그리지 않는다.
+        // 본인 — 우측 정렬, 말풍선 최대 폭 75%(모바일 85%, L1). 아바타·이름은 그리지 않는다.
         // 이슈 채팅은 그룹핑이 없어 모든 본인 메시지가 시각 줄을 가진다.
-        <div className="flex min-w-0 max-w-[75%] flex-col items-end">
+        <div className="flex min-w-0 max-w-[75%] max-lg:max-w-[85%] flex-col items-end">
           <div className="relative flex items-center gap-2 text-xs text-muted-foreground">
             {toolbar}
             <span>{formatChatTimestamp(message.createdAt)}</span>

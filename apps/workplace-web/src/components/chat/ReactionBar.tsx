@@ -22,7 +22,8 @@ export function ReactionBar({ message, onToggle, align = 'start' }: ReactionBarP
           onClick={() => onToggle(r.emoji)}
           data-testid={`reaction-pill-${message.id}-${r.emoji}`}
           aria-pressed={r.reacted}
-          className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
+          // 터치(coarse)에선 손가락으로 누르기 쉽게 높이 32px·좌우 여백을 키운다(L1). 마우스 환경은 그대로.
+          className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs pointer-coarse:min-h-8 pointer-coarse:px-2.5 ${
             r.reacted ? 'border-primary bg-primary/10 text-primary' : 'border-muted bg-muted/50'
           }`}
         >

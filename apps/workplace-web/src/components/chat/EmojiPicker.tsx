@@ -2,19 +2,9 @@
 import { SmilePlus } from 'lucide-react'
 import { useState } from 'react'
 
+import { PICKER_EMOJIS, QUICK_EMOJIS } from '@/components/chat/emojiSets'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-
-// 호버 퀵셋(자주 쓰는 6종).
-export const QUICK_EMOJIS = ['👍', '❤️', '😄', '🎉', '😢', '🙏'] as const
-
-// 전체 피커 큐레이션 목록(퀵셋 포함).
-const PICKER_EMOJIS = [
-  '👍', '👎', '❤️', '🔥', '🎉', '😄', '😅', '😂', '🙂', '😍',
-  '🤔', '😮', '😢', '😡', '🙏', '👏', '🙌', '💪', '✅', '❌',
-  '👀', '🚀', '💯', '✨', '⭐', '💡', '📌', '⚡', '🐛', '🛠️',
-  '☕', '🍕', '🎈', '🥳', '😴', '🤯', '😎', '🤝', '👋', '💩',
-]
 
 interface EmojiPickerProps {
   onPick: (emoji: string) => void
