@@ -2,7 +2,6 @@
 // 앱 레일 하단의 유저 메뉴 — 프로필/테마 토글/로그아웃.
 // 아이콘 레일이므로 데스크톱(lg)은 아바타만, 모바일 드로어는 아바타+이름.
 import { LogOut, Moon, Sun, User as UserIcon } from 'lucide-react'
-import { useTheme } from 'next-themes'
 import { useNavigate } from 'react-router-dom'
 
 import {
@@ -15,18 +14,16 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAuth } from '@/hooks/useAuth'
+import { useSignOut } from '@/hooks/useSignOut'
+import { useThemeToggle } from '@/hooks/useThemeToggle'
 import { cn } from '@/lib/utils'
 
 export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
   const navigate = useNavigate()
-  const { resolvedTheme, setTheme } = useTheme()
-  const { user, logout } = useAuth()
-
-  // 로그아웃 — 서버 세션 종료 후 로그인 페이지로 이동
-  const handleLogout = async () => {
-    await logout()
-    navigate('/login', { replace: true })
-  }
+  const { dark, toggle } = useThemeToggle()
+  const { user } = useAuth()
+  // 로그아웃 — 서버 세션 종료 후 로그인 페이지로 이동(모바일 계정 시트와 공용 훅)
+  const handleLogout = useSignOut()
 
   return (
     <DropdownMenu>
@@ -73,8 +70,8 @@ export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
         <DropdownMenuItem onSelect={() => navigate('/settings/profile')}>
           <UserIcon className="h-4 w-4" /> 프로필
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}>
-          {resolvedTheme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        <DropdownMenuItem onSelect={toggle}>
+          {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           테마 전환
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={handleLogout}>

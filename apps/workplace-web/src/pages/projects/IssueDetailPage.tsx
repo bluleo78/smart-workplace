@@ -38,6 +38,7 @@ import { useUpdateIssueType } from '../../hooks/queries/useUpdateIssueType';
 import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle';
 import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import { useReturnOnEscape, useReturnToIssueOrigin } from '../../hooks/useIssueOrigin';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
@@ -45,6 +46,7 @@ import { isNotFoundError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueChatButton } from './components/chat/IssueChatButton';
 import { IssueChatDrawer } from './components/chat/IssueChatDrawer';
+import { useIssueChatDrawerParam } from './components/chat/useIssueChatDrawerParam';
 import { InlineEditableTitle } from './components/InlineEditableTitle';
 import { IssueAttachmentStrip } from './components/IssueAttachmentStrip';
 import { IssueBodyTabs } from './components/IssueBodyTabs';
@@ -299,10 +301,14 @@ export default function IssueDetailPage() {
   const watchers = useWatchers(key, issueNumber);
   const toggleWatch = useWatchToggle(key, issueNumber, user?.id ?? null);
   const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
+  // 모바일 ⋯ 메뉴 항목 문구 — 메뉴 안에선 동작("구독하기")·상태("구독 중 · n명")를 글자로 풀어 쓴다(U3-R6). 데스크톱은 기존 버튼 그대로.
+  const isMobile = useIsMobile();
+  const watcherCount = watchers.data?.length ?? 0;
+  const mobileWatchLabel = isWatching ? `구독 중 · ${watcherCount}명` : '구독하기';
   // 삭제 확인 다이얼로그 open 상태 — shadcn AlertDialog 제어형.
   const [deletePending, setDeletePending] = useState(false);
-  // 채팅 드로워 open 상태 — 헤더 채팅 버튼으로 토글.
-  const [chatOpen, setChatOpen] = useState(false);
+  // 채팅 드로워 open 상태 — URL ?chat=1 (시스템 뒤로가기가 드로워부터 닫도록, H2). 헤더 채팅 버튼으로 연다.
+  const { open: chatOpen, openChat, closeChat } = useIssueChatDrawerParam();
   // 첨부 삭제 권한 UI 토글용 — 첨부자 또는 OWNER. 백엔드 가드가 최종 검증.
   const members = useProjectMembers(key);
   const isOwner =
@@ -448,6 +454,59 @@ export default function IssueDetailPage() {
     );
   };
 
+  // 채팅 드로워 토글 — actions(우측 고정) 슬롯. meta/icon 슬롯은 제목 길이에 따라
+  // 위치가 흔들려 글로벌 AI 런처(fixed top-center)와 겹쳤던 회귀(#558) 이력이 있다.
+  const chatButton = (
+    <IssueChatButton
+      projectKey={key}
+      issueNumber={issueNumber}
+      open={chatOpen}
+      onOpen={openChat}
+      variant={isMobile ? 'icon' : 'default'}
+    />
+  );
+  // 구독·삭제 — 데스크톱은 채팅 옆 버튼, 모바일은 ⋯ 메뉴 항목.
+  const secondaryActions = (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => toggleWatch.mutate(!isWatching)}
+        aria-pressed={isWatching}
+        aria-label={isMobile ? mobileWatchLabel : isWatching ? '구독 중' : '구독'}
+        data-testid="watch-toggle"
+        disabled={toggleWatch.isPending}
+      >
+        {isWatching ? <Eye className="h-4 w-4 mr-1" /> : <EyeOff className="h-4 w-4 mr-1" />}
+        {isMobile ? (
+          mobileWatchLabel
+        ) : (
+          <>
+            {isWatching ? '구독 중' : '구독'}
+            <span className="ml-1 text-xs text-muted-foreground">
+              {watchers.data?.length ?? 0}
+            </span>
+          </>
+        )}
+      </Button>
+      {canDelete && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onDelete}
+          aria-label="태스크 삭제"
+          data-testid="issue-delete"
+          disabled={remove.isPending}
+          // 모바일 ⋯ 메뉴에선 파괴적 항목을 빨간 글자로(메뉴가 text-destructive 색을 유지한다, U3-R6).
+          className={isMobile ? 'text-destructive' : undefined}
+        >
+          <Trash2 className="h-4 w-4 mr-1" />
+          삭제
+        </Button>
+      )}
+    </>
+  );
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <IssueBreadcrumbHeader
@@ -457,44 +516,13 @@ export default function IssueDetailPage() {
         number={summary.number}
         type={summary.type}
         onBack={returnToOrigin}
+        // 모바일: 채팅은 ⋯ 밖 아이콘(M5), ⋯ 에는 구독·삭제만. 데스크톱은 actions 한 줄 그대로.
+        mobilePrimaryAction={chatButton}
+        mobileActions={secondaryActions}
         actions={
           <>
-            {/* 채팅 드로워 토글 — actions(우측 고정) 슬롯. meta/icon 슬롯은 제목 길이에 따라
-                위치가 흔들려 글로벌 AI 런처(fixed top-center)와 겹쳤던 회귀(#558) 이력이 있다. */}
-            <IssueChatButton
-              projectKey={key}
-              issueNumber={issueNumber}
-              open={chatOpen}
-              onOpen={() => setChatOpen(true)}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => toggleWatch.mutate(!isWatching)}
-              aria-pressed={isWatching}
-              aria-label={isWatching ? '구독 중' : '구독'}
-              data-testid="watch-toggle"
-              disabled={toggleWatch.isPending}
-            >
-              {isWatching ? <Eye className="h-4 w-4 mr-1" /> : <EyeOff className="h-4 w-4 mr-1" />}
-              {isWatching ? '구독 중' : '구독'}
-              <span className="ml-1 text-xs text-muted-foreground">
-                {watchers.data?.length ?? 0}
-              </span>
-            </Button>
-            {canDelete && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onDelete}
-                aria-label="태스크 삭제"
-                data-testid="issue-delete"
-                disabled={remove.isPending}
-              >
-                <Trash2 className="h-4 w-4 mr-1" />
-                삭제
-              </Button>
-            )}
+            {chatButton}
+            {secondaryActions}
           </>
         }
       />
@@ -647,7 +675,7 @@ export default function IssueDetailPage() {
         projectKey={key}
         issueNumber={issueNumber}
         open={chatOpen}
-        onClose={() => setChatOpen(false)}
+        onClose={closeChat}
       />
     </div>
   );

@@ -346,19 +346,6 @@ test('헤더 모드 버튼으로 사이드 ↔ 전체 화면을 전환한다 (WP
   await expect(page.getByTestId('chat-launcher')).toHaveAttribute('data-mode', 'closed')
 })
 
-test('모바일 뷰포트에서도 사이드 오버레이를 닫기 버튼으로 닫을 수 있다 (WP-111)', async ({
-  authenticatedPage: page,
-}) => {
-  // 모바일(<lg)에선 side 가 풀스크린 오버레이라 모드 버튼은 숨기고 닫기만 노출한다.
-  await page.setViewportSize({ width: 480, height: 800 })
-  await page.goto('/')
-  await page.getByTestId('chat-launcher').click()
-  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
-  await expect(page.getByTestId('ai-mode-fullscreen')).toBeHidden()
-  await page.getByTestId('ai-panel-close').click()
-  await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
-})
-
 test('사이드 패널이 본문을 밀어낸다(reflow) + 핸들 드래그 후 리사이즈 영속', async ({
   authenticatedPage: page,
 }) => {
@@ -402,20 +389,6 @@ test('사이드 패널이 본문을 밀어낸다(reflow) + 핸들 드래그 후 
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   const restored = (await page.getByTestId('ai-side-panel').boundingBox())!.width
   expect(Math.abs(restored - widened)).toBeLessThan(8)
-})
-
-test('모바일 뷰포트(<1024px)에서 side 가 풀스크린 오버레이로 렌더된다', async ({
-  authenticatedPage: page,
-}) => {
-  // 모바일 뷰포트: max-lg CSS → 고정 인라인 width 무력화 + !fixed !inset-0 !w-full.
-  await page.setViewportSize({ width: 480, height: 800 })
-  await page.goto('/')
-  await page.getByTestId('chat-launcher').click() // side
-  const panel = page.getByTestId('ai-side-panel')
-  await expect(panel).toBeVisible()
-  const box = (await panel.boundingBox())!
-  // 화면 폭 가득(오버레이) — 440px 이상
-  expect(box.width).toBeGreaterThan(440)
 })
 
 test('사이드 패널을 최대 폭으로 넓혀도 AI 칩이 대화 선택 스위처를 가리거나 클릭을 가로채지 않는다 (#195)', async ({
@@ -599,52 +572,6 @@ test('긴 무공백 메시지가 말풍선 안에서 줄바꿈되어 메시지 �
   expect(scrollerOverflow).toBeLessThanOrEqual(2)
 })
 
-test('모바일(375px) 풀스크린에서 좌측 세션목록이 숨겨지고 헤더 드롭다운이 세션 전환을 제공한다 (#203)', async ({
-  authenticatedPage: page,
-}) => {
-  // 회귀(#203): 375px 모바일 뷰포트에서 좌측 260px 세션목록이 고정폭으로 남아
-  // 채팅 영역이 115px / 입력창 26px 로 압착돼 사용 불가 상태.
-  // 수정: 좌측 목록 hidden md:flex, 모바일 헤더에 드롭다운 세션 스위처 추가.
-  await page.setViewportSize({ width: 375, height: 800 })
-
-  await mockChatSessions(page, {
-    items: [
-      { id: 's-mob1', title: '모바일 대화 1', lastMessageAt: '2026-06-10T00:00:00Z', widgetCount: 0 },
-      { id: 's-mob2', title: '모바일 대화 2', lastMessageAt: '2026-06-10T01:00:00Z', widgetCount: 0 },
-    ],
-    nextCursor: null,
-  })
-  // 세션 선택 시 메시지 fetch — 빈 transcript 로 모킹.
-  await mockApi(page, 'GET', '/api/v1/home/sessions/s-mob1/messages', [])
-
-  await page.goto('/')
-  // side → fullscreen
-  await page.getByTestId('chat-launcher').click()
-  await page.getByTestId('chat-launcher').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
-
-  // 1) 좌측 세션 목록이 숨겨짐 (hidden md:flex → 375px 에서 비표시)
-  const fsSessionsBox = await page.getByTestId('ai-fs-sessions').boundingBox()
-  expect(fsSessionsBox).toBeNull()
-
-  // 2) 모바일 세션 스위처가 헤더에 보임
-  await expect(page.getByTestId('ai-fs-mobile-session-switcher')).toBeVisible()
-
-  // 3) 채팅 패널이 전체 폭을 차지해 입력창이 정상 너비(100px+)를 가짐
-  const chatInputBox = await page.getByTestId('chat-input').boundingBox()
-  expect(chatInputBox).not.toBeNull()
-  expect(chatInputBox!.width).toBeGreaterThan(100)
-
-  // 4) 드롭다운 열기 → 세션 목록이 표시됨
-  await page.getByTestId('ai-fs-mobile-session-switcher').click()
-  // 드롭다운 콘텐츠(DropdownMenuContent)에 두 세션이 보여야 함
-  await expect(page.getByRole('menu', { name: '대화 선택' })).toBeVisible()
-
-  // 5) 세션 선택 시 드롭다운이 닫힌다(#451) — 모바일 스위처도 controlled 닫힘 적용
-  await page.getByRole('menu', { name: '대화 선택' }).getByText('모바일 대화 1').click()
-  await expect(page.getByRole('menu', { name: '대화 선택' })).toHaveCount(0)
-})
-
 test('위임 진행 이벤트가 도크에 위임 버블을 렌더한다 (#333)', { tag: '@smoke' }, async ({
   authenticatedPage: page,
 }) => {
@@ -811,7 +738,8 @@ test('사이드패널: 세션 로드/전송 시 채팅이 맨 아래로 자동 �
 }) => {
   // 회귀(#452): 메시지 컨테이너에 자동 스크롤 로직이 없어 전송/스트리밍 시 하단으로 안 내려감.
   // 수정: useStickToBottom 을 컨테이너에 연결(전송/스트리밍/단계/확인카드 변화를 depKey 로).
-  await page.setViewportSize({ width: 1000, height: 500 })
+  // 폭 1280: 이 테스트의 관심사는 세로 스크롤(낮은 높이 500)이고, 사이드 패널·AI 칩은 데스크톱(≥1024) 전용이라 폭은 데스크톱으로 둔다.
+  await page.setViewportSize({ width: 1280, height: 500 })
   await mockChatSessions(page, {
     items: [{ id: 's-scroll', title: '스크롤 대화', lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 0 }],
     nextCursor: null,

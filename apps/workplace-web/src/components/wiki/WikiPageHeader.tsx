@@ -11,17 +11,23 @@ import {
 import { Fragment } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
+import { aiSignalBadgeClass } from '@/components/ai/aiMarker'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
+import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
+import { useMobileDetailHeader } from '@/components/mobile/MobileDetailContext'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useIsMobile } from '@/hooks/useIsMobile'
+import { cn } from '@/lib/utils'
 
 import { GENERATE_ACTIONS, type GenerateActionKey } from './wikiAiActions'
 
@@ -71,6 +77,9 @@ export function WikiPageHeader({
   /** 마크다운 소스 모달 열기(#753). 읽기 권한만 있으면 되므로 canEdit 과 무관하게 노출한다. */
   onViewSource: () => void
 }) {
+  const isMobile = useIsMobile()
+  // 모바일 상세 분기 안이면 등록(→ 레이아웃 뒤로가기 바 숨김) 후 병합 헤더로 그린다(U2-8).
+  const detail = useMobileDetailHeader(isMobile)
   // 툴팁 사유는 권한/로딩 사유만 노출(생성 중은 버튼 라벨이 "생성 중…"으로 이미 자명).
   const disabledReason = aiState === 'ready' ? null : AI_DISABLED_REASON[aiState]
 
@@ -108,6 +117,153 @@ export function WikiPageHeader({
       <ChevronDown className="text-muted-foreground" aria-hidden="true" />
     </Button>
   )
+
+  // 저장 상태 칩 — 모바일은 헤더 폭(제목)을 지키려 아이콘만 보이고 글자는 스크린리더용으로 남긴다.
+  const saveText = (label: string) => (isMobile ? <span className="sr-only">{label}</span> : label)
+  const saveBadge = (
+    <>
+      {saveState === 'saving' && (
+        <StatusBadge type="info" data-testid="wiki-save-state">
+          <Loader2 className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          {saveText('저장 중…')}
+        </StatusBadge>
+      )}
+      {saveState === 'saved' && (
+        <StatusBadge type="success" data-testid="wiki-save-state">
+          <Check aria-hidden="true" />
+          {saveText('저장됨')}
+        </StatusBadge>
+      )}
+      {saveState === 'conflict' && (
+        <StatusBadge type="error" data-testid="wiki-save-state">
+          <TriangleAlert aria-hidden="true" />
+          {saveText('충돌')}
+        </StatusBadge>
+      )}
+    </>
+  )
+  // AI 액션 — 비활성이면 사유 툴팁, 활성이면 생성 메뉴.
+  const aiControl = (
+    <>
+      {disabledReason ? (
+        /* 비활성 — 드롭다운을 달지 않고 사유 툴팁만 연결한다. */
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>{aiTrigger}</TooltipTrigger>
+            <TooltipContent side="bottom" data-testid="wiki-ai-header-reason">
+              {disabledReason}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        <DropdownMenu>
+          {/* 생성 중에는 메뉴를 열지 않는다 — 동시 스트림 방지(에디터 latest-wins 와 중복 방어). */}
+          <DropdownMenuTrigger asChild disabled={aiBusy}>
+            {aiTrigger}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            {GENERATE_ACTIONS.map((a) => (
+              <DropdownMenuItem
+                key={a.key}
+                data-testid={`wiki-ai-header-${a.key}`}
+                onSelect={() => setTimeout(() => onAiAction(a.key), 0)}
+                className="flex-col items-start space-y-1"
+              >
+                <span className="text-sm font-medium leading-5">{a.label}</span>
+                <span className="text-xs leading-4 text-muted-foreground">{a.hint}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </>
+  )
+  // 페이지 메뉴(마크다운 소스·삭제).
+  const pageMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label="페이지 메뉴"
+        // 모바일 병합 헤더에선 44px 터치 타깃(데스크톱은 기존 p-1).
+        className={cn(
+          'rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground',
+          isMobile && 'flex h-11 w-11 shrink-0 items-center justify-center p-0',
+        )}
+      >
+        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className={isMobile ? 'w-64' : undefined}>
+        {/* 모바일: 헤더의 AI ▾ 대신 이 메뉴 맨 위 "AI 작성" 묶음(U3-R1) — 헤더의 AI 아이콘은 ✦(어시스턴트) 하나로 둔다.
+            터치엔 툴팁이 없으므로 비활성 사유는 묶음 머리에 글자로 보인다(흐리게 칠하지 않음). */}
+        {isMobile && (
+          <>
+            <DropdownMenuLabel className="text-xs text-muted-foreground">AI 작성</DropdownMenuLabel>
+            {(disabledReason ?? (aiBusy ? '생성 중…' : null)) && (
+              <p data-testid="wiki-ai-menu-reason" className="px-2 pb-1 text-xs text-foreground">
+                {disabledReason ?? '생성 중…'}
+              </p>
+            )}
+            {GENERATE_ACTIONS.map((a) => (
+              <DropdownMenuItem
+                key={a.key}
+                data-testid={`wiki-ai-header-${a.key}`}
+                disabled={disabledReason != null || aiBusy}
+                onSelect={() => setTimeout(() => onAiAction(a.key), 0)}
+                className="flex-col items-start gap-0.5"
+              >
+                <span className="text-sm font-medium leading-5">{a.label}</span>
+                <span className="text-xs leading-4 text-muted-foreground">{a.hint}</span>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+          </>
+        )}
+        {/* 소스 보기는 읽기 권한만으로 충분하다 — 이 드롭다운 자체가 권한 분기 밖에 있다. */}
+        <DropdownMenuItem
+          data-testid="wiki-menu-source"
+          onSelect={() => setTimeout(onViewSource, 0)}
+        >
+          <FileCode className="mr-2 h-4 w-4" aria-hidden="true" /> 마크다운 소스
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={() => setTimeout(onDelete, 0)}>
+          <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" /> 페이지 삭제
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
+  // 모바일 상세(노트 페이지): 레이아웃 뒤로가기 바와 두 줄로 쌓지 않고 ‹·✦ 를 품은 한 줄 헤더로 병합한다(U1-1 방식).
+  // 제목 = 현재 페이지(브레드크럼 마지막) — 조상 경로는 좁은 폭에서 생략한다.
+  if (detail) {
+    // AI 생성 이력(#736)은 메뉴를 열지 않아도 보이게 제목 바로 뒤 작은 글자 칩으로(U3-C1) — ✦ 아이콘은 붙이지 않는다(R1: 헤더의 AI 아이콘은 ✦ 하나).
+    return (
+      <MobileDetailBar
+        data-testid="wiki-page-header"
+        title={crumbs[crumbs.length - 1]?.title ?? detail.title}
+        titleAccessory={
+          aiAttributed ? (
+            <span
+              data-testid="wiki-page-ai-attribution-badge"
+              title="AI가 생성한 콘텐츠를 포함합니다"
+              className={cn(aiSignalBadgeClass('info'), 'shrink-0 whitespace-nowrap text-[11px]')}
+            >
+              AI 생성<span className="sr-only"> 콘텐츠 포함</span>
+            </span>
+          ) : undefined
+        }
+        // 생성 중 표시 — AI ▾ 버튼(스피너)이 메뉴로 들어가 헤더에서 사라졌으므로 작은 스피너로 남긴다(공지는 에디터의 라이브 리전 담당).
+        trailing={
+          <div className="flex shrink-0 items-center gap-1">
+            {aiBusy && (
+              <Loader2 data-testid="wiki-ai-header-busy" className="h-4 w-4 animate-spin text-ai-accent motion-reduce:animate-none" aria-hidden="true" />
+            )}
+            {saveBadge}
+            {pageMenu}
+          </div>
+        }
+      />
+    )
+  }
 
   return (
     <header
@@ -163,76 +319,9 @@ export function WikiPageHeader({
         )}
       </nav>
       <div className="flex shrink-0 items-center gap-2">
-        {saveState === 'saving' && (
-          <StatusBadge type="info" data-testid="wiki-save-state">
-            <Loader2 className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            저장 중…
-          </StatusBadge>
-        )}
-        {saveState === 'saved' && (
-          <StatusBadge type="success" data-testid="wiki-save-state">
-            <Check aria-hidden="true" />
-            저장됨
-          </StatusBadge>
-        )}
-        {saveState === 'conflict' && (
-          <StatusBadge type="error" data-testid="wiki-save-state">
-            <TriangleAlert aria-hidden="true" />
-            충돌
-          </StatusBadge>
-        )}
-        {disabledReason ? (
-          /* 비활성 — 드롭다운을 달지 않고 사유 툴팁만 연결한다. */
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>{aiTrigger}</TooltipTrigger>
-              <TooltipContent side="bottom" data-testid="wiki-ai-header-reason">
-                {disabledReason}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        ) : (
-          <DropdownMenu>
-            {/* 생성 중에는 메뉴를 열지 않는다 — 동시 스트림 방지(에디터 latest-wins 와 중복 방어). */}
-            <DropdownMenuTrigger asChild disabled={aiBusy}>
-              {aiTrigger}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
-              {GENERATE_ACTIONS.map((a) => (
-                <DropdownMenuItem
-                  key={a.key}
-                  data-testid={`wiki-ai-header-${a.key}`}
-                  onSelect={() => setTimeout(() => onAiAction(a.key), 0)}
-                  className="flex-col items-start space-y-1"
-                >
-                  <span className="text-sm font-medium leading-5">{a.label}</span>
-                  <span className="text-xs leading-4 text-muted-foreground">{a.hint}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label="페이지 메뉴"
-            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {/* 소스 보기는 읽기 권한만으로 충분하다 — 이 드롭다운 자체가 권한 분기 밖에 있다. */}
-            <DropdownMenuItem
-              data-testid="wiki-menu-source"
-              onSelect={() => setTimeout(onViewSource, 0)}
-            >
-              <FileCode className="mr-2 h-4 w-4" aria-hidden="true" /> 마크다운 소스
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={() => setTimeout(onDelete, 0)}>
-              <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" /> 페이지 삭제
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {saveBadge}
+        {aiControl}
+        {pageMenu}
       </div>
     </header>
   )

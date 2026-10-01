@@ -591,24 +591,6 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
       .toBe(true)
   })
 
-  test('모바일(<lg): 패널은 다이얼로그 위 풀스크린으로 입력 가능하고, 닫으면 다이얼로그로 돌아온다', async ({ authenticatedPage: page }) => {
-    await page.setViewportSize({ width: 390, height: 844 })
-    await captureChat(page)
-    await mockCalendar(page)
-    await page.goto('/calendar?eventId=42')
-    const dialog = page.getByTestId('calendar-event-dialog')
-    await expect(dialog).toBeVisible()
-    await page.keyboard.press('ControlOrMeta+k')
-    // 풀스크린 패널(z-[60])이 다이얼로그(z-50)를 덮고, 입력창은 실제 클릭·타이핑된다.
-    await page.getByTestId('chat-input').click()
-    await page.getByTestId('chat-input').fill('참석자?')
-    await expect(page.getByTestId('chat-input')).toHaveValue('참석자?')
-    await page.keyboard.press('Escape')
-    await expect(page.getByTestId('ai-side-panel')).toBeHidden()
-    await expect(dialog).toBeVisible()
-    await expect(page.locator('[data-slot=dialog-overlay]')).toBeVisible()
-  })
-
   test('스크린샷 — 일정 다이얼로그와 사이드 패널 동시 표시(라이트/다크)', async ({ authenticatedPage: page }) => {
     for (const theme of ['light', 'dark'] as const) {
       await page.addInitScript((t) => window.localStorage.setItem('theme', t), theme)

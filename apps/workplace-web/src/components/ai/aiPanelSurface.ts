@@ -40,9 +40,17 @@ export function isInAiPanelDom(target: EventTarget | null): boolean {
 export function inertPageArea(): () => void {
   const root = document.querySelector(AI_PAGE_ROOT_SELECTOR);
   if (!root) return () => {};
-  const targets = Array.from(root.children).filter(
-    (el): el is HTMLElement => el instanceof HTMLElement && !el.matches(AI_PANEL_SELECTOR) && !el.inert,
-  );
+  // AI 표면을 품은 자식(모바일 셸 → main 안의 AI 풀스크린)은 통째로 inert 하면 AI 까지 막히므로
+  // 그 안으로 내려가 AI 표면이 아닌 형제만 inert 한다. 데스크톱은 AI 패널이 root 직속이라 기존과 같다.
+  const targets: HTMLElement[] = [];
+  const collect = (parent: Element) => {
+    for (const el of Array.from(parent.children)) {
+      if (!(el instanceof HTMLElement) || el.matches(AI_PANEL_SELECTOR)) continue;
+      if (el.querySelector(AI_PANEL_SELECTOR)) collect(el);
+      else if (!el.inert) targets.push(el);
+    }
+  };
+  collect(root);
   targets.forEach((el) => {
     el.inert = true;
   });

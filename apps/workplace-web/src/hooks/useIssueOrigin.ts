@@ -25,6 +25,8 @@ export function useIssueOriginTracker(): void {
 /**
  * 이슈 상세에서 출발 화면으로 돌아가는 콜백.
  * 출발 화면을 알면 거기까지 히스토리를 되감고, 모르면(직접 링크·푸시·새로고침) 프로젝트 화면으로 간다.
+ * 기본 목적지는 현재 상세 항목을 교체(replace)한다 — push 하면 프로젝트 화면에서 뒤로가기가 방금 떠난 상세로
+ * 되돌아가 "‹/← 를 눌렀는데 다시 상세"가 되는 왕복 고리가 생긴다(모바일 시스템 뒤로가기에서 특히 두드러짐).
  */
 export function useReturnToIssueOrigin(projectKey: string): () => void {
   const navigate = useNavigate();
@@ -32,7 +34,7 @@ export function useReturnToIssueOrigin(projectKey: string): () => void {
     const idx = currentHistoryIdx();
     const delta = idx === null ? null : backDeltaToOrigin(entries, idx);
     if (delta !== null) navigate(delta);
-    else navigate(`/projects/${projectKey}`);
+    else navigate(`/projects/${projectKey}`, { replace: true });
   }, [navigate, projectKey]);
 }
 

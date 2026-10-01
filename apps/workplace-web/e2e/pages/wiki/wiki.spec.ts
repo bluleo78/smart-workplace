@@ -737,3 +737,101 @@ test('위키 사이드바 — 스페이스 선택기가 shadcn Select로 렌더�
   await page.getByRole('option', { name: '두 번째 스페이스' }).click()
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_B_ID}`), { timeout: 3000 })
 })
+
+// WP-121: lg 경계를 넘으면(데스크톱↔모바일 셸) 페이지가 리마운트된다. 디바운스(800ms) 대기 중이던
+// 자동저장은 언마운트 시 즉시 flush 되어야 한다 — 예전엔 타이머가 언마운트 뒤에야(최대 800ms 후) 떠서,
+// 그 사이 새 에디터가 옛 version 을 들고 뜨거나 탭이 닫히면 편집이 유실될 수 있었다.
+test('위키 — 디바운스 대기 중 리마운트(뷰포트 lg 경계 전환)되면 자동저장을 즉시 flush 한다', async ({
+  authenticatedPage: page,
+}) => {
+  const puts: { at: number; body: string }[] = []
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) => route.fulfill({ json: [personalSpace()] }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
+    (route) =>
+      route.fulfill({ json: [{ id: NEW_PAGE_ID, parentId: null, title: NEW_TITLE, position: 0, aiLastUsedAt: null }] }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${NEW_PAGE_ID}`,
+    (route) => {
+      if (route.request().method() === 'PUT') {
+        const body = route.request().postDataJSON() as { body: string; version: number }
+        puts.push({ at: Date.now(), body: body.body })
+        return route.fulfill({ json: pageDetail(NEW_TITLE, body.version + 1) })
+      }
+      return route.fulfill({ json: pageDetail(NEW_TITLE, 1) })
+    },
+  )
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${NEW_PAGE_ID}`)
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('플러시')
+  // 디바운스(800ms)가 끝나기 전에 모바일 폭으로 좁혀 에디터를 리마운트시킨다.
+  const t0 = Date.now()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(() => puts.length).toBeGreaterThan(0)
+  // flush 는 언마운트 즉시 — 디바운스 잔여 시간(수백 ms)을 기다리지 않는다.
+  expect(puts[0].at - t0).toBeLessThan(400)
+  expect(puts[0].body).toContain('플러시')
+  // 옛 타이머가 뒤늦게 한 번 더 PUT 하지 않는다(중복 저장·409 방지). 디바운스 창(800ms)을 넘겨 부재 확인 —
+  // "일어나지 않음" 확인이라 고정 대기가 불가피하다.
+  await page.waitForTimeout(1000)
+  expect(puts).toHaveLength(1)
+})
+
+// WP-121(리뷰 C2): flush 직후 리마운트된 에디터는 flush 전 캐시(옛 본문·version)로 뜨면 안 된다 —
+// 방금 친 글자가 사라지고 다음 편집이 옛 version 으로 PUT 돼 409 가 났다. flush 가 끝날 때까지 skeleton 을 보이고
+// 끝나면 최신 본문·version 으로 다시 마운트해야 한다.
+test('위키 — lg 경계 전환 리마운트 후 에디터는 방금 친 글자를 보이고 다음 저장은 새 version 을 싣는다', async ({
+  authenticatedPage: page,
+}) => {
+  // 서버 흉내: version 불일치면 409(낙관적 동시성), 일치하면 본문 저장 + version+1.
+  const server = { version: 1, body: '' }
+  const puts: { version: number; status: number }[] = []
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) => route.fulfill({ json: [personalSpace()] }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
+    (route) =>
+      route.fulfill({ json: [{ id: NEW_PAGE_ID, parentId: null, title: NEW_TITLE, position: 0, aiLastUsedAt: null }] }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/wiki/pages/${NEW_PAGE_ID}`,
+    async (route) => {
+      if (route.request().method() === 'PUT') {
+        const req = route.request().postDataJSON() as { body: string; version: number }
+        if (req.version !== server.version) {
+          puts.push({ version: req.version, status: 409 })
+          return route.fulfill({ status: 409, json: { message: 'conflict' } })
+        }
+        // 응답을 조금 늦춰 "flush 진행 중 리마운트" 창을 확실히 만든다.
+        await new Promise((r) => setTimeout(r, 300))
+        server.body = req.body
+        server.version += 1
+        puts.push({ version: req.version, status: 200 })
+        return route.fulfill({ json: { ...pageDetail(NEW_TITLE, server.version), body: server.body } })
+      }
+      return route.fulfill({ json: { ...pageDetail(NEW_TITLE, server.version), body: server.body } })
+    },
+  )
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${NEW_PAGE_ID}`)
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('플러시')
+  // 디바운스 전에 모바일 폭으로 → 에디터 리마운트 + 언마운트 flush.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(() => puts.length).toBe(1)
+  // 리마운트된 에디터가 방금 친 글자를 보인다(옛 캐시 본문으로 뜨지 않음).
+  const editor = page.locator('.ProseMirror')
+  await expect(editor).toContainText('플러시')
+  // 다음 편집 → 자동저장은 flush 응답의 새 version(2)을 싣고 409 없이 성공.
+  await editor.click()
+  await page.keyboard.press('End')
+  await page.keyboard.type('!')
+  await expect.poll(() => puts.length).toBe(2)
+  expect(puts[1]).toEqual({ version: 2, status: 200 })
+  await expect(editor).toContainText('플러시!')
+})

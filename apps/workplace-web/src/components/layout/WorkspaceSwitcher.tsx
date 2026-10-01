@@ -5,7 +5,6 @@
 import { Building2, Check } from 'lucide-react'
 import { useState } from 'react'
 
-import { authApi } from '@/api/auth'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,38 +15,23 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAuth } from '@/hooks/useAuth'
-import { cn } from '@/lib/utils'
-import type { Membership } from '@/types/auth'
+import { useWorkspaceOptions } from '@/hooks/useWorkspaceOptions'
+import { cn, initialOf } from '@/lib/utils'
 
 export function WorkspaceSwitcher({ expanded = false }: { expanded?: boolean }) {
-  const { activeTenant, selectTenant } = useAuth()
-  const [options, setOptions] = useState<Membership[] | null>(null)
-  const [loading, setLoading] = useState(false)
+  const { selectTenant } = useAuth()
+  // 드롭다운이 열릴 때만 멤버십 목록을 페치(매 페이지 마운트 시 페치 방지) — 모바일 계정 시트와 같은 훅.
+  const [open, setOpen] = useState(false)
+  const { activeTenant, list, loading, isCurrent } = useWorkspaceOptions(open)
 
   // 활성 테넌트가 없으면(미선택/무소속/기존 테스트) 칩을 렌더하지 않는다.
   if (!activeTenant) return null
 
-  // 드롭다운이 열릴 때만 멤버십 목록을 페치(매 페이지 마운트 시 페치 방지).
-  const onOpenChange = async (open: boolean) => {
-    if (!open || options !== null || loading) return
-    try {
-      setLoading(true)
-      const { data } = await authApi.memberships()
-      setOptions(data)
-    } catch {
-      // 실패 시 현재 워크스페이스만 표시(전환 불가).
-      setOptions([activeTenant])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const initial = activeTenant.tenantName.trim().charAt(0) || '·'
-  const list = options ?? [activeTenant]
+  const initial = initialOf(activeTenant.tenantName)
   const canSwitch = list.length > 1
 
   return (
-    <DropdownMenu onOpenChange={onOpenChange}>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       {/* 데스크톱(lg) 아이콘 레일에서 호버 시 워크스페이스 이름을 Tooltip으로 표시. 모바일 드로어에서는 숨김. */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -88,7 +72,7 @@ export function WorkspaceSwitcher({ expanded = false }: { expanded?: boolean }) 
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {list.map((m) => {
-          const current = m.tenantId === activeTenant.tenantId
+          const current = isCurrent(m)
           return (
             <DropdownMenuItem
               key={m.tenantId}

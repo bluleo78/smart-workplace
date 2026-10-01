@@ -30,3 +30,10 @@ export function parseMessageSegments(
   if (last < body.length) segments.push({ type: 'text', value: body.slice(last) });
   return segments;
 }
+
+/** 본문을 사람이 읽는 평문으로 — <@id> 토큰을 '@이름' 으로 바꾼다(접근 이름·복사용). */
+export function messagePlainText(body: string, mentions: MentionUser[]): string {
+  return parseMessageSegments(body, mentions)
+    .map((seg) => (seg.type === 'text' ? seg.value : `@${seg.name}`))
+    .join('');
+}

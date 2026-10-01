@@ -35,6 +35,7 @@ import { WikiBacklinksPanel } from './WikiBacklinksPanel'
 import { buildBreadcrumb } from './wikiBreadcrumb'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
+import { trackWikiFlush } from './wikiFlushRegistry'
 import { WikiImage } from './wikiImageNode'
 import { WikiMarkdownSourceDialog } from './WikiMarkdownSourceDialog'
 import { WikiMarkdownText } from './wikiMarkdownText'
@@ -475,15 +476,19 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 저장 성공 후 page prop 의 version 이 갱신돼도 상태를 리셋하지 않는다
   // (리셋하면 '저장됨' 이 즉시 사라지고, 매 자동저장마다 snapshot=true 가 되어 리비전 캐던스가 깨진다).
 
+  // flush=true(언마운트 flush)면 mutateAsync 의 promise 를 돌려준다 — 컴포넌트가 사라지는 중이라 저장 상태 UI 갱신은
+  // 의미가 없고, 대신 WikiPageView 가 이 promise 로 재마운트 시점을 잡는다(wikiFlushRegistry).
   const doSave = useCallback(
-    (nextTitle: string) => {
+    (nextTitle: string, flush = false): Promise<unknown> | undefined => {
       if (!editor) return
       if (saveState === 'conflict') return
       const body = editor.storage.markdown.getMarkdown()
       const snapshot = firstSaveRef.current
+      const vars = { pageId: page.id, req: { title: nextTitle, body, version: versionRef.current, snapshot } }
+      if (flush) return save.mutateAsync(vars)
       setSaveState('saving')
       save.mutate(
-        { pageId: page.id, req: { title: nextTitle, body, version: versionRef.current, snapshot } },
+        vars,
         {
           onSuccess: (data) => {
             versionRef.current = data.version
@@ -503,13 +508,47 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     [editor, page.id, save, saveState],
   )
 
+  // 디바운스 대기 중인 저장의 제목 — 언마운트 flush 가 클로저가 아닌 최신 값을 쓰도록 ref 로 보관.
+  const pendingTitleRef = useRef<string | null>(null)
+  // 언마운트 cleanup(빈 deps)은 첫 렌더의 doSave(editor=null)를 캡처하므로, 최신 doSave 를 ref 로 추적한다.
+  const doSaveRef = useRef(doSave)
+  useEffect(() => {
+    doSaveRef.current = doSave
+  })
+
   const scheduleSave = useCallback(
     (nextTitle: string) => {
       if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => doSave(nextTitle), 800)
+      pendingTitleRef.current = nextTitle
+      timerRef.current = setTimeout(() => {
+        // 발화 = 대기 해제. 언마운트 flush 가 이미 끝난 저장을 다시 보내지 않게 비운다.
+        timerRef.current = null
+        pendingTitleRef.current = null
+        doSave(nextTitle)
+      }, 800)
     },
     [doSave],
   )
+
+  // 언마운트 시 대기 중 자동저장을 즉시 flush — 페이지 전환(key 리마운트)·뷰포트 lg 경계 전환(데스크톱↔모바일 셸
+  // 트리 교체)으로 에디터가 사라질 때 마지막 편집을 잃지 않게 한다. 타이머는 반드시 해제해 늦게 한 번 더
+  // (옛 version 으로) PUT 해 409 가 나는 일을 막는다. useEditor 의 destroy 는 다음 틱으로 예약되므로
+  // 이 시점엔 에디터 문서를 아직 직렬화할 수 있다.
+  // flush promise 는 wikiFlushRegistry 에 등록 — 리마운트된 에디터가 flush 전 캐시(옛 본문·version)로 뜨지 않게
+  // WikiPageView 가 끝날 때까지 skeleton 을 보인다(key=page.id 라 page.id 는 이 인스턴스 동안 불변).
+  const pageId = page.id
+  useEffect(() => {
+    return () => {
+      if (!timerRef.current) return
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+      const pending = pendingTitleRef.current
+      pendingTitleRef.current = null
+      if (pending == null) return
+      const p = doSaveRef.current(pending, true)
+      if (p) trackWikiFlush(pageId, p)
+    }
+  }, [pageId])
 
   useEffect(() => {
     if (!editor) return

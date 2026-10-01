@@ -1,5 +1,5 @@
 // TipTap 기반 chat 입력 공용 컴포넌트 (composer/editor 공용).
-// mention 칩 + @ suggestion. Enter=onSubmit, Shift+Enter=줄바꿈, Esc=onCancel.
+// mention 칩 + @ suggestion. Enter=onSubmit(모바일 터치 셸은 줄바꿈 — lib/submitEnter), Shift+Enter=줄바꿈, Esc=onCancel.
 // IME(한글 조합)는 ProseMirror 가 처리. 전송 후 clearOnSubmit 이면 비우고 포커스 유지.
 
 import './chat-rich-input.css';

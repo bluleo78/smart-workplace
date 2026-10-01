@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, type ReactNode, Suspense } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { AdminRoute } from './components/AdminRoute'
@@ -7,6 +7,7 @@ import { AppLayout } from './components/layout/AppLayout'
 import { PageErrorBoundary } from './components/PageErrorBoundary'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { Skeleton } from './components/ui/skeleton'
+import { useIsMobile } from './hooks/useIsMobile'
 
 // 페이지는 라우트 진입 시점에만 로드해 초기 번들을 가볍게 유지한다.
 const LoginPage = lazy(() => import('./pages/LoginPage'))
@@ -84,6 +85,9 @@ const MailInboxPage = lazy(() =>
   import('./pages/mail/MailInboxPage').then((m) => ({ default: m.MailInboxPage })),
 )
 const M365CallbackPage = lazy(() => import('./pages/oauth/M365CallbackPage'))
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'))
+const AppsPage = lazy(() => import('./pages/apps/AppsPage'))
+const TabEditPage = lazy(() => import('./pages/apps/TabEditPage'))
 // 알림 탭으로 새 창이 열릴 때의 진입점 — 미인증도 접근 가능(로그인 후 목적지로 복귀).
 const PushOpenPage = lazy(() => import('./pages/PushOpenPage'))
 const ProfileSettingsPage = lazy(() => import('./pages/settings/ProfileSettingsPage'))
@@ -94,6 +98,16 @@ const TokenSettingsPage = lazy(() => import('./pages/settings/TokenSettingsPage'
 const SettingsModuleLayout = lazy(() =>
   import('./components/layout/SettingsModuleLayout').then((m) => ({ default: m.SettingsModuleLayout })),
 )
+
+// 모바일(<lg)에선 모듈 루트가 "사이드바 목록" 화면이므로 인덱스 리다이렉트를 건너뛴다(WP-124).
+function DesktopOnly({ children }: { children: ReactNode }) {
+  return useIsMobile() ? null : <>{children}</>
+}
+
+// 모바일 전용 화면(앱 목록·탭바 순서 편집) 가드 — 데스크톱엔 해당 화면이 없으므로 홈으로 되돌린다(WP-126).
+function MobileOnly({ children }: { children: ReactNode }) {
+  return useIsMobile() ? <>{children}</> : <Navigate to="/" replace />
+}
 
 // 구 /admin/* 딥링크를 /settings/* 로 치환 리다이렉트(하위경로·쿼리 보존).
 function AdminRedirect() {
@@ -131,10 +145,16 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
               <Route index element={<HomePage />} />
+              {/* 모바일 전용 화면(WP-126) — 알림은 데스크톱 접근 시 홈 + 인박스 Popover 로(페이지 자체 처리), 앱 목록류는 MobileOnly 가 홈으로. */}
+              <Route path="notifications" element={<NotificationsPage />} />
+              <Route path="apps" element={<MobileOnly><AppsPage /></MobileOnly>} />
+              <Route path="apps/tabs" element={<MobileOnly><TabEditPage /></MobileOnly>} />
 
               {/* 이슈 모듈 — 2차 사이드바(내 태스크 + 프로젝트 목록) 가 감싼다 */}
               <Route element={<IssueModuleLayout />}>
                 {/* 프로젝트 / 이슈 */}
+                {/* /tasks — 작업 모듈 허브. 데스크톱은 기존 진입점으로, 모바일은 IssueModuleLayout 이 rootPath 에서 사이드바 목록을 그려 본문 불필요. */}
+                <Route path="tasks" element={<DesktopOnly><Navigate to="/me/tasks/assigned" replace /></DesktopOnly>} />
                 <Route path="projects" element={<ProjectListPage />} />
                 <Route path="projects/:key" element={<ProjectDetailPage />} />
                 <Route path="projects/:key/settings" element={<ProjectSettingsPage />} />
@@ -165,7 +185,7 @@ export default function App() {
 
               {/* 드라이브 모듈 — 2차 사이드바(공간 목록) 가 감싼다 */}
               <Route element={<DriveModuleLayout />}>
-                <Route path="drive" element={<DriveIndexRedirect />} />
+                <Route path="drive" element={<DesktopOnly><DriveIndexRedirect /></DesktopOnly>} />
                 <Route path="drive/spaces/:spaceId" element={<DrivePage />} />
                 {/* #80: 가상 첨부 뷰 — 이슈/메시지 업로드 파일 크로스링크 */}
                 <Route path="drive/attachments" element={<DriveAttachmentsView />} />
@@ -173,7 +193,7 @@ export default function App() {
 
               {/* 위키 모듈 — 2차 사이드바(스페이스/페이지 트리) 가 감싼다 */}
               <Route element={<WikiModuleLayout />}>
-                <Route path="wiki" element={<WikiIndexRedirect />} />
+                <Route path="wiki" element={<DesktopOnly><WikiIndexRedirect /></DesktopOnly>} />
                 <Route path="wiki/spaces/:spaceId" element={<WikiPage />} />
                 <Route path="wiki/spaces/:spaceId/pages/:pageId" element={<WikiPage />} />
               </Route>
@@ -197,7 +217,7 @@ export default function App() {
               {/* 설정 모듈 — 2차 사이드바(개인/관리) 가 감싼다 */}
               <Route element={<SettingsModuleLayout />}>
                 {/* 개인 설정 — 전체 로그인 사용자 */}
-                <Route path="settings" element={<Navigate to="/settings/profile" replace />} />
+                <Route path="settings" element={<DesktopOnly><Navigate to="/settings/profile" replace /></DesktopOnly>} />
                 <Route path="settings/profile" element={<ProfileSettingsPage />} />
                 <Route path="settings/mail" element={<MailSettingsPage />} />
                 <Route path="settings/notifications" element={<NotificationSettingsPage />} />

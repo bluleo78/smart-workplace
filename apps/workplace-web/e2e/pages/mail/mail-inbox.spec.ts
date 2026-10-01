@@ -226,6 +226,8 @@ test.describe('받은편지함', () => {
     // 목록에서 첫 번째 행 클릭
     const firstRow = page.getByTestId('mail-row-10')
     await firstRow.click()
+    // 모바일 셸(WP-125): 본문이 열리면 하단 탭바 숨김
+    await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
     // 선택 후: 뒤로가기 버튼·상세 표시, 목록 숨김
     await expect(page.getByTestId('mail-back')).toBeVisible()
     await expect(page.getByTestId('mail-detail')).toBeVisible()
@@ -233,6 +235,7 @@ test.describe('받은편지함', () => {
     // 뒤로가기 클릭 → 목록 복귀
     await page.getByTestId('mail-back').click()
     await expect(page.getByTestId('mail-list')).toBeVisible()
+    await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
 
     // 다시 메시지 선택(디테일 노출) 후 보낸편지함으로 폴더 전환 →
     // 선택이 초기화되어 목록이 다시 보이고 뒤로가기 버튼은 숨겨져야 한다(스테일 디테일에 갇히지 않음).

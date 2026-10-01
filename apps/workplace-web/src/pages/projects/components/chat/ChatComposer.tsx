@@ -1,5 +1,5 @@
 // chat 메시지 작성 폼 — RichInput 래퍼 + 파일/드라이브 첨부. (#358)
-// Enter=전송, Shift+Enter=줄바꿈, @=멘션. 전송 후 비우고 포커스 유지.
+// Enter=전송(모바일 터치 셸은 줄바꿈 — lib/submitEnter), Shift+Enter=줄바꿈, @=멘션. 전송 후 비우고 포커스 유지.
 
 import { Cloud, Paperclip, X } from 'lucide-react';
 
@@ -8,6 +8,8 @@ import { FolderPickerModal } from '@/components/drive/FolderPickerModal';
 import { convertPlaintextMentions } from '@/components/mentions/mentionSerialize';
 import { RichInput } from '@/components/mentions/RichInput';
 import { useAttachmentDraft } from '@/hooks/useAttachmentDraft';
+import { useIsTouchShell } from '@/hooks/useIsTouchShell';
+import { MESSAGE_PLACEHOLDER } from '@/lib/submitEnter';
 
 import type { ChatMemberResponse } from '../../../../types/chat';
 
@@ -46,6 +48,10 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus 
     fileIds,
     driveFileIds,
   } = useAttachmentDraft((files) => chatApi.uploadAttachments(threadId, files));
+  // 터치 셸은 Enter 가 줄바꿈이라(가상 키보드, M4) Shift+Enter 안내가 맞지 않는다 — 팀 채팅과 같은 문구.
+  // 판정은 isSubmitEnter 와 같은 터치 셸 기준(안내 문구와 실제 키 동작이 어긋나지 않게). 그 밖은 RichInput 기본 문구.
+  // TipTap 은 에디터 생성 시점의 placeholder 를 쓰므로 마운트 시 값이 적용된다.
+  const touchShell = useIsTouchShell();
 
   // #366: 자동완성 없이 평문으로 @에이전트 를 타이핑한 경우에도 <@id> 로 변환해 AI 트리거가 누락되지 않게 한다.
   const handleSubmit = async (body: string): Promise<void> => {
@@ -104,6 +110,7 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus 
         onSubmit={handleSubmit}
         onChange={onTyping}
         clearOnSubmit
+        placeholder={touchShell ? MESSAGE_PLACEHOLDER : undefined}
         autoFocus={autoFocus}
         allowEmptySubmit={hasAny}
         disableWhenEmpty

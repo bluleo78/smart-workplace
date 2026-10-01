@@ -1,8 +1,9 @@
 // 내가 멤버인 프로젝트 목록 — 모니터링 리스트(배지·진행률·멤버·즐겨찾기).
-import { ArrowUpDown, FolderOpen } from 'lucide-react'
+import { ArrowUpDown, FolderOpen, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { PageHeader } from '@/components/layout/PageHeader'
+import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProjectFavorites } from '@/hooks/useProjectFavorites'
@@ -42,6 +43,9 @@ export default function ProjectListPage() {
         contained
         title="프로젝트"
         actions={<Button onClick={() => setOpen(true)}>+ 새 프로젝트</Button>}
+        // 모바일: 단일 주 액션은 ＋ 아이콘으로 인라인(⋯ 없음).
+        mobilePrimaryAction={<HeaderIconAction label="새 프로젝트" onClick={() => setOpen(true)}><Plus /></HeaderIconAction>}
+        mobileActions={null}
       />
       <div className="flex-1 overflow-y-auto">
         <div className="container mx-auto space-y-4 p-6">

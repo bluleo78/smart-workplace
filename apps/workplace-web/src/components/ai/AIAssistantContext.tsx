@@ -11,6 +11,8 @@ import {
   useState,
 } from 'react';
 
+import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile';
+
 /** AI 어시스턴트 표시 모드. closed=닫힘, side=우측 도킹, fullscreen=콘텐츠 영역 2단. */
 export type AIMode = 'closed' | 'side' | 'fullscreen';
 
@@ -44,10 +46,28 @@ function readInitialWidth(): number {
   return Math.min(SIDE_MAX_WIDTH, Math.max(SIDE_MIN_WIDTH, n));
 }
 
+/** 모바일(<lg)에는 사이드 패널이 없으므로 side 는 fullscreen 으로 승격해 보여준다(WP-121). */
+function effectiveMode(m: AIMode, isMobile: boolean): AIMode {
+  return isMobile && m === 'side' ? 'fullscreen' : m;
+}
+/**
+ * 연 모드를 ⌘K 복원용으로 영속한다. 모바일에서 연 것(항상 풀스크린)은 저장하지 않아
+ * 데스크톱 ⌘K 기본값을 건드리지 않는다. 판정은 렌더 값이 아닌 호출 시점 뷰포트 기준.
+ */
+function persist(m: Exclude<AIMode, 'closed'>): void {
+  if (!getIsMobile()) localStorage.setItem(MODE_KEY, m);
+}
+
 const AIAssistantContext = createContext<AIAssistantValue | null>(null);
 
-export function AIAssistantProvider({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<AIMode>('closed');
+/** hotkeysEnabled — AI 가용 여부(AppLayout 이 이미 계산). false 면 ⌘K/Esc 리스너를 달지 않는다(인증 훅 결합을 피하려 prop 으로 받는다). */
+export function AIAssistantProvider({ children, hotkeysEnabled }: { children: ReactNode; hotkeysEnabled: boolean }) {
+  // rawMode = 사용자가 요청한 모드(side 유지). 모바일에서만 노출값(mode)이 fullscreen 으로 승격되므로
+  // 데스크톱 복귀 시 side 가 복원된다. localStorage(ai-mode)는 데스크톱 ⌘K 복원용이라 데스크톱에서 연 모드만 저장하고,
+  // 모바일에서 연 것(항상 풀스크린)은 저장하지 않아 데스크톱 ⌘K 기본값을 건드리지 않는다.
+  const [rawMode, setMode] = useState<AIMode>('closed');
+  const isMobile = useIsMobile();
+  const mode = effectiveMode(rawMode, isMobile);
   const [sidePanelWidth, setWidth] = useState<number>(readInitialWidth);
   // ⌘K 토글 시 복원할 직전 open 모드(기본 side). localStorage(ai-mode)에 마지막 open 모드 보관.
   const lastOpen = (): Exclude<AIMode, 'closed'> => {
@@ -56,17 +76,18 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
   };
 
   const open = useCallback((m: Exclude<AIMode, 'closed'>) => {
-    localStorage.setItem(MODE_KEY, m);
+    persist(m);
     setMode(m);
   }, []);
   const close = useCallback(() => setMode('closed'), []);
+  // 부수효과(matchMedia·localStorage)를 setState 업데이터 밖으로 — 현재 rawMode 로 다음 모드를 계산해 1회 set·persist.
   const cycleMode = useCallback(() => {
-    setMode((cur) => {
-      const next: AIMode = cur === 'closed' ? 'side' : cur === 'side' ? 'fullscreen' : 'closed';
-      if (next !== 'closed') localStorage.setItem(MODE_KEY, next);
-      return next;
-    });
-  }, []);
+    // 모바일에선 side 가 곧 fullscreen 이므로 현재 노출 모드 기준으로 순환한다.
+    const eff = effectiveMode(rawMode, getIsMobile());
+    const next: AIMode = eff === 'closed' ? 'side' : eff === 'side' ? 'fullscreen' : 'closed';
+    if (next !== 'closed') persist(next);
+    setMode(next);
+  }, [rawMode]);
   const toggle = useCallback(() => {
     setMode((cur) => (cur === 'closed' ? lastOpen() : 'closed'));
   }, []);
@@ -76,6 +97,24 @@ export function AIAssistantProvider({ children }: { children: ReactNode }) {
     if (persist) localStorage.setItem(WIDTH_KEY, String(clamped));
     setWidth(clamped);
   }, []);
+
+  // AI 전역 단축키 — ⌘K/Ctrl+K 토글, Esc 닫기. 셸(데스크톱·모바일)과 무관하게 Provider 가 한 번만 등록한다
+  // (예전엔 데스크톱 전용 AI 칩 안에 있어 lg 미만에서 사라졌다). AI 미사용 워크스페이스면 리스너를 달지 않는다.
+  useEffect(() => {
+    if (!hotkeysEnabled) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        toggle();
+      } else if (e.key === 'Escape' && !e.defaultPrevented) {
+        // Radix AlertDialog/DropdownMenu 가 Esc 를 먼저 처리하면 defaultPrevented=true →
+        // 그 경우 패널까지 닫지 않는다(다이얼로그만 닫힘).
+        close();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [hotkeysEnabled, toggle, close]);
 
   // side 모드일 때만 현재 사이드 패널 폭을 :root CSS 변수로 노출한다.
   // AIChip 은 document.body 로 portal 되므로(콘텐츠 flex 트리 밖) 패널 폭을 직접 알 수 없다.

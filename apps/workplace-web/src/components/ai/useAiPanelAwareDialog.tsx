@@ -8,13 +8,14 @@
 //  - 열린 동안 페이지 영역을 inert 로 만들어 포커스·보조기기가 흐린 페이지로 새지 않게 하고,
 //  - 페이지 영역만 덮는 dim 오버레이를 직접 렌더(non-modal 이면 Radix 가 Overlay 를 그리지 않으므로)하고,
 //  - 데스크톱(lg+)에서는 다이얼로그를 페이지 영역 중앙으로 옮기고 폭을 클램프해 패널을 가리지 않게 한다.
-// closed/fullscreen 에서는 기존 modal 동작(접근성) 그대로다.
+// closed/fullscreen 에서는 기존 modal 동작(접근성) 그대로다 — 단 모바일 풀스크린은 side 와 같이 취급(모바일의 유일한 AI 표면).
 // shadcn primitive(components/ui/dialog.tsx)는 편집하지 않고 호출부 props/className 조합으로만 적용한다.
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { inertPageArea, isAiPanelInteraction, isInAiPanelDom } from '@/components/ai/aiPanelSurface';
 import { DialogPortal } from '@/components/ui/dialog';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 // side 모드 데스크톱 배치 — 페이지 영역(뷰포트 - 패널 폭) 중앙 + 폭 클램프.
 // Tailwind 는 정적 클래스만 수집하므로 크기별 리터럴로 둔다.
@@ -55,7 +56,10 @@ interface Result {
 /** AI 사이드 패널과 공존하는 다이얼로그 props 를 만든다. */
 export function useAiPanelAwareDialog({ open, size = 'default' }: Options): Result {
   const { mode, close } = useAssistant();
-  const modal = mode !== 'side';
+  // 모바일(<lg)은 side 패널이 없고 AI 가 곧 풀스크린(다이얼로그 위 z-[60] AI 표면)이므로,
+  // 데스크톱 side 와 같은 "다이얼로그 위 AI 질문" 흐름을 풀스크린에 적용한다. 데스크톱 fullscreen 은 기존대로 modal.
+  const isMobile = useIsMobile();
+  const modal = !(mode === 'side' || (isMobile && mode === 'fullscreen'));
 
   // side 모드에서 열린 동안 페이지 영역(AppRail·main)을 inert — 포커스 트랩 대신 Tab 이 흐린 페이지로 새지 않고
   // 보조기기에서도 페이지가 숨겨진다(AI 패널·다이얼로그 포털은 제외). 닫힘·모드 전환·언마운트 시 cleanup 으로 해제.
@@ -84,8 +88,8 @@ export function useAiPanelAwareDialog({ open, size = 'default' }: Options): Resu
   }, []);
 
   // Esc: AI 표면에서 누르면 다이얼로그가 아니라 패널만 닫는다.
-  // Radix 의 Esc 리스너(document)가 AIChip 의 window 리스너보다 먼저 돌고, 여기서 preventDefault 하면
-  // AIChip 은 defaultPrevented 라 패널을 닫지 않으므로 패널 닫기를 직접 호출한다(둘이 동시에 닫히지 않음).
+  // Radix 의 Esc 리스너(document)가 AIAssistantProvider 단축키의 window 리스너보다 먼저 돌고, 여기서 preventDefault 하면
+  // 전역 리스너는 defaultPrevented 라 패널을 닫지 않으므로 패널 닫기를 직접 호출한다(둘이 동시에 닫히지 않음).
   const onEscapeKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!isInAiPanelDom(e.target)) return;

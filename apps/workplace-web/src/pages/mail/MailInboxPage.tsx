@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Download, Forward, Loader2, Mail, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Sparkles, Sun } from 'lucide-react'
+import { Check, Download, Forward, Loader2, Mail, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -8,8 +8,12 @@ import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { ListBackRow } from '@/components/mobile/ListBackRow'
+import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
+import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { Button } from '@/components/ui/button'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
@@ -442,6 +446,7 @@ function MessageDetailPanel({
  */
 export function MailInboxPage() {
   const { accountId } = useParams()
+  const isMobile = useIsMobile()
   const [params, setParams] = useSearchParams()
   const search = params.get('q') ?? ''
   // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(및 그 값을 쓰는 useMailMessages 쿼리)은
@@ -472,6 +477,8 @@ export function MailInboxPage() {
   const [selectedId, setSelectedId] = useState<number | null>(
     () => Number(params.get('messageId')) || null,
   )
+  // 모바일: 본문(상세)이 열려 있으면 하단 탭바를 숨긴다(WP-125).
+  useHideTabBar(selectedId != null)
 
   // 폴더 파라미터: ?folder=sent → SENT, 기본 INBOX.
   const folderParam = (params.get('folder') === 'sent' ? 'SENT' : 'INBOX') as MailFolder
@@ -633,6 +640,28 @@ export function MailInboxPage() {
     if (accounts && accounts.length > 0) {
       return <Navigate to={`/mail/${accounts[0].id}`} replace />
     }
+    if (isMobile) {
+      // 모바일(U1-4): 탭 루트 헤더("메일" + 🔔)는 유지하고, 알림 빈 상태와 같은 공용 빈 화면(U3-R11) + 44pt 주 버튼.
+      // 헤더가 사라지면 탭 루트인데도 제목·알림 진입점이 없는 빈 화면이 된다.
+      // ☰ 는 숨긴다(U3-R12) — 계정이 없으면 시트(폴더 목록)에 볼 것이 없다.
+      return (
+        <div className="flex h-full min-h-0 flex-col">
+          <PageHeader title="메일" mobileHideSheetTrigger />
+          <MobileEmptyState
+            data-testid="mail-empty-accounts"
+            className="flex-1"
+            icon={Mail}
+            title="연결된 메일 계정이 없습니다"
+            description="메일 계정을 연결하면 받은편지함을 여기서 볼 수 있어요."
+            action={
+              <Button asChild className="h-11 px-5" data-testid="mail-connect-account">
+                <Link to="/settings/mail">메일 계정 연결</Link>
+              </Button>
+            }
+          />
+        </div>
+      )
+    }
     return (
       <div data-testid="mail-empty-accounts" className="p-8 text-sm text-muted-foreground">
         연결된 메일 계정이 없습니다.{' '}
@@ -662,6 +691,9 @@ export function MailInboxPage() {
             />
           </>
         }
+        // 모바일: 메뉴 내용이 검색 입력 하나뿐이라 ⋯ 대신 🔍 트리거로 의미를 드러낸다(U1-2).
+        mobileMenuIcon={<Search className="h-5 w-5" />}
+        mobileMenuLabel="메일 검색"
       />
       {/* 리스트 툴바 — INBOX 전용: 아이콘 새로고침 + 마지막 동기화 상대시각 + 진행률. */}
       {folderParam === 'INBOX' && (
@@ -760,15 +792,8 @@ export function MailInboxPage() {
           )}
           data-testid="mail-detail-pane"
         >
-          {/* 좁은 화면 뒤로가기 버튼 — 선택 상태에서만 표시 */}
-          <button
-            type="button"
-            data-testid="mail-back"
-            onClick={() => setSelectedId(null)}
-            className="flex items-center gap-1 border-b px-4 py-2 text-sm text-primary lg:hidden"
-          >
-            ‹ 목록
-          </button>
+          {/* 좁은 화면 뒤로가기 버튼 — 선택 상태에서만 표시. 모바일은 탭바가 숨으므로 ✦(AI) 를 함께 둔다. */}
+          <ListBackRow data-testid="mail-back" onBack={() => setSelectedId(null)} />
           <MessageDetailPanel
             messageId={selectedId}
             aiEnabled={aiEnabled}

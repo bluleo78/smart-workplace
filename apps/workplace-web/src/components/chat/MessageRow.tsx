@@ -10,6 +10,7 @@ import { messagingApi } from '@/api/messaging'
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
 import { EmojiPicker } from '@/components/chat/EmojiPicker'
+import { MessageActionsButton } from '@/components/chat/MessageActionsButton'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
 import { MessageImage } from '@/components/chat/MessageImage'
 import {
@@ -17,6 +18,7 @@ import {
   MESSAGE_TOOLBAR_CLASS,
   OWN_ATTACHMENTS_CLASS,
   TOOLBAR_POSITION,
+  TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar'
 import { ProposalCard } from '@/components/chat/ProposalCard'
 import { ReactionBar } from '@/components/chat/ReactionBar'
@@ -24,6 +26,7 @@ import { parseMessageSegments } from '@/components/mentions/parseMessageSegments
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
+import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import type { ToolbarRowProps } from '@/hooks/useToolbarReveal'
 import { formatClockTime, formatClockTimeCompact } from '@/lib/formatters'
 import type { MessageResponse } from '@/types/messaging'
@@ -44,6 +47,9 @@ interface MessageRowProps {
   rowRef?: Ref<HTMLDivElement>
   // useToolbarReveal 이 주는 행 props(터치 탭 노출·툴바 뒤집기).
   rowProps: ToolbarRowProps
+  // 작업 시트 열기 — 스크린리더용 "메시지 작업" 버튼(A1)이 쓴다. 터치 셸이 아니거나 시트를 열 수 없는 행이면 미전달.
+  // 길게 누르기 자체는 목록이 위임으로 판정한다(useMessageListLongPress, 행의 data-message-id).
+  onOpenActions?: () => void
   // 스레드 패널 오픈. 스레드 패널 내부 렌더 시엔 미전달(스레드 버튼·답글 링크 숨김).
   onOpenThread?: (messageId: number) => void
   onStartEdit: () => void
@@ -65,6 +71,7 @@ export function MessageRow({
   isEditing,
   rowRef,
   rowProps,
+  onOpenActions,
   onOpenThread,
   onStartEdit,
   onCancelEdit,
@@ -97,7 +104,11 @@ export function MessageRow({
       ? TOOLBAR_POSITION.ownHeader
       : TOOLBAR_POSITION.ownBubble
 
-  const toolbar = !isEditing && (
+  // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트가 열린다.
+  const touchShell = useIsTouchShell()
+
+  // 터치 셸에선 툴바 자체를 그리지 않는다 — 같은 작업은 길게 누르기 시트가 맡는다(탭 한 번으로 툴바가 뜨던 #884 터치 경로 대체).
+  const toolbar = !isEditing && !touchShell && (
     <div
       data-testid={`message-toolbar-${m.id}`}
       data-message-toolbar=""
@@ -280,9 +291,14 @@ export function MessageRow({
       data-pending={isPending ? 'true' : undefined}
       data-group-start={startsGroup ? 'true' : 'false'}
       data-own={isOwn ? 'true' : 'false'}
+      // 목록 위임 길게 누르기의 대상 표식 — 수정 중인 행은 빼서 에디터 안 길게 누르기가 시트를 열지 않게 한다(C2).
+      data-message-id={isEditing ? undefined : m.id}
       {...rowProps}
       className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''} ${
         ownBubble ? 'justify-end' : ''
+      } ${
+        // 터치 셸: 선택·콜아웃 억제(이유는 TOUCH_NO_SELECT_CLASS 주석). 수정 중인 행은 풀어 둔다(C2).
+        touchShell && !isEditing ? TOUCH_NO_SELECT_CLASS : ''
       }`}
     >
       {ownBubble ? (
@@ -298,7 +314,8 @@ export function MessageRow({
             </span>
           )}
           {/* 본인 컬럼 — 우측 정렬, 말풍선 최대 폭 75%. 아바타·이름은 그리지 않는다. */}
-          <div className="flex min-w-0 max-w-[75%] flex-col items-end">
+          {/* 모바일(lg 미만)은 화면이 좁아 75% 면 한 줄 글자 수가 너무 적다 — 85% 로 넓힌다(L1). */}
+          <div className="flex min-w-0 max-w-[75%] max-lg:max-w-[85%] flex-col items-end">
             {/* 화면에는 이름을 생략하지만 스크린리더에는 작성자를 알린다(묶음 첫 줄에만). */}
             {startsGroup && <span className="sr-only">{m.authorName}</span>}
             {/* 묶음 첫 줄: 말풍선 위 오른쪽에 시각(항상 표시). 툴바는 이 줄 안에서 시각 왼쪽에 뜬다. */}
@@ -360,6 +377,7 @@ export function MessageRow({
           </div>
         </>
       )}
+      {onOpenActions && <MessageActionsButton onOpen={onOpenActions} />}
     </div>
   )
 }

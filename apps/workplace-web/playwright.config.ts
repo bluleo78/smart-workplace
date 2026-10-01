@@ -72,6 +72,14 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      // 모바일 셸 스펙은 mobile 프로젝트에서만 실행(데스크톱 뷰포트에선 셸이 렌더되지 않음).
+      testIgnore: /pages\/mobile\//,
+    },
+    {
+      // 모바일 셸(WP-121) — iPhone 13 뷰포트·터치. 브라우저는 chromium 고정(웹킷 설치 불요).
+      name: 'mobile',
+      use: { ...devices['iPhone 13'], defaultBrowserType: 'chromium' },
+      testMatch: /pages\/mobile\/.*\.spec\.ts/,
     },
   ],
 

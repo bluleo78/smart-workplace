@@ -7,11 +7,13 @@ import { useNavigate } from 'react-router-dom'
 import { messagingApi } from '@/api/messaging'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { RecipientInput } from '@/components/chat/RecipientInput'
+import { PageHeader } from '@/components/layout/PageHeader'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { useCreateDm } from '@/hooks/queries/useCreateDm'
 import type { MemberPickerCandidate } from '@/hooks/queries/useUserSearch'
 import type { PendingFile } from '@/hooks/useAttachmentDraft'
 import { useAuth } from '@/hooks/useAuth'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { handleApiError } from '@/lib/api-error'
 
 // 본인 포함 최대 8명 → 타겟 최대 7명.
@@ -22,6 +24,7 @@ export default function NewMessagePage() {
   const { user } = useAuth()
   const myId = user?.id ?? 0
   const createDm = useCreateDm()
+  const isMobile = useIsMobile()
   const [selected, setSelected] = useState<MemberPickerCandidate[]>([])
   const [sending, setSending] = useState(false)
   // 전송 전까지 보관하는 첨부(임시 음수 id → 원본 File + 업로드 결과). DM 이 아직 없어 사전 업로드할 채널이 없기 때문(WP-99).
@@ -91,7 +94,8 @@ export default function NewMessagePage() {
         fileIds: uploadedIds.length ? uploadedIds : undefined,
         driveFileIds: driveFileIds.length ? driveFileIds : undefined,
       })
-      navigate(`/chat/dms/${dm.id}`)
+      // replace — 새 메시지 작성 화면은 일회성이다. push 하면 DM 에서 뒤로가기가 빈 작성 화면으로 돌아간다.
+      navigate(`/chat/dms/${dm.id}`, { replace: true })
     } catch (err) {
       handleApiError(err, '메시지를 보낼 수 없습니다')
       setSending(false)
@@ -101,9 +105,13 @@ export default function NewMessagePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="new-message-page">
+      {/* 모바일: 병합 상세 헤더에 "새 메시지" 를 등록해 레이아웃의 모듈 제목("채팅") 바를 대신한다(M1).
+          액션이 없으므로 ⋯ 는 두지 않는다. 데스크톱은 헤더 바 없이 아래 본문 라벨 그대로. */}
+      {isMobile && <PageHeader title="새 메시지" mobileActions={null} />}
       <header className="border-b px-4 py-2">
-        <div className="text-sm font-semibold">새 메시지</div>
-        <div className="mt-2">
+        {/* 모바일은 위 헤더가 제목을 보이므로 시각적으로 숨기되 스크린리더에는 남긴다. */}
+        <div className="text-sm font-semibold max-lg:sr-only" data-testid="new-message-label">새 메시지</div>
+        <div className="mt-2 max-lg:mt-0">
           {/* 진입 즉시 상대를 고를 수 있게 자동 포커스 — 포커스되면 후보 목록이 바로 열린다(#883). */}
           <RecipientInput
             selected={selected}

@@ -16,11 +16,17 @@ export function IssueChatButton({
   issueNumber,
   open,
   onOpen,
+  variant = 'default',
 }: {
   projectKey: string;
   issueNumber: number;
   open: boolean;
   onOpen: () => void;
+  /**
+   * 'icon' — 모바일 병합 헤더용 44px 아이콘 버튼(⋯ 메뉴 밖, M5). 미읽음은 숫자 배지 대신 빨간 점.
+   * 기본은 데스크톱 헤더의 "채팅" 글자 버튼 + 숫자 배지.
+   */
+  variant?: 'default' | 'icon';
 }) {
   const threadQ = useChatThread(projectKey, issueNumber);
   const { user } = useAuth();
@@ -62,6 +68,28 @@ export function IssueChatButton({
 
   // 열려 있으면(읽는 중) 0, 아니면 스냅샷 + 라이브 델타.
   const unreadCount = open ? 0 : baseUnread + liveUnread;
+
+  if (variant === 'icon') {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={unreadCount > 0 ? `채팅 열기, 읽지 않은 메시지 ${unreadCount}개` : '채팅 열기'}
+        data-testid="issue-chat-open"
+        className="relative flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground"
+      >
+        <MessageSquare className="h-5 w-5" />
+        {unreadCount > 0 && (
+          // 좁은 헤더에선 숫자 대신 점 — 개수는 aria-label 이 알린다.
+          <span
+            data-testid="issue-chat-unread-dot"
+            aria-hidden
+            className="absolute top-2.5 right-2.5 size-2.5 rounded-full bg-destructive ring-2 ring-background"
+          />
+        )}
+      </button>
+    );
+  }
 
   return (
     <Button

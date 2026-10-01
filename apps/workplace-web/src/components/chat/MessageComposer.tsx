@@ -11,6 +11,7 @@ import { convertPlaintextMentions } from '@/components/mentions/mentionSerialize
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { type PendingFile, useAttachmentDraft } from '@/hooks/useAttachmentDraft'
+import { MESSAGE_PLACEHOLDER } from '@/lib/submitEnter'
 
 export function MessageComposer({
   channelId,
@@ -137,7 +138,7 @@ export function MessageComposer({
         clearOnSubmit
         allowEmptySubmit={hasAny}
         disableWhenEmpty
-        placeholder="메시지를 입력하세요"
+        placeholder={MESSAGE_PLACEHOLDER}
         submitLabel={uploading ? '업로드 중…' : '보내기'}
         submitDisabled={uploading}
         maxLength={4000}

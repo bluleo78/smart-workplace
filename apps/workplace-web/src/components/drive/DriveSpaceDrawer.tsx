@@ -1,6 +1,7 @@
 import { ExternalLink } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
+import { MobileDetailCtx } from '@/components/mobile/MobileDetailContext'
 import {
   Sheet,
   SheetContent,
@@ -56,7 +57,11 @@ export function DriveSpaceDrawer({
         </SheetHeader>
         {/* 드라이브 엔진 임베드 — 자체 헤더(검색/업로드)와 본문을 그대로 렌더. */}
         <div className="min-h-0 flex-1 overflow-hidden">
-          {spaceId != null && <DrivePage spaceId={spaceId} />}
+          {/* 컨텍스트는 포털을 넘어 전달되므로, 모바일 채널 상세 안에서 연 드로워의 DrivePage 헤더가
+              상세 헤더로 등록돼 ‹·✦ 를 그리거나 채널 헤더를 숨기지 않게 병합 컨텍스트를 끊는다. */}
+          <MobileDetailCtx.Provider value={null}>
+            {spaceId != null && <DrivePage spaceId={spaceId} />}
+          </MobileDetailCtx.Provider>
         </div>
       </SheetContent>
     </Sheet>

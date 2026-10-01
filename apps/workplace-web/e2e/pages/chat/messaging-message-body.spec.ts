@@ -552,11 +552,12 @@ test.describe('메시지 좌/우 분리', () => {
 
   test('첨부만 있는 본인 메시지 — 빈 말풍선을 그리지 않고 첨부는 오른쪽, 긴 파일명은 카드 안에서 잘린다', async ({ authenticatedPage: page }) => {
     await expect(page.getByTestId('message-body-35')).toHaveCount(0)
-    // 카드가 본인 컬럼(목록 폭의 75%)을 넘거나 목록 왼쪽 밖으로 잘리지 않고 오른쪽 끝에 붙는다.
+    // 카드가 본인 컬럼(목록 폭의 75%, lg 미만은 85% — U4-L1)을 넘거나 목록 왼쪽 밖으로 잘리지 않고 오른쪽 끝에 붙는다.
     const assertCardInside = async () => {
       const list = await box(page, 'message-list')
       const card = await box(page, 'attachment-card-900')
-      expect(card.width).toBeLessThanOrEqual(list.width * 0.75 + 1)
+      const ratio = page.viewportSize()!.width < 1024 ? 0.85 : 0.75
+      expect(card.width).toBeLessThanOrEqual(list.width * ratio + 1)
       expect(card.x).toBeGreaterThanOrEqual(list.x)
       expect(card.x + card.width).toBeGreaterThan(list.x + list.width - 40)
       expect(await hasHorizontalOverflow(page, 'message-list')).toBe(false)

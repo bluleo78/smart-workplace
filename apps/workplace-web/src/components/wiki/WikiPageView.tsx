@@ -20,6 +20,7 @@ import {
   writeWikiLastVisited,
 } from '../../lib/wikiLastVisited'
 import { WikiEditor } from './WikiEditor'
+import { useWikiFlushPending } from './wikiFlushRegistry'
 
 /** 선택된 페이지를 로드해 에디터를 마운트. 미선택 시 DS §2.5 빈 상태(4요소) 표시. */
 export function WikiPageView({ pageId, spaceId }: { pageId: number | null; spaceId: number }) {
@@ -27,6 +28,8 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
   const createPage = useCreatePage(spaceId)
   const navigate = useNavigate()
   const lastVisitedKey = useWikiLastVisitedKey()
+  // 직전 에디터 인스턴스의 언마운트 flush 저장이 진행 중이면 skeleton — 끝나면 캐시의 최신 본문·version 으로 마운트.
+  const flushPending = useWikiFlushPending(pageId)
 
   // WP-54: 위키 화면 컨텍스트 — 스페이스 이름은 캐시된 스페이스 목록에서(WikiSidebar 와 같은 쿼리).
   // 스페이스 루트(pageId 없음)·로딩·에러 중에는 page=null 로 scope 만 싣는다(미로딩 데이터를 사실로 보내지 않음).
@@ -102,7 +105,7 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
       />
     )
   }
-  if (isLoading || !page) {
+  if (isLoading || !page || flushPending) {
     /** 페이지 콘텐츠 형태를 미러하는 skeleton — DS §2.5 */
     return (
       <div className="mx-auto max-w-3xl px-8 py-6" data-testid="wiki-page-skeleton">

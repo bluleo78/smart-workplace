@@ -1,10 +1,11 @@
-import { FolderX } from 'lucide-react';
+import { FolderX, Plus } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
+import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { Button } from '@/components/ui/button';
 
 import { useCycles } from '../../hooks/queries/useCycles';
@@ -79,6 +80,18 @@ export default function ProjectDetailPage() {
             {canCreateIssue && (
               <Button onClick={() => setOpen(true)}>+ 새 태스크</Button>
             )}
+          </>
+        }
+        // 모바일: 주 액션(새 태스크)만 ＋ 아이콘으로 인라인, 사이클·타임라인·설정은 ⋯ 메뉴로(U1-2).
+        mobilePrimaryAction={canCreateIssue && (
+          <HeaderIconAction label="새 태스크" data-testid="mobile-new-issue" onClick={() => setOpen(true)}><Plus /></HeaderIconAction>
+        )}
+        // 메뉴 항목은 링크 하나씩(포커스 한 번) — Link 안에 Button 을 중첩하지 않는다(U3-C3). 모양은 ⋯ 패널이 입힌다.
+        mobileActions={
+          <>
+            <Link to={`/projects/${key}/cycles`}>사이클</Link>
+            <Link to={`/projects/${key}/timeline`}>타임라인</Link>
+            <Link to={`/projects/${key}/settings`}>설정</Link>
           </>
         }
       />

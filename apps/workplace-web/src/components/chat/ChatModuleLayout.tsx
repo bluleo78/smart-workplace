@@ -1,8 +1,8 @@
 // 채팅 라우트 레이아웃 — 2차 사이드바(채널 목록) + 콘텐츠.
 // messaging SSE 구독은 AppLayout(앱 셸)으로 올라갔고, 여기선 연결 상태만 읽어 끊김 배너를 그린다.
 import { useEffect, useState } from 'react'
-import { Outlet } from 'react-router-dom'
 
+import { ResponsiveModuleLayout } from '@/components/mobile/ResponsiveModuleLayout'
 import { useMessagingConnection } from '@/hooks/MessagingConnectionContext'
 
 import { ChannelSidebar } from './ChannelSidebar'
@@ -41,12 +41,7 @@ export function ChatModuleLayout() {
           실시간 연결 중...
         </div>
       )}
-      <div className="flex min-h-0 flex-1">
-        <ChannelSidebar />
-        <div className="min-w-0 flex-1 overflow-y-auto">
-          <Outlet />
-        </div>
-      </div>
+      <ResponsiveModuleLayout sidebar={<ChannelSidebar />} rootPath="/chat" title="채팅" />
     </div>
   )
 }

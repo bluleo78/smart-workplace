@@ -1,9 +1,12 @@
-import { Star } from 'lucide-react'
+import { Plus, Star } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
+import { ListBackRow } from '@/components/mobile/ListBackRow'
+import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { Button } from '@/components/ui/button'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { cn } from '@/lib/utils'
@@ -136,6 +139,8 @@ export function ContactsPage() {
   const groupId = parseGroupId(groupParam)
 
   const [selected, setSelected] = useState<ContactSelection | null>(null)
+  // 모바일: 상세가 열려 있으면 하단 탭바를 숨긴다(WP-125).
+  useHideTabBar(selected != null)
   const [createOpen, setCreateOpen] = useState(false)
 
   // 보던 조직도 그룹이 삭제되면 URL group 파라미터 제거 → 통합 목록 복귀.
@@ -178,12 +183,18 @@ export function ContactsPage() {
               새 외부 연락처
             </Button>
           }
+          // 모바일: 같은 액션을 ＋ 아이콘으로 인라인(⋯ 없음) — testid 를 공유하므로 actions 는 모바일에서 렌더되지 않게 null.
+          mobilePrimaryAction={
+            <HeaderIconAction label="새 외부 연락처" data-testid="contact-create" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>
+          }
+          mobileActions={null}
         />
         <div className="flex min-h-0 flex-1">
           {/* 목록 (마스터) — 좁은 화면 + 선택 시 숨김 */}
           <div
             className={cn(
-              'flex min-w-0 flex-1 flex-col border-r',
+              // 우측 구분선은 목록·상세가 나란히 있는 데스크톱(lg+)에서만 — 모바일 전체폭 목록 끝에 선이 남지 않게(U3-R14).
+              'flex min-w-0 flex-1 flex-col lg:border-r',
               selected != null && 'hidden lg:flex',
             )}
             data-testid="contact-list"
@@ -240,15 +251,8 @@ export function ContactsPage() {
             )}
             data-testid="contact-detail"
           >
-            {/* 좁은 화면 뒤로가기 — lg 이상에서는 숨김 */}
-            <button
-              type="button"
-              data-testid="contact-back"
-              onClick={() => setSelected(null)}
-              className="flex items-center gap-1 border-b px-4 py-2 text-sm text-primary lg:hidden"
-            >
-              ‹ 목록
-            </button>
+            {/* 좁은 화면 뒤로가기 — lg 이상에서는 숨김. 모바일은 탭바가 숨으므로 ✦(AI) 를 함께 둔다. */}
+            <ListBackRow data-testid="contact-back" onBack={() => setSelected(null)} />
             <ContactDetailPanel selected={selected} onDeleted={() => setSelected(null)} />
           </div>
         </div>
