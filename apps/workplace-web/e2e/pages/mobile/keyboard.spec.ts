@@ -15,8 +15,6 @@ type FakeViewport = EventTarget & { height: number; offsetTop: number; scale: nu
 test.beforeEach(async ({ authenticatedPage: page }) => {
   // 앱 스크립트보다 먼저 실행돼야 훅이 가짜 visualViewport 를 구독한다.
   await page.addInitScript(() => {
-    // [WP-154 실기기 검증 중] 새 키보드 처리는 kbfix 플래그로 켠다 — 이 스펙은 새 처리를 검증한다.
-    localStorage.setItem('kbfix', '1')
     // height 는 덮어쓰기 전엔 현재 innerHeight 를 따른다 — init 시점 innerHeight 는 레이아웃 전 값(1669 등)이라 고정하면 기준 높이가 틀어진다.
     let override: number | null = null
     const vv = Object.assign(new EventTarget(), { offsetTop: 0, scale: 1 })

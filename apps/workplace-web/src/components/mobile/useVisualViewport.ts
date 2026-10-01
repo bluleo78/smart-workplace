@@ -1,14 +1,13 @@
 // 가상 키보드 대응 — iOS 는 키보드가 올라와도 레이아웃 뷰포트(100dvh)를 줄이지 않고, 포커스된 입력창이 보이도록
 // 페이지 전체를 위로 민다(pan). 그 결과 상단 헤더가 화면 밖으로 밀리고 본문이 상태바 아래로 들어간다.
 // 표준(interactive-widget=resizes-content·VirtualKeyboard API)은 Chromium 전용이라 iOS 에선 visualViewport 로 맞춘다
-// (Android Chrome 은 index.html 의 interactive-widget 으로 레이아웃 뷰포트가 직접 줄어 여기 판정에 걸리지 않는다).
+// (Android Chrome 은 index.html 의 interactive-widget 으로 레이아웃 뷰포트가 직접 줄어, 여기서 같은 높이를 다시 써도 결과가 같다).
+// 실기기(iOS 26 홈 화면 앱)에서 검증한 방식: 최대 높이 기준 판정 + 실측 이동량 + 지연 재동기화(WP-154).
 // 키보드 상태는 :root 에만 공개한다 — 셸 높이·하단 여백(MobileShell)과 셸 밖(portal) 다이얼로그·시트·메일 도크(index.css 등)가
 // 모두 CSS 로 같은 값을 읽으므로 React 상태·리렌더가 필요 없다.
 import { useEffect } from 'react'
 
-import { readUrlFlag } from '@/lib/mobile/debugFlags'
-
-// 레이아웃 뷰포트보다 이만큼 이상 작아지면 키보드가 열린 것으로 본다(주소창 높이 변화 정도는 무시).
+// 기준 높이보다 이만큼 이상 작아지면 키보드가 열린 것으로 본다(주소창 높이 변화 정도는 무시).
 const KEYBOARD_THRESHOLD_PX = 150
 // 키보드를 띄우지 않는 input 유형 — 포커스돼 있어도 키보드 열림 근거가 아니다.
 const NON_TEXT_INPUT_TYPES = new Set(['button', 'checkbox', 'radio', 'submit', 'reset', 'file', 'range', 'color', 'image', 'hidden'])
@@ -57,9 +56,6 @@ export function useVisualViewport(): void {
     const root = document.documentElement
     // 마지막으로 쓴 값 — 같은 값 재기록(스타일 무효화)을 건너뛴다. null = 닫힘(아무것도 안 씀).
     let published: string[] | null = null
-    // [실기기 검증 중 — WP-154] ?kbfix=1 로 켠 기기만 새 처리(최대 높이 기준 판정·실측 이동량·지연 재동기화)를 쓴다.
-    // 꺼져 있으면 이전 처리(innerHeight 기준·offsetTop 만·재동기화 없음) — 검증 후 플래그를 걷어내고 새 처리만 남긴다.
-    const robust = readUrlFlag('kbfix')
     // 키보드 판정 기준 높이 — 폭이 바뀌면(회전) 새로 잰다.
     let base = { width: window.innerWidth, height: Math.max(window.innerHeight, vv.height) }
     const timers = new Set<number>()
@@ -74,11 +70,11 @@ export function useVisualViewport(): void {
     const sync = () => {
       if (window.innerWidth !== base.width) base = { width: window.innerWidth, height: 0 }
       base.height = Math.max(base.height, window.innerHeight, vv.height)
-      if (!detectKeyboard(vv, robust ? base.height : window.innerHeight)) return clear()
+      if (!detectKeyboard(vv, base.height)) return clear()
       // iOS 가 입력창을 보이려고 문서를 밀어 올린 것을 되돌린다 — 셸이 보이는 높이에 맞춰지므로 밀 필요가 없다.
       if (window.scrollY !== 0) window.scrollTo(0, 0)
       // 되돌린 뒤에도 남은 이동량(보이는 영역 자체의 이동)만큼 셸을 내려 보이는 영역을 따라가게 한다.
-      const pan = robust ? measurePan(vv) : vv.offsetTop
+      const pan = measurePan(vv)
       const next = [vv.height, pan, Math.max(0, window.innerHeight - vv.height - pan)].map((v) => `${v}px`)
       if (!published) root.setAttribute('data-keyboard-open', 'true')
       ROOT_VARS.forEach((name, i) => {
@@ -90,7 +86,6 @@ export function useVisualViewport(): void {
     // 즉시 맞추고, 늦게 오는 값을 위해 몇 번 더 맞춘다. 포커스 변화도 판정 조건이라 같은 경로로 처리한다.
     const schedule = () => {
       sync()
-      if (!robust) return
       for (const ms of RESYNC_DELAYS_MS) {
         const id = window.setTimeout(() => {
           timers.delete(id)

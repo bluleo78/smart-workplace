@@ -6,7 +6,6 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useInboxPanel } from '@/components/layout/InboxContext'
 import { cn } from '@/lib/utils'
 
-import { KeyboardDebugOverlay } from './KeyboardDebugOverlay'
 import { MobileTabBar } from './MobileTabBar'
 import { useTabBarVisible } from './useTabBarVisible'
 import { useVisualViewport } from './useVisualViewport'
@@ -56,8 +55,6 @@ export function MobileShell({ children, overlay }: { children: ReactNode; overla
         {overlay}
       </main>
       {showTabBar && <MobileTabBar />}
-      {/* [임시 진단용 — WP-154] ?kbdebug=1 로 켰을 때만 렌더 */}
-      <KeyboardDebugOverlay />
     </div>
   )
 }
