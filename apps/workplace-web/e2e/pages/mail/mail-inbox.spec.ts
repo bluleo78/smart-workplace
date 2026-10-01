@@ -453,8 +453,8 @@ test.describe('받은편지함', () => {
     expect(calls).toBeGreaterThanOrEqual(1)
   })
 
-  // WP-103 — 다크 테마에서 배경 지정 없는 메일(Outlook 사내 메일처럼 글자색만 검정으로 박힌 것)은 어두운 배경 + 밝은 글자로,
-  // 배경을 지정한 메일은 원본 그대로. 테마를 바꾸면 본문도 즉시 따라간다(html.dark class 관찰).
+  // WP-103·WP-159 — 다크 테마에서 HTML 메일은 종류와 관계없이 색 단위로 변환한다: 밝은 배경은 어둡게(흰색은 투명),
+  // 어두운 글자는 밝게. 테마를 바꾸면 본문도 즉시 따라간다(html.dark class 관찰).
   test.describe('다크 테마 메일 본문', () => {
     // 다크 테마로 받은편지함을 열고 10번 메일(본문 bodyHtml)을 선택 — 본문 frame 과 요소 글자색 조회 헬퍼를 돌려준다
     async function openDarkMail(page: Page, bodyHtml: string, extra: Partial<EmailMessageDetail> = {}) {
@@ -467,7 +467,8 @@ test.describe('받은편지함', () => {
       await page.getByTestId('mail-row-10').click()
       const frame = page.frameLocator('[data-testid="mail-body-html"]')
       const color = (id: string) => frame.locator(`#${id}`).evaluate((el) => getComputedStyle(el).color)
-      return { frame, color }
+      const bg = (id: string) => frame.locator(`#${id}`).evaluate((el) => getComputedStyle(el).backgroundColor)
+      return { frame, color, bg }
     }
 
     test('배경 없는 메일을 어둡게 변환·원본 보기 토글·라이트 전환 시 원본으로', async ({ authenticatedPage: page }) => {
@@ -480,7 +481,7 @@ test.describe('받은편지함', () => {
         (url) => url.pathname === '/api/v1/mail/attachments/5/content',
         (route) => route.fulfill({ status: 200, headers: { 'content-type': 'image/png' }, body: png }),
       )
-      const { frame, color } = await openDarkMail(
+      const { frame, color, bg } = await openDarkMail(
         page,
         '<html><head><style>p{margin-top:0}</style></head><body>' +
           '<div id="text" style="font-size:12pt; color:rgb(0,0,0); background-color:white">안녕하세요.</div>' +
@@ -499,9 +500,7 @@ test.describe('받은편지함', () => {
         .not.toMatch(/^rgba?\(255, 255, 255|^rgba\(0, 0, 0, 0\)/)
       await expect.poll(() => color('text')).toBe('rgb(237, 237, 237)')
       await expect.poll(() => color('accent')).toBe('rgb(243, 112, 33)')
-      await expect
-        .poll(() => frame.locator('#text').evaluate((el) => getComputedStyle(el).backgroundColor))
-        .toBe('rgba(0, 0, 0, 0)')
+      await expect.poll(() => bg('text')).toBe('rgba(0, 0, 0, 0)')
       await expect(frame.locator('#inline')).toHaveAttribute('src', /^data:image\/png;base64,/)
 
       // "원본 배경으로 보기" → 변환 전 원본(검정 글자, 인라인 이미지 유지), 다시 누르면 다크 변환으로
@@ -529,14 +528,37 @@ test.describe('받은편지함', () => {
       await expect(toggle).toHaveCount(0)
     })
 
-    test('배경을 지정한 메일은 원본 그대로·토글 없음', async ({ authenticatedPage: page }) => {
-      const bodyHtml = '<table bgcolor="#ffffff"><tr><td id="cell" style="color:#000000">뉴스레터</td></tr></table>'
-      const { frame, color } = await openDarkMail(page, bodyHtml)
-
+    // WP-159 — 형광펜·bgcolor·배경 이미지가 있어도 메일 전체를 원본(흰 바탕)으로 두지 않는다
+    test('형광펜·bgcolor 뉴스레터도 다크로 변환하고 원본 보기 토글 제공', async ({ authenticatedPage: page }) => {
+      const { frame, color, bg } = await openDarkMail(
+        page,
+        '<table bgcolor="#ffffff"><tr><td id="cell" style="color:#000000">뉴스레터</td></tr></table>' +
+          '<h3><font id="hl" style="background-color:rgb(255,255,0)">■ 일정/장소</font></h3>' +
+          '<div id="hero" style="background:#fff url(hero.png) no-repeat">배너</div>',
+      )
       await expect(frame.locator('#cell')).toHaveText('뉴스레터')
-      await expect(page.getByTestId('mail-body-html')).toHaveAttribute('srcdoc', bodyHtml)
+      await expect
+        .poll(() => frame.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor))
+        .not.toMatch(/^rgba?\(255, 255, 255|^rgba\(0, 0, 0, 0\)/)
+      await expect.poll(() => color('cell')).toBe('rgb(237, 237, 237)')
+      // 형광펜은 노란색 계열로 남되 어둡게(R=G, B 낮음)
+      await expect.poll(() => bg('hl')).not.toBe('rgb(255, 255, 0)')
+      const [r, g, b] = (await bg('hl')).match(/\d+/g)!.map(Number)
+      expect(r).toBe(g)
+      expect(b).toBeLessThan(r)
+      expect(r).toBeLessThan(100)
+      // 배경 이미지는 그대로 두고 inset box-shadow 덮개로 어둡게, 함께 쓴 흰 배경색은 투명으로
+      await expect.poll(() => bg('hero')).toBe('rgba(0, 0, 0, 0)')
+      const hero = (prop: 'backgroundImage' | 'boxShadow') =>
+        frame.locator('#hero').evaluate((el, p) => getComputedStyle(el)[p], prop)
+      await expect.poll(() => hero('backgroundImage')).toMatch(/^url\(.*hero\.png/)
+      await expect.poll(() => hero('boxShadow')).toContain('inset')
+
+      const toggle = page.getByTestId('mail-body-theme-toggle')
+      await toggle.click()
+      await expect(toggle).toHaveText('다크 배경으로 보기')
       await expect.poll(() => color('cell')).toBe('rgb(0, 0, 0)')
-      await expect(page.getByTestId('mail-body-theme-toggle')).toHaveCount(0)
+      await expect.poll(() => bg('hl')).toBe('rgb(255, 255, 0)')
     })
   })
 

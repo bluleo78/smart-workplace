@@ -236,8 +236,8 @@ function MessageDetailPanel({
   const rawHtml = detail?.bodyHtml ?? null
   const attachments = detail?.attachments
   const showsHtml = !!rawHtml && !detail?.bodyText
-  // WP-103 다크 테마면 배경 지정 없는 메일을 어두운 배경으로 변환 — base64 치환 전 원문에 적용해 파싱 비용을 줄인다.
-  // 변환이 실제로 일어난 메일에만 "원본 보기" 토글을 둔다(Outlook 의 배경 전환과 같은 역할).
+  // WP-103·WP-159 다크 테마면 HTML 메일을 색 단위로 어둡게 변환 — base64 치환 전 원문에 적용해 파싱 비용을 줄인다.
+  // 변환된 메일(다크 테마의 HTML 본문)에는 "원본 보기" 토글을 둔다(Outlook 의 배경 전환과 같은 역할).
   // 원본 보기는 해당 메시지에만 유효 — id 로 기억해 다른 메일을 열면 effect 없이 다크 기본값으로 돌아간다.
   const darkHtml = useMailDarkHtml(showsHtml ? rawHtml : null)
   const [originalShownId, setOriginalShownId] = useState<number | null>(null)
