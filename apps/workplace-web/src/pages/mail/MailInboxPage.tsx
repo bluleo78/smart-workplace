@@ -524,10 +524,10 @@ export function MailInboxPage() {
   // 훅이므로 아래 !accountId 조기 return 보다 앞에 둔다. 목록에 없는 메일(딥링크 등)은 focus 없이 scope 만 싣는다.
   // 회신필요 필터(?needsReply=true)에서는 메일을 열면 읽음 처리돼 다음 목록 refetch 에서 목록을 빠져나간다 —
   // 상세 패널은 열려 있는데 AI 컨텍스트만 사라지지 않도록, 마지막으로 본 목록 행을 기억해 두었다가 쓴다.
-  const rememberedRef = useRef<EmailMessageSummary | null>(null)
-  const found = messages?.find((m) => m.id === selectedId)
-  if (found) rememberedRef.current = found
-  const remembered = rememberedRef.current
+  // ref 를 렌더 중에 읽지 않도록 state 로 두고, 행이 바뀐 경우에만 렌더 중 갱신한다(React 의 "이전 값 보관" 패턴).
+  const found = messages?.find((m) => m.id === selectedId) ?? null
+  const [remembered, setRemembered] = useState<EmailMessageSummary | null>(null)
+  if (found && found !== remembered) setRemembered(found)
   const selectedSummary = found ?? (remembered?.id === selectedId ? remembered : null)
   const screenContext = useMemo(
     () =>
@@ -739,7 +739,9 @@ export function MailInboxPage() {
             needsReplyParam ? (
               <div data-testid="mail-needsreply-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
                 <Check className="h-8 w-8 text-primary" />
-                <p className="text-sm font-medium">회신필요를 다 처리했어요 🎉</p>
+                <p className="text-sm font-medium">회신이 필요한 안 읽은 메일이 없어요 🎉</p>
+                {/* WP-146: 처리완료가 없어졌으므로 "열면 빠진다"는 규칙을 빈 상태에서 알려 준다. */}
+                <p className="text-xs">메일을 열면 회신필요에서 빠져요.</p>
               </div>
             ) : categoryParam ? (
               // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.

@@ -137,7 +137,7 @@ export function MailSidebar() {
               </Link>
             </nav>
 
-            {/* P2: AI 필터 — 회신필요 미처리 건수. 건수 > 0 일 때만 표시. */}
+            {/* P2·WP-146: AI 필터 — 회신필요(AI 판정 && 안 읽음) 건수. 건수 > 0 일 때만 표시. */}
             {needsReplyCount != null && needsReplyCount > 0 && (
               <>
                 <div className="mt-4 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -147,6 +147,8 @@ export function MailSidebar() {
                   <Link
                     to={`/mail/${current?.id}?needsReply=true`}
                     data-testid="mail-filter-needsreply"
+                    // WP-146: 열면 빠진다는 규칙을 호버로 안내
+                    title="안 읽은 메일 중 AI가 회신이 필요하다고 본 메일 (열면 빠져요)"
                     aria-current={activeNeedsReply ? 'page' : undefined}
                     className={folderClass(activeNeedsReply)}
                   >
