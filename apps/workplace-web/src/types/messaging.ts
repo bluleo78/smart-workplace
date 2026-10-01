@@ -6,6 +6,16 @@ export type UserKind = 'HUMAN' | 'AGENT';
 export type ChannelVisibility = 'PUBLIC' | 'PRIVATE';
 export type ChannelRole = 'OWNER' | 'ADMIN' | 'MEMBER';
 
+/** 목록 행 미리보기용 마지막 메시지(최상위·미삭제 최신 1건). 메시지가 없으면 null. WP-135 */
+export interface LastMessageSummary {
+  id: number;
+  authorId: number | null;
+  authorName: string | null;
+  /** 서버가 멘션 치환·공백 접기·120자 자른 본문(첨부만이면 "파일을 보냈습니다") */
+  preview: string;
+  createdAt: string;
+}
+
 export interface ChannelResponse {
   id: number;
   kind: string; // 'CHANNEL'
@@ -19,6 +29,7 @@ export interface ChannelResponse {
   hasUnreadThreads: boolean; // 내가 팔로우하는 미읽음 스레드 존재 여부
   lastReadMessageId: number | null; // 내 읽음 워터마크(이보다 id 큰 메시지가 미읽음). 비멤버 null
   createdAt: string;
+  lastMessage?: LastMessageSummary | null; // 사이드바 목록 응답에만 존재 — 모바일 목록 미리보기
 }
 
 export interface ChannelMemberResponse {
@@ -155,6 +166,7 @@ export interface DmResponse {
   lastMessageAt: string | null;
   unreadCount: number; // 읽지 않은 메시지 수
   createdAt: string;
+  lastMessage?: LastMessageSummary | null; // 사이드바 목록 응답에만 존재 — 모바일 목록 미리보기
 }
 
 /** DM 생성 요청 — 본인 제외 타겟. */
