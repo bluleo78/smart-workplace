@@ -2,9 +2,7 @@ package com.workplace.global.realtime;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import lombok.RequiredArgsConstructor;
@@ -54,7 +52,25 @@ public class SseRegistry {
     emitter.onTimeout(() -> remove(userId, emitter));
     emitter.onError(e -> remove(userId, emitter));
     list.add(emitter);
+    // 연결 직후 초기 코멘트로 응답 헤더를 즉시 flush 한다 (WP-156). 서블릿 응답은 첫 전송 전까지 커밋되지 않아, 이게 없으면
+    // 클라이언트 fetch 가 다음 heartbeat(최대 30s)까지 헤더를 받지 못해 "실시간 연결 중" 상태로 머문다.
+    // 컨트롤러가 emitter 를 반환하기 전의 send 는 SseEmitter 가 버퍼링했다가 초기화 시 내보낸다.
+    trySend(userId, emitter, SseEmitter.event().comment("connected"));
     return emitter;
+  }
+
+  /**
+   * 이벤트 1건을 전송하고, 실패하면 죽은 연결로 보고 레지스트리에서 제거한다. best-effort.
+   *
+   * <p>목록이 CopyOnWriteArrayList 라 순회 중 제거해도 안전하다. SseEventBuilder 는 build 시 내용이 누적돼 재사용할 수 없으므로
+   * 호출부가 emitter 마다 새로 만들어 넘긴다.
+   */
+  private void trySend(Long userId, SseEmitter emitter, SseEmitter.SseEventBuilder event) {
+    try {
+      emitter.send(event);
+    } catch (IOException | IllegalStateException e) {
+      remove(userId, emitter);
+    }
   }
 
   private void remove(Long userId, SseEmitter emitter) {
@@ -70,16 +86,13 @@ public class SseRegistry {
     String json = toJson(payload);
     for (Long userId : userIds) {
       CopyOnWriteArrayList<SseEmitter> list = emitters.get(userId);
-      if (list == null || list.isEmpty()) continue;
-      List<SseEmitter> dead = new ArrayList<>();
+      if (list == null) continue;
       for (SseEmitter emitter : list) {
-        try {
-          emitter.send(SseEmitter.event().name(eventName).data(json, MediaType.APPLICATION_JSON));
-        } catch (IOException | IllegalStateException e) {
-          dead.add(emitter);
-        }
+        trySend(
+            userId,
+            emitter,
+            SseEmitter.event().name(eventName).data(json, MediaType.APPLICATION_JSON));
       }
-      dead.forEach(e -> remove(userId, e));
     }
   }
 
@@ -88,15 +101,9 @@ public class SseRegistry {
   public void sendHeartbeat() {
     emitters.forEach(
         (userId, list) -> {
-          List<SseEmitter> dead = new ArrayList<>();
           for (SseEmitter emitter : list) {
-            try {
-              emitter.send(SseEmitter.event().comment("ping"));
-            } catch (IOException | IllegalStateException e) {
-              dead.add(emitter);
-            }
+            trySend(userId, emitter, SseEmitter.event().comment("ping"));
           }
-          dead.forEach(e -> remove(userId, e));
         });
   }
 
