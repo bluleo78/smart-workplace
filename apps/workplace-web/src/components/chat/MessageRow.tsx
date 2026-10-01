@@ -18,6 +18,7 @@ import {
   MESSAGE_TOOLBAR_CLASS,
   OWN_ATTACHMENTS_CLASS,
   TOOLBAR_POSITION,
+  TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar'
 import { ProposalCard } from '@/components/chat/ProposalCard'
 import { ReactionBar } from '@/components/chat/ReactionBar'
@@ -25,13 +26,10 @@ import { parseMessageSegments } from '@/components/mentions/parseMessageSegments
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
-import { MESSAGE_LONG_PRESS, useLongPress } from '@/hooks/useLongPress'
+import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import type { ToolbarRowProps } from '@/hooks/useToolbarReveal'
 import { formatClockTime, formatClockTimeCompact } from '@/lib/formatters'
 import type { MessageResponse } from '@/types/messaging'
-
-// 짧은 탭은 자식(멘션 칩·링크)이 제 클릭을 처리하므로 행 자체에는 할 일이 없다.
-const NOOP = () => {}
 
 // 제안 승인 인자 — ProposalCard 가 정의하는 형태를 그대로 따른다.
 type ProposalConfirmArg = Parameters<ComponentProps<typeof ProposalCard>['onConfirm']>[0]
@@ -49,10 +47,9 @@ interface MessageRowProps {
   rowRef?: Ref<HTMLDivElement>
   // useToolbarReveal 이 주는 행 props(터치 탭 노출·툴바 뒤집기).
   rowProps: ToolbarRowProps
-  // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트를 연다(onLongPress).
-  touchShell: boolean
-  // 길게 누르기 → 작업 시트. 터치 셸이 아니거나 이 메시지에 허용된 작업이 없으면 미전달(핸들러를 달지 않는다).
-  onLongPress?: () => void
+  // 작업 시트 열기 — 스크린리더용 "메시지 작업" 버튼(A1)이 쓴다. 터치 셸이 아니거나 시트를 열 수 없는 행이면 미전달.
+  // 길게 누르기 자체는 목록이 위임으로 판정한다(useMessageListLongPress, 행의 data-message-id).
+  onOpenActions?: () => void
   // 스레드 패널 오픈. 스레드 패널 내부 렌더 시엔 미전달(스레드 버튼·답글 링크 숨김).
   onOpenThread?: (messageId: number) => void
   onStartEdit: () => void
@@ -74,8 +71,7 @@ export function MessageRow({
   isEditing,
   rowRef,
   rowProps,
-  touchShell,
-  onLongPress,
+  onOpenActions,
   onOpenThread,
   onStartEdit,
   onCancelEdit,
@@ -108,8 +104,8 @@ export function MessageRow({
       ? TOOLBAR_POSITION.ownHeader
       : TOOLBAR_POSITION.ownBubble
 
-  // 길게 누르기 판정 — 발동 직후 click 은 캡처 단계에서 삼켜 멘션 칩·이미지·링크·답글 링크가 함께 눌리지 않게 한다.
-  const longPress = useLongPress(onLongPress, NOOP, MESSAGE_LONG_PRESS)
+  // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트가 열린다.
+  const touchShell = useIsTouchShell()
 
   // 터치 셸에선 툴바 자체를 그리지 않는다 — 같은 작업은 길게 누르기 시트가 맡는다(탭 한 번으로 툴바가 뜨던 #884 터치 경로 대체).
   const toolbar = !isEditing && !touchShell && (
@@ -295,19 +291,14 @@ export function MessageRow({
       data-pending={isPending ? 'true' : undefined}
       data-group-start={startsGroup ? 'true' : 'false'}
       data-own={isOwn ? 'true' : 'false'}
+      // 목록 위임 길게 누르기의 대상 표식 — 수정 중인 행은 빼서 에디터 안 길게 누르기가 시트를 열지 않게 한다(C2).
+      data-message-id={isEditing ? undefined : m.id}
       {...rowProps}
-      {...longPress}
-      // 탭 노출(rowProps, 후속 줄 시각)과 길게 누르기 취소(longPress)가 모두 pointerup 을 써서 합친다 — 펼치기만 하면 뒤엣것이 덮는다.
-      onPointerUp={(e) => {
-        longPress.onPointerUp?.()
-        rowProps.onPointerUp(e)
-      }}
       className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''} ${
         ownBubble ? 'justify-end' : ''
       } ${
-        // 터치 셸: 길게 누르기가 작업 시트를 열므로 iOS 텍스트 선택·콜아웃(복사/공유 말풍선)이 같이 뜨지 않게 막는다(복사는 시트가 제공).
-        // 수정 중인 행은 풀어 둔다(C2) — 에디터에서 커서 이동·선택·붙여넣기가 되어야 한다.
-        touchShell && !isEditing ? 'select-none [-webkit-touch-callout:none]' : ''
+        // 터치 셸: 선택·콜아웃 억제(이유는 TOUCH_NO_SELECT_CLASS 주석). 수정 중인 행은 풀어 둔다(C2).
+        touchShell && !isEditing ? TOUCH_NO_SELECT_CLASS : ''
       }`}
     >
       {ownBubble ? (
@@ -386,7 +377,7 @@ export function MessageRow({
           </div>
         </>
       )}
-      {onLongPress && <MessageActionsButton onOpen={onLongPress} />}
+      {onOpenActions && <MessageActionsButton onOpen={onOpenActions} />}
     </div>
   )
 }

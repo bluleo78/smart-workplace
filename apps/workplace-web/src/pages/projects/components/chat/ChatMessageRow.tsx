@@ -17,9 +17,10 @@ import {
   MESSAGE_TOOLBAR_CLASS,
   OWN_ATTACHMENTS_CLASS,
   TOOLBAR_POSITION,
+  TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar';
 import { messagePlainText, parseMessageSegments } from '@/components/mentions/parseMessageSegments';
-import { MESSAGE_LONG_PRESS, useLongPress } from '@/hooks/useLongPress';
+import { useIsTouchShell } from '@/hooks/useIsTouchShell';
 import { useToolbarReveal } from '@/hooks/useToolbarReveal';
 
 import { Button } from '../../../../components/ui/button';
@@ -36,14 +37,10 @@ interface ChatMessageRowProps {
   isPending?: boolean;
   onEdit?: (id: number) => void;
   onDelete?: (id: number) => void;
-  // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트를 연다(팀 채팅 MessageRow 와 같은 규칙).
-  touchShell?: boolean;
-  // 길게 누르기 → 작업 시트. 터치 셸이 아니거나 허용된 작업이 없으면 미전달.
-  onLongPress?: () => void;
+  // 작업 시트 열기 — 스크린리더용 "메시지 작업" 버튼(A1)이 쓴다. 터치 셸이 아니거나 허용된 작업이 없으면 미전달.
+  // 길게 누르기 자체는 목록이 위임으로 판정한다(useMessageListLongPress, 행의 data-message-id — 팀 채팅과 같은 규칙).
+  onOpenActions?: () => void;
 }
-
-// 짧은 탭은 자식(멘션 칩·이미지)이 제 클릭을 처리하므로 행 자체에는 할 일이 없다.
-const NOOP = () => {};
 
 export function ChatMessageRow({
   message,
@@ -52,10 +49,11 @@ export function ChatMessageRow({
   isPending = false,
   onEdit,
   onDelete,
-  touchShell = false,
-  onLongPress,
+  onOpenActions,
 }: ChatMessageRowProps) {
   const isAgent = message.authorKind === 'AGENT';
+  // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트가 열린다.
+  const touchShell = useIsTouchShell();
   // 터치 셸에선 툴바를 그리지 않는다 — 수정·삭제는 길게 누르기 시트가 맡는다.
   const showToolbar = canEdit && !message.deleted && !isPending && !touchShell;
   // aria-label 은 <@id> 토큰 대신 사람이 읽을 수 있는 형태(@이름)로 노출.
@@ -64,8 +62,6 @@ export function ChatMessageRow({
   // 드러날 때 스크롤 영역 위 끝에 잘리면 툴바를 아래로 뒤집는다.
   // 훅은 조건 없이 호출하되(훅 규칙), 툴바가 있는 본인 행에만 props 를 펼친다.
   const toolbarRowProps = useToolbarReveal()(message.id);
-  // 길게 누르기 — 발동 직후 click 은 캡처 단계에서 삼켜 멘션 칩·이미지가 함께 눌리지 않게 한다.
-  const longPress = useLongPress(onLongPress, NOOP, MESSAGE_LONG_PRESS);
   // 첨부만 있고 본문이 빈 본인 메시지는 빈 말풍선을 그리지 않는다.
   const hasBody = message.deleted || message.body.trim() !== '';
 
@@ -166,18 +162,14 @@ export function ChatMessageRow({
       data-agent={isAgent ? 'true' : undefined}
       data-pending={isPending ? 'true' : undefined}
       data-own={isOwn ? 'true' : 'false'}
+      // 목록 위임 길게 누르기의 대상 표식(수정 중인 행은 이 컴포넌트 대신 에디터가 렌더돼 표식이 없다).
+      data-message-id={message.id}
       {...(isOwn ? toolbarRowProps : {})}
-      {...longPress}
-      // 탭 노출(본인 행)과 길게 누르기 취소가 모두 pointerup 을 써서 합친다 — 펼치기만 하면 뒤엣것이 덮는다.
-      onPointerUp={(e) => {
-        longPress.onPointerUp?.();
-        if (isOwn) toolbarRowProps.onPointerUp(e);
-      }}
       className={`group relative flex gap-2 px-3 py-2 ${
         isAgent ? 'border-l-2 border-ai-accent' : ''
       } ${isPending ? 'opacity-60' : ''} ${isOwn ? 'justify-end' : ''} ${
-        // 터치 셸: 길게 누르기가 시트를 열므로 iOS 텍스트 선택·콜아웃이 같이 뜨지 않게 막는다(복사는 시트가 제공).
-        touchShell ? 'select-none [-webkit-touch-callout:none]' : ''
+        // 터치 셸: 선택·콜아웃 억제(이유는 TOUCH_NO_SELECT_CLASS 주석).
+        touchShell ? TOUCH_NO_SELECT_CLASS : ''
       }`}
     >
       {isOwn ? (
@@ -223,7 +215,7 @@ export function ChatMessageRow({
           </div>
         </>
       )}
-      {onLongPress && <MessageActionsButton onOpen={onLongPress} />}
+      {onOpenActions && <MessageActionsButton onOpen={onOpenActions} />}
     </li>
   );
 }

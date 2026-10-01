@@ -2,12 +2,18 @@
 // 최신이 아래(Slack 스타일). 위로 스크롤 시 fetchNextPage.
 // 마지막 메시지가 viewport 진입하면 onMarkRead(lastId) 호출 — debounce 는 부모에서 처리.
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef } from 'react';
 
-import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet';
-import { copyAction, deleteAction, editAction } from '@/components/chat/messageSheetActions';
-import { messagePlainText } from '@/components/mentions/parseMessageSegments';
+import { MessageActionSheet } from '@/components/chat/MessageActionSheet';
+import {
+  buildMessageSheetActions,
+  hasMessageSheetActions,
+  messagePreview,
+  type MessageSheetHandlers,
+} from '@/components/chat/messageSheetActions';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
+import { useMessageListLongPress } from '@/hooks/useMessageListLongPress';
+import { useMessageSheet } from '@/hooks/useMessageSheet';
 
 import { DateDivider } from '../../../../components/chat/DateDivider';
 import { Button } from '../../../../components/ui/button';
@@ -46,9 +52,8 @@ export function ChatMessageList({
 }: ChatMessageListProps) {
   const lastRef = useRef<HTMLLIElement | null>(null);
   const scrollRootRef = useRef<HTMLDivElement | null>(null);
-  // 모바일 터치 셸: hover 툴바 대신 길게 누르기 → 작업 시트(목록에 하나). 대상 id 는 닫힘 애니메이션 동안 유지한다.
+  // 모바일 터치 셸: hover 툴바 대신 길게 누르기 → 작업 시트(목록에 하나).
   const touchShell = useIsTouchShell();
-  const [sheet, setSheet] = useState<{ id: number; open: boolean } | null>(null);
 
   // 메시지가 createdAt 기준 오름차순이 되도록 한 번 정렬.
   const sorted = useMemo(
@@ -59,6 +64,21 @@ export function ChatMessageList({
     [messages],
   );
   const lastId = sorted.length > 0 ? sorted[sorted.length - 1].id : null;
+  const sheet = useMessageSheet(sorted);
+  // 시트 작업 — 권한·순서는 messageSheetActions 가 정한다(본인·미삭제·확정 메시지만 수정·삭제 + 복사). 이슈 채팅엔 반응·스레드가 없다.
+  const sheetHandlers: MessageSheetHandlers<ChatMessageResponse> = {
+    currentUserId,
+    onEdit: (m) => onEdit(m.id),
+    onDelete: (m) => onDelete(m.id),
+  };
+  // 반응 줄이 없으므로 작업 행이 하나라도 있어야 연다. 수정 중인 행은 에디터로 바뀌어 대상 표식이 없지만 한 번 더 막는다.
+  const sheetOpenable = (m: ChatMessageResponse) =>
+    m.id >= 0 && m.id !== editingMessageId && hasMessageSheetActions(m, sheetHandlers);
+  const longPress = useMessageListLongPress(
+    touchShell,
+    (id) => sorted.some((m) => m.id === id && sheetOpenable(m)),
+    sheet.show,
+  );
 
   // 최신 메시지(lastId)가 바뀌면 ScrollArea 뷰포트를 바닥으로 스크롤.
   // 초기 로드/새 메시지에는 lastId 가 변하므로 스크롤, '이전 메시지 더 보기'(앞쪽 prepend)는
@@ -85,16 +105,7 @@ export function ChatMessageList({
     return () => io.disconnect();
   }, [lastId, onMarkRead]);
 
-  // 시트 작업 — 툴바와 같은 권한(본인·미삭제·확정 메시지만 수정·삭제) + 복사. 이슈 채팅엔 반응이 없다.
-  const sheetActionsFor = (m: ChatMessageResponse): MessageSheetAction[] => {
-    const out: MessageSheetAction[] = [];
-    if (!m.deleted && m.body.trim() !== '') out.push(copyAction(messagePlainText(m.body, m.mentions)));
-    if (m.authorId === currentUserId && !m.deleted && m.id >= 0) {
-      out.push(editAction(() => onEdit(m.id)), deleteAction(() => onDelete(m.id)));
-    }
-    return out;
-  };
-  const sheetTarget = sheet ? sorted.find((m) => m.id === sheet.id) : undefined;
+  const target = sheet.target;
 
   if (sorted.length === 0) {
     return (
@@ -115,7 +126,8 @@ export function ChatMessageList({
       className={`pr-2 ${fill ? 'h-full' : 'h-[min(60vh,480px)]'}`}
       data-testid="chat-message-list"
     >
-      <div className="flex flex-col">
+      {/* 터치 셸이면 길게 누르기를 이 컨테이너가 위임으로 받는다(행은 data-message-id). 아니면 핸들러 없음. */}
+      <div className="flex flex-col" {...longPress}>
         {hasMore && (
           <div className="flex justify-center py-2">
             <Button
@@ -165,12 +177,8 @@ export function ChatMessageList({
                     isPending={isPending}
                     onEdit={onEdit}
                     onDelete={onDelete}
-                    touchShell={touchShell}
-                    onLongPress={
-                      touchShell && sheetActionsFor(m).length > 0
-                        ? () => setSheet({ id: m.id, open: true })
-                        : undefined
-                    }
+                    // 스크린리더용 "메시지 작업" 버튼(A1) — 길게 누르기와 같은 조건일 때만.
+                    onOpenActions={touchShell && sheetOpenable(m) ? () => sheet.show(m.id) : undefined}
                   />
                 </div>
               </Fragment>
@@ -180,14 +188,10 @@ export function ChatMessageList({
       </div>
       {touchShell && (
         <MessageActionSheet
-          open={!!sheet?.open && sheetTarget !== undefined}
-          onClose={() => setSheet((s) => (s ? { ...s, open: false } : s))}
-          actions={sheetTarget ? sheetActionsFor(sheetTarget) : []}
-          preview={
-            sheetTarget
-              ? `${sheetTarget.authorName}: ${messagePlainText(sheetTarget.body, sheetTarget.mentions).slice(0, 40)}`
-              : undefined
-          }
+          open={sheet.open}
+          onClose={sheet.close}
+          actions={target ? buildMessageSheetActions(target, sheetHandlers) : []}
+          preview={target ? messagePreview(target.authorName, target.body, target.mentions) : undefined}
         />
       )}
     </ScrollArea>

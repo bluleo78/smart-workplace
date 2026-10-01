@@ -60,3 +60,7 @@ export function flipToolbarIfClipped(row: HTMLElement) {
   }
   if (toolbar.getBoundingClientRect().top < clipTop) row.setAttribute('data-toolbar-flip', 'true')
 }
+
+// 모바일 터치 셸의 메시지 행 — 길게 누르기가 작업 시트를 열므로 iOS 텍스트 선택·콜아웃(복사/공유 말풍선)이 같이 뜨지 않게 막는다
+// (복사는 시트가 제공). 수정 중인 행에는 붙이지 않는다 — 에디터에서 커서 이동·선택·붙여넣기가 되어야 한다(C2).
+export const TOUCH_NO_SELECT_CLASS = 'select-none [-webkit-touch-callout:none]'

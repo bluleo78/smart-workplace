@@ -8,11 +8,10 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 
 import { DateDivider } from '@/components/chat/DateDivider'
-import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
+import { MessageActionSheet } from '@/components/chat/MessageActionSheet'
 import { MessageRow } from '@/components/chat/MessageRow'
-import { copyAction, deleteAction, editAction, threadAction } from '@/components/chat/messageSheetActions'
+import { buildMessageSheetActions, messagePreview,type MessageSheetHandlers } from '@/components/chat/messageSheetActions'
 import { UnreadDivider } from '@/components/chat/UnreadDivider'
-import { messagePlainText } from '@/components/mentions/parseMessageSegments'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { useDeleteMessage } from '@/hooks/queries/useDeleteMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
@@ -20,6 +19,8 @@ import { useProposalActions } from '@/hooks/queries/useProposalActions'
 import { useToggleReaction } from '@/hooks/queries/useToggleReaction'
 import { useUpdateMessage } from '@/hooks/queries/useUpdateMessage'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
+import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
+import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { useToolbarReveal } from '@/hooks/useToolbarReveal'
 import { deleteMessageWithUndo } from '@/lib/deleteWithUndo'
 import { getDateKey } from '@/lib/formatters'
@@ -59,9 +60,8 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   // 드러날 때마다 스크롤 영역 위 끝에 잘리는지 재서 툴바를 아래로 뒤집는다.
   const toolbarRowProps = useToolbarReveal()
   // 모바일 터치 셸: hover 툴바 대신 길게 누르기 → 작업 시트(목록에 하나).
-  // 대상 id 는 닫을 때 지우지 않는다 — 닫힘 애니메이션 동안 시트 내용이 비어 보이지 않게 열림 여부만 따로 둔다.
   const touchShell = useIsTouchShell()
-  const [sheet, setSheet] = useState<{ id: number; open: boolean } | null>(null)
+  const sheet = useMessageSheet(ordered)
 
   // 마지막(최신) 메시지가 viewport 진입하면 읽음 처리(mark-read). 중복 억제는 훅 내부 ref 가 담당.
   const markRead = useMarkMessageRead(channelId)
@@ -84,22 +84,27 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   const startDelete = (m: MessageResponse) => deleteMessageWithUndo(() => remove.mutate(m.id))
   const toggle = (m: MessageResponse, emoji: string) => toggleReaction.mutate({ message: m, emoji })
 
-  // 시트 작업 — 툴바와 같은 권한 규칙(반응·스레드는 확정 메시지, 수정·삭제는 본인 미삭제 확정 메시지) + 복사.
-  const sheetActionsFor = (m: MessageResponse): MessageSheetAction[] => {
-    const isPending = m.id < 0
-    const canEdit = m.authorId === currentUserId && !m.deleted && !isPending
-    const out: MessageSheetAction[] = []
-    if (onOpenThread && !isPending) out.push(threadAction(() => onOpenThread(m.id)))
-    if (!m.deleted && m.body.trim() !== '') out.push(copyAction(messagePlainText(m.body, m.mentions)))
-    if (canEdit) out.push(editAction(() => setEditingId(m.id)), deleteAction(() => startDelete(m)))
-    return out
+  // 시트 작업 — 권한·순서는 messageSheetActions 가 정한다(툴바와 같은 규칙 + 복사).
+  const sheetHandlers: MessageSheetHandlers<MessageResponse> = {
+    currentUserId,
+    onThread: onOpenThread ? (m) => onOpenThread(m.id) : undefined,
+    onEdit: (m) => setEditingId(m.id),
+    onDelete: startDelete,
   }
-  // 시트 대상은 id 로만 들고 최신 목록에서 찾는다 — 열린 동안 반응·수정이 실시간 반영돼도 낡은 객체를 쓰지 않는다.
-  const sheetTarget = sheet ? ordered.find((m) => m.id === sheet.id) : undefined
+  // 확정 메시지는 반응 줄이 늘 있으므로 시트를 열 수 있다. 수정 중인 행은 제외(C2 — 에디터의 선택·붙여넣기 메뉴 유지).
+  // 미전송(음수 id) 행은 위임 훅이 먼저 걸러낸다.
+  const sheetOpenable = (m: MessageResponse) => m.id >= 0 && m.id !== editingId
+  const longPress = useMessageListLongPress(
+    touchShell,
+    (id) => ordered.some((m) => m.id === id && sheetOpenable(m)),
+    sheet.show,
+  )
+  const target = sheet.target
 
   return (
     // 모바일(lg 미만)은 좌우 여백을 줄여 말풍선·본문 폭을 확보한다(L1).
-    <div className="flex flex-col gap-2 p-4 max-lg:px-3" data-testid="message-list">
+    // 터치 셸이면 길게 누르기를 목록 하나가 위임으로 받는다(행은 data-message-id 만 단다). 아니면 핸들러 없음.
+    <div className="flex flex-col gap-2 p-4 max-lg:px-3" data-testid="message-list" {...longPress}>
       {ordered.length === 0 && emptyState}
       {/* 구분선이 로드된 메시지 범위 밖(전부 미읽음)일 땐 카드를 목록 상단에 렌더. */}
       {catchupSlot != null && unreadDividerBeforeId == null && catchupSlot}
@@ -128,14 +133,8 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
               isEditing={editingId === m.id}
               rowRef={isLast ? lastRef : undefined}
               rowProps={toolbarRowProps(m.id)}
-              touchShell={touchShell}
-              // 반응(확정 메시지)이나 작업 행이 하나라도 있을 때만 길게 누르기를 단다 — 빈 시트는 열지 않는다.
-              // 수정 중인 행은 제외한다(C2) — 에디터 안의 길게 누르기는 커서 이동·붙여넣기·선택(네이티브 메뉴)이어야 한다.
-              onLongPress={
-                touchShell && editingId !== m.id && (m.id >= 0 || sheetActionsFor(m).length > 0)
-                  ? () => setSheet({ id: m.id, open: true })
-                  : undefined
-              }
+              // 스크린리더용 "메시지 작업" 버튼(A1) — 길게 누르기와 같은 조건일 때만.
+              onOpenActions={touchShell && sheetOpenable(m) ? () => sheet.show(m.id) : undefined}
               onOpenThread={onOpenThread}
               onStartEdit={() => setEditingId(m.id)}
               onCancelEdit={() => setEditingId(null)}
@@ -154,11 +153,11 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
       })}
       {touchShell && (
         <MessageActionSheet
-          open={!!sheet?.open && sheetTarget !== undefined}
-          onClose={() => setSheet((s) => (s ? { ...s, open: false } : s))}
-          onReact={sheetTarget && sheetTarget.id >= 0 ? (emoji) => toggle(sheetTarget, emoji) : undefined}
-          actions={sheetTarget ? sheetActionsFor(sheetTarget) : []}
-          preview={sheetTarget ? `${sheetTarget.authorName}: ${messagePlainText(sheetTarget.body, sheetTarget.mentions).slice(0, 40)}` : undefined}
+          open={sheet.open}
+          onClose={sheet.close}
+          onReact={target && target.id >= 0 ? (emoji) => toggle(target, emoji) : undefined}
+          actions={target ? buildMessageSheetActions(target, sheetHandlers) : []}
+          preview={target ? messagePreview(target.authorName, target.body, target.mentions) : undefined}
         />
       )}
     </div>
