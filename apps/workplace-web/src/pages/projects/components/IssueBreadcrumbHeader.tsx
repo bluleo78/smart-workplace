@@ -33,6 +33,8 @@ export function IssueBreadcrumbHeader({
   type,
   onBack,
   actions,
+  mobilePrimaryAction,
+  mobileActions,
 }: {
   projectKey: string;
   projectName: string;
@@ -42,11 +44,16 @@ export function IssueBreadcrumbHeader({
   /** 이전 화면(상세로 들어오기 직전 화면)으로 돌아가기 — 헤더 맨 왼쪽 ← 버튼(#885). */
   onBack: () => void;
   actions: ReactNode;
+  /** 모바일 전용: ⋯ 밖 인라인 주 액션(채팅 아이콘, M5). */
+  mobilePrimaryAction?: ReactNode;
+  /** 모바일 전용: ⋯ 메뉴 내용. 생략하면 actions 전체 — 주 액션과 같은 버튼이 두 번 렌더되지 않게 나눠 넘긴다. */
+  mobileActions?: ReactNode;
 }) {
   const isMobile = useIsMobile();
   if (isMobile) {
     // 모바일: 브레드크럼 대신 병합 상세 헤더(‹ + 이슈 키 + ⋯ + ✦) 한 줄 — 레이아웃 뒤로가기 바와 두 줄로 쌓이지 않는다(U1-1).
-    // 채팅·구독·삭제 등 actions 는 모두 ⋯ 메뉴로(파괴적 액션은 인라인에 두지 않음, U1-2). 데스크톱 마크업은 아래 그대로.
+    // 채팅은 자주 쓰고 미읽음 신호가 있어 ⋯ 밖 아이콘으로(M5), 구독·삭제는 ⋯ 메뉴로(파괴적 액션은 인라인에 두지 않음, U1-2).
+    // 데스크톱 마크업은 아래 그대로.
     return (
       <PageHeader
         title={
@@ -58,6 +65,8 @@ export function IssueBreadcrumbHeader({
           </span>
         }
         actions={actions}
+        mobilePrimaryAction={mobilePrimaryAction}
+        mobileActions={mobileActions}
         // ‹ 도 데스크톱 ← 와 같은 규칙 — 상세로 들어오기 직전 화면으로(없으면 프로젝트 화면, #885).
         mobileOnBack={onBack}
       />
