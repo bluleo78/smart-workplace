@@ -79,7 +79,7 @@ function MessageRow({
         }
       }}
       className={cn(
-        'flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
+        'relative flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
         active ? 'bg-accent' : 'hover:bg-accent/50',
       )}
     >
