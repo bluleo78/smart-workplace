@@ -32,7 +32,9 @@ public record PushProperties(
   public String subjectProblem() {
     String domain;
     if (subject.startsWith("mailto:")) {
-      domain = subject.substring(subject.lastIndexOf('@') + 1);
+      int at = subject.lastIndexOf('@');
+      if (at < 0) return "메일 주소 형식이 아님";
+      domain = subject.substring(at + 1);
     } else if (subject.startsWith("https://")) {
       domain = subject.substring("https://".length()).split("[/:?#]", 2)[0];
     } else {

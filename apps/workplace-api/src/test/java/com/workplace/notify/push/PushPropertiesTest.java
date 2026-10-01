@@ -41,6 +41,11 @@ class PushPropertiesTest {
   }
 
   @Test
+  void mailtoWithoutAt_isFlagged() {
+    assertThat(withSubject("mailto:admin").subjectProblem()).contains("메일 주소");
+  }
+
+  @Test
   void nonMailtoNonHttps_isFlagged() {
     assertThat(withSubject("admin@iacloud.kr").subjectProblem()).contains("형식");
   }

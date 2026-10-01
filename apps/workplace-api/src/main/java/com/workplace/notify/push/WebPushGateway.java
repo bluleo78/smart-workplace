@@ -5,10 +5,12 @@ import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -69,7 +71,13 @@ public class WebPushGateway implements PushGateway {
               });
     } catch (RuntimeException e) {
       // 네트워크 오류·타임아웃·기타 런타임 예외를 모두 -1 로 흡수한다 — deliver 는 절대 던지지 않는다는 계약(PushGateway).
-      log.warn("[push] 전송 실패 host={}: {}", uri.getHost(), e.getMessage());
+      // e.getMessage() 는 RestClient 가 전체 URL(=구독 토큰)을 넣으므로 쓰지 않고 근본 원인만 남긴다.
+      Throwable cause = NestedExceptionUtils.getMostSpecificCause(e);
+      log.warn(
+          "[push] 전송 실패 host={}: {} {}",
+          uri.getHost(),
+          cause.getClass().getSimpleName(),
+          cause == e ? "" : Objects.toString(cause.getMessage(), ""));
       return -1;
     }
   }

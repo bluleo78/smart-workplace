@@ -120,7 +120,10 @@ class WebPushGatewayTest {
 
     gw.deliver("https://push.example.com/sub/4", new byte[] {1}, Map.of());
 
-    assertThat(output).contains("[push] 전송 실패 host=push.example.com");
+    assertThat(output)
+        .contains("[push] 전송 실패 host=push.example.com")
+        .contains("connection reset")
+        .doesNotContain("/sub/4");
   }
 
   @Test
