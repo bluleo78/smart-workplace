@@ -245,6 +245,28 @@
   }
 }
 
+/* 가상 키보드가 열렸을 때 셸 밖(portal) fixed 요소를 보이는 영역 안으로 — WP-154.
+   iOS 는 키보드가 올라와도 레이아웃 뷰포트를 줄이지 않아, 화면 중앙·하단 기준 fixed 요소가 키보드 뒤로 숨는다.
+   useVisualViewport 가 :root 에 공개하는 값(--vvh·--vv-top·--kb-inset)으로 컴포넌트마다가 아니라 여기서 한 번에 맞춘다.
+   (components/ui 는 shadcn CLI 산출물이라 위치 클래스를 고치지 않고 data-slot·data-side 로 겨냥한다. 레이어 밖 규칙이라 유틸리티보다 우선한다.) */
+:root[data-keyboard-open] [data-slot="dialog-content"],
+:root[data-keyboard-open] [data-slot="alert-dialog-content"] {
+  /* 중앙 정렬 기준을 레이아웃 뷰포트 중앙 → 보이는 영역 중앙으로. 높이가 넘치면 내부 스크롤. */
+  top: calc(var(--vv-top) + var(--vvh) / 2);
+  max-height: calc(var(--vvh) - 2rem);
+  overflow-y: auto;
+}
+/* 하단 시트는 키보드 바로 위에 붙이고, 좌우 시트는 보이는 영역 높이만 차지한다(상단 시트는 그대로). */
+:root[data-keyboard-open] [data-slot="sheet-content"]:not([data-side="top"]) {
+  bottom: var(--kb-inset);
+  max-height: var(--vvh);
+  overflow-y: auto;
+}
+:root[data-keyboard-open] [data-slot="sheet-content"]:is([data-side="left"], [data-side="right"]) {
+  top: var(--vv-top);
+  height: auto;
+}
+
 /* 전역 슬림 스크롤바 — OS 기본(약 15px) 대신 얇은 thumb + 투명 트랙. 항상 표시한다.
    왜 항상 표시: 자동 숨김을 전역에 걸면 스크롤 가능 여부가 안 보이는 영역이 생긴다
    (macOS 오버레이 스크롤바에선 티가 안 나고 Windows/Linux 에서만 드러나는 회귀).
