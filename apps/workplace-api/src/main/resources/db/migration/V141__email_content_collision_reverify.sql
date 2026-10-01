@@ -13,17 +13,20 @@
 --     그 envelope 의 fetched_at 이 content.body_fetched_at 과 가장 가깝다. 주인까지 되돌리면 서버에서 이미 지워지거나 옮겨진
 --     메일은 다시 받을 수 없어, 맞는 본문을 영구히 잃거나(IMAP 분리) 계속 숨겨진다(Graph 재시도 실패).
 --
+-- 헤더 비교는 재검증 범위를 줄이는 필터일 뿐 보안 경계가 아니다. 발신자·Date·To/CC 까지 똑같이 맞춘 위조(예: BCC 수신)는
+--   걸러지지 않고 공유가 유지된다. 운영 감사(WP-131) 기준 의심 그룹 28개만 재검증하고 나머지 1,311개는 정상 공유로 둔다.
+--
 -- 대상 한정: fingerprint 가 NULL(V140 이전 공유분)이고 이미 검증 표시된 envelope 만. 원본을 다시 받을 수 없는 로컬 보낸메일
 --   (imap_uid·provider_message_id 모두 NULL)은 제외한다. 재실행하면 주인만 남은 그룹이라 아무것도 바뀌지 않는다.
 --
 -- RLS: email_message·email_content·email_attachment 는 FORCE RLS 지만 Flyway 소유자 app 은 superuser 라 전 테넌트에 적용된다.
 --   테넌트 경계는 content 가 tenant 별이라 그룹이 테넌트를 넘지 않는다.
 WITH suspect AS (
-    SELECT m.content_id
+    SELECT c.id AS content_id, c.body_fetched_at
     FROM email_message m
     JOIN email_content c ON c.id = m.content_id
     WHERE c.fingerprint IS NULL
-    GROUP BY m.content_id
+    GROUP BY c.id
     HAVING count(*) > 1
        -- NULL 도 하나의 값으로 비교한다(count DISTINCT 는 NULL 을 무시).
        AND (count(DISTINCT coalesce(lower(m.from_address), '')) > 1
@@ -35,11 +38,10 @@ ranked AS (
     SELECT m.id, m.imap_uid, m.provider_message_id,
            row_number() OVER (
                PARTITION BY m.content_id
-               ORDER BY abs(extract(epoch FROM m.fetched_at - c.body_fetched_at)) NULLS LAST, m.id
+               ORDER BY abs(extract(epoch FROM m.fetched_at - s.body_fetched_at)) NULLS LAST, m.id
            ) AS rn
     FROM email_message m
     JOIN suspect s ON s.content_id = m.content_id
-    JOIN email_content c ON c.id = m.content_id
     WHERE m.fetched_at IS NOT NULL
 ),
 target AS (

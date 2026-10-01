@@ -123,4 +123,24 @@ public final class TestFixtures {
         .where(com.workplace.jooq.Tables.EMAIL_MESSAGE.ID.eq(envelopeId))
         .execute();
   }
+
+  /** 메일 사용자 1명 + 계정 + INBOX 폴더(테넌트#1)를 만들고 [userId, accountId, folderId] 를 반환한다. */
+  public static long[] seedMailbox(DSLContext dsl, String address) {
+    var account = com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+    var folder = com.workplace.jooq.Tables.EMAIL_FOLDER;
+    long uid = createHuman(dsl);
+    long acc =
+        dsl.insertInto(account, account.USER_ID, account.EMAIL_ADDRESS, account.TENANT_ID)
+            .values(uid, address, 1L)
+            .returning(account.ID)
+            .fetchOne()
+            .getId();
+    long fld =
+        dsl.insertInto(folder, folder.ACCOUNT_ID, folder.NAME, folder.TENANT_ID)
+            .values(acc, "INBOX", 1L)
+            .returning(folder.ID)
+            .fetchOne()
+            .getId();
+    return new long[] {uid, acc, fld};
+  }
 }

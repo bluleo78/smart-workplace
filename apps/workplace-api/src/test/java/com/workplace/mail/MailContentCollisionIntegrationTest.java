@@ -1,11 +1,8 @@
 package com.workplace.mail;
 
-import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EMAIL_ATTACHMENT;
-import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
-import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.ParsedAttachment;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.repository.ContentAttachmentRepository;
@@ -16,12 +13,10 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.util.List;
-import java.util.function.Consumer;
 import org.assertj.core.api.SoftAssertions;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * WP-130: 같은 테넌트에서 Message-ID 만 같은 서로 다른 메일이 content·첨부를 공유해 다른 사람 메일이 노출·변조되지 않는지 검증한다.
@@ -41,29 +36,6 @@ class MailContentCollisionIntegrationTest extends IntegrationTestBase {
   @Autowired EmailAttachmentRepository attachmentRepo;
   @Autowired ContentAttachmentRepository contentAttachmentRepo;
   @Autowired MailContentShareGate shareGate;
-
-  /** 사용자 1명 + 계정 + INBOX 폴더를 만들고 [userId, accountId, folderId] 를 반환한다. */
-  private long[] seedMailbox(String address) {
-    long uid = TestFixtures.createHuman(dsl);
-    long acc =
-        dsl.insertInto(
-                EMAIL_ACCOUNT,
-                EMAIL_ACCOUNT.USER_ID,
-                EMAIL_ACCOUNT.EMAIL_ADDRESS,
-                EMAIL_ACCOUNT.TENANT_ID)
-            .values(uid, address, 1L)
-            .returning(EMAIL_ACCOUNT.ID)
-            .fetchOne()
-            .getId();
-    long fld =
-        dsl.insertInto(
-                EMAIL_FOLDER, EMAIL_FOLDER.ACCOUNT_ID, EMAIL_FOLDER.NAME, EMAIL_FOLDER.TENANT_ID)
-            .values(acc, "INBOX", 1L)
-            .returning(EMAIL_FOLDER.ID)
-            .fetchOne()
-            .getId();
-    return new long[] {uid, acc, fld};
-  }
 
   /** IMAP 동기화 단계 메시지(헤더 + BODYSTRUCTURE 요약, 본문은 lazy 적재). */
   private static ParsedMessage imapHeader(
@@ -131,23 +103,6 @@ class MailContentCollisionIntegrationTest extends IntegrationTestBase {
     return envA;
   }
 
-  /** 롤백 트랜잭션 안에서 시나리오를 실행하고 soft 단언을 모아 검증한다. */
-  private void inRollbackTx(Consumer<SoftAssertions> scenario) {
-    TenantContext.set(1L);
-    try {
-      new TransactionTemplate(txManager)
-          .executeWithoutResult(
-              status -> {
-                SoftAssertions soft = new SoftAssertions();
-                scenario.accept(soft);
-                status.setRollbackOnly();
-                soft.assertAll();
-              });
-    } finally {
-      TenantContext.clear();
-    }
-  }
-
   /** X 가 A 의 제목·본문·첨부를 보지 못하고, A 의 메일은 그대로인지 공통 단언. */
   private void assertIsolated(
       SoftAssertions soft, long[] a, long envA, long[] x, long envX, String xBody) {
@@ -170,8 +125,8 @@ class MailContentCollisionIntegrationTest extends IntegrationTestBase {
     String msgId = "<victim-" + nano + "@corp.test>";
     inRollbackTx(
         soft -> {
-          long[] a = seedMailbox("a-" + nano + "@corp.test");
-          long[] x = seedMailbox("x-" + nano + "@corp.test");
+          long[] a = TestFixtures.seedMailbox(dsl, "a-" + nano + "@corp.test");
+          long[] x = TestFixtures.seedMailbox(dsl, "x-" + nano + "@corp.test");
           long envA = seedVictim(a, msgId);
 
           long envX =
@@ -203,8 +158,8 @@ class MailContentCollisionIntegrationTest extends IntegrationTestBase {
     String msgId = "<victim-" + nano + "@corp.test>";
     inRollbackTx(
         soft -> {
-          long[] a = seedMailbox("a-" + nano + "@corp.test");
-          long[] x = seedMailbox("x-" + nano + "@corp.test");
+          long[] a = TestFixtures.seedMailbox(dsl, "a-" + nano + "@corp.test");
+          long[] x = TestFixtures.seedMailbox(dsl, "x-" + nano + "@corp.test");
           long envA = seedVictim(a, msgId);
 
           long envX =
@@ -236,8 +191,8 @@ class MailContentCollisionIntegrationTest extends IntegrationTestBase {
     String msgId = "<victim-" + nano + "@corp.test>";
     inRollbackTx(
         soft -> {
-          long[] a = seedMailbox("a-" + nano + "@corp.test");
-          long[] x = seedMailbox("x-" + nano + "@corp.test");
+          long[] a = TestFixtures.seedMailbox(dsl, "a-" + nano + "@corp.test");
+          long[] x = TestFixtures.seedMailbox(dsl, "x-" + nano + "@corp.test");
           long envA = seedVictim(a, msgId);
 
           long envX =
@@ -255,8 +210,8 @@ class MailContentCollisionIntegrationTest extends IntegrationTestBase {
     String msgId = "<notice-" + nano + "@corp.test>";
     inRollbackTx(
         soft -> {
-          long[] a = seedMailbox("a-" + nano + "@corp.test");
-          long[] b = seedMailbox("b-" + nano + "@corp.test");
+          long[] a = TestFixtures.seedMailbox(dsl, "a-" + nano + "@corp.test");
+          long[] b = TestFixtures.seedMailbox(dsl, "b-" + nano + "@corp.test");
           long envA = seedVictim(a, msgId);
 
           long envB =
@@ -281,8 +236,8 @@ class MailContentCollisionIntegrationTest extends IntegrationTestBase {
     String msgId = "<nostruct-" + nano + "@corp.test>";
     inRollbackTx(
         soft -> {
-          long[] a = seedMailbox("a-" + nano + "@corp.test");
-          long[] b = seedMailbox("b-" + nano + "@corp.test");
+          long[] a = TestFixtures.seedMailbox(dsl, "a-" + nano + "@corp.test");
+          long[] b = TestFixtures.seedMailbox(dsl, "b-" + nano + "@corp.test");
           long envA = sync(a, imapHeader(1, msgId, "ceo@corp.test", "제목", SENT_A, null));
           long envB = sync(b, imapHeader(2, msgId, "ceo@corp.test", "제목", SENT_A, null));
           soft.assertThat(contentIdOf(envA)).isNotEqualTo(contentIdOf(envB));
@@ -296,7 +251,7 @@ class MailContentCollisionIntegrationTest extends IntegrationTestBase {
     String msgId = "<resync-" + nano + "@corp.test>";
     inRollbackTx(
         soft -> {
-          long[] a = seedMailbox("a-" + nano + "@corp.test");
+          long[] a = TestFixtures.seedMailbox(dsl, "a-" + nano + "@corp.test");
           // 구조 요약 없음 → 지문 없음 → 재동기화마다 findOrCreate 가 새 content 를 만든다
           ParsedMessage m = imapHeader(7, msgId, "ceo@corp.test", "제목", SENT_A, null);
           sync(a, m);
