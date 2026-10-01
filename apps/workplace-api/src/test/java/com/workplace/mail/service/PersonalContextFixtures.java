@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
@@ -111,6 +112,12 @@ public final class PersonalContextFixtures {
             .returning(PROJECT.ID)
             .fetchOne()
             .getId();
+    // 이슈 가시성은 프로젝트 멤버십 기준 — 보고자를 멤버로 둔다(멤버십이 없는 경우는 테스트가 행을 지워 만든다)
+    dsl.insertInto(PROJECT_MEMBER)
+        .set(PROJECT_MEMBER.PROJECT_ID, project)
+        .set(PROJECT_MEMBER.USER_ID, reporterId)
+        .set(PROJECT_MEMBER.ROLE, "OWNER")
+        .execute();
     long type =
         dsl.insertInto(ISSUE_TYPE_DEF)
             .set(ISSUE_TYPE_DEF.PROJECT_ID, project)

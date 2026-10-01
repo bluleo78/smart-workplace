@@ -66,4 +66,17 @@ class PersonalContextLoaderTest {
     assertThat(names.get(1)).hasSize(PersonalContextLoader.ATTACHMENT_NAME_MAX + 1).endsWith("…");
     assertThat(names).doesNotContain("image001.png");
   }
+
+  @Test
+  void cuts_doNotSplitSurrogatePair() {
+    // 500번째 글자 위치에 이모지(서로게이트 쌍)가 걸치면 한 글자 일찍 자른다
+    String body = "가".repeat(499) + "😀" + "나".repeat(10);
+    assertThat(PersonalContextLoader.excerpt(body)).isEqualTo("가".repeat(499) + "…");
+
+    String name = "a".repeat(99) + "😀.pdf";
+    List<String> names =
+        PersonalContextLoader.attachmentNames(
+            List.of(new AttachmentRow(name, "application/pdf", null)));
+    assertThat(names).containsExactly("a".repeat(99) + "…");
+  }
 }

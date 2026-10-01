@@ -74,7 +74,7 @@ public class PersonalContextLoader {
             () ->
                 priorMails(
                     contextRepo.listPriorThreadMails(userId, id, THREAD_LIMIT), me.addressSet()));
-    IssueRef issue = block("연결 이슈", id, () -> contextRepo.findLinkedIssue(id).orElse(null));
+    IssueRef issue = block("연결 이슈", id, () -> contextRepo.findLinkedIssue(userId, id).orElse(null));
     List<String> attachments =
         block("첨부", id, () -> attachmentNames(contextRepo.listAttachments(id)));
     return new PersonalContext(sender, thread, issue, attachments);
@@ -123,7 +123,7 @@ public class PersonalContextLoader {
       return "";
     }
     String s = newBody.strip();
-    return s.length() <= THREAD_BODY_CHARS ? s : s.substring(0, THREAD_BODY_CHARS) + "…";
+    return s.length() <= THREAD_BODY_CHARS ? s : cut(s, THREAD_BODY_CHARS) + "…";
   }
 
   /**
@@ -140,14 +140,17 @@ public class PersonalContextLoader {
         continue;
       }
       String name = r.filename().strip();
-      out.add(
-          name.length() <= ATTACHMENT_NAME_MAX
-              ? name
-              : name.substring(0, ATTACHMENT_NAME_MAX) + "…");
+      out.add(name.length() <= ATTACHMENT_NAME_MAX ? name : cut(name, ATTACHMENT_NAME_MAX) + "…");
       if (out.size() >= ATTACHMENT_LIMIT) {
         break;
       }
     }
     return List.copyOf(out);
+  }
+
+  /** 앞 max 글자 — 경계가 서로게이트 쌍(이모지 등)의 가운데면 한 글자 일찍 잘라 깨진 문자를 막는다. */
+  private static String cut(String s, int max) {
+    int end = Character.isHighSurrogate(s.charAt(max - 1)) ? max - 1 : max;
+    return s.substring(0, end);
   }
 }

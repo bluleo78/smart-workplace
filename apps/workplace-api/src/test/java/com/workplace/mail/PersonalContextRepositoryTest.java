@@ -1,6 +1,7 @@
 package com.workplace.mail;
 
 import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.mail.outbound.MailAiMessages.IssueRef;
@@ -98,9 +99,30 @@ class PersonalContextRepositoryTest extends IntegrationTestBase {
         .where(ISSUE.ID.eq(deleted.issueId()))
         .execute();
 
-    Optional<IssueRef> ref = repo.findLinkedIssue(env);
+    Optional<IssueRef> ref = repo.findLinkedIssue(box.userId(), env);
 
     assertThat(ref).contains(new IssueRef(live.key(), "배포 일정 확정", "IN_PROGRESS"));
-    assertThat(repo.findLinkedIssue(env + 999_999)).isEmpty();
+    assertThat(repo.findLinkedIssue(box.userId(), env + 999_999)).isEmpty();
+  }
+
+  @Test
+  void linkedIssue_requiresProjectMembership() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long env = mail(box, box.folderId(), "th-" + System.nanoTime(), 0, "a@x.com", "본문");
+    IssueSeed seed = PersonalContextFixtures.linkedIssue(dsl, box.userId(), env, "비공개 일정", "TODO");
+    long projectId =
+        dsl.select(ISSUE.PROJECT_ID)
+            .from(ISSUE)
+            .where(ISSUE.ID.eq(seed.issueId()))
+            .fetchOne(ISSUE.PROJECT_ID);
+
+    assertThat(repo.findLinkedIssue(box.userId(), env)).isPresent(); // 멤버 — 보인다
+
+    // 프로젝트에서 빠지면 보이지 않는다
+    dsl.deleteFrom(PROJECT_MEMBER)
+        .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId))
+        .and(PROJECT_MEMBER.USER_ID.eq(box.userId()))
+        .execute();
+    assertThat(repo.findLinkedIssue(box.userId(), env)).isEmpty();
   }
 }
