@@ -66,6 +66,9 @@ test('딥링크로 연 이슈 상세의 ‹ 는 프로젝트 화면으로 간다
   await mock(page);
   await page.goto(`/projects/${KEY}/issues/8`);
   await expect(page.getByTestId('mobile-back')).toBeVisible();
+  const lengthBefore = await page.evaluate(() => history.length);
   await page.getByTestId('mobile-back').click();
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));
+  // replace 이동 — 시스템 뒤로가기가 방금 떠난 상세로 되돌아가는 왕복 고리가 없다.
+  expect(await page.evaluate(() => history.length)).toBe(lengthBefore);
 });

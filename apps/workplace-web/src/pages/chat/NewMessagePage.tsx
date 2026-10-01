@@ -91,7 +91,8 @@ export default function NewMessagePage() {
         fileIds: uploadedIds.length ? uploadedIds : undefined,
         driveFileIds: driveFileIds.length ? driveFileIds : undefined,
       })
-      navigate(`/chat/dms/${dm.id}`)
+      // replace — 새 메시지 작성 화면은 일회성이다. push 하면 DM 에서 뒤로가기가 빈 작성 화면으로 돌아간다.
+      navigate(`/chat/dms/${dm.id}`, { replace: true })
     } catch (err) {
       handleApiError(err, '메시지를 보낼 수 없습니다')
       setSending(false)
