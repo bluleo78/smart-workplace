@@ -80,7 +80,7 @@ class MessagePushDeliveryTest extends IntegrationTestBase {
     long me = seedUser();
     long you = seedUser();
     String ep = subscribe(you);
-    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(201);
+    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(PushGateway.Result.of(201));
 
     long dmId = dmService.createOrGet(me, List.of(you)).dm().id();
     messageService.create(me, dmId, new CreateMessageRequest("안녕하세요"));
@@ -104,7 +104,7 @@ class MessagePushDeliveryTest extends IntegrationTestBase {
             .id();
     memberRepo.add(ch, member, "MEMBER");
     String ep = subscribe(member);
-    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(201);
+    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(PushGateway.Result.of(201));
 
     messageService.create(me, ch, new CreateMessageRequest("<@" + member + "> 확인 부탁"));
 

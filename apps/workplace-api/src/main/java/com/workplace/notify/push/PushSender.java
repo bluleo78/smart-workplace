@@ -47,15 +47,30 @@ public class PushSender {
     // 그 origin 의 모든 구독이 영구 삭제되는 사고가 난다.
     Map<String, EndpointValidator.Outcome> outcomeByOrigin = new HashMap<>();
     Map<String, String> authByOrigin = new HashMap<>();
+    // 실패는 구독마다 찍지 않고 (host, status) 별로 모아 1줄로 남긴다 — VAPID 오류·푸시 서비스 장애는 같은 host 구독 전부에 같은 원인으로
+    // 난다(WP-152).
+    Map<String, Rejection> rejections = new LinkedHashMap<>();
     for (PushSubscriptionRow sub : subs) {
       try {
-        deliverOne(sub, json, message, outcomeByOrigin, authByOrigin);
+        deliverOne(sub, json, message, outcomeByOrigin, authByOrigin, rejections);
       } catch (Exception e) {
         log.warn("[push] 구독 {} 발송 중 예외: {}", sub.id(), e.getMessage());
         failed(sub);
       }
     }
+    // endpoint 경로는 구독 토큰이라 host 만 남긴다.
+    rejections.forEach(
+        (key, r) ->
+            log.warn(
+                "[push] 발송 실패 host={} status={} count={} reason={}",
+                r.host(),
+                r.status(),
+                r.count(),
+                r.reason()));
   }
+
+  /** 발송 1회 안의 (host, status) 별 실패 집계 — 사유는 첫 건 것만 둔다. */
+  private record Rejection(String host, int status, int count, String reason) {}
 
   /** 서비스워커 계약(v=1) JSON. */
   byte[] payload(PushMessage m) {
@@ -79,7 +94,8 @@ public class PushSender {
       byte[] json,
       PushMessage m,
       Map<String, EndpointValidator.Outcome> outcomeByOrigin,
-      Map<String, String> authByOrigin) {
+      Map<String, String> authByOrigin,
+      Map<String, Rejection> rejections) {
     URI uri = parse(sub.endpoint());
     if (uri == null) {
       subscriptions.deleteById(sub.id()); // 파싱 불가 — 폐기
@@ -107,15 +123,20 @@ public class PushSender {
     headers.put(
         "Authorization",
         authByOrigin.computeIfAbsent(origin(uri), o -> signer.authorization(sub.endpoint())));
-    int status = gateway.deliver(sub.endpoint(), body, headers);
+    PushGateway.Result result = gateway.deliver(sub.endpoint(), body, headers);
+    int status = result.status();
     if (status >= 200 && status < 300) {
       subscriptions.markSuccess(sub.id());
     } else if (status == 404 || status == 410) {
-      subscriptions.deleteById(sub.id()); // 만료·해지된 구독
+      subscriptions.deleteById(sub.id()); // 만료·해지된 구독 — 정상 정리 흐름이라 로그 없음
     } else if (status == 413) {
       log.error("[push] payload 초과(413) — 구독 {} 유지, payload 크기 점검 필요", sub.id());
     } else {
-      failed(sub); // 429·5xx·타임아웃(-1)·기타
+      failed(sub); // 403(VAPID 거부)·429·5xx·타임아웃(-1)·기타
+      rejections.merge(
+          uri.getHost() + " " + status,
+          new Rejection(uri.getHost(), status, 1, result.reason()),
+          (a, b) -> new Rejection(a.host(), a.status(), a.count() + 1, a.reason()));
     }
   }
 

@@ -1,6 +1,9 @@
 package com.workplace.notify.push;
 
+import java.net.URI;
 import java.time.Duration;
+import java.util.Locale;
+import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -21,6 +24,36 @@ public record PushProperties(
   public PushProperties {
     if (subject == null || subject.isBlank()) subject = "mailto:admin@localhost";
     if (timeout == null) timeout = Duration.ofSeconds(5);
+  }
+
+  /**
+   * VAPID 연락처(sub) 점검 — 문제가 있으면 사유, 없으면 null. Apple 푸시 서비스(web.push.apple.com)는 sub 가 localhost 류
+   * 주소이면 발송을 403 으로 거부한다(FCM 은 허용해 iPhone 만 조용히 실패 — WP-152). RFC 8292 상 sub 는 mailto: 또는 https:
+   * URI 여야 한다.
+   */
+  public String subjectProblem() {
+    String domain;
+    if (subject.startsWith("mailto:")) {
+      int at = subject.lastIndexOf('@');
+      if (at < 0) return "메일 주소 형식이 아님";
+      domain = subject.substring(at + 1);
+    } else if (subject.startsWith("https://")) {
+      try {
+        domain = Objects.toString(URI.create(subject).getHost(), "");
+      } catch (IllegalArgumentException e) {
+        return "https URI 형식이 아님";
+      }
+    } else {
+      return "mailto: 또는 https: 형식이 아님";
+    }
+    domain = domain.toLowerCase(Locale.ROOT);
+    if (domain.isEmpty()
+        || domain.equals("localhost")
+        || domain.endsWith(".localhost")
+        || domain.endsWith(".local")) {
+      return "실제 도메인이 아님(" + domain + ") — Apple 푸시가 거부함";
+    }
+    return null;
   }
 
   /** env 로 키쌍이 모두 주어졌는지. */
