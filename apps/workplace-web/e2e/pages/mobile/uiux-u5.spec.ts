@@ -38,6 +38,7 @@ test.describe('C2 수정 중인 메시지는 길게 누르기 대상이 아니�
     await expect(page.getByTestId('message-11').getByRole('button', { name: '메시지 작업' })).toHaveCount(0)
 
     await longPress(page, editor)
+    // 부재 확인 — 판정 시간(450ms)을 넘겨 누른 뒤에도 시트가 뜨지 않는지 잠시 더 기다려 본다(WP-82 허용 사유).
     await page.waitForTimeout(300)
     await expect(page.getByTestId('message-action-sheet')).toHaveCount(0)
   })
