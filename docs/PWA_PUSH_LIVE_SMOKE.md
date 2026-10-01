@@ -190,4 +190,4 @@
   - 테스트ID: `push-disabled-notice`
   - 아웃바운드 HTTPS 불가 시 푸시 서비스로 전달 불가 → 알림 미도착(설계)
 - **VAPID 키**: 환경 변수 `WORKPLACE_PUSH_VAPID_PUBLIC` + `WORKPLACE_PUSH_VAPID_PRIVATE` 둘 다 설정되거나 둘 다 미설정이어야 함(이 경우 DB에서 자동 생성). 한쪽만 설정되면 환경 변수는 무시되고 DB 키가 대신 사용됨. 푸시 on/off는 `workplace.push.enabled` 값으로만 결정.
-- **발송 실패 추적**: 푸시 서비스가 거부하면 API 로그에 `[push] 발송 거부 host=... status=... reason=...`(네트워크 오류는 `[push] 전송 실패`)가 남는다. 구독별 연속 실패는 `push_subscription.failure_count`(5회면 구독 삭제), 성공은 `last_success_at` 로 확인.
+- **발송 실패 추적**: 푸시 서비스가 거부하면 API 로그에 발송 1회당 host·status 별 1줄로 `[push] 발송 실패 host=... status=... count=... reason=...` 가 남는다(네트워크 오류는 status=-1, 만료 404/410 은 기록 안 함). 구독별 연속 실패는 `push_subscription.failure_count`(5회면 구독 삭제), 성공은 `last_success_at` 로 확인.

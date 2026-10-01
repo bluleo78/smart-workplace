@@ -51,7 +51,7 @@ class PushSenderMemoTest {
     when(validator.check(anyString())).thenReturn(EndpointValidator.Outcome.ALLOWED);
     when(signer.authorization(anyString())).thenReturn("vapid t=x, k=y");
     when(encryptor.encrypt(any(), any(), any())).thenReturn(new byte[] {1});
-    when(gateway.deliver(anyString(), any(), anyMap())).thenReturn(201);
+    when(gateway.deliver(anyString(), any(), anyMap())).thenReturn(PushGateway.Result.of(201));
 
     sender.send(
         List.of(7L), new PushMessage(1L, PushCategory.DM, "t", "b", "/", "ch-1", "high", 60));

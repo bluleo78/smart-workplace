@@ -78,7 +78,7 @@ class InboxPushDeliveryTest extends IntegrationTestBase {
         EcKeys.b64e(EcKeys.encodePublic((ECPublicKey) EcKeys.generate().getPublic())),
         EcKeys.b64e(new byte[16]),
         null);
-    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(201);
+    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(PushGateway.Result.of(201));
 
     long issueId =
         new TransactionTemplate(txManager)

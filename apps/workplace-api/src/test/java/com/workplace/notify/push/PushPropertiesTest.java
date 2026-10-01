@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /** PushProperties.subjectProblem — Apple 이 거부하는 VAPID 연락처를 기동 시 잡아내는지(WP-152). */
@@ -40,13 +41,9 @@ class PushPropertiesTest {
     assertThat(withSubject(subject).subjectProblem()).startsWith("실제 도메인이 아님");
   }
 
-  @Test
-  void mailtoWithoutAt_isFlagged() {
-    assertThat(withSubject("mailto:admin").subjectProblem()).contains("메일 주소");
-  }
-
-  @Test
-  void nonMailtoNonHttps_isFlagged() {
-    assertThat(withSubject("admin@iacloud.kr").subjectProblem()).contains("형식");
+  @ParameterizedTest
+  @CsvSource({"mailto:admin, 메일 주소", "admin@iacloud.kr, 형식"})
+  void malformedSubject_isFlagged(String subject, String expected) {
+    assertThat(withSubject(subject).subjectProblem()).contains(expected);
   }
 }

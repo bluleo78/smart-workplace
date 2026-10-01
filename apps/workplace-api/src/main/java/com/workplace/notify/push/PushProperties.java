@@ -1,7 +1,9 @@
 package com.workplace.notify.push;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.Locale;
+import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -36,7 +38,11 @@ public record PushProperties(
       if (at < 0) return "메일 주소 형식이 아님";
       domain = subject.substring(at + 1);
     } else if (subject.startsWith("https://")) {
-      domain = subject.substring("https://".length()).split("[/:?#]", 2)[0];
+      try {
+        domain = Objects.toString(URI.create(subject).getHost(), "");
+      } catch (IllegalArgumentException e) {
+        return "https URI 형식이 아님";
+      }
     } else {
       return "mailto: 또는 https: 형식이 아님";
     }

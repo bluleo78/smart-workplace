@@ -61,7 +61,7 @@ workplace:
   push:
     enabled: ${WORKPLACE_PUSH_ENABLED:true}
     preview: ${WORKPLACE_PUSH_PREVIEW:true}          # false 면 알림에 본문 대신 고정 문구
-    subject: ${WORKPLACE_PUSH_SUBJECT:mailto:admin@localhost}  # VAPID 연락처(푸시 서비스가 문제 시 연락)
+    subject: ${WORKPLACE_PUSH_SUBJECT:}  # VAPID 연락처 — 운영은 mailto:<실제 메일> 필수(Apple 은 localhost 거부, WP-152). 비우면 PushProperties 기본값
     timeout: ${WORKPLACE_PUSH_TIMEOUT:5s}
     vapid-public-key: ${WORKPLACE_PUSH_VAPID_PUBLIC:}
     vapid-private-key: ${WORKPLACE_PUSH_VAPID_PRIVATE:}

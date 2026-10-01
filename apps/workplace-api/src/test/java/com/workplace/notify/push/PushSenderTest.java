@@ -3,6 +3,7 @@ package com.workplace.notify.push;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -21,13 +22,17 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /** PushSender — 설정 필터, 헤더, 상태코드별 구독 처리(성공 초기화·410 삭제·5회 실패 삭제), 한 구독 실패 격리. */
 @Transactional
+@ExtendWith(OutputCaptureExtension.class)
 class PushSenderTest extends IntegrationTestBase {
 
   @MockitoBean PushGateway gateway;
@@ -62,7 +67,7 @@ class PushSenderTest extends IntegrationTestBase {
   @Test
   void send_success_setsHeaders_andResetsFailure() {
     String ep = addSub();
-    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(201);
+    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(PushGateway.Result.of(201));
 
     sender.send(List.of(user), msg());
 
@@ -80,15 +85,32 @@ class PushSenderTest extends IntegrationTestBase {
   @Test
   void send_gone_deletesSubscription() {
     String ep = addSub();
-    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(410);
+    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(PushGateway.Result.of(410));
     sender.send(List.of(user), msg());
     assertThat(subs.findOwner(ep)).isEmpty();
+  }
+
+  /** 같은 host 의 거부는 구독마다가 아니라 발송 1회당 (host, status) 1줄로 사유와 건수를 남기고, 구독 토큰 경로는 남기지 않는다(WP-152). */
+  @Test
+  void send_rejections_loggedOncePerHostAndStatus(CapturedOutput output) {
+    String a = addSub();
+    String b = addSub();
+    when(gateway.deliver(anyString(), any(), anyMap()))
+        .thenReturn(new PushGateway.Result(403, "{\"reason\":\"BadJwtToken\"}"));
+
+    sender.send(List.of(user), msg());
+
+    assertThat(output)
+        .containsOnlyOnce(
+            "[push] 발송 실패 host=203.0.113.10 status=403 count=2 reason={\"reason\":\"BadJwtToken\"}")
+        .doesNotContain(a.substring(a.lastIndexOf('/')))
+        .doesNotContain(b.substring(b.lastIndexOf('/')));
   }
 
   @Test
   void send_transientFailure5Times_deletes() {
     String ep = addSub();
-    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(503);
+    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(PushGateway.Result.of(503));
     for (int i = 0; i < 4; i++) sender.send(List.of(user), msg());
     assertThat(subs.findOwner(ep)).isPresent();
     sender.send(List.of(user), msg());
@@ -142,7 +164,7 @@ class PushSenderTest extends IntegrationTestBase {
     subs.upsert(user, tooShort, "AAAA", auth, null);
     subs.upsert(user, offCurve, EcKeys.b64e(offCurvePoint()), auth, null);
     String ok = addSub();
-    when(gateway.deliver(eq(ok), any(), anyMap())).thenReturn(201);
+    when(gateway.deliver(eq(ok), any(), anyMap())).thenReturn(PushGateway.Result.of(201));
 
     for (int i = 0; i < 5; i++) sender.send(List.of(user), msg());
 
