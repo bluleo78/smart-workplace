@@ -2982,3 +2982,19 @@ test('데스크톱 — 레이아웃 조회·저장에 device 쿼리를 붙이지
   const put = await putCapture.waitForRequest()
   expect(put.searchParams.has('device')).toBe(false)
 })
+
+test('데스크톱 — 저장본에 collapsed 가 있어도 무시하고 본문을 렌더한다(WP-142)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/dashboard',
+    layout([{ id: 'my_tasks', type: 'my_tasks', count: 5, hidden: false, collapsed: true }]),
+  )
+  await page.goto('/')
+  await expect(page.getByTestId('dash-mytasks')).toBeVisible()
+  await expect(page.getByTestId('mobile-widget-collapse')).toHaveCount(0)
+  await expect(page.locator('[data-testid="dashboard-widget"][data-mobile-kind]')).toHaveCount(0)
+})
