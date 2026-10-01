@@ -27,11 +27,18 @@ public class ChannelService {
   private final ChannelPermissions perms;
   private final ApplicationEventPublisher publisher;
   private final ChannelChangeNotifier changeNotifier;
+  private final LastMessageLookup lastMessageLookup;
 
-  /** 사이드바 — caller 가 멤버이고 아카이브되지 않은 채널만. RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  /**
+   * 사이드바 — caller 가 멤버이고 아카이브되지 않은 채널만. 모바일 목록 미리보기용 lastMessage 를 배치로 채운다(WP-135). RLS GUC 주입
+   * 위해 @Transactional 필요(없으면 빈 결과).
+   */
   @Transactional(readOnly = true)
   public List<ChannelResponse> list(long callerId) {
-    return channelRepo.findMyChannels(callerId);
+    List<ChannelResponse> channels = channelRepo.findMyChannels(callerId);
+    var last =
+        lastMessageLookup.findByChannelIds(channels.stream().map(ChannelResponse::id).toList());
+    return channels.stream().map(c -> c.withLastMessage(last.get(c.id()))).toList();
   }
 
   /** 탐색 — 공개·비아카이브 채널 검색(q ILIKE). RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */

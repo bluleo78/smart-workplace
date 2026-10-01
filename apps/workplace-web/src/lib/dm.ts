@@ -13,3 +13,8 @@ export function dmDisplayName(dm: DmResponse, currentUserId: number): string {
   if (others.length <= 3) return others.map((p) => p.name).join(', ');
   return `${others[0].name}, ${others[1].name} 외 ${others.length - 2}명`;
 }
+
+/** 셀프 DM 판정(단일 규칙) — 참여자가 1명 이상이고 전원이 본인. 참여자 없는 DM 은 셀프 DM 이 아니다. */
+export function isSelfDm(dm: DmResponse, currentUserId: number): boolean {
+  return dm.participants.length > 0 && dm.participants.every((p) => p.userId === currentUserId)
+}

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DmResponse } from '@/types/messaging'
 
-import { dmDisplayName } from './dm'
+import { dmDisplayName, isSelfDm } from './dm'
 
 function dm(participants: { userId: number; name: string }[]): DmResponse {
   return {
@@ -25,5 +25,17 @@ describe('dmDisplayName', () => {
     expect(
       dmDisplayName(dm([{ userId: 1, name: '나' }, { userId: 2, name: '밥' }, { userId: 3, name: '캐럴' }]), 1),
     ).toBe('밥, 캐럴')
+  })
+})
+
+describe('isSelfDm', () => {
+  it('본인만 참여 → true', () => {
+    expect(isSelfDm(dm([{ userId: 1, name: '홍길동' }]), 1)).toBe(true)
+  })
+  it('본인 + 상대 → false', () => {
+    expect(isSelfDm(dm([{ userId: 1, name: '홍길동' }, { userId: 2, name: '김철수' }]), 1)).toBe(false)
+  })
+  it('참여자 없음 → false', () => {
+    expect(isSelfDm(dm([]), 1)).toBe(false)
   })
 })

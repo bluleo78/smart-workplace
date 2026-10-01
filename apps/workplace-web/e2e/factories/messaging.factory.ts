@@ -7,6 +7,7 @@ import type {
   ChannelMemberResponse,
   DmParticipant,
   DmResponse,
+  LastMessageSummary,
   MessageResponse,
   ReactionResponse,
   ThreadInboxItem,
@@ -33,6 +34,7 @@ export function createChannel(overrides: Partial<ChannelResponse> = {}): Channel
     hasUnreadThreads: false,
     lastReadMessageId: null, // 진입 시 읽음 워터마크. null 이면 구분선 없음.
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
+    lastMessage: null,
     ...overrides,
   };
 }
@@ -66,6 +68,19 @@ export function createDm(overrides: Partial<DmResponse> = {}): DmResponse {
     lastMessageAt: null,
     unreadCount: 0,
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
+    lastMessage: null,
+    ...overrides,
+  };
+}
+
+/** WP-135: 목록 미리보기용 마지막 메시지 팩토리. */
+export function createLastMessage(overrides: Partial<LastMessageSummary> = {}): LastMessageSummary {
+  return {
+    id: 9000,
+    authorId: 2,
+    authorName: '김철수',
+    preview: '점심 같이 드실 분 12시 반에 로비에서 만나요',
+    createdAt: new Date().toISOString(),
     ...overrides,
   };
 }
