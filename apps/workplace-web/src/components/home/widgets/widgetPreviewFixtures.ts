@@ -32,12 +32,12 @@ const sampleMails: EmailMessageSummary[] = [
   {
     id: 1, accountId: 1, threadId: 't1', fromAddress: 'lead@example.com', fromName: '김리드',
     subject: '이번 주 스프린트 리뷰 일정 안내', snippet: '금요일 오후 2시에 진행 예정입니다...',
-    receivedAt: now, seen: false, hasAttachment: false, aiCategory: null, aiNeedsReply: true, needsReplyDoneAt: null,
+    receivedAt: now, seen: false, hasAttachment: false, aiCategory: null, aiNeedsReply: true,
   },
   {
     id: 2, accountId: 1, threadId: 't2', fromAddress: 'hr@example.com', fromName: '인사팀',
     subject: '7월 급여명세서 발송', snippet: '첨부된 명세서를 확인해 주세요.',
-    receivedAt: now, seen: true, hasAttachment: true, aiCategory: null, aiNeedsReply: false, needsReplyDoneAt: null,
+    receivedAt: now, seen: true, hasAttachment: true, aiCategory: null, aiNeedsReply: false,
   },
 ]
 
@@ -90,7 +90,7 @@ const sampleConversations: ConversationSummaryItem[] = [
 ]
 
 const sampleMailSummary: MailSummaryItem[] = [
-  { id: 1, accountId: 1, subject: '이번 주 스프린트 리뷰 일정 안내', fromAddress: 'lead@example.com', fromName: '김리드', snippet: '금요일 오후 2시에 진행 예정입니다...', receivedAt: now, seen: false, hasAttachment: false, aiCategory: null, aiNeedsReply: true, needsReplyDoneAt: null },
+  { id: 1, accountId: 1, subject: '이번 주 스프린트 리뷰 일정 안내', fromAddress: 'lead@example.com', fromName: '김리드', snippet: '금요일 오후 2시에 진행 예정입니다...', receivedAt: now, seen: false, hasAttachment: false, aiCategory: null, aiNeedsReply: true },
 ]
 
 // notifications: '내 차례'(ASSIGNED 1건) + '업데이트'(COMMENTED 1건) 구분을 위해 서로 다른 이슈로 배치.

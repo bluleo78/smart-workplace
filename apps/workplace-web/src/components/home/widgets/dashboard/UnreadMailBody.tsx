@@ -48,7 +48,7 @@ export default function UnreadMailBody({
 
   const recent = previewData ?? queryData?.recent ?? []
   const unreadCount = previewData ? previewData.filter((m) => !m.seen).length : (queryData?.unreadCount ?? 0)
-  const needsReplyCount = previewData ? previewData.filter((m) => m.aiNeedsReply && !m.needsReplyDoneAt).length : (queryData?.needsReplyCount ?? 0)
+  const needsReplyCount = previewData ? previewData.filter((m) => m.aiNeedsReply && !m.seen).length : (queryData?.needsReplyCount ?? 0)
   const classificationActive = previewData ? true : (queryData?.classificationActive ?? false)
 
   if (recent.length === 0)
@@ -75,9 +75,9 @@ export default function UnreadMailBody({
     return bt - at
   })
 
-  // P2: 통일 술어 — 처리완료(needsReplyDoneAt) 된 회신필요는 제외.
-  // 토글 켜짐 → 회신 필요(미처리)만. recent 는 회신필요 우선 정렬이라 상단부터 채워진다.
-  const visible = needsReplyOnly ? rows.filter((m) => m.aiNeedsReply && !m.needsReplyDoneAt) : rows
+  // WP-146: 단일 술어 — 회신필요 = AI 판정 && 안 읽음.
+  // 토글 켜짐 → 회신 필요만. recent 는 회신필요 우선 정렬이라 상단부터 채워진다.
+  const visible = needsReplyOnly ? rows.filter((m) => m.aiNeedsReply && !m.seen) : rows
 
   return (
     <div data-testid="dash-mail">

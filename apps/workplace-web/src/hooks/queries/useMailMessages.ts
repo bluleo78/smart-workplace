@@ -4,7 +4,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 
-import { clearNeedsReplyDone, coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getNeedsReplyCount, getSyncStatus, listMessages, markNeedsReplyDone, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
+import { coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getNeedsReplyCount, getSyncStatus, listMessages, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
 import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
@@ -43,36 +43,6 @@ export function useNeedsReplyCount(accountId: number | undefined) {
   });
 }
 
-/**
- * P2: 회신필요 처리완료 mutation — 성공 시 목록·사이드바 카운트·홈 위젯 요약 무효화.
- * Sonner 토스트 "처리완료" + "되돌리기" 액션(DELETE 호출 후 재무효화).
- */
-export function useMarkNeedsReplyDone(accountId: number | undefined) {
-  const qc = useQueryClient()
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['mail-messages', accountId] })
-    qc.invalidateQueries({ queryKey: ['mail-needs-reply-count', accountId] })
-    // 홈 위젯 회신필요 카운트 갱신 — exact:true 로 메시지별 AI 요약 키 불필요 재생성 방지.
-    qc.invalidateQueries({ queryKey: ['mail-summary'], exact: true })
-  }
-  return useMutation({
-    mutationFn: (messageId: number) => markNeedsReplyDone(accountId as number, messageId),
-    onSuccess: (_d, messageId) => {
-      invalidate()
-      toast.success('처리완료', {
-        action: {
-          label: '되돌리기',
-          onClick: async () => {
-            await clearNeedsReplyDone(accountId as number, messageId)
-            invalidate()
-          },
-        },
-      })
-    },
-    onError: (e) => handleApiError(e, '처리완료에 실패했습니다'),
-  })
-}
-
 /** 메시지 단건 상세. messageId 가 없으면 비활성. 성공 시 목록 캐시의 seen 플래그를 낙관적으로 동기화(읽음 처리). */
 export function useMailMessage(messageId: number | null) {
   const qc = useQueryClient();
@@ -92,6 +62,8 @@ export function useMailMessage(messageId: number | null) {
       // 홈 대시보드 메일 요약(useMailSummary, ['mail-summary'])도 무효화 — 읽음으로 회신 필요/안읽음 수 즉시 반영.
       // exact: true — 메시지별 AI 요약 ['mail-summary', messageId] 의 불필요한 재생성 방지(useSyncMailbox 와 동일).
       qc.invalidateQueries({ queryKey: ['mail-summary'], exact: true });
+      // WP-146: 회신필요 = AI 판정 && 안 읽음 — 열람으로 사이드바 회신필요 카운트도 바뀌므로 함께 무효화(계정 무관 prefix).
+      qc.invalidateQueries({ queryKey: ['mail-needs-reply-count'] });
     }
   }, [query.isSuccess, messageId, qc]);
 

@@ -89,51 +89,38 @@ test.describe('사이드바 필터', () => {
   })
 })
 
-// P2: 회신필요 처리완료 pill + 긍정 빈 상태.
-test.describe('회신필요 처리완료', () => {
-  test('회신필요 행 처리완료 → POST 호출 + 행 제거 + 되돌리기 토스트', async ({ authenticatedPage: page }) => {
-    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
-    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
-    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 1 })
-    let listCall = 0
-    await page.route((url) => url.pathname === '/api/v1/mail/accounts/1/messages', (route) => {
-      listCall += 1
-      // 1차 조회: 회신필요 메일 1건. invalidate 후 2차 조회: 빈 목록(처리완료로 빠짐).
-      const rows = listCall === 1
-        ? [mailSummary({ id: 10, subject: '검토 요청', aiCategory: '업무', aiNeedsReply: true })]
-        : []
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
-    })
-    let posted = false
-    await page.route('**/mail/accounts/1/messages/10/needs-reply-done', (route) => {
-      if (route.request().method() === 'POST') posted = true
-      route.fulfill({ status: 200, body: '' })
-    })
-    await page.goto('/mail/1?needsReply=true')
-    await page.getByTestId('mail-row-10').hover()
-    await page.getByTestId('mail-resolve-10').click()
-    await expect.poll(() => posted).toBe(true)
-    // 토스트 제목 '처리완료' 는 행의 resolve 버튼 텍스트와 충돌(strict-mode 위반) → 토스트 고유의
-    // '되돌리기' 액션 버튼으로 토스트 노출을 검증한다.
-    await expect(page.getByRole('button', { name: '되돌리기' })).toBeVisible()
-    await expect(page.getByTestId('mail-row-10')).toHaveCount(0)
-  })
-
-  test('처리완료 버튼 — 마우스 없이 키보드 포커스만으로 노출됨 (#697)', async ({ authenticatedPage: page }) => {
-    // display:none(hidden) 기반이면 tab 순서에서 제외돼 키보드 사용자는 절대 도달 못 함 — opacity 토글로 수정.
+// WP-146: 회신필요 = AI 판정 && 안 읽음. 처리완료 UI 없이 읽으면 해제된다.
+test.describe('회신필요 — 읽으면 해제', () => {
+  test('처리완료 버튼이 없다(WP-146)', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 1 })
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [
-      mailSummary({ id: 10, subject: '검토 요청', aiCategory: '업무', aiNeedsReply: true }),
+      mailSummary({ id: 10, subject: '검토 요청', aiCategory: '업무', aiNeedsReply: true, seen: false }),
     ])
     await page.goto('/mail/1?needsReply=true')
+    await expect(page.getByTestId('mail-badge-needsreply-10')).toBeVisible()
+    await expect(page.getByTestId('mail-resolve-10')).toHaveCount(0)
+  })
 
-    const resolveBtn = page.getByTestId('mail-resolve-10')
-    // 호버 전: 시각적으로 숨김(opacity-0)이지만 DOM/tab 순서에는 존재해야 한다.
-    await expect(resolveBtn).toHaveCSS('opacity', '0')
-    await resolveBtn.focus()
-    await expect(resolveBtn).toHaveCSS('opacity', '1')
+  test('회신필요 메일을 열면 배지가 사라지고 사이드바 카운트를 다시 불러온다', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
+    let countCalls = 0
+    await page.route((url) => url.pathname === '/api/v1/mail/accounts/1/needs-reply-count', (route) => {
+      countCalls += 1
+      // 1차: 열기 전 1건, 이후(열람으로 무효화된 재조회): 0건
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: countCalls === 1 ? 1 : 0 }) })
+    })
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [
+      mailSummary({ id: 10, subject: '검토 요청', aiCategory: '업무', aiNeedsReply: true, seen: false }),
+    ])
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', mailDetail({ id: 10, seen: false }))
+    await page.goto('/mail/1')
+    await expect(page.getByTestId('mail-badge-needsreply-10')).toBeVisible()
+    await page.getByTestId('mail-row-10').click()
+    await expect(page.getByTestId('mail-badge-needsreply-10')).toHaveCount(0)
+    await expect.poll(() => countCalls).toBeGreaterThanOrEqual(2)
   })
 
   test('회신필요 0건 → 긍정 빈 상태', async ({ authenticatedPage: page }) => {

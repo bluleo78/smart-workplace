@@ -30,7 +30,6 @@ import {
   useMailMessage,
   useMailMessages,
   useMailSummary,
-  useMarkNeedsReplyDone,
   useReplyDraft,
   useSyncMailbox,
   useSyncStatus,
@@ -48,22 +47,18 @@ function formatReceivedAt(iso: string | null): string {
 }
 
 // 목록 한 행 — 안 읽음은 굵게, 첨부 클립 표시.
-// P2: onResolve — 회신필요(미처리) 행 호버 시 처리완료 pill 클릭 핸들러.
 function MessageRow({
   m,
   active,
   onSelect,
-  onResolve,
 }: {
   m: EmailMessageSummary
   active: boolean
   onSelect: () => void
-  onResolve: (id: number) => void
 }) {
   const navigate = useNavigate()
   return (
-    // group/relative: 호버 처리완료 pill 의 절대 위치와 group-hover 표시에 필요.
-    // div role="button" — 내부 AiSignalBadge/처리완료가 실제 <button>이므로 바깥을 <button>으로
+    // div role="button" — 내부 AiSignalBadge 가 실제 <button>이므로 바깥을 <button>으로
     // 감싸면 버튼 중첩(HTML 유효성 위반 + a11y 위험, #577)이 발생해 카드형 클릭 영역 패턴으로 전환.
     <div
       role="button"
@@ -81,7 +76,7 @@ function MessageRow({
         }
       }}
       className={cn(
-        'group relative flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
+        'flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
         active ? 'bg-accent' : 'hover:bg-accent/50',
       )}
     >
@@ -113,8 +108,8 @@ function MessageRow({
           {m.snippet}
         </span>
       )}
-      {/* P2: 배지 술어 통일 — needsReplyDoneAt 있으면 답장필요 배지 숨김. 분류 배지는 클릭 필터. */}
-      {(m.aiCategory || (m.aiNeedsReply && !m.needsReplyDoneAt)) && (
+      {/* WP-146: 회신필요 = AI 판정 && 안 읽음 — 읽으면 배지 숨김. 분류 배지는 클릭 필터. */}
+      {(m.aiCategory || (m.aiNeedsReply && !m.seen)) && (
         <span className="mt-0.5 flex items-center gap-1">
           {/* AI 분류 배지 — 클릭 시 해당 분류 필터로 이동(onClick + stopPropagation 으로 행 선택과 분리). */}
           {m.aiCategory && (
@@ -129,26 +124,13 @@ function MessageRow({
               {m.aiCategory}
             </AiSignalBadge>
           )}
-          {/* 회신필요 배지 — action 변형으로 사용자 행동 필요를 강조. 처리완료된 경우 숨김. */}
-          {m.aiNeedsReply && !m.needsReplyDoneAt && (
+          {/* 회신필요 배지 — action 변형으로 사용자 행동 필요를 강조. 읽으면 숨김. */}
+          {m.aiNeedsReply && !m.seen && (
             <AiSignalBadge variant="action" data-testid={`mail-badge-needsreply-${m.id}`}>
               답장필요
             </AiSignalBadge>
           )}
         </span>
-      )}
-      {/* P2: 회신필요(미처리) 행에만 호버 처리완료 pill — outline/secondary 톤으로 "답장필요" 채움 배지와 시각 구분. */}
-      {m.aiNeedsReply && !m.needsReplyDoneAt && (
-        <button
-          type="button"
-          data-testid={`mail-resolve-${m.id}`}
-          onClick={(e) => { e.stopPropagation(); onResolve(m.id) }}
-          // display:none(hidden) 기반 hover-reveal은 키보드 포커스 자체가 불가능(#697) —
-          // opacity 토글로 항상 레이아웃/탭 순서에 존재시키고 focus-visible에서 노출.
-          className="absolute right-3 top-1/2 inline-flex -translate-y-1/2 items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent focus-visible:opacity-100 group-hover:opacity-100"
-        >
-          <Check className="h-3.5 w-3.5" /> 처리완료
-        </button>
       )}
     </div>
   )
@@ -507,8 +489,6 @@ export function MailInboxPage() {
   const { data: messages, isLoading, isError, refetch: refetchMessages } = useMailMessages(
     accountIdNum, folderParam, search, false, categoryParam, needsReplyParam,
   )
-  // P2: 회신필요 처리완료 mutation — 행 hover pill 에서 사용.
-  const markDone = useMarkNeedsReplyDone(accountIdNum)
   const sync = useSyncMailbox(accountIdNum)
   const { openCompose } = useMailCompose()
   const replyDraft = useReplyDraft()
@@ -777,7 +757,6 @@ export function MailInboxPage() {
                   m={m}
                   active={selectedId === m.id}
                   onSelect={() => setSelectedId(m.id)}
-                  onResolve={(id) => markDone.mutate(id)}
                 />
               ))}
             </div>

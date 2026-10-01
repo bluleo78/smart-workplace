@@ -67,16 +67,6 @@ export async function getNeedsReplyCount(accountId: number): Promise<number> {
   return data.count;
 }
 
-/** P2: 회신필요 처리완료 표시. */
-export async function markNeedsReplyDone(accountId: number, messageId: number): Promise<void> {
-  await client.post(`/mail/accounts/${accountId}/messages/${messageId}/needs-reply-done`);
-}
-
-/** P2: 회신필요 처리완료 취소. */
-export async function clearNeedsReplyDone(accountId: number, messageId: number): Promise<void> {
-  await client.delete(`/mail/accounts/${accountId}/messages/${messageId}/needs-reply-done`);
-}
-
 /** 메시지 단건 상세(본문 + 첨부 메타). */
 export async function getMessage(messageId: number): Promise<EmailMessageDetail> {
   const { data } = await client.get<EmailMessageDetail>(`/mail/messages/${messageId}`);
