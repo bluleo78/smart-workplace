@@ -784,6 +784,32 @@ public class EmailMessageRepository {
   }
 
   /**
+   * WP-151 새 기준 재분석 대상 — INBOX 안읽음 · 본문 적재·검증(fetched_at) · 새 흐름(④) 미분석(ai_analyzed_at IS NULL) 최근
+   * limit건(최신순).
+   *
+   * <p>{@link #listRecentUnreadUnanalyzedIds} 와 달리 ai_needs_reply 조건이 없다 — 배포 전 기준으로 이미 분류된 행(옛 값)을
+   * 새 기준으로 다시 판정하는 것이 목적이다. 이미 새 흐름으로 분석된 행은 빼서 상한 슬롯을 낭비하지 않는다. 미적재 행은 빼고 본문도 새로 적재하지
+   * 않는다(IMAP/Graph 호출 비용 — 미적재 새 메일은 본문 보충 직후 analyzeAfterLoad 가 맡는다).
+   *
+   * <p>⚠️ "0→1" 전환 전용: WP-149 이전 행이 ai_analyzed_at NULL 이라는 사실에 기대므로, 판정 기준 버전을 2 로 올릴 때는
+   * ai_analyzed_at 을 되돌리는 별도 경로가 필요하다.
+   */
+  public List<Long> listReanalysisTargetIds(long accountId, int limit) {
+    return dsl.select(EMAIL_MESSAGE.ID)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_FOLDER.NAME.eq("INBOX"))
+        .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .and(EMAIL_MESSAGE.AI_ANALYZED_AT.isNull())
+        .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
+        .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast(), EMAIL_MESSAGE.ID.desc())
+        .limit(limit)
+        .fetch(EMAIL_MESSAGE.ID);
+  }
+
+  /**
    * 본문 미적재 대상(account 별, 최근순). imap_uid 없는 로컬 보낸메일 제외.
    *
    * <p>IMAP 계정: imap_uid IS NOT NULL 조건으로 필터. Graph 계정: provider_message_id 가 있으므로 포함.

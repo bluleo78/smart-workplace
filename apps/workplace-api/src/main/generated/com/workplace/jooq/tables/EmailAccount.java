@@ -184,6 +184,11 @@ public class EmailAccount extends TableImpl<EmailAccountRecord> {
      */
     public final TableField<EmailAccountRecord, OffsetDateTime> OAUTH_TOKEN_EXPIRES_AT = createField(DSL.name("oauth_token_expires_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.email_account.ai_classify_version</code>.
+     */
+    public final TableField<EmailAccountRecord, Integer> AI_CLASSIFY_VERSION = createField(DSL.name("ai_classify_version"), SQLDataType.INTEGER.nullable(false).defaultValue(DSL.field(DSL.raw("0"), SQLDataType.INTEGER)), this, "");
+
     private EmailAccount(Name alias, Table<EmailAccountRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

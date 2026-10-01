@@ -356,6 +356,20 @@ public class EmailAccountRecord extends UpdatableRecordImpl<EmailAccountRecord> 
         return (OffsetDateTime) get(23);
     }
 
+    /**
+     * Setter for <code>public.email_account.ai_classify_version</code>.
+     */
+    public void setAiClassifyVersion(Integer value) {
+        set(24, value);
+    }
+
+    /**
+     * Getter for <code>public.email_account.ai_classify_version</code>.
+     */
+    public Integer getAiClassifyVersion() {
+        return (Integer) get(24);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -379,7 +393,7 @@ public class EmailAccountRecord extends UpdatableRecordImpl<EmailAccountRecord> 
     /**
      * Create a detached, initialised EmailAccountRecord
      */
-    public EmailAccountRecord(Long id, Long userId, String emailAddress, String displayName, String imapHost, Integer imapPort, String imapSecurity, String imapUsername, String smtpHost, Integer smtpPort, String smtpSecurity, String smtpUsername, String encryptedPassword, OffsetDateTime lastTestedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime disabledAt, Boolean aiEnabled, Long tenantId, OffsetDateTime lastSyncedAt, String provider, String oauthRefreshToken, String oauthAccessToken, OffsetDateTime oauthTokenExpiresAt) {
+    public EmailAccountRecord(Long id, Long userId, String emailAddress, String displayName, String imapHost, Integer imapPort, String imapSecurity, String imapUsername, String smtpHost, Integer smtpPort, String smtpSecurity, String smtpUsername, String encryptedPassword, OffsetDateTime lastTestedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime disabledAt, Boolean aiEnabled, Long tenantId, OffsetDateTime lastSyncedAt, String provider, String oauthRefreshToken, String oauthAccessToken, OffsetDateTime oauthTokenExpiresAt, Integer aiClassifyVersion) {
         super(EmailAccount.EMAIL_ACCOUNT);
 
         setId(id);
@@ -406,6 +420,7 @@ public class EmailAccountRecord extends UpdatableRecordImpl<EmailAccountRecord> 
         setOauthRefreshToken(oauthRefreshToken);
         setOauthAccessToken(oauthAccessToken);
         setOauthTokenExpiresAt(oauthTokenExpiresAt);
+        setAiClassifyVersion(aiClassifyVersion);
         resetChangedOnNotNull();
     }
 }

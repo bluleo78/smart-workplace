@@ -135,6 +135,49 @@ public class EmailAccountRepository {
         .fetch(r -> new AiAccountRef(r.get(EMAIL_ACCOUNT.USER_ID), r.get(EMAIL_ACCOUNT.ID)));
   }
 
+  /**
+   * WP-151 재분석 수집 — 테넌트 범위(RLS GUC) 안에서 AI 사용·활성 계정 중 재분석 버전이 {@code version} 보다 낮은 계정. 선점은 처리 직전에
+   * {@link #claimClassifyVersion} 으로 따로 한다(수집 시점에 선점하면 프로세스가 죽을 때 수집한 계정 전부를 잃는다).
+   */
+  public List<AiAccountRef> listAiEnabledAccountsBelowClassifyVersion(int version) {
+    return dsl.select(EMAIL_ACCOUNT.USER_ID, EMAIL_ACCOUNT.ID)
+        .from(EMAIL_ACCOUNT)
+        .where(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .and(EMAIL_ACCOUNT.AI_ENABLED.isTrue())
+        .and(EMAIL_ACCOUNT.AI_CLASSIFY_VERSION.lt(version))
+        .orderBy(EMAIL_ACCOUNT.ID)
+        .fetch(r -> new AiAccountRef(r.get(EMAIL_ACCOUNT.USER_ID), r.get(EMAIL_ACCOUNT.ID)));
+  }
+
+  /**
+   * WP-151 재분석 선점 — 버전이 낮고 AI 사용·활성인 계정이면 버전을 {@code version} 으로 올린다(조건부 UPDATE). 같은 계정을 두 레플리카·두
+   * 경로가 동시에 집어도 한 곳만 1행을 갱신하므로 재분석은 계정당 1회다. AI 를 그사이 끈 계정은 선점되지 않는다.
+   *
+   * @return 이번 호출이 선점했으면 true
+   */
+  public boolean claimClassifyVersion(long accountId, int version) {
+    return dsl.update(EMAIL_ACCOUNT)
+            .set(EMAIL_ACCOUNT.AI_CLASSIFY_VERSION, version)
+            .where(EMAIL_ACCOUNT.ID.eq(accountId))
+            .and(EMAIL_ACCOUNT.AI_CLASSIFY_VERSION.lt(version))
+            .and(EMAIL_ACCOUNT.AI_ENABLED.isTrue())
+            .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+            .execute()
+        > 0;
+  }
+
+  /**
+   * WP-151 선점 되돌리기 — 재분석 시도가 전부 실패했을 때(agent 다운 등) 다음 주기에 다시 시도하도록 버전을 한 단계 내린다. 여전히 {@code
+   * version} 일 때만 바꾼다(CAS — 다른 실행이 바꾼 값은 건드리지 않고, 두 번 불러도 한 번만 내려간다).
+   */
+  public void releaseClassifyVersion(long accountId, int version) {
+    dsl.update(EMAIL_ACCOUNT)
+        .set(EMAIL_ACCOUNT.AI_CLASSIFY_VERSION, version - 1)
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .and(EMAIL_ACCOUNT.AI_CLASSIFY_VERSION.eq(version))
+        .execute();
+  }
+
   /** 본인 활성 계정 중 같은 이메일 주소 존재 여부(중복 등록 방지). */
   public boolean existsByUserAndAddress(long userId, String emailAddress) {
     return dsl.fetchExists(
