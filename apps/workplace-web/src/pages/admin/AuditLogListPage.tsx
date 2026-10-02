@@ -32,12 +32,13 @@ import {
 import { TableEmptyRow } from '@/components/ui/table-empty';
 import { TableSkeletonRows } from '@/components/ui/table-skeleton';
 import { useAuditLogs } from '@/hooks/queries/useAuditLogs';
-import { useMembers } from '@/hooks/queries/useMembers';
 import { useDebounceValue } from '@/hooks/useDebounceValue';
 import { clickableRowProps } from '@/lib/clickableRowProps';
 import { formatDateTime, formatIpAddress, formatNumber } from '@/lib/formatters';
 import { flattenUniquePages } from '@/lib/offsetPaging';
 import type { AuditLogResponse } from '@/types/auditLog';
+
+import { AuditUserFilter, type AuditUserSelection } from './components/AuditUserFilter';
 
 /**
  * 액션 유형 옵션 목록
@@ -274,11 +275,8 @@ function AuditLogDetailDialog({
 export default function AuditLogListPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounceValue(search, 300);
-  /**
-   * 사용자 필터 (#89): 빈 문자열이면 전체, 숫자 문자열이면 해당 user_id 정확 일치.
-   * Select value는 string 만 허용하므로 number 변환은 API 호출 시 수행.
-   */
-  const [userId, setUserId] = useState<string>('');
+  /** 사용자 필터 (#89): null 이면 전체, 선택 시 해당 user_id 정확 일치 */
+  const [user, setUser] = useState<AuditUserSelection | null>(null);
   const [actionType, setActionType] = useState<string>('');
   const [resource, setResource] = useState<string>('');
   const [result, setResult] = useState<string>('');
@@ -293,8 +291,7 @@ export default function AuditLogListPage() {
   // 무한 스크롤(WP-182): 필터가 바뀌면 쿼리 키가 바뀌어 첫 페이지부터 다시 받는다.
   const logsQuery = useAuditLogs({
     search: debouncedSearch || undefined,
-    // userId 필터 (#89): "all"/'' → undefined, 숫자 문자열은 number 변환
-    userId: userId ? Number(userId) : undefined,
+    userId: user?.userId,
     actionType: actionType || undefined,
     resource: resource || undefined,
     result: result || undefined,
@@ -307,15 +304,6 @@ export default function AuditLogListPage() {
   const logs = flattenUniquePages(data?.pages, (log) => log.id);
   const totalElements = data?.pages[0]?.totalElements;
   const scrollRoot = useSettingsScrollRoot();
-
-  /**
-   * 행위자 dropdown 옵션 로드 (#89)
-   * - 행위자 id → 이름 표시는 디렉터리 조회이므로 구성원 디렉터리(GET /members, member:read)를 쓴다 (#833).
-   *   계정 관리 API(/users)는 생성·역할변경 같은 관리 동작에만 쓴다.
-   * - 비활성 구성원의 과거 행위도 이름으로 보여야 하므로 includeInactive.
-   * - 한 페이지당 100명까지 노출. 더 많으면 향후 검색 가능한 Combobox로 확장 고려.
-   */
-  const { data: usersPage } = useMembers({ kind: 'ALL', includeInactive: true, size: 100 });
 
   const handleFilterChange = (setter: (v: string) => void) => (value: string) => {
     setter(value === 'all' ? '' : value);
@@ -374,32 +362,17 @@ export default function AuditLogListPage() {
 
   return (
     <SettingsPage title="감사 로그">
-      <div className="flex flex-wrap items-center gap-4">
+      {/* 필터 줄 — 모바일(WP-183)은 검색·날짜를 한 줄씩 꽉 채우고, 나머지 컨트롤은 남는 폭을 나눠 쓴다 */}
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
         <SearchInput
           placeholder="설명으로 검색..."
           value={search}
           onChange={setSearch}
+          className="basis-full sm:basis-0"
         />
 
-        {/*
-          사용자 필터 dropdown (#89)
-          - free-text 검색은 username 부분 일치라 동명이인/오타 노이즈 발생 → user_id 정확 일치 필터 추가.
-          - 옵션은 GET /users 결과(최대 100명) 기반. SelectValue placeholder로 "전체 사용자" 표시.
-          - aria-label로 스크린리더 사용자가 필터 의도를 알 수 있도록 한다.
-        */}
-        <Select value={userId || 'all'} onValueChange={handleFilterChange(setUserId)}>
-          <SelectTrigger className="w-[180px]" aria-label="사용자 필터">
-            <SelectValue placeholder="전체 사용자" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">전체 사용자</SelectItem>
-            {usersPage?.content.map((u) => (
-              <SelectItem key={u.userId} value={String(u.userId)}>
-                {u.name} ({u.username})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* 사용자 필터 (#89) — user_id 정확 일치. 인원 수와 무관하게 고를 수 있게 검색형(WP-183) */}
+        <AuditUserFilter value={user} onChange={setUser} />
 
         {/*
           액션 유형·리소스 필터 (#233-A)
@@ -413,7 +386,7 @@ export default function AuditLogListPage() {
         />
 
         <Select value={result || 'all'} onValueChange={handleFilterChange(setResult)}>
-          <SelectTrigger className="w-[120px]" aria-label="결과 필터">
+          <SelectTrigger className="w-[120px] shrink-0" aria-label="결과 필터">
             <SelectValue placeholder="결과" />
           </SelectTrigger>
           <SelectContent>
@@ -425,11 +398,11 @@ export default function AuditLogListPage() {
         </Select>
 
         {/* 날짜 범위 필터: 시작일 ~ 종료일 */}
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center gap-2 sm:w-auto">
           <Input
             type="date"
             aria-label="시작 날짜"
-            className="w-[150px]"
+            className="min-w-0 flex-1 sm:w-[150px] sm:flex-none"
             value={startDate}
             max={endDate || undefined}
             onChange={handleDateChange(setStartDate)}
@@ -438,7 +411,7 @@ export default function AuditLogListPage() {
           <Input
             type="date"
             aria-label="종료 날짜"
-            className="w-[150px]"
+            className="min-w-0 flex-1 sm:w-[150px] sm:flex-none"
             value={endDate}
             min={startDate || undefined}
             onChange={handleDateChange(setEndDate)}
@@ -460,10 +433,11 @@ export default function AuditLogListPage() {
               <TableHead>시간</TableHead>
               <TableHead>사용자</TableHead>
               <TableHead>액션</TableHead>
-              <TableHead>리소스</TableHead>
-              <TableHead>설명</TableHead>
+              {/* 좁은 화면(WP-183)은 리소스·설명·IP 를 숨긴다 — 행을 누르면 상세 다이얼로그에서 전부 보인다 */}
+              <TableHead className="hidden md:table-cell">리소스</TableHead>
+              <TableHead className="hidden md:table-cell">설명</TableHead>
               <TableHead>결과</TableHead>
-              <TableHead>IP</TableHead>
+              <TableHead className="hidden md:table-cell">IP</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -486,20 +460,22 @@ export default function AuditLogListPage() {
                     `${log.username} — ${formatAuditAction(log.actionType)} 상세 보기`,
                   )}
                 >
-                  <TableCell className="whitespace-nowrap text-sm">
-                    {formatDateTime(log.actionTime)}
+                  {/* 모바일은 날짜·시각을 두 줄로 접어 표 폭을 줄인다(첫 공백 → 줄바꿈) */}
+                  <TableCell className="whitespace-pre-line text-sm md:whitespace-nowrap">
+                    {formatDateTime(log.actionTime).replace(' ', '\n')}
                   </TableCell>
-                  <TableCell className="font-medium">{log.username}</TableCell>
+                  {/* 모바일은 긴 아이디(이메일)를 잘라 표가 넘치지 않게 한다 — 전체 값은 상세 다이얼로그에 */}
+                  <TableCell className="max-w-[7.5rem] truncate font-medium md:max-w-none">{log.username}</TableCell>
                   <TableCell>{formatAuditAction(log.actionType)}</TableCell>
-                  <TableCell>{formatAuditResource(log.resource)}</TableCell>
-                  <TableCell className="max-w-xs truncate">{log.description ?? '-'}</TableCell>
+                  <TableCell className="hidden md:table-cell">{formatAuditResource(log.resource)}</TableCell>
+                  <TableCell className="hidden max-w-xs truncate md:table-cell">{log.description ?? '-'}</TableCell>
                   <TableCell>
                     <Badge variant={log.result === 'SUCCESS' ? 'default' : 'destructive'}>
                       {log.result === 'SUCCESS' ? '성공' : '실패'}
                     </Badge>
                   </TableCell>
                   <TableCell
-                    className="text-sm text-muted-foreground"
+                    className="hidden text-sm text-muted-foreground md:table-cell"
                     title={log.ipAddress ?? undefined}
                   >
                     {formatIpAddress(log.ipAddress)}
@@ -512,10 +488,10 @@ export default function AuditLogListPage() {
                 message="감사 로그가 없습니다."
                 searchKeyword={debouncedSearch || undefined}
                 onResetSearch={
-                  search || userId || actionType || resource || result || startDate || endDate
+                  search || user || actionType || resource || result || startDate || endDate
                     ? () => {
                         setSearch('');
-                        setUserId('');
+                        setUser(null);
                         setActionType('');
                         setResource('');
                         setResult('');

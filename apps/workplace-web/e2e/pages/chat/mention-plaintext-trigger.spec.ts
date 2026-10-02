@@ -3,6 +3,7 @@
 // 백엔드 없이 page.route() 로 API 모킹. 검증 핵심: 전송 POST payload.body 에 <@99> 가 포함된다.
 import type { Page } from '@playwright/test'
 
+import { createMember } from '../../factories/auth.factory'
 import { createPageResponse } from '../../fixtures/api-mock'
 import { createChannel, createChannelMember, createMessage } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -172,4 +173,41 @@ test.describe('#366 평문 @에이전트 멘션 → <@id> 변환', () => {
     // payload.body 가 <@99> 로 변환되어 전송되어야 백엔드가 AI 를 트리거할 수 있다.
     await expect.poll(() => sentBody).toBe('<@99> hello')
   })
+})
+
+// WP-183: 멘션 후보 에이전트는 한 페이지(100건)에서 끊지 않고 마지막 페이지까지 받는다 — 101번째 에이전트도 @멘션 가능.
+test('워크스페이스 에이전트가 100명을 넘어도 마지막 페이지의 에이전트가 멘션 후보에 보인다', async ({
+  authenticatedPage: page,
+}) => {
+  const channel = createChannel({ id: CHANNEL_ID, name: '테스트', memberCount: 2 })
+  await stubChannelsList(page, [channel])
+  await stubDmsList(page)
+  await stubStream(page)
+  await stubChannelDetail(page, channel)
+  await stubMembers(page, CHANNEL_ID)
+  await stubMessagesGet(page, CHANNEL_ID)
+  await stubMarkRead(page, CHANNEL_ID)
+  const LAST_AGENT_ID = 5000
+  const requestedPages: string[] = []
+  await page.route(
+    (url) => url.pathname === '/api/v1/members',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      const params = new URL(route.request().url()).searchParams
+      const n = Number(params.get('page') ?? 0)
+      if (params.get('kind') === 'AGENT') requestedPages.push(String(n))
+      const agents =
+        n === 0
+          ? Array.from({ length: 100 }, (_, i) => createMember({ userId: 1000 + i, name: `봇${i}`, username: `bot${i}`, kind: 'AGENT' }))
+          : [createMember({ userId: LAST_AGENT_ID, name: '막내봇', username: 'lastbot', kind: 'AGENT' })]
+      const body = createPageResponse(agents, { page: n, size: 100, totalElements: 101, totalPages: 2 })
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    },
+  )
+
+  await page.goto(`/chat/channels/${CHANNEL_ID}`)
+  await page.getByTestId('message-composer-input').click()
+  await page.keyboard.type('@막내')
+  await expect(page.getByTestId(`chat-mention-option-${LAST_AGENT_ID}`)).toBeVisible()
+  expect(requestedPages).toEqual(expect.arrayContaining(['0', '1']))
 })

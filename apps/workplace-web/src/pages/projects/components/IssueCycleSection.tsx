@@ -7,13 +7,13 @@ import { ChevronRight } from 'lucide-react';
 import { useId, useMemo } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 import { StatusBadge, type StatusBadgeType } from '@/components/ui/status-badge';
 import { TableSkeletonRows } from '@/components/ui/table-skeleton';
 import { cn } from '@/lib/utils';
 
 import { CycleProgressBar } from '../../../components/cycle/CycleProgressBar';
 import { cycleSectionQueryKey, useCycleSectionIssues } from '../../../hooks/queries/useCycleSectionIssues';
-import { useLoadMoreSentinel } from '../../../hooks/useLoadMoreSentinel';
 import {
   type CycleDropData,
   cycleSectionDropId,
@@ -31,14 +31,6 @@ import type { CycleProgress } from '../../../types/cycle';
 import { CYCLE_STATUS_LABEL } from '../../../types/cycle';
 import type { IssueFilters, IssueResponse } from '../../../types/issue';
 import { IssueRow } from './IssueListRow';
-
-// 비활성(접힘) 구간용 자리표시 — 훅 규칙상 sentinel 훅은 항상 호출되므로 아무 일도 하지 않는 쿼리를 준다.
-const IDLE_QUERY = {
-  hasNextPage: false,
-  isFetching: false,
-  isFetchNextPageError: false,
-  fetchNextPage: () => Promise.resolve() as never,
-};
 
 // 상태 배지 문구 — 목록 구간에선 PLANNED 를 「예정」으로 부른다(구간 순서 설명과 같은 말).
 const STATUS_BADGE_LABEL: Record<string, string> = { ...CYCLE_STATUS_LABEL, PLANNED: '예정' };
@@ -121,7 +113,6 @@ export function IssueCycleSection({
     [filters, cycle],
   );
   const query = useCycleSectionIssues(projectKey, sectionFilters, expanded);
-  const sentinelRef = useLoadMoreSentinel(query ?? IDLE_QUERY);
   const items = useMemo(
     () => query?.data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [],
     [query?.data],
@@ -311,10 +302,8 @@ export function IssueCycleSection({
             // 재연결)도 서버가 거부해 복구할 수 없다. 에픽 패널로 끄는 것은 그대로 허용.
             cycleSection={dropDisabled ? undefined : sectionRef}
           />
-          <div ref={sentinelRef} aria-hidden="true" className="h-px" />
-          {query?.isFetchingNextPage && (
-            <p className="px-3 py-2 text-xs text-muted-foreground">불러오는 중…</p>
-          )}
+          {/* 구간 끝 — 자동 로드, 다음 페이지 실패 시에만 다시 시도(공용 LoadMoreFooter, WP-183) */}
+          {query && <LoadMoreFooter query={query} className="px-3 py-2" data-testid={`list-cycle-more-${def.key}`} />}
         </div>
       )}
     </section>
@@ -363,7 +352,8 @@ function SectionBody({
       </table>
     );
   }
-  if (query.isError) {
+  // 첫 페이지 실패만 오류 화면 — 다음 페이지 실패는 받은 행을 두고 LoadMoreFooter 가 다시 시도를 보인다(WP-183).
+  if (query.isLoadingError) {
     return (
       <div className="flex items-center gap-2 px-3 py-3 text-sm" data-testid={`list-cycle-error-${testKey}`}>
         <span className="text-destructive">이슈를 불러오지 못했습니다.</span>

@@ -24,5 +24,8 @@ export function useAuditLogs(
     initialPageParam: 0,
     queryFn: ({ pageParam }) => auditLogsApi.getAuditLogs({ ...params, page: pageParam, size }).then(r => r.data),
     getNextPageParam: nextOffsetPage,
+    // WP-183: 화면을 떠나면 캐시를 바로 버린다. 무한 쿼리는 재조회 때 받아 둔 페이지를 전부 순서대로 다시 받으므로,
+    // 깊이 스크롤한 뒤 돌아오면 수십 건을 연달아 요청한다. 로그 뷰어는 다시 열면 최신 첫 페이지부터 보면 충분하다.
+    gcTime: 0,
   });
 }

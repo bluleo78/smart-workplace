@@ -3,7 +3,8 @@
 import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query'
 import { ClipboardList, type LucideIcon } from 'lucide-react'
 
-import { useLoadMoreSentinel } from '../../hooks/useLoadMoreSentinel'
+import { LoadMoreFooter } from '@/components/ui/load-more-footer'
+
 import type { IssueResponse, IssueSearchResponse } from '../../types/issue'
 import { IssueListTable } from './IssueListTable'
 
@@ -29,8 +30,6 @@ export function InfiniteIssueList({
   showAssignees?: boolean
 }) {
   const { data, hasNextPage, isFetching, isLoading } = query
-  // sentinel 진입 → 다음 페이지 자동 fetch(공용 훅).
-  const sentinel = useLoadMoreSentinel(query)
 
   let items = data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? []
   if (filter) items = items.filter(filter)
@@ -59,8 +58,8 @@ export function InfiniteIssueList({
           showAssignees={showAssignees}
         />
       )}
-      <div ref={sentinel} aria-hidden="true" className="h-1" />
-      {isFetching && !isLoading && <p className="text-muted-foreground py-2">불러오는 중…</p>}
+      {/* 목록 끝 — 자동 로드, 다음 페이지 실패 시에만 다시 시도(공용 LoadMoreFooter, WP-183) */}
+      <LoadMoreFooter query={query} data-testid={`${rowTestIdPrefix}-more`} />
     </div>
   )
 }
