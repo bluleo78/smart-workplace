@@ -1,11 +1,11 @@
 // 모바일 경로 판정 순수 함수 테스트 — 탭바 표시 여부·뒤로가기 대상이 경로 표(spec 3.4)와 일치하는지 고정.
 import { describe, expect, it } from 'vitest'
 
-import { isTabRoot, moduleRootFor, norm, resolveBackTarget } from './routes'
+import { isTabRoot, isWikiListPath, moduleRootFor, norm, resolveBackTarget } from './routes'
 
 describe('isTabRoot', () => {
   it.each([
-    '/', '/chat', '/mail', '/mail/3', '/tasks', '/calendar', '/drive', '/wiki',
+    '/', '/chat', '/mail', '/mail/3', '/tasks', '/calendar', '/drive', '/wiki', '/wiki/spaces/1',
     '/contacts', '/apps',
   ])('%s 는 탭 루트', (p) => expect(isTabRoot(p)).toBe(true))
 
@@ -18,11 +18,19 @@ describe('isTabRoot', () => {
   it.each([
     '/chat/channels/1', '/chat/dms/2', '/chat/new', '/chat/threads/inbox',
     '/projects', '/projects/MOB', '/projects/MOB/issues/1', '/me/tasks/assigned', '/me/ai-tasks',
-    '/drive/spaces/5', '/drive/attachments', '/wiki/spaces/1', '/wiki/spaces/1/pages/2',
+    '/drive/spaces/5', '/drive/attachments', '/wiki/spaces/1/pages/2',
     '/settings/profile', '/settings', '/profile', '/apps/tabs',
   ])('%s 는 상세', (p) => expect(isTabRoot(p)).toBe(false))
 
   it('끝 슬래시를 무시한다', () => expect(isTabRoot('/chat/')).toBe(true))
+})
+
+describe('isWikiListPath', () => {
+  // 노트는 공간 → 페이지 2단 목록 — 공간을 고른 화면도 목록, 페이지만 상세(WP-178).
+  it.each(['/wiki', '/wiki/', '/wiki/spaces/1', '/wiki/spaces/1/'])('%s 는 노트 목록', (p) =>
+    expect(isWikiListPath(p)).toBe(true))
+  it.each(['/wiki/spaces/1/pages/2', '/wikix', '/drive/spaces/1'])('%s 는 노트 목록 아님', (p) =>
+    expect(isWikiListPath(p)).toBe(false))
 })
 
 describe('moduleRootFor', () => {

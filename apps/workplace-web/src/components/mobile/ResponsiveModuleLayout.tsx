@@ -21,6 +21,7 @@ export function ResponsiveModuleLayout({
   title,
   scroll = 'auto',
   listClassName,
+  isListPath,
 }: {
   sidebar: ReactNode
   rootPath: string
@@ -29,6 +30,8 @@ export function ResponsiveModuleLayout({
   scroll?: 'auto' | 'none'
   /** 모바일 목록 모드 래퍼에 덧붙일 모듈 전용 클래스(설정 행 › 셰브런 등). 데스크톱엔 쓰이지 않는다. */
   listClassName?: string
+  /** 모바일에서 목록으로 그릴 경로 판정. 생략 시 모듈 루트와 정확히 같을 때만 — 목록이 2단인 모듈(노트: 공간 → 페이지)이 넓힌다. */
+  isListPath?: (pathname: string) => boolean
 }) {
   const isMobile = useIsMobile()
   const { pathname } = useLocation()
@@ -53,7 +56,7 @@ export function ResponsiveModuleLayout({
     )
   }
 
-  if (norm(pathname) === rootPath) {
+  if (isListPath ? isListPath(pathname) : norm(pathname) === rootPath) {
     return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
         {/* 탭 루트(/chat 등)는 탭바가 보이므로 큰 제목 헤더. 탭 루트가 아닌 모듈 목록(/settings — 앱 목록에서 진입)은
