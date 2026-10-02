@@ -8,6 +8,7 @@ import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { ListBackRow } from '@/components/mobile/ListBackRow'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { Button } from '@/components/ui/button'
+import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { cn } from '@/lib/utils'
 
@@ -154,8 +155,10 @@ export function ContactsPage() {
   useEffect(() => {
     setSelected(null)
   }, [groupId, search, type, organization, title])
-  const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useContacts(search, type, organization, title)
+  const contactsQuery = useContacts(search, type, organization, title)
+  const { data, isLoading, isError, refetch, hasNextPage } = contactsQuery
+  // 목록 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
+  const [listScrollEl, setListScrollEl] = useState<HTMLDivElement | null>(null)
 
   const items = data?.pages.flatMap((p) => p.items) ?? []
 
@@ -219,7 +222,7 @@ export function ContactsPage() {
                 {type === 'FAVORITE' ? '즐겨찾기한 연락처가 없습니다' : '연락처가 없습니다'}
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto">
+              <div ref={setListScrollEl} className="flex-1 overflow-y-auto">
                 {items.map((c) => (
                   <ContactRow
                     key={`${c.type}-${c.id}`}
@@ -228,17 +231,8 @@ export function ContactsPage() {
                     onSelect={() => setSelected({ type: c.type, id: c.id })}
                   />
                 ))}
-                {hasNextPage && (
-                  <button
-                    type="button"
-                    data-testid="contact-load-more"
-                    onClick={() => fetchNextPage()}
-                    disabled={isFetchingNextPage}
-                    className="w-full p-3 text-sm text-muted-foreground hover:bg-accent/50"
-                  >
-                    {isFetchingNextPage ? '불러오는 중…' : '더 보기'}
-                  </button>
-                )}
+                {/* WP-182: 끝에 닿으면 자동 로드 — 실패했을 때만 다시 시도 버튼 */}
+                <LoadMoreFooter query={contactsQuery} root={listScrollEl} data-testid="contact-load-more" />
               </div>
             )}
           </div>

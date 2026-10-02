@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filter';
 import { SettingsPage } from '@/components/layout/SettingsPage';
+import { useSettingsScrollRoot } from '@/components/layout/settingsScrollRoot';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -11,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 import { SearchInput } from '@/components/ui/search-input';
 import {
   Select,
@@ -19,7 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { SimplePagination } from '@/components/ui/simple-pagination';
 import {
   Table,
   TableBody,
@@ -34,7 +35,8 @@ import { useAuditLogs } from '@/hooks/queries/useAuditLogs';
 import { useMembers } from '@/hooks/queries/useMembers';
 import { useDebounceValue } from '@/hooks/useDebounceValue';
 import { clickableRowProps } from '@/lib/clickableRowProps';
-import { formatDateTime, formatIpAddress } from '@/lib/formatters';
+import { formatDateTime, formatIpAddress, formatNumber } from '@/lib/formatters';
+import { flattenUniquePages } from '@/lib/offsetPaging';
 import type { AuditLogResponse } from '@/types/auditLog';
 
 /**
@@ -283,9 +285,6 @@ export default function AuditLogListPage() {
   /** 날짜 범위 필터: YYYY-MM-DD 형식으로 저장 */
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
-  const [page, setPage] = useState(0);
-  /** 페이지당 표시 건수: 사용자가 selector 로 변경 가능 (기본 20) */
-  const [pageSize, setPageSize] = useState(20);
 
   /** 상세 보기 다이얼로그 상태 */
   const [selectedLog, setSelectedLog] = useState<AuditLogResponse | null>(null);
@@ -293,10 +292,10 @@ export default function AuditLogListPage() {
 
   const handleSearchChange = (value: string) => {
     setSearch(value);
-    setPage(0);
   };
 
-  const { data: logs, isLoading, isError } = useAuditLogs({
+  // 무한 스크롤(WP-182): 필터가 바뀌면 쿼리 키가 바뀌어 첫 페이지부터 다시 받는다.
+  const logsQuery = useAuditLogs({
     search: debouncedSearch || undefined,
     // userId 필터 (#89): "all"/'' → undefined, 숫자 문자열은 number 변환
     userId: userId ? Number(userId) : undefined,
@@ -306,9 +305,11 @@ export default function AuditLogListPage() {
     // 날짜 범위를 ISO datetime으로 변환하여 API에 전달
     startDate: startDate ? toIsoDateTime(startDate) : undefined,
     endDate: endDate ? toIsoDateTime(endDate, true) : undefined,
-    page,
-    size: pageSize,
   });
+  const { data, isLoading, isError } = logsQuery;
+  const logs = flattenUniquePages(data?.pages, (log) => log.id);
+  const totalElements = data?.pages[0]?.totalElements;
+  const scrollRoot = useSettingsScrollRoot();
 
   /**
    * 행위자 dropdown 옵션 로드 (#89)
@@ -321,7 +322,6 @@ export default function AuditLogListPage() {
 
   const handleFilterChange = (setter: (v: string) => void) => (value: string) => {
     setter(value === 'all' ? '' : value);
-    setPage(0);
   };
 
   /**
@@ -362,13 +362,11 @@ export default function AuditLogListPage() {
     const r = next.resource ?? [];
     setActionType(a.length ? String(a[a.length - 1]) : '');
     setResource(r.length ? String(r[r.length - 1]) : '');
-    setPage(0);
   };
 
-  /** 날짜 필터 변경 시 페이지 리셋 */
+  /** 날짜 필터 변경 */
   const handleDateChange = (setter: (v: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setter(e.target.value);
-    setPage(0);
   };
 
   /** 행 클릭 → 상세 보기 다이얼로그 열기 */
@@ -449,6 +447,13 @@ export default function AuditLogListPage() {
             onChange={handleDateChange(setEndDate)}
           />
         </div>
+
+        {/* 전체 건수 — 무한 스크롤이라 페이지 표시 대신 총 건수만 보인다(WP-182) */}
+        {totalElements != null && (
+          <span className="ml-auto text-sm text-muted-foreground" data-testid="audit-log-total">
+            총 {formatNumber(totalElements)}건
+          </span>
+        )}
       </div>
 
       <div className="rounded-md border">
@@ -473,8 +478,8 @@ export default function AuditLogListPage() {
                   데이터를 불러오는데 실패했습니다.
                 </TableCell>
               </TableRow>
-            ) : logs && logs.content.length > 0 ? (
-              logs.content.map((log) => (
+            ) : logs.length > 0 ? (
+              logs.map((log) => (
                 // 행 클릭 시 상세 보기 다이얼로그를 열어 truncate된 description 전문을 표시한다
                 <TableRow
                   key={log.id}
@@ -519,7 +524,6 @@ export default function AuditLogListPage() {
                         setResult('');
                         setStartDate('');
                         setEndDate('');
-                        setPage(0);
                       }
                     : undefined
                 }
@@ -529,19 +533,7 @@ export default function AuditLogListPage() {
         </Table>
       </div>
 
-      {logs && (
-        <SimplePagination
-          page={page}
-          totalPages={logs.totalPages}
-          onPageChange={setPage}
-          totalElements={logs.totalElements}
-          pageSize={pageSize}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setPage(0);
-          }}
-        />
-      )}
+      <LoadMoreFooter query={logsQuery} root={scrollRoot} data-testid="audit-log-load-more" />
 
       {/* 감사 로그 상세 보기 다이얼로그 */}
       <AuditLogDetailDialog

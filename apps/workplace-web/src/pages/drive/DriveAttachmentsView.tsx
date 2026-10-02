@@ -11,6 +11,7 @@ import { DriveThumbnail } from '@/components/drive/DriveThumbnail'
 import { FilePreviewModal } from '@/components/drive/FilePreviewModal'
 import { FolderPickerModal } from '@/components/drive/FolderPickerModal'
 import { Button } from '@/components/ui/button'
+import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { SearchInput } from '@/components/ui/search-input'
 import { useDriveAttachments } from '@/hooks/queries/useDriveAttachments'
 import { useImportAttachment } from '@/hooks/queries/useImportAttachment'
@@ -35,6 +36,8 @@ export function DriveAttachmentsView() {
   const [source, setSource] = useState<SourceFilter>('ALL')
   const [q, setQ] = useState('')
   const query = useDriveAttachments({ source, q })
+  // 본문 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const importMut = useImportAttachment()
 
   // 내 드라이브(PERSONAL) 공간 ID — 저장 시 임포트 대상 공간.
@@ -110,7 +113,7 @@ export function DriveAttachmentsView() {
       </div>
 
       {/* 본문 — 로딩/빈상태/목록 */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={setScrollEl} className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
             불러오는 중…
@@ -224,18 +227,8 @@ export function DriveAttachmentsView() {
           </div>
         )}
 
-        {/* 더 보기 — cursor 페이징 */}
-        {query.hasNextPage && (
-          <div className="flex justify-center py-3">
-            <button
-              type="button"
-              onClick={() => void query.fetchNextPage()}
-              className="text-sm text-muted-foreground hover:underline"
-            >
-              더 보기
-            </button>
-          </div>
-        )}
+        {/* 다음 묶음 — cursor 페이징. WP-182: 끝에 닿으면 자동 로드, 실패했을 때만 다시 시도 버튼 */}
+        <LoadMoreFooter query={query} root={scrollEl} data-testid="drive-attachments-more" />
       </div>
 
       {/* 폴더 선택 모달 — 저장 버튼 클릭 시 열림 */}
