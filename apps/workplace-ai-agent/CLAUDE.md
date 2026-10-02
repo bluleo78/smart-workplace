@@ -43,7 +43,8 @@ src/
   middleware/           # internal-auth (Authorization: Internal {token})
   routes/               # health, events, internal-bridge(opencode HostBridge HTTP 콜백)
   constants.ts          # DEFAULT_PORT, INTERNAL_AUTH_SCHEME, DEFAULT_API_BASE_URL
-  index.ts              # Express 부트 + graceful shutdown
+  index.ts              # Express 부트 + 종료 신호 처리
+  graceful-shutdown.ts  # 무중단 종료 — 진행 중 HTTP·백그라운드 실행(trackInflight) 대기 후 정리(WP-167)
 ```
 
 ## Key Patterns
@@ -82,6 +83,7 @@ pnpm test --coverage                   # 커버리지 (./coverage)
 | `INTERNAL_SERVICE_TOKEN` | 인바운드 /events + 아웃바운드 호출 (Authorization: Internal) 공용 | 예 |
 | `WORKPLACE_API_BASE_URL` | workplace-api URL | 예 |
 | `WORKPLACE_AI_MODEL` / `WORKPLACE_AI_MAX_TURNS` / `WORKPLACE_AI_TIMEOUT_MS` | 선택 override | 아님 |
+| `SHUTDOWN_DRAIN_MS` | 종료 시 진행 중 HTTP·에이전트 실행 대기 상한(기본 330000). 운영 차트 `terminationGracePeriodSeconds` 는 preStop + 이 값보다 커야 함(WP-167) | 아님 |
 
 **대행 AGENT 식별**: ai-agent 는 이벤트 envelope 의 assignees 중 첫 AGENT 를 대행 (#34).
 workplace-api 호출 시 `Authorization: Internal <token>` + `X-On-Behalf-Of: <agentId>` 헤더로
