@@ -15,7 +15,7 @@ test('SSO 전용 구성원은 비밀번호 없이 전송된다', async ({ adminP
   await page.getByRole('button', { name: '구성원 추가' }).click()
   await expect(page.getByLabel('SSO 전용 (비밀번호 없음)')).toBeChecked()
   await expect(page.getByTestId('add-member-password')).toHaveCount(0)
-  await expect(page.getByText('회사 SSO 계정 주소(이메일)와 같게 입력하세요.')).toBeVisible()
+  await expect(page.getByText('회사 계정 주소(이메일)를 입력하세요.')).toBeVisible()
 
   await page.getByTestId('add-member-username').fill('hong@acme.com')
   await page.getByTestId('add-member-name').fill('홍')
@@ -32,7 +32,7 @@ test('SSO 전용은 이메일 형식 아이디만 허용한다', async ({ adminP
   await page.getByTestId('add-member-username').fill('hong')
   await page.getByTestId('add-member-name').fill('홍')
   await page.getByTestId('add-member-submit').click()
-  await expect(page.getByText('SSO 전용 구성원의 아이디는 이메일 형식이어야 합니다')).toBeVisible()
+  await expect(page.getByText('아이디는 이메일 형식이어야 합니다')).toBeVisible()
 })
 
 test('SSO 가 꺼져 있으면 로그인 방식 선택이 없다', async ({ adminPage: page }) => {

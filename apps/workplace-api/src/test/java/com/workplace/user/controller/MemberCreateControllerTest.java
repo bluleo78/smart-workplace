@@ -46,7 +46,7 @@ class MemberCreateControllerTest extends IntegrationTestBase {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
     Long id =
         dsl.insertInto(USER)
-            .set(USER.USERNAME, prefix + "-" + suffix)
+            .set(USER.USERNAME, prefix + "-" + suffix + "@example.com") // WP-181: 사람 구성원 아이디=이메일
             .set(USER.PASSWORD, "pw")
             .set(USER.NAME, prefix)
             .set(USER.EMAIL, prefix + "-" + suffix + "@example.com")
@@ -58,6 +58,11 @@ class MemberCreateControllerTest extends IntegrationTestBase {
     return id;
   }
 
+  /** WP-181: 사람 구성원 아이디는 이메일이어야 하므로 테스트별 고유 이메일 아이디를 만든다. */
+  private static String uniqueUsername(String prefix) {
+    return prefix + "-" + UUID.randomUUID().toString().substring(0, 8) + "@acme.com";
+  }
+
   /** tenant 1 스코프 액세스 토큰(필터가 TenantContext(1)+권한 주입). */
   private String tokenFor(Long userId) {
     return "Bearer " + jwtTokenProvider.generateAccessToken(userId, "tester", TENANT_ID);
@@ -66,7 +71,7 @@ class MemberCreateControllerTest extends IntegrationTestBase {
   @Test
   void createMember_asAdmin_createsAccountMembershipRole_andCanLogin() throws Exception {
     String adminAuth = tokenFor(seedUserWithRole("admin", "ADMIN"));
-    String username = "jane-" + UUID.randomUUID().toString().substring(0, 8);
+    String username = uniqueUsername("jane");
     String json =
         objectMapper.writeValueAsString(
             new CreateMemberRequest(username, "jane@acme.com", "김제인", "Password123", "USER"));
@@ -108,7 +113,7 @@ class MemberCreateControllerTest extends IntegrationTestBase {
   @Test
   void createMember_withoutEmail_succeeds() throws Exception {
     String adminAuth = tokenFor(seedUserWithRole("admin", "ADMIN"));
-    String username = "noemail-" + UUID.randomUUID().toString().substring(0, 8);
+    String username = uniqueUsername("noemail");
     String json =
         objectMapper.writeValueAsString(
             new CreateMemberRequest(username, null, "이름만", "Password123", "USER"));
@@ -126,7 +131,7 @@ class MemberCreateControllerTest extends IntegrationTestBase {
   @Test
   void createMember_asAdminRole_assignsAdminRbacRole() throws Exception {
     String adminAuth = tokenFor(seedUserWithRole("admin", "ADMIN"));
-    String username = "boss-" + UUID.randomUUID().toString().substring(0, 8);
+    String username = uniqueUsername("boss");
     String json =
         objectMapper.writeValueAsString(
             new CreateMemberRequest(username, null, "관리자", "Password123", "ADMIN"));
@@ -189,7 +194,7 @@ class MemberCreateControllerTest extends IntegrationTestBase {
     Long admin = seedUserWithRole("admin", "ADMIN");
     String dupEmail =
         dsl.select(USER.EMAIL).from(USER).where(USER.ID.eq(admin)).fetchOne(USER.EMAIL);
-    String username = "dupmail-" + UUID.randomUUID().toString().substring(0, 8);
+    String username = uniqueUsername("dupmail");
     String json =
         objectMapper.writeValueAsString(
             new CreateMemberRequest(username, dupEmail, "이메일중복", "Password123", "USER"));
@@ -205,7 +210,7 @@ class MemberCreateControllerTest extends IntegrationTestBase {
   @Test
   void createMember_nameTooLong_returns400() throws Exception {
     String adminAuth = tokenFor(seedUserWithRole("admin", "ADMIN"));
-    String username = "longname-" + UUID.randomUUID().toString().substring(0, 8);
+    String username = uniqueUsername("longname");
     String json =
         objectMapper.writeValueAsString(
             new CreateMemberRequest(username, null, "가".repeat(51), "Password123", "USER"));
@@ -224,12 +229,7 @@ class MemberCreateControllerTest extends IntegrationTestBase {
     String weakAuth = tokenFor(seedUserWithRole("normal", "USER"));
     String json =
         objectMapper.writeValueAsString(
-            new CreateMemberRequest(
-                "x-" + UUID.randomUUID().toString().substring(0, 8),
-                null,
-                "거부",
-                "Password123",
-                "USER"));
+            new CreateMemberRequest(uniqueUsername("x"), null, "거부", "Password123", "USER"));
 
     mvc.perform(
             post("/api/v1/users")
@@ -237,5 +237,24 @@ class MemberCreateControllerTest extends IntegrationTestBase {
                 .contentType("application/json")
                 .content(json))
         .andExpect(status().isForbidden());
+  }
+
+  /** WP-181: 비밀번호 구성원도 아이디가 이메일이 아니면(예: max.lee) 400 이고 계정이 만들어지지 않는다. */
+  @Test
+  void createMember_withPassword_nonEmailUsername_returns400() throws Exception {
+    String adminAuth = tokenFor(seedUserWithRole("admin", "ADMIN"));
+    String username = "max.lee-" + UUID.randomUUID().toString().substring(0, 8);
+    String json =
+        objectMapper.writeValueAsString(
+            new CreateMemberRequest(username, "max.lee@acme.com", "맥스", "Password123", "USER"));
+
+    mvc.perform(
+            post("/api/v1/users")
+                .header("Authorization", adminAuth)
+                .contentType("application/json")
+                .content(json))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.username").value("아이디는 이메일 형식이어야 합니다"));
+    assertThat(dsl.fetchCount(USER, USER.USERNAME.eq(username))).isZero();
   }
 }

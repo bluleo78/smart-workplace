@@ -88,7 +88,7 @@ class CreateMemberSsoOnlyTest extends SsoIntegrationTestBase {
 
   @Test
   void passwordMember_unchanged() throws Exception {
-    create("pw-user-" + System.nanoTime(), ",\"password\":\"Password123\"")
+    create(SsoTestData.uniqueEmail("pw-user"), ",\"password\":\"Password123\"")
         .andExpect(status().isCreated());
   }
 
