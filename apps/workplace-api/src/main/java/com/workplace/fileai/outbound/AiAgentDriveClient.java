@@ -1,5 +1,6 @@
 package com.workplace.fileai.outbound;
 
+import com.workplace.global.outbound.AgentOutageGuard;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
@@ -40,7 +41,12 @@ public class AiAgentDriveClient {
           .retrieve()
           .body(Res.class);
     } catch (RestClientException e) {
-      log.error("ai-agent 드라이브 요약 실패: {}", e.getMessage());
+      // 재기동 중 연결 실패·503 은 일시 장애라 WARN(호출부가 회차를 멈춘다, WP-177). 그 외 응답 오류만 ERROR.
+      if (AgentOutageGuard.isAgentDown(e)) {
+        log.warn("ai-agent 드라이브 요약 불가: {}", e.getMessage());
+      } else {
+        log.error("ai-agent 드라이브 요약 실패: {}", e.getMessage());
+      }
       throw new RuntimeException("파일 요약 AI 요청에 실패했습니다.", e);
     }
   }

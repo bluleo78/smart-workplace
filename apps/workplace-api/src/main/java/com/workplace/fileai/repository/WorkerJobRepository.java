@@ -255,6 +255,28 @@ public class WorkerJobRepository {
   }
 
   /**
+   * 요청이 ai-agent 에 닿지 못한 실패(재기동 중 연결 거부·503, WP-177): SUMMARIZING→TEXT_READY 복귀하면서 claimForSummary
+   * 가 올린 attempts 를 되돌린다.
+   *
+   * <p>왜: attempts 는 "이 파일 때문에 실패한 횟수"로 독성 파일을 FAILED 로 격리하는 용도다. agent 장애로 실패한 시도까지 세면 요약 대기 중
+   * 재기동을 {@value #MAX_SUMMARY_ATTEMPTS}번 겪은 멀쩡한 파일이 영구 FAILED 가 된다. WHERE status='SUMMARIZING' 가드는
+   * {@link #revertToTextReady} 와 같다.
+   *
+   * @param fileId 대상 파일 id
+   * @param error 오류 메시지 (최대 500자)
+   */
+  public void revertToTextReadyUncounted(long fileId, String error) {
+    String truncated = error != null && error.length() > 500 ? error.substring(0, 500) : error;
+    dsl.update(FILE_EXTRACTION)
+        .set(FILE_EXTRACTION.STATUS, "TEXT_READY")
+        .set(FILE_EXTRACTION.ERROR, truncated)
+        .set(FILE_EXTRACTION.ATTEMPTS, DSL.greatest(FILE_EXTRACTION.ATTEMPTS.sub(1), DSL.inline(0)))
+        .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+        .and(FILE_EXTRACTION.STATUS.eq("SUMMARIZING"))
+        .execute();
+  }
+
+  /**
    * 요약 실패(attempts &gt;= MAX): SUMMARIZING→FAILED 단말 전이. 이 이후 findResumable 에서 제외되어 무한 재시도를 막는다.
    *
    * <p>WHERE status='SUMMARIZING' 가드로 이미 다른 상태로 전이된 행은 변경하지 않는다.

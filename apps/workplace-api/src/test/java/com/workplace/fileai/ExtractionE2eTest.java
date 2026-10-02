@@ -20,8 +20,13 @@ import com.workplace.fileai.outbound.AiAgentDriveClient;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.fileai.repository.WorkerJobRepository;
 import com.workplace.fileai.service.FileExtractionPipeline;
+import com.workplace.fileai.service.FileExtractionPipeline.SummaryOutcome;
+import com.workplace.fileai.service.FileExtractionScheduler;
+import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import java.net.ConnectException;
+import java.net.http.HttpTimeoutException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,9 +41,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 
 /**
  * FileExtractionPipeline 요약 단계 + E2E + 경합 통합 테스트.
@@ -52,6 +60,7 @@ class ExtractionE2eTest extends IntegrationTestBase {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private FileExtractionPipeline pipeline;
+  @Autowired private FileExtractionScheduler scheduler;
   @Autowired private WorkerJobRepository jobRepo;
   @Autowired private DSLContext dsl;
 
@@ -322,7 +331,114 @@ class ExtractionE2eTest extends IntegrationTestBase {
     verify(aiAgentDriveClient, times(1)).summarize(any());
   }
 
+  /**
+   * ai-agent 불가(재기동 중 연결 실패, WP-177): 요청이 agent 에 닿지 않은 실패는 시도 횟수를 소진하지 않는다 — 상한을 넘겨 반복돼도 FAILED 가
+   * 되지 않고 TEXT_READY 로 남아, agent 가 돌아오면 요약된다. 예외 대신 AGENT_UNAVAILABLE 을 돌려준다.
+   */
+  @Test
+  void agentUnreachable_doesNotConsumeAttempts() {
+    long fileId = createTextReadyFile(1L);
+    doThrow(agentClientError(new ResourceAccessException("I/O error", new ConnectException())))
+        .when(aiAgentDriveClient)
+        .summarize(any());
+
+    for (int i = 0; i < MAX_SUMMARY_ATTEMPTS + 1; i++) {
+      assertThat(summarizeInTenant(fileId)).isEqualTo(SummaryOutcome.AGENT_UNAVAILABLE);
+    }
+
+    assertThat(readStatus(1L, fileId)).isEqualTo("TEXT_READY");
+    assertThat(readAttempts(fileId)).isZero();
+
+    mockAiSummarize("복귀 후 요약");
+    assertThat(summarizeInTenant(fileId)).isEqualTo(SummaryOutcome.SUMMARIZED);
+    assertThat(readStatus(1L, fileId)).isEqualTo("DONE");
+  }
+
+  /** 503(agent 가 아직 준비 안 됨)도 요청이 처리되지 않은 것이라 시도 횟수를 소진하지 않는다. */
+  @Test
+  void agent503_doesNotConsumeAttempts() {
+    long fileId = createTextReadyFile(1L);
+    doThrow(
+            agentClientError(
+                HttpServerErrorException.create(
+                    HttpStatus.SERVICE_UNAVAILABLE, "unavailable", null, null, null)))
+        .when(aiAgentDriveClient)
+        .summarize(any());
+
+    assertThat(summarizeInTenant(fileId)).isEqualTo(SummaryOutcome.AGENT_UNAVAILABLE);
+
+    assertThat(readStatus(1L, fileId)).isEqualTo("TEXT_READY");
+    assertThat(readAttempts(fileId)).isZero();
+  }
+
+  /**
+   * 읽기 타임아웃은 agent 가 요청을 받아 처리하다 넘긴 것 — 시도 횟수를 소진한다(되돌리면 매번 시간 초과하는 파일이 끝없이 재시도된다). 배치에는 agent 불가로
+   * 알린다.
+   */
+  @Test
+  void readTimeout_consumesAttempts() {
+    long fileId = createTextReadyFile(1L);
+    doThrow(
+            agentClientError(
+                new ResourceAccessException("I/O error", new HttpTimeoutException("timed out"))))
+        .when(aiAgentDriveClient)
+        .summarize(any());
+
+    for (int i = 0; i < MAX_SUMMARY_ATTEMPTS; i++) {
+      assertThat(summarizeInTenant(fileId)).isEqualTo(SummaryOutcome.AGENT_UNAVAILABLE);
+    }
+
+    assertThat(readStatus(1L, fileId)).isEqualTo("FAILED");
+  }
+
+  /**
+   * 백필 회차: ai-agent 가 연속 {@link AgentOutageGuard#MAX_CONSECUTIVE_UNAVAILABLE}회 불가하면 남은 파일의 요약은 부르지
+   * 않는다. 부른 파일도 시도 횟수는 그대로다.
+   */
+  @Test
+  void scheduler_agentUnavailable_stopsSummariesForRest() {
+    List<Long> fileIds = new ArrayList<>();
+    for (int i = 0; i < AgentOutageGuard.MAX_CONSECUTIVE_UNAVAILABLE + 1; i++) {
+      fileIds.add(createTextReadyFile(1L));
+    }
+    doThrow(agentClientError(new ResourceAccessException("I/O error", new ConnectException())))
+        .when(aiAgentDriveClient)
+        .summarize(any());
+
+    scheduler.runOnce();
+
+    verify(aiAgentDriveClient, times(AgentOutageGuard.MAX_CONSECUTIVE_UNAVAILABLE))
+        .summarize(any());
+    for (long fileId : fileIds) {
+      assertThat(readStatus(1L, fileId)).isEqualTo("TEXT_READY");
+      assertThat(readAttempts(fileId)).isZero();
+    }
+  }
+
   // ── 헬퍼 ──
+
+  /** AiAgentDriveClient 가 HTTP 클라이언트 예외를 감싸 던지는 모양 그대로. */
+  private static RuntimeException agentClientError(Exception clientError) {
+    return new RuntimeException("파일 요약 AI 요청에 실패했습니다.", clientError);
+  }
+
+  private SummaryOutcome summarizeInTenant(long fileId) {
+    TenantContext.set(1L);
+    try {
+      return pipeline.summarizePending(fileId);
+    } finally {
+      TenantContext.clear();
+    }
+  }
+
+  private int readAttempts(long fileId) {
+    TenantContext.set(1L);
+    try {
+      return new TransactionTemplate(txManager).execute(s -> jobRepo.findAttempts(fileId));
+    } finally {
+      TenantContext.clear();
+    }
+  }
 
   /**
    * 텍스트 추출 완료 상태(TEXT_READY + extracted_text)의 파일을 생성한다. dispatchPending → 콜백 시퀀스를 거치지 않고 직접 삽입해 요약

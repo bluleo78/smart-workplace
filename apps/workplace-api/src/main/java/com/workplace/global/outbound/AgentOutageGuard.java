@@ -12,7 +12,8 @@ import org.springframework.web.client.ResourceAccessException;
  * #MAX_CONSECUTIVE_UNAVAILABLE}회일 때만 멈춘다. agent 를 실제로 부르지 않은 대상(후보 없음·빈 본문 등)은 판단 근거가 아니므로 어느 쪽도
  * 기록하지 않는다.
  *
- * <p>여러 도메인 배치(우선순위 분류·메일 선제 분석·메일 재분석)가 같은 기준을 쓰도록 global 에 둔다. 배치 스레드 하나 안에서만 쓴다(스레드 안전하지 않음).
+ * <p>여러 도메인 배치(우선순위 분류·메일 선제 분석·메일 재분석·파일 요약)가 같은 기준을 쓰도록 global 에 둔다. 배치 스레드 하나 안에서만 쓴다(스레드 안전하지
+ * 않음).
  */
 public final class AgentOutageGuard {
 
