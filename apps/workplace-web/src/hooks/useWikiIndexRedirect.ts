@@ -27,22 +27,25 @@ export function useWikiIndexRedirect(target: 'page' | 'space') {
     () => (target === 'space' && lastSpaceKey ? readWikiLastVisited(lastSpaceKey) : null),
     [target, lastSpaceKey],
   )
-  // 공간 기록이 있으면 페이지 기록은 보지 않는다(조회 생략) — 공간 기록이 더 최근 선택을 반영한다.
+  // 공간 기록이 유효하면 페이지 기록은 보지 않는다(조회 생략) — 공간 기록이 더 최근 선택을 반영한다.
+  // 공간 기록이 사라진 공간이면(목록 확인 후) 페이지 기록으로 넘어간다. 목록 로딩 중엔 판정을 미룬다.
+  const spaceGone = storedSpaceId != null && spaces != null && !spaces.some((s) => s.id === storedSpaceId)
   const storedPageId = useMemo(
-    () => (storedSpaceId == null && lastVisitedKey ? readWikiLastVisited(lastVisitedKey) : null),
-    [storedSpaceId, lastVisitedKey],
+    () => ((storedSpaceId == null || spaceGone) && lastVisitedKey ? readWikiLastVisited(lastVisitedKey) : null),
+    [storedSpaceId, spaceGone, lastVisitedKey],
   )
   // 기록이 없으면 비활성(조회 안 함). 캐시 데이터가 있어도 staleTime 0 이라 마운트 시 재조회하므로
   // isFetching 동안은 판정을 미뤄, 그 사이 삭제된 페이지로 잘못 복원하지 않는다.
   const lastPage = useWikiPage(storedPageId)
-  const restorePending = storedPageId != null && lastPage.isFetching
+  // isPending 도 본다 — 공간 기록이 무효로 판정된 직후 조회가 막 켜진 렌더에서 첫 공간으로 앞질러 가지 않게.
+  const restorePending = storedPageId != null && (lastPage.isFetching || lastPage.isPending)
 
   useEffect(() => {
     if (restorePending) return
     if (storedSpaceId != null) {
       if (!spaces) return
-      // 접근 가능 여부는 공간 목록 기준 — 삭제·권한 상실로 사라졌으면 기록을 지우고 첫 공간으로.
-      if (spaces.some((s) => s.id === storedSpaceId)) {
+      // 접근 가능 여부는 공간 목록 기준 — 삭제·권한 상실로 사라졌으면 기록을 지우고 페이지 기록 → 첫 공간 순으로.
+      if (!spaceGone) {
         navigate(`/wiki/spaces/${storedSpaceId}`, { replace: true })
         return
       }
@@ -61,7 +64,7 @@ export function useWikiIndexRedirect(target: 'page' | 'space') {
     if (spaces && spaces.length > 0) {
       navigate(`/wiki/spaces/${spaces[0].id}`, { replace: true })
     }
-  }, [target, restorePending, storedSpaceId, lastSpaceKey, storedPageId, lastPage.isError, lastPage.error, lastPage.data, lastVisitedKey, spaces, navigate])
+  }, [target, restorePending, storedSpaceId, spaceGone, lastSpaceKey, storedPageId, lastPage.isError, lastPage.error, lastPage.data, lastVisitedKey, spaces, navigate])
 
   return { spaces, isLoading, restorePending }
 }

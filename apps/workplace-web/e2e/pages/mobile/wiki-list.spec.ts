@@ -22,14 +22,14 @@ const PAGE_PATH = /^\/api\/v1\/wiki\/pages\/(\d+)$/
 
 /**
  * 공간 3개·공간별 페이지 트리·페이지 상세·페이지 생성 모킹. 트리는 테스트마다 복사해 생성(POST)이 다른 테스트에 새지 않게 한다.
- * 페이지 상세의 소속 공간·제목은 트리에서 도출한다. state.hideTeam=true 면 팀 공간이 목록에서 사라진다(삭제·권한 상실).
+ * 페이지 상세의 소속 공간·제목은 트리에서 도출한다. state.hidden 에 넣은 공간 id 는 목록에서 사라진다(삭제·권한 상실).
  */
 async function mockWiki(page: Page) {
   const trees = structuredClone(TREES)
-  const state: { hideTeam: boolean; createBody: unknown } = { hideTeam: false, createBody: null }
+  const state: { hidden: number[]; createBody: unknown } = { hidden: [], createBody: null }
   await page.route(
     (u) => u.pathname === '/api/v1/wiki/spaces',
-    (r) => r.fulfill({ json: state.hideTeam ? [PERSONAL, EMPTY] : [PERSONAL, TEAM, EMPTY] }),
+    (r) => r.fulfill({ json: [PERSONAL, TEAM, EMPTY].filter((sp) => !state.hidden.includes(sp.id)) }),
   )
   await page.route(
     (u) => TREE_PATH.test(u.pathname),
@@ -159,8 +159,27 @@ test('기억한 공간이 삭제·권한 상실로 사라졌으면 첫 공간 �
   await page.goto('/wiki/spaces/2')
   await expect(page.getByTestId('mobile-module-list').getByTestId('wiki-tree-row-42')).toBeVisible()
 
-  wiki.hideTeam = true
+  wiki.hidden = [TEAM.id]
   await page.goto('/wiki')
   await expect(page).toHaveURL(/\/wiki\/spaces\/1$/)
   await expect(page.getByTestId('mobile-module-list').getByTestId('wiki-tree-row-101')).toBeVisible()
+})
+
+test('기억한 공간이 사라졌어도 마지막으로 본 페이지가 있으면 그 페이지의 공간 목록에서 시작한다(WP-180)', async ({
+  authenticatedPage: page,
+}) => {
+  const wiki = await mockWiki(page)
+  await page.goto('/wiki/spaces/2/pages/42')
+  await expect(page.getByTestId('wiki-page-header')).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith('wiki.lastVisitedPage:'))))
+    .toBe(true)
+  // 페이지를 열지 않고 빈 노트로 공간만 바꾼 뒤, 그 공간이 사라진다.
+  await page.goto('/wiki/spaces/3')
+  await expect(page.getByTestId('wiki-no-pages')).toBeVisible()
+  wiki.hidden = [EMPTY.id]
+
+  await page.goto('/wiki')
+  await expect(page).toHaveURL(/\/wiki\/spaces\/2$/)
+  await expect(page.getByTestId('mobile-module-list').getByTestId('wiki-tree-row-42')).toBeVisible()
 })
