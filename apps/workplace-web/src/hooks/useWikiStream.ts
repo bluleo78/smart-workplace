@@ -30,6 +30,8 @@ export function handleWikiEvent(qc: QueryClient, eventName: string, data: unknow
   // 열려 있는 단건 페이지 — 다른 탭/AI 의 본문 수정 반영.
   if (typeof p?.pageId === 'number' && Number.isFinite(p.pageId)) {
     qc.invalidateQueries({ queryKey: wikiKeys.page(p.pageId) });
+    // 본문이 바뀌면 백링크 패널도 바뀔 수 있다(WP-170). 멘션 라벨은 열린 에디터가 원격본을 반영할 때 직접 재조회한다.
+    qc.invalidateQueries({ queryKey: wikiKeys.backlinks(p.pageId) });
   }
   // 스페이스 목록(페이지 수 등 파생 정보)도 갱신될 수 있어 함께 무효화.
   qc.invalidateQueries({ queryKey: wikiKeys.spaces() });

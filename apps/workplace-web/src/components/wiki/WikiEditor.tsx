@@ -423,7 +423,12 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 로드 라운드트립 — 본문에 텍스트로 살아남은 멘션 토큰을 칩(wikiMention 노드)으로 치환.
   // useWikiMentions 결과(라벨 해소)를 기다렸다가 라벨까지 채워 1회 치환한다(placeholder 재치환 회피).
   // 토큰을 노드로 바꾸면 더는 텍스트가 아니므로 재스캔 대상이 사라져 한 번이면 충분하다.
-  const { data: pageMentions, isError: mentionsError } = useWikiMentions(page.id)
+  // refetchMentions 는 원격 수정본으로 본문을 교체한 뒤(WP-170) 새 본문의 멘션을 다시 해소할 때 쓴다.
+  const {
+    data: pageMentions,
+    isError: mentionsError,
+    refetch: refetchMentions,
+  } = useWikiMentions(page.id)
   // 페이지(=마운트)당 1회만 치환하도록 가드.
   const hydratedRef = useRef(false)
   useEffect(() => {
@@ -475,6 +480,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 초기 상태(title/version/firstSave)는 마운트 시 한 번만 설정되면 충분하다.
   // 저장 성공 후 page prop 의 version 이 갱신돼도 상태를 리셋하지 않는다
   // (리셋하면 '저장됨' 이 즉시 사라지고, 매 자동저장마다 snapshot=true 가 되어 리비전 캐던스가 깨진다).
+  // 단, 다른 곳(AI 비서·다른 탭)의 저장으로 page.version 이 로컬보다 앞서면 아래 원격 반영 effect 가 교체한다(WP-170).
 
   // flush=true(언마운트 flush)면 mutateAsync 의 promise 를 돌려준다 — 컴포넌트가 사라지는 중이라 저장 상태 UI 갱신은
   // 의미가 없고, 대신 WikiPageView 가 이 promise 로 재마운트 시점을 잡는다(wikiFlushRegistry).
@@ -496,6 +502,9 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
             setSaveState('saved')
           },
           onError: (err) => {
+            // '최신 내용 불러오기'로 version 이 바뀐 뒤 도착한 옛 저장의 실패는 무시한다 — 반영하면 최신본을 들고도
+            // 충돌 상태에 갇혀 자동저장이 멈춘다(WP-170).
+            if (vars.req.version !== versionRef.current) return
             if (isAxiosError(err) && err.response?.status === 409) {
               setSaveState('conflict')
             } else {
@@ -530,6 +539,73 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     [doSave],
   )
 
+  // 대기 중 자동저장을 취소하고 그 제목을 돌려준다(대기 없으면 null) — 언마운트 flush·원격 반영이 공유한다.
+  const cancelPendingSave = useCallback((): string | null => {
+    if (!timerRef.current) return null
+    clearTimeout(timerRef.current)
+    timerRef.current = null
+    const pending = pendingTitleRef.current
+    pendingTitleRef.current = null
+    return pending
+  }, [])
+
+  // 생성 취소 — ESC 또는 버튼. abort 후 상태 복귀(부분 삽입은 자동저장이 보존).
+  const cancelAi = useCallback(() => {
+    abortRef.current?.()
+    abortRef.current = null
+    setAiBusy(false)
+  }, [])
+
+
+  // 원격 수정 반영(WP-170) — AI 비서·다른 탭·다른 사용자가 저장하면 wiki.page.updated SSE → useWikiStream 이 페이지
+  // 캐시를 무효화해 page prop 이 더 새 version 으로 바뀐다. 에디터는 마운트 시 본문으로만 초기화되므로 여기서 교체한다.
+  // 저장하지 않은 내 편집이 있으면 덮어쓰지 않고 remoteStale 배너로 '최신 내용 불러오기'를 제안한다.
+  const [remoteStale, setRemoteStale] = useState(false)
+  // 마운트 재생성(key 변경) 대신 제자리 교체하는 이유: 스크롤 컨테이너가 이 컴포넌트 안에 있어 리마운트하면
+  // 읽던 위치가 맨 위로 튄다.
+  const applyRemote = useCallback(
+    () => {
+      if (!editor) return
+      const next = page
+      // 진행 중인 /ai 스트림은 옛 문서 좌표로 토큰을 끼워 넣으므로 먼저 끊는다 — 남겨 두면 교체한 최신본에
+      // 반쯤 쓴 AI 출력이 섞여 자동저장된다.
+      cancelAi()
+      // 대기 중 자동저장은 옛 version 이라 409 만 낸다 — 버리고 최신본 기준으로 다시 시작한다.
+      cancelPendingSave()
+      const { from } = editor.state.selection
+      // emitUpdate=false → 'update' 미발화라 자동저장이 다시 돌지 않는다. 히스토리에서도 빼서 undo 로 옛 본문이
+      // 되살아나 저장되는 일을 막는다.
+      editor.chain().setMeta('addToHistory', false).setContent(next.body, false).run()
+      // 커서는 같은 오프셋 근처로 되돌린다(문서가 짧아졌으면 끝으로).
+      editor.commands.setTextSelection(Math.min(from, editor.state.doc.content.size))
+      setTitle(next.title)
+      versionRef.current = next.version
+      // 다음 내 저장이 원격 수정본을 리비전으로 남기도록 snapshot 을 다시 켠다(작성자가 바뀐 경계).
+      firstSaveRef.current = true
+      setSaveState('idle')
+      setRemoteStale(false)
+      // 새 본문의 멘션 토큰을 칩으로 — 캐시된 멘션은 옛 본문 기준이라 다시 조회한 결과로 치환한다.
+      // 실패하면 라벨 없이(토큰 라벨 폴백) 치환해 raw 토큰이 남지 않게 한다(마운트 시 하이드레이션과 동일).
+      void refetchMentions().then((r) => {
+        if (!editor.isDestroyed) hydrateWikiMentions(editor, r.data ?? [])
+      })
+    },
+    [editor, page, cancelAi, cancelPendingSave, refetchMentions],
+  )
+  useEffect(() => {
+    if (!editor) return
+    // 내 저장의 self-echo(같은 version)·옛 캐시는 무시.
+    if (page.version <= versionRef.current) return
+    // 내 저장이 진행 중이면 결과를 기다린다 — 성공하면 versionRef 가 따라잡아 위 가드에서 걸러진다.
+    if (saveState === 'saving') return
+    // 저장 대기·충돌·AI 생성 중인 내 편집이 있으면 덮어쓰지 않는다.
+    if (timerRef.current != null || saveState === 'conflict' || aiBusy) {
+      setRemoteStale(true)
+      return
+    }
+    applyRemote()
+  }, [editor, page, saveState, aiBusy, applyRemote])
+
   // 언마운트 시 대기 중 자동저장을 즉시 flush — 페이지 전환(key 리마운트)·뷰포트 lg 경계 전환(데스크톱↔모바일 셸
   // 트리 교체)으로 에디터가 사라질 때 마지막 편집을 잃지 않게 한다. 타이머는 반드시 해제해 늦게 한 번 더
   // (옛 version 으로) PUT 해 409 가 나는 일을 막는다. useEditor 의 destroy 는 다음 틱으로 예약되므로
@@ -539,16 +615,12 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   const pageId = page.id
   useEffect(() => {
     return () => {
-      if (!timerRef.current) return
-      clearTimeout(timerRef.current)
-      timerRef.current = null
-      const pending = pendingTitleRef.current
-      pendingTitleRef.current = null
+      const pending = cancelPendingSave()
       if (pending == null) return
       const p = doSaveRef.current(pending, true)
       if (p) trackWikiFlush(pageId, p)
     }
-  }, [pageId])
+  }, [pageId, cancelPendingSave])
 
   useEffect(() => {
     if (!editor) return
@@ -573,13 +645,6 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     return () => {
       abortRef.current?.()
     }
-  }, [])
-
-  // 생성 취소 — ESC 또는 버튼. abort 후 상태 복귀(부분 삽입은 자동저장이 보존).
-  const cancelAi = useCallback(() => {
-    abortRef.current?.()
-    abortRef.current = null
-    setAiBusy(false)
   }, [])
 
   // 헤더 ⋯ → 삭제 확정. 삭제 후 스페이스 루트로 이동.
@@ -630,7 +695,17 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           />
           <WikiTableToolbar editor={editor} disabled={!canEdit} />
           <WikiTableContextMenu editor={editor} disabled={!canEdit} />
-          {saveState === 'conflict' && (
+          {remoteStale ? (
+            <div
+              data-testid="wiki-remote-stale"
+              className="mb-3 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-foreground"
+            >
+              다른 곳에서 이 노트가 수정되었습니다. 최신 내용을 불러오면 저장하지 않은 내 수정은 사라집니다.{' '}
+              <button type="button" className="underline" onClick={applyRemote}>
+                최신 내용 불러오기
+              </button>
+            </div>
+          ) : saveState === 'conflict' && (
             <div className="mb-3 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.{' '}
               <button type="button" className="underline" onClick={() => window.location.reload()}>

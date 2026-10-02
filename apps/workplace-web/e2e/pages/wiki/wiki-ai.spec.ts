@@ -12,6 +12,7 @@
 import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { buildWikiAiSse } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 300
@@ -108,15 +109,6 @@ async function setupWikiMocks(page: Page, role: WikiRole, body = '') {
       return route.fallback()
     },
   )
-}
-
-// 델타 배열 → wiki.ai.* SSE 본문(correlationId 포함, delta N개 + done).
-function buildWikiAiSse(deltas: string[], correlationId: string): string {
-  const parts = deltas.map(
-    (text) => `event: wiki.ai.delta\ndata: ${JSON.stringify({ correlationId, text })}\n\n`,
-  )
-  parts.push(`event: wiki.ai.done\ndata: ${JSON.stringify({ correlationId })}\n\n`)
-  return parts.join('')
 }
 
 // POST 시작(JSON correlationId) + /events(SSE, 그 correlationId 로 델타) 를 함께 설정한다.
