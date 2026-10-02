@@ -21,7 +21,11 @@ export function useSavePage(spaceId: number) {
   return useMutation<WikiPageDetail, unknown, { pageId: number; req: SavePageRequest }>({
     mutationFn: ({ pageId, req }) => wikiApi.savePage(pageId, req).then((r) => r.data),
     onSuccess: (data) => {
-      qc.setQueryData(wikiKeys.page(data.id), data)
+      // 저장 응답이 오는 사이 다른 곳의 저장(SSE 재조회)으로 캐시가 더 새 version 이 됐으면 덮어쓰지 않는다 —
+      // 덮으면 열린 에디터가 원격 수정을 놓친다(WP-170).
+      qc.setQueryData<WikiPageDetail>(wikiKeys.page(data.id), (cur) =>
+        cur && cur.version > data.version ? cur : data,
+      )
       qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) })
       // 본문 저장으로 멘션/참조가 바뀔 수 있어 하이드레이션·백링크 캐시를 무효화한다.
       // (staleTime 30s 와 결합 시 방금 삽입한 칩의 내비게이션 메타가 즉시 갱신되도록.)

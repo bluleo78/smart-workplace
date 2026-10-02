@@ -509,6 +509,9 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
             setSaveState('saved')
           },
           onError: (err) => {
+            // '최신 내용 불러오기'로 version 이 바뀐 뒤 도착한 옛 저장의 실패는 무시한다 — 반영하면 최신본을 들고도
+            // 충돌 상태에 갇혀 자동저장이 멈춘다(WP-170).
+            if (vars.req.version !== versionRef.current) return
             if (isAxiosError(err) && err.response?.status === 409) {
               setSaveState('conflict')
               // 서버에 더 새 버전이 있다는 뜻 — 최신본을 받아 와야 '최신 내용 불러오기'를 제안할 수 있다(WP-170).
@@ -553,6 +556,11 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   const applyRemote = useCallback(
     (next: WikiPageDetail) => {
       if (!editor) return
+      // 진행 중인 /ai 스트림은 옛 문서 좌표로 토큰을 끼워 넣으므로 먼저 끊는다 — 남겨 두면 교체한 최신본에
+      // 반쯤 쓴 AI 출력이 섞여 자동저장된다(cancelAi 와 동일한 정리).
+      abortRef.current?.()
+      abortRef.current = null
+      setAiBusy(false)
       // 대기 중 자동저장은 옛 version 이라 409 만 낸다 — 버리고 최신본 기준으로 다시 시작한다.
       if (timerRef.current) clearTimeout(timerRef.current)
       timerRef.current = null
