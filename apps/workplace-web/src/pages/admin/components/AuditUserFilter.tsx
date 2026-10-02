@@ -59,7 +59,16 @@ export function AuditUserFilter({
           aria-label="사용자 필터"
           className="min-w-0 flex-1 justify-between font-normal sm:w-[180px] sm:flex-none"
         >
-          <span className="truncate">{value ? value.name : '전체 사용자'}</span>
+          {/* 동명이인을 구분하도록 아이디도 함께(좁으면 잘림 — title 로 전체 확인) */}
+          <span className="truncate" title={value ? `${value.name} (${value.username})` : undefined}>
+            {value ? (
+              <>
+                {value.name} <span className="text-muted-foreground">({value.username})</span>
+              </>
+            ) : (
+              '전체 사용자'
+            )}
+          </span>
           <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
