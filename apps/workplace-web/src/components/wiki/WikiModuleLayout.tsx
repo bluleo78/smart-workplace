@@ -1,11 +1,14 @@
-import { useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
+import { useLocation, useParams } from 'react-router-dom'
 
 import { ResponsiveModuleLayout } from '@/components/mobile/ResponsiveModuleLayout'
 import { mobileWikiListClass } from '@/components/mobile/sidebarListClass'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useWikiIndexRedirect } from '@/hooks/useWikiIndexRedirect'
+import { useWikiLastSpaceKey } from '@/hooks/useWikiLastVisitedKey'
 import { norm } from '@/lib/mobile/routes'
 import { MOBILE_TABS } from '@/lib/mobile/tabs'
+import { writeWikiLastVisited } from '@/lib/wikiLastVisited'
 
 import { WikiSidebar } from './WikiSidebar'
 
@@ -19,6 +22,7 @@ import { WikiSidebar } from './WikiSidebar'
 export function WikiModuleLayout() {
   const isMobile = useIsMobile()
   const { pathname } = useLocation()
+  useRecordLastSpace()
   return (
     <>
       <ResponsiveModuleLayout sidebar={<WikiSidebar />} rootPath={MOBILE_TABS.wiki.path} title="노트" listClassName={mobileWikiListClass} />
@@ -31,4 +35,18 @@ export function WikiModuleLayout() {
 function MobileWikiIndexRedirect() {
   useWikiIndexRedirect('space')
   return null
+}
+
+/**
+ * 보고 있는 공간(공간 목록·그 안의 페이지)을 "마지막으로 고른 공간"으로 기록 — 모바일 /wiki 진입이 이 공간 목록에서 이어진다(WP-180).
+ * 레이아웃에서 기록하는 이유: 모바일 페이지 상세는 사이드바를 그리지 않아, 링크로 바로 연 페이지의 공간도 남기려면 여기여야 한다.
+ * 접근 가능 여부는 읽을 때 공간 목록으로 확인한다(useWikiIndexRedirect — 없어진 공간이면 기록을 지움).
+ */
+function useRecordLastSpace() {
+  const { spaceId } = useParams()
+  const lastSpaceKey = useWikiLastSpaceKey()
+  useEffect(() => {
+    const id = Number(spaceId)
+    if (lastSpaceKey && Number.isInteger(id) && id > 0) writeWikiLastVisited(lastSpaceKey, id)
+  }, [lastSpaceKey, spaceId])
 }
