@@ -37,6 +37,7 @@ function sharedMock(): MockedShared {
     addIssueDependency: vi.fn().mockResolvedValue({}),
     removeIssueDependency: vi.fn().mockResolvedValue(undefined),
     replaceIssueCycles: vi.fn().mockResolvedValue([]),
+    getIssueCycles: vi.fn().mockResolvedValue([]),
     watchIssue: vi.fn().mockResolvedValue(undefined),
     unwatchIssue: vi.fn().mockResolvedValue(undefined),
     // 프로젝트 메타·목록(ProjectToolClient)

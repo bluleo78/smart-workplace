@@ -23,6 +23,7 @@ function mockClient(): IssueToolClient {
     getProjectMilestones: vi.fn().mockResolvedValue([{ id: 7, name: 'v1.0' }]),
     getProjectCycles: vi.fn().mockResolvedValue([{ id: 30, name: 'Sprint 3' }]),
     replaceIssueCycles: vi.fn().mockResolvedValue([]),
+    getIssueCycles: vi.fn().mockResolvedValue([]),
     watchIssue: vi.fn().mockResolvedValue(undefined),
     unwatchIssue: vi.fn().mockResolvedValue(undefined),
   };
@@ -57,6 +58,26 @@ describe('buildSharedIssueTools', () => {
     const out = JSON.parse(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' }));
     expect(out).toMatchObject({ issueKey: 'WP-12', title: 'T', blocked: true, blockedBy: [{ number: 5, title: 'x', status: 'TODO' }] });
     expect(c.getIssueDetail).toHaveBeenCalledWith('WP-12');
+  });
+
+  it('WP-176: get_issue_detail 은 이슈의 사이클을 name·status 로 동봉한다(숫자 id 없음)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue({
+      issueKey: 'WP-12',
+      summary: { title: 'T', status: 'DONE', priority: 'MID', assignees: [] },
+      comments: [],
+    });
+    vi.mocked(c.getIssueCycles).mockResolvedValue([
+      { id: 3001, name: 'Sprint 2', status: 'COMPLETED' },
+      { id: 3002, name: 'Sprint 3', status: 'ACTIVE' },
+    ]);
+    const raw = await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' });
+    expect(JSON.parse(raw).cycles).toEqual([
+      { name: 'Sprint 2', status: 'COMPLETED' },
+      { name: 'Sprint 3', status: 'ACTIVE' },
+    ]);
+    expect(raw).not.toContain('3001');
+    expect(c.getIssueCycles).toHaveBeenCalledWith('WP-12');
   });
 
   it('add_comment 은 client.addComment 호출 후 "ok"', async () => {

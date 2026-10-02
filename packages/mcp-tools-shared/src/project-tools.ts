@@ -2,7 +2,7 @@
 // 그 밖의 프로젝트 쓰기(생성·삭제·멤버 추가)는 확인 카드가 있는 ai-agent 의 propose_* 에만 있다.
 import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
-import { defaultListAssignee } from './resolve.js';
+import { defaultListAssignee, resolveCycleFilter } from './resolve.js';
 import { formatIssueKey } from './parse.js';
 import { listIssuesInput } from './schemas.js';
 import type { IssueListQuery, IssueRow, ProjectToolClient } from './tool-client.js';
@@ -90,16 +90,19 @@ export function buildProjectTools(client: ProjectToolClient): SharedTool[] {
       name: 'list_issues',
       kind: 'read',
       description:
-        '이슈 목록을 JSON 배열로 반환합니다. assignee·reporter 둘 다 생략 시 내 담당("me"), projectKey·status·priority·label·type·q·dueFrom/dueTo·blocked·topLevel 로 좁힙니다. ' +
+        '이슈 목록을 JSON 배열로 반환합니다. assignee·reporter 둘 다 생략 시 내 담당("me")이고, 담당자와 무관하게 보려면 assignee="any". ' +
+        'projectKey·status·priority·label·type·cycle·q·dueFrom/dueTo·blocked·topLevel 로 좁힙니다. ' +
         '사람은 username, 라벨·유형은 이름으로 지정하고(get_project 가 목록 제공), 없는 값이면 사용 가능 목록을 담은 오류가 옵니다. ' +
         '각 항목은 issueKey·title·status·priority·assignees·dueDate 를 포함하며, 상세는 issueKey 로 get_issue_detail 을 호출하세요.',
       inputSchema: listIssuesInput,
       async handler(args) {
-        const { priority, size, ...p } = listIssuesInput.parse(args);
+        const { priority, size, cycle: cycleCsv, ...p } = listIssuesInput.parse(args);
         const assignee = defaultListAssignee(p);
+        // WP-176: 사이클 이름·active·none·backlog → 서버 토큰(id·none·null). 해석 실패는 조회 전에 throw.
+        const cycle = cycleCsv ? await resolveCycleFilter(client, p.projectKey, cycleCsv) : undefined;
         // undefined 필드는 쿼리에서 뺀다 — 서버는 빈 값과 미지정을 다르게 볼 수 있다.
         const query: IssueListQuery = Object.fromEntries(
-          Object.entries({ ...p, assignee }).filter((e): e is [string, string | boolean] => e[1] !== undefined),
+          Object.entries({ ...p, assignee, cycle }).filter((e): e is [string, string | boolean] => e[1] !== undefined),
         );
         if (priority?.length) query.priority = priority.join(',');
         query.size = size ?? 30;

@@ -93,10 +93,48 @@ export async function resolveCycleIds(client: ProjectMetaClient, projectKey: str
 }
 
 /**
+ * list_issues 의 cycle CSV → 서버 cycle 쿼리 토큰 CSV(WP-176). none → "none"(사이클 연결 전무), backlog → "null"(진행 중·예정 밖),
+ * active → 진행 중 사이클 id 들, 그 외는 사이클 이름 → id. 이름·active 는 프로젝트 스코프라 projectKey 가 필요하다.
+ * 서버는 해석 못 한 토큰을 조용히 버려 필터가 빠진 결과를 주므로, 해석 불가(없는 이름·활성 사이클 없음)는 여기서 throw 한다.
+ */
+export async function resolveCycleFilter(
+  client: Pick<ProjectMetaClient, 'getProjectCycles'>,
+  projectKey: string | undefined,
+  csv: string,
+): Promise<string> {
+  const tokens = csv.split(',').map((t) => t.trim()).filter(Boolean);
+  const isSpecial = (t: string) => ['none', 'backlog'].includes(t.toLowerCase());
+  // 프로젝트 사이클 조회는 이름·active 토큰이 있을 때만, 한 번 한다.
+  let cycles: Awaited<ReturnType<typeof client.getProjectCycles>> = [];
+  if (!tokens.every(isSpecial)) {
+    if (!projectKey) throw new Error('사이클 이름·active 로 거르려면 projectKey 를 함께 지정하세요.');
+    cycles = await client.getProjectCycles(projectKey);
+  }
+  const out: string[] = [];
+  for (const tok of tokens) {
+    const lower = tok.toLowerCase();
+    if (lower === 'none') out.push('none');
+    else if (lower === 'backlog') out.push('null');
+    else if (lower === 'active') {
+      const active = cycles.filter((c) => c.status === 'ACTIVE');
+      if (!active.length) {
+        throw new Error(
+          `프로젝트 ${projectKey} 에 진행 중(활성) 사이클이 없습니다. 사이클: ${cycles.map((c) => `${c.name}(${c.status})`).join(', ') || '(없음)'}`,
+        );
+      }
+      out.push(...active.map((c) => String(c.id)));
+    } else out.push(String(idByName(cycles, tok, '사이클')));
+  }
+  return out.join(',');
+}
+
+/**
  * 이슈 목록 조회의 assignee 기본값(#841). assignee·reporter 가 둘 다 없을 때만 "me"(내 담당) —
  * reporter 만 준 "내가 만든" 조회에 담당 조건이 끼면 교집합이 되어 결과가 줄어든다.
  * ai-agent·workplace-mcp 의 list_issues 가 같은 규칙을 쓰도록 공유한다.
  */
 export function defaultListAssignee(p: { assignee?: string; reporter?: string }): string | undefined {
+  // WP-176: "any" 는 담당자 조건 없음 — 기본값 "me" 를 끄고 프로젝트 전체 이슈를 대상으로 한다.
+  if (p.assignee?.trim().toLowerCase() === 'any') return undefined;
   return p.assignee ?? (p.reporter ? undefined : 'me');
 }
