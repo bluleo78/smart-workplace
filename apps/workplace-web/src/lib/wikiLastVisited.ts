@@ -7,13 +7,21 @@ import { isAxiosError } from 'axios';
 // URL 을 손으로 고친 경우에도 잘못된 spaceId 가 저장·복원되지 않는다.
 
 const KEY_PREFIX = 'wiki.lastVisitedPage:';
+// 마지막으로 고른 공간(WP-180) — 모바일은 공간 목록에서 시작하므로, 페이지를 열지 않고 공간만 바꿔도 다음 진입에 이어지게.
+// 값은 공간 id 하나라 아래 read/write/clear 를 그대로 쓴다(키만 다름).
+const SPACE_KEY_PREFIX = 'wiki.lastVisitedSpace:';
 
 /** 사용자·테넌트 스코프 키. 활성 테넌트가 없는 세션도 있으므로 'none' 으로 폴백. */
 export function wikiLastVisitedKey(userId: number, tenantId: number | null | undefined): string {
   return `${KEY_PREFIX}${userId}:${tenantId ?? 'none'}`;
 }
 
-/** 저장된 pageId 조회. 없거나 손상됐거나 localStorage 접근 불가(사파리 프라이빗 등)면 null. */
+/** 마지막으로 고른 공간 키 — 페이지 키와 같은 사용자·테넌트 스코프. */
+export function wikiLastSpaceKey(userId: number, tenantId: number | null | undefined): string {
+  return `${SPACE_KEY_PREFIX}${userId}:${tenantId ?? 'none'}`;
+}
+
+/** 저장된 id(pageId·공간 id) 조회. 없거나 손상됐거나 localStorage 접근 불가(사파리 프라이빗 등)면 null. */
 export function readWikiLastVisited(key: string): number | null {
   try {
     const raw = localStorage.getItem(key);
@@ -24,7 +32,7 @@ export function readWikiLastVisited(key: string): number | null {
   }
 }
 
-/** 마지막으로 본 pageId 기록. 저장 실패는 복원만 안 될 뿐이므로 무시. */
+/** 마지막으로 본 pageId(또는 공간 id) 기록. 저장 실패는 복원만 안 될 뿐이므로 무시. */
 export function writeWikiLastVisited(key: string, pageId: number): void {
   try {
     localStorage.setItem(key, String(pageId));
