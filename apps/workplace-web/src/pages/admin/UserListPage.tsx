@@ -75,7 +75,7 @@ export default function UserListPage() {
             <TableRow>
               {/* WP-182: 아이디·이메일은 대부분 같은 값이라 별도 열 대신 이름 아래 보조 줄로 합쳤다.
                   구분·상태는 배지 폭만큼만(w-px + nowrap) 차지해 이름 열에 공간을 몰아준다. */}
-              <TableHead>구성원</TableHead>
+              <TableHead className="w-full">구성원</TableHead>
               <TableHead className="w-px whitespace-nowrap">구분</TableHead>
               <TableHead className="w-px whitespace-nowrap">상태</TableHead>
             </TableRow>
@@ -102,7 +102,8 @@ export default function UserListPage() {
                   // Enter/Space 키로 행 클릭과 동일한 네비게이션 동작 수행
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/settings/users/${u.userId}`); }}
                 >
-                  <TableCell>
+                  {/* max-w-0 + 헤더 w-full: 남는 폭을 모두 받되 좁은 화면에선 아이디·이메일이 잘려(truncate) 표가 넘치지 않는다 */}
+                  <TableCell className="max-w-0">
                     <div className="flex items-center gap-3">
                       <UserAvatar user={{ id: u.userId, username: u.username, name: u.name }} size="md" />
                       <div className="min-w-0">
