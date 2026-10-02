@@ -1,5 +1,6 @@
 import './wiki-editor.css'
 
+import { useQueryClient } from '@tanstack/react-query'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import { TableCell } from '@tiptap/extension-table-cell'
@@ -26,6 +27,7 @@ import { useWikiMentions } from '../../hooks/queries/useWikiMentions'
 import { useDeletePage, useSavePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
+import { wikiKeys } from '../../hooks/queries/wikiKeys'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
 import { useWikiImageUpload } from './useWikiImageUpload'
@@ -53,6 +55,7 @@ import { WikiTableToolbar } from './WikiTableToolbar'
 export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: number }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const qc = useQueryClient()
   const save = useSavePage(spaceId)
   const del = useDeletePage(spaceId)
   const { data: tree } = useWikiTree(spaceId)
@@ -423,12 +426,21 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 로드 라운드트립 — 본문에 텍스트로 살아남은 멘션 토큰을 칩(wikiMention 노드)으로 치환.
   // useWikiMentions 결과(라벨 해소)를 기다렸다가 라벨까지 채워 1회 치환한다(placeholder 재치환 회피).
   // 토큰을 노드로 바꾸면 더는 텍스트가 아니므로 재스캔 대상이 사라져 한 번이면 충분하다.
-  const { data: pageMentions, isError: mentionsError } = useWikiMentions(page.id)
-  // 페이지(=마운트)당 1회만 치환하도록 가드.
+  const {
+    data: pageMentions,
+    isError: mentionsError,
+    isFetching: mentionsFetching,
+  } = useWikiMentions(page.id)
+  // 페이지(=마운트)당 1회만 치환하도록 가드. 원격 수정본으로 본문을 교체하면(WP-170) 가드를 풀고
+  // rehydrateTick 을 올려 새 본문의 토큰을 다시 치환한다.
   const hydratedRef = useRef(false)
+  const [rehydrateTick, setRehydrateTick] = useState(0)
   useEffect(() => {
     if (!editor) return
     if (hydratedRef.current) return
+    // 재치환은 원격 수정과 함께 무효화된 멘션 재조회가 끝난 뒤에 한다 — 옛 결과로 치환하면 새로 추가된
+    // 멘션의 라벨이 토큰 문자열로 남는다.
+    if (rehydrateTick > 0 && mentionsFetching) return
     // mentions 쿼리가 settle(성공·data 도착)될 때까지 대기 — 라벨을 한 번에 채우기 위함.
     // 단, 쿼리가 실패해 data 가 영구 undefined 가 되는 경우엔 토큰이 raw 텍스트로 남지 않도록
     // isError 면 라벨 없이(빈배열) 진행한다(placeholder=토큰 라벨 폴백). 토큰 없는 본문도 1회 no-op.
@@ -436,7 +448,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     hydratedRef.current = true
     // 토큰을 노드로 치환(뒤→앞, addToHistory=false, 자동저장 가드 메타 포함).
     hydrateWikiMentions(editor, pageMentions ?? [])
-  }, [editor, pageMentions, mentionsError])
+  }, [editor, pageMentions, mentionsError, mentionsFetching, rehydrateTick])
 
   // 멘션 칩 클릭 내비게이션 — 칩 노드 attrs 는 {mtype,id,label} 뿐이라(spaceId/projectKey 없음)
   // useWikiMentions 해소 결과(WikiMentionRef)를 type+id 로 룩업해 라우트를 계산한다.
@@ -475,6 +487,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 초기 상태(title/version/firstSave)는 마운트 시 한 번만 설정되면 충분하다.
   // 저장 성공 후 page prop 의 version 이 갱신돼도 상태를 리셋하지 않는다
   // (리셋하면 '저장됨' 이 즉시 사라지고, 매 자동저장마다 snapshot=true 가 되어 리비전 캐던스가 깨진다).
+  // 단, 다른 곳(AI 비서·다른 탭)의 저장으로 page.version 이 로컬보다 앞서면 아래 원격 반영 effect 가 교체한다(WP-170).
 
   // flush=true(언마운트 flush)면 mutateAsync 의 promise 를 돌려준다 — 컴포넌트가 사라지는 중이라 저장 상태 UI 갱신은
   // 의미가 없고, 대신 WikiPageView 가 이 promise 로 재마운트 시점을 잡는다(wikiFlushRegistry).
@@ -498,6 +511,9 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           onError: (err) => {
             if (isAxiosError(err) && err.response?.status === 409) {
               setSaveState('conflict')
+              // 서버에 더 새 버전이 있다는 뜻 — 최신본을 받아 와야 '최신 내용 불러오기'를 제안할 수 있다(WP-170).
+              // SSE 가 끊겼거나 늦어도 충돌 시점에 한 번은 재조회한다.
+              qc.invalidateQueries({ queryKey: wikiKeys.page(page.id) })
             } else {
               setSaveState('idle')
             }
@@ -505,7 +521,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         },
       )
     },
-    [editor, page.id, save, saveState],
+    [editor, page.id, qc, save, saveState],
   )
 
   // 디바운스 대기 중인 저장의 제목 — 언마운트 flush 가 클로저가 아닌 최신 값을 쓰도록 ref 로 보관.
@@ -529,6 +545,48 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     },
     [doSave],
   )
+
+  // 원격 수정 반영(WP-170) — AI 비서·다른 탭·다른 사용자가 저장하면 wiki.page.updated SSE → useWikiStream 이 페이지
+  // 캐시를 무효화해 page prop 이 더 새 version 으로 바뀐다. 에디터는 마운트 시 본문으로만 초기화되므로 여기서 교체한다.
+  // 저장하지 않은 내 편집이 있으면 덮어쓰지 않고 remoteStale 배너로 '최신 내용 불러오기'를 제안한다.
+  const [remoteStale, setRemoteStale] = useState(false)
+  const applyRemote = useCallback(
+    (next: WikiPageDetail) => {
+      if (!editor) return
+      // 대기 중 자동저장은 옛 version 이라 409 만 낸다 — 버리고 최신본 기준으로 다시 시작한다.
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = null
+      pendingTitleRef.current = null
+      const { from } = editor.state.selection
+      // emitUpdate=false → 'update' 미발화라 자동저장이 다시 돌지 않는다. 히스토리에서도 빼서 undo 로 옛 본문이
+      // 되살아나 저장되는 일을 막는다.
+      editor.chain().setMeta('addToHistory', false).setContent(next.body, false).run()
+      // 커서는 같은 오프셋 근처로 되돌린다(문서가 짧아졌으면 끝으로).
+      editor.commands.setTextSelection(Math.min(from, editor.state.doc.content.size))
+      setTitle(next.title)
+      versionRef.current = next.version
+      // 다음 내 저장이 원격 수정본을 리비전으로 남기도록 snapshot 을 다시 켠다(작성자가 바뀐 경계).
+      firstSaveRef.current = true
+      setSaveState('idle')
+      setRemoteStale(false)
+      hydratedRef.current = false
+      setRehydrateTick((n) => n + 1)
+    },
+    [editor],
+  )
+  useEffect(() => {
+    if (!editor) return
+    // 내 저장의 self-echo(같은 version)·옛 캐시는 무시.
+    if (page.version <= versionRef.current) return
+    // 내 저장이 진행 중이면 결과를 기다린다 — 성공하면 versionRef 가 따라잡아 위 가드에서 걸러진다.
+    if (saveState === 'saving') return
+    // 저장 대기·충돌·AI 생성 중인 내 편집이 있으면 덮어쓰지 않는다.
+    if (timerRef.current != null || saveState === 'conflict' || aiBusy) {
+      setRemoteStale(true)
+      return
+    }
+    applyRemote(page)
+  }, [editor, page, saveState, aiBusy, applyRemote])
 
   // 언마운트 시 대기 중 자동저장을 즉시 flush — 페이지 전환(key 리마운트)·뷰포트 lg 경계 전환(데스크톱↔모바일 셸
   // 트리 교체)으로 에디터가 사라질 때 마지막 편집을 잃지 않게 한다. 타이머는 반드시 해제해 늦게 한 번 더
@@ -630,7 +688,17 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           />
           <WikiTableToolbar editor={editor} disabled={!canEdit} />
           <WikiTableContextMenu editor={editor} disabled={!canEdit} />
-          {saveState === 'conflict' && (
+          {remoteStale ? (
+            <div
+              data-testid="wiki-remote-stale"
+              className="mb-3 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-foreground"
+            >
+              다른 곳에서 이 노트가 수정되었습니다. 최신 내용을 불러오면 저장하지 않은 내 수정은 사라집니다.{' '}
+              <button type="button" className="underline" onClick={() => applyRemote(page)}>
+                최신 내용 불러오기
+              </button>
+            </div>
+          ) : saveState === 'conflict' && (
             <div className="mb-3 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.{' '}
               <button type="button" className="underline" onClick={() => window.location.reload()}>
