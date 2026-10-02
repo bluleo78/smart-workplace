@@ -151,10 +151,10 @@ workplace-mcp 와 workplace-ai-agent 가 함께 쓰는 MCP 도구는 [`packages/
 예시 — NOT NULL 컬럼 추가:
 
 ```sql
--- V{n}__issue_add_source.sql (1차): nullable 또는 DEFAULT 로 추가 → 구 코드 insert 가 막히지 않음
+-- V{n}__issue_add_source.sql (1차): DEFAULT 와 함께 추가 → 구 코드 insert 가 막히지 않음.
+-- PG11+ 는 상수 DEFAULT 추가 시 기존 행에도 값이 보이고 테이블을 재작성하지 않는다(별도 백필 불필요).
+-- DEFAULT 를 둘 수 없으면 nullable 로 추가하고 기존 행은 범위를 나눠 백필한다.
 ALTER TABLE issue ADD COLUMN source varchar(20) DEFAULT 'WEB';
--- 기존 행 백필(대용량이면 배치로 나눠서)
-UPDATE issue SET source = 'WEB' WHERE source IS NULL;
 
 -- V{n+k}__issue_source_not_null.sql (2차, 구 코드가 운영에서 사라진 뒤)
 ALTER TABLE issue ALTER COLUMN source SET NOT NULL;
@@ -173,9 +173,11 @@ ALTER TABLE note DROP COLUMN title;
 예시 — 제약 추가(검증 잠금 최소화):
 
 ```sql
+-- V{n}: 새 행만 검사, 짧은 잠금
 ALTER TABLE issue ADD CONSTRAINT issue_project_fk
-  FOREIGN KEY (project_id) REFERENCES project(id) NOT VALID; -- 새 행만 검사, 짧은 잠금
-ALTER TABLE issue VALIDATE CONSTRAINT issue_project_fk;       -- 기존 행 검사, 쓰기 차단 안 함
+  FOREIGN KEY (project_id) REFERENCES project(id) NOT VALID;
+-- V{n+1}(별도 파일): 기존 행 검사, 쓰기 차단 안 함. 같은 파일에 두면 한 트랜잭션이라 앞 문장의 잠금이 검사 끝까지 유지된다
+ALTER TABLE issue VALIDATE CONSTRAINT issue_project_fk;
 ```
 
 ### 잠금 DDL 주의
