@@ -44,6 +44,26 @@ describe('gracefulShutdown', () => {
     expect(inflightCount()).toBe(0);
   });
 
+  it('대기 중 새로 등록된 실행(마지막 진행 알림 POST 등)까지 기다린다', async () => {
+    const server = createServer();
+    servers.push(server);
+    await listen(server);
+    const run = deferred();
+    const finalPost = deferred();
+    // 실행이 끝나기 직전에 done 알림을 보내는 흐름 — POST 는 실행 promise 보다 늦게 끝난다
+    trackInflight(run.promise.then(() => void trackInflight(finalPost.promise)));
+    const exit = vi.fn();
+
+    const done = gracefulShutdown({ server, drainTimeoutMs: 5_000, cleanup: () => {}, exit, log: () => {} });
+    run.resolve();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(exit).not.toHaveBeenCalled();
+
+    finalPost.resolve();
+    await done;
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
   it('진행 중인 HTTP 응답(SSE 등)이 끝날 때까지 기다린다', async () => {
     let finish!: () => void;
     const server = createServer((_req, res) => {

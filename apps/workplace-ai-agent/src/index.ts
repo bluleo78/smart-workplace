@@ -82,12 +82,18 @@ const server = app.listen(PORT, () => {
   console.log('  POST /models/list');
 });
 
-// 종료 대기 상한 — 채팅 실행 타임아웃(300s) 안쪽. 차트의 terminationGracePeriodSeconds 는 preStop 대기 + 이 값보다 커야 한다(WP-167).
-const SHUTDOWN_DRAIN_MS = Number(process.env.SHUTDOWN_DRAIN_MS ?? 290_000);
+// 종료 대기 상한 — 에이전트 실행 타임아웃(300s) + 실행 전 준비(자격 조회·첨부 다운로드) 여유. 차트의
+// terminationGracePeriodSeconds 는 preStop 대기 + 이 값보다 커야 한다(WP-167, 넘으면 SIGKILL).
+const SHUTDOWN_DRAIN_MS = Number(process.env.SHUTDOWN_DRAIN_MS ?? 330_000);
 let shuttingDown = false;
 
 function shutdown(signal: string) {
-  if (shuttingDown) return; // SIGTERM 뒤 SIGINT 등 중복 신호는 무시 — 이미 대기 중
+  if (shuttingDown) {
+    // 대기 중 두 번째 신호(로컬 Ctrl-C 재입력 등) — 기다리지 않고 바로 정리·종료
+    console.log(`[ai-agent] ${signal} again — 대기 없이 종료`);
+    closeAllServers();
+    process.exit(1);
+  }
   shuttingDown = true;
   console.log(`[ai-agent] ${signal} received, shutting down...`);
   void gracefulShutdown({

@@ -1,5 +1,6 @@
 // 6c: chat.message.posted → AGENT 결정 → 토큰·thread·첨부 준비 → 인-프로세스 MCP(chat) + SDK 실행.
 // 슬라이스 3: runSdkStream + buildInProcessWorkplaceMcpServer 로 전환(stdio MCP 서브프로세스 제거).
+import { trackInflight } from '../graceful-shutdown.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -61,11 +62,12 @@ export async function runChatAgent(
     // progress POST 실패는 본 흐름을 막지 않는다(표시용). 에러는 로깅만.
     const streamId = randomUUID();
     const tracker = new ProgressTracker();
+    // POST 는 종료 대기 대상으로 등록 — 마지막 done/error 알림이 나가기 전에 프로세스가 끝나지 않게(WP-167)
     const emit = (phase: 'started' | 'tool' | 'done' | 'error') => {
       const snap = tracker.snapshot(phase);
-      deps.client
-        .postChatProgress(agentId, p.threadId, { streamId, phase, steps: snap.steps })
-        .catch((e: unknown) =>
+      trackInflight(
+        deps.client.postChatProgress(agentId, p.threadId, { streamId, phase, steps: snap.steps }),
+      ).catch((e: unknown) =>
           console.error('[run-chat-agent] progress 발행 실패', { threadId: p.threadId, error: e }),
         );
     };
