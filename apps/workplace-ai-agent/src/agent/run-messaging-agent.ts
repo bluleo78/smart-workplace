@@ -80,13 +80,13 @@ export async function runMessagingAgent(
   const tracker = new ProgressTracker();
   const emit = (phase: 'started' | 'tool' | 'done' | 'error') => {
     const snap = tracker.snapshot(phase);
-    deps.client
+    return deps.client
       .postMessagingProgress(agentId, p.channelId, { streamId, phase, steps: snap.steps })
       .catch((e: unknown) =>
         console.error('[run-messaging-agent] progress 발행 실패', { channelId: p.channelId, error: e }),
       );
   };
-  emit('started');
+  void emit('started');
   const logTag = `messaging-agent:channel${p.channelId}:${agentId}`;
   const handle = runnerFor(credential).stream(
     {
@@ -104,14 +104,14 @@ export async function runMessagingAgent(
     },
     (e) => {
       const sig = fromRunnerEvent(e);
-      if (tracker.apply(sig)) emit('tool');
+      if (tracker.apply(sig)) void emit('tool');
     },
   );
   try {
     await handle.done;
-    emit('done');
+    await emit('done'); // 마지막 알림은 기다린다 — 종료 대기(WP-167)가 실행 promise 만 보고도 완료 알림까지 보장되게
   } catch (e) {
     console.error('[run-messaging-agent] 스트림 실패', { channelId: p.channelId, error: e });
-    emit('error');
+    await emit('error');
   }
 }

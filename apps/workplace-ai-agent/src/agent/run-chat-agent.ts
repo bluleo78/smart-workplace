@@ -63,14 +63,14 @@ export async function runChatAgent(
     const tracker = new ProgressTracker();
     const emit = (phase: 'started' | 'tool' | 'done' | 'error') => {
       const snap = tracker.snapshot(phase);
-      deps.client
+      return deps.client
         .postChatProgress(agentId, p.threadId, { streamId, phase, steps: snap.steps })
         .catch((e: unknown) =>
           console.error('[run-chat-agent] progress 발행 실패', { threadId: p.threadId, error: e }),
         );
     };
 
-    emit('started');
+    void emit('started');
     const logTag = `chat-agent:${p.issueKey}:thread${p.threadId}:${agentId}`;
     // 인-프로세스 MCP 서버(chat 프로필)는 러너 내부에서 구성 — onBehalfOf = 멘션된 agentId(ACTING_USER_ID 없음).
     const handle = runnerFor(credential).stream(
@@ -90,15 +90,15 @@ export async function runChatAgent(
       },
       (e) => {
         const sig = fromRunnerEvent(e);
-        if (tracker.apply(sig)) emit('tool');
+        if (tracker.apply(sig)) void emit('tool');
       },
     );
     try {
       await handle.done;
-      emit('done');
+      await emit('done'); // 마지막 알림은 기다린다 — 종료 대기(WP-167)가 실행 promise 만 보고도 완료 알림까지 보장되게
     } catch (e) {
       console.error('[run-chat-agent] SDK 스트림 실패', { threadId: p.threadId, error: e });
-      emit('error');
+      await emit('error');
     }
   } finally {
     rmSync(workDir, { recursive: true, force: true });
