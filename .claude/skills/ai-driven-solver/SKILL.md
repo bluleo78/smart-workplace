@@ -248,6 +248,7 @@ gh issue comment <번호> --body "⚠️ 사전 재현 실패 (YYYY-MM-DD)
 
 **백엔드 변경 시 필수 사항**:
 - TC 케이스가 있으면 해당 TC도 업데이트한다
+- Flyway 마이그레이션을 추가했다면 롤링 배포 호환을 확인한다 — 구 코드가 새 스키마에서도 동작해야 하므로 삭제·rename·NOT NULL·제약 강화는 다음 배포로 미룬다([코딩 컨벤션 — DB 마이그레이션](../../../docs/CODING_CONVENTION.md#db-마이그레이션--롤링-배포-호환expandcontract))
 
 ---
 

@@ -125,6 +125,80 @@ private static final long ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000L;
 
 workplace-mcp 와 workplace-ai-agent 가 함께 쓰는 MCP 도구는 [`packages/mcp-tools-shared`](../packages/mcp-tools-shared/README.md) 에 한 번만 정의한다. 앱에서 같은 이름의 도구를 다시 정의하지 않으며, 두 앱의 패리티 테스트가 이를 강제한다. 새 도구의 파라미터 이름은 README 의 **파라미터 명명 규칙**을 따른다(도메인 접두 id, 사람=username, 조회·쓰기 동일 표현).
 
+## DB 마이그레이션 — 롤링 배포 호환(expand/contract)
+
+운영 api 는 k8s 롤링 배포(maxSurge 1 / maxUnavailable 0)다. 새 파드가 기동하면서 Flyway 로 스키마를 **먼저** 바꾸고, 그동안 구 파드는 수십 초간 계속 요청을 받는다. 이전 이미지로 롤백해도 스키마는 되돌아가지 않는다. 그래서 **모든 마이그레이션은 "새 스키마 + 구 코드" 조합에서도 동작해야 한다.** jOOQ 는 생성 시점의 컬럼을 select/insert 에 명시하므로, 구 코드가 아는 컬럼이 사라지거나 구 코드의 insert 가 막히면 배포 구간 동안 그대로 장애가 된다.
+
+### 원칙
+
+1. **이번 배포는 추가(expand)만** 한다 — 테이블·nullable 컬럼·기본값 있는 컬럼·인덱스 추가, 허용값 확대.
+2. **삭제·이름 변경·제약 강화(contract)는 다음 배포로** 미룬다 — 구 코드가 더는 그 컬럼/값을 쓰지 않는 버전이 운영에 완전히 반영된 뒤에.
+3. 한 PR 안에서 "코드가 새 컬럼으로 전환" 과 "구 컬럼 삭제" 를 같이 하지 않는다.
+
+### 위험 변경 체크리스트와 안전한 2단계 절차
+
+| 변경 | 구 코드에서 깨지는 이유 | 1차 배포(expand) | 2차 배포(contract) |
+|---|---|---|---|
+| 컬럼 삭제 | 구 코드 select/insert 가 없는 컬럼 참조 | 코드에서 컬럼 사용 제거(+ jOOQ 재생성), 스키마는 그대로 | `DROP COLUMN` |
+| 컬럼 rename | 구 이름 참조 실패 | 새 컬럼 추가 + 데이터 복사, 코드는 양쪽에 쓰고 새 컬럼을 읽음 | 구 컬럼 삭제 |
+| NOT NULL 추가(기본값 없이) | 구 코드 insert 가 값을 안 넣어 실패 | nullable 로 추가(또는 `DEFAULT` 지정), 코드가 항상 값을 채움 + 백필 | `SET NOT NULL` |
+| CHECK/UNIQUE/FK 추가 | 구 코드가 위반 데이터를 계속 씀 | 코드가 규칙을 지키게 배포 + 기존 데이터 정리 | 제약 추가(FK·CHECK 는 `NOT VALID` → `VALIDATE` 검토) |
+| 테이블 rename/삭제 | 구 코드 쿼리 실패 | 코드에서 사용 제거(rename 은 새 테이블 + 양쪽 쓰기) | rename/`DROP TABLE` |
+| enum·CHECK 허용값 제거 | 구 코드가 제거된 값을 씀/읽음 | 코드에서 값 사용 중단 + 기존 행 이관 | 허용값에서 제거 |
+| 컬럼 타입 축소(`text`→`varchar(n)`, `bigint`→`int` 등) | 구 코드 값이 범위 초과 | 코드가 새 범위만 쓰게 배포 + 데이터 확인 | `ALTER COLUMN TYPE` |
+| 대용량 테이블 잠금 DDL | `ACCESS EXCLUSIVE` 잠금 동안 구·신 파드 요청 모두 대기 | 잠금이 짧은 형태로 쪼갬(아래) | — |
+
+예시 — NOT NULL 컬럼 추가:
+
+```sql
+-- V{n}__issue_add_source.sql (1차): DEFAULT 와 함께 추가 → 구 코드 insert 가 막히지 않음.
+-- PG11+ 는 상수 DEFAULT 추가 시 기존 행에도 값이 보이고 테이블을 재작성하지 않는다(별도 백필 불필요).
+-- DEFAULT 를 둘 수 없으면 nullable 로 추가하고 기존 행은 범위를 나눠 백필한다.
+ALTER TABLE issue ADD COLUMN source varchar(20) DEFAULT 'WEB';
+
+-- V{n+k}__issue_source_not_null.sql (2차, 구 코드가 운영에서 사라진 뒤)
+ALTER TABLE issue ALTER COLUMN source SET NOT NULL;
+```
+
+예시 — 컬럼 rename(`title` → `subject`):
+
+```sql
+-- 1차: 새 컬럼 추가 + 복사. 코드는 title·subject 양쪽에 쓰고 subject 를 읽는다
+ALTER TABLE note ADD COLUMN subject text;
+UPDATE note SET subject = title WHERE subject IS NULL;
+-- 2차: 코드가 title 을 완전히 안 쓰게 된 다음 배포에서
+ALTER TABLE note DROP COLUMN title;
+```
+
+예시 — 제약 추가(검증 잠금 최소화):
+
+```sql
+-- V{n}: 새 행만 검사, 짧은 잠금
+ALTER TABLE issue ADD CONSTRAINT issue_project_fk
+  FOREIGN KEY (project_id) REFERENCES project(id) NOT VALID;
+-- V{n+1}(별도 파일): 기존 행 검사, 쓰기 차단 안 함. 같은 파일에 두면 한 트랜잭션이라 앞 문장의 잠금이 검사 끝까지 유지된다
+ALTER TABLE issue VALIDATE CONSTRAINT issue_project_fk;
+```
+
+### 잠금 DDL 주의
+
+- 대용량 테이블의 인덱스는 `CREATE INDEX CONCURRENTLY` 를 검토한다. 단 Flyway 는 마이그레이션을 트랜잭션으로 감싸는데 `CONCURRENTLY` 는 트랜잭션 안에서 실행할 수 없다 — **그 문장만 단독 마이그레이션 파일로** 분리하고, 로컬·테스트에서 Flyway 가 비트랜잭션으로 실행하는지(advisory lock 대기·혼합 실행 오류 없음) 확인한 뒤 쓴다. 작은 테이블은 일반 `CREATE INDEX` 로 충분하다.
+- `ALTER COLUMN TYPE`(테이블 재작성), 기본값이 volatile 함수인 `ADD COLUMN`, 대량 `UPDATE` 는 테이블 잠금·재작성을 일으킨다. 백필은 범위를 나눠 별도 마이그레이션 또는 애플리케이션 배치로 한다.
+
+### 구 코드가 새 스키마에서 동작하는지 확인
+
+- **구 코드 기준 insert** — 구 버전 jOOQ insert 가 넣는 컬럼 집합만으로 새 스키마에 행을 넣을 수 있는가(새 NOT NULL·CHECK·FK 에 막히지 않는가).
+- **구 코드 기준 select** — 구 코드가 참조하는 컬럼·테이블이 그대로 존재하는가(`DROP`/`RENAME` 이 diff 에 있으면 1차 배포에서 이미 사용을 제거했는지 git log 로 확인).
+- **구 코드가 쓰는 값** — 구 코드가 쓰는 enum/상태 문자열이 새 CHECK 허용값에 남아 있는가.
+- 의심스러우면 이전 커밋을 체크아웃해 새 마이그레이션까지 적용된 DB 로 해당 도메인 통합 테스트를 돌려 본다.
+- 신규 테이블의 `app_tenant` 권한은 V44 default privileges 로 자동 부여되지만, RLS 정책을 기존 테이블에 새로 걸거나 조이는 것도 "제약 강화" 로 보고 같은 2단계를 따른다.
+
+### 롤백 고려
+
+- 롤백은 **이미지만 되돌리고 스키마는 그대로** 둔다(Flyway undo 를 쓰지 않는다). 그래서 위 규칙을 지키면 롤백도 자동으로 안전하다.
+- contract 마이그레이션(삭제·제약 강화)은 되돌릴 수 없는 변경이다. 이를 포함한 배포는 그 직전 버전으로만 롤백할 수 있음을 PR 본문에 적는다.
+- 데이터를 지우는 마이그레이션(`DROP`, 값 이관 후 원본 삭제)은 contract 단계에서도 필요하면 백업 테이블·덤프를 먼저 남긴다.
+
 ## 자동화
 
 - Java: Spotless(Google Java Format)가 포맷만 강제 (주석 내용은 사람이 책임)
