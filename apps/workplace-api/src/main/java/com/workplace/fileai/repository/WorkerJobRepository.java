@@ -236,19 +236,26 @@ public class WorkerJobRepository {
   }
 
   /**
-   * 요약 실패(attempts &lt; MAX): SUMMARIZING→TEXT_READY 복귀. 재시도 가능 상태로 되돌린다.
+   * 요약 실패: SUMMARIZING→TEXT_READY 복귀. 재시도 가능 상태로 되돌린다.
    *
-   * <p>attempts 는 claimForSummary 에서 이미 증가했으므로 여기서는 error 만 기록한다. WHERE status='SUMMARIZING' 가드로 이미
-   * 다른 상태(DONE/FAILED)로 전이된 행을 덮어쓰지 않는다.
+   * <p>attempts 는 claimForSummary 에서 이미 증가했다. {@code refundAttempt} 면 그 1회를 되돌린다 — 요청이 ai-agent 에
+   * 닿지 못한 실패(WP-177)는 파일 탓이 아니므로 독성 파일 판정({@value #MAX_SUMMARY_ATTEMPTS}회 → FAILED)에 넣지 않는다. WHERE
+   * status='SUMMARIZING' 가드로 이미 다른 상태(DONE/FAILED)로 전이된 행을 덮어쓰지 않는다.
    *
    * @param fileId 대상 파일 id
    * @param error 오류 메시지 (최대 500자)
+   * @param refundAttempt 이번 시도를 attempts 에서 되돌릴지
    */
-  public void revertToTextReady(long fileId, String error) {
-    String truncated = error != null && error.length() > 500 ? error.substring(0, 500) : error;
-    dsl.update(FILE_EXTRACTION)
-        .set(FILE_EXTRACTION.STATUS, "TEXT_READY")
-        .set(FILE_EXTRACTION.ERROR, truncated)
+  public void revertToTextReady(long fileId, String error, boolean refundAttempt) {
+    var update =
+        dsl.update(FILE_EXTRACTION)
+            .set(FILE_EXTRACTION.STATUS, "TEXT_READY")
+            .set(FILE_EXTRACTION.ERROR, truncateError(error));
+    if (refundAttempt) {
+      update.set(
+          FILE_EXTRACTION.ATTEMPTS, DSL.greatest(FILE_EXTRACTION.ATTEMPTS.sub(1), DSL.inline(0)));
+    }
+    update
         .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
         .and(FILE_EXTRACTION.STATUS.eq("SUMMARIZING"))
         .execute();
@@ -263,10 +270,9 @@ public class WorkerJobRepository {
    * @param error 오류 메시지 (최대 500자)
    */
   public void markFailed(long fileId, String error) {
-    String truncated = error != null && error.length() > 500 ? error.substring(0, 500) : error;
     dsl.update(FILE_EXTRACTION)
         .set(FILE_EXTRACTION.STATUS, "FAILED")
-        .set(FILE_EXTRACTION.ERROR, truncated)
+        .set(FILE_EXTRACTION.ERROR, truncateError(error))
         .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
         .and(FILE_EXTRACTION.STATUS.eq("SUMMARIZING"))
         .execute();
@@ -503,4 +509,9 @@ public class WorkerJobRepository {
 
   /** 임베딩 디스패치 컨텍스트 — dispatchEmbed 에서 사용. */
   public record EmbedContext(String text, long tenantId) {}
+
+  /** error 컬럼 상한(500자)에 맞춘다. */
+  private static String truncateError(String error) {
+    return error != null && error.length() > 500 ? error.substring(0, 500) : error;
+  }
 }

@@ -7,11 +7,13 @@ import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.event.FileExtractionDoneEvent;
+import com.workplace.fileai.exception.FileAiException;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.fileai.outbound.WorkerProperties;
 import com.workplace.fileai.repository.WorkerJobRepository;
 import com.workplace.fileai.repository.WorkerJobRepository.SummaryContext;
+import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import java.util.concurrent.Executor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +52,23 @@ public class FileExtractionPipeline {
       String lang,
       Boolean truncated,
       String error) {}
+
+  /**
+   * 요약 단계 1회의 결과 — 배치가 ai-agent 연속 불가를 세는 근거(WP-177).
+   *
+   * <ul>
+   *   <li>{@code SKIPPED}: agent 를 부르지 않았다(다른 디스패처 소유·비서 미설정·컨텍스트 없음) — 판단 근거 아님
+   *   <li>{@code SUMMARIZED}: agent 가 응답해 DONE 저장
+   *   <li>{@code ATTEMPT_FAILED}: agent 가 응답했지만 실패(4xx·503 외 5xx·응답 파싱)
+   *   <li>{@code AGENT_UNAVAILABLE}: agent 불가({@link FileAiException#isAgentDown})
+   * </ul>
+   */
+  public enum SummaryOutcome {
+    SKIPPED,
+    SUMMARIZED,
+    ATTEMPT_FAILED,
+    AGENT_UNAVAILABLE
+  }
 
   /** ai-agent 요약 단발 호출은 turn 1 고정. */
   private static final int MAX_TURNS = 1;
@@ -259,9 +278,14 @@ public class FileExtractionPipeline {
    *
    * <p>CAS 실패(이미 SUMMARIZING/DONE/SKIPPED)면 early-return — 이중 요약 방지(인라인 nudge 와 백필 스케줄러 경합 처리).
    *
+   * <p>ai-agent 불가(WP-177)는 예외 대신 {@link SummaryOutcome#AGENT_UNAVAILABLE} 로 돌려준다. 요청이 agent 에 닿지
+   * 못한 실패(연결 거부·503)는 attempts 를 되돌려 독성 파일 판정에서 뺀다. 읽기 타임아웃은 agent 가 요청을 받아 처리하다 넘긴 것이라 지금처럼
+   * attempts 를 소진한다 — 되돌리면 매번 시간 초과하는 파일이 주기마다 끝없이 재시도된다.
+   *
    * @param fileId 대상 파일 id
+   * @return 이번 처리 결과. agent 호출 실패는 예외 대신 결과로 돌려준다(행 정리·로그는 여기서 끝낸다)
    */
-  public void summarizePending(long fileId) {
+  public SummaryOutcome summarizePending(long fileId) {
     // ① 클레임: TEXT_READY→SUMMARIZING CAS + 요약 컨텍스트 조회 (짧은 트랜잭션)
     // CAS 실패 시 다른 디스패처가 소유 → early-return(이중 요약 방지)
     // spec 은 CAS 이전에 조회해 실패 시 SUMMARIZING 행을 남기지 않는다.
@@ -292,7 +316,7 @@ public class FileExtractionPipeline {
                 }));
 
     if (!claimed) {
-      return;
+      return SummaryOutcome.SKIPPED;
     }
 
     SummaryContext ctx = ctxHolder[0];
@@ -301,8 +325,8 @@ public class FileExtractionPipeline {
     if (ctx == null) {
       log.error("요약 컨텍스트 조회 실패 — TEXT_READY 복귀: fileId={}", fileId);
       txTemplate.executeWithoutResult(
-          status -> jobs.revertToTextReady(fileId, "summary-context-not-found"));
-      return;
+          status -> jobs.revertToTextReady(fileId, "summary-context-not-found", false));
+      return SummaryOutcome.SKIPPED;
     }
 
     // ② ai-agent 요약 호출 (트랜잭션 밖 — DB 커넥션 비점유)
@@ -319,6 +343,15 @@ public class FileExtractionPipeline {
                   MAX_TURNS,
                   spec.timeoutMs()));
     } catch (RuntimeException ex) {
+      FileAiException aiError = ex instanceof FileAiException f ? f : null;
+      boolean agentDown = aiError != null && aiError.isAgentDown();
+      if (aiError != null && aiError.isUnreached()) {
+        // ③-agent 불가: 요청이 닿지 않았다 → 시도 횟수를 되돌리고 TEXT_READY 복귀. 스택 없이 한 줄(재기동 중 반복되는 실패).
+        String cause = AgentOutageGuard.describe(ex);
+        log.warn("ai-agent 불가 — 시도 횟수 유지, TEXT_READY 복귀: fileId={} ({})", fileId, cause);
+        txTemplate.executeWithoutResult(s -> jobs.revertToTextReady(fileId, cause, true));
+        return SummaryOutcome.AGENT_UNAVAILABLE;
+      }
       // ③-실패: attempts 값에 따라 FAILED(단말) 또는 TEXT_READY(재시도) 전이.
       // claimForSummary 에서 이미 attempts++ 되었으므로 DB 값이 최신 post-increment 값이다.
       // 단일 txTemplate 블록에서 조회 + 전이를 원자적으로 수행해 FAILED/TEXT_READY 판단이 레이스 없이 결정된다.
@@ -337,10 +370,11 @@ public class FileExtractionPipeline {
                   attempts,
                   fileId,
                   ex);
-              jobs.revertToTextReady(fileId, ex.getMessage());
+              jobs.revertToTextReady(fileId, ex.getMessage(), false);
             }
           });
-      throw ex;
+      // 읽기 타임아웃은 시도는 셌지만 배치에는 agent 불가로 알린다
+      return agentDown ? SummaryOutcome.AGENT_UNAVAILABLE : SummaryOutcome.ATTEMPT_FAILED;
     }
 
     // ③-성공: DONE 저장 + 임베딩 nudge 이벤트 발행(같은 트랜잭션 안 — AFTER_COMMIT 리스너 정상 발화 보장)
@@ -355,5 +389,6 @@ public class FileExtractionPipeline {
           events.publishEvent(new FileExtractionDoneEvent(fileId, tenantId));
         });
     log.debug("파일 요약 완료: fileId={}", fileId);
+    return SummaryOutcome.SUMMARIZED;
   }
 }

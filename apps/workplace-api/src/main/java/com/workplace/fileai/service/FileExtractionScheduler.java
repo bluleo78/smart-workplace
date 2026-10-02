@@ -1,6 +1,7 @@
 package com.workplace.fileai.service;
 
 import com.workplace.fileai.repository.WorkerJobRepository;
+import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
 import java.util.ArrayList;
@@ -44,18 +45,33 @@ public class FileExtractionScheduler {
         });
 
     // ② 파일별 처리 — Runner 트랜잭션 밖. TenantContext 만 주입하면 pipeline 내부 짧은 트랜잭션이 GUC 주입.
+    // ai-agent 가 연속으로 불가하면(재기동 중 등) 남은 파일의 요약만 건너뛴다(WP-177). 추출은 워커 몫이라 계속 디스패치한다.
+    AgentOutageGuard guard = new AgentOutageGuard();
+    int summarySkipped = 0;
     for (TenantFile t : targets) {
       TenantContext.set(t.tenantId());
       try {
         // PENDING 또는 lease 만료 EXTRACTING → 추출 재디스패치(CAS 로 이중 잡 방지)
         pipeline.dispatchPending(t.fileId());
+        if (guard.tripped()) {
+          summarySkipped++;
+          continue;
+        }
         // TEXT_READY 또는 lease 만료 SUMMARIZING → 요약 재시도(CAS 로 이중 요약 방지)
-        pipeline.summarizePending(t.fileId());
+        switch (pipeline.summarizePending(t.fileId())) {
+          case SUMMARIZED, ATTEMPT_FAILED -> guard.recordResponse(); // agent 가 응답했다
+          case AGENT_UNAVAILABLE -> guard.recordUnavailable();
+          case SKIPPED -> {} // agent 를 부르지 않았다 — 판단 근거 아님
+        }
       } catch (RuntimeException e) {
+        // agent 를 부르기 전후의 DB 오류 등 — 다음 파일로. agent 응답 여부를 알 수 없어 연속 불가 횟수는 건드리지 않는다.
         log.warn("백필 처리 실패 tenant={} fileId={} — 다음 주기에 재시도", t.tenantId(), t.fileId(), e);
       } finally {
         TenantContext.clear();
       }
+    }
+    if (guard.tripped()) {
+      log.warn("파일 요약 회차 중단 — ai-agent 불가, 남은 파일 {}개의 요약은 다음 주기", summarySkipped);
     }
   }
 }

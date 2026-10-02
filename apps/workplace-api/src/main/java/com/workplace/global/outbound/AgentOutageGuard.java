@@ -1,5 +1,8 @@
 package com.workplace.global.outbound;
 
+import java.net.SocketTimeoutException;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
 
@@ -12,7 +15,8 @@ import org.springframework.web.client.ResourceAccessException;
  * #MAX_CONSECUTIVE_UNAVAILABLE}회일 때만 멈춘다. agent 를 실제로 부르지 않은 대상(후보 없음·빈 본문 등)은 판단 근거가 아니므로 어느 쪽도
  * 기록하지 않는다.
  *
- * <p>여러 도메인 배치(우선순위 분류·메일 선제 분석·메일 재분석)가 같은 기준을 쓰도록 global 에 둔다. 배치 스레드 하나 안에서만 쓴다(스레드 안전하지 않음).
+ * <p>여러 도메인 배치(우선순위 분류·메일 선제 분석·메일 재분석·파일 요약)가 같은 기준을 쓰도록 global 에 둔다. 배치 스레드 하나 안에서만 쓴다(스레드 안전하지
+ * 않음).
  */
 public final class AgentOutageGuard {
 
@@ -47,6 +51,23 @@ public final class AgentOutageGuard {
   public static boolean isAgentDown(Throwable clientError) {
     return clientError instanceof ResourceAccessException
         || (clientError instanceof HttpStatusCodeException h && h.getStatusCode().value() == 503);
+  }
+
+  /**
+   * 원인 사슬에 읽기 타임아웃이 있는지 — 요청은 agent 에 닿았고 응답만 늦은 경우(WP-177). JDK HttpClient 는 {@link
+   * HttpTimeoutException}(연결 타임아웃은 하위형 {@link HttpConnectTimeoutException}), 그 외 클라이언트는 {@link
+   * SocketTimeoutException} 을 쓴다. 후자는 연결·읽기를 구분할 수 없어 보수적으로 읽기로 본다.
+   */
+  public static boolean isReadTimeout(Throwable clientError) {
+    for (Throwable t = clientError; t != null; t = t.getCause()) {
+      if (t instanceof HttpConnectTimeoutException) {
+        return false;
+      }
+      if (t instanceof HttpTimeoutException || t instanceof SocketTimeoutException) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** 로그용 한 줄 원인 — 래핑 예외면 원인을, 원인이 없으면(503 전용 예외 등) 자신을 문자열로. 스택은 남기지 않는다. */
