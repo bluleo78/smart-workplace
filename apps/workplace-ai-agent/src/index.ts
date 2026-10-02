@@ -1,4 +1,4 @@
-// Express 부트 — 환경변수 검증 → /health → /events → 전역 에러 핸들러 → graceful shutdown.
+// Express 부트 — 환경변수 검증 → /health → /events → 전역 에러 핸들러 → graceful shutdown(진행 중 작업 대기, WP-167).
 // #34: INTERNAL_SERVICE_TOKEN 단일 부트스트랩. WORKPLACE_AGENT_API_KEY 제거.
 // 호출 시 X-On-Behalf-Of 헤더로 대행 AGENT 명시.
 import express, { type NextFunction, type Request, type Response } from 'express';
@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import { createWorkplaceApiClient } from './clients/workplace-api.js';
 import { closeAllServers } from './agent/opencode-server-pool.js';
 import { DEFAULT_PORT } from './constants.js';
+import { gracefulShutdown } from './graceful-shutdown.js';
 import { internalAuth } from './middleware/internal-auth.js';
 import { healthRouter } from './routes/health.js';
 import { createEventsRouter } from './routes/events.js';
@@ -81,12 +82,22 @@ const server = app.listen(PORT, () => {
   console.log('  POST /models/list');
 });
 
+// 종료 대기 상한 — 채팅 실행 타임아웃(300s) 안쪽. 차트의 terminationGracePeriodSeconds 는 preStop 대기 + 이 값보다 커야 한다(WP-167).
+const SHUTDOWN_DRAIN_MS = Number(process.env.SHUTDOWN_DRAIN_MS ?? 290_000);
+let shuttingDown = false;
+
 function shutdown(signal: string) {
+  if (shuttingDown) return; // SIGTERM 뒤 SIGINT 등 중복 신호는 무시 — 이미 대기 중
+  shuttingDown = true;
   console.log(`[ai-agent] ${signal} received, shutting down...`);
-  // 웜 캐시로 살아있는 opencode 서버(및 그 stdio MCP 자식 프로세스)를 정리 — 안 하면 좀비 프로세스로 남는다.
-  closeAllServers();
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 5000);
+  void gracefulShutdown({
+    server,
+    drainTimeoutMs: SHUTDOWN_DRAIN_MS,
+    // 진행 중 실행이 끝난 뒤에 opencode 서버(및 그 stdio MCP 자식 프로세스)를 정리 — 안 하면 좀비 프로세스로 남는다.
+    // 먼저 닫으면 실행 중이던 에이전트가 끊긴다.
+    cleanup: closeAllServers,
+    exit: (code) => process.exit(code),
+  });
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
