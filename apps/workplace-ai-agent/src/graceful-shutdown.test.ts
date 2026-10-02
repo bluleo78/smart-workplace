@@ -1,5 +1,5 @@
 // 무중단 종료(WP-167) — 진행 중 HTTP 요청·백그라운드 실행을 기다린 뒤 정리·종료하는지, 상한에 걸리면 버리고 종료하는지.
-import { createServer, request, type Server } from 'node:http';
+import { createServer, request, type RequestListener, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -12,9 +12,8 @@ function deferred() {
   return { promise, resolve };
 }
 
-function listen(server: Server): Promise<number> {
-  return new Promise((r) => server.listen(0, () => r((server.address() as AddressInfo).port)));
-}
+/** 이벤트 루프를 잠깐 넘겨 "아직 종료하지 않음"을 확인할 여유를 준다. */
+const tick = () => new Promise((r) => setTimeout(r, 30));
 
 describe('gracefulShutdown', () => {
   const servers: Server[] = [];
@@ -22,17 +21,23 @@ describe('gracefulShutdown', () => {
     for (const s of servers) s.closeAllConnections();
   });
 
-  it('백그라운드 실행이 끝난 뒤에 정리하고 0 으로 종료한다', async () => {
-    const server = createServer();
+  /** 임의 포트로 띄운 테스트 서버와 포트. afterEach 가 남은 연결을 닫는다. */
+  async function startServer(handler?: RequestListener) {
+    const server = handler ? createServer(handler) : createServer();
     servers.push(server);
-    await listen(server);
+    await new Promise<void>((r) => server.listen(0, () => r()));
+    return { server, port: (server.address() as AddressInfo).port };
+  }
+
+  it('백그라운드 실행이 끝난 뒤에 정리하고 0 으로 종료한다', async () => {
+    const { server } = await startServer();
     const job = deferred();
     trackInflight(job.promise);
     const cleanup = vi.fn();
     const exit = vi.fn();
 
     const done = gracefulShutdown({ server, drainTimeoutMs: 5_000, cleanup, exit, log: () => {} });
-    await new Promise((r) => setTimeout(r, 30));
+    await tick();
     // 실행이 남아 있는 동안은 정리(opencode 종료)도 종료도 하지 않는다
     expect(cleanup).not.toHaveBeenCalled();
     expect(exit).not.toHaveBeenCalled();
@@ -44,35 +49,13 @@ describe('gracefulShutdown', () => {
     expect(inflightCount()).toBe(0);
   });
 
-  it('대기 중 새로 등록된 실행(마지막 진행 알림 POST 등)까지 기다린다', async () => {
-    const server = createServer();
-    servers.push(server);
-    await listen(server);
-    const run = deferred();
-    const finalPost = deferred();
-    // 실행이 끝나기 직전에 done 알림을 보내는 흐름 — POST 는 실행 promise 보다 늦게 끝난다
-    trackInflight(run.promise.then(() => void trackInflight(finalPost.promise)));
-    const exit = vi.fn();
-
-    const done = gracefulShutdown({ server, drainTimeoutMs: 5_000, cleanup: () => {}, exit, log: () => {} });
-    run.resolve();
-    await new Promise((r) => setTimeout(r, 30));
-    expect(exit).not.toHaveBeenCalled();
-
-    finalPost.resolve();
-    await done;
-    expect(exit).toHaveBeenCalledWith(0);
-  });
-
   it('진행 중인 HTTP 응답(SSE 등)이 끝날 때까지 기다린다', async () => {
     let finish!: () => void;
-    const server = createServer((_req, res) => {
+    const { server, port } = await startServer((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.write('data: start\n\n');
       finish = () => res.end('data: end\n\n');
     });
-    servers.push(server);
-    const port = await listen(server);
     const body = new Promise<string>((resolve) => {
       request({ port, path: '/' }, (res) => {
         let data = '';
@@ -80,11 +63,11 @@ describe('gracefulShutdown', () => {
         res.on('end', () => resolve(data));
       }).end();
     });
-    await new Promise((r) => setTimeout(r, 30)); // 응답 시작까지
+    await tick(); // 응답 시작까지
     const exit = vi.fn();
 
     const done = gracefulShutdown({ server, drainTimeoutMs: 5_000, cleanup: () => {}, exit, log: () => {} });
-    await new Promise((r) => setTimeout(r, 30));
+    await tick();
     expect(exit).not.toHaveBeenCalled();
 
     finish();
@@ -94,9 +77,7 @@ describe('gracefulShutdown', () => {
   });
 
   it('대기 상한에 걸리면 남은 실행을 버리고 정리 후 1 로 종료한다', async () => {
-    const server = createServer();
-    servers.push(server);
-    await listen(server);
+    const { server } = await startServer();
     const job = deferred();
     trackInflight(job.promise);
     const cleanup = vi.fn();

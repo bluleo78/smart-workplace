@@ -1,9 +1,5 @@
-// 무중단 종료(WP-167) — SIGTERM 을 받으면 새 요청은 받지 않고, 진행 중인 HTTP 요청(SSE 포함)과 202 로 먼저 응답한 뒤 계속 도는
-// 백그라운드 에이전트 실행이 끝날 때까지 기다린 다음 정리하고 종료한다.
-//
-// 왜: 롤링 배포로 구 파드를 내릴 때 진행 중인 채팅 응답·이슈 코멘트 작성이 끊기면 사용자는 답을 못 받는다. 예전에는 opencode 서버를 먼저
-// 닫고 5초 뒤 강제 종료해 실행 중이던 작업이 즉시 잘렸다. 대기 상한은 쿠버네티스 terminationGracePeriodSeconds 안에 들어오게 잡는다(넘으면
-// SIGKILL).
+// 무중단 종료(WP-167) — 새 요청은 거절하고, 진행 중인 HTTP 요청(SSE 포함)과 202 응답 뒤 이어지는 백그라운드 에이전트 실행이 끝날
+// 때까지 기다린 다음 정리·종료한다. 롤링 배포로 구 파드를 내려도 진행 중인 채팅 응답·이슈 코멘트 작성이 끊기지 않게 한다.
 import type { Server } from 'node:http';
 
 /** 진행 중인 백그라운드 실행 — 202 응답 후 이어지는 작업은 HTTP 연결로 추적되지 않으므로 따로 센다. */
@@ -22,11 +18,9 @@ export function inflightCount(): number {
   return inflight.size;
 }
 
-/** 등록된 백그라운드 실행이 모두 끝날 때까지 기다린다(대기 중 새로 등록된 것도 포함). */
+/** 등록된 백그라운드 실행이 모두 끝날 때까지 기다린다 — 리스너가 닫혀 대기 중 새 실행은 들어오지 않는다. */
 async function drainInflight(): Promise<void> {
-  while (inflight.size > 0) {
-    await Promise.allSettled([...inflight]);
-  }
+  await Promise.allSettled([...inflight]);
 }
 
 /** 리스너를 닫고 열린 연결이 모두 끝나면 resolve — Node 19+ 는 유휴 keep-alive 연결은 즉시 닫는다. */

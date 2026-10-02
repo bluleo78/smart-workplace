@@ -1,6 +1,5 @@
 // 7: messaging.message.posted → respondAsAgentId 로 토큰·대화 준비 → 인-프로세스 MCP(messaging) + SDK 실행.
 // 슬라이스 3: runSdkStream + buildInProcessWorkplaceMcpServer 로 전환(stdio MCP 서브프로세스 제거).
-import { trackInflight } from '../graceful-shutdown.js';
 import { randomUUID } from 'node:crypto';
 
 import { MESSAGING_SYSTEM_PROMPT } from './messaging-system-prompt.js';
@@ -79,16 +78,15 @@ export async function runMessagingAgent(
   // progress POST 실패는 본 흐름을 막지 않는다(표시용). 에러는 로깅만.
   const streamId = randomUUID();
   const tracker = new ProgressTracker();
-  // POST 는 종료 대기 대상으로 등록 — 마지막 done/error 알림이 나가기 전에 프로세스가 끝나지 않게(WP-167)
   const emit = (phase: 'started' | 'tool' | 'done' | 'error') => {
     const snap = tracker.snapshot(phase);
-    trackInflight(
-      deps.client.postMessagingProgress(agentId, p.channelId, { streamId, phase, steps: snap.steps }),
-    ).catch((e: unknown) =>
+    return deps.client
+      .postMessagingProgress(agentId, p.channelId, { streamId, phase, steps: snap.steps })
+      .catch((e: unknown) =>
         console.error('[run-messaging-agent] progress 발행 실패', { channelId: p.channelId, error: e }),
       );
   };
-  emit('started');
+  void emit('started');
   const logTag = `messaging-agent:channel${p.channelId}:${agentId}`;
   const handle = runnerFor(credential).stream(
     {
@@ -106,14 +104,14 @@ export async function runMessagingAgent(
     },
     (e) => {
       const sig = fromRunnerEvent(e);
-      if (tracker.apply(sig)) emit('tool');
+      if (tracker.apply(sig)) void emit('tool');
     },
   );
   try {
     await handle.done;
-    emit('done');
+    await emit('done'); // 마지막 알림은 기다린다 — 종료 대기(WP-167)가 실행 promise 만 보고도 완료 알림까지 보장되게
   } catch (e) {
     console.error('[run-messaging-agent] 스트림 실패', { channelId: p.channelId, error: e });
-    emit('error');
+    await emit('error');
   }
 }
