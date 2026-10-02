@@ -5,7 +5,7 @@ import { isTabRoot, moduleRootFor, norm, resolveBackTarget } from './routes'
 
 describe('isTabRoot', () => {
   it.each([
-    '/', '/chat', '/mail', '/mail/3', '/tasks', '/calendar', '/drive', '/wiki',
+    '/', '/chat', '/mail', '/mail/3', '/tasks', '/calendar', '/drive', '/wiki', '/wiki/spaces/1',
     '/contacts', '/apps',
   ])('%s 는 탭 루트', (p) => expect(isTabRoot(p)).toBe(true))
 
@@ -18,7 +18,7 @@ describe('isTabRoot', () => {
   it.each([
     '/chat/channels/1', '/chat/dms/2', '/chat/new', '/chat/threads/inbox',
     '/projects', '/projects/MOB', '/projects/MOB/issues/1', '/me/tasks/assigned', '/me/ai-tasks',
-    '/drive/spaces/5', '/drive/attachments', '/wiki/spaces/1', '/wiki/spaces/1/pages/2',
+    '/drive/spaces/5', '/drive/attachments', '/wiki/spaces/1/pages/2',
     '/settings/profile', '/settings', '/profile', '/apps/tabs',
   ])('%s 는 상세', (p) => expect(isTabRoot(p)).toBe(false))
 

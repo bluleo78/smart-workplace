@@ -53,7 +53,8 @@ export function ResponsiveModuleLayout({
     )
   }
 
-  if (norm(pathname) === rootPath) {
+  // 목록 = 모듈 루트 또는 경로 표가 탭 루트로 정한 하위 목록(노트 공간 /wiki/spaces/:id 처럼 2단 목록, WP-178).
+  if (norm(pathname) === rootPath || isTabRoot(pathname)) {
     return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
         {/* 탭 루트(/chat 등)는 탭바가 보이므로 큰 제목 헤더. 탭 루트가 아닌 모듈 목록(/settings — 앱 목록에서 진입)은

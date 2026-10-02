@@ -28,6 +28,10 @@ const LIST_PARENTS: Record<string, string> = { '/settings': '/apps', '/notificat
 // 페이지의 "프로젝트로 돌아가기" 아이콘을 ‹ 하나로 대체하므로 딥링크에서도 같은 곳으로 돌아가게 한다.
 const PROJECT_SUB = /^(\/projects\/[^/]+)\/.+$/
 
+// 노트 공간 목록(/wiki/spaces/:id) — 노트는 "공간 → 페이지" 2단 목록이라 공간을 고른 화면도 목록(탭 루트)이다(WP-178).
+// 페이지(/wiki/spaces/:id/pages/:id)는 상세. 모듈 레이아웃도 이 판정으로 목록/상세를 가른다.
+const WIKI_SPACE_LIST = /^\/wiki\/spaces\/[^/]+$/
+
 /**
  * 탭바를 표시할 탭 루트 경로인가.
  * slots: 사용자 탭바 구성 — 알림(/notifications)은 탭바에 고정됐을 때만 탭 루트다(아니면 🔔 로 여는 푸시 화면:
@@ -37,7 +41,7 @@ export function isTabRoot(pathname: string, slots: readonly MobileTabId[] = DEFA
   const p = norm(pathname)
   if (p === MOBILE_TABS.notifications.path) return slots.includes('notifications')
   if (EXACT_ROOTS.has(p)) return true
-  return /^\/mail\/[^/]+$/.test(p)
+  return /^\/mail\/[^/]+$/.test(p) || WIKI_SPACE_LIST.test(p)
 }
 
 /** 경로가 속한 모듈의 루트(뒤로가기 대상). 비탭루트 모듈 목록(/settings)은 진입점(/apps). 매칭 없으면 홈. */
