@@ -32,16 +32,14 @@ import {
 } from '@/components/ui/select'
 import { useIsMobile } from '@/hooks/useIsMobile'
 
-import {
-  useCreatePage,
-  useDeletePage,
-  useMovePage,
-} from '../../hooks/queries/useWikiMutations'
+import { useDeletePage, useMovePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import type { WikiPageSummary } from '../../types/wiki'
+import { useCreateWikiPageAndOpen } from './useCreateWikiPageAndOpen'
 import { useWikiCreateSpaceDialog } from './useWikiCreateSpaceDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
+import { WikiNoPages } from './WikiNoPages'
 import { WikiNoSpaces } from './WikiNoSpaces'
 import { WikiSpaceMemberDialog } from './WikiSpaceMemberDialog'
 import { WikiTreeRow } from './WikiTreeRow'
@@ -174,7 +172,7 @@ export function WikiSidebar() {
 
   const { data: spaces } = useWikiSpaces()
   const { data: pages } = useWikiTree(spaceId)
-  const createPage = useCreatePage(spaceId ?? 0)
+  const { create: createPage, isPending: createPending } = useCreateWikiPageAndOpen(spaceId)
   const deletePage = useDeletePage(spaceId ?? 0)
   const movePage = useMovePage(spaceId ?? 0)
   // 멤버 관리 다이얼로그 열림 상태 — TEAM 스페이스에서만 노출.
@@ -222,15 +220,12 @@ export function WikiSidebar() {
     [spaces, spaceId],
   )
   const isTeamSpace = selectedSpace?.type === 'TEAM'
+  // 모바일 빈 공간(페이지 0개) — 트리 대신 생성 진입점 빈 상태(WP-179). 데스크톱은 본문(WikiPageView)이 빈 상태를 그린다.
+  const showNoPages = isMobile && pages?.length === 0
 
   const openPage = (id: number) => navigate(`/wiki/spaces/${spaceId}/pages/${id}`)
 
-  const addRootPage = async () => {
-    if (spaceId == null) return
-    // 실제 저장값은 빈 문자열 — "제목 없음"은 표시용 폴백일 뿐 초기 상태 값이 아니다.
-    const created = await createPage.mutateAsync({ parentId: null, title: '' })
-    openPage(created.id)
-  }
+  const addRootPage = () => createPage(null)
 
   const toggleCollapse = (id: number) =>
     setCollapsed((prev) => {
@@ -248,9 +243,7 @@ export function WikiSidebar() {
       next.delete(parentId)
       return next
     })
-    // 실제 저장값은 빈 문자열 — "제목 없음"은 표시용 폴백일 뿐 초기 상태 값이 아니다.
-    const created = await createPage.mutateAsync({ parentId, title: '' })
-    openPage(created.id)
+    await createPage(parentId)
   }
 
   // 삭제 확정 — 열려 있던 페이지가 삭제되면 스페이스 루트로 이동.
@@ -394,39 +387,44 @@ export function WikiSidebar() {
           </button>
         </div>
       </div>
-      <nav className="min-h-0 flex-1 overflow-y-auto px-1 pb-4">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragMove={handleDragMove}
-          onDragOver={handleDragOver}
-          onDragEnd={handleDragEnd}
-          onDragCancel={resetDnd}
-        >
-          <SortableContext
-            items={dndItems.map((i) => i.id)}
-            strategy={verticalListSortingStrategy}
+      {/* 모바일은 공간 화면이 목록이라 본문 빈 상태가 없다 — 페이지 0개면 트리 대신 생성 진입점을 준다(WP-179). */}
+      {showNoPages ? (
+        <WikiNoPages className="flex-1" onCreate={(withAiDraft) => createPage(null, withAiDraft)} pending={createPending} />
+      ) : (
+        <nav className="min-h-0 flex-1 overflow-y-auto px-1 pb-4">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragMove={handleDragMove}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+            onDragCancel={resetDnd}
           >
-            {dndItems.map((item) => (
-              <WikiTreeRow
-                key={item.id}
-                id={item.id}
-                title={item.title}
-                aiAttributed={item.aiLastUsedAt != null}
-                depth={activeId === item.id && projected ? projected.depth : item.depth}
-                hasChildren={item.hasChildren}
-                collapsed={collapsed.has(item.id)}
-                selected={item.id === activePageId}
-                onToggle={toggleCollapse}
-                onOpen={openPage}
-                onAddChild={addSubPage}
-                onRequestDelete={setDeleteTarget}
-              />
-            ))}
-          </SortableContext>
-        </DndContext>
-      </nav>
+            <SortableContext
+              items={dndItems.map((i) => i.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {dndItems.map((item) => (
+                <WikiTreeRow
+                  key={item.id}
+                  id={item.id}
+                  title={item.title}
+                  aiAttributed={item.aiLastUsedAt != null}
+                  depth={activeId === item.id && projected ? projected.depth : item.depth}
+                  hasChildren={item.hasChildren}
+                  collapsed={collapsed.has(item.id)}
+                  selected={item.id === activePageId}
+                  onToggle={toggleCollapse}
+                  onOpen={openPage}
+                  onAddChild={addSubPage}
+                  onRequestDelete={setDeleteTarget}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+        </nav>
+      )}
 
       {/* 멤버 관리 다이얼로그 — TEAM 스페이스 선택 시에만 렌더. */}
       {isTeamSpace && selectedSpace && (
