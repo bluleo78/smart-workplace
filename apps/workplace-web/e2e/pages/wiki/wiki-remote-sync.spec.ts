@@ -2,23 +2,15 @@
 // wiki.page.updated SSE → 페이지 재조회 → 열린 에디터의 본문·제목·version 이 새로고침 없이 바뀌어야 한다.
 // 저장하지 않은 내 편집이 있으면 덮어쓰지 않고 '최신 내용 불러오기' 배너를 띄운다.
 // 백엔드는 page.route 로 흉내 낸다: version 이 서버와 다르면 409(낙관적 동시성), 같으면 저장 + version+1.
-import type { WikiPageDetail, WikiSpace } from '../../../src/types/wiki'
+import type { Page } from '@playwright/test'
+
+import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../../factories/wiki.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
+import { buildWikiAiSse } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 100
-
-function personalSpace(): WikiSpace {
-  return {
-    id: SPACE_ID,
-    type: 'PERSONAL',
-    name: '내 위키',
-    ownerId: 1,
-    role: 'OWNER',
-    createdAt: '2026-06-01T00:00:00Z',
-  }
-}
 
 /** 서버 상태 흉내 — GET 은 현재 상태를, PUT 은 version 이 맞을 때만 저장한다. */
 interface FakeServer {
@@ -30,30 +22,24 @@ interface FakeServer {
   hold409?: Promise<void>
 }
 
-function detail(s: FakeServer): WikiPageDetail {
-  return {
-    id: PAGE_ID,
-    spaceId: SPACE_ID,
-    parentId: null,
-    title: s.title,
-    body: s.body,
-    version: s.version,
-    updatedBy: 1,
-    updatedAt: '2026-06-01T00:00:00Z',
-    aiLastUsedAt: null,
-    aiLastAction: null,
-  }
+function detail(s: FakeServer) {
+  return wikiPageDetail({ id: PAGE_ID, spaceId: SPACE_ID, title: s.title, body: s.body, version: s.version })
 }
 
-async function mockWiki(page: import('@playwright/test').Page, server: FakeServer) {
+/** 모든 테스트의 출발 상태 — 서버에 v1 '원래 본문'. */
+function initialServer(extra: Partial<FakeServer> = {}): FakeServer {
+  return { title: '원래 제목', body: '원래 본문', version: 1, puts: [], ...extra }
+}
+
+async function mockWiki(page: Page, server: FakeServer) {
   await page.route(
     (url) => url.pathname === '/api/v1/wiki/spaces',
-    (route) => route.fulfill({ json: [personalSpace()] }),
+    (route) => route.fulfill({ json: [wikiSpace({ id: SPACE_ID, type: 'PERSONAL', name: '내 위키', role: 'OWNER' })] }),
   )
   await page.route(
     (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
     (route) =>
-      route.fulfill({ json: [{ id: PAGE_ID, parentId: null, title: server.title, position: 0, aiLastUsedAt: null }] }),
+      route.fulfill({ json: [wikiPageSummary({ id: PAGE_ID, title: server.title })] }),
   )
   await page.route(
     (url) => url.pathname === `/api/v1/wiki/pages/${PAGE_ID}/mentions`,
@@ -85,10 +71,17 @@ async function mockWiki(page: import('@playwright/test').Page, server: FakeServe
 }
 
 /** 다른 곳(AI 비서 등)에서 저장된 것처럼 서버 상태를 바꾼다. */
-function remoteSave(server: FakeServer, title: string, body: string) {
+function remoteSave(server: FakeServer, title = 'AI가 고친 제목', body = 'AI가 고친 본문') {
   server.title = title
   server.body = body
   server.version += 1
+}
+
+/** 에디터 본문 끝에 이어서 입력한다. */
+async function typeAtEnd(page: Page, text: string) {
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(text)
 }
 
 const updatedFrame = `event: wiki.page.updated\ndata: ${JSON.stringify({ spaceId: SPACE_ID, pageId: PAGE_ID, title: 'x', actorId: 2 })}\n\n`
@@ -96,7 +89,7 @@ const updatedFrame = `event: wiki.page.updated\ndata: ${JSON.stringify({ spaceId
 test('위키 — 편집 중이 아닐 때 다른 곳의 수정이 새로고침 없이 에디터에 반영되고 다음 저장은 새 version 을 싣는다', async ({
   authenticatedPage: page,
 }) => {
-  const server: FakeServer = { title: '원래 제목', body: '원래 본문', version: 1, puts: [] }
+  const server = initialServer()
   await mockWiki(page, server)
   const events = await mockGatedEvents(page)
 
@@ -107,7 +100,7 @@ test('위키 — 편집 중이 아닐 때 다른 곳의 수정이 새로고침 �
   await expect(title).toHaveValue('원래 제목')
 
   // AI 비서가 같은 노트를 저장 → SSE 알림.
-  remoteSave(server, 'AI가 고친 제목', 'AI가 고친 본문')
+  remoteSave(server)
   const refetch = page.waitForResponse(
     (r) => r.url().endsWith(`/api/v1/wiki/pages/${PAGE_ID}`) && r.request().method() === 'GET',
   )
@@ -121,9 +114,7 @@ test('위키 — 편집 중이 아닐 때 다른 곳의 수정이 새로고침 �
   expect(server.puts).toHaveLength(0)
 
   // 이어서 편집하면 원격 수정본의 version(2)으로 저장돼 충돌이 나지 않는다.
-  await editor.click()
-  await page.keyboard.press('End')
-  await page.keyboard.type(' 그리고 내 수정')
+  await typeAtEnd(page, ' 그리고 내 수정')
   await expect.poll(() => server.puts.length).toBe(1)
   expect(server.puts[0]).toMatchObject({ version: 2, status: 200 })
   expect(server.puts[0].body).toContain('AI가 고친 본문 그리고 내 수정')
@@ -135,7 +126,7 @@ test('위키 — 편집 중이 아닐 때 다른 곳의 수정이 새로고침 �
 test('위키 — 저장 전 내 편집이 있으면 원격 수정으로 덮어쓰지 않고 최신 내용 불러오기를 제안한다', async ({
   authenticatedPage: page,
 }) => {
-  const server: FakeServer = { title: '원래 제목', body: '원래 본문', version: 1, puts: [] }
+  const server = initialServer()
   await mockWiki(page, server)
   const events = await mockGatedEvents(page)
 
@@ -145,10 +136,8 @@ test('위키 — 저장 전 내 편집이 있으면 원격 수정으로 덮어�
 
   // 내가 입력하는 사이(디바운스 대기 중) AI 비서가 저장한다. 내 자동저장이 먼저 나가 409 가 나든,
   // SSE 가 먼저 와 대기 중으로 판정되든 결과는 같아야 한다 — 내 입력을 지우지 않고 배너를 띄운다.
-  await editor.click()
-  await page.keyboard.press('End')
-  await page.keyboard.type(' 내 입력')
-  remoteSave(server, 'AI가 고친 제목', 'AI가 고친 본문')
+  await typeAtEnd(page, ' 내 입력')
+  remoteSave(server)
   events.deliver(updatedFrame)
 
   const banner = page.getByTestId('wiki-remote-stale')
@@ -169,9 +158,7 @@ test('위키 — 저장 전 내 편집이 있으면 원격 수정으로 덮어�
 
   // 이후 편집은 새 version(2)으로 정상 저장된다.
   const putsBefore = server.puts.length
-  await editor.click()
-  await page.keyboard.press('End')
-  await page.keyboard.type(' 다시 편집')
+  await typeAtEnd(page, ' 다시 편집')
   await expect.poll(() => server.puts.length).toBe(putsBefore + 1)
   expect(server.puts.at(-1)).toMatchObject({ version: 2, status: 200 })
   expect(server.body).toContain('AI가 고친 본문 다시 편집')
@@ -181,13 +168,7 @@ test('위키 — 옛 version 저장이 진행 중일 때 최신 내용을 불러
   authenticatedPage: page,
 }) => {
   let release!: () => void
-  const server: FakeServer = {
-    title: '원래 제목',
-    body: '원래 본문',
-    version: 1,
-    puts: [],
-    hold409: new Promise<void>((r) => (release = r)),
-  }
+  const server = initialServer({ hold409: new Promise<void>((r) => (release = r)) })
   await mockWiki(page, server)
   const events = await mockGatedEvents(page)
 
@@ -196,10 +177,8 @@ test('위키 — 옛 version 저장이 진행 중일 때 최신 내용을 불러
   await expect(editor).toHaveText('원래 본문')
 
   // 입력 직후 원격 저장 알림 → 배너. 이어서 디바운스가 끝나 옛 version(1) 저장이 나가고, 서버가 그 409 를 보류한다.
-  await editor.click()
-  await page.keyboard.press('End')
-  await page.keyboard.type(' 내 입력')
-  remoteSave(server, 'AI가 고친 제목', 'AI가 고친 본문')
+  await typeAtEnd(page, ' 내 입력')
+  remoteSave(server)
   events.deliver(updatedFrame)
   const banner = page.getByTestId('wiki-remote-stale')
   await expect(banner).toBeVisible()
@@ -211,9 +190,7 @@ test('위키 — 옛 version 저장이 진행 중일 때 최신 내용을 불러
   release()
 
   // 옛 저장의 409 는 무시된다 — 충돌 배너·칩이 뜨지 않고 다음 편집이 새 version(2)으로 저장된다.
-  await editor.click()
-  await page.keyboard.press('End')
-  await page.keyboard.type(' 다시 편집')
+  await typeAtEnd(page, ' 다시 편집')
   await expect.poll(() => server.puts.length).toBe(2)
   expect(server.puts[1]).toMatchObject({ version: 2, status: 200 })
   await expect(page.getByText('다른 사용자가 먼저 수정했습니다.', { exact: false })).toHaveCount(0)
@@ -223,7 +200,7 @@ test('위키 — 옛 version 저장이 진행 중일 때 최신 내용을 불러
 test('위키 — AI 생성 중 최신 내용을 불러오면 생성을 취소해 AI 출력이 최신본에 섞이지 않는다', async ({
   authenticatedPage: page,
 }) => {
-  const server: FakeServer = { title: '원래 제목', body: '원래 본문', version: 1, puts: [] }
+  const server = initialServer()
   await mockWiki(page, server)
 
   // /ai 시작 → correlationId, 취소(DELETE) 캡처.
@@ -247,30 +224,27 @@ test('위키 — AI 생성 중 최신 내용을 불러오면 생성을 취소해
   const clicked = new Promise<void>((r) => (clickedResolve = r))
   let eventsReq = 0
   let lateDelivered = false
-  const delta = (text: string) => `event: wiki.ai.delta\ndata: ${JSON.stringify({ correlationId: 'corr-1', text })}\n\n`
   await page.route('**/api/v1/events', async (route) => {
     eventsReq += 1
-    if (eventsReq === 1 || eventsReq === 2) {
+    if (eventsReq <= 2) {
       // StrictMode 이중 마운트로 첫 연결이 2번 올 수 있다 — 둘 다 같은 본문(취소된 쪽은 버려짐).
       await started
-      remoteSave(server, 'AI가 고친 제목', 'AI가 고친 본문')
-      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: delta('앞부분 ') + updatedFrame })
+      remoteSave(server)
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: buildWikiAiSse(['앞부분 '], 'corr-1', false) + updatedFrame })
     }
     await clicked
     lateDelivered = true
     return route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
-      body: delta('뒷부분') + `event: wiki.ai.done\ndata: ${JSON.stringify({ correlationId: 'corr-1' })}\n\n`,
+      body: buildWikiAiSse(['뒷부분'], 'corr-1'),
     })
   })
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   const editor = page.locator('.ProseMirror')
   await expect(editor).toHaveText('원래 본문')
-  await editor.click()
-  await page.keyboard.press('End')
-  await page.keyboard.type('/')
+  await typeAtEnd(page, '/')
   await page.getByTestId('wiki-slash-option-continue').click()
 
   const banner = page.getByTestId('wiki-remote-stale')

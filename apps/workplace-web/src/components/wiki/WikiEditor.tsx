@@ -1,6 +1,5 @@
 import './wiki-editor.css'
 
-import { useQueryClient } from '@tanstack/react-query'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import { TableCell } from '@tiptap/extension-table-cell'
@@ -27,7 +26,6 @@ import { useWikiMentions } from '../../hooks/queries/useWikiMentions'
 import { useDeletePage, useSavePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
-import { wikiKeys } from '../../hooks/queries/wikiKeys'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
 import { useWikiImageUpload } from './useWikiImageUpload'
@@ -55,7 +53,6 @@ import { WikiTableToolbar } from './WikiTableToolbar'
 export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: number }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const qc = useQueryClient()
   const save = useSavePage(spaceId)
   const del = useDeletePage(spaceId)
   const { data: tree } = useWikiTree(spaceId)
@@ -426,21 +423,17 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 로드 라운드트립 — 본문에 텍스트로 살아남은 멘션 토큰을 칩(wikiMention 노드)으로 치환.
   // useWikiMentions 결과(라벨 해소)를 기다렸다가 라벨까지 채워 1회 치환한다(placeholder 재치환 회피).
   // 토큰을 노드로 바꾸면 더는 텍스트가 아니므로 재스캔 대상이 사라져 한 번이면 충분하다.
+  // refetchMentions 는 원격 수정본으로 본문을 교체한 뒤(WP-170) 새 본문의 멘션을 다시 해소할 때 쓴다.
   const {
     data: pageMentions,
     isError: mentionsError,
-    isFetching: mentionsFetching,
+    refetch: refetchMentions,
   } = useWikiMentions(page.id)
-  // 페이지(=마운트)당 1회만 치환하도록 가드. 원격 수정본으로 본문을 교체하면(WP-170) 가드를 풀고
-  // rehydrateTick 을 올려 새 본문의 토큰을 다시 치환한다.
+  // 페이지(=마운트)당 1회만 치환하도록 가드.
   const hydratedRef = useRef(false)
-  const [rehydrateTick, setRehydrateTick] = useState(0)
   useEffect(() => {
     if (!editor) return
     if (hydratedRef.current) return
-    // 재치환은 원격 수정과 함께 무효화된 멘션 재조회가 끝난 뒤에 한다 — 옛 결과로 치환하면 새로 추가된
-    // 멘션의 라벨이 토큰 문자열로 남는다.
-    if (rehydrateTick > 0 && mentionsFetching) return
     // mentions 쿼리가 settle(성공·data 도착)될 때까지 대기 — 라벨을 한 번에 채우기 위함.
     // 단, 쿼리가 실패해 data 가 영구 undefined 가 되는 경우엔 토큰이 raw 텍스트로 남지 않도록
     // isError 면 라벨 없이(빈배열) 진행한다(placeholder=토큰 라벨 폴백). 토큰 없는 본문도 1회 no-op.
@@ -448,7 +441,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     hydratedRef.current = true
     // 토큰을 노드로 치환(뒤→앞, addToHistory=false, 자동저장 가드 메타 포함).
     hydrateWikiMentions(editor, pageMentions ?? [])
-  }, [editor, pageMentions, mentionsError, mentionsFetching, rehydrateTick])
+  }, [editor, pageMentions, mentionsError])
 
   // 멘션 칩 클릭 내비게이션 — 칩 노드 attrs 는 {mtype,id,label} 뿐이라(spaceId/projectKey 없음)
   // useWikiMentions 해소 결과(WikiMentionRef)를 type+id 로 룩업해 라우트를 계산한다.
@@ -514,9 +507,6 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
             if (vars.req.version !== versionRef.current) return
             if (isAxiosError(err) && err.response?.status === 409) {
               setSaveState('conflict')
-              // 서버에 더 새 버전이 있다는 뜻 — 최신본을 받아 와야 '최신 내용 불러오기'를 제안할 수 있다(WP-170).
-              // SSE 가 끊겼거나 늦어도 충돌 시점에 한 번은 재조회한다.
-              qc.invalidateQueries({ queryKey: wikiKeys.page(page.id) })
             } else {
               setSaveState('idle')
             }
@@ -524,7 +514,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         },
       )
     },
-    [editor, page.id, qc, save, saveState],
+    [editor, page.id, save, saveState],
   )
 
   // 디바운스 대기 중인 저장의 제목 — 언마운트 flush 가 클로저가 아닌 최신 값을 쓰도록 ref 로 보관.
@@ -549,22 +539,39 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     [doSave],
   )
 
+  // 대기 중 자동저장을 취소하고 그 제목을 돌려준다(대기 없으면 null) — 언마운트 flush·원격 반영이 공유한다.
+  const cancelPendingSave = useCallback((): string | null => {
+    if (!timerRef.current) return null
+    clearTimeout(timerRef.current)
+    timerRef.current = null
+    const pending = pendingTitleRef.current
+    pendingTitleRef.current = null
+    return pending
+  }, [])
+
+  // 생성 취소 — ESC 또는 버튼. abort 후 상태 복귀(부분 삽입은 자동저장이 보존).
+  const cancelAi = useCallback(() => {
+    abortRef.current?.()
+    abortRef.current = null
+    setAiBusy(false)
+  }, [])
+
+
   // 원격 수정 반영(WP-170) — AI 비서·다른 탭·다른 사용자가 저장하면 wiki.page.updated SSE → useWikiStream 이 페이지
   // 캐시를 무효화해 page prop 이 더 새 version 으로 바뀐다. 에디터는 마운트 시 본문으로만 초기화되므로 여기서 교체한다.
   // 저장하지 않은 내 편집이 있으면 덮어쓰지 않고 remoteStale 배너로 '최신 내용 불러오기'를 제안한다.
   const [remoteStale, setRemoteStale] = useState(false)
+  // 마운트 재생성(key 변경) 대신 제자리 교체하는 이유: 스크롤 컨테이너가 이 컴포넌트 안에 있어 리마운트하면
+  // 읽던 위치가 맨 위로 튄다.
   const applyRemote = useCallback(
-    (next: WikiPageDetail) => {
+    () => {
       if (!editor) return
+      const next = page
       // 진행 중인 /ai 스트림은 옛 문서 좌표로 토큰을 끼워 넣으므로 먼저 끊는다 — 남겨 두면 교체한 최신본에
-      // 반쯤 쓴 AI 출력이 섞여 자동저장된다(cancelAi 와 동일한 정리).
-      abortRef.current?.()
-      abortRef.current = null
-      setAiBusy(false)
+      // 반쯤 쓴 AI 출력이 섞여 자동저장된다.
+      cancelAi()
       // 대기 중 자동저장은 옛 version 이라 409 만 낸다 — 버리고 최신본 기준으로 다시 시작한다.
-      if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = null
-      pendingTitleRef.current = null
+      cancelPendingSave()
       const { from } = editor.state.selection
       // emitUpdate=false → 'update' 미발화라 자동저장이 다시 돌지 않는다. 히스토리에서도 빼서 undo 로 옛 본문이
       // 되살아나 저장되는 일을 막는다.
@@ -577,10 +584,13 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       firstSaveRef.current = true
       setSaveState('idle')
       setRemoteStale(false)
-      hydratedRef.current = false
-      setRehydrateTick((n) => n + 1)
+      // 새 본문의 멘션 토큰을 칩으로 — 캐시된 멘션은 옛 본문 기준이라 다시 조회한 결과로 치환한다.
+      // 실패하면 라벨 없이(토큰 라벨 폴백) 치환해 raw 토큰이 남지 않게 한다(마운트 시 하이드레이션과 동일).
+      void refetchMentions().then((r) => {
+        if (!editor.isDestroyed) hydrateWikiMentions(editor, r.data ?? [])
+      })
     },
-    [editor],
+    [editor, page, cancelAi, cancelPendingSave, refetchMentions],
   )
   useEffect(() => {
     if (!editor) return
@@ -593,7 +603,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       setRemoteStale(true)
       return
     }
-    applyRemote(page)
+    applyRemote()
   }, [editor, page, saveState, aiBusy, applyRemote])
 
   // 언마운트 시 대기 중 자동저장을 즉시 flush — 페이지 전환(key 리마운트)·뷰포트 lg 경계 전환(데스크톱↔모바일 셸
@@ -605,16 +615,12 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   const pageId = page.id
   useEffect(() => {
     return () => {
-      if (!timerRef.current) return
-      clearTimeout(timerRef.current)
-      timerRef.current = null
-      const pending = pendingTitleRef.current
-      pendingTitleRef.current = null
+      const pending = cancelPendingSave()
       if (pending == null) return
       const p = doSaveRef.current(pending, true)
       if (p) trackWikiFlush(pageId, p)
     }
-  }, [pageId])
+  }, [pageId, cancelPendingSave])
 
   useEffect(() => {
     if (!editor) return
@@ -639,13 +645,6 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     return () => {
       abortRef.current?.()
     }
-  }, [])
-
-  // 생성 취소 — ESC 또는 버튼. abort 후 상태 복귀(부분 삽입은 자동저장이 보존).
-  const cancelAi = useCallback(() => {
-    abortRef.current?.()
-    abortRef.current = null
-    setAiBusy(false)
   }, [])
 
   // 헤더 ⋯ → 삭제 확정. 삭제 후 스페이스 루트로 이동.
@@ -702,7 +701,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
               className="mb-3 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-foreground"
             >
               다른 곳에서 이 노트가 수정되었습니다. 최신 내용을 불러오면 저장하지 않은 내 수정은 사라집니다.{' '}
-              <button type="button" className="underline" onClick={() => applyRemote(page)}>
+              <button type="button" className="underline" onClick={applyRemote}>
                 최신 내용 불러오기
               </button>
             </div>

@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 
 import { wikiApi } from '../../api/wiki'
 import { handleApiError } from '../../lib/api-error'
@@ -31,6 +32,13 @@ export function useSavePage(spaceId: number) {
       // (staleTime 30s 와 결합 시 방금 삽입한 칩의 내비게이션 메타가 즉시 갱신되도록.)
       qc.invalidateQueries({ queryKey: wikiKeys.mentions(data.id) })
       qc.invalidateQueries({ queryKey: wikiKeys.backlinks(data.id) })
+    },
+    onError: (err, { pageId }) => {
+      // 409 = 서버에 더 새 버전이 있다 — 최신본을 받아 와야 에디터가 '최신 내용 불러오기'를 제안할 수 있다(WP-170).
+      // SSE 가 끊겼거나 늦어도 충돌 시점에 한 번은 재조회한다.
+      if (isAxiosError(err) && err.response?.status === 409) {
+        qc.invalidateQueries({ queryKey: wikiKeys.page(pageId) })
+      }
     },
   })
 }

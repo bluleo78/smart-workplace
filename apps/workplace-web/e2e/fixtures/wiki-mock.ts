@@ -21,3 +21,15 @@ export async function mockWikiNoSpaces(page: Page, newSpaceId: number) {
   await page.route((u) => /^\/api\/v1\/wiki\/spaces\/\d+\/pages$/.test(u.pathname), (r) => r.fulfill({ json: [] }))
   return state
 }
+
+/**
+ * 델타 배열 → wiki.ai.* SSE 본문(correlationId 포함, delta N개 + done). done=false 면 생성 중인 채로 끝낸다
+ * (wiki-ai·wiki-remote-sync spec 공유).
+ */
+export function buildWikiAiSse(deltas: string[], correlationId: string, done = true): string {
+  const parts = deltas.map(
+    (text) => `event: wiki.ai.delta\ndata: ${JSON.stringify({ correlationId, text })}\n\n`,
+  )
+  if (done) parts.push(`event: wiki.ai.done\ndata: ${JSON.stringify({ correlationId })}\n\n`)
+  return parts.join('')
+}
