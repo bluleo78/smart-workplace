@@ -225,7 +225,6 @@ export function WikiSidebar() {
 
   const openPage = (id: number) => navigate(`/wiki/spaces/${spaceId}/pages/${id}`)
 
-  const addRootPage = () => createPage(null)
 
   const toggleCollapse = (id: number) =>
     setCollapsed((prev) => {
@@ -379,7 +378,7 @@ export function WikiSidebar() {
           )}
           <button
             type="button"
-            onClick={addRootPage}
+            onClick={() => createPage(null)}
             className="rounded px-1.5 text-sm text-muted-foreground hover:bg-accent"
             aria-label="새 페이지"
           >

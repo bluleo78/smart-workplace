@@ -29,7 +29,8 @@ export function useWikiIndexRedirect(target: 'page' | 'space') {
   )
   // 공간 기록이 유효하면 페이지 기록은 보지 않는다(조회 생략) — 공간 기록이 더 최근 선택을 반영한다.
   // 공간 기록이 사라진 공간이면(목록 확인 후) 페이지 기록으로 넘어간다. 목록 로딩 중엔 판정을 미룬다.
-  const spaceGone = storedSpaceId != null && spaces != null && !spaces.some((s) => s.id === storedSpaceId)
+  const spaceKept = storedSpaceId != null && !!spaces?.some((s) => s.id === storedSpaceId)
+  const spaceGone = storedSpaceId != null && spaces != null && !spaceKept
   const storedPageId = useMemo(
     () => ((storedSpaceId == null || spaceGone) && lastVisitedKey ? readWikiLastVisited(lastVisitedKey) : null),
     [storedSpaceId, spaceGone, lastVisitedKey],
@@ -42,15 +43,13 @@ export function useWikiIndexRedirect(target: 'page' | 'space') {
 
   useEffect(() => {
     if (restorePending) return
-    if (storedSpaceId != null) {
-      if (!spaces) return
-      // 접근 가능 여부는 공간 목록 기준 — 삭제·권한 상실로 사라졌으면 기록을 지우고 페이지 기록 → 첫 공간 순으로.
-      if (!spaceGone) {
-        navigate(`/wiki/spaces/${storedSpaceId}`, { replace: true })
-        return
-      }
-      if (lastSpaceKey) clearWikiLastVisited(lastSpaceKey)
+    // 공간 기록은 공간 목록 기준으로 판정 — 사라졌으면(삭제·권한 상실) 기록을 지우고 페이지 기록 → 첫 공간 순으로.
+    // 목록 로딩 중엔 둘 다 false 이고 storedPageId 도 null 이라 아래에서 아무것도 하지 않는다.
+    if (spaceKept) {
+      navigate(`/wiki/spaces/${storedSpaceId}`, { replace: true })
+      return
     }
+    if (spaceGone && lastSpaceKey) clearWikiLastVisited(lastSpaceKey)
     if (storedPageId != null && !lastPage.isError && lastPage.data) {
       // 스페이스는 저장값이 아니라 조회 응답 기준 — 페이지가 다른 스페이스로 옮겨졌어도 정확히 연다.
       const { spaceId, id } = lastPage.data
@@ -64,7 +63,7 @@ export function useWikiIndexRedirect(target: 'page' | 'space') {
     if (spaces && spaces.length > 0) {
       navigate(`/wiki/spaces/${spaces[0].id}`, { replace: true })
     }
-  }, [target, restorePending, storedSpaceId, spaceGone, lastSpaceKey, storedPageId, lastPage.isError, lastPage.error, lastPage.data, lastVisitedKey, spaces, navigate])
+  }, [target, restorePending, storedSpaceId, spaceKept, spaceGone, lastSpaceKey, storedPageId, lastPage.isError, lastPage.error, lastPage.data, lastVisitedKey, spaces, navigate])
 
   return { spaces, isLoading, restorePending }
 }

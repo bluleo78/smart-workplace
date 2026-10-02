@@ -57,6 +57,13 @@ async function mockWiki(page: Page) {
   return state
 }
 
+/** 열람 기록이 남을 때까지 대기(WikiPageView 가 로드 완료 후 기록). */
+async function waitForLastPageRecorded(page: Page) {
+  await expect
+    .poll(() => page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith('wiki.lastVisitedPage:'))))
+    .toBe(true)
+}
+
 test('기록 없이 노트 진입 → 첫 공간이 선택되고 그 페이지 트리가 목록으로 보인다(탭바 유지)', async ({ authenticatedPage: page }) => {
   await mockWiki(page)
   await page.goto('/wiki')
@@ -102,10 +109,7 @@ test('마지막으로 본 페이지가 있으면 노트 진입 시 그 페이지
   await mockWiki(page)
   await page.goto('/wiki/spaces/2/pages/42')
   await expect(page.getByTestId('wiki-page-header')).toBeVisible()
-  // 열람 기록이 남을 때까지 대기(WikiPageView 가 로드 완료 후 기록).
-  await expect
-    .poll(() => page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith('wiki.lastVisitedPage:'))))
-    .toBe(true)
+  await waitForLastPageRecorded(page)
 
   await page.goto('/wiki')
   await expect(page).toHaveURL(/\/wiki\/spaces\/2$/)
@@ -171,9 +175,7 @@ test('기억한 공간이 사라졌어도 마지막으로 본 페이지가 있�
   const wiki = await mockWiki(page)
   await page.goto('/wiki/spaces/2/pages/42')
   await expect(page.getByTestId('wiki-page-header')).toBeVisible()
-  await expect
-    .poll(() => page.evaluate(() => Object.keys(localStorage).some((k) => k.startsWith('wiki.lastVisitedPage:'))))
-    .toBe(true)
+  await waitForLastPageRecorded(page)
   // 페이지를 열지 않고 빈 노트로 공간만 바꾼 뒤, 그 공간이 사라진다.
   await page.goto('/wiki/spaces/3')
   await expect(page.getByTestId('wiki-no-pages')).toBeVisible()

@@ -12,13 +12,18 @@ const KEY_PREFIX = 'wiki.lastVisitedPage:';
 const SPACE_KEY_PREFIX = 'wiki.lastVisitedSpace:';
 
 /** 사용자·테넌트 스코프 키. 활성 테넌트가 없는 세션도 있으므로 'none' 으로 폴백. */
+function scopedKey(prefix: string, userId: number, tenantId: number | null | undefined): string {
+  return `${prefix}${userId}:${tenantId ?? 'none'}`;
+}
+
+/** 마지막으로 본 페이지 키. */
 export function wikiLastVisitedKey(userId: number, tenantId: number | null | undefined): string {
-  return `${KEY_PREFIX}${userId}:${tenantId ?? 'none'}`;
+  return scopedKey(KEY_PREFIX, userId, tenantId);
 }
 
 /** 마지막으로 고른 공간 키 — 페이지 키와 같은 사용자·테넌트 스코프. */
 export function wikiLastSpaceKey(userId: number, tenantId: number | null | undefined): string {
-  return `${SPACE_KEY_PREFIX}${userId}:${tenantId ?? 'none'}`;
+  return scopedKey(SPACE_KEY_PREFIX, userId, tenantId);
 }
 
 /** 저장된 id(pageId·공간 id) 조회. 없거나 손상됐거나 localStorage 접근 불가(사파리 프라이빗 등)면 null. */
@@ -33,9 +38,9 @@ export function readWikiLastVisited(key: string): number | null {
 }
 
 /** 마지막으로 본 pageId(또는 공간 id) 기록. 저장 실패는 복원만 안 될 뿐이므로 무시. */
-export function writeWikiLastVisited(key: string, pageId: number): void {
+export function writeWikiLastVisited(key: string, id: number): void {
   try {
-    localStorage.setItem(key, String(pageId));
+    localStorage.setItem(key, String(id));
   } catch {
     // 저장 실패 시 다음 진입은 기본 화면으로
   }
