@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.event.FileExtractionDoneEvent;
+import com.workplace.fileai.exception.FileAiException;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.fileai.outbound.WorkerProperties;
@@ -14,9 +15,6 @@ import com.workplace.fileai.repository.WorkerJobRepository;
 import com.workplace.fileai.repository.WorkerJobRepository.SummaryContext;
 import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
-import java.net.SocketTimeoutException;
-import java.net.http.HttpConnectTimeoutException;
-import java.net.http.HttpTimeoutException;
 import java.util.concurrent.Executor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
@@ -61,9 +59,8 @@ public class FileExtractionPipeline {
    * <ul>
    *   <li>{@code SKIPPED}: agent 를 부르지 않았다(다른 디스패처 소유·비서 미설정·컨텍스트 없음) — 판단 근거 아님
    *   <li>{@code SUMMARIZED}: agent 가 응답해 DONE 저장
-   *   <li>{@code ATTEMPT_FAILED}: agent 가 응답했지만 실패(4xx·5xx·응답 파싱) — attempts 소진, 행은
-   *       TEXT_READY/FAILED 로 정리됨
-   *   <li>{@code AGENT_UNAVAILABLE}: agent 불가(연결·읽기 실패·503) — 행은 이미 TEXT_READY/FAILED 로 정리됨
+   *   <li>{@code ATTEMPT_FAILED}: agent 가 응답했지만 실패(4xx·503 외 5xx·응답 파싱)
+   *   <li>{@code AGENT_UNAVAILABLE}: agent 불가({@link FileAiException#isAgentDown})
    * </ul>
    */
   public enum SummaryOutcome {
@@ -328,7 +325,7 @@ public class FileExtractionPipeline {
     if (ctx == null) {
       log.error("요약 컨텍스트 조회 실패 — TEXT_READY 복귀: fileId={}", fileId);
       txTemplate.executeWithoutResult(
-          status -> jobs.revertToTextReady(fileId, "summary-context-not-found"));
+          status -> jobs.revertToTextReady(fileId, "summary-context-not-found", false));
       return SummaryOutcome.SKIPPED;
     }
 
@@ -346,15 +343,13 @@ public class FileExtractionPipeline {
                   MAX_TURNS,
                   spec.timeoutMs()));
     } catch (RuntimeException ex) {
-      boolean agentDown = AgentOutageGuard.isAgentDown(ex.getCause());
-      if (agentDown && !isReadTimeout(ex)) {
+      FileAiException aiError = ex instanceof FileAiException f ? f : null;
+      boolean agentDown = aiError != null && aiError.isAgentDown();
+      if (aiError != null && aiError.isUnreached()) {
         // ③-agent 불가: 요청이 닿지 않았다 → 시도 횟수를 되돌리고 TEXT_READY 복귀. 스택 없이 한 줄(재기동 중 반복되는 실패).
-        log.warn(
-            "ai-agent 불가 — 시도 횟수 유지, TEXT_READY 복귀: fileId={} ({})",
-            fileId,
-            AgentOutageGuard.describe(ex));
-        txTemplate.executeWithoutResult(
-            s -> jobs.revertToTextReadyUncounted(fileId, AgentOutageGuard.describe(ex)));
+        String cause = AgentOutageGuard.describe(ex);
+        log.warn("ai-agent 불가 — 시도 횟수 유지, TEXT_READY 복귀: fileId={} ({})", fileId, cause);
+        txTemplate.executeWithoutResult(s -> jobs.revertToTextReady(fileId, cause, true));
         return SummaryOutcome.AGENT_UNAVAILABLE;
       }
       // ③-실패: attempts 값에 따라 FAILED(단말) 또는 TEXT_READY(재시도) 전이.
@@ -375,7 +370,7 @@ public class FileExtractionPipeline {
                   attempts,
                   fileId,
                   ex);
-              jobs.revertToTextReady(fileId, ex.getMessage());
+              jobs.revertToTextReady(fileId, ex.getMessage(), false);
             }
           });
       // 읽기 타임아웃은 시도는 셌지만 배치에는 agent 불가로 알린다
@@ -395,22 +390,5 @@ public class FileExtractionPipeline {
         });
     log.debug("파일 요약 완료: fileId={}", fileId);
     return SummaryOutcome.SUMMARIZED;
-  }
-
-  /**
-   * 원인 사슬에 읽기 타임아웃이 있는지 — 요청은 agent 에 닿았고 응답만 늦은 경우. JDK HttpClient 는 {@link
-   * HttpTimeoutException}(연결 타임아웃은 하위형 {@link HttpConnectTimeoutException}), 그 외 클라이언트는 {@link
-   * SocketTimeoutException} 을 쓴다. 후자는 연결·읽기를 구분할 수 없어 보수적으로 읽기로 본다(시도 횟수 소진).
-   */
-  private static boolean isReadTimeout(Throwable e) {
-    for (Throwable t = e; t != null; t = t.getCause()) {
-      if (t instanceof HttpConnectTimeoutException) {
-        return false;
-      }
-      if (t instanceof HttpTimeoutException || t instanceof SocketTimeoutException) {
-        return true;
-      }
-    }
-    return false;
   }
 }

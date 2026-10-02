@@ -1,5 +1,6 @@
 package com.workplace.fileai.outbound;
 
+import com.workplace.fileai.exception.FileAiException;
 import com.workplace.global.outbound.AgentOutageGuard;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -9,8 +10,8 @@ import org.springframework.web.client.RestClientException;
 /**
  * api → ai-agent 드라이브 요약 동기 호출(AiAgentMailClient 미러).
  *
- * <p>POST /drive/summarize 로 파일 텍스트를 전송하고 요약문을 받는다. 무재시도(단발 호출). 오류 시 RuntimeException 으로 변환해
- * FileExtractionPipeline 이 TEXT_READY 로 복귀할 수 있도록 전파한다.
+ * <p>POST /drive/summarize 로 파일 텍스트를 전송하고 요약문을 받는다. 무재시도(단발 호출). 오류 시 {@link FileAiException} 으로
+ * 변환해 FileExtractionPipeline 이 TEXT_READY 로 복귀할 수 있도록 전파한다.
  */
 @Slf4j
 public class AiAgentDriveClient {
@@ -41,13 +42,12 @@ public class AiAgentDriveClient {
           .retrieve()
           .body(Res.class);
     } catch (RestClientException e) {
-      // 재기동 중 연결 실패·503 은 일시 장애라 WARN(호출부가 회차를 멈춘다, WP-177). 그 외 응답 오류만 ERROR.
-      if (AgentOutageGuard.isAgentDown(e)) {
-        log.warn("ai-agent 드라이브 요약 불가: {}", e.getMessage());
-      } else {
+      // agent 불가(재기동 중 연결 실패·503)는 호출부(FileExtractionPipeline)가 WARN 한 줄로 남긴다(WP-177). 그 외 응답 오류만
+      // ERROR.
+      if (!AgentOutageGuard.isAgentDown(e)) {
         log.error("ai-agent 드라이브 요약 실패: {}", e.getMessage());
       }
-      throw new RuntimeException("파일 요약 AI 요청에 실패했습니다.", e);
+      throw new FileAiException("파일 요약 AI 요청에 실패했습니다.", e);
     }
   }
 

@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.fileai.exception.FileAiException;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.fileai.repository.WorkerJobRepository;
@@ -218,14 +219,9 @@ class ExtractionE2eTest extends IntegrationTestBase {
     long fileId = createTextReadyFile(1L);
 
     // 1차: ai-agent 예외
-    doThrow(new RuntimeException("ai-agent 연결 실패")).when(aiAgentDriveClient).summarize(any());
+    doThrow(new RuntimeException("ai-agent 응답 오류")).when(aiAgentDriveClient).summarize(any());
 
-    TenantContext.set(1L);
-    try {
-      assertThat(pipeline.summarizePending(fileId)).isEqualTo(SummaryOutcome.ATTEMPT_FAILED);
-    } finally {
-      TenantContext.clear();
-    }
+    assertThat(summarizeInTenant(fileId)).isEqualTo(SummaryOutcome.ATTEMPT_FAILED);
 
     // 실패 후 TEXT_READY 복귀 검증
     assertThat(readStatus(1L, fileId)).isEqualTo("TEXT_READY");
@@ -233,12 +229,7 @@ class ExtractionE2eTest extends IntegrationTestBase {
     // 2차: ai-agent 정상 응답
     mockAiSummarize("재시도 요약");
 
-    TenantContext.set(1L);
-    try {
-      pipeline.summarizePending(fileId);
-    } finally {
-      TenantContext.clear();
-    }
+    assertThat(summarizeInTenant(fileId)).isEqualTo(SummaryOutcome.SUMMARIZED);
 
     // DONE 으로 전이
     assertThat(readStatus(1L, fileId)).isEqualTo("DONE");
@@ -261,15 +252,9 @@ class ExtractionE2eTest extends IntegrationTestBase {
 
     // MAX_SUMMARY_ATTEMPTS 회 반복 호출 — 각 호출에서 ai-agent 예외 → attempts 증가
     for (int i = 0; i < MAX_SUMMARY_ATTEMPTS; i++) {
-      int attempt = i;
-      TenantContext.set(1L);
-      try {
-        assertThat(pipeline.summarizePending(fileId))
-            .describedAs("attempt %d 는 agent 응답 후 실패로 알려야 함", attempt)
-            .isEqualTo(SummaryOutcome.ATTEMPT_FAILED);
-      } finally {
-        TenantContext.clear();
-      }
+      assertThat(summarizeInTenant(fileId))
+          .describedAs("attempt %d 는 agent 응답 후 실패로 알려야 함", i)
+          .isEqualTo(SummaryOutcome.ATTEMPT_FAILED);
     }
 
     // 마지막 시도(attempts=MAX) 후 FAILED 로 단말 전이
@@ -422,9 +407,9 @@ class ExtractionE2eTest extends IntegrationTestBase {
     for (int i = 0; i < 6; i++) {
       createTextReadyFile(1L);
     }
-    RuntimeException down =
+    FileAiException down =
         agentClientError(new ResourceAccessException("I/O error", new ConnectException()));
-    RuntimeException responded =
+    FileAiException responded =
         agentClientError(
             HttpServerErrorException.create(
                 HttpStatus.INTERNAL_SERVER_ERROR, "error", null, null, null));
@@ -438,8 +423,8 @@ class ExtractionE2eTest extends IntegrationTestBase {
   // ── 헬퍼 ──
 
   /** AiAgentDriveClient 가 HTTP 클라이언트 예외를 감싸 던지는 모양 그대로. */
-  private static RuntimeException agentClientError(Exception clientError) {
-    return new RuntimeException("파일 요약 AI 요청에 실패했습니다.", clientError);
+  private static FileAiException agentClientError(Exception clientError) {
+    return new FileAiException("파일 요약 AI 요청에 실패했습니다.", clientError);
   }
 
   private SummaryOutcome summarizeInTenant(long fileId) {
@@ -452,11 +437,13 @@ class ExtractionE2eTest extends IntegrationTestBase {
   }
 
   private int readAttempts(long fileId) {
+    Long prev = TenantContext.get();
     TenantContext.set(1L);
     try {
       return new TransactionTemplate(txManager).execute(s -> jobRepo.findAttempts(fileId));
     } finally {
-      TenantContext.clear();
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
     }
   }
 
