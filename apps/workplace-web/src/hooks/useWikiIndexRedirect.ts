@@ -16,15 +16,14 @@ import { useWikiLastVisitedKey } from './useWikiLastVisitedKey'
  * 2) 기록이 없거나 삭제(404)·권한 상실(403)이면 기록을 지우고 첫 스페이스(개인 위키)로 이동.
  * 3) 스페이스가 0개면 이동하지 않는다(호출부가 빈 상태를 그림).
  * target: 'page' 는 그 페이지를 연다(데스크톱). 'space' 는 그 페이지가 속한 스페이스의 목록을 연다(모바일 — 앱은 목록에서 시작, WP-178).
- * enabled=false 면 조회·이동을 모두 하지 않는다(모바일 레이아웃은 /wiki 에 있을 때만 켠다).
  */
-export function useWikiIndexRedirect({ enabled, target }: { enabled: boolean; target: 'page' | 'space' }) {
+export function useWikiIndexRedirect(target: 'page' | 'space') {
   const { data: spaces, isLoading } = useWikiSpaces()
   const navigate = useNavigate()
   const lastVisitedKey = useWikiLastVisitedKey()
   const storedPageId = useMemo(
-    () => (enabled && lastVisitedKey ? readWikiLastVisited(lastVisitedKey) : null),
-    [enabled, lastVisitedKey],
+    () => (lastVisitedKey ? readWikiLastVisited(lastVisitedKey) : null),
+    [lastVisitedKey],
   )
   // 기록이 없으면 비활성(조회 안 함). 캐시 데이터가 있어도 staleTime 0 이라 마운트 시 재조회하므로
   // isFetching 동안은 판정을 미뤄, 그 사이 삭제된 페이지로 잘못 복원하지 않는다.
@@ -32,7 +31,7 @@ export function useWikiIndexRedirect({ enabled, target }: { enabled: boolean; ta
   const restorePending = storedPageId != null && lastPage.isFetching
 
   useEffect(() => {
-    if (!enabled || restorePending) return
+    if (restorePending) return
     if (storedPageId != null && !lastPage.isError && lastPage.data) {
       // 스페이스는 저장값이 아니라 조회 응답 기준 — 페이지가 다른 스페이스로 옮겨졌어도 정확히 연다.
       const { spaceId, id } = lastPage.data
@@ -46,7 +45,7 @@ export function useWikiIndexRedirect({ enabled, target }: { enabled: boolean; ta
     if (spaces && spaces.length > 0) {
       navigate(`/wiki/spaces/${spaces[0].id}`, { replace: true })
     }
-  }, [enabled, target, restorePending, storedPageId, lastPage.isError, lastPage.error, lastPage.data, lastVisitedKey, spaces, navigate])
+  }, [target, restorePending, storedPageId, lastPage.isError, lastPage.error, lastPage.data, lastVisitedKey, spaces, navigate])
 
   return { spaces, isLoading, restorePending }
 }

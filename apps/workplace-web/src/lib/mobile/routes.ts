@@ -29,13 +29,8 @@ const LIST_PARENTS: Record<string, string> = { '/settings': '/apps', '/notificat
 const PROJECT_SUB = /^(\/projects\/[^/]+)\/.+$/
 
 // 노트 공간 목록(/wiki/spaces/:id) — 노트는 "공간 → 페이지" 2단 목록이라 공간을 고른 화면도 목록(탭 루트)이다(WP-178).
+// 페이지(/wiki/spaces/:id/pages/:id)는 상세. 모듈 레이아웃도 이 판정으로 목록/상세를 가른다.
 const WIKI_SPACE_LIST = /^\/wiki\/spaces\/[^/]+$/
-
-/** 노트 모바일 목록 화면인가 — /wiki(공간 미정, 진입 직후) 또는 /wiki/spaces/:id(공간의 페이지 트리). 페이지(/pages/:id)는 상세. */
-export function isWikiListPath(pathname: string): boolean {
-  const p = norm(pathname)
-  return p === MOBILE_TABS.wiki.path || WIKI_SPACE_LIST.test(p)
-}
 
 /**
  * 탭바를 표시할 탭 루트 경로인가.

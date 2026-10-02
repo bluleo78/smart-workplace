@@ -10,7 +10,7 @@ import { useWikiIndexRedirect } from '../../hooks/useWikiIndexRedirect'
  * 모바일은 /wiki 가 목록 화면이라 이 컴포넌트 대신 WikiModuleLayout 이 같은 훅으로 스페이스 목록에 보낸다(WP-178).
  */
 export function WikiIndexRedirect() {
-  const { spaces, isLoading, restorePending } = useWikiIndexRedirect({ enabled: true, target: 'page' })
+  const { spaces, isLoading, restorePending } = useWikiIndexRedirect('page')
   // 공간 0개 빈 상태의 [공간 만들기] — 생성 후 새 스페이스로 이동한다.
   const { openCreateSpace, dialog: createSpaceDialog } = useWikiCreateSpaceDialog()
 

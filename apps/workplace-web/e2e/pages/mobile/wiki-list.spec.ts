@@ -13,21 +13,25 @@ const TREES: Record<number, WikiPageSummary[]> = {
   2: [wikiPageSummary({ id: 42, title: '팀 회의록' })],
 }
 
-/** 공간 2개·공간별 페이지 트리·페이지 상세 모킹. */
+const TREE_PATH = /^\/api\/v1\/wiki\/spaces\/(\d+)\/pages$/
+const PAGE_PATH = /^\/api\/v1\/wiki\/pages\/(\d+)$/
+
+/** 공간 2개·공간별 페이지 트리·페이지 상세 모킹. 페이지 상세의 소속 공간·제목은 TREES 에서 도출한다. */
 async function mockWiki(page: Page) {
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) => r.fulfill({ json: [PERSONAL, TEAM] }))
   await page.route(
-    (u) => /^\/api\/v1\/wiki\/spaces\/\d+\/pages$/.test(u.pathname),
-    (r) => r.fulfill({ json: TREES[Number(new URL(r.request().url()).pathname.split('/')[5])] ?? [] }),
+    (u) => TREE_PATH.test(u.pathname),
+    (r) => r.fulfill({ json: TREES[Number(TREE_PATH.exec(new URL(r.request().url()).pathname)![1])] ?? [] }),
   )
   await page.route(
-    (u) => /^\/api\/v1\/wiki\/pages\/\d+$/.test(u.pathname),
+    (u) => PAGE_PATH.test(u.pathname),
     (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
-      const id = Number(new URL(r.request().url()).pathname.split('/').pop())
-      const spaceId = id === 42 ? TEAM.id : PERSONAL.id
-      const title = TREES[spaceId][0].title
-      return r.fulfill({ json: wikiPageDetail({ id, spaceId, title }) })
+      const id = Number(PAGE_PATH.exec(new URL(r.request().url()).pathname)![1])
+      const [spaceId, summary] = Object.entries(TREES)
+        .map(([sid, tree]) => [Number(sid), tree.find((p) => p.id === id)] as const)
+        .find(([, found]) => found)!
+      return r.fulfill({ json: wikiPageDetail({ id, spaceId, title: summary!.title }) })
     },
   )
 }
