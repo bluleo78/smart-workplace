@@ -56,17 +56,20 @@ public class FileExtractionPipeline {
       String error) {}
 
   /**
-   * 요약 단계 1회의 결과 — 배치가 ai-agent 연속 불가를 세는 근거(WP-177). 파일 단위 실패는 결과 대신 예외로 전파한다.
+   * 요약 단계 1회의 결과 — 배치가 ai-agent 연속 불가를 세는 근거(WP-177).
    *
    * <ul>
    *   <li>{@code SKIPPED}: agent 를 부르지 않았다(다른 디스패처 소유·비서 미설정·컨텍스트 없음) — 판단 근거 아님
    *   <li>{@code SUMMARIZED}: agent 가 응답해 DONE 저장
+   *   <li>{@code ATTEMPT_FAILED}: agent 가 응답했지만 실패(4xx·5xx·응답 파싱) — attempts 소진, 행은
+   *       TEXT_READY/FAILED 로 정리됨
    *   <li>{@code AGENT_UNAVAILABLE}: agent 불가(연결·읽기 실패·503) — 행은 이미 TEXT_READY/FAILED 로 정리됨
    * </ul>
    */
   public enum SummaryOutcome {
     SKIPPED,
     SUMMARIZED,
+    ATTEMPT_FAILED,
     AGENT_UNAVAILABLE
   }
 
@@ -283,8 +286,7 @@ public class FileExtractionPipeline {
    * attempts 를 소진한다 — 되돌리면 매번 시간 초과하는 파일이 주기마다 끝없이 재시도된다.
    *
    * @param fileId 대상 파일 id
-   * @return 이번 처리 결과
-   * @throws RuntimeException agent 가 응답한 뒤의 실패(4xx·5xx·응답 파싱) — 행은 TEXT_READY/FAILED 로 정리된 뒤 전파
+   * @return 이번 처리 결과. agent 호출 실패는 예외 대신 결과로 돌려준다(행 정리·로그는 여기서 끝낸다)
    */
   public SummaryOutcome summarizePending(long fileId) {
     // ① 클레임: TEXT_READY→SUMMARIZING CAS + 요약 컨텍스트 조회 (짧은 트랜잭션)
@@ -376,10 +378,8 @@ public class FileExtractionPipeline {
               jobs.revertToTextReady(fileId, ex.getMessage());
             }
           });
-      if (agentDown) {
-        return SummaryOutcome.AGENT_UNAVAILABLE; // 읽기 타임아웃 — 시도는 셌고, 배치에는 agent 불가로 알린다
-      }
-      throw ex;
+      // 읽기 타임아웃은 시도는 셌지만 배치에는 agent 불가로 알린다
+      return agentDown ? SummaryOutcome.AGENT_UNAVAILABLE : SummaryOutcome.ATTEMPT_FAILED;
     }
 
     // ③-성공: DONE 저장 + 임베딩 nudge 이벤트 발행(같은 트랜잭션 안 — AFTER_COMMIT 리스너 정상 발화 보장)

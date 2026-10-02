@@ -6,7 +6,6 @@ import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKER_JOB;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
@@ -223,8 +222,7 @@ class ExtractionE2eTest extends IntegrationTestBase {
 
     TenantContext.set(1L);
     try {
-      assertThatThrownBy(() -> pipeline.summarizePending(fileId))
-          .isInstanceOf(RuntimeException.class);
+      assertThat(pipeline.summarizePending(fileId)).isEqualTo(SummaryOutcome.ATTEMPT_FAILED);
     } finally {
       TenantContext.clear();
     }
@@ -266,9 +264,9 @@ class ExtractionE2eTest extends IntegrationTestBase {
       int attempt = i;
       TenantContext.set(1L);
       try {
-        assertThatThrownBy(() -> pipeline.summarizePending(fileId))
-            .isInstanceOf(RuntimeException.class)
-            .describedAs("attempt %d 에서 예외가 전파되어야 함", attempt);
+        assertThat(pipeline.summarizePending(fileId))
+            .describedAs("attempt %d 는 agent 응답 후 실패로 알려야 함", attempt)
+            .isEqualTo(SummaryOutcome.ATTEMPT_FAILED);
       } finally {
         TenantContext.clear();
       }
@@ -413,6 +411,28 @@ class ExtractionE2eTest extends IntegrationTestBase {
       assertThat(readStatus(1L, fileId)).isEqualTo("TEXT_READY");
       assertThat(readAttempts(fileId)).isZero();
     }
+  }
+
+  /**
+   * 연속 불가 횟수는 agent 가 응답하면(실패 응답 포함) 리셋된다 — 불가 1회 → 500 응답 → 불가 3회 순서면 다섯 번째 호출에서야 멈춘다. 호출 순서로 응답을
+   * 정하므로 파일 처리 순서와 무관하다.
+   */
+  @Test
+  void scheduler_agentErrorResponse_resetsUnavailableStreak() {
+    for (int i = 0; i < 6; i++) {
+      createTextReadyFile(1L);
+    }
+    RuntimeException down =
+        agentClientError(new ResourceAccessException("I/O error", new ConnectException()));
+    RuntimeException responded =
+        agentClientError(
+            HttpServerErrorException.create(
+                HttpStatus.INTERNAL_SERVER_ERROR, "error", null, null, null));
+    doThrow(down, responded, down, down, down).when(aiAgentDriveClient).summarize(any());
+
+    scheduler.runOnce();
+
+    verify(aiAgentDriveClient, times(5)).summarize(any());
   }
 
   // ── 헬퍼 ──

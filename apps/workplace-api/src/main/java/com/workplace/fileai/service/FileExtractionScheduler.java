@@ -59,12 +59,12 @@ public class FileExtractionScheduler {
         }
         // TEXT_READY 또는 lease 만료 SUMMARIZING → 요약 재시도(CAS 로 이중 요약 방지)
         switch (pipeline.summarizePending(t.fileId())) {
-          case SUMMARIZED -> guard.recordResponse();
+          case SUMMARIZED, ATTEMPT_FAILED -> guard.recordResponse(); // agent 가 응답했다
           case AGENT_UNAVAILABLE -> guard.recordUnavailable();
           case SKIPPED -> {} // agent 를 부르지 않았다 — 판단 근거 아님
         }
       } catch (RuntimeException e) {
-        // 파일 단위 실패(agent 응답 오류·DB) — 다음 파일로. 연속 불가 횟수는 건드리지 않는다.
+        // agent 를 부르기 전후의 DB 오류 등 — 다음 파일로. agent 응답 여부를 알 수 없어 연속 불가 횟수는 건드리지 않는다.
         log.warn("백필 처리 실패 tenant={} fileId={} — 다음 주기에 재시도", t.tenantId(), t.fileId(), e);
       } finally {
         TenantContext.clear();
