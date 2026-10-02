@@ -59,6 +59,10 @@ export const dependencyInput = z.object({
  * #841: label·type 은 이름, assignee·reporter 는 username 으로 받는다(서버가 해석). 모르는 값은 서버가 400 + 사용 가능 목록을
  * 돌려주므로 LLM 이 그 목록으로 자가교정할 수 있다.
  */
+/** assignee 설명 — 공유 필터와 list_issues 확장(any)이 같은 문구를 쓰도록 한 곳에서 만든다(WP-176). */
+const assigneeDescription = (extra: string) =>
+  `담당자 CSV: "me"(나) | "null"(담당 없음) | username${extra}. 표시 이름이 아닌 username. assignee·reporter 모두 생략 시 "me"`;
+
 export const issueListFilterShape = {
   projectKey: z.string().optional().describe('특정 프로젝트로 한정(예: "WP"). 생략 시 내가 속한 모든 프로젝트'),
   status: z.string().optional().describe('상태 CSV: TODO,IN_PROGRESS,DONE,CANCELED'),
@@ -70,10 +74,7 @@ export const issueListFilterShape = {
   q: z.string().optional(),
   blocked: z.boolean().optional(),
   topLevel: z.boolean().optional(),
-  assignee: z
-    .string()
-    .optional()
-    .describe('담당자 CSV: "me"(나) | "null"(담당 없음) | username. 표시 이름이 아닌 username. assignee·reporter 모두 생략 시 "me"'),
+  assignee: z.string().optional().describe(assigneeDescription('')),
   reporter: z.string().optional().describe('작성자 CSV: "me" | username'),
   size: z.number().int().min(1).max(100).optional(),
 };
@@ -84,12 +85,7 @@ export const issueListFilterShape = {
  */
 export const listIssuesInput = z.object({
   ...issueListFilterShape,
-  assignee: z
-    .string()
-    .optional()
-    .describe(
-      '담당자 CSV: "me"(나) | "null"(담당 없음) | username | "any"(담당자 무관 — 프로젝트 전체 이슈). 표시 이름이 아닌 username. assignee·reporter 모두 생략 시 "me"',
-    ),
+  assignee: z.string().optional().describe(assigneeDescription(' | "any"(담당자 무관 — 프로젝트 전체 이슈)')),
   cycle: z
     .string()
     .optional()

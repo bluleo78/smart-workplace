@@ -103,27 +103,27 @@ export async function resolveCycleFilter(
   csv: string,
 ): Promise<string> {
   const tokens = csv.split(',').map((t) => t.trim()).filter(Boolean);
-  // 프로젝트 사이클 조회는 이름·active 토큰이 있을 때 한 번만 한다.
-  let cycles: { id: number; name: string; status?: string }[] | undefined;
-  const projectCycles = async () => {
+  const isSpecial = (t: string) => ['none', 'backlog'].includes(t.toLowerCase());
+  // 프로젝트 사이클 조회는 이름·active 토큰이 있을 때만, 한 번 한다.
+  let cycles: Awaited<ReturnType<typeof client.getProjectCycles>> = [];
+  if (!tokens.every(isSpecial)) {
     if (!projectKey) throw new Error('사이클 이름·active 로 거르려면 projectKey 를 함께 지정하세요.');
-    return (cycles ??= await client.getProjectCycles(projectKey));
-  };
+    cycles = await client.getProjectCycles(projectKey);
+  }
   const out: string[] = [];
   for (const tok of tokens) {
     const lower = tok.toLowerCase();
     if (lower === 'none') out.push('none');
     else if (lower === 'backlog') out.push('null');
     else if (lower === 'active') {
-      const all = await projectCycles();
-      const active = all.filter((c) => c.status === 'ACTIVE');
+      const active = cycles.filter((c) => c.status === 'ACTIVE');
       if (!active.length) {
         throw new Error(
-          `프로젝트 ${projectKey} 에 진행 중(활성) 사이클이 없습니다. 사이클: ${all.map((c) => `${c.name}(${c.status})`).join(', ') || '(없음)'}`,
+          `프로젝트 ${projectKey} 에 진행 중(활성) 사이클이 없습니다. 사이클: ${cycles.map((c) => `${c.name}(${c.status})`).join(', ') || '(없음)'}`,
         );
       }
       out.push(...active.map((c) => String(c.id)));
-    } else out.push(String(idByName(await projectCycles(), tok, '사이클')));
+    } else out.push(String(idByName(cycles, tok, '사이클')));
   }
   return out.join(',');
 }
