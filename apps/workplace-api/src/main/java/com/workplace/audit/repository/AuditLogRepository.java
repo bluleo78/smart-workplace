@@ -225,7 +225,9 @@ public class AuditLogRepository {
                 AL_METADATA)
             .from(AUDIT_LOG)
             .where(condition)
-            .orderBy(AL_ACTION_TIME.desc())
+            // id 보조 정렬(WP-182): 같은 시각 행의 순서가 요청마다 달라지면 페이지를 이어 붙이는 무한 스크롤에서
+            // 행이 중복되거나 누락된다 — 정렬을 결정적으로 고정한다.
+            .orderBy(AL_ACTION_TIME.desc(), AL_ID.desc())
             .offset(page * size)
             .limit(size)
             .fetch(this::mapToResponse);

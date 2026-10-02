@@ -177,3 +177,33 @@ test('미읽음 스레드가 없으면 빈 상태가 보인다', async ({ authen
   await expect(page.getByTestId('sidebar-threads-badge')).toHaveCount(0)
   await expect(page.getByText('새 스레드 답글이 없어요')).toBeVisible()
 })
+
+// WP-182: '더 보기' 버튼 대신 목록 끝에 닿으면 다음 묶음(cursor)을 자동으로 이어 붙인다.
+test('스레드 인박스는 끝까지 스크롤하면 다음 묶음을 자동으로 불러온다', async ({ authenticatedPage: page }) => {
+  await stubChannelsList(page, [createChannel({ id: 902, name: '긴채널' })])
+  await stubDmsList(page)
+  await stubStream(page)
+  await stubInboxCount(page, 0)
+  // 첫 묶음 30건(화면을 넘치게) + cursor → 두 번째 묶음 1건.
+  const first = Array.from({ length: 30 }, (_, i) =>
+    createThreadInboxItem({ rootMessage: { id: 7000 + i, channelId: 902, body: `스레드 ${i}` } }),
+  )
+  const second = [createThreadInboxItem({ rootMessage: { id: 7999, channelId: 902, body: '두 번째 묶음' } })]
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/threads/inbox',
+    (route) => {
+      const cursor = new URL(route.request().url()).searchParams.get('cursor')
+      const body = cursor
+        ? { items: second, nextCursor: null, hasMore: false }
+        : { items: first, nextCursor: 'c1', hasMore: true }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    },
+  )
+
+  await page.goto('/chat/threads/inbox')
+  await expect(page.getByTestId('thread-inbox-card-7000')).toBeVisible()
+  // 수동 버튼은 없다 — 마지막 카드까지 스크롤하면 자동 로드.
+  await expect(page.getByRole('button', { name: '더 보기' })).toHaveCount(0)
+  await page.getByTestId('thread-inbox-card-7029').scrollIntoViewIfNeeded()
+  await expect(page.getByTestId('thread-inbox-card-7999')).toBeVisible()
+})

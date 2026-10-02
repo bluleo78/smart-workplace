@@ -1,29 +1,31 @@
 // #65 2단계: 크로스채널 미읽음 스레드 인박스. 카드 클릭 → 해당 채널 + 스레드 패널(?thread=).
 import { Inbox } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { PageHeader } from '@/components/layout/PageHeader'
-import { Button } from '@/components/ui/button'
+import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { useThreadsInbox } from '@/hooks/queries/useThreadsInbox'
 import { buildThreadsInboxContext } from '@/lib/aiScreenContext/builders/messaging'
 import type { ThreadInboxItem } from '@/types/messaging'
 
 export default function ThreadsInboxPage() {
   const navigate = useNavigate()
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError } =
-    useThreadsInbox()
+  const threadsQuery = useThreadsInbox()
+  const { data, hasNextPage, isLoading, isLoadingError } = threadsQuery
+  // 목록 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const items: ThreadInboxItem[] = data?.pages.flatMap((p) => p.items) ?? []
 
   // WP-54: 스레드 모아보기 화면 컨텍스트 — 로드된 스레드 수. 로딩/오류 중엔 미등록(미로드 수치 전송 금지).
   const screenContext = useMemo(
     () =>
-      data && !isError
+      data && !isLoadingError
         ? buildThreadsInboxContext({ count: data.pages.flatMap((p) => p.items).length, hasMore: !!hasNextPage })
         : null,
-    [data, isError, hasNextPage],
+    [data, isLoadingError, hasNextPage],
   )
   useRegisterAiScreenContext(screenContext)
 
@@ -48,7 +50,7 @@ export default function ThreadsInboxPage() {
           />
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto p-3">
+        <div ref={setScrollEl} className="flex-1 overflow-y-auto p-3">
           <ul className="mx-auto flex max-w-2xl flex-col gap-2">
             {items.map((item) => (
               <li key={item.rootMessage.id}>
@@ -72,19 +74,8 @@ export default function ThreadsInboxPage() {
               </li>
             ))}
           </ul>
-          {hasNextPage && (
-            <div className="flex justify-center p-3">
-              <Button
-                size="sm"
-                variant="ghost"
-                data-testid="threads-inbox-more"
-                disabled={isFetchingNextPage}
-                onClick={() => fetchNextPage()}
-              >
-                {isFetchingNextPage ? '불러오는 중…' : '더 보기'}
-              </Button>
-            </div>
-          )}
+          {/* WP-182: 끝에 닿으면 자동 로드 — 실패했을 때만 다시 시도 버튼 */}
+          <LoadMoreFooter query={threadsQuery} root={scrollEl} data-testid="threads-inbox-more" />
         </div>
       )}
     </div>

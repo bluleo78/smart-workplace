@@ -4,7 +4,7 @@
 import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
-type LoadMoreQuery = Pick<
+export type LoadMoreQuery = Pick<
   UseInfiniteQueryResult<InfiniteData<unknown>, Error>,
   'hasNextPage' | 'isFetching' | 'isFetchNextPageError' | 'fetchNextPage'
 >;

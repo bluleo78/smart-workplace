@@ -41,7 +41,7 @@ test.describe('UserListPage 구분 컬럼 일관성 (#287)', () => {
 
     // HUMAN 행: 옅은 텍스트가 아니라 '일반' Badge 로 통일됐는지 검증 (회귀 핵심)
     const humanRow = page.getByRole('button', { name: '사용자 사람 사용자 상세 보기' });
-    const humanKindCell = humanRow.getByRole('cell').nth(3);
+    const humanKindCell = humanRow.getByRole('cell').nth(1);
     await expect(humanKindCell.getByText('일반', { exact: true })).toBeVisible();
 
     // 수정 전의 'HUMAN' 옅은 텍스트는 더 이상 존재하지 않아야 한다
