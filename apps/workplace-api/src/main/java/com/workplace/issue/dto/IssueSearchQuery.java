@@ -10,8 +10,8 @@ import java.util.List;
  * IS NULL 인 이슈만 (Phase 4a). parentNumber 가 있으면 topLevel 은 무시된다. blocked=true 면 활성 차단자(미완료)가 존재하는
  * 이슈만 (Phase 4b). fieldId+fieldValue 동시 지정 시 해당 필드의 JSONB 값을 텍스트 캐스트 동등 비교로 필터 (Phase 4c, 1차 단순화).
  * reporterIds 는 OR 결합 — 이슈를 만든 사람(reporter_id 직접 컬럼) 필터. 비어 있으면 미적용. cycleIds 는 OR 결합 — 지정된 사이클 중
- * 하나라도 연결된 이슈만 매칭하며, includeNoOpenCycle 과 OR 결합되어 "지정 사이클 또는 백로그(진행 중·예정 사이클 밖)" 를 표현한다.
- * milestoneIds 는 OR 결합 — issue.milestone_id 직접 컬럼 매칭(M:N 아님). 비어 있으면 미적용.
+ * 하나라도 연결된 이슈만 매칭하며, includeNoOpenCycle·includeNoCycle 과 OR 결합되어 "지정 사이클 또는 백로그(진행 중·예정 사이클 밖) 또는
+ * 사이클 미할당" 을 표현한다. milestoneIds 는 OR 결합 — issue.milestone_id 직접 컬럼 매칭(M:N 아님). 비어 있으면 미적용.
  */
 public record IssueSearchQuery(
     String q,
@@ -48,4 +48,7 @@ public record IssueSearchQuery(
     Boolean excludeEpics,
     // 보드·목록 기본 뷰 전용 — true 면 종료(DONE·CANCELED) 이슈 중 ACTIVE 사이클에 연결되지 않은 것을 제외한다.
     // 진행 중 사이클의 완료분은 남겨 사이클 진척을 보이고, 그 외 종료 이슈는 보드·목록에 쌓이지 않게 한다(#876).
-    Boolean hideInactiveClosed) {}
+    Boolean hideInactiveClosed,
+    // 사이클 미할당 포함 — cycle=none 토큰. 사이클 연결이 하나도 없는 이슈를 매칭하며 cycleIds·includeNoOpenCycle 과 OR 결합
+    // (WP-176). 백로그(null)와 달리 완료 사이클에만 연결된 이슈는 제외한다 — "사이클이 할당되지 않은 이슈" 를 정확히 고르기 위함.
+    boolean includeNoCycle) {}

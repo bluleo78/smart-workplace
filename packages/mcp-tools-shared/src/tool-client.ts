@@ -83,6 +83,8 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   removeIssueDependency(issueKey: string, otherNumber: number, direction: 'blocks' | 'blockedBy'): Promise<void>;
   /** PUT .../cycles — 사이클 집합 교체(빈 배열=전부 해제). */
   replaceIssueCycles(issueKey: string, cycleIds: number[]): Promise<unknown>;
+  /** GET .../cycles — 이슈에 연결된 사이클 요약(id·name·status). get_issue_detail 동봉용(WP-176). */
+  getIssueCycles(issueKey: string): Promise<{ id: number; name: string; status: string }[]>;
   /** POST/DELETE .../watch — 멱등(이미 워치 중이면 no-op). */
   watchIssue(issueKey: string): Promise<void>;
   unwatchIssue(issueKey: string): Promise<void>;

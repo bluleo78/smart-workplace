@@ -102,6 +102,9 @@ describe('defaultListAssignee', () => {
   it('reporter 만 있으면 생략', () => {
     expect(defaultListAssignee({ reporter: 'me' })).toBeUndefined();
   });
+  it('WP-176: assignee="any"(대소문자 무시)면 담당자 조건 없음', () => {
+    expect(defaultListAssignee({ assignee: ' Any ' })).toBeUndefined();
+  });
   it('assignee 가 있으면 그대로', () => {
     expect(defaultListAssignee({ assignee: 'kim', reporter: 'me' })).toBe('kim');
   });

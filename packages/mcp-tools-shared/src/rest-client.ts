@@ -112,6 +112,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async replaceIssueCycles(issueKey, cycleIds) {
       return (await http.put(`${issue(issueKey)}/cycles`, { cycleIds })).data;
     },
+    async getIssueCycles(issueKey) {
+      return (await http.get(`${issue(issueKey)}/cycles`)).data ?? [];
+    },
     async watchIssue(issueKey) {
       await http.post(`${issue(issueKey)}/watch`);
     },

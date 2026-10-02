@@ -123,6 +123,45 @@ describe('list_issues', () => {
     });
   });
 
+  it('WP-176: assignee="any" 면 담당자 조건을 싣지 않는다(담당자 무관 조회)', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', assignee: 'ANY' });
+    expect(issueQuery(c)).toStrictEqual({ projectKey: 'WP', size: 30 });
+  });
+
+  it('WP-176: cycle none/backlog 는 서버 토큰(none/null)으로 바꾸고 사이클 조회 없이 보낸다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ cycle: 'none, Backlog' });
+    expect(issueQuery(c)).toMatchObject({ cycle: 'none,null' });
+    expect(c.getProjectCycles).not.toHaveBeenCalled();
+  });
+
+  it('WP-176: cycle 이름·active 는 projectKey 의 사이클로 id 를 해석한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectCycles).mockResolvedValue([
+      { id: 5, name: 'Sprint 3', status: 'ACTIVE' },
+      { id: 6, name: 'Sprint 4', status: 'PLANNED' },
+    ]);
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', cycle: 'active,Sprint 4,none' });
+    expect(issueQuery(c)).toMatchObject({ projectKey: 'WP', cycle: '5,6,none' });
+    expect(c.getProjectCycles).toHaveBeenCalledTimes(1);
+  });
+
+  it('WP-176: 활성 사이클이 없으면 필터가 빠진 결과 대신 오류를 낸다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectCycles).mockResolvedValue([{ id: 6, name: 'Sprint 4', status: 'PLANNED' }]);
+    await expect(tool(c, 'list_issues').handler({ projectKey: 'WP', cycle: 'active' })).rejects.toThrow('활성');
+    expect(c.listIssues).not.toHaveBeenCalled();
+  });
+
+  it('WP-176: 없는 사이클 이름은 사용 가능 목록을, projectKey 없는 이름은 안내를 담아 거부한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectCycles).mockResolvedValue([{ id: 5, name: 'Sprint 3', status: 'ACTIVE' }]);
+    await expect(tool(c, 'list_issues').handler({ projectKey: 'WP', cycle: 'Sprint 9' })).rejects.toThrow('사용 가능: Sprint 3');
+    await expect(tool(c, 'list_issues').handler({ cycle: 'active' })).rejects.toThrow('projectKey');
+    expect(c.listIssues).not.toHaveBeenCalled();
+  });
+
   it('빈 priority 배열은 쿼리에 싣지 않는다', async () => {
     const c = mockClient();
     await tool(c, 'list_issues').handler({ priority: [] });

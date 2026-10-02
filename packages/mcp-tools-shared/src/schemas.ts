@@ -78,5 +78,23 @@ export const issueListFilterShape = {
   size: z.number().int().min(1).max(100).optional(),
 };
 
-/** list_issues 입력 — 필터를 직접 받는 데이터 조회 도구. */
-export const listIssuesInput = z.object(issueListFilterShape);
+/**
+ * list_issues 입력 — 필터를 직접 받는 데이터 조회 도구. 공유 필터에 assignee="any"·cycle 을 더한다(WP-176).
+ * 두 값은 도구 핸들러가 서버 쿼리로 바꿔 보내므로, params 를 웹이 그대로 서버에 넘기는 show_issue_list 의 shape 에는 넣지 않는다.
+ */
+export const listIssuesInput = z.object({
+  ...issueListFilterShape,
+  assignee: z
+    .string()
+    .optional()
+    .describe(
+      '담당자 CSV: "me"(나) | "null"(담당 없음) | username | "any"(담당자 무관 — 프로젝트 전체 이슈). 표시 이름이 아닌 username. assignee·reporter 모두 생략 시 "me"',
+    ),
+  cycle: z
+    .string()
+    .optional()
+    .describe(
+      '사이클 CSV(하나라도 일치하면 매칭, OR): 사이클 이름 | "active"(진행 중 사이클) | "none"(사이클이 하나도 할당되지 않은 이슈) | ' +
+        '"backlog"(진행 중·예정 사이클 밖 — 완료 사이클에만 남은 이슈 포함). "사이클 미할당"은 none, "백로그"는 backlog. 이름·active 는 projectKey 필요',
+    ),
+});

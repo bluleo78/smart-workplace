@@ -20,11 +20,16 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       name: 'get_issue_detail',
       kind: 'read',
       description:
-        '이슈의 본문·상태·담당자·코멘트·의존성 등 전체 컨텍스트를 JSON 으로 반환합니다. issueKey 예: WP-12',
+        '이슈의 본문·상태·담당자·코멘트·의존성·사이클(cycles: name·status) 등 전체 컨텍스트를 JSON 으로 반환합니다. issueKey 예: WP-12',
       inputSchema: issueKeyInput,
       async handler(args) {
         const { issueKey } = issueKeyInput.parse(args);
-        return JSON.stringify(normalizeIssueDetail(await client.getIssueDetail(issueKey)));
+        // WP-176: update_issue 의 cycles 는 집합 교체라, 기존 사이클을 알아야 추가·제거 시 다른 사이클을 지우지 않는다 — 함께 동봉.
+        const [raw, cycles] = await Promise.all([client.getIssueDetail(issueKey), client.getIssueCycles(issueKey)]);
+        return JSON.stringify({
+          ...normalizeIssueDetail(raw),
+          cycles: cycles.map(({ name, status }) => ({ name, status })),
+        });
       },
     },
     {

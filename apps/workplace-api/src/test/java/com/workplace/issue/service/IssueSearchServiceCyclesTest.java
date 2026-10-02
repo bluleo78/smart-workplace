@@ -237,4 +237,51 @@ class IssueSearchServiceCyclesTest extends IntegrationTestBase {
         .extracting("number")
         .containsExactlyInAnyOrder(linked, unlinked, completedOnly);
   }
+
+  // ── WP-176: cycle=none 토큰 — 사이클 연결이 하나도 없는 이슈(백로그와 달리 완료 사이클 연결 이슈 제외) ──
+
+  @Test
+  void cycle_none_matches_only_issues_without_any_cycle_link() {
+    Long owner = createUser("cyz");
+    ProjectResponse p = newProject(owner, "CYZ");
+    var active =
+        cycleService.create(
+            owner, p.key(), new CreateCycleRequest("Active", null, null, null, "ACTIVE"));
+    var completed =
+        cycleService.create(
+            owner, p.key(), new CreateCycleRequest("Done", null, null, null, "COMPLETED"));
+
+    int activeOnly = newIssue(owner, p, "active-only");
+    int completedOnly = newIssue(owner, p, "completed-only");
+    int none = newIssue(owner, p, "none");
+    issueCycleService.replace(owner, p.key(), activeOnly, List.of(active.id()));
+    issueCycleService.replace(owner, p.key(), completedOnly, List.of(completed.id()));
+
+    // 완료 사이클에만 연결된 이슈는 백로그(null)에는 들어가지만 none 에는 들어가지 않는다. 대소문자 무시.
+    var resp = searchService.search(owner, p.key(), Map.of("cycle", "NONE"));
+    var mine = searchService.searchMine(owner, Map.of("cycle", "none"));
+
+    assertThat(resp.items()).extracting("number").containsExactly(none);
+    assertThat(mine.items()).extracting("number").containsExactly(none);
+  }
+
+  @Test
+  void cycle_none_combined_with_id_is_or() {
+    Long owner = createUser("cyw");
+    ProjectResponse p = newProject(owner, "CYW");
+    var c1 =
+        cycleService.create(owner, p.key(), new CreateCycleRequest("S1", null, null, null, null));
+    var c2 =
+        cycleService.create(owner, p.key(), new CreateCycleRequest("S2", null, null, null, null));
+
+    int inC1 = newIssue(owner, p, "in-c1");
+    int inC2 = newIssue(owner, p, "in-c2");
+    int none = newIssue(owner, p, "none");
+    issueCycleService.replace(owner, p.key(), inC1, List.of(c1.id()));
+    issueCycleService.replace(owner, p.key(), inC2, List.of(c2.id()));
+
+    var resp = searchService.search(owner, p.key(), Map.of("cycle", "none," + c1.id()));
+
+    assertThat(resp.items()).extracting("number").containsExactlyInAnyOrder(inC1, none);
+  }
 }

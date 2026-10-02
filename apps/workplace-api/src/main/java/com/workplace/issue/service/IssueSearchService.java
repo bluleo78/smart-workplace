@@ -190,12 +190,13 @@ public class IssueSearchService {
         filterResolver.resolveLabelGroups(csv(p.get("label")), projectId, callerId);
 
     // 사이클 ID CSV — OR 결합 필터. 'null' 은 백로그 = 진행 중·예정 사이클에 연결되지 않은 이슈 포함(완료 사이클에만 남은
-    // 이슈 포함, assignee=null 과 같은 토큰 규약, #878). 잘못된 토큰은 무시.
+    // 이슈 포함, assignee=null 과 같은 토큰 규약, #878). 'none' 은 사이클 연결이 하나도 없는 이슈(WP-176). 잘못된 토큰은 무시.
     var cycleTokens = csv(p.get("cycle"));
     boolean includeNoOpenCycle = cycleTokens.stream().anyMatch("null"::equalsIgnoreCase);
+    boolean includeNoCycle = cycleTokens.stream().anyMatch("none"::equalsIgnoreCase);
     List<Long> cycleIds = new ArrayList<>();
     for (String tok : cycleTokens) {
-      if ("null".equalsIgnoreCase(tok)) continue;
+      if ("null".equalsIgnoreCase(tok) || "none".equalsIgnoreCase(tok)) continue;
       try {
         cycleIds.add(Long.parseLong(tok));
       } catch (NumberFormatException ignored) {
@@ -273,7 +274,8 @@ public class IssueSearchService {
         milestoneIds,
         excludeSubtasks,
         excludeEpics,
-        hideInactiveClosed);
+        hideInactiveClosed,
+        includeNoCycle);
   }
 
   private static String trimToNull(String s) {
