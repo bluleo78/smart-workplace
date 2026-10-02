@@ -110,6 +110,7 @@ docker exec smart-workplace-db-1 psql -U app -d workplace -c 'SELECT * FROM "use
 
 - 마이그레이션 경로: `src/main/resources/db/migration/V{n}__*.sql`, 번호 순차 증가
 - 적용은 `./gradlew bootRun` 이 자동 수행. 적용 후 `./gradlew generateJooq` 로 코드 재생성
+- **롤링 배포 호환(expand/contract)**: 구·신 버전이 공존해도 구 코드가 새 스키마에서 동작해야 한다 — 삭제·rename·NOT NULL·제약 강화는 다음 배포로. 상세는 [코딩 컨벤션 — DB 마이그레이션](../../docs/CODING_CONVENTION.md#db-마이그레이션--롤링-배포-호환expandcontract)
 - 머지된 마이그레이션 파일은 수정 금지 (checksum 변경 → 다른 환경 검증 실패). 정정은 V{n+1} 로
 - `flyway_schema_history` 직접 INSERT/UPDATE 금지 (가짜 checksum → 부팅 시 validation 실패)
 - 시스템 역할(ADMIN/USER/AGENT)에 권한을 부여하는 마이그레이션은 tenant#1 만이 아니라 **모든 테넌트**의 해당 역할(`r.name` + `is_system`)을 대상으로 하고, 신규 테넌트 시드 상수(`TenantProvisioningService` 의 USER/AGENT 목록)도 함께 갱신한다 — 빠뜨리면 신규 테넌트 권한이 약해진다(WP-104). `NewTenantProvisioningTest` 가 tenant#1 과의 집합 일치를 검증
