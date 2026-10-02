@@ -27,7 +27,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -182,9 +181,6 @@ public class UserService {
     return created;
   }
 
-  // WP-48: SSO 전용 구성원 아이디(=회사 계정 주소) 형식 검사
-  private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
-
   /**
    * 테넌트 관리자가 새 구성원을 추가한다(고객 콘솔 셀프서비스).
    *
@@ -199,17 +195,15 @@ public class UserService {
     if (tenantId == null) {
       throw new IllegalStateException("구성원 추가에는 active 테넌트 컨텍스트가 필요합니다.");
     }
-    // WP-48: 비밀번호를 비우면 SSO 전용 구성원. 워크스페이스 SSO 가 켜져 있어야 하고(아니면 로그인 불가 계정이 생김),
-    // 첫 SSO 로그인 매칭 키가 username 이므로 회사 계정 주소(이메일) 형식이어야 한다. 소문자로 정규화해 대소문자만 다른 중복을 막는다.
-    boolean ssoOnly = req.password() == null || req.password().isBlank();
+    // 아이디 이메일 형식은 CreateMemberRequest 가 검증한다(WP-181).
     String username = req.username().trim();
+    // WP-48: 비밀번호를 비우면 SSO 전용 구성원. 워크스페이스 SSO 가 켜져 있어야 한다(아니면 로그인 불가 계정이 생김).
+    boolean ssoOnly = req.password() == null || req.password().isBlank();
     if (ssoOnly) {
       if (!tenantRepository.isSsoEnabled(tenantId)) {
         throw new IllegalStateException("SSO 로그인이 꺼져 있어 비밀번호 없이 구성원을 추가할 수 없습니다.");
       }
-      if (!EMAIL.matcher(username).matches()) {
-        throw new IllegalArgumentException("SSO 전용 구성원의 아이디는 회사 SSO 계정 주소(이메일)여야 합니다.");
-      }
+      // SSO 전용만 소문자 정규화 — 비밀번호 로그인은 아이디 정확 일치라 비밀번호 구성원은 입력값 그대로 둔다.
       username = username.toLowerCase(Locale.ROOT);
     }
     // 아이디(로그인 ID) 중복 → 409. WP-48: SSO 매칭이 대소문자 무시이므로 두 경로 모두 대소문자 무시로 검사한다

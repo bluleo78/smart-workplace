@@ -18,7 +18,7 @@ test('관리자가 구성원을 추가한다', async ({ adminPage: page }) => {
         contentType: 'application/json',
         body: JSON.stringify({
           userId: 99,
-          username: 'jane',
+          username: 'jane@acme.com',
           name: '김제인',
           email: 'jane@acme.com',
           role: 'USER',
@@ -31,7 +31,7 @@ test('관리자가 구성원을 추가한다', async ({ adminPage: page }) => {
   await page.goto('/settings/users')
   await page.getByRole('button', { name: '구성원 추가' }).click()
 
-  await page.getByTestId('add-member-username').fill('jane')
+  await page.getByTestId('add-member-username').fill('jane@acme.com')
   await page.getByTestId('add-member-email').fill('jane@acme.com')
   await page.getByTestId('add-member-name').fill('김제인')
   await page.getByTestId('add-member-password').fill('Password123')
@@ -39,7 +39,7 @@ test('관리자가 구성원을 추가한다', async ({ adminPage: page }) => {
 
   // 입력→payload: 분리된 username/email + role 이 그대로 전송돼야 한다.
   await expect.poll(() => captured).toMatchObject({
-    username: 'jane',
+    username: 'jane@acme.com',
     email: 'jane@acme.com',
     name: '김제인',
     role: 'USER',
@@ -59,20 +59,20 @@ test('이메일 없이도 구성원을 추가한다', async ({ adminPage: page }
       return route.fulfill({
         status: 201,
         contentType: 'application/json',
-        body: JSON.stringify({ userId: 1, username: 'noemail', name: '이름만', email: null, role: 'USER', status: 'ACTIVE' }),
+        body: JSON.stringify({ userId: 1, username: 'noemail@acme.com', name: '이름만', email: null, role: 'USER', status: 'ACTIVE' }),
       })
     },
   )
 
   await page.goto('/settings/users')
   await page.getByRole('button', { name: '구성원 추가' }).click()
-  await page.getByTestId('add-member-username').fill('noemail')
+  await page.getByTestId('add-member-username').fill('noemail@acme.com')
   await page.getByTestId('add-member-name').fill('이름만')
   await page.getByTestId('add-member-password').fill('Password123')
   await page.getByTestId('add-member-submit').click()
 
   // 이메일 빈값은 payload 에서 생략(undefined)된다 — 컴포넌트가 email:undefined 로 보낸다.
-  await expect.poll(() => captured?.username).toBe('noemail')
+  await expect.poll(() => captured?.username).toBe('noemail@acme.com')
   expect(captured.email).toBeUndefined()
 })
 
@@ -81,7 +81,7 @@ test('취소 후 재오픈 시 이전 입력값이 남지 않는다', async ({ a
 
   await page.goto('/settings/users')
   await page.getByRole('button', { name: '구성원 추가' }).click()
-  await page.getByTestId('add-member-username').fill('leftover')
+  await page.getByTestId('add-member-username').fill('leftover@acme.com')
   await page.getByTestId('add-member-email').fill('leftover@acme.com')
   await page.getByTestId('add-member-name').fill('잔여값')
   await page.getByTestId('add-member-password').fill('Password123')
@@ -124,7 +124,7 @@ test('계속 추가 체크 시 성공해도 다이얼로그가 열려있고 폼�
   await page.getByRole('button', { name: '구성원 추가' }).click()
   await page.getByTestId('add-member-keep-open').click()
 
-  await page.getByTestId('add-member-username').fill('user1')
+  await page.getByTestId('add-member-username').fill('user1@acme.com')
   await page.getByTestId('add-member-name').fill('사용자1')
   await page.getByTestId('add-member-password').fill('Password123')
   await page.getByTestId('add-member-submit').click()
@@ -141,7 +141,7 @@ test('계속 추가 체크 시 성공해도 다이얼로그가 열려있고 폼�
   await expect(page.getByTestId('add-member-password')).toHaveValue('', { timeout: 15000 })
 
   // 체크 상태를 유지한 채로 두 번째 구성원도 같은 다이얼로그에서 추가할 수 있다.
-  await page.getByTestId('add-member-username').fill('user2')
+  await page.getByTestId('add-member-username').fill('user2@acme.com')
   await page.getByTestId('add-member-name').fill('사용자2')
   await page.getByTestId('add-member-password').fill('Password123')
   await page.getByTestId('add-member-submit').click()
@@ -167,7 +167,7 @@ test('구성원 추가 — 버튼을 동기적으로 연속 클릭해도 요청�
         contentType: 'application/json',
         body: JSON.stringify({
           userId: 1,
-          username: 'dupe',
+          username: 'dupe@acme.com',
           name: '중복테스트',
           email: null,
           role: 'USER',
@@ -180,7 +180,7 @@ test('구성원 추가 — 버튼을 동기적으로 연속 클릭해도 요청�
   await page.goto('/settings/users')
   await page.getByRole('button', { name: '구성원 추가' }).click()
 
-  await page.getByTestId('add-member-username').fill('dupe')
+  await page.getByTestId('add-member-username').fill('dupe@acme.com')
   await page.getByTestId('add-member-name').fill('중복테스트')
   await page.getByTestId('add-member-password').fill('Password123')
 
@@ -249,11 +249,37 @@ test('서버 검증 오류는 errors 필드 맵의 메시지를 우선 표시한
 
   // 클라이언트 zod 검증을 우회해 서버 응답 처리 경로만 검증 — trim으로 통과하는
   // 유효 문자열이지만 서버가 여전히 400을 내려주는 케이스를 흉내낸다.
-  await page.getByTestId('add-member-username').fill('validlookingbutrejected')
+  await page.getByTestId('add-member-username').fill('validlookingbutrejected@acme.com')
   await page.getByTestId('add-member-name').fill('테스트')
   await page.getByTestId('add-member-password').fill('Password123')
   await page.getByTestId('add-member-submit').click()
 
   await expect(page.getByTestId('add-member-error')).toHaveText('아이디는 공백일 수 없습니다.')
   await expect(page.getByTestId('add-member-error')).not.toHaveText('Validation failed')
+})
+
+// WP-181 — 비밀번호 구성원도 아이디가 이메일이 아니면(예: max.lee) 클라이언트 검증에서 막혀 서버로 전송되지 않는다.
+test('비밀번호 구성원도 이메일이 아닌 아이디는 클라이언트 검증에서 막힌다', async ({ adminPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
+
+  let posted = false
+  await page.route(
+    (url) => url.pathname === '/api/v1/users',
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      posted = true
+      return route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+    },
+  )
+
+  await page.goto('/settings/users')
+  await page.getByRole('button', { name: '구성원 추가' }).click()
+
+  await page.getByTestId('add-member-username').fill('max.lee')
+  await page.getByTestId('add-member-name').fill('맥스')
+  await page.getByTestId('add-member-password').fill('Password123')
+  await page.getByTestId('add-member-submit').click()
+
+  await expect(page.getByText('아이디는 이메일 형식이어야 합니다')).toBeVisible()
+  expect(posted).toBe(false)
 })
