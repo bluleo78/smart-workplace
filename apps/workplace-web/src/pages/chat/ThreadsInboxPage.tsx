@@ -14,7 +14,7 @@ import type { ThreadInboxItem } from '@/types/messaging'
 export default function ThreadsInboxPage() {
   const navigate = useNavigate()
   const threadsQuery = useThreadsInbox()
-  const { data, hasNextPage, isLoading, isError } = threadsQuery
+  const { data, hasNextPage, isLoading, isLoadingError } = threadsQuery
   // 목록 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const items: ThreadInboxItem[] = data?.pages.flatMap((p) => p.items) ?? []
@@ -22,10 +22,10 @@ export default function ThreadsInboxPage() {
   // WP-54: 스레드 모아보기 화면 컨텍스트 — 로드된 스레드 수. 로딩/오류 중엔 미등록(미로드 수치 전송 금지).
   const screenContext = useMemo(
     () =>
-      data && !isError
+      data && !isLoadingError
         ? buildThreadsInboxContext({ count: data.pages.flatMap((p) => p.items).length, hasMore: !!hasNextPage })
         : null,
-    [data, isError, hasNextPage],
+    [data, isLoadingError, hasNextPage],
   )
   useRegisterAiScreenContext(screenContext)
 

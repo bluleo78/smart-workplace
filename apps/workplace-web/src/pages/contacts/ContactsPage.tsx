@@ -156,7 +156,8 @@ export function ContactsPage() {
     setSelected(null)
   }, [groupId, search, type, organization, title])
   const contactsQuery = useContacts(search, type, organization, title)
-  const { data, isLoading, isError, refetch, hasNextPage } = contactsQuery
+  // isLoadingError: 첫 페이지 실패만 오류 화면 — 다음 페이지 실패는 로드된 목록을 두고 LoadMoreFooter 가 다시 시도를 보인다(WP-182).
+  const { data, isLoading, isLoadingError, refetch, hasNextPage } = contactsQuery
   // 목록 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
   const [listScrollEl, setListScrollEl] = useState<HTMLDivElement | null>(null)
 
@@ -211,7 +212,7 @@ export function ContactsPage() {
               />
             ) : isLoading ? (
               <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
-            ) : isError ? (
+            ) : isLoadingError ? (
               <div className="p-6 text-center">
                 <p className="text-sm text-destructive mb-2">목록을 불러오지 못했습니다</p>
                 <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>

@@ -41,7 +41,8 @@ export default function UserListPage() {
     kind: 'ALL',
     includeInactive: true,
   });
-  const { data, isLoading, isError } = membersQuery;
+  // isLoadingError: 첫 페이지 실패만 오류 행 — 다음 페이지 실패는 로드된 행을 두고 LoadMoreFooter 가 다시 시도를 보인다.
+  const { data, isLoading, isLoadingError } = membersQuery;
   const users = flattenUniquePages(data?.pages, (u) => u.userId);
   const totalElements = data?.pages[0]?.totalElements;
   const scrollRoot = useSettingsScrollRoot();
@@ -83,7 +84,7 @@ export default function UserListPage() {
           <TableBody>
             {isLoading ? (
               <TableSkeletonRows columns={3} rows={5} />
-            ) : isError ? (
+            ) : isLoadingError ? (
               <TableRow>
                 <TableCell colSpan={3} className="text-center text-destructive">
                   데이터를 불러오는데 실패했습니다.

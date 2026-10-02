@@ -80,6 +80,9 @@ test.describe('설정 › 구성원 무한 스크롤 (WP-182)', () => {
     await page.getByRole('button', { name: `사용자 구성원 ${PAGE_SIZE} 상세 보기` }).scrollIntoViewIfNeeded();
     const retry = page.getByRole('button', { name: '불러오지 못했습니다 — 다시 시도' });
     await expect(retry).toBeVisible();
+    // 다음 페이지 실패가 이미 받은 행을 오류 화면으로 덮지 않는다(첫 페이지 실패만 오류 행)
+    await expect(page.getByRole('button', { name: '사용자 구성원 1 상세 보기' })).toBeAttached();
+    await expect(page.getByText('데이터를 불러오는데 실패했습니다.')).toHaveCount(0);
 
     await retry.click();
     await expect(page.getByRole('button', { name: '사용자 구성원 1002 상세 보기' })).toBeVisible();
