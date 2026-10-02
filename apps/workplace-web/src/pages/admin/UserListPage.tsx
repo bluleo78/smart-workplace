@@ -41,7 +41,7 @@ export default function UserListPage() {
     kind: 'ALL',
     includeInactive: true,
   });
-  // isLoadingError: 첫 페이지 실패만 오류 행 — 다음 페이지 실패는 로드된 행을 두고 LoadMoreFooter 가 다시 시도를 보인다.
+  // 오류 행은 첫 페이지 실패만(isLoadingError) — LoadMoreFooter 참조
   const { data, isLoading, isLoadingError } = membersQuery;
   const users = flattenUniquePages(data?.pages, (u) => u.userId);
   const totalElements = data?.pages[0]?.totalElements;

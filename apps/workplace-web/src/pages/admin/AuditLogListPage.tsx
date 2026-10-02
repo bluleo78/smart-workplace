@@ -290,10 +290,6 @@ export default function AuditLogListPage() {
   const [selectedLog, setSelectedLog] = useState<AuditLogResponse | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  const handleSearchChange = (value: string) => {
-    setSearch(value);
-  };
-
   // 무한 스크롤(WP-182): 필터가 바뀌면 쿼리 키가 바뀌어 첫 페이지부터 다시 받는다.
   const logsQuery = useAuditLogs({
     search: debouncedSearch || undefined,
@@ -306,7 +302,7 @@ export default function AuditLogListPage() {
     startDate: startDate ? toIsoDateTime(startDate) : undefined,
     endDate: endDate ? toIsoDateTime(endDate, true) : undefined,
   });
-  // isLoadingError: 첫 페이지 실패만 오류 행 — 다음 페이지 실패는 로드된 행을 두고 LoadMoreFooter 가 다시 시도를 보인다.
+  // 오류 행은 첫 페이지 실패만(isLoadingError) — LoadMoreFooter 참조
   const { data, isLoading, isLoadingError } = logsQuery;
   const logs = flattenUniquePages(data?.pages, (log) => log.id);
   const totalElements = data?.pages[0]?.totalElements;
@@ -365,7 +361,7 @@ export default function AuditLogListPage() {
     setResource(r.length ? String(r[r.length - 1]) : '');
   };
 
-  /** 날짜 필터 변경 */
+  /** 날짜 input 이벤트 → 문자열 state */
   const handleDateChange = (setter: (v: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setter(e.target.value);
   };
@@ -382,7 +378,7 @@ export default function AuditLogListPage() {
         <SearchInput
           placeholder="설명으로 검색..."
           value={search}
-          onChange={handleSearchChange}
+          onChange={setSearch}
         />
 
         {/*

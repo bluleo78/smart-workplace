@@ -156,7 +156,7 @@ export function ContactsPage() {
     setSelected(null)
   }, [groupId, search, type, organization, title])
   const contactsQuery = useContacts(search, type, organization, title)
-  // isLoadingError: 첫 페이지 실패만 오류 화면 — 다음 페이지 실패는 로드된 목록을 두고 LoadMoreFooter 가 다시 시도를 보인다(WP-182).
+  // 오류 화면은 첫 페이지 실패만(isLoadingError) — LoadMoreFooter 참조
   const { data, isLoading, isLoadingError, refetch, hasNextPage } = contactsQuery
   // 목록 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
   const [listScrollEl, setListScrollEl] = useState<HTMLDivElement | null>(null)

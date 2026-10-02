@@ -8,6 +8,7 @@ import { Inbox, Plus } from 'lucide-react';
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 
 import {
   type BoardColumnQuery,
@@ -15,7 +16,6 @@ import {
 } from '../../../hooks/queries/useIssueBoardColumns';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
-import { useLoadMoreSentinel } from '../../../hooks/useLoadMoreSentinel';
 import { groupIssues, type IssueGroup } from '../../../lib/issueGrouping';
 import type {
   IssueClientGroupBy,
@@ -306,20 +306,15 @@ function BoardColumn({
 }
 
 // 컬럼 끝 sentinel — 화면에 들어오면 이 컬럼의 다음 페이지를 받는다(짧은 컬럼은 끝까지 연속 로드).
-// 다음 페이지 요청이 실패하면 자동 로드를 멈추고 "다시 시도" 버튼을 보인다.
+// 다음 페이지 요청이 실패하면 자동 로드를 멈추고 "다시 시도" 버튼을 보인다(공용 LoadMoreFooter).
 function ColumnLoadMore({ status, query }: { status: string; query: BoardColumnQuery }) {
-  const ref = useLoadMoreSentinel(query, useContext(BoardScrollRootContext));
-  if (!query.hasNextPage) return null;
   return (
-    <div ref={ref} data-testid={`board-col-more-${status}`} className="py-2 text-center text-xs text-muted-foreground">
-      {query.isFetchNextPageError ? (
-        <button type="button" className="text-destructive underline" onClick={() => void query.fetchNextPage()}>
-          불러오지 못했습니다 — 다시 시도
-        </button>
-      ) : (
-        query.isFetching && '불러오는 중…'
-      )}
-    </div>
+    <LoadMoreFooter
+      query={query}
+      root={useContext(BoardScrollRootContext)}
+      className="py-2"
+      data-testid={`board-col-more-${status}`}
+    />
   );
 }
 
