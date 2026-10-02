@@ -1,5 +1,4 @@
 // 감사 로그 사용자 필터 — 검색형 단일 선택 (WP-183).
-// 이전에는 구성원 100명을 한 번에 받아 Select 로 보여 줘서, 101번째 사람부터는 고를 수 없었다(조용한 누락).
 // 구성원 디렉터리를 검색어로 서버 조회하므로 인원 수와 무관하게 누구든 찾을 수 있다.
 // 비활성 구성원의 과거 행위도 찾아야 하므로 includeInactive, 에이전트 행위도 감사 대상이라 kind=ALL.
 import { Check, ChevronDown } from 'lucide-react';
@@ -86,31 +85,32 @@ export function AuditUserFilter({
             ) : members.isError ? (
               <CommandEmpty>검색에 실패했습니다</CommandEmpty>
             ) : (
-              <CommandGroup>
-                {/* 검색어가 없을 때만 '전체 사용자'(필터 해제) 항목을 맨 위에 둔다 */}
-                {!debounced && (
-                  <CommandItem value="all" onSelect={() => select(null)}>
-                    <Check className={cn('h-4 w-4', value ? 'opacity-0' : 'opacity-100')} />
-                    전체 사용자
-                  </CommandItem>
-                )}
-                {(members.data?.content ?? []).map((m) => (
-                  <CommandItem
-                    key={m.userId}
-                    value={String(m.userId)}
-                    onSelect={() => select({ userId: m.userId, name: m.name, username: m.username })}
-                    data-testid={`audit-user-option-${m.userId}`}
-                  >
-                    <Check className={cn('h-4 w-4', value?.userId === m.userId ? 'opacity-100' : 'opacity-0')} />
-                    <span className="truncate">
-                      {m.name} <span className="text-muted-foreground">({m.username})</span>
-                    </span>
-                  </CommandItem>
-                ))}
-                {debounced && members.data?.content.length === 0 && (
-                  <p className="px-2 py-3 text-center text-sm text-muted-foreground">일치하는 사용자가 없습니다</p>
-                )}
-              </CommandGroup>
+              <>
+                {/* 검색 결과가 없으면 자동 표시(shouldFilter=false 여도 렌더된 항목이 없으면 보인다) */}
+                <CommandEmpty>일치하는 사용자가 없습니다</CommandEmpty>
+                <CommandGroup>
+                  {/* 검색어가 없을 때만 '전체 사용자'(필터 해제) 항목을 맨 위에 둔다 */}
+                  {!debounced && (
+                    <CommandItem value="all" onSelect={() => select(null)}>
+                      <Check className={cn('h-4 w-4', value ? 'opacity-0' : 'opacity-100')} />
+                      전체 사용자
+                    </CommandItem>
+                  )}
+                  {(members.data?.content ?? []).map((m) => (
+                    <CommandItem
+                      key={m.userId}
+                      value={String(m.userId)}
+                      onSelect={() => select({ userId: m.userId, name: m.name, username: m.username })}
+                      data-testid={`audit-user-option-${m.userId}`}
+                    >
+                      <Check className={cn('h-4 w-4', value?.userId === m.userId ? 'opacity-100' : 'opacity-0')} />
+                      <span className="truncate">
+                        {m.name} <span className="text-muted-foreground">({m.username})</span>
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
             )}
           </CommandList>
         </Command>

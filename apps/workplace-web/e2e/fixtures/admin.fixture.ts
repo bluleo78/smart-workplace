@@ -103,8 +103,7 @@ export async function setupAuditLogMocks(page: Page, count = 5) {
     '/api/v1/admin/audit-logs',
     createPageResponse(createAuditLogs(count)),
   );
-  // 사용자 dropdown 필터 (#89)에서 사용하는 구성원 목록 모킹.
-  // 감사 로그 페이지가 마운트되자마자 GET /members?size=100 을 호출하므로 빈 목록이라도 모킹해야 함(#833).
+  // 사용자 필터 (#89)에서 사용하는 구성원 목록 모킹 — 검색형 필터(WP-183)는 팝오버를 열 때 GET /members 를 호출한다.
   const users = [
     createMember({ userId: 1, name: '관리자', username: 'admin', email: 'admin@example.com' }),
     createMember({ userId: 2, name: '테스트 사용자', username: 'testuser', email: 'test@example.com' }),

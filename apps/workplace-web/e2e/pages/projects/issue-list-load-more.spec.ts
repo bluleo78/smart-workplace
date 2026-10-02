@@ -6,11 +6,12 @@ import type { Page, Route } from '@playwright/test';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
+import type { IssueResponse } from '../../../src/types/issue';
 
 const KEY = 'WP';
 
 /** cursor 가 붙은 요청(다음 페이지)을 처음 2회(최초 + QueryClient 기본 retry 1회) 500 으로 실패시키는 cursor 페이징 스텁. */
-async function stubCursorPagesFailingOnce(page: Page, path: string, first: unknown[], second: unknown[]) {
+async function stubCursorPagesFailingOnce(page: Page, path: string, first: IssueResponse[], second: IssueResponse[]) {
   let failures = 0;
   await page.route(
     (url) => url.pathname === path,
@@ -22,8 +23,8 @@ async function stubCursorPagesFailingOnce(page: Page, path: string, first: unkno
         return route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
       }
       const body = cursor
-        ? createIssueSearchResponse(second as never, null)
-        : createIssueSearchResponse(first as never, 'NEXT');
+        ? createIssueSearchResponse(second, null)
+        : createIssueSearchResponse(first, 'NEXT');
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     },
   );

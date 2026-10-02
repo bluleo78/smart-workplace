@@ -92,7 +92,6 @@ test.describe('감사 로그 사용자 필터 (WP-183)', () => {
   test('깊이 스크롤한 뒤 다른 화면에 갔다 오면 첫 페이지만 다시 받는다', async ({ adminPage: page }) => {
     await setupAdminAuth(page);
     const auditRequests = await stubAuditLogs(page, 4);
-    await stubMembers(page, []);
 
     await page.goto('/settings/audit-logs');
     // 3페이지까지 스크롤로 받는다

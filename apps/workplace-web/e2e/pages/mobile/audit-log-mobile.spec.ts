@@ -31,10 +31,6 @@ test('감사 로그는 모바일에서 가로로 넘치지 않고, 숨긴 열은
         ),
       }),
   )
-  await page.route(
-    (url) => url.pathname === '/api/v1/members',
-    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createPageResponse([])) }),
-  )
 
   await page.goto('/settings/audit-logs')
   const table = page.getByRole('table', { name: '감사 로그' })

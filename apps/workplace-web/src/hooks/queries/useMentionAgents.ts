@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { MentionCandidate } from '@/components/mentions/types';
 
 import { membersApi } from '../../api/members';
+import { nextOffsetPage } from '../../lib/offsetPaging';
 
 export const mentionAgentKeys = {
   all: ['mention-agents'] as const,
@@ -20,10 +21,10 @@ export function useMentionAgents() {
       // WP-183: 한 페이지(100건)에서 끊지 않고 마지막 페이지까지 모두 받는다 — 101번째 에이전트부터 멘션 후보에서
       // 조용히 빠지지 않게. 에이전트 수는 많지 않아 보통 한 번 요청으로 끝난다.
       const agents = [];
-      for (let page = 0; ; page++) {
+      for (let page: number | undefined = 0; page !== undefined; ) {
         const { data } = await membersApi.getMembers({ kind: 'AGENT', page, size: 100 });
         agents.push(...data.content);
-        if (page + 1 >= data.totalPages) break;
+        page = nextOffsetPage(data);
       }
       return agents.map((m) => ({
         userId: m.userId,
