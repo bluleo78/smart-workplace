@@ -23,6 +23,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 
 import { IssueBodyImage } from '../../components/issue/IssueBodyImage';
 import { IssueBodyImageButton } from '../../components/issue/IssueBodyImageButton';
@@ -56,6 +57,7 @@ import { IssueBodyTabs } from './components/IssueBodyTabs';
 import { IssueBreadcrumbHeader } from './components/IssueBreadcrumbHeader';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
+import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropertyChips';
 
 // 본문 편집 draft localStorage 키 — 프로젝트+이슈 단위로 특정(#824).
 function bodyDraftKey(projectKey: string, issueNumber: number): string {
@@ -376,6 +378,8 @@ export default function IssueDetailPage() {
   const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
   // 모바일 ⋯ 메뉴 항목 문구 — 메뉴 안에선 동작("구독하기")·상태("구독 중 · n명")를 글자로 풀어 쓴다(U3-R6). 데스크톱은 기존 버튼 그대로.
   const isMobile = useIsMobile();
+  // 모바일 「＋ 속성」 시트 open 상태 — 시트 본체는 후속 태스크(Task 2)에서 연결한다.
+  const [, setMoreOpen] = useState(false);
   const watcherCount = watchers.data?.length ?? 0;
   const mobileWatchLabel = isWatching ? `구독 중 · ${watcherCount}명` : '구독하기';
   // 삭제 확인 다이얼로그 open 상태 — shadcn AlertDialog 제어형.
@@ -604,7 +608,7 @@ export default function IssueDetailPage() {
           채팅·레일이 AI 패널 뒤로 밀려 가려졌다(오버레이 증상). */}
       <div className="@container flex-1 overflow-y-auto">
         {/* 3구역 flex: [메인 본문][채팅 패널][속성 레일] — 컨테이너 폭 1032px(본문360+채팅320+레일280+gap/padding) 이상에서 가로 배치 (#343 Task 4, #354). */}
-        <div className="w-full flex flex-col gap-6 p-6 @min-[1032px]:flex-row">
+        <div className={cn('w-full flex flex-col', isMobile ? 'gap-4 p-4' : 'gap-6 p-6', '@min-[1032px]:flex-row')}>
           {/* 메인 본문 — #355: 가로 배치(@1032px↑)에서만 채팅/레일 고정폭에 밀려 360px 이하로 압축되지 않도록 min-w 적용.
               세로 스택(컨테이너 좁음)에서는 본문이 어차피 full-width 라 min-w 가 narrow 컨테이너에서 오버플로우를 유발하므로 미적용 (#354). */}
           {/* 메인 컬럼 — 섹션(설명·하위 태스크·코멘트)을 Separator 바로 명확히 구분. space-y-6 으로 바 주변 여백 확보. */}
@@ -622,25 +626,36 @@ export default function IssueDetailPage() {
                   disabled={!canEditContent || update.isPending}
                 />
               </h1>
-              <div className="flex flex-wrap items-center gap-2">
-                {summary.type && (
-                  <IssueTypeSelectPopover
-                    projectKey={key}
-                    issueNumber={issueNumber}
-                    current={summary.type}
-                    disabled={!canEditWorkflow}
-                  />
-                )}
-                {/* Phase 4b — blockedBy 중 미완료 존재 시 차단됨 배지 노출. */}
-                {summary.blocked && (
-                  <span
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-destructive/15 text-destructive text-xs"
-                    data-testid="issue-blocked-badge"
-                  >
-                    ⛔ 차단됨
-                  </span>
-                )}
-              </div>
+              {isMobile ? (
+                <IssueMobilePropertyChips
+                  projectKey={key}
+                  issue={summary}
+                  canEditWorkflow={canEditWorkflow}
+                  updatePending={update.isPending}
+                  onPatch={(c) => void patch(c)}
+                  onOpenMore={() => setMoreOpen(true)}
+                />
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  {summary.type && (
+                    <IssueTypeSelectPopover
+                      projectKey={key}
+                      issueNumber={issueNumber}
+                      current={summary.type}
+                      disabled={!canEditWorkflow}
+                    />
+                  )}
+                  {/* Phase 4b — blockedBy 중 미완료 존재 시 차단됨 배지 노출. */}
+                  {summary.blocked && (
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-destructive/15 text-destructive text-xs"
+                      data-testid="issue-blocked-badge"
+                    >
+                      ⛔ 차단됨
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             {/* AI 즉각 컨텍스트 카드 — 비서 있을 때만 렌더(#517). 자체 아우라 박스라 바 없이 분리. */}
             {aiAvailable && (
