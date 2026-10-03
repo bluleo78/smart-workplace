@@ -254,30 +254,13 @@ class MailMessageServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * #474: existsAiEnabledAccount — aiEnabled=true 인 활성 계정이 존재하면 true, 없으면 false. 두
-   * 사용자(aiDisabledUser, aiEnabledUser)를 별도로 생성해 충돌 없이 검증한다.
+   * #474: summary() 가 needsReplyCount 를 포함한 MailSummaryResponse 를 반환한다. 값은 @Transactional 경계 안에서
+   * RLS GUC 주입 하에 조회된다(#444 교훈). classificationActive 판정은 비서를 목으로 바꾸는 MailUnreadCountsTest 가
+   * 검증한다(WP-210).
    */
   @Test
-  void existsAiEnabledAccount_reflectsAiEnabled() {
-    // aiEnabled=false 계정만 가진 사용자: false
-    long aiDisabledUser = TestFixtures.createHuman(dsl);
-    MailTestSupport.insertAccount(accountRepo, encryption, aiDisabledUser, false);
-    assertThat(accountRepo.existsAiEnabledAccount(aiDisabledUser)).isFalse();
-
-    // aiEnabled=true 계정을 가진 별도 사용자: true
-    long aiEnabledUser = TestFixtures.createHuman(dsl);
-    MailTestSupport.insertAccount(accountRepo, encryption, aiEnabledUser, true);
-    assertThat(accountRepo.existsAiEnabledAccount(aiEnabledUser)).isTrue();
-  }
-
-  /**
-   * #474: summary() 가 needsReplyCount 와 classificationActive 를 포함한 MailSummaryResponse 를 반환한다. 두
-   * 값은 @Transactional 경계 안에서 RLS GUC 주입 하에 조회된다(#444 교훈).
-   */
-  @Test
-  void summary_includesNeedsReplyCountAndClassificationActive() {
+  void summary_includesNeedsReplyCount() {
     long user = TestFixtures.createHuman(dsl);
-    // aiEnabled=true 계정 → classificationActive=true
     long accountId = MailTestSupport.insertAccount(accountRepo, encryption, user, true);
 
     MailTestPorts.sendText("box@test.local", "a@x.com", "회신필요건", "본문");
@@ -294,8 +277,6 @@ class MailMessageServiceTest extends IntegrationTestBase {
     assertThat(resp.unreadCount()).isEqualTo(2);
     // 회신필요: aiNeedsReply=true && seen=false 1건
     assertThat(resp.needsReplyCount()).isEqualTo(1);
-    // aiEnabled 계정 존재 → true
-    assertThat(resp.classificationActive()).isTrue();
     assertThat(resp.recent()).hasSize(2);
   }
 

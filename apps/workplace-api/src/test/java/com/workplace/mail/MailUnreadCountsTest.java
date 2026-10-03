@@ -215,6 +215,37 @@ class MailUnreadCountsTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.workUnread").value(1));
   }
 
+  /** WP-210 홈 요약 분류 활성 — 메일 화면과 같은 판정. 공통 비서만 있으면 개인 비서 사용을 꺼도 true, 비서가 없으면 스위치를 켜도 false. */
+  @Test
+  void homeSummary_classificationActive_matchesMailView() throws Exception {
+    long[] box = TestFixtures.seedMailbox(dsl, "home-" + System.nanoTime() + "@test.local");
+
+    // 비서 없음 → 스위치와 무관하게 분류가 돌지 않으므로 false
+    setAiEnabled(box[1], false);
+    expectHomeClassificationActive(box[0], false);
+    setAiEnabled(box[1], true);
+    expectHomeClassificationActive(box[0], false);
+
+    // 공통 비서 있음 + 스위치 꺼짐 → 공통 비서가 분류·회신필요를 판정하므로 true
+    setAiEnabled(box[1], false);
+    when(assistantResolver.resolveWorkspaceOrEmpty())
+        .thenReturn(Optional.of(new AssistantSpec(5L, "m", "NORMAL", 8, 60_000)));
+    expectHomeClassificationActive(box[0], true);
+  }
+
+  private void setAiEnabled(long accountId, boolean on) {
+    dsl.update(EMAIL_ACCOUNT)
+        .set(EMAIL_ACCOUNT.AI_ENABLED, on)
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .execute();
+  }
+
+  private void expectHomeClassificationActive(long userId, boolean expected) throws Exception {
+    mvc.perform(get("/api/v1/me/mail-summary").header("Authorization", token(userId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.classificationActive").value(expected));
+  }
+
   @Test
   void counts_legacyCategory_notInAnyBucket_butInInbox() throws Exception {
     long[] box = TestFixtures.seedMailbox(dsl, "cnt5-" + System.nanoTime() + "@test.local");

@@ -111,21 +111,6 @@ public class EmailAccountRepository {
         .fetchOptional(EMAIL_ACCOUNT.ENCRYPTED_PASSWORD);
   }
 
-  /**
-   * AI 분류가 활성화된 본인 계정 존재 여부(#474).
-   *
-   * <p>홈 위젯이 "분류 활성" 배지를 표시할지 판단하는 데 쓰인다. ai_enabled=true 이면서 비활성(disabled_at)되지 않은 계정이 하나라도 있으면
-   * true.
-   */
-  public boolean existsAiEnabledAccount(long userId) {
-    return dsl.fetchExists(
-        dsl.selectOne()
-            .from(EMAIL_ACCOUNT)
-            .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
-            .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
-            .and(EMAIL_ACCOUNT.AI_ENABLED.isTrue()));
-  }
-
   /** 테넌트 범위(RLS GUC) 내 AI 활성 계정의 (userId, accountId) 목록 — 선제 요약 스케줄러용. */
   public List<AiAccountRef> listAiEnabledAccounts() {
     return dsl.select(EMAIL_ACCOUNT.USER_ID, EMAIL_ACCOUNT.ID)

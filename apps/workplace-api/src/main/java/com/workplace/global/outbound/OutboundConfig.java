@@ -96,10 +96,10 @@ public class OutboundConfig {
   /**
    * 새 기준 메일 재분석(WP-151 MailReanalysisScheduler) 전용 단일 스레드 실행기.
    *
-   * <p>재분석은 계정마다 LLM 을 최대 50회 순서대로 부르므로 수 분간 스레드를 점유한다. 단일 스레드인 스프링 스케줄러(다른 @Scheduled 작업이 밀림)나 이벤트
-   * 발사용 aiAgentEventExecutor(고갈 시 채팅·메시징 디스패치 지연)에서 돌리지 않도록 분리한다. core/max 1 이라 LLM 동시 호출이 없다(비용
-   * ·부하 페이싱). 겹침은 스케줄러의 running 플래그가 막으므로 queue 1 이면 충분하다. TenantContext 는 스케줄러가 계정별로 직접 설정하므로
-   * 데코레이터를 두지 않는다.
+   * <p>재분석은 계정마다 LLM 을 최대 50회 순서대로 부르므로 수 분간 스레드를 점유한다. 몇 개 안 되는 스프링 스케줄러 공용 스레드(다른 @Scheduled 작업이
+   * 밀림)나 이벤트 발사용 aiAgentEventExecutor(고갈 시 채팅·메시징 디스패치 지연)에서 돌리지 않도록 분리한다. core/max 1 이라 LLM 동시 호출이
+   * 없다(비용 ·부하 페이싱). 겹침은 스케줄러의 running 플래그가 막으므로 queue 1 이면 충분하다. TenantContext 는 스케줄러가 계정별로 직접
+   * 설정하므로 데코레이터를 두지 않는다.
    */
   @Bean(name = "mailReanalysisExecutor")
   public Executor mailReanalysisExecutor() {
@@ -115,10 +115,10 @@ public class OutboundConfig {
   /**
    * 받은편지함 전체 메일 카테고리 일괄 분류(WP-185 MailCategoryBackfillScheduler) 전용 단일 스레드 실행기.
    *
-   * <p>한 회차가 25통 묶음 LLM 호출을 최대 20회(회차 상한) 순서대로 부르므로 수 분간 스레드를 점유한다. 단일 스레드인 스프링 스케줄러(자동 동기화·선제 요약
-   * 등이 밀림)나 채팅 AI 디스패치와 공유하는 aiAgentEventExecutor(고갈·거절)에서 돌리지 않도록 분리한다 — mailReanalysisExecutor 와
-   * 같은 이유·크기. core/max 1 이라 LLM 동시 호출이 없고, 겹침은 스케줄러의 running 플래그가 막으므로 queue 1 이면 충분하다.
-   * TenantContext 는 스케줄러가 계정별로 직접 설정하므로 데코레이터를 두지 않는다.
+   * <p>한 회차가 25통 묶음 LLM 호출을 최대 20회(회차 상한) 순서대로 부르므로 수 분간 스레드를 점유한다. 몇 개 안 되는 스프링 스케줄러 공용 스레드(자동
+   * 동기화·선제 요약 등이 밀림)나 채팅 AI 디스패치와 공유하는 aiAgentEventExecutor(고갈·거절)에서 돌리지 않도록 분리한다 —
+   * mailReanalysisExecutor 와 같은 이유·크기. core/max 1 이라 LLM 동시 호출이 없고, 겹침은 스케줄러의 running 플래그가 막으므로
+   * queue 1 이면 충분하다. TenantContext 는 스케줄러가 계정별로 직접 설정하므로 데코레이터를 두지 않는다.
    */
   @Bean(name = "mailCategoryBackfillExecutor")
   public Executor mailCategoryBackfillExecutor() {
