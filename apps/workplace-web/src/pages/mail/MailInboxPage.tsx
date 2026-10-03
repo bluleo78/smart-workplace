@@ -675,7 +675,9 @@ export function MailInboxPage() {
   const markAllKnownZero = !search && unreadCounts != null && unreadCountForView(view, unreadCounts) === 0
   const startMarkAll = async () => {
     if (accountIdNum == null) return
-    const captured = { key: markAllKey, scope: markAllScope, label: view.breadcrumb.join(' › ') }
+    // 검색 중이면 건수는 검색 결과만 센다 — 표시 이름에도 검색어를 붙여 보기 전체로 오해하지 않게 한다.
+    const label = view.breadcrumb.join(' › ') + (markAllScope.query ? ` · "${markAllScope.query}"` : '')
+    const captured = { key: markAllKey, scope: markAllScope, label }
     try {
       const r = await getViewUnreadCount(accountIdNum, captured.scope)
       if (markAllKeyRef.current !== captured.key) return
@@ -1168,7 +1170,20 @@ export function MailInboxPage() {
           const p = markAllPending
           setMarkAllPending(null)
           // 누른 시점의 범위·asOf 만 쓴다(키가 같을 때만 열려 있으므로 계정도 같다).
-          if (p) markAll.mutate({ ...p.scope, asOf: p.asOf })
+          if (!p) return
+          const keptKeyAtRun = keepKey
+          markAll.mutate(
+            { ...p.scope, asOf: p.asOf },
+            {
+              // 유지 스냅샷도 읽음으로 맞춘다 — 재조회 목록에서 빠진 행이 옛 스냅샷(안읽음)으로 되살아나 굵게 보이지 않게.
+              onSuccess: () =>
+                setKept((k) =>
+                  k.key !== keptKeyAtRun
+                    ? k
+                    : { key: k.key, rows: new Map([...k.rows].map(([id, row]) => [id, { ...row, seen: true }])) },
+                ),
+            },
+          )
         }}
       />
       {/* #520 메일→이슈 승격 모달 */}

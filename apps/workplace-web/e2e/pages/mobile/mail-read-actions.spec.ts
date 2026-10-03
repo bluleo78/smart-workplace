@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
+import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents'
 import { longPress } from '../../fixtures/mobile-chat'
 import { expect, stubChat, test } from '../../fixtures/mobile.fixture'
 
@@ -11,15 +12,18 @@ async function stubMail(page: Page) {
   await stubChat(page)
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
   await mockApi(page, 'GET', '/api/v1/mail/unread-summary', { workUnread: 1 })
-  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/unread-counts', {
+  const counts = await mockApi(page, 'GET', '/api/v1/mail/accounts/1/unread-counts', {
     classificationActive: true, inbox: 1, byCategory: { 업무: 1, 개인: 0, 알림: 0, 프로모션: 0, 뉴스레터: 0 }, needsReply: 0,
-  })
+  }, { capture: true })
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary({ id: 10, seen: false })])
-  await mockApi(page, 'GET', '/api/v1/mail/messages/10', { ...detail({ id: 10 }), seen: true })
+  const det = await mockApi(page, 'GET', '/api/v1/mail/messages/10', { ...detail({ id: 10 }), seen: true }, { capture: true })
+  return { counts, det }
 }
 
-test('모바일 상세 바의 안읽음 → 안읽음 API 후 목록으로 복귀', async ({ authenticatedPage: page }) => {
-  await stubMail(page)
+test('모바일 상세 바의 안읽음 → 안읽음 API 후 목록으로 복귀, mail SSE 에도 상세 재조회 없음', async ({ authenticatedPage: page }) => {
+  const { counts, det } = await stubMail(page)
+  // 안읽음 뒤 서버 mail 변경 프레임이 와도 닫힌 상세는 재조회(markSeen)되지 않아야 한다(Review Focus 4).
+  const events = await mockGatedEvents(page)
   const unread = await mockApi(page, 'POST', '/api/v1/mail/messages/10/unread', null, { capture: true })
   await page.goto('/mail/1')
   // 터치 셸에는 hover 가 없어 행 전환 버튼을 렌더하지 않는다(R7).
@@ -31,10 +35,18 @@ test('모바일 상세 바의 안읽음 → 안읽음 API 후 목록으로 복�
   await expect(page.getByTestId('mail-mark-unread')).toHaveCount(0)
   const bar = page.getByTestId('mail-back')
   await expect(bar.getByTestId('mobile-mark-unread')).toHaveText('안읽음')
+  const before = det.requests.length
   await bar.getByTestId('mobile-mark-unread').click()
   await unread.waitForRequest()
   await expect(page.getByTestId('mail-detail')).toHaveCount(0)
   await expect(page.getByTestId('mail-list')).toBeVisible()
+  await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
+  // 완료 후 안 읽은 수 재조회가 끝난 뒤를 기준으로 프레임 처리 여부(안 읽은 수 재조회)를 확인한다.
+  await expect.poll(() => counts.requests.length).toBeGreaterThan(1)
+  const countsBefore = counts.requests.length
+  events.deliver(resourceChangedFrame({ resource: 'mail', op: 'updated', scopeType: 'USER', scopeId: 1, ids: [10], accountId: 1, messageId: 10, actorId: 99 }))
+  await expect.poll(() => counts.requests.length).toBeGreaterThan(countsBefore)
+  expect(det.requests.length).toBe(before)
   await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
 })
 
