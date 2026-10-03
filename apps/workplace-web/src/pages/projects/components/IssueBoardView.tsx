@@ -10,6 +10,7 @@ import { createContext, type ReactNode, useContext, useEffect, useState } from '
 import { Button } from '@/components/ui/button';
 import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { cn } from '@/lib/utils';
 
 import {
   type BoardColumnQuery,
@@ -132,8 +133,80 @@ function IssueBoardViewInner({
     updateStatus.mutate({ number: issueNumber, status: targetStatus });
   }
 
-  // 모바일 탭 — 사용자 상태 필터로 제외된 상태는 숨긴다(그 컬럼은 쿼리가 비활성이라 비어 보이기만 한다).
-  const tabColumns = columns.filter((c) => filters.statuses.length === 0 || filters.statuses.includes(c.status));
+  // 순차 로드 상태 문구(그룹 보드) — 데스크톱 BoardScroll footer(mt-3)와 모바일 탭 컬럼(gap 이 간격을 맡아 여백 없음)이 같은 마크업을 쓴다.
+  const groupFooter = (spacing: string) => (
+    <>
+      {groupHasNext && !groupNextError && (
+        <p className={cn('text-xs text-muted-foreground', spacing)} data-testid="board-loading-more">
+          나머지 이슈를 불러오는 중…
+        </p>
+      )}
+      {groupNextError && (
+        <p className={cn('text-xs text-destructive', spacing)} data-testid="board-load-error">
+          나머지 이슈를 불러오지 못했습니다.{' '}
+          <button type="button" className="underline" onClick={() => void fetchNextPage()}>
+            다시 시도
+          </button>
+        </p>
+      )}
+    </>
+  );
+
+  // 모바일 보드(WP-195) — 컬럼을 나란히 두지 않고 상태 탭 + 선택 상태 한 컬럼(전체 폭). DnD 없음(길게 누르기로 상태 변경).
+  // 그룹 보드는 선택 탭 안에 그룹 섹션을 쌓는다.
+  if (isMobile) {
+    // 탭 — 사용자 상태 필터로 제외된 상태는 숨긴다(그 컬럼은 쿼리가 비활성이라 비어 보이기만 한다).
+    // 그룹 보드는 전체 페이지 순차 로드 — 개수는 로드 건수 그대로(「+」 없음), 로드 중엔 pending 으로 기본 탭이 튀지 않게.
+    const toTab = (c: { status: string; label: string }): MobileBoardTab => {
+      const q = grouped ? undefined : columnQueries[c.status];
+      return {
+        status: c.status,
+        label: c.label,
+        count: byStatus[c.status]?.length ?? 0,
+        hasMore: !!q?.hasNextPage,
+        pending: grouped ? groupQuery.isPending : !!q?.isPending,
+      };
+    };
+    const tabs = columns
+      .filter((c) => filters.statuses.length === 0 || filters.statuses.includes(c.status))
+      .map(toTab);
+    return (
+      <>
+        <MobileBoard tabs={tabs}>
+          {(status, root) =>
+            grouped ? (
+              <MobileGroupedColumn
+                status={status}
+                issues={byStatus[status] ?? []}
+                groupBy={groupBy}
+                pending={groupQuery.isPending}
+                footer={groupFooter('')}
+                projectKey={projectKey}
+                cardTo={cardTo}
+                showType={showType}
+                onOpenCreate={onOpenCreate}
+                onLongPress={onCardLongPress}
+              />
+            ) : (
+              <BoardScrollRootContext.Provider value={root}>
+                <MobileStatusColumn
+                  status={status}
+                  issues={byStatus[status] ?? []}
+                  query={columnQueries[status]}
+                  projectKey={projectKey}
+                  cardTo={cardTo}
+                  showType={showType}
+                  onOpenCreate={onOpenCreate}
+                  onLongPress={onCardLongPress}
+                />
+              </BoardScrollRootContext.Provider>
+            )
+          }
+        </MobileBoard>
+        {cardActions.sheets}
+      </>
+    );
+  }
 
   // group 이 상태/없음이 아니면(담당자·우선순위) 동적 읽기전용 그룹 컬럼을 렌더한다.
   // 상태 그룹/그룹 없음은 기존 드래그-상태변경 보드를 그대로 유지한다 (#58).
@@ -142,110 +215,17 @@ function IssueBoardViewInner({
     // 팀(DEFAULT_COLUMNS=4상태)은 모든 상태가 허용돼 필터가 아무것도 제거하지 않아 출력이 byte-identical.
     const allowedStatuses = new Set(columns.map((c) => c.status));
     const visibleIssues = allIssues.filter((it) => allowedStatuses.has(it.status));
-    // 순차 로드 상태 문구 — 데스크톱 BoardScroll footer 와 모바일 탭 컬럼이 같은 마크업을 쓴다.
-    const groupFooter = (
-      <>
-        {groupHasNext && !groupNextError && (
-          <p className="text-xs text-muted-foreground mt-3" data-testid="board-loading-more">
-            나머지 이슈를 불러오는 중…
-          </p>
-        )}
-        {groupNextError && (
-          <p className="text-xs text-destructive mt-3" data-testid="board-load-error">
-            나머지 이슈를 불러오지 못했습니다.{' '}
-            <button type="button" className="underline" onClick={() => void fetchNextPage()}>
-              다시 시도
-            </button>
-          </p>
-        )}
-      </>
-    );
-
-    // 모바일 그룹 보드(WP-195) — 상태 탭 + 선택 탭 안에 그룹 섹션(빈 그룹은 숨김). DnD 없음.
-    if (isMobile) {
-      // 그룹 보드는 전체 페이지 순차 로드 — 개수는 로드 건수 그대로(「+」 없음), 로드 중엔 pending 으로 기본 탭이 튀지 않게.
-      const tabs: MobileBoardTab[] = tabColumns.map((c) => ({
-        status: c.status,
-        label: c.label,
-        count: byStatus[c.status]?.length ?? 0,
-        hasMore: false,
-        pending: groupQuery.isPending,
-      }));
-      return (
-        <>
-          <MobileBoard tabs={tabs}>
-            {(status) => {
-              const statusIssues = byStatus[status] ?? [];
-              return (
-                <div className="flex flex-col gap-4">
-                  {groupIssues(statusIssues, groupBy)
-                    .filter((g) => g.issues.length > 0)
-                    .map((g) => (
-                      // 탭이 상태를 드러내므로 카드 showStatus 는 기본(끔) 그대로 둔다.
-                      <section key={g.key} aria-label={g.label} data-testid={`board-group-${status}-${g.key}`} className="flex flex-col gap-2">
-                        <h3 className="flex items-center gap-1.5 px-3 text-xs font-semibold text-muted-foreground">
-                          <span>{g.label}</span>
-                          <span>{g.issues.length}</span>
-                        </h3>
-                        {g.issues.map((it) => (
-                          <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled dragScope={`${status}-${g.key}`} onLongPress={onCardLongPress} />
-                        ))}
-                      </section>
-                    ))}
-                  {statusIssues.length === 0 && !groupQuery.isPending && (
-                    <MobileBoardEmpty status={status} onOpenCreate={onOpenCreate} />
-                  )}
-                  {/* 데스크톱 footer 의 mt-3 는 모바일 gap 과 겹치므로 래퍼로 상쇄 — footer 가 있을 때만 렌더(빈 래퍼가 gap 을 만들지 않게) */}
-                  {(groupHasNext || groupNextError) && <div className="-mt-3">{groupFooter}</div>}
-                </div>
-              );
-            }}
-          </MobileBoard>
-          {cardActions.sheets}
-        </>
-      );
-    }
-
     const groups = groupIssues(visibleIssues, groupBy);
     return (
       <>
       <BoardScroll
-        footer={groupFooter}
+        footer={groupFooter('mt-3')}
       >
         {groups.map((g) => (
           <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} onOpenCreate={onOpenCreate} dragDisabled={!canDragStatus} onLongPress={onCardLongPress} />
         ))}
       </BoardScroll>
       {cardActions.sheets}
-      </>
-    );
-  }
-
-  // 모바일 상태 보드(WP-195) — 컬럼 4개를 나란히 두지 않고 상태 탭 + 선택 상태 한 컬럼(전체 폭). DnD 없음(길게 누르기로 상태 변경).
-  if (isMobile) {
-    const tabs: MobileBoardTab[] = tabColumns.map((c) => {
-      const q = columnQueries[c.status];
-      return { status: c.status, label: c.label, count: byStatus[c.status]?.length ?? 0, hasMore: !!q?.hasNextPage, pending: !!q?.isPending };
-    });
-    return (
-      <>
-        <MobileBoard tabs={tabs}>
-          {(status, root) => (
-            <BoardScrollRootContext.Provider value={root}>
-              <MobileStatusColumn
-                status={status}
-                issues={byStatus[status] ?? []}
-                query={columnQueries[status]}
-                projectKey={projectKey}
-                cardTo={cardTo}
-                showType={showType}
-                onOpenCreate={onOpenCreate}
-                onLongPress={onCardLongPress}
-              />
-            </BoardScrollRootContext.Provider>
-          )}
-        </MobileBoard>
-        {cardActions.sheets}
       </>
     );
   }
@@ -469,6 +449,52 @@ function MobileStatusColumn({
       )}
       {query && <ColumnLoadMore status={status} query={query} />}
     </section>
+  );
+}
+
+// 모바일 그룹 보드 탭의 카드 목록(WP-195) — 선택 상태 안에 그룹 섹션(빈 그룹은 숨김). MobileStatusColumn 과 대칭, DnD 없음.
+function MobileGroupedColumn({
+  status,
+  issues,
+  groupBy,
+  pending,
+  footer,
+  projectKey,
+  cardTo,
+  showType,
+  onOpenCreate,
+  onLongPress,
+}: {
+  status: string;
+  issues: IssueResponse[];
+  groupBy: IssueClientGroupBy;
+  pending: boolean;
+  footer: ReactNode;
+  projectKey: string;
+  cardTo?: (issue: IssueResponse) => string;
+  showType: boolean;
+  onOpenCreate?: () => void;
+  onLongPress?: (issue: IssueResponse) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      {groupIssues(issues, groupBy)
+        .filter((g) => g.issues.length > 0)
+        .map((g) => (
+          // 탭이 상태를 드러내므로 카드 showStatus 는 기본(끔) 그대로 둔다.
+          <section key={g.key} aria-label={g.label} data-testid={`board-group-${status}-${g.key}`} className="flex flex-col gap-2">
+            <h3 className="flex items-center gap-1.5 px-3 text-xs font-semibold text-muted-foreground">
+              <span>{g.label}</span>
+              <span>{g.issues.length}</span>
+            </h3>
+            {g.issues.map((it) => (
+              <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled dragScope={`${status}-${g.key}`} onLongPress={onLongPress} />
+            ))}
+          </section>
+        ))}
+      {issues.length === 0 && !pending && <MobileBoardEmpty status={status} onOpenCreate={onOpenCreate} />}
+      {footer}
+    </div>
   );
 }
 

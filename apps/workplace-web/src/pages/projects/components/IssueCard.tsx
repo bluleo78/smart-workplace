@@ -52,6 +52,7 @@ export function IssueCard({
   onLongPress?: (issue: IssueResponse) => void;
 }) {
   const isMobile = useIsMobile();
+  const mobileBody = isMobile && !asOverlay;
   // 캡처 단계 click 억제 — 전면 오버레이 <Link> 이동까지 막는다. 모바일·콜백 있을 때만 활성.
   const press = useLongPressCapture(onLongPress ? { onLongPress: () => onLongPress(issue) } : {});
   const sortable = useSortable({
@@ -122,27 +123,9 @@ export function IssueCard({
         </span>
       )}
 
-      {isMobile && !asOverlay ? (
-        // 모바일 본문(WP-195) — 시안 B: 제목은 자기 줄에서 최대 2줄, 키·에픽·꼬리·담당자는 목록 행과 같은 메타 한 줄.
-        // 좁은 폭에서 「WP-/1047」 처럼 ID 가 꺾이던 문제를 메타 줄(nowrap)로 옮겨 없앤다. 차단 ⛔ 자리는 pr-5 로 비운다.
-        <>
-          <div className={`flex min-w-0 items-start gap-1.5${issue.blocked ? ' pr-5' : ''}`}>
-            {showStatus && <IssueStatusIcon status={issue.status} className="mt-0.5 h-4 w-4 shrink-0" />}
-            {showType && issue.type && (
-              <span className="mt-0.5 shrink-0">
-                <IssueTypeBadge type={issue.type} size="sm" iconOnly />
-              </span>
-            )}
-            <span
-              className="line-clamp-2 min-w-0 break-words font-medium leading-snug"
-              data-testid={`issue-card-${issue.number}-title`}
-            >
-              {issue.title}
-            </span>
-          </div>
-          <IssueMobileMeta issue={issue} projectKey={projectKey} testIdPrefix={`issue-card-${issue.number}`} className="mt-1.5" />
-        </>
-      ) : (
+      {/* 모바일 본문(WP-195) — 드래그 고스트(asOverlay)는 데스크톱 본문 그대로. */}
+      {mobileBody && <MobileCardBody issue={issue} projectKey={projectKey} showStatus={showStatus} showType={showType} />}
+      {!mobileBody && (
         <>
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1 font-medium">
@@ -243,5 +226,39 @@ export function IssueCard({
         />
       )}
     </div>
+  );
+}
+
+// 모바일 카드 본문(WP-195) — 시안 B: 제목은 자기 줄에서 최대 2줄, 키·에픽·꼬리·담당자는 목록 행과 같은 메타 한 줄.
+// 좁은 폭에서 「WP-/1047」 처럼 ID 가 꺾이던 문제를 메타 줄(nowrap)로 옮겨 없앤다. 차단 ⛔ 자리는 pr-5 로 비운다.
+function MobileCardBody({
+  issue,
+  projectKey,
+  showStatus,
+  showType,
+}: {
+  issue: IssueResponse;
+  projectKey: string;
+  showStatus: boolean;
+  showType: boolean;
+}) {
+  return (
+    <>
+      <div className={`flex min-w-0 items-start gap-1.5${issue.blocked ? ' pr-5' : ''}`}>
+        {showStatus && <IssueStatusIcon status={issue.status} className="mt-0.5 h-4 w-4 shrink-0" />}
+        {showType && issue.type && (
+          <span className="mt-0.5 shrink-0">
+            <IssueTypeBadge type={issue.type} size="sm" iconOnly />
+          </span>
+        )}
+        <span
+          className="line-clamp-2 min-w-0 break-words font-medium leading-snug"
+          data-testid={`issue-card-${issue.number}-title`}
+        >
+          {issue.title}
+        </span>
+      </div>
+      <IssueMobileMeta issue={issue} projectKey={projectKey} testIdPrefix={`issue-card-${issue.number}`} className="mt-1.5" />
+    </>
   );
 }

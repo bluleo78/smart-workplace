@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe';
 import { BOARD_TAB_PARAM, type BoardTabInfo, resolveBoardTab } from '@/lib/boardTabs';
+import { withBoardTab } from '@/lib/issueFilters';
 
 export type MobileBoardTab = BoardTabInfo & { label: string; hasMore: boolean };
 
@@ -15,21 +16,18 @@ export function MobileBoard({
   children,
 }: {
   tabs: MobileBoardTab[];
-  children: (status: string, root: Element | null) => ReactNode;
+  children: (status: string, root: Element) => ReactNode;
 }) {
   const [params, setParams] = useSearchParams();
   const active = resolveBoardTab(params.get(BOARD_TAB_PARAM), tabs);
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
 
   const select = (status: string) => {
-    setParams((prev) => {
-      const n = new URLSearchParams(prev);
-      n.set(BOARD_TAB_PARAM, status);
-      return n;
-    }, { replace: true });
+    setParams((prev) => withBoardTab(prev, status), { replace: true });
   };
   const swipe = useHorizontalSwipe((dir) => {
     const i = tabs.findIndex((t) => t.status === active);
+    if (i < 0) return;
     const next = tabs[i + (dir === 'next' ? 1 : -1)];
     if (next) select(next.status);
   });
@@ -40,10 +38,9 @@ export function MobileBoard({
   const urlTab = params.get(BOARD_TAB_PARAM);
   const settled = !tabs.some((t) => t.pending);
   useEffect(() => {
-    if (settled && active && urlTab !== active) select(active);
-    // select 는 매 렌더 새 함수 — 의도적으로 제외(urlTab/active/settled 변화에만 반응)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settled, active, urlTab]);
+    // urlTab === active 가드로 멱등 — 고정 후엔 다시 쓰지 않는다.
+    if (settled && active && urlTab !== active) setParams((prev) => withBoardTab(prev, active), { replace: true });
+  }, [settled, active, urlTab, setParams]);
 
   // 탭이 바뀌면 목록을 맨 위로 — 이전 탭의 스크롤 위치가 남아 sentinel 이 바로 보이거나 빈 화면처럼 보이지 않게.
   useEffect(() => {
@@ -83,7 +80,8 @@ export function MobileBoard({
         data-testid="board-scroll"
         {...swipe}
       >
-        {active && children(active, scrollEl)}
+        {/* 스크롤 루트가 잡힌 뒤에만 렌더 — 첫 렌더에 sentinel 관찰자가 viewport 를 root 로 잡지 않게. */}
+        {active && scrollEl && children(active, scrollEl)}
       </div>
     </div>
   );

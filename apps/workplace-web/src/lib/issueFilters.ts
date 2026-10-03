@@ -198,9 +198,17 @@ function csv(v: string | null): string[] {
  * 필터를 URL 로 다시 쓸 때 모바일 보드 선택 탭(boardTab)을 이어 붙인다(WP-195).
  * filtersToParams 는 필터·view·group 만으로 새 쿼리를 만들어 boardTab 을 버린다 → 필터를 바꿀 때마다 탭이 기본값으로 튄다.
  * 보드 뷰가 유지될 때만 보존하고, 목록으로 바뀌면 버린다(쓸모없는 키를 남기지 않게).
+ * 필터 URL 을 새로 쓰는 곳은 이 함수를 거쳐야 탭이 유지된다.
  */
 export function carryBoardTab(next: URLSearchParams, prev: URLSearchParams): URLSearchParams {
   const tab = prev.get(BOARD_TAB_PARAM);
   if (tab && next.get('view') === 'board') next.set(BOARD_TAB_PARAM, tab);
+  return next;
+}
+
+/** 현재 쿼리를 복사해 모바일 보드 선택 탭(boardTab)만 바꾼 새 쿼리 — 탭 선택·기본 탭 고정이 같이 쓴다(WP-195). */
+export function withBoardTab(prev: URLSearchParams, status: string): URLSearchParams {
+  const next = new URLSearchParams(prev);
+  next.set(BOARD_TAB_PARAM, status);
   return next;
 }
