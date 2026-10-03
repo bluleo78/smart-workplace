@@ -9,6 +9,7 @@ import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailSummaryResponse;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
+import com.workplace.mail.dto.MarkAllReadRequest;
 import com.workplace.mail.event.InlineContentIdBackfillRequestedEvent;
 import com.workplace.mail.event.MessagesSeenChangedEvent;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
@@ -16,7 +17,10 @@ import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import java.time.OffsetDateTime;
 import java.util.List;
+import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -39,6 +43,7 @@ public class MailMessageService {
   private final ApplicationEventPublisher eventPublisher;
   private final MailChangeNotifier notifier;
   private final AssistantResolver assistantResolver;
+  private final DSLContext dsl;
 
   /** WP-68: 첨부 행이 없는 인라인 전용 Graph 메일의 첨부 목록 즉시 적재. */
   private final MailInlineContentIdBackfiller inlineBackfiller;
@@ -58,6 +63,7 @@ public class MailMessageService {
       MailInlineContentIdBackfiller inlineBackfiller,
       MailChangeNotifier notifier,
       AssistantResolver assistantResolver,
+      DSLContext dsl,
       PlatformTransactionManager txManager) {
     this.accountRepo = accountRepo;
     this.messageRepo = messageRepo;
@@ -67,6 +73,7 @@ public class MailMessageService {
     this.inlineBackfiller = inlineBackfiller;
     this.notifier = notifier;
     this.assistantResolver = assistantResolver;
+    this.dsl = dsl;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -254,6 +261,74 @@ public class MailMessageService {
       publishSeenChanged(userId, changedAccountId, List.of(messageId));
     }
   }
+
+  /**
+   * WP-187 안읽음으로 표시 — markRead 와 대칭. 본인 메일이 아니면 404, 이미 안 읽음이면 아무것도 하지 않는다(멱등 — 알림·역동기화 없음). 바뀐
+   * 경우에만 열린 웹 탭이 목록·카운트를 갱신하도록 mailChanged 를 같은 트랜잭션에서 보내고, 커밋 후 원본 서버 반영 이벤트를 발행한다.
+   */
+  public void markUnread(long userId, long messageId) {
+    Long changedAccountId =
+        txTemplate.execute(
+            status -> {
+              BodyTarget target =
+                  messageRepo
+                      .findBodyTargetForUser(userId, messageId)
+                      .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
+              if (messageRepo.markUnseen(messageId) <= 0) {
+                return null;
+              }
+              notifier.mailChanged(userId, target.accountId(), messageId, userId);
+              return target.accountId();
+            });
+    if (changedAccountId != null) {
+      publishSeenChanged(userId, changedAccountId, List.of(messageId));
+    }
+  }
+
+  /**
+   * WP-187 모두 읽음 확인용 — 지금 보기의 안 읽은 메일 수와 기준 시각 asOf. asOf 는 앱 서버가 아니라 DB 시각(같은 트랜잭션의 now())으로 정한다:
+   * 경계 비교 대상인 created_at 이 DB 시각이라 시계 오차가 끼지 않게 하려는 것이며, 클라이언트는 이 값을 실행 요청에 그대로 되돌려 보낸다.
+   */
+  @Transactional(readOnly = true)
+  public UnreadInView unreadCountInView(
+      long userId, long accountId, String category, boolean needsReply, String query) {
+    accountRepo
+        .findByIdAndUser(userId, accountId)
+        .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
+    OffsetDateTime asOf = dsl.select(DSL.currentOffsetDateTime()).fetchOne(0, OffsetDateTime.class);
+    return new UnreadInView(
+        messageRepo.countUnreadInView(accountId, category, needsReply, query, asOf), asOf);
+  }
+
+  /**
+   * WP-187 모두 읽음 — 한 트랜잭션에서 갱신 + 변경이 있을 때만 계정 단위 변경 알림 1회, 커밋 후 일괄 역동기화 이벤트 1건. asOf 가 없으면 현재 DB
+   * 시각을 쓴다(그 경우 확인 이후 도착분도 포함될 수 있으나 클라이언트는 항상 asOf 를 보낸다).
+   */
+  public int markAllRead(long userId, long accountId, MarkAllReadRequest req) {
+    List<Long> ids =
+        txTemplate.execute(
+            status -> {
+              accountRepo
+                  .findByIdAndUser(userId, accountId)
+                  .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
+              OffsetDateTime asOf =
+                  req.asOf() != null
+                      ? req.asOf()
+                      : dsl.select(DSL.currentOffsetDateTime()).fetchOne(0, OffsetDateTime.class);
+              List<Long> changed =
+                  messageRepo.markAllSeenInView(
+                      accountId, req.category(), req.needsReply(), req.query(), asOf);
+              if (!changed.isEmpty()) {
+                notifier.mailChanged(userId, accountId, null, userId);
+              }
+              return changed;
+            });
+    publishSeenChanged(userId, accountId, ids);
+    return ids.size();
+  }
+
+  /** WP-187 건수 응답 — 건수와 기준 시각(DB 시각). */
+  public record UnreadInView(long count, OffsetDateTime asOf) {}
 
   /**
    * 역동기화 이벤트 발행 공용부(WP-187) — TenantContext 가 null 이면 내부 경로이므로 생략(방어적). 빈 목록은 발행하지 않는다. 목록은 비동기
