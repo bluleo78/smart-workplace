@@ -38,6 +38,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 읽음 역동기화 E2E 흐름 통합 테스트.
@@ -223,7 +224,7 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
     TenantContext.set(1L);
     messageService.get(seededUser, seededMessage, true);
     verify(graphApiClient, org.mockito.Mockito.timeout(5_000)).batch(eq("FAKE_TOKEN"), anyList());
-    // 리스너가 예외를 흡수하고 조각 트랜잭션 롤백까지 끝낼 때까지 — 실행기가 한가해지면 판정한다(고정 sleep 대신).
+    // 리스너가 예외를 흡수하고 디스패치를 끝낼 때까지 — 실행기가 한가해지면 판정한다(고정 sleep 대신).
     ThreadPoolTaskExecutor exec = (ThreadPoolTaskExecutor) mailReadSyncExecutor;
     await().atMost(Duration.ofSeconds(5)).until(() -> exec.getActiveCount() == 0);
 
@@ -317,7 +318,7 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
     when(graphApiClient.batch(eq("FAKE_TOKEN"), anyList()))
         .thenAnswer(
             inv -> {
-              // 서버 호출 도중 사용자가 되돌림(조각 트랜잭션에 합류해 같은 tx 안에서 바뀐다 — 조건부 UPDATE 의미는 같다)
+              // 서버 호출 도중 사용자가 되돌림 — 원격 호출은 트랜잭션 밖이라(WP-215) 이 변경은 따로 커밋되고, 뒤의 조건부 해제가 0행이 된다
               cleanupInTenant(1L, () -> messageRepo.markUnseen(seededMessage));
               return List.of(new GraphBatchResponse(String.valueOf(seededMessage), 200));
             });
@@ -350,6 +351,59 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
 
     org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isFalse();
     org.assertj.core.api.Assertions.assertThat(pushPending(other)).isTrue();
+  }
+
+  /** WP-215: 원격 호출(Graph $batch) 동안 DB 트랜잭션을 잡지 않고, 조각이 여러 개(201통 = 2조각)여도 토큰은 디스패치당 한 번만 받는다. */
+  @Test
+  void dispatch_remoteCallsOutsideTransaction_tokenOncePerDispatch() throws Exception {
+    setSessionGuc(1L);
+    seededUser = TestFixtures.createHuman(dsl);
+    seededAccount = MailTestSupport.seedGraphAccount(dsl, seededUser);
+    seededMessage = MailTestSupport.seedUnseenGraphMessage(dsl, seededAccount, "AAGRAPHID_T0");
+    List<Long> ids = new ArrayList<>();
+    for (int i = 1; i <= 201; i++) {
+      ids.add(insertPendingGraphMessage("AAGRAPHID_T" + i));
+    }
+    when(graphTokenService.getAccessToken(seededUser, seededAccount)).thenReturn("FAKE_TOKEN");
+    java.util.concurrent.atomic.AtomicBoolean calledInTx =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    when(graphApiClient.batch(eq("FAKE_TOKEN"), anyList()))
+        .thenAnswer(
+            inv -> {
+              if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                calledInTx.set(true);
+              }
+              List<GraphBatchRequest> reqs = inv.getArgument(1);
+              return reqs.stream().map(rq -> new GraphBatchResponse(rq.id(), 200)).toList();
+            });
+
+    TenantContext.set(1L);
+    dispatcher.dispatch(new MessagesSeenChangedEvent(1L, seededUser, seededAccount, ids));
+
+    org.assertj.core.api.Assertions.assertThat(calledInTx.get()).isFalse();
+    verify(graphTokenService, org.mockito.Mockito.times(1))
+        .getAccessToken(seededUser, seededAccount);
+    org.assertj.core.api.Assertions.assertThat(ids)
+        .allSatisfy(id -> org.assertj.core.api.Assertions.assertThat(pushPending(id)).isFalse());
+  }
+
+  /** WP-215: 토큰 조회가 실패하면 원격 호출 없이 중단하고 대기 표시를 유지한다 — 예외가 리스너 밖으로 새지 않는다. */
+  @Test
+  void dispatch_openFails_keepsPending_withoutRemoteCall() throws Exception {
+    setSessionGuc(1L);
+    seededUser = TestFixtures.createHuman(dsl);
+    seededAccount = MailTestSupport.seedGraphAccount(dsl, seededUser);
+    seededMessage = MailTestSupport.seedUnseenGraphMessage(dsl, seededAccount, "AAGRAPHID_OPEN");
+    TenantContext.set(1L);
+    cleanupInTenant(1L, () -> messageRepo.markSeen(seededMessage));
+    when(graphTokenService.getAccessToken(seededUser, seededAccount))
+        .thenThrow(new IllegalStateException("token revoked"));
+
+    dispatcher.dispatch(
+        new MessagesSeenChangedEvent(1L, seededUser, seededAccount, List.of(seededMessage)));
+
+    org.mockito.Mockito.verifyNoInteractions(graphApiClient);
+    org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isTrue();
   }
 
   /** WP-187(R2): 조각마다 트랜잭션이 따로라, 두 번째 조각(201번째 메일)에서 처리기가 예외를 던져도 첫 조각 200통의 대기 해제는 커밋된 채 남는다. */

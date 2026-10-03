@@ -124,7 +124,10 @@ export async function markAllRead(accountId: number, body: MailViewScope & { asO
 
 /** 메시지 단건 상세(본문 + 첨부 메타). */
 export async function getMessage(messageId: number): Promise<EmailMessageDetail> {
-  const { data } = await client.get<EmailMessageDetail>(`/mail/messages/${messageId}`);
+  // WP-214: 조회는 읽음 처리하지 않는다(markSeen=false) — 재조회마다 다시 읽음이 되지 않게, 첫 열람만 markMessageRead 로 따로 보낸다.
+  const { data } = await client.get<EmailMessageDetail>(`/mail/messages/${messageId}`, {
+    params: { markSeen: false },
+  });
   return data;
 }
 

@@ -717,26 +717,23 @@ test.describe('받은편지함', () => {
     authenticatedPage: page,
   }) => {
     // 회귀(#181): 메일 클릭 후 본문 열람 시 목록의 해당 항목이 굵음(font-semibold) 상태 유지.
-    // 수정: GET /messages/{id} 응답에 seen=true 포함 + 프론트 캐시 낙관적 업데이트.
+    // WP-214: 상세 조회는 읽음 처리하지 않고(markSeen=false → seen=false 그대로 응답), 열 때 POST /read 를 따로 보내며 목록을 낙관적으로 갱신한다.
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
     await stubMessages(page) // 행 10: seen=false(굵음), 행 11: seen=true
 
-    // seen=true 로 응답하는 상세 모킹 (백엔드가 읽음 처리 후 seen=true 반환)
-    await mockApi(
-      page,
-      'GET',
-      '/api/v1/mail/messages/10',
-      { ...detail(), seen: true }, // 백엔드가 seen=true 로 마킹해 반환
-    )
+    // 상세는 지금 서버 상태(안 읽음) 그대로 응답한다 — 읽음 요청은 별도 POST 로 캡처한다.
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
+    const read = await mockApi(page, 'POST', '/api/v1/mail/messages/10/read', null, { capture: true })
 
     await page.goto('/mail/1')
 
     // 클릭 전: 행 10 이 font-semibold(미읽음 bold) 상태
     await expect(page.getByTestId('mail-row-10').locator('.font-semibold')).toBeVisible()
 
-    // 메일 클릭 → 상세 조회 → 목록 캐시 seen=true 로 업데이트
+    // 메일 클릭 → 상세 조회 → 읽음 요청 + 목록 캐시 seen=true 로 업데이트
     await page.getByTestId('mail-row-10').click()
     await expect(page.getByTestId('mail-detail')).toBeVisible()
+    await read.waitForRequest()
 
     // 열람 후: 행 10 의 font-semibold 가 사라져야 함(읽음 처리)
     await expect(page.getByTestId('mail-row-10').locator('.font-semibold')).toHaveCount(0)
@@ -748,7 +745,7 @@ test.describe('받은편지함', () => {
   }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
     await stubMessages(page) // 행 10: seen=false, 행 11: seen=true
-    await mockApi(page, 'GET', '/api/v1/mail/messages/10', { ...detail(), seen: true })
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail()) // WP-214: 조회는 읽음 처리하지 않아 안 읽음 그대로 응답
 
     await page.goto('/mail/1')
 
@@ -812,7 +809,7 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
       listCalls++
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opened ? [summary({ id: 11 })] : [summary({ id: 10 }), summary({ id: 11 })]) })
     })
-    await mockApi(page, 'GET', '/api/v1/mail/messages/10', { ...detail(), seen: true })
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail()) // WP-214: 조회는 읽음 처리하지 않아 안 읽음 그대로 응답
     await page.clock.install()
     await page.goto('/mail/1?unread=true')
     await page.getByTestId('mail-row-10').click()
@@ -836,7 +833,7 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
       const body = unread && opened ? [summary({ id: 11 })] : [summary({ id: 10 }), summary({ id: 11 })]
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
     })
-    await mockApi(page, 'GET', '/api/v1/mail/messages/10', { ...detail(), seen: true })
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail()) // WP-214: 조회는 읽음 처리하지 않아 안 읽음 그대로 응답
     await page.clock.install()
     await page.goto('/mail/1?unread=true')
     await page.getByTestId('mail-row-10').click()

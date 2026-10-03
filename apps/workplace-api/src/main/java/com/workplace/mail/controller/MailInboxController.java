@@ -89,7 +89,8 @@ public class MailInboxController {
   /**
    * 메시지 단건 상세(본문 + 첨부 메타). 본문 미적재면 OnDemand 로 적재 후 반환.
    *
-   * <p>markSeen 기본 true(웹 열람). false 는 AI 조회용으로 읽음 처리를 생략한다(WP-147, 서비스 Javadoc 참조).
+   * <p>markSeen 기본 true(구 클라이언트 호환). false 는 읽음 처리를 생략한다 — AI 조회(WP-147)와, 재조회마다 읽음 처리되지 않도록 첫 열람만
+   * {@code POST /messages/{id}/read} 로 따로 보내는 웹(WP-214)이 쓴다.
    */
   @GetMapping("/messages/{messageId}")
   public EmailMessageDetail message(

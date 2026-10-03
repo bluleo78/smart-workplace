@@ -17,6 +17,7 @@ import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
+import { useMarkReadOnOpen } from '@/hooks/useMarkReadOnOpen'
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
 import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
@@ -34,13 +35,13 @@ import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDial
 import { mailMessageKeys } from '../../hooks/queries/mailMessageKeys'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
-  syncReadCaches,
   useGenerateMailSummary,
   useInlineMailHtml,
   useIssueDraft,
   useLinkedIssue,
   useMailMessage,
   useMailMessages,
+  useMailMessageSeen,
   useMailMessageSubject,
   useMailSummary,
   useMarkAllRead,
@@ -602,7 +603,7 @@ export function MailInboxPage() {
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
   // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
   const keepKey = `${accountId ?? ''}|${search}|${view.key}`
-  // 선택한 행의 스냅샷(읽음 처리본)을 선택 시점에 보관 — 서버가 읽음으로 빼도 mergeKeptRows 가 그대로 되살린다.
+  // 연 행의 스냅샷(읽음 처리본)을 읽음 처리 시점에 보관 — 서버가 읽음으로 빼도 mergeKeptRows 가 그대로 되살린다(applyToggle).
   const [kept, setKept] = useState<{ key: string; rows: Map<number, EmailMessageSummary> }>({ key: keepKey, rows: new Map() })
   // 키가 바뀌면 렌더 중에 실제로 비운다(숨기기만 하면 같은 키로 돌아올 때 되살아난다).
   if (kept.key !== keepKey) setKept({ key: keepKey, rows: new Map() })
@@ -610,13 +611,6 @@ export function MailInboxPage() {
     () => mergeKeptRows(fetchedMessages, kept.key === keepKey ? kept.rows : undefined),
     [fetchedMessages, kept, keepKey],
   )
-  const selectRow = (id: number) => {
-    setSelectedId(id)
-    const row = fetchedMessages?.find((r) => r.id === id)
-    if (view.unreadOnly && row) {
-      setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, { ...row, seen: true }) }))
-    }
-  }
   // WP-187 읽음/안읽음 전환 — 새 훅은 모두 아래 !accountId 조기 return 보다 앞에 둔다(훅 순서).
   const toggleRead = useToggleRead()
   // 터치 셸에는 hover 가 없어 행 전환 버튼을 렌더하지 않는다.
@@ -647,17 +641,34 @@ export function MailInboxPage() {
       },
     )
   }
+  // WP-214 첫 열람 읽음 처리 — 상세 조회는 읽음 처리하지 않으므로 안 읽은 메일을 열 때 한 번만 읽음 요청을 보낸다(판정 규칙은 훅 주석).
+  // applyToggle 이라 "안 읽은 메일만" 보기에서도 연 행이 유지 집합에 들어가 재조회로 사라지지 않는다. 이미 읽음으로 보이던 행도
+  // 그 보기에서 열었다면 보기·토글을 바꾸기 전까지 유지한다(WP-186).
+  const openedDetail = useMailMessageSeen(selectedId)
+  useMarkReadOnOpen(
+    selectedId,
+    openedDetail.isFetching ? undefined : openedDetail.data,
+    (id, seen) => {
+      if (!seen) {
+        applyToggle(id, true)
+        return
+      }
+      const row = fetchedMessages?.find((r) => r.id === id)
+      if (view.unreadOnly && row) {
+        setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, row) }))
+      }
+    },
+  )
   /**
-   * 안읽음으로 표시 + 상세 닫기 — 먼저 선택을 풀어 상세 쿼리를 비활성으로 만든다.
-   * 열린 상세가 메일 변경 이벤트로 무효화되면 GET /messages/{id}(markSeen) 재조회로 다시 읽음 처리되기 때문(R5).
+   * 상세의 "안읽음으로 표시" — 안읽음 처리 후 상세를 닫고 목록으로 돌아간다(스펙 §C 상세 동작).
+   * 목록 행·작업 시트의 전환은 열린 메일이어도 상세를 그대로 둔다(조회가 읽음 처리하지 않으므로 닫을 필요가 없다, WP-214).
    */
   const markUnreadAndClose = (id: number) => {
     setSelectedId(null)
     applyToggle(id, false)
   }
-  // 행 버튼·작업 시트 공통 읽음 전환 — 열린 메일을 안읽음으로 바꿀 때만 상세도 닫는다(R5).
-  const toggleRow = (m: EmailMessageSummary) =>
-    m.seen && m.id === selectedId ? markUnreadAndClose(m.id) : applyToggle(m.id, !m.seen)
+  // 행 버튼·작업 시트 공통 읽음 전환.
+  const toggleRow = (m: EmailMessageSummary) => applyToggle(m.id, !m.seen)
   // WP-187 모두 읽음 — 버튼 → 건수 조회(+asOf) → 확인 다이얼로그 → 실행.
   // asOf 는 서버(DB 시계)가 준 문자열을 그대로 되돌려 보낸다 — 확인 뒤 새로 들어온 메일은 읽음 처리하지 않게.
   const markAll = useMarkAllRead(accountIdNum)
@@ -735,21 +746,21 @@ export function MailInboxPage() {
   const sheetMessages = messages ?? EMPTY_MESSAGES
   const sheet = useMessageSheet(sheetMessages)
   const longPress = useMessageListLongPress(touchShell, (id) => sheetMessages.some((m) => m.id === id), sheet.show)
-  // 답장·전달·AI 이슈 초안은 본문이 필요하다 — 상세를 받아(서버에서 열람 처리돼 읽음) 기존 핸들러로 넘긴다.
-  // 상세 성공 effect 와 같은 syncReadCaches 로 목록 캐시를 읽음으로 맞추고 안 읽은 수·홈 요약을 다시 받는다(F21).
+  // 답장·전달·AI 이슈 초안은 본문이 필요하다 — 상세를 받아 기존 핸들러로 넘긴다. 상세 조회는 읽음 처리하지 않으므로(WP-214)
+  // 안 읽은 메일이면 여는 것과 같이 읽음 요청을 따로 보낸다(F21 — 목록·안 읽은 수·홈 요약 갱신은 applyToggle 이 맡는다).
   // 실패는 다른 메일 작업과 같이 토스트로 알린다(시트는 이미 닫혀 있다).
-  const withDetail = async (id: number, fn: (d: EmailMessageDetail) => void) => {
+  const withDetail = async (m: EmailMessageSummary, fn: (d: EmailMessageDetail) => void) => {
     let d: EmailMessageDetail
     try {
-      d = await qc.fetchQuery({ queryKey: mailMessageKeys.detail(id), queryFn: () => getMessage(id) })
+      d = await qc.fetchQuery({ queryKey: mailMessageKeys.detail(m.id), queryFn: () => getMessage(m.id) })
     } catch (e) {
       handleApiError(e, '메일을 불러오지 못했어요')
       return
     }
-    syncReadCaches(qc, id)
+    if (!m.seen) applyToggle(m.id, true)
     fn(d)
   }
-  // 시트 작업 — 첫 항목(읽음 전환)이 primary. 열린 메일을 안읽음으로 바꿀 때는 상세도 닫는다(R5).
+  // 시트 작업 — 첫 항목(읽음 전환)이 primary.
   const sheetActions = (m: EmailMessageSummary): MessageSheetAction[] => [
     {
       key: 'toggle-read',
@@ -758,10 +769,10 @@ export function MailInboxPage() {
       primary: true,
       onSelect: () => toggleRow(m),
     },
-    { key: 'reply', label: '답장', icon: <Reply />, onSelect: () => void withDetail(m.id, onReply) },
-    { key: 'forward', label: '전달', icon: <Forward />, onSelect: () => void withDetail(m.id, onForward) },
+    { key: 'reply', label: '답장', icon: <Reply />, onSelect: () => void withDetail(m, onReply) },
+    { key: 'forward', label: '전달', icon: <Forward />, onSelect: () => void withDetail(m, onForward) },
     ...(aiAvailable && aiEnabled
-      ? [{ key: 'ai-issue', label: 'AI 이슈 초안', icon: <Sparkles />, onSelect: () => void withDetail(m.id, onAiIssue) }]
+      ? [{ key: 'ai-issue', label: 'AI 이슈 초안', icon: <Sparkles />, onSelect: () => void withDetail(m, onAiIssue) }]
       : []),
   ]
 
@@ -1111,10 +1122,10 @@ export function MailInboxPage() {
                   m={m}
                   // 길게 누르기 시트의 대상 행도 강조한다 — 촘촘한 목록에서 어느 메일에 대한 작업인지 보이게(M4).
                   active={selectedId === m.id || (sheet.open && sheet.target?.id === m.id)}
-                  onSelect={() => selectRow(m.id)}
+                  onSelect={() => setSelectedId(m.id)}
                   pendingVisible={view.kind !== 'sent' && classificationActive}
                   showToggle={!touchShell}
-                  // 열린 메일을 안읽음으로 바꾸면 상세도 닫는다(R5) — 그 외에는 상태만 뒤집는다.
+                  // 상태만 뒤집는다 — 열린 메일이어도 상세는 그대로 둔다(조회가 읽음 처리하지 않는다, WP-214).
                   onToggleRead={() => toggleRow(m)}
                 />
               ))}

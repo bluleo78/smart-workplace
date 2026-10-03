@@ -238,8 +238,8 @@ class MailReadActionsControllerTest extends IntegrationTestBase {
     assertThat(seenEvents().get(0).userId()).isEqualTo(box[0]);
     assertThat(mailChanges()).hasSize(1);
     assertThat(mailChanges().get(0).attrs()).containsEntry("accountId", box[1]);
-    assertThat(mailChanges().get(0).attrs())
-        .doesNotContainKey("messageId"); // 다른 탭의 열린 상세가 다시 읽음 처리하지 않게
+    // WP-214: 상세 조회가 더는 읽음 처리하지 않으므로 messageId 를 실어도 된다 — 열린 상세가 새 상태로 다시 받는다
+    assertThat(mailChanges().get(0).attrs()).containsEntry("messageId", id);
 
     // 이미 안 읽음 — 멱등이므로 추가 이벤트·알림 없음
     mvc.perform(post("/api/v1/mail/messages/{m}/unread", id).header("Authorization", token(box[0])))

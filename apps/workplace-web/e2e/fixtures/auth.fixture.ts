@@ -171,6 +171,13 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
   await mockApi(page, 'GET', '/api/v1/notifications', [])
   // 메일 모바일 탭바 '업무' 미읽음 배지 기본 스텁(WP-186) — 미스텁 시 dev 프록시로 누수된다. 스펙이 나중에 등록한 route 가 우선(LIFO).
   await mockApi(page, 'GET', '/api/v1/mail/unread-summary', { workUnread: 0 })
+  // WP-214: 메일을 열면 상세 조회와 별도로 읽음 요청(POST /mail/messages/{id}/read)이 나간다 — 미스텁 시 dev 프록시로 누수되고
+  // 실패 롤백(행이 다시 안 읽음 + 오류 토스트)이 메일 상세를 여는 모든 스펙을 흔든다. 읽음 요청을 검증하는 스펙은 나중에 등록(LIFO 우선).
+  await page.route(
+    (url) => /^\/api\/v1\/mail\/messages\/\d+\/(read|unread)$/.test(url.pathname),
+    (route) =>
+      route.request().method() === 'POST' ? route.fulfill({ status: 204, body: '' }) : route.fallback(),
+  )
   // 통합 SSE 단일 스트림 (#506): /api/v1/events 가 chat·messaging·notify 모두 대체.
   // 미스텁 시 백엔드 프록시로 누수되며, 백엔드 부재 시 503 재연결이 페이지 네비게이션과 레이스를
   // 일으켜(page.goto ERR_ABORTED/frame detached) 상세→목록 이동 테스트가 타임아웃된다.

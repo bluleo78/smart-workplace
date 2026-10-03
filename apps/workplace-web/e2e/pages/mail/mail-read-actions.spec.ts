@@ -1,4 +1,4 @@
-// 메일 읽음 조작(WP-187) — 데스크톱 행 hover 토글·상세 안읽음.
+// 메일 읽음 조작(WP-187) — 데스크톱 행 hover 토글·상세 안읽음. WP-214: 첫 열람 읽음 요청(상세 조회는 markSeen=false).
 import type { Page } from '@playwright/test'
 
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
@@ -65,55 +65,91 @@ test.describe('메일 읽음 조작 — 데스크톱(WP-187)', () => {
     await expect(page.getByTestId('mail-detail')).toHaveCount(0)
   })
 
-  test('상세 안읽음 → API 후 상세 닫힘, 상세 재조회 없음', async ({ authenticatedPage: page }) => {
+  test('메일을 열면 상세 조회는 읽음 처리 없이(markSeen=false), 읽음 요청은 한 번만 따로 보낸다(WP-214)', async ({ authenticatedPage: page }) => {
     const { counts } = await stub(page)
-    // 서버의 mail 변경 SSE 를 화면 준비 뒤에 흘려보낸다 — 열린 상세였다면 이 프레임이 GET /messages/10(markSeen) 재조회를 부른다(Review Focus 4).
-    const events = await mockGatedEvents(page)
-    const det = await mockApi(page, 'GET', '/api/v1/mail/messages/10', { ...detail({ id: 10 }), seen: true }, { capture: true })
+    const det = await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail({ id: 10 }), { capture: true })
+    const read = await mockApi(page, 'POST', '/api/v1/mail/messages/10/read', null, { capture: true })
+    await page.goto('/mail/1')
+    await counts.waitForRequest()
+    const before = counts.requests.length
+    await page.getByTestId('mail-row-10').click()
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
+    await read.waitForRequest()
+    expect(det.requests[0].searchParams.get('markSeen')).toBe('false')
+    await expect(page.getByTestId('mail-unread-bar-10')).toHaveCount(0)
+    // 읽음 요청이 끝난 뒤 안 읽은 수를 다시 받는다.
+    await expect.poll(() => counts.requests.length).toBeGreaterThan(before)
+    expect(read.requests).toHaveLength(1)
+  })
+
+  test('이미 읽은 메일을 열면 읽음 요청을 보내지 않는다(WP-214)', async ({ authenticatedPage: page }) => {
+    await stub(page)
+    await mockApi(page, 'GET', '/api/v1/mail/messages/11', { ...detail({ id: 11 }), seen: true })
+    const read = await mockApi(page, 'POST', '/api/v1/mail/messages/11/read', null, { capture: true })
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-11').click()
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
+    // 상세가 그려진 뒤 짧게 기다려도 요청이 없다(첫 열람 판정은 목록 행 seen 으로 즉시 끝난다).
+    await page.waitForTimeout(300)
+    expect(read.requests).toHaveLength(0)
+  })
+
+  test('목록에 없는 메일 딥링크 — 상세가 안 읽음이면 읽음 요청을 보낸다(WP-214)', async ({ authenticatedPage: page }) => {
+    await stub(page)
+    await mockApi(page, 'GET', '/api/v1/mail/messages/12', detail({ id: 12 }))
+    const read = await mockApi(page, 'POST', '/api/v1/mail/messages/12/read', null, { capture: true })
+    await page.goto('/mail/1?messageId=12')
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
+    await read.waitForRequest()
+    expect(read.requests).toHaveLength(1)
+  })
+
+  test('상세 안읽음 → API 후 상세 닫힘, 다시 열면 다시 읽음 요청(WP-214)', async ({ authenticatedPage: page }) => {
+    await stub(page)
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail({ id: 10 }))
+    const read = await mockApi(page, 'POST', '/api/v1/mail/messages/10/read', null, { capture: true })
     const unread = await mockApi(page, 'POST', '/api/v1/mail/messages/10/unread', null, { capture: true })
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-10').click()
     await expect(page.getByTestId('mail-detail')).toBeVisible()
-    // 열람으로 읽음 처리된 뒤에 누른다.
+    await read.waitForRequest()
     await expect(page.getByTestId('mail-unread-bar-10')).toHaveCount(0)
-    const before = det.requests.length
     await page.getByTestId('mail-mark-unread').click()
     await unread.waitForRequest()
     await expect(page.getByTestId('mail-detail')).toHaveCount(0)
     await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
-    // 완료 후 안 읽은 수 재조회(F25)가 끝난 뒤의 요청 수를 기준으로, SSE 프레임 처리 여부를 확인한다.
-    await expect.poll(() => counts.requests.length).toBeGreaterThan(1)
-    const countsBefore = counts.requests.length
-    // 서버가 안읽음 처리 뒤 보내는 mail 변경 프레임(messageId 포함 → detail(10) 무효화 대상).
-    events.deliver(resourceChangedFrame({ resource: 'mail', op: 'updated', scopeType: 'USER', scopeId: 1, ids: [10], accountId: 1, messageId: 10, actorId: 99 }))
-    // 프레임이 처리됐다는 증거 — 같은 프레임이 무효화하는 안 읽은 수가 다시 조회된다.
-    await expect.poll(() => counts.requests.length).toBeGreaterThan(countsBefore)
-    // 선택 해제로 상세 쿼리가 비활성이라, 무효화돼도 상세(markSeen) 재조회가 없다 — 안읽음이 다시 읽음으로 뒤집히지 않는다.
-    expect(det.requests.length).toBe(before)
-    await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
+    // 다시 열면 상세 캐시와 무관하게 목록 행(안 읽음) 기준으로 다시 읽음 요청을 보낸다.
+    await page.getByTestId('mail-row-10').click()
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
+    await expect.poll(() => read.requests.length).toBe(2)
+    await expect(page.getByTestId('mail-unread-bar-10')).toHaveCount(0)
   })
 
-  test('열린 메일을 hover 토글로 안읽음 → 상세도 닫힘(R5)', async ({ authenticatedPage: page }) => {
+  test('열린 메일을 hover 토글로 안읽음 → 상세는 열린 채, 변경 알림으로 상세를 다시 받아도 다시 읽음 처리하지 않는다(WP-214)', async ({ authenticatedPage: page }) => {
     const { counts } = await stub(page)
     const events = await mockGatedEvents(page)
-    const det = await mockApi(page, 'GET', '/api/v1/mail/messages/10', { ...detail({ id: 10 }), seen: true }, { capture: true })
+    const det = await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail({ id: 10 }), { capture: true })
+    const read = await mockApi(page, 'POST', '/api/v1/mail/messages/10/read', null, { capture: true })
     const unread = await mockApi(page, 'POST', '/api/v1/mail/messages/10/unread', null, { capture: true })
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-10').click()
     await expect(page.getByTestId('mail-detail')).toBeVisible()
+    await read.waitForRequest()
     await expect(page.getByTestId('mail-unread-bar-10')).toHaveCount(0)
-    const before = det.requests.length
     await page.getByTestId('mail-row-10').hover()
     await expect(page.getByTestId('mail-row-toggle-read-10')).toHaveAttribute('aria-label', '안 읽음으로 표시')
     await page.getByTestId('mail-row-toggle-read-10').click()
     await unread.waitForRequest()
-    await expect(page.getByTestId('mail-detail')).toHaveCount(0)
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
     await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
     await expect.poll(() => counts.requests.length).toBeGreaterThan(1)
-    const countsBefore = counts.requests.length
+    const detBefore = det.requests.length
+    // 서버가 안읽음 처리 뒤 보내는 mail 변경 프레임(messageId 포함 → 열린 상세를 다시 받는다).
     events.deliver(resourceChangedFrame({ resource: 'mail', op: 'updated', scopeType: 'USER', scopeId: 1, ids: [10], accountId: 1, messageId: 10, actorId: 99 }))
-    await expect.poll(() => counts.requests.length).toBeGreaterThan(countsBefore)
-    expect(det.requests.length).toBe(before)
+    await expect.poll(() => det.requests.length).toBeGreaterThan(detBefore)
+    // 재조회는 읽음 처리하지 않고(markSeen=false), 같은 메일이 열려 있는 동안 읽음 요청도 다시 보내지 않는다.
+    expect(det.requests.at(-1)?.searchParams.get('markSeen')).toBe('false')
+    expect(read.requests).toHaveLength(1)
     await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
   })
 
@@ -269,7 +305,8 @@ test.describe('메일 모두 읽음 — 데스크톱(WP-187)', () => {
       (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
       (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) }),
     )
-    await mockApi(page, 'GET', '/api/v1/mail/messages/10', { ...detail({ id: 10 }), seen: true })
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail({ id: 10 }))
+    await mockApi(page, 'POST', '/api/v1/mail/messages/10/read', null)
     await mockApi(page, 'POST', '/api/v1/mail/messages/10/unread', null)
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages/unread-count', { count: 1, asOf: AS_OF })
     const run = await mockApi(page, 'POST', '/api/v1/mail/accounts/1/messages/mark-all-read', { updated: 1 }, { capture: true })

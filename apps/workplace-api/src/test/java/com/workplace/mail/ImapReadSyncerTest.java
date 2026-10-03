@@ -5,6 +5,9 @@ import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
@@ -17,25 +20,31 @@ import com.workplace.mail.dto.SeenSyncResult;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.ImapConnector;
 import com.workplace.mail.service.ImapReadSyncer;
 import com.workplace.mail.service.MailBackfillService;
+import com.workplace.mail.service.MailReadSyncer;
 import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * WP-187 IMAP 역동기화 — 접속 1회에 UID 묶음으로 \Seen 켜기/끄기.
  *
- * <p><b>@Transactional 금지</b>: 동기화가 짧은 트랜잭션으로 커밋한 행을 그대로 쓰고, 처리기는 운영(디스패처 조각 트랜잭션)과 같이 {@code
+ * <p><b>@Transactional 금지</b>: 동기화가 짧은 트랜잭션으로 커밋한 행을 그대로 쓰고, 세션 열기는 운영(디스패처)과 같이 {@code
  * cleanupInTenant} 의 테넌트 트랜잭션 안에서 부른다 — 그래야 비밀번호 조회가 RLS 로 0행이 되는 회귀(#444)를 잡는다. 시드는
  * {@code @AfterEach} 에서 회수한다(ImapSeenSyncFailureTest 와 같은 구성).
  */
@@ -54,6 +63,9 @@ class ImapReadSyncerTest extends IntegrationTestBase {
   @Autowired MailSyncProgress progress;
   @Autowired EmailMessageRepository messageRepo;
   @Autowired ImapReadSyncer imapReadSyncer;
+
+  /** 접속 횟수·트랜잭션 밖 접속 확인용(WP-215) — 실제 접속은 그대로 한다. */
+  @MockitoSpyBean ImapConnector imapConnector;
 
   /** 비동기 본문 보충 차단 — 메타 적재만 결정적으로 본다. */
   @MockitoBean MailBackfillService backfillService;
@@ -84,7 +96,7 @@ class ImapReadSyncerTest extends IntegrationTestBase {
 
   @SuppressWarnings("unchecked")
   @Test
-  void setsAndClearsSeen_inOneConnection() throws Exception {
+  void setsAndClearsSeen_inOneConnection_acrossPushes() throws Exception {
     TenantContext.set(1L);
     seededUser = TestFixtures.createHuman(dsl);
     seededAccount = MailTestSupport.insertAccount(accountRepo, encryption, seededUser, false);
@@ -114,20 +126,34 @@ class ImapReadSyncerTest extends IntegrationTestBase {
     assertThat(MailTestPorts.isServerSeen("읽을 메일")).isFalse();
     assertThat(MailTestPorts.isServerSeen("되돌릴 메일")).isTrue();
 
-    // 운영처럼 테넌트 트랜잭션 안에서 호출 — 비밀번호를 실제로 읽어야 서버 상태가 바뀐다
-    SeenSyncResult[] box = new SeenSyncResult[1];
-    cleanupInTenant(
-        1L,
-        () -> {
-          try {
-            box[0] = imapReadSyncer.syncSeen(seededUser, account[0], items[0]);
-          } catch (Exception e) {
-            throw new RuntimeException(e);
-          }
-        });
+    // 운영(디스패처)처럼 세션은 테넌트 트랜잭션 안에서 연다 — 비밀번호를 실제로 읽어야 서버 상태가 바뀐다(#444).
+    // 반영(push)은 트랜잭션 밖에서 한다 — 원격 호출 동안 DB 커넥션을 잡지 않는다(WP-215).
+    MailReadSyncer.Session[] session = new MailReadSyncer.Session[1];
+    cleanupInTenant(1L, () -> session[0] = imapReadSyncer.open(seededUser, account[0]));
+    // 접속이 트랜잭션 밖에서 일어나는지 기록한다 — 위 동기화의 접속은 세지 않도록 기록을 비우고 시작
+    org.mockito.Mockito.clearInvocations(imapConnector);
+    boolean[] connectedInTx = {false};
+    org.mockito.Mockito.doAnswer(
+            inv -> {
+              connectedInTx[0] |= TransactionSynchronizationManager.isActualTransactionActive();
+              return inv.callRealMethod();
+            })
+        .when(imapConnector)
+        .connect(any(), any());
+    // 디스패처의 조각처럼 두 번 나눠 보낸다 — 같은 세션이면 접속·로그인은 한 번
+    Set<Long> succeeded = new HashSet<>();
+    try (MailReadSyncer.Session s = session[0]) {
+      SeenSyncResult first = s.push(items[0].subList(0, 1));
+      SeenSyncResult rest = s.push(items[0].subList(1, items[0].size()));
+      assertThat(first.stopped()).isFalse();
+      assertThat(rest.stopped()).isFalse();
+      succeeded.addAll(first.succeeded());
+      succeeded.addAll(rest.succeeded());
+    }
+    verify(imapConnector, times(1)).connect(any(), any());
+    assertThat(connectedInTx[0]).isFalse();
 
-    assertThat(box[0].succeeded()).containsExactlyInAnyOrder(ids[0], ids[1], ids[2]);
-    assertThat(box[0].stopped()).isFalse();
+    assertThat(succeeded).containsExactlyInAnyOrder(ids[0], ids[1], ids[2]);
     assertThat(MailTestPorts.isServerSeen("읽을 메일")).isTrue();
     assertThat(MailTestPorts.isServerSeen("되돌릴 메일")).isFalse();
   }
