@@ -9,14 +9,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.exception.IssueBodyImageLimitException;
 import com.workplace.issue.exception.IssueBodyImageRejectedException;
 import com.workplace.issue.repository.IssueBodyImageRepository;
+import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -38,6 +41,8 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
   @Autowired IssueBodyImageService service;
   @Autowired IssueBodyImageRepository repo;
   @Autowired ProjectService projectService;
+  @Autowired IssueAttachmentService attachmentService;
+  @Autowired IssueRepository issueRepository;
 
   /**
    * FilePathBuilder 가 TenantContext.get() 을 사용하므로 테스트 시작 전 테넌트를 설정. connection-init-sql 의
@@ -183,5 +188,50 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> service.upload(owner, p.key(), image("3.png", PNG)))
         .isInstanceOf(IssueBodyImageLimitException.class);
+  }
+
+  /** 저장 전 임시 이미지는 업로더 본인만 볼 수 있다 — id 추측으로 남의 작성 중 이미지를 보지 못하게. */
+  @Test
+  void pending_image_visible_only_to_uploader() {
+    Long owner = createUser("owner");
+    Long other = createUser("other");
+    ProjectResponse p = newOpenProject(owner, "GV");
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+
+    assertThat(service.load(owner, p.key(), fileId).mimeType()).isEqualTo("image/png");
+    assertThatThrownBy(() -> service.load(other, p.key(), fileId))
+        .isInstanceOf(AttachmentNotFoundException.class);
+  }
+
+  /** IDOR — 업로더 본인이어도 다른 프로젝트 키로는 열 수 없다(키는 권한 판정, 파일 소속은 매핑으로 따로 검증). */
+  @Test
+  void other_project_key_cannot_open_file_idor() {
+    Long owner = createUser("owner");
+    ProjectResponse a = newProject(owner, "GA");
+    ProjectResponse b = newOpenProject(owner, "GB");
+    long fileId = service.upload(owner, a.key(), image("a.png", PNG)).fileId();
+
+    assertThatThrownBy(() -> service.load(owner, b.key(), fileId))
+        .isInstanceOf(AttachmentNotFoundException.class);
+  }
+
+  /** 일반 이슈 첨부(issue_body_image 매핑 없음) id 로는 본문 이미지 API 로 열 수 없다. */
+  @Test
+  void non_image_file_id_is_not_served() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "GN");
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    Long attachmentFileId =
+        attachmentService
+            .upload(
+                owner,
+                p.key(),
+                1,
+                List.of(new MockMultipartFile("files", "x.png", "image/png", PNG)))
+            .get(0)
+            .fileId();
+
+    assertThatThrownBy(() -> service.load(owner, p.key(), attachmentFileId))
+        .isInstanceOf(AttachmentNotFoundException.class);
   }
 }

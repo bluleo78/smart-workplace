@@ -4,9 +4,11 @@ import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.file.api.ImageSniffer;
 import com.workplace.global.util.UnicodeNames;
 import com.workplace.issue.dto.IssueBodyImageResponse;
+import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.exception.IssueBodyImageLimitException;
 import com.workplace.issue.exception.IssueBodyImageRejectedException;
 import com.workplace.issue.repository.IssueBodyImageRepository;
+import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,6 +33,7 @@ public class IssueBodyImageService {
   private final ProjectAccessGuard accessGuard;
   private final IssueAttachmentStorage storage;
   private final IssueBodyImageRepository repo;
+  private final IssueRepository issueRepository;
   // 테넌트 쿼터 — 위키 본문 이미지(#759)와 같이 드라이브 쿼터·잠금을 공유한다.
   private final DriveQuotaService quota;
 
@@ -72,5 +75,27 @@ public class IssueBodyImageService {
             : "image";
     return new IssueBodyImageResponse(
         fileId, IssueBodyImageResponse.urlOf(project.key(), fileId), name, mime, file.getSize());
+  }
+
+  /**
+   * 본문 표시용 조회. 프로젝트 키로 조회 권한을 보고, 파일이 실제로 그 프로젝트의 이슈 이미지인지는 매핑으로 따로 확인한다 — 키만 보면 아무 OPEN 프로젝트 키를 붙여
+   * 다른 프로젝트 파일을 열 수 있다(IDOR). 존재 여부를 숨기려고 불일치는 모두 404 로 통일한다.
+   */
+  @Transactional(readOnly = true)
+  public IssueAttachmentStorage.StoredFile load(long callerId, String projectKey, long fileId) {
+    var project = accessGuard.assertReadable(projectKey, callerId);
+    var meta =
+        repo.findMeta(fileId)
+            // ProjectRow.id() 는 Long — 박싱 비교 오류를 피하려고 equals 사용.
+            .filter(m -> project.id().equals(m.projectId()))
+            .orElseThrow(() -> new AttachmentNotFoundException(fileId));
+    if (meta.issueId() == null) {
+      // 저장 전 임시 이미지는 올린 사람만 — 남의 작성 중 이미지를 id 추측으로 보지 못하게.
+      if (meta.uploadedBy() != callerId) throw new AttachmentNotFoundException(fileId);
+    } else if (issueRepository.findById(meta.issueId()).isEmpty()) {
+      // 삭제된 이슈의 이미지는 내리지 않는다.
+      throw new AttachmentNotFoundException(fileId);
+    }
+    return storage.load(fileId);
   }
 }

@@ -3,7 +3,14 @@ package com.workplace.issue.controller;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.dto.IssueBodyImageResponse;
 import com.workplace.issue.service.IssueBodyImageService;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -26,5 +33,23 @@ public class IssueBodyImageController {
       @PathVariable String key,
       @RequestParam("file") MultipartFile file) {
     return ResponseEntity.status(HttpStatus.CREATED).body(service.upload(callerId, key, file));
+  }
+
+  /**
+   * 본문 <img> 용이라 inline 으로 내려준다. 매직바이트 화이트리스트로 이미지만 저장되고 nosniff 는 SecurityConfig 가 전역 적용한다. 로그인
+   * 토큰이 Bearer 라 브라우저 <img> 는 직접 못 부르고 프론트가 axios blob 으로 받는다.
+   */
+  @GetMapping("/{fileId}")
+  @RequirePermission("project:read")
+  public ResponseEntity<Resource> content(
+      @AuthenticationPrincipal Long callerId, @PathVariable String key, @PathVariable long fileId) {
+    var f = service.load(callerId, key, fileId);
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.parseMediaType(f.mimeType()));
+    headers.setContentDisposition(
+        ContentDisposition.inline().filename(f.originalName(), StandardCharsets.UTF_8).build());
+    headers.setContentLength(f.sizeBytes());
+    headers.setCacheControl(CacheControl.maxAge(Duration.ofMinutes(5)).cachePrivate());
+    return ResponseEntity.ok().headers(headers).body(new FileSystemResource(f.path()));
   }
 }
