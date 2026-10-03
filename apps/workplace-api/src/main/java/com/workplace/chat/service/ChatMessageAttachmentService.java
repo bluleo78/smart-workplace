@@ -1,10 +1,8 @@
 package com.workplace.chat.service;
 
-import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.InvalidChatAttachmentException;
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.repository.ChatMessageRepository;
-import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.file.storage.FileStore;
 import java.io.IOException;
 import java.time.OffsetDateTime;
@@ -27,7 +25,6 @@ public class ChatMessageAttachmentService {
 
   private final ChatMessageAttachmentStorage storage;
   private final ChatMessageAttachmentRepository repo;
-  private final ChatThreadMemberRepository memberRepo;
   private final ChatMessageRepository messageRepo;
 
   /** 코어 파일 저장소 — 다운로드 시 상대경로를 절대경로로 복원. */
@@ -47,13 +44,11 @@ public class ChatMessageAttachmentService {
   public ChatMessageAttachmentService(
       ChatMessageAttachmentStorage storage,
       ChatMessageAttachmentRepository repo,
-      ChatThreadMemberRepository memberRepo,
       ChatMessageRepository messageRepo,
       FileStore fileStore,
       ChatThreadAccess threadAccess) {
     this.storage = storage;
     this.repo = repo;
-    this.memberRepo = memberRepo;
     this.messageRepo = messageRepo;
     this.fileStore = fileStore;
     this.threadAccess = threadAccess;
@@ -124,7 +119,7 @@ public class ChatMessageAttachmentService {
   }
 
   /**
-   * thread 멤버만 다운로드. 메시지-thread 정합성 + 멤버십 검증 후 저장 파일 정보 반환.
+   * 메시지를 읽을 수 있는 사용자만 다운로드. 메시지-thread 정합성 + 읽기 권한 검증 후 저장 파일 정보 반환.
    *
    * <p>STORAGE_PATH 는 상대경로이므로 FileStore.resolve() 로 절대경로를 복원한다. 컨트롤러가 path() 를 FileSystemResource 에
    * 그대로 넘기므로 절대경로여야 한다.
@@ -134,7 +129,8 @@ public class ChatMessageAttachmentService {
   @Transactional(readOnly = true)
   public ChatMessageAttachmentRepository.StoredFileRow download(
       long callerId, long threadId, long messageId, Long fileId) {
-    ensureMember(threadId, callerId);
+    // 메시지를 읽을 수 있는 사람(스레드 멤버·프로젝트 멤버·OPEN 열람자)은 그 첨부도 열 수 있다 — 목록과 같은 읽기 규칙(WP-213).
+    threadAccess.ensureCanRead(threadId, callerId);
     if (!messageRepo.belongsToThread(messageId, threadId)) {
       throw new InvalidChatAttachmentException();
     }
@@ -146,13 +142,6 @@ public class ChatMessageAttachmentService {
         row.originalName(),
         row.mimeType(),
         row.sizeBytes());
-  }
-
-  /** thread 멤버가 아니면 ChatThreadNotMemberException. */
-  private void ensureMember(long threadId, long userId) {
-    if (!memberRepo.isMember(threadId, userId)) {
-      throw new ChatThreadNotMemberException(threadId, userId);
-    }
   }
 
   /** 선업로드 응답 한 건. messageId 에 바인딩하기 전까지는 임시 상태. */

@@ -100,6 +100,28 @@ class ChatThreadWriteAccessTest extends IntegrationTestBase {
   }
 
   @Test
+  void projectMember_notInThread_canDownloadAttachment_andOutsiderCannot() throws Exception {
+    // 메시지를 읽을 수 있는 사람은 그 첨부도 열 수 있다 — 목록과 같은 읽기 규칙.
+    ChatFixtures.Setup s = fx.setup();
+    long threadId = threadWithLateProjectMember(s);
+    var file = new MockMultipartFile("files", "a.txt", "text/plain", "hello".getBytes());
+    long fileId = attachmentService.upload(s.reporterId(), threadId, List.of(file)).get(0).fileId();
+    var msg =
+        messageService.create(
+            s.reporterId(),
+            threadId,
+            new CreateChatMessageRequest("첨부", List.of(fileId), List.of()));
+
+    var row = attachmentService.download(s.outsiderId(), threadId, msg.id(), fileId);
+    assertThat(row.originalName()).isEqualTo("a.txt");
+
+    // 프로젝트에서 빼면(=읽기 권한 없음) 다운로드도 막힌다.
+    projectMemberRepo.delete(s.projectId(), s.outsiderId());
+    assertThatThrownBy(() -> attachmentService.download(s.outsiderId(), threadId, msg.id(), fileId))
+        .isInstanceOf(ChatThreadNotMemberException.class);
+  }
+
+  @Test
   void nonProjectMember_cannotPost_andIsNotJoined() {
     ChatFixtures.Setup s = fx.setup();
     var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());

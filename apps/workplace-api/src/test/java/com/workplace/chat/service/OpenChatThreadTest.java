@@ -11,10 +11,12 @@ import com.workplace.issue.service.IssueTypeService;
 import com.workplace.issue.service.OpenScenario;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
+import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -29,6 +31,7 @@ class OpenChatThreadTest extends IntegrationTestBase {
 
   @Autowired ChatThreadService threadService;
   @Autowired ChatMessageService messageService;
+  @Autowired ChatMessageAttachmentService attachmentService;
   @Autowired IssueTypeService issueTypeService;
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectIssueSequenceRepository sequenceRepository;
@@ -91,6 +94,24 @@ class OpenChatThreadTest extends IntegrationTestBase {
             s.reporterId(), thread.threadId(), new CreateChatMessageRequest("문의드립니다"));
     var page = messageService.list(s.strangerId(), thread.threadId(), null, 50);
     assertThat(page.items()).extracting(m -> m.id()).contains(msg.id());
+  }
+
+  /** stranger 도 읽을 수 있는 메시지의 첨부는 내려받을 수 있다(목록과 같은 읽기 규칙, WP-213). */
+  @Test
+  void open_stranger_can_download_attachment() throws Exception {
+    var s = openScenario();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+    var file = new MockMultipartFile("files", "a.txt", "text/plain", "hello".getBytes());
+    long fileId =
+        attachmentService.upload(s.reporterId(), thread.threadId(), List.of(file)).get(0).fileId();
+    var msg =
+        messageService.create(
+            s.reporterId(),
+            thread.threadId(),
+            new CreateChatMessageRequest("첨부", List.of(fileId), List.of()));
+
+    var row = attachmentService.download(s.strangerId(), thread.threadId(), msg.id(), fileId);
+    assertThat(row.originalName()).isEqualTo("a.txt");
   }
 
   /** stranger 는 스레드를 볼 수는 있으나 댓글 작성 권한이 없어 메시지 작성 불가. */
