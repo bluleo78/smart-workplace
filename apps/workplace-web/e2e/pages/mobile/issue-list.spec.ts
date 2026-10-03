@@ -72,6 +72,7 @@ test.describe('모바일 이슈 목록 2줄 행', () => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=epic`);
     await expect(page.getByTestId('list-group-epic-30')).toBeVisible();
+    await expect(page.getByTestId('issue-row-21')).toBeVisible(); // 양성 대조 — 행은 렌더됨
     await expect(page.getByTestId('issue-row-21-epic')).toHaveCount(0);
   });
 

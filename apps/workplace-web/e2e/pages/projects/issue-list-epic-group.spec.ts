@@ -89,8 +89,8 @@ test.describe('이슈 목록 에픽 그룹', () => {
 });
 
 test.describe('이슈 목록 데스크톱 에픽 칩', () => {
-  test('긴 제목 + 긴 에픽명이어도 칩이 줄어들어 제목은 최소 폭(8rem)을 지킨다', async ({ authenticatedPage: page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+  test('긴 제목 + 긴 에픽명이어도 칩은 줄어들 수 있고 제목은 최소 폭(8rem)을 지킨다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1024, height: 800 });
     await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, createProject());
     await mockApi(page, 'GET', `/api/v1/projects/${KEY}/members`, []);
     await mockApi(page, 'GET', `/api/v1/projects/${KEY}/saved-views`, []);
@@ -99,6 +99,8 @@ test.describe('이슈 목록 데스크톱 에픽 칩', () => {
       number: 21,
       title: '결제 모듈에서 환불 처리 시 간헐적으로 실패하는 문제의 원인을 분석하고 재시도 로직을 보강한다 — 운영 로그 기준 재현',
       parent: epic(30, '결제 안정화 및 운영 모니터링 체계 정비 (2026 하반기 핵심 과제) — 매우 긴 에픽 이름'),
+      childCount: 3,
+      childDoneCount: 1,
     });
     await page.route(
       (url) => url.pathname === ISSUES_PATH,
@@ -116,5 +118,34 @@ test.describe('이슈 목록 데스크톱 에픽 칩', () => {
     await expect(row.getByTestId('issue-row-21-parent')).toBeVisible();
     const link = row.getByRole('link', { name: /결제 모듈/ });
     expect((await link.boundingBox())!.width).toBeGreaterThanOrEqual(128);
+    // 자동 레이아웃 표에선 nowrap 텍스트의 최소 폭이 전체 글자 폭이라 실제 폭만으론 shrink 여부를 가를 수 없다 —
+    // 칩이 줄어들 수 있고(flex-shrink 1, min-width 0) 제목은 8rem 을 보장하는지 계산된 스타일로 직접 단언한다.
+    // (shrink-0 / min-w-0 로 되돌리면 실패)
+    const chipStyle = await row.getByTestId('issue-row-21-parent').evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { shrink: cs.flexShrink, minWidth: cs.minWidth };
+    });
+    expect(chipStyle).toEqual({ shrink: '1', minWidth: '0px' });
+    expect(await link.evaluate((el) => getComputedStyle(el).minWidth)).toBe('128px');
+  });
+});
+
+test.describe('이슈 목록 데스크톱 hideEpic', () => {
+  test('특정 에픽 필터 / 에픽 그룹 안에선 에픽 칩을 숨기고, 비에픽(STORY) 부모 칩은 유지한다', async ({ authenticatedPage: page }) => {
+    await stubAll(page);
+    // 양성 대조 — 그룹 없음에선 에픽 행에 칩이 보인다.
+    await page.goto(`/projects/${KEY}?group=none`);
+    await expect(page.getByTestId('issue-row-1-parent')).toBeVisible();
+    await expect(page.getByTestId('issue-row-5-parent')).toBeVisible();
+
+    await page.goto(`/projects/${KEY}?group=epic`);
+    await expect(page.getByTestId('issue-row-1')).toBeVisible();
+    await expect(page.getByTestId('issue-row-1-parent')).toHaveCount(0);
+    // STORY 부모는 에픽이 아니므로 「에픽 없음」 그룹에서도 칩 유지.
+    await expect(page.getByTestId('issue-row-5-parent')).toBeVisible();
+
+    await page.goto(`/projects/${KEY}?group=none&parent=30`);
+    await expect(page.getByTestId('issue-row-1')).toBeVisible();
+    await expect(page.getByTestId('issue-row-1-parent')).toHaveCount(0);
   });
 });

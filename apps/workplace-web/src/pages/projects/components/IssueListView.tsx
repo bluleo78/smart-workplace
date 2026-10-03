@@ -144,9 +144,8 @@ export function IssueListView({
       <div ref={setScrollEl} className="min-h-0 flex-1 overflow-auto" data-testid="issue-list-scroll">
         <table className="w-full text-sm" role="table">
           {!isMobile && (
-          <thead className="sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_var(--color-border)]">
-            <tr className="text-left text-muted-foreground">
-              {!isMobile && (
+            <thead className="sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_var(--color-border)]">
+              <tr className="text-left text-muted-foreground">
                 <th className="w-9 py-2">
                   <input
                     type="checkbox"
@@ -157,17 +156,16 @@ export function IssueListView({
                     className="h-4 w-4"
                   />
                 </th>
-              )}
-              {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
-              <th className="w-9 py-2"><span className="sr-only">상태</span></th>
-              {/* 우선순위·마감은 좁은 화면(<sm)에서 행과 함께 숨긴다(IssueRow). */}
-              <th className="hidden w-9 sm:table-cell"><span className="sr-only">우선순위</span></th>
-              <th className="w-16 sm:w-28">ID</th>
-              <th>제목</th>
-              <th className="w-12 sm:w-20">담당자</th>
-              <th className="hidden w-32 sm:table-cell">마감</th>
-            </tr>
-          </thead>
+                {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
+                <th className="w-9 py-2"><span className="sr-only">상태</span></th>
+                {/* 우선순위·마감은 좁은 화면(<sm)에서 행과 함께 숨긴다(IssueRow). */}
+                <th className="hidden w-9 sm:table-cell"><span className="sr-only">우선순위</span></th>
+                <th className="w-16 sm:w-28">ID</th>
+                <th>제목</th>
+                <th className="w-12 sm:w-20">담당자</th>
+                <th className="hidden w-32 sm:table-cell">마감</th>
+              </tr>
+            </thead>
           )}
           {groups ? (
             groups.map((g) => (
