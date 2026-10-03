@@ -43,8 +43,7 @@ public class ChatThreadService {
                         "이슈를 찾을 수 없습니다 (key: " + projectKey + "-" + issueNumber + ")"));
     // OPEN 프로젝트는 테넌트 전원 스레드 조회 허용. 메시지 작성은 댓글과 같은 권한(멤버/ADMIN·OPEN reporter 본인)으로
     // 별도 판정하므로(ChatThreadAccess, WP-213) 조회 개방이 작성 개방을 뜻하지 않는다 — 응답의 canPost 로 화면에 알린다.
-    if (!lookup.isProjectMember(issue.projectId(), callerId)
-        && !lookup.isOpenProject(issue.projectId())) {
+    if (!threadAccess.canRead(issue.projectId(), callerId)) {
       throw new ProjectAccessDeniedException("프로젝트 멤버만 이슈 대화를 볼 수 있습니다");
     }
     long threadId =
@@ -54,7 +53,10 @@ public class ChatThreadService {
     MentionResolver resolver = userMentionHydrator::asMentionResponses;
     List<ChatMessageResponse> recent = messageRepo.findRecent(threadId, RECENT_LIMIT, resolver);
     var threadRow = threadRepo.findByIssueId(issue.id()).orElseThrow();
-    boolean canPost = threadAccess.canWrite(threadId, callerId);
+    // 이미 로드한 멤버 목록·이슈 정보로 판정 — 멤버면 그대로, 아니면 댓글과 같은 쓰기 권한(보내면 자동 참여).
+    boolean canPost =
+        members.stream().anyMatch(m -> m.userId() == callerId)
+            || threadAccess.canWriteContent(issue.projectId(), issue.reporterId(), callerId);
     return new ChatThreadResponse(
         threadId, issue.id(), threadRow.archivedAt(), members, recent, canPost);
   }

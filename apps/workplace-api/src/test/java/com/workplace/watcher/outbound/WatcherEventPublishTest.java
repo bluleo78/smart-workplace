@@ -17,6 +17,7 @@ import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.watcher.outbound.WatcherDomainEvents.WatcherAddedEvent;
 import com.workplace.watcher.repository.IssueWatcherRepository;
+import com.workplace.watcher.service.WatcherAutoEnroller;
 import com.workplace.watcher.service.WatcherService;
 import java.time.Instant;
 import java.util.Optional;
@@ -26,8 +27,8 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 
 /**
- * WatcherService.watch() 가 WatcherAddedEvent 를 발행하는지 검증. 신규 insert 시에만 발행되고, 이미 watcher 인 멱등 케이스에서는
- * 발행되지 않음을 확인. Mockito 만 사용 — Spring 컨텍스트 없음.
+ * WatcherService.watch() 가 (WatcherAutoEnroller 를 거쳐) WatcherAddedEvent 를 발행하는지 검증. 신규 insert 시에만
+ * 발행되고, 이미 watcher 인 멱등 케이스에서는 발행되지 않음을 확인. Mockito 만 사용 — Spring 컨텍스트 없음.
  */
 class WatcherEventPublishTest {
 
@@ -64,7 +65,8 @@ class WatcherEventPublishTest {
             projectRepository,
             userRepository,
             accessGuard,
-            publisher,
+            // 등록·이벤트 발행은 실제 enroller 를 통해 — publisher mock 으로 발행 여부를 검증한다.
+            new WatcherAutoEnroller(watcherRepository, publisher),
             mock(IssueChangeNotifier.class));
 
     ProjectRow project =

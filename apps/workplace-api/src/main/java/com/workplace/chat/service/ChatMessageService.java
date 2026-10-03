@@ -58,7 +58,7 @@ public class ChatMessageService {
   @Transactional
   public ChatMessageResponse create(long callerId, long threadId, CreateChatMessageRequest req) {
     // 거부될 요청(권한 없음·삭제된 이슈·빈 메시지)으로는 대화에 참여시키지 않도록 쓰기 권한부터 확인하고, 참여는 검증을 모두 통과한 뒤 한다.
-    threadAccess.ensureCanWrite(threadId, callerId);
+    var joinCtx = threadAccess.ensureCanWrite(threadId, callerId);
     // #621: 원본 이슈가 소프트삭제됐으면 스레드가 남아있어도 메시지 전송을 막는다.
     if (issueLookup.isIssueDeletedByThreadId(threadId)) {
       throw new ChatThreadIssueDeletedException(threadId);
@@ -69,7 +69,7 @@ public class ChatMessageService {
       throw new EmptyChatMessageException();
     }
     // 같은 트랜잭션에서 먼저 참여시켜야 아래 드라이브 링크 생성의 멤버십 검사가 새 멤버를 본다.
-    threadAccess.ensureMemberOrJoin(threadId, callerId);
+    threadAccess.join(joinCtx, threadId, callerId);
     // body 가 null 일 수 있어 빈 문자열로 방어 후 멘션 파싱.
     List<Long> mentionUserIds =
         userMentionHydrator.filterExistingUserIds(
@@ -140,7 +140,7 @@ public class ChatMessageService {
     publisher.publishEvent(new ChatMessageDeletedEvent(threadId, messageId));
   }
 
-  // readOnly 트랜잭션 — ensureMember(chat_thread_member)·findPage(chat_message) 가 모두 RLS 보호 테이블이라,
+  // readOnly 트랜잭션 — 읽기 권한 확인(chat_thread_member 등)·findPage(chat_message) 가 모두 RLS 보호 테이블이라,
   // 트랜잭션이 없으면 GUC 미주입 autocommit 연결로 fail-closed(빈 결과/멤버 아님)된다. doBegin 이 readOnly 트랜잭션에도
   // GUC 를 주입하므로 @Transactional(readOnly) 로 RLS 컨텍스트를 확보한다.
   @Transactional(readOnly = true)
@@ -161,10 +161,10 @@ public class ChatMessageService {
   }
 
   /**
-   * 타이핑 알림 — DB 저장 없이 transient 이벤트만 발행. 단, 이벤트 발행 전 ensureMember 가 RLS 보호 테이블 chat_thread_member 를
-   * 읽으므로 readOnly 트랜잭션으로 감싸 GUC(app.tenant_id)를 주입한다. 트랜잭션이 없으면 이 멤버십 조회가 fail-closed 되어 매 호출이
-   * NotMember 로 예외 발생한다. onTyping 은 일반 @EventListener(AFTER_COMMIT 아님)라 트랜잭션화해도 이벤트가 유실되지 않는다(트랜잭션
-   * 종료 전 동기 발행).
+   * 타이핑 알림 — DB 저장 없이 transient 이벤트만 발행. 단, 이벤트 발행 전 쓰기 권한 확인이 RLS 보호 테이블 chat_thread_member 를 읽으므로
+   * readOnly 트랜잭션으로 감싸 GUC(app.tenant_id)를 주입한다. 트랜잭션이 없으면 이 멤버십 조회가 fail-closed 되어 매 호출이 NotMember
+   * 로 예외 발생한다. onTyping 은 일반 @EventListener(AFTER_COMMIT 아님)라 트랜잭션화해도 이벤트가 유실되지 않는다(트랜잭션 종료 전 동기
+   * 발행).
    */
   @Transactional(readOnly = true)
   public void notifyTyping(long callerId, long threadId) {

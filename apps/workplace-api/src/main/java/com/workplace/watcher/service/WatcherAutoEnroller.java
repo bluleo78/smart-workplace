@@ -7,7 +7,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
-/** issue/comment 라이프사이클에서 호출되는 한 줄짜리 멱등 enroll 진입점. */
+/**
+ * watcher 등록 + WatcherAddedEvent 발행의 단일 진입점. 본인 구독(WatcherService.watch)과 issue/comment 자동 등록이 함께
+ * 쓴다.
+ */
 @Service
 @RequiredArgsConstructor
 public class WatcherAutoEnroller {
@@ -21,12 +24,15 @@ public class WatcherAutoEnroller {
    * 멤버로 추가된다(WP-213).
    *
    * @param actorUserId 등록을 일으킨 사용자(댓글 작성자·담당자 지정자 등)
+   * @return 새로 등록됐으면 true(이미 watcher 였거나 userId 가 null 이면 false)
    */
-  public void enroll(Long issueId, Long userId, Long actorUserId) {
-    if (userId == null) return;
-    if (repository.add(issueId, userId)) {
+  public boolean enroll(Long issueId, Long userId, Long actorUserId) {
+    if (userId == null) return false;
+    boolean inserted = repository.add(issueId, userId);
+    if (inserted) {
       eventPublisher.publishEvent(
           new WatcherAddedEvent(issueId, userId, actorUserId, Instant.now()));
     }
+    return inserted;
   }
 }
