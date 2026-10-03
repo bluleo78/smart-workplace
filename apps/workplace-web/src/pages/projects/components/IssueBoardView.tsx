@@ -112,7 +112,7 @@ function IssueBoardViewInner({
   }
 
   function handleDragEnd(e: DragEndEvent) {
-    // 비멤버는 상태 변경 권한 없음 — drag 이벤트 무시.
+    // 비멤버·모바일은 드래그 상태 변경 불가 — drag 이벤트 무시.
     if (!canDragStatus) return;
     const { active, over } = e;
     if (!over) return;

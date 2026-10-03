@@ -5,6 +5,7 @@ import { type ReactNode, useCallback, useState } from 'react';
 
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 import { useMoveIssueEpic } from '../../../hooks/queries/useMoveIssueEpic';
 import { useProjectEpics } from '../../../hooks/queries/useProjectEpics';
@@ -33,8 +34,9 @@ export function useIssueRowActions({
   const [state, setState] = useState<Open>(null);
   const updateStatus = useUpdateIssueStatus(projectKey);
   const moveEpic = useMoveIssueEpic(projectKey);
-  // 에픽 목록은 에픽 시트를 열 때만 필요하지만 훅 순서 고정 — 멤버일 때만 조회(프로젝트 페이지가 이미 데워 둔 캐시 공유).
-  const { epics } = useProjectEpics(projectKey, canEdit);
+  const isMobile = useIsMobile();
+  // 에픽 목록은 에픽 시트를 열 때만 필요하지만 훅 순서 고정 — 모바일 멤버일 때만 조회(데스크톱 요청 불변).
+  const { epics, epicType } = useProjectEpics(projectKey, canEdit && isMobile);
 
   // 액션이 하나도 없으면(비멤버 + 선택 불가) 열지 않는다. open 은 안정 참조 — 행 memo 가 깨지지 않게.
   const hasAny = canEdit || onSelect != null;
@@ -46,7 +48,8 @@ export function useIssueRowActions({
   const issue = state?.issue;
   const actions: MobileSheetAction[] = [];
   if (issue && onSelect) actions.push({ key: 'select', label: '선택', icon: <CheckSquare />, onSelect: () => onSelect(issue) });
-  if (issue && canEdit && epicDragBlockReason(issue) == null) {
+  // EPIC 유형이 없는 프로젝트(개인)는 지정할 에픽이 없으므로 행을 숨긴다.
+  if (issue && canEdit && epicType && epicDragBlockReason(issue) == null) {
     actions.push({ key: 'epic', label: '에픽 지정', icon: <Layers />, onSelect: () => setState({ issue, sheet: 'epic' }) });
   }
   if (issue && canEdit) {

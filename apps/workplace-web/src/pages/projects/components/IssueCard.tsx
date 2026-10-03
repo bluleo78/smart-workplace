@@ -83,10 +83,10 @@ export function IssueCard({
     <div
       ref={asOverlay ? undefined : setNodeRef}
       style={style}
-      // 드래그 불가(모바일·비멤버)면 dnd-kit 속성(role=button·roledescription="sortable")도 붙이지 않는다 —
-      // 스크린리더가 끌 수 없는 카드를 정렬 가능으로 안내하지 않게(카드 이동은 오버레이 Link 가 담당).
-      {...(asOverlay || dragDisabled ? {} : attributes)}
-      {...(asOverlay || dragDisabled ? {} : listeners)}
+      // 모바일에서 드래그 불가면 dnd-kit 속성(role=button·roledescription="sortable")도 붙이지 않는다 —
+      // 끌 수 없는 카드를 정렬 가능으로 안내하지 않게(카드 이동은 오버레이 Link 가 담당). 데스크톱 DOM 은 그대로.
+      {...(asOverlay || (dragDisabled && isMobile) ? {} : attributes)}
+      {...(asOverlay || (dragDisabled && isMobile) ? {} : listeners)}
       {...(asOverlay ? {} : press)}
       // 오버레이(드래그 고스트)는 불투명 표면(bg-popover)만 쓴다 — 포인터가 항상 위에 있어 hover:bg-accent/30(반투명)이
       // 배경을 덮고, 다크의 --card 는 3% 알파라 아래 에픽 패널 글자가 비쳐 보였다(11-dark-mode: 떠 있는 레이어는 솔리드).

@@ -57,7 +57,7 @@ export function IssueListView({
     clear: clearSelected,
   } = useIssueSelection(filtersToParams(filters, 'list', groupBy).toString());
 
-  // 모바일 길게 누르기 액션 — 훅은 조기 반환 전에 둔다. canDrag 가 곧 멤버 여부.
+  // 모바일 길게 누르기 액션 — 훅은 조기 반환 전에 둔다. canEdit 가 곧 멤버 여부.
   const rowActions = useIssueRowActions({ projectKey, canEdit, onSelect: (i) => toggleSelected(i.number) });
 
   // WP-54: 로드된 건수(무한 스크롤 누적)·다음 페이지 유무를 상위로 보고 — isLoading 조기 반환 전에 둔다.
