@@ -553,6 +553,42 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     expect(requested[7401]).toBeUndefined();
   });
 
+  test('메타 크기가 작아도 받은 콘텐츠가 상한을 넘으면 파싱하지 않고 크기 안내를 보여준다', async ({
+    authenticatedPage: page,
+  }) => {
+    // 목록 메타 크기는 실제와 다를 수 있다(파일 교체 등) — 받은 blob 크기로 한 번 더 막아야 한다.
+    await stubAttachments(
+      page,
+      [
+        createAttachment({
+          fileId: 7601,
+          originalName: 'big.xlsx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          sizeBytes: 1024,
+        }),
+        createAttachment({ fileId: 7602, originalName: 'big.log', mimeType: 'text/plain', sizeBytes: 1024 }),
+      ],
+      {
+        7601: {
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          body: Buffer.alloc(6 * 1024 * 1024),
+        },
+        7602: { contentType: 'text/plain', body: Buffer.alloc(2 * 1024 * 1024, 0x61) },
+      },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    await page.getByRole('button', { name: 'big.xlsx 미리보기' }).click();
+    const body = page.getByTestId('preview-body');
+    await expect(body).toContainText('파일이 커서 미리볼 수 없습니다');
+    await expect(body.getByTestId('xlsx-table')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('button', { name: 'big.log 미리보기' }).click();
+    await expect(body).toContainText('파일이 커서 미리볼 수 없습니다');
+    await expect(body.locator('pre')).toHaveCount(0);
+  });
+
   test('칩의 다운로드 아이콘은 모달 없이 바로 내려받는다', async ({ authenticatedPage: page }) => {
     await stubAttachments(
       page,

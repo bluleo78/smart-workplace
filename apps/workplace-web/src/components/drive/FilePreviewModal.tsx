@@ -127,6 +127,13 @@ export function FilePreviewModal({
         ? driveApi.fetchBlobByPath(contentPath)
         : driveApi.fetchContentBlob(fileIdForContent)
       const fail = () => alive && setError(true)
+      // 받은 실제 크기로 한 번 더 본다 — 메타 크기가 null 이거나 실제와 다를 수 있다(파일 교체 등).
+      // 넘으면 파싱·디코딩하지 않고 크기 안내로 돌린다(큰 XLSX 파싱이 탭을 멈추는 것 방지).
+      const within = (blob: Blob) => {
+        if (blob.size <= maxBytes) return blob
+        if (alive) setTooLarge(true)
+        return null
+      }
       if (kind === 'IMAGE') {
         void blobP.then((blob) => onUrl(URL.createObjectURL(blob))).catch(fail)
       } else if (kind === 'PDF') {
@@ -134,14 +141,22 @@ export function FilePreviewModal({
         void blobP.then(toVerifiedPdfBlob).then((pdf) => onUrl(URL.createObjectURL(pdf))).catch(fail)
       } else if (textLike) {
         void blobP
-          .then(blobToText)
-          .then((t) => alive && setText(t.slice(0, TEXT_PREVIEW_LIMIT)))
+          .then(async (blob) => {
+            const ok = within(blob)
+            if (!ok) return
+            const t = await blobToText(ok)
+            if (alive) setText(t.slice(0, TEXT_PREVIEW_LIMIT))
+          })
           .catch(fail)
       } else {
         // 바이너리 파서(XLSX/DOCX)는 arrayBuffer 가 필요.
         void blobP
-          .then((blob) => blob.arrayBuffer())
-          .then((buf) => alive && setBuffer(buf))
+          .then(async (blob) => {
+            const ok = within(blob)
+            if (!ok) return
+            const buf = await ok.arrayBuffer()
+            if (alive) setBuffer(buf)
+          })
           .catch(fail)
       }
     }
