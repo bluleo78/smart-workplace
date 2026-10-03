@@ -1022,6 +1022,30 @@ test('[기다리기] 뒤 확인창이 다시 뜨지 않고, 생성이 끝나면 
   await expect(guard).toHaveCount(0)
 })
 
+test('[기다리기] 뒤 생성 중 입력한 다음 질문은 보류 전환이 실행돼도 지워지지 않는다 (WP-191)', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/projects', { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
+  let release!: () => void
+  const g = new Promise<void>((r) => (release = r))
+  await mockHomeChatGeneration(page, {
+    gate: g,
+    frames: [{ event: 'delta', data: { text: '첫 답변' } }, { event: 'done', data: { sessionId: 's-d' } }],
+  })
+  await page.goto('/projects')
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-input').fill('첫 질문')
+  const panel = page.getByTestId('chat-panel')
+  await panel.getByRole('button', { name: '보내기' }).click()
+  await page.getByTestId('chat-new-session').click()
+  const guard = page.getByTestId('session-switch-guard')
+  await guard.getByRole('button', { name: '기다리기' }).click()
+  await expect(guard).toHaveCount(0)
+  // 기다리는 동안 다음 질문을 미리 쓴다 — 보류 전환이 실행돼도 이 초안은 보존돼야 한다.
+  await page.getByTestId('chat-input').fill('다음 질문')
+  release()
+  await expect(panel).not.toContainText('첫 질문') // 보류 전환 실행됨
+  await expect(page.getByTestId('chat-input')).toHaveValue('다음 질문')
+})
+
 test('보류된 전환의 대상 대화를 삭제하면 보류가 취소되어 생성이 끝나도 전환되지 않는다 (WP-191)', async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/projects', { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
   await mockChatSessions(page, {

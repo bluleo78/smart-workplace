@@ -282,7 +282,10 @@ export function useChatSession() {
   }, []);
 
   // 새 세션 — 로컬 리셋만(POST 안 함; 첫 chat 이 서버에서 세션 생성). in-flight 작업 무효화.
-  const newSession = useCallback(() => {
+  // opts.keepDraft: 보류됐던 '새 대화'를 나중에 실행하는 경로 전용 — 기다리는 동안 사용자가 입력한
+  // 다음 질문(초안)을 지우지 않도록 초안 초기화 신호(nonce)를 발행하지 않는다.
+  // 직접/즉시 새 대화는 옵션 없이 호출돼 종전대로 초안을 비운다(#204).
+  const newSession = useCallback((opts?: { keepDraft?: boolean }) => {
     // WP-191: 어떤 실제 전환이든 보류를 취소한다(삭제 등으로 직접 호출돼도 옛 보류가 나중에 튀어나오지 않게).
     // releaseHeld 는 호출 전에 이미 비우므로 1회 실행 보장은 유지된다.
     heldRef.current = null;
@@ -297,7 +300,7 @@ export function useChatSession() {
     setTurns([]);
     // '새 대화'는 깨끗한 빈 입력으로 시작해야 하므로 패널 로컬 입력 초기화 신호 발행(#204).
     // restoreSession(세션 선택)/submit 에서는 발행하지 않아 세션별 초안 보존(by-design)을 깨지 않는다.
-    setNewSessionNonce((n) => n + 1);
+    if (!opts?.keepDraft) setNewSessionNonce((n) => n + 1);
   }, [updateSessionId, setHeldSwitch]);
 
   // 복원 — 메시지 fetch → transcript 재현(AI 재호출 없음, 위젯 fold 없음).
@@ -468,7 +471,7 @@ export function useChatSession() {
       if (!s) return;
       heldRef.current = null;
       setHeldSwitch(null);
-      if (s.kind === 'new') newSession();
+      if (s.kind === 'new') newSession({ keepDraft: true }); // 보류 해제: 그 사이 입력한 초안 보존
       else void restoreSession(s.id);
     };
   }, [newSession, restoreSession, setHeldSwitch]);
