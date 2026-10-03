@@ -142,6 +142,10 @@ test('탭 루트에서 연 시트: 보던 화면이 위로 비치고 탭바는 �
   const bar = (await page.getByTestId('mobile-tabbar').boundingBox())!
   expect(Math.round(sheetBottom.y + sheetBottom.height)).toBeLessThanOrEqual(Math.round(bar.y) + 1)
   await expect(sheet.getByTestId('ai-sheet-session-switcher')).toBeVisible()
+  // 닫기 × 는 터치 타깃 최소 44×44
+  const closeBox = (await sheet.getByTestId('ai-panel-close').boundingBox())!
+  expect(closeBox.width).toBeGreaterThanOrEqual(44)
+  expect(closeBox.height).toBeGreaterThanOrEqual(44)
   await sheet.getByTestId('ai-panel-close').click()
   await expect(sheet).toHaveCount(0)
   await expect(trigger).toBeFocused()

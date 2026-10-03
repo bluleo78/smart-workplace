@@ -44,7 +44,8 @@ export function AIPanelControls() {
         title="닫기"
         data-testid="ai-panel-close"
         onClick={close}
-        className={iconBtn}
+        // 모바일(<lg) 시트에선 터치 타깃 44×44 로 키운다(데스크톱 헤더 크기는 그대로).
+        className={cn(iconBtn, 'max-lg:flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center')}
       >
         <X className="h-4 w-4" />
       </button>

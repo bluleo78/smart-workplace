@@ -156,7 +156,7 @@ export function MobileTabBar() {
             data-active={aiOpen ? 'true' : undefined}
             className={cn(
               'relative -my-0.5 flex h-6 w-11 items-center justify-center rounded-full',
-              aiOpen ? 'bg-gradient-to-br from-violet-600 to-primary text-white shadow-sm' : 'bg-ai-accent-subtle text-ai-accent',
+              aiOpen ? 'bg-gradient-to-br from-ai-accent to-primary text-white shadow-sm' : 'bg-ai-accent-subtle text-ai-accent',
               triggerActivity === 'pending' && 'ai-ring',
             )}
           >

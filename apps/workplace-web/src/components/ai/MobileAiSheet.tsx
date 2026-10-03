@@ -86,7 +86,7 @@ function SheetPanel() {
         data-testid="ai-sheet-backdrop"
         aria-hidden
         onClick={close}
-        className="absolute inset-0 bg-black/50 animate-in fade-in duration-200"
+        className="absolute inset-0 bg-black/50 animate-in fade-in duration-200 motion-reduce:animate-none"
       />
       <div
         ref={panelRef}
@@ -95,7 +95,7 @@ function SheetPanel() {
         aria-label="AI 비서"
         data-testid="ai-sheet"
         className={cn(
-          'absolute inset-x-0 bottom-0 flex flex-col rounded-t-2xl border-t-2 border-ai-accent bg-background shadow-lg animate-in slide-in-from-bottom duration-200',
+          'absolute inset-x-0 bottom-0 flex flex-col rounded-t-2xl border-t-2 border-ai-accent bg-background shadow-lg animate-in slide-in-from-bottom duration-200 motion-reduce:animate-none',
           // 열림: 보던 화면 헤더(56)+한 줄(40)을 남긴다. 키보드 열림: 헤더 한 줄(56)만 남긴다.
           'top-[calc(env(safe-area-inset-top)+96px)] [:root[data-keyboard-open]_&]:top-[calc(env(safe-area-inset-top)+56px)]',
           // 탭바가 없으면 홈 인디케이터 영역을 시트가 비운다(키보드가 열리면 불필요).
@@ -128,7 +128,7 @@ function SheetPanel() {
               <DropdownMenuTrigger
                 title={current?.title ?? '대화 목록'}
                 data-testid="ai-sheet-session-switcher"
-                className="flex h-11 shrink-0 items-center gap-1 rounded-md px-2 text-sm font-medium text-foreground"
+                className="flex h-11 shrink-0 items-center gap-1 rounded-md px-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
                 대화 목록
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -150,7 +150,7 @@ function SheetPanel() {
               aria-label="새 대화"
               data-testid="ai-sheet-new-session"
               onClick={chat.onNewSession}
-              className="flex h-11 w-11 shrink-0 items-center justify-center text-primary"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             >
               <Plus className="h-5 w-5" />
             </button>

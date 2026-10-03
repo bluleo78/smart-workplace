@@ -531,7 +531,7 @@
   inset: -2px;
   border-radius: inherit;
   padding: 2px;
-  background: conic-gradient(from var(--ai-ring-angle), var(--ai-accent), var(--primary), transparent 65%, var(--ai-accent));
+  background: conic-gradient(from var(--ai-ring-angle), var(--ai-accent), var(--primary), transparent 55%, var(--ai-accent));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);

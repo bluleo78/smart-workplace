@@ -19,7 +19,7 @@ export function DetailAiButton({ 'data-testid': testId }: { 'data-testid': strin
       data-ai-activity={triggerActivity}
       aria-label={aiTriggerLabel('이 화면에 대해 AI 에게 묻기', triggerActivity)}
       onClick={() => open('fullscreen')}
-      className="flex h-11 w-11 shrink-0 items-center justify-center text-violet-600"
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ai-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
     >
       <span className={cn('relative flex h-8 w-8 items-center justify-center rounded-full', triggerActivity === 'pending' && 'ai-ring')}>
         <AiSparkle activity={triggerActivity} className="h-5 w-5" dotClassName="right-0.5 top-0.5" />

@@ -41,7 +41,7 @@ export function AIChip() {
         triggerActivity === 'pending' && 'ai-ring text-ai-accent',
       )}
     >
-      <AiSparkle activity={triggerActivity} className="h-[18px] w-[18px]" dotClassName="right-2 top-1" />
+      <AiSparkle activity={triggerActivity} className="h-[18px] w-[18px]" dotClassName="right-2 top-1 ring-card" />
       <span>AI 어시스턴트</span>
     </button>,
     document.body,
