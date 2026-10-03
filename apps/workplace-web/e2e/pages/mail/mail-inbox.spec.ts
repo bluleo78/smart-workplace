@@ -794,6 +794,10 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
     await expect(page.getByTestId('page-header')).toContainText('업무')
     await expect(page.getByTestId('mail-badge-pending-10')).toHaveText('분류 전')
     await expect(page.getByTestId('mail-badge-pending-11')).toHaveCount(0)
+    // UI 리뷰 I-1: 토글 오른쪽 끝이 목록 열(목록/상세 구분선)을 넘지 않는다.
+    const toggleBox = await page.getByTestId('mail-unread-toggle').boundingBox()
+    const listBox = await page.getByTestId('mail-list').boundingBox()
+    expect(toggleBox!.x + toggleBox!.width).toBeLessThanOrEqual(listBox!.x + listBox!.width - 12)
     await page.getByTestId('mail-unread-toggle').click()
     await expect(page).toHaveURL(/unread=true/)
     await expect(page.getByTestId('mail-unread-toggle')).toHaveAttribute('aria-pressed', 'true')
@@ -861,6 +865,6 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
     await stubCounts(page)
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [])
     await page.goto('/mail/1?unread=true')
-    await expect(page.getByTestId('mail-view-empty')).toHaveText('업무 메일 중 안 읽은 메일이 없어요')
+    await expect(page.getByTestId('mail-view-empty')).toContainText('업무 메일 중 안 읽은 메일이 없어요.')
   })
 })

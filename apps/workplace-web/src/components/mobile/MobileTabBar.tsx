@@ -102,7 +102,8 @@ export function MobileTabBar() {
         type="button"
         data-testid={`mobile-tab-${id}`}
         aria-current={active ? 'page' : undefined}
-        aria-label={count > 0 ? `${t.label}, 읽지 않음 ${count}` : t.label}
+        // 메일 탭 배지는 받은편지함 전체가 아니라 업무 보기 안 읽음 수라 이름에 그 범위를 밝힌다.
+        aria-label={count > 0 ? (id === 'mail' ? `${t.label}, 업무 메일 안 읽음 ${count}` : `${t.label}, 읽지 않음 ${count}`) : t.label}
         onClick={() => go(t.path)}
         className={cn(
           'relative flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 text-[10px]',

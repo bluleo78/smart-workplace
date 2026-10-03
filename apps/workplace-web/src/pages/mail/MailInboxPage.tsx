@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Download, Forward, Loader2, Mail, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
+import { Check, Download, Forward, Inbox, Loader2, Mail, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -148,7 +148,7 @@ function MessageRow({
             // WP-186: 아직 분류를 시도하지 않은 메일 — 업무 보기에 섞여 있는 이유를 알려 주는 점선 배지(클릭 없음).
             <span
               data-testid={`mail-badge-pending-${m.id}`}
-              className="rounded-full border border-dashed border-muted-foreground/50 px-2 py-0.5 text-[11px] text-muted-foreground"
+              className="rounded-full border border-dashed border-muted-foreground/50 px-2 py-0.5 text-xs leading-4 text-muted-foreground dark:border-muted-foreground/70"
             >
               분류 전
             </span>
@@ -734,7 +734,23 @@ export function MailInboxPage() {
       {/* 전폭 헤더 — 폴더명 + 동기화(받은편지함) + 검색. 기존 목록 툴바 대체. */}
       {showListChrome && (
         <PageHeader
-          title={isMobile ? view.title : view.breadcrumb.join(' › ')}
+          title={
+            isMobile ? (
+              view.title
+            ) : (
+              // 데스크톱: 계층 구분자 "›" 를 작고 흐리게(스크린리더는 구분자를 읽지 않고 항목만 읽는다). 상위 항목은 흐린 색.
+              view.breadcrumb.map((seg, i) => (
+                <span key={seg} className={i < view.breadcrumb.length - 1 ? 'font-medium text-muted-foreground' : undefined}>
+                  {i > 0 && (
+                    <span aria-hidden className="mx-1.5 text-muted-foreground">
+                      ›
+                    </span>
+                  )}
+                  {seg}
+                </span>
+              ))
+            )
+          }
           actions={
             <>
               <input
@@ -755,15 +771,16 @@ export function MailInboxPage() {
       )}
       {/* 리스트 툴바 — INBOX 전용: 아이콘 새로고침 + 마지막 동기화 상대시각 + 진행률. */}
       {showListChrome && folderParam === 'INBOX' && (
-        <div className="flex items-center gap-2 border-b px-3 py-1.5">
-          <div className="flex min-w-0 flex-1 items-center gap-2 lg:max-w-md">
+        <div className="flex items-center border-b py-1.5">
+          {/* 패딩을 안쪽 상자에 둬서(pl-3 pr-4) 오른쪽 끝이 목록 행의 시각 끝선(px-4)에 맞고 목록/상세 구분선을 넘지 않는다. */}
+          <div className="flex min-w-0 flex-1 items-center gap-2 pl-3 pr-4 lg:max-w-md">
             <button
               type="button"
               data-testid="mail-sync"
               aria-label="지금 새로고침"
               onClick={() => sync.mutate()}
               disabled={sync.isPending || (syncStatus.data?.running ?? false)}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 max-lg:h-10 max-lg:w-10"
             >
               <RefreshCw
                 className={cn('h-4 w-4', (sync.isPending || syncStatus.data?.running) && 'animate-spin')}
@@ -801,10 +818,14 @@ export function MailInboxPage() {
                   setParams(next)
                 }}
                 className={cn(
-                  'ml-auto rounded-full border px-3 py-1 text-xs transition-colors',
+                  // 모바일: 시각 h-9 + after 히트 영역 확장으로 터치 44px 확보. 포커스 링은 디자인 시스템 규칙.
+                  'relative ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40',
+                  "max-lg:h-9 max-lg:px-4 max-lg:text-sm max-lg:after:absolute max-lg:after:-inset-y-1 max-lg:after:inset-x-0 max-lg:after:content-['']",
                   view.unreadOnly ? 'border-primary/40 bg-primary/10 font-semibold text-primary' : 'text-foreground hover:bg-accent/50',
                 )}
               >
+                {/* 켜짐을 색에만 의존하지 않도록 점 표시(목업). */}
+                {view.unreadOnly && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />}
                 안 읽은 메일만
               </button>
             )}
@@ -838,13 +859,29 @@ export function MailInboxPage() {
               </div>
             ) : view.unreadOnly ? (
               // WP-186: 안 읽은 메일만 보기 0건 — 보기별 문구.
-              <div data-testid="mail-view-empty" className="p-6 text-sm text-muted-foreground">
-                {view.kind === 'all' ? '안 읽은 메일이 없어요' : `${view.title} 메일 중 안 읽은 메일이 없어요`}
+              <div data-testid="mail-view-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+                <Check className="h-8 w-8 text-primary" />
+                <p className="text-sm font-medium">
+                  {view.kind === 'all' ? '안 읽은 메일이 없어요.' : `${view.title} 메일 중 안 읽은 메일이 없어요.`}
+                </p>
+                <Button
+                  variant="link"
+                  size="sm"
+                  data-testid="mail-view-empty-show-all"
+                  onClick={() => {
+                    const next = new URLSearchParams(params)
+                    next.delete('unread')
+                    setParams(next)
+                  }}
+                >
+                  모든 메일 보기
+                </Button>
               </div>
             ) : view.kind === 'category' ? (
               // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.
-              <div data-testid="mail-category-empty" className="p-6 text-sm text-muted-foreground">
-                이 분류에 해당하는 메일이 없습니다.
+              <div data-testid="mail-category-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+                <Inbox className="h-8 w-8" />
+                <p className="text-sm font-medium">이 분류에 해당하는 메일이 없어요.</p>
               </div>
             ) : (
               <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">

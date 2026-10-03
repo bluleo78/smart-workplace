@@ -52,8 +52,9 @@ export function MailSidebar() {
         data-testid={testId}
         aria-label={label}
         className={cn(
-          'ml-auto rounded-full bg-muted px-2 py-0.5 text-xs',
-          strong ? 'font-semibold text-primary' : 'text-muted-foreground',
+          'ml-auto rounded-full px-2 py-0.5 text-xs',
+          // 활성 행(bg-accent) 위에서도 pill 형태가 보이도록 활성 pill 은 background 로.
+          strong ? 'bg-background font-semibold text-primary' : 'bg-muted text-muted-foreground',
         )}
       >
         {n}
@@ -63,7 +64,7 @@ export function MailSidebar() {
   // 폴더 nav 항목 공통 클래스(active = 현재 폴더).
   const folderClass = (active: boolean) =>
     cn(
-      'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+      'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40',
       active ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50',
     )
 
@@ -184,7 +185,7 @@ export function MailSidebar() {
                   >
                     {/* 회신필요 강조 점 — primary 색상 */}
                     <span className="text-primary">●</span> 회신필요
-                    {count(counts?.needsReply, 'mail-count-needsreply', false, `회신필요 ${counts?.needsReply}개`)}
+                    {count(counts?.needsReply, 'mail-count-needsreply', false, `${counts?.needsReply}개`)}
                   </Link>
                 </nav>
               </>
