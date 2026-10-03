@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -15,12 +15,15 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
+import { IssueBodyImageButton } from '../../../components/issue/IssueBodyImageButton';
 import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
+import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
+import { hasPendingToken } from '../../../lib/markdownImageInsert';
 import { type CreateIssueFormData,createIssueSchema } from '../../../lib/validations/issue';
 
 // 새 이슈 생성 모달. priority 기본 MID, dueDate 미지정 시 빈 문자열 → API 호출 직전 undefined 변환.
@@ -43,12 +46,23 @@ export function IssueCreateDialog({
     register,
     handleSubmit,
     reset,
+    getValues,
     setValue,
     watch,
     formState: { errors },
   } = useForm<CreateIssueFormData>({
     resolver: zodResolver(createIssueSchema),
     defaultValues: { priority: 'MID' },
+  });
+
+  // 본문 이미지 업로드(WP-199) — register 의 ref 와 우리 ref 를 함께 쓰기 위해 bodyField.ref 를 감싼다.
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const bodyField = register('body');
+  const images = useIssueImageUpload({
+    projectKey,
+    textareaRef: bodyRef,
+    getValue: () => getValues('body') ?? '',
+    setValue: (v) => setValue('body', v, { shouldDirty: true }),
   });
 
   // dialog가 열릴 때 폼 상태 초기화 — 닫혀있는 동안 react-hook-form 상태가 유지되므로 재열기 시 reset 필요.
@@ -110,6 +124,11 @@ export function IssueCreateDialog({
   };
 
   const onSubmit = async (data: CreateIssueFormData) => {
+    // 업로드가 끝나지 않은 자리표시 토큰이 저장되지 않게 마지막으로 막는다(버튼 비활성의 우회 경로 — Enter 제출 등).
+    if (images.pendingCount > 0 || hasPendingToken(data.body ?? '')) {
+      toast.error('이미지 업로드가 끝난 뒤 등록해 주세요');
+      return;
+    }
     const payload = {
       ...data,
       dueDate: data.dueDate || undefined,
@@ -140,8 +159,24 @@ export function IssueCreateDialog({
             <Input id="issue-title" {...register('title')} />
           </FormField>
           <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="issue-body">본문</label>
-            <Textarea id="issue-body" {...register('body')} rows={6} />
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium" htmlFor="issue-body">본문</label>
+              <IssueBodyImageButton onFiles={images.uploadFiles} />
+            </div>
+            <Textarea
+              id="issue-body"
+              {...bodyField}
+              ref={(el) => {
+                bodyField.ref(el);
+                bodyRef.current = el;
+              }}
+              rows={6}
+              onPaste={images.onPaste}
+              onDrop={images.onDrop}
+              onDragOver={images.onDragOver}
+            />
+            {/* 이미지 첨부 방법 안내 — 붙여넣기/드롭은 눈에 보이지 않는 기능이라 한 줄로 알린다. */}
+            <p className="text-xs text-muted-foreground">이미지를 붙여넣거나 끌어다 놓을 수 있어요</p>
           </div>
           {/* AI 분류 제안 버튼 — 제목이 있을 때만 활성화. */}
           <AiClassifyButton
@@ -230,7 +265,7 @@ export function IssueCreateDialog({
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
-            <Button type="submit" disabled={create.isPending}>{create.isPending ? '생성 중…' : '생성'}</Button>
+            <Button type="submit" disabled={create.isPending || images.pendingCount > 0}>{create.isPending ? '생성 중…' : '생성'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
