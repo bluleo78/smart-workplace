@@ -109,11 +109,13 @@ export function IssueCycleGroupedList({
       <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} />
       {/* 컬럼명 — 구간마다 반복하지 않고 첫 구간 위에 한 번만. 구간과 같은 테두리·여백(border+pl-3)으로 컬럼을 맞춘다.
           구간 테이블마다 스크린리더용 컬럼명이 있으므로 이 행은 보조기기에서 숨긴다. */}
-      <div className="border border-transparent pl-3" aria-hidden="true">
-        <table className="w-full table-fixed">
-          <CycleSectionColumnHead visible />
-        </table>
-      </div>
+      {!isMobile && (
+        <div className="border border-transparent pl-3" aria-hidden="true">
+          <table className="w-full table-fixed">
+            <CycleSectionColumnHead visible />
+          </table>
+        </div>
+      )}
       <div className="flex flex-col gap-3">
         {sections.map((def) => (
           <IssueCycleSection
@@ -131,6 +133,7 @@ export function IssueCycleGroupedList({
             canDrag={canDrag}
             onLongPress={rowActions.open}
             selectionMode={isMobile && selected.size > 0}
+            hideEpic={filters.parentNumber != null}
           />
         ))}
       </div>

@@ -93,6 +93,7 @@ export function IssueCycleSection({
   canDrag = false,
   onLongPress,
   selectionMode = false,
+  hideEpic = false,
 }: {
   def: CycleSectionDef;
   expanded: boolean;
@@ -112,6 +113,8 @@ export function IssueCycleSection({
   /** 모바일 길게 누르기 액션(IssueCycleGroupedList 가 시트를 소유) — 없으면 비활성. */
   onLongPress?: (issue: IssueResponse) => void;
   selectionMode?: boolean;
+  /** 특정 에픽 필터 중 — 행의 에픽 표시 생략(WP-194). */
+  hideEpic?: boolean;
 }) {
   const bodyId = useId();
   const cycle = def.kind === 'cycle' ? def.cycle : null;
@@ -307,6 +310,7 @@ export function IssueCycleSection({
             canDrag={canDrag}
             onLongPress={onLongPress}
             selectionMode={selectionMode}
+            hideEpic={hideEpic}
             // 완료 사이클 구간의 행은 사이클 이동에서 뺀다 — 끝난 스프린트 이력을 드래그 한 번으로 바꾸고, 되돌리기(완료 사이클
             // 재연결)도 서버가 거부해 복구할 수 없다. 에픽 패널로 끄는 것은 그대로 허용.
             cycleSection={dropDisabled ? undefined : sectionRef}
@@ -341,6 +345,7 @@ function SectionBody({
   canDrag,
   onLongPress,
   selectionMode,
+  hideEpic,
   cycleSection,
 }: {
   query: ReturnType<typeof useCycleSectionIssues>;
@@ -353,9 +358,11 @@ function SectionBody({
   canDrag: boolean;
   onLongPress?: (issue: IssueResponse) => void;
   selectionMode: boolean;
+  hideEpic: boolean;
   /** 이 구간 — 행 드래그 데이터의 출발 구간(사이클 이동 from). 없으면 사이클 이동 불가(완료 구간). */
   cycleSection: CycleSectionRef | undefined;
 }) {
+  const isMobile = useIsMobile();
   if (!query || query.isLoading) {
     return (
       <table className="w-full" aria-busy="true" aria-label="이슈 불러오는 중">
@@ -386,7 +393,8 @@ function SectionBody({
   return (
     // table-fixed — 긴 제목이 표 폭을 밀어내지 않고 말줄임되며, 구간마다 컬럼 폭이 같아 정렬이 맞는다.
     <table className="w-full table-fixed text-sm">
-      <CycleSectionColumnHead />
+      {/* 모바일 행은 컬럼 없는 한 칸(colSpan) 블록이라 컬럼 헤더를 두지 않는다(WP-194). */}
+      {!isMobile && <CycleSectionColumnHead />}
       <tbody className="[&>tr:last-child]:border-b-0">
         {items.map((it) => (
           <IssueRow
@@ -398,6 +406,7 @@ function SectionBody({
             canDrag={canDrag}
             onLongPress={onLongPress}
             selectionMode={selectionMode}
+            hideEpic={hideEpic}
             // 한 이슈가 여러 사이클 구간에 동시에 보일 수 있어(M:N) 구간 키로 드래그 id 를 구분한다.
             dragScope={testKey}
             cycleSection={cycleSection}

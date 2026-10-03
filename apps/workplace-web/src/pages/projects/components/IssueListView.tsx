@@ -120,6 +120,8 @@ export function IssueListView({
     );
   }
 
+  // 특정 에픽으로 필터됐거나 에픽 그룹 안이면 행의 에픽 표시는 중복이라 생략(WP-194).
+  const hideEpic = filters.parentNumber != null || groupBy === 'epic';
   const groups = groupBy
     ? groupIssues(items, groupBy).filter((g) => g.issues.length > 0)
     : null;
@@ -141,6 +143,7 @@ export function IssueListView({
           border-collapse 표에서 sticky 행은 테두리가 사라지므로 하단 구분선은 tr border 대신 inset shadow 로 그린다. */}
       <div ref={setScrollEl} className="min-h-0 flex-1 overflow-auto" data-testid="issue-list-scroll">
         <table className="w-full text-sm" role="table">
+          {!isMobile && (
           <thead className="sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_var(--color-border)]">
             <tr className="text-left text-muted-foreground">
               {!isMobile && (
@@ -165,6 +168,7 @@ export function IssueListView({
               <th className="hidden w-32 sm:table-cell">마감</th>
             </tr>
           </thead>
+          )}
           {groups ? (
             groups.map((g) => (
               <tbody key={g.key} data-testid={`list-group-${g.key}`}>
@@ -201,6 +205,7 @@ export function IssueListView({
                     dragScope={g.key}
                     onLongPress={rowActions.open}
                     selectionMode={isMobile && selected.size > 0}
+                    hideEpic={hideEpic}
                   />
                 ))}
               </tbody>
@@ -217,6 +222,7 @@ export function IssueListView({
                   canDrag={canDrag}
                   onLongPress={rowActions.open}
                   selectionMode={isMobile && selected.size > 0}
+                    hideEpic={hideEpic}
                 />
               ))}
             </tbody>

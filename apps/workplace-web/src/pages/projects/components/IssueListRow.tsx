@@ -2,7 +2,6 @@
 // 행 전체 클릭으로 상세 이동(#234), 체크박스로 다중 선택(#606).
 
 import { useDraggable } from '@dnd-kit/core';
-import { CheckCircle2 } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -17,8 +16,10 @@ import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { CycleSectionRef, IssueDragData } from '../../../lib/epicDnd';
 import { formatDateKorean } from '../../../lib/formatters';
+import { isEpicParent } from '../../../lib/issueGrouping';
 import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
+import { IssueRowMobileCell } from './IssueRowMobileCell';
 
 // 목록 컬럼 수(체크박스·상태·우선순위·ID·제목·담당자·마감) — 그룹 헤더 colSpan 등에 쓴다.
 // 모바일은 체크박스 컬럼이 없어 1 적다(길게 누르기 → 액션 시트로 선택).
@@ -38,6 +39,7 @@ export const IssueRow = memo(function IssueRow({
   cycleSection,
   onLongPress,
   selectionMode = false,
+  hideEpic = false,
 }: {
   issue: IssueResponse;
   projectKey: string;
@@ -53,6 +55,8 @@ export const IssueRow = memo(function IssueRow({
   onLongPress?: (issue: IssueResponse) => void;
   /** 선택 모드(1건 이상 선택됨) — 모바일에서 탭이 이동 대신 선택 토글이 된다. */
   selectionMode?: boolean;
+  /** 특정 에픽 필터·에픽 그룹 안 — 에픽 표시(모바일 ◆ 메타·데스크톱 칩) 생략. */
+  hideEpic?: boolean;
 }) {
   const navigate = useNavigate();
   const to = `/projects/${projectKey}/issues/${it.number}`;
@@ -102,8 +106,18 @@ export const IssueRow = memo(function IssueRow({
       aria-selected={isMobile && selectionMode ? selected : undefined}
       data-testid={`issue-row-${it.number}`}
     >
-      {!isMobile && (
-        <td className="py-2" onClick={(e) => e.stopPropagation()}>
+      {isMobile ? (
+        <IssueRowMobileCell
+          issue={it}
+          projectKey={projectKey}
+          to={to}
+          selected={selected}
+          hideEpic={hideEpic}
+          colSpan={ISSUE_LIST_COLUMN_COUNT_MOBILE}
+        />
+      ) : (
+        <>
+      <td className="py-2" onClick={(e) => e.stopPropagation()}>
           <input
             type="checkbox"
             checked={selected}
@@ -114,14 +128,9 @@ export const IssueRow = memo(function IssueRow({
             data-testid={`select-issue-${it.number}`}
             className="h-4 w-4"
           />
-        </td>
-      )}
+      </td>
       <td className="py-2">
-        {isMobile && selected ? (
-          <CheckCircle2 className="h-4 w-4 text-primary" aria-label="선택됨" />
-        ) : (
-          <IssueStatusIcon status={it.status} />
-        )}
+        <IssueStatusIcon status={it.status} />
       </td>
       {/* 좁은 화면(<sm)에선 우선순위·마감 컬럼을 숨겨 제목 폭을 확보한다 — 헤더의 같은 컬럼도 함께 숨긴다. */}
       <td className="hidden sm:table-cell"><IssuePriorityBars priority={it.priority} /></td>
@@ -144,12 +153,12 @@ export const IssueRow = memo(function IssueRow({
           <Link
             to={to}
             onClick={(e) => e.stopPropagation()}
-            className="min-w-0 truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-w-[8rem] truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {it.title}
           </Link>
           {/* 소속(에픽/상위 이슈) 은 Jira 처럼 제목과 분리해 행 오른쪽 끝에 색상 칩으로 표시. */}
-          {it.parent && (
+          {it.parent && !(hideEpic && isEpicParent(it)) && (
             <ParentChip projectKey={projectKey} parent={it.parent} issueNumber={it.number} />
           )}
           {/* 하위를 가진 이슈엔 진행률(└ done/total)을 표시한다. 목록에서 SUBTASK 를 숨긴 부모는
@@ -195,6 +204,8 @@ export const IssueRow = memo(function IssueRow({
       <td className="hidden text-muted-foreground sm:table-cell" data-testid={`issue-row-${it.number}-due`}>
         {formatDateKorean(it.dueDate)}
       </td>
+        </>
+      )}
     </tr>
   );
 });

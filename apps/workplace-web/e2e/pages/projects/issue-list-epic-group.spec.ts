@@ -87,3 +87,34 @@ test.describe('이슈 목록 에픽 그룹', () => {
     await expect(page.getByTestId('list-group-epic-12').getByTestId('issue-row-3')).toBeVisible();
   });
 });
+
+test.describe('이슈 목록 데스크톱 에픽 칩', () => {
+  test('긴 제목 + 긴 에픽명이어도 칩이 줄어들어 제목은 최소 폭(8rem)을 지킨다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, createProject());
+    await mockApi(page, 'GET', `/api/v1/projects/${KEY}/members`, []);
+    await mockApi(page, 'GET', `/api/v1/projects/${KEY}/saved-views`, []);
+    const issue = createIssue({
+      id: 21,
+      number: 21,
+      title: '결제 모듈에서 환불 처리 시 간헐적으로 실패하는 문제의 원인을 분석하고 재시도 로직을 보강한다 — 운영 로그 기준 재현',
+      parent: epic(30, '결제 안정화 및 운영 모니터링 체계 정비 (2026 하반기 핵심 과제) — 매우 긴 에픽 이름'),
+    });
+    await page.route(
+      (url) => url.pathname === ISSUES_PATH,
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssueSearchResponse([issue])),
+        });
+      },
+    );
+    await page.goto(`/projects/${KEY}?group=none`);
+    const row = page.getByTestId('issue-row-21');
+    await expect(row.getByTestId('issue-row-21-parent')).toBeVisible();
+    const link = row.getByRole('link', { name: /결제 모듈/ });
+    expect((await link.boundingBox())!.width).toBeGreaterThanOrEqual(128);
+  });
+});
