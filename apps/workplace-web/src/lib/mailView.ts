@@ -1,7 +1,7 @@
 // 메일 보기 해석(WP-186) — URL 파라미터를 "지금 무엇을 보는가"로 한 번만 해석한다.
 // 사이드바 활성 표시·헤더 제목·툴바 토글·목록 API 파라미터가 모두 이 결과만 써서 화면마다 기준이 어긋나지 않게 한다.
 // 원칙: "업무"는 어디서나 업무 + 미분류(백엔드 workViewCondition), AI 분류가 꺼진 계정은 받은편지함 = 전체.
-import { MAIL_CATEGORIES, type MailCategory } from '@/types/mailMessage'
+import { MAIL_CATEGORIES, type MailCategory, type MailUnreadCounts } from '@/types/mailMessage'
 
 export type MailViewKind = 'work' | 'all' | 'category' | 'needsReply' | 'sent'
 
@@ -52,4 +52,23 @@ export function mailViewHref(accountId: number, view: 'work' | 'all' | MailCateg
   if (unreadOnly) q.set('unread', 'true')
   const s = q.toString()
   return s ? `/mail/${accountId}?${s}` : `/mail/${accountId}`
+}
+
+/**
+ * WP-187 보기에 해당하는 안 읽은 수 — 모두 읽음 버튼 비활성 판단용.
+ * work=업무 버킷, all=받은편지함 전체, category=해당 분류, needsReply=회신필요. 보낸편지함은 안 읽음 개념이 없어 0.
+ */
+export function unreadCountForView(view: MailView, counts: MailUnreadCounts): number {
+  switch (view.kind) {
+    case 'work':
+      return counts.byCategory['업무'] ?? 0
+    case 'all':
+      return counts.inbox
+    case 'category':
+      return view.activeCategory ? (counts.byCategory[view.activeCategory] ?? 0) : 0
+    case 'needsReply':
+      return counts.needsReply
+    case 'sent':
+      return 0
+  }
 }

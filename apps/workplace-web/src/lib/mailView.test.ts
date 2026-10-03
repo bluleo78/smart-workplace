@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { mailViewHref, resolveMailView } from './mailView'
+import type { MailUnreadCounts } from '@/types/mailMessage'
+
+import { mailViewHref, resolveMailView, unreadCountForView } from './mailView'
 
 const p = (q: string) => new URLSearchParams(q)
 
@@ -52,4 +54,20 @@ describe('mailViewHref', () => {
     expect(mailViewHref(3, 'all', true)).toBe('/mail/3?category=all&unread=true')
     expect(mailViewHref(3, '개인', false)).toBe('/mail/3?category=%EA%B0%9C%EC%9D%B8')
   })
+})
+
+describe('unreadCountForView', () => {
+  const counts = {
+    classificationActive: true,
+    inbox: 40,
+    byCategory: { 업무: 7, 개인: 3, 알림: 2, 프로모션: 1, 뉴스레터: 5 },
+    needsReply: 4,
+  } satisfies MailUnreadCounts
+  const view = (q: string) => resolveMailView(p(q), true)
+
+  it('work = 업무 버킷', () => expect(unreadCountForView(view(''), counts)).toBe(7))
+  it('all = 받은편지함 전체', () => expect(unreadCountForView(view('category=all'), counts)).toBe(40))
+  it('category = 해당 분류', () => expect(unreadCountForView(view('category=개인'), counts)).toBe(3))
+  it('needsReply = 회신필요 수', () => expect(unreadCountForView(view('needsReply=true'), counts)).toBe(4))
+  it('sent = 0', () => expect(unreadCountForView(view('folder=sent'), counts)).toBe(0))
 })

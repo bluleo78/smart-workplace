@@ -4,7 +4,7 @@ import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from 
 import { useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 
-import { coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getSyncStatus, getUnreadCounts, getUnreadSummary, listMessages, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
+import { coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getSyncStatus, getUnreadCounts, getUnreadSummary, listMessages, type MailViewScope, markAllRead, markMessageRead, markMessageUnread, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
 import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
@@ -50,6 +50,51 @@ export function useUnreadSummary(enabled: boolean) {
     queryFn: getUnreadSummary,
     enabled,
     refetchInterval: 60_000,
+  });
+}
+
+/**
+ * WP-187 한 통 읽음/안읽음 전환 — 목록 캐시의 seen 을 낙관적으로 바꾸고 실패하면 되돌린다.
+ * 안 읽은 수는 낙관 갱신하지 않고(F17) 완료(settle) 시 무효화로 서버 값을 다시 받는다.
+ */
+export function useToggleRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, seen }: { id: number; seen: boolean }) => (seen ? markMessageRead(id) : markMessageUnread(id)),
+    onMutate: async ({ id, seen }) => {
+      await qc.cancelQueries({ queryKey: ['mail-messages'] });
+      const snapshot = qc.getQueriesData<EmailMessageSummary[]>({ queryKey: ['mail-messages'] });
+      qc.setQueriesData<EmailMessageSummary[]>({ queryKey: ['mail-messages'], exact: false }, (old) =>
+        old?.map((m) => (m.id === id ? { ...m, seen } : m)),
+      );
+      return { snapshot };
+    },
+    onError: (e, _v, ctx) => {
+      ctx?.snapshot.forEach(([key, data]) => qc.setQueryData(key, data));
+      handleApiError(e, '읽음 상태를 바꾸지 못했어요');
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: mailMessageKeys.unreadCountsAll() });
+      qc.invalidateQueries({ queryKey: mailMessageKeys.unreadSummary() });
+      // exact: true — 메시지별 AI 요약 ['mail-summary', id] 재생성 방지(useSyncMailbox 와 동일)
+      qc.invalidateQueries({ queryKey: ['mail-summary'], exact: true });
+    },
+  });
+}
+
+/** WP-187 모두 읽음 실행 — 성공 시 목록·안 읽은 수·탭 합계를 무효화하고 "N통 읽음 처리" 토스트. */
+export function useMarkAllRead(accountId: number | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: MailViewScope & { asOf: string }) => markAllRead(accountId as number, body),
+    onSuccess: (updated) => {
+      qc.invalidateQueries({ queryKey: ['mail-messages', accountId] });
+      qc.invalidateQueries({ queryKey: mailMessageKeys.unreadCountsAll() });
+      qc.invalidateQueries({ queryKey: mailMessageKeys.unreadSummary() });
+      qc.invalidateQueries({ queryKey: ['mail-summary'], exact: true });
+      toast.success(`${updated}통 읽음 처리`);
+    },
+    onError: (e) => handleApiError(e, '모두 읽음 처리하지 못했어요'),
   });
 }
 

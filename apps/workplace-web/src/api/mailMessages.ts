@@ -73,6 +73,55 @@ export async function getUnreadSummary(): Promise<number> {
   return data.workUnread;
 }
 
+/** WP-187 한 통 읽음 처리(MCP mark_mail_read 와 같은 엔드포인트). */
+export async function markMessageRead(messageId: number): Promise<void> {
+  await client.post(`/mail/messages/${messageId}/read`);
+}
+
+/** WP-187 안읽음으로 표시. */
+export async function markMessageUnread(messageId: number): Promise<void> {
+  await client.post(`/mail/messages/${messageId}/unread`);
+}
+
+/** WP-187 보기 범위 필터 — 목록 API 와 같은 의미(category '' = 전체). */
+export interface MailViewScope {
+  category: string;
+  needsReply: boolean;
+  query: string;
+}
+
+/** WP-187 모두 읽음 확인용 건수 + 서버(DB 시계) 기준 시각. asOf 는 모두 읽음 요청에 그대로 되돌려 보낸다. */
+export async function getViewUnreadCount(
+  accountId: number,
+  scope: MailViewScope,
+): Promise<{ count: number; asOf: string }> {
+  const { data } = await client.get<{ count: number; asOf: string }>(
+    `/mail/accounts/${accountId}/messages/unread-count`,
+    {
+      params: {
+        ...(scope.category ? { category: scope.category } : {}),
+        ...(scope.needsReply ? { needsReply: true } : {}),
+        ...(scope.query ? { query: scope.query } : {}),
+      },
+    },
+  );
+  return data;
+}
+
+/** WP-187 모두 읽음 — 갱신 건수. asOf 이후에 들어온 메일은 서버가 제외한다. */
+export async function markAllRead(accountId: number, body: MailViewScope & { asOf: string }): Promise<number> {
+  const { data } = await client.post<{ updated: number }>(
+    `/mail/accounts/${accountId}/messages/mark-all-read`,
+    {
+      category: body.category || null,
+      needsReply: body.needsReply,
+      query: body.query || null,
+      asOf: body.asOf,
+    },
+  );
+  return data.updated;
+}
+
 /** 메시지 단건 상세(본문 + 첨부 메타). */
 export async function getMessage(messageId: number): Promise<EmailMessageDetail> {
   const { data } = await client.get<EmailMessageDetail>(`/mail/messages/${messageId}`);
