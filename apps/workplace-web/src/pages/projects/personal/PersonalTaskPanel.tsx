@@ -1,8 +1,7 @@
 // 개인 작업 상세 — 뷰별 하이브리드: 리스트/체크리스트=인플로우 사이드 패널, 보드=중앙 모달(#231).
 // ?task=N 이 있을 때만 표시. 기존 필드 위젯 + 이슈 chat 재사용. ESC·✕·같은 행 재클릭으로 닫힘.
 import { X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef } from 'react';
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { LabelChip } from '@/components/labels/LabelChip';
@@ -10,6 +9,7 @@ import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { useIssue, useUpdateIssue } from '@/hooks/queries/useIssue';
+import { useHistoryParam } from '@/hooks/useHistoryParam';
 import { buildIssueDetailContext } from '@/lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
@@ -32,16 +32,13 @@ export function PersonalTaskPanel({
   projectKey: string;
   mode: 'panel' | 'modal';
 }) {
-  const [params, setParams] = useSearchParams();
-  const taskParam = params.get('task');
-  const number = taskParam ? Number(taskParam) : NaN;
+  // ?task=N — 열림의 단일 원천. 닫기(✕·ESC·바깥 클릭·같은 행 재클릭)는 공용 히스토리 닫기:
+  // 리스트 행이 push 로 연 항목은 되돌리고, 보드 카드 Link·리다이렉트로 들어온 항목은 출발 화면으로,
+  // 콜드 딥링크는 task 만 지운다(WP-208).
+  const taskParam = useHistoryParam('task');
+  const number = taskParam.value ? Number(taskParam.value) : NaN;
   const open = Number.isFinite(number);
-
-  // 닫기 — task 쿼리 제거, 나머지(view 등) 유지.
-  const close = useCallback(
-    () => setParams((p) => { const n = new URLSearchParams(p); n.delete('task'); return n; }, { replace: true }),
-    [setParams],
-  );
+  const close = taskParam.close;
 
   // ESC 로 닫기 — panel 모드 한정(modal 은 Radix Dialog 가 ESC 처리).
   useEffect(() => {
