@@ -6,6 +6,7 @@ import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
 
 import { FacetValueList } from './FacetValueList';
 import type { FacetDef, FacetValue, FilterValue } from './types';
@@ -14,10 +15,13 @@ export function AddFilterButton({
   facets,
   value,
   onToggle,
+  side,
 }: {
   facets: FacetDef[];
   value: FilterValue;
   onToggle: (key: string, v: FacetValue) => void;
+  /** 팝오버 방향 고정. 지정하면 충돌 회피(뒤집기)를 끄고, 대신 남은 높이 안에서 스크롤한다. */
+  side?: 'top' | 'bottom';
 }) {
   const [open, setOpen] = useState(false);
   // 선택된 facet key(2-step). null = facet 목록 단계.
@@ -38,7 +42,16 @@ export function AddFilterButton({
           필터
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-2" align="start">
+      <PopoverContent
+        className={cn(
+          'w-64 p-2',
+          // 방향 고정 시 화면 밖으로 넘치지 않게 Radix 가 계산한 남은 높이까지만 쓰고 스크롤.
+          side && 'max-h-(--radix-popover-content-available-height) overflow-y-auto',
+        )}
+        align="start"
+        side={side}
+        avoidCollisions={side ? false : undefined}
+      >
         {active == null ? (
           <div className="space-y-0.5">
             {facets.map((f) => (

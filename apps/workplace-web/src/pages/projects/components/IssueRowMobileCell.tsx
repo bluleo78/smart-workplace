@@ -2,6 +2,7 @@
 // 1줄: 상태 아이콘 + 제목(최대 2줄). 2줄: 키 · ◆에픽 · 높음 · 마감 · 하위 n/m · 첫 라벨(+N) … 담당자.
 // 표 구조(<tr>)를 유지해야 평면/그룹/사이클 구간 목록이 같은 행 컴포넌트를 계속 공유할 수 있다.
 import { CheckCircle2 } from 'lucide-react';
+import { Fragment, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
@@ -30,15 +31,28 @@ export function IssueRowMobileCell({
 }) {
   // ◆ 에픽 메타 — 부모가 에픽일 때만. 특정 에픽 필터·에픽 그룹 안에선 중복이라 생략.
   const epic = !hideEpic && it.parent && isEpicParent(it) ? it.parent : null;
-  // 에픽 색은 ParentChip 과 같은 유형 색 토큰(하드코딩 색 금지).
-  const epicColor = epic ? (LABEL_COLORS[epic.type.colorToken as ColorToken] ?? LABEL_COLORS.GRAY).text : '';
+  // 에픽 색은 ParentChip 과 같은 유형 색 토큰(하드코딩 색 금지). 배경 없는 글자라 칩용 text 가 아닌 fg 톤.
+  const epicColor = epic ? (LABEL_COLORS[epic.type.colorToken as ColorToken] ?? LABEL_COLORS.GRAY).fg : '';
   const firstLabel = it.labels[0];
+  // 메타 꼬리 조각(높음·마감·하위·라벨) — 한 span 안에 인라인으로 이어 붙여, 넘치면 끝에서 「…」 로 말줄임된다.
+  const tail: ReactNode[] = [];
+  if (it.priority === 'HIGH') tail.push(<span key="p" className="text-destructive">높음</span>);
+  if (it.dueDate) tail.push(formatDateKorean(it.dueDate));
+  if (it.childCount > 0) tail.push(`${it.childDoneCount}/${it.childCount}`);
+  if (firstLabel) tail.push(`${firstLabel.name}${it.labels.length > 1 ? ` +${it.labels.length - 1}` : ''}`);
+  // 구분점 — 스크린리더가 읽지 않게 aria-hidden.
+  const sep = (key: string, cls = 'shrink-0') => (
+    <span key={key} aria-hidden="true" className={cls}>
+      ·
+    </span>
+  );
   return (
     <td colSpan={colSpan} className="px-1 py-2.5">
       <div className="flex min-w-0 items-start gap-2">
         <span className="mt-0.5 shrink-0">
+          {/* 선택 표시는 상태 아이콘과 같은 18px — 바뀌어도 제목이 밀리지 않게. */}
           {selected ? (
-            <CheckCircle2 className="h-4 w-4 text-primary" aria-label="선택됨" />
+            <CheckCircle2 className="h-[18px] w-[18px] text-primary" aria-label="선택됨" />
           ) : (
             <IssueStatusIcon status={it.status} />
           )}
@@ -54,40 +68,46 @@ export function IssueRowMobileCell({
             {it.title}
           </Link>
           <div className="mt-1 flex min-w-0 items-center gap-2">
+            {/* 메타 한 줄 — 키 · ◆에픽 · 꼬리를 flex 로 나열(에픽 뒤 빈 공간 없이 gap 만), 넘치면 꼬리 끝이 말줄임된다. */}
             <p
-              className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground"
+              className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden whitespace-nowrap text-xs text-muted-foreground"
               data-testid={`issue-row-${it.number}-meta`}
             >
-              <span className="font-mono">{projectKey}-{it.number}</span>
+              <span className="shrink-0 font-mono">{projectKey}-{it.number}</span>
               {epic && (
                 <>
-                  {' · '}
+                  {sep('se')}
+                  {/* 에픽은 줄어들지 않고 최대 7.5rem 안에서만 말줄임 — 꼬리가 먼저 잘려 에픽이 「◆ …」 로 사라지지 않게. */}
                   <span
-                    className={`inline-block max-w-[7.5rem] truncate align-bottom ${epicColor}`}
+                    className={`max-w-[7.5rem] shrink-0 truncate ${epicColor}`}
                     data-testid={`issue-row-${it.number}-epic`}
                   >
                     ◆ {epic.title}
                   </span>
                 </>
               )}
-              {it.priority === 'HIGH' && <>{' · '}<span className="text-destructive">높음</span></>}
-              {it.dueDate && <>{' · '}{formatDateKorean(it.dueDate)}</>}
-              {it.childCount > 0 && <>{' · '}{it.childDoneCount}/{it.childCount}</>}
-              {firstLabel && (
+              {tail.length > 0 && (
                 <>
-                  {' · '}
-                  {firstLabel.name}
-                  {it.labels.length > 1 && ` +${it.labels.length - 1}`}
+                  {sep('st')}
+                  <span className="min-w-0 truncate">
+                    {tail.map((node, i) => (
+                      <Fragment key={i}>
+                        {i > 0 && sep(`s${i}`, 'mx-1')}
+                        {node}
+                      </Fragment>
+                    ))}
+                  </span>
                 </>
               )}
             </p>
             {it.assignees.length > 0 && (
-              <span className="flex shrink-0 items-center -space-x-1">
+              <span className="flex shrink-0 items-center -space-x-0.5">
+                {/* 선택 행(bg-primary/10)에선 배경색 ring 이 흰 테두리로 떠 보여 끈다(AGENT 보라 ring 은 유지). */}
                 {it.assignees.slice(0, 2).map((u) => (
-                  <UserAvatar key={u.id} user={u} size="xs" ring agent={u.kind === 'AGENT'} />
+                  <UserAvatar key={u.id} user={u} size="xs" ring={!selected} agent={u.kind === 'AGENT'} />
                 ))}
                 {it.assignees.length > 2 && (
-                  <span className="ml-1.5 text-[11px] text-muted-foreground">+{it.assignees.length - 2}</span>
+                  <span className="ml-1.5 text-xs text-muted-foreground">+{it.assignees.length - 2}</span>
                 )}
               </span>
             )}

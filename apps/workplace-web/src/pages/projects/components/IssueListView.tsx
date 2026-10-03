@@ -16,11 +16,19 @@ import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { groupIssues } from '../../../lib/issueGrouping';
-import type { IssueClientGroupBy, IssueFilters } from '../../../types/issue';
+import { LABEL_COLORS } from '../../../lib/labelColors';
+import type { IssueClientGroupBy, IssueFilters, IssueResponse } from '../../../types/issue';
+import type { ColorToken } from '../../../types/label';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
 import { ISSUE_LIST_COLUMN_COUNT, ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
+
+/** 에픽 그룹 헤더 ◆ 글자색 — 그룹 첫 이슈의 부모(=그 에픽) 유형 색 토큰(배경 없는 글자용 fg). */
+function epicGroupColor(first: IssueResponse | undefined): string {
+  const token = first?.parent?.type.colorToken as ColorToken | undefined;
+  return (token && LABEL_COLORS[token] ? LABEL_COLORS[token] : LABEL_COLORS.GRAY).fg;
+}
 
 export function IssueListView({
   projectKey,
@@ -190,6 +198,12 @@ export function IssueListView({
                         className={cn('size-3.5 shrink-0 transition-transform', !collapsed.has(g.key) && 'rotate-90')}
                         aria-hidden="true"
                       />
+                      {/* 에픽 그룹은 ◆ 를 에픽 유형 색으로 — 행 메타·칩과 같은 표식(색 = 첫 이슈 부모 에픽의 유형 토큰). */}
+                      {g.key.startsWith('epic-') && (
+                        <span className={cn('shrink-0', epicGroupColor(g.issues[0]))} aria-hidden="true">
+                          ◆
+                        </span>
+                      )}
                       <span className="min-w-0 truncate">{g.label}</span>
                       <span className="shrink-0 font-normal">{g.issues.length}</span>
                     </button>
@@ -224,7 +238,7 @@ export function IssueListView({
                   canDrag={canDrag}
                   onLongPress={rowActions.open}
                   selectionMode={isMobile && selected.size > 0}
-                    hideEpic={hideEpic}
+                  hideEpic={hideEpic}
                 />
               ))}
             </tbody>

@@ -11,10 +11,13 @@ export function FacetFilter({
   facets,
   value,
   onChange,
+  popoverSide,
 }: {
   facets: FacetDef[];
   value: FilterValue;
   onChange: (next: FilterValue) => void;
+  /** 「＋ 필터」 팝오버 방향 고정 — 지정하면 뒤집지 않는다(모바일 필터 시트). 미지정이면 기존처럼 자동. */
+  popoverSide?: 'top' | 'bottom';
 }) {
   // 직전에 내보낸 값의 최신 스냅샷.
   // onChange 가 URL(search params) 왕복을 거치는 호출부에서는 value prop 반영이 한 틱 이상
@@ -56,7 +59,7 @@ export function FacetFilter({
             onClear={() => clear(f.key)}
           />
         ))}
-      <AddFilterButton facets={facets} value={value} onToggle={toggle} />
+      <AddFilterButton facets={facets} value={value} onToggle={toggle} side={popoverSide} />
     </div>
   );
 }

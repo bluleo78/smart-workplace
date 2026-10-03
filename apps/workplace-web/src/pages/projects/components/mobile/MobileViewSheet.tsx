@@ -1,6 +1,6 @@
 // 모바일 「뷰 ▾」 시트(WP-194) — 저장된 뷰 목록 + 「완료 모두 보기」 + 「현재 조건으로 뷰 저장/업데이트」.
 // 뷰 상태·dirty 판정은 데스크톱 ViewChipBar 와 같은 useSavedViewState 를 쓴다. 뷰 수정·삭제·고정은 데스크톱 전용.
-import { Check, RefreshCw, Star, Users } from 'lucide-react';
+import { Check, Plus, RefreshCw, Star, Users } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
 import {
@@ -20,8 +20,9 @@ import type { IssueFilterControls } from '../../hooks/useIssueFilterControls';
 import type { SavedViewState } from '../../hooks/useSavedViewState';
 import { SaveViewDialog } from '../SaveViewDialog';
 
-// 시트 행 공통 스타일 — 터치 영역 44px.
-const ROW = 'flex min-h-11 w-full items-center gap-3 px-4 text-left text-base active:bg-accent disabled:opacity-50';
+// 시트 행 공통 스타일 — 터치 영역 44px, 아이콘 size-5(MobilePickerSheet 와 같은 크기).
+const ROW =
+  'flex min-h-11 w-full items-center gap-3 px-4 text-left text-base active:bg-accent disabled:opacity-50 [&_svg]:size-5 [&_svg]:shrink-0';
 
 export function MobileViewSheet({
   open,
@@ -40,6 +41,8 @@ export function MobileViewSheet({
   const [saveOpen, setSaveOpen] = useState(false);
   const activeView = saved.activeView;
   const closedChecked = controls.filters.showAllClosed || controls.closedHidingOverridden;
+  // 저장할 조건이 없거나, 활성 뷰가 그대로면 「현재 조건으로 뷰 저장」 비활성.
+  const saveDisabled = saved.hasNothingToSave || (!!activeView && !saved.isViewDirty);
 
   // 항목 선택 — 시트를 먼저 닫고 적용한다.
   const pick = (apply: () => void) => {
@@ -59,7 +62,7 @@ export function MobileViewSheet({
       data-testid={testId}
       aria-current={active || undefined}
       onClick={onClick}
-      className={cn(ROW, active && 'bg-accent font-medium', '[&_svg]:size-4 [&_svg]:shrink-0')}
+      className={cn(ROW, active && 'bg-accent font-medium')}
     >
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {extra}
@@ -138,7 +141,7 @@ export function MobileViewSheet({
                   onClick={() => pick(() => saved.updateActiveView(activeView))}
                   className={cn(ROW, 'text-primary')}
                 >
-                  <RefreshCw className="size-4 shrink-0" aria-hidden="true" />
+                  <RefreshCw aria-hidden="true" />
                   뷰 업데이트
                 </button>
                 <button type="button" data-testid="mobile-view-save" onClick={openSave} className={ROW}>
@@ -146,13 +149,15 @@ export function MobileViewSheet({
                 </button>
               </>
             ) : (
+              // 저장 가능하면 「＋ 에픽 만들기」 와 같은 primary 액션 모양(＋ 아이콘), 비활성이면 흐린 기본 행.
               <button
                 type="button"
                 data-testid="mobile-view-save"
                 onClick={openSave}
-                disabled={saved.hasNothingToSave || (!!activeView && !saved.isViewDirty)}
-                className={ROW}
+                disabled={saveDisabled}
+                className={cn(ROW, !saveDisabled && 'text-primary')}
               >
+                <Plus aria-hidden="true" />
                 현재 조건으로 뷰 저장
               </button>
             )}

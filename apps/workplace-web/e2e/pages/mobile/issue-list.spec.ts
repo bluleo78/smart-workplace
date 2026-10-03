@@ -180,6 +180,23 @@ test.describe('모바일 툴바', () => {
     await expect(page).not.toHaveURL(/status=/);
   });
 
+  test('필터 시트 — 필터 없으면 안내 문구, ＋ 필터 팝오버는 아래로 열려 시트 제목을 가리지 않는다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}`);
+    await page.getByTestId('mobile-chip-filter').click();
+    const sheet = page.getByTestId('mobile-filter-sheet');
+    await expect(sheet.getByTestId('mobile-filter-empty')).toHaveText('적용된 필터 없음');
+    const trigger = sheet.getByTestId('add-filter-trigger');
+    await trigger.click();
+    const first = page.getByTestId('add-filter-facet-status');
+    await expect(first).toBeVisible();
+    const tb = (await trigger.boundingBox())!;
+    const fb = (await first.boundingBox())!;
+    // 팝오버 첫 항목이 트리거 아래에 있다(위로 뒤집혀 시트 제목을 덮지 않음).
+    expect(fb.y).toBeGreaterThanOrEqual(tb.y + tb.height);
+    await expect(sheet.getByRole('heading', { name: '필터' })).toBeInViewport();
+  });
+
   test('뷰 시트 — 저장 뷰 적용, 완료 모두 보기 토글', async ({ authenticatedPage: page }) => {
     await mock(page, { views: [MY_BUG_VIEW] });
     await page.goto(`/projects/${KEY}`);

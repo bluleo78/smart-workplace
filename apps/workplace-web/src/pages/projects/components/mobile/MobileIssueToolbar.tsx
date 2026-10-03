@@ -16,9 +16,12 @@ import { useSavedViewState } from '../../hooks/useSavedViewState';
 import { MobileFilterSheet } from './MobileFilterSheet';
 import { MobileViewSheet } from './MobileViewSheet';
 
-// 칩 공통 스타일 — 터치 영역 44px(min-h-11 은 줄 높이를 키우므로 시각 32px + 상하 여백으로 확보).
+// 칩 공통 스타일 — 보이는 높이 32px(h-8). 터치 영역은 보이지 않는 ::after 를 위아래 6px 씩 넓혀 44px 로 맞춘다
+// (칩 줄 컨테이너 py-2=8px 안이라 스크롤 영역에 잘리지 않고, 툴바 높이도 그대로).
 export const MOBILE_CHIP =
-  'inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-3 text-[13px] whitespace-nowrap';
+  "relative inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-3 text-sm whitespace-nowrap after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-['']";
+// 활성 칩(에픽 선택·필터 적용) — 테두리 대신 primary 틴트로 「걸려 있음」을 표시.
+export const MOBILE_CHIP_ACTIVE = 'border-primary/40 bg-primary/10 text-primary font-medium';
 
 /** 쿼리에서 view·group 과 에픽 범위(parent/topLevel)를 빼면 남는 조건이 없는지 — 모바일 뷰 칩 라벨 판정용. */
 function isOnlyEpicScope(query: string): boolean {
@@ -83,7 +86,7 @@ export function MobileIssueToolbar({ projectKey, epicSlot }: { projectKey: strin
           {epicSlot}
           <button
             type="button"
-            className={cn(MOBILE_CHIP, c.activeFilterCount > 0 && 'border-foreground bg-accent font-medium')}
+            className={cn(MOBILE_CHIP, c.activeFilterCount > 0 && MOBILE_CHIP_ACTIVE)}
             onClick={() => setSheet('filter')}
             data-testid="mobile-chip-filter"
           >
