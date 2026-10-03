@@ -1,4 +1,4 @@
-// 모바일 메일 읽음 조작(WP-187) — 상세 헤더 바 "안 읽음", 터치 셸에서 행 hover 토글 미렌더.
+// 모바일 메일 읽음 조작(WP-187) — 상세 헤더 바 "안 읽음", 터치 셸에서 행 hover 토글 미렌더. WP-214: 첫 열람 읽음 요청.
 import type { Page } from '@playwright/test'
 
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
@@ -16,14 +16,15 @@ async function stubMail(page: Page) {
     classificationActive: true, inbox: 1, byCategory: { 업무: 1, 개인: 0, 알림: 0, 프로모션: 0, 뉴스레터: 0 }, needsReply: 0,
   }, { capture: true })
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary({ id: 10, seen: false })])
-  const det = await mockApi(page, 'GET', '/api/v1/mail/messages/10', { ...detail({ id: 10 }), seen: true }, { capture: true })
+  const det = await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail({ id: 10 }), { capture: true })
   return { counts, det }
 }
 
-test('모바일 상세 바의 안읽음 → 안읽음 API 후 목록으로 복귀, mail SSE 에도 상세 재조회 없음', async ({ authenticatedPage: page }) => {
+test('모바일 상세 바의 안읽음 → 안읽음 API 후 목록으로 복귀, mail SSE 뒤에도 다시 읽음 처리하지 않음', async ({ authenticatedPage: page }) => {
   const { counts, det } = await stubMail(page)
-  // 안읽음 뒤 서버 mail 변경 프레임이 와도 닫힌 상세는 재조회(markSeen)되지 않아야 한다(Review Focus 4).
+  // 안읽음 뒤 서버 mail 변경 프레임이 와도 다시 읽음 처리되지 않아야 한다(Review Focus 4, WP-214).
   const events = await mockGatedEvents(page)
+  const read = await mockApi(page, 'POST', '/api/v1/mail/messages/10/read', null, { capture: true })
   const unread = await mockApi(page, 'POST', '/api/v1/mail/messages/10/unread', null, { capture: true })
   await page.goto('/mail/1')
   // 터치 셸에는 hover 가 없어 행 전환 버튼을 렌더하지 않는다(R7).
@@ -31,11 +32,13 @@ test('모바일 상세 바의 안읽음 → 안읽음 API 후 목록으로 복�
   await expect(page.getByTestId('mail-row-toggle-read-10')).toHaveCount(0)
   await page.getByTestId('mail-row-10').click()
   await expect(page.getByTestId('mail-detail')).toBeVisible()
+  // 연 메일은 읽음 요청을 따로 보낸다 — 상세 조회는 읽음 처리하지 않는다(WP-214).
+  await read.waitForRequest()
+  expect(det.requests[0].searchParams.get('markSeen')).toBe('false')
   // 데스크톱 상세 아이콘은 모바일에서 숨기고, ✦ 바로 왼쪽(헤더 바 trailing)에 "안 읽음"을 둔다.
   await expect(page.getByTestId('mail-mark-unread')).toHaveCount(0)
   const bar = page.getByTestId('mail-back')
   await expect(bar.getByTestId('mobile-mark-unread')).toHaveText('안 읽음')
-  const before = det.requests.length
   await bar.getByTestId('mobile-mark-unread').click()
   await unread.waitForRequest()
   await expect(page.getByTestId('mail-detail')).toHaveCount(0)
@@ -46,7 +49,7 @@ test('모바일 상세 바의 안읽음 → 안읽음 API 후 목록으로 복�
   const countsBefore = counts.requests.length
   events.deliver(resourceChangedFrame({ resource: 'mail', op: 'updated', scopeType: 'USER', scopeId: 1, ids: [10], accountId: 1, messageId: 10, actorId: 99 }))
   await expect.poll(() => counts.requests.length).toBeGreaterThan(countsBefore)
-  expect(det.requests.length).toBe(before)
+  expect(read.requests).toHaveLength(1)
   await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
 })
 
@@ -135,4 +138,17 @@ test.describe('360px 툴바 — 동기화 진행률이 보여도 넘치지 않�
     expect((await page.getByTestId('mail-row-10').boundingBox())!.x).toBe(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
+})
+
+test('행 길게 누르기 → 답장 — 상세는 읽음 처리 없이 받고, 안 읽은 메일이면 읽음 요청을 따로 보낸다(WP-214)', async ({ authenticatedPage: page }) => {
+  const { det } = await stubMail(page)
+  const read = await mockApi(page, 'POST', '/api/v1/mail/messages/10/read', null, { capture: true })
+  await page.goto('/mail/1')
+  await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
+  await longPress(page, page.getByTestId('mail-row-10'))
+  await page.getByTestId('message-action-reply').click()
+  await det.waitForRequest()
+  expect(det.requests[0].searchParams.get('markSeen')).toBe('false')
+  await read.waitForRequest()
+  await expect(page.getByTestId('mail-unread-bar-10')).toHaveCount(0)
 })
