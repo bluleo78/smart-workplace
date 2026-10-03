@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 
 import { currentEpicChoice, type EpicScopeChoice, nextEpicScope } from '../../../lib/epicScope';
-import { filtersToParams, parseFilters, parseGroupParam, parseView } from '../../../lib/issueFilters';
+import { carryBoardTab, filtersToParams, parseFilters, parseGroupParam, parseView } from '../../../lib/issueFilters';
 
 export function useEpicFilter(projectKey: string) {
   const [params, setParams] = useSearchParams();
@@ -14,7 +14,7 @@ export function useEpicFilter(projectKey: string) {
   /** 선택지 적용 — 해제 전환이면 같은 queryKey 캐시를 무효화해 최신 목록을 즉시 다시 받는다(staleTime 30s 우회). */
   function select(c: EpicScopeChoice) {
     const { parentNumber, topLevel, invalidate } = nextEpicScope(filters, c);
-    setParams(filtersToParams({ ...filters, parentNumber, topLevel }, parseView(params), parseGroupParam(params)), { replace: true });
+    setParams((prev) => carryBoardTab(filtersToParams({ ...filters, parentNumber, topLevel }, parseView(prev), parseGroupParam(prev)), prev), { replace: true });
     if (invalidate) queryClient.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
   }
 

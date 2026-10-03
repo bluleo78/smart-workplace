@@ -8,6 +8,7 @@ import type {
   IssueGroupParam,
   IssueView,
 } from '../types/issue';
+import { BOARD_TAB_PARAM } from './boardTabs';
 
 const STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'] as const;
 const PRIORITIES = ['LOW', 'MID', 'HIGH'] as const;
@@ -191,4 +192,15 @@ function csv(v: string | null): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/**
+ * 필터를 URL 로 다시 쓸 때 모바일 보드 선택 탭(boardTab)을 이어 붙인다(WP-195).
+ * filtersToParams 는 필터·view·group 만으로 새 쿼리를 만들어 boardTab 을 버린다 → 필터를 바꿀 때마다 탭이 기본값으로 튄다.
+ * 보드 뷰가 유지될 때만 보존하고, 목록으로 바뀌면 버린다(쓸모없는 키를 남기지 않게).
+ */
+export function carryBoardTab(next: URLSearchParams, prev: URLSearchParams): URLSearchParams {
+  const tab = prev.get(BOARD_TAB_PARAM);
+  if (tab && next.get('view') === 'board') next.set(BOARD_TAB_PARAM, tab);
+  return next;
 }

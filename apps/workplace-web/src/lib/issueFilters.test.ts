@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  carryBoardTab,
   filtersToParams,
   parseFilters,
   parseGroupBy,
@@ -176,5 +177,17 @@ describe('milestoneIds 필터 (#620)', () => {
     const params = filtersToParams(filters, 'list', null);
     expect(params.get('milestone')).toBe('1,2');
     expect(parseFilters(params).milestoneIds).toEqual([1, 2]);
+  });
+});
+
+describe('carryBoardTab', () => {
+  it('보드 뷰면 이전 boardTab 을 이어 붙인다', () => {
+    const next = carryBoardTab(new URLSearchParams('view=board&q=x'), new URLSearchParams('view=board&boardTab=DONE'));
+    expect(next.get('boardTab')).toBe('DONE');
+    expect(next.get('q')).toBe('x');
+  });
+  it('목록 뷰로 바뀌면 버린다, 이전에 없으면 그대로', () => {
+    expect(carryBoardTab(new URLSearchParams('q=x'), new URLSearchParams('view=board&boardTab=DONE')).has('boardTab')).toBe(false);
+    expect(carryBoardTab(new URLSearchParams('view=board'), new URLSearchParams('view=board')).has('boardTab')).toBe(false);
   });
 });

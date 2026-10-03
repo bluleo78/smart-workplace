@@ -17,6 +17,7 @@ import { useLabels } from '../../../hooks/queries/useLabels';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
 import {
+  carryBoardTab,
   filtersToParams,
   overridesClosedHiding,
   parseFilters,
@@ -135,7 +136,7 @@ export function useIssueFilterControls(
     nextView: IssueView,
     nextGroupBy: IssueGroupParam | null,
   ) {
-    setParams(filtersToParams(next, nextView, nextGroupBy), { replace: true });
+    setParams((prev) => carryBoardTab(filtersToParams(next, nextView, nextGroupBy), prev), { replace: true });
   }
 
   function setView(v: IssueView) {
@@ -150,10 +151,12 @@ export function useIssueFilterControls(
 
   // 초기화는 view·group 은 유지하고 나머지 필터만 비운다.
   function reset() {
-    const p = new URLSearchParams();
-    if (view === 'board') p.set('view', 'board');
-    if (groupParam) p.set('group', groupParam);
-    setParams(p, { replace: true });
+    setParams((prev) => {
+      const p = new URLSearchParams();
+      if (view === 'board') p.set('view', 'board');
+      if (groupParam) p.set('group', groupParam);
+      return carryBoardTab(p, prev);
+    }, { replace: true });
   }
 
   // 셀렉트에 보일 그룹 옵션 — 사이클 그룹은 사이클을 쓰는 화면의 목록 뷰에서만 고를 수 있다.
