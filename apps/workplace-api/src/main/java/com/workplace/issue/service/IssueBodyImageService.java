@@ -9,10 +9,18 @@ import com.workplace.issue.exception.IssueBodyImageLimitException;
 import com.workplace.issue.exception.IssueBodyImageRejectedException;
 import com.workplace.issue.repository.IssueBodyImageRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -42,6 +50,45 @@ public class IssueBodyImageService {
 
   @Value("${workplace.storage.issue-image.max-pending-per-user:50}")
   private int maxPendingPerUser;
+
+  // 본문에서 빠진 이미지를 바로 지우지 않고 유예 후 수거 — 되돌리기·재삽입·동시 편집 여유.
+  @Value("${workplace.storage.issue-image.demote-grace-hours:168}")
+  private int demoteGraceHours;
+
+  /**
+   * 저장된 본문과 이미지 연결 상태를 맞춘다 — 참조된 것은 이 이슈에 연결(만료 해제), 빠진 것은 강등(유예 후 만료 재무장).
+   *
+   * <p>호출자 계약: 인가하지 않는다. IssueService.create/update 가 생성·본문 편집 권한을 통과시킨 뒤 같은 트랜잭션에서 호출한다. 연결 대상은 "이
+   * 프로젝트에 내가 올린 미연결 임시 파일" 또는 "이미 이 이슈 것" 뿐이라, 본문에 남의 id 를 적어도 만료를 풀거나 소유를 옮길 수 없다. 대상이 아닌 id·이미
+   * 수거된 id 는 건너뛰고 저장은 실패시키지 않는다(며칠 지난 초안 저장 등) — 화면은 "불러올 수 없음" 으로 표시된다.
+   */
+  public void syncWithBody(ProjectRow project, long issueId, long callerId, String body) {
+    Set<Long> referenced = referencedFileIds(project.key(), body);
+    List<Long> claimable = repo.lockClaimable(project.id(), issueId, callerId, referenced);
+    repo.claim(issueId, claimable);
+    List<Long> dropped =
+        repo.fileIdsOfIssue(issueId).stream().filter(id -> !referenced.contains(id)).toList();
+    repo.demote(dropped, OffsetDateTime.now(ZoneOffset.UTC).plusHours(demoteGraceHours));
+  }
+
+  /** 본문에서 이 프로젝트 키의 이미지 참조 fileId 를 뽑는다. 키는 그대로 인용한다(PERSONAL 키는 자동 생성이라 문자 집합을 가정하지 않음). */
+  private static Set<Long> referencedFileIds(String projectKey, String body) {
+    Set<Long> ids = new LinkedHashSet<>();
+    if (body == null || body.isBlank()) return ids;
+    // \d{1,19}: Long.MAX_VALUE 자릿수. 범위를 넘는 값은 parseLong 이 던지므로 건너뛴다 — 본문은 자유 텍스트라 저장이 깨지면 안 된다.
+    Matcher m =
+        Pattern.compile(
+                "/api/v1/projects/" + Pattern.quote(projectKey) + "/issue-images/(\\d{1,19})")
+            .matcher(body);
+    while (m.find()) {
+      try {
+        ids.add(Long.parseLong(m.group(1)));
+      } catch (NumberFormatException ignored) {
+        // overflow — 무시
+      }
+    }
+    return ids;
+  }
 
   /** 업로드 — 이슈 생성 가능자. 매직바이트로 이미지인지 판정하고 임시 파일 + 미연결 매핑으로 저장한다. */
   public IssueBodyImageResponse upload(long callerId, String projectKey, MultipartFile file) {

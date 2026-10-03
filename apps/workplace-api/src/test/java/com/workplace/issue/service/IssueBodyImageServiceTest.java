@@ -9,16 +9,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.exception.IssueBodyImageLimitException;
 import com.workplace.issue.exception.IssueBodyImageRejectedException;
 import com.workplace.issue.repository.IssueBodyImageRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -43,6 +47,7 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
   @Autowired ProjectService projectService;
   @Autowired IssueAttachmentService attachmentService;
   @Autowired IssueRepository issueRepository;
+  @Autowired IssueService issueService;
 
   /**
    * FilePathBuilder 가 TenantContext.get() 을 사용하므로 테스트 시작 전 테넌트를 설정. connection-init-sql 의
@@ -232,6 +237,128 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
             .fileId();
 
     assertThatThrownBy(() -> service.load(owner, p.key(), attachmentFileId))
+        .isInstanceOf(AttachmentNotFoundException.class);
+  }
+
+  // ---- WP-199 Task 5: 저장 시 연결·강등 ----
+
+  /** CreateIssueRequest 헬퍼 — 제목·본문 외에는 기본값. */
+  private CreateIssueRequest createReq(String title, String body) {
+    return new CreateIssueRequest(title, body, null, null, null, null, null, null);
+  }
+
+  /** 본문만 바꾸는 PATCH (version null → 충돌 검사 생략). */
+  private UpdateIssueRequest bodyOnly(String body) {
+    return new UpdateIssueRequest(null, body, null, null, null, null, null, null, null, null, null);
+  }
+
+  /** 제목만 바꾸는 PATCH — 본문 null 이면 이미지 동기화를 건드리지 않아야 한다. */
+  private UpdateIssueRequest titleOnly(String title) {
+    return new UpdateIssueRequest(
+        title, null, null, null, null, null, null, null, null, null, null);
+  }
+
+  private String ref(String key, long fileId) {
+    return "![shot](/api/v1/projects/" + key + "/issue-images/" + fileId + ")";
+  }
+
+  private OffsetDateTime expiresAt(long fileId) {
+    return dsl.select(FILE.EXPIRES_AT)
+        .from(FILE)
+        .where(FILE.ID.eq(fileId))
+        .fetchOne(FILE.EXPIRES_AT);
+  }
+
+  @Test
+  void create_claims_own_pending_image_and_makes_it_permanent() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "SC");
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+
+    var created =
+        issueService.create(owner, p.key(), createReq("버그", "재현:\n" + ref(p.key(), fileId)));
+
+    var meta = repo.findMeta(fileId).orElseThrow();
+    assertThat(meta.issueId()).isEqualTo(created.id());
+    assertThat(expiresAt(fileId)).isNull();
+  }
+
+  @Test
+  void open_non_member_reporter_claims_on_create_and_others_can_view() {
+    Long owner = createUser("owner");
+    Long voc = createUser("voc");
+    Long viewer = createUser("viewer");
+    ProjectResponse p = newOpenProject(owner, "SO");
+    long fileId = service.upload(voc, p.key(), image("a.png", PNG)).fileId();
+
+    issueService.create(voc, p.key(), createReq("VOC", ref(p.key(), fileId)));
+
+    // 연결 후에는 OPEN 프로젝트를 볼 수 있는 누구나 조회 가능.
+    assertThat(service.load(viewer, p.key(), fileId).mimeType()).isEqualTo("image/png");
+  }
+
+  @Test
+  void foreign_ids_are_ignored_and_save_succeeds() {
+    Long owner = createUser("owner");
+    Long other = createUser("other");
+    ProjectResponse p = newProject(owner, "SF");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
+    ProjectResponse q = newProject(owner, "SG");
+    long othersPending = service.upload(other, p.key(), image("o.png", PNG)).fileId();
+    long otherProject = service.upload(owner, q.key(), image("q.png", PNG)).fileId();
+
+    var created =
+        issueService.create(
+            owner,
+            p.key(),
+            createReq(
+                "t",
+                ref(p.key(), othersPending)
+                    + ref(p.key(), otherProject)
+                    + ref(p.key(), 999999999L)));
+
+    // 남의 임시 파일·다른 프로젝트 파일·없는 id 는 연결되지 않고, 저장은 성공한다.
+    assertThat(repo.findMeta(othersPending).orElseThrow().issueId()).isNull();
+    assertThat(repo.findMeta(otherProject).orElseThrow().issueId()).isNull();
+    assertThat(created.id()).isPositive();
+  }
+
+  @Test
+  void removing_from_body_demotes_and_reinserting_restores() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "SD");
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+    var created = issueService.create(owner, p.key(), createReq("t", ref(p.key(), fileId)));
+
+    issueService.update(owner, p.key(), created.number(), bodyOnly("이미지 지움"));
+    assertThat(expiresAt(fileId)).isAfter(OffsetDateTime.now().plusDays(6));
+
+    issueService.update(owner, p.key(), created.number(), bodyOnly(ref(p.key(), fileId)));
+    assertThat(expiresAt(fileId)).isNull();
+  }
+
+  @Test
+  void update_without_body_does_not_touch_images() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "SN");
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+    var created = issueService.create(owner, p.key(), createReq("t", ref(p.key(), fileId)));
+
+    issueService.update(owner, p.key(), created.number(), titleOnly("새 제목"));
+
+    assertThat(expiresAt(fileId)).isNull();
+  }
+
+  @Test
+  void soft_deleted_issue_image_is_hidden() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "SX");
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+    var created = issueService.create(owner, p.key(), createReq("t", ref(p.key(), fileId)));
+
+    issueService.softDelete(owner, p.key(), created.number());
+
+    assertThatThrownBy(() -> service.load(owner, p.key(), fileId))
         .isInstanceOf(AttachmentNotFoundException.class);
   }
 }

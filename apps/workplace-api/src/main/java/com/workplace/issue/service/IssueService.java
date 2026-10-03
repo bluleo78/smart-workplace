@@ -62,6 +62,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class IssueService {
 
   private final IssueRepository issueRepository;
+  private final IssueBodyImageService bodyImageService;
   private final IssueCommentRepository commentRepository;
   private final IssueHistoryRepository historyRepository;
   private final IssueLabelRepository issueLabelRepository;
@@ -113,6 +114,8 @@ public class IssueService {
             typeId,
             parentIssueId,
             req.startDate());
+    // WP-199 본문 이미지 연결 — 생성 권한(planCreate)을 통과한 뒤라 별도 가드 없이 같은 트랜잭션에서 연결한다.
+    bodyImageService.syncWithBody(project, row.id(), callerId, req.body());
     return finishCreate(callerId, project, row, number, assigneeIds);
   }
 
@@ -499,6 +502,10 @@ public class IssueService {
         newStart,
         newMilestoneId,
         newClosedAt);
+    // WP-199 본문이 바뀐 요청만 이미지 연결 상태를 맞춘다 — 상태·담당자만 바꾸는 PATCH 에서 불필요한 잠금을 잡지 않는다.
+    if (req.body() != null) {
+      bodyImageService.syncWithBody(project, before.id(), callerId, newBody);
+    }
     var after = issueRepository.findById(before.id()).orElseThrow();
 
     // 상태·우선순위 전이가 있을 때 각각 이벤트 발행 (AFTER_COMMIT 에서 ai-agent/알림 발사 후보).
