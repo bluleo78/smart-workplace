@@ -5,9 +5,11 @@ vi.mock('./sdk-runner.js', () => ({
 }));
 
 import {
+  buildClassifyBatchUserMessage,
   buildContentUserMessage,
   buildPersonalUserMessage,
   runMailAnalyzeContent,
+  runMailClassifyBatch,
   runMailAnalyzePersonal,
   runMailReplyDraft,
   runMailDraftCoaching,
@@ -272,5 +274,33 @@ describe('buildPersonalUserMessage — WP-150 보강 블록', () => {
     expect(msg).toContain('[연결 이슈] WP-3 (BLOCKED)');
     expect(msg).not.toContain('[이전 메일]');
     expect(msg).not.toContain('[첨부]');
+  });
+});
+
+describe('runMailClassifyBatch', () => {
+  it('메일마다 id 블록을 만들어 한 번 호출하고 요청 id 순서로 결과를 돌려준다', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([
+      JSON.stringify({ type: 'result', subtype: 'success', result: '{"results":[{"id":11,"category":"업무"},{"id":12,"category":"알림"}]}' }),
+    ]);
+    const out = await runMailClassifyBatch(
+      { ...cfg, items: [
+        { id: 11, from: '김민지 <minji@corp.com>', subject: '견적 검토', bodyHead: '금요일까지 회신' },
+        { id: 12, from: 'noreply@github.com', subject: 'PR 리뷰 요청', bodyHead: '' },
+      ] },
+      { client: fakeClient },
+    );
+    expect(out).toEqual({ results: [{ id: 11, category: '업무' }, { id: 12, category: '알림' }] });
+    expect(vi.mocked(runSdkCollect)).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(runSdkCollect).mock.calls[0][0];
+    expect(arg.systemPrompt).toContain('"results"');
+    expect(arg.userMessage).toContain('[메일 id=11]');
+    expect(arg.userMessage).toContain('[메일 id=12]');
+  });
+});
+
+describe('buildClassifyBatchUserMessage', () => {
+  it('본문이 비면 [본문 앞부분] 줄을 생략한다', () => {
+    const msg = buildClassifyBatchUserMessage({ ...cfg, items: [{ id: 1, from: 'a@b', subject: 's', bodyHead: '' }] });
+    expect(msg).toBe('[메일 id=1]\n[제목] s\n[보낸 사람] a@b');
   });
 });

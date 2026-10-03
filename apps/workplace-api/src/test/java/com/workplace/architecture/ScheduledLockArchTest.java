@@ -29,6 +29,8 @@ import org.springframework.scheduling.annotation.Scheduled;
  *   <li>{@code SseRegistry.sendHeartbeat} — 파드 로컬 SSE 연결에 하트비트를 보낸다. 모든 파드에서 돌아야 한다.
  *   <li>{@code MailReanalysisScheduler.tick} — 전용 실행기에 넘기고 바로 돌아와 잠금이 효과가 없다. 계정 단위 선점(버전 CAS)이 중복을
  *       막는다.
+ *   <li>{@code MailCategoryBackfillScheduler.tick} — 전용 실행기에 넘기고 바로 돌아와 애너테이션 잠금이 효과가 없다. 실제 회차는
+ *       실행기 안에서 ShedLock 프로그래밍 잠금(LockingTaskExecutor)으로 감싼다(WP-185).
  * </ul>
  */
 @AnalyzeClasses(packages = "com.workplace", importOptions = ImportOption.DoNotIncludeTests.class)
@@ -36,7 +38,10 @@ public class ScheduledLockArchTest {
 
   /** 잠금 예외 — "단순클래스명.메서드명". 추가 시 클래스 주석에 사유를 남긴다. */
   private static final Set<String> UNLOCKED =
-      Set.of("SseRegistry.sendHeartbeat", "MailReanalysisScheduler.tick");
+      Set.of(
+          "SseRegistry.sendHeartbeat",
+          "MailReanalysisScheduler.tick",
+          "MailCategoryBackfillScheduler.tick");
 
   /** 클래스의 메서드 전체 — @ArchTest 메서드는 @AnalyzeClasses 가 캐시한 임포트를 받는다(전체 클래스를 다시 임포트하지 않는다). */
   private static Stream<JavaMethod> methodsOf(JavaClasses classes) {

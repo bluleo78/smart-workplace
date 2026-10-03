@@ -9,12 +9,14 @@ vi.mock('../agent/run-mail-ai.js', () => ({
   runMailIssueDraft: vi.fn(),
   runMailAnalyzeContent: vi.fn(),
   runMailAnalyzePersonal: vi.fn(),
+  runMailClassifyBatch: vi.fn(),
 }));
 
 import { createMailRouter } from './mail.js';
 import {
   runMailAnalyzeContent,
   runMailAnalyzePersonal,
+  runMailClassifyBatch,
   runMailReplyDraft,
   runMailDraftCoaching,
 } from '../agent/run-mail-ai.js';
@@ -205,5 +207,33 @@ describe('POST /mail/analyze-personal', () => {
     vi.mocked(runMailAnalyzePersonal).mockRejectedValue(new Error('boom'));
     const res = await request(app()).post('/mail/analyze-personal').send(valid);
     expect(res.status).toBe(502);
+  });
+});
+
+describe('POST /mail/classify-batch', () => {
+  const valid = {
+    items: [{ id: 1, from: 'a@b', subject: 's', bodyHead: 'x' }],
+    assistantAgentId: 7, model: 'm', maxTurns: 1, timeoutMs: 60000,
+  };
+  it('정상 200 + 결과', async () => {
+    vi.mocked(runMailClassifyBatch).mockResolvedValue({ results: [{ id: 1, category: '업무' }] });
+    const res = await request(app()).post('/mail/classify-batch').send(valid);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results: [{ id: 1, category: '업무' }] });
+  });
+  it('items 가 비면 400', async () => {
+    const res = await request(app()).post('/mail/classify-batch').send({ ...valid, items: [] });
+    expect(res.status).toBe(400);
+  });
+  it('items 가 25건을 넘으면 400', async () => {
+    const items = Array.from({ length: 26 }, (_, i) => ({ id: i + 1, from: 'a@b', subject: 's', bodyHead: '' }));
+    const res = await request(app()).post('/mail/classify-batch').send({ ...valid, items });
+    expect(res.status).toBe(400);
+  });
+  it('러너 실패 시 502', async () => {
+    vi.mocked(runMailClassifyBatch).mockRejectedValue(new Error('boom'));
+    const res = await request(app()).post('/mail/classify-batch').send(valid);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'mail-classify-batch_failed' });
   });
 });

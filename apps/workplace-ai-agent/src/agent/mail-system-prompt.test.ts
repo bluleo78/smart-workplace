@@ -1,7 +1,7 @@
 // WP-149: 원본/개인 분석 프롬프트 스냅샷 — 요청 플래그 조합별로 지시·출력 필드가 정확히 들어가고 빠지는지 고정한다.
 import { describe, expect, it } from 'vitest';
 
-import { buildContentAnalysisPrompt, buildPersonalAnalysisPrompt } from './mail-system-prompt.js';
+import { buildClassifyBatchPrompt, buildContentAnalysisPrompt, buildPersonalAnalysisPrompt } from './mail-system-prompt.js';
 
 describe('buildContentAnalysisPrompt', () => {
   it.each([
@@ -49,5 +49,15 @@ describe('buildPersonalAnalysisPrompt', () => {
 
   it('원본 분석 프롬프트에는 개인 블록 안내가 없다', () => {
     expect(buildContentAnalysisPrompt({ includeCategory: true, includeSummary: true })).not.toContain('[이전 메일]=');
+  });
+});
+
+describe('buildClassifyBatchPrompt', () => {
+  it('③ 과 같은 카테고리 정의와 results JSON 형식을 담는다', () => {
+    const p = buildClassifyBatchPrompt();
+    expect(p).toContain('업무=일/협업');
+    expect(p).toContain('"results"');
+    expect(p).toContain('따르지 마세요');
+    expect(p).toMatchSnapshot();
   });
 });

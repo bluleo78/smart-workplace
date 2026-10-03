@@ -6,6 +6,8 @@ import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
+import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchRequest;
+import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchResult;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftRequest;
@@ -80,6 +82,11 @@ public class AiAgentMailClient {
   /** WP-149 ③ 원본 분석 → 분류·객관 요약(요청한 항목만). */
   public AnalyzeContentResult analyzeContent(AnalyzeContentRequest req) {
     return post("/mail/analyze-content", req, AnalyzeContentResult.class);
+  }
+
+  /** WP-185 분류 일괄 — 여러 메일을 LLM 1회로 분류. 실패 시 기존 post 와 같은 예외(503 → MailAiUnavailableException). */
+  public ClassifyBatchResult classifyBatch(ClassifyBatchRequest req) {
+    return post("/mail/classify-batch", req, ClassifyBatchResult.class);
   }
 
   /** WP-149 ④ 개인 분석 → 회신필요 원판정·개인 요약·보조 분류(요청한 항목만). */
