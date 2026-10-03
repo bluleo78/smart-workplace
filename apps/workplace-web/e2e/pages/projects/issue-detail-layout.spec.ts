@@ -349,12 +349,14 @@ test.describe('프로젝트로 돌아가기', () => {
   );
 });
 
-// 반응형 레이아웃 — 좁은 화면(<lg) 세로 스택 검증 (Task 5, #343).
-// 무엇을: 800px 뷰포트에서 본문 스트립·속성 레일이 모두 보임을 확인(채팅은 드로워라 행에서 제외).
-// 왜: 2구역 flex 레이아웃이 lg 미만에서 flex-col 스택으로 무너지지 않는지 회귀 방지.
-test.describe('반응형 레이아웃 (좁은 화면)', () => {
-  test('좁은 화면(<lg)에서 본문·레일이 세로로 쌓인다', async ({ authenticatedPage: page }) => {
-    await page.setViewportSize({ width: 800, height: 900 });
+// 반응형 레이아웃 — 데스크톱 최소폭(1024px)에서 세로 스택 검증 (Task 5, #343).
+// 무엇을: 1024px 뷰포트에서 본문 스트립·속성 레일이 모두 보임을 확인(채팅은 드로워라 행에서 제외).
+// 왜: 2구역 flex 레이아웃이 컨테이너 1032px 미만에서 flex-col 스택으로 무너지지 않는지 회귀 방지.
+test.describe('반응형 레이아웃 (데스크톱 최소폭)', () => {
+  test('컨테이너가 1032px 미만인 데스크톱 폭(1024px)에서 본문·레일이 세로로 쌓인다', async ({ authenticatedPage: page }) => {
+    // 의존: 뷰포트 1024px − 앱 사이드바 폭 < 1032px(@container 분기점) 이라 세로 스택 구간이다.
+    // 800px 는 모바일(<1024px, WP-192)이라 하단 레일이 없고 「＋ 속성」 시트를 쓰므로(WP-196) 쓸 수 없다.
+    await page.setViewportSize({ width: 1024, height: 900 });
     await mockIssueDetail(page, {});
     await mockChatThread(page, { threadId: 9, recentMessages: [] });
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);

@@ -12,12 +12,16 @@ const KEYBOARD_THRESHOLD_PX = 150
 // 키보드를 띄우지 않는 input 유형 — 포커스돼 있어도 키보드 열림 근거가 아니다.
 const NON_TEXT_INPUT_TYPES = new Set(['button', 'checkbox', 'radio', 'submit', 'reset', 'file', 'range', 'color', 'image', 'hidden'])
 
-/** 키보드를 띄우는 편집 요소에 포커스가 있는가 — 키보드 없이 보이는 영역만 줄어드는 경우를 거른다. */
-function isEditableFocused(): boolean {
-  const el = document.activeElement
+/** 키보드를 띄우는 편집 요소인가 — 체크박스·버튼형 input 은 제외. 포커스 왕복(useFocusReturn)도 같은 기준을 쓴다. */
+export function isKeyboardEditable(el: Element | null): el is HTMLElement {
   if (!(el instanceof HTMLElement)) return false
   if (el.isContentEditable || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return true
   return el instanceof HTMLInputElement && !NON_TEXT_INPUT_TYPES.has(el.type)
+}
+
+/** 키보드를 띄우는 편집 요소에 포커스가 있는가 — 키보드 없이 보이는 영역만 줄어드는 경우를 거른다. */
+function isEditableFocused(): boolean {
+  return isKeyboardEditable(document.activeElement)
 }
 
 /**

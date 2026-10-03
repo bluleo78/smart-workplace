@@ -25,6 +25,12 @@ export const ISSUE_PRIORITY_LABEL: Record<IssuePriority, string> = {
   LOW: '낮음',
 };
 
+/** 우선순위 선택지(높음→보통→낮음) — 모바일 우선순위 시트(상세·생성)가 공유한다. */
+export const ISSUE_PRIORITY_OPTIONS = (Object.keys(ISSUE_PRIORITY_LABEL) as IssuePriority[]).map((p) => ({
+  value: p,
+  label: ISSUE_PRIORITY_LABEL[p],
+}));
+
 /**
  * 그룹 기준 → 표시 라벨. 필터 바의 그룹 선택 옵션과 AI 화면 컨텍스트가 공유한다.
  * 키 순서 = 필터 바 옵션 순서. cycle(#878)은 서버 구간 그룹이라 groupIssues 대상은 아니지만 라벨은 함께 둔다.

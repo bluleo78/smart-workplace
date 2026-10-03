@@ -23,11 +23,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 
 import { IssueBodyImage } from '../../components/issue/IssueBodyImage';
 import { IssueBodyImageButton } from '../../components/issue/IssueBodyImageButton';
 import { IssueInstantContextCard } from '../../components/issue/IssueInstantContextCard';
 import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
+import { MobileSheetShell } from '../../components/mobile/MobileSheetShell';
 import { useGenerateAiSummary, useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
 import { useIssueAiClassify } from '../../hooks/queries/useIssueAiClassify';
 import { useDeleteIssue } from '../../hooks/queries/useIssues';
@@ -55,7 +57,11 @@ import { IssueAttachmentStrip } from './components/IssueAttachmentStrip';
 import { IssueBodyTabs } from './components/IssueBodyTabs';
 import { IssueBreadcrumbHeader } from './components/IssueBreadcrumbHeader';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
+import { IssueCommentComposer } from './components/IssueCommentComposer';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
+import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropertyChips';
+import { type EditBarControls, MobileEditBar } from './components/mobile/MobileEditBar';
+import { useEditBarControls } from './components/mobile/useEditBarControls';
 
 // 본문 편집 draft localStorage 키 — 프로젝트+이슈 단위로 특정(#824).
 function bodyDraftKey(projectKey: string, issueNumber: number): string {
@@ -101,7 +107,8 @@ function isFromInteractiveDescendant(e: React.SyntheticEvent<HTMLElement>): bool
 }
 
 // 본문 인라인 편집 — 표시(prose)와 편집(textarea) 토글.
-// 무엇을: 본문 영역을 연필로 textarea 로 전환, blur·Cmd/Ctrl+Enter 저장, Escape 취소.
+// 무엇을: 본문 영역을 클릭해 textarea 로 전환, 저장 버튼·Cmd/Ctrl+Enter 저장(blur 저장 없음), Escape 취소.
+// 모바일은 저장/취소 버튼 대신 하단 편집 바(onEditingChange)가 저장 경로(WP-196).
 // 빈 본문은 허용(스키마는 max 길이만 제약). 변화 없으면 PATCH 생략.
 function InlineEditableBody({
   body,
@@ -110,6 +117,9 @@ function InlineEditableBody({
   projectKey,
   issueNumber,
   onEditStart,
+  onEditingChange,
+  hideActions = false,
+  mobile = false,
 }: {
   body: string | null;
   // 저장 성공 여부 — false 면 입력을 버리지 않고 편집을 다시 연다(#611 충돌 시 본문 유실 방지).
@@ -119,6 +129,12 @@ function InlineEditableBody({
   issueNumber: number;
   // 편집 진입 알림 — 호출부가 이 시점의 이슈 version 을 저장 기준으로 고정한다(#611).
   onEditStart?: () => void;
+  // 편집 시작/종료 알림 — 편집 중엔 저장·취소 컨트롤을, 끝나면 null(모바일 하단 편집 바, WP-196).
+  onEditingChange?: (controls: EditBarControls | null) => void;
+  // 모바일 — 저장·취소는 하단 편집 바가 맡으므로 본문 아래 버튼을 숨긴다(이미지 버튼은 유지).
+  hideActions?: boolean;
+  // 모바일 — 편집 박스의 -mx-3(뷰 모드 박스 정렬용)을 빼서 16px 거터를 지킨다. 넣으면 테두리가 화면 끝 4px 까지 붙었다(디자인 리뷰).
+  mobile?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(body ?? '');
@@ -217,6 +233,9 @@ function InlineEditableBody({
     clearBodyDraft(draftKey);
   };
 
+  // 모바일 하단 편집 바 — 제목과 같은 훅. 업로드 중엔 저장·취소 모두 막는다(기존 버튼과 같은 조건).
+  useEditBarControls(editing, { save, cancel, disabled: disabled || uploading }, onEditingChange);
+
   if (!editing) {
     return (
       // Jira 식 — 본문 영역 전체가 클릭 가능. 호버 시 배경 변화로 편집 가능 신호.
@@ -254,8 +273,8 @@ function InlineEditableBody({
   }
 
   return (
-    // -mx-3 으로 뷰 모드 박스(-mx-3 px-3)와 좌우 위치를 일치시켜 전환 시 여백 변화 제거.
-    <div className="-mx-3 space-y-2">
+    // -mx-3 으로 뷰 모드 박스(-mx-3 px-3)와 좌우 위치를 일치시켜 전환 시 여백 변화 제거(데스크톱). 모바일은 거터 우선이라 뺀다.
+    <div className={cn('space-y-2', !mobile && '-mx-3')}>
       {/* 초안 복구 배너(#824) — 편집 진입 시 로컬에 남은 초안이 서버 본문과 다를 때만 노출. */}
       {showDraftBanner && (
         <div
@@ -313,25 +332,29 @@ function InlineEditableBody({
           }
         }}
       />
-      {/* 편집 액션 — 하단 좌측 저장/취소(Jira 식). */}
+      {/* 편집 액션 — 하단 좌측 저장/취소(Jira 식). 모바일(hideActions)은 하단 편집 바가 대신한다. */}
       <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          onClick={save}
-          disabled={disabled || uploading}
-          data-testid="issue-body-save"
-        >
-          저장
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={cancel}
-          disabled={disabled || uploading}
-          data-testid="issue-body-cancel"
-        >
-          취소
-        </Button>
+        {!hideActions && (
+          <>
+            <Button
+              size="sm"
+              onClick={save}
+              disabled={disabled || uploading}
+              data-testid="issue-body-save"
+            >
+              저장
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={cancel}
+              disabled={disabled || uploading}
+              data-testid="issue-body-cancel"
+            >
+              취소
+            </Button>
+          </>
+        )}
         {/* 이미지 첨부 — 버튼 선택 외에 붙여넣기·드롭도 지원함을 안내(우측 정렬). */}
         <IssueBodyImageButton className="ml-auto" onFiles={images.uploadFiles} disabled={disabled} />
       </div>
@@ -376,6 +399,23 @@ export default function IssueDetailPage() {
   const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
   // 모바일 ⋯ 메뉴 항목 문구 — 메뉴 안에선 동작("구독하기")·상태("구독 중 · n명")를 글자로 풀어 쓴다(U3-R6). 데스크톱은 기존 버튼 그대로.
   const isMobile = useIsMobile();
+  // 모바일 하단 편집 바(WP-196) — 제목·본문은 동시에 편집 중일 수 있다(모바일 제목은 blur 저장이 없어 본문을 탭해도 편집 유지).
+  // 그래서 편집기별 슬롯을 따로 두고, 마지막에 편집을 시작한 쪽 컨트롤을 보여주되 그쪽이 끝나면 남은 편집기로 넘어간다.
+  // 한 슬롯만 쓰면 먼저 끝난 쪽의 cleanup(null)이 다른 편집기의 저장·취소 경로까지 지워버린다.
+  const [titleControls, setTitleControls] = useState<EditBarControls | null>(null);
+  const [bodyControls, setBodyControls] = useState<EditBarControls | null>(null);
+  // 마지막 편집 진입 — onEditStart 에서만 갱신(컨트롤 재전송은 disabled 변화로도 일어나므로 기준으로 쓰지 않는다).
+  const [lastEditor, setLastEditor] = useState<'title' | 'body'>('title');
+  const editControls =
+    lastEditor === 'title' ? (titleControls ?? bodyControls) : (bodyControls ?? titleControls);
+  // 모바일 「＋ 속성」 시트 open 상태 — 칩 줄의 「＋ 속성」 버튼이 열고, 아래 MobileSheetShell(issue-more-props-sheet)이 이 값으로 열림/닫힘을 제어한다.
+  const [moreOpen, setMoreOpen] = useState(false);
+  // 시트 안 링크(의존성·상위 배지)로 다른 이슈로 이동하면 같은 라우트라 페이지 인스턴스가 재사용된다 — 이슈가 바뀌면 시트를 닫는다(렌더 중 상태 조정).
+  const [prevIssueKey, setPrevIssueKey] = useState(`${key}/${issueNumber}`);
+  if (prevIssueKey !== `${key}/${issueNumber}`) {
+    setPrevIssueKey(`${key}/${issueNumber}`);
+    setMoreOpen(false);
+  }
   const watcherCount = watchers.data?.length ?? 0;
   const mobileWatchLabel = isWatching ? `구독 중 · ${watcherCount}명` : '구독하기';
   // 삭제 확인 다이얼로그 open 상태 — shadcn AlertDialog 제어형.
@@ -580,6 +620,34 @@ export default function IssueDetailPage() {
     </>
   );
 
+  // 속성 레일 — 데스크톱 aside(variant=rail)와 모바일 ＋ 속성 시트(variant=sheet)가 같은 컴포넌트를 공유한다.
+  const renderRail = (variant: 'rail' | 'sheet') => (
+            <IssuePropertyRail
+              projectKey={key}
+              issueNumber={issueNumber}
+              isSubtask={isSubtask}
+              isEpic={isEpic}
+              parent={summary.parent}
+              status={summary.status}
+              priority={summary.priority}
+              dueDate={summary.dueDate}
+              startDate={summary.startDate}
+              milestoneId={summary.milestoneId}
+              assignees={summary.assignees}
+              labels={summary.labels}
+              blockedBy={summary.blockedBy}
+              blocks={summary.blocks}
+              customFields={summary.customFields}
+              updatePending={update.isPending}
+              onPatch={patch}
+              canEditWorkflow={canEditWorkflow}
+              onAiClassify={handleClassify}
+              isAiClassifying={classify.isPending}
+              aiClassifyReason={classifyReason}
+              variant={variant}
+            />
+  );
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <IssueBreadcrumbHeader
@@ -604,7 +672,7 @@ export default function IssueDetailPage() {
           채팅·레일이 AI 패널 뒤로 밀려 가려졌다(오버레이 증상). */}
       <div className="@container flex-1 overflow-y-auto">
         {/* 3구역 flex: [메인 본문][채팅 패널][속성 레일] — 컨테이너 폭 1032px(본문360+채팅320+레일280+gap/padding) 이상에서 가로 배치 (#343 Task 4, #354). */}
-        <div className="w-full flex flex-col gap-6 p-6 @min-[1032px]:flex-row">
+        <div className={cn('w-full flex flex-col', isMobile ? 'gap-4 p-4' : 'gap-6 p-6', '@min-[1032px]:flex-row')}>
           {/* 메인 본문 — #355: 가로 배치(@1032px↑)에서만 채팅/레일 고정폭에 밀려 360px 이하로 압축되지 않도록 min-w 적용.
               세로 스택(컨테이너 좁음)에서는 본문이 어차피 full-width 라 min-w 가 narrow 컨테이너에서 오버플로우를 유발하므로 미적용 (#354). */}
           {/* 메인 컬럼 — 섹션(설명·하위 태스크·코멘트)을 Separator 바로 명확히 구분. space-y-6 으로 바 주변 여백 확보. */}
@@ -618,29 +686,45 @@ export default function IssueDetailPage() {
                 <InlineEditableTitle
                   title={summary.title}
                   onSave={(t) => patch({ title: t, version: titleBaseVersion.current })}
-                  onEditStart={() => (titleBaseVersion.current = summary.version)}
+                  onEditStart={() => {
+                    titleBaseVersion.current = summary.version;
+                    setLastEditor('title');
+                  }}
                   disabled={!canEditContent || update.isPending}
+                  commitOnBlur={!isMobile}
+                  onEditingChange={isMobile ? setTitleControls : undefined}
                 />
               </h1>
-              <div className="flex flex-wrap items-center gap-2">
-                {summary.type && (
-                  <IssueTypeSelectPopover
-                    projectKey={key}
-                    issueNumber={issueNumber}
-                    current={summary.type}
-                    disabled={!canEditWorkflow}
-                  />
-                )}
-                {/* Phase 4b — blockedBy 중 미완료 존재 시 차단됨 배지 노출. */}
-                {summary.blocked && (
-                  <span
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-destructive/15 text-destructive text-xs"
-                    data-testid="issue-blocked-badge"
-                  >
-                    ⛔ 차단됨
-                  </span>
-                )}
-              </div>
+              {isMobile ? (
+                <IssueMobilePropertyChips
+                  projectKey={key}
+                  issue={summary}
+                  canEditWorkflow={canEditWorkflow}
+                  updatePending={update.isPending}
+                  onPatch={(c) => void patch(c)}
+                  onOpenMore={() => setMoreOpen(true)}
+                />
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  {summary.type && (
+                    <IssueTypeSelectPopover
+                      projectKey={key}
+                      issueNumber={issueNumber}
+                      current={summary.type}
+                      disabled={!canEditWorkflow}
+                    />
+                  )}
+                  {/* Phase 4b — blockedBy 중 미완료 존재 시 차단됨 배지 노출. */}
+                  {summary.blocked && (
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-destructive/15 text-destructive text-xs"
+                      data-testid="issue-blocked-badge"
+                    >
+                      ⛔ 차단됨
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             {/* AI 즉각 컨텍스트 카드 — 비서 있을 때만 렌더(#517). 자체 아우라 박스라 바 없이 분리. */}
             {aiAvailable && (
@@ -656,10 +740,16 @@ export default function IssueDetailPage() {
               <InlineEditableBody
                 body={body}
                 onSave={(b) => patch({ body: b, version: bodyBaseVersion.current })}
-                onEditStart={() => (bodyBaseVersion.current = summary.version)}
+                onEditStart={() => {
+                  bodyBaseVersion.current = summary.version;
+                  setLastEditor('body');
+                }}
                 disabled={!canEditContent || update.isPending}
                 projectKey={key}
                 issueNumber={issueNumber}
+                hideActions={isMobile}
+                mobile={isMobile}
+                onEditingChange={isMobile ? setBodyControls : undefined}
               />
               {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
               <IssueAttachmentStrip
@@ -696,37 +786,61 @@ export default function IssueDetailPage() {
               issueId={summary.id}
               comments={comments}
               history={history}
+              hideComposer={isMobile}
             />
           </div>
           {/* 채팅은 헤더 버튼 → 드로워(IssueChatDrawer)로 분리(구 인라인 패널 제거). */}
           {/* 속성 레일 — data-testid 은 IssuePropertyRail 내부에 있음. #354: 뷰포트 lg → 컨테이너 1032px 기준. */}
-          <aside className="w-full shrink-0 @min-[1032px]:w-[280px]">
-            <IssuePropertyRail
-              projectKey={key}
-              issueNumber={issueNumber}
-              isSubtask={isSubtask}
-              isEpic={isEpic}
-              parent={summary.parent}
-              status={summary.status}
-              priority={summary.priority}
-              dueDate={summary.dueDate}
-              startDate={summary.startDate}
-              milestoneId={summary.milestoneId}
-              assignees={summary.assignees}
-              labels={summary.labels}
-              blockedBy={summary.blockedBy}
-              blocks={summary.blocks}
-              customFields={summary.customFields}
-              updatePending={update.isPending}
-              onPatch={patch}
-              canEditWorkflow={canEditWorkflow}
-              onAiClassify={handleClassify}
-              isAiClassifying={classify.isPending}
-              aiClassifyReason={classifyReason}
-            />
-          </aside>
+          {!isMobile && (
+            <aside className="w-full shrink-0 @min-[1032px]:w-[280px]">{renderRail('rail')}</aside>
+          )}
         </div>
       </div>
+      {/* 모바일 하단 줄(WP-196) — 스크롤 영역 아래 in-flow. MobileShell 이 --vvh 로 줄어 키보드 바로 위에 붙고(R1),
+          bottom safe-area 는 셸 <main> 이 준다. 제목·본문 편집 중엔 코멘트 입력 대신 [취소·저장] 바. */}
+      {isMobile && (
+        <div className="shrink-0 border-t bg-background px-4 py-2" data-testid="mobile-bottom-bar">
+          {editControls && <MobileEditBar controls={editControls} />}
+          {/* 편집 바가 떠 있는 동안에도 작성창은 언마운트하지 않고 숨긴다 — 쓰던 코멘트 초안·이탈 경고 상태 보존. */}
+          <div hidden={editControls != null}>
+            <IssueCommentComposer
+              projectKey={key}
+              issueNumber={issueNumber}
+              issueId={summary.id}
+              // 정확히 4줄 — lh 단위는 에디터 자신의 줄 높이(터치 16px 글꼴 기준)라 4lh + py-2(1rem) + 테두리 2px = 4줄 + 여백.
+              editorMaxHeightClass="max-h-[calc(4lh+1rem+2px)]"
+              inlineSubmit
+            />
+          </div>
+        </div>
+      )}
+      {/* 모바일 「＋ 속성」 시트(WP-196) — 칩에 없는 유형·일정·분류·의존성·커스텀 필드. 데스크톱 레일과 같은 컴포넌트(variant=sheet). */}
+      {isMobile && (
+        <MobileSheetShell
+          open={moreOpen}
+          onClose={() => setMoreOpen(false)}
+          title="속성"
+          description="이슈의 나머지 속성을 편집합니다."
+          testId="issue-more-props-sheet"
+          className="min-h-[50dvh]"
+        >
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+            {/* 유형은 레일에 없고 모바일 제목 아래 유형 줄도 칩 줄로 대체됐으므로 시트 맨 위에서 편집한다. */}
+            {summary.type && (
+              <div className="flex items-center justify-between gap-2" data-testid="issue-more-props-type">
+                <span className="text-xs font-medium text-muted-foreground">유형</span>
+                <IssueTypeSelectPopover
+                  projectKey={key}
+                  issueNumber={issueNumber}
+                  current={summary.type}
+                  disabled={!canEditWorkflow}
+                />
+              </div>
+            )}
+            {renderRail('sheet')}
+          </div>
+        </MobileSheetShell>
+      )}
       {/* 삭제 확인 AlertDialog — window.confirm() 대체. childCount > 0 시 자식 수 경고 포함. */}
       <AlertDialog open={deletePending} onOpenChange={setDeletePending}>
         <AlertDialogContent>

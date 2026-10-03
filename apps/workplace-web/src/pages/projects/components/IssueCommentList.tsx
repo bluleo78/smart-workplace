@@ -1,4 +1,4 @@
-// 이슈 코멘트 리스트 + 신규 작성 폼.
+// 이슈 코멘트 리스트 + 신규 작성 폼(IssueCommentComposer — 모바일은 hideComposer 로 빼고 화면 하단에 둔다, WP-196).
 // useCreateComment 훅으로 작성 후 detail 쿼리 무효화로 갱신.
 // 본인(HUMAN) 코멘트에만 수정·삭제 버튼 노출 (#154).
 // #785: 작성/수정 입력을 shadcn Textarea 대신 이슈 채팅과 동일한 RichInput + 공용 멘션
@@ -7,7 +7,7 @@
 // 이름/종류로 역매핑한다(읽기 렌더·수정 폼 초기값 공용).
 
 import { Pencil, Trash2 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
@@ -17,20 +17,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 
-import {
-  useCreateComment,
-  useDeleteComment,
-  useUpdateComment,
-} from '../../../hooks/queries/useIssueComments';
+import { useDeleteComment, useUpdateComment } from '../../../hooks/queries/useIssueComments';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useAuth } from '../../../hooks/useAuth';
-import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
 import { formatDateTimeMinute } from '../../../lib/formatters';
 import type { IssueCommentResponse } from '../../../types/issue';
-
-// 코멘트 본문 최대 길이 — createCommentSchema/updateCommentSchema(서버 @Size)와 동일 기준.
-const COMMENT_MAX_LENGTH = 10000;
+import { COMMENT_MAX_LENGTH, IssueCommentComposer } from './IssueCommentComposer';
 
 // 개별 코멘트 항목 — 본인 HUMAN 코멘트에만 수정·삭제 액션 제공.
 function CommentItem({
@@ -186,14 +179,16 @@ export function IssueCommentList({
   issueNumber,
   issueId,
   comments,
+  hideComposer = false,
 }: {
   projectKey: string;
   issueNumber: number;
   issueId: number;
   comments: IssueCommentResponse[];
+  /** 모바일(WP-196)은 작성창을 화면 하단 줄에 따로 두므로 목록 아래 작성창을 뺀다(testid 중복 방지). */
+  hideComposer?: boolean;
 }) {
   const { user } = useAuth();
-  const create = useCreateComment(projectKey, issueNumber, issueId);
 
   // 프로젝트 멤버 = RichInput @ 자동완성 후보이자, 본문 <@id> 토큰의 이름/종류 역매핑 소스.
   const membersQuery = useProjectMembers(projectKey);
@@ -203,34 +198,6 @@ export function IssueCommentList({
     name: m.name,
     kind: m.kind,
   }));
-
-  // 새로고침 시 작성 중이던 코멘트 유실 방지 (#620) — RichInput 은 실시간 본문을 노출하지 않으므로
-  // "입력 발생 여부"로 근사한다. 제출 성공 직후의 clearOnSubmit 이 유발하는 onChange 는
-  // suppressNextChangeRef 로 걸러 거짓 경고를 막는다.
-  const [hasDraft, setHasDraft] = useState(false);
-  const suppressNextChangeRef = useRef(false);
-  useUnsavedChangesWarning(hasDraft);
-
-  const handleDraftChange = () => {
-    if (suppressNextChangeRef.current) {
-      suppressNextChangeRef.current = false;
-      setHasDraft(false);
-      return;
-    }
-    setHasDraft(true);
-  };
-
-  // 제출 → API 호출 → 성공 시 clearOnSubmit 이 입력창을 비움 + 토스트, 실패 시 입력 보존(reject) + 공통 에러 핸들러.
-  const handleSubmit = async (body: string): Promise<void> => {
-    try {
-      await create.mutateAsync({ body });
-      suppressNextChangeRef.current = true;
-      toast.success('코멘트를 작성했습니다');
-    } catch (e) {
-      handleApiError(e, '코멘트 작성에 실패했습니다');
-      throw e;
-    }
-  };
 
   return (
     <section aria-label="코멘트" className="space-y-3">
@@ -253,22 +220,11 @@ export function IssueCommentList({
           <li className="text-muted-foreground text-sm">코멘트가 없습니다</li>
         )}
       </ul>
-      <div className="space-y-2">
-        {/* RichInput — 이슈 채팅(ChatComposer)과 동일한 컴포넌트로 시각 일관성(#310) + 멘션 자동완성(#785) 확보 */}
-        <RichInput
-          members={mentionCandidates}
-          onSubmit={handleSubmit}
-          onChange={handleDraftChange}
-          clearOnSubmit
-          disableWhenEmpty
-          maxLength={COMMENT_MAX_LENGTH}
-          placeholder="코멘트를 작성하세요"
-          submitLabel={create.isPending ? '작성 중…' : '작성'}
-          submitDisabled={create.isPending}
-          inputTestId="issue-comment-input"
-          submitTestId="issue-comment-submit"
-        />
-      </div>
+      {!hideComposer && (
+        <div className="space-y-2">
+          <IssueCommentComposer projectKey={projectKey} issueNumber={issueNumber} issueId={issueId} />
+        </div>
+      )}
     </section>
   );
 }

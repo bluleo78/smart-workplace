@@ -17,7 +17,7 @@ export interface PickerOption {
 }
 
 export function MobilePickerSheet({
-  open, onClose, title, options, value, onSelect, searchable = false, testId = 'mobile-picker-sheet', headerAction,
+  open, onClose, title, options, value, onSelect, searchable = false, testId = 'mobile-picker-sheet', headerAction, listFooter,
 }: {
   open: boolean;
   onClose: () => void;
@@ -30,6 +30,8 @@ export function MobilePickerSheet({
   testId?: string;
   /** 제목 줄 오른쪽 액션(예: 「에픽 만들기」). 없으면 제목만 렌더한다. */
   headerAction?: ReactNode;
+  /** 옵션 목록 아래에 붙는 선택 불가 줄(예: 「불러오는 중…」). 없으면 아무것도 렌더하지 않는다. */
+  listFooter?: ReactNode;
 }) {
   const [q, setQ] = useState('');
   const keyword = q.trim().toLowerCase();
@@ -86,6 +88,7 @@ export function MobilePickerSheet({
             </button>
           );
         })}
+        {listFooter}
         {shown.length === 0 && <p className="px-4 py-6 text-center text-sm text-muted-foreground">결과가 없습니다</p>}
       </div>
     </MobileSheetShell>

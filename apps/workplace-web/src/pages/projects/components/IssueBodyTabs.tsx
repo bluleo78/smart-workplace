@@ -14,12 +14,15 @@ export function IssueBodyTabs({
   issueId,
   comments,
   history,
+  hideComposer = false,
 }: {
   projectKey: string;
   issueNumber: number;
   issueId: number;
   comments: IssueCommentResponse[];
   history: IssueHistoryEntry[];
+  /** 모바일(WP-196) — 코멘트 작성창은 화면 하단 줄에 있으므로 탭 안 작성창을 뺀다. */
+  hideComposer?: boolean;
 }) {
   return (
     // 활동 섹션 — 코멘트/이력 탭을 감싸는 레이블(본문·하위 태스크와 동일 heading-group 토큰).
@@ -38,6 +41,7 @@ export function IssueBodyTabs({
             issueNumber={issueNumber}
             issueId={issueId}
             comments={comments}
+            hideComposer={hideComposer}
           />
         </TabsContent>
         <TabsContent value="activity" className="pt-4">

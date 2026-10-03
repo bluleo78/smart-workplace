@@ -5,7 +5,8 @@
 // 자식 조회는 부모 number 필터로 별도 search 호출 (cache key 분리).
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -18,10 +19,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { keepFocusProps } from '@/lib/keepFocus';
 
 import { issuesApi, searchIssues } from '../../../api/issues';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import { handleApiError } from '../../../lib/api-error';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import type { IssueResponse } from '../../../types/issue';
@@ -97,6 +100,12 @@ export function IssueChildrenSection({
   );
   const [newTitle, setNewTitle] = useState('');
   const [adding, setAdding] = useState(false);
+  // 모바일(WP-196): 「＋ 하위 태스크 추가」 탭으로 입력칸을 펼치는 연속 입력 UX. 데스크톱은 입력칸이 항상 보인다.
+  const isMobile = useIsMobile();
+  const [addOpen, setAddOpen] = useState(false);
+  // 포커스 후 가운데 스크롤 타이머 — blur·언마운트 시 취소해 이미 떠난 입력칸으로 화면을 끌어오지 않는다.
+  const scrollTimerRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(scrollTimerRef.current), []);
 
   // 인라인 추가 — 제목 입력, 유형은 EPIC 부모면 선택된 값/일반 부모면 SUBTASK 고정, parentNumber 동봉.
   async function onAdd() {
@@ -110,6 +119,7 @@ export function IssueChildrenSection({
         typeId,
         parentNumber,
       });
+      // 모바일 연속 입력 — 추가 버튼은 포커스를 빼앗지 않으므로(keepFocusProps) 입력칸·키보드가 그대로 남는다.
       setNewTitle('');
       // 자식 목록, 검색 캐시, 부모 detail 의 childCount 모두 갱신.
       qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
@@ -176,6 +186,16 @@ export function IssueChildrenSection({
         </ul>
       )}
 
+      {isMobile && !addOpen ? (
+        <button
+          type="button"
+          data-testid="child-add-open"
+          onClick={() => setAddOpen(true)}
+          className="flex min-h-11 w-full items-center gap-2 rounded-md px-1 text-sm text-muted-foreground active:bg-accent"
+        >
+          <Plus className="size-4" aria-hidden /> {isEpicParent ? '하위 이슈 추가' : '하위 태스크 추가'}
+        </button>
+      ) : (
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -212,22 +232,53 @@ export function IssueChildrenSection({
         <Input
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
+          // 모바일은 「Enter」 안내 대신 짧은 제목 힌트 — 좁은 폭에서 안내문이 잘렸고, 키보드의 완료 키(enterKeyHint)가 같은 역할을 한다.
           placeholder={
-            isEpicParent
-              ? '+ 하위 이슈 추가 — 제목 입력 후 Enter'
-              : '+ 하위 태스크 추가 — 제목 입력 후 Enter'
+            isMobile
+              ? isEpicParent ? '하위 이슈 제목' : '하위 태스크 제목'
+              : isEpicParent
+                ? '+ 하위 이슈 추가 — 제목 입력 후 Enter'
+                : '+ 하위 태스크 추가 — 제목 입력 후 Enter'
           }
+          enterKeyHint={isMobile ? 'done' : undefined}
           maxLength={200}
           data-testid="child-add-input"
+          autoFocus={isMobile}
+          // 모바일: 키보드가 올라온 뒤 입력칸이 가려지지 않게 화면 가운데로(셸이 --vvh 로 줄어드는 시간을 기다림).
+          onFocus={
+            isMobile
+              ? (e) => {
+                  const el = e.currentTarget;
+                  window.clearTimeout(scrollTimerRef.current);
+                  scrollTimerRef.current = window.setTimeout(() => {
+                    if (document.activeElement === el) el.scrollIntoView({ block: 'center' });
+                  }, 300);
+                }
+              : undefined
+          }
+          // 비운 채로 포커스를 잃으면 접는다 — 추가 버튼(submit) 탭은 relatedTarget 이 form 안이라 유지.
+          onBlur={
+            isMobile
+              ? (e) => {
+                  window.clearTimeout(scrollTimerRef.current);
+                  if (!newTitle.trim() && !e.currentTarget.form?.contains(e.relatedTarget as Node)) {
+                    setAddOpen(false);
+                  }
+                }
+              : undefined
+          }
         />
         <Button
           type="submit"
           size="sm"
+          // 모바일: 버튼 탭이 입력칸 blur 를 일으키지 않게(iOS 키보드 유지).
+          {...(isMobile ? keepFocusProps : undefined)}
           disabled={!newTitle.trim() || !(isEpicParent ? epicChildTypeId : subtaskTypeId) || adding}
         >
           추가
         </Button>
       </form>
+      )}
     </section>
   );
 }
