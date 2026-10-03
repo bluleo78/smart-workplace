@@ -1,35 +1,35 @@
 // 모바일 셸 회귀 스펙(WP-127) — 기존에 좁은 뷰포트(chromium 프로젝트 setViewportSize)로 검증하던
 // AI 풀스크린·세션 전환·다이얼로그 케이스를 모바일 셸(하단 탭바 AI 탭) 기준으로 옮기고,
 // 전역 부품(메일 작성 도크)이 탭바와 겹치지 않는지 확인한다.
-// 이관 사유: 모바일(<1024px)엔 AI 칩(chat-launcher)·side 모드가 없고 AI 는 탭바 가운데 탭 = 풀스크린이다.
+// 이관 사유: 모바일(<1024px)엔 AI 칩(chat-launcher)·side 모드가 없고 AI 는 탭바 가운데 칸 = AI 시트다(WP-191, 구 풀스크린).
 import { calendar, calendarEvent } from '../../factories/calendar.factory'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
-test('AI 탭으로 풀스크린을 열고 다른 탭으로 닫는다 — 탭 루트에선 × 대신 탭 전환(구 WP-111 이관, U2-3)', async ({ authenticatedPage: page }) => {
+test('AI 탭으로 시트를 열고 다른 탭으로도 닫는다 — 탭 루트 시트에도 × 가 있다(구 WP-111 이관, U2-3 → WP-191)', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   await page.getByTestId('mobile-tab-ai').click()
-  const fs = page.getByTestId('ai-fullscreen')
+  const fs = page.getByTestId('ai-sheet')
   await expect(fs).toBeVisible()
   // 모바일엔 side 가 없다 — 사이드 패널·모드 전환 버튼·칩이 렌더되지 않는다.
   await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
   // 모드 전환 버튼은 DOM 에 있되 모바일에서 CSS 로 숨겨진다(count 0 이 아니라 hidden).
   await expect(page.getByTestId('ai-mode-fullscreen')).toBeHidden()
   await expect(page.getByTestId('chat-launcher')).toHaveCount(0)
-  // 풀스크린은 화면 폭 가득(구 "side 가 풀스크린 오버레이로 렌더된다" 이관).
+  // 시트는 화면 폭 가득(구 "side 가 풀스크린 오버레이로 렌더된다" 이관).
   const box = (await fs.boundingBox())!
   expect(box.width).toBeGreaterThan(380)
   await expectNoHorizontalOverflow(page)
-  // 탭바가 보이는 탭 루트에선 × 를 두지 않는다 — 탭 전환이 닫기.
-  await expect(page.getByTestId('ai-panel-close')).toHaveCount(0)
+  // WP-191: 탭 루트에서도 시트엔 × 가 있다 — 그래도 탭 전환으로 닫힌다.
+  await expect(fs.getByTestId('ai-panel-close')).toBeVisible()
   await page.getByTestId('mobile-tab-home').click()
   await expect(fs).toHaveCount(0)
 })
 
-test('AI 풀스크린: 좌측 세션목록이 숨겨지고 헤더 드롭다운이 세션 전환을 제공한다 (구 #203 이관)', async ({
+test('AI 시트: 좌측 세션목록 없이 헤더 드롭다운이 세션 전환을 제공한다 (구 #203 이관)', async ({
   authenticatedPage: page,
 }) => {
   await stubChat(page)
@@ -43,18 +43,18 @@ test('AI 풀스크린: 좌측 세션목록이 숨겨지고 헤더 드롭다운�
   await mockApi(page, 'GET', '/api/v1/home/sessions/s-mob1/messages', [])
   await page.goto('/')
   await page.getByTestId('mobile-tab-ai').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
 
-  // 좌측 세션 목록은 숨김(hidden md:flex → 390px 에서 비표시), 대신 헤더 스위처가 보인다.
-  expect(await page.getByTestId('ai-fs-sessions').boundingBox()).toBeNull()
-  await expect(page.getByTestId('ai-fs-mobile-session-switcher')).toBeVisible()
+  // 시트엔 좌측 세션 목록이 없고, 대신 헤더 스위처가 보인다.
+  await expect(page.getByTestId('ai-fs-sessions')).toHaveCount(0)
+  await expect(page.getByTestId('ai-sheet-session-switcher')).toBeVisible()
   // 채팅 패널이 전체 폭을 차지해 입력창이 정상 너비를 가진다.
   const input = await page.getByTestId('chat-input').boundingBox()
   expect(input!.width).toBeGreaterThan(100)
 
   // 드롭다운 열기 → 세션 선택 시 메뉴가 닫힌다(#451).
-  await page.getByTestId('ai-fs-mobile-session-switcher').click()
-  // 탭바에서 연 AI 는 탭 루트 헤더 — 스위처는 "대화 목록" 아이콘 버튼(U3-R4).
+  await page.getByTestId('ai-sheet-session-switcher').click()
+  // 시트 헤더 스위처는 "대화 목록" 버튼(U3-R4).
   const menu = page.getByRole('menu', { name: '대화 목록' })
   await expect(menu).toBeVisible()
   await menu.getByText('모바일 대화 1').click()
@@ -66,7 +66,7 @@ test('캘린더 일정 다이얼로그: 칩·사이드 패널 없이 열리고 E
   authenticatedPage: page,
 }) => {
   // 다이얼로그가 셸 안에서 정상 동작함(칩·사이드 패널 없음, Esc 닫힘)을 확인한다. ⌘K 로 다이얼로그 위에 AI 를 띄우는
-  // 흐름은 아래 "다이얼로그 위 풀스크린" 케이스가 검증한다.
+  // 흐름은 아래 "다이얼로그 위 AI 시트" 케이스가 검증한다.
   const ev = calendarEvent({ id: 42, title: '주간회의' })
   await mockApi(page, 'GET', '/api/v1/calendars', [calendar()])
   await mockApi(page, 'GET', '/api/v1/calendar/events', [ev])
@@ -81,7 +81,7 @@ test('캘린더 일정 다이얼로그: 칩·사이드 패널 없이 열리고 E
   await expect(dialog).toBeHidden()
 })
 
-test('모바일(<lg): ⌘K 로 다이얼로그 위 풀스크린 AI 를 열어 입력하고, Esc 로 AI 만 닫으면 다이얼로그로 돌아온다 (구 ai-screen-context 모바일 케이스 복원)', async ({
+test('모바일(<lg): ⌘K 로 다이얼로그 위 AI 시트를 열어 입력하고, Esc 로 AI 만 닫으면 다이얼로그로 돌아온다 (구 ai-screen-context 모바일 케이스 복원)', async ({
   authenticatedPage: page,
 }) => {
   const ev = calendarEvent({ id: 42, title: '주간회의' })
@@ -92,10 +92,12 @@ test('모바일(<lg): ⌘K 로 다이얼로그 위 풀스크린 AI 를 열어 �
   const dialog = page.getByTestId('calendar-event-dialog')
   await expect(dialog).toBeVisible()
   await page.keyboard.press('ControlOrMeta+k')
-  const fs = page.getByTestId('ai-fullscreen')
+  const fs = page.getByTestId('ai-sheet')
   await expect(fs).toBeVisible()
-  // 풀스크린(z-[60])이 다이얼로그(z-50) 위에 있고, 입력창은 실제 클릭·타이핑된다(가려지거나 inert 면 클릭이 실패).
-  await page.getByTestId('chat-input').click()
+  // 시트(z-[60])가 다이얼로그(z-50) 위에 있고, 입력창은 실제 클릭·타이핑된다(가려지거나 inert 면 클릭이 실패).
+  await fs.getByTestId('chat-input').click()
+  // WP-54: 시트(AI 표면)를 눌러도 열린 엔티티 다이얼로그는 닫히지 않는다.
+  await expect(dialog).toBeVisible()
   await page.getByTestId('chat-input').fill('참석자?')
   await expect(page.getByTestId('chat-input')).toHaveValue('참석자?')
   // AI 에서 Esc → AI 만 닫히고 다이얼로그는 그대로(모달 dim 복귀).
@@ -103,15 +105,21 @@ test('모바일(<lg): ⌘K 로 다이얼로그 위 풀스크린 AI 를 열어 �
   await expect(fs).toHaveCount(0)
   await expect(dialog).toBeVisible()
   await expect(page.locator('[data-slot=dialog-overlay]')).toBeVisible()
+  // 딤 탭으로 닫아도 마찬가지 — 딤은 AI 표면이라 다이얼로그의 바깥 클릭으로 취급되지 않는다(WP-191·WP-54).
+  await page.keyboard.press('ControlOrMeta+k')
+  await expect(fs).toBeVisible()
+  await page.getByTestId('ai-sheet-backdrop').click({ position: { x: 20, y: 40 } })
+  await expect(fs).toHaveCount(0)
+  await expect(dialog).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
 
-test('모바일(<lg): ⌘K 는 AI 풀스크린을 토글하고 Esc 는 닫는다', async ({ authenticatedPage: page }) => {
+test('모바일(<lg): ⌘K 는 AI 시트를 토글하고 Esc 는 닫는다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   // AI 사용 가능 여부가 확정된 뒤(탭바 AI 칸 노출)에 단축키가 등록된다.
   await expect(page.getByTestId('mobile-tab-ai')).toBeVisible()
-  const fs = page.getByTestId('ai-fullscreen')
+  const fs = page.getByTestId('ai-sheet')
   await page.keyboard.press('ControlOrMeta+k')
   await expect(fs).toBeVisible()
   await page.keyboard.press('ControlOrMeta+k')
@@ -158,7 +166,7 @@ test('탭바가 숨은 메일 본문에서는 작성 도크가 화면 하단에 
   expect(Math.abs(d.y + d.height - vh)).toBeLessThanOrEqual(1)
 })
 
-test('탭 루트가 아닌 PageHeader 화면(사이클)에도 뒤로가기 바 ✦ 로 AI 풀스크린을 열 수 있다', async ({ authenticatedPage: page }) => {
+test('탭 루트가 아닌 PageHeader 화면(사이클)에도 뒤로가기 바 ✦ 로 AI 시트를 열 수 있다', async ({ authenticatedPage: page }) => {
   // 탭바가 없는 비루트 화면의 AI 진입점 검증 — 비루트 PageHeader 화면은 모두 ResponsiveModuleLayout 의
   // 뒤로가기 바(mobile-back-ai) 아래에 있어 별도 헤더 ✦ 가 필요 없다(/calendar 등은 탭 루트라 탭바가 보인다).
   await page.route('**/api/v1/projects/WP', (r) => r.fulfill({ json: createProject() }))
@@ -169,7 +177,7 @@ test('탭 루트가 아닌 PageHeader 화면(사이클)에도 뒤로가기 바 �
   await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
   await expect(page.getByTestId('page-header')).toBeVisible()
   await page.getByTestId('mobile-back-ai').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
 

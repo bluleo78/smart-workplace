@@ -8,7 +8,7 @@
 //  - 열린 동안 페이지 영역을 inert 로 만들어 포커스·보조기기가 흐린 페이지로 새지 않게 하고,
 //  - 페이지 영역만 덮는 dim 오버레이를 직접 렌더(non-modal 이면 Radix 가 Overlay 를 그리지 않으므로)하고,
 //  - 데스크톱(lg+)에서는 다이얼로그를 페이지 영역 중앙으로 옮기고 폭을 클램프해 패널을 가리지 않게 한다.
-// closed/fullscreen 에서는 기존 modal 동작(접근성) 그대로다 — 단 모바일 풀스크린은 side 와 같이 취급(모바일의 유일한 AI 표면).
+// closed/fullscreen 에서는 기존 modal 동작(접근성) 그대로다 — 단 모바일 AI 시트는 side 와 같이 취급(모바일의 유일한 AI 표면).
 // shadcn primitive(components/ui/dialog.tsx)는 편집하지 않고 호출부 props/className 조합으로만 적용한다.
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
@@ -56,8 +56,8 @@ interface Result {
 /** AI 사이드 패널과 공존하는 다이얼로그 props 를 만든다. */
 export function useAiPanelAwareDialog({ open, size = 'default' }: Options): Result {
   const { mode, close } = useAssistant();
-  // 모바일(<lg)은 side 패널이 없고 AI 가 곧 풀스크린(다이얼로그 위 z-[60] AI 표면)이므로,
-  // 데스크톱 side 와 같은 "다이얼로그 위 AI 질문" 흐름을 풀스크린에 적용한다. 데스크톱 fullscreen 은 기존대로 modal.
+  // 모바일(<lg)은 side 패널이 없고 AI 가 곧 시트(다이얼로그 위 z-[60] AI 표면, WP-191)이므로,
+  // 데스크톱 side 와 같은 "다이얼로그 위 AI 질문" 흐름을 시트에 적용한다. 데스크톱 fullscreen 은 기존대로 modal.
   const isMobile = useIsMobile();
   const modal = !(mode === 'side' || (isMobile && mode === 'fullscreen'));
 
@@ -138,7 +138,7 @@ export function useAiPanelAwareDialog({ open, size = 'default' }: Options): Resu
     contentProps: { onInteractOutside, onEscapeKeyDown, onOpenAutoFocus, onCloseAutoFocus },
     contentClassName: modal ? '' : SIDE_CONTENT_CLASS[size],
     // 페이지 영역 dim — 기존 DialogOverlay 와 같은 톤(bg-black/50·z-50). 데스크톱에선 패널 폭만큼 우측을 비워
-    // 패널은 덮지 않는다(모바일은 패널이 z-[60] 풀스크린 오버레이라 inset-0 이어도 패널 아래에 깔린다).
+    // 패널은 덮지 않는다(모바일은 AI 시트 레이어가 z-[60] 이라 inset-0 이어도 시트 아래에 깔린다).
     // DialogPortal 은 다이얼로그가 열려 있을 때만 렌더되므로 닫히면 함께 사라진다. 클릭 시 바깥 클릭으로 닫힘.
     overlay: modal ? null : (
       <DialogPortal>

@@ -37,6 +37,8 @@ export async function mockHomeChatGeneration(
   opts: {
     frames: HomeChatFrame[]
     correlationId?: string
+    /** 테스트가 resolve 할 때까지 SSE 프레임을 보류한다. */
+    gate?: Promise<void>
     onStart?: (body: { sessionId: string | null; query: string; screenContext?: AiScreenContext }) => void
   },
 ) {
@@ -65,6 +67,8 @@ export async function mockHomeChatGeneration(
     (url) => url.pathname === '/api/v1/events',
     async (route) => {
       const correlationId = await started
+      // gate: 테스트가 resolve 할 때까지 프레임을 보류 — 생성 중(pending) 상태를 관측하기 위함(WP-191).
+      if (opts.gate) await opts.gate
       return route.fulfill({
         status: 200,
         contentType: 'text/event-stream',

@@ -19,6 +19,12 @@ export interface AssistantChat {
   onStop: () => void;
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
+  /** WP-191: 확인창 표시 여부 — 보류가 있고 사용자가 [기다리기]로 닫지 않았을 때. 패널이 다시 마운트돼도 유지된다. */
+  guardOpen: boolean;
+  /** [기다리기] — 확인창만 닫고 보류는 유지(생성이 끝나면 자동 전환). */
+  onWaitSwitch: () => void;
+  /** [중단하고 이동] */
+  onConfirmSwitch: () => void;
   onDeleteSession: (id: string) => void;
   /** #351: 보류 확인 카드 배열(없으면 빈 배열). #843: 카드별 진행 상태(pending/submitting/failed) 포함. */
   pendingActions: ProposalCard[];
@@ -44,8 +50,11 @@ export function useAssistantChat(): AssistantChat {
     newSessionNonce: session.newSessionNonce,
     onSubmit: session.submitQuery,
     onStop: session.stopStreaming,
-    onNewSession: session.newSession,
-    onSelectSession: session.restoreSession,
+    onNewSession: session.requestNewSession,
+    onSelectSession: session.requestSelectSession,
+    guardOpen: session.guardOpen,
+    onWaitSwitch: session.dismissHeldSwitch,
+    onConfirmSwitch: session.stopStreaming,
     onDeleteSession: session.deleteSession,
     pendingActions: session.pendingActions,
     onConfirmActionItem: (card) => void session.confirmActionItem(card),

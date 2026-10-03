@@ -26,15 +26,16 @@ test('채팅 탭 이동 + 미읽음 배지', async ({ authenticatedPage: page })
   await expect(page.getByTestId('mobile-tab-chat')).toHaveAttribute('aria-current', 'page')
 })
 
-test('AI 탭은 풀스크린 대화를 열고, 다른 탭을 누르면 닫힌다', async ({ authenticatedPage: page }) => {
+test('AI 탭은 AI 시트를 열고, 다른 탭을 누르면 닫힌다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   await page.getByTestId('mobile-tab-ai').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
-  await expect(page.getByTestId('mobile-tab-ai')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
+  // WP-191: AI 는 탭이 아닌 시트 — 열림은 aria-expanded, 보던 탭 강조는 유지.
+  await expect(page.getByTestId('mobile-tab-ai')).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
   await page.getByTestId('mobile-tab-chat').click()
-  await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
+  await expect(page.getByTestId('ai-sheet')).toHaveCount(0)
   await expect(page).toHaveURL(/\/chat$/)
 })
 
@@ -50,15 +51,15 @@ test('뷰포트 전환 — 데스크톱 폭이 되면 레일, 다시 좁히면 �
   await expect(page).toHaveURL(/\/chat$/)
 })
 
-test('데스크톱에서 연 side 패널은 좁히면 풀스크린으로, 다시 넓히면 side 로 복원된다', async ({ authenticatedPage: page }) => {
+test('데스크톱에서 연 side 패널은 좁히면 AI 시트로, 다시 넓히면 side 로 복원된다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   await page.setViewportSize({ width: 390, height: 844 })
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
-  await expect(page.getByTestId('mobile-tab-ai')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
+  await expect(page.getByTestId('mobile-tab-ai')).toHaveAttribute('aria-expanded', 'true')
   await page.setViewportSize({ width: 1280, height: 800 })
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
@@ -74,7 +75,7 @@ test('AI 미사용이면 AI 칸 없이 4칸', async ({ authenticatedPage: page }
   await expect(page.getByTestId('mobile-tabbar').locator('[data-testid^="mobile-tab-"]:not([data-testid^="mobile-tab-badge"]):not([data-testid="mobile-tab-ai-capsule"])')).toHaveCount(4)
 })
 
-test('AI 버튼은 다른 탭과 같은 선상 — 탭바 위로 돌출되지 않고, AI 풀스크린 입력창을 가리지 않는다', async ({ authenticatedPage: page }) => {
+test('AI 버튼은 다른 탭과 같은 선상 — 탭바 위로 돌출되지 않고, AI 시트 입력창을 가리지 않는다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   const bar = (await page.getByTestId('mobile-tabbar').boundingBox())!
@@ -89,9 +90,9 @@ test('AI 버튼은 다른 탭과 같은 선상 — 탭바 위로 돌출되지 �
       return r.getBoundingClientRect().bottom
     })
   expect(Math.abs((await labelBottom('mobile-tab-ai')) - (await labelBottom('mobile-tab-home')))).toBeLessThanOrEqual(1)
-  // AI 풀스크린 입력창 하단이 탭바 윗변보다 위.
+  // AI 시트 입력창 하단이 탭바 윗변보다 위.
   await page.getByTestId('mobile-tab-ai').click()
-  const input = (await page.getByTestId('ai-fullscreen').getByPlaceholder(/AI 에게 요청/).boundingBox())!
+  const input = (await page.getByTestId('ai-sheet').getByPlaceholder(/AI 에게 요청/).boundingBox())!
   expect(input.y + input.height).toBeLessThanOrEqual(bar.y + 0.5)
   await expectNoHorizontalOverflow(page)
 })

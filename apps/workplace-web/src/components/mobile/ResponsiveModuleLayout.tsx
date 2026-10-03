@@ -21,6 +21,7 @@ export function ResponsiveModuleLayout({
   title,
   scroll = 'auto',
   listClassName,
+  listContext,
 }: {
   sidebar: ReactNode
   rootPath: string
@@ -29,6 +30,11 @@ export function ResponsiveModuleLayout({
   scroll?: 'auto' | 'none'
   /** 모바일 목록 모드 래퍼에 덧붙일 모듈 전용 클래스(설정 행 › 셰브런 등). 데스크톱엔 쓰이지 않는다. */
   listClassName?: string
+  /**
+   * WP-191: 모바일 목록 모드에서만 마운트할 화면 컨텍스트 등록기 요소(데스크톱은 같은 사이드바 옆 페이지가 각자 등록).
+   * 데이터 훅을 등록기 안에 두어, 데스크톱·모바일 상세에선 쿼리 구독 자체가 일어나지 않게 한다.
+   */
+  listContext?: ReactNode
 }) {
   const isMobile = useIsMobile()
   const { pathname } = useLocation()
@@ -60,6 +66,7 @@ export function ResponsiveModuleLayout({
         {/* 탭 루트(/chat 등)는 탭바가 보이므로 큰 제목 헤더. 탭 루트가 아닌 모듈 목록(/settings — 앱 목록에서 진입)은
             탭바가 숨으므로 막다른 길이 되지 않게 뒤로가기 바(→ /apps, ✦ 포함)를 대신 둔다. */}
         {isTabRoot(rootPath) ? <MobileListHeader title={title} /> : <MobileBackBar title={title} />}
+        {listContext}
         <div data-testid="mobile-module-list" className={cn(mobileSidebarListClass, listClassName)}>{sidebar}</div>
       </div>
     )

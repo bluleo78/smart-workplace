@@ -511,6 +511,48 @@
   100% { width: 100%; }
 }
 
+/* AI 진입 버튼 생성 중 표시(WP-191) — 테두리 상자는 고정하고 그라데이션 각도(--ai-ring-angle)만 돌린다.
+ * 상자 자체를 rotate 하면 캡슐·칩 모양이 함께 돈다. 호스트는 position:relative 와 border-radius 를 가져야 한다. */
+@property --ai-ring-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes ai-ring-spin {
+  to { --ai-ring-angle: 360deg; }
+}
+@keyframes ai-twinkle {
+  0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+  50% { transform: scale(1.18) rotate(14deg); opacity: 0.75; }
+}
+.ai-ring::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(from var(--ai-ring-angle), var(--ai-accent), var(--primary), transparent 55%, var(--ai-accent));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ai-ring::before { animation: ai-ring-spin 1.2s linear infinite; }
+}
+/* 동작 줄이기 — 링을 숨기고 AiSparkle 의 고정 점이 대신한다. */
+@media (prefers-reduced-motion: reduce) {
+  .ai-ring::before { display: none; }
+}
+
+/* AI 표면 확인창(대화 전환 보호·대화 삭제, WP-191) — 모바일 AI 시트 레이어(z-[60])보다 위에 뜬다.
+ * 콘텐츠는 className 으로 z-[80] 을 받지만, shadcn AlertDialogContent 가 내부에서 그리는 딤(overlay, z-50)은
+ * 호출부에서 바꿀 수 없어(ui/* 는 CLI 관리) 바로 뒤 형제인 콘텐츠 표식(data-ai-confirm)으로 함께 올린다.
+ * 안 올리면 딤이 시트 아래에 깔려 시트가 흐려지지 않는다(콘텐츠만 위). */
+[data-slot='alert-dialog-overlay']:has(+ [data-ai-confirm]) {
+  z-index: 80;
+}
+
 /* ===== WikiEditor — ProseMirror 헤딩 타이포그래피 =====
  * Tailwind v4 preflight가 h1~h6 기본 스타일을 리셋하므로
  * 에디터 내 헤딩에 명시적 크기·굵기·간격을 정의한다.

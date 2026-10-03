@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { homeApi } from '@/api/home';
@@ -20,6 +20,9 @@ import type {
   WidgetSpec,
   WidgetType,
 } from '@/types/home';
+
+/** 생성 중 요청된 대화 전환(WP-191) — 확인창이 결정할 때까지 보류된다. */
+export type SessionSwitch = { kind: 'new' } | { kind: 'select'; id: string };
 
 /** #843: 서버 제안 → 화면 카드(대기 상태). */
 const toCards = (actions: PendingAction[]): ProposalCard[] =>
@@ -64,7 +67,13 @@ export function useChatSession() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   // 스트리밍 pending 상태 — 구 AI chat isPending 대체.
-  const [pending, setPending] = useState(false);
+  const [pending, setPendingState] = useState(false);
+  // pending 의 ref 미러 — requestSwitch 가 state 클로저(stale)·재생성 없이 "생성 중?"을 즉시 판단한다.
+  const pendingRef = useRef(false);
+  const setPending = useCallback((v: boolean) => {
+    pendingRef.current = v;
+    setPendingState(v);
+  }, []);
   // #351: 보류 확인 액션 배열 — 일괄 카드 렌더. 단건도 길이1 배열로 관리.
   // #843: 카드마다 진행 상태(pending/submitting/failed)를 함께 들고 있어, 실패해도 제자리에서 사유를 보여준다.
   const [pendingActions, setPendingActions] = useState<ProposalCard[]>([]);
@@ -81,6 +90,23 @@ export function useChatSession() {
   const sessionIdRef = useRef<string | null>(null);
   // 진행 중인 SSE 스트림의 AbortController — newSession/restoreSession 시 취소.
   const abortRef = useRef<AbortController | null>(null);
+  // WP-191: 생성 중 요청된 전환 — 화면(확인창) 표시용 state + 비동기 완료 경로에서 읽는 ref 미러.
+  const [heldSwitch, setHeldSwitchRaw] = useState<SessionSwitch | null>(null);
+  // [기다리기]를 눌러 확인창만 닫은 상태 — 패널이 언마운트(시트 닫힘·모드 전환)돼도 잃지 않도록 보류와 함께 여기서 든다.
+  const [heldDismissed, setHeldDismissed] = useState(false);
+  // 보류를 바꿀 때마다 닫힘 표시를 되돌린다 — 새 요청은 확인창을 다시 열고, 해제되면 표시도 사라진다.
+  const setHeldSwitch = useCallback((s: SessionSwitch | null) => {
+    setHeldSwitchRaw(s);
+    setHeldDismissed(false);
+  }, []);
+  const heldRef = useRef<SessionSwitch | null>(null);
+  // 보류 비우기 — ref 와 state 미러를 항상 함께 지운다(여러 경로에서 쌍으로 복붙하던 것을 한 곳으로).
+  const clearHeld = useCallback(() => {
+    heldRef.current = null;
+    setHeldSwitch(null);
+  }, [setHeldSwitch]);
+  // 보류 전환 실행기 — newSession/restoreSession 이 아래에서 정의되므로 effect 에서 최신 함수로 채운다.
+  const releaseHeldRef = useRef<() => void>(() => {});
 
   // sessionIdRef 를 sessionId state 와 동기화하는 헬퍼.
   const updateSessionId = useCallback((id: string | null) => {
@@ -231,10 +257,12 @@ export function useChatSession() {
         .finally(() => {
           if (opSeq.current === gen) {
             setPending(false);
+            // WP-191: 생성이 끝나면 보류해 둔 전환을 실행한다(확인창에서 [기다리기]를 고른 경우 포함).
+            releaseHeldRef.current();
           }
         });
     },
-    [qc, updateSessionId],
+    [qc, updateSessionId, setPending],
   );
 
   // #335: 스트리밍 중단 — 사용자가 진행 중인 AI 응답을 멈춘다.
@@ -242,11 +270,16 @@ export function useChatSession() {
   // opSeq 를 증가시켜 늦게 도착하는 델타/진행/액션을 stale 로 차단하고(부분 응답 오염 방지),
   // 누적된 부분 응답은 turns 에 그대로 남겨 '커밋'한다(새로고침 전까지 화면 보존).
   const stopStreaming = useCallback(() => {
-    if (!abortRef.current) return; // 진행 중 스트림이 없으면 무시
+    if (!abortRef.current) {
+      // 진행 중 스트림이 없어도 보류 전환은 실행한다(WP-191).
+      releaseHeldRef.current();
+      return;
+    }
     opSeq.current++;
     abortRef.current.abort();
     abortRef.current = null;
     setPending(false);
+    releaseHeldRef.current(); // WP-191: [중단하고 이동] — 중단 직후 보류 전환 실행
     setPendingActions([]); // #351: 중단 시 확인 카드 배열 폐기
     // 첫 토큰 전 중단이면 빈 어시스턴트 말풍선만 남으므로 중단 안내 문구로 대체한다.
     setTurns((t) => {
@@ -257,10 +290,16 @@ export function useChatSession() {
       }
       return next;
     });
-  }, []);
+  }, [setPending]);
 
   // 새 세션 — 로컬 리셋만(POST 안 함; 첫 chat 이 서버에서 세션 생성). in-flight 작업 무효화.
-  const newSession = useCallback(() => {
+  // opts.keepDraft: 보류됐던 '새 대화'를 나중에 실행하는 경로 전용 — 기다리는 동안 사용자가 입력한
+  // 다음 질문(초안)을 지우지 않도록 초안 초기화 신호(nonce)를 발행하지 않는다.
+  // 직접/즉시 새 대화는 옵션 없이 호출돼 종전대로 초안을 비운다(#204).
+  const newSession = useCallback((opts?: { keepDraft?: boolean }) => {
+    // WP-191: 어떤 실제 전환이든 보류를 취소한다(삭제 등으로 직접 호출돼도 옛 보류가 나중에 튀어나오지 않게).
+    // releaseHeld 는 호출 전에 이미 비우므로 1회 실행 보장은 유지된다.
+    clearHeld();
     opSeq.current++;
     // in-flight SSE 스트림 취소 — 취소 후 stale 델타가 빈 turns 배열에 접근하는 것 방지.
     abortRef.current?.abort();
@@ -271,12 +310,13 @@ export function useChatSession() {
     setTurns([]);
     // '새 대화'는 깨끗한 빈 입력으로 시작해야 하므로 패널 로컬 입력 초기화 신호 발행(#204).
     // restoreSession(세션 선택)/submit 에서는 발행하지 않아 세션별 초안 보존(by-design)을 깨지 않는다.
-    setNewSessionNonce((n) => n + 1);
-  }, [updateSessionId]);
+    if (!opts?.keepDraft) setNewSessionNonce((n) => n + 1);
+  }, [updateSessionId, clearHeld, setPending]);
 
   // 복원 — 메시지 fetch → transcript 재현(AI 재호출 없음, 위젯 fold 없음).
   const restoreSession = useCallback(
     async (id: string) => {
+      clearHeld(); // WP-191: 실제 전환은 보류를 취소한다(newSession 과 동일)
       const gen = ++opSeq.current;
       // in-flight SSE 스트림 취소 — 복원된 세션에 구 스트림 델타가 섞이는 것 방지.
       abortRef.current?.abort();
@@ -304,7 +344,7 @@ export function useChatSession() {
         handleApiError(err, '세션을 불러오지 못했습니다');
       }
     },
-    [updateSessionId],
+    [updateSessionId, clearHeld, setPending],
   );
 
   // #843: 카드 상태 갱신 헬퍼 — 카드는 제자리에 머물고 phase/error 만 바뀐다(예전의 제거→끝에 재삽입 제거).
@@ -418,16 +458,56 @@ export function useChatSession() {
   // 삭제 — 활성 세션이면 새 세션으로 리셋.
   const deleteSession = useCallback(
     (id: string) => {
+      // 보류된 전환의 대상을 지우려 하면 삭제 요청 시점에 보류를 버린다(나중에 없는 대화를 복원하려 하지 않게).
+      // onSuccess 까지 미루면 삭제 응답보다 답변 완료가 먼저 와 방금 지운 대화로 전환되는 경합이 생긴다.
+      const h = heldRef.current;
+      if (h?.kind === 'select' && h.id === id) {
+        clearHeld();
+      }
       del.mutate(id, {
         onSuccess: () => {
           if (id === sessionId) newSession();
         },
       });
     },
-    [del, sessionId, newSession],
+    [del, sessionId, newSession, clearHeld],
   );
 
+  // WP-191: 보류 전환 실행기 — 실행 직전 비워 중복 실행을 막는다(완료·중단이 겹쳐도 1회).
+  useEffect(() => {
+    releaseHeldRef.current = () => {
+      const s = heldRef.current;
+      if (!s) return;
+      clearHeld();
+      if (s.kind === 'new') newSession({ keepDraft: true }); // 보류 해제: 그 사이 입력한 초안 보존
+      else void restoreSession(s.id);
+    };
+  }, [newSession, restoreSession, clearHeld]);
+
+  // 생성 중이면 보류(확인창), 아니면 즉시 전환.
+  const requestSwitch = useCallback(
+    (s: SessionSwitch) => {
+      if (!pendingRef.current) {
+        if (s.kind === 'new') newSession();
+        else void restoreSession(s.id);
+        return;
+      }
+      heldRef.current = s;
+      setHeldSwitch(s);
+    },
+    [newSession, restoreSession, setHeldSwitch],
+  );
+  const requestNewSession = useCallback(() => requestSwitch({ kind: 'new' }), [requestSwitch]);
+  const requestSelectSession = useCallback((id: string) => requestSwitch({ kind: 'select', id }), [requestSwitch]);
+  // [기다리기] — 확인창만 닫고 보류는 유지(생성이 끝나면 실행). 닫힘 표시는 여기서 들어 재오픈해도 다시 뜨지 않는다.
+  const dismissHeldSwitch = useCallback(() => setHeldDismissed(true), []);
+
   return {
+    // 확인창 표시 여부 — 보류가 있고 [기다리기]로 닫지 않았을 때.
+    guardOpen: heldSwitch != null && !heldDismissed,
+    dismissHeldSwitch,
+    requestNewSession,
+    requestSelectSession,
     sessionId,
     turns,
     newSessionNonce,

@@ -24,7 +24,8 @@ export function DeleteSessionDialog({ sessionId, onConfirm, onCancel }: Props) {
   return (
     <AlertDialog open={sessionId !== null} onOpenChange={(v) => !v && onCancel()}>
       {/* WP-54: 포털 레이어지만 패널 React 트리 안에서 렌더돼 AI 표면으로 판별된다(aiPanelSurface.markAiPanelEvent). */}
-      <AlertDialogContent>
+      {/* WP-191: 모바일 AI 시트(z-[60]) 위로 — 딤도 index.css 의 data-ai-confirm 규칙으로 함께 올라간다. */}
+      <AlertDialogContent data-ai-confirm className="z-[80]">
         <AlertDialogHeader>
           <AlertDialogTitle>대화 삭제</AlertDialogTitle>
           <AlertDialogDescription>

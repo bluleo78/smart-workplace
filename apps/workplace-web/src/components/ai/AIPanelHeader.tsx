@@ -11,7 +11,7 @@ const iconBtn = 'rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-f
 
 /**
  * 표시 모드 전환 + 닫기 버튼 묶음. 사이드 패널 헤더와 풀스크린 상단 바에서 공용.
- * (모바일 탭 루트 풀스크린은 이 묶음 대신 탭 루트 헤더를 쓴다 — 탭 전환이 곧 닫기라 × 없음, AIFullscreen 참고.)
+ * (모바일 AI 시트도 이 묶음을 쓴다 — 모드 버튼은 숨고 × 만 남는다, WP-191.)
  */
 export function AIPanelControls() {
   const { mode, open, close } = useAssistant();
@@ -44,7 +44,8 @@ export function AIPanelControls() {
         title="닫기"
         data-testid="ai-panel-close"
         onClick={close}
-        className={iconBtn}
+        // 모바일(<lg) 시트에선 터치 타깃 44×44 로 키운다(데스크톱 헤더 크기는 그대로).
+        className={cn(iconBtn, 'max-lg:flex max-lg:h-11 max-lg:w-11 max-lg:items-center max-lg:justify-center')}
       >
         <X className="h-4 w-4" />
       </button>

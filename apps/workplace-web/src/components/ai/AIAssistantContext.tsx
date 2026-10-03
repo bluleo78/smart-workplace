@@ -11,7 +11,9 @@ import {
   useState,
 } from 'react';
 
+import { useChatSessionContext } from '@/hooks/chat-session-context';
 import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile';
+import { type AiActivity, aiActivity, nextUnseenDone } from '@/lib/ai/aiActivity';
 
 /** AI 어시스턴트 표시 모드. closed=닫힘, side=우측 도킹, fullscreen=콘텐츠 영역 2단. */
 export type AIMode = 'closed' | 'side' | 'fullscreen';
@@ -36,6 +38,8 @@ interface AIAssistantValue {
   toggle: () => void;
   /** 사이드 패널 폭 변경(클램프). persist=true 일 때만 localStorage 영속(드래그 종료 시점). */
   resize: (width: number, persist?: boolean) => void;
+  /** 진입 버튼 표시 상태 — 표면이 열려 있으면 항상 idle(WP-191). */
+  triggerActivity: AiActivity;
 }
 
 // 초기 모드 — 항상 closed 로 시작(직전 모드는 toggle 복원용으로만 기억).
@@ -68,6 +72,14 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   const [rawMode, setMode] = useState<AIMode>('closed');
   const isMobile = useIsMobile();
   const mode = effectiveMode(rawMode, isMobile);
+  // WP-191: 닫힌 사이 끝난 답변 표시. ChatSessionProvider 가 이 Provider 바깥(AppLayout)이라 pending 을 읽을 수 있다.
+  // effect 대신 렌더 중 조정("prop 변화 시 state 조정" 패턴) — 완료 순간과 같은 프레임에 점이 뜬다.
+  const { pending } = useChatSessionContext();
+  const isOpen = mode !== 'closed';
+  const [track, setTrack] = useState({ pending, unseenDone: false });
+  const unseenDone = nextUnseenDone({ prevPending: track.pending, pending, open: isOpen, unseenDone: track.unseenDone });
+  if (track.pending !== pending || track.unseenDone !== unseenDone) setTrack({ pending, unseenDone });
+  const triggerActivity: AiActivity = isOpen ? 'idle' : aiActivity(pending, unseenDone);
   const [sidePanelWidth, setWidth] = useState<number>(readInitialWidth);
   // ⌘K 토글 시 복원할 직전 open 모드(기본 side). localStorage(ai-mode)에 마지막 open 모드 보관.
   const lastOpen = (): Exclude<AIMode, 'closed'> => {
@@ -130,8 +142,8 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   }, [mode, sidePanelWidth]);
 
   const value = useMemo<AIAssistantValue>(
-    () => ({ mode, sidePanelWidth, open, close, cycleMode, toggle, resize }),
-    [mode, sidePanelWidth, open, close, cycleMode, toggle, resize],
+    () => ({ mode, sidePanelWidth, open, close, cycleMode, toggle, resize, triggerActivity }),
+    [mode, sidePanelWidth, open, close, cycleMode, toggle, resize, triggerActivity],
   );
   return <AIAssistantContext value={value}>{children}</AIAssistantContext>;
 }

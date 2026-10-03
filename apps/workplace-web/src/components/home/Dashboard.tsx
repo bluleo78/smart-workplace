@@ -41,6 +41,7 @@ import {
 import { createElement, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { useInboxPanel } from '@/components/layout/InboxContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
@@ -54,6 +55,7 @@ import {
   useToggleWidgetCollapsed,
 } from '@/hooks/queries/useDashboard'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { buildHomeContext } from '@/lib/aiScreenContext/builders/mobileLists'
 import { handleApiError } from '@/lib/api-error'
 import { cn } from '@/lib/utils'
 import type { DashboardDevice, DashboardWidgetConfig } from '@/types/dashboard'
@@ -614,6 +616,13 @@ export function Dashboard() {
       .map(resolveEntry)
       .filter((e): e is ResolvedEntry => e !== null)
   }, [data])
+
+  // WP-191: 모바일 홈은 탭 루트 — 위젯 제목으로 화면 컨텍스트를 등록한다(데스크톱 홈은 기존대로 미등록).
+  const homeCtx = useMemo(
+    () => (isMobile ? buildHomeContext({ widgets: savedEntries.map(entryTitle) }) : null),
+    [isMobile, savedEntries],
+  )
+  useRegisterAiScreenContext(homeCtx)
 
   function enterEdit() {
     if (collapseSaving) return

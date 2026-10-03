@@ -6,7 +6,7 @@ import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
-test('메일 본문(탭바 숨김)에서도 ✦ 로 AI 풀스크린을 연다', async ({ authenticatedPage: page }) => {
+test('메일 본문(탭바 숨김)에서도 ✦ 로 AI 시트를 연다', async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
   await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
@@ -15,11 +15,11 @@ test('메일 본문(탭바 숨김)에서도 ✦ 로 AI 풀스크린을 연다', 
   await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
   await expect(page.getByTestId('mail-back')).toBeVisible()
   await page.getByTestId('mobile-back-ai').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
 
-test('연락처 상세(탭바 숨김)에서도 ✦ 로 AI 풀스크린을 연다', async ({ authenticatedPage: page }) => {
+test('연락처 상세(탭바 숨김)에서도 ✦ 로 AI 시트를 연다', async ({ authenticatedPage: page }) => {
   await page.route((u) => u.pathname === '/api/v1/contacts', (r) => r.fulfill({ json: makeContactPage([member()]) }))
   await page.route((u) => u.pathname === '/api/v1/contacts/members/1', (r) => r.fulfill({ json: memberDetail() }))
   await page.goto('/contacts')
@@ -27,7 +27,7 @@ test('연락처 상세(탭바 숨김)에서도 ✦ 로 AI 풀스크린을 연다
   await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
   await expect(page.getByTestId('contact-back')).toBeVisible()
   await page.getByTestId('mobile-back-ai').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
 
@@ -100,7 +100,7 @@ test('모바일에서 AI 를 열어도 ai-mode 를 영속하지 않는다(데스
   await stubChat(page)
   await page.goto('/')
   await page.getByTestId('mobile-tab-ai').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
   expect(await page.evaluate(() => localStorage.getItem('ai-mode'))).toBeNull()
 })
 
