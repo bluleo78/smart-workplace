@@ -26,6 +26,15 @@ describe('resolveMailView', () => {
       expect(resolveMailView(p(q), false)).toMatchObject({ kind: 'all', apiCategory: '', activeCategory: null })
     }
   })
+  it('딥링크 ?messageId(category 없음) = 전체 — 분류와 무관하게 목록에 보이게', () => {
+    expect(resolveMailView(p('messageId=55'), true)).toMatchObject({ kind: 'all', apiCategory: '', activeCategory: null, title: '받은편지함' })
+  })
+  it('messageId 가 있어도 명시 category·needsReply·sent 는 그대로', () => {
+    expect(resolveMailView(p('messageId=55&category=개인'), true).kind).toBe('category')
+    expect(resolveMailView(p('messageId=55&category=업무'), true).kind).toBe('work')
+    expect(resolveMailView(p('messageId=55&needsReply=true'), true).kind).toBe('needsReply')
+    expect(resolveMailView(p('messageId=55&folder=sent'), true).kind).toBe('sent')
+  })
   it('회신필요 — 토글 숨김·unreadOnly 무시', () => {
     expect(resolveMailView(p('needsReply=true&unread=true'), true)).toMatchObject({ kind: 'needsReply', unreadOnly: false, unreadToggleVisible: false, title: '회신필요' })
   })

@@ -2,7 +2,7 @@
 import type { Page } from '@playwright/test'
 
 import type { MailUnreadCounts } from '../../../src/types/mailMessage'
-import { mailAccount } from '../../factories/mail.factory'
+import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 
@@ -98,6 +98,19 @@ test.describe('메일 사이드바 — 받은편지함 하위 분류(WP-186)', (
     await stubInbox(page, counts({ classificationActive: false }))
     await page.goto('/mail/1?category=업무')
     await expect(page.getByTestId('mail-filter-category-업무')).toHaveCount(0)
+    await expect(page.getByTestId('mail-folder-inbox')).toHaveAttribute('aria-current', 'page')
+  })
+
+  test('딥링크(?messageId, category 없음) → 전체 보기로 열려 개인 메일 행이 목록에 보인다', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/unread-counts', counts())
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
+    await mockApi(page, 'GET', '/api/v1/mail/messages/55', detail({ id: 55, subject: '개인 메일' }))
+    await mockApi(page, 'GET', '/api/v1/mail/messages/55/summary', { summary: null })
+    const list = await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary({ id: 55, subject: '개인 메일', aiCategory: '개인' })], { capture: true })
+    await page.goto('/mail/1?messageId=55')
+    await expect(page.getByTestId('mail-row-55')).toBeVisible()
+    await expect.poll(() => list.lastRequest()?.searchParams.has('category')).toBe(false) // 업무로 좁히지 않음
     await expect(page.getByTestId('mail-folder-inbox')).toHaveAttribute('aria-current', 'page')
   })
 })

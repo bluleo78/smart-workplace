@@ -32,8 +32,11 @@ export function resolveMailView(params: URLSearchParams, classificationActive: b
     return { kind: 'needsReply', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '회신필요', breadcrumb: ['회신필요'], key: 'needsReply' }
   }
   const raw = params.get('category')
+  // 딥링크(?messageId=N, category 없음)는 홈 위젯·알림 등 외부 진입이라 메일의 분류를 알 수 없다.
+  // 행 선택은 URL 을 바꾸지 않으므로(로컬 상태) messageId 는 외부 딥링크에서만 온다 → 전체 보기로 열어 어떤 분류의 메일이든 목록에 보이게 한다.
+  const deepLink = raw == null && Number(params.get('messageId')) > 0
   const base = { unreadOnly: unread, unreadToggleVisible: true }
-  if (!classificationActive || raw === 'all') {
+  if (!classificationActive || raw === 'all' || deepLink) {
     return { ...base, kind: 'all', apiCategory: '', activeCategory: null, title: INBOX, breadcrumb: [INBOX], key: `all:${unread}` }
   }
   if (isCategory(raw) && raw !== '업무') {
