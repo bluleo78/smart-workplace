@@ -69,7 +69,12 @@ export function MobileViewSheet({
       >
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {/* 「전체」 ✓ 는 툴바 뷰 칩 라벨과 같은 판정 — 에픽 범위만 걸린 상태도 전체로 본다. */}
-          {option('mobile-view-option-all', '전체', saved.isAllActiveIgnoringEpic, () => pick(saved.applyAll))}
+          {option('mobile-view-option-all', '전체', saved.isAllActiveIgnoringEpic, () =>
+            // 에픽 범위만 다른 상태는 이미 「전체」로 표시(✓)된다 — 탭해도 에픽 필터를 지우지 않는다(에픽은 칩 ✕ 로 해제).
+            pick(() => {
+              if (saved.isAllActive || !saved.isAllActiveIgnoringEpic) saved.applyAll();
+            }),
+          )}
           {saved.views.map((v) =>
             option(
               `mobile-view-option-${v.id}`,

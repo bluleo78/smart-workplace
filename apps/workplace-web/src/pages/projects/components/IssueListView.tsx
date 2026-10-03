@@ -58,6 +58,12 @@ export function IssueListView({
 
   // 접힌 그룹 키 — 화면 로컬 상태(새로고침 시 펼침). 사이클 구간 헤더(IssueCycleSection)와 같은 접기 UX.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  // 그룹 기준이 바뀌면 접힘 초기화 — 이전 기준의 키가 새 그룹을 접어버리는 것을 막는다(렌더 중 리셋 패턴).
+  const [prevGroupBy, setPrevGroupBy] = useState(groupBy);
+  if (prevGroupBy !== groupBy) {
+    setPrevGroupBy(groupBy);
+    setCollapsed(new Set());
+  }
   const toggleGroup = useCallback((key: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev);

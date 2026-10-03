@@ -306,6 +306,76 @@ test.describe('모바일 에픽 시트', () => {
     await expect(page.getByTestId('mobile-chip-view')).toHaveText('사용자 조건');
   });
 
+  test('에픽 범위만 걸린 상태에서 뷰 시트 「전체」 를 눌러도 에픽 필터가 유지된다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none&parent=30`);
+    await page.getByTestId('mobile-chip-view').click();
+    await page.getByTestId('mobile-view-option-all').click();
+    await expect(page.getByTestId('mobile-view-sheet')).toBeHidden();
+    await expect(page).toHaveURL(/parent=30/);
+  });
+
+  test('뷰 저장 — 시트가 닫히고 다이얼로그에서 저장하면 현재 조건으로 POST, 이후 화면이 눌린다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    let body: { name?: string; query?: string } | null = null;
+    await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/saved-views`, (r) => {
+      if (r.request().method() !== 'POST') return r.fallback();
+      body = r.request().postDataJSON();
+      return r.fulfill(json({ ...MY_BUG_VIEW, id: 9, name: body!.name, query: body!.query }));
+    });
+    await page.goto(`/projects/${KEY}?group=none&status=TODO`);
+    await page.getByTestId('mobile-chip-view').click();
+    await page.getByTestId('mobile-view-save').click();
+    await expect(page.getByTestId('mobile-view-sheet')).toBeHidden();
+    await expect(page.getByTestId('save-view-name')).toBeVisible();
+    await page.getByTestId('save-view-name').fill('내 할 일');
+    await page.getByTestId('save-view-submit').click();
+    await expect(page.getByTestId('save-view-name')).toBeHidden();
+    expect(body!.name).toBe('내 할 일');
+    expect(body!.query).toContain('status=TODO');
+    // 시트·다이얼로그 전환 뒤에도 body 가 잠기지 않고 화면이 눌린다.
+    expect(await page.evaluate(() => document.body.style.pointerEvents)).not.toBe('none');
+    await page.getByTestId('mobile-chip-filter').click();
+    await expect(page.getByTestId('mobile-filter-sheet')).toBeVisible();
+  });
+
+  test('공유 뷰 업데이트 — 확인 후 PATCH 로 새 조건 저장, 이후 화면이 눌린다', async ({ authenticatedPage: page }) => {
+    const shared = { ...MY_BUG_VIEW, id: 7, name: '팀 뷰', query: 'priority=HIGH&group=none', visibility: 'SHARED' };
+    await mock(page, { views: [shared] });
+    let patch: { query?: string } | null = null;
+    let patchUrl = '';
+    await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/saved-views/7`, (r) => {
+      if (r.request().method() !== 'PATCH') return r.fallback();
+      patchUrl = r.request().url();
+      patch = r.request().postDataJSON();
+      return r.fulfill(json({ ...shared, query: patch!.query }));
+    });
+    await page.goto(`/projects/${KEY}?${shared.query}`);
+    await expect(page.getByTestId('mobile-chip-view')).toHaveText('팀 뷰');
+    // 필터(상태)를 하나 더 얹어 dirty 로 만든다.
+    await page.getByTestId('mobile-chip-filter').click();
+    const filterSheet = page.getByTestId('mobile-filter-sheet');
+    await filterSheet.getByTestId('add-filter-trigger').click();
+    await page.getByTestId('add-filter-facet-status').click();
+    await page.getByRole('checkbox', { name: '진행 중' }).click();
+    await expect(page).toHaveURL(/status=IN_PROGRESS/);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('add-filter-facet-status')).toBeHidden();
+    await page.keyboard.press('Escape');
+    await expect(filterSheet).toBeHidden();
+    await page.getByTestId('mobile-chip-view').click();
+    await page.getByTestId('mobile-view-update').click();
+    await expect(page.getByTestId('mobile-view-sheet')).toBeHidden();
+    await expect(page.getByTestId('update-view-confirm')).toBeVisible();
+    await page.getByTestId('update-view-confirm').click();
+    await expect(page.getByTestId('update-view-confirm')).toBeHidden();
+    expect(patchUrl).toContain('/saved-views/7');
+    expect(patch!.query).toContain('status=IN_PROGRESS');
+    expect(await page.evaluate(() => document.body.style.pointerEvents)).not.toBe('none');
+    await page.getByTestId('mobile-chip-filter').click();
+    await expect(page.getByTestId('mobile-filter-sheet')).toBeVisible();
+  });
+
   test('에픽 미할당 선택 → topLevel 필터', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
