@@ -209,6 +209,52 @@ test.describe('생성 칩 줄', () => {
     await expect(title).toBeFocused();
   });
 
+  test('칩 위에서 시작한 가로 스와이프는 제목 포커스를 빼앗지 않고, 이후 칩 탭은 정상 복귀', async ({ authenticatedPage: page }) => {
+    await mockCreate(page);
+    await openSheet(page);
+    const title = page.getByTestId('issue-create-title');
+    await title.fill('스와이프 중');
+    await expect(title).toBeFocused();
+    // click 없이 끝나는 누름(pointerdown → pointerup) — 칩 줄을 미는 제스처의 시작과 같다.
+    const priority = page.getByTestId('create-chip-priority');
+    await priority.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true });
+    await priority.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true });
+    // 실제 마우스로 칩 위에서 눌러 다른 칩까지 끌고 뗀다(click 은 버튼에 떨어지지 않음).
+    const a = (await page.getByTestId('create-chip-due').boundingBox())!;
+    const b = (await priority.boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect(title).toBeFocused();
+    await expect(page.getByTestId('create-priority-sheet')).toHaveCount(0);
+    await expect(page.getByTestId('create-due-sheet')).toHaveCount(0);
+    // 이어서 칩 탭 → 시트 → 선택 → 제목으로 복귀.
+    await priority.click();
+    await expect(page.getByTestId('create-priority-sheet')).toBeVisible();
+    await expect(title).not.toBeFocused();
+    await page.getByTestId('create-priority-sheet').getByTestId('picker-option-LOW').click();
+    await expect(title).toBeFocused();
+    await expect(priority).toContainText('낮음');
+  });
+
+  test('에픽을 고른 뒤 유형을 에픽으로 바꾸면 페이로드에 parentNumber 가 없다', async ({ authenticatedPage: page }) => {
+    const posts = await mockCreate(page);
+    await openSheet(page);
+    await page.getByTestId('issue-create-title').fill('새 에픽');
+    await page.getByTestId('create-chip-epic').click();
+    await page.getByTestId('create-epic-sheet').getByTestId('picker-option-50').click();
+    await expect(page.getByTestId('create-chip-epic')).toContainText('결제 개편 에픽');
+    await page.getByTestId('create-chip-type').click();
+    // systemTypes() 의 EPIC = id 6.
+    await page.getByTestId('create-type-sheet').getByTestId('picker-option-6').click();
+    await expect(page.getByTestId('create-chip-epic')).toHaveCount(0);
+    await page.getByTestId('issue-create-submit').click();
+    await expect.poll(() => posts.length).toBe(1);
+    expect(posts[0]).toMatchObject({ typeId: 6 });
+    expect(posts[0]).not.toHaveProperty('parentNumber');
+  });
+
   test('개인 프로젝트는 유형·에픽 칩이 없다', async ({ authenticatedPage: page }) => {
     const PKEY = 'PME';
     await stubChat(page);

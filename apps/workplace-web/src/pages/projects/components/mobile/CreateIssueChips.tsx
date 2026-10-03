@@ -2,7 +2,7 @@
 // 칩을 누르는 순간 입력칸 포커스를 기억하고 blur(키보드 내림) → 선택 시트 → 닫히면 그 칸으로 포커스 복귀(원칙 ③).
 // 상위 번호 입력·AI 이유·시작일 표시는 본문 영역 몫이라 여기선 칩 줄과 시트만 렌더한다(showParent 는 부모가 소유).
 import { CalendarDays, CalendarPlus, Diamond, Flag, Hash, MoreHorizontal, User } from 'lucide-react';
-import { type PointerEvent, type ReactNode, useRef, useState } from 'react';
+import { type ReactNode, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet';
@@ -68,22 +68,24 @@ export function CreateIssueChips({
       moreActed.current = false;
     });
   };
-  // 누르는 순간 포커스가 버튼으로 옮겨가 기억할 대상을 잃지 않도록 기본 동작을 막고 입력칸을 기억(+blur)한다.
-  // mousedown 에서는 막기만 — 다시 capture 하면 이미 blur 된 뒤라 기억이 지워진다.
-  const captureOnPress = (e: PointerEvent) => {
-    e.preventDefault();
-    focusReturn.capture();
-  };
+  // 누르는 순간 포커스가 버튼으로 옮겨가지 않도록 기본 동작만 막는다 — 입력칸 포커스(키보드)는 그대로.
+  // 기억(+blur)은 시트를 실제로 여는 onClick 에서 한다: 칩 줄을 가로로 밀다 칩 위에서 시작한 pointerdown 은 click 없이 끝나므로,
+  // 여기서 blur 하면 시트 없이 키보드만 내려가고 다음 칩 탭은 body 를 기억해 복귀가 사라진다.
   const keepFocus = (e: { preventDefault: () => void }) => e.preventDefault();
+  // 시트 열기 공통 — 직전 입력칸을 기억하고 blur(키보드 내림)한 뒤 시트를 연다(원칙 ③).
+  const openSheet = (key: Exclude<Sheet, 'start' | null>) => {
+    focusReturn.capture();
+    setSheet(key);
+  };
 
   const chip = (key: Exclude<Sheet, 'start' | 'more' | null>, label: string, content: ReactNode, active = false, empty = false) => (
     <button
       type="button"
       aria-label={label}
       data-testid={`create-chip-${key}`}
-      onPointerDown={captureOnPress}
+      onPointerDown={keepFocus}
       onMouseDown={keepFocus}
-      onClick={() => setSheet(key)}
+      onClick={() => openSheet(key)}
       className={cn(MOBILE_CHIP, active && MOBILE_CHIP_ACTIVE, empty && 'text-muted-foreground')}
     >
       {content}
@@ -170,9 +172,9 @@ export function CreateIssueChips({
           type="button"
           aria-label="더 보기"
           data-testid="create-chip-more"
-          onPointerDown={captureOnPress}
+          onPointerDown={keepFocus}
           onMouseDown={keepFocus}
-          onClick={() => setSheet('more')}
+          onClick={() => openSheet('more')}
           className={cn(MOBILE_CHIP, 'text-muted-foreground')}
         >
           <MoreHorizontal className="size-4" aria-hidden />
