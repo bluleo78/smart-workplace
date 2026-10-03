@@ -57,7 +57,7 @@ export function MobileBoard({
               data-testid={`board-tab-${t.status}`}
             >
               {t.label}
-              <span className="font-normal text-muted-foreground" data-testid={`board-tab-count-${t.status}`}>
+              <span className="font-normal tabular-nums text-muted-foreground/80" data-testid={`board-tab-count-${t.status}`}>
                 {t.count}
                 {t.hasMore ? '+' : ''}
               </span>

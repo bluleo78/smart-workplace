@@ -78,8 +78,8 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
         <div className="min-h-0 flex-1 overflow-y-auto">
           {/* 개인 화면 본문 — 전체폭. 좌우 여백은 헤더(px-4) 축과 맞춘다.
               보드는 h-full 로 높이를 받아 자체 스크롤(컬럼 헤더 sticky·가로 스크롤바 하단 고정 — 팀 보드와 동일),
-              체크리스트는 콘텐츠 높이대로 늘어나 바깥 래퍼가 스크롤한다. */}
-          <div className={view === 'board' ? 'h-full w-full px-4 py-6' : 'w-full px-4 py-6'}>
+              모바일(<lg)은 탭이 상단에 붙도록 위·아래 여백을 줄인다(WP-195). 체크리스트는 콘텐츠 높이대로 늘어나 바깥 래퍼가 스크롤한다. */}
+          <div className={view === 'board' ? 'h-full w-full px-4 py-6 max-lg:pt-2 max-lg:pb-0' : 'w-full px-4 py-6'}>
             {view === 'board' ? (
               <IssueBoardView
                 projectKey={key}

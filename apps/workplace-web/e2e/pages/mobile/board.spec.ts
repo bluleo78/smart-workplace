@@ -167,6 +167,15 @@ test.describe('모바일 그룹·개인 보드', () => {
     await expectNoHorizontalOverflow(page);
   });
 
+  test('그룹 보드의 빈 탭도 통일된 빈 상태 — 이슈 추가 버튼 44px 이상', async ({ authenticatedPage: page }) => {
+    const hi = createIssue({ id: 61, number: 61, projectKey: KEY, title: '높음 할 일', type: makeTaskType(), status: 'TODO', priority: 'HIGH' });
+    await mock(page, { issues: [hi] });
+    await page.goto(`/projects/${KEY}?view=board&group=priority&boardTab=CANCELED`);
+    await expect(page.getByTestId('board-col-empty-CANCELED')).toBeVisible();
+    const box = await page.getByTestId('board-col-add-CANCELED').boundingBox();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  });
+
   test('개인 프로젝트 보드는 탭 3개(취소 없음)', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'PERSONAL', viewerIsMember: true }))));

@@ -183,7 +183,7 @@ function IssueBoardViewInner({
                     .map((g) => (
                       // 탭이 상태를 드러내므로 카드 showStatus 는 기본(끔) 그대로 둔다.
                       <section key={g.key} aria-label={g.label} data-testid={`board-group-${status}-${g.key}`} className="flex flex-col gap-2">
-                        <h3 className="flex items-center justify-between px-1 text-xs font-semibold text-muted-foreground">
+                        <h3 className="flex items-center gap-1.5 px-3 text-xs font-semibold text-muted-foreground">
                           <span>{g.label}</span>
                           <span>{g.issues.length}</span>
                         </h3>
@@ -193,12 +193,10 @@ function IssueBoardViewInner({
                       </section>
                     ))}
                   {statusIssues.length === 0 && !groupQuery.isPending && (
-                    <p className="py-12 text-center text-sm font-medium text-muted-foreground" data-testid={`board-col-empty-${status}`}>
-                      이슈 없음
-                    </p>
+                    <MobileBoardEmpty status={status} onOpenCreate={onOpenCreate} />
                   )}
-                  {/* 데스크톱 footer 의 mt-3 는 모바일 gap 과 겹치므로 래퍼로 상쇄 */}
-                  <div className="-mt-3">{groupFooter}</div>
+                  {/* 데스크톱 footer 의 mt-3 는 모바일 gap 과 겹치므로 래퍼로 상쇄 — footer 가 있을 때만 렌더(빈 래퍼가 gap 을 만들지 않게) */}
+                  {(groupHasNext || groupNextError) && <div className="-mt-3">{groupFooter}</div>}
                 </div>
               );
             }}
@@ -421,6 +419,23 @@ function ColumnLoadMore({ status, query }: { status: string; query: BoardColumnQ
   );
 }
 
+// 모바일 보드 빈 상태(WP-195) — 상태 컬럼·그룹 보드 탭이 같은 모양을 쓰도록 통일.
+// 추가 버튼은 터치 타깃 44px(h-11) 확보, onOpenCreate 가 있을 때만 노출.
+function MobileBoardEmpty({ status, onOpenCreate }: { status: string; onOpenCreate?: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 py-12 text-center" data-testid={`board-col-empty-${status}`}>
+      <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
+      <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
+      {onOpenCreate && (
+        <Button size="sm" variant="ghost" className="h-11 px-4" onClick={onOpenCreate} data-testid={`board-col-add-${status}`}>
+          <Plus className="h-4 w-4" />
+          이슈 추가
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // 모바일 상태 탭의 카드 목록(WP-195) — 헤더는 탭이 대신하고, 드롭 영역(DnD)도 없다. 끝 sentinel 은 데스크톱 컬럼과 같은 ColumnLoadMore.
 function MobileStatusColumn({
   status,
@@ -446,16 +461,7 @@ function MobileStatusColumn({
   return (
     <section data-testid={`board-col-${status}`} className="flex flex-col gap-2">
       {issues.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 py-12 text-center" data-testid={`board-col-empty-${status}`}>
-          <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
-          <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
-          {onOpenCreate && (
-            <Button size="sm" variant="ghost" onClick={onOpenCreate} data-testid={`board-col-add-${status}`}>
-              <Plus className="h-4 w-4" />
-              이슈 추가
-            </Button>
-          )}
-        </div>
+        <MobileBoardEmpty status={status} onOpenCreate={onOpenCreate} />
       ) : (
         issues.map((it) => (
           <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled onLongPress={onLongPress} />
