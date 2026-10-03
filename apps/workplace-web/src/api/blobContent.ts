@@ -1,3 +1,4 @@
+import { decodeTextBuffer, hasPdfMagicBytes, PDF_MAGIC_SCAN_BYTES } from '../lib/previewContent'
 import { client } from './client'
 
 // axios client baseURL 이 '/api/v1' 이므로, '/api/v1/...' 절대 경로는 접두어를 제거해 중복 호출을 막는다.
@@ -13,17 +14,21 @@ export async function fetchBlobByPath(path: string): Promise<Blob> {
 }
 
 /**
- * 임의 콘텐츠 경로에서 blob object URL.
- * 액세스 토큰이 메모리 Bearer 라 <img>/<a> 가 헤더를 못 싣는다 — axios 로 받아 objectURL 로 바꾼다.
- * revoke 는 호출처 책임.
+ * Blob → 텍스트. blob.text() 는 UTF-8 고정이라 EUC-KR(한국어 엑셀 CSV) 한글이 깨진다 —
+ * 바이트로 읽어 UTF-8 실패 시 EUC-KR 로 폴백한다(WP-203).
  */
-export async function fetchBlobUrlByPath(path: string): Promise<string> {
-  const blob = await fetchBlobByPath(path)
-  return URL.createObjectURL(blob)
+export async function blobToText(blob: Blob): Promise<string> {
+  return decodeTextBuffer(await blob.arrayBuffer())
 }
 
-/** 임의 콘텐츠 경로의 텍스트 본문. */
-export async function fetchTextByPath(path: string): Promise<string> {
-  const blob = await fetchBlobByPath(path)
-  return await blob.text()
+/**
+ * PDF 로 신고된 blob 을 뷰어에 넘기기 전에 검증한다 — 앞부분에 %PDF- 가 없으면 throw.
+ * 통과하면 타입을 application/pdf 로 다시 감싼다: 신고 mimeType 을 그대로 물려받으면
+ * .pdf 로 위장한 HTML 이 (sandbox 없는) PDF iframe 에서 렌더돼 세션에 닿을 수 있다(WP-203, iacloud_eis 이식).
+ * PDF 를 화면에 띄우는 모든 경로는 이 함수를 거친다.
+ */
+export async function toVerifiedPdfBlob(blob: Blob): Promise<Blob> {
+  const head = new Uint8Array(await blob.slice(0, PDF_MAGIC_SCAN_BYTES).arrayBuffer())
+  if (!hasPdfMagicBytes(head)) throw new Error('PDF 시그니처가 없는 콘텐츠')
+  return new Blob([blob], { type: 'application/pdf' })
 }

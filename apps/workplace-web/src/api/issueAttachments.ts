@@ -44,6 +44,11 @@ export async function deleteAttachment(
   await client.delete<void>(`/projects/${projectKey}/issues/${number}/attachments/${fileId}`);
 }
 
+// 첨부 콘텐츠 경로 — 다운로드와 프리뷰(FilePreviewModal)가 같은 엔드포인트를 쓰도록 한 곳에서 만든다.
+export function attachmentContentPath(projectKey: string, number: number, fileId: number): string {
+  return `/projects/${projectKey}/issues/${number}/attachments/${fileId}/content`;
+}
+
 // 다운로드 — blob 으로 받아 a[download] 트리거. 메모리 정리를 위해 URL.revokeObjectURL 호출.
 export async function downloadAttachment(
   projectKey: string,
@@ -51,10 +56,9 @@ export async function downloadAttachment(
   fileId: number,
   fileName: string,
 ): Promise<void> {
-  const { data } = await client.get<Blob>(
-    `/projects/${projectKey}/issues/${number}/attachments/${fileId}/content`,
-    { responseType: 'blob' },
-  );
+  const { data } = await client.get<Blob>(attachmentContentPath(projectKey, number, fileId), {
+    responseType: 'blob',
+  });
   const url = URL.createObjectURL(data);
   const a = document.createElement('a');
   a.href = url;

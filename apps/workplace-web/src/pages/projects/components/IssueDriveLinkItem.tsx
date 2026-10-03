@@ -2,27 +2,15 @@
 // 무엇을: 업로드 첨부와 한 목록에 렌더하되 드라이브 링크임을 info 배지로 구분.
 // 왜: #80 이슈↔드라이브 파일 연결 시각화.
 
-import { Cloud, File as FileIcon, FileText, Image as ImageIcon, X } from 'lucide-react'
+import { Cloud, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 
 import { downloadIssueDriveLink } from '../../../api/driveLinks'
+import { FileTypeIcon } from '../../../components/drive/FileTypeIcon'
+import { formatFileSize } from '../../../lib/formatters'
 import type { DriveLink } from '../../../types/drive'
-
-// 바이트 → 사람이 읽는 단위 (B/KB/MB).
-function humanSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-// MIME → 카테고리 아이콘.
-function mimeIcon(mime: string) {
-  if (mime.startsWith('image/')) return <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-  if (mime === 'application/pdf') return <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-  return <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-}
 
 export function IssueDriveLinkItem({
   projectKey,
@@ -46,7 +34,7 @@ export function IssueDriveLinkItem({
       data-testid={`issue-drive-link-${link.driveFileId}`}
     >
       <div className="flex items-center gap-2">
-        {mimeIcon(link.mimeType)}
+        <FileTypeIcon mimeType={link.mimeType} />
         {/* 파일명 클릭 → 드라이브 링크 다운로드 (휴지통이면 비활성화) */}
         <button
           type="button"
@@ -64,7 +52,7 @@ export function IssueDriveLinkItem({
         >
           <Cloud className="h-3 w-3" /> 링크
         </span>
-        <span className="text-xs text-muted-foreground">{humanSize(link.sizeBytes)}</span>
+        <span className="text-xs text-muted-foreground">{formatFileSize(link.sizeBytes)}</span>
         {canManage && (
           <Button
             variant="ghost"

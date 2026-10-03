@@ -3,9 +3,12 @@
 // 무엇을: 기존 세로 목록(list)과 본문 스트립(strip) 두 레이아웃 지원.
 // 왜: 본문 이동(#343) 시 IssueAttachmentStrip 에서 strip 모드로 재사용.
 // #80: 드라이브 링크도 동일 목록 하단에 병합 렌더.
+// WP-203: 첨부 파일명 클릭 시 공용 프리뷰 모달(FilePreviewModal)을 연다 — 모달은 목록당 하나.
 
 import { useState } from 'react';
 
+import { attachmentContentPath } from '../../../api/issueAttachments';
+import { FilePreviewModal } from '../../../components/drive/FilePreviewModal';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,6 +22,7 @@ import {
 import { useDeleteIssueAttachment } from '../../../hooks/queries/useDeleteIssueAttachment';
 import { useIssueAttachments } from '../../../hooks/queries/useIssueAttachments';
 import { useIssueDriveLinks, useRemoveIssueDriveLink } from '../../../hooks/queries/useIssueDriveLinks';
+import type { IssueAttachment } from '../../../types/attachment';
 import { IssueAttachmentItem } from './IssueAttachmentItem';
 import { IssueDriveLinkItem } from './IssueDriveLinkItem';
 
@@ -49,6 +53,8 @@ export function IssueAttachmentList({
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   // 드라이브 링크 제거 확인 다이얼로그.
   const [pendingRemoveLinkId, setPendingRemoveLinkId] = useState<number | null>(null);
+  // 프리뷰 중인 첨부 — null 이면 모달 닫힘.
+  const [previewing, setPreviewing] = useState<IssueAttachment | null>(null);
 
   // driveLinksOnly 모드: driveQ 만, 업로드 모드: q 만 기다림 (서로 독립, 파트A #80 Fix).
   if (driveLinksOnly ? driveQ.isLoading : q.isLoading) {
@@ -81,6 +87,7 @@ export function IssueAttachmentList({
             attachment={a}
             canDelete={a.attachedById === currentUserId || isOwner}
             layout={layout}
+            onPreview={setPreviewing}
             onDelete={(fileId) => {
               // 삭제 확인은 AlertDialog 에서 처리 — window.confirm 대체 (#148).
               setPendingDeleteId(fileId);
@@ -99,6 +106,20 @@ export function IssueAttachmentList({
           />
         ))}
       </ul>
+
+      {/* 첨부 프리뷰 — 이슈 첨부 콘텐츠 경로를 넘겨 드라이브와 같은 렌더러를 쓴다(WP-203). */}
+      {previewing && (
+        <FilePreviewModal
+          attachment={{
+            fileId: previewing.fileId,
+            name: previewing.originalName,
+            mimeType: previewing.mimeType,
+            sizeBytes: previewing.sizeBytes,
+            downloadUrl: attachmentContentPath(projectKey, number, previewing.fileId),
+          }}
+          onClose={() => setPreviewing(null)}
+        />
+      )}
 
       {/* 첨부 삭제 확인 AlertDialog — window.confirm 대체 (#148) */}
       <AlertDialog
