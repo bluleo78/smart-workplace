@@ -166,15 +166,19 @@ public class MailMessageService {
   /**
    * 홈 위젯용 메일 요약 — 본인 INBOX 안읽음 수 + 회신 필요 수 + 분류 활성 여부 + 최근 안읽은 메일 N건(#474).
    *
+   * <p>분류 활성은 메일 화면과 같은 판정({@link ClassificationProbe})을 활성 계정 중 하나라도 만족하면 true 다(WP-210). 공통 비서가
+   * 회신필요를 판정하는데 개인 비서 사용 스위치만 보고 회신필요를 숨기던 불일치를 없앤다.
+   *
    * <p>RLS GUC(app.tenant_id)는 트랜잭션-로컬({@code set_config(...,true)})이라 반드시 트랜잭션 경계 안에서 읽어야 한다. 경계가
    * 없으면 GUC 미주입 → RLS fail-closed 로 0행이 되는 버그(#444). 네 읽기 모두 하나의 읽기 전용 트랜잭션으로 묶어 GUC 주입을 보장한다.
    */
   @Transactional(readOnly = true)
   public MailSummaryResponse summary(long userId, int recentLimit) {
+    ClassificationProbe probe = new ClassificationProbe(userId);
     return new MailSummaryResponse(
         messageRepo.countUnread(userId),
         messageRepo.countNeedsReply(userId),
-        accountRepo.existsAiEnabledAccount(userId),
+        accountRepo.listByUser(userId).stream().anyMatch(probe::active),
         messageRepo.listRecentUnread(userId, recentLimit));
   }
 
