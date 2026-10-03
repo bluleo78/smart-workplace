@@ -16,7 +16,7 @@ export { mailMessageKeys };
  * 읽음 상태가 바뀌어 "안 읽은 수"가 달라졌을 때의 공통 무효화 — 사이드바 안 읽은 수(계정 무관 prefix)·탭 배지 합계·홈 메일 요약.
  * 홈 요약은 exact: true — 메시지별 AI 요약 ['mail-summary', id] 의 불필요한 재생성을 막는다(useSyncMailbox 와 동일).
  */
-export function invalidateMailCounts(qc: QueryClient) {
+function invalidateMailCounts(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: mailMessageKeys.unreadCountsAll() });
   qc.invalidateQueries({ queryKey: mailMessageKeys.unreadSummary() });
   qc.invalidateQueries({ queryKey: ['mail-summary'], exact: true });
@@ -77,14 +77,10 @@ export function useToggleRead() {
       qc.setQueriesData<EmailMessageSummary[]>({ queryKey: ['mail-messages'], exact: false }, (old) =>
         old?.map((m) => (m.id === id ? { ...m, seen } : m)),
       );
-      // 상세 캐시의 seen 도 맞춘다 — 목록에 없는 메일(딥링크)의 첫 열람 판정이 이 값을 쓴다(WP-214).
-      const detailSnapshot = qc.getQueryData<EmailMessageDetail>(mailMessageKeys.detail(id));
-      if (detailSnapshot) qc.setQueryData<EmailMessageDetail>(mailMessageKeys.detail(id), { ...detailSnapshot, seen });
-      return { snapshot, detailSnapshot };
+      return { snapshot };
     },
-    onError: (e, { id }, ctx) => {
+    onError: (e, _v, ctx) => {
       ctx?.snapshot.forEach(([key, data]) => qc.setQueryData(key, data));
-      if (ctx?.detailSnapshot) qc.setQueryData(mailMessageKeys.detail(id), ctx.detailSnapshot);
       handleApiError(e, '읽음 상태를 바꾸지 못했어요');
     },
     onSettled: () => {
@@ -124,7 +120,7 @@ export function useMailMessageSubject(messageId: number | null) {
 
 const selectSeen = (d: EmailMessageDetail) => d.seen;
 
-/** WP-214 메시지 읽음 여부만 구독 — 목록에 없는 메일(딥링크)을 열 때 첫 열람 읽음 처리 판정용. 상세와 같은 쿼리를 공유한다. */
+/** WP-214 메시지 읽음 여부만 구독 — 첫 열람 읽음 처리 판정용. 상세와 같은 쿼리를 공유해 추가 요청이 없다. */
 export function useMailMessageSeen(messageId: number | null) {
   return useQuery({ ...mailMessageQuery(messageId), select: selectSeen });
 }

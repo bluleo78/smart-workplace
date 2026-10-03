@@ -18,6 +18,9 @@ import java.util.List;
  */
 public interface MailReadSyncer {
 
+  /** 반영할 방법이 없을 때(계정·처리기 없음) 쓰는 세션 — 모든 항목을 끝난 것으로 본다(WP-148: 대기 표시를 남길 이유가 없다). */
+  Session NONE = SeenSyncResult::all;
+
   /** 이 구현체가 처리하는 메일 공급자. */
   MailProvider provider();
 
@@ -40,14 +43,6 @@ public interface MailReadSyncer {
      * @throws Exception 묶음 전체가 실패(네트워크·인증 등) — 호출 측이 대기 표시를 유지한다
      */
     SeenSyncResult push(List<SeenSyncItem> items) throws Exception;
-
-    /**
-     * 자격이 오래돼 다시 열어야 하는지. 호출 측은 push 전에 확인해 true 면 닫고 {@link MailReadSyncer#open} 으로 새로 연다(트랜잭션 안).
-     * 기본은 디스패치 내내 유효하다.
-     */
-    default boolean stale() {
-      return false;
-    }
 
     /** 열린 원격 연결 정리. 연결이 없으면 아무것도 하지 않는다. */
     @Override

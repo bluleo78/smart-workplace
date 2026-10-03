@@ -647,7 +647,6 @@ export function MailInboxPage() {
   const openedDetail = useMailMessageSeen(selectedId)
   useMarkReadOnOpen(
     selectedId,
-    messages?.find((r) => r.id === selectedId)?.seen,
     openedDetail.isFetching ? undefined : openedDetail.data,
     (id, seen) => {
       if (!seen) {

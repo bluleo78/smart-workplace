@@ -201,7 +201,8 @@ public class MailMessageService {
       detail = loadDetail(userId, messageId);
     }
     requestContentIdBackfillIfNeeded(userId, detail);
-    // 읽음 처리 — markSeen(웹 열람)이고 seen=false 일 때만. AI 조회(markSeen=false)는 건너뛴다(WP-147).
+    // 읽음 처리 — markSeen(구 클라이언트 기본값)이고 seen=false 일 때만. AI 조회(WP-147)·웹(WP-214)은 markSeen=false 로
+    // 건너뛴다.
     // WP-187: 이번 호출이 실제로 읽음으로 바꾼 경우에만 역동기화를 발행한다(동시 열람·이미 읽음이면 0행 → 생략). 계정 id 가 필요해 소유 대상 조회와
     // 갱신을 한 트랜잭션으로 묶는다. 열람 경로는 mailChanged 를 보내지 않는다 — 웹이 자기 열람 이벤트로 상세를 다시 받게 되므로(R4).
     if (markSeen && !detail.seen()) {

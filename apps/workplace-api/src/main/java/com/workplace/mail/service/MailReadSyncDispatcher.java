@@ -87,21 +87,16 @@ public class MailReadSyncDispatcher {
           if (items == null || items.isEmpty()) {
             continue;
           }
-          if (syncer == null) {
-            r = SeenSyncResult.all(items); // 반영할 방법이 없다 — 표시를 남길 이유가 없음
-          } else {
-            if (session != null && session.stale()) {
-              session.close(); // 자격이 오래됐다(Graph 토큰 재사용 상한) — 아래에서 새로 연다
-              session = null;
-            }
-            if (session == null) {
-              // 반영할 행이 처음 나온 조각에서 연다(자격 조회는 RLS 스코프 — 트랜잭션 안).
-              // 예외는 람다 안에서 삼키지 않는다 — getAccessToken(@Transactional) 실패가 rollback-only 를 남겨
-              // 커밋 시 UnexpectedRollbackException 이 되므로 밖에서 잡는다
-              session = txTemplate.execute(s -> syncer.open(ev.userId(), account));
-            }
-            r = session.push(items); // 트랜잭션 밖 — 원격 호출 동안 커넥션을 잡지 않는다
+          if (session == null) {
+            // 반영할 행이 처음 나온 조각에서 한 번 연다(자격 조회는 RLS 스코프 — 트랜잭션 안).
+            // 예외는 람다 안에서 삼키지 않는다 — @Transactional 조회 실패가 rollback-only 를 남겨
+            // 커밋 시 UnexpectedRollbackException 이 되므로 밖에서 잡는다
+            session =
+                syncer == null
+                    ? MailReadSyncer.NONE
+                    : txTemplate.execute(s -> syncer.open(ev.userId(), account));
           }
+          r = session.push(items); // 트랜잭션 밖 — 원격 호출 동안 커넥션을 잡지 않는다
           clearPushed(items, r);
         } catch (Exception e) {
           log.warn(

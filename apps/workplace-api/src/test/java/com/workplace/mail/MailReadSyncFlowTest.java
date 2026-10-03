@@ -387,7 +387,7 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
         .allSatisfy(id -> org.assertj.core.api.Assertions.assertThat(pushPending(id)).isFalse());
   }
 
-  /** WP-215: 세션 열기(토큰 조회)가 실패하면 원격 호출 없이 중단하고 대기 표시를 유지한다 — 예외가 리스너 밖으로 새지 않는다. */
+  /** WP-215: 토큰 조회가 실패하면 원격 호출 없이 중단하고 대기 표시를 유지한다 — 예외가 리스너 밖으로 새지 않는다. */
   @Test
   void dispatch_openFails_keepsPending_withoutRemoteCall() throws Exception {
     setSessionGuc(1L);

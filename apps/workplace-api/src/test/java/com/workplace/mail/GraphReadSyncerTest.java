@@ -26,7 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-/** WP-187 Graph 역동기화 — $batch 20건 단위, 항목별 상태, 429 에서 멈춤. WP-215: 토큰은 세션(open) 1회에 한 번. */
+/** WP-187 Graph 역동기화 — $batch 20건 단위, 항목별 상태, 429 에서 멈춤. WP-215: 토큰은 세션이 처음 필요할 때 한 번. */
 class GraphReadSyncerTest extends IntegrationTestBase {
 
   @Autowired GraphReadSyncer syncer;
@@ -152,7 +152,6 @@ class GraphReadSyncerTest extends IntegrationTestBase {
 
   @Test
   void localRowWithoutProviderId_countsAsDone_withoutCall() throws Exception {
-    when(graphTokenService.getAccessToken(1L, 10L)).thenReturn("T");
     SeenSyncItem local =
         new SeenSyncItem(
             7L, new ReadSyncLocator(10L, MailProvider.M365_GRAPH, null, null, "SENT"), true);
@@ -161,10 +160,11 @@ class GraphReadSyncerTest extends IntegrationTestBase {
 
     assertThat(r.succeeded()).containsExactly(7L);
     assertThat(r.stopped()).isFalse();
-    org.mockito.Mockito.verifyNoInteractions(graphApiClient);
+    // 서버로 보낼 항목이 없으면 토큰도 받지 않는다 — 토큰이 깨진 계정이어도 로컬 행은 대기가 풀린다
+    org.mockito.Mockito.verifyNoInteractions(graphApiClient, graphTokenService);
   }
 
-  /** WP-215: 한 세션으로 여러 조각을 보내도 토큰은 open 에서 한 번만 받는다. */
+  /** WP-215: 한 세션으로 여러 조각을 보내도 토큰은 재사용 상한 안에서 한 번만 받는다. */
   @Test
   void sessionReusesToken_acrossPushes() throws Exception {
     when(graphTokenService.getAccessToken(1L, 10L)).thenReturn("T");
@@ -178,7 +178,5 @@ class GraphReadSyncerTest extends IntegrationTestBase {
 
     verify(graphTokenService, times(1)).getAccessToken(1L, 10L);
     verify(graphApiClient, times(2)).batch(eq("T"), anyList());
-    // 갓 연 세션은 재사용 상한(TOKEN_REUSE) 안이라 다시 열 필요가 없다
-    assertThat(session.stale()).isFalse();
   }
 }

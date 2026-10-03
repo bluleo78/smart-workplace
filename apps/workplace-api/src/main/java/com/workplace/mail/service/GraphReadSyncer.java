@@ -15,18 +15,19 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import lombok.RequiredArgsConstructor;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Graph 계정 읽음 역동기화(WP-187): $batch 로 PATCH /me/messages/{id} {"isRead": seen} 를 20건씩 보낸다. 항목별
  * 2xx·404 는 끝난 것으로 보고, 429·5xx 를 만나면 그 묶음의 성공분만 반영한 뒤 다음 묶음을 보내지 않고 멈춘다. batch 요청 자체가 실패해도 앞 묶음까지의
- * 성공분은 돌려주고 멈춘다. 토큰은 {@link #open} 에서 받아 {@link #TOKEN_REUSE} 동안 조각끼리 재사용한다(WP-215).
+ * 성공분은 돌려주고 멈춘다. 토큰은 세션이 처음 필요할 때 받아 {@link #TOKEN_REUSE} 동안 조각끼리 재사용한다(WP-215).
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class GraphReadSyncer implements MailReadSyncer {
 
   /** Graph JSON batch 상한(한 요청에 최대 20건). */
@@ -34,6 +35,16 @@ public class GraphReadSyncer implements MailReadSyncer {
 
   private final GraphTokenService tokenService;
   private final GraphApiClient graphApiClient;
+  private final TransactionTemplate txTemplate;
+
+  public GraphReadSyncer(
+      GraphTokenService tokenService,
+      GraphApiClient graphApiClient,
+      PlatformTransactionManager txManager) {
+    this.tokenService = tokenService;
+    this.graphApiClient = graphApiClient;
+    this.txTemplate = new TransactionTemplate(txManager);
+  }
 
   @Override
   public MailProvider provider() {
@@ -41,31 +52,50 @@ public class GraphReadSyncer implements MailReadSyncer {
   }
 
   /**
-   * 세션이 같은 토큰을 쓰는 최대 시간. 토큰은 받을 때 만료까지 2분 이상 남아 있으므로(갱신 기준) 그보다 짧게 잡아, 큰 모두 읽음 디스패치가 도중 만료(401)로
-   * 멈추지 않게 한다 — 넘으면 디스패처가 세션을 다시 열어 토큰을 새로 받는다.
+   * 세션이 같은 토큰을 쓰는 최대 시간. 토큰은 받을 때 만료까지 2분 이상 남아 있으므로({@link GraphTokenService} 갱신 기준) 그보다 짧게 잡아, 큰
+   * 모두 읽음 디스패치가 도중 만료(401)로 멈추지 않게 한다.
    */
   static final Duration TOKEN_REUSE = Duration.ofSeconds(60);
 
-  /** 토큰을 세션마다 한 번만 받는다(호출 측 트랜잭션 안 — 토큰 조회·갱신 저장이 RLS 스코프). */
+  /** 세션만 만들고 토큰은 서버로 보낼 항목이 처음 생길 때 받는다 — 로컬 행뿐인 조각은 토큰 없이 끝난다. */
   @Override
   public Session open(long userId, EmailAccountResponse account) {
-    String token = tokenService.getAccessToken(userId, account.id());
-    Instant openedAt = Instant.now();
-    return new Session() {
-      @Override
-      public SeenSyncResult push(List<SeenSyncItem> items) {
-        return GraphReadSyncer.this.push(token, items);
-      }
+    return new GraphSession(userId, account.id());
+  }
 
-      @Override
-      public boolean stale() {
-        return Duration.between(openedAt, Instant.now()).compareTo(TOKEN_REUSE) > 0;
+  /** 토큰을 {@link #TOKEN_REUSE} 동안 조각끼리 재사용하는 세션. 디스패처가 한 스레드에서 순서대로 부르므로 동기화는 필요 없다. */
+  private final class GraphSession implements Session {
+
+    private final long userId;
+    private final long accountId;
+    private String token;
+    private Instant fetchedAt;
+
+    GraphSession(long userId, long accountId) {
+      this.userId = userId;
+      this.accountId = accountId;
+    }
+
+    @Override
+    public SeenSyncResult push(List<SeenSyncItem> items) {
+      return GraphReadSyncer.this.push(this::token, items);
+    }
+
+    /**
+     * 토큰이 없거나 오래됐으면 새로 받는다. push 는 트랜잭션 밖에서 불리므로 토큰 조회·갱신 저장(RLS 스코프)만 짧은 트랜잭션으로 감싼다 — 테넌트 GUC 는
+     * 리스너가 세팅한 TenantContext 로 주입된다.
+     */
+    private String token() {
+      if (token == null || Duration.between(fetchedAt, Instant.now()).compareTo(TOKEN_REUSE) > 0) {
+        token = txTemplate.execute(s -> tokenService.getAccessToken(userId, accountId));
+        fetchedAt = Instant.now();
       }
-    };
+      return token;
+    }
   }
 
   /** 한 조각을 20건씩 $batch 로 보낸다. batch 최상위 실패도 예외로 올리지 않고 앞 묶음까지의 성공분과 함께 멈춤을 돌려준다. */
-  private SeenSyncResult push(String token, List<SeenSyncItem> items) {
+  private SeenSyncResult push(Supplier<String> token, List<SeenSyncItem> items) {
     Set<Long> done = new HashSet<>();
     List<SeenSyncItem> remote = new ArrayList<>();
     for (SeenSyncItem it : items) {
@@ -93,7 +123,7 @@ public class GraphReadSyncer implements MailReadSyncer {
               .toList();
       List<GraphBatchResponse> responses;
       try {
-        responses = graphApiClient.batch(token, reqs);
+        responses = graphApiClient.batch(token.get(), reqs);
       } catch (MailSendException e) {
         // 최상위 실패(전체 429·5xx·네트워크) — 앞 묶음에서 서버에 반영된 성공분은 대기 해제가 되도록 돌려주고 여기서 멈춘다.
         // 예외로 올리면 이 조각 전체가 실패로 처리돼 이미 반영된 메일까지 대기로 남고, 그동안 서버 쪽 변경이 로컬로 오지 않는다.
