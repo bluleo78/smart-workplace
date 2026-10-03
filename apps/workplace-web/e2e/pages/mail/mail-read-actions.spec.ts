@@ -163,6 +163,58 @@ test.describe('메일 모두 읽음 — 데스크톱(WP-187)', () => {
     expect((await run.waitForRequest()).payload).toEqual({ category: null, needsReply: true, query: null, asOf: AS_OF })
   })
 
+  test('건수 조회 중 보기를 바꾸면 옛 응답은 버리고, 새 보기 범위로만 실행', async ({ authenticatedPage: page }) => {
+    await stub(page)
+    // 첫 건수 요청(업무 보기)만 붙잡아 두고, 이후 요청은 바로 응답한다.
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const seen: URLSearchParams[] = []
+    await page.route((url) => url.pathname === '/api/v1/mail/accounts/1/messages/unread-count', async (route) => {
+      const sp = new URL(route.request().url()).searchParams
+      seen.push(sp)
+      if (seen.length === 1) await gate
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ count: seen.length === 1 ? 5 : 1, asOf: AS_OF }) })
+    })
+    const run = await mockApi(page, 'POST', '/api/v1/mail/accounts/1/messages/mark-all-read', { updated: 1 }, { capture: true })
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-mark-all-read').click()
+    await expect.poll(() => seen.length).toBe(1)
+    expect(seen[0].get('category')).toBe('업무')
+    // 응답 전에 받은편지함(전체)으로 이동 → 그다음 옛 응답 도착.
+    await page.getByTestId('mail-folder-inbox').click()
+    await expect(page).toHaveURL(/category=all/)
+    const stale = page.waitForResponse((r) => r.url().includes('/messages/unread-count'))
+    release()
+    await stale
+    // 옛 보기(업무 5통) 응답은 버린다 — 다이얼로그가 뜨지 않고, 이어지는 새 보기 흐름도 덮지 않는다.
+    await expect(page.getByTestId('mail-mark-all-dialog')).toHaveCount(0)
+    await page.getByTestId('mail-mark-all-read').click()
+    await expect.poll(() => seen.length).toBe(2)
+    expect(seen[1].get('category')).toBeNull()
+    const dlg = page.getByTestId('mail-mark-all-dialog')
+    await expect(dlg).toContainText('1통')
+    await expect(dlg).not.toContainText('업무')
+    await page.getByTestId('mail-mark-all-confirm').click()
+    expect((await run.waitForRequest()).payload).toEqual({ category: null, needsReply: false, query: null, asOf: AS_OF })
+    expect(run.requests).toHaveLength(1)
+  })
+
+  test('AI 분류가 꺼진 계정 — 받은편지함에 버튼이 있고 category 없이 건수 조회', async ({ authenticatedPage: page }) => {
+    await stub(page)
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/unread-counts', {
+      classificationActive: false, inbox: 2, byCategory: { 업무: 0, 개인: 0, 알림: 0, 프로모션: 0, 뉴스레터: 0 }, needsReply: 0,
+    })
+    const count = await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages/unread-count', { count: 2, asOf: AS_OF }, { capture: true })
+    const run = await mockApi(page, 'POST', '/api/v1/mail/accounts/1/messages/mark-all-read', { updated: 2 }, { capture: true })
+    await page.goto('/mail/1')
+    await expect(page.getByTestId('mail-mark-all-read')).toBeEnabled()
+    await page.getByTestId('mail-mark-all-read').click()
+    expect((await count.waitForRequest()).searchParams.get('category')).toBeNull()
+    await expect(page.getByTestId('mail-mark-all-dialog')).toContainText('받은편지함')
+    await page.getByTestId('mail-mark-all-confirm').click()
+    expect((await run.waitForRequest()).payload).toEqual({ category: null, needsReply: false, query: null, asOf: AS_OF })
+  })
+
   test('검색 없이 안 읽은 수 0 → 버튼 비활성', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/unread-counts', {

@@ -653,20 +653,39 @@ export function MailInboxPage() {
   // WP-187 모두 읽음 — 버튼 → 건수 조회(+asOf) → 확인 다이얼로그 → 실행.
   // asOf 는 서버(DB 시계)가 준 문자열을 그대로 되돌려 보낸다 — 확인 뒤 새로 들어온 메일은 읽음 처리하지 않게.
   const markAll = useMarkAllRead(accountIdNum)
-  const [markAllPending, setMarkAllPending] = useState<{ count: number; asOf: string } | null>(null)
   const markAllScope: MailViewScope = { category: view.apiCategory, needsReply: view.kind === 'needsReply', query: search }
+  // 누른 시점의 계정·범위 — 건수 조회 중 보기/계정을 바꾸면 이 키가 달라져 응답·다이얼로그를 버린다(다른 보기를 읽음 처리하지 않게).
+  const markAllKey = `${accountIdNum ?? ''}|${markAllScope.category}|${markAllScope.needsReply}|${markAllScope.query}`
+  // 다이얼로그 상태는 누른 시점의 범위·표시 이름과 건수·asOf 를 함께 묶어 둔다 — 확인 시 이 값만 쓴다.
+  const [markAllPending, setMarkAllPending] = useState<{
+    key: string
+    scope: MailViewScope
+    label: string
+    count: number
+    asOf: string
+  } | null>(null)
+  // 보기/계정이 바뀌면(뒤로 가기 등) 열린 다이얼로그를 렌더 중에 비운다.
+  if (markAllPending && markAllPending.key !== markAllKey) setMarkAllPending(null)
+  // 비동기 응답 시점의 현재 키 — 늦게 도착한 옛 보기 응답이 새 보기 다이얼로그를 덮거나 토스트를 띄우지 않게 버린다.
+  const markAllKeyRef = useRef(markAllKey)
+  useEffect(() => {
+    markAllKeyRef.current = markAllKey
+  }, [markAllKey])
   // 검색 중이 아니면 사이드바와 같은 숫자로 0 을 미리 알 수 있어 버튼을 끈다(검색 중엔 눌러서 건수를 조회).
   const markAllKnownZero = !search && unreadCounts != null && unreadCountForView(view, unreadCounts) === 0
   const startMarkAll = async () => {
     if (accountIdNum == null) return
+    const captured = { key: markAllKey, scope: markAllScope, label: view.breadcrumb.join(' › ') }
     try {
-      const r = await getViewUnreadCount(accountIdNum, markAllScope)
+      const r = await getViewUnreadCount(accountIdNum, captured.scope)
+      if (markAllKeyRef.current !== captured.key) return
       if (r.count === 0) {
         toast('안 읽은 메일이 없어요')
         return
       }
-      setMarkAllPending(r)
+      setMarkAllPending({ ...captured, count: r.count, asOf: r.asOf })
     } catch (e) {
+      if (markAllKeyRef.current !== captured.key) return
       handleApiError(e, '안 읽은 메일 수를 불러오지 못했어요')
     }
   }
@@ -1140,7 +1159,7 @@ export function MailInboxPage() {
       {/* WP-187 모두 읽음 확인 — 실행 취소 대신 확인을 거친다. */}
       <MailMarkAllReadDialog
         pending={markAllPending}
-        scopeLabel={view.breadcrumb.join(' › ')}
+        scopeLabel={markAllPending?.label ?? ''}
         mobile={isMobile}
         busy={markAll.isPending}
         onCancel={() => setMarkAllPending(null)}
@@ -1148,7 +1167,8 @@ export function MailInboxPage() {
           // Radix 가 닫으며 onCancel 도 부르므로 pending 을 먼저 캡처한다.
           const p = markAllPending
           setMarkAllPending(null)
-          if (p) markAll.mutate({ ...markAllScope, asOf: p.asOf })
+          // 누른 시점의 범위·asOf 만 쓴다(키가 같을 때만 열려 있으므로 계정도 같다).
+          if (p) markAll.mutate({ ...p.scope, asOf: p.asOf })
         }}
       />
       {/* #520 메일→이슈 승격 모달 */}
