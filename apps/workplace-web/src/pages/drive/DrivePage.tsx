@@ -1,12 +1,28 @@
 import { useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
-import { FileText, Folder, FolderOpen, SearchX, Upload } from 'lucide-react'
+import {
+  Copy,
+  Download,
+  FileText,
+  Folder,
+  FolderInput,
+  FolderOpen,
+  History,
+  Link2,
+  MoreVertical,
+  Pencil,
+  SearchX,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +45,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
@@ -38,6 +55,7 @@ import { cn } from '@/lib/utils'
 import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
 import { driveApi } from '../../api/drive'
 import { DriveOverviewCard } from '../../components/drive/DriveOverviewCard'
+import { DrivePressRow } from '../../components/drive/DrivePressRow'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
 import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
@@ -50,7 +68,7 @@ import { useDriveItems } from '../../hooks/queries/useDriveItems'
 import { useDriveSearch } from '../../hooks/queries/useDriveSearch'
 import { useDriveSpace } from '../../hooks/queries/useDriveSpace'
 import { useDriveTrash } from '../../hooks/queries/useDriveTrash'
-import type { DriveFile, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveTrashItem } from '../../types/drive'
+import type { DriveFile, DriveFolder, DriveFolderPathSegment, DriveItemList, DriveSearchResult, DriveTrashItem } from '../../types/drive'
 import { type DroppedFile,readDroppedTree } from './folderUpload'
 import { useFolderNavigation } from './useFolderNavigation'
 
@@ -64,6 +82,13 @@ function isUploadAborted(err: unknown): boolean {
 
 // WP-63: 폴더 목록 미로드(조회 전·실패) 시 쓰는 빈 목록 — 매 렌더 새 객체를 만들지 않도록 모듈 상수로 둔다.
 const EMPTY_ITEMS: DriveItemList = { folders: [], files: [] }
+
+// WP-216: 모바일 행 둘째 줄 — 경로(또는 '폴더')·크기·수정일 중 있는 것만 ' · ' 로 잇는다(폴더는 크기 없음).
+function metaLine(folderPath: string | null | undefined, sizeBytes: number | null, updatedAt: string): string {
+  return [folderPath, sizeBytes == null ? null : formatFileSize(sizeBytes), formatDateOnly(updatedAt)]
+    .filter(Boolean)
+    .join(' · ')
+}
 
 // breadcrumb 접기 — 4개 초과면 [첫, null(…), 마지막2개]. null 은 생략 표식.
 function collapseCrumbs(
@@ -256,6 +281,15 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }, [viewItems.folders, selFolders])
   const selCount = visibleSelFiles.size + visibleSelFolders.size
 
+  // WP-216: 모바일(<lg) 행 액션 — 행마다 ⋮ 로 여는 액션 시트 + 길게 누르기로 들어가는 다중 선택 모드.
+  // 데스크톱의 호버 액션(group-hover/group-kbd)은 터치로 열 수 없어 모바일에선 이 경로가 유일한 진입점이다.
+  const isMobile = useIsMobile()
+  // 선택이 하나라도 있으면 선택 모드 — 체크박스·하단 일괄 작업 바가 보이고, 행 탭은 열기 대신 선택 토글.
+  const mobileSelecting = isMobile && selCount > 0
+  const [rowSheet, setRowSheet] = useState<{ kind: 'file'; item: DriveFile } | { kind: 'folder'; item: DriveFolder } | null>(
+    null,
+  )
+
   // 토글 헬퍼 — 집합에 id 가 있으면 제거, 없으면 추가해 새 집합 반환.
   function toggleSel(set: Set<number>, id: number): Set<number> {
     const next = new Set(set)
@@ -268,6 +302,50 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   function clearSel() {
     setSelFiles(new Set())
     setSelFolders(new Set())
+  }
+
+  // WP-216: 모바일 행의 길게 누르기·탭 핸들러. 길게 누르면 그 항목을 선택(선택 모드 진입), 선택 모드 중엔 탭도 선택 토글.
+  // 데스크톱은 빈 객체 — DrivePressRow 가 핸들러 없는 평범한 <li> 가 된다.
+  function rowPress(kind: 'file' | 'folder', id: number) {
+    if (!isMobile) return {}
+    const toggle = () =>
+      kind === 'file' ? setSelFiles((s) => toggleSel(s, id)) : setSelFolders((s) => toggleSel(s, id))
+    return { onLongPress: toggle, onTap: mobileSelecting ? toggle : undefined }
+  }
+
+  // 행 체크박스 — 데스크톱은 항상, 모바일은 선택 모드에서만. 모바일은 탭을 받지 않고(pointer-events-none) 행 탭(rowPress)으로
+  // 일원화한다: 체크박스 클릭을 행이 캡처에서 취소하면 브라우저가 checked 를 되돌려 표시와 상태가 어긋난다.
+  function renderRowCheck(kind: 'file' | 'folder', id: number, name: string) {
+    if (isMobile && !mobileSelecting) return null
+    const selected = kind === 'file' ? visibleSelFiles : visibleSelFolders
+    const setSel = kind === 'file' ? setSelFiles : setSelFolders
+    return (
+      <input
+        type="checkbox"
+        checked={selected.has(id)}
+        onChange={() => setSel((s) => toggleSel(s, id))}
+        data-testid={`select-${kind}-${id}`}
+        aria-label={`${name} 선택`}
+        className={cn('h-4 w-4 shrink-0', isMobile && 'pointer-events-none h-5 w-5')}
+      />
+    )
+  }
+
+  // 모바일 행 공통 클래스 — 길게 누를 때 iOS 텍스트 선택·콜아웃 억제, 선택 모드에서 선택된 행 강조.
+  function rowSelectedClass(kind: 'file' | 'folder', id: number) {
+    if (!isMobile) return undefined
+    const selected = (kind === 'file' ? visibleSelFiles : visibleSelFolders).has(id)
+    return cn('select-none [-webkit-touch-callout:none]', mobileSelecting && selected && 'bg-accent/60')
+  }
+
+  // 모바일 행 둘째 줄 — 고정폭 크기·수정일 열 대신 이름 아래에 둔다. 보조 정보라 버튼의 접근 이름(=항목 이름)에서 뺀다.
+  function renderMetaLine(text: string) {
+    if (!isMobile) return null
+    return (
+      <span aria-hidden className="block truncate text-xs text-muted-foreground">
+        {text}
+      </span>
+    )
   }
 
   // 파괴적 작업 확인 AlertDialog — 삭제/영구삭제/휴지통 비우기. window.confirm 대체 (#135).
@@ -568,6 +646,100 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     }
   }
 
+  // WP-216: 모바일 선택 모드 하단 일괄 작업 바 — 스크롤 영역 밖(페이지 맨 아래)에 둬 목록을 내려도 항상 보인다.
+  // 셸은 탭바 위까지만 페이지를 그리므로 탭바와 겹치지 않는다. 드로워(embedded)는 셸 밖 전체폭 시트라 하단 안전영역을 직접 띄운다.
+  // testid 는 데스크톱 툴바와 같다(둘 중 하나만 렌더).
+  function renderMobileBulkBar() {
+    if (!mobileSelecting || trash != null) return null
+    const btn = 'flex min-h-11 items-center gap-1.5 rounded-md px-3 active:bg-accent disabled:opacity-50 [&_svg]:size-4'
+    return (
+      <div
+        data-testid="bulk-toolbar"
+        data-mobile
+        className={cn(
+          'flex shrink-0 items-center gap-1 border-t bg-background px-2 py-1.5 text-sm shadow-[0_-2px_8px_rgb(0_0_0/0.06)]',
+          embedded && 'pb-[calc(0.375rem+env(safe-area-inset-bottom))]',
+        )}
+      >
+        <button
+          type="button"
+          data-testid="bulk-clear"
+          onClick={clearSel}
+          aria-label="선택 해제"
+          className="flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground active:bg-accent"
+        >
+          <X className="size-5" aria-hidden />
+        </button>
+        <span className="px-1 font-medium">{selCount}개 선택</span>
+        <button
+          type="button"
+          data-testid="bulk-move"
+          onClick={() => setBulkPicker(true)}
+          disabled={!!space?.archived}
+          className={cn(btn, 'ml-auto')}
+        >
+          <FolderInput aria-hidden />
+          이동
+        </button>
+        <button type="button" data-testid="bulk-zip" onClick={onBulkZip} className={btn}>
+          <Download aria-hidden />
+          ZIP
+        </button>
+        <button
+          type="button"
+          data-testid="bulk-delete"
+          onClick={onBulkDelete}
+          disabled={!!space?.archived}
+          className={cn(btn, 'text-destructive')}
+        >
+          <Trash2 aria-hidden />
+          삭제
+        </button>
+      </div>
+    )
+  }
+
+  // WP-216: 모바일 행 ⋮ 버튼 — 44px 터치 영역. 선택 모드에선 체크박스가 대신하므로 호출처가 숨긴다.
+  function renderRowMore(name: string, testKey: string, onOpen: () => void) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`${name} 더보기`}
+        data-testid={`drive-row-more-${testKey}`}
+        className="-my-1 flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground active:bg-accent"
+      >
+        <MoreVertical className="size-5" aria-hidden />
+      </button>
+    )
+  }
+
+  // WP-216: 모바일 행 ⋮ 시트의 작업 목록 — 데스크톱 행 액션(인라인 버튼 + ⋯ 메뉴)과 같은 작업·같은 비활성 조건.
+  // 보관된 공간은 쓰기 작업, 원본 유실 파일은 바이트가 필요한 작업(다운로드·공유·복사)을 막는다.
+  function rowSheetActions(): MobileSheetAction[] {
+    if (rowSheet == null) return []
+    const archived = !!space?.archived
+    if (rowSheet.kind === 'folder') {
+      const f = rowSheet.item
+      return [
+        { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => onRenameFolder(f.id, f.name), disabled: archived },
+        { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name }), disabled: archived },
+        { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name }), disabled: archived },
+        { key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => onDeleteFolder(f.id), disabled: archived, destructive: true },
+      ]
+    }
+    const f = rowSheet.item
+    const missing = isMissingBlob(f)
+    return [
+      { key: 'download', label: '다운로드', icon: <Download />, onSelect: () => driveApi.downloadFile(f.id, f.name), disabled: missing },
+      { key: 'share', label: '공유 링크', icon: <Link2 />, onSelect: () => setShareFile(f), disabled: missing },
+      { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }), disabled: archived },
+      { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }), disabled: archived || missing },
+      { key: 'versions', label: '버전 이력', icon: <History />, onSelect: () => setVersionFile(f) },
+      { key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => onDeleteFile(f.id), disabled: archived, destructive: true },
+    ]
+  }
+
   // #658: 현재 업로드 배치를 취소 — abort() 는 진행 중인 axios 요청을 중단시키고,
   // 각 업로드 루프의 aborted 체크가 남은 파일을 더 이상 시작하지 않도록 막는다.
   function onCancelUpload() {
@@ -752,9 +924,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const searching = results != null
 
   // #588: 벌크 툴바 — 검색/비검색 두 목록 분기가 공유하는 렌더 헬퍼(중복 제거).
-  // 1개 이상 선택 시 표시.
+  // 1개 이상 선택 시 표시. 모바일은 목록 위 인라인 대신 화면 하단 고정 바(renderMobileBulkBar)를 쓴다(WP-216).
   function renderBulkToolbar() {
-    if (selCount === 0) return null
+    if (selCount === 0 || isMobile) return null
     return (
       <div
         data-testid="bulk-toolbar"
@@ -803,7 +975,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 대상 폴더/파일 id 목록을 인자로 받아 현재 뷰(검색 결과 또는 폴더 목록) 기준으로 동작.
   function renderSelectAll(folderIds: number[], fileIds: number[]) {
     const total = folderIds.length + fileIds.length
-    if (total === 0) return null
+    // 모바일은 체크박스를 선택 모드에서만 보이므로 전체선택도 그때만(WP-216).
+    if (total === 0 || (isMobile && !mobileSelecting)) return null
     const allSelected = selCount > 0 && selCount === total
     return (
       <div className="mb-1 flex items-center gap-2 px-0.5 text-sm text-muted-foreground">
@@ -833,7 +1006,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   function renderColumnHeader() {
     return (
       <div
-        className="flex items-center gap-2 px-1 py-1 text-xs text-muted-foreground"
+        // 모바일은 크기·수정일을 이름 아래 둘째 줄로 내려 열 헤더가 맞지 않는다(WP-216).
+        className="flex items-center gap-2 px-1 py-1 text-xs text-muted-foreground max-lg:hidden"
         data-testid="drive-column-header"
       >
         <span className="w-4 shrink-0" aria-hidden="true" />
@@ -1046,60 +1220,67 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 {renderColumnHeader()}
                 <ul className="divide-y divide-border">
                   {results.folders.map((f) => (
-                    <li key={`s-folder-${f.id}`} className="flex items-center gap-2 py-2">
+                    <DrivePressRow
+                      key={`s-folder-${f.id}`}
+                      {...rowPress('folder', f.id)}
+                      className={cn(
+                        'flex items-center gap-2 py-2 max-lg:min-h-14',
+                        rowSelectedClass('folder', f.id),
+                      )}
+                    >
                       {/* #588: 폴더 행 체크박스 — 멀티셀렉트용. */}
-                      <input
-                        type="checkbox"
-                        checked={visibleSelFolders.has(f.id)}
-                        onChange={() => setSelFolders((s) => toggleSel(s, f.id))}
-                        data-testid={`select-folder-${f.id}`}
-                        aria-label={`${f.name} 선택`}
-                        className="h-4 w-4 shrink-0"
-                      />
+                      {renderRowCheck('folder', f.id, f.name)}
                       {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
                       <Folder className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
                       <button
                         type="button"
                         onClick={() => openFolder(f.id)}
-                        className="flex-1 truncate text-left text-sm hover:underline"
+                        className="min-w-0 flex-1 text-left text-sm hover:underline"
                       >
-                        {f.name}
-                        {f.folderPath && (
-                          <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
-                        )}
+                        <span className="block truncate">
+                          {f.name}
+                          {/* 모바일은 경로를 둘째 줄로 내린다(WP-216). */}
+                          {f.folderPath && !isMobile && (
+                            <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
+                          )}
+                        </span>
+                        {renderMetaLine(metaLine(f.folderPath, null, f.updatedAt))}
                       </button>
                       {/* #799: 폴더 행 — 크기 없음, 수정일만 표시. */}
-                      <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">—</span>
-                      <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
+                      <span className="w-20 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">—</span>
+                      <span className="w-24 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
                         {formatDateOnly(f.updatedAt)}
                       </span>
-                    </li>
+                    </DrivePressRow>
                   ))}
                   {results.files.map((f) => (
-                    <li key={`s-file-${f.id}`} className="flex items-center gap-2 py-2">
+                    <DrivePressRow
+                      key={`s-file-${f.id}`}
+                      {...rowPress('file', f.id)}
+                      className={cn(
+                        'flex items-center gap-2 py-2 max-lg:min-h-14',
+                        rowSelectedClass('file', f.id),
+                      )}
+                    >
                       {/* #588: 파일 행 체크박스 — 멀티셀렉트용. */}
-                      <input
-                        type="checkbox"
-                        checked={visibleSelFiles.has(f.id)}
-                        onChange={() => setSelFiles((s) => toggleSel(s, f.id))}
-                        data-testid={`select-file-${f.id}`}
-                        aria-label={`${f.name} 선택`}
-                        className="h-4 w-4 shrink-0"
-                      />
+                      {renderRowCheck('file', f.id, f.name)}
                       <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
                       <button
                         type="button"
                         onClick={() => (isMissingBlob(f) ? onUnavailableClick() : openPreview(f))}
-                        className={
-                          isMissingBlob(f)
-                            ? 'flex-1 truncate text-left text-sm text-muted-foreground'
-                            : 'flex-1 truncate text-left text-sm hover:underline'
-                        }
-                      >
-                        {f.name}
-                        {f.folderPath && (
-                          <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
+                        className={cn(
+                          'min-w-0 flex-1 text-left text-sm',
+                          isMissingBlob(f) ? 'text-muted-foreground' : 'hover:underline',
                         )}
+                      >
+                        <span className="block truncate">
+                          {f.name}
+                          {/* 모바일은 경로를 둘째 줄로 내린다(WP-216). */}
+                          {f.folderPath && !isMobile && (
+                            <span className="ml-2 text-xs text-muted-foreground">{f.folderPath}</span>
+                          )}
+                        </span>
+                        {renderMetaLine(metaLine(f.folderPath, f.sizeBytes, f.updatedAt))}
                       </button>
                       {/* #739: 원본 유실 배지 — 중립 경고 스타일(StatusBadge warning), AI 마커 계열 아님. */}
                       {isMissingBlob(f) && (
@@ -1108,13 +1289,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                         </StatusBadge>
                       )}
                       {/* #799: 3열 — 크기/수정일. */}
-                      <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">
+                      <span className="w-20 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
                         {formatFileSize(f.sizeBytes)}
                       </span>
-                      <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
+                      <span className="w-24 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
                         {formatDateOnly(f.updatedAt)}
                       </span>
-                    </li>
+                    </DrivePressRow>
                   ))}
                 </ul>
               </div>
@@ -1210,88 +1391,98 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             {renderColumnHeader()}
           <ul className="divide-y divide-border">
             {items.folders.map((f) => (
-              <li key={`folder-${f.id}`} className="group flex items-center gap-2 py-2">
-                {/* #82: 폴더 행 체크박스 — 멀티셀렉트용. */}
-                <input
-                  type="checkbox"
-                  checked={visibleSelFolders.has(f.id)}
-                  onChange={() => setSelFolders((s) => toggleSel(s, f.id))}
-                  data-testid={`select-folder-${f.id}`}
-                  aria-label={`${f.name} 선택`}
-                  className="h-4 w-4 shrink-0"
-                />
+              <DrivePressRow
+                key={`folder-${f.id}`}
+                {...rowPress('folder', f.id)}
+                data-testid={`drive-row-folder-${f.id}`}
+                className={cn(
+                  // 모바일은 파일 행(px-1)과 아이콘·⋮ 세로줄을 맞춘다.
+                  'group flex items-center gap-2 py-2 max-lg:min-h-14 max-lg:px-1',
+                  rowSelectedClass('folder', f.id),
+                )}
+              >
+                {/* #82: 폴더 행 체크박스 — 멀티셀렉트용. 모바일은 선택 모드에서만 보인다(WP-216). */}
+                {renderRowCheck('folder', f.id, f.name)}
                 {/* 폴더 아이콘 — lucide Folder SVG로 파일 아이콘(DriveThumbnail)과 일관성 유지 */}
                 <Folder className="h-8 w-8 shrink-0 p-1 text-muted-foreground" aria-hidden />
                 <button
                   type="button"
                   onClick={() => openFolder(f.id)}
-                  className="flex-1 truncate text-left text-sm hover:underline"
+                  className="min-w-0 flex-1 text-left text-sm hover:underline"
                 >
-                  {f.name}
+                  <span className="block truncate">{f.name}</span>
+                  {renderMetaLine(metaLine('폴더', null, f.updatedAt))}
                 </button>
                 {/* #799: 폴더 행 — 크기 없음, 수정일만 표시. */}
-                <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">—</span>
-                <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
+                <span className="w-20 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">—</span>
+                <span className="w-24 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
                   {formatDateOnly(f.updatedAt)}
                 </span>
-                {/* 행 액션 — 호버 또는 키보드 포커스(focus-visible)일 때만 노출. focus-within 이면 터치 탭의 포인터 포커스로도 열려
-                    좁은 폭(모바일 드로워)에서 이름 버튼이 0폭으로 접히고 클릭이 <li> 로 빠져 폴더가 열리지 않는다(WP-207). */}
-                <button
-                  type="button"
-                  onClick={() => onRenameFolder(f.id, f.name)}
-                  disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
-                >
-                  이름변경
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
-                  disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
-                >
-                  이동
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
-                  disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
-                >
-                  복사
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDeleteFolder(f.id)}
-                  disabled={!!space?.archived}
-                  className="hidden text-xs text-destructive group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
-                >
-                  삭제
-                </button>
-              </li>
+                {isMobile ? (
+                  !mobileSelecting && renderRowMore(f.name, `folder-${f.id}`, () => setRowSheet({ kind: 'folder', item: f }))
+                ) : (
+                  <>
+                    {/* 행 액션 — 호버 또는 키보드 포커스(focus-visible)일 때만 노출. focus-within 이면 터치 탭의 포인터 포커스로도 열려
+                        좁은 폭(모바일 드로워)에서 이름 버튼이 0폭으로 접히고 클릭이 <li> 로 빠져 폴더가 열리지 않는다(WP-207). */}
+                    <button
+                      type="button"
+                      onClick={() => onRenameFolder(f.id, f.name)}
+                      disabled={!!space?.archived}
+                      className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
+                    >
+                      이름변경
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
+                      disabled={!!space?.archived}
+                      className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
+                    >
+                      이동
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
+                      disabled={!!space?.archived}
+                      className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
+                    >
+                      복사
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteFolder(f.id)}
+                      disabled={!!space?.archived}
+                      className="hidden text-xs text-destructive group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
+                    >
+                      삭제
+                    </button>
+                  </>
+                )}
+              </DrivePressRow>
             ))}
             {items.files.map((f) => (
-              <li key={`file-${f.id}`} className="group flex items-center gap-2 rounded px-1 py-2 hover:bg-accent/40">
-                {/* #82: 파일 행 체크박스 — 멀티셀렉트용. */}
-                <input
-                  type="checkbox"
-                  checked={visibleSelFiles.has(f.id)}
-                  onChange={() => setSelFiles((s) => toggleSel(s, f.id))}
-                  data-testid={`select-file-${f.id}`}
-                  aria-label={`${f.name} 선택`}
-                  className="h-4 w-4 shrink-0"
-                />
+              <DrivePressRow
+                key={`file-${f.id}`}
+                {...rowPress('file', f.id)}
+                data-testid={`drive-row-file-${f.id}`}
+                className={cn(
+                  'group flex items-center gap-2 rounded px-1 py-2 hover:bg-accent/40 max-lg:min-h-14',
+                  rowSelectedClass('file', f.id),
+                )}
+              >
+                {/* #82: 파일 행 체크박스 — 멀티셀렉트용. 모바일은 선택 모드에서만 보인다(WP-216). */}
+                {renderRowCheck('file', f.id, f.name)}
                 <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
                 <button
                   type="button"
                   onClick={() => (isMissingBlob(f) ? onUnavailableClick() : openPreview(f))}
-                  className={
-                    isMissingBlob(f)
-                      ? 'flex-1 truncate text-left text-sm text-muted-foreground'
-                      : 'flex-1 truncate text-left text-sm hover:underline'
-                  }
+                  className={cn(
+                    'min-w-0 flex-1 text-left text-sm',
+                    isMissingBlob(f) ? 'text-muted-foreground' : 'hover:underline',
+                  )}
                 >
-                  {f.name}
+                  <span className="block truncate">{f.name}</span>
+                  {renderMetaLine(metaLine(null, f.sizeBytes, f.updatedAt))}
                 </button>
                 {/* #739: 원본 유실 배지 — 중립 경고 스타일(StatusBadge warning), AI 마커 계열(AiSignalBadge) 아님. */}
                 {isMissingBlob(f) && (
@@ -1308,64 +1499,69 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                     v{f.versionCount}
                   </span>
                 )}
-                {/* #799: 3열 — 크기/수정일. */}
-                <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">
+                {/* #799: 3열 — 크기/수정일. 모바일은 이름 아래 둘째 줄로 대신한다. */}
+                <span className="w-20 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
                   {formatFileSize(f.sizeBytes)}
                 </span>
-                <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
+                <span className="w-24 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
                   {formatDateOnly(f.updatedAt)}
                 </span>
-                {/* 행 액션 — 호버 또는 키보드 포커스(focus-visible)일 때만 노출. 주요 3개 인라인 + 더보기(⋯).
-                    focus-within 이면 터치 탭의 포인터 포커스로 열려 모바일에서 이름 버튼이 접히고 미리보기가 안 열린다(WP-208). */}
-                <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-kbd:flex">
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => driveApi.downloadFile(f.id, f.name)}
-                    disabled={isMissingBlob(f)}
-                    aria-label={`${f.name} 다운로드`}
-                  >
-                    다운로드
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => setShareFile(f)}
-                    disabled={isMissingBlob(f)}
-                    aria-label={`${f.name} 공유 링크`}
-                    data-testid="share-link-btn"
-                  >
-                    공유
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => onDeleteFile(f.id)}
-                    disabled={!!space?.archived}
-                    className="text-destructive hover:text-destructive"
-                    aria-label={`${f.name} 삭제`}
-                  >
-                    삭제
-                  </Button>
-                  <RowOverflowMenu
-                    triggerAriaLabel={`${f.name} 더보기`}
-                    items={[
-                      { label: '버전 이력', onSelect: () => setVersionFile(f) },
-                      {
-                        label: '이동',
-                        onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }),
-                        disabled: !!space?.archived,
-                      },
-                      {
-                        // #739: 원본 유실 파일은 복제할 바이트가 없어 서버가 404(유실)를 반환하므로 미리 차단.
-                        label: '복사',
-                        onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }),
-                        disabled: !!space?.archived || isMissingBlob(f),
-                      },
-                    ]}
-                  />
-                </div>
-              </li>
+                {/* 행 액션 — 데스크톱은 호버 또는 키보드 포커스(focus-visible)일 때만 노출. 주요 3개 인라인 + 더보기(⋯).
+                    focus-within 이면 터치 탭의 포인터 포커스로 열려 모바일에서 이름 버튼이 접히고 미리보기가 안 열린다(WP-208).
+                    모바일은 ⋮ 시트로 대신한다(WP-216). */}
+                {isMobile ? (
+                  !mobileSelecting && renderRowMore(f.name, `file-${f.id}`, () => setRowSheet({ kind: 'file', item: f }))
+                ) : (
+                  <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-kbd:flex">
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => driveApi.downloadFile(f.id, f.name)}
+                      disabled={isMissingBlob(f)}
+                      aria-label={`${f.name} 다운로드`}
+                    >
+                      다운로드
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => setShareFile(f)}
+                      disabled={isMissingBlob(f)}
+                      aria-label={`${f.name} 공유 링크`}
+                      data-testid="share-link-btn"
+                    >
+                      공유
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => onDeleteFile(f.id)}
+                      disabled={!!space?.archived}
+                      className="text-destructive hover:text-destructive"
+                      aria-label={`${f.name} 삭제`}
+                    >
+                      삭제
+                    </Button>
+                    <RowOverflowMenu
+                      triggerAriaLabel={`${f.name} 더보기`}
+                      items={[
+                        { label: '버전 이력', onSelect: () => setVersionFile(f) },
+                        {
+                          label: '이동',
+                          onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }),
+                          disabled: !!space?.archived,
+                        },
+                        {
+                          // #739: 원본 유실 파일은 복제할 바이트가 없어 서버가 404(유실)를 반환하므로 미리 차단.
+                          label: '복사',
+                          onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }),
+                          disabled: !!space?.archived || isMissingBlob(f),
+                        },
+                      ]}
+                    />
+                  </div>
+                )}
+              </DrivePressRow>
             ))}
             {/* WP-63: 첫 조회 중(isLoading)엔 빈 폴더 문구를 숨긴다 — 폴더 이동 직후 거짓 "빈 폴더" 깜빡임 방지.
                 실패 시엔 isLoading=false 라 기존처럼 빈 상태로 폴백(별도 오류 UI 는 기존에도 없음). */}
@@ -1422,6 +1618,14 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             </DialogContent>
           </Dialog>
         )}
+        {/* WP-216: 모바일 행 ⋮ 액션 시트 — 작업을 고르면 시트가 먼저 닫히고 기존 다이얼로그(이름 변경·이동·공유·삭제 확인)가 열린다. */}
+        <MobileActionSheet
+          open={rowSheet != null}
+          onClose={() => setRowSheet(null)}
+          title={rowSheet?.item.name ?? ''}
+          actions={rowSheetActions()}
+          testId="drive-row-sheet"
+        />
         {shareFile && <ShareLinkModal file={shareFile} onClose={() => setShareFile(null)} />}
         {versionFile && (
           <VersionHistoryModal
@@ -1436,6 +1640,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           />
         )}
       </div>
+      {renderMobileBulkBar()}
 
       {/* 폴더 이름 입력 다이얼로그 — 새 폴더 생성 / 이름 변경. window.prompt 대체 (#135). */}
       <Dialog

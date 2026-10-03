@@ -27,6 +27,8 @@ export function useLongPressCapture({ onLongPress, onTap }: { onLongPress?: () =
       start.current = null;
     };
     const fire = () => {
+      // 타이머 발동 뒤 안드로이드의 길게 터치 contextmenu 가 늦게 와도 누름 한 번에 한 번만 — 토글형 콜백이 되돌아가지 않게.
+      if (fired.current) return;
       fired.current = true;
       latest.current.onLongPress?.();
     };
