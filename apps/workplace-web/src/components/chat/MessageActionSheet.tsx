@@ -16,6 +16,8 @@ export interface MessageSheetAction {
   onSelect: () => void
   /** 파괴적 작업(삭제) — 빨간 글자. */
   destructive?: boolean
+  /** 강조 작업(메일 시트의 읽음 전환 등) — 기본색 대신 primary 글자·아이콘. */
+  primary?: boolean
 }
 
 export function MessageActionSheet({
@@ -124,7 +126,11 @@ export function MessageActionSheet({
               onClick={() => run(a.onSelect, true)}
               className={cn(
                 'flex min-h-11 w-full items-center gap-3 px-4 text-left text-base active:bg-accent [&_svg]:size-5 [&_svg]:shrink-0',
-                a.destructive ? 'text-destructive' : 'text-foreground [&_svg]:text-muted-foreground',
+                a.destructive
+                  ? 'text-destructive'
+                  : a.primary
+                    ? 'text-primary [&_svg]:text-primary'
+                    : 'text-foreground [&_svg]:text-muted-foreground',
               )}
             >
               {a.icon}

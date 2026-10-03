@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
+import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
@@ -16,6 +17,8 @@ import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
+import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
+import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import { mergeKeptRows } from '@/lib/mailKeepRows'
@@ -24,8 +27,9 @@ import { buildQuote, escapeHtml } from '@/lib/mailQuote'
 import { mailViewHref, resolveMailView } from '@/lib/mailView'
 import { cn } from '@/lib/utils'
 
-import { downloadMailAttachment } from '../../api/mailMessages'
+import { downloadMailAttachment, getMessage } from '../../api/mailMessages'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
+import { mailMessageKeys } from '../../hooks/queries/mailMessageKeys'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
   useGenerateMailSummary,
@@ -671,6 +675,38 @@ export function MailInboxPage() {
   // 현재 계정의 AI 사용 여부 — 요약 스트립 표시 여부에 사용.
   const aiEnabled = currentAccount?.aiEnabled ?? false
 
+  // WP-187 모바일: hover 대신 길게 누르기 → 작업 시트(채팅과 같은 패턴). 행에는 data-message-id 가 있다.
+  // 훅이므로 !accountId 조기 return 보다 앞에 둔다.
+  const aiAvailable = useAiAvailable()
+  const sheet = useMessageSheet(messages ?? [])
+  const longPress = useMessageListLongPress(touchShell, (id) => (messages ?? []).some((m) => m.id === id), sheet.show)
+  // 답장·전달·AI 이슈 초안은 본문이 필요하다 — 상세를 받아(서버에서 열람 처리돼 읽음) 기존 핸들러로 넘긴다.
+  // 상세 성공 effect 와 같이 목록 캐시를 읽음으로 맞추고 안 읽은 수를 다시 받는다(F21).
+  const withDetail = async (id: number, fn: (d: EmailMessageDetail) => void) => {
+    const d = await qc.fetchQuery({ queryKey: mailMessageKeys.detail(id), queryFn: () => getMessage(id) })
+    qc.setQueriesData<EmailMessageSummary[]>({ queryKey: ['mail-messages'], exact: false }, (old) =>
+      old?.map((msg) => (msg.id === id ? { ...msg, seen: true } : msg)),
+    )
+    qc.invalidateQueries({ queryKey: mailMessageKeys.unreadCountsAll() })
+    qc.invalidateQueries({ queryKey: mailMessageKeys.unreadSummary() })
+    fn(d)
+  }
+  // 시트 작업 — 첫 항목(읽음 전환)이 primary. 열린 메일을 안읽음으로 바꿀 때는 상세도 닫는다(R5).
+  const sheetActions = (m: EmailMessageSummary): MessageSheetAction[] => [
+    {
+      key: 'toggle-read',
+      label: m.seen ? '안읽음으로 표시' : '읽음으로 표시',
+      icon: m.seen ? <Mail /> : <MailOpen />,
+      primary: true,
+      onSelect: () => (m.seen && m.id === selectedId ? markUnreadAndClose(m.id) : applyToggle(m.id, !m.seen)),
+    },
+    { key: 'reply', label: '답장', icon: <Reply />, onSelect: () => void withDetail(m.id, onReply).catch(() => undefined) },
+    { key: 'forward', label: '전달', icon: <Forward />, onSelect: () => void withDetail(m.id, onForward).catch(() => undefined) },
+    ...(aiAvailable && aiEnabled
+      ? [{ key: 'ai-issue', label: 'AI 이슈 초안', icon: <Sparkles />, onSelect: () => void withDetail(m.id, onAiIssue).catch(() => undefined) }]
+      : []),
+  ]
+
   // WP-54: 메일함 화면 컨텍스트 — 계정·폴더·필터 + 열린 메일(목록 행 요약으로 라벨 구성).
   // 훅이므로 아래 !accountId 조기 return 보다 앞에 둔다. 목록에 없는 메일(딥링크 등)은 focus 없이 scope 만 싣는다.
   // 회신필요 필터(?needsReply=true)에서는 메일을 열면 읽음 처리돼 다음 목록 refetch 에서 목록을 빠져나간다 —
@@ -979,7 +1015,7 @@ export function MailInboxPage() {
               </div>
             )
           ) : (
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto" {...longPress}>
               {messages.map((m) => (
                 <MessageRow
                   key={m.id}
@@ -995,6 +1031,16 @@ export function MailInboxPage() {
             </div>
           )}
         </div>
+
+        {/* WP-187 모바일 길게 누르기 작업 시트 — 터치 셸에서만 렌더(데스크톱은 hover 토글) */}
+        {touchShell && (
+          <MessageActionSheet
+            open={sheet.open}
+            onClose={sheet.close}
+            actions={sheet.target ? sheetActions(sheet.target) : []}
+            preview={sheet.target ? `${sheet.target.fromName || sheet.target.fromAddress || ''} · ${sheet.target.subject || '(제목 없음)'}` : undefined}
+          />
+        )}
 
         {/* 본문 (디테일) — 좁은 화면은 선택 시 전체폭, 미선택 시 숨김 */}
         <div
