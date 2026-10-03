@@ -130,6 +130,11 @@ describe('parsePersonalAnalysisJson', () => {
 });
 
 describe('parseClassifyBatchJson', () => {
+  it('요청한 id 가 하나도 없는 응답은 형식 오류로 던진다(전부 미분류 기록 방지)', () => {
+    const text = '{"results":[{"id":1,"category":"업무"}]}';
+    expect(() => parseClassifyBatchJson(text, [101, 102])).toThrow();
+  });
+
   it('요청한 id 순서대로 결과를 돌려주고, 누락·허용 밖 값은 null', () => {
     const text = '{"results":[{"id":2,"category":"알림"},{"id":1,"category":"업무"},{"id":3,"category":"스팸"}]}';
     expect(parseClassifyBatchJson(text, [1, 2, 3, 4])).toEqual([
