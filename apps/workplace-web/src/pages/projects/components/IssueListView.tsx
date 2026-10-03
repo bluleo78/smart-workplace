@@ -7,6 +7,8 @@
 import { LayoutList } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
+import { useIsMobile } from '@/hooks/useIsMobile';
+
 import { Button } from '../../../components/ui/button';
 import { LoadMoreFooter } from '../../../components/ui/load-more-footer';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
@@ -14,9 +16,10 @@ import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { groupIssues } from '../../../lib/issueGrouping';
 import type { IssueClientGroupBy, IssueFilters } from '../../../types/issue';
+import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
-import { ISSUE_LIST_COLUMN_COUNT, IssueRow } from './IssueListRow';
+import { ISSUE_LIST_COLUMN_COUNT, ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
 
 export function IssueListView({
   projectKey,
@@ -37,6 +40,7 @@ export function IssueListView({
   canDrag?: boolean;
 }) {
   // 보드와 같은 기본 범위 — 에픽 행 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(withDefaultIssueScope).
+  const isMobile = useIsMobile();
   const searchQuery = useIssueSearch(projectKey, withDefaultIssueScope(filters));
   const { data, isLoading } = searchQuery;
   // 테이블 스크롤 컨테이너 — 목록 끝 LoadMoreFooter sentinel 의 IntersectionObserver root(콜백 ref 라 마운트 후 재부착).
@@ -49,6 +53,9 @@ export function IssueListView({
     toggle: toggleSelected,
     clear: clearSelected,
   } = useIssueSelection(filtersToParams(filters, 'list', groupBy).toString());
+
+  // 모바일 길게 누르기 액션 — 훅은 조기 반환 전에 둔다. canDrag 가 곧 멤버 여부.
+  const rowActions = useIssueRowActions({ projectKey, canEdit: canDrag, onSelect: (i) => toggleSelected(i.number) });
 
   // WP-54: 로드된 건수(무한 스크롤 누적)·다음 페이지 유무를 상위로 보고 — isLoading 조기 반환 전에 둔다.
   // data 객체(쿼리 결과)가 바뀔 때마다 보고한다 — 필터 변경으로 상위가 건수를 비운 뒤, 캐시된 새 결과의 건수가
@@ -121,16 +128,18 @@ export function IssueListView({
         <table className="w-full text-sm" role="table">
           <thead className="sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_var(--color-border)]">
             <tr className="text-left text-muted-foreground">
-              <th className="w-9 py-2">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleSelectAll}
-                  aria-label="전체선택"
-                  data-testid="issue-select-all"
-                  className="h-4 w-4"
-                />
-              </th>
+              {!isMobile && (
+                <th className="w-9 py-2">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleSelectAll}
+                    aria-label="전체선택"
+                    data-testid="issue-select-all"
+                    className="h-4 w-4"
+                  />
+                </th>
+              )}
               {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
               <th className="w-9 py-2"><span className="sr-only">상태</span></th>
               {/* 우선순위·마감은 좁은 화면(<sm)에서 행과 함께 숨긴다(IssueRow). */}
@@ -146,7 +155,7 @@ export function IssueListView({
               <tbody key={g.key} data-testid={`list-group-${g.key}`}>
                 <tr className="bg-muted/40 border-b">
                   <td
-                    colSpan={ISSUE_LIST_COLUMN_COUNT}
+                    colSpan={isMobile ? ISSUE_LIST_COLUMN_COUNT_MOBILE : ISSUE_LIST_COLUMN_COUNT}
                     className="py-1.5 px-1 text-xs font-semibold text-muted-foreground"
                   >
                     {g.label}
@@ -163,6 +172,8 @@ export function IssueListView({
                     canDrag={canDrag}
                     // 다중 담당자 이슈는 여러 그룹에 보이므로 그룹별로 드래그 id 를 구분한다.
                     dragScope={g.key}
+                    onLongPress={isMobile ? rowActions.open : undefined}
+                    selectionMode={isMobile && selected.size > 0}
                   />
                 ))}
               </tbody>
@@ -177,6 +188,8 @@ export function IssueListView({
                   selected={selected.has(it.number)}
                   onToggleSelect={toggleSelected}
                   canDrag={canDrag}
+                  onLongPress={isMobile ? rowActions.open : undefined}
+                  selectionMode={isMobile && selected.size > 0}
                 />
               ))}
             </tbody>
@@ -185,6 +198,8 @@ export function IssueListView({
         {/* 목록 끝 — 자동 로드, 다음 페이지 실패 시에만 다시 시도(공용 LoadMoreFooter, WP-183) */}
         <LoadMoreFooter query={searchQuery} root={scrollEl} data-testid="issue-list-more" />
       </div>
+      {/* 액션 시트는 표 밖 형제로 — 행 안에 두면 시트 클릭이 행 이벤트로 새어 든다. */}
+      {rowActions.sheets}
     </div>
   );
 }

@@ -5,6 +5,7 @@
 import { useCallback, useMemo, useState } from 'react';
 
 import { Skeleton } from '@/components/ui/skeleton';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 import { useCycleProgress, useCycles } from '../../../hooks/queries/useCycles';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
@@ -12,6 +13,7 @@ import { buildCycleSections } from '../../../lib/issueCycleSections';
 import { filtersToParams } from '../../../lib/issueFilters';
 import type { CycleProgress } from '../../../types/cycle';
 import type { IssueFilters } from '../../../types/issue';
+import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { IssueBulkActions } from './IssueBulkActions';
 import { CycleSectionColumnHead, CycleSectionSkeletonRows, IssueCycleSection } from './IssueCycleSection';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
@@ -47,6 +49,7 @@ export function IssueCycleGroupedList({
   /** 프로젝트 멤버만 행을 에픽 패널로 끌 수 있다 — 평면 목록과 같은 행(IssueRow)이라 동작도 같다. */
   canDrag?: boolean;
 }) {
+  const isMobile = useIsMobile();
   const cycles = useCycles(projectKey);
   const progress = useCycleProgress(projectKey);
 
@@ -54,6 +57,9 @@ export function IssueCycleGroupedList({
   const filterKey = filtersToParams(filters, 'list', null).toString();
   const hasActiveFilters = filterKey !== '';
   const { selected, toggle: toggleSelected, clear: clearSelected } = useIssueSelection(filterKey);
+
+  // 모바일 길게 누르기 액션 — 시트는 구간 밖(목록 레벨)에서 하나만 소유한다.
+  const rowActions = useIssueRowActions({ projectKey, canEdit: canDrag, onSelect: (i) => toggleSelected(i.number) });
 
   const sections = useMemo(
     () => buildCycleSections(cycles.data ?? [], filters.cycleIds),
@@ -120,9 +126,12 @@ export function IssueCycleGroupedList({
             selected={selected}
             onToggleSelect={toggleSelected}
             canDrag={canDrag}
+            onLongPress={isMobile ? rowActions.open : undefined}
+            selectionMode={isMobile && selected.size > 0}
           />
         ))}
       </div>
+      {rowActions.sheets}
     </div>
   );
 }

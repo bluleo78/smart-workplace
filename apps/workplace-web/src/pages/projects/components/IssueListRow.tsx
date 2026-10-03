@@ -2,8 +2,12 @@
 // 행 전체 클릭으로 상세 이동(#234), 체크박스로 다중 선택(#606).
 
 import { useDraggable } from '@dnd-kit/core';
+import { CheckCircle2 } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+
+import { useIsMobile } from '@/hooks/useIsMobile';
+import { useLongPressCapture } from '@/hooks/useLongPressCapture';
 
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
@@ -17,7 +21,9 @@ import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
 
 // 목록 컬럼 수(체크박스·상태·우선순위·ID·제목·담당자·마감) — 그룹 헤더 colSpan 등에 쓴다.
+// 모바일은 체크박스 컬럼이 없어 1 적다(길게 누르기 → 액션 시트로 선택).
 export const ISSUE_LIST_COLUMN_COUNT = 7;
+export const ISSUE_LIST_COLUMN_COUNT_MOBILE = 6;
 
 // 리스트 행 — 평탄/그룹 렌더가 공유 (DRY). 행 전체 클릭 → 상세(#234).
 // #606: 체크박스 컬럼 추가 — 클릭 시 stopPropagation 으로 행 네비게이션과 분리.
@@ -30,6 +36,8 @@ export const IssueRow = memo(function IssueRow({
   canDrag = false,
   dragScope,
   cycleSection,
+  onLongPress,
+  selectionMode = false,
 }: {
   issue: IssueResponse;
   projectKey: string;
@@ -41,9 +49,20 @@ export const IssueRow = memo(function IssueRow({
   dragScope?: string;
   /** 사이클 그룹 목록의 행이면 속한 구간 — 다른 사이클 구간으로 끌어 사이클을 옮길 때 출발지(#881). */
   cycleSection?: CycleSectionRef;
+  /** 모바일 길게 누르기(우클릭 포함) — 액션 시트를 연다. 없으면 길게 누르기 비활성. */
+  onLongPress?: (issue: IssueResponse) => void;
+  /** 선택 모드(1건 이상 선택됨) — 모바일에서 탭이 이동 대신 선택 토글이 된다. */
+  selectionMode?: boolean;
 }) {
   const navigate = useNavigate();
   const to = `/projects/${projectKey}/issues/${it.number}`;
+  const isMobile = useIsMobile();
+  // 모바일: 체크박스 대신 길게 누르기 → 액션 시트, 선택 모드에선 탭=선택 토글(이동 없음).
+  const press = useLongPressCapture(
+    isMobile
+      ? { onLongPress: onLongPress ? () => onLongPress(it) : undefined, onTap: selectionMode ? () => onToggleSelect(it.number) : undefined }
+      : {},
+  );
 
   // 행 전체가 드래그 소스 — 에픽 패널로 끌어 놓아 에픽을 바꾼다. 활성화 노드=행 자신(지정하지 않으면
   // KeyboardSensor 가 제목 링크 등 자손의 키 입력까지 받아 드래그를 시작한다, #881).
@@ -51,7 +70,8 @@ export const IssueRow = memo(function IssueRow({
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, isDragging } = useDraggable({
     id: dragScope ? `issue-row-${dragScope}-${it.id}` : `issue-row-${it.id}`,
     data: { issue: it, source: 'row', cycleSection } satisfies IssueDragData,
-    disabled: !canDrag,
+    // 모바일은 드래그 대신 길게 누르기 액션을 쓴다.
+    disabled: !canDrag || isMobile,
     // dnd-kit 기본 role=button 은 표 의미를 깨뜨린다 — 행 역할 유지.
     attributes: { role: 'row' },
   });
@@ -63,7 +83,7 @@ export const IssueRow = memo(function IssueRow({
     [setNodeRef, setActivatorNodeRef],
   );
   // 비활성이면 dnd-kit 의 role·tabIndex·리스너를 붙이지 않는다(평범한 행).
-  const dragProps = canDrag
+  const dragProps = canDrag && !isMobile
     ? { ...attributes, ...listeners, 'aria-roledescription': '드래그 가능한 이슈' }
     : {};
 
@@ -71,26 +91,38 @@ export const IssueRow = memo(function IssueRow({
     <tr
       ref={ref}
       {...dragProps}
+      {...press}
       onClick={() => navigate(to)}
       className={cn(
         'border-b hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
         isDragging && 'opacity-40',
+        isMobile && 'select-none [-webkit-touch-callout:none]',
+        isMobile && selected && 'bg-primary/10',
       )}
+      aria-selected={isMobile && selectionMode ? selected : undefined}
       data-testid={`issue-row-${it.number}`}
     >
-      <td className="py-2" onClick={(e) => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={() => onToggleSelect(it.number)}
-          // 체크박스에서 시작한 포인터가 행 드래그로 이어지지 않게 한다.
-          onPointerDown={(e) => e.stopPropagation()}
-          aria-label={`${it.title} 선택`}
-          data-testid={`select-issue-${it.number}`}
-          className="h-4 w-4"
-        />
+      {!isMobile && (
+        <td className="py-2" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(it.number)}
+            // 체크박스에서 시작한 포인터가 행 드래그로 이어지지 않게 한다.
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label={`${it.title} 선택`}
+            data-testid={`select-issue-${it.number}`}
+            className="h-4 w-4"
+          />
+        </td>
+      )}
+      <td className="py-2">
+        {isMobile && selected ? (
+          <CheckCircle2 className="h-4 w-4 text-primary" aria-label="선택됨" />
+        ) : (
+          <IssueStatusIcon status={it.status} />
+        )}
       </td>
-      <td className="py-2"><IssueStatusIcon status={it.status} /></td>
       {/* 좁은 화면(<sm)에선 우선순위·마감 컬럼을 숨겨 제목 폭을 확보한다 — 헤더의 같은 컬럼도 함께 숨긴다. */}
       <td className="hidden sm:table-cell"><IssuePriorityBars priority={it.priority} /></td>
       <td className="font-mono text-muted-foreground text-xs">

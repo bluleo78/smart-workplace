@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 import { StatusBadge, type StatusBadgeType } from '@/components/ui/status-badge';
 import { TableSkeletonRows } from '@/components/ui/table-skeleton';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
 
 import { CycleProgressBar } from '../../../components/cycle/CycleProgressBar';
@@ -54,11 +55,12 @@ function shortDate(d: string | null): string {
  * 좁은 화면(<sm)에선 우선순위·마감 컬럼을 숨기고 ID·담당자 폭을 줄인다(IssueRow 와 같은 규칙).
  */
 export function CycleSectionColumnHead({ visible = false }: { visible?: boolean }) {
+  const isMobile = useIsMobile();
   const cell = visible ? 'py-1.5 text-left text-xs font-normal text-muted-foreground' : 'h-0 p-0 overflow-hidden';
   return (
     <thead>
       <tr className={cn(!visible && 'h-0')}>
-        <th className={cn('w-9', cell)}><span className="sr-only">선택</span></th>
+        {!isMobile && <th className={cn('w-9', cell)}><span className="sr-only">선택</span></th>}
         <th className={cn('w-9', cell)}><span className="sr-only">상태</span></th>
         <th className={cn('hidden w-9 sm:table-cell', cell)}><span className="sr-only">우선순위</span></th>
         <th className={cn('w-16 sm:w-28', cell)}><span className={cn(!visible && 'sr-only')}>ID</span></th>
@@ -89,6 +91,8 @@ export function IssueCycleSection({
   selected,
   onToggleSelect,
   canDrag = false,
+  onLongPress,
+  selectionMode = false,
 }: {
   def: CycleSectionDef;
   expanded: boolean;
@@ -105,6 +109,9 @@ export function IssueCycleSection({
   onToggleSelect: (number: number) => void;
   /** 프로젝트 멤버만 행을 끌 수 있다(에픽 패널·다른 사이클 구간으로). */
   canDrag?: boolean;
+  /** 모바일 길게 누르기 액션(IssueCycleGroupedList 가 시트를 소유) — 없으면 비활성. */
+  onLongPress?: (issue: IssueResponse) => void;
+  selectionMode?: boolean;
 }) {
   const bodyId = useId();
   const cycle = def.kind === 'cycle' ? def.cycle : null;
@@ -298,6 +305,8 @@ export function IssueCycleSection({
             selected={selected}
             onToggleSelect={onToggleSelect}
             canDrag={canDrag}
+            onLongPress={onLongPress}
+            selectionMode={selectionMode}
             // 완료 사이클 구간의 행은 사이클 이동에서 뺀다 — 끝난 스프린트 이력을 드래그 한 번으로 바꾸고, 되돌리기(완료 사이클
             // 재연결)도 서버가 거부해 복구할 수 없다. 에픽 패널로 끄는 것은 그대로 허용.
             cycleSection={dropDisabled ? undefined : sectionRef}
@@ -330,6 +339,8 @@ function SectionBody({
   selected,
   onToggleSelect,
   canDrag,
+  onLongPress,
+  selectionMode,
   cycleSection,
 }: {
   query: ReturnType<typeof useCycleSectionIssues>;
@@ -340,6 +351,8 @@ function SectionBody({
   selected: Set<number>;
   onToggleSelect: (number: number) => void;
   canDrag: boolean;
+  onLongPress?: (issue: IssueResponse) => void;
+  selectionMode: boolean;
   /** 이 구간 — 행 드래그 데이터의 출발 구간(사이클 이동 from). 없으면 사이클 이동 불가(완료 구간). */
   cycleSection: CycleSectionRef | undefined;
 }) {
@@ -383,6 +396,8 @@ function SectionBody({
             selected={selected.has(it.number)}
             onToggleSelect={onToggleSelect}
             canDrag={canDrag}
+            onLongPress={onLongPress}
+            selectionMode={selectionMode}
             // 한 이슈가 여러 사이클 구간에 동시에 보일 수 있어(M:N) 구간 키로 드래그 id 를 구분한다.
             dragScope={testKey}
             cycleSection={cycleSection}
