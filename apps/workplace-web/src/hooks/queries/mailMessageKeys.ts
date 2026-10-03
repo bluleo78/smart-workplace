@@ -10,5 +10,8 @@ export const mailMessageKeys = {
     ['mail-messages', accountId, folder, query, unread, category, needsReply] as const,
   detail: (messageId: number) => ['mail-message', messageId] as const,
   summary: (messageId: number) => ['mail-summary', messageId] as const,
+  // WP-186: 사이드바 안 읽은 수(계정별)·탭 배지 합계.
+  unreadCounts: (accountId: number) => ['mail-unread-counts', accountId] as const,
+  unreadSummary: () => ['mail-unread-summary'] as const,
   syncStatus: (accountId: number) => ['mail-sync-status', accountId] as const,
 };
