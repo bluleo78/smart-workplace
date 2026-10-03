@@ -23,9 +23,18 @@ export function eunNeun(word: string) {
   return code >= 0 && code % 28 > 0 ? '은' : '는';
 }
 
-/** 이름의 첫 글자 — 아바타 이니셜(공백만이거나 비었으면 가운뎃점). 사용자·워크스페이스 아바타가 공유. */
+/** 이름 앞의 법인 표기 — (주)·(유)·(재)·(사) 괄호형과 ㈜·㈲ 합자. 이니셜 계산에서만 건너뛴다. */
+const LEGAL_ENTITY_PREFIX = /^(?:\([주유재사]\)|[㈜㈲])\s*/u
+
+/**
+ * 이름의 첫 글자 — 아바타 이니셜(공백만이거나 비었으면 가운뎃점). 사용자·워크스페이스 아바타가 공유.
+ * 조직명은 "(주)아이에이…"처럼 법인 표기·기호로 시작하는 경우가 많아 '(' 가 이니셜이 되던 문제(WP-198)로
+ * 앞의 법인 표기를 건너뛰고 첫 문자·숫자를 쓴다. 문자·숫자가 아예 없으면 원래 첫 글자.
+ */
 export function initialOf(name?: string | null): string {
-  return name?.trim().charAt(0) || '·'
+  const trimmed = name?.trim() ?? ''
+  const letter = trimmed.replace(LEGAL_ENTITY_PREFIX, '').match(/[\p{L}\p{N}]/u)?.[0]
+  return letter ?? (trimmed.charAt(0) || '·')
 }
 
 /** 사용자 표시 이름 — 이름 → 아이디 → '사용자' 순의 대체값(모바일 계정 UI 공용). */

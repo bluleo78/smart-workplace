@@ -1,3 +1,4 @@
+import { createMembership } from '../factories/auth.factory'
 import { expect, test } from '../fixtures/auth.fixture'
 
 test('홈에 앱 레일이 보이고 상단 GNB는 없다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
@@ -148,4 +149,40 @@ test('앱 레일 — 헤더엔 브랜드 토글만, 워크스페이스 스위처
   const header = page.getByTestId('app-rail').locator('div.border-b').first()
   await expect(header.getByTestId('workspace-switcher')).toHaveCount(0)
   await expect(header.getByTestId('rail-toggle')).toBeVisible()
+})
+
+// WP-198 — 확장 레일(152px)에서 조직명이 80px 1줄 말줄임으로 대부분 잘리던 결함.
+// 확장 시 음절 단위 최대 2줄로 감싸 노출하고, 넘치면 2줄 끝 말줄임 + hover 툴팁으로 전체 이름.
+test('앱 레일 — 확장 시 긴 조직명은 최대 2줄로 감싸고 가로로 넘치지 않으며 툴팁으로 전체 이름을 보인다 (WP-198)', async ({
+  authenticatedPage: page,
+}) => {
+  const longName = '(주)아이에이클라우드 코리아 기술연구소'
+  await page.addInitScript((t) => {
+    window.localStorage.setItem('activeTenant', JSON.stringify(t))
+    window.localStorage.setItem('app-rail-expanded', 'true')
+  }, createMembership({ tenantName: longName }))
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+
+  const chip = page.getByTestId('workspace-switcher')
+  const name = chip.getByText(longName, { exact: true })
+  await expect(name).toBeVisible()
+  // 펼침 전환(200ms)이 끝난 뒤 측정 — 줄 수는 높이/줄높이로 계산한다.
+  await expect
+    .poll(() =>
+      name.evaluate((el) => {
+        const lh = parseFloat(getComputedStyle(el).lineHeight)
+        return Math.round(el.getBoundingClientRect().height / lh)
+      }),
+    )
+    .toBe(2)
+  // 칩·레일 모두 가로 넘침 없음.
+  expect(await chip.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+  expect(
+    await page.getByTestId('app-rail').evaluate((el) => el.scrollWidth <= el.clientWidth),
+  ).toBe(true)
+
+  // 확장 상태에서도 hover 시 전체 이름 툴팁.
+  await chip.hover()
+  await expect(page.getByRole('tooltip', { name: longName })).toBeVisible()
 })

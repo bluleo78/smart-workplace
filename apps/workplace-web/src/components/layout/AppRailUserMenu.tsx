@@ -47,7 +47,8 @@ export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
               <span
                 className={cn(
                   'min-w-0 flex-1 truncate text-left font-medium overflow-hidden whitespace-nowrap transition-[max-width,opacity] duration-200',
-                  expanded ? 'lg:max-w-[80px] lg:opacity-100' : 'lg:max-w-0 lg:opacity-0',
+                  // 80px 상한은 실제 가용폭(~87px)보다 좁아 불필요하게 잘렸다(WP-198) — 가용폭은 flex-1 이 제한.
+                  expanded ? 'lg:max-w-[100px] lg:opacity-100' : 'lg:max-w-0 lg:opacity-0',
                 )}
               >
                 {user?.name ?? user?.username ?? '사용자'}

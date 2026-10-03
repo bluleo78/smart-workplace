@@ -49,10 +49,16 @@ export function WorkspaceSwitcher({ expanded = false }: { expanded?: boolean }) 
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground font-semibold">
                 {initial}
               </span>
+              {/* 확장 레일(152px)은 이름 가용폭이 ~87px 뿐이라 1줄 말줄임이면 법인명 대부분이 잘린다(WP-198).
+                  확장 시엔 음절 단위로 최대 2줄까지 감싸 노출하고, 그래도 넘치면 2줄 끝에서 말줄임 + 툴팁으로 전체 이름.
+                  2줄(13px·leading-tight ≈ 32.5px)은 아바타 높이(32px)와 같아 펼침 애니메이션 중 행 높이가 튀지 않는다.
+                  축소 시엔 nowrap 유지 — max-w-0 상태에서 줄바꿈되면 글자마다 줄이 늘어 버튼이 길어진다. */}
               <span
                 className={cn(
                   'min-w-0 flex-1 truncate text-left font-semibold overflow-hidden whitespace-nowrap transition-[max-width,opacity] duration-200',
-                  expanded ? 'lg:max-w-[80px] lg:opacity-100' : 'lg:max-w-0 lg:opacity-0',
+                  expanded
+                    ? 'lg:max-w-[100px] lg:opacity-100 lg:line-clamp-2 lg:whitespace-normal lg:wrap-anywhere lg:text-[13px] lg:leading-tight'
+                    : 'lg:max-w-0 lg:opacity-0',
                 )}
               >
                 {activeTenant.tenantName}
@@ -60,11 +66,10 @@ export function WorkspaceSwitcher({ expanded = false }: { expanded?: boolean }) 
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        {!expanded && (
-          <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
-            {activeTenant.tenantName}
-          </TooltipContent>
-        )}
+        {/* 축소 시엔 이름이 안 보이고, 확장 시엔 긴 이름이 2줄에서 잘릴 수 있어 두 상태 모두 전체 이름 툴팁(WP-198). */}
+        <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
+          {activeTenant.tenantName}
+        </TooltipContent>
       </Tooltip>
       <DropdownMenuContent side="right" align="start" className="w-56">
         <DropdownMenuLabel className="truncate">
