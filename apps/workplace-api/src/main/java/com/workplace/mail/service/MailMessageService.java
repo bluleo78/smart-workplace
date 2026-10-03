@@ -10,7 +10,7 @@ import com.workplace.mail.dto.MailSummaryResponse;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
 import com.workplace.mail.event.InlineContentIdBackfillRequestedEvent;
-import com.workplace.mail.event.MessageMarkedReadEvent;
+import com.workplace.mail.event.MessagesSeenChangedEvent;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.outbound.MailChangeNotifier;
@@ -192,9 +192,22 @@ public class MailMessageService {
     }
     requestContentIdBackfillIfNeeded(userId, detail);
     // 읽음 처리 — markSeen(웹 열람)이고 seen=false 일 때만. AI 조회(markSeen=false)는 건너뛴다(WP-147).
+    // WP-187: 이번 호출이 실제로 읽음으로 바꾼 경우에만 역동기화를 발행한다(동시 열람·이미 읽음이면 0행 → 생략). 계정 id 가 필요해 소유 대상 조회와
+    // 갱신을 한 트랜잭션으로 묶는다. 열람 경로는 mailChanged 를 보내지 않는다 — 웹이 자기 열람 이벤트로 상세를 다시 받게 되므로(R4).
     if (markSeen && !detail.seen()) {
-      txTemplate.executeWithoutResult(status -> messageRepo.markSeen(messageId));
-      publishMarkedRead(userId, messageId);
+      Long accountId =
+          txTemplate.execute(
+              status -> {
+                BodyTarget target =
+                    messageRepo.findBodyTargetForUser(userId, messageId).orElse(null);
+                if (target == null || messageRepo.markSeen(messageId) <= 0) {
+                  return null;
+                }
+                return target.accountId();
+              });
+      if (accountId != null) {
+        publishSeenChanged(userId, accountId, List.of(messageId));
+      }
       detail =
           new EmailMessageDetail(
               detail.id(),
@@ -223,7 +236,8 @@ public class MailMessageService {
   public void markRead(long userId, long messageId) {
     // 소유 확인(없으면 404)과 읽음 갱신을 한 트랜잭션으로 처리한다. UPDATE 반환 행 수로 "이번에 읽음으로 바뀐 건"만 판별(동시 호출에서도 한 번만 발행).
     // MailChangeNotifier 는 트랜잭션 안에서 호출해야 한다(AFTER_COMMIT 디스패처는 트랜잭션 밖 발행을 유실) — markSeen 과 같은 트랜잭션.
-    Boolean changed =
+    // 바뀌었으면 계정 id, 아니면 null — 공개 반환형(void)은 MCP 계약 그대로 둔다
+    Long changedAccountId =
         txTemplate.execute(
             status -> {
               BodyTarget target =
@@ -231,21 +245,25 @@ public class MailMessageService {
                       .findBodyTargetForUser(userId, messageId)
                       .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
               if (messageRepo.markSeen(messageId) <= 0) {
-                return false;
+                return null;
               }
               notifier.mailChanged(userId, target.accountId(), messageId, userId);
-              return true;
+              return target.accountId();
             });
-    if (Boolean.TRUE.equals(changed)) {
-      publishMarkedRead(userId, messageId);
+    if (changedAccountId != null) {
+      publishSeenChanged(userId, changedAccountId, List.of(messageId));
     }
   }
 
-  /** 역동기화 이벤트 발행 공용부 — TenantContext 가 null 이면 내부 경로이므로 생략(방어적). */
-  private void publishMarkedRead(long userId, long messageId) {
+  /**
+   * 역동기화 이벤트 발행 공용부(WP-187) — TenantContext 가 null 이면 내부 경로이므로 생략(방어적). 빈 목록은 발행하지 않는다. 목록은 비동기
+   * 리스너로 넘어가므로 불변 복사본으로 보낸다.
+   */
+  private void publishSeenChanged(long userId, long accountId, List<Long> messageIds) {
     Long tenantId = TenantContext.get();
-    if (tenantId != null) {
-      eventPublisher.publishEvent(new MessageMarkedReadEvent(tenantId, userId, messageId));
+    if (tenantId != null && !messageIds.isEmpty()) {
+      eventPublisher.publishEvent(
+          new MessagesSeenChangedEvent(tenantId, userId, accountId, List.copyOf(messageIds)));
     }
   }
 

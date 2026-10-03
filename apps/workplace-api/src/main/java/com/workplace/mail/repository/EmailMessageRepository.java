@@ -745,40 +745,9 @@ public class EmailMessageRepository {
   }
 
   /**
-   * 읽음 역동기화 식별자 조회(테넌트 RLS 스코프).
-   *
-   * <p>email_message → email_account(provider) → email_folder(name) 조인으로 역동기화에 필요한 식별자를 한 번에 조회한다.
-   *
-   * @param messageId 메시지 id
-   * @return 역동기화 식별자; 메시지가 없으면 empty
-   */
-  public Optional<ReadSyncLocator> findReadSyncLocator(long messageId) {
-    return dsl.select(
-            EMAIL_MESSAGE.ACCOUNT_ID,
-            EMAIL_ACCOUNT.PROVIDER,
-            EMAIL_MESSAGE.PROVIDER_MESSAGE_ID,
-            EMAIL_MESSAGE.IMAP_UID,
-            EMAIL_FOLDER.NAME)
-        .from(EMAIL_MESSAGE)
-        .join(EMAIL_ACCOUNT)
-        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
-        .join(EMAIL_FOLDER)
-        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .fetchOptional(
-            r ->
-                new ReadSyncLocator(
-                    r.value1(),
-                    MailProvider.valueOf(r.value2()),
-                    r.value3(),
-                    r.value4(),
-                    r.value5()));
-  }
-
-  /**
    * 로컬 열람 읽음 처리 — seen=true 와 함께 seen_push_pending=true(원본 서버 반영 대기)로 업데이트. 이미 읽은 건은
    * 스킵(SEEN.isFalse 조건). 실제 갱신된 행 수(0|1)를 반환한다. 대기 표시는 서버 반영이 예외 없이 끝나거나 반영할 방법이 없을 때 {@link
-   * #clearSeenPushPending} 로 풀린다(WP-148).
+   * #clearSeenPushPendingIf} 로 풀린다(WP-148, WP-187 조건부).
    */
   public int markSeen(long messageId) {
     return dsl.update(EMAIL_MESSAGE)
@@ -786,15 +755,6 @@ public class EmailMessageRepository {
         .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
-        .execute();
-  }
-
-  /** 서버 읽음 반영이 끝난 메시지의 "반영 대기" 표시를 푼다(WP-148). 실제 갱신된 행 수(0|1)를 반환한다. */
-  public int clearSeenPushPending(long messageId) {
-    return dsl.update(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, false)
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
-        .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isTrue())
         .execute();
   }
 

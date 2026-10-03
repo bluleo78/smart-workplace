@@ -82,6 +82,30 @@ public final class MailTestPorts {
     }
   }
 
+  /** WP-187: GreenMail 서버 쪽 \Seen 을 읽는다(제목 일치 INBOX 첫 메시지, 계정 box@test.local/pw 고정). */
+  public static boolean isServerSeen(String subject) throws Exception {
+    Properties props = new Properties();
+    props.put("mail.store.protocol", "imap");
+    Store store = Session.getInstance(props).getStore("imap");
+    store.connect("127.0.0.1", IMAP, "box@test.local", "pw");
+    try {
+      Folder inbox = store.getFolder("INBOX");
+      inbox.open(Folder.READ_ONLY);
+      try {
+        for (Message m : inbox.getMessages()) {
+          if (subject.equals(m.getSubject())) {
+            return m.isSet(Flags.Flag.SEEN);
+          }
+        }
+        throw new IllegalStateException("no message: " + subject);
+      } finally {
+        inbox.close(false);
+      }
+    } finally {
+      store.close();
+    }
+  }
+
   /** 헤더 1개를 덧붙인 평문 메일 1통을 보낸다(WP-149 자동 발송 헤더 판정 테스트용). */
   public static void sendWithHeader(
       String to, String from, String subject, String body, String headerName, String headerValue) {

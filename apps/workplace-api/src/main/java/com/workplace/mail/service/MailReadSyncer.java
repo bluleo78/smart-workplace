@@ -2,13 +2,16 @@ package com.workplace.mail.service;
 
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
-import com.workplace.mail.dto.ReadSyncLocator;
+import com.workplace.mail.dto.SeenSyncItem;
+import com.workplace.mail.dto.SeenSyncResult;
+import java.util.List;
 
 /**
- * 로컬 읽음표시를 원본 서버(Graph/IMAP)에 역동기화하는 공급자별 인터페이스.
+ * 로컬 읽음 상태를 원본 서버(Graph/IMAP)에 역동기화하는 공급자별 인터페이스(WP-187 일반화).
  *
- * <p>계약: 서버 반영이 실패하면(재시도에 의미가 있는 경우) 예외를 던지고, 다시 해도 안 되는 경우(uid·비밀번호 없음, 서버에 메일 없음 등)는 정상
- * 반환(건너뜀)한다. 예외는 호출 측 이벤트 리스너가 흡수(best-effort)하며, 예외로 끝난 메일만 "서버 반영 대기" 표시가 남는다.
+ * <p>계약: 받은 항목의 seen(처리 시점 DB 값)을 서버에 맞춘다. 재시도로 나아질 수 있는 전체 실패(접속·인증 등)는 예외로 던지고(호출 측이 그 묶음 전체의 대기
+ * 표시를 유지), 항목별 결과와 "이후 처리 중단(429·장애)" 여부는 {@link SeenSyncResult} 로 돌려준다. 다시 해도 안 되는 항목(서버 식별자·비밀번호
+ * 없음, 서버에 메일 없음)은 성공으로 본다 — 남길 이유가 없다.
  */
 public interface MailReadSyncer {
 
@@ -16,13 +19,14 @@ public interface MailReadSyncer {
   MailProvider provider();
 
   /**
-   * 원본 서버에 메시지 읽음 처리를 요청한다.
+   * 원본 서버에 항목별 읽음/안읽음을 반영한다.
    *
-   * @param userId 현재 사용자 id (Graph 토큰 조회 등에 사용)
-   * @param account 메일 계정 응답 DTO (IMAP 접속 정보 등 — Graph 구현은 무시 가능)
-   * @param loc 서버측 메시지 식별자 (providerMessageId 또는 imapUid+folderName)
-   * @throws Exception 서버 반영 실패(네트워크·인증·429 등) — 호출 측이 대기 표시를 유지한다
+   * @param userId 현재 사용자 id (Graph 토큰·IMAP 비밀번호 조회에 사용)
+   * @param account 메일 계정 응답 DTO (IMAP 접속 정보 — Graph 구현은 무시 가능)
+   * @param items 같은 계정의 반영 대기 항목(처리 시점 seen 포함)
+   * @return 반영이 끝난 메일 id 와 중단 여부
+   * @throws Exception 묶음 전체가 실패(네트워크·인증 등) — 호출 측이 대기 표시를 유지한다
    */
-  void markReadOnServer(long userId, EmailAccountResponse account, ReadSyncLocator loc)
+  SeenSyncResult syncSeen(long userId, EmailAccountResponse account, List<SeenSyncItem> items)
       throws Exception;
 }

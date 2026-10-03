@@ -1,6 +1,8 @@
 package com.workplace.mail.outbound;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.mail.config.M365GraphProperties;
 import com.workplace.mail.exception.MailSendException;
@@ -12,6 +14,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
@@ -229,6 +234,44 @@ public class GraphApiClient {
       Thread.currentThread().interrupt();
       throw new MailSendException("Graph post 요청이 중단됨", e);
     }
+  }
+
+  /**
+   * WP-187 Graph JSON batch(POST /$batch, 최대 20건). 최상위 응답이 2xx 가 아니면 예외(호출 측이 대기 유지), 2xx 면 항목별 상태를
+   * 돌려준다 — 항목별 429 등은 호출 측이 판정한다. 응답 순서는 요청과 다를 수 있으므로 id 를 그대로 돌려준다.
+   *
+   * @param accessToken 유효 access_token(평문)
+   * @param requests 배치 요청(최대 20건 — 호출 측이 자른다)
+   * @return 항목별 (id, status)
+   * @throws MailSendException 최상위 2xx 외 응답·네트워크 실패·직렬화 실패
+   */
+  public List<GraphBatchResponse> batch(String accessToken, List<GraphBatchRequest> requests) {
+    List<Map<String, Object>> reqs =
+        requests.stream()
+            .map(
+                r -> {
+                  // 배치 규약: body 가 있으면 Content-Type 헤더가 필수
+                  Map<String, Object> m = new LinkedHashMap<>();
+                  m.put("id", r.id());
+                  m.put("method", r.method());
+                  m.put("url", r.url());
+                  m.put("headers", Map.of("Content-Type", "application/json"));
+                  m.put("body", r.body());
+                  return m;
+                })
+            .toList();
+    String json;
+    try {
+      json = mapper.writeValueAsString(Map.of("requests", reqs));
+    } catch (JsonProcessingException e) {
+      throw new MailSendException("Graph batch 직렬화 실패", e);
+    }
+    JsonNode resp = post(accessToken, "/$batch", json, JsonNode.class);
+    List<GraphBatchResponse> out = new ArrayList<>();
+    for (JsonNode n : resp.path("responses")) {
+      out.add(new GraphBatchResponse(n.path("id").asText(), n.path("status").asInt()));
+    }
+    return out;
   }
 
   /**
