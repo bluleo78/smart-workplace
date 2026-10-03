@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
+import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory'
 import { systemTypes } from '../../factories/issueType.factory'
 import { createProject } from '../../factories/project.factory'
 
@@ -54,6 +54,50 @@ async function stubProjectList(page: Page) {
     }
     return route.fallback()
   })
+}
+
+// 이슈 상세 화면 공통 스텁 — attachments.spec.ts 의 setupCommonStubs 를 본문(body) 지정 가능하게 복사.
+async function setupDetailStubs(page: Page, body: string) {
+  await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+  )
+  await page.route(`**/api/v1/projects/${KEY}/members`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+  })
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues/1`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          createIssueDetail({
+            summary: createIssue({ id: 1, number: 1, title: '본문 이미지 대상' }),
+            body,
+            comments: [],
+            history: [],
+            attachments: [],
+          }),
+        ),
+      })
+    },
+  )
+  for (const sub of ['watchers', 'labels', 'drive-links']) {
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${KEY}/issues/1/${sub}`,
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    )
+  }
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/labels`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/spaces',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  )
 }
 
 test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
@@ -111,5 +155,37 @@ test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
       name: 'doc.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4'),
     })
     await expect(page.getByText('PNG·JPEG·GIF·WebP 이미지만 10MB 까지 올릴 수 있습니다.')).toBeVisible()
+  })
+})
+
+test.describe('이슈 본문 이미지 — 상세 편집', () => {
+  test('편집 중 드롭한 이미지가 저장 요청 본문에 들어가고, 업로드 중엔 저장·단축키가 막힌다', async ({ authenticatedPage: page }) => {
+    await setupDetailStubs(page, '기존 본문')
+    const upload = await stubUpload(page)
+    let patched: string | undefined
+    await page.route(
+      (u) => u.pathname === `/api/v1/projects/${KEY}/issues/1`,
+      async (route) => {
+        if (route.request().method() !== 'PATCH') return route.fallback()
+        patched = route.request().postDataJSON().body
+        await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+      },
+    )
+    await page.goto(`/projects/${KEY}/issues/1`)
+    await page.getByRole('button', { name: '본문 편집' }).click()
+    const ta = page.getByTestId('issue-body-textarea')
+    await ta.evaluate((el) => {
+      const dt = new DataTransfer()
+      dt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'bug.png', { type: 'image/png' }))
+      el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
+    })
+    await expect(page.getByTestId('issue-body-save')).toBeDisabled()
+    await ta.press('ControlOrMeta+Enter')
+    expect(patched).toBeUndefined()
+
+    upload.release()
+    await expect(ta).toHaveValue(new RegExp(`!\\[bug\\.png\\]\\(${IMG_URL.replace(/\//g, '\\/')}\\)`))
+    await page.getByTestId('issue-body-save').click()
+    await expect.poll(() => patched).toContain(`![bug.png](${IMG_URL})`)
   })
 })

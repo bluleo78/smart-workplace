@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 
+import { IssueBodyImageButton } from '../../components/issue/IssueBodyImageButton';
 import { IssueInstantContextCard } from '../../components/issue/IssueInstantContextCard';
 import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
 import { useGenerateAiSummary, useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
@@ -39,10 +40,12 @@ import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle'
 import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
 import { useIsMobile } from '../../hooks/useIsMobile';
+import { useIssueImageUpload } from '../../hooks/useIssueImageUpload';
 import { useReturnOnEscape, useReturnToIssueOrigin } from '../../hooks/useIssueOrigin';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '../../lib/api-error';
+import { hasPendingToken } from '../../lib/markdownImageInsert';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueChatButton } from './components/chat/IssueChatButton';
 import { IssueChatDrawer } from './components/chat/IssueChatDrawer';
@@ -109,6 +112,26 @@ function InlineEditableBody({
   const [showDraftBanner, setShowDraftBanner] = useState(false);
   const draftKey = bodyDraftKey(projectKey, issueNumber);
 
+  // 이미지 붙여넣기·드롭·버튼 업로드(WP-199) — 업로드 중엔 본문에 자리표시 토큰이 들어가 있다.
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // 업로드 콜백은 비동기라 렌더 시점 draft 가 아니라 항상 최신 값을 봐야 한다 — ref 로 미러링.
+  const draftRef = useRef(draft);
+  // 렌더 중 ref 쓰기는 금지(react-hooks/refs) — 커밋 후 effect 로 동기화. 업로드 setValue 는 ref 를 즉시 갱신한다.
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  const images = useIssueImageUpload({
+    projectKey,
+    textareaRef,
+    getValue: () => draftRef.current,
+    setValue: (v) => {
+      draftRef.current = v;
+      setDraft(v);
+    },
+    enabled: !disabled,
+  });
+  const uploading = images.pendingCount > 0;
+
   // 저장 없이 새로고침/탭 닫기로 이탈 시 경고(#823) — 코멘트 작성창(#620)·이슈 생성
   // 다이얼로그와 동일 패턴. beforeunload 만 커버하므로 SPA 내부 네비게이션(사이드바 링크·
   // 뒤로가기)은 아래 localStorage 초안 자동저장(#824)으로 보완한다. 이 경고는 그대로 유지.
@@ -148,6 +171,8 @@ function InlineEditableBody({
   };
   // 저장 — 빈 값 허용, 변화 없으면 무의미 요청 차단. 저장 후 초안은 정리해 남기지 않는다.
   const save = async () => {
+    // 업로드 중 자리표시 토큰이 서버에 저장되지 않도록 단축키·버튼 공통으로 막는다.
+    if (uploading || hasPendingToken(draft)) return;
     setEditing(false);
     setShowDraftBanner(false);
     if (draft === (body ?? '')) {
@@ -233,9 +258,13 @@ function InlineEditableBody({
         autoFocus
         data-testid="issue-body-textarea"
         className="min-h-[160px]"
+        ref={textareaRef}
         value={draft}
         disabled={disabled}
         onChange={(e) => setDraft(e.target.value)}
+        onPaste={images.onPaste}
+        onDrop={images.onDrop}
+        onDragOver={images.onDragOver}
         onKeyDown={(e) => {
           // 단축키: Cmd/Ctrl+Enter 저장 · Esc 취소. (blur 저장 없음 — 명시적 버튼 사용)
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -249,7 +278,12 @@ function InlineEditableBody({
       />
       {/* 편집 액션 — 하단 좌측 저장/취소(Jira 식). */}
       <div className="flex items-center gap-2">
-        <Button size="sm" onClick={save} disabled={disabled} data-testid="issue-body-save">
+        <Button
+          size="sm"
+          onClick={save}
+          disabled={disabled || uploading}
+          data-testid="issue-body-save"
+        >
           저장
         </Button>
         <Button
@@ -261,6 +295,13 @@ function InlineEditableBody({
         >
           취소
         </Button>
+        {/* 이미지 첨부 — 버튼 선택 외에 붙여넣기·드롭도 지원함을 안내(우측 정렬). */}
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            이미지를 붙여넣거나 끌어다 놓을 수 있어요
+          </span>
+          <IssueBodyImageButton onFiles={images.uploadFiles} disabled={disabled} />
+        </div>
       </div>
     </div>
   );
