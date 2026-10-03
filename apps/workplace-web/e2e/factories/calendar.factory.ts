@@ -1,5 +1,24 @@
 // 캘린더 E2E 팩토리 — 일정·캘린더 컨테이너 응답 모킹용.
-import type { Calendar, CalendarEvent } from '../../src/types/calendar'
+import type { Attendee, Calendar, CalendarEvent } from '../../src/types/calendar'
+
+/** 참석자 행 팩토리 — userId 가 null 이면 외부 이메일 참석자. */
+export function attendee(
+  role: Attendee['role'],
+  userId: number | null,
+  over: Partial<Attendee> = {},
+): Attendee {
+  return {
+    userId,
+    username: userId == null ? null : `u${userId}`,
+    name: userId == null ? 'Boss' : `사용자${userId}`,
+    kind: userId == null ? 'EXTERNAL' : 'HUMAN',
+    role,
+    rsvpStatus: 'ACCEPTED',
+    invitedByUserId: null,
+    externalEmail: userId == null ? 'boss@partner.com' : null,
+    ...over,
+  }
+}
 
 export function calendarEvent(over: Partial<CalendarEvent> = {}): CalendarEvent {
   return {

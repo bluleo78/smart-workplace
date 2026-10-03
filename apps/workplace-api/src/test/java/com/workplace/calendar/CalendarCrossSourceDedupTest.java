@@ -85,18 +85,35 @@ class CalendarCrossSourceDedupTest extends IntegrationTestBase {
     assertThat(listedIds(me)).contains(invited);
   }
 
-  /** ③ 같은 iCalUId 라도 시작시각이 다르면(반복 회차 유사) 제거하지 않는다. */
+  /**
+   * ③ 같은 iCalUId 면 시작시각이 달라도 초대 사본을 제거한다(WP-200). 주최자가 시간을 옮기면 내 동기화 사본은 다음 동기화 전까지 옛 시각에 남는데,
+   * 시작시각까지 키로 쓰면 그 사이 같은 미팅이 두 번 보였다.
+   */
   @Test
-  void sameUid_differentStart_notDeduped() {
+  void sameUid_differentStart_stillDeduped() {
     long me = seedUser("me");
     long org = seedUser("org");
     long ownedAtT = service.create(me, req(T, List.of())).id();
     long invitedAtT2 = service.create(org, req(T.plusHours(2), List.of(me))).id();
     stampIcalUid(ownedAtT, "UID-1");
-    stampIcalUid(invitedAtT2, "UID-1"); // 동일 UID, 다른 시작시각
+    stampIcalUid(invitedAtT2, "UID-1"); // 동일 UID, 다른 시작시각(주최자가 옮긴 직후)
 
-    // T2 그룹엔 소유 사본이 없으므로 초대 사본 보존
-    assertThat(listedIds(me)).contains(ownedAtT).contains(invitedAtT2);
+    assertThat(listedIds(me)).contains(ownedAtT).doesNotContain(invitedAtT2);
+  }
+
+  /** ③-b 반복 미팅 회차(같은 iCalUId·여러 시작시각)는 내 소유 회차를 하나도 병합하지 않는다 — 제거 대상은 초대 사본뿐. */
+  @Test
+  void sameUid_multipleOwnedOccurrences_allKept() {
+    long me = seedUser("me");
+    long org = seedUser("org");
+    long ownedAtT = service.create(me, req(T, List.of())).id();
+    long ownedAtT2 = service.create(me, req(T.plusHours(2), List.of())).id();
+    long invitedAtT = service.create(org, req(T, List.of(me))).id();
+    stampIcalUid(ownedAtT, "UID-1");
+    stampIcalUid(ownedAtT2, "UID-1");
+    stampIcalUid(invitedAtT, "UID-1");
+
+    assertThat(listedIds(me)).contains(ownedAtT, ownedAtT2).doesNotContain(invitedAtT);
   }
 
   /** ④ iCalUId 가 NULL(순수 로컬)이면 dedup 무영향 — 둘 다 보존. */

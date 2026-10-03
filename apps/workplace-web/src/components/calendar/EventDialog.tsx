@@ -35,6 +35,7 @@ import {
 } from '@/hooks/queries/useCalendarMutations'
 import { useCalendars } from '@/hooks/queries/useCalendars'
 import { useAuth } from '@/hooks/useAuth'
+import { isNotEventOrganizer } from '@/lib/calendar'
 import { PALETTE_KEYS, resolvePalette } from '@/lib/calendarPalette'
 import { buildRRule, parseRRule, type RecurrenceForm } from '@/lib/recurrence'
 import { cn } from '@/lib/utils'
@@ -218,11 +219,6 @@ export function EventDialog({
   // 개인 캘린더 목록 — 드롭다운에 표시. 로드 전은 빈 배열.
   const { data: calendars = [] } = useCalendars()
 
-  // 이벤트가 속한 캘린더가 읽기전용(외부 동기화)인지 여부 — calendarId 로 파생.
-  // 이벤트 API 응답을 건드리지 않고 캘린더 목록에서 derive. (이슈 #501)
-  const isReadOnly = isEdit
-    ? (calendars.find((c) => c.id === event?.calendarId)?.isReadOnly ?? false)
-    : false
   // 기본 캘린더 id — isDefault=true 우선, 없으면 첫 번째.
   const defaultCalendarId = calendars.find((c) => c.isDefault)?.id ?? calendars[0]?.id
 
@@ -238,6 +234,23 @@ export function EventDialog({
   const { data: detailEvent } = useCalendarEvent(isEdit && open ? event?.id : undefined)
   // detailEvent 가 있으면 그것을, 없으면 prop event 를 사용 (생성 모드 / 로딩 중)
   const eventWithDetail = detailEvent ?? event
+
+  // 이벤트가 속한 캘린더 — 내 캘린더 목록에서 찾는다. 이벤트 API 응답을 건드리지 않고 derive. (이슈 #501)
+  const eventCalendar = calendars.find((c) => c.id === event?.calendarId)
+  // 주최자만 수정 가능(WP-200): 내 캘린더에 없는 일정(초대받은 다른 사람 일정)이거나, 내 동기화 사본이어도 주최자가 아니면 수정 불가.
+  // 캘린더 목록 로드 전엔 "내 캘린더 아님"을 판단하지 않는다. 백엔드 requireOwner+requireOrganizer 와 같은 술어.
+  const notOrganizer =
+    isEdit && ((calendars.length > 0 && !eventCalendar) || isNotEventOrganizer(detailEvent))
+  // 읽기전용 = 외부 읽기전용 캘린더(#501) 또는 주최자 아님(WP-200). 저장·삭제 숨김 + 입력 비활성.
+  const isReadOnly = isEdit && ((eventCalendar?.isReadOnly ?? false) || notOrganizer)
+  // 읽기전용 사유 라벨 — 주최자 아님을 우선 안내("동기화됨"만으로는 왜 못 고치는지 알 수 없다).
+  const readOnlyLabel = notOrganizer
+    ? { testId: 'event-organizer-only-label', text: '주최자만 수정할 수 있어요' }
+    : isReadOnly
+      ? { testId: 'event-synced-label', text: 'M365에서 동기화됨' }
+      : null
+  // 편집 모드 참석자 즉시 초대·제거 가능 여부 — 주최자 + 읽기전용 아님(생성 모드는 myRole 이 없어 false).
+  const canManageAttendees = !isReadOnly && eventWithDetail?.myRole === 'ORGANIZER'
 
   // 편집 모드 참석자 invite/remove 뮤테이션 — eventId 0 은 dummy(생성 모드에서 훅 호출 유지) (이슈 #489)
   const inviteAttendees = useInviteAttendees(event?.id ?? 0)
@@ -393,13 +406,13 @@ export function EventDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? '일정 수정' : '새 일정'}</DialogTitle>
           <DialogDescription className="sr-only">{isEdit ? '일정 수정' : '새 일정'}</DialogDescription>
-          {/* 외부 동기화 캘린더 이벤트는 읽기전용임을 사용자에게 안내. (이슈 #501) */}
-          {isReadOnly && (
+          {/* 읽기전용 사유 안내 — 외부 동기화 캘린더(#501) 또는 주최자 아님(WP-200) */}
+          {readOnlyLabel && (
             <span
-              data-testid="event-synced-label"
-              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+              data-testid={readOnlyLabel.testId}
+              className="inline-flex items-center self-center sm:self-start gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
             >
-              M365에서 동기화됨
+              {readOnlyLabel.text}
             </span>
           )}
         </DialogHeader>
@@ -685,21 +698,14 @@ export function EventDialog({
           )}
 
           {/* 참석자 섹션 — 생성 모드: 로컬 선택, 편집 모드: 상세 attendees + 즉시 invite/remove (이슈 #489) */}
-          {/* onInvite/onRemove 는 내가 ORGANIZER 일 때만 노출 — 외부 일정은 읽기 전용 (#547) */}
+          {/* onInvite/onRemove 는 내가 ORGANIZER 이고 읽기전용이 아닐 때만 노출 (#547). 그 외 편집 모드는 추가 버튼도 숨김(WP-200) */}
           <AttendeeSection
             selectedMembers={selectedAttendees}
             onChange={setSelectedAttendees}
             attendees={eventWithDetail?.attendees}
-            onInvite={
-              isEdit && eventWithDetail?.myRole === 'ORGANIZER'
-                ? (userId) => inviteAttendees.mutate([userId])
-                : undefined
-            }
-            onRemove={
-              isEdit && eventWithDetail?.myRole === 'ORGANIZER'
-                ? (userId) => removeAttendee.mutate(userId)
-                : undefined
-            }
+            onInvite={canManageAttendees ? (userId) => inviteAttendees.mutate([userId]) : undefined}
+            onRemove={canManageAttendees ? (userId) => removeAttendee.mutate(userId) : undefined}
+            hideAdd={isEdit && !canManageAttendees}
           />
 
           {/* 설명 */}
@@ -742,9 +748,13 @@ export function EventDialog({
               >
                 {isReadOnly ? '닫기' : '취소'}
               </Button>
-              {/* 읽기전용 캘린더 이벤트는 저장 버튼 숨김 (이슈 #501) */}
+              {/* 읽기전용 캘린더 이벤트는 저장 버튼 숨김 (이슈 #501). 편집 모드는 상세(주최자 여부) 로드 전 비활성 — 판정 전 저장으로 403 방지(WP-200) */}
               {!isReadOnly && (
-                <Button type="submit" data-testid="calendar-form-submit" disabled={isPending}>
+                <Button
+                  type="submit"
+                  data-testid="calendar-form-submit"
+                  disabled={isPending || (isEdit && !detailEvent)}
+                >
                   {isPending ? '저장 중…' : isEdit ? '수정' : '저장'}
                 </Button>
               )}

@@ -47,6 +47,8 @@ interface AttendeeSectionProps {
   onInvite?: (userId: number) => void
   /** 편집 모드에서 참석자 제거 콜백 */
   onRemove?: (userId: number) => void
+  /** true 면 "참석자 추가" 버튼을 숨긴다 — 편집 권한 없는 일정(주최자 아님·읽기전용)에서 눌러도 저장되지 않던 문제(WP-200) */
+  hideAdd?: boolean
 }
 
 /**
@@ -60,6 +62,7 @@ export function AttendeeSection({
   attendees,
   onInvite,
   onRemove,
+  hideAdd = false,
 }: AttendeeSectionProps) {
   const [open, setOpen] = useState(false)
 
@@ -150,22 +153,24 @@ export function AttendeeSection({
       )}
 
       {/* 참석자 추가 팝오버 */}
-      <MemberSearchPopover
-        open={open}
-        onOpenChange={setOpen}
-        existingMemberIds={existingSet}
-        onSelect={handleSelect}
-        trigger={
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-testid="attendee-add-btn"
-          >
-            참석자 추가
-          </Button>
-        }
-      />
+      {!hideAdd && (
+        <MemberSearchPopover
+          open={open}
+          onOpenChange={setOpen}
+          existingMemberIds={existingSet}
+          onSelect={handleSelect}
+          trigger={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid="attendee-add-btn"
+            >
+              참석자 추가
+            </Button>
+          }
+        />
+      )}
     </div>
   )
 }

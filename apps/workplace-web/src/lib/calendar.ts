@@ -154,6 +154,18 @@ export function toggleCalendar(layers: CalendarLayers, calendarId: number): Cale
   }
 }
 
+// 내가 이 일정의 주최자가 아닌지(WP-200) — 상세(GET /events/{id}) 응답 기준. 백엔드 수정·삭제 가드(requireOrganizer)와 같은 규칙:
+// 내 역할이 ATTENDEE 이거나, 주최자가 나 아닌 다른 내부 사용자면 true. 외부 이메일 주최자 + 내 행 없음은 별칭으로 온 내 미팅일 수 있어 false.
+// 목록 응답(attendees 없음)이나 참석자 행이 없는 옛 일정도 false.
+export function isNotEventOrganizer(
+  event: Pick<CalendarEvent, 'myRole' | 'attendees'> | null | undefined,
+): boolean {
+  if (!event) return false
+  if (event.myRole === 'ATTENDEE') return true
+  return event.myRole !== 'ORGANIZER' &&
+    (event.attendees?.some((a) => a.role === 'ORGANIZER' && a.userId != null) ?? false)
+}
+
 // 공급자 raw 문자열 → 사이드바 pill 라벨. IMAP 은 일정 동기화를 안 하므로 현재는 M365 만 실제 등장.
 export function providerLabel(provider: string | null | undefined): string {
   switch (provider) {

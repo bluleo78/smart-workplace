@@ -6,6 +6,7 @@ import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.dto.CalendarResponse;
 import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
+import com.workplace.calendar.exception.EventNotOrganizerException;
 import com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException;
 import com.workplace.calendar.exception.ExternalEventAttendeeNotOrganizerException;
 import com.workplace.calendar.exception.ExternalEventMoveNotSupportedException;
@@ -365,9 +366,9 @@ public class CalendarEventService {
   }
 
   /**
-   * 크로스소스 중복 제거 — 같은 실제 미팅(동일 iCalUId·시작시각)이 "내 소유 캘린더의 동기화 사본"과 "주최자 캘린더 크로스가시성 초대 사본"으로 두 번 나타나는
-   * 것을 조회 시점에 제거한다. 승자=내 소유 사본, 제거=비소유(초대) 사본. iCalUId 가 없는(순수 로컬) 이벤트는 무영향. 뷰어별 계산이므로 각 사용자에게 올바른
-   * 사본이 남는다. events 리스트를 제자리(in-place)에서 수정한다.
+   * 크로스소스 중복 제거 — 같은 실제 미팅(동일 iCalUId)이 "내 소유 캘린더의 동기화 사본"과 "주최자 캘린더 크로스가시성 초대 사본"으로 두 번 나타나는 것을 조회
+   * 시점에 제거한다. 승자=내 소유 사본, 제거=비소유(초대) 사본. iCalUId 가 없는(순수 로컬) 이벤트는 무영향. 뷰어별 계산이므로 각 사용자에게 올바른 사본이
+   * 남는다. events 리스트를 제자리(in-place)에서 수정한다.
    */
   private void dedupeCrossSource(long callerId, List<CalendarEventResponse> events) {
     // 내 소유 캘린더 id 집합(로컬 + 내 외부 컨테이너)
@@ -375,24 +376,21 @@ public class CalendarEventService {
     for (CalendarResponse c : calendarRepo.listByOwner(callerId)) {
       ownedCalendarIds.add(c.id());
     }
-    // 1차: 내 소유 사본이 존재하는 (iCalUId, 시작시각) 그룹 키 수집
-    Set<String> ownedKeys = new HashSet<>();
+    // 1차: 내 소유 사본이 존재하는 iCalUId 수집. 시작시각은 키에 넣지 않는다(WP-200) — 주최자가 시간을 옮기면 내 사본은 다음 동기화 전까지
+    // 옛 시각에 남아 키가 어긋나 같은 미팅이 두 번 보였다. 제거 대상은 비소유 사본뿐이라 내 반복 회차가 서로 병합될 일은 없다. iCalUId 는 동기화
+    // 일정에만 있고 동기화 일정은 회차별 단일 행(반복 마스터 아님)이다. 내가 지운 회차의 주최자 사본이 가려지는 것은 "지운 일정이 되살아나지 않음"으로 의도와 같다.
+    Set<String> ownedUids = new HashSet<>();
     for (CalendarEventResponse e : events) {
       if (e.iCalUid() != null && ownedCalendarIds.contains(e.calendarId())) {
-        ownedKeys.add(dedupKey(e));
+        ownedUids.add(e.iCalUid());
       }
     }
-    // 2차: 비소유(초대) 사본이면서 그룹에 소유 사본이 있으면 제거
+    // 2차: 비소유(초대) 사본이면서 같은 미팅의 소유 사본이 있으면 제거
     events.removeIf(
         e ->
             e.iCalUid() != null
                 && !ownedCalendarIds.contains(e.calendarId())
-                && ownedKeys.contains(dedupKey(e)));
-  }
-
-  /** dedup 그룹 키 = iCalUId + 시작 시각(epoch-milli). 반복 회차 과잉 병합 방지를 위해 시작시각 포함. */
-  private static String dedupKey(CalendarEventResponse e) {
-    return e.iCalUid() + "|" + e.startsAt().toInstant().toEpochMilli();
+                && ownedUids.contains(e.iCalUid()));
   }
 
   /**
@@ -1200,6 +1198,7 @@ public class CalendarEventService {
     validateRecurrence(req.recurrenceRule());
     validateColorOverride(req.color());
     requireOwner(callerId, id);
+    requireOrganizer(callerId, id);
     requireWritableEvent(id);
     // 대상 행은 한 번만 읽어 회차 식별자 판정·외부 컨텍스트 해석에 함께 쓴다.
     CalendarEventResponse cur =
@@ -1247,6 +1246,7 @@ public class CalendarEventService {
   public void validateDeletable(
       long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
     requireOwner(callerId, id);
+    requireOrganizer(callerId, id);
     requireWritableEvent(id);
     requireOccurrenceDateIfRecurring(
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id)),
@@ -1377,6 +1377,20 @@ public class CalendarEventService {
     long ownerId = repo.findOwnerId(id).orElseThrow(() -> new CalendarEventNotFoundException(id));
     if (ownerId != callerId) {
       throw new CalendarEventNotFoundException(id);
+    }
+  }
+
+  /**
+   * 주최자 검증(WP-200) — 다른 사람이 주최한 미팅은 내 캘린더의 동기화 사본(owner=나)이어도 수정·삭제를 막는다. 소유자 검증만으로는 이 사본의 시간 수정이
+   * 통과해 주최자 사본과 시작시각이 어긋나며 같은 미팅이 두 번 보였다.
+   *
+   * <p>막는 경우: 내 역할이 ATTENDEE 이거나, 주최자가 나 아닌 다른 내부 사용자. 주최자가 외부 이메일이고 내 행이 없으면 허용한다 — 동기화는 계정 이메일과
+   * 정확히 같은 주소만 나로 매칭하므로, 별칭(UPN·보조 SMTP)으로 온 내 미팅이 외부 주최자로 저장될 수 있다(내 미팅을 못 고치게 막지 않기 위함). 참석자 행이
+   * 없는 일정(V89 이전 생성분)도 소유자 검증만으로 허용. requireOwner 뒤에 호출한다.
+   */
+  private void requireOrganizer(long callerId, long id) {
+    if (attendeeRepo.isNonOrganizer(id, callerId)) {
+      throw new EventNotOrganizerException();
     }
   }
 

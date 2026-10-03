@@ -189,6 +189,28 @@ public class EventAttendeeRepository {
                     .and(EVENT_ATTENDEE.ROLE.eq("ORGANIZER"))));
   }
 
+  /**
+   * userId 가 이 일정의 비주최자인지(WP-200 수정·삭제 차단 판정) — 내 행이 ATTENDEE 이거나, 다른 내부 사용자가 ORGANIZER 면 true. 외부
+   * 이메일 주최자는 별칭으로 온 내 미팅일 수 있어 차단 근거로 쓰지 않는다. 행 조회 없이 EXISTS 한 번.
+   */
+  public boolean isNonOrganizer(long eventId, long userId) {
+    return dsl.fetchExists(
+        dsl.select(EVENT_ATTENDEE.ID)
+            .from(EVENT_ATTENDEE)
+            .where(EVENT_ATTENDEE.EVENT_ID.eq(eventId))
+            .and(
+                EVENT_ATTENDEE
+                    .USER_ID
+                    .eq(userId)
+                    .and(EVENT_ATTENDEE.ROLE.eq("ATTENDEE"))
+                    .or(
+                        EVENT_ATTENDEE
+                            .ROLE
+                            .eq("ORGANIZER")
+                            .and(EVENT_ATTENDEE.USER_ID.isNotNull())
+                            .and(EVENT_ATTENDEE.USER_ID.ne(userId)))));
+  }
+
   /** 외부 참석자 삭제 — external_email 기준. */
   public int deleteByEventAndExternalEmail(long eventId, String externalEmail) {
     return dsl.deleteFrom(EVENT_ATTENDEE)

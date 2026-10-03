@@ -1,7 +1,32 @@
 import { describe, expect, it } from 'vitest'
 
-import type { CalendarEvent } from '../types/calendar'
-import { allDayLocalDate, eventsOnDay,monthMatrix, visibleRange, weekDays } from './calendar'
+import type { Attendee, CalendarEvent } from '../types/calendar'
+import { allDayLocalDate, eventsOnDay, isNotEventOrganizer, monthMatrix, visibleRange, weekDays } from './calendar'
+
+describe('isNotEventOrganizer (WP-200)', () => {
+  const att = (role: Attendee['role'], userId: number | null): Attendee => ({
+    userId, username: null, name: 'n', kind: userId == null ? 'EXTERNAL' : 'HUMAN', role,
+    rsvpStatus: 'ACCEPTED', invitedByUserId: null, externalEmail: userId == null ? 'x@y.com' : null,
+  })
+
+  it('내 역할이 ATTENDEE 면 주최자가 아니다', () => {
+    expect(isNotEventOrganizer({ myRole: 'ATTENDEE', attendees: [att('ORGANIZER', 2), att('ATTENDEE', 1)] })).toBe(true)
+  })
+  it('다른 내부 사용자가 주최자이고 내 행이 없으면 주최자가 아니다', () => {
+    expect(isNotEventOrganizer({ myRole: null, attendees: [att('ORGANIZER', 2)] })).toBe(true)
+  })
+  it('외부 이메일 주최자 + 내 행 없음은 별칭으로 온 내 미팅일 수 있어 막지 않는다', () => {
+    expect(isNotEventOrganizer({ myRole: null, attendees: [att('ORGANIZER', null)] })).toBe(false)
+  })
+  it('내가 ORGANIZER 면 주최자다', () => {
+    expect(isNotEventOrganizer({ myRole: 'ORGANIZER', attendees: [att('ORGANIZER', 1)] })).toBe(false)
+  })
+  it('참석자 정보가 없으면(목록 응답·옛 일정) 막지 않는다', () => {
+    expect(isNotEventOrganizer({ myRole: null, attendees: null })).toBe(false)
+    expect(isNotEventOrganizer({ myRole: null, attendees: [] })).toBe(false)
+    expect(isNotEventOrganizer(undefined)).toBe(false)
+  })
+})
 
 const ev = (id: number, startsAt: string, endsAt: string, allDay = false): CalendarEvent => ({
   id, title: `e${id}`, description: null, startsAt, endsAt, allDay,

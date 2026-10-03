@@ -3,7 +3,7 @@
 import type { Page } from '@playwright/test'
 
 import type { Calendar, CalendarEvent } from '../../../src/types/calendar'
-import { calendar, calendarEvent } from '../../factories/calendar.factory'
+import { attendee, calendar, calendarEvent } from '../../factories/calendar.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 
@@ -264,3 +264,119 @@ test(
     await expect(page.getByTestId('calendar-form-submit')).toBeVisible()
   },
 )
+
+// ── WP-200: 주최자만 수정 ──────────────────────────────────────
+// 로그인 사용자 id=1(auth.factory). 쓰기 가능한 내 M365 캘린더 id=10.
+const writableM365 = calendar({
+  id: 10,
+  name: 'Calendar',
+  color: 'indigo',
+  isDefault: false,
+  isReadOnly: false,
+  accountEmail: 'dh.yang@iacloud.kr',
+  provider: 'M365_GRAPH',
+})
+const localDefault = calendar({ id: 1, name: '기본', color: 'blue', isDefault: true, isReadOnly: false })
+
+test('다른 사람이 주최한 미팅의 내 동기화 사본은 주최자만 수정 가능으로 열린다', async ({
+  authenticatedPage: page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+  // 내 쓰기 가능 M365 캘린더에 있지만 주최자는 사용자2, 나는 ATTENDEE(syncAttendees 결과 모양)
+  const invitedCopy = calendarEvent({
+    id: 50,
+    title: '분기 리뷰',
+    calendarId: 10,
+    calendarName: 'Calendar',
+    startsAt: '2026-06-10T01:00:00Z',
+    endsAt: '2026-06-10T02:00:00Z',
+    external: true,
+    myRole: 'ATTENDEE',
+    myRsvpStatus: 'ACCEPTED',
+    attendees: [attendee('ORGANIZER', 2), attendee('ATTENDEE', 1)],
+  })
+  await stubForDialog(page, [localDefault, writableM365], [invitedCopy])
+
+  // 수정·삭제 요청이 나가면 안 된다 — 나가면 기록해 실패시킨다.
+  const writes: string[] = []
+  page.on('request', (r) => {
+    if (r.url().includes('/calendar/events/50') && ['PATCH', 'DELETE'].includes(r.method())) {
+      writes.push(r.method())
+    }
+  })
+
+  await page.goto('/calendar')
+  await page.getByTestId('calendar-event-50').first().click()
+  await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+  // 이유 안내는 "주최자만" 라벨(동기화 라벨 대신)
+  await expect(page.getByTestId('event-organizer-only-label')).toHaveText('주최자만 수정할 수 있어요')
+  await expect(page.getByTestId('event-synced-label')).toHaveCount(0)
+  // 입력 비활성 + 저장·삭제 없음
+  await expect(page.getByTestId('calendar-form-title')).toBeDisabled()
+  await expect(page.getByTestId('calendar-form-submit')).toHaveCount(0)
+  await expect(page.getByTestId('calendar-form-delete')).toHaveCount(0)
+  // 참석자 추가도 불가(눌러도 저장되지 않던 버튼 숨김)
+  await expect(page.getByTestId('attendee-add-btn')).toHaveCount(0)
+  expect(writes).toEqual([])
+})
+
+test('내 캘린더에 없는 초대 일정은 상세 로드 전부터 수정 불가이고 RSVP 만 가능하다', async ({
+  authenticatedPage: page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+  // 사용자2의 캘린더(id=99, 내 목록에 없음)에 있는 일정 — 나는 참석자
+  const othersEvent = calendarEvent({
+    id: 60,
+    title: '사용자2 주최 회의',
+    calendarId: 99,
+    calendarName: '사용자2 캘린더',
+    startsAt: '2026-06-10T01:00:00Z',
+    endsAt: '2026-06-10T02:00:00Z',
+    myRole: 'ATTENDEE',
+    myRsvpStatus: 'NEEDS_ACTION',
+    attendees: [attendee('ORGANIZER', 2), attendee('ATTENDEE', 1, { rsvpStatus: 'NEEDS_ACTION' })],
+  })
+  await stubForDialog(page, [localDefault], [othersEvent])
+
+  await page.goto('/calendar')
+  await page.getByTestId('calendar-event-60').first().click()
+  await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+  await expect(page.getByTestId('event-organizer-only-label')).toBeVisible()
+  await expect(page.getByTestId('calendar-form-submit')).toHaveCount(0)
+  await expect(page.getByTestId('calendar-form-delete')).toHaveCount(0)
+  // 참석 응답은 계속 가능
+  await expect(page.getByTestId('rsvp-controls')).toBeVisible()
+})
+
+test('내가 주최한 동기화 일정은 쓰기 가능 캘린더에서 그대로 수정할 수 있다 (회귀)', async ({
+  authenticatedPage: page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+
+  const myMeeting = calendarEvent({
+    id: 70,
+    title: '내가 연 회의',
+    calendarId: 10,
+    calendarName: 'Calendar',
+    startsAt: '2026-06-10T01:00:00Z',
+    endsAt: '2026-06-10T02:00:00Z',
+    external: true,
+    myRole: 'ORGANIZER',
+    myRsvpStatus: 'ACCEPTED',
+    attendees: [attendee('ORGANIZER', 1), attendee('ATTENDEE', 2)],
+  })
+  await stubForDialog(page, [localDefault, writableM365], [myMeeting])
+
+  await page.goto('/calendar')
+  await page.getByTestId('calendar-event-70').first().click()
+  await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+  await expect(page.getByTestId('event-organizer-only-label')).toHaveCount(0)
+  await expect(page.getByTestId('calendar-form-title')).toBeEnabled()
+  await expect(page.getByTestId('calendar-form-submit')).toBeVisible()
+  await expect(page.getByTestId('attendee-add-btn')).toBeVisible()
+})

@@ -597,6 +597,14 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
+  /** 주최자가 아닌 사용자의 일정 수정·삭제 → 403(WP-200). 일정은 보이므로 404 가 아닌 403. */
+  @ExceptionHandler(com.workplace.calendar.exception.EventNotOrganizerException.class)
+  public ResponseEntity<ErrorResponse> handleEventNotOrganizer(
+      com.workplace.calendar.exception.EventNotOrganizerException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
   /** 외부 동기화 일정 인앱 RSVP 시도 → 409. */
   @ExceptionHandler(com.workplace.calendar.exception.ExternalEventRsvpNotSupportedException.class)
   public ResponseEntity<ErrorResponse> handleExternalEventRsvpNotSupported(
