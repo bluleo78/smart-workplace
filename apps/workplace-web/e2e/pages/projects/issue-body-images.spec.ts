@@ -263,4 +263,20 @@ test.describe('이슈 본문 이미지 — 표시', () => {
     await expect(dialog).toHaveCount(0)
     await expect(ta).toHaveCount(0)
   })
+  test('PDF 같은 비이미지 파일을 드롭하면 토스트로 거부하고 기본 동작을 막아 입력한 글이 유지된다', async ({ authenticatedPage: page }) => {
+    await setupDetailStubs(page, '기존 본문')
+    await page.goto(`/projects/${KEY}/issues/1`)
+    await page.getByRole('button', { name: '본문 편집' }).click()
+    const ta = page.getByTestId('issue-body-textarea')
+    await ta.fill('쓰던 내용')
+    // 기본 동작(브라우저가 파일로 이동)이 막혔는지는 dispatchEvent 반환값(= !defaultPrevented)으로 확인한다.
+    const notPrevented = await ta.evaluate((el) => {
+      const dt = new DataTransfer()
+      dt.items.add(new File(['%PDF-1.4'], 'doc.pdf', { type: 'application/pdf' }))
+      return el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
+    })
+    expect(notPrevented).toBe(false)
+    await expect(page.getByText('PNG·JPEG·GIF·WebP 이미지만 10MB 까지 올릴 수 있습니다.')).toBeVisible()
+    await expect(ta).toHaveValue('쓰던 내용')
+  })
 })

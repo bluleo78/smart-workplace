@@ -82,7 +82,9 @@ export function useIssueImageUpload({
   const onDrop = useCallback(
     (e: React.DragEvent<HTMLTextAreaElement>) => {
       if (!enabled) return
-      const files = imageFilesOf(e.dataTransfer)
+      // 파일이 하나라도 실려 있으면 기본 동작(브라우저가 파일을 열어 작성 중인 내용이 사라짐)을 항상 막는다.
+      // 비이미지가 섞여 있어도 uploadFiles 로 넘겨 유효성 검사·토스트(한 번)를 거치게 한다.
+      const files = Array.from(e.dataTransfer?.files ?? [])
       if (files.length === 0) return
       e.preventDefault()
       uploadFiles(files)
