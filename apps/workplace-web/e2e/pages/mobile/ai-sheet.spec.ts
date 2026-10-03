@@ -1,6 +1,7 @@
 // 모바일 AI 시트(WP-191) — 보던 화면 위 바텀 시트, 진입 버튼 생성 중·완료 표시, 대화 전환 보호, 목록 화면 컨텍스트.
 import type { Locator, Page } from '@playwright/test'
 
+import { wikiPageSummary, wikiSpace } from '../../factories/wiki.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { mockHomeChatGeneration } from '../../fixtures/home-chat-mock'
 import { expect, stubChat, test } from '../../fixtures/mobile.fixture'
@@ -251,4 +252,47 @@ test('시트 대화 목록의 삭제 확인창도 시트 위에 뜬다', async (
   await confirm.getByRole('button', { name: '취소' }).click()
   await expect(confirm).toHaveCount(0)
   await expect(page.getByTestId('ai-sheet')).toBeVisible()
+})
+
+// ── 목록 화면 컨텍스트(WP-191) — 탭 루트 목록에서 연 시트도 "지금 보는 목록" 칩을 보인다.
+for (const [path, label] of [
+  ['/chat', '채팅 목록'],
+  ['/tasks', '작업 목록'],
+  ['/drive', '드라이브 공간 목록'],
+] as const) {
+  test(`${path} 목록에서 연 시트에 화면 참고 칩: ${label}`, async ({ authenticatedPage: page }) => {
+    await stubChat(page)
+    await page.goto(path)
+    await page.getByTestId('mobile-tab-ai').click()
+    await expect(page.getByTestId('ai-sheet').getByTestId('chat-context-chip')).toContainText(label)
+  })
+}
+
+test('홈에서 연 시트에 화면 참고 칩: 홈 대시보드', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  // 위젯 본문은 비워 둔 최소 레이아웃 — 칩은 레이아웃 해석만으로 등록된다.
+  await page.route((u) => u.pathname === '/api/v1/me/dashboard', (r) =>
+    r.request().method() === 'GET' ? r.fulfill({ json: { widgets: [] } }) : r.fallback())
+  await page.goto('/')
+  await page.getByTestId('mobile-tab-ai').click()
+  await expect(page.getByTestId('ai-sheet').getByTestId('chat-context-chip')).toContainText('홈 대시보드')
+})
+
+test('노트 공간 목록에서 연 시트에 화면 참고 칩: 위키 스페이스 이름', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>
+    r.fulfill({ json: [wikiSpace({ id: 1, type: 'PERSONAL', name: '내 위키', role: 'OWNER' })] }))
+  await page.route((u) => u.pathname === '/api/v1/wiki/spaces/1/pages', (r) =>
+    r.fulfill({ json: [wikiPageSummary({ id: 101, title: '개인 메모' })] }))
+  await page.goto('/wiki/spaces/1')
+  await page.getByTestId('mobile-tab-ai').click()
+  await expect(page.getByTestId('ai-sheet').getByTestId('chat-context-chip')).toContainText('위키 스페이스 내 위키')
+})
+
+test('앱 목록에서 연 시트엔 칩이 없다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await page.goto('/apps')
+  await page.getByTestId('mobile-tab-ai').click()
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
+  await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
 })

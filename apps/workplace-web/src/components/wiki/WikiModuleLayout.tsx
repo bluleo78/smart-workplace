@@ -1,11 +1,14 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 
 import { ResponsiveModuleLayout } from '@/components/mobile/ResponsiveModuleLayout'
 import { mobileWikiListClass } from '@/components/mobile/sidebarListClass'
+import { useWikiSpaces } from '@/hooks/queries/useWikiSpaces'
+import { useWikiTree } from '@/hooks/queries/useWikiTree'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useWikiIndexRedirect } from '@/hooks/useWikiIndexRedirect'
 import { useWikiLastSpaceKey } from '@/hooks/useWikiLastVisitedKey'
+import { buildWikiSpaceListContext } from '@/lib/aiScreenContext/builders/mobileLists'
 import { norm } from '@/lib/mobile/routes'
 import { MOBILE_TABS } from '@/lib/mobile/tabs'
 import { writeWikiLastVisited } from '@/lib/wikiLastVisited'
@@ -23,9 +26,22 @@ export function WikiModuleLayout() {
   const isMobile = useIsMobile()
   const { pathname } = useLocation()
   useRecordLastSpace()
+  // WP-191: 모바일 공간 페이지 목록(/wiki/spaces/:id)의 화면 컨텍스트 — 공간이 없는 /wiki 는 리다이렉트되므로 null(미등록).
+  const { spaceId: sp } = useParams()
+  const spaceId = sp ? Number(sp) : null
+  const { data: spaces } = useWikiSpaces()
+  const { data: pages } = useWikiTree(spaceId)
+  const listCtx = useMemo(
+    () => (spaceId == null || !Number.isInteger(spaceId) ? null : buildWikiSpaceListContext({
+      spaceId,
+      spaceName: spaces?.find((s) => s.id === spaceId)?.name ?? null,
+      pageCount: pages ? pages.length : null,
+    })),
+    [spaceId, spaces, pages],
+  )
   return (
     <>
-      <ResponsiveModuleLayout sidebar={<WikiSidebar />} rootPath={MOBILE_TABS.wiki.path} title="노트" listClassName={mobileWikiListClass} />
+      <ResponsiveModuleLayout sidebar={<WikiSidebar />} rootPath={MOBILE_TABS.wiki.path} title="노트" listClassName={mobileWikiListClass} listScreenContext={listCtx} />
       {isMobile && norm(pathname) === MOBILE_TABS.wiki.path && <MobileWikiIndexRedirect />}
     </>
   )
