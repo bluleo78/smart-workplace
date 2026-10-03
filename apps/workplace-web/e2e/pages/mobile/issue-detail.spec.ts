@@ -262,3 +262,103 @@ test.describe('첨부·하위 태스크', () => {
     await expect(page.getByTestId('child-add-open')).toBeVisible();
   });
 });
+
+test.describe('하단 코멘트 입력·편집 바', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await page.addInitScript(() => {
+      let override: number | null = null;
+      const vv = Object.assign(new EventTarget(), { offsetTop: 0, scale: 1 });
+      Object.defineProperty(vv, 'height', { get: () => override ?? window.innerHeight, set: (v: number) => { override = v; } });
+      Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true });
+      (window as unknown as { __vv: typeof vv }).__vv = vv;
+    });
+  });
+  const setKeyboard = (page: Page, open: boolean, px = 300) =>
+    page.evaluate(([o, kb]) => {
+      const vv = (window as unknown as { __vv: EventTarget & { height: number } }).__vv;
+      vv.height = o ? window.innerHeight - (kb as number) : window.innerHeight;
+      vv.dispatchEvent(new Event('resize'));
+      return vv.height;
+    }, [open, px] as const);
+
+  test('코멘트 입력은 화면 하단 — 키보드가 열리면 바로 위로, 헤더는 제자리', async ({ authenticatedPage: page }) => {
+    await mockDetail(page);
+    await openDetail(page);
+    const bar = page.getByTestId('mobile-bottom-bar');
+    const vpH = page.viewportSize()!.height;
+    await expect.poll(async () => { const b = (await bar.boundingBox())!; return Math.round(b.y + b.height); }).toBeGreaterThan(vpH - 60);
+    await page.getByTestId('issue-comment-input').click();
+    const visible = await setKeyboard(page, true);
+    await expect.poll(async () => { const b = (await bar.boundingBox())!; return Math.abs(b.y + b.height - visible); }).toBeLessThanOrEqual(2);
+    expect((await page.getByTestId('mobile-back').boundingBox())!.y).toBeGreaterThanOrEqual(0);
+  });
+
+  test('전송 중 에디터가 한 번도 blur 되지 않고 포커스 유지, 4줄 넘으면 내부 스크롤', async ({ authenticatedPage: page }) => {
+    const calls = await mockDetail(page);
+    await openDetail(page);
+    const editor = page.getByTestId('issue-comment-input');
+    await editor.click();
+    await page.keyboard.type('첫 코멘트');
+    // iOS 는 blur 가 한 번이라도 일어나면 키보드가 내려가고, 전송 뒤 비동기 refocus 로는 다시 안 올라온다 — focusout 0회를 단언.
+    await editor.evaluate((el) => {
+      (window as unknown as { __blurs: number }).__blurs = 0;
+      el.addEventListener('focusout', () => { (window as unknown as { __blurs: number }).__blurs++; }, true);
+    });
+    await page.getByTestId('issue-comment-submit').click();
+    await expect.poll(() => calls.some((c) => c.method === 'POST' && c.path.endsWith('/comments'))).toBe(true);
+    await expect.poll(() => editor.evaluate((el) => el.contains(document.activeElement) || el === document.activeElement)).toBe(true);
+    expect(await page.evaluate(() => (window as unknown as { __blurs: number }).__blurs)).toBe(0);
+    for (let i = 0; i < 8; i++) await page.keyboard.press('Shift+Enter');
+    const h = (await editor.boundingBox())!.height;
+    expect(h).toBeLessThanOrEqual(114);
+  });
+
+  test('제목 편집 중엔 코멘트 대신 [취소·저장] 바 — 저장은 PATCH 1회', async ({ authenticatedPage: page }) => {
+    const calls = await mockDetail(page);
+    await openDetail(page);
+    await page.getByTestId('issue-title-edit').click();
+    await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
+    await expect(page.getByTestId('issue-comment-input')).toHaveCount(0);
+    await page.getByTestId('issue-title-input').fill('새 제목');
+    await page.getByTestId('mobile-edit-save').click();
+    await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
+    await expect(page.getByTestId('issue-comment-input')).toBeVisible();
+    await page.waitForTimeout(300);
+    const patches = calls.filter((c) => c.method === 'PATCH');
+    expect(patches).toHaveLength(1);
+    expect(patches[0].body).toMatchObject({ title: '새 제목' });
+  });
+
+  test('제목 편집 중 다른 속성을 바꿔도(요청 중 상태 변화) 편집 바가 사라지지 않는다', async ({ authenticatedPage: page }) => {
+    const calls = await mockDetail(page);
+    await openDetail(page);
+    await page.getByTestId('issue-title-edit').click();
+    await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
+    await page.getByTestId('mobile-prop-priority').click();
+    await page.getByTestId('issue-priority-sheet').getByTestId('picker-option-HIGH').click();
+    await expect.poll(() => calls.some((c) => (c.body as { priority?: string })?.priority === 'HIGH')).toBe(true);
+    await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
+    await expect(page.getByTestId('issue-title-input')).toBeVisible();
+  });
+
+  test('제목 편집 취소는 PATCH 없음', async ({ authenticatedPage: page }) => {
+    const calls = await mockDetail(page);
+    await openDetail(page);
+    await page.getByTestId('issue-title-edit').click();
+    await page.getByTestId('issue-title-input').fill('버릴 제목');
+    await page.getByTestId('mobile-edit-cancel').click();
+    await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
+    await page.waitForTimeout(300);
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(0);
+  });
+
+  test('본문 편집도 바로 저장 — 본문 아래 저장/취소 버튼은 모바일에 없다', async ({ authenticatedPage: page }) => {
+    const calls = await mockDetail(page);
+    await openDetail(page);
+    await page.getByRole('button', { name: '본문 편집' }).click();
+    await expect(page.getByTestId('issue-body-save')).toHaveCount(0);
+    await page.getByTestId('issue-body-textarea').fill('바뀐 본문');
+    await page.getByTestId('mobile-edit-save').click();
+    await expect.poll(() => calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({ body: '바뀐 본문' });
+  });
+});

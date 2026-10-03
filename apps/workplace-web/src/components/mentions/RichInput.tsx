@@ -49,7 +49,18 @@ interface RichInputProps {
   inputTestId: string;
   submitTestId: string;
   cancelTestId?: string;
+  /** 에디터 최대 높이 클래스 — 넘치면 내부 스크롤. 모바일 하단 코멘트는 4줄(max-h-28). 기본 max-h-40.
+   *  에디터 class 는 useEditor 생성 시 1회만 적용되므로 마운트 후 동적 변경은 지원하지 않는다.
+   *  Tailwind 가 클래스를 생성하도록 호출부에 리터럴로 쓴다. */
+  editorMaxHeightClass?: string;
+  /** 모바일 하단 코멘트(WP-196): 전송 탭이 에디터를 blur 하면 iOS 키보드가 내려가고 전송 후 비동기 focus 로는
+   *  다시 안 올라온다(사용자 제스처 밖) → 전송 버튼 pointerdown/mousedown 기본 동작을 막아 처음부터 포커스 이동을 막는다.
+   *  기본 false(데스크톱·채팅 불변). */
+  keepFocusOnSubmit?: boolean;
 }
+
+// keepFocusOnSubmit 용 — 버튼 탭 시 포커스가 에디터에서 버튼으로 옮겨가지 않게 기본 동작을 막는다.
+const preventFocusSteal = (e: React.PointerEvent | React.MouseEvent) => e.preventDefault();
 
 export function RichInput({
   members,
@@ -70,6 +81,8 @@ export function RichInput({
   inputTestId,
   submitTestId,
   cancelTestId,
+  editorMaxHeightClass = 'max-h-40',
+  keepFocusOnSubmit = false,
 }: RichInputProps) {
   // 에디터 본문 공백 여부 — disableWhenEmpty 가 true 일 때 전송 버튼 비활성화에 사용.
   // initialBody 가 있으면 비어있지 않은 상태로 초기화.
@@ -227,8 +240,7 @@ export function RichInput({
       attributes: {
         'data-testid': inputTestId,
         'aria-label': '채팅 메시지 작성',
-        class:
-          'min-h-[44px] max-h-40 overflow-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        class: `min-h-[44px] ${editorMaxHeightClass} overflow-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`,
       },
       handleKeyDown: (_view, event) => {
         // suggestion 팝업이 열려있으면 Enter 는 mention 플러그인이 먼저 처리(키 위임)하므로 여기선 무시.
@@ -343,6 +355,8 @@ export function RichInput({
             size="sm"
             className="max-lg:h-11"
             onClick={submit}
+            onPointerDown={keepFocusOnSubmit ? preventFocusSteal : undefined}
+            onMouseDown={keepFocusOnSubmit ? preventFocusSteal : undefined}
             data-testid={submitTestId}
             disabled={
               submitDisabled ||

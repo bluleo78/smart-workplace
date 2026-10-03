@@ -57,8 +57,10 @@ import { IssueAttachmentStrip } from './components/IssueAttachmentStrip';
 import { IssueBodyTabs } from './components/IssueBodyTabs';
 import { IssueBreadcrumbHeader } from './components/IssueBreadcrumbHeader';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
+import { IssueCommentComposer } from './components/IssueCommentComposer';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
 import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropertyChips';
+import { type EditBarControls, MobileEditBar } from './components/mobile/MobileEditBar';
 
 // 본문 편집 draft localStorage 키 — 프로젝트+이슈 단위로 특정(#824).
 function bodyDraftKey(projectKey: string, issueNumber: number): string {
@@ -113,6 +115,8 @@ function InlineEditableBody({
   projectKey,
   issueNumber,
   onEditStart,
+  onEditingChange,
+  hideActions = false,
 }: {
   body: string | null;
   // 저장 성공 여부 — false 면 입력을 버리지 않고 편집을 다시 연다(#611 충돌 시 본문 유실 방지).
@@ -122,6 +126,10 @@ function InlineEditableBody({
   issueNumber: number;
   // 편집 진입 알림 — 호출부가 이 시점의 이슈 version 을 저장 기준으로 고정한다(#611).
   onEditStart?: () => void;
+  // 편집 시작/종료 알림 — 편집 중엔 저장·취소 컨트롤을, 끝나면 null(모바일 하단 편집 바, WP-196).
+  onEditingChange?: (controls: EditBarControls | null) => void;
+  // 모바일 — 저장·취소는 하단 편집 바가 맡으므로 본문 아래 버튼을 숨긴다(이미지 버튼은 유지).
+  hideActions?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(body ?? '');
@@ -220,6 +228,21 @@ function InlineEditableBody({
     clearBodyDraft(draftKey);
   };
 
+  // 편집 바에 넘긴 컨트롤이 항상 최신 save/cancel(최신 draft)을 부르도록 ref 경유.
+  const saveRef = useRef(save);
+  const cancelRef = useRef(cancel);
+  useEffect(() => {
+    saveRef.current = save;
+    cancelRef.current = cancel;
+  });
+  // 제목과 같은 규칙 — 편집 중이 아닐 땐 아무것도 보내지 않고, 지우기는 편집 중이던 실행의 cleanup 에서만.
+  useEffect(() => {
+    if (!onEditingChange || !editing) return;
+    // 업로드 중엔 저장·취소 모두 막는다(기존 버튼과 같은 조건).
+    onEditingChange({ save: () => void saveRef.current(), cancel: () => cancelRef.current(), disabled: disabled || uploading });
+    return () => onEditingChange(null);
+  }, [editing, disabled, uploading, onEditingChange]);
+
   if (!editing) {
     return (
       // Jira 식 — 본문 영역 전체가 클릭 가능. 호버 시 배경 변화로 편집 가능 신호.
@@ -316,25 +339,29 @@ function InlineEditableBody({
           }
         }}
       />
-      {/* 편집 액션 — 하단 좌측 저장/취소(Jira 식). */}
+      {/* 편집 액션 — 하단 좌측 저장/취소(Jira 식). 모바일(hideActions)은 하단 편집 바가 대신한다. */}
       <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          onClick={save}
-          disabled={disabled || uploading}
-          data-testid="issue-body-save"
-        >
-          저장
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={cancel}
-          disabled={disabled || uploading}
-          data-testid="issue-body-cancel"
-        >
-          취소
-        </Button>
+        {!hideActions && (
+          <>
+            <Button
+              size="sm"
+              onClick={save}
+              disabled={disabled || uploading}
+              data-testid="issue-body-save"
+            >
+              저장
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={cancel}
+              disabled={disabled || uploading}
+              data-testid="issue-body-cancel"
+            >
+              취소
+            </Button>
+          </>
+        )}
         {/* 이미지 첨부 — 버튼 선택 외에 붙여넣기·드롭도 지원함을 안내(우측 정렬). */}
         <IssueBodyImageButton className="ml-auto" onFiles={images.uploadFiles} disabled={disabled} />
       </div>
@@ -379,6 +406,8 @@ export default function IssueDetailPage() {
   const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
   // 모바일 ⋯ 메뉴 항목 문구 — 메뉴 안에선 동작("구독하기")·상태("구독 중 · n명")를 글자로 풀어 쓴다(U3-R6). 데스크톱은 기존 버튼 그대로.
   const isMobile = useIsMobile();
+  // 모바일 하단 편집 바(WP-196) — 제목·본문 편집 중이면 그 편집기의 저장·취소 컨트롤, 아니면 null(코멘트 입력).
+  const [editControls, setEditControls] = useState<EditBarControls | null>(null);
   // 모바일 「＋ 속성」 시트 open 상태 — 칩 줄의 「＋ 속성」 버튼이 열고, 아래 MobileSheetShell(issue-more-props-sheet)이 이 값으로 열림/닫힘을 제어한다.
   const [moreOpen, setMoreOpen] = useState(false);
   const watcherCount = watchers.data?.length ?? 0;
@@ -653,6 +682,8 @@ export default function IssueDetailPage() {
                   onSave={(t) => patch({ title: t, version: titleBaseVersion.current })}
                   onEditStart={() => (titleBaseVersion.current = summary.version)}
                   disabled={!canEditContent || update.isPending}
+                  commitOnBlur={!isMobile}
+                  onEditingChange={isMobile ? setEditControls : undefined}
                 />
               </h1>
               {isMobile ? (
@@ -704,6 +735,8 @@ export default function IssueDetailPage() {
                 disabled={!canEditContent || update.isPending}
                 projectKey={key}
                 issueNumber={issueNumber}
+                hideActions={isMobile}
+                onEditingChange={isMobile ? setEditControls : undefined}
               />
               {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
               <IssueAttachmentStrip
@@ -740,6 +773,7 @@ export default function IssueDetailPage() {
               issueId={summary.id}
               comments={comments}
               history={history}
+              hideComposer={isMobile}
             />
           </div>
           {/* 채팅은 헤더 버튼 → 드로워(IssueChatDrawer)로 분리(구 인라인 패널 제거). */}
@@ -749,6 +783,23 @@ export default function IssueDetailPage() {
           )}
         </div>
       </div>
+      {/* 모바일 하단 줄(WP-196) — 스크롤 영역 아래 in-flow. MobileShell 이 --vvh 로 줄어 키보드 바로 위에 붙고(R1),
+          bottom safe-area 는 셸 <main> 이 준다. 제목·본문 편집 중엔 코멘트 입력 대신 [취소·저장] 바. */}
+      {isMobile && (
+        <div className="shrink-0 border-t bg-background px-4 py-2" data-testid="mobile-bottom-bar">
+          {editControls ? (
+            <MobileEditBar controls={editControls} />
+          ) : (
+            <IssueCommentComposer
+              projectKey={key}
+              issueNumber={issueNumber}
+              issueId={summary.id}
+              editorMaxHeightClass="max-h-28"
+              keepFocusOnSubmit
+            />
+          )}
+        </div>
+      )}
       {/* 모바일 「＋ 속성」 시트(WP-196) — 칩에 없는 유형·일정·분류·의존성·커스텀 필드. 데스크톱 레일과 같은 컴포넌트(variant=sheet). */}
       {isMobile && (
         <MobileSheetShell
