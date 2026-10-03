@@ -7,6 +7,7 @@ import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { AIChip } from '@/components/ai/AIChip'
 import { AIFullscreen } from '@/components/ai/AIFullscreen'
 import { AISidePanel } from '@/components/ai/AISidePanel'
+import { MobileAiSheet } from '@/components/ai/MobileAiSheet'
 import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
 import { AppRail } from '@/components/layout/AppRail'
 import { InboxProvider } from '@/components/layout/InboxContext'
@@ -26,7 +27,7 @@ import { syncPushOnLogin } from '@/lib/push/subscription'
 
 export function AppLayout() {
   const { user, activeTenant, selectTenant } = useAuth()
-  // AI 가용성 — 비서 없으면 AIChip·AISidePanel·AIFullscreen 미렌더.
+  // AI 가용성 — 비서 없으면 AIChip·AISidePanel·AIFullscreen·MobileAiSheet 미렌더.
   const aiAvailable = useAiAvailable()
   // WP-121: 모바일(<lg) 여부 — 탭바 셸 / 데스크톱 레일 레이아웃 분기.
   const isMobile = useIsMobile()
@@ -81,7 +82,7 @@ export function AppLayout() {
                 {isMobile ? (
                   // WP-54 표식 유지 — display:contents 로 레이아웃 영향 없이 페이지 영역 컨테이너 역할.
                   <div data-ai-page-root className="contents">
-                    <MobileShell overlay={aiAvailable ? <AIFullscreen /> : null}>
+                    <MobileShell overlay={aiAvailable ? <MobileAiSheet /> : null}>
                       <Outlet />
                     </MobileShell>
                   </div>

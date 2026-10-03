@@ -17,13 +17,13 @@ test('채팅: 목록 전체폭 → 채널 진입 시 탭바 숨김·뒤로가기
   await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
 })
 
-test('상세 헤더 ✦ 는 AI 풀스크린을 열고 닫기로 상세에 돌아온다', async ({ authenticatedPage: page }) => {
+test('상세 헤더 ✦ 는 AI 시트를 열고 닫기로 상세에 돌아온다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/chat/channels/1')
   await page.getByTestId('mobile-back-ai').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
   await page.getByTestId('ai-panel-close').click()
-  await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
+  await expect(page.getByTestId('ai-sheet')).toHaveCount(0)
   await expect(page).toHaveURL(/\/chat\/channels\/1$/)
 })
 

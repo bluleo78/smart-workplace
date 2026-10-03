@@ -166,24 +166,23 @@ test('R3 탭 루트 헤더는 하단 구분선이 없다(PageHeader 탭 루트 =
   expect(await list.evaluate((el) => getComputedStyle(el).borderBottomWidth)).toBe('0px')
 })
 
-test('R4 탭바에서 연 AI: "AI" 22px 제목 + [대화 목록 ▾][＋], × 없음, 입력 포커스 링은 AI 보라', async ({ authenticatedPage: page }) => {
+// WP-191: 탭 루트 큰 제목 헤더(ai-fs-root-header) 대신 시트 헤더 — "AI" 제목 + [대화 목록 ▾][＋][×].
+test('R4 탭바에서 연 AI 시트: "AI" 제목 + [대화 목록 ▾][＋] 44px, × 하나, 입력 포커스 링은 AI 보라', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   await page.getByTestId('mobile-tab-ai').click()
-  const header = page.getByTestId('ai-fs-root-header')
+  const header = page.getByTestId('ai-sheet')
   await expect(header).toBeVisible()
-  const h1 = header.locator('h1')
-  await expect(h1).toHaveText('AI')
-  expect(await h1.evaluate((el) => getComputedStyle(el).fontSize)).toBe('22px')
-  expect(Math.round((await h1.boundingBox())!.x)).toBe(16)
-  expect(Math.round((await header.boundingBox())!.height)).toBe(56)
-  const switcher = header.getByTestId('ai-fs-mobile-session-switcher')
+  await expect(header.getByText('AI', { exact: true })).toBeVisible()
+  const switcher = header.getByTestId('ai-sheet-session-switcher')
   await expect(switcher).toHaveText('대화 목록')
-  const add = header.getByRole('button', { name: '새 대화' })
+  expect(Math.round((await switcher.boundingBox())!.height)).toBeGreaterThanOrEqual(44)
+  const add = header.getByTestId('ai-sheet-new-session')
   expect((await add.boundingBox())!.width).toBeGreaterThanOrEqual(44)
-  // ＋ 가 오른쪽 끝, 대화 목록이 그 앞.
+  expect((await add.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  // ＋ 가 대화 목록 오른쪽(그 뒤에 × 하나).
   expect((await switcher.boundingBox())!.x).toBeLessThan((await add.boundingBox())!.x)
-  await expect(page.getByTestId('ai-panel-close')).toHaveCount(0)
+  await expect(page.getByTestId('ai-panel-close')).toHaveCount(1)
   const input = page.getByTestId('chat-input')
   await input.focus()
   const accent = await tokenColor(page, '--ai-accent')

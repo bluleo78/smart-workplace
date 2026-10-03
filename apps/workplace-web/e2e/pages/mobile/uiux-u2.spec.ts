@@ -134,17 +134,18 @@ test('AI 탭 캡슐: 닫힘 = 옅은 틴트(그라데이션 없음), 열림 = �
   expect(await bgImage()).toBe('none')
   expect(await capsule.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
   await page.getByTestId('mobile-tab-ai').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
   await expect.poll(bgImage).toContain('gradient')
 })
 
-test('모바일 AI 풀스크린(탭 루트): × 없음·⌘K 힌트 없음·40px 원형 보내기, 탭 전환으로 닫힌다', async ({ authenticatedPage: page }) => {
+// WP-191: 탭 루트 시트에도 × 가 있다(구 U2-3 "× 없음" 대체) — × 와 탭 전환 모두 닫기.
+test('모바일 AI 시트(탭 루트): × 있음·⌘K 힌트 없음·40px 원형 보내기, 탭 전환으로도 닫힌다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   await page.getByTestId('mobile-tab-ai').click()
-  const fs = page.getByTestId('ai-fullscreen')
+  const fs = page.getByTestId('ai-sheet')
   await expect(fs).toBeVisible()
-  await expect(page.getByTestId('ai-panel-close')).toHaveCount(0)
+  await expect(fs.getByTestId('ai-panel-close')).toBeVisible()
   const input = page.getByTestId('chat-input')
   await expect(input).toHaveAttribute('placeholder', 'AI 에게 요청…')
   // 포커스 링은 단일(오프셋 띠 없음).
@@ -166,10 +167,10 @@ test('상세 화면에서 ✦ 로 연 AI 는 탭바가 없으므로 × 로 닫�
   await stubChat(page)
   await page.goto('/chat/channels/1')
   await page.getByTestId('mobile-back-ai').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
   await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
   await page.getByTestId('ai-panel-close').click()
-  await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
+  await expect(page.getByTestId('ai-sheet')).toHaveCount(0)
 })
 
 test('목록 밀도(/chat): 행 44~56px·본문색, 섹션 머리말 ≤36px, 머리말 아이콘 터치 영역 확장, 미읽음 행 굵게', async ({ authenticatedPage: page }) => {
