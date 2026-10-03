@@ -19,6 +19,7 @@ import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.dto.ReadSyncLocator;
 import com.workplace.mail.dto.ReplyContext;
+import com.workplace.mail.dto.SeenSyncItem;
 import com.workplace.mail.outbound.MailAiMessages;
 import com.workplace.mail.util.MailBodyText;
 import java.time.Duration;
@@ -35,6 +36,8 @@ import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
+import org.jooq.Record1;
+import org.jooq.Select;
 import org.jooq.UpdateSetMoreStep;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -391,20 +394,16 @@ public class EmailMessageRepository {
   }
 
   /**
-   * P2: 계정 + 폴더 스코프 목록(최신순, 본문 제외). category/needsReply 필터 추가. 회신필요는 단일 술어 needsReplyCondition().
-   * query 가 있으면 제목/보낸사람/스니펫 부분일치. unreadOnly=true 면 seen=false(안 읽은) 메일만 반환한다. 소유 검증은 호출 측에서 수행.
-   *
-   * <p>Task6: subject·snippet SELECT 를 email_content 로 전환. 검색 WHERE 는 Task8 에서 전환(현재 email_message
-   * 컬럼 유지).
+   * 목록 보기 조건(WP-187 추출) — 계정·폴더·안읽음·분류(업무 = 업무 ∪ 미분류 ∪ 미적재)·회신필요·검색어. 목록 조회와 "모두 읽음"·건수가 같은 술어를 써서
+   * "보이는 범위 = 처리 범위"가 되게 한다. EMAIL_FOLDER 조인과 EMAIL_CONTENT LEFT JOIN 을 전제한다.
    */
-  public List<EmailMessageSummary> listByAccount(
+  public Condition viewCondition(
       long accountId,
       String folderName,
       String query,
       boolean unreadOnly,
       String category,
-      boolean needsReply,
-      int limit) {
+      boolean needsReply) {
     Condition where = EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId).and(EMAIL_FOLDER.NAME.eq(folderName));
     if (unreadOnly) {
       where = where.and(EMAIL_MESSAGE.SEEN.isFalse());
@@ -439,6 +438,25 @@ public class EmailMessageRepository {
           EMAIL_MESSAGE.FETCHED_AT.isNull().and(EMAIL_CONTENT.SUBJECT.likeIgnoreCase(like));
       where = where.and(ftsCond.or(unverifiedSubjectCond).or(envelopeCond));
     }
+    return where;
+  }
+
+  /**
+   * P2: 계정 + 폴더 스코프 목록(최신순, 본문 제외). category/needsReply 필터 추가. 회신필요는 단일 술어 needsReplyCondition().
+   * query 가 있으면 제목/보낸사람/스니펫 부분일치. unreadOnly=true 면 seen=false(안 읽은) 메일만 반환한다. 소유 검증은 호출 측에서 수행.
+   *
+   * <p>Task6: subject·snippet SELECT 를 email_content 로 전환. 검색 WHERE 는 Task8 에서 전환(현재 email_message
+   * 컬럼 유지).
+   */
+  public List<EmailMessageSummary> listByAccount(
+      long accountId,
+      String folderName,
+      String query,
+      boolean unreadOnly,
+      String category,
+      boolean needsReply,
+      int limit) {
+    Condition where = viewCondition(accountId, folderName, query, unreadOnly, category, needsReply);
     return dsl.select(
             EMAIL_MESSAGE.ID,
             EMAIL_MESSAGE.ACCOUNT_ID,
@@ -776,6 +794,96 @@ public class EmailMessageRepository {
     return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, false)
         .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isTrue())
+        .execute();
+  }
+
+  /** WP-187 안읽음으로 표시 — seen=false 와 원본 서버 반영 대기. 이미 안 읽은 행은 건너뛰고 갱신 행 수(0|1)를 돌려준다. */
+  public int markUnseen(long messageId) {
+    return dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.SEEN, false)
+        .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_MESSAGE.SEEN.isTrue())
+        .execute();
+  }
+
+  /**
+   * WP-187 보기 안의 안 읽은 메일 id 서브쿼리 — INBOX 고정. asOf 경계는 (수신 시각이 없거나 asOf 이전) ∧ (이 DB 에 asOf 이전에 들어옴):
+   * 수신 시각 NULL 은 사이드바 집계({@link #countUnreadAggregate})와 숫자를 맞추려 포함하고, created_at 조건은 다이얼로그가 열린 사이
+   * 동기화로 들어온 (수신 시각은 과거인) 메일이 보지도 않고 읽음 처리되는 것을 막는다.
+   */
+  private Select<Record1<Long>> unreadInView(
+      long accountId, String category, boolean needsReply, String query, OffsetDateTime asOf) {
+    return dsl.select(EMAIL_MESSAGE.ID)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .leftJoin(EMAIL_CONTENT)
+        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .where(viewCondition(accountId, "INBOX", query, true, category, needsReply))
+        .and(EMAIL_MESSAGE.RECEIVED_AT.isNull().or(EMAIL_MESSAGE.RECEIVED_AT.le(asOf)))
+        .and(EMAIL_MESSAGE.CREATED_AT.le(asOf));
+  }
+
+  /** WP-187 모두 읽음 확인 다이얼로그용 건수. */
+  public long countUnreadInView(
+      long accountId, String category, boolean needsReply, String query, OffsetDateTime asOf) {
+    return dsl.fetchCount(unreadInView(accountId, category, needsReply, query, asOf));
+  }
+
+  /** WP-187 모두 읽음 — 보기 조건 ∧ asOf 경계 ∧ 안 읽음을 한 번에 읽음 + 반영 대기로 바꾸고 바뀐 id 를 돌려준다. */
+  public List<Long> markAllSeenInView(
+      long accountId, String category, boolean needsReply, String query, OffsetDateTime asOf) {
+    return dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.SEEN, true)
+        .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true)
+        .where(EMAIL_MESSAGE.ID.in(unreadInView(accountId, category, needsReply, query, asOf)))
+        .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .returning(EMAIL_MESSAGE.ID)
+        .fetch(EMAIL_MESSAGE.ID);
+  }
+
+  /** WP-187 역동기화 대상 — 반영 대기 중인 행만, 처리 시점의 seen 과 서버 식별자. */
+  public List<SeenSyncItem> findPendingSeenSyncItems(List<Long> messageIds) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.ACCOUNT_ID,
+            EMAIL_ACCOUNT.PROVIDER,
+            EMAIL_MESSAGE.PROVIDER_MESSAGE_ID,
+            EMAIL_MESSAGE.IMAP_UID,
+            EMAIL_FOLDER.NAME,
+            EMAIL_MESSAGE.SEEN)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_MESSAGE.ID.in(messageIds))
+        .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isTrue())
+        .orderBy(EMAIL_MESSAGE.ID)
+        .fetch(
+            r ->
+                new SeenSyncItem(
+                    r.get(EMAIL_MESSAGE.ID),
+                    new ReadSyncLocator(
+                        r.get(EMAIL_MESSAGE.ACCOUNT_ID),
+                        MailProvider.valueOf(r.get(EMAIL_ACCOUNT.PROVIDER)),
+                        r.get(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID),
+                        r.get(EMAIL_MESSAGE.IMAP_UID),
+                        r.get(EMAIL_FOLDER.NAME)),
+                    Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN))));
+  }
+
+  /**
+   * WP-187 조건부 대기 해제 — 서버에 보낸 값(pushedSeen)과 지금 seen 이 같을 때만 푼다. 그 사이 사용자가 다시 바꿨다면 표시를 유지해 뒤따르는
+   * 이벤트가 처리하게 한다(마지막 상태로 수렴).
+   */
+  public int clearSeenPushPendingIf(long messageId, boolean pushedSeen) {
+    return dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, false)
+        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .and(EMAIL_MESSAGE.SEEN.eq(pushedSeen))
         .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isTrue())
         .execute();
   }
