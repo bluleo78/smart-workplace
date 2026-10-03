@@ -48,14 +48,17 @@ public class ChatMessageService {
   private final DriveLinkService driveLinkService;
   // #621: 스레드에 연결된 이슈가 삭제됐는지 확인하는 가드용 조회.
   private final IssueStakeholderLookup issueLookup;
+  // WP-213: 이슈 토크 읽기/쓰기 접근 판정 + 보낼 때 자동 참여.
+  private final ChatThreadAccess threadAccess;
 
   /**
-   * Thread member 가 메시지 작성. 빈 메시지(본문도 첨부도 드라이브링크도 없음) 거부. 첨부/드라이브링크 바인딩 후 하이드레이트된 응답 반환. mention 파싱
-   * 후 INSERT, AFTER_COMMIT 이벤트 발행.
+   * 메시지 작성. 스레드 멤버가 아니어도 댓글 작성 권한이 있으면 이 시점에 대화에 자동 참여한다(WP-213). 빈 메시지(본문도 첨부도 드라이브링크도 없음) 거부.
+   * 첨부/드라이브링크 바인딩 후 하이드레이트된 응답 반환. mention 파싱 후 INSERT, AFTER_COMMIT 이벤트 발행.
    */
   @Transactional
   public ChatMessageResponse create(long callerId, long threadId, CreateChatMessageRequest req) {
-    ensureMember(threadId, callerId);
+    // 거부될 요청(권한 없음·삭제된 이슈·빈 메시지)으로는 대화에 참여시키지 않도록 쓰기 권한부터 확인하고, 참여는 검증을 모두 통과한 뒤 한다.
+    threadAccess.ensureCanWrite(threadId, callerId);
     // #621: 원본 이슈가 소프트삭제됐으면 스레드가 남아있어도 메시지 전송을 막는다.
     if (issueLookup.isIssueDeletedByThreadId(threadId)) {
       throw new ChatThreadIssueDeletedException(threadId);
@@ -65,6 +68,8 @@ public class ChatMessageService {
     if (bodyEmpty && req.fileIds().isEmpty() && req.driveFileIds().isEmpty()) {
       throw new EmptyChatMessageException();
     }
+    // 같은 트랜잭션에서 먼저 참여시켜야 아래 드라이브 링크 생성의 멤버십 검사가 새 멤버를 본다.
+    threadAccess.ensureMemberOrJoin(threadId, callerId);
     // body 가 null 일 수 있어 빈 문자열로 방어 후 멘션 파싱.
     List<Long> mentionUserIds =
         userMentionHydrator.filterExistingUserIds(
@@ -140,7 +145,8 @@ public class ChatMessageService {
   // GUC 를 주입하므로 @Transactional(readOnly) 로 RLS 컨텍스트를 확보한다.
   @Transactional(readOnly = true)
   public ChatMessagePage list(long callerId, long threadId, String cursor, int limit) {
-    ensureMember(threadId, callerId);
+    // 읽기는 스레드 조회(getOrCreate)와 같은 권한 — 비멤버도 과거 메시지를 스크롤해 볼 수 있어야 한다(WP-213).
+    threadAccess.ensureCanRead(threadId, callerId);
     ChatMessagePage page =
         messageRepo.findPage(threadId, cursor, limit, userMentionHydrator::asMentionResponses);
     return enrichAttachments(page);
@@ -148,7 +154,8 @@ public class ChatMessageService {
 
   @Transactional
   public void markRead(long callerId, long threadId, long uptoMessageId) {
-    ensureMember(threadId, callerId);
+    // 대화에 참여하지 않은 열람자는 읽음 위치를 저장할 멤버 row 가 없다 — 오류 대신 조용히 무시(WP-213).
+    if (!memberRepo.isMember(threadId, callerId)) return;
     memberRepo.markRead(threadId, callerId, uptoMessageId);
     publisher.publishEvent(new ChatThreadReadEvent(threadId, callerId, uptoMessageId));
   }
@@ -161,7 +168,8 @@ public class ChatMessageService {
    */
   @Transactional(readOnly = true)
   public void notifyTyping(long callerId, long threadId) {
-    ensureMember(threadId, callerId);
+    // 쓰기 권한만 확인하고 참여시키지는 않는다 — 입력만 하고 보내지 않을 수 있다(WP-213).
+    threadAccess.ensureCanWrite(threadId, callerId);
     publisher.publishEvent(new ChatThreadTypingEvent(threadId, hydrator.summaryOf(callerId)));
   }
 

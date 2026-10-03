@@ -33,6 +33,9 @@ public class ChatMessageAttachmentService {
   /** 코어 파일 저장소 — 다운로드 시 상대경로를 절대경로로 복원. */
   private final FileStore fileStore;
 
+  // WP-213: 선업로드는 쓰기 권한만 확인(참여는 메시지 전송 시).
+  private final ChatThreadAccess threadAccess;
+
   /** 파일 1개당 최대 크기(바이트). 기본 25MB. */
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
@@ -46,12 +49,14 @@ public class ChatMessageAttachmentService {
       ChatMessageAttachmentRepository repo,
       ChatThreadMemberRepository memberRepo,
       ChatMessageRepository messageRepo,
-      FileStore fileStore) {
+      FileStore fileStore,
+      ChatThreadAccess threadAccess) {
     this.storage = storage;
     this.repo = repo;
     this.memberRepo = memberRepo;
     this.messageRepo = messageRepo;
     this.fileStore = fileStore;
+    this.threadAccess = threadAccess;
   }
 
   /**
@@ -61,8 +66,8 @@ public class ChatMessageAttachmentService {
    */
   public List<UploadedFile> upload(long callerId, long threadId, List<MultipartFile> files)
       throws IOException {
-    // thread 멤버만 파일 업로드 가능.
-    ensureMember(threadId, callerId);
+    // 스레드 멤버 또는 쓰기 권한자(곧 보낼 때 자동 참여)만 파일 업로드 가능 — 참여 자체는 메시지 전송 시 한다(WP-213).
+    threadAccess.ensureCanWrite(threadId, callerId);
     if (files == null || files.isEmpty()) return List.of();
     if (files.size() > maxPerMessage) {
       // 한 번에 첨부 가능한 파일 개수 초과.

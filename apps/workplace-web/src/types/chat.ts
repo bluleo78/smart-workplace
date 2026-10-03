@@ -43,6 +43,9 @@ export interface ChatThreadResponse {
   archivedAt: string | null;
   members: ChatMemberResponse[];
   recentMessages: ChatMessageResponse[];
+  // WP-213: 내가 이 대화에 쓸 수 있는지(댓글 작성 권한과 동일 — 보내면 자동 참여). false 면 입력창 대신 안내.
+  // 롤링 배포 중 구 API 응답엔 없을 수 있어 optional — 없으면 쓸 수 있는 것으로 본다.
+  canPost?: boolean;
 }
 
 export interface ChatMessagePage {

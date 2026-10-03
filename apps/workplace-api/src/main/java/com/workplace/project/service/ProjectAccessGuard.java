@@ -131,13 +131,31 @@ public class ProjectAccessGuard {
    * 않는다(호출부에서 isMemberOrAdmin 으로 별도 판정).
    */
   public void assertContentWritable(ProjectRow project, Long reporterId, Long callerId) {
+    if (!canWriteContent(project, reporterId, callerId)) {
+      throw new ProjectAccessDeniedException("이 이슈를 수정할 권한이 없습니다");
+    }
+  }
+
+  /**
+   * {@link #assertContentWritable} 의 boolean 판정. 이슈 채팅(이슈 토크) 작성 권한도 댓글과 같은 규칙을 쓰도록(WP-213) 판정 로직을
+   * 이 한 곳에 둔다 — 멤버/ADMIN 이거나, OPEN 프로젝트에서 이슈 생성자(reporter) 본인이면 true.
+   */
+  public boolean canWriteContent(ProjectRow project, Long reporterId, Long callerId) {
     if (isMemberOrAdmin(project, callerId)) {
-      return;
+      return true;
     }
     // OPEN 프로젝트에서 자신이 생성한 이슈(reporter == caller)는 내용 수정 허용
-    if ("OPEN".equals(project.type()) && reporterId != null && reporterId.equals(callerId)) {
-      return;
-    }
-    throw new ProjectAccessDeniedException("이 이슈를 수정할 권한이 없습니다");
+    return "OPEN".equals(project.type()) && reporterId != null && reporterId.equals(callerId);
+  }
+
+  /**
+   * projectId 로 프로젝트를 찾아 {@link #canWriteContent(ProjectRow, Long, Long)} 판정. 프로젝트가 없으면(삭제 포함)
+   * false.
+   */
+  public boolean canWriteContent(long projectId, Long reporterId, Long callerId) {
+    return projectRepository
+        .findById(projectId)
+        .map(project -> canWriteContent(project, reporterId, callerId))
+        .orElse(false);
   }
 }

@@ -129,7 +129,7 @@ public class IssueAssigneeService {
     }
 
     // 5) 신규 추가 사용자 watcher 자동 등록
-    for (Long uid : toAdd) watcherAutoEnroller.enroll(issue.id(), uid);
+    for (Long uid : toAdd) watcherAutoEnroller.enroll(issue.id(), uid, callerId);
 
     // 6) 변경이 있을 때만 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보)
     if (!toAdd.isEmpty() || !toRemove.isEmpty()) {

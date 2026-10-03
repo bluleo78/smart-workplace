@@ -32,7 +32,7 @@ public class ChatMembershipService {
       throw new ProjectAccessDeniedException("프로젝트 멤버가 아닌 사용자는 대화에 추가할 수 없습니다");
     memberRepo.insertIgnoreConflict(threadId, List.of(targetUserId));
     notifier.membersChanged(
-        projectId, ctx.projectKey(), issueNumber(ctx), threadId, callerId, Set.of());
+        projectId, ctx.projectKey(), ctx.issueNumber(), threadId, callerId, Set.of());
   }
 
   /** 본인 leave. row 자체 제거. */
@@ -43,12 +43,6 @@ public class ChatMembershipService {
     memberRepo.delete(threadId, callerId);
     if (ctx == null) return; // 존재하지 않는 스레드 — 기존처럼 조용한 no-op
     notifier.membersChanged(
-        ctx.projectId(), ctx.projectKey(), issueNumber(ctx), threadId, callerId, Set.of(callerId));
-  }
-
-  /** issueKey("WP-12") 의 마지막 '-' 뒤 숫자 = 이슈 번호. */
-  private static int issueNumber(ChatThreadContextResolver.Context ctx) {
-    String key = ctx.issueKey();
-    return Integer.parseInt(key.substring(key.lastIndexOf('-') + 1));
+        ctx.projectId(), ctx.projectKey(), ctx.issueNumber(), threadId, callerId, Set.of(callerId));
   }
 }

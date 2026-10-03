@@ -29,6 +29,7 @@ public class ChatThreadService {
   private final IssueStakeholderLookup lookup;
   private final ChatUserHydrator hydrator;
   private final UserMentionHydrator userMentionHydrator;
+  private final ChatThreadAccess threadAccess;
 
   /** 이슈에 연결된 thread 를 반환. 없으면 생성 + initial 멤버(reporter/assignees/watchers) 채움. */
   @Transactional
@@ -40,8 +41,8 @@ public class ChatThreadService {
                 () ->
                     new IllegalArgumentException(
                         "이슈를 찾을 수 없습니다 (key: " + projectKey + "-" + issueNumber + ")"));
-    // OPEN 프로젝트는 테넌트 전원 스레드 조회 허용. 메시지 작성은 ChatMessageService.ensureMember 가
-    // 스레드 멤버(reporter/assignee/watcher 시드)로 별도 강제하므로 조회 개방이 작성 개방을 뜻하지 않는다.
+    // OPEN 프로젝트는 테넌트 전원 스레드 조회 허용. 메시지 작성은 댓글과 같은 권한(멤버/ADMIN·OPEN reporter 본인)으로
+    // 별도 판정하므로(ChatThreadAccess, WP-213) 조회 개방이 작성 개방을 뜻하지 않는다 — 응답의 canPost 로 화면에 알린다.
     if (!lookup.isProjectMember(issue.projectId(), callerId)
         && !lookup.isOpenProject(issue.projectId())) {
       throw new ProjectAccessDeniedException("프로젝트 멤버만 이슈 대화를 볼 수 있습니다");
@@ -53,7 +54,9 @@ public class ChatThreadService {
     MentionResolver resolver = userMentionHydrator::asMentionResponses;
     List<ChatMessageResponse> recent = messageRepo.findRecent(threadId, RECENT_LIMIT, resolver);
     var threadRow = threadRepo.findByIssueId(issue.id()).orElseThrow();
-    return new ChatThreadResponse(threadId, issue.id(), threadRow.archivedAt(), members, recent);
+    boolean canPost = threadAccess.canWrite(threadId, callerId);
+    return new ChatThreadResponse(
+        threadId, issue.id(), threadRow.archivedAt(), members, recent, canPost);
   }
 
   /** thread row + 초기 멤버 INSERT. ON CONFLICT DO NOTHING 으로 race-safe. */

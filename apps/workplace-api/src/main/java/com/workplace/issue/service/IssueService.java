@@ -227,9 +227,9 @@ public class IssueService {
     }
 
     // 4) watcher 자동 등록: reporter + 각 assignee (caller 와 다를 때만)
-    watcherAutoEnroller.enroll(row.id(), callerId);
+    watcherAutoEnroller.enroll(row.id(), callerId, callerId);
     for (Long uid : assigneeIds) {
-      if (!uid.equals(callerId)) watcherAutoEnroller.enroll(row.id(), uid);
+      if (!uid.equals(callerId)) watcherAutoEnroller.enroll(row.id(), uid, callerId);
     }
 
     // 5) 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent dispatcher 가 받아 발사)

@@ -280,17 +280,28 @@ export function IssueChatSection({
             <AiWorkingBubble agentName={w.agentName} steps={w.steps} />
           </ul>
         ))}
-      <ChatComposer
-        threadId={threadId}
-        members={thread.members}
-        onSubmit={(body, fileIds, driveFileIds) =>
-          createMutation.mutateAsync({ body, fileIds, driveFileIds })
-        }
-        onTyping={handleTyping}
-        // 드로워(embedded)로 열면 바로 입력할 수 있게 컴포저에 포커스. 터치 기기는 가상 키보드가
-        // 드로워 절반을 덮으므로 정밀 포인터(마우스·트랙패드)일 때만 한다.
-        autoFocus={embedded && window.matchMedia('(pointer: fine)').matches}
-      />
+      {/* WP-213: 쓸 수 없는 사용자(공개 프로젝트 열람자 등)는 보내기 후 403 대신 입력창 자리에 안내를 본다.
+          canPost 가 없는 구 API 응답은 쓸 수 있는 것으로 본다(=== false 일 때만 숨김). */}
+      {thread.canPost === false ? (
+        <p
+          className="border-t p-3 text-sm text-muted-foreground"
+          data-testid="chat-composer-readonly"
+        >
+          이 대화는 프로젝트 멤버와 이슈를 등록한 사람만 쓸 수 있습니다.
+        </p>
+      ) : (
+        <ChatComposer
+          threadId={threadId}
+          members={thread.members}
+          onSubmit={(body, fileIds, driveFileIds) =>
+            createMutation.mutateAsync({ body, fileIds, driveFileIds })
+          }
+          onTyping={handleTyping}
+          // 드로워(embedded)로 열면 바로 입력할 수 있게 컴포저에 포커스. 터치 기기는 가상 키보드가
+          // 드로워 절반을 덮으므로 정밀 포인터(마우스·트랙패드)일 때만 한다.
+          autoFocus={embedded && window.matchMedia('(pointer: fine)').matches}
+        />
+      )}
     </>
   );
 
