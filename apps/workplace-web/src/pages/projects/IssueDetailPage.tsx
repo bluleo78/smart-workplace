@@ -379,7 +379,7 @@ export default function IssueDetailPage() {
   const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
   // 모바일 ⋯ 메뉴 항목 문구 — 메뉴 안에선 동작("구독하기")·상태("구독 중 · n명")를 글자로 풀어 쓴다(U3-R6). 데스크톱은 기존 버튼 그대로.
   const isMobile = useIsMobile();
-  // 모바일 「＋ 속성」 시트 open 상태 — 시트 본체는 후속 태스크(Task 2)에서 연결한다.
+  // 모바일 「＋ 속성」 시트 open 상태 — 칩 줄의 「＋ 속성」 버튼이 열고, 아래 MobileSheetShell(issue-more-props-sheet)이 이 값으로 열림/닫힘을 제어한다.
   const [moreOpen, setMoreOpen] = useState(false);
   const watcherCount = watchers.data?.length ?? 0;
   const mobileWatchLabel = isWatching ? `구독 중 · ${watcherCount}명` : '구독하기';
