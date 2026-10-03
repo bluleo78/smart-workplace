@@ -10,14 +10,16 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
-import { useLocation, useNavigationType } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useChatSessionContext } from '@/hooks/chat-session-context';
 import { useHistoryParam } from '@/hooks/useHistoryParam';
 import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile';
 import { type AiActivity, aiActivity, nextUnseenDone } from '@/lib/ai/aiActivity';
+import { asState, markKey } from '@/lib/historyParam';
 
 /** AI 어시스턴트 표시 모드. closed=닫힘, side=우측 도킹, fullscreen=콘텐츠 영역 2단. */
 export type AIMode = 'closed' | 'side' | 'fullscreen';
@@ -117,18 +119,50 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
     [historyOpen, mode, pushHistory, popHistory],
   );
 
-  // 시스템 back/forward(POP)일 때만 표식과 모드를 맞춘다 — 렌더 중 "이전 값 보관" 패턴.
+  // 시스템 back/forward(POP)일 때만 표식과 모드를 맞춘다 — popstate 는 back/forward 에서만 온다.
   // PUSH/REPLACE(페이지의 setSearchParams 등)는 state 를 비워도 AI 를 닫지 않는다.
+  // 렌더 중 location.key 비교를 쓰지 않는 이유: 라우터 위치 갱신은 transition 이라, push 직후 곧바로 back 하면
+  // push 위치가 커밋되지 않은 채 원래 key 로 돌아와 "위치가 바뀌지 않은 것"으로 보여 동기화를 놓친다(WP-209).
+  // 표식은 BrowserRouter 가 history.state.usr 에 둔 router state 에서 직접 읽는다.
+  useEffect(() => {
+    const onPop = () => {
+      const usr = asState((window.history.state as { usr?: unknown } | null)?.usr);
+      const has = typeof usr?.[HISTORY_KEY] === 'string';
+      const mobile = getIsMobile();
+      setMode((cur) => {
+        const fs = effectiveMode(cur, mobile) === 'fullscreen';
+        if (!has && fs) return 'closed';
+        if (has && !fs) return 'fullscreen';
+        return cur;
+      });
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  // 새로고침 뒤 남은 표식 정리(마운트 1회) — 모드는 closed 로 시작하는데 현재 항목에 aiOpen+마크가 남아 있으면
+  // 하위 화면(query 모드 push)이 state 를 spread 해 표식을 상속하고, back(POP)으로 이 항목에 오면 AI 가 되살아나며,
+  // 하위 화면에서 ✦ 를 열면 push 를 건너뛰고 닫을 때 마크 기준으로 하위 화면까지 되돌린다.
+  // → 표식만 replace 로 지운다(다른 state·마크·search·hash 는 보존). 이후 다시 열면 항상 push 한다.
   const location = useLocation();
-  const navType = useNavigationType();
-  const [syncedKey, setSyncedKey] = useState(location.key);
-  if (syncedKey !== location.key) {
-    setSyncedKey(location.key);
-    if (navType === 'POP') {
-      if (!historyOpen && mode === 'fullscreen') setMode('closed');
-      else if (historyOpen && mode !== 'fullscreen') setMode('fullscreen');
-    }
-  }
+  const navigate = useNavigate();
+  const mountLocationRef = useRef(location);
+  const strippedRef = useRef(false);
+  useEffect(() => {
+    // StrictMode 이중 실행에서도 한 번만.
+    if (strippedRef.current) return;
+    strippedRef.current = true;
+    const loc = mountLocationRef.current;
+    const prev = asState(loc.state);
+    if (!prev || typeof prev[HISTORY_KEY] !== 'string') return;
+    const rest: Record<string, unknown> = { ...prev };
+    delete rest[HISTORY_KEY];
+    delete rest[markKey(HISTORY_KEY)];
+    void navigate(
+      { pathname: loc.pathname, search: loc.search, hash: loc.hash },
+      { replace: true, state: Object.keys(rest).length > 0 ? rest : null },
+    );
+  }, [navigate]);
 
   const open = useCallback(
     (m: Exclude<AIMode, 'closed'>) => {

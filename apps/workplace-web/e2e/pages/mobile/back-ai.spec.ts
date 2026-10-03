@@ -65,3 +65,33 @@ test('새로고침으로 닫힌 뒤 다시 열어도 goBack 한 번에 닫히고
   await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
   await expect(page).toHaveURL(/\/chat$/)
 })
+
+test('AI 를 연 채 새로고침 → 남은 표식이 지워져 하위 화면 back·✦ 닫기가 AI 를 되살리거나 상세를 닫지 않는다', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
+  await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
+  await page.goto('/mail/1')
+  await page.getByTestId('mobile-tab-ai').tap()
+  const fs = page.getByTestId('ai-fullscreen')
+  await expect(fs).toBeVisible()
+  await page.reload()
+  await expect(fs).toHaveCount(0)
+
+  // 하위 화면(?messageId)을 열고 back — AI 가 되살아나지 않고 목록에 남는다.
+  await page.getByTestId('mail-row-10').click()
+  await expect(page).toHaveURL(/\/mail\/1\?messageId=10$/)
+  await page.goBack()
+  await expect(page).toHaveURL(/\/mail\/1$/)
+  await expect(page.getByTestId('mail-list')).toBeVisible()
+  await expect(fs).toHaveCount(0)
+
+  // 상세에서 ✦ 열기 → × 닫기는 상세를 그대로 둔다.
+  await page.getByTestId('mail-row-10').click()
+  await expect(page.getByTestId('mail-detail')).toBeVisible()
+  await page.getByTestId('mobile-detail-ai').tap()
+  await expect(fs).toBeVisible()
+  await page.getByTestId('ai-panel-close').tap()
+  await expect(fs).toHaveCount(0)
+  await expect(page).toHaveURL(/\/mail\/1\?messageId=10$/)
+  await expect(page.getByTestId('mail-detail')).toBeVisible()
+})
