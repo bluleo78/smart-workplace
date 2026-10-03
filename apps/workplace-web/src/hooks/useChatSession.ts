@@ -262,7 +262,7 @@ export function useChatSession() {
           }
         });
     },
-    [qc, updateSessionId],
+    [qc, updateSessionId, setPending],
   );
 
   // #335: 스트리밍 중단 — 사용자가 진행 중인 AI 응답을 멈춘다.
@@ -290,7 +290,7 @@ export function useChatSession() {
       }
       return next;
     });
-  }, []);
+  }, [setPending]);
 
   // 새 세션 — 로컬 리셋만(POST 안 함; 첫 chat 이 서버에서 세션 생성). in-flight 작업 무효화.
   // opts.keepDraft: 보류됐던 '새 대화'를 나중에 실행하는 경로 전용 — 기다리는 동안 사용자가 입력한
@@ -311,7 +311,7 @@ export function useChatSession() {
     // '새 대화'는 깨끗한 빈 입력으로 시작해야 하므로 패널 로컬 입력 초기화 신호 발행(#204).
     // restoreSession(세션 선택)/submit 에서는 발행하지 않아 세션별 초안 보존(by-design)을 깨지 않는다.
     if (!opts?.keepDraft) setNewSessionNonce((n) => n + 1);
-  }, [updateSessionId, clearHeld]);
+  }, [updateSessionId, clearHeld, setPending]);
 
   // 복원 — 메시지 fetch → transcript 재현(AI 재호출 없음, 위젯 fold 없음).
   const restoreSession = useCallback(
@@ -344,7 +344,7 @@ export function useChatSession() {
         handleApiError(err, '세션을 불러오지 못했습니다');
       }
     },
-    [updateSessionId],
+    [updateSessionId, clearHeld, setPending],
   );
 
   // #843: 카드 상태 갱신 헬퍼 — 카드는 제자리에 머물고 phase/error 만 바뀐다(예전의 제거→끝에 재삽입 제거).
