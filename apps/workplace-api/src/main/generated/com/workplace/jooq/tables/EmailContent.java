@@ -169,6 +169,11 @@ public class EmailContent extends TableImpl<EmailContentRecord> {
      */
     public final TableField<EmailContentRecord, Boolean> AI_SUMMARY_SKIPPED = createField(DSL.name("ai_summary_skipped"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
 
+    /**
+     * The column <code>public.email_content.ai_categorized_at</code>.
+     */
+    public final TableField<EmailContentRecord, OffsetDateTime> AI_CATEGORIZED_AT = createField(DSL.name("ai_categorized_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private EmailContent(Name alias, Table<EmailContentRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

@@ -70,6 +70,23 @@ public final class MailAiMessages {
   /** ③ 응답 — 요청하지 않았거나 형식이 틀린 항목은 null. */
   public record AnalyzeContentResult(String category, String summary) {}
 
+  /** 분류 일괄(WP-185) 입력 한 통 — bodyHead 는 새로 쓴 본문 앞 500자(자동 발송이면 미리보기). */
+  public record ClassifyBatchItem(long id, String from, String subject, String bodyHead) {}
+
+  /** 분류 일괄 요청 — 최대 25통. 비서 설정은 ③ 과 같은 방식으로 전달한다(토큰은 ai-agent 가 agentId 로 조회). */
+  public record ClassifyBatchRequest(
+      List<ClassifyBatchItem> items,
+      long assistantAgentId,
+      String model,
+      int maxTurns,
+      int timeoutMs) {}
+
+  /** 분류 일괄 결과 한 통 — 형식이 틀렸거나 응답에 없던 항목은 category=null. */
+  public record ClassifyBatchEntry(long id, String category) {}
+
+  /** 분류 일괄 응답 — 요청 id 순서. */
+  public record ClassifyBatchResult(List<ClassifyBatchEntry> results) {}
+
   /**
    * WP-149 ④ 개인 분석 요청 — "나" 기준 회신필요·개인 요약·(공통 비서가 없을 때) 분류. WP-150 이 "나" 프로필·보낸 사람 관계·이전 메일·연결
    * 이슈·첨부 이름을 더했다. 조회에 실패한 블록은 null(sender·linkedIssue) 또는 빈 목록(thread·attachments)으로 보내고, agent 는
