@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Download, Forward, Inbox, Loader2, Mail, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
+import { Check, Download, Forward, Inbox, Loader2, Mail, MailOpen, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -14,6 +14,7 @@ import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { Button } from '@/components/ui/button'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
@@ -38,6 +39,7 @@ import {
   useReplyDraft,
   useSyncMailbox,
   useSyncStatus,
+  useToggleRead,
   useUnreadCounts,
 } from '../../hooks/queries/useMailMessages'
 import type { EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
@@ -58,12 +60,18 @@ function MessageRow({
   active,
   onSelect,
   pendingVisible,
+  showToggle,
+  onToggleRead,
 }: {
   m: EmailMessageSummary
   active: boolean
   onSelect: () => void
   /** "분류 전" 배지 노출 여부 — 받은편지함 계열이고 AI 분류가 켜진 계정일 때만. */
   pendingVisible: boolean
+  /** WP-187 hover 읽음 전환 버튼 노출 — 터치 셸에는 hover 가 없어 렌더하지 않는다(길게 누르기 시트가 담당). */
+  showToggle: boolean
+  /** WP-187 읽음↔안읽음 전환(행 열기와 별개). */
+  onToggleRead: () => void
 }) {
   const navigate = useNavigate()
   // WP-146: 회신필요 판정은 행마다 한 번만 계산.
@@ -75,6 +83,8 @@ function MessageRow({
       role="button"
       tabIndex={0}
       data-testid={`mail-row-${m.id}`}
+      // WP-187: 길게 누르기 등 행 단위 위임 처리에서 메시지 id 를 찾기 위한 표식.
+      data-message-id={m.id}
       // a11y(#699): 발신자+제목만으로 accessible name 구성 — 스니펫/AI배지/날짜까지
       // 자식 텍스트가 섞이면 장문화되어 SR 청취성 저하(WCAG 1.3.1/4.1.2). 날짜는
       // 식별에 필수가 아니므로 간결함 우선으로 제외.
@@ -87,7 +97,8 @@ function MessageRow({
         }
       }}
       className={cn(
-        'relative flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
+        // group — 안의 읽음 전환 버튼을 행 hover 에 맞춰 드러낸다(WP-187).
+        'group relative flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
         active ? 'bg-accent' : 'hover:bg-accent/50',
       )}
     >
@@ -110,6 +121,25 @@ function MessageRow({
           {m.fromName || m.fromAddress || '(보낸사람 없음)'}
         </span>
         {m.hasAttachment && <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+        {showToggle && (
+          // WP-187: hover 시 읽음/안읽음 전환 — 행 열기와 분리(stopPropagation).
+          // display 대신 opacity 로 숨겨 탭 순서에 남긴다 — 키보드 포커스 시에도 드러난다(접근성).
+          // onKeyDown 도 멈춘다 — 행의 Enter/Space 처리(preventDefault)가 버튼 키보드 활성화를 삼키지 않게.
+          <button
+            type="button"
+            data-testid={`mail-row-toggle-read-${m.id}`}
+            aria-label={m.seen ? '안읽음으로 표시' : '읽음으로 표시'}
+            title={m.seen ? '안읽음으로 표시' : '읽음으로 표시'}
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleRead()
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground opacity-0 outline-none transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40 group-hover:opacity-100"
+          >
+            {m.seen ? <Mail className="h-3.5 w-3.5" /> : <MailOpen className="h-3.5 w-3.5" />}
+          </button>
+        )}
         <span className="shrink-0 text-xs text-muted-foreground">
           {formatReceivedAt(m.receivedAt)}
         </span>
@@ -231,6 +261,7 @@ function MessageDetailPanel({
   aiDraftPending,
   onAiIssue,
   issueDraftPending,
+  onMarkUnread,
 }: {
   messageId: number | null
   aiEnabled: boolean
@@ -241,10 +272,14 @@ function MessageDetailPanel({
   aiDraftPending: boolean
   onAiIssue: (detail: EmailMessageDetail) => void
   issueDraftPending: boolean
+  /** WP-187 열린 메일을 안읽음으로 표시하고 상세를 닫는다. */
+  onMarkUnread: () => void
 }) {
   const { data: detail, isLoading, isError, refetch } = useMailMessage(messageId)
   // 비서가 있을 때만 요약 조회 — aiAvailable false면 fetch 자체를 생략해 불필요한 API 호출을 막는다.
   const aiAvailable = useAiAvailable()
+  // WP-187: 데스크톱 상세의 "안읽음" 아이콘 판정 — 모바일은 상세 헤더 바(trailing)가 맡는다. 조기 return 앞(훅 순서 고정).
+  const isMobile = useIsMobile()
   const { data: summaryData, isFetching: summaryFetching } = useMailSummary(messageId, aiAvailable)
   // WP-149 요약 생략 메일의 "AI 요약" 버튼 — 누를 때만 생성(결과는 요약 캐시에 바로 반영)
   const generateSummary = useGenerateMailSummary()
@@ -389,6 +424,19 @@ function MessageDetailPanel({
           >
             <Forward className="h-3.5 w-3.5" /> 전달
           </Button>
+          {/* WP-187 안읽음으로 표시(데스크톱 아이콘) — 누르면 상세가 닫힌다(열린 상세가 재조회되면 다시 읽음 처리되므로). */}
+          {!isMobile && (
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="mail-mark-unread"
+              aria-label="안읽음으로 표시"
+              title="안읽음으로 표시"
+              onClick={onMarkUnread}
+            >
+              <Mail className="h-3.5 w-3.5" />
+            </Button>
+          )}
           {/* AI 답장 초안 버튼 — 비서 있고 AI 사용 계정에서만 노출. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
           {aiAvailable && aiEnabled && (
             <Button
@@ -556,6 +604,44 @@ export function MailInboxPage() {
     if (view.unreadOnly && row) {
       setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, { ...row, seen: true }) }))
     }
+  }
+  // WP-187 읽음/안읽음 전환 — 새 훅은 모두 아래 !accountId 조기 return 보다 앞에 둔다(훅 순서).
+  const toggleRead = useToggleRead()
+  // 터치 셸에는 hover 가 없어 행 전환 버튼을 렌더하지 않는다.
+  const touchShell = useIsTouchShell()
+  /**
+   * 한 통 읽음 전환 + "안 읽은 메일만" 유지 스냅샷 동기화(F19).
+   * - 유지 중인 행이면 스냅샷 seen 도 바꾼다 — 서버 목록에 없는 행은 낙관 갱신이 닿지 않아 스냅샷이 화면 값이다.
+   * - 안 읽은 메일만 보기에서 읽음 처리한 행은 열람과 같이 유지 집합에 넣는다(재조회로 즉시 사라지지 않게).
+   * 실패하면 훅이 목록 캐시를 되돌리고, 여기서는 스냅샷만 이전 값으로 되돌린다.
+   */
+  const applyToggle = (id: number, seen: boolean) => {
+    const prevKept = kept.key === keepKey ? kept.rows.get(id) : undefined
+    const row = prevKept ?? fetchedMessages?.find((r) => r.id === id)
+    if (row && (prevKept || (view.unreadOnly && seen))) {
+      setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, { ...row, seen }) }))
+    }
+    toggleRead.mutate(
+      { id, seen },
+      {
+        onError: () =>
+          setKept((k) => {
+            if (k.key !== keepKey) return k
+            const rows = new Map(k.rows)
+            if (prevKept) rows.set(id, prevKept)
+            else rows.delete(id)
+            return { key: keepKey, rows }
+          }),
+      },
+    )
+  }
+  /**
+   * 안읽음으로 표시 + 상세 닫기 — 먼저 선택을 풀어 상세 쿼리를 비활성으로 만든다.
+   * 열린 상세가 메일 변경 이벤트로 무효화되면 GET /messages/{id}(markSeen) 재조회로 다시 읽음 처리되기 때문(R5).
+   */
+  const markUnreadAndClose = (id: number) => {
+    setSelectedId(null)
+    applyToggle(id, false)
   }
   const sync = useSyncMailbox(accountIdNum)
   const { openCompose } = useMailCompose()
@@ -901,6 +987,9 @@ export function MailInboxPage() {
                   active={selectedId === m.id}
                   onSelect={() => selectRow(m.id)}
                   pendingVisible={view.kind !== 'sent' && classificationActive}
+                  showToggle={!touchShell}
+                  // 열린 메일을 안읽음으로 바꾸면 상세도 닫는다(R5) — 그 외에는 상태만 뒤집는다.
+                  onToggleRead={() => (m.seen && m.id === selectedId ? markUnreadAndClose(m.id) : applyToggle(m.id, !m.seen))}
                 />
               ))}
             </div>
@@ -916,7 +1005,26 @@ export function MailInboxPage() {
           data-testid="mail-detail-pane"
         >
           {/* 모바일 상세 헤더 — ‹·메일 제목·✦ 한 줄(탭바가 숨으므로 ✦ 포함). URL 이 탭 루트라 레이아웃 상세 분기 대신 직접 그린다. */}
-          {isMobile && <MobileDetailBar data-testid="mail-back" title={detailTitle} onBack={() => setSelectedId(null)} />}
+          {/* WP-187: ✦ 바로 왼쪽(trailing)에 "안읽음" — 누르면 목록으로 돌아간다. */}
+          {isMobile && (
+            <MobileDetailBar
+              data-testid="mail-back"
+              title={detailTitle}
+              onBack={() => setSelectedId(null)}
+              trailing={
+                selectedId != null && (
+                  <button
+                    type="button"
+                    data-testid="mobile-mark-unread"
+                    onClick={() => markUnreadAndClose(selectedId)}
+                    className="flex h-11 shrink-0 items-center gap-1 px-3 text-sm text-primary"
+                  >
+                    <Mail className="h-4 w-4" /> 안읽음
+                  </button>
+                )
+              }
+            />
+          )}
           <MessageDetailPanel
             messageId={selectedId}
             aiEnabled={aiEnabled}
@@ -927,6 +1035,9 @@ export function MailInboxPage() {
             onAiReplyDraft={onAiReplyDraft}
             onAiIssue={onAiIssue}
             issueDraftPending={issueDraft.isPending}
+            onMarkUnread={() => {
+              if (selectedId != null) markUnreadAndClose(selectedId)
+            }}
           />
         </div>
       </div>
