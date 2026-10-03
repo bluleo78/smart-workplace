@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useAssistant } from '@/components/ai/AIAssistantContext'
 import { CountBadge } from '@/components/CountBadge'
+import { useUnreadSummary } from '@/hooks/queries/useMailMessages'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useUnreadCount } from '@/hooks/queries/useUnreadCount'
@@ -16,13 +17,15 @@ import { cn } from '@/lib/utils'
 
 import { useMobileChrome } from './MobileChromeContext'
 
-// 탭별 배지 수 — 채팅 = 채널+DM 미읽음 합, 알림 = 인박스 미읽음. 메일은 합계 API 가 없어 1차 미표시.
+// 탭별 배지 수 — 채팅 = 채널+DM 미읽음 합, 알림 = 인박스 미읽음, 메일 = 모든 계정 업무 안 읽은 수(WP-186).
+// 메일 계정이 없으면 서버가 0 을 돌려주므로 배지가 숨는다.
 function useTabBadges(): Partial<Record<MobileTabId, number>> {
   const { data: channels = [] } = useMyChannels()
   const { data: dms = [] } = useMyDms()
   const { data: inbox = 0 } = useUnreadCount()
+  const { data: mail = 0 } = useUnreadSummary(true)
   const chat = [...channels, ...dms].reduce((s, c) => s + (c.unreadCount ?? 0), 0)
-  return { chat, notifications: inbox }
+  return { chat, notifications: inbox, mail }
 }
 
 /**
@@ -99,7 +102,8 @@ export function MobileTabBar() {
         type="button"
         data-testid={`mobile-tab-${id}`}
         aria-current={active ? 'page' : undefined}
-        aria-label={count > 0 ? `${t.label}, 읽지 않음 ${count}` : t.label}
+        // 메일 탭 배지는 받은편지함 전체가 아니라 업무 보기 안 읽음 수라 이름에 그 범위를 밝힌다.
+        aria-label={count > 0 ? (id === 'mail' ? `${t.label}, 업무 메일 안 읽음 ${count}` : `${t.label}, 읽지 않음 ${count}`) : t.label}
         onClick={() => go(t.path)}
         className={cn(
           'relative flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 text-[10px]',

@@ -44,6 +44,7 @@ export function summary(overrides?: Partial<EmailMessageSummary>): EmailMessageS
     hasAttachment: true,
     aiCategory: null,
     aiNeedsReply: null,
+    categoryPending: false,
     ...overrides,
   }
 }

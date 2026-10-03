@@ -23,7 +23,6 @@ test.describe('메일 인용문 보존', () => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
     // 상세 진입 시 함께 나가는 부가 조회도 고정 응답으로 둔다 — 모킹이 빠지면 오류 응답·재시도가
     // 상세 영역을 다시 그리는 타이밍에 답장 클릭이 겹칠 수 있다(작성 창이 안 열린 flaky 의 유력 원인, WP-82).
-    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
     await mockApi(page, 'GET', '/api/v1/mail/messages/5/summary', { summary: null })
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/messages',

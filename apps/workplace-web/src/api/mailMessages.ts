@@ -11,6 +11,7 @@ import type {
   MailSendRequest,
   MailSyncResult,
   MailSyncStatus,
+  MailUnreadCounts,
   PromoteToIssuePayload,
   SendResult,
 } from '../types/mailMessage';
@@ -60,12 +61,16 @@ export async function listMessages(
   return data;
 }
 
-/** P2: 계정의 회신필요(미처리) 메일 건수. 사이드바 배지용. */
-export async function getNeedsReplyCount(accountId: number): Promise<number> {
-  const { data } = await client.get<{ count: number }>(
-    `/mail/accounts/${accountId}/needs-reply-count`,
-  );
-  return data.count;
+/** WP-186 계정 안 읽은 수(분류 버킷·받은편지함·회신필요) + AI 분류 활성 여부. */
+export async function getUnreadCounts(accountId: number): Promise<MailUnreadCounts> {
+  const { data } = await client.get<MailUnreadCounts>(`/mail/accounts/${accountId}/unread-counts`);
+  return data;
+}
+
+/** WP-186 모바일 탭 배지 — 모든 계정 업무 안 읽은 수 합. */
+export async function getUnreadSummary(): Promise<number> {
+  const { data } = await client.get<{ workUnread: number }>('/mail/unread-summary');
+  return data.workUnread;
 }
 
 /** 메시지 단건 상세(본문 + 첨부 메타). */

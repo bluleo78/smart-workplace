@@ -149,7 +149,7 @@ test('헤더가 없는 상세 화면(드라이브 첨부 모아보기)은 뒤로
   await expect(page.getByTestId('mobile-back-ai')).toBeVisible()
 })
 
-test('메일 본문: 목록 헤더(받은편지함·동기화) 대신 ‹·메일 제목·✦ 한 줄 헤더, ‹ 로 목록 복귀', async ({ authenticatedPage: page }) => {
+test('메일 본문: 목록 헤더(업무·동기화) 대신 ‹·메일 제목·✦ 한 줄 헤더, ‹ 로 목록 복귀', async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [mailSummary()])
   await mockApi(page, 'GET', '/api/v1/mail/messages/10', mailDetail({ subject: '10월 배포 일정 안내' }))
@@ -166,7 +166,7 @@ test('메일 본문: 목록 헤더(받은편지함·동기화) 대신 ‹·메�
   // ‹ → 목록과 폴더 헤더 복귀(URL 은 그대로 탭 루트).
   await page.getByTestId('mobile-back').click()
   await expect(page.getByTestId('mail-list')).toBeVisible()
-  await expect(page.getByTestId('page-header')).toContainText('받은편지함')
+  await expect(page.getByTestId('page-header')).toContainText('업무')
   await expect(page.getByTestId('mail-sync')).toBeVisible()
   await expect(page).toHaveURL(/\/mail\/1$/)
 })

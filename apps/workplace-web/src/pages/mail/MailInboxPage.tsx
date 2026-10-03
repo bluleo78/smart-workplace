@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Download, Forward, Loader2, Mail, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
+import { Check, Download, Forward, Inbox, Loader2, Mail, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -17,8 +17,10 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
+import { mergeKeptRows } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
+import { mailViewHref, resolveMailView } from '@/lib/mailView'
 import { cn } from '@/lib/utils'
 
 import { downloadMailAttachment } from '../../api/mailMessages'
@@ -36,8 +38,9 @@ import {
   useReplyDraft,
   useSyncMailbox,
   useSyncStatus,
+  useUnreadCounts,
 } from '../../hooks/queries/useMailMessages'
-import type { EmailMessageDetail, EmailMessageSummary, MailFolder, MailIssueDraft } from '../../types/mailMessage'
+import type { EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
 import { MailToIssueDialog } from './MailToIssueDialog'
 
 // 수신 시각을 간략 표기(오늘=시각, 그 외=월/일).
@@ -54,10 +57,13 @@ function MessageRow({
   m,
   active,
   onSelect,
+  pendingVisible,
 }: {
   m: EmailMessageSummary
   active: boolean
   onSelect: () => void
+  /** "분류 전" 배지 노출 여부 — 받은편지함 계열이고 AI 분류가 켜진 계정일 때만. */
+  pendingVisible: boolean
 }) {
   const navigate = useNavigate()
   // WP-146: 회신필요 판정은 행마다 한 번만 계산.
@@ -123,7 +129,7 @@ function MessageRow({
         </span>
       )}
       {/* WP-146: 회신필요 = AI 판정 && 안 읽음 — 읽으면 배지 숨김. 분류 배지는 클릭 필터. */}
-      {(m.aiCategory || needsReply) && (
+      {(m.aiCategory || needsReply || (pendingVisible && m.categoryPending)) && (
         <span className="mt-0.5 flex items-center gap-1">
           {/* AI 분류 배지 — 클릭 시 해당 분류 필터로 이동(onClick + stopPropagation 으로 행 선택과 분리). */}
           {m.aiCategory && (
@@ -132,11 +138,20 @@ function MessageRow({
               data-testid={`mail-badge-category-${m.id}`}
               onClick={(e) => {
                 e.stopPropagation()
-                navigate(`/mail/${m.accountId}?category=${encodeURIComponent(m.aiCategory!)}`)
+                navigate(mailViewHref(m.accountId, m.aiCategory as MailCategory, false))
               }}
             >
               {m.aiCategory}
             </AiSignalBadge>
+          )}
+          {pendingVisible && m.categoryPending && (
+            // WP-186: 아직 분류를 시도하지 않은 메일 — 업무 보기에 섞여 있는 이유를 알려 주는 점선 배지(클릭 없음).
+            <span
+              data-testid={`mail-badge-pending-${m.id}`}
+              className="rounded-full border border-dashed border-muted-foreground/50 px-2 py-0.5 text-xs leading-4 text-muted-foreground dark:border-muted-foreground/70"
+            >
+              분류 전
+            </span>
           )}
           {/* 회신필요 배지 — action 변형으로 사용자 행동 필요를 강조. 읽으면 숨김. */}
           {needsReply && (
@@ -516,13 +531,32 @@ export function MailInboxPage() {
   const { data: accounts, isLoading: accountsLoading } = useMailAccounts()
   const accountIdNum = accountId ? Number(accountId) : undefined
 
-  // P2: URL ?category=업무, ?needsReply=true → 목록 필터로 전달(사이드바 nav 가 설정).
-  const categoryParam = params.get('category') ?? ''
-  const needsReplyParam = params.get('needsReply') === 'true'
+  // WP-186: URL → 보기 해석(사이드바와 같은 규칙). 계수 로딩·실패 중에는 분류 활성으로 본다(사이드바와 동일).
+  const { data: unreadCounts } = useUnreadCounts(accountIdNum)
+  const classificationActive = unreadCounts?.classificationActive ?? true
+  const view = resolveMailView(params, classificationActive)
 
-  const { data: messages, isLoading, isError, refetch: refetchMessages } = useMailMessages(
-    accountIdNum, folderParam, search, false, categoryParam, needsReplyParam,
+  const { data: fetchedMessages, isLoading, isError, refetch: refetchMessages } = useMailMessages(
+    accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply',
   )
+  // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
+  // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
+  const keepKey = `${accountId ?? ''}|${search}|${view.key}`
+  // 선택한 행의 스냅샷(읽음 처리본)을 선택 시점에 보관 — 서버가 읽음으로 빼도 mergeKeptRows 가 그대로 되살린다.
+  const [kept, setKept] = useState<{ key: string; rows: Map<number, EmailMessageSummary> }>({ key: keepKey, rows: new Map() })
+  // 키가 바뀌면 렌더 중에 실제로 비운다(숨기기만 하면 같은 키로 돌아올 때 되살아난다).
+  if (kept.key !== keepKey) setKept({ key: keepKey, rows: new Map() })
+  const messages = useMemo(
+    () => mergeKeptRows(fetchedMessages, kept.key === keepKey ? kept.rows : undefined),
+    [fetchedMessages, kept, keepKey],
+  )
+  const selectRow = (id: number) => {
+    setSelectedId(id)
+    const row = fetchedMessages?.find((r) => r.id === id)
+    if (view.unreadOnly && row) {
+      setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, { ...row, seen: true }) }))
+    }
+  }
   const sync = useSyncMailbox(accountIdNum)
   const { openCompose } = useMailCompose()
   const replyDraft = useReplyDraft()
@@ -573,8 +607,8 @@ export function MailInboxPage() {
             accountEmail: currentAccount?.emailAddress ?? null,
             folder: folderParam,
             q: search,
-            category: categoryParam || null,
-            needsReply: needsReplyParam,
+            category: view.apiCategory || null,
+            needsReply: view.kind === 'needsReply',
             count: messages?.length,
             selected: selectedSummary
               ? {
@@ -589,7 +623,7 @@ export function MailInboxPage() {
               : null,
           })
         : null,
-    [accountIdNum, currentAccount?.emailAddress, folderParam, search, categoryParam, needsReplyParam, messages?.length, selectedSummary],
+    [accountIdNum, currentAccount?.emailAddress, folderParam, search, view.apiCategory, view.kind, messages?.length, selectedSummary],
   )
   useRegisterAiScreenContext(screenContext)
 
@@ -700,7 +734,23 @@ export function MailInboxPage() {
       {/* 전폭 헤더 — 폴더명 + 동기화(받은편지함) + 검색. 기존 목록 툴바 대체. */}
       {showListChrome && (
         <PageHeader
-          title={folderParam === 'SENT' ? '보낸편지함' : '받은편지함'}
+          title={
+            isMobile ? (
+              view.title
+            ) : (
+              // 데스크톱: 계층 구분자 "›" 를 작고 흐리게(스크린리더는 구분자를 읽지 않고 항목만 읽는다). 상위 항목은 흐린 색.
+              view.breadcrumb.map((seg, i) => (
+                <span key={seg} className={i < view.breadcrumb.length - 1 ? 'font-medium text-muted-foreground' : undefined}>
+                  {i > 0 && (
+                    <span aria-hidden className="mx-1.5 text-muted-foreground">
+                      ›
+                    </span>
+                  )}
+                  {seg}
+                </span>
+              ))
+            )
+          }
           actions={
             <>
               <input
@@ -721,39 +771,65 @@ export function MailInboxPage() {
       )}
       {/* 리스트 툴바 — INBOX 전용: 아이콘 새로고침 + 마지막 동기화 상대시각 + 진행률. */}
       {showListChrome && folderParam === 'INBOX' && (
-        <div className="flex items-center gap-2 border-b px-3 py-1.5">
-          <button
-            type="button"
-            data-testid="mail-sync"
-            aria-label="지금 새로고침"
-            onClick={() => sync.mutate()}
-            disabled={sync.isPending || (syncStatus.data?.running ?? false)}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
-          >
-            <RefreshCw
-              className={cn('h-4 w-4', (sync.isPending || syncStatus.data?.running) && 'animate-spin')}
-            />
-          </button>
-          {/* 마지막 성공 동기화 시각 — null이면 회색 점+"동기화 안 됨", 있으면 녹색 점+상대시각 표시. */}
-          <span data-testid="mail-synced-at" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            {currentAccount?.lastSyncedAt ? (
-              <>
-                <span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden />
-                {`${formatRelativeTime(currentAccount.lastSyncedAt)} 동기화됨`}
-              </>
-            ) : (
-              <>
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" aria-hidden />
-                동기화 안 됨
-              </>
-            )}
-          </span>
-          {/* 본문 보충 진행률 — 기존 로직 유지 */}
-          {syncStatus.data?.phase === 'BODIES' && syncStatus.data.total > 0 && (
-            <span data-testid="mail-sync-progress" className="text-xs text-muted-foreground">
-              본문 {syncStatus.data.done}/{syncStatus.data.total}
+        <div className="flex items-center border-b py-1.5">
+          {/* 패딩을 안쪽 상자에 둬서(pl-3 pr-4) 오른쪽 끝이 목록 행의 시각 끝선(px-4)에 맞고 목록/상세 구분선을 넘지 않는다. */}
+          <div className="flex min-w-0 flex-1 items-center gap-2 pl-3 pr-4 lg:max-w-md">
+            <button
+              type="button"
+              data-testid="mail-sync"
+              aria-label="지금 새로고침"
+              onClick={() => sync.mutate()}
+              disabled={sync.isPending || (syncStatus.data?.running ?? false)}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 max-lg:h-10 max-lg:w-10"
+            >
+              <RefreshCw
+                className={cn('h-4 w-4', (sync.isPending || syncStatus.data?.running) && 'animate-spin')}
+              />
+            </button>
+            {/* 마지막 성공 동기화 시각 — null이면 회색 점+"동기화 안 됨", 있으면 녹색 점+상대시각 표시. */}
+            <span data-testid="mail-synced-at" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {currentAccount?.lastSyncedAt ? (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden />
+                  {`${formatRelativeTime(currentAccount.lastSyncedAt)} 동기화됨`}
+                </>
+              ) : (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" aria-hidden />
+                  동기화 안 됨
+                </>
+              )}
             </span>
-          )}
+            {/* 본문 보충 진행률 — 기존 로직 유지 */}
+            {syncStatus.data?.phase === 'BODIES' && syncStatus.data.total > 0 && (
+              <span data-testid="mail-sync-progress" className="text-xs text-muted-foreground">
+                본문 {syncStatus.data.done}/{syncStatus.data.total}
+              </span>
+            )}
+            {view.unreadToggleVisible && (
+              <button
+                type="button"
+                data-testid="mail-unread-toggle"
+                aria-pressed={view.unreadOnly}
+                onClick={() => {
+                  const next = new URLSearchParams(params)
+                  if (view.unreadOnly) next.delete('unread')
+                  else next.set('unread', 'true')
+                  setParams(next)
+                }}
+                className={cn(
+                  // 모바일: 시각 h-9 + after 히트 영역 확장으로 터치 44px 확보. 포커스 링은 디자인 시스템 규칙.
+                  'relative ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40',
+                  "max-lg:h-9 max-lg:px-4 max-lg:text-sm max-lg:after:absolute max-lg:after:-inset-y-1 max-lg:after:inset-x-0 max-lg:after:content-['']",
+                  view.unreadOnly ? 'border-primary/40 bg-primary/10 font-semibold text-primary' : 'text-foreground hover:bg-accent/50',
+                )}
+              >
+                {/* 켜짐을 색에만 의존하지 않도록 점 표시(목업). */}
+                {view.unreadOnly && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                안 읽은 메일만
+              </button>
+            )}
+          </div>
         </div>
       )}
       <div className="flex min-h-0 flex-1">
@@ -774,17 +850,38 @@ export function MailInboxPage() {
             </div>
           ) : !messages || messages.length === 0 ? (
             // P2: 필터별 정직 빈 상태 — needsReply 긍정, category 중립, 그 외 일반.
-            needsReplyParam ? (
+            view.kind === 'needsReply' ? (
               <div data-testid="mail-needsreply-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
                 <Check className="h-8 w-8 text-primary" />
                 <p className="text-sm font-medium">회신이 필요한 안 읽은 메일이 없어요 🎉</p>
                 {/* WP-146: 처리완료가 없어졌으므로 "열면 빠진다"는 규칙을 빈 상태에서 알려 준다. */}
                 <p className="text-xs">메일을 열면 회신필요에서 빠져요.</p>
               </div>
-            ) : categoryParam ? (
+            ) : view.unreadOnly ? (
+              // WP-186: 안 읽은 메일만 보기 0건 — 보기별 문구.
+              <div data-testid="mail-view-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+                <Check className="h-8 w-8 text-primary" />
+                <p className="text-sm font-medium">
+                  {view.kind === 'all' ? '안 읽은 메일이 없어요.' : `${view.title} 메일 중 안 읽은 메일이 없어요.`}
+                </p>
+                <Button
+                  variant="link"
+                  size="sm"
+                  data-testid="mail-view-empty-show-all"
+                  onClick={() => {
+                    const next = new URLSearchParams(params)
+                    next.delete('unread')
+                    setParams(next)
+                  }}
+                >
+                  모든 메일 보기
+                </Button>
+              </div>
+            ) : view.kind === 'category' ? (
               // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.
-              <div data-testid="mail-category-empty" className="p-6 text-sm text-muted-foreground">
-                이 분류에 해당하는 메일이 없습니다.
+              <div data-testid="mail-category-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+                <Inbox className="h-8 w-8" />
+                <p className="text-sm font-medium">이 분류에 해당하는 메일이 없어요.</p>
               </div>
             ) : (
               <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">
@@ -802,7 +899,8 @@ export function MailInboxPage() {
                   key={m.id}
                   m={m}
                   active={selectedId === m.id}
-                  onSelect={() => setSelectedId(m.id)}
+                  onSelect={() => selectRow(m.id)}
+                  pendingVisible={view.kind !== 'sent' && classificationActive}
                 />
               ))}
             </div>

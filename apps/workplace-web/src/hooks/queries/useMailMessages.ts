@@ -4,7 +4,7 @@ import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from 
 import { useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 
-import { coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getNeedsReplyCount, getSyncStatus, listMessages, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
+import { coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getSyncStatus, getUnreadCounts, getUnreadSummary, listMessages, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
 import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
@@ -33,12 +33,22 @@ export function useMailMessages(
   });
 }
 
-/** P2: 계정의 회신필요(미처리) 메일 건수(사이드바 배지). accountId 없으면 비활성. */
-export function useNeedsReplyCount(accountId: number | undefined) {
+/** WP-186 사이드바 안 읽은 수 + AI 분류 활성 여부. accountId 없으면 비활성. */
+export function useUnreadCounts(accountId: number | undefined) {
   return useQuery({
-    queryKey: ['mail-needs-reply-count', accountId ?? 0] as const,
-    queryFn: () => getNeedsReplyCount(accountId as number),
+    queryKey: mailMessageKeys.unreadCounts(accountId ?? 0),
+    queryFn: () => getUnreadCounts(accountId as number),
     enabled: !!accountId,
+    refetchInterval: 60_000,
+  });
+}
+
+/** WP-186 모바일 탭 배지 합계. 모바일 셸에서만 켠다. */
+export function useUnreadSummary(enabled: boolean) {
+  return useQuery({
+    queryKey: mailMessageKeys.unreadSummary(),
+    queryFn: getUnreadSummary,
+    enabled,
     refetchInterval: 60_000,
   });
 }
@@ -76,8 +86,9 @@ export function useMailMessage(messageId: number | null) {
       // 홈 대시보드 메일 요약(useMailSummary, ['mail-summary'])도 무효화 — 읽음으로 회신 필요/안읽음 수 즉시 반영.
       // exact: true — 메시지별 AI 요약 ['mail-summary', messageId] 의 불필요한 재생성 방지(useSyncMailbox 와 동일).
       qc.invalidateQueries({ queryKey: ['mail-summary'], exact: true });
-      // WP-146: 회신필요 = AI 판정 && 안 읽음 — 열람으로 사이드바 회신필요 카운트도 바뀌므로 함께 무효화(계정 무관 prefix).
-      qc.invalidateQueries({ queryKey: ['mail-needs-reply-count'] });
+      // WP-186: 열람으로 안 읽은 수(사이드바 분류·회신필요 포함, 탭 배지)도 바뀐다 — 계정 무관 prefix.
+      qc.invalidateQueries({ queryKey: mailMessageKeys.unreadCountsAll() });
+      qc.invalidateQueries({ queryKey: mailMessageKeys.unreadSummary() });
     }
   }, [query.isSuccess, messageId, qc]);
 

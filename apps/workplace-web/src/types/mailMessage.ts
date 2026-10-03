@@ -14,6 +14,8 @@ export interface EmailMessageSummary {
   hasAttachment: boolean;
   aiCategory: string | null;
   aiNeedsReply: boolean | null;
+  /** WP-186: 분류를 아직 시도하지 않음 → "분류 전" 배지 */
+  categoryPending: boolean;
 }
 
 /** 첨부 메타(바이너리 미저장 — 다운로드는 후속). */
@@ -60,6 +62,18 @@ export interface MailSyncStatus {
 
 /** 메일 폴더(받은편지함/보낸편지함). */
 export type MailFolder = 'INBOX' | 'SENT';
+
+/** AI 분류 5종 — ⚠️ 백엔드 CATEGORIES 와 값·순서 일치(WP-186). */
+export const MAIL_CATEGORIES = ['업무', '개인', '알림', '프로모션', '뉴스레터'] as const;
+export type MailCategory = (typeof MAIL_CATEGORIES)[number];
+
+/** WP-186 사이드바 안 읽은 수 — byCategory.업무 는 미분류 포함. */
+export interface MailUnreadCounts {
+  classificationActive: boolean;
+  inbox: number;
+  byCategory: Record<MailCategory, number>;
+  needsReply: number;
+}
 
 /** 메일 발송 요청(새 메일·답장·전달 공용). 백엔드 MailSendRequest 와 1:1. */
 export interface MailSendRequest {

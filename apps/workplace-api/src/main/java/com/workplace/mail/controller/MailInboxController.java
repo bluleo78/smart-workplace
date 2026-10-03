@@ -5,6 +5,7 @@ import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.MailSyncStatus;
+import com.workplace.mail.dto.MailUnreadCounts;
 import com.workplace.mail.service.MailAttachmentMeteringService;
 import com.workplace.mail.service.MailAttachmentService;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
@@ -65,6 +66,19 @@ public class MailInboxController {
   public NeedsReplyCount needsReplyCount(
       @AuthenticationPrincipal Long callerId, @PathVariable long accountId) {
     return new NeedsReplyCount(messageService.countNeedsReplyForAccount(callerId, accountId));
+  }
+
+  /** WP-186 사이드바용 계정 안 읽은 수(분류 버킷·받은편지함·회신필요) + AI 분류 활성 여부. */
+  @GetMapping("/accounts/{accountId}/unread-counts")
+  public MailUnreadCounts unreadCounts(
+      @AuthenticationPrincipal Long callerId, @PathVariable long accountId) {
+    return messageService.unreadCounts(callerId, accountId);
+  }
+
+  /** WP-186 모바일 탭 배지 — 모든 활성 계정의 업무 안 읽은 수 합. */
+  @GetMapping("/unread-summary")
+  public MailUnreadCounts.Summary unreadSummary(@AuthenticationPrincipal Long callerId) {
+    return messageService.unreadSummary(callerId);
   }
 
   /** P2: 사이드바 카운트 응답 DTO. */

@@ -158,7 +158,11 @@ const RULES: Record<string, Rule> = {
   // 메시지별 AI 요약(['mail-summary', id])은 재생성 비용이 커서 위젯 키만 exact 로.
   mail: (p) => [
     ...(p.accountId != null
-      ? [{ queryKey: ['mail-messages', p.accountId] }, { queryKey: ['mail-needs-reply-count', p.accountId] }]
+      ? [
+          { queryKey: ['mail-messages', p.accountId] },
+          { queryKey: mailMessageKeys.unreadCounts(p.accountId) },
+          { queryKey: mailMessageKeys.unreadSummary() },
+        ]
       : []),
     ...(p.messageId != null
       ? [{ queryKey: mailMessageKeys.detail(p.messageId) }, { queryKey: ['mail', 'linked-issue', p.messageId] }]
@@ -173,7 +177,8 @@ const RULES: Record<string, Rule> = {
       queryKey:
         p.op === 'updated' && p.accountId != null && p.accountId > 0 ? ['mail-messages', p.accountId] : ['mail-messages'],
     },
-    { queryKey: ['mail-needs-reply-count'] },
+    { queryKey: mailMessageKeys.unreadCountsAll() },
+    { queryKey: mailMessageKeys.unreadSummary() },
     { queryKey: ['mail-summary'], exact: true },
     { queryKey: calendarKeys.all },
   ],
