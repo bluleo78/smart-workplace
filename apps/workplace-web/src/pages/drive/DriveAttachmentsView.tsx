@@ -15,6 +15,7 @@ import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { SearchInput } from '@/components/ui/search-input'
 import { useDriveAttachments } from '@/hooks/queries/useDriveAttachments'
 import { useImportAttachment } from '@/hooks/queries/useImportAttachment'
+import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { mimeToCategory } from '@/lib/fileCategory'
 import { formatFileSize } from '@/lib/formatters'
 import { LABEL_COLORS } from '@/lib/labelColors'
@@ -45,8 +46,10 @@ export function DriveAttachmentsView() {
   // 공간 조회 완료 여부 — 로딩 중 disabled 와 조회 실패 disabled 를 구분하기 위해 사용.
   const [spacesResolved, setSpacesResolved] = useState(false)
   const [importing, setImporting] = useState<VirtualAttachment | null>(null)
-  // 미리보기 모달 대상 첨부.
-  const [preview, setPreview] = useState<VirtualAttachment | null>(null)
+  // 미리보기 = URL ?preview=<fileId>(시스템 뒤로가기로 닫힘, WP-208). 필터 변경·재조회로 목록에서 빠져도 열린 모달이
+  // 사라지지 않게 클릭한 첨부를 기억한다.
+  const previewParam = useHistoryParam('preview')
+  const [previewSnap, setPreviewSnap] = useState<VirtualAttachment | null>(null)
   // 접힌 그룹 key 집합(기본 모두 펼침). 세션 임시 — localStorage 미사용.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const toggleGroup = (key: string) =>
@@ -78,6 +81,12 @@ export function DriveAttachmentsView() {
   }, [])
 
   const items = query.data?.pages.flatMap((p) => p.items) ?? []
+  // 미리보기 대상 해석 — 현재 목록 → 클릭 스냅숏 순(단건 조회 API 없음).
+  const preview =
+    previewParam.value == null
+      ? null
+      : (items.find((a) => String(a.fileId) === previewParam.value) ??
+        (previewSnap && String(previewSnap.fileId) === previewParam.value ? previewSnap : null))
   const isLoading = query.isLoading
 
   return (
@@ -176,7 +185,7 @@ export function DriveAttachmentsView() {
                           {/* 파일명 — 클릭 시 미리보기 */}
                           <button
                             type="button"
-                            onClick={() => setPreview(a)}
+                            onClick={() => { setPreviewSnap(a); previewParam.open(String(a.fileId)) }}
                             className="min-w-0 flex-1 truncate text-left font-medium hover:underline"
                           >
                             {a.name}
@@ -246,7 +255,7 @@ export function DriveAttachmentsView() {
       )}
 
       {/* 첨부 미리보기 모달 — FilePreviewModal 첨부 분기 */}
-      {preview && <FilePreviewModal attachment={preview} onClose={() => setPreview(null)} />}
+      {preview && <FilePreviewModal attachment={preview} onClose={previewParam.close} />}
     </div>
   )
 }

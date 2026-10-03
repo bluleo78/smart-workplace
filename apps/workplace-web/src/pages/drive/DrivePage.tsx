@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
@@ -147,7 +148,14 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const [picker, setPicker] = useState<
     { mode: 'move' | 'copy'; kind: 'file' | 'folder'; id: number; name: string } | null
   >(null)
-  const [preview, setPreview] = useState<DriveFile | null>(null)
+  // 미리보기 = URL ?preview=<드라이브 파일 id>(시스템 뒤로가기로 닫힘, WP-208). 단건 조회 API 가 없어
+  // 현재 목록(검색 결과 포함)에서 찾고, 재조회·placeholder 로 잠깐 빠져도 깜빡이지 않게 마지막으로 연 파일을 기억한다.
+  const previewParam = useHistoryParam('preview')
+  const [previewSnap, setPreviewSnap] = useState<DriveFile | null>(null)
+  function openPreview(f: DriveFile) {
+    setPreviewSnap(f)
+    previewParam.open(String(f.id))
+  }
   // 공유 링크 모달 대상 파일 — null 이면 닫힘.
   const [shareFile, setShareFile] = useState<DriveFile | null>(null)
   // 버전 이력 모달 대상 파일 — null 이면 닫힘.
@@ -181,7 +189,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 휴지통 뷰 — trash != null 이면 휴지통 모드.
   // WP-63: 열림 여부만 state 로 두고 목록은 useQuery 로 조회. 기존처럼 첫 응답이 올 때까지는
   // 휴지통 뷰로 전환하지 않도록 data 가 있을 때만 trash 를 채운다.
-  const [trashOpen, setTrashOpen] = useState(false)
+  // 휴지통 뷰 = URL ?view=trash(뷰 전환이라 push — 시스템 뒤로가기로 일반 뷰 복귀, WP-208).
+  const trashParam = useHistoryParam('view')
+  const trashOpen = trashParam.value === 'trash'
   const trashQuery = useDriveTrash(validSid, trashOpen)
   const trash: DriveTrashItem[] | null = trashOpen && trashQuery.data ? trashQuery.data.items : null
 
@@ -219,18 +229,20 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     setSelFolders(new Set())
   }
 
-  // 스페이스가 바뀌면 휴지통 뷰를 닫는다 — 새 스페이스의 휴지통 조회가 실패해도 trashOpen 이 남아
-  // 이후 재조회 성공 시 화면이 자동으로 휴지통으로 넘어가 갇히는 것을 막는다(렌더 중 이전 값 비교 패턴).
-  const [prevSid, setPrevSid] = useState(sid)
-  if (prevSid !== sid) {
-    setPrevSid(sid)
-    setTrashOpen(false)
-  }
+  // 스페이스 전환은 사이드바 링크가 search 를 새로 써 ?view 가 함께 빠진다 — 휴지통이 다른 공간으로 따라가지 않는다(WP-208).
 
   // WP-63: 선택은 재조회(원격 무효화 등)로 지워지지 않으므로, 현재 보이는 목록에서 사라진 항목은
   // 선택 집합과 현재 뷰(검색 중이면 검색 결과, 아니면 폴더 목록) id 의 교집합으로 걸러 쓴다.
   // 선택 수·벌크 작업 body·전체선택 판정·체크 상태 모두 이 걸러진 집합을 기준으로 한다.
   const viewItems = results ?? actualItems
+  // 미리보기 대상 해석 — 표시 중 목록(placeholder 포함) → 클릭 스냅숏 순. 목록이 실제로 로드됐는데도 없으면 not-found.
+  const previewId = previewParam.value != null ? Number(previewParam.value) : null
+  const preview: DriveFile | null =
+    previewId == null
+      ? null
+      : ((results ?? items).files.find((f) => f.id === previewId) ?? (previewSnap?.id === previewId ? previewSnap : null))
+  const previewMissing =
+    previewId != null && preview == null && results == null && itemsQuery.isSuccess && !itemsQuery.isPlaceholderData
   // 렌더마다 Set 을 새로 만들지 않도록 입력(뷰 목록·선택 집합)이 바뀔 때만 다시 계산한다.
   const visibleSelFiles = useMemo(() => {
     const ids = new Set(viewItems.files.map((f) => f.id))
@@ -677,7 +689,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         queryFn: () => driveApi.listTrash(sid).then((r) => r.data),
         staleTime: 0,
       })
-      setTrashOpen(true)
+      trashParam.open('trash')
     } catch (e) {
       handleApiError(e, '휴지통을 불러오지 못했습니다.')
     }
@@ -687,7 +699,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     await queryClient.invalidateQueries({ queryKey: driveKeys.trash(sid) })
   }
   function closeTrash() {
-    setTrashOpen(false)
+    trashParam.close()
     void reloadAndClear()
   }
   // 복원 실패 시 사용자에게 오류 피드백 제공 (try/catch 추가)
@@ -1069,7 +1081,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                       <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
                       <button
                         type="button"
-                        onClick={() => (isMissingBlob(f) ? onUnavailableClick() : setPreview(f))}
+                        onClick={() => (isMissingBlob(f) ? onUnavailableClick() : openPreview(f))}
                         className={
                           isMissingBlob(f)
                             ? 'flex-1 truncate text-left text-sm text-muted-foreground'
@@ -1264,7 +1276,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
                 <button
                   type="button"
-                  onClick={() => (isMissingBlob(f) ? onUnavailableClick() : setPreview(f))}
+                  onClick={() => (isMissingBlob(f) ? onUnavailableClick() : openPreview(f))}
                   className={
                     isMissingBlob(f)
                       ? 'flex-1 truncate text-left text-sm text-muted-foreground'
@@ -1295,8 +1307,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
                   {formatDateOnly(f.updatedAt)}
                 </span>
-                {/* 행 액션 — 호버/포커스 시 노출. 주요 3개 인라인 + 더보기(⋯). 핸들러는 기존 그대로. */}
-                <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-focus-within:flex">
+                {/* 행 액션 — 호버 또는 키보드 포커스(focus-visible)일 때만 노출. 주요 3개 인라인 + 더보기(⋯).
+                    focus-within 이면 터치 탭의 포인터 포커스로 열려 모바일에서 이름 버튼이 접히고 미리보기가 안 열린다(WP-208). */}
+                <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-has-[:focus-visible]:flex">
                   <Button
                     variant="ghost"
                     size="xs"
@@ -1389,7 +1402,18 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             onClose={() => setBulkPicker(false)}
           />
         )}
-        {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}
+        {preview && <FilePreviewModal file={preview} onClose={previewParam.close} />}
+        {/* 삭제·이동된 파일 딥링크 — 조용히 URL 을 고치지 않고 안내 후 닫기로 되돌린다(WP-208). */}
+        {previewMissing && (
+          <Dialog open onOpenChange={(o) => { if (!o) previewParam.close() }}>
+            <DialogContent data-testid="preview-not-found">
+              <DialogHeader>
+                <DialogTitle>파일을 찾을 수 없습니다</DialogTitle>
+                <DialogDescription>삭제되었거나 다른 폴더로 이동한 파일입니다.</DialogDescription>
+              </DialogHeader>
+            </DialogContent>
+          </Dialog>
+        )}
         {shareFile && <ShareLinkModal file={shareFile} onClose={() => setShareFile(null)} />}
         {versionFile && (
           <VersionHistoryModal
