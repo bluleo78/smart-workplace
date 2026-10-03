@@ -9,10 +9,7 @@ import { cn } from '@/lib/utils';
 import { useProjectEpics } from '../../../../hooks/queries/useProjectEpics';
 import { useEpicFilter } from '../../hooks/useEpicFilter';
 import { IssueCreateDialog } from '../IssueCreateDialog';
-import { MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './MobileIssueToolbar';
-
-// 버튼 터치 영역 확장 — 보이지 않는 ::after 를 위아래 6px 씩(MOBILE_CHIP 과 같은 방식).
-const HIT_EXPAND = "relative after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-['']";
+import { HIT_EXPAND, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './chipStyles';
 
 export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: string; canCreateIssue: boolean }) {
   const { choice, select } = useEpicFilter(projectKey);
@@ -103,8 +100,9 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
           ) : null
         }
       />
-      {epicType && (
-        <IssueCreateDialog projectKey={projectKey} open={createOpen} onOpenChange={setCreateOpen} initialTypeId={epicType.id} />
+      {/* 열 때만 마운트 — 닫힌 생성 다이얼로그(폼·쿼리)를 칩마다 상시 들고 있지 않는다. */}
+      {createOpen && epicType && (
+        <IssueCreateDialog projectKey={projectKey} open onOpenChange={setCreateOpen} initialTypeId={epicType.id} />
       )}
     </>
   );

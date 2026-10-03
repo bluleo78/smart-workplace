@@ -3,26 +3,14 @@
 import { Check, Plus, RefreshCw, Star, Users } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
+import { MOBILE_SHEET_ROW as ROW, MobileSheetShell } from '@/components/mobile/MobileSheetShell';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 import type { IssueFilterControls } from '../../hooks/useIssueFilterControls';
 import type { SavedViewState } from '../../hooks/useSavedViewState';
 import { SaveViewDialog } from '../SaveViewDialog';
-
-// 시트 행 공통 스타일 — 터치 영역 44px, 아이콘 size-5(MobilePickerSheet 와 같은 크기).
-const ROW =
-  'flex min-h-11 w-full items-center gap-3 px-4 text-left text-base active:bg-accent disabled:opacity-50 [&_svg]:size-5 [&_svg]:shrink-0';
+import { SharedViewUpdateConfirm } from '../SharedViewUpdateConfirm';
 
 export function MobileViewSheet({
   open,
@@ -72,124 +60,85 @@ export function MobileViewSheet({
 
   return (
     <>
-      <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-        <SheetContent
-          side="bottom"
-          showCloseButton={false}
-          data-testid="mobile-view-sheet"
-          className="flex max-h-[85dvh] flex-col gap-0 rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]"
-          onCloseAutoFocus={(e) => e.preventDefault()}
-          onOpenAutoFocus={(e) => e.preventDefault()}
-        >
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-muted-foreground/30" />
-          <SheetTitle className="px-4 pb-2 pt-3 text-base">뷰</SheetTitle>
-          <SheetDescription className="sr-only">저장된 뷰를 고르거나 현재 조건을 뷰로 저장하세요.</SheetDescription>
-          <div className="min-h-0 flex-1 overflow-y-auto py-1">
-            {option('mobile-view-option-all', '전체', saved.isAllActive, () => pick(saved.applyAll))}
-            {saved.views.map((v) =>
-              option(
-                `mobile-view-option-${v.id}`,
-                v.name,
-                saved.isViewActive(v),
-                () => pick(() => saved.apply(v.query)),
-                <>
-                  {v.visibility === 'SHARED' && <Users className="text-muted-foreground" aria-label="공유" />}
-                  {v.pinned && <Star className="fill-current text-muted-foreground" aria-label="고정" />}
-                </>,
-              ),
-            )}
-
-            {controls.showClosedToggle && (
+      <MobileSheetShell
+        open={open}
+        onClose={onClose}
+        title="뷰"
+        description="저장된 뷰를 고르거나 현재 조건을 뷰로 저장하세요."
+        testId="mobile-view-sheet"
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto py-1">
+          {/* 「전체」 ✓ 는 툴바 뷰 칩 라벨과 같은 판정 — 에픽 범위만 걸린 상태도 전체로 본다. */}
+          {option('mobile-view-option-all', '전체', saved.isAllActiveIgnoringEpic, () => pick(saved.applyAll))}
+          {saved.views.map((v) =>
+            option(
+              `mobile-view-option-${v.id}`,
+              v.name,
+              saved.isViewActive(v),
+              () => pick(() => saved.apply(v.query)),
               <>
-                <div className="my-1 border-t" />
-                {/* 「완료 모두 보기」 — 시트를 닫지 않고 바로 토글. 명시 필터가 이미 숨김을 해제했으면 켜진 채 비활성(#876). */}
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={closedChecked}
+                {v.visibility === 'SHARED' && <Users className="text-muted-foreground" aria-label="공유" />}
+                {v.pinned && <Star className="fill-current text-muted-foreground" aria-label="고정" />}
+              </>,
+            ),
+          )}
+
+          {controls.showClosedToggle && (
+            <>
+              <div className="my-1 border-t" />
+              {/* 「완료 모두 보기」 — 시트를 닫지 않고 바로 토글. 명시 필터가 이미 숨김을 해제했으면 켜진 채 비활성(#876). */}
+              {/* 행 전체가 label 이라 글자를 눌러도 스위치가 토글된다. 비활성은 행째 흐리게(스위치 자체 흐림은 꺼 이중 적용 방지). */}
+              <label className={cn(ROW, 'has-disabled:opacity-50')}>
+                <span className="min-w-0 flex-1">완료 모두 보기</span>
+                <Switch
+                  checked={closedChecked}
                   disabled={controls.closedHidingOverridden}
-                  onClick={controls.toggleShowAllClosed}
+                  onCheckedChange={controls.toggleShowAllClosed}
                   data-testid="mobile-view-closed-toggle"
-                  className={ROW}
-                >
-                  <span className="min-w-0 flex-1">완료 모두 보기</span>
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      'relative inline-flex h-6 w-10 shrink-0 rounded-full transition-colors',
-                      closedChecked ? 'bg-primary' : 'bg-muted-foreground/30',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'absolute top-0.5 size-5 rounded-full bg-background shadow transition-transform',
-                        closedChecked ? 'translate-x-[18px]' : 'translate-x-0.5',
-                      )}
-                    />
-                  </span>
-                </button>
-              </>
-            )}
+                  className="disabled:opacity-100"
+                />
+              </label>
+            </>
+          )}
 
-            <div className="my-1 border-t" />
-            {/* 저장 영역(#777 과 같은 규칙) — 활성 뷰가 바뀌었으면 업데이트/새로 저장, 아니면 현재 조건 저장. */}
-            {activeView && saved.isViewDirty ? (
-              <>
-                <button
-                  type="button"
-                  data-testid="mobile-view-update"
-                  onClick={() => pick(() => saved.updateActiveView(activeView))}
-                  className={cn(ROW, 'text-primary')}
-                >
-                  <RefreshCw aria-hidden="true" />
-                  뷰 업데이트
-                </button>
-                <button type="button" data-testid="mobile-view-save" onClick={openSave} className={ROW}>
-                  새 뷰로 저장
-                </button>
-              </>
-            ) : (
-              // 저장 가능하면 「＋ 에픽 만들기」 와 같은 primary 액션 모양(＋ 아이콘), 비활성이면 흐린 기본 행.
+          <div className="my-1 border-t" />
+          {/* 저장 영역(#777 과 같은 규칙) — 활성 뷰가 바뀌었으면 업데이트/새로 저장, 아니면 현재 조건 저장. */}
+          {activeView && saved.isViewDirty ? (
+            <>
               <button
                 type="button"
-                data-testid="mobile-view-save"
-                onClick={openSave}
-                disabled={saveDisabled}
-                className={cn(ROW, !saveDisabled && 'text-primary')}
+                data-testid="mobile-view-update"
+                onClick={() => pick(() => saved.updateActiveView(activeView))}
+                className={cn(ROW, 'text-primary')}
               >
-                <Plus aria-hidden="true" />
-                현재 조건으로 뷰 저장
+                <RefreshCw aria-hidden="true" />
+                뷰 업데이트
               </button>
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
+              <button type="button" data-testid="mobile-view-save" onClick={openSave} className={ROW}>
+                새 뷰로 저장
+              </button>
+            </>
+          ) : (
+            // 저장 가능하면 「＋ 에픽 만들기」 와 같은 primary 액션 모양(＋ 아이콘), 비활성이면 흐린 기본 행.
+            <button
+              type="button"
+              data-testid="mobile-view-save"
+              onClick={openSave}
+              disabled={saveDisabled}
+              className={cn(ROW, !saveDisabled && 'text-primary')}
+            >
+              <Plus aria-hidden="true" />
+              현재 조건으로 뷰 저장
+            </button>
+          )}
+        </div>
+      </MobileSheetShell>
 
-      <SaveViewDialog projectKey={projectKey} query={saved.currentQuery} open={saveOpen} onOpenChange={setSaveOpen} />
+      {/* 열 때만 마운트 — 닫힌 다이얼로그를 상시 들고 있지 않는다. */}
+      {saveOpen && <SaveViewDialog projectKey={projectKey} query={saved.currentQuery} open onOpenChange={setSaveOpen} />}
 
-      {/* 공유 뷰 업데이트 확인 — ViewChipBar 와 같은 문구. 데스크톱 바와 동시에 마운트되지 않는다. */}
-      <AlertDialog
-        open={saved.updateConfirmTarget !== null}
-        onOpenChange={(o) => {
-          if (!o) saved.setUpdateConfirmTarget(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>공유된 뷰 업데이트</AlertDialogTitle>
-            <AlertDialogDescription>
-              &apos;{saved.updateConfirmTarget?.name}&apos;은(는) 공유된 뷰입니다. 지금 업데이트하면 변경된 필터가
-              이 뷰를 보는 다른 사람에게도 즉시 반영됩니다. 계속하시겠습니까?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction data-testid="update-view-confirm" onClick={saved.confirmUpdate}>
-              업데이트
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* 공유 뷰 업데이트 확인 — ViewChipBar 와 같은 공용 컴포넌트. 데스크톱 바와 동시에 마운트되지 않는다. */}
+      <SharedViewUpdateConfirm saved={saved} />
     </>
   );
 }

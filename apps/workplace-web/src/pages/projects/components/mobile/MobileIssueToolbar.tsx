@@ -9,27 +9,12 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 import { ISSUE_GROUP_BY_LABEL } from '../../../../lib/issueGrouping';
-import { normalizeIssueQueryIgnoringViewAndGroup } from '../../../../lib/savedViewQuery';
 import type { IssueGroupBy } from '../../../../types/issue';
 import { useIssueFilterControls } from '../../hooks/useIssueFilterControls';
 import { useSavedViewState } from '../../hooks/useSavedViewState';
+import { MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './chipStyles';
 import { MobileFilterSheet } from './MobileFilterSheet';
 import { MobileViewSheet } from './MobileViewSheet';
-
-// 칩 공통 스타일 — 보이는 높이 32px(h-8). 터치 영역은 보이지 않는 ::after 를 위아래 6px 씩 넓혀 44px 로 맞춘다
-// (칩 줄 컨테이너 py-2=8px 안이라 스크롤 영역에 잘리지 않고, 툴바 높이도 그대로).
-export const MOBILE_CHIP =
-  "relative inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-3 text-sm whitespace-nowrap after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-['']";
-// 활성 칩(에픽 선택·필터 적용) — 테두리 대신 primary 틴트로 「걸려 있음」을 표시.
-export const MOBILE_CHIP_ACTIVE = 'border-primary/40 bg-primary/10 text-primary font-medium';
-
-/** 쿼리에서 view·group 과 에픽 범위(parent/topLevel)를 빼면 남는 조건이 없는지 — 모바일 뷰 칩 라벨 판정용. */
-function isOnlyEpicScope(query: string): boolean {
-  const p = new URLSearchParams(query);
-  p.delete('parent');
-  p.delete('topLevel');
-  return normalizeIssueQueryIgnoringViewAndGroup(p.toString()) === '';
-}
 
 export function MobileIssueToolbar({ projectKey, epicSlot }: { projectKey: string; epicSlot?: ReactNode }) {
   const c = useIssueFilterControls(projectKey);
@@ -38,10 +23,8 @@ export function MobileIssueToolbar({ projectKey, epicSlot }: { projectKey: strin
   const [sheet, setSheet] = useState<'view' | 'filter' | 'group' | null>(null);
 
   // 뷰 칩 라벨 — 필터 없음=「전체」, 저장 뷰 선택 중=그 이름, 그 외(직접 조건)=「사용자 조건」.
-  // 모바일에선 에픽 범위(parent/topLevel)를 옆의 「◆ 에픽」 칩이 따로 보여주므로, 에픽 범위만 걸린 상태도 「전체」로 본다.
-  // (라벨 전용 — 데스크톱 ViewChipBar·저장 뷰 매칭은 sv.isAllActive 그대로.)
-  const onlyEpicScope = !sv.activeView && isOnlyEpicScope(sv.currentQuery);
-  const viewName = sv.isAllActive || onlyEpicScope ? '전체' : (sv.activeView?.name ?? '사용자 조건');
+  // 에픽 범위만 걸린 상태도 「전체」(sv.isAllActiveIgnoringEpic — 뷰 시트 「전체」 ✓ 와 같은 판정).
+  const viewName = sv.isAllActiveIgnoringEpic ? '전체' : (sv.activeView?.name ?? '사용자 조건');
   const groupLabel = c.groupBy ? ISSUE_GROUP_BY_LABEL[c.groupBy] : '없음';
 
   // 검색 모드 — 칩 줄을 통째로 검색창으로 교체한다(좁은 폭에서 칩과 입력칸을 같이 두지 않는다).

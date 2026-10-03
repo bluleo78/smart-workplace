@@ -17,6 +17,7 @@ export interface SavedViewState {
   views: SavedViewResponse[]
   currentQuery: string
   isAllActive: boolean
+  isAllActiveIgnoringEpic: boolean // 모바일 「전체」 판정 — 에픽 범위(parent/topLevel)만 걸린 상태도 전체로 본다
   hasNothingToSave: boolean
   activeView: SavedViewResponse | null
   isViewDirty: boolean
@@ -49,7 +50,8 @@ export function useSavedViewState(projectKey: string): SavedViewState {
   // group 도 포함해야 그룹이 저장 뷰에 영속된다 (#58). view(list/board) 도 그대로 저장.
   // group 은 항상 명시한다(없음='none') — 저장 뷰의 group 부재는 '그룹 없음'으로 해석되므로(#878), 기본(사이클) 그룹으로
   // 보던 화면을 저장하면 'cycle' 이 기록돼야 다시 열었을 때 같은 화면이 된다.
-  const currentQuery = filtersToParams(parseFilters(params), parseView(params), groupParam ?? groupBy ?? 'none').toString()
+  const filters = parseFilters(params)
+  const currentQuery = filtersToParams(filters, parseView(params), groupParam ?? groupBy ?? 'none').toString()
   // "전체" 칩 활성 판정은 view·group 을 모두 제외하고 비교한다 (#599, #773) — 리스트/보드
   // 전환이나 그룹 변경이 우연히 저장뷰의 쿼리와 일치해 전체 대신 그 저장뷰가 활성으로 보이거나,
   // 반대로 필터가 전혀 없는데도 그룹만 바꿨다는 이유로 전체 칩이 비활성으로 보이는 것을 방지.
@@ -81,6 +83,12 @@ export function useSavedViewState(projectKey: string): SavedViewState {
   const activeView = selectedViewId != null ? (viewsQuery.data ?? []).find((v) => v.id === selectedViewId) ?? null : null
   // dirty: 활성 뷰가 있고 현재 URL 쿼리가 그 뷰의 저장된 쿼리와 (view 무시) 다르다.
   const isViewDirty = !!activeView && !groupPending && !queriesEqualIgnoringView(currentQuery, activeView.query)
+  // 모바일 「전체」 판정(WP-194) — 모바일은 에픽 범위(parent/topLevel)를 옆의 「◆ 에픽」 칩이 따로 보여주므로,
+  // 저장 뷰가 활성이 아니면서 에픽 범위만 걸린 상태도 「전체」로 본다. 뷰 칩 라벨과 뷰 시트 「전체」 ✓ 가 함께 쓴다.
+  // 데스크톱 ViewChipBar·저장 뷰 매칭은 isAllActive 그대로.
+  const isAllActiveIgnoringEpic =
+    isAllActive ||
+    (!activeView && filtersToParams({ ...filters, parentNumber: null, topLevel: false }, 'list', null).toString() === '')
 
   // 전체 칩 — 모든 파라미터 제거(그룹도 화면 기본값으로).
   const applyAll = () => setParams(new URLSearchParams(), { replace: true })
@@ -116,6 +124,7 @@ export function useSavedViewState(projectKey: string): SavedViewState {
     views: viewsQuery.data ?? [],
     currentQuery,
     isAllActive,
+    isAllActiveIgnoringEpic,
     hasNothingToSave,
     activeView,
     isViewDirty,

@@ -16,9 +16,8 @@ import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { groupIssues } from '../../../lib/issueGrouping';
-import { LABEL_COLORS } from '../../../lib/labelColors';
+import { labelFg } from '../../../lib/labelColors';
 import type { IssueClientGroupBy, IssueFilters, IssueResponse } from '../../../types/issue';
-import type { ColorToken } from '../../../types/label';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
@@ -26,8 +25,7 @@ import { ISSUE_LIST_COLUMN_COUNT, ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } fro
 
 /** 에픽 그룹 헤더 ◆ 글자색 — 그룹 첫 이슈의 부모(=그 에픽) 유형 색 토큰(배경 없는 글자용 fg). */
 function epicGroupColor(first: IssueResponse | undefined): string {
-  const token = first?.parent?.type.colorToken as ColorToken | undefined;
-  return (token && LABEL_COLORS[token] ? LABEL_COLORS[token] : LABEL_COLORS.GRAY).fg;
+  return labelFg(first?.parent?.type.colorToken);
 }
 
 export function IssueListView({
@@ -69,15 +67,18 @@ export function IssueListView({
     });
   }, []);
 
+  // 누적 페이지 → 평면 목록·그룹을 한 번만 계산한다(렌더·접힘 판정 공용). 훅이라 조기 반환 전에 둔다.
+  const items = useMemo(
+    () => data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [],
+    [data],
+  );
+  const groups = useMemo(
+    () => (groupBy ? groupIssues(items, groupBy).filter((g) => g.issues.length > 0) : null),
+    [items, groupBy],
+  );
   // 그룹 모드에서 모든 그룹이 접혀 행이 하나도 안 그려지면 sentinel 이 화면에 들어와 다음 페이지를 연쇄 로드한다 →
-  // 이 경우엔 LoadMoreFooter 에 hasNextPage 를 꺼서 넘겨 sentinel 을 내린다(펼치면 정상 재개).
-  const allGroupsCollapsed = useMemo(() => {
-    if (!groupBy || !data) return false;
-    const items = data.pages.flatMap((p) => p.items ?? []).filter((x) => x != null);
-    const keys = groupIssues(items, groupBy).filter((g) => g.issues.length > 0).map((g) => g.key);
-    return keys.length > 0 && keys.every((k) => collapsed.has(k));
-  }, [groupBy, data, collapsed]);
-  const loadMoreQuery = allGroupsCollapsed ? { ...searchQuery, hasNextPage: false } : searchQuery;
+  // 이 경우엔 LoadMoreFooter 의 observer 를 달지 않는다(sentinel 은 그대로 마운트, 펼치면 정상 재개).
+  const allGroupsCollapsed = groups != null && groups.length > 0 && groups.every((g) => collapsed.has(g.key));
 
   // #606: 다중 선택 상태 — 이슈 number 집합. 필터/그룹 기준(직렬화 값)이 바뀌면 초기화.
   const {
@@ -102,9 +103,6 @@ export function IssueListView({
   if (isLoading) {
     return <p className="text-muted-foreground py-4">로딩 중…</p>;
   }
-
-  const items =
-    data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [];
 
   // 검색어·필터가 하나라도 적용된 상태인지 판별.
   // filtersToParams 는 기본값(빈 배열, 빈 문자열, topLevel=false 등)을 URL 에서 생략하므로
@@ -140,9 +138,6 @@ export function IssueListView({
 
   // 특정 에픽으로 필터됐거나 에픽 그룹 안이면 행의 에픽 표시는 중복이라 생략(WP-194).
   const hideEpic = filters.parentNumber != null || groupBy === 'epic';
-  const groups = groupBy
-    ? groupIssues(items, groupBy).filter((g) => g.issues.length > 0)
-    : null;
 
   const allNumbers = items.map((it) => it.number);
   const allSelected = allNumbers.length > 0 && allNumbers.every((n) => selected.has(n));
@@ -255,7 +250,7 @@ export function IssueListView({
           )}
         </table>
         {/* 목록 끝 — 자동 로드, 다음 페이지 실패 시에만 다시 시도(공용 LoadMoreFooter, WP-183) */}
-        <LoadMoreFooter query={loadMoreQuery} root={scrollEl} data-testid="issue-list-more" />
+        <LoadMoreFooter query={searchQuery} root={scrollEl} enabled={!allGroupsCollapsed} data-testid="issue-list-more" />
       </div>
       {/* 모바일 일괄 작업 바(fixed, 약 56px)가 마지막 행을 가리지 않게 같은 높이만큼 비운다. */}
       <BulkBarSpacer active={selected.size > 0} />

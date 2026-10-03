@@ -24,9 +24,6 @@ import { cn } from '@/lib/utils';
 import type { IssueGroupBy } from '../../../types/issue';
 import { type IssueFilterBarOptions, useIssueFilterControls } from '../hooks/useIssueFilterControls';
 
-// 개인 프로젝트 import 호환 — 옵션 타입은 훅 파일로 옮겼다.
-export type { IssueFilterBarOptions };
-
 export function IssueFilterBar({
   projectKey,
   options,

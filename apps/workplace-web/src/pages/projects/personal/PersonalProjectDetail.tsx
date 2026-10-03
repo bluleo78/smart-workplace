@@ -14,7 +14,8 @@ import type { ProjectResponse } from '@/types/project';
 import { parseFilters, parseGroupBy, parseView, toClientGroupBy } from '../../../lib/issueFilters';
 import { IssueBoardView } from '../components/IssueBoardView';
 import { IssueCreateDialog } from '../components/IssueCreateDialog';
-import { IssueFilterBar, type IssueFilterBarOptions } from '../components/IssueFilterBar';
+import { IssueFilterBar } from '../components/IssueFilterBar';
+import type { IssueFilterBarOptions } from '../hooks/useIssueFilterControls';
 import { PersonalChecklistView } from './PersonalChecklistView';
 import { PersonalTaskPanel } from './PersonalTaskPanel';
 

@@ -14,16 +14,19 @@ type LoadMoreFooterQuery = LoadMoreQuery &
 export function LoadMoreFooter({
   query,
   root = null,
+  enabled = true,
   className,
   'data-testid': testId,
 }: {
   query: LoadMoreFooterQuery;
   // sentinel 을 감싼 스크롤 컨테이너 — 목록이 자체 스크롤하면 반드시 넘긴다(useLoadMoreSentinel 참조).
   root?: Element | null;
+  // false 면 자동 로드 observer 를 끈다(useLoadMoreSentinel enabled 참조).
+  enabled?: boolean;
   className?: string;
   'data-testid'?: string;
 }) {
-  const ref = useLoadMoreSentinel(query, root);
+  const ref = useLoadMoreSentinel(query, root, enabled);
   if (!query.hasNextPage) return null;
   return (
     <div ref={ref} data-testid={testId} className={cn('py-3 text-center text-xs text-muted-foreground', className)}>

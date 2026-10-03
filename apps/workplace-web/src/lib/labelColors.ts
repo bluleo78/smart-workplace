@@ -20,3 +20,8 @@ export const LABEL_COLORS: Record<ColorToken, { bg: string; text: string; dot: s
   PINK: { bg: 'bg-pink-200 dark:bg-pink-900', text: 'text-pink-800 dark:text-pink-100', dot: 'bg-pink-500', fg: 'text-pink-700 dark:text-pink-300' },
   BROWN: { bg: 'bg-amber-200 dark:bg-amber-900', text: 'text-amber-900 dark:text-amber-100', dot: 'bg-amber-700', fg: 'text-amber-700 dark:text-amber-300' },
 };
+
+/** 색 토큰 문자열 → 배경 없는 글자색(fg) 클래스. API 가 string 으로 주는 토큰을 한 번에 캐스트하고, 모르는 값은 GRAY 로 대체한다. */
+export function labelFg(token: string | null | undefined): string {
+  return (LABEL_COLORS[token as ColorToken] ?? LABEL_COLORS.GRAY).fg;
+}

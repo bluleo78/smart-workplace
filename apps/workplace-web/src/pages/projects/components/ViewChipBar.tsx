@@ -25,6 +25,7 @@ import { useDeleteSavedView, usePinSavedView } from '../../../hooks/queries/useS
 import type { SavedViewResponse } from '../../../types/savedView'
 import { useSavedViewState } from '../hooks/useSavedViewState'
 import { SaveViewDialog } from './SaveViewDialog'
+import { SharedViewUpdateConfirm } from './SharedViewUpdateConfirm'
 
 export function ViewChipBar({
   projectKey,
@@ -200,31 +201,8 @@ export function ViewChipBar({
         />
       )}
 
-      {/* #777: 공유(SHARED) 뷰 업데이트 확인 AlertDialog — 갱신이 다른 사람에게도 즉시
-          반영되므로 즉시 실행 대신 한 번 확인시킨다. */}
-      <AlertDialog
-        open={s.updateConfirmTarget !== null}
-        onOpenChange={(open) => { if (!open) s.setUpdateConfirmTarget(null) }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>공유된 뷰 업데이트</AlertDialogTitle>
-            <AlertDialogDescription>
-              &apos;{s.updateConfirmTarget?.name}&apos;은(는) 공유된 뷰입니다. 지금 업데이트하면 변경된 필터가
-              이 뷰를 보는 다른 사람에게도 즉시 반영됩니다. 계속하시겠습니까?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction
-              data-testid="update-view-confirm"
-              onClick={s.confirmUpdate}
-            >
-              업데이트
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* #777: 공유(SHARED) 뷰 업데이트 확인 — 모바일 뷰 시트와 공용 컴포넌트. */}
+      <SharedViewUpdateConfirm saved={s} />
 
       {/* 삭제 확인 AlertDialog — 즉시 삭제 방지, 앱 전체 삭제 UX 패턴과 일관성 유지 (#188). */}
       <AlertDialog

@@ -9,9 +9,8 @@ import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { formatDateKorean } from '../../../lib/formatters';
 import { isEpicParent } from '../../../lib/issueGrouping';
-import { LABEL_COLORS } from '../../../lib/labelColors';
+import { labelFg } from '../../../lib/labelColors';
 import type { IssueResponse } from '../../../types/issue';
-import type { ColorToken } from '../../../types/label';
 
 export function IssueRowMobileCell({
   issue: it,
@@ -32,7 +31,7 @@ export function IssueRowMobileCell({
   // ◆ 에픽 메타 — 부모가 에픽일 때만. 특정 에픽 필터·에픽 그룹 안에선 중복이라 생략.
   const epic = !hideEpic && it.parent && isEpicParent(it) ? it.parent : null;
   // 에픽 색은 ParentChip 과 같은 유형 색 토큰(하드코딩 색 금지). 배경 없는 글자라 칩용 text 가 아닌 fg 톤.
-  const epicColor = epic ? (LABEL_COLORS[epic.type.colorToken as ColorToken] ?? LABEL_COLORS.GRAY).fg : '';
+  const epicColor = epic ? labelFg(epic.type.colorToken) : '';
   const firstLabel = it.labels[0];
   // 메타 꼬리 조각(높음·마감·하위·라벨) — 한 span 안에 인라인으로 이어 붙여, 넘치면 끝에서 「…」 로 말줄임된다.
   const tail: ReactNode[] = [];

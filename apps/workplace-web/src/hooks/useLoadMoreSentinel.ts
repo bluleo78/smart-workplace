@@ -12,9 +12,11 @@ export type LoadMoreQuery = Pick<
 // root: sentinel 을 감싼 스크롤 컨테이너(목록/보드가 자체 스크롤할 때). 생략·null 이면 뷰포트.
 // 왜 명시적으로 받나: 뷰포트를 root 로 두면 rootMargin(선행 로드 여유)이 컨테이너 클리핑에 먹혀
 // 끝에 닿아야 로드된다. 조상을 추측해 고르면 높이가 고정되지 않은 overflow 요소를 root 로 잡아 연쇄 로드한다(WP-94).
+// enabled: false 면 observer 를 달지 않는다(sentinel 은 마운트된 채) — 예: 그룹을 모두 접어 행이 없을 때 연쇄 로드 방지(WP-194).
 export function useLoadMoreSentinel<T extends HTMLElement = HTMLDivElement>(
   query: LoadMoreQuery,
   root: Element | null = null,
+  enabled = true,
 ) {
   const ref = useRef<T | null>(null);
   const { hasNextPage, isFetching, isFetchNextPageError, fetchNextPage } = query;
@@ -24,7 +26,7 @@ export function useLoadMoreSentinel<T extends HTMLElement = HTMLDivElement>(
   // 다음 페이지 요청이 실패하면 멈춘다 — 안 그러면 같은 재발화 때문에 실패 요청을 무한 반복한다(재시도는 호출처 버튼).
   useEffect(() => {
     const node = ref.current;
-    if (!node || !hasNextPage || isFetchNextPageError) return;
+    if (!enabled || !node || !hasNextPage || isFetchNextPageError) return;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting && !isFetching) void fetchNextPage();
@@ -33,7 +35,7 @@ export function useLoadMoreSentinel<T extends HTMLElement = HTMLDivElement>(
     );
     io.observe(node);
     return () => io.disconnect();
-  }, [hasNextPage, isFetching, isFetchNextPageError, fetchNextPage, root]);
+  }, [enabled, hasNextPage, isFetching, isFetchNextPageError, fetchNextPage, root]);
 
   return ref;
 }
