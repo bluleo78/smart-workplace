@@ -205,7 +205,11 @@ public class MailCategoryBackfillService {
     }
     // 커밋 뒤 새 트랜잭션에서 ⑤ 를 다시 계산 — 동시에 도는 ③/④ 저장과 READ COMMITTED 로 겹쳐도 분류가 반영된 값으로 수렴한다
     // (MailAnalysisService 와 같은 규칙, 멱등·LLM 없음).
-    txTemplate.executeWithoutResult(s -> filledContents.forEach(finalizer::recomputeForContent));
-    notifier.mailChanged(userId, accountId, null, null);
+    // mailChanged 는 AFTER_COMMIT 리스너라 트랜잭션 안에서 발행해야 한다(밖에서 발행하면 유실).
+    txTemplate.executeWithoutResult(
+        s -> {
+          filledContents.forEach(finalizer::recomputeForContent);
+          notifier.mailChanged(userId, accountId, null, null);
+        });
   }
 }
