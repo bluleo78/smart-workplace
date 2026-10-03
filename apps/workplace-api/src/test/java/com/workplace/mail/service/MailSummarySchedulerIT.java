@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
@@ -49,6 +50,9 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
 
   /** 실제 IMAP/LLM 차단 — 호출 인자만 spy(아래 doAnswer)로 수집. */
   @MockitoBean MailSummaryBackfillService backfill;
+
+  /** WP-185 분류 일괄 — 실제 LLM 호출을 막고 호출 인자만 검증. */
+  @MockitoBean MailCategoryBackfillService categoryBackfill;
 
   /** backfill 이 받은 (userId, accountId, 호출시점 TenantContext) 기록 — 디스패치 컨텍스트까지 검증. */
   private record Call(long userId, long accountId, Long ctx) {}
@@ -266,5 +270,24 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
         calls.stream().filter(c -> c.accountId() == fA2).map(Call::ctx).findFirst().orElse(null);
     assertThat(ctxA).isEqualTo(1L);
     assertThat(ctxB).isEqualTo(tid2);
+  }
+
+  @Test
+  @DisplayName("WP-185: 공통 비서가 없어도 활성 계정마다 분류 일괄을 자기 테넌트 컨텍스트에서 호출")
+  void runOnce_모든활성계정_분류일괄() {
+    String run = UUID.randomUUID().toString().substring(0, 8);
+    setSessionGuc(1L);
+    user1 = seedUser();
+    account1 = seedAiAccount(user1, "cat-" + run + "@x.com"); // 공통 비서 없음 — 분류는 비서 유무와 무관하게 호출
+    final long fU1 = user1;
+    final long fA1 = account1;
+
+    scheduler.runOnce();
+
+    verify(categoryBackfill, times(1))
+        .classifyAccountNow(
+            org.mockito.ArgumentMatchers.eq(fU1),
+            org.mockito.ArgumentMatchers.eq(fA1),
+            org.mockito.ArgumentMatchers.any(AgentOutageGuard.class));
   }
 }

@@ -20,6 +20,7 @@ import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailBackfillService;
+import com.workplace.mail.service.MailCategoryBackfillService;
 import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
@@ -76,6 +77,9 @@ class MailSyncServiceTest extends IntegrationTestBase {
 
   /** 선제 요약 백필을 목킹 — sync 완료 후 호출 여부만 검증하고 실제 LLM/IMAP 은 실행하지 않는다. */
   @MockitoBean MailSummaryBackfillService summaryBackfillService;
+
+  /** 전체 메일 분류 일괄(WP-185) 차단 — 비동기 호출이 이 테스트의 목에 끼어들지 않게 한다. */
+  @MockitoBean MailCategoryBackfillService categoryBackfillService;
 
   /** ai-agent 실호출 차단 — 더미 응답으로 고정. */
   @MockitoBean AiAgentMailClient mailClient;

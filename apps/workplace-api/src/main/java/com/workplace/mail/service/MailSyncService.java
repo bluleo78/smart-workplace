@@ -41,6 +41,9 @@ public class MailSyncService {
   /** 선제 배치 요약 서비스 — 동기화 완료 후 @Async 로 새 안읽은 메일을 미리 요약. */
   private final MailSummaryBackfillService summaryBackfillService;
 
+  /** 전체 메일 카테고리 일괄 분류 서비스(WP-185) — 동기화 완료 후 @Async. */
+  private final MailCategoryBackfillService categoryBackfillService;
+
   /**
    * 짧은-트랜잭션용 TransactionTemplate — @Primary {@code TenantAwareTransactionManager} 로 구성해 트랜잭션 진입 시
    * RLS GUC(app.tenant_id) 가 주입된다.
@@ -57,6 +60,7 @@ public class MailSyncService {
       MailBackfillService backfillService,
       MailChangeNotifier notifier,
       MailSummaryBackfillService summaryBackfillService,
+      MailCategoryBackfillService categoryBackfillService,
       PlatformTransactionManager txManager,
       List<MailFetcher> fetchers) {
     this.accountRepo = accountRepo;
@@ -65,6 +69,7 @@ public class MailSyncService {
     this.backfillService = backfillService;
     this.notifier = notifier;
     this.summaryBackfillService = summaryBackfillService;
+    this.categoryBackfillService = categoryBackfillService;
     this.txTemplate = new TransactionTemplate(txManager);
     this.fetchers = fetchers.stream().collect(toMap(MailFetcher::provider, f -> f));
   }
@@ -120,6 +125,9 @@ public class MailSyncService {
       if (account.aiEnabled()) {
         summaryBackfillService.summarizeRecentUnread(userId, accountId);
       }
+      // WP-185: 전체 메일 카테고리 일괄 분류(@Async, best-effort). 계정 ai_enabled 와 무관하게 부른다 — 공통 비서만 있어도 분류하고,
+      // 비서가 없으면 서비스가 바로 끝낸다. 방금 들어온 메일은 본문 보충 뒤 다음 주기(또는 ③)가 분류한다.
+      categoryBackfillService.classifyAccount(userId, accountId);
       return result;
     } finally {
       // 보충할 게 없거나 에러로 끝났으면 여기서 즉시 종료(백필을 트리거했다면 백필이 종료 책임).

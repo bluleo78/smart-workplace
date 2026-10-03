@@ -19,6 +19,7 @@ import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailBackfillService;
+import com.workplace.mail.service.MailCategoryBackfillService;
 import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
@@ -60,6 +61,9 @@ class ImapSeenSyncFailureTest extends IntegrationTestBase {
 
   /** 선제 요약 차단. */
   @MockitoBean MailSummaryBackfillService summaryBackfillService;
+
+  /** 전체 메일 분류 일괄(WP-185) 차단 — 비동기 호출이 이 테스트의 목에 끼어들지 않게 한다. */
+  @MockitoBean MailCategoryBackfillService categoryBackfillService;
 
   /** ai-agent 실호출 차단. */
   @MockitoBean AiAgentMailClient mailClient;
