@@ -6,7 +6,7 @@ import { useDriveFileSummary } from '../../hooks/queries/useDriveFileSummary'
 import { useFileBacklinks } from '../../hooks/queries/useFileBacklinks'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
 import { formatFileSize } from '../../lib/formatters'
-import { needsPreviewConfirm, PREVIEW_CONFIRM_BYTES } from '../../lib/previewContent'
+import { needsPreviewConfirm } from '../../lib/previewContent'
 import { resolvePreviewKind } from '../../lib/previewKind'
 import { cn } from '../../lib/utils'
 import type { DriveFile, VirtualAttachment } from '../../types/drive'
@@ -21,6 +21,12 @@ import { SheetPreview } from './preview/SheetPreview'
 
 /** 텍스트 미리보기 최대 길이(과대 파일 보호). */
 const TEXT_PREVIEW_LIMIT = 200_000
+
+/**
+ * 텍스트는 앞부분만 디코딩한다 — 20만 자는 UTF-8 로 최대 80만 바이트라 1MB 면 충분하다.
+ * 큰 로그에 동의해도 전체 문자열을 (인코딩 판정 때문에 최대 두 번) 만들지 않아 탭이 멈추지 않는다.
+ */
+const TEXT_DECODE_MAX_BYTES = 1024 * 1024
 
 /**
  * 미리보기 대상 첨부 — 모달이 실제로 쓰는 필드만 요구한다.
@@ -162,7 +168,7 @@ export function FilePreviewModal({
         void blobP
           .then(async (blob) => {
             if (!blob) return
-            const t = await blobToText(blob)
+            const t = await blobToText(blob.slice(0, TEXT_DECODE_MAX_BYTES))
             if (alive) setText(t.slice(0, TEXT_PREVIEW_LIMIT))
           })
           .catch(fail)
@@ -289,21 +295,20 @@ export function FilePreviewModal({
           {/* WP-203 후속: 10MB 초과 — 크기를 보여주고 미리볼지 묻는다(동의 전엔 받지 않음). */}
           {!error && confirmSize != null && (
             <div
-              className="flex flex-col items-center gap-3 py-12 text-center"
+              className="flex flex-col items-center gap-3 px-4 py-12 text-center break-keep"
               data-testid="preview-size-confirm"
             >
               <p className="text-sm">
                 이 파일은 <span className="font-semibold">{formatFileSize(confirmSize)}</span> 입니다.
               </p>
               <p className="text-sm text-muted-foreground">
-                미리보려면 파일 전체를 내려받아야 해서 시간이 걸릴 수 있습니다
-                ({formatFileSize(PREVIEW_CONFIRM_BYTES)} 초과).
+                미리보려면 파일 전체를 내려받아야 해서 시간이 걸릴 수 있습니다.
               </p>
               <div className="flex gap-2">
-                <Button size="sm" onClick={() => setConsentedKey(contentKey)}>
+                <Button onClick={() => setConsentedKey(contentKey)}>
                   미리보기
                 </Button>
-                <Button size="sm" variant="outline" onClick={handleDownload}>
+                <Button variant="outline" onClick={handleDownload}>
                   다운로드
                 </Button>
               </div>
