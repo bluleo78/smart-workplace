@@ -49,14 +49,14 @@ export function IssueMobilePropertyChips({
   const close = () => setSheet(null);
   const muted = (empty: boolean) => (empty ? 'text-muted-foreground' : undefined);
 
-  const chip = (key: Exclude<Sheet, null>, label: string, content: React.ReactNode, empty = false) => (
+  const chip = (key: Exclude<Sheet, null>, label: string, content: React.ReactNode, empty = false, extraClass?: string) => (
     <button
       type="button"
       aria-label={label}
       data-testid={`mobile-prop-${key}`}
       disabled={disabled}
       onClick={() => setSheet(key)}
-      className={cn(MOBILE_CHIP, 'max-w-full disabled:opacity-60', muted(empty))}
+      className={cn(MOBILE_CHIP, 'max-w-full disabled:opacity-60', muted(empty), extraClass)}
     >
       {content}
     </button>
@@ -66,21 +66,27 @@ export function IssueMobilePropertyChips({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 py-2" data-testid="mobile-prop-chips">
-        {issue.blocked && (
-          <span data-testid="issue-blocked-badge" className="inline-flex h-8 items-center gap-1 rounded-full bg-destructive/15 px-3 text-xs text-destructive">
-            ⛔ 차단됨
-          </span>
+        {/* 차단됨은 별도 칩 대신 상태 칩에 합친다 — 390px 에서 칩 줄이 한 줄 더 늘어 본문이 밀렸다(디자인 리뷰).
+            aria-label 이 내용을 덮어쓰므로 차단 여부도 label 에 넣어 스크린리더가 읽게 한다. testid 는 기존 단언 호환용 안쪽 span. */}
+        {chip(
+          'status',
+          issue.blocked ? `상태: ${ISSUE_STATUS_LABEL[issue.status]}, 차단됨` : '상태',
+          <>
+            <IssueStatusIcon status={issue.status} decorative className="size-4" />
+            {ISSUE_STATUS_LABEL[issue.status]}
+            {issue.blocked && <span data-testid="issue-blocked-badge">· 차단됨</span>}
+          </>,
+          false,
+          issue.blocked ? 'border-destructive/30 bg-destructive/15 text-destructive' : undefined,
         )}
-        {chip('status', '상태', <><IssueStatusIcon status={issue.status} decorative className="size-4" />{ISSUE_STATUS_LABEL[issue.status]}</>)}
         {chip(
           'assignee',
           '담당자',
           <>
             <User className="size-4" aria-hidden />
-            <span className="truncate">
-              {firstAssignee ? firstAssignee.name : '담당자 없음'}
-              {issue.assignees.length > 1 && ` +${issue.assignees.length - 1}`}
-            </span>
+            {/* 이름만 말줄임하고 +N 은 별도 span 으로 — 같은 truncate 안에 있으면 긴 이름에 +N 이 잘려 사라졌다. */}
+            <span className="max-w-28 truncate">{firstAssignee ? firstAssignee.name : '담당자 없음'}</span>
+            {issue.assignees.length > 1 && <span className="shrink-0">+{issue.assignees.length - 1}</span>}
           </>,
           !firstAssignee,
         )}

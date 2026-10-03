@@ -4,7 +4,7 @@
 // 왜: 오타·제목 수정을 위해 이슈를 삭제·재생성해야 하는 불편 해소 (#117).
 //     이슈 상세 페이지와 개인 작업 드로어가 동일 편집 UI 를 공유하도록 공용화 (#718).
 import { Pencil } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -67,6 +67,16 @@ export function InlineEditableTitle({
     });
   };
 
+  // 모바일 편집 textarea 자동 확장 — 긴 제목이 한 줄 input 에서 잘려 보이지 않던 문제(디자인 리뷰). field-sizing 은 iOS 지원이 고르지 않아 JS 로.
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    // border-box 라 scrollHeight(패딩까지) 에 위아래 테두리를 더해야 내부 스크롤이 생기지 않는다.
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  }, [draft, editing]);
+
   // 취소 — 편집 바 컨트롤 effect 의 deps 에 들어가므로 안정 참조로 둔다.
   const cancel = useCallback(() => setEditing(false), []);
 
@@ -85,8 +95,9 @@ export function InlineEditableTitle({
 
   if (!editing) {
     return (
-      <span className="flex min-w-0 items-center gap-1">
-        <span className="truncate">{title}</span>
+      // 모바일은 긴 제목을 3줄까지 보여준다(한 줄 말줄임이면 편집에 들어가야만 전체를 읽을 수 있었다). 연필은 첫 줄 높이에 맞춘다.
+      <span className={cn('flex min-w-0 gap-1', commitOnBlur ? 'items-center' : 'items-start')}>
+        <span className={commitOnBlur ? 'truncate' : 'line-clamp-3 break-words'}>{title}</span>
         <button
           type="button"
           onClick={enter}
@@ -105,6 +116,33 @@ export function InlineEditableTitle({
     );
   }
 
+  if (!commitOnBlur) {
+    // 모바일 — 자동 확장 textarea(rows=1). Enter 는 줄바꿈이 아니라 저장(R5), Esc 취소. 한글 조합 중 Enter 는 조합 확정이라 무시.
+    // 제목은 한 줄 값이라 붙여넣은 줄바꿈은 공백으로 바꾼다. 글자 크기는 표시 모드(h1 text-2xl)와 같게 — 터치 16px 강제 규칙(index.css)은
+    // 16px 미만 확대 방지용이라 24px 는 important 로 덮어도 안전하다.
+    return (
+      <textarea
+        ref={textareaRef}
+        autoFocus
+        rows={1}
+        enterKeyHint="done"
+        data-testid="issue-title-input"
+        className="block w-full resize-none overflow-hidden rounded-md border border-input bg-transparent px-3 py-1 text-2xl! leading-8 outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        value={draft}
+        disabled={disabled}
+        onChange={(e) => setDraft(e.target.value.replace(/\r?\n/g, ' '))}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            cancel();
+          }
+        }}
+      />
+    );
+  }
+
   return (
     <Input
       autoFocus
@@ -113,17 +151,15 @@ export function InlineEditableTitle({
       value={draft}
       disabled={disabled}
       onChange={(e) => setDraft(e.target.value)}
-      onBlur={commitOnBlur ? commit : undefined}
+      onBlur={commit}
       onKeyDown={(e) => {
+        // 데스크톱 — Enter 는 blur 로 단일 저장 경로에 합류, Esc 는 다음 blur 저장을 1회 건너뛴다.
         if (e.key === 'Enter') {
           e.preventDefault();
-          if (commitOnBlur) e.currentTarget.blur();
-          else commit();
+          e.currentTarget.blur();
         } else if (e.key === 'Escape') {
-          if (commitOnBlur) {
-            skipCommitRef.current = true;
-            e.currentTarget.blur();
-          } else cancel();
+          skipCommitRef.current = true;
+          e.currentTarget.blur();
         }
       }}
     />

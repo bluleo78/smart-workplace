@@ -12,6 +12,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Text from '@tiptap/extension-text';
 import { EditorContent, ReactRenderer, useEditor } from '@tiptap/react';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
+import { ArrowUp } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
@@ -49,7 +50,7 @@ interface RichInputProps {
   inputTestId: string;
   submitTestId: string;
   cancelTestId?: string;
-  /** 에디터 최대 높이 클래스 — 넘치면 내부 스크롤. 모바일 하단 코멘트는 4줄(max-h-28). 기본 max-h-40.
+  /** 에디터 최대 높이 클래스 — 넘치면 내부 스크롤. 모바일 하단 코멘트는 정확히 4줄(max-h-[calc(4lh+1rem+2px)]). 기본 max-h-40.
    *  에디터 class 는 useEditor 생성 시 1회만 적용되므로 마운트 후 동적 변경은 지원하지 않는다.
    *  Tailwind 가 클래스를 생성하도록 호출부에 리터럴로 쓴다. */
   editorMaxHeightClass?: string;
@@ -57,6 +58,10 @@ interface RichInputProps {
    *  다시 안 올라온다(사용자 제스처 밖) → 전송 버튼 pointerdown/mousedown 기본 동작을 막아 처음부터 포커스 이동을 막는다.
    *  기본 false(데스크톱·채팅 불변). */
   keepFocusOnSubmit?: boolean;
+  /** 모바일 하단 코멘트(WP-196 디자인 리뷰): 에디터 오른쪽에 아이콘 전송 버튼을 붙여 한 줄로 — 2단(에디터+버튼 행)은
+   *  하단 고정 줄이 화면을 너무 차지했다. 글자 수 카운터는 한도 80% 를 넘을 때만 노출. leftActions·onCancel 은 렌더하지 않는다.
+   *  기본 false(데스크톱·채팅 불변). */
+  inlineSubmit?: boolean;
 }
 
 // keepFocusOnSubmit 용 — 버튼 탭 시 포커스가 에디터에서 버튼으로 옮겨가지 않게 기본 동작을 막는다.
@@ -83,6 +88,7 @@ export function RichInput({
   cancelTestId,
   editorMaxHeightClass = 'max-h-40',
   keepFocusOnSubmit = false,
+  inlineSubmit = false,
 }: RichInputProps) {
   // 에디터 본문 공백 여부 — disableWhenEmpty 가 true 일 때 전송 버튼 비활성화에 사용.
   // initialBody 가 있으면 비어있지 않은 상태로 초기화.
@@ -315,6 +321,52 @@ export function RichInput({
     }
   }
 
+  // 전송 버튼 비활성 조건 — 두 레이아웃(기본·inlineSubmit)이 공유.
+  // disableWhenEmpty=true 이고 본문도 비고 첨부도 없을 때만 비활성화(opt-in). allowEmptySubmit 은 렌더 시점 prop 직접 참조 — ref 는 submit(Enter 경로) 전용.
+  // submitDisabled 는 외부 상태(업로드 중 등)로 강제 비활성화. maxLength 초과 시도 비활성화 — charCount 와 동일 기준.
+  // submitting 은 인플라이트 가드(#586)의 시각적 반영 — 실제 중복 제출 차단은 submittingRef 가 담당.
+  const submitBlocked =
+    submitDisabled ||
+    submitting ||
+    (disableWhenEmpty ? isEmpty && !allowEmptySubmit : false) ||
+    (maxLength != null && charCount > maxLength);
+
+  if (inlineSubmit) {
+    // 한 줄 레이아웃 — 에디터(min-w-0 flex-1: 좁은 폭에서 TipTap 이 넘치지 않게) + 44px 아이콘 전송 버튼(에디터 min-h 와 같아 한 줄일 때 높이 일치).
+    // 카운터는 한도 80% 초과 시에만 — 평소엔 하단 줄 높이를 늘리지 않는다.
+    const showCount = maxLength != null && charCount > maxLength * 0.8;
+    return (
+      <div className="flex flex-col gap-1" data-testid={`${inputTestId}-wrap`}>
+        <div className="flex flex-row items-end gap-2">
+          <div className="relative min-w-0 flex-1">
+            <EditorContent editor={editor} />
+          </div>
+          <Button
+            type="button"
+            size="icon-lg"
+            className="size-11 shrink-0"
+            aria-label={submitLabel}
+            onClick={submit}
+            onPointerDown={keepFocusOnSubmit ? preventFocusSteal : undefined}
+            onMouseDown={keepFocusOnSubmit ? preventFocusSteal : undefined}
+            data-testid={submitTestId}
+            disabled={submitBlocked}
+          >
+            <ArrowUp className="size-5" aria-hidden />
+          </Button>
+        </div>
+        {showCount && (
+          <span
+            className={`self-end text-xs tabular-nums ${charCount > maxLength ? 'text-destructive font-medium' : 'text-muted-foreground'}`}
+            data-testid="char-count"
+          >
+            {charCount} / {maxLength}
+          </span>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-2" data-testid={`${inputTestId}-wrap`}>
       <div className="relative">
@@ -345,11 +397,6 @@ export function RichInput({
               취소
             </Button>
           )}
-          {/* disableWhenEmpty=true 이고 본문도 비고 첨부도 없을 때만 비활성화(opt-in). */}
-          {/* allowEmptySubmit 은 렌더 시점 prop 직접 참조 — ref 는 submit(Enter 경로) 전용. */}
-          {/* submitDisabled 는 외부 상태(업로드 중 등)로 강제 비활성화. 버튼·Enter 양쪽 차단. */}
-          {/* maxLength 초과 시도 비활성화 — charCount 와 동일 기준(렌더 시점 prop 직접 참조). */}
-          {/* submitting 은 인플라이트 가드(#586)의 시각적 반영 — 실제 중복 제출 차단은 submittingRef 가 담당. */}
           <Button
             type="button"
             size="sm"
@@ -358,12 +405,7 @@ export function RichInput({
             onPointerDown={keepFocusOnSubmit ? preventFocusSteal : undefined}
             onMouseDown={keepFocusOnSubmit ? preventFocusSteal : undefined}
             data-testid={submitTestId}
-            disabled={
-              submitDisabled ||
-              submitting ||
-              (disableWhenEmpty ? isEmpty && !allowEmptySubmit : false) ||
-              (maxLength != null && charCount > maxLength)
-            }
+            disabled={submitBlocked}
           >
             {submitLabel}
           </Button>

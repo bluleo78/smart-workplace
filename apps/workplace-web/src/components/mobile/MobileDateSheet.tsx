@@ -49,7 +49,8 @@ export function MobileDateSheet({
           selected={selected}
           defaultMonth={selected}
           onSelect={(d) => d && pick(toKey(d))}
-          className="mx-auto mt-2"
+          // 날짜 칸 32px → 44px(터치 최소 영역). 44×7 + 좌우 p-3 = 332px 라 390px 시트(px-4 안 358px)에 들어간다.
+          className="mx-auto mt-2 [--cell-size:--spacing(11)]"
         />
         {value && (
           <button type="button" data-testid={`${testId}-clear`} onClick={() => pick(null)} className={cn(chip, 'mt-2 w-full text-destructive')}>

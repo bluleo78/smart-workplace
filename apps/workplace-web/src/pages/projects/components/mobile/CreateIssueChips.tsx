@@ -121,64 +121,73 @@ export function CreateIssueChips({
 
   return (
     <>
-      <div className="flex items-center gap-2 overflow-x-auto px-4 py-2 [scrollbar-width:none]">
-        {!personal &&
-          chip(
-            'type',
-            '유형',
-            <>
-              {TypeIcon && <TypeIcon className="size-4" aria-hidden />}
-              {selectedType ? getIssueTypeLabel(selectedType.name) : '유형'}
-            </>,
-          )}
-        {chip('priority', '우선순위', <><Flag className="size-4" aria-hidden />{ISSUE_PRIORITY_LABEL[priority]}</>, priority !== 'MID')}
-        {chip(
-          'assignee',
-          '담당자',
-          <>
-            <User className="size-4" aria-hidden />
-            {firstAssignee
-              ? `${firstAssignee.name}${assigneeIds.length > 1 ? ` +${assigneeIds.length - 1}` : ''}`
-              : '담당자'}
-          </>,
-          assigneeIds.length > 0,
-          assigneeIds.length === 0,
-        )}
-        {chip('due', '마감일', <><CalendarDays className="size-4" aria-hidden />{dueDate ? formatDateMonthDay(dueDate) : '마감'}</>, !!dueDate, !dueDate)}
-        {showEpic &&
-          chip(
-            'epic',
-            '에픽',
-            <>
-              <Diamond className="size-4 shrink-0 text-ai-accent" aria-hidden />
-              <span className="max-w-40 truncate">{epic ? epic.title : '에픽'}</span>
-            </>,
-            epicNumber != null,
-            epicNumber == null,
-          )}
-        {/* ✦ AI — 시트를 열지 않으므로 포커스 왕복 없이 키보드를 유지한다(누를 때 포커스 이동만 막음). */}
-        <button
-          type="button"
-          data-testid="create-chip-ai"
-          onPointerDown={keepFocus}
-          onMouseDown={keepFocus}
-          onClick={handleClassify}
-          disabled={!title.trim() || classify.isPending}
-          className={cn(MOBILE_CHIP, 'text-ai-accent disabled:opacity-50')}
+      {/* 속성 칩은 가로 스크롤 + 오른쪽 32px 페이드(더 있음 신호). 끝 칩이 페이드에 덮이지 않게 pr-8 로 페이드만큼 여유를 둔다.
+          py-2 는 칩 HIT_EXPAND(::after 위아래 6px)가 스크롤 영역에 잘리지 않게 유지. ✦ AI·⋯ 는 스크롤 밖 오른쪽에 고정해 항상 보이게(디자인 리뷰). */}
+      <div className="flex items-center">
+        <div
+          data-testid="create-chips-scroller"
+          className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-2 pr-8 pl-4 [mask-image:linear-gradient(to_right,#000_calc(100%_-_32px),transparent)] [scrollbar-width:none]"
         >
-          {classify.isPending ? '제안 중…' : '✦ AI 제안'}
-        </button>
-        <button
-          type="button"
-          aria-label="더 보기"
-          data-testid="create-chip-more"
-          onPointerDown={keepFocus}
-          onMouseDown={keepFocus}
-          onClick={() => openSheet('more')}
-          className={cn(MOBILE_CHIP, 'text-muted-foreground')}
-        >
-          <MoreHorizontal className="size-4" aria-hidden />
-        </button>
+          {!personal &&
+            chip(
+              'type',
+              '유형',
+              <>
+                {TypeIcon && <TypeIcon className="size-4" aria-hidden />}
+                {selectedType ? getIssueTypeLabel(selectedType.name) : '유형'}
+              </>,
+            )}
+          {chip('priority', '우선순위', <><Flag className="size-4" aria-hidden />{ISSUE_PRIORITY_LABEL[priority]}</>, priority !== 'MID')}
+          {chip(
+            'assignee',
+            '담당자',
+            <>
+              <User className="size-4" aria-hidden />
+              {firstAssignee
+                ? `${firstAssignee.name}${assigneeIds.length > 1 ? ` +${assigneeIds.length - 1}` : ''}`
+                : '담당자'}
+            </>,
+            assigneeIds.length > 0,
+            assigneeIds.length === 0,
+          )}
+          {chip('due', '마감일', <><CalendarDays className="size-4" aria-hidden />{dueDate ? formatDateMonthDay(dueDate) : '마감'}</>, !!dueDate, !dueDate)}
+          {showEpic &&
+            chip(
+              'epic',
+              '에픽',
+              <>
+                <Diamond className="size-4 shrink-0 text-ai-accent" aria-hidden />
+                <span className="max-w-40 truncate">{epic ? epic.title : '에픽'}</span>
+              </>,
+              epicNumber != null,
+              epicNumber == null,
+            )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2 border-l py-2 pr-4 pl-2">
+          {/* ✦ AI — 시트를 열지 않으므로 포커스 왕복 없이 키보드를 유지한다(누를 때 포커스 이동만 막음). */}
+          <button
+            type="button"
+            data-testid="create-chip-ai"
+            onPointerDown={keepFocus}
+            onMouseDown={keepFocus}
+            onClick={handleClassify}
+            disabled={!title.trim() || classify.isPending}
+            className={cn(MOBILE_CHIP, 'text-ai-accent disabled:opacity-50')}
+          >
+            {classify.isPending ? '제안 중…' : '✦ AI 제안'}
+          </button>
+          <button
+            type="button"
+            aria-label="더 보기"
+            data-testid="create-chip-more"
+            onPointerDown={keepFocus}
+            onMouseDown={keepFocus}
+            onClick={() => openSheet('more')}
+            className={cn(MOBILE_CHIP, 'text-muted-foreground')}
+          >
+            <MoreHorizontal className="size-4" aria-hidden />
+          </button>
+        </div>
       </div>
 
       {!personal && (

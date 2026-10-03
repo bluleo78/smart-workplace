@@ -234,11 +234,15 @@ export function IssueChildrenSection({
         <Input
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
+          // 모바일은 「Enter」 안내 대신 짧은 제목 힌트 — 좁은 폭에서 안내문이 잘렸고, 키보드의 완료 키(enterKeyHint)가 같은 역할을 한다.
           placeholder={
-            isEpicParent
-              ? '+ 하위 이슈 추가 — 제목 입력 후 Enter'
-              : '+ 하위 태스크 추가 — 제목 입력 후 Enter'
+            isMobile
+              ? isEpicParent ? '하위 이슈 제목' : '하위 태스크 제목'
+              : isEpicParent
+                ? '+ 하위 이슈 추가 — 제목 입력 후 Enter'
+                : '+ 하위 태스크 추가 — 제목 입력 후 Enter'
           }
+          enterKeyHint={isMobile ? 'done' : undefined}
           maxLength={200}
           data-testid="child-add-input"
           ref={inputRef}

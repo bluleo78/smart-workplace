@@ -22,14 +22,17 @@ export function IssueCommentComposer({
   issueId,
   editorMaxHeightClass,
   keepFocusOnSubmit,
+  inlineSubmit,
 }: {
   projectKey: string;
   issueNumber: number;
   issueId: number;
-  /** RichInput 에디터 최대 높이 — 모바일 하단은 4줄(max-h-28). 미지정 시 RichInput 기본. */
+  /** RichInput 에디터 최대 높이 — 모바일 하단은 정확히 4줄. 미지정 시 RichInput 기본. */
   editorMaxHeightClass?: string;
   /** 전송 탭이 에디터를 blur 하지 않게(모바일 키보드 유지). RichInput 으로 그대로 전달. */
   keepFocusOnSubmit?: boolean;
+  /** 에디터 옆 아이콘 전송 버튼 한 줄 레이아웃(모바일 하단). RichInput 으로 그대로 전달. */
+  inlineSubmit?: boolean;
 }) {
   const create = useCreateComment(projectKey, issueNumber, issueId);
 
@@ -81,6 +84,7 @@ export function IssueCommentComposer({
       submitTestId="issue-comment-submit"
       editorMaxHeightClass={editorMaxHeightClass}
       keepFocusOnSubmit={keepFocusOnSubmit}
+      inlineSubmit={inlineSubmit}
     />
   );
 }

@@ -118,6 +118,7 @@ function InlineEditableBody({
   onEditStart,
   onEditingChange,
   hideActions = false,
+  mobile = false,
 }: {
   body: string | null;
   // 저장 성공 여부 — false 면 입력을 버리지 않고 편집을 다시 연다(#611 충돌 시 본문 유실 방지).
@@ -131,6 +132,8 @@ function InlineEditableBody({
   onEditingChange?: (controls: EditBarControls | null) => void;
   // 모바일 — 저장·취소는 하단 편집 바가 맡으므로 본문 아래 버튼을 숨긴다(이미지 버튼은 유지).
   hideActions?: boolean;
+  // 모바일 — 편집 박스의 -mx-3(뷰 모드 박스 정렬용)을 빼서 16px 거터를 지킨다. 넣으면 테두리가 화면 끝 4px 까지 붙었다(디자인 리뷰).
+  mobile?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(body ?? '');
@@ -281,8 +284,8 @@ function InlineEditableBody({
   }
 
   return (
-    // -mx-3 으로 뷰 모드 박스(-mx-3 px-3)와 좌우 위치를 일치시켜 전환 시 여백 변화 제거.
-    <div className="-mx-3 space-y-2">
+    // -mx-3 으로 뷰 모드 박스(-mx-3 px-3)와 좌우 위치를 일치시켜 전환 시 여백 변화 제거(데스크톱). 모바일은 거터 우선이라 뺀다.
+    <div className={cn('space-y-2', !mobile && '-mx-3')}>
       {/* 초안 복구 배너(#824) — 편집 진입 시 로컬에 남은 초안이 서버 본문과 다를 때만 노출. */}
       {showDraftBanner && (
         <div
@@ -750,6 +753,7 @@ export default function IssueDetailPage() {
                 projectKey={key}
                 issueNumber={issueNumber}
                 hideActions={isMobile}
+                mobile={isMobile}
                 onEditingChange={isMobile ? setBodyControls : undefined}
               />
               {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
@@ -808,8 +812,10 @@ export default function IssueDetailPage() {
               projectKey={key}
               issueNumber={issueNumber}
               issueId={summary.id}
-              editorMaxHeightClass="max-h-28"
+              // 정확히 4줄 — lh 단위는 에디터 자신의 줄 높이(터치 16px 글꼴 기준)라 4lh + py-2(1rem) + 테두리 2px = 4줄 + 여백.
+              editorMaxHeightClass="max-h-[calc(4lh+1rem+2px)]"
               keepFocusOnSubmit
+              inlineSubmit
             />
           </div>
         </div>

@@ -101,6 +101,27 @@ test.describe('속성 칩', () => {
     await expectNoHorizontalOverflow(page);
   });
 
+  test('차단됨은 상태 칩에 합쳐지고(별도 칩 없음), 긴 담당자 이름이어도 +N 은 보인다', async ({ authenticatedPage: page }) => {
+    await mockDetail(page, {
+      blocked: true,
+      blockedBy: [{ number: 3, title: '선행 작업', status: 'IN_PROGRESS', dueDate: null }] as IssueResponse['blockedBy'],
+      assignees: [
+        { id: 1, username: 'a', name: '아주긴이름을가진담당자홍길동선생님', kind: 'HUMAN' },
+        { id: 2, username: 'b', name: '김개발', kind: 'HUMAN' },
+        { id: 3, username: 'c', name: '이기획', kind: 'HUMAN' },
+      ],
+    });
+    await openDetail(page);
+    const status = page.getByTestId('mobile-prop-status');
+    await expect(status.getByTestId('issue-blocked-badge')).toHaveText('· 차단됨');
+    await expect(status).toHaveAttribute('aria-label', '상태: 할 일, 차단됨');
+    await expect(page.getByTestId('issue-blocked-badge')).toHaveCount(1);
+    const plus = page.getByTestId('mobile-prop-assignee').getByText('+2', { exact: true });
+    await expect(plus).toBeVisible();
+    // +N 이 칩 안에서 잘리지 않았는지(이름 span 만 말줄임).
+    expect(await plus.evaluate((el) => el.scrollWidth <= el.clientWidth && el.getBoundingClientRect().right <= el.parentElement!.getBoundingClientRect().right)).toBe(true);
+  });
+
   test('상태 칩 → 시트에서 완료 → PATCH status', async ({ authenticatedPage: page }) => {
     const calls = await mockDetail(page);
     await openDetail(page);
@@ -129,6 +150,9 @@ test.describe('속성 칩', () => {
     await expect.poll(() => calls.some((c) => (c.body as { priority?: string })?.priority === 'HIGH')).toBe(true);
 
     await page.getByTestId('mobile-prop-due').click();
+    // 달력 날짜 칸은 터치 최소 44px.
+    const day = page.getByTestId('issue-due-sheet').locator('[data-day] button').first();
+    expect((await day.boundingBox())!.width).toBeGreaterThanOrEqual(44);
     await page.getByTestId('issue-due-sheet-today').click();
     const today = await page.evaluate(() => {
       const d = new Date();
@@ -297,11 +321,19 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await expect.poll(() => calls.some((c) => c.method === 'POST' && c.path === '/api/v1/issues/7/comments')).toBe(true);
     await expect.poll(() => editor.evaluate((el) => el.contains(document.activeElement) || el === document.activeElement)).toBe(true);
     expect(await page.evaluate(() => (window as unknown as { __blurs: number }).__blurs)).toBe(0);
+    // 전송 성공 후 비동기 clear 가 끝난 뒤에 줄을 넣는다 — 먼저 넣으면 clear 가 지워 버려 넘침 단언이 흔들린다.
+    await expect(editor).toHaveText('');
     for (let i = 0; i < 8; i++) await page.keyboard.press('Shift+Enter');
+    // 높이만 잘린 게 아니라 실제로 내용이 넘쳐 내부 스크롤이 생겼는지(줄 추가 렌더를 기다린다).
+    await expect.poll(() => editor.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+    // 정확히 4줄 + 세로 패딩 + 테두리(터치 16px 글꼴의 실제 줄 높이로 계산).
+    const expected = await editor.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const n = (v: string) => parseFloat(v);
+      return 4 * n(cs.lineHeight) + n(cs.paddingTop) + n(cs.paddingBottom) + n(cs.borderTopWidth) + n(cs.borderBottomWidth);
+    });
     const h = (await editor.boundingBox())!.height;
-    expect(h).toBeLessThanOrEqual(114);
-    // 높이만 잘린 게 아니라 실제로 내용이 넘쳐 내부 스크롤이 생겼는지.
-    expect(await editor.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+    expect(Math.abs(h - expected)).toBeLessThanOrEqual(1);
   });
 
   test('제목 편집 중엔 코멘트 대신 [취소·저장] 바 — 저장은 PATCH 1회', async ({ authenticatedPage: page }) => {
@@ -331,6 +363,24 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await expect.poll(() => calls.some((c) => (c.body as { priority?: string })?.priority === 'HIGH')).toBe(true);
     await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
     await expect(page.getByTestId('issue-title-input')).toBeVisible();
+  });
+
+  test('긴 제목은 3줄까지 보이고, 편집은 줄바꿈되는 입력칸 — Enter 로 저장', async ({ authenticatedPage: page }) => {
+    const long = '결제 페이지에서 카드사 점검 시간에 결제를 시도하면 오류 안내 없이 무한 로딩되는 문제를 재현하고 수정하기';
+    const calls = await mockDetail(page, { title: long });
+    await openDetail(page);
+    const lines = await page.getByTestId('issue-title-heading').locator('h1 span span').first().evaluate((el) => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)));
+    expect(lines).toBeGreaterThan(1);
+    expect(lines).toBeLessThanOrEqual(3);
+    await page.getByTestId('issue-title-edit').click();
+    const input = page.getByTestId('issue-title-input');
+    await expect(input).toBeFocused();
+    // 자동 확장 — 내부 스크롤 없이 전체 제목이 보인다.
+    expect(await input.evaluate((el) => el.tagName === 'TEXTAREA' && el.scrollHeight <= el.clientHeight + 1 && el.clientHeight > 40)).toBe(true);
+    await input.fill('짧은 제목');
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
+    await expect.poll(() => calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({ title: '짧은 제목' });
   });
 
   test('제목 편집 취소는 PATCH 없음', async ({ authenticatedPage: page }) => {

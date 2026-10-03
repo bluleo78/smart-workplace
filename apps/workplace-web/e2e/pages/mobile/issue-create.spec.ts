@@ -69,6 +69,18 @@ test.describe('생성 시트', () => {
     await expect.poll(async () => (await body.boundingBox())!.height).toBeGreaterThan(h0 + 48);
   });
 
+  test('제목은 길면 줄바꿈되며 자라고, Enter 는 줄바꿈 대신 설명으로 이동', async ({ authenticatedPage: page }) => {
+    await mockCreate(page);
+    await openSheet(page);
+    const title = page.getByTestId('issue-create-title');
+    const h0 = (await title.boundingBox())!.height;
+    await title.fill('결제 페이지에서 카드사 점검 시간에 결제를 시도하면 오류 안내 없이 무한 로딩되는 문제');
+    await expect.poll(async () => (await title.boundingBox())!.height).toBeGreaterThan(h0 + 20);
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('issue-create-body')).toBeFocused();
+    expect(await title.inputValue()).not.toContain('\n');
+  });
+
   test('내용이 있으면 취소·Esc 모두 버림 확인 — 계속 작성/버리기', async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     const sheet = await openSheet(page);
@@ -112,7 +124,29 @@ test.describe('생성 칩 줄', () => {
     for (const k of ['type', 'priority', 'assignee', 'due', 'epic', 'ai', 'more']) await expect(row.getByTestId(`create-chip-${k}`)).toBeAttached();
     const tops = await row.locator('[data-testid^="create-chip-"]').evaluateAll((els) => new Set(els.map((e) => Math.round(e.getBoundingClientRect().top))).size);
     expect(tops).toBe(1);
+    // ✦ AI·⋯ 는 스크롤 밖에 고정 — 칩 줄을 밀지 않아도 화면 안. 스크롤 영역엔 오른쪽 페이드.
+    await expect(row.getByTestId('create-chip-ai')).toBeInViewport({ ratio: 1 });
+    await expect(row.getByTestId('create-chip-more')).toBeInViewport({ ratio: 1 });
+    expect(await page.getByTestId('create-chips-scroller').evaluate((el) => getComputedStyle(el).maskImage)).toContain('linear-gradient');
     await expectNoHorizontalOverflow(page);
+  });
+
+  test('칩 줄을 끝까지 밀어도 긴 에픽 칩 제목이 보인다(페이드에 덮이지 않음)', async ({ authenticatedPage: page }) => {
+    await mockCreate(page);
+    await openSheet(page);
+    await page.getByTestId('create-chip-epic').click();
+    await page.getByTestId('create-epic-sheet').getByTestId('picker-option-50').click();
+    const scroller = page.getByTestId('create-chips-scroller');
+    await scroller.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
+    const epicText = page.getByTestId('create-chip-epic').locator('span.truncate');
+    await expect(epicText).toHaveText('결제 개편 에픽');
+    await expect(epicText).toBeInViewport({ ratio: 1 });
+    // 말줄임 span 자체가 스크롤되지 않았는지(스크롤되면 글자가 비어 보인다).
+    expect(await epicText.evaluate((el) => el.scrollLeft)).toBe(0);
+    // 에픽 칩 오른쪽 끝이 페이드(스크롤 영역 오른쪽 32px) 밖에 있다.
+    const sb = (await scroller.boundingBox())!;
+    const eb = (await page.getByTestId('create-chip-epic').boundingBox())!;
+    expect(eb.x + eb.width).toBeLessThanOrEqual(sb.x + sb.width - 32 + 1);
   });
 
   test('칩 탭 → 키보드 내림(포커스 해제) → 시트 → 선택 후 제목 칸 포커스 복귀', async ({ authenticatedPage: page }) => {
