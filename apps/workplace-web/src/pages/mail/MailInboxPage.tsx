@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Download, Forward, Inbox, Loader2, Mail, MailOpen, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
+import { Check, CheckCheck, Download, Forward, Inbox, Loader2, Mail, MailOpen, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -25,11 +25,12 @@ import { formatClockTimePadded, formatDateMonthDayPadded, formatRelativeTime, pa
 import { mergeKeptRows } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
-import { mailViewHref, resolveMailView } from '@/lib/mailView'
+import { mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
 import { cn } from '@/lib/utils'
 
-import { downloadMailAttachment, getMessage } from '../../api/mailMessages'
+import { downloadMailAttachment, getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
+import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDialog'
 import { mailMessageKeys } from '../../hooks/queries/mailMessageKeys'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
@@ -41,6 +42,7 @@ import {
   useMailMessages,
   useMailMessageSubject,
   useMailSummary,
+  useMarkAllRead,
   useReplyDraft,
   useSyncMailbox,
   useSyncStatus,
@@ -648,6 +650,26 @@ export function MailInboxPage() {
     setSelectedId(null)
     applyToggle(id, false)
   }
+  // WP-187 모두 읽음 — 버튼 → 건수 조회(+asOf) → 확인 다이얼로그 → 실행.
+  // asOf 는 서버(DB 시계)가 준 문자열을 그대로 되돌려 보낸다 — 확인 뒤 새로 들어온 메일은 읽음 처리하지 않게.
+  const markAll = useMarkAllRead(accountIdNum)
+  const [markAllPending, setMarkAllPending] = useState<{ count: number; asOf: string } | null>(null)
+  const markAllScope: MailViewScope = { category: view.apiCategory, needsReply: view.kind === 'needsReply', query: search }
+  // 검색 중이 아니면 사이드바와 같은 숫자로 0 을 미리 알 수 있어 버튼을 끈다(검색 중엔 눌러서 건수를 조회).
+  const markAllKnownZero = !search && unreadCounts != null && unreadCountForView(view, unreadCounts) === 0
+  const startMarkAll = async () => {
+    if (accountIdNum == null) return
+    try {
+      const r = await getViewUnreadCount(accountIdNum, markAllScope)
+      if (r.count === 0) {
+        toast('안 읽은 메일이 없어요')
+        return
+      }
+      setMarkAllPending(r)
+    } catch (e) {
+      handleApiError(e, '안 읽은 메일 수를 불러오지 못했어요')
+    }
+  }
   const sync = useSyncMailbox(accountIdNum)
   const { openCompose } = useMailCompose()
   const replyDraft = useReplyDraft()
@@ -936,29 +958,49 @@ export function MailInboxPage() {
                 본문 {syncStatus.data.done}/{syncStatus.data.total}
               </span>
             )}
-            {view.unreadToggleVisible && (
-              <button
-                type="button"
-                data-testid="mail-unread-toggle"
-                aria-pressed={view.unreadOnly}
-                onClick={() => {
-                  const next = new URLSearchParams(params)
-                  if (view.unreadOnly) next.delete('unread')
-                  else next.set('unread', 'true')
-                  setParams(next)
-                }}
-                className={cn(
-                  // 모바일: 시각 h-9 + after 히트 영역 확장으로 터치 44px 확보. 포커스 링은 디자인 시스템 규칙.
-                  'relative ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40',
-                  "max-lg:h-9 max-lg:px-4 max-lg:text-sm max-lg:after:absolute max-lg:after:-inset-y-1 max-lg:after:inset-x-0 max-lg:after:content-['']",
-                  view.unreadOnly ? 'border-primary/40 bg-primary/10 font-semibold text-primary' : 'text-foreground hover:bg-accent/50',
-                )}
-              >
-                {/* 켜짐을 색에만 의존하지 않도록 점 표시(목업). */}
-                {view.unreadOnly && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                안 읽은 메일만
-              </button>
-            )}
+            {/* 오른쪽 그룹 — "안 읽은 메일만" 토글(회신필요엔 없음) + 모두 읽음. 감싼 div 가 ml-auto 를 가져 회신필요에서도 오른쪽에 붙는다(F24). */}
+            <div className="ml-auto flex items-center gap-2">
+              {view.unreadToggleVisible && (
+                <button
+                  type="button"
+                  data-testid="mail-unread-toggle"
+                  aria-pressed={view.unreadOnly}
+                  onClick={() => {
+                    const next = new URLSearchParams(params)
+                    if (view.unreadOnly) next.delete('unread')
+                    else next.set('unread', 'true')
+                    setParams(next)
+                  }}
+                  className={cn(
+                    // 모바일: 시각 h-9 + after 히트 영역 확장으로 터치 44px 확보. 포커스 링은 디자인 시스템 규칙.
+                    'relative inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40',
+                    "max-lg:h-9 max-lg:px-4 max-lg:text-sm max-lg:after:absolute max-lg:after:-inset-y-1 max-lg:after:inset-x-0 max-lg:after:content-['']",
+                    view.unreadOnly ? 'border-primary/40 bg-primary/10 font-semibold text-primary' : 'text-foreground hover:bg-accent/50',
+                  )}
+                >
+                  {/* 켜짐을 색에만 의존하지 않도록 점 표시(목업). */}
+                  {view.unreadOnly && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                  안 읽은 메일만
+                </button>
+              )}
+              {/* 툴바는 INBOX 전용이라 보낸편지함엔 렌더되지 않지만, 보기 종류로도 한 번 더 막는다. */}
+              {view.kind !== 'sent' && (
+                <button
+                  type="button"
+                  data-testid="mail-mark-all-read"
+                  disabled={markAllKnownZero || markAll.isPending}
+                  onClick={() => void startMarkAll()}
+                  className={cn(
+                    // 모바일 터치 규격은 토글과 같다(시각 h-9 + after 히트 영역 확장).
+                    'relative inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-foreground outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50',
+                    "max-lg:h-9 max-lg:px-4 max-lg:text-sm max-lg:after:absolute max-lg:after:-inset-y-1 max-lg:after:inset-x-0 max-lg:after:content-['']",
+                  )}
+                >
+                  <CheckCheck aria-hidden className="h-3.5 w-3.5 max-lg:h-4 max-lg:w-4" />
+                  모두 읽음
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1095,6 +1137,20 @@ export function MailInboxPage() {
           />
         </div>
       </div>
+      {/* WP-187 모두 읽음 확인 — 실행 취소 대신 확인을 거친다. */}
+      <MailMarkAllReadDialog
+        pending={markAllPending}
+        scopeLabel={view.breadcrumb.join(' › ')}
+        mobile={isMobile}
+        busy={markAll.isPending}
+        onCancel={() => setMarkAllPending(null)}
+        onConfirm={() => {
+          // Radix 가 닫으며 onCancel 도 부르므로 pending 을 먼저 캡처한다.
+          const p = markAllPending
+          setMarkAllPending(null)
+          if (p) markAll.mutate({ ...markAllScope, asOf: p.asOf })
+        }}
+      />
       {/* #520 메일→이슈 승격 모달 */}
       {issueDialog && (
         <MailToIssueDialog

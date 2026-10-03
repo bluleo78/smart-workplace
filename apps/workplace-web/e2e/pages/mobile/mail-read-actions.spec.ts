@@ -55,3 +55,29 @@ test('행 길게 누르기 → 메뉴의 읽음으로 표시 → 읽음 API, 상
   await expect(page.getByTestId('mail-unread-bar-10')).toHaveCount(0)
   await expect(page.getByTestId('mail-detail')).toHaveCount(0)
 })
+
+test('모바일 모두 읽음 다이얼로그 — 폭을 채운 세로 버튼, 확인이 위', async ({ authenticatedPage: page }) => {
+  await stubMail(page)
+  // 실사용처럼 "N분 전 동기화됨"(가장 짧은 "동기화 안 됨"보다 김)이 있어도 툴바가 넘치지 않는지 본다.
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ lastSyncedAt: new Date(Date.now() - 12 * 60_000).toISOString() })])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages/unread-count', { count: 2, asOf: '2026-10-03T01:00:00Z' })
+  await page.goto('/mail/1')
+  await expect(page.getByTestId('mail-synced-at')).toContainText('분 전 동기화됨')
+  // 툴바 버튼도 토글과 같은 터치 규격(시각 36px + 히트 영역 확장).
+  await expect(page.getByTestId('mail-mark-all-read')).toBeEnabled()
+  const btn = await page.getByTestId('mail-mark-all-read').boundingBox()
+  expect(btn!.height).toBeGreaterThanOrEqual(36)
+  // 토글과 나란히 놓여도 툴바가 화면 밖으로 넘치지 않는다.
+  expect(btn!.x + btn!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await page.getByTestId('mail-mark-all-read').click()
+  await expect(page.getByTestId('mail-mark-all-dialog')).toBeVisible()
+  const dialog = await page.getByTestId('mail-mark-all-dialog').boundingBox()
+  const confirm = await page.getByTestId('mail-mark-all-confirm').boundingBox()
+  const cancel = await page.getByTestId('mail-mark-all-cancel').boundingBox()
+  expect(confirm!.y).toBeLessThan(cancel!.y)
+  expect(confirm!.height).toBeGreaterThanOrEqual(44)
+  expect(cancel!.height).toBeGreaterThanOrEqual(44)
+  // 폭을 채운다 — 두 버튼 폭이 같고 다이얼로그 폭의 대부분을 차지한다.
+  expect(Math.abs(confirm!.width - cancel!.width)).toBeLessThan(1)
+  expect(confirm!.width).toBeGreaterThan(dialog!.width * 0.7)
+})
