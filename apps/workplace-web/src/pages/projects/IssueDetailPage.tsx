@@ -128,6 +128,8 @@ function InlineEditableBody({
 
   // 이미지 붙여넣기·드롭·버튼 업로드(WP-199) — 업로드 중엔 본문에 자리표시 토큰이 들어가 있다.
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // 편집 진입 후 캐럿 초기화(끝으로) 완료 여부 — 진입마다 한 번만.
+  const caretInit = useRef(false);
   // 업로드 콜백은 비동기라 렌더 시점 draft 가 아니라 항상 최신 값을 봐야 한다 — ref 로 미러링.
   const draftRef = useRef(draft);
   // 렌더 중 ref 쓰기는 금지(react-hooks/refs) — 커밋 후 effect 로 동기화. 업로드 setValue 는 ref 를 즉시 갱신한다.
@@ -169,6 +171,7 @@ function InlineEditableBody({
     setDraft(body ?? '');
     const stored = readBodyDraft(draftKey);
     setShowDraftBanner(stored != null && stored !== (body ?? ''));
+    caretInit.current = false;
     setEditing(true);
     onEditStart?.();
   };
@@ -202,7 +205,10 @@ function InlineEditableBody({
     // #611 초안은 저장이 성공한 뒤에만 지운다 — 충돌(409)·오류로 실패하면 입력한 본문을 그대로 두고 편집을 다시 연다.
     writeBodyDraft(draftKey, draft);
     if (await onSave(draft)) clearBodyDraft(draftKey);
-    else setEditing(true);
+    else {
+      caretInit.current = false;
+      setEditing(true);
+    }
   };
   // 취소 — draft 폐기, 편집 종료. 초안도 함께 정리(#824 — 취소 시 남기지 않음).
   const cancel = () => {
@@ -279,6 +285,13 @@ function InlineEditableBody({
       )}
       <Textarea
         autoFocus
+        // 편집 진입 시 캐럿을 끝으로 — 기본 0 이면 이미지 버튼이 본문 맨 앞에 삽입한다. 포커스 시 한 번만.
+        onFocus={(e) => {
+          if (caretInit.current) return;
+          caretInit.current = true;
+          const n = e.currentTarget.value.length;
+          e.currentTarget.setSelectionRange(n, n);
+        }}
         data-testid="issue-body-textarea"
         className="min-h-[160px]"
         ref={textareaRef}

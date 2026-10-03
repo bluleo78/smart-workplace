@@ -194,6 +194,31 @@ test.describe('이슈 본문 이미지 — 상세 편집', () => {
   })
 })
 
+test.describe('이슈 본문 이미지 — 편집 UX', () => {
+  test('편집 진입 후 이미지 버튼은 본문 끝에 마크다운을 덧붙인다', async ({ authenticatedPage: page }) => {
+    await setupDetailStubs(page, '기존 본문')
+    const upload = await stubUpload(page)
+    upload.release()
+    await page.goto(`/projects/${KEY}/issues/1`)
+    await page.getByRole('button', { name: '본문 편집' }).click()
+    await page.getByTestId('issue-body-image-input').setInputFiles({ name: 'bug.png', mimeType: 'image/png', buffer: PNG })
+    await expect(page.getByTestId('issue-body-textarea')).toHaveValue(`기존 본문\n![bug.png](${IMG_URL})\n`)
+  })
+
+  test('업로드가 실패하면 삽입했던 줄바꿈까지 되돌려 원문이 그대로 남는다', async ({ authenticatedPage: page }) => {
+    await setupDetailStubs(page, '기존 본문')
+    await page.route(`**/api/v1/projects/${KEY}/issue-images`, (r) => r.fulfill({ status: 500, contentType: 'application/json', body: '{}' }))
+    await page.goto(`/projects/${KEY}/issues/1`)
+    await page.getByRole('button', { name: '본문 편집' }).click()
+    const ta = page.getByTestId('issue-body-textarea')
+    await ta.fill('재현 화면입니다')
+    await ta.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(3, 3))
+    await pasteImage(page, '[data-testid="issue-body-textarea"]')
+    await expect(page.getByText('이미지를 올리지 못했습니다')).toBeVisible()
+    await expect(ta).toHaveValue('재현 화면입니다')
+  })
+})
+
 test.describe('이슈 본문 이미지 — 표시', () => {
   test('본문 이미지가 인증 blob 으로 로드되고, 클릭하면 편집이 아니라 미리보기가 열린다', async ({ authenticatedPage: page }) => {
     await setupDetailStubs(page, `재현 화면\n\n![bug.png](${IMG_URL})`)

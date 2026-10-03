@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { uploadIssueImage } from '../api/issueImages'
 import { extractApiError } from '../lib/api-error'
 import { clipboardHasText, INVALID_IMAGE_MSG, isValidImageFile } from '../lib/imageUpload'
-import { hasPendingToken, imageMarkdown, insertAt, placeholderToken, replaceToken } from '../lib/markdownImageInsert'
+import { hasPendingToken, imageMarkdown, insertAt, placeholderToken, removeToken, replaceToken } from '../lib/markdownImageInsert'
 
 /** 저장을 막아야 하는 사유 — 업로드 진행 중이거나, 진행 중 업로드 없이 자리표시 토큰만 남은 경우(복원된 초안의 잔재). */
 export type ImagePendingBlock = 'uploading' | 'stale-token'
@@ -38,11 +38,15 @@ export function useIssueImageUpload({
     if (valid.length === 0) return
     const el = textareaRef.current
     let text = getValue()
-    let start = el?.selectionStart ?? text.length
-    let end = el?.selectionEnd ?? text.length
+    // 포커스가 없으면 selectionStart 를 믿을 수 없다(편집 진입 직후 0 등) — 본문 끝에 넣는다.
+    const focused = el != null && document.activeElement === el
+    let start = focused ? el.selectionStart : text.length
+    let end = focused ? el.selectionEnd : text.length
     const tokens = valid.map(() => placeholderToken(++seq.current))
+    const leads: boolean[] = []
     for (const token of tokens) {
       const r = insertAt(text, start, end, token)
+      leads.push(r.lead)
       text = r.text
       start = end = r.caret
     }
@@ -54,7 +58,7 @@ export function useIssueImageUpload({
       uploadIssueImage(projectKey, file)
         .then((res) => setValue(replaceToken(getValue(), tokens[i], imageMarkdown(res.name, res.url))))
         .catch((e) => {
-          setValue(replaceToken(getValue(), tokens[i], ''))
+          setValue(removeToken(getValue(), tokens[i], leads[i]))
           toast.error(extractApiError(e, '이미지를 올리지 못했습니다'))
         })
         .finally(() => setPendingCount((n) => n - 1))

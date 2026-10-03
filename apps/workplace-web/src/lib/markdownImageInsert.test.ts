@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  hasPendingToken, imageMarkdown, insertAt, placeholderToken, replaceToken,
+  hasPendingToken, imageMarkdown, insertAt, placeholderToken, removeToken, replaceToken,
 } from './markdownImageInsert'
 
 describe('markdownImageInsert', () => {
   it('빈 본문에는 토큰만 넣고 캐럿을 토큰 뒤에 둔다', () => {
     const t = placeholderToken(1)
-    expect(insertAt('', 0, 0, t)).toEqual({ text: `${t}\n`, caret: t.length + 1 })
+    expect(insertAt('', 0, 0, t)).toEqual({ text: `${t}\n`, caret: t.length + 1, lead: false })
   })
 
   it('줄 중간에 넣으면 앞뒤를 줄바꿈으로 분리한다', () => {
@@ -34,9 +34,16 @@ describe('markdownImageInsert', () => {
     expect(replaceToken(replaceToken(text, b, 'B'), a, 'A')).toBe('A\nB\n')
   })
 
-  it('실패 시 빈 문자열로 교체하면 토큰이 사라진다', () => {
+  it('실패 시 removeToken 은 삽입 전 텍스트로 되돌린다(줄 중간·끝·빈 본문·줄 시작)', () => {
     const t = placeholderToken(5)
-    expect(replaceToken(`x\n${t}\ny`, t, '')).toBe('x\n\ny')
+    for (const [orig, pos] of [['재현 화면입니다', 3], ['abc', 3], ['', 0], ['x\ny', 2]] as const) {
+      const r = insertAt(orig, pos, pos, t)
+      expect(removeToken(r.text, t, r.lead)).toBe(orig)
+    }
+  })
+
+  it('removeToken 은 토큰이 없으면 원문 그대로 둔다', () => {
+    expect(removeToken('사용자가 지움', placeholderToken(5), true)).toBe('사용자가 지움')
   })
 
   it('토큰이 지워졌으면 원문을 그대로 둔다', () => {

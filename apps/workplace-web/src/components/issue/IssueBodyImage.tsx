@@ -18,7 +18,7 @@ export function IssueBodyImage({ projectKey, src, alt }: { projectKey: string; s
         alt={alt ?? ''}
         referrerPolicy="no-referrer"
         loading="lazy"
-        className="h-auto max-w-full rounded-md border border-border"
+        className="my-2 h-auto max-w-full rounded-md border border-border"
       />
   }
   return <span className="text-muted-foreground">{alt}</span>
@@ -42,7 +42,7 @@ function AuthIssueImage({ src, fileId, alt }: { src: string; fileId: number; alt
       <img
         src={url}
         alt={alt}
-        className="block h-auto max-h-[480px] max-w-full cursor-zoom-in rounded-md border border-border"
+        className="my-2 block h-auto max-h-[480px] max-w-full cursor-zoom-in rounded-md border border-border"
         onClick={() => setOpen(true)}
       />
       {open && (

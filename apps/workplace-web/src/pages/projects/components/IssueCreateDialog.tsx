@@ -158,7 +158,7 @@ export function IssueCreateDialog({
             <Input id="issue-title" {...register('title')} />
           </FormField>
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <label className="text-sm font-medium" htmlFor="issue-body">본문</label>
               <IssueBodyImageButton onFiles={images.uploadFiles} />
             </div>
