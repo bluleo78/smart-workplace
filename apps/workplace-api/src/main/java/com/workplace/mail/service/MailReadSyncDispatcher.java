@@ -28,7 +28,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>원격 반영(Graph $batch 최대 10회·IMAP STORE)은 조각당 수 초 걸린다 — 그동안 DB 커넥션을 잡지 않는다(WP-215).
  *   <li>조각 N 이 실패해도 1..N-1 의 해제는 이미 커밋돼 남는다("그 지점에서 멈춤").
  *   <li>id 를 조회 전에 자르므로 IN 바인드가 Postgres 상한(32767)을 넘지 않는다.
- *   <li>공급자 세션(토큰·IMAP 접속)은 디스패치 1회에 한 번 열어 조각끼리 재사용한다 — 조각마다 토큰 조회·IMAP 로그인을 반복하지 않는다(WP-215).
+ *   <li>공급자 세션(토큰·IMAP 접속)은 한 번 열어 조각끼리 재사용한다 — 조각마다 토큰 조회·IMAP 로그인을 반복하지 않는다. 세션이 오래되면 (Graph 토큰
+ *       재사용 상한) 다시 연다(WP-215).
  * </ul>
  *
  * <p>처리기가 멈춤(429·장애)을 알리면 그 조각의 성공분만 해제하고 중단, 예외면 그 조각을 해제하지 않고 중단한다 — 남은 메일은 대기 표시를 유지한다(재시도 배치는
@@ -89,10 +90,14 @@ public class MailReadSyncDispatcher {
           if (syncer == null) {
             r = SeenSyncResult.all(items); // 반영할 방법이 없다 — 표시를 남길 이유가 없음
           } else {
+            if (session != null && session.stale()) {
+              session.close(); // 자격이 오래됐다(Graph 토큰 재사용 상한) — 아래에서 새로 연다
+              session = null;
+            }
             if (session == null) {
-              // 반영할 행이 처음 나온 조각에서 한 번만 연다(자격 조회는 RLS 스코프 — 트랜잭션 안). 예외는 람다 안에서 삼키지 않는다 —
-              // getAccessToken(@Transactional) 실패가 rollback-only 를 남겨 커밋 시
-              // UnexpectedRollbackException 이 되므로 밖에서 잡는다
+              // 반영할 행이 처음 나온 조각에서 연다(자격 조회는 RLS 스코프 — 트랜잭션 안).
+              // 예외는 람다 안에서 삼키지 않는다 — getAccessToken(@Transactional) 실패가 rollback-only 를 남겨
+              // 커밋 시 UnexpectedRollbackException 이 되므로 밖에서 잡는다
               session = txTemplate.execute(s -> syncer.open(ev.userId(), account));
             }
             r = session.push(items); // 트랜잭션 밖 — 원격 호출 동안 커넥션을 잡지 않는다

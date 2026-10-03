@@ -77,10 +77,14 @@ export function useToggleRead() {
       qc.setQueriesData<EmailMessageSummary[]>({ queryKey: ['mail-messages'], exact: false }, (old) =>
         old?.map((m) => (m.id === id ? { ...m, seen } : m)),
       );
-      return { snapshot };
+      // 상세 캐시의 seen 도 맞춘다 — 목록에 없는 메일(딥링크)의 첫 열람 판정이 이 값을 쓴다(WP-214).
+      const detailSnapshot = qc.getQueryData<EmailMessageDetail>(mailMessageKeys.detail(id));
+      if (detailSnapshot) qc.setQueryData<EmailMessageDetail>(mailMessageKeys.detail(id), { ...detailSnapshot, seen });
+      return { snapshot, detailSnapshot };
     },
-    onError: (e, _v, ctx) => {
+    onError: (e, { id }, ctx) => {
       ctx?.snapshot.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (ctx?.detailSnapshot) qc.setQueryData(mailMessageKeys.detail(id), ctx.detailSnapshot);
       handleApiError(e, '읽음 상태를 바꾸지 못했어요');
     },
     onSettled: () => {

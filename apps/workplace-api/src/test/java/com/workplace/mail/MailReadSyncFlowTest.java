@@ -387,6 +387,25 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
         .allSatisfy(id -> org.assertj.core.api.Assertions.assertThat(pushPending(id)).isFalse());
   }
 
+  /** WP-215: 세션 열기(토큰 조회)가 실패하면 원격 호출 없이 중단하고 대기 표시를 유지한다 — 예외가 리스너 밖으로 새지 않는다. */
+  @Test
+  void dispatch_openFails_keepsPending_withoutRemoteCall() throws Exception {
+    setSessionGuc(1L);
+    seededUser = TestFixtures.createHuman(dsl);
+    seededAccount = MailTestSupport.seedGraphAccount(dsl, seededUser);
+    seededMessage = MailTestSupport.seedUnseenGraphMessage(dsl, seededAccount, "AAGRAPHID_OPEN");
+    TenantContext.set(1L);
+    cleanupInTenant(1L, () -> messageRepo.markSeen(seededMessage));
+    when(graphTokenService.getAccessToken(seededUser, seededAccount))
+        .thenThrow(new IllegalStateException("token revoked"));
+
+    dispatcher.dispatch(
+        new MessagesSeenChangedEvent(1L, seededUser, seededAccount, List.of(seededMessage)));
+
+    org.mockito.Mockito.verifyNoInteractions(graphApiClient);
+    org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isTrue();
+  }
+
   /** WP-187(R2): 조각마다 트랜잭션이 따로라, 두 번째 조각(201번째 메일)에서 처리기가 예외를 던져도 첫 조각 200통의 대기 해제는 커밋된 채 남는다. */
   @SuppressWarnings("unchecked")
   @Test

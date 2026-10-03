@@ -275,9 +275,8 @@ public class MailMessageService {
               if (updated <= 0) {
                 return null;
               }
-              // 읽음·안읽음 모두 messageId 를 싣는다 — 열린 상세가 새 상태를 다시 받는다. 웹 상세 조회는 읽음 처리하지
-              // 않으므로(markSeen=false,
-              // WP-214) 안읽음 직후 재조회가 곧바로 다시 읽음 처리하지 않는다.
+              // 읽음·안읽음 모두 messageId 를 싣는다 — 열린 상세가 새 상태를 다시 받는다.
+              // 웹 상세 조회는 읽음 처리하지 않으므로(WP-214) 안읽음 직후 재조회가 다시 읽음 처리하지 않는다.
               notifier.mailChanged(userId, target.accountId(), messageId, userId);
               return target.accountId();
             });

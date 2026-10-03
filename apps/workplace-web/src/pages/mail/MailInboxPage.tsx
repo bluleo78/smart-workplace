@@ -642,13 +642,23 @@ export function MailInboxPage() {
     )
   }
   // WP-214 첫 열람 읽음 처리 — 상세 조회는 읽음 처리하지 않으므로 안 읽은 메일을 열 때 한 번만 읽음 요청을 보낸다(판정 규칙은 훅 주석).
-  // applyToggle 이라 "안 읽은 메일만" 보기에서도 연 행이 유지 집합에 들어가 재조회로 사라지지 않는다.
-  const { data: openedDetailSeen } = useMailMessageSeen(selectedId)
+  // applyToggle 이라 "안 읽은 메일만" 보기에서도 연 행이 유지 집합에 들어가 재조회로 사라지지 않는다. 이미 읽음으로 보이던 행도
+  // 그 보기에서 열었다면 보기·토글을 바꾸기 전까지 유지한다(WP-186).
+  const openedDetail = useMailMessageSeen(selectedId)
   useMarkReadOnOpen(
     selectedId,
     messages?.find((r) => r.id === selectedId)?.seen,
-    openedDetailSeen,
-    (id) => applyToggle(id, true),
+    openedDetail.isFetching ? undefined : openedDetail.data,
+    (id, seen) => {
+      if (!seen) {
+        applyToggle(id, true)
+        return
+      }
+      const row = fetchedMessages?.find((r) => r.id === id)
+      if (view.unreadOnly && row) {
+        setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, row) }))
+      }
+    },
   )
   /**
    * 상세의 "안읽음으로 표시" — 안읽음 처리 후 상세를 닫고 목록으로 돌아간다(스펙 §C 상세 동작).
@@ -1116,7 +1126,7 @@ export function MailInboxPage() {
                   onSelect={() => setSelectedId(m.id)}
                   pendingVisible={view.kind !== 'sent' && classificationActive}
                   showToggle={!touchShell}
-                  // 열린 메일을 안읽음으로 바꾸면 상세도 닫는다(R5) — 그 외에는 상태만 뒤집는다.
+                  // 상태만 뒤집는다 — 열린 메일이어도 상세는 그대로 둔다(조회가 읽음 처리하지 않는다, WP-214).
                   onToggleRead={() => toggleRow(m)}
                 />
               ))}

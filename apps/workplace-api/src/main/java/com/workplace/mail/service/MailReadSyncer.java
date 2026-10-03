@@ -41,6 +41,14 @@ public interface MailReadSyncer {
      */
     SeenSyncResult push(List<SeenSyncItem> items) throws Exception;
 
+    /**
+     * 자격이 오래돼 다시 열어야 하는지. 호출 측은 push 전에 확인해 true 면 닫고 {@link MailReadSyncer#open} 으로 새로 연다(트랜잭션 안).
+     * 기본은 디스패치 내내 유효하다.
+     */
+    default boolean stale() {
+      return false;
+    }
+
     /** 열린 원격 연결 정리. 연결이 없으면 아무것도 하지 않는다. */
     @Override
     default void close() {}

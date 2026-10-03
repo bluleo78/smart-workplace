@@ -178,5 +178,7 @@ class GraphReadSyncerTest extends IntegrationTestBase {
 
     verify(graphTokenService, times(1)).getAccessToken(1L, 10L);
     verify(graphApiClient, times(2)).batch(eq("T"), anyList());
+    // 갓 연 세션은 재사용 상한(TOKEN_REUSE) 안이라 다시 열 필요가 없다
+    assertThat(session.stale()).isFalse();
   }
 }

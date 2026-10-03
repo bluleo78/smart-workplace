@@ -8,6 +8,8 @@ import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.outbound.GraphBatchRequest;
 import com.workplace.mail.outbound.GraphBatchResponse;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -20,7 +22,7 @@ import org.springframework.stereotype.Component;
 /**
  * Graph 계정 읽음 역동기화(WP-187): $batch 로 PATCH /me/messages/{id} {"isRead": seen} 를 20건씩 보낸다. 항목별
  * 2xx·404 는 끝난 것으로 보고, 429·5xx 를 만나면 그 묶음의 성공분만 반영한 뒤 다음 묶음을 보내지 않고 멈춘다. batch 요청 자체가 실패해도 앞 묶음까지의
- * 성공분은 돌려주고 멈춘다. 토큰은 {@link #open} 에서 디스패치당 한 번만 받는다(WP-215).
+ * 성공분은 돌려주고 멈춘다. 토큰은 {@link #open} 에서 받아 {@link #TOKEN_REUSE} 동안 조각끼리 재사용한다(WP-215).
  */
 @Slf4j
 @Component
@@ -39,13 +41,27 @@ public class GraphReadSyncer implements MailReadSyncer {
   }
 
   /**
-   * 토큰을 디스패치 1회에 한 번만 받는다(호출 측 트랜잭션 안 — 토큰 조회·갱신 저장이 RLS 스코프). 토큰은 갱신 기준(만료 2분 전) 이상 남은 값이라 한 디스패치
-   * 동안 유효하다고 보고, 도중 만료돼 401 이 나면 그 묶음은 성공이 아니므로 대기 표시로 남는다.
+   * 세션이 같은 토큰을 쓰는 최대 시간. 토큰은 받을 때 만료까지 2분 이상 남아 있으므로(갱신 기준) 그보다 짧게 잡아, 큰 모두 읽음 디스패치가 도중 만료(401)로
+   * 멈추지 않게 한다 — 넘으면 디스패처가 세션을 다시 열어 토큰을 새로 받는다.
    */
+  static final Duration TOKEN_REUSE = Duration.ofSeconds(60);
+
+  /** 토큰을 세션마다 한 번만 받는다(호출 측 트랜잭션 안 — 토큰 조회·갱신 저장이 RLS 스코프). */
   @Override
   public Session open(long userId, EmailAccountResponse account) {
     String token = tokenService.getAccessToken(userId, account.id());
-    return items -> push(token, items);
+    Instant openedAt = Instant.now();
+    return new Session() {
+      @Override
+      public SeenSyncResult push(List<SeenSyncItem> items) {
+        return GraphReadSyncer.this.push(token, items);
+      }
+
+      @Override
+      public boolean stale() {
+        return Duration.between(openedAt, Instant.now()).compareTo(TOKEN_REUSE) > 0;
+      }
+    };
   }
 
   /** 한 조각을 20건씩 $batch 로 보낸다. batch 최상위 실패도 예외로 올리지 않고 앞 묶음까지의 성공분과 함께 멈춤을 돌려준다. */
