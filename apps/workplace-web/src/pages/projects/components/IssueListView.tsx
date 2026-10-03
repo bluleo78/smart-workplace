@@ -142,7 +142,9 @@ export function IssueListView({
       {/* 테이블 스크롤 영역 — thead 가 이 컨테이너 기준 sticky 로 붙는다(래퍼가 overflow-x 만 가지면 sticky 가 무력화됨).
           border-collapse 표에서 sticky 행은 테두리가 사라지므로 하단 구분선은 tr border 대신 inset shadow 로 그린다. */}
       <div ref={setScrollEl} className="min-h-0 flex-1 overflow-auto" data-testid="issue-list-scroll">
-        <table className="w-full text-sm" role="table">
+        {/* 모바일은 table-fixed — 자동 레이아웃이면 한 칸 행의 메타 줄(nowrap truncate)의 min-content 가
+            열 너비가 되어 표가 컨테이너보다 넓어지고, 긴 제목이 오른쪽에서 잘린다(WP-194). 데스크톱은 그대로. */}
+        <table className={cn('w-full text-sm', isMobile && 'table-fixed')} role="table">
           {!isMobile && (
             <thead className="sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_var(--color-border)]">
               <tr className="text-left text-muted-foreground">

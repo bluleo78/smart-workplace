@@ -215,7 +215,8 @@ function ProjectIssuesSection({
 
   return (
     <section aria-label="태스크" className="flex min-h-0 flex-1 items-stretch gap-4">
-      {epicPanelOpen && <EpicSidePanel projectKey={projectKey} canCreateIssue={onOpenCreate != null} />}
+      {/* 모바일엔 패널 토글이 없으므로 저장된 열림 상태(데스크톱용)를 무시한다 — 닫을 수 없는 패널이 목록을 좁히지 않게. */}
+      {epicPanelOpen && !isMobile && <EpicSidePanel projectKey={projectKey} canCreateIssue={onOpenCreate != null} />}
       {/* 우측 영역: 뷰 칩바·필터바는 고정, 아래 콘텐츠 슬롯에서 목록/보드가 스스로 스크롤한다
           (목록=테이블 영역, 보드=컬럼 행 — 각자 가로·세로 스크롤 + 헤더 sticky). 에픽 패널은 따로 고정. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">

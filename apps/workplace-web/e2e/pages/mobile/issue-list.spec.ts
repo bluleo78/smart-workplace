@@ -75,6 +75,21 @@ test.describe('모바일 이슈 목록 2줄 행', () => {
     await expectNoHorizontalOverflow(page);
   });
 
+  test('긴 제목은 목록 폭 안에서 줄바꿈된다 — 오른쪽으로 잘리지 않음', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    const title = page.getByTestId('issue-row-21-title');
+    const scroll = page.getByTestId('issue-list-scroll');
+    await expect(title).toBeVisible();
+    const t = (await title.boundingBox())!;
+    const c = (await scroll.boundingBox())!;
+    // 제목 오른쪽 끝이 스크롤 컨테이너 안에 있어야 한다(표가 컨테이너보다 넓어 잘리면 실패).
+    expect(t.x + t.width).toBeLessThanOrEqual(c.x + c.width + 0.5);
+    // 제목 자체도, 목록 컨테이너도 가로로 넘치지 않는다.
+    expect(await title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(await scroll.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  });
+
   test('그룹 「에픽」 안의 행은 에픽 메타를 생략한다', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=epic`);
@@ -182,6 +197,15 @@ test.describe('모바일 툴바', () => {
     await closedToggle.click();
     await expect(page).toHaveURL(/closed=all/);
     await expect(page.getByTestId('mobile-view-sheet')).toBeVisible();
+  });
+
+  test('저장된 에픽 패널 열림 상태가 있어도 모바일에선 패널을 그리지 않는다', async ({ authenticatedPage: page }) => {
+    await page.addInitScript(() => localStorage.setItem('epicSidePanel.open.WP', 'true'));
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    await expect(page.getByTestId('issue-row-21-title')).toBeVisible();
+    await expect(page.getByTestId('epic-side-panel')).toHaveCount(0);
+    expect((await page.getByTestId('issue-row-21-title').boundingBox())!.width).toBeGreaterThan(200);
   });
 
   test('목록/보드 토글 — 보드로 전환', async ({ authenticatedPage: page }) => {
