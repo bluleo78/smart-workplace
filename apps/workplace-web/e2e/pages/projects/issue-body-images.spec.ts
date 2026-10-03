@@ -236,4 +236,31 @@ test.describe('이슈 본문 이미지 — 표시', () => {
     await page.getByTestId('issue-body-save').click()
     await expect(page.getByText('업로드가 끝나지 않은 이미지가 있습니다')).toBeVisible()
   })
+
+  test('미리보기를 닫기 버튼·Escape·오버레이로 닫아도 편집 모드로 들어가지 않는다', async ({ authenticatedPage: page }) => {
+    await setupDetailStubs(page, `![bug.png](${IMG_URL})`)
+    await page.route(`**${IMG_URL}`, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
+    await page.goto(`/projects/${KEY}/issues/1`)
+    const img = page.getByRole('img', { name: 'bug.png' })
+    const dialog = page.getByRole('dialog')
+    const ta = page.getByTestId('issue-body-textarea')
+
+    await img.click()
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: /닫기|close/i }).first().click()
+    await expect(dialog).toHaveCount(0)
+    await expect(ta).toHaveCount(0)
+
+    await img.click()
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(ta).toHaveCount(0)
+
+    await img.click()
+    await expect(dialog).toBeVisible()
+    await page.mouse.click(2, 2)
+    await expect(dialog).toHaveCount(0)
+    await expect(ta).toHaveCount(0)
+  })
 })

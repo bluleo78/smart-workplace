@@ -13,7 +13,13 @@ export function IssueBodyImage({ projectKey, src, alt }: { projectKey: string; s
   const isIssueImage = !!src && issueImagePathPattern(projectKey).test(src)
   if (isIssueImage) return <AuthIssueImage src={src} alt={alt ?? ''} />
   if (src?.startsWith('https://')) {
-    return <img src={src} alt={alt ?? ''} className="h-auto max-w-full rounded-md border border-border" />
+    return <img
+        src={src}
+        alt={alt ?? ''}
+        referrerPolicy="no-referrer"
+        loading="lazy"
+        className="h-auto max-w-full rounded-md border border-border"
+      />
   }
   return <span className="text-muted-foreground">{alt}</span>
 }
@@ -28,14 +34,14 @@ function AuthIssueImage({ src, alt }: { src: string; alt: string }) {
       </span>
     )
   }
-  if (!url) return <span className="inline-block h-32 w-48 animate-pulse rounded-md bg-muted" aria-label={alt} />
+  if (!url) return <span role="img" aria-label={alt} className="inline-block h-32 w-48 animate-pulse rounded-md bg-muted" />
   const fileId = Number(src.split('/').pop())
   return (
     <>
       <img
         src={url}
         alt={alt}
-        className="h-auto max-h-[480px] max-w-full cursor-zoom-in rounded-md border border-border"
+        className="block h-auto max-h-[480px] max-w-full cursor-zoom-in rounded-md border border-border"
         onClick={(e) => {
           // 보기 모드 본문 전체가 "클릭=편집 진입" 버튼이라 전파를 끊어야 미리보기만 열린다.
           e.stopPropagation()
@@ -43,12 +49,16 @@ function AuthIssueImage({ src, alt }: { src: string; alt: string }) {
         }}
         onKeyDown={(e) => e.stopPropagation()}
       />
-      {open && (
-        <FilePreviewModal
-          attachment={{ fileId, name: alt || 'image', mimeType: blob?.type ?? 'image/png', sizeBytes: blob?.size ?? 0, downloadUrl: src }}
-          onClose={() => setOpen(false)}
-        />
-      )}
+      {/* 모달은 React 트리상 "클릭=편집 진입" 래퍼의 자식이라 포털로 옮겨도 합성 이벤트가 위로 전파된다 —
+          닫기·오버레이 클릭·Enter/Space 가 편집 모드를 열지 않도록 경계에서 끊는다. */}
+      <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        {open && (
+          <FilePreviewModal
+            attachment={{ fileId, name: alt || 'image', mimeType: blob?.type ?? 'image/png', sizeBytes: blob?.size ?? 0, downloadUrl: src }}
+            onClose={() => setOpen(false)}
+          />
+        )}
+      </span>
     </>
   )
 }
