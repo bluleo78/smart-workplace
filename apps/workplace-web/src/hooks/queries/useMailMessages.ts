@@ -73,7 +73,10 @@ export function useToggleRead() {
       ctx?.snapshot.forEach(([key, data]) => qc.setQueryData(key, data));
       handleApiError(e, '읽음 상태를 바꾸지 못했어요');
     },
-    onSettled: () => {
+    onSettled: (_d, _e, { id, seen }) => {
+      // 안읽음 뒤 같은 메일을 바로 다시 열면 fresh 캐시로 그려져 GET(읽음 처리)이 나가지 않는다 — 서버는 안읽음, 목록만 읽음으로 어긋남.
+      // 닫힌 상세는 다시 부르지 않고(refetchType none) stale 로만 표시해, 다음에 열 때 GET 으로 다시 읽음 처리되게 한다.
+      if (!seen) qc.invalidateQueries({ queryKey: mailMessageKeys.detail(id), refetchType: 'none' });
       qc.invalidateQueries({ queryKey: mailMessageKeys.unreadCountsAll() });
       qc.invalidateQueries({ queryKey: mailMessageKeys.unreadSummary() });
       // exact: true — 메시지별 AI 요약 ['mail-summary', id] 재생성 방지(useSyncMailbox 와 동일)
