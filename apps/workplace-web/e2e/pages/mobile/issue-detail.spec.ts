@@ -23,7 +23,7 @@ const MEMBERS = [
 ];
 
 /** 이슈 7 상세 + 주변 API 스텁. PATCH/PUT/POST 는 calls 에 기록하고 상세 응답에 반영한다. */
-export async function mockDetail(page: Page, over: Partial<IssueResponse> = {}, body = '본문 첫 줄') {
+async function mockDetail(page: Page, over: Partial<IssueResponse> = {}, body = '본문 첫 줄') {
   const calls: Call[] = [];
   let issue = createIssue({
     id: 7, number: 7, projectKey: KEY, type: makeTaskType(), status: 'TODO', priority: 'MID',
@@ -74,7 +74,7 @@ export async function mockDetail(page: Page, over: Partial<IssueResponse> = {}, 
   return calls;
 }
 
-export async function openDetail(page: Page) {
+async function openDetail(page: Page) {
   await page.goto(`/projects/${KEY}/issues/7`);
   await expect(page.getByTestId('issue-title-heading')).toBeVisible();
 }
@@ -167,5 +167,51 @@ test.describe('속성 칩', () => {
     await openDetail(page);
     await expect(page.getByTestId('mobile-prop-status')).toBeVisible();
     await expect(page.getByTestId('mobile-prop-epic')).toHaveCount(0);
+  });
+});
+
+test.describe('＋ 속성 시트', () => {
+  test('모바일에선 하단 레일이 없고, ＋ 속성 시트에 유형·일정·분류·커스텀 필드가 있다(칩과 중복 항목 없음)', async ({ authenticatedPage: page }) => {
+    await mockDetail(page);
+    await openDetail(page);
+    await expect(page.getByTestId('property-rail')).toHaveCount(0);
+    await page.getByTestId('mobile-prop-more').click();
+    const sheet = page.getByTestId('issue-more-props-sheet');
+    await expect(sheet.getByTestId('issue-more-props-type')).toBeVisible();
+    await expect(sheet.getByTestId('property-group-planning')).toBeVisible();
+    await expect(sheet.getByTestId('issue-cycles-section')).toBeVisible();
+    await expect(sheet.getByTestId('issue-milestone-section')).toBeVisible();
+    await expect(sheet.getByTestId('property-group-classification')).toBeVisible();
+    await expect(sheet.getByTestId('property-group-custom-fields')).toBeVisible();
+    // 칩과 겹치는 항목은 시트에 없다.
+    await expect(sheet.getByTestId('issue-status-select')).toHaveCount(0);
+    await expect(sheet.getByTestId('due-date-trigger')).toHaveCount(0);
+    await expect(sheet.getByTestId('issue-parent-slot')).toHaveCount(0);
+  });
+
+  test('시트 안 시작일 팝오버가 시트 위에 화면 안으로 열린다', async ({ authenticatedPage: page }) => {
+    await mockDetail(page);
+    await openDetail(page);
+    await page.getByTestId('mobile-prop-more').click();
+    await page.getByTestId('issue-more-props-sheet').getByTestId('start-date-trigger').click();
+    const pop = page.getByTestId('start-date-popover');
+    await expect(pop).toBeVisible();
+    const box = (await pop.boundingBox())!;
+    const vp = page.viewportSize()!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(vp.height);
+    // 팝오버가 시트에 가려지지 않음 — 중심점의 최상위 요소가 팝오버 안.
+    const onTop = await pop.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    });
+    expect(onTop).toBe(true);
+  });
+
+  test('서브태스크는 시트에 부모 슬롯이 있다', async ({ authenticatedPage: page }) => {
+    await mockDetail(page, { type: makeSubtaskType(), parent: { number: 3, title: '부모 태스크', type: makeTaskType() } });
+    await openDetail(page);
+    await page.getByTestId('mobile-prop-more').click();
+    await expect(page.getByTestId('issue-more-props-sheet').getByTestId('issue-parent-slot')).toBeVisible();
   });
 });

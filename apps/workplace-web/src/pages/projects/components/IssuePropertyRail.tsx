@@ -47,6 +47,8 @@ interface IssuePropertyRailProps {
   onAiClassify?: () => void;
   isAiClassifying?: boolean;
   aiClassifyReason?: string | null;
+  /** sheet = 모바일 ＋ 속성 시트(WP-196): 칩과 겹치는 상태·우선순위·담당자·마감을 숨기고, 부모 슬롯은 SUBTASK 만 노출. 기본 rail(데스크톱). */
+  variant?: 'rail' | 'sheet';
 }
 
 export function IssuePropertyRail({
@@ -71,6 +73,7 @@ export function IssuePropertyRail({
   onAiClassify,
   isAiClassifying,
   aiClassifyReason,
+  variant = 'rail',
 }: IssuePropertyRailProps) {
   // 분류 그룹 배지 — 라벨 수.
   const classificationCount = labels.length;
@@ -96,7 +99,7 @@ export function IssuePropertyRail({
     <div className="space-y-3" data-testid="property-rail">
       {/* EPIC 은 부모를 가질 수 없으므로 슬롯 자체를 노출하지 않음.
           SUBTASK/일반 이슈는 각각 "부모"/"상위 에픽" 문구로 슬롯 노출(Task 6). */}
-      {!isEpic && (
+      {!isEpic && (variant === 'rail' || isSubtask) && (
         <IssueParentSlot
           projectKey={projectKey}
           issueNumber={issueNumber}
@@ -105,55 +108,67 @@ export function IssuePropertyRail({
         />
       )}
 
-      {/* 그룹 1: 상태·담당 — 기본 펼침 */}
-      <IssuePropertyGroup
-        title="상태·담당"
-        storageKey="issue-rail:status-people"
-        defaultOpen={true}
-        testId="property-group-status-people"
-      >
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">상태</label>
-          <IssueStatusSelect
-            value={status}
-            onChange={(v) => onPatch({ status: v })}
-            disabled={updatePending || !canEditWorkflow}
-            blockedBy={blockedBy}
-            projectKey={projectKey}
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">우선순위</label>
-          <IssuePrioritySelect
-            value={priority}
-            onChange={(v) => onPatch({ priority: v })}
-            disabled={updatePending || !canEditWorkflow}
-          />
-        </div>
-        {/* 담당자 — 라벨 + 인라인 필드(값 표시 겸 클릭 트리거). 칩/미지정은 필드 내부에서 렌더. */}
-        <div className="space-y-1">
-          <span className="text-xs font-medium text-muted-foreground">담당자</span>
-          <AssigneePickerPopover
-            projectKey={projectKey}
-            issueNumber={issueNumber}
-            current={assignees}
-            disabled={updatePending || !canEditWorkflow}
-          />
-        </div>
-        {/* AI 분류 제안 — 섹션 가장 아래(목업 배치). 구분선 후 full-width. */}
-        {onAiClassify !== undefined && (
-          <>
-            <div className="border-t" />
-            <AiClassifyButton
-              hasTitle={true}
-              isPending={isAiClassifying ?? false}
-              reason={aiClassifyReason}
-              onClick={onAiClassify}
-              fullWidth
+      {/* 그룹 1: 상태·담당 — 기본 펼침. 시트에선 칩과 겹치므로 AI 분류 버튼만 남긴다. */}
+      {variant === 'rail' ? (
+        <IssuePropertyGroup
+          title="상태·담당"
+          storageKey="issue-rail:status-people"
+          defaultOpen={true}
+          testId="property-group-status-people"
+        >
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">상태</label>
+            <IssueStatusSelect
+              value={status}
+              onChange={(v) => onPatch({ status: v })}
+              disabled={updatePending || !canEditWorkflow}
+              blockedBy={blockedBy}
+              projectKey={projectKey}
             />
-          </>
-        )}
-      </IssuePropertyGroup>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">우선순위</label>
+            <IssuePrioritySelect
+              value={priority}
+              onChange={(v) => onPatch({ priority: v })}
+              disabled={updatePending || !canEditWorkflow}
+            />
+          </div>
+          {/* 담당자 — 라벨 + 인라인 필드(값 표시 겸 클릭 트리거). 칩/미지정은 필드 내부에서 렌더. */}
+          <div className="space-y-1">
+            <span className="text-xs font-medium text-muted-foreground">담당자</span>
+            <AssigneePickerPopover
+              projectKey={projectKey}
+              issueNumber={issueNumber}
+              current={assignees}
+              disabled={updatePending || !canEditWorkflow}
+            />
+          </div>
+          {/* AI 분류 제안 — 섹션 가장 아래(목업 배치). 구분선 후 full-width. */}
+          {onAiClassify !== undefined && (
+            <>
+              <div className="border-t" />
+              <AiClassifyButton
+                hasTitle={true}
+                isPending={isAiClassifying ?? false}
+                reason={aiClassifyReason}
+                onClick={onAiClassify}
+                fullWidth
+              />
+            </>
+          )}
+        </IssuePropertyGroup>
+      ) : (
+        onAiClassify !== undefined && (
+          <AiClassifyButton
+            hasTitle={true}
+            isPending={isAiClassifying ?? false}
+            reason={aiClassifyReason}
+            onClick={onAiClassify}
+            fullWidth
+          />
+        )
+      )}
 
       {/* 그룹 2: 일정 — 기본 펼침 */}
       <IssuePropertyGroup
@@ -179,20 +194,22 @@ export function IssuePropertyRail({
             }
           />
         </div>
-        <div className="space-y-1">
-          <span className="text-xs font-medium text-muted-foreground">마감일</span>
-          <DueDatePickerPopover
-            value={dueDate}
-            disabled={updatePending || !canEditWorkflow}
-            warningText={dateWarning(dueDate)}
-            onChange={(date) =>
-              onPatch({
-                dueDate: date,
-                clearDueDate: !date,
-              })
-            }
-          />
-        </div>
+        {variant === 'rail' && (
+          <div className="space-y-1">
+            <span className="text-xs font-medium text-muted-foreground">마감일</span>
+            <DueDatePickerPopover
+              value={dueDate}
+              disabled={updatePending || !canEditWorkflow}
+              warningText={dateWarning(dueDate)}
+              onChange={(date) =>
+                onPatch({
+                  dueDate: date,
+                  clearDueDate: !date,
+                })
+              }
+            />
+          </div>
+        )}
         {/* 사이클 피커 — 이슈에 연결된 사이클 조회·변경 */}
         <section data-testid="issue-cycles-section">
           <h3 className="mb-1 text-xs font-medium text-muted-foreground">사이클</h3>

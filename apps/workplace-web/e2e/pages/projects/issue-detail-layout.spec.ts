@@ -354,7 +354,9 @@ test.describe('프로젝트로 돌아가기', () => {
 // 왜: 2구역 flex 레이아웃이 lg 미만에서 flex-col 스택으로 무너지지 않는지 회귀 방지.
 test.describe('반응형 레이아웃 (좁은 화면)', () => {
   test('좁은 화면(<lg)에서 본문·레일이 세로로 쌓인다', async ({ authenticatedPage: page }) => {
-    await page.setViewportSize({ width: 800, height: 900 });
+    // 모바일(<1024px)은 하단 레일 없이 「＋ 속성」 시트를 쓰므로(WP-196) 데스크톱 최소폭 1024px 로 검증 —
+    // 컨테이너(사이드바 제외)가 1032px 미만이라 여전히 세로 스택 구간이다.
+    await page.setViewportSize({ width: 1024, height: 900 });
     await mockIssueDetail(page, {});
     await mockChatThread(page, { threadId: 9, recentMessages: [] });
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);

@@ -29,6 +29,7 @@ import { IssueBodyImage } from '../../components/issue/IssueBodyImage';
 import { IssueBodyImageButton } from '../../components/issue/IssueBodyImageButton';
 import { IssueInstantContextCard } from '../../components/issue/IssueInstantContextCard';
 import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
+import { MobileSheetShell } from '../../components/mobile/MobileSheetShell';
 import { useGenerateAiSummary, useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
 import { useIssueAiClassify } from '../../hooks/queries/useIssueAiClassify';
 import { useDeleteIssue } from '../../hooks/queries/useIssues';
@@ -379,7 +380,7 @@ export default function IssueDetailPage() {
   // 모바일 ⋯ 메뉴 항목 문구 — 메뉴 안에선 동작("구독하기")·상태("구독 중 · n명")를 글자로 풀어 쓴다(U3-R6). 데스크톱은 기존 버튼 그대로.
   const isMobile = useIsMobile();
   // 모바일 「＋ 속성」 시트 open 상태 — 시트 본체는 후속 태스크(Task 2)에서 연결한다.
-  const [, setMoreOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const watcherCount = watchers.data?.length ?? 0;
   const mobileWatchLabel = isWatching ? `구독 중 · ${watcherCount}명` : '구독하기';
   // 삭제 확인 다이얼로그 open 상태 — shadcn AlertDialog 제어형.
@@ -584,6 +585,34 @@ export default function IssueDetailPage() {
     </>
   );
 
+  // 속성 레일 — 데스크톱 aside(variant=rail)와 모바일 ＋ 속성 시트(variant=sheet)가 같은 컴포넌트를 공유한다.
+  const renderRail = (variant: 'rail' | 'sheet') => (
+            <IssuePropertyRail
+              projectKey={key}
+              issueNumber={issueNumber}
+              isSubtask={isSubtask}
+              isEpic={isEpic}
+              parent={summary.parent}
+              status={summary.status}
+              priority={summary.priority}
+              dueDate={summary.dueDate}
+              startDate={summary.startDate}
+              milestoneId={summary.milestoneId}
+              assignees={summary.assignees}
+              labels={summary.labels}
+              blockedBy={summary.blockedBy}
+              blocks={summary.blocks}
+              customFields={summary.customFields}
+              updatePending={update.isPending}
+              onPatch={patch}
+              canEditWorkflow={canEditWorkflow}
+              onAiClassify={handleClassify}
+              isAiClassifying={classify.isPending}
+              aiClassifyReason={classifyReason}
+              variant={variant}
+            />
+  );
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <IssueBreadcrumbHeader
@@ -715,33 +744,38 @@ export default function IssueDetailPage() {
           </div>
           {/* 채팅은 헤더 버튼 → 드로워(IssueChatDrawer)로 분리(구 인라인 패널 제거). */}
           {/* 속성 레일 — data-testid 은 IssuePropertyRail 내부에 있음. #354: 뷰포트 lg → 컨테이너 1032px 기준. */}
-          <aside className="w-full shrink-0 @min-[1032px]:w-[280px]">
-            <IssuePropertyRail
-              projectKey={key}
-              issueNumber={issueNumber}
-              isSubtask={isSubtask}
-              isEpic={isEpic}
-              parent={summary.parent}
-              status={summary.status}
-              priority={summary.priority}
-              dueDate={summary.dueDate}
-              startDate={summary.startDate}
-              milestoneId={summary.milestoneId}
-              assignees={summary.assignees}
-              labels={summary.labels}
-              blockedBy={summary.blockedBy}
-              blocks={summary.blocks}
-              customFields={summary.customFields}
-              updatePending={update.isPending}
-              onPatch={patch}
-              canEditWorkflow={canEditWorkflow}
-              onAiClassify={handleClassify}
-              isAiClassifying={classify.isPending}
-              aiClassifyReason={classifyReason}
-            />
-          </aside>
+          {!isMobile && (
+            <aside className="w-full shrink-0 @min-[1032px]:w-[280px]">{renderRail('rail')}</aside>
+          )}
         </div>
       </div>
+      {/* 모바일 「＋ 속성」 시트(WP-196) — 칩에 없는 유형·일정·분류·의존성·커스텀 필드. 데스크톱 레일과 같은 컴포넌트(variant=sheet). */}
+      {isMobile && (
+        <MobileSheetShell
+          open={moreOpen}
+          onClose={() => setMoreOpen(false)}
+          title="속성"
+          description="이슈의 나머지 속성을 편집합니다."
+          testId="issue-more-props-sheet"
+          className="min-h-[50dvh]"
+        >
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+            {/* 유형은 레일에 없고 모바일 제목 아래 유형 줄도 칩 줄로 대체됐으므로 시트 맨 위에서 편집한다. */}
+            {summary.type && (
+              <div className="flex items-center justify-between gap-2" data-testid="issue-more-props-type">
+                <span className="text-xs font-medium text-muted-foreground">유형</span>
+                <IssueTypeSelectPopover
+                  projectKey={key}
+                  issueNumber={issueNumber}
+                  current={summary.type}
+                  disabled={!canEditWorkflow}
+                />
+              </div>
+            )}
+            {renderRail('sheet')}
+          </div>
+        </MobileSheetShell>
+      )}
       {/* 삭제 확인 AlertDialog — window.confirm() 대체. childCount > 0 시 자식 수 경고 포함. */}
       <AlertDialog open={deletePending} onOpenChange={setDeletePending}>
         <AlertDialogContent>
