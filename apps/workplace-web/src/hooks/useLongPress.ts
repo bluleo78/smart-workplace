@@ -3,7 +3,7 @@
 import { type MouseEvent, type PointerEvent, useEffect, useMemo, useRef } from 'react'
 
 /** 길게 누르기로 인정하는 누름 유지 시간(ms) — 안드로이드 기본 long-press timeout 과 비슷한 값. */
-const LONG_PRESS_MS = 500
+export const LONG_PRESS_MS = 500
 /**
  * 누르는 중 이만큼(px) 넘게 움직이면 스크롤·드래그 의도로 보고 취소한다. 비교는 제곱 거리로(제곱근 불필요).
  * 메시지 목록 위임 길게 누르기(useMessageListLongPress)도 같은 허용치를 쓴다.
