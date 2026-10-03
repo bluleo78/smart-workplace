@@ -10,8 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.auth.service.AssistantResolver;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.mail.dto.ParsedMessage;
+import com.workplace.mail.event.MessagesSeenChangedEvent;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailReadSyncDispatcher;
@@ -27,14 +29,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /** WP-187 읽음 조작 API — 안읽음·건수(asOf)·모두 읽음·소유 검증·asOf 경계(수신 시각·DB 적재 시각). */
 @Transactional
+@RecordApplicationEvents
 class MailReadActionsControllerTest extends IntegrationTestBase {
 
   @Autowired MockMvc mvc;
+  @Autowired ApplicationEvents events;
   @Autowired DSLContext dsl;
   @Autowired JwtTokenProvider jwtTokenProvider;
   @Autowired EmailMessageRepository messageRepo;
@@ -206,5 +212,91 @@ class MailReadActionsControllerTest extends IntegrationTestBase {
             get("/api/v1/mail/accounts/{a}/messages/unread-count", box[1])
                 .header("Authorization", token(other)))
         .andExpect(status().isNotFound());
+  }
+
+  /** 이번 테스트에서 발행된 일괄 역동기화 이벤트들. */
+  private List<MessagesSeenChangedEvent> seenEvents() {
+    return events.stream(MessagesSeenChangedEvent.class).toList();
+  }
+
+  /** 이번 테스트에서 발행된 메일 변경 알림(mail 리소스). */
+  private List<ResourceChangedEvent> mailChanges() {
+    return events.stream(ResourceChangedEvent.class)
+        .filter(e -> "mail".equals(e.resource()))
+        .toList();
+  }
+
+  @Test
+  void unread_publishesSyncEventAndNotification_onlyWhenChanged() throws Exception {
+    long[] box = TestFixtures.seedMailbox(dsl, "ra6-" + System.nanoTime() + "@test.local");
+    long id = fetched(box[1], box[2], "업무", true);
+    mvc.perform(post("/api/v1/mail/messages/{m}/unread", id).header("Authorization", token(box[0])))
+        .andExpect(status().isOk());
+    assertThat(seenEvents()).hasSize(1);
+    assertThat(seenEvents().get(0).accountId()).isEqualTo(box[1]);
+    assertThat(seenEvents().get(0).messageIds()).containsExactly(id);
+    assertThat(seenEvents().get(0).userId()).isEqualTo(box[0]);
+    assertThat(mailChanges()).hasSize(1);
+    assertThat(mailChanges().get(0).attrs()).containsEntry("accountId", box[1]);
+
+    // 이미 안 읽음 — 멱등이므로 추가 이벤트·알림 없음
+    mvc.perform(post("/api/v1/mail/messages/{m}/unread", id).header("Authorization", token(box[0])))
+        .andExpect(status().isOk());
+    assertThat(seenEvents()).hasSize(1);
+    assertThat(mailChanges()).hasSize(1);
+  }
+
+  @Test
+  void markAll_publishesOneBatchEvent_andNothingWhenNoneUpdated() throws Exception {
+    long[] box = TestFixtures.seedMailbox(dsl, "ra7-" + System.nanoTime() + "@test.local");
+    long a = fetched(box[1], box[2], "업무", false);
+    long b = fetched(box[1], box[2], "업무", false);
+    String asOf = OffsetDateTime.now().plusMinutes(5).toString();
+
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/messages/mark-all-read", box[1])
+                .header("Authorization", token(box[0]))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(markAllBody("업무", asOf)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(2));
+    assertThat(seenEvents()).hasSize(1);
+    assertThat(seenEvents().get(0).accountId()).isEqualTo(box[1]);
+    assertThat(seenEvents().get(0).messageIds()).containsExactlyInAnyOrder(a, b);
+    assertThat(mailChanges()).hasSize(1);
+    assertThat(mailChanges().get(0).attrs()).containsEntry("accountId", box[1]);
+
+    // 대상 0건 — 이벤트·알림 모두 추가 발행 없음
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/messages/mark-all-read", box[1])
+                .header("Authorization", token(box[0]))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(markAllBody("업무", asOf)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(0));
+    assertThat(seenEvents()).hasSize(1);
+    assertThat(mailChanges()).hasSize(1);
+  }
+
+  @Test
+  void markAll_honorsClientAsOf_earlierThanRowTimes() throws Exception {
+    long[] box = TestFixtures.seedMailbox(dsl, "ra8-" + System.nanoTime() + "@test.local");
+    // 수신·적재 모두 30분 전(DB 현재보다 과거) — 서버 시각을 썼다면 대상이 되지만, 클라이언트 asOf(1시간 전)보다는 뒤다
+    long id = fetched(box[1], box[2], "업무", false);
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.RECEIVED_AT, OffsetDateTime.now().minusMinutes(30))
+        .set(EMAIL_MESSAGE.CREATED_AT, OffsetDateTime.now().minusMinutes(30))
+        .where(EMAIL_MESSAGE.ID.eq(id))
+        .execute();
+
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/messages/mark-all-read", box[1])
+                .header("Authorization", token(box[0]))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(markAllBody("업무", OffsetDateTime.now().minusHours(1).toString())))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(0));
+    assertThat(seen(id)).isFalse();
+    assertThat(seenEvents()).isEmpty();
   }
 }
