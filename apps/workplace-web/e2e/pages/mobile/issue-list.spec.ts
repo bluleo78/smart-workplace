@@ -246,6 +246,38 @@ test.describe('모바일 에픽 시트', () => {
     await expect(page.getByTestId('mobile-chip-epic')).toHaveText('◆ 에픽');
   });
 
+  test('이미 선택된 에픽을 다시 눌러도 필터가 유지된다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    await page.getByTestId('mobile-chip-epic').click();
+    await page.getByTestId('picker-option-epic-30').click();
+    await expect(page).toHaveURL(/parent=30/);
+    await page.getByTestId('mobile-chip-epic').click();
+    await page.getByTestId('picker-option-epic-30').click();
+    await expect(page.getByTestId('mobile-epic-sheet')).toBeHidden();
+    await expect(page).toHaveURL(/parent=30/);
+    await expect(page.getByTestId('mobile-chip-epic')).toContainText('결제 안정화');
+  });
+
+  test('에픽 칩 ✕ 터치 영역은 32×32 이상, 툴바 높이는 그대로', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none&parent=30`);
+    const box = (await page.getByTestId('mobile-chip-epic-clear').boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(32);
+    expect(box.height).toBeGreaterThanOrEqual(32);
+    expect((await page.getByTestId('mobile-issue-toolbar').boundingBox())!.height).toBeLessThanOrEqual(52);
+  });
+
+  test('에픽 범위만 걸리면 뷰 칩은 「전체」', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none&parent=30`);
+    await expect(page.getByTestId('mobile-chip-epic')).toContainText('결제 안정화');
+    await expect(page.getByTestId('mobile-chip-view')).toHaveText('전체');
+    // 대조 — 에픽 외 조건이 더해지면 「사용자 조건」.
+    await page.goto(`/projects/${KEY}?group=none&parent=30&status=TODO`);
+    await expect(page.getByTestId('mobile-chip-view')).toHaveText('사용자 조건');
+  });
+
   test('에픽 미할당 선택 → topLevel 필터', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);

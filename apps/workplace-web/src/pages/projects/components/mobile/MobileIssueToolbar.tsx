@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 import { ISSUE_GROUP_BY_LABEL } from '../../../../lib/issueGrouping';
+import { normalizeIssueQueryIgnoringViewAndGroup } from '../../../../lib/savedViewQuery';
 import type { IssueGroupBy } from '../../../../types/issue';
 import { useIssueFilterControls } from '../../hooks/useIssueFilterControls';
 import { useSavedViewState } from '../../hooks/useSavedViewState';
@@ -19,6 +20,14 @@ import { MobileViewSheet } from './MobileViewSheet';
 export const MOBILE_CHIP =
   'inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-3 text-[13px] whitespace-nowrap';
 
+/** 쿼리에서 view·group 과 에픽 범위(parent/topLevel)를 빼면 남는 조건이 없는지 — 모바일 뷰 칩 라벨 판정용. */
+function isOnlyEpicScope(query: string): boolean {
+  const p = new URLSearchParams(query);
+  p.delete('parent');
+  p.delete('topLevel');
+  return normalizeIssueQueryIgnoringViewAndGroup(p.toString()) === '';
+}
+
 export function MobileIssueToolbar({ projectKey, epicSlot }: { projectKey: string; epicSlot?: ReactNode }) {
   const c = useIssueFilterControls(projectKey);
   const sv = useSavedViewState(projectKey);
@@ -26,7 +35,10 @@ export function MobileIssueToolbar({ projectKey, epicSlot }: { projectKey: strin
   const [sheet, setSheet] = useState<'view' | 'filter' | 'group' | null>(null);
 
   // 뷰 칩 라벨 — 필터 없음=「전체」, 저장 뷰 선택 중=그 이름, 그 외(직접 조건)=「사용자 조건」.
-  const viewName = sv.isAllActive ? '전체' : (sv.activeView?.name ?? '사용자 조건');
+  // 모바일에선 에픽 범위(parent/topLevel)를 옆의 「◆ 에픽」 칩이 따로 보여주므로, 에픽 범위만 걸린 상태도 「전체」로 본다.
+  // (라벨 전용 — 데스크톱 ViewChipBar·저장 뷰 매칭은 sv.isAllActive 그대로.)
+  const onlyEpicScope = !sv.activeView && isOnlyEpicScope(sv.currentQuery);
+  const viewName = sv.isAllActive || onlyEpicScope ? '전체' : (sv.activeView?.name ?? '사용자 조건');
   const groupLabel = c.groupBy ? ISSUE_GROUP_BY_LABEL[c.groupBy] : '없음';
 
   // 검색 모드 — 칩 줄을 통째로 검색창으로 교체한다(좁은 폭에서 칩과 입력칸을 같이 두지 않는다).

@@ -48,6 +48,9 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
   const value = choice.kind === 'epic' ? `epic-${choice.number}` : choice.kind;
 
   function onSelect(v: string) {
+    // 이미 선택된 항목을 다시 누르면 아무것도 하지 않는다 — useEpicFilter.select 는 같은 선택을 해제(토글)하는데
+    // (데스크톱 패널 의미), 시트에선 체크된 항목 재탭이 필터를 지우면 의도와 반대라서.
+    if (v === value) return;
     if (v === 'all') select({ kind: 'all' });
     else if (v === 'unassigned') select({ kind: 'unassigned' });
     else select({ kind: 'epic', number: Number(v.slice('epic-'.length)) });
@@ -60,7 +63,8 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
           <button type="button" onClick={() => setOpen(true)} data-testid="mobile-chip-epic" className="flex h-full max-w-[7rem] items-center pl-3 pr-1">
             <span className="truncate">◆ {label}</span>
           </button>
-          <button type="button" onClick={() => select({ kind: 'all' })} aria-label="에픽 필터 해제" data-testid="mobile-chip-epic-clear" className="flex h-full items-center pl-1 pr-2.5">
+          {/* ✕ 터치 영역 — 칩 테두리(1px)까지 덮어 높이 32px, 가로 최소 36px — 32×32 이상 확보, 칩·툴바 높이는 그대로. */}
+          <button type="button" onClick={() => select({ kind: 'all' })} aria-label="에픽 필터 해제" data-testid="mobile-chip-epic-clear" className="-my-px -mr-px flex h-8 min-w-9 items-center justify-center rounded-r-full pl-1 pr-3">
             <X className="size-3.5" />
           </button>
         </span>
