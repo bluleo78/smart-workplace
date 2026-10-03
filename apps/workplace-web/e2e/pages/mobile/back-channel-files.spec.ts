@@ -111,12 +111,15 @@ test('긴 폴더명 breadcrumb 은 한 줄 말줄임, 가로 넘침 없음, 현�
   await expect(current).toHaveAttribute('title', FOLDERS[2].name)
   await expect(crumbs.getByTestId('drive-crumb-101')).toHaveAttribute('title', FOLDERS[0].name)
 
-  // 각 세그먼트가 한 줄 — 줄바꿈되면 높이가 h-9(36px) 행 안에서 넘친다.
+  // 모바일 경로 행은 h-11(44px) 터치 타깃. 세그먼트가 한 줄 — 줄바꿈되면 행 안에서 넘친다.
   const nav = (await crumbs.boundingBox())!
-  expect(nav.height).toBeLessThanOrEqual(37)
+  expect(nav.height).toBeGreaterThanOrEqual(43.5)
+  expect(nav.height).toBeLessThanOrEqual(45)
   for (const id of [101, 102, 103]) {
     const box = (await crumbs.getByTestId(`drive-crumb-${id}`).boundingBox())!
-    expect(box.height).toBeLessThan(28)
+    // 조상 버튼은 행 높이만큼 늘어난(self-stretch) 터치 영역, 현재 폴더(span)는 텍스트 한 줄 높이.
+    expect(box.height).toBeGreaterThanOrEqual(id === 103 ? 0 : 42.5)
+    if (id === 103) expect(box.height).toBeLessThan(28)
     // 세그먼트가 nav 세로 범위 안 — 위 헤더 밑으로 잘리지 않는다.
     expect(box.y).toBeGreaterThanOrEqual(nav.y)
     expect(box.y + box.height).toBeLessThanOrEqual(nav.y + nav.height + 0.5)

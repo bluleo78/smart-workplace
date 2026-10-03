@@ -52,8 +52,10 @@ export function ThreadPanel({ channelId, channelName, parent, members, me, archi
         // 모바일 상세 헤더 패턴 재사용(‹ + 제목 + 보조). ‹ 는 onClose(=히스토리 닫기) — 기본 useMobileBack(경로 단위)을 쓰지 않는다.
         <MobileDetailBar
           title="스레드"
+          // 긴 채널명이 먼저 말줄임되고 "스레드" 제목은 온전히 남는다(제목 shrink-0, 채널명 min-w-0 truncate).
+          titleClassName="shrink-0"
           titleAccessory={
-            <span data-testid="thread-channel-name" className="truncate text-xs text-muted-foreground">
+            <span data-testid="thread-channel-name" className="min-w-0 truncate text-xs text-muted-foreground">
               #{channelName}
             </span>
           }

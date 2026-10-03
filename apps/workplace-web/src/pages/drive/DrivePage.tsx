@@ -33,6 +33,7 @@ import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 import { parseId } from '@/lib/historyParam'
+import { cn } from '@/lib/utils'
 
 import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
 import { driveApi } from '../../api/drive'
@@ -903,14 +904,14 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       {trash == null && !searching && (
         <nav
           aria-label="폴더 경로"
-          className="flex h-9 min-w-0 shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap border-b px-4 text-sm"
+          className="flex h-11 min-w-0 shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap border-b px-4 text-sm lg:h-9"
           data-testid="drive-breadcrumb"
         >
           <button
             type="button"
             onClick={goRoot}
             data-testid="drive-root"
-            className={folderId == null ? 'shrink-0 font-semibold' : 'shrink-0 text-primary hover:underline'}
+            className={cn('shrink-0 self-stretch', folderId == null ? 'font-semibold' : 'text-primary hover:underline')}
           >
             드라이브
           </button>
@@ -930,14 +931,14 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               </span>
             ) : (
               // 조상 폴더 — 먼저 줄어들고 모바일에선 최대 폭(max-w-40)도 제한해 현재 폴더에 자리를 양보한다(데스크톱은 넘칠 때만 줄어듦).
-              <span key={c.id} className="flex min-w-0 max-w-40 shrink-[4] items-center gap-1 lg:max-w-none">
+              <span key={c.id} className="flex min-w-0 max-w-40 shrink-[4] items-center gap-1 self-stretch lg:max-w-none">
                 <span className="shrink-0 text-muted-foreground">/</span>
                 <button
                   type="button"
                   onClick={() => openFolder(c.id)}
                   data-testid={`drive-crumb-${c.id}`}
                   title={c.name}
-                  className="truncate text-primary hover:underline"
+                  className="self-stretch truncate text-primary hover:underline"
                 >
                   {c.name}
                 </button>

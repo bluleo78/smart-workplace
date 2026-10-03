@@ -341,6 +341,7 @@ export function RichInput({
           <Button
             type="button"
             size="sm"
+            className="max-lg:h-11"
             onClick={submit}
             data-testid={submitTestId}
             disabled={
