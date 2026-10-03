@@ -1,16 +1,18 @@
 // 모바일 하단 탭바 — [slot0, slot1, AI, slot2, 앱]. AI 는 가운데 칸의 그라데이션 캡슐(다른 탭과 같은 선상, AI 미사용이면 제외).
 // Slack(탭바 회귀)·Teams(앱 1급 노출)·Linear(구성 변경) 패턴을 따른다.
-import { LayoutGrid, Sparkles } from 'lucide-react'
+import { LayoutGrid } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useAssistant } from '@/components/ai/AIAssistantContext'
+import { AiSparkle } from '@/components/ai/AiSparkle'
 import { CountBadge } from '@/components/CountBadge'
 import { useUnreadSummary } from '@/hooks/queries/useMailMessages'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useUnreadCount } from '@/hooks/queries/useUnreadCount'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
+import { aiTriggerLabel } from '@/lib/ai/aiActivity'
 import { DEFAULT_TAB_SLOTS } from '@/lib/mobile/tabConfig'
 import { MOBILE_TABS, type MobileTabId, under } from '@/lib/mobile/tabs'
 import { cn } from '@/lib/utils'
@@ -73,7 +75,7 @@ export function MobileTabBar() {
   const navRef = useTabBarHeightVar()
   const { pathname } = useLocation()
   const navigate = useNavigate()
-  const { mode, open, close } = useAssistant()
+  const { mode, open, close, triggerActivity } = useAssistant()
   const aiAvailable = useAiAvailable()
   const chrome = useMobileChrome()
   const badges = useTabBadges()
@@ -94,7 +96,8 @@ export function MobileTabBar() {
   const renderSlot = (id: MobileTabId) => {
     const t = MOBILE_TABS[id]
     const Icon = t.icon
-    const active = !aiOpen && t.match(pathname)
+    // WP-191: AI 는 탭이 아닌 시트라 열려도 보던 탭 강조를 유지한다.
+    const active = t.match(pathname)
     const count = badges[id] ?? 0
     return (
       <button
@@ -119,7 +122,7 @@ export function MobileTabBar() {
 
   // 앱 목록(/apps)과 그 하위(탭바 순서 편집)에서 활성. 어느 슬롯 탭에도 속하지 않는 화면(앱 목록에서 연 캘린더·설정 등)도
   // 앱에서 들어온 것이므로 앱을 활성으로 둔다 — 활성 탭이 하나도 없는 탭바를 만들지 않는다(U1-5).
-  const appsActive = !aiOpen && (under('/apps')(pathname) || !slots.some((id) => MOBILE_TABS[id].match(pathname)))
+  const appsActive = under('/apps')(pathname) || !slots.some((id) => MOBILE_TABS[id].match(pathname))
 
   return (
     <nav
@@ -134,9 +137,11 @@ export function MobileTabBar() {
         <button
           type="button"
           data-testid="mobile-tab-ai"
-          aria-label="AI 비서"
-          aria-current={aiOpen ? 'page' : undefined}
-          onClick={() => open('fullscreen')}
+          data-ai-activity={triggerActivity}
+          aria-label={aiTriggerLabel('AI 비서', triggerActivity)}
+          // WP-191: 탭(목적지)이 아니라 시트를 여닫는 동작 — aria-current 대신 aria-expanded.
+          aria-expanded={aiOpen}
+          onClick={() => (aiOpen ? close() : open('fullscreen'))}
           className={cn(
             'flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 text-[10px]',
             aiOpen ? 'font-semibold text-primary' : 'text-muted-foreground',
@@ -150,11 +155,12 @@ export function MobileTabBar() {
             data-testid="mobile-tab-ai-capsule"
             data-active={aiOpen ? 'true' : undefined}
             className={cn(
-              '-my-0.5 flex h-6 w-11 items-center justify-center rounded-full',
+              'relative -my-0.5 flex h-6 w-11 items-center justify-center rounded-full',
               aiOpen ? 'bg-gradient-to-br from-violet-600 to-primary text-white shadow-sm' : 'bg-ai-accent-subtle text-ai-accent',
+              triggerActivity === 'pending' && 'ai-ring',
             )}
           >
-            <Sparkles className="h-4 w-4" />
+            <AiSparkle activity={triggerActivity} className="h-4 w-4" dotClassName="-right-0.5 -top-0.5" />
           </span>
           AI
         </button>

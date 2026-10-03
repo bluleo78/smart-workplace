@@ -31,7 +31,8 @@ test('AI 탭은 풀스크린 대화를 열고, 다른 탭을 누르면 닫힌다
   await page.goto('/')
   await page.getByTestId('mobile-tab-ai').click()
   await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
-  await expect(page.getByTestId('mobile-tab-ai')).toHaveAttribute('aria-current', 'page')
+  // WP-191: AI 는 탭이 아닌 시트 — 열림은 aria-expanded, 보던 탭 강조는 유지.
+  await expect(page.getByTestId('mobile-tab-ai')).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
   await page.getByTestId('mobile-tab-chat').click()
   await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
@@ -58,7 +59,7 @@ test('데스크톱에서 연 side 패널은 좁히면 풀스크린으로, 다시
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
-  await expect(page.getByTestId('mobile-tab-ai')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('mobile-tab-ai')).toHaveAttribute('aria-expanded', 'true')
   await page.setViewportSize({ width: 1280, height: 800 })
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)

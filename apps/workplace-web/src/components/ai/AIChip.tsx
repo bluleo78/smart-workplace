@@ -1,16 +1,15 @@
 // src/components/ai/AIChip.tsx
 // 상단 중앙 AI 칩(FAB) — fire-hub 치수 정합. 클릭 시 모드 순환. ⌘K·Esc 는 AIAssistantProvider 가 전역 처리.
-import { Sparkles } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
-import { useAssistantChat } from '@/hooks/useAssistantChat';
+import { AiSparkle } from '@/components/ai/AiSparkle';
+import { aiTriggerLabel } from '@/lib/ai/aiActivity';
 import { cn } from '@/lib/utils';
 
-/** AI 진입 칩. mode/pending 에 따라 스타일이 바뀐다. */
+/** AI 진입 칩. mode/triggerActivity 에 따라 스타일이 바뀐다. */
 export function AIChip() {
-  const { mode, cycleMode } = useAssistant();
-  const { pending } = useAssistantChat();
+  const { mode, cycleMode, triggerActivity } = useAssistant();
   const open = mode !== 'closed';
 
   return createPortal(
@@ -20,7 +19,8 @@ export function AIChip() {
       // WP-54: AI 표면 표식 — non-modal 다이얼로그가 열린 채 칩을 눌러도 다이얼로그가 닫히지 않게(useAiPanelAwareDialog).
       data-ai-panel
       data-mode={mode}
-      aria-label="AI 어시스턴트"
+      data-ai-activity={triggerActivity}
+      aria-label={aiTriggerLabel('AI 어시스턴트', triggerActivity)}
       aria-expanded={open}
       onClick={cycleMode}
       className={cn(
@@ -37,11 +37,12 @@ export function AIChip() {
         open
           ? 'border-ai-accent bg-card text-ai-accent'
           : 'bg-card/90 text-muted-foreground hover:text-foreground',
+        // WP-191: 닫힌 동안 생성 중이면 칩 테두리 빛 회전 + 보라 글자. 패널이 열려 있으면 triggerActivity=idle(패널 안 3-dot 이 담당).
+        triggerActivity === 'pending' && 'ai-ring text-ai-accent',
       )}
     >
-      <Sparkles className="h-[18px] w-[18px]" />
+      <AiSparkle activity={triggerActivity} className="h-[18px] w-[18px]" dotClassName="right-2 top-1" />
       <span>AI 어시스턴트</span>
-      {pending && <span className="ml-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-ai-accent" />}
     </button>,
     document.body,
   );
