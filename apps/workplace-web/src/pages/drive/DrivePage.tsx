@@ -897,44 +897,50 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           </>
         }
       />
-      {/* breadcrumb 행 — 브라우즈 모드(검색·휴지통 아님)에서만. 폴더명 경로, 깊으면 … 접기. */}
+      {/* breadcrumb 행 — 브라우즈 모드(검색·휴지통 아님)에서만. 폴더명 경로, 깊으면 … 접기.
+          한 줄 고정(whitespace-nowrap+overflow-hidden) — 긴 폴더명이 줄바꿈되면 h-9 를 넘쳐 위 헤더 밑으로
+          잘린다(좁은 드로워·모바일). 넘치면 세그먼트가 min-w-0·truncate 로 말줄임된다. */}
       {trash == null && !searching && (
         <nav
           aria-label="폴더 경로"
-          className="flex h-9 shrink-0 items-center gap-1 border-b px-4 text-sm"
+          className="flex h-9 min-w-0 shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap border-b px-4 text-sm"
           data-testid="drive-breadcrumb"
         >
           <button
             type="button"
             onClick={goRoot}
             data-testid="drive-root"
-            className={folderId == null ? 'font-semibold' : 'text-primary hover:underline'}
+            className={folderId == null ? 'shrink-0 font-semibold' : 'shrink-0 text-primary hover:underline'}
           >
             드라이브
           </button>
           {collapseCrumbs(crumbs).map((c, i, arr) =>
             c == null ? (
-              <span key="ellipsis" className="flex items-center gap-1 text-muted-foreground">
+              <span key="ellipsis" className="flex shrink-0 items-center gap-1 text-muted-foreground">
                 <span>/</span>
                 <span>…</span>
               </span>
+            ) : i === arr.length - 1 ? (
+              // 현재 폴더 — 조상(shrink-[4])보다 덜 줄어들어(shrink 1) 이름을 최대한 지킨다. 전체 이름은 title 로.
+              <span key={c.id} className="flex min-w-0 items-center gap-1">
+                <span className="shrink-0 text-muted-foreground">/</span>
+                <span className="truncate font-semibold" title={c.name} data-testid={`drive-crumb-${c.id}`}>
+                  {c.name}
+                </span>
+              </span>
             ) : (
-              <span key={c.id} className="flex items-center gap-1">
-                <span className="text-muted-foreground">/</span>
-                {i === arr.length - 1 ? (
-                  <span className="font-semibold" data-testid={`drive-crumb-${c.id}`}>
-                    {c.name}
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => openFolder(c.id)}
-                    data-testid={`drive-crumb-${c.id}`}
-                    className="text-primary hover:underline"
-                  >
-                    {c.name}
-                  </button>
-                )}
+              // 조상 폴더 — 먼저 줄어들고 모바일에선 최대 폭(max-w-40)도 제한해 현재 폴더에 자리를 양보한다(데스크톱은 넘칠 때만 줄어듦).
+              <span key={c.id} className="flex min-w-0 max-w-40 shrink-[4] items-center gap-1 lg:max-w-none">
+                <span className="shrink-0 text-muted-foreground">/</span>
+                <button
+                  type="button"
+                  onClick={() => openFolder(c.id)}
+                  data-testid={`drive-crumb-${c.id}`}
+                  title={c.name}
+                  className="truncate text-primary hover:underline"
+                >
+                  {c.name}
+                </button>
               </span>
             ),
           )}

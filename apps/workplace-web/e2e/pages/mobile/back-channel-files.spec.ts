@@ -99,3 +99,35 @@ test('전체에서 열기(폴더 2단) → goBack 은 드로워의 상위 폴더
   await drawer.getByRole('button', { name: 'Close' }).tap()
   await expect(page).toHaveURL(/\/chat\/channels\/1$/)
 })
+
+// 긴 폴더명 3단 breadcrumb 은 한 줄로 말줄임되고 드로워 헤더 밑으로 잘리지 않는다(390px).
+// 현재 폴더(마지막)가 조상보다 넓게 남고, 전체 이름은 title 로 볼 수 있다.
+test('긴 폴더명 breadcrumb 은 한 줄 말줄임, 가로 넘침 없음, 현재 폴더 우선', async ({ authenticatedPage: page }) => {
+  await stubFiles(page)
+  await page.goto('/chat/channels/1?files=1&filesFolder=103')
+  const crumbs = page.getByTestId('drive-space-drawer').getByTestId('drive-breadcrumb')
+  const current = crumbs.getByTestId('drive-crumb-103')
+  await expect(current).toHaveText(FOLDERS[2].name)
+  await expect(current).toHaveAttribute('title', FOLDERS[2].name)
+  await expect(crumbs.getByTestId('drive-crumb-101')).toHaveAttribute('title', FOLDERS[0].name)
+
+  // 각 세그먼트가 한 줄 — 줄바꿈되면 높이가 h-9(36px) 행 안에서 넘친다.
+  const nav = (await crumbs.boundingBox())!
+  expect(nav.height).toBeLessThanOrEqual(37)
+  for (const id of [101, 102, 103]) {
+    const box = (await crumbs.getByTestId(`drive-crumb-${id}`).boundingBox())!
+    expect(box.height).toBeLessThan(28)
+    // 세그먼트가 nav 세로 범위 안 — 위 헤더 밑으로 잘리지 않는다.
+    expect(box.y).toBeGreaterThanOrEqual(nav.y)
+    expect(box.y + box.height).toBeLessThanOrEqual(nav.y + nav.height + 0.5)
+  }
+  // 현재 폴더가 조상보다 넓게 남는다.
+  const curW = (await current.boundingBox())!.width
+  const ancW = (await crumbs.getByTestId('drive-crumb-101').boundingBox())!.width
+  expect(curW).toBeGreaterThan(ancW)
+  const { scrollW, innerW } = await page.evaluate(() => ({
+    scrollW: document.documentElement.scrollWidth,
+    innerW: window.innerWidth,
+  }))
+  expect(scrollW).toBeLessThanOrEqual(innerW)
+})
