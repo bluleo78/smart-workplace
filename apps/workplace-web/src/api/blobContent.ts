@@ -1,3 +1,4 @@
+import { decodeTextBuffer } from '../lib/previewContent'
 import { client } from './client'
 
 // axios client baseURL 이 '/api/v1' 이므로, '/api/v1/...' 절대 경로는 접두어를 제거해 중복 호출을 막는다.
@@ -22,8 +23,15 @@ export async function fetchBlobUrlByPath(path: string): Promise<string> {
   return URL.createObjectURL(blob)
 }
 
+/**
+ * Blob → 텍스트. blob.text() 는 UTF-8 고정이라 EUC-KR(한국어 엑셀 CSV) 한글이 깨진다 —
+ * 바이트로 읽어 UTF-8 실패 시 EUC-KR 로 폴백한다(WP-203).
+ */
+export async function blobToText(blob: Blob): Promise<string> {
+  return decodeTextBuffer(await blob.arrayBuffer())
+}
+
 /** 임의 콘텐츠 경로의 텍스트 본문. */
 export async function fetchTextByPath(path: string): Promise<string> {
-  const blob = await fetchBlobByPath(path)
-  return await blob.text()
+  return blobToText(await fetchBlobByPath(path))
 }

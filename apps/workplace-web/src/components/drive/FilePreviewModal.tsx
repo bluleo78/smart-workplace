@@ -4,6 +4,7 @@ import { driveApi } from '../../api/drive'
 import { useDriveFileSummary } from '../../hooks/queries/useDriveFileSummary'
 import { useFileBacklinks } from '../../hooks/queries/useFileBacklinks'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
+import { hasPdfMagicBytes, PDF_MAGIC_SCAN_BYTES } from '../../lib/previewContent'
 import { resolvePreviewKind } from '../../lib/previewKind'
 import { cn } from '../../lib/utils'
 import type { DriveFile, VirtualAttachment } from '../../types/drive'
@@ -22,6 +23,26 @@ const TEXT_PREVIEW_LIMIT = 200_000
 /** XLSX/DOCX 파싱 크기 상한(과대 파일 브라우저 파싱 방지). */
 const PREVIEW_PARSE_MAX_BYTES = 5 * 1024 * 1024
 
+/** 텍스트류(MD/HTML/TEXT/CSV) 미리보기 크기 상한 — 메타 크기로 요청 전에 걸러 큰 로그를 통째로 받지 않는다(WP-203). */
+const TEXT_PREVIEW_MAX_BYTES = 1024 * 1024
+
+/**
+ * 미리보기 대상 첨부 — 모달이 실제로 쓰는 필드만 요구한다.
+ * 드라이브 가상 첨부(VirtualAttachment)와 이슈 첨부가 같은 모달을 쓰도록 좁힌 타입(WP-203).
+ */
+export type PreviewAttachment = Pick<VirtualAttachment, 'fileId' | 'name' | 'mimeType' | 'sizeBytes' | 'downloadUrl'>
+
+/**
+ * PDF 로 신고된 blob 을 뷰어에 넘기기 전에 검증한다 — 앞부분에 %PDF- 가 없으면 null.
+ * 통과하면 타입을 application/pdf 로 다시 감싼다: 신고 mimeType 을 그대로 물려받으면
+ * .pdf 로 위장한 HTML 이 (sandbox 없는) PDF iframe 에서 렌더돼 세션에 닿을 수 있다(iacloud_eis 이식).
+ */
+async function toVerifiedPdfUrl(blob: Blob): Promise<string | null> {
+  const head = new Uint8Array(await blob.slice(0, PDF_MAGIC_SCAN_BYTES).arrayBuffer())
+  if (!hasPdfMagicBytes(head)) return null
+  return URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
+}
+
 /**
  * 파일 미리보기 모달. IMAGE→img, PDF→iframe, Markdown→렌더, HTML→sandbox iframe, TEXT→pre, CSV→표, 그 외→미지원 안내.
  * 파일(DriveFile)과 첨부(VirtualAttachment)를 공통 모델로 정규화해 처리한다.
@@ -33,7 +54,7 @@ export function FilePreviewModal({
   onClose,
 }: {
   file?: DriveFile
-  attachment?: VirtualAttachment
+  attachment?: PreviewAttachment
   onClose: () => void
 }) {
   // WP-54: AI 사이드 패널과 공존하는 다이얼로그 props(넓은 미리보기 프리셋 — 패널 폭만큼 클램프).
@@ -43,6 +64,7 @@ export function FilePreviewModal({
   const name = attachment?.name ?? file!.name
   const mimeType = attachment?.mimeType ?? file!.mimeType
   const fileIdForContent = attachment?.fileId ?? file!.id
+  const sizeBytes = attachment?.sizeBytes ?? file!.sizeBytes
   // 첨부는 콘텐츠가 downloadUrl 에 있다(드라이브 엔드포인트 아님). null=드라이브 엔드포인트 사용.
   const contentPath = attachment?.downloadUrl ?? null
   // mimeType 기준으로 렌더 종류를 결정(category 는 입자가 거칠어 CSV/MD 구분 불가).
@@ -104,13 +126,26 @@ export function FilePreviewModal({
       created = u
       setBlobUrl(u)
     }
-    if (kind === 'IMAGE' || kind === 'PDF') {
+    const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
+    if (textLike && sizeBytes > TEXT_PREVIEW_MAX_BYTES) {
+      // 메타 크기만으로 판단 — 콘텐츠 요청 자체를 만들지 않는다.
+      setTooLarge(true)
+    } else if (kind === 'IMAGE') {
       // 첨부는 contentPath(절대경로), 드라이브 파일은 fileId 엔드포인트로 blob 획득.
       const p = contentPath
         ? driveApi.fetchBlobUrlByPath(contentPath)
         : driveApi.fetchContentUrl(fileIdForContent)
       void p.then(onUrl).catch(() => alive && setError(true))
-    } else if (kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV') {
+    } else if (kind === 'PDF') {
+      // PDF 는 매직 바이트 검증 + application/pdf 재래핑 후에만 뷰어로 넘긴다.
+      const p = contentPath
+        ? driveApi.fetchBlobByPath(contentPath)
+        : driveApi.fetchContentBlob(fileIdForContent)
+      void p
+        .then(toVerifiedPdfUrl)
+        .then((u) => (u ? onUrl(u) : alive && setError(true)))
+        .catch(() => alive && setError(true))
+    } else if (textLike) {
       const p = contentPath
         ? driveApi.fetchTextByPath(contentPath)
         : driveApi.fetchTextContent(fileIdForContent)
@@ -138,7 +173,7 @@ export function FilePreviewModal({
       alive = false
       if (created) URL.revokeObjectURL(created)
     }
-  }, [fileIdForContent, kind, contentPath])
+  }, [fileIdForContent, kind, contentPath, sizeBytes])
 
   return (
     // WP-54: AI 사이드 패널이 열려 있으면 non-modal — 미리보기를 연 채 "이 파일 요약해줘" 를 AI 에 물을 수 있다.

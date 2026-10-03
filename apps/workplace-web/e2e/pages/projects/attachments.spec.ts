@@ -168,8 +168,7 @@ test.describe('이슈 첨부', () => {
       await expect(row).toContainText('spec.pdf');
 
       // 삭제 → AlertDialog 확인 → 빈 상태 (#148: window.confirm → shadcn AlertDialog).
-      // #306: 삭제 버튼은 hover-reveal 패턴으로 숨겨져 있으므로 hover 후 클릭.
-      await row.hover();
+      // WP-203: 삭제 버튼은 hover 없이 항상 보인다.
       await row.getByRole('button', { name: 'spec.pdf 삭제' }).click();
       // AlertDialog 가 뜨고 삭제 버튼 클릭으로 확인.
       await expect(page.getByTestId('attachment-delete-dialog')).toBeVisible();
@@ -365,10 +364,8 @@ test.describe('이슈 첨부', () => {
     await expect(rowAlpha).toBeVisible();
     await expect(rowBeta).toBeVisible();
 
-    // 삭제 버튼은 hover-reveal 패턴(#306) — hover 후에야 접근성 트리에 노출된다.
-    await rowAlpha.hover();
+    // WP-203: 삭제 버튼은 항상 노출된다(hover-reveal 폐지).
     await expect(rowAlpha.getByRole('button', { name: 'alpha.pdf 삭제' })).toHaveCount(1);
-    await rowBeta.hover();
     await expect(rowBeta.getByRole('button', { name: 'beta.png 삭제' })).toHaveCount(1);
     // 각 삭제 버튼의 접근성 이름은 자기 파일명을 포함해 서로 달라야 한다.
     await expect(rowAlpha.getByRole('button', { name: 'beta.png 삭제' })).toHaveCount(0);
@@ -377,19 +374,15 @@ test.describe('이슈 첨부', () => {
     await expect(page.getByRole('button', { name: '첨부 삭제', exact: true })).toHaveCount(0);
   });
 
-  // #306 — 첨부 행 삭제 버튼 hover-reveal 패턴 회귀 테스트.
-  test('첨부 행 삭제 버튼은 hover 전 숨겨지고 hover 후 표시된다', async ({
+  // WP-203 — 다운로드·삭제 아이콘은 hover 없이 항상 보이고(휴대폰·키보드 접근), 삭제는 권한 있는 첨부에만.
+  test('첨부 칩의 다운로드·삭제 버튼은 hover 없이 보이고 남의 첨부에는 삭제가 없다', async ({
     authenticatedPage: page,
   }) => {
-    await setupCommonStubs(page, 0);
+    await setupCommonStubs(page, 2);
 
-    const attachment = createAttachment({
-      fileId: 8001,
-      originalName: 'hover-test.pdf',
-      sizeBytes: 512,
-      mimeType: 'application/pdf',
-      attachedById: 1,
-    });
+    // 현재 사용자 id=1, 프로젝트 OWNER 아님 → 내 첨부만 삭제 가능.
+    const mine = createAttachment({ fileId: 8001, originalName: 'mine.pdf', attachedById: 1 });
+    const others = createAttachment({ fileId: 8002, originalName: 'others.pdf', attachedById: 2 });
 
     await page.route(
       (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
@@ -398,21 +391,183 @@ test.describe('이슈 첨부', () => {
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([attachment]),
+          body: JSON.stringify([mine, others]),
         });
       },
     );
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
 
-    const row = page.getByTestId('attachment-row-8001');
-    await expect(row).toBeVisible();
+    const mineRow = page.getByTestId('attachment-row-8001');
+    const othersRow = page.getByTestId('attachment-row-8002');
+    await expect(mineRow.getByRole('button', { name: 'mine.pdf 다운로드' })).toBeVisible();
+    await expect(mineRow.getByRole('button', { name: 'mine.pdf 삭제' })).toBeVisible();
+    await expect(othersRow.getByRole('button', { name: 'others.pdf 다운로드' })).toBeVisible();
+    await expect(othersRow.getByRole('button', { name: 'others.pdf 삭제' })).toHaveCount(0);
+  });
+});
 
-    // hover 전: 삭제 버튼은 숨겨져야 한다 (#306).
-    await expect(row.getByRole('button', { name: 'hover-test.pdf 삭제' })).toBeHidden();
+// WP-203 — 이슈 첨부 프리뷰: 파일명 클릭은 다운로드가 아니라 공용 프리뷰 모달을 연다.
+test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
+  const CONTENT = (fileId: number) =>
+    `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments/${fileId}/content`;
 
-    // hover 후: 삭제 버튼이 나타나야 한다.
-    await row.hover();
-    await expect(row.getByRole('button', { name: 'hover-test.pdf 삭제' })).toBeVisible();
+  // 첨부 목록 GET + 첨부별 콘텐츠 응답을 스텁하고, 콘텐츠 요청 횟수를 fileId 별로 센다.
+  async function stubAttachments(
+    page: import('@playwright/test').Page,
+    attachments: IssueAttachment[],
+    contents: Record<number, { contentType: string; body: Buffer }>,
+  ) {
+    await setupCommonStubs(page, attachments.length);
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(attachments) })
+          : route.fallback(),
+    );
+    const requested: Record<number, number> = {};
+    for (const [id, c] of Object.entries(contents)) {
+      await page.route(
+        (url) => url.pathname === CONTENT(Number(id)),
+        (route) => {
+          requested[Number(id)] = (requested[Number(id)] ?? 0) + 1;
+          return route.fulfill({ status: 200, contentType: c.contentType, body: c.body });
+        },
+      );
+    }
+    return requested;
+  }
+
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64',
+  );
+
+  test(
+    '이미지 첨부 파일명을 클릭하면 프리뷰 모달에 이미지가 보이고 모달에서 다운로드할 수 있다',
+    { tag: '@smoke' },
+    async ({ authenticatedPage: page }) => {
+      const requested = await stubAttachments(
+        page,
+        [createAttachment({ fileId: 7001, originalName: 'shot.png', mimeType: 'image/png' })],
+        { 7001: { contentType: 'image/png', body: PNG } },
+      );
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+      await page.getByRole('button', { name: 'shot.png 미리보기' }).click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog.getByRole('heading', { name: 'shot.png' })).toBeVisible();
+      await expect(page.getByTestId('preview-body').locator('img')).toBeVisible();
+      expect(requested[7001]).toBeGreaterThanOrEqual(1);
+      // 이슈 첨부는 드라이브 전용 패널(AI 요약·참조된 곳)을 쓰지 않는다.
+      await expect(page.getByTestId('drive-summary-card')).toHaveCount(0);
+
+      const download = page.waitForEvent('download');
+      await dialog.getByRole('button', { name: '다운로드' }).click();
+      expect((await download).suggestedFilename()).toBe('shot.png');
+    },
+  );
+
+  test('PDF 첨부는 실제 PDF 바이트면 뷰어로, PDF 로 위장한 HTML 이면 오류로 표시된다', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubAttachments(
+      page,
+      [
+        createAttachment({ fileId: 7101, originalName: 'real.pdf', mimeType: 'application/pdf' }),
+        createAttachment({ fileId: 7102, originalName: 'fake.pdf', mimeType: 'application/pdf' }),
+      ],
+      {
+        7101: { contentType: 'application/pdf', body: Buffer.from('%PDF-1.4\n%%EOF') },
+        7102: { contentType: 'application/pdf', body: Buffer.from('<html><script>alert(1)</script></html>') },
+      },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    await page.getByRole('button', { name: 'real.pdf 미리보기' }).click();
+    await expect(page.getByTestId('preview-body').locator('iframe[title="real.pdf"]')).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('button', { name: 'fake.pdf 미리보기' }).click();
+    const body = page.getByTestId('preview-body');
+    await expect(body).toContainText('미리보기를 불러오지 못했습니다.');
+    await expect(body.locator('iframe')).toHaveCount(0);
+  });
+
+  test('EUC-KR 로 저장된 CSV 첨부도 한글이 깨지지 않고 표로 보인다', async ({ authenticatedPage: page }) => {
+    // '이름,나이\n홍길동,30' 을 EUC-KR 로 인코딩한 바이트(한국어 엑셀 CSV 저장 형식).
+    const eucKr = Buffer.from([
+      0xc0, 0xcc, 0xb8, 0xa7, 0x2c, 0xb3, 0xaa, 0xc0, 0xcc, 0x0a, 0xc8, 0xab, 0xb1, 0xe6, 0xb5, 0xbf, 0x2c, 0x33, 0x30,
+    ]);
+    await stubAttachments(
+      page,
+      [createAttachment({ fileId: 7201, originalName: 'members.csv', mimeType: 'text/csv' })],
+      { 7201: { contentType: 'text/csv', body: eucKr } },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    await page.getByRole('button', { name: 'members.csv 미리보기' }).click();
+    const body = page.getByTestId('preview-body');
+    await expect(body.getByRole('cell', { name: '홍길동' })).toBeVisible();
+    await expect(body.getByRole('columnheader', { name: '이름' })).toBeVisible();
+  });
+
+  test('미리보기를 지원하지 않는 형식은 안내와 함께 모달에서 다운로드할 수 있다', async ({
+    authenticatedPage: page,
+  }) => {
+    const requested = await stubAttachments(
+      page,
+      [createAttachment({ fileId: 7301, originalName: 'build.zip', mimeType: 'application/zip' })],
+      { 7301: { contentType: 'application/zip', body: Buffer.from('PK') } },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    await page.getByRole('button', { name: 'build.zip 미리보기' }).click();
+    await expect(page.getByTestId('preview-body')).toContainText('미리보기를 지원하지 않는 형식입니다.');
+    // 미지원 형식은 프리뷰용 콘텐츠를 받지 않는다.
+    expect(requested[7301]).toBeUndefined();
+
+    const download = page.waitForEvent('download');
+    await page.getByRole('dialog').getByRole('button', { name: '다운로드' }).click();
+    expect((await download).suggestedFilename()).toBe('build.zip');
+  });
+
+  test('큰 텍스트 첨부는 내려받지 않고 크기 안내를 보여준다', async ({ authenticatedPage: page }) => {
+    const requested = await stubAttachments(
+      page,
+      [
+        createAttachment({
+          fileId: 7401,
+          originalName: 'huge.log',
+          mimeType: 'text/plain',
+          sizeBytes: 2 * 1024 * 1024,
+        }),
+      ],
+      { 7401: { contentType: 'text/plain', body: Buffer.from('log') } },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    await page.getByRole('button', { name: 'huge.log 미리보기' }).click();
+    await expect(page.getByTestId('preview-body')).toContainText('파일이 커서 미리볼 수 없습니다');
+    expect(requested[7401]).toBeUndefined();
+  });
+
+  test('칩의 다운로드 아이콘은 모달 없이 바로 내려받는다', async ({ authenticatedPage: page }) => {
+    await stubAttachments(
+      page,
+      [createAttachment({ fileId: 7501, originalName: 'spec.pdf', mimeType: 'application/pdf' })],
+      { 7501: { contentType: 'application/pdf', body: Buffer.from('%PDF-1.4') } },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    const row = page.getByTestId('attachment-row-7501');
+    // 아이콘은 hover 없이도 항상 보인다(휴대폰·키보드 접근).
+    const dl = row.getByRole('button', { name: 'spec.pdf 다운로드' });
+    await expect(dl).toBeVisible();
+    const download = page.waitForEvent('download');
+    await dl.click();
+    expect((await download).suggestedFilename()).toBe('spec.pdf');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 });

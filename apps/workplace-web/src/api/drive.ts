@@ -18,6 +18,7 @@ import type {
   ShareLink,
 } from '../types/drive'
 import {
+  blobToText,
   fetchBlobByPath,
   fetchBlobUrlByPath,
   fetchTextByPath,
@@ -318,7 +319,7 @@ export const driveApi = {
   // 텍스트 미리보기 — blob 을 문자열로.
   fetchTextContent: async (driveFileId: number): Promise<string> => {
     const blob = await driveApi.fetchContentBlob(driveFileId)
-    return await blob.text()
+    return await blobToText(blob)
   },
 
   // AI Overview 생성 시작(#593 편입) — correlationId 즉시 반환, 실제 델타는 /events 로 도착.
