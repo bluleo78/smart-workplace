@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
 /**
  * Graph 계정 읽음 역동기화(WP-187): $batch 로 PATCH /me/messages/{id} {"isRead": seen} 를 20건씩 보낸다. 항목별
  * 2xx·404 는 끝난 것으로 보고, 429·5xx 를 만나면 그 묶음의 성공분만 반영한 뒤 다음 묶음을 보내지 않고 멈춘다. batch 요청 자체가 실패해도 앞 묶음까지의
- * 성공분은 돌려주고 멈춘다.
+ * 성공분은 돌려주고 멈춘다. 토큰은 {@link #open} 에서 디스패치당 한 번만 받는다(WP-215).
  */
 @Slf4j
 @Component
@@ -39,12 +39,17 @@ public class GraphReadSyncer implements MailReadSyncer {
   }
 
   /**
-   * account 파라미터는 Graph 구현에서 불필요(토큰+providerMessageId 만 사용)하나 인터페이스 시그니처상 받는다. 최상위 batch 호출 실패는 예외로
-   * 전파된다(호출 측이 대기 유지).
+   * 토큰을 디스패치 1회에 한 번만 받는다(호출 측 트랜잭션 안 — 토큰 조회·갱신 저장이 RLS 스코프). 토큰은 갱신 기준(만료 2분 전) 이상 남은 값이라 한 디스패치
+   * 동안 유효하다고 보고, 도중 만료돼 401 이 나면 그 묶음은 성공이 아니므로 대기 표시로 남는다.
    */
   @Override
-  public SeenSyncResult syncSeen(
-      long userId, EmailAccountResponse account, List<SeenSyncItem> items) {
+  public Session open(long userId, EmailAccountResponse account) {
+    String token = tokenService.getAccessToken(userId, account.id());
+    return items -> push(token, items);
+  }
+
+  /** 한 조각을 20건씩 $batch 로 보낸다. batch 최상위 실패도 예외로 올리지 않고 앞 묶음까지의 성공분과 함께 멈춤을 돌려준다. */
+  private SeenSyncResult push(String token, List<SeenSyncItem> items) {
     Set<Long> done = new HashSet<>();
     List<SeenSyncItem> remote = new ArrayList<>();
     for (SeenSyncItem it : items) {
@@ -57,7 +62,6 @@ public class GraphReadSyncer implements MailReadSyncer {
     if (remote.isEmpty()) {
       return new SeenSyncResult(done, false);
     }
-    String token = tokenService.getAccessToken(userId, remote.get(0).locator().accountId());
     for (int i = 0; i < remote.size(); i += BATCH) {
       List<SeenSyncItem> chunk = remote.subList(i, Math.min(i + BATCH, remote.size()));
       // 배치 요청 id 는 메일 id 문자열 — 응답을 id 로 짝짓는다(순서 보장 없음)
@@ -76,7 +80,7 @@ public class GraphReadSyncer implements MailReadSyncer {
         responses = graphApiClient.batch(token, reqs);
       } catch (MailSendException e) {
         // 최상위 실패(전체 429·5xx·네트워크) — 앞 묶음에서 서버에 반영된 성공분은 대기 해제가 되도록 돌려주고 여기서 멈춘다.
-        // 예외로 올리면 조각 트랜잭션이 통째로 롤백돼 이미 반영된 메일까지 대기로 남고, 그동안 서버 쪽 변경이 로컬로 오지 않는다.
+        // 예외로 올리면 이 조각 전체가 실패로 처리돼 이미 반영된 메일까지 대기로 남고, 그동안 서버 쪽 변경이 로컬로 오지 않는다.
         log.warn(
             "Graph 읽음 반영 batch 실패 — 이번 조각 중단: accountId={} 반영={}",
             remote.get(0).locator().accountId(),
