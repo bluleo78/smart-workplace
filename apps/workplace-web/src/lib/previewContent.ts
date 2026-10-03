@@ -51,7 +51,7 @@ export function hasPdfMagicBytes(bytes: Uint8Array): boolean {
  */
 export const PREVIEW_CONFIRM_BYTES = 10 * 1024 * 1024
 
-/** 미리보기 전에 확인이 필요한지 — 크기를 모르면(null) 일단 받고, 받은 실제 크기로 다시 판단한다. */
+/** 미리보기 전에 확인이 필요한지 — 크기를 모르면(null) 묻지 않고 받는다. */
 export function needsPreviewConfirm(sizeBytes: number | null | undefined, consented: boolean): boolean {
   return !consented && sizeBytes != null && sizeBytes > PREVIEW_CONFIRM_BYTES
 }

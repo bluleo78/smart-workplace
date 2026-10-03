@@ -575,31 +575,6 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     await expect(confirm).toHaveCount(0);
   });
 
-  test('메타 크기가 작아도 받아보니 10MB 를 넘으면 묻고, 동의하면 다시 받지 않고 보여준다', async ({
-    authenticatedPage: page,
-  }) => {
-    // 목록 메타 크기는 실제와 다를 수 있다(파일 교체 등) — 받은 blob 크기로 한 번 더 판단한다.
-    const body = Buffer.concat([Buffer.from('REAL-BIG\n'), Buffer.alloc(11 * 1024 * 1024, 0x61)]);
-    const requested = await stubAttachments(
-      page,
-      [createAttachment({ fileId: 7601, originalName: 'stale.log', mimeType: 'text/plain', sizeBytes: 1024 })],
-      { 7601: { contentType: 'text/plain', body } },
-    );
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-
-    await page.getByRole('button', { name: 'stale.log 미리보기' }).click();
-    const confirm = page.getByTestId('preview-size-confirm');
-    await expect(confirm).toContainText('11.0 MB');
-    await expect(page.getByTestId('preview-body').locator('pre')).toHaveCount(0);
-    // dev 서버는 StrictMode 라 effect 가 두 번 돌 수 있다 — 횟수가 아니라 "동의 후 추가 요청 없음"을 본다.
-    const before = requested[7601];
-    expect(before).toBeGreaterThanOrEqual(1);
-
-    await confirm.getByRole('button', { name: '미리보기' }).click();
-    await expect(page.getByTestId('preview-body').locator('pre')).toContainText('REAL-BIG');
-    expect(requested[7601]).toBe(before);
-  });
-
   test('칩의 다운로드 아이콘은 모달 없이 바로 내려받는다', async ({ authenticatedPage: page }) => {
     await stubAttachments(
       page,

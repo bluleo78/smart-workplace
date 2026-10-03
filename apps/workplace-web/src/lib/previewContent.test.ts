@@ -66,7 +66,7 @@ describe('needsPreviewConfirm', () => {
     expect(needsPreviewConfirm(PREVIEW_CONFIRM_BYTES + 1, false)).toBe(true)
     expect(needsPreviewConfirm(PREVIEW_CONFIRM_BYTES + 1, true)).toBe(false)
   })
-  it('크기를 모르면 묻지 않는다(받은 뒤 실제 크기로 다시 판단)', () => {
+  it('크기를 모르면 묻지 않는다', () => {
     expect(needsPreviewConfirm(null, false)).toBe(false)
   })
 })
