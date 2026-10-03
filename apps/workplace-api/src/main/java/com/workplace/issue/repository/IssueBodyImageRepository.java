@@ -7,12 +7,15 @@ import static com.workplace.jooq.Tables.ISSUE_BODY_IMAGE;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jooq.DSLContext;
-import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -109,6 +112,15 @@ public class IssueBodyImageRepository {
         .fetch(ISSUE_BODY_IMAGE.FILE_ID);
   }
 
+  /** 주어진 이슈들에 연결된 이미지 fileId — 이슈 삭제 시 일괄 강등용. */
+  public List<Long> fileIdsOfIssues(Collection<Long> issueIds) {
+    if (issueIds.isEmpty()) return List.of();
+    return dsl.select(ISSUE_BODY_IMAGE.FILE_ID)
+        .from(ISSUE_BODY_IMAGE)
+        .where(ISSUE_BODY_IMAGE.ISSUE_ID.in(issueIds))
+        .fetch(ISSUE_BODY_IMAGE.FILE_ID);
+  }
+
   /**
    * 본문에서 빠진 연결 이미지를 강등 — 삭제가 아니라 만료 재무장. 이미 만료가 걸린 것(강등 중)은 건드리지 않아 유예가 계속 늘어나지 않게 한다.
    *
@@ -132,11 +144,15 @@ public class IssueBodyImageRepository {
     return demoted;
   }
 
+  /** 본문에서 이슈 이미지 URL 의 id 를 뽑는 패턴 — 뒤에 숫자가 더 붙는 prefix 매칭(12 vs 123)을 막고 19자리까지만 본다. */
+  private static final Pattern IMAGE_REF = Pattern.compile("/issue-images/(\\d{1,19})(?!\\d)");
+
   /**
    * 주어진 fileId 중 이슈에 연결된(issue_id NOT NULL) 이슈 이미지이면서, 같은 프로젝트의 삭제되지 않은 이슈 본문 어디서든 아직 참조되는 것.
    *
-   * <p>본문을 복사해 다른 이슈에 붙여넣은 이미지는 원본 이슈 매핑으로 서빙되므로, 원본에서 빠졌다고 지우면 사본이 깨진다. 스윕 시점에만 호출되므로 본문 정규식 스캔
-   * 비용을 감당할 수 있다. 정규식 끝의 ([^0-9]|$) 는 /issue-images/12 가 123 에 매칭되는 것을 막는다.
+   * <p>본문을 복사해 다른 이슈에 붙여넣은 이미지는 원본 이슈 매핑으로 서빙되므로, 원본에서 빠졌다고 지우면 사본이 깨진다. 스윕이 FILE 행 잠금을 쥔 채 호출하므로
+   * 파일마다 정규식 스캔을 돌리지 않고 프로젝트별로 한 번만 조회한다: 후보를 프로젝트로 묶고, 프로젝트당 "이미지 URL 을 포함한 비삭제 이슈 본문" 만 한 번 읽어
+   * 자바에서 참조 id 를 파싱해 후보와 교집합한다.
    */
   public Set<Long> stillReferencedAnywhere(Collection<Long> fileIds) {
     if (fileIds.isEmpty()) return Set.of();
@@ -147,20 +163,30 @@ public class IssueBodyImageRepository {
             // 이슈에 연결된(claim 된) 이미지만 후보 — 미연결 임시 업로드는 남이 URL 을 붙여넣어도 24h 뒤 만료돼야 한다.
             .and(ISSUE_BODY_IMAGE.ISSUE_ID.isNotNull())
             .fetch();
-    Set<Long> alive = new LinkedHashSet<>();
+    Map<Long, Set<Long>> byProject = new LinkedHashMap<>();
     for (var c : candidates) {
-      long fileId = c.value1();
-      boolean referenced =
-          dsl.fetchExists(
-              dsl.selectOne()
-                  .from(ISSUE)
-                  .where(ISSUE.PROJECT_ID.eq(c.value2()))
-                  .and(ISSUE.DELETED_AT.isNull())
-                  .and(
-                      DSL.condition(
-                          "{0} ~ {1}",
-                          ISSUE.BODY, DSL.val("/issue-images/" + fileId + "([^0-9]|$)"))));
-      if (referenced) alive.add(fileId);
+      byProject.computeIfAbsent(c.value2(), k -> new LinkedHashSet<>()).add(c.value1());
+    }
+    Set<Long> alive = new LinkedHashSet<>();
+    for (var e : byProject.entrySet()) {
+      List<String> bodies =
+          dsl.select(ISSUE.BODY)
+              .from(ISSUE)
+              .where(ISSUE.PROJECT_ID.eq(e.getKey()))
+              .and(ISSUE.DELETED_AT.isNull())
+              .and(ISSUE.BODY.like("%/issue-images/%"))
+              .fetch(ISSUE.BODY);
+      for (String body : bodies) {
+        Matcher m = IMAGE_REF.matcher(body);
+        while (m.find()) {
+          try {
+            long id = Long.parseLong(m.group(1));
+            if (e.getValue().contains(id)) alive.add(id);
+          } catch (NumberFormatException ignored) {
+            // 19자리 overflow — 본문은 자유 텍스트라 무시
+          }
+        }
+      }
     }
     return alive;
   }

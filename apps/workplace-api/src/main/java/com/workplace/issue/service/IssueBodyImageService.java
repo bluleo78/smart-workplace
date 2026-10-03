@@ -8,7 +8,6 @@ import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.exception.IssueBodyImageLimitException;
 import com.workplace.issue.exception.IssueBodyImageRejectedException;
 import com.workplace.issue.repository.IssueBodyImageRepository;
-import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.io.IOException;
@@ -16,6 +15,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -41,7 +41,6 @@ public class IssueBodyImageService {
   private final ProjectAccessGuard accessGuard;
   private final IssueAttachmentStorage storage;
   private final IssueBodyImageRepository repo;
-  private final IssueRepository issueRepository;
   // 테넌트 쿼터 — 위키 본문 이미지(#759)와 같이 드라이브 쿼터·잠금을 공유한다.
   private final DriveQuotaService quota;
 
@@ -69,6 +68,18 @@ public class IssueBodyImageService {
     List<Long> dropped =
         repo.fileIdsOfIssue(issueId).stream().filter(id -> !referenced.contains(id)).toList();
     repo.demote(dropped, OffsetDateTime.now(ZoneOffset.UTC).plusHours(demoteGraceHours));
+  }
+
+  /**
+   * 삭제된 이슈들에 연결된 본문 이미지를 모두 강등한다 — 유예 후 만료 재무장.
+   *
+   * <p>왜: 이슈가 soft-delete 되면 syncWithBody 가 다시 불리지 않아 이미지의 만료가 영영 해제 상태로 남아 저장 공간이 샌다. 다른 이슈 본문에
+   * 복사돼 아직 참조 중이면 스윕 시점의 보존 정책이 만료를 다시 미룬다. 호출자(IssueService.softDelete)가 부모+자식 id 를 함께 넘긴다.
+   */
+  public void demoteAllOfIssues(Collection<Long> issueIds) {
+    if (issueIds.isEmpty()) return;
+    List<Long> fileIds = repo.fileIdsOfIssues(issueIds);
+    repo.demote(fileIds, OffsetDateTime.now(ZoneOffset.UTC).plusHours(demoteGraceHours));
   }
 
   /** 본문에서 이 프로젝트 키의 이미지 참조 fileId 를 뽑는다. 키는 그대로 인용한다(PERSONAL 키는 자동 생성이라 문자 집합을 가정하지 않음). */
@@ -130,6 +141,10 @@ public class IssueBodyImageService {
   /**
    * 본문 표시용 조회. 프로젝트 키로 조회 권한을 보고, 파일이 실제로 그 프로젝트의 이슈 이미지인지는 매핑으로 따로 확인한다 — 키만 보면 아무 OPEN 프로젝트 키를 붙여
    * 다른 프로젝트 파일을 열 수 있다(IDOR). 존재 여부를 숨기려고 불일치는 모두 404 로 통일한다.
+   *
+   * <p>연결된 이미지는 원본 이슈가 soft-delete 되어도 조회 권한만 있으면 열린다: 본문을 복사해 다른 이슈에 붙여넣은 사본이 원본 삭제로 깨지면 안 되기
+   * 때문이다. 원본 삭제 시 저장 공간 회수는 {@link #demoteAllOfIssues} 의 강등 + 보존 정책(다른 이슈 본문 참조 확인)이 맡는다. 미연결 임시
+   * 이미지는 올린 사람만 볼 수 있다.
    */
   @Transactional(readOnly = true)
   public IssueAttachmentStorage.StoredFile load(long callerId, String projectKey, long fileId) {
@@ -142,10 +157,8 @@ public class IssueBodyImageService {
     if (meta.issueId() == null) {
       // 저장 전 임시 이미지는 올린 사람만 — 남의 작성 중 이미지를 id 추측으로 보지 못하게.
       if (meta.uploadedBy() != callerId) throw new AttachmentNotFoundException(fileId);
-    } else if (issueRepository.findById(meta.issueId()).isEmpty()) {
-      // 삭제된 이슈의 이미지는 내리지 않는다.
-      throw new AttachmentNotFoundException(fileId);
     }
+    // 연결된 이미지는 원본 이슈의 삭제 여부와 무관하게 서빙한다 — 다른 이슈 본문에 복사된 사본이 원본 삭제로 깨지면 안 된다.
     return storage.load(fileId);
   }
 }

@@ -389,15 +389,34 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void soft_deleted_issue_image_is_hidden() {
+  void soft_deleting_issue_demotes_its_images() {
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "SX");
     long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
     var created = issueService.create(owner, p.key(), createReq("t", ref(p.key(), fileId)));
+    assertThat(expiresAt(fileId)).isNull();
 
     issueService.softDelete(owner, p.key(), created.number());
 
-    assertThatThrownBy(() -> service.load(owner, p.key(), fileId))
-        .isInstanceOf(AttachmentNotFoundException.class);
+    // 삭제 후엔 syncWithBody 가 불리지 않으므로 삭제 시점에 강등돼 유예 후 수거 대상이 된다.
+    assertThat(expiresAt(fileId))
+        .isAfter(OffsetDateTime.now().plusDays(6))
+        .isBefore(OffsetDateTime.now().plusDays(8));
+  }
+
+  @Test
+  void image_of_deleted_origin_is_still_served_to_member() {
+    Long owner = createUser("owner");
+    Long other = createUser("other");
+    ProjectResponse p = newProject(owner, "SY");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+    var a = issueService.create(owner, p.key(), createReq("A", ref(p.key(), fileId)));
+    issueService.create(owner, p.key(), createReq("B", "복사 " + ref(p.key(), fileId)));
+
+    issueService.softDelete(owner, p.key(), a.number());
+
+    // 원본 A 가 삭제돼도 B 에 복사된 이미지는 계속 보여야 한다.
+    assertThat(service.load(other, p.key(), fileId)).isNotNull();
   }
 }

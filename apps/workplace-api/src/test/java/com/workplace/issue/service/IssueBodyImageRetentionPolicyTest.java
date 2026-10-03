@@ -167,6 +167,29 @@ class IssueBodyImageRetentionPolicyTest extends IntegrationTestBase {
   }
 
   @Test
+  void image_of_deleted_origin_referenced_by_live_issue_is_retained() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "RD");
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+    var a = issueService.create(owner, p.key(), createReq("원본", ref(p.key(), fileId)));
+    issueService.create(owner, p.key(), createReq("사본", ref(p.key(), fileId)));
+    issueService.softDelete(owner, p.key(), a.number());
+
+    assertThat(policy.retain(List.of(fileId))).containsExactly(fileId);
+  }
+
+  @Test
+  void image_of_deleted_origin_not_referenced_anywhere_is_not_retained() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "RE");
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+    var a = issueService.create(owner, p.key(), createReq("원본", ref(p.key(), fileId)));
+    issueService.softDelete(owner, p.key(), a.number());
+
+    assertThat(policy.retain(List.of(fileId))).isEmpty();
+  }
+
+  @Test
   void non_issue_files_are_ignored() {
     assertThat(policy.retain(List.of(Long.MAX_VALUE))).isEmpty();
   }

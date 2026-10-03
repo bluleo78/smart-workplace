@@ -676,6 +676,10 @@ public class IssueService {
     // 이슈(부모+자식) 삭제 시 연결된 드라이브 ref 정리 (source_id 는 비-FK 이므로 명시적 purge 필요)
     driveLinkService.purgeSource("ISSUE", row.id());
     driveLinkService.purgeSources("ISSUE", childIds);
+    // 본문 이미지 강등(WP-199) — 삭제 후엔 syncWithBody 가 불리지 않아 만료 해제 상태로 남는다. 부모+자식 모두 대상.
+    var deletedIds = new java.util.ArrayList<Long>(childIds);
+    deletedIds.add(row.id());
+    bodyImageService.demoteAllOfIssues(deletedIds);
     // 실시간 무효화 — checkDeletable 이 이미 resolve 한 project 를 재사용(중복 조회 방지)
     changeNotifier.deleted(target.project(), number, row.id(), callerId);
   }
