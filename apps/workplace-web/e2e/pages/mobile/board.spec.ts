@@ -149,3 +149,30 @@ test.describe('모바일 보드 상태 탭', () => {
     await expect.poll(() => page.getByTestId('board-scroll').evaluate((el) => el.scrollTop)).toBe(0);
   });
 });
+
+test.describe('모바일 그룹·개인 보드', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await stubChat(page);
+  });
+
+  test('우선순위 그룹 보드도 상태 탭 — 탭 안에 그룹 섹션', async ({ authenticatedPage: page }) => {
+    const hi = createIssue({ id: 61, number: 61, projectKey: KEY, title: '높음 할 일', type: makeTaskType(), status: 'TODO', priority: 'HIGH' });
+    const lo = createIssue({ id: 62, number: 62, projectKey: KEY, title: '낮음 할 일', type: makeTaskType(), status: 'TODO', priority: 'LOW' });
+    await mock(page, { issues: [hi, lo, PROG] });
+    await page.goto(`/projects/${KEY}?view=board&group=priority&boardTab=TODO`);
+    await expect(page.getByTestId('board-tab-count-TODO')).toHaveText('2');
+    await expect(page.getByTestId('board-group-TODO-HIGH')).toContainText('높음 할 일');
+    await expect(page.getByTestId('board-group-TODO-LOW')).toContainText('낮음 할 일');
+    await expect(page.getByTestId('issue-card-1047')).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test('개인 프로젝트 보드는 탭 3개(취소 없음)', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'PERSONAL', viewerIsMember: true }))));
+    await page.goto(`/projects/${KEY}?view=board`);
+    await expect(page.getByTestId('board-tab-TODO')).toBeVisible();
+    await expect(page.getByTestId('board-tab-DONE')).toBeVisible();
+    await expect(page.getByTestId('board-tab-CANCELED')).toHaveCount(0);
+  });
+});

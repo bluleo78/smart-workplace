@@ -53,7 +53,7 @@ export function MobileBoard({
             <TabsTrigger
               key={t.status}
               value={t.status}
-              className="h-11 min-w-0 px-2 group-data-[orientation=horizontal]/tabs:after:bottom-0"
+              className="h-11 shrink-0 px-2 group-data-[orientation=horizontal]/tabs:after:bottom-0"
               data-testid={`board-tab-${t.status}`}
             >
               {t.label}

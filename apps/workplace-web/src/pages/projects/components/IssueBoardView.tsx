@@ -142,27 +142,77 @@ function IssueBoardViewInner({
     // 팀(DEFAULT_COLUMNS=4상태)은 모든 상태가 허용돼 필터가 아무것도 제거하지 않아 출력이 byte-identical.
     const allowedStatuses = new Set(columns.map((c) => c.status));
     const visibleIssues = allIssues.filter((it) => allowedStatuses.has(it.status));
+    // 순차 로드 상태 문구 — 데스크톱 BoardScroll footer 와 모바일 탭 컬럼이 같은 마크업을 쓴다.
+    const groupFooter = (
+      <>
+        {groupHasNext && !groupNextError && (
+          <p className="text-xs text-muted-foreground mt-3" data-testid="board-loading-more">
+            나머지 이슈를 불러오는 중…
+          </p>
+        )}
+        {groupNextError && (
+          <p className="text-xs text-destructive mt-3" data-testid="board-load-error">
+            나머지 이슈를 불러오지 못했습니다.{' '}
+            <button type="button" className="underline" onClick={() => void fetchNextPage()}>
+              다시 시도
+            </button>
+          </p>
+        )}
+      </>
+    );
+
+    // 모바일 그룹 보드(WP-195) — 상태 탭 + 선택 탭 안에 그룹 섹션(빈 그룹은 숨김). DnD 없음.
+    if (isMobile) {
+      // 그룹 보드는 전체 페이지 순차 로드 — 개수는 로드 건수 그대로(「+」 없음), 로드 중엔 pending 으로 기본 탭이 튀지 않게.
+      const tabs: MobileBoardTab[] = tabColumns.map((c) => ({
+        status: c.status,
+        label: c.label,
+        count: byStatus[c.status]?.length ?? 0,
+        hasMore: false,
+        pending: groupQuery.isPending,
+      }));
+      return (
+        <>
+          <MobileBoard tabs={tabs}>
+            {(status) => {
+              const statusIssues = byStatus[status] ?? [];
+              return (
+                <div className="flex flex-col gap-4">
+                  {groupIssues(statusIssues, groupBy)
+                    .filter((g) => g.issues.length > 0)
+                    .map((g) => (
+                      // 탭이 상태를 드러내므로 카드 showStatus 는 기본(끔) 그대로 둔다.
+                      <section key={g.key} aria-label={g.label} data-testid={`board-group-${status}-${g.key}`} className="flex flex-col gap-2">
+                        <h3 className="flex items-center justify-between px-1 text-xs font-semibold text-muted-foreground">
+                          <span>{g.label}</span>
+                          <span>{g.issues.length}</span>
+                        </h3>
+                        {g.issues.map((it) => (
+                          <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled dragScope={`${status}-${g.key}`} onLongPress={onCardLongPress} />
+                        ))}
+                      </section>
+                    ))}
+                  {statusIssues.length === 0 && !groupQuery.isPending && (
+                    <p className="py-12 text-center text-sm font-medium text-muted-foreground" data-testid={`board-col-empty-${status}`}>
+                      이슈 없음
+                    </p>
+                  )}
+                  {/* 데스크톱 footer 의 mt-3 는 모바일 gap 과 겹치므로 래퍼로 상쇄 */}
+                  <div className="-mt-3">{groupFooter}</div>
+                </div>
+              );
+            }}
+          </MobileBoard>
+          {cardActions.sheets}
+        </>
+      );
+    }
+
     const groups = groupIssues(visibleIssues, groupBy);
     return (
       <>
       <BoardScroll
-        footer={
-          <>
-            {groupHasNext && !groupNextError && (
-              <p className="text-xs text-muted-foreground mt-3" data-testid="board-loading-more">
-                나머지 이슈를 불러오는 중…
-              </p>
-            )}
-            {groupNextError && (
-              <p className="text-xs text-destructive mt-3" data-testid="board-load-error">
-                나머지 이슈를 불러오지 못했습니다.{' '}
-                <button type="button" className="underline" onClick={() => void fetchNextPage()}>
-                  다시 시도
-                </button>
-              </p>
-            )}
-          </>
-        }
+        footer={groupFooter}
       >
         {groups.map((g) => (
           <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} onOpenCreate={onOpenCreate} dragDisabled={!canDragStatus} onLongPress={onCardLongPress} />
