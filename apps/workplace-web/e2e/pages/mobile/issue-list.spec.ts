@@ -25,6 +25,11 @@ const LONG = createIssue({
   ],
   assignees: [user(1, '김하나'), user(2, '이둘'), user(3, '박셋'), user(4, '최넷')],
 });
+// 에픽 시트용 에픽 2건 — 진행 있는 것(4건 중 1건 완료)과 하위 없는 것.
+const EPICS = [
+  createIssue({ id: 30, number: 30, projectKey: KEY, title: '결제 안정화', type: makeEpicType(), childCount: 4, childDoneCount: 1 }),
+  createIssue({ id: 12, number: 12, projectKey: KEY, title: '온보딩 개선', type: makeEpicType(), childCount: 0, childDoneCount: 0 }),
+];
 const PLAIN = createIssue({ id: 22, number: 22, projectKey: KEY, title: '일반 이슈', priority: 'MID' });
 const SUB = createIssue({
   id: 23, number: 23, projectKey: KEY, title: '스토리 하위 이슈',
@@ -37,8 +42,8 @@ const MY_BUG_VIEW = {
   mine: true, pinned: false, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
 };
 
-async function mock(page: Page, opts: { views?: unknown[] } = {}) {
-  await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: true }))));
+async function mock(page: Page, opts: { views?: unknown[]; member?: boolean } = {}) {
+  await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: opts.member ?? true }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/types`, (r) => r.fulfill(json(systemTypes())));
   for (const p of [`/members`, `/labels`, `/cycles`]) {
     await page.route((u) => u.pathname === `/api/v1/projects/${KEY}${p}`, (r) => r.fulfill(json([])));
@@ -47,7 +52,7 @@ async function mock(page: Page, opts: { views?: unknown[] } = {}) {
   await page.route((u) => u.pathname === ISSUES, (r) => {
     if (r.request().method() !== 'GET') return r.fallback();
     const isEpicList = new URL(r.request().url()).searchParams.get('type') === String(makeEpicType().id);
-    return r.fulfill(json(createIssueSearchResponse(isEpicList ? [] : [LONG, PLAIN, SUB], null)));
+    return r.fulfill(json(createIssueSearchResponse(isEpicList ? EPICS : [LONG, PLAIN, SUB], null)));
   });
 }
 
@@ -215,5 +220,61 @@ test.describe('모바일 툴바', () => {
     await expect(toggle).toHaveAttribute('aria-label', '보드로 전환');
     await toggle.click();
     await expect(page).toHaveURL(/view=board/);
+  });
+});
+
+test.describe('모바일 에픽 시트', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await stubChat(page);
+  });
+
+  test('에픽 선택 → parent 필터 + 칩 라벨, ✕ 로 해제', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    await page.getByTestId('mobile-chip-epic').click();
+    const sheet = page.getByTestId('mobile-epic-sheet');
+    await expect(sheet).toBeVisible();
+    await expect(page.getByTestId('picker-option-all')).toBeVisible();
+    await expect(page.getByTestId('picker-option-unassigned')).toBeVisible();
+    await expect(page.getByTestId('picker-option-epic-30')).toContainText('1/4');
+    await page.getByTestId('picker-option-epic-30').click();
+    await expect(sheet).toBeHidden();
+    await expect(page).toHaveURL(/parent=30/);
+    await expect(page.getByTestId('mobile-chip-epic')).toContainText('결제 안정화');
+    await page.getByTestId('mobile-chip-epic-clear').click();
+    await expect(page).not.toHaveURL(/parent=/);
+    await expect(page.getByTestId('mobile-chip-epic')).toHaveText('◆ 에픽');
+  });
+
+  test('에픽 미할당 선택 → topLevel 필터', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    await page.getByTestId('mobile-chip-epic').click();
+    await page.getByTestId('picker-option-unassigned').click();
+    await expect(page).toHaveURL(/topLevel=true/);
+    await expect(page.getByTestId('mobile-chip-epic')).toContainText('에픽 미할당');
+  });
+
+  test('멤버는 시트에서 에픽 만들기 → 생성 다이얼로그, 비멤버는 버튼 없음', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    await page.getByTestId('mobile-chip-epic').click();
+    await page.getByTestId('mobile-epic-create').click();
+    await expect(page.getByTestId('mobile-epic-sheet')).toBeHidden();
+    await expect(page.getByRole('dialog')).toBeVisible();
+  });
+
+  test('비멤버에겐 에픽 만들기 버튼이 없다', async ({ authenticatedPage: page }) => {
+    await mock(page, { member: false });
+    await page.goto(`/projects/${KEY}?group=none`);
+    await page.getByTestId('mobile-chip-epic').click();
+    await expect(page.getByTestId('mobile-epic-sheet')).toBeVisible();
+    await expect(page.getByTestId('mobile-epic-create')).toHaveCount(0);
+  });
+
+  test('목록에 없는 에픽 번호로 진입하면 칩에 번호를 표시한다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none&parent=99`);
+    await expect(page.getByTestId('mobile-chip-epic')).toContainText('에픽 #99');
   });
 });

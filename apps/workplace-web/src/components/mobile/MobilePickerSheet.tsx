@@ -16,7 +16,7 @@ export interface PickerOption {
 }
 
 export function MobilePickerSheet({
-  open, onClose, title, options, value, onSelect, searchable = false, testId = 'mobile-picker-sheet',
+  open, onClose, title, options, value, onSelect, searchable = false, testId = 'mobile-picker-sheet', headerAction,
 }: {
   open: boolean;
   onClose: () => void;
@@ -27,6 +27,8 @@ export function MobilePickerSheet({
   onSelect: (value: string) => void;
   searchable?: boolean;
   testId?: string;
+  /** 제목 줄 오른쪽 액션(예: 「에픽 만들기」). 없으면 제목만 렌더한다. */
+  headerAction?: ReactNode;
 }) {
   const [q, setQ] = useState('');
   const keyword = q.trim().toLowerCase();
@@ -50,7 +52,14 @@ export function MobilePickerSheet({
         }}
       >
         <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-muted-foreground/30" />
-        <SheetTitle className="px-4 pb-2 pt-3 text-base">{title}</SheetTitle>
+        {headerAction ? (
+          <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-3">
+            <SheetTitle className="text-base">{title}</SheetTitle>
+            {headerAction}
+          </div>
+        ) : (
+          <SheetTitle className="px-4 pb-2 pt-3 text-base">{title}</SheetTitle>
+        )}
         <SheetDescription className="sr-only">{title} 중 하나를 고르세요.</SheetDescription>
         {searchable && (
           <div className="px-4 pb-2">

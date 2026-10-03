@@ -28,6 +28,7 @@ import { IssueCycleGroupedList, IssueCycleListSkeleton } from './components/Issu
 import { IssueDndProvider, useIssueDnd } from './components/IssueDndProvider';
 import { IssueFilterBar } from './components/IssueFilterBar';
 import { IssueListView } from './components/IssueListView';
+import { MobileEpicChip } from './components/mobile/MobileEpicSheet';
 import { MobileIssueToolbar } from './components/mobile/MobileIssueToolbar';
 import { ViewChipBar } from './components/ViewChipBar';
 import { PersonalProjectDetail } from './personal/PersonalProjectDetail';
@@ -223,7 +224,10 @@ function ProjectIssuesSection({
         <div className="shrink-0">
           {/* 모바일은 한 줄 툴바(WP-194) — 데스크톱 칩 바+필터 바는 좁은 폭에서 여러 줄로 꺾여 목록을 밀어낸다. */}
           {isMobile ? (
-            <MobileIssueToolbar projectKey={projectKey} />
+            <MobileIssueToolbar
+              projectKey={projectKey}
+              epicSlot={<MobileEpicChip projectKey={projectKey} canCreateIssue={onOpenCreate != null} />}
+            />
           ) : (
             <>
               <ViewChipBar
