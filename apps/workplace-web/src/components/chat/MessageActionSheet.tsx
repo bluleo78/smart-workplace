@@ -26,6 +26,7 @@ export function MessageActionSheet({
   onReact,
   actions,
   preview,
+  previewVisible = false,
 }: {
   open: boolean
   onClose: () => void
@@ -34,6 +35,8 @@ export function MessageActionSheet({
   actions: MessageSheetAction[]
   /** 스크린리더용 대상 메시지 요약(시트 설명). */
   preview?: string
+  /** 요약을 핸들 아래에 눈으로도 보인다 — 메일 시트처럼 대상 행이 따로 강조되지 않는 목록용(채팅은 말풍선이 강조돼 불필요). */
+  previewVisible?: boolean
 }) {
   // 전체 이모지 목록 펼침 — 닫을 때마다 접힌 상태로 되돌린다.
   const [allEmojis, setAllEmojis] = useState(false)
@@ -94,7 +97,12 @@ export function MessageActionSheet({
       >
         <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-muted-foreground/30" />
         <SheetTitle className="sr-only">메시지 작업</SheetTitle>
-        <SheetDescription className="sr-only">{preview || '선택한 메시지'}</SheetDescription>
+        <SheetDescription
+          data-testid="message-action-preview"
+          className={previewVisible && preview ? 'truncate border-b px-4 pb-2 pt-2 text-sm text-muted-foreground' : 'sr-only'}
+        >
+          {preview || '선택한 메시지'}
+        </SheetDescription>
         {onReact && (
           <div className="border-b px-3 py-2">
             <div className="flex items-center justify-between">

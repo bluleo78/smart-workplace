@@ -21,7 +21,7 @@ import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
 import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { handleApiError } from '@/lib/api-error'
-import { formatClockTimePadded, formatDateMonthDayPadded, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
+import { formatClockTimePadded, formatDateMonthDayPadded, formatDateTime, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import { markSeenInKept, mergeKeptRows } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
@@ -139,8 +139,8 @@ function MessageRow({
           <button
             type="button"
             data-testid={`mail-row-toggle-read-${m.id}`}
-            aria-label={m.seen ? '안읽음으로 표시' : '읽음으로 표시'}
-            title={m.seen ? '안읽음으로 표시' : '읽음으로 표시'}
+            aria-label={m.seen ? '안 읽음으로 표시' : '읽음으로 표시'}
+            title={m.seen ? '안 읽음으로 표시' : '읽음으로 표시'}
             onClick={(e) => {
               e.stopPropagation()
               onToggleRead()
@@ -409,8 +409,9 @@ function MessageDetailPanel({
         {detail.bccAddresses && (
           <div className="mt-0.5 text-xs text-muted-foreground">숨은참조: {detail.bccAddresses}</div>
         )}
-        {/* 답장/전체답장/전달 버튼 — shadcn Button으로 앱 전체 버튼 스타일 일관성 유지. */}
-        <div className="mt-2 flex gap-2">
+        {/* 답장/전체답장/전달 버튼 — shadcn Button으로 앱 전체 버튼 스타일 일관성 유지.
+            좁은 상세(lg 1024 등)에서 버튼이 상세 폭을 넘지 않게 줄바꿈한다. */}
+        <div className="mt-2 flex flex-wrap gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -435,17 +436,17 @@ function MessageDetailPanel({
           >
             <Forward className="h-3.5 w-3.5" /> 전달
           </Button>
-          {/* WP-187 안읽음으로 표시(데스크톱 아이콘) — 누르면 상세가 닫힌다(열린 상세가 재조회되면 다시 읽음 처리되므로). */}
+          {/* WP-187 안 읽음으로 표시(데스크톱) — 형제 버튼처럼 아이콘+글자(모바일 바와 같은 문구).
+              누르면 상세가 닫힌다(열린 상세가 재조회되면 다시 읽음 처리되므로). */}
           {!isMobile && (
             <Button
               variant="outline"
               size="sm"
               data-testid="mail-mark-unread"
-              aria-label="안읽음으로 표시"
-              title="안읽음으로 표시"
+              title="안 읽음으로 표시"
               onClick={onMarkUnread}
             >
-              <Mail className="h-3.5 w-3.5" />
+              <Mail className="h-3.5 w-3.5" /> 안 읽음
             </Button>
           )}
           {/* AI 답장 초안 버튼 — 비서 있고 AI 사용 계정에서만 노출. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
@@ -708,6 +709,8 @@ export function MailInboxPage() {
 
   // 동기화 진행 상태 구독 — 동기화 트리거(성공/진행 중) 동안만 폴링.
   const syncStatus = useSyncStatus(accountIdNum, sync.isSuccess || sync.isPending)
+  // 본문 보충 진행률 노출 여부 — 진행률 표시와 동기화 시각 숨김이 같은 판정을 쓴다.
+  const bodiesProgress = syncStatus.data?.phase === 'BODIES' && syncStatus.data.total > 0
   const qc = useQueryClient()
   // 본문 보충(running)이 끝나는 순간 목록을 다시 불러와 snippet 등을 갱신.
   const prevRunning = useRef(false)
@@ -750,7 +753,7 @@ export function MailInboxPage() {
   const sheetActions = (m: EmailMessageSummary): MessageSheetAction[] => [
     {
       key: 'toggle-read',
-      label: m.seen ? '안읽음으로 표시' : '읽음으로 표시',
+      label: m.seen ? '안 읽음으로 표시' : '읽음으로 표시',
       icon: m.seen ? <Mail /> : <MailOpen />,
       primary: true,
       onSelect: () => toggleRow(m),
@@ -948,39 +951,49 @@ export function MailInboxPage() {
       )}
       {/* 리스트 툴바 — INBOX 전용: 아이콘 새로고침 + 마지막 동기화 상대시각 + 진행률. */}
       {showListChrome && folderParam === 'INBOX' && (
-        <div className="flex items-center border-b py-1.5">
-          {/* 패딩을 안쪽 상자에 둬서(pl-3 pr-4) 오른쪽 끝이 목록 행의 시각 끝선(px-4)에 맞고 목록/상세 구분선을 넘지 않는다. */}
-          <div className="flex min-w-0 flex-1 items-center gap-2 pl-3 pr-4 lg:max-w-md">
+        // overflow-x-clip — 혹시 넘쳐도 포커스·클릭이 바깥 셸을 가로로 스크롤해 화면이 밀린 채 남지 않게(clip 은 스크롤 대상이 아니다).
+        <div className="flex items-center overflow-x-clip border-b py-1.5">
+          {/* 패딩을 안쪽 상자에 둬서(pl-3 pr-4) 오른쪽 끝이 목록 행의 시각 끝선(px-4)에 맞는다.
+              lg 폭은 목록 열과 같은 min(절반, max-w-md) — flex-1 끼리 나누면 패딩만큼 목록 열보다 넓어져 구분선을 넘는다. */}
+          <div className="flex min-w-0 flex-1 items-center gap-2 pl-3 pr-4 lg:w-1/2 lg:max-w-md lg:flex-none">
             <button
               type="button"
               data-testid="mail-sync"
               aria-label="지금 새로고침"
               onClick={() => sync.mutate()}
               disabled={sync.isPending || (syncStatus.data?.running ?? false)}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 max-lg:h-10 max-lg:w-10"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 max-lg:h-10 max-lg:w-10"
             >
               <RefreshCw
                 className={cn('h-4 w-4', (sync.isPending || syncStatus.data?.running) && 'animate-spin')}
               />
             </button>
-            {/* 마지막 성공 동기화 시각 — null이면 회색 점+"동기화 안 됨", 있으면 녹색 점+상대시각 표시. */}
-            <span data-testid="mail-synced-at" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {/* 마지막 성공 동기화 시각 — null이면 회색 점+"동기화 안 됨", 있으면 녹색 점+상대시각 표시.
+                한 줄 유지 — 폭이 모자라면 말줄임(절대 시각은 title). 진행률이 보이는 동안은 숨긴다(진행률이 더 새 정보, 좁은 목록 열에서 넘침 방지). */}
+            <span
+              data-testid="mail-synced-at"
+              title={currentAccount?.lastSyncedAt ? formatDateTime(currentAccount.lastSyncedAt) : undefined}
+              className={cn(
+                'flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground',
+                bodiesProgress && 'hidden',
+              )}
+            >
               {currentAccount?.lastSyncedAt ? (
                 <>
-                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden />
-                  {`${formatRelativeTime(currentAccount.lastSyncedAt)} 동기화됨`}
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" aria-hidden />
+                  <span className="truncate">{`${formatRelativeTime(currentAccount.lastSyncedAt)} 동기화됨`}</span>
                 </>
               ) : (
                 <>
-                  <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" aria-hidden />
-                  동기화 안 됨
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden />
+                  <span className="truncate">동기화 안 됨</span>
                 </>
               )}
             </span>
-            {/* 본문 보충 진행률 — 기존 로직 유지 */}
-            {syncStatus.data?.phase === 'BODIES' && syncStatus.data.total > 0 && (
-              <span data-testid="mail-sync-progress" className="text-xs text-muted-foreground">
-                본문 {syncStatus.data.done}/{syncStatus.data.total}
+            {/* 본문 보충 진행률 — 두 줄로 꺾여 툴바 높이가 바뀌지 않게 한 줄 고정. */}
+            {bodiesProgress && (
+              <span data-testid="mail-sync-progress" className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                본문 {syncStatus.data?.done}/{syncStatus.data?.total}
               </span>
             )}
             {/* 오른쪽 그룹 — "안 읽은 메일만" 토글(회신필요엔 없음) + 모두 읽음. 감싼 div 가 ml-auto 를 가져 회신필요에서도 오른쪽에 붙는다(F24). */}
@@ -1015,14 +1028,15 @@ export function MailInboxPage() {
                   data-testid="mail-mark-all-read"
                   disabled={markAllKnownZero || markAll.isPending}
                   onClick={() => void startMarkAll()}
+                  aria-label="모두 읽음"
                   className={cn(
-                    // 모바일 터치 규격은 토글과 같다(시각 h-9 + after 히트 영역 확장).
+                    // 모바일은 아이콘만 둔 원형 버튼(시각 36px + after 사방 4px 확장 = 터치 44px) — 360px 에서도 툴바가 넘치지 않게.
                     'relative inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-foreground outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50',
-                    "max-lg:h-9 max-lg:px-4 max-lg:text-sm max-lg:after:absolute max-lg:after:-inset-y-1 max-lg:after:inset-x-0 max-lg:after:content-['']",
+                    "max-lg:h-9 max-lg:w-9 max-lg:justify-center max-lg:px-0 max-lg:after:absolute max-lg:after:-inset-1 max-lg:after:content-['']",
                   )}
                 >
                   <CheckCheck aria-hidden className="h-3.5 w-3.5 max-lg:h-4 max-lg:w-4" />
-                  모두 읽음
+                  <span className="max-lg:sr-only">모두 읽음</span>
                 </button>
               )}
             </div>
@@ -1095,7 +1109,8 @@ export function MailInboxPage() {
                 <MessageRow
                   key={m.id}
                   m={m}
-                  active={selectedId === m.id}
+                  // 길게 누르기 시트의 대상 행도 강조한다 — 촘촘한 목록에서 어느 메일에 대한 작업인지 보이게(M4).
+                  active={selectedId === m.id || (sheet.open && sheet.target?.id === m.id)}
                   onSelect={() => selectRow(m.id)}
                   pendingVisible={view.kind !== 'sent' && classificationActive}
                   showToggle={!touchShell}
@@ -1113,6 +1128,7 @@ export function MailInboxPage() {
             open={sheet.open}
             onClose={sheet.close}
             actions={sheet.target ? sheetActions(sheet.target) : []}
+            previewVisible
             preview={sheet.target ? `${sheet.target.fromName || sheet.target.fromAddress || ''} · ${sheet.target.subject || '(제목 없음)'}` : undefined}
           />
         )}
@@ -1140,7 +1156,7 @@ export function MailInboxPage() {
                     onClick={() => markUnreadAndClose(selectedId)}
                     className="flex h-11 shrink-0 items-center gap-1 px-3 text-sm text-primary"
                   >
-                    <Mail className="h-4 w-4" /> 안읽음
+                    <Mail className="h-4 w-4" /> 안 읽음
                   </button>
                 )
               }

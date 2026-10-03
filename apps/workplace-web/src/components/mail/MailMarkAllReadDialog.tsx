@@ -29,7 +29,8 @@ export function MailMarkAllReadDialog({ pending, scopeLabel, mobile, onConfirm, 
       <AlertDialogContent data-testid="mail-mark-all-dialog">
         <AlertDialogHeader>
           <AlertDialogTitle>모두 읽음으로 표시할까요?</AlertDialogTitle>
-          <AlertDialogDescription>
+          {/* 어절 단위 줄바꿈 — 좁은 화면에서 "반영됩니 / 다."처럼 한 글자만 넘어가지 않게. */}
+          <AlertDialogDescription className="break-keep text-pretty">
             <b className="text-foreground">{scopeLabel}</b>의 안 읽은 메일 <b className="text-foreground">{pending?.count ?? 0}통</b>을
             읽음으로 표시합니다. 연결된 메일 서버에도 반영됩니다.
           </AlertDialogDescription>

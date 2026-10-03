@@ -1,4 +1,4 @@
-// 모바일 메일 읽음 조작(WP-187) — 상세 헤더 바 "안읽음", 터치 셸에서 행 hover 토글 미렌더.
+// 모바일 메일 읽음 조작(WP-187) — 상세 헤더 바 "안 읽음", 터치 셸에서 행 hover 토글 미렌더.
 import type { Page } from '@playwright/test'
 
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
@@ -31,10 +31,10 @@ test('모바일 상세 바의 안읽음 → 안읽음 API 후 목록으로 복�
   await expect(page.getByTestId('mail-row-toggle-read-10')).toHaveCount(0)
   await page.getByTestId('mail-row-10').click()
   await expect(page.getByTestId('mail-detail')).toBeVisible()
-  // 데스크톱 상세 아이콘은 모바일에서 숨기고, ✦ 바로 왼쪽(헤더 바 trailing)에 "안읽음"을 둔다.
+  // 데스크톱 상세 아이콘은 모바일에서 숨기고, ✦ 바로 왼쪽(헤더 바 trailing)에 "안 읽음"을 둔다.
   await expect(page.getByTestId('mail-mark-unread')).toHaveCount(0)
   const bar = page.getByTestId('mail-back')
-  await expect(bar.getByTestId('mobile-mark-unread')).toHaveText('안읽음')
+  await expect(bar.getByTestId('mobile-mark-unread')).toHaveText('안 읽음')
   const before = det.requests.length
   await bar.getByTestId('mobile-mark-unread').click()
   await unread.waitForRequest()
@@ -92,4 +92,47 @@ test('모바일 모두 읽음 다이얼로그 — 폭을 채운 세로 버튼, �
   // 폭을 채운다 — 두 버튼 폭이 같고 다이얼로그 폭의 대부분을 차지한다.
   expect(Math.abs(confirm!.width - cancel!.width)).toBeLessThan(1)
   expect(confirm!.width).toBeGreaterThan(dialog!.width * 0.7)
+})
+
+test.describe('360px 툴바 — 동기화 진행률이 보여도 넘치지 않음', () => {
+  test.use({ viewport: { width: 360, height: 780 } })
+
+  test('모두 읽음(아이콘)이 화면 안에 있고 44px 터치 영역, 다이얼로그를 닫아도 화면이 옆으로 밀리지 않음', async ({ authenticatedPage: page }) => {
+    await stubMail(page)
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ lastSyncedAt: new Date(Date.now() - 12 * 60_000).toISOString() })])
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages/unread-count', { count: 2, asOf: '2026-10-03T01:00:00Z' })
+    await mockApi(page, 'POST', '/api/v1/mail/accounts/1/sync', { fetched: 0, saved: 0 })
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { phase: 'BODIES', total: 4567, done: 1234, running: true })
+    await page.goto('/mail/1')
+    const markAll = page.getByTestId('mail-mark-all-read')
+    // 진행률 전 툴바 높이 — 진행률이 떠도 같아야 한다(두 줄 꺾임 없음).
+    const toolbar = markAll.locator('xpath=ancestor::div[contains(@class,"border-b")][1]')
+    const heightBefore = (await toolbar.boundingBox())!.height
+    await page.getByTestId('mail-sync').click()
+    await expect(page.getByTestId('mail-sync-progress')).toHaveText('본문 1234/4567')
+    // 진행률이 보이는 동안은 동기화 시각을 숨긴다.
+    await expect(page.getByTestId('mail-synced-at')).toBeHidden()
+    expect((await toolbar.boundingBox())!.height).toBe(heightBefore)
+    // 모바일은 아이콘만 — 접근 이름은 유지, 오른쪽 끝이 화면 안.
+    await expect(markAll).toHaveAccessibleName('모두 읽음')
+    const box = (await markAll.boundingBox())!
+    expect(box.x + box.width).toBeLessThanOrEqual(360)
+    // 히트 영역(after 확장) = 시각 36px + 사방 4px.
+    const hit = await markAll.evaluate((el) => {
+      const s = getComputedStyle(el, '::after')
+      return { w: el.getBoundingClientRect().width - 2 * parseFloat(s.left), h: el.getBoundingClientRect().height - 2 * parseFloat(s.top) }
+    })
+    expect(hit.w).toBeGreaterThanOrEqual(44)
+    expect(hit.h).toBeGreaterThanOrEqual(44)
+    // 툴바 안쪽 상자가 넘치지 않는다(바깥 overflow 에 가려진 넘침까지).
+    const inner = markAll.locator('xpath=ancestor::div[contains(@class,"pl-3")][1]')
+    expect(await inner.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    // 눌러 다이얼로그를 열고 닫아도 셸이 가로로 스크롤되지 않는다(H2).
+    await markAll.click()
+    await expect(page.getByTestId('mail-mark-all-dialog')).toBeVisible()
+    await page.getByTestId('mail-mark-all-cancel').click()
+    await expect(page.getByTestId('mail-mark-all-dialog')).toHaveCount(0)
+    expect((await page.getByTestId('mail-row-10').boundingBox())!.x).toBe(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
 })

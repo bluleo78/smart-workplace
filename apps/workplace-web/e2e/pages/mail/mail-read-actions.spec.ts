@@ -42,7 +42,7 @@ test.describe('메일 읽음 조작 — 데스크톱(WP-187)', () => {
     const unread = await mockApi(page, 'POST', '/api/v1/mail/messages/11/unread', null, { capture: true })
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-11').hover()
-    await expect(page.getByTestId('mail-row-toggle-read-11')).toHaveAttribute('aria-label', '안읽음으로 표시')
+    await expect(page.getByTestId('mail-row-toggle-read-11')).toHaveAttribute('aria-label', '안 읽음으로 표시')
     await page.getByTestId('mail-row-toggle-read-11').click()
     await unread.waitForRequest()
     await expect(page.getByTestId('mail-unread-bar-11')).toBeVisible()
@@ -104,7 +104,7 @@ test.describe('메일 읽음 조작 — 데스크톱(WP-187)', () => {
     await expect(page.getByTestId('mail-unread-bar-10')).toHaveCount(0)
     const before = det.requests.length
     await page.getByTestId('mail-row-10').hover()
-    await expect(page.getByTestId('mail-row-toggle-read-10')).toHaveAttribute('aria-label', '안읽음으로 표시')
+    await expect(page.getByTestId('mail-row-toggle-read-10')).toHaveAttribute('aria-label', '안 읽음으로 표시')
     await page.getByTestId('mail-row-toggle-read-10').click()
     await unread.waitForRequest()
     await expect(page.getByTestId('mail-detail')).toHaveCount(0)
