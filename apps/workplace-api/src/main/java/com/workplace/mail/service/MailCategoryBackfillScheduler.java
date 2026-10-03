@@ -30,8 +30,8 @@ import org.springframework.stereotype.Component;
  * MailCategoryBackfillService#classifyAccountNow} 를 돌려 미분류 메일을 채운다.
  *
  * <ul>
- *   <li><b>전용 실행기</b>: tick 은 {@code mailCategoryBackfillExecutor}(단일 스레드)에 넘기기만 한다. 스프링 스케줄러 스레드는
- *       하나뿐이고 자동 동기화(3분)·선제 요약·GC·purge 가 함께 쓰므로 LLM 루프로 잡으면 다른 작업이 밀린다. 동기화 직후
+ *   <li><b>전용 실행기</b>: tick 은 {@code mailCategoryBackfillExecutor}(단일 스레드)에 넘기기만 한다. 스프링 스케줄러 공용
+ *       스레드(4개, WP-211)는 자동 동기화(3분)·선제 요약·GC·purge 가 함께 쓰므로 LLM 루프로 잡으면 다른 작업이 밀린다. 동기화 직후
  *       {@code @Async}(aiAgentEventExecutor) 로도 돌리지 않는다 — 채팅 AI 디스패치와 공유하는 실행기라 고갈·거절이 생긴다. 실행 중이면
  *       그 tick 은 건너뛴다(running 플래그).
  *   <li><b>회차 상한</b>: 회차 전체 묶음 호출은 최대 {@value #MAX_BATCHES_PER_ROUND}회(≤500통). 계정당 상한({@link

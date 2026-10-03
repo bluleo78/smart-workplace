@@ -20,8 +20,8 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>부팅 2분 뒤 첫 실행 → "배포 직후"(agent 와 함께 배포될 여유). 이후 10분 간격 → AI 를 켠(off→on) 버전 0 계정이 다음 주기에 처리된다.
- *   <li>tick 은 전용 단일 스레드 실행기에 넘기기만 한다 — 스프링 스케줄러 스레드(단일, 다른 @Scheduled 작업 공유)를 LLM 루프로 잡지 않는다. 실행
- *       중이면 그 tick 은 건너뛴다(running 플래그).
+ *   <li>tick 은 전용 단일 스레드 실행기에 넘기기만 한다 — 스프링 스케줄러 공용 스레드(4개, 다른 @Scheduled 작업 공유 — WP-211)를 LLM 루프로
+ *       잡지 않는다. 실행 중이면 그 tick 은 건너뛴다(running 플래그).
  *   <li>① {@link TenantScopedRunner} 로 테넌트별 짧은 트랜잭션(GUC)에서 대상 계정만 모으고, ② 트랜잭션 밖에서 계정마다
  *       TenantContext 를 주입해 재분석한다(#232 — LLM 이 DB 커넥션을 오래 잡지 않게).
  *   <li>실행 1회에 선점한 계정은 최대 {@value #MAX_ACCOUNTS_PER_RUN}개(LLM 최대 1,000회) — 나머지는 다음 주기.
