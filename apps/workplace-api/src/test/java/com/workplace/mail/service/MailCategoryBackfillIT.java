@@ -211,6 +211,41 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
     assertThat(req.getAllValues().get(1).items()).hasSize(5);
   }
 
+  /** 회차 예산(maxBatches)을 넘겨 받으면 계정 상한보다 먼저 그 예산에서 멈추고, 실제로 부른 묶음 수를 돌려준다. */
+  @Test
+  void budget_stopsAtGivenBatches_andReturnsCallCount() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    for (int i = 0; i < 30; i++) {
+      long c =
+          MailAnalysisFixtures.content(
+              dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);
+      long env = MailAnalysisFixtures.envelope(dsl, a, c, "boss@corp.com", a.address(), null);
+      MailAnalysisFixtures.receivedDaysAgo(dsl, env, i);
+    }
+    answerAll("업무");
+
+    int used = service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard(), 1);
+
+    assertThat(used).isEqualTo(1);
+    verify(mailClient, times(1)).classifyBatch(any());
+  }
+
+  /** 예산이 0 이면 비서 해석도 LLM 호출도 하지 않는다. */
+  @Test
+  void zeroBudget_makesNoCall() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long c =
+        MailAnalysisFixtures.content(
+            dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);
+    MailAnalysisFixtures.envelope(dsl, a, c, "boss@corp.com", a.address(), null);
+    answerAll("업무");
+
+    int used = service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard(), 0);
+
+    assertThat(used).isZero();
+    verify(mailClient, never()).classifyBatch(any());
+  }
+
   @Test
   void unrequestedIdInResponse_isIgnored() {
     Box a = MailAnalysisFixtures.mailbox(dsl, false);

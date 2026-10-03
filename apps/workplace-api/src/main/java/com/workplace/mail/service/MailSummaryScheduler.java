@@ -21,7 +21,6 @@ import org.springframework.stereotype.Component;
  * <ul>
  *   <li>③ 원본 분석: 공통 비서가 있는 테넌트의 모든 활성 계정(ai_enabled 무관)
  *   <li>④ 개인 분석: AI 사용 계정
- *   <li>WP-185 분류 일괄: 모든 활성 계정(전체 메일 카테고리)
  * </ul>
  *
  * ① {@link TenantScopedRunner} 로 테넌트별 짧은 트랜잭션(GUC 주입)에서 계정 목록만 수집, ② Runner 트랜잭션 밖에서 TenantContext
@@ -38,19 +37,16 @@ public class MailSummaryScheduler {
   private final EmailAccountRepository accountRepo;
   private final AssistantResolver assistantResolver;
   private final MailSummaryBackfillService backfill;
-  private final MailCategoryBackfillService categoryBackfill;
 
   public MailSummaryScheduler(
       TenantScopedRunner tenantRunner,
       EmailAccountRepository accountRepo,
       AssistantResolver assistantResolver,
-      MailSummaryBackfillService backfill,
-      MailCategoryBackfillService categoryBackfill) {
+      MailSummaryBackfillService backfill) {
     this.tenantRunner = tenantRunner;
     this.accountRepo = accountRepo;
     this.assistantResolver = assistantResolver;
     this.backfill = backfill;
-    this.categoryBackfill = categoryBackfill;
   }
 
   /**
@@ -65,7 +61,6 @@ public class MailSummaryScheduler {
     // ① 수집: 테넌트별 짧은 트랜잭션(GUC 주입) 안에서 대상 계정만 모은다.
     List<TenantAccount> objectiveTargets = new ArrayList<>();
     List<TenantAccount> personalTargets = new ArrayList<>();
-    List<TenantAccount> categoryTargets = new ArrayList<>();
     tenantRunner.forEachActiveTenant(
         tenantId -> {
           // T1: 공통비서가 정의된 테넌트에서만, 모든 활성 계정 대상.
@@ -77,10 +72,6 @@ public class MailSummaryScheduler {
           // ④ 개인 분석: AI 켠 계정만.
           for (AiAccountRef ref : accountRepo.listAiEnabledAccounts()) {
             personalTargets.add(new TenantAccount(tenantId, ref.userId(), ref.accountId()));
-          }
-          // WP-185 분류 일괄: 모든 활성 계정 — 비서 해석(공통 → AI 사용 계정의 개인)은 서비스가 계정별로 한다.
-          for (ActiveAccount a : accountRepo.findActiveForSync()) {
-            categoryTargets.add(new TenantAccount(tenantId, a.userId(), a.accountId()));
           }
         });
     // ② 실행: Runner 트랜잭션 밖. TenantContext 만 주입(backfill 내부가 짧은 트랜잭션으로 GUC 주입).
@@ -96,11 +87,6 @@ public class MailSummaryScheduler {
         (u, a) -> backfill.summarizePersonalRecentNow(u, a, guard),
         guard,
         "개인 분석");
-    runTargets(
-        categoryTargets,
-        (u, a) -> categoryBackfill.classifyAccountNow(u, a, guard),
-        guard,
-        "분류 일괄");
     if (guard.tripped()) {
       log.warn("선제 요약 회차 중단 — ai-agent 불가, 남은 계정은 다음 주기에 처리");
     }

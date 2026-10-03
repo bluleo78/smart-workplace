@@ -34,9 +34,9 @@ import org.springframework.util.StringUtils;
  * <p>저장 규칙: 기존 분류는 덮어쓰지 않고(fillContentCategoryIfEmpty), 응답을 받은 항목은 분류가 비어도 시도 시각을 남긴다(무한 재시도 방지).
  * 호출이 실패하면 아무것도 남기지 않아 다음 회차에 다시 고른다. LLM 은 트랜잭션 밖에서 부른다(#232).
  *
- * <p>진입점은 10분 주기 스케줄러 하나뿐이다 — 동기화 직후 {@code @Async} 로 부르지 않는다. 그 실행기(aiAgentEventExecutor)는 채팅 AI
- * 디스패치와 공유돼 동기화마다 무거운 LLM 일을 얹으면 고갈되고, 큐가 차면 TaskRejectedException 이 동기화로 새어 나온다. 새 메일은 다음 주기(최대
- * 10분)에, 최근 안 읽은 메일은 ③ 이 분류한다.
+ * <p>진입점은 전용 스케줄러({@link MailCategoryBackfillScheduler}) 하나뿐이다 — 동기화 직후 {@code @Async} 로 부르지 않는다. 그
+ * 실행기(aiAgentEventExecutor)는 채팅 AI 디스패치와 공유돼 동기화마다 무거운 LLM 일을 얹으면 고갈되고, 큐가 차면 TaskRejectedException
+ * 이 동기화로 새어 나온다. 새 메일은 다음 주기(최대 10분)에, 최근 안 읽은 메일은 ③ 이 분류한다.
  */
 @Slf4j
 @Service
@@ -79,26 +79,41 @@ public class MailCategoryBackfillService {
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
+  /** 동기 본체 — 계정당 상한({@link #MAX_BATCHES})만 적용한다. 반환은 묶음 호출 수. */
+  public int classifyAccountNow(long userId, long accountId, AgentOutageGuard guard) {
+    return classifyAccountNow(userId, accountId, guard, MAX_BATCHES);
+  }
+
   /**
-   * 동기 본체 — 최대 MAX_BATCHES 묶음. 비서가 없으면 아무것도 하지 않는다. 묶음 호출이 실패하면 이 계정은 여기서 멈춘다(같은 대상이 다시 골라지므로 같은
-   * 회차에서 반복하지 않는다). agent 불가면 guard 에 기록해 호출부(스케줄러)가 남은 계정을 건너뛰게 한다.
+   * 동기 본체 — 최대 min(MAX_BATCHES, maxBatches) 묶음을 부르고, 실제로 부른 묶음 호출 수(실패 포함)를 돌려준다. 호출부(스케줄러)는 이 값으로
+   * 회차 전체 묶음 예산을 깎는다 — 호출 하나가 최대 60초·LLM 비용 1회이므로 실패한 호출도 센다.
+   *
+   * <p>비서가 없으면 아무것도 하지 않는다(0). 묶음 호출이 실패하면 이 계정은 여기서 멈춘다(같은 대상이 다시 골라지므로 같은 회차에서 반복하지 않는다). agent
+   * 불가면 guard 에 기록해 호출부가 남은 계정을 건너뛰게 한다.
    */
-  public void classifyAccountNow(long userId, long accountId, AgentOutageGuard guard) {
+  public int classifyAccountNow(
+      long userId, long accountId, AgentOutageGuard guard, int maxBatches) {
+    int limit = Math.min(MAX_BATCHES, maxBatches);
+    if (limit <= 0) {
+      return 0;
+    }
     AssistantSpec spec = resolveSpec(userId, accountId);
     if (spec == null) {
-      return;
+      return 0;
     }
-    for (int batch = 0; batch < MAX_BATCHES && !guard.tripped(); batch++) {
+    int calls = 0;
+    while (calls < limit && !guard.tripped()) {
       List<Long> ids =
           txTemplate.execute(s -> messageRepo.listUncategorizedIds(accountId, BATCH_SIZE));
       if (ids == null || ids.isEmpty()) {
-        return;
+        return calls;
       }
       List<ClassifyInput> inputs =
           txTemplate.execute(s -> messageRepo.findClassifyInputs(accountId, ids));
       if (inputs == null || inputs.isEmpty()) {
-        return;
+        return calls;
       }
+      calls++;
       ClassifyBatchResult result;
       try {
         result = mailClient.classifyBatch(request(inputs, spec));
@@ -110,14 +125,15 @@ public class MailCategoryBackfillService {
         } else {
           log.warn("분류 일괄 실패 accountId={} — 이번 회차 중단", accountId, e);
         }
-        return;
+        return calls;
       }
       if (result == null || result.results() == null) {
-        return; // 형식이 비정상인 응답 — 기록하지 않고 다음 회차에 다시 고른다
+        return calls; // 형식이 비정상인 응답 — 기록하지 않고 다음 회차에 다시 고른다
       }
       guard.recordResponse();
       save(userId, accountId, inputs, result);
     }
+    return calls;
   }
 
   /** 공통 비서 → (계정 AI 사용 시) 개인 비서. 둘 다 없으면 null. */

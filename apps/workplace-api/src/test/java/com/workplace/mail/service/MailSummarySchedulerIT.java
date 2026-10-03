@@ -9,7 +9,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
@@ -50,9 +49,6 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
 
   /** 실제 IMAP/LLM 차단 — 호출 인자만 spy(아래 doAnswer)로 수집. */
   @MockitoBean MailSummaryBackfillService backfill;
-
-  /** WP-185 분류 일괄 — 실제 LLM 호출을 막고 호출 인자만 검증. */
-  @MockitoBean MailCategoryBackfillService categoryBackfill;
 
   /** backfill 이 받은 (userId, accountId, 호출시점 TenantContext) 기록 — 디스패치 컨텍스트까지 검증. */
   private record Call(long userId, long accountId, Long ctx) {}
@@ -270,70 +266,5 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
         calls.stream().filter(c -> c.accountId() == fA2).map(Call::ctx).findFirst().orElse(null);
     assertThat(ctxA).isEqualTo(1L);
     assertThat(ctxB).isEqualTo(tid2);
-  }
-
-  @Test
-  @DisplayName("WP-185: 공통 비서가 없어도 활성 계정마다 분류 일괄을 자기 테넌트 컨텍스트에서 호출")
-  void runOnce_모든활성계정_분류일괄() {
-    String run = UUID.randomUUID().toString().substring(0, 8);
-    setSessionGuc(1L);
-    user1 = seedUser();
-    account1 = seedAiAccount(user1, "cat-" + run + "@x.com"); // 공통 비서 없음 — 분류는 비서 유무와 무관하게 호출
-    final long fU1 = user1;
-    final long fA1 = account1;
-
-    List<Long> ctxs = new ArrayList<>();
-    Mockito.doAnswer(
-            inv -> {
-              if ((long) inv.getArgument(1) == fA1) ctxs.add(TenantContext.get());
-              return null;
-            })
-        .when(categoryBackfill)
-        .classifyAccountNow(
-            org.mockito.ArgumentMatchers.anyLong(),
-            org.mockito.ArgumentMatchers.anyLong(),
-            org.mockito.ArgumentMatchers.any());
-
-    scheduler.runOnce();
-
-    assertThat(ctxs).containsExactly(1L); // 호출 시점 TenantContext = 계정 테넌트
-    verify(categoryBackfill, times(1))
-        .classifyAccountNow(
-            org.mockito.ArgumentMatchers.eq(fU1),
-            org.mockito.ArgumentMatchers.eq(fA1),
-            org.mockito.ArgumentMatchers.any(AgentOutageGuard.class));
-  }
-
-  @Test
-  @DisplayName("WP-185: 앞 패스가 회차 guard 를 멈춤으로 만들면 분류 일괄은 어떤 계정도 호출되지 않는다")
-  void runOnce_guard멈춤이면_분류일괄_건너뜀() {
-    String run = UUID.randomUUID().toString().substring(0, 8);
-    setSessionGuc(1L);
-    user1 = seedUser();
-    account1 = seedAiAccount(user1, "trip-" + run + "@x.com");
-    wsAgent1 = seedWorkspaceAssistant(user1); // 원본 분석 패스 대상이 되게 공통 비서 시드
-
-    // 원본 분석이 ai-agent 연속 불가를 겪은 것처럼 회차 공용 guard 를 멈춤 상태로 만든다.
-    Mockito.doAnswer(
-            inv -> {
-              AgentOutageGuard g = inv.getArgument(2);
-              for (int i = 0; i < AgentOutageGuard.MAX_CONSECUTIVE_UNAVAILABLE; i++) {
-                g.recordUnavailable();
-              }
-              return null;
-            })
-        .when(backfill)
-        .summarizeObjectiveRecentNow(
-            org.mockito.ArgumentMatchers.anyLong(),
-            org.mockito.ArgumentMatchers.anyLong(),
-            org.mockito.ArgumentMatchers.any());
-
-    scheduler.runOnce();
-
-    verify(categoryBackfill, org.mockito.Mockito.never())
-        .classifyAccountNow(
-            org.mockito.ArgumentMatchers.anyLong(),
-            org.mockito.ArgumentMatchers.anyLong(),
-            org.mockito.ArgumentMatchers.any());
   }
 }

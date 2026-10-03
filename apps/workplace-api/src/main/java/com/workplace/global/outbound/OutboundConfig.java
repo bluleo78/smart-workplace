@@ -113,6 +113,25 @@ public class OutboundConfig {
   }
 
   /**
+   * 받은편지함 전체 메일 카테고리 일괄 분류(WP-185 MailCategoryBackfillScheduler) 전용 단일 스레드 실행기.
+   *
+   * <p>한 회차가 25통 묶음 LLM 호출을 최대 20회(회차 상한) 순서대로 부르므로 수 분간 스레드를 점유한다. 단일 스레드인 스프링 스케줄러(자동 동기화·선제 요약
+   * 등이 밀림)나 채팅 AI 디스패치와 공유하는 aiAgentEventExecutor(고갈·거절)에서 돌리지 않도록 분리한다 — mailReanalysisExecutor 와
+   * 같은 이유·크기. core/max 1 이라 LLM 동시 호출이 없고, 겹침은 스케줄러의 running 플래그가 막으므로 queue 1 이면 충분하다.
+   * TenantContext 는 스케줄러가 계정별로 직접 설정하므로 데코레이터를 두지 않는다.
+   */
+  @Bean(name = "mailCategoryBackfillExecutor")
+  public Executor mailCategoryBackfillExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(1);
+    executor.setMaxPoolSize(1);
+    executor.setQueueCapacity(1);
+    executor.setThreadNamePrefix("mail-category-");
+    executor.initialize();
+    return executor;
+  }
+
+  /**
    * 이슈 Instant Context 요약 생성 전용 executor (#517). 요약 HTTP(read 90s)는 스레드를 장시간 점유하므로 경량
    * aiAgentEventExecutor(이벤트 발사)와 공유 금지(공유 시 이벤트 디스패치 고갈). 데코레이터로 TenantContext 전파 → @Async
    * AFTER_COMMIT 핸들러가 워커 스레드에서 트랜잭션 시작 시 GUC 주입(issue_ai_summary RLS fail-closed 회피).
