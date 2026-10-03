@@ -2,7 +2,7 @@
 // 무엇을: 이슈 설명 바로 아래, 첨부를 유형 아이콘 칩으로 가로 나열 + 드롭존.
 // 왜: 사이드바 과밀 해소를 위해 첨부를 본문으로 이동(#343). 항상 보이되 공간 절약.
 // #80: 드라이브 링크 통합 렌더 + "드라이브에서 링크" 버튼 추가.
-// WP-202: 첨부 추가(파일 업로드·드라이브 링크) 권한 = 본문 편집 권한(canUpload). 권한 없는 열람자에겐
+// WP-202: 첨부 추가(파일 업로드·드라이브 링크) 권한 = 본문 편집 권한(canEditContent). 권한 없는 열람자에겐
 //         드롭존·링크 버튼 줄을 통째로 숨겨 403 을 미리 막는다.
 
 import { Cloud } from 'lucide-react';
@@ -21,7 +21,7 @@ export function IssueAttachmentStrip({
   attachmentCount,
   currentUserId,
   isOwner,
-  canUpload,
+  canEditContent,
 }: {
   projectKey: string;
   number: number;
@@ -29,7 +29,7 @@ export function IssueAttachmentStrip({
   currentUserId: number | null;
   isOwner: boolean;
   // 첨부 추가(업로드·드라이브 링크) 가능 여부 — 서버 viewerCanEditContent(멤버/ADMIN 또는 OPEN reporter 본인)와 동일 기준.
-  canUpload: boolean;
+  canEditContent: boolean;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const addLink = useAddIssueDriveLink(projectKey, number);
@@ -40,7 +40,8 @@ export function IssueAttachmentStrip({
 
   // 스페이스 목록에서 PERSONAL 타입 스페이스 조회. queryKey 공유로 useAttachmentDraft 등
   // 동일 이슈 화면에 동시 마운트되는 다른 컴포넌트와 요청이 dedup 된다 (#798).
-  const spacesQuery = useDriveSpaces();
+  // 링크 버튼이 숨겨지는 열람자(편집 권한 없음)는 조회 자체를 생략 — 불필요한 요청·실패 토스트 방지(WP-202).
+  const spacesQuery = useDriveSpaces({ enabled: canEditContent });
   useEffect(() => {
     if (!spacesQuery.isSuccess && !spacesQuery.isError) return;
     if (spacesQuery.isError) {
@@ -70,7 +71,7 @@ export function IssueAttachmentStrip({
         isOwner={isOwner}
         layout="strip"
       />
-      {canUpload && (
+      {canEditContent && (
         <div className="flex flex-wrap items-center gap-2">
           <IssueAttachmentDropzone
             projectKey={projectKey}

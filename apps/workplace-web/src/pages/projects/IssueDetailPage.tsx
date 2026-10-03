@@ -595,7 +595,7 @@ export default function IssueDetailPage() {
                 attachmentCount={summary.attachmentCount}
                 currentUserId={user?.id ?? null}
                 isOwner={isOwner}
-                canUpload={canEditContent}
+                canEditContent={canEditContent}
               />
             </section>
 
