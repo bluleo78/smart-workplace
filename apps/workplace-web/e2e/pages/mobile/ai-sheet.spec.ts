@@ -1,8 +1,31 @@
 // 모바일 AI 시트(WP-191) — 보던 화면 위 바텀 시트, 진입 버튼 생성 중·완료 표시, 대화 전환 보호, 목록 화면 컨텍스트.
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
+import { mockApi } from '../../fixtures/api-mock'
 import { mockHomeChatGeneration } from '../../fixtures/home-chat-mock'
 import { expect, stubChat, test } from '../../fixtures/mobile.fixture'
+
+/**
+ * 대상 요소가 실제로 맨 위에 있는지(가려지지 않았는지) — toBeVisible 은 가림을 보지 않는다.
+ * Radix 모달은 body 에 pointer-events:none 을 걸어 가린 층(시트)이 히트 테스트에서 빠지므로,
+ * 판정하는 순간만 body 의 pointer-events 를 되돌려 쌓임 순서 그대로 elementFromPoint 를 읽는다.
+ */
+async function expectOnTop(page: Page, target: Locator, containerSelector: string) {
+  const b = (await target.boundingBox())!
+  const onTop = await page.evaluate(
+    ([x, y, sel]) => {
+      const prev = document.body.style.pointerEvents
+      document.body.style.pointerEvents = 'auto'
+      try {
+        return document.elementFromPoint(x, y)?.closest(sel) != null
+      } finally {
+        document.body.style.pointerEvents = prev
+      }
+    },
+    [b.x + b.width / 2, b.y + b.height / 2, containerSelector] as const,
+  )
+  expect(onTop).toBe(true)
+}
 
 /** 생성 지연 게이트 — release() 전까지 SSE 프레임을 보류한다. */
 function gate() {
@@ -163,6 +186,8 @@ test('시트에서도 생성 중 ＋새 대화 → 확인창(중단하고 이동
   await page.getByTestId('ai-sheet-new-session').click()
   const guard = page.getByTestId('session-switch-guard')
   await expect(guard).toBeVisible()
+  // 확인창이 시트(z-[60]) 아래에 깔리면 화면이 멈춘 것처럼 보인다 — 실제로 맨 위인지 히트 테스트.
+  await expectOnTop(page, guard.getByRole('button', { name: '중단하고 이동' }), '[data-testid="session-switch-guard"]')
   await guard.getByRole('button', { name: '중단하고 이동' }).click()
   await expect(guard).toHaveCount(0)
   await expect(page.getByTestId('chat-panel')).not.toContainText('모바일 질문')
@@ -206,4 +231,24 @@ test.describe('키보드', () => {
     const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('[data-testid="ai-sheet-layer"]') != null, [tab.x + tab.width / 2, tab.y + tab.height / 2] as const)
     expect(hit).toBe(true)
   })
+})
+
+test('시트 대화 목록의 삭제 확인창도 시트 위에 뜬다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await mockApi(page, 'GET', '/api/v1/home/sessions', {
+    items: [{ id: 's-del', title: '지울 대화', lastMessageAt: '2026-06-10T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  })
+  await page.goto('/chat')
+  await page.getByTestId('mobile-tab-ai').click()
+  await page.getByTestId('ai-sheet-session-switcher').click()
+  await page.getByRole('menu', { name: '대화 목록' }).getByTestId('chat-session-delete').click()
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm).toBeVisible()
+  await expectOnTop(page, confirm.getByRole('button', { name: '취소' }), '[role="alertdialog"]')
+  // 확인창의 딤도 시트 위 — 시트(헤더 영역)를 덮어 흐린다.
+  await expectOnTop(page, page.getByTestId('ai-sheet-session-switcher'), '[data-slot="alert-dialog-overlay"]')
+  await confirm.getByRole('button', { name: '취소' }).click()
+  await expect(confirm).toHaveCount(0)
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
 })

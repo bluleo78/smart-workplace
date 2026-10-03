@@ -14,7 +14,8 @@ import {
 export function SessionSwitchGuardDialog({ open, onWait, onStop }: { open: boolean; onWait: () => void; onStop: () => void }) {
   return (
     <AlertDialog open={open} onOpenChange={(v) => !v && onWait()}>
-      <AlertDialogContent data-testid="session-switch-guard">
+      {/* WP-191: 모바일 AI 시트(z-[60]) 위로 — 딤도 index.css 의 data-ai-confirm 규칙으로 함께 올라간다. */}
+      <AlertDialogContent data-ai-confirm className="z-[80]" data-testid="session-switch-guard">
         <AlertDialogHeader>
           <AlertDialogTitle>답변을 만들고 있어요</AlertDialogTitle>
           <AlertDialogDescription>
