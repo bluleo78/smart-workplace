@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useAssistant } from '@/components/ai/AIAssistantContext'
 import { CountBadge } from '@/components/CountBadge'
+import { useUnreadSummary } from '@/hooks/queries/useMailMessages'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useUnreadCount } from '@/hooks/queries/useUnreadCount'
@@ -16,13 +17,15 @@ import { cn } from '@/lib/utils'
 
 import { useMobileChrome } from './MobileChromeContext'
 
-// 탭별 배지 수 — 채팅 = 채널+DM 미읽음 합, 알림 = 인박스 미읽음. 메일은 합계 API 가 없어 1차 미표시.
+// 탭별 배지 수 — 채팅 = 채널+DM 미읽음 합, 알림 = 인박스 미읽음, 메일 = 모든 계정 업무 안 읽은 수(WP-186).
+// 메일 계정이 없으면 서버가 0 을 돌려주므로 배지가 숨는다.
 function useTabBadges(): Partial<Record<MobileTabId, number>> {
   const { data: channels = [] } = useMyChannels()
   const { data: dms = [] } = useMyDms()
   const { data: inbox = 0 } = useUnreadCount()
+  const { data: mail = 0 } = useUnreadSummary(true)
   const chat = [...channels, ...dms].reduce((s, c) => s + (c.unreadCount ?? 0), 0)
-  return { chat, notifications: inbox }
+  return { chat, notifications: inbox, mail }
 }
 
 /**
