@@ -58,11 +58,11 @@ export const IssueRow = memo(function IssueRow({
   const to = `/projects/${projectKey}/issues/${it.number}`;
   const isMobile = useIsMobile();
   // 모바일: 체크박스 대신 길게 누르기 → 액션 시트, 선택 모드에선 탭=선택 토글(이동 없음).
-  const press = useLongPressCapture(
-    isMobile
-      ? { onLongPress: onLongPress ? () => onLongPress(it) : undefined, onTap: selectionMode ? () => onToggleSelect(it.number) : undefined }
-      : {},
-  );
+  // onLongPress 는 모바일에서만 호출처(useIssueRowActions)가 넘기고, selectionMode 도 모바일에서만 켜진다.
+  const press = useLongPressCapture({
+    onLongPress: onLongPress ? () => onLongPress(it) : undefined,
+    onTap: selectionMode ? () => onToggleSelect(it.number) : undefined,
+  });
 
   // 행 전체가 드래그 소스 — 에픽 패널로 끌어 놓아 에픽을 바꾼다. 활성화 노드=행 자신(지정하지 않으면
   // KeyboardSensor 가 제목 링크 등 자손의 키 입력까지 받아 드래그를 시작한다, #881).

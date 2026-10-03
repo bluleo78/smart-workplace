@@ -76,8 +76,8 @@ function IssueBoardViewInner({
   const updateStatus = useUpdateIssueStatus(projectKey);
   // 카드 길게 누르기 액션 시트(상태·에픽) — 선택 모드 없음. 시트는 컬럼과 형제로 렌더한다.
   const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: statuses as IssueStatus[] });
-  // 비멤버는 열 액션이 없다(open 이 no-op) — 길게 누르기를 달면 클릭·컨텍스트 메뉴만 삼키므로 멤버일 때만 연결.
-  const onCardLongPress = isMobile && canEdit ? cardActions.open : undefined;
+  // open 은 모바일 + 멤버일 때만 값이 있다(아니면 undefined → 길게 누르기 미연결).
+  const onCardLongPress = cardActions.open;
 
   // 그룹 보드는 컬럼(그룹)이 페이지 순서와 무관하게 동적으로 생기므로 컬럼별 스크롤 로드가 불가 →
   // 마지막 페이지까지 순차로 모두 받는다(기존 200건 상한 + "필터로 좁혀주세요" 대체).

@@ -1,7 +1,7 @@
 // 이슈 1건 액션(모바일 길게 누르기) — 목록·보드가 하나씩 소유하고, 행·카드는 open(issue) 만 호출한다(행 memo 유지).
 // 액션 시트 → (상태 | 에픽) 선택 시트 순서로 한 번에 하나만 연다. 변경은 기존 낙관적 mutation(드래그와 같은 경로)을 재사용.
 import { CheckSquare, CircleDot, Layers } from 'lucide-react';
-import { type ReactNode, useCallback, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon';
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet';
@@ -12,17 +12,16 @@ import { useMoveIssueEpic } from '../../../hooks/queries/useMoveIssueEpic';
 import { useProjectEpics } from '../../../hooks/queries/useProjectEpics';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
 import { epicDragBlockReason } from '../../../lib/epicDnd';
-import { ISSUE_STATUS_LABEL } from '../../../lib/issueGrouping';
+import { ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
 import type { IssueResponse, IssueStatus } from '../../../types/issue';
 
 // 「에픽 없음」 선택지 값 — 에픽 번호(양의 정수)와 겹치지 않는 문자열.
 const NO_EPIC = 'none';
-const ALL_STATUSES: IssueStatus[] = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'];
 
 type Open = { issue: IssueResponse; sheet: 'actions' | 'status' | 'epic' } | null;
 
 export function useIssueRowActions({
-  projectKey, canEdit, statuses = ALL_STATUSES, onSelect, isSelected,
+  projectKey, canEdit, statuses = ISSUE_STATUSES, onSelect, isSelected,
 }: {
   projectKey: string;
   /** 프로젝트 멤버 여부 — 아니면 상태·에픽 변경을 노출하지 않는다(서버 assertMember). */
@@ -33,7 +32,7 @@ export function useIssueRowActions({
   onSelect?: (issue: IssueResponse) => void;
   /** 이미 선택된 행인지 — 「선택」 행이 토글이라 선택된 행에서는 「선택 해제」로 보여 준다. */
   isSelected?: (issue: IssueResponse) => boolean;
-}): { open: (issue: IssueResponse) => void; sheets: ReactNode } {
+}): { open: ((issue: IssueResponse) => void) | undefined; sheets: ReactNode } {
   const [state, setState] = useState<Open>(null);
   const updateStatus = useUpdateIssueStatus(projectKey);
   const moveEpic = useMoveIssueEpic(projectKey);
@@ -41,12 +40,19 @@ export function useIssueRowActions({
   // 에픽 목록은 에픽 시트를 열 때만 필요하지만 훅 순서 고정 — 모바일 멤버일 때만 조회(데스크톱 요청 불변).
   const { epics, epicType } = useProjectEpics(projectKey, canEdit && isMobile);
 
-  // 액션이 하나도 없으면(비멤버 + 선택 불가) 열지 않는다. open 은 안정 참조 — 행 memo 가 깨지지 않게.
+  // 모바일이 아니거나 액션이 하나도 없으면(비멤버 + 선택 불가) open 을 주지 않는다(undefined) — 호출처는
+  // onLongPress={open} 을 무조건 넘기면 되고, 행·카드는 핸들러 유무로 길게 누르기 연결 여부를 정한다.
+  // open 은 안정 참조 — 행 memo 가 깨지지 않게.
   const hasAny = canEdit || onSelect != null;
-  const open = useCallback((issue: IssueResponse) => {
-    if (hasAny) setState({ issue, sheet: 'actions' });
-  }, [hasAny]);
+  const enabled = isMobile && hasAny;
+  const open = useMemo(
+    () => (enabled ? (issue: IssueResponse) => setState({ issue, sheet: 'actions' }) : undefined),
+    [enabled],
+  );
   const close = () => setState(null);
+
+  // 데스크톱·액션 없음 — 시트 옵션 배열을 만들 필요 없다.
+  if (!enabled) return { open, sheets: null };
 
   const issue = state?.issue;
   const actions: MobileSheetAction[] = [];

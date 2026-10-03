@@ -52,7 +52,7 @@ export function IssueCard({
 }) {
   const isMobile = useIsMobile();
   // 캡처 단계 click 억제 — 전면 오버레이 <Link> 이동까지 막는다. 모바일·콜백 있을 때만 활성.
-  const press = useLongPressCapture(isMobile && onLongPress ? { onLongPress: () => onLongPress(issue) } : {});
+  const press = useLongPressCapture(onLongPress ? { onLongPress: () => onLongPress(issue) } : {});
   const sortable = useSortable({
     id: dragScope ? `issue-${dragScope}-${issue.id}` : `issue-${issue.id}`,
     // issueNumber/status: 보드 상태 드롭용, issue/source/showType: 에픽 드롭·오버레이용(IssueDragData).

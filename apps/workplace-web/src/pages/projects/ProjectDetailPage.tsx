@@ -128,11 +128,11 @@ function IssueArea({
   projectKey: string;
   onOpenCreate?: () => void;
   canDragStatus?: boolean;
-  canEdit?: boolean;
+  canEdit: boolean;
 }) {
   return (
     <IssueDndProvider projectKey={projectKey}>
-      <ProjectIssuesSection projectKey={projectKey} onOpenCreate={onOpenCreate} canDragStatus={canDragStatus} canEdit={canEdit ?? canDragStatus} />
+      <ProjectIssuesSection projectKey={projectKey} onOpenCreate={onOpenCreate} canDragStatus={canDragStatus} canEdit={canEdit} />
     </IssueDndProvider>
   );
 }

@@ -32,15 +32,23 @@ import {
 } from '../../../hooks/queries/useBulkIssueActions';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useIsMobile } from '../../../hooks/useIsMobile';
+import { ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
 import type { IssueStatus } from '../../../types/issue';
 
 // 상태 일괄 변경 드롭다운 옵션 — IssueStatusSelect 와 동일한 라벨 세트.
-const STATUS_OPTIONS: { value: IssueStatus; label: string }[] = [
-  { value: 'TODO', label: '할 일' },
-  { value: 'IN_PROGRESS', label: '진행 중' },
-  { value: 'DONE', label: '완료' },
-  { value: 'CANCELED', label: '취소' },
-];
+const STATUS_OPTIONS: { value: IssueStatus; label: string }[] = ISSUE_STATUSES.map((value) => ({
+  value,
+  label: ISSUE_STATUS_LABEL[value],
+}));
+
+/**
+ * 모바일 고정 바(+하단 탭바) 높이만큼의 여백 — 목록 맨 아래 행이 바에 가리지 않게 목록 끝에 둔다.
+ * 바는 목록 위에 렌더되지만 fixed 라 흐름 밖이므로, 여백은 목록 끝에서 호출처가 따로 둔다. 모바일·선택 중에만 렌더.
+ */
+export function BulkBarSpacer({ active }: { active: boolean }) {
+  const isMobile = useIsMobile();
+  return isMobile && active ? <div aria-hidden className="h-[calc(4rem+env(safe-area-inset-bottom))]" /> : null;
+}
 
 /** 선택이 있을 때만 툴바를 노출한다. 삭제 확인 다이얼로그는 포털이라 항상 마운트해 둔다. */
 export function IssueBulkActions({

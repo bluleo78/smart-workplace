@@ -17,7 +17,7 @@ import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilter
 import { groupIssues } from '../../../lib/issueGrouping';
 import type { IssueClientGroupBy, IssueFilters } from '../../../types/issue';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
-import { IssueBulkActions } from './IssueBulkActions';
+import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
 import { ISSUE_LIST_COLUMN_COUNT, ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
 
@@ -175,7 +175,7 @@ export function IssueListView({
                     canDrag={canDrag}
                     // 다중 담당자 이슈는 여러 그룹에 보이므로 그룹별로 드래그 id 를 구분한다.
                     dragScope={g.key}
-                    onLongPress={isMobile ? rowActions.open : undefined}
+                    onLongPress={rowActions.open}
                     selectionMode={isMobile && selected.size > 0}
                   />
                 ))}
@@ -191,7 +191,7 @@ export function IssueListView({
                   selected={selected.has(it.number)}
                   onToggleSelect={toggleSelected}
                   canDrag={canDrag}
-                  onLongPress={isMobile ? rowActions.open : undefined}
+                  onLongPress={rowActions.open}
                   selectionMode={isMobile && selected.size > 0}
                 />
               ))}
@@ -202,7 +202,7 @@ export function IssueListView({
         <LoadMoreFooter query={searchQuery} root={scrollEl} data-testid="issue-list-more" />
       </div>
       {/* 모바일 일괄 작업 바(fixed, 약 56px)가 마지막 행을 가리지 않게 같은 높이만큼 비운다. */}
-      {isMobile && selected.size > 0 && <div aria-hidden className="h-[calc(4rem+env(safe-area-inset-bottom))]" />}
+      <BulkBarSpacer active={selected.size > 0} />
       {/* 액션 시트는 표 밖 형제로 — 행 안에 두면 시트 클릭이 행 이벤트로 새어 든다. */}
       {rowActions.sheets}
     </div>

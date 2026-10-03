@@ -14,7 +14,7 @@ import { filtersToParams } from '../../../lib/issueFilters';
 import type { CycleProgress } from '../../../types/cycle';
 import type { IssueFilters } from '../../../types/issue';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
-import { IssueBulkActions } from './IssueBulkActions';
+import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { CycleSectionColumnHead, CycleSectionSkeletonRows, IssueCycleSection } from './IssueCycleSection';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
 
@@ -129,13 +129,13 @@ export function IssueCycleGroupedList({
             selected={selected}
             onToggleSelect={toggleSelected}
             canDrag={canDrag}
-            onLongPress={isMobile ? rowActions.open : undefined}
+            onLongPress={rowActions.open}
             selectionMode={isMobile && selected.size > 0}
           />
         ))}
       </div>
       {/* 모바일 일괄 작업 바(fixed, 약 56px)가 마지막 행을 가리지 않게 같은 높이만큼 비운다. */}
-      {isMobile && selected.size > 0 && <div aria-hidden className="h-[calc(4rem+env(safe-area-inset-bottom))]" />}
+      <BulkBarSpacer active={selected.size > 0} />
       {rowActions.sheets}
     </div>
   );

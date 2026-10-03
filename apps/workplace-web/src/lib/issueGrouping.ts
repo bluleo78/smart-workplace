@@ -42,6 +42,9 @@ const toOrder = (labels: Record<string, string>) => Object.entries(labels).map((
 // 상태 버킷: enum 순서로 고정, 빈 버킷도 항상 노출(칸반 컬럼 관례).
 const STATUS_ORDER: { key: string; label: string }[] = toOrder(ISSUE_STATUS_LABEL);
 
+// 상태 전체 목록(정의 순서) — 시트·드롭다운 등 선택지를 라벨 맵 하나에서 파생한다.
+export const ISSUE_STATUSES = Object.keys(ISSUE_STATUS_LABEL) as IssueStatus[];
+
 // 상태 한글 라벨 — 버킷 밖에서 상태명을 읽을 때(드래그 스크린리더 안내 등). 모르는 값은 그대로.
 export function statusLabel(status: string): string {
   return Object.hasOwn(ISSUE_STATUS_LABEL, status) ? ISSUE_STATUS_LABEL[status as IssueStatus] : status;
