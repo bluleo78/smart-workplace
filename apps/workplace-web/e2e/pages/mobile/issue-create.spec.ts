@@ -89,6 +89,8 @@ test.describe('생성 시트', () => {
     const dlg = page.getByTestId('issue-create-discard-dialog');
     await expect(dlg).toContainText('작성 중인 내용을 버릴까요?');
     await page.getByTestId('issue-create-discard-keep').click();
+    // 확인창 닫힘 애니메이션(200ms) 중엔 그 레이어가 Esc 를 먼저 받으므로 완전히 사라진 뒤 Esc 를 누른다
+    await expect(dlg).toBeHidden();
     await expect(sheet).toBeVisible();
     await expect(page.getByTestId('issue-create-title')).toHaveValue('작성 중');
     await page.keyboard.press('Escape');
