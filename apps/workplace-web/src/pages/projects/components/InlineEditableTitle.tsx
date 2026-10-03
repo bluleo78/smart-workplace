@@ -4,7 +4,7 @@
 // 왜: 오타·제목 수정을 위해 이슈를 삭제·재생성해야 하는 불편 해소 (#117).
 //     이슈 상세 페이지와 개인 작업 드로어가 동일 편집 UI 를 공유하도록 공용화 (#718).
 import { Pencil } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -67,7 +67,8 @@ export function InlineEditableTitle({
     });
   };
 
-  const cancel = () => setEditing(false);
+  // 취소 — 편집 바 컨트롤 effect 의 deps 에 들어가므로 안정 참조로 둔다.
+  const cancel = useCallback(() => setEditing(false), []);
 
   // 편집 바에 넘긴 컨트롤이 항상 최신 commit 을 부르도록 ref 경유.
   const commitRef = useRef(commit);
@@ -78,9 +79,9 @@ export function InlineEditableTitle({
   // 보내면 다른 편집기(본문)의 effect 가 deps(disabled=update.isPending) 변화로 재실행될 때 제목의 바를 지워버린다.
   useEffect(() => {
     if (!onEditingChange || !editing) return;
-    onEditingChange({ save: () => commitRef.current(), cancel: () => setEditing(false), disabled });
+    onEditingChange({ save: () => commitRef.current(), cancel, disabled });
     return () => onEditingChange(null);
-  }, [editing, disabled, onEditingChange]);
+  }, [editing, disabled, cancel, onEditingChange]);
 
   if (!editing) {
     return (

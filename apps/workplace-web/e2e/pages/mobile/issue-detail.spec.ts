@@ -61,7 +61,8 @@ async function mockDetail(page: Page, over: Partial<IssueResponse> = {}, body = 
     record(r);
     return r.fulfill(json(r.request().url().endsWith('/assignees') ? [] : createIssueDetail({ summary: issue, body })));
   });
-  await page.route((u) => u.pathname === `${BASE}/comments`, (r) => {
+  // 코멘트 API 는 issueId 기반 글로벌 경로(/issues/{id}/comments — api/issueComments.ts).
+  await page.route((u) => u.pathname === `/api/v1/issues/${issue.id}/comments`, (r) => {
     if (r.request().method() === 'POST') record(r);
     return r.fulfill(json(r.request().method() === 'POST'
       ? { id: 1, body: 'c', authorId: 1, authorKind: 'HUMAN', authorName: '양동희', createdAt: new Date().toISOString() }
@@ -305,12 +306,14 @@ test.describe('하단 코멘트 입력·편집 바', () => {
       el.addEventListener('focusout', () => { (window as unknown as { __blurs: number }).__blurs++; }, true);
     });
     await page.getByTestId('issue-comment-submit').click();
-    await expect.poll(() => calls.some((c) => c.method === 'POST' && c.path.endsWith('/comments'))).toBe(true);
+    await expect.poll(() => calls.some((c) => c.method === 'POST' && c.path === '/api/v1/issues/7/comments')).toBe(true);
     await expect.poll(() => editor.evaluate((el) => el.contains(document.activeElement) || el === document.activeElement)).toBe(true);
     expect(await page.evaluate(() => (window as unknown as { __blurs: number }).__blurs)).toBe(0);
     for (let i = 0; i < 8; i++) await page.keyboard.press('Shift+Enter');
     const h = (await editor.boundingBox())!.height;
     expect(h).toBeLessThanOrEqual(114);
+    // 높이만 잘린 게 아니라 실제로 내용이 넘쳐 내부 스크롤이 생겼는지.
+    expect(await editor.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
   });
 
   test('제목 편집 중엔 코멘트 대신 [취소·저장] 바 — 저장은 PATCH 1회', async ({ authenticatedPage: page }) => {
@@ -318,7 +321,8 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await openDetail(page);
     await page.getByTestId('issue-title-edit').click();
     await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
-    await expect(page.getByTestId('issue-comment-input')).toHaveCount(0);
+    // 작성창은 언마운트하지 않고 숨긴다(초안 보존).
+    await expect(page.getByTestId('issue-comment-input')).toBeHidden();
     await page.getByTestId('issue-title-input').fill('새 제목');
     await page.getByTestId('mobile-edit-save').click();
     await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
@@ -360,5 +364,59 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await page.getByTestId('issue-body-textarea').fill('바뀐 본문');
     await page.getByTestId('mobile-edit-save').click();
     await expect.poll(() => calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({ body: '바뀐 본문' });
+    await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
+    await expect(page.getByTestId('issue-comment-input')).toBeVisible();
+    // 부재 확인(중복 저장 없음) — 늦게 올 수 있는 두 번째 PATCH 를 잠시 기다린다.
+    await page.waitForTimeout(300);
+    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
   });
+
+  test('편집 바로 바뀌어도 쓰던 코멘트 초안은 남는다', async ({ authenticatedPage: page }) => {
+    await mockDetail(page);
+    await openDetail(page);
+    await page.getByTestId('issue-comment-input').click();
+    await page.keyboard.type('쓰다 만 코멘트');
+    await page.getByTestId('issue-title-edit').click();
+    await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
+    await page.getByTestId('mobile-edit-cancel').click();
+    await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
+    await expect(page.getByTestId('issue-comment-input')).toHaveText('쓰다 만 코멘트');
+  });
+
+  // 모바일 제목은 blur 저장이 없어 본문을 탭해도 편집이 유지된다 — 두 편집기가 동시에 열린 상태에서
+  // 나중에 연 쪽을 저장하면 바가 먼저 연 쪽으로 넘어가고, 그것까지 끝나야 작성창이 돌아온다.
+  for (const order of ['title→body', 'body→title'] as const) {
+    test(`제목·본문 동시 편집(${order}) — 나중 쪽 저장 후 바가 먼저 쪽을 저장한다`, async ({ authenticatedPage: page }) => {
+      const calls = await mockDetail(page);
+      await openDetail(page);
+      const openTitle = async () => {
+        await page.getByTestId('issue-title-edit').click();
+        await page.getByTestId('issue-title-input').fill('동시 편집 제목');
+      };
+      const openBody = async () => {
+        await page.getByRole('button', { name: '본문 편집' }).click();
+        await page.getByTestId('issue-body-textarea').fill('동시 편집 본문');
+      };
+      const [first, second] = order === 'title→body' ? [openTitle, openBody] : [openBody, openTitle];
+      const [firstField, secondField] = order === 'title→body' ? ['title', 'body'] : ['body', 'title'];
+      await first();
+      await second();
+      const patches = () => calls.filter((c) => c.method === 'PATCH');
+
+      await page.getByTestId('mobile-edit-save').click();
+      await expect.poll(() => patches().length).toBe(1);
+      expect(patches()[0].body).toHaveProperty(secondField);
+      expect(patches()[0].body).not.toHaveProperty(firstField);
+      // 먼저 연 편집기가 아직 편집 중 — 바가 남아 그쪽 저장 경로가 된다.
+      await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
+      await expect(page.getByTestId('mobile-edit-save')).toBeEnabled();
+      await page.getByTestId('mobile-edit-save').click();
+      await expect.poll(() => patches().length).toBe(2);
+      expect(patches()[1].body).toMatchObject(
+        firstField === 'title' ? { title: '동시 편집 제목' } : { body: '동시 편집 본문' },
+      );
+      await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
+      await expect(page.getByTestId('issue-comment-input')).toBeVisible();
+    });
+  }
 });

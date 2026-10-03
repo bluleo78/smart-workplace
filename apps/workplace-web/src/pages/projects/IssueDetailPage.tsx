@@ -106,7 +106,8 @@ function isFromInteractiveDescendant(e: React.SyntheticEvent<HTMLElement>): bool
 }
 
 // 본문 인라인 편집 — 표시(prose)와 편집(textarea) 토글.
-// 무엇을: 본문 영역을 연필로 textarea 로 전환, blur·Cmd/Ctrl+Enter 저장, Escape 취소.
+// 무엇을: 본문 영역을 클릭해 textarea 로 전환, 저장 버튼·Cmd/Ctrl+Enter 저장(blur 저장 없음), Escape 취소.
+// 모바일은 저장/취소 버튼 대신 하단 편집 바(onEditingChange)가 저장 경로(WP-196).
 // 빈 본문은 허용(스키마는 max 길이만 제약). 변화 없으면 PATCH 생략.
 function InlineEditableBody({
   body,
@@ -406,8 +407,15 @@ export default function IssueDetailPage() {
   const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
   // 모바일 ⋯ 메뉴 항목 문구 — 메뉴 안에선 동작("구독하기")·상태("구독 중 · n명")를 글자로 풀어 쓴다(U3-R6). 데스크톱은 기존 버튼 그대로.
   const isMobile = useIsMobile();
-  // 모바일 하단 편집 바(WP-196) — 제목·본문 편집 중이면 그 편집기의 저장·취소 컨트롤, 아니면 null(코멘트 입력).
-  const [editControls, setEditControls] = useState<EditBarControls | null>(null);
+  // 모바일 하단 편집 바(WP-196) — 제목·본문은 동시에 편집 중일 수 있다(모바일 제목은 blur 저장이 없어 본문을 탭해도 편집 유지).
+  // 그래서 편집기별 슬롯을 따로 두고, 마지막에 편집을 시작한 쪽 컨트롤을 보여주되 그쪽이 끝나면 남은 편집기로 넘어간다.
+  // 한 슬롯만 쓰면 먼저 끝난 쪽의 cleanup(null)이 다른 편집기의 저장·취소 경로까지 지워버린다.
+  const [titleControls, setTitleControls] = useState<EditBarControls | null>(null);
+  const [bodyControls, setBodyControls] = useState<EditBarControls | null>(null);
+  // 마지막 편집 진입 — onEditStart 에서만 갱신(컨트롤 재전송은 disabled 변화로도 일어나므로 기준으로 쓰지 않는다).
+  const [lastEditor, setLastEditor] = useState<'title' | 'body'>('title');
+  const editControls =
+    lastEditor === 'title' ? (titleControls ?? bodyControls) : (bodyControls ?? titleControls);
   // 모바일 「＋ 속성」 시트 open 상태 — 칩 줄의 「＋ 속성」 버튼이 열고, 아래 MobileSheetShell(issue-more-props-sheet)이 이 값으로 열림/닫힘을 제어한다.
   const [moreOpen, setMoreOpen] = useState(false);
   const watcherCount = watchers.data?.length ?? 0;
@@ -680,10 +688,13 @@ export default function IssueDetailPage() {
                 <InlineEditableTitle
                   title={summary.title}
                   onSave={(t) => patch({ title: t, version: titleBaseVersion.current })}
-                  onEditStart={() => (titleBaseVersion.current = summary.version)}
+                  onEditStart={() => {
+                    titleBaseVersion.current = summary.version;
+                    setLastEditor('title');
+                  }}
                   disabled={!canEditContent || update.isPending}
                   commitOnBlur={!isMobile}
-                  onEditingChange={isMobile ? setEditControls : undefined}
+                  onEditingChange={isMobile ? setTitleControls : undefined}
                 />
               </h1>
               {isMobile ? (
@@ -731,12 +742,15 @@ export default function IssueDetailPage() {
               <InlineEditableBody
                 body={body}
                 onSave={(b) => patch({ body: b, version: bodyBaseVersion.current })}
-                onEditStart={() => (bodyBaseVersion.current = summary.version)}
+                onEditStart={() => {
+                  bodyBaseVersion.current = summary.version;
+                  setLastEditor('body');
+                }}
                 disabled={!canEditContent || update.isPending}
                 projectKey={key}
                 issueNumber={issueNumber}
                 hideActions={isMobile}
-                onEditingChange={isMobile ? setEditControls : undefined}
+                onEditingChange={isMobile ? setBodyControls : undefined}
               />
               {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
               <IssueAttachmentStrip
@@ -787,9 +801,9 @@ export default function IssueDetailPage() {
           bottom safe-area 는 셸 <main> 이 준다. 제목·본문 편집 중엔 코멘트 입력 대신 [취소·저장] 바. */}
       {isMobile && (
         <div className="shrink-0 border-t bg-background px-4 py-2" data-testid="mobile-bottom-bar">
-          {editControls ? (
-            <MobileEditBar controls={editControls} />
-          ) : (
+          {editControls && <MobileEditBar controls={editControls} />}
+          {/* 편집 바가 떠 있는 동안에도 작성창은 언마운트하지 않고 숨긴다 — 쓰던 코멘트 초안·이탈 경고 상태 보존. */}
+          <div hidden={editControls != null}>
             <IssueCommentComposer
               projectKey={key}
               issueNumber={issueNumber}
@@ -797,7 +811,7 @@ export default function IssueDetailPage() {
               editorMaxHeightClass="max-h-28"
               keepFocusOnSubmit
             />
-          )}
+          </div>
         </div>
       )}
       {/* 모바일 「＋ 속성」 시트(WP-196) — 칩에 없는 유형·일정·분류·의존성·커스텀 필드. 데스크톱 레일과 같은 컴포넌트(variant=sheet). */}
