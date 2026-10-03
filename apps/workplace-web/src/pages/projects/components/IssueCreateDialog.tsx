@@ -154,7 +154,7 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
-            <Button type="submit" disabled={f.isSubmitting}>{f.isSubmitting ? '생성 중…' : '생성'}</Button>
+            <Button type="submit" disabled={f.isSubmitting}>{f.isCreating ? '생성 중…' : '생성'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

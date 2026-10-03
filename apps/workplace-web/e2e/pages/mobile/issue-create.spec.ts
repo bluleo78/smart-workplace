@@ -103,3 +103,127 @@ test.describe('생성 시트', () => {
     await expect(sheet).toBeVisible();
   });
 });
+
+test.describe('생성 칩 줄', () => {
+  test('칩 줄은 가로 스크롤 한 줄, 페이지 넘침 없음', async ({ authenticatedPage: page }) => {
+    await mockCreate(page);
+    await openSheet(page);
+    const row = page.getByTestId('issue-create-chips');
+    for (const k of ['type', 'priority', 'assignee', 'due', 'epic', 'ai', 'more']) await expect(row.getByTestId(`create-chip-${k}`)).toBeAttached();
+    const tops = await row.locator('[data-testid^="create-chip-"]').evaluateAll((els) => new Set(els.map((e) => Math.round(e.getBoundingClientRect().top))).size);
+    expect(tops).toBe(1);
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test('칩 탭 → 키보드 내림(포커스 해제) → 시트 → 선택 후 제목 칸 포커스 복귀', async ({ authenticatedPage: page }) => {
+    const posts = await mockCreate(page);
+    await openSheet(page);
+    const title = page.getByTestId('issue-create-title');
+    await title.fill('우선순위 높은 이슈');
+    await expect(title).toBeFocused();
+    await page.getByTestId('create-chip-priority').click();
+    await expect(page.getByTestId('create-priority-sheet')).toBeVisible();
+    await expect(title).not.toBeFocused();
+    await page.getByTestId('create-priority-sheet').getByTestId('picker-option-HIGH').click();
+    await expect(page.getByTestId('create-priority-sheet')).toHaveCount(0);
+    await expect(title).toBeFocused();
+    await expect(page.getByTestId('create-chip-priority')).toContainText('높음');
+    await page.getByTestId('issue-create-submit').click();
+    await expect.poll(() => posts.length).toBe(1);
+    expect(posts[0]).toMatchObject({ priority: 'HIGH' });
+  });
+
+  test('담당자·마감·에픽·시작일이 페이로드에 실린다', async ({ authenticatedPage: page }) => {
+    const posts = await mockCreate(page);
+    await openSheet(page);
+    await page.getByTestId('issue-create-title').fill('속성 많은 이슈');
+    await page.getByTestId('create-chip-assignee').click();
+    await page.getByTestId('multi-option-2').click();
+    await page.getByTestId('create-assignee-sheet-done').click();
+    await expect(page.getByTestId('create-chip-assignee')).toContainText('김개발');
+    await page.getByTestId('create-chip-due').click();
+    await page.getByTestId('create-due-sheet-tomorrow').click();
+    await page.getByTestId('create-chip-epic').click();
+    await page.getByTestId('create-epic-sheet').getByTestId('picker-option-50').click();
+    await expect(page.getByTestId('create-chip-epic')).toContainText('결제 개편 에픽');
+    const title = page.getByTestId('issue-create-title');
+    await title.focus();
+    await page.getByTestId('create-chip-more').click();
+    await page.getByTestId('mobile-action-start').click();
+    // ⋯ → 시작일: 날짜 시트가 떠 있는 동안 제목은 포커스 없음(시트·키보드 동시 금지), 고른 뒤 제목으로 복귀.
+    await expect(page.getByTestId('create-start-sheet')).toBeVisible();
+    await expect(title).not.toBeFocused();
+    await page.getByTestId('create-start-sheet-today').click();
+    await expect(title).toBeFocused();
+    await page.getByTestId('issue-create-submit').click();
+    await expect.poll(() => posts.length).toBe(1);
+    expect(posts[0]).toMatchObject({ assigneeIds: [2], parentNumber: 50 });
+    expect(posts[0].dueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(posts[0].startDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  test('⋯ 시트를 액션 없이 닫으면 제목 칸으로 포커스 복귀', async ({ authenticatedPage: page }) => {
+    await mockCreate(page);
+    await openSheet(page);
+    const title = page.getByTestId('issue-create-title');
+    await title.fill('제목');
+    await page.getByTestId('create-chip-more').click();
+    await expect(page.getByTestId('create-more-sheet')).toBeVisible();
+    await expect(title).not.toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('create-more-sheet')).toHaveCount(0);
+    await expect(title).toBeFocused();
+    await expect(page.getByTestId('issue-create-sheet')).toBeVisible();
+  });
+
+  test('에픽을 고른 뒤 유형을 하위 태스크로 바꾸면 에픽은 빠지고 상위 번호 입력이 생긴다', async ({ authenticatedPage: page }) => {
+    const posts = await mockCreate(page);
+    await openSheet(page);
+    await page.getByTestId('issue-create-title').fill('하위 작업');
+    await page.getByTestId('create-chip-epic').click();
+    await page.getByTestId('picker-option-50').click();
+    await page.getByTestId('create-chip-type').click();
+    // systemTypes() 의 SUBTASK = id 5, 라벨 = getIssueTypeLabel('SUBTASK')(「하위 태스크」).
+    await page.getByTestId('create-type-sheet').getByRole('option', { name: '하위 태스크' }).click();
+    await expect(page.getByTestId('create-chip-type')).toContainText('하위 태스크');
+    await expect(page.getByTestId('create-chip-epic')).toHaveCount(0);
+    await page.getByTestId('create-chip-more').click();
+    await page.getByTestId('mobile-action-parent').click();
+    const parent = page.getByTestId('create-parent-number');
+    await expect(parent).toBeFocused();
+    await parent.fill('7');
+    await page.getByTestId('issue-create-submit').click();
+    await expect.poll(() => posts.length).toBe(1);
+    expect(posts[0]).toMatchObject({ parentNumber: 7, typeId: 5 });
+  });
+
+  test('✦ AI 제안 — 유형·우선순위 반영, 이유 표시, 제목 포커스 유지', async ({ authenticatedPage: page }) => {
+    await mockCreate(page);
+    await openSheet(page);
+    const title = page.getByTestId('issue-create-title');
+    await title.fill('결제 버튼 누르면 500 오류');
+    await page.getByTestId('create-chip-ai').click();
+    await expect(page.getByTestId('create-chip-priority')).toContainText('높음');
+    await expect(page.getByTestId('create-chip-type')).toContainText('버그');
+    await expect(page.getByTestId('create-ai-reason')).toContainText('버그');
+    await expect(title).toBeFocused();
+  });
+
+  test('개인 프로젝트는 유형·에픽 칩이 없다', async ({ authenticatedPage: page }) => {
+    const PKEY = 'PME';
+    await stubChat(page);
+    await page.route(`**/api/v1/projects/${PKEY}`, (r) => r.fulfill(json(createProject({ id: 7, key: PKEY, name: '개인 작업', type: 'PERSONAL', isDefault: true }))));
+    await page.route((u) => u.pathname === `/api/v1/projects/${PKEY}/types`, (r) => r.fulfill(json(systemTypes())));
+    await page.route((u) => u.pathname === `/api/v1/projects/${PKEY}/members`, (r) => r.fulfill(json([])));
+    await page.route((u) => u.pathname === `/api/v1/projects/${PKEY}/issues`, (r) => r.fulfill(json(createIssueSearchResponse([], null))));
+    for (const p of [`/api/v1/projects/${PKEY}/labels`, `/api/v1/projects/${PKEY}/cycles`, `/api/v1/projects/${PKEY}/saved-views`]) {
+      await page.route((u) => u.pathname === p, (r) => r.fulfill(json([])));
+    }
+    await page.goto(`/projects/${PKEY}`);
+    await page.getByRole('button', { name: '빠른 추가', exact: true }).click();
+    await expect(page.getByTestId('issue-create-sheet')).toBeVisible();
+    await expect(page.getByTestId('create-chip-priority')).toBeVisible();
+    await expect(page.getByTestId('create-chip-type')).toHaveCount(0);
+    await expect(page.getByTestId('create-chip-epic')).toHaveCount(0);
+  });
+});

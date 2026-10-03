@@ -10,8 +10,11 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { useFocusReturn } from '@/hooks/useFocusReturn';
 
+import { formatDateMonthDay } from '../../../../lib/formatters';
 import { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
+import { CreateIssueChips } from './CreateIssueChips';
 
 type Props = { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean; initialTypeId?: number };
 
@@ -20,6 +23,18 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
   const { register, watch, formState: { errors } } = f.form;
   const { bodyRef, bodyField } = f;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // 칩 → 시트 → 직전 입력칸 포커스 복귀(키보드 원칙 ③). 칩 줄과 본문 인라인 입력이 함께 쓴다.
+  const focusReturn = useFocusReturn();
+  // SUBTASK 상위 번호 인라인 입력 노출 — ⋯ 시트 「상위 이슈 번호」로 켠다. 열릴 때마다 닫힌 상태로 시작(렌더 중 상태 조정, effect 불필요).
+  const [showParent, setShowParent] = useState(false);
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) setShowParent(false);
+  }
+  // 상위 번호를 안 넣고 생성해 zod 오류가 나면 숨은 칸에 묻히지 않도록 입력을 드러낸다.
+  const parentVisible = f.isSubtaskSelected && (showParent || !!errors.parentNumber);
+  const startDate = watch('startDate');
   const title = watch('title') ?? '';
   const body = watch('body') ?? '';
   // 닫기 요청 공통 경로 — 내용이 있으면 확인, 없으면 바로 닫는다(취소 버튼·Esc).
@@ -50,7 +65,7 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
               <Button type="button" variant="ghost" className="h-11 px-3" onClick={requestClose} data-testid="issue-create-cancel">취소</Button>
               <DialogPrimitive.Title className="text-[17px] font-semibold">새 이슈</DialogPrimitive.Title>
               <Button type="submit" className="h-11 px-4" disabled={!title.trim() || f.isSubmitting} data-testid="issue-create-submit">
-                {f.isSubmitting ? '생성 중…' : '생성'}
+                {f.isCreating ? '생성 중…' : '생성'}
               </Button>
             </header>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
@@ -74,10 +89,28 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                 onPaste={f.images.onPaste}
                 className="w-full resize-none overflow-hidden bg-transparent text-base leading-6 outline-none placeholder:text-muted-foreground"
               />
-              {/* Task 6: 상위 번호 인라인 입력·AI 제안 이유·시작일 표시가 여기 들어온다. */}
+              {parentVisible && (
+                <div className="space-y-1">
+                  <label htmlFor="create-parent-number" className="text-xs font-medium text-muted-foreground">상위 이슈 번호</label>
+                  <input
+                    id="create-parent-number"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    autoFocus
+                    data-testid="create-parent-number"
+                    {...register('parentNumber', { valueAsNumber: true })}
+                    className="h-11 w-full rounded-md border bg-background px-3 text-base"
+                  />
+                  {errors.parentNumber && <p className="text-sm text-destructive">{errors.parentNumber.message}</p>}
+                </div>
+              )}
+              {startDate && <p className="text-sm text-muted-foreground">시작일 {formatDateMonthDay(startDate)}</p>}
+              {errors.startDate && <p className="text-sm text-destructive">{errors.startDate.message}</p>}
+              {f.classifyReason && <p data-testid="create-ai-reason" className="line-clamp-2 text-xs text-muted-foreground">✦ {f.classifyReason}</p>}
             </div>
             <div className="min-h-14 shrink-0 border-t bg-background" data-testid="issue-create-chips">
-              {/* Task 6: CreateIssueChips */}
+              <CreateIssueChips projectKey={projectKey} personal={personal} f={f} focusReturn={focusReturn} onShowParent={() => setShowParent(true)} />
             </div>
           </form>
         </DialogPrimitive.Content>

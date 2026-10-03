@@ -140,7 +140,9 @@ export function useIssueCreateForm({
     form, types, selectedType, isSubtaskSelected, isEpicSelected,
     classify, classifyReason, handleClassify, images, bodyRef, bodyField,
     onSubmit: handleSubmit(submit),
+    // 버튼 비활성 = 생성 요청 중 또는 이미지 업로드 중. 「생성 중…」 문구는 실제 생성 요청 중일 때만(isCreating) — 업로드 중엔 「생성」 유지.
     isSubmitting: create.isPending || images.isUploading,
+    isCreating: create.isPending,
     hasContent, epicNumber, setEpicNumber,
   };
 }
