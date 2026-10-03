@@ -18,8 +18,8 @@ import org.springframework.stereotype.Repository;
 /**
  * 이슈 본문 이미지 매핑(issue_body_image) 저장소 — WP-199.
  *
- * <p>수명은 file.expires_at 으로 관리한다: 업로드 직후 임시(만료 있음) → 저장 시 연결(만료 해제) → 본문에서 빠지면 강등(유예 후 만료 재무장).
- * 실제 삭제는 FileCleanupService 스윕이 하고 매핑은 CASCADE 로 사라진다. 위키(WikiAttachmentRepository, #759)와 같은 모델이다.
+ * <p>수명은 file.expires_at 으로 관리한다: 업로드 직후 임시(만료 있음) → 저장 시 연결(만료 해제) → 본문에서 빠지면 강등(유예 후 만료 재무장). 실제
+ * 삭제는 FileCleanupService 스윕이 하고 매핑은 CASCADE 로 사라진다. 위키(WikiAttachmentRepository, #759)와 같은 모델이다.
  */
 @Repository
 public class IssueBodyImageRepository {
@@ -67,9 +67,9 @@ public class IssueBodyImageRepository {
   /**
    * 본문에 적힌 fileId 중 이 이슈에 연결해도 되는 것만 골라 file 행을 잠근다.
    *
-   * <p>대상: 같은 프로젝트이면서 (내가 올린 미연결 임시 파일) 또는 (이미 이 이슈에 연결된 파일). 남의 임시 파일·다른 프로젝트·다른 도메인(채팅·드라이브)
-   * 파일은 매핑이 없거나 조건이 맞지 않아 빠진다. FOR UPDATE: 정리 스윕은 SKIP LOCKED 라 잠근 행을 건너뛰고, 스윕이 먼저 잡았으면 여기서 기다렸다가
-   * 행이 사라진 상태로 재평가돼 결과에서 빠진다 — 그래서 이후 claim 은 살아 있는 행만 대상으로 한다.
+   * <p>대상: 같은 프로젝트이면서 (내가 올린 미연결 임시 파일) 또는 (이미 이 이슈에 연결된 파일). 남의 임시 파일·다른 프로젝트·다른 도메인(채팅·드라이브) 파일은
+   * 매핑이 없거나 조건이 맞지 않아 빠진다. FOR UPDATE: 정리 스윕은 SKIP LOCKED 라 잠근 행을 건너뛰고, 스윕이 먼저 잡았으면 여기서 기다렸다가 행이
+   * 사라진 상태로 재평가돼 결과에서 빠진다 — 그래서 이후 claim 은 살아 있는 행만 대상으로 한다.
    */
   public List<Long> lockClaimable(
       long projectId, long issueId, long callerId, Collection<Long> fileIds) {
@@ -135,8 +135,8 @@ public class IssueBodyImageRepository {
   /**
    * 주어진 fileId 중 이슈 이미지이면서, 같은 프로젝트의 삭제되지 않은 이슈 본문 어디서든 아직 참조되는 것.
    *
-   * <p>본문을 복사해 다른 이슈에 붙여넣은 이미지는 원본 이슈 매핑으로 서빙되므로, 원본에서 빠졌다고 지우면 사본이 깨진다. 스윕 시점에만 호출되므로 본문 정규식
-   * 스캔 비용을 감당할 수 있다. 정규식 끝의 ([^0-9]|$) 는 /issue-images/12 가 123 에 매칭되는 것을 막는다.
+   * <p>본문을 복사해 다른 이슈에 붙여넣은 이미지는 원본 이슈 매핑으로 서빙되므로, 원본에서 빠졌다고 지우면 사본이 깨진다. 스윕 시점에만 호출되므로 본문 정규식 스캔
+   * 비용을 감당할 수 있다. 정규식 끝의 ([^0-9]|$) 는 /issue-images/12 가 123 에 매칭되는 것을 막는다.
    */
   public Set<Long> stillReferencedAnywhere(Collection<Long> fileIds) {
     if (fileIds.isEmpty()) return Set.of();
@@ -157,8 +157,7 @@ public class IssueBodyImageRepository {
                   .and(
                       DSL.condition(
                           "{0} ~ {1}",
-                          ISSUE.BODY,
-                          DSL.val("/issue-images/" + fileId + "([^0-9]|$)"))));
+                          ISSUE.BODY, DSL.val("/issue-images/" + fileId + "([^0-9]|$)"))));
       if (referenced) alive.add(fileId);
     }
     return alive;
