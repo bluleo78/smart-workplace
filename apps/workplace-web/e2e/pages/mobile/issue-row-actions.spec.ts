@@ -128,21 +128,44 @@ test.describe('모바일 선택 모드', () => {
     const lastBox = (await page.getByTestId('issue-row-22').boundingBox())!;
     expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(barBox.y + 1);
 
+    // 모바일은 데스크톱 드롭다운 대신 피커 시트(44px 항목)로 고른다.
     await page.getByTestId('bulk-status-trigger').click();
-    await page.getByTestId('bulk-status-option-DONE').click();
+    await expect(page.getByTestId('bulk-status-picker')).toBeVisible();
+    await page.getByTestId('picker-option-DONE').click();
     await expect.poll(() => calls.filter((c) => c.path.endsWith('/status')).length).toBe(2);
     await expect(bar).toHaveCount(0);
   });
 
-  test('완료 버튼으로 선택 모드를 끝내면 탭이 다시 상세로 이동한다', async ({ authenticatedPage: page }) => {
+  test('✕ 버튼(선택 해제)으로 선택 모드를 끝내면 탭이 다시 상세로 이동한다', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
     await longPress(page, 'issue-row-21');
     await page.getByTestId('mobile-action-select').click();
+    // 상태 「완료」와 혼동되지 않게 텍스트 대신 ✕ 아이콘 + aria-label.
+    await expect(page.getByTestId('bulk-clear')).toHaveAttribute('aria-label', '선택 해제');
     await page.getByTestId('bulk-clear').click();
     await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
     await page.getByTestId('issue-row-22').getByText('환불 콜백 재시도 로직 추가').click();
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/22$`));
+  });
+});
+
+test.describe('모바일 선택 토글 라벨', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await stubChat(page);
+  });
+
+  test('이미 선택된 행을 길게 누르면 「선택 해제」, 누르면 선택이 풀린다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    await longPress(page, 'issue-row-21');
+    await expect(page.getByTestId('mobile-action-select')).toHaveText('선택');
+    await page.getByTestId('mobile-action-select').click();
+    await expect(page.getByTestId('issue-bulk-toolbar')).toContainText('1개 선택');
+    await longPress(page, 'issue-row-21');
+    await expect(page.getByTestId('mobile-action-select')).toHaveText('선택 해제');
+    await page.getByTestId('mobile-action-select').click();
+    await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
   });
 });
 
@@ -172,5 +195,15 @@ test.describe('모바일 보드 카드', () => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
     await expect(page.getByTestId('issue-row-21')).not.toHaveAttribute('aria-roledescription', /.+/);
+  });
+
+  test('비멤버 카드는 짧게 탭하면 상세로 이동하고, 길게 눌러도 시트가 뜨지 않는다', async ({ authenticatedPage: page }) => {
+    await mock(page, { member: false });
+    await page.goto(`/projects/${KEY}?view=board`);
+    await expect(page.getByTestId('issue-card-21')).toBeVisible();
+    await longPress(page, 'issue-card-21');
+    await expect(page.getByTestId('mobile-action-sheet')).toHaveCount(0);
+    await page.getByTestId('issue-card-22').click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/22$`));
   });
 });

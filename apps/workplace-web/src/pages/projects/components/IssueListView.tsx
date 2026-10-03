@@ -58,7 +58,7 @@ export function IssueListView({
   } = useIssueSelection(filtersToParams(filters, 'list', groupBy).toString());
 
   // 모바일 길게 누르기 액션 — 훅은 조기 반환 전에 둔다. canEdit 가 곧 멤버 여부.
-  const rowActions = useIssueRowActions({ projectKey, canEdit, onSelect: (i) => toggleSelected(i.number) });
+  const rowActions = useIssueRowActions({ projectKey, canEdit, onSelect: (i) => toggleSelected(i.number), isSelected: (i) => selected.has(i.number) });
 
   // WP-54: 로드된 건수(무한 스크롤 누적)·다음 페이지 유무를 상위로 보고 — isLoading 조기 반환 전에 둔다.
   // data 객체(쿼리 결과)가 바뀔 때마다 보고한다 — 필터 변경으로 상위가 건수를 비운 뒤, 캐시된 새 결과의 건수가
@@ -202,7 +202,7 @@ export function IssueListView({
         <LoadMoreFooter query={searchQuery} root={scrollEl} data-testid="issue-list-more" />
       </div>
       {/* 모바일 일괄 작업 바(fixed, 약 56px)가 마지막 행을 가리지 않게 같은 높이만큼 비운다. */}
-      {isMobile && selected.size > 0 && <div aria-hidden className="h-16" />}
+      {isMobile && selected.size > 0 && <div aria-hidden className="h-[calc(4rem+env(safe-area-inset-bottom))]" />}
       {/* 액션 시트는 표 밖 형제로 — 행 안에 두면 시트 클릭이 행 이벤트로 새어 든다. */}
       {rowActions.sheets}
     </div>

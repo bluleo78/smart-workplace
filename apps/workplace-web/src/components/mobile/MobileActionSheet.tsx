@@ -38,7 +38,7 @@ export function MobileActionSheet({
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
         <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-muted-foreground/30" />
-        <SheetTitle className="line-clamp-2 px-4 pb-1 pt-3 text-sm font-semibold">{title}</SheetTitle>
+        <SheetTitle className="line-clamp-2 px-4 pb-1 pt-3 text-base font-semibold">{title}</SheetTitle>
         <SheetDescription className="sr-only">{description ?? `${title} 작업`}</SheetDescription>
         <div className="py-1">
           {actions.map((a) => (

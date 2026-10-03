@@ -3,6 +3,7 @@
 import { CheckSquare, CircleDot, Layers } from 'lucide-react';
 import { type ReactNode, useCallback, useState } from 'react';
 
+import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon';
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -21,7 +22,7 @@ const ALL_STATUSES: IssueStatus[] = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'];
 type Open = { issue: IssueResponse; sheet: 'actions' | 'status' | 'epic' } | null;
 
 export function useIssueRowActions({
-  projectKey, canEdit, statuses = ALL_STATUSES, onSelect,
+  projectKey, canEdit, statuses = ALL_STATUSES, onSelect, isSelected,
 }: {
   projectKey: string;
   /** 프로젝트 멤버 여부 — 아니면 상태·에픽 변경을 노출하지 않는다(서버 assertMember). */
@@ -30,6 +31,8 @@ export function useIssueRowActions({
   statuses?: IssueStatus[];
   /** 목록 다중 선택 진입 — 있으면 「선택」 행을 첫 줄에 둔다. */
   onSelect?: (issue: IssueResponse) => void;
+  /** 이미 선택된 행인지 — 「선택」 행이 토글이라 선택된 행에서는 「선택 해제」로 보여 준다. */
+  isSelected?: (issue: IssueResponse) => boolean;
 }): { open: (issue: IssueResponse) => void; sheets: ReactNode } {
   const [state, setState] = useState<Open>(null);
   const updateStatus = useUpdateIssueStatus(projectKey);
@@ -47,7 +50,7 @@ export function useIssueRowActions({
 
   const issue = state?.issue;
   const actions: MobileSheetAction[] = [];
-  if (issue && onSelect) actions.push({ key: 'select', label: '선택', icon: <CheckSquare />, onSelect: () => onSelect(issue) });
+  if (issue && onSelect) actions.push({ key: 'select', label: isSelected?.(issue) ? '선택 해제' : '선택', icon: <CheckSquare />, onSelect: () => onSelect(issue) });
   // EPIC 유형이 없는 프로젝트(개인)는 지정할 에픽이 없으므로 행을 숨긴다.
   if (issue && canEdit && epicType && epicDragBlockReason(issue) == null) {
     actions.push({ key: 'epic', label: '에픽 지정', icon: <Layers />, onSelect: () => setState({ issue, sheet: 'epic' }) });
@@ -70,7 +73,7 @@ export function useIssueRowActions({
         onClose={close}
         title="상태 변경"
         value={issue?.status ?? null}
-        options={statuses.map((s) => ({ value: s, label: ISSUE_STATUS_LABEL[s] }))}
+        options={statuses.map((s) => ({ value: s, label: ISSUE_STATUS_LABEL[s], icon: <IssueStatusIcon status={s} decorative /> }))}
         onSelect={(v) => {
           if (issue && v !== issue.status) updateStatus.mutate({ number: issue.number, status: v as IssueStatus });
         }}
