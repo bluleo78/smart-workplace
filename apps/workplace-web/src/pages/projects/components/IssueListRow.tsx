@@ -63,9 +63,11 @@ export const IssueRow = memo(function IssueRow({
   const isMobile = useIsMobile();
   // 모바일: 체크박스 대신 길게 누르기 → 액션 시트, 선택 모드에선 탭=선택 토글(이동 없음).
   // onLongPress 는 모바일에서만 호출처(useIssueRowActions)가 넘기고, selectionMode 도 모바일에서만 켜진다.
+  // 액션이 없어도(비멤버) 모바일에선 길게 눌렀다 뗀 click 을 삼킨다 — 상세로 넘어가지 않게(WP-217).
   const press = useLongPressCapture({
     onLongPress: onLongPress ? () => onLongPress(it) : undefined,
     onTap: selectionMode ? () => onToggleSelect(it.number) : undefined,
+    suppressLongClick: isMobile,
   });
 
   // 행 전체가 드래그 소스 — 에픽 패널로 끌어 놓아 에픽을 바꾼다. 활성화 노드=행 자신(지정하지 않으면

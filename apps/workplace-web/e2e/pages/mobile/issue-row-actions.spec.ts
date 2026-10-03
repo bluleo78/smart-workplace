@@ -204,6 +204,9 @@ test.describe('모바일 보드 카드', () => {
     await expect(page.getByTestId('issue-card-21')).toBeVisible();
     await longPress(page, 'issue-card-21');
     await expect(page.getByTestId('mobile-action-sheet')).toHaveCount(0);
+    // 길게 눌렀다 뗀 것은 탭이 아니다 — 보드에 남는다(WP-217). dev 서버는 상세 청크 로딩이 느려 이동이 가려졌었다.
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?view=board`));
+    await expect(page.getByTestId('issue-card-21')).toBeVisible();
     await page.getByTestId('issue-card-22').click();
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/22$`));
   });

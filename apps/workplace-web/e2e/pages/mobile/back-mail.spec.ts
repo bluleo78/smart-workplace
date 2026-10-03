@@ -39,7 +39,7 @@ test('goBack 은 상세만 닫고 받은편지함에 남는다 — ‹ 도 같�
 
   await page.getByTestId('mail-row-10').click()
   await expect(page.getByTestId('mail-detail')).toBeVisible()
-  await page.getByTestId('mail-back').click()
+  await page.getByTestId('mail-back').getByTestId('mobile-back').click()
   await expect(page).toHaveURL(/\/mail\/1$/)
   await expect(page.getByTestId('mail-list')).toBeVisible()
   await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
@@ -51,7 +51,7 @@ test('‹ 를 같은 틱에 두 번 눌러도 한 번만 닫힌다(앱 밖으로
   await page.getByTestId('mail-row-10').click()
   await expect(page.getByTestId('mail-detail')).toBeVisible()
   // popstate 가 오기 전에 두 번 — 가드가 없으면 두 번째 navigate(-1) 이 about:blank 로 빠진다.
-  await page.getByTestId('mail-back').evaluate((el: HTMLElement) => {
+  await page.getByTestId('mail-back').getByTestId('mobile-back').evaluate((el: HTMLElement) => {
     el.click()
     el.click()
   })
@@ -63,7 +63,7 @@ test('딥링크(?messageId) 진입 후 ‹ → 같은 모듈 목록(앱 밖으�
   await stubMail(page)
   await page.goto('/mail/1?messageId=11')
   await expect(page.getByTestId('mail-detail')).toContainText(LONG_SUBJECT)
-  await page.getByTestId('mail-back').click()
+  await page.getByTestId('mail-back').getByTestId('mobile-back').click()
   await expect(page).toHaveURL(/\/mail\/1$/)
   await expect(page.getByTestId('mail-list')).toBeVisible()
 })
@@ -79,7 +79,7 @@ test('홈 위젯 → 메일: ‹ 와 goBack 이 모두 홈으로 돌아간다', 
   await page.goto('/')
   await page.getByTestId('dash-mail-row').first().click()
   await expect(page).toHaveURL(/\/mail\/1\?messageId=10$/)
-  await page.getByTestId('mail-back').click()
+  await page.getByTestId('mail-back').getByTestId('mobile-back').click()
   await expect.poll(() => new URL(page.url()).pathname).toBe('/')
 
   await page.getByTestId('dash-mail-row').first().click()

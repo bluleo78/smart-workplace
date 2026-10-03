@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, CheckCheck, Download, Forward, Inbox, Loader2, Mail, MailOpen, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { AiContent } from '@/components/ai/AiContent'
@@ -24,7 +24,7 @@ import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { handleApiError } from '@/lib/api-error'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatDateTime, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
-import { parseId } from '@/lib/historyParam'
+import { hasOpenMark, parseId } from '@/lib/historyParam'
 import { markSeenInKept, mergeKeptRows } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
@@ -585,7 +585,9 @@ export function MailInboxPage() {
   // WP-186: URL → 보기 해석(사이드바와 같은 규칙). 계수 로딩·실패 중에는 분류 활성으로 본다(사이드바와 동일).
   const { data: unreadCounts } = useUnreadCounts(accountIdNum)
   const classificationActive = unreadCounts?.classificationActive ?? true
-  const view = resolveMailView(params, classificationActive)
+  // 앱 안에서 연 메일(열림 마크)은 딥링크로 보지 않는다 — 사이드바도 같은 판정(WP-218).
+  const location = useLocation()
+  const view = resolveMailView(params, classificationActive, { inAppSelection: hasOpenMark(location.state, 'messageId') })
 
   const { data: fetchedMessages, isLoading, isError, refetch: refetchMessages } = useMailMessages(
     accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply',

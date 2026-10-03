@@ -32,6 +32,12 @@ export function asState(state: unknown): RouterState {
   return state && typeof state === 'object' ? (state as Record<string, unknown>) : null
 }
 
+/** 앱 안에서 "열기"(push)로 연 항목인가 — 열림 마크 유무. 전환(replace)·하위 push 는 마크를 이어받고,
+ *  콜드 딥링크(홈 위젯·알림·새 탭)는 마크가 없다. 같은 쿼리라도 출처에 따라 화면 해석이 갈릴 때 쓴다(WP-218). */
+export function hasOpenMark(state: unknown, key: string): boolean {
+  return typeof asState(state)?.[markKey(key)] === 'number'
+}
+
 /** URLSearchParams → location.search 문자열(비면 '' — `?` 만 남지 않게). */
 export function toSearch(params: URLSearchParams): string {
   const s = params.toString()

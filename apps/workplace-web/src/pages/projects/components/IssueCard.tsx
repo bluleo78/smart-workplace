@@ -53,8 +53,12 @@ export function IssueCard({
 }) {
   const isMobile = useIsMobile();
   const mobileBody = isMobile && !asOverlay;
-  // 캡처 단계 click 억제 — 전면 오버레이 <Link> 이동까지 막는다. 모바일·콜백 있을 때만 활성.
-  const press = useLongPressCapture(onLongPress ? { onLongPress: () => onLongPress(issue) } : {});
+  // 캡처 단계 click 억제 — 전면 오버레이 <Link> 이동까지 막는다. 콜백은 모바일·액션이 있을 때만 온다.
+  // 모바일에선 액션이 없어도(비멤버) 길게 눌렀다 뗀 click 은 삼킨다 — 상세로 넘어가지 않게(WP-217).
+  const press = useLongPressCapture({
+    onLongPress: onLongPress ? () => onLongPress(issue) : undefined,
+    suppressLongClick: mobileBody,
+  });
   const sortable = useSortable({
     id: dragScope ? `issue-${dragScope}-${issue.id}` : `issue-${issue.id}`,
     // issueNumber/status: 보드 상태 드롭용, issue/source/showType: 에픽 드롭·오버레이용(IssueDragData).
