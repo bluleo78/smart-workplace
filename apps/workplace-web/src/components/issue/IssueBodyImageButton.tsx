@@ -1,13 +1,20 @@
 // 본문 이미지 추가 버튼(WP-199) — 숨은 file input 을 열어 고른 이미지를 훅에 넘긴다.
+// 붙여넣기·드롭은 눈에 보이지 않는 기능이라 버튼 옆에 한 줄 안내를 함께 둔다(생성 다이얼로그·상세 편집 공용).
 import { ImagePlus } from 'lucide-react'
 import { useRef } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
-export function IssueBodyImageButton({ onFiles, disabled }: { onFiles: (files: File[]) => void; disabled?: boolean }) {
+import { ACCEPTED_IMAGE_TYPES } from '../../lib/imageUpload'
+
+export function IssueBodyImageButton({
+  onFiles, disabled, className,
+}: { onFiles: (files: File[]) => void; disabled?: boolean; className?: string }) {
   const inputRef = useRef<HTMLInputElement>(null)
   return (
-    <>
+    <div className={cn('flex items-center gap-2', className)}>
+      <span className="text-xs text-muted-foreground">이미지를 붙여넣거나 끌어다 놓을 수 있어요</span>
       <Button
         type="button"
         size="sm"
@@ -22,7 +29,7 @@ export function IssueBodyImageButton({ onFiles, disabled }: { onFiles: (files: F
       <input
         ref={inputRef}
         type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
+        accept={[...ACCEPTED_IMAGE_TYPES].join(',')}
         multiple
         hidden
         data-testid="issue-body-image-input"
@@ -32,6 +39,6 @@ export function IssueBodyImageButton({ onFiles, disabled }: { onFiles: (files: F
           if (files.length) onFiles(files)
         }}
       />
-    </>
+    </div>
   )
 }

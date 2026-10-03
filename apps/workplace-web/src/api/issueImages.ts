@@ -21,8 +21,13 @@ export async function uploadIssueImage(projectKey: string, file: File): Promise<
   return data
 }
 
-/** 본문 img src 가 이 프로젝트의 이슈 이미지 경로인지 — 렌더러가 인증 blob 으로 받을 대상만 고른다. */
-export function issueImagePathPattern(projectKey: string): RegExp {
-  const escaped = projectKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`^/api/v1/projects/${escaped}/issue-images/\\d+$`)
+/**
+ * 본문 img src 가 이 프로젝트의 이슈 이미지 경로면 fileId 를, 아니면 null 을 돌려준다 — 렌더러가 인증 blob 으로 받을 대상만 고른다.
+ * 접두 비교 + 숫자 꼬리 검사라 렌더마다 정규식을 만들거나 키를 이스케이프할 필요가 없다.
+ */
+export function issueImageFileId(projectKey: string, src: string | undefined): number | null {
+  const prefix = `/api/v1/projects/${projectKey}/issue-images/`
+  if (!src?.startsWith(prefix)) return null
+  const tail = src.slice(prefix.length)
+  return /^\d+$/.test(tail) ? Number(tail) : null
 }

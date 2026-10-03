@@ -23,7 +23,6 @@ import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
-import { hasPendingToken } from '../../../lib/markdownImageInsert';
 import { type CreateIssueFormData,createIssueSchema } from '../../../lib/validations/issue';
 
 // 새 이슈 생성 모달. priority 기본 MID, dueDate 미지정 시 빈 문자열 → API 호출 직전 undefined 변환.
@@ -125,7 +124,7 @@ export function IssueCreateDialog({
 
   const onSubmit = async (data: CreateIssueFormData) => {
     // 업로드가 끝나지 않은 자리표시 토큰이 저장되지 않게 마지막으로 막는다(버튼 비활성의 우회 경로 — Enter 제출 등).
-    if (images.pendingCount > 0 || hasPendingToken(data.body ?? '')) {
+    if (images.pendingBlock(data.body ?? '')) {
       toast.error('이미지 업로드가 끝난 뒤 등록해 주세요');
       return;
     }
@@ -175,8 +174,6 @@ export function IssueCreateDialog({
               onDrop={images.onDrop}
               onDragOver={images.onDragOver}
             />
-            {/* 이미지 첨부 방법 안내 — 붙여넣기/드롭은 눈에 보이지 않는 기능이라 한 줄로 알린다. */}
-            <p className="text-xs text-muted-foreground">이미지를 붙여넣거나 끌어다 놓을 수 있어요</p>
           </div>
           {/* AI 분류 제안 버튼 — 제목이 있을 때만 활성화. */}
           <AiClassifyButton
@@ -265,7 +262,7 @@ export function IssueCreateDialog({
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
-            <Button type="submit" disabled={create.isPending || images.pendingCount > 0}>{create.isPending ? '생성 중…' : '생성'}</Button>
+            <Button type="submit" disabled={create.isPending || images.isUploading}>{create.isPending ? '생성 중…' : '생성'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

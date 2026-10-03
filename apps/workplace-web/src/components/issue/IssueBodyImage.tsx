@@ -5,13 +5,13 @@
 import { ImageOff } from 'lucide-react'
 import { useState } from 'react'
 
-import { issueImagePathPattern } from '../../api/issueImages'
+import { issueImageFileId } from '../../api/issueImages'
 import { useApiBlobUrl } from '../../hooks/queries/useApiBlobUrl'
 import { FilePreviewModal } from '../drive/FilePreviewModal'
 
 export function IssueBodyImage({ projectKey, src, alt }: { projectKey: string; src?: string; alt?: string }) {
-  const isIssueImage = !!src && issueImagePathPattern(projectKey).test(src)
-  if (isIssueImage) return <AuthIssueImage src={src} alt={alt ?? ''} />
+  const fileId = issueImageFileId(projectKey, src)
+  if (src && fileId !== null) return <AuthIssueImage src={src} fileId={fileId} alt={alt ?? ''} />
   if (src?.startsWith('https://')) {
     return <img
         src={src}
@@ -24,7 +24,9 @@ export function IssueBodyImage({ projectKey, src, alt }: { projectKey: string; s
   return <span className="text-muted-foreground">{alt}</span>
 }
 
-function AuthIssueImage({ src, alt }: { src: string; alt: string }) {
+// 이미지·미리보기 모달 클릭이 "클릭=편집 진입" 으로 번지지 않게 하는 처리는 본문 보기 래퍼(InlineEditableBody)가 맡는다 —
+// 여기서 전파를 끊지 않는다.
+function AuthIssueImage({ src, fileId, alt }: { src: string; fileId: number; alt: string }) {
   const { url, isError, blob } = useApiBlobUrl(src)
   const [open, setOpen] = useState(false)
   if (isError) {
@@ -35,30 +37,20 @@ function AuthIssueImage({ src, alt }: { src: string; alt: string }) {
     )
   }
   if (!url) return <span role="img" aria-label={alt} className="inline-block h-32 w-48 animate-pulse rounded-md bg-muted" />
-  const fileId = Number(src.split('/').pop())
   return (
     <>
       <img
         src={url}
         alt={alt}
         className="block h-auto max-h-[480px] max-w-full cursor-zoom-in rounded-md border border-border"
-        onClick={(e) => {
-          // 보기 모드 본문 전체가 "클릭=편집 진입" 버튼이라 전파를 끊어야 미리보기만 열린다.
-          e.stopPropagation()
-          setOpen(true)
-        }}
-        onKeyDown={(e) => e.stopPropagation()}
+        onClick={() => setOpen(true)}
       />
-      {/* 모달은 React 트리상 "클릭=편집 진입" 래퍼의 자식이라 포털로 옮겨도 합성 이벤트가 위로 전파된다 —
-          닫기·오버레이 클릭·Enter/Space 가 편집 모드를 열지 않도록 경계에서 끊는다. */}
-      <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-        {open && (
-          <FilePreviewModal
-            attachment={{ fileId, name: alt || 'image', mimeType: blob?.type ?? 'image/png', sizeBytes: blob?.size ?? 0, downloadUrl: src }}
-            onClose={() => setOpen(false)}
-          />
-        )}
-      </span>
+      {open && (
+        <FilePreviewModal
+          attachment={{ fileId, name: alt || 'image', mimeType: blob?.type ?? 'image/png', sizeBytes: blob?.size ?? 0, downloadUrl: src }}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </>
   )
 }
