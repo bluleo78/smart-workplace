@@ -114,7 +114,7 @@ function useDriveScreenContext(input: {
 }
 
 /** 폴더 브라우저 — 검색 + 브레드크럼 + 폴더·파일 목록 + 업로드/새폴더/이름변경/삭제/미리보기/다운로드.
- *  spaceId prop 이 오면 임베드(드로워) 모드 — 폴더 탐색을 state 로 보관해 상위 URL 을 건드리지 않는다.
+ *  spaceId prop 이 오면 임베드(드로워) 모드 — 폴더 탐색은 드로워 안 `?filesFolder` 키(풀페이지 folderId 와 별도, push)로 보관한다(WP-207).
  *  미지정 시 URL(useParams/useSearchParams) 로 구동하는 풀페이지 모드. */
 export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const params = useParams()
@@ -126,7 +126,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }
   const sid = spaceIdProp ?? Number(params.spaceId)
   const embedded = spaceIdProp != null
-  const folderNav = useFolderNavigation(embedded ? 'state' : 'url')
+  const folderNav = useFolderNavigation(embedded ? { key: 'filesFolder' } : 'url')
   const folderId = folderNav.folderId
 
   // WP-63: 쿼리 훅에 넘길 공간 id — URL 파라미터가 숫자가 아니면(NaN) 조회 비활성.
@@ -1214,11 +1214,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
                   {formatDateOnly(f.updatedAt)}
                 </span>
+                {/* 행 액션 — 호버 또는 키보드 포커스(focus-visible)일 때만 노출. focus-within 이면 터치 탭의 포인터 포커스로도 열려
+                    좁은 폭(모바일 드로워)에서 이름 버튼이 0폭으로 접히고 클릭이 <li> 로 빠져 폴더가 열리지 않는다(WP-207). */}
                 <button
                   type="button"
                   onClick={() => onRenameFolder(f.id, f.name)}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-focus-within:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-has-[:focus-visible]:inline-flex disabled:opacity-50"
                 >
                   이름변경
                 </button>
@@ -1226,7 +1228,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-focus-within:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-has-[:focus-visible]:inline-flex disabled:opacity-50"
                 >
                   이동
                 </button>
@@ -1234,7 +1236,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-focus-within:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-has-[:focus-visible]:inline-flex disabled:opacity-50"
                 >
                   복사
                 </button>
@@ -1242,7 +1244,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => onDeleteFolder(f.id)}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-destructive group-hover:inline-flex group-focus-within:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-destructive group-hover:inline-flex group-has-[:focus-visible]:inline-flex disabled:opacity-50"
                 >
                   삭제
                 </button>
