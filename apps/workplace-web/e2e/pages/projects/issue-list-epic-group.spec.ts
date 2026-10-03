@@ -100,6 +100,8 @@ test.describe('이슈 목록 데스크톱 에픽 칩', () => {
       parent: epic(30, '결제 안정화 및 운영 모니터링 체계 정비 (2026 하반기 핵심 과제) — 매우 긴 에픽 이름'),
       childCount: 3,
       childDoneCount: 1,
+      dueDate: '2026-10-10',
+      assignees: [1, 2, 3, 4].map((id) => ({ id, username: `u${id}`, name: `사용자${id}`, kind: 'HUMAN' as const })),
     });
     await page.route(
       (url) => url.pathname === ISSUES_PATH,
@@ -130,6 +132,14 @@ test.describe('이슈 목록 데스크톱 에픽 칩', () => {
       const sb = (await scroll.boundingBox())!;
       const cb = (await chip.boundingBox())!;
       expect(cb.x + cb.width).toBeLessThanOrEqual(sb.x + sb.width + 1);
+      // (d) 제목 칸이 폭을 가져가도 마감 날짜는 한 줄로(글자 단위로 꺾이지 않는다).
+      // 텍스트 줄 수 = Range 의 클라이언트 사각형 수(한 줄이면 1).
+      const dueLines = await row.getByTestId('issue-row-21-due').evaluate((el) => {
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        return r.getClientRects().length;
+      });
+      expect(dueLines, `${width}px 마감 칸 줄바꿈`).toBe(1);
     }
   });
 });
