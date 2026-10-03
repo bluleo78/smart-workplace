@@ -22,7 +22,7 @@ import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { handleApiError } from '@/lib/api-error'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
-import { mergeKeptRows } from '@/lib/mailKeepRows'
+import { markSeenInKept, mergeKeptRows } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
 import { mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
@@ -34,6 +34,7 @@ import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDial
 import { mailMessageKeys } from '../../hooks/queries/mailMessageKeys'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
+  syncReadCaches,
   useGenerateMailSummary,
   useInlineMailHtml,
   useIssueDraft,
@@ -51,6 +52,9 @@ import {
 } from '../../hooks/queries/useMailMessages'
 import type { EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
 import { MailToIssueDialog } from './MailToIssueDialog'
+
+// 목록 로딩 중 시트·길게 누르기에 넘길 빈 목록 — 렌더마다 새 배열을 만들지 않게 모듈에 하나만 둔다.
+const EMPTY_MESSAGES: EmailMessageSummary[] = []
 
 // 수신 시각을 간략 표기(오늘=시각, 그 외=월/일).
 function formatReceivedAt(iso: string | null): string {
@@ -650,6 +654,9 @@ export function MailInboxPage() {
     setSelectedId(null)
     applyToggle(id, false)
   }
+  // 행 버튼·작업 시트 공통 읽음 전환 — 열린 메일을 안읽음으로 바꿀 때만 상세도 닫는다(R5).
+  const toggleRow = (m: EmailMessageSummary) =>
+    m.seen && m.id === selectedId ? markUnreadAndClose(m.id) : applyToggle(m.id, !m.seen)
   // WP-187 모두 읽음 — 버튼 → 건수 조회(+asOf) → 확인 다이얼로그 → 실행.
   // asOf 는 서버(DB 시계)가 준 문자열을 그대로 되돌려 보낸다 — 확인 뒤 새로 들어온 메일은 읽음 처리하지 않게.
   const markAll = useMarkAllRead(accountIdNum)
@@ -722,10 +729,11 @@ export function MailInboxPage() {
   // WP-187 모바일: hover 대신 길게 누르기 → 작업 시트(채팅과 같은 패턴). 행에는 data-message-id 가 있다.
   // 훅이므로 !accountId 조기 return 보다 앞에 둔다.
   const aiAvailable = useAiAvailable()
-  const sheet = useMessageSheet(messages ?? [])
-  const longPress = useMessageListLongPress(touchShell, (id) => (messages ?? []).some((m) => m.id === id), sheet.show)
+  const sheetMessages = messages ?? EMPTY_MESSAGES
+  const sheet = useMessageSheet(sheetMessages)
+  const longPress = useMessageListLongPress(touchShell, (id) => sheetMessages.some((m) => m.id === id), sheet.show)
   // 답장·전달·AI 이슈 초안은 본문이 필요하다 — 상세를 받아(서버에서 열람 처리돼 읽음) 기존 핸들러로 넘긴다.
-  // 상세 성공 effect 와 같이 목록 캐시를 읽음으로 맞추고 안 읽은 수를 다시 받는다(F21).
+  // 상세 성공 effect 와 같은 syncReadCaches 로 목록 캐시를 읽음으로 맞추고 안 읽은 수·홈 요약을 다시 받는다(F21).
   // 실패는 다른 메일 작업과 같이 토스트로 알린다(시트는 이미 닫혀 있다).
   const withDetail = async (id: number, fn: (d: EmailMessageDetail) => void) => {
     let d: EmailMessageDetail
@@ -735,11 +743,7 @@ export function MailInboxPage() {
       handleApiError(e, '메일을 불러오지 못했어요')
       return
     }
-    qc.setQueriesData<EmailMessageSummary[]>({ queryKey: ['mail-messages'], exact: false }, (old) =>
-      old?.map((msg) => (msg.id === id ? { ...msg, seen: true } : msg)),
-    )
-    qc.invalidateQueries({ queryKey: mailMessageKeys.unreadCountsAll() })
-    qc.invalidateQueries({ queryKey: mailMessageKeys.unreadSummary() })
+    syncReadCaches(qc, id)
     fn(d)
   }
   // 시트 작업 — 첫 항목(읽음 전환)이 primary. 열린 메일을 안읽음으로 바꿀 때는 상세도 닫는다(R5).
@@ -749,7 +753,7 @@ export function MailInboxPage() {
       label: m.seen ? '안읽음으로 표시' : '읽음으로 표시',
       icon: m.seen ? <Mail /> : <MailOpen />,
       primary: true,
-      onSelect: () => (m.seen && m.id === selectedId ? markUnreadAndClose(m.id) : applyToggle(m.id, !m.seen)),
+      onSelect: () => toggleRow(m),
     },
     { key: 'reply', label: '답장', icon: <Reply />, onSelect: () => void withDetail(m.id, onReply) },
     { key: 'forward', label: '전달', icon: <Forward />, onSelect: () => void withDetail(m.id, onForward) },
@@ -1096,7 +1100,7 @@ export function MailInboxPage() {
                   pendingVisible={view.kind !== 'sent' && classificationActive}
                   showToggle={!touchShell}
                   // 열린 메일을 안읽음으로 바꾸면 상세도 닫는다(R5) — 그 외에는 상태만 뒤집는다.
-                  onToggleRead={() => (m.seen && m.id === selectedId ? markUnreadAndClose(m.id) : applyToggle(m.id, !m.seen))}
+                  onToggleRead={() => toggleRow(m)}
                 />
               ))}
             </div>
@@ -1163,7 +1167,6 @@ export function MailInboxPage() {
         pending={markAllPending}
         scopeLabel={markAllPending?.label ?? ''}
         mobile={isMobile}
-        busy={markAll.isPending}
         onCancel={() => setMarkAllPending(null)}
         onConfirm={() => {
           // Radix 가 닫으며 onCancel 도 부르므로 pending 을 먼저 캡처한다.
@@ -1177,11 +1180,7 @@ export function MailInboxPage() {
             {
               // 유지 스냅샷도 읽음으로 맞춘다 — 재조회 목록에서 빠진 행이 옛 스냅샷(안읽음)으로 되살아나 굵게 보이지 않게.
               onSuccess: () =>
-                setKept((k) =>
-                  k.key !== keptKeyAtRun
-                    ? k
-                    : { key: k.key, rows: new Map([...k.rows].map(([id, row]) => [id, { ...row, seen: true }])) },
-                ),
+                setKept((k) => (k.key !== keptKeyAtRun ? k : { key: k.key, rows: markSeenInKept(k.rows, 'all', true) })),
             },
           )
         }}

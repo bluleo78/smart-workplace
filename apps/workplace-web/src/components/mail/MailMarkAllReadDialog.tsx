@@ -19,12 +19,11 @@ interface Props {
   scopeLabel: string
   /** 모바일이면 버튼 폭을 채우고 터치 높이(44px)를 확보한다. 세로 배치(확인이 위)는 Footer 기본 규칙. */
   mobile: boolean
-  busy: boolean
   onConfirm: () => void
   onCancel: () => void
 }
 
-export function MailMarkAllReadDialog({ pending, scopeLabel, mobile, busy, onConfirm, onCancel }: Props) {
+export function MailMarkAllReadDialog({ pending, scopeLabel, mobile, onConfirm, onCancel }: Props) {
   return (
     <AlertDialog open={pending !== null} onOpenChange={(v) => !v && onCancel()}>
       <AlertDialogContent data-testid="mail-mark-all-dialog">
@@ -43,7 +42,6 @@ export function MailMarkAllReadDialog({ pending, scopeLabel, mobile, busy, onCon
           {/* 확인 문구는 성공 토스트("N통 읽음 처리")와 겹치지 않게 둔다(F23). */}
           <AlertDialogAction
             data-testid="mail-mark-all-confirm"
-            disabled={busy}
             onClick={onConfirm}
             className={cn(mobile && 'h-11 w-full')}
           >
