@@ -34,6 +34,17 @@ export function MobileBoard({
     if (next) select(next.status);
   });
 
+  // 탭이 저절로 바뀌지 않게 기본 탭을 첫 로드 후 URL 에 고정 — URL 에 boardTab 이 없으면 매 렌더 재계산되어,
+  // 마지막 진행 중 카드를 다른 상태로 옮겨 탭이 비면 보드가 할 일 탭으로 튀고 스크롤도 맨 위로 간다.
+  // 개수 로딩 중(pending)에는 임시 기본값일 수 있어 고정하지 않는다.
+  const urlTab = params.get(BOARD_TAB_PARAM);
+  const settled = !tabs.some((t) => t.pending);
+  useEffect(() => {
+    if (settled && active && urlTab !== active) select(active);
+    // select 는 매 렌더 새 함수 — 의도적으로 제외(urlTab/active/settled 변화에만 반응)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settled, active, urlTab]);
+
   // 탭이 바뀌면 목록을 맨 위로 — 이전 탭의 스크롤 위치가 남아 sentinel 이 바로 보이거나 빈 화면처럼 보이지 않게.
   useEffect(() => {
     scrollEl?.scrollTo({ top: 0 });

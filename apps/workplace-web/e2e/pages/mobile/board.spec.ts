@@ -19,7 +19,15 @@ const PROG = createIssue({ id: 1047, number: 1047, projectKey: KEY, title: '정�
 const DONE1 = createIssue({ id: 31, number: 31, projectKey: KEY, title: '영수증 PDF 폰트 깨짐', type: makeTaskType(), status: 'DONE' });
 
 /** 프로젝트·메타·이슈 스텁. 보드는 컬럼별 쿼리(status) — 지정 상태만 돌려준다. moreStatus 는 첫 페이지에 nextCursor 를 단다. */
-async function mock(page: Page, { issues = [LONG, TODO2, PROG, DONE1], moreStatus }: { issues?: typeof LONG[]; moreStatus?: string } = {}) {
+async function mock(page: Page, { issues: seed = [LONG, TODO2, PROG, DONE1], moreStatus }: { issues?: typeof LONG[]; moreStatus?: string } = {}) {
+  // 상태 변경 PATCH 가 이후 GET 에 반영되도록 사본을 둔다.
+  const issues = seed.map((i) => ({ ...i }));
+  await page.route((u) => /\/issues\/\d+\/status$/.test(u.pathname), (r) => {
+    const id = Number(new URL(r.request().url()).pathname.split('/').at(-2));
+    const target = issues.find((i) => i.id === id);
+    if (target) target.status = (r.request().postDataJSON() as { status: typeof target.status }).status;
+    return r.fulfill(json(target ?? {}));
+  });
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: true }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/types`, (r) => r.fulfill(json(systemTypes())));
   for (const p of [`/api/v1/projects/${KEY}/members`, `/api/v1/projects/${KEY}/labels`, `/api/v1/projects/${KEY}/cycles`, `/api/v1/projects/${KEY}/saved-views`]) {
@@ -34,6 +42,15 @@ async function mock(page: Page, { issues = [LONG, TODO2, PROG, DONE1], moreStatu
     const more = status != null && status === moreStatus && !url.searchParams.get('cursor');
     return r.fulfill(json(createIssueSearchResponse(list, more ? 'next' : null)));
   });
+}
+
+/** 카드를 길게 누르기 — 마우스 down 후 650ms 유지. */
+async function longPress(page: Page, testId: string) {
+  const box = (await page.getByTestId(testId).boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(650);
+  await page.mouse.up();
 }
 
 test.describe('모바일 보드 카드', () => {
@@ -110,6 +127,17 @@ test.describe('모바일 보드 상태 탭', () => {
     await expect(page.getByTestId('board-tab-TODO')).toHaveAttribute('aria-selected', 'true');
     await page.getByTestId('board-tab-CANCELED').click();
     await expect(page.getByTestId('board-col-empty-CANCELED')).toBeVisible();
+  });
+
+  test('기본 탭은 첫 로드 후 URL 에 고정 — 마지막 진행 중 카드를 완료로 옮겨도 탭이 튀지 않는다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?view=board&group=none`);
+    await expect(page).toHaveURL(/boardTab=IN_PROGRESS/);
+    await longPress(page, 'issue-card-1047');
+    await page.getByTestId('mobile-action-status').click();
+    await page.getByTestId('picker-option-DONE').click();
+    await expect(page.getByTestId('board-tab-count-DONE')).toHaveText('2');
+    await expect(page.getByTestId('board-tab-IN_PROGRESS')).toHaveAttribute('aria-selected', 'true');
   });
 
   test('좌우 스와이프로 이웃 탭 전환, 끝에서는 그대로, 스와이프 후 상세로 이동하지 않는다', async ({ authenticatedPage: page }) => {

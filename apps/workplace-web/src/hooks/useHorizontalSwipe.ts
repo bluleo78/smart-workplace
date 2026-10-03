@@ -31,6 +31,10 @@ export function useHorizontalSwipe(onSwipe: (dir: SwipeDir) => void) {
     onDragStart(e: DragEvent) {
       e.preventDefault();
     },
+    // 터치 스와이프 뒤에는 click 이 오지 않아 플래그가 남는다 — 키보드 활성화(Enter/Space → click)가 삼켜지지 않게 keydown 에서 푼다.
+    onKeyDown() {
+      suppressClick.current = false;
+    },
     onClickCapture(e: MouseEvent) {
       if (!suppressClick.current) return;
       suppressClick.current = false;

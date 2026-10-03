@@ -183,7 +183,8 @@ test.describe('모바일 보드 카드', () => {
     await expect(card).not.toHaveAttribute('aria-roledescription', /.+/);
     await longPress(page, 'issue-card-21');
     await expect(page.getByTestId('mobile-action-sheet')).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?view=board$`));
+    // 상세로 이동하지 않는다 — 기본 탭은 첫 로드 후 boardTab 으로 URL 에 고정되므로 쿼리는 허용.
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?view=board(&boardTab=\\w+)?$`));
     await expect(page.getByTestId('mobile-action-select')).toHaveCount(0);
     await page.getByTestId('mobile-action-status').click();
     await page.getByTestId('picker-option-DONE').click();
