@@ -217,7 +217,7 @@ test(
     const drawer = page.getByTestId('drive-space-drawer')
     await drawer.getByRole('button', { name: '테스트폴더' }).click()
 
-    // 3. 핵심 단언: 상위 URL 에 folderId 가 없음 — 드로워는 state 모드 폴더 탐색.
+    // 3. 핵심 단언: 상위 URL 에 folderId 가 없음 — 드로워 폴더는 별도 키 filesFolder(WP-207).
     await expect(page).toHaveURL(new RegExp(`/chat/channels/${CHANNEL_ID}`))
     expect(new URL(page.url()).searchParams.get('folderId')).toBeNull()
 

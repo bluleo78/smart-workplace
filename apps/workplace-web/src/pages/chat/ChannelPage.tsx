@@ -1,9 +1,9 @@
 // 채널 메시지 뷰 — 헤더 + 히스토리 + 실시간 + optimistic 전송. 비공개 비멤버는 404 → 채널 없음.
-// Phase 5: 우측 스레드 패널(ThreadPanel) — openThreadId state 로 토글.
+// Phase 5: 우측 스레드 패널(ThreadPanel) — URL ?thread 로 토글(WP-207, 모바일은 전체폭).
 // A9: AI 에이전트 작업 중 유령 버블 — onMessagingProgress 구독으로 채널별 진행 상태 렌더.
 import { Hash, Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble'
@@ -17,6 +17,7 @@ import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
 import { RenameChannelModal } from '@/components/chat/RenameChannelModal'
 import { ThreadPanel } from '@/components/chat/ThreadPanel'
 import type { MentionCandidate } from '@/components/mentions/types'
+import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { Button } from '@/components/ui/button'
 import { useChannelCatchup } from '@/hooks/queries/useChannelCatchup'
 import { useChannelDetail } from '@/hooks/queries/useChannelDetail'
@@ -28,10 +29,14 @@ import { useMentionAgents } from '@/hooks/queries/useMentionAgents'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
+import { useHistoryParam } from '@/hooks/useHistoryParam'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
 import { buildChannelContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
+import { parseId } from '@/lib/historyParam'
 import { firstUnreadMessageId, unreadFromOthersCount } from '@/lib/unreadBoundary'
+import { cn } from '@/lib/utils'
 import type { ChannelResponse, MessageResponse, UserKind } from '@/types/messaging'
 
 // WP-54: 채널 화면 컨텍스트 등록 훅. 채널 상세 로드 전/오류 시 null(미등록).
@@ -91,22 +96,13 @@ export default function ChannelPage() {
   const [membersOpen, setMembersOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
 
-  // deep-link: ?thread=<rootId> 파라미터로 스레드 패널 자동 오픈.
-  const [searchParams, setSearchParams] = useSearchParams()
+  // 열린 스레드 = URL ?thread(상태의 단일 원천, WP-207). 채널 안 "답글"도 push 라 시스템 뒤로가기가 스레드만 닫는다.
+  // 인박스 카드(ThreadsInboxPage)는 기존처럼 ?thread 로 push(마크 없음) → 닫기 = 인박스로 -1.
+  // 푸시 알림 콜드 진입은 닫기 = ?thread 만 지우고 채널에 남는다(useHistoryParam 규칙 3).
   const location = useLocation()
-  const threadParam = searchParams.get('thread')
-
-  // 스레드 패널: 어느 부모 메시지 id 가 열려 있는지. null 이면 패널 닫힘.
-  // ?thread= 파라미터가 있으면 초기값으로 사용.
-  const [openThreadId, setOpenThreadId] = useState<number | null>(
-    threadParam ? Number(threadParam) : null,
-  )
-
-  // 인박스 → deep-link 진입: ?thread= 가 바뀌면 해당 스레드를 연다.
-  // param 이 사라지면(채널 URL 로 이동) 열린 패널도 닫아 state drift 방지.
-  useEffect(() => {
-    setOpenThreadId(threadParam ? Number(threadParam) : null)
-  }, [threadParam])
+  const threadParam = useHistoryParam('thread')
+  const openThreadId = parseId(threadParam.value)
+  const isMobile = useIsMobile()
 
   // 패널 parent: 채널 메시지 캐시에서 찾되, 없으면 navigate state(인박스 카드가 넘긴 rootMessage) 사용.
   const stateParent = (location.state as { threadParent?: MessageResponse } | null)?.threadParent
@@ -115,6 +111,11 @@ export default function ChannelPage() {
       ? messages.find((m) => m.id === openThreadId) ??
         (stateParent && stateParent.id === openThreadId ? stateParent : null)
       : null
+
+  // 패널이 실제로 그려질 때만(루트를 찾았을 때만) 모바일 채널 컬럼을 숨긴다 — ?thread 만 보고 숨기면
+  // 첫 페이지에 없는 루트·삭제된 루트에서 빈 전체폭 화면이 된다.
+  const threadShown = openThreadParent != null
+  useHideTabBar(threadShown)
 
   // WP-54: 채널 화면 컨텍스트 등록 — 채널 + 열린 스레드(루트 메시지).
   useChannelScreenContext(channelId, detail.data, openThreadParent)
@@ -269,7 +270,10 @@ export default function ChannelPage() {
     <div className="flex h-full min-h-0">
       {/* 채널 본문 컬럼 — 스레드 패널과 가로 분할.
           min-w-0: flex 자식의 기본 min-width:auto 때문에 긴 첨부 파일명의 min-content 폭만큼 컬럼이 부모를 넘어 커지는 것을 막는다. */}
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      <div
+        data-testid="channel-column"
+        className={cn('flex h-full min-h-0 min-w-0 flex-1 flex-col', isMobile && threadShown && 'hidden')}
+      >
         <ChannelHeader
           channel={channel}
           onOpenMembers={() => setMembersOpen(true)}
@@ -284,7 +288,7 @@ export default function ChannelPage() {
             channelId={channel.id}
             currentUserId={me.id}
             members={mentionMembers}
-            onOpenThread={setOpenThreadId}
+            onOpenThread={(id) => threadParam.open(String(id))}
             unreadDividerBeforeId={unreadDividerBeforeId}
             catchupSlot={catchupSlot}
             emptyState={
@@ -320,22 +324,16 @@ export default function ChannelPage() {
           }
         />
       </div>
-      {/* 스레드 패널 — openThreadParent 가 있을 때만 렌더. */}
+      {/* 스레드 패널 — 루트를 찾았을 때만 렌더. 닫기(✕·‹)는 히스토리 닫기 하나로 통일(WP-207). */}
       {openThreadParent && (
         <ThreadPanel
           channelId={channel.id}
+          channelName={channel.name}
           parent={openThreadParent}
           members={mentionMembers}
           me={me}
           archived={channel.archived}
-          onClose={() => {
-            setOpenThreadId(null)
-            // ?thread= 파라미터가 있었으면 URL 에서도 제거한다(replace — 히스토리 오염 방지).
-            if (threadParam) {
-              searchParams.delete('thread')
-              setSearchParams(searchParams, { replace: true })
-            }
-          }}
+          onClose={threadParam.close}
         />
       )}
       <RenameChannelModal

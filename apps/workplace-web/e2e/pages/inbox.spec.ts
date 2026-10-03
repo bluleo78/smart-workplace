@@ -158,8 +158,8 @@ test('REMINDER 알림은 일정 정보를 렌더하고 클릭 시 해당 일정 
   // 상세 모달이 자동으로 열리고 해당 일정 제목이 채워진다.
   await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
   await expect(page.getByTestId('calendar-form-title')).toHaveValue('팀 회의')
-  // 처리 후 eventId 쿼리파라미터는 정리된다(재열림 방지).
-  await expect(page).toHaveURL(/\/calendar$/)
+  // 일정 상세는 URL ?eventId 로 열린 상태를 유지한다(뒤로가기로 닫힘, WP-208).
+  await expect(page).toHaveURL(/\/calendar\?eventId=\d+$/)
 })
 
 test('CALENDAR_INVITED 알림은 크래시 없이 일정 정보를 렌더하고 클릭 시 해당 일정 상세로 딥링크된다 (#585, #659)', async ({
@@ -207,11 +207,12 @@ test('CALENDAR_INVITED 알림은 크래시 없이 일정 정보를 렌더하고 
 
   await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
   await expect(page.getByTestId('calendar-form-title')).toHaveValue('분기 킥오프')
-  await expect(page).toHaveURL(/\/calendar$/)
+  await expect(page).toHaveURL(/\/calendar\?eventId=\d+$/)
 })
 
-// 삭제됐거나 접근 권한 없는 eventId 로 직접 진입 시 조용히 기본 화면으로 폴백한다.
-test('존재하지 않는 eventId 딥링크는 캘린더 기본 화면으로 폴백한다 (#659)', async ({
+// 삭제됐거나 접근 권한 없는 eventId 로 직접 진입 시 다이얼로그 없이 캘린더를 보이고 안내한다.
+// 안내 후 eventId 는 replace 로 지운다 — 남기면 다음 일정 탭이 push 되지 않아 닫기가 캘린더를 떠난다(WP-208).
+test('존재하지 않는 eventId 딥링크는 다이얼로그 없이 캘린더를 보이고 안내한다 (#659)', async ({
   authenticatedPage: page,
 }) => {
   await mockApi(page, 'GET', '/api/v1/calendar/events/999', { message: '일정을 찾을 수 없습니다' }, { status: 404 })
@@ -219,9 +220,8 @@ test('존재하지 않는 eventId 딥링크는 캘린더 기본 화면으로 폴
 
   await expect(page.getByTestId('calendar-view-month')).toBeVisible()
   await expect(page.getByTestId('calendar-event-dialog')).not.toBeVisible()
-  // 폴백 후 eventId 쿼리파라미터가 정리된다.
-  await expect(page).toHaveURL(/\/calendar$/)
   await expect(page.getByText('일정을 찾을 수 없거나 접근 권한이 없습니다')).toBeVisible()
+  await expect(page).toHaveURL(/\/calendar$/)
 })
 
 test('PRIORITY_CHANGED 알림은 상태 변경과 대칭적으로 렌더되고 이슈 상세로 이동한다 (#613)', async ({

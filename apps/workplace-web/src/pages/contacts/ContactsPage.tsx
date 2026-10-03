@@ -1,5 +1,5 @@
 import { Plus, Star } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
@@ -9,8 +9,10 @@ import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
+import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
+import { decodeContactParam, encodeContactParam } from '@/lib/contactParam'
 import { cn } from '@/lib/utils'
 
 import { ContactDetailPanel } from '../../components/contacts/ContactDetailPanel'
@@ -142,7 +144,12 @@ export function ContactsPage() {
   const groupParam = params.get('group')
   const groupId = parseGroupId(groupParam)
 
-  const [selected, setSelected] = useState<ContactSelection | null>(null)
+  // 열린 연락처 = URL ?contact(상태의 단일 원천, WP-206). 행 클릭은 push → 시스템 뒤로가기가 상세만 닫는다.
+  // 필터(q·type·조직·직책·그룹) 변경은 그 navigate(ContactSidebar.patch·clearGroupSelection)가 contact 를 함께 지운다 —
+  // 같은 히스토리 항목에서 처리해 리셋 이펙트 경합·이중 항목이 없다.
+  const contactParam = useHistoryParam('contact')
+  const selected = decodeContactParam(contactParam.value)
+  const selectContact = (sel: ContactSelection) => contactParam.open(encodeContactParam(sel))
   // 모바일: 상세가 열려 있으면 하단 탭바를 숨긴다(WP-125).
   useHideTabBar(selected != null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -150,17 +157,13 @@ export function ContactsPage() {
   // 모바일에서 상세가 열리면 목록 헤더("연락처"·＋·☰·🔔) 대신 상세 헤더 한 줄만 둔다(U1-1).
   const showListChrome = !(isMobile && selected != null)
 
-  // 보던 조직도 그룹이 삭제되면 URL group 파라미터 제거 → 통합 목록 복귀.
+  // 보던 조직도 그룹이 삭제되면 URL group 파라미터 제거 → 통합 목록 복귀(열린 상세도 함께 닫는다).
   const clearGroupSelection = () => {
     const next = new URLSearchParams(params)
     next.delete('group')
+    next.delete('contact')
     setParams(next, { replace: true })
   }
-
-  // 그룹·타입·검색 등 목록 필터 전환 시 이전 선택(상세 패널) 초기화 — 좁은 화면에서 사이드바 필터를 바꿔도 상세가 남지 않도록.
-  useEffect(() => {
-    setSelected(null)
-  }, [groupId, search, type, organization, title])
   const contactsQuery = useContacts(search, type, organization, title)
   // 오류 화면은 첫 페이지 실패만(isLoadingError) — LoadMoreFooter 참조
   const { data, isLoading, isLoadingError, refetch, hasNextPage } = contactsQuery
@@ -216,7 +219,7 @@ export function ContactsPage() {
               <GroupContactView
                 groupId={groupId}
                 selected={selected}
-                onSelect={setSelected}
+                onSelect={selectContact}
                 onGroupDeleted={clearGroupSelection}
               />
             ) : isLoading ? (
@@ -238,7 +241,7 @@ export function ContactsPage() {
                     key={`${c.type}-${c.id}`}
                     c={c}
                     active={selected?.type === c.type && selected?.id === c.id}
-                    onSelect={() => setSelected({ type: c.type, id: c.id })}
+                    onSelect={() => selectContact({ type: c.type, id: c.id })}
                   />
                 ))}
                 {/* WP-182: 끝에 닿으면 자동 로드 — 실패했을 때만 다시 시도 버튼 */}
@@ -256,8 +259,8 @@ export function ContactsPage() {
             data-testid="contact-detail"
           >
             {/* 모바일 상세 헤더 — ‹·연락처 이름·✦ 한 줄(탭바가 숨으므로 ✦ 포함). URL 이 탭 루트라 레이아웃 상세 분기 대신 직접 그린다. */}
-            {isMobile && <MobileDetailBar data-testid="contact-back" title={detailName} onBack={() => setSelected(null)} />}
-            <ContactDetailPanel selected={selected} onDeleted={() => setSelected(null)} />
+            {isMobile && <MobileDetailBar data-testid="contact-back" title={detailName} onBack={contactParam.close} />}
+            <ContactDetailPanel selected={selected} onDeleted={contactParam.close} />
           </div>
         </div>
       </div>

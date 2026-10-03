@@ -75,7 +75,7 @@ export function MobileTabBar() {
   const navRef = useTabBarHeightVar()
   const { pathname } = useLocation()
   const navigate = useNavigate()
-  const { mode, open, close, triggerActivity } = useAssistant()
+  const { mode, open, close, dismiss, historyOpen, triggerActivity } = useAssistant()
   const aiAvailable = useAiAvailable()
   const chrome = useMobileChrome()
   const badges = useTabBadges()
@@ -83,14 +83,17 @@ export function MobileTabBar() {
   const slots = chrome?.slots ?? DEFAULT_TAB_SLOTS
   const aiOpen = mode !== 'closed'
 
-  // 슬롯 탭: AI 가 열려 있으면 닫고 이동. 이미 그 탭 루트면 본문을 맨 위로(모바일 관례).
+  // 슬롯 탭: 이미 그 탭 루트면 AI 만 닫고(연 항목 되돌림) 본문을 맨 위로(모바일 관례).
+  // 다른 탭이면 close()(=history.go(-1), 비동기) 뒤 push 가 늦게 온 go(-1) 에 되돌려지므로,
+  // 히스토리를 건드리지 않고 닫은 뒤 AI 항목을 새 탭으로 교체(replace)한다 — 새 탭에서 back = AI 를 열기 전 화면(WP-209).
   const go = (path: string) => {
-    if (aiOpen) close()
     if (pathname === path) {
+      if (aiOpen) close()
       scrollBodyToTop()
       return
     }
-    navigate(path)
+    if (aiOpen) dismiss()
+    navigate(path, { replace: aiOpen && historyOpen })
   }
 
   const renderSlot = (id: MobileTabId) => {

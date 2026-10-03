@@ -49,6 +49,8 @@ export function ContactSidebar() {
     setParams(
       (prev) => {
         const sp = new URLSearchParams(prev)
+        // 필터를 바꾸면 열린 상세(?contact)도 같은 항목에서 닫는다 — 바뀐 목록에 없는 상세가 남지 않게(WP-206).
+        sp.delete('contact')
         for (const [k, v] of Object.entries(next)) {
           if (v == null || v === '' || (k === 'type' && v === 'ALL')) sp.delete(k)
           else sp.set(k, v)

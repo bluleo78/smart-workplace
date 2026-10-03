@@ -148,7 +148,8 @@ export function MessageComposer({
               type="button"
               aria-label="파일 첨부"
               data-testid="composer-attach-button"
-              className="rounded-md p-2 hover:bg-accent/40"
+              // 모바일: 44px 터치 타깃(16px 아이콘 + p-3.5). 데스크톱은 p-2 유지.
+              className="rounded-md p-2 hover:bg-accent/40 max-lg:p-3.5"
               onClick={() => attachInputRef.current?.click()}
             >
               <Paperclip className="h-4 w-4" />
@@ -164,7 +165,7 @@ export function MessageComposer({
                   ? '드라이브를 사용할 수 없습니다'
                   : '드라이브에서 링크'
               }
-              className="rounded-md p-2 hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md p-2 hover:bg-accent/40 max-lg:p-3.5 disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => setDrivePickerOpen(true)}
             >
               <Cloud className="h-4 w-4" />

@@ -28,9 +28,12 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
+import { parseId } from '@/lib/historyParam'
+import { cn } from '@/lib/utils'
 
 import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
 import { driveApi } from '../../api/drive'
@@ -114,7 +117,7 @@ function useDriveScreenContext(input: {
 }
 
 /** 폴더 브라우저 — 검색 + 브레드크럼 + 폴더·파일 목록 + 업로드/새폴더/이름변경/삭제/미리보기/다운로드.
- *  spaceId prop 이 오면 임베드(드로워) 모드 — 폴더 탐색을 state 로 보관해 상위 URL 을 건드리지 않는다.
+ *  spaceId prop 이 오면 임베드(드로워) 모드 — 폴더 탐색은 드로워 안 `?filesFolder` 키(풀페이지 folderId 와 별도, push)로 보관한다(WP-207).
  *  미지정 시 URL(useParams/useSearchParams) 로 구동하는 풀페이지 모드. */
 export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const params = useParams()
@@ -126,7 +129,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }
   const sid = spaceIdProp ?? Number(params.spaceId)
   const embedded = spaceIdProp != null
-  const folderNav = useFolderNavigation(embedded ? 'state' : 'url')
+  const folderNav = useFolderNavigation(embedded ? { key: 'filesFolder' } : 'url')
   const folderId = folderNav.folderId
 
   // WP-63: 쿼리 훅에 넘길 공간 id — URL 파라미터가 숫자가 아니면(NaN) 조회 비활성.
@@ -147,7 +150,14 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const [picker, setPicker] = useState<
     { mode: 'move' | 'copy'; kind: 'file' | 'folder'; id: number; name: string } | null
   >(null)
-  const [preview, setPreview] = useState<DriveFile | null>(null)
+  // 미리보기 = URL ?preview=<드라이브 파일 id>(시스템 뒤로가기로 닫힘, WP-208). 단건 조회 API 가 없어
+  // 현재 목록(검색 결과 포함)에서 찾고, 재조회·placeholder 로 잠깐 빠져도 깜빡이지 않게 마지막으로 연 파일을 기억한다.
+  const previewParam = useHistoryParam('preview')
+  const [previewSnap, setPreviewSnap] = useState<DriveFile | null>(null)
+  function openPreview(f: DriveFile) {
+    setPreviewSnap(f)
+    previewParam.open(String(f.id))
+  }
   // 공유 링크 모달 대상 파일 — null 이면 닫힘.
   const [shareFile, setShareFile] = useState<DriveFile | null>(null)
   // 버전 이력 모달 대상 파일 — null 이면 닫힘.
@@ -181,7 +191,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 휴지통 뷰 — trash != null 이면 휴지통 모드.
   // WP-63: 열림 여부만 state 로 두고 목록은 useQuery 로 조회. 기존처럼 첫 응답이 올 때까지는
   // 휴지통 뷰로 전환하지 않도록 data 가 있을 때만 trash 를 채운다.
-  const [trashOpen, setTrashOpen] = useState(false)
+  // 휴지통 뷰 = URL ?view=trash(뷰 전환이라 push — 시스템 뒤로가기로 일반 뷰 복귀, WP-208).
+  const trashParam = useHistoryParam('view')
+  const trashOpen = trashParam.value === 'trash'
   const trashQuery = useDriveTrash(validSid, trashOpen)
   const trash: DriveTrashItem[] | null = trashOpen && trashQuery.data ? trashQuery.data.items : null
 
@@ -219,18 +231,20 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     setSelFolders(new Set())
   }
 
-  // 스페이스가 바뀌면 휴지통 뷰를 닫는다 — 새 스페이스의 휴지통 조회가 실패해도 trashOpen 이 남아
-  // 이후 재조회 성공 시 화면이 자동으로 휴지통으로 넘어가 갇히는 것을 막는다(렌더 중 이전 값 비교 패턴).
-  const [prevSid, setPrevSid] = useState(sid)
-  if (prevSid !== sid) {
-    setPrevSid(sid)
-    setTrashOpen(false)
-  }
+  // 스페이스 전환은 사이드바 링크가 search 를 새로 써 ?view 가 함께 빠진다 — 휴지통이 다른 공간으로 따라가지 않는다(WP-208).
 
   // WP-63: 선택은 재조회(원격 무효화 등)로 지워지지 않으므로, 현재 보이는 목록에서 사라진 항목은
   // 선택 집합과 현재 뷰(검색 중이면 검색 결과, 아니면 폴더 목록) id 의 교집합으로 걸러 쓴다.
   // 선택 수·벌크 작업 body·전체선택 판정·체크 상태 모두 이 걸러진 집합을 기준으로 한다.
   const viewItems = results ?? actualItems
+  // 미리보기 대상 해석 — 표시 중 목록(placeholder 포함) → 클릭 스냅숏 순. 목록이 실제로 로드됐는데도 없으면 not-found.
+  const previewId = parseId(previewParam.value)
+  const preview: DriveFile | null =
+    previewId == null
+      ? null
+      : ((results ?? items).files.find((f) => f.id === previewId) ?? (previewSnap?.id === previewId ? previewSnap : null))
+  const previewMissing =
+    previewId != null && preview == null && results == null && itemsQuery.isSuccess && !itemsQuery.isPlaceholderData
   // 렌더마다 Set 을 새로 만들지 않도록 입력(뷰 목록·선택 집합)이 바뀔 때만 다시 계산한다.
   const visibleSelFiles = useMemo(() => {
     const ids = new Set(viewItems.files.map((f) => f.id))
@@ -677,7 +691,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         queryFn: () => driveApi.listTrash(sid).then((r) => r.data),
         staleTime: 0,
       })
-      setTrashOpen(true)
+      trashParam.open('trash')
     } catch (e) {
       handleApiError(e, '휴지통을 불러오지 못했습니다.')
     }
@@ -687,7 +701,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     await queryClient.invalidateQueries({ queryKey: driveKeys.trash(sid) })
   }
   function closeTrash() {
-    setTrashOpen(false)
+    trashParam.close()
     void reloadAndClear()
   }
   // 복원 실패 시 사용자에게 오류 피드백 제공 (try/catch 추가)
@@ -884,44 +898,50 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           </>
         }
       />
-      {/* breadcrumb 행 — 브라우즈 모드(검색·휴지통 아님)에서만. 폴더명 경로, 깊으면 … 접기. */}
+      {/* breadcrumb 행 — 브라우즈 모드(검색·휴지통 아님)에서만. 폴더명 경로, 깊으면 … 접기.
+          한 줄 고정(whitespace-nowrap+overflow-hidden) — 긴 폴더명이 줄바꿈되면 h-9 를 넘쳐 위 헤더 밑으로
+          잘린다(좁은 드로워·모바일). 넘치면 세그먼트가 min-w-0·truncate 로 말줄임된다. */}
       {trash == null && !searching && (
         <nav
           aria-label="폴더 경로"
-          className="flex h-9 shrink-0 items-center gap-1 border-b px-4 text-sm"
+          className="flex h-11 min-w-0 shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap border-b px-4 text-sm lg:h-9"
           data-testid="drive-breadcrumb"
         >
           <button
             type="button"
             onClick={goRoot}
             data-testid="drive-root"
-            className={folderId == null ? 'font-semibold' : 'text-primary hover:underline'}
+            className={cn('shrink-0 self-stretch', folderId == null ? 'font-semibold' : 'text-primary hover:underline')}
           >
             드라이브
           </button>
           {collapseCrumbs(crumbs).map((c, i, arr) =>
             c == null ? (
-              <span key="ellipsis" className="flex items-center gap-1 text-muted-foreground">
+              <span key="ellipsis" className="flex shrink-0 items-center gap-1 text-muted-foreground">
                 <span>/</span>
                 <span>…</span>
               </span>
+            ) : i === arr.length - 1 ? (
+              // 현재 폴더 — 조상(shrink-[4])보다 덜 줄어들어(shrink 1) 이름을 최대한 지킨다. 전체 이름은 title 로.
+              <span key={c.id} className="flex min-w-0 items-center gap-1">
+                <span className="shrink-0 text-muted-foreground">/</span>
+                <span className="truncate font-semibold" title={c.name} data-testid={`drive-crumb-${c.id}`}>
+                  {c.name}
+                </span>
+              </span>
             ) : (
-              <span key={c.id} className="flex items-center gap-1">
-                <span className="text-muted-foreground">/</span>
-                {i === arr.length - 1 ? (
-                  <span className="font-semibold" data-testid={`drive-crumb-${c.id}`}>
-                    {c.name}
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => openFolder(c.id)}
-                    data-testid={`drive-crumb-${c.id}`}
-                    className="text-primary hover:underline"
-                  >
-                    {c.name}
-                  </button>
-                )}
+              // 조상 폴더 — 먼저 줄어들고 모바일에선 최대 폭(max-w-40)도 제한해 현재 폴더에 자리를 양보한다(데스크톱은 넘칠 때만 줄어듦).
+              <span key={c.id} className="flex min-w-0 max-w-40 shrink-[4] items-center gap-1 self-stretch lg:max-w-none">
+                <span className="shrink-0 text-muted-foreground">/</span>
+                <button
+                  type="button"
+                  onClick={() => openFolder(c.id)}
+                  data-testid={`drive-crumb-${c.id}`}
+                  title={c.name}
+                  className="self-stretch truncate text-primary hover:underline"
+                >
+                  {c.name}
+                </button>
               </span>
             ),
           )}
@@ -1069,7 +1089,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                       <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
                       <button
                         type="button"
-                        onClick={() => (isMissingBlob(f) ? onUnavailableClick() : setPreview(f))}
+                        onClick={() => (isMissingBlob(f) ? onUnavailableClick() : openPreview(f))}
                         className={
                           isMissingBlob(f)
                             ? 'flex-1 truncate text-left text-sm text-muted-foreground'
@@ -1214,11 +1234,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
                   {formatDateOnly(f.updatedAt)}
                 </span>
+                {/* 행 액션 — 호버 또는 키보드 포커스(focus-visible)일 때만 노출. focus-within 이면 터치 탭의 포인터 포커스로도 열려
+                    좁은 폭(모바일 드로워)에서 이름 버튼이 0폭으로 접히고 클릭이 <li> 로 빠져 폴더가 열리지 않는다(WP-207). */}
                 <button
                   type="button"
                   onClick={() => onRenameFolder(f.id, f.name)}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-focus-within:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
                 >
                   이름변경
                 </button>
@@ -1226,7 +1248,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-focus-within:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
                 >
                   이동
                 </button>
@@ -1234,7 +1256,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-focus-within:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
                 >
                   복사
                 </button>
@@ -1242,7 +1264,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => onDeleteFolder(f.id)}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-destructive group-hover:inline-flex group-focus-within:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-destructive group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
                 >
                   삭제
                 </button>
@@ -1262,7 +1284,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
                 <button
                   type="button"
-                  onClick={() => (isMissingBlob(f) ? onUnavailableClick() : setPreview(f))}
+                  onClick={() => (isMissingBlob(f) ? onUnavailableClick() : openPreview(f))}
                   className={
                     isMissingBlob(f)
                       ? 'flex-1 truncate text-left text-sm text-muted-foreground'
@@ -1293,8 +1315,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
                   {formatDateOnly(f.updatedAt)}
                 </span>
-                {/* 행 액션 — 호버/포커스 시 노출. 주요 3개 인라인 + 더보기(⋯). 핸들러는 기존 그대로. */}
-                <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-focus-within:flex">
+                {/* 행 액션 — 호버 또는 키보드 포커스(focus-visible)일 때만 노출. 주요 3개 인라인 + 더보기(⋯).
+                    focus-within 이면 터치 탭의 포인터 포커스로 열려 모바일에서 이름 버튼이 접히고 미리보기가 안 열린다(WP-208). */}
+                <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-kbd:flex">
                   <Button
                     variant="ghost"
                     size="xs"
@@ -1387,7 +1410,18 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             onClose={() => setBulkPicker(false)}
           />
         )}
-        {preview && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}
+        {preview && <FilePreviewModal file={preview} onClose={previewParam.close} />}
+        {/* 삭제·이동된 파일 딥링크 — 조용히 URL 을 고치지 않고 안내 후 닫기로 되돌린다(WP-208). */}
+        {previewMissing && (
+          <Dialog open onOpenChange={(o) => { if (!o) previewParam.close() }}>
+            <DialogContent data-testid="preview-not-found">
+              <DialogHeader>
+                <DialogTitle>파일을 찾을 수 없습니다</DialogTitle>
+                <DialogDescription>삭제되었거나 다른 폴더로 이동한 파일입니다.</DialogDescription>
+              </DialogHeader>
+            </DialogContent>
+          </Dialog>
+        )}
         {shareFile && <ShareLinkModal file={shareFile} onClose={() => setShareFile(null)} />}
         {versionFile && (
           <VersionHistoryModal

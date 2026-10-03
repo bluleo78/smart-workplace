@@ -61,6 +61,6 @@ export function moduleRootFor(pathname: string): string {
  * 뒤로가기 대상. react-router 의 history.state.idx 가 0 보다 크면 앱 안에서 쌓인 기록이 있으니 -1,
  * 아니면(푸시 딥링크 첫 진입 등) 앱 밖으로 나가지 않도록 모듈 루트 경로를 돌려준다.
  */
-export function resolveBackTarget(pathname: string, historyIdx: number | undefined): number | string {
+export function resolveBackTarget(pathname: string, historyIdx: number | null | undefined): number | string {
   return historyIdx && historyIdx > 0 ? -1 : moduleRootFor(pathname)
 }

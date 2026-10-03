@@ -36,6 +36,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatDateOnly, formatDateTimeLocale } from '@/lib/formatters';
+import { parseId } from '@/lib/historyParam';
 
 import { AgentBadge } from '../../components/users/AgentBadge';
 import {
@@ -45,6 +46,7 @@ import {
 } from '../../hooks/queries/useAgentKeys';
 import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
+import { useHistoryParam } from '../../hooks/useHistoryParam';
 import { clickableRowProps } from '../../lib/clickableRowProps';
 import { AgentConnectionSection } from './components/AgentConnectionSection';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
@@ -58,8 +60,9 @@ export default function AgentManagementPage() {
   const deleteAgent = useDeleteAgent();
   // 공통 비서 상태 — 테이블 배지 + 빈 상태 배너에 사용.
   const ws = useWorkspaceAssistant();
-  // 선택된 에이전트 = Drawer 열림 상태.
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  // 열린 에이전트 = URL ?agent(상세 시트 열림의 단일 원천, WP-209). 행 클릭은 push → 시스템 뒤로가기가 시트만 닫는다.
+  const agentParam = useHistoryParam('agent');
+  const selectedId = parseId(agentParam.value);
   const keys = useAgentKeys(selectedId);
   // selectedId 가 null 인 경우 0 으로 두지만, enabled=false 이므로 호출은 안 됨.
   const issue = useIssueAgentKey(selectedId ?? 0);
@@ -106,7 +109,7 @@ export default function AgentManagementPage() {
       action: () =>
         deleteAgent.mutate(id, {
           onSuccess: () => {
-            if (selectedId === id) setSelectedId(null);
+            if (selectedId === id) agentParam.close();
           },
         }),
     });
@@ -196,7 +199,7 @@ export default function AgentManagementPage() {
                   key={a.id}
                   className="cursor-pointer focus-visible:ring-2 focus-visible:ring-ring"
                   data-testid={`agent-row-${a.id}`}
-                  {...clickableRowProps(() => setSelectedId(a.id), `${a.name} 상세 보기`)}
+                  {...clickableRowProps(() => agentParam.open(String(a.id)), `${a.name} 상세 보기`)}
                 >
                   <TableCell>
                     <div className="flex items-center gap-2.5">
@@ -240,11 +243,11 @@ export default function AgentManagementPage() {
         </Table>
       </div>
 
-      {/* 상세 Drawer — 행 클릭 시 우측에서 슬라이드. */}
+      {/* 상세 Drawer — 행 클릭 시 우측에서 슬라이드. 열림 = ?agent 존재(없는 id 면 찾을 수 없음 안내, WP-209). */}
       <Sheet
-        open={selected != null}
+        open={agentParam.value != null}
         onOpenChange={(open) => {
-          if (!open) setSelectedId(null);
+          if (!open) agentParam.close();
         }}
       >
         <SheetContent
@@ -372,7 +375,18 @@ export default function AgentManagementPage() {
                 </Button>
               </div>
             </>
-          ) : null}
+          ) : agents.isLoading ? (
+            <SheetHeader className="shrink-0 space-y-0 border-b px-6 py-4">
+              <SheetTitle>불러오는 중…</SheetTitle>
+              <SheetDescription className="sr-only">에이전트 상세</SheetDescription>
+            </SheetHeader>
+          ) : (
+            // 삭제됐거나 개인 비서 숨김 필터로 목록에서 빠진 id — URL 을 조용히 고치지 않고 닫기로 되돌린다.
+            <SheetHeader data-testid="agent-detail-notfound" className="shrink-0 space-y-0 border-b px-6 py-4">
+              <SheetTitle>에이전트를 찾을 수 없습니다</SheetTitle>
+              <SheetDescription>삭제되었거나 목록 필터로 숨겨진 에이전트입니다.</SheetDescription>
+            </SheetHeader>
+          )}
         </SheetContent>
       </Sheet>
 

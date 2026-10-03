@@ -14,6 +14,7 @@ import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { Button } from '@/components/ui/button'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
+import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
@@ -23,6 +24,7 @@ import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { handleApiError } from '@/lib/api-error'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatDateTime, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
+import { parseId } from '@/lib/historyParam'
 import { markSeenInKept, mergeKeptRows } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
@@ -565,29 +567,17 @@ export function MailInboxPage() {
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchDraft])
-  // URL ?messageId=N 으로 초기 선택(홈 위젯 딥링크). 없으면 null.
-  const [selectedId, setSelectedId] = useState<number | null>(
-    () => Number(params.get('messageId')) || null,
-  )
+  // 열린 메일 = URL ?messageId(상태의 단일 원천, WP-206). 행 클릭은 push 라 시스템 뒤로가기가 상세만 닫는다.
+  // 홈 위젯 딥링크(#447)·푸시 알림도 같은 키 — 마운트 1회 읽기가 아니라 URL 실시간 파생이라 forward 재열림도 자연스럽다.
+  const mailParam = useHistoryParam('messageId')
+  const selectedId = parseId(mailParam.value)
   // 모바일: 본문(상세)이 열려 있으면 하단 탭바를 숨긴다(WP-125).
   useHideTabBar(selectedId != null)
 
   // 폴더 파라미터: ?folder=sent → SENT, 기본 INBOX.
   const folderParam = (params.get('folder') === 'sent' ? 'SENT' : 'INBOX') as MailFolder
 
-  // 계정·폴더 전환 시 이전 선택 메시지가 남지 않도록 초기화.
-  // prevRef 로 이전값을 추적해 "실제로 바뀐 경우"에만 초기화 — 마운트·StrictMode 이중실행 모두 안전.
-  const prevRef = useRef<{ accountId: string | undefined; folderParam: string } | null>(null)
-  useEffect(() => {
-    const prev = prevRef.current
-    prevRef.current = { accountId, folderParam }
-    // 이전값이 없으면(최초 마운트) 건너뜀 — ?messageId 초기 선택 보호
-    if (!prev) return
-    // 실제로 값이 바뀐 경우에만 초기화
-    if (prev.accountId !== accountId || prev.folderParam !== folderParam) {
-      setSelectedId(null)
-    }
-  }, [accountId, folderParam])
+  // 계정·폴더 전환은 사이드바 navigate 가 search 를 새로 쓰며 messageId 를 함께 지운다 — 별도 리셋 이펙트 불요(WP-206).
 
   const { data: accounts, isLoading: accountsLoading } = useMailAccounts()
   const accountIdNum = accountId ? Number(accountId) : undefined
@@ -664,7 +654,7 @@ export function MailInboxPage() {
    * 목록 행·작업 시트의 전환은 열린 메일이어도 상세를 그대로 둔다(조회가 읽음 처리하지 않으므로 닫을 필요가 없다, WP-214).
    */
   const markUnreadAndClose = (id: number) => {
-    setSelectedId(null)
+    mailParam.close()
     applyToggle(id, false)
   }
   // 행 버튼·작업 시트 공통 읽음 전환.
@@ -1115,14 +1105,14 @@ export function MailInboxPage() {
               </div>
             )
           ) : (
-            <div className="flex-1 overflow-y-auto" {...longPress}>
+            <div data-testid="mail-list-scroll" className="flex-1 overflow-y-auto" {...longPress}>
               {messages.map((m) => (
                 <MessageRow
                   key={m.id}
                   m={m}
                   // 길게 누르기 시트의 대상 행도 강조한다 — 촘촘한 목록에서 어느 메일에 대한 작업인지 보이게(M4).
                   active={selectedId === m.id || (sheet.open && sheet.target?.id === m.id)}
-                  onSelect={() => setSelectedId(m.id)}
+                  onSelect={() => mailParam.open(String(m.id))}
                   pendingVisible={view.kind !== 'sent' && classificationActive}
                   showToggle={!touchShell}
                   // 상태만 뒤집는다 — 열린 메일이어도 상세는 그대로 둔다(조회가 읽음 처리하지 않는다, WP-214).
@@ -1158,7 +1148,7 @@ export function MailInboxPage() {
             <MobileDetailBar
               data-testid="mail-back"
               title={detailTitle}
-              onBack={() => setSelectedId(null)}
+              onBack={mailParam.close}
               trailing={
                 selectedId != null && (
                   <button

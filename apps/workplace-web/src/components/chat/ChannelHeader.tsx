@@ -1,5 +1,6 @@
 // 채널 헤더 — 이름·멤버수·아카이브 뱃지. 설정 드롭다운(OWNER/ADMIN: 이름변경·아카이브/해제),
 // 멤버 버튼, 시스템 ADMIN: 삭제. 권한 없는 액션은 렌더하지 않는다(1차 방어).
+import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, Folder, Lock, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useState } from 'react'
@@ -34,6 +35,7 @@ import {
   useUnarchiveChannel,
 } from '@/hooks/queries/useChannelMutations'
 import { useAuth } from '@/hooks/useAuth'
+import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { cn } from '@/lib/utils'
 import type { ChannelResponse } from '@/types/messaging'
@@ -58,12 +60,18 @@ export function ChannelHeader({
   // 채널 OWNER/ADMIN 은 이름변경·아카이브 가능.
   const canManage = channel.role === 'OWNER' || channel.role === 'ADMIN'
 
-  // #76 → 채널 파일 드로워: 연동 공간 보장 후 드로워로 인라인 표시(풀 네비게이션 폐기).
-  const [filesSpaceId, setFilesSpaceId] = useState<number | null>(null)
-  async function openFiles() {
-    const { data } = await messagingApi.ensureChannelDriveSpace(channel.id)
-    setFilesSpaceId(data.spaceId)
-  }
+  // #76 → 채널 파일 드로워 — 열림 = URL ?files=1(WP-207). 시스템 뒤로가기가 드로워(와 그 안 폴더)부터 닫는다.
+  // 닫을 때(콜드 진입) 드로워 안 하위 키(폴더·미리보기·휴지통)도 함께 지운다.
+  const filesParam = useHistoryParam('files', { clear: ['filesFolder', 'preview', 'view'] })
+  const filesOpen = filesParam.value === '1'
+  // 연동 공간 보장(POST, 멱등) — 드로워가 열려 있을 때만. 딥링크·새로고침으로 ?files=1 이 남아 있어도 다시 보장한다.
+  const filesSpace = useQuery({
+    queryKey: ['drive', 'channel-space', channel.id],
+    queryFn: () => messagingApi.ensureChannelDriveSpace(channel.id).then((r) => r.data.spaceId),
+    enabled: filesOpen,
+    staleTime: Infinity,
+  })
+  const openFiles = () => filesParam.open('1')
 
   // 삭제 확인 다이얼로그·파일 드로워 — 데스크톱 헤더 안(기존 위치) 또는 모바일 병합 헤더 옆에 둔다.
   const overlays: ReactNode = (
@@ -96,9 +104,11 @@ export function ChannelHeader({
 
       {/* 채널 파일 드로워 — 대화 컨텍스트를 유지한 채 연동 드라이브 공간 표시. */}
       <DriveSpaceDrawer
-        spaceId={filesSpaceId}
+        open={filesOpen}
+        spaceId={filesSpace.data ?? null}
+        failed={filesSpace.isError}
         title={channel.name}
-        onClose={() => setFilesSpaceId(null)}
+        onClose={filesParam.close}
       />
     </>
   )
@@ -134,7 +144,7 @@ export function ChannelHeader({
           }
           mobileActions={
             <>
-              <button type="button" data-testid="channel-files-button" onClick={() => void openFiles()}>
+              <button type="button" data-testid="channel-files-button" onClick={openFiles}>
                 <Folder className="h-4 w-4" /> 파일
               </button>
               {canManage && (
@@ -194,7 +204,7 @@ export function ChannelHeader({
         <button
           type="button"
           data-testid="channel-files-button"
-          onClick={() => void openFiles()}
+          onClick={openFiles}
           className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm hover:bg-accent"
         >
           <Folder className="h-4 w-4" />
