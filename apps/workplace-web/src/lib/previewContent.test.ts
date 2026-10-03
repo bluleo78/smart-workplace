@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { decodeTextBuffer, hasPdfMagicBytes } from './previewContent'
+import { decodeTextBuffer, hasPdfMagicBytes, needsPreviewConfirm, PREVIEW_CONFIRM_BYTES } from './previewContent'
 
 // '한글' 의 EUC-KR(CP949) 바이트 — 한국어 Windows 엑셀 "CSV (쉼표로 분리)" 저장 형식.
 const HANGUL_EUC_KR = new Uint8Array([0xc7, 0xd1, 0xb1, 0xdb])
@@ -49,5 +49,19 @@ describe('hasPdfMagicBytes', () => {
     const late = new Uint8Array(1100)
     late.set(enc('%PDF-'), 1050)
     expect(hasPdfMagicBytes(late)).toBe(false)
+  })
+})
+
+describe('needsPreviewConfirm', () => {
+  it('10MB 이하는 묻지 않고 바로 미리본다', () => {
+    expect(needsPreviewConfirm(PREVIEW_CONFIRM_BYTES, false)).toBe(false)
+    expect(needsPreviewConfirm(2 * 1024 * 1024, false)).toBe(false)
+  })
+  it('10MB 를 넘으면 동의 전까지 묻는다', () => {
+    expect(needsPreviewConfirm(PREVIEW_CONFIRM_BYTES + 1, false)).toBe(true)
+    expect(needsPreviewConfirm(PREVIEW_CONFIRM_BYTES + 1, true)).toBe(false)
+  })
+  it('크기를 모르면 묻지 않는다(받은 뒤 실제 크기로 다시 판단)', () => {
+    expect(needsPreviewConfirm(null, false)).toBe(false)
   })
 })

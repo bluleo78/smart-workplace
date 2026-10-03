@@ -533,60 +533,71 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     expect((await download).suggestedFilename()).toBe('build.zip');
   });
 
-  test('큰 텍스트 첨부는 내려받지 않고 크기 안내를 보여준다', async ({ authenticatedPage: page }) => {
+  test('10MB 이하 텍스트 첨부는 묻지 않고 앞부분을 바로 보여준다', async ({ authenticatedPage: page }) => {
+    // 2MB 로그 — WP-203 초기의 1MB 차단을 없애고 앞 20만 자 미리보기로 되돌린 동작.
+    const body = Buffer.concat([Buffer.from('첫 줄 로그\n'), Buffer.alloc(2 * 1024 * 1024, 0x61)]);
+    await stubAttachments(
+      page,
+      [createAttachment({ fileId: 7401, originalName: 'mid.log', mimeType: 'text/plain', sizeBytes: body.length })],
+      { 7401: { contentType: 'text/plain', body } },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    await page.getByRole('button', { name: 'mid.log 미리보기' }).click();
+    await expect(page.getByTestId('preview-body').locator('pre')).toContainText('첫 줄 로그');
+    await expect(page.getByTestId('preview-size-confirm')).toHaveCount(0);
+  });
+
+  test('10MB 를 넘는 첨부는 크기를 보여주고, 미리보기를 누를 때만 내려받는다', async ({
+    authenticatedPage: page,
+  }) => {
+    const size = 12 * 1024 * 1024;
     const requested = await stubAttachments(
       page,
-      [
-        createAttachment({
-          fileId: 7401,
-          originalName: 'huge.log',
-          mimeType: 'text/plain',
-          sizeBytes: 2 * 1024 * 1024,
-        }),
-      ],
-      { 7401: { contentType: 'text/plain', body: Buffer.from('log') } },
+      [createAttachment({ fileId: 7402, originalName: 'huge.log', mimeType: 'text/plain', sizeBytes: size })],
+      { 7402: { contentType: 'text/plain', body: Buffer.concat([Buffer.from('HEAD-LINE\n'), Buffer.alloc(size, 0x61)]) } },
     );
     await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
 
     await page.getByRole('button', { name: 'huge.log 미리보기' }).click();
-    await expect(page.getByTestId('preview-body')).toContainText('파일이 커서 미리볼 수 없습니다');
-    expect(requested[7401]).toBeUndefined();
+    const confirm = page.getByTestId('preview-size-confirm');
+    await expect(confirm).toContainText('12.0 MB');
+    // 묻는 동안에는 콘텐츠를 받지 않는다.
+    expect(requested[7402]).toBeUndefined();
+
+    // 확인 화면의 다운로드도 동작한다.
+    const download = page.waitForEvent('download');
+    await confirm.getByRole('button', { name: '다운로드' }).click();
+    expect((await download).suggestedFilename()).toBe('huge.log');
+
+    await confirm.getByRole('button', { name: '미리보기' }).click();
+    await expect(page.getByTestId('preview-body').locator('pre')).toContainText('HEAD-LINE');
+    await expect(confirm).toHaveCount(0);
   });
 
-  test('메타 크기가 작아도 받은 콘텐츠가 상한을 넘으면 파싱하지 않고 크기 안내를 보여준다', async ({
+  test('메타 크기가 작아도 받아보니 10MB 를 넘으면 묻고, 동의하면 다시 받지 않고 보여준다', async ({
     authenticatedPage: page,
   }) => {
-    // 목록 메타 크기는 실제와 다를 수 있다(파일 교체 등) — 받은 blob 크기로 한 번 더 막아야 한다.
-    await stubAttachments(
+    // 목록 메타 크기는 실제와 다를 수 있다(파일 교체 등) — 받은 blob 크기로 한 번 더 판단한다.
+    const body = Buffer.concat([Buffer.from('REAL-BIG\n'), Buffer.alloc(11 * 1024 * 1024, 0x61)]);
+    const requested = await stubAttachments(
       page,
-      [
-        createAttachment({
-          fileId: 7601,
-          originalName: 'big.xlsx',
-          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          sizeBytes: 1024,
-        }),
-        createAttachment({ fileId: 7602, originalName: 'big.log', mimeType: 'text/plain', sizeBytes: 1024 }),
-      ],
-      {
-        7601: {
-          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          body: Buffer.alloc(6 * 1024 * 1024),
-        },
-        7602: { contentType: 'text/plain', body: Buffer.alloc(2 * 1024 * 1024, 0x61) },
-      },
+      [createAttachment({ fileId: 7601, originalName: 'stale.log', mimeType: 'text/plain', sizeBytes: 1024 })],
+      { 7601: { contentType: 'text/plain', body } },
     );
     await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
 
-    await page.getByRole('button', { name: 'big.xlsx 미리보기' }).click();
-    const body = page.getByTestId('preview-body');
-    await expect(body).toContainText('파일이 커서 미리볼 수 없습니다');
-    await expect(body.getByTestId('xlsx-table')).toHaveCount(0);
-    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'stale.log 미리보기' }).click();
+    const confirm = page.getByTestId('preview-size-confirm');
+    await expect(confirm).toContainText('11.0 MB');
+    await expect(page.getByTestId('preview-body').locator('pre')).toHaveCount(0);
+    // dev 서버는 StrictMode 라 effect 가 두 번 돌 수 있다 — 횟수가 아니라 "동의 후 추가 요청 없음"을 본다.
+    const before = requested[7601];
+    expect(before).toBeGreaterThanOrEqual(1);
 
-    await page.getByRole('button', { name: 'big.log 미리보기' }).click();
-    await expect(body).toContainText('파일이 커서 미리볼 수 없습니다');
-    await expect(body.locator('pre')).toHaveCount(0);
+    await confirm.getByRole('button', { name: '미리보기' }).click();
+    await expect(page.getByTestId('preview-body').locator('pre')).toContainText('REAL-BIG');
+    expect(requested[7601]).toBe(before);
   });
 
   test('칩의 다운로드 아이콘은 모달 없이 바로 내려받는다', async ({ authenticatedPage: page }) => {

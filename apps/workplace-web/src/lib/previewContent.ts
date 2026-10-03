@@ -42,3 +42,14 @@ export function hasPdfMagicBytes(bytes: Uint8Array): boolean {
   }
   return false
 }
+
+/**
+ * 이 크기를 넘는 파일은 미리보기 전에 크기를 보여주고 볼지 묻는다(WP-203 후속).
+ * 미리보기는 파일 전체를 내려받아야 하므로, 큰 파일을 사용자 모르게 받지 않기 위함.
+ */
+export const PREVIEW_CONFIRM_BYTES = 10 * 1024 * 1024
+
+/** 미리보기 전에 확인이 필요한지 — 크기를 모르면(null) 일단 받고, 받은 실제 크기로 다시 판단한다. */
+export function needsPreviewConfirm(sizeBytes: number | null | undefined, consented: boolean): boolean {
+  return !consented && sizeBytes != null && sizeBytes > PREVIEW_CONFIRM_BYTES
+}
