@@ -139,7 +139,8 @@ export function parseContentAnalysisJson(
 /**
  * 분류 일괄 응답 파싱 — {"results":[{"id":n,"category":"..."}]}.
  * 요청한 ids 순서대로 결과를 만든다: 응답에 없거나 허용 밖 값이면 null, 요청하지 않은 id 는 버린다
- * (다른 메일에 분류가 잘못 저장되지 않게). results 배열이 없으면 형식 오류로 던진다.
+ * (다른 메일에 분류가 잘못 저장되지 않게). id 는 숫자 또는 정수 문자열("7")을 받는다.
+ * results 배열이 없으면 형식 오류로 던진다.
  */
 export function parseClassifyBatchJson(
   text: string,
@@ -153,7 +154,10 @@ export function parseClassifyBatchJson(
   for (const r of obj.results as unknown[]) {
     if (r && typeof r === 'object') {
       const { id, category } = r as { id?: unknown; category?: unknown };
-      if (typeof id === 'number') byId.set(id, pickCategory(category));
+      // 모델이 id 를 "7" 처럼 숫자 문자열로 돌려주는 경우도 있어 정수 문자열은 숫자로 받아들인다
+      // (거르면 그 배치 전체가 null 로 기록돼 다음 분류 대상에서 빠진다).
+      const numericId = typeof id === 'string' && /^\d+$/.test(id) ? Number(id) : id;
+      if (typeof numericId === 'number') byId.set(numericId, pickCategory(category));
     }
   }
   return ids.map((id) => ({ id, category: byId.get(id) ?? null }));

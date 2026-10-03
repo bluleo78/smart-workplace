@@ -147,6 +147,10 @@ describe('parseClassifyBatchJson', () => {
     const text = '결과입니다\n```json\n{"results":[{"id":5,"category":" 뉴스레터 "}]}\n```';
     expect(parseClassifyBatchJson(text, [5])).toEqual([{ id: 5, category: '뉴스레터' }]);
   });
+  it('숫자 문자열 id("7")도 숫자 id 로 받아들인다', () => {
+    const text = '{"results":[{"id":"7","category":"업무"}]}';
+    expect(parseClassifyBatchJson(text, [7])).toEqual([{ id: 7, category: '업무' }]);
+  });
   it('results 배열이 없으면 예외', () => {
     expect(() => parseClassifyBatchJson('{"foo":1}', [1])).toThrow();
   });
