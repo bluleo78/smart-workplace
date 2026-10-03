@@ -22,12 +22,14 @@ function countReplacement(text: string): number {
  * 반대로 UTF-8 실패 한 번에 바로 EUC-KR 로 넘기면, 잘못된 바이트가 하나 섞인 UTF-8 한글 문서 전체가 깨진다.
  * TextDecoder 는 기본(ignoreBOM=false)으로 선행 BOM 을 제거한다.
  */
-export function decodeTextBuffer(buffer: ArrayBuffer): string {
-  const utf8 = new TextDecoder('utf-8').decode(buffer)
+export function decodeTextBuffer(buffer: ArrayBuffer, { truncated = false } = {}): string {
+  // 앞부분만 잘라 읽은 경우 끝의 반쪽 글자는 스트림 모드로 버린다 — 대체 문자로 세면 인코딩 판정이 틀어진다.
+  const decode = (label: string) => new TextDecoder(label).decode(buffer, { stream: truncated })
+  const utf8 = decode('utf-8')
   // 흔한 경우(정상 UTF-8)는 네이티브 검색 한 번으로 끝낸다 — 개수 세기는 폴백 판정 때만.
   if (!utf8.includes('\uFFFD')) return utf8
   const utf8Bad = countReplacement(utf8)
-  const eucKr = new TextDecoder('euc-kr').decode(buffer)
+  const eucKr = decode('euc-kr')
   return countReplacement(eucKr) < utf8Bad ? eucKr : utf8
 }
 

@@ -16,9 +16,12 @@ export async function fetchBlobByPath(path: string): Promise<Blob> {
 /**
  * Blob → 텍스트. blob.text() 는 UTF-8 고정이라 EUC-KR(한국어 엑셀 CSV) 한글이 깨진다 —
  * 바이트로 읽어 UTF-8 실패 시 EUC-KR 로 폴백한다(WP-203).
+ * maxBytes 를 주면 앞부분만 디코딩한다(큰 로그 미리보기) — 잘린 끝의 반쪽 글자는 디코더가 버린다.
  */
-export async function blobToText(blob: Blob): Promise<string> {
-  return decodeTextBuffer(await blob.arrayBuffer())
+export async function blobToText(blob: Blob, { maxBytes }: { maxBytes?: number } = {}): Promise<string> {
+  const truncated = maxBytes != null && blob.size > maxBytes
+  const head = truncated ? blob.slice(0, maxBytes) : blob
+  return decodeTextBuffer(await head.arrayBuffer(), { truncated })
 }
 
 /**

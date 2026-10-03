@@ -28,6 +28,11 @@ describe('decodeTextBuffer', () => {
     const bytes = new Uint8Array([...header, ...rows])
     expect(decodeTextBuffer(bytes.buffer).startsWith('이름,나이\n1,2')).toBe(true)
   })
+  it('앞부분만 자른 버퍼는 끝의 반쪽 글자를 버리고 UTF-8 로 읽는다', () => {
+    const full = new TextEncoder().encode('가나')
+    const cut = full.slice(0, 4) // '가'(3바이트) + '나'의 첫 바이트
+    expect(decodeTextBuffer(cut.buffer, { truncated: true })).toBe('가')
+  })
   it('선행 BOM 은 제거한다', () => {
     const withBom = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode('a,b')])
     expect(decodeTextBuffer(withBom.buffer)).toBe('a,b')
