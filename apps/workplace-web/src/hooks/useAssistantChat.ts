@@ -3,6 +3,7 @@
 // 어시스턴트는 어느 경로에서든 제자리(in-place)에서 답한다 — 홈으로 강제 이동/캔버스 구성 없음.
 import { useChatSessionContext } from '@/hooks/chat-session-context';
 import { useSessions } from '@/hooks/queries/useHomeQueries';
+import type { SessionSwitch } from '@/hooks/useChatSession';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { ChatTurn, HomeSessionSummary, ProposalCard } from '@/types/home';
 
@@ -19,6 +20,10 @@ export interface AssistantChat {
   onStop: () => void;
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
+  /** WP-191: 생성 중 보류된 대화 전환(있으면 확인창 표시). */
+  heldSwitch: SessionSwitch | null;
+  /** [중단하고 이동] */
+  onConfirmSwitch: () => void;
   onDeleteSession: (id: string) => void;
   /** #351: 보류 확인 카드 배열(없으면 빈 배열). #843: 카드별 진행 상태(pending/submitting/failed) 포함. */
   pendingActions: ProposalCard[];
@@ -44,8 +49,10 @@ export function useAssistantChat(): AssistantChat {
     newSessionNonce: session.newSessionNonce,
     onSubmit: session.submitQuery,
     onStop: session.stopStreaming,
-    onNewSession: session.newSession,
-    onSelectSession: session.restoreSession,
+    onNewSession: session.requestNewSession,
+    onSelectSession: session.requestSelectSession,
+    heldSwitch: session.heldSwitch,
+    onConfirmSwitch: session.confirmSwitch,
     onDeleteSession: session.deleteSession,
     pendingActions: session.pendingActions,
     onConfirmActionItem: (card) => void session.confirmActionItem(card),

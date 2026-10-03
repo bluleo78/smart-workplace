@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { homeApi } from '@/api/home';
@@ -20,6 +20,9 @@ import type {
   WidgetSpec,
   WidgetType,
 } from '@/types/home';
+
+/** 생성 중 요청된 대화 전환(WP-191) — 확인창이 결정할 때까지 보류된다. */
+export type SessionSwitch = { kind: 'new' } | { kind: 'select'; id: string };
 
 /** #843: 서버 제안 → 화면 카드(대기 상태). */
 const toCards = (actions: PendingAction[]): ProposalCard[] =>
@@ -81,6 +84,11 @@ export function useChatSession() {
   const sessionIdRef = useRef<string | null>(null);
   // 진행 중인 SSE 스트림의 AbortController — newSession/restoreSession 시 취소.
   const abortRef = useRef<AbortController | null>(null);
+  // WP-191: 생성 중 요청된 전환 — 화면(확인창) 표시용 state + 비동기 완료 경로에서 읽는 ref 미러.
+  const [heldSwitch, setHeldSwitch] = useState<SessionSwitch | null>(null);
+  const heldRef = useRef<SessionSwitch | null>(null);
+  // 보류 전환 실행기 — newSession/restoreSession 이 아래에서 정의되므로 effect 에서 최신 함수로 채운다.
+  const releaseHeldRef = useRef<() => void>(() => {});
 
   // sessionIdRef 를 sessionId state 와 동기화하는 헬퍼.
   const updateSessionId = useCallback((id: string | null) => {
@@ -231,6 +239,8 @@ export function useChatSession() {
         .finally(() => {
           if (opSeq.current === gen) {
             setPending(false);
+            // WP-191: 생성이 끝나면 보류해 둔 전환을 실행한다(확인창에서 [기다리기]를 고른 경우 포함).
+            releaseHeldRef.current();
           }
         });
     },
@@ -242,11 +252,16 @@ export function useChatSession() {
   // opSeq 를 증가시켜 늦게 도착하는 델타/진행/액션을 stale 로 차단하고(부분 응답 오염 방지),
   // 누적된 부분 응답은 turns 에 그대로 남겨 '커밋'한다(새로고침 전까지 화면 보존).
   const stopStreaming = useCallback(() => {
-    if (!abortRef.current) return; // 진행 중 스트림이 없으면 무시
+    if (!abortRef.current) {
+      // 진행 중 스트림이 없어도 보류 전환은 실행한다(WP-191).
+      releaseHeldRef.current();
+      return;
+    }
     opSeq.current++;
     abortRef.current.abort();
     abortRef.current = null;
     setPending(false);
+    releaseHeldRef.current(); // WP-191: [중단하고 이동] — 중단 직후 보류 전환 실행
     setPendingActions([]); // #351: 중단 시 확인 카드 배열 폐기
     // 첫 토큰 전 중단이면 빈 어시스턴트 말풍선만 남으므로 중단 안내 문구로 대체한다.
     setTurns((t) => {
@@ -427,7 +442,42 @@ export function useChatSession() {
     [del, sessionId, newSession],
   );
 
+  // WP-191: 보류 전환 실행기 — 실행 직전 비워 중복 실행을 막는다(완료·중단이 겹쳐도 1회).
+  useEffect(() => {
+    releaseHeldRef.current = () => {
+      const s = heldRef.current;
+      if (!s) return;
+      heldRef.current = null;
+      setHeldSwitch(null);
+      if (s.kind === 'new') newSession();
+      else void restoreSession(s.id);
+    };
+  }, [newSession, restoreSession]);
+
+  // 생성 중이면 보류(확인창), 아니면 즉시 전환.
+  const requestSwitch = useCallback(
+    (s: SessionSwitch) => {
+      if (!pending) {
+        if (s.kind === 'new') newSession();
+        else void restoreSession(s.id);
+        return;
+      }
+      heldRef.current = s;
+      setHeldSwitch(s);
+    },
+    [pending, newSession, restoreSession],
+  );
+  const requestNewSession = useCallback(() => requestSwitch({ kind: 'new' }), [requestSwitch]);
+  const requestSelectSession = useCallback((id: string) => requestSwitch({ kind: 'select', id }), [requestSwitch]);
+  // [중단하고 이동] — 중단하면 stopStreaming 이 보류 전환을 실행한다.
+  // ([기다리기]는 확인창만 닫는 UI 동작이라 여기 API 가 없다 — 보류는 생성이 끝날 때 실행된다.)
+  const confirmSwitch = stopStreaming;
+
   return {
+    heldSwitch,
+    requestNewSession,
+    requestSelectSession,
+    confirmSwitch,
     sessionId,
     turns,
     newSessionNonce,

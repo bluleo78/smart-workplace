@@ -11,6 +11,7 @@ import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { relTime } from '@/components/ai/relTime';
 import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { ScreenContextChip } from '@/components/ai/ScreenContextChip';
+import { SessionSwitchGuardDialog } from '@/components/ai/SessionSwitchGuardDialog';
 import { ToolStepList } from '@/components/ai/ToolStepList';
 import { getChatWidget } from '@/components/home/widgets/chatWidgetRegistry';
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,8 @@ export function AIChatPanel({
   newSessionNonce,
   onNewSession,
   onSelectSession,
+  heldSwitch,
+  onConfirmSwitch,
   onDeleteSession,
   pendingActions,
   onConfirmActionItem,
@@ -60,6 +63,9 @@ export function AIChatPanel({
   const current = sessions.find((s) => s.id === currentSessionId);
   const [input, setInput] = useState('');
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  // WP-191: 보류 전환 확인창 — [기다리기]는 창만 닫고 보류는 유지(생성이 끝나면 자동 전환). 새 보류 요청마다 다시 연다.
+  const [guardDismissed, setGuardDismissed] = useState<typeof heldSwitch>(null);
+  const guardOpen = heldSwitch != null && guardDismissed !== heldSwitch;
   // 모바일 입력 영역 분기(플레이스홀더·포커스 링·원형 전송 버튼) — 데스크톱 DOM 은 그대로.
   const isMobile = useIsMobile();
   // 세션 스위처 드롭다운 open 상태(#451) — 세션 항목이 DropdownMenuItem 이 아닌 일반 button 이라
@@ -126,6 +132,7 @@ export function AIChatPanel({
         }}
         onCancel={() => setPendingDeleteId(null)}
       />
+      <SessionSwitchGuardDialog open={guardOpen} onWait={() => setGuardDismissed(heldSwitch)} onStop={onConfirmSwitch} />
 
       {/* 헤더 — 좌: 대화 선택 드롭다운 / 우: ＋새 대화. */}
       {showSessionSwitcher && (

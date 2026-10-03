@@ -1,7 +1,7 @@
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { createUser } from '../factories/auth.factory'
-import { mockHomeChatGeneration, mockHomeProposals, proposal } from '../fixtures/home-chat-mock'
+import { mockHomeChatCancel, mockHomeChatGeneration, mockHomeProposals, proposal } from '../fixtures/home-chat-mock'
 import type { HomeMessage, HomeSessionPage } from '../../src/types/home'
 
 // global-chat.spec.ts — AI 어시스턴트 신규 모드(side/fullscreen/chip) E2E.
@@ -969,4 +969,64 @@ test('칩: 패널이 닫힌 동안 생성 중이면 링 표시, 끝나면 완료
   release()
   await expect(chip).toHaveAttribute('data-ai-activity', 'done')
   await expect(chip.getByTestId('ai-trigger-dot')).toBeVisible()
+})
+
+// ── WP-191: 생성 중 대화 전환 보호 ─────────────────────────────────────────
+
+test('생성 중 새 대화 → 확인창: 기다리기는 유지, 끝나면 자동 전환 (WP-191)', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/projects', { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
+  let release!: () => void
+  const g = new Promise<void>((r) => (release = r))
+  await mockHomeChatGeneration(page, {
+    gate: g,
+    frames: [{ event: 'delta', data: { text: '첫 답변' } }, { event: 'done', data: { sessionId: 's-a' } }],
+  })
+  await page.goto('/projects')
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-input').fill('첫 질문')
+  await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+  await page.getByTestId('chat-new-session').click()
+  const guard = page.getByTestId('session-switch-guard')
+  await expect(guard).toBeVisible()
+  await guard.getByRole('button', { name: '기다리기' }).click()
+  await expect(guard).toHaveCount(0)
+  await expect(page.getByTestId('chat-panel')).toContainText('첫 질문') // 아직 전환 안 됨
+  // 다시 요청해 확인창을 띄운 채로 생성이 끝나면 확인창이 닫히고 새 대화로 전환된다.
+  await page.getByTestId('chat-new-session').click()
+  await expect(guard).toBeVisible()
+  release()
+  await expect(guard).toHaveCount(0)
+  await expect(page.getByTestId('chat-panel')).not.toContainText('첫 질문')
+})
+
+test('생성 중 다른 대화 선택 → [중단하고 이동]: 취소 요청 1회 후 그 대화로 전환 (WP-191)', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/projects', { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
+  await mockChatSessions(page, {
+    items: [{ id: 's-old', title: '지난 대화', lastMessageAt: '2026-10-01T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  })
+  let msgCalls = 0
+  const oldMessages: HomeMessage[] = [
+    { id: 1, role: 'USER', content: '지난 질문', widgets: null, toolCalls: null, createdAt: '2026-10-01T00:00:00Z' },
+  ]
+  await page.route((u) => u.pathname === '/api/v1/home/sessions/s-old/messages', (r) => {
+    msgCalls++
+    return r.fulfill({ json: oldMessages })
+  })
+  await page.route((u) => u.pathname === '/api/v1/home/sessions/s-old/proposals', (r) => r.fulfill({ json: [] }))
+  const cancel = await mockHomeChatCancel(page)
+  const never = new Promise<void>(() => {})
+  await mockHomeChatGeneration(page, { gate: never, frames: [{ event: 'done', data: { sessionId: 's-b' } }] })
+  await page.goto('/projects')
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-input').fill('긴 질문')
+  await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+  await page.getByTestId('chat-session-switcher').click()
+  await page.getByTestId('chat-session-select').first().click()
+  const guard = page.getByTestId('session-switch-guard')
+  await guard.getByRole('button', { name: '중단하고 이동' }).click()
+  await expect(guard).toHaveCount(0)
+  await expect(page.getByTestId('chat-panel')).toContainText('지난 질문')
+  await expect.poll(() => msgCalls).toBe(1)
+  await expect.poll(() => cancel.calls.length).toBe(1)
 })
