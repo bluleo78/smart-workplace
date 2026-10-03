@@ -13,11 +13,13 @@ type EpicOption = Pick<IssueResponse, 'number' | 'title' | 'childDoneCount' | 'c
  * value·onSelect 는 에픽 번호(null = 에픽 없음) — 변경 여부 판단·저장은 호출부 몫.
  */
 export function EpicPickerSheet({
-  open, onClose, epics, value, onSelect, testId,
+  open, onClose, epics, loading = false, value, onSelect, testId,
 }: {
   open: boolean;
   onClose: () => void;
   epics: EpicOption[];
+  /** 에픽 목록 조회 중 — 목록이 아직 비었으면 「에픽 없음」 아래 「불러오는 중…」 줄을 보여 "에픽이 없다"로 읽히지 않게 한다. */
+  loading?: boolean;
   value: number | null;
   onSelect: (epicNumber: number | null) => void;
   testId: string;
@@ -35,6 +37,14 @@ export function EpicPickerSheet({
         ...epics.map((e) => ({ value: String(e.number), label: e.title, hint: `${e.childDoneCount}/${e.childCount}` })),
       ]}
       onSelect={(v) => onSelect(v === NO_EPIC ? null : Number(v))}
+      // 지연 조회(시트를 처음 열 때 시작) 중엔 선택 불가 안내 줄 — 「에픽 없음」은 그대로 고를 수 있다.
+      listFooter={
+        loading && epics.length === 0 ? (
+          <div role="status" data-testid={`${testId}-loading`} className="flex min-h-11 items-center px-4 text-sm text-muted-foreground">
+            불러오는 중…
+          </div>
+        ) : undefined
+      }
     />
   );
 }

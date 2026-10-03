@@ -44,10 +44,10 @@ export function CreateIssueChips({
   const moreActed = useRef(false);
   const showEpic = !personal && !isEpicSelected && !isSubtaskSelected;
   const members = useProjectMembers(projectKey);
-  // 에픽 목록은 에픽 시트를 처음 열 때부터 조회한다(이후 유지) — 고른 에픽의 칩 라벨도 이 목록에서 찾으므로 한 번 켜면 끄지 않는다.
+  // 에픽 목록은 에픽 칩을 처음 누를 때(pointerdown — 시트가 열리기 전에 응답이 오도록) 조회를 시작한다(이후 유지) — 고른 에픽의 칩 라벨도 이 목록에서 찾으므로 한 번 켜면 끄지 않는다.
   // 에픽은 시트를 열어야만 고를 수 있어, 선택값이 있으면 목록도 이미 조회돼 있다.
   const [epicsWanted, setEpicsWanted] = useState(false);
-  const { epics } = useProjectEpics(projectKey, showEpic && epicsWanted);
+  const { epics, loading: epicsLoading } = useProjectEpics(projectKey, showEpic && epicsWanted);
 
   const title = watch('title') ?? '';
   const priority = watch('priority') ?? 'MID';
@@ -88,6 +88,10 @@ export function CreateIssueChips({
       aria-label={label}
       data-testid={`create-chip-${key}`}
       {...keepFocusProps}
+      onPointerDown={(e) => {
+        keepFocusProps.onPointerDown(e);
+        if (key === 'epic') setEpicsWanted(true);
+      }}
       onClick={() => openSheet(key)}
       className={cn(MOBILE_CHIP, active && MOBILE_CHIP_ACTIVE, empty && 'text-muted-foreground')}
     >
@@ -248,6 +252,7 @@ export function CreateIssueChips({
           open={sheet === 'epic'}
           onClose={closeSheet}
           epics={epics}
+          loading={epicsLoading}
           value={epicNumber}
           onSelect={setEpicNumber}
         />

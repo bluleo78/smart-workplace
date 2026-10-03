@@ -41,9 +41,9 @@ export function IssueMobilePropertyChips({
   const typeName = issue.type?.name;
   const showEpic = typeName !== 'EPIC' && typeName !== 'SUBTASK';
   const members = useProjectMembers(projectKey);
-  // 에픽 목록은 에픽 시트를 처음 열 때부터 조회한다(이후 유지) — 칩 라벨은 이슈의 parent 제목이라 목록이 필요 없다.
+  // 에픽 목록은 에픽 칩을 처음 누를 때(pointerdown — 시트가 열리기 전에 응답이 오도록) 조회를 시작한다(이후 유지) — 칩 라벨은 이슈의 parent 제목이라 목록이 필요 없다.
   const [epicsWanted, setEpicsWanted] = useState(false);
-  const { epics } = useProjectEpics(projectKey, showEpic && epicsWanted);
+  const { epics, loading: epicsLoading } = useProjectEpics(projectKey, showEpic && epicsWanted);
   const assignees = useUpdateIssueAssignees(projectKey, issue.number);
   const parent = useUpdateIssueParent(projectKey, issue.number);
   const blockers = incompleteBlockers(issue.blockedBy ?? []);
@@ -57,6 +57,7 @@ export function IssueMobilePropertyChips({
       aria-label={label}
       data-testid={`mobile-prop-${key}`}
       disabled={disabled}
+      onPointerDown={key === 'epic' ? () => setEpicsWanted(true) : undefined}
       onClick={() => {
         if (key === 'epic') setEpicsWanted(true);
         setSheet(key);
@@ -174,6 +175,7 @@ export function IssueMobilePropertyChips({
           open={sheet === 'epic'}
           onClose={close}
           epics={epics}
+          loading={epicsLoading}
           value={issue.parent?.number ?? null}
           onSelect={(to) => {
             if (to !== (issue.parent?.number ?? null)) parent.mutate(to);

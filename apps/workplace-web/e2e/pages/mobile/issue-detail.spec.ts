@@ -184,6 +184,27 @@ test.describe('속성 칩', () => {
     await expect.poll(() => calls.find((c) => c.path.endsWith('/parent'))?.body).toEqual({ parentNumber: 50 });
   });
 
+  test('에픽 목록 조회 중엔 「에픽 없음」 아래 「불러오는 중…」 — 응답 후 에픽 옵션으로 바뀐다', async ({ authenticatedPage: page }) => {
+    await mockDetail(page);
+    // 에픽 목록(부모 필터 없는 검색) 응답을 붙잡아 둔다 — 나중에 등록한 route 가 먼저 매칭된다.
+    let release!: () => void;
+    const gate = new Promise<void>((res) => (release = res));
+    await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues`, async (r) => {
+      if (r.request().method() !== 'GET' || new URL(r.request().url()).searchParams.has('parent')) return r.fallback();
+      await gate;
+      return r.fulfill(json(createIssueSearchResponse([EPIC], null)));
+    });
+    await openDetail(page);
+    await page.getByTestId('mobile-prop-epic').click();
+    const sheet = page.getByTestId('issue-epic-sheet');
+    await expect(sheet.getByTestId('picker-option-none')).toBeVisible();
+    await expect(sheet.getByTestId('issue-epic-sheet-loading')).toHaveText('불러오는 중…');
+    await expect(sheet.getByTestId('picker-option-50')).toHaveCount(0);
+    release();
+    await expect(sheet.getByTestId('picker-option-50')).toBeVisible();
+    await expect(sheet.getByTestId('issue-epic-sheet-loading')).toHaveCount(0);
+  });
+
   test('에픽 이슈에는 에픽 칩이 없다', async ({ authenticatedPage: page }) => {
     await mockDetail(page, { type: makeEpicType() });
     await openDetail(page);
