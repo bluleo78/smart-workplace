@@ -20,6 +20,7 @@ import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
 import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
+import { handleApiError } from '@/lib/api-error'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import { mergeKeptRows } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
@@ -682,8 +683,15 @@ export function MailInboxPage() {
   const longPress = useMessageListLongPress(touchShell, (id) => (messages ?? []).some((m) => m.id === id), sheet.show)
   // 답장·전달·AI 이슈 초안은 본문이 필요하다 — 상세를 받아(서버에서 열람 처리돼 읽음) 기존 핸들러로 넘긴다.
   // 상세 성공 effect 와 같이 목록 캐시를 읽음으로 맞추고 안 읽은 수를 다시 받는다(F21).
+  // 실패는 다른 메일 작업과 같이 토스트로 알린다(시트는 이미 닫혀 있다).
   const withDetail = async (id: number, fn: (d: EmailMessageDetail) => void) => {
-    const d = await qc.fetchQuery({ queryKey: mailMessageKeys.detail(id), queryFn: () => getMessage(id) })
+    let d: EmailMessageDetail
+    try {
+      d = await qc.fetchQuery({ queryKey: mailMessageKeys.detail(id), queryFn: () => getMessage(id) })
+    } catch (e) {
+      handleApiError(e, '메일을 불러오지 못했어요')
+      return
+    }
     qc.setQueriesData<EmailMessageSummary[]>({ queryKey: ['mail-messages'], exact: false }, (old) =>
       old?.map((msg) => (msg.id === id ? { ...msg, seen: true } : msg)),
     )
@@ -700,10 +708,10 @@ export function MailInboxPage() {
       primary: true,
       onSelect: () => (m.seen && m.id === selectedId ? markUnreadAndClose(m.id) : applyToggle(m.id, !m.seen)),
     },
-    { key: 'reply', label: '답장', icon: <Reply />, onSelect: () => void withDetail(m.id, onReply).catch(() => undefined) },
-    { key: 'forward', label: '전달', icon: <Forward />, onSelect: () => void withDetail(m.id, onForward).catch(() => undefined) },
+    { key: 'reply', label: '답장', icon: <Reply />, onSelect: () => void withDetail(m.id, onReply) },
+    { key: 'forward', label: '전달', icon: <Forward />, onSelect: () => void withDetail(m.id, onForward) },
     ...(aiAvailable && aiEnabled
-      ? [{ key: 'ai-issue', label: 'AI 이슈 초안', icon: <Sparkles />, onSelect: () => void withDetail(m.id, onAiIssue).catch(() => undefined) }]
+      ? [{ key: 'ai-issue', label: 'AI 이슈 초안', icon: <Sparkles />, onSelect: () => void withDetail(m.id, onAiIssue) }]
       : []),
   ]
 
