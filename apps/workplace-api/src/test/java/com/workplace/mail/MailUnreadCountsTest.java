@@ -219,33 +219,31 @@ class MailUnreadCountsTest extends IntegrationTestBase {
   @Test
   void homeSummary_classificationActive_matchesMailView() throws Exception {
     long[] box = TestFixtures.seedMailbox(dsl, "home-" + System.nanoTime() + "@test.local");
-    dsl.update(EMAIL_ACCOUNT)
-        .set(EMAIL_ACCOUNT.AI_ENABLED, false)
-        .where(EMAIL_ACCOUNT.ID.eq(box[1]))
-        .execute();
 
-    // 비서 없음 + 스위치 꺼짐 → false
-    mvc.perform(get("/api/v1/me/mail-summary").header("Authorization", token(box[0])))
-        .andExpect(jsonPath("$.classificationActive").value(false));
-
-    // 비서 없음 + 스위치 켜짐 → 분류가 돌지 않으므로 false
-    dsl.update(EMAIL_ACCOUNT)
-        .set(EMAIL_ACCOUNT.AI_ENABLED, true)
-        .where(EMAIL_ACCOUNT.ID.eq(box[1]))
-        .execute();
-    mvc.perform(get("/api/v1/me/mail-summary").header("Authorization", token(box[0])))
-        .andExpect(jsonPath("$.classificationActive").value(false));
+    // 비서 없음 → 스위치와 무관하게 분류가 돌지 않으므로 false
+    setAiEnabled(box[1], false);
+    expectHomeClassificationActive(box[0], false);
+    setAiEnabled(box[1], true);
+    expectHomeClassificationActive(box[0], false);
 
     // 공통 비서 있음 + 스위치 꺼짐 → 공통 비서가 분류·회신필요를 판정하므로 true
-    dsl.update(EMAIL_ACCOUNT)
-        .set(EMAIL_ACCOUNT.AI_ENABLED, false)
-        .where(EMAIL_ACCOUNT.ID.eq(box[1]))
-        .execute();
+    setAiEnabled(box[1], false);
     when(assistantResolver.resolveWorkspaceOrEmpty())
         .thenReturn(Optional.of(new AssistantSpec(5L, "m", "NORMAL", 8, 60_000)));
-    mvc.perform(get("/api/v1/me/mail-summary").header("Authorization", token(box[0])))
+    expectHomeClassificationActive(box[0], true);
+  }
+
+  private void setAiEnabled(long accountId, boolean on) {
+    dsl.update(EMAIL_ACCOUNT)
+        .set(EMAIL_ACCOUNT.AI_ENABLED, on)
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .execute();
+  }
+
+  private void expectHomeClassificationActive(long userId, boolean expected) throws Exception {
+    mvc.perform(get("/api/v1/me/mail-summary").header("Authorization", token(userId)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.classificationActive").value(true));
+        .andExpect(jsonPath("$.classificationActive").value(expected));
   }
 
   @Test

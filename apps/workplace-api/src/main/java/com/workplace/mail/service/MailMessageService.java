@@ -99,42 +99,13 @@ public class MailMessageService {
     return messageRepo.countNeedsReplyForAccount(accountId);
   }
 
-  /**
-   * WP-186 AI 분류 활성 여부 — 공통 비서가 있거나, 이 계정이 AI 사용이고 개인 비서가 있을 때. 둘 다 없으면 분류가 채워질 일이 없으므로 웹은 분류 보기를
-   * 감추고 받은편지함을 전체로 본다.
-   */
+  /** WP-186 AI 분류 활성 여부 — {@link MailClassifierProbe} 규칙. false 면 웹은 분류 보기를 감추고 받은편지함을 전체로 본다. */
   boolean classificationActive(long userId, EmailAccountResponse account) {
-    return new ClassificationProbe(userId).active(account);
+    return probe(userId).active(account.aiEnabled());
   }
 
-  /**
-   * 한 요청 안에서 비서 조회(트랜잭션+자격 조회)를 최소화하는 판정기 — 공통 비서는 1회, 개인 비서는 AI 사용 계정이 처음 나올 때 1회만 조회해 재사용한다. 탭
-   * 배지는 모든 페이지에서 폴링되므로 계정 수만큼 반복 조회하지 않게 한다.
-   */
-  private final class ClassificationProbe {
-    private final long userId;
-    private Boolean workspace;
-    private Boolean personal;
-
-    ClassificationProbe(long userId) {
-      this.userId = userId;
-    }
-
-    boolean active(EmailAccountResponse account) {
-      if (workspace == null) {
-        workspace = assistantResolver.resolveWorkspaceOrEmpty().isPresent();
-      }
-      if (workspace) {
-        return true;
-      }
-      if (!account.aiEnabled()) {
-        return false;
-      }
-      if (personal == null) {
-        personal = assistantResolver.resolvePersonalOrEmpty(userId).isPresent();
-      }
-      return personal;
-    }
+  private MailClassifierProbe probe(long userId) {
+    return new MailClassifierProbe(assistantResolver, userId);
   }
 
   /** WP-186 사이드바 안 읽은 수. 계정이 본인 소유가 아니면 404. RLS GUC 주입을 위해 읽기 전용 트랜잭션 안에서 읽는다(#444). */
@@ -152,11 +123,11 @@ public class MailMessageService {
   /** WP-186 탭 배지 합계 — 활성(비활성 제외) 계정마다 업무(분류 꺼지면 받은편지함) 안 읽은 수를 더한다. */
   @Transactional(readOnly = true)
   public MailUnreadCounts.Summary unreadSummary(long userId) {
-    ClassificationProbe probe = new ClassificationProbe(userId);
+    MailClassifierProbe probe = probe(userId);
     long total = 0;
     for (EmailAccountResponse account : accountRepo.listByUser(userId)) {
       total +=
-          probe.active(account)
+          probe.active(account.aiEnabled())
               ? messageRepo.countUnreadWork(account.id())
               : messageRepo.countUnreadInbox(account.id());
     }
@@ -166,7 +137,7 @@ public class MailMessageService {
   /**
    * 홈 위젯용 메일 요약 — 본인 INBOX 안읽음 수 + 회신 필요 수 + 분류 활성 여부 + 최근 안읽은 메일 N건(#474).
    *
-   * <p>분류 활성은 메일 화면과 같은 판정({@link ClassificationProbe})을 활성 계정 중 하나라도 만족하면 true 다(WP-210). 공통 비서가
+   * <p>분류 활성은 메일 화면과 같은 판정({@link MailClassifierProbe})을 활성 계정 중 하나라도 만족하면 true 다(WP-210). 공통 비서가
    * 회신필요를 판정하는데 개인 비서 사용 스위치만 보고 회신필요를 숨기던 불일치를 없앤다.
    *
    * <p>RLS GUC(app.tenant_id)는 트랜잭션-로컬({@code set_config(...,true)})이라 반드시 트랜잭션 경계 안에서 읽어야 한다. 경계가
@@ -174,11 +145,11 @@ public class MailMessageService {
    */
   @Transactional(readOnly = true)
   public MailSummaryResponse summary(long userId, int recentLimit) {
-    ClassificationProbe probe = new ClassificationProbe(userId);
+    MailClassifierProbe probe = probe(userId);
     return new MailSummaryResponse(
         messageRepo.countUnread(userId),
         messageRepo.countNeedsReply(userId),
-        accountRepo.listByUser(userId).stream().anyMatch(probe::active),
+        accountRepo.listByUser(userId).stream().anyMatch(a -> probe.active(a.aiEnabled())),
         messageRepo.listRecentUnread(userId, recentLimit));
   }
 

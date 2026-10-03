@@ -179,9 +179,10 @@ public class MailCategoryBackfillService {
     return 1;
   }
 
-  /** 공통 비서 → (계정 AI 사용 시) 개인 비서. 둘 다 없으면 null. */
+  /** 분류할 비서 — 메일 화면과 같은 {@link MailClassifierProbe} 규칙. 없으면 null. */
   private AssistantSpec resolveSpec(long userId, long accountId) {
-    var workspace = assistantResolver.resolveWorkspaceOrEmpty();
+    MailClassifierProbe probe = new MailClassifierProbe(assistantResolver, userId);
+    var workspace = probe.classifier(false); // 공통 비서가 있으면 계정 설정 조회 없이 끝낸다
     if (workspace.isPresent()) {
       return workspace.get();
     }
@@ -193,7 +194,7 @@ public class MailCategoryBackfillService {
                         .findByIdAndUser(userId, accountId)
                         .map(a -> a.aiEnabled())
                         .orElse(false)));
-    return aiEnabled ? assistantResolver.resolvePersonalOrEmpty(userId).orElse(null) : null;
+    return probe.classifier(aiEnabled).orElse(null);
   }
 
   private static ClassifyBatchRequest request(List<ClassifyInput> inputs, AssistantSpec spec) {

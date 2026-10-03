@@ -5,9 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.task.TaskSchedulingAutoConfiguration;
-import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
@@ -43,16 +42,7 @@ class SchedulingConfigTest {
   void 운영_설정은_스케줄러_스레드를_여러개_둔다() {
     runner
         .withConfiguration(AutoConfigurations.of(TaskSchedulingAutoConfiguration.class))
-        .withInitializer(
-            ctx -> {
-              try {
-                new YamlPropertySourceLoader()
-                    .load("application", new ClassPathResource("application.yml"))
-                    .forEach(ps -> ctx.getEnvironment().getPropertySources().addLast(ps));
-              } catch (java.io.IOException e) {
-                throw new java.io.UncheckedIOException(e);
-              }
-            })
+        .withInitializer(new ConfigDataApplicationContextInitializer())
         .run(
             ctx -> {
               ThreadPoolTaskScheduler scheduler = ctx.getBean(ThreadPoolTaskScheduler.class);
