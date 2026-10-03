@@ -1,6 +1,8 @@
 // 캡처형 길게 누르기 — 행·카드처럼 자식에 링크(<a>)가 있는 컨테이너용. useLongPress 는 자기 onClick 만 삼켜
 // 자식 링크의 기본 이동을 못 막으므로, 여기서는 click 을 캡처 단계에서 preventDefault+stopPropagation 한다.
 // onTap 을 주면(선택 모드) 짧은 탭도 전부 가로채 이동 대신 onTap 을 실행한다.
+// suppressLongClick 을 주면 할 일이 없는(onLongPress 없음) 길게 누르기도 뒤따르는 click 만 삼킨다 — 길게 눌렀다 떼는 것이
+// 링크 탭으로 처리돼 화면이 넘어가지 않게(모바일 관례, WP-217).
 import { type MouseEvent, type PointerEvent, useEffect, useMemo, useRef } from 'react';
 
 import { LONG_PRESS_MS, MOVE_TOLERANCE_SQ } from './useLongPress';
@@ -9,11 +11,19 @@ import { LONG_PRESS_MS, MOVE_TOLERANCE_SQ } from './useLongPress';
 // 현재 요소 자체의 이벤트만 처리한다(포털 내 요소는 무시).
 const isOwnEvent = (e: MouseEvent) => (e.currentTarget as Node).contains(e.target as Node);
 
-export function useLongPressCapture({ onLongPress, onTap }: { onLongPress?: () => void; onTap?: () => void }) {
+export function useLongPressCapture({
+  onLongPress,
+  onTap,
+  suppressLongClick = false,
+}: {
+  onLongPress?: () => void;
+  onTap?: () => void;
+  suppressLongClick?: boolean;
+}) {
   // 최신 콜백 ref — 핸들러는 한 번만 만든다(행 memo 유지).
-  const latest = useRef({ onLongPress, onTap });
+  const latest = useRef({ onLongPress, onTap, suppressLongClick });
   useEffect(() => {
-    latest.current = { onLongPress, onTap };
+    latest.current = { onLongPress, onTap, suppressLongClick };
   });
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
@@ -35,8 +45,8 @@ export function useLongPressCapture({ onLongPress, onTap }: { onLongPress?: () =
       bind: {
         onPointerDown: (e: PointerEvent) => {
           if (e.pointerType === 'mouse' && e.button !== 0) return;
-          // 길게 누르기 콜백이 없으면 타이머를 시작하지 않는다(선택 모드 전용은 타이머 불필요).
-          if (!latest.current.onLongPress) return;
+          // 길게 누르기 콜백도 click 억제 요청도 없으면 타이머를 시작하지 않는다(선택 모드 전용은 타이머 불필요).
+          if (!latest.current.onLongPress && !latest.current.suppressLongClick) return;
           fired.current = false;
           cancel();
           start.current = { x: e.clientX, y: e.clientY };
@@ -83,5 +93,5 @@ export function useLongPressCapture({ onLongPress, onTap }: { onLongPress?: () =
   }, []);
 
   useEffect(() => handlers.cancel, [handlers]);
-  return onLongPress || onTap ? handlers.bind : {};
+  return onLongPress || onTap || suppressLongClick ? handlers.bind : {};
 }
