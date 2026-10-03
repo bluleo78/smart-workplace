@@ -8,6 +8,7 @@ import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { cn } from '@/lib/utils';
 
 import { useCycles } from '../../hooks/queries/useCycles';
 import { useIssueTypes } from '../../hooks/queries/useIssueTypes';
@@ -27,6 +28,7 @@ import { IssueCycleGroupedList, IssueCycleListSkeleton } from './components/Issu
 import { IssueDndProvider, useIssueDnd } from './components/IssueDndProvider';
 import { IssueFilterBar } from './components/IssueFilterBar';
 import { IssueListView } from './components/IssueListView';
+import { MobileIssueToolbar } from './components/mobile/MobileIssueToolbar';
 import { ViewChipBar } from './components/ViewChipBar';
 import { PersonalProjectDetail } from './personal/PersonalProjectDetail';
 
@@ -103,7 +105,7 @@ export default function ProjectDetailPage() {
       {/* 본문 래퍼는 스크롤하지 않고 남은 높이만 고정한다. 스크롤은 IssueArea 안에서
           에픽 패널(자체 목록 스크롤)과 우측 목록/보드 영역이 각자 독립적으로 담당한다.
           (래퍼가 스크롤하면 패널과 목록이 한 덩어리로 같이 스크롤된다.) */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-6">
+      <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden px-4', isMobile ? 'pt-1 pb-0' : 'py-6')}>
         <IssueArea
           projectKey={key}
           onOpenCreate={canCreateIssue ? () => setOpen(true) : undefined}
@@ -218,12 +220,19 @@ function ProjectIssuesSection({
           (목록=테이블 영역, 보드=컬럼 행 — 각자 가로·세로 스크롤 + 헤더 sticky). 에픽 패널은 따로 고정. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="shrink-0">
-          <ViewChipBar
-            projectKey={projectKey}
-            epicPanelOpen={epicPanelOpen}
-            onToggleEpicPanel={toggleEpicPanel}
-          />
-          <IssueFilterBar projectKey={projectKey} />
+          {/* 모바일은 한 줄 툴바(WP-194) — 데스크톱 칩 바+필터 바는 좁은 폭에서 여러 줄로 꺾여 목록을 밀어낸다. */}
+          {isMobile ? (
+            <MobileIssueToolbar projectKey={projectKey} />
+          ) : (
+            <>
+              <ViewChipBar
+                projectKey={projectKey}
+                epicPanelOpen={epicPanelOpen}
+                onToggleEpicPanel={toggleEpicPanel}
+              />
+              <IssueFilterBar projectKey={projectKey} />
+            </>
+          )}
         </div>
         {/* overflow-auto: 목록/보드는 h-full 로 슬롯을 정확히 채워 자체 스크롤하고,
             로딩·빈 상태·사이클 구간 목록처럼 자체 스크롤이 없는 화면이 넘칠 때만 이 슬롯이 스크롤한다. */}
