@@ -282,8 +282,12 @@ test(
     });
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
+    // 권한 로드 완료의 양성 신호 — 본문 편집 버튼은 viewerCanEditContent 가 정해져야 비활성으로 렌더된다.
+    // 그 뒤에 부재를 단언해야 로딩 중이라 없는 것과 권한이 없어 없는 것을 구분한다(WP-219).
+    await expect(page.getByRole('button', { name: '본문 편집' })).toBeDisabled();
     // 첨부 스트립 자체는 렌더(목록 열람 가능)되지만 업로드 드롭존·링크 버튼은 없다.
-    await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
+    // 첨부 0건·편집 불가면 스트립은 내용 없는 0px 섹션이라 toBeVisible 은 로딩 문구가 보이는 순간에만 우연히 통과한다.
+    await expect(page.getByTestId('issue-attachment-strip')).toBeAttached();
     await expect(page.getByTestId('attachment-dropzone')).toHaveCount(0);
     await expect(page.getByTestId('issue-drive-link-add-btn')).toHaveCount(0);
   },
