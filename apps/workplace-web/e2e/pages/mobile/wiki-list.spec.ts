@@ -64,6 +64,20 @@ async function waitForLastPageRecorded(page: Page) {
     .toBe(true)
 }
 
+/**
+ * 마지막 공간 기록이 spaceId 가 될 때까지 대기. 공간 전환은 URL 이 먼저 바뀌고 기록은 레이아웃이 새 공간으로 다시 그려진 뒤(수십~백 ms)
+ * 남는다 — URL 확인 직후 새로 열면 기록 전에 떠나 옛 공간으로 복원된다(preview 빌드에서 재현).
+ */
+async function waitForLastSpaceRecorded(page: Page, spaceId: number) {
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Object.entries(localStorage).find(([k]) => k.startsWith('wiki.lastVisitedSpace:'))?.[1] ?? null,
+      ),
+    )
+    .toBe(String(spaceId))
+}
+
 test('기록 없이 노트 진입 → 첫 공간이 선택되고 그 페이지 트리가 목록으로 보인다(탭바 유지)', async ({ authenticatedPage: page }) => {
   await mockWiki(page)
   await page.goto('/wiki')
@@ -151,6 +165,7 @@ test('페이지를 열지 않고 공간만 바꿔도 다음 노트 진입은 그
   await list.getByRole('combobox').click()
   await page.getByRole('option', { name: '팀 위키' }).click()
   await expect(page).toHaveURL(/\/wiki\/spaces\/2$/)
+  await waitForLastSpaceRecorded(page, 2)
 
   // 새 문서 로드로 앱 재실행을 대신한다(기록은 localStorage).
   await page.goto('/wiki')
