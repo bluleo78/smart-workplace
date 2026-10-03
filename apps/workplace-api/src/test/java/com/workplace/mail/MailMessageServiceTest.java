@@ -254,8 +254,9 @@ class MailMessageServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * #474: summary() 가 needsReplyCount 를 포함한 MailSummaryResponse 를 반환한다. 값은 @Transactional 경계 안에서 RLS GUC 주입
-   * 하에 조회된다(#444 교훈). classificationActive 판정은 비서를 목으로 바꾸는 MailUnreadCountsTest 가 검증한다(WP-210).
+   * #474: summary() 가 needsReplyCount 를 포함한 MailSummaryResponse 를 반환한다. 값은 @Transactional 경계 안에서
+   * RLS GUC 주입 하에 조회된다(#444 교훈). classificationActive 판정은 비서를 목으로 바꾸는 MailUnreadCountsTest 가
+   * 검증한다(WP-210).
    */
   @Test
   void summary_includesNeedsReplyCount() {

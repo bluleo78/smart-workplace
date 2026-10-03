@@ -11,6 +11,13 @@ spring:
     baseline-version: 1
   jooq:
     sql-dialect: postgres
+  # @Scheduled 작업 공용 스레드 수(기본 1). 1이면 메일 선제 분석처럼 LLM 을 순차 호출하는 긴 작업이 메일 동기화·리마인더·정리 잡을
+  # 수 분씩 밀어낸다(WP-211). 같은 작업이 겹쳐 돌지는 않는다 — 고정 지연·고정 주기는 앞 회차가 끝나야 다음 회차를 잡고, 파드 간은 ShedLock 이 막는다.
+  task:
+    scheduling:
+      pool:
+        size: 4
+      thread-name-prefix: sched-
   servlet:
     multipart:
       # 이슈 첨부 25MB × 최대 10개. 단일 파일 25MB, 요청 전체 275MB.

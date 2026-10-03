@@ -215,9 +215,7 @@ class MailUnreadCountsTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.workUnread").value(1));
   }
 
-  /**
-   * WP-210 홈 요약 분류 활성 — 메일 화면과 같은 판정. 공통 비서만 있으면 개인 비서 사용을 꺼도 true, 비서가 없으면 스위치를 켜도 false.
-   */
+  /** WP-210 홈 요약 분류 활성 — 메일 화면과 같은 판정. 공통 비서만 있으면 개인 비서 사용을 꺼도 true, 비서가 없으면 스위치를 켜도 false. */
   @Test
   void homeSummary_classificationActive_matchesMailView() throws Exception {
     long[] box = TestFixtures.seedMailbox(dsl, "home-" + System.nanoTime() + "@test.local");
