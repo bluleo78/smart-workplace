@@ -32,7 +32,8 @@ export function asState(state: unknown): RouterState {
   return state && typeof state === 'object' ? (state as Record<string, unknown>) : null
 }
 
-function toSearch(params: URLSearchParams): string {
+/** URLSearchParams → location.search 문자열(비면 '' — `?` 만 남지 않게). */
+export function toSearch(params: URLSearchParams): string {
   const s = params.toString()
   return s ? `?${s}` : ''
 }
@@ -97,10 +98,25 @@ export function planClose(snap: HistorySnapshot, key: string, opts: HistoryParam
     for (const k of opts.clear ?? []) params.delete(k)
     search = toSearch(params)
   }
-  const rest: Record<string, unknown> = { ...prev }
+  return { kind: 'replace', search, state: stripHistoryKey(prev, key, mode) }
+}
+
+/**
+ * router state 에서 key 의 열림 마크(state 모드면 key 자체도)를 뺀 사본. 남는 게 없으면 null.
+ * 콜드 닫기·새로고침 뒤 남은 표식 정리가 함께 쓴다 — 다른 state 는 보존한다.
+ */
+export function stripHistoryKey(state: unknown, key: string, mode: HistoryParamMode = 'query'): RouterState {
+  const rest: Record<string, unknown> = { ...asState(state) }
   delete rest[markKey(key)]
   if (mode === 'state') delete rest[key]
-  return { kind: 'replace', search, state: Object.keys(rest).length > 0 ? rest : null }
+  return Object.keys(rest).length > 0 ? rest : null
+}
+
+/** 숫자 id 파라미터 해석 — 양의 정수만 인정하고, 비었거나 잘못된 값은 null(닫힘). */
+export function parseId(v: string | null): number | null {
+  if (v == null) return null
+  const n = Number(v)
+  return Number.isInteger(n) && n > 0 ? n : null
 }
 
 /**
@@ -121,11 +137,30 @@ export function createCloseGuard() {
   }
 }
 
+// ── window.history.state 직접 접근은 아래 헬퍼로만 한다 ──
+// react-router v7 BrowserRouter 는 history.state 를 { usr: router state, key: 위치 key, idx: 위치 번호 } 로 둔다.
+type BrowserHistoryState = { usr?: unknown; key?: unknown; idx?: unknown } | null
+
+function rawHistoryState(): BrowserHistoryState {
+  return window.history.state as BrowserHistoryState
+}
+
 /**
  * BrowserRouter 가 history.state 에 심는 현재 위치 번호. 없으면(라우터 밖 상태) null.
  * useHistoryParam·useIssueOrigin(#885)이 함께 쓰는 단일 헬퍼 — 판정 함수와 달리 window 를 읽으므로 호출 시점에만 평가한다.
  */
 export function currentHistoryIdx(): number | null {
-  const idx: unknown = (window.history.state as { idx?: unknown } | null)?.idx
+  const idx = rawHistoryState()?.idx
   return typeof idx === 'number' ? idx : null
+}
+
+/** 지금 브라우저가 가리키는 위치 key — react-router 와 같은 규칙(없거나 빈 값이면 "default"). 낡은 콜백 판별용. */
+export function liveHistoryKey(): string {
+  const key = rawHistoryState()?.key
+  return typeof key === 'string' && key ? key : 'default'
+}
+
+/** 지금 브라우저 항목의 router state(usr). popstate 처럼 라우터 갱신 전 시점에 읽을 때 쓴다. */
+export function currentHistoryState(): RouterState {
+  return asState(rawHistoryState()?.usr)
 }

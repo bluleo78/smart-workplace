@@ -1,5 +1,7 @@
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
+import { toSearch } from '@/lib/historyParam'
+
 /**
  * 드라이브 폴더 탐색 상태의 출처.
  * - 'url'     : 풀페이지. folderId 를 URL 쿼리로 보관(브라우저 뒤로가기 지원).
@@ -33,9 +35,8 @@ export function useFolderNavigation(mode: FolderNavMode): {
     const next = new URLSearchParams(location.search)
     if (id == null) next.delete(mode.key)
     else next.set(mode.key, String(id))
-    const s = next.toString()
     // state spread — 드로워 열림 마크를 하위 항목이 이어받아 ✕ 가 한 번에 닫힌다.
-    navigate({ pathname: location.pathname, search: s ? `?${s}` : '', hash: location.hash }, { state: location.state })
+    navigate({ pathname: location.pathname, search: toSearch(next), hash: location.hash }, { state: location.state })
   }
   return { folderId: current, openFolder: (id: number) => go(id), goRoot: () => go(null) }
 }

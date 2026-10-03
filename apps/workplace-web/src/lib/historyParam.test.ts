@@ -7,10 +7,12 @@ import {
   type HistoryPlan,
   type HistorySnapshot,
   markKey,
+  parseId,
   planClose,
   planOpen,
   readHistoryParam,
   type RouterState,
+  stripHistoryKey,
 } from './historyParam'
 
 /**
@@ -161,5 +163,32 @@ describe('createCloseGuard', () => {
     expect(g.claim('k1')).toBe(false)
     g.reset()
     expect(g.claim('k1')).toBe(true)
+  })
+})
+
+describe('stripHistoryKey', () => {
+  it('query 모드는 마크만 지우고 다른 state(와 같은 이름 키)는 보존', () => {
+    expect(stripHistoryKey({ [markKey('chat')]: 2, chat: 'x', other: 1 }, 'chat')).toEqual({ chat: 'x', other: 1 })
+  })
+
+  it('state 모드는 키와 마크를 함께 지운다', () => {
+    expect(stripHistoryKey({ [markKey('aiOpen')]: 3, aiOpen: '1', other: 1 }, 'aiOpen', 'state')).toEqual({ other: 1 })
+  })
+
+  it('남는 게 없거나 state 가 객체가 아니면 null', () => {
+    expect(stripHistoryKey({ [markKey('aiOpen')]: 3, aiOpen: '1' }, 'aiOpen', 'state')).toBeNull()
+    expect(stripHistoryKey(null, 'aiOpen', 'state')).toBeNull()
+    expect(stripHistoryKey('x', 'chat')).toBeNull()
+  })
+})
+
+describe('parseId', () => {
+  it('양의 정수 문자열은 숫자', () => {
+    expect(parseId('1')).toBe(1)
+    expect(parseId('42')).toBe(42)
+  })
+
+  it('비었거나 0·음수·소수·숫자 아님은 null', () => {
+    for (const v of [null, '', '0', '-3', '1.5', 'abc', 'NaN', 'Infinity']) expect(parseId(v)).toBeNull()
   })
 })

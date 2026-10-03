@@ -36,6 +36,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatDateOnly, formatDateTimeLocale } from '@/lib/formatters';
+import { parseId } from '@/lib/historyParam';
 
 import { AgentBadge } from '../../components/users/AgentBadge';
 import {
@@ -61,7 +62,7 @@ export default function AgentManagementPage() {
   const ws = useWorkspaceAssistant();
   // 열린 에이전트 = URL ?agent(상세 시트 열림의 단일 원천, WP-209). 행 클릭은 push → 시스템 뒤로가기가 시트만 닫는다.
   const agentParam = useHistoryParam('agent');
-  const selectedId = agentParam.value != null && /^\d+$/.test(agentParam.value) ? Number(agentParam.value) : null;
+  const selectedId = parseId(agentParam.value);
   const keys = useAgentKeys(selectedId);
   // selectedId 가 null 인 경우 0 으로 두지만, enabled=false 이므로 호출은 안 됨.
   const issue = useIssueAgentKey(selectedId ?? 0);

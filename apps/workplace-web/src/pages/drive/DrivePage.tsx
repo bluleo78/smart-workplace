@@ -32,6 +32,7 @@ import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
+import { parseId } from '@/lib/historyParam'
 
 import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
 import { driveApi } from '../../api/drive'
@@ -236,7 +237,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 선택 수·벌크 작업 body·전체선택 판정·체크 상태 모두 이 걸러진 집합을 기준으로 한다.
   const viewItems = results ?? actualItems
   // 미리보기 대상 해석 — 표시 중 목록(placeholder 포함) → 클릭 스냅숏 순. 목록이 실제로 로드됐는데도 없으면 not-found.
-  const previewId = previewParam.value != null ? Number(previewParam.value) : null
+  const previewId = parseId(previewParam.value)
   const preview: DriveFile | null =
     previewId == null
       ? null
@@ -1232,7 +1233,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => onRenameFolder(f.id, f.name)}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-has-[:focus-visible]:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
                 >
                   이름변경
                 </button>
@@ -1240,7 +1241,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-has-[:focus-visible]:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
                 >
                   이동
                 </button>
@@ -1248,7 +1249,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-has-[:focus-visible]:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
                 >
                   복사
                 </button>
@@ -1256,7 +1257,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   type="button"
                   onClick={() => onDeleteFolder(f.id)}
                   disabled={!!space?.archived}
-                  className="hidden text-xs text-destructive group-hover:inline-flex group-has-[:focus-visible]:inline-flex disabled:opacity-50"
+                  className="hidden text-xs text-destructive group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
                 >
                   삭제
                 </button>
@@ -1309,7 +1310,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 </span>
                 {/* 행 액션 — 호버 또는 키보드 포커스(focus-visible)일 때만 노출. 주요 3개 인라인 + 더보기(⋯).
                     focus-within 이면 터치 탭의 포인터 포커스로 열려 모바일에서 이름 버튼이 접히고 미리보기가 안 열린다(WP-208). */}
-                <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-has-[:focus-visible]:flex">
+                <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-kbd:flex">
                   <Button
                     variant="ghost"
                     size="xs"

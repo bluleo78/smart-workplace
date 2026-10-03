@@ -2,13 +2,14 @@
 // 뒤로가기 바(MobileBackBar)·병합 상세 헤더(MobileDetailBar)가 같은 규칙을 공유하도록 한곳에 둔다.
 import { useLocation, useNavigate } from 'react-router-dom'
 
+import { currentHistoryIdx } from '@/lib/historyParam'
 import { resolveBackTarget } from '@/lib/mobile/routes'
 
 export function useMobileBack() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   return () => {
-    const target = resolveBackTarget(pathname, (window.history.state as { idx?: number } | null)?.idx)
+    const target = resolveBackTarget(pathname, currentHistoryIdx())
     if (target === -1) navigate(-1)
     else navigate(target as string, { replace: true })
   }

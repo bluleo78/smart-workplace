@@ -12,6 +12,7 @@ import { useIssue, useUpdateIssue } from '@/hooks/queries/useIssue';
 import { useHistoryParam } from '@/hooks/useHistoryParam';
 import { buildIssueDetailContext } from '@/lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '@/lib/api-error';
+import { parseId } from '@/lib/historyParam';
 import { cn } from '@/lib/utils';
 
 import { AssigneePickerPopover } from '../components/AssigneePickerPopover';
@@ -36,8 +37,8 @@ export function PersonalTaskPanel({
   // 리스트 행이 push 로 연 항목은 되돌리고, 보드 카드 Link·리다이렉트로 들어온 항목은 출발 화면으로,
   // 콜드 딥링크는 task 만 지운다(WP-208).
   const taskParam = useHistoryParam('task');
-  const number = taskParam.value ? Number(taskParam.value) : NaN;
-  const open = Number.isFinite(number);
+  const number = parseId(taskParam.value);
+  const open = number != null;
   const close = taskParam.close;
 
   // ESC 로 닫기 — panel 모드 한정(modal 은 Radix Dialog 가 ESC 처리).
@@ -73,7 +74,7 @@ export function PersonalTaskPanel({
         >
           {/* Radix a11y — DialogContent 에 설명 필수(없으면 콘솔 경고). 화면엔 숨김. */}
           <DialogDescription className="sr-only">작업 상세 보기</DialogDescription>
-          {open && <PersonalTaskDetail key={number} projectKey={projectKey} number={number} onClose={close} asModal />}
+          {number != null && <PersonalTaskDetail key={number} projectKey={projectKey} number={number} onClose={close} asModal />}
         </DialogContent>
       </Dialog>
     );
@@ -81,7 +82,7 @@ export function PersonalTaskPanel({
 
   // 리스트·체크리스트 뷰 → 인플로우 사이드 패널. md+ 는 콘텐츠를 밀어 공존(툴바 비가림),
   // < md 는 좁은 화면 보호용 fixed 오버레이. dim 없음(목록 계속 클릭 가능). 닫힘 시 미렌더.
-  if (!open) return null;
+  if (number == null) return null;
   return (
     <aside
       ref={asideRef}

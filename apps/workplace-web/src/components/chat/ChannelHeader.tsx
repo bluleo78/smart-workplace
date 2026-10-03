@@ -29,7 +29,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { messagingKeys } from '@/hooks/queries/messagingKeys'
 import {
   useArchiveChannel,
   useDeleteChannel,
@@ -67,7 +66,7 @@ export function ChannelHeader({
   const filesOpen = filesParam.value === '1'
   // 연동 공간 보장(POST, 멱등) — 드로워가 열려 있을 때만. 딥링크·새로고침으로 ?files=1 이 남아 있어도 다시 보장한다.
   const filesSpace = useQuery({
-    queryKey: [...messagingKeys.all, 'channel-drive-space', channel.id],
+    queryKey: ['drive', 'channel-space', channel.id],
     queryFn: () => messagingApi.ensureChannelDriveSpace(channel.id).then((r) => r.data.spaceId),
     enabled: filesOpen,
     staleTime: Infinity,

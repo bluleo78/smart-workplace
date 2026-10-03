@@ -24,6 +24,7 @@ import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { handleApiError } from '@/lib/api-error'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatDateTime, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
+import { parseId } from '@/lib/historyParam'
 import { markSeenInKept, mergeKeptRows } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
@@ -569,7 +570,7 @@ export function MailInboxPage() {
   // 열린 메일 = URL ?messageId(상태의 단일 원천, WP-206). 행 클릭은 push 라 시스템 뒤로가기가 상세만 닫는다.
   // 홈 위젯 딥링크(#447)·푸시 알림도 같은 키 — 마운트 1회 읽기가 아니라 URL 실시간 파생이라 forward 재열림도 자연스럽다.
   const mailParam = useHistoryParam('messageId')
-  const selectedId = Number(mailParam.value) || null
+  const selectedId = parseId(mailParam.value)
   // 모바일: 본문(상세)이 열려 있으면 하단 탭바를 숨긴다(WP-125).
   useHideTabBar(selectedId != null)
 

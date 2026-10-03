@@ -47,6 +47,7 @@ import {
   toggleCalendar,
   visibleRange,
 } from '@/lib/calendar'
+import { parseId } from '@/lib/historyParam'
 import type {
   Calendar,
   CalendarEvent,
@@ -66,12 +67,7 @@ export function CalendarPage() {
   // 알림·홈 딥링크(#659)와 같은 키 — 예전처럼 소비 후 replace 로 지우지 않는다(뒤로가기·forward 가 다이얼로그를 여닫는다).
   const [searchParams, setSearchParams] = useSearchParams()
   const eventParam = useHistoryParam('eventId')
-  const eventIdParam = useMemo(() => {
-    const raw = eventParam.value
-    if (!raw) return null
-    const n = Number(raw)
-    return Number.isFinite(n) ? n : null
-  }, [eventParam.value])
+  const eventIdParam = parseId(eventParam.value)
   // 새 일정 딥링크(?new=true) — 홈 대시보드 "오늘 일정" 위젯 빈 상태 CTA(#653) 등에서 진입.
   const deepLinkNew = searchParams.get('new') === 'true'
   const [view, setView] = useState<CalendarViewType>('month')

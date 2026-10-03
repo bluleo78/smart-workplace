@@ -34,6 +34,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
 import { buildChannelContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
+import { parseId } from '@/lib/historyParam'
 import { firstUnreadMessageId, unreadFromOthersCount } from '@/lib/unreadBoundary'
 import { cn } from '@/lib/utils'
 import type { ChannelResponse, MessageResponse, UserKind } from '@/types/messaging'
@@ -100,7 +101,7 @@ export default function ChannelPage() {
   // 푸시 알림 콜드 진입은 닫기 = ?thread 만 지우고 채널에 남는다(useHistoryParam 규칙 3).
   const location = useLocation()
   const threadParam = useHistoryParam('thread')
-  const openThreadId = threadParam.value ? Number(threadParam.value) : null
+  const openThreadId = parseId(threadParam.value)
   const isMobile = useIsMobile()
 
   // 패널 parent: 채널 메시지 캐시에서 찾되, 없으면 navigate state(인박스 카드가 넘긴 rootMessage) 사용.
