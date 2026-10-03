@@ -2,12 +2,9 @@ package com.workplace.issue.service;
 
 import com.workplace.file.api.ExpiredFileRetentionPolicy;
 import com.workplace.issue.repository.IssueBodyImageRepository;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -23,15 +20,14 @@ public class IssueBodyImageRetentionPolicy implements ExpiredFileRetentionPolicy
 
   private final IssueBodyImageRepository repo;
 
-  /** 보존 판정 시 만료를 얼마나 미룰지 — 강등 유예와 같은 값을 쓴다. */
-  @Value("${workplace.storage.issue-image.demote-grace-hours:168}")
-  private int demoteGraceHours;
+  /** 보존 판정 시 만료를 얼마나 미룰지 — 강등 유예와 같은 값을 쓰도록 서비스의 계산을 그대로 빌린다. */
+  private final IssueBodyImageService bodyImageService;
 
   /** 만료 대상 중 비삭제 이슈 본문에 아직 참조가 남은 파일 id 를 돌려주고, 그 파일의 만료를 유예만큼 미룬다. */
   @Override
   public Set<Long> retain(Collection<Long> expiringFileIds) {
     Set<Long> alive = repo.stillReferencedAnywhere(expiringFileIds);
-    repo.rearm(alive, OffsetDateTime.now(ZoneOffset.UTC).plusHours(demoteGraceHours));
+    repo.rearm(alive, bodyImageService.graceExpiry());
     return alive;
   }
 }

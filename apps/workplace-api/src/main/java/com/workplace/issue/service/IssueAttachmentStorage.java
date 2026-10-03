@@ -5,7 +5,6 @@ import static com.workplace.jooq.Tables.FILE;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
-import com.workplace.global.util.UnicodeNames;
 import com.workplace.issue.exception.AttachmentNotFoundException;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
@@ -83,14 +82,11 @@ public class IssueAttachmentStorage {
 
   /**
    * 본문 이미지(WP-199)를 임시(expires_at) 파일로 저장한다. mime 은 브라우저 값이 아니라 호출자가 매직바이트로 판정한 값을 쓴다. 경로는 기존 이슈
-   * 첨부와 같은 StorageDomain.ISSUE — 이슈 파일은 한 디렉터리에 모인다.
+   * 첨부와 같은 StorageDomain.ISSUE — 이슈 파일은 한 디렉터리에 모인다. originalName 은 호출자가 NFC 정규화·기본값 처리를 마친 표시
+   * 이름이다(응답과 같은 값을 쓰려고 호출자가 한 번만 계산해 넘긴다).
    */
-  public Long storeTemporaryImage(MultipartFile mf, Long uploaderId, String detectedMime) {
-    String originalName =
-        UnicodeNames.toNfc(
-            mf.getOriginalFilename() != null && !mf.getOriginalFilename().isBlank()
-                ? mf.getOriginalFilename()
-                : "image");
+  public Long storeTemporaryImage(
+      MultipartFile mf, Long uploaderId, String detectedMime, String originalName) {
     String relativePath = pathBuilder.build(StorageDomain.ISSUE, originalName);
     fileStore.store(relativePath, mf);
     OffsetDateTime now = OffsetDateTime.now();

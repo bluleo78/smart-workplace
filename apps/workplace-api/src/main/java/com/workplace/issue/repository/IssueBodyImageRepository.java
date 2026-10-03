@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_BODY_IMAGE;
 
+import com.workplace.issue.dto.IssueBodyImageResponse;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
@@ -13,8 +14,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
@@ -34,7 +33,7 @@ public class IssueBodyImageRepository {
   }
 
   /** 조회 인가에 필요한 매핑 정보. issueId 가 null 이면 아직 어느 이슈에도 연결되지 않은 임시 업로드. */
-  public record Meta(long fileId, long projectId, Long issueId, long uploadedBy) {}
+  public record Meta(long projectId, Long issueId, long uploadedBy) {}
 
   /** 업로드 직후 임시 매핑 INSERT(tenant_id 는 DEFAULT). */
   public void insertPending(long fileId, long projectId, long uploadedBy) {
@@ -58,13 +57,10 @@ public class IssueBodyImageRepository {
 
   public Optional<Meta> findMeta(long fileId) {
     return dsl.select(
-            ISSUE_BODY_IMAGE.FILE_ID,
-            ISSUE_BODY_IMAGE.PROJECT_ID,
-            ISSUE_BODY_IMAGE.ISSUE_ID,
-            ISSUE_BODY_IMAGE.UPLOADED_BY)
+            ISSUE_BODY_IMAGE.PROJECT_ID, ISSUE_BODY_IMAGE.ISSUE_ID, ISSUE_BODY_IMAGE.UPLOADED_BY)
         .from(ISSUE_BODY_IMAGE)
         .where(ISSUE_BODY_IMAGE.FILE_ID.eq(fileId))
-        .fetchOptional(r -> new Meta(r.value1(), r.value2(), r.value3(), r.value4()));
+        .fetchOptional(r -> new Meta(r.value1(), r.value2(), r.value3()));
   }
 
   /**
@@ -134,8 +130,7 @@ public class IssueBodyImageRepository {
             .where(FILE.ID.in(fileIds))
             .and(FILE.EXPIRES_AT.isNull())
             .returningResult(FILE.ID)
-            .fetch()
-            .map(r -> r.get(0, Long.class));
+            .fetch(FILE.ID);
     if (demoted.isEmpty()) return List.of();
     dsl.update(ISSUE_BODY_IMAGE)
         .set(ISSUE_BODY_IMAGE.DEMOTED_AT, OffsetDateTime.now(ZoneOffset.UTC))
@@ -143,9 +138,6 @@ public class IssueBodyImageRepository {
         .execute();
     return demoted;
   }
-
-  /** 본문에서 이슈 이미지 URL 의 id 를 뽑는 패턴 — 뒤에 숫자가 더 붙는 prefix 매칭(12 vs 123)을 막고 19자리까지만 본다. */
-  private static final Pattern IMAGE_REF = Pattern.compile("/issue-images/(\\d{1,19})(?!\\d)");
 
   /**
    * 주어진 fileId 중 이슈에 연결된(issue_id NOT NULL) 이슈 이미지이면서, 같은 프로젝트의 삭제되지 않은 이슈 본문 어디서든 아직 참조되는 것.
@@ -177,14 +169,9 @@ public class IssueBodyImageRepository {
               .and(ISSUE.BODY.like("%/issue-images/%"))
               .fetch(ISSUE.BODY);
       for (String body : bodies) {
-        Matcher m = IMAGE_REF.matcher(body);
-        while (m.find()) {
-          try {
-            long id = Long.parseLong(m.group(1));
-            if (e.getValue().contains(id)) alive.add(id);
-          } catch (NumberFormatException ignored) {
-            // 19자리 overflow — 본문은 자유 텍스트라 무시
-          }
+        // 참조 파싱은 업로드 URL 형식(urlOf)과 짝인 공용 파서를 쓴다 — 후보가 이미 이 프로젝트로 묶여 있어 키는 가리지 않는다.
+        for (long id : IssueBodyImageResponse.idsIn(body)) {
+          if (e.getValue().contains(id)) alive.add(id);
         }
       }
     }

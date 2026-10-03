@@ -10,17 +10,11 @@ import com.workplace.issue.exception.IssueBodyImageRejectedException;
 import com.workplace.issue.repository.IssueBodyImageRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.service.ProjectAccessGuard;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -62,12 +56,17 @@ public class IssueBodyImageService {
    * 수거된 id 는 건너뛰고 저장은 실패시키지 않는다(며칠 지난 초안 저장 등) — 화면은 "불러올 수 없음" 으로 표시된다.
    */
   public void syncWithBody(ProjectRow project, long issueId, long callerId, String body) {
-    Set<Long> referenced = referencedFileIds(project.key(), body);
+    Set<Long> referenced = IssueBodyImageResponse.idsIn(body, project.key());
     List<Long> claimable = repo.lockClaimable(project.id(), issueId, callerId, referenced);
     repo.claim(issueId, claimable);
     List<Long> dropped =
         repo.fileIdsOfIssue(issueId).stream().filter(id -> !referenced.contains(id)).toList();
-    repo.demote(dropped, OffsetDateTime.now(ZoneOffset.UTC).plusHours(demoteGraceHours));
+    repo.demote(dropped, graceExpiry());
+  }
+
+  /** 강등·보존 시 새로 걸 만료 시각(지금 + 유예) — 강등과 스윕 보존 정책이 같은 유예를 쓰도록 한 곳에서 계산한다. */
+  public OffsetDateTime graceExpiry() {
+    return OffsetDateTime.now(ZoneOffset.UTC).plusHours(demoteGraceHours);
   }
 
   /**
@@ -79,29 +78,7 @@ public class IssueBodyImageService {
   public void demoteAllOfIssues(Collection<Long> issueIds) {
     if (issueIds.isEmpty()) return;
     List<Long> fileIds = repo.fileIdsOfIssues(issueIds);
-    repo.demote(fileIds, OffsetDateTime.now(ZoneOffset.UTC).plusHours(demoteGraceHours));
-  }
-
-  /** 본문에서 이 프로젝트 키의 이미지 참조 fileId 를 뽑는다. 키는 그대로 인용한다(PERSONAL 키는 자동 생성이라 문자 집합을 가정하지 않음). */
-  private static Set<Long> referencedFileIds(String projectKey, String body) {
-    Set<Long> ids = new LinkedHashSet<>();
-    if (body == null || body.isBlank()) return ids;
-    // \d{1,19}: Long.MAX_VALUE 자릿수. (?!\\d) 로 20자리 이상 숫자는 일부만 잘려 매칭되지 않게 하고, 범위를 넘는 19자리 값은
-    // parseLong 이 던지므로 건너뛴다 — 본문은 자유 텍스트라 저장이 깨지면 안 된다.
-    Matcher m =
-        Pattern.compile(
-                "/api/v1/projects/"
-                    + Pattern.quote(projectKey)
-                    + "/issue-images/(\\d{1,19})(?!\\d)")
-            .matcher(body);
-    while (m.find()) {
-      try {
-        ids.add(Long.parseLong(m.group(1)));
-      } catch (NumberFormatException ignored) {
-        // overflow — 무시
-      }
-    }
-    return ids;
+    repo.demote(fileIds, graceExpiry());
   }
 
   /** 업로드 — 이슈 생성 가능자. 매직바이트로 이미지인지 판정하고 임시 파일 + 미연결 매핑으로 저장한다. */
@@ -109,17 +86,13 @@ public class IssueBodyImageService {
     var project = accessGuard.assertIssueCreatable(projectKey, callerId);
     if (file.isEmpty()) throw new IssueBodyImageRejectedException("빈 파일입니다.");
     if (file.getSize() > maxFileSizeBytes) {
-      throw new IssueBodyImageRejectedException("이미지는 10MB 까지 올릴 수 있습니다.");
+      // 한도 문구는 설정값에서 만든다 — 설정을 바꿔도 안내가 어긋나지 않게.
+      throw new IssueBodyImageRejectedException(
+          "이미지는 " + maxFileSizeBytes / (1024 * 1024) + "MB 까지 올릴 수 있습니다.");
     }
-    // Content-Type 은 위조 가능 — 앞부분 바이트로 판정한다(getInputStream 은 호출마다 새 스트림이라 저장 스트림을 소비하지 않음).
-    byte[] head;
-    try (InputStream in = file.getInputStream()) {
-      head = in.readNBytes(ImageSniffer.HEAD_BYTES);
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
+    // Content-Type 은 위조 가능 — 앞부분 매직바이트로 판정한다.
     String mime =
-        ImageSniffer.detect(head)
+        ImageSniffer.detectUpload(file)
             .orElseThrow(
                 () -> new IssueBodyImageRejectedException("PNG·JPEG·GIF·WebP 이미지만 올릴 수 있습니다."));
     // 저장 없이 업로드만 반복하는 남용 차단 — 저장(연결)하거나 하루 지나 수거되면 풀린다.
@@ -128,12 +101,10 @@ public class IssueBodyImageService {
     }
     quota.assertWithinQuotaLocked(file.getSize());
 
-    Long fileId = storage.storeTemporaryImage(file, callerId, mime);
+    // 저장 이름과 응답 이름이 어긋나지 않게 한 번만 계산해 함께 쓴다.
+    String name = UnicodeNames.toNfcOrDefault(file.getOriginalFilename(), "image");
+    Long fileId = storage.storeTemporaryImage(file, callerId, mime, name);
     repo.insertPending(fileId, project.id(), callerId);
-    String name =
-        file.getOriginalFilename() != null && !file.getOriginalFilename().isBlank()
-            ? UnicodeNames.toNfc(file.getOriginalFilename())
-            : "image";
     return new IssueBodyImageResponse(
         fileId, IssueBodyImageResponse.urlOf(project.key(), fileId), name, mime, file.getSize());
   }
@@ -154,9 +125,9 @@ public class IssueBodyImageService {
             // ProjectRow.id() 는 Long — 박싱 비교 오류를 피하려고 equals 사용.
             .filter(m -> project.id().equals(m.projectId()))
             .orElseThrow(() -> new AttachmentNotFoundException(fileId));
-    if (meta.issueId() == null) {
-      // 저장 전 임시 이미지는 올린 사람만 — 남의 작성 중 이미지를 id 추측으로 보지 못하게.
-      if (meta.uploadedBy() != callerId) throw new AttachmentNotFoundException(fileId);
+    // 저장 전 임시 이미지는 올린 사람만 — 남의 작성 중 이미지를 id 추측으로 보지 못하게.
+    if (meta.issueId() == null && meta.uploadedBy() != callerId) {
+      throw new AttachmentNotFoundException(fileId);
     }
     // 연결된 이미지는 원본 이슈의 삭제 여부와 무관하게 서빙한다 — 다른 이슈 본문에 복사된 사본이 원본 삭제로 깨지면 안 된다.
     return storage.load(fileId);

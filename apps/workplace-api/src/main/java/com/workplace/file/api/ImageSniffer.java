@@ -1,6 +1,10 @@
 package com.workplace.file.api;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.util.Optional;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 업로드된 바이트의 앞부분을 보고 이미지 형식을 판정한다.
@@ -16,6 +20,19 @@ public final class ImageSniffer {
 
   /** 판정에 필요한 최소 바이트 수. */
   public static final int HEAD_BYTES = 16;
+
+  /**
+   * 업로드 파일의 앞 HEAD_BYTES 만 읽어 판정한다. getInputStream 은 호출마다 새 스트림이라 이후 저장 스트림을 소비하지 않는다. 읽기 실패는
+   * UncheckedIOException 으로 감싼다 — 위키·이슈 업로드가 같은 읽기 블록을 반복하지 않게 공용화. detect(null) 호출이 모호해지지 않도록 이름을
+   * 달리한다.
+   */
+  public static Optional<String> detectUpload(MultipartFile file) {
+    try (InputStream in = file.getInputStream()) {
+      return detect(in.readNBytes(HEAD_BYTES));
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
 
   /** 허용 형식이면 정규 MIME 을, 아니면 empty 를 반환한다. */
   public static Optional<String> detect(byte[] head) {
