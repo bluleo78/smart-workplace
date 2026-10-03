@@ -144,11 +144,9 @@ public class MailMessageService {
         accountRepo
             .findByIdAndUser(userId, accountId)
             .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
+    EmailMessageRepository.UnreadAggregate agg = messageRepo.countUnreadAggregate(accountId);
     return new MailUnreadCounts(
-        classificationActive(userId, account),
-        messageRepo.countUnreadInbox(accountId),
-        messageRepo.countUnreadByBucket(accountId),
-        messageRepo.countNeedsReplyForAccount(accountId));
+        classificationActive(userId, account), agg.inbox(), agg.byCategory(), agg.needsReply());
   }
 
   /** WP-186 탭 배지 합계 — 활성(비활성 제외) 계정마다 업무(분류 꺼지면 받은편지함) 안 읽은 수를 더한다. */
@@ -159,9 +157,7 @@ public class MailMessageService {
     for (EmailAccountResponse account : accountRepo.listByUser(userId)) {
       total +=
           probe.active(account)
-              ? messageRepo
-                  .countUnreadByBucket(account.id())
-                  .get(EmailMessageRepository.WORK_CATEGORY)
+              ? messageRepo.countUnreadWork(account.id())
               : messageRepo.countUnreadInbox(account.id());
     }
     return new MailUnreadCounts.Summary(total);

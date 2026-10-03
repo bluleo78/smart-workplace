@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -95,6 +96,19 @@ public class EmailMessageRepository {
         .isNull()
         .or(EMAIL_CONTENT.AI_CATEGORY.isNull())
         .or(EMAIL_CONTENT.AI_CATEGORY.eq(WORK_CATEGORY));
+  }
+
+  /** 분류 카테고리 전체(표시 순서). 웹 types/mailMessage.ts MAIL_CATEGORIES 와 값·순서 일치 유지. */
+  public static final List<String> CATEGORIES = List.of(WORK_CATEGORY, "개인", "알림", "프로모션", "뉴스레터");
+
+  /**
+   * 분류 보기 단일 술어(WP-186) — 업무는 {@link #workViewCondition()}, 그 외는 검증된 사본(fetched_at 필수 — WP-130: 검증
+   * 전 envelope 로 공유 content 의 분류를 추론하지 못하게)의 해당 분류. 목록·안 읽은 수가 모두 이 메서드를 써서 숫자와 목록이 어긋나지 않게 한다.
+   */
+  public static Condition categoryViewCondition(String category) {
+    return WORK_CATEGORY.equals(category)
+        ? workViewCondition()
+        : EMAIL_CONTENT.AI_CATEGORY.eq(category).and(EMAIL_MESSAGE.FETCHED_AT.isNotNull());
   }
 
   /**
@@ -396,16 +410,8 @@ public class EmailMessageRepository {
       where = where.and(EMAIL_MESSAGE.SEEN.isFalse());
     }
     if (category != null && !category.isBlank()) {
-      if (WORK_CATEGORY.equals(category)) {
-        // WP-186: 업무 = 업무 ∪ 미분류 ∪ 미적재(단일 술어)
-        where = where.and(workViewCondition());
-      } else {
-        // 슬라이스②: content 출처. WP-130: 검증 전 envelope 로 공유 content 의 분류를 추론하지 못하게 fetched_at 필수
-        where =
-            where
-                .and(EMAIL_CONTENT.AI_CATEGORY.eq(category))
-                .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull());
-      }
+      // WP-186: 업무 = 업무 ∪ 미분류 ∪ 미적재, 그 외는 검증된 사본의 해당 분류(단일 술어)
+      where = where.and(categoryViewCondition(category));
     }
     if (needsReply) {
       // 회신필요 단일 술어(AI 판정 true + 안 읽음)
@@ -786,48 +792,57 @@ public class EmailMessageRepository {
             .and(needsReplyCondition()));
   }
 
-  /**
-   * WP-186 계정 INBOX 안 읽은 메일의 분류 버킷별 건수 — 쿼리 1회. 버킷은 목록 조건과 같다: 검증된 사본의 개인·알림·프로모션·뉴스레터는 그 분류, 업무는
-   * workViewCondition 과 같은 술어(업무·미분류·미적재). 알 수 없는 분류값은 어느 버킷에도 세지 않는다. 없는 버킷은 0 으로 채운다.
-   */
-  public Map<String, Long> countUnreadByBucket(long accountId) {
-    // 업무 = workViewCondition 과 정확히 같은 술어(목록과 숫자가 어긋나지 않게). 나머지 4종은 검증된 사본만. 그 밖의 값(옛 분류 등)은 null →
-    // 어느 버킷에도 안 센다.
-    Field<String> bucket =
-        DSL.when(workViewCondition(), DSL.inline(WORK_CATEGORY))
-            .when(
-                EMAIL_MESSAGE
-                    .FETCHED_AT
-                    .isNotNull()
-                    .and(
-                        EMAIL_CONTENT.AI_CATEGORY.in(
-                            DSL.inline("개인"),
-                            DSL.inline("알림"),
-                            DSL.inline("프로모션"),
-                            DSL.inline("뉴스레터"))),
-                EMAIL_CONTENT.AI_CATEGORY)
-            .otherwise(DSL.inline((String) null));
-    Map<String, Long> out = new LinkedHashMap<>();
-    for (String c : List.of(WORK_CATEGORY, "개인", "알림", "프로모션", "뉴스레터")) {
-      out.put(c, 0L);
-    }
-    dsl.select(bucket, DSL.count())
-        .from(EMAIL_MESSAGE)
-        .join(EMAIL_FOLDER)
-        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
-        .leftJoin(EMAIL_CONTENT)
-        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
-        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+  /** 계정 INBOX 안 읽은 메일 술어(WP-186) — 안 읽은 수 집계의 공통 범위. EMAIL_FOLDER 조인이 필요하다. */
+  private static Condition inboxUnreadCondition(long accountId) {
+    return EMAIL_MESSAGE
+        .ACCOUNT_ID
+        .eq(accountId)
         .and(EMAIL_FOLDER.NAME.eq("INBOX"))
-        .and(EMAIL_MESSAGE.SEEN.isFalse())
-        .groupBy(DSL.inline(1)) // 첫 컬럼(bucket) 서수 — 식 안 바인드 파라미터가 SELECT/GROUP BY 에서 다르게 보이는 문제 회피
-        .forEach(
-            r -> {
-              if (r.value1() != null) {
-                out.put(r.value1(), r.value2().longValue());
-              }
-            });
-    return out;
+        .and(EMAIL_MESSAGE.SEEN.isFalse());
+  }
+
+  /**
+   * WP-186 계정 INBOX 안 읽은 메일 집계 — 쿼리 1회. inbox 는 분류 필터 없는 "전체"(알 수 없는 분류값 포함), byCategory 는 목록과 같은
+   * categoryViewCondition, needsReply 는 목록 필터와 같은 needsReplyCondition 으로 센다.
+   */
+  public UnreadAggregate countUnreadAggregate(long accountId) {
+    List<Field<Integer>> fields = new ArrayList<>();
+    fields.add(DSL.count());
+    for (String c : CATEGORIES) {
+      fields.add(DSL.count().filterWhere(categoryViewCondition(c)));
+    }
+    fields.add(DSL.count().filterWhere(needsReplyCondition()));
+    Record r =
+        dsl.select(fields)
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_FOLDER)
+            .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+            .leftJoin(EMAIL_CONTENT)
+            .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .where(inboxUnreadCondition(accountId))
+            .fetchOne();
+    Map<String, Long> byCategory = new LinkedHashMap<>();
+    for (int i = 0; i < CATEGORIES.size(); i++) {
+      byCategory.put(CATEGORIES.get(i), r.get(i + 1, Long.class));
+    }
+    return new UnreadAggregate(
+        r.get(0, Long.class), byCategory, r.get(CATEGORIES.size() + 1, Long.class));
+  }
+
+  /** {@link #countUnreadAggregate(long)} 결과 — 받은편지함 전체·분류별·회신필요 안 읽은 수. */
+  public record UnreadAggregate(long inbox, Map<String, Long> byCategory, long needsReply) {}
+
+  /** WP-186 탭 배지용 — 계정 INBOX 안 읽은 업무 보기 건수(분류 꺼짐이면 {@link #countUnreadInbox}). */
+  public long countUnreadWork(long accountId) {
+    return dsl.fetchCount(
+        dsl.selectOne()
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_FOLDER)
+            .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+            .leftJoin(EMAIL_CONTENT)
+            .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+            .where(inboxUnreadCondition(accountId))
+            .and(workViewCondition()));
   }
 
   /** WP-186 계정 INBOX 안 읽은 메일 전체 건수 — 목록의 "전체"(분류 필터 없음) 보기와 같다. 알 수 없는 분류값도 포함한다. */
@@ -837,9 +852,7 @@ public class EmailMessageRepository {
             .from(EMAIL_MESSAGE)
             .join(EMAIL_FOLDER)
             .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
-            .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
-            .and(EMAIL_FOLDER.NAME.eq("INBOX"))
-            .and(EMAIL_MESSAGE.SEEN.isFalse()));
+            .where(inboxUnreadCondition(accountId)));
   }
 
   /** #484: 공백 요약은 '결과 없음'(NULL)으로 저장 — 읽는 쪽이 공백 여부를 다시 판정하지 않게 한다. */

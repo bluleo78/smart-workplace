@@ -37,8 +37,11 @@ import org.springframework.util.StringUtils;
 @Service
 public class MailAnalysisService {
 
-  /** 분류 허용 카테고리(미지 값은 null). ⚠️ 프론트 MailSidebar.CATEGORIES 와 값·순서 일치 유지 */
-  static final Set<String> CATEGORIES = Set.of("업무", "개인", "알림", "프로모션", "뉴스레터");
+  /**
+   * 분류 허용 카테고리(미지 값은 null). 값·순서는 EmailMessageRepository.CATEGORIES(웹 types/mailMessage.ts
+   * MAIL_CATEGORIES 와 일치)에서 파생
+   */
+  static final Set<String> CATEGORIES = Set.copyOf(EmailMessageRepository.CATEGORIES);
 
   /** 요약 생략 기준 — 새 본문이 이 길이 이하면 요약하지 않는다(짧은 메일은 본문이 곧 요약). */
   public static final int SUMMARY_MIN_CHARS = 400;
