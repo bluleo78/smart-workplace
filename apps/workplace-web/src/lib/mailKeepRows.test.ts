@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { EmailMessageSummary } from '@/types/mailMessage'
 
-import { mergeKeptRows } from './mailKeepRows'
+import { markSeenInKept, mergeKeptRows } from './mailKeepRows'
 
 const row = (id: number, receivedAt: string, seen = false): EmailMessageSummary => ({
   id, accountId: 1, threadId: `t${id}`, fromAddress: 'a@b', fromName: null, subject: `s${id}`, snippet: null,
@@ -28,5 +28,24 @@ describe('mergeKeptRows', () => {
     const out = mergeKeptRows(next, kept)
     expect(out).toHaveLength(1)
     expect(out?.[0].seen).toBe(true)
+  })
+})
+
+describe('markSeenInKept', () => {
+  const kept = new Map([
+    [1, row(1, '2026-10-03T01:00:00Z')],
+    [2, row(2, '2026-10-03T02:00:00Z')],
+  ])
+  it("'all' 이면 모든 유지 행의 seen 을 바꾸고 원본은 건드리지 않는다", () => {
+    const out = markSeenInKept(kept, 'all', true)
+    expect([...out.values()].map((r) => r.seen)).toEqual([true, true])
+    expect(out).not.toBe(kept)
+    expect(kept.get(1)?.seen).toBe(false)
+  })
+  it('ids 에 있는 행만 바꾸고 없는 id 는 새로 넣지 않는다', () => {
+    const out = markSeenInKept(kept, [2, 9], true)
+    expect(out.get(1)?.seen).toBe(false)
+    expect(out.get(2)?.seen).toBe(true)
+    expect(out.has(9)).toBe(false)
   })
 })

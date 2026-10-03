@@ -15,3 +15,13 @@ export function mergeKeptRows(
   const t = (r: EmailMessageSummary) => (r.receivedAt ? Date.parse(r.receivedAt) : 0)
   return [...next, ...revived].sort((a, b) => t(b) - t(a) || b.id - a.id)
 }
+
+/** 유지 스냅샷의 seen 을 바꾼 새 Map — ids 에 있는 행만('all' 이면 전부). 없는 id 는 무시한다(행을 새로 넣지 않는다). */
+export function markSeenInKept(
+  kept: ReadonlyMap<number, EmailMessageSummary>,
+  ids: readonly number[] | 'all',
+  seen: boolean,
+): Map<number, EmailMessageSummary> {
+  const target = ids === 'all' ? null : new Set(ids)
+  return new Map([...kept].map(([id, r]) => [id, !target || target.has(id) ? { ...r, seen } : r]))
+}

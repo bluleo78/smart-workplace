@@ -6,6 +6,7 @@ import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
+import com.workplace.mail.dto.MarkAllReadRequest;
 import com.workplace.mail.service.MailAttachmentMeteringService;
 import com.workplace.mail.service.MailAttachmentService;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
@@ -22,6 +23,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -102,6 +104,35 @@ public class MailInboxController {
   public void markRead(@AuthenticationPrincipal Long callerId, @PathVariable long messageId) {
     messageService.markRead(callerId, messageId);
   }
+
+  /** WP-187: 안읽음으로 표시. 본인 메일이 아니면 404, 이미 안 읽음이면 그대로 200. */
+  @PostMapping("/messages/{messageId}/unread")
+  public void markUnread(@AuthenticationPrincipal Long callerId, @PathVariable long messageId) {
+    messageService.markUnread(callerId, messageId);
+  }
+
+  /** WP-187: 모두 읽음 확인용 — 지금 보기의 안 읽은 메일 수와 기준 시각(asOf). */
+  @GetMapping("/accounts/{accountId}/messages/unread-count")
+  public MailMessageService.UnreadInView unreadCountInView(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long accountId,
+      @RequestParam(required = false) String category,
+      @RequestParam(defaultValue = "false") boolean needsReply,
+      @RequestParam(required = false) String query) {
+    return messageService.unreadCountInView(callerId, accountId, category, needsReply, query);
+  }
+
+  /** WP-187: 모두 읽음 — 지금 보기 ∧ asOf 이전 도착 ∧ 안 읽음. */
+  @PostMapping("/accounts/{accountId}/messages/mark-all-read")
+  public MarkAllReadResponse markAllRead(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long accountId,
+      @RequestBody MarkAllReadRequest req) {
+    return new MarkAllReadResponse(messageService.markAllRead(callerId, accountId, req));
+  }
+
+  /** WP-187 모두 읽음 응답 — 실제로 읽음 처리된 메일 수. */
+  public record MarkAllReadResponse(int updated) {}
 
   /** 계정 동기화 진행 상태(폴링용). */
   @GetMapping("/accounts/{accountId}/sync-status")

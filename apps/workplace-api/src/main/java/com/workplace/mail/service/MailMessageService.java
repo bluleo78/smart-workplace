@@ -9,15 +9,21 @@ import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailSummaryResponse;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
+import com.workplace.mail.dto.MarkAllReadRequest;
 import com.workplace.mail.event.InlineContentIdBackfillRequestedEvent;
-import com.workplace.mail.event.MessageMarkedReadEvent;
+import com.workplace.mail.event.MessagesSeenChangedEvent;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import java.time.OffsetDateTime;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
+import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /** 받은편지함 조회(목록·검색·상세). 모든 조회는 본인 소유 계정/메시지로 격리한다. 단건 조회(get) 시 DB seen=true 자동 업데이트(읽음 처리). */
 @Service
+@Slf4j
 public class MailMessageService {
 
   /** 목록 기본/최대 건수. */
@@ -39,6 +46,7 @@ public class MailMessageService {
   private final ApplicationEventPublisher eventPublisher;
   private final MailChangeNotifier notifier;
   private final AssistantResolver assistantResolver;
+  private final DSLContext dsl;
 
   /** WP-68: 첨부 행이 없는 인라인 전용 Graph 메일의 첨부 목록 즉시 적재. */
   private final MailInlineContentIdBackfiller inlineBackfiller;
@@ -58,6 +66,7 @@ public class MailMessageService {
       MailInlineContentIdBackfiller inlineBackfiller,
       MailChangeNotifier notifier,
       AssistantResolver assistantResolver,
+      DSLContext dsl,
       PlatformTransactionManager txManager) {
     this.accountRepo = accountRepo;
     this.messageRepo = messageRepo;
@@ -67,6 +76,7 @@ public class MailMessageService {
     this.inlineBackfiller = inlineBackfiller;
     this.notifier = notifier;
     this.assistantResolver = assistantResolver;
+    this.dsl = dsl;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -192,9 +202,22 @@ public class MailMessageService {
     }
     requestContentIdBackfillIfNeeded(userId, detail);
     // 읽음 처리 — markSeen(웹 열람)이고 seen=false 일 때만. AI 조회(markSeen=false)는 건너뛴다(WP-147).
+    // WP-187: 이번 호출이 실제로 읽음으로 바꾼 경우에만 역동기화를 발행한다(동시 열람·이미 읽음이면 0행 → 생략). 계정 id 가 필요해 소유 대상 조회와
+    // 갱신을 한 트랜잭션으로 묶는다. 열람 경로는 mailChanged 를 보내지 않는다 — 웹이 자기 열람 이벤트로 상세를 다시 받게 되므로(R4).
     if (markSeen && !detail.seen()) {
-      txTemplate.executeWithoutResult(status -> messageRepo.markSeen(messageId));
-      publishMarkedRead(userId, messageId);
+      Long accountId =
+          txTemplate.execute(
+              status -> {
+                BodyTarget target =
+                    messageRepo.findBodyTargetForUser(userId, messageId).orElse(null);
+                if (target == null || messageRepo.markSeen(messageId) <= 0) {
+                  return null;
+                }
+                return target.accountId();
+              });
+      if (accountId != null) {
+        publishSeenChanged(userId, accountId, List.of(messageId));
+      }
       detail =
           new EmailMessageDetail(
               detail.id(),
@@ -221,31 +244,114 @@ public class MailMessageService {
    * resource.changed 재발행 없음). 읽음으로 바뀌면 열려 있는 웹 탭이 목록·카운트를 갱신하도록 mail updated 를 소유자에게 보낸다.
    */
   public void markRead(long userId, long messageId) {
-    // 소유 확인(없으면 404)과 읽음 갱신을 한 트랜잭션으로 처리한다. UPDATE 반환 행 수로 "이번에 읽음으로 바뀐 건"만 판별(동시 호출에서도 한 번만 발행).
-    // MailChangeNotifier 는 트랜잭션 안에서 호출해야 한다(AFTER_COMMIT 디스패처는 트랜잭션 밖 발행을 유실) — markSeen 과 같은 트랜잭션.
-    Boolean changed =
+    changeSeen(userId, messageId, true);
+  }
+
+  /**
+   * WP-187 안읽음으로 표시 — markRead 와 대칭. 본인 메일이 아니면 404, 이미 안 읽음이면 아무것도 하지 않는다(멱등 — 알림·역동기화 없음). 바뀐
+   * 경우에만 열린 웹 탭이 목록·카운트를 갱신하도록 mailChanged 를 같은 트랜잭션에서 보내고, 커밋 후 원본 서버 반영 이벤트를 발행한다.
+   */
+  public void markUnread(long userId, long messageId) {
+    changeSeen(userId, messageId, false);
+  }
+
+  /**
+   * 한 통 읽음/안읽음 전환 공용부(markRead·markUnread).
+   *
+   * <p>소유 확인(없으면 404)과 갱신을 한 트랜잭션으로 처리한다. UPDATE 반환 행 수로 "이번에 바뀐 건"만 판별(동시 호출에서도 한 번만 발행).
+   * MailChangeNotifier 는 트랜잭션 안에서 호출해야 한다(AFTER_COMMIT 디스패처는 트랜잭션 밖 발행을 유실). 바뀌었으면 계정 id, 아니면 null
+   * — 공개 반환형(void)은 MCP 계약 그대로 둔다.
+   */
+  private void changeSeen(long userId, long messageId, boolean seen) {
+    Long changedAccountId =
         txTemplate.execute(
             status -> {
               BodyTarget target =
                   messageRepo
                       .findBodyTargetForUser(userId, messageId)
                       .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
-              if (messageRepo.markSeen(messageId) <= 0) {
-                return false;
+              int updated =
+                  seen ? messageRepo.markSeen(messageId) : messageRepo.markUnseen(messageId);
+              if (updated <= 0) {
+                return null;
               }
-              notifier.mailChanged(userId, target.accountId(), messageId, userId);
-              return true;
+              // 안읽음은 messageId 를 싣지 않는다 — 실으면 같은 메일을 열어 둔 다른 탭·기기가 상세를 다시 받아(GET = 열람) 곧바로 다시
+              // 읽음 처리한다. 계정 단위 알림만으로 목록·안 읽은 수는 갱신된다.
+              notifier.mailChanged(userId, target.accountId(), seen ? messageId : null, userId);
+              return target.accountId();
             });
-    if (Boolean.TRUE.equals(changed)) {
-      publishMarkedRead(userId, messageId);
+    if (changedAccountId != null) {
+      publishSeenChanged(userId, changedAccountId, List.of(messageId));
     }
   }
 
-  /** 역동기화 이벤트 발행 공용부 — TenantContext 가 null 이면 내부 경로이므로 생략(방어적). */
-  private void publishMarkedRead(long userId, long messageId) {
+  /**
+   * WP-187 모두 읽음 확인용 — 지금 보기의 안 읽은 메일 수와 기준 시각 asOf. asOf 는 앱 서버가 아니라 DB 시각(같은 트랜잭션의 now())으로 정한다:
+   * 경계 비교 대상인 created_at 이 DB 시각이라 시계 오차가 끼지 않게 하려는 것이며, 클라이언트는 이 값을 실행 요청에 그대로 되돌려 보낸다.
+   */
+  @Transactional(readOnly = true)
+  public UnreadInView unreadCountInView(
+      long userId, long accountId, String category, boolean needsReply, String query) {
+    accountRepo
+        .findByIdAndUser(userId, accountId)
+        .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
+    OffsetDateTime asOf = dbNow();
+    return new UnreadInView(
+        messageRepo.countUnreadInView(accountId, category, needsReply, query, asOf), asOf);
+  }
+
+  /**
+   * WP-187 모두 읽음 — 한 트랜잭션에서 갱신 + 변경이 있을 때만 계정 단위 변경 알림 1회, 커밋 후 일괄 역동기화 이벤트 1건. asOf 가 없으면 현재 DB
+   * 시각을 쓴다(그 경우 확인 이후 도착분도 포함될 수 있으나 클라이언트는 항상 asOf 를 보낸다).
+   */
+  public int markAllRead(long userId, long accountId, MarkAllReadRequest req) {
+    List<Long> ids =
+        txTemplate.execute(
+            status -> {
+              accountRepo
+                  .findByIdAndUser(userId, accountId)
+                  .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
+              OffsetDateTime asOf = req.asOf() != null ? req.asOf() : dbNow();
+              List<Long> changed =
+                  messageRepo.markAllSeenInView(
+                      accountId, req.category(), req.needsReply(), req.query(), asOf);
+              if (!changed.isEmpty()) {
+                notifier.mailChanged(userId, accountId, null, userId);
+              }
+              return changed;
+            });
+    publishSeenChanged(userId, accountId, ids);
+    return ids.size();
+  }
+
+  /** 현재 DB 시각(now()) — 모두 읽음 경계(asOf)는 created_at 과 같은 시계를 써야 시계 오차가 끼지 않는다. */
+  private OffsetDateTime dbNow() {
+    return dsl.select(DSL.currentOffsetDateTime()).fetchOne(0, OffsetDateTime.class);
+  }
+
+  /** WP-187 건수 응답 — 건수와 기준 시각(DB 시각). */
+  public record UnreadInView(long count, OffsetDateTime asOf) {}
+
+  /**
+   * 역동기화 이벤트 발행 공용부(WP-187) — TenantContext 가 null 이면 내부 경로이므로 생략(방어적). 빈 목록은 발행하지 않는다. 목록은 비동기
+   * 리스너로 넘어가므로 불변 복사본으로 보낸다.
+   *
+   * <p>트랜잭션 밖 발행이라 @Async 리스너 실행기에 바로 제출된다 — 큐가 차서 거절({@link TaskRejectedException})돼도 DB 변경은 이미
+   * 커밋됐으므로 요청을 실패시키지 않는다. 행은 반영 대기(seen_push_pending)로 남아 이후 동기화가 맡는다(best-effort).
+   */
+  private void publishSeenChanged(long userId, long accountId, List<Long> messageIds) {
     Long tenantId = TenantContext.get();
-    if (tenantId != null) {
-      eventPublisher.publishEvent(new MessageMarkedReadEvent(tenantId, userId, messageId));
+    if (tenantId != null && !messageIds.isEmpty()) {
+      try {
+        eventPublisher.publishEvent(
+            new MessagesSeenChangedEvent(tenantId, userId, accountId, List.copyOf(messageIds)));
+      } catch (TaskRejectedException e) {
+        // 로그에는 계정 id 와 건수만 남긴다(메일 식별 정보 제외).
+        log.warn(
+            "메일 읽음 역동기화 큐가 가득 차 이번 반영을 건너뜀 — 반영 대기로 남음: accountId={}, count={}",
+            accountId,
+            messageIds.size());
+      }
     }
   }
 
