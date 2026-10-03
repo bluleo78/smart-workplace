@@ -19,9 +19,11 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import java.time.OffsetDateTime;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /** 받은편지함 조회(목록·검색·상세). 모든 조회는 본인 소유 계정/메시지로 격리한다. 단건 조회(get) 시 DB seen=true 자동 업데이트(읽음 처리). */
 @Service
+@Slf4j
 public class MailMessageService {
 
   /** 목록 기본/최대 건수. */
@@ -333,12 +336,23 @@ public class MailMessageService {
   /**
    * 역동기화 이벤트 발행 공용부(WP-187) — TenantContext 가 null 이면 내부 경로이므로 생략(방어적). 빈 목록은 발행하지 않는다. 목록은 비동기
    * 리스너로 넘어가므로 불변 복사본으로 보낸다.
+   *
+   * <p>트랜잭션 밖 발행이라 @Async 리스너 실행기에 바로 제출된다 — 큐가 차서 거절({@link TaskRejectedException})돼도 DB 변경은 이미
+   * 커밋됐으므로 요청을 실패시키지 않는다. 행은 반영 대기(seen_push_pending)로 남아 이후 동기화가 맡는다(best-effort).
    */
   private void publishSeenChanged(long userId, long accountId, List<Long> messageIds) {
     Long tenantId = TenantContext.get();
     if (tenantId != null && !messageIds.isEmpty()) {
-      eventPublisher.publishEvent(
-          new MessagesSeenChangedEvent(tenantId, userId, accountId, List.copyOf(messageIds)));
+      try {
+        eventPublisher.publishEvent(
+            new MessagesSeenChangedEvent(tenantId, userId, accountId, List.copyOf(messageIds)));
+      } catch (TaskRejectedException e) {
+        // 로그에는 계정 id 와 건수만 남긴다(메일 식별 정보 제외).
+        log.warn(
+            "메일 읽음 역동기화 큐가 가득 차 이번 반영을 건너뜀 — 반영 대기로 남음: accountId={}, count={}",
+            accountId,
+            messageIds.size());
+      }
     }
   }
 

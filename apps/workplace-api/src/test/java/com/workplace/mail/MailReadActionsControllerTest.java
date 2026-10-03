@@ -34,7 +34,7 @@ import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
-/** WP-187 읽음 조작 API — 안읽음·건수(asOf)·모두 읽음·소유 검증·asOf 경계(수신 시각·DB 적재 시각). */
+/** WP-187 읽음 조작 API — 안읽음·건수(asOf)·모두 읽음·소유 검증·asOf 경계(DB 적재 시각). */
 @Transactional
 @RecordApplicationEvents
 class MailReadActionsControllerTest extends IntegrationTestBase {
@@ -93,7 +93,7 @@ class MailReadActionsControllerTest extends IntegrationTestBase {
           .where(EMAIL_CONTENT.ID.eq(content))
           .execute();
     }
-    // 수신 시각을 1시간 전으로 — asOf(테스트 tx 시작 시각)보다 앞서야 모두 읽음 대상에 든다
+    // 수신 시각을 1시간 전으로 — 일반적인 과거 메일(asOf 경계는 적재 시각 created_at 만 본다)
     dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN, seen)
         .set(EMAIL_MESSAGE.RECEIVED_AT, OffsetDateTime.now().minusHours(1))
@@ -162,13 +162,13 @@ class MailReadActionsControllerTest extends IntegrationTestBase {
     String asOf = com.jayway.jsonpath.JsonPath.read(body, "$.asOf");
     OffsetDateTime asOfTs = OffsetDateTime.parse(asOf);
 
-    // 수신 시각이 asOf 이후인 도착분(R1 의 received_at 조건)
-    long lateReceived = fetched(box[1], box[2], "업무", false);
+    // 수신 시각만 asOf 이후(미래 Date 헤더)이고 적재는 asOf 이전 — 경계는 적재 시각(created_at)만 보므로 포함된다
+    long futureReceived = fetched(box[1], box[2], "업무", false);
     dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.RECEIVED_AT, asOfTs.plusMinutes(1))
-        .where(EMAIL_MESSAGE.ID.eq(lateReceived))
+        .where(EMAIL_MESSAGE.ID.eq(futureReceived))
         .execute();
-    // 수신 시각은 과거지만 asOf 이후 이 DB 에 들어온 도착분(R1 의 created_at 조건)
+    // 수신 시각은 과거지만 asOf 이후 이 DB 에 들어온 도착분(created_at 경계로 제외)
     long lateCreated = fetched(box[1], box[2], "업무", false);
     dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.CREATED_AT, asOfTs.plusMinutes(1))
@@ -181,12 +181,12 @@ class MailReadActionsControllerTest extends IntegrationTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(markAllBody("업무", asOf)))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.updated").value(2));
+        .andExpect(jsonPath("$.updated").value(3));
 
     assertThat(seen(a)).isTrue();
     assertThat(seen(b)).isTrue();
     assertThat(seen(personal)).isFalse();
-    assertThat(seen(lateReceived)).isFalse();
+    assertThat(seen(futureReceived)).isTrue();
     assertThat(seen(lateCreated)).isFalse();
   }
 

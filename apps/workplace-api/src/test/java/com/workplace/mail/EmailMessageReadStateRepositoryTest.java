@@ -29,7 +29,7 @@ class EmailMessageReadStateRepositoryTest extends IntegrationTestBase {
   @Autowired EmailMessageRepository messageRepo;
   @Autowired EmailContentRepository contentRepo;
 
-  /** 적재·검증된 메일 한 통 — 수신 시각은 1시간 전(asOf 경계 안), seen 은 인자대로, 분류는 category(null 이면 미분류). */
+  /** 적재·검증된 메일 한 통 — 수신 시각은 1시간 전, seen 은 인자대로, 분류는 category(null 이면 미분류). */
   private long fetched(long accountId, long folderId, String category, boolean seen) {
     ParsedMessage msg =
         new ParsedMessage(
@@ -114,11 +114,11 @@ class EmailMessageReadStateRepositoryTest extends IntegrationTestBase {
     long none = fetched(box[1], box[2], null, false);
     long personal = fetched(box[1], box[2], "개인", false);
     OffsetDateTime asOf = dbNow();
-    // 수신 시각이 asOf 뒤인 메일
-    long lateReceived = fetched(box[1], box[2], "업무", false);
+    // 수신 시각만 asOf 뒤(발신자 Date 헤더 등 미래 시각)이고 asOf 이전에 적재된 메일 — 경계는 적재 시각만 보므로 포함된다
+    long futureReceived = fetched(box[1], box[2], "업무", false);
     dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.RECEIVED_AT, asOf.plusMinutes(1))
-        .where(EMAIL_MESSAGE.ID.eq(lateReceived))
+        .where(EMAIL_MESSAGE.ID.eq(futureReceived))
         .execute();
     // 수신 시각은 과거여도 다이얼로그 뒤 동기화로 이 DB 에 들어온 메일
     long lateCreated = fetched(box[1], box[2], "업무", false);
@@ -127,14 +127,14 @@ class EmailMessageReadStateRepositoryTest extends IntegrationTestBase {
         .where(EMAIL_MESSAGE.ID.eq(lateCreated))
         .execute();
 
-    assertThat(messageRepo.countUnreadInView(box[1], "업무", false, null, asOf)).isEqualTo(2);
+    assertThat(messageRepo.countUnreadInView(box[1], "업무", false, null, asOf)).isEqualTo(3);
     List<Long> ids = messageRepo.markAllSeenInView(box[1], "업무", false, null, asOf);
 
-    assertThat(ids).containsExactlyInAnyOrder(work, none);
+    assertThat(ids).containsExactlyInAnyOrder(work, none, futureReceived);
     assertThat(seen(work)).isTrue();
     assertThat(pending(work)).isTrue();
     assertThat(seen(personal)).isFalse();
-    assertThat(seen(lateReceived)).isFalse();
+    assertThat(seen(futureReceived)).isTrue();
     assertThat(seen(lateCreated)).isFalse();
   }
 

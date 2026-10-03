@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.USER;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -23,13 +24,19 @@ import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailReadSyncDispatcher;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskRejectedException;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
@@ -41,7 +48,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * <p><b>@Transactional 금지</b>: markSeen 은 내부 짧은 트랜잭션으로 커밋하므로, 테스트 메서드가 @Transactional 이면
  * AFTER_COMMIT 이벤트가 발화하지 않는다. 대신 @AfterEach 에서 시드된 데이터를 명시적으로 삭제한다(#512 non-tx 격리 패턴).
  *
- * <p>비동기 검증: Awaitility 의존이 없으므로 Mockito 내장 {@code timeout(ms)} 로 최대 5초 대기한다.
+ * <p>비동기 검증: 호출 여부는 Mockito 내장 {@code timeout(ms)}, 상태 변화·리스너 종료는 Awaitility 로 최대 5초 대기한다.
  */
 class MailReadSyncFlowTest extends IntegrationTestBase {
 
@@ -51,6 +58,11 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
   @Autowired EmailAccountRepository accountRepo;
   @Autowired EncryptionService encryption;
   @Autowired EmailMessageRepository messageRepo;
+
+  /** 읽음 역동기화 @Async 실행기 — 리스너 종료 대기·큐 포화 재현에 쓴다. */
+  @Autowired
+  @Qualifier("mailReadSyncExecutor")
+  Executor mailReadSyncExecutor;
 
   /** Graph HTTP 호출 차단 + 호출 검증 대상. */
   @MockitoBean GraphApiClient graphApiClient;
@@ -87,11 +99,11 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
   }
 
   /**
-   * 첫 열람(seen false→true) 후 Graph PATCH 가 호출되는지 검증한다.
+   * 첫 열람(seen false→true) 후 Graph $batch 로 isRead=true PATCH 가 나가는지 검증한다.
    *
    * <p>흐름: seedUnseenGraphMessage → TenantContext.set(1) → messageService.get() → markSeen 커밋 →
-   * AFTER_COMMIT 이벤트 → @Async 리스너 → MailReadSyncDispatcher(@Transactional) → GraphReadSyncer →
-   * GraphApiClient.patch (Mockito timeout 검증).
+   * MessagesSeenChangedEvent → @Async 리스너 → MailReadSyncDispatcher(200건 조각마다 TransactionTemplate) →
+   * GraphReadSyncer → GraphApiClient.batch (Mockito timeout 검증).
    */
   @SuppressWarnings("unchecked")
   @Test
@@ -131,9 +143,9 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
   }
 
   /**
-   * 두 번째 열람(already seen=true)에서는 이벤트가 발행되지 않아 PATCH 가 추가 호출되지 않는다.
+   * 두 번째 열람(already seen=true)에서는 이벤트가 발행되지 않아 $batch 가 호출되지 않는다.
    *
-   * <p>seen=true 로 이미 DB에 있으면 markSeen 분기에 진입하지 않으므로, GraphApiClient 호출 횟수는 첫 열람의 1회에서 증가하지 않는다.
+   * <p>seen=true 로 이미 DB에 있으면 markSeen 분기에 진입하지 않으므로, GraphApiClient 와의 상호작용이 전혀 없다.
    */
   @Test
   void secondRead_alreadySeen_doesNotSyncAgain() {
@@ -162,7 +174,7 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
     TenantContext.set(1L);
     messageService.get(seededUser, seededMessage, true); // seen=true 이미라 markSeen 분기 미진입
 
-    // PATCH 가 호출되지 않아야 한다(짧은 대기 후 0건 검증)
+    // $batch 가 호출되지 않아야 한다(이벤트 자체가 발행되지 않음)
     org.mockito.Mockito.verifyNoInteractions(graphApiClient);
   }
 
@@ -211,9 +223,54 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
     TenantContext.set(1L);
     messageService.get(seededUser, seededMessage, true);
     verify(graphApiClient, org.mockito.Mockito.timeout(5_000)).batch(eq("FAKE_TOKEN"), anyList());
-    Thread.sleep(300); // 리스너가 예외를 흡수·종료할 시간
+    // 리스너가 예외를 흡수하고 조각 트랜잭션 롤백까지 끝낼 때까지 — 실행기가 한가해지면 판정한다(고정 sleep 대신).
+    ThreadPoolTaskExecutor exec = (ThreadPoolTaskExecutor) mailReadSyncExecutor;
+    await().atMost(Duration.ofSeconds(5)).until(() -> exec.getActiveCount() == 0);
 
     org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isTrue();
+  }
+
+  /**
+   * WP-187: 역동기화 실행기 큐가 가득 차 이벤트가 거절돼도 읽음 처리 요청은 성공한다 — DB 변경은 커밋됐고 행은 반영 대기로 남는다.
+   *
+   * <p>실행기 스레드를 래치로 묶고 거절될 때까지 작업을 채워 포화를 재현한다. 끝나면 래치를 풀어 다른 테스트에 영향이 없게 한다.
+   */
+  @Test
+  void markRead_executorSaturated_succeedsAndKeepsPending() {
+    setSessionGuc(1L);
+    seededUser = TestFixtures.createHuman(dsl);
+    seededAccount = MailTestSupport.seedGraphAccount(dsl, seededUser);
+    seededMessage = MailTestSupport.seedUnseenGraphMessage(dsl, seededAccount, "AAGRAPHID_FULL");
+
+    CountDownLatch release = new CountDownLatch(1);
+    try {
+      // 거절이 날 때까지 막힌 작업을 채운다(코어·큐·최대 스레드 모두 소진).
+      boolean saturated = false;
+      for (int i = 0; i < 1_000 && !saturated; i++) {
+        try {
+          mailReadSyncExecutor.execute(
+              () -> {
+                try {
+                  release.await();
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                }
+              });
+        } catch (TaskRejectedException e) {
+          saturated = true;
+        }
+      }
+      org.assertj.core.api.Assertions.assertThat(saturated).isTrue();
+
+      TenantContext.set(1L);
+      // 거절이 호출자에게 새면 예외 → 테스트 실패. 삼키면 정상 반환.
+      messageService.markRead(seededUser, seededMessage);
+
+      org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isTrue();
+      org.mockito.Mockito.verifyNoInteractions(graphApiClient);
+    } finally {
+      release.countDown();
+    }
   }
 
   /** WP-148: 건너뜀(IMAP uid 없는 로컬 생성 행)은 다시 해도 반영할 수 없으므로 예외 없이 끝나고 대기 표시가 풀린다. */

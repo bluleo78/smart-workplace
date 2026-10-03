@@ -769,9 +769,10 @@ public class EmailMessageRepository {
   }
 
   /**
-   * WP-187 보기 안의 안 읽은 메일 id 서브쿼리 — INBOX 고정. asOf 경계는 (수신 시각이 없거나 asOf 이전) ∧ (이 DB 에 asOf 이전에 들어옴):
-   * 수신 시각 NULL 은 사이드바 집계({@link #countUnreadAggregate})와 숫자를 맞추려 포함하고, created_at 조건은 다이얼로그가 열린 사이
-   * 동기화로 들어온 (수신 시각은 과거인) 메일이 보지도 않고 읽음 처리되는 것을 막는다.
+   * WP-187 보기 안의 안 읽은 메일 id 서브쿼리 — INBOX 고정. asOf 경계는 "이 DB 에 asOf 이전에 들어옴"(created_at &lt;= asOf)
+   * 하나뿐이다: 다이얼로그가 열린 사이 동기화로 들어온 메일(수신 시각이 과거여도)이 보지도 않고 읽음 처리되는 것을 막는다. 수신 시각은 경계에 쓰지 않는다 — 발신자가
+   * 정한 Date 헤더로 미래 시각이 들어올 수 있어, 사이드바 집계({@link #countUnreadAggregate})에는 잡히는데 모두 읽음으로는 영영 지울 수 없는
+   * 행이 생기기 때문이다.
    */
   private Select<Record1<Long>> unreadInView(
       long accountId, String category, boolean needsReply, String query, OffsetDateTime asOf) {
@@ -782,7 +783,6 @@ public class EmailMessageRepository {
         .leftJoin(EMAIL_CONTENT)
         .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
         .where(viewCondition(accountId, "INBOX", query, true, category, needsReply))
-        .and(EMAIL_MESSAGE.RECEIVED_AT.isNull().or(EMAIL_MESSAGE.RECEIVED_AT.le(asOf)))
         .and(EMAIL_MESSAGE.CREATED_AT.le(asOf));
   }
 
