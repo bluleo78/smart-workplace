@@ -31,6 +31,8 @@ export function useLongPressCapture({ onLongPress, onTap }: { onLongPress?: () =
       bind: {
         onPointerDown: (e: PointerEvent) => {
           if (e.pointerType === 'mouse' && e.button !== 0) return;
+          // 길게 누르기 콜백이 없으면 타이머를 시작하지 않는다(선택 모드 전용은 타이머 불필요).
+          if (!latest.current.onLongPress) return;
           fired.current = false;
           cancel();
           start.current = { x: e.clientX, y: e.clientY };
@@ -52,11 +54,17 @@ export function useLongPressCapture({ onLongPress, onTap }: { onLongPress?: () =
         // 우클릭·안드로이드 길게 터치 — 네이티브 메뉴(링크 미리보기) 대신 같은 액션.
         onContextMenu: (e: MouseEvent) => {
           if (!latest.current.onLongPress) return;
+          // Radix 같은 포털 컴포넌트의 click 이벤트가 React 이벤트 위임을 통해 버블 올라올 수 있으므로
+          // 현재 요소 자체의 이벤트만 처리한다(포털 내 요소는 무시).
+          if (!(e.currentTarget as Node).contains(e.target as Node)) return;
           e.preventDefault();
           cancel();
           fire();
         },
         onClickCapture: (e: MouseEvent) => {
+          // Radix 같은 포털 컴포넌트의 click 이벤트가 React 이벤트 위임을 통해 버블 올라올 수 있으므로
+          // 현재 요소 자체의 이벤트만 처리한다(포털 내 요소는 무시).
+          if (!(e.currentTarget as Node).contains(e.target as Node)) return;
           if (fired.current) {
             fired.current = false;
             e.preventDefault();
