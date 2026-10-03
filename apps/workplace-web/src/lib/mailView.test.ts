@@ -31,6 +31,10 @@ describe('resolveMailView', () => {
   it('딥링크 ?messageId(category 없음) = 전체 — 분류와 무관하게 목록에 보이게', () => {
     expect(resolveMailView(p('messageId=55'), true)).toMatchObject({ kind: 'all', apiCategory: '', activeCategory: null, title: '받은편지함' })
   })
+  it('앱 안 행 열기(열림 마크)로 붙은 messageId 는 딥링크가 아니다 — 업무 보기 유지(WP-218)', () => {
+    expect(resolveMailView(p('messageId=55'), true, { inAppSelection: true }).kind).toBe('work')
+    expect(resolveMailView(p('messageId=55&category=all'), true, { inAppSelection: true }).kind).toBe('all')
+  })
   it('messageId 가 있어도 명시 category·needsReply·sent 는 그대로', () => {
     expect(resolveMailView(p('messageId=55&category=개인'), true).kind).toBe('category')
     expect(resolveMailView(p('messageId=55&category=업무'), true).kind).toBe('work')

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createCloseGuard,
+  hasOpenMark,
   type HistoryPlan,
   type HistorySnapshot,
   markKey,
@@ -190,5 +191,20 @@ describe('parseId', () => {
 
   it('비었거나 0·음수·소수·숫자 아님은 null', () => {
     for (const v of [null, '', '0', '-3', '1.5', 'abc', 'NaN', 'Infinity']) expect(parseId(v)).toBeNull()
+  })
+})
+
+describe('hasOpenMark', () => {
+  it('열기 push 의 state 에만 마크가 있고, 전환 replace 는 이어받는다', () => {
+    const push = planOpen({ search: '', state: null, idx: 2 }, 'messageId', '7')
+    expect(push.kind).toBe('push')
+    const pushed = push.kind === 'push' ? push.state : null
+    expect(hasOpenMark(pushed, 'messageId')).toBe(true)
+    const replace = planOpen({ search: '?messageId=7', state: pushed, idx: 3 }, 'messageId', '8')
+    expect(replace.kind === 'replace' && hasOpenMark(replace.state, 'messageId')).toBe(true)
+  })
+  it('콜드 딥링크(state 없음)·다른 키 마크는 false', () => {
+    expect(hasOpenMark(null, 'messageId')).toBe(false)
+    expect(hasOpenMark({ [markKey('contact')]: 1 }, 'messageId')).toBe(false)
   })
 })

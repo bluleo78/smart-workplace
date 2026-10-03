@@ -1,5 +1,5 @@
 import { Check, ChevronDown, Inbox, Mail, PenSquare, Send, Settings, Tag } from 'lucide-react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import {
@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { hasOpenMark } from '@/lib/historyParam'
 import { mailViewHref, resolveMailView } from '@/lib/mailView'
 import { cn } from '@/lib/utils'
 import { MAIL_CATEGORIES } from '@/types/mailMessage'
@@ -33,7 +34,11 @@ export function MailSidebar() {
 
   // WP-186: 안 읽은 수(회신필요 포함) + AI 분류 활성 여부. 로딩 중에는 활성으로 가정해 깜빡임을 줄인다.
   const { data: counts } = useUnreadCounts(current?.id)
-  const view = resolveMailView(params, counts?.classificationActive ?? true)
+  // 앱 안에서 연 메일(열림 마크)은 딥링크로 보지 않는다 — 페이지와 같은 판정이라 활성 표시가 어긋나지 않는다(WP-218).
+  const location = useLocation()
+  const view = resolveMailView(params, counts?.classificationActive ?? true, {
+    inAppSelection: hasOpenMark(location.state, 'messageId'),
+  })
 
   // 빈 새 메일 작성 도크 오픈(현재 계정으로).
   function onCompose() {
