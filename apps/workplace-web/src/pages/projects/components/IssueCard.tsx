@@ -18,6 +18,7 @@ import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { IssueDragData } from '../../../lib/epicDnd';
 import type { IssueResponse } from '../../../types/issue';
+import { IssueMobileMeta } from './IssueMobileMeta';
 
 export function IssueCard({
   projectKey,
@@ -121,6 +122,28 @@ export function IssueCard({
         </span>
       )}
 
+      {isMobile && !asOverlay ? (
+        // 모바일 본문(WP-195) — 시안 B: 제목은 자기 줄에서 최대 2줄, 키·에픽·꼬리·담당자는 목록 행과 같은 메타 한 줄.
+        // 좁은 폭에서 「WP-/1047」 처럼 ID 가 꺾이던 문제를 메타 줄(nowrap)로 옮겨 없앤다. 차단 ⛔ 자리는 pr-5 로 비운다.
+        <>
+          <div className={`flex min-w-0 items-start gap-1.5${issue.blocked ? ' pr-5' : ''}`}>
+            {showStatus && <IssueStatusIcon status={issue.status} className="mt-0.5 h-4 w-4 shrink-0" />}
+            {showType && issue.type && (
+              <span className="mt-0.5 shrink-0">
+                <IssueTypeBadge type={issue.type} size="sm" iconOnly />
+              </span>
+            )}
+            <span
+              className="line-clamp-2 min-w-0 break-words font-medium leading-snug"
+              data-testid={`issue-card-${issue.number}-title`}
+            >
+              {issue.title}
+            </span>
+          </div>
+          <IssueMobileMeta issue={issue} projectKey={projectKey} testIdPrefix={`issue-card-${issue.number}`} className="mt-1.5" />
+        </>
+      ) : (
+        <>
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1 font-medium">
           {showStatus && <IssueStatusIcon status={issue.status} className="h-4 w-4" />}
@@ -205,6 +228,8 @@ export function IssueCard({
             </span>
           )}
         </div>
+      )}
+        </>
       )}
 
       {/* 카드 전체 클릭 영역 — 마지막 자식 + absolute inset-0 로 카드 위를 덮는다.
