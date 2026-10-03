@@ -27,6 +27,7 @@ import type {
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { IssueCard } from './IssueCard';
 import { IssueDndProvider, useIssueDnd } from './IssueDndProvider';
+import { MobileBoard, type MobileBoardTab } from './mobile/MobileBoard';
 
 // 기본 4컬럼(팀). 개인은 3컬럼(CANCELED 제외) 을 주입한다.
 const DEFAULT_COLUMNS: { status: string; label: string }[] = [
@@ -131,6 +132,9 @@ function IssueBoardViewInner({
     updateStatus.mutate({ number: issueNumber, status: targetStatus });
   }
 
+  // 모바일 탭 — 사용자 상태 필터로 제외된 상태는 숨긴다(그 컬럼은 쿼리가 비활성이라 비어 보이기만 한다).
+  const tabColumns = columns.filter((c) => filters.statuses.length === 0 || filters.statuses.includes(c.status));
+
   // group 이 상태/없음이 아니면(담당자·우선순위) 동적 읽기전용 그룹 컬럼을 렌더한다.
   // 상태 그룹/그룹 없음은 기존 드래그-상태변경 보드를 그대로 유지한다 (#58).
   if (grouped) {
@@ -165,6 +169,35 @@ function IssueBoardViewInner({
         ))}
       </BoardScroll>
       {cardActions.sheets}
+      </>
+    );
+  }
+
+  // 모바일 상태 보드(WP-195) — 컬럼 4개를 나란히 두지 않고 상태 탭 + 선택 상태 한 컬럼(전체 폭). DnD 없음(길게 누르기로 상태 변경).
+  if (isMobile) {
+    const tabs: MobileBoardTab[] = tabColumns.map((c) => {
+      const q = columnQueries[c.status];
+      return { status: c.status, label: c.label, count: byStatus[c.status]?.length ?? 0, hasMore: !!q?.hasNextPage, pending: !!q?.isPending };
+    });
+    return (
+      <>
+        <MobileBoard tabs={tabs}>
+          {(status, root) => (
+            <BoardScrollRootContext.Provider value={root}>
+              <MobileStatusColumn
+                status={status}
+                issues={byStatus[status] ?? []}
+                query={columnQueries[status]}
+                projectKey={projectKey}
+                cardTo={cardTo}
+                showType={showType}
+                onOpenCreate={onOpenCreate}
+                onLongPress={onCardLongPress}
+              />
+            </BoardScrollRootContext.Provider>
+          )}
+        </MobileBoard>
+        {cardActions.sheets}
       </>
     );
   }
@@ -335,6 +368,51 @@ function ColumnLoadMore({ status, query }: { status: string; query: BoardColumnQ
       className="py-2"
       data-testid={`board-col-more-${status}`}
     />
+  );
+}
+
+// 모바일 상태 탭의 카드 목록(WP-195) — 헤더는 탭이 대신하고, 드롭 영역(DnD)도 없다. 끝 sentinel 은 데스크톱 컬럼과 같은 ColumnLoadMore.
+function MobileStatusColumn({
+  status,
+  issues,
+  query,
+  projectKey,
+  cardTo,
+  showType,
+  onOpenCreate,
+  onLongPress,
+}: {
+  status: string;
+  issues: IssueResponse[];
+  query?: BoardColumnQuery;
+  projectKey: string;
+  cardTo?: (issue: IssueResponse) => string;
+  showType: boolean;
+  onOpenCreate?: () => void;
+  onLongPress?: (issue: IssueResponse) => void;
+}) {
+  // 첫 페이지 응답 전에는 빈 상태를 띄우지 않는다(「이슈 없음」 깜빡임 방지).
+  if (issues.length === 0 && query?.isPending) return null;
+  return (
+    <section data-testid={`board-col-${status}`} className="flex flex-col gap-2">
+      {issues.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-3 py-12 text-center" data-testid={`board-col-empty-${status}`}>
+          <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
+          <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
+          {onOpenCreate && (
+            <Button size="sm" variant="ghost" onClick={onOpenCreate} data-testid={`board-col-add-${status}`}>
+              <Plus className="h-4 w-4" />
+              이슈 추가
+            </Button>
+          )}
+        </div>
+      ) : (
+        issues.map((it) => (
+          <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled onLongPress={onLongPress} />
+        ))
+      )}
+      {query && <ColumnLoadMore status={status} query={query} />}
+    </section>
   );
 }
 
