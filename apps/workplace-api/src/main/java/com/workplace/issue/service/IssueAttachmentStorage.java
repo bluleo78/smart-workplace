@@ -5,12 +5,14 @@ import static com.workplace.jooq.Tables.FILE;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
+import com.workplace.global.util.UnicodeNames;
 import com.workplace.issue.exception.AttachmentNotFoundException;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import org.jooq.DSLContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -34,10 +36,18 @@ public class IssueAttachmentStorage {
   /** 코어 파일 저장소 — store/resolve/deleteIfExists 위임. */
   private final FileStore fileStore;
 
-  public IssueAttachmentStorage(DSLContext dsl, FilePathBuilder pathBuilder, FileStore fileStore) {
+  /** 임시 파일 만료 시간(시). 기본 24시간. workplace.storage.attachment.temp-expiry-hours 로 설정. */
+  private final int tempExpiryHours;
+
+  public IssueAttachmentStorage(
+      DSLContext dsl,
+      FilePathBuilder pathBuilder,
+      FileStore fileStore,
+      @Value("${workplace.storage.attachment.temp-expiry-hours:24}") int tempExpiryHours) {
     this.dsl = dsl;
     this.pathBuilder = pathBuilder;
     this.fileStore = fileStore;
+    this.tempExpiryHours = tempExpiryHours;
   }
 
   /**
@@ -66,6 +76,34 @@ public class IssueAttachmentStorage {
         .set(FILE.STORAGE_PATH, relativePath) // 상대 경로만 저장
         .set(FILE.UPLOADED_BY, uploaderId)
         .set(FILE.CREATED_AT, OffsetDateTime.now())
+        .returning(FILE.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /**
+   * 본문 이미지(WP-199)를 임시(expires_at) 파일로 저장한다. mime 은 브라우저 값이 아니라 호출자가 매직바이트로 판정한 값을 쓴다. 경로는 기존 이슈
+   * 첨부와 같은 StorageDomain.ISSUE — 이슈 파일은 한 디렉터리에 모인다.
+   */
+  public Long storeTemporaryImage(MultipartFile mf, Long uploaderId, String detectedMime) {
+    String originalName =
+        UnicodeNames.toNfc(
+            mf.getOriginalFilename() != null && !mf.getOriginalFilename().isBlank()
+                ? mf.getOriginalFilename()
+                : "image");
+    String relativePath = pathBuilder.build(StorageDomain.ISSUE, originalName);
+    fileStore.store(relativePath, mf);
+    OffsetDateTime now = OffsetDateTime.now();
+    return dsl.insertInto(FILE)
+        .set(FILE.ORIGINAL_NAME, originalName)
+        .set(FILE.STORED_NAME, relativePath)
+        .set(FILE.MIME_TYPE, detectedMime)
+        .set(FILE.SIZE_BYTES, mf.getSize())
+        .set(FILE.CATEGORY, "IMAGE")
+        .set(FILE.STORAGE_PATH, relativePath)
+        .set(FILE.UPLOADED_BY, uploaderId)
+        .set(FILE.CREATED_AT, now)
+        .set(FILE.EXPIRES_AT, now.plusHours(tempExpiryHours))
         .returning(FILE.ID)
         .fetchOne()
         .getId();
