@@ -282,12 +282,58 @@ class MailSummarySchedulerIT extends IntegrationTestBase {
     final long fU1 = user1;
     final long fA1 = account1;
 
+    List<Long> ctxs = new ArrayList<>();
+    Mockito.doAnswer(
+            inv -> {
+              if ((long) inv.getArgument(1) == fA1) ctxs.add(TenantContext.get());
+              return null;
+            })
+        .when(categoryBackfill)
+        .classifyAccountNow(
+            org.mockito.ArgumentMatchers.anyLong(),
+            org.mockito.ArgumentMatchers.anyLong(),
+            org.mockito.ArgumentMatchers.any());
+
     scheduler.runOnce();
 
+    assertThat(ctxs).containsExactly(1L); // 호출 시점 TenantContext = 계정 테넌트
     verify(categoryBackfill, times(1))
         .classifyAccountNow(
             org.mockito.ArgumentMatchers.eq(fU1),
             org.mockito.ArgumentMatchers.eq(fA1),
             org.mockito.ArgumentMatchers.any(AgentOutageGuard.class));
+  }
+
+  @Test
+  @DisplayName("WP-185: 앞 패스가 회차 guard 를 멈춤으로 만들면 분류 일괄은 어떤 계정도 호출되지 않는다")
+  void runOnce_guard멈춤이면_분류일괄_건너뜀() {
+    String run = UUID.randomUUID().toString().substring(0, 8);
+    setSessionGuc(1L);
+    user1 = seedUser();
+    account1 = seedAiAccount(user1, "trip-" + run + "@x.com");
+    wsAgent1 = seedWorkspaceAssistant(user1); // 원본 분석 패스 대상이 되게 공통 비서 시드
+
+    // 원본 분석이 ai-agent 연속 불가를 겪은 것처럼 회차 공용 guard 를 멈춤 상태로 만든다.
+    Mockito.doAnswer(
+            inv -> {
+              AgentOutageGuard g = inv.getArgument(2);
+              for (int i = 0; i < AgentOutageGuard.MAX_CONSECUTIVE_UNAVAILABLE; i++) {
+                g.recordUnavailable();
+              }
+              return null;
+            })
+        .when(backfill)
+        .summarizeObjectiveRecentNow(
+            org.mockito.ArgumentMatchers.anyLong(),
+            org.mockito.ArgumentMatchers.anyLong(),
+            org.mockito.ArgumentMatchers.any());
+
+    scheduler.runOnce();
+
+    verify(categoryBackfill, org.mockito.Mockito.never())
+        .classifyAccountNow(
+            org.mockito.ArgumentMatchers.anyLong(),
+            org.mockito.ArgumentMatchers.anyLong(),
+            org.mockito.ArgumentMatchers.any());
   }
 }
