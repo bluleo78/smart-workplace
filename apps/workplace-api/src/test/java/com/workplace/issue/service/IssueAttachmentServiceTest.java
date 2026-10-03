@@ -241,4 +241,75 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
     // OWNER OK
     service.delete(owner, p.key(), 1, fileB);
   }
+
+  /** OPEN 프로젝트 생성 — 비멤버 테넌트 사용자도 이슈 생성·조회가 가능한 유형(WP-202). */
+  private ProjectResponse newOpenProject(Long ownerId, String prefix) {
+    return projectService.create(
+        ownerId, new CreateProjectRequest(uniqueKey(prefix), "P-" + prefix, "x", "OPEN"));
+  }
+
+  /**
+   * WP-202 회귀: OPEN 프로젝트에서 비멤버가 자기 이슈(reporter 본인)에 첨부하면 본문 편집 권한과 동일하게 허용돼야 한다. 예전엔 업로드가
+   * assertMember 라 비멤버 reporter 만 "프로젝트 멤버가 아닙니다" 403 을 받아 사용자마다 결과가 달랐다.
+   */
+  @Test
+  void open_project_non_member_reporter_can_upload_download_and_delete_own() {
+    Long owner = createUser("owner");
+    Long reporter = createUser("reporter");
+    ProjectResponse p = newOpenProject(owner, "OA");
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, reporter);
+
+    var added =
+        service.upload(reporter, p.key(), 1, List.of(mockFile("photo.png", new byte[] {1, 2})));
+    assertThat(added).hasSize(1);
+    Long fileId = added.get(0).fileId();
+
+    // 업로드한 본인이 내려받고 지울 수 있어야 한다(목록은 이미 assertReadable 로 열려 있음).
+    assertThat(service.download(reporter, p.key(), 1, fileId).originalName())
+        .isEqualTo("photo.png");
+    service.delete(reporter, p.key(), 1, fileId);
+    assertThat(service.list(reporter, p.key(), 1)).isEmpty();
+  }
+
+  /** WP-202: OPEN 프로젝트의 비멤버 열람자는 남의 이슈에 첨부할 수 없지만(본문 편집 불가와 동일) 첨부 다운로드는 목록 조회처럼 가능하다. */
+  @Test
+  void open_project_non_member_non_reporter_cannot_upload_but_can_download() {
+    Long owner = createUser("owner");
+    Long stranger = createUser("stranger");
+    ProjectResponse p = newOpenProject(owner, "OB");
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    Long fileId =
+        service
+            .upload(owner, p.key(), 1, List.of(mockFile("a.txt", new byte[] {1})))
+            .get(0)
+            .fileId();
+
+    assertThatThrownBy(
+            () -> service.upload(stranger, p.key(), 1, List.of(mockFile("b.txt", new byte[] {2}))))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+    assertThat(service.download(stranger, p.key(), 1, fileId).originalName()).isEqualTo("a.txt");
+    // 첨부자도 OWNER 도 아니므로 삭제는 거부.
+    assertThatThrownBy(() -> service.delete(stranger, p.key(), 1, fileId))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+  }
+
+  /** WP-202: TEAM 프로젝트 비멤버는 reporter 여도 첨부·다운로드 모두 거부(OPEN 예외가 TEAM 으로 새지 않게). */
+  @Test
+  void team_project_non_member_reporter_cannot_upload_or_download() {
+    Long owner = createUser("owner");
+    Long reporter = createUser("reporter");
+    ProjectResponse p = newProject(owner, "TA");
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, reporter);
+    Long fileId =
+        service
+            .upload(owner, p.key(), 1, List.of(mockFile("a.txt", new byte[] {1})))
+            .get(0)
+            .fileId();
+
+    assertThatThrownBy(
+            () -> service.upload(reporter, p.key(), 1, List.of(mockFile("b.txt", new byte[] {2}))))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+    assertThatThrownBy(() -> service.download(reporter, p.key(), 1, fileId))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+  }
 }

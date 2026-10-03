@@ -224,3 +224,39 @@ test(
     await expect(page.getByRole('button', { name: '+ 새 태스크' })).toBeVisible();
   },
 );
+
+// ─── 이슈 상세 — 첨부 드롭존 노출 (WP-202) ─────────────────────────────────────
+// 왜: 첨부 업로드 권한은 본문 편집 권한과 같다. 편집 가능한 OPEN reporter 에겐 드롭존을 보여주고,
+//     편집 불가 열람자에겐 숨겨 클릭 후 403("프로젝트 멤버가 아닙니다")을 받는 일이 없게 한다.
+
+test(
+  'OPEN reporter(비멤버): 첨부 드롭존 표시',
+  async ({ authenticatedPage: page }) => {
+    await setupOpenProjectMocks(page, {
+      viewerCanEditContent: true,
+      viewerCanEditWorkflow: false,
+      viewerCanDelete: false,
+      viewerIsMember: false,
+    });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    await expect(page.getByTestId('attachment-dropzone')).toBeVisible();
+  },
+);
+
+test(
+  'OPEN 열람자(비멤버·비reporter): 첨부 드롭존 미표시',
+  async ({ authenticatedPage: page }) => {
+    await setupOpenProjectMocks(page, {
+      viewerCanEditContent: false,
+      viewerCanEditWorkflow: false,
+      viewerCanDelete: false,
+      viewerIsMember: false,
+    });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // 첨부 스트립 자체는 렌더(목록 열람 가능)되지만 업로드 드롭존은 없다.
+    await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
+    await expect(page.getByTestId('attachment-dropzone')).toHaveCount(0);
+  },
+);

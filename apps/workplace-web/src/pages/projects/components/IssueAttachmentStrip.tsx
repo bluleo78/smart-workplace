@@ -2,6 +2,7 @@
 // 무엇을: 이슈 설명 바로 아래, 첨부를 유형 아이콘 칩으로 가로 나열 + 드롭존.
 // 왜: 사이드바 과밀 해소를 위해 첨부를 본문으로 이동(#343). 항상 보이되 공간 절약.
 // #80: 드라이브 링크 통합 렌더 + "드라이브에서 링크" 버튼 추가.
+// WP-202: 업로드 권한 = 본문 편집 권한(canUpload). 권한 없는 열람자에겐 드롭존을 숨겨 403 을 미리 막는다.
 
 import { Cloud } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -19,12 +20,15 @@ export function IssueAttachmentStrip({
   attachmentCount,
   currentUserId,
   isOwner,
+  canUpload,
 }: {
   projectKey: string;
   number: number;
   attachmentCount: number;
   currentUserId: number | null;
   isOwner: boolean;
+  // 첨부 업로드 가능 여부 — 서버 viewerCanEditContent(멤버/ADMIN 또는 OPEN reporter 본인)와 동일 기준.
+  canUpload: boolean;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const addLink = useAddIssueDriveLink(projectKey, number);
@@ -66,12 +70,14 @@ export function IssueAttachmentStrip({
         layout="strip"
       />
       <div className="flex flex-wrap items-center gap-2">
-        <IssueAttachmentDropzone
-          projectKey={projectKey}
-          number={number}
-          currentCount={attachmentCount}
-          disabled={attachmentCount >= 10}
-        />
+        {canUpload && (
+          <IssueAttachmentDropzone
+            projectKey={projectKey}
+            number={number}
+            currentCount={attachmentCount}
+            disabled={attachmentCount >= 10}
+          />
+        )}
         {/* 드라이브에서 파일 링크 추가 버튼 (#80) */}
         {/* spacesResolved=false이면 로딩 중, true+personalSpaceId=null이면 스페이스 없음 */}
         <button
