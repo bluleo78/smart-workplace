@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AgentOutageGuard;
+import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchEntry;
@@ -311,5 +312,56 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
             .collect(java.util.stream.Collectors.toMap(it -> it.id(), it -> it.bodyHead()));
     assertThat(byId.get(envAuto)).isEqualTo("미리보기 문장");
     assertThat(byId.get(envBig)).hasSize(500);
+  }
+
+  /** 가장 최신 메일 1통이 독이어서 포함된 요청이 항상 502 면 — 단건 폴백으로 독만 시도 처리하고 나머지는 분류한다. */
+  @Test
+  void poisonMail_isIsolatedBySingleItemFallback_andOthersClassified() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long[] contents = new long[3];
+    long[] envs = new long[3];
+    for (int i = 0; i < 3; i++) {
+      contents[i] =
+          MailAnalysisFixtures.content(
+              dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);
+      envs[i] = MailAnalysisFixtures.envelope(dsl, a, contents[i], "b@corp.com", a.address(), null);
+      MailAnalysisFixtures.receivedDaysAgo(dsl, envs[i], i); // i=0 이 최신 = 독
+    }
+    long poison = envs[0];
+    when(mailClient.classifyBatch(any()))
+        .thenAnswer(
+            inv -> {
+              ClassifyBatchRequest req = inv.getArgument(0);
+              if (req.items().stream().anyMatch(it -> it.id() == poison)) {
+                throw new MailAiException("502", new RuntimeException("bad gateway"));
+              }
+              return new ClassifyBatchResult(
+                  req.items().stream().map(it -> new ClassifyBatchEntry(it.id(), "업무")).toList());
+            });
+
+    int used = service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+
+    // 묶음(3통) 실패 1 + 독 단건 실패 1 + 나머지 단건 2 = 4 호출
+    assertThat(used).isEqualTo(4);
+    assertThat(contentState(contents[0]).value1()).isNull();
+    assertThat(contentState(contents[0]).value2()).isNotNull();
+    assertThat(contentState(contents[1]).value1()).isEqualTo("업무");
+    assertThat(contentState(contents[2]).value1()).isEqualTo("업무");
+  }
+
+  /** 단건 호출이라도 ai-agent 불가(503)면 독이라는 증거가 아니므로 아무것도 기록하지 않는다. */
+  @Test
+  void singleItemAgentUnavailable_marksNothing() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long c =
+        MailAnalysisFixtures.content(
+            dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);
+    MailAnalysisFixtures.envelope(dsl, a, c, "b@corp.com", a.address(), null);
+    when(mailClient.classifyBatch(any())).thenThrow(new MailAiUnavailableException("down"));
+
+    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+
+    verify(mailClient, times(1)).classifyBatch(any());
+    assertThat(contentState(c).value2()).isNull();
   }
 }

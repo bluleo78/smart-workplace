@@ -32,7 +32,8 @@ import org.springframework.util.StringUtils;
  * 최신순으로 25통씩 묶어 분류 전용 호출(/mail/classify-batch)로 채운다 — 메일함 기본 보기(업무 + 미분류)의 미분류를 줄이기 위해서다.
  *
  * <p>저장 규칙: 기존 분류는 덮어쓰지 않고(fillContentCategoryIfEmpty), 응답을 받은 항목은 분류가 비어도 시도 시각을 남긴다(무한 재시도 방지).
- * 호출이 실패하면 아무것도 남기지 않아 다음 회차에 다시 고른다. LLM 은 트랜잭션 밖에서 부른다(#232).
+ * 호출이 실패하면 아무것도 남기지 않아 다음 회차에 다시 고른다 — 단, 단건 호출이 ai-agent 불가가 아닌 사유로 실패하면 그 메일이 입력 문제(독)임이 증명되므로 그
+ * 한 통만 시도 처리해 영구 재시도로 회차를 막지 않게 한다(묶음 실패 시 단건 폴백, 아래 classifyAccountNow). LLM 은 트랜잭션 밖에서 부른다(#232).
  *
  * <p>진입점은 전용 스케줄러({@link MailCategoryBackfillScheduler}) 하나뿐이다 — 동기화 직후 {@code @Async} 로 부르지 않는다. 그
  * 실행기(aiAgentEventExecutor)는 채팅 AI 디스패치와 공유돼 동기화마다 무거운 LLM 일을 얹으면 고갈되고, 큐가 차면 TaskRejectedException
@@ -88,8 +89,10 @@ public class MailCategoryBackfillService {
    * 동기 본체 — 최대 min(MAX_BATCHES, maxBatches) 묶음을 부르고, 실제로 부른 묶음 호출 수(실패 포함)를 돌려준다. 호출부(스케줄러)는 이 값으로
    * 회차 전체 묶음 예산을 깎는다 — 호출 하나가 최대 60초·LLM 비용 1회이므로 실패한 호출도 센다.
    *
-   * <p>비서가 없으면 아무것도 하지 않는다(0). 묶음 호출이 실패하면 이 계정은 여기서 멈춘다(같은 대상이 다시 골라지므로 같은 회차에서 반복하지 않는다). agent
-   * 불가면 guard 에 기록해 호출부가 남은 계정을 건너뛰게 한다.
+   * <p>비서가 없으면 아무것도 하지 않는다(0). agent 불가(503·연결/읽기 타임아웃)면 guard 에 기록하고 아무것도 표시하지 않은 채 멈춘다 — 호출부가 남은
+   * 계정을 건너뛴다. 그 외 사유의 실패(예: 특정 메일 때문에 항상 502)는 독 메일 하나가 계정의 나머지를 영원히 막지 않도록 처리한다. 2통 이상 묶음이 실패하면 이
+   * 계정의 남은 회차를 1통씩 부르는 모드로 바꿔 계속하고(호출마다 예산·반환 호출 수에 센다), 1통 호출이 실패하면 그 메일이 독으로 증명된 것이므로 그 한 통만 시도
+   * 시각을 남기고(분류는 null → 업무 보기에서 미분류) 경고 로그를 남긴 뒤 계속한다.
    */
   public int classifyAccountNow(
       long userId, long accountId, AgentOutageGuard guard, int maxBatches) {
@@ -102,9 +105,10 @@ public class MailCategoryBackfillService {
       return 0;
     }
     int calls = 0;
+    int batchSize = BATCH_SIZE; // 묶음 실패 뒤에는 1 로 줄어든다(독 메일 격리)
     while (calls < limit && !guard.tripped()) {
-      List<Long> ids =
-          txTemplate.execute(s -> messageRepo.listUncategorizedIds(accountId, BATCH_SIZE));
+      final int size = batchSize;
+      List<Long> ids = txTemplate.execute(s -> messageRepo.listUncategorizedIds(accountId, size));
       if (ids == null || ids.isEmpty()) {
         return calls;
       }
@@ -122,10 +126,23 @@ public class MailCategoryBackfillService {
           guard.recordUnavailable();
           log.warn(
               "분류 일괄 실패(ai-agent 불가) accountId={}: {}", accountId, AgentOutageGuard.describe(e));
-        } else {
-          log.warn("분류 일괄 실패 accountId={} — 이번 회차 중단", accountId, e);
+          return calls;
         }
-        return calls;
+        if (inputs.size() > 1) {
+          // 어느 메일이 문제인지 모른다 — 남은 회차는 1통씩 불러 독 메일을 가려낸다
+          log.warn("분류 일괄 실패 accountId={} — 단건 호출로 전환", accountId, e);
+          batchSize = 1;
+        } else {
+          // 단건이 (agent 불가가 아닌 사유로) 실패 → 이 메일이 원인이다. 시도만 기록해 다시 고르지 않는다.
+          ClassifyInput poison = inputs.get(0);
+          log.warn(
+              "분류 단건 실패 — 해당 메일을 시도 처리하고 건너뜀 accountId={} messageId={}",
+              accountId,
+              poison.messageId(),
+              e);
+          txTemplate.executeWithoutResult(s -> messageRepo.markCategorized(poison.messageId()));
+        }
+        continue;
       }
       if (result == null || result.results() == null) {
         return calls; // 형식이 비정상인 응답 — 기록하지 않고 다음 회차에 다시 고른다
