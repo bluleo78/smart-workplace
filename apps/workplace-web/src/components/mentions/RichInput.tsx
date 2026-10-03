@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
 import { Button } from '@/components/ui/button';
+import { keepFocusProps } from '@/lib/keepFocus';
 import { isSubmitEnter } from '@/lib/submitEnter';
 
 import { MentionList, type MentionListHandle } from './MentionList';
@@ -54,18 +55,12 @@ interface RichInputProps {
    *  에디터 class 는 useEditor 생성 시 1회만 적용되므로 마운트 후 동적 변경은 지원하지 않는다.
    *  Tailwind 가 클래스를 생성하도록 호출부에 리터럴로 쓴다. */
   editorMaxHeightClass?: string;
-  /** 모바일 하단 코멘트(WP-196): 전송 탭이 에디터를 blur 하면 iOS 키보드가 내려가고 전송 후 비동기 focus 로는
-   *  다시 안 올라온다(사용자 제스처 밖) → 전송 버튼 pointerdown/mousedown 기본 동작을 막아 처음부터 포커스 이동을 막는다.
-   *  기본 false(데스크톱·채팅 불변). */
-  keepFocusOnSubmit?: boolean;
   /** 모바일 하단 코멘트(WP-196 디자인 리뷰): 에디터 오른쪽에 아이콘 전송 버튼을 붙여 한 줄로 — 2단(에디터+버튼 행)은
    *  하단 고정 줄이 화면을 너무 차지했다. 글자 수 카운터는 한도 80% 를 넘을 때만 노출. leftActions·onCancel 은 렌더하지 않는다.
-   *  기본 false(데스크톱·채팅 불변). */
+   *  전송 탭이 에디터를 blur 하면 iOS 키보드가 내려가고 전송 후 비동기 focus 로는 다시 안 올라오므로(사용자 제스처 밖)
+   *  전송 버튼은 포커스를 빼앗지 않는다(keepFocusProps). 기본 false(데스크톱·채팅 불변). */
   inlineSubmit?: boolean;
 }
-
-// keepFocusOnSubmit 용 — 버튼 탭 시 포커스가 에디터에서 버튼으로 옮겨가지 않게 기본 동작을 막는다.
-const preventFocusSteal = (e: React.PointerEvent | React.MouseEvent) => e.preventDefault();
 
 export function RichInput({
   members,
@@ -87,7 +82,6 @@ export function RichInput({
   submitTestId,
   cancelTestId,
   editorMaxHeightClass = 'max-h-40',
-  keepFocusOnSubmit = false,
   inlineSubmit = false,
 }: RichInputProps) {
   // 에디터 본문 공백 여부 — disableWhenEmpty 가 true 일 때 전송 버튼 비활성화에 사용.
@@ -347,8 +341,7 @@ export function RichInput({
             className="size-11 shrink-0"
             aria-label={submitLabel}
             onClick={submit}
-            onPointerDown={keepFocusOnSubmit ? preventFocusSteal : undefined}
-            onMouseDown={keepFocusOnSubmit ? preventFocusSteal : undefined}
+            {...keepFocusProps}
             data-testid={submitTestId}
             disabled={submitBlocked}
           >
@@ -402,8 +395,6 @@ export function RichInput({
             size="sm"
             className="max-lg:h-11"
             onClick={submit}
-            onPointerDown={keepFocusOnSubmit ? preventFocusSteal : undefined}
-            onMouseDown={keepFocusOnSubmit ? preventFocusSteal : undefined}
             data-testid={submitTestId}
             disabled={submitBlocked}
           >

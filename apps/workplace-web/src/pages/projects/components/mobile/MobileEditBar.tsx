@@ -2,6 +2,7 @@
 // 버튼은 pointerdown/mousedown 기본 동작을 막아 입력칸 포커스(=키보드)를 유지한다 — 탭 순간 blur 가 먼저 일어나
 // 저장/취소와 경합하지 않게(R5).
 import { Button } from '@/components/ui/button';
+import { keepFocusProps } from '@/lib/keepFocus';
 
 export interface EditBarControls {
   save: () => void;
@@ -9,8 +10,6 @@ export interface EditBarControls {
   /** 업로드 중·요청 중 등 저장·취소 불가. */
   disabled: boolean;
 }
-
-const keepFocus = (e: React.PointerEvent | React.MouseEvent) => e.preventDefault();
 
 export function MobileEditBar({ controls }: { controls: EditBarControls }) {
   return (
@@ -20,8 +19,7 @@ export function MobileEditBar({ controls }: { controls: EditBarControls }) {
         variant="ghost"
         className="h-11 px-4"
         disabled={controls.disabled}
-        onPointerDown={keepFocus}
-        onMouseDown={keepFocus}
+        {...keepFocusProps}
         onClick={controls.cancel}
         data-testid="mobile-edit-cancel"
       >
@@ -31,8 +29,7 @@ export function MobileEditBar({ controls }: { controls: EditBarControls }) {
         type="button"
         className="h-11 px-5"
         disabled={controls.disabled}
-        onPointerDown={keepFocus}
-        onMouseDown={keepFocus}
+        {...keepFocusProps}
         onClick={controls.save}
         data-testid="mobile-edit-save"
       >

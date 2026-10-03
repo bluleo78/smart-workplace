@@ -10,19 +10,21 @@ import { MobileDateSheet } from '@/components/mobile/MobileDateSheet';
 import { MobileMultiPickerSheet } from '@/components/mobile/MobileMultiPickerSheet';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 import type { FocusReturn } from '@/hooks/useFocusReturn';
+import { keepFocusProps } from '@/lib/keepFocus';
 import { cn } from '@/lib/utils';
 
 import { useProjectEpics } from '../../../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../../../hooks/queries/useProjectMembers';
 import { formatDateMonthDay } from '../../../../lib/formatters';
-import { ISSUE_PRIORITY_LABEL } from '../../../../lib/issueGrouping';
+import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../../lib/issueGrouping';
 import { ISSUE_TYPE_ICONS } from '../../../../lib/issueTypeIcons';
 import { getIssueTypeLabel } from '../../../../lib/issueTypeLabels';
 import type { IssuePriority } from '../../../../types/issue';
 import type { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
 import { MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './chipStyles';
+import { memberOptions } from './issuePropOptions';
+import { EpicPickerSheet } from './issuePropSheets';
 
-const NO_EPIC = 'none';
 type Sheet = 'type' | 'priority' | 'assignee' | 'due' | 'epic' | 'start' | 'more' | null;
 
 export function CreateIssueChips({
@@ -42,8 +44,10 @@ export function CreateIssueChips({
   const moreActed = useRef(false);
   const showEpic = !personal && !isEpicSelected && !isSubtaskSelected;
   const members = useProjectMembers(projectKey);
-  // 에픽 목록은 에픽 칩을 쓸 수 있을 때만 조회.
-  const { epics } = useProjectEpics(projectKey, showEpic);
+  // 에픽 목록은 에픽 시트를 처음 열 때부터 조회한다(이후 유지) — 고른 에픽의 칩 라벨도 이 목록에서 찾으므로 한 번 켜면 끄지 않는다.
+  // 에픽은 시트를 열어야만 고를 수 있어, 선택값이 있으면 목록도 이미 조회돼 있다.
+  const [epicsWanted, setEpicsWanted] = useState(false);
+  const { epics } = useProjectEpics(projectKey, showEpic && epicsWanted);
 
   const title = watch('title') ?? '';
   const priority = watch('priority') ?? 'MID';
@@ -68,13 +72,13 @@ export function CreateIssueChips({
       moreActed.current = false;
     });
   };
-  // 누르는 순간 포커스가 버튼으로 옮겨가지 않도록 기본 동작만 막는다 — 입력칸 포커스(키보드)는 그대로.
-  // 기억(+blur)은 시트를 실제로 여는 onClick 에서 한다: 칩 줄을 가로로 밀다 칩 위에서 시작한 pointerdown 은 click 없이 끝나므로,
-  // 여기서 blur 하면 시트 없이 키보드만 내려가고 다음 칩 탭은 body 를 기억해 복귀가 사라진다.
-  const keepFocus = (e: { preventDefault: () => void }) => e.preventDefault();
   // 시트 열기 공통 — 직전 입력칸을 기억하고 blur(키보드 내림)한 뒤 시트를 연다(원칙 ③).
+  // 칩은 누르는 순간 포커스를 빼앗지 않고(keepFocusProps), 기억(+blur)은 시트를 실제로 여는 onClick 에서 한다:
+  // 칩 줄을 가로로 밀다 칩 위에서 시작한 pointerdown 은 click 없이 끝나므로, pointerdown 에서 blur 하면
+  // 시트 없이 키보드만 내려가고 다음 칩 탭은 body 를 기억해 복귀가 사라진다.
   const openSheet = (key: Exclude<Sheet, 'start' | null>) => {
     focusReturn.capture();
+    if (key === 'epic') setEpicsWanted(true);
     setSheet(key);
   };
 
@@ -83,8 +87,7 @@ export function CreateIssueChips({
       type="button"
       aria-label={label}
       data-testid={`create-chip-${key}`}
-      onPointerDown={keepFocus}
-      onMouseDown={keepFocus}
+      {...keepFocusProps}
       onClick={() => openSheet(key)}
       className={cn(MOBILE_CHIP, active && MOBILE_CHIP_ACTIVE, empty && 'text-muted-foreground')}
     >
@@ -168,8 +171,7 @@ export function CreateIssueChips({
           <button
             type="button"
             data-testid="create-chip-ai"
-            onPointerDown={keepFocus}
-            onMouseDown={keepFocus}
+            {...keepFocusProps}
             onClick={handleClassify}
             disabled={!title.trim() || classify.isPending}
             className={cn(MOBILE_CHIP, 'text-ai-accent disabled:opacity-50')}
@@ -180,8 +182,7 @@ export function CreateIssueChips({
             type="button"
             aria-label="더 보기"
             data-testid="create-chip-more"
-            onPointerDown={keepFocus}
-            onMouseDown={keepFocus}
+            {...keepFocusProps}
             onClick={() => openSheet('more')}
             className={cn(MOBILE_CHIP, 'text-muted-foreground')}
           >
@@ -210,7 +211,7 @@ export function CreateIssueChips({
         onClose={closeSheet}
         title="우선순위"
         value={priority}
-        options={(['HIGH', 'MID', 'LOW'] as IssuePriority[]).map((p) => ({ value: p, label: ISSUE_PRIORITY_LABEL[p] }))}
+        options={ISSUE_PRIORITY_OPTIONS}
         onSelect={(v) => setValue('priority', v as IssuePriority)}
       />
       <MobileMultiPickerSheet
@@ -219,7 +220,7 @@ export function CreateIssueChips({
         title="담당자"
         searchable
         value={assigneeIds.map(String)}
-        options={memberList.map((m) => ({ value: String(m.userId), label: m.name }))}
+        options={memberOptions(memberList)}
         onClose={(picked) => {
           setValue('assigneeIds', picked.map(Number));
           closeSheet();
@@ -242,18 +243,13 @@ export function CreateIssueChips({
         onSelect={(v) => setValue('startDate', v ?? '')}
       />
       {showEpic && (
-        <MobilePickerSheet
+        <EpicPickerSheet
           testId="create-epic-sheet"
           open={sheet === 'epic'}
           onClose={closeSheet}
-          title="에픽"
-          searchable={epics.length > 8}
-          value={epicNumber != null ? String(epicNumber) : NO_EPIC}
-          options={[
-            { value: NO_EPIC, label: '에픽 없음' },
-            ...epics.map((e) => ({ value: String(e.number), label: e.title, hint: `${e.childDoneCount}/${e.childCount}` })),
-          ]}
-          onSelect={(v) => setEpicNumber(v === NO_EPIC ? null : Number(v))}
+          epics={epics}
+          value={epicNumber}
+          onSelect={setEpicNumber}
         />
       )}
       <MobileActionSheet

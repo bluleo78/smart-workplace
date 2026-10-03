@@ -3,13 +3,14 @@
 // 속성 칩 줄은 맨 아래 = 키보드 바로 위(키보드 원칙 ①②). 내용이 있으면 닫기 전에 버림 확인.
 // DialogContent 대신 원시 Content — index.css 의 [data-slot=dialog-content] 키보드 규칙(가운데 정렬·max-height)을 피한다.
 import { Dialog as DialogPrimitive } from 'radix-ui';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
 import { useFocusReturn } from '@/hooks/useFocusReturn';
 
 import { formatDateMonthDay } from '../../../../lib/formatters';
@@ -20,7 +21,7 @@ import { CreateIssueChips } from './CreateIssueChips';
 type Props = { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean; initialTypeId?: number };
 
 export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, personal = false, initialTypeId }: Props) {
-  const f = useIssueCreateForm({ projectKey, open, onOpenChange, personal, initialTypeId });
+  const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId });
   const { register, watch, formState: { errors } } = f.form;
   const { bodyRef, bodyField } = f;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -28,8 +29,9 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
   const focusReturn = useFocusReturn();
   // SUBTASK 면 상위 번호 인라인 입력을 항상 노출(데스크톱과 동일) — 비워 두면 백엔드 400 이라 숨겨 둘 수 없다.
   const parentVisible = f.isSubtaskSelected;
-  // ⋯ → 「상위 이슈 번호」: 이미 보이는 입력칸으로 포커스만 옮긴다(시트 트랩이 풀린 뒤 실행되도록 다음 프레임).
-  const focusParent = () => requestAnimationFrame(() => document.getElementById('create-parent-number')?.focus());
+  // ⋯ → 「상위 이슈 번호」: 이미 보이는 입력칸으로 포커스만 옮긴다. ⋯ 시트의 포커스 트랩이 풀린 뒤 실행되도록 다음 프레임에 —
+  // 같은 틱에 포커스하면 닫히는 시트가 포커스를 되돌려 가져간다. 입력칸은 register 로 RHF 가 DOM ref 를 쥐고 있어 setFocus 로 충분하다.
+  const focusParent = () => requestAnimationFrame(() => f.form.setFocus('parentNumber'));
   const startDate = watch('startDate');
   const title = watch('title') ?? '';
   const body = watch('body') ?? '';
@@ -38,22 +40,12 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
     if (f.hasContent) setConfirmDiscard(true);
     else onOpenChange(false);
   };
-  // 설명 자동 확장 — 내용 높이에 맞춰 늘린다(최소 3줄은 rows=3). field-sizing 은 iOS 지원이 고르지 않아 JS 로.
-  useLayoutEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [body, bodyRef]);
+  // 설명 자동 확장 — 내용 높이에 맞춰 늘린다(최소 3줄은 rows=3).
+  useAutoGrowTextarea(bodyRef, body, open);
   // 제목도 자동 확장 textarea — 한 줄 input 은 긴 제목이 오른쪽에서 잘려 끝을 볼 수 없었다(디자인 리뷰). 설명과 같은 방식.
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const titleField = register('title');
-  useLayoutEffect(() => {
-    const el = titleRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [title, open]);
+  useAutoGrowTextarea(titleRef, title, open);
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>

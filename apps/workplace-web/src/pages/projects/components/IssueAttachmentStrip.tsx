@@ -6,9 +6,10 @@
 //         드롭존·링크 버튼 줄을 통째로 숨겨 403 을 미리 막는다.
 
 import { Cloud, Paperclip, Plus } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { ATTACHMENT_MAX_PER_ISSUE } from '../../../api/issueAttachments';
 import { FolderPickerModal } from '../../../components/drive/FolderPickerModal';
 import { MobileActionSheet } from '../../../components/mobile/MobileActionSheet';
 import { useDriveSpaces } from '../../../hooks/queries/useDriveSpaces';
@@ -64,13 +65,11 @@ export function IssueAttachmentStrip({
   }, [spacesQuery.isSuccess, spacesQuery.isError, spacesQuery.data]);
 
   // 파일 선택창 열기 — 시트 액션 클릭 핸들러 안에서 동기 호출된다.
-  const pickFile = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
+  const pickFile = () => fileInputRef.current?.click();
 
-  // 모바일 시트 액션 존재 여부 — 한도(10) 도달 시 파일 업로드는 빠지고(데스크톱 드롭존의 '한도 도달' 비활성과 같은 의미),
+  // 모바일 시트 액션 존재 여부 — 한도(ATTACHMENT_MAX_PER_ISSUE) 도달 시 파일 업로드는 빠지고(데스크톱 드롭존의 '한도 도달' 비활성과 같은 의미),
   // 드라이브 링크는 개인 스페이스가 확인돼야 남는다. 둘 다 없으면 「＋ 첨부」 버튼을 렌더하지 않는다.
-  const canPickFile = attachmentCount < 10;
+  const canPickFile = attachmentCount < ATTACHMENT_MAX_PER_ISSUE;
   const canPickDrive = spacesResolved && personalSpaceId != null;
 
   return (
@@ -78,7 +77,7 @@ export function IssueAttachmentStrip({
       {attachmentCount > 0 && (
         <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <span>첨부</span>
-          <span>{attachmentCount}/10</span>
+          <span>{attachmentCount}/{ATTACHMENT_MAX_PER_ISSUE}</span>
         </div>
       )}
       {/* 업로드 첨부 칩 목록 (strip 레이아웃) */}
@@ -137,7 +136,7 @@ export function IssueAttachmentStrip({
             projectKey={projectKey}
             number={number}
             currentCount={attachmentCount}
-            disabled={attachmentCount >= 10}
+            disabled={attachmentCount >= ATTACHMENT_MAX_PER_ISSUE}
           />
           {/* 드라이브에서 파일 링크 추가 버튼 (#80) */}
           {/* spacesResolved=false이면 로딩 중, true+personalSpaceId=null이면 스페이스 없음 */}

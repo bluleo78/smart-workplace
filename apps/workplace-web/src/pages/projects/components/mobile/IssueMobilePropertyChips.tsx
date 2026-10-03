@@ -15,13 +15,14 @@ import { useProjectMembers } from '../../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueAssignees } from '../../../../hooks/queries/useUpdateIssueAssignees';
 import { useUpdateIssueParent } from '../../../../hooks/queries/useUpdateIssueParent';
 import { formatDateMonthDay } from '../../../../lib/formatters';
-import { ISSUE_PRIORITY_LABEL, ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../../lib/issueGrouping';
+import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../../lib/issueGrouping';
 import type { IssuePriority, IssueResponse, IssueStatus, UpdateIssueRequest } from '../../../../types/issue';
 import { incompleteBlockers } from '../incompleteBlockers';
 import { StatusDoneBlockedDialog } from '../IssueStatusSelect';
 import { MOBILE_CHIP } from './chipStyles';
+import { memberOptions } from './issuePropOptions';
+import { EpicPickerSheet } from './issuePropSheets';
 
-const NO_EPIC = 'none';
 type Sheet = 'status' | 'priority' | 'assignee' | 'due' | 'epic' | null;
 
 export function IssueMobilePropertyChips({
@@ -40,8 +41,9 @@ export function IssueMobilePropertyChips({
   const typeName = issue.type?.name;
   const showEpic = typeName !== 'EPIC' && typeName !== 'SUBTASK';
   const members = useProjectMembers(projectKey);
-  // 에픽 목록은 에픽 칩을 쓸 수 있을 때만 조회.
-  const { epics } = useProjectEpics(projectKey, showEpic);
+  // 에픽 목록은 에픽 시트를 처음 열 때부터 조회한다(이후 유지) — 칩 라벨은 이슈의 parent 제목이라 목록이 필요 없다.
+  const [epicsWanted, setEpicsWanted] = useState(false);
+  const { epics } = useProjectEpics(projectKey, showEpic && epicsWanted);
   const assignees = useUpdateIssueAssignees(projectKey, issue.number);
   const parent = useUpdateIssueParent(projectKey, issue.number);
   const blockers = incompleteBlockers(issue.blockedBy ?? []);
@@ -55,7 +57,10 @@ export function IssueMobilePropertyChips({
       aria-label={label}
       data-testid={`mobile-prop-${key}`}
       disabled={disabled}
-      onClick={() => setSheet(key)}
+      onClick={() => {
+        if (key === 'epic') setEpicsWanted(true);
+        setSheet(key);
+      }}
       className={cn(MOBILE_CHIP, 'max-w-full disabled:opacity-60', muted(empty), extraClass)}
     >
       {content}
@@ -137,7 +142,7 @@ export function IssueMobilePropertyChips({
         onClose={close}
         title="우선순위"
         value={issue.priority}
-        options={(['HIGH', 'MID', 'LOW'] as IssuePriority[]).map((p) => ({ value: p, label: ISSUE_PRIORITY_LABEL[p] }))}
+        options={ISSUE_PRIORITY_OPTIONS}
         onSelect={(v) => v !== issue.priority && onPatch({ priority: v as IssuePriority })}
       />
       <MobileMultiPickerSheet
@@ -146,7 +151,7 @@ export function IssueMobilePropertyChips({
         title="담당자"
         searchable
         value={issue.assignees.map((a) => String(a.id))}
-        options={(members.data ?? []).map((m) => ({ value: String(m.userId), label: m.name }))}
+        options={memberOptions(members.data)}
         onClose={(picked) => {
           close();
           const next = picked.map(Number);
@@ -164,19 +169,13 @@ export function IssueMobilePropertyChips({
         onSelect={(d) => onPatch({ dueDate: d ?? undefined, clearDueDate: !d })}
       />
       {showEpic && (
-        <MobilePickerSheet
+        <EpicPickerSheet
           testId="issue-epic-sheet"
           open={sheet === 'epic'}
           onClose={close}
-          title="에픽"
-          searchable={epics.length > 8}
-          value={String(issue.parent?.number ?? NO_EPIC)}
-          options={[
-            { value: NO_EPIC, label: '에픽 없음' },
-            ...epics.map((e) => ({ value: String(e.number), label: e.title, hint: `${e.childDoneCount}/${e.childCount}` })),
-          ]}
-          onSelect={(v) => {
-            const to = v === NO_EPIC ? null : Number(v);
+          epics={epics}
+          value={issue.parent?.number ?? null}
+          onSelect={(to) => {
             if (to !== (issue.parent?.number ?? null)) parent.mutate(to);
           }}
         />

@@ -75,6 +75,16 @@ export function IssuePropertyRail({
   aiClassifyReason,
   variant = 'rail',
 }: IssuePropertyRailProps) {
+  // AI 분류 제안 버튼 — 레일(상태·담당 그룹 맨 아래, 구분선 뒤)과 시트(단독) 두 위치가 같은 버튼을 쓴다. 핸들러가 없으면 렌더하지 않는다.
+  const aiButton = onAiClassify !== undefined && (
+    <AiClassifyButton
+      hasTitle={true}
+      isPending={isAiClassifying ?? false}
+      reason={aiClassifyReason}
+      onClick={onAiClassify}
+      fullWidth
+    />
+  );
   // 분류 그룹 배지 — 라벨 수.
   const classificationCount = labels.length;
   // 커스텀 필드 그룹 배지 — 값이 채워진 필드 수는 섹션이 자체 관리하므로 정의 수 기준.
@@ -145,29 +155,15 @@ export function IssuePropertyRail({
             />
           </div>
           {/* AI 분류 제안 — 섹션 가장 아래(목업 배치). 구분선 후 full-width. */}
-          {onAiClassify !== undefined && (
+          {aiButton && (
             <>
               <div className="border-t" />
-              <AiClassifyButton
-                hasTitle={true}
-                isPending={isAiClassifying ?? false}
-                reason={aiClassifyReason}
-                onClick={onAiClassify}
-                fullWidth
-              />
+              {aiButton}
             </>
           )}
         </IssuePropertyGroup>
       ) : (
-        onAiClassify !== undefined && (
-          <AiClassifyButton
-            hasTitle={true}
-            isPending={isAiClassifying ?? false}
-            reason={aiClassifyReason}
-            onClick={onAiClassify}
-            fullWidth
-          />
-        )
+        aiButton
       )}
 
       {/* 그룹 2: 일정 — 기본 펼침 */}

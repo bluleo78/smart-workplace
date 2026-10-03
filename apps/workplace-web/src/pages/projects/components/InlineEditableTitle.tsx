@@ -4,13 +4,15 @@
 // 왜: 오타·제목 수정을 위해 이슈를 삭제·재생성해야 하는 불편 해소 (#117).
 //     이슈 상세 페이지와 개인 작업 드로어가 동일 편집 UI 를 공유하도록 공용화 (#718).
 import { Pencil } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { Input } from '@/components/ui/input';
+import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
 import { cn } from '@/lib/utils';
 
 import { HIT_EXPAND } from './mobile/chipStyles';
 import type { EditBarControls } from './mobile/MobileEditBar';
+import { useEditBarControls } from './mobile/useEditBarControls';
 
 export function InlineEditableTitle({
   title,
@@ -36,11 +38,6 @@ export function InlineEditableTitle({
   // 무엇을: Escape 직후 발생하는 blur 가 저장을 트리거하지 않도록 1회 스킵 플래그.
   // 왜: setDraft 는 비동기라 blur 핸들러가 stale 값을 보므로, ref 로 결정적으로 취소를 처리.
   const skipCommitRef = useRef(false);
-  // commit 은 blur 핸들러뿐 아니라 편집 바(effect 로 넘긴 컨트롤)에서도 불리므로 draft 는 ref 로 읽는다.
-  const draftRef = useRef(draft);
-  useEffect(() => {
-    draftRef.current = draft;
-  }, [draft]);
 
   // 무엇을: 편집 진입 — 현재 값으로 draft 시드.
   const enter = () => {
@@ -58,7 +55,7 @@ export function InlineEditableTitle({
       setEditing(false);
       return;
     }
-    const trimmed = draftRef.current.trim();
+    const trimmed = draft.trim();
     setEditing(false);
     // 왜: zod min(1) 위반(빈 제목)·불변 요청은 무의미하므로 UI 에서 차단.
     if (!trimmed || trimmed === title) return;
@@ -67,31 +64,14 @@ export function InlineEditableTitle({
     });
   };
 
-  // 모바일 편집 textarea 자동 확장 — 긴 제목이 한 줄 input 에서 잘려 보이지 않던 문제(디자인 리뷰). field-sizing 은 iOS 지원이 고르지 않아 JS 로.
+  // 모바일 편집 textarea 자동 확장 — 긴 제목이 한 줄 input 에서 잘려 보이지 않던 문제(디자인 리뷰).
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  useLayoutEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    // border-box 라 scrollHeight(패딩까지) 에 위아래 테두리를 더해야 내부 스크롤이 생기지 않는다.
-    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
-  }, [draft, editing]);
+  useAutoGrowTextarea(textareaRef, draft, editing);
 
-  // 취소 — 편집 바 컨트롤 effect 의 deps 에 들어가므로 안정 참조로 둔다.
-  const cancel = useCallback(() => setEditing(false), []);
+  const cancel = () => setEditing(false);
 
-  // 편집 바에 넘긴 컨트롤이 항상 최신 commit 을 부르도록 ref 경유.
-  const commitRef = useRef(commit);
-  useEffect(() => {
-    commitRef.current = commit;
-  });
-  // 편집 중일 때만 컨트롤을 올리고, 지우는 건 "편집 중이던 실행"의 cleanup 에서만 한다. 편집 중이 아닌 분기에서 null 을
-  // 보내면 다른 편집기(본문)의 effect 가 deps(disabled=update.isPending) 변화로 재실행될 때 제목의 바를 지워버린다.
-  useEffect(() => {
-    if (!onEditingChange || !editing) return;
-    onEditingChange({ save: () => commitRef.current(), cancel, disabled });
-    return () => onEditingChange(null);
-  }, [editing, disabled, cancel, onEditingChange]);
+  // 모바일 하단 편집 바 — 편집 중에만 저장(commit)·취소 컨트롤을 올린다(최신 draft 의 commit 은 훅이 ref 로 부름).
+  useEditBarControls(editing, { save: commit, cancel, disabled }, onEditingChange);
 
   if (!editing) {
     return (

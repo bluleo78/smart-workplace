@@ -34,7 +34,7 @@ export function IssueCreateDialog(props: Props) {
 // personal=true 면 개인 프로젝트(#226) — 유형 select 를 숨긴다. 기본값 effect 가 typeId 를 TASK 로
 // 채우므로 셀렉트가 없어도 payload 의 typeId 는 TASK 로 유지된다.
 function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = false, initialTypeId }: Props) {
-  const f = useIssueCreateForm({ projectKey, open, onOpenChange, personal, initialTypeId });
+  const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId });
   const { register, watch, setValue, formState: { errors } } = f.form;
   const { types, images, bodyField, bodyRef, classify, classifyReason, isSubtaskSelected } = f;
   const currentTypeId = watch('typeId');

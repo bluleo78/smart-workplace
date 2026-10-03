@@ -61,6 +61,7 @@ import { IssueCommentComposer } from './components/IssueCommentComposer';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
 import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropertyChips';
 import { type EditBarControls, MobileEditBar } from './components/mobile/MobileEditBar';
+import { useEditBarControls } from './components/mobile/useEditBarControls';
 
 // 본문 편집 draft localStorage 키 — 프로젝트+이슈 단위로 특정(#824).
 function bodyDraftKey(projectKey: string, issueNumber: number): string {
@@ -232,20 +233,8 @@ function InlineEditableBody({
     clearBodyDraft(draftKey);
   };
 
-  // 편집 바에 넘긴 컨트롤이 항상 최신 save/cancel(최신 draft)을 부르도록 ref 경유.
-  const saveRef = useRef(save);
-  const cancelRef = useRef(cancel);
-  useEffect(() => {
-    saveRef.current = save;
-    cancelRef.current = cancel;
-  });
-  // 제목과 같은 규칙 — 편집 중이 아닐 땐 아무것도 보내지 않고, 지우기는 편집 중이던 실행의 cleanup 에서만.
-  useEffect(() => {
-    if (!onEditingChange || !editing) return;
-    // 업로드 중엔 저장·취소 모두 막는다(기존 버튼과 같은 조건).
-    onEditingChange({ save: () => void saveRef.current(), cancel: () => cancelRef.current(), disabled: disabled || uploading });
-    return () => onEditingChange(null);
-  }, [editing, disabled, uploading, onEditingChange]);
+  // 모바일 하단 편집 바 — 제목과 같은 훅. 업로드 중엔 저장·취소 모두 막는다(기존 버튼과 같은 조건).
+  useEditBarControls(editing, { save, cancel, disabled: disabled || uploading }, onEditingChange);
 
   if (!editing) {
     return (
@@ -820,7 +809,6 @@ export default function IssueDetailPage() {
               issueId={summary.id}
               // 정확히 4줄 — lh 단위는 에디터 자신의 줄 높이(터치 16px 글꼴 기준)라 4lh + py-2(1rem) + 테두리 2px = 4줄 + 여백.
               editorMaxHeightClass="max-h-[calc(4lh+1rem+2px)]"
-              keepFocusOnSubmit
               inlineSubmit
             />
           </div>

@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { keepFocusProps } from '@/lib/keepFocus';
 
 import { issuesApi, searchIssues } from '../../../api/issues';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
@@ -102,7 +103,9 @@ export function IssueChildrenSection({
   // 모바일(WP-196): 「＋ 하위 태스크 추가」 탭으로 입력칸을 펼치는 연속 입력 UX. 데스크톱은 입력칸이 항상 보인다.
   const isMobile = useIsMobile();
   const [addOpen, setAddOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // 포커스 후 가운데 스크롤 타이머 — blur·언마운트 시 취소해 이미 떠난 입력칸으로 화면을 끌어오지 않는다.
+  const scrollTimerRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(scrollTimerRef.current), []);
 
   // 인라인 추가 — 제목 입력, 유형은 EPIC 부모면 선택된 값/일반 부모면 SUBTASK 고정, parentNumber 동봉.
   async function onAdd() {
@@ -116,13 +119,8 @@ export function IssueChildrenSection({
         typeId,
         parentNumber,
       });
+      // 모바일 연속 입력 — 추가 버튼은 포커스를 빼앗지 않으므로(keepFocusProps) 입력칸·키보드가 그대로 남는다.
       setNewTitle('');
-      // 모바일 연속 입력 — 제출 버튼 탭 등으로 포커스가 옮겨가도 입력칸으로 되돌려 키보드를 유지.
-      // 사용자가 이미 다른 곳을 탭해 포커스를 뗐다면(body) 되돌리지 않는다 — 폼 안(제출 버튼)에 있을 때만.
-      const input = inputRef.current;
-      if (isMobile && input && input !== document.activeElement && input.form?.contains(document.activeElement)) {
-        input.focus();
-      }
       // 자식 목록, 검색 캐시, 부모 detail 의 childCount 모두 갱신.
       qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
       qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });
@@ -245,14 +243,16 @@ export function IssueChildrenSection({
           enterKeyHint={isMobile ? 'done' : undefined}
           maxLength={200}
           data-testid="child-add-input"
-          ref={inputRef}
           autoFocus={isMobile}
           // 모바일: 키보드가 올라온 뒤 입력칸이 가려지지 않게 화면 가운데로(셸이 --vvh 로 줄어드는 시간을 기다림).
           onFocus={
             isMobile
               ? (e) => {
                   const el = e.currentTarget;
-                  window.setTimeout(() => el.scrollIntoView({ block: 'center' }), 300);
+                  window.clearTimeout(scrollTimerRef.current);
+                  scrollTimerRef.current = window.setTimeout(() => {
+                    if (document.activeElement === el) el.scrollIntoView({ block: 'center' });
+                  }, 300);
                 }
               : undefined
           }
@@ -260,6 +260,7 @@ export function IssueChildrenSection({
           onBlur={
             isMobile
               ? (e) => {
+                  window.clearTimeout(scrollTimerRef.current);
                   if (!newTitle.trim() && !e.currentTarget.form?.contains(e.relatedTarget as Node)) {
                     setAddOpen(false);
                   }
@@ -271,8 +272,7 @@ export function IssueChildrenSection({
           type="submit"
           size="sm"
           // 모바일: 버튼 탭이 입력칸 blur 를 일으키지 않게(iOS 키보드 유지).
-          onPointerDown={isMobile ? (e) => e.preventDefault() : undefined}
-          onMouseDown={isMobile ? (e) => e.preventDefault() : undefined}
+          {...(isMobile ? keepFocusProps : undefined)}
           disabled={!newTitle.trim() || !(isEpicParent ? epicChildTypeId : subtaskTypeId) || adding}
         >
           추가

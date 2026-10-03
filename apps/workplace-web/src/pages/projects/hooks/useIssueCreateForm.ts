@@ -15,7 +15,7 @@ import { type CreateIssueFormData, createIssueSchema } from '../../../lib/valida
 export function useIssueCreateForm({
   projectKey, open, onOpenChange, initialTypeId,
 }: {
-  projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean;
+  projectKey: string; open: boolean; onOpenChange: (v: boolean) => void;
   // 유형 기본값 오버라이드 — 에픽 패널 「＋ 에픽 만들기」가 EPIC id 를 넘긴다. 미지정 시 기존 TASK 기본.
   initialTypeId?: number;
 }) {
