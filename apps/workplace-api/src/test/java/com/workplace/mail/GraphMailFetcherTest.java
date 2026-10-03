@@ -432,7 +432,7 @@ class GraphMailFetcherTest extends IntegrationTestBase {
     assertThat(pending.seenChanged()).isZero();
     assertThat(snapshot(g1).value1()).isTrue();
 
-    messageRepo.clearSeenPushPendingIf(g1, true); // 서버 반영 완료
+    messageRepo.clearSeenPushPendingIn(List.of(g1), true); // 서버 반영 완료
     MailSyncResult released =
         graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
     assertThat(released.seenChanged()).isEqualTo(1);

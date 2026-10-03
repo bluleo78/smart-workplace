@@ -7,6 +7,8 @@ import com.workplace.mail.event.MessagesSeenChangedEvent;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -114,12 +116,16 @@ public class MailReadSyncDispatcher {
         throw new IllegalStateException("읽음 역동기화 처리기 실패", e);
       }
     }
-    for (SeenSyncItem it : items) {
-      if (r.succeeded().contains(it.messageId())) {
-        // 보낸 값과 지금 seen 이 같을 때만 — 그사이 사용자가 다시 바꿨다면 뒤따르는 이벤트가 처리한다
-        messageRepo.clearSeenPushPendingIf(it.messageId(), it.seen());
-      }
-    }
+    // 성공 항목을 보낸 값별로 나눠 한 번씩 해제 — 보낸 값과 지금 seen 이 같을 때만 풀려, 그사이 사용자가 다시 바꿨다면 뒤따르는 이벤트가 처리한다
+    Map<Boolean, List<Long>> pushed =
+        items.stream()
+            .filter(it -> r.succeeded().contains(it.messageId()))
+            .collect(
+                Collectors.partitioningBy(
+                    SeenSyncItem::seen,
+                    Collectors.mapping(SeenSyncItem::messageId, Collectors.toList())));
+    messageRepo.clearSeenPushPendingIn(pushed.get(true), true);
+    messageRepo.clearSeenPushPendingIn(pushed.get(false), false);
     return r;
   }
 }

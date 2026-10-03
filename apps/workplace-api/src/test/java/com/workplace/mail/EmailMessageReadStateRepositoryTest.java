@@ -252,11 +252,27 @@ class EmailMessageReadStateRepositoryTest extends IntegrationTestBase {
 
     // 그 사이 사용자가 안읽음으로 되돌림 → true 로 보낸 결과로는 해제하지 않는다
     messageRepo.markUnseen(id);
-    assertThat(messageRepo.clearSeenPushPendingIf(id, true)).isZero();
+    assertThat(messageRepo.clearSeenPushPendingIn(List.of(id), true)).isZero();
     assertThat(pending(id)).isTrue();
-    assertThat(messageRepo.clearSeenPushPendingIf(id, false)).isEqualTo(1);
+    assertThat(messageRepo.clearSeenPushPendingIn(List.of(id), false)).isEqualTo(1);
     assertThat(pending(id)).isFalse();
     // 대기가 풀린 행은 동기화 대상에서 빠진다
     assertThat(messageRepo.findPendingSeenSyncItems(List.of(id))).isEmpty();
+  }
+
+  /** 묶음 해제 — 같은 호출 안에서도 보낸 값과 지금 seen 이 같은 행만 풀고, 다시 바뀐 행은 대기로 남긴다. 빈 목록은 0. */
+  @Test
+  void clearSeenPushPendingIn_clearsOnlyRowsMatchingPushedSeen() {
+    long[] box = TestFixtures.seedMailbox(dsl, "rs5-" + System.nanoTime() + "@test.local");
+    long stays = fetched(box[1], box[2], "업무", false);
+    long flipped = fetched(box[1], box[2], "업무", false);
+    messageRepo.markSeen(stays);
+    messageRepo.markSeen(flipped);
+    messageRepo.markUnseen(flipped); // true 를 보낸 뒤 사용자가 다시 안읽음으로
+
+    assertThat(messageRepo.clearSeenPushPendingIn(List.of(stays, flipped), true)).isEqualTo(1);
+    assertThat(pending(stays)).isFalse();
+    assertThat(pending(flipped)).isTrue();
+    assertThat(messageRepo.clearSeenPushPendingIn(List.of(), true)).isZero();
   }
 }

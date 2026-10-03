@@ -11,7 +11,6 @@ import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Store;
-import jakarta.mail.UIDFolder;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +19,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.eclipse.angus.mail.imap.IMAPFolder;
 import org.springframework.stereotype.Component;
 
 /**
@@ -74,12 +74,12 @@ public class ImapReadSyncer implements MailReadSyncer {
     Store store = imapConnector.connect(account, password);
     try {
       for (Map.Entry<String, List<SeenSyncItem>> e : byFolder.entrySet()) {
-        Folder folder = store.getFolder(e.getKey());
+        // IMAP 스토어의 폴더는 IMAPFolder — UID 조회(UIDFolder)와 플래그 설정(Folder)을 한 객체로 쓴다
+        IMAPFolder folder = (IMAPFolder) store.getFolder(e.getKey());
         folder.open(Folder.READ_WRITE);
         try {
-          // UIDFolder 캐스팅: IMAPFolder 는 UIDFolder 를 구현한다
-          applySeen((UIDFolder) folder, folder, e.getValue(), true);
-          applySeen((UIDFolder) folder, folder, e.getValue(), false);
+          applySeen(folder, e.getValue(), true);
+          applySeen(folder, e.getValue(), false);
         } finally {
           folder.close(false);
         }
@@ -91,8 +91,7 @@ public class ImapReadSyncer implements MailReadSyncer {
   }
 
   /** seen 값이 같은 항목들의 UID 를 한 번에 조회해 \Seen 을 맞춘다. 서버에서 사라진 메일(null)은 건너뛴다. */
-  private static void applySeen(
-      UIDFolder uidFolder, Folder folder, List<SeenSyncItem> items, boolean seen)
+  private static void applySeen(IMAPFolder folder, List<SeenSyncItem> items, boolean seen)
       throws MessagingException {
     long[] uids =
         items.stream()
@@ -103,7 +102,7 @@ public class ImapReadSyncer implements MailReadSyncer {
       return;
     }
     Message[] msgs =
-        Arrays.stream(uidFolder.getMessagesByUID(uids))
+        Arrays.stream(folder.getMessagesByUID(uids))
             .filter(Objects::nonNull)
             .toArray(Message[]::new);
     if (msgs.length > 0) {

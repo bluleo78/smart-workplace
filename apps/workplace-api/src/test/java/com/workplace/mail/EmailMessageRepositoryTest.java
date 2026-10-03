@@ -247,7 +247,7 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     assertThat(messageRepo.updateSeenByImapUid(accountId, folderId, 7, false)).isEqualTo(1);
   }
 
-  /** WP-148: 로컬 열람(markSeen)은 서버 반영 대기를 켜고, clearSeenPushPendingIf 가 끈다. */
+  /** WP-148: 로컬 열람(markSeen)은 서버 반영 대기를 켜고, clearSeenPushPendingIn 이 끈다. */
   @Test
   void markSeen_setsPushPending_andClearReleasesIt() {
     long userId = TestFixtures.createHuman(dsl);
@@ -264,8 +264,8 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     messageRepo.markSeen(id);
     assertThat(pending(id)).isTrue();
 
-    assertThat(messageRepo.clearSeenPushPendingIf(id, true)).isEqualTo(1);
-    assertThat(messageRepo.clearSeenPushPendingIf(id, true)).isZero();
+    assertThat(messageRepo.clearSeenPushPendingIn(List.of(id), true)).isEqualTo(1);
+    assertThat(messageRepo.clearSeenPushPendingIn(List.of(id), true)).isZero();
     assertThat(pending(id)).isFalse();
   }
 
@@ -287,7 +287,7 @@ class EmailMessageRepositoryTest extends IntegrationTestBase {
     assertThat(messageRepo.listRecentImapSeenStates(accountId, folderId, since, 500)).isEmpty();
     assertThat(messageRepo.updateSeenByImapUid(accountId, folderId, 9, false)).isZero();
 
-    messageRepo.clearSeenPushPendingIf(id, true);
+    messageRepo.clearSeenPushPendingIn(List.of(id), true);
     assertThat(messageRepo.listRecentImapSeenStates(accountId, folderId, since, 500))
         .containsExactly(new EmailMessageRepository.ImapSeenState(9, true));
     assertThat(messageRepo.updateSeenByImapUid(accountId, folderId, 9, false)).isEqualTo(1);

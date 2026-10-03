@@ -27,6 +27,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -747,7 +748,7 @@ public class EmailMessageRepository {
   /**
    * 로컬 열람 읽음 처리 — seen=true 와 함께 seen_push_pending=true(원본 서버 반영 대기)로 업데이트. 이미 읽은 건은
    * 스킵(SEEN.isFalse 조건). 실제 갱신된 행 수(0|1)를 반환한다. 대기 표시는 서버 반영이 예외 없이 끝나거나 반영할 방법이 없을 때 {@link
-   * #clearSeenPushPendingIf} 로 풀린다(WP-148, WP-187 조건부).
+   * #clearSeenPushPendingIn} 로 풀린다(WP-148, WP-187 조건부).
    */
   public int markSeen(long messageId) {
     return dsl.update(EMAIL_MESSAGE)
@@ -836,13 +837,16 @@ public class EmailMessageRepository {
   }
 
   /**
-   * WP-187 조건부 대기 해제 — 서버에 보낸 값(pushedSeen)과 지금 seen 이 같을 때만 푼다. 그 사이 사용자가 다시 바꿨다면 표시를 유지해 뒤따르는
-   * 이벤트가 처리하게 한다(마지막 상태로 수렴).
+   * WP-187 조건부 대기 해제(묶음) — 서버에 보낸 값(pushedSeen)과 지금 seen 이 같은 행만 푼다. 그 사이 사용자가 다시 바꿨다면 표시를 유지해 뒤따르는
+   * 이벤트가 처리하게 한다(마지막 상태로 수렴). 보낸 값별로 한 번씩 호출한다. 빈 목록이면 쿼리 없이 0.
    */
-  public int clearSeenPushPendingIf(long messageId, boolean pushedSeen) {
+  public int clearSeenPushPendingIn(Collection<Long> messageIds, boolean pushedSeen) {
+    if (messageIds.isEmpty()) {
+      return 0;
+    }
     return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, false)
-        .where(EMAIL_MESSAGE.ID.eq(messageId))
+        .where(EMAIL_MESSAGE.ID.in(messageIds))
         .and(EMAIL_MESSAGE.SEEN.eq(pushedSeen))
         .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isTrue())
         .execute();

@@ -244,25 +244,7 @@ public class MailMessageService {
    * resource.changed 재발행 없음). 읽음으로 바뀌면 열려 있는 웹 탭이 목록·카운트를 갱신하도록 mail updated 를 소유자에게 보낸다.
    */
   public void markRead(long userId, long messageId) {
-    // 소유 확인(없으면 404)과 읽음 갱신을 한 트랜잭션으로 처리한다. UPDATE 반환 행 수로 "이번에 읽음으로 바뀐 건"만 판별(동시 호출에서도 한 번만 발행).
-    // MailChangeNotifier 는 트랜잭션 안에서 호출해야 한다(AFTER_COMMIT 디스패처는 트랜잭션 밖 발행을 유실) — markSeen 과 같은 트랜잭션.
-    // 바뀌었으면 계정 id, 아니면 null — 공개 반환형(void)은 MCP 계약 그대로 둔다
-    Long changedAccountId =
-        txTemplate.execute(
-            status -> {
-              BodyTarget target =
-                  messageRepo
-                      .findBodyTargetForUser(userId, messageId)
-                      .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
-              if (messageRepo.markSeen(messageId) <= 0) {
-                return null;
-              }
-              notifier.mailChanged(userId, target.accountId(), messageId, userId);
-              return target.accountId();
-            });
-    if (changedAccountId != null) {
-      publishSeenChanged(userId, changedAccountId, List.of(messageId));
-    }
+    changeSeen(userId, messageId, true);
   }
 
   /**
@@ -270,6 +252,17 @@ public class MailMessageService {
    * 경우에만 열린 웹 탭이 목록·카운트를 갱신하도록 mailChanged 를 같은 트랜잭션에서 보내고, 커밋 후 원본 서버 반영 이벤트를 발행한다.
    */
   public void markUnread(long userId, long messageId) {
+    changeSeen(userId, messageId, false);
+  }
+
+  /**
+   * 한 통 읽음/안읽음 전환 공용부(markRead·markUnread).
+   *
+   * <p>소유 확인(없으면 404)과 갱신을 한 트랜잭션으로 처리한다. UPDATE 반환 행 수로 "이번에 바뀐 건"만 판별(동시 호출에서도 한 번만 발행).
+   * MailChangeNotifier 는 트랜잭션 안에서 호출해야 한다(AFTER_COMMIT 디스패처는 트랜잭션 밖 발행을 유실). 바뀌었으면 계정 id, 아니면 null
+   * — 공개 반환형(void)은 MCP 계약 그대로 둔다.
+   */
+  private void changeSeen(long userId, long messageId, boolean seen) {
     Long changedAccountId =
         txTemplate.execute(
             status -> {
@@ -277,12 +270,14 @@ public class MailMessageService {
                   messageRepo
                       .findBodyTargetForUser(userId, messageId)
                       .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
-              if (messageRepo.markUnseen(messageId) <= 0) {
+              int updated =
+                  seen ? messageRepo.markSeen(messageId) : messageRepo.markUnseen(messageId);
+              if (updated <= 0) {
                 return null;
               }
-              // messageId 는 싣지 않는다 — 실으면 같은 메일을 열어 둔 다른 탭·기기가 상세를 다시 받아(GET = 열람) 곧바로 다시
+              // 안읽음은 messageId 를 싣지 않는다 — 실으면 같은 메일을 열어 둔 다른 탭·기기가 상세를 다시 받아(GET = 열람) 곧바로 다시
               // 읽음 처리한다. 계정 단위 알림만으로 목록·안 읽은 수는 갱신된다.
-              notifier.mailChanged(userId, target.accountId(), null, userId);
+              notifier.mailChanged(userId, target.accountId(), seen ? messageId : null, userId);
               return target.accountId();
             });
     if (changedAccountId != null) {
@@ -300,7 +295,7 @@ public class MailMessageService {
     accountRepo
         .findByIdAndUser(userId, accountId)
         .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
-    OffsetDateTime asOf = dsl.select(DSL.currentOffsetDateTime()).fetchOne(0, OffsetDateTime.class);
+    OffsetDateTime asOf = dbNow();
     return new UnreadInView(
         messageRepo.countUnreadInView(accountId, category, needsReply, query, asOf), asOf);
   }
@@ -316,10 +311,7 @@ public class MailMessageService {
               accountRepo
                   .findByIdAndUser(userId, accountId)
                   .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
-              OffsetDateTime asOf =
-                  req.asOf() != null
-                      ? req.asOf()
-                      : dsl.select(DSL.currentOffsetDateTime()).fetchOne(0, OffsetDateTime.class);
+              OffsetDateTime asOf = req.asOf() != null ? req.asOf() : dbNow();
               List<Long> changed =
                   messageRepo.markAllSeenInView(
                       accountId, req.category(), req.needsReply(), req.query(), asOf);
@@ -330,6 +322,11 @@ public class MailMessageService {
             });
     publishSeenChanged(userId, accountId, ids);
     return ids.size();
+  }
+
+  /** 현재 DB 시각(now()) — 모두 읽음 경계(asOf)는 created_at 과 같은 시계를 써야 시계 오차가 끼지 않는다. */
+  private OffsetDateTime dbNow() {
+    return dsl.select(DSL.currentOffsetDateTime()).fetchOne(0, OffsetDateTime.class);
   }
 
   /** WP-187 건수 응답 — 건수와 기준 시각(DB 시각). */
