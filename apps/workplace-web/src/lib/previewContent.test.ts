@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { decodeTextBuffer, hasPdfMagicBytes } from './previewContent'
+import { decodeTextBuffer, hasPdfMagicBytes, needsPreviewConfirm, PREVIEW_CONFIRM_BYTES } from './previewContent'
 
 // '한글' 의 EUC-KR(CP949) 바이트 — 한국어 Windows 엑셀 "CSV (쉼표로 분리)" 저장 형식.
 const HANGUL_EUC_KR = new Uint8Array([0xc7, 0xd1, 0xb1, 0xdb])
@@ -28,6 +28,11 @@ describe('decodeTextBuffer', () => {
     const bytes = new Uint8Array([...header, ...rows])
     expect(decodeTextBuffer(bytes.buffer).startsWith('이름,나이\n1,2')).toBe(true)
   })
+  it('앞부분만 자른 버퍼는 끝의 반쪽 글자를 버리고 UTF-8 로 읽는다', () => {
+    const full = new TextEncoder().encode('가나')
+    const cut = full.slice(0, 4) // '가'(3바이트) + '나'의 첫 바이트
+    expect(decodeTextBuffer(cut.buffer, { truncated: true })).toBe('가')
+  })
   it('선행 BOM 은 제거한다', () => {
     const withBom = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode('a,b')])
     expect(decodeTextBuffer(withBom.buffer)).toBe('a,b')
@@ -49,5 +54,19 @@ describe('hasPdfMagicBytes', () => {
     const late = new Uint8Array(1100)
     late.set(enc('%PDF-'), 1050)
     expect(hasPdfMagicBytes(late)).toBe(false)
+  })
+})
+
+describe('needsPreviewConfirm', () => {
+  it('10MB 이하는 묻지 않고 바로 미리본다', () => {
+    expect(needsPreviewConfirm(PREVIEW_CONFIRM_BYTES, false)).toBe(false)
+    expect(needsPreviewConfirm(2 * 1024 * 1024, false)).toBe(false)
+  })
+  it('10MB 를 넘으면 동의 전까지 묻는다', () => {
+    expect(needsPreviewConfirm(PREVIEW_CONFIRM_BYTES + 1, false)).toBe(true)
+    expect(needsPreviewConfirm(PREVIEW_CONFIRM_BYTES + 1, true)).toBe(false)
+  })
+  it('크기를 모르면 묻지 않는다', () => {
+    expect(needsPreviewConfirm(null, false)).toBe(false)
   })
 })

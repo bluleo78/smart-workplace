@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 
 import { blobToText, toVerifiedPdfBlob } from '../../api/blobContent'
-import { driveApi } from '../../api/drive'
 import { useDriveFileSummary } from '../../hooks/queries/useDriveFileSummary'
 import { useFileBacklinks } from '../../hooks/queries/useFileBacklinks'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
+import { formatFileSize } from '../../lib/formatters'
 import { resolvePreviewKind } from '../../lib/previewKind'
 import { cn } from '../../lib/utils'
 import type { DriveFile, VirtualAttachment } from '../../types/drive'
@@ -16,15 +16,16 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { CsvTablePreview } from './preview/CsvTablePreview'
 import { DocxPreview } from './preview/DocxPreview'
 import { SheetPreview } from './preview/SheetPreview'
+import { usePreviewBlob } from './usePreviewBlob'
 
 /** 텍스트 미리보기 최대 길이(과대 파일 보호). */
 const TEXT_PREVIEW_LIMIT = 200_000
 
-/** XLSX/DOCX 파싱 크기 상한(과대 파일 브라우저 파싱 방지). */
-const PREVIEW_PARSE_MAX_BYTES = 5 * 1024 * 1024
-
-/** 텍스트류(MD/HTML/TEXT/CSV) 미리보기 크기 상한(WP-203). */
-const TEXT_PREVIEW_MAX_BYTES = 1024 * 1024
+/**
+ * 텍스트는 앞부분만 디코딩한다 — 20만 자는 UTF-8 로 최대 80만 바이트라 1MB 면 충분하다.
+ * 큰 로그에 동의해도 전체 문자열을 (인코딩 판정 때문에 최대 두 번) 만들지 않아 탭이 멈추지 않는다.
+ */
+const TEXT_DECODE_MAX_BYTES = 1024 * 1024
 
 /**
  * 미리보기 대상 첨부 — 모달이 실제로 쓰는 필드만 요구한다.
@@ -58,16 +59,10 @@ export function FilePreviewModal({
   const contentPath = attachment?.downloadUrl ?? null
   // mimeType 기준으로 렌더 종류를 결정(category 는 입자가 거칠어 CSV/MD 구분 불가).
   const kind = resolvePreviewKind(mimeType)
+  const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
+  const parsed = kind === 'XLSX' || kind === 'DOCX'
   // 실제 렌더 가능한 종류.
-  const renderable =
-    kind === 'IMAGE' ||
-    kind === 'PDF' ||
-    kind === 'MARKDOWN' ||
-    kind === 'HTML' ||
-    kind === 'TEXT' ||
-    kind === 'CSV' ||
-    kind === 'XLSX' ||
-    kind === 'DOCX'
+  const renderable = kind === 'IMAGE' || kind === 'PDF' || textLike || parsed
 
   // 첨부는 드라이브 전용 패널(요약·백링크)을 쓰지 않으므로 0(비활성)으로 훅 호출.
   const driveFileId = file?.id ?? 0
@@ -88,83 +83,62 @@ export function FilePreviewModal({
   const summaryStalled = summaryInProgress && summaryQuery.pollingExhausted
   const showSummaryCard =
     !isAttachment && aiAvailable && (summary != null || summaryInProgress || summaryUnavailable)
+  // 원본 blob 받기·10MB 초과 확인은 훅이 맡고, 여기서는 종류별 변환만 한다.
+  const source = usePreviewBlob({
+    contentPath,
+    fileId: fileIdForContent,
+    sizeBytes,
+    name,
+    enabled: renderable,
+  })
+  const { blob, confirmSize } = source
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [text, setText] = useState<string | null>(null)
-  const [error, setError] = useState(false)
   const [buffer, setBuffer] = useState<ArrayBuffer | null>(null)
-  const [tooLarge, setTooLarge] = useState(false)
+  const [convertError, setConvertError] = useState(false)
+  const error = source.error || convertError
   // #775: 에러도 아니고 콘텐츠(blobUrl/text/buffer)도 아직 없는 렌더 가능 상태 = 비동기 페치 진행 중.
-  // 이 조건이 없으면 82-134행 useEffect 완료 전까지 preview-body 가 완전히 빈 화면으로 보인다.
-  const loading = !error && renderable && blobUrl == null && text == null && buffer == null && !tooLarge
+  // 이 조건이 없으면 useEffect 완료 전까지 preview-body 가 완전히 빈 화면으로 보인다.
+  const loading =
+    !error && renderable && blobUrl == null && text == null && buffer == null && confirmSize == null
 
+  // 받은 blob → 종류별 표시 형태. blob 이 바뀌면(파일 전환) 이전 결과를 비우고 다시 변환한다.
   useEffect(() => {
     let alive = true
     let created: string | null = null
-    // 모달은 파일 전환 시 언마운트되지 않고 props 만 갱신되므로(같은 인스턴스 재사용),
-    // 새 페치 전에 이전 파일의 콘텐츠 상태를 초기화한다. 안 하면 이전 error/tooLarge 가 남아 오표시.
     setBlobUrl(null)
     setText(null)
     setBuffer(null)
-    setTooLarge(false)
-    setError(false)
-    const onUrl = (u: string) => {
-      if (!alive) {
+    setConvertError(false)
+    if (!blob) return
+    const showUrl = (b: Blob) => {
+      const u = URL.createObjectURL(b)
+      if (alive) {
+        created = u
+        setBlobUrl(u)
+      } else {
         URL.revokeObjectURL(u)
-        return
       }
-      created = u
-      setBlobUrl(u)
     }
-    const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
-    const parsed = kind === 'XLSX' || kind === 'DOCX'
-    // 종류별 상한을 메타 크기로 먼저 본다 — 넘으면 콘텐츠 요청 자체를 만들지 않는다(큰 파일을 받아 버리지 않음).
-    const maxBytes = textLike ? TEXT_PREVIEW_MAX_BYTES : parsed ? PREVIEW_PARSE_MAX_BYTES : Infinity
-    if (sizeBytes > maxBytes) {
-      setTooLarge(true)
-    } else if (kind === 'IMAGE' || kind === 'PDF' || textLike || parsed) {
-      // 첨부는 contentPath(절대경로), 드라이브 파일은 fileId 엔드포인트로 blob 획득 — 이후 종류별 변환만 다르다.
-      const blobP = contentPath
-        ? driveApi.fetchBlobByPath(contentPath)
-        : driveApi.fetchContentBlob(fileIdForContent)
-      const fail = () => alive && setError(true)
-      // 받은 실제 크기로 한 번 더 본다 — 메타 크기가 null 이거나 실제와 다를 수 있다(파일 교체 등).
-      // 넘으면 파싱·디코딩하지 않고 크기 안내로 돌린다(큰 XLSX 파싱이 탭을 멈추는 것 방지).
-      const within = (blob: Blob) => {
-        if (blob.size <= maxBytes) return blob
-        if (alive) setTooLarge(true)
-        return null
-      }
-      if (kind === 'IMAGE') {
-        void blobP.then((blob) => onUrl(URL.createObjectURL(blob))).catch(fail)
-      } else if (kind === 'PDF') {
-        // PDF 는 시그니처 검증 + application/pdf 재래핑을 통과해야만 뷰어로 넘긴다.
-        void blobP.then(toVerifiedPdfBlob).then((pdf) => onUrl(URL.createObjectURL(pdf))).catch(fail)
-      } else if (textLike) {
-        void blobP
-          .then(async (blob) => {
-            const ok = within(blob)
-            if (!ok) return
-            const t = await blobToText(ok)
-            if (alive) setText(t.slice(0, TEXT_PREVIEW_LIMIT))
-          })
-          .catch(fail)
+    const convert = async () => {
+      if (kind === 'IMAGE') showUrl(blob)
+      // PDF 는 시그니처 검증 + application/pdf 재래핑을 통과해야만 뷰어로 넘긴다.
+      else if (kind === 'PDF') showUrl(await toVerifiedPdfBlob(blob))
+      else if (textLike) {
+        const t = await blobToText(blob, { maxBytes: TEXT_DECODE_MAX_BYTES })
+        if (alive) setText(t.slice(0, TEXT_PREVIEW_LIMIT))
       } else {
         // 바이너리 파서(XLSX/DOCX)는 arrayBuffer 가 필요.
-        void blobP
-          .then(async (blob) => {
-            const ok = within(blob)
-            if (!ok) return
-            const buf = await ok.arrayBuffer()
-            if (alive) setBuffer(buf)
-          })
-          .catch(fail)
+        const buf = await blob.arrayBuffer()
+        if (alive) setBuffer(buf)
       }
     }
+    void convert().catch(() => alive && setConvertError(true))
     return () => {
       alive = false
       if (created) URL.revokeObjectURL(created)
     }
-  }, [fileIdForContent, kind, contentPath, sizeBytes])
+  }, [blob, kind, textLike])
 
   return (
     // WP-54: AI 사이드 패널이 열려 있으면 non-modal — 미리보기를 연 채 "이 파일 요약해줘" 를 AI 에 물을 수 있다.
@@ -189,14 +163,7 @@ export function FilePreviewModal({
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 pr-6">
             <DialogTitle className="truncate">{name}</DialogTitle>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() =>
-                contentPath ? driveApi.downloadByPath(contentPath, name) : driveApi.downloadFile(fileIdForContent, name)
-              }
-              className="shrink-0"
-            >
+            <Button variant="default" size="sm" onClick={source.download} className="shrink-0">
               다운로드
             </Button>
           </div>
@@ -271,13 +238,30 @@ export function FilePreviewModal({
             <pre className="whitespace-pre-wrap break-words text-xs">{text}</pre>
           )}
           {!error && kind === 'CSV' && text != null && <CsvTablePreview csv={text} />}
-          {!error && tooLarge && (
-            <p className="text-sm text-muted-foreground">
-              파일이 커서 미리볼 수 없습니다. 다운로드하세요.
-            </p>
+          {/* WP-203 후속: 10MB 초과 — 크기를 보여주고 미리볼지 묻는다(동의 전엔 받지 않음). */}
+          {!error && confirmSize != null && (
+            <div
+              className="flex flex-col items-center gap-3 px-4 py-12 text-center break-keep"
+              data-testid="preview-size-confirm"
+            >
+              <p className="text-sm">
+                이 파일은 <span className="font-semibold">{formatFileSize(confirmSize)}</span> 입니다.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                미리보려면 파일 전체를 내려받아야 해서 시간이 걸릴 수 있습니다.
+              </p>
+              <div className="flex gap-2">
+                <Button onClick={source.confirm}>
+                  미리보기
+                </Button>
+                <Button variant="outline" onClick={source.download}>
+                  다운로드
+                </Button>
+              </div>
+            </div>
           )}
-          {!error && !tooLarge && kind === 'XLSX' && buffer && <SheetPreview buffer={buffer} />}
-          {!error && !tooLarge && kind === 'DOCX' && buffer && <DocxPreview buffer={buffer} />}
+          {!error && kind === 'XLSX' && buffer && <SheetPreview buffer={buffer} />}
+          {!error && kind === 'DOCX' && buffer && <DocxPreview buffer={buffer} />}
         </div>
         {/* 참조된 곳: 이 파일을 링크한 이슈·메시지 목록. 비어있으면 섹션 자체 숨김. */}
         {!isAttachment && (backlinks.data?.length ?? 0) > 0 && (

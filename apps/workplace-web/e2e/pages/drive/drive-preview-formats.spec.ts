@@ -324,7 +324,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
   })
 
   // 상한(5MB) 초과 → 파싱 없이 다운로드 안내 폴백
-  test('XLSX 파일이 크면 다운로드 안내로 폴백한다', async ({ authenticatedPage: page }) => {
+  test('10MB 를 넘는 XLSX 는 받지 않고 크기를 보여주며 볼지 묻는다', async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
     const BIG_FILE = {
       id: 91,
@@ -332,7 +332,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
       fileId: 311,
       name: 'big.xlsx',
       mimeType: XLSX_MIME,
-      sizeBytes: 6 * 1024 * 1024,
+      sizeBytes: 12 * 1024 * 1024,
       category: 'DATA',
       createdAt: '2026-07-01T00:00:00Z',
       updatedAt: '2026-07-01T00:00:00Z',
@@ -363,19 +363,23 @@ test.describe('드라이브 프리뷰 포맷', () => {
       (url) => url.pathname === `/api/v1/drive/files/${BIG_FILE.id}/backlinks`,
       (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     )
-    // 6MB(상한 5MB 초과) 바디 → 파싱 전 크기 폴백.
+    // 12MB(확인 기준 10MB 초과) — 묻는 동안 콘텐츠를 받지 않아야 한다(WP-203 후속).
+    let contentRequests = 0
     await page.route(
       (url) => url.pathname === `/api/v1/drive/files/${BIG_FILE.id}/content`,
-      (route) =>
-        route.fulfill({ status: 200, contentType: XLSX_MIME, body: Buffer.alloc(6 * 1024 * 1024) }),
+      (route) => {
+        contentRequests += 1
+        return route.fulfill({ status: 200, contentType: XLSX_MIME, body: Buffer.alloc(16) })
+      },
     )
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await page.getByRole('button', { name: 'big.xlsx' }).click()
 
     const body = page.getByTestId('preview-body')
-    await expect(body.getByText('파일이 커서 미리볼 수 없습니다. 다운로드하세요.')).toBeVisible()
+    await expect(body.getByTestId('preview-size-confirm')).toContainText('12.0 MB')
     await expect(body.getByTestId('xlsx-table')).toHaveCount(0)
+    expect(contentRequests).toBe(0)
   })
 
   const DOCX_MIME =

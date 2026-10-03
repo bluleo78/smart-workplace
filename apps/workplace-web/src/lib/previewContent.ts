@@ -22,12 +22,14 @@ function countReplacement(text: string): number {
  * 반대로 UTF-8 실패 한 번에 바로 EUC-KR 로 넘기면, 잘못된 바이트가 하나 섞인 UTF-8 한글 문서 전체가 깨진다.
  * TextDecoder 는 기본(ignoreBOM=false)으로 선행 BOM 을 제거한다.
  */
-export function decodeTextBuffer(buffer: ArrayBuffer): string {
-  const utf8 = new TextDecoder('utf-8').decode(buffer)
+export function decodeTextBuffer(buffer: ArrayBuffer, { truncated = false } = {}): string {
+  // 앞부분만 잘라 읽은 경우 끝의 반쪽 글자는 스트림 모드로 버린다 — 대체 문자로 세면 인코딩 판정이 틀어진다.
+  const decode = (label: string) => new TextDecoder(label).decode(buffer, { stream: truncated })
+  const utf8 = decode('utf-8')
   // 흔한 경우(정상 UTF-8)는 네이티브 검색 한 번으로 끝낸다 — 개수 세기는 폴백 판정 때만.
   if (!utf8.includes('\uFFFD')) return utf8
   const utf8Bad = countReplacement(utf8)
-  const eucKr = new TextDecoder('euc-kr').decode(buffer)
+  const eucKr = decode('euc-kr')
   return countReplacement(eucKr) < utf8Bad ? eucKr : utf8
 }
 
@@ -41,4 +43,15 @@ export function hasPdfMagicBytes(bytes: Uint8Array): boolean {
     if (PDF_MAGIC.every((b, j) => bytes[i + j] === b)) return true
   }
   return false
+}
+
+/**
+ * 이 크기를 넘는 파일은 미리보기 전에 크기를 보여주고 볼지 묻는다(WP-203 후속).
+ * 미리보기는 파일 전체를 내려받아야 하므로, 큰 파일을 사용자 모르게 받지 않기 위함.
+ */
+export const PREVIEW_CONFIRM_BYTES = 10 * 1024 * 1024
+
+/** 미리보기 전에 확인이 필요한지 — 크기를 모르면(null) 묻지 않고 받는다. */
+export function needsPreviewConfirm(sizeBytes: number | null | undefined, consented: boolean): boolean {
+  return !consented && sizeBytes != null && sizeBytes > PREVIEW_CONFIRM_BYTES
 }
