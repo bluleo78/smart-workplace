@@ -13,6 +13,21 @@ describe('decodeTextBuffer', () => {
   it('UTF-8 로 해석할 수 없으면 EUC-KR 로 다시 읽는다', () => {
     expect(decodeTextBuffer(HANGUL_EUC_KR.buffer)).toBe('한글')
   })
+  it('잘못된 바이트가 하나 섞인 UTF-8 한글 문서는 EUC-KR 로 바꾸지 않는다', () => {
+    const enc = new TextEncoder()
+    const bytes = new Uint8Array([
+      ...enc.encode('안녕하세요 로그입니다.\n'),
+      0xff,
+      ...enc.encode('다음 줄 한글'),
+    ])
+    expect(decodeTextBuffer(bytes.buffer)).toBe('안녕하세요 로그입니다.\n\uFFFD다음 줄 한글')
+  })
+  it('한글이 머리글에만 있는 긴 EUC-KR CSV 도 EUC-KR 로 읽는다', () => {
+    const header = [0xc0, 0xcc, 0xb8, 0xa7, 0x2c, 0xb3, 0xaa, 0xc0, 0xcc, 0x0a] // '이름,나이\n'
+    const rows = new TextEncoder().encode('1,2\n'.repeat(5000))
+    const bytes = new Uint8Array([...header, ...rows])
+    expect(decodeTextBuffer(bytes.buffer).startsWith('이름,나이\n1,2')).toBe(true)
+  })
   it('선행 BOM 은 제거한다', () => {
     const withBom = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode('a,b')])
     expect(decodeTextBuffer(withBom.buffer)).toBe('a,b')
