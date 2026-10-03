@@ -2,16 +2,11 @@
 import { useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
+import { currentHistoryIdx } from '@/lib/historyParam';
 import { backDeltaToOrigin, type HistoryEntries, isIssueDetailPath } from '@/lib/issueOrigin';
 
 // 탭(문서) 수명 동안의 위치 기록 — 새로고침하면 비워지고, 그 뒤 복귀는 기본 목적지로 간다.
 const entries: HistoryEntries = {};
-
-// react-router 의 BrowserRouter 가 history.state 에 심는 현재 위치 번호.
-function currentHistoryIdx(): number | null {
-  const idx: unknown = window.history.state?.idx;
-  return typeof idx === 'number' ? idx : null;
-}
 
 /** 앱 셸에서 1회 호출 — 화면이 바뀔 때마다 현재 히스토리 위치가 이슈 상세인지 기록한다. */
 export function useIssueOriginTracker(): void {
