@@ -180,6 +180,10 @@ test.describe('이슈 본문 이미지 — 상세 편집', () => {
       el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
     })
     await expect(page.getByTestId('issue-body-save')).toBeDisabled()
+    // 업로드 중 취소는 막혀야 한다 — 취소 버튼 비활성, Esc 는 편집창을 닫지 않는다(토큰 유실 방지).
+    await expect(page.getByTestId('issue-body-cancel')).toBeDisabled()
+    await ta.press('Escape')
+    await expect(ta).toBeVisible()
     await ta.press('ControlOrMeta+Enter')
     expect(patched).toBeUndefined()
 

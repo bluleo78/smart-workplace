@@ -277,7 +277,8 @@ function InlineEditableBody({
             save();
           } else if (e.key === 'Escape') {
             e.preventDefault();
-            cancel();
+            // 업로드 중 취소하면 재진입 시 draft 가 초기화돼 완료된 이미지 토큰이 유실된다 — 끝날 때까지 무시.
+            if (!uploading) cancel();
           }
         }}
       />
@@ -295,7 +296,7 @@ function InlineEditableBody({
           size="sm"
           variant="ghost"
           onClick={cancel}
-          disabled={disabled}
+          disabled={disabled || uploading}
           data-testid="issue-body-cancel"
         >
           취소
