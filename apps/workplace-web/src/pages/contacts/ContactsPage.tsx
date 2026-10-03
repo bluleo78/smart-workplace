@@ -5,10 +5,11 @@ import { useSearchParams } from 'react-router-dom'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
-import { ListBackRow } from '@/components/mobile/ListBackRow'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
+import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { cn } from '@/lib/utils'
 
@@ -127,6 +128,8 @@ function useContactsScreenContext(input: {
         : null,
   })
   useRegisterAiScreenContext(ctx)
+  // 열린 연락처 이름(목록 행 → 상세 응답 순) — 페이지가 모바일 상세 헤더 제목으로 재사용한다.
+  return name
 }
 
 /** 통합 연락처 목록 + 마스터-디테일. 검색·타입은 URL searchParams 와 공유(ContactSidebar). */
@@ -143,6 +146,9 @@ export function ContactsPage() {
   // 모바일: 상세가 열려 있으면 하단 탭바를 숨긴다(WP-125).
   useHideTabBar(selected != null)
   const [createOpen, setCreateOpen] = useState(false)
+  const isMobile = useIsMobile()
+  // 모바일에서 상세가 열리면 목록 헤더("연락처"·＋·☰·🔔) 대신 상세 헤더 한 줄만 둔다(U1-1).
+  const showListChrome = !(isMobile && selected != null)
 
   // 보던 조직도 그룹이 삭제되면 URL group 파라미터 제거 → 통합 목록 복귀.
   const clearGroupSelection = () => {
@@ -163,7 +169,8 @@ export function ContactsPage() {
 
   const items = data?.pages.flatMap((p) => p.items) ?? []
 
-  useContactsScreenContext({
+  // 모바일 상세 헤더 제목 = 열린 연락처 이름(채팅·노트와 같은 "‹ 항목 이름" 규칙).
+  const detailName = useContactsScreenContext({
     q: search,
     type,
     organization,
@@ -178,21 +185,23 @@ export function ContactsPage() {
   return (
     <>
       <div className="flex h-full flex-col overflow-hidden">
-        {/* 전폭 헤더 — 연락처 제목 + 새 외부 연락처 버튼(그룹·일반 공통) */}
-        <PageHeader
-          title="연락처"
-          actions={
-            /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
-            <Button data-testid="contact-create" onClick={() => setCreateOpen(true)}>
-              새 외부 연락처
-            </Button>
-          }
-          // 모바일: 같은 액션을 ＋ 아이콘으로 인라인(⋯ 없음) — testid 를 공유하므로 actions 는 모바일에서 렌더되지 않게 null.
-          mobilePrimaryAction={
-            <HeaderIconAction label="새 외부 연락처" data-testid="contact-create" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>
-          }
-          mobileActions={null}
-        />
+        {/* 전폭 헤더 — 연락처 제목 + 새 외부 연락처 버튼(그룹·일반 공통). 모바일 상세가 열리면 숨김 — 상세 헤더 한 줄만(U1-1) */}
+        {showListChrome && (
+          <PageHeader
+            title="연락처"
+            actions={
+              /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
+              <Button data-testid="contact-create" onClick={() => setCreateOpen(true)}>
+                새 외부 연락처
+              </Button>
+            }
+            // 모바일: 같은 액션을 ＋ 아이콘으로 인라인(⋯ 없음) — testid 를 공유하므로 actions 는 모바일에서 렌더되지 않게 null.
+            mobilePrimaryAction={
+              <HeaderIconAction label="새 외부 연락처" data-testid="contact-create" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>
+            }
+            mobileActions={null}
+          />
+        )}
         <div className="flex min-h-0 flex-1">
           {/* 목록 (마스터) — 좁은 화면 + 선택 시 숨김 */}
           <div
@@ -246,8 +255,8 @@ export function ContactsPage() {
             )}
             data-testid="contact-detail"
           >
-            {/* 좁은 화면 뒤로가기 — lg 이상에서는 숨김. 모바일은 탭바가 숨으므로 ✦(AI) 를 함께 둔다. */}
-            <ListBackRow data-testid="contact-back" onBack={() => setSelected(null)} />
+            {/* 모바일 상세 헤더 — ‹·연락처 이름·✦ 한 줄(탭바가 숨으므로 ✦ 포함). URL 이 탭 루트라 레이아웃 상세 분기 대신 직접 그린다. */}
+            {isMobile && <MobileDetailBar data-testid="contact-back" title={detailName} onBack={() => setSelected(null)} />}
             <ContactDetailPanel selected={selected} onDeleted={() => setSelected(null)} />
           </div>
         </div>

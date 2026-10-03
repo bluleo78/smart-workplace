@@ -1,13 +1,13 @@
 // 받은편지함/보낸편지함 목록·상세 조회 + 동기화·발송 mutation.
 
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 
 import { coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getNeedsReplyCount, getSyncStatus, listMessages, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
-import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
+import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
 import { mailMessageKeys } from './mailMessageKeys';
 
 export { mailMessageKeys };
@@ -43,14 +43,28 @@ export function useNeedsReplyCount(accountId: number | undefined) {
   });
 }
 
-/** 메시지 단건 상세. messageId 가 없으면 비활성. 성공 시 목록 캐시의 seen 플래그를 낙관적으로 동기화(읽음 처리). */
-export function useMailMessage(messageId: number | null) {
-  const qc = useQueryClient();
-  const query = useQuery({
+/** 메시지 단건 상세 쿼리 정의 — useMailMessage·useMailMessageSubject 가 같은 캐시를 쓰도록 한 곳에 둔다. */
+const mailMessageQuery = (messageId: number | null) =>
+  queryOptions({
     queryKey: mailMessageKeys.detail(messageId ?? 0),
     queryFn: () => getMessage(messageId as number),
     enabled: !!messageId,
   });
+
+const selectSubject = (d: EmailMessageDetail) => d.subject;
+
+/**
+ * 메시지 제목만 구독 — 모바일 상세 헤더 제목용. 상세와 같은 쿼리를 공유해 추가 요청이 없고,
+ * 읽음 동기화 부수효과는 상세 패널의 useMailMessage 한 곳에만 둔다(두 번 무효화하지 않게).
+ */
+export function useMailMessageSubject(messageId: number | null) {
+  return useQuery({ ...mailMessageQuery(messageId), select: selectSubject });
+}
+
+/** 메시지 단건 상세. messageId 가 없으면 비활성. 성공 시 목록 캐시의 seen 플래그를 낙관적으로 동기화(읽음 처리). */
+export function useMailMessage(messageId: number | null) {
+  const qc = useQueryClient();
+  const query = useQuery(mailMessageQuery(messageId));
 
   // 상세 조회 성공 시 모든 목록 캐시에서 해당 메시지의 seen=true 로 업데이트
   useEffect(() => {

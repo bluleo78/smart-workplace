@@ -2,7 +2,8 @@
 // 탭 루트 헤더 규격 통일, 메일 계정 없음 빈 상태, 탭바 활성 폴백·알림 푸시 화면을 고정한다.
 import type { Page } from '@playwright/test'
 
-import { external, externalDetail, member, page as makeContactPage } from '../../factories/contacts.factory'
+import { external, externalDetail, member, memberDetail, page as makeContactPage } from '../../factories/contacts.factory'
+import { detail as mailDetail, mailAccount, summary as mailSummary } from '../../factories/mail.factory'
 import { createIssue, createIssueDetail } from '../../factories/issue.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
@@ -146,6 +147,44 @@ test('헤더가 없는 상세 화면(드라이브 첨부 모아보기)은 뒤로
   await page.goto('/drive/attachments')
   await expect(page.getByTestId('mobile-back')).toHaveCount(1)
   await expect(page.getByTestId('mobile-back-ai')).toBeVisible()
+})
+
+test('메일 본문: 목록 헤더(받은편지함·동기화) 대신 ‹·메일 제목·✦ 한 줄 헤더, ‹ 로 목록 복귀', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [mailSummary()])
+  await mockApi(page, 'GET', '/api/v1/mail/messages/10', mailDetail({ subject: '10월 배포 일정 안내' }))
+  await page.goto('/mail/1')
+  await page.getByTestId('mail-row-10').click()
+  // 채팅·노트와 같은 규칙 — 상세 헤더 제목은 지금 보는 항목(메일 제목).
+  await expectSingleMergedHeader(page, 'mail-back')
+  await expect(page.getByTestId('mobile-back-title')).toHaveText('10월 배포 일정 안내')
+  // 목록 전용 요소(폴더명 헤더·🔍·동기화 줄)는 상세에서 보이지 않는다.
+  await expect(page.getByTestId('page-header')).toHaveCount(0)
+  await expect(page.getByTestId('mail-sync')).toHaveCount(0)
+  await expect(page.getByTestId('mail-detail')).toBeVisible()
+  await expectNoHorizontalOverflow(page)
+  // ‹ → 목록과 폴더 헤더 복귀(URL 은 그대로 탭 루트).
+  await page.getByTestId('mobile-back').click()
+  await expect(page.getByTestId('mail-list')).toBeVisible()
+  await expect(page.getByTestId('page-header')).toContainText('받은편지함')
+  await expect(page.getByTestId('mail-sync')).toBeVisible()
+  await expect(page).toHaveURL(/\/mail\/1$/)
+})
+
+test('연락처 상세: 목록 헤더 대신 ‹·연락처 이름·✦ 한 줄 헤더, ‹ 로 목록 복귀', async ({ authenticatedPage: page }) => {
+  await page.route((u) => u.pathname === '/api/v1/contacts', (r) => r.fulfill({ json: makeContactPage([member()]) }))
+  await page.route((u) => u.pathname === '/api/v1/contacts/members/1', (r) => r.fulfill({ json: memberDetail() }))
+  await page.goto('/contacts')
+  await page.getByTestId('contact-row-MEMBER-1').click()
+  await expectSingleMergedHeader(page, 'contact-back')
+  await expect(page.getByTestId('mobile-back-title')).toHaveText('김멤버')
+  // "연락처" 목록 헤더와 ＋(새 외부 연락처)는 목록에서만.
+  await expect(page.getByTestId('page-header')).toHaveCount(0)
+  await expect(page.getByTestId('contact-create')).toHaveCount(0)
+  await expectNoHorizontalOverflow(page)
+  await page.getByTestId('mobile-back').click()
+  await expect(page.getByTestId('contact-list')).toBeVisible()
+  await expect(page.getByTestId('page-header')).toContainText('연락처')
 })
 
 test('연락처: 새 외부 연락처는 ＋ 아이콘 하나로 인라인 — 입력 → POST payload → 다이얼로그 닫힘 → 목록 반영', async ({ authenticatedPage: page }) => {

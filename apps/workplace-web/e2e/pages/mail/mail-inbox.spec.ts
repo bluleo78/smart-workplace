@@ -233,7 +233,7 @@ test.describe('받은편지함', () => {
     await expect(page.getByTestId('mail-detail')).toBeVisible()
     await expect(page.getByTestId('mail-list')).toBeHidden()
     // 뒤로가기 클릭 → 목록 복귀
-    await page.getByTestId('mail-back').click()
+    await page.getByTestId('mobile-back').click()
     await expect(page.getByTestId('mail-list')).toBeVisible()
     await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
 
