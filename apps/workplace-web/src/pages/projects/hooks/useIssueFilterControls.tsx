@@ -286,7 +286,9 @@ export function useIssueFilterControls(
   }
 
   // 활성 facet 수(q 제외) — 모바일 필터 버튼 배지용.
-  const activeFilterCount = Object.values(filterValue).filter((v) => (v?.length ?? 0) > 0).length;
+  // 담당자 「미지정」(includeUnassigned)은 filterValue 에 안 담기므로 담당자 facet 이 활성인 것으로 한 번만 센다.
+  const activeFilterCount =
+    Object.entries(filterValue).filter(([k, v]) => (v?.length ?? 0) > 0 || (k === 'assignee' && filters.includeUnassigned)).length;
 
   // 「완료 모두 보기」 토글 — 데스크톱 버튼과 모바일 뷰 시트가 공유.
   function toggleShowAllClosed() {

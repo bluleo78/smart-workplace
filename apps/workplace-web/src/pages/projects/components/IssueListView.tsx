@@ -5,7 +5,7 @@
 // (상태 변경/담당자 지정/삭제) — 보드 뷰(칸반)는 업계 관행(Linear/Jira/GitHub 등)대로 제외.
 
 import { ChevronRight, LayoutList } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
@@ -68,6 +68,16 @@ export function IssueListView({
       return next;
     });
   }, []);
+
+  // 그룹 모드에서 모든 그룹이 접혀 행이 하나도 안 그려지면 sentinel 이 화면에 들어와 다음 페이지를 연쇄 로드한다 →
+  // 이 경우엔 LoadMoreFooter 에 hasNextPage 를 꺼서 넘겨 sentinel 을 내린다(펼치면 정상 재개).
+  const allGroupsCollapsed = useMemo(() => {
+    if (!groupBy || !data) return false;
+    const items = data.pages.flatMap((p) => p.items ?? []).filter((x) => x != null);
+    const keys = groupIssues(items, groupBy).filter((g) => g.issues.length > 0).map((g) => g.key);
+    return keys.length > 0 && keys.every((k) => collapsed.has(k));
+  }, [groupBy, data, collapsed]);
+  const loadMoreQuery = allGroupsCollapsed ? { ...searchQuery, hasNextPage: false } : searchQuery;
 
   // #606: 다중 선택 상태 — 이슈 number 집합. 필터/그룹 기준(직렬화 값)이 바뀌면 초기화.
   const {
@@ -245,7 +255,7 @@ export function IssueListView({
           )}
         </table>
         {/* 목록 끝 — 자동 로드, 다음 페이지 실패 시에만 다시 시도(공용 LoadMoreFooter, WP-183) */}
-        <LoadMoreFooter query={searchQuery} root={scrollEl} data-testid="issue-list-more" />
+        <LoadMoreFooter query={loadMoreQuery} root={scrollEl} data-testid="issue-list-more" />
       </div>
       {/* 모바일 일괄 작업 바(fixed, 약 56px)가 마지막 행을 가리지 않게 같은 높이만큼 비운다. */}
       <BulkBarSpacer active={selected.size > 0} />

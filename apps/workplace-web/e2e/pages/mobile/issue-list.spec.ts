@@ -129,6 +129,17 @@ test.describe('모바일 툴바', () => {
     await expectNoHorizontalOverflow(page);
   });
 
+  test('담당자 미지정 필터(assignee=null) — 필터 개수 1, 시트의 전체 해제로 URL 에서 제거', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none&assignee=null`);
+    await expect(page.getByTestId('mobile-chip-filter')).toContainText('필터 1');
+    await page.getByTestId('mobile-chip-filter').click();
+    await expect(page.getByTestId('mobile-filter-clear')).toBeEnabled();
+    await expect(page.getByTestId('mobile-filter-empty')).toHaveCount(0);
+    await page.getByTestId('mobile-filter-clear').click();
+    await expect(page).not.toHaveURL(/assignee=/);
+  });
+
   test('검색 — 줄 전체가 검색창으로, 취소해도 검색어 유지 + 점 표시', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}`);

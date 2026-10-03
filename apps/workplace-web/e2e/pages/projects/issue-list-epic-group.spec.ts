@@ -88,6 +88,48 @@ test.describe('이슈 목록 에픽 그룹', () => {
   });
 });
 
+test.describe('이슈 목록 그룹 접기 + 무한 스크롤', () => {
+  test('모든 그룹을 접어도 다음 페이지를 연쇄 로드하지 않고, 펼치면 다시 로드한다', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, createProject());
+    await mockApi(page, 'GET', `/api/v1/projects/${KEY}/members`, []);
+    await mockApi(page, 'GET', `/api/v1/projects/${KEY}/saved-views`, []);
+    // 1페이지: 에픽 2개 × 40건 — 뷰포트를 충분히 채워 초기에는 sentinel 이 보이지 않는다. nextCursor 있음.
+    const page1 = Array.from({ length: 80 }, (_, i) =>
+      createIssue({ id: i + 1, number: i + 1, title: `이슈 ${i + 1}`, parent: i < 40 ? epic(30, '에픽 A') : epic(12, '에픽 B') }),
+    );
+    const page2 = [createIssue({ id: 200, number: 200, title: '2페이지 이슈', parent: epic(30, '에픽 A') })];
+    let page2Requests = 0;
+    await page.route(
+      (url) => url.pathname === ISSUES_PATH,
+      (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        const hasCursor = new URL(route.request().url()).searchParams.has('cursor');
+        if (hasCursor) page2Requests += 1;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(hasCursor ? createIssueSearchResponse(page2, null) : createIssueSearchResponse(page1, 'c1')),
+        });
+      },
+    );
+    await page.goto(`/projects/${KEY}?group=epic`);
+    await expect(page.getByTestId('issue-row-1')).toBeVisible();
+    await page.waitForTimeout(500);
+    expect(page2Requests).toBe(0); // 양성 대조 — 행이 화면을 채운 동안엔 로드 안 함
+
+    await page.getByTestId('list-group-toggle-epic-12').click();
+    await page.getByTestId('list-group-toggle-epic-30').click();
+    await expect(page.getByTestId('issue-row-1')).toHaveCount(0);
+    await page.waitForTimeout(1000);
+    expect(page2Requests).toBe(0); // 전부 접힘 → sentinel 이 보여도 로드하지 않는다
+
+    await page.getByTestId('list-group-toggle-epic-30').click();
+    // 펼친 행이 화면을 채우므로 목록 끝까지 스크롤해 sentinel 을 노출 → 정상 재개
+    await page.getByTestId('issue-list-scroll').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await expect.poll(() => page2Requests).toBeGreaterThan(0);
+  });
+});
+
 test.describe('이슈 목록 데스크톱 에픽 칩', () => {
   test('긴 제목·긴 에픽명에도 가로 오버플로 없이 칩이 보이고 제목이 최소 폭을 지킨다', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, createProject());
