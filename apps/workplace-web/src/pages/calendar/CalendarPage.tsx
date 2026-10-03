@@ -87,7 +87,14 @@ export function CalendarPage() {
   // 마지막으로 연 일정 스냅숏 — 반복 회차는 마스터 id 를 공유해 URL(eventId)만으로는 회차 날짜를 알 수 없다.
   // 다이얼로그가 닫힌 뒤에도 남겨 두어 범위 선택·삭제 확인 다이얼로그가 읽는다.
   const [editing, setEditing] = useState<CalendarEvent | null>(null)
-  const dialogOpen = creating || (eventIdParam != null && editing?.id === eventIdParam)
+  // 2단계 다이얼로그(삭제 확인·반복 범위 선택) 동안 EventDialog 만 숨기는 표식 — 그 일정 id.
+  // 히스토리는 건드리지 않는다: 바깥(알림·홈)에서 열린 일정은 마크가 없어 닫기가 -1 로 캘린더를 떠나고,
+  // 페이지가 언마운트되면 확인 다이얼로그가 뜨지 못해 삭제·수정이 유실된다. 닫기는 2단계가 성공한 뒤에만.
+  const [suspendedId, setSuspendedId] = useState<number | null>(null)
+  // URL 이 다른 일정·닫힘으로 바뀌면 표식을 푼다(렌더 중 조정) — forward 로 같은 일정에 돌아와도 다시 열린다.
+  if (suspendedId != null && suspendedId !== eventIdParam) setSuspendedId(null)
+  const dialogOpen =
+    creating || (eventIdParam != null && editing?.id === eventIdParam && suspendedId !== eventIdParam)
   const [defaultStart, setDefaultStart] = useState<Date | undefined>()
   // 반복 회차 수정/삭제 시 scope 선택 다이얼로그 모드(null=닫힘)
   const [scopeMode, setScopeMode] = useState<'edit' | 'delete' | null>(null)
@@ -271,8 +278,9 @@ export function CalendarPage() {
     // 새 일정 저장 중에 이전 스냅숏(editing)이 수정 대상으로 잡히지 않게 creating 을 먼저 본다.
     if (!creating && editing) {
       if (editing.occurrenceDate != null) {
+        // 범위 선택으로 넘어간다 — URL(?eventId)은 그대로, EventDialog 만 숨긴다.
         setPendingBody(body)
-        closeDialog()
+        setSuspendedId(editing.id)
         setScopeMode('edit')
         return
       }
@@ -282,21 +290,35 @@ export function CalendarPage() {
     }
   }
 
+  // 삭제 → 2단계(반복=범위 선택, 단일=삭제 확인). URL 은 그대로 두고 EventDialog 만 숨긴다.
   const onDelete = () => {
     if (!editing) return
+    setSuspendedId(editing.id)
     if (editing.occurrenceDate != null) {
-      closeDialog()
       setScopeMode('delete')
       return
     }
-    closeDialog()
     setConfirmDeleteOpen(true)
   }
 
-  const confirmDelete = () => {
+  // 2단계 결과 — 성공이면 일반 닫기 규칙으로 일정 상세를 닫고, 실패면 EventDialog 로 돌아간다.
+  const secondStepCallbacks = {
+    onSuccess: () => closeDialog(),
+    onError: () => setSuspendedId(null),
+  }
+
+  // 삭제 확인 — AlertDialogAction 의 자동 닫기(onOpenChange(false))를 막아 '취소'와 구분한다.
+  const confirmDelete = (e: React.MouseEvent) => {
+    e.preventDefault()
     if (!editing) return
-    remove.mutate({ id: editing.id }, { onSuccess: () => setConfirmDeleteOpen(false) })
     setConfirmDeleteOpen(false)
+    remove.mutate({ id: editing.id }, secondStepCallbacks)
+  }
+
+  // 삭제 확인 닫힘(취소·ESC·바깥) — EventDialog 로 돌아간다.
+  const onConfirmDeleteOpenChange = (o: boolean) => {
+    setConfirmDeleteOpen(o)
+    if (!o) setSuspendedId(null)
   }
 
   const onPickScope = (scope: EditScope) => {
@@ -304,17 +326,19 @@ export function CalendarPage() {
     const id = editing.masterEventId ?? editing.id
     const occurrenceDate = editing.occurrenceDate
     if (scopeMode === 'edit' && pendingBody) {
-      update.mutate({ id, body: pendingBody, scope, occurrenceDate })
+      update.mutate({ id, body: pendingBody, scope, occurrenceDate }, secondStepCallbacks)
     } else if (scopeMode === 'delete') {
-      remove.mutate({ id, scope, occurrenceDate })
+      remove.mutate({ id, scope, occurrenceDate }, secondStepCallbacks)
     }
     setScopeMode(null)
     setPendingBody(null)
   }
 
+  // 범위 선택 취소 — EventDialog 로 돌아간다(URL 그대로).
   const cancelScope = () => {
     setScopeMode(null)
     setPendingBody(null)
+    setSuspendedId(null)
   }
 
   // 이슈 마감 칩 클릭 → 해당 이슈 상세로 이동(읽기전용 오버레이).
@@ -520,7 +544,7 @@ export function CalendarPage() {
       </AlertDialog>
 
       {/* 단일 일정 삭제 확인 다이얼로그 */}
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={onConfirmDeleteOpenChange}>
         <AlertDialogContent data-testid="calendar-confirm-delete-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>일정 삭제</AlertDialogTitle>
