@@ -370,7 +370,6 @@ test.describe('AI 채팅 화면 컨텍스트 — 메일 회신필요 필터', ()
   test('열린 메일이 목록 refetch 로 빠져도 컨텍스트에 유지된다(WP-146)', async ({ authenticatedPage: page }) => {
     const bodies = await captureChat(page)
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ id: 3, aiEnabled: true })])
-    await mockApi(page, 'GET', '/api/v1/mail/accounts/3/needs-reply-count', { count: 1 })
     // 목록: 처음엔 회신필요 1건, 열람 후 refetch 부터는 읽음 처리돼 빈 목록.
     let listCalls = 0
     await page.route((url) => url.pathname === '/api/v1/mail/accounts/3/messages', (route) => {

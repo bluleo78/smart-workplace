@@ -66,7 +66,6 @@ const counts = (over: Partial<MailUnreadCounts> = {}): MailUnreadCounts => ({
 async function stubInbox(page: Page, c: MailUnreadCounts) {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/unread-counts', c)
-  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
   return mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [], { capture: true })
 }
 
@@ -104,7 +103,6 @@ test.describe('메일 사이드바 — 받은편지함 하위 분류(WP-186)', (
   test('딥링크(?messageId, category 없음) → 전체 보기로 열려 개인 메일 행이 목록에 보인다', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/unread-counts', counts())
-    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
     await mockApi(page, 'GET', '/api/v1/mail/messages/55', detail({ id: 55, subject: '개인 메일' }))
     await mockApi(page, 'GET', '/api/v1/mail/messages/55/summary', { summary: null })
     const list = await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary({ id: 55, subject: '개인 메일', aiCategory: '개인' })], { capture: true })

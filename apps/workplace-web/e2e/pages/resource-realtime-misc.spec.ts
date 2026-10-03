@@ -76,7 +76,6 @@ test.describe('알림·연락처·메일 실시간 반영 (WP-64)', () => {
     let rows = [mailSummary({ id: 10, subject: '검토 요청', aiCategory: '업무', aiNeedsReply: true })]
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
-    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 1 })
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
       (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) }),

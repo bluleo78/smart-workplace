@@ -169,7 +169,7 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
   // 알림 인박스 기본 스텁 — 모든 인증 페이지에서 종/배지가 마운트되므로 기본값 제공.
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
   await mockApi(page, 'GET', '/api/v1/notifications', [])
-  // 메일 사이드바 '업무' 미읽음 배지 기본 스텁(WP-186) — 미스텁 시 dev 프록시로 누수된다. 스펙이 나중에 등록한 route 가 우선(LIFO).
+  // 메일 모바일 탭바 '업무' 미읽음 배지 기본 스텁(WP-186) — 미스텁 시 dev 프록시로 누수된다. 스펙이 나중에 등록한 route 가 우선(LIFO).
   await mockApi(page, 'GET', '/api/v1/mail/unread-summary', { workUnread: 0 })
   // 통합 SSE 단일 스트림 (#506): /api/v1/events 가 chat·messaging·notify 모두 대체.
   // 미스텁 시 백엔드 프록시로 누수되며, 백엔드 부재 시 503 재연결이 페이지 네비게이션과 레이스를

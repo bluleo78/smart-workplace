@@ -73,14 +73,6 @@ export async function getUnreadSummary(): Promise<number> {
   return data.workUnread;
 }
 
-/** P2: 계정의 회신필요(미처리) 메일 건수. 사이드바 배지용. */
-export async function getNeedsReplyCount(accountId: number): Promise<number> {
-  const { data } = await client.get<{ count: number }>(
-    `/mail/accounts/${accountId}/needs-reply-count`,
-  );
-  return data.count;
-}
-
 /** 메시지 단건 상세(본문 + 첨부 메타). */
 export async function getMessage(messageId: number): Promise<EmailMessageDetail> {
   const { data } = await client.get<EmailMessageDetail>(`/mail/messages/${messageId}`);

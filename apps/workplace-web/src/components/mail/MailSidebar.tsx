@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils'
 import { MAIL_CATEGORIES } from '@/types/mailMessage'
 
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
-import { useNeedsReplyCount, useUnreadCounts } from '../../hooks/queries/useMailMessages'
+import { useUnreadCounts } from '../../hooks/queries/useMailMessages'
 import { useMailCompose } from './MailComposeContext'
 
 /**
@@ -31,9 +31,7 @@ export function MailSidebar() {
   // 현재 계정: URL 파라미터 우선, 없으면 첫 계정(페이지의 /mail → 첫 계정 리다이렉트와 일치).
   const current = accounts?.find((a) => String(a.id) === accountId) ?? accounts?.[0] ?? null
 
-  // P2: 회신필요 건수(사이드바 배지 + AI 필터 섹션 표시 여부 판단).
-  const { data: needsReplyCount } = useNeedsReplyCount(current?.id)
-  // WP-186: 안 읽은 수 + AI 분류 활성 여부. 로딩 중에는 활성으로 가정해 깜빡임을 줄인다.
+  // WP-186: 안 읽은 수(회신필요 포함) + AI 분류 활성 여부. 로딩 중에는 활성으로 가정해 깜빡임을 줄인다.
   const { data: counts } = useUnreadCounts(current?.id)
   const view = resolveMailView(params, counts?.classificationActive ?? true)
 
@@ -41,17 +39,18 @@ export function MailSidebar() {
   function onCompose() {
     if (!current) return
     openCompose({
-      accountId: current.id,
+      accountId: current!.id,
       to: [], cc: [], bcc: [], subject: '', initialHtml: '', inReplyToMessageId: null,
       quote: null,
     })
   }
 
-  // WP-186: 안 읽은 수 pill — 회신필요 건수와 같은 모양, 0 이면 숨김. 활성 항목은 primary 로 강조.
-  const count = (n: number | undefined, testId: string, strong = false) =>
+  // WP-186: 안 읽은 수 pill(받은편지함·분류·회신필요 공용), 0 이면 숨김. 활성 항목은 primary 로 강조. label 은 스크린리더용.
+  const count = (n: number | undefined, testId: string, strong = false, label = `안 읽은 메일 ${n}개`) =>
     n ? (
       <span
         data-testid={testId}
+        aria-label={label}
         className={cn(
           'ml-auto rounded-full bg-muted px-2 py-0.5 text-xs',
           strong ? 'font-semibold text-primary' : 'text-muted-foreground',
@@ -95,7 +94,7 @@ export function MailSidebar() {
                 className="flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm font-medium hover:bg-accent/50"
               >
                 <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">{current?.emailAddress}</span>
+                <span className="min-w-0 flex-1 truncate">{current!.emailAddress}</span>
                 <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-52">
@@ -108,7 +107,7 @@ export function MailSidebar() {
                   >
                     <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">{a.emailAddress}</span>
-                    {String(a.id) === String(current?.id) && (
+                    {String(a.id) === String(current!.id) && (
                       <Check className="h-4 w-4 shrink-0" aria-hidden />
                     )}
                   </DropdownMenuItem>
@@ -146,7 +145,7 @@ export function MailSidebar() {
                     return (
                       <Link
                         key={cat}
-                        to={mailViewHref(current!.id, cat === '업무' ? 'work' : cat, view.unreadOnly)}
+                        to={mailViewHref(current!.id, cat, view.unreadOnly)}
                         data-testid={`mail-filter-category-${cat}`}
                         aria-current={active ? 'page' : undefined}
                         className={cn(folderClass(active), 'pl-9')}
@@ -159,7 +158,7 @@ export function MailSidebar() {
                 </div>
               )}
               <Link
-                to={`/mail/${current?.id}?folder=sent`}
+                to={`/mail/${current!.id}?folder=sent`}
                 data-testid="mail-folder-sent"
                 aria-current={view.kind === 'sent' ? 'page' : undefined}
                 className={folderClass(view.kind === 'sent')}
@@ -169,14 +168,14 @@ export function MailSidebar() {
             </nav>
 
             {/* P2·WP-146: AI 필터 — 회신필요(AI 판정 && 안 읽음) 건수. 건수 > 0 일 때만 표시. */}
-            {(counts?.needsReply ?? needsReplyCount ?? 0) > 0 && (
+            {(counts?.needsReply ?? 0) > 0 && (
               <>
                 <div className="mt-4 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   AI 필터
                 </div>
                 <nav className="mt-1 space-y-1">
                   <Link
-                    to={`/mail/${current?.id}?needsReply=true`}
+                    to={`/mail/${current!.id}?needsReply=true`}
                     data-testid="mail-filter-needsreply"
                     // WP-146: 열면 빠진다는 규칙을 호버로 안내
                     title="안 읽은 메일 중 AI가 회신이 필요하다고 본 메일 (열면 빠져요)"
@@ -185,9 +184,7 @@ export function MailSidebar() {
                   >
                     {/* 회신필요 강조 점 — primary 색상 */}
                     <span className="text-primary">●</span> 회신필요
-                    <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                      {counts?.needsReply ?? needsReplyCount}
-                    </span>
+                    {count(counts?.needsReply, 'mail-count-needsreply', false, `회신필요 ${counts?.needsReply}개`)}
                   </Link>
                 </nav>
               </>

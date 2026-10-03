@@ -252,7 +252,6 @@ describe('규칙 키 값 고정', () => {
   it('mail → 계정 목록 prefix·회신필요 수·안 읽은 수·탭 합계·상세·연결 이슈·요약 위젯(exact)', () => {
     expect(keys({ resource: 'mail', op: 'updated', accountId: 5, messageId: 9 })).toEqual([
       { queryKey: ['mail-messages', 5] },
-      { queryKey: ['mail-needs-reply-count', 5] },
       { queryKey: ['mail-unread-counts', 5] },
       { queryKey: ['mail-unread-summary'] },
       { queryKey: ['mail-message', 9] },

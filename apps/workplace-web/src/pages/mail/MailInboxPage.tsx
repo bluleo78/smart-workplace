@@ -52,9 +52,6 @@ function formatReceivedAt(iso: string | null): string {
   return sameDay ? formatClockTimePadded(iso) : formatDateMonthDayPadded(iso)
 }
 
-// 연 메일 유지 대상이 없을 때 쓰는 공유 빈 집합(렌더마다 새 Set 을 만들어 useMemo 가 무효화되지 않게).
-const EMPTY_IDS: ReadonlySet<number> = new Set()
-
 // 목록 한 행 — 안 읽음은 굵게, 첨부 클립 표시.
 function MessageRow({
   m,
@@ -141,7 +138,7 @@ function MessageRow({
               data-testid={`mail-badge-category-${m.id}`}
               onClick={(e) => {
                 e.stopPropagation()
-                navigate(mailViewHref(m.accountId, m.aiCategory === '업무' ? 'work' : (m.aiCategory as MailCategory), false))
+                navigate(mailViewHref(m.accountId, m.aiCategory as MailCategory, false))
               }}
             >
               {m.aiCategory}
@@ -545,25 +542,20 @@ export function MailInboxPage() {
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
   // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
   const keepKey = `${accountId ?? ''}|${search}|${view.key}`
-  const [kept, setKept] = useState<{ key: string; ids: Set<number> }>({ key: keepKey, ids: new Set() })
+  // 선택한 행의 스냅샷(읽음 처리본)을 선택 시점에 보관 — 서버가 읽음으로 빼도 mergeKeptRows 가 그대로 되살린다.
+  const [kept, setKept] = useState<{ key: string; rows: Map<number, EmailMessageSummary> }>({ key: keepKey, rows: new Map() })
   // 키가 바뀌면 렌더 중에 실제로 비운다(숨기기만 하면 같은 키로 돌아올 때 되살아난다).
-  if (kept.key !== keepKey) setKept({ key: keepKey, ids: new Set() })
-  const keepIds = kept.key === keepKey ? kept.ids : EMPTY_IDS
-  // 직전 행은 키와 함께 보관 — 다른 키의 행이 되살아나지 않게 한다.
-  const prevRowsRef = useRef<{ key: string; rows: EmailMessageSummary[] }>({ key: keepKey, rows: [] })
-  // ref 읽기가 안전한 이유: 값은 effect 에서만 바뀌고, 되살림은 keepIds(상태)에 든 행에만 적용되며 keepIds 변화로 재계산된다.
-   
+  if (kept.key !== keepKey) setKept({ key: keepKey, rows: new Map() })
   const messages = useMemo(
-    // eslint-disable-next-line react-hooks/refs
-    () => mergeKeptRows(fetchedMessages, prevRowsRef.current.key === keepKey ? prevRowsRef.current.rows : [], keepIds),
-    [fetchedMessages, keepIds, keepKey],
+    () => mergeKeptRows(fetchedMessages, kept.key === keepKey ? kept.rows : undefined),
+    [fetchedMessages, kept, keepKey],
   )
-  useEffect(() => {
-    if (messages) prevRowsRef.current = { key: keepKey, rows: messages }
-  }, [messages, keepKey])
   const selectRow = (id: number) => {
     setSelectedId(id)
-    if (view.unreadOnly) setKept((k) => ({ key: keepKey, ids: new Set(k.key === keepKey ? [...k.ids, id] : [id]) }))
+    const row = fetchedMessages?.find((r) => r.id === id)
+    if (view.unreadOnly && row) {
+      setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, { ...row, seen: true }) }))
+    }
   }
   const sync = useSyncMailbox(accountIdNum)
   const { openCompose } = useMailCompose()
@@ -765,57 +757,57 @@ export function MailInboxPage() {
       {showListChrome && folderParam === 'INBOX' && (
         <div className="flex items-center gap-2 border-b px-3 py-1.5">
           <div className="flex min-w-0 flex-1 items-center gap-2 lg:max-w-md">
-          <button
-            type="button"
-            data-testid="mail-sync"
-            aria-label="지금 새로고침"
-            onClick={() => sync.mutate()}
-            disabled={sync.isPending || (syncStatus.data?.running ?? false)}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
-          >
-            <RefreshCw
-              className={cn('h-4 w-4', (sync.isPending || syncStatus.data?.running) && 'animate-spin')}
-            />
-          </button>
-          {/* 마지막 성공 동기화 시각 — null이면 회색 점+"동기화 안 됨", 있으면 녹색 점+상대시각 표시. */}
-          <span data-testid="mail-synced-at" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            {currentAccount?.lastSyncedAt ? (
-              <>
-                <span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden />
-                {`${formatRelativeTime(currentAccount.lastSyncedAt)} 동기화됨`}
-              </>
-            ) : (
-              <>
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" aria-hidden />
-                동기화 안 됨
-              </>
-            )}
-          </span>
-          {/* 본문 보충 진행률 — 기존 로직 유지 */}
-          {syncStatus.data?.phase === 'BODIES' && syncStatus.data.total > 0 && (
-            <span data-testid="mail-sync-progress" className="text-xs text-muted-foreground">
-              본문 {syncStatus.data.done}/{syncStatus.data.total}
-            </span>
-          )}
-          {view.unreadToggleVisible && (
             <button
               type="button"
-              data-testid="mail-unread-toggle"
-              aria-pressed={view.unreadOnly}
-              onClick={() => {
-                const next = new URLSearchParams(params)
-                if (view.unreadOnly) next.delete('unread')
-                else next.set('unread', 'true')
-                setParams(next)
-              }}
-              className={cn(
-                'ml-auto rounded-full border px-3 py-1 text-xs transition-colors',
-                view.unreadOnly ? 'border-primary/40 bg-primary/10 font-semibold text-primary' : 'text-foreground hover:bg-accent/50',
-              )}
+              data-testid="mail-sync"
+              aria-label="지금 새로고침"
+              onClick={() => sync.mutate()}
+              disabled={sync.isPending || (syncStatus.data?.running ?? false)}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
             >
-              안 읽은 메일만
+              <RefreshCw
+                className={cn('h-4 w-4', (sync.isPending || syncStatus.data?.running) && 'animate-spin')}
+              />
             </button>
-          )}
+            {/* 마지막 성공 동기화 시각 — null이면 회색 점+"동기화 안 됨", 있으면 녹색 점+상대시각 표시. */}
+            <span data-testid="mail-synced-at" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {currentAccount?.lastSyncedAt ? (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden />
+                  {`${formatRelativeTime(currentAccount.lastSyncedAt)} 동기화됨`}
+                </>
+              ) : (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" aria-hidden />
+                  동기화 안 됨
+                </>
+              )}
+            </span>
+            {/* 본문 보충 진행률 — 기존 로직 유지 */}
+            {syncStatus.data?.phase === 'BODIES' && syncStatus.data.total > 0 && (
+              <span data-testid="mail-sync-progress" className="text-xs text-muted-foreground">
+                본문 {syncStatus.data.done}/{syncStatus.data.total}
+              </span>
+            )}
+            {view.unreadToggleVisible && (
+              <button
+                type="button"
+                data-testid="mail-unread-toggle"
+                aria-pressed={view.unreadOnly}
+                onClick={() => {
+                  const next = new URLSearchParams(params)
+                  if (view.unreadOnly) next.delete('unread')
+                  else next.set('unread', 'true')
+                  setParams(next)
+                }}
+                className={cn(
+                  'ml-auto rounded-full border px-3 py-1 text-xs transition-colors',
+                  view.unreadOnly ? 'border-primary/40 bg-primary/10 font-semibold text-primary' : 'text-foreground hover:bg-accent/50',
+                )}
+              >
+                안 읽은 메일만
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -847,11 +839,7 @@ export function MailInboxPage() {
             ) : view.unreadOnly ? (
               // WP-186: 안 읽은 메일만 보기 0건 — 보기별 문구.
               <div data-testid="mail-view-empty" className="p-6 text-sm text-muted-foreground">
-                {view.kind === 'work'
-                  ? '업무 메일 중 안 읽은 메일이 없어요'
-                  : view.kind === 'all'
-                    ? '안 읽은 메일이 없어요'
-                    : `${view.title} 메일 중 안 읽은 메일이 없어요`}
+                {view.kind === 'all' ? '안 읽은 메일이 없어요' : `${view.title} 메일 중 안 읽은 메일이 없어요`}
               </div>
             ) : view.kind === 'category' ? (
               // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.

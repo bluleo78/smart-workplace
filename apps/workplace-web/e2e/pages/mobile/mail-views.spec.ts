@@ -10,7 +10,6 @@ async function stubMail(page: Page) {
   await stubChat(page)
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
   await mockApi(page, 'GET', '/api/v1/mail/unread-summary', { workUnread: 2 })
-  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/unread-counts', {
     classificationActive: true, inbox: 4, byCategory: { 업무: 2, 개인: 1, 알림: 1, 프로모션: 0, 뉴스레터: 0 }, needsReply: 0,
   })

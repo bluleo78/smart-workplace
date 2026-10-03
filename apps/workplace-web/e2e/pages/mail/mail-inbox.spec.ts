@@ -782,7 +782,6 @@ const counts = (over: Partial<MailUnreadCounts> = {}): MailUnreadCounts => ({
 async function stubCounts(page: Page) {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/unread-counts', counts())
-  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
 }
 
 test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {

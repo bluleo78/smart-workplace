@@ -38,8 +38,8 @@ test.describe('사이드바 필터', () => {
   test('사이드바 회신필요 클릭 → needsReply 필터로 목록 조회', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
-    // 회신필요 건수(>0 이어야 사이드바에 표시).
-    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 2 })
+    // 회신필요 건수(>0 이어야 사이드바에 표시) — unread-counts 의 needsReply.
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/unread-counts', { classificationActive: true, inbox: 2, byCategory: { 업무: 0, 개인: 0, 알림: 0, 프로모션: 0, 뉴스레터: 0 }, needsReply: 2 })
 
     // 메시지 목록 요청을 가로채 needsReply 파라미터 캡처.
     let lastNeedsReply: string | null = null
@@ -65,7 +65,6 @@ test.describe('사이드바 필터', () => {
   test('사이드바 분류(개인) 클릭 → category 필터로 목록 조회', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
-    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
 
     // 메시지 목록 요청을 가로채 category 파라미터 캡처.
     let lastCategory: string | null = null
@@ -94,7 +93,6 @@ test.describe('회신필요 — 읽으면 해제', () => {
   test('처리완료 버튼이 없다(WP-146)', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
-    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 1 })
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [
       mailSummary({ id: 10, subject: '검토 요청', aiCategory: '업무', aiNeedsReply: true, seen: false }),
     ])
@@ -107,10 +105,10 @@ test.describe('회신필요 — 읽으면 해제', () => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
     let countCalls = 0
-    await page.route((url) => url.pathname === '/api/v1/mail/accounts/1/needs-reply-count', (route) => {
+    await page.route((url) => url.pathname === '/api/v1/mail/accounts/1/unread-counts', (route) => {
       countCalls += 1
       // 1차: 열기 전 1건, 이후(열람으로 무효화된 재조회): 0건
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: countCalls === 1 ? 1 : 0 }) })
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(countCalls === 1 ? { classificationActive: true, inbox: 1, byCategory: { 업무: 0, 개인: 0, 알림: 0, 프로모션: 0, 뉴스레터: 0 }, needsReply: 1 } : { classificationActive: true, inbox: 0, byCategory: { 업무: 0, 개인: 0, 알림: 0, 프로모션: 0, 뉴스레터: 0 }, needsReply: 0 }) })
     })
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [
       mailSummary({ id: 10, subject: '검토 요청', aiCategory: '업무', aiNeedsReply: true, seen: false }),
@@ -128,7 +126,6 @@ test.describe('회신필요 — 읽으면 해제', () => {
   test('회신필요 0건 → 긍정 빈 상태', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
-    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
     await page.route((url) => url.pathname === '/api/v1/mail/accounts/1/messages',
       (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
     await page.goto('/mail/1?needsReply=true')
@@ -141,7 +138,6 @@ test.describe('분류 필터 빈 상태', () => {
   test('category 필터 0건 → mail-category-empty 표시', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
-    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
     // 업무 분류 메일 0건.
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/messages',

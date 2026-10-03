@@ -160,9 +160,8 @@ const RULES: Record<string, Rule> = {
     ...(p.accountId != null
       ? [
           { queryKey: ['mail-messages', p.accountId] },
-          { queryKey: ['mail-needs-reply-count', p.accountId] },
-          { queryKey: ['mail-unread-counts', p.accountId] },
-          { queryKey: ['mail-unread-summary'] },
+          { queryKey: mailMessageKeys.unreadCounts(p.accountId) },
+          { queryKey: mailMessageKeys.unreadSummary() },
         ]
       : []),
     ...(p.messageId != null
@@ -178,9 +177,8 @@ const RULES: Record<string, Rule> = {
       queryKey:
         p.op === 'updated' && p.accountId != null && p.accountId > 0 ? ['mail-messages', p.accountId] : ['mail-messages'],
     },
-    { queryKey: ['mail-needs-reply-count'] },
-    { queryKey: ['mail-unread-counts'] },
-    { queryKey: ['mail-unread-summary'] },
+    { queryKey: mailMessageKeys.unreadCountsAll() },
+    { queryKey: mailMessageKeys.unreadSummary() },
     { queryKey: ['mail-summary'], exact: true },
     { queryKey: calendarKeys.all },
   ],
