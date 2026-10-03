@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+import { IssueBodyImage } from '@/components/issue/IssueBodyImage'
 import { cn } from '@/lib/utils'
 
 /**
@@ -9,15 +10,19 @@ import { cn } from '@/lib/utils'
  * 배경: AI 응답은 ## ** --- | 표 등 마크다운을 포함하는데, 사람 메시지용 plain-text 렌더로는
  * 원시 기호가 그대로 노출됐다. 사람 메시지는 기존 plain text 를 유지하고, AI 버블에만 이 컴포넌트를 쓴다.
  *
+ * issueImagesProjectKey 가 있을 때만 img 를 IssueBodyImage 로 렌더(WP-199) — AI·채팅 마크다운은 이미지 요청을 만들지 않는다.
+ *
  * 디자인 시스템: hex/임의 색 금지 — 시맨틱 토큰(bg-muted/border-border/text-primary 등)만 사용.
  * tailwind typography 플러그인을 쓰지 않으므로 요소별 스타일을 components 로 직접 지정해 채팅 말풍선에 맞춘다.
  */
 export function MarkdownMessage({
   children,
   className,
+  issueImagesProjectKey,
 }: {
   children: string
   className?: string
+  issueImagesProjectKey?: string
 }) {
   return (
     <div
@@ -64,6 +69,13 @@ export function MarkdownMessage({
             <th className="border border-border px-2 py-1 text-left font-medium">{children}</th>
           ),
           td: ({ children }) => <td className="border border-border px-2 py-1">{children}</td>,
+          ...(issueImagesProjectKey
+            ? {
+                img: ({ src, alt }: { src?: string; alt?: string }) => (
+                  <IssueBodyImage projectKey={issueImagesProjectKey} src={src} alt={alt} />
+                ),
+              }
+            : {}),
         }}
       >
         {children}

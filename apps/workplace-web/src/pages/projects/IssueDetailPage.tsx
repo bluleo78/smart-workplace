@@ -172,7 +172,12 @@ function InlineEditableBody({
   // 저장 — 빈 값 허용, 변화 없으면 무의미 요청 차단. 저장 후 초안은 정리해 남기지 않는다.
   const save = async () => {
     // 업로드 중 자리표시 토큰이 서버에 저장되지 않도록 단축키·버튼 공통으로 막는다.
-    if (uploading || hasPendingToken(draft)) return;
+    if (uploading) return;
+    if (hasPendingToken(draft)) {
+      // 진행 중 업로드가 없는데 토큰이 남은 건 복원된 초안의 잔재 — 조용히 무시하면 저장이 안 되는 이유를 알 수 없다.
+      toast.error('업로드가 끝나지 않은 이미지가 있습니다. 해당 줄을 지우고 다시 저장해 주세요');
+      return;
+    }
     setEditing(false);
     setShowDraftBanner(false);
     if (draft === (body ?? '')) {
@@ -216,7 +221,7 @@ function InlineEditableBody({
       >
         {/* 뷰 모드 = 마크다운 렌더(## 제목·**볼드**·- [ ] 체크박스). 편집 모드(textarea)는 raw — 대비 확보. */}
         {body ? (
-          <MarkdownMessage>{body}</MarkdownMessage>
+          <MarkdownMessage issueImagesProjectKey={projectKey}>{body}</MarkdownMessage>
         ) : (
           <em className="text-sm text-muted-foreground">본문 없음</em>
         )}

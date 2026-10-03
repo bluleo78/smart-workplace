@@ -40,5 +40,5 @@ export function useApiBlobUrl(path: string | null | undefined) {
     }
   }, [data])
 
-  return { url, isPending: enabled && isPending, isError }
+  return { url, blob: data ?? null, isPending: enabled && isPending, isError }
 }

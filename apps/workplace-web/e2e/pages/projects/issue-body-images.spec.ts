@@ -189,3 +189,51 @@ test.describe('이슈 본문 이미지 — 상세 편집', () => {
     await expect.poll(() => patched).toContain(`![bug.png](${IMG_URL})`)
   })
 })
+
+test.describe('이슈 본문 이미지 — 표시', () => {
+  test('본문 이미지가 인증 blob 으로 로드되고, 클릭하면 편집이 아니라 미리보기가 열린다', async ({ authenticatedPage: page }) => {
+    await setupDetailStubs(page, `재현 화면\n\n![bug.png](${IMG_URL})`)
+    await page.route(`**${IMG_URL}`, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
+    await page.goto(`/projects/${KEY}/issues/1`)
+
+    const img = page.getByRole('img', { name: 'bug.png' })
+    await expect(img).toHaveAttribute('src', /^blob:/)
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+
+    await img.click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await expect(page.getByTestId('issue-body-textarea')).toHaveCount(0)
+  })
+
+  test('지워졌거나 수거된 이미지는 대체 문구를 보여준다', async ({ authenticatedPage: page }) => {
+    await setupDetailStubs(page, `![gone.png](${IMG_URL})`)
+    await page.route(`**${IMG_URL}`, (r) => r.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
+    await page.goto(`/projects/${KEY}/issues/1`)
+    await expect(page.getByText('이미지를 불러올 수 없음')).toBeVisible()
+  })
+
+  test('다른 경로의 /api/v1 이미지나 http 이미지는 요청하지 않는다', async ({ authenticatedPage: page }) => {
+    let hit = 0
+    await page.route('**/api/v1/drive/files/5/content', (r) => {
+      hit++
+      return r.fulfill({ status: 200, contentType: 'image/png', body: PNG })
+    })
+    await setupDetailStubs(page, '![x](/api/v1/drive/files/5/content) ![y](http://example.com/a.png)')
+    await page.goto(`/projects/${KEY}/issues/1`)
+    await expect(page.getByText('x', { exact: true })).toBeVisible()
+    expect(hit).toBe(0)
+  })
+
+  test('복원된 초안에 업로드 중 토큰이 남아 있으면 저장 시 안내 토스트를 띄운다', async ({ authenticatedPage: page }) => {
+    await setupDetailStubs(page, '기존 본문')
+    await page.addInitScript(([k, v]) => window.localStorage.setItem(k, v), [
+      `issue-body-draft:${KEY}:1`,
+      '남은 글\n![업로드 중… #1]()',
+    ])
+    await page.goto(`/projects/${KEY}/issues/1`)
+    await page.getByRole('button', { name: '본문 편집' }).click()
+    await page.getByRole('button', { name: '불러오기' }).click()
+    await page.getByTestId('issue-body-save').click()
+    await expect(page.getByText('업로드가 끝나지 않은 이미지가 있습니다')).toBeVisible()
+  })
+})
