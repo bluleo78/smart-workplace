@@ -28,7 +28,7 @@ test('goBack 은 상세만 닫고 연락처 목록에 남는다 — ‹ 도 같�
 
   await page.getByTestId('contact-row-EXTERNAL-100').getByRole('button').first().click()
   await expect(page.getByTestId('contact-detail-external')).toBeVisible()
-  await page.getByTestId('contact-back').click()
+  await page.getByTestId('contact-back').getByTestId('mobile-back').click()
   await expect(page).toHaveURL(/\/contacts$/)
   await expect(page.getByTestId('contact-list')).toBeVisible()
 })
@@ -37,7 +37,7 @@ test('딥링크(?contact) 진입 후 ‹ → 연락처 목록', async ({ authent
   await stubContacts(page)
   await page.goto('/contacts?contact=external:100')
   await expect(page.getByTestId('contact-detail-external')).toBeVisible()
-  await page.getByTestId('contact-back').click()
+  await page.getByTestId('contact-back').getByTestId('mobile-back').click()
   await expect(page).toHaveURL(/\/contacts$/)
   await expect(page.getByTestId('contact-list')).toBeVisible()
 })
@@ -46,7 +46,7 @@ test('없는 연락처 딥링크는 찾을 수 없음 상태를 보이고 ‹ �
   await stubContacts(page)
   await page.goto('/contacts?contact=member:999')
   await expect(page.getByText('연락처를 찾을 수 없습니다')).toBeVisible()
-  await page.getByTestId('contact-back').click()
+  await page.getByTestId('contact-back').getByTestId('mobile-back').click()
   await expect(page).toHaveURL(/\/contacts$/)
 })
 

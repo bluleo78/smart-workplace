@@ -52,7 +52,8 @@ test('보드 카드 → 모달: ESC 는 보드로 돌아가고 task 가 URL 에 
   const modal = page.getByTestId('personal-task-modal')
   await expect(modal).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?view=board$`))
+  // 모바일 보드는 첫 로드 후 기본 탭을 URL(boardTab)에 고정한다(WP-195) — task 만 빠지면 된다.
+  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?view=board(&boardTab=\\w+)?$`))
   await expect(modal).toHaveCount(0)
 })
 
