@@ -372,8 +372,8 @@ test.describe('에픽 왼쪽 패널', () => {
     test('보드를 세로 스크롤해도 컬럼 헤더가 보이고, 보드 하단(가로 스크롤바)이 화면 안에 있다', async ({
       authenticatedPage: page,
     }) => {
-      // 좁은 폭 — 컬럼 min-w 로 가로 스크롤이 생기는 조건.
-      await stubLongList(page, { width: 900, height: 700 });
+      // 데스크톱 최소 폭 — 컬럼 min-w 로 가로 스크롤이 생기는 조건. 1024px 미만은 모바일 보드(상태 탭·한 컬럼, WP-195)라 가로 스크롤이 없다.
+      await stubLongList(page, { width: 1024, height: 700 });
       await page.goto(`/projects/${PROJECT_KEY}?view=board`);
       await expect(page.getByTestId('board-col-TODO')).toContainText('긴 목록 이슈 59');
 
