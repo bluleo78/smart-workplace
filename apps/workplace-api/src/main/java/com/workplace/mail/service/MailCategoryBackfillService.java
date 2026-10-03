@@ -37,7 +37,8 @@ import org.springframework.util.StringUtils;
  *
  * <p>진입점은 전용 스케줄러({@link MailCategoryBackfillScheduler}) 하나뿐이다 — 동기화 직후 {@code @Async} 로 부르지 않는다. 그
  * 실행기(aiAgentEventExecutor)는 채팅 AI 디스패치와 공유돼 동기화마다 무거운 LLM 일을 얹으면 고갈되고, 큐가 차면 TaskRejectedException
- * 이 동기화로 새어 나온다. 새 메일은 다음 주기(최대 10분)에, 최근 안 읽은 메일은 ③ 이 분류한다.
+ * 이 동기화로 새어 나온다. 백로그 없는 계정은 회차 예산을 쓰지 않으므로 초기 드레인 뒤에는 모든 계정이 매 회차 닿아 새 메일은 약 한 주기(10분) 안에 분류된다(초기
+ * 드레인 중에는 회차당 약 5개 계정씩 시작 위치를 돌려가며 — 스케줄러 참고). 최근 안 읽은 메일은 ③ 이 분류한다.
  */
 @Slf4j
 @Service

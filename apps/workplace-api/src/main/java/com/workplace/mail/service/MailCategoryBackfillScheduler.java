@@ -35,6 +35,9 @@ import org.springframework.stereotype.Component;
  *   <li><b>회차 상한</b>: 회차 전체 묶음 호출은 최대 {@value #MAX_BATCHES_PER_ROUND}회(≤500통). 계정당 상한({@link
  *       MailCategoryBackfillService#MAX_BATCHES})과 별개로, 남은 예산을 서비스에 넘기고 돌려받은 호출 수만큼 깎는다. 최악(20 ×
  *       60초 타임아웃 = 20분)도 잠금 lockAtMostFor(30분) 안에 끝난다. 나머지 계정은 다음 회차에.
+ *   <li><b>공평성</b>: 백로그가 있는 계정은 한 회차에 최대 4묶음씩 쓰므로 예산 20 이 5개 계정에서 바닥난다. 대상은 (tenantId, accountId) 로
+ *       정렬하고 시작 위치를 회차마다 한 칸씩 돌려, 초기 백로그를 비우는 동안에도 뒤쪽 계정이 굶지 않게 한다(회차당 약 5개 계정씩 돌아가며). 백로그가 없는 계정은
+ *       예산을 0 만 쓰므로 초기 드레인이 끝나면 모든 계정이 매 회차 닿는다(새 메일은 약 한 주기 안에 분류).
  *   <li><b>agent 불가</b>: 회차당 {@link AgentOutageGuard} 하나를 모든 계정이 공유하고, 멈춤이 되면 남은 계정을 건너뛴다.
  *   <li><b>파드 간 중복 방지</b>: 실행기 안에서 ShedLock {@link LockingTaskExecutor} 로 회차 전체를 감싼다. tick 에
  *       {@code @SchedulerLock} 을 붙이면 넘기자마자 잠금이 풀려 실제 실행 동안 다른 파드를 막지 못한다(WP-165, {@link
@@ -74,6 +77,12 @@ public class MailCategoryBackfillScheduler {
 
   /** 파드 간 잠금 — LockProvider 빈이 없으면(잠금 꺼짐) null 이고 잠금 없이 실행한다. */
   private final LockingTaskExecutor lockingExecutor;
+
+  /**
+   * 회차 시작 위치 회전 카운터 — 회차 예산(20)이 앞쪽 백로그 큰 계정들에 먼저 소진돼 뒤 계정이 굶지 않게, 정렬된 대상의 시작 인덱스를 회차마다 한 칸씩 민다.
+   * 싱글톤 빈이고 회차는 단일 스레드 실행기 + running 플래그로 직렬이라 일반 필드로 충분하다(다른 파드와는 공유하지 않는다 — 파드별로 독립 회전해도 무방).
+   */
+  private int rotation = 0;
 
   /** 실행 중 표시 — 이전 회차가 끝나기 전에 다음 tick 이 겹쳐 들어가지 않게 한다. */
   private final AtomicBoolean running = new AtomicBoolean(false);
@@ -153,6 +162,14 @@ public class MailCategoryBackfillScheduler {
             targets.add(new Target(tenantId, a.userId(), a.accountId()));
           }
         });
+    if (targets.isEmpty()) {
+      return;
+    }
+    // findActiveForSync 는 ORDER BY 가 없어 순서가 들쭉날쭉하다 — (tenantId, accountId) 로 고정한 뒤 회차마다 시작 위치를 한 칸씩
+    // 돌린다.
+    targets.sort(
+        java.util.Comparator.comparingLong(Target::tenantId).thenComparingLong(Target::accountId));
+    int start = Math.floorMod(rotation++, targets.size());
     // ② 실행: 트랜잭션 밖. TenantContext 만 주입(서비스 내부 TransactionTemplate 이 GUC 주입).
     AgentOutageGuard guard = new AgentOutageGuard();
     int budget = MAX_BATCHES_PER_ROUND;
@@ -165,7 +182,7 @@ public class MailCategoryBackfillScheduler {
         log.info("분류 일괄 회차 상한 도달 — 남은 계정 {}개는 다음 주기", targets.size() - i);
         return;
       }
-      Target t = targets.get(i);
+      Target t = targets.get((start + i) % targets.size());
       TenantContext.set(t.tenantId());
       try {
         budget -= categoryBackfill.classifyAccountNow(t.userId(), t.accountId(), guard, budget);

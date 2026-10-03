@@ -222,4 +222,29 @@ class MailCategoryBackfillSchedulerIT extends IntegrationTestBase {
     assertThat(seededCalls()).hasSize(3);
     assertThat(TenantContext.get()).isNull();
   }
+
+  @Test
+  @DisplayName("백로그가 큰 계정이 6개 이상이어도 시작 위치가 회차마다 돌아 모든 계정에 닿는다")
+  void rotatingStart_reachesEveryAccount_acrossRounds() {
+    for (int i = 0; i < 6; i++) {
+      seedAccount(1L);
+    }
+    stub((c, g) -> Math.min(c.budget(), MailCategoryBackfillService.MAX_BATCHES));
+
+    Set<Long> reached = new HashSet<>();
+    Set<Long> firstPerRound = new HashSet<>();
+    // 시드 외 활성 계정(예산 0 사용)이 섞여 있어도 시작 위치가 한 칸씩 전진하므로 계정 수 회차 안에 모두 닿는다
+    for (int round = 0; round < 60 && reached.size() < 6; round++) {
+      calls.clear();
+      scheduler.runOnceNow();
+      List<Call> mine = seededCalls();
+      mine.forEach(c -> reached.add(c.accountId()));
+      if (!mine.isEmpty()) {
+        firstPerRound.add(mine.get(0).accountId());
+      }
+    }
+
+    assertThat(reached).containsExactlyInAnyOrderElementsOf(seededAccountIds());
+    assertThat(firstPerRound.size()).isGreaterThan(1); // 매번 같은 계정부터 시작하지 않는다
+  }
 }
