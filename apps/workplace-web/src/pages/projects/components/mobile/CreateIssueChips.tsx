@@ -1,6 +1,6 @@
 // 모바일 이슈 생성 속성 칩 줄(WP-196) — 시트 맨 아래(=키보드 바로 위, 원칙 ②)에 유형·우선순위·담당자·마감·에픽·✦ AI·⋯ 를 가로 한 줄로.
 // 칩을 누르는 순간 입력칸 포커스를 기억하고 blur(키보드 내림) → 선택 시트 → 닫히면 그 칸으로 포커스 복귀(원칙 ③).
-// 상위 번호 입력·AI 이유·시작일 표시는 본문 영역 몫이라 여기선 칩 줄과 시트만 렌더한다(showParent 는 부모가 소유).
+// 상위 번호 입력·AI 이유·시작일 표시는 본문 영역 몫이라 여기선 칩 줄과 시트만 렌더한다.
 import { CalendarDays, CalendarPlus, Diamond, Flag, Hash, MoreHorizontal, User } from 'lucide-react';
 import { type ReactNode, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
@@ -26,14 +26,14 @@ const NO_EPIC = 'none';
 type Sheet = 'type' | 'priority' | 'assignee' | 'due' | 'epic' | 'start' | 'more' | null;
 
 export function CreateIssueChips({
-  projectKey, personal, f, focusReturn, onShowParent,
+  projectKey, personal, f, focusReturn, onFocusParent,
 }: {
   projectKey: string;
   personal: boolean;
   f: ReturnType<typeof useIssueCreateForm>;
   focusReturn: FocusReturn;
-  /** ⋯ → 「상위 이슈 번호」 — 본문 영역 인라인 입력을 띄운다(시트 안 입력칸은 원칙 ③ 위반이라 두지 않음). */
-  onShowParent: () => void;
+  /** ⋯ → 「상위 이슈 번호」 — 본문 영역의 (항상 보이는) 인라인 입력으로 포커스를 옮긴다(시트 안 입력칸은 원칙 ③ 위반이라 두지 않음). */
+  onFocusParent: () => void;
 }) {
   const { form, types, selectedType, isEpicSelected, isSubtaskSelected, classify, handleClassify, epicNumber, setEpicNumber } = f;
   const { watch, setValue } = form;
@@ -109,11 +109,11 @@ export function CreateIssueChips({
           key: 'parent',
           label: '상위 이슈 번호',
           icon: <Hash />,
-          // 제목으로 돌아가지 않고 인라인 번호 입력(autoFocus)으로 간다 — ⋯ 시트 트랩이 풀린 뒤 마운트되도록 이미 동기로 닫았다.
+          // 제목으로 돌아가지 않고 인라인 번호 입력으로 포커스를 보낸다 — ⋯ 시트 트랩이 풀린 뒤 마운트되도록 이미 동기로 닫았다.
           onSelect: () => {
             moreActed.current = true;
             focusReturn.discard();
-            onShowParent();
+            onFocusParent();
           },
         }]
       : []),

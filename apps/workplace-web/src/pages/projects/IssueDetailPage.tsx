@@ -421,6 +421,12 @@ export default function IssueDetailPage() {
     lastEditor === 'title' ? (titleControls ?? bodyControls) : (bodyControls ?? titleControls);
   // 모바일 「＋ 속성」 시트 open 상태 — 칩 줄의 「＋ 속성」 버튼이 열고, 아래 MobileSheetShell(issue-more-props-sheet)이 이 값으로 열림/닫힘을 제어한다.
   const [moreOpen, setMoreOpen] = useState(false);
+  // 시트 안 링크(의존성·상위 배지)로 다른 이슈로 이동하면 같은 라우트라 페이지 인스턴스가 재사용된다 — 이슈가 바뀌면 시트를 닫는다(렌더 중 상태 조정).
+  const [prevIssueKey, setPrevIssueKey] = useState(`${key}/${issueNumber}`);
+  if (prevIssueKey !== `${key}/${issueNumber}`) {
+    setPrevIssueKey(`${key}/${issueNumber}`);
+    setMoreOpen(false);
+  }
   const watcherCount = watchers.data?.length ?? 0;
   const mobileWatchLabel = isWatching ? `구독 중 · ${watcherCount}명` : '구독하기';
   // 삭제 확인 다이얼로그 open 상태 — shadcn AlertDialog 제어형.

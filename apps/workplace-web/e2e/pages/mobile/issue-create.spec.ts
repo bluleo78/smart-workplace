@@ -221,9 +221,13 @@ test.describe('생성 칩 줄', () => {
     await page.getByTestId('create-type-sheet').getByRole('option', { name: '하위 태스크' }).click();
     await expect(page.getByTestId('create-chip-type')).toContainText('하위 태스크');
     await expect(page.getByTestId('create-chip-epic')).toHaveCount(0);
+    // 하위 태스크를 고르는 즉시 상위 번호 입력이 보인다(⋯ 를 거치지 않아도) — 포커스는 훔치지 않는다.
+    const parent = page.getByTestId('create-parent-number');
+    await expect(parent).toBeVisible();
+    await expect(parent).not.toBeFocused();
+    // ⋯ → 상위 이슈 번호 는 이미 보이는 입력칸으로 포커스만 옮긴다.
     await page.getByTestId('create-chip-more').click();
     await page.getByTestId('mobile-action-parent').click();
-    const parent = page.getByTestId('create-parent-number');
     await expect(parent).toBeFocused();
     await parent.fill('7');
     await page.getByTestId('issue-create-submit').click();

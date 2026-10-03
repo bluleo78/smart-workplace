@@ -26,15 +26,10 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // 칩 → 시트 → 직전 입력칸 포커스 복귀(키보드 원칙 ③). 칩 줄과 본문 인라인 입력이 함께 쓴다.
   const focusReturn = useFocusReturn();
-  // SUBTASK 상위 번호 인라인 입력 노출 — ⋯ 시트 「상위 이슈 번호」로 켠다. 열릴 때마다 닫힌 상태로 시작(렌더 중 상태 조정, effect 불필요).
-  const [showParent, setShowParent] = useState(false);
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open) setShowParent(false);
-  }
-  // 상위 번호를 안 넣고 생성해 zod 오류가 나면 숨은 칸에 묻히지 않도록 입력을 드러낸다.
-  const parentVisible = f.isSubtaskSelected && (showParent || !!errors.parentNumber);
+  // SUBTASK 면 상위 번호 인라인 입력을 항상 노출(데스크톱과 동일) — 비워 두면 백엔드 400 이라 숨겨 둘 수 없다.
+  const parentVisible = f.isSubtaskSelected;
+  // ⋯ → 「상위 이슈 번호」: 이미 보이는 입력칸으로 포커스만 옮긴다(시트 트랩이 풀린 뒤 실행되도록 다음 프레임).
+  const focusParent = () => requestAnimationFrame(() => document.getElementById('create-parent-number')?.focus());
   const startDate = watch('startDate');
   const title = watch('title') ?? '';
   const body = watch('body') ?? '';
@@ -124,7 +119,6 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                     type="number"
                     inputMode="numeric"
                     min={1}
-                    autoFocus
                     data-testid="create-parent-number"
                     {...register('parentNumber', { valueAsNumber: true })}
                     className="h-11 w-full rounded-md border bg-background px-3 text-base"
@@ -137,7 +131,7 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
               {f.classifyReason && <p data-testid="create-ai-reason" className="line-clamp-2 text-xs text-muted-foreground">✦ {f.classifyReason}</p>}
             </div>
             <div className="min-h-14 shrink-0 border-t bg-background" data-testid="issue-create-chips">
-              <CreateIssueChips projectKey={projectKey} personal={personal} f={f} focusReturn={focusReturn} onShowParent={() => setShowParent(true)} />
+              <CreateIssueChips projectKey={projectKey} personal={personal} f={f} focusReturn={focusReturn} onFocusParent={focusParent} />
             </div>
           </form>
         </DialogPrimitive.Content>

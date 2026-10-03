@@ -237,6 +237,24 @@ test.describe('＋ 속성 시트', () => {
     expect(onTop).toBe(true);
   });
 
+  test('속성 시트 안 링크로 다른 이슈로 이동하면 시트가 닫힌다', async ({ authenticatedPage: page }) => {
+    await mockDetail(page, { type: makeSubtaskType(), parent: { number: 3, title: '선행 작업', type: makeTaskType() } });
+    // 이동 대상 이슈 3 — 이슈 7 스텁보다 나중에 등록해 우선한다.
+    await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues/3`, (r) =>
+      r.fulfill(json(createIssueDetail({
+        summary: createIssue({ id: 3, number: 3, projectKey: KEY, type: makeTaskType(), title: '선행 작업' }),
+        body: '',
+      }))));
+    await openDetail(page);
+    await page.getByTestId('mobile-prop-more').click();
+    const sheet = page.getByTestId('issue-more-props-sheet');
+    await expect(sheet).toBeVisible();
+    await sheet.getByTestId('issue-parent-slot').getByRole('link').click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/3$`));
+    await expect(page.getByTestId('issue-title-heading')).toContainText('선행 작업');
+    await expect(page.getByTestId('issue-more-props-sheet')).toHaveCount(0);
+  });
+
   test('서브태스크는 시트에 부모 슬롯이 있다', async ({ authenticatedPage: page }) => {
     await mockDetail(page, { type: makeSubtaskType(), parent: { number: 3, title: '부모 태스크', type: makeTaskType() } });
     await openDetail(page);
