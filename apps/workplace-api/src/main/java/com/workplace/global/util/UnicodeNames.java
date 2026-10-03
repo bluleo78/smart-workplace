@@ -17,4 +17,9 @@ public final class UnicodeNames {
   public static String toNfc(String s) {
     return s == null ? null : Normalizer.normalize(s, Normalizer.Form.NFC);
   }
+
+  /** 입력을 NFC 로 정규화하되, null·공백뿐이면 fallback 을 돌려준다 — 업로드 원본 파일명이 비어 올 때의 표시·저장 이름 통일용. */
+  public static String toNfcOrDefault(String raw, String fallback) {
+    return raw == null || raw.isBlank() ? fallback : toNfc(raw);
+  }
 }

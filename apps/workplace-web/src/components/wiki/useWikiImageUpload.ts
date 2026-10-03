@@ -5,31 +5,10 @@ import { toast } from 'sonner'
 
 import { wikiApi } from '../../api/wiki'
 import { extractApiError } from '../../lib/api-error'
+import { clipboardHasText, INVALID_IMAGE_MSG, isValidImageFile } from '../../lib/imageUpload'
 
-/** 클라이언트에서 미리 거르는 이미지 MIME. 최종 판정은 서버(매직바이트)가 한다. */
-const ACCEPTED = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
-const MAX_BYTES = 10 * 1024 * 1024
-const INVALID_MSG = 'PNG·JPEG·GIF·WebP 이미지만 10MB 까지 올릴 수 있습니다.'
+// 형식·크기 검사와 클립보드 텍스트 판정은 이슈 본문 업로드와 공용(lib/imageUpload).
 const DATA_URI_REJECTED_MSG = '붙여넣은 이미지를 사용할 수 없습니다.'
-
-function isValidImageFile(file: File): boolean {
-  return ACCEPTED.has(file.type) && file.size <= MAX_BYTES
-}
-
-/**
- * 클립보드에 PM 이 삽입할 텍스트가 있는지 판정한다. PM 자신의 `getText`(prosemirror-view
- * dist:3675-3681)와 같은 폴백 순서를 따른다 — `text/plain` → `Text`(구 IE) → `text/uri-list`.
- * `text/plain` 만 보면, PM 은 `Text`/`text/uri-list` 로만 채워진 텍스트를 붙여넣을 텐데 우리는
- * "잃을 게 없다"고 오판해 이미지-only 분기(preventDefault+true)로 새 버릴 수 있다 — Blocker 의
- * 더 좁은 재발 형태다.
- */
-function clipboardHasText(data: DataTransfer): boolean {
-  return (
-    data.getData('text/plain') !== '' ||
-    data.getData('Text') !== '' ||
-    data.getData('text/uri-list') !== ''
-  )
-}
 
 /** `text/html` 에 포함된 `data:image/...` src 들을 File 로 변환한다(엑셀 등에서 복사된 인라인 이미지). */
 async function extractDataUriFiles(html: string): Promise<File[]> {
@@ -188,12 +167,12 @@ export function useWikiImageUpload(pageId: number, canEditRef: { current: boolea
         // 아닌 파일"은 아무 반응이 없어 사용자가 뭐가 잘못됐는지 알 수 없다(finding 3). handlePaste
         // 는 호출 전에 이미 이미지로만 걸러 넘기고 슬래시 메뉴 file input 도 accept 로 걸러져 있어,
         // 이 분기는 사실상 handleDrop 에서만 닿는다.
-        if (files.length > 0) toast.error(INVALID_MSG)
+        if (files.length > 0) toast.error(INVALID_IMAGE_MSG)
         return false
       }
       // 유효성 검사를 먼저 한다 — 업로드할 파일이 하나도 없으면 선택 위치도 옮기지 않는다(I1).
       const valid = imageFiles.filter(isValidImageFile)
-      if (valid.length < imageFiles.length) toast.error(INVALID_MSG)
+      if (valid.length < imageFiles.length) toast.error(INVALID_IMAGE_MSG)
       if (valid.length === 0) return false
       view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos))))
       void uploadSequential(view, valid)

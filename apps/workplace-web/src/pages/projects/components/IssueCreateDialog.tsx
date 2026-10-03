@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -15,9 +15,11 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
+import { IssueBodyImageButton } from '../../../components/issue/IssueBodyImageButton';
 import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
+import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
@@ -43,12 +45,23 @@ export function IssueCreateDialog({
     register,
     handleSubmit,
     reset,
+    getValues,
     setValue,
     watch,
     formState: { errors },
   } = useForm<CreateIssueFormData>({
     resolver: zodResolver(createIssueSchema),
     defaultValues: { priority: 'MID' },
+  });
+
+  // 본문 이미지 업로드(WP-199) — register 의 ref 와 우리 ref 를 함께 쓰기 위해 bodyField.ref 를 감싼다.
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const bodyField = register('body');
+  const images = useIssueImageUpload({
+    projectKey,
+    textareaRef: bodyRef,
+    getValue: () => getValues('body') ?? '',
+    setValue: (v) => setValue('body', v, { shouldDirty: true }),
   });
 
   // dialog가 열릴 때 폼 상태 초기화 — 닫혀있는 동안 react-hook-form 상태가 유지되므로 재열기 시 reset 필요.
@@ -110,6 +123,11 @@ export function IssueCreateDialog({
   };
 
   const onSubmit = async (data: CreateIssueFormData) => {
+    // 업로드가 끝나지 않은 자리표시 토큰이 저장되지 않게 마지막으로 막는다(버튼 비활성의 우회 경로 — Enter 제출 등).
+    if (images.pendingBlock(data.body ?? '')) {
+      toast.error('이미지 업로드가 끝난 뒤 등록해 주세요');
+      return;
+    }
     const payload = {
       ...data,
       dueDate: data.dueDate || undefined,
@@ -140,8 +158,22 @@ export function IssueCreateDialog({
             <Input id="issue-title" {...register('title')} />
           </FormField>
           <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="issue-body">본문</label>
-            <Textarea id="issue-body" {...register('body')} rows={6} />
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-sm font-medium" htmlFor="issue-body">본문</label>
+              <IssueBodyImageButton onFiles={images.uploadFiles} />
+            </div>
+            <Textarea
+              id="issue-body"
+              {...bodyField}
+              ref={(el) => {
+                bodyField.ref(el);
+                bodyRef.current = el;
+              }}
+              rows={6}
+              onPaste={images.onPaste}
+              onDrop={images.onDrop}
+              onDragOver={images.onDragOver}
+            />
           </div>
           {/* AI 분류 제안 버튼 — 제목이 있을 때만 활성화. */}
           <AiClassifyButton
@@ -230,7 +262,7 @@ export function IssueCreateDialog({
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
-            <Button type="submit" disabled={create.isPending}>{create.isPending ? '생성 중…' : '생성'}</Button>
+            <Button type="submit" disabled={create.isPending || images.isUploading}>{create.isPending ? '생성 중…' : '생성'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

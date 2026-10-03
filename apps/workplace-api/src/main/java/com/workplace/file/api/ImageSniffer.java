@@ -1,19 +1,38 @@
-package com.workplace.wiki.service;
+package com.workplace.file.api;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.util.Optional;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 업로드된 바이트의 앞부분을 보고 이미지 형식을 판정한다.
  *
  * <p>브라우저가 보낸 Content-Type 은 위조 가능하므로 신뢰하지 않는다. 실제로 HTML 을 image/png 라고 선언해 올리면 inline 응답으로 스크립트가
  * 실행될 수 있다. SVG 는 XML 이라 매직바이트가 없고 스크립트 삽입 벡터이므로 애초에 화이트리스트에서 제외한다.
+ *
+ * <p>위키 본문 이미지와 이슈 본문 이미지(WP-199)가 공유한다 — 도메인이 서로의 내부를 import 하지 않도록 file 코어 api 에 둔다.
  */
-public final class WikiImageSniffer {
+public final class ImageSniffer {
 
-  private WikiImageSniffer() {}
+  private ImageSniffer() {}
 
   /** 판정에 필요한 최소 바이트 수. */
   public static final int HEAD_BYTES = 16;
+
+  /**
+   * 업로드 파일의 앞 HEAD_BYTES 만 읽어 판정한다. getInputStream 은 호출마다 새 스트림이라 이후 저장 스트림을 소비하지 않는다. 읽기 실패는
+   * UncheckedIOException 으로 감싼다 — 위키·이슈 업로드가 같은 읽기 블록을 반복하지 않게 공용화. detect(null) 호출이 모호해지지 않도록 이름을
+   * 달리한다.
+   */
+  public static Optional<String> detectUpload(MultipartFile file) {
+    try (InputStream in = file.getInputStream()) {
+      return detect(in.readNBytes(HEAD_BYTES));
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
 
   /** 허용 형식이면 정규 MIME 을, 아니면 empty 를 반환한다. */
   public static Optional<String> detect(byte[] head) {

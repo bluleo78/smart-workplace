@@ -18,6 +18,8 @@ async function setupOpenProjectMocks(
     viewerCanEditWorkflow: boolean;
     viewerCanDelete: boolean;
     viewerIsMember: boolean;
+    /** 이슈 본문(미지정 시 팩토리 기본값) — 본문 이미지 열람 케이스에서 사용. */
+    body?: string;
   },
 ) {
   const project = createProject({
@@ -28,6 +30,7 @@ async function setupOpenProjectMocks(
   const summary = createIssue({ projectKey: PROJECT_KEY, number: ISSUE_NUMBER, reporterId: 2 });
   const detail = createIssueDetail({
     summary,
+    ...(options.body !== undefined ? { body: options.body } : {}),
     viewerCanEditContent: options.viewerCanEditContent,
     viewerCanEditWorkflow: options.viewerCanEditWorkflow,
     viewerCanDelete: options.viewerCanDelete,
@@ -283,5 +286,76 @@ test(
     await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
     await expect(page.getByTestId('attachment-dropzone')).toHaveCount(0);
     await expect(page.getByTestId('issue-drive-link-add-btn')).toHaveCount(0);
+  },
+);
+
+// ─── 이슈 상세 — 본문 이미지 권한 (WP-199) ─────────────────────────────────────
+// 왜: 이미지 업로드 권한도 본문 편집 권한과 같다. OPEN 비멤버 reporter 는 붙여넣기 업로드가 실제로 나가야 하고,
+//     편집 불가 열람자는 이미지 버튼이 없지만 본문에 이미 있는 이미지는 볼 수 있어야 한다.
+
+const IMG_URL = `/api/v1/projects/${PROJECT_KEY}/issue-images/77`;
+// 1x1 투명 PNG
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+test(
+  'OPEN reporter(비멤버): 본문 편집에서 이미지 버튼 표시 + 붙여넣기 시 업로드 요청 전송',
+  async ({ authenticatedPage: page }) => {
+    await setupOpenProjectMocks(page, {
+      viewerCanEditContent: true,
+      viewerCanEditWorkflow: false,
+      viewerCanDelete: false,
+      viewerIsMember: false,
+    });
+    // 업로드 POST 스텁 — 비멤버도 실제로 엔드포인트를 호출하는지만 확인한다.
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}/issue-images`, (route) =>
+      route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ fileId: 77, url: IMG_URL, name: 'bug.png', mimeType: 'image/png', size: 70 }),
+      }),
+    );
+    await page.route(`**${IMG_URL}`, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    await page.getByRole('button', { name: '본문 편집' }).click();
+    await expect(page.getByTestId('issue-body-image-button')).toBeVisible();
+
+    const uploadReq = page.waitForRequest(
+      (req) => req.method() === 'POST' && req.url().endsWith(`/projects/${PROJECT_KEY}/issue-images`),
+    );
+    await page.getByTestId('issue-body-textarea').evaluate((el) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'bug.png', { type: 'image/png' }));
+      el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+    });
+    // multipart 본문에 붙여넣은 파일이 실려 간다.
+    expect((await uploadReq).postData() ?? '').toContain('filename="bug.png"');
+    await expect(page.getByTestId('issue-body-textarea')).toHaveValue(new RegExp(`!\\[bug\\.png\\]\\(${IMG_URL.replace(/\//g, '\\/')}\\)`));
+  },
+);
+
+test(
+  'OPEN 열람자(편집 불가): 본문 편집 비활성·이미지 버튼 없음, 본문 이미지는 표시',
+  async ({ authenticatedPage: page }) => {
+    await setupOpenProjectMocks(page, {
+      viewerCanEditContent: false,
+      viewerCanEditWorkflow: false,
+      viewerCanDelete: false,
+      viewerIsMember: false,
+      body: `재현 화면\n\n![bug.png](${IMG_URL})`,
+    });
+    await page.route(`**${IMG_URL}`, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // 열람은 가능 — 인증 blob 으로 이미지가 로드된다.
+    await expect(page.getByRole('img', { name: 'bug.png' })).toHaveAttribute('src', /^blob:/);
+    // 편집 진입 불가 → textarea·이미지 버튼 모두 없다.
+    await expect(page.getByRole('button', { name: '본문 편집' })).toHaveAttribute('aria-disabled', 'true');
+    await page.getByRole('button', { name: '본문 편집' }).click({ force: true });
+    await expect(page.getByTestId('issue-body-textarea')).toHaveCount(0);
+    await expect(page.getByTestId('issue-body-image-button')).toHaveCount(0);
   },
 );

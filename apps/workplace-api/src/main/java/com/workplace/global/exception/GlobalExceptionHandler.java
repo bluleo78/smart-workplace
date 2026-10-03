@@ -417,6 +417,22 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
   }
 
+  // 이슈 본문 이미지(WP-199) — 거부(400: 빈 파일·크기 초과·형식 아님) / 임시 업로드 상한(409)
+  @ExceptionHandler(com.workplace.issue.exception.IssueBodyImageRejectedException.class)
+  public ResponseEntity<ErrorResponse> handleIssueBodyImageRejected(
+      com.workplace.issue.exception.IssueBodyImageRejectedException ex,
+      HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  @ExceptionHandler(com.workplace.issue.exception.IssueBodyImageLimitException.class)
+  public ResponseEntity<ErrorResponse> handleIssueBodyImageLimit(
+      com.workplace.issue.exception.IssueBodyImageLimitException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
   // #759 저장 중 첨부 승격이 정리 스윕과 경합해 실패 — 재시도로 풀리므로 409.
   @ExceptionHandler(com.workplace.wiki.exception.WikiAttachmentPromoteRaceException.class)
   public ResponseEntity<ErrorResponse> handleWikiPromoteRace(

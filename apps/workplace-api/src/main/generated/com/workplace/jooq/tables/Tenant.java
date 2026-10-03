@@ -43,6 +43,7 @@ import com.workplace.jooq.tables.Issue.IssuePath;
 import com.workplace.jooq.tables.IssueAiSummary.IssueAiSummaryPath;
 import com.workplace.jooq.tables.IssueAssignee.IssueAssigneePath;
 import com.workplace.jooq.tables.IssueAttachment.IssueAttachmentPath;
+import com.workplace.jooq.tables.IssueBodyImage.IssueBodyImagePath;
 import com.workplace.jooq.tables.IssueComment.IssueCommentPath;
 import com.workplace.jooq.tables.IssueCycle.IssueCyclePath;
 import com.workplace.jooq.tables.IssueDependency.IssueDependencyPath;
@@ -1064,6 +1065,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _homeActionProposal = new HomeActionProposalPath(this, null, Keys.HOME_ACTION_PROPOSAL__HOME_ACTION_PROPOSAL_TENANT_ID_FKEY.getInverseKey());
 
         return _homeActionProposal;
+    }
+
+    private transient IssueBodyImagePath _issueBodyImage;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_body_image</code> table
+     */
+    public IssueBodyImagePath issueBodyImage() {
+        if (_issueBodyImage == null)
+            _issueBodyImage = new IssueBodyImagePath(this, null, Keys.ISSUE_BODY_IMAGE__ISSUE_BODY_IMAGE_TENANT_ID_FKEY.getInverseKey());
+
+        return _issueBodyImage;
     }
 
     private transient MembershipPath _membership;

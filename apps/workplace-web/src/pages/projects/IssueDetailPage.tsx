@@ -24,6 +24,8 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 
+import { IssueBodyImage } from '../../components/issue/IssueBodyImage';
+import { IssueBodyImageButton } from '../../components/issue/IssueBodyImageButton';
 import { IssueInstantContextCard } from '../../components/issue/IssueInstantContextCard';
 import { IssueTypeSelectPopover } from '../../components/issueTypes/IssueTypeSelectPopover';
 import { useGenerateAiSummary, useIssue, useUpdateIssue } from '../../hooks/queries/useIssue';
@@ -39,6 +41,7 @@ import { useWatchers, useWatchToggle } from '../../hooks/queries/useWatchToggle'
 import { useAiAvailable } from '../../hooks/useAiAvailable';
 import { useAuth } from '../../hooks/useAuth';
 import { useIsMobile } from '../../hooks/useIsMobile';
+import { useIssueImageUpload } from '../../hooks/useIssueImageUpload';
 import { useReturnOnEscape, useReturnToIssueOrigin } from '../../hooks/useIssueOrigin';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
@@ -83,6 +86,20 @@ function clearBodyDraft(key: string): void {
   }
 }
 
+/**
+ * 보기 모드 본문("클릭=편집 진입" 래퍼)에서 받은 이벤트가 본문 안 상호작용 요소에서 온 것인지(WP-199).
+ * 링크·버튼·이미지(클릭 시 미리보기)는 각자 동작해야 하므로 편집 진입을 하지 않는다.
+ * 미리보기 모달은 포털이라 DOM 상 래퍼 밖이지만 React 합성 이벤트는 래퍼까지 전파된다 —
+ * 대상이 래퍼 DOM 밖(포털: 모달 본문·오버레이·닫기 버튼)이면 역시 무시한다. 자식마다 전파를 끊는 대신 경계를 한 곳에서 판정한다.
+ */
+function isFromInteractiveDescendant(e: React.SyntheticEvent<HTMLElement>): boolean {
+  const target = e.target as Element;
+  if (!e.currentTarget.contains(target)) return true;
+  // 래퍼 바깥 조상(페이지 레이아웃의 링크 등)이 걸리지 않게 래퍼 안에서 찾은 요소만 본다.
+  const hit = target.closest('a,button,img,[role="dialog"]');
+  return hit !== null && e.currentTarget.contains(hit);
+}
+
 // 본문 인라인 편집 — 표시(prose)와 편집(textarea) 토글.
 // 무엇을: 본문 영역을 연필로 textarea 로 전환, blur·Cmd/Ctrl+Enter 저장, Escape 취소.
 // 빈 본문은 허용(스키마는 max 길이만 제약). 변화 없으면 PATCH 생략.
@@ -109,6 +126,28 @@ function InlineEditableBody({
   const [showDraftBanner, setShowDraftBanner] = useState(false);
   const draftKey = bodyDraftKey(projectKey, issueNumber);
 
+  // 이미지 붙여넣기·드롭·버튼 업로드(WP-199) — 업로드 중엔 본문에 자리표시 토큰이 들어가 있다.
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // 편집 진입 후 캐럿 초기화(끝으로) 완료 여부 — 진입마다 한 번만.
+  const caretInit = useRef(false);
+  // 업로드 콜백은 비동기라 렌더 시점 draft 가 아니라 항상 최신 값을 봐야 한다 — ref 로 미러링.
+  const draftRef = useRef(draft);
+  // 렌더 중 ref 쓰기는 금지(react-hooks/refs) — 커밋 후 effect 로 동기화. 업로드 setValue 는 ref 를 즉시 갱신한다.
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  const images = useIssueImageUpload({
+    projectKey,
+    textareaRef,
+    getValue: () => draftRef.current,
+    setValue: (v) => {
+      draftRef.current = v;
+      setDraft(v);
+    },
+    enabled: !disabled,
+  });
+  const uploading = images.isUploading;
+
   // 저장 없이 새로고침/탭 닫기로 이탈 시 경고(#823) — 코멘트 작성창(#620)·이슈 생성
   // 다이얼로그와 동일 패턴. beforeunload 만 커버하므로 SPA 내부 네비게이션(사이드바 링크·
   // 뒤로가기)은 아래 localStorage 초안 자동저장(#824)으로 보완한다. 이 경고는 그대로 유지.
@@ -132,6 +171,7 @@ function InlineEditableBody({
     setDraft(body ?? '');
     const stored = readBodyDraft(draftKey);
     setShowDraftBanner(stored != null && stored !== (body ?? ''));
+    caretInit.current = false;
     setEditing(true);
     onEditStart?.();
   };
@@ -148,6 +188,14 @@ function InlineEditableBody({
   };
   // 저장 — 빈 값 허용, 변화 없으면 무의미 요청 차단. 저장 후 초안은 정리해 남기지 않는다.
   const save = async () => {
+    // 업로드 중 자리표시 토큰이 서버에 저장되지 않도록 단축키·버튼 공통으로 막는다.
+    const block = images.pendingBlock(draft);
+    if (block === 'uploading') return;
+    if (block === 'stale-token') {
+      // 진행 중 업로드가 없는데 토큰이 남은 건 복원된 초안의 잔재 — 조용히 무시하면 저장이 안 되는 이유를 알 수 없다.
+      toast.error('업로드가 끝나지 않은 이미지가 있습니다. 해당 줄을 지우고 다시 저장해 주세요');
+      return;
+    }
     setEditing(false);
     setShowDraftBanner(false);
     if (draft === (body ?? '')) {
@@ -157,7 +205,10 @@ function InlineEditableBody({
     // #611 초안은 저장이 성공한 뒤에만 지운다 — 충돌(409)·오류로 실패하면 입력한 본문을 그대로 두고 편집을 다시 연다.
     writeBodyDraft(draftKey, draft);
     if (await onSave(draft)) clearBodyDraft(draftKey);
-    else setEditing(true);
+    else {
+      caretInit.current = false;
+      setEditing(true);
+    }
   };
   // 취소 — draft 폐기, 편집 종료. 초안도 함께 정리(#824 — 취소 시 남기지 않음).
   const cancel = () => {
@@ -175,11 +226,12 @@ function InlineEditableBody({
         tabIndex={disabled ? -1 : 0}
         aria-label="본문 편집"
         aria-disabled={disabled}
-        onClick={() => {
-          if (!disabled) enter();
+        onClick={(e) => {
+          if (disabled || isFromInteractiveDescendant(e)) return;
+          enter();
         }}
         onKeyDown={(e) => {
-          if (disabled) return;
+          if (disabled || isFromInteractiveDescendant(e)) return;
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             enter();
@@ -191,7 +243,9 @@ function InlineEditableBody({
       >
         {/* 뷰 모드 = 마크다운 렌더(## 제목·**볼드**·- [ ] 체크박스). 편집 모드(textarea)는 raw — 대비 확보. */}
         {body ? (
-          <MarkdownMessage>{body}</MarkdownMessage>
+          <MarkdownMessage renderImage={(p) => <IssueBodyImage projectKey={projectKey} {...p} />}>
+            {body}
+          </MarkdownMessage>
         ) : (
           <em className="text-sm text-muted-foreground">본문 없음</em>
         )}
@@ -231,11 +285,22 @@ function InlineEditableBody({
       )}
       <Textarea
         autoFocus
+        // 편집 진입 시 캐럿을 끝으로 — 기본 0 이면 이미지 버튼이 본문 맨 앞에 삽입한다. 포커스 시 한 번만.
+        onFocus={(e) => {
+          if (caretInit.current) return;
+          caretInit.current = true;
+          const n = e.currentTarget.value.length;
+          e.currentTarget.setSelectionRange(n, n);
+        }}
         data-testid="issue-body-textarea"
         className="min-h-[160px]"
+        ref={textareaRef}
         value={draft}
         disabled={disabled}
         onChange={(e) => setDraft(e.target.value)}
+        onPaste={images.onPaste}
+        onDrop={images.onDrop}
+        onDragOver={images.onDragOver}
         onKeyDown={(e) => {
           // 단축키: Cmd/Ctrl+Enter 저장 · Esc 취소. (blur 저장 없음 — 명시적 버튼 사용)
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -243,24 +308,32 @@ function InlineEditableBody({
             save();
           } else if (e.key === 'Escape') {
             e.preventDefault();
-            cancel();
+            // 업로드 중 취소하면 재진입 시 draft 가 초기화돼 완료된 이미지 토큰이 유실된다 — 끝날 때까지 무시.
+            if (!uploading) cancel();
           }
         }}
       />
       {/* 편집 액션 — 하단 좌측 저장/취소(Jira 식). */}
       <div className="flex items-center gap-2">
-        <Button size="sm" onClick={save} disabled={disabled} data-testid="issue-body-save">
+        <Button
+          size="sm"
+          onClick={save}
+          disabled={disabled || uploading}
+          data-testid="issue-body-save"
+        >
           저장
         </Button>
         <Button
           size="sm"
           variant="ghost"
           onClick={cancel}
-          disabled={disabled}
+          disabled={disabled || uploading}
           data-testid="issue-body-cancel"
         >
           취소
         </Button>
+        {/* 이미지 첨부 — 버튼 선택 외에 붙여넣기·드롭도 지원함을 안내(우측 정렬). */}
+        <IssueBodyImageButton className="ml-auto" onFiles={images.uploadFiles} disabled={disabled} />
       </div>
     </div>
   );

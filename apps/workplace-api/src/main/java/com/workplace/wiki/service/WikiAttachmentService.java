@@ -1,6 +1,7 @@
 package com.workplace.wiki.service;
 
 import com.workplace.drive.service.DriveQuotaService;
+import com.workplace.file.api.ImageSniffer;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.util.UnicodeNames;
 import com.workplace.wiki.dto.WikiAttachmentResponse;
@@ -11,9 +12,6 @@ import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.outbound.WikiChangeNotifier;
 import com.workplace.wiki.repository.WikiAttachmentRepository;
 import com.workplace.wiki.repository.WikiPageRepository;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.HashSet;
@@ -89,16 +87,9 @@ public class WikiAttachmentService {
           "파일 크기가 한도를 초과했습니다: " + file.getSize() + " > " + maxImageSizeBytes);
     }
 
-    // 브라우저 Content-Type 은 위조 가능하므로 신뢰하지 않고 앞 HEAD_BYTES 만 별도 스트림으로 읽어
-    // 매직바이트로 판정한다(MultipartFile.getInputStream() 은 호출마다 새 스트림이라 본 저장 스트림을 소비하지 않음).
-    byte[] head;
-    try (InputStream in = file.getInputStream()) {
-      head = in.readNBytes(WikiImageSniffer.HEAD_BYTES);
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
+    // 브라우저 Content-Type 은 위조 가능하므로 신뢰하지 않고 앞부분 매직바이트로 판정한다(별도 스트림이라 본 저장 스트림을 소비하지 않음).
     String detectedMime =
-        WikiImageSniffer.detect(head)
+        ImageSniffer.detectUpload(file)
             .orElseThrow(() -> new WikiAttachmentRejectedException("지원하지 않는 이미지 형식입니다."));
 
     // #759 (A) 매핑 총개수 하드 실링 — 아래의 해소 가능한 상한과 직교한다. 참조를 지우면 아래 상한은 풀리지만

@@ -46,6 +46,7 @@ import com.workplace.jooq.tables.Issue;
 import com.workplace.jooq.tables.IssueAiSummary;
 import com.workplace.jooq.tables.IssueAssignee;
 import com.workplace.jooq.tables.IssueAttachment;
+import com.workplace.jooq.tables.IssueBodyImage;
 import com.workplace.jooq.tables.IssueComment;
 import com.workplace.jooq.tables.IssueCycle;
 import com.workplace.jooq.tables.IssueDependency;
@@ -333,6 +334,11 @@ public class Public extends SchemaImpl {
      * 이슈-파일 매핑(1:N). file 테이블 공유.
      */
     public final IssueAttachment ISSUE_ATTACHMENT = IssueAttachment.ISSUE_ATTACHMENT;
+
+    /**
+     * 이슈 본문 이미지 매핑. issue_id NULL = 저장 전 임시 업로드(WP-199).
+     */
+    public final IssueBodyImage ISSUE_BODY_IMAGE = IssueBodyImage.ISSUE_BODY_IMAGE;
 
     /**
      * The table <code>public.issue_comment</code>.
@@ -675,6 +681,7 @@ public class Public extends SchemaImpl {
             IssueAiSummary.ISSUE_AI_SUMMARY,
             IssueAssignee.ISSUE_ASSIGNEE,
             IssueAttachment.ISSUE_ATTACHMENT,
+            IssueBodyImage.ISSUE_BODY_IMAGE,
             IssueComment.ISSUE_COMMENT,
             IssueCycle.ISSUE_CYCLE,
             IssueDependency.ISSUE_DEPENDENCY,
