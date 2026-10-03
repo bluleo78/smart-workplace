@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.UpdateIssueRequest;
+import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -148,6 +149,19 @@ class IssueBodyImageRetentionPolicyTest extends IntegrationTestBase {
         owner,
         p.key(),
         createReq("t", "/api/v1/projects/" + p.key() + "/issue-images/" + fileId + "7"));
+
+    assertThat(policy.retain(List.of(fileId))).isEmpty();
+  }
+
+  @Test
+  void pending_image_referenced_by_other_users_issue_is_not_retained() {
+    Long owner = createUser("owner");
+    Long other = createUser("other");
+    ProjectResponse p = newProject(owner, "RN");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+    // 남이 미연결(임시) 이미지 URL 을 본문에 붙여넣어도 claim 되지 않는다 — 보존되면 임시 파일이 영구히 남는다.
+    issueService.create(other, p.key(), createReq("남의 본문", ref(p.key(), fileId)));
 
     assertThat(policy.retain(List.of(fileId))).isEmpty();
   }

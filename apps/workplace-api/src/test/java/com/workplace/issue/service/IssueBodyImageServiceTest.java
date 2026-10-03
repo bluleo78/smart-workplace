@@ -324,6 +324,45 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void overflow_20_digit_id_is_ignored_and_save_succeeds() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "SO");
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+
+    // 20자리 id 는 앞 19자리로 잘려 다른 id 로 읽히면 안 된다. 정상 id 참조는 그대로 연결.
+    var created =
+        issueService.create(
+            owner,
+            p.key(),
+            createReq(
+                "t",
+                ref(p.key(), fileId)
+                    + "![x](/api/v1/projects/"
+                    + p.key()
+                    + "/issue-images/"
+                    + fileId
+                    + "0000000000000000000)"));
+
+    assertThat(created.id()).isPositive();
+    assertThat(repo.findMeta(fileId).orElseThrow().issueId()).isNotNull();
+  }
+
+  @Test
+  void image_bound_to_issue_a_stays_when_referenced_by_issue_b() {
+    Long owner = createUser("owner");
+    Long other = createUser("other");
+    ProjectResponse p = newProject(owner, "SM");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+    var a = issueService.create(owner, p.key(), createReq("A", ref(p.key(), fileId)));
+
+    // 다른 멤버가 B 본문에 같은 이미지를 붙여넣어도 소유 이슈(A)는 그대로다.
+    issueService.create(other, p.key(), createReq("B", "복사 " + ref(p.key(), fileId)));
+
+    assertThat(repo.findMeta(fileId).orElseThrow().issueId()).isEqualTo(a.id());
+  }
+
+  @Test
   void removing_from_body_demotes_and_reinserting_restores() {
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "SD");

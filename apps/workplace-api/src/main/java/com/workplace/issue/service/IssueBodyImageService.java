@@ -75,10 +75,13 @@ public class IssueBodyImageService {
   private static Set<Long> referencedFileIds(String projectKey, String body) {
     Set<Long> ids = new LinkedHashSet<>();
     if (body == null || body.isBlank()) return ids;
-    // \d{1,19}: Long.MAX_VALUE 자릿수. 범위를 넘는 값은 parseLong 이 던지므로 건너뛴다 — 본문은 자유 텍스트라 저장이 깨지면 안 된다.
+    // \d{1,19}: Long.MAX_VALUE 자릿수. (?!\\d) 로 20자리 이상 숫자는 일부만 잘려 매칭되지 않게 하고, 범위를 넘는 19자리 값은
+    // parseLong 이 던지므로 건너뛴다 — 본문은 자유 텍스트라 저장이 깨지면 안 된다.
     Matcher m =
         Pattern.compile(
-                "/api/v1/projects/" + Pattern.quote(projectKey) + "/issue-images/(\\d{1,19})")
+                "/api/v1/projects/"
+                    + Pattern.quote(projectKey)
+                    + "/issue-images/(\\d{1,19})(?!\\d)")
             .matcher(body);
     while (m.find()) {
       try {

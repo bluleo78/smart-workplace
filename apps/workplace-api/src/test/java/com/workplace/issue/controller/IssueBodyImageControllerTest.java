@@ -105,7 +105,12 @@ class IssueBodyImageControllerTest {
         .andExpect(content().contentType("image/png"))
         .andExpect(
             header().string("Content-Disposition", org.hamcrest.Matchers.startsWith("inline")))
-        .andExpect(header().string("X-Content-Type-Options", "nosniff"));
+        .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+        // 인증이 필요한 이미지라 공유 캐시 금지(private) + 5분 브라우저 캐시.
+        .andExpect(
+            header().string("Cache-Control", org.hamcrest.Matchers.containsString("private")))
+        .andExpect(
+            header().string("Cache-Control", org.hamcrest.Matchers.containsString("max-age=300")));
   }
 
   @Test

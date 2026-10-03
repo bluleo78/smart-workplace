@@ -133,7 +133,7 @@ public class IssueBodyImageRepository {
   }
 
   /**
-   * 주어진 fileId 중 이슈 이미지이면서, 같은 프로젝트의 삭제되지 않은 이슈 본문 어디서든 아직 참조되는 것.
+   * 주어진 fileId 중 이슈에 연결된(issue_id NOT NULL) 이슈 이미지이면서, 같은 프로젝트의 삭제되지 않은 이슈 본문 어디서든 아직 참조되는 것.
    *
    * <p>본문을 복사해 다른 이슈에 붙여넣은 이미지는 원본 이슈 매핑으로 서빙되므로, 원본에서 빠졌다고 지우면 사본이 깨진다. 스윕 시점에만 호출되므로 본문 정규식 스캔
    * 비용을 감당할 수 있다. 정규식 끝의 ([^0-9]|$) 는 /issue-images/12 가 123 에 매칭되는 것을 막는다.
@@ -144,6 +144,8 @@ public class IssueBodyImageRepository {
         dsl.select(ISSUE_BODY_IMAGE.FILE_ID, ISSUE_BODY_IMAGE.PROJECT_ID)
             .from(ISSUE_BODY_IMAGE)
             .where(ISSUE_BODY_IMAGE.FILE_ID.in(fileIds))
+            // 이슈에 연결된(claim 된) 이미지만 후보 — 미연결 임시 업로드는 남이 URL 을 붙여넣어도 24h 뒤 만료돼야 한다.
+            .and(ISSUE_BODY_IMAGE.ISSUE_ID.isNotNull())
             .fetch();
     Set<Long> alive = new LinkedHashSet<>();
     for (var c : candidates) {
