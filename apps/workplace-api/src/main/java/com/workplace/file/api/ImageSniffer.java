@@ -1,4 +1,4 @@
-package com.workplace.wiki.service;
+package com.workplace.file.api;
 
 import java.util.Optional;
 
@@ -7,10 +7,12 @@ import java.util.Optional;
  *
  * <p>브라우저가 보낸 Content-Type 은 위조 가능하므로 신뢰하지 않는다. 실제로 HTML 을 image/png 라고 선언해 올리면 inline 응답으로 스크립트가
  * 실행될 수 있다. SVG 는 XML 이라 매직바이트가 없고 스크립트 삽입 벡터이므로 애초에 화이트리스트에서 제외한다.
+ *
+ * <p>위키 본문 이미지와 이슈 본문 이미지(WP-199)가 공유한다 — 도메인이 서로의 내부를 import 하지 않도록 file 코어 api 에 둔다.
  */
-public final class WikiImageSniffer {
+public final class ImageSniffer {
 
-  private WikiImageSniffer() {}
+  private ImageSniffer() {}
 
   /** 판정에 필요한 최소 바이트 수. */
   public static final int HEAD_BYTES = 16;

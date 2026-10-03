@@ -1,6 +1,7 @@
 package com.workplace.wiki.service;
 
 import com.workplace.drive.service.DriveQuotaService;
+import com.workplace.file.api.ImageSniffer;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.util.UnicodeNames;
 import com.workplace.wiki.dto.WikiAttachmentResponse;
@@ -93,12 +94,12 @@ public class WikiAttachmentService {
     // 매직바이트로 판정한다(MultipartFile.getInputStream() 은 호출마다 새 스트림이라 본 저장 스트림을 소비하지 않음).
     byte[] head;
     try (InputStream in = file.getInputStream()) {
-      head = in.readNBytes(WikiImageSniffer.HEAD_BYTES);
+      head = in.readNBytes(ImageSniffer.HEAD_BYTES);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
     String detectedMime =
-        WikiImageSniffer.detect(head)
+        ImageSniffer.detect(head)
             .orElseThrow(() -> new WikiAttachmentRejectedException("지원하지 않는 이미지 형식입니다."));
 
     // #759 (A) 매핑 총개수 하드 실링 — 아래의 해소 가능한 상한과 직교한다. 참조를 지우면 아래 상한은 풀리지만

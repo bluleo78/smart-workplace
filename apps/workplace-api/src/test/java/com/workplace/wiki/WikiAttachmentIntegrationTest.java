@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.file.api.ImageSniffer;
 import com.workplace.file.storage.FileStore;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.support.IntegrationTestBase;
@@ -70,7 +71,7 @@ class WikiAttachmentIntegrationTest extends IntegrationTestBase {
   private long spaceId;
   private long pageId;
 
-  /** PNG 매직바이트(8) + 헤더 채움용 임의 바이트 8, 총 16바이트 이상 — WikiImageSniffer.HEAD_BYTES 판정용. */
+  /** PNG 매직바이트(8) + 헤더 채움용 임의 바이트 8, 총 16바이트 이상 — ImageSniffer.HEAD_BYTES 판정용. */
   private static final byte[] PNG_MAGIC = {
     (byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0, 0, 0, 0
   };
