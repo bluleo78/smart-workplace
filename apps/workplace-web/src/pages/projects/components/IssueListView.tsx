@@ -147,8 +147,10 @@ export function IssueListView({
         <table className={cn('w-full text-sm', isMobile && 'table-fixed')} role="table">
           {!isMobile && (
             <thead className="sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_var(--color-border)]">
+              {/* min-w-* — 제목 칸이 w-full(IssueRow)로 남은 폭을 가져가면 자동 레이아웃 표는 다른 칸의 w-* 를 무시하고
+                  최소 내용폭까지 줄인다(ID 가 제목에 붙음). min-width 로 기존 칸 폭을 하한으로 고정한다(WP-194). */}
               <tr className="text-left text-muted-foreground">
-                <th className="w-9 py-2">
+                <th className="w-9 min-w-9 py-2">
                   <input
                     type="checkbox"
                     checked={allSelected}
@@ -159,13 +161,13 @@ export function IssueListView({
                   />
                 </th>
                 {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
-                <th className="w-9 py-2"><span className="sr-only">상태</span></th>
+                <th className="w-9 min-w-9 py-2"><span className="sr-only">상태</span></th>
                 {/* 우선순위·마감은 좁은 화면(<sm)에서 행과 함께 숨긴다(IssueRow). */}
-                <th className="hidden w-9 sm:table-cell"><span className="sr-only">우선순위</span></th>
-                <th className="w-16 sm:w-28">ID</th>
+                <th className="hidden w-9 min-w-9 sm:table-cell"><span className="sr-only">우선순위</span></th>
+                <th className="w-16 min-w-16 sm:w-28 sm:min-w-28">ID</th>
                 <th>제목</th>
-                <th className="w-12 sm:w-20">담당자</th>
-                <th className="hidden w-32 sm:table-cell">마감</th>
+                <th className="w-12 min-w-12 sm:w-20 sm:min-w-20">담당자</th>
+                <th className="hidden w-32 min-w-32 sm:table-cell">마감</th>
               </tr>
             </thead>
           )}

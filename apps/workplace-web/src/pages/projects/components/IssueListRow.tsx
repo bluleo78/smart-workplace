@@ -184,7 +184,7 @@ export const IssueRow = memo(function IssueRow({
             </div>
           )}
         </td>
-        {/* 제목 셀이 w-full 로 남은 폭을 모두 가져가므로 담당자·마감 칸은 내용 최소폭까지 줄어든다 —
+        {/* 제목 셀이 w-full 로 남은 폭을 가져가므로 칸 폭은 헤더 min-w-* 하한에 의존한다 — 그래도
             whitespace-nowrap 으로 날짜가 글자 단위로 꺾이지 않게, pr-3 으로 「+N」 이 마감 칸에 붙지 않게 한다(WP-194). */}
         <td className="whitespace-nowrap pr-3">
           <span className="flex items-center -space-x-1">

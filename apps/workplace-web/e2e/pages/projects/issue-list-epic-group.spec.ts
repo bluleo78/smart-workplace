@@ -140,6 +140,12 @@ test.describe('이슈 목록 데스크톱 에픽 칩', () => {
         return r.getClientRects().length;
       });
       expect(dueLines, `${width}px 마감 칸 줄바꿈`).toBe(1);
+      // (e) ID 칸이 최소 내용폭으로 쪼그라들어 「WP-21」 이 제목에 붙지 않는다 — 한 줄 + 제목과 8px 이상 간격.
+      const idText = row.getByText(`${KEY}-21`, { exact: true });
+      const ib = (await idText.boundingBox())!;
+      expect(ib.height, `${width}px ID 줄바꿈`).toBeLessThan(24);
+      const lb = (await link.boundingBox())!;
+      expect(lb.x - (ib.x + ib.width), `${width}px ID-제목 간격`).toBeGreaterThanOrEqual(8);
     }
   });
 });
