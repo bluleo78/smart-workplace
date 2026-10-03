@@ -15,4 +15,5 @@ public record EmailMessageSummary(
     boolean seen,
     boolean hasAttachment,
     String aiCategory,
-    Boolean aiNeedsReply) {} // 회신필요 = aiNeedsReply && !seen (WP-146 단일 술어)
+    Boolean aiNeedsReply, // 회신필요 = aiNeedsReply && !seen (WP-146 단일 술어)
+    boolean categoryPending) {} // WP-186: 분류를 아직 시도하지 않음 → "분류 전" 배지

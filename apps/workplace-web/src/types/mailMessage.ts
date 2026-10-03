@@ -14,6 +14,8 @@ export interface EmailMessageSummary {
   hasAttachment: boolean;
   aiCategory: string | null;
   aiNeedsReply: boolean | null;
+  /** WP-186: 분류를 아직 시도하지 않음 → "분류 전" 배지 */
+  categoryPending: boolean;
 }
 
 /** 첨부 메타(바이너리 미저장 — 다운로드는 후속). */

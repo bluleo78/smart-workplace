@@ -80,6 +80,39 @@ public class EmailMessageRepository {
         .and(withinNeedsReplyWindow());
   }
 
+  /** 업무 보기 분류 이름(WP-186). 웹 기본 보기가 이 값을 보낸다. */
+  public static final String WORK_CATEGORY = "업무";
+
+  /**
+   * 업무 보기 술어(WP-186) — 업무로 분류됐거나, 아직 분류가 없거나, 본문 검증 전(공유 content 의 분류를 믿지 않음 — WP-130)인 메일. "분류가
+   * 늦어지거나 AI 가 연결되지 않아도 새 메일이 기본 보기에서 사라지지 않게" 하는 단일 정의 — 목록·안 읽은 수·모두 읽음이 모두 이 메서드를 쓴다.
+   */
+  public static Condition workViewCondition() {
+    return EMAIL_MESSAGE
+        .FETCHED_AT
+        .isNull()
+        .or(EMAIL_CONTENT.AI_CATEGORY.isNull())
+        .or(EMAIL_CONTENT.AI_CATEGORY.eq(WORK_CATEGORY));
+  }
+
+  /**
+   * "분류 전" 배지 여부(WP-186) — 본문 검증 전이거나, 분류가 없고 어떤 경로(③ 원본 분석·분류 일괄)로도 분류를 시도하지 않은 메일. 시도했는데 비어 있는
+   * 메일은 false(영구 미분류 — 배지 없이 업무 보기에만 남음).
+   */
+  static Field<Boolean> categoryPendingField() {
+    return DSL.field(
+            EMAIL_MESSAGE
+                .FETCHED_AT
+                .isNull()
+                .or(
+                    EMAIL_CONTENT
+                        .AI_CATEGORY
+                        .isNull()
+                        .and(EMAIL_CONTENT.AI_CATEGORIZED_AT.isNull())
+                        .and(EMAIL_CONTENT.AI_SUMMARIZED_AT.isNull())))
+        .as("category_pending");
+  }
+
   /** UIDVALIDITY 변경 시 폴더의 기존 메시지를 모두 삭제(서버가 UID 를 재사용하므로 stale 충돌 방지). */
   public void deleteByFolder(long folderId) {
     // envelope 삭제 전 영향받을 content_id 를 수집 — FK ON DELETE RESTRICT 이므로 envelope 먼저 삭제한 뒤 GC
@@ -361,11 +394,16 @@ public class EmailMessageRepository {
       where = where.and(EMAIL_MESSAGE.SEEN.isFalse());
     }
     if (category != null && !category.isBlank()) {
-      // 슬라이스②: content 출처. WP-130: 검증 전 envelope 로 공유 content 의 분류를 추론하지 못하게 fetched_at 필수
-      where =
-          where
-              .and(EMAIL_CONTENT.AI_CATEGORY.eq(category))
-              .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull());
+      if (WORK_CATEGORY.equals(category)) {
+        // WP-186: 업무 = 업무 ∪ 미분류 ∪ 미적재(단일 술어)
+        where = where.and(workViewCondition());
+      } else {
+        // 슬라이스②: content 출처. WP-130: 검증 전 envelope 로 공유 content 의 분류를 추론하지 못하게 fetched_at 필수
+        where =
+            where
+                .and(EMAIL_CONTENT.AI_CATEGORY.eq(category))
+                .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull());
+      }
     }
     if (needsReply) {
       // 회신필요 단일 술어(AI 판정 true + 안 읽음)
@@ -405,7 +443,8 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
             verified(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
-            EMAIL_MESSAGE.AI_NEEDS_REPLY)
+            EMAIL_MESSAGE.AI_NEEDS_REPLY,
+            categoryPendingField()) // WP-186: 분류 전 배지
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
@@ -474,7 +513,8 @@ public class EmailMessageRepository {
             EMAIL_MESSAGE.SEEN,
             EMAIL_MESSAGE.HAS_ATTACHMENT,
             verified(EMAIL_CONTENT.AI_CATEGORY), // 슬라이스②: content 에서 읽음
-            EMAIL_MESSAGE.AI_NEEDS_REPLY)
+            EMAIL_MESSAGE.AI_NEEDS_REPLY,
+            categoryPendingField()) // WP-186: 분류 전 배지
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
@@ -1194,7 +1234,8 @@ public class EmailMessageRepository {
         Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY))
                 && !isWithinNeedsReplyWindow(received)
             ? Boolean.FALSE
-            : r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY));
+            : r.get(EMAIL_MESSAGE.AI_NEEDS_REPLY),
+        Boolean.TRUE.equals(r.get("category_pending", Boolean.class)));
   }
 
   /**
