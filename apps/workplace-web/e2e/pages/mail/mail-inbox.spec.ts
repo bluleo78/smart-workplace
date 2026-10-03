@@ -824,6 +824,31 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
     await expect(page.getByTestId('mail-row-10')).toHaveCount(0)
   })
 
+  test('토글 off→on 으로 돌아와도 읽은 메일은 되살아나지 않는다', async ({ authenticatedPage: page }) => {
+    await stubCounts(page)
+    // 10 을 열기 전 unread=true 는 [10,11], 연 뒤에는 서버가 10 을 뺀다. 전체 보기는 항상 10 포함.
+    let opened = false
+    await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages', (route, req) => {
+      const unread = new URL(req.url()).searchParams.get('unread') === 'true'
+      const body = unread && opened ? [summary({ id: 11 })] : [summary({ id: 10 }), summary({ id: 11 })]
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+    })
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', { ...detail(), seen: true })
+    await page.clock.install()
+    await page.goto('/mail/1?unread=true')
+    await page.getByTestId('mail-row-10').click()
+    opened = true
+    await page.getByTestId('mail-unread-toggle').click() // off — 목록에 10 이 있고 prev 행에도 보관된다
+    await expect(page).not.toHaveURL(/unread=true/)
+    await expect(page.getByTestId('mail-row-10')).toBeVisible()
+    // staleTime(30초) 이 지나야 unread=true 캐시가 낡아 다시 조회된다 — 캐시된 옛 [10,11] 이 아니라 서버 응답 기준으로 검증한다.
+    await page.clock.fastForward(31_000)
+    await page.getByTestId('mail-unread-toggle').click() // on 다시 — 서버가 뺀 10 이 되살아나면 안 된다
+    await expect(page).toHaveURL(/unread=true/)
+    await expect(page.getByTestId('mail-row-11')).toBeVisible()
+    await expect(page.getByTestId('mail-row-10')).toHaveCount(0)
+  })
+
   test('보낸편지함 — 토글·분류 전 배지 없음', async ({ authenticatedPage: page }) => {
     await stubCounts(page)
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary({ id: 10, categoryPending: true })])

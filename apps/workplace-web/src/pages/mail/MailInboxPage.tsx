@@ -543,17 +543,27 @@ export function MailInboxPage() {
     accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply',
   )
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
-  const [kept, setKept] = useState<{ key: string; ids: Set<number> }>({ key: view.key, ids: new Set() })
-  const keepIds = kept.key === view.key ? kept.ids : EMPTY_IDS
-  const prevRowsRef = useRef<EmailMessageSummary[]>([])
-  // eslint-disable-next-line react-hooks/refs -- 직전 행 보관용 ref: 재조회로 빠진 "연 메일"을 되살리는 데만 쓴다.
-  const messages = useMemo(() => mergeKeptRows(fetchedMessages, prevRowsRef.current, keepIds), [fetchedMessages, keepIds])
+  // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
+  const keepKey = `${accountId ?? ''}|${search}|${view.key}`
+  const [kept, setKept] = useState<{ key: string; ids: Set<number> }>({ key: keepKey, ids: new Set() })
+  // 키가 바뀌면 렌더 중에 실제로 비운다(숨기기만 하면 같은 키로 돌아올 때 되살아난다).
+  if (kept.key !== keepKey) setKept({ key: keepKey, ids: new Set() })
+  const keepIds = kept.key === keepKey ? kept.ids : EMPTY_IDS
+  // 직전 행은 키와 함께 보관 — 다른 키의 행이 되살아나지 않게 한다.
+  const prevRowsRef = useRef<{ key: string; rows: EmailMessageSummary[] }>({ key: keepKey, rows: [] })
+  // ref 읽기가 안전한 이유: 값은 effect 에서만 바뀌고, 되살림은 keepIds(상태)에 든 행에만 적용되며 keepIds 변화로 재계산된다.
+   
+  const messages = useMemo(
+    // eslint-disable-next-line react-hooks/refs
+    () => mergeKeptRows(fetchedMessages, prevRowsRef.current.key === keepKey ? prevRowsRef.current.rows : [], keepIds),
+    [fetchedMessages, keepIds, keepKey],
+  )
   useEffect(() => {
-    if (messages) prevRowsRef.current = messages
-  }, [messages])
+    if (messages) prevRowsRef.current = { key: keepKey, rows: messages }
+  }, [messages, keepKey])
   const selectRow = (id: number) => {
     setSelectedId(id)
-    if (view.unreadOnly) setKept((k) => ({ key: view.key, ids: new Set(k.key === view.key ? [...k.ids, id] : [id]) }))
+    if (view.unreadOnly) setKept((k) => ({ key: keepKey, ids: new Set(k.key === keepKey ? [...k.ids, id] : [id]) }))
   }
   const sync = useSyncMailbox(accountIdNum)
   const { openCompose } = useMailCompose()
