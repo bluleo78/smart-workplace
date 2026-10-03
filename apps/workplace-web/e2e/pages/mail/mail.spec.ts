@@ -62,7 +62,7 @@ test.describe('사이드바 필터', () => {
     await expect.poll(() => lastNeedsReply).toBe('true')
   })
 
-  test('사이드바 분류(업무) 클릭 → category 필터로 목록 조회', async ({ authenticatedPage: page }) => {
+  test('사이드바 분류(개인) 클릭 → category 필터로 목록 조회', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
@@ -79,13 +79,13 @@ test.describe('사이드바 필터', () => {
 
     await page.goto('/mail/1')
 
-    // 분류 > 업무 필터 nav 항목 클릭.
-    await page.getByTestId('mail-filter-category-업무').click()
+    // 받은편지함 하위 분류 > 개인 클릭(업무는 기본 보기라 URL 이 바뀌지 않는다).
+    await page.getByTestId('mail-filter-category-개인').click()
 
-    // URL 에 category=업무 반영(URL 인코딩).
-    await expect(page).toHaveURL(/category=%EC%97%85%EB%AC%B4/)
+    // URL 에 category=개인 반영(URL 인코딩).
+    await expect(page).toHaveURL(/category=%EA%B0%9C%EC%9D%B8/)
     // 목록 API 에 category 파라미터 전송.
-    await expect.poll(() => lastCategory).toBe('업무')
+    await expect.poll(() => lastCategory).toBe('개인')
   })
 })
 
