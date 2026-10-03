@@ -145,8 +145,10 @@ export const IssueRow = memo(function IssueRow({
             <span>{projectKey}-{it.number}</span>
           </span>
         </td>
-        {/* pr-2 — 말줄임된 제목이 담당자 아바타에 붙지 않게 간격을 둔다. */}
-        <td className="pr-2">
+        {/* pr-2 — 말줄임된 제목이 담당자 아바타에 붙지 않게 간격을 둔다.
+            w-full max-w-0 — 자동 레이아웃 표에서 nowrap 제목의 최소 폭이 글자 폭 전체라 긴 제목이 표를 가로로 넘기던 것을 막는다
+            (셀이 남은 폭에 맞춰 줄어야 안쪽 flex 의 truncate/min-w-0 가 동작, WP-194). */}
+        <td className="w-full max-w-0 pr-2">
           <div className="flex min-w-0 items-center gap-1.5 font-medium">
             {/* 제목 = 실제 링크(키보드 포커스·스크린리더 접근점). 행 onClick 은 마우스 편의용.
                 stopPropagation 으로 링크 클릭이 행 onClick 까지 버블해 history 가 이중 push 되는 것을 막는다. */}

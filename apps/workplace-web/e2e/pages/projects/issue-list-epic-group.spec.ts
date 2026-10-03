@@ -89,8 +89,7 @@ test.describe('이슈 목록 에픽 그룹', () => {
 });
 
 test.describe('이슈 목록 데스크톱 에픽 칩', () => {
-  test('긴 제목 + 긴 에픽명이어도 칩은 줄어들 수 있고 제목은 최소 폭(8rem)을 지킨다', async ({ authenticatedPage: page }) => {
-    await page.setViewportSize({ width: 1024, height: 800 });
+  test('긴 제목·긴 에픽명에도 가로 오버플로 없이 칩이 보이고 제목이 최소 폭을 지킨다', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, createProject());
     await mockApi(page, 'GET', `/api/v1/projects/${KEY}/members`, []);
     await mockApi(page, 'GET', `/api/v1/projects/${KEY}/saved-views`, []);
@@ -113,20 +112,25 @@ test.describe('이슈 목록 데스크톱 에픽 칩', () => {
         });
       },
     );
-    await page.goto(`/projects/${KEY}?group=none`);
-    const row = page.getByTestId('issue-row-21');
-    await expect(row.getByTestId('issue-row-21-parent')).toBeVisible();
-    const link = row.getByRole('link', { name: /결제 모듈/ });
-    expect((await link.boundingBox())!.width).toBeGreaterThanOrEqual(128);
-    // 자동 레이아웃 표에선 nowrap 텍스트의 최소 폭이 전체 글자 폭이라 실제 폭만으론 shrink 여부를 가를 수 없다 —
-    // 칩이 줄어들 수 있고(flex-shrink 1, min-width 0) 제목은 8rem 을 보장하는지 계산된 스타일로 직접 단언한다.
-    // (shrink-0 / min-w-0 로 되돌리면 실패)
-    const chipStyle = await row.getByTestId('issue-row-21-parent').evaluate((el) => {
-      const cs = getComputedStyle(el);
-      return { shrink: cs.flexShrink, minWidth: cs.minWidth };
-    });
-    expect(chipStyle).toEqual({ shrink: '1', minWidth: '0px' });
-    expect(await link.evaluate((el) => getComputedStyle(el).minWidth)).toBe('128px');
+    for (const width of [1280, 1024]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto(`/projects/${KEY}?group=none`);
+      const row = page.getByTestId('issue-row-21');
+      const chip = row.getByTestId('issue-row-21-parent');
+      await expect(chip).toBeVisible();
+      // (a) 가로 스크롤 없음 — 긴 제목이 표를 밀어내지 않는다.
+      const scroll = page.getByTestId('issue-list-scroll');
+      const { sw, cw } = await scroll.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
+      expect(sw, `${width}px 목록 가로 오버플로`).toBeLessThanOrEqual(cw);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      // (b) 제목은 최소 8rem 보장
+      const link = row.getByRole('link', { name: /결제 모듈/ });
+      expect((await link.boundingBox())!.width).toBeGreaterThanOrEqual(128);
+      // (c) 칩이 스크롤 영역 오른쪽 끝 안에 있다.
+      const sb = (await scroll.boundingBox())!;
+      const cb = (await chip.boundingBox())!;
+      expect(cb.x + cb.width).toBeLessThanOrEqual(sb.x + sb.width + 1);
+    }
   });
 });
 
