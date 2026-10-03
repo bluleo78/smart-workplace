@@ -1,11 +1,14 @@
 package com.workplace.mail.service;
 
+import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.BodyTarget;
+import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailSummaryResponse;
 import com.workplace.mail.dto.MailSyncStatus;
+import com.workplace.mail.dto.MailUnreadCounts;
 import com.workplace.mail.event.InlineContentIdBackfillRequestedEvent;
 import com.workplace.mail.event.MessageMarkedReadEvent;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
@@ -14,6 +17,7 @@ import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import java.util.List;
+import java.util.Map;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -35,6 +39,7 @@ public class MailMessageService {
   private final MailSyncProgress progress;
   private final ApplicationEventPublisher eventPublisher;
   private final MailChangeNotifier notifier;
+  private final AssistantResolver assistantResolver;
 
   /** WP-68: 첨부 행이 없는 인라인 전용 Graph 메일의 첨부 목록 즉시 적재. */
   private final MailInlineContentIdBackfiller inlineBackfiller;
@@ -53,6 +58,7 @@ public class MailMessageService {
       ApplicationEventPublisher eventPublisher,
       MailInlineContentIdBackfiller inlineBackfiller,
       MailChangeNotifier notifier,
+      AssistantResolver assistantResolver,
       PlatformTransactionManager txManager) {
     this.accountRepo = accountRepo;
     this.messageRepo = messageRepo;
@@ -61,6 +67,7 @@ public class MailMessageService {
     this.eventPublisher = eventPublisher;
     this.inlineBackfiller = inlineBackfiller;
     this.notifier = notifier;
+    this.assistantResolver = assistantResolver;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -91,6 +98,47 @@ public class MailMessageService {
         .findByIdAndUser(userId, accountId)
         .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
     return messageRepo.countNeedsReplyForAccount(accountId);
+  }
+
+  /**
+   * WP-186 AI 분류 활성 여부 — 공통 비서가 있거나, 이 계정이 AI 사용이고 개인 비서가 있을 때. 둘 다 없으면 분류가 채워질 일이 없으므로 웹은 분류 보기를
+   * 감추고 받은편지함을 전체로 본다.
+   */
+  boolean classificationActive(long userId, EmailAccountResponse account) {
+    if (assistantResolver.resolveWorkspaceOrEmpty().isPresent()) {
+      return true;
+    }
+    return account.aiEnabled() && assistantResolver.resolvePersonalOrEmpty(userId).isPresent();
+  }
+
+  /** WP-186 사이드바 안 읽은 수. 계정이 본인 소유가 아니면 404. RLS GUC 주입을 위해 읽기 전용 트랜잭션 안에서 읽는다(#444). */
+  @Transactional(readOnly = true)
+  public MailUnreadCounts unreadCounts(long userId, long accountId) {
+    EmailAccountResponse account =
+        accountRepo
+            .findByIdAndUser(userId, accountId)
+            .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
+    Map<String, Long> buckets = messageRepo.countUnreadByBucket(accountId);
+    long inbox = buckets.values().stream().mapToLong(Long::longValue).sum();
+    return new MailUnreadCounts(
+        classificationActive(userId, account),
+        inbox,
+        buckets,
+        messageRepo.countNeedsReplyForAccount(accountId));
+  }
+
+  /** WP-186 탭 배지 합계 — 활성(비활성 제외) 계정마다 업무(분류 꺼지면 받은편지함) 안 읽은 수를 더한다. */
+  @Transactional(readOnly = true)
+  public MailUnreadCounts.Summary unreadSummary(long userId) {
+    long total = 0;
+    for (EmailAccountResponse account : accountRepo.listByUser(userId)) {
+      Map<String, Long> buckets = messageRepo.countUnreadByBucket(account.id());
+      total +=
+          classificationActive(userId, account)
+              ? buckets.get(EmailMessageRepository.WORK_CATEGORY)
+              : buckets.values().stream().mapToLong(Long::longValue).sum();
+    }
+    return new MailUnreadCounts.Summary(total);
   }
 
   /**

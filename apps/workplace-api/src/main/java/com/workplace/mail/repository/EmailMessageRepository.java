@@ -25,7 +25,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
@@ -782,6 +784,43 @@ public class EmailMessageRepository {
             .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
             .and(EMAIL_FOLDER.NAME.eq("INBOX"))
             .and(needsReplyCondition()));
+  }
+
+  /**
+   * WP-186 계정 INBOX 안 읽은 메일의 분류 버킷별 건수 — 쿼리 1회. 버킷은 목록 조건과 같다: 검증된 사본의 개인·알림·프로모션·뉴스레터는 그 분류,
+   * 나머지(업무·미분류·미적재)는 모두 업무(workViewCondition 과 같은 의미). 없는 버킷은 0 으로 채워 돌려준다.
+   */
+  public Map<String, Long> countUnreadByBucket(long accountId) {
+    // GROUP BY 에 같은 식이 그대로 들어가므로 바인드 파라미터 대신 inline 리터럴을 쓴다(파라미터면 PG 가 다른 식으로 본다).
+    Field<String> bucket =
+        DSL.when(
+                EMAIL_MESSAGE
+                    .FETCHED_AT
+                    .isNotNull()
+                    .and(
+                        EMAIL_CONTENT.AI_CATEGORY.in(
+                            DSL.inline("개인"),
+                            DSL.inline("알림"),
+                            DSL.inline("프로모션"),
+                            DSL.inline("뉴스레터"))),
+                EMAIL_CONTENT.AI_CATEGORY)
+            .otherwise(DSL.inline(WORK_CATEGORY));
+    Map<String, Long> out = new LinkedHashMap<>();
+    for (String c : List.of(WORK_CATEGORY, "개인", "알림", "프로모션", "뉴스레터")) {
+      out.put(c, 0L);
+    }
+    dsl.select(bucket, DSL.count())
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .leftJoin(EMAIL_CONTENT)
+        .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_FOLDER.NAME.eq("INBOX"))
+        .and(EMAIL_MESSAGE.SEEN.isFalse())
+        .groupBy(bucket)
+        .forEach(r -> out.put(r.value1(), r.value2().longValue()));
+    return out;
   }
 
   /** #484: 공백 요약은 '결과 없음'(NULL)으로 저장 — 읽는 쪽이 공백 여부를 다시 판정하지 않게 한다. */
