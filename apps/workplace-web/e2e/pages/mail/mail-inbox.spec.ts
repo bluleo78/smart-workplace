@@ -1,7 +1,7 @@
 // 받은편지함 E2E — 계정 선택·목록·검색·상세·동기화 (백엔드 없이 page.route 모킹).
 import type { Page } from '@playwright/test'
 
-import type { EmailMessageDetail } from '../../../src/types/mailMessage'
+import type { EmailMessageDetail, MailUnreadCounts } from '../../../src/types/mailMessage'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -221,8 +221,8 @@ test.describe('받은편지함', () => {
     await stubMessages(page)
     await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
     await page.goto('/mail/1')
-    // 전폭 헤더에 폴더명 표시
-    await expect(page.getByTestId('page-header')).toContainText('받은편지함')
+    // 전폭 헤더에 현재 보기 표시 — 모바일 폭은 현재 보기 이름만(기본 = 업무, WP-186)
+    await expect(page.getByTestId('page-header')).toContainText('업무')
     // 목록에서 첫 번째 행 클릭
     const firstRow = page.getByTestId('mail-row-10')
     await firstRow.click()
@@ -769,3 +769,74 @@ test.describe('받은편지함', () => {
     await expect(page.getByTestId('mail-detail')).toBeVisible()
     await expect(page.getByTestId('mail-unread-bar-10')).toHaveCount(0)
   })
+
+// WP-186: 보기·안 읽은 메일만·분류 전 배지.
+const counts = (over: Partial<MailUnreadCounts> = {}): MailUnreadCounts => ({
+  classificationActive: true,
+  inbox: 4,
+  byCategory: { 업무: 2, 개인: 1, 알림: 1, 프로모션: 0, 뉴스레터: 0 },
+  needsReply: 0,
+  ...over,
+})
+
+async function stubCounts(page: Page) {
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/unread-counts', counts())
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/needs-reply-count', { count: 0 })
+}
+
+test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
+  test('헤더 = 받은편지함 › 업무, 토글 → unread=true 요청, 분류 전 배지', async ({ authenticatedPage: page }) => {
+    await stubCounts(page)
+    const list = await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages',
+      [summary({ id: 10, categoryPending: true }), summary({ id: 11, aiCategory: '업무', seen: true })], { capture: true })
+    await page.goto('/mail/1')
+    await expect(page.getByTestId('page-header')).toContainText('받은편지함')
+    await expect(page.getByTestId('page-header')).toContainText('업무')
+    await expect(page.getByTestId('mail-badge-pending-10')).toHaveText('분류 전')
+    await expect(page.getByTestId('mail-badge-pending-11')).toHaveCount(0)
+    await page.getByTestId('mail-unread-toggle').click()
+    await expect(page).toHaveURL(/unread=true/)
+    await expect(page.getByTestId('mail-unread-toggle')).toHaveAttribute('aria-pressed', 'true')
+    await expect.poll(() => list.lastRequest()?.searchParams.get('unread')).toBe('true')
+  })
+
+  test('안 읽은 메일만 + 메일 열기 → 재조회에서 빠져도 목록에 남음, 보기 바꾸면 빠짐', async ({ authenticatedPage: page }) => {
+    await stubCounts(page)
+    let opened = false
+    let listCalls = 0
+    await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages', (route) => {
+      listCalls++
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opened ? [summary({ id: 11 })] : [summary({ id: 10 }), summary({ id: 11 })]) })
+    })
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', { ...detail(), seen: true })
+    await page.clock.install()
+    await page.goto('/mail/1?unread=true')
+    await page.getByTestId('mail-row-10').click()
+    opened = true
+    const before = listCalls
+    // 60초 주기 재조회(refetchInterval)를 실제로 일으킨다 — 재조회가 없으면 행이 남는 것은 당연하므로, 요청이 나갔는지 먼저 확인한다
+    await page.clock.fastForward(61_000)
+    await expect.poll(() => listCalls).toBeGreaterThan(before)
+    await expect(page.getByTestId('mail-row-10')).toBeVisible()
+    await page.getByTestId('mail-filter-category-개인').click()
+    await page.getByTestId('mail-filter-category-업무').click()
+    await expect(page.getByTestId('mail-row-10')).toHaveCount(0)
+  })
+
+  test('보낸편지함 — 토글·분류 전 배지 없음', async ({ authenticatedPage: page }) => {
+    await stubCounts(page)
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary({ id: 10, categoryPending: true })])
+    await page.goto('/mail/1?folder=sent')
+    await expect(page.getByTestId('mail-row-10')).toBeVisible()
+    await expect(page.getByTestId('mail-unread-toggle')).toHaveCount(0)
+    await expect(page.getByTestId('mail-badge-pending-10')).toHaveCount(0)
+  })
+
+  test('보기별 빈 상태 문구', async ({ authenticatedPage: page }) => {
+    await stubCounts(page)
+    await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [])
+    await page.goto('/mail/1?unread=true')
+    await expect(page.getByTestId('mail-view-empty')).toHaveText('업무 메일 중 안 읽은 메일이 없어요')
+  })
+})

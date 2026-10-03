@@ -148,7 +148,7 @@ test.describe('분류 필터 빈 상태', () => {
       (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     )
 
-    await page.goto('/mail/1?category=%EC%97%85%EB%AC%B4')
+    await page.goto('/mail/1?category=%EA%B0%9C%EC%9D%B8') // 개인 — 업무 보기의 빈 상태는 별도(WP-186)
 
     // 분류 필터 중립 빈 상태 표시, 일반 빈 상태 미표시.
     await expect(page.getByTestId('mail-category-empty')).toBeVisible()

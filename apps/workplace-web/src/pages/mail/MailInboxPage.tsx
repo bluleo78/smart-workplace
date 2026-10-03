@@ -17,8 +17,10 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
+import { mergeKeptRows } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
+import { mailViewHref, resolveMailView } from '@/lib/mailView'
 import { cn } from '@/lib/utils'
 
 import { downloadMailAttachment } from '../../api/mailMessages'
@@ -36,8 +38,9 @@ import {
   useReplyDraft,
   useSyncMailbox,
   useSyncStatus,
+  useUnreadCounts,
 } from '../../hooks/queries/useMailMessages'
-import type { EmailMessageDetail, EmailMessageSummary, MailFolder, MailIssueDraft } from '../../types/mailMessage'
+import type { EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
 import { MailToIssueDialog } from './MailToIssueDialog'
 
 // 수신 시각을 간략 표기(오늘=시각, 그 외=월/일).
@@ -49,15 +52,21 @@ function formatReceivedAt(iso: string | null): string {
   return sameDay ? formatClockTimePadded(iso) : formatDateMonthDayPadded(iso)
 }
 
+// 연 메일 유지 대상이 없을 때 쓰는 공유 빈 집합(렌더마다 새 Set 을 만들어 useMemo 가 무효화되지 않게).
+const EMPTY_IDS: ReadonlySet<number> = new Set()
+
 // 목록 한 행 — 안 읽음은 굵게, 첨부 클립 표시.
 function MessageRow({
   m,
   active,
   onSelect,
+  pendingVisible,
 }: {
   m: EmailMessageSummary
   active: boolean
   onSelect: () => void
+  /** "분류 전" 배지 노출 여부 — 받은편지함 계열이고 AI 분류가 켜진 계정일 때만. */
+  pendingVisible: boolean
 }) {
   const navigate = useNavigate()
   // WP-146: 회신필요 판정은 행마다 한 번만 계산.
@@ -123,7 +132,7 @@ function MessageRow({
         </span>
       )}
       {/* WP-146: 회신필요 = AI 판정 && 안 읽음 — 읽으면 배지 숨김. 분류 배지는 클릭 필터. */}
-      {(m.aiCategory || needsReply) && (
+      {(m.aiCategory || needsReply || (pendingVisible && m.categoryPending)) && (
         <span className="mt-0.5 flex items-center gap-1">
           {/* AI 분류 배지 — 클릭 시 해당 분류 필터로 이동(onClick + stopPropagation 으로 행 선택과 분리). */}
           {m.aiCategory && (
@@ -132,11 +141,20 @@ function MessageRow({
               data-testid={`mail-badge-category-${m.id}`}
               onClick={(e) => {
                 e.stopPropagation()
-                navigate(`/mail/${m.accountId}?category=${encodeURIComponent(m.aiCategory!)}`)
+                navigate(mailViewHref(m.accountId, m.aiCategory === '업무' ? 'work' : (m.aiCategory as MailCategory), false))
               }}
             >
               {m.aiCategory}
             </AiSignalBadge>
+          )}
+          {pendingVisible && m.categoryPending && (
+            // WP-186: 아직 분류를 시도하지 않은 메일 — 업무 보기에 섞여 있는 이유를 알려 주는 점선 배지(클릭 없음).
+            <span
+              data-testid={`mail-badge-pending-${m.id}`}
+              className="rounded-full border border-dashed border-muted-foreground/50 px-2 py-0.5 text-[11px] text-muted-foreground"
+            >
+              분류 전
+            </span>
           )}
           {/* 회신필요 배지 — action 변형으로 사용자 행동 필요를 강조. 읽으면 숨김. */}
           {needsReply && (
@@ -516,13 +534,27 @@ export function MailInboxPage() {
   const { data: accounts, isLoading: accountsLoading } = useMailAccounts()
   const accountIdNum = accountId ? Number(accountId) : undefined
 
-  // P2: URL ?category=업무, ?needsReply=true → 목록 필터로 전달(사이드바 nav 가 설정).
-  const categoryParam = params.get('category') ?? ''
-  const needsReplyParam = params.get('needsReply') === 'true'
+  // WP-186: URL → 보기 해석(사이드바와 같은 규칙). 계수 로딩·실패 중에는 분류 활성으로 본다(사이드바와 동일).
+  const { data: unreadCounts } = useUnreadCounts(accountIdNum)
+  const classificationActive = unreadCounts?.classificationActive ?? true
+  const view = resolveMailView(params, classificationActive)
 
-  const { data: messages, isLoading, isError, refetch: refetchMessages } = useMailMessages(
-    accountIdNum, folderParam, search, false, categoryParam, needsReplyParam,
+  const { data: fetchedMessages, isLoading, isError, refetch: refetchMessages } = useMailMessages(
+    accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply',
   )
+  // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
+  const [kept, setKept] = useState<{ key: string; ids: Set<number> }>({ key: view.key, ids: new Set() })
+  const keepIds = kept.key === view.key ? kept.ids : EMPTY_IDS
+  const prevRowsRef = useRef<EmailMessageSummary[]>([])
+  // eslint-disable-next-line react-hooks/refs -- 직전 행 보관용 ref: 재조회로 빠진 "연 메일"을 되살리는 데만 쓴다.
+  const messages = useMemo(() => mergeKeptRows(fetchedMessages, prevRowsRef.current, keepIds), [fetchedMessages, keepIds])
+  useEffect(() => {
+    if (messages) prevRowsRef.current = messages
+  }, [messages])
+  const selectRow = (id: number) => {
+    setSelectedId(id)
+    if (view.unreadOnly) setKept((k) => ({ key: view.key, ids: new Set(k.key === view.key ? [...k.ids, id] : [id]) }))
+  }
   const sync = useSyncMailbox(accountIdNum)
   const { openCompose } = useMailCompose()
   const replyDraft = useReplyDraft()
@@ -573,8 +605,8 @@ export function MailInboxPage() {
             accountEmail: currentAccount?.emailAddress ?? null,
             folder: folderParam,
             q: search,
-            category: categoryParam || null,
-            needsReply: needsReplyParam,
+            category: view.apiCategory || null,
+            needsReply: view.kind === 'needsReply',
             count: messages?.length,
             selected: selectedSummary
               ? {
@@ -589,7 +621,7 @@ export function MailInboxPage() {
               : null,
           })
         : null,
-    [accountIdNum, currentAccount?.emailAddress, folderParam, search, categoryParam, needsReplyParam, messages?.length, selectedSummary],
+    [accountIdNum, currentAccount?.emailAddress, folderParam, search, view.apiCategory, view.kind, messages?.length, selectedSummary],
   )
   useRegisterAiScreenContext(screenContext)
 
@@ -700,7 +732,7 @@ export function MailInboxPage() {
       {/* 전폭 헤더 — 폴더명 + 동기화(받은편지함) + 검색. 기존 목록 툴바 대체. */}
       {showListChrome && (
         <PageHeader
-          title={folderParam === 'SENT' ? '보낸편지함' : '받은편지함'}
+          title={isMobile ? view.title : view.breadcrumb.join(' › ')}
           actions={
             <>
               <input
@@ -722,6 +754,7 @@ export function MailInboxPage() {
       {/* 리스트 툴바 — INBOX 전용: 아이콘 새로고침 + 마지막 동기화 상대시각 + 진행률. */}
       {showListChrome && folderParam === 'INBOX' && (
         <div className="flex items-center gap-2 border-b px-3 py-1.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2 lg:max-w-md">
           <button
             type="button"
             data-testid="mail-sync"
@@ -754,6 +787,26 @@ export function MailInboxPage() {
               본문 {syncStatus.data.done}/{syncStatus.data.total}
             </span>
           )}
+          {view.unreadToggleVisible && (
+            <button
+              type="button"
+              data-testid="mail-unread-toggle"
+              aria-pressed={view.unreadOnly}
+              onClick={() => {
+                const next = new URLSearchParams(params)
+                if (view.unreadOnly) next.delete('unread')
+                else next.set('unread', 'true')
+                setParams(next)
+              }}
+              className={cn(
+                'ml-auto rounded-full border px-3 py-1 text-xs transition-colors',
+                view.unreadOnly ? 'border-primary/40 bg-primary/10 font-semibold text-primary' : 'text-foreground hover:bg-accent/50',
+              )}
+            >
+              안 읽은 메일만
+            </button>
+          )}
+          </div>
         </div>
       )}
       <div className="flex min-h-0 flex-1">
@@ -774,14 +827,23 @@ export function MailInboxPage() {
             </div>
           ) : !messages || messages.length === 0 ? (
             // P2: 필터별 정직 빈 상태 — needsReply 긍정, category 중립, 그 외 일반.
-            needsReplyParam ? (
+            view.kind === 'needsReply' ? (
               <div data-testid="mail-needsreply-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
                 <Check className="h-8 w-8 text-primary" />
                 <p className="text-sm font-medium">회신이 필요한 안 읽은 메일이 없어요 🎉</p>
                 {/* WP-146: 처리완료가 없어졌으므로 "열면 빠진다"는 규칙을 빈 상태에서 알려 준다. */}
                 <p className="text-xs">메일을 열면 회신필요에서 빠져요.</p>
               </div>
-            ) : categoryParam ? (
+            ) : view.unreadOnly ? (
+              // WP-186: 안 읽은 메일만 보기 0건 — 보기별 문구.
+              <div data-testid="mail-view-empty" className="p-6 text-sm text-muted-foreground">
+                {view.kind === 'work'
+                  ? '업무 메일 중 안 읽은 메일이 없어요'
+                  : view.kind === 'all'
+                    ? '안 읽은 메일이 없어요'
+                    : `${view.title} 메일 중 안 읽은 메일이 없어요`}
+              </div>
+            ) : view.kind === 'category' ? (
               // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.
               <div data-testid="mail-category-empty" className="p-6 text-sm text-muted-foreground">
                 이 분류에 해당하는 메일이 없습니다.
@@ -802,7 +864,8 @@ export function MailInboxPage() {
                   key={m.id}
                   m={m}
                   active={selectedId === m.id}
-                  onSelect={() => setSelectedId(m.id)}
+                  onSelect={() => selectRow(m.id)}
+                  pendingVisible={view.kind !== 'sent' && classificationActive}
                 />
               ))}
             </div>

@@ -46,7 +46,7 @@ test.describe('메일 AI 비서', () => {
     await page.route(
       (u) => u.pathname === '/api/v1/mail/accounts/1/messages',
       (route) => route.fulfill({ status: 200, contentType: 'application/json',
-        body: JSON.stringify([summary({ id: 7, aiCategory: '업무', aiNeedsReply: true })]) }),
+        body: JSON.stringify([summary({ id: 7, aiCategory: '개인', aiNeedsReply: true })]) }),
     )
     await mockApi(page, 'GET', '/api/v1/mail/messages/7', detail({ id: 7 }))
     await page.goto('/mail/1')
