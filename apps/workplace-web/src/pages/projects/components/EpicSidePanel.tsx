@@ -5,10 +5,8 @@
 // 이슈 드래그 중에는 「에픽 미할당」·각 에픽이 드롭 대상이 된다(IssueDndProvider 안일 때). floating 이면 닫힌 패널을
 // 드래그 동안만 뷰포트 오른쪽에 띄우는 임시 모드.
 import { useDroppable } from '@dnd-kit/core';
-import { useQueryClient } from '@tanstack/react-query';
 import { Layers, Plus } from 'lucide-react';
 import { type RefObject, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -24,8 +22,8 @@ import {
   type EpicDropState,
   epicDropState,
 } from '../../../lib/epicDnd';
-import { filtersToParams, parseFilters, parseGroupParam, parseView } from '../../../lib/issueFilters';
 import type { IssueResponse, ParentRef } from '../../../types/issue';
+import { useEpicFilter } from '../hooks/useEpicFilter';
 import { IssueCreateDialog } from './IssueCreateDialog';
 import { useIssueDnd } from './IssueDndProvider';
 
@@ -35,12 +33,11 @@ const ITEM_BASE = 'w-full rounded px-2 py-1.5 text-left text-sm transition-color
 export function EpicSidePanel({
   projectKey, canCreateIssue = false, floating = false,
 }: { projectKey: string; canCreateIssue?: boolean; floating?: boolean }) {
-  const [params, setParams] = useSearchParams();
-  const filters = parseFilters(params);
-  const view = parseView(params);
-  // group 원값(부재/none/값) 그대로 보존 — parseGroupBy 는 none 을 null 로 바꿔 「그룹 없음」 명시가 사라진다(#878).
-  const groupParam = parseGroupParam(params);
-  const queryClient = useQueryClient();
+  // 에픽 필터 범위(URL parent/topLevel) 읽기·쓰기는 훅이 맡는다 — 다른 필터·뷰·group 원값 보존 포함.
+  const { choice, select } = useEpicFilter(projectKey);
+  // 「에픽 미할당」 = 부모 없는(topLevel) 비EPIC 이슈. 유형 필터와 독립.
+  const unassignedActive = choice.kind === 'unassigned';
+  const selectedEpic = choice.kind === 'epic' ? choice.number : null;
   // 「＋ 에픽 만들기」 다이얼로그 열림 상태.
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -55,35 +52,6 @@ export function EpicSidePanel({
   // 패널 전체 영역 존 — 드래그 중에만 활성. 패널 위(비허용 항목·배너·여백)에 놓으면 no-op 이 되고 아래 보드로 새지 않는다.
   // data 에 epic 키가 없으므로 provider 의 에픽 드롭·보드 상태 모니터 모두 무시한다.
   const { setNodeRef: setZoneRef } = useDroppable({ id: EPIC_PANEL_ZONE_ID, data: { zone: true }, disabled: activeIssue == null });
-
-  // 에픽 필터 전환 후 본문 이슈 검색을 무효화한다 — 전역 staleTime(30s) 내 동일 필터로
-  // 되돌아가도(예: 같은 에픽 재클릭) 캐시된 결과가 아니라 최신 목록을 즉시 다시 조회한다.
-  function invalidateBodyIssueSearch() {
-    queryClient.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
-  }
-
-  // 패널의 세 선택지(전체·미할당·특정 에픽)는 parent/topLevel 두 값의 조합이다 — 한 곳에서만 URL 에 반영해
-  // 서로 배타가 깨지지 않게 한다. 사용자가 건 유형 등 다른 필터는 보존.
-  // invalidate: 캐시된 동일 queryKey 로 되돌아가는 전환(해제)일 때만 true — 새 필터는 queryKey 가 새로 생겨 불필요.
-  function applyEpicScope(parentNumber: number | null, topLevel: boolean, invalidate: boolean) {
-    setParams(filtersToParams({ ...filters, parentNumber, topLevel }, view, groupParam), { replace: true });
-    if (invalidate) invalidateBodyIssueSearch();
-  }
-
-  function selectEpic(epicNumber: number) {
-    const next = filters.parentNumber === epicNumber ? null : epicNumber;
-    // 「에픽 미할당」(topLevel)과 상호 배타 — 에픽을 고르면 미할당은 해제된다. 재클릭(null 복귀)만 무효화.
-    applyEpicScope(next, false, next === null);
-  }
-
-  // 「에픽 미할당」 = 부모 없는(topLevel) 비EPIC 이슈. 보드·목록 기본 범위가 EPIC 을 이미 제외하므로
-  // topLevel=true 하나로 표현된다(유형 필터는 건드리지 않음 — 사용자가 건 유형 필터와 독립).
-  const unassignedActive = filters.parentNumber == null && filters.topLevel;
-
-  // 미할당 토글 — 활성 상태에서 재클릭하면 「전체 이슈」 상태로 복귀.
-  function selectUnassigned() {
-    applyEpicScope(null, !unassignedActive, unassignedActive);
-  }
 
   return (
     <aside
@@ -126,12 +94,12 @@ export function EpicSidePanel({
       <button
         type="button"
         // 에픽 선택·미할당을 모두 해제한다.
-        onClick={() => applyEpicScope(null, false, true)}
-        aria-pressed={filters.parentNumber == null && !unassignedActive}
+        onClick={() => select({ kind: 'all' })}
+        aria-pressed={choice.kind === 'all'}
         data-testid="epic-filter-all"
         className={cn(
           ITEM_BASE,
-          filters.parentNumber == null && !unassignedActive ? 'bg-accent font-medium' : 'hover:bg-muted/50',
+          choice.kind === 'all' ? 'bg-accent font-medium' : 'hover:bg-muted/50',
           // 드롭 대상이 아님 — 드래그 중에는 흐려 놓을 수 있는 항목과 구분한다.
           activeIssue && 'opacity-50',
         )}
@@ -140,7 +108,7 @@ export function EpicSidePanel({
       </button>
 
       {epicType && (
-        <UnassignedButton active={unassignedActive} activeIssue={activeIssue} onClick={selectUnassigned} />
+        <UnassignedButton active={unassignedActive} activeIssue={activeIssue} onClick={() => select({ kind: 'unassigned' })} />
       )}
 
       <div className="my-2 border-t" />
@@ -177,10 +145,10 @@ export function EpicSidePanel({
             <EpicItemButton
               key={ep.number}
               epic={ep}
-              selected={filters.parentNumber === ep.number}
+              selected={selectedEpic === ep.number}
               activeIssue={activeIssue}
               clip={listRef}
-              onClick={() => selectEpic(ep.number)}
+              onClick={() => select({ kind: 'epic', number: ep.number })}
             />
           ))
         )}
