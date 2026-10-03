@@ -33,7 +33,10 @@ async function mockDetail(page: Page, over: Partial<IssueResponse> = {}, body = 
   });
   const record = (r: Route) => {
     const req = r.request();
-    calls.push({ method: req.method(), path: new URL(req.url()).pathname, body: req.postDataJSON?.() ?? null });
+    // multipart(첨부 업로드) 본문은 JSON 이 아니라 postDataJSON 이 던진다 — 본문 없이 기록.
+    let body: unknown = null;
+    try { body = req.postDataJSON?.() ?? null; } catch { /* multipart */ }
+    calls.push({ method: req.method(), path: new URL(req.url()).pathname, body });
   };
   await stubChat(page);
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY }))));
@@ -213,5 +216,49 @@ test.describe('＋ 속성 시트', () => {
     await openDetail(page);
     await page.getByTestId('mobile-prop-more').click();
     await expect(page.getByTestId('issue-more-props-sheet').getByTestId('issue-parent-slot')).toBeVisible();
+  });
+});
+
+test.describe('첨부·하위 태스크', () => {
+  test('첨부 버튼은 「＋ 첨부」 하나 → 파일/드라이브 액션 시트', async ({ authenticatedPage: page }) => {
+    const calls = await mockDetail(page);
+    await openDetail(page);
+    await expect(page.getByTestId('attachment-dropzone')).toHaveCount(0);
+    await expect(page.getByTestId('issue-drive-link-add-btn')).toHaveCount(0);
+    const add = page.getByTestId('mobile-attach-add');
+    expect((await add.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+
+    await add.click();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByTestId('mobile-attach-sheet').getByTestId('mobile-action-file').click();
+    await (await chooser).setFiles({ name: 'bug.png', mimeType: 'image/png', buffer: Buffer.from('x') });
+    await expect.poll(() => calls.some((c) => c.method === 'POST' && c.path.endsWith('/attachments'))).toBe(true);
+
+    await add.click();
+    await page.getByTestId('mobile-action-drive').click();
+    await expect(page.getByText('링크할 파일 선택').first()).toBeVisible();
+  });
+
+  test('「＋ 하위 태스크 추가」 탭 → 입력칸 펼침, Enter 로 추가해도 칸·포커스 유지', async ({ authenticatedPage: page }) => {
+    const calls = await mockDetail(page);
+    await openDetail(page);
+    await expect(page.getByTestId('child-add-input')).toHaveCount(0);
+    await page.getByTestId('child-add-open').click();
+    const input = page.getByTestId('child-add-input');
+    await expect(input).toBeFocused();
+    await input.fill('첫 하위');
+    await input.press('Enter');
+    await expect.poll(() => calls.filter((c) => c.method === 'POST' && c.path.endsWith('/issues')).length).toBe(1);
+    await expect(input).toHaveValue('');
+    await expect(input).toBeFocused();
+    // 「추가」 버튼 탭도 입력칸 포커스를 뺏지 않는다(iOS 키보드 유지).
+    await input.fill('둘째 하위');
+    await page.getByTestId('child-add-form').getByRole('button', { name: '추가' }).click();
+    await expect.poll(() => calls.filter((c) => c.method === 'POST' && c.path.endsWith('/issues')).length).toBe(2);
+    await expect(input).toHaveValue('');
+    await expect(input).toBeFocused();
+    // 비운 채로 포커스를 잃으면 다시 접힌다.
+    await input.blur();
+    await expect(page.getByTestId('child-add-open')).toBeVisible();
   });
 });

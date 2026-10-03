@@ -5,7 +5,8 @@
 // 자식 조회는 부모 number 필터로 별도 search 호출 (cache key 분리).
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -22,6 +23,7 @@ import {
 import { issuesApi, searchIssues } from '../../../api/issues';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import { handleApiError } from '../../../lib/api-error';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import type { IssueResponse } from '../../../types/issue';
@@ -97,6 +99,10 @@ export function IssueChildrenSection({
   );
   const [newTitle, setNewTitle] = useState('');
   const [adding, setAdding] = useState(false);
+  // 모바일(WP-196): 「＋ 하위 태스크 추가」 탭으로 입력칸을 펼치는 연속 입력 UX. 데스크톱은 입력칸이 항상 보인다.
+  const isMobile = useIsMobile();
+  const [addOpen, setAddOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // 인라인 추가 — 제목 입력, 유형은 EPIC 부모면 선택된 값/일반 부모면 SUBTASK 고정, parentNumber 동봉.
   async function onAdd() {
@@ -111,6 +117,12 @@ export function IssueChildrenSection({
         parentNumber,
       });
       setNewTitle('');
+      // 모바일 연속 입력 — 제출 버튼 탭 등으로 포커스가 옮겨가도 입력칸으로 되돌려 키보드를 유지.
+      // 사용자가 이미 다른 곳을 탭해 포커스를 뗐다면(body) 되돌리지 않는다 — 폼 안(제출 버튼)에 있을 때만.
+      const input = inputRef.current;
+      if (isMobile && input && input !== document.activeElement && input.form?.contains(document.activeElement)) {
+        input.focus();
+      }
       // 자식 목록, 검색 캐시, 부모 detail 의 childCount 모두 갱신.
       qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
       qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });
@@ -176,6 +188,16 @@ export function IssueChildrenSection({
         </ul>
       )}
 
+      {isMobile && !addOpen ? (
+        <button
+          type="button"
+          data-testid="child-add-open"
+          onClick={() => setAddOpen(true)}
+          className="flex min-h-11 w-full items-center gap-2 rounded-md px-1 text-sm text-muted-foreground active:bg-accent"
+        >
+          <Plus className="size-4" aria-hidden /> {isEpicParent ? '하위 이슈 추가' : '하위 태스크 추가'}
+        </button>
+      ) : (
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -219,15 +241,40 @@ export function IssueChildrenSection({
           }
           maxLength={200}
           data-testid="child-add-input"
+          ref={inputRef}
+          autoFocus={isMobile}
+          // 모바일: 키보드가 올라온 뒤 입력칸이 가려지지 않게 화면 가운데로(셸이 --vvh 로 줄어드는 시간을 기다림).
+          onFocus={
+            isMobile
+              ? (e) => {
+                  const el = e.currentTarget;
+                  window.setTimeout(() => el.scrollIntoView({ block: 'center' }), 300);
+                }
+              : undefined
+          }
+          // 비운 채로 포커스를 잃으면 접는다 — 추가 버튼(submit) 탭은 relatedTarget 이 form 안이라 유지.
+          onBlur={
+            isMobile
+              ? (e) => {
+                  if (!newTitle.trim() && !e.currentTarget.form?.contains(e.relatedTarget as Node)) {
+                    setAddOpen(false);
+                  }
+                }
+              : undefined
+          }
         />
         <Button
           type="submit"
           size="sm"
+          // 모바일: 버튼 탭이 입력칸 blur 를 일으키지 않게(iOS 키보드 유지).
+          onPointerDown={isMobile ? (e) => e.preventDefault() : undefined}
+          onMouseDown={isMobile ? (e) => e.preventDefault() : undefined}
           disabled={!newTitle.trim() || !(isEpicParent ? epicChildTypeId : subtaskTypeId) || adding}
         >
           추가
         </Button>
       </form>
+      )}
     </section>
   );
 }

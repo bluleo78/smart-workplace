@@ -5,13 +5,16 @@
 // WP-202: 첨부 추가(파일 업로드·드라이브 링크) 권한 = 본문 편집 권한(canEditContent). 권한 없는 열람자에겐
 //         드롭존·링크 버튼 줄을 통째로 숨겨 403 을 미리 막는다.
 
-import { Cloud } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Cloud, Paperclip, Plus } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { FolderPickerModal } from '../../../components/drive/FolderPickerModal';
+import { MobileActionSheet } from '../../../components/mobile/MobileActionSheet';
 import { useDriveSpaces } from '../../../hooks/queries/useDriveSpaces';
 import { useAddIssueDriveLink } from '../../../hooks/queries/useIssueDriveLinks';
+import { useUploadIssueAttachments } from '../../../hooks/queries/useUploadIssueAttachments';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import { IssueAttachmentDropzone } from './IssueAttachmentDropzone';
 import { IssueAttachmentList } from './IssueAttachmentList';
 
@@ -31,7 +34,12 @@ export function IssueAttachmentStrip({
   // 첨부 추가(업로드·드라이브 링크) 가능 여부 — 서버 viewerCanEditContent(멤버/ADMIN 또는 OPEN reporter 본인)와 동일 기준.
   canEditContent: boolean;
 }) {
+  const isMobile = useIsMobile();
   const [pickerOpen, setPickerOpen] = useState(false);
+  // 모바일 「＋ 첨부」 액션 시트·숨은 파일 입력(WP-196).
+  const [attachSheetOpen, setAttachSheetOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const upload = useUploadIssueAttachments(projectKey, number);
   const addLink = useAddIssueDriveLink(projectKey, number);
   // 사용자 개인 스페이스 ID — 파일 피커 시작 위치.
   const [personalSpaceId, setPersonalSpaceId] = useState<number | null>(null);
@@ -55,6 +63,16 @@ export function IssueAttachmentStrip({
     setSpacesResolved(true);
   }, [spacesQuery.isSuccess, spacesQuery.isError, spacesQuery.data]);
 
+  // 파일 선택창 열기 — 시트 액션 클릭 핸들러 안에서 동기 호출된다.
+  const pickFile = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  // 모바일 시트 액션 존재 여부 — 한도(10) 도달 시 파일 업로드는 빠지고(데스크톱 드롭존의 '한도 도달' 비활성과 같은 의미),
+  // 드라이브 링크는 개인 스페이스가 확인돼야 남는다. 둘 다 없으면 「＋ 첨부」 버튼을 렌더하지 않는다.
+  const canPickFile = attachmentCount < 10;
+  const canPickDrive = spacesResolved && personalSpaceId != null;
+
   return (
     <section aria-label="첨부" data-testid="issue-attachment-strip" className="space-y-2">
       {attachmentCount > 0 && (
@@ -71,7 +89,49 @@ export function IssueAttachmentStrip({
         isOwner={isOwner}
         layout="strip"
       />
-      {canEditContent && (
+      {canEditContent && isMobile && (canPickFile || canPickDrive) && (
+        // 모바일(WP-196): 드롭존·링크 두 버튼 대신 「＋ 첨부」 하나 → 액션 시트(파일 · 드라이브에서 링크).
+        // 파일 입력은 시트 밖에 숨겨 두고, 액션 onSelect(시트 닫기와 같은 클릭 핸들러 안 동기 실행)에서 click() —
+        // iOS 사용자 제스처가 유지되어 파일 선택창이 막히지 않는다.
+        <>
+          <button
+            type="button"
+            data-testid="mobile-attach-add"
+            onClick={() => setAttachSheetOpen(true)}
+            className="inline-flex h-11 items-center gap-1.5 rounded-md border border-input bg-background px-4 text-sm font-medium active:bg-accent"
+          >
+            <Plus className="size-4" aria-hidden /> 첨부
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            data-testid="mobile-attach-input"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              // 같은 파일을 다시 고를 수 있게 값 리셋.
+              e.target.value = '';
+              if (files.length > 0) upload.mutate({ files, currentCount: attachmentCount });
+            }}
+          />
+          <MobileActionSheet
+            testId="mobile-attach-sheet"
+            open={attachSheetOpen}
+            onClose={() => setAttachSheetOpen(false)}
+            title="첨부"
+            actions={[
+              ...(canPickFile
+                ? [{ key: 'file', label: '파일', icon: <Paperclip />, onSelect: pickFile }]
+                : []),
+              ...(canPickDrive
+                ? [{ key: 'drive', label: '드라이브에서 링크', icon: <Cloud />, onSelect: () => setPickerOpen(true) }]
+                : []),
+            ]}
+          />
+        </>
+      )}
+      {canEditContent && !isMobile && (
         <div className="flex flex-wrap items-center gap-2">
           <IssueAttachmentDropzone
             projectKey={projectKey}
