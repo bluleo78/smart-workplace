@@ -97,6 +97,24 @@ test('동작 줄이기: 생성 중에도 회전·반짝임 없이 고정 점', a
   g.release()
 })
 
+test('동작 줄이기가 아니면 생성 중 캡슐 링은 회전, 아이콘은 반짝인다', async ({ authenticatedPage: page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await stubChat(page)
+  const g = gate()
+  await mockHomeChatGeneration(page, { gate: g.p, frames: [{ event: 'done', data: { sessionId: 's-4' } }] })
+  await page.goto('/chat')
+  const tab = page.getByTestId('mobile-tab-ai')
+  await tab.click()
+  await page.getByTestId('chat-input').fill('질문')
+  await page.getByRole('button', { name: '보내기' }).click()
+  await tab.click()
+  await expect(tab).toHaveAttribute('data-ai-activity', 'pending')
+  const capsule = page.getByTestId('mobile-tab-ai-capsule')
+  expect(await capsule.evaluate((el) => getComputedStyle(el, '::before').animationName)).toBe('ai-ring-spin')
+  expect(await capsule.locator('svg').evaluate((el) => getComputedStyle(el).animationName)).toBe('ai-twinkle')
+  g.release()
+})
+
 test('AI 를 열어도 보던 탭 강조가 유지되고 AI 칸은 열림 상태만 갖는다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/chat')
@@ -193,6 +211,30 @@ test('시트에서도 생성 중 ＋새 대화 → 확인창(중단하고 이동
   await expect(guard).toHaveCount(0)
   await expect(page.getByTestId('chat-panel')).not.toContainText('모바일 질문')
   await expect(page.getByTestId('ai-sheet')).toBeVisible() // 확인창이 시트를 닫지 않는다
+})
+
+test('[기다리기] 후 시트를 닫았다 다시 열어도 확인창이 다시 뜨지 않는다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  const never = new Promise<void>(() => {})
+  await mockHomeChatGeneration(page, { gate: never, frames: [{ event: 'done', data: { sessionId: 's-w' } }] })
+  await page.goto('/chat')
+  const tab = page.getByTestId('mobile-tab-ai')
+  await tab.click()
+  await page.getByTestId('chat-input').fill('기다릴 질문')
+  await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+  await page.getByTestId('ai-sheet-new-session').click()
+  const guard = page.getByTestId('session-switch-guard')
+  await expect(guard).toBeVisible()
+  await guard.getByRole('button', { name: '기다리기' }).click()
+  await expect(guard).toHaveCount(0)
+  await page.getByTestId('ai-sheet').getByTestId('ai-panel-close').click()
+  await expect(page.getByTestId('ai-sheet')).toHaveCount(0)
+  await tab.click()
+  await expect(page.getByTestId('chat-panel')).toContainText('기다릴 질문')
+  await expect(guard).toHaveCount(0)
+  // 다시 ＋ 를 누르면(새 요청) 확인창은 다시 열린다.
+  await page.getByTestId('ai-sheet-new-session').click()
+  await expect(guard).toBeVisible()
 })
 
 test.describe('키보드', () => {

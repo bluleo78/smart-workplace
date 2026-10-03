@@ -38,9 +38,13 @@ function SheetPanel() {
   const [trigger] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null));
 
   // 닫히면 연 버튼으로 포커스를 돌려준다(키보드·보조기기 사용자가 제자리로 돌아오도록).
+  // 단, 입력 필드·body 는 제외 — WebKit(iOS)은 탭한 버튼에 포커스를 주지 않아 직전 입력창이 잡힐 수 있고,
+  // 그걸 다시 포커스하면 시트를 닫을 때 키보드가 불쑥 올라온다.
   useEffect(
     () => () => {
-      if (trigger?.isConnected) trigger.focus();
+      if (trigger?.isConnected && trigger !== document.body && !trigger.matches('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) {
+        trigger.focus();
+      }
     },
     [trigger],
   );

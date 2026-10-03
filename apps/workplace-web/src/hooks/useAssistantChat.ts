@@ -3,7 +3,6 @@
 // 어시스턴트는 어느 경로에서든 제자리(in-place)에서 답한다 — 홈으로 강제 이동/캔버스 구성 없음.
 import { useChatSessionContext } from '@/hooks/chat-session-context';
 import { useSessions } from '@/hooks/queries/useHomeQueries';
-import type { SessionSwitch } from '@/hooks/useChatSession';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { ChatTurn, HomeSessionSummary, ProposalCard } from '@/types/home';
 
@@ -20,8 +19,10 @@ export interface AssistantChat {
   onStop: () => void;
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
-  /** WP-191: 생성 중 보류된 대화 전환(있으면 확인창 표시). */
-  heldSwitch: SessionSwitch | null;
+  /** WP-191: 확인창 표시 여부 — 보류가 있고 사용자가 [기다리기]로 닫지 않았을 때. 패널이 다시 마운트돼도 유지된다. */
+  guardOpen: boolean;
+  /** [기다리기] — 확인창만 닫고 보류는 유지(생성이 끝나면 자동 전환). */
+  onWaitSwitch: () => void;
   /** [중단하고 이동] */
   onConfirmSwitch: () => void;
   onDeleteSession: (id: string) => void;
@@ -51,7 +52,8 @@ export function useAssistantChat(): AssistantChat {
     onStop: session.stopStreaming,
     onNewSession: session.requestNewSession,
     onSelectSession: session.requestSelectSession,
-    heldSwitch: session.heldSwitch,
+    guardOpen: session.heldSwitch != null && !session.heldDismissed,
+    onWaitSwitch: session.dismissHeldSwitch,
     onConfirmSwitch: session.confirmSwitch,
     onDeleteSession: session.deleteSession,
     pendingActions: session.pendingActions,

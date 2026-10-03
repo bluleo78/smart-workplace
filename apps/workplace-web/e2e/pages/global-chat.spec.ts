@@ -999,6 +999,69 @@ test('생성 중 새 대화 → 확인창: 기다리기는 유지, 끝나면 자
   await expect(page.getByTestId('chat-panel')).not.toContainText('첫 질문')
 })
 
+test('[기다리기] 뒤 확인창이 다시 뜨지 않고, 생성이 끝나면 자동으로 새 대화로 전환된다 (WP-191)', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/projects', { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
+  let release!: () => void
+  const g = new Promise<void>((r) => (release = r))
+  await mockHomeChatGeneration(page, {
+    gate: g,
+    frames: [{ event: 'delta', data: { text: '첫 답변' } }, { event: 'done', data: { sessionId: 's-w' } }],
+  })
+  await page.goto('/projects')
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-input').fill('첫 질문')
+  const panel = page.getByTestId('chat-panel')
+  await panel.getByRole('button', { name: '보내기' }).click()
+  await page.getByTestId('chat-new-session').click()
+  const guard = page.getByTestId('session-switch-guard')
+  await guard.getByRole('button', { name: '기다리기' }).click()
+  await expect(guard).toHaveCount(0)
+  await expect(panel).toContainText('첫 질문') // 재요청 없이 아직 전환 전
+  release()
+  await expect(panel).not.toContainText('첫 질문') // 끝나자 보류가 실행돼 새 대화로
+  await expect(guard).toHaveCount(0)
+})
+
+test('보류된 전환의 대상 대화를 삭제하면 보류가 취소되어 생성이 끝나도 전환되지 않는다 (WP-191)', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/projects', { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
+  await mockChatSessions(page, {
+    items: [{ id: 's-target', title: '대상 대화', lastMessageAt: '2026-10-01T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  })
+  await mockApi(page, 'DELETE', '/api/v1/home/sessions/s-target', null, { status: 204 })
+  let restoreCalls = 0
+  await page.route((u) => u.pathname === '/api/v1/home/sessions/s-target/messages', (r) => {
+    restoreCalls++
+    return r.fulfill({ json: [] })
+  })
+  await page.route((u) => u.pathname === '/api/v1/home/sessions/s-target/proposals', (r) => r.fulfill({ json: [] }))
+  let release!: () => void
+  await mockHomeChatGeneration(page, {
+    gate: new Promise<void>((r) => (release = r)),
+    frames: [{ event: 'delta', data: { text: '첫 답변' } }, { event: 'done', data: { sessionId: 's-cur' } }],
+  })
+  await page.goto('/projects')
+  await page.getByTestId('chat-launcher').click()
+  const panel = page.getByTestId('chat-panel')
+  await page.getByTestId('chat-input').fill('첫 질문')
+  await panel.getByRole('button', { name: '보내기' }).click()
+  // 대상 대화로 전환 요청 → [기다리기]로 보류 유지.
+  await page.getByTestId('chat-session-switcher').click()
+  await page.getByTestId('chat-session-select').first().click()
+  const guard = page.getByTestId('session-switch-guard')
+  await guard.getByRole('button', { name: '기다리기' }).click()
+  await expect(guard).toHaveCount(0)
+  // 보류 대상 삭제.
+  await page.getByTestId('chat-session-switcher').click()
+  await page.getByTestId('chat-session-delete').first().click()
+  await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).click()
+  await page.keyboard.press('Escape')
+  release()
+  await expect(panel).toContainText('첫 답변')
+  await expect(panel).toContainText('첫 질문') // 불시 전환 없음
+  expect(restoreCalls).toBe(0)
+})
+
 test('생성 중 다른 대화 선택 → [중단하고 이동]: 취소 요청 1회 후 그 대화로 전환 (WP-191)', async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/projects', { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
   await mockChatSessions(page, {

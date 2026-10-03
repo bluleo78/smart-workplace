@@ -85,7 +85,14 @@ export function useChatSession() {
   // 진행 중인 SSE 스트림의 AbortController — newSession/restoreSession 시 취소.
   const abortRef = useRef<AbortController | null>(null);
   // WP-191: 생성 중 요청된 전환 — 화면(확인창) 표시용 state + 비동기 완료 경로에서 읽는 ref 미러.
-  const [heldSwitch, setHeldSwitch] = useState<SessionSwitch | null>(null);
+  const [heldSwitch, setHeldSwitchRaw] = useState<SessionSwitch | null>(null);
+  // [기다리기]를 눌러 확인창만 닫은 상태 — 패널이 언마운트(시트 닫힘·모드 전환)돼도 잃지 않도록 보류와 함께 여기서 든다.
+  const [heldDismissed, setHeldDismissed] = useState(false);
+  // 보류를 바꿀 때마다 닫힘 표시를 되돌린다 — 새 요청은 확인창을 다시 열고, 해제되면 표시도 사라진다.
+  const setHeldSwitch = useCallback((s: SessionSwitch | null) => {
+    setHeldSwitchRaw(s);
+    setHeldDismissed(false);
+  }, []);
   const heldRef = useRef<SessionSwitch | null>(null);
   // 보류 전환 실행기 — newSession/restoreSession 이 아래에서 정의되므로 effect 에서 최신 함수로 채운다.
   const releaseHeldRef = useRef<() => void>(() => {});
@@ -291,7 +298,7 @@ export function useChatSession() {
     // '새 대화'는 깨끗한 빈 입력으로 시작해야 하므로 패널 로컬 입력 초기화 신호 발행(#204).
     // restoreSession(세션 선택)/submit 에서는 발행하지 않아 세션별 초안 보존(by-design)을 깨지 않는다.
     setNewSessionNonce((n) => n + 1);
-  }, [updateSessionId]);
+  }, [updateSessionId, setHeldSwitch]);
 
   // 복원 — 메시지 fetch → transcript 재현(AI 재호출 없음, 위젯 fold 없음).
   const restoreSession = useCallback(
@@ -441,11 +448,17 @@ export function useChatSession() {
     (id: string) => {
       del.mutate(id, {
         onSuccess: () => {
+          // 보류된 전환의 대상이 방금 삭제됐다면 실행할 수 없으니 보류를 버린다(나중에 없는 대화를 복원하려 하지 않게).
+          const h = heldRef.current;
+          if (h?.kind === 'select' && h.id === id) {
+            heldRef.current = null;
+            setHeldSwitch(null);
+          }
           if (id === sessionId) newSession();
         },
       });
     },
-    [del, sessionId, newSession],
+    [del, sessionId, newSession, setHeldSwitch],
   );
 
   // WP-191: 보류 전환 실행기 — 실행 직전 비워 중복 실행을 막는다(완료·중단이 겹쳐도 1회).
@@ -458,7 +471,7 @@ export function useChatSession() {
       if (s.kind === 'new') newSession();
       else void restoreSession(s.id);
     };
-  }, [newSession, restoreSession]);
+  }, [newSession, restoreSession, setHeldSwitch]);
 
   // 생성 중이면 보류(확인창), 아니면 즉시 전환.
   const requestSwitch = useCallback(
@@ -471,16 +484,19 @@ export function useChatSession() {
       heldRef.current = s;
       setHeldSwitch(s);
     },
-    [pending, newSession, restoreSession],
+    [pending, newSession, restoreSession, setHeldSwitch],
   );
   const requestNewSession = useCallback(() => requestSwitch({ kind: 'new' }), [requestSwitch]);
   const requestSelectSession = useCallback((id: string) => requestSwitch({ kind: 'select', id }), [requestSwitch]);
   // [중단하고 이동] — 중단하면 stopStreaming 이 보류 전환을 실행한다.
-  // ([기다리기]는 확인창만 닫는 UI 동작이라 여기 API 가 없다 — 보류는 생성이 끝날 때 실행된다.)
   const confirmSwitch = stopStreaming;
+  // [기다리기] — 확인창만 닫고 보류는 유지(생성이 끝나면 실행). 닫힘 표시는 여기서 들어 재오픈해도 다시 뜨지 않는다.
+  const dismissHeldSwitch = useCallback(() => setHeldDismissed(true), []);
 
   return {
     heldSwitch,
+    heldDismissed,
+    dismissHeldSwitch,
     requestNewSession,
     requestSelectSession,
     confirmSwitch,
