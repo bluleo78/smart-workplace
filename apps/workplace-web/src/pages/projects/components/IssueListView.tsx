@@ -198,6 +198,8 @@ export function IssueListView({
         {/* 목록 끝 — 자동 로드, 다음 페이지 실패 시에만 다시 시도(공용 LoadMoreFooter, WP-183) */}
         <LoadMoreFooter query={searchQuery} root={scrollEl} data-testid="issue-list-more" />
       </div>
+      {/* 모바일 일괄 작업 바(fixed, 약 56px)가 마지막 행을 가리지 않게 같은 높이만큼 비운다. */}
+      {isMobile && selected.size > 0 && <div aria-hidden className="h-16" />}
       {/* 액션 시트는 표 밖 형제로 — 행 안에 두면 시트 클릭이 행 이벤트로 새어 든다. */}
       {rowActions.sheets}
     </div>

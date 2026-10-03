@@ -98,3 +98,47 @@ test.describe('이슈 행 길게 누르기', () => {
     await expect(page.getByTestId('mobile-action-epic')).toHaveCount(0);
   });
 });
+
+test.describe('모바일 선택 모드', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await stubChat(page);
+  });
+
+  test('선택 → 탭으로 추가 선택(이동 없음) → 하단 바 → 일괄 상태 변경 → 종료', async ({ authenticatedPage: page }) => {
+    const calls = await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    await longPress(page, 'issue-row-21');
+    await page.getByTestId('mobile-action-select').click();
+
+    const bar = page.getByTestId('issue-bulk-toolbar');
+    await expect(bar).toBeVisible();
+    await expect(bar).toHaveAttribute('data-mobile', 'true');
+    await expect(bar).toContainText('1개 선택');
+
+    // 제목 텍스트(링크)를 정확히 탭해도 이동하지 않고 선택이 늘어난다.
+    await page.getByTestId('issue-row-22').getByText('환불 콜백 재시도 로직 추가').click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?group=none$`));
+    await expect(bar).toContainText('2개 선택');
+
+    // 바가 마지막 행을 가리지 않는다.
+    const barBox = (await bar.boundingBox())!;
+    const lastBox = (await page.getByTestId('issue-row-22').boundingBox())!;
+    expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(barBox.y + 1);
+
+    await page.getByTestId('bulk-status-trigger').click();
+    await page.getByTestId('bulk-status-option-DONE').click();
+    await expect.poll(() => calls.filter((c) => c.path.endsWith('/status')).length).toBe(2);
+    await expect(bar).toHaveCount(0);
+  });
+
+  test('완료 버튼으로 선택 모드를 끝내면 탭이 다시 상세로 이동한다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    await longPress(page, 'issue-row-21');
+    await page.getByTestId('mobile-action-select').click();
+    await page.getByTestId('bulk-clear').click();
+    await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
+    await page.getByTestId('issue-row-22').getByText('환불 콜백 재시도 로직 추가').click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/22$`));
+  });
+});

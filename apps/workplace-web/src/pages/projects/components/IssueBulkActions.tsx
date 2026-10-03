@@ -29,6 +29,7 @@ import {
   useBulkUpdateStatus,
 } from '../../../hooks/queries/useBulkIssueActions';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import type { IssueStatus } from '../../../types/issue';
 
 // 상태 일괄 변경 드롭다운 옵션 — IssueStatusSelect 와 동일한 라벨 세트.
@@ -51,12 +52,17 @@ export function IssueBulkActions({
   /** 선택 해제 — 일괄 작업 성공 후에도 호출한다. */
   onClear: () => void;
 }) {
+  const isMobile = useIsMobile();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const members = useProjectMembers(projectKey);
   const bulkStatus = useBulkUpdateStatus(projectKey);
   const bulkAssign = useBulkAssign(projectKey);
   const bulkDelete = useBulkDeleteIssues(projectKey);
   const selectedNumbers = [...selected];
+  // 모바일은 터치 타깃 44px 확보 + 눌림 피드백, 데스크톱은 기존 hover 밑줄 유지.
+  const triggerCls = isMobile
+    ? 'min-h-11 rounded-md px-3 text-muted-foreground active:bg-accent'
+    : 'text-muted-foreground hover:underline';
 
   function onBulkStatus(status: IssueStatus) {
     bulkStatus.mutate({ numbers: selectedNumbers, status }, { onSuccess: onClear });
@@ -74,15 +80,25 @@ export function IssueBulkActions({
       {selected.size > 0 && (
         <div
           data-testid="issue-bulk-toolbar"
-          className="mb-2 flex shrink-0 items-center gap-2 rounded bg-muted px-3 py-2 text-sm"
+          data-mobile={isMobile || undefined}
+          className={
+            isMobile
+              ? // 하단 탭바(--mobile-tabbar-h, MobileTabBar 가 공개) 바로 위에 고정 — 키보드가 열려 있으면 키보드 위.
+                'fixed inset-x-0 z-40 flex items-center gap-1 border-t bg-background px-2 py-1.5 text-sm shadow-[0_-2px_8px_rgb(0_0_0/0.06)] bottom-[max(var(--mobile-tabbar-h,0px),var(--kb-inset,0px))]'
+              : 'mb-2 flex shrink-0 items-center gap-2 rounded bg-muted px-3 py-2 text-sm'
+          }
         >
-          <span>선택 {selected.size}개</span>
+          {isMobile ? (
+            <span className="px-2 font-medium">{selected.size}개 선택</span>
+          ) : (
+            <span>선택 {selected.size}개</span>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
                 data-testid="bulk-status-trigger"
-                className="text-muted-foreground hover:underline"
+                className={triggerCls}
               >
                 상태 변경
               </button>
@@ -104,7 +120,7 @@ export function IssueBulkActions({
               <button
                 type="button"
                 data-testid="bulk-assignee-trigger"
-                className="text-muted-foreground hover:underline"
+                className={triggerCls}
               >
                 담당자 지정
               </button>
@@ -137,7 +153,7 @@ export function IssueBulkActions({
             type="button"
             data-testid="bulk-delete"
             onClick={() => setConfirmDeleteOpen(true)}
-            className="text-destructive hover:underline"
+            className={`${triggerCls} text-destructive`}
           >
             삭제
           </button>
@@ -145,9 +161,9 @@ export function IssueBulkActions({
             type="button"
             data-testid="bulk-clear"
             onClick={onClear}
-            className="ml-auto text-muted-foreground hover:underline"
+            className={`${triggerCls} ml-auto`}
           >
-            선택 해제
+            {isMobile ? '완료' : '선택 해제'}
           </button>
         </div>
       )}

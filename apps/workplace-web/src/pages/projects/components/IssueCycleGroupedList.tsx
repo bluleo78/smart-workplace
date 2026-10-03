@@ -131,6 +131,8 @@ export function IssueCycleGroupedList({
           />
         ))}
       </div>
+      {/* 모바일 일괄 작업 바(fixed, 약 56px)가 마지막 행을 가리지 않게 같은 높이만큼 비운다. */}
+      {isMobile && selected.size > 0 && <div aria-hidden className="h-16" />}
       {rowActions.sheets}
     </div>
   );
