@@ -136,7 +136,7 @@ export function AppRail() {
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   // AI 어시스턴트 표시 모드 — 앱 전환 시 풀스크린을 side 로 강등(#454).
-  const { mode, open: openAssistant } = useAssistant()
+  const { mode, dismiss: dismissAssistant } = useAssistant()
   // 앱 레일 확장(아이콘+라벨) 토글 — localStorage 영속(#471).
   const { expanded, toggle } = useRailExpanded()
 
@@ -149,7 +149,8 @@ export function AppRail() {
   //   가려지므로, 새 앱 화면과 AI 가 함께 보이도록 내린다. side/closed 면 그대로 둔다.
   const onNavigate = () => {
     setMobileOpen(false)
-    if (mode === 'fullscreen') openAssistant('side')
+    // 레일 Link 이동과 같은 틱이라 history.go(-1)(비동기)을 쓰면 이동이 되돌려진다 — 히스토리 없이 side 로 강등(WP-209).
+    if (mode === 'fullscreen') dismissAssistant('side')
   }
 
   // 모바일 오버레이가 열려 있을 때 Escape 로 닫을 수 있게 한다(키보드 접근성).

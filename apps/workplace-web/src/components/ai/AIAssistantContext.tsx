@@ -1,6 +1,8 @@
 // src/components/ai/AIAssistantContext.tsx
 // AI 어시스턴트의 UI 표시 모드 상태를 앱 셸 레벨에서 제공.
 // 서버 세션 상태(HomeSessionContext)와 분리 — 여기서는 표시 모드/패널 폭만 다룬다.
+// 전체화면은 같은 URL 에 router state(aiOpen)를 push 해 시스템 뒤로가기(엣지 스와이프·Android back)가 AI 만 닫게 한다(WP-209).
+// 쿼리를 쓰지 않는 이유: search 를 통째로 재구성하는 페이지(useFolderNavigation 'url' 모드 등)가 키를 지워 버린다.
 import {
   createContext,
   type ReactNode,
@@ -10,8 +12,10 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { useLocation, useNavigationType } from 'react-router-dom';
 
 import { useChatSessionContext } from '@/hooks/chat-session-context';
+import { useHistoryParam } from '@/hooks/useHistoryParam';
 import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile';
 import { type AiActivity, aiActivity, nextUnseenDone } from '@/lib/ai/aiActivity';
 
@@ -20,6 +24,8 @@ export type AIMode = 'closed' | 'side' | 'fullscreen';
 
 const MODE_KEY = 'ai-mode';
 const WIDTH_KEY = 'ai-side-width';
+// 전체화면 히스토리 표식 키(router state). 값은 '1'.
+const HISTORY_KEY = 'aiOpen';
 // 사이드 패널 폭 범위 — 클램프는 resize() 단일 책임이므로 외부 export 불필요.
 const SIDE_MIN_WIDTH = 320;
 const SIDE_MAX_WIDTH = 600;
@@ -30,8 +36,12 @@ interface AIAssistantValue {
   sidePanelWidth: number;
   /** 특정 모드로 연다. */
   open: (mode: Exclude<AIMode, 'closed'>) => void;
-  /** 닫는다. */
+  /** 닫는다(전체화면이면 연 히스토리 항목을 되돌린다). */
   close: () => void;
+  /** 히스토리를 건드리지 않고 모드만 바꾼다 — 곧바로 다른 화면으로 이동하는 호출부(탭바·레일)용. */
+  dismiss: (next?: 'closed' | 'side') => void;
+  /** 현재 히스토리 항목이 AI 전체화면을 연 항목인가 — 탭바가 이동을 replace 로 할지 고른다. */
+  historyOpen: boolean;
   /** 칩 클릭 순환: closed→side→fullscreen→closed. */
   cycleMode: () => void;
   /** ⌘K 토글: 닫혀 있으면 직전 open 모드(기본 side)로, 열려 있으면 닫는다. */
@@ -48,6 +58,11 @@ function readInitialWidth(): number {
   const n = raw ? Number(raw) : NaN;
   if (!Number.isFinite(n)) return SIDE_DEFAULT_WIDTH;
   return Math.min(SIDE_MAX_WIDTH, Math.max(SIDE_MIN_WIDTH, n));
+}
+
+/** ⌘K 토글 시 복원할 직전 open 모드(기본 side). localStorage(ai-mode)에 마지막 open 모드 보관. */
+function lastOpen(): Exclude<AIMode, 'closed'> {
+  return localStorage.getItem(MODE_KEY) === 'fullscreen' ? 'fullscreen' : 'side';
 }
 
 /** 모바일(<lg)에는 사이드 패널이 없으므로 side 는 fullscreen 으로 승격해 보여준다(WP-121). */
@@ -81,28 +96,63 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   if (track.pending !== pending || track.unseenDone !== unseenDone) setTrack({ pending, unseenDone });
   const triggerActivity: AiActivity = isOpen ? 'idle' : aiActivity(pending, unseenDone);
   const [sidePanelWidth, setWidth] = useState<number>(readInitialWidth);
-  // ⌘K 토글 시 복원할 직전 open 모드(기본 side). localStorage(ai-mode)에 마지막 open 모드 보관.
-  const lastOpen = (): Exclude<AIMode, 'closed'> => {
-    const raw = localStorage.getItem(MODE_KEY);
-    return raw === 'fullscreen' ? 'fullscreen' : 'side';
-  };
 
-  const open = useCallback((m: Exclude<AIMode, 'closed'>) => {
-    persist(m);
-    setMode(m);
+  // 전체화면 히스토리 — 들어갈 때 push, 나올 때 그 항목을 되돌린다(공용 useHistoryParam state 모드).
+  const { value: historyValue, open: pushHistory, close: popHistory } = useHistoryParam(HISTORY_KEY, { mode: 'state' });
+  const historyOpen = historyValue != null;
+
+  /**
+   * 모드 전이 공통 — 노출 모드 기준.
+   * - 전체화면으로 들어감 + 표식 없음 → push(새로고침 뒤 남은 표식이 있으면 그 항목을 재사용).
+   * - 전체화면에서 나옴 + 현재 항목에 표식 있음 → 되돌림. 표식이 없으면(AI 안 링크로 다른 화면에 PUSH 된 뒤)
+   *   되돌리면 그 화면을 떠나므로 모드만 바꾼다.
+   */
+  const transition = useCallback(
+    (next: AIMode) => {
+      const nextFs = effectiveMode(next, getIsMobile()) === 'fullscreen';
+      if (nextFs && !historyOpen) pushHistory('1');
+      else if (!nextFs && mode === 'fullscreen' && historyOpen) popHistory();
+      setMode(next);
+    },
+    [historyOpen, mode, pushHistory, popHistory],
+  );
+
+  // 시스템 back/forward(POP)일 때만 표식과 모드를 맞춘다 — 렌더 중 "이전 값 보관" 패턴.
+  // PUSH/REPLACE(페이지의 setSearchParams 등)는 state 를 비워도 AI 를 닫지 않는다.
+  const location = useLocation();
+  const navType = useNavigationType();
+  const [syncedKey, setSyncedKey] = useState(location.key);
+  if (syncedKey !== location.key) {
+    setSyncedKey(location.key);
+    if (navType === 'POP') {
+      if (!historyOpen && mode === 'fullscreen') setMode('closed');
+      else if (historyOpen && mode !== 'fullscreen') setMode('fullscreen');
+    }
+  }
+
+  const open = useCallback(
+    (m: Exclude<AIMode, 'closed'>) => {
+      persist(m);
+      transition(m);
+    },
+    [transition],
+  );
+  const close = useCallback(() => transition('closed'), [transition]);
+  const dismiss = useCallback((next: 'closed' | 'side' = 'closed') => {
+    if (next !== 'closed') persist(next);
+    setMode(next);
   }, []);
-  const close = useCallback(() => setMode('closed'), []);
-  // 부수효과(matchMedia·localStorage)를 setState 업데이터 밖으로 — 현재 rawMode 로 다음 모드를 계산해 1회 set·persist.
+  // 부수효과(matchMedia·localStorage)를 setState 업데이터 밖으로 — 현재 rawMode 로 다음 모드를 계산해 1회 전이.
   const cycleMode = useCallback(() => {
     // 모바일에선 side 가 곧 fullscreen 이므로 현재 노출 모드 기준으로 순환한다.
     const eff = effectiveMode(rawMode, getIsMobile());
     const next: AIMode = eff === 'closed' ? 'side' : eff === 'side' ? 'fullscreen' : 'closed';
     if (next !== 'closed') persist(next);
-    setMode(next);
-  }, [rawMode]);
+    transition(next);
+  }, [rawMode, transition]);
   const toggle = useCallback(() => {
-    setMode((cur) => (cur === 'closed' ? lastOpen() : 'closed'));
-  }, []);
+    transition(rawMode === 'closed' ? lastOpen() : 'closed');
+  }, [rawMode, transition]);
   // 드래그 중에는 상태만 갱신(매 pointermove 마다 localStorage 쓰기 방지), 종료 시 persist 로 1회 영속.
   const resize = useCallback((w: number, persist = false) => {
     const clamped = Math.min(SIDE_MAX_WIDTH, Math.max(SIDE_MIN_WIDTH, Math.round(w)));
@@ -142,8 +192,8 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   }, [mode, sidePanelWidth]);
 
   const value = useMemo<AIAssistantValue>(
-    () => ({ mode, sidePanelWidth, open, close, cycleMode, toggle, resize, triggerActivity }),
-    [mode, sidePanelWidth, open, close, cycleMode, toggle, resize, triggerActivity],
+    () => ({ mode, sidePanelWidth, open, close, dismiss, historyOpen, cycleMode, toggle, resize, triggerActivity }),
+    [mode, sidePanelWidth, open, close, dismiss, historyOpen, cycleMode, toggle, resize, triggerActivity],
   );
   return <AIAssistantContext value={value}>{children}</AIAssistantContext>;
 }
