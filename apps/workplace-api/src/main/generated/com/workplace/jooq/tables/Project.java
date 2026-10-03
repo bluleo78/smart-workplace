@@ -9,6 +9,7 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Cycle.CyclePath;
 import com.workplace.jooq.tables.Issue.IssuePath;
+import com.workplace.jooq.tables.IssueBodyImage.IssueBodyImagePath;
 import com.workplace.jooq.tables.IssueFieldDef.IssueFieldDefPath;
 import com.workplace.jooq.tables.IssueTypeDef.IssueTypeDefPath;
 import com.workplace.jooq.tables.Label.LabelPath;
@@ -253,6 +254,19 @@ public class Project extends TableImpl<ProjectRecord> {
             _cycle = new CyclePath(this, null, Keys.CYCLE__CYCLE_PROJECT_ID_FKEY.getInverseKey());
 
         return _cycle;
+    }
+
+    private transient IssueBodyImagePath _issueBodyImage;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_body_image</code> table
+     */
+    public IssueBodyImagePath issueBodyImage() {
+        if (_issueBodyImage == null)
+            _issueBodyImage = new IssueBodyImagePath(this, null, Keys.ISSUE_BODY_IMAGE__ISSUE_BODY_IMAGE_PROJECT_ID_FKEY.getInverseKey());
+
+        return _issueBodyImage;
     }
 
     private transient IssueFieldDefPath _issueFieldDef;

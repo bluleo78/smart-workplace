@@ -46,6 +46,7 @@ import com.workplace.jooq.tables.Issue;
 import com.workplace.jooq.tables.IssueAiSummary;
 import com.workplace.jooq.tables.IssueAssignee;
 import com.workplace.jooq.tables.IssueAttachment;
+import com.workplace.jooq.tables.IssueBodyImage;
 import com.workplace.jooq.tables.IssueComment;
 import com.workplace.jooq.tables.IssueCycle;
 import com.workplace.jooq.tables.IssueDependency;
@@ -195,6 +196,9 @@ public class Indexes {
     public static final Index IDX_ISSUE_ASSIGNEE_USER = Internal.createIndex(DSL.name("idx_issue_assignee_user"), IssueAssignee.ISSUE_ASSIGNEE, new OrderField[] { IssueAssignee.ISSUE_ASSIGNEE.USER_ID }, false);
     public static final Index IDX_ISSUE_ATTACHMENT_ISSUE = Internal.createIndex(DSL.name("idx_issue_attachment_issue"), IssueAttachment.ISSUE_ATTACHMENT, new OrderField[] { IssueAttachment.ISSUE_ATTACHMENT.ISSUE_ID }, false);
     public static final Index IDX_ISSUE_ATTACHMENT_TENANT = Internal.createIndex(DSL.name("idx_issue_attachment_tenant"), IssueAttachment.ISSUE_ATTACHMENT, new OrderField[] { IssueAttachment.ISSUE_ATTACHMENT.TENANT_ID }, false);
+    public static final Index IDX_ISSUE_BODY_IMAGE_ISSUE = Internal.createIndex(DSL.name("idx_issue_body_image_issue"), IssueBodyImage.ISSUE_BODY_IMAGE, new OrderField[] { IssueBodyImage.ISSUE_BODY_IMAGE.ISSUE_ID }, false);
+    public static final Index IDX_ISSUE_BODY_IMAGE_PENDING = Internal.createIndex(DSL.name("idx_issue_body_image_pending"), IssueBodyImage.ISSUE_BODY_IMAGE, new OrderField[] { IssueBodyImage.ISSUE_BODY_IMAGE.PROJECT_ID, IssueBodyImage.ISSUE_BODY_IMAGE.UPLOADED_BY }, false);
+    public static final Index IDX_ISSUE_BODY_IMAGE_TENANT = Internal.createIndex(DSL.name("idx_issue_body_image_tenant"), IssueBodyImage.ISSUE_BODY_IMAGE, new OrderField[] { IssueBodyImage.ISSUE_BODY_IMAGE.TENANT_ID }, false);
     public static final Index IDX_ISSUE_COMMENT_ISSUE_CREATED = Internal.createIndex(DSL.name("idx_issue_comment_issue_created"), IssueComment.ISSUE_COMMENT, new OrderField[] { IssueComment.ISSUE_COMMENT.ISSUE_ID, IssueComment.ISSUE_COMMENT.CREATED_AT }, false);
     public static final Index IDX_ISSUE_COMMENT_TENANT = Internal.createIndex(DSL.name("idx_issue_comment_tenant"), IssueComment.ISSUE_COMMENT, new OrderField[] { IssueComment.ISSUE_COMMENT.TENANT_ID }, false);
     public static final Index IDX_ISSUE_CYCLE_CYCLE = Internal.createIndex(DSL.name("idx_issue_cycle_cycle"), IssueCycle.ISSUE_CYCLE, new OrderField[] { IssueCycle.ISSUE_CYCLE.CYCLE_ID }, false);

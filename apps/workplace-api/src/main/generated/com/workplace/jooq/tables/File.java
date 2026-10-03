@@ -12,6 +12,7 @@ import com.workplace.jooq.tables.DriveFile.DriveFilePath;
 import com.workplace.jooq.tables.DriveFileVersion.DriveFileVersionPath;
 import com.workplace.jooq.tables.FileExtraction.FileExtractionPath;
 import com.workplace.jooq.tables.IssueAttachment.IssueAttachmentPath;
+import com.workplace.jooq.tables.IssueBodyImage.IssueBodyImagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
@@ -302,6 +303,19 @@ public class File extends TableImpl<FileRecord> {
             _issueAttachment = new IssueAttachmentPath(this, null, Keys.ISSUE_ATTACHMENT__ISSUE_ATTACHMENT_FILE_ID_FKEY.getInverseKey());
 
         return _issueAttachment;
+    }
+
+    private transient IssueBodyImagePath _issueBodyImage;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_body_image</code> table
+     */
+    public IssueBodyImagePath issueBodyImage() {
+        if (_issueBodyImage == null)
+            _issueBodyImage = new IssueBodyImagePath(this, null, Keys.ISSUE_BODY_IMAGE__ISSUE_BODY_IMAGE_FILE_ID_FKEY.getInverseKey());
+
+        return _issueBodyImage;
     }
 
     private transient MessageAttachmentPath _messageAttachment;
