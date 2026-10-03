@@ -1030,3 +1030,50 @@ test('생성 중 다른 대화 선택 → [중단하고 이동]: 취소 요청 1
   await expect.poll(() => msgCalls).toBe(1)
   await expect.poll(() => cancel.calls.length).toBe(1)
 })
+
+test('보류 중 현재 대화를 삭제하면 보류가 취소되어 다음 질문 뒤 불시 전환이 없다 (WP-191)', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/projects', { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
+  await mockChatSessions(page, {
+    items: [{ id: 's-a', title: '현재 대화', lastMessageAt: '2026-10-01T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  })
+  await mockApi(page, 'DELETE', '/api/v1/home/sessions/s-a', null, { status: 204 })
+  // 1) 첫 질문은 즉시 끝나 현재 세션 id(s-a)를 얻는다.
+  await mockHomeChatGeneration(page, {
+    frames: [{ event: 'delta', data: { text: '첫 답변' } }, { event: 'done', data: { sessionId: 's-a' } }],
+  })
+  await page.goto('/projects')
+  await page.getByTestId('chat-launcher').click()
+  const panel = page.getByTestId('chat-panel')
+  await page.getByTestId('chat-input').fill('첫 질문')
+  await panel.getByRole('button', { name: '보내기' }).click()
+  await expect(panel).toContainText('첫 답변')
+  // 2) 두 번째 질문은 끝나지 않게 붙잡고(나중 등록 라우트 우선), 새 대화 요청 → [기다리기]로 보류 유지.
+  let releaseSecond!: () => void
+  await mockHomeChatGeneration(page, {
+    gate: new Promise<void>((r) => (releaseSecond = r)),
+    frames: [{ event: 'done', data: { sessionId: 's-a' } }],
+  })
+  await page.getByTestId('chat-input').fill('두 번째 질문')
+  await panel.getByRole('button', { name: '보내기' }).click()
+  await page.getByTestId('chat-new-session').click()
+  const guard = page.getByTestId('session-switch-guard')
+  await guard.getByRole('button', { name: '기다리기' }).click()
+  await expect(guard).toHaveCount(0)
+  // 3) 현재 대화 삭제 → newSession 직접 호출(보류도 함께 취소돼야 한다).
+  await page.getByTestId('chat-session-switcher').click()
+  await page.getByTestId('chat-session-delete').click()
+  await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).click()
+  await expect(panel).not.toContainText('두 번째 질문')
+  await page.keyboard.press('Escape') // 열려 있는 세션 드롭다운을 닫아 패널을 다시 조작 가능하게
+  // 4) 새 질문이 끝나도 옛 보류가 불시에 실행되지 않고 확인창도 뜨지 않는다.
+  await mockHomeChatGeneration(page, {
+    frames: [{ event: 'delta', data: { text: '셋째 답변' } }, { event: 'done', data: { sessionId: 's-c' } }],
+  })
+  await page.getByTestId('chat-input').fill('셋째 질문')
+  await panel.getByRole('button', { name: '보내기' }).click()
+  await expect(panel).toContainText('셋째 답변')
+  await expect(guard).toHaveCount(0)
+  await expect(panel).toContainText('셋째 질문')
+  releaseSecond() // 붙잡아 둔 구 스트림을 풀어 정리(세대가 달라 무시되어야 한다)
+})

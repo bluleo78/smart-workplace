@@ -276,6 +276,10 @@ export function useChatSession() {
 
   // 새 세션 — 로컬 리셋만(POST 안 함; 첫 chat 이 서버에서 세션 생성). in-flight 작업 무효화.
   const newSession = useCallback(() => {
+    // WP-191: 어떤 실제 전환이든 보류를 취소한다(삭제 등으로 직접 호출돼도 옛 보류가 나중에 튀어나오지 않게).
+    // releaseHeld 는 호출 전에 이미 비우므로 1회 실행 보장은 유지된다.
+    heldRef.current = null;
+    setHeldSwitch(null);
     opSeq.current++;
     // in-flight SSE 스트림 취소 — 취소 후 stale 델타가 빈 turns 배열에 접근하는 것 방지.
     abortRef.current?.abort();
@@ -292,6 +296,8 @@ export function useChatSession() {
   // 복원 — 메시지 fetch → transcript 재현(AI 재호출 없음, 위젯 fold 없음).
   const restoreSession = useCallback(
     async (id: string) => {
+      heldRef.current = null; // WP-191: 실제 전환은 보류를 취소한다(newSession 과 동일)
+      setHeldSwitch(null);
       const gen = ++opSeq.current;
       // in-flight SSE 스트림 취소 — 복원된 세션에 구 스트림 델타가 섞이는 것 방지.
       abortRef.current?.abort();
