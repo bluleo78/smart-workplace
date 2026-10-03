@@ -238,6 +238,8 @@ class MailReadActionsControllerTest extends IntegrationTestBase {
     assertThat(seenEvents().get(0).userId()).isEqualTo(box[0]);
     assertThat(mailChanges()).hasSize(1);
     assertThat(mailChanges().get(0).attrs()).containsEntry("accountId", box[1]);
+    assertThat(mailChanges().get(0).attrs())
+        .doesNotContainKey("messageId"); // 다른 탭의 열린 상세가 다시 읽음 처리하지 않게
 
     // 이미 안 읽음 — 멱등이므로 추가 이벤트·알림 없음
     mvc.perform(post("/api/v1/mail/messages/{m}/unread", id).header("Authorization", token(box[0])))

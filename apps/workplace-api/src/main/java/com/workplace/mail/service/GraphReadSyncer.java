@@ -4,6 +4,7 @@ import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.SeenSyncItem;
 import com.workplace.mail.dto.SeenSyncResult;
+import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.outbound.GraphBatchRequest;
 import com.workplace.mail.outbound.GraphBatchResponse;
@@ -13,12 +14,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
  * Graph 계정 읽음 역동기화(WP-187): $batch 로 PATCH /me/messages/{id} {"isRead": seen} 를 20건씩 보낸다. 항목별
- * 2xx·404 는 끝난 것으로 보고, 429·5xx 를 만나면 그 묶음의 성공분만 반영한 뒤 다음 묶음을 보내지 않고 멈춘다.
+ * 2xx·404 는 끝난 것으로 보고, 429·5xx 를 만나면 그 묶음의 성공분만 반영한 뒤 다음 묶음을 보내지 않고 멈춘다. batch 요청 자체가 실패해도 앞 묶음까지의
+ * 성공분은 돌려주고 멈춘다.
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class GraphReadSyncer implements MailReadSyncer {
@@ -67,8 +71,20 @@ public class GraphReadSyncer implements MailReadSyncer {
                           "/me/messages/" + it.locator().providerMessageId(),
                           Map.<String, Object>of("isRead", it.seen())))
               .toList();
+      List<GraphBatchResponse> responses;
+      try {
+        responses = graphApiClient.batch(token, reqs);
+      } catch (MailSendException e) {
+        // 최상위 실패(전체 429·5xx·네트워크) — 앞 묶음에서 서버에 반영된 성공분은 대기 해제가 되도록 돌려주고 여기서 멈춘다.
+        // 예외로 올리면 조각 트랜잭션이 통째로 롤백돼 이미 반영된 메일까지 대기로 남고, 그동안 서버 쪽 변경이 로컬로 오지 않는다.
+        log.warn(
+            "Graph 읽음 반영 batch 실패 — 이번 조각 중단: accountId={} 반영={}",
+            remote.get(0).locator().accountId(),
+            done.size());
+        return new SeenSyncResult(done, true);
+      }
       boolean stop = false;
-      for (GraphBatchResponse r : graphApiClient.batch(token, reqs)) {
+      for (GraphBatchResponse r : responses) {
         int s = r.status();
         if ((s >= 200 && s < 300) || s == 404) {
           // 404: 서버에서 사라진 메일 — 반영할 대상이 없으므로 끝난 것으로 본다

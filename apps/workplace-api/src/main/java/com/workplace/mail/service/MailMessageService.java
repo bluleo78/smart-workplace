@@ -280,7 +280,9 @@ public class MailMessageService {
               if (messageRepo.markUnseen(messageId) <= 0) {
                 return null;
               }
-              notifier.mailChanged(userId, target.accountId(), messageId, userId);
+              // messageId 는 싣지 않는다 — 실으면 같은 메일을 열어 둔 다른 탭·기기가 상세를 다시 받아(GET = 열람) 곧바로 다시
+              // 읽음 처리한다. 계정 단위 알림만으로 목록·안 읽은 수는 갱신된다.
+              notifier.mailChanged(userId, target.accountId(), null, userId);
               return target.accountId();
             });
     if (changedAccountId != null) {

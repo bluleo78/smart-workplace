@@ -11,6 +11,7 @@ import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.ReadSyncLocator;
 import com.workplace.mail.dto.SeenSyncItem;
 import com.workplace.mail.dto.SeenSyncResult;
+import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.outbound.GraphBatchRequest;
 import com.workplace.mail.outbound.GraphBatchResponse;
@@ -73,6 +74,26 @@ class GraphReadSyncerTest extends IntegrationTestBase {
 
     verify(graphApiClient, times(1)).batch(eq("T"), anyList());
     assertThat(r.succeeded()).hasSize(19).doesNotContain(20L);
+    assertThat(r.stopped()).isTrue();
+  }
+
+  /** batch 요청 자체가 실패해도(최상위 429·네트워크) 앞 묶음의 성공분은 돌려주고 멈춘다 — 조각 트랜잭션이 롤백되지 않게 예외를 올리지 않는다. */
+  @SuppressWarnings("unchecked")
+  @Test
+  void wholeBatchFailure_keepsEarlierSuccesses_andStops() throws Exception {
+    when(graphTokenService.getAccessToken(1L, 10L)).thenReturn("T");
+    List<SeenSyncItem> items = IntStream.rangeClosed(1, 45).mapToObj(i -> item(i, true)).toList();
+    when(graphApiClient.batch(eq("T"), anyList()))
+        .thenAnswer(
+            inv ->
+                ((List<GraphBatchRequest>) inv.getArgument(1))
+                    .stream().map(rq -> new GraphBatchResponse(rq.id(), 200)).toList())
+        .thenThrow(new MailSendException("Graph 429"));
+
+    SeenSyncResult r = syncer.syncSeen(1L, null, items);
+
+    verify(graphApiClient, times(2)).batch(eq("T"), anyList());
+    assertThat(r.succeeded()).hasSize(20);
     assertThat(r.stopped()).isTrue();
   }
 
