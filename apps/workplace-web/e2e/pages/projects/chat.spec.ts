@@ -1200,4 +1200,36 @@ test.describe('이슈 chat panel', () => {
       .poll(() => stubs.createPayloads.map((p) => p.body))
       .toEqual([expect.stringContaining('\n')]);
   });
+  // WP-213 — 쓸 수 없는 사용자(공개 프로젝트 열람자 등)는 보내기 후 403 에러 대신 입력창 자리에 안내를 본다.
+  test('canPost=false 면 입력창 대신 작성 불가 안내를 보여 준다 (WP-213)', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '읽기 전용 테스트' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    const existing = createChatMessage({
+      id: 1,
+      threadId: THREAD_ID,
+      authorId: 2,
+      body: '기존 대화',
+    });
+    // 패널은 thread 응답의 recentMessages 로 첫 페이지를 시드한다.
+    stubs.thread = { ...stubs.thread, canPost: false, recentMessages: [existing] };
+    stubs.messages = [existing];
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByTestId('issue-chat-open').click();
+
+    // 기존 대화는 읽을 수 있고, 입력창 대신 안내가 보인다.
+    await expect(page.getByText('기존 대화')).toBeVisible();
+    await expect(page.getByTestId('chat-composer-readonly')).toHaveText(
+      '이 대화는 프로젝트 멤버와 이슈를 등록한 사람만 쓸 수 있습니다.',
+    );
+    await expect(page.getByTestId('chat-composer')).toHaveCount(0);
+  });
 });

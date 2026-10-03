@@ -66,6 +66,7 @@ export function createChatThread(
     archivedAt: null,
     members: [createChatMember()],
     recentMessages: [],
+    canPost: true,
     ...overrides,
   };
 }

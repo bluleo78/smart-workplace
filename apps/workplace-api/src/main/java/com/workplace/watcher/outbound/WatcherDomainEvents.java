@@ -7,8 +7,9 @@ public final class WatcherDomainEvents {
   private WatcherDomainEvents() {}
 
   /**
-   * 이슈 watcher 추가 직후. 현재 진입점인 {@code WatcherService.watch()} 는 본인 self-watch 만 허용하므로 actorUserId ==
-   * userId 가 항상 성립. 향후 관리자 대행 등 별도 진입점이 생길 경우에는 actorUserId 가 분기될 수 있다.
+   * 이슈 watcher 추가 직후. 진입점은 본인 구독({@code WatcherService.watch()}, actorUserId == userId)과 자동
+   * 등록({@code WatcherAutoEnroller} — 이슈 생성·담당자 지정·댓글 작성, actorUserId 는 그 행위자라 담당자 지정 시 userId 와 다를
+   * 수 있다).
    */
   public record WatcherAddedEvent(
       long issueId, long userId, long actorUserId, Instant occurredAt) {}

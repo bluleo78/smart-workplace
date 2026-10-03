@@ -127,7 +127,7 @@ public class IssueCommentService {
     // 댓글 작성 자격: 멤버/ADMIN 또는 OPEN 이슈 reporter 본인. 그 외(임의 테넌트 reader)는 403.
     accessGuard.assertContentWritable(project, issue.reporterId(), callerId);
     var resp = commentRepository.insert(issueId, callerId, req.body());
-    watcherAutoEnroller.enroll(issueId, callerId);
+    watcherAutoEnroller.enroll(issueId, callerId, callerId);
 
     // 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보) — issue 는 위에서 이미 로드해 재사용.
     var assignees = assigneeRepository.findByIssue(issueId);

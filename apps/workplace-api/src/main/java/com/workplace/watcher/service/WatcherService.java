@@ -13,13 +13,10 @@ import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.watcher.dto.WatcherResponse;
-import com.workplace.watcher.outbound.WatcherDomainEvents.WatcherAddedEvent;
 import com.workplace.watcher.repository.IssueWatcherRepository;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,12 +32,12 @@ public class WatcherService {
   private final ProjectRepository projectRepository;
   private final UserRepository userRepository;
   private final ProjectAccessGuard accessGuard;
-  private final ApplicationEventPublisher eventPublisher;
+  private final WatcherAutoEnroller watcherAutoEnroller;
   private final IssueChangeNotifier changeNotifier;
 
   /**
-   * 멤버가 본인을 issue watcher 로 등록. 신규 row 가 실제로 insert 된 경우에만 {@link WatcherAddedEvent} 를 발행 — 이미
-   * watcher 인 경우(멱등 no-op) 이벤트 중복 발행을 방지.
+   * 멤버가 본인을 issue watcher 로 등록. 신규 row 가 실제로 insert 된 경우에만 WatcherAddedEvent 를 발행 — 이미 watcher 인
+   * 경우(멱등 no-op) 이벤트 중복 발행을 방지.
    */
   public void watch(Long callerId, String projectKey, int number) {
     var project = accessGuard.assertMember(projectKey, callerId);
@@ -48,10 +45,8 @@ public class WatcherService {
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
-    boolean inserted = watcherRepository.add(issue.id(), callerId);
-    if (inserted) {
-      eventPublisher.publishEvent(
-          new WatcherAddedEvent(issue.id(), callerId, callerId, Instant.now()));
+    // 등록 + WatcherAddedEvent 발행은 자동 등록과 같은 진입점을 쓴다(신규 insert 때만 발행).
+    if (watcherAutoEnroller.enroll(issue.id(), callerId, callerId)) {
       // 실시간 무효화 — 실제 insert 가 일어났을 때만
       changeNotifier.updated(project, number, issue.id(), callerId);
     }
