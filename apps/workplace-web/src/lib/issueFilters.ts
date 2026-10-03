@@ -11,7 +11,7 @@ import type {
 
 const STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'] as const;
 const PRIORITIES = ['LOW', 'MID', 'HIGH'] as const;
-const GROUP_BYS = ['status', 'assignee', 'priority', 'cycle'] as const;
+const GROUP_BYS = ['status', 'assignee', 'priority', 'cycle', 'epic'] as const;
 
 // 알려진 토큰만 통과시켜 잘못된 URL 입력에 대해 안전하게 동작.
 export function parseFilters(params: URLSearchParams): IssueFilters {

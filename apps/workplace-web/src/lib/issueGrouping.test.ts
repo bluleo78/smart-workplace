@@ -99,3 +99,36 @@ describe('groupIssues - assignee', () => {
     expect(groups[0].key).toBe('unassigned');
   });
 });
+
+describe('groupIssues - epic', () => {
+  const EPIC_TYPE = { id: 6, name: 'EPIC', colorToken: 'INDIGO', icon: 'Flag' } as const;
+  const STORY_TYPE = { id: 2, name: 'STORY', colorToken: 'BLUE', icon: 'Flag' } as const;
+  const ep = (number: number, title: string) => ({ number, title, type: EPIC_TYPE });
+
+  it('에픽 번호 오름차순 버킷 + 마지막에 「에픽 없음」', () => {
+    const groups = groupIssues(
+      [
+        mk({ id: 1, number: 1, parent: ep(30, '결제 안정화') }),
+        mk({ id: 2, number: 2, parent: null }),
+        mk({ id: 3, number: 3, parent: ep(12, '모바일 UX') }),
+        mk({ id: 4, number: 4, parent: ep(30, '결제 안정화') }),
+      ],
+      'epic',
+    );
+    expect(groups.map((g) => [g.key, g.label, g.issues.map((i) => i.number)])).toEqual([
+      ['epic-12', '모바일 UX', [3]],
+      ['epic-30', '결제 안정화', [1, 4]],
+      ['no-epic', '에픽 없음', [2]],
+    ]);
+  });
+
+  it('에픽이 아닌 부모(STORY)는 「에픽 없음」으로 간다', () => {
+    const groups = groupIssues([mk({ id: 5, number: 5, parent: { number: 7, title: '스토리', type: STORY_TYPE } })], 'epic');
+    expect(groups).toEqual([{ key: 'no-epic', label: '에픽 없음', issues: [expect.objectContaining({ number: 5 })] }]);
+  });
+
+  it('에픽 없는 이슈가 없으면 「에픽 없음」 버킷을 만들지 않는다', () => {
+    const groups = groupIssues([mk({ id: 1, number: 1, parent: ep(3, 'A') })], 'epic');
+    expect(groups.map((g) => g.key)).toEqual(['epic-3']);
+  });
+});

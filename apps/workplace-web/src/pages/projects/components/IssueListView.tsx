@@ -4,10 +4,11 @@
 // #606: Drive DrivePage.tsx 의 체크박스+벌크 툴바 패턴을 재사용한 다중 선택/일괄 작업
 // (상태 변경/담당자 지정/삭제) — 보드 뷰(칸반)는 업계 관행(Linear/Jira/GitHub 등)대로 제외.
 
-import { LayoutList } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { ChevronRight, LayoutList } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { cn } from '@/lib/utils';
 
 import { Button } from '../../../components/ui/button';
 import { LoadMoreFooter } from '../../../components/ui/load-more-footer';
@@ -48,6 +49,17 @@ export function IssueListView({
   const { data, isLoading } = searchQuery;
   // 테이블 스크롤 컨테이너 — 목록 끝 LoadMoreFooter sentinel 의 IntersectionObserver root(콜백 ref 라 마운트 후 재부착).
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+
+  // 접힌 그룹 키 — 화면 로컬 상태(새로고침 시 펼침). 사이클 구간 헤더(IssueCycleSection)와 같은 접기 UX.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleGroup = useCallback((key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   // #606: 다중 선택 상태 — 이슈 number 집합. 필터/그룹 기준(직렬화 값)이 바뀌면 초기화.
   const {
@@ -159,13 +171,25 @@ export function IssueListView({
                 <tr className="bg-muted/40 border-b">
                   <td
                     colSpan={isMobile ? ISSUE_LIST_COLUMN_COUNT_MOBILE : ISSUE_LIST_COLUMN_COUNT}
-                    className="py-1.5 px-1 text-xs font-semibold text-muted-foreground"
+                    className="px-1 py-0"
                   >
-                    {g.label}
-                    <span className="ml-2 font-normal">{g.issues.length}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(g.key)}
+                      aria-expanded={!collapsed.has(g.key)}
+                      data-testid={`list-group-toggle-${g.key}`}
+                      className="flex min-h-8 w-full min-w-0 items-center gap-1.5 rounded text-left text-xs font-semibold text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-lg:min-h-11"
+                    >
+                      <ChevronRight
+                        className={cn('size-3.5 shrink-0 transition-transform', !collapsed.has(g.key) && 'rotate-90')}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 truncate">{g.label}</span>
+                      <span className="shrink-0 font-normal">{g.issues.length}</span>
+                    </button>
                   </td>
                 </tr>
-                {g.issues.map((it) => (
+                {!collapsed.has(g.key) && g.issues.map((it) => (
                   <IssueRow
                     key={it.id}
                     issue={it}

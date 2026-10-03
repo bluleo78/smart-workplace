@@ -34,6 +34,7 @@ export const ISSUE_GROUP_BY_LABEL: Record<IssueGroupBy, string> = {
   status: '상태',
   assignee: '담당자',
   priority: '우선순위',
+  epic: '에픽',
 };
 
 // 라벨 맵 → 순서 고정 버킷 목록(객체 키 삽입 순서 = 버킷 순서).
@@ -52,6 +53,12 @@ export function statusLabel(status: string): string {
 
 // 우선순위 버킷: 높음→보통→낮음 고정 순서.
 const PRIORITY_ORDER: { key: string; label: string }[] = toOrder(ISSUE_PRIORITY_LABEL);
+
+// 부모가 에픽인지 — 에픽은 별도 플래그가 없고 유형 이름이 'EPIC' 인 이슈다(useProjectEpics 와 같은 기준).
+// SUBTASK 의 부모(STORY 등)는 에픽이 아니므로 그룹·행 메타의 ◆ 에픽 표시에서 제외한다.
+export function isEpicParent(issue: IssueResponse): boolean {
+  return issue.parent?.type.name === 'EPIC';
+}
 
 /**
  * 평탄한 이슈 목록을 그룹 기준으로 묶는다.
@@ -77,6 +84,27 @@ export function groupIssues(
       label: p.label,
       issues: issues.filter((it) => it.priority === p.key),
     }));
+  }
+  // epic — 에픽 번호 오름차순 버킷, 에픽이 아닌 부모·부모 없음은 마지막 「에픽 없음」.
+  // 개수는 로드된 행 기준(무한 스크롤로 증가) — 상태/우선순위 그룹과 같은 방식(별도 집계 API 없음).
+  if (groupBy === 'epic') {
+    const byEpic = new Map<number, IssueGroup>();
+    const none: IssueResponse[] = [];
+    for (const it of issues) {
+      if (!it.parent || !isEpicParent(it)) {
+        none.push(it);
+        continue;
+      }
+      let g = byEpic.get(it.parent.number);
+      if (!g) {
+        g = { key: `epic-${it.parent.number}`, label: it.parent.title, issues: [] };
+        byEpic.set(it.parent.number, g);
+      }
+      g.issues.push(it);
+    }
+    const groups = [...byEpic.entries()].sort(([a], [b]) => a - b).map(([, g]) => g);
+    if (none.length > 0) groups.push({ key: 'no-epic', label: '에픽 없음', issues: none });
+    return groups;
   }
   // assignee — 동적 버킷.
   const buckets = new Map<string, IssueGroup>();

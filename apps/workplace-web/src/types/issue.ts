@@ -243,7 +243,7 @@ export interface IssueAiClassifyResponse {
 // 보드/리스트 그룹 기준 (#58). null = 그룹 없음(평탄 리스트 / 상태 보드).
 // view 와 동일하게 IssueFilters 와 분리된 URL 쿼리스트링 키('group')로 다룬다.
 // 'cycle'(#878)은 팀 목록 전용 — 구간(진행 중·예정·백로그)마다 서버 쿼리를 따로 두므로 클라이언트 그룹핑 대상이 아니다.
-export type IssueGroupBy = 'status' | 'assignee' | 'priority' | 'cycle';
+export type IssueGroupBy = 'status' | 'assignee' | 'priority' | 'cycle' | 'epic';
 
 // 클라이언트에서 받은 이슈를 묶는 그룹 기준 — 보드·개인 체크리스트·평탄 목록 그룹이 쓴다(cycle 제외).
 export type IssueClientGroupBy = Exclude<IssueGroupBy, 'cycle'>;
