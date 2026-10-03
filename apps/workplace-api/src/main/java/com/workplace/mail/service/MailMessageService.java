@@ -17,7 +17,6 @@ import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import java.util.List;
-import java.util.Map;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -105,10 +104,37 @@ public class MailMessageService {
    * 감추고 받은편지함을 전체로 본다.
    */
   boolean classificationActive(long userId, EmailAccountResponse account) {
-    if (assistantResolver.resolveWorkspaceOrEmpty().isPresent()) {
-      return true;
+    return new ClassificationProbe(userId).active(account);
+  }
+
+  /**
+   * 한 요청 안에서 비서 조회(트랜잭션+자격 조회)를 최소화하는 판정기 — 공통 비서는 1회, 개인 비서는 AI 사용 계정이 처음 나올 때 1회만 조회해 재사용한다. 탭
+   * 배지는 모든 페이지에서 폴링되므로 계정 수만큼 반복 조회하지 않게 한다.
+   */
+  private final class ClassificationProbe {
+    private final long userId;
+    private Boolean workspace;
+    private Boolean personal;
+
+    ClassificationProbe(long userId) {
+      this.userId = userId;
     }
-    return account.aiEnabled() && assistantResolver.resolvePersonalOrEmpty(userId).isPresent();
+
+    boolean active(EmailAccountResponse account) {
+      if (workspace == null) {
+        workspace = assistantResolver.resolveWorkspaceOrEmpty().isPresent();
+      }
+      if (workspace) {
+        return true;
+      }
+      if (!account.aiEnabled()) {
+        return false;
+      }
+      if (personal == null) {
+        personal = assistantResolver.resolvePersonalOrEmpty(userId).isPresent();
+      }
+      return personal;
+    }
   }
 
   /** WP-186 사이드바 안 읽은 수. 계정이 본인 소유가 아니면 404. RLS GUC 주입을 위해 읽기 전용 트랜잭션 안에서 읽는다(#444). */
@@ -118,25 +144,25 @@ public class MailMessageService {
         accountRepo
             .findByIdAndUser(userId, accountId)
             .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
-    Map<String, Long> buckets = messageRepo.countUnreadByBucket(accountId);
-    long inbox = buckets.values().stream().mapToLong(Long::longValue).sum();
     return new MailUnreadCounts(
         classificationActive(userId, account),
-        inbox,
-        buckets,
+        messageRepo.countUnreadInbox(accountId),
+        messageRepo.countUnreadByBucket(accountId),
         messageRepo.countNeedsReplyForAccount(accountId));
   }
 
   /** WP-186 탭 배지 합계 — 활성(비활성 제외) 계정마다 업무(분류 꺼지면 받은편지함) 안 읽은 수를 더한다. */
   @Transactional(readOnly = true)
   public MailUnreadCounts.Summary unreadSummary(long userId) {
+    ClassificationProbe probe = new ClassificationProbe(userId);
     long total = 0;
     for (EmailAccountResponse account : accountRepo.listByUser(userId)) {
-      Map<String, Long> buckets = messageRepo.countUnreadByBucket(account.id());
       total +=
-          classificationActive(userId, account)
-              ? buckets.get(EmailMessageRepository.WORK_CATEGORY)
-              : buckets.values().stream().mapToLong(Long::longValue).sum();
+          probe.active(account)
+              ? messageRepo
+                  .countUnreadByBucket(account.id())
+                  .get(EmailMessageRepository.WORK_CATEGORY)
+              : messageRepo.countUnreadInbox(account.id());
     }
     return new MailUnreadCounts.Summary(total);
   }

@@ -214,4 +214,17 @@ class MailUnreadCountsTest extends IntegrationTestBase {
     mvc.perform(get("/api/v1/mail/unread-summary").header("Authorization", token(a[0])))
         .andExpect(jsonPath("$.workUnread").value(1));
   }
+
+  @Test
+  void counts_legacyCategory_notInAnyBucket_butInInbox() throws Exception {
+    long[] box = TestFixtures.seedMailbox(dsl, "cnt5-" + System.nanoTime() + "@test.local");
+    fetched(box[1], box[2], "업무", false);
+    fetched(box[1], box[2], "스팸", false); // 옛 분류값 — 업무 보기 술어에 안 걸리므로 목록 업무에도 없다
+
+    mvc.perform(
+            get("/api/v1/mail/accounts/{a}/unread-counts", box[1])
+                .header("Authorization", token(box[0])))
+        .andExpect(jsonPath("$.byCategory.업무").value(1))
+        .andExpect(jsonPath("$.inbox").value(2));
+  }
 }

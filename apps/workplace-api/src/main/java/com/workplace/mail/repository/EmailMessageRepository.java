@@ -787,13 +787,15 @@ public class EmailMessageRepository {
   }
 
   /**
-   * WP-186 계정 INBOX 안 읽은 메일의 분류 버킷별 건수 — 쿼리 1회. 버킷은 목록 조건과 같다: 검증된 사본의 개인·알림·프로모션·뉴스레터는 그 분류,
-   * 나머지(업무·미분류·미적재)는 모두 업무(workViewCondition 과 같은 의미). 없는 버킷은 0 으로 채워 돌려준다.
+   * WP-186 계정 INBOX 안 읽은 메일의 분류 버킷별 건수 — 쿼리 1회. 버킷은 목록 조건과 같다: 검증된 사본의 개인·알림·프로모션·뉴스레터는 그 분류, 업무는
+   * workViewCondition 과 같은 술어(업무·미분류·미적재). 알 수 없는 분류값은 어느 버킷에도 세지 않는다. 없는 버킷은 0 으로 채운다.
    */
   public Map<String, Long> countUnreadByBucket(long accountId) {
-    // GROUP BY 에 같은 식이 그대로 들어가므로 바인드 파라미터 대신 inline 리터럴을 쓴다(파라미터면 PG 가 다른 식으로 본다).
+    // 업무 = workViewCondition 과 정확히 같은 술어(목록과 숫자가 어긋나지 않게). 나머지 4종은 검증된 사본만. 그 밖의 값(옛 분류 등)은 null →
+    // 어느 버킷에도 안 센다.
     Field<String> bucket =
-        DSL.when(
+        DSL.when(workViewCondition(), DSL.inline(WORK_CATEGORY))
+            .when(
                 EMAIL_MESSAGE
                     .FETCHED_AT
                     .isNotNull()
@@ -804,7 +806,7 @@ public class EmailMessageRepository {
                             DSL.inline("프로모션"),
                             DSL.inline("뉴스레터"))),
                 EMAIL_CONTENT.AI_CATEGORY)
-            .otherwise(DSL.inline(WORK_CATEGORY));
+            .otherwise(DSL.inline((String) null));
     Map<String, Long> out = new LinkedHashMap<>();
     for (String c : List.of(WORK_CATEGORY, "개인", "알림", "프로모션", "뉴스레터")) {
       out.put(c, 0L);
@@ -818,9 +820,26 @@ public class EmailMessageRepository {
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_FOLDER.NAME.eq("INBOX"))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
-        .groupBy(bucket)
-        .forEach(r -> out.put(r.value1(), r.value2().longValue()));
+        .groupBy(DSL.inline(1)) // 첫 컬럼(bucket) 서수 — 식 안 바인드 파라미터가 SELECT/GROUP BY 에서 다르게 보이는 문제 회피
+        .forEach(
+            r -> {
+              if (r.value1() != null) {
+                out.put(r.value1(), r.value2().longValue());
+              }
+            });
     return out;
+  }
+
+  /** WP-186 계정 INBOX 안 읽은 메일 전체 건수 — 목록의 "전체"(분류 필터 없음) 보기와 같다. 알 수 없는 분류값도 포함한다. */
+  public long countUnreadInbox(long accountId) {
+    return dsl.fetchCount(
+        dsl.selectOne()
+            .from(EMAIL_MESSAGE)
+            .join(EMAIL_FOLDER)
+            .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+            .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+            .and(EMAIL_FOLDER.NAME.eq("INBOX"))
+            .and(EMAIL_MESSAGE.SEEN.isFalse()));
   }
 
   /** #484: 공백 요약은 '결과 없음'(NULL)으로 저장 — 읽는 쪽이 공백 여부를 다시 판정하지 않게 한다. */
