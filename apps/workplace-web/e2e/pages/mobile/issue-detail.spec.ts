@@ -6,6 +6,7 @@ import { createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
+import { installFakeViewport, setKeyboard } from '../../fixtures/keyboard';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 
 const KEY = 'WP';
@@ -266,21 +267,8 @@ test.describe('첨부·하위 태스크', () => {
 
 test.describe('하단 코멘트 입력·편집 바', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
-    await page.addInitScript(() => {
-      let override: number | null = null;
-      const vv = Object.assign(new EventTarget(), { offsetTop: 0, scale: 1 });
-      Object.defineProperty(vv, 'height', { get: () => override ?? window.innerHeight, set: (v: number) => { override = v; } });
-      Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true });
-      (window as unknown as { __vv: typeof vv }).__vv = vv;
-    });
+    await installFakeViewport(page);
   });
-  const setKeyboard = (page: Page, open: boolean, px = 300) =>
-    page.evaluate(([o, kb]) => {
-      const vv = (window as unknown as { __vv: EventTarget & { height: number } }).__vv;
-      vv.height = o ? window.innerHeight - (kb as number) : window.innerHeight;
-      vv.dispatchEvent(new Event('resize'));
-      return vv.height;
-    }, [open, px] as const);
 
   test('코멘트 입력은 화면 하단 — 키보드가 열리면 바로 위로, 헤더는 제자리', async ({ authenticatedPage: page }) => {
     await mockDetail(page);

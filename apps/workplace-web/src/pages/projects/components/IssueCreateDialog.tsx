@@ -1,8 +1,3 @@
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect, useRef, useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { toast } from 'sonner';
-
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -13,146 +8,43 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { IssueBodyImageButton } from '../../../components/issue/IssueBodyImageButton';
-import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
-import { useCreateIssue } from '../../../hooks/queries/useIssues';
-import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
-import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
-import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
-import { handleApiError } from '../../../lib/api-error';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
-import { type CreateIssueFormData,createIssueSchema } from '../../../lib/validations/issue';
+import { useIssueCreateForm } from '../hooks/useIssueCreateForm';
+import { MobileIssueCreateSheet } from './mobile/MobileIssueCreateSheet';
+
+type Props = {
+  projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean;
+  // 유형 기본값 오버라이드 — 에픽 패널 「＋ 에픽 만들기」가 EPIC id 를 넘긴다. 미지정 시 기존 TASK 기본.
+  initialTypeId?: number;
+};
+
+// 새 이슈 생성 진입점 — 모바일(<1024px)은 전체 화면 시트(WP-196), 데스크톱은 기존 모달.
+// 훅 순서가 바뀌지 않도록 분기는 이 얇은 래퍼에서만 하고 각 구현이 자기 훅을 쓴다.
+export function IssueCreateDialog(props: Props) {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileIssueCreateSheet {...props} /> : <DesktopIssueCreateDialog {...props} />;
+}
 
 // 새 이슈 생성 모달. priority 기본 MID, dueDate 미지정 시 빈 문자열 → API 호출 직전 undefined 변환.
 // 유형 select 의 기본값은 프로젝트 유형 목록에서 name === 'TASK' 인 id (없으면 첫 번째).
 // personal=true 면 개인 프로젝트(#226) — 유형 select 를 숨긴다. 기본값 effect 가 typeId 를 TASK 로
 // 채우므로 셀렉트가 없어도 payload 의 typeId 는 TASK 로 유지된다.
-export function IssueCreateDialog({
-  projectKey, open, onOpenChange, personal = false, initialTypeId,
-}: {
-  projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean;
-  // 유형 기본값 오버라이드 — 에픽 패널 「＋ 에픽 만들기」가 EPIC id 를 넘긴다. 미지정 시 기존 TASK 기본.
-  initialTypeId?: number;
-}) {
-  const create = useCreateIssue(projectKey);
-  const classify = useIssueAiClassify(projectKey);
-  // AI 제안 이유 — 제안 후 버튼 아래 표시.
-  const [classifyReason, setClassifyReason] = useState<string | null>(null);
-  const types = useIssueTypes(projectKey);
-  const {
-    register,
-    handleSubmit,
-    reset,
-    getValues,
-    setValue,
-    watch,
-    formState: { errors },
-  } = useForm<CreateIssueFormData>({
-    resolver: zodResolver(createIssueSchema),
-    defaultValues: { priority: 'MID' },
-  });
-
-  // 본문 이미지 업로드(WP-199) — register 의 ref 와 우리 ref 를 함께 쓰기 위해 bodyField.ref 를 감싼다.
-  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
-  const bodyField = register('body');
-  const images = useIssueImageUpload({
-    projectKey,
-    textareaRef: bodyRef,
-    getValue: () => getValues('body') ?? '',
-    setValue: (v) => setValue('body', v, { shouldDirty: true }),
-  });
-
-  // dialog가 열릴 때 폼 상태 초기화 — 닫혀있는 동안 react-hook-form 상태가 유지되므로 재열기 시 reset 필요.
-  useEffect(() => {
-    if (!open) return;
-    reset({ priority: 'MID' });
-    setClassifyReason(null); // AI 제안 이유 초기화
-  }, [open, reset]);
-
-  // 유형 목록 로드 시 기본값 세팅 — name === 'TASK' 우선, 없으면 첫 항목.
-  useEffect(() => {
-    const list = types.data;
-    if (!list || list.length === 0) return;
-    const currentTypeId = watch('typeId');
-    if (currentTypeId) return;
-    const task = list.find((t) => t.name === 'TASK');
-    // initialTypeId 우선(존재하는 유형일 때만) → TASK → 첫 항목.
-    const preferred = initialTypeId != null ? list.find((t) => t.id === initialTypeId) : undefined;
-    setValue('typeId', preferred?.id ?? task?.id ?? list[0].id);
-    // open 의존: 다이얼로그 재오픈 시 reset 이 typeId 를 지운 뒤 이 effect 가 다시 TASK 기본값을 채우도록 한다.
-    // (개인 프로젝트는 select 가 숨겨져 사용자 보정이 불가하므로 payload typeId 누락을 막는 것이 특히 중요.)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [types.data, open]);
-
+function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = false, initialTypeId }: Props) {
+  const f = useIssueCreateForm({ projectKey, open, onOpenChange, personal, initialTypeId });
+  const { register, watch, setValue, formState: { errors } } = f.form;
+  const { types, images, bodyField, bodyRef, classify, classifyReason, isSubtaskSelected } = f;
   const currentTypeId = watch('typeId');
-  // 선택된 유형이 SUBTASK 인지 — parentNumber 입력 동적 노출 + 송신 분기에 사용 (Phase 4a).
-  const selectedType = (types.data ?? []).find((t) => t.id === currentTypeId);
-  const isSubtaskSelected = selectedType?.name === 'SUBTASK';
-
-  // 새로고침 시 입력값 유실 방지 (#620) — 모달이 열려 있고 제목/본문 중 하나라도
-  // 입력되어 있으면 beforeunload 확인 다이얼로그를 띄운다.
-  const titleValue = watch('title');
-  const bodyValue = watch('body');
-  useUnsavedChangesWarning(open && !!((titleValue ?? '').trim() || (bodyValue ?? '').trim()));
-
-  // AI 제안 핸들러 — 현재 폼 제목·본문으로 분류 요청.
-  // 성공 시 type/priority 덮어쓰기, reason 표시. AI 제안 실패해도 폼 동작 보존.
-  const handleClassify = () => {
-    const title = watch('title') ?? '';
-    const body = watch('body') ?? '';
-    classify.mutate(
-      { title, body },
-      {
-        onSuccess: (result) => {
-          // 유형 제안 — 개인 프로젝트(personal=true)는 result.type 이 null 이므로 skip.
-          if (result.type && types.data) {
-            const matched = types.data.find((t) => t.name === result.type);
-            if (matched) setValue('typeId', matched.id);
-          }
-          // 우선순위 덮어쓰기.
-          setValue('priority', result.priority);
-          setClassifyReason(result.reason);
-        },
-        onError: () => {
-          toast.error('AI 제안을 받지 못했습니다');
-        },
-      },
-    );
-  };
-
-  const onSubmit = async (data: CreateIssueFormData) => {
-    // 업로드가 끝나지 않은 자리표시 토큰이 저장되지 않게 마지막으로 막는다(버튼 비활성의 우회 경로 — Enter 제출 등).
-    if (images.pendingBlock(data.body ?? '')) {
-      toast.error('이미지 업로드가 끝난 뒤 등록해 주세요');
-      return;
-    }
-    const payload = {
-      ...data,
-      dueDate: data.dueDate || undefined,
-      startDate: data.startDate || undefined,
-      body: data.body || undefined,
-      typeId: data.typeId ?? undefined,
-      // SUBTASK 가 아닐 때는 parentNumber 를 절대 보내지 않는다 — 백엔드가 400.
-      parentNumber: isSubtaskSelected ? (data.parentNumber ?? undefined) : undefined,
-    };
-    try {
-      await create.mutateAsync(payload);
-      toast.success('태스크를 생성했습니다');
-      reset({ priority: 'MID' });
-      onOpenChange(false);
-    } catch (e) {
-      handleApiError(e, '태스크 생성에 실패했습니다');
-    }
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         {/* 유형 드롭다운(에픽/버그/스토리 등)과 무관한 중립 문구로 통일 — 유형별 동적 제목보다 단순하고 확장에 안전 (#641) */}
         <DialogHeader><DialogTitle>새 이슈</DialogTitle><DialogDescription className="sr-only">새 이슈</DialogDescription></DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={f.onSubmit} className="space-y-4">
           {/* 제목 — 필수 필드: FormField required 로 붉은 별표 표시 (캘린더 EventDialog 동일 패턴) */}
           <FormField label="제목" htmlFor="issue-title" required error={errors.title?.message}>
             <Input id="issue-title" {...register('title')} />
@@ -180,7 +72,7 @@ export function IssueCreateDialog({
             hasTitle={!!(watch('title') ?? '').trim()}
             isPending={classify.isPending}
             reason={classifyReason}
-            onClick={handleClassify}
+            onClick={f.handleClassify}
           />
           {/* 유형(팀만)/우선순위/시작일/마감일 — 필드 수에 맞춰 컬럼 수를 맞춰 마지막 줄이 혼자 남지 않게 한다. */}
           <div className={personal ? 'grid grid-cols-3 gap-3' : 'grid grid-cols-4 gap-3'}>
@@ -262,7 +154,7 @@ export function IssueCreateDialog({
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
-            <Button type="submit" disabled={create.isPending || images.isUploading}>{create.isPending ? '생성 중…' : '생성'}</Button>
+            <Button type="submit" disabled={f.isSubmitting}>{f.isSubmitting ? '생성 중…' : '생성'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
