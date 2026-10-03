@@ -29,7 +29,7 @@ async function stubDrive(page: Page) {
 test('미리보기: goBack 은 모달만 닫고 드라이브에 남는다 — 닫기(ESC)도 같은 결과', async ({ authenticatedPage: page }) => {
   await stubDrive(page)
   await page.goto(`/drive/spaces/${SPACE_ID}`)
-  await page.getByRole('button', { name: LONG_NAME }).tap()
+  await page.getByRole('button', { name: LONG_NAME, exact: true }).tap()
   await expect(page.getByTestId('preview-body')).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`/drive/spaces/${SPACE_ID}\\?preview=70$`))
 
@@ -38,7 +38,7 @@ test('미리보기: goBack 은 모달만 닫고 드라이브에 남는다 — �
   await expect(page.getByTestId('preview-body')).toHaveCount(0)
   await expect(page.getByTestId('drive-page')).toBeVisible()
 
-  await page.getByRole('button', { name: LONG_NAME }).tap()
+  await page.getByRole('button', { name: LONG_NAME, exact: true }).tap()
   await expect(page.getByTestId('preview-body')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page).toHaveURL(new RegExp(`/drive/spaces/${SPACE_ID}$`))
@@ -99,7 +99,7 @@ test('첨부 모아보기 미리보기: goBack 은 모달만 닫는다', async (
   await page.route('**/api/v1/projects/PROJ/issues/1/attachments/77/content', (r) => r.fulfill({ contentType: 'image/png', body: PNG_1x1 }))
 
   await page.goto('/drive/attachments')
-  await page.getByRole('button', { name: LONG_NAME }).tap()
+  await page.getByRole('button', { name: LONG_NAME, exact: true }).tap()
   await expect(page.getByTestId('preview-body')).toBeVisible()
   await expect(page).toHaveURL(/\/drive\/attachments\?preview=77$/)
   await page.goBack()

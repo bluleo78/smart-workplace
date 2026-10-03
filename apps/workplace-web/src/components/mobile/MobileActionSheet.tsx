@@ -14,6 +14,8 @@ export interface MobileSheetAction {
   onSelect: () => void;
   /** 파괴적 작업 — 빨간 글자. */
   destructive?: boolean;
+  /** 지금은 할 수 없는 작업(보관된 공간·원본 유실 등) — 숨기지 않고 흐리게 보여 이유를 짐작하게 한다. */
+  disabled?: boolean;
 }
 
 export function MobileActionSheet({
@@ -46,12 +48,13 @@ export function MobileActionSheet({
               key={a.key}
               type="button"
               data-testid={`mobile-action-${a.key}`}
+              disabled={a.disabled}
               onClick={() => {
                 onClose();
                 a.onSelect();
               }}
               className={cn(
-                'flex min-h-11 w-full items-center gap-3 px-4 text-left text-base active:bg-accent [&_svg]:size-5 [&_svg]:shrink-0',
+                'flex min-h-11 w-full items-center gap-3 px-4 text-left text-base active:bg-accent disabled:opacity-50 [&_svg]:size-5 [&_svg]:shrink-0',
                 a.destructive ? 'text-destructive' : 'text-foreground [&_svg]:text-muted-foreground',
               )}
             >
