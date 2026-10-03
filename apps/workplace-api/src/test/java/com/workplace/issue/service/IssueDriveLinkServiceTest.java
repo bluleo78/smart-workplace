@@ -184,4 +184,67 @@ class IssueDriveLinkServiceTest extends IntegrationTestBase {
     // then: 성공 — originalName 반환
     assertThat(content.originalName()).isNotBlank();
   }
+
+  /** OPEN 프로젝트 생성 — 비멤버 테넌트 사용자도 이슈 생성·조회가 가능한 유형(WP-202). */
+  private ProjectResponse newOpenProject(Long ownerId, String prefix) {
+    String key =
+        prefix + UUID.randomUUID().toString().replace("-", "").substring(0, 4).toUpperCase();
+    return projectService.create(
+        ownerId, new CreateProjectRequest(key, "P-" + prefix, "x", "OPEN"));
+  }
+
+  /**
+   * WP-202 회귀: OPEN 프로젝트 비멤버 reporter 는 본문 편집·파일 첨부와 같은 기준으로 자기 이슈에 드라이브 링크를 걸고, 내려받고, 자기 링크를 지울 수
+   * 있어야 한다. 예전엔 add/remove/content 가 assertMember 라 비멤버 reporter 만 403 이었다.
+   */
+  @Test
+  void open_nonMember_reporter_can_link_download_and_unlink_own() throws IOException {
+    long owner = createUser("owner");
+    long reporter = createUser("reporter");
+    ProjectResponse p = newOpenProject(owner, "OL");
+    issue(p, 1, reporter);
+    long df = seedDriveFileOwnedBy(reporter); // reporter 본인 스페이스 파일
+
+    service.add(reporter, p.key(), 1, df);
+    assertThat(service.list(reporter, p.key(), 1))
+        .extracting(DriveLinkResponse::driveFileId)
+        .containsExactly(df);
+    assertThat(service.content(reporter, p.key(), 1, df).originalName()).isNotBlank();
+
+    service.remove(reporter, p.key(), 1, df);
+    assertThat(service.list(reporter, p.key(), 1)).isEmpty();
+  }
+
+  /** WP-202: OPEN 비멤버 열람자는 남의 이슈에 링크를 걸 수 없지만(본문 편집 불가와 동일) 목록처럼 다운로드는 가능하다. */
+  @Test
+  void open_nonMember_nonReporter_cannotLink_butCanDownload() throws IOException {
+    long owner = createUser("owner");
+    long stranger = createUser("stranger");
+    ProjectResponse p = newOpenProject(owner, "OM");
+    issue(p, 1, owner);
+    long df = seedDriveFileOwnedBy(owner);
+    long strangerFile = seedDriveFileOwnedBy(stranger);
+    service.add(owner, p.key(), 1, df);
+
+    assertThatThrownBy(() -> service.add(stranger, p.key(), 1, strangerFile))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+    assertThat(service.content(stranger, p.key(), 1, df).originalName()).isNotBlank();
+  }
+
+  /** WP-202: TEAM 프로젝트 비멤버는 reporter 여도 링크 추가·다운로드 모두 거부(OPEN 예외가 TEAM 으로 새지 않게). */
+  @Test
+  void team_nonMember_reporter_cannotLink_orDownload() {
+    long owner = createUser("owner");
+    long reporter = createUser("reporter");
+    ProjectResponse p = newProject(owner, "TL");
+    issue(p, 1, reporter);
+    long df = seedDriveFileOwnedBy(owner);
+    long reporterFile = seedDriveFileOwnedBy(reporter);
+    service.add(owner, p.key(), 1, df);
+
+    assertThatThrownBy(() -> service.add(reporter, p.key(), 1, reporterFile))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+    assertThatThrownBy(() -> service.content(reporter, p.key(), 1, df))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+  }
 }

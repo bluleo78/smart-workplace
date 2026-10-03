@@ -2,7 +2,8 @@
 // 무엇을: 이슈 설명 바로 아래, 첨부를 유형 아이콘 칩으로 가로 나열 + 드롭존.
 // 왜: 사이드바 과밀 해소를 위해 첨부를 본문으로 이동(#343). 항상 보이되 공간 절약.
 // #80: 드라이브 링크 통합 렌더 + "드라이브에서 링크" 버튼 추가.
-// WP-202: 업로드 권한 = 본문 편집 권한(canUpload). 권한 없는 열람자에겐 드롭존을 숨겨 403 을 미리 막는다.
+// WP-202: 첨부 추가(파일 업로드·드라이브 링크) 권한 = 본문 편집 권한(canUpload). 권한 없는 열람자에겐
+//         드롭존·링크 버튼 줄을 통째로 숨겨 403 을 미리 막는다.
 
 import { Cloud } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -27,7 +28,7 @@ export function IssueAttachmentStrip({
   attachmentCount: number;
   currentUserId: number | null;
   isOwner: boolean;
-  // 첨부 업로드 가능 여부 — 서버 viewerCanEditContent(멤버/ADMIN 또는 OPEN reporter 본인)와 동일 기준.
+  // 첨부 추가(업로드·드라이브 링크) 가능 여부 — 서버 viewerCanEditContent(멤버/ADMIN 또는 OPEN reporter 본인)와 동일 기준.
   canUpload: boolean;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -69,33 +70,33 @@ export function IssueAttachmentStrip({
         isOwner={isOwner}
         layout="strip"
       />
-      <div className="flex flex-wrap items-center gap-2">
-        {canUpload && (
+      {canUpload && (
+        <div className="flex flex-wrap items-center gap-2">
           <IssueAttachmentDropzone
             projectKey={projectKey}
             number={number}
             currentCount={attachmentCount}
             disabled={attachmentCount >= 10}
           />
-        )}
-        {/* 드라이브에서 파일 링크 추가 버튼 (#80) */}
-        {/* spacesResolved=false이면 로딩 중, true+personalSpaceId=null이면 스페이스 없음 */}
-        <button
-          type="button"
-          data-testid="issue-drive-link-add-btn"
-          disabled={!spacesResolved || personalSpaceId == null}
-          title={
-            spacesResolved && personalSpaceId == null
-              ? '드라이브를 사용할 수 없습니다'
-              : undefined
-          }
-          onClick={() => setPickerOpen(true)}
-          // 드롭 영역과 동일 두께(py-4) — shrink-0 으로 버튼 너비 유지, 드롭 영역이 나머지 폭 차지.
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-input bg-background px-3 py-4 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Cloud className="h-3.5 w-3.5" /> 드라이브에서 링크
-        </button>
-      </div>
+          {/* 드라이브에서 파일 링크 추가 버튼 (#80) */}
+          {/* spacesResolved=false이면 로딩 중, true+personalSpaceId=null이면 스페이스 없음 */}
+          <button
+            type="button"
+            data-testid="issue-drive-link-add-btn"
+            disabled={!spacesResolved || personalSpaceId == null}
+            title={
+              spacesResolved && personalSpaceId == null
+                ? '드라이브를 사용할 수 없습니다'
+                : undefined
+            }
+            onClick={() => setPickerOpen(true)}
+            // 드롭 영역과 동일 두께(py-4) — shrink-0 으로 버튼 너비 유지, 드롭 영역이 나머지 폭 차지.
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-input bg-background px-3 py-4 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Cloud className="h-3.5 w-3.5" /> 드라이브에서 링크
+          </button>
+        </div>
+      )}
 
       {/* 드라이브 링크 세로 목록 (list 레이아웃으로 배지+위치 서브텍스트 표시) */}
       <IssueAttachmentList

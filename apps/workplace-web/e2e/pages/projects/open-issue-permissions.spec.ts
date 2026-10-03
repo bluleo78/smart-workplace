@@ -251,6 +251,8 @@ test(
 
     const dropzone = page.getByTestId('attachment-dropzone');
     await expect(dropzone).toBeVisible();
+    // 드라이브 링크 추가도 같은 권한(본문 편집)이라 함께 노출된다.
+    await expect(page.getByTestId('issue-drive-link-add-btn')).toBeVisible();
     const uploadReq = page.waitForRequest(
       (req) =>
         req.method() === 'POST' &&
@@ -267,7 +269,7 @@ test(
 );
 
 test(
-  'OPEN 열람자(비멤버·비reporter): 첨부 드롭존 미표시',
+  'OPEN 열람자(비멤버·비reporter): 첨부 드롭존·드라이브 링크 버튼 미표시',
   async ({ authenticatedPage: page }) => {
     await setupOpenProjectMocks(page, {
       viewerCanEditContent: false,
@@ -277,8 +279,9 @@ test(
     });
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
-    // 첨부 스트립 자체는 렌더(목록 열람 가능)되지만 업로드 드롭존은 없다.
+    // 첨부 스트립 자체는 렌더(목록 열람 가능)되지만 업로드 드롭존·링크 버튼은 없다.
     await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
     await expect(page.getByTestId('attachment-dropzone')).toHaveCount(0);
+    await expect(page.getByTestId('issue-drive-link-add-btn')).toHaveCount(0);
   },
 );
