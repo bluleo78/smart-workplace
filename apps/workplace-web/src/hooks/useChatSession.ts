@@ -458,13 +458,14 @@ export function useChatSession() {
   // 삭제 — 활성 세션이면 새 세션으로 리셋.
   const deleteSession = useCallback(
     (id: string) => {
+      // 보류된 전환의 대상을 지우려 하면 삭제 요청 시점에 보류를 버린다(나중에 없는 대화를 복원하려 하지 않게).
+      // onSuccess 까지 미루면 삭제 응답보다 답변 완료가 먼저 와 방금 지운 대화로 전환되는 경합이 생긴다.
+      const h = heldRef.current;
+      if (h?.kind === 'select' && h.id === id) {
+        clearHeld();
+      }
       del.mutate(id, {
         onSuccess: () => {
-          // 보류된 전환의 대상이 방금 삭제됐다면 실행할 수 없으니 보류를 버린다(나중에 없는 대화를 복원하려 하지 않게).
-          const h = heldRef.current;
-          if (h?.kind === 'select' && h.id === id) {
-            clearHeld();
-          }
           if (id === sessionId) newSession();
         },
       });

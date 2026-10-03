@@ -1052,7 +1052,14 @@ test('보류된 전환의 대상 대화를 삭제하면 보류가 취소되어 �
     items: [{ id: 's-target', title: '대상 대화', lastMessageAt: '2026-10-01T00:00:00Z', widgetCount: 0 }],
     nextCursor: null,
   })
-  await mockApi(page, 'DELETE', '/api/v1/home/sessions/s-target', null, { status: 204 })
+  // 삭제 응답을 일부러 늦춰 "삭제 응답보다 답변 완료가 먼저 오는" 경합을 재현한다 — 보류는 삭제 요청 시점에 버려져야 한다.
+  let finishDelete!: () => void
+  const deleteDone = new Promise<void>((r) => (finishDelete = r))
+  await page.route((u) => u.pathname === '/api/v1/home/sessions/s-target', async (r) => {
+    if (r.request().method() !== 'DELETE') return r.fallback()
+    await deleteDone
+    return r.fulfill({ status: 204, body: '' })
+  })
   let restoreCalls = 0
   await page.route((u) => u.pathname === '/api/v1/home/sessions/s-target/messages', (r) => {
     restoreCalls++
@@ -1084,6 +1091,7 @@ test('보류된 전환의 대상 대화를 삭제하면 보류가 취소되어 �
   await expect(panel).toContainText('첫 답변')
   await expect(panel).toContainText('첫 질문') // 불시 전환 없음
   expect(restoreCalls).toBe(0)
+  finishDelete()
 })
 
 test('생성 중 다른 대화 선택 → [중단하고 이동]: 취소 요청 1회 후 그 대화로 전환 (WP-191)', async ({ authenticatedPage: page }) => {
