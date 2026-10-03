@@ -7,6 +7,9 @@ import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, Paperclip } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+import { useIsMobile } from '@/hooks/useIsMobile';
+import { useLongPressCapture } from '@/hooks/useLongPressCapture';
+
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { ParentChip } from '../../../components/issues/ParentChip';
@@ -25,6 +28,7 @@ export function IssueCard({
   showStatus = false,
   dragDisabled = false,
   dragScope,
+  onLongPress,
 }: {
   projectKey: string;
   issue: IssueResponse;
@@ -43,7 +47,12 @@ export function IssueCard({
   // dnd-kit 은 id 로 노드를 등록하므로 겹치면 두 사본이 함께 흐려지고 고스트가 다른 사본 위치에서 뜬다.
   // 상태 보드는 SortableContext items(`issue-{id}`)와 맞아야 하므로 지정하지 않는다.
   dragScope?: string;
+  // 모바일 길게 누르기(WP-193) — 상태 변경·에픽 지정 액션 시트를 연다. 드래그 대신.
+  onLongPress?: (issue: IssueResponse) => void;
 }) {
+  const isMobile = useIsMobile();
+  // 캡처 단계 click 억제 — 전면 오버레이 <Link> 이동까지 막는다. 모바일·콜백 있을 때만 활성.
+  const press = useLongPressCapture(isMobile && onLongPress ? { onLongPress: () => onLongPress(issue) } : {});
   const sortable = useSortable({
     id: dragScope ? `issue-${dragScope}-${issue.id}` : `issue-${issue.id}`,
     // issueNumber/status: 보드 상태 드롭용, issue/source/showType: 에픽 드롭·오버레이용(IssueDragData).
@@ -74,14 +83,17 @@ export function IssueCard({
     <div
       ref={asOverlay ? undefined : setNodeRef}
       style={style}
-      {...(asOverlay ? {} : attributes)}
-      {...(asOverlay ? {} : listeners)}
+      // 드래그 불가(모바일·비멤버)면 dnd-kit 속성(role=button·roledescription="sortable")도 붙이지 않는다 —
+      // 스크린리더가 끌 수 없는 카드를 정렬 가능으로 안내하지 않게(카드 이동은 오버레이 Link 가 담당).
+      {...(asOverlay || dragDisabled ? {} : attributes)}
+      {...(asOverlay || dragDisabled ? {} : listeners)}
+      {...(asOverlay ? {} : press)}
       // 오버레이(드래그 고스트)는 불투명 표면(bg-popover)만 쓴다 — 포인터가 항상 위에 있어 hover:bg-accent/30(반투명)이
       // 배경을 덮고, 다크의 --card 는 3% 알파라 아래 에픽 패널 글자가 비쳐 보였다(11-dark-mode: 떠 있는 레이어는 솔리드).
       className={`group relative rounded-md border p-3 text-sm transition-colors ${
         asOverlay
           ? 'bg-popover shadow-xl ring-2 ring-primary/40'
-          : `bg-card shadow-sm hover:bg-accent/30${dragDisabled ? '' : ' cursor-grab active:cursor-grabbing'}`
+          : `bg-card shadow-sm hover:bg-accent/30${dragDisabled ? '' : ' cursor-grab active:cursor-grabbing'}${isMobile ? ' select-none [-webkit-touch-callout:none]' : ''}`
       }`}
       // 오버레이는 별도 testid — 원본 카드와 testid 가 겹치면 드래그 중 카드 조회가 모호해진다.
       data-testid={asOverlay ? 'issue-card-drag-overlay' : `issue-card-${issue.number}`}

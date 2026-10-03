@@ -28,6 +28,7 @@ export function IssueListView({
   onOpenCreate,
   onLoadedChange,
   canDrag = false,
+  canEdit = canDrag,
 }: {
   projectKey: string;
   filters: IssueFilters;
@@ -38,6 +39,8 @@ export function IssueListView({
   onLoadedChange?: (count: number, hasMore: boolean) => void;
   /** 프로젝트 멤버만 행을 에픽 패널로 끌 수 있다 */
   canDrag?: boolean;
+  // 길게 누르기 액션(상태·에픽) 권한 — 모바일에선 canDrag 가 꺼져도 멤버면 true. 미지정 시 canDrag(개인 화면 호환).
+  canEdit?: boolean;
 }) {
   // 보드와 같은 기본 범위 — 에픽 행 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(withDefaultIssueScope).
   const isMobile = useIsMobile();
@@ -55,7 +58,7 @@ export function IssueListView({
   } = useIssueSelection(filtersToParams(filters, 'list', groupBy).toString());
 
   // 모바일 길게 누르기 액션 — 훅은 조기 반환 전에 둔다. canDrag 가 곧 멤버 여부.
-  const rowActions = useIssueRowActions({ projectKey, canEdit: canDrag, onSelect: (i) => toggleSelected(i.number) });
+  const rowActions = useIssueRowActions({ projectKey, canEdit, onSelect: (i) => toggleSelected(i.number) });
 
   // WP-54: 로드된 건수(무한 스크롤 누적)·다음 페이지 유무를 상위로 보고 — isLoading 조기 반환 전에 둔다.
   // data 객체(쿼리 결과)가 바뀔 때마다 보고한다 — 필터 변경으로 상위가 건수를 비운 뒤, 캐시된 새 결과의 건수가

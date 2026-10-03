@@ -9,6 +9,7 @@ import { createContext, type ReactNode, useContext, useEffect, useState } from '
 
 import { Button } from '@/components/ui/button';
 import { LoadMoreFooter } from '@/components/ui/load-more-footer';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 import {
   type BoardColumnQuery,
@@ -21,7 +22,9 @@ import type {
   IssueClientGroupBy,
   IssueFilters,
   IssueResponse,
+  IssueStatus,
 } from '../../../types/issue';
+import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { IssueCard } from './IssueCard';
 import { IssueDndProvider, useIssueDnd } from './IssueDndProvider';
 
@@ -41,7 +44,8 @@ function IssueBoardViewInner({
   cardTo,
   showType = true,
   onOpenCreate,
-  canDragStatus = true,
+  canDragStatus: canDragStatusProp = true,
+  canEdit = canDragStatusProp,
 }: {
   projectKey: string;
   filters: IssueFilters;
@@ -56,7 +60,12 @@ function IssueBoardViewInner({
   onOpenCreate?: () => void;
   // 서버 플래그 — 상태 drag-to-change 허용 여부(멤버만). false 이면 DnD 이벤트를 무시한다.
   canDragStatus?: boolean;
+  // 길게 누르기 액션(상태·에픽) 권한 — 미지정 시 canDragStatus 와 같다(개인 보드).
+  canEdit?: boolean;
 }) {
+  const isMobile = useIsMobile();
+  // 모바일은 드래그 대신 길게 누르기 — 호출처가 넘긴 값과 무관하게 여기서도 끈다(개인 보드 포함).
+  const canDragStatus = canDragStatusProp && !isMobile;
   // 노출 범위(에픽 제외 등)는 호출처가 정한다 — 팀 보드는 withDefaultIssueScope, 개인 보드는 최상위만.
   const grouped = groupBy != null && groupBy !== 'status';
   const statuses = columns.map((c) => c.status);
@@ -65,6 +74,9 @@ function IssueBoardViewInner({
   // 그룹 보드 — 단일 쿼리. 상태 보드에서는 비활성.
   const groupQuery = useIssueSearch(projectKey, filters, 100, grouped);
   const updateStatus = useUpdateIssueStatus(projectKey);
+  // 카드 길게 누르기 액션 시트(상태·에픽) — 선택 모드 없음. 시트는 컬럼과 형제로 렌더한다.
+  const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: statuses as IssueStatus[] });
+  const onCardLongPress = isMobile ? cardActions.open : undefined;
 
   // 그룹 보드는 컬럼(그룹)이 페이지 순서와 무관하게 동적으로 생기므로 컬럼별 스크롤 로드가 불가 →
   // 마지막 페이지까지 순차로 모두 받는다(기존 200건 상한 + "필터로 좁혀주세요" 대체).
@@ -127,6 +139,7 @@ function IssueBoardViewInner({
     const visibleIssues = allIssues.filter((it) => allowedStatuses.has(it.status));
     const groups = groupIssues(visibleIssues, groupBy);
     return (
+      <>
       <BoardScroll
         footer={
           <>
@@ -147,9 +160,11 @@ function IssueBoardViewInner({
         }
       >
         {groups.map((g) => (
-          <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} onOpenCreate={onOpenCreate} dragDisabled={!canDragStatus} />
+          <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} onOpenCreate={onOpenCreate} dragDisabled={!canDragStatus} onLongPress={onCardLongPress} />
         ))}
       </BoardScroll>
+      {cardActions.sheets}
+      </>
     );
   }
 
@@ -169,9 +184,11 @@ function IssueBoardViewInner({
             showType={showType}
             onOpenCreate={onOpenCreate}
             dragDisabled={!canDragStatus}
+            onLongPress={onCardLongPress}
           />
         ))}
       </BoardScroll>
+      {cardActions.sheets}
     </>
   );
 }
@@ -234,6 +251,7 @@ function BoardColumn({
   showType = true,
   onOpenCreate,
   dragDisabled = false,
+  onLongPress,
 }: {
   status: string;
   label: string;
@@ -249,6 +267,7 @@ function BoardColumn({
   onOpenCreate?: () => void;
   // 비멤버는 카드 드래그 차단.
   dragDisabled?: boolean;
+  onLongPress?: (issue: IssueResponse) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `col-${status}`,
@@ -295,7 +314,7 @@ function BoardColumn({
         ) : (
           <div className="flex flex-col gap-2">
             {issues.map((it) => (
-              <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled={dragDisabled} />
+              <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled={dragDisabled} onLongPress={onLongPress} />
             ))}
           </div>
         )}
@@ -327,6 +346,7 @@ function ReadOnlyColumn({
   showType = true,
   onOpenCreate,
   dragDisabled = false,
+  onLongPress,
 }: {
   group: IssueGroup;
   projectKey: string;
@@ -338,6 +358,7 @@ function ReadOnlyColumn({
   onOpenCreate?: () => void;
   // 비멤버는 카드 드래그 차단.
   dragDisabled?: boolean;
+  onLongPress?: (issue: IssueResponse) => void;
 }) {
   return (
     <section
@@ -371,7 +392,7 @@ function ReadOnlyColumn({
         <div className="flex flex-col gap-2">
           {group.issues.map((it) => (
             // dragScope: 다중 담당자 이슈는 여러 그룹 컬럼에 보이므로 컬럼별로 드래그 id 를 구분한다.
-            <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} showStatus dragDisabled={dragDisabled} dragScope={group.key} />
+            <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} showStatus dragDisabled={dragDisabled} dragScope={group.key} onLongPress={onLongPress} />
           ))}
         </div>
       )}

@@ -26,7 +26,10 @@ async function mock(page: Page, { member = true, issues = [LONG, OTHER] } = {}) 
   await page.route((u) => u.pathname === ISSUES, (r) => {
     if (r.request().method() !== 'GET') return r.fallback();
     const isEpicList = new URL(r.request().url()).searchParams.get('type') === String(makeEpicType().id);
-    return r.fulfill(json(createIssueSearchResponse(isEpicList ? [EPIC] : issues, null)));
+    // 보드는 컬럼별 쿼리(status 파라미터) — 지정되면 그 상태만 돌려준다.
+    const status = new URL(r.request().url()).searchParams.get('status');
+    const list = isEpicList ? [EPIC] : status ? issues.filter((i) => status.split(',').includes(i.status)) : issues;
+    return r.fulfill(json(createIssueSearchResponse(list, null)));
   });
   await page.route((u) => /\/issues\/\d+\/(status|parent)$/.test(u.pathname), async (r) => {
     calls.push({ path: new URL(r.request().url()).pathname, body: r.request().postDataJSON() });
@@ -140,5 +143,34 @@ test.describe('모바일 선택 모드', () => {
     await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
     await page.getByTestId('issue-row-22').getByText('환불 콜백 재시도 로직 추가').click();
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/22$`));
+  });
+});
+
+test.describe('모바일 보드 카드', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await stubChat(page);
+  });
+
+  test('카드를 길게 누르면 상태 변경·에픽 지정 시트(선택 없음), 이동·드래그 없음', async ({ authenticatedPage: page }) => {
+    const calls = await mock(page);
+    await page.goto(`/projects/${KEY}?view=board`);
+    const card = page.getByTestId('issue-card-21');
+    await expect(card).toBeVisible();
+    // 드래그 비활성 — dnd-kit 이 붙이는 roledescription 이 없다.
+    await expect(card).not.toHaveAttribute('aria-roledescription', /.+/);
+    await longPress(page, 'issue-card-21');
+    await expect(page.getByTestId('mobile-action-sheet')).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?view=board$`));
+    await expect(page.getByTestId('mobile-action-select')).toHaveCount(0);
+    await page.getByTestId('mobile-action-status').click();
+    await page.getByTestId('picker-option-DONE').click();
+    await expect.poll(() => calls.find((c) => c.path.endsWith('/issues/21/status'))?.body).toEqual({ status: 'DONE' });
+    await expect(page.getByTestId('issue-card-drag-overlay')).toHaveCount(0);
+  });
+
+  test('모바일 목록 행은 드래그 소스가 아니다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    await expect(page.getByTestId('issue-row-21')).not.toHaveAttribute('aria-roledescription', /.+/);
   });
 });

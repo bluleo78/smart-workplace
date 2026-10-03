@@ -43,11 +43,14 @@ export function IssueCycleGroupedList({
   projectKey,
   filters,
   canDrag = false,
+  canEdit = canDrag,
 }: {
   projectKey: string;
   filters: IssueFilters;
   /** 프로젝트 멤버만 행을 에픽 패널로 끌 수 있다 — 평면 목록과 같은 행(IssueRow)이라 동작도 같다. */
   canDrag?: boolean;
+  // 길게 누르기 액션(상태·에픽) 권한 — 모바일에선 canDrag 가 꺼져도 멤버면 true. 미지정 시 canDrag(개인 화면 호환).
+  canEdit?: boolean;
 }) {
   const isMobile = useIsMobile();
   const cycles = useCycles(projectKey);
@@ -59,7 +62,7 @@ export function IssueCycleGroupedList({
   const { selected, toggle: toggleSelected, clear: clearSelected } = useIssueSelection(filterKey);
 
   // 모바일 길게 누르기 액션 — 시트는 구간 밖(목록 레벨)에서 하나만 소유한다.
-  const rowActions = useIssueRowActions({ projectKey, canEdit: canDrag, onSelect: (i) => toggleSelected(i.number) });
+  const rowActions = useIssueRowActions({ projectKey, canEdit, onSelect: (i) => toggleSelected(i.number) });
 
   const sections = useMemo(
     () => buildCycleSections(cycles.data ?? [], filters.cycleIds),

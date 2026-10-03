@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { Button } from '@/components/ui/button';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 import { useCycles } from '../../hooks/queries/useCycles';
 import { useIssueTypes } from '../../hooks/queries/useIssueTypes';
@@ -36,6 +37,7 @@ export default function ProjectDetailPage() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const project = useProject(key);
+  const isMobile = useIsMobile();
 
   if (project.isLoading)
     return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;
@@ -59,7 +61,10 @@ export default function ProjectDetailPage() {
   // viewerIsMember 는 서버 플래그 — 클라이언트에서 재파생하지 않는다.
   const isOpenProject = project.data?.type === 'OPEN';
   const canCreateIssue = isOpenProject || (project.data?.viewerIsMember ?? false);
-  const canDragStatus = project.data?.viewerIsMember ?? false;
+  // 모바일은 드래그 대신 길게 누르기 액션(WP-193) — dnd-kit PointerSensor(distance 5)가 터치 스크롤과 충돌한다.
+  // 길게 누르기 액션 권한은 드래그가 아니라 멤버 여부(isMember)다.
+  const isMember = project.data?.viewerIsMember ?? false;
+  const canDragStatus = isMember && !isMobile;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -103,6 +108,7 @@ export default function ProjectDetailPage() {
           projectKey={key}
           onOpenCreate={canCreateIssue ? () => setOpen(true) : undefined}
           canDragStatus={canDragStatus}
+          canEdit={isMember}
         />
       </div>
       <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} />
@@ -117,14 +123,16 @@ function IssueArea({
   projectKey,
   onOpenCreate,
   canDragStatus = true,
+  canEdit,
 }: {
   projectKey: string;
   onOpenCreate?: () => void;
   canDragStatus?: boolean;
+  canEdit?: boolean;
 }) {
   return (
     <IssueDndProvider projectKey={projectKey}>
-      <ProjectIssuesSection projectKey={projectKey} onOpenCreate={onOpenCreate} canDragStatus={canDragStatus} />
+      <ProjectIssuesSection projectKey={projectKey} onOpenCreate={onOpenCreate} canDragStatus={canDragStatus} canEdit={canEdit ?? canDragStatus} />
     </IssueDndProvider>
   );
 }
@@ -134,10 +142,13 @@ function ProjectIssuesSection({
   projectKey,
   onOpenCreate,
   canDragStatus,
+  canEdit,
 }: {
   projectKey: string;
   onOpenCreate?: () => void;
   canDragStatus: boolean;
+  // 길게 누르기 액션(상태·에픽) 권한 = 멤버 여부 — 모바일에선 canDragStatus 가 꺼져도 유지된다.
+  canEdit: boolean;
 }) {
   const [params] = useSearchParams();
   // params 가 바뀔 때만 새 필터 객체 — 매 렌더 새 객체면 아래 화면 컨텍스트 useMemo 가 매번 재계산된다.
@@ -148,6 +159,7 @@ function ProjectIssuesSection({
   const { groupBy, pending: groupPending } = useIssueGroupBy(projectKey, true);
   // 에픽 패널 열림 상태 — ViewChipBar(토글 버튼)와 EpicSidePanel(조건 마운트)이 공유.
   const { open: epicPanelOpen, toggle: toggleEpicPanel } = useEpicPanelOpen(projectKey);
+  const isMobile = useIsMobile();
   const dragging = useIssueDnd()?.activeIssue != null;
   // 패널이 닫혀 있어도 드래그 시작 즉시 에픽이 보이도록 에픽 목록을 미리 받아 둔다(패널과 같은 캐시).
   // 드래그 권한(멤버)이 있을 때만 — 비멤버는 드래그 자체가 없으므로 불필요한 요청을 막는다.
@@ -224,11 +236,12 @@ function ProjectIssuesSection({
               groupBy={toClientGroupBy(groupBy)}
               onOpenCreate={onOpenCreate}
               canDragStatus={canDragStatus}
+              canEdit={canEdit}
             />
           ) : groupPending ? (
             <IssueCycleListSkeleton />
           ) : groupBy === 'cycle' ? (
-            <IssueCycleGroupedList projectKey={projectKey} filters={filters} canDrag={canDragStatus} />
+            <IssueCycleGroupedList projectKey={projectKey} filters={filters} canDrag={canDragStatus} canEdit={canEdit} />
           ) : (
             <IssueListView
               projectKey={projectKey}
@@ -237,12 +250,13 @@ function ProjectIssuesSection({
               onOpenCreate={onOpenCreate}
               onLoadedChange={onLoadedChange}
               canDrag={canDragStatus}
+              canEdit={canEdit}
             />
           )}
         </div>
       </div>
       {/* 닫힌 패널은 드래그 동안만 떠 있는 드롭 대상으로 잠시 띄운다 — 저장된 열림 설정은 그대로. */}
-      {!epicPanelOpen && dragging && <EpicSidePanel projectKey={projectKey} floating />}
+      {!epicPanelOpen && dragging && !isMobile && <EpicSidePanel projectKey={projectKey} floating />}
     </section>
   );
 }
