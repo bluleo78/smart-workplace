@@ -8,8 +8,8 @@ import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
-import { ListBackRow } from '@/components/mobile/ListBackRow'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
+import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { Button } from '@/components/ui/button'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
@@ -31,6 +31,7 @@ import {
   useLinkedIssue,
   useMailMessage,
   useMailMessages,
+  useMailMessageSubject,
   useMailSummary,
   useReplyDraft,
   useSyncMailbox,
@@ -559,6 +560,11 @@ export function MailInboxPage() {
   const [remembered, setRemembered] = useState<EmailMessageSummary | null>(null)
   if (found && found !== remembered) setRemembered(found)
   const selectedSummary = found ?? (remembered?.id === selectedId ? remembered : null)
+  // 모바일 상세 헤더 제목 = 열린 메일 제목(채팅·노트와 같은 "‹ 항목 이름" 규칙). 상세 패널과 같은 쿼리를 공유한다.
+  const openSubject = useMailMessageSubject(selectedId)
+  const detailTitle = openSubject.isSuccess ? openSubject.data || '(제목 없음)' : undefined
+  // 모바일에서 본문이 열리면 목록 헤더(폴더명·🔍·☰·🔔)·동기화 줄 대신 상세 헤더 한 줄만 둔다(U1-1).
+  const showListChrome = !(isMobile && selectedId != null)
   const screenContext = useMemo(
     () =>
       accountIdNum != null
@@ -692,27 +698,29 @@ export function MailInboxPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* 전폭 헤더 — 폴더명 + 동기화(받은편지함) + 검색. 기존 목록 툴바 대체. */}
-      <PageHeader
-        title={folderParam === 'SENT' ? '보낸편지함' : '받은편지함'}
-        actions={
-          <>
-            <input
-              type="search"
-              data-testid="mail-search"
-              aria-label="메일 검색"
-              value={searchDraft}
-              onChange={(e) => setSearchDraft(e.target.value)}
-              placeholder="제목·보낸사람 검색"
-              className="w-48 rounded-md border bg-background px-3 py-1.5 text-sm"
-            />
-          </>
-        }
-        // 모바일: 메뉴 내용이 검색 입력 하나뿐이라 ⋯ 대신 🔍 트리거로 의미를 드러낸다(U1-2).
-        mobileMenuIcon={<Search className="h-5 w-5" />}
-        mobileMenuLabel="메일 검색"
-      />
+      {showListChrome && (
+        <PageHeader
+          title={folderParam === 'SENT' ? '보낸편지함' : '받은편지함'}
+          actions={
+            <>
+              <input
+                type="search"
+                data-testid="mail-search"
+                aria-label="메일 검색"
+                value={searchDraft}
+                onChange={(e) => setSearchDraft(e.target.value)}
+                placeholder="제목·보낸사람 검색"
+                className="w-48 rounded-md border bg-background px-3 py-1.5 text-sm"
+              />
+            </>
+          }
+          // 모바일: 메뉴 내용이 검색 입력 하나뿐이라 ⋯ 대신 🔍 트리거로 의미를 드러낸다(U1-2).
+          mobileMenuIcon={<Search className="h-5 w-5" />}
+          mobileMenuLabel="메일 검색"
+        />
+      )}
       {/* 리스트 툴바 — INBOX 전용: 아이콘 새로고침 + 마지막 동기화 상대시각 + 진행률. */}
-      {folderParam === 'INBOX' && (
+      {showListChrome && folderParam === 'INBOX' && (
         <div className="flex items-center gap-2 border-b px-3 py-1.5">
           <button
             type="button"
@@ -809,8 +817,8 @@ export function MailInboxPage() {
           )}
           data-testid="mail-detail-pane"
         >
-          {/* 좁은 화면 뒤로가기 버튼 — 선택 상태에서만 표시. 모바일은 탭바가 숨으므로 ✦(AI) 를 함께 둔다. */}
-          <ListBackRow data-testid="mail-back" onBack={() => setSelectedId(null)} />
+          {/* 모바일 상세 헤더 — ‹·메일 제목·✦ 한 줄(탭바가 숨으므로 ✦ 포함). URL 이 탭 루트라 레이아웃 상세 분기 대신 직접 그린다. */}
+          {isMobile && <MobileDetailBar data-testid="mail-back" title={detailTitle} onBack={() => setSelectedId(null)} />}
           <MessageDetailPanel
             messageId={selectedId}
             aiEnabled={aiEnabled}
