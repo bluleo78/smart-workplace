@@ -37,14 +37,20 @@ public class IssueAttachmentService {
   @Value("${workplace.storage.attachment.max-per-issue:10}")
   private int maxPerIssue;
 
-  /** 다중 multipart 업로드 — 멤버 + 사이즈 + 누적 한도 가드 후 일괄 저장 + history 1건. */
+  /**
+   * 다중 multipart 업로드 — 본문 편집 권한 + 사이즈 + 누적 한도 가드 후 일괄 저장 + history 1건.
+   *
+   * <p>권한은 본문 편집과 동일(assertContentWritable: 멤버/ADMIN 또는 OPEN reporter 본인). 예전엔 assertMember 라 OPEN
+   * 프로젝트에서 본문은 고칠 수 있는 비멤버 reporter 만 첨부가 403 이 나 사용자마다 결과가 달랐다(WP-202).
+   */
   public List<IssueAttachmentResponse> upload(
       Long callerId, String projectKey, int number, List<MultipartFile> files) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.resolve(projectKey);
     var issue =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    accessGuard.assertContentWritable(project, issue.reporterId(), callerId);
 
     if (files == null || files.isEmpty()) {
       return List.of();
@@ -81,7 +87,7 @@ public class IssueAttachmentService {
     return added;
   }
 
-  /** 이슈 첨부 목록 조회 — 조회 가드(OPEN 은 테넌트 전원 개방). 다운로드/업로드/삭제는 여전히 멤버 게이트. */
+  /** 이슈 첨부 목록 조회 — 조회 가드(OPEN 은 테넌트 전원 개방). 업로드는 본문 편집 권한, 삭제는 첨부자/OWNER 로 별도 게이트. */
   @Transactional(readOnly = true)
   public List<IssueAttachmentResponse> list(Long callerId, String projectKey, int number) {
     var project = accessGuard.assertReadable(projectKey, callerId);
@@ -92,11 +98,14 @@ public class IssueAttachmentService {
     return repo.findByIssue(issue.id());
   }
 
-  /** 다운로드 — 멤버 가드 + 이슈-첨부 일관성 검증 후 디스크에서 메타+경로 반환. */
+  /**
+   * 다운로드 — 조회 가드 + 이슈-첨부 일관성 검증 후 디스크에서 메타+경로 반환. 목록과 같은 assertReadable 이라 OPEN 프로젝트는 목록에 보이는 첨부를
+   * 비멤버도 내려받을 수 있다(WP-202 — 비멤버 reporter 가 자기 첨부를 못 여는 문제 방지).
+   */
   @Transactional(readOnly = true)
   public IssueAttachmentStorage.StoredFile download(
       Long callerId, String projectKey, int number, Long fileId) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertReadable(projectKey, callerId);
     var issue =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
@@ -109,9 +118,12 @@ public class IssueAttachmentService {
     return storage.load(fileId);
   }
 
-  /** 삭제 — 첨부자 본인 또는 프로젝트 OWNER. 매핑 + file row + 디스크 정리 후 history. */
+  /**
+   * 삭제 — 첨부자 본인 또는 프로젝트 OWNER. 매핑 + file row + 디스크 정리 후 history. 선검증은 조회 가드로 두어 OPEN 프로젝트의 비멤버 첨부자도
+   * 자기 첨부를 지울 수 있게 한다(WP-202). 그 외 비멤버는 아래 첨부자/OWNER 판정에서 거부된다.
+   */
   public void delete(Long callerId, String projectKey, int number, Long fileId) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertReadable(projectKey, callerId);
     var issue =
         issueRepository
             .findByProjectAndNumber(project.id(), number)

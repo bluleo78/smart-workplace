@@ -224,3 +224,64 @@ test(
     await expect(page.getByRole('button', { name: '+ 새 태스크' })).toBeVisible();
   },
 );
+
+// ─── 이슈 상세 — 첨부 드롭존 노출 (WP-202) ─────────────────────────────────────
+// 왜: 첨부 업로드 권한은 본문 편집 권한과 같다. 편집 가능한 OPEN reporter 에겐 드롭존을 보여주고,
+//     편집 불가 열람자에겐 숨겨 클릭 후 403("프로젝트 멤버가 아닙니다")을 받는 일이 없게 한다.
+
+test(
+  'OPEN reporter(비멤버): 첨부 드롭존 표시 + 파일 선택 시 업로드 POST',
+  async ({ authenticatedPage: page }) => {
+    await setupOpenProjectMocks(page, {
+      viewerCanEditContent: true,
+      viewerCanEditWorkflow: false,
+      viewerCanDelete: false,
+      viewerIsMember: false,
+    });
+    // 업로드 POST 스텁 — 비멤버 reporter 의 드롭존이 실제로 첨부 엔드포인트를 호출하는지 확인.
+    await page.route(
+      (url) =>
+        url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/attachments`,
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const dropzone = page.getByTestId('attachment-dropzone');
+    await expect(dropzone).toBeVisible();
+    // 드라이브 링크 추가도 같은 권한(본문 편집)이라 함께 노출된다.
+    await expect(page.getByTestId('issue-drive-link-add-btn')).toBeVisible();
+    const uploadReq = page.waitForRequest(
+      (req) =>
+        req.method() === 'POST' &&
+        req.url().endsWith(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/attachments`),
+    );
+    await dropzone.locator('input[type="file"]').setInputFiles({
+      name: 'photo.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    });
+    // multipart 본문에 선택한 파일이 files 필드로 실려 간다.
+    expect((await uploadReq).postData() ?? '').toContain('filename="photo.png"');
+  },
+);
+
+test(
+  'OPEN 열람자(비멤버·비reporter): 첨부 드롭존·드라이브 링크 버튼 미표시',
+  async ({ authenticatedPage: page }) => {
+    await setupOpenProjectMocks(page, {
+      viewerCanEditContent: false,
+      viewerCanEditWorkflow: false,
+      viewerCanDelete: false,
+      viewerIsMember: false,
+    });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    // 첨부 스트립 자체는 렌더(목록 열람 가능)되지만 업로드 드롭존·링크 버튼은 없다.
+    await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
+    await expect(page.getByTestId('attachment-dropzone')).toHaveCount(0);
+    await expect(page.getByTestId('issue-drive-link-add-btn')).toHaveCount(0);
+  },
+);

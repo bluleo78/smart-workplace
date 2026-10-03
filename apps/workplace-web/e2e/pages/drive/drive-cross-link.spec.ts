@@ -80,6 +80,10 @@ async function stubIssuePage(page: Page) {
               comments: [],
               history: [],
               attachments: [],
+              // 첨부 추가 컨트롤(드롭존·드라이브 링크)은 본문 편집 권한일 때만 노출(WP-202) — 멤버 뷰어로 고정.
+              viewerCanEditContent: true,
+              viewerCanEditWorkflow: true,
+              viewerCanDelete: true,
             }),
           })
         : route.fallback(),
