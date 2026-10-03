@@ -7,6 +7,8 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailAccountRepository.ActiveAccount;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -167,29 +169,27 @@ public class MailCategoryBackfillScheduler {
     }
     // findActiveForSync 는 ORDER BY 가 없어 순서가 들쭉날쭉하다 — (tenantId, accountId) 로 고정한 뒤 회차마다 시작 위치를 한 칸씩
     // 돌린다.
-    targets.sort(
-        java.util.Comparator.comparingLong(Target::tenantId).thenComparingLong(Target::accountId));
-    int start = Math.floorMod(rotation++, targets.size());
+    targets.sort(Comparator.comparingLong(Target::tenantId).thenComparingLong(Target::accountId));
+    Collections.rotate(targets, -Math.floorMod(rotation++, targets.size()));
     // ② 실행: 트랜잭션 밖. TenantContext 만 주입(서비스 내부 TransactionTemplate 이 GUC 주입).
     AgentOutageGuard guard = new AgentOutageGuard();
     int budget = MAX_BATCHES_PER_ROUND;
-    for (int i = 0; i < targets.size(); i++) {
+    int remaining = targets.size();
+    for (Target t : targets) {
       if (guard.tripped()) {
-        log.warn("분류 일괄 회차 중단 — ai-agent 불가, 남은 계정 {}개는 다음 주기", targets.size() - i);
+        log.warn("분류 일괄 회차 중단 — ai-agent 불가, 남은 계정 {}개는 다음 주기", remaining);
         return;
       }
       if (budget <= 0) {
-        log.info("분류 일괄 회차 상한 도달 — 남은 계정 {}개는 다음 주기", targets.size() - i);
+        log.info("분류 일괄 회차 상한 도달 — 남은 계정 {}개는 다음 주기", remaining);
         return;
       }
-      Target t = targets.get((start + i) % targets.size());
+      remaining--;
       TenantContext.set(t.tenantId());
       try {
         budget -= categoryBackfill.classifyAccountNow(t.userId(), t.accountId(), guard, budget);
       } catch (RuntimeException e) {
-        // 예외로 끝나면 실제 호출 수를 모른다(묶음 호출 뒤 저장·다음 대상 조회에서 던졌을 수 있음). 회차 상한이 깨지지 않게 이 계정이 쓸 수
-        // 있었던 최대치를 깎는다 — 실패 경로라 과다 차감은 감수한다.
-        budget -= Math.min(budget, MailCategoryBackfillService.MAX_BATCHES);
+        // 서비스는 계정별 실패를 스스로 삼키고 실제 호출 수를 돌려주므로 여기까지 오지 않는 게 정상이다 — 방어용으로만 남기고 예산은 깎지 않는다.
         log.warn("분류 일괄 실패 tenant={} account={}", t.tenantId(), t.accountId(), e);
       } finally {
         TenantContext.clear();

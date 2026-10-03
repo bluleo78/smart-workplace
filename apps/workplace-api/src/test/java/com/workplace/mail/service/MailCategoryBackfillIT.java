@@ -87,7 +87,8 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
     MailAnalysisFixtures.markSeen(dsl, env);
     answerAll("업무");
 
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
     assertThat(contentState(c).value1()).isEqualTo("업무");
     assertThat(contentState(c).value2()).isNotNull();
@@ -105,7 +106,8 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
         .where(EMAIL_CONTENT.ID.eq(c))
         .execute();
 
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
     verify(mailClient, never()).classifyBatch(any());
     assertThat(contentState(c).value1()).isEqualTo("개인");
@@ -120,8 +122,10 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
     MailAnalysisFixtures.envelope(dsl, a, c, "boss@corp.com", a.address(), null);
     answerAll(null);
 
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
     verify(mailClient, times(1)).classifyBatch(any());
     assertThat(contentState(c).value1()).isNull();
@@ -137,7 +141,8 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
     MailAnalysisFixtures.envelope(dsl, a, c, "boss@corp.com", a.address(), null);
     when(mailClient.classifyBatch(any())).thenThrow(new MailAiUnavailableException("down"));
 
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
     assertThat(contentState(c).value1()).isNull();
     assertThat(contentState(c).value2()).isNull();
@@ -155,7 +160,8 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
         .where(EMAIL_MESSAGE.ID.eq(env))
         .execute();
 
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
     verify(mailClient, never()).classifyBatch(any());
   }
@@ -169,7 +175,8 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
             dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);
     MailAnalysisFixtures.envelope(dsl, a, c, "boss@corp.com", a.address(), null);
 
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
     verify(mailClient, never()).classifyBatch(any());
   }
@@ -185,7 +192,8 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
     MailAnalysisFixtures.envelope(dsl, a, c, "boss@corp.com", a.address(), null);
     answerAll("업무");
 
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
     ArgumentCaptor<ClassifyBatchRequest> req = ArgumentCaptor.forClass(ClassifyBatchRequest.class);
     verify(mailClient).classifyBatch(req.capture());
@@ -204,7 +212,8 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
     }
     answerAll("업무");
 
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
     ArgumentCaptor<ClassifyBatchRequest> req = ArgumentCaptor.forClass(ClassifyBatchRequest.class);
     verify(mailClient, times(2)).classifyBatch(req.capture());
@@ -267,7 +276,8 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
                     new ClassifyBatchEntry(envMine, "업무"),
                     new ClassifyBatchEntry(envTheirs, "개인"))));
 
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
     assertThat(contentState(mine).value1()).isEqualTo("업무");
     assertThat(contentState(theirs).value1()).isNull();
@@ -284,8 +294,10 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
     MailAnalysisFixtures.envelope(dsl, a, c, "boss@corp.com", a.address(), "cc@corp.com");
     answerAll("업무");
 
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
     verify(mailClient, times(1)).classifyBatch(any());
     assertThat(contentState(c).value1()).isEqualTo("업무");
@@ -303,7 +315,8 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
     long envBig = MailAnalysisFixtures.envelope(dsl, a, big, "boss@corp.com", a.address(), null);
     answerAll("업무");
 
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
     ArgumentCaptor<ClassifyBatchRequest> req = ArgumentCaptor.forClass(ClassifyBatchRequest.class);
     verify(mailClient).classifyBatch(req.capture());
@@ -339,7 +352,12 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
                   req.items().stream().map(it -> new ClassifyBatchEntry(it.id(), "업무")).toList());
             });
 
-    int used = service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    int used =
+        service.classifyAccountNow(
+            a.userId(),
+            a.accountId(),
+            new AgentOutageGuard(),
+            MailCategoryBackfillService.MAX_BATCHES);
 
     // 묶음(3통) 실패 1 + 독 단건 실패 1 + 나머지 단건 2 = 4 호출
     assertThat(used).isEqualTo(4);
@@ -359,7 +377,8 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
     MailAnalysisFixtures.envelope(dsl, a, c, "b@corp.com", a.address(), null);
     when(mailClient.classifyBatch(any())).thenThrow(new MailAiUnavailableException("down"));
 
-    service.classifyAccountNow(a.userId(), a.accountId(), new AgentOutageGuard());
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
     verify(mailClient, times(1)).classifyBatch(any());
     assertThat(contentState(c).value2()).isNull();

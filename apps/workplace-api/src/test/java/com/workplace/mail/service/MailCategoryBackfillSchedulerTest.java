@@ -113,9 +113,9 @@ class MailCategoryBackfillSchedulerTest {
     assertThat(submitted).hasSize(2);
   }
 
-  /** 계정마다 예외로 끝나도(호출 수 미상) 최대치를 깎아 회차 상한을 지킨다 — 20 / 4 = 5 계정에서 멈춘다. */
+  /** 서비스가 예외를 던져도(방어 경로) 예산을 추측해 깎지 않고 다음 계정으로 계속한다 — 10 계정 모두 닿는다. */
   @Test
-  void throwingAccounts_stillConsumeBudget_andRoundStopsAtCap() {
+  void throwingAccounts_areSwallowed_andRoundContinuesWithoutCharge() {
     when(accountRepo.findActiveForSync())
         .thenReturn(
             LongStream.rangeClosed(1, 10).mapToObj(i -> new ActiveAccount(i, 100 + i)).toList());
@@ -124,12 +124,7 @@ class MailCategoryBackfillSchedulerTest {
 
     scheduler(null).runOnceNow();
 
-    verify(
-            service,
-            times(
-                MailCategoryBackfillScheduler.MAX_BATCHES_PER_ROUND
-                    / MailCategoryBackfillService.MAX_BATCHES))
-        .classifyAccountNow(anyLong(), anyLong(), any(), anyInt());
+    verify(service, times(10)).classifyAccountNow(anyLong(), anyLong(), any(), anyInt());
   }
 
   @Test
