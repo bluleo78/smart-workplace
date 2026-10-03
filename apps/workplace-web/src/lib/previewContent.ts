@@ -24,8 +24,9 @@ function countReplacement(text: string): number {
  */
 export function decodeTextBuffer(buffer: ArrayBuffer): string {
   const utf8 = new TextDecoder('utf-8').decode(buffer)
+  // 흔한 경우(정상 UTF-8)는 네이티브 검색 한 번으로 끝낸다 — 개수 세기는 폴백 판정 때만.
+  if (!utf8.includes('\uFFFD')) return utf8
   const utf8Bad = countReplacement(utf8)
-  if (utf8Bad === 0) return utf8
   const eucKr = new TextDecoder('euc-kr').decode(buffer)
   return countReplacement(eucKr) < utf8Bad ? eucKr : utf8
 }

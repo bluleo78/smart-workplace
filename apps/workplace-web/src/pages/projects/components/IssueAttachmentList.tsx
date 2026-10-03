@@ -7,6 +7,7 @@
 
 import { useState } from 'react';
 
+import { attachmentContentPath } from '../../../api/issueAttachments';
 import { FilePreviewModal } from '../../../components/drive/FilePreviewModal';
 import {
   AlertDialog,
@@ -114,7 +115,7 @@ export function IssueAttachmentList({
             name: previewing.originalName,
             mimeType: previewing.mimeType,
             sizeBytes: previewing.sizeBytes,
-            downloadUrl: `/projects/${projectKey}/issues/${number}/attachments/${previewing.fileId}/content`,
+            downloadUrl: attachmentContentPath(projectKey, number, previewing.fileId),
           }}
           onClose={() => setPreviewing(null)}
         />

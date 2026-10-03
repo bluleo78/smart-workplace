@@ -17,13 +17,7 @@ import type {
   DriveTrashList,
   ShareLink,
 } from '../types/drive'
-import {
-  blobToText,
-  fetchBlobByPath,
-  fetchBlobUrlByPath,
-  fetchTextByPath,
-  stripApiPrefix,
-} from './blobContent'
+import { fetchBlobByPath, stripApiPrefix } from './blobContent'
 import { client, getAccessToken } from './client'
 
 // 공유 링크 타입은 types/drive 에 정의(DTO 단일 출처). 기존 import 처를 위해 재노출.
@@ -240,12 +234,6 @@ export const driveApi = {
   // 임의 콘텐츠 경로의 원본 Blob. 구현은 api/blobContent.ts 공용 모듈(wiki 등 타 도메인과 공유).
   fetchBlobByPath,
 
-  // 첨부 등 임의 콘텐츠 경로에서 blob object URL. 호출처가 revoke.
-  fetchBlobUrlByPath,
-
-  // 임의 콘텐츠 경로의 텍스트 본문.
-  fetchTextByPath,
-
   // 임의 콘텐츠 경로 다운로드 → a[download] 트리거.
   downloadByPath: async (path: string, fileName: string) => {
     const { data } = await client.get<Blob>(stripApiPrefix(path), { responseType: 'blob' })
@@ -310,17 +298,6 @@ export const driveApi = {
     return data
   },
 
-  // 미리보기 콘텐츠(이미지/PDF) blob → object URL. 호출처가 revoke.
-  fetchContentUrl: async (driveFileId: number): Promise<string> => {
-    const blob = await driveApi.fetchContentBlob(driveFileId)
-    return URL.createObjectURL(blob)
-  },
-
-  // 텍스트 미리보기 — blob 을 문자열로.
-  fetchTextContent: async (driveFileId: number): Promise<string> => {
-    const blob = await driveApi.fetchContentBlob(driveFileId)
-    return await blobToText(blob)
-  },
 
   // AI Overview 생성 시작(#593 편입) — correlationId 즉시 반환, 실제 델타는 /events 로 도착.
   startOverview: (q: string, spaceId?: number) =>

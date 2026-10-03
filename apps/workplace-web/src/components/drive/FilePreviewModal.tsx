@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 
+import { blobToText, toVerifiedPdfBlob } from '../../api/blobContent'
 import { driveApi } from '../../api/drive'
 import { useDriveFileSummary } from '../../hooks/queries/useDriveFileSummary'
 import { useFileBacklinks } from '../../hooks/queries/useFileBacklinks'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
-import { hasPdfMagicBytes, PDF_MAGIC_SCAN_BYTES } from '../../lib/previewContent'
 import { resolvePreviewKind } from '../../lib/previewKind'
 import { cn } from '../../lib/utils'
 import type { DriveFile, VirtualAttachment } from '../../types/drive'
@@ -23,25 +23,14 @@ const TEXT_PREVIEW_LIMIT = 200_000
 /** XLSX/DOCX 파싱 크기 상한(과대 파일 브라우저 파싱 방지). */
 const PREVIEW_PARSE_MAX_BYTES = 5 * 1024 * 1024
 
-/** 텍스트류(MD/HTML/TEXT/CSV) 미리보기 크기 상한 — 메타 크기로 요청 전에 걸러 큰 로그를 통째로 받지 않는다(WP-203). */
+/** 텍스트류(MD/HTML/TEXT/CSV) 미리보기 크기 상한(WP-203). */
 const TEXT_PREVIEW_MAX_BYTES = 1024 * 1024
 
 /**
  * 미리보기 대상 첨부 — 모달이 실제로 쓰는 필드만 요구한다.
  * 드라이브 가상 첨부(VirtualAttachment)와 이슈 첨부가 같은 모달을 쓰도록 좁힌 타입(WP-203).
  */
-export type PreviewAttachment = Pick<VirtualAttachment, 'fileId' | 'name' | 'mimeType' | 'sizeBytes' | 'downloadUrl'>
-
-/**
- * PDF 로 신고된 blob 을 뷰어에 넘기기 전에 검증한다 — 앞부분에 %PDF- 가 없으면 null.
- * 통과하면 타입을 application/pdf 로 다시 감싼다: 신고 mimeType 을 그대로 물려받으면
- * .pdf 로 위장한 HTML 이 (sandbox 없는) PDF iframe 에서 렌더돼 세션에 닿을 수 있다(iacloud_eis 이식).
- */
-async function toVerifiedPdfUrl(blob: Blob): Promise<string | null> {
-  const head = new Uint8Array(await blob.slice(0, PDF_MAGIC_SCAN_BYTES).arrayBuffer())
-  if (!hasPdfMagicBytes(head)) return null
-  return URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
-}
+type PreviewAttachment = Pick<VirtualAttachment, 'fileId' | 'name' | 'mimeType' | 'sizeBytes' | 'downloadUrl'>
 
 /**
  * 파일 미리보기 모달. IMAGE→img, PDF→iframe, Markdown→렌더, HTML→sandbox iframe, TEXT→pre, CSV→표, 그 외→미지원 안내.
@@ -127,47 +116,34 @@ export function FilePreviewModal({
       setBlobUrl(u)
     }
     const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
-    if (textLike && sizeBytes > TEXT_PREVIEW_MAX_BYTES) {
-      // 메타 크기만으로 판단 — 콘텐츠 요청 자체를 만들지 않는다.
+    const parsed = kind === 'XLSX' || kind === 'DOCX'
+    // 종류별 상한을 메타 크기로 먼저 본다 — 넘으면 콘텐츠 요청 자체를 만들지 않는다(큰 파일을 받아 버리지 않음).
+    const maxBytes = textLike ? TEXT_PREVIEW_MAX_BYTES : parsed ? PREVIEW_PARSE_MAX_BYTES : Infinity
+    if (sizeBytes > maxBytes) {
       setTooLarge(true)
-    } else if (kind === 'IMAGE') {
-      // 첨부는 contentPath(절대경로), 드라이브 파일은 fileId 엔드포인트로 blob 획득.
-      const p = contentPath
-        ? driveApi.fetchBlobUrlByPath(contentPath)
-        : driveApi.fetchContentUrl(fileIdForContent)
-      void p.then(onUrl).catch(() => alive && setError(true))
-    } else if (kind === 'PDF') {
-      // PDF 는 매직 바이트 검증 + application/pdf 재래핑 후에만 뷰어로 넘긴다.
-      const p = contentPath
+    } else if (kind === 'IMAGE' || kind === 'PDF' || textLike || parsed) {
+      // 첨부는 contentPath(절대경로), 드라이브 파일은 fileId 엔드포인트로 blob 획득 — 이후 종류별 변환만 다르다.
+      const blobP = contentPath
         ? driveApi.fetchBlobByPath(contentPath)
         : driveApi.fetchContentBlob(fileIdForContent)
-      void p
-        .then(toVerifiedPdfUrl)
-        .then((u) => (u ? onUrl(u) : alive && setError(true)))
-        .catch(() => alive && setError(true))
-    } else if (textLike) {
-      const p = contentPath
-        ? driveApi.fetchTextByPath(contentPath)
-        : driveApi.fetchTextContent(fileIdForContent)
-      void p
-        .then((t) => alive && setText(t.slice(0, TEXT_PREVIEW_LIMIT)))
-        .catch(() => alive && setError(true))
-    } else if (kind === 'XLSX' || kind === 'DOCX') {
-      // 바이너리 파서는 arrayBuffer 가 필요. 크기 상한 초과 시 파싱하지 않고 폴백.
-      const p = contentPath
-        ? driveApi.fetchBlobByPath(contentPath)
-        : driveApi.fetchContentBlob(fileIdForContent)
-      void p
-        .then(async (blob) => {
-          if (!alive) return
-          if (blob.size > PREVIEW_PARSE_MAX_BYTES) {
-            setTooLarge(true)
-            return
-          }
-          const buf = await blob.arrayBuffer()
-          if (alive) setBuffer(buf)
-        })
-        .catch(() => alive && setError(true))
+      const fail = () => alive && setError(true)
+      if (kind === 'IMAGE') {
+        void blobP.then((blob) => onUrl(URL.createObjectURL(blob))).catch(fail)
+      } else if (kind === 'PDF') {
+        // PDF 는 시그니처 검증 + application/pdf 재래핑을 통과해야만 뷰어로 넘긴다.
+        void blobP.then(toVerifiedPdfBlob).then((pdf) => onUrl(URL.createObjectURL(pdf))).catch(fail)
+      } else if (textLike) {
+        void blobP
+          .then(blobToText)
+          .then((t) => alive && setText(t.slice(0, TEXT_PREVIEW_LIMIT)))
+          .catch(fail)
+      } else {
+        // 바이너리 파서(XLSX/DOCX)는 arrayBuffer 가 필요.
+        void blobP
+          .then((blob) => blob.arrayBuffer())
+          .then((buf) => alive && setBuffer(buf))
+          .catch(fail)
+      }
     }
     return () => {
       alive = false
