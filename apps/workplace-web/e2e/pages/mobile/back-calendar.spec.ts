@@ -109,3 +109,35 @@ test('저장 응답 전에 뒤로 갔으면 늦게 온 저장 완료 닫기가 �
   await expect(page).toHaveURL(/\/calendar$/)
   await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
 })
+
+test('없는 일정 딥링크(앱 안 push) → 토스트 후 eventId 제거 → 일정 탭 후 goBack·취소 모두 캘린더에 남는다', async ({ authenticatedPage: page }) => {
+  await stubCalendar(page, [calendarEvent({ id: 42, title: LONG_TITLE, startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' })])
+  // 앱 안 기록을 만든다(/apps → 없는 일정 딥링크 push) — eventId 가 남아 있으면 다음 탭이 replace 되어 닫기 -1 이 /apps 로 빠진다.
+  await page.goto('/apps')
+  // 알림 링크 클릭과 같은 앱 안 push 를 흉내 낸다 — react-router 가 쓰는 state 형식(key·idx+1)으로 기록하고 popstate 로 알린다.
+  await page.evaluate(() => {
+    const prev = window.history.state as { idx?: number } | null
+    window.history.pushState({ usr: null, key: 'deeplink999', idx: (prev?.idx ?? 0) + 1 }, '', '/calendar?eventId=999')
+    window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+  })
+  await expect(page.getByText('일정을 찾을 수 없거나 접근 권한이 없습니다')).toBeVisible()
+  await expect(page).toHaveURL(/\/calendar$/)
+  const dialog = page.getByTestId('calendar-event-dialog')
+  await expect(dialog).toBeHidden()
+
+  await toAgenda(page)
+  await page.getByTestId('calendar-event-42').tap()
+  await expect(dialog).toBeVisible()
+  await expect(page).toHaveURL(/\/calendar\?eventId=42$/)
+  await page.goBack()
+  await expect(page).toHaveURL(/\/calendar$/)
+  await expect(dialog).toBeHidden()
+
+  // 일정 다이얼로그엔 ‹ 가 없어 UI 닫기(취소)로 같은 경로를 검증한다.
+  await page.getByTestId('calendar-event-42').tap()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: '취소' }).tap()
+  await expect(page).toHaveURL(/\/calendar$/)
+  await expect(dialog).toBeHidden()
+  await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
+})

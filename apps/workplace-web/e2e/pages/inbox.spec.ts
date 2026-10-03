@@ -210,7 +210,8 @@ test('CALENDAR_INVITED 알림은 크래시 없이 일정 정보를 렌더하고 
   await expect(page).toHaveURL(/\/calendar\?eventId=\d+$/)
 })
 
-// 삭제됐거나 접근 권한 없는 eventId 로 직접 진입 시 다이얼로그 없이 캘린더를 보이고 안내한다(URL 은 조용히 고치지 않음, WP-208).
+// 삭제됐거나 접근 권한 없는 eventId 로 직접 진입 시 다이얼로그 없이 캘린더를 보이고 안내한다.
+// 안내 후 eventId 는 replace 로 지운다 — 남기면 다음 일정 탭이 push 되지 않아 닫기가 캘린더를 떠난다(WP-208).
 test('존재하지 않는 eventId 딥링크는 다이얼로그 없이 캘린더를 보이고 안내한다 (#659)', async ({
   authenticatedPage: page,
 }) => {
@@ -220,7 +221,7 @@ test('존재하지 않는 eventId 딥링크는 다이얼로그 없이 캘린더�
   await expect(page.getByTestId('calendar-view-month')).toBeVisible()
   await expect(page.getByTestId('calendar-event-dialog')).not.toBeVisible()
   await expect(page.getByText('일정을 찾을 수 없거나 접근 권한이 없습니다')).toBeVisible()
-  await expect(page).toHaveURL(/\/calendar\?eventId=999$/)
+  await expect(page).toHaveURL(/\/calendar$/)
 })
 
 test('PRIORITY_CHANGED 알림은 상태 변경과 대칭적으로 렌더되고 이슈 상세로 이동한다 (#613)', async ({

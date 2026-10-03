@@ -1,6 +1,6 @@
 import { addDays, addMonths, format, startOfDay } from 'date-fns'
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
@@ -61,6 +61,7 @@ import type {
 /** 캘린더 페이지 — 뷰 전환·날짜 네비·일정 CRUD + 캘린더 컨테이너 CRUD + 필터를 통합 관리. */
 export function CalendarPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   // 일정 상세 = URL ?eventId(상태의 단일 원천, WP-208). 일정 클릭은 push → 시스템 뒤로가기가 다이얼로그만 닫는다.
   // 알림·홈 딥링크(#659)와 같은 키 — 예전처럼 소비 후 replace 로 지우지 않는다(뒤로가기·forward 가 다이얼로그를 여닫는다).
   const [searchParams, setSearchParams] = useSearchParams()
@@ -238,10 +239,11 @@ export function CalendarPage() {
 
   // URL 이 가리키는 일정이 스냅숏과 다르면(알림·홈 딥링크·새로고침) 단건 조회로 채운다 — 성공 시 그 날짜로 이동.
   // (반복 회차를 가리켜도 GET /events/{id} 는 마스터를 반환 — 회차 특정 없이 마스터로 연다, #659 지침 4항.)
-  // 삭제됐거나 권한이 없으면(404/403) 토스트만 — URL 을 조용히 고치지 않는다(WP-208, 스펙 §6). 다이얼로그는 열리지 않는다.
+  // 삭제됐거나 권한이 없으면(404/403) 토스트로 안내하고 eventId 만 replace 로 지운다(다른 쿼리·router state 유지).
+  // 토스트가 곧 '없음' 상태라 닫을 다이얼로그가 없다 — 스펙 §6 '조용한 replace 금지'의 허용 예외(WP-208).
+  // 남겨 두면 다음 일정 탭이 push 가 아닌 replace 가 되어(이미 열린 값으로 판정) 그 다이얼로그를 닫을 때 -1 로 캘린더를 떠난다.
   const needFetch = eventIdParam != null && editing?.id !== eventIdParam
   const { data: deepLinkEvent, isError: deepLinkFailed } = useCalendarEvent(needFetch ? eventIdParam : null)
-  const [failedEventId, setFailedEventId] = useState<number | null>(null)
   useEffect(() => {
     if (!needFetch) return
     if (deepLinkEvent && deepLinkEvent.id === eventIdParam) {
@@ -249,11 +251,20 @@ export function CalendarPage() {
       setAnchor(startOfDay(new Date(deepLinkEvent.startsAt)))
       setCreating(false)
       setEditing(deepLinkEvent)
-    } else if (deepLinkFailed && failedEventId !== eventIdParam) {
-      setFailedEventId(eventIdParam)
+    } else if (deepLinkFailed) {
       toast.error('일정을 찾을 수 없거나 접근 권한이 없습니다')
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('eventId')
+          return next
+        },
+        { replace: true, state: location.state },
+      )
     }
-  }, [needFetch, deepLinkEvent, deepLinkFailed, eventIdParam, failedEventId])
+    // location.state 는 실패 시점 값만 필요 — 의존성에 넣으면 무관한 state 변경마다 재평가된다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needFetch, deepLinkEvent, deepLinkFailed, eventIdParam])
 
   // 생성·수정 공용 submit 핸들러
   const submit = (body: CalendarEventRequest) => {
