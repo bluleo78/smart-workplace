@@ -137,6 +137,29 @@ export function parseContentAnalysisJson(
 }
 
 /**
+ * 분류 일괄 응답 파싱 — {"results":[{"id":n,"category":"..."}]}.
+ * 요청한 ids 순서대로 결과를 만든다: 응답에 없거나 허용 밖 값이면 null, 요청하지 않은 id 는 버린다
+ * (다른 메일에 분류가 잘못 저장되지 않게). results 배열이 없으면 형식 오류로 던진다.
+ */
+export function parseClassifyBatchJson(
+  text: string,
+  ids: number[],
+): { id: number; category: string | null }[] {
+  const obj = extractJsonObject(text);
+  if (!Array.isArray(obj.results)) {
+    throw new Error('classify-batch 응답에 results 배열이 없습니다');
+  }
+  const byId = new Map<number, string | null>();
+  for (const r of obj.results as unknown[]) {
+    if (r && typeof r === 'object') {
+      const { id, category } = r as { id?: unknown; category?: unknown };
+      if (typeof id === 'number') byId.set(id, pickCategory(category));
+    }
+  }
+  return ids.map((id) => ({ id, category: byId.get(id) ?? null }));
+}
+
+/**
  * ④ 응답 파싱. needsReply 를 요청했는데 boolean 이 아니면 throw(→ 502 → api 는 시도 기록 안 함, 다음 백필 재시도).
  * personalSummary 는 문자열(공백이면 null)·null 이면 유효, 그 외(누락·숫자 등)는 personalSummaryValid=false 로 알려
  * api 가 needsReply 만 저장하게 한다.

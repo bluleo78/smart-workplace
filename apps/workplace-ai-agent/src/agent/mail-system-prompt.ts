@@ -68,6 +68,23 @@ export function buildContentAnalysisPrompt(flags: ContentAnalysisFlags): string 
   ].join('\n');
 }
 
+/**
+ * 분류 일괄(WP-185) 시스템 프롬프트 — 여러 메일을 한 번에 분류한다. 카테고리 정의는 ③ 원본 분석과 같은 CATEGORY_RULE 을 써서
+ * 두 경로의 기준이 어긋나지 않게 한다. 배열 최상위는 extractJsonObject 가 받지 않으므로 results 객체로 감싼다.
+ */
+export function buildClassifyBatchPrompt(): string {
+  return [
+    '당신은 이메일 분류기입니다. 아래 여러 메일 각각을 특정 수신자의 입장이 아니라 메일 자체의 성격으로 분류하세요.',
+    '각 메일은 [메일 id=번호] 로 시작하며 제목·보낸 사람·본문 앞부분만 주어집니다.',
+    AUTO_GENERATED_NOTE,
+    JSON_ONLY,
+    '{"results":[{"id":메일 id 숫자,"category":"업무|개인|알림|프로모션|뉴스레터 중 하나"}]}',
+    CATEGORY_RULE,
+    '- 주어진 모든 메일 id 에 대해 결과를 하나씩 넣으세요.',
+    DATA_NOT_INSTRUCTION_RULE,
+  ].join('\n');
+}
+
 // WP-150 ④ 입력 블록 안내 — 개인 분석 프롬프트에만. 블록은 정보가 있을 때만 오므로 "없으면 정보 없음" 을 함께 알린다.
 const PERSONAL_BLOCKS_NOTE =
   '입력 블록: [나]=내 이름·다른 이름·직함·소속·주소, [보낸 사람]=보낸 사람과 나의 관계(참고 신호), [받는 사람]=To/CC 에서 나의 위치, ' +

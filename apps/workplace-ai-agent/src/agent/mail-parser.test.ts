@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractJsonObject,
+  parseClassifyBatchJson,
   parseContentAnalysisJson,
   parseDraftCoachingJson,
   parseIssueDraftJson,
@@ -125,5 +126,28 @@ describe('parsePersonalAnalysisJson', () => {
         includeCategory: false,
       }),
     ).toEqual({ needsReply: null, personalSummary: '• 핵심', personalSummaryValid: true, category: null });
+  });
+});
+
+describe('parseClassifyBatchJson', () => {
+  it('요청한 id 순서대로 결과를 돌려주고, 누락·허용 밖 값은 null', () => {
+    const text = '{"results":[{"id":2,"category":"알림"},{"id":1,"category":"업무"},{"id":3,"category":"스팸"}]}';
+    expect(parseClassifyBatchJson(text, [1, 2, 3, 4])).toEqual([
+      { id: 1, category: '업무' },
+      { id: 2, category: '알림' },
+      { id: 3, category: null },
+      { id: 4, category: null },
+    ]);
+  });
+  it('요청하지 않은 id 는 버린다', () => {
+    const text = '{"results":[{"id":1,"category":"업무"},{"id":99,"category":"개인"}]}';
+    expect(parseClassifyBatchJson(text, [1])).toEqual([{ id: 1, category: '업무' }]);
+  });
+  it('코드펜스·앞뒤 설명이 있어도 파싱', () => {
+    const text = '결과입니다\n```json\n{"results":[{"id":5,"category":" 뉴스레터 "}]}\n```';
+    expect(parseClassifyBatchJson(text, [5])).toEqual([{ id: 5, category: '뉴스레터' }]);
+  });
+  it('results 배열이 없으면 예외', () => {
+    expect(() => parseClassifyBatchJson('{"foo":1}', [1])).toThrow();
   });
 });
