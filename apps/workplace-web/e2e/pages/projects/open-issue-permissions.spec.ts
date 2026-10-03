@@ -230,7 +230,7 @@ test(
 //     편집 불가 열람자에겐 숨겨 클릭 후 403("프로젝트 멤버가 아닙니다")을 받는 일이 없게 한다.
 
 test(
-  'OPEN reporter(비멤버): 첨부 드롭존 표시',
+  'OPEN reporter(비멤버): 첨부 드롭존 표시 + 파일 선택 시 업로드 POST',
   async ({ authenticatedPage: page }) => {
     await setupOpenProjectMocks(page, {
       viewerCanEditContent: true,
@@ -238,9 +238,31 @@ test(
       viewerCanDelete: false,
       viewerIsMember: false,
     });
+    // 업로드 POST 스텁 — 비멤버 reporter 의 드롭존이 실제로 첨부 엔드포인트를 호출하는지 확인.
+    await page.route(
+      (url) =>
+        url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/attachments`,
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      },
+    );
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
-    await expect(page.getByTestId('attachment-dropzone')).toBeVisible();
+    const dropzone = page.getByTestId('attachment-dropzone');
+    await expect(dropzone).toBeVisible();
+    const uploadReq = page.waitForRequest(
+      (req) =>
+        req.method() === 'POST' &&
+        req.url().endsWith(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/attachments`),
+    );
+    await dropzone.locator('input[type="file"]').setInputFiles({
+      name: 'photo.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    });
+    // multipart 본문에 선택한 파일이 files 필드로 실려 간다.
+    expect((await uploadReq).postData() ?? '').toContain('filename="photo.png"');
   },
 );
 
