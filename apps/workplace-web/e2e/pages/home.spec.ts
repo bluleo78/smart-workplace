@@ -2030,7 +2030,7 @@ test('알림 위젯 — CALENDAR_INVITED/CALENDAR_RSVP_CHANGED 알림이 있어�
   await expect(updates).toContainText('주간 회의')
 
   await updates.getByRole('link', { name: '알림 열기: 분기 킥오프' }).click()
-  await expect(page).toHaveURL(/\/calendar$/)
+  await expect(page).toHaveURL(/\/calendar\?eventId=\d+$/)
 })
 
 test('알림 위젯 — 행 ✓ 클릭 시 그룹의 미읽음을 read 처리한다', async ({

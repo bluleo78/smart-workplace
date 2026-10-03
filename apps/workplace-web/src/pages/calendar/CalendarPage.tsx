@@ -32,6 +32,7 @@ import {
 } from '@/hooks/queries/useCalendarMutations'
 import { useCalendars, useCreateCalendar, useDeleteCalendar, useResetCalendarEvents, useUpdateCalendar } from '@/hooks/queries/useCalendars'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
+import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { buildCalendarContext } from '@/lib/aiScreenContext/builders/calendar'
 import {
@@ -60,14 +61,16 @@ import type {
 /** 캘린더 페이지 — 뷰 전환·날짜 네비·일정 CRUD + 캘린더 컨테이너 CRUD + 필터를 통합 관리. */
 export function CalendarPage() {
   const navigate = useNavigate()
-  // 알림 딥링크(?eventId=) — 특정 일정으로 이동 + 상세 모달 자동 오픈 (#659).
+  // 일정 상세 = URL ?eventId(상태의 단일 원천, WP-208). 일정 클릭은 push → 시스템 뒤로가기가 다이얼로그만 닫는다.
+  // 알림·홈 딥링크(#659)와 같은 키 — 예전처럼 소비 후 replace 로 지우지 않는다(뒤로가기·forward 가 다이얼로그를 여닫는다).
   const [searchParams, setSearchParams] = useSearchParams()
-  const deepLinkEventId = useMemo(() => {
-    const raw = searchParams.get('eventId')
+  const eventParam = useHistoryParam('eventId')
+  const eventIdParam = useMemo(() => {
+    const raw = eventParam.value
     if (!raw) return null
     const n = Number(raw)
     return Number.isFinite(n) ? n : null
-  }, [searchParams])
+  }, [eventParam.value])
   // 새 일정 딥링크(?new=true) — 홈 대시보드 "오늘 일정" 위젯 빈 상태 CTA(#653) 등에서 진입.
   const deepLinkNew = searchParams.get('new') === 'true'
   const [view, setView] = useState<CalendarViewType>('month')
@@ -78,8 +81,12 @@ export function CalendarPage() {
   const navBtnClass = isMobile ? 'h-11 min-w-11 px-3' : undefined
   const arrowBtnClass = isMobile ? 'h-11 w-11 px-0 text-lg' : undefined
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()))
-  const [dialogOpen, setDialogOpen] = useState(false)
+  // 새 일정 다이얼로그는 로컬 상태(?new 는 이번 범위 밖). 기존 일정은 URL 이 열림을 정한다.
+  const [creating, setCreating] = useState(false)
+  // 마지막으로 연 일정 스냅숏 — 반복 회차는 마스터 id 를 공유해 URL(eventId)만으로는 회차 날짜를 알 수 없다.
+  // 다이얼로그가 닫힌 뒤에도 남겨 두어 범위 선택·삭제 확인 다이얼로그가 읽는다.
   const [editing, setEditing] = useState<CalendarEvent | null>(null)
+  const dialogOpen = creating || (eventIdParam != null && editing?.id === eventIdParam)
   const [defaultStart, setDefaultStart] = useState<Date | undefined>()
   // 반복 회차 수정/삭제 시 scope 선택 다이얼로그 모드(null=닫힘)
   const [scopeMode, setScopeMode] = useState<'edit' | 'delete' | null>(null)
@@ -131,7 +138,7 @@ export function CalendarPage() {
 
   // WP-54: 캘린더 화면 컨텍스트 — 보기·기간·일정 수 + 열린 일정(다이얼로그).
   // 일정 수는 조회 성공 후에만 싣는다(로딩 중 0건으로 오인 방지). 다이얼로그가 닫히면 editing 이 남아 있어도 focus 를 뺀다.
-  const openEditing = dialogOpen ? editing : null
+  const openEditing = dialogOpen && !creating ? editing : null
   const screenContext = useMemo(
     () =>
       buildCalendarContext({
@@ -139,7 +146,7 @@ export function CalendarPage() {
         from,
         to,
         count: eventsLoaded ? visibleEvents.length : undefined,
-        creating: dialogOpen && editing == null,
+        creating,
         editing: openEditing
           ? {
               id: openEditing.id,
@@ -155,7 +162,7 @@ export function CalendarPage() {
             }
           : null,
       }),
-    [view, from, to, eventsLoaded, visibleEvents.length, dialogOpen, editing, openEditing],
+    [view, from, to, eventsLoaded, visibleEvents.length, creating, openEditing],
   )
   useRegisterAiScreenContext(screenContext)
 
@@ -198,13 +205,20 @@ export function CalendarPage() {
   const openNew = (start?: Date) => {
     setEditing(null)
     setDefaultStart(start)
-    setDialogOpen(true)
+    setCreating(true)
   }
 
-  // 기존 일정 편집 다이얼로그 열기
+  // 기존 일정 열기 — 스냅숏을 남기고 ?eventId 를 push(이미 열린 상태면 replace).
   const openEdit = (e: CalendarEvent) => {
+    setCreating(false)
     setEditing(e)
-    setDialogOpen(true)
+    eventParam.open(String(e.id))
+  }
+
+  // 다이얼로그 닫기 — ‹·ESC·바깥 클릭·취소·저장 완료 공통. 새 일정은 상태만, 기존 일정은 연 히스토리 항목을 되돌린다.
+  const closeDialog = () => {
+    if (creating) setCreating(false)
+    else eventParam.close()
   }
 
   // 새 일정 딥링크(?new=true) 처리 — 진입 시 1회 다이얼로그 오픈 후 쿼리파라미터 정리(replace).
@@ -222,57 +236,49 @@ export function CalendarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkNew])
 
-  // 알림 딥링크로 지목된 일정 조회 — 성공 시 해당 날짜로 이동 + 상세 모달 자동 오픈,
-  // 삭제됐거나 접근 권한 없으면(404/403) 조용히 /calendar 기본 화면으로 폴백 + 토스트 안내.
-  // (반복 일정 회차를 가리키더라도 GET /events/{id} 는 마스터 일정을 반환하므로 회차 특정 없이
-  //  마스터로 이동한다 — 사람 결정 지침 4항.)
-  const { data: deepLinkEvent, isSuccess: deepLinkSuccess, isError: deepLinkFailed } =
-    useCalendarEvent(deepLinkEventId)
+  // URL 이 가리키는 일정이 스냅숏과 다르면(알림·홈 딥링크·새로고침) 단건 조회로 채운다 — 성공 시 그 날짜로 이동.
+  // (반복 회차를 가리켜도 GET /events/{id} 는 마스터를 반환 — 회차 특정 없이 마스터로 연다, #659 지침 4항.)
+  // 삭제됐거나 권한이 없으면(404/403) 토스트만 — URL 을 조용히 고치지 않는다(WP-208, 스펙 §6). 다이얼로그는 열리지 않는다.
+  const needFetch = eventIdParam != null && editing?.id !== eventIdParam
+  const { data: deepLinkEvent, isError: deepLinkFailed } = useCalendarEvent(needFetch ? eventIdParam : null)
+  const [failedEventId, setFailedEventId] = useState<number | null>(null)
   useEffect(() => {
-    if (deepLinkEventId == null) return
-    if (deepLinkSuccess && deepLinkEvent) {
+    if (!needFetch) return
+    if (deepLinkEvent && deepLinkEvent.id === eventIdParam) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 서버 응답(외부)으로 스냅숏을 채운다(MailInboxPage 와 같은 처리)
       setAnchor(startOfDay(new Date(deepLinkEvent.startsAt)))
-      openEdit(deepLinkEvent)
-    } else if (deepLinkFailed) {
+      setCreating(false)
+      setEditing(deepLinkEvent)
+    } else if (deepLinkFailed && failedEventId !== eventIdParam) {
+      setFailedEventId(eventIdParam)
       toast.error('일정을 찾을 수 없거나 접근 권한이 없습니다')
-    } else {
-      return
     }
-    // 처리 후 쿼리파라미터 정리 — 새로고침/뒤로가기 시 모달이 다시 열리지 않게 replace.
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev)
-        next.delete('eventId')
-        return next
-      },
-      { replace: true },
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deepLinkEventId, deepLinkSuccess, deepLinkFailed, deepLinkEvent])
+  }, [needFetch, deepLinkEvent, deepLinkFailed, eventIdParam, failedEventId])
 
   // 생성·수정 공용 submit 핸들러
   const submit = (body: CalendarEventRequest) => {
-    if (editing) {
+    // 새 일정 저장 중에 이전 스냅숏(editing)이 수정 대상으로 잡히지 않게 creating 을 먼저 본다.
+    if (!creating && editing) {
       if (editing.occurrenceDate != null) {
         setPendingBody(body)
-        setDialogOpen(false)
+        closeDialog()
         setScopeMode('edit')
         return
       }
-      update.mutate({ id: editing.id, body }, { onSuccess: () => setDialogOpen(false) })
+      update.mutate({ id: editing.id, body }, { onSuccess: () => closeDialog() })
     } else {
-      create.mutate(body, { onSuccess: () => setDialogOpen(false) })
+      create.mutate(body, { onSuccess: () => setCreating(false) })
     }
   }
 
   const onDelete = () => {
     if (!editing) return
     if (editing.occurrenceDate != null) {
-      setDialogOpen(false)
+      closeDialog()
       setScopeMode('delete')
       return
     }
-    setDialogOpen(false)
+    closeDialog()
     setConfirmDeleteOpen(true)
   }
 
@@ -450,8 +456,10 @@ export function CalendarPage() {
       {/* 일정 생성/편집 다이얼로그 */}
       <EventDialog
         open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        event={editing ?? undefined}
+        onOpenChange={(o) => {
+          if (!o) closeDialog()
+        }}
+        event={creating ? undefined : (editing ?? undefined)}
         defaultStart={defaultStart}
         onSubmit={submit}
         onDelete={onDelete}
