@@ -7,6 +7,7 @@ import { type RunAgentDeps } from '../agent/run-agent.js';
 import {
   runMailAnalyzeContent,
   runMailAnalyzePersonal,
+  runMailClassifyBatch,
   runMailDraftCoaching,
   runMailIssueDraft,
   runMailReplyDraft,
@@ -53,6 +54,22 @@ export const analyzeContentSchema = z
     ...baseConfig,
   })
   .refine(atLeastOne(['includeCategory', 'includeSummary']), { message: '받을 항목(include*)이 하나 이상 필요합니다' });
+
+/** 분류 일괄(WP-185) — API 가 25통씩 묶어 보낸다. 본문은 앞부분만(API 가 500자로 자름). */
+export const classifyBatchSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: z.number().int().positive(),
+        from: z.string(),
+        subject: z.string(),
+        bodyHead: z.string(),
+      }),
+    )
+    .min(1)
+    .max(25),
+  ...baseConfig,
+});
 
 // WP-150 ④ 보강 블록 — 모두 선택(nullish). 구버전 api 는 보내지 않고, 조회에 실패한 블록은 null 로 온다.
 // 형식이 틀린 블록은 .catch 로 그 블록만 버린다 — 블록 하나 때문에 400 이 나면 api 가 시도를 기록하지 못해 매 백필마다 재시도한다.
@@ -141,6 +158,7 @@ export function createMailRouter(deps: RunAgentDeps): Router {
 
   // WP-149 ③ 원본 분석: {category, summary} — 원본별 1회(공통 비서).
   router.post('/mail/analyze-content', handler(analyzeContentSchema, runMailAnalyzeContent, deps, 'mail-analyze-content'));
+  router.post('/mail/classify-batch', handler(classifyBatchSchema, runMailClassifyBatch, deps, 'mail-classify-batch'));
   // WP-149 ④ 개인 분석: {needsReply, personalSummary, personalSummaryValid, category} — 사본별 1회(개인→공통 비서).
   router.post('/mail/analyze-personal', handler(analyzePersonalSchema, runMailAnalyzePersonal, deps, 'mail-analyze-personal'));
 
