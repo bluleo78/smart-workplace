@@ -2,16 +2,15 @@
 // 풀스크린(2단) — 콘텐츠 영역만 덮는다(<main>의 absolute inset-0 자식, AppRail 미포함).
 // 좌: 세션 목록 / 우: 채팅 본문.
 // WP-191: 데스크톱 전용 — 모바일은 MobileAiSheet.
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useState } from 'react';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AIChatPanel } from '@/components/ai/AIChatPanel';
 import { AIPanelControls, AIPanelTitle } from '@/components/ai/AIPanelHeader';
+import { AISessionItems } from '@/components/ai/AISessionList';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
-import { relTime } from '@/components/ai/relTime';
 import { useAssistantChat } from '@/hooks/useAssistantChat';
-import { cn } from '@/lib/utils';
 
 /** mode==='fullscreen' 일 때만 렌더. */
 export function AIFullscreen() {
@@ -52,42 +51,12 @@ export function AIFullscreen() {
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-2">
-          {chat.sessions.length === 0 ? (
-            <div className="px-2 py-1.5 text-sm text-muted-foreground">저장된 대화가 없어요</div>
-          ) : (
-            chat.sessions.map((s) => (
-              <div
-                key={s.id}
-                data-testid="chat-session-item"
-                className={cn(
-                  'flex items-center gap-2 rounded px-2 py-1.5 text-sm',
-                  s.id === chat.currentSessionId && 'bg-ai-accent-subtle',
-                )}
-              >
-                <button
-                  type="button"
-                  data-testid="chat-session-select"
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => chat.onSelectSession(s.id)}
-                >
-                  <div className="truncate">{s.title}</div>
-                  <div className="text-xs text-muted-foreground">{relTime(s.lastMessageAt)}</div>
-                </button>
-                <button
-                  type="button"
-                  aria-label="대화 삭제"
-                  data-testid="chat-session-delete"
-                  className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setPendingDeleteId(s.id);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            ))
-          )}
+          <AISessionItems
+            sessions={chat.sessions}
+            currentSessionId={chat.currentSessionId}
+            onSelect={chat.onSelectSession}
+            onDelete={setPendingDeleteId}
+          />
         </div>
       </div>
 

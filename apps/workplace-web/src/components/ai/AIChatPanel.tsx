@@ -1,14 +1,14 @@
 // src/components/ai/AIChatPanel.tsx
 // AI 어시스턴트 공유 채팅 본문 — 세션 스위처 헤더 + 메시지 이력 + 입력바.
 // side(AISidePanel) / fullscreen(AIFullscreen) 모두 재사용. 컨테이너(폭/포지션)는 호출측 책임.
-import { ArrowUp, ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square, Trash2 } from 'lucide-react';
+import { ArrowUp, ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square } from 'lucide-react';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ActionResultLine } from '@/components/ai/ActionResultLine';
 import { AiLabel } from '@/components/ai/AiLabel';
+import { AISessionItems } from '@/components/ai/AISessionList';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
-import { relTime } from '@/components/ai/relTime';
 import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { ScreenContextChip } from '@/components/ai/ScreenContextChip';
 import { SessionSwitchGuardDialog } from '@/components/ai/SessionSwitchGuardDialog';
@@ -147,45 +147,15 @@ export function AIChatPanel({
             {/* WP-54: body 포털이라 DOM 상 패널 밖이지만, React 이벤트가 패널 루트로 전파돼 AI 표면으로 판별된다
                 (aiPanelSurface.markAiPanelEvent) — 열린 엔티티 다이얼로그가 닫히지 않음. 패널 트리 밖에서 렌더하면 안 된다. */}
             <DropdownMenuContent align="start" className="z-[80] w-72">
-              {sessions.length === 0 ? (
-                <div className="px-2 py-1.5 text-sm text-muted-foreground">저장된 대화가 없어요</div>
-              ) : (
-                sessions.map((s) => (
-                  <div
-                    key={s.id}
-                    data-testid="chat-session-item"
-                    className={cn(
-                      'flex items-center gap-2 rounded px-2 py-1.5 text-sm',
-                      s.id === currentSessionId && 'bg-ai-accent-subtle',
-                    )}
-                  >
-                    <button
-                      type="button"
-                      data-testid="chat-session-select"
-                      className="min-w-0 flex-1 text-left"
-                      onClick={() => {
-                        onSelectSession(s.id);
-                        setSessionMenuOpen(false); // 선택 후 드롭다운 닫기(#451)
-                      }}
-                    >
-                      <div className="truncate">{s.title}</div>
-                      <div className="text-xs text-muted-foreground">{relTime(s.lastMessageAt)}</div>
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="대화 삭제"
-                      data-testid="chat-session-delete"
-                      className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setPendingDeleteId(s.id);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))
-              )}
+              <AISessionItems
+                sessions={sessions}
+                currentSessionId={currentSessionId}
+                onSelect={(id) => {
+                  onSelectSession(id);
+                  setSessionMenuOpen(false); // 선택 후 드롭다운 닫기(#451)
+                }}
+                onDelete={setPendingDeleteId}
+              />
             </DropdownMenuContent>
           </DropdownMenu>
           <button

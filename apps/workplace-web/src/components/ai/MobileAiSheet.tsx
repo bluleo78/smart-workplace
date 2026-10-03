@@ -1,15 +1,15 @@
 // 모바일 AI 시트(WP-191) — 보던 화면 위로 올라오는 큰 바텀 시트. 탭바 ✦·헤더 ✦ 어디서 열든 같은 모양이다.
 // Radix 모달이 아닌 이유: 모달이면 아래 탭바를 누를 수 없고, 열린 엔티티 다이얼로그와 AI 표면을 가르는 WP-54 규칙과 부딪힌다.
 // MobileShell 이 본문+탭바를 덮는 셸 루트 레이어로 렌더한다. 키보드 높이는 셸(--vvh)이 이미 반영한다.
-import { ChevronDown, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { ChevronDown, Plus, Sparkles } from 'lucide-react';
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AIChatPanel } from '@/components/ai/AIChatPanel';
 import { AIPanelControls } from '@/components/ai/AIPanelHeader';
 import { markAiPanelEvent } from '@/components/ai/aiPanelSurface';
+import { AISessionItems } from '@/components/ai/AISessionList';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
-import { relTime } from '@/components/ai/relTime';
 import { useTabBarVisible } from '@/components/mobile/useTabBarVisible';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useAssistantChat } from '@/hooks/useAssistantChat';
@@ -134,45 +134,15 @@ function SheetPanel() {
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="z-[80] w-72">
-                {chat.sessions.length === 0 ? (
-                  <div className="px-2 py-1.5 text-sm text-muted-foreground">저장된 대화가 없어요</div>
-                ) : (
-                  chat.sessions.map((s) => (
-                    <div
-                      key={s.id}
-                      data-testid="chat-session-item"
-                      className={cn(
-                        'flex items-center gap-2 rounded px-2 py-1.5 text-sm',
-                        s.id === chat.currentSessionId && 'bg-ai-accent-subtle',
-                      )}
-                    >
-                      <button
-                        type="button"
-                        data-testid="chat-session-select"
-                        className="min-w-0 flex-1 text-left"
-                        onClick={() => {
-                          chat.onSelectSession(s.id);
-                          setMenuOpen(false); // 선택 후 닫기(#451)
-                        }}
-                      >
-                        <div className="truncate">{s.title}</div>
-                        <div className="text-xs text-muted-foreground">{relTime(s.lastMessageAt)}</div>
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="대화 삭제"
-                        data-testid="chat-session-delete"
-                        className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPendingDeleteId(s.id);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))
-                )}
+                <AISessionItems
+                  sessions={chat.sessions}
+                  currentSessionId={chat.currentSessionId}
+                  onSelect={(id) => {
+                    chat.onSelectSession(id);
+                    setMenuOpen(false); // 선택 후 닫기(#451)
+                  }}
+                  onDelete={setPendingDeleteId}
+                />
               </DropdownMenuContent>
             </DropdownMenu>
             <button

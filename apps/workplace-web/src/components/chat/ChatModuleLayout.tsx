@@ -2,6 +2,7 @@
 // messaging SSE 구독은 AppLayout(앱 셸)으로 올라갔고, 여기선 연결 상태만 읽어 끊김 배너를 그린다.
 import { useEffect, useMemo, useState } from 'react'
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { ResponsiveModuleLayout } from '@/components/mobile/ResponsiveModuleLayout'
 import { useMessagingConnection } from '@/hooks/MessagingConnectionContext'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
@@ -32,20 +33,6 @@ export function ChatModuleLayout() {
     }
   }, [isConnected])
 
-  // WP-191: 모바일 채팅 목록의 화면 컨텍스트 — 사이드바와 같은 쿼리(캐시 공유).
-  const { data: channels = [] } = useMyChannels()
-  const { data: dms = [] } = useMyDms()
-  const { data: threadUnread = 0 } = useThreadsInboxUnreadCount()
-  const listCtx = useMemo(
-    () => buildChatListContext({
-      channelCount: channels.length,
-      dmCount: dms.length,
-      unread: [...channels, ...dms].reduce((s, c) => s + (c.unreadCount ?? 0), 0),
-      threadUnread,
-    }),
-    [channels, dms, threadUnread],
-  )
-
   return (
     <div className="flex h-full min-h-0 flex-col flex-1">
       {/* SSE 재연결 중 배너 — 끊김이 유예 시간 이상 지속될 때만 사용자에게 상태 알림 */}
@@ -59,7 +46,28 @@ export function ChatModuleLayout() {
           실시간 연결 중...
         </div>
       )}
-      <ResponsiveModuleLayout sidebar={<ChannelSidebar />} rootPath="/chat" title="채팅" listScreenContext={listCtx} />
+      <ResponsiveModuleLayout sidebar={<ChannelSidebar />} rootPath="/chat" title="채팅" listContext={<ChatListScreenContext />} />
     </div>
   )
+}
+
+/**
+ * WP-191: 모바일 채팅 목록의 화면 컨텍스트 등록기 — ResponsiveModuleLayout 이 모바일 목록 분기에서만 마운트한다.
+ * 쿼리는 사이드바와 캐시를 공유하며, 데스크톱·상세에선 마운트되지 않아 불필요한 구독이 없다.
+ */
+function ChatListScreenContext() {
+  const { data: channels = [] } = useMyChannels()
+  const { data: dms = [] } = useMyDms()
+  const { data: threadUnread = 0 } = useThreadsInboxUnreadCount()
+  const ctx = useMemo(
+    () => buildChatListContext({
+      channelCount: channels.length,
+      dmCount: dms.length,
+      unread: [...channels, ...dms].reduce((s, c) => s + (c.unreadCount ?? 0), 0),
+      threadUnread,
+    }),
+    [channels, dms, threadUnread],
+  )
+  useRegisterAiScreenContext(ctx)
+  return null
 }

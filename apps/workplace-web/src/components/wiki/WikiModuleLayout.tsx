@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { ResponsiveModuleLayout } from '@/components/mobile/ResponsiveModuleLayout'
 import { mobileWikiListClass } from '@/components/mobile/sidebarListClass'
 import { useWikiSpaces } from '@/hooks/queries/useWikiSpaces'
@@ -26,12 +27,24 @@ export function WikiModuleLayout() {
   const isMobile = useIsMobile()
   const { pathname } = useLocation()
   useRecordLastSpace()
-  // WP-191: 모바일 공간 페이지 목록(/wiki/spaces/:id)의 화면 컨텍스트 — 공간이 없는 /wiki 는 리다이렉트되므로 null(미등록).
+  return (
+    <>
+      <ResponsiveModuleLayout sidebar={<WikiSidebar />} rootPath={MOBILE_TABS.wiki.path} title="노트" listClassName={mobileWikiListClass} listContext={<WikiListScreenContext />} />
+      {isMobile && norm(pathname) === MOBILE_TABS.wiki.path && <MobileWikiIndexRedirect />}
+    </>
+  )
+}
+
+/**
+ * WP-191: 모바일 공간 페이지 목록(/wiki/spaces/:id)의 화면 컨텍스트 등록기 — 공간이 없는 /wiki 는 리다이렉트되므로 null(미등록).
+ * 모바일 목록 분기에서만 마운트되어, 데스크톱·상세에선 공간·트리 쿼리를 구독하지 않는다.
+ */
+function WikiListScreenContext() {
   const { spaceId: sp } = useParams()
   const spaceId = sp ? Number(sp) : null
   const { data: spaces } = useWikiSpaces()
   const { data: pages } = useWikiTree(spaceId)
-  const listCtx = useMemo(
+  const ctx = useMemo(
     () => (spaceId == null || !Number.isInteger(spaceId) ? null : buildWikiSpaceListContext({
       spaceId,
       spaceName: spaces?.find((s) => s.id === spaceId)?.name ?? null,
@@ -39,12 +52,8 @@ export function WikiModuleLayout() {
     })),
     [spaceId, spaces, pages],
   )
-  return (
-    <>
-      <ResponsiveModuleLayout sidebar={<WikiSidebar />} rootPath={MOBILE_TABS.wiki.path} title="노트" listClassName={mobileWikiListClass} listScreenContext={listCtx} />
-      {isMobile && norm(pathname) === MOBILE_TABS.wiki.path && <MobileWikiIndexRedirect />}
-    </>
-  )
+  useRegisterAiScreenContext(ctx)
+  return null
 }
 
 /** 모바일 /wiki 진입 시에만 마운트 — 마지막 본 페이지의 공간(없으면 첫 공간) 목록으로 이동. 그리는 것은 없다. */
