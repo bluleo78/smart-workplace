@@ -8,9 +8,9 @@ import { LayoutList } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { Button } from '../../../components/ui/button';
+import { LoadMoreFooter } from '../../../components/ui/load-more-footer';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
-import { useLoadMoreSentinel } from '../../../hooks/useLoadMoreSentinel';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { groupIssues } from '../../../lib/issueGrouping';
 import type { IssueClientGroupBy, IssueFilters } from '../../../types/issue';
@@ -38,11 +38,9 @@ export function IssueListView({
 }) {
   // 보드와 같은 기본 범위 — 에픽 행 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(withDefaultIssueScope).
   const searchQuery = useIssueSearch(projectKey, withDefaultIssueScope(filters));
-  const { data, isFetching, isLoading } = searchQuery;
-  // sentinel 진입 시 다음 페이지 로드(공용 훅).
-  // 테이블 스크롤 컨테이너 — sentinel 의 IntersectionObserver root 로 쓴다(콜백 ref 라 마운트 후 재부착).
+  const { data, isLoading } = searchQuery;
+  // 테이블 스크롤 컨테이너 — 목록 끝 LoadMoreFooter sentinel 의 IntersectionObserver root(콜백 ref 라 마운트 후 재부착).
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
-  const sentinelRef = useLoadMoreSentinel(searchQuery, scrollEl);
 
   // #606: 다중 선택 상태 — 이슈 number 집합. 필터/그룹 기준(직렬화 값)이 바뀌면 초기화.
   const {
@@ -184,8 +182,8 @@ export function IssueListView({
             </tbody>
           )}
         </table>
-        <div ref={sentinelRef} aria-hidden="true" className="h-1" />
-        {isFetching && <p className="text-muted-foreground py-2">불러오는 중…</p>}
+        {/* 목록 끝 — 자동 로드, 다음 페이지 실패 시에만 다시 시도(공용 LoadMoreFooter, WP-183) */}
+        <LoadMoreFooter query={searchQuery} root={scrollEl} data-testid="issue-list-more" />
       </div>
     </div>
   );

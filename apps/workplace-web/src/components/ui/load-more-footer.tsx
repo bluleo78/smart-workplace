@@ -27,13 +27,14 @@ export function LoadMoreFooter({
   if (!query.hasNextPage) return null;
   return (
     <div ref={ref} data-testid={testId} className={cn('py-3 text-center text-xs text-muted-foreground', className)}>
-      {query.isFetchNextPageError ? (
+      {/* 로딩을 먼저 본다 — 다시 시도 중에도 오류 상태는 성공 전까지 남아 있어, 그대로면 버튼이 계속 보인다 */}
+      {query.isFetchingNextPage ? (
+        '불러오는 중…'
+      ) : query.isFetchNextPageError ? (
         <button type="button" className="text-destructive underline" onClick={() => void query.fetchNextPage()}>
           불러오지 못했습니다 — 다시 시도
         </button>
-      ) : (
-        query.isFetchingNextPage && '불러오는 중…'
-      )}
+      ) : null}
     </div>
   );
 }

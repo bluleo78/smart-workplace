@@ -15,10 +15,11 @@ export function useMembers(params: {
   includeInactive?: boolean
   page?: number
   size?: number
-}) {
+}, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: memberKeys.list(params),
     queryFn: () => membersApi.getMembers(params).then(r => r.data),
+    enabled: options?.enabled,
   })
 }
 
