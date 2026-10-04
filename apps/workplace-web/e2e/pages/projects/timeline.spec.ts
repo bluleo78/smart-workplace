@@ -280,6 +280,7 @@ test('비멤버는 드래그 비활성', async ({ authenticatedPage: page }) => 
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 200, box.y + box.height / 2, { steps: 8 });
   await page.mouse.up();
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 비멤버 드래그 후 PATCH 가 나가지 않음(부재)을 확인하는 대기
   await page.waitForTimeout(300);
   expect(patchFired).toBe(false);
 });

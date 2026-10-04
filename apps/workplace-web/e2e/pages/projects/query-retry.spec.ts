@@ -23,6 +23,7 @@ test.describe('QueryClient 전역 retry 정책', () => {
     await expect(page.getByText('프로젝트를 불러올 수 없습니다')).toBeVisible();
 
     // 기존 retry:1 동작이었다면 ~1초 후 2번째 요청이 발생한다. 그 backoff 창을 넘겨 확인.
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- backoff 창 동안 재시도 요청이 없음(부재)을 확인하는 대기
     await page.waitForTimeout(1500);
     expect(capture.requests).toHaveLength(1);
   });

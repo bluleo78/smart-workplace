@@ -382,7 +382,9 @@ test.describe('사이클 관리', () => {
       await expect(page.getByTestId('cycle-submit')).toBeDisabled();
 
       // 강제로 클릭해도(disabled 라 실제 클릭 불가하지만) POST 는 발생하지 않아야 함.
+      // eslint-disable-next-line playwright/no-force-option -- 비활성(disabled) 저장 버튼을 일부러 눌러 no-op 을 확인
       await page.getByTestId('cycle-submit').click({ force: true });
+      // eslint-disable-next-line playwright/no-wait-for-timeout -- 비활성 버튼 클릭 후 POST 가 나가지 않음(부재)을 확인하는 대기
       await page.waitForTimeout(300);
       expect(postFired).toBe(false);
 

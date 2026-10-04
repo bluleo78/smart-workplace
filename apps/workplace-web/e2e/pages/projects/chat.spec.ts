@@ -251,6 +251,7 @@ test.describe('이슈 chat panel', () => {
     await expect(submit).toBeDisabled();
 
     // 3) 비활성 버튼 클릭 시도 → POST 미발생(silent no-op 자체가 발생할 여지가 없음).
+    // eslint-disable-next-line playwright/no-force-option -- 비활성(disabled) 버튼을 일부러 눌러 no-op 을 확인하므로 actionability 대기를 건너뛴다
     await submit.click({ force: true }).catch(() => {});
     await expect.poll(() => stubs.createPayloads.length).toBe(0);
 
@@ -304,6 +305,7 @@ test.describe('이슈 chat panel', () => {
     await expect(submit).toBeDisabled();
 
     // 4) 비활성 버튼 클릭해도 POST 가 추가로 발생하지 않는다(silent no-op 자체가 차단됨).
+    // eslint-disable-next-line playwright/no-force-option -- 비활성(disabled) 버튼을 일부러 눌러 no-op 을 확인하므로 actionability 대기를 건너뛴다
     await submit.click({ force: true }).catch(() => {});
     await expect.poll(() => stubs.createPayloads.length).toBe(1);
 
@@ -870,6 +872,7 @@ test.describe('이슈 chat panel', () => {
     // 에디터는 닫히고(취소처럼 처리), PATCH 는 호출되지 않아야 한다.
     await expect(page.getByTestId('chat-message-editor')).toHaveCount(0);
     await expect(page.getByTestId('chat-message-body-800')).toHaveText('원본');
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 변경 없는 저장에서 PATCH 가 나가지 않음(부재)을 확인하는 대기
     await page.waitForTimeout(300);
     expect(stubs.patchPayloads).toEqual([]);
   });

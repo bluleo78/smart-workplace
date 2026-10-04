@@ -130,6 +130,7 @@ test(
     await expect(badge).toBeVisible();
     await expect(badge).toHaveText('1');
     // 재연결 사이클(백오프 ~1s) 한 번 지나도 동일 메시지가 중복 카운트되지 않는다.
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 재연결 후 중복 카운트가 생기지 않음(부재)을 확인하는 대기
     await page.waitForTimeout(1500);
     await expect(badge).toHaveText('1');
 

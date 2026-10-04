@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { stableBox } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
@@ -114,12 +115,14 @@ test.describe('이슈 목록 그룹 접기 + 무한 스크롤', () => {
     );
     await page.goto(`/projects/${KEY}?group=epic`);
     await expect(page.getByTestId('issue-row-1')).toBeVisible();
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 행이 화면을 채운 동안 2페이지 요청이 없음(부재)을 확인하는 대기
     await page.waitForTimeout(500);
     expect(page2Requests).toBe(0); // 양성 대조 — 행이 화면을 채운 동안엔 로드 안 함
 
     await page.getByTestId('list-group-toggle-epic-12').click();
     await page.getByTestId('list-group-toggle-epic-30').click();
     await expect(page.getByTestId('issue-row-1')).toHaveCount(0);
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 전부 접혀 sentinel 이 보여도 2페이지 요청이 없음(부재)을 확인하는 대기
     await page.waitForTimeout(1000);
     expect(page2Requests).toBe(0); // 전부 접힘 → sentinel 이 보여도 로드하지 않는다
 
@@ -162,32 +165,35 @@ test.describe('이슈 목록 데스크톱 에픽 칩', () => {
       const row = page.getByTestId('issue-row-21');
       const chip = row.getByTestId('issue-row-21-parent');
       await expect(chip).toBeVisible();
-      // (a) 가로 스크롤 없음 — 긴 제목이 표를 밀어내지 않는다.
-      const scroll = page.getByTestId('issue-list-scroll');
-      const { sw, cw } = await scroll.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
-      expect(sw, `${width}px 목록 가로 오버플로`).toBeLessThanOrEqual(cw);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-      // (b) 제목은 최소 8rem 보장
-      const link = row.getByRole('link', { name: /결제 모듈/ });
-      expect((await link.boundingBox())!.width).toBeGreaterThanOrEqual(128);
-      // (c) 칩이 스크롤 영역 오른쪽 끝 안에 있다.
-      const sb = (await scroll.boundingBox())!;
-      const cb = (await chip.boundingBox())!;
-      expect(cb.x + cb.width).toBeLessThanOrEqual(sb.x + sb.width + 1);
-      // (d) 제목 칸이 폭을 가져가도 마감 날짜는 한 줄로(글자 단위로 꺾이지 않는다).
-      // 텍스트 줄 수 = Range 의 클라이언트 사각형 수(한 줄이면 1).
-      const dueLines = await row.getByTestId('issue-row-21-due').evaluate((el) => {
-        const r = document.createRange();
-        r.selectNodeContents(el);
-        return r.getClientRects().length;
-      });
-      expect(dueLines, `${width}px 마감 칸 줄바꿈`).toBe(1);
-      // (e) ID 칸이 최소 내용폭으로 쪼그라들어 「WP-21」 이 제목에 붙지 않는다 — 한 줄 + 제목과 8px 이상 간격.
-      const idText = row.getByText(`${KEY}-21`, { exact: true });
-      const ib = (await idText.boundingBox())!;
-      expect(ib.height, `${width}px ID 줄바꿈`).toBeLessThan(24);
-      const lb = (await link.boundingBox())!;
-      expect(lb.x - (ib.x + ib.width), `${width}px ID-제목 간격`).toBeGreaterThanOrEqual(8);
+      // 첫 렌더 직후 표 배치가 자리 잡기 전 값을 잴 수 있어 측정·단언 묶음을 재시도한다(WP-225).
+      await expect(async () => {
+        // (a) 가로 스크롤 없음 — 긴 제목이 표를 밀어내지 않는다.
+        const scroll = page.getByTestId('issue-list-scroll');
+        const { sw, cw } = await scroll.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
+        expect(sw, `${width}px 목록 가로 오버플로`).toBeLessThanOrEqual(cw);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+        // (b) 제목은 최소 8rem 보장
+        const link = row.getByRole('link', { name: /결제 모듈/ });
+        expect((await stableBox(link)).width).toBeGreaterThanOrEqual(128);
+        // (c) 칩이 스크롤 영역 오른쪽 끝 안에 있다.
+        const sb = await stableBox(scroll);
+        const cb = await stableBox(chip);
+        expect(cb.x + cb.width).toBeLessThanOrEqual(sb.x + sb.width + 1);
+        // (d) 제목 칸이 폭을 가져가도 마감 날짜는 한 줄로(글자 단위로 꺾이지 않는다).
+        // 텍스트 줄 수 = Range 의 클라이언트 사각형 수(한 줄이면 1).
+        const dueLines = await row.getByTestId('issue-row-21-due').evaluate((el) => {
+          const r = document.createRange();
+          r.selectNodeContents(el);
+          return r.getClientRects().length;
+        });
+        expect(dueLines, `${width}px 마감 칸 줄바꿈`).toBe(1);
+        // (e) ID 칸이 최소 내용폭으로 쪼그라들어 「WP-21」 이 제목에 붙지 않는다 — 한 줄 + 제목과 8px 이상 간격.
+        const idText = row.getByText(`${KEY}-21`, { exact: true });
+        const ib = await stableBox(idText);
+        expect(ib.height, `${width}px ID 줄바꿈`).toBeLessThan(24);
+        const lb = await stableBox(link);
+        expect(lb.x - (ib.x + ib.width), `${width}px ID-제목 간격`).toBeGreaterThanOrEqual(8);
+      }).toPass();
     }
   });
 });

@@ -178,6 +178,7 @@ async function clickUndo(page: Page, moves: MoveBody[]) {
 
 // 부재 확인 전용 대기 — "놓은 뒤 이동 요청이 없음"은 기다릴 조건이 없어 짧게 흘려보낸 뒤 단언한다(WP-82 예외: 부재 확인).
 async function waitForNoRequest(page: Page) {
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 놓은 뒤 이동 요청이 나가지 않음(부재)을 확인하는 대기
   await page.waitForTimeout(300);
 }
 

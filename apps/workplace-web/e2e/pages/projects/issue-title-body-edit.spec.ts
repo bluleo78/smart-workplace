@@ -130,6 +130,7 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await input.press('Enter');
 
     // 빈 제목은 PATCH 가 발생하지 않아야 하고, 표시는 원본으로 복귀.
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 저장 차단·취소 후 PATCH 가 나가지 않음(부재)을 확인하는 대기
     await page.waitForTimeout(300);
     expect(stub.patches.filter((p) => 'title' in p)).toHaveLength(0);
     await expect(page.getByTestId('issue-title-heading').getByText('원본 제목')).toBeVisible();
@@ -145,6 +146,7 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await input.fill('버려질 제목');
     await input.press('Escape');
 
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 저장 차단·취소 후 PATCH 가 나가지 않음(부재)을 확인하는 대기
     await page.waitForTimeout(300);
     expect(stub.patches).toHaveLength(0);
     await expect(page.getByTestId('issue-title-heading').getByText('원본 제목')).toBeVisible();
@@ -176,6 +178,7 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await textarea.fill('버려질 본문');
     await textarea.press('Escape');
 
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 저장 차단·취소 후 PATCH 가 나가지 않음(부재)을 확인하는 대기
     await page.waitForTimeout(300);
     expect(stub.patches).toHaveLength(0);
     await expect(page.getByText('원본 본문')).toBeVisible();
@@ -236,6 +239,7 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await page.getByTestId('issue-body-textarea').fill('버려질 본문');
     await page.getByTestId('issue-body-cancel').click();
 
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 저장 차단·취소 후 PATCH 가 나가지 않음(부재)을 확인하는 대기
     await page.waitForTimeout(300);
     expect(stub.patches).toHaveLength(0);
     await expect(page.getByText('원본 본문')).toBeVisible();

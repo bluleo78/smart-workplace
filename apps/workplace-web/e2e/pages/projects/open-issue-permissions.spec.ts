@@ -358,6 +358,7 @@ test(
     await expect(page.getByRole('img', { name: 'bug.png' })).toHaveAttribute('src', /^blob:/);
     // 편집 진입 불가 → textarea·이미지 버튼 모두 없다.
     await expect(page.getByRole('button', { name: '본문 편집' })).toHaveAttribute('aria-disabled', 'true');
+    // eslint-disable-next-line playwright/no-force-option -- aria-disabled 버튼을 일부러 눌러 편집 진입이 막히는지 확인
     await page.getByRole('button', { name: '본문 편집' }).click({ force: true });
     await expect(page.getByTestId('issue-body-textarea')).toHaveCount(0);
     await expect(page.getByTestId('issue-body-image-button')).toHaveCount(0);

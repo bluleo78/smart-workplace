@@ -269,7 +269,7 @@ test.describe('IssueCommentList 코멘트 본문 디자인 시스템 body-second
       await setupIssueStubs(page, detailRef);
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-      await page.waitForSelector('text=디자인 시스템 body-secondary 테스트');
+      await expect(page.locator('text=디자인 시스템 body-secondary 테스트').first()).toBeVisible();
 
       // 코멘트 본문 div — body-secondary 규격(text-sm·leading-6·text-foreground) 준수 여부
       const commentBody = page.locator('section[aria-label="코멘트"] ul li').first().locator('div.whitespace-pre-wrap');
@@ -298,7 +298,7 @@ test.describe('IssueCommentList 날짜 포맷 (#320)', () => {
       await setupIssueStubs(page, detailRef);
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-      await page.waitForSelector('text=날짜 포맷 테스트 코멘트');
+      await expect(page.locator('text=날짜 포맷 테스트 코멘트').first()).toBeVisible();
 
       const commentItem = page.locator('section[aria-label="코멘트"] ul li').first();
 
@@ -336,7 +336,7 @@ test.describe('IssueCommentList 수정·삭제 (#154)', () => {
     );
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await page.waitForSelector('text=원본 코멘트');
+    await expect(page.locator('text=원본 코멘트').first()).toBeVisible();
 
     // 코멘트 섹션의 첫 번째 li — 편집 모드에서 텍스트가 RichInput 으로 이동하므로 안정적 인덱스 사용.
     const commentItem = page.locator('section[aria-label="코멘트"] ul li').first();
@@ -383,7 +383,7 @@ test.describe('IssueCommentList 수정·삭제 (#154)', () => {
     );
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await page.waitForSelector('text=삭제할 코멘트');
+    await expect(page.locator('text=삭제할 코멘트').first()).toBeVisible();
 
     // 코멘트 섹션의 첫 번째 li — 안정적 인덱스 사용.
     const commentItem = page.locator('section[aria-label="코멘트"] ul li').first();
@@ -422,7 +422,7 @@ test.describe('IssueCommentList 수정·삭제 (#154)', () => {
     await setupIssueStubs(page, detailRef);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await page.waitForSelector('text=타인의 코멘트');
+    await expect(page.locator('text=타인의 코멘트').first()).toBeVisible();
 
     const commentItem = page.locator('section[aria-label="코멘트"] ul li').first();
     await commentItem.hover();
@@ -438,7 +438,7 @@ test.describe('IssueCommentList 수정·삭제 (#154)', () => {
     await setupIssueStubs(page, detailRef);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await page.waitForSelector('text=확인 후 처리하겠습니다');
+    await expect(page.locator('text=확인 후 처리하겠습니다').first()).toBeVisible();
 
     const commentItem = page.locator('section[aria-label="코멘트"] ul li').first();
     await commentItem.hover();

@@ -3,6 +3,7 @@ import type { Page, Route } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { stableBox } from '../../fixtures/wait';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
@@ -80,6 +81,7 @@ async function setup(
 
 // 부재 확인 전용 대기 — "놓은 뒤 PATCH·이동이 일어나지 않음"은 기다릴 조건이 없어 짧게 흘려보낸 뒤 단언한다(WP-82 예외: 부재 확인).
 async function waitForNoRequest(page: Page) {
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 놓은 뒤 PATCH·이동이 일어나지 않음(부재)을 확인하는 대기
   await page.waitForTimeout(300);
 }
 
@@ -536,7 +538,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await startDrag(page, 'issue-card-1');
     const list = page.getByTestId('epic-panel-list');
     await expect(page.getByTestId(`epic-filter-${manyEpics[24].number}`)).toBeAttached();
-    const lb = (await list.boundingBox())!;
+    // 드래그 시작 직후 떠 있는 패널이 자리 잡는 중이면 null 일 수 있어 다시 잰다(WP-225).
+    const lb = await stableBox(list, 'epic-panel-list');
     const listBottom = lb.y + lb.height;
     // 아래 가장자리 영역(높이 20%) 안이면서 보이는 에픽 항목 위인 점을 고른다.
     let p: { x: number; y: number } | null = null;
@@ -629,10 +632,13 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     // 드래그 중 떠 있는 패널이 뜬 뒤에 방향키를 누른다(패널 에픽이 후보에 들어온 상태에서 검증).
     await expect(page.getByTestId('epic-side-panel')).toBeVisible();
     // 전제: 떠 있는 패널이 CANCELED 컬럼과 실제로 겹쳐야 이 테스트가 의미가 있다.
-    const panelBox = (await page.getByTestId('epic-side-panel').boundingBox())!;
-    const canceledBox = (await page.getByTestId('board-col-CANCELED').boundingBox())!;
-    expect(panelBox.x).toBeLessThan(canceledBox.x + canceledBox.width);
-    expect(panelBox.x + panelBox.width).toBeGreaterThan(canceledBox.x);
+    // 패널이 막 뜬 직후라 배치가 자리 잡을 때까지 다시 재며 단언한다(WP-225).
+    await expect(async () => {
+      const panelBox = await stableBox(page.getByTestId('epic-side-panel'));
+      const canceledBox = await stableBox(page.getByTestId('board-col-CANCELED'));
+      expect(panelBox.x).toBeLessThan(canceledBox.x + canceledBox.width);
+      expect(panelBox.x + panelBox.width).toBeGreaterThan(canceledBox.x);
+    }).toPass();
     const canceled = page.getByTestId('board-col-CANCELED');
     for (let i = 0; i < 10 && !/bg-accent\/30/.test((await canceled.getAttribute('class')) ?? ''); i++) {
       await page.keyboard.press('ArrowRight');

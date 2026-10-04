@@ -204,7 +204,9 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
-    // 채팅 컴포저까지 함께 마운트되도록 잠깐 대기 후 호출 횟수 고정 확인.
+    // 첫 호출 도착은 조건 대기로 확인한 뒤(WP-225), 채팅 컴포저까지 마운트돼도 중복 호출이 없는지 본다.
+    await expect.poll(() => spacesCallCount).toBe(1);
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 늦게 마운트되는 컴포저의 중복 spaces 호출이 없음(부재)을 확인하는 대기
     await page.waitForTimeout(300);
     expect(spacesCallCount).toBe(1);
   });
@@ -397,9 +399,12 @@ test.describe('AI 사이드패널 + 2구역 레이아웃 (#354)', () => {
       await page.getByTestId('chat-launcher').click();
       await expect(page.getByTestId('ai-side-panel')).toBeVisible();
 
-      const r = await rowProbe(page);
-      expect(r.flexDir).toBe('column'); // 좁아진 영역 → 세로 스택
-      expect(r.overflow).toBeLessThanOrEqual(1); // 가로 오버플로우 없음
+      // 사이드패널이 열리며 main 폭이 줄어드는 중에 재지 않도록 측정·단언을 재시도한다(WP-225).
+      await expect(async () => {
+        const r = await rowProbe(page);
+        expect(r.flexDir).toBe('column'); // 좁아진 영역 → 세로 스택
+        expect(r.overflow).toBeLessThanOrEqual(1); // 가로 오버플로우 없음
+      }).toPass();
     },
   );
 
@@ -411,8 +416,8 @@ test.describe('AI 사이드패널 + 2구역 레이아웃 (#354)', () => {
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     await expect(page.getByTestId('property-rail')).toBeVisible();
 
-    const r = await rowProbe(page);
-    expect(r.flexDir).toBe('row');
+    // 첫 렌더 직후 배치가 자리 잡을 때까지 다시 잰다(WP-225).
+    await expect.poll(async () => (await rowProbe(page)).flexDir).toBe('row');
   });
 
   test('본문 컨테이너는 중앙정렬 max-width 없이 전체폭을 사용한다', async ({ authenticatedPage: page }) => {

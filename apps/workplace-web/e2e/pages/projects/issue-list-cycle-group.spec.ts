@@ -174,8 +174,9 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
       await expect(page.getByTestId('list-cycle-toggle-cycle-3')).toHaveAttribute('aria-expanded', 'false');
       await expect(page.getByTestId('list-cycle-toggle-cycle-1')).toHaveAttribute('aria-expanded', 'true');
       // aria-controls — 펼친 구간은 실재하는 본문 id 를, 접힌 구간은 아무것도 가리키지 않는다.
+      // 값이 채워질 때까지 web-first 단언으로 기다린 뒤 그 id 를 읽는다(WP-225).
+      await expect(page.getByTestId('list-cycle-toggle-cycle-1')).toHaveAttribute('aria-controls', /.+/);
       const controls = await page.getByTestId('list-cycle-toggle-cycle-1').getAttribute('aria-controls');
-      expect(controls).toBeTruthy();
       await expect(page.locator(`[id="${controls}"]`)).toHaveAttribute('data-testid', 'list-cycle-body-cycle-1');
       await expect(page.getByTestId('list-cycle-toggle-cycle-3')).not.toHaveAttribute('aria-controls', /.+/);
       // 진행 중 D-N 은 스크린리더용 문장을 함께 준다.

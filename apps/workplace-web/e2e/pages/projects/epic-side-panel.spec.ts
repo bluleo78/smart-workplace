@@ -3,6 +3,7 @@ import type { Page, Route } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { stableBox } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
@@ -331,12 +332,15 @@ test.describe('에픽 왼쪽 패널', () => {
     await expect(page.getByTestId('epic-panel-empty')).toBeVisible();
 
     // 빈 콘텐츠의 자연 높이는 300px 미만 — 채움 레이아웃이면 패널이 이보다 훨씬 커진다.
-    const panelBox = await page.getByTestId('epic-side-panel').boundingBox();
-    expect(panelBox!.height).toBeGreaterThan(500);
+    // 패널이 열리며 높이가 자리 잡기 전 값을 잴 수 있어 측정·단언을 함께 재시도한다(WP-225).
+    await expect(async () => {
+      const panelBox = await stableBox(page.getByTestId('epic-side-panel'));
+      expect(panelBox.height).toBeGreaterThan(500);
 
-    // '에픽 만들기' 버튼은 패널 하단부에 고정(패널 바닥에서 120px 이내)돼 있어야 한다.
-    const btnBox = await page.getByTestId('epic-create-button').boundingBox();
-    expect(btnBox!.y).toBeGreaterThan(panelBox!.y + panelBox!.height - 120);
+      // '에픽 만들기' 버튼은 패널 하단부에 고정(패널 바닥에서 120px 이내)돼 있어야 한다.
+      const btnBox = await stableBox(page.getByTestId('epic-create-button'));
+      expect(btnBox.y).toBeGreaterThan(panelBox.y + panelBox.height - 120);
+    }).toPass();
   });
 
   test.describe('스크롤 영역 (WP-94)', () => {
@@ -398,8 +402,11 @@ test.describe('에픽 왼쪽 패널', () => {
 
       const scroller = page.getByTestId('board-scroll');
       // 보드 스크롤 컨테이너 자체가 뷰포트 안에서 끝난다 → 가로 스크롤바가 콘텐츠 끝이 아닌 화면 하단에 보인다.
-      const box = (await scroller.boundingBox())!;
-      expect(box.y + box.height).toBeLessThanOrEqual(700);
+      // 첫 렌더 직후 배치가 자리 잡을 때까지 다시 재며 단언한다(WP-225).
+      await expect(async () => {
+        const box = await stableBox(scroller);
+        expect(box.y + box.height).toBeLessThanOrEqual(700);
+      }).toPass();
       expect(await scroller.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
 
       const colHeader = page.getByTestId('board-col-TODO').locator('header');

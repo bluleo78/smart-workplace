@@ -576,10 +576,10 @@ test.describe('태스크 보드/검색', () => {
 
     // 컬럼이 노출되고, 폭이 최소 240px 이상이어야 한다(min-w floor).
     await expect(page.getByTestId('board-col-TODO')).toBeVisible();
-    const colWidth = await page
-      .getByTestId('board-col-TODO')
-      .evaluate((el) => el.getBoundingClientRect().width);
-    expect(colWidth).toBeGreaterThanOrEqual(240);
+    // 레이아웃이 자리 잡기 전 측정값에 걸리지 않도록 폭을 재시도하며 단언(WP-225).
+    await expect
+      .poll(() => page.getByTestId('board-col-TODO').evaluate((el) => el.getBoundingClientRect().width))
+      .toBeGreaterThanOrEqual(240);
   });
 
   test('보드: 컬럼 헤더가 카드 제목보다 강한 시각 계층 — text-sm + text-foreground 회귀 (#286)', async ({
@@ -879,6 +879,7 @@ test.describe('태스크 보드/검색', () => {
     await expect(retry).toBeVisible({ timeout: 15_000 });
     // 실패 확정 후 추가 요청이 더 나가지 않는다(react-query 기본 재시도 포함 횟수에서 멈춤).
     const settled = failedCalls;
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 실패 확정 후 추가 재요청이 나가지 않음(부재)을 확인하는 대기
     await page.waitForTimeout(1500);
     expect(failedCalls).toBe(settled);
     // 다시 시도 → 요청 1회 더.
@@ -1016,6 +1017,7 @@ test('담당자 그룹 보드에서 카드를 다른 그룹 카드 위에 놓아
   await expect(page.getByTestId('issue-card-drag-overlay')).toBeVisible();
   await page.mouse.up();
   // 부재 확인 — 상태 PATCH 가 나가지 않음은 기다릴 조건이 없어 짧게 흘려보낸 뒤 단언(WP-82 예외).
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 상태 PATCH 가 나가지 않음(부재)을 확인하는 대기
   await page.waitForTimeout(300);
   expect(statusPatched).toBe(false);
 });

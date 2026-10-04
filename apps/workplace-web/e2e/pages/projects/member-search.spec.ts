@@ -430,9 +430,11 @@ test.describe('멤버 추가 검색 picker', () => {
     // cmdk CommandItem 은 disabled 상태에서 data-disabled="true" 를 렌더한다.
     await expect(row).toHaveAttribute('data-disabled', 'true');
 
+    // eslint-disable-next-line playwright/no-force-option -- 비활성(data-disabled·pointer-events:none) 행을 일부러 눌러 no-op 을 확인
     await row.click({ force: true }).catch(() => {
       // pointer-events: none 으로 인해 click 이 무시될 수 있음 — 의도된 동작.
     });
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 비활성 행 클릭 후 멤버 추가 POST 가 없음(부재)을 확인하는 대기
     await page.waitForTimeout(200);
     expect(postCount).toBe(0);
   });

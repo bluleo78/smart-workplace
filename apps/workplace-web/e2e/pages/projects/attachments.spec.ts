@@ -230,6 +230,7 @@ test.describe('이슈 첨부', () => {
     await expect(page.getByText('huge.bin는 25MB 한도를 초과합니다')).toBeVisible();
     // 사전 검증 통과 파일이 없으므로 POST 가 발생하지 않아야 한다.
     // 짧은 대기 후 카운트 확인 — 즉시 검사 시 mutate 비동기 진입 전에 통과할 수 있음.
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 업로드 POST 가 일어나지 않음(부재)을 확인하는 대기
     await page.waitForTimeout(300);
     expect(postCount).toBe(0);
   });
@@ -279,7 +280,9 @@ test.describe('이슈 첨부', () => {
     await expect(
       page.getByText('이슈당 첨부 한도(10개)를 초과하여 test.pdf를 건너뜁니다'),
     ).toBeVisible();
-    // 첫 번째 파일만 POST 발생해야 한다.
+    // 첫 번째 파일만 POST 발생해야 한다 — 첫 POST 도착은 조건 대기로 확인(WP-225).
+    await expect.poll(() => postCount).toBe(1);
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 두 번째 파일의 POST 가 뒤늦게라도 일어나지 않음(부재)을 확인하는 대기
     await page.waitForTimeout(300);
     expect(postCount).toBe(1);
   });

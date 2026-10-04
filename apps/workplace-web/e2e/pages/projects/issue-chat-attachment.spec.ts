@@ -155,7 +155,6 @@ test(
       (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
       (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         createPayload = route.request().postDataJSON();
         return route.fulfill({
           status: 201,
@@ -347,7 +346,6 @@ test(
       (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
       (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         createPayload = route.request().postDataJSON();
         return route.fulfill({
           status: 201,

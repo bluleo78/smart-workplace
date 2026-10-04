@@ -304,6 +304,7 @@ test.describe('커스텀 필드', () => {
       await expect(input).toHaveValue('5');
 
       // 정밀도 손실된 값이 서버로 전송되지 않아야 한다.
+      // eslint-disable-next-line playwright/no-wait-for-timeout -- 정밀도 손실 값의 PUT 이 나가지 않음(부재)을 확인하는 대기
       await page.waitForTimeout(500);
       expect(putCalled).toBe(false);
     },
