@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { dismissByOutsideClick } from '../../fixtures/wait'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory'
 import { systemTypes } from '../../factories/issueType.factory'
 import { createProject } from '../../factories/project.factory'
@@ -288,12 +289,8 @@ test.describe('이슈 본문 이미지 — 표시', () => {
 
     await img.click()
     await expect(dialog).toBeVisible()
-    // Radix DismissableLayer 는 바깥 클릭 감지를 열린 다음 틱에 등록해 열리자마자 누른 클릭은 무시될 수 있다.
-    // 닫힐 때까지 클릭을 재시도한다 — 닫히면 곧바로 통과해 (2,2) 를 다시 누르지 않는다(WP-225).
-    await expect(async () => {
-      await page.mouse.click(2, 2)
-      await expect(dialog).toHaveCount(0, { timeout: 1000 })
-    }).toPass()
+    // 열리자마자 누른 바깥 클릭은 Radix 가 무시할 수 있어 닫힐 때까지 다시 누른다(WP-225).
+    await dismissByOutsideClick(page, dialog)
     await expect(ta).toHaveCount(0)
   })
   test('PDF 같은 비이미지 파일을 드롭하면 토스트로 거부하고 기본 동작을 막아 입력한 글이 유지된다', async ({ authenticatedPage: page }) => {

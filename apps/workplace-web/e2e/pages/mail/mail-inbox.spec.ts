@@ -5,6 +5,7 @@ import type { EmailMessageDetail, MailUnreadCounts } from '../../../src/types/ma
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { retryOnNavigation } from '../../fixtures/wait'
 
 // GET /mail/accounts/1/messages — query 파라미터에 따라 분기(검색 검증).
 async function stubMessages(page: Page) {
@@ -466,18 +467,10 @@ test.describe('받은편지함', () => {
       await page.goto('/mail/1')
       await page.getByTestId('mail-row-10').click()
       const frame = page.frameLocator('[data-testid="mail-body-html"]')
-      // 본문 iframe 은 srcdoc 를 다시 쓸 때(인라인 이미지 치환·원본/다크 전환·테마 전환) 새 문서를 띄운다.
-      // 그 순간의 evaluate 는 "Execution context was destroyed" 로 던져 expect.poll 이 재시도 없이 실패하므로,
-      // 새 문서가 뜰 때까지 다시 잰다(WP-225).
-      const computed = async (selector: string, prop: 'color' | 'backgroundColor' | 'backgroundImage' | 'boxShadow') => {
-        for (let attempt = 0; ; attempt++) {
-          try {
-            return await frame.locator(selector).evaluate((el, p) => getComputedStyle(el)[p], prop)
-          } catch (e) {
-            if (attempt >= 4 || !String(e).includes('Execution context was destroyed')) throw e
-          }
-        }
-      }
+      // 본문 iframe 은 srcdoc 를 다시 쓸 때(인라인 이미지 치환·원본/다크 전환·테마 전환) 새 문서를 띄운다 —
+      // 그 순간의 evaluate 예외를 넘겨 새 문서에서 다시 잰다(WP-225).
+      const computed = (selector: string, prop: 'color' | 'backgroundColor' | 'backgroundImage' | 'boxShadow') =>
+        retryOnNavigation(() => frame.locator(selector).evaluate((el, p) => getComputedStyle(el)[p], prop))
       const color = (id: string) => computed(`#${id}`, 'color')
       const bg = (id: string) => computed(`#${id}`, 'backgroundColor')
       return { frame, color, bg, computed }

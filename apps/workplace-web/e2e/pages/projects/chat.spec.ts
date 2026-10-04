@@ -3,6 +3,7 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { mockGatedEvents } from '../../fixtures/gatedEvents';
+import { stableBox } from '../../fixtures/wait';
 import {
   createChatMember,
   createChatMessage,
@@ -569,8 +570,8 @@ test.describe('이슈 chat panel', () => {
 
     // 첨부 카드: 본인 행 안에 들어오고 75%(lg 미만은 85% — U4-L1)를 넘지 않는다(기본 + 320px 폭).
     const assertCardInsideRow = async () => {
-      const row = (await page.getByTestId('chat-message-612').boundingBox())!;
-      const card = (await page.getByTestId('attachment-card-950').boundingBox())!;
+      const row = await stableBox(page.getByTestId('chat-message-612'));
+      const card = await stableBox(page.getByTestId('attachment-card-950'));
       const ratio = page.viewportSize()!.width < 1024 ? 0.85 : 0.75;
       expect(card.x).toBeGreaterThanOrEqual(row.x);
       expect(card.x + card.width).toBeLessThanOrEqual(row.x + row.width + 1);
@@ -578,14 +579,15 @@ test.describe('이슈 chat panel', () => {
     };
     // 창 크기 변경 직후엔 셸(모바일↔데스크톱) 전환 레이아웃이 아직 안 끝났을 수 있어, 자리 잡을 때까지 다시 잰다(부하 시 flaky).
     await expect(assertCardInsideRow).toPass();
+    // 320 은 모바일 레이아웃(<1024)이라 다시 그려지는 동안 옛 배치를 잴 수 있어, 새 배치에서 맞을 때까지 다시 잰다(WP-225).
     await page.setViewportSize({ width: 320, height: 800 });
     await expect(assertCardInsideRow).toPass();
     await page.setViewportSize({ width: 1280, height: 720 });
 
-    // 좌표: 본인 말풍선은 타인 본문보다 오른쪽에서 끝난다.
+    // 좌표: 본인 말풍선은 타인 본문보다 오른쪽에서 끝난다(데스크톱으로 되돌린 직후라 같은 이유로 다시 잰다).
     await expect(async () => {
-      const ownBox = (await ownBody.boundingBox())!;
-      const peerBox = (await page.getByTestId('chat-message-body-610').boundingBox())!;
+      const ownBox = await stableBox(ownBody);
+      const peerBox = await stableBox(page.getByTestId('chat-message-body-610'));
       expect(ownBox.x).toBeGreaterThan(peerBox.x);
     }).toPass();
 
@@ -598,9 +600,8 @@ test.describe('이슈 chat panel', () => {
     await expect(toolbar).toHaveCSS('opacity', '1');
 
     // 툴바는 말풍선 위에 있고 겹치지 않는다.
-    const toolbarBox = (await toolbar.boundingBox())!;
-    const ownBox = (await ownBody.boundingBox())!;
-    expect(toolbarBox.y + toolbarBox.height).toBeLessThanOrEqual(ownBox.y + 0.5);
+    const toolbarBox = await stableBox(toolbar);
+    expect(toolbarBox.y + toolbarBox.height).toBeLessThanOrEqual((await stableBox(ownBody)).y + 0.5);
 
     // 타인 메시지에는 툴바가 없다(수정·삭제는 본인만).
     await expect(page.getByTestId('chat-message-toolbar-610')).toHaveCount(0);

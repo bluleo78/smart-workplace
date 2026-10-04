@@ -14,6 +14,7 @@ import {
   createMessage,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { stableBox } from '../../fixtures/wait'
 
 // auth.fixture 의 createUser() 기본 id = 1 → "본인" 메시지 판정.
 const CHANNEL_ID = 700
@@ -453,17 +454,8 @@ async function scrollViewportTop(page: Page, testId: string) {
   })
 }
 
-/**
- * 요소의 boundingBox 를 non-null 로 돌려준다(끝내 없으면 테스트 실패).
- * boundingBox() 는 기다리지 않는다. 뷰포트가 1024 경계를 넘으면 목록이 모바일/데스크톱 레이아웃으로
- * 다시 마운트되는데, 보인다고 확인한 직후에도 그 사이 요소가 바뀌어 null 이 될 수 있어 잡힐 때까지 다시 잰다(WP-225).
- */
-async function box(page: Page, testId: string) {
-  const loc = page.getByTestId(testId)
-  let b: Awaited<ReturnType<typeof loc.boundingBox>> = null
-  await expect.poll(async () => (b = await loc.boundingBox()), { message: `${testId} boundingBox` }).not.toBeNull()
-  return b!
-}
+/** testId 요소의 boundingBox — 리마운트 중 null 을 넘겨 잡힐 때까지 다시 잰다(fixtures/wait.ts, WP-225). */
+const box = (page: Page, testId: string) => stableBox(page.getByTestId(testId), `${testId} boundingBox`)
 
 test.describe('메시지 좌/우 분리', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
