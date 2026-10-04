@@ -4,6 +4,7 @@
 import { expect, test } from '../../fixtures/auth.fixture'
 import { createChannel, createMessage } from '../../factories/messaging.factory'
 import type { MessageProposal } from '../../../src/types/messaging'
+import { trackRequests } from '../../fixtures/requests'
 
 const CHANNEL_ID = 9
 const PROPOSAL_ID = 77
@@ -127,13 +128,12 @@ test.describe('채팅 일정 제안 카드', () => {
         },
       )
 
-      // confirm 요청 가로채기 — payload(override) 검증 + CONFIRMED 카드 반환.
-      let confirmBody: Record<string, unknown> | null = null
+      // confirm 요청 — CONFIRMED 카드 반환.
+      const confirms = trackRequests(page, 'POST', `/api/v1/messaging/proposals/${PROPOSAL_ID}/confirm`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/proposals/${PROPOSAL_ID}/confirm`,
         async (route) => {
           if (route.request().method() !== 'POST') return route.fallback()
-          confirmBody = route.request().postDataJSON() as Record<string, unknown>
           const confirmed = { ...makeEventProposal(), status: 'CONFIRMED', resultIssueKey: 'event:501' }
           return route.fulfill({
             status: 200,
@@ -163,10 +163,12 @@ test.describe('채팅 일정 제안 카드', () => {
       await page.getByTestId(`event-proposal-confirm-${PROPOSAL_ID}`).click()
 
       // 6. 승인 payload: 편집된 제목 + 시간은 원본 instant 그대로(KST 표시 → toOffsetIso → UTC 복원).
-      await expect.poll(() => confirmBody?.title).toBe('스프린트 리뷰(수정)')
+      await confirms.waitFor()
+      const confirmBody = confirms.lastBody<Record<string, unknown>>()
+      expect(confirmBody?.title).toBe('스프린트 리뷰(수정)')
       // 표시값 15:00 KST 를 미수정 승인 → 06:00Z 로 복원(input == output instant). 0.000 밀리초 포함.
-      expect((confirmBody as unknown as Record<string, unknown>).startsAt).toBe('2026-07-05T06:00:00.000Z')
-      expect((confirmBody as unknown as Record<string, unknown>).endsAt).toBe('2026-07-05T07:00:00.000Z')
+      expect(confirmBody?.startsAt).toBe('2026-07-05T06:00:00.000Z')
+      expect(confirmBody?.endsAt).toBe('2026-07-05T07:00:00.000Z')
     },
   )
 

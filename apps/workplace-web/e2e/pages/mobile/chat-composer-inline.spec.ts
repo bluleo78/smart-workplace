@@ -7,6 +7,7 @@ import type { Locator } from '@playwright/test'
 
 import { expectNoHorizontalOverflow, expect, test } from '../../fixtures/mobile.fixture'
 import { json, KEY, stubChannelMessages, stubIssue } from '../../fixtures/mobile-chat'
+import { trackRequests } from '../../fixtures/requests'
 
 /** 세 요소가 한 행(세로 중심 2px 오차)이고 모두 44px 높이인지. */
 async function expectOneRow(plus: Locator, input: Locator, send: Locator) {
@@ -19,11 +20,10 @@ async function expectOneRow(plus: Locator, input: Locator, send: Locator) {
 
 test('팀 채팅: 한 줄 입력창 + ＋ 바텀시트 → 사진 보관함 → 업로드 칩', async ({ authenticatedPage: page }) => {
   await stubChannelMessages(page)
-  const uploaded: string[] = []
-  await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/attachments', (r) => {
-    uploaded.push('photo')
-    return r.fulfill(json([{ fileId: 9100, originalName: 'IMG_0412.jpg', mimeType: 'image/jpeg', sizeBytes: 3 }]))
-  })
+  const uploads = trackRequests(page, 'ANY', '/api/v1/messaging/channels/1/attachments')
+  await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/attachments', (r) =>
+    r.fulfill(json([{ fileId: 9100, originalName: 'IMG_0412.jpg', mimeType: 'image/jpeg', sizeBytes: 3 }])),
+  )
   await page.goto('/chat/channels/1')
   const plus = page.getByTestId('composer-attach-button')
   const send = page.getByTestId('message-composer-submit')
@@ -46,7 +46,7 @@ test('팀 채팅: 한 줄 입력창 + ＋ 바텀시트 → 사진 보관함 → 
   await (await chooser).setFiles({ name: 'IMG_0412.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('jpg') })
   await expect(sheet).toBeHidden()
   await expect(page.getByTestId('composer-attachments')).toContainText('IMG_0412.jpg')
-  expect(uploaded).toEqual(['photo'])
+  expect(uploads.count()).toBe(1)
 })
 
 test('이슈 채팅: 한 줄 입력창 + ＋ 바텀시트', async ({ authenticatedPage: page }) => {

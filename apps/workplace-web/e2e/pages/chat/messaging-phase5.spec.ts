@@ -10,6 +10,7 @@ import {
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
+import { trackRequests } from '../../fixtures/requests'
 
 // auth.fixture 의 createUser() 기본 id = 1 → "본인" 메시지 판정 기준.
 const ME_ID = 1
@@ -139,14 +140,13 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
         createMessage({ id: 9100, channelId: CHANNEL_ID, parentMessageId: PARENT_ID, body: '기존답글' }),
       ])
 
-      // POST 답글 — parentMessageId 캡처.
-      let sentParent: number | undefined
+      // POST 답글.
+      const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
         (route) => {
           if (route.request().method() !== 'POST') return route.fallback()
           const body = route.request().postDataJSON() as { body: string; parentMessageId?: number }
-          sentParent = body.parentMessageId
           return route.fulfill({
             status: 201,
             contentType: 'application/json',
@@ -176,7 +176,8 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
       await composer.fill('새 답글')
       await page.getByTestId('thread-panel').getByTestId('message-composer-submit').click()
 
-      expect(sentParent).toBe(PARENT_ID)
+      await posts.waitFor()
+      expect(posts.lastBody<{ parentMessageId?: number }>()?.parentMessageId).toBe(PARENT_ID)
       await expect(page.getByTestId('message-9101')).toContainText('새 답글')
     },
   )
@@ -198,12 +199,11 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
       await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
       await stubMessages(page, CHANNEL_ID, [msg])
 
-      let sentEmoji: string | undefined
+      const reactionPosts = trackRequests(page, 'POST', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}/reactions`,
         (route) => {
           if (route.request().method() !== 'POST') return route.fallback()
-          sentEmoji = (route.request().postDataJSON() as { emoji: string }).emoji
           return route.fulfill({ status: 204, body: '' })
         },
       )
@@ -215,7 +215,8 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
       await page.getByTestId(`message-${MSG_ID}-react`).click()
       await page.getByTestId(`message-${MSG_ID}-quick-👍`).click()
 
-      expect(sentEmoji).toBe('👍')
+      await reactionPosts.waitFor()
+      expect(reactionPosts.lastBody<{ emoji: string }>()?.emoji).toBe('👍')
       // 낙관적 pill 표시 + count 1.
       await expect(page.getByTestId(`reaction-pill-${MSG_ID}-👍`)).toBeVisible()
       await expect(page.getByTestId(`reaction-count-${MSG_ID}-👍`)).toHaveText('1')
@@ -243,12 +244,11 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
     await stubMessages(page, CHANNEL_ID, [msg])
 
-    let deleted = false
+    const deletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}/reactions`,
       (route) => {
         if (route.request().method() !== 'DELETE') return route.fallback()
-        deleted = true
         return route.fulfill({ status: 204, body: '' })
       },
     )
@@ -257,7 +257,7 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🎉`)).toBeVisible()
     await page.getByTestId(`reaction-pill-${MSG_ID}-🎉`).click()
 
-    expect(deleted).toBe(true)
+    await deletes.waitFor()
     await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🎉`)).toHaveCount(0)
   })
 
@@ -280,17 +280,15 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
     await stubMessages(page, CHANNEL_ID, [msg])
 
-    let postCount = 0
-    let deleteCount = 0
+    const reactionPosts = trackRequests(page, 'POST', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
+    const reactionDeletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}/reactions`,
       (route) => {
         if (route.request().method() === 'POST') {
-          postCount += 1
           return route.fulfill({ status: 204, body: '' })
         }
         if (route.request().method() === 'DELETE') {
-          deleteCount += 1
           return route.fulfill({ status: 204, body: '' })
         }
         return route.fallback()
@@ -317,8 +315,8 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     // 누적 버그(stale closure)라면 매 클릭이 add 로 오판되어 count=3 으로 표시된다.
     await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🎉`)).toBeVisible()
     await expect(page.getByTestId(`reaction-count-${MSG_ID}-🎉`)).toHaveText('1')
-    expect(postCount).toBe(2)
-    expect(deleteCount).toBe(1)
+    expect(reactionPosts.count()).toBe(2)
+    expect(reactionDeletes.count()).toBe(1)
   })
 
   // 4) SSE 리액션: 타인이 누른 reaction.added 이벤트를 스트림으로 흘리면 pill 이 생긴다.

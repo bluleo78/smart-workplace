@@ -6,6 +6,7 @@
 import type { Page } from '@playwright/test'
 import type { WikiPageDetail } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const SPACE_ID = 1
 const PAGE_ID = 12
@@ -18,9 +19,6 @@ const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
 )
-
-const saved: string[] = []
-const uploadPosts: number[] = []
 
 // wiki-image.spec.ts(#750)와 동일 패턴 — 에디터 진입에 필요한 스페이스/트리/멤버/상세 라우트.
 async function setup(page: Page, body: string) {
@@ -69,10 +67,7 @@ async function setup(page: Page, body: string) {
       }
       const m = r.request().method()
       if (m === 'GET') return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(d) })
-      if (m === 'PUT') {
-        saved.push((r.request().postDataJSON() as { body: string }).body)
-        return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...d, version: 2 }) })
-      }
+      if (m === 'PUT') return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...d, version: 2 }) })
       return r.fallback()
     },
   )
@@ -84,7 +79,6 @@ async function stubUpload(page: Page, status: 201 | 500) {
     (u) => u.pathname === `/api/v1/wiki/pages/${PAGE_ID}/attachments`,
     (r) => {
       if (r.request().method() !== 'POST') return r.fallback()
-      uploadPosts.push(1)
       if (status === 500) {
         return r.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
       }
@@ -141,11 +135,6 @@ async function dropImageFile(page: Page) {
 }
 
 test.describe('노트 본문 이미지 업로드', () => {
-  test.beforeEach(() => {
-    saved.length = 0
-    uploadPosts.length = 0
-  })
-
   test('붙여넣기 업로드 성공 시 이미지가 blob 으로 렌더된다', async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
@@ -165,6 +154,7 @@ test.describe('노트 본문 이미지 업로드', () => {
   test('저장 payload 의 마크다운에 원본 API 경로가 담긴다', async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
+    const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${PAGE_ID}`)
     await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
     await expect(page.locator('.ProseMirror')).toBeVisible()
 
@@ -176,8 +166,8 @@ test.describe('노트 본문 이미지 업로드', () => {
     await expect(page.getByTestId('wiki-save-state')).toHaveText('저장됨', { timeout: 5000 })
 
     // 0건이면 아래 인덱싱이 공허하게 통과한다 — 반드시 먼저 가드.
-    expect(saved.length).toBeGreaterThan(0)
-    expect(saved[saved.length - 1]).toContain(`](${CONTENT_PATH})`)
+    expect(puts.count()).toBeGreaterThan(0)
+    expect(puts.lastBody<{ body: string }>()?.body).toContain(`](${CONTENT_PATH})`)
   })
 
   test('업로드 실패 시 자리표시자가 사라지고 에러 토스트가 뜬다', async ({ authenticatedPage: page }) => {
@@ -198,6 +188,7 @@ test.describe('노트 본문 이미지 업로드', () => {
   })
 
   test('거부된 형식(SVG)은 업로드 요청 없이 토스트만 뜬다', async ({ authenticatedPage: page }) => {
+    const uploads = trackRequests(page, 'POST', `/api/v1/wiki/pages/${PAGE_ID}/attachments`)
     await stubUpload(page, 201)
     await setup(page, '')
     await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
@@ -207,7 +198,7 @@ test.describe('노트 본문 이미지 업로드', () => {
     await pasteImageFile(page, 'image/svg+xml', 'x.svg')
 
     await expect(page.locator('[data-sonner-toast]').first()).toContainText('PNG·JPEG·GIF·WebP 이미지만 10MB 까지 올릴 수 있습니다.')
-    expect(uploadPosts.length).toBe(0)
+    expect(uploads.count()).toBe(0)
     await expect(page.getByTestId('wiki-image')).toHaveCount(0)
   })
 

@@ -7,6 +7,7 @@ import { createChatMessage } from '../../factories/chat.factory'
 import { createMessage } from '../../factories/messaging.factory'
 import { mockHomeChatGeneration } from '../../fixtures/home-chat-mock'
 import { json, KEY, stubChannelMessages, stubIssue } from '../../fixtures/mobile-chat'
+import { trackRequests } from '../../fixtures/requests'
 import { expect, stubChat, test } from '../../fixtures/mobile.fixture'
 
 type BlurWindow = Window & { __blurs: number }
@@ -27,11 +28,10 @@ async function expectFocusKept(page: Page, input: Locator) {
 
 test('팀 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', async ({ authenticatedPage: page }) => {
   await stubChannelMessages(page)
-  const sent: string[] = []
+  const sends = trackRequests(page, 'POST', '/api/v1/messaging/channels/1/messages')
   await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/messages', (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     const body = (r.request().postDataJSON() as { body: string }).body
-    sent.push(body)
     return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(createMessage({ id: 90, channelId: 1, authorId: 1, body })) })
   })
   await page.goto('/chat/channels/1')
@@ -40,7 +40,7 @@ test('팀 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', async ({ 
   await page.keyboard.type('안녕하세요')
   await countBlurs(input)
   await page.getByTestId('message-composer-submit').tap()
-  await expect.poll(() => sent).toEqual(['안녕하세요'])
+  await expect.poll(() => sends.bodies<{ body: string }>().map((b) => b.body)).toEqual(['안녕하세요'])
   // 성공 뒤 비동기 clear 까지 끝난 상태에서 판정한다.
   await expect(input).toHaveText('')
   await expectFocusKept(page, input)
@@ -48,11 +48,10 @@ test('팀 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', async ({ 
 
 test('이슈 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', async ({ authenticatedPage: page }) => {
   await stubIssue(page)
-  const posted: string[] = []
+  const posts = trackRequests(page, 'POST', '/api/v1/chat/threads/100/messages')
   await page.route('**/api/v1/chat/threads/100/messages', (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     const body = (r.request().postDataJSON() as { body: string }).body
-    posted.push(body)
     return r.fulfill(json(createChatMessage({ id: 600, threadId: 100, body })))
   })
   await page.goto(`/projects/${KEY}/issues/1?chat=1`)
@@ -61,7 +60,7 @@ test('이슈 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', async 
   await page.keyboard.type('확인 부탁드려요')
   await countBlurs(input)
   await page.getByTestId('chat-composer-submit').tap()
-  await expect.poll(() => posted).toEqual(['확인 부탁드려요'])
+  await expect.poll(() => posts.bodies<{ body: string }>().map((b) => b.body)).toEqual(['확인 부탁드려요'])
   await expect(input).toHaveText('')
   await expectFocusKept(page, input)
 })

@@ -3,6 +3,7 @@
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { FAKE_ENDPOINT, installPushManagerStub, mockPushApis, stubNotificationPermission } from '../../fixtures/push-mock'
+import { trackRequests } from '../../fixtures/requests'
 
 test.use({ serviceWorkers: 'allow' })
 
@@ -109,14 +110,12 @@ test.describe('알림 설정', () => {
   test('로그아웃 시 구독 해제 후 logout 호출', async ({ authenticatedPage: page, context }) => {
     await context.grantPermissions(['notifications'])
     await installPushManagerStub(page)
-    const { unsubscribe } = await mockPushApis(page)
-    const order: string[] = []
+    await mockPushApis(page)
+    // 구독 해제(DELETE)와 logout 의 발사 순서를 한 tracker 로 함께 기록한다.
+    const calls = trackRequests(page, 'ANY', (url, req) =>
+      url.pathname === '/api/v1/auth/logout' || (url.pathname === '/api/v1/push/subscriptions' && req.method() === 'DELETE'))
     await page.route('**/api/v1/auth/logout', async (route) => {
-      order.push('logout')
       await route.fulfill({ json: {} })
-    })
-    page.on('request', (r) => {
-      if (r.url().endsWith('/api/v1/push/subscriptions') && r.method() === 'DELETE') order.push('unsubscribe')
     })
 
     await page.goto('/settings/notifications')
@@ -125,8 +124,9 @@ test.describe('알림 설정', () => {
 
     await page.getByRole('button', { name: '사용자 메뉴' }).click()
     await page.getByRole('menuitem', { name: '로그아웃' }).click()
-    await unsubscribe.waitForRequest()
+    await calls.waitFor(2)
     await expect(page).toHaveURL(/\/login$/)
+    const order = calls.urls().map((u) => (u.pathname === '/api/v1/auth/logout' ? 'logout' : 'unsubscribe'))
     expect(order).toEqual(['unsubscribe', 'logout'])
   })
 

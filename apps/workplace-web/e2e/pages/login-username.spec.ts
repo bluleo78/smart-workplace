@@ -2,15 +2,15 @@
 import { mockApi } from '../fixtures/api-mock'
 import { createTokenResponse } from '../factories/auth.factory'
 import { expect, test } from '../fixtures/auth.fixture'
+import { trackRequests } from '../fixtures/requests'
 
 test('비-이메일 아이디로 로그인 제출이 가능하다', async ({ page }) => {
   // login 응답 모킹 — 폼 제출이 /api/v1/auth/login 으로 payload 를 보내는지 검증.
-  let captured: unknown = null
+  const logins = trackRequests(page, 'POST', '/api/v1/auth/login')
   await page.route(
     (url) => url.pathname === '/api/v1/auth/login',
     (route) => {
       if (route.request().method() !== 'POST') return route.fallback()
-      captured = route.request().postDataJSON()
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -28,5 +28,5 @@ test('비-이메일 아이디로 로그인 제출이 가능하다', async ({ pag
   await page.getByRole('button', { name: '로그인' }).click()
 
   // 입력→payload: zod 가 'jane' 을 막지 않고 그대로 전송돼야 한다.
-  await expect.poll(() => captured).toMatchObject({ username: 'jane' })
+  await expect.poll(() => logins.lastBody()).toMatchObject({ username: 'jane' })
 })

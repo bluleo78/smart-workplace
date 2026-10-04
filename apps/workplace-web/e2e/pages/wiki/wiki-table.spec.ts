@@ -1,8 +1,8 @@
 // 노트 에디터 표 렌더·마크다운 라운드트립 E2E (#742) — Table 확장 미도입으로 마크다운 표가
 // 문단으로 합쳐져 깨지던 회귀를 막는다. AI 생성물(/ai 요약·초안)이 표를 자주 만들어 체감 결함이 컸다.
 import type { Page } from '@playwright/test'
-import type { WikiPageDetail } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { lastSaved, mockWikiPageEditor } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 300
@@ -17,34 +17,11 @@ const TABLE_MD = [
   '표 아래 문단.',
 ].join('\n')
 
-const saved: string[] = []
-
-async function setup(page: Page, body: string) {
-  await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>
-    r.request().method() === 'GET'
-      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: SPACE_ID, type: 'PERSONAL', name: '내 노트', ownerId: 1, role: 'OWNER', createdAt: '2026-06-01T00:00:00Z' }]) })
-      : r.fallback())
-  await page.route((u) => u.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
-    r.request().method() === 'GET'
-      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: PAGE_ID, parentId: null, title: '분기 지표', position: 0, aiLastUsedAt: null }]) })
-      : r.fallback())
-  await page.route((u) => u.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/members`, (r) =>
-    r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())
-  await page.route((u) => u.pathname === `/api/v1/wiki/pages/${PAGE_ID}`, (r) => {
-    const d: WikiPageDetail = { id: PAGE_ID, spaceId: SPACE_ID, parentId: null, title: '분기 지표', body, version: 1, updatedBy: 1, updatedAt: '2026-06-01T00:00:00Z', aiLastUsedAt: null, aiLastAction: null }
-    const m = r.request().method()
-    if (m === 'GET') return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(d) })
-    if (m === 'PUT') {
-      saved.push((r.request().postDataJSON() as { body: string }).body)
-      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...d, version: 2 }) })
-    }
-    return r.fallback()
-  })
-}
+const setup = (page: Page, body: string) =>
+  mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '분기 지표', body })
 
 test('표 렌더 + 마크다운 라운드트립', async ({ authenticatedPage: page }) => {
-  saved.length = 0
-  await setup(page, TABLE_MD)
+  const puts = await setup(page, TABLE_MD)
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
 
@@ -70,8 +47,8 @@ test('표 렌더 + 마크다운 라운드트립', async ({ authenticatedPage: pa
   // 2) 편집 → 자동저장 payload 의 마크다운이 표를 보존하는가(라운드트립)
   await page.locator('.ProseMirror p').filter({ hasText: '표 아래 문단' }).click()
   await page.keyboard.type(' 수정')
-  await expect.poll(() => saved.length, { timeout: 5000 }).toBeGreaterThan(0)
-  const md = saved[saved.length - 1]
+  await puts.waitFor(1, { timeout: 5000 })
+  const md = lastSaved(puts)
   expect(md).toContain('| 항목 |')
   expect(md).toContain('활성 사용자')
   expect(md).toMatch(/\|\s*---/)
@@ -82,9 +59,8 @@ test('표 렌더 + 마크다운 라운드트립', async ({ authenticatedPage: pa
 test('슬래시 메뉴에서 표 삽입 + 삽입 경로 마크다운 라운드트립 (#748)', async ({
   authenticatedPage: page,
 }) => {
-  saved.length = 0
   // 빈 본문에서 시작 — 삽입 결과만 검증하도록 기존 표와 섞이지 않게 한다.
-  await setup(page, '')
+  const puts = await setup(page, '')
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
 
@@ -123,8 +99,8 @@ test('슬래시 메뉴에서 표 삽입 + 삽입 경로 마크다운 라운드�
   await expect(page.locator('.ProseMirror')).not.toContainText('/')
 
   await page.keyboard.type('항목')
-  await expect.poll(() => saved.length, { timeout: 5000 }).toBeGreaterThan(0)
-  const md = saved[saved.length - 1]
+  await puts.waitFor(1, { timeout: 5000 })
+  const md = lastSaved(puts)
   expect(md).toContain('항목')
   const delimiter = md.split('\n').find((l) => l.includes('---'))!
   expect(delimiter.split('---')).toHaveLength(5) // 4열
@@ -133,7 +109,6 @@ test('슬래시 메뉴에서 표 삽입 + 삽입 경로 마크다운 라운드�
 test('그리드 피커 — 방향키로 크기를 바꾸고 Enter 로 삽입, Escape 로 목록 복귀', async ({
   authenticatedPage: page,
 }) => {
-  saved.length = 0
   await setup(page, '')
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()

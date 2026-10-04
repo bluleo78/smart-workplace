@@ -7,6 +7,7 @@ import { createLabel, toLabelSummary } from '../../factories/label.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import type { IssueStatus } from '../../../src/types/issue';
 import type { UserSummary } from '../../../src/types/user';
@@ -234,12 +235,11 @@ test('체크 토글 클릭 → PATCH { status: DONE } 호출 + 완료 스타일 
       return route.fallback();
     },
   );
-  let patchBody: unknown;
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/1`);
   await page.route(
     (url) => url.pathname === `/api/v1/projects/${KEY}/issues/1`,
     (route) => {
       if (route.request().method() === 'PATCH') {
-        patchBody = route.request().postDataJSON();
         issue = { ...issue, status: 'DONE' };
         return route.fulfill({ json: issue });
       }
@@ -250,7 +250,7 @@ test('체크 토글 클릭 → PATCH { status: DONE } 호출 + 완료 스타일 
   await page.goto(`/projects/${KEY}`);
   // 상태아이콘 버튼 클릭 = 완료 토글(행 클릭 이벤트 차단 → drawer 열리지 않음).
   await page.getByTestId('personal-task-check-1').click();
-  await expect.poll(() => patchBody).toEqual({ status: 'DONE' });
+  await expect.poll(() => patches.lastBody()).toEqual({ status: 'DONE' });
   // 체크 후 drawer가 열리지 않아야 함.
   await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
   // DONE 이슈는 완료 섹션으로 이동 → 섹션 펼침 후 취소선 확인.
@@ -455,12 +455,11 @@ test('툴바 상태 필터(할 일) 클릭 → ?status=TODO URL + 이슈 API sta
     createIssue({ projectKey: KEY, number: 1, title: '할일작업', status: 'TODO', dueDate: '2020-01-01' }),
     createIssue({ projectKey: KEY, number: 2, title: '완료작업', status: 'DONE', dueDate: undefined }),
   ];
-  const capturedStatuses: (string | null)[] = [];
+  const searches = trackRequests(page, 'ANY', `/api/v1/projects/${KEY}/issues`);
   await page.route(
     (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
     (route) => {
       const status = new URL(route.request().url()).searchParams.get('status');
-      capturedStatuses.push(status);
       // 백엔드 필터를 흉내 — status=TODO 면 TODO 이슈만 반환.
       const items = status === 'TODO' ? all.filter((it) => it.status === 'TODO') : all;
       return route.fulfill({ json: createIssueSearchResponse(items) });
@@ -478,7 +477,7 @@ test('툴바 상태 필터(할 일) 클릭 → ?status=TODO URL + 이슈 API sta
   await expect(page).toHaveURL(/[?&]status=TODO/);
 
   // 처리 → 이슈 API 가 status=TODO query param 으로 재조회된다.
-  await expect.poll(() => capturedStatuses.includes('TODO')).toBe(true);
+  await expect.poll(() => searches.urls().some((u) => u.searchParams.get('status') === 'TODO')).toBe(true);
 
   // 출력 → 완료작업(DONE)은 더 이상 표시되지 않는다.
   await expect(page.getByTestId('personal-task-row-1')).toContainText('할일작업');
@@ -587,7 +586,7 @@ test('보드+우선순위 그룹 — CANCELED 이슈는 어떤 우선순위 컬�
 //     mockPersonal 이후 호출해 목록 라우트를 가변 버전으로 덮어쓴다(Playwright 라우트는 LIFO).
 async function mockTaskDetailEditable(page: import('@playwright/test').Page, number = 1) {
   let issue = createIssue({ projectKey: KEY, number, title: '블로그 초안' });
-  const patchBodies: unknown[] = [];
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/${number}`);
   // 목록 GET — 현재 issue 로 재구성(무효화 후 재조회 시 새 제목 반영).
   await page.route(
     (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
@@ -603,7 +602,6 @@ async function mockTaskDetailEditable(page: import('@playwright/test').Page, num
     (route) => {
       if (route.request().method() === 'PATCH') {
         const body = route.request().postDataJSON() as { title?: string };
-        patchBodies.push(body);
         if (body.title) issue = { ...issue, title: body.title };
       }
       return route.fulfill({ json: createIssueDetail({ summary: issue, body: '서론은 짧게' }) });
@@ -612,12 +610,12 @@ async function mockTaskDetailEditable(page: import('@playwright/test').Page, num
   const thread = createChatThread();
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues/${number}/chat/thread`, thread);
   await mockApi(page, 'GET', `/api/v1/chat/threads/${thread.threadId}/messages`, createChatMessagePage([]));
-  return { patchBodies };
+  return { patches };
 }
 
 test('패널 제목 연필 → 인라인 편집 → PATCH { title } 전달 + 제목 UI 반영', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
-  const { patchBodies } = await mockTaskDetailEditable(page);
+  const { patches } = await mockTaskDetailEditable(page);
   await page.goto(`/projects/${KEY}?task=1`);
 
   const panel = page.getByTestId('personal-task-panel');
@@ -634,7 +632,7 @@ test('패널 제목 연필 → 인라인 편집 → PATCH { title } 전달 + 제
   await input.press('Enter');
 
   // 처리 → PATCH payload 가 { title } 만 담아야 한다.
-  await expect.poll(() => patchBodies).toContainEqual({ title: '블로그 최종본' });
+  await expect.poll(() => patches.bodies()).toContainEqual({ title: '블로그 최종본' });
   // 출력 → 패널 제목이 새 값으로 갱신된다.
   await expect(panel.getByTestId('personal-task-panel-title')).toContainText('블로그 최종본');
   // 출력 → 뒤의 체크리스트 행(목록)도 무효화 재조회로 새 제목을 반영한다(사용자 실제 불만 지점).
@@ -643,7 +641,7 @@ test('패널 제목 연필 → 인라인 편집 → PATCH { title } 전달 + 제
 
 test('패널 제목 편집 — 빈/공백 제목은 PATCH 없이 원복된다', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
-  const { patchBodies } = await mockTaskDetailEditable(page);
+  const { patches } = await mockTaskDetailEditable(page);
   await page.goto(`/projects/${KEY}?task=1`);
 
   const panel = page.getByTestId('personal-task-panel');
@@ -654,7 +652,7 @@ test('패널 제목 편집 — 빈/공백 제목은 PATCH 없이 원복된다', 
 
   // 빈/공백은 zod min(1) 위반이므로 UI 에서 차단 — PATCH 미발생, 기존 제목 유지.
   await expect(panel.getByTestId('personal-task-panel-title')).toContainText('블로그 초안');
-  await expect.poll(() => patchBodies.length).toBe(0);
+  await expectStays(page, patches.count, 0);
 });
 
 // ─── #362 AssigneePickerPopover 트리거 담당자 표시 회귀 ──────────────────────────
@@ -692,7 +690,7 @@ test('패널 담당자 픽커 — current 담당자가 있으면 아이콘 대�
 
 test('보드 모달 헤더에서도 제목을 인라인 편집 → PATCH { title } 전달 + 제목 UI 반영 (#718)', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'TODO' })]);
-  const { patchBodies } = await mockTaskDetailEditable(page);
+  const { patches } = await mockTaskDetailEditable(page);
   await page.goto(`/projects/${KEY}?view=board&task=1`);
 
   const modal = page.getByTestId('personal-task-modal');
@@ -708,7 +706,7 @@ test('보드 모달 헤더에서도 제목을 인라인 편집 → PATCH { title
   await input.fill('보드 최종본');
   await input.press('Enter');
 
-  await expect.poll(() => patchBodies).toContainEqual({ title: '보드 최종본' });
+  await expect.poll(() => patches.bodies()).toContainEqual({ title: '보드 최종본' });
   await expect(modal.getByTestId('personal-task-panel-title')).toContainText('보드 최종본');
 });
 
@@ -717,7 +715,8 @@ test('보드 모달 헤더에서도 제목을 인라인 편집 → PATCH { title
 test('체크리스트 토글이 409 로 충돌하면 최신 version 을 다시 불러와 다음 토글은 성공한다 (#611)', async ({
   authenticatedPage: page,
 }) => {
-  const server = { version: 1, status: 'TODO' as 'TODO' | 'DONE', patches: [] as Record<string, unknown>[] };
+  const server = { version: 1, status: 'TODO' as 'TODO' | 'DONE' };
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/1`);
   const issue = () => createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: server.status, version: server.version });
   await mockPersonal(page, [issue()]);
   await page.route(
@@ -730,7 +729,6 @@ test('체크리스트 토글이 409 로 충돌하면 최신 version 을 다시 �
     (route) => {
       if (route.request().method() === 'PATCH') {
         const body = route.request().postDataJSON() as Record<string, unknown>;
-        server.patches.push(body);
         if (body.version !== undefined && body.version !== server.version) {
           return route.fulfill({ status: 409, json: { status: 409, message: '다른 사용자가 먼저 이 이슈를 수정했습니다' } });
         }
@@ -759,14 +757,14 @@ test('체크리스트 토글이 409 로 충돌하면 최신 version 을 다시 �
   );
   await page.getByTestId('personal-task-check-1').click();
   await expect(page.getByText('다른 사용자가 먼저 이 이슈를 수정했습니다')).toBeVisible();
-  expect(server.patches[0].version).toBe(1);
+  expect(patches.bodies<{ version?: number }>()[0].version).toBe(1);
   await refetched;
 
   // 최신 version 을 다시 불러온 뒤의 토글은 성공한다.
   await page.getByTestId('personal-task-check-1').click();
   await expect.poll(() => server.status).toBe('DONE');
-  expect(server.patches).toHaveLength(2);
-  expect(server.patches[1].version).toBe(2);
+  expect(patches.count()).toBe(2);
+  expect(patches.bodies<{ version?: number }>()[1].version).toBe(2);
 });
 
 // 회귀(WP-94 코드리뷰): sentinel root 인 board-scroll 이 높이를 받지 못하면(실제로 스크롤하지 않는 overflow 요소)
@@ -783,14 +781,17 @@ test('개인 보드는 스크롤 전에는 컬럼 다음 페이지를 요청하�
       const id = (STATUS_BASE[status] ?? 800) + i;
       return createIssue({ id, number: id, projectKey: KEY, status, title: `${status} 긴 컬럼 이슈 ${i}` });
     });
-  let nextPageRequests = 0;
+  const nextPages = trackRequests(
+    page,
+    'GET',
+    (u) => u.pathname === `/api/v1/projects/${KEY}/issues` && !!u.searchParams.get('cursor'),
+  );
   await page.route(
     (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
     async (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
       const params = new URL(route.request().url()).searchParams;
       const cursor = params.get('cursor');
-      if (cursor) nextPageRequests += 1;
       const status = (params.get('status') ?? 'TODO') as IssueStatus;
       await route.fulfill({
         status: 200,
@@ -806,5 +807,5 @@ test('개인 보드는 스크롤 전에는 컬럼 다음 페이지를 요청하�
   const sentinel = page.getByTestId('board-col-more-TODO');
   await expect(sentinel).toBeAttached();
   await expect(sentinel).not.toBeInViewport();
-  await expectStays(page, () => nextPageRequests, 0);
+  await expectStays(page, nextPages.count, 0);
 });

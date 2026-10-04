@@ -1,5 +1,6 @@
 // 사이클 관리 E2E — 목록+진행바 렌더, 생성 플로우, 수정/삭제, 피커, 필터.
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
@@ -321,17 +322,7 @@ test.describe('사이클 관리', () => {
       // 빈 상태 — 아직 사이클이 없습니다 메시지 확인.
       await expect(page.getByText('아직 사이클이 없습니다.')).toBeVisible();
 
-      // POST 요청 캡처를 위해 대기자 설정.
-      let postFired = false;
-      page.on('request', (req) => {
-        if (
-          req.url().includes(`/api/v1/projects/${KEY}/cycles`) &&
-          !req.url().includes('/progress') &&
-          req.method() === 'POST'
-        ) {
-          postFired = true;
-        }
-      });
+      const posts = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/cycles`);
 
       // 새 사이클 버튼 클릭 → 다이얼로그 열림.
       await page.getByTestId('cycle-new').click();
@@ -344,7 +335,7 @@ test.describe('사이클 관리', () => {
       await page.getByTestId('cycle-submit').click();
 
       // POST 가 발생했는지 확인.
-      await expect.poll(() => postFired, { timeout: 5000 }).toBe(true);
+      await posts.waitFor(1, { timeout: 5000 });
     },
   );
 
@@ -353,16 +344,11 @@ test.describe('사이클 관리', () => {
     async ({ authenticatedPage: page }) => {
       await setupCyclesPageStubs(page, [], []);
 
-      // POST 가 발생하면 실패 처리 — 버튼 비활성으로 애초에 막혀야 하므로 호출되면 안 됨.
-      let postFired = false;
+      // 버튼 비활성으로 애초에 막혀야 하므로 POST 는 호출되면 안 됨.
+      const posts = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/cycles`);
       await page.route(`**/api/v1/projects/${KEY}/cycles`, (route) => {
-        const method = route.request().method();
-        if (method === 'GET') {
+        if (route.request().method() === 'GET') {
           return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
-        }
-        if (method === 'POST') {
-          postFired = true;
-          return route.fallback();
         }
         return route.fallback();
       });
@@ -385,7 +371,7 @@ test.describe('사이클 관리', () => {
       // 강제로 클릭해도(disabled 라 실제 클릭 불가하지만) POST 는 발생하지 않아야 함.
       // eslint-disable-next-line playwright/no-force-option -- 비활성(disabled) 저장 버튼을 일부러 눌러 no-op 을 확인
       await page.getByTestId('cycle-submit').click({ force: true });
-      await expectStays(page, () => postFired, false);
+      await expectStays(page, posts.count, 0);
 
       // 종료일을 시작일 이후로 고치면 오류가 사라지고 저장 버튼이 다시 활성화된다.
       await page.getByLabel('종료일').fill('2026-09-15');
@@ -404,12 +390,12 @@ test.describe('사이클 관리', () => {
       await setupCyclesPageStubs(page, cyclesRef.current, []);
 
       // PATCH /cycles/1 — 수정 요청 가로채기.
-      let patchPayload: Record<string, unknown> | null = null;
+      const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/cycles/1`);
       await page.route(`**/api/v1/projects/${KEY}/cycles/1`, (route) => {
         const method = route.request().method();
         if (method === 'PATCH') {
-          patchPayload = route.request().postDataJSON() as Record<string, unknown>;
-          const updated: CycleResponse = { ...cycle, name: patchPayload.name as string };
+          const { name } = route.request().postDataJSON() as { name: string };
+          const updated: CycleResponse = { ...cycle, name };
           cyclesRef.current = [updated];
           return route.fulfill({
             status: 200,
@@ -437,7 +423,7 @@ test.describe('사이클 관리', () => {
       await page.getByTestId('cycle-submit').click();
 
       // PATCH payload 검증.
-      await expect.poll(() => patchPayload, { timeout: 5000 }).toMatchObject({ name: '스프린트 1 (수정됨)' });
+      await expect.poll(() => patches.lastBody(), { timeout: 5000 }).toMatchObject({ name: '스프린트 1 (수정됨)' });
 
       // 성공 토스트 확인.
       await expect(page.getByText('사이클을 수정했습니다')).toBeVisible();
@@ -471,10 +457,9 @@ test.describe('사이클 관리', () => {
       });
 
       // DELETE /cycles/1 — 204 응답 + cycleList 비우기.
-      let deleteFired = false;
+      const deletes = trackRequests(page, 'DELETE', `/api/v1/projects/${KEY}/cycles/1`);
       await page.route(`**/api/v1/projects/${KEY}/cycles/1`, (route) => {
         if (route.request().method() !== 'DELETE') return route.fallback();
-        deleteFired = true;
         cycleList = [];
         return route.fulfill({ status: 204, body: '' });
       });
@@ -489,7 +474,7 @@ test.describe('사이클 관리', () => {
       await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).click();
 
       // DELETE 요청 발생 확인.
-      await expect.poll(() => deleteFired, { timeout: 5000 }).toBe(true);
+      await deletes.waitFor(1, { timeout: 5000 });
 
       // 성공 토스트 + 행 사라짐.
       await expect(page.getByText('사이클을 삭제했습니다')).toBeVisible();
@@ -538,13 +523,11 @@ test.describe('사이클 피커', () => {
         },
       );
 
-      // PUT /issues/1/cycles — payload 캡처.
-      let putPayload: { cycleIds: number[] } | null = null;
+      const puts = trackRequests(page, 'PUT', `/api/v1/projects/${KEY}/issues/1/cycles`);
       await page.route(
         (url) => url.pathname === `/api/v1/projects/${KEY}/issues/1/cycles`,
         (route) => {
           if (route.request().method() !== 'PUT') return route.fallback();
-          putPayload = route.request().postDataJSON() as { cycleIds: number[] };
           issueCycles = [cycleSummary];
           return route.fulfill({
             status: 200,
@@ -567,7 +550,7 @@ test.describe('사이클 피커', () => {
       await page.keyboard.press('Escape');
 
       // PUT payload 검증.
-      await expect.poll(() => putPayload, { timeout: 5000 }).toEqual({ cycleIds: [1] });
+      await expect.poll(() => puts.lastBody(), { timeout: 5000 }).toEqual({ cycleIds: [1] });
 
       // 성공 토스트.
       await expect(page.getByText('사이클을 변경했습니다')).toBeVisible();

@@ -1,5 +1,5 @@
 // 모바일 이슈 상세(WP-196) — 제목 아래 속성 칩 · 「＋ 속성」 시트 · 첨부/하위 태스크 · 하단 코멘트 입력/편집 바.
-import type { Page, Route } from '@playwright/test';
+import type { Page } from '@playwright/test';
 
 import type { IssueResponse } from '../../../src/types/issue';
 import { createChatThread } from '../../factories/chat.factory';
@@ -8,6 +8,7 @@ import { makeEpicType, makeSubtaskType, makeTaskType, systemTypes } from '../../
 import { createProject } from '../../factories/project.factory';
 import { installFakeViewport, setKeyboard } from '../../fixtures/keyboard';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
+import { bodyOf, trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 
 const KEY = 'WP';
@@ -24,29 +25,29 @@ const MEMBERS = [
   { userId: 2, name: '김개발', username: 'dev.kim@iacloud.kr', kind: 'HUMAN' },
 ];
 
-/** 이슈 7 상세 + 주변 API 스텁. PATCH/PUT/POST 는 calls 에 기록하고 상세 응답에 반영한다. */
+/** 이슈 7 상세 + 주변 API 스텁(PATCH 는 상세 응답에 반영). 돌려주는 calls() 는 쓰기 요청(PATCH/PUT/POST) 기록이다. */
 async function mockDetail(page: Page, over: Partial<IssueResponse> = {}, body = '본문 첫 줄') {
-  const calls: Call[] = [];
   let issue = createIssue({
     id: 7, number: 7, projectKey: KEY, type: makeTaskType(), status: 'TODO', priority: 'MID',
     title: '모바일 상세에서 속성을 첫 화면에 보여주기',
     assignees: [{ id: 1, username: 'dh.yang@iacloud.kr', name: '양동희', kind: 'HUMAN' }],
     ...over,
   });
-  const record = (r: Route) => {
-    const req = r.request();
-    // multipart(첨부 업로드) 본문은 JSON 이 아니라 postDataJSON 이 던진다 — 본문 없이 기록.
-    let body: unknown = null;
-    try { body = req.postDataJSON?.() ?? null; } catch { /* multipart */ }
-    calls.push({ method: req.method(), path: new URL(req.url()).pathname, body });
-  };
+  const commentsPath = `/api/v1/issues/${issue.id}/comments`;
+  // 기록 대상: 이슈 생성 POST · 상세 PATCH · 담당자/에픽(모든 메서드) · 코멘트/부속 POST.
+  const recorded = (method: string, path: string) =>
+    (method === 'POST' && path === `/api/v1/projects/${KEY}/issues`)
+    || (method === 'PATCH' && path === BASE)
+    || [`${BASE}/assignees`, `${BASE}/parent`].includes(path)
+    || (method === 'POST' && (path === commentsPath || ['watchers', 'labels', 'attachments', 'drive-links'].some((s) => path === `${BASE}/${s}`)));
+  const tracked = trackRequests(page, 'ANY', (u, req) => recorded(req.method(), u.pathname));
+  const calls = (): Call[] => tracked.requests().map((req) => ({ method: req.method(), path: new URL(req.url()).pathname, body: bodyOf(req) }));
   await stubChat(page);
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/types`, (r) => r.fulfill(json(systemTypes())));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/members`, (r) => r.fulfill(json(MEMBERS)));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues`, (r) => {
     if (r.request().method() === 'POST') {
-      record(r);
       return r.fulfill(json(createIssue({ id: 99, number: 99, projectKey: KEY, title: 'new' })));
     }
     const isChildren = new URL(r.request().url()).searchParams.has('parent');
@@ -54,26 +55,19 @@ async function mockDetail(page: Page, over: Partial<IssueResponse> = {}, body = 
   });
   await page.route((u) => u.pathname === BASE, (r) => {
     if (r.request().method() === 'PATCH') {
-      record(r);
       issue = { ...issue, ...(r.request().postDataJSON() as Partial<IssueResponse>) };
     }
     return r.fulfill(json(createIssueDetail({ summary: issue, body })));
   });
-  await page.route((u) => [`${BASE}/assignees`, `${BASE}/parent`].includes(u.pathname), (r) => {
-    record(r);
-    return r.fulfill(json(r.request().url().endsWith('/assignees') ? [] : createIssueDetail({ summary: issue, body })));
-  });
+  await page.route((u) => [`${BASE}/assignees`, `${BASE}/parent`].includes(u.pathname), (r) =>
+    r.fulfill(json(r.request().url().endsWith('/assignees') ? [] : createIssueDetail({ summary: issue, body }))));
   // 코멘트 API 는 issueId 기반 글로벌 경로(/issues/{id}/comments — api/issueComments.ts).
-  await page.route((u) => u.pathname === `/api/v1/issues/${issue.id}/comments`, (r) => {
-    if (r.request().method() === 'POST') record(r);
+  await page.route((u) => u.pathname === commentsPath, (r) => {
     return r.fulfill(json(r.request().method() === 'POST'
       ? { id: 1, body: 'c', authorId: 1, authorKind: 'HUMAN', authorName: '양동희', createdAt: new Date().toISOString() }
       : []));
   });
-  await page.route((u) => ['watchers', 'labels', 'attachments', 'drive-links'].some((s) => u.pathname === `${BASE}/${s}`), (r) => {
-    if (r.request().method() === 'POST') record(r);
-    return r.fulfill(json([]));
-  });
+  await page.route((u) => ['watchers', 'labels', 'attachments', 'drive-links'].some((s) => u.pathname === `${BASE}/${s}`), (r) => r.fulfill(json([])));
   await page.route((u) => u.pathname === `${BASE}/chat/thread`, (r) => r.fulfill(json(createChatThread({ threadId: 999, recentMessages: [] }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/labels`, (r) => r.fulfill(json([])));
   await page.route((u) => u.pathname === '/api/v1/drive/spaces', (r) => r.fulfill(json([{ id: 1, type: 'PERSONAL', name: '내 드라이브' }])));
@@ -128,7 +122,7 @@ test.describe('속성 칩', () => {
     await openDetail(page);
     await page.getByTestId('mobile-prop-status').click();
     await page.getByTestId('issue-status-sheet').getByTestId('picker-option-DONE').click();
-    await expect.poll(() => calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({ status: 'DONE' });
+    await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ status: 'DONE' });
     await expect(page.getByTestId('mobile-prop-status')).toContainText('완료');
   });
 
@@ -138,9 +132,9 @@ test.describe('속성 칩', () => {
     await page.getByTestId('mobile-prop-status').click();
     await page.getByTestId('picker-option-DONE').click();
     await expect(page.getByTestId('status-done-blocked-dialog')).toBeVisible();
-    expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(0);
+    expect(calls().filter((c) => c.method === 'PATCH')).toHaveLength(0);
     await page.getByTestId('status-done-blocked-confirm').click();
-    await expect.poll(() => calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({ status: 'DONE' });
+    await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ status: 'DONE' });
   });
 
   test('우선순위·마감 칩 — 선택/빠른 선택/지우기가 PATCH 로 반영', async ({ authenticatedPage: page }) => {
@@ -148,7 +142,7 @@ test.describe('속성 칩', () => {
     await openDetail(page);
     await page.getByTestId('mobile-prop-priority').click();
     await page.getByTestId('issue-priority-sheet').getByTestId('picker-option-HIGH').click();
-    await expect.poll(() => calls.some((c) => (c.body as { priority?: string })?.priority === 'HIGH')).toBe(true);
+    await expect.poll(() => calls().some((c) => (c.body as { priority?: string })?.priority === 'HIGH')).toBe(true);
 
     await page.getByTestId('mobile-prop-due').click();
     // 달력 날짜 칸은 터치 최소 44px.
@@ -159,11 +153,11 @@ test.describe('속성 칩', () => {
       const d = new Date();
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     });
-    await expect.poll(() => calls.some((c) => (c.body as { dueDate?: string })?.dueDate === today)).toBe(true);
+    await expect.poll(() => calls().some((c) => (c.body as { dueDate?: string })?.dueDate === today)).toBe(true);
 
     await page.getByTestId('mobile-prop-due').click();
     await page.getByTestId('issue-due-sheet-clear').click();
-    await expect.poll(() => calls.some((c) => (c.body as { clearDueDate?: boolean })?.clearDueDate === true)).toBe(true);
+    await expect.poll(() => calls().some((c) => (c.body as { clearDueDate?: boolean })?.clearDueDate === true)).toBe(true);
   });
 
   test('담당자 칩 → 다중 선택 → 완료 시 한 번에 PUT', async ({ authenticatedPage: page }) => {
@@ -172,9 +166,9 @@ test.describe('속성 칩', () => {
     await page.getByTestId('mobile-prop-assignee').click();
     const sheet = page.getByTestId('issue-assignee-sheet');
     await sheet.getByTestId('multi-option-2').click();
-    expect(calls.filter((c) => c.path.endsWith('/assignees'))).toHaveLength(0); // 닫을 때까지 커밋하지 않음
+    expect(calls().filter((c) => c.path.endsWith('/assignees'))).toHaveLength(0); // 닫을 때까지 커밋하지 않음
     await sheet.getByTestId('issue-assignee-sheet-done').click();
-    await expect.poll(() => calls.find((c) => c.path.endsWith('/assignees'))?.body).toEqual({ userIds: [1, 2] });
+    await expect.poll(() => calls().find((c) => c.path.endsWith('/assignees'))?.body).toEqual({ userIds: [1, 2] });
   });
 
   test('에픽 칩 → 에픽 선택 → PATCH parent', async ({ authenticatedPage: page }) => {
@@ -182,7 +176,7 @@ test.describe('속성 칩', () => {
     await openDetail(page);
     await page.getByTestId('mobile-prop-epic').click();
     await page.getByTestId('issue-epic-sheet').getByTestId('picker-option-50').click();
-    await expect.poll(() => calls.find((c) => c.path.endsWith('/parent'))?.body).toEqual({ parentNumber: 50 });
+    await expect.poll(() => calls().find((c) => c.path.endsWith('/parent'))?.body).toEqual({ parentNumber: 50 });
   });
 
   test('에픽 시트 완료/전체 숫자는 길이·선택(✓) 여부와 상관없이 오른쪽 끝이 맞는다', async ({ authenticatedPage: page }) => {
@@ -316,7 +310,7 @@ test.describe('첨부·하위 태스크', () => {
     const chooser = page.waitForEvent('filechooser');
     await page.getByTestId('mobile-attach-sheet').getByTestId('mobile-action-file').click();
     await (await chooser).setFiles({ name: 'bug.png', mimeType: 'image/png', buffer: Buffer.from('x') });
-    await expect.poll(() => calls.some((c) => c.method === 'POST' && c.path.endsWith('/attachments'))).toBe(true);
+    await expect.poll(() => calls().some((c) => c.method === 'POST' && c.path.endsWith('/attachments'))).toBe(true);
 
     await add.click();
     await page.getByTestId('mobile-action-drive').click();
@@ -332,13 +326,13 @@ test.describe('첨부·하위 태스크', () => {
     await expect(input).toBeFocused();
     await input.fill('첫 하위');
     await input.press('Enter');
-    await expect.poll(() => calls.filter((c) => c.method === 'POST' && c.path.endsWith('/issues')).length).toBe(1);
+    await expect.poll(() => calls().filter((c) => c.method === 'POST' && c.path.endsWith('/issues')).length).toBe(1);
     await expect(input).toHaveValue('');
     await expect(input).toBeFocused();
     // 「추가」 버튼 탭도 입력칸 포커스를 뺏지 않는다(iOS 키보드 유지).
     await input.fill('둘째 하위');
     await page.getByTestId('child-add-form').getByRole('button', { name: '추가' }).click();
-    await expect.poll(() => calls.filter((c) => c.method === 'POST' && c.path.endsWith('/issues')).length).toBe(2);
+    await expect.poll(() => calls().filter((c) => c.method === 'POST' && c.path.endsWith('/issues')).length).toBe(2);
     await expect(input).toHaveValue('');
     await expect(input).toBeFocused();
     // 비운 채로 포커스를 잃으면 다시 접힌다.
@@ -376,7 +370,7 @@ test.describe('하단 코멘트 입력·편집 바', () => {
       el.addEventListener('focusout', () => { (window as unknown as { __blurs: number }).__blurs++; }, true);
     });
     await page.getByTestId('issue-comment-submit').click();
-    await expect.poll(() => calls.some((c) => c.method === 'POST' && c.path === '/api/v1/issues/7/comments')).toBe(true);
+    await expect.poll(() => calls().some((c) => c.method === 'POST' && c.path === '/api/v1/issues/7/comments')).toBe(true);
     await expect.poll(() => editor.evaluate((el) => el.contains(document.activeElement) || el === document.activeElement)).toBe(true);
     expect(await page.evaluate(() => (window as unknown as { __blurs: number }).__blurs)).toBe(0);
     // 전송 성공 후 비동기 clear 가 끝난 뒤에 줄을 넣는다 — 먼저 넣으면 clear 가 지워 버려 넘침 단언이 흔들린다.
@@ -405,8 +399,8 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await page.getByTestId('mobile-edit-save').click();
     await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
     await expect(page.getByTestId('issue-comment-input')).toBeVisible();
-    await expectStays(page, () => calls.filter((c) => c.method === 'PATCH').length, 1, { reach: true });
-    const patches = calls.filter((c) => c.method === 'PATCH');
+    await expectStays(page, () => calls().filter((c) => c.method === 'PATCH').length, 1, { reach: true });
+    const patches = calls().filter((c) => c.method === 'PATCH');
     expect(patches[0].body).toMatchObject({ title: '새 제목' });
   });
 
@@ -417,7 +411,7 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
     await page.getByTestId('mobile-prop-priority').click();
     await page.getByTestId('issue-priority-sheet').getByTestId('picker-option-HIGH').click();
-    await expect.poll(() => calls.some((c) => (c.body as { priority?: string })?.priority === 'HIGH')).toBe(true);
+    await expect.poll(() => calls().some((c) => (c.body as { priority?: string })?.priority === 'HIGH')).toBe(true);
     await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
     await expect(page.getByTestId('issue-title-input')).toBeVisible();
   });
@@ -437,7 +431,7 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await input.fill('짧은 제목');
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
-    await expect.poll(() => calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({ title: '짧은 제목' });
+    await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ title: '짧은 제목' });
   });
 
   test('제목 편집 취소는 PATCH 없음', async ({ authenticatedPage: page }) => {
@@ -447,7 +441,7 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await page.getByTestId('issue-title-input').fill('버릴 제목');
     await page.getByTestId('mobile-edit-cancel').click();
     await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
-    await expectStays(page, () => calls.filter((c) => c.method === 'PATCH').length, 0);
+    await expectStays(page, () => calls().filter((c) => c.method === 'PATCH').length, 0);
   });
 
   test('본문 편집도 바로 저장 — 본문 아래 저장/취소 버튼은 모바일에 없다', async ({ authenticatedPage: page }) => {
@@ -457,10 +451,10 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await expect(page.getByTestId('issue-body-save')).toHaveCount(0);
     await page.getByTestId('issue-body-textarea').fill('바뀐 본문');
     await page.getByTestId('mobile-edit-save').click();
-    await expect.poll(() => calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({ body: '바뀐 본문' });
+    await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ body: '바뀐 본문' });
     await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
     await expect(page.getByTestId('issue-comment-input')).toBeVisible();
-    await expectStays(page, () => calls.filter((c) => c.method === 'PATCH').length, 1);
+    await expectStays(page, () => calls().filter((c) => c.method === 'PATCH').length, 1);
   });
 
   test('편집 바로 바뀌어도 쓰던 코멘트 초안은 남는다', async ({ authenticatedPage: page }) => {
@@ -493,7 +487,7 @@ test.describe('하단 코멘트 입력·편집 바', () => {
       const [firstField, secondField] = order === 'title→body' ? ['title', 'body'] : ['body', 'title'];
       await first();
       await second();
-      const patches = () => calls.filter((c) => c.method === 'PATCH');
+      const patches = () => calls().filter((c) => c.method === 'PATCH');
 
       await page.getByTestId('mobile-edit-save').click();
       await expect.poll(() => patches().length).toBe(1);

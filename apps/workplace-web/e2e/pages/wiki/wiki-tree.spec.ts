@@ -3,6 +3,10 @@ import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
+
+/** 페이지 생성 POST 본문. */
+type CreateBody = { parentId: number | null; title: string }
 
 const SPACE_ID = 1
 const space: WikiSpace = {
@@ -43,7 +47,7 @@ async function routeCommon(page: Page) {
 test('하위 페이지 생성 — ＋ 클릭 시 parentId payload + 트리/내비 반영', async ({ authenticatedPage: page }) => {
   await routeCommon(page)
   const state = { created: false }
-  let postBody: { parentId: number | null; title: string } | null = null
+  const creates = trackRequests(page, 'POST', `/api/v1/wiki/spaces/${SPACE_ID}/pages`)
 
   await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) => {
     const method = r.request().method()
@@ -56,7 +60,6 @@ test('하위 페이지 생성 — ＋ 클릭 시 parentId payload + 트리/내�
       return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) })
     }
     if (method === 'POST') {
-      postBody = r.request().postDataJSON()
       state.created = true
       return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(detail(2, '제목 없음', 1)) })
     }
@@ -71,10 +74,10 @@ test('하위 페이지 생성 — ＋ 클릭 시 parentId payload + 트리/내�
   await row.hover()
   await row.getByRole('button', { name: '하위 페이지' }).click()
 
-  await expect.poll(() => postBody).not.toBeNull()
-  expect(postBody!.parentId).toBe(1)
+  await creates.waitFor()
+  expect(creates.lastBody<CreateBody>()?.parentId).toBe(1)
   // 실제 저장 title 은 빈 문자열이어야 한다 — "제목 없음"은 표시용 폴백일 뿐 초기 상태 값이 아니다(#596).
-  expect(postBody!.title).toBe('')
+  expect(creates.lastBody<CreateBody>()?.title).toBe('')
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}/pages/2$`))
   await expect(page.getByTestId('wiki-tree-row-2')).toBeVisible()
 })
@@ -83,11 +86,10 @@ test('새 페이지 생성 직후 제목 입력 — placeholder 위에 이어붙
   authenticatedPage: page,
 }) => {
   await routeCommon(page)
-  let postBody: { parentId: number | null; title: string } | null = null
+  const creates = trackRequests(page, 'POST', `/api/v1/wiki/spaces/${SPACE_ID}/pages`)
 
   await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) => {
     if (r.request().method() === 'POST') {
-      postBody = r.request().postDataJSON()
       return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(detail(2, '', null)) })
     }
     return r.fulfill({
@@ -103,9 +105,9 @@ test('새 페이지 생성 직후 제목 입력 — placeholder 위에 이어붙
   await page.goto(`/wiki/spaces/${SPACE_ID}`)
   await page.getByRole('button', { name: '새 페이지', exact: true }).click()
 
-  await expect.poll(() => postBody).not.toBeNull()
+  await creates.waitFor()
   // 생성 요청 자체가 빈 문자열 title 이어야 한다(리터럴 "제목 없음" 전송 금지).
-  expect(postBody!.title).toBe('')
+  expect(creates.lastBody<CreateBody>()?.title).toBe('')
 
   // 새 페이지 진입 시 제목 input 은 실제 값이 비어 있어 placeholder 만 노출되고,
   // 클릭 후 바로 입력하면 접합 없이 입력값만 남아야 한다.
@@ -189,7 +191,7 @@ test('트리 행 컨테이너가 role=button 이 아니고, 내부 버튼들의 
 
 test('삭제 — ⋯ 메뉴 → 다이얼로그 확인 시 DELETE, 취소 시 미호출', async ({ authenticatedPage: page }) => {
   await routeCommon(page)
-  let deleteCalled = false
+  const deletes = trackRequests(page, 'DELETE', /^\/api\/v1\/wiki\/pages\/[^/]+$/)
   await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
     r.fulfill({
       status: 200,
@@ -199,7 +201,6 @@ test('삭제 — ⋯ 메뉴 → 다이얼로그 확인 시 DELETE, 취소 시 �
   )
   await page.route('**/api/v1/wiki/pages/*', (r) => {
     if (r.request().method() === 'DELETE') {
-      deleteCalled = true
       return r.fulfill({ status: 204, body: '' })
     }
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '제품 문서', null)) })
@@ -212,12 +213,12 @@ test('삭제 — ⋯ 메뉴 → 다이얼로그 확인 시 DELETE, 취소 시 �
   await page.getByRole('menuitem', { name: '삭제' }).click()
   await expect(page.getByTestId('wiki-delete-dialog')).toBeVisible()
   await page.getByRole('button', { name: '취소' }).click()
-  expect(deleteCalled).toBe(false)
+  expect(deletes.count()).toBe(0)
   await row.hover()
   await row.getByRole('button', { name: '페이지 메뉴' }).click()
   await page.getByRole('menuitem', { name: '삭제' }).click()
   await page.getByTestId('wiki-delete-dialog').getByRole('button', { name: '삭제' }).click()
-  await expect.poll(() => deleteCalled).toBe(true)
+  await deletes.waitFor()
 })
 
 test('삭제 다이얼로그 — 리프 페이지(하위 없음)에서는 하위 페이지 경고 미표시', async ({ authenticatedPage: page }) => {
@@ -346,11 +347,10 @@ test.describe('트리 행 액션 — 터치 태블릿(≥1024px)', () => {
     authenticatedPage: page,
   }) => {
     await routeCommon(page)
-    let postBody: { parentId: number | null; title: string } | null = null
-    let deleteCalled = false
+    const creates = trackRequests(page, 'POST', `/api/v1/wiki/spaces/${SPACE_ID}/pages`)
+    const deletes = trackRequests(page, 'DELETE', /^\/api\/v1\/wiki\/pages\/[^/]+$/)
     await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) => {
       if (r.request().method() === 'POST') {
-        postBody = r.request().postDataJSON()
         return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(detail(2, '', 1)) })
       }
       return r.fulfill({
@@ -361,7 +361,6 @@ test.describe('트리 행 액션 — 터치 태블릿(≥1024px)', () => {
     })
     await page.route('**/api/v1/wiki/pages/*', (r) => {
       if (r.request().method() === 'DELETE') {
-        deleteCalled = true
         return r.fulfill({ status: 204, body: '' })
       }
       return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '제품 문서', null)) })
@@ -383,13 +382,13 @@ test.describe('트리 행 액션 — 터치 태블릿(≥1024px)', () => {
 
     await trigger.tap()
     await page.getByRole('menuitem', { name: '하위 페이지 추가' }).click()
-    await expect.poll(() => postBody).not.toBeNull()
-    expect(postBody!.parentId).toBe(1)
+    await creates.waitFor()
+    expect(creates.lastBody<CreateBody>()?.parentId).toBe(1)
 
     await page.goto(`/wiki/spaces/${SPACE_ID}`)
     await page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '페이지 메뉴' }).tap()
     await page.getByRole('menuitem', { name: '삭제' }).click()
     await page.getByTestId('wiki-delete-dialog').getByRole('button', { name: '삭제' }).click()
-    await expect.poll(() => deleteCalled).toBe(true)
+    await deletes.waitFor()
   })
 })

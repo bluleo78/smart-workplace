@@ -3,6 +3,7 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createChannel, createMessage } from '../../factories/messaging.factory';
+import { trackRequests } from '../../fixtures/requests';
 
 const CHANNEL_ID = 1;
 
@@ -245,12 +246,11 @@ test.describe('채널 캐치업 카드', () => {
       (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SAMPLE_CATCHUP) }),
     );
 
-    let readUpto = -1;
+    const reads = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/read`);
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/read`,
       (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
-        readUpto = (route.request().postDataJSON() as { uptoMessageId: number }).uptoMessageId;
         return route.fulfill({ status: 204 });
       },
     );
@@ -261,6 +261,6 @@ test.describe('채널 캐치업 카드', () => {
     await page.getByTestId('catchup-confirm').click();
 
     await expect(page.getByTestId('catchup-card')).toHaveCount(0);
-    await expect.poll(() => readUpto).toBe(106); // 최신 미읽음 id 까지 읽음 처리
+    await expect.poll(() => reads.lastBody<{ uptoMessageId: number }>()?.uptoMessageId).toBe(106); // 최신 미읽음 id 까지 읽음 처리
   });
 });

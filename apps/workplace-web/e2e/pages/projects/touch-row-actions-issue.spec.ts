@@ -14,6 +14,7 @@ import { makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { json } from '../../fixtures/mobile-chat';
+import { trackRequests } from '../../fixtures/requests';
 
 const KEY = 'WP';
 const ISSUE_ID = 7;
@@ -26,13 +27,16 @@ const DRIVE_LINK: DriveLink = {
   spaceId: 1, spaceName: '팀 공간', availability: 'ACTIVE', createdById: ME_ID, createdAt: new Date().toISOString(),
 };
 
-/** 이슈 7 상세 스텁(의존성 1건·드라이브 링크 1건·내 코멘트 1건). DELETE 호출은 경로+쿼리로 기록한다. */
+/** 이슈 7 상세 스텁(의존성 1건·드라이브 링크 1건·내 코멘트 1건). 보낸 DELETE 의 경로+쿼리 목록을 읽는 함수를 돌려준다. */
 async function setupIssue(page: Page, comments: IssueCommentResponse[] = []) {
-  const deletes: string[] = [];
-  const recordDelete = (url: string) => {
-    const u = new URL(url);
-    deletes.push(u.pathname + u.search);
-  };
+  const deleteRequests = trackRequests(
+    page,
+    'DELETE',
+    (u) =>
+      u.pathname === `${BASE}/dependencies` ||
+      u.pathname.startsWith(`${BASE}/drive-links/`) ||
+      /\/api\/v1\/issues\/\d+\/comments\/\d+$/.test(u.pathname),
+  );
   const issue = createIssue({
     id: ISSUE_ID, number: 7, projectKey: KEY, type: makeTaskType(), title: '터치 행 액션 이슈',
     blockedBy: [], blocks: [LINK], blocked: false, attachmentCount: 0,
@@ -47,24 +51,21 @@ async function setupIssue(page: Page, comments: IssueCommentResponse[] = []) {
   await page.route((u) => u.pathname === '/api/v1/drive/spaces', (r) => r.fulfill(json([{ id: 1, type: 'PERSONAL', name: '내 드라이브' }])));
   await page.route((u) => u.pathname === `${BASE}/dependencies`, (r) => {
     if (r.request().method() !== 'DELETE') return r.fallback();
-    recordDelete(r.request().url());
     return r.fulfill({ status: 204 });
   });
   await page.route((u) => u.pathname === `${BASE}/drive-links`, (r) => r.fulfill(json([DRIVE_LINK])));
   await page.route((u) => u.pathname.startsWith(`${BASE}/drive-links/`), (r) => {
     if (r.request().method() !== 'DELETE') return r.fallback();
-    recordDelete(r.request().url());
     return r.fulfill({ status: 204 });
   });
   await page.route((u) => u.pathname === `/api/v1/issues/${ISSUE_ID}/comments`, (r) => r.fulfill(json(comments)));
   await page.route((u) => /\/api\/v1\/issues\/\d+\/comments\/\d+$/.test(u.pathname), (r) => {
     if (r.request().method() !== 'DELETE') return r.fallback();
-    recordDelete(r.request().url());
     return r.fulfill({ status: 204 });
   });
   await page.goto(`/projects/${KEY}/issues/7`);
   await expect(page.getByTestId('issue-title-heading')).toBeVisible();
-  return deletes;
+  return () => deleteRequests.urls().map((u) => u.pathname + u.search);
 }
 
 /** 실제 터치 영역(boundingBox)이 44px 이상인지. */
@@ -90,7 +91,7 @@ test.describe('터치 태블릿(≥1024px) — 이슈 상세·뷰 칩 행 액션
     await expectTouchTarget(more);
     await more.tap();
     await page.getByTestId('issue-link-menu-remove-42').tap();
-    await expect.poll(() => deletes).toEqual([`${BASE}/dependencies?otherNumber=42&direction=blocks`]);
+    await expect.poll(deletes).toEqual([`${BASE}/dependencies?otherNumber=42&direction=blocks`]);
   });
 
   test('드라이브 링크 — 링크 제거 X 가 상시 보이고(44px) → 확인 → DELETE', async ({ authenticatedPage: page }) => {
@@ -101,7 +102,7 @@ test.describe('터치 태블릿(≥1024px) — 이슈 상세·뷰 칩 행 액션
     await expectTouchTarget(remove);
     await remove.tap();
     await page.getByTestId('drive-link-remove-confirm').tap();
-    await expect.poll(() => deletes).toEqual([`${BASE}/drive-links/501`]);
+    await expect.poll(deletes).toEqual([`${BASE}/drive-links/501`]);
   });
 
   test('내 코멘트 — hover 아이콘 대신 ⋯ → 드롭다운 → 삭제 확인 → DELETE', async ({ authenticatedPage: page }) => {
@@ -123,7 +124,7 @@ test.describe('터치 태블릿(≥1024px) — 이슈 상세·뷰 칩 행 액션
     // 드롭다운이 닫혀도 확인창은 열린 채 유지되어야 한다(포커스 복귀로 바로 닫히지 않음).
     await expect(page.getByRole('alertdialog')).toBeVisible();
     await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).tap();
-    await expect.poll(() => deletes).toEqual(['/api/v1/issues/7/comments/10']);
+    await expect.poll(deletes).toEqual(['/api/v1/issues/7/comments/10']);
   });
 
   test('내 코멘트 — ⋯ → 수정을 고르면 메뉴가 언마운트돼도 잠금 없이 편집기로 전환', async ({ authenticatedPage: page }) => {
@@ -146,7 +147,7 @@ test.describe('터치 태블릿(≥1024px) — 이슈 상세·뷰 칩 행 액션
       id: 1, name: '내 HIGH', query: 'priority=HIGH', visibility: 'PRIVATE',
       ownerId: ME_ID, mine: true, pinned: false, createdAt: '', updatedAt: '',
     };
-    const deletes: string[] = [];
+    const viewDeletes = trackRequests(page, 'DELETE', `/api/v1/projects/${KEY}/saved-views/1`);
     await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject())));
     await page.route(`**/api/v1/projects/${KEY}/labels`, (r) => r.fulfill(json([])));
     await page.route(`**/api/v1/projects/${KEY}/types`, (r) => r.fulfill(json([])));
@@ -154,7 +155,6 @@ test.describe('터치 태블릿(≥1024px) — 이슈 상세·뷰 칩 행 액션
     await page.route(`**/api/v1/projects/${KEY}/saved-views`, (r) => r.fulfill(json([view])));
     await page.route(`**/api/v1/projects/${KEY}/saved-views/1`, (r) => {
       if (r.request().method() !== 'DELETE') return r.fallback();
-      deletes.push(new URL(r.request().url()).pathname);
       return r.fulfill({ status: 204 });
     });
     await page.goto(`/projects/${KEY}`);
@@ -165,6 +165,6 @@ test.describe('터치 태블릿(≥1024px) — 이슈 상세·뷰 칩 행 액션
     await menu.tap();
     await page.getByTestId('view-delete-1').tap();
     await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).tap();
-    await expect.poll(() => deletes).toEqual([`/api/v1/projects/${KEY}/saved-views/1`]);
+    await expect.poll(() => viewDeletes.urls().map((u) => u.pathname)).toEqual([`/api/v1/projects/${KEY}/saved-views/1`]);
   });
 });

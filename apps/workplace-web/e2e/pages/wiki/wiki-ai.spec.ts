@@ -12,6 +12,7 @@
 import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays, measureBox, stableBox } from '../../fixtures/wait'
 import { buildWikiAiSse } from '../../fixtures/wiki-mock'
 
@@ -112,15 +113,15 @@ async function setupWikiMocks(page: Page, role: WikiRole, body = '') {
   )
 }
 
+// AI 생성 시작 POST 경로(.../pages/{id}/ai).
+const AI_START_PATH = /^\/api\/v1\/wiki\/pages\/[^/]+\/ai$/
+
+type AiStartBody = { action: string; prompt?: string; selection?: string }
+
 // POST 시작(JSON correlationId) + /events(SSE, 그 correlationId 로 델타) 를 함께 설정한다.
-// onStart 로 요청 payload(action/prompt/selection)를 캡처할 수 있다.
-async function mockWikiAiGeneration(
-  page: Page,
-  opts: {
-    deltas: string[]
-    onStart?: (body: { action: string; prompt?: string; selection?: string }) => void
-  },
-) {
+// 시작 POST tracker 를 돌려준다 — payload(action/prompt/selection) 단언용.
+async function mockWikiAiGeneration(page: Page, opts: { deltas: string[] }) {
+  const starts = trackRequests(page, 'POST', AI_START_PATH)
   let resolveStarted: (correlationId: string) => void
   const started = new Promise<string>((resolve) => {
     resolveStarted = resolve
@@ -128,12 +129,6 @@ async function mockWikiAiGeneration(
 
   await page.route('**/api/v1/wiki/pages/*/ai', (route) => {
     if (route.request().method() !== 'POST') return route.fallback()
-    const body = route.request().postDataJSON() as {
-      action: string
-      prompt?: string
-      selection?: string
-    }
-    opts.onStart?.(body)
     const correlationId = `corr-${Math.random().toString(36).slice(2)}`
     resolveStarted(correlationId)
     return route.fulfill({
@@ -151,6 +146,7 @@ async function mockWikiAiGeneration(
       body: buildWikiAiSse(opts.deltas, correlationId),
     })
   })
+  return starts
 }
 
 test('위키 /ai — 슬래시 메뉴 → AI 요약 → /events 스트림이 에디터에 삽입된다', { tag: '@smoke' }, async ({
@@ -158,13 +154,7 @@ test('위키 /ai — 슬래시 메뉴 → AI 요약 → /events 스트림이 에
 }) => {
   await setupWikiMocks(page, 'EDITOR')
 
-  let aiAction: string | null = null
-  await mockWikiAiGeneration(page, {
-    deltas: ['요약: ', '핵심 내용'],
-    onStart: (body) => {
-      aiAction = body.action
-    },
-  })
+  const aiStarts = await mockWikiAiGeneration(page, { deltas: ['요약: ', '핵심 내용'] })
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -175,7 +165,7 @@ test('위키 /ai — 슬래시 메뉴 → AI 요약 → /events 스트림이 에
 
   await page.getByTestId('wiki-slash-option-summarize').click()
 
-  await expect.poll(() => aiAction).toBe('summarize')
+  await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('summarize')
   await expect(page.locator('.ProseMirror')).toContainText('요약: 핵심 내용')
 })
 
@@ -201,13 +191,7 @@ test('위키 /ai — AI 초안: 토픽 다이얼로그 입력 후 draft payload(
 }) => {
   await setupWikiMocks(page, 'OWNER')
 
-  let aiBody: { action: string; prompt?: string } | null = null
-  await mockWikiAiGeneration(page, {
-    deltas: ['요약: ', '핵심 내용'],
-    onStart: (body) => {
-      aiBody = body
-    },
-  })
+  const aiStarts = await mockWikiAiGeneration(page, { deltas: ['요약: ', '핵심 내용'] })
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -223,8 +207,8 @@ test('위키 /ai — AI 초안: 토픽 다이얼로그 입력 후 draft payload(
   await dialogInput.fill(topic)
   await page.getByTestId('rename-dialog-confirm').click()
 
-  await expect.poll(() => aiBody?.action).toBe('draft')
-  expect((aiBody as { prompt?: string } | null)?.prompt).toBe(topic)
+  await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('draft')
+  expect(aiStarts.lastBody<AiStartBody>()?.prompt).toBe(topic)
   await expect(page.locator('.ProseMirror')).toContainText('요약: 핵심 내용')
 })
 
@@ -236,8 +220,9 @@ test('위키 /ai — 진행 중 생성이 있으면 새 액션이 이전 생성�
   // 이전에는 fetch abort(연결 끊김 감지)가 취소였지만, /events 분리 후에는 명시적 DELETE 호출이
   // 취소 메커니즘이다(#593 설계) — 이 테스트는 그 DELETE 호출과, 취소된 첫 생성의 텍스트가 최종
   // 결과에 섞이지 않는지를 직접 검증한다.
-  const started: Array<{ action: string; correlationId: string }> = []
-  const cancelled: string[] = []
+  const starts = trackRequests(page, 'POST', AI_START_PATH)
+  const cancels = trackRequests(page, 'DELETE', /^\/api\/v1\/wiki\/pages\/[^/]+\/ai\/[^/]+$/)
+  // 응답 correlationId 를 corr-1, corr-2 … 순번으로 만들고, 두 번째 시작에서 /events 를 풀어준다.
   let seq = 0
   let resolveSecondStarted: (correlationId: string) => void
   const secondStarted = new Promise<string>((resolve) => {
@@ -246,11 +231,9 @@ test('위키 /ai — 진행 중 생성이 있으면 새 액션이 이전 생성�
 
   await page.route('**/api/v1/wiki/pages/*/ai', (route) => {
     if (route.request().method() !== 'POST') return route.fallback()
-    const action = (route.request().postDataJSON() as { action: string }).action
     seq += 1
     const correlationId = `corr-${seq}`
-    started.push({ action, correlationId })
-    if (started.length === 2) resolveSecondStarted(correlationId)
+    if (seq === 2) resolveSecondStarted(correlationId)
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -259,7 +242,6 @@ test('위키 /ai — 진행 중 생성이 있으면 새 액션이 이전 생성�
   })
   await page.route('**/api/v1/wiki/pages/*/ai/*', (route) => {
     if (route.request().method() !== 'DELETE') return route.fallback()
-    cancelled.push(route.request().url().split('/').pop() as string)
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
   })
   await page.route('**/api/v1/events', async (route) => {
@@ -278,14 +260,14 @@ test('위키 /ai — 진행 중 생성이 있으면 새 액션이 이전 생성�
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
   await page.getByTestId('wiki-slash-option-summarize').click()
-  await expect.poll(() => started.map((s) => s.action)).toEqual(['summarize'])
+  await expect.poll(() => starts.bodies<AiStartBody>().map((b) => b.action)).toEqual(['summarize'])
 
   // 2) 두 번째 액션(AI 이어쓰기) 트리거 — 첫 생성이 DELETE 로 취소되고 두 번째가 시작된다.
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
   await page.getByTestId('wiki-slash-option-continue').click()
-  await expect.poll(() => started.map((s) => s.action)).toEqual(['summarize', 'continue'])
-  await expect.poll(() => cancelled).toEqual([started[0].correlationId])
+  await expect.poll(() => starts.bodies<AiStartBody>().map((b) => b.action)).toEqual(['summarize', 'continue'])
+  await expect.poll(() => cancels.urls().map((u) => u.pathname.split('/').pop())).toEqual(['corr-1'])
 
   // 3) 두 번째 생성의 텍스트만 삽입되고, 첫 생성의 텍스트는 나타나지 않는다.
   await expect(page.locator('.ProseMirror')).toContainText('이어쓰기 완료')
@@ -322,13 +304,7 @@ test('위키 변형 — 선택 후 다듬기: polish payload + 선택영역 교�
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
-  let aiBody: { action: string; selection?: string } | null = null
-  await mockWikiAiGeneration(page, {
-    deltas: ['다듬어진 ', '문장'],
-    onStart: (body) => {
-      aiBody = body
-    },
-  })
+  const aiStarts = await mockWikiAiGeneration(page, { deltas: ['다듬어진 ', '문장'] })
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -337,8 +313,8 @@ test('위키 변형 — 선택 후 다듬기: polish payload + 선택영역 교�
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
   await page.getByTestId('wiki-ai-tb-polish').click()
 
-  await expect.poll(() => aiBody?.action).toBe('polish')
-  expect((aiBody as { selection?: string } | null)?.selection).toBe('원본 문장')
+  await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('polish')
+  expect(aiStarts.lastBody<AiStartBody>()?.selection).toBe('원본 문장')
 
   await expect(page.locator('.ProseMirror')).toContainText('다듬어진 문장')
   await expect(page.locator('.ProseMirror')).not.toContainText('원본 문장')
@@ -348,13 +324,7 @@ test('위키 변형 — 톤 드롭다운: rewrite_tone payload(prompt=격식체)
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
-  let aiBody: { action: string; prompt?: string } | null = null
-  await mockWikiAiGeneration(page, {
-    deltas: ['다듬어진 ', '문장'],
-    onStart: (body) => {
-      aiBody = body
-    },
-  })
+  const aiStarts = await mockWikiAiGeneration(page, { deltas: ['다듬어진 ', '문장'] })
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -363,15 +333,14 @@ test('위키 변형 — 톤 드롭다운: rewrite_tone payload(prompt=격식체)
   await page.getByTestId('wiki-ai-tb-rewrite_tone').click()
   await page.getByTestId('wiki-ai-tone-격식체').click()
 
-  await expect.poll(() => aiBody?.action).toBe('rewrite_tone')
-  expect((aiBody as { prompt?: string } | null)?.prompt).toBe('격식체')
+  await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('rewrite_tone')
+  expect(aiStarts.lastBody<AiStartBody>()?.prompt).toBe('격식체')
 })
 
 test('위키 변형 — VIEWER 는 변형 툴바가 노출되지 않는다', async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, 'VIEWER')
-  let aiCalled = 0
+  const aiCalls = trackRequests(page, 'ANY', AI_START_PATH)
   await page.route('**/api/v1/wiki/pages/*/ai', (route) => {
-    aiCalled += 1
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -384,7 +353,7 @@ test('위키 변형 — VIEWER 는 변형 툴바가 노출되지 않는다', asy
   await typeAndSelectAll(page, '원본 문장')
 
   await expectStays(page, () => page.getByTestId('wiki-ai-toolbar').count(), 0)
-  expect(aiCalled).toBe(0)
+  expect(aiCalls.count()).toBe(0)
 })
 
 test('위키 변형 — 단일 undo 로 변형 전 원본으로 복원된다', async ({ authenticatedPage: page }) => {
@@ -414,9 +383,8 @@ test('위키 변형 — 단일 undo 로 변형 전 원본으로 복원된다', a
 test('위키 /ai — VIEWER 는 슬래시 AI 메뉴가 노출되지 않는다', async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, 'VIEWER')
 
-  let aiCalled = 0
+  const aiCalls = trackRequests(page, 'ANY', AI_START_PATH)
   await page.route('**/api/v1/wiki/pages/*/ai', (route) => {
-    aiCalled += 1
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -431,7 +399,7 @@ test('위키 /ai — VIEWER 는 슬래시 AI 메뉴가 노출되지 않는다', 
   await page.keyboard.type('/')
 
   await expectStays(page, () => page.getByTestId('wiki-slash-popover').count(), 0)
-  expect(aiCalled).toBe(0)
+  expect(aiCalls.count()).toBe(0)
 })
 
 // ── AI 진입점 상시 노출 + 툴바 위치 회귀 (#733) ──────────────────────────────
@@ -468,13 +436,7 @@ test('위키 AI 노출 — 헤더 AI 버튼이 상시 보이고 요약 액션을
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR', LONG_BODY)
-  let aiAction: string | null = null
-  await mockWikiAiGeneration(page, {
-    deltas: ['요약: ', '집밥 3가지 레시피'],
-    onStart: (body) => {
-      aiAction = body.action
-    },
-  })
+  const aiStarts = await mockWikiAiGeneration(page, { deltas: ['요약: ', '집밥 3가지 레시피'] })
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -487,7 +449,7 @@ test('위키 AI 노출 — 헤더 AI 버튼이 상시 보이고 요약 액션을
   await aiButton.click()
   await page.getByTestId('wiki-ai-header-summarize').click()
 
-  await expect.poll(() => aiAction).toBe('summarize')
+  await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('summarize')
   await expect(page.locator('.ProseMirror')).toContainText('요약: 집밥 3가지 레시피')
 })
 
@@ -495,13 +457,7 @@ test('위키 AI 노출 — 헤더 AI 초안: 토픽 다이얼로그를 열고 dr
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'OWNER')
-  let aiBody: { action: string; prompt?: string } | null = null
-  await mockWikiAiGeneration(page, {
-    deltas: ['초안 '],
-    onStart: (body) => {
-      aiBody = body
-    },
-  })
+  const aiStarts = await mockWikiAiGeneration(page, { deltas: ['초안 '] })
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -514,17 +470,16 @@ test('위키 AI 노출 — 헤더 AI 초안: 토픽 다이얼로그를 열고 dr
   await dialogInput.fill('주간 회고')
   await page.getByTestId('rename-dialog-confirm').click()
 
-  await expect.poll(() => aiBody?.action).toBe('draft')
-  expect((aiBody as { prompt?: string } | null)?.prompt).toBe('주간 회고')
+  await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('draft')
+  expect(aiStarts.lastBody<AiStartBody>()?.prompt).toBe('주간 회고')
 })
 
 test('위키 AI 노출 — VIEWER 는 버튼이 숨지 않고 비활성 + 사유가 노출된다 (#733)', async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'VIEWER')
-  let aiCalled = 0
+  const aiCalls = trackRequests(page, 'ANY', AI_START_PATH)
   await page.route('**/api/v1/wiki/pages/*/ai', (route) => {
-    aiCalled += 1
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -546,7 +501,7 @@ test('위키 AI 노출 — VIEWER 는 버튼이 숨지 않고 비활성 + 사유
   // 비활성이므로 클릭해도 생성이 시작되지 않는다.
   // eslint-disable-next-line playwright/no-force-option -- aria-disabled 버튼은 Playwright 가 비활성으로 보고 클릭을 거부하므로, 눌러도 무반응인지 확인하려면 강제 클릭이 필요
   await aiButton.click({ force: true })
-  await expectStays(page, () => aiCalled, 0)
+  await expectStays(page, aiCalls.count, 0)
 })
 
 test('위키 AI 노출 — 빈 본문에 placeholder 힌트와 초안 CTA 가 뜨고, 내용이 있으면 사라진다 (#733)', async ({
@@ -805,9 +760,8 @@ test('위키 변형 — 이미지 노드 선택(NodeSelection)에서는 툴바�
   await page.route(IMAGE_CONTENT_PATH, (route) =>
     route.fulfill({ status: 200, contentType: 'image/png', body: IMAGE_PNG }),
   )
-  let aiCalled = 0
+  const aiCalls = trackRequests(page, 'ANY', AI_START_PATH)
   await page.route('**/api/v1/wiki/pages/*/ai', (route) => {
-    aiCalled += 1
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -828,7 +782,7 @@ test('위키 변형 — 이미지 노드 선택(NodeSelection)에서는 툴바�
   await expect(page.locator('.ProseMirror .ProseMirror-selectednode')).toHaveCount(1)
 
   await expectStays(page, () => page.getByTestId('wiki-ai-toolbar').count(), 0)
-  expect(aiCalled).toBe(0)
+  expect(aiCalls.count()).toBe(0)
 })
 
 test('위키 변형 — 텍스트 선택은 이미지가 함께 있는 페이지에서도 정상적으로 툴바가 뜬다 (#772 회귀 방지)', async ({
@@ -863,14 +817,15 @@ test('위키 서식 — 선택 텍스트에 굵게 적용 후 저장/재조회�
   // 자동저장 PUT 의 body 를 가로채 저장해 두고, 이후 GET 은 그 body 를 돌려준다(재조회 시뮬).
   // setupWikiMocks 가 먼저 등록한 라우트를 이 라우트가 가로채고, savedBody 가 없을 때만
   // fallback 으로 원래 핸들러에 위임한다(Playwright 는 나중 등록 라우트가 먼저 실행됨).
+  const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${PAGE_ID}`)
+  // 재조회 응답을 결정하는 상태 — 단언은 puts 로 읽는다.
   let savedBody: string | null = null
   await page.route(
     (url) => url.pathname === `/api/v1/wiki/pages/${PAGE_ID}`,
     (route) => {
       const method = route.request().method()
       if (method === 'PUT') {
-        const req = route.request().postDataJSON() as { title: string; body: string }
-        savedBody = req.body
+        savedBody = (route.request().postDataJSON() as { body: string }).body
         return route.fallback()
       }
       if (method === 'GET' && savedBody !== null) {
@@ -903,7 +858,7 @@ test('위키 서식 — 선택 텍스트에 굵게 적용 후 저장/재조회�
   await expect(boldBtn).toHaveAttribute('aria-pressed', 'true')
 
   // 자동저장(800ms debounce) 완료 대기 — markdown 직렬화 결과에 굵게(**)가 담긴다.
-  await expect.poll(() => savedBody).toContain('**굵게 만들 문장**')
+  await expect.poll(() => puts.lastBody<{ body: string }>()?.body).toContain('**굵게 만들 문장**')
 
   // 저장 후 재조회해도 굵게 서식이 유지된다.
   await page.reload()

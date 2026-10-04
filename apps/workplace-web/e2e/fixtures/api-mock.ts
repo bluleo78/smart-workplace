@@ -1,6 +1,6 @@
-import type { Page } from '@playwright/test';
+import type { Page, Request } from '@playwright/test';
 
-type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+import { bodyOf, type HttpMethod, trackRequests } from './requests';
 
 /** 캡처된 요청 정보 */
 interface CapturedRequest {
@@ -52,10 +52,8 @@ export async function mockApi(
   options: MockApiOptions = {},
 ): Promise<MockApiCapture | void> {
   const { status = 200, headers = {}, capture = false } = options;
-
-  // 캡처 객체 초기화
-  const captured: CapturedRequest[] = [];
-  let resolveWaiter: ((req: CapturedRequest) => void) | null = null;
+  // 캡처는 라우트 핸들러가 아니라 요청 기록(trackRequests)으로 한다 — 같은 경로를 나중에 다시 모킹해도 빠지지 않는다(WP-239).
+  const tracker = capture ? trackRequests(page, method, path) : null;
 
   await page.route(
     (url) => url.pathname === path,
@@ -63,30 +61,6 @@ export async function mockApi(
       if (route.request().method() !== method) {
         return route.fallback();
       }
-
-      // 요청 캡처
-      if (capture) {
-        const reqUrl = new URL(route.request().url());
-        let payload: unknown = null;
-        try {
-          payload = route.request().postDataJSON();
-        } catch {
-          // GET 등 body가 없는 요청
-          const postData = route.request().postData();
-          payload = postData ?? null;
-        }
-        const capturedReq: CapturedRequest = {
-          payload,
-          url: reqUrl,
-          searchParams: reqUrl.searchParams,
-        };
-        captured.push(capturedReq);
-        if (resolveWaiter) {
-          resolveWaiter(capturedReq);
-          resolveWaiter = null;
-        }
-      }
-
       return route.fulfill({
         status,
         contentType: 'application/json',
@@ -96,23 +70,23 @@ export async function mockApi(
     },
   );
 
-  if (capture) {
+  if (tracker) {
+    const toCaptured = (req: Request): CapturedRequest => {
+      const url = new URL(req.url());
+      return { payload: bodyOf(req), url, searchParams: url.searchParams };
+    };
     return {
-      requests: captured,
-      lastRequest: () => captured[captured.length - 1],
-      waitForRequest: () => {
-        // 이미 캡처된 요청이 있으면 마지막 반환
-        if (captured.length > 0) {
-          return Promise.resolve(captured[captured.length - 1]);
-        }
-        return new Promise<CapturedRequest>((resolve, reject) => {
-          resolveWaiter = resolve;
-          // 10초 타임아웃
-          setTimeout(() => {
-            resolveWaiter = null;
-            reject(new Error(`mockApi capture timeout: ${method} ${path}`));
-          }, 10_000);
-        });
+      get requests() {
+        return tracker.requests().map(toCaptured);
+      },
+      lastRequest: () => {
+        const all = tracker.requests();
+        return all.length ? toCaptured(all[all.length - 1]) : undefined;
+      },
+      waitForRequest: async () => {
+        await tracker.waitFor();
+        const all = tracker.requests();
+        return toCaptured(all[all.length - 1]);
       },
     };
   }

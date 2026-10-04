@@ -7,6 +7,7 @@
 // 피드백이 end-to-end 로 동작함을 증명한다.
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays, resizeAndSettle } from '../../fixtures/wait'
 
 const SPACE_ID = 1
@@ -144,7 +145,7 @@ test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입
   // 가변 상태: 페이지 생성 여부 + 현재(마지막 저장된) 제목 + version.
   // 트리(GET pages)는 이 상태에서 동적으로 응답을 만들어 생성/저장을 반영한다.
   const state = { created: false, title: '제목 없음', version: 1 }
-  let putTitle: string | null = null // PUT body.title 캡처 — 자동저장 라운드트립 검증용
+  const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${NEW_PAGE_ID}`)
 
   // 스페이스 목록
   await page.route(
@@ -200,9 +201,8 @@ test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입
         })
       }
       if (method === 'PUT') {
-        // 자동저장 — body.title 캡처 후 상태 갱신, version+1 로 응답(409 없음).
+        // 자동저장 — 상태 갱신, version+1 로 응답(409 없음).
         const body = route.request().postDataJSON() as { title: string; body: string; version: number }
-        putTitle = body.title
         state.title = body.title
         state.version += 1
         return route.fulfill({
@@ -251,7 +251,7 @@ test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입
   await expect(page.getByTestId('wiki-save-state')).toHaveText('저장됨')
 
   // PUT payload 에 입력한 제목이 그대로 전송됐는지 검증(라운드트립 증명).
-  expect(putTitle).toBe(NEW_TITLE)
+  expect(puts.lastBody<{ title: string }>()?.title).toBe(NEW_TITLE)
 
   // 6) 사이드바 트리에 새 제목이 반영된 버튼이 나타난다(저장 후 트리 invalidate→refetch).
   // exact:true — 삭제 버튼(aria-label "삭제: <제목>")이 부분일치로 함께 잡히는 것을 방지.
@@ -293,10 +293,10 @@ test('위키 — 제목 입력 중 Enter 시 본문 에디터로 포커스 이�
         : route.fallback(),
   )
 
-  // 페이지 상세 — GET(초기) + PUT(자동저장, body.title 캡처).
+  // 페이지 상세 — GET(초기) + PUT(자동저장).
   // pageDetail() 헬퍼는 id 를 NEW_PAGE_ID(100) 로 고정 반환하므로 이 테스트의 페이지 id(400)와
   // 불일치가 나 backlinks/mentions/PUT 이 엉뚱한 id 로 나간다 — 여기선 id 를 직접 지정한다.
-  let putTitle: string | null = null
+  const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${TITLE_ENTER_PAGE_ID}`)
   await page.route(
     (url) => url.pathname === `/api/v1/wiki/pages/${TITLE_ENTER_PAGE_ID}`,
     (route) => {
@@ -321,7 +321,6 @@ test('위키 — 제목 입력 중 Enter 시 본문 에디터로 포커스 이�
       }
       if (method === 'PUT') {
         const body = route.request().postDataJSON() as { title: string; body: string; version: number }
-        putTitle = body.title
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -377,7 +376,7 @@ test('위키 — 제목 입력 중 Enter 시 본문 에디터로 포커스 이�
 
   // 5) 자동저장 PUT payload 의 title 도 오염되지 않은 값이어야 한다.
   await expect(page.getByTestId('wiki-save-state')).toHaveText('저장됨', { timeout: 10000 })
-  expect(putTitle).toBe('제목입니다')
+  expect(puts.lastBody<{ title: string }>()?.title).toBe('제목입니다')
 })
 
 // 에러 경로 테스트(409) — 4xx 이므로 @smoke 아님(workplace-web/CLAUDE.md smoke 분류).
@@ -414,8 +413,8 @@ test('위키 — 낙관적 동시성 충돌(409): 배너 노출 + 자동저장 �
         : route.fallback(),
   )
 
-  // PUT 카운터 — 자동저장이 충돌 후 멈췄는지(재시도 안 함) 검증용.
-  let putCount = 0
+  // 자동저장이 충돌 후 멈췄는지(재시도 안 함) 검증용.
+  const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${CONFLICT_ID}`)
 
   // 페이지 상세 — GET 은 정상, PUT 은 항상 409 로 충돌을 발생시킨다.
   await page.route(
@@ -439,7 +438,6 @@ test('위키 — 낙관적 동시성 충돌(409): 배너 노출 + 자동저장 �
         })
       }
       if (method === 'PUT') {
-        putCount += 1
         return route.fulfill({
           status: 409,
           contentType: 'application/json',
@@ -469,12 +467,12 @@ test('위키 — 낙관적 동시성 충돌(409): 배너 노출 + 자동저장 �
 
   // 4) 자동저장 중단 검증 — 배너 노출 시점의 PUT 수를 기록하고,
   //    추가 입력 후 debounce(800ms)를 시계로 넘겨도 PUT 이 늘지 않아야 한다.
-  const putAfterConflict = putCount
+  const putAfterConflict = puts.count()
   expect(putAfterConflict).toBeGreaterThan(0)
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('충돌 후 추가 입력')
   await page.clock.fastForward(1500)
-  await expectStays(page, () => putCount, putAfterConflict, { ms: 200 })
+  await expectStays(page, puts.count, putAfterConflict, { ms: 200 })
 })
 
 // 삭제 UI — 사이드바 트리 노드 삭제 → 트리에서 사라짐(에러 경로 아님, 단순 동작 → 미태그).
@@ -746,7 +744,8 @@ test('위키 사이드바 — 스페이스 선택기가 shadcn Select로 렌더�
 test('위키 — 디바운스 대기 중 리마운트(뷰포트 lg 경계 전환)되면 자동저장을 즉시 flush 한다', async ({
   authenticatedPage: page,
 }) => {
-  const puts: { at: number; body: string }[] = []
+  const pagePath = `/api/v1/wiki/pages/${NEW_PAGE_ID}`
+  const puts = trackRequests(page, 'PUT', pagePath)
   await page.route(
     (url) => url.pathname === '/api/v1/wiki/spaces',
     (route) => route.fulfill({ json: [personalSpace()] }),
@@ -761,7 +760,6 @@ test('위키 — 디바운스 대기 중 리마운트(뷰포트 lg 경계 전환
     (route) => {
       if (route.request().method() === 'PUT') {
         const body = route.request().postDataJSON() as { body: string; version: number }
-        puts.push({ at: Date.now(), body: body.body })
         return route.fulfill({ json: pageDetail(NEW_TITLE, body.version + 1) })
       }
       return route.fulfill({ json: pageDetail(NEW_TITLE, 1) })
@@ -774,15 +772,18 @@ test('위키 — 디바운스 대기 중 리마운트(뷰포트 lg 경계 전환
   await page.keyboard.type('플러시')
   // 디바운스(800ms)가 끝나기 전에 모바일 폭으로 좁혀 에디터를 리마운트시킨다.
   const t0 = Date.now()
-  // 1024 경계를 넘어 모바일 셸로 리마운트되므로 전환 완료까지 기다린다 — PUT 시각은 라우트에서 기록돼 영향 없음 (WP-225)
+  // 첫 PUT 이 나간 시각 — request 이벤트 시점에 찍어 아래 전환 대기 시간과 무관하다.
+  const firstPutAt = page
+    .waitForRequest((r) => r.method() === 'PUT' && new URL(r.url()).pathname === pagePath)
+    .then(() => Date.now())
+  // 1024 경계를 넘어 모바일 셸로 리마운트되므로 전환 완료까지 기다린다 (WP-225)
   await resizeAndSettle(page, { width: 390, height: 844 })
-  await expect.poll(() => puts.length).toBeGreaterThan(0)
   // flush 는 언마운트 즉시 — 디바운스 잔여 시간(수백 ms)을 기다리지 않는다.
-  expect(puts[0].at - t0).toBeLessThan(400)
-  expect(puts[0].body).toContain('플러시')
+  expect((await firstPutAt) - t0).toBeLessThan(400)
+  expect(puts.bodies<{ body: string }>()[0].body).toContain('플러시')
   // 옛 타이머가 뒤늦게 한 번 더 PUT 하지 않는다(중복 저장·409 방지).
   await page.clock.fastForward(1000)
-  await expectStays(page, () => puts.length, 1, { ms: 200 })
+  await expectStays(page, puts.count, 1, { ms: 200 })
 })
 
 // WP-121(리뷰 C2): flush 직후 리마운트된 에디터는 flush 전 캐시(옛 본문·version)로 뜨면 안 된다 —
@@ -793,7 +794,7 @@ test('위키 — lg 경계 전환 리마운트 후 에디터는 방금 친 글�
 }) => {
   // 서버 흉내: version 불일치면 409(낙관적 동시성), 일치하면 본문 저장 + version+1.
   const server = { version: 1, body: '' }
-  const puts: { version: number; status: number }[] = []
+  const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${NEW_PAGE_ID}`)
   await page.route(
     (url) => url.pathname === '/api/v1/wiki/spaces',
     (route) => route.fulfill({ json: [personalSpace()] }),
@@ -809,14 +810,12 @@ test('위키 — lg 경계 전환 리마운트 후 에디터는 방금 친 글�
       if (route.request().method() === 'PUT') {
         const req = route.request().postDataJSON() as { body: string; version: number }
         if (req.version !== server.version) {
-          puts.push({ version: req.version, status: 409 })
           return route.fulfill({ status: 409, json: { message: 'conflict' } })
         }
         // 응답을 조금 늦춰 "flush 진행 중 리마운트" 창을 확실히 만든다.
         await new Promise((r) => setTimeout(r, 300))
         server.body = req.body
         server.version += 1
-        puts.push({ version: req.version, status: 200 })
         return route.fulfill({ json: { ...pageDetail(NEW_TITLE, server.version), body: server.body } })
       }
       return route.fulfill({ json: { ...pageDetail(NEW_TITLE, server.version), body: server.body } })
@@ -828,7 +827,7 @@ test('위키 — lg 경계 전환 리마운트 후 에디터는 방금 친 글�
   // 디바운스 전에 모바일 폭으로 → 에디터 리마운트 + 언마운트 flush.
   // 모바일 셸 전환이 끝나기 전에 옛 에디터를 누르지 않도록 셸 교체까지 기다린다 (WP-225)
   await resizeAndSettle(page, { width: 390, height: 844 })
-  await expect.poll(() => puts.length).toBe(1)
+  await expect.poll(puts.count).toBe(1)
   // 리마운트된 에디터가 방금 친 글자를 보인다(옛 캐시 본문으로 뜨지 않음).
   const editor = page.locator('.ProseMirror')
   await expect(editor).toContainText('플러시')
@@ -836,7 +835,8 @@ test('위키 — lg 경계 전환 리마운트 후 에디터는 방금 친 글�
   await editor.click()
   await page.keyboard.press('End')
   await page.keyboard.type('!')
-  await expect.poll(() => puts.length).toBe(2)
-  expect(puts[1]).toEqual({ version: 2, status: 200 })
+  await expect.poll(puts.count).toBe(2)
+  expect(puts.bodies<{ version: number }>()[1].version).toBe(2)
+  expect((await puts.requests()[1].response())?.status()).toBe(200)
   await expect(editor).toContainText('플러시!')
 })

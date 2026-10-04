@@ -2,6 +2,7 @@
 // OWNER 가 멤버 검색 → 추가 → POST payload({userId,role}) 검증 → 목록 반영을 확인한다.
 import type { WikiMember, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const SPACE_ID = 1
 
@@ -22,8 +23,7 @@ test('위키 멤버 — OWNER 가 멤버 검색·추가(POST payload 검증 + �
 }) => {
   // 가변 멤버 상태 — 처음엔 소유자(나)만, POST 도착 후 김편집 추가.
   const members: WikiMember[] = [{ userId: 1, name: '나', role: 'OWNER' }]
-  // POST payload 검증 통과 여부 — 라우트 핸들러가 expect 를 통과했는지 확인.
-  let addPayloadVerified = false
+  const memberAdds = trackRequests(page, 'POST', `/api/v1/wiki/spaces/${SPACE_ID}/members`)
 
   // 스페이스 목록 — TEAM 1개.
   await page.route(
@@ -60,10 +60,6 @@ test('위키 멤버 — OWNER 가 멤버 검색·추가(POST payload 검증 + �
         })
       }
       if (method === 'POST') {
-        // payload 검증 — 신규 멤버는 EDITOR 기본.
-        const payload = route.request().postDataJSON() as { userId: number; role: string }
-        expect(payload).toEqual({ userId: 2, role: 'EDITOR' })
-        addPayloadVerified = true
         members.push({ userId: 2, name: '김편집', role: 'EDITOR' })
         return route.fulfill({ status: 201, body: '' })
       }
@@ -108,8 +104,9 @@ test('위키 멤버 — OWNER 가 멤버 검색·추가(POST payload 검증 + �
   await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('김편집')
   await page.getByTestId('member-search-row-2').click()
 
-  // 4) POST 가 호출되어 payload 검증을 통과했는지 확인.
-  await expect.poll(() => addPayloadVerified).toBe(true)
+  // 4) POST payload — 신규 멤버는 EDITOR 기본.
+  await memberAdds.waitFor()
+  expect(memberAdds.lastBody()).toEqual({ userId: 2, role: 'EDITOR' })
 
   // 5) 멤버 목록 invalidate→refetch → 김편집 행이 다이얼로그에 나타난다.
   await expect(page.getByTestId('wiki-member-row-2')).toContainText('김편집')

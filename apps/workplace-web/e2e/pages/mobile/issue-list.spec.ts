@@ -5,6 +5,7 @@ import { createIssue, createIssueSearchResponse } from '../../factories/issue.fa
 import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import { expect, expectNoHorizontalOverflow, historyMarks, stubChat, test } from '../../fixtures/mobile.fixture';
+import { trackRequests } from '../../fixtures/requests';
 
 const KEY = 'WP';
 const ISSUES = `/api/v1/projects/${KEY}/issues`;
@@ -368,11 +369,12 @@ test.describe('모바일 에픽 시트', () => {
 
   test('뷰 저장 — 시트가 닫히고 다이얼로그에서 저장하면 현재 조건으로 POST, 이후 화면이 눌린다', async ({ authenticatedPage: page }) => {
     await mock(page);
-    let body: { name?: string; query?: string } | null = null;
+    type ViewBody = { name?: string; query?: string };
+    const creates = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/saved-views`);
     await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/saved-views`, (r) => {
       if (r.request().method() !== 'POST') return r.fallback();
-      body = r.request().postDataJSON();
-      return r.fulfill(json({ ...MY_BUG_VIEW, id: 9, name: body!.name, query: body!.query }));
+      const body = r.request().postDataJSON() as ViewBody;
+      return r.fulfill(json({ ...MY_BUG_VIEW, id: 9, name: body.name, query: body.query }));
     });
     await page.goto(`/projects/${KEY}?group=none&status=TODO`);
     await page.getByTestId('mobile-chip-view').click();
@@ -382,8 +384,9 @@ test.describe('모바일 에픽 시트', () => {
     await page.getByTestId('save-view-name').fill('내 할 일');
     await page.getByTestId('save-view-submit').click();
     await expect(page.getByTestId('save-view-name')).toBeHidden();
-    expect(body!.name).toBe('내 할 일');
-    expect(body!.query).toContain('status=TODO');
+    const body = creates.lastBody<ViewBody>()!;
+    expect(body.name).toBe('내 할 일');
+    expect(body.query).toContain('status=TODO');
     // 시트·다이얼로그 전환 뒤에도 body 가 잠기지 않고 화면이 눌린다.
     expect(await page.evaluate(() => document.body.style.pointerEvents)).not.toBe('none');
     await page.getByTestId('mobile-chip-filter').click();
@@ -393,13 +396,11 @@ test.describe('모바일 에픽 시트', () => {
   test('공유 뷰 업데이트 — 확인 후 PATCH 로 새 조건 저장, 이후 화면이 눌린다', async ({ authenticatedPage: page }) => {
     const shared = { ...MY_BUG_VIEW, id: 7, name: '팀 뷰', query: 'priority=HIGH&group=none', visibility: 'SHARED' };
     await mock(page, { views: [shared] });
-    let patch: { query?: string } | null = null;
-    let patchUrl = '';
+    const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/saved-views/7`);
     await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/saved-views/7`, (r) => {
       if (r.request().method() !== 'PATCH') return r.fallback();
-      patchUrl = r.request().url();
-      patch = r.request().postDataJSON();
-      return r.fulfill(json({ ...shared, query: patch!.query }));
+      const patch = r.request().postDataJSON() as { query?: string };
+      return r.fulfill(json({ ...shared, query: patch.query }));
     });
     await page.goto(`/projects/${KEY}?${shared.query}`);
     await expect(page.getByTestId('mobile-chip-view')).toHaveText('팀 뷰');
@@ -420,8 +421,8 @@ test.describe('모바일 에픽 시트', () => {
     await expect(page.getByTestId('update-view-confirm')).toBeVisible();
     await page.getByTestId('update-view-confirm').click();
     await expect(page.getByTestId('update-view-confirm')).toBeHidden();
-    expect(patchUrl).toContain('/saved-views/7');
-    expect(patch!.query).toContain('status=IN_PROGRESS');
+    expect(patches.count()).toBe(1);
+    expect(patches.lastBody<{ query?: string }>()!.query).toContain('status=IN_PROGRESS');
     expect(await page.evaluate(() => document.body.style.pointerEvents)).not.toBe('none');
     await page.getByTestId('mobile-chip-filter').click();
     await expect(page.getByTestId('mobile-filter-sheet')).toBeVisible();

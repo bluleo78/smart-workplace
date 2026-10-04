@@ -3,6 +3,7 @@ import type { Page, Route } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { measureBox } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, systemTypes } from '../../factories/issueType.factory';
@@ -76,7 +77,13 @@ test.describe('에픽 왼쪽 패널', () => {
       await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
 
       const epics = [epic(10, '결제 리뉴얼', 6, 10), epic(11, '알림 개편', 8, 10)];
-      let lastBodyIssuesUrl: URL | null = null;
+      // 본문 이슈 목록 조회(에픽 목록 조회 제외) 중 마지막 요청.
+      const bodySearches = trackRequests(
+        page,
+        'GET',
+        (u) => u.pathname === ISSUES_PATH && u.searchParams.get('type') !== String(makeEpicType().id),
+      );
+      const lastBodyIssuesUrl = () => bodySearches.lastUrl();
 
       await routeIssueSearch(page, async (route, url) => {
         if (url.searchParams.get('type') === String(makeEpicType().id)) {
@@ -87,7 +94,6 @@ test.describe('에픽 왼쪽 패널', () => {
           });
           return;
         }
-        lastBodyIssuesUrl = url;
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -113,12 +119,12 @@ test.describe('에픽 왼쪽 패널', () => {
 
       // 클릭 → parent=10 쿼리로 본문 이슈 검색.
       await page.getByTestId('epic-filter-10').click();
-      await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('parent')).toBe('10');
+      await expect.poll(() => lastBodyIssuesUrl()?.searchParams.get('parent')).toBe('10');
       await expect(page.getByTestId('epic-filter-10')).toHaveAttribute('aria-pressed', 'true');
 
       // 재클릭 → 해제.
       await page.getByTestId('epic-filter-10').click();
-      await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('parent')).toBeNull();
+      await expect.poll(() => lastBodyIssuesUrl()?.searchParams.get('parent')).toBeNull();
       await expect(page.getByTestId('epic-filter-10')).toHaveAttribute('aria-pressed', 'false');
 
       // 진행바 — 색상 단독 의존 금지(a11y): aria 값으로도 진행률 노출.
@@ -134,7 +140,12 @@ test.describe('에픽 왼쪽 패널', () => {
     await stubProjectMeta(page);
     await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
 
-    let lastBodyIssuesUrl: URL | null = null;
+    const bodySearches = trackRequests(
+      page,
+      'GET',
+      (u) => u.pathname === ISSUES_PATH && u.searchParams.get('type') !== String(makeEpicType().id),
+    );
+    const lastBodyIssuesUrl = () => bodySearches.lastUrl();
     await routeIssueSearch(page, async (route, url) => {
       if (url.searchParams.get('type') === String(makeEpicType().id)) {
         await route.fulfill({
@@ -144,7 +155,6 @@ test.describe('에픽 왼쪽 패널', () => {
         });
         return;
       }
-      lastBodyIssuesUrl = url;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -157,17 +167,17 @@ test.describe('에픽 왼쪽 패널', () => {
 
     // 클릭 → 부모 없음(topLevel) + EPIC 제외로 본문 이슈 검색. 유형 필터는 건드리지 않는다.
     await page.getByTestId('epic-filter-unassigned').click();
-    await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('topLevel')).toBe('true');
-    expect(lastBodyIssuesUrl!.searchParams.get('excludeEpics')).toBe('true');
-    expect(lastBodyIssuesUrl!.searchParams.get('type')).toBeNull();
+    await expect.poll(() => lastBodyIssuesUrl()?.searchParams.get('topLevel')).toBe('true');
+    expect(lastBodyIssuesUrl()!.searchParams.get('excludeEpics')).toBe('true');
+    expect(lastBodyIssuesUrl()!.searchParams.get('type')).toBeNull();
     await expect(page).toHaveURL(/topLevel=true/);
     await expect(page.getByTestId('epic-filter-unassigned')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('epic-filter-all')).toHaveAttribute('aria-pressed', 'false');
 
     // 재클릭 → 해제(전체 이슈 상태 복귀: 기본 범위 = 에픽 하위 노출).
     await page.getByTestId('epic-filter-unassigned').click();
-    await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('topLevel')).toBeNull();
-    expect(lastBodyIssuesUrl!.searchParams.get('excludeEpics')).toBe('true');
+    await expect.poll(() => lastBodyIssuesUrl()?.searchParams.get('topLevel')).toBeNull();
+    expect(lastBodyIssuesUrl()!.searchParams.get('excludeEpics')).toBe('true');
     await expect(page.getByTestId('epic-filter-all')).toHaveAttribute('aria-pressed', 'true');
   });
 
@@ -179,7 +189,14 @@ test.describe('에픽 왼쪽 패널', () => {
     await stubProjectMeta(page);
     await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
 
-    let lastBodyIssuesUrl: URL | null = null;
+    const bodySearches = trackRequests(
+      page,
+      'GET',
+      (u) =>
+        u.pathname === ISSUES_PATH &&
+        !(u.searchParams.get('type') === String(makeEpicType().id) && !u.searchParams.get('parent')),
+    );
+    const lastBodyIssuesUrl = () => bodySearches.lastUrl();
     await routeIssueSearch(page, async (route, url) => {
       if (url.searchParams.get('type') === String(makeEpicType().id) && !url.searchParams.get('parent')) {
         await route.fulfill({
@@ -189,7 +206,6 @@ test.describe('에픽 왼쪽 패널', () => {
         });
         return;
       }
-      lastBodyIssuesUrl = url;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -202,17 +218,17 @@ test.describe('에픽 왼쪽 패널', () => {
 
     // 1) 「에픽 미할당」 클릭 → topLevel=true.
     await page.getByTestId('epic-filter-unassigned').click();
-    await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('topLevel')).toBe('true');
+    await expect.poll(() => lastBodyIssuesUrl()?.searchParams.get('topLevel')).toBe('true');
 
     // 2) 특정 에픽 클릭 → parent=10, 미할당 해제.
     await page.getByTestId('epic-filter-10').click();
-    await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('parent')).toBe('10');
+    await expect.poll(() => lastBodyIssuesUrl()?.searchParams.get('parent')).toBe('10');
     await expect(page.getByTestId('epic-filter-unassigned')).toHaveAttribute('aria-pressed', 'false');
 
     // 3) 「전체 이슈」 클릭 → parent/topLevel 모두 해제되어야 한다(에픽 미할당으로 되돌아가면 안 됨).
     await page.getByTestId('epic-filter-all').click();
-    await expect.poll(() => lastBodyIssuesUrl?.searchParams.get('parent')).toBeNull();
-    expect(lastBodyIssuesUrl!.searchParams.get('topLevel')).toBeNull();
+    await expect.poll(() => lastBodyIssuesUrl()?.searchParams.get('parent')).toBeNull();
+    expect(lastBodyIssuesUrl()!.searchParams.get('topLevel')).toBeNull();
     await expect(page.getByTestId('epic-filter-all')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('epic-filter-unassigned')).toHaveAttribute('aria-pressed', 'false');
   });

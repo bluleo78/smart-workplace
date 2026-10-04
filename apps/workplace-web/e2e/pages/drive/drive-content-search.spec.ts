@@ -1,6 +1,7 @@
 import type { DriveContentSearchResponse } from '../../../src/api/contentSearch'
 import type { DriveSpace } from '../../../src/types/drive'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 
 /**
@@ -28,8 +29,8 @@ test('통합 검색 — 콘텐츠 일치 결과에 스니펫과 AI Overview 버�
     route.fulfill({ json: { folders: [], files: [] } }),
   )
 
-  // 콘텐츠 검색 — spaceId 쿼리 파라미터가 함께 전달되는지 캡처.
-  let capturedSpaceId = ''
+  // 콘텐츠 검색 — spaceId 쿼리 파라미터가 함께 전달되는지 확인.
+  const contentSearches = trackRequests(page, 'GET', '/api/v1/drive/search')
   const searchResponse: DriveContentSearchResponse = {
     hits: [
       {
@@ -45,10 +46,7 @@ test('통합 검색 — 콘텐츠 일치 결과에 스니펫과 AI Overview 버�
     ],
     semantic: true,
   }
-  await page.route('**/api/v1/drive/search?*', (route) => {
-    capturedSpaceId = new URL(route.request().url()).searchParams.get('spaceId') ?? ''
-    return route.fulfill({ json: searchResponse })
-  })
+  await page.route('**/api/v1/drive/search?*', (route) => route.fulfill({ json: searchResponse }))
 
   await page.goto('/drive')
   await page.waitForURL(/drive\/spaces\/\d+/)
@@ -65,7 +63,7 @@ test('통합 검색 — 콘텐츠 일치 결과에 스니펫과 AI Overview 버�
   await expect(page.getByTestId('drive-content-hit').getByText('내 드라이브', { exact: true })).toBeVisible() // 스페이스 뱃지
 
   // spaceId 가 현재 공간으로 전달됨 — 콘텐츠 검색도 공간 스코프로 통일.
-  expect(capturedSpaceId).toBe(String(SPACE_ID))
+  expect(contentSearches.lastUrl()?.searchParams.get('spaceId')).toBe(String(SPACE_ID))
 
   // 풀페이지이므로 AI Overview 버튼이 노출된다.
   await expect(page.getByTestId('drive-overview-btn')).toBeVisible()
@@ -85,11 +83,8 @@ test('검색어 2자 미만은 검색을 실행하지 않는다', async ({ authe
     route.fulfill({ json: { usedBytes: 0, quotaBytes: 10737418240 } }),
   )
 
-  let searchCalled = false
-  await page.route('**/api/v1/drive/search?*', (route) => {
-    searchCalled = true
-    return route.fulfill({ json: { hits: [], semantic: false } })
-  })
+  const contentSearches = trackRequests(page, 'GET', '/api/v1/drive/search')
+  await page.route('**/api/v1/drive/search?*', (route) => route.fulfill({ json: { hits: [], semantic: false } }))
 
   // 검색 디바운스(300ms)를 가상 시계로 넘긴다
   await page.clock.install()
@@ -99,7 +94,7 @@ test('검색어 2자 미만은 검색을 실행하지 않는다', async ({ authe
   await page.getByLabel('파일명 및 콘텐츠 검색').fill('a')
   // 디바운스를 넘긴 뒤 요청이 route 에 닿을 짧은 실시간 여유만 둔다.
   await page.clock.runFor(400)
-  await expectStays(page, () => searchCalled, false, { ms: 200 })
+  await expectStays(page, contentSearches.count, 0, { ms: 200 })
   await expect(page.getByTestId('search-results')).toHaveCount(0)
 })
 

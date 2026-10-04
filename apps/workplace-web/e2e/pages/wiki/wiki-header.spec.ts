@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { measureBox } from '../../fixtures/wait'
 
 const SPACE_ID = 1
@@ -33,8 +34,8 @@ function detail(id: number, title: string): WikiPageDetail {
   }
 }
 
-// 공통 모킹 — 스페이스/트리/백링크/멘션 + 페이지 GET·DELETE. onDelete 로 삭제 호출을 관찰한다.
-async function setupRoutes(page: Page, onDelete?: () => void) {
+// 공통 모킹 — 스페이스/트리/백링크/멘션 + 페이지 GET·DELETE.
+async function setupRoutes(page: Page) {
   await page.route('**/api/v1/wiki/spaces', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([space]) }),
   )
@@ -48,11 +49,8 @@ async function setupRoutes(page: Page, onDelete?: () => void) {
     r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   )
   await page.route('**/api/v1/wiki/pages/*', (r) => {
-    // DELETE → 호출 관찰 후 204. 그 외(GET 등) → 페이지 상세.
-    if (r.request().method() === 'DELETE') {
-      onDelete?.()
-      return r.fulfill({ status: 204, body: '' })
-    }
+    // DELETE → 204. 그 외(GET 등) → 페이지 상세.
+    if (r.request().method() === 'DELETE') return r.fulfill({ status: 204, body: '' })
     const id = Number(new URL(r.request().url()).pathname.split('/').pop())
     return r.fulfill({
       status: 200,
@@ -81,10 +79,8 @@ test(
 test('노트 헤더 — ⋯ 메뉴 → 페이지 삭제 확인 → DELETE 호출 + 스페이스 루트로 이동', async ({
   authenticatedPage: page,
 }) => {
-  let deleteCalled = false
-  await setupRoutes(page, () => {
-    deleteCalled = true
-  })
+  const deletes = trackRequests(page, 'DELETE', /^\/api\/v1\/wiki\/pages\/[^/]+$/)
+  await setupRoutes(page)
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/2`)
   // 헤더 ⋯ 메뉴 → 페이지 삭제 → 확인 다이얼로그.
@@ -97,7 +93,7 @@ test('노트 헤더 — ⋯ 메뉴 → 페이지 삭제 확인 → DELETE 호출
     .getByRole('button', { name: '삭제', exact: true })
     .click()
 
-  await expect.poll(() => deleteCalled).toBe(true)
+  await deletes.waitFor()
   await expect(page).toHaveURL(/\/wiki\/spaces\/1$/)
 })
 

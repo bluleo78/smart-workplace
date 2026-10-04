@@ -12,6 +12,7 @@ import {
   createMessage,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 // auth.fixture 의 createUser() 기본 id = 1 → "본인" 메시지 판정 기준.
 const ME_ID = 1
@@ -147,13 +148,12 @@ test.describe('@smoke messaging phase7 AI 멤버', () => {
       )
 
       // POST messages — <@AGENT_ID> 토큰이 body 에 포함돼야 한다.
-      let postedBody: string | undefined
+      const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
         (route) => {
           if (route.request().method() !== 'POST') return route.fallback()
           const payload = route.request().postDataJSON() as { body: string }
-          postedBody = payload.body
           return route.fulfill({
             status: 201,
             contentType: 'application/json',
@@ -192,7 +192,7 @@ test.describe('@smoke messaging phase7 AI 멤버', () => {
       await page.getByTestId('message-composer-submit').click()
 
       // POST body 에 <@AGENT_ID> 가 포함됐는지 검증.
-      await expect.poll(() => postedBody).toContain(`<@${AGENT_ID}>`)
+      await expect.poll(() => posts.lastBody<{ body: string }>()?.body).toContain(`<@${AGENT_ID}>`)
     },
   )
 })

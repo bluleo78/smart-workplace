@@ -5,8 +5,17 @@ import type { Page } from '@playwright/test';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { bodyOf, type RequestTracker, trackRequests } from '../../fixtures/requests';
 
 const KEY = 'WP';
+
+/** tracker 가 기록한 요청을 경로의 이슈 번호 + 본문으로 펼친다. */
+function withIssueNumber(tracker: RequestTracker) {
+  return tracker.requests().map((r) => ({
+    number: Number(new URL(r.url()).pathname.match(/issues\/(\d+)/)?.[1]),
+    body: bodyOf(r),
+  }));
+}
 
 async function mock(page: Page, issues: ReturnType<typeof createIssue>[]) {
   await page.route(`**/api/v1/projects/${KEY}`, (route) =>
@@ -82,13 +91,12 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
       createIssue({ id: 2, number: 8, title: '이슈B', status: 'TODO' }),
     ]);
 
-    const statusBodies: { number: number; body: unknown }[] = [];
+    const statusPatches = trackRequests(page, 'PATCH', /\/api\/v1\/projects\/WP\/issues\/(7|8)\/status$/);
     await page.route(
       (url) => /\/api\/v1\/projects\/WP\/issues\/(7|8)\/status$/.test(url.pathname),
       async (route) => {
         if (route.request().method() !== 'PATCH') return route.fallback();
         const number = Number(route.request().url().match(/issues\/(\d+)\/status/)?.[1]);
-        statusBodies.push({ number, body: route.request().postDataJSON() });
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -105,7 +113,8 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
     await page.getByTestId('bulk-status-trigger').click();
     await page.getByTestId('bulk-status-option-DONE').click();
 
-    await expect.poll(() => statusBodies.length).toBe(2);
+    await expect.poll(statusPatches.count).toBe(2);
+    const statusBodies = withIssueNumber(statusPatches);
     expect(statusBodies).toContainEqual({ number: 7, body: { status: 'DONE' } });
     expect(statusBodies).toContainEqual({ number: 8, body: { status: 'DONE' } });
 
@@ -167,13 +176,11 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
       createIssue({ id: 2, number: 8, title: '이슈B' }),
     ]);
 
-    const assigneeBodies: { number: number; body: unknown }[] = [];
+    const assigneePuts = trackRequests(page, 'PUT', /\/api\/v1\/projects\/WP\/issues\/(7|8)\/assignees$/);
     await page.route(
       (url) => /\/api\/v1\/projects\/WP\/issues\/(7|8)\/assignees$/.test(url.pathname),
       async (route) => {
         if (route.request().method() !== 'PUT') return route.fallback();
-        const number = Number(route.request().url().match(/issues\/(\d+)\/assignees/)?.[1]);
-        assigneeBodies.push({ number, body: route.request().postDataJSON() });
         return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
       },
     );
@@ -186,7 +193,8 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
     await page.getByTestId('bulk-assignee-trigger').click();
     await page.getByTestId('bulk-assignee-option-2').click();
 
-    await expect.poll(() => assigneeBodies.length).toBe(2);
+    await expect.poll(assigneePuts.count).toBe(2);
+    const assigneeBodies = withIssueNumber(assigneePuts);
     expect(assigneeBodies).toContainEqual({ number: 7, body: { userIds: [2] } });
     expect(assigneeBodies).toContainEqual({ number: 8, body: { userIds: [2] } });
   });
@@ -197,13 +205,11 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
       createIssue({ id: 2, number: 8, title: '이슈B' }),
     ]);
 
-    const deletedNumbers: number[] = [];
+    const deletes = trackRequests(page, 'DELETE', /\/api\/v1\/projects\/WP\/issues\/(7|8)$/);
     await page.route(
       (url) => /\/api\/v1\/projects\/WP\/issues\/(7|8)$/.test(url.pathname),
       async (route) => {
         if (route.request().method() !== 'DELETE') return route.fallback();
-        const number = Number(route.request().url().match(/issues\/(\d+)$/)?.[1]);
-        deletedNumbers.push(number);
         return route.fulfill({ status: 204, body: '' });
       },
     );
@@ -218,7 +224,7 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
     await expect(page.getByTestId('issue-bulk-delete-dialog')).toBeVisible();
     await page.getByTestId('issue-bulk-delete-confirm').click();
 
-    await expect.poll(() => deletedNumbers.sort()).toEqual([7, 8]);
+    await expect.poll(() => withIssueNumber(deletes).map((d) => d.number).sort()).toEqual([7, 8]);
   });
 
   // #716 — 체크박스 토글 1회에 클릭 대상 외 행까지 전부 리렌더(React.memo 부재)되던 회귀 방지.

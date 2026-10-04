@@ -6,7 +6,7 @@ import { mockWikiNoSpaces } from '../../fixtures/wiki-mock'
 const NEW_SPACE_ID = 5
 
 test('노트: 공간이 없으면 빈 선택 상자 대신 빈 상태가 보이고, [공간 만들기]로 만든 공간으로 이동한다', async ({ authenticatedPage: page }) => {
-  const state = await mockWikiNoSpaces(page, NEW_SPACE_ID)
+  const posts = await mockWikiNoSpaces(page, NEW_SPACE_ID)
   await page.goto('/wiki')
 
   const empty = page.getByTestId('wiki-no-spaces')
@@ -27,7 +27,7 @@ test('노트: 공간이 없으면 빈 선택 상자 대신 빈 상태가 보이�
   await expect(page.getByTestId('wiki-space-create-dialog')).toBeVisible()
   await page.getByTestId('wiki-space-create-input').fill('제품팀 노트')
   await page.getByTestId('wiki-space-create-confirm').tap()
-  await expect.poll(() => state.postBody).toEqual({ name: '제품팀 노트' })
+  await expect.poll(() => posts.lastBody()).toEqual({ name: '제품팀 노트' })
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${NEW_SPACE_ID}$`))
   await expect(page.getByTestId('wiki-no-spaces')).toHaveCount(0)
 })

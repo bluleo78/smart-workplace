@@ -4,6 +4,7 @@
 // #136: window.confirm → AlertDialog 교체 검증 포함.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 
 // 단일 AGENT + API 키가 존재하는 상태를 셋업한다 — AlertDialog 경로 테스트용.
 const AGENT_ID = 100;
@@ -47,8 +48,8 @@ const KEYS_FIXTURE: AgentKeyFixture[] = [
 async function setupStatic(page: import('@playwright/test').Page) {
   // agents 목록 + 단건 키 미리 로드 (immutable fixture).
   let keys: AgentKeyFixture[] = [...KEYS_FIXTURE];
-  let deleteCount = 0;
-  let revokeCount = 0;
+  const deletes = trackRequests(page, 'DELETE', /^\/api\/v1\/admin\/agents\/\d+$/);
+  const revokes = trackRequests(page, 'DELETE', /^\/api\/v1\/admin\/agents\/\d+\/keys\/\d+$/);
 
   // includePersonal 기본값이 true 로 바뀌어 목록 조회가 항상 쿼리스트링을 동반하므로
   // 경로만 매칭(쿼리 유무 무관)하도록 정규식을 완화한다.
@@ -64,7 +65,6 @@ async function setupStatic(page: import('@playwright/test').Page) {
   });
   await page.route(/\/api\/v1\/admin\/agents\/\d+$/, (route) => {
     if (route.request().method() === 'DELETE') {
-      deleteCount += 1;
       return route.fulfill({ status: 204, body: '' });
     }
     return route.fallback();
@@ -81,7 +81,6 @@ async function setupStatic(page: import('@playwright/test').Page) {
   });
   await page.route(/\/api\/v1\/admin\/agents\/\d+\/keys\/\d+$/, (route) => {
     if (route.request().method() === 'DELETE') {
-      revokeCount += 1;
       keys = keys.map((k) =>
         k.id === KEY_ID ? { ...k, revokedAt: new Date().toISOString() } : k,
       );
@@ -118,7 +117,7 @@ async function setupStatic(page: import('@playwright/test').Page) {
     return route.fallback();
   });
 
-  return { getDeleteCount: () => deleteCount, getRevokeCount: () => revokeCount };
+  return { deletes, revokes };
 }
 
 test.describe('/admin/agents', () => {
@@ -359,7 +358,7 @@ test.describe('/admin/agents', () => {
     await page.getByTestId('agent-confirm-cancel').click();
     await expect(page.getByTestId('agent-confirm-dialog')).not.toBeVisible();
 
-    expect(counts.getRevokeCount()).toBe(0);
+    expect(counts.revokes.count()).toBe(0);
     await expect(revokeBtn).toBeVisible();
   });
 
@@ -375,7 +374,7 @@ test.describe('/admin/agents', () => {
     await expect(page.getByTestId('agent-confirm-dialog')).toBeVisible();
     await page.getByTestId('agent-confirm-confirm').click();
 
-    expect(counts.getDeleteCount()).toBe(1);
+    await expect.poll(counts.deletes.count).toBe(1);
   });
 
   // #136: AGENT 삭제 AlertDialog 취소 → DELETE 없음.
@@ -391,18 +390,17 @@ test.describe('/admin/agents', () => {
     await page.getByTestId('agent-confirm-cancel').click();
     await expect(page.getByTestId('agent-confirm-dialog')).not.toBeVisible();
 
-    expect(counts.getDeleteCount()).toBe(0);
+    expect(counts.deletes.count()).toBe(0);
     await expect(deleteBtn).toBeVisible();
   });
 
   // 에이전트 이름/아이디 변경 → PUT payload 검증 + 성공 토스트.
   test('에이전트 이름·아이디 변경 → PUT payload + 성공 토스트', async ({ adminPage: page }) => {
     await setupStatic(page);
-    // PUT 캡처 — setupStatic 의 DELETE 핸들러보다 나중에 등록해 PUT 을 가로채고, 그 외는 fallback.
-    let putBody: { username?: string; name?: string } | null = null;
+    // PUT 응답 — setupStatic 의 DELETE 핸들러보다 나중에 등록해 PUT 을 가로채고, 그 외는 fallback.
+    const puts = trackRequests(page, 'PUT', /^\/api\/v1\/admin\/agents\/\d+$/);
     await page.route(/\/api\/v1\/admin\/agents\/\d+$/, (route) => {
       if (route.request().method() === 'PUT') {
-        putBody = route.request().postDataJSON();
         return route.fulfill({ status: 204, body: '' });
       }
       return route.fallback();
@@ -418,6 +416,6 @@ test.describe('/admin/agents', () => {
     await page.getByTestId('agent-identity-save').click();
 
     await expect(page.getByText('에이전트를 변경했습니다')).toBeVisible();
-    expect(putBody).toEqual({ username: 'claude_bot_v2', name: 'Claude 봇 v2' });
+    expect(puts.lastBody()).toEqual({ username: 'claude_bot_v2', name: 'Claude 봇 v2' });
   });
 });

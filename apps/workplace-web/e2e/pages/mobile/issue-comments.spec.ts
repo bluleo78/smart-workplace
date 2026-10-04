@@ -8,6 +8,7 @@ import { makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import { json } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
+import { bodyOf, trackRequests } from '../../fixtures/requests';
 
 const KEY = 'WP';
 const BASE = `/api/v1/projects/${KEY}/issues/7`;
@@ -17,8 +18,15 @@ const ME_ID = 1; // auth fixture 의 기본 사용자
 /** 이슈 7 상세 + 코멘트 API 스텁. 코멘트 상태는 서버처럼 PATCH/DELETE 로 갱신하고 호출을 기록한다. */
 async function setup(page: Page, initial: IssueCommentResponse[]) {
   let comments = [...initial];
-  const patches: { id: number; body: string }[] = [];
-  const deletes: number[] = [];
+  const COMMENT = /^\/api\/v1\/issues\/\d+\/comments\/\d+$/;
+  const commentIdOf = (url: URL) => Number(url.pathname.split('/').pop());
+  const patchReqs = trackRequests(page, 'PATCH', COMMENT);
+  const deleteReqs = trackRequests(page, 'DELETE', COMMENT);
+  const patches = () => patchReqs.requests().map((req) => ({
+    id: commentIdOf(new URL(req.url())),
+    body: (bodyOf(req) as { body: string }).body,
+  }));
+  const deletes = () => deleteReqs.urls().map(commentIdOf);
   const issue = createIssue({ id: ISSUE_ID, number: 7, projectKey: KEY, type: makeTaskType(), title: '코멘트 액션 이슈' });
   await stubChat(page);
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY }))));
@@ -31,16 +39,14 @@ async function setup(page: Page, initial: IssueCommentResponse[]) {
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/labels`, (r) => r.fulfill(json([])));
   await page.route((u) => u.pathname === '/api/v1/drive/spaces', (r) => r.fulfill(json([{ id: 1, type: 'PERSONAL', name: '내 드라이브' }])));
   await page.route((u) => u.pathname === `/api/v1/issues/${ISSUE_ID}/comments`, (r) => r.fulfill(json(comments)));
-  await page.route((u) => /\/api\/v1\/issues\/\d+\/comments\/\d+$/.test(u.pathname), (r) => {
-    const id = Number(new URL(r.request().url()).pathname.split('/').pop());
+  await page.route((u) => COMMENT.test(u.pathname), (r) => {
+    const id = commentIdOf(new URL(r.request().url()));
     if (r.request().method() === 'PATCH') {
       const { body } = r.request().postDataJSON() as { body: string };
-      patches.push({ id, body });
       comments = comments.map((c) => (c.id === id ? { ...c, body } : c));
       return r.fulfill(json(comments.find((c) => c.id === id)));
     }
     if (r.request().method() === 'DELETE') {
-      deletes.push(id);
       comments = comments.filter((c) => c.id !== id);
       return r.fulfill({ status: 204 });
     }
@@ -73,7 +79,7 @@ test('내 코멘트 — ⋯ 는 44px 이상 · 수정 → 저장 → PATCH 와 �
   await page.keyboard.press('ControlOrMeta+a');
   await page.keyboard.type('수정한 코멘트');
   await page.getByTestId('issue-comment-edit-save').click();
-  await expect.poll(() => patches).toEqual([{ id: 10, body: '수정한 코멘트' }]);
+  await expect.poll(patches).toEqual([{ id: 10, body: '수정한 코멘트' }]);
   await expect(page.getByText('수정한 코멘트')).toBeVisible();
   await expect(page.getByTestId('issue-comment-edit-input')).toBeHidden();
 });
@@ -89,7 +95,7 @@ test('내 코멘트 — 삭제는 확인창에서 취소하면 유지, 확인하
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: '취소' }).click();
   await expect(dialog).toBeHidden();
-  expect(deletes).toHaveLength(0);
+  expect(deletes()).toHaveLength(0);
   await expect(page.getByText('내 코멘트 원본')).toBeVisible();
 
   await page.getByTestId('issue-comment-more-10').click();
@@ -98,7 +104,7 @@ test('내 코멘트 — 삭제는 확인창에서 취소하면 유지, 확인하
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: '삭제' }).click();
   await expect(dialog).toBeHidden();
-  await expect.poll(() => deletes).toEqual([10]);
+  await expect.poll(deletes).toEqual([10]);
   await expect(page.getByText('내 코멘트 원본')).toBeHidden();
 });
 

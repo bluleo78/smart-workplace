@@ -3,6 +3,7 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createChannel, createDm, createMessage } from '../../factories/messaging.factory';
+import { trackRequests } from '../../fixtures/requests';
 
 const DM_ID = 100;
 
@@ -138,12 +139,11 @@ test.describe('DM 캐치업 카드', () => {
       (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/catchup`,
       (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SAMPLE_CATCHUP) }),
     );
-    let readUpto = -1;
+    const reads = trackRequests(page, 'POST', `/api/v1/messaging/channels/${DM_ID}/read`);
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/read`,
       (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
-        readUpto = (route.request().postDataJSON() as { uptoMessageId: number }).uptoMessageId;
         return route.fulfill({ status: 204 });
       },
     );
@@ -152,6 +152,6 @@ test.describe('DM 캐치업 카드', () => {
     await expect(page.getByTestId('catchup-confirm')).toBeVisible();
     await page.getByTestId('catchup-confirm').click();
     await expect(page.getByTestId('catchup-card')).toHaveCount(0);
-    await expect.poll(() => readUpto).toBe(106);
+    await expect.poll(() => reads.lastBody<{ uptoMessageId: number }>()?.uptoMessageId).toBe(106);
   });
 });

@@ -3,16 +3,17 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createChannel, createMessage } from '../../factories/messaging.factory';
+import { trackRequests } from '../../fixtures/requests';
+import { expectStays } from '../../fixtures/wait';
 
 const CHANNEL_ID = 1;
 // auth.fixture.ts 의 createUser() 기본 id = 1
 const ME_ID = 1;
 
-// 빈 히스토리 GET + 전송 POST 스텁 — POST payload 를 onPost 로 넘기고 messageId 로 확정 응답한다.
+// 빈 히스토리 GET + 전송 POST 스텁 — messageId 로 확정 응답한다.
 async function stubEmptyHistoryWithPost(
   page: import('@playwright/test').Page,
   messageId: number,
-  onPost: (payload: { body: string }) => void,
 ) {
   await page.route(
     (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
@@ -25,7 +26,6 @@ async function stubEmptyHistoryWithPost(
         });
       }
       const payload = route.request().postDataJSON() as { body: string };
-      onPost(payload);
       return route.fulfill({
         status: 201,
         contentType: 'application/json',
@@ -153,8 +153,8 @@ test.describe('messaging 채팅 E2E', () => {
     const channel = createChannel({ id: CHANNEL_ID, member: true });
 
     await setupChannelStubs(page, [channel], `:\n\n`);
-    // POST payload 검증 후 201 확정 응답
-    await stubEmptyHistoryWithPost(page, 500, (payload) => expect(payload).toEqual({ body: '보낼 메시지' }));
+    const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`);
+    await stubEmptyHistoryWithPost(page, 500);
 
     await page.goto(`/chat/channels/${CHANNEL_ID}`);
 
@@ -166,6 +166,7 @@ test.describe('messaging 채팅 E2E', () => {
     // 서버 확정 메시지 id 500 이 정확히 1개 렌더되어야 함
     await expect(page.getByTestId('message-body-500')).toHaveText('보낼 메시지');
     await expect(page.getByTestId('message-body-500')).toHaveCount(1);
+    expect(posts.bodies()).toEqual([{ body: '보낼 메시지' }]);
   });
 
   // 팀 채팅도 이슈 채팅(#357)과 같은 RichInput — Shift+Enter 는 줄바꿈, Enter 는 전송이어야 한다.
@@ -174,9 +175,8 @@ test.describe('messaging 채팅 E2E', () => {
   }) => {
     const channel = createChannel({ id: CHANNEL_ID, member: true });
     await setupChannelStubs(page, [channel], `:\n\n`);
-    // POST body 수집 — 줄바꿈 보존 여부를 단언한다.
-    const bodies: string[] = [];
-    await stubEmptyHistoryWithPost(page, 501, (payload) => bodies.push(payload.body));
+    const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`);
+    await stubEmptyHistoryWithPost(page, 501);
 
     await page.goto(`/chat/channels/${CHANNEL_ID}`);
     await page.getByTestId('message-composer-input').click();
@@ -186,7 +186,7 @@ test.describe('messaging 채팅 E2E', () => {
     await page.keyboard.press('Enter');
 
     // 정확히 1건·두 줄 본문 — Shift+Enter 가 전송했다면 '첫 줄' 이 별도 건으로 먼저 들어와 실패한다.
-    await expect.poll(() => bodies).toEqual(['첫 줄\n둘째 줄']);
+    await expect.poll(() => posts.bodies<{ body: string }>().map((b) => b.body)).toEqual(['첫 줄\n둘째 줄']);
   });
 });
 
@@ -227,13 +227,11 @@ test.describe('MessageComposer 4000자 한도 검증', () => {
   }) => {
     await setupForLimit(page);
 
-    // POST 가 발생하면 실패로 기록한다.
-    let postFired = false;
+    const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`);
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
       (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
-        postFired = true;
         return route.fulfill({ status: 400 });
       },
     );
@@ -249,7 +247,7 @@ test.describe('MessageComposer 4000자 한도 검증', () => {
 
     // Enter 키로 전송 시도해도 POST 가 발생하지 않아야 한다.
     await page.getByTestId('message-composer-input').press('Enter');
-    expect(postFired).toBe(false);
+    await expectStays(page, posts.count, 0);
   });
 
   test('4000자 이하 → 전송 버튼 활성화 + POST 정상 발송', async ({
@@ -257,13 +255,12 @@ test.describe('MessageComposer 4000자 한도 검증', () => {
   }) => {
     await setupForLimit(page);
 
-    let capturedBody: string | null = null;
+    const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`);
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
       (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
         const payload = route.request().postDataJSON() as { body: string };
-        capturedBody = payload.body;
         const saved = createMessage({
           id: 501,
           channelId: CHANNEL_ID,
@@ -286,7 +283,7 @@ test.describe('MessageComposer 4000자 한도 검증', () => {
     // Enter 전송 → POST payload 에 4000자가 그대로 담겨야 한다.
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('message-body-501')).toBeVisible();
-    expect(capturedBody).toHaveLength(4000);
+    expect(posts.lastBody<{ body: string }>()?.body).toHaveLength(4000);
   });
 });
 

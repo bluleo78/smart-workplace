@@ -8,6 +8,7 @@ import {
   createThreadInboxItem,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const ME_ID = 1
 
@@ -128,11 +129,10 @@ test(
     await stubReplies(page, ROOT_ID, [
       createMessage({ id: 9600, channelId: CHANNEL_ID, parentMessageId: ROOT_ID, body: '새 답글' }),
     ])
-    let threadReadCalled = false
+    const threadReads = trackRequests(page, 'ANY', `/api/v1/messaging/messages/${ROOT_ID}/thread/read`)
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/messages/${ROOT_ID}/thread/read`,
       (route) => {
-        threadReadCalled = true
         // 읽음 후 인박스는 비고 카운트 0 → 이후 refetch 가 빈 목록/0 을 받는다.
         inboxRef.items = []
         inboxCount = 0
@@ -155,7 +155,7 @@ test(
     await card.click()
     await expect(page.getByTestId('thread-panel')).toBeVisible()
     await expect(page.getByTestId('message-9600')).toBeVisible()
-    await expect.poll(() => threadReadCalled).toBe(true)
+    await threadReads.waitFor()
 
     // 읽음 처리 → invalidation 으로 인박스 카드 제거 + 뱃지 사라짐(핵심 UX).
     await page.getByTestId('sidebar-threads-link').click()

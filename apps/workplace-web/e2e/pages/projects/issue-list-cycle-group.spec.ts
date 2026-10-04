@@ -9,6 +9,7 @@ import type { SavedViewResponse } from '../../../src/types/savedView';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 
 const KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${KEY}/issues`;
@@ -67,11 +68,11 @@ interface SetupOptions {
   savedViews?: SavedViewResponse[];
 }
 
-/** 공통 목 — 이슈 검색 요청 파라미터를 순서대로 기록해 돌려준다. */
+/** 공통 목 — 이슈 검색 요청 파라미터(보낸 순서)를 읽는 함수를 돌려준다. */
 async function setup(page: Page, { cycles = CYCLES, savedViews = [] }: SetupOptions = {}) {
   // 로컬 날짜 고정(D-N 계산) — setFixedTime 은 타이머를 멈추지 않아 debounce·observer 가 그대로 돈다.
   await page.clock.setFixedTime(new Date(2026, 8, 30, 10, 0));
-  const requests: URLSearchParams[] = [];
+  const searches = trackRequests(page, 'GET', ISSUES_PATH);
   const views = [...savedViews];
 
   await page.route(`**/api/v1/projects/${KEY}`, (route) =>
@@ -117,7 +118,6 @@ async function setup(page: Page, { cycles = CYCLES, savedViews = [] }: SetupOpti
     (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
       const params = new URL(route.request().url()).searchParams;
-      requests.push(params);
       const cycleParam = params.get('cycle');
       const items = cycleParam == null ? FLAT_ISSUES : (ISSUES_BY_CYCLE[cycleParam] ?? []);
       return route.fulfill({
@@ -127,7 +127,7 @@ async function setup(page: Page, { cycles = CYCLES, savedViews = [] }: SetupOpti
       });
     },
   );
-  return requests;
+  return () => searches.urls().map((u) => u.searchParams);
 }
 
 const section = (page: Page, key: string) => page.getByTestId(`list-cycle-section-${key}`);
@@ -184,7 +184,7 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
       await expect(page.getByTestId('list-cycle-remaining-cycle-1')).toHaveAttribute('aria-label', '종료까지 3일');
 
       // 평면 목록 요청(cycle 파라미터 없음)은 나가지 않는다.
-      expect(requests.every((p) => p.has('cycle'))).toBe(true);
+      expect(requests().every((p) => p.has('cycle'))).toBe(true);
       // 그룹 메뉴 표시도 사이클.
       await expect(page.getByTestId('group-by-trigger')).toHaveText('사이클');
     },
@@ -197,13 +197,13 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await page.goto(`/projects/${KEY}`);
     await expect(section(page, 'backlog').getByTestId('issue-row-41')).toBeVisible();
 
-    const backlog = requests.find((p) => p.get('cycle') === 'null');
+    const backlog = requests().find((p) => p.get('cycle') === 'null');
     expect(backlog?.get('hideInactiveClosed')).toBe('true');
     expect(backlog?.get('excludeEpics')).toBe('true');
     expect(backlog?.get('excludeSubtasks')).toBe('true');
     expect(backlog?.get('status')).toBeNull();
 
-    const active = requests.find((p) => p.get('cycle') === '1');
+    const active = requests().find((p) => p.get('cycle') === '1');
     expect(active?.get('hideInactiveClosed')).toBeNull();
     expect(active?.get('excludeEpics')).toBe('true');
     expect(active?.get('excludeSubtasks')).toBe('true');
@@ -213,7 +213,7 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     const requests = await setup(page);
     await page.goto(`/projects/${KEY}?closed=all`);
     await expect(section(page, 'backlog').getByTestId('issue-row-41')).toBeVisible();
-    const backlog = requests.find((p) => p.get('cycle') === 'null');
+    const backlog = requests().find((p) => p.get('cycle') === 'null');
     expect(backlog?.get('hideInactiveClosed')).toBeNull();
   });
 
@@ -223,9 +223,9 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await expect(section(page, 'backlog').getByTestId('issue-row-41')).toBeVisible();
     await expect(section(page, 'cycle-1').getByTestId('issue-row-11')).toBeVisible();
 
-    const cycleParams = requests.map((p) => p.get('cycle'));
+    const cycleParams = requests().map((p) => p.get('cycle'));
     expect(cycleParams).toEqual(expect.arrayContaining(['1', '2', 'null']));
-    for (const p of requests) {
+    for (const p of requests()) {
       expect(p.get('assignee')).toBe('10');
       expect(p.get('q')).toBe('결제');
     }
@@ -235,7 +235,7 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     const requests = await setup(page);
     await page.goto(`/projects/${KEY}`);
     await expect(section(page, 'backlog').getByTestId('issue-row-41')).toBeVisible();
-    expect(requests.some((p) => p.get('cycle') === '3')).toBe(false);
+    expect(requests().some((p) => p.get('cycle') === '3')).toBe(false);
 
     const req = page.waitForRequest(
       (r) => r.url().includes(ISSUES_PATH) && new URL(r.url()).searchParams.get('cycle') === '3',
@@ -262,7 +262,7 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await expect(section(page, 'cycle-3').getByTestId('issue-row-31')).toBeVisible();
     await expect(page.locator('[data-testid^="list-cycle-section-"]')).toHaveCount(1);
     await expect(section(page, 'backlog')).toHaveCount(0);
-    expect(requests.map((p) => p.get('cycle'))).toEqual(['3']);
+    expect(requests().map((p) => p.get('cycle'))).toEqual(['3']);
   });
 
   test('사이클 없는 프로젝트(완료 사이클만 포함)는 평면 목록', async ({ authenticatedPage: page }) => {
@@ -270,7 +270,7 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await page.goto(`/projects/${KEY}`);
     await expect(page.getByTestId('issue-row-90')).toBeVisible();
     await expect(page.locator('[data-testid^="list-cycle-section-"]')).toHaveCount(0);
-    expect(requests.every((p) => !p.has('cycle'))).toBe(true);
+    expect(requests().every((p) => !p.has('cycle'))).toBe(true);
     await expect(page.getByTestId('group-by-trigger')).toHaveText('없음');
   });
 
@@ -340,13 +340,12 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     authenticatedPage: page,
   }) => {
     await setup(page);
-    const statusBodies: { number: number; body: unknown }[] = [];
+    const statusPatches = trackRequests(page, 'PATCH', /\/api\/v1\/projects\/WP\/issues\/\d+\/status$/);
     await page.route(
       (url) => /\/api\/v1\/projects\/WP\/issues\/\d+\/status$/.test(url.pathname),
       async (route) => {
         if (route.request().method() !== 'PATCH') return route.fallback();
         const number = Number(route.request().url().match(/issues\/(\d+)\/status/)?.[1]);
-        statusBodies.push({ number, body: route.request().postDataJSON() });
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -355,10 +354,7 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
       },
     );
     // 진행률 재조회 카운트 — 일괄 작업 후 구간 헤더 진행률도 갱신돼야 한다.
-    let progressGets = 0;
-    page.on('request', (r) => {
-      if (r.method() === 'GET' && new URL(r.url()).pathname === `/api/v1/projects/${KEY}/cycles/progress`) progressGets++;
-    });
+    const progressGets = trackRequests(page, 'GET', `/api/v1/projects/${KEY}/cycles/progress`);
     await page.goto(`/projects/${KEY}`);
 
     const inActive = section(page, 'cycle-1').getByTestId('select-issue-11');
@@ -378,12 +374,12 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     // 체크박스 클릭이 상세 이동을 일으키지 않는다.
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));
 
-    const progressBefore = progressGets;
+    const progressBefore = progressGets.count();
     await page.getByTestId('bulk-status-trigger').click();
     await page.getByTestId('bulk-status-option-DONE').click();
-    await expect.poll(() => statusBodies.map((b) => b.number).sort()).toEqual([11, 21, 41]);
+    await expect.poll(() => statusPatches.urls().map((u) => Number(u.pathname.match(/issues\/(\d+)\/status/)?.[1])).sort()).toEqual([11, 21, 41]);
     await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
-    await expect.poll(() => progressGets).toBeGreaterThan(progressBefore);
+    await progressGets.waitFor(progressBefore + 1);
   });
 
   test('로딩 중엔 평면 목록을 띄우지 않고 스켈레톤을 보인다', async ({ authenticatedPage: page }) => {
@@ -400,7 +396,7 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await expect(page.getByTestId('issue-row-90')).toHaveCount(0);
     release();
     await expect(section(page, 'backlog')).toBeVisible();
-    expect(requests.every((p) => p.has('cycle'))).toBe(true);
+    expect(requests().every((p) => p.has('cycle'))).toBe(true);
   });
   test('백로그 = 진행 중·예정 사이클 밖 — 완료 사이클에만 속한 미완료 이슈도 백로그 요청(cycle=null)으로 뜬다', async ({
     authenticatedPage: page,
@@ -422,7 +418,7 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await expect(section(page, 'backlog').getByTestId('issue-row-52')).toContainText('끝난 스프린트에서 넘어온 작업');
     // 완료 사이클 구간은 여전히 없다.
     await expect(section(page, 'cycle-5')).toHaveCount(0);
-    expect(requests.some((p) => p.get('cycle') === '5')).toBe(false);
+    expect(requests().some((p) => p.get('cycle') === '5')).toBe(false);
   });
 
   test('빈 백로그 문구는 새 정의(진행 중·예정 사이클 밖)를 따른다', async ({ authenticatedPage: page }) => {

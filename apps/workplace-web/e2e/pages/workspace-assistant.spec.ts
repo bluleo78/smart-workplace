@@ -7,6 +7,7 @@
 // .selectOption() 이 아닌 .click() + getByRole('option') 패턴을 사용한다.
 
 import { expect, test } from '../fixtures/auth.fixture';
+import { trackRequests } from '../fixtures/requests';
 
 const AGENT_ID = 5;
 const AGENT_FIXTURE = {
@@ -136,10 +137,9 @@ test.describe('admin 공통 비서', () => {
     await mockCurrentWorkspaceAssistant(page);
     await mockAgentsAndKeys(page);
 
-    let modelsRequested = false;
+    const modelGets = trackRequests(page, 'GET', /^\/api\/v1\/admin\/agents\/\d+\/models$/);
     await page.route(/\/api\/v1\/admin\/agents\/\d+\/models$/, (route) => {
       if (route.request().method() === 'GET') {
-        modelsRequested = true;
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -157,7 +157,7 @@ test.describe('admin 공통 비서', () => {
 
     const modelTrigger = page.getByTestId('workspace-assistant-model');
     await expect(modelTrigger).toBeVisible();
-    expect(modelsRequested).toBe(true);
+    expect(modelGets.count()).toBeGreaterThan(0);
 
     await modelTrigger.click();
     await expect(page.getByRole('option', { name: 'GPT-OSS 120B' })).toBeVisible();

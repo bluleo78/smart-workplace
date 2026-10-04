@@ -3,6 +3,7 @@
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import type { DriveSpace } from '../../../src/types/drive'
 
 const PERSONAL_SPACE_ID = 1
@@ -68,14 +69,13 @@ test('드라이브 — 만들기 버튼을 동기적으로 연속 클릭해도 �
   const created: { space: DriveSpace | null } = { space: null }
   await mockBaseRoutes(page, created)
 
-  // POST 호출 횟수 카운트 — race condition 재현을 위해 약간의 지연을 준다
+  // POST 응답에 약간의 지연을 준다 — race condition 재현
   // (실제 네트워크 latency가 있는 환경에서 더블 서브밋이 재현되기 쉬운 조건을 모사).
-  let postCount = 0
+  const posts = trackRequests(page, 'POST', '/api/v1/drive/spaces')
   await page.route(
     (url) => url.pathname === '/api/v1/drive/spaces',
     async (r) => {
       if (r.request().method() === 'POST') {
-        postCount += 1
         await new Promise((resolve) => setTimeout(resolve, 200))
         const body = r.request().postDataJSON() as { name: string }
         const space = newTeamSpace(body.name)
@@ -101,7 +101,7 @@ test('드라이브 — 만들기 버튼을 동기적으로 연속 클릭해도 �
 
   // 처리 완료(새 공간으로 이동) 대기 후 POST 는 정확히 1번만 발생해야 한다
   await expect(page).toHaveURL(new RegExp(`/drive/spaces/${NEW_SPACE_ID}`))
-  expect(postCount).toBe(1)
+  expect(posts.count()).toBe(1)
 })
 
 test('드라이브 — 취소 후 재오픈 시 이전 입력값이 남지 않는다', async ({ authenticatedPage: page }) => {

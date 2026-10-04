@@ -4,6 +4,7 @@
 //  2) 기존 [user1] 상태에서 모두 해제 → PUT { userIds: [] } + 미지정 표시
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createAgentMember, createMember, createProject } from '../../factories/project.factory';
 import type { IssueDetailResponse } from '../../../src/types/issue';
@@ -91,19 +92,15 @@ test.describe('이슈 담당자(다중)', () => {
 
       await setupCommonStubs(page, detailRef);
 
-      let putPayload: { userIds: number[] } | null = null;
-      let putCount = 0;
+      const puts = trackRequests(page, 'PUT', `/api/v1/projects/${PROJECT_KEY}/issues/1/assignees`);
       await page.route(
         (url) =>
           url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/assignees`,
         (route) => {
           if (route.request().method() !== 'PUT') return route.fallback();
-          putCount += 1;
-          putPayload = route.request().postDataJSON() as { userIds: number[] };
+          const { userIds } = route.request().postDataJSON() as { userIds: number[] };
           // 응답: 변경된 UserSummary[] — 다음 detail GET 에도 반영.
-          const updated = [USER1, USER2].filter((u) =>
-            putPayload!.userIds.includes(u.id),
-          );
+          const updated = [USER1, USER2].filter((u) => userIds.includes(u.id));
           detailRef.current = {
             ...detailRef.current,
             summary: { ...detailRef.current.summary, assignees: updated },
@@ -132,8 +129,9 @@ test.describe('이슈 담당자(다중)', () => {
       await page.keyboard.press('Escape');
 
       // PUT 발생 + 페이로드 정확.
-      await expect.poll(() => putPayload).toEqual({ userIds: [USER1.id, USER2.id] });
-      expect(putCount).toBe(1);
+      await puts.waitFor();
+      expect(puts.lastBody()).toEqual({ userIds: [USER1.id, USER2.id] });
+      expect(puts.count()).toBe(1);
 
       // 토스트.
       await expect(page.getByText('담당자를 저장했습니다')).toBeVisible();
@@ -164,12 +162,11 @@ test.describe('이슈 담당자(다중)', () => {
 
     await setupCommonStubs(page, detailRef);
 
-    let putPayload: { userIds: number[] } | null = null;
+    const puts = trackRequests(page, 'PUT', `/api/v1/projects/${PROJECT_KEY}/issues/1/assignees`);
     await page.route(
       (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/assignees`,
       (route) => {
         if (route.request().method() !== 'PUT') return route.fallback();
-        putPayload = route.request().postDataJSON() as { userIds: number[] };
         detailRef.current = {
           ...detailRef.current,
           summary: { ...detailRef.current.summary, assignees: [] },
@@ -193,7 +190,8 @@ test.describe('이슈 담당자(다중)', () => {
     await page.getByTestId(`assignee-option-${USER1.id}`).click();
     await page.keyboard.press('Escape');
 
-    await expect.poll(() => putPayload).toEqual({ userIds: [] });
+    await puts.waitFor();
+    expect(puts.lastBody()).toEqual({ userIds: [] });
     await expect(page.getByText('담당자를 저장했습니다')).toBeVisible();
     await expect(page.getByTestId('issue-assignees')).toContainText('미지정');
   });

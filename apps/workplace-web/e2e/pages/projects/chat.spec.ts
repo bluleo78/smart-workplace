@@ -3,6 +3,7 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { mockGatedEvents } from '../../fixtures/gatedEvents';
+import { bodyOf, trackRequests } from '../../fixtures/requests';
 import { expectStays, measureBox, resizeAndSettle, stableBox } from '../../fixtures/wait';
 import {
   createChatMember,
@@ -63,13 +64,19 @@ async function setupCommonStubs(
 interface ChatStubs {
   thread: ReturnType<typeof createChatThread>;
   messages: ChatMessageResponse[];
-  createPayloads: { body: string }[];
-  patchPayloads: { id: number; body: string }[];
-  deleteIds: number[];
-  markReadPayloads: { uptoMessageId: number }[];
 }
 
+const MESSAGE_PATH = /\/api\/v1\/chat\/messages\/\d+$/;
+const messageIdOf = (url: URL) => Number(url.pathname.split('/').pop());
+
+// 채팅 라우트는 응답만 맡고, 무엇을 보냈는지는 여기서 돌려주는 tracker 로 읽는다.
+// 테스트가 뒤에서 같은 URL 을 다시 route(실패 주입 등)해도 기록은 빠지지 않는다.
 async function setupChatStubs(page: import('@playwright/test').Page, stubs: ChatStubs) {
+  const creates = trackRequests(page, 'POST', `/api/v1/chat/threads/${THREAD_ID}/messages`);
+  const patches = trackRequests(page, 'PATCH', MESSAGE_PATH);
+  const deletes = trackRequests(page, 'DELETE', MESSAGE_PATH);
+  const markReads = trackRequests(page, 'POST', `/api/v1/chat/threads/${THREAD_ID}/read`);
+  let createdCount = 0;
   await page.route(
     (url) =>
       url.pathname ===
@@ -97,9 +104,9 @@ async function setupChatStubs(page: import('@playwright/test').Page, stubs: Chat
     async (route) => {
       if (route.request().method() !== 'POST') return route.fallback();
       const payload = route.request().postDataJSON() as { body: string };
-      stubs.createPayloads.push(payload);
+      createdCount += 1;
       const saved = createChatMessage({
-        id: 1000 + stubs.createPayloads.length,
+        id: 1000 + createdCount,
         threadId: THREAD_ID,
         authorId: ME_ID,
         authorName: '테스트 사용자',
@@ -125,7 +132,6 @@ async function setupChatStubs(page: import('@playwright/test').Page, stubs: Chat
       const id = Number(url.pathname.split('/').pop());
       if (route.request().method() === 'PATCH') {
         const payload = route.request().postDataJSON() as { body: string };
-        stubs.patchPayloads.push({ id, body: payload.body });
         stubs.messages = stubs.messages.map((m) =>
           m.id === id ? { ...m, body: payload.body, editedAt: new Date().toISOString() } : m,
         );
@@ -136,7 +142,6 @@ async function setupChatStubs(page: import('@playwright/test').Page, stubs: Chat
         });
       }
       if (route.request().method() === 'DELETE') {
-        stubs.deleteIds.push(id);
         stubs.messages = stubs.messages.map((m) =>
           m.id === id ? { ...m, deleted: true, body: '(삭제됨)' } : m,
         );
@@ -149,11 +154,21 @@ async function setupChatStubs(page: import('@playwright/test').Page, stubs: Chat
     (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/read`,
     (route) => {
       if (route.request().method() !== 'POST') return route.fallback();
-      const payload = route.request().postDataJSON() as { uptoMessageId: number };
-      stubs.markReadPayloads.push(payload);
       return route.fulfill({ status: 204 });
     },
   );
+  return {
+    creates,
+    patches,
+    markReads,
+    createBodies: () => creates.bodies<{ body: string }>(),
+    patchBodies: () =>
+      patches.requests().map((r) => ({
+        id: messageIdOf(new URL(r.url())),
+        body: (bodyOf(r) as { body: string }).body,
+      })),
+    deleteIds: () => deletes.urls().map(messageIdOf),
+  };
 }
 
 function freshStubs(): ChatStubs {
@@ -173,10 +188,6 @@ function freshStubs(): ChatStubs {
       recentMessages: [],
     }),
     messages: [],
-    createPayloads: [],
-    patchPayloads: [],
-    deleteIds: [],
-    markReadPayloads: [],
   };
 }
 
@@ -192,7 +203,7 @@ test.describe('이슈 chat panel', () => {
       };
       await setupCommonStubs(page, detailRef);
       const stubs = freshStubs();
-      await setupChatStubs(page, stubs);
+      const sent = await setupChatStubs(page, stubs);
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
       // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
@@ -212,7 +223,7 @@ test.describe('이슈 chat panel', () => {
 
       // 서버 확정 — pending 사라지고 영구 id 의 row 가 보임.
       // #358: fileIds/driveFileIds 빈 배열이 함께 전송됨 (첨부 없는 경우)
-      await expect.poll(() => stubs.createPayloads).toEqual([
+      await expect.poll(() => sent.createBodies()).toEqual([
         { body: '안녕하세요', fileIds: [], driveFileIds: [] },
       ]);
       await expect(page.getByTestId(`chat-message-${1001}`)).toBeVisible();
@@ -232,7 +243,7 @@ test.describe('이슈 chat panel', () => {
     };
     await setupCommonStubs(page, detailRef);
     const stubs = freshStubs();
-    await setupChatStubs(page, stubs);
+    const sent = await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
@@ -253,7 +264,7 @@ test.describe('이슈 chat panel', () => {
     // 3) 비활성 버튼 클릭 시도 → POST 미발생(silent no-op 자체가 발생할 여지가 없음).
     // eslint-disable-next-line playwright/no-force-option -- 비활성(disabled) 버튼을 일부러 눌러 no-op 을 확인하므로 actionability 대기를 건너뛴다
     await submit.click({ force: true }).catch(() => {});
-    await expect.poll(() => stubs.createPayloads.length).toBe(0);
+    await expectStays(page, sent.creates.count, 0);
 
     // 4) 실제 텍스트 입력 → 버튼 활성화. (force-click 으로 잃은 포커스를 다시 잡고 입력)
     await input.click();
@@ -263,7 +274,7 @@ test.describe('이슈 chat panel', () => {
 
     // 5) 전송 → POST 1건 발생(공백 trim 후 본문만).
     await submit.click();
-    await expect.poll(() => stubs.createPayloads.map((p) => p.body.trim())).toEqual(['안녕']);
+    await expect.poll(() => sent.createBodies().map((p) => p.body.trim())).toEqual(['안녕']);
   });
 
   // 회귀(#197 재발) — 메시지 전송 직후 입력창이 자동으로 비워진 상태에서 보내기 버튼이
@@ -280,7 +291,7 @@ test.describe('이슈 chat panel', () => {
     };
     await setupCommonStubs(page, detailRef);
     const stubs = freshStubs();
-    await setupChatStubs(page, stubs);
+    const sent = await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
@@ -297,7 +308,7 @@ test.describe('이슈 chat panel', () => {
     await submit.click();
 
     // 2) 서버 확정(POST 201) — clearOnSubmit 이 성공 resolve 후 입력창을 비운다.
-    await expect.poll(() => stubs.createPayloads.map((p) => p.body.trim())).toEqual(['첫 메시지']);
+    await expect.poll(() => sent.createBodies().map((p) => p.body.trim())).toEqual(['첫 메시지']);
     await expect(input).toHaveText('');
 
     // 3) 핵심 검증: 전송 직후 빈 입력 상태에서 보내기 버튼이 다시 비활성이어야 한다.
@@ -307,7 +318,7 @@ test.describe('이슈 chat panel', () => {
     // 4) 비활성 버튼 클릭해도 POST 가 추가로 발생하지 않는다(silent no-op 자체가 차단됨).
     // eslint-disable-next-line playwright/no-force-option -- 비활성(disabled) 버튼을 일부러 눌러 no-op 을 확인하므로 actionability 대기를 건너뛴다
     await submit.click({ force: true }).catch(() => {});
-    await expect.poll(() => stubs.createPayloads.length).toBe(1);
+    await expectStays(page, sent.creates.count, 1);
 
     // 5) 다시 텍스트 입력 → 버튼 재활성화(전송 후에도 정상 토글 동작 유지).
     await input.click();
@@ -325,7 +336,7 @@ test.describe('이슈 chat panel', () => {
     };
     await setupCommonStubs(page, detailRef);
     const stubs = freshStubs();
-    await setupChatStubs(page, stubs);
+    const sent = await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
@@ -341,7 +352,7 @@ test.describe('이슈 chat panel', () => {
 
     await page.getByTestId('chat-composer-submit').click();
 
-    await expect.poll(() => stubs.createPayloads.map((p) => p.body.trim())).toEqual(['hi <@99>']);
+    await expect.poll(() => sent.createBodies().map((p) => p.body.trim())).toEqual(['hi <@99>']);
     const agentChip = page.getByTestId('chat-mention-chip-99');
     await expect(agentChip).toHaveText('@AI Agent');
     // #208: AGENT 멘션칩은 ai-accent 토큰(raw purple 회귀 방지).
@@ -377,7 +388,7 @@ test.describe('이슈 chat panel', () => {
       ],
     };
     stubs.messages = stubs.thread.recentMessages;
-    await setupChatStubs(page, stubs);
+    const sent = await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
@@ -400,7 +411,7 @@ test.describe('이슈 chat panel', () => {
 
     // composer 의 멘션 없는 body 가 POST 되어야 한다 (Enter 가 삼켜지지 않음).
     await expect
-      .poll(() => stubs.createPayloads.map((p) => p.body.trim()))
+      .poll(() => sent.createBodies().map((p) => p.body.trim()))
       .toEqual(['전송되어야 함']);
   });
 
@@ -687,7 +698,7 @@ test.describe('이슈 chat panel', () => {
       ],
     };
     stubs.messages = stubs.thread.recentMessages;
-    await setupChatStubs(page, stubs);
+    const sent = await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
@@ -703,7 +714,7 @@ test.describe('이슈 chat panel', () => {
     await page.keyboard.type('수정본');
     await page.getByTestId('chat-message-editor-save').click();
 
-    await expect.poll(() => stubs.patchPayloads).toEqual([{ id: 600, body: '수정본' }]);
+    await expect.poll(() => sent.patchBodies()).toEqual([{ id: 600, body: '수정본' }]);
     await expect(page.getByTestId('chat-message-body-600')).toHaveText('수정본');
 
     // 삭제.
@@ -714,7 +725,7 @@ test.describe('이슈 chat panel', () => {
     // #125: Undo 토스트 — 즉시 DELETE 를 호출하지 않는다.
     await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible();
     // 실행 취소가 없으면 지연(5s) 후 실제 DELETE 호출 + 마스킹.
-    await expect.poll(() => stubs.deleteIds, { timeout: 8000 }).toEqual([601]);
+    await expect.poll(() => sent.deleteIds(), { timeout: 8000 }).toEqual([601]);
     await expect(page.getByTestId('chat-message-body-601')).toContainText('(삭제됨)');
   });
 
@@ -742,7 +753,7 @@ test.describe('이슈 chat panel', () => {
       ],
     };
     stubs.messages = stubs.thread.recentMessages;
-    await setupChatStubs(page, stubs);
+    const sent = await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
@@ -752,7 +763,7 @@ test.describe('이슈 chat panel', () => {
     await page.getByTestId('chat-message-700').scrollIntoViewIfNeeded();
 
     await expect
-      .poll(() => stubs.markReadPayloads, { timeout: 3000 })
+      .poll(() => sent.markReads.bodies(), { timeout: 3000 })
       .toEqual([{ uptoMessageId: 700 }]);
   });
 
@@ -811,7 +822,7 @@ test.describe('이슈 chat panel', () => {
     };
     await setupCommonStubs(page, detailRef);
     const stubs = freshStubs();
-    await setupChatStubs(page, stubs);
+    const sent = await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // freshStubs() 빈 recentMessages → 패널 기본 접힘 → 수동 펼침.
@@ -822,7 +833,7 @@ test.describe('이슈 chat panel', () => {
     await page.keyboard.type('첫 메시지');
     await page.keyboard.press('Enter');
 
-    await expect.poll(() => stubs.createPayloads.map((p) => p.body.trim())).toEqual(['첫 메시지']);
+    await expect.poll(() => sent.createBodies().map((p) => p.body.trim())).toEqual(['첫 메시지']);
     // #123 — 성공 시에만 입력창을 비운다. 서버 확정(1001) 후 컴포저가 비워지고 포커스가 복귀한다.
     await expect(page.getByTestId('chat-message-1001')).toBeVisible();
     await expect(input).toBeFocused();
@@ -855,7 +866,7 @@ test.describe('이슈 chat panel', () => {
       ],
     };
     stubs.messages = stubs.thread.recentMessages;
-    await setupChatStubs(page, stubs);
+    const sent = await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     // #558: 채팅은 드로어 — 상호작용 전 헤더 버튼으로 연다.
@@ -872,7 +883,7 @@ test.describe('이슈 chat panel', () => {
     // 에디터는 닫히고(취소처럼 처리), PATCH 는 호출되지 않아야 한다.
     await expect(page.getByTestId('chat-message-editor')).toHaveCount(0);
     await expect(page.getByTestId('chat-message-body-800')).toHaveText('원본');
-    await expectStays(page, () => stubs.patchPayloads, []);
+    await expectStays(page, sent.patches.count, 0);
   });
 
   // #43 회귀 — 멘션 메시지 전송 시 서버 응답 전 optimistic 칩이 올바른 이름으로 보인다(@알 수 없음 X).
@@ -894,7 +905,6 @@ test.describe('이슈 chat panel', () => {
       async (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
         const payload = route.request().postDataJSON() as { body: string };
-        stubs.createPayloads.push(payload);
         const saved = createChatMessage({
           id: 2000,
           threadId: THREAD_ID,
@@ -941,12 +951,11 @@ test.describe('이슈 chat panel', () => {
     const stubs = freshStubs();
     await setupChatStubs(page, stubs);
 
-    const typingCalls: number[] = [];
+    const typings = trackRequests(page, 'POST', `/api/v1/chat/threads/${THREAD_ID}/typing`);
     await page.route(
       (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/typing`,
       (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
-        typingCalls.push(Date.now());
         return route.fulfill({ status: 204 });
       },
     );
@@ -959,7 +968,7 @@ test.describe('이슈 chat panel', () => {
     await page.keyboard.type('타이핑');
 
     // 입력 시작과 동시에 typing 이 최소 1회 송신돼야 한다 (3초 throttle).
-    await expect.poll(() => typingCalls.length).toBeGreaterThanOrEqual(1);
+    await typings.waitFor();
   });
 
   // #37 — 다른 멤버의 typing SSE 이벤트가 "X 입력 중…" 인디케이터로 보인다.
@@ -1008,7 +1017,7 @@ test.describe('이슈 chat panel', () => {
     };
     await setupCommonStubs(page, detailRef);
     const stubs = freshStubs();
-    await setupChatStubs(page, stubs);
+    const sent = await setupChatStubs(page, stubs);
 
     // POST 를 첫 1회만 500 으로 강제, 이후엔 setup 핸들러로 위임해 정상 처리.
     let failNext = true;
@@ -1040,14 +1049,14 @@ test.describe('이슈 chat panel', () => {
     // 실패 토스트 표시 + 낙관적 행 제거. 그러나 컴포저 입력은 보존돼야 한다(핵심).
     await expect(page.getByText('서버 오류')).toBeVisible();
     await expect(input).toContainText('전송실패될메시지XYZ');
-    // 첫 시도는 500 이라 성공 payload 가 기록되지 않는다(setup 핸들러는 성공 시에만 push).
-    expect(stubs.createPayloads).toEqual([]);
+    // 첫 시도(500)도 요청으로는 나갔다.
+    expect(sent.createBodies().map((p) => p.body.trim())).toEqual(['전송실패될메시지XYZ']);
 
     // 재시도: 보존된 입력을 그대로 다시 전송하면 이번엔 성공한다.
     await page.getByTestId('chat-composer-submit').click();
     await expect
-      .poll(() => stubs.createPayloads.map((p) => p.body.trim()))
-      .toEqual(['전송실패될메시지XYZ']);
+      .poll(() => sent.createBodies().map((p) => p.body.trim()))
+      .toEqual(['전송실패될메시지XYZ', '전송실패될메시지XYZ']);
     // 성공 확정 후엔 컴포저가 비워진다(#123: 성공 시에만 clear).
     await expect(input).not.toContainText('전송실패될메시지XYZ');
   });
@@ -1079,7 +1088,7 @@ test.describe('이슈 chat panel', () => {
       ],
     };
     stubs.messages = stubs.thread.recentMessages;
-    await setupChatStubs(page, stubs);
+    const sent = await setupChatStubs(page, stubs);
 
     // PATCH 를 첫 1회만 500 으로 강제, 이후엔 setup 핸들러로 위임해 정상 처리.
     let failNext = true;
@@ -1116,14 +1125,15 @@ test.describe('이슈 chat panel', () => {
     await expect(page.getByText('수정 서버 오류')).toBeVisible();
     await expect(page.getByTestId('chat-message-editor')).toBeVisible();
     await expect(editor).toContainText('원본메시지테스트_수정중인내용');
-    // 첫 PATCH 는 내 핸들러가 500 으로 가로채 setup 핸들러에 도달하지 않으므로 payload 미기록.
-    expect(stubs.patchPayloads).toEqual([]);
+    // 첫 시도(500)도 요청으로는 나갔다.
+    expect(sent.patchBodies()).toEqual([{ id: 600, body: '원본메시지테스트_수정중인내용' }]);
 
     // 재시도: 보존된 수정 내용으로 다시 저장하면 이번엔 성공하고 에디터가 닫힌다.
     await page.getByTestId('chat-message-editor-save').click();
-    await expect
-      .poll(() => stubs.patchPayloads)
-      .toEqual([{ id: 600, body: '원본메시지테스트_수정중인내용' }]);
+    await expect.poll(() => sent.patchBodies()).toEqual([
+      { id: 600, body: '원본메시지테스트_수정중인내용' },
+      { id: 600, body: '원본메시지테스트_수정중인내용' },
+    ]);
     await expect(page.getByTestId('chat-message-editor')).toHaveCount(0);
     await expect(page.getByTestId('chat-message-body-600')).toHaveText(
       '원본메시지테스트_수정중인내용',
@@ -1186,7 +1196,7 @@ test.describe('이슈 chat panel', () => {
     };
     await setupCommonStubs(page, detailRef);
     const stubs = freshStubs();
-    await setupChatStubs(page, stubs);
+    const sent = await setupChatStubs(page, stubs);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     await page.getByTestId('issue-chat-open').click();
@@ -1203,7 +1213,7 @@ test.describe('이슈 chat panel', () => {
     // HardBreak 없으면 단일 paragraph로 합쳐져 \n 없이 전송됨.
     await page.getByTestId('chat-composer-submit').click();
     await expect
-      .poll(() => stubs.createPayloads.map((p) => p.body))
+      .poll(() => sent.createBodies().map((p) => p.body))
       .toEqual([expect.stringContaining('\n')]);
   });
   // WP-213 — 쓸 수 없는 사용자(공개 프로젝트 열람자 등)는 보내기 후 403 에러 대신 입력창 자리에 안내를 본다.

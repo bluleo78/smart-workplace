@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { expectStays, measureBox } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType } from '../../factories/issueType.factory';
@@ -99,13 +100,12 @@ test.describe('이슈 목록 그룹 접기 + 무한 스크롤', () => {
       createIssue({ id: i + 1, number: i + 1, title: `이슈 ${i + 1}`, parent: i < 40 ? epic(30, '에픽 A') : epic(12, '에픽 B') }),
     );
     const page2 = [createIssue({ id: 200, number: 200, title: '2페이지 이슈', parent: epic(30, '에픽 A') })];
-    let page2Requests = 0;
+    const page2Requests = trackRequests(page, 'GET', (u) => u.pathname === ISSUES_PATH && u.searchParams.has('cursor'));
     await page.route(
       (url) => url.pathname === ISSUES_PATH,
       (route) => {
         if (route.request().method() !== 'GET') return route.fallback();
         const hasCursor = new URL(route.request().url()).searchParams.has('cursor');
-        if (hasCursor) page2Requests += 1;
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -120,19 +120,19 @@ test.describe('이슈 목록 그룹 접기 + 무한 스크롤', () => {
     const sentinel = page.getByTestId('issue-list-more');
     await expect(sentinel).toBeAttached();
     await expect(sentinel).not.toBeInViewport();
-    await expectStays(page, () => page2Requests, 0);
+    await expectStays(page, page2Requests.count, 0);
 
     await page.getByTestId('list-group-toggle-epic-12').click();
     await page.getByTestId('list-group-toggle-epic-30').click();
     await expect(page.getByTestId('issue-row-1')).toHaveCount(0);
     // 전부 접힘 → sentinel 이 보여도 2페이지를 로드하지 않는다
     await expect(sentinel).toBeInViewport();
-    await expectStays(page, () => page2Requests, 0);
+    await expectStays(page, page2Requests.count, 0);
 
     await page.getByTestId('list-group-toggle-epic-30').click();
     // 펼친 행이 화면을 채우므로 목록 끝까지 스크롤해 sentinel 을 노출 → 정상 재개
     await page.getByTestId('issue-list-scroll').evaluate((el) => el.scrollTo(0, el.scrollHeight));
-    await expect.poll(() => page2Requests).toBeGreaterThan(0);
+    await page2Requests.waitFor();
   });
 });
 

@@ -4,6 +4,7 @@
 // GET 스텁이 currentTitle/currentBody 를 추적해야 변경 후 새 값이 렌더된다.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
@@ -15,16 +16,17 @@ const DRAFT_KEY = `issue-body-draft:${PROJECT_KEY}:${ISSUE_NUMBER}`;
 const ISSUES_PATH = `/api/v1/projects/${PROJECT_KEY}/issues`;
 const ISSUE_DETAIL_PATH = `${ISSUES_PATH}/${ISSUE_NUMBER}`;
 
-// 가변 상태 + PATCH payload 추적용 컨테이너.
+// 가변 상태 + 보낸 PATCH 본문(순서대로).
 interface Stub {
   title: string;
   body: string;
-  patches: Record<string, unknown>[];
+  patches: () => Record<string, unknown>[];
 }
 
 // 상세 페이지 진입에 필요한 스텁 일괄 설정.
 async function setupStubs(page: import('@playwright/test').Page): Promise<Stub> {
-  const stub: Stub = { title: '원본 제목', body: '원본 본문', patches: [] };
+  const patches = trackRequests(page, 'PATCH', ISSUE_DETAIL_PATH);
+  const stub: Stub = { title: '원본 제목', body: '원본 본문', patches: () => patches.bodies<Record<string, unknown>>() };
 
   await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
@@ -71,13 +73,12 @@ async function setupStubs(page: import('@playwright/test').Page): Promise<Stub> 
     );
   }
 
-  // 이슈 상세 PATCH — payload 기록 + 가변 상태 갱신.
+  // 이슈 상세 PATCH — 가변 상태 갱신.
   await page.route(
     (url) => url.pathname === ISSUE_DETAIL_PATH,
     (route) => {
       if (route.request().method() !== 'PATCH') return route.fallback();
       const payload = route.request().postDataJSON() as Record<string, unknown>;
-      stub.patches.push(payload);
       if (typeof payload.title === 'string') stub.title = payload.title;
       if (typeof payload.body === 'string') stub.body = payload.body;
       return route.fulfill({
@@ -115,8 +116,8 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await input.fill('수정된 제목');
     await input.press('Enter');
 
-    await expect.poll(() => stub.patches.length).toBeGreaterThanOrEqual(1);
-    expect(stub.patches[stub.patches.length - 1]).toEqual({ title: '수정된 제목' });
+    await expect.poll(() => stub.patches().length).toBeGreaterThanOrEqual(1);
+    expect(stub.patches().at(-1)).toEqual({ title: '수정된 제목' });
     await expect(page.getByTestId('issue-title-heading').getByText('수정된 제목')).toBeVisible();
   });
 
@@ -131,7 +132,7 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await input.press('Enter');
 
     // 빈 제목은 PATCH 가 발생하지 않아야 하고, 표시는 원본으로 복귀.
-    await expectStays(page, () => stub.patches.filter((p) => 'title' in p).length, 0);
+    await expectStays(page, () => stub.patches().filter((p) => 'title' in p).length, 0);
     await expect(page.getByTestId('issue-title-heading').getByText('원본 제목')).toBeVisible();
   });
 
@@ -145,7 +146,7 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await input.fill('버려질 제목');
     await input.press('Escape');
 
-    await expectStays(page, () => stub.patches.length, 0);
+    await expectStays(page, () => stub.patches().length, 0);
     await expect(page.getByTestId('issue-title-heading').getByText('원본 제목')).toBeVisible();
   });
 
@@ -160,8 +161,8 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await textarea.fill('수정된 본문');
     await textarea.press('ControlOrMeta+Enter');
 
-    await expect.poll(() => stub.patches.length).toBeGreaterThanOrEqual(1);
-    expect(stub.patches[stub.patches.length - 1]).toEqual({ body: '수정된 본문' });
+    await expect.poll(() => stub.patches().length).toBeGreaterThanOrEqual(1);
+    expect(stub.patches().at(-1)).toEqual({ body: '수정된 본문' });
     await expect(page.getByText('수정된 본문')).toBeVisible();
   });
 
@@ -175,7 +176,7 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await textarea.fill('버려질 본문');
     await textarea.press('Escape');
 
-    await expectStays(page, () => stub.patches.length, 0);
+    await expectStays(page, () => stub.patches().length, 0);
     await expect(page.getByText('원본 본문')).toBeVisible();
   });
 
@@ -219,8 +220,8 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await page.getByTestId('issue-body-textarea').fill('버튼으로 저장한 본문');
     await page.getByTestId('issue-body-save').click();
 
-    await expect.poll(() => stub.patches.length).toBeGreaterThanOrEqual(1);
-    expect(stub.patches[stub.patches.length - 1]).toEqual({ body: '버튼으로 저장한 본문' });
+    await expect.poll(() => stub.patches().length).toBeGreaterThanOrEqual(1);
+    expect(stub.patches().at(-1)).toEqual({ body: '버튼으로 저장한 본문' });
     await expect(page.getByText('버튼으로 저장한 본문')).toBeVisible();
   });
 
@@ -234,7 +235,7 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await page.getByTestId('issue-body-textarea').fill('버려질 본문');
     await page.getByTestId('issue-body-cancel').click();
 
-    await expectStays(page, () => stub.patches.length, 0);
+    await expectStays(page, () => stub.patches().length, 0);
     await expect(page.getByText('원본 본문')).toBeVisible();
   });
 
@@ -288,7 +289,7 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
       .toBe('정상 저장된 본문');
     await page.getByTestId('issue-body-save').click();
 
-    await expect.poll(() => stub.patches.length).toBeGreaterThanOrEqual(1);
+    await expect.poll(() => stub.patches().length).toBeGreaterThanOrEqual(1);
     await expect(page.getByText('정상 저장된 본문')).toBeVisible();
 
     // 재진입 시 초안이 정리되어 있어야 하므로 배너가 뜨지 않는다.

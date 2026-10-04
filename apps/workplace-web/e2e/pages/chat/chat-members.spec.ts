@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test'
 import { createPageResponse } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { createChannel, createChannelMember } from '../../factories/messaging.factory'
+import { trackRequests } from '../../fixtures/requests'
 
 const CID = 50
 
@@ -126,8 +127,7 @@ test.describe('messaging 멤버 패널', () => {
   test('비공개 초대 — OWNER 가 검색해서 추가(POST payload 검증)', async ({ authenticatedPage: page }) => {
     const ch = createChannel({ id: CID, visibility: 'PRIVATE', role: 'OWNER', member: true })
     await stubBase(page, ch)
-    // POST payload 검증용 플래그 — 라우트 핸들러가 expect 를 통과했는지 확인.
-    let addPayloadVerified = false
+    const adds = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CID}/members`)
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/channels/${CID}/members`,
       (route) => {
@@ -135,9 +135,6 @@ test.describe('messaging 멤버 패널', () => {
           return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([createChannelMember({ userId: 1, name: '나', role: 'OWNER' })]) })
         }
         if (route.request().method() === 'POST') {
-          const payload = route.request().postDataJSON() as { userId: number }
-          expect(payload).toEqual({ userId: 2 })
-          addPayloadVerified = true
           return route.fulfill({ status: 204 })
         }
         return route.fallback()
@@ -175,8 +172,8 @@ test.describe('messaging 멤버 패널', () => {
     await expect(page.getByTestId('member-search-popover')).toBeVisible()
     await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('동료')
     await page.getByTestId('member-search-row-2').click()
-    // POST 가 호출되어 payload 검증을 통과했는지 poll 로 확인
-    await expect.poll(() => addPayloadVerified).toBe(true)
+    await adds.waitFor()
+    expect(adds.lastBody()).toEqual({ userId: 2 })
   })
 
   test('B(비초대 전) 재진입 후 채널 보임 — 초대 반영 모사', async ({ authenticatedPage: page }) => {

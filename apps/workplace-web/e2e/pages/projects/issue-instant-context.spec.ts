@@ -7,6 +7,7 @@ import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import { createUser } from '../../factories/auth.factory';
 import { mockApi } from '../../fixtures/api-mock';
+import { trackRequests } from '../../fixtures/requests';
 import type { IssueAiContext, IssueDetailResponse } from '../../../src/types/issue';
 
 const PROJECT_KEY = 'PROJ';
@@ -250,13 +251,12 @@ test.describe('이슈 Instant Context 카드 (#517 온디맨드)', () => {
       );
 
       // POST ai-summary 모킹 — 일부러 지연해 비활성 상태를 확인할 수 있게 한다.
-      let postRequestFired = false;
+      const summaryPosts = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/ai-summary`);
       await page.route(
         (url) =>
           url.pathname ===
           `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/ai-summary`,
         async (route) => {
-          postRequestFired = true;
           // 의도적 지연 — in-flight 동안 버튼 비활성 확인 가능.
           await new Promise((r) => setTimeout(r, 300));
           postDone = true;
@@ -286,7 +286,7 @@ test.describe('이슈 Instant Context 카드 (#517 온디맨드)', () => {
       await expect(page.getByText(summaryText)).toBeVisible();
 
       // POST 가 실제로 발생했는지 확인.
-      expect(postRequestFired).toBe(true);
+      expect(summaryPosts.count()).toBeGreaterThan(0);
     },
   );
 

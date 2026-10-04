@@ -5,6 +5,7 @@
 // 시나리오 3: 일반 이슈 상세에서 "상위 에픽" 슬롯으로 EPIC 에 연결 → PATCH /parent 검증.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, systemTypes } from '../../factories/issueType.factory';
 
@@ -61,7 +62,7 @@ test.describe('EPIC 계층', () => {
         type: epicSummary,
       };
       let childCreated: Array<{ id: number; number: number; title: string; typeId: number }> = [];
-      let postPayload: unknown;
+      const creates = trackRequests(page, 'POST', ISSUES_BASE);
 
       await setupCommonStubs(page);
 
@@ -102,8 +103,7 @@ test.describe('EPIC 계층', () => {
         (route) => {
           const req = route.request();
           if (req.method() === 'POST') {
-            postPayload = req.postDataJSON();
-            const payload = postPayload as { title: string; typeId: number; parentNumber: number };
+            const payload = req.postDataJSON() as { title: string; typeId: number; parentNumber: number };
             const next = childCreated.length + 100;
             const child = { id: next, number: next, title: payload.title, typeId: payload.typeId };
             childCreated = [...childCreated, child];
@@ -164,7 +164,7 @@ test.describe('EPIC 계층', () => {
       await expect(addButton).toBeEnabled();
       await addButton.click();
 
-      await expect.poll(() => postPayload).toEqual({
+      await expect.poll(() => creates.lastBody()).toEqual({
         title: '첫 스토리',
         typeId: 1,
         parentNumber: 1,
@@ -184,7 +184,7 @@ test.describe('EPIC 계층', () => {
   }) => {
     const taskSummary = { id: 1, name: 'TASK', colorToken: 'BLUE' as const, icon: 'Circle' as const };
     let currentParent: { number: number; title: string; type: typeof taskSummary } | null = null;
-    let patchPayload: unknown;
+    const parentPatches = trackRequests(page, 'ANY', `${ISSUES_BASE}/1/parent`);
 
     await setupCommonStubs(page);
 
@@ -225,7 +225,6 @@ test.describe('EPIC 계층', () => {
     await page.route(
       (url) => url.pathname === `${ISSUES_BASE}/1/parent`,
       (route) => {
-        patchPayload = route.request().postDataJSON();
         currentParent = { number: 5, title: '분기 에픽', type: makeEpicType() as unknown as typeof taskSummary };
         return route.fulfill({
           status: 200,
@@ -270,7 +269,7 @@ test.describe('EPIC 계층', () => {
     await page.getByTestId('parent-number-input').fill('5');
     await page.getByTestId('parent-save').click();
 
-    await expect.poll(() => patchPayload).toEqual({ parentNumber: 5 });
+    await expect.poll(() => parentPatches.lastBody()).toEqual({ parentNumber: 5 });
 
     // 슬롯 갱신 — picker 닫히고 새 ParentBadge(EPIC) 노출.
     await expect(page.getByTestId('issue-parent-picker')).toHaveCount(0);

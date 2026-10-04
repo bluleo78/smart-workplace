@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 
 import { createFile, createSpace, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 
 const SPACE_ID = 1
@@ -45,29 +46,27 @@ test('파일 목록 진입 시 뷰포트 밖 썸네일은 요청하지 않고, �
         : route.fallback(),
   )
 
-  const requestedIds = new Set<number>()
+  const thumbnails = trackRequests(page, 'ANY', /^\/api\/v1\/drive\/files\/\d+\/thumbnail$/)
+  // 요청된 서로 다른 파일 수(같은 파일 재요청은 한 번으로 센다).
+  const requestedCount = () => new Set(thumbnails.urls().map((u) => u.pathname)).size
   await page.route(
     (url) => /^\/api\/v1\/drive\/files\/\d+\/thumbnail$/.test(url.pathname),
-    (route) => {
-      const id = Number(route.request().url().match(/files\/(\d+)\/thumbnail/)?.[1])
-      requestedIds.add(id)
-      return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from([]) })
-    },
+    (route) => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from([]) }),
   )
 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByText('photo-0.png')).toBeVisible()
 
   // 보이는 항목의 썸네일 요청이 실제로 나간 것부터 조건 대기한다(WP-225).
-  await expect.poll(() => requestedIds.size).toBeGreaterThan(0)
+  await expect.poll(requestedCount).toBeGreaterThan(0)
   // 지연 로딩이 아니라면 이미 FILE_COUNT 만큼 나갔을 것.
-  await expectStays(page, () => requestedIds.size < FILE_COUNT, true)
-  const countAfterInitialRender = requestedIds.size
+  await expectStays(page, () => requestedCount() < FILE_COUNT, true)
+  const countAfterInitialRender = requestedCount()
   expect(countAfterInitialRender).toBeGreaterThan(0)
   // 뷰포트 밖(60개 중 후반부) 항목은 아직 요청되지 않아 전체 파일 수보다 적어야 한다(N+1 해소 확인).
   expect(countAfterInitialRender).toBeLessThan(FILE_COUNT)
 
   // 목록 끝까지 스크롤 → 나머지 항목이 뷰포트에 들어오며 추가 요청이 발생.
   await page.getByText(`photo-${FILE_COUNT - 1}.png`).scrollIntoViewIfNeeded()
-  await expect.poll(() => requestedIds.size).toBeGreaterThan(countAfterInitialRender)
+  await expect.poll(requestedCount).toBeGreaterThan(countAfterInitialRender)
 })

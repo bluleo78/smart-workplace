@@ -13,6 +13,7 @@ import type { DriveLink, VirtualAttachment, VirtualAttachmentPage } from '../../
 import { createFile, personalSpace } from '../../factories/drive.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 // ── 공통 상수 ──────────────────────────────────────────────────────────────────
 const PROJECT_KEY = 'WP'
@@ -324,12 +325,11 @@ test(
     const issuePage: VirtualAttachmentPage = { items: [issueFile], nextCursor: null }
 
     // 첨부 목록 — source 파라미터 없으면 전체, ISSUE 이면 이슈만 반환
-    let capturedSourceParam: string | null = null
+    const lists = trackRequests(page, 'ANY', '/api/v1/drive/attachments')
     await page.route(
       (url) => url.pathname === '/api/v1/drive/attachments',
       (route) => {
         const src = new URL(route.request().url()).searchParams.get('source')
-        capturedSourceParam = src
         const body: VirtualAttachmentPage =
           src === 'ISSUE' ? issuePage : fullPage
         return route.fulfill({
@@ -363,7 +363,7 @@ test(
     await expect(page.getByTestId('drive-attachment-row-202')).toBeVisible()
 
     // 출처 필터칩 "이슈" 클릭 → refetch 시 source=ISSUE 파라미터 확인
-    capturedSourceParam = null
+    const listsBefore = lists.count()
     await page.getByTestId('drive-attachment-filter-issue').click()
 
     // MESSAGE 행이 사라지고 ISSUE 행만 남아야 한다
@@ -371,7 +371,7 @@ test(
     await expect(page.getByTestId('drive-attachment-row-201')).toBeVisible()
 
     // API 요청에 source=ISSUE 가 포함됐는지 확인
-    expect(capturedSourceParam).toBe('ISSUE')
+    expect(lists.urls().slice(listsBefore).at(-1)?.searchParams.get('source')).toBe('ISSUE')
   },
 )
 

@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { dismissByOutsideClick } from '../../fixtures/wait'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory'
 import { systemTypes } from '../../factories/issueType.factory'
@@ -105,10 +106,9 @@ test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
   test('붙여넣은 이미지가 업로드되어 본문에 들어가고, 업로드 중에는 등록이 막힌다', async ({ authenticatedPage: page }) => {
     await stubProjectList(page)
     const upload = await stubUpload(page)
-    let createdBody: string | undefined
+    const creates = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/issues`)
     await page.route(`**/api/v1/projects/${KEY}/issues`, async (route) => {
       if (route.request().method() !== 'POST') return route.fallback()
-      createdBody = route.request().postDataJSON().body
       await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(createIssue({ number: 9 })) })
     })
 
@@ -126,16 +126,13 @@ test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
     await expect(page.locator('#issue-body')).toHaveValue(`![bug.png](${IMG_URL})\n`)
 
     await dialog.getByRole('button', { name: /^생성$/ }).click()
-    await expect.poll(() => createdBody).toBe(`![bug.png](${IMG_URL})\n`)
+    await expect.poll(() => creates.lastBody<{ body: string }>()?.body).toBe(`![bug.png](${IMG_URL})\n`)
   })
 
   test('엑셀처럼 텍스트와 이미지가 함께 붙여넣어지면 텍스트만 들어가고 업로드하지 않는다', async ({ authenticatedPage: page }) => {
     await stubProjectList(page)
-    let uploads = 0
-    await page.route(`**/api/v1/projects/${KEY}/issue-images`, (r) => {
-      uploads++
-      return r.fulfill({ status: 500 })
-    })
+    const uploads = trackRequests(page, 'ANY', `/api/v1/projects/${KEY}/issue-images`)
+    await page.route(`**/api/v1/projects/${KEY}/issue-images`, (r) => r.fulfill({ status: 500 }))
     await page.goto(`/projects/${KEY}`)
     await page.getByRole('button', { name: '+ 새 태스크' }).click()
     await page.locator('#issue-body').evaluate((el) => {
@@ -145,7 +142,7 @@ test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
       el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }))
     })
     await expect(page.locator('#issue-body')).not.toHaveValue(/업로드 중/)
-    expect(uploads).toBe(0)
+    expect(uploads.count()).toBe(0)
   })
 
   test('10MB 초과·비이미지 파일은 버튼 선택 시 토스트로 거부된다', async ({ authenticatedPage: page }) => {
@@ -163,12 +160,11 @@ test.describe('이슈 본문 이미지 — 상세 편집', () => {
   test('편집 중 드롭한 이미지가 저장 요청 본문에 들어가고, 업로드 중엔 저장·단축키가 막힌다', async ({ authenticatedPage: page }) => {
     await setupDetailStubs(page, '기존 본문')
     const upload = await stubUpload(page)
-    let patched: string | undefined
+    const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/1`)
     await page.route(
       (u) => u.pathname === `/api/v1/projects/${KEY}/issues/1`,
       async (route) => {
         if (route.request().method() !== 'PATCH') return route.fallback()
-        patched = route.request().postDataJSON().body
         await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
       },
     )
@@ -186,12 +182,12 @@ test.describe('이슈 본문 이미지 — 상세 편집', () => {
     await ta.press('Escape')
     await expect(ta).toBeVisible()
     await ta.press('ControlOrMeta+Enter')
-    expect(patched).toBeUndefined()
+    expect(patches.count()).toBe(0)
 
     upload.release()
     await expect(ta).toHaveValue(new RegExp(`!\\[bug\\.png\\]\\(${IMG_URL.replace(/\//g, '\\/')}\\)`))
     await page.getByTestId('issue-body-save').click()
-    await expect.poll(() => patched).toContain(`![bug.png](${IMG_URL})`)
+    await expect.poll(() => patches.lastBody<{ body: string }>()?.body).toContain(`![bug.png](${IMG_URL})`)
   })
 })
 
@@ -243,15 +239,14 @@ test.describe('이슈 본문 이미지 — 표시', () => {
   })
 
   test('다른 경로의 /api/v1 이미지나 http 이미지는 요청하지 않는다', async ({ authenticatedPage: page }) => {
-    let hit = 0
-    await page.route('**/api/v1/drive/files/5/content', (r) => {
-      hit++
-      return r.fulfill({ status: 200, contentType: 'image/png', body: PNG })
-    })
+    const driveImages = trackRequests(page, 'ANY', '/api/v1/drive/files/5/content')
+    await page.route('**/api/v1/drive/files/5/content', (r) =>
+      r.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
+    )
     await setupDetailStubs(page, '![x](/api/v1/drive/files/5/content) ![y](http://example.com/a.png)')
     await page.goto(`/projects/${KEY}/issues/1`)
     await expect(page.getByText('x', { exact: true })).toBeVisible()
-    expect(hit).toBe(0)
+    expect(driveImages.count()).toBe(0)
   })
 
   test('복원된 초안에 업로드 중 토큰이 남아 있으면 저장 시 안내 토스트를 띄운다', async ({ authenticatedPage: page }) => {

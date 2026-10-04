@@ -2,6 +2,7 @@
 // 스텁 서버가 version 을 추적한다: PATCH 의 version 이 현재와 다르면 409, 같으면 반영하고 version+1.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 
@@ -14,8 +15,10 @@ interface Server {
   title: string;
   body: string;
   version: number;
-  patches: Record<string, unknown>[];
-  gets: number;
+  /** 보낸 PATCH 본문(순서대로). */
+  patches: () => Record<string, unknown>[];
+  /** 보낸 상세 GET 수. */
+  gets: () => number;
 }
 
 /**
@@ -23,7 +26,17 @@ interface Server {
  * 다음 편집을 하는 상황(캐시에 옛 version 이 남아 거짓 409 가 나기 쉬운 구간)을 만든다.
  */
 async function setupServer(page: import('@playwright/test').Page, refetchDelayMs = 0): Promise<Server> {
-  const server: Server = { title: '원본 제목', body: '원본 본문', version: 1, patches: [], gets: 0 };
+  const patches = trackRequests(page, 'PATCH', ISSUE_DETAIL_PATH);
+  const detailGets = trackRequests(page, 'GET', ISSUE_DETAIL_PATH);
+  const server: Server = {
+    title: '원본 제목',
+    body: '원본 본문',
+    version: 1,
+    patches: () => patches.bodies<Record<string, unknown>>(),
+    gets: detailGets.count,
+  };
+  // 첫 로드 이후 재조회만 늦추기 위한 응답 순번(응답 결정용).
+  let served = 0;
   const detail = () =>
     createIssueDetail({
       summary: createIssue({ id: ISSUE_NUMBER, number: ISSUE_NUMBER, title: server.title, version: server.version }),
@@ -55,13 +68,12 @@ async function setupServer(page: import('@playwright/test').Page, refetchDelayMs
     async (route) => {
       const method = route.request().method();
       if (method === 'GET') {
-        server.gets += 1;
-        if (server.gets > 1 && refetchDelayMs) await new Promise((r) => setTimeout(r, refetchDelayMs));
+        served += 1;
+        if (served > 1 && refetchDelayMs) await new Promise((r) => setTimeout(r, refetchDelayMs));
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail()) });
       }
       if (method !== 'PATCH') return route.fallback();
       const payload = route.request().postDataJSON() as Record<string, unknown>;
-      server.patches.push(payload);
       if (payload.version !== undefined && payload.version !== server.version) {
         return route.fulfill({
           status: 409,
@@ -100,8 +112,8 @@ test.describe('이슈 동시 편집 충돌 감지 (#611)', () => {
     await editTitle(page, '첫 번째');
     await editTitle(page, '두 번째');
 
-    await expect.poll(() => server.patches.length).toBe(2);
-    expect(server.patches.map((p) => p.version)).toEqual([1, 2]);
+    await expect.poll(() => server.patches().length).toBe(2);
+    expect(server.patches().map((p) => p.version)).toEqual([1, 2]);
     await expect(page.getByTestId('issue-title-heading').getByText('두 번째')).toBeVisible();
     await expect(page.getByText('다른 사용자가 먼저')).toHaveCount(0);
   });
@@ -116,19 +128,19 @@ test.describe('이슈 동시 편집 충돌 감지 (#611)', () => {
     // 다른 탭이 먼저 저장한 상황 — 서버만 앞서간다.
     server.title = '다른 탭 제목';
     server.version = 2;
-    const getsBefore = server.gets;
+    const getsBefore = server.gets();
 
     await editTitle(page, '내 제목');
     await expect(page.getByText('다른 사용자가 먼저 이 이슈를 수정했습니다', { exact: false })).toBeVisible();
-    expect(server.patches[0].version).toBe(1);
+    expect(server.patches()[0].version).toBe(1);
     // 입력한 제목은 버리지 않고 편집을 다시 열어 두고, 최신 이슈를 다시 불러온다.
     await expect(page.getByTestId('issue-title-input')).toHaveValue('내 제목');
-    await expect.poll(() => server.gets).toBeGreaterThan(getsBefore);
+    await expect.poll(() => server.gets()).toBeGreaterThan(getsBefore);
 
     // 최신 version 으로 다시 저장하면 성공한다.
     await page.getByTestId('issue-title-input').press('Enter');
-    await expect.poll(() => server.patches.length).toBe(2);
-    expect(server.patches[1].version).toBe(2);
+    await expect.poll(() => server.patches().length).toBe(2);
+    expect(server.patches()[1].version).toBe(2);
     await expect(page.getByTestId('issue-title-heading').getByText('내 제목')).toBeVisible();
   });
 
@@ -156,15 +168,15 @@ test.describe('이슈 동시 편집 충돌 감지 (#611)', () => {
     await expect(input).toBeVisible();
     server.title = '다른 탭 제목';
     server.version = 2;
-    const getsBefore = server.gets;
+    const getsBefore = server.gets();
     sendComment = true;
-    await expect.poll(() => server.gets, { timeout: 15_000 }).toBeGreaterThan(getsBefore);
+    await expect.poll(() => server.gets(), { timeout: 15_000 }).toBeGreaterThan(getsBefore);
 
     // 편집 시작 때 본 version(1)으로 저장 → 다른 탭의 변경을 모른 채 덮어쓰지 않고 409.
     await input.fill('내 제목');
     await input.press('Enter');
-    await expect.poll(() => server.patches.length).toBe(1);
-    expect(server.patches[0].version).toBe(1);
+    await expect.poll(() => server.patches().length).toBe(1);
+    expect(server.patches()[0].version).toBe(1);
     await expect(page.getByText('다른 사용자가 먼저 이 이슈를 수정했습니다', { exact: false })).toBeVisible();
     expect(server.title).toBe('다른 탭 제목');
   });
@@ -182,12 +194,12 @@ test.describe('이슈 동시 편집 충돌 감지 (#611)', () => {
     // 본문 편집을 연 채로 상태 변경(내 저장 → version 1→2).
     await page.getByRole('combobox', { name: '상태' }).click();
     await page.getByRole('option', { name: '진행 중' }).click();
-    await expect.poll(() => server.patches.length).toBe(1);
+    await expect.poll(() => server.patches().length).toBe(1);
 
     await textarea.click();
     await textarea.press('ControlOrMeta+Enter');
-    await expect.poll(() => server.patches.length).toBe(2);
-    expect(server.patches[1]).toMatchObject({ body: '새 본문', version: 2 });
+    await expect.poll(() => server.patches().length).toBe(2);
+    expect(server.patches()[1]).toMatchObject({ body: '새 본문', version: 2 });
     expect(server.body).toBe('새 본문');
     await expect(page.getByText('다른 사용자가 먼저', { exact: false })).toHaveCount(0);
   });
@@ -212,8 +224,8 @@ test.describe('이슈 동시 편집 충돌 감지 (#611)', () => {
     // 최신 이슈가 다시 불러와진 뒤 다시 저장 → 최신 version 으로 성공.
     await expect(page.getByTestId('issue-title-heading').getByText('다른 탭 제목')).toBeVisible();
     await page.getByTestId('issue-body-textarea').press('ControlOrMeta+Enter');
-    await expect.poll(() => server.patches.length).toBe(2);
-    expect(server.patches[1]).toMatchObject({ body: '공들여 쓴 본문', version: 2 });
+    await expect.poll(() => server.patches().length).toBe(2);
+    expect(server.patches()[1]).toMatchObject({ body: '공들여 쓴 본문', version: 2 });
     expect(server.body).toBe('공들여 쓴 본문');
   });
 });

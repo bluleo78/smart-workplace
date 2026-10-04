@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { personalDetail, sharedDetail, sharedNode, tree } from '../../factories/userGroups.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 // GET /api/v1/user-groups → 기본 트리(공유 1개 + 개인 1개)
 async function stubTree(page: Page) {
@@ -57,8 +58,8 @@ test('조직도(공유) 선택 시 트리+직속 멤버 렌더', { tag: '@smoke'
 })
 
 test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-  let createBody: any
-  let memberBody: any
+  const creates = trackRequests(page, 'POST', '/api/v1/user-groups')
+  const memberAdds = trackRequests(page, 'POST', '/api/v1/user-groups/99/members')
   await stubTree(page)
   await stubDetail(page)
   // 멤버 검색은 contacts 목록 API 재사용 — 이후 등록이 우선하므로 stubTree 뒤에 등록
@@ -82,7 +83,6 @@ test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authent
     (url) => url.pathname === '/api/v1/user-groups',
     (route, req) => {
       if (req.method() === 'POST') {
-        createBody = req.postDataJSON()
         return route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -95,8 +95,7 @@ test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authent
   // 멤버 편입 POST stub
   await page.route(
     (url) => url.pathname === '/api/v1/user-groups/99/members',
-    (route, req) => {
-      memberBody = req.postDataJSON()
+    (route) => {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -117,19 +116,18 @@ test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authent
   await expect(page.getByTestId('group-form-dialog')).toBeHidden()
 
   // payload 검증 — 생성/멤버 편입 요청이 올바른 본문으로 실제 발사되었는지 확인
-  expect(createBody).toMatchObject({ name: '신규 그룹', visibility: 'PERSONAL' })
-  expect(memberBody).toMatchObject({ targetType: 'MEMBER', targetId: 1 })
+  expect(creates.lastBody()).toMatchObject({ name: '신규 그룹', visibility: 'PERSONAL' })
+  expect(memberAdds.lastBody()).toMatchObject({ targetType: 'MEMBER', targetId: 1 })
 })
 
 test('admin: 조직도 헤더에서 최상위 공유 그룹 생성', async ({ adminPage: page }) => {
-  let createBody: any
+  const creates = trackRequests(page, 'POST', '/api/v1/user-groups')
   await stubContacts(page)
   await stubDetail(page)
   await page.route(
     (url) => url.pathname === '/api/v1/user-groups',
     (route, req) => {
       if (req.method() === 'POST') {
-        createBody = req.postDataJSON()
         return route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -145,7 +143,7 @@ test('admin: 조직도 헤더에서 최상위 공유 그룹 생성', async ({ ad
   await page.getByTestId('g-name').fill('신규 본부')
   await page.getByTestId('g-save').click()
   await expect(page.getByTestId('group-form-dialog')).toBeHidden()
-  expect(createBody).toMatchObject({ name: '신규 본부', visibility: 'SHARED', parentId: null })
+  expect(creates.lastBody()).toMatchObject({ name: '신규 본부', visibility: 'SHARED', parentId: null })
 })
 
 test('비-admin: 조직도 헤더 + 버튼 미노출', async ({ authenticatedPage: page }) => {
@@ -158,7 +156,7 @@ test('비-admin: 조직도 헤더 + 버튼 미노출', async ({ authenticatedPag
 })
 
 test('admin: 조직도 노드 수정(PATCH 부분 수정 — code 생략으로 보존, 최상위는 moveToRoot)', async ({ adminPage: page }) => {
-  let patchBody: any
+  const patches = trackRequests(page, 'PATCH', '/api/v1/user-groups/10')
   await stubContacts(page)
   await stubTree(page)
   // 상세는 code 가 채워진 그룹으로 — code 보존 검증
@@ -171,7 +169,6 @@ test('admin: 조직도 노드 수정(PATCH 부분 수정 — code 생략으로 �
     (url) => /^\/api\/v1\/user-groups\/10$/.test(url.pathname),
     (route, req) => {
       if (req.method() === 'PATCH') {
-        patchBody = req.postDataJSON()
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sharedDetail({ code: 'DEV', name: '개발본부(수정)' })) })
       }
       return route.fallback()
@@ -186,18 +183,17 @@ test('admin: 조직도 노드 수정(PATCH 부분 수정 — code 생략으로 �
   await page.getByTestId('g-save').click()
   await expect(page.getByTestId('group-form-dialog')).toBeHidden()
   // #839 부분 수정 계약: 폼이 다루지 않는 code·sortOrder 는 생략(서버가 유지), 상위 '최상위'는 moveToRoot 플래그
-  expect(patchBody).toEqual({ name: '개발본부(수정)', moveToRoot: true })
+  expect(patches.lastBody()).toEqual({ name: '개발본부(수정)', moveToRoot: true })
 })
 
 test('admin: 조직도 노드 하위 그룹 추가(POST parentId)', async ({ adminPage: page }) => {
-  let createBody: any
+  const creates = trackRequests(page, 'POST', '/api/v1/user-groups')
   await stubContacts(page)
   await stubDetail(page)
   await page.route(
     (url) => url.pathname === '/api/v1/user-groups',
     (route, req) => {
       if (req.method() === 'POST') {
-        createBody = req.postDataJSON()
         return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(sharedDetail({ id: 97, name: '하위팀', parentId: 10, members: [] })) })
       }
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree()) })
@@ -210,11 +206,11 @@ test('admin: 조직도 노드 하위 그룹 추가(POST parentId)', async ({ adm
   await page.getByTestId('g-name').fill('하위팀')
   await page.getByTestId('g-save').click()
   await expect(page.getByTestId('group-form-dialog')).toBeHidden()
-  expect(createBody).toMatchObject({ name: '하위팀', visibility: 'SHARED', parentId: 10 })
+  expect(creates.lastBody()).toMatchObject({ name: '하위팀', visibility: 'SHARED', parentId: 10 })
 })
 
 test('admin: 조직도 노드 삭제(DELETE + 확인 + 선택 해제)', async ({ adminPage: page }) => {
-  let deleteCalled = false
+  const deletes = trackRequests(page, 'DELETE', '/api/v1/user-groups/10')
   await stubContacts(page)
   await stubDetail(page)
   await page.route(
@@ -225,7 +221,6 @@ test('admin: 조직도 노드 삭제(DELETE + 확인 + 선택 해제)', async ({
     (url) => /^\/api\/v1\/user-groups\/10$/.test(url.pathname),
     (route, req) => {
       if (req.method() === 'DELETE') {
-        deleteCalled = true
         return route.fulfill({ status: 204, body: '' })
       }
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sharedDetail()) })
@@ -236,7 +231,7 @@ test('admin: 조직도 노드 삭제(DELETE + 확인 + 선택 해제)', async ({
   await page.getByTestId('org-delete-10').click()
   await expect(page.getByTestId('org-delete-confirm')).toBeVisible()
   await page.getByTestId('org-delete-confirm-btn').click()
-  await expect.poll(() => deleteCalled).toBe(true)
+  await deletes.waitFor()
   // 보던 그룹 삭제 → 메인 패널이 통합 목록(빈 상태)으로 복귀
   await expect(page.getByTestId('org-chart-view')).toBeHidden()
 })

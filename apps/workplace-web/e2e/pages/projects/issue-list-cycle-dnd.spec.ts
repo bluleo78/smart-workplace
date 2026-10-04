@@ -8,6 +8,7 @@ import type { IssueResponse } from '../../../src/types/issue';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 
 const KEY = 'WP';
@@ -65,7 +66,8 @@ async function setup(page: Page, { member = true, failMove = false }: SetupOptio
     [51, new Set([5])],
   ]);
   const openCycleIds = new Set(CYCLES.filter((c) => c.status !== 'COMPLETED').map((c) => c.id));
-  const moves: MoveBody[] = [];
+  const moveRequests = trackRequests(page, 'ANY', /^\/api\/v1\/projects\/WP\/issues\/\d+\/cycles\/move$/);
+  const moves = () => moveRequests.bodies<MoveBody>();
 
   await page.route(`**/api/v1/projects/${KEY}`, (route) =>
     route.fulfill({
@@ -118,7 +120,6 @@ async function setup(page: Page, { member = true, failMove = false }: SetupOptio
     (url) => /^\/api\/v1\/projects\/WP\/issues\/\d+\/cycles\/move$/.test(url.pathname),
     (route) => {
       const body = route.request().postDataJSON() as MoveBody;
-      moves.push(body);
       if (failMove) {
         return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: '서버 오류' }) });
       }
@@ -169,11 +170,11 @@ async function expand(page: Page, key: string) {
 // 토스트 「되돌리기」 실행 — 한 줄 토스트는 페이지 헤더(z-45) 아래 층(토스터 z-40, #715)에 겹쳐 포인터 클릭이 막힐 수 있다.
 // 이 스펙은 되돌리기 로직(역차분 요청)을 검증하므로 버튼에 click 이벤트를 직접 보낸다(가림 문제는 이 작업 범위 밖).
 // 목 응답이 즉시 와서 토스트가 드롭 직후 50ms(dnd-kit click 삼킴) 안에 뜰 수 있어, 요청이 나갈 때까지 재시도한다.
-async function clickUndo(page: Page, moves: MoveBody[]) {
-  const before = moves.length;
+async function clickUndo(page: Page, moves: () => MoveBody[]) {
+  const before = moves().length;
   await expect(async () => {
-    if (moves.length === before) await page.getByRole('button', { name: '되돌리기' }).dispatchEvent('click');
-    await expect.poll(() => moves.length, { timeout: 500 }).toBeGreaterThan(before);
+    if (moves().length === before) await page.getByRole('button', { name: '되돌리기' }).dispatchEvent('click');
+    await expect.poll(() => moves().length, { timeout: 500 }).toBeGreaterThan(before);
   }).toPass();
 }
 
@@ -194,7 +195,7 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
         await expect(section(page, 'cycle-1')).not.toHaveAttribute('data-drop-target', 'true');
       });
 
-      await expect.poll(() => moves).toEqual([{ fromCycleId: 1, toCycleId: 3 }]);
+      await expect.poll(moves).toEqual([{ fromCycleId: 1, toCycleId: 3 }]);
       await expect(row(page, 'cycle-1', 12)).toHaveCount(0);
       await expect(page.getByText('WP-12 을(를) 스프린트 13(으)로 옮겼습니다')).toBeVisible();
       await expand(page, 'cycle-3');
@@ -202,7 +203,7 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
 
       // 되돌리기 — 역차분(3 해제 + 1 추가).
       await clickUndo(page, moves);
-      await expect.poll(() => moves.at(-1)).toEqual({ fromCycleId: 3, toCycleId: 1 });
+      await expect.poll(() => moves().at(-1)).toEqual({ fromCycleId: 3, toCycleId: 1 });
       await expect(row(page, 'cycle-1', 12)).toBeVisible();
       await expect(row(page, 'cycle-3', 12)).toHaveCount(0);
     },
@@ -215,13 +216,13 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
 
     // 스프린트 12 → 핫픽스 주간(이미 연결) — 결과는 {핫픽스 주간}.
     await dragRowTo(page, row(page, 'cycle-1', 11), 'cycle-2');
-    await expect.poll(() => moves).toEqual([{ fromCycleId: 1, toCycleId: 2 }]);
+    await expect.poll(moves).toEqual([{ fromCycleId: 1, toCycleId: 2 }]);
     await expect(row(page, 'cycle-1', 11)).toHaveCount(0);
     await expect(row(page, 'cycle-2', 11)).toBeVisible();
 
     // 되돌리기 — 2 는 원래 연결이라 떼지 않고 1 만 다시 붙인다.
     await clickUndo(page, moves);
-    await expect.poll(() => moves.at(-1)).toEqual({ fromCycleId: null, toCycleId: 1 });
+    await expect.poll(() => moves().at(-1)).toEqual({ fromCycleId: null, toCycleId: 1 });
     await expect(row(page, 'cycle-1', 11)).toBeVisible();
     await expect(row(page, 'cycle-2', 11)).toBeVisible();
     expect([...membership.get(11)!].sort()).toEqual([1, 2]);
@@ -233,12 +234,12 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
     await expect(row(page, 'backlog', 41)).toBeVisible();
 
     await dragRowTo(page, row(page, 'backlog', 41), 'cycle-1');
-    await expect.poll(() => moves).toEqual([{ fromCycleId: null, toCycleId: 1 }]);
+    await expect.poll(moves).toEqual([{ fromCycleId: null, toCycleId: 1 }]);
     await expect(row(page, 'cycle-1', 41)).toBeVisible();
     await expect(row(page, 'backlog', 41)).toHaveCount(0);
 
     await dragRowTo(page, row(page, 'cycle-1', 12), 'backlog');
-    await expect.poll(() => moves.at(-1)).toEqual({ fromCycleId: 1, toCycleId: null });
+    await expect.poll(() => moves().at(-1)).toEqual({ fromCycleId: 1, toCycleId: null });
     await expect(row(page, 'backlog', 12)).toBeVisible();
     await expect(row(page, 'cycle-1', 12)).toHaveCount(0);
   });
@@ -249,7 +250,7 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
     await expect(row(page, 'cycle-1', 11)).toBeVisible();
 
     await dragRowTo(page, row(page, 'cycle-1', 11), 'backlog');
-    await expect.poll(() => moves).toEqual([{ fromCycleId: 1, toCycleId: null }]);
+    await expect.poll(moves).toEqual([{ fromCycleId: 1, toCycleId: null }]);
     await expect(
       page.getByText('WP-11 을(를) 스프린트 12에서 뺐습니다 (다른 진행 중·예정 사이클에 남아 있어 백로그에는 표시되지 않습니다)'),
     ).toBeVisible();
@@ -264,7 +265,7 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
     await expect(row(page, 'cycle-1', 12)).toBeVisible();
 
     await dragRowTo(page, row(page, 'cycle-1', 12), 'cycle-1');
-    await expectStays(page, () => moves, []);
+    await expectStays(page, moves, []);
     await expect(row(page, 'cycle-1', 12)).toBeVisible();
   });
 
@@ -279,7 +280,7 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
       await expect(page.getByTestId('list-cycle-drop-blocked-cycle-5')).toHaveText('완료된 사이클에는 놓을 수 없음');
       await expect(section(page, 'cycle-5')).not.toHaveAttribute('data-drop-target', 'true');
     });
-    await expectStays(page, () => moves, []);
+    await expectStays(page, moves, []);
     await expect(section(page, 'cycle-5')).not.toHaveAttribute('data-drop-blocked', 'true');
 
     // 완료 구간의 행은 사이클 이동에서 빠진다 — 다른 구간 위로 끌어도 반응·요청 없음(끝난 스프린트 이력 보호).
@@ -289,7 +290,7 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
       await expect(section(page, 'cycle-1')).not.toHaveAttribute('data-drop-target', 'true');
       await expect(section(page, 'cycle-5')).not.toHaveAttribute('data-drop-blocked', 'true');
     });
-    await expectStays(page, () => moves, []);
+    await expectStays(page, moves, []);
     await expect(row(page, 'cycle-5', 51)).toBeVisible();
   });
 
@@ -299,7 +300,7 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
     await expect(row(page, 'cycle-1', 12)).toBeVisible();
 
     await dragRowTo(page, row(page, 'cycle-1', 12), 'cycle-2');
-    await expect.poll(() => moves.length).toBe(1);
+    await expect.poll(() => moves().length).toBe(1);
     await expect(page.getByText('서버 오류')).toBeVisible();
     await expect(row(page, 'cycle-1', 12)).toBeVisible();
     await expect(row(page, 'cycle-2', 12)).toHaveCount(0);
@@ -313,7 +314,7 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
     await expect(r).not.toHaveAttribute('aria-roledescription', '드래그 가능한 이슈');
 
     await dragRowTo(page, r, 'cycle-2');
-    await expectStays(page, () => moves, []);
+    await expectStays(page, moves, []);
     await expect(page.getByTestId('issue-row-drag-overlay')).toHaveCount(0);
   });
 
@@ -333,12 +334,12 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
     }
     await expect(section(page, 'backlog')).toHaveAttribute('data-drop-target', 'true');
     await page.keyboard.press('Space');
-    await expect.poll(() => moves).toEqual([{ fromCycleId: 1, toCycleId: null }]);
+    await expect.poll(moves).toEqual([{ fromCycleId: 1, toCycleId: null }]);
 
     // 행 안 제목 링크의 Enter 는 드래그가 아니라 상세 이동.
     await row(page, 'cycle-2', 21).getByRole('link').first().focus();
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/21$`));
-    expect(moves).toHaveLength(1);
+    expect(moves()).toHaveLength(1);
   });
 });

@@ -6,6 +6,7 @@
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeIssueType, systemTypes } from '../../factories/issueType.factory';
 import { createMember, createProject } from '../../factories/project.factory';
@@ -113,11 +114,10 @@ test.describe('이슈 유형', () => {
         route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       );
 
-      // PATCH /issues/1/type — payload 캡처 + 응답에서 갱신된 type 반영.
-      let patchPayload: unknown;
+      // PATCH /issues/1/type — 응답에서 갱신된 type 반영.
+      const typePatches = trackRequests(page, 'ANY', `/api/v1/projects/${KEY}/issues/1/type`);
       await page.route(`**/api/v1/projects/${KEY}/issues/1/type`, (route) => {
-        patchPayload = route.request().postDataJSON();
-        const tid = (patchPayload as { typeId: number }).typeId;
+        const tid = (route.request().postDataJSON() as { typeId: number }).typeId;
         const newType = types.find((t) => t.id === tid);
         if (newType) {
           issue.type = toSummary(newType);
@@ -154,7 +154,7 @@ test.describe('이슈 유형', () => {
       const designId = types.find((t) => t.name === '디자인')!.id;
       await page.getByTestId(`issue-type-option-${designId}`).click();
 
-      await expect.poll(() => patchPayload).toEqual({ typeId: designId });
+      await expect.poll(() => typePatches.lastBody()).toEqual({ typeId: designId });
       await expect(page.getByTestId(`issue-type-badge-${designId}`)).toBeVisible();
     },
   );
@@ -345,7 +345,8 @@ test.describe('이슈 유형', () => {
     async ({ authenticatedPage: page }) => {
       // CUSTOM 유형 1개 (isSystem:false 여야 이름 변경 버튼이 렌더됨)
       const customType = makeIssueType({ id: 99, name: '원래유형', colorToken: 'GREEN', icon: 'Circle', isSystem: false });
-      let patchBody: unknown;
+      // 이름 변경은 PUT/PATCH 어느 쪽이든 받는다 — 이 경로엔 다른 요청이 없어 메서드 구분 없이 기록.
+      const typeUpdates = trackRequests(page, 'ANY', `/api/v1/projects/${KEY}/types/${customType.id}`);
 
       await page.route(`**/api/v1/projects/${KEY}`, (route) =>
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject({ key: KEY })) }),
@@ -368,8 +369,7 @@ test.describe('이슈 유형', () => {
       await page.route(`**/api/v1/projects/${KEY}/types/${customType.id}`, (route) => {
         const method = route.request().method();
         if (method !== 'PUT' && method !== 'PATCH') return route.fallback();
-        patchBody = route.request().postDataJSON();
-        customType.name = (patchBody as { name: string }).name;
+        customType.name = (route.request().postDataJSON() as { name: string }).name;
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -393,7 +393,7 @@ test.describe('이슈 유형', () => {
       await input.fill('새유형이름');
       await page.getByTestId('rename-dialog-confirm').click();
 
-      await expect.poll(() => (patchBody as { name?: string } | undefined)?.name).toBe('새유형이름');
+      await expect.poll(() => typeUpdates.lastBody<{ name?: string }>()?.name).toBe('새유형이름');
       // Dialog 가 닫혀야 함.
       await expect(dialog).toBeHidden();
     },

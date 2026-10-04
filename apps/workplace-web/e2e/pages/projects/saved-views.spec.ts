@@ -1,5 +1,6 @@
 // 저장된 뷰 E2E — 필터 적용 → 뷰 저장(payload 검증) → 칩 등장 → 적용/삭제.
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { createIssueSearchResponse } from '../../factories/issue.factory'
 import { createProject } from '../../factories/project.factory'
 import type { SavedViewResponse } from '../../../src/types/savedView'
@@ -153,12 +154,9 @@ test('저장된 뷰 — 삭제 클릭 시 AlertDialog 표시, 취소 시 뷰 유
     },
   ]
   await setupCommonRoutes(page, views)
-  // DELETE 가 호출되면 실패시켜 취소 확인.
-  let deleteCalled = false
-  await page.route(`**/api/v1/projects/${KEY}/saved-views/1`, (route) => {
-    deleteCalled = true
-    return route.fulfill({ status: 204, body: '' })
-  })
+  // 취소했으므로 이 뷰 경로로는 어떤 요청도 나가면 안 된다.
+  const viewRequests = trackRequests(page, 'ANY', `/api/v1/projects/${KEY}/saved-views/1`)
+  await page.route(`**/api/v1/projects/${KEY}/saved-views/1`, (route) => route.fulfill({ status: 204, body: '' }))
 
   await page.goto(`/projects/${KEY}`)
 
@@ -174,7 +172,7 @@ test('저장된 뷰 — 삭제 클릭 시 AlertDialog 표시, 취소 시 뷰 유
   // 3) 취소 클릭 → 다이얼로그 닫힘 + DELETE 미호출 + 칩 유지.
   await page.getByRole('button', { name: '취소' }).click()
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
-  expect(deleteCalled).toBe(false)
+  expect(viewRequests.count()).toBe(0)
   await expect(page.getByTestId('view-chip-1')).toBeVisible()
 })
 

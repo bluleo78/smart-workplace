@@ -6,6 +6,7 @@
 import { calendarEvent } from '../factories/calendar.factory';
 import { expect, test } from '../fixtures/auth.fixture';
 import { mockHomeChatGeneration } from '../fixtures/home-chat-mock';
+import { trackRequests } from '../fixtures/requests';
 
 test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
   test(
@@ -19,11 +20,10 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
         ],
       });
       // 2) 위젯이 오늘 범위로 호출하는 일정 목록.
-      let calendarRequestFrom: string | null = null;
+      const eventLists = trackRequests(page, 'ANY', '/api/v1/calendar/events');
       await page.route(
         (url) => url.pathname === '/api/v1/calendar/events',
         (route) => {
-          calendarRequestFrom = new URL(route.request().url()).searchParams.get('from');
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -48,7 +48,7 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
       await expect(items).toContainText('점심 약속');
 
       // 처리: from 파라미터가 전달됐는지(오늘 범위 계산) 검증.
-      expect(calendarRequestFrom).not.toBeNull();
+      expect(eventLists.lastUrl()!.searchParams.get('from')).not.toBeNull();
     },
   );
 
@@ -63,14 +63,10 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
         { event: 'done', data: { sessionId: 's-cal-3', widgets: [{ type: 'calendar', params: { from: '2026-06-22', to: '2026-06-22' } }] } },
       ],
     });
-    let reqFrom: string | null = null;
-    let reqTo: string | null = null;
+    const eventLists = trackRequests(page, 'ANY', '/api/v1/calendar/events');
     await page.route(
       (url) => url.pathname === '/api/v1/calendar/events',
       (route) => {
-        const sp = new URL(route.request().url()).searchParams;
-        reqFrom = sp.get('from');
-        reqTo = sp.get('to');
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -86,6 +82,9 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
     await expect(page.getByTestId('calendar-empty')).toBeVisible();
 
     // from/to 모두 ISO datetime(시각 포함, 'T' 구분자)이어야 하고, 빈 범위(from==to)가 아니어야 한다.
+    const sp = eventLists.lastUrl()!.searchParams;
+    const reqFrom = sp.get('from');
+    const reqTo = sp.get('to');
     expect(reqFrom).toMatch(/\d{4}-\d{2}-\d{2}T/);
     expect(reqTo).toMatch(/\d{4}-\d{2}-\d{2}T/);
     expect(reqFrom).not.toBe(reqTo);

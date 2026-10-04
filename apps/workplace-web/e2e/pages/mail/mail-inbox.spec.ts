@@ -5,6 +5,7 @@ import type { EmailMessageDetail, MailUnreadCounts } from '../../../src/types/ma
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays, retryOnNavigation } from '../../fixtures/wait'
 
 // GET /mail/accounts/1/messages — query 파라미터에 따라 분기(검색 검증).
@@ -101,19 +102,16 @@ test.describe('받은편지함', () => {
     authenticatedPage: page,
   }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
-    let requestCount = 0
+    const lists = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/messages')
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
-      (route) => {
-        requestCount += 1
-        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-      },
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     )
     // 검색 디바운스(300ms)를 가상 시계로 넘긴다
     await page.clock.install()
     await page.goto('/mail/1')
-    await expect.poll(() => requestCount).toBeGreaterThanOrEqual(1)
-    const initialCount = requestCount
+    await lists.waitFor()
+    const initialCount = lists.count()
     // 타이핑·단언 사이 실시간 경과가 디바운스를 터뜨리지 않도록 시계를 멈춘다(runFor 로만 진행).
     await page.clock.pauseAt(Date.now() + 1000)
 
@@ -121,30 +119,26 @@ test.describe('받은편지함', () => {
     await page.getByTestId('mail-search').pressSequentially('lunch', { delay: 30 })
 
     await page.clock.runFor(299)
-    await expectStays(page, () => requestCount, initialCount, { ms: 100 })
+    await expectStays(page, lists.count, initialCount, { ms: 100 })
 
-    // 디바운스 만료 → 정확히 1건만 추가(글자 수만큼 아님).
-    await page.clock.runFor(2)
-    await expect.poll(() => requestCount).toBe(initialCount + 1)
+    // 디바운스 만료 뒤 넉넉히 넘겨도 정확히 1건만 추가(글자 수만큼 아님).
     await page.clock.runFor(1000)
-    await expectStays(page, () => requestCount, initialCount + 1, { ms: 200 })
+    await expectStays(page, lists.count, initialCount + 1, { ms: 200, reach: true })
   })
 
   test('동기화 버튼 → sync 호출 + 토스트', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
     await stubMessages(page)
 
-    let syncCalled = false
+    const syncs = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/sync')
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/sync',
-      (route) => {
-        syncCalled = true
-        return route.fulfill({
+      (route) =>
+        route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({ fetched: 2, saved: 2 }),
-        })
-      },
+        }),
     )
     // 동기화 클릭 시 폴링되는 sync-status 도 스텁(미모킹 시 :9090 프록시→ECONNREFUSED).
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', {
@@ -156,7 +150,7 @@ test.describe('받은편지함', () => {
 
     await page.goto('/mail/1')
     await page.getByTestId('mail-sync').click()
-    await expect.poll(() => syncCalled).toBe(true)
+    await syncs.waitFor()
     await expect(page.getByText('새 메일 2건을 받았습니다')).toBeVisible()
   })
 
@@ -338,11 +332,10 @@ test.describe('받은편지함', () => {
     await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
 
     // 첨부 다운로드 엔드포인트 모킹 — 실제 바이너리 대신 1바이트 더미 + Content-Disposition 헤더
-    let downloadRequestUrl = ''
+    const downloads = trackRequests(page, 'ANY', '/api/v1/mail/attachments/1/content')
     await page.route(
       (url) => url.pathname === '/api/v1/mail/attachments/1/content',
-      (route, req) => {
-        downloadRequestUrl = req.url()
+      (route) => {
         return route.fulfill({
           status: 200,
           headers: {
@@ -368,7 +361,7 @@ test.describe('받은편지함', () => {
     ])
 
     // GET /mail/attachments/1/content 가 호출됐는지 검증
-    expect(downloadRequestUrl).toContain('/api/v1/mail/attachments/1/content')
+    expect(downloads.count()).toBeGreaterThan(0)
 
     // 브라우저가 제안하는 파일명이 첨부 파일명과 일치하는지 검증
     expect(download.suggestedFilename()).toBe('안건.pdf')
@@ -397,11 +390,10 @@ test.describe('받은편지함', () => {
         ],
       }),
     )
-    const requested: string[] = []
+    const attachments = trackRequests(page, 'ANY', (url) => url.pathname.startsWith('/api/v1/mail/attachments/'))
     await page.route(
       (url) => url.pathname.startsWith('/api/v1/mail/attachments/'),
-      (route, req) => {
-        requested.push(new URL(req.url()).pathname)
+      (route) => {
         // octet-stream 응답도 첨부 메타 contentType(image/png)으로 보정돼야 한다
         return route.fulfill({ status: 200, headers: { 'content-type': 'application/octet-stream' }, body: png })
       },
@@ -418,7 +410,7 @@ test.describe('받은편지함', () => {
       .poll(() => retryOnNavigation(() => frame.locator('#inline').evaluate((el) => (el as HTMLImageElement).naturalWidth)))
       .toBe(1)
     await expect(frame.locator('#missing')).toHaveAttribute('src', 'cid:none.png')
-    expect(requested).toEqual(['/api/v1/mail/attachments/5/content'])
+    expect(attachments.urls().map((u) => u.pathname)).toEqual(['/api/v1/mail/attachments/5/content'])
     // WP-70 본문에 표시된 인라인 이미지는 첨부 목록에서 빠지고 일반 첨부만 남는다
     await expect(page.getByTestId('mail-attachment-download-6')).toBeVisible()
     await expect(page.getByTestId('mail-attachment-download-5')).toHaveCount(0)
@@ -440,13 +432,10 @@ test.describe('받은편지함', () => {
         ],
       }),
     )
-    let calls = 0
+    const contents = trackRequests(page, 'ANY', '/api/v1/mail/attachments/5/content')
     await page.route(
       (url) => url.pathname === '/api/v1/mail/attachments/5/content',
-      (route) => {
-        calls += 1
-        return route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"없음"}' })
-      },
+      (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"없음"}' }),
     )
 
     await page.goto('/mail/1')
@@ -456,7 +445,7 @@ test.describe('받은편지함', () => {
     await expect(page.getByTestId('mail-attachment-download-5')).toBeVisible({ timeout: 10_000 })
     const frame = page.frameLocator('[data-testid="mail-body-html"]')
     await expect(frame.locator('#inline')).toHaveAttribute('src', 'cid:7dc8b642.png')
-    expect(calls).toBeGreaterThanOrEqual(1)
+    expect(contents.count()).toBeGreaterThanOrEqual(1)
   })
 
   // WP-103·WP-159 — 다크 테마에서 HTML 메일은 종류와 관계없이 색 단위로 변환한다: 밝은 배경은 어둡게(흰색은 투명),
@@ -587,13 +576,10 @@ test.describe('받은편지함', () => {
         ],
       }),
     )
-    let fetched = false
+    const attachments = trackRequests(page, 'ANY', (url) => url.pathname.startsWith('/api/v1/mail/attachments/'))
     await page.route(
       (url) => url.pathname.startsWith('/api/v1/mail/attachments/'),
-      (route) => {
-        fetched = true
-        return route.fulfill({ status: 200, body: '' })
-      },
+      (route) => route.fulfill({ status: 200, body: '' }),
     )
 
     await page.goto('/mail/1')
@@ -601,7 +587,7 @@ test.describe('받은편지함', () => {
 
     await expect(page.getByText('안내 본문')).toBeVisible()
     await expect(page.getByTestId('mail-attachment-download-5')).toBeVisible()
-    expect(fetched).toBe(false)
+    expect(attachments.count()).toBe(0)
   })
 
   // #265 — 답장/전체답장/전달 버튼이 shadcn Button(role=button)으로 렌더링되고 클릭 시 컴포즈 도크가 열린다.
@@ -651,18 +637,18 @@ test.describe('받은편지함', () => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', {
       phase: 'IDLE', total: 0, done: 0, running: false,
     })
-    let syncCalled = false
+    const syncs = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/sync')
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/sync',
-      (route) => { syncCalled = true; return route.fulfill({
+      (route) => route.fulfill({
         status: 200, contentType: 'application/json', body: JSON.stringify({ fetched: 0, saved: 0 }),
-      }) },
+      }),
     )
 
     await page.goto('/mail/1')
     await expect(page.getByTestId('mail-synced-at')).toContainText('2분 전')
     await page.getByTestId('mail-sync').click()
-    await expect.poll(() => syncCalled).toBe(true)
+    await syncs.waitFor()
   })
 
   // #481 — lastSyncedAt=null 이면 회색 점+"동기화 안 됨" 표시, 녹색 점 없음.
@@ -813,9 +799,8 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
   test('안 읽은 메일만 + 메일 열기 → 재조회에서 빠져도 목록에 남음, 보기 바꾸면 빠짐', async ({ authenticatedPage: page }) => {
     await stubCounts(page)
     let opened = false
-    let listCalls = 0
+    const lists = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/messages')
     await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages', (route) => {
-      listCalls++
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opened ? [summary({ id: 11 })] : [summary({ id: 10 }), summary({ id: 11 })]) })
     })
     await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail()) // WP-214: 조회는 읽음 처리하지 않아 안 읽음 그대로 응답
@@ -826,10 +811,10 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
     // 읽음 처리가 끝난 뒤의 재조회 경로 — 읽음 처리 전에 재조회가 먼저 끝나는 경로는 아래 WP-230 테스트가 본다.
     await read.waitForRequest()
     opened = true
-    const before = listCalls
+    const before = lists.count()
     // 60초 주기 재조회(refetchInterval)를 실제로 일으킨다 — 재조회가 없으면 행이 남는 것은 당연하므로, 요청이 나갔는지 먼저 확인한다
     await page.clock.fastForward(61_000)
-    await expect.poll(() => listCalls).toBeGreaterThan(before)
+    await lists.waitFor(before + 1)
     await expect(page.getByTestId('mail-row-10')).toBeVisible()
     await page.getByTestId('mail-filter-category-개인').click()
     await page.getByTestId('mail-filter-category-업무').click()
@@ -839,17 +824,15 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
   test('안 읽은 메일만 + 메일 열기 → 상세 조회 전에 재조회가 10 을 빼도 목록에 남음 (WP-230)', async ({ authenticatedPage: page }) => {
     await stubCounts(page)
     let opened = false
-    let listCalls = 0
+    const lists = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/messages')
     await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages', (route) => {
-      listCalls++
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opened ? [summary({ id: 11 })] : [summary({ id: 10 }), summary({ id: 11 })]) })
     })
     // 상세 응답을 붙잡아 둬 첫 열람 읽음 처리(상세 조회 완료 후)보다 재조회가 먼저 끝나게 한다.
     let releaseDetail!: () => void
     const detailGate = new Promise<void>((r) => (releaseDetail = r))
-    let detailRequested = false
+    const details = trackRequests(page, 'GET', '/api/v1/mail/messages/10')
     await page.route((u) => u.pathname === '/api/v1/mail/messages/10', async (route) => {
-      detailRequested = true
       await detailGate
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail()) })
     })
@@ -857,11 +840,11 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
     await page.clock.install()
     await page.goto('/mail/1?unread=true')
     await page.getByTestId('mail-row-10').click()
-    await expect.poll(() => detailRequested).toBe(true)
+    await details.waitFor()
     opened = true // 다른 기기에서 읽음 처리돼 서버가 10 을 뺀 상황
-    const before = listCalls
+    const before = lists.count()
     await page.clock.fastForward(61_000)
-    await expect.poll(() => listCalls).toBeGreaterThan(before)
+    await lists.waitFor(before + 1)
     // 요청이 나간 직후엔 응답 반영 전이라 한 번 보이는 것으로는 부족하다 — 반영될 시간 동안 계속 남는지 지켜본다.
     const row10 = () => page.getByTestId('mail-row-10').count()
     await expectStays(page, row10, 1, { ms: 500 })
@@ -874,9 +857,8 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
   test('안 읽은 메일만 — 상세 도착 전에 다른 메일로 옮긴 메일은 유지하지 않음 (WP-230)', async ({ authenticatedPage: page }) => {
     await stubCounts(page)
     let readElsewhere = false
-    let listCalls = 0
+    const lists = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/messages')
     await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages', (route) => {
-      listCalls++
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(readElsewhere ? [summary({ id: 11 })] : [summary({ id: 10 }), summary({ id: 11 })]) })
     })
     // 10 의 상세는 끝내 오지 않는다 — 읽음 판정 전에 선택을 떠난 경우.
@@ -888,9 +870,9 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
     await page.getByTestId('mail-row-10').click()
     await page.getByTestId('mail-row-11').click()
     readElsewhere = true // 10 은 이 기기에서 읽지 않았고, 다른 기기에서 읽혀 서버가 뺀다
-    const before = listCalls
+    const before = lists.count()
     await page.clock.fastForward(61_000)
-    await expect.poll(() => listCalls).toBeGreaterThan(before)
+    await lists.waitFor(before + 1)
     await expect(page.getByTestId('mail-row-10')).toHaveCount(0)
     await expect(page.getByTestId('mail-row-11')).toBeVisible()
   })

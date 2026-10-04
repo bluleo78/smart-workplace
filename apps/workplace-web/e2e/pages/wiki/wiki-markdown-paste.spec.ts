@@ -3,36 +3,14 @@
 // 있으면 ProseMirror 가 HTML 파싱으로 분기한다 — parseFromClipboard 의 asText 조건).
 import type { Page } from '@playwright/test'
 
-import type { WikiPageDetail } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { lastSaved, mockWikiPageEditor } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 310
 
-const saved: string[] = []
-
-async function setup(page: Page, body: string) {
-  await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>
-    r.request().method() === 'GET'
-      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: SPACE_ID, type: 'PERSONAL', name: '내 노트', ownerId: 1, role: 'OWNER', createdAt: '2026-06-01T00:00:00Z' }]) })
-      : r.fallback())
-  await page.route((u) => u.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
-    r.request().method() === 'GET'
-      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: PAGE_ID, parentId: null, title: '붙여넣기', position: 0, aiLastUsedAt: null }]) })
-      : r.fallback())
-  await page.route((u) => u.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/members`, (r) =>
-    r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())
-  await page.route((u) => u.pathname === `/api/v1/wiki/pages/${PAGE_ID}`, (r) => {
-    const d: WikiPageDetail = { id: PAGE_ID, spaceId: SPACE_ID, parentId: null, title: '붙여넣기', body, version: 1, updatedBy: 1, updatedAt: '2026-06-01T00:00:00Z', aiLastUsedAt: null, aiLastAction: null }
-    const m = r.request().method()
-    if (m === 'GET') return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(d) })
-    if (m === 'PUT') {
-      saved.push((r.request().postDataJSON() as { body: string }).body)
-      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...d, version: 2 }) })
-    }
-    return r.fallback()
-  })
-}
+const setup = (page: Page, body: string) =>
+  mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '붙여넣기', body })
 
 /**
  * text/plain 만 담은 paste 이벤트를 에디터에 디스패치한다.
@@ -48,7 +26,6 @@ async function pastePlainText(page: Page, text: string) {
 }
 
 test('스파이크 — 합성 paste 가 마크다운으로 변환된다', async ({ authenticatedPage: page }) => {
-  saved.length = 0
   await setup(page, '')
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -60,8 +37,7 @@ test('스파이크 — 합성 paste 가 마크다운으로 변환된다', async 
 })
 
 test('마크다운 블록이 서식으로 변환되고 저장 payload 로 왕복한다', async ({ authenticatedPage: page }) => {
-  saved.length = 0
-  await setup(page, '')
+  const puts = await setup(page, '')
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
 
@@ -86,8 +62,8 @@ test('마크다운 블록이 서식으로 변환되고 저장 payload 로 왕복
   await expect(ed.locator('table td').first()).toHaveText('활성 사용자')
 
   // 2) 자동저장(800ms 디바운스) payload 가 마크다운으로 되돌아가는가 — 라운드트립 무손실.
-  await expect.poll(() => saved.length, { timeout: 5000 }).toBeGreaterThan(0)
-  const body = saved[saved.length - 1]
+  await puts.waitFor(1, { timeout: 5000 })
+  const body = lastSaved(puts)
   expect(body).toContain('## 분기 지표')
   expect(body).toContain('- 첫째')
   expect(body).toContain('| 활성 사용자 |')
@@ -99,7 +75,6 @@ test('마크다운 블록이 서식으로 변환되고 저장 payload 로 왕복
 // 단락시키는 동작)다. 즉 코드블록 안까지 마크다운 변환이 침범하는 회귀를 잡는 테스트이며,
 // 메인 스위치(마크다운 붙여넣기 변환 자체)를 지키는 것은 나머지 3건이다.
 test('코드블록 예외 — 코드블록 안에서는 평문으로 남는다', async ({ authenticatedPage: page }) => {
-  saved.length = 0
   // 코드블록이 이미 있는 본문에서 시작 — ProseMirror 가 inCode 를 clipboardTextParser 호출
   // 전에 단락시키는지 확인한다(별도 handlePaste 를 짜지 않은 근거).
   await setup(page, '```\n기존 코드\n```')
@@ -119,7 +94,6 @@ test('평문 HTML 은 렌더된다 (수용된 동작 고정)', async ({ authenti
   // 이를 Markdown.configure({html:false}) 로 "고치면" 기존 페이지에 raw HTML 로 저장된 표(#742
   // 폴백 경로)의 로드가 깨진다. 즉 버그가 아니라 감수한 트레이드오프다 — 이 테스트가 깨지면
   // 스펙 §3.4 를 먼저 읽을 것.
-  saved.length = 0
   await setup(page, '')
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()

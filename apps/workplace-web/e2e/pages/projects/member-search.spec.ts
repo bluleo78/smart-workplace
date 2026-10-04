@@ -7,6 +7,7 @@
 //  5) (#734) 에이전트를 이름으로 검색해도 노출 / 비활성 사용자는 후보에서 제외
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import type { MemberSummary } from '../../../src/types/member';
 
@@ -67,14 +68,20 @@ type StubMember = {
   role: string;
 };
 
-// 공통 stub — 설정 페이지가 동시 요청하는 부수 endpoint 까지 모두 막는다.
-// 검색 요청에서 관측한 query string 기록 — kind 파라미터가 탭 선택을 따라가는지 검증에 사용(#734).
-type SearchProbe = { queries: { search: string; kind: string }[] };
+// 멤버 검색 요청의 query — kind 파라미터가 탭 선택을 따라가는지 검증에 사용(#734). 라우트 기본값과 같게 채운다.
+function trackMemberSearches(page: import('@playwright/test').Page) {
+  const searches = trackRequests(page, 'GET', (u) => u.pathname === '/api/v1/members' && u.search !== '');
+  return () =>
+    searches.urls().map((u) => ({
+      search: u.searchParams.get('search') ?? '',
+      kind: u.searchParams.get('kind') ?? 'HUMAN',
+    }));
+}
 
+// 공통 stub — 설정 페이지가 동시 요청하는 부수 endpoint 까지 모두 막는다.
 async function setupStubs(
   page: import('@playwright/test').Page,
   membersRef: { current: StubMember[] },
-  probe?: SearchProbe,
 ) {
   await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
     route.fulfill({
@@ -120,7 +127,6 @@ async function setupStubs(
     const url = new URL(route.request().url());
     const q = url.searchParams.get('search') ?? '';
     const kind = url.searchParams.get('kind') ?? 'HUMAN';
-    probe?.queries.push({ search: q, kind });
     const all = [HUMAN1, HUMAN2, INACTIVE, AGENT1];
     const matched = all
       .filter((u) => kind === 'ALL' || u.kind === kind)
@@ -249,24 +255,16 @@ test.describe('멤버 추가 검색 picker', () => {
       };
       await setupStubs(page, membersRef);
 
-      let postPayload: { userId: number; role: string } | null = null;
+      const posts = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/members`);
       // POST 라우트는 setupStubs 의 GET 핸들러보다 먼저 매칭되어야 하므로 setupStubs 후에 등록.
       await page.route(
         `**/api/v1/projects/${PROJECT_KEY}/members`,
         async (route) => {
           if (route.request().method() !== 'POST') return route.fallback();
-          postPayload = route.request().postDataJSON() as {
-            userId: number;
-            role: string;
-          };
+          const { userId, role } = route.request().postDataJSON() as { userId: number; role: string };
           membersRef.current = [
             ...membersRef.current,
-            {
-              userId: postPayload.userId,
-              username: 'alice',
-              name: 'Alice',
-              role: postPayload.role,
-            },
+            { userId, username: 'alice', name: 'Alice', role },
           ];
           return route.fulfill({
             status: 201,
@@ -288,7 +286,7 @@ test.describe('멤버 추가 검색 picker', () => {
       await page.getByTestId(`member-search-row-${HUMAN1.userId}`).click();
 
       await expect
-        .poll(() => postPayload)
+        .poll(() => posts.lastBody())
         .toEqual({ userId: HUMAN1.userId, role: 'MEMBER' });
       await expect(page.getByText('Alice 을(를) 추가했습니다')).toBeVisible();
       await expect(page.getByRole('row', { name: /Alice/ })).toBeVisible();
@@ -299,8 +297,8 @@ test.describe('멤버 추가 검색 picker', () => {
     authenticatedPage: page,
   }) => {
     const membersRef = { current: [] as StubMember[] };
-    const probe: SearchProbe = { queries: [] };
-    await setupStubs(page, membersRef, probe);
+    const searchQueries = trackMemberSearches(page);
+    await setupStubs(page, membersRef);
 
     await page.goto(SETTINGS_URL);
     await page.getByTestId('member-add-trigger').click();
@@ -330,7 +328,7 @@ test.describe('멤버 추가 검색 picker', () => {
     // 탭 선택이 클라이언트 필터가 아니라 백엔드 kind 파라미터를 구동해야 한다(#734) —
     // page 1 에 AGENT 가 안 들어오면 클라이언트 필터만으로는 계속 빈 목록이 되기 때문.
     await expect
-      .poll(() => probe.queries.some((q) => q.kind === 'AGENT' && q.search === 'a'))
+      .poll(() => searchQueries().some((q) => q.kind === 'AGENT' && q.search === 'a'))
       .toBe(true);
   });
 
@@ -348,8 +346,8 @@ test.describe('멤버 추가 검색 picker', () => {
         },
       ] as StubMember[],
     };
-    const probe: SearchProbe = { queries: [] };
-    await setupStubs(page, membersRef, probe);
+    const searchQueries = trackMemberSearches(page);
+    await setupStubs(page, membersRef);
 
     await page.goto(SETTINGS_URL);
     await page.getByTestId('member-add-trigger').click();
@@ -363,7 +361,7 @@ test.describe('멤버 추가 검색 picker', () => {
 
     // 빈 search + kind=ALL 로 조회했는지 검증.
     await expect
-      .poll(() => probe.queries.some((q) => q.search === '' && q.kind === 'ALL'))
+      .poll(() => searchQueries().some((q) => q.search === '' && q.kind === 'ALL'))
       .toBe(true);
 
     // 이미 멤버(HUMAN1)는 disabled 로 남되 선택 가능한 후보들보다 뒤에 위치.
@@ -404,12 +402,11 @@ test.describe('멤버 추가 검색 picker', () => {
     };
     await setupStubs(page, membersRef);
 
-    let postCount = 0;
+    const posts = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/members`);
     await page.route(
       `**/api/v1/projects/${PROJECT_KEY}/members`,
       (route) => {
         if (route.request().method() === 'POST') {
-          postCount += 1;
           return route.fulfill({
             status: 201,
             contentType: 'application/json',
@@ -435,7 +432,7 @@ test.describe('멤버 추가 검색 picker', () => {
     await row.click({ force: true }).catch(() => {
       // pointer-events: none 으로 인해 click 이 무시될 수 있음 — 의도된 동작.
     });
-    await expectStays(page, () => postCount, 0, { ms: 200 });
+    await expectStays(page, posts.count, 0, { ms: 200 });
   });
 });
 
@@ -453,10 +450,9 @@ test.describe('멤버 제거 AlertDialog (#139)', () => {
       };
       await setupStubs(page, membersRef);
 
-      let deleteCalled = false;
+      const deletes = trackRequests(page, 'DELETE', `/api/v1/projects/${PROJECT_KEY}/members/2`);
       await page.route(`**/api/v1/projects/${PROJECT_KEY}/members/2`, (route) => {
         if (route.request().method() === 'DELETE') {
-          deleteCalled = true;
           return route.fulfill({ status: 204 });
         }
         return route.fallback();
@@ -472,7 +468,7 @@ test.describe('멤버 제거 AlertDialog (#139)', () => {
       // 취소 → 다이얼로그 닫힘 + DELETE 미호출.
       await page.getByRole('button', { name: '취소' }).click();
       await expect(page.getByRole('alertdialog')).not.toBeVisible();
-      expect(deleteCalled).toBe(false);
+      expect(deletes.count()).toBe(0);
     },
   );
 
@@ -485,10 +481,9 @@ test.describe('멤버 제거 AlertDialog (#139)', () => {
     };
     await setupStubs(page, membersRef);
 
-    let deleteCalled = false;
+    const deletes = trackRequests(page, 'DELETE', `/api/v1/projects/${PROJECT_KEY}/members/2`);
     await page.route(`**/api/v1/projects/${PROJECT_KEY}/members/2`, (route) => {
       if (route.request().method() === 'DELETE') {
-        deleteCalled = true;
         membersRef.current = membersRef.current.filter((m) => m.userId !== 2);
         return route.fulfill({ status: 204 });
       }
@@ -501,7 +496,7 @@ test.describe('멤버 제거 AlertDialog (#139)', () => {
 
     // 제거 확인 → DELETE API 호출.
     await page.getByRole('button', { name: '제거' }).click();
-    expect(deleteCalled).toBe(true);
+    await deletes.waitFor();
     await expect(page.getByText('멤버를 제거했습니다')).toBeVisible();
   });
 });

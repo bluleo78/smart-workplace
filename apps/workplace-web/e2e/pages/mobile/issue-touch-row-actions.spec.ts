@@ -10,6 +10,7 @@ import { makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import { json } from '../../fixtures/mobile-chat';
 import { expect, stubChat, test } from '../../fixtures/mobile.fixture';
+import { trackRequests } from '../../fixtures/requests';
 
 const KEY = 'WP';
 const ISSUE_ID = 7;
@@ -23,13 +24,11 @@ const DRIVE_LINK: DriveLink = {
 
 /** 이슈 7 상세 스텁(의존성 1건·드라이브 링크 1건). DELETE 호출은 경로+쿼리로 기록한다. */
 async function setup(page: import('@playwright/test').Page) {
-  const deletes: string[] = [];
-  const onDelete = (r: import('@playwright/test').Route) => {
-    if (r.request().method() !== 'DELETE') return r.fallback();
-    const u = new URL(r.request().url());
-    deletes.push(u.pathname + u.search);
-    return r.fulfill({ status: 204 });
-  };
+  const deleteReqs = trackRequests(page, 'DELETE', (u) =>
+    u.pathname === `${BASE}/dependencies` || u.pathname.startsWith(`${BASE}/drive-links/`));
+  const deletes = () => deleteReqs.urls().map((u) => u.pathname + u.search);
+  const onDelete = (r: import('@playwright/test').Route) =>
+    r.request().method() === 'DELETE' ? r.fulfill({ status: 204 }) : r.fallback();
   const issue = createIssue({
     id: ISSUE_ID, number: 7, projectKey: KEY, type: makeTaskType(), title: '터치 행 액션 이슈',
     blockedBy: [], blocks: [LINK], blocked: false,
@@ -68,7 +67,7 @@ test('의존성 행 — ⋯(44px) → 액션 시트 「의존성 제거」 → D
   const sheet = page.getByTestId('issue-link-sheet');
   await expect(sheet).toBeVisible();
   await sheet.getByTestId('mobile-action-remove').tap();
-  await expect.poll(() => deletes).toEqual([`${BASE}/dependencies?otherNumber=42&direction=blocks`]);
+  await expect.poll(deletes).toEqual([`${BASE}/dependencies?otherNumber=42&direction=blocks`]);
 });
 
 test('드라이브 링크 — 링크 제거 X 가 상시 보이고(44px) → 확인 → DELETE', async ({ authenticatedPage: page }) => {
@@ -80,5 +79,5 @@ test('드라이브 링크 — 링크 제거 X 가 상시 보이고(44px) → 확
   expect(box.height).toBeGreaterThanOrEqual(44);
   await remove.tap();
   await page.getByTestId('drive-link-remove-confirm').tap();
-  await expect.poll(() => deletes).toEqual([`${BASE}/drive-links/501`]);
+  await expect.poll(deletes).toEqual([`${BASE}/drive-links/501`]);
 });

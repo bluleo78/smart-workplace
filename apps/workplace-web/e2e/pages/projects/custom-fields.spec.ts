@@ -3,6 +3,7 @@
 //   debounce 후 PUT /fields payload 검증.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createIssue } from '../../factories/issue.factory';
 import { makeTaskType, systemTypes } from '../../factories/issueType.factory';
@@ -132,11 +133,10 @@ test.describe('커스텀 필드', () => {
         }),
       );
 
-      // PUT /fields — payload 캡처 후 incoming 값을 stub state 에 머지하여 후속 GET 응답에 반영.
-      let putPayload: unknown;
+      // PUT /fields — incoming 값을 stub state 에 머지하여 후속 GET 응답에 반영.
+      const puts = trackRequests(page, 'PUT', `/api/v1/projects/${KEY}/issues/1/fields`);
       await page.route(`**/api/v1/projects/${KEY}/issues/1/fields`, (route) => {
-        putPayload = route.request().postDataJSON();
-        const incoming = (putPayload as { values: Array<{ defId: number; value: unknown }> })
+        const incoming = (route.request().postDataJSON() as { values: Array<{ defId: number; value: unknown }> })
           .values;
         const map = new Map<
           number,
@@ -203,7 +203,7 @@ test.describe('커스텀 필드', () => {
       );
       await page.getByTestId(`field-input-${fieldId}`).fill('5');
 
-      await expect.poll(() => putPayload, { timeout: 2000 }).toMatchObject({
+      await expect.poll(() => puts.lastBody(), { timeout: 2000 }).toMatchObject({
         values: [{ defId: fieldId, value: 5 }],
       });
     },
@@ -277,16 +277,15 @@ test.describe('커스텀 필드', () => {
         }),
       );
 
-      // PUT 이 호출되면 즉시 실패시켜, 안전 범위 초과 입력이 애초에 네트워크로 나가지 않음을 강하게 검증.
-      let putCalled = false;
-      await page.route(`**/api/v1/projects/${KEY}/issues/1/fields`, (route) => {
-        putCalled = true;
-        return route.fulfill({
+      // 안전 범위 초과 입력은 애초에 네트워크로 나가지 않아야 한다 — 메서드 무관하게 이 경로 요청 0건을 확인.
+      const fieldWrites = trackRequests(page, 'ANY', `/api/v1/projects/${KEY}/issues/1/fields`);
+      await page.route(`**/api/v1/projects/${KEY}/issues/1/fields`, (route) =>
+        route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({ summary: issue, body: '', comments: [], history: [], attachments: [] }),
-        });
-      });
+        }),
+      );
 
       await page.goto(`/projects/${KEY}/issues/1`);
       await page.getByRole('button', { name: /커스텀 필드/ }).click();
@@ -305,7 +304,7 @@ test.describe('커스텀 필드', () => {
       await expect(input).toHaveValue('5');
 
       // 정밀도 손실된 값이 서버로 전송되지 않아야 한다.
-      await expectStays(page, () => putCalled, false);
+      await expectStays(page, fieldWrites.count, 0);
     },
   );
 
@@ -403,6 +402,7 @@ test.describe('커스텀 필드', () => {
         }
         return route.fallback();
       });
+      const deletes = trackRequests(page, 'DELETE', `/api/v1/projects/${KEY}/fields/${field.id}`);
       await page.route(`**/api/v1/projects/${KEY}/fields/${field.id}`, async (route) => {
         if (route.request().method() !== 'DELETE') return route.fallback();
         deleted = true;
@@ -418,7 +418,7 @@ test.describe('커스텀 필드', () => {
       await expect(page.getByTestId('custom-field-delete-dialog')).toContainText('이슈 값들과 함께 삭제');
       await page.getByTestId('custom-field-delete-confirm').click();
 
-      await expect.poll(() => deleted).toBe(true);
+      await deletes.waitFor();
     },
   );
 
@@ -487,10 +487,9 @@ test.describe('커스텀 필드', () => {
         }),
       );
 
-      let putPayload: unknown;
+      const puts = trackRequests(page, 'PUT', `/api/v1/projects/${KEY}/issues/1/fields`);
       await page.route(`**/api/v1/projects/${KEY}/issues/1/fields`, (route) => {
-        putPayload = route.request().postDataJSON();
-        const incoming = (putPayload as { values: Array<{ defId: number; value: unknown }> }).values;
+        const incoming = (route.request().postDataJSON() as { values: Array<{ defId: number; value: unknown }> }).values;
         const map = new Map<number, { defId: number; name: string; type: string; value: unknown }>();
         for (const e of issue.customFields) map.set(e.defId, e);
         for (const v of incoming) {
@@ -528,7 +527,7 @@ test.describe('커스텀 필드', () => {
 
       // 날짜 선택 후 PUT payload에 ISO 문자열이 포함되어야 함
       await expect.poll(() => {
-        const p = putPayload as { values?: Array<{ defId: number; value: unknown }> } | undefined;
+        const p = puts.lastBody<{ values?: Array<{ defId: number; value: unknown }> }>();
         return p?.values?.find((v) => v.defId === dateDef.id)?.value;
       }, { timeout: 2000 }).toMatch(/^\d{4}-\d{2}-15$/);
 
@@ -540,10 +539,9 @@ test.describe('커스텀 필드', () => {
       await expect(clearBtn).toBeVisible();
 
       // 지우기 클릭 → PUT payload value가 null
-      putPayload = undefined;
       await clearBtn.click();
       await expect.poll(() => {
-        const p = putPayload as { values?: Array<{ defId: number; value: unknown }> } | undefined;
+        const p = puts.lastBody<{ values?: Array<{ defId: number; value: unknown }> }>();
         return p?.values?.find((v) => v.defId === dateDef.id)?.value;
       }, { timeout: 2000 }).toBeNull();
 

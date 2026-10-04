@@ -10,6 +10,7 @@ import {
   createMessage,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 // auth.fixture 의 createUser() 기본 id = 1.
 const ME_ID = 1
@@ -170,13 +171,12 @@ test.describe('messaging Phase 6 — 메시지 파일 첨부', () => {
       // 응답 메시지가 받을 양수 messageId 기준으로 content 스텁 경로를 맞춘다.
       await stubAttachmentContent(page, CHANNEL_ID, MSG_ID, FILE_ID)
 
-      // POST 메시지 → fileIds 캡처 + attachments 동봉 응답(양수 messageId).
-      let sentFileIds: number[] | undefined
+      // POST 메시지 → attachments 동봉 응답(양수 messageId).
+      const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
         (route) => {
           if (route.request().method() !== 'POST') return route.fallback()
-          sentFileIds = (route.request().postDataJSON() as { fileIds?: number[] }).fileIds
           return route.fulfill({
             status: 201,
             contentType: 'application/json',
@@ -223,7 +223,7 @@ test.describe('messaging Phase 6 — 메시지 파일 첨부', () => {
       await page.getByTestId('message-composer-submit').click()
 
       // 전송 payload 에 fileIds 가 실렸는지(스테일 클로저 방어용 부가 검증).
-      await expect.poll(() => sentFileIds).toEqual([FILE_ID])
+      await expect.poll(() => posts.lastBody<{ fileIds?: number[] }>()?.fileIds).toEqual([FILE_ID])
       // content blob fetch 후 <img> 가 1x1 로 렌더되어 보인다.
       await expect(page.getByTestId(`attachment-image-${FILE_ID}`)).toBeVisible()
     },
@@ -252,16 +252,12 @@ test.describe('messaging Phase 6 — 메시지 파일 첨부', () => {
         sizeBytes: 2048,
       })
 
-      // POST 메시지 → 본문 빈 문자열 + fileIds 캡처, 카드 렌더용 attachments 응답.
-      let sentBody: string | undefined
-      let sentFileIds: number[] | undefined
+      // POST 메시지 → 카드 렌더용 attachments 응답.
+      const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
         (route) => {
           if (route.request().method() !== 'POST') return route.fallback()
-          const payload = route.request().postDataJSON() as { body: string; fileIds?: number[] }
-          sentBody = payload.body
-          sentFileIds = payload.fileIds
           return route.fulfill({
             status: 201,
             contentType: 'application/json',
@@ -302,8 +298,7 @@ test.describe('messaging Phase 6 — 메시지 파일 첨부', () => {
       await page.getByTestId('message-composer-submit').click()
 
       // 본문이 비어도 첨부만으로 전송됐고, 비이미지는 카드로 렌더된다.
-      await expect.poll(() => sentBody).toBe('')
-      await expect.poll(() => sentFileIds).toEqual([FILE_ID])
+      await expect.poll(() => posts.lastBody()).toMatchObject({ body: '', fileIds: [FILE_ID] })
       const card = page.getByTestId(`attachment-card-${FILE_ID}`)
       await expect(card).toBeVisible()
       await expect(card).toContainText('spec.pdf')
@@ -334,15 +329,11 @@ test.describe('messaging Phase 6 — 메시지 파일 첨부', () => {
       })
       await stubAttachmentContent(page, CHANNEL_ID, MSG_ID, FILE_ID)
 
-      let sentBody: string | undefined
-      let sentFileIds: number[] | undefined
+      const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
         (route) => {
           if (route.request().method() !== 'POST') return route.fallback()
-          const payload = route.request().postDataJSON() as { body: string; fileIds?: number[] }
-          sentBody = payload.body
-          sentFileIds = payload.fileIds
           return route.fulfill({
             status: 201,
             contentType: 'application/json',
@@ -388,8 +379,7 @@ test.describe('messaging Phase 6 — 메시지 파일 첨부', () => {
       await composer.press('Enter')
 
       // 스테일 클로저면 fileIds 가 비어 전송됨 → 이 단언이 회귀를 잡는다.
-      await expect.poll(() => sentBody).toBe('엔터전송')
-      await expect.poll(() => sentFileIds).toEqual([FILE_ID])
+      await expect.poll(() => posts.lastBody()).toMatchObject({ body: '엔터전송', fileIds: [FILE_ID] })
       // 본문 텍스트 + 인라인 썸네일이 함께 렌더된다.
       await expect(page.getByTestId(`message-${MSG_ID}`)).toContainText('엔터전송')
       await expect(page.getByTestId(`attachment-image-${FILE_ID}`)).toBeVisible()

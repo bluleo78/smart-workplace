@@ -2,6 +2,7 @@
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 test.describe('메일 작성·발송', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
@@ -15,11 +16,10 @@ test.describe('메일 작성·발송', () => {
 
   test('새 메일 작성 → 발송 payload 검증 + 도크 닫힘', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     // send POST 인터셉트.
-    let sentBody: unknown = null
+    const sends = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/send')
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/send',
       async (route) => {
-        sentBody = route.request().postDataJSON()
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -40,14 +40,14 @@ test.describe('메일 작성·발송', () => {
     await page.getByTestId('mail-compose-send').click()
 
     // payload 검증: to·subject·본문·inReplyToMessageId.
-    await expect.poll(() => sentBody).not.toBeNull()
-    const body = sentBody as {
+    await sends.waitFor()
+    const body = sends.lastBody<{
       to: string[]
       subject: string
       bodyHtml: string
       bodyText: string
       inReplyToMessageId: number | null
-    }
+    }>()!
     expect(body.to).toEqual(['rcpt@test.local'])
     expect(body.subject).toBe('안녕하세요')
     expect(body.bodyText).toContain('본문입니다')
@@ -139,11 +139,10 @@ test.describe('메일 작성·발송', () => {
     )
 
     // send POST 인터셉트.
-    let sentBody: { inReplyToMessageId: number | null; subject: string; to: string[] } | null = null
+    const sends = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/send')
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/send',
       async (route) => {
-        sentBody = route.request().postDataJSON()
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -160,7 +159,8 @@ test.describe('메일 작성·발송', () => {
     await page.getByTestId('mail-compose-send').click()
 
     // payload: inReplyToMessageId = 5, subject Re: 로 시작, to = alice.
-    await expect.poll(() => sentBody).not.toBeNull()
+    await sends.waitFor()
+    const sentBody = sends.lastBody<{ inReplyToMessageId: number | null; subject: string; to: string[] }>()
     expect(sentBody!.inReplyToMessageId).toBe(5)
     expect(sentBody!.subject).toMatch(/^Re:/)
     expect(sentBody!.to).toEqual(['alice@example.com'])
@@ -210,18 +210,11 @@ test.describe('메일 작성·발송', () => {
 
   test('보낸편지함 토글 → folder=SENT 쿼리', async ({ authenticatedPage: page }) => {
     // 메시지 요청 URL 의 folder 파라미터를 수집.
-    const seen: string[] = []
-    await page.route(
-      (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
-      (route) => {
-        seen.push(new URL(route.request().url()).searchParams.get('folder') ?? '')
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
-      },
-    )
+    const lists = trackRequests(page, 'GET', '/api/v1/mail/accounts/1/messages')
 
     await page.goto('/mail/1')
     await page.getByTestId('mail-folder-sent').click()
     // folder=SENT 파라미터가 포함된 요청이 있어야 한다.
-    await expect.poll(() => seen).toContain('SENT')
+    await expect.poll(() => lists.urls().map((u) => u.searchParams.get('folder') ?? '')).toContain('SENT')
   })
 })

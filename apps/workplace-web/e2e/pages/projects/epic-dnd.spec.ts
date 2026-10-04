@@ -3,6 +3,7 @@ import type { Page, Route } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { bodyOf, trackRequests } from '../../fixtures/requests';
 import { expectStays, measureBox, stableBox } from '../../fixtures/wait';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType, systemTypes } from '../../factories/issueType.factory';
@@ -40,7 +41,13 @@ async function setup(
 ) {
   const epics = opts.epics ?? [EPIC_A, EPIC_B];
   const issues = new Map(opts.issues.map((i) => [i.number, i]));
-  const patches: { number: number; parentNumber: number | null }[] = [];
+  // PATCH /parent 기록 — 테스트가 뒤에서 같은 URL 을 다시 route 해도 빠지지 않게 요청 자체를 센다.
+  const parentPatches = trackRequests(page, 'ANY', /\/api\/v1\/projects\/WP\/issues\/\d+\/parent$/);
+  const patches = () =>
+    parentPatches.requests().map((r) => ({
+      number: Number(/issues\/(\d+)\/parent/.exec(r.url())![1]),
+      parentNumber: (bodyOf(r) as { parentNumber: number | null }).parentNumber,
+    }));
   await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}`, createProject({ key: PROJECT_KEY, type: 'TEAM', viewerIsMember: opts.member ?? true }));
   await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/members`, []);
   await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
@@ -64,7 +71,6 @@ async function setup(
   await page.route(/\/api\/v1\/projects\/WP\/issues\/(\d+)\/parent$/, async (route) => {
     const number = Number(/issues\/(\d+)\/parent/.exec(route.request().url())![1]);
     const { parentNumber } = route.request().postDataJSON() as { parentNumber: number | null };
-    patches.push({ number, parentNumber });
     if (opts.patchStatus && opts.patchStatus >= 400) {
       return route.fulfill({ status: opts.patchStatus, contentType: 'application/json', body: JSON.stringify({ message: opts.patchStatus === 403 ? '프로젝트 멤버가 아닙니다' : '서버 오류' }) });
     }
@@ -94,19 +100,9 @@ async function moveOver(page: Page, targetTestId: string) {
   const box = await stableBox(target, targetTestId);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
 }
-// 이슈 1 상태 PATCH 호출 여부 기록 — 요청은 그대로 흘려보낸다(fallback).
-// 결과를 구조분해하면 false 로 고정되므로 반드시 객체째 두고 `.patched` 를 읽는다.
-async function stubStatusPatch(page: Page) {
-  let patched = false;
-  await page.route('**/issues/1/status', (route) => {
-    patched = true;
-    return route.fallback();
-  });
-  return {
-    get patched() {
-      return patched;
-    },
-  };
+// 이슈 1 상태 PATCH 기록.
+function trackStatusPatch(page: Page) {
+  return trackRequests(page, 'ANY', /\/issues\/1\/status$/);
 }
 async function dragTo(page: Page, sourceTestId: string, targetTestId: string) {
   await startDrag(page, sourceTestId);
@@ -122,7 +118,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     });
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
     await dragTo(page, 'issue-card-1', `epic-filter-${EPIC_B.number}`);
-    await expect.poll(() => patches).toEqual([{ number: 1, parentNumber: EPIC_B.number }]);
+    await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_B.number }]);
     await expect(page.getByTestId('issue-card-1')).toContainText(EPIC_B.title);
     await expect(page.getByText(`「${EPIC_B.title}」에 연결했습니다`)).toBeVisible();
   });
@@ -132,15 +128,14 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
       issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO' })],
       panelOpen: true,
     });
-    let statusBody: unknown = null;
+    const statusPatches = trackStatusPatch(page);
     await page.route('**/issues/1/status', (route) => {
-      statusBody = route.request().postDataJSON();
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueDetail({ summary: createIssue({ id: 1, number: 1, title: '카드', status: 'IN_PROGRESS' }) })) });
     });
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
     await dragTo(page, 'issue-card-1', 'board-col-IN_PROGRESS');
-    await expect.poll(() => statusBody).toEqual({ status: 'IN_PROGRESS' });
-    expect(patches).toEqual([]);
+    await expect.poll(() => statusPatches.lastBody()).toEqual({ status: 'IN_PROGRESS' });
+    expect(patches()).toEqual([]);
   });
 
   test('패널 닫힘 → 드래그 중 임시 패널 표시(에픽 즉시 보임), 놓으면 사라지고 닫힘 설정 유지', async ({ authenticatedPage: page }) => {
@@ -153,7 +148,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
     await expect(page.getByTestId(`epic-filter-${EPIC_A.number}`)).toHaveAttribute('data-drop-state', 'over');
     await page.mouse.up();
-    await expect.poll(() => patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
+    await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
     await expect(page.getByTestId('epic-side-panel')).not.toBeAttached();
     await expect(page.getByTestId('epic-panel-toggle')).toHaveAttribute('aria-pressed', 'false');
   });
@@ -173,22 +168,22 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     const { patches } = await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO', parent: parentOf(EPIC_A) })], panelOpen: true });
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
     await dragTo(page, 'issue-card-1', `epic-filter-${EPIC_A.number}`);
-    await expectStays(page, () => patches, []);
+    await expectStays(page, patches, []);
   });
 
   test('드래그 시작 후 이동 없이 곧바로 놓으면 PATCH 없음', async ({ authenticatedPage: page }) => {
     const { patches } = await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO' })] });
-    const statusPatch = await stubStatusPatch(page);
+    const statusPatch = trackStatusPatch(page);
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
     await startDrag(page, 'issue-card-1');
     await page.mouse.up();
-    await expectStays(page, () => patches, []);
-    expect(statusPatch.patched).toBe(false);
+    await expectStays(page, patches, []);
+    expect(statusPatch.count()).toBe(0);
   });
 
   test('패널(고정)과 보드 사이 틈에 놓으면 상태·에픽 PATCH 모두 없음', async ({ authenticatedPage: page }) => {
     const { patches } = await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO' })], panelOpen: true });
-    const statusPatch = await stubStatusPatch(page);
+    const statusPatch = trackStatusPatch(page);
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
     const aside = (await page.getByTestId('epic-side-panel').boundingBox())!;
     const col = (await page.getByTestId('board-col-TODO').boundingBox())!;
@@ -196,8 +191,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     // 틈 = 패널 오른쪽 끝과 첫 컬럼 왼쪽 끝의 중간, 컬럼 세로 중앙.
     await page.mouse.move((aside.x + aside.width + col.x) / 2, col.y + col.height / 2, { steps: 10 });
     await page.mouse.up();
-    await expectStays(page, () => patches, []);
-    expect(statusPatch.patched).toBe(false);
+    await expectStays(page, patches, []);
+    expect(statusPatch.count()).toBe(0);
   });
 
   // 떠 있는 패널은 보드 오른쪽 컬럼을 덮는다 — 패널 위 어디에 놓아도 아래 카드/컬럼으로 새면 안 된다.
@@ -207,14 +202,14 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
   ]) {
     test(`패널 닫힘(떠 있는 패널): ${c.name} 위에 놓으면 상태·에픽 PATCH 모두 없음`, async ({ authenticatedPage: page }) => {
       const { patches } = await setup(page, { issues: [c.issue()] });
-      const statusPatch = await stubStatusPatch(page);
+      const statusPatch = trackStatusPatch(page);
       // SUBTASK 카드를 보드에 노출하려면 유형 필터가 필요 — 기본 범위는 SUBTASK 숨김.
       await page.goto(`/projects/${PROJECT_KEY}?view=board${c.name.startsWith('SUBTASK') ? `&type=${makeSubtaskType().id}` : ''}`);
       await startDrag(page, 'issue-card-1');
       await moveOver(page, c.target);
       await page.mouse.up();
-      await expectStays(page, () => patches, []);
-      expect(statusPatch.patched).toBe(false);
+      await expectStays(page, patches, []);
+      expect(statusPatch.count()).toBe(0);
     });
   }
 
@@ -222,7 +217,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
   // 가려진 컬럼 몸통과 겹치는 지점에서 한다(에픽 항목이 아닌 패널 영역).
   test('패널 닫힘(떠 있는 패널): 가려진 컬럼 위 패널 빈 여백에 놓으면 상태·에픽 PATCH 모두 없음', async ({ authenticatedPage: page }) => {
     const { patches } = await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO' })] });
-    const statusPatch = await stubStatusPatch(page);
+    const statusPatch = trackStatusPatch(page);
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
     await startDrag(page, 'issue-card-1');
     await expect(page.getByTestId('epic-drop-hint')).toBeVisible();
@@ -242,22 +237,22 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     expect(y).toBeLessThan(panel.y + panel.height);
     await page.mouse.move(x, y, { steps: 10 });
     await page.mouse.up();
-    await expectStays(page, () => patches, []);
-    expect(statusPatch.patched).toBe(false);
+    await expectStays(page, patches, []);
+    expect(statusPatch.count()).toBe(0);
   });
 
   test('그룹 보드(담당자) 카드도 에픽으로 옮길 수 있다', async ({ authenticatedPage: page }) => {
     const { patches } = await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO' })], panelOpen: true });
     await page.goto(`/projects/${PROJECT_KEY}?view=board&group=assignee`);
     await dragTo(page, 'issue-card-1', `epic-filter-${EPIC_A.number}`);
-    await expect.poll(() => patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
+    await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
   });
 
   test('목록: 미소속 행 → 에픽 A 할당, 행 칩 A', async ({ authenticatedPage: page }) => {
     const { patches } = await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '행' })], panelOpen: true });
     await page.goto(`/projects/${PROJECT_KEY}?view=list`);
     await dragTo(page, 'issue-row-1', `epic-filter-${EPIC_A.number}`);
-    await expect.poll(() => patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
+    await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
     await expect(page.getByTestId('issue-row-1')).toContainText(EPIC_A.title);
   });
 
@@ -287,14 +282,14 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(second).not.toHaveClass(/opacity-40/);
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
     await page.mouse.up();
-    await expect.poll(() => patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
+    await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
   });
 
   test('목록: A 소속 → 에픽 미할당 = 해제', async ({ authenticatedPage: page }) => {
     const { patches } = await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '행', parent: parentOf(EPIC_A) })], panelOpen: true });
     await page.goto(`/projects/${PROJECT_KEY}?view=list`);
     await dragTo(page, 'issue-row-1', 'epic-filter-unassigned');
-    await expect.poll(() => patches).toEqual([{ number: 1, parentNumber: null }]);
+    await expect.poll(patches).toEqual([{ number: 1, parentNumber: null }]);
     await expect(page.getByText('에픽 연결을 해제했습니다')).toBeVisible();
     await expect(page.getByTestId('issue-row-1')).not.toContainText(EPIC_A.title);
   });
@@ -310,7 +305,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId(`epic-filter-${EPIC_A.number}`)).toHaveAttribute('data-drop-state', 'blocked');
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
     await page.mouse.up();
-    await expectStays(page, () => patches, []);
+    await expectStays(page, patches, []);
   });
 
   test('EPIC 드래그: 사유 배너, PATCH 없음', async ({ authenticatedPage: page }) => {
@@ -320,7 +315,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId('epic-drop-blocked-reason')).toHaveText('에픽은 다른 에픽에 넣을 수 없습니다');
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
     await page.mouse.up();
-    await expectStays(page, () => patches, []);
+    await expectStays(page, patches, []);
   });
 
   test('비멤버: 드래그 안 됨', async ({ authenticatedPage: page }) => {
@@ -333,7 +328,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId('issue-row-1')).not.toHaveClass(/opacity-40/);
     await expect(page.getByTestId('epic-drop-hint')).not.toBeAttached();
     await page.mouse.up();
-    await expectStays(page, () => patches, []);
+    await expectStays(page, patches, []);
   });
 
   for (const status of [403, 500]) {
@@ -347,7 +342,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
       await page.route(
         (url) => url.pathname === ISSUES_PATH,
         async (route) => {
-          if (route.request().method() !== 'GET' || patches.length === 0) return route.fallback();
+          if (route.request().method() !== 'GET' || patches().length === 0) return route.fallback();
           held++;
           await gate;
           try {
@@ -376,7 +371,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await page.goto(`/projects/${PROJECT_KEY}?view=list`);
     await dragTo(page, 'issue-row-1', `epic-filter-${EPIC_B.number}`);
     await page.getByRole('button', { name: '되돌리기' }).click();
-    await expect.poll(() => patches).toEqual([
+    await expect.poll(patches).toEqual([
       { number: 1, parentNumber: EPIC_B.number },
       { number: 1, parentNumber: EPIC_A.number },
     ]);
@@ -396,7 +391,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     // sonner 는 최신 토스트가 앞이라 첫 토스트는 뒤쪽 — 문구로 그 토스트의 버튼을 특정한다.
     await page.locator('[data-sonner-toast]', { hasText: `「${EPIC_A.title}」에 연결했습니다` }).getByRole('button', { name: '되돌리기' }).click();
     await expect(page.getByText('이후에 다시 옮겨져 되돌릴 수 없습니다')).toBeVisible();
-    expect(patches).toEqual([
+    expect(patches()).toEqual([
       { number: 1, parentNumber: EPIC_A.number },
       { number: 1, parentNumber: EPIC_B.number },
     ]);
@@ -415,7 +410,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     }
     await expect(b).toHaveAttribute('data-drop-state', 'over');
     await page.keyboard.press('Space');
-    await expect.poll(() => patches).toEqual([{ number: 1, parentNumber: EPIC_B.number }]);
+    await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_B.number }]);
     // 드롭 후 행에 에픽 칩(링크)도 생기므로 제목 링크를 이름으로 특정한다.
     await page.getByTestId('issue-row-1').getByRole('link', { name: '행', exact: true }).focus();
     await page.keyboard.press('Enter');
@@ -464,7 +459,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     expect(overlapped, '「전체 이슈」 아래에 스크롤로 가려진 에픽 사각형이 겹쳐야 한다').toBe(true);
     await page.mouse.move(p.x, p.y, { steps: 10 });
     await page.mouse.up();
-    await expectStays(page, () => patches, []);
+    await expectStays(page, patches, []);
   });
 
   // 떠 있는 패널(고정 높이)이라 에픽 목록이 내부 스크롤된다 — 도킹 패널은 목록 높이가 제한되지 않아 페이지가 스크롤되고,
@@ -512,7 +507,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     // 스크린리더 안내 — 원시 id(epic-124) 가 아니라 이슈 키·에픽 제목으로 읽는다.
     await expect(page.locator('[id^="DndLiveRegion"]')).toHaveText(`WP-1 이슈가 에픽 「${manyEpics[24].title}」 위에 있습니다.`);
     await page.keyboard.press('Space');
-    await expect.poll(() => patches).toEqual([{ number: 1, parentNumber: manyEpics[24].number }]);
+    await expect.poll(patches).toEqual([{ number: 1, parentNumber: manyEpics[24].number }]);
   });
 
   // 떠 있는 패널은 스크롤 조상이 에픽 목록뿐 — 포인터가 에픽 위에 있다고 자동 스크롤을 막으면 가려진 에픽에 닿을 수 없다.
@@ -575,7 +570,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     expect(Math.abs(ghost.y + ghost.height / 2 - (p.y + 8))).toBeLessThan(40);
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
     await page.mouse.up();
-    await expect.poll(() => patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
+    await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
   });
 
   test('보드 담당자 그룹: 여러 컬럼에 보이는 카드는 잡은 사본만 끌리고 고스트는 포인터 옆', async ({ authenticatedPage: page }) => {
@@ -597,7 +592,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     expect(Math.abs(ghost.y + ghost.height / 2 - (p.y + 8))).toBeLessThan(40);
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
     await page.mouse.up();
-    await expect.poll(() => patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
+    await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
   });
 
   // 떠 있는 패널이 CANCELED 컬럼을 덮는다 — →가 에픽 항목으로 새면 키보드로 CANCELED 에 못 간다(기존 키보드 상태 변경 회귀).
@@ -606,9 +601,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     // 패널과 무관한 기존 동작) 떠 있는 패널의 에픽 항목이 CANCELED 컬럼 위에 겹치는 폭.
     await page.setViewportSize({ width: 1440, height: 900 });
     const { patches } = await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO' })] });
-    let statusBody: unknown = null;
+    const statusPatches = trackStatusPatch(page);
     await page.route('**/issues/1/status', (route) => {
-      statusBody = route.request().postDataJSON();
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueDetail({ summary: createIssue({ id: 1, number: 1, title: '카드', status: 'CANCELED' }) })) });
     });
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
@@ -630,7 +624,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     }
     await expect(canceled).toHaveClass(/bg-accent\/30/);
     await page.keyboard.press('Space');
-    await expect.poll(() => statusBody).toEqual({ status: 'CANCELED' });
-    await expectStays(page, () => patches, []);
+    await expect.poll(() => statusPatches.lastBody()).toEqual({ status: 'CANCELED' });
+    await expectStays(page, patches, []);
   });
 });

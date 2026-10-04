@@ -7,6 +7,7 @@ import type { Page } from '@playwright/test'
 
 import { createDm, createDmParticipant, createMessage } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 // auth.fixture createUser() 기본 id=1, name='테스트 사용자'.
 const MY_ID = 1
@@ -94,11 +95,11 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await stubSidebarLists(page)
 
       // 실제 백엔드 동작을 모킹: kind=ALL 이면 사람+에이전트, 그 외엔 사람만 반환.
-      let capturedKind: string | null = null
+      const memberSearches = trackRequests(page, 'ANY', '/api/v1/members')
       await page.route(
         (url) => url.pathname === '/api/v1/members',
         (route) => {
-          capturedKind = new URL(route.request().url()).searchParams.get('kind')
+          const capturedKind = new URL(route.request().url()).searchParams.get('kind')
           const users =
             capturedKind === 'ALL'
               ? [{ userId: 9, name: 'My AI', username: 'myai', kind: 'AGENT' }]
@@ -116,7 +117,7 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('My AI')
 
       // 요청 쿼리에 kind=ALL 이 실제로 전달됐는지 확인 — 누락되면 AGENT 가 제외된다(회귀 재현 조건).
-      await expect.poll(() => capturedKind).toBe('ALL')
+      await expect.poll(() => memberSearches.lastUrl()?.searchParams.get('kind')).toBe('ALL')
       // AGENT 사용자 row 가 렌더되고 AgentBadge 도 함께 표시된다.
       const row = page.getByTestId('member-search-row-9')
       await expect(row).toBeVisible()
@@ -147,8 +148,9 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await stubSidebarLists(page)
       await stubUserSearch(page, [{ userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
 
-      // DM find-or-create POST 캡처 후 DM 반환. 이후 GET /dms 도 dm 포함으로 교체.
-      let capturedDmsPayload: { userIds: number[] } | null = null
+      // DM find-or-create POST 후 DM 반환. 이후 GET /dms 도 dm 포함으로 교체.
+      const dmPosts = trackRequests(page, 'POST', '/api/v1/messaging/dms')
+      let dmCreated = false
       await page.route(
         (url) => url.pathname === '/api/v1/messaging/dms',
         (route) => {
@@ -157,11 +159,11 @@ test.describe('messaging 인라인 compose + self-DM', () => {
             return route.fulfill({
               status: 200,
               contentType: 'application/json',
-              body: JSON.stringify(capturedDmsPayload ? [dm] : []),
+              body: JSON.stringify(dmCreated ? [dm] : []),
             })
           }
           if (m === 'POST') {
-            capturedDmsPayload = route.request().postDataJSON() as { userIds: number[] }
+            dmCreated = true
             return route.fulfill({
               status: 201,
               contentType: 'application/json',
@@ -172,14 +174,12 @@ test.describe('messaging 인라인 compose + self-DM', () => {
         },
       )
 
-      // 첫 메시지 POST 캡처
-      let capturedMsgPayload: { body: string } | null = null
+      const msgPosts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${DM_ID}/messages`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/messages`,
         (route) => {
           const m = route.request().method()
           if (m === 'POST') {
-            capturedMsgPayload = route.request().postDataJSON() as { body: string }
             return route.fulfill({
               status: 201,
               contentType: 'application/json',
@@ -218,9 +218,9 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await page.keyboard.press('Enter')
 
       // POST /messaging/dms payload 검증
-      await expect.poll(() => capturedDmsPayload).toEqual({ userIds: [2] })
+      await expect.poll(() => dmPosts.lastBody()).toEqual({ userIds: [2] })
       // POST /messaging/channels/{id}/messages payload 검증
-      await expect.poll(() => capturedMsgPayload?.body).toBe('안녕')
+      await expect.poll(() => msgPosts.lastBody<{ body: string }>()?.body).toBe('안녕')
 
       // DM 페이지로 이동
       await expect(page).toHaveURL(new RegExp(`/chat/dms/${DM_ID}$`))
@@ -247,15 +247,19 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await stubUserSearch(page, [{ userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
 
       // 호출 순서 기록 — DM 생성이 업로드보다 먼저여야 한다.
-      const calls: string[] = []
+      const STEP: Record<string, string> = {
+        '/api/v1/messaging/dms': 'dm',
+        [`/api/v1/messaging/channels/${DM_ID}/attachments`]: 'upload',
+        [`/api/v1/messaging/channels/${DM_ID}/messages`]: 'message',
+      }
+      const steps = trackRequests(page, 'POST', (url) => url.pathname in STEP)
+      const calls = () => steps.urls().map((u) => STEP[u.pathname])
       // 채널 0(미생성 DM) 업로드 시도 감지 — 한 번이라도 오면 회귀.
-      let zeroChannelUploads = 0
+      const zeroChannelUploads = trackRequests(page, 'ANY', '/api/v1/messaging/channels/0/attachments')
+      let dmCreated = false
       await page.route(
         (url) => url.pathname === '/api/v1/messaging/channels/0/attachments',
-        (route) => {
-          zeroChannelUploads++
-          return route.fulfill({ status: 403, contentType: 'application/json', body: '{}' })
-        },
+        (route) => route.fulfill({ status: 403, contentType: 'application/json', body: '{}' }),
       )
       await page.route(
         (url) => url.pathname === '/api/v1/messaging/dms',
@@ -265,11 +269,11 @@ test.describe('messaging 인라인 compose + self-DM', () => {
             return route.fulfill({
               status: 200,
               contentType: 'application/json',
-              body: JSON.stringify(calls.includes('dm') ? [dm] : []),
+              body: JSON.stringify(dmCreated ? [dm] : []),
             })
           }
           if (m === 'POST') {
-            calls.push('dm')
+            dmCreated = true
             return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(dm) })
           }
           return route.fallback()
@@ -278,7 +282,6 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/attachments`,
         (route) => {
-          calls.push('upload')
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -288,14 +291,12 @@ test.describe('messaging 인라인 compose + self-DM', () => {
           })
         },
       )
-      let capturedMsgPayload: { body: string; fileIds?: number[] } | null = null
+      const msgPosts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${DM_ID}/messages`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/messages`,
         (route) => {
           const m = route.request().method()
           if (m === 'POST') {
-            calls.push('message')
-            capturedMsgPayload = route.request().postDataJSON() as { body: string; fileIds?: number[] }
             return route.fulfill({
               status: 201,
               contentType: 'application/json',
@@ -326,14 +327,14 @@ test.describe('messaging 인라인 compose + self-DM', () => {
         buffer: Buffer.from('hello'),
       })
       await expect(page.getByTestId('composer-attachments')).toContainText('report.txt')
-      expect(calls).toEqual([])
+      expect(calls()).toEqual([])
 
       // 본문 없이 첨부만으로 전송.
       await page.getByTestId('message-composer-submit').click()
 
-      await expect.poll(() => capturedMsgPayload?.fileIds).toEqual([UPLOADED_FILE_ID])
-      expect(calls).toEqual(['dm', 'upload', 'message'])
-      expect(zeroChannelUploads).toBe(0)
+      await expect.poll(() => msgPosts.lastBody<{ fileIds?: number[] }>()?.fileIds).toEqual([UPLOADED_FILE_ID])
+      expect(calls()).toEqual(['dm', 'upload', 'message'])
+      expect(zeroChannelUploads.count()).toBe(0)
       await expect(page).toHaveURL(new RegExp(`/chat/dms/${DM_ID}$`))
     },
   )
@@ -360,11 +361,10 @@ test.describe('messaging 인라인 compose + self-DM', () => {
             ? route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(dm) })
             : route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
-      let uploads = 0
+      const uploads = trackRequests(page, 'ANY', `/api/v1/messaging/channels/${DM_ID}/attachments`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/attachments`,
         (route) => {
-          uploads++
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -376,7 +376,7 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       )
       // 첫 메시지 POST 는 500, 이후엔 201.
       let messagePosts = 0
-      let lastMsgPayload: { body: string; fileIds?: number[] } | null = null
+      const msgPosts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${DM_ID}/messages`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/channels/${DM_ID}/messages`,
         (route) => {
@@ -388,7 +388,6 @@ test.describe('messaging 인라인 compose + self-DM', () => {
             })
           }
           messagePosts++
-          lastMsgPayload = route.request().postDataJSON() as { body: string; fileIds?: number[] }
           if (messagePosts === 1) {
             return route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
           }
@@ -417,7 +416,7 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await page.getByTestId('message-composer-submit').click()
 
       // 실패: 페이지에 머물고 본문·첨부 칩이 그대로 남는다.
-      await expect.poll(() => messagePosts).toBe(1)
+      await expect.poll(msgPosts.count).toBe(1)
       await expect(page).toHaveURL(/\/chat\/new$/)
       await expect(page.getByTestId('message-composer-input')).toContainText('보고서')
       await expect(page.getByTestId('composer-attachments')).toContainText('report.txt')
@@ -425,8 +424,8 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       // 재시도: 첨부는 다시 올리지 않고 첫 업로드의 fileId 로 전송된다.
       await page.getByTestId('message-composer-submit').click()
       await expect(page).toHaveURL(new RegExp(`/chat/dms/${DM_ID}$`))
-      expect(uploads).toBe(1)
-      expect(lastMsgPayload).toEqual({ body: '보고서', fileIds: [UPLOADED_FILE_ID] })
+      expect(uploads.count()).toBe(1)
+      expect(msgPosts.lastBody()).toEqual({ body: '보고서', fileIds: [UPLOADED_FILE_ID] })
     },
   )
 
@@ -495,7 +494,8 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await stubSidebarLists(page)
 
       // SelfDmRedirect 가 POST /messaging/dms {userIds:[myId]} 를 호출한다.
-      let capturedSelfPayload: { userIds: number[] } | null = null
+      const selfPosts = trackRequests(page, 'POST', '/api/v1/messaging/dms')
+      let selfDmCreated = false
       await page.route(
         (url) => url.pathname === '/api/v1/messaging/dms',
         (route) => {
@@ -504,11 +504,11 @@ test.describe('messaging 인라인 compose + self-DM', () => {
             return route.fulfill({
               status: 200,
               contentType: 'application/json',
-              body: JSON.stringify(capturedSelfPayload ? [selfDm] : []),
+              body: JSON.stringify(selfDmCreated ? [selfDm] : []),
             })
           }
           if (m === 'POST') {
-            capturedSelfPayload = route.request().postDataJSON() as { userIds: number[] }
+            selfDmCreated = true
             return route.fulfill({
               status: 201,
               contentType: 'application/json',
@@ -549,7 +549,7 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await selfLink.click()
 
       // POST {userIds:[MY_ID]} 검증
-      await expect.poll(() => capturedSelfPayload).toEqual({ userIds: [MY_ID] })
+      await expect.poll(() => selfPosts.lastBody()).toEqual({ userIds: [MY_ID] })
 
       // self-DM 페이지로 이동
       await expect(page).toHaveURL(new RegExp(`/chat/dms/${SELF_DM_ID}$`))

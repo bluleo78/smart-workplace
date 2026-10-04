@@ -8,9 +8,10 @@
 //     PERSONAL 1개를 반환해 spacesResolved 를 true 로 세팅 (드라이브 버튼 활성화).
 //   - POST /chat/threads/*/attachments: [{fileId:1,...}] 반환 → pending 칩 노출.
 //   - GET /chat/threads/*/messages: 빈 목록(초기).
-//   - POST /chat/threads/*/messages: createPayload 캡처 + 첨부 포함 응답 반환.
+//   - POST /chat/threads/*/messages: 첨부 포함 응답 반환(본문은 trackRequests 로 검증).
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createChatMember, createChatThread } from '../../factories/chat.factory';
 import { createFile } from '../../factories/drive.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
@@ -140,7 +141,7 @@ test(
     );
 
     // ── POST /messages — payload 캡처 + 첨부 포함 응답 ───────────────────
-    let createPayload: Record<string, unknown> | null = null;
+    const creates = trackRequests(page, 'POST', `/api/v1/chat/threads/${THREAD_ID}/messages`);
     const attachment: MessageAttachment = {
       fileId: FILE_ID,
       messageId: 1001,
@@ -155,7 +156,6 @@ test(
       (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
       (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
-        createPayload = route.request().postDataJSON();
         return route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -211,7 +211,7 @@ test(
     await page.getByTestId('chat-composer-submit').click();
 
     // ── 검증 4: POST payload 에 fileIds:[1] 포함 (입력→처리 파이프라인) ──
-    await expect.poll(() => createPayload).toMatchObject({
+    await expect.poll(() => creates.lastBody()).toMatchObject({
       fileIds: [FILE_ID],
     });
 
@@ -341,12 +341,11 @@ test(
     );
 
     // ── POST /messages — payload 캡처 ────────────────────────────────────
-    let createPayload: Record<string, unknown> | null = null;
+    const creates = trackRequests(page, 'POST', `/api/v1/chat/threads/${THREAD_ID}/messages`);
     await page.route(
       (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
       (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
-        createPayload = route.request().postDataJSON();
         return route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -402,7 +401,7 @@ test(
     await page.getByTestId('chat-composer-submit').click();
 
     // 핵심 회귀 검증: driveFileIds 에 drive_file.id(PK=300) 전달 — fileId(blob=999) 이면 버그
-    await expect.poll(() => createPayload).toMatchObject({
+    await expect.poll(() => creates.lastBody()).toMatchObject({
       driveFileIds: [DRIVE_PK],
     });
   },

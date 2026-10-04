@@ -7,6 +7,7 @@ import type { Page } from '@playwright/test'
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../../factories/wiki.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 import { buildWikiAiSse } from '../../fixtures/wiki-mock'
 
@@ -204,10 +205,10 @@ test('위키 — AI 생성 중 최신 내용을 불러오면 생성을 취소해
   const server = initialServer()
   await mockWiki(page, server)
 
-  // /ai 시작 → correlationId, 취소(DELETE) 캡처.
+  // /ai 시작 → correlationId, 취소(DELETE) → 200.
   let startedResolve!: (id: string) => void
   const started = new Promise<string>((r) => (startedResolve = r))
-  const cancelled: string[] = []
+  const cancels = trackRequests(page, 'DELETE', /^\/api\/v1\/wiki\/pages\/[^/]+\/ai\/[^/]+$/)
   await page.route('**/api/v1/wiki/pages/*/ai', (route) => {
     if (route.request().method() !== 'POST') return route.fallback()
     startedResolve('corr-1')
@@ -215,7 +216,6 @@ test('위키 — AI 생성 중 최신 내용을 불러오면 생성을 취소해
   })
   await page.route('**/api/v1/wiki/pages/*/ai/*', (route) => {
     if (route.request().method() !== 'DELETE') return route.fallback()
-    cancelled.push(route.request().url().split('/').pop() as string)
     return route.fulfill({ json: {} })
   })
 
@@ -256,7 +256,7 @@ test('위키 — AI 생성 중 최신 내용을 불러오면 생성을 취소해
   clickedResolve()
   await expect(editor).toHaveText('AI가 고친 본문')
   await expect(page.getByTestId('wiki-ai-busy')).toHaveCount(0)
-  await expect.poll(() => cancelled).toEqual(['corr-1'])
+  await expect.poll(() => cancels.urls().map((u) => u.pathname.split('/').pop())).toEqual(['corr-1'])
 
   // 늦게 도착한 델타는 무시된다 — 재연결 응답이 실제로 전달된 뒤부터 지켜본다.
   await expect.poll(() => lateDelivered, { timeout: 10_000 }).toBe(true)

@@ -2,6 +2,7 @@
 import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
@@ -183,10 +184,9 @@ test('이슈 막대가 상태별로 다른 색으로 렌더된다 (#639)', async
 
 test('막대 드래그 이동 시 startDate+dueDate PATCH', async ({ authenticatedPage: page }) => {
   await setupTimelineStubs(page);
-  let patch: Record<string, unknown> | null = null;
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/1`);
   await page.route(`**/api/v1/projects/${KEY}/issues/1`, (route) => {
     if (route.request().method() === 'PATCH') {
-      patch = route.request().postDataJSON() as Record<string, unknown>;
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -204,7 +204,7 @@ test('막대 드래그 이동 시 startDate+dueDate PATCH', async ({ authenticat
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 200, box.y + box.height / 2, { steps: 8 });
   await page.mouse.up();
-  await expect.poll(() => patch, { timeout: 5000 }).toMatchObject({
+  await expect.poll(() => patches.lastBody(), { timeout: 5000 }).toMatchObject({
     startDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     dueDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
   });
@@ -212,10 +212,13 @@ test('막대 드래그 이동 시 startDate+dueDate PATCH', async ({ authenticat
 
 test('PATCH 실패 시 토스트 노출 + 서버 상태 복원', async ({ authenticatedPage: page }) => {
   await setupTimelineStubs(page);
-  let issuesRefetchCount = 0;
+  const issueSearches = trackRequests(
+    page,
+    'GET',
+    (u) => u.pathname === `/api/v1/projects/${KEY}/issues` && u.search !== '',
+  );
   await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
-    issuesRefetchCount += 1;
     const issues = [
       createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05' }),
       createIssue({ number: 2, title: '마감일만 이슈', dueDate: '2026-07-10' }),
@@ -242,7 +245,7 @@ test('PATCH 실패 시 토스트 노출 + 서버 상태 복원', async ({ authen
   await expandNoEpicGroup(page);
   const bar = page.locator('[data-task-id="1"]');
   await expect(bar).toBeVisible();
-  const initialRefetchCount = issuesRefetchCount;
+  const initialRefetchCount = issueSearches.count();
   const box = (await bar.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
@@ -250,7 +253,7 @@ test('PATCH 실패 시 토스트 노출 + 서버 상태 복원', async ({ authen
   await page.mouse.up();
   await expect(page.getByText('일정 변경에 실패했습니다')).toBeVisible();
   // 실패 시 invalidate 로 이슈 목록을 재조회해 서버 상태로 복원한다.
-  await expect.poll(() => issuesRefetchCount).toBeGreaterThan(initialRefetchCount);
+  await issueSearches.waitFor(initialRefetchCount + 1);
 });
 
 test('비멤버는 드래그 비활성', async ({ authenticatedPage: page }) => {
@@ -264,10 +267,9 @@ test('비멤버는 드래그 비활성', async ({ authenticatedPage: page }) => 
       body: JSON.stringify(createProject({ key: KEY, viewerIsMember: false })),
     });
   });
-  let patchFired = false;
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/1`);
   await page.route(`**/api/v1/projects/${KEY}/issues/1`, (route) => {
     if (route.request().method() === 'PATCH') {
-      patchFired = true;
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
     }
     return route.fallback();
@@ -281,7 +283,7 @@ test('비멤버는 드래그 비활성', async ({ authenticatedPage: page }) => 
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 200, box.y + box.height / 2, { steps: 8 });
   await page.mouse.up();
-  await expectStays(page, () => patchFired, false);
+  await expectStays(page, patches.count, 0);
 });
 
 test('의존 화살표 렌더 (표시 전용)', async ({ authenticatedPage: page }) => {
@@ -417,10 +419,9 @@ test('일정 미정 섹션 — 접이식 + 배치', async ({ authenticatedPage: 
       body: JSON.stringify(createIssueSearchResponse(issues)),
     });
   });
-  let patch: Record<string, unknown> | null = null;
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/5`);
   await page.route(`**/api/v1/projects/${KEY}/issues/5`, (route) => {
     if (route.request().method() === 'PATCH') {
-      patch = route.request().postDataJSON() as Record<string, unknown>;
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -438,8 +439,8 @@ test('일정 미정 섹션 — 접이식 + 배치', async ({ authenticatedPage: 
   await expect(page.getByTestId('unscheduled-row-5')).toBeVisible();
   await expect(page.getByTestId('unscheduled-row-6')).toBeVisible();
   await page.getByTestId('unscheduled-schedule-5').click();
-  await expect.poll(() => patch).not.toBeNull();
-  const body = patch as unknown as { startDate: string; dueDate: string };
+  await patches.waitFor();
+  const body = patches.lastBody<{ startDate: string; dueDate: string }>()!;
   expect(body.startDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   expect(body.dueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   const diffDays =

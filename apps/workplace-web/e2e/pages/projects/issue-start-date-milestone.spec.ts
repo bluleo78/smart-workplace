@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { mockApi } from '../../fixtures/api-mock';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
@@ -35,7 +36,7 @@ async function setupDetailStubs(
 ) {
   let currentStartDate = initial.startDate ?? null;
   let currentMilestoneId = initial.milestoneId ?? null;
-  const patches: Record<string, unknown>[] = [];
+  const patches = trackRequests(page, 'PATCH', ISSUE_DETAIL_PATH);
 
   await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
@@ -58,7 +59,6 @@ async function setupDetailStubs(
     (route) => {
       if (route.request().method() === 'PATCH') {
         const payload = route.request().postDataJSON() as Record<string, unknown>;
-        patches.push(payload);
         if (typeof payload.startDate === 'string') currentStartDate = payload.startDate;
         if (payload.clearStartDate === true) currentStartDate = null;
         if (typeof payload.milestoneId === 'number') currentMilestoneId = payload.milestoneId;
@@ -117,8 +117,8 @@ test.describe('이슈 상세 시작일/마일스톤 피커 (#620)', () => {
     }).first();
     await day10.click();
 
-    await expect.poll(() => patches.length).toBeGreaterThanOrEqual(1);
-    const last = patches[patches.length - 1];
+    await patches.waitFor();
+    const last = patches.lastBody<Record<string, unknown>>()!;
     expect(typeof last.startDate).toBe('string');
     expect(last.startDate).toMatch(/^\d{4}-\d{2}-10$/);
     expect(last.clearStartDate).toBeFalsy();
@@ -136,8 +136,8 @@ test.describe('이슈 상세 시작일/마일스톤 피커 (#620)', () => {
     await expect(page.getByTestId('milestone-picker-popover')).toBeVisible();
     await page.getByTestId('milestone-option-2').click();
 
-    await expect.poll(() => patches.length).toBeGreaterThanOrEqual(1);
-    const last = patches[patches.length - 1];
+    await patches.waitFor();
+    const last = patches.lastBody<Record<string, unknown>>()!;
     expect(last.milestoneId).toBe(2);
     expect(last.clearMilestone).toBeFalsy();
 
@@ -154,8 +154,8 @@ test.describe('이슈 상세 시작일/마일스톤 피커 (#620)', () => {
     await expect(page.getByTestId('milestone-picker-popover')).toBeVisible();
     await page.getByTestId('milestone-option-clear').click();
 
-    await expect.poll(() => patches.length).toBeGreaterThanOrEqual(1);
-    const last = patches[patches.length - 1];
+    await patches.waitFor();
+    const last = patches.lastBody<Record<string, unknown>>()!;
     expect(last.clearMilestone).toBe(true);
 
     await expect(page.getByTestId('milestone-picker-trigger')).toContainText('없음');
@@ -187,10 +187,9 @@ test.describe('IssueCreateDialog 시작일 입력 (#620)', () => {
   test('시작일 입력 → POST payload 에 startDate 포함', async ({ authenticatedPage: page }) => {
     await stubProject(page);
 
-    let submittedStartDate: unknown;
+    const creates = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues`);
     await page.route(`**/api/v1/projects/${PROJECT_KEY}/issues`, (route) => {
       if (route.request().method() === 'POST') {
-        submittedStartDate = route.request().postDataJSON().startDate;
         return route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -208,16 +207,15 @@ test.describe('IssueCreateDialog 시작일 입력 (#620)', () => {
     await page.locator('#issue-start').fill('2026-07-01');
     await page.getByRole('button', { name: '생성' }).click();
 
-    await expect.poll(() => submittedStartDate).toBe('2026-07-01');
+    await expect.poll(() => creates.lastBody<{ startDate?: string }>()?.startDate).toBe('2026-07-01');
   });
 
   test('시작일 > 마감일이면 클라이언트 검증 에러로 제출이 막힌다', async ({ authenticatedPage: page }) => {
     await stubProject(page);
 
-    let createRequested = false;
+    const creates = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues`);
     await page.route(`**/api/v1/projects/${PROJECT_KEY}/issues`, (route) => {
       if (route.request().method() === 'POST') {
-        createRequested = true;
         return route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
       }
       return route.fallback();
@@ -233,7 +231,7 @@ test.describe('IssueCreateDialog 시작일 입력 (#620)', () => {
     await page.getByRole('button', { name: '생성' }).click();
 
     await expect(page.getByText('시작일은 마감일보다 늦을 수 없습니다')).toBeVisible();
-    expect(createRequested).toBe(false);
+    expect(creates.count()).toBe(0);
     await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible();
   });
 });

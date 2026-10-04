@@ -3,6 +3,7 @@
 // - 25MB 초과 파일은 클라이언트 사전 검증에서 토스트 + POST 차단
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createAttachment } from '../../factories/attachment.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
@@ -97,8 +98,8 @@ test.describe('이슈 첨부', () => {
 
       await setupCommonStubs(page, 0);
 
-      let postCount = 0;
-      let deleteCount = 0;
+      const posts = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`);
+      const deletes = trackRequests(page, 'DELETE', /^\/api\/v1\/projects\/WP\/issues\/1\/attachments\/\d+$/);
 
       await page.route(
         (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
@@ -112,7 +113,6 @@ test.describe('이슈 첨부', () => {
             });
           }
           if (method === 'POST') {
-            postCount += 1;
             const added = createAttachment({
               fileId: 9001 + store.length,
               originalName: 'spec.pdf',
@@ -136,7 +136,6 @@ test.describe('이슈 첨부', () => {
           /\/api\/v1\/projects\/WP\/issues\/1\/attachments\/\d+$/.test(url.pathname),
         (route) => {
           if (route.request().method() !== 'DELETE') return route.fallback();
-          deleteCount += 1;
           const m = route.request().url().match(/attachments\/(\d+)$/);
           const fileId = m ? Number(m[1]) : -1;
           store = store.filter((a) => a.fileId !== fileId);
@@ -162,7 +161,7 @@ test.describe('이슈 첨부', () => {
 
       // 성공 토스트 + 목록 1행 — 토스트가 보이면 mutation 이 onSuccess 까지 도달.
       await expect(page.getByText('1개 첨부를 추가했습니다')).toBeVisible();
-      expect(postCount).toBe(1);
+      expect(posts.count()).toBe(1);
       await expect(page.getByTestId('attachment-list')).toBeVisible();
       const row = page.getByTestId('attachment-row-9001');
       await expect(row).toBeVisible();
@@ -175,7 +174,7 @@ test.describe('이슈 첨부', () => {
       await expect(page.getByTestId('attachment-delete-dialog')).toBeVisible();
       await page.getByTestId('attachment-delete-confirm').click();
       await expect(page.getByText('첨부를 삭제했습니다')).toBeVisible();
-      expect(deleteCount).toBe(1);
+      expect(deletes.count()).toBe(1);
       // Task #343: 첨부가 본문 스트립으로 이동 → strip 모드에서는 빈 상태 텍스트 미표시.
       // 오직 드롭존만 표시됨.
       const strip = page.getByTestId('issue-attachment-strip');
@@ -191,7 +190,7 @@ test.describe('이슈 첨부', () => {
   }) => {
     await setupCommonStubs(page, 0);
 
-    let postCount = 0;
+    const posts = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`);
     await page.route(
       (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
       (route) => {
@@ -204,7 +203,6 @@ test.describe('이슈 첨부', () => {
           });
         }
         if (method === 'POST') {
-          postCount += 1;
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -230,7 +228,7 @@ test.describe('이슈 첨부', () => {
 
     await expect(page.getByText('huge.bin는 25MB 한도를 초과합니다')).toBeVisible();
     // 사전 검증 통과 파일이 없으므로 POST 가 발생하지 않아야 한다.
-    await expectStays(page, () => postCount, 0);
+    await expectStays(page, posts.count, 0);
   });
 
   test('이슈당 첨부 한도(10개) 초과 시 올바른 조사 포함 토스트 표시', async ({
@@ -239,7 +237,7 @@ test.describe('이슈 첨부', () => {
     // attachmentCount=9 → currentCount=9. 2개 업로드 시 첫 번째(9+0<10)는 수락, 두 번째(9+1=10)는 한도 초과.
     await setupCommonStubs(page, 9);
 
-    let postCount = 0;
+    const posts = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`);
     await page.route(
       (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
       (route) => {
@@ -252,7 +250,6 @@ test.describe('이슈 첨부', () => {
           });
         }
         if (method === 'POST') {
-          postCount += 1;
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -279,7 +276,7 @@ test.describe('이슈 첨부', () => {
       page.getByText('이슈당 첨부 한도(10개)를 초과하여 test.pdf를 건너뜁니다'),
     ).toBeVisible();
     // 첫 번째 파일만 POST 발생해야 한다.
-    await expectStays(page, () => postCount, 1, { reach: true });
+    await expectStays(page, posts.count, 1, { reach: true });
   });
 
   // #782 — 업로드 pending 동안 드롭존에 스피너(Loader2 + animate-spin) 표시 회귀 테스트.

@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { expectStays, measureBox } from '../fixtures/wait'
+import { trackRequests } from '../fixtures/requests'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
 import { detail as mailDetail, mailAccount, summary as mailRow } from '../factories/mail.factory'
 import { createChannel, createChannelMember, createMessage } from '../factories/messaging.factory'
@@ -20,6 +21,9 @@ import type { PriorityItemsResponse } from '../../src/api/priorityItems'
 // 홈 고정 대시보드 E2E — 저장 레이아웃 순서로 5종 위젯 렌더 + 위젯별 격리(로딩/에러).
 // 백엔드 없이 /me/dashboard·위젯별 엔드포인트를 모킹해 검증한다.
 // (구 AI 캔버스/세션 스위처/챗 도크 E2E 는 대시보드 전환으로 폐기됨.)
+
+// 대시보드 저장(PUT /me/dashboard) 요청 본문.
+type DashboardPut = { widgets: DashboardWidgetConfig[] }
 
 // 레이아웃 응답 헬퍼 — 객체-배열 컨트랙트. 위젯 순서가 곧 렌더 순서.
 // bare 문자열은 {type, count:5, hidden:false} 로 정규화(기존 호출부 호환).
@@ -682,15 +686,13 @@ test('편집 — 위젯 아래로 이동 → 저장 시 PUT payload 순서 반�
 }) => {
   await mockWidgets(page)
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks', 'unread_mail']))
-  // PUT 핸들러 1개로 캡처 + 에코 동시 처리(LIFO 라우트 섀도잉 회피).
   // onSuccess → setQueryData 가 응답 widgets 로 일반 뷰를 다시 그리므로 body 를 그대로 에코한다.
-  let putWidgets: DashboardWidgetConfig[] | null = null
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
   await page.route(
     (url) => url.pathname === '/api/v1/me/dashboard',
     (route) => {
       if (route.request().method() !== 'PUT') return route.fallback()
-      const body = route.request().postDataJSON() as { widgets: DashboardWidgetConfig[] }
-      putWidgets = body.widgets
+      const body: unknown = route.request().postDataJSON()
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -711,10 +713,10 @@ test('편집 — 위젯 아래로 이동 → 저장 시 PUT payload 순서 반�
   // 저장.
   await page.getByTestId('dashboard-edit-save').click()
 
-  // 배너가 사라지면 PUT 이 resolve 되어 onSuccess 가 끝난 것 → putWidgets 안전 판독.
+  // 배너가 사라지면 PUT 이 resolve 되어 onSuccess 가 끝난 것.
   await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
   // PUT payload 순서 검증.
-  expect(putWidgets!.map((w) => w.type)).toEqual(['unread_mail', 'my_tasks'])
+  expect(puts.lastBody<DashboardPut>()!.widgets.map((w) => w.type)).toEqual(['unread_mail', 'my_tasks'])
 
   // 일반 뷰가 새 순서 반영(에코된 응답으로 캐시 갱신).
   const cards = page.getByTestId('dashboard-widget')
@@ -725,8 +727,7 @@ test('편집 — 위젯 아래로 이동 → 저장 시 PUT payload 순서 반�
 test('편집 — 드래그로 위젯 순서 변경 → 저장 시 PUT payload 순서 반영', async ({
   authenticatedPage: page,
 }) => {
-  // PUT 핸들러 1개로 캡처 + 에코(LIFO 라우트 섀도잉 회피) — 기존 이동 테스트와 동일 패턴.
-  let putWidgets: DashboardWidgetConfig[] | null = null
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
   await page.route(
     (url) => url.pathname === '/api/v1/me/dashboard',
     (route) => {
@@ -738,8 +739,7 @@ test('편집 — 드래그로 위젯 순서 변경 → 저장 시 PUT payload �
         })
       }
       if (route.request().method() !== 'PUT') return route.continue()
-      const body = route.request().postDataJSON() as { widgets: DashboardWidgetConfig[] }
-      putWidgets = body.widgets
+      const body: unknown = route.request().postDataJSON()
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -790,9 +790,9 @@ test('편집 — 드래그로 위젯 순서 변경 → 저장 시 PUT payload �
     await expect(banner).toHaveCount(0, { timeout: 200 })
   }).toPass({ timeout: 3000 })
 
-  // 배너가 사라지면 PUT 이 resolve 되어 onSuccess 가 끝난 것 → putWidgets 안전 판독.
+  // 배너가 사라지면 PUT 이 resolve 되어 onSuccess 가 끝난 것.
   await expect(banner).toHaveCount(0)
-  expect(putWidgets!.map((w) => w.type)).toEqual(['unread_mail', 'my_tasks'])
+  expect(puts.lastBody<DashboardPut>()!.widgets.map((w) => w.type)).toEqual(['unread_mail', 'my_tasks'])
 })
 
 test('편집 — wide(col-span-3) 위젯을 좁은 위젯 바로 다음으로 드래그하면 건너뛰지 않고 정확히 그 자리로 이동한다 (#645)', async ({
@@ -812,13 +812,12 @@ test('편집 — wide(col-span-3) 위젯을 좁은 위젯 바로 다음으로 �
     '/api/v1/me/dashboard',
     layout(['priority_quadrant', 'quick_actions', 'my_tasks', 'notifications', 'recent_chats', 'unread_mail']),
   )
-  let putWidgets: DashboardWidgetConfig[] | null = null
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
   await page.route(
     (url) => url.pathname === '/api/v1/me/dashboard',
     (route) => {
       if (route.request().method() !== 'PUT') return route.fallback()
-      const body = route.request().postDataJSON() as { widgets: DashboardWidgetConfig[] }
-      putWidgets = body.widgets
+      const body: unknown = route.request().postDataJSON()
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -866,7 +865,7 @@ test('편집 — wide(col-span-3) 위젯을 좁은 위젯 바로 다음으로 �
   }).toPass({ timeout: 3000 })
 
   await expect(banner).toHaveCount(0)
-  expect(putWidgets!.map((w) => w.type)).toEqual([
+  expect(puts.lastBody<DashboardPut>()!.widgets.map((w) => w.type)).toEqual([
     'priority_quadrant',
     'my_tasks',
     'quick_actions',
@@ -881,14 +880,12 @@ test('편집 — 위젯 숨김 → 저장 시 hidden:true + 일반 뷰 제외', 
 }) => {
   await mockWidgets(page)
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks', 'unread_mail']))
-  // PUT 핸들러 1개로 캡처 + 에코(LIFO 섀도잉 회피).
-  let putWidgets: DashboardWidgetConfig[] | null = null
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
   await page.route(
     (url) => url.pathname === '/api/v1/me/dashboard',
     (route) => {
       if (route.request().method() !== 'PUT') return route.fallback()
-      const body = route.request().postDataJSON() as { widgets: DashboardWidgetConfig[] }
-      putWidgets = body.widgets
+      const body: unknown = route.request().postDataJSON()
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -908,7 +905,7 @@ test('편집 — 위젯 숨김 → 저장 시 hidden:true + 일반 뷰 제외', 
   await page.getByTestId('dashboard-edit-save').click()
 
   await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
-  const myTasks = putWidgets!.find((w) => w.type === 'my_tasks')
+  const myTasks = puts.lastBody<DashboardPut>()!.widgets.find((w) => w.type === 'my_tasks')
   expect(myTasks?.hidden).toBe(true)
 
   // 일반 뷰는 숨김 위젯 제외 → unread_mail 만.
@@ -1233,12 +1230,10 @@ test('위젯 추가 모달에서 "+ 위젯 추가" 버튼을 눌러야 실제로
 }) => {
   await mockWidgets(page)
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
-  let addRequested = false
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
   await page.route('**/api/v1/me/dashboard', async (route) => {
     if (route.request().method() === 'PUT') {
-      addRequested = true
-      const body = route.request().postDataJSON() as { widgets: DashboardWidgetConfig[] }
-      expect(body.widgets.map((w) => w.type)).toContain('issue_list')
+      const body: unknown = route.request().postDataJSON()
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
       return
     }
@@ -1257,7 +1252,8 @@ test('위젯 추가 모달에서 "+ 위젯 추가" 버튼을 눌러야 실제로
 
   // 실제 서버 저장은 "저장" 버튼으로 트리거.
   await page.getByTestId('dashboard-edit-save').click()
-  await expect.poll(() => addRequested).toBe(true)
+  await puts.waitFor()
+  expect(puts.lastBody<DashboardPut>()!.widgets.map((w) => w.type)).toContain('issue_list')
 })
 
 test('위젯 추가 모달에서 카테고리를 바꾸면 목록 첫 카드가 자동 선택된다', { tag: '@smoke' }, async ({
@@ -2572,6 +2568,7 @@ test('메시징 — 채널 읽음(markRead) 후 messaging-summary 가 재조회�
   // messaging-summary 호출 횟수 추적.
   // 읽음 onSuccess invalidate 발동 → 홈 복귀 시 stale 재조회 포함 2회 이상이어야 한다.
   let summaryCallCount = 0
+  const summaries = trackRequests(page, 'GET', '/api/v1/me/messaging-summary')
   await page.route(
     (url) => url.pathname === '/api/v1/me/messaging-summary',
     (route) => {
@@ -2661,14 +2658,13 @@ test('메시징 — 채널 읽음(markRead) 후 messaging-summary 가 재조회�
   await mockApi(page, 'GET', '/api/v1/me/mail-summary', { unreadCount: 0, recent: [] })
 
   // 1) 홈 진입 → SynthesisLayer 마운트 → messaging-summary 첫 조회.
-  //    waitForResponse 는 route.fulfill 완료 후 발화 → 카운터 increment 보장.
   const firstSummaryPromise = page.waitForResponse(
     (res) => res.url().includes('/me/messaging-summary') && res.request().method() === 'GET',
     { timeout: 5000 },
   )
   await page.goto('/')
   await firstSummaryPromise
-  expect(summaryCallCount).toBeGreaterThanOrEqual(1)
+  expect(summaries.count()).toBeGreaterThanOrEqual(1)
 
   // 2) 채널 진입 + markRead POST 대기를 동시에 설정.
   //    waitForResponse 는 goto 이전에 Promise 로 미리 걸어야 한다.
@@ -2690,11 +2686,11 @@ test('메시징 — 채널 읽음(markRead) 후 messaging-summary 가 재조회�
   await summaryRefetchPromise
 
   // invalidate + 재조회로 총 2회 이상 호출됐어야 한다.
-  expect(summaryCallCount).toBeGreaterThanOrEqual(2)
+  expect(summaries.count()).toBeGreaterThanOrEqual(2)
 })
 
 test('편집 모드에서 카탈로그 위젯을 추가하고 필터를 설정해 저장한다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-  let putBody: unknown = null
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
 
   await page.route('**/api/v1/me/dashboard', async (route) => {
     if (route.request().method() === 'GET') {
@@ -2706,8 +2702,8 @@ test('편집 모드에서 카탈로그 위젯을 추가하고 필터를 설정�
       return
     }
     if (route.request().method() === 'PUT') {
-      putBody = route.request().postDataJSON()
-      await route.fulfill({ json: putBody })
+      const body: unknown = route.request().postDataJSON()
+      await route.fulfill({ json: body })
       return
     }
     await route.continue()
@@ -2744,15 +2740,15 @@ test('편집 모드에서 카탈로그 위젯을 추가하고 필터를 설정�
 
   await page.getByTestId('dashboard-edit-save').click()
 
-  await expect.poll(() => putBody).not.toBeNull()
-  const body = putBody as { widgets: { type: string; label?: string; params?: Record<string, unknown> }[] }
+  await puts.waitFor()
+  const body = puts.lastBody<DashboardPut>()!
   const issueWidget = body.widgets.find((w) => w.type === 'issue_list')
   expect(issueWidget?.label).toBe('보안팀 이슈')
   expect(issueWidget?.params?.assignee).toBe('all')
 })
 
 test('카탈로그 위젯 삭제 시 그리드에서 사라지고 저장 payload 에서 빠진다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-  let putBody: unknown = null
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
 
   await page.route('**/api/v1/me/dashboard', async (route) => {
     if (route.request().method() === 'GET') {
@@ -2774,8 +2770,8 @@ test('카탈로그 위젯 삭제 시 그리드에서 사라지고 저장 payload
       return
     }
     if (route.request().method() === 'PUT') {
-      putBody = route.request().postDataJSON()
-      await route.fulfill({ json: putBody })
+      const body: unknown = route.request().postDataJSON()
+      await route.fulfill({ json: body })
       return
     }
     await route.continue()
@@ -2792,13 +2788,13 @@ test('카탈로그 위젯 삭제 시 그리드에서 사라지고 저장 payload
 
   await page.getByTestId('dashboard-edit-save').click()
 
-  await expect.poll(() => putBody).not.toBeNull()
-  const body = putBody as { widgets: { type: string }[] }
+  await puts.waitFor()
+  const body = puts.lastBody<DashboardPut>()!
   expect(body.widgets.some((w) => w.type === 'issue_list')).toBe(false)
 })
 
 test('시스템 위젯도 삭제 버튼으로 완전 삭제된다(숨김 아님)', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-  let putBody: unknown = null
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
 
   await page.route('**/api/v1/me/dashboard', async (route) => {
     if (route.request().method() === 'GET') {
@@ -2813,8 +2809,8 @@ test('시스템 위젯도 삭제 버튼으로 완전 삭제된다(숨김 아님)
       return
     }
     if (route.request().method() === 'PUT') {
-      putBody = route.request().postDataJSON()
-      await route.fulfill({ json: putBody })
+      const body: unknown = route.request().postDataJSON()
+      await route.fulfill({ json: body })
       return
     }
     await route.continue()
@@ -2832,13 +2828,13 @@ test('시스템 위젯도 삭제 버튼으로 완전 삭제된다(숨김 아님)
 
   await page.getByTestId('dashboard-edit-save').click()
 
-  await expect.poll(() => putBody).not.toBeNull()
-  const body = putBody as { widgets: { type: string }[] }
+  await puts.waitFor()
+  const body = puts.lastBody<DashboardPut>()!
   expect(body.widgets.some((w) => w.type === 'my_tasks')).toBe(false)
 })
 
 test('테두리·제목 숨김(chromeless) 토글이 저장 payload 에 반영되고 뷰 모드에서 카드 프레임이 사라진다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-  let putBody: unknown = null
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
 
   await page.route('**/api/v1/me/dashboard', async (route) => {
     if (route.request().method() === 'GET') {
@@ -2848,8 +2844,8 @@ test('테두리·제목 숨김(chromeless) 토글이 저장 payload 에 반영�
       return
     }
     if (route.request().method() === 'PUT') {
-      putBody = route.request().postDataJSON()
-      await route.fulfill({ json: putBody })
+      const body: unknown = route.request().postDataJSON()
+      await route.fulfill({ json: body })
       return
     }
     await route.continue()
@@ -2867,8 +2863,8 @@ test('테두리·제목 숨김(chromeless) 토글이 저장 payload 에 반영�
 
   await page.getByTestId('dashboard-edit-save').click()
 
-  await expect.poll(() => putBody).not.toBeNull()
-  const body = putBody as { widgets: { type: string; chromeless: boolean }[] }
+  await puts.waitFor()
+  const body = puts.lastBody<DashboardPut>()!
   expect(body.widgets.find((w) => w.type === 'quick_actions')?.chromeless).toBe(true)
 
   // 뷰 모드 재진입 시(저장된 응답 재조회) 카드 프레임(Card 컴포넌트 클래스) 없이 렌더되어야 한다.

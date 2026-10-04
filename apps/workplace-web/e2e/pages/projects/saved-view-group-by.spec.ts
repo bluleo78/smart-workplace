@@ -5,6 +5,7 @@ import type { Page, Route } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import {
   createIssue,
   createIssueSearchResponse,
@@ -125,15 +126,13 @@ test.describe('Saved View group-by', () => {
     await stubProjectMeta(page);
     await routeIssueSearch(page, (route) => fulfillIssues(route, []));
 
-    // 저장 POST 캡처
-    let postedQuery: string | null = null;
+    const viewPosts = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/saved-views`);
     await page.route(`**/api/v1/projects/${KEY}/saved-views`, (route) => {
       const m = route.request().method();
       if (m === 'GET')
         return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
       if (m === 'POST') {
         const body = route.request().postDataJSON() as { query: string; name: string };
-        postedQuery = body.query;
         return route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -158,7 +157,7 @@ test.describe('Saved View group-by', () => {
     await page.getByTestId('save-view-name').fill('담당자 그룹');
     await page.getByTestId('save-view-submit').click();
 
-    await expect.poll(() => postedQuery).toContain('group=assignee');
+    await expect.poll(() => viewPosts.lastBody<{ query: string }>()?.query).toContain('group=assignee');
   });
 
   // #773 — 필터 없이 그룹만 바꾸면 "전체" 칩 활성 표시가 사라지던 회귀 방지.

@@ -1,6 +1,6 @@
 // 모바일 홈 대시보드(WP-142) — 기기별 레이아웃·본문형 접기·타일·모바일 편집.
 // mobile 프로젝트(iPhone 13, 390px)로 돈다. /me/dashboard 는 기기별 상태를 흉내 내는 단일 route 로 모킹한다.
-import type { Page } from '@playwright/test'
+import type { Page, Request } from '@playwright/test'
 
 import type { PriorityItemsResponse } from '../../../src/api/priorityItems'
 import type {
@@ -14,6 +14,7 @@ import { createSpace } from '../../factories/drive.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
+import { bodyOf, trackRequests } from '../../fixtures/requests'
 import { expectStays, resizeAndSettle } from '../../fixtures/wait'
 
 type Device = 'mobile' | 'desktop'
@@ -30,8 +31,8 @@ function layout(widgets: (string | DashboardWidgetConfig)[]): DashboardLayout {
 interface DashboardStub {
   stored: Record<Device, DashboardLayout>
   /** /me/dashboard 로 온 모든 요청 — device 는 쿼리 원문(null = 생략). */
-  requests: { method: string; device: string | null }[]
-  puts: { device: string | null; widgets: DashboardWidgetConfig[] }[]
+  requests: () => { method: string; device: string | null }[]
+  puts: () => { device: string | null; widgets: DashboardWidgetConfig[] }[]
 }
 
 /**
@@ -44,25 +45,29 @@ async function stubDashboard(
   initial: Partial<Record<Device, DashboardLayout>>,
   opts: { putStatus?: number; holdFirstPut?: Promise<void>; failFirstPut?: boolean } = {},
 ): Promise<DashboardStub> {
+  const tracked = trackRequests(page, 'ANY', '/api/v1/me/dashboard')
+  const deviceOf = (req: Request) => new URL(req.url()).searchParams.get('device')
   const stub: DashboardStub = {
     stored: { mobile: initial.mobile ?? { widgets: [] }, desktop: initial.desktop ?? { widgets: [] } },
-    requests: [],
-    puts: [],
+    requests: () => tracked.requests().map((req) => ({ method: req.method(), device: deviceOf(req) })),
+    puts: () => tracked.requests()
+      .filter((req) => req.method() === 'PUT')
+      .map((req) => ({ device: deviceOf(req), widgets: (bodyOf(req) as DashboardLayout).widgets })),
   }
+  // 첫 PUT 보류·실패 판정용(응답 결정) — 단언은 stub.puts() 로 한다.
+  let putCount = 0
   await page.route(
     (url) => url.pathname === '/api/v1/me/dashboard',
     async (route) => {
       const req = route.request()
-      const deviceParam = new URL(req.url()).searchParams.get('device')
-      const device: Device = deviceParam === 'mobile' ? 'mobile' : 'desktop'
-      stub.requests.push({ method: req.method(), device: deviceParam })
+      const device: Device = deviceOf(req) === 'mobile' ? 'mobile' : 'desktop'
       if (req.method() === 'GET') return route.fulfill({ json: stub.stored[device] })
       if (req.method() !== 'PUT') return route.fallback()
       const body = req.postDataJSON() as DashboardLayout
-      stub.puts.push({ device: deviceParam, widgets: body.widgets })
-      if (stub.puts.length === 1 && opts.holdFirstPut) await opts.holdFirstPut
+      putCount += 1
+      if (putCount === 1 && opts.holdFirstPut) await opts.holdFirstPut
       if (opts.putStatus && opts.putStatus >= 400) return route.fulfill({ status: opts.putStatus, json: {} })
-      if (opts.failFirstPut && stub.puts.length === 1) return route.fulfill({ status: 500, json: {} })
+      if (opts.failFirstPut && putCount === 1) return route.fulfill({ status: 500, json: {} })
       stub.stored[device] = body
       return route.fulfill({ json: body })
     },
@@ -101,7 +106,7 @@ test('홈 조회는 device=mobile 로 나가고 데스크톱 레이아웃 요청
   await expect(page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')).toBeVisible()
   // 모바일 저장본(my_tasks)만 그려지고 데스크톱 저장본(unread_mail)은 섞이지 않는다.
   await expect(page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]')).toHaveCount(0)
-  expect(stub.requests.filter((r) => r.method === 'GET').every((r) => r.device === 'mobile')).toBe(true)
+  expect(stub.requests().filter((r) => r.method === 'GET').every((r) => r.device === 'mobile')).toBe(true)
 })
 
 test('편집 중 lg 경계를 넘으면 미저장 초안은 어느 기기에도 저장되지 않고 편집이 끝난다', async ({
@@ -125,7 +130,7 @@ test('편집 중 lg 경계를 넘으면 미저장 초안은 어느 기기에도 
   // 1024 경계를 넘는 리사이즈 — 셸 교체가 끝난 뒤에 단언한다(WP-225).
   await resizeAndSettle(page, { width: 1280, height: 800 })
   await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
-  await expect.poll(() => stub.requests.some((r) => r.method === 'GET' && r.device === null)).toBe(true)
+  await expect.poll(() => stub.requests().some((r) => r.method === 'GET' && r.device === null)).toBe(true)
   await expect(page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]')).toBeVisible()
   await expect(page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')).toHaveCount(0)
 
@@ -133,7 +138,7 @@ test('편집 중 lg 경계를 넘으면 미저장 초안은 어느 기기에도 
   await resizeAndSettle(page, { width: 390, height: 664 })
   await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
   await expect(myTasks).toBeVisible()
-  expect(stub.puts).toHaveLength(0)
+  expect(stub.puts()).toHaveLength(0)
 })
 
 test('본문형 ⌃ 접기 → device=mobile PUT 에 collapsed:true, 요약 한 줄 표시, 새로고침 후 유지', async ({
@@ -153,9 +158,9 @@ test('본문형 ⌃ 접기 → device=mobile PUT 에 collapsed:true, 요약 한 
   expect(box!.height).toBeGreaterThanOrEqual(44)
 
   await toggle.click()
-  await expect.poll(() => stub.puts.length).toBe(1)
-  expect(stub.puts[0].device).toBe('mobile')
-  expect(stub.puts[0].widgets.find((w) => w.id === 'my_tasks')?.collapsed).toBe(true)
+  await expect.poll(() => stub.puts().length).toBe(1)
+  expect(stub.puts()[0].device).toBe('mobile')
+  expect(stub.puts()[0].widgets.find((w) => w.id === 'my_tasks')?.collapsed).toBe(true)
   // 접힘: 본문 대신 머리 건수 배지 + 요약 한 줄(가장 급한 1건).
   await expect(card.getByTestId('dash-mytasks')).toHaveCount(0)
   await expect(card.getByTestId('mobile-widget-count')).toHaveText('1')
@@ -180,11 +185,11 @@ test('⌃ 연타 — PUT 이 직렬로 나가 마지막 상태(펼침)가 저장
   await card.getByTestId('mobile-widget-collapse').click() // 펼치기 — 화면은 즉시(낙관), PUT 은 앞 PUT 뒤로 줄 선다
   await expect(card.getByTestId('mobile-widget-collapse')).toHaveAttribute('aria-expanded', 'true')
   // 첫 응답 전 두 번째 PUT 이 나가지 않음 — 직렬화 검증
-  await expectStays(page, () => stub.puts.length, 1, { reach: true })
+  await expectStays(page, () => stub.puts().length, 1, { reach: true })
   release()
-  await expect.poll(() => stub.puts.length).toBe(2)
-  expect(stub.puts[0].widgets[0].collapsed).toBe(true)
-  expect(stub.puts[1].widgets[0].collapsed).toBe(false)
+  await expect.poll(() => stub.puts().length).toBe(2)
+  expect(stub.puts()[0].widgets[0].collapsed).toBe(true)
+  expect(stub.puts()[1].widgets[0].collapsed).toBe(false)
   // 마지막 토글 완료 후 재조회해도 펼침 — 늦게 온 첫 응답이 최종 상태를 덮어쓰지 않는다.
   await expect(card.getByTestId('mobile-widget-collapse')).toHaveAttribute('aria-expanded', 'true')
   await expect(card.getByTestId('dash-mytasks')).toBeVisible()
@@ -210,10 +215,10 @@ test('첫 접기 저장이 실패해도 그 사이 다시 누른 마지막 상�
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
   release()
   await expect(page.getByText('위젯 접기 상태를 저장하지 못했습니다')).toBeVisible()
-  await expect.poll(() => stub.puts.length).toBe(3)
+  await expect.poll(() => stub.puts().length).toBe(3)
   // 앞선 실패의 롤백이 뒤에 누른 상태를 덮어쓰지 않는다 — 뒤 PUT 들은 마지막 탭(접힘)을 보낸다.
-  expect(stub.puts[1].widgets[0].collapsed).toBe(true)
-  expect(stub.puts[2].widgets[0].collapsed).toBe(true)
+  expect(stub.puts()[1].widgets[0].collapsed).toBe(true)
+  expect(stub.puts()[2].widgets[0].collapsed).toBe(true)
   await expect.poll(() => stub.stored.mobile.widgets[0].collapsed).toBe(true)
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
   await expect(card.getByTestId('mobile-widget-summary-text')).toHaveText('로그인 버그 재현')
@@ -317,11 +322,11 @@ test('모바일 편집 — 컨트롤은 핸들·숨김·설정·삭제만, 저�
   await hide.click()
   await page.getByTestId('dashboard-edit-save').click()
   await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
-  expect(stub.puts).toHaveLength(1)
-  expect(stub.puts[0].device).toBe('mobile')
-  expect(stub.puts[0].widgets.find((w) => w.id === 'my_tasks')?.hidden).toBe(true)
+  expect(stub.puts()).toHaveLength(1)
+  expect(stub.puts()[0].device).toBe('mobile')
+  expect(stub.puts()[0].widgets.find((w) => w.id === 'my_tasks')?.hidden).toBe(true)
   // 데스크톱(device 생략) 요청은 한 번도 없다.
-  expect(stub.requests.every((r) => r.device === 'mobile')).toBe(true)
+  expect(stub.requests().every((r) => r.device === 'mobile')).toBe(true)
 })
 
 test('모바일 편집 — 오른쪽 드래그 핸들로 순서를 바꾸면 device=mobile PUT 에 새 순서가 저장된다', async ({
@@ -358,11 +363,11 @@ test('모바일 편집 — 오른쪽 드래그 핸들로 순서를 바꾸면 dev
     if ((await saveButton.count()) > 0) await saveButton.click({ timeout: 200 }).catch(() => {})
     await expect(banner).toHaveCount(0, { timeout: 200 })
   }).toPass({ timeout: 3000 })
-  expect(stub.puts).toHaveLength(1)
-  expect(stub.puts[0].device).toBe('mobile')
-  expect(stub.puts[0].widgets.map((w) => w.id)).toEqual(['unread_mail', 'my_tasks'])
+  expect(stub.puts()).toHaveLength(1)
+  expect(stub.puts()[0].device).toBe('mobile')
+  expect(stub.puts()[0].widgets.map((w) => w.id)).toEqual(['unread_mail', 'my_tasks'])
   // 접힘 상태는 순서 변경과 함께 보존된다.
-  expect(stub.puts[0].widgets.every((w) => w.collapsed === true)).toBe(true)
+  expect(stub.puts()[0].widgets.every((w) => w.collapsed === true)).toBe(true)
 })
 
 test('collapsed 필드 없는 저장본은 펼침으로, 미등록 위젯은 건너뛰고 렌더된다', async ({
@@ -434,9 +439,9 @@ test('모바일 위젯 추가 — 타일형에는 안내가 붙고, 추가는 �
   await card('calendar_today').click()
   await modal.getByTestId('add-widget-confirm').click()
   await page.getByTestId('dashboard-edit-save').click()
-  await expect.poll(() => stub.puts.length).toBe(1)
-  expect(stub.puts[0].device).toBe('mobile')
-  expect(stub.puts[0].widgets.find((w) => w.type === 'calendar_today')?.count).toBe(3)
+  await expect.poll(() => stub.puts().length).toBe(1)
+  expect(stub.puts()[0].device).toBe('mobile')
+  expect(stub.puts()[0].widgets.find((w) => w.type === 'calendar_today')?.count).toBe(3)
 })
 
 test('접기 저장이 진행 중인 동안 편집 진입이 막혀 접기 PUT 이 편집 저장을 덮어쓰지 않는다', async ({
@@ -453,7 +458,7 @@ test('접기 저장이 진행 중인 동안 편집 진입이 막혀 접기 PUT �
   // 접기 PUT 이 붙잡혀 있는 동안 편집 진입 불가.
   await expect(editToggle).toBeDisabled()
   release()
-  await expect.poll(() => stub.puts.length).toBe(1)
+  await expect.poll(() => stub.puts().length).toBe(1)
   await expect(editToggle).toBeEnabled()
 })
 

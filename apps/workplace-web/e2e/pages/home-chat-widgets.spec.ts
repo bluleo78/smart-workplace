@@ -10,6 +10,7 @@ import { createIssue, createIssueSearchResponse } from '../factories/issue.facto
 import { mailAccount, summary } from '../factories/mail.factory';
 import { expect, test } from '../fixtures/auth.fixture';
 import { mockHomeChatGeneration } from '../fixtures/home-chat-mock';
+import { trackRequests } from '../fixtures/requests';
 
 test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
   test('mail_list 위젯 — show_mail_list done 이벤트를 받아 메일 목록을 렌더', async ({
@@ -35,11 +36,10 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
         }),
     );
     // 3) 계정 1의 받은편지함 목록 — folder=INBOX 쿼리로 호출돼야 한다.
-    let listFolder: string | null = null;
+    const mailLists = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/messages');
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
       (route) => {
-        listFolder = new URL(route.request().url()).searchParams.get('folder');
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -65,7 +65,7 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
     await expect(items).toContainText('분기 보고서');
 
     // 처리: 데이터 API 가 folder=INBOX 로 호출됐는지(위젯 params → 쿼리 전파) 검증.
-    expect(listFolder).toBe('INBOX');
+    expect(mailLists.lastUrl()?.searchParams.get('folder')).toBe('INBOX');
 
     // LLM 이 표를 토큰으로 생성하지 않으므로 마크다운 파이프 표는 화면에 없다(위젯이 대신 렌더).
     await expect(page.getByTestId('chat-panel')).not.toContainText('| # |');
@@ -96,11 +96,10 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
         }),
     );
     // 데이터 API 가 unread=true 로 호출돼야 하고, 안 읽은 메일만 반환한다.
-    let listUnread: string | null = null;
+    const mailLists = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/messages');
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
       (route) => {
-        listUnread = new URL(route.request().url()).searchParams.get('unread');
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -122,7 +121,7 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
     await expect(items).toContainText('안 읽은 공지');
 
     // 처리: params.unreadOnly → 데이터 API 에 unread=true 로 전파됐는지 검증.
-    expect(listUnread).toBe('true');
+    expect(mailLists.lastUrl()?.searchParams.get('unread')).toBe('true');
   });
 
   test('#519 issue_list 위젯 — 결정적 요약(총 N건 · 마감 초과 M건)', async ({
@@ -135,11 +134,10 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
       ],
     });
     // 3건 중 1건만 마감 초과(과거 dueDate + 미완료), 1건은 완료(과거지만 제외), 1건은 마감 없음.
-    let capturedAssignee: string | null = null;
+    const issueLists = trackRequests(page, 'ANY', '/api/v1/me/issues');
     await page.route(
       (url) => url.pathname === '/api/v1/me/issues',
       (route) => {
-        capturedAssignee = new URL(route.request().url()).searchParams.get('assignee');
         route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -165,7 +163,7 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
     await expect(summary).toHaveText(/총 3건/);
     await expect(summary).toHaveText(/마감 초과 1건/);
     // 필터 params 가 query 로 전달됐는지(round-trip).
-    expect(capturedAssignee).toBe('me');
+    expect(issueLists.lastUrl()?.searchParams.get('assignee')).toBe('me');
   });
 
   test('#519 issue_list 위젯 — 0건이면 요약 없이 정직한 빈 상태', async ({
@@ -204,11 +202,10 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
         { event: 'done', data: { sessionId: 's-i841', widgets: [{ type: 'issue_list', params: { label: '없는라벨' } }] } },
       ],
     });
-    let sentLabel: string | null = null;
+    const issueLists = trackRequests(page, 'ANY', '/api/v1/me/issues');
     await page.route(
       (url) => url.pathname === '/api/v1/me/issues',
       (route) => {
-        sentLabel = new URL(route.request().url()).searchParams.get('label');
         return route.fulfill({
           status: 400,
           contentType: 'application/json',
@@ -229,7 +226,7 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
     const err = page.getByTestId('issuelist-error');
     await expect(err).toContainText("라벨 '없는라벨' 을(를) 찾을 수 없습니다. 사용 가능: 버그, 문서");
     await expect(err).not.toContainText('불러오지 못했습니다');
-    expect(sentLabel).toBe('없는라벨');
+    expect(issueLists.lastUrl()?.searchParams.get('label')).toBe('없는라벨');
   });
 
   test('issue_list 위젯 — 빈 버블 회귀 방지(show_issue_list done 을 렌더)', async ({
@@ -245,11 +242,10 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
       ],
     });
     // 위젯이 호출하는 내 이슈 목록.
-    let issueAssignee: string | null = null;
+    const issueLists = trackRequests(page, 'ANY', '/api/v1/me/issues');
     await page.route(
       (url) => url.pathname === '/api/v1/me/issues',
       (route) => {
-        issueAssignee = new URL(route.request().url()).searchParams.get('assignee');
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -275,6 +271,6 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
     await expect(items).toContainText('WP-7');
 
     // 처리: assignee=me 로 호출됐는지(위젯 params 전파) 검증.
-    expect(issueAssignee).toBe('me');
+    expect(issueLists.lastUrl()?.searchParams.get('assignee')).toBe('me');
   });
 });

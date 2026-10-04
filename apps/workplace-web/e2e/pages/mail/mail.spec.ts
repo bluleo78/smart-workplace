@@ -3,6 +3,7 @@ import { createUser } from '../../factories/auth.factory'
 import { detail as mailDetail, mailAccount, summary as mailSummary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 /**
  * 메일 페이지 공통 모킹 + 첫 번째 메일 상세 열기.
@@ -41,14 +42,11 @@ test.describe('사이드바 필터', () => {
     // 회신필요 건수(>0 이어야 사이드바에 표시) — unread-counts 의 needsReply.
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/unread-counts', { classificationActive: true, inbox: 2, byCategory: { 업무: 0, 개인: 0, 알림: 0, 프로모션: 0, 뉴스레터: 0 }, needsReply: 2 })
 
-    // 메시지 목록 요청을 가로채 needsReply 파라미터 캡처.
-    let lastNeedsReply: string | null = null
+    // 메시지 목록 요청의 needsReply 파라미터 확인.
+    const lists = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/messages')
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
-      (route) => {
-        lastNeedsReply = new URL(route.request().url()).searchParams.get('needsReply')
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
-      },
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
 
     await page.goto('/mail/1')
@@ -59,21 +57,18 @@ test.describe('사이드바 필터', () => {
     // URL 에 needsReply=true 반영.
     await expect(page).toHaveURL(/needsReply=true/)
     // 목록 API 에 needsReply 파라미터 전송.
-    await expect.poll(() => lastNeedsReply).toBe('true')
+    await expect.poll(() => lists.lastUrl()?.searchParams.get('needsReply')).toBe('true')
   })
 
   test('사이드바 분류(개인) 클릭 → category 필터로 목록 조회', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
 
-    // 메시지 목록 요청을 가로채 category 파라미터 캡처.
-    let lastCategory: string | null = null
+    // 메시지 목록 요청의 category 파라미터 확인.
+    const lists = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/messages')
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
-      (route) => {
-        lastCategory = new URL(route.request().url()).searchParams.get('category')
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
-      },
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
 
     await page.goto('/mail/1')
@@ -84,7 +79,7 @@ test.describe('사이드바 필터', () => {
     // URL 에 category=개인 반영(URL 인코딩).
     await expect(page).toHaveURL(/category=%EA%B0%9C%EC%9D%B8/)
     // 목록 API 에 category 파라미터 전송.
-    await expect.poll(() => lastCategory).toBe('개인')
+    await expect.poll(() => lists.lastUrl()?.searchParams.get('category')).toBe('개인')
   })
 })
 
@@ -104,6 +99,7 @@ test.describe('회신필요 — 읽으면 해제', () => {
   test('회신필요 메일을 열면 배지가 사라지고 사이드바 카운트를 다시 불러온다', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/sync-status', { running: false })
+    const counts = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/unread-counts')
     let countCalls = 0
     await page.route((url) => url.pathname === '/api/v1/mail/accounts/1/unread-counts', (route) => {
       countCalls += 1
@@ -118,7 +114,7 @@ test.describe('회신필요 — 읽으면 해제', () => {
     await expect(page.getByTestId('mail-badge-needsreply-10')).toBeVisible()
     await page.getByTestId('mail-row-10').click()
     await expect(page.getByTestId('mail-badge-needsreply-10')).toHaveCount(0)
-    await expect.poll(() => countCalls).toBeGreaterThanOrEqual(2)
+    await counts.waitFor(2)
     // 재조회 결과 0건 → 사이드바 회신필요 필터 항목 자체가 사라진다(count > 0 일 때만 렌더).
     await expect(page.getByTestId('mail-filter-needsreply')).toHaveCount(0)
   })

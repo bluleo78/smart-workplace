@@ -3,6 +3,7 @@
 // #785: 작성/수정 입력이 RichInput(@ 멘션)으로 교체됨에 따라 textarea 셀렉터를 data-testid 기반으로 갱신.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createAgentComment, createComment, createIssueDetail } from '../../factories/issue.factory';
 import { createAgentMember, createMember, createProject } from '../../factories/project.factory';
 import type { IssueCommentResponse, IssueDetailResponse } from '../../../src/types/issue';
@@ -10,6 +11,8 @@ import type { MemberResponse } from '../../../src/types/project';
 
 const PROJECT_KEY = 'WP';
 const ISSUE_NUMBER = 1;
+const COMMENTS_PATH = /\/api\/v1\/issues\/\d+\/comments$/;
+const COMMENT_PATH = /\/api\/v1\/issues\/\d+\/comments\/\d+$/;
 const ISSUE_ID = 100;
 // createUser()의 기본 id — auth fixture의 ME
 const ME_ID = 1;
@@ -71,14 +74,12 @@ test.describe('IssueCommentList 코멘트 작성 폼 스타일 (#310, #785)', ()
     const detailRef = { current: createIssueDetail({ comments: [] }) };
     await setupIssueStubs(page, detailRef);
 
-    const postPayloads: { body: string }[] = [];
+    const posts = trackRequests(page, 'POST', COMMENTS_PATH);
     const newComment = createComment({ id: 20, issueId: ISSUE_ID, authorId: ME_ID, body: '새 코멘트' });
     await page.route(
       (url) => /\/api\/v1\/issues\/\d+\/comments$/.test(url.pathname),
       (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
-        const payload = route.request().postDataJSON() as { body: string };
-        postPayloads.push(payload);
         // 작성 성공 후 invalidateQueries 로 이슈 재조회 — 새 코멘트 포함 목록 반환
         detailRef.current = createIssueDetail({ comments: [newComment] });
         return route.fulfill({
@@ -98,8 +99,8 @@ test.describe('IssueCommentList 코멘트 작성 폼 스타일 (#310, #785)', ()
     await page.getByTestId('issue-comment-submit').click();
 
     // POST payload 검증
-    await expect.poll(() => postPayloads.length).toBe(1);
-    expect(postPayloads[0].body).toBe('새 코멘트');
+    await expect.poll(posts.count).toBe(1);
+    expect(posts.bodies<{ body: string }>()[0].body).toBe('새 코멘트');
 
     // UI에 새 코멘트 반영 확인
     await expect(page.getByText('새 코멘트')).toBeVisible();
@@ -114,7 +115,7 @@ test.describe('IssueCommentList @멘션 자동완성 (#785)', () => {
     const members = [createMember({ userId: 1, name: 'Tester' }), createAgentMember()];
     await setupIssueStubs(page, detailRef, members);
 
-    const postPayloads: { body: string }[] = [];
+    const posts = trackRequests(page, 'POST', COMMENTS_PATH);
     const newComment = createComment({
       id: 21,
       issueId: ISSUE_ID,
@@ -125,8 +126,6 @@ test.describe('IssueCommentList @멘션 자동완성 (#785)', () => {
       (url) => /\/api\/v1\/issues\/\d+\/comments$/.test(url.pathname),
       (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
-        const payload = route.request().postDataJSON() as { body: string };
-        postPayloads.push(payload);
         detailRef.current = createIssueDetail({ comments: [newComment] });
         return route.fulfill({
           status: 201,
@@ -152,7 +151,7 @@ test.describe('IssueCommentList @멘션 자동완성 (#785)', () => {
     await page.getByTestId('issue-comment-submit').click();
 
     // 전송 payload 는 <@id> 토큰으로 직렬화된다.
-    await expect.poll(() => postPayloads.map((p) => p.body.trim())).toEqual(['hi <@99>']);
+    await expect.poll(() => posts.bodies<{ body: string }>().map((p) => p.body.trim())).toEqual(['hi <@99>']);
 
     // 읽기 모드 렌더 — 멘션 칩(이름 + AGENT 스타일)으로 표시된다.
     const chip = page.getByTestId('comment-mention-chip-99');
@@ -172,13 +171,12 @@ test.describe('IssueCommentList @멘션 자동완성 (#785)', () => {
     const detailRef = { current: createIssueDetail({ comments: [myComment] }) };
     await setupIssueStubs(page, detailRef, members);
 
-    const patchPayloads: { body: string }[] = [];
+    const patches = trackRequests(page, 'PATCH', COMMENT_PATH);
     await page.route(
       (url) => /\/api\/v1\/issues\/\d+\/comments\/\d+$/.test(url.pathname),
       (route) => {
         if (route.request().method() !== 'PATCH') return route.fallback();
         const payload = route.request().postDataJSON() as { body: string };
-        patchPayloads.push(payload);
         const updated: IssueCommentResponse = { ...myComment, body: payload.body };
         detailRef.current = createIssueDetail({ comments: [updated] });
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(updated) });
@@ -207,8 +205,8 @@ test.describe('IssueCommentList @멘션 자동완성 (#785)', () => {
 
     await page.getByTestId('issue-comment-edit-save').click();
 
-    await expect.poll(() => patchPayloads.length).toBe(1);
-    expect(patchPayloads[0].body).toBe('검토 요청 <@99> <@1>');
+    await expect.poll(patches.count).toBe(1);
+    expect(patches.bodies<{ body: string }>()[0].body).toBe('검토 요청 <@99> <@1>');
   });
 
   // WP-85 — 수정 진입 시 자동 포커스가 본문 끝에 놓여, 클릭·End 없이 바로 이어 쓸 수 있다.
@@ -224,13 +222,12 @@ test.describe('IssueCommentList @멘션 자동완성 (#785)', () => {
     const detailRef = { current: createIssueDetail({ comments: [myComment] }) };
     await setupIssueStubs(page, detailRef, members);
 
-    const patchPayloads: { body: string }[] = [];
+    const patches = trackRequests(page, 'PATCH', COMMENT_PATH);
     await page.route(
       (url) => /\/api\/v1\/issues\/\d+\/comments\/\d+$/.test(url.pathname),
       (route) => {
         if (route.request().method() !== 'PATCH') return route.fallback();
         const payload = route.request().postDataJSON() as { body: string };
-        patchPayloads.push(payload);
         const updated: IssueCommentResponse = { ...myComment, body: payload.body };
         detailRef.current = createIssueDetail({ comments: [updated] });
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(updated) });
@@ -249,8 +246,8 @@ test.describe('IssueCommentList @멘션 자동완성 (#785)', () => {
     await page.keyboard.type(' 추가');
     await page.getByTestId('issue-comment-edit-save').click();
 
-    await expect.poll(() => patchPayloads.length).toBe(1);
-    expect(patchPayloads[0].body).toBe('검토 요청 <@99> 추가');
+    await expect.poll(patches.count).toBe(1);
+    expect(patches.bodies<{ body: string }>()[0].body).toBe('검토 요청 <@99> 추가');
   });
 });
 
@@ -316,14 +313,12 @@ test.describe('IssueCommentList 수정·삭제 (#154)', () => {
     const detailRef = { current: createIssueDetail({ comments: [myComment] }) };
     await setupIssueStubs(page, detailRef);
 
-    // PATCH 요청 캡처
-    const patchPayloads: { body: string }[] = [];
+    const patches = trackRequests(page, 'PATCH', COMMENT_PATH);
     await page.route(
       (url) => /\/api\/v1\/issues\/\d+\/comments\/\d+$/.test(url.pathname),
       (route) => {
         if (route.request().method() !== 'PATCH') return route.fallback();
         const payload = route.request().postDataJSON() as { body: string };
-        patchPayloads.push(payload);
         const updated: IssueCommentResponse = { ...myComment, body: payload.body };
         // 수정 성공 후 invalidateQueries 로 이슈 재조회 — 갱신된 코멘트 목록 반환.
         detailRef.current = createIssueDetail({ comments: [updated] });
@@ -357,8 +352,8 @@ test.describe('IssueCommentList 수정·삭제 (#154)', () => {
     await page.getByTestId('issue-comment-edit-save').click();
 
     // PATCH payload 검증
-    await expect.poll(() => patchPayloads.length).toBe(1);
-    expect(patchPayloads[0].body).toBe('수정된 코멘트');
+    await expect.poll(patches.count).toBe(1);
+    expect(patches.bodies<{ body: string }>()[0].body).toBe('수정된 코멘트');
 
     // UI에 갱신된 본문 반영 확인
     await expect(page.locator('text=수정된 코멘트')).toBeVisible();
@@ -369,13 +364,11 @@ test.describe('IssueCommentList 수정·삭제 (#154)', () => {
     const detailRef = { current: createIssueDetail({ comments: [myComment] }) };
     await setupIssueStubs(page, detailRef);
 
-    const deleteIds: number[] = [];
+    const deletes = trackRequests(page, 'DELETE', COMMENT_PATH);
     await page.route(
       (url) => /\/api\/v1\/issues\/\d+\/comments\/\d+$/.test(url.pathname),
       (route) => {
         if (route.request().method() !== 'DELETE') return route.fallback();
-        const id = Number(new URL(route.request().url()).pathname.split('/').pop());
-        deleteIds.push(id);
         // 삭제 성공 후 이슈 재조회 — 코멘트 없는 목록 반환.
         detailRef.current = createIssueDetail({ comments: [] });
         return route.fulfill({ status: 204 });
@@ -403,8 +396,8 @@ test.describe('IssueCommentList 수정·삭제 (#154)', () => {
     await expect(dialog).not.toBeVisible();
 
     // DELETE API 호출 검증
-    await expect.poll(() => deleteIds.length).toBe(1);
-    expect(deleteIds[0]).toBe(11);
+    await expect.poll(deletes.count).toBe(1);
+    expect(deletes.urls()[0].pathname.split('/').pop()).toBe('11');
 
     // 목록에서 제거 확인 — 유일한 코멘트가 삭제되면 빈 안내 문구가 표시됨.
     await expect(page.getByText('코멘트가 없습니다')).toBeVisible();

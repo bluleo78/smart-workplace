@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const PERSONAL_SPACE_ID = 1
 const TEAM_SPACE_ID = 2
@@ -186,12 +187,9 @@ test('다른 사용자 키로 남은 기록은 복원하지 않는다', async ({
     },
     [key, key.replace(`${KEY_PREFIX}1:`, `${KEY_PREFIX}99:`)],
   )
-  let pageRequests = 0
-  page.on('request', (req) => {
-    if (new URL(req.url()).pathname === `/api/v1/wiki/pages/${PAGE_ID}`) pageRequests++
-  })
+  const pageRequests = trackRequests(page, 'ANY', `/api/v1/wiki/pages/${PAGE_ID}`)
 
   await page.goto('/wiki')
   await expect(page).toHaveURL(defaultUrl)
-  expect(pageRequests).toBe(0)
+  expect(pageRequests.count()).toBe(0)
 })

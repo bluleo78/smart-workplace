@@ -5,6 +5,7 @@
 //  3) 팀 프로젝트는 기존 "멤버 추가" 버튼 + kind 토글 보임 (회귀 방지)
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import type { MemberSummary } from '../../../src/types/member';
 import type { MemberResponse } from '../../../src/types/project';
 
@@ -128,11 +129,10 @@ test.describe('개인 프로젝트 AI 어시스턴트 추가', () => {
       const membersRef: { current: StubMember[] } = { current: [] };
       await setupPersonalProjectStubs(page, membersRef);
 
-      let postPayload: { userId: number; role: string } | null = null;
+      const posts = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/members`);
       // POST 핸들러 — setupPersonalProjectStubs 의 GET 핸들러보다 LIFO 우선으로 등록.
       await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, async (route) => {
         if (route.request().method() !== 'POST') return route.fallback();
-        postPayload = route.request().postDataJSON() as { userId: number; role: string };
         membersRef.current = [
           ...membersRef.current,
           {
@@ -164,7 +164,7 @@ test.describe('개인 프로젝트 AI 어시스턴트 추가', () => {
       await page.getByTestId(`member-search-row-${AGENT_USER.userId}`).click();
 
       // POST payload 검증 — userId + role:'MEMBER'
-      await expect.poll(() => postPayload).toEqual({ userId: AGENT_USER.userId, role: 'MEMBER' });
+      await expect.poll(() => posts.lastBody()).toEqual({ userId: AGENT_USER.userId, role: 'MEMBER' });
 
       // 성공 토스트
       await expect(page.getByText(`${AGENT_USER.name} 을(를) 추가했습니다`)).toBeVisible();

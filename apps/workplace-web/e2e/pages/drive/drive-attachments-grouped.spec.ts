@@ -1,4 +1,5 @@
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 function page2() {
   return {
@@ -80,9 +81,8 @@ test('이슈/채널 불가 액션 미노출 — 공유/버전/이동/복사/삭�
 
 test('다운로드 액션은 downloadUrl(첨부 콘텐츠 경로)을 요청', async ({ authenticatedPage: page }) => {
   await stubAttachments(page)
-  let downloadReq = false
+  const downloads = trackRequests(page, 'ANY', '/api/v1/projects/PROJ/issues/123/attachments/1/content')
   await page.route('**/api/v1/projects/PROJ/issues/123/attachments/1/content', (r) => {
-    downloadReq = true
     r.fulfill({ contentType: 'image/png', body: Buffer.from('x') })
   })
   await page.goto('/drive/attachments')
@@ -92,7 +92,7 @@ test('다운로드 액션은 downloadUrl(첨부 콘텐츠 경로)을 요청', as
   const download = row.getByTestId('drive-attachment-download-1')
   await expect(download).toBeVisible()
   await download.click()
-  await expect.poll(() => downloadReq).toBe(true)
+  await downloads.waitFor()
 })
 
 // #576: 전역 AIChip(fixed left-1/2 top-2)이 데스크톱 표준 해상도(1440x900)에서 상단 필터 바를
@@ -103,11 +103,7 @@ test('1440x900 데스크톱에서 AI 어시스턴트 칩이 출처 필터 버튼
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await stubAttachments(page)
-  let lastSource: string | null = null
-  await page.route('**/api/v1/drive/attachments**', (r) => {
-    lastSource = new URL(r.request().url()).searchParams.get('source')
-    return r.fulfill({ json: page2() })
-  })
+  const lists = trackRequests(page, 'ANY', /^\/api\/v1\/drive\/attachments/)
   await page.goto('/drive/attachments')
 
   // AI 어시스턴트 칩이 실제로 렌더되어 있어야 회귀 조건을 재현한 것.
@@ -115,6 +111,6 @@ test('1440x900 데스크톱에서 AI 어시스턴트 칩이 출처 필터 버튼
 
   // force 없이 클릭 — subtree가 다른 요소에 가로채이면 이 클릭은 timeout 으로 실패한다.
   await page.getByTestId('drive-attachment-filter-issue').click()
-  await expect.poll(() => lastSource).toBe('ISSUE')
+  await expect.poll(() => lists.lastUrl()?.searchParams.get('source')).toBe('ISSUE')
   await expect(page.getByTestId('drive-attachment-filter-issue')).toHaveClass(/border-primary/)
 })

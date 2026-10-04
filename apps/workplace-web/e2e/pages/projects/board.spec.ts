@@ -5,6 +5,7 @@ import type { Route } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import {
   createIssue,
@@ -24,7 +25,7 @@ async function stubProjectMeta(page: import('@playwright/test').Page) {
   await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/members`, []);
 }
 
-// 이슈 검색 라우트 헬퍼: pathname 매칭 + 쿼리 파라미터 캡처.
+// 이슈 검색 라우트 헬퍼: pathname 매칭 + 쿼리 파라미터 파싱.
 // handler 는 (route, requestUrl) 를 받아 응답을 결정한다.
 function routeIssueSearch(
   page: import('@playwright/test').Page,
@@ -78,10 +79,9 @@ test.describe('태스크 보드/검색', () => {
       );
 
       // DnD 단축 PATCH — IssueDetailResponse 형태로 응답.
-      let patchPayload: unknown = null;
+      const patches = trackRequests(page, 'PATCH', `${ISSUES_PATH}/1/status`);
       await page.route(`**${ISSUES_PATH}/1/status`, (route) => {
         if (route.request().method() !== 'PATCH') return route.fallback();
-        patchPayload = route.request().postDataJSON();
         issues = issues.map((i) =>
           i.number === 1 ? { ...i, status: 'IN_PROGRESS' } : i,
         );
@@ -111,7 +111,7 @@ test.describe('태스크 보드/검색', () => {
       await dragCardTo(page, 'issue-card-1', 'board-col-IN_PROGRESS');
 
       // PATCH 호출 payload 가 status: IN_PROGRESS
-      await expect.poll(() => patchPayload).toEqual({ status: 'IN_PROGRESS' });
+      await expect.poll(() => patches.lastBody()).toEqual({ status: 'IN_PROGRESS' });
 
       // optimistic update + 서버 응답으로 카드가 IN_PROGRESS 컬럼에 위치
       await expect(
@@ -144,10 +144,9 @@ test.describe('태스크 보드/검색', () => {
         }),
       );
 
-      let patchPayload: unknown = null;
+      const patches = trackRequests(page, 'PATCH', `${ISSUES_PATH}/1/status`);
       await page.route(`**${ISSUES_PATH}/1/status`, (route) => {
         if (route.request().method() !== 'PATCH') return route.fallback();
-        patchPayload = route.request().postDataJSON();
         issues = issues.map((i) => (i.number === 1 ? { ...i, status: 'DONE' } : i));
         const updated = issues.find((i) => i.number === 1)!;
         return route.fulfill({
@@ -170,7 +169,7 @@ test.describe('태스크 보드/검색', () => {
       await dragCardTo(page, 'issue-card-1', 'board-col-DONE');
 
       // PATCH 호출 payload 가 status: DONE — 빈 컬럼 드롭이 실제로 인식됐다는 증거.
-      await expect.poll(() => patchPayload).toEqual({ status: 'DONE' });
+      await expect.poll(() => patches.lastBody()).toEqual({ status: 'DONE' });
 
       // 카드가 DONE 컬럼으로 이동하고 empty state 는 사라진다.
       await expect(
@@ -185,21 +184,20 @@ test.describe('태스크 보드/검색', () => {
   }) => {
     await stubProjectMeta(page);
 
-    const seenQueries: string[] = [];
-    await routeIssueSearch(page, (route, url) => {
-      seenQueries.push(url.search);
-      return route.fulfill({
+    const searches = trackRequests(page, 'GET', ISSUES_PATH);
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(createIssueSearchResponse([])),
-      });
-    });
+      }),
+    );
 
     await page.goto(`/projects/${PROJECT_KEY}`);
     await page.getByLabel('태스크 검색').fill('login');
 
     // 백엔드 호출에 q=login 이 포함되어야 함
-    await expect.poll(() => seenQueries.some((s) => s.includes('q=login'))).toBe(true);
+    await expect.poll(() => searches.urls().some((u) => u.search.includes('q=login'))).toBe(true);
     // URL 도 동기화
     await expect(page).toHaveURL(/q=login/);
   });
@@ -209,15 +207,14 @@ test.describe('태스크 보드/검색', () => {
   }) => {
     await stubProjectMeta(page);
 
-    const seenQueries: string[] = [];
-    await routeIssueSearch(page, (route, url) => {
-      seenQueries.push(url.search);
-      return route.fulfill({
+    const searches = trackRequests(page, 'GET', ISSUES_PATH);
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(createIssueSearchResponse([])),
-      });
-    });
+      }),
+    );
 
     await page.goto(`/projects/${PROJECT_KEY}`);
     await page.getByTestId('add-filter-trigger').click();
@@ -227,7 +224,7 @@ test.describe('태스크 보드/검색', () => {
     await page.keyboard.press('Escape');
 
     await expect(page).toHaveURL(/status=IN_PROGRESS/);
-    await expect.poll(() => seenQueries.some((s) => s.includes('status=IN_PROGRESS'))).toBe(true);
+    await expect.poll(() => searches.urls().some((u) => u.search.includes('status=IN_PROGRESS'))).toBe(true);
 
     // 칩 제거 → URL 에서 status 파라미터가 빠진다.
     await page.getByTestId('filter-chip-status-remove').click();
@@ -439,21 +436,21 @@ test.describe('태스크 보드/검색', () => {
     authenticatedPage: page,
   }) => {
     await stubProjectMeta(page);
-    let searchUrl: URL | null = null;
-    await routeIssueSearch(page, (route, url) => {
-      searchUrl = url;
-      return route.fulfill({
+    const searches = trackRequests(page, 'GET', ISSUES_PATH);
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(createIssueSearchResponse([createIssue({ id: 1, number: 7 })])),
-      });
-    });
+      }),
+    );
 
     await page.goto(`/projects/WP?view=board`);
     await expect(page.getByTestId('issue-card-7')).toBeVisible();
-    expect(searchUrl!.searchParams.get('excludeEpics')).toBe('true');
-    expect(searchUrl!.searchParams.get('excludeSubtasks')).toBe('true');
-    expect(searchUrl!.searchParams.get('topLevel')).toBeNull();
+    const searchUrl = searches.lastUrl()!;
+    expect(searchUrl.searchParams.get('excludeEpics')).toBe('true');
+    expect(searchUrl.searchParams.get('excludeSubtasks')).toBe('true');
+    expect(searchUrl.searchParams.get('topLevel')).toBeNull();
   });
 
   test('보드 카드: 에픽 하위 이슈는 소속 에픽 배지를 표시하고, 긴 제목도 카드 폭을 넘지 않는다 (#874)', async ({
@@ -707,12 +704,9 @@ test.describe('태스크 보드/검색', () => {
     ];
     const secondPage = [createIssue({ id: 3, number: 3, title: 'Third' })];
 
-    let calls = 0;
-    let secondCursorSeen = false;
+    const searches = trackRequests(page, 'GET', ISSUES_PATH);
     await routeIssueSearch(page, (route, url) => {
-      calls += 1;
       const cursor = url.searchParams.get('cursor');
-      if (cursor) secondCursorSeen = true;
       const body = cursor
         ? JSON.stringify(createIssueSearchResponse(secondPage, null))
         : JSON.stringify(createIssueSearchResponse(firstPage, 'CURSOR1'));
@@ -726,9 +720,11 @@ test.describe('태스크 보드/검색', () => {
     // sentinel(아래쪽 div) 이 진입하도록 스크롤
     await page.mouse.wheel(0, 5000);
 
-    await expect.poll(() => secondCursorSeen, { timeout: 5_000 }).toBe(true);
+    await expect
+      .poll(() => searches.urls().some((u) => u.searchParams.get('cursor')), { timeout: 5_000 })
+      .toBe(true);
     await expect(page.getByTestId('issue-row-3')).toBeVisible();
-    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(searches.count()).toBeGreaterThanOrEqual(2);
   });
 
   test('빈 컬럼 — empty state(아이콘+안내+CTA) 표시, CTA 클릭 시 이슈 생성 다이얼로그 열림 (#309 회귀)', async ({
@@ -787,11 +783,16 @@ test.describe('태스크 보드/검색', () => {
     );
     const inProgress = [createIssue({ id: 1, number: 1, title: '진행 이슈', status: 'IN_PROGRESS' })];
 
-    const seen: { status: string | null; cursor: string | null; size: string | null }[] = [];
+    const searches = trackRequests(page, 'GET', ISSUES_PATH);
+    const seen = () =>
+      searches.urls().map((u) => ({
+        status: u.searchParams.get('status'),
+        cursor: u.searchParams.get('cursor'),
+        size: u.searchParams.get('size'),
+      }));
     await routeIssueSearch(page, (route, url) => {
       const status = url.searchParams.get('status');
       const cursor = url.searchParams.get('cursor');
-      seen.push({ status, cursor, size: url.searchParams.get('size') });
       let body;
       if (status === 'TODO') {
         body = cursor
@@ -811,7 +812,7 @@ test.describe('태스크 보드/검색', () => {
     await expect(page.getByTestId('board-col-TODO').getByTestId('issue-card-100')).toBeVisible();
     await expect(page.getByTestId('board-col-IN_PROGRESS').getByTestId('issue-card-1')).toBeVisible();
     for (const s of ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']) {
-      expect(seen.some((q) => q.status === s && q.size === '50' && q.cursor == null)).toBe(true);
+      expect(seen().some((q) => q.status === s && q.size === '50' && q.cursor == null)).toBe(true);
     }
     // 다른 상태 카드가 섞이지 않고, 남은 페이지가 있는 컬럼은 "50+" 로 표시.
     await expect(page.getByTestId('board-col-count-TODO')).toHaveText('50+');
@@ -820,13 +821,13 @@ test.describe('태스크 보드/검색', () => {
     // TODO 컬럼 끝까지 스크롤 → 두번째 페이지 요청(cursor + status=TODO).
     await page.getByTestId('board-col-more-TODO').scrollIntoViewIfNeeded();
     await expect
-      .poll(() => seen.some((q) => q.status === 'TODO' && q.cursor === 'TODO_CURSOR'))
+      .poll(() => seen().some((q) => q.status === 'TODO' && q.cursor === 'TODO_CURSOR'))
       .toBe(true);
     await expect(page.getByTestId('board-col-TODO').getByTestId('issue-card-159')).toBeVisible();
     await expect(page.getByTestId('board-col-count-TODO')).toHaveText('60');
     await expect(page.getByTestId('board-col-more-TODO')).not.toBeAttached();
     // 다른 컬럼은 cursor 요청이 나가지 않는다.
-    expect(seen.some((q) => q.status !== 'TODO' && q.cursor != null)).toBe(false);
+    expect(seen().some((q) => q.status !== 'TODO' && q.cursor != null)).toBe(false);
   });
 
   test('보드 상태 필터 — 필터에서 제외된 상태 컬럼은 요청하지 않는다 (#875)', async ({
@@ -834,10 +835,9 @@ test.describe('태스크 보드/검색', () => {
   }) => {
     // 왜: 제외 컬럼에 statuses=[] 를 흘리면 API 가 "전체 상태"로 해석해 다른 상태 카드를 받아온다.
     await stubProjectMeta(page);
-    const seenStatuses: (string | null)[] = [];
+    const searches = trackRequests(page, 'GET', ISSUES_PATH);
     await routeIssueSearch(page, (route, url) => {
       const status = url.searchParams.get('status');
-      seenStatuses.push(status);
       // TODO 는 다음 페이지가 남은 상태(hasMore) — 제외 컬럼으로 새면 "0+"·sentinel 이 보이게 된다.
       const body =
         status === 'TODO'
@@ -850,7 +850,7 @@ test.describe('태스크 보드/검색', () => {
     await expect(page.getByTestId('board-col-TODO').getByTestId('issue-card-1')).toBeVisible();
     await expect(page.getByTestId('board-col-empty-DONE')).toBeVisible();
     // 보드 요청은 TODO 하나뿐 — status 없는(전체) 요청이나 다른 상태 요청이 없어야 한다.
-    expect(seenStatuses.every((s) => s === 'TODO')).toBe(true);
+    expect(searches.urls().every((u) => u.searchParams.get('status') === 'TODO')).toBe(true);
     // 단일 상태 필터면 비활성 컬럼 쿼리 키가 TODO 컬럼 키와 같아진다 — 그 data 가 제외 컬럼으로 새지 않아야 한다.
     for (const s of ['IN_PROGRESS', 'DONE', 'CANCELED']) {
       await expect(page.getByTestId(`board-col-count-${s}`)).toHaveText('0');
@@ -863,11 +863,15 @@ test.describe('태스크 보드/검색', () => {
   }) => {
     // 왜: sentinel 이 계속 보이는 상태에서 실패 후 isFetching 해제마다 observer 가 재발화해 실패 요청을 무한 반복했다.
     await stubProjectMeta(page);
-    let failedCalls = 0;
+    // 라우트가 500 으로 응답하는 TODO 컬럼 다음 페이지(cursor) 요청만 센다.
+    const failing = trackRequests(
+      page,
+      'GET',
+      (u) => u.pathname === ISSUES_PATH && u.searchParams.get('status') === 'TODO' && !!u.searchParams.get('cursor'),
+    );
     await routeIssueSearch(page, (route, url) => {
       const status = url.searchParams.get('status');
       if (status === 'TODO' && url.searchParams.get('cursor')) {
-        failedCalls += 1;
         return route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
       }
       const items = status === 'TODO' ? [createIssue({ id: 1, number: 1, title: 'A', status: 'TODO' })] : [];
@@ -878,17 +882,17 @@ test.describe('태스크 보드/검색', () => {
     // react-query 재시도 백오프(~1초)를 가상 시계로 넘긴다
     await page.clock.install();
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
-    await expect.poll(() => failedCalls).toBeGreaterThan(0);
+    await failing.waitFor();
     await page.clock.fastForward(1500);
     const retry = page.getByTestId('board-col-more-TODO').getByRole('button', { name: /다시 시도/ });
     await expect(retry).toBeVisible();
     // 실패 확정 후 추가 요청이 더 나가지 않는다(react-query 기본 재시도 포함 횟수에서 멈춤).
-    const settled = failedCalls;
+    const settled = failing.count();
     await page.clock.fastForward(1500);
-    await expectStays(page, () => failedCalls, settled, { ms: 200 });
+    await expectStays(page, failing.count, settled, { ms: 200 });
     // 다시 시도 → 요청 1회 더.
     await retry.click();
-    await expect.poll(() => failedCalls).toBeGreaterThan(settled);
+    await failing.waitFor(settled + 1);
   });
 
   test('그룹(담당자) 보드 — 마지막 페이지까지 자동으로 모두 로드 (#875)', async ({
@@ -926,9 +930,8 @@ test.describe('종료 이슈 숨김 (#876)', () => {
     authenticatedPage: page,
   }) => {
     await stubProjectMeta(page);
-    const requests: URL[] = [];
+    const searches = trackRequests(page, 'GET', ISSUES_PATH);
     await routeIssueSearch(page, (route, url) => {
-      requests.push(url);
       // 토글 전: 서버가 숨긴 결과(진행 중만) / 토글 후: 완료 이슈 포함.
       const showAll = url.searchParams.get('hideInactiveClosed') == null;
       const items = [createIssue({ id: 1, number: 7, title: '진행 중 작업', status: 'IN_PROGRESS' })];
@@ -943,7 +946,7 @@ test.describe('종료 이슈 숨김 (#876)', () => {
     await page.goto(`/projects/WP?view=board`);
     await expect(page.getByTestId('issue-card-7')).toBeVisible();
     await expect(page.getByTestId('issue-card-8')).toHaveCount(0);
-    expect(requests.at(-1)!.searchParams.get('hideInactiveClosed')).toBe('true');
+    expect(searches.lastUrl()!.searchParams.get('hideInactiveClosed')).toBe('true');
 
     const toggle = page.getByTestId('show-all-closed-toggle');
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
@@ -952,30 +955,29 @@ test.describe('종료 이슈 숨김 (#876)', () => {
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
     await expect(page).toHaveURL(/closed=all/);
     await expect(page.getByTestId('issue-card-8')).toBeVisible();
-    expect(requests.at(-1)!.searchParams.get('hideInactiveClosed')).toBeNull();
+    expect(searches.lastUrl()!.searchParams.get('hideInactiveClosed')).toBeNull();
   });
 
   test('목록도 기본 숨김이며, 상태 필터를 명시하면 숨김 파라미터를 보내지 않는다', async ({
     authenticatedPage: page,
   }) => {
     await stubProjectMeta(page);
-    const requests: URL[] = [];
-    await routeIssueSearch(page, (route, url) => {
-      requests.push(url);
-      return route.fulfill({
+    const searches = trackRequests(page, 'GET', ISSUES_PATH);
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(createIssueSearchResponse([createIssue({ id: 1, number: 7 })])),
-      });
-    });
+      }),
+    );
 
     await page.goto(`/projects/WP`);
-    await expect.poll(() => requests.length).toBeGreaterThan(0);
-    expect(requests.at(-1)!.searchParams.get('hideInactiveClosed')).toBe('true');
+    await searches.waitFor();
+    expect(searches.lastUrl()!.searchParams.get('hideInactiveClosed')).toBe('true');
 
     await page.goto(`/projects/WP?status=DONE`);
-    await expect.poll(() => requests.at(-1)!.searchParams.get('status')).toBe('DONE');
-    expect(requests.at(-1)!.searchParams.get('hideInactiveClosed')).toBeNull();
+    await expect.poll(() => searches.lastUrl()!.searchParams.get('status')).toBe('DONE');
+    expect(searches.lastUrl()!.searchParams.get('hideInactiveClosed')).toBeNull();
     // 명시 필터가 이미 숨김을 해제했으므로 토글은 눌린 상태로 비활성화된다.
     const toggle = page.getByTestId('show-all-closed-toggle');
     await expect(toggle).toBeDisabled();
@@ -1000,15 +1002,14 @@ test('담당자 그룹 보드에서 카드를 다른 그룹 카드 위에 놓아
       body: JSON.stringify(createIssueSearchResponse([a, b])),
     }),
   );
-  let statusPatched = false;
-  await page.route('**/issues/*/status', (route) => {
-    statusPatched = true;
-    return route.fulfill({
+  const statusPatches = trackRequests(page, 'ANY', /\/issues\/[^/]+\/status$/);
+  await page.route('**/issues/*/status', (route) =>
+    route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(createIssueDetail()),
-    });
-  });
+    }),
+  );
   await page.goto(`/projects/${PROJECT_KEY}?view=board&group=assignee`);
   // dragCardTo 를 풀어 쓴다 — 놓기 전에 드래그가 실제로 시작됐는지(원본 흐림·고스트) 확인해 헛통과를 막는다.
   const card = page.getByTestId('issue-card-1');
@@ -1020,5 +1021,5 @@ test('담당자 그룹 보드에서 카드를 다른 그룹 카드 위에 놓아
   await expect(card).toHaveCSS('opacity', '0.4');
   await expect(page.getByTestId('issue-card-drag-overlay')).toBeVisible();
   await page.mouse.up();
-  await expectStays(page, () => statusPatched, false);
+  await expectStays(page, statusPatches.count, 0);
 });

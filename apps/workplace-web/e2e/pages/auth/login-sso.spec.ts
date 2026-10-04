@@ -1,21 +1,19 @@
 // WP-48 로그인 화면의 Microsoft 로그인 버튼과 SSO 오류/안내 배너.
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 test.describe('Microsoft 로그인', () => {
   test('SSO 가 설정되면 버튼이 보이고 start 로 이동한다', async ({ page }) => {
     await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: true })
-    let startedWith: string | null = null
+    const starts = trackRequests(page, 'ANY', '/api/v1/auth/sso/start')
     await page.route(
       (url) => url.pathname === '/api/v1/auth/sso/start',
-      (route) => {
-        startedWith = new URL(route.request().url()).searchParams.get('returnTo')
-        return route.fulfill({ status: 200, contentType: 'text/html', body: '<p>microsoft</p>' })
-      },
+      (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<p>microsoft</p>' }),
     )
     await page.goto('/login')
     await page.getByRole('link', { name: 'Microsoft 계정으로 로그인' }).click()
-    await expect.poll(() => startedWith).toBe('/')
+    await expect.poll(() => starts.lastUrl()?.searchParams.get('returnTo')).toBe('/')
   })
 
   test('SSO 미설정이면 버튼을 숨긴다', async ({ page }) => {

@@ -1,8 +1,9 @@
 // WP-54 — AI 채팅 화면 컨텍스트 E2E: 페이지가 등록한 컨텍스트가 칩으로 보이고 전송 body(screenContext)에 실린다.
 import { mockApi } from '../fixtures/api-mock'
 import { dismissByOutsideClick } from '../fixtures/wait'
+import { trackRequests } from '../fixtures/requests'
 import { expect, test } from '../fixtures/auth.fixture'
-import { mockHomeChatGeneration } from '../fixtures/home-chat-mock'
+import { type HomeChatStartBody, mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../factories/issue.factory'
 import { createChatMessagePage, createChatThread } from '../factories/chat.factory'
 import { createProject } from '../factories/project.factory'
@@ -18,19 +19,15 @@ import {
   memberDetail as contactMemberDetail,
   page as contactsPage,
 } from '../factories/contacts.factory'
-import type { AiScreenContext } from '../../src/types/aiScreenContext'
 
 // 목 헬퍼들이 받는 Playwright Page 타입.
 type Page = Parameters<typeof mockApi>[0]
 
-// 전송 body 를 순서대로 모은다.
+// 채팅 응답을 목하고, 전송 요청을 기록하는 tracker 를 돌려준다.
 async function captureChat(page: Page) {
-  const bodies: { query: string; screenContext?: AiScreenContext }[] = []
-  await mockHomeChatGeneration(page, {
-    onStart: (b) => bodies.push(b),
+  return mockHomeChatGeneration(page, {
     frames: [{ event: 'done', data: { sessionId: 's-ctx' } }],
   })
-  return bodies
 }
 
 // 이슈 상세 화면 목 — projects.spec.ts 의 이슈 상세 단계와 같은 목 집합.
@@ -44,7 +41,7 @@ async function mockIssueDetail(page: Page) {
 
 test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
   test('이슈 상세에서 칩이 보이고 전송 body 에 screenContext 가 실린다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockIssueDetail(page)
     await page.goto('/projects/WP/issues/12')
     await page.getByTestId('chat-launcher').click()
@@ -53,8 +50,8 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     await page.getByTestId('chat-input').fill('이거 요약해줘')
     await page.getByRole('button', { name: '보내기' }).click()
 
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0]).toMatchObject({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0]).toMatchObject({
       query: '이거 요약해줘',
       screenContext: {
         view: '이슈 상세',
@@ -62,11 +59,11 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
         scope: { label: '프로젝트 WP', refs: { projectKey: 'WP' } },
       },
     })
-    expect(bodies[0].screenContext!.focus!.facts).toContainEqual({ label: '상태', value: '진행 중' })
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext!.focus!.facts).toContainEqual({ label: '상태', value: '진행 중' })
   })
 
   test('× 는 다음 1회 전송만 컨텍스트를 빼고, 그 다음 전송에는 다시 포함한다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockIssueDetail(page)
     await page.goto('/projects/WP/issues/12')
     await page.getByTestId('chat-launcher').click()
@@ -80,20 +77,20 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     expect((await page.getByTestId('chat-context-chip-excluded').boundingBox())!.height).toBe(chipHeight)
     await page.getByTestId('chat-input').fill('첫 질문')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0]).not.toHaveProperty('screenContext')
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0]).not.toHaveProperty('screenContext')
 
     // 전송 후 칩 복원 → 두 번째 전송은 컨텍스트 포함.
     await expect(page.getByTestId('chat-context-chip')).toBeVisible()
     await expect(page.getByTestId('chat-context-chip-excluded')).toHaveCount(0)
     await page.getByTestId('chat-input').fill('두 번째 질문')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(2)
-    expect(bodies[1].screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
+    await expect.poll(chat.count).toBe(2)
+    expect(chat.bodies<HomeChatStartBody>()[1].screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
   })
 
   test('× 는 키보드(Tab 이동 + Enter)로도 동작하고 입력창으로 포커스가 돌아온다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockIssueDetail(page)
     await page.goto('/projects/WP/issues/12')
     await page.getByTestId('chat-launcher').click()
@@ -111,12 +108,12 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
 
     await page.getByTestId('chat-input').fill('키보드로 뺀 뒤 질문')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0]).not.toHaveProperty('screenContext')
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0]).not.toHaveProperty('screenContext')
   })
 
   test('되돌리기는 제외를 취소해 칩을 복원하고 다음 전송에 컨텍스트를 싣는다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockIssueDetail(page)
     await page.goto('/projects/WP/issues/12')
     await page.getByTestId('chat-launcher').click()
@@ -130,8 +127,8 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
 
     await page.getByTestId('chat-input').fill('되돌린 뒤 질문')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
   })
 
   test('칩은 목적 문구를 보이고, × 와 라벨에 툴팁(Hover·Focus)을 띄운다', async ({ authenticatedPage: page }) => {
@@ -156,7 +153,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
   })
 
   test('× 후 다른 화면에 갔다 돌아오면 칩이 복원되고 전송에 다시 포함된다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockIssueDetail(page)
     await mockApi(page, 'GET', '/api/v1/projects/WP/issues', { items: [createIssue({ number: 12 })], nextCursor: null, hasMore: false })
     await page.goto('/projects/WP/issues/12')
@@ -172,24 +169,24 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
 
     await page.getByTestId('chat-input').fill('돌아와서 질문')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
   })
 
   test('등록 화면이 없는 홈에서는 칩이 없고 screenContext 를 보내지 않는다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await page.goto('/')
     await page.getByTestId('chat-launcher').click()
     await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
     await expect(page.getByTestId('chat-context-chip-excluded')).toHaveCount(0)
     await page.getByTestId('chat-input').fill('안녕')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0]).not.toHaveProperty('screenContext')
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0]).not.toHaveProperty('screenContext')
   })
 
   test('풀스크린에서도 뒤 화면 컨텍스트를 유지한다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockIssueDetail(page)
     await page.goto('/projects/WP/issues/12')
     await page.getByTestId('chat-launcher').click()
@@ -201,14 +198,14 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     await expect(page.getByTestId('chat-context-chip')).toContainText('WP-12')
     await page.getByTestId('chat-input').fill('이거')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
   })
 })
 
 test.describe('AI 채팅 화면 컨텍스트 — 이슈 목록', () => {
   test('프로젝트 이슈 목록의 필터가 이름으로 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ name: 'Workplace' }))
     await mockApi(page, 'GET', '/api/v1/projects/WP/issues', { items: [createIssue()], nextCursor: null, hasMore: false })
     await page.goto('/projects/WP?status=TODO&q=%EB%A1%9C%EA%B7%B8%EC%9D%B8')
@@ -220,9 +217,9 @@ test.describe('AI 채팅 화면 컨텍스트 — 이슈 목록', () => {
     await expect(page.getByTestId('issue-row-1')).toBeVisible()
     await page.getByTestId('chat-input').fill('여기서 급한 거')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({ view: '이슈 목록', scope: { refs: { projectKey: 'WP' }, count: 1, hasMore: false } })
-    expect(bodies[0].screenContext!.scope!.facts).toEqual(
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({ view: '이슈 목록', scope: { refs: { projectKey: 'WP' }, count: 1, hasMore: false } })
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext!.scope!.facts).toEqual(
       expect.arrayContaining([{ label: '상태', value: '할 일' }, { label: '검색어', value: '로그인' }]),
     )
   })
@@ -230,7 +227,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 이슈 목록', () => {
 
 test.describe('AI 채팅 화면 컨텍스트 — × 유지', () => {
   test('같은 화면에서 목록 건수가 뒤늦게 도착해도 × 상태가 유지된다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ name: 'Workplace' }))
     // 이슈 목록 응답을 × 클릭 뒤까지 붙잡아 둔다 — 건수(count·hasMore)가 × 이후에 결정론적으로 도착하도록.
     let release!: () => void
@@ -259,21 +256,21 @@ test.describe('AI 채팅 화면 컨텍스트 — × 유지', () => {
     await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
     await page.getByTestId('chat-input').fill('건수 도착 후 질문')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0]).not.toHaveProperty('screenContext')
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0]).not.toHaveProperty('screenContext')
 
     // 전송 후에는 복원되고, 도착한 건수가 실린다.
     await expect(page.getByTestId('chat-context-chip')).toBeVisible()
     await page.getByTestId('chat-input').fill('다음 질문')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(2)
-    expect(bodies[1].screenContext?.scope).toMatchObject({ count: 1, hasMore: false })
+    await expect.poll(chat.count).toBe(2)
+    expect(chat.bodies<HomeChatStartBody>()[1].screenContext?.scope).toMatchObject({ count: 1, hasMore: false })
   })
 })
 
 test.describe('AI 채팅 화면 컨텍스트 — 내 작업 · AI 위임', () => {
   test('내 작업 탭과 상태 facet 이 목록 범위로 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([createIssue()]))
     await page.goto('/me/tasks/reported?status=IN_PROGRESS')
     await page.getByTestId('chat-launcher').click()
@@ -281,15 +278,15 @@ test.describe('AI 채팅 화면 컨텍스트 — 내 작업 · AI 위임', () =>
     await expect(page.getByTestId('chat-context-chip')).not.toContainText('내 작업 · 내 작업')
     await page.getByTestId('chat-input').fill('이 중 급한 거')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toEqual({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toEqual({
       view: '내 작업',
       scope: { label: '내 작업 · 내가 만든', facts: [{ label: '상태', value: '진행 중' }] },
     })
   })
 
   test('AI 위임 작업은 AGENT 담당만 센 건수를 싣는다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     const agent = { id: 9, username: 'claude', name: 'Claude', kind: 'AGENT' as const }
     const human = { id: 1, username: 'kim', name: '김사람', kind: 'HUMAN' as const }
     await mockApi(
@@ -306,15 +303,15 @@ test.describe('AI 채팅 화면 컨텍스트 — 내 작업 · AI 위임', () =>
     await expect(page.getByTestId('chat-context-chip')).toContainText('AI 위임 작업')
     await page.getByTestId('chat-input').fill('진행 상황 알려줘')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toEqual({ view: 'AI 위임 작업', scope: { label: 'AI 위임 작업', count: 2 } })
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toEqual({ view: 'AI 위임 작업', scope: { label: 'AI 위임 작업', count: 2 } })
   })
 })
 
 test.describe('AI 채팅 화면 컨텍스트 — 개인 프로젝트', () => {
   // personal-project-detail.spec.ts 의 mockPersonal/mockTaskDetail 과 같은 목 집합.
   test('열린 개인 태스크가 대상으로, 범위는 개인 프로젝트로 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     const KEY = 'PME'
     await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true }))
     await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues`, createIssueSearchResponse([createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]))
@@ -333,8 +330,8 @@ test.describe('AI 채팅 화면 컨텍스트 — 개인 프로젝트', () => {
     await page.getByTestId('chat-input').fill('이거 정리해줘')
     // 패널 내 이슈 AI 대화 입력바에도 '보내기'가 있어 글로벌 채팅 패널로 범위를 좁힌다.
     await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({
       view: '이슈 상세',
       focus: { refs: { issueKey: 'PME-1' } },
       scope: { label: '개인 프로젝트', refs: { projectKey: KEY } },
@@ -344,7 +341,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 개인 프로젝트', () => {
 
 test.describe('AI 채팅 화면 컨텍스트 — 메일', () => {
   test('열린 메일의 messageId·제목과 폴더가 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     // 메일 계정/목록/상세 목 — mail-inbox.spec.ts 와 같은 팩토리. 계정 id=3, 목록에 id=91 '견적 요청' 1건.
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ id: 3 })])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/3/messages', [
@@ -358,8 +355,8 @@ test.describe('AI 채팅 화면 컨텍스트 — 메일', () => {
     await page.getByTestId('chat-input').fill('이 메일 요약해줘')
     await page.getByRole('button', { name: '보내기' }).click()
 
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({
       view: '메일함',
       focus: { type: '메일', label: '견적 요청', refs: { messageId: '91' } },
       scope: { refs: { accountId: '3', folder: 'INBOX' }, count: 1 },
@@ -369,10 +366,11 @@ test.describe('AI 채팅 화면 컨텍스트 — 메일', () => {
 
 test.describe('AI 채팅 화면 컨텍스트 — 메일 회신필요 필터', () => {
   test('열린 메일이 목록 refetch 로 빠져도 컨텍스트에 유지된다(WP-146)', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ id: 3, aiEnabled: true })])
     // 목록: 처음엔 회신필요 1건, 열람 후 refetch 부터는 읽음 처리돼 빈 목록.
     let listCalls = 0
+    const lists = trackRequests(page, 'ANY', '/api/v1/mail/accounts/3/messages')
     await page.route((url) => url.pathname === '/api/v1/mail/accounts/3/messages', (route) => {
       listCalls += 1
       const body = listCalls === 1
@@ -389,15 +387,15 @@ test.describe('AI 채팅 화면 컨텍스트 — 메일 회신필요 필터', ()
     await expect(page.getByTestId('mail-detail')).toBeVisible()
     // 목록 refetch(포커스/주기 갱신 대체)로 빈 목록을 받게 한다.
     await page.clock.fastForward(61_000) // refetchInterval(60s) 을 가상 시계로 앞당긴다
-    await expect.poll(() => listCalls).toBeGreaterThanOrEqual(2)
+    await lists.waitFor(2)
     await expect(page.getByTestId('mail-row-91')).toHaveCount(0)
 
     await page.getByTestId('chat-launcher').click()
     await expect(page.getByTestId('chat-context-chip')).toContainText('메일 견적 요청')
     await page.getByTestId('chat-input').fill('이 메일 요약해줘')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({
       view: '메일함',
       focus: { type: '메일', label: '견적 요청', refs: { messageId: '91' } },
     })
@@ -428,7 +426,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
   })
 
   test('사이드 패널을 연 채 일정을 열고, 다이얼로그 위에서 패널에 입력·전송하면 eventId 가 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockCalendar(page)
     await page.goto('/calendar')
     await expect(page.getByTestId('calendar-event-42')).toBeVisible()
@@ -443,14 +441,14 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
     await page.getByTestId('chat-input').fill('이 회의 참석자 알려줘')
     await page.getByRole('button', { name: '보내기' }).click()
 
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({
       view: '캘린더',
       focus: { type: '일정', label: '주간회의', refs: { eventId: '42' } },
       scope: { label: '월 보기', count: 1 },
     })
-    expect(bodies[0].screenContext!.scope!.refs).toHaveProperty('from')
-    expect(bodies[0].screenContext!.focus!.facts).toContainEqual({ label: '장소', value: '3층' })
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext!.scope!.refs).toHaveProperty('from')
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext!.focus!.facts).toContainEqual({ label: '장소', value: '3층' })
     // 패널 조작 후에도 다이얼로그는 열려 있다.
     await expect(dialog).toBeVisible()
   })
@@ -664,7 +662,7 @@ test.describe('AI 채팅 — 드라이브 미리보기 모달 위 입력', () =>
   }
 
   test('미리보기 모달을 연 채 사이드 패널에 입력·전송할 수 있고 모달은 유지된다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockDrive(page)
     await page.goto('/drive/spaces/1')
     await page.getByTestId('chat-launcher').click()
@@ -676,8 +674,8 @@ test.describe('AI 채팅 — 드라이브 미리보기 모달 위 입력', () =>
     await page.getByTestId('chat-input').click()
     await page.getByTestId('chat-input').fill('이 파일 요약해줘')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].query).toBe('이 파일 요약해줘')
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].query).toBe('이 파일 요약해줘')
     await expect(preview).toBeVisible()
     // 넓은 미리보기(w-[64rem])도 패널을 가리지 않도록 페이지 영역 안으로 클램프된다.
     const dlg = await page.getByRole('dialog').boundingBox()
@@ -700,7 +698,7 @@ async function mockWiki(page: Page) {
 
 test.describe('AI 채팅 화면 컨텍스트 — 위키', () => {
   test('페이지 pageId·스페이스가 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockWiki(page)
     // 스페이스 목록(useWikiSpaces) 로드가 뒤늦게 될 수 있어 병렬 로드에서 플레이키 (가능성 낮음)
     // → goto 전에 대기 시작, send 전에 완료 확인하여 scope.label 이 항상 '위키 스페이스 개발' 으로 결정론적 도착
@@ -711,8 +709,8 @@ test.describe('AI 채팅 화면 컨텍스트 — 위키', () => {
     await spacesLoaded
     await page.getByTestId('chat-input').fill('이 문서 요약')
     await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({
       focus: { refs: { pageId: '10' } },
       scope: { label: '위키 스페이스 개발', refs: { spaceId: '2' } },
     })
@@ -728,7 +726,7 @@ async function mockChatSidebar(page: Page, channels: ReturnType<typeof createCha
 
 test.describe('AI 채팅 화면 컨텍스트 — 채팅', () => {
   test('채널 + 열린 스레드가 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     const channel = createChannel({ id: 5, name: 'dev', memberCount: 8 })
     const root = createMessage({ id: 77, channelId: 5, authorId: 2, authorName: '김철수', body: '배포 언제?\n내일 가능?', replyCount: 3 })
     await mockChatSidebar(page, [channel], [])
@@ -742,17 +740,17 @@ test.describe('AI 채팅 화면 컨텍스트 — 채팅', () => {
     await expect(page.getByTestId('chat-context-chip')).toContainText('스레드 김철수: 배포 언제?')
     await page.getByTestId('chat-input').fill('이 스레드 정리해줘')
     await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({
       view: '채널',
       focus: { type: '스레드', refs: { messageId: '77' } },
       scope: { label: '채널 #dev', refs: { channelId: '5' } },
     })
-    expect(bodies[0].screenContext!.scope!.facts).toContainEqual({ label: '멤버', value: '8' })
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext!.scope!.facts).toContainEqual({ label: '멤버', value: '8' })
   })
 
   test('채널 — 스레드 없이 채널만 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     const channel = createChannel({ id: 5, name: 'dev', memberCount: 8 })
     await mockChatSidebar(page, [channel], [])
     await mockApi(page, 'GET', '/api/v1/messaging/channels/5', channel)
@@ -763,13 +761,13 @@ test.describe('AI 채팅 화면 컨텍스트 — 채팅', () => {
     await expect(page.getByTestId('chat-context-chip')).toContainText('채널 #dev')
     await page.getByTestId('chat-input').fill('요약해줘')
     await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({ view: '채널', scope: { label: '채널 #dev', refs: { channelId: '5' } } })
-    expect(bodies[0].screenContext).not.toHaveProperty('focus')
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({ view: '채널', scope: { label: '채널 #dev', refs: { channelId: '5' } } })
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).not.toHaveProperty('focus')
   })
 
   test('DM 은 상대 이름과 channelId 가 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     const dm = createDm({
       id: 9,
       participants: [createDmParticipant({ userId: 1, name: '나' }), createDmParticipant({ userId: 2, name: '김철수' })],
@@ -781,12 +779,12 @@ test.describe('AI 채팅 화면 컨텍스트 — 채팅', () => {
     await expect(page.getByTestId('chat-context-chip')).toContainText('DM · 김철수')
     await page.getByTestId('chat-input').fill('무슨 얘기 했지?')
     await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({ view: 'DM', scope: { label: 'DM · 김철수', refs: { channelId: '9' } } })
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({ view: 'DM', scope: { label: 'DM · 김철수', refs: { channelId: '9' } } })
   })
 
   test('스레드 모아보기는 로드된 스레드 수가 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockChatSidebar(page, [], [])
     await mockApi(page, 'GET', '/api/v1/messaging/threads/inbox', {
       items: [
@@ -802,8 +800,8 @@ test.describe('AI 채팅 화면 컨텍스트 — 채팅', () => {
     await expect(page.getByTestId('chat-context-chip')).toContainText('내 스레드 모아보기')
     await page.getByTestId('chat-input').fill('정리해줘')
     await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({ view: '스레드 모아보기', scope: { count: 2, hasMore: false } })
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({ view: '스레드 모아보기', scope: { count: 2, hasMore: false } })
   })
 })
 
@@ -833,7 +831,7 @@ async function mockDriveScreen(page: Page, opts: { folderId: number | null; path
 
 test.describe('AI 채팅 화면 컨텍스트 — 드라이브', () => {
   test('폴더 scope(스페이스·경로·parentId)와 항목 개수가 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockDriveScreen(page, { folderId: 11 })
     const pathLoaded = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/drive/folders/11/path')
     const itemsLoaded = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/drive/spaces/4/items')
@@ -844,8 +842,8 @@ test.describe('AI 채팅 화면 컨텍스트 — 드라이브', () => {
     await itemsLoaded
     await page.getByTestId('chat-input').fill('이 폴더 정리해줘')
     await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({
       view: '드라이브',
       scope: {
         label: '드라이브 팀 드라이브 / 기획 / 2026',
@@ -853,11 +851,11 @@ test.describe('AI 채팅 화면 컨텍스트 — 드라이브', () => {
         facts: [{ label: '항목', value: '폴더 0 · 파일 1' }],
       },
     })
-    expect(bodies[0].screenContext?.focus).toBeUndefined()
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext?.focus).toBeUndefined()
   })
 
   test('사이드 패널을 연 채 미리보기를 열고 전송하면 파일 focus 에 driveFileId 가 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockDriveScreen(page, { folderId: null })
     await page.goto('/drive/spaces/4')
     await page.getByTestId('chat-launcher').click()
@@ -867,17 +865,17 @@ test.describe('AI 채팅 화면 컨텍스트 — 드라이브', () => {
     await expect(page.getByTestId('chat-context-chip')).toContainText('파일 회의록.txt')
     await page.getByTestId('chat-input').fill('이 파일 요약')
     await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({
       focus: { type: '파일', label: '회의록.txt', refs: { driveFileId: '300' } },
       scope: { label: '드라이브 팀 드라이브', refs: { spaceId: '4' } },
     })
     // core fileId(999)는 보내지 않는다.
-    expect(JSON.stringify(bodies[0].screenContext)).not.toContain('999')
+    expect(JSON.stringify(chat.bodies<HomeChatStartBody>()[0].screenContext)).not.toContain('999')
   })
 
   test('폴더 경로 조회가 실패해도 spaceId·parentId·파일 focus 는 실린다(경로만 생략)', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockDriveScreen(page, { folderId: 11, pathFails: true })
     await page.goto('/drive/spaces/4?folderId=11')
     await page.getByTestId('chat-launcher').click()
@@ -887,8 +885,8 @@ test.describe('AI 채팅 화면 컨텍스트 — 드라이브', () => {
     await expect(page.getByTestId('chat-context-chip')).toContainText('파일 회의록.txt')
     await page.getByTestId('chat-input').fill('이 파일 요약')
     await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({
       focus: { refs: { driveFileId: '300' } },
       scope: { label: '드라이브 팀 드라이브', refs: { spaceId: '4', parentId: '11' } },
     })
@@ -920,7 +918,7 @@ async function mockContactsScreen(page: Page) {
 
 test.describe('AI 채팅 화면 컨텍스트 — 연락처', () => {
   test('외부 연락처 선택 시 externalId 와 필터·건수가 실린다', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockContactsScreen(page)
     await page.goto('/contacts?type=EXTERNAL')
     await page.getByTestId('contact-row-EXTERNAL-55').getByRole('button', { name: /김철수/ }).click()
@@ -928,17 +926,17 @@ test.describe('AI 채팅 화면 컨텍스트 — 연락처', () => {
     await expect(page.getByTestId('chat-context-chip')).toContainText('연락처 김철수')
     await page.getByTestId('chat-input').fill('이 사람이랑 최근 메일')
     await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({
       view: '연락처',
       focus: { type: '연락처', label: '김철수', refs: { externalId: '55' } },
       scope: { label: '연락처', facts: [{ label: '유형', value: '외부' }], count: 1, hasMore: false },
     })
-    expect(bodies[0].screenContext!.focus!.facts).toContainEqual({ label: '구분', value: '외부' })
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext!.focus!.facts).toContainEqual({ label: '구분', value: '외부' })
   })
 
   test('구성원 선택은 상세 응답이 온 뒤 username 이 실린다(userId 아님)', async ({ authenticatedPage: page }) => {
-    const bodies = await captureChat(page)
+    const chat = await captureChat(page)
     await mockContactsScreen(page)
     await page.goto('/contacts')
     const detailLoaded = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/contacts/members/1')
@@ -950,13 +948,13 @@ test.describe('AI 채팅 화면 컨텍스트 — 연락처', () => {
     await expect(page.getByTestId('chat-context-chip')).toContainText('연락처 김멤버')
     await page.getByTestId('chat-input').fill('이 사람 연락처')
     await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
-    await expect.poll(() => bodies.length).toBe(1)
-    expect(bodies[0].screenContext).toMatchObject({
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({
       focus: { label: '김멤버', refs: { username: 'kim' } },
       scope: { count: 2, hasMore: false },
     })
-    expect(bodies[0].screenContext!.focus!.facts).toContainEqual({ label: '구분', value: '구성원' })
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext!.focus!.facts).toContainEqual({ label: '구분', value: '구성원' })
     // 구성원 focus 에 externalId 가 섞이지 않는다.
-    expect(bodies[0].screenContext!.focus!.refs).not.toHaveProperty('externalId')
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext!.focus!.refs).not.toHaveProperty('externalId')
   })
 })

@@ -5,8 +5,8 @@
 // 새로고침 시 깨진다). CONTENT_PATH(/api/v1/wiki/attachments/7/content)는 #751 에서
 // 실제로 추가될 예정인 첨부 콘텐츠 엔드포인트로, 아직 백엔드에는 없다.
 import type { Page } from '@playwright/test'
-import type { WikiPageDetail } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { lastSaved, mockWikiPageEditor } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 400
@@ -19,69 +19,10 @@ const PNG = Buffer.from(
   'base64',
 )
 
-const saved: string[] = []
-
-// wiki-table.spec.ts 패턴 — 에디터 진입에 필요한 스페이스/트리/멤버/상세 라우트를 모두 모킹한다.
-async function setup(page: Page, body: string) {
-  await page.route(
-    (u) => u.pathname === '/api/v1/wiki/spaces',
-    (r) =>
-      r.request().method() === 'GET'
-        ? r.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([
-              { id: SPACE_ID, type: 'PERSONAL', name: '내 노트', ownerId: 1, role: 'OWNER', createdAt: '2026-06-01T00:00:00Z' },
-            ]),
-          })
-        : r.fallback(),
-  )
-  await page.route(
-    (u) => u.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
-    (r) =>
-      r.request().method() === 'GET'
-        ? r.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([{ id: PAGE_ID, parentId: null, title: '이미지 테스트', position: 0, aiLastUsedAt: null }]),
-          })
-        : r.fallback(),
-  )
-  await page.route(
-    (u) => u.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/members`,
-    (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback()),
-  )
-  await page.route(
-    (u) => u.pathname === `/api/v1/wiki/pages/${PAGE_ID}`,
-    (r) => {
-      const d: WikiPageDetail = {
-        id: PAGE_ID,
-        spaceId: SPACE_ID,
-        parentId: null,
-        title: '이미지 테스트',
-        body,
-        version: 1,
-        updatedBy: 1,
-        updatedAt: '2026-06-01T00:00:00Z',
-        aiLastUsedAt: null,
-        aiLastAction: null,
-      }
-      const m = r.request().method()
-      if (m === 'GET') return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(d) })
-      if (m === 'PUT') {
-        saved.push((r.request().postDataJSON() as { body: string }).body)
-        return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...d, version: 2 }) })
-      }
-      return r.fallback()
-    },
-  )
-}
+const setup = (page: Page, body: string) =>
+  mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '이미지 테스트', body })
 
 test.describe('노트 본문 이미지', () => {
-  test.beforeEach(() => {
-    saved.length = 0
-  })
-
   test('본문의 이미지 마크다운이 blob 으로 렌더된다', async ({ authenticatedPage: page }) => {
     await page.route(CONTENT_PATH, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
     await setup(page, `# 제목\n\n![대체텍스트](${CONTENT_PATH})\n\n본문`)
@@ -109,7 +50,7 @@ test.describe('노트 본문 이미지', () => {
 
   test('본문을 편집해도 이미지 마크다운이 저장 payload 에 남는다', async ({ authenticatedPage: page }) => {
     await page.route(CONTENT_PATH, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
-    await setup(page, `# 제목\n\n![대체텍스트](${CONTENT_PATH})\n\n본문`)
+    const puts = await setup(page, `# 제목\n\n![대체텍스트](${CONTENT_PATH})\n\n본문`)
 
     await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
     await expect(page.getByTestId('wiki-image')).toBeVisible()
@@ -123,8 +64,8 @@ test.describe('노트 본문 이미지', () => {
     await expect(page.getByTestId('wiki-save-state')).toHaveText('저장됨', { timeout: 5000 })
 
     // 핵심 단언 — 저장 payload 에 이미지 마크다운이 살아 있어야 한다(#750 의 버그 그 자체).
-    expect(saved.length).toBeGreaterThan(0)
-    expect(saved[saved.length - 1]).toContain(`![대체텍스트](${CONTENT_PATH})`)
+    expect(puts.count()).toBeGreaterThan(0)
+    expect(lastSaved(puts)).toContain(`![대체텍스트](${CONTENT_PATH})`)
   })
 
   test('외부 URL 이미지는 blob 변환 없이 원본 src 그대로 렌더된다', async ({ authenticatedPage: page }) => {

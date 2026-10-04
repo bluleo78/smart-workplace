@@ -2,6 +2,7 @@
 // IssueDetailPage 의 watch-toggle 버튼이 POST/DELETE 를 호출하고 aria-pressed 를 반영하는지 검증.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssueDetail, createIssue } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 
@@ -54,19 +55,17 @@ test.describe('이슈 watcher', () => {
       },
     );
 
-    let postCount = 0;
-    let deleteCount = 0;
+    const posts = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues/1/watch`);
+    const deletes = trackRequests(page, 'DELETE', `/api/v1/projects/${PROJECT_KEY}/issues/1/watch`);
     await page.route(
       (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/watch`,
       (route) => {
         const method = route.request().method();
         if (method === 'POST') {
-          postCount += 1;
           watchers = [{ userId: 1, username: 'testuser', name: '테스트 사용자' }];
           return route.fulfill({ status: 204, body: '' });
         }
         if (method === 'DELETE') {
-          deleteCount += 1;
           watchers = [];
           return route.fulfill({ status: 204, body: '' });
         }
@@ -85,13 +84,13 @@ test.describe('이슈 watcher', () => {
     await btn.click();
     await expect(btn).toHaveAttribute('aria-pressed', 'true');
     await expect(btn).toHaveAttribute('aria-label', '구독 중');
-    expect(postCount).toBe(1);
+    expect(posts.count()).toBe(1);
 
     // 해제 → false + DELETE 호출.
     await btn.click();
     await expect(btn).toHaveAttribute('aria-pressed', 'false');
     await expect(btn).toHaveAttribute('aria-label', '구독');
-    expect(deleteCount).toBe(1);
+    expect(deletes.count()).toBe(1);
   });
 
   test('watch 토글 실패 시 토스트 노출', async ({ authenticatedPage: page }) => {

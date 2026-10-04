@@ -2,6 +2,7 @@
 // 시나리오: 설정 페이지에서 OWNER 가 라벨을 생성 → 프로젝트로 이동해 라벨 필터 적용 → URL 의 label= 동기화.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createLabel } from '../../factories/label.factory';
 import { createMember, createProject } from '../../factories/project.factory';
@@ -61,13 +62,12 @@ test.describe('라벨', () => {
       });
 
       // 이슈 검색 — label CSV 가 들어오면 필터링 적용.
-      const seenIssueSearches: string[] = [];
+      const issueSearches = trackRequests(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/issues`);
       await page.route(
         (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues`,
         (route) => {
           if (route.request().method() !== 'GET') return route.fallback();
           const url = new URL(route.request().url());
-          seenIssueSearches.push(url.search);
           const wantLabel = url.searchParams.get('label');
           let items = [issue];
           if (wantLabel) {
@@ -121,7 +121,7 @@ test.describe('라벨', () => {
       // URL 에 label= 가 들어오고, 백엔드도 label CSV 를 받음.
       await expect(page).toHaveURL(/label=/);
       await expect.poll(() =>
-        seenIssueSearches.some((s) => s.includes(`label=${createdId}`)),
+        issueSearches.urls().some((u) => u.search.includes(`label=${createdId}`)),
       ).toBe(true);
     },
   );
@@ -244,7 +244,8 @@ test.describe('라벨', () => {
     '라벨 이름 변경 — shadcn Dialog 로 PATCH 발생, window.prompt 없음 (#160)',
     async ({ authenticatedPage: page }) => {
       const label = createLabel({ name: '원래이름', colorToken: 'GRAY' });
-      let patchBody: unknown;
+      // 이름 변경은 PUT/PATCH 어느 쪽이든 받는다 — 이 경로엔 다른 요청이 없어 메서드 구분 없이 기록.
+      const labelUpdates = trackRequests(page, 'ANY', `/api/v1/projects/${PROJECT_KEY}/labels/${label.id}`);
 
       await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
@@ -268,8 +269,7 @@ test.describe('라벨', () => {
       await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels/${label.id}`, (route) => {
         const method = route.request().method();
         if (method !== 'PUT' && method !== 'PATCH') return route.fallback();
-        patchBody = route.request().postDataJSON();
-        label.name = (patchBody as { name: string }).name;
+        label.name = (route.request().postDataJSON() as { name: string }).name;
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -293,7 +293,7 @@ test.describe('라벨', () => {
       await input.fill('새이름');
       await page.getByTestId('rename-dialog-confirm').click();
 
-      await expect.poll(() => (patchBody as { name?: string } | undefined)?.name).toBe('새이름');
+      await expect.poll(() => labelUpdates.lastBody<{ name?: string }>()?.name).toBe('새이름');
       // Dialog 가 닫혀야 함.
       await expect(dialog).toBeHidden();
     },
@@ -327,6 +327,7 @@ test.describe('라벨', () => {
         }
         return route.fallback();
       });
+      const deletes = trackRequests(page, 'DELETE', `/api/v1/projects/${PROJECT_KEY}/labels/${label.id}`);
       await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels/${label.id}`, async (route) => {
         if (route.request().method() !== 'DELETE') return route.fallback();
         deleted = true;
@@ -342,7 +343,7 @@ test.describe('라벨', () => {
       await expect(page.getByRole('alertdialog')).toBeVisible();
       await page.getByRole('button', { name: '삭제' }).last().click();
 
-      await expect.poll(() => deleted).toBe(true);
+      await deletes.waitFor();
       await expect(page.getByTestId(`label-row-${label.id}`)).toBeHidden();
     },
   );

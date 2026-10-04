@@ -8,6 +8,7 @@ import { createIssue, createIssueDetail } from '../../factories/issue.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { dismissByOutsideClick } from '../../fixtures/wait'
 
 const KEY = 'WP'
@@ -65,12 +66,9 @@ test('이슈 상세: ‹·이슈 키·⋯·✦ 가 한 줄 헤더에 있고 액�
 
 test('이슈 상세: ⋯ → 삭제 → 확인 다이얼로그 → 삭제 API 호출 후 프로젝트로 이동', async ({ authenticatedPage: page }) => {
   await stubIssueDetail(page)
-  let deleted = false
-  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues/${NUM}`, (r) => {
-    if (r.request().method() !== 'DELETE') return r.fallback()
-    deleted = true
-    return r.fulfill({ status: 204, body: '' })
-  })
+  const deletes = trackRequests(page, 'DELETE', `/api/v1/projects/${KEY}/issues/${NUM}`)
+  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues/${NUM}`, (r) =>
+    r.request().method() === 'DELETE' ? r.fulfill({ status: 204, body: '' }) : r.fallback())
   await page.goto(`/projects/${KEY}/issues/${NUM}`)
   await page.getByTestId('mobile-header-more').click()
   await page.getByTestId('issue-delete').click()
@@ -79,7 +77,7 @@ test('이슈 상세: ⋯ → 삭제 → 확인 다이얼로그 → 삭제 API �
   const dialog = page.getByRole('alertdialog')
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: '삭제' }).click()
-  await expect.poll(() => deleted).toBe(true)
+  await deletes.waitFor()
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`))
 })
 
@@ -190,11 +188,9 @@ test('연락처 상세: 목록 헤더 대신 ‹·연락처 이름·✦ 한 줄 
 
 test('연락처: 새 외부 연락처는 ＋ 아이콘 하나로 인라인 — 입력 → POST payload → 다이얼로그 닫힘 → 목록 반영', async ({ authenticatedPage: page }) => {
   await page.route((u) => u.pathname === '/api/v1/contacts', (r) => r.fulfill({ json: makeContactPage([member()]) }))
-  let posted: Record<string, unknown> | null = null
-  await page.route((u) => u.pathname === '/api/v1/contacts/external', (r) => {
-    posted = r.request().postDataJSON()
-    return r.fulfill({ status: 201, json: externalDetail({ id: 200, name: '신규연락처' }) })
-  })
+  const creates = trackRequests(page, 'ANY', '/api/v1/contacts/external')
+  await page.route((u) => u.pathname === '/api/v1/contacts/external', (r) =>
+    r.fulfill({ status: 201, json: externalDetail({ id: 200, name: '신규연락처' }) }))
   await page.goto('/contacts')
   await expect(page.getByTestId('mobile-header-more')).toHaveCount(0)
   const create = page.getByTestId('contact-create')
@@ -207,9 +203,8 @@ test('연락처: 새 외부 연락처는 ＋ 아이콘 하나로 인라인 — �
   await page.route((u) => u.pathname === '/api/v1/contacts', (r) =>
     r.fulfill({ json: makeContactPage([member(), external({ id: 200, name: '신규연락처' })]) }))
   await page.getByTestId('c-save').click()
-  await expect.poll(() => posted).not.toBeNull()
-  expect(posted!.name).toBe('신규연락처')
-  expect(posted!.email).toBe('new@corp.com')
+  await creates.waitFor()
+  expect(creates.lastBody()).toMatchObject({ name: '신규연락처', email: 'new@corp.com' })
   await expect(page.getByTestId('external-contact-dialog')).toHaveCount(0)
   await expect(page.getByTestId('contact-row-EXTERNAL-200')).toBeVisible()
   await expectNoHorizontalOverflow(page)

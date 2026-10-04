@@ -2,6 +2,7 @@
 // window.confirm() 대신 shadcn AlertDialog가 표시되고, 확인/취소가 올바르게 동작하는지 검증.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 
@@ -56,12 +57,11 @@ test.describe('IssueDetailPage 삭제 확인 AlertDialog (#161)', () => {
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
       await setupDeleteStubs(page);
-      let deleteCalled = false;
+      const deletes = trackRequests(page, 'DELETE', `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
       await page.route(
         (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`,
         (route) => {
           if (route.request().method() === 'DELETE') {
-            deleteCalled = true;
             return route.fulfill({ status: 204, body: '' });
           }
           return route.fallback();
@@ -81,7 +81,7 @@ test.describe('IssueDetailPage 삭제 확인 AlertDialog (#161)', () => {
       // 취소 → 다이얼로그 닫힘 + DELETE API 미호출.
       await page.getByRole('button', { name: '취소' }).click();
       await expect(page.getByRole('alertdialog')).not.toBeVisible();
-      expect(deleteCalled).toBe(false);
+      expect(deletes.count()).toBe(0);
     },
   );
 
@@ -89,12 +89,11 @@ test.describe('IssueDetailPage 삭제 확인 AlertDialog (#161)', () => {
     '삭제 확인 클릭 시 DELETE API 호출 후 보드로 이동',
     async ({ authenticatedPage: page }) => {
       await setupDeleteStubs(page);
-      let deleteCalled = false;
+      const deletes = trackRequests(page, 'DELETE', `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
       await page.route(
         (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`,
         (route) => {
           if (route.request().method() === 'DELETE') {
-            deleteCalled = true;
             return route.fulfill({ status: 204, body: '' });
           }
           return route.fallback();
@@ -111,7 +110,7 @@ test.describe('IssueDetailPage 삭제 확인 AlertDialog (#161)', () => {
 
       // 삭제 버튼 클릭 → DELETE API 호출.
       await page.getByRole('button', { name: '삭제' }).click();
-      expect(deleteCalled).toBe(true);
+      await deletes.waitFor();
     },
   );
 

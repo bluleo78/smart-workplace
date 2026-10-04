@@ -1,6 +1,7 @@
 // 위키 노트→이슈 cross-app E2E — 선택 블록 → "이슈로 만들기" → 다이얼로그 → /api/v1/actions/confirm → 이슈 칩 삽입.
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 
 const SPACE_ID = 1
@@ -43,9 +44,8 @@ async function setup(page: import('@playwright/test').Page) {
 
 test('위키 노트→이슈 — 선택 후 "이슈로 만들기" → confirm payload + 이슈 칩 삽입', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await setup(page)
-  let confirmBody: { actionType: string; params: Record<string, unknown> } | null = null
+  const confirms = trackRequests(page, 'ANY', '/api/v1/actions/confirm')
   await page.route('**/api/v1/actions/confirm', (r) => {
-    confirmBody = r.request().postDataJSON() as typeof confirmBody
     return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 77, projectKey: 'ME', number: 12, title: '회의 준비' }) })
   })
 
@@ -67,9 +67,9 @@ test('위키 노트→이슈 — 선택 후 "이슈로 만들기" → confirm pa
   await page.getByTestId('wiki-create-issue-confirm').click()
 
   // payload: actionType=issue.create, params.projectKey=기본 개인(ME), title/body.
-  await expect.poll(() => confirmBody?.actionType).toBe('issue.create')
-  expect((confirmBody!.params as { projectKey: string }).projectKey).toBe('ME')
-  expect((confirmBody!.params as { title: string }).title).toBe('회의 준비')
+  type ConfirmBody = { actionType: string; params: { projectKey: string; title: string } }
+  await expect.poll(() => confirms.lastBody<ConfirmBody>()?.actionType).toBe('issue.create')
+  expect(confirms.lastBody<ConfirmBody>()?.params).toMatchObject({ projectKey: 'ME', title: '회의 준비' })
 
   // 이슈 칩(wikiMention ISSUE)이 본문에 삽입되고 클릭 가능.
   const chip = page.locator('.ProseMirror [data-mtype="ISSUE"]')

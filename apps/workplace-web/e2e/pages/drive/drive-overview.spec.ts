@@ -10,6 +10,11 @@ import type { Page } from '@playwright/test'
 import type { DriveContentSearchResponse } from '../../../src/api/contentSearch'
 import { createSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
+
+// 시작(GET ?q=) / 취소(DELETE /{correlationId}) 요청 매처.
+const OVERVIEW_START = '/api/v1/drive/search-overview'
+const OVERVIEW_CANCEL = /^\/api\/v1\/drive\/search-overview\/.+/
 
 const SPACE_ID = 1
 
@@ -111,8 +116,6 @@ async function mockOverviewGeneration(
   page: Page,
   opts: {
     deltas: string[]
-    onStart?: (query: string, spaceId?: string) => void
-    onCancel?: (correlationId: string) => void
   },
 ) {
   const correlationId = 'corr-fixed'
@@ -128,8 +131,6 @@ async function mockOverviewGeneration(
     (route) => {
       const req = route.request()
       if (req.method() === 'GET') {
-        const url = new URL(req.url())
-        opts.onStart?.(url.searchParams.get('q') ?? '', url.searchParams.get('spaceId') ?? undefined)
         resolveStarted()
         return route.fulfill({
           status: 200,
@@ -138,8 +139,6 @@ async function mockOverviewGeneration(
         })
       }
       if (req.method() === 'DELETE') {
-        const id = req.url().split('/').pop() ?? ''
-        opts.onCancel?.(id)
         return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
       }
       return route.fallback()
@@ -162,12 +161,9 @@ test(
   async ({ authenticatedPage: page }) => {
     await setupDriveMocks(page)
 
-    let startedQuery: string | null = null
+    const starts = trackRequests(page, 'GET', OVERVIEW_START)
     await mockOverviewGeneration(page, {
       deltas: ['핵심 요약: ', '문서 내용입니다.'],
-      onStart: (q) => {
-        startedQuery = q
-      },
     })
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
@@ -177,7 +173,7 @@ test(
     await expect(page.getByTestId('drive-content-results')).toBeVisible()
 
     await page.getByTestId('drive-overview-btn').click()
-    await expect.poll(() => startedQuery).toBe('기획서')
+    await expect.poll(() => starts.lastUrl()?.searchParams.get('q')).toBe('기획서')
 
     await expect(page.getByTestId('drive-overview-card')).toContainText('핵심 요약: 문서 내용입니다.')
   },
@@ -188,7 +184,7 @@ test('드라이브 AI Overview — 카드 unmount 시 진행 중인 생성을 �
 }) => {
   await setupDriveMocks(page)
 
-  let cancelledCorrelationId: string | null = null
+  const cancels = trackRequests(page, 'DELETE', OVERVIEW_CANCEL)
   let resolveStarted: (correlationId: string) => void
   const started = new Promise<string>((resolve) => {
     resolveStarted = resolve
@@ -210,7 +206,6 @@ test('드라이브 AI Overview — 카드 unmount 시 진행 중인 생성을 �
         })
       }
       if (req.method() === 'DELETE') {
-        cancelledCorrelationId = req.url().split('/').pop() ?? ''
         return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
       }
       return route.fallback()
@@ -239,14 +234,14 @@ test('드라이브 AI Overview — 카드 unmount 시 진행 중인 생성을 �
   await expect(card.locator('svg.animate-spin')).toBeVisible()
 
   // StrictMode(dev) 이중 마운트가 첫 인스턴스를 즉시 abort 하며 이미 DELETE 를 1회 쐈을 수 있다 —
-  // 이 시점의 값을 리셋해, 아래 "검색어를 비워 unmount" 가 실제로 새 DELETE 를 유발하는지만 검증한다.
-  cancelledCorrelationId = null
+  // 이 시점 이후의 DELETE 만 보고, 아래 "검색어를 비워 unmount" 가 실제로 새 DELETE 를 유발하는지만 검증한다.
+  const cancelsBefore = cancels.count()
 
   // 검색어를 비워 결과 화면을 벗어나면 DriveOverviewCard 가 unmount 되어 abort() 가 호출된다.
   await page.getByLabel('파일명 및 콘텐츠 검색').fill('')
   await expect(page.getByTestId('drive-overview-card')).toHaveCount(0)
 
-  await expect.poll(() => cancelledCorrelationId).toBe('corr-pending')
+  await expect.poll(() => cancels.urls().slice(cancelsBefore).at(-1)?.pathname.split('/').pop()).toBe('corr-pending')
 })
 
 test('드라이브 AI Overview — GET 시작 요청은 StrictMode 이중 mount 에도 정확히 1회만 나간다(#681)', async ({
@@ -254,16 +249,10 @@ test('드라이브 AI Overview — GET 시작 요청은 StrictMode 이중 mount 
 }) => {
   await setupDriveMocks(page)
 
-  let startCount = 0
-  let cancelCount = 0
+  const starts = trackRequests(page, 'GET', OVERVIEW_START)
+  const cancels = trackRequests(page, 'DELETE', OVERVIEW_CANCEL)
   await mockOverviewGeneration(page, {
     deltas: ['핵심 요약'],
-    onStart: () => {
-      startCount += 1
-    },
-    onCancel: () => {
-      cancelCount += 1
-    },
   })
 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
@@ -277,8 +266,8 @@ test('드라이브 AI Overview — GET 시작 요청은 StrictMode 이중 mount 
 
   // StrictMode(dev) 이중 mount 의 phantom 인스턴스가 실제 시작 요청 전에 걸러져야 한다 — 두 번째(실제)
   // mount 만 GET 을 보내고, phantom 인스턴스는 취소(DELETE) 도 유발하지 않아야 한다(원인 (i) 재발 방지).
-  expect(startCount).toBe(1)
-  expect(cancelCount).toBe(0)
+  expect(starts.count()).toBe(1)
+  expect(cancels.count()).toBe(0)
 })
 
 test('드라이브 AI Overview — SSE 유실로 done/error 가 도착하지 않으면 클라이언트 타임아웃으로 에러 상태로 전환된다(#681)', async ({

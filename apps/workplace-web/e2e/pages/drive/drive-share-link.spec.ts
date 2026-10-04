@@ -10,6 +10,7 @@ import type { CreatedShareLink, ShareLink } from '../../../src/types/drive'
 
 import { createFile, createSpace, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const SPACE_ID = 1
 const FILE_ID = 10
@@ -246,12 +247,11 @@ test('공유 링크 모달 — 하단 버튼은 "취소", 코너 X 는 "닫기" 
 test(
   '만료일에 과거 날짜 입력 시 생성이 차단되고 인라인 에러가 표시된다',
   async ({ authenticatedPage: page }) => {
-    let postCalled = false
+    const posts = trackRequests(page, 'POST', `/api/v1/drive/files/${FILE_ID}/share-links`)
     await page.route(
       (url) => url.pathname === `/api/v1/drive/files/${FILE_ID}/share-links`,
       async (route) => {
         if (route.request().method() === 'POST') {
-          postCalled = true
           await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
         } else {
           await route.fulfill({
@@ -282,7 +282,7 @@ test(
     // 인라인 에러 표시 + POST 호출 자체가 발생하지 않아야 한다
     await expect(page.getByTestId('share-expires-error')).toBeVisible()
     await expect(page.getByTestId('share-expires-error')).toContainText('오늘 이후')
-    expect(postCalled).toBe(false)
+    expect(posts.count()).toBe(0)
 
     // 생성 직후 URL 노출 영역도 나타나지 않아야 한다
     await expect(page.getByTestId('share-link-created-url')).toHaveCount(0)
@@ -414,12 +414,9 @@ test(
   '공개 랜딩 — 비밀번호를 X-Share-Password 헤더로 전달하고 URL 쿼리에는 미포함',
   async ({ page }) => {
     // 공개 다운로드 엔드포인트 모킹 — 파일 응답 대신 200 + 빈 blob
-    let capturedHeaders: Record<string, string> = {}
-    let capturedUrl = ''
+    const downloads = trackRequests(page, 'ANY', /^\/api\/v1\/public\/drive\/share\/[^/]+\/download/)
 
     await page.route('**/api/v1/public/drive/share/*/download*', async (route) => {
-      capturedHeaders = route.request().headers()
-      capturedUrl = route.request().url()
       await route.fulfill({
         status: 200,
         contentType: 'application/octet-stream',
@@ -444,14 +441,15 @@ test(
 
     // 비밀번호가 X-Share-Password 헤더로 전달됐는지 확인
     // Playwright 는 헤더명을 소문자로 반환
-    expect(capturedHeaders['x-share-password']).toBe('secret123')
+    const downloadReq = downloads.requests().at(-1)
+    expect(downloadReq?.headers()['x-share-password']).toBe('secret123')
 
     // URL 에 password 쿼리가 포함되지 않아야 한다
-    expect(capturedUrl).not.toContain('password=')
+    expect(downloadReq?.url()).not.toContain('password=')
     expect(fetchReq.url()).not.toContain('password=')
 
     // 토큰이 URL 에 포함됐는지 확인
-    expect(capturedUrl).toContain('sl_pw')
+    expect(downloadReq?.url()).toContain('sl_pw')
   },
 )
 

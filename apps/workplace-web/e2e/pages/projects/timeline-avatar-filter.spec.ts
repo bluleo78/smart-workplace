@@ -2,6 +2,7 @@
 import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 
@@ -71,15 +72,12 @@ test('아바타 스택 — 최대 5명 + 초과 인원 +N 버튼', async ({ auth
 
 test('아바타 클릭 → assignee 필터 토글, URL·이슈 검색 쿼리 반영', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  const issueRequests: string[] = [];
-  page.on('request', (req) => {
-    if (req.url().includes(`/projects/${KEY}/issues?`)) issueRequests.push(req.url());
-  });
+  const issueSearches = trackRequests(page, 'ANY', (u) => u.pathname.endsWith(`/projects/${KEY}/issues`) && u.search !== '');
   await page.goto(`/projects/${KEY}/timeline`);
   await page.getByTestId('assignee-avatar-2').click();
   // URL SearchParams 단일 소스 — parseFilters 가 읽는 assignee 파라미터로 직렬화된다.
   await expect(page).toHaveURL(/assignee/);
-  await expect.poll(() => issueRequests.some((u) => /assignee[^&]*=2/.test(decodeURIComponent(u)))).toBe(true);
+  await expect.poll(() => issueSearches.urls().some((u) => /assignee[^&]*=2/.test(decodeURIComponent(u.search)))).toBe(true);
   await expect(page.getByTestId('assignee-avatar-2')).toHaveAttribute('aria-pressed', 'true');
   // 재클릭 = 해제
   await page.getByTestId('assignee-avatar-2').click();

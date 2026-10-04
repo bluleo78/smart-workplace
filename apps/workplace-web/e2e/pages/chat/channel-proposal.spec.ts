@@ -4,6 +4,7 @@
 import { expect, test } from '../../fixtures/auth.fixture'
 import { createChannel, createMessage } from '../../factories/messaging.factory'
 import type { MessageProposal } from '../../../src/types/messaging'
+import { trackRequests } from '../../fixtures/requests'
 
 const CHANNEL_ID = 9
 const PROPOSAL_ID = 55
@@ -187,8 +188,7 @@ test.describe('L3 위임 확인 카드', () => {
       await stubMembers(page)
       await stubMessagesWithProposal(page, DELEGATOR_USER_ID)
 
-      // 승인 POST 호출 여부 추적.
-      let confirmCalled = false
+      const confirms = trackRequests(page, 'POST', `/api/v1/messaging/proposals/${PROPOSAL_ID}/confirm`)
       // 승인 후 반환될 갱신 카드(status CONFIRMED).
       const confirmedMessage = createMessage({
         id: 200,
@@ -207,7 +207,6 @@ test.describe('L3 위임 확인 카드', () => {
         (url) => url.pathname === `/api/v1/messaging/proposals/${PROPOSAL_ID}/confirm`,
         (route) => {
           if (route.request().method() !== 'POST') return route.fallback()
-          confirmCalled = true
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -236,7 +235,7 @@ test.describe('L3 위임 확인 카드', () => {
 
       // 승인 클릭 → POST /messaging/proposals/{id}/confirm 호출.
       await page.getByTestId(`proposal-confirm-${PROPOSAL_ID}`).click()
-      await expect.poll(() => confirmCalled).toBe(true)
+      await confirms.waitFor()
     },
   )
 
@@ -272,7 +271,7 @@ test.describe('L3 위임 확인 카드', () => {
       await stubMembers(page)
       await stubMessagesWithProposal(page, DELEGATOR_USER_ID)
 
-      let rejectCalled = false
+      const rejects = trackRequests(page, 'POST', `/api/v1/messaging/proposals/${PROPOSAL_ID}/reject`)
       const rejectedMessage = createMessage({
         id: 200,
         channelId: CHANNEL_ID,
@@ -286,7 +285,6 @@ test.describe('L3 위임 확인 카드', () => {
         (url) => url.pathname === `/api/v1/messaging/proposals/${PROPOSAL_ID}/reject`,
         (route) => {
           if (route.request().method() !== 'POST') return route.fallback()
-          rejectCalled = true
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -299,7 +297,7 @@ test.describe('L3 위임 확인 카드', () => {
 
       await expect(page.getByTestId(`proposal-reject-${PROPOSAL_ID}`)).toBeVisible()
       await page.getByTestId(`proposal-reject-${PROPOSAL_ID}`).click()
-      await expect.poll(() => rejectCalled).toBe(true)
+      await rejects.waitFor()
     },
   )
 
@@ -313,13 +311,11 @@ test.describe('L3 위임 확인 카드', () => {
       await stubMembers(page)
       await stubMessagesWithCandidateProposal(page, DELEGATOR_USER_ID)
 
-      // 승인 POST body 캡처.
-      let body: Record<string, unknown> | null = null
+      const confirms = trackRequests(page, 'POST', `/api/v1/messaging/proposals/${PROPOSAL_ID}/confirm`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/proposals/${PROPOSAL_ID}/confirm`,
         (route) => {
           if (route.request().method() !== 'POST') return route.fallback()
-          body = route.request().postDataJSON() as Record<string, unknown>
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -346,7 +342,8 @@ test.describe('L3 위임 확인 카드', () => {
 
       // 승인 클릭 → confirm 호출 시 body 에 projectKey:'DESIGN' 포함.
       await page.getByTestId(`proposal-confirm-${PROPOSAL_ID}`).click()
-      await expect.poll(() => body).toEqual({ projectKey: 'DESIGN' })
+      await confirms.waitFor()
+      expect(confirms.lastBody()).toEqual({ projectKey: 'DESIGN' })
     },
   )
 })

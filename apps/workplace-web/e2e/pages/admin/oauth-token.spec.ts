@@ -6,6 +6,7 @@
 import type { Route } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { type RequestTracker, trackRequests } from '../../fixtures/requests';
 
 // 등록된 AGENT 1명만 있는 목록 — 페이지 진입 후 자동 선택은 없으므로 행 클릭으로 선택.
 const AGENT_ID = 100;
@@ -83,10 +84,12 @@ interface CredentialRouteCfg {
 }
 
 interface CredentialRouteState {
-  postRequests: Array<Record<string, unknown>>;
-  deleteCount: number;
+  posts: RequestTracker;
+  deletes: RequestTracker;
   current: CredentialMeta | null;
 }
+
+const CREDENTIAL_PATH = /^\/api\/v1\/admin\/agents\/\d+\/provider-credential$/;
 
 // 자격증명 메타 라우트 — 단일 path 에서 GET/POST/DELETE 분기 + 상태 누적.
 async function setupCredential(
@@ -94,8 +97,8 @@ async function setupCredential(
   cfg: CredentialRouteCfg,
 ): Promise<CredentialRouteState> {
   const state: CredentialRouteState = {
-    postRequests: [],
-    deleteCount: 0,
+    posts: trackRequests(page, 'POST', CREDENTIAL_PATH),
+    deletes: trackRequests(page, 'DELETE', CREDENTIAL_PATH),
     current:
       cfg.initial === 'present'
         ? (cfg.initialMeta ?? {
@@ -129,7 +132,6 @@ async function setupCredential(
       }
       if (method === 'POST') {
         const body = route.request().postDataJSON() as Record<string, unknown>;
-        state.postRequests.push(body);
         if (cfg.postStatus === 400) {
           return route.fulfill({
             status: 400,
@@ -157,7 +159,6 @@ async function setupCredential(
         });
       }
       if (method === 'DELETE') {
-        state.deleteCount += 1;
         state.current = null;
         return route.fulfill({ status: 204, body: '' });
       }
@@ -168,14 +169,13 @@ async function setupCredential(
   return state;
 }
 
-// 프로브 라우트 — 요청 payload 를 기록하고 성공/실패 응답을 반환.
+// 프로브 라우트 — 성공/실패 응답을 반환하고 요청 tracker 를 돌려준다.
 function setupProbe(
   page: import('@playwright/test').Page,
   opts: { status: 200 | 502; models?: Array<{ id: string; label: string }> },
 ) {
-  const requests: Array<Record<string, unknown>> = [];
+  const requests = trackRequests(page, 'POST', '/api/v1/admin/agents/models/probe');
   page.route('**/api/v1/admin/agents/models/probe', (route) => {
-    requests.push(route.request().postDataJSON() as Record<string, unknown>);
     if (opts.status === 502) {
       return route.fulfill({
         status: 502,
@@ -232,8 +232,8 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
       await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
 
       // POST payload 검증 — 레이블 입력란 제거로 label 은 전송되지 않는다.
-      expect(state.postRequests).toHaveLength(1);
-      expect(state.postRequests[0]).toEqual({
+      expect(state.posts.count()).toBe(1);
+      expect(state.posts.bodies()[0]).toEqual({
         provider: 'anthropic',
         token: VALID_TOKEN_64,
       });
@@ -273,8 +273,8 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
       await page.getByTestId('credential-probe-models').click();
 
       // 프로브 요청 payload 검증.
-      await expect.poll(() => probeRequests.length).toBe(1);
-      expect(probeRequests[0]).toEqual({
+      await expect.poll(probeRequests.count).toBe(1);
+      expect(probeRequests.bodies()[0]).toEqual({
         providerConfig: {
           providerId: 'amazon-bedrock-openai',
           options: {
@@ -295,8 +295,8 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
       await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
 
       // 최종 등록 payload 검증 — 레이블 입력란 제거로 label 은 전송되지 않는다.
-      expect(state.postRequests).toHaveLength(1);
-      expect(state.postRequests[0]).toEqual({
+      expect(state.posts.count()).toBe(1);
+      expect(state.posts.bodies()[0]).toEqual({
         provider: 'opencode',
         providerConfig: {
           providerId: 'amazon-bedrock-openai',
@@ -342,8 +342,8 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
     await page.getByRole('button', { name: '연결하기' }).click();
 
     await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
-    expect(state.postRequests).toHaveLength(1);
-    expect((state.postRequests[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini');
+    expect(state.posts.count()).toBe(1);
+    expect((state.posts.bodies()[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini');
   });
 
   test('opencode 수동 입력에 이미 providerId/ 접두가 있으면 중복 접두하지 않는다', async ({
@@ -367,8 +367,8 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
     await page.getByRole('button', { name: '연결하기' }).click();
 
     await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
-    expect(state.postRequests).toHaveLength(1);
-    expect((state.postRequests[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini');
+    expect(state.posts.count()).toBe(1);
+    expect((state.posts.bodies()[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini');
   });
 
   test('opencode 모델 미선택 → 제출 버튼 비활성(POST 호출 없음)', async ({ adminPage: page }) => {
@@ -386,7 +386,7 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
     const submitBtn = page.getByRole('button', { name: '연결하기' });
     await expect(submitBtn).toBeDisabled();
 
-    expect(state.postRequests).toHaveLength(0);
+    expect(state.posts.count()).toBe(0);
     // Dialog 유지.
     await expect(page.getByRole('heading', { name: 'AI 연결하기' })).toBeVisible();
   });
@@ -460,8 +460,8 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
 
     await expect(page.getByText('연결 정보를 변경했습니다.')).toBeVisible();
 
-    expect(state.postRequests).toHaveLength(1);
-    expect(state.postRequests[0]).toEqual({ provider: 'anthropic', token: VALID_TOKEN_64 });
+    expect(state.posts.count()).toBe(1);
+    expect(state.posts.bodies()[0]).toEqual({ provider: 'anthropic', token: VALID_TOKEN_64 });
   });
 
   test('회수 → 미등록 상태로 전환', async ({ adminPage: page }) => {
@@ -487,7 +487,7 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
     await page.getByTestId('oauth-revoke-confirm').click();
 
     await expect(page.getByText('API 키를 회수했습니다.')).toBeVisible();
-    expect(state.deleteCount).toBe(1);
+    expect(state.deletes.count()).toBe(1);
     await expect(
       page.getByText('아직 연결되지 않았습니다. 연결하면 에이전트가 LLM을 호출할 수 있어요.'),
     ).toBeVisible();
@@ -517,7 +517,7 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
     await page.getByTestId('oauth-revoke-cancel').click();
     await expect(page.getByTestId('oauth-revoke-dialog')).not.toBeVisible();
 
-    expect(state.deleteCount).toBe(0);
+    expect(state.deletes.count()).toBe(0);
     await expect(page.getByTestId('oauth-token-revoke')).toBeVisible();
   });
 
@@ -532,7 +532,7 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
 
     await expect(page.getByText('토큰이 너무 짧습니다 (최소 32자)')).toBeVisible();
 
-    expect(state.postRequests).toHaveLength(0);
+    expect(state.posts.count()).toBe(0);
     // Dialog 유지.
     await expect(page.getByRole('heading', { name: 'AI 연결하기' })).toBeVisible();
   });
@@ -551,7 +551,7 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
 
     // 400 응답 메시지 → handleApiError 가 토스트 노출.
     await expect(page.getByText('invalid token')).toBeVisible();
-    expect(state.postRequests).toHaveLength(1);
+    expect(state.posts.count()).toBe(1);
 
     // Dialog 유지.
     await expect(page.getByRole('heading', { name: 'AI 연결하기' })).toBeVisible();

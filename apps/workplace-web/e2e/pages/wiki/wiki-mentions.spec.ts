@@ -20,6 +20,7 @@ import type {
 } from '../../../src/types/wiki'
 import { createMember } from '../../factories/auth.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 
 const SPACE_ID = 1
@@ -93,17 +94,17 @@ const ISSUE: IssueResponse = {
   customFields: [],
 }
 
-// 공통 모킹: 스페이스 + 트리 + 멤버 빈 스텁 + 페이지 GET/PUT. body 와 PUT 캡처는 호출처 제어.
+// 공통 모킹: 스페이스 + 트리 + 멤버 빈 스텁 + 페이지 GET/PUT. 페이지 PUT tracker 를 돌려준다.
 async function setupWikiMocks(
   page: import('@playwright/test').Page,
   opts: {
     role: WikiRole
     body: string
-    onSave?: (req: SavePageRequest) => void
     mentions?: WikiMentionRef[]
     backlinks?: WikiBacklink[]
   },
 ) {
+  const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${PAGE_ID}`)
   await page.route(
     (url) => url.pathname === '/api/v1/wiki/spaces',
     (route) =>
@@ -177,7 +178,6 @@ async function setupWikiMocks(
         })
       }
       if (method === 'PUT') {
-        opts.onSave?.(route.request().postDataJSON() as SavePageRequest)
         version += 1
         return route.fulfill({
           status: 200,
@@ -188,18 +188,21 @@ async function setupWikiMocks(
       return route.fallback()
     },
   )
+  return puts
 }
 
-// 통합 검색 3종(유저/위키/이슈) 모킹 + query param 캡처.
-async function setupSearchMocks(
-  page: import('@playwright/test').Page,
-  captured: { userQ?: string; wikiQ?: string; issueQ?: string },
-) {
+// 통합 검색 3종(유저/위키/이슈) 모킹. 검색별 요청 tracker 를 돌려준다(query param 확인용).
+async function setupSearchMocks(page: import('@playwright/test').Page) {
+  const issueSearch = (url: URL) => url.pathname === '/api/v1/me/issues' && url.searchParams.has('q')
+  const search = {
+    users: trackRequests(page, 'ANY', '/api/v1/members'),
+    wiki: trackRequests(page, 'ANY', '/api/v1/wiki/search'),
+    issues: trackRequests(page, 'ANY', issueSearch),
+  }
   // 유저 검색 — 구성원 디렉터리 GET /api/v1/members?search= (#833)
   await page.route(
     (url) => url.pathname === '/api/v1/members',
     (route) => {
-      captured.userQ = new URL(route.request().url()).searchParams.get('search') ?? undefined
       const body: PageResponse<MemberSummary> = {
         content: [USER],
         page: 0,
@@ -214,7 +217,6 @@ async function setupSearchMocks(
   await page.route(
     (url) => url.pathname === '/api/v1/wiki/search',
     (route) => {
-      captured.wikiQ = new URL(route.request().url()).searchParams.get('q') ?? undefined
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -224,28 +226,20 @@ async function setupSearchMocks(
   )
   // 이슈 횡단 검색 — GET /api/v1/me/issues?q=  (fixture 의 기본 빈 스텁보다 우선)
   await page.route(
-    (url) => url.pathname === '/api/v1/me/issues' && url.searchParams.has('q'),
+    issueSearch,
     (route) => {
-      captured.issueQ = new URL(route.request().url()).searchParams.get('q') ?? undefined
       const body: IssueSearchResponse = { items: [ISSUE], nextCursor: null, hasMore: false }
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
     },
   )
+  return search
 }
 
 test('위키 @ 멘션 — 통합 검색 호출 → 후보 렌더 → 페이지 선택 시 칩 삽입 + 저장 토큰', {
   tag: '@smoke',
 }, async ({ authenticatedPage: page }) => {
-  const captured: { userQ?: string; wikiQ?: string; issueQ?: string } = {}
-  let savedBody: string | null = null
-  await setupWikiMocks(page, {
-    role: 'EDITOR',
-    body: '',
-    onSave: (req) => {
-      savedBody = req.body
-    },
-  })
-  await setupSearchMocks(page, captured)
+  const puts = await setupWikiMocks(page, { role: 'EDITOR', body: '' })
+  const search = await setupSearchMocks(page)
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -255,9 +249,9 @@ test('위키 @ 멘션 — 통합 검색 호출 → 후보 렌더 → 페이지 �
   await page.keyboard.type('@온보')
 
   // 검색 API 가 query param '온보' 로 호출됐는지(필터→query param 검증).
-  await expect.poll(() => captured.wikiQ).toBe('온보')
-  await expect.poll(() => captured.userQ).toBe('온보')
-  await expect.poll(() => captured.issueQ).toBe('온보')
+  await expect.poll(() => search.wiki.lastUrl()?.searchParams.get('q')).toBe('온보')
+  await expect.poll(() => search.users.lastUrl()?.searchParams.get('search')).toBe('온보')
+  await expect.poll(() => search.issues.lastUrl()?.searchParams.get('q')).toBe('온보')
 
   // 후보 팝업 + 세 타입 행 렌더.
   await expect(page.getByTestId('wiki-mention-popover')).toBeVisible()
@@ -270,12 +264,12 @@ test('위키 @ 멘션 — 통합 검색 호출 → 후보 렌더 → 페이지 �
   await expect(page.locator('.ProseMirror span[data-mtype="PAGE"]')).toHaveText(WIKI_PAGE.title)
 
   // (b) 자동저장 PUT payload 의 body 에 페이지 토큰(<#page:55>)이 포함된다(입력→payload).
-  await expect.poll(() => savedBody).not.toBeNull()
-  await expect.poll(() => savedBody).toContain(`<#page:${WIKI_PAGE.id}>`)
+  await puts.waitFor()
+  await expect.poll(() => puts.lastBody<SavePageRequest>()?.body).toContain(`<#page:${WIKI_PAGE.id}>`)
 
   // (c) USER 멘션은 채팅 칩과 동일하게 "@" 프리픽스가 붙어야 한다(#703).
   await page.keyboard.type(' @온보')
-  await expect.poll(() => captured.userQ).toBe('온보')
+  await expect.poll(() => search.users.lastUrl()?.searchParams.get('search')).toBe('온보')
   await page.getByTestId(`wiki-mention-option-USER-${USER.userId}`).click()
   await expect(page.locator(`.ProseMirror span[data-mtype="USER"]`)).toHaveText(`@${USER.name}`)
 })
@@ -289,17 +283,9 @@ test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집
     { type: 'USER', id: 7, label: '앨리스', spaceId: null, projectKey: null, number: null },
     { type: 'PAGE', id: 55, label: '온보딩 가이드', spaceId: SPACE_ID, projectKey: null, number: null },
   ]
-  let savedBody: string | null = null
-  await setupWikiMocks(page, {
-    role: 'EDITOR',
-    body: BODY,
-    mentions: MENTIONS,
-    onSave: (req) => {
-      savedBody = req.body
-    },
-  })
-  // 검색 모킹은 불필요하나 누수 방지로 빈 캡처 객체로 깔아둔다.
-  await setupSearchMocks(page, {})
+  const puts = await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
+  // 검색 모킹은 불필요하나 누수 방지로 깔아둔다.
+  await setupSearchMocks(page)
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -318,8 +304,8 @@ test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집
   await page.keyboard.type('!')
 
   // 토큰뿐 아니라 주변 텍스트·공백까지 보존되는지(직렬화 인접성 회귀)를 함께 검증한다.
-  await expect.poll(() => savedBody).not.toBeNull()
-  await expect.poll(() => savedBody).toContain('담당 <@7> 은 <#page:55> 문서를')
+  await puts.waitFor()
+  await expect.poll(() => puts.lastBody<SavePageRequest>()?.body).toContain('담당 <@7> 은 <#page:55> 문서를')
 })
 
 test('위키 @ 멘션 — 검색 결과 없을 때 결과 없음 메시지 표시(피드백)', async ({
@@ -370,9 +356,8 @@ test('위키 @ 멘션 — 검색 결과 없을 때 결과 없음 메시지 표�
 test('위키 @ 멘션 — VIEWER 는 @ 멘션 피커가 노출되지 않는다(역할 게이트)', async ({
   authenticatedPage: page,
 }) => {
-  const captured: { userQ?: string; wikiQ?: string; issueQ?: string } = {}
   await setupWikiMocks(page, { role: 'VIEWER', body: '' })
-  await setupSearchMocks(page, captured)
+  const search = await setupSearchMocks(page)
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -381,7 +366,7 @@ test('위키 @ 멘션 — VIEWER 는 @ 멘션 피커가 노출되지 않는다(�
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('@온보')
   await expectStays(page, () => page.getByTestId('wiki-mention-popover').count(), 0)
-  expect(captured.wikiQ).toBeUndefined()
+  expect(search.wiki.count()).toBe(0)
 })
 
 // ── S4: 멘션 칩 내비게이션 ──────────────────────────────────────────────────
@@ -397,7 +382,7 @@ test('위키 멘션 칩 — PAGE 칩 클릭 시 위키 페이지 경로로 이�
     { type: 'PAGE', id: 55, label: '온보딩 가이드', spaceId: SPACE_ID, projectKey: null, number: null },
   ]
   await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
-  await setupSearchMocks(page, {})
+  await setupSearchMocks(page)
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror span[data-mtype="PAGE"]')).toHaveText('온보딩 가이드')
@@ -417,7 +402,7 @@ test('위키 멘션 칩 — ISSUE 칩 클릭 시 이슈 상세 경로로 이동(
     { type: 'ISSUE', id: 99, label: '로그인 버그', spaceId: null, projectKey: 'WP', number: 12 },
   ]
   await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
-  await setupSearchMocks(page, {})
+  await setupSearchMocks(page)
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror span[data-mtype="ISSUE"]')).toHaveText('로그인 버그')
@@ -440,7 +425,7 @@ test('위키 백링크 패널 — 참조 페이지 칩 렌더 + 클릭 시 출�
     { pageId: 502, spaceId: OTHER_SPACE_ID, spaceName: '엔지니어링', title: '제품 로드맵', updatedAt: '2026-06-11T00:00:00Z' },
   ]
   await setupWikiMocks(page, { role: 'EDITOR', body: '', backlinks: BACKLINKS })
-  await setupSearchMocks(page, {})
+  await setupSearchMocks(page)
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -568,7 +553,7 @@ test('위키 백링크 패널 — 백링크가 없으면 패널이 숨겨진다'
 }) => {
   // 빈 백링크 → 패널 미노출(절제).
   await setupWikiMocks(page, { role: 'EDITOR', body: '', backlinks: [] })
-  await setupSearchMocks(page, {})
+  await setupSearchMocks(page)
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()

@@ -9,17 +9,17 @@ import { createPageResponse } from '../../fixtures/api-mock';
 import { createAuditLog } from '../../factories/admin.factory';
 import { createMember } from '../../factories/auth.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 
 const PAGE_SIZE = 50;
 
-/** 감사 로그 offset 페이징 스텁 — 요청 URL 을 모두 기록한다. */
+/** 감사 로그 offset 페이징 스텁 — 요청 tracker 를 돌려준다. */
 async function stubAuditLogs(page: Page, totalPages: number) {
-  const requests: URL[] = [];
+  const requests = trackRequests(page, 'GET', '/api/v1/admin/audit-logs');
   await page.route(
     (url) => url.pathname === '/api/v1/admin/audit-logs',
     (route) => {
       const url = new URL(route.request().url());
-      requests.push(url);
       const n = Number(url.searchParams.get('page') ?? 0);
       const logs = Array.from({ length: PAGE_SIZE }, (_, i) =>
         createAuditLog({ id: n * PAGE_SIZE + i + 1, description: `감사 로그 ${n * PAGE_SIZE + i + 1}` }),
@@ -36,14 +36,13 @@ async function stubAuditLogs(page: Page, totalPages: number) {
   return requests;
 }
 
-/** 구성원 디렉터리 스텁 — search 파라미터로 거른 결과를 돌려주고 요청을 기록한다. */
+/** 구성원 디렉터리 스텁 — search 파라미터로 거른 결과를 돌려주고 요청 tracker 를 돌려준다. */
 async function stubMembers(page: Page, members: ReturnType<typeof createMember>[]) {
-  const requests: URL[] = [];
+  const requests = trackRequests(page, 'GET', '/api/v1/members');
   await page.route(
     (url) => url.pathname === '/api/v1/members',
     (route) => {
       const url = new URL(route.request().url());
-      requests.push(url);
       const q = url.searchParams.get('search')?.toLowerCase();
       const hit = q ? members.filter((m) => m.name.toLowerCase().includes(q) || m.username.includes(q)) : members;
       return route.fulfill({
@@ -71,22 +70,22 @@ test.describe('감사 로그 사용자 필터 (WP-183)', () => {
     await page.goto('/settings/audit-logs');
     await expect(page.getByText('감사 로그 1', { exact: true })).toBeVisible();
     // 팝오버를 열기 전에는 구성원 목록을 받지 않는다
-    expect(memberRequests).toHaveLength(0);
+    expect(memberRequests.count()).toBe(0);
 
     await page.getByRole('combobox', { name: '사용자 필터' }).click();
     await page.getByRole('combobox', { name: '사용자 검색' }).fill('구성원150');
-    await expect.poll(() => memberRequests.at(-1)?.searchParams.get('search')).toBe('구성원150');
-    await expect.poll(() => memberRequests.at(-1)?.searchParams.get('includeInactive')).toBe('true');
+    await expect.poll(() => memberRequests.lastUrl()?.searchParams.get('search')).toBe('구성원150');
+    await expect.poll(() => memberRequests.lastUrl()?.searchParams.get('includeInactive')).toBe('true');
     await page.getByTestId('audit-user-option-150').click();
 
     await expect(page.getByRole('combobox', { name: '사용자 필터' })).toHaveText(/구성원150/);
-    await expect.poll(() => auditRequests.at(-1)?.searchParams.get('userId')).toBe('150');
+    await expect.poll(() => auditRequests.lastUrl()?.searchParams.get('userId')).toBe('150');
 
     // 전체 사용자 → userId 파라미터 제거
     await page.getByRole('combobox', { name: '사용자 필터' }).click();
     await page.getByRole('option', { name: '전체 사용자' }).click();
     await expect(page.getByRole('combobox', { name: '사용자 필터' })).toHaveText(/전체 사용자/);
-    await expect.poll(() => auditRequests.at(-1)?.searchParams.has('userId')).toBe(false);
+    await expect.poll(() => auditRequests.lastUrl()?.searchParams.has('userId')).toBe(false);
   });
 
   test('깊이 스크롤한 뒤 다른 화면에 갔다 오면 첫 페이지만 다시 받는다', async ({ adminPage: page }) => {
@@ -103,12 +102,12 @@ test.describe('감사 로그 사용자 필터 (WP-183)', () => {
     // 다른 설정 화면에 갔다가 돌아온다
     await page.getByRole('link', { name: '구성원' }).click();
     await expect(page.getByRole('heading', { name: '구성원' })).toBeVisible();
-    const before = auditRequests.length;
+    const before = auditRequests.count();
     await page.getByRole('link', { name: '감사 로그' }).click();
     await expect(page.getByText('감사 로그 1', { exact: true })).toBeVisible();
 
     // 돌아온 뒤 요청은 page=0 하나뿐 — 받아 둔 1·2 페이지를 순서대로 다시 받지 않는다
-    const after = auditRequests.slice(before).map((u) => u.searchParams.get('page'));
+    const after = auditRequests.urls().slice(before).map((u) => u.searchParams.get('page'));
     expect(after).toEqual(['0']);
   });
 });

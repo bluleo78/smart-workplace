@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { createFile, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const SPACE_ID = 1
 
@@ -98,27 +99,25 @@ test('버전 이력 모달 표시·롤백', { tag: '@smoke' }, async ({ authenti
   await expect(page.getByTestId('version-row-1')).toContainText('100 B')
   await expect(page.getByTestId('version-row-1')).not.toContainText('0KB')
   // v1 롤백 클릭 → 확인 다이얼로그(#815)가 먼저 뜨고, 아직 API 호출 안 됨
-  let rollbackCalled = false
+  const rollbacks = trackRequests(page, 'ANY', '/api/v1/drive/files/5/versions/1/rollback')
   await page.route(
     (url) => url.pathname === `/api/v1/drive/files/5/versions/1/rollback`,
-    (route) => {
-      rollbackCalled = true
-      return route.fulfill({
+    (route) =>
+      route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ ...file, versionCount: 3 }),
-      })
-    },
+      }),
   )
   await page.getByTestId('rollback-1').click()
   await expect(page.getByTestId('rollback-confirm-dialog')).toBeVisible()
-  expect(rollbackCalled).toBe(false)
+  expect(rollbacks.count()).toBe(0)
   // 확인 클릭 → 그제서야 API 호출
   await page.getByTestId('rollback-confirm-action').click()
   await expect(page.getByTestId('rollback-confirm-dialog')).not.toBeVisible()
   // 롤백 후 목록 재조회가 트리거됨(에러 없이 모달 유지)
   await expect(page.getByTestId('version-history-modal')).toBeVisible()
-  expect(rollbackCalled).toBe(true)
+  await rollbacks.waitFor()
 })
 
 test('버전 롤백 확인 다이얼로그 — 취소 시 롤백 미실행 (#815)', async ({
@@ -165,17 +164,15 @@ test('버전 롤백 확인 다이얼로그 — 취소 시 롤백 미실행 (#815
         ]),
       }),
   )
-  let rollbackCalled = false
+  const rollbacks = trackRequests(page, 'ANY', '/api/v1/drive/files/5/versions/1/rollback')
   await page.route(
     (url) => url.pathname === `/api/v1/drive/files/5/versions/1/rollback`,
-    (route) => {
-      rollbackCalled = true
-      return route.fulfill({
+    (route) =>
+      route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ ...file, versionCount: 3 }),
-      })
-    },
+      }),
   )
 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
@@ -192,7 +189,7 @@ test('버전 롤백 확인 다이얼로그 — 취소 시 롤백 미실행 (#815
   await page.getByRole('button', { name: '취소' }).click()
   await expect(page.getByTestId('rollback-confirm-dialog')).not.toBeVisible()
   await expect(page.getByTestId('version-history-modal')).toBeVisible()
-  expect(rollbackCalled).toBe(false)
+  expect(rollbacks.count()).toBe(0)
   // v1이 여전히 "현재"로 표시되지 않음(=롤백 미실행) — v2가 현재 유지
   await expect(page.getByTestId('version-row-2')).toContainText('현재')
 })

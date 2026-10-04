@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { createSpace, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const SPACE_ID = 1
 
@@ -37,9 +38,9 @@ test.describe('드라이브 폴더 업로드', () => {
           : route.fallback(),
     )
 
-    const calls: string[] = []
+    const resolves = trackRequests(page, 'ANY', /^\/api\/v1\/drive\/spaces\/[^/]+\/folders\/resolve$/)
+    const uploads = trackRequests(page, 'POST', `/api/v1/drive/spaces/${SPACE_ID}/files`)
     await page.route('**/api/v1/drive/spaces/*/folders/resolve', async (route) => {
-      calls.push('resolve')
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -48,7 +49,6 @@ test.describe('드라이브 폴더 업로드', () => {
     })
     await page.route(`**/api/v1/drive/spaces/${SPACE_ID}/files`, async (route) => {
       if (route.request().method() === 'POST') {
-        calls.push('upload')
         await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
       } else {
         await route.fallback()
@@ -104,7 +104,7 @@ test.describe('드라이브 폴더 업로드', () => {
     })
 
     // resolveFolder(docs) + uploadFile(docs/a.txt) 가 호출되어야 한다.
-    await expect.poll(() => calls, { timeout: 10000 }).toContain('resolve')
-    await expect.poll(() => calls, { timeout: 10000 }).toContain('upload')
+    await resolves.waitFor(1, { timeout: 10000 })
+    await uploads.waitFor(1, { timeout: 10000 })
   })
 })

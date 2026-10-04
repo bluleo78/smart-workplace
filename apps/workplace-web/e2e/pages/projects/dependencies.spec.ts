@@ -7,6 +7,7 @@
 import type { Page, Route } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue } from '../../factories/issue.factory';
 import { makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import type { IssueLinkSummary } from '../../../src/types/issue';
@@ -71,8 +72,8 @@ test.describe('의존성', () => {
       const taskType = makeTaskType();
       // 서버 상태 mock — 현재 issue#1 의 blocks 리스트. mutation 마다 누적/제거.
       let blocks: IssueLinkSummary[] = [];
-      let postPayload: unknown;
-      let deleteUrl: string | undefined;
+      const depPosts = trackRequests(page, 'POST', `${ISSUES_BASE}/1/dependencies`);
+      const depDeletes = trackRequests(page, 'DELETE', `${ISSUES_BASE}/1/dependencies`);
 
       await setupCommonStubs(page);
 
@@ -105,8 +106,7 @@ test.describe('의존성', () => {
         (route: Route) => {
           const req = route.request();
           if (req.method() === 'POST') {
-            postPayload = req.postDataJSON();
-            const body = postPayload as { otherNumber: number; direction: string };
+            const body = req.postDataJSON() as { otherNumber: number; direction: string };
             blocks = [
               ...blocks,
               {
@@ -136,7 +136,6 @@ test.describe('의존성', () => {
             });
           }
           if (req.method() === 'DELETE') {
-            deleteUrl = req.url();
             const url = new URL(req.url());
             const on = Number(url.searchParams.get('otherNumber'));
             blocks = blocks.filter((b) => b.number !== on);
@@ -159,7 +158,7 @@ test.describe('의존성', () => {
 
       // POST payload — direction='blocks' 컨트랙트 검증.
       await expect
-        .poll(() => postPayload)
+        .poll(() => depPosts.lastBody())
         .toEqual({ otherNumber: 42, direction: 'blocks' });
 
       // 성공 토스트 + 슬롯의 행 노출 + picker close (mutateAsync 완료 후).
@@ -172,8 +171,8 @@ test.describe('의존성', () => {
       await linkRow42.hover();
       await page.getByTestId('issue-link-remove-42').click();
 
-      await expect.poll(() => deleteUrl).toBeDefined();
-      const url = new URL(deleteUrl!);
+      await depDeletes.waitFor();
+      const url = depDeletes.urls()[0];
       expect(url.searchParams.get('otherNumber')).toBe('42');
       expect(url.searchParams.get('direction')).toBe('blocks');
 
@@ -326,14 +325,13 @@ test.describe('의존성', () => {
     await setupCommonStubs(page);
 
     let currentDueDate: string | null = null;
-    const patches: Record<string, unknown>[] = [];
+    const patches = trackRequests(page, 'PATCH', `${ISSUES_BASE}/1`);
 
     await page.route(
       (url) => url.pathname === `${ISSUES_BASE}/1`,
       (route) => {
         if (route.request().method() === 'PATCH') {
           const payload = route.request().postDataJSON() as Record<string, unknown>;
-          patches.push(payload);
           if (typeof payload.dueDate === 'string') currentDueDate = payload.dueDate;
           return route.fulfill({
             status: 200,
@@ -381,8 +379,8 @@ test.describe('의존성', () => {
     await day10.click();
 
     // PATCH 는 그대로 나가고(차단 없음), 인라인 경고가 노출된다.
-    await expect.poll(() => patches.length).toBeGreaterThanOrEqual(1);
-    expect(typeof patches[0].dueDate).toBe('string');
+    await patches.waitFor();
+    expect(typeof patches.bodies<Record<string, unknown>>()[0].dueDate).toBe('string');
     await expect(page.getByTestId('due-date-warning')).toBeVisible();
     await expect(page.getByTestId('due-date-warning')).toContainText(blockerDueDate);
 
@@ -416,14 +414,13 @@ test.describe('의존성', () => {
     await setupCommonStubs(page);
 
     let currentStatus: 'TODO' | 'DONE' = 'TODO';
-    const patches: Record<string, unknown>[] = [];
+    const patches = trackRequests(page, 'PATCH', `${ISSUES_BASE}/1`);
 
     await page.route(
       (url) => url.pathname === `${ISSUES_BASE}/1`,
       (route) => {
         if (route.request().method() === 'PATCH') {
           const payload = route.request().postDataJSON() as Record<string, unknown>;
-          patches.push(payload);
           if (payload.status === 'DONE') currentStatus = 'DONE';
           return route.fulfill({
             status: 200,
@@ -469,28 +466,28 @@ test.describe('의존성', () => {
     await expect(dialog).toContainText('선행 이슈 1건이 아직 완료되지 않았습니다');
     await expect(page.getByTestId('status-done-blocked-list')).toContainText(`${KEY}-21`);
     await expect(page.getByTestId('status-done-blocked-list')).not.toContainText(`${KEY}-22`);
-    expect(patches).toHaveLength(0);
+    expect(patches.count()).toBe(0);
 
     // 2) 취소 → 다이얼로그 닫힘, 상태 유지, PATCH 없음.
     await page.getByTestId('status-done-blocked-cancel').click();
     await expect(dialog).toHaveCount(0);
     await expect(statusSelect).toContainText('할 일');
-    expect(patches).toHaveLength(0);
+    expect(patches.count()).toBe(0);
 
     // 3) 다시 완료 선택 → 확인 → PATCH status=DONE 전송 + UI 반영.
     await statusSelect.click();
     await page.getByRole('option', { name: '완료' }).click();
     await expect(dialog).toBeVisible();
     await page.getByTestId('status-done-blocked-confirm').click();
-    await expect.poll(() => patches.length).toBe(1);
-    expect(patches[0].status).toBe('DONE');
+    await expect.poll(patches.count).toBe(1);
+    expect(patches.bodies<{ status?: string }>()[0].status).toBe('DONE');
     await expect(statusSelect).toContainText('완료');
 
     // 4) 진행 중 → 완료가 아닌 전환(예: 취소)은 다이얼로그 없이 즉시 PATCH.
     await statusSelect.click();
     await page.getByRole('option', { name: '취소' }).click();
-    await expect.poll(() => patches.length).toBe(2);
-    expect(patches[1].status).toBe('CANCELED');
+    await expect.poll(patches.count).toBe(2);
+    expect(patches.bodies<{ status?: string }>()[1].status).toBe('CANCELED');
     await expect(page.getByTestId('status-done-blocked-dialog')).toHaveCount(0);
   });
 });

@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents'
 
@@ -253,18 +254,19 @@ test.describe('메일 모두 읽음 — 데스크톱(WP-187)', () => {
     // 첫 건수 요청(업무 보기)만 붙잡아 두고, 이후 요청은 바로 응답한다.
     let release!: () => void
     const gate = new Promise<void>((r) => { release = r })
-    const seen: URLSearchParams[] = []
+    const counts = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/messages/unread-count')
+    // 응답 분기용 — 몇 번째 요청인지로 게이트·건수를 정한다.
+    let handled = 0
     await page.route((url) => url.pathname === '/api/v1/mail/accounts/1/messages/unread-count', async (route) => {
-      const sp = new URL(route.request().url()).searchParams
-      seen.push(sp)
-      if (seen.length === 1) await gate
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ count: seen.length === 1 ? 5 : 1, asOf: AS_OF }) })
+      handled += 1
+      if (handled === 1) await gate
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ count: handled === 1 ? 5 : 1, asOf: AS_OF }) })
     })
     const run = await mockApi(page, 'POST', '/api/v1/mail/accounts/1/messages/mark-all-read', { updated: 1 }, { capture: true })
     await page.goto('/mail/1')
     await page.getByTestId('mail-mark-all-read').click()
-    await expect.poll(() => seen.length).toBe(1)
-    expect(seen[0].get('category')).toBe('업무')
+    await expect.poll(counts.count).toBe(1)
+    expect(counts.urls()[0].searchParams.get('category')).toBe('업무')
     // 응답 전에 받은편지함(전체)으로 이동 → 그다음 옛 응답 도착.
     await page.getByTestId('mail-folder-inbox').click()
     await expect(page).toHaveURL(/category=all/)
@@ -274,8 +276,8 @@ test.describe('메일 모두 읽음 — 데스크톱(WP-187)', () => {
     // 옛 보기(업무 5통) 응답은 버린다 — 다이얼로그가 뜨지 않고, 이어지는 새 보기 흐름도 덮지 않는다.
     await expect(page.getByTestId('mail-mark-all-dialog')).toHaveCount(0)
     await page.getByTestId('mail-mark-all-read').click()
-    await expect.poll(() => seen.length).toBe(2)
-    expect(seen[1].get('category')).toBeNull()
+    await expect.poll(counts.count).toBe(2)
+    expect(counts.urls()[1].searchParams.get('category')).toBeNull()
     const dlg = page.getByTestId('mail-mark-all-dialog')
     await expect(dlg).toContainText('1통')
     await expect(dlg).not.toContainText('업무')

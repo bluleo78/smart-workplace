@@ -3,6 +3,7 @@
 
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockApi } from '../../fixtures/api-mock'
+import { trackRequests } from '../../fixtures/requests'
 import { createIssueSearchResponse, createIssue } from '../../factories/issue.factory'
 import { createProject } from '../../factories/project.factory'
 import { systemTypes } from '../../factories/issueType.factory'
@@ -61,10 +62,9 @@ test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
     await stubProject(page)
 
     // 이슈 생성 POST 가 호출되면 실패시킨다 — 공백뿐인 제목은 서버 왕복이 없어야 함.
-    let createRequested = false
+    const creates = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues`)
     await page.route(`**/api/v1/projects/${PROJECT_KEY}/issues`, (route) => {
       if (route.request().method() === 'POST') {
-        createRequested = true
         return route.fulfill({ status: 400, contentType: 'application/json', body: '{}' })
       }
       return route.fallback()
@@ -80,7 +80,7 @@ test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
 
     // 클라이언트 인라인 오류가 표시되고, 서버로는 요청이 가지 않아야 한다.
     await expect(page.getByText('제목은 필수입니다')).toBeVisible()
-    expect(createRequested).toBe(false)
+    expect(creates.count()).toBe(0)
 
     // 다이얼로그는 여전히 열려 있어야 한다 (제출되지 않았음).
     await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
@@ -89,10 +89,9 @@ test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
   test('제목 앞뒤 공백은 trim 되어 제출된다 (#612)', async ({ authenticatedPage: page }) => {
     await stubProject(page)
 
-    let submittedTitle: string | undefined
+    const creates = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues`)
     await page.route(`**/api/v1/projects/${PROJECT_KEY}/issues`, (route) => {
       if (route.request().method() === 'POST') {
-        submittedTitle = route.request().postDataJSON().title
         return route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -109,7 +108,7 @@ test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
     await page.getByLabel('제목').fill('  trimmed title  ')
     await page.getByRole('button', { name: '생성' }).click()
 
-    await expect.poll(() => submittedTitle).toBe('trimmed title')
+    await expect.poll(() => creates.lastBody<{ title: string }>()?.title).toBe('trimmed title')
   })
 
   test('제목 200자 이하에서는 유효성 오류가 없다', async ({ authenticatedPage: page }) => {

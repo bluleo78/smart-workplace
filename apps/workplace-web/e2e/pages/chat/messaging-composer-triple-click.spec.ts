@@ -4,6 +4,7 @@
 // 백엔드 없이 page.route() 로 API 모킹 (messaging-composer-upload.spec.ts 패턴 동일).
 import { createPageResponse } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { createChannel, createChannelMember, createMessage } from '../../factories/messaging.factory'
 
 const CHANNEL_ID = 810
@@ -99,9 +100,11 @@ test(
   async ({ authenticatedPage: page }) => {
     await stubCommon(page)
 
-    // POST 호출 횟수 카운트 — race condition 재현을 위해 약간의 지연을 준다
+    // POST 응답에 약간의 지연을 준다 — race condition 재현
     // (실제 네트워크 latency가 있는 환경에서 중복 전송이 재현되기 쉬운 조건을 모사).
+    // postCount 는 응답 메시지 id 용.
     let postCount = 0
+    const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`)
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
       async (route) => {
@@ -146,6 +149,6 @@ test(
 
     // 전송 완료(입력창이 비워짐) 대기 후 POST 는 정확히 1번만 발생해야 한다.
     await expect(page.getByTestId('message-composer-input')).toHaveText('')
-    expect(postCount).toBe(1)
+    expect(posts.count()).toBe(1)
   },
 )

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const SPACE_ID = 1
 // ESM 컨텍스트: __dirname 대신 이 스펙 파일 기준 디렉토리.
@@ -364,13 +365,10 @@ test.describe('드라이브 프리뷰 포맷', () => {
       (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     )
     // 12MB(확인 기준 10MB 초과) — 묻는 동안 콘텐츠를 받지 않아야 한다(WP-203 후속).
-    let contentRequests = 0
+    const contents = trackRequests(page, 'ANY', `/api/v1/drive/files/${BIG_FILE.id}/content`)
     await page.route(
       (url) => url.pathname === `/api/v1/drive/files/${BIG_FILE.id}/content`,
-      (route) => {
-        contentRequests += 1
-        return route.fulfill({ status: 200, contentType: XLSX_MIME, body: Buffer.alloc(16) })
-      },
+      (route) => route.fulfill({ status: 200, contentType: XLSX_MIME, body: Buffer.alloc(16) }),
     )
 
     await page.goto(`/drive/spaces/${SPACE_ID}`)
@@ -379,7 +377,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
     const body = page.getByTestId('preview-body')
     await expect(body.getByTestId('preview-size-confirm')).toContainText('12.0 MB')
     await expect(body.getByTestId('xlsx-table')).toHaveCount(0)
-    expect(contentRequests).toBe(0)
+    expect(contents.count()).toBe(0)
   })
 
   const DOCX_MIME =

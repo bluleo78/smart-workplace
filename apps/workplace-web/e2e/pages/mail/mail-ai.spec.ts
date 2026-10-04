@@ -5,6 +5,7 @@ import { createUser } from '../../factories/auth.factory'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 /** 목록 1건(id 7, alice 발신) + 상세 모킹 — 인용문(#765) 테스트 공용. */
 async function mockInboxMessage(page: Page, overrides: Parameters<typeof detail>[0] = {}) {
@@ -211,12 +212,11 @@ test.describe('메일 AI 비서', () => {
   test('AI 검토 요청에 인용문이 실리지 않는다', async ({ authenticatedPage: page }) => {
     await mockInboxMessage(page)
 
-    let coachReq: { bodyHtml: string; bodyText: string } | null = null
     // 코칭은 계정 경로가 아니라 /api/v1/mail/draft-coaching 이다(mailMessages.ts:120).
+    const coaches = trackRequests(page, 'ANY', '/api/v1/mail/draft-coaching')
     await page.route(
       (u) => u.pathname === '/api/v1/mail/draft-coaching',
       async (route) => {
-        coachReq = route.request().postDataJSON()
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -232,7 +232,8 @@ test.describe('메일 AI 비서', () => {
     await page.keyboard.type('확인했습니다.')
     await page.getByText('AI 검토', { exact: true }).click()
 
-    await expect.poll(() => coachReq).not.toBeNull()
+    await coaches.waitFor()
+    const coachReq = coaches.lastBody<{ bodyHtml: string; bodyText: string }>()
     // AI 가 남의 메일을 내 초안으로 착각하던 문제(#765)
     expect(coachReq!.bodyHtml).not.toContain('<blockquote>')
     expect(coachReq!.bodyHtml).not.toContain('님이 작성')
@@ -330,17 +331,16 @@ test.describe('메일 AI 비서', () => {
     await mockApi(page, 'GET', '/api/v1/mail/messages/7', detail({ id: 7, bodyText: '본문' }))
 
     // 요약 API 요청이 들어오면 테스트 실패 — aiAvailable false 일 때 fetch 자체를 안 해야 한다.
-    let summaryRequested = false
-    await page.route((u) => /\/mail\/messages\/\d+\/summary/.test(u.pathname), (route) => {
-      summaryRequested = true
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ summary: '요약' }) })
-    })
+    const summaries = trackRequests(page, 'ANY', /\/mail\/messages\/\d+\/summary/)
+    await page.route((u) => /\/mail\/messages\/\d+\/summary/.test(u.pathname), (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ summary: '요약' }) }),
+    )
 
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-7').click()
     await page.getByTestId('mail-detail').waitFor()
 
-    expect(summaryRequested).toBe(false)
+    expect(summaries.count()).toBe(0)
     await expect(page.getByTestId('mail-ai-summary')).not.toBeVisible()
     await expect(page.getByTestId('mail-ai-reply-draft')).not.toBeVisible()
   })

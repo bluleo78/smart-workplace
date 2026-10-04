@@ -7,6 +7,7 @@
 //   백엔드는 updatedAt desc 로 정렬 반환 → 프론트에서 createdAt asc 재정렬 검증.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeSubtaskType, systemTypes } from '../../factories/issueType.factory';
 
@@ -69,7 +70,7 @@ test.describe('SUBTASK', () => {
       };
       // 자식은 mutation 후 in-memory 누적.
       let childCreated: Array<{ id: number; number: number; title: string }> = [];
-      let postPayload: unknown;
+      const creates = trackRequests(page, 'POST', ISSUES_BASE);
 
       await setupCommonStubs(page);
 
@@ -115,12 +116,12 @@ test.describe('SUBTASK', () => {
         (route) => {
           const req = route.request();
           if (req.method() === 'POST') {
-            postPayload = req.postDataJSON();
+            const { title } = req.postDataJSON() as { title: string };
             const next = childCreated.length + 100;
             const child = {
               id: next,
               number: next,
-              title: (postPayload as { title: string }).title,
+              title,
             };
             childCreated = [...childCreated, child];
             return route.fulfill({
@@ -181,7 +182,7 @@ test.describe('SUBTASK', () => {
 
       // POST payload — 백엔드 컨트랙트 검증.
       await expect
-        .poll(() => postPayload)
+        .poll(() => creates.lastBody())
         .toEqual({ title: '첫 자식', typeId: 5, parentNumber: 1 });
 
       // 추가 후 자식 리스트 갱신 (invalidate → refetch).
@@ -418,7 +419,7 @@ test.describe('SUBTASK', () => {
     };
     // 초기 부모: TASK number=12. PATCH 후 number=15 로 변경.
     let currentParent: { number: number; title: string } = { number: 12, title: '부모 12' };
-    let patchPayload: unknown;
+    const parentPatches = trackRequests(page, 'ANY', `${ISSUES_BASE}/5/parent`);
 
     await setupCommonStubs(page);
 
@@ -468,13 +469,12 @@ test.describe('SUBTASK', () => {
         route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     );
 
-    // PATCH /issues/5/parent — payload 캡처 + currentParent 갱신 + IssueDetailResponse 반환.
+    // PATCH /issues/5/parent — currentParent 갱신 + IssueDetailResponse 반환.
     await page.route(
       (url) => url.pathname === `${ISSUES_BASE}/5/parent`,
       (route) => {
         const req = route.request();
-        patchPayload = req.postDataJSON();
-        const newNumber = (patchPayload as { parentNumber: number }).parentNumber;
+        const newNumber = (req.postDataJSON() as { parentNumber: number }).parentNumber;
         currentParent = { number: newNumber, title: `부모 ${newNumber}` };
         return route.fulfill({
           status: 200,
@@ -517,7 +517,7 @@ test.describe('SUBTASK', () => {
     await page.getByTestId('parent-save').click();
 
     // PATCH payload — 백엔드 컨트랙트 검증.
-    await expect.poll(() => patchPayload).toEqual({ parentNumber: 15 });
+    await expect.poll(() => parentPatches.lastBody()).toEqual({ parentNumber: 15 });
 
     // 슬롯 갱신 — picker 닫히고 새 ParentBadge 노출.
     await expect(page.getByTestId('issue-parent-picker')).toHaveCount(0);

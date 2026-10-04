@@ -8,6 +8,7 @@ import type { Locator, Page } from '@playwright/test'
 import { createMessage } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { json, stubChannelMessages } from '../../fixtures/mobile-chat'
+import { trackRequests } from '../../fixtures/requests'
 
 const UPLOAD = '/api/v1/messaging/channels/1/attachments'
 
@@ -23,16 +24,15 @@ async function stubUpload(page: Page) {
   return uploaded
 }
 
-/** 전송 스텁 — POST 본문(body·fileIds)을 기록한다. */
+/** 전송 스텁 — 201 확정 응답하고, 보낸 POST 를 기록하는 tracker 를 돌려준다. */
 async function stubSend(page: Page) {
-  const sent: { body: string; fileIds: number[] }[] = []
+  const sends = trackRequests(page, 'POST', '/api/v1/messaging/channels/1/messages')
   await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/messages', (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     const p = r.request().postDataJSON() as { body: string; fileIds: number[] }
-    sent.push({ body: p.body, fileIds: p.fileIds })
     return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(createMessage({ id: 90, channelId: 1, authorId: 1, body: p.body })) })
   })
-  return sent
+  return sends
 }
 
 /** 요소의 세로 중심·하단(px). */
@@ -87,7 +87,7 @@ test.describe('채팅 입력창 한 줄 레이아웃 (WP-235)', () => {
 
   test('＋ 팝오버에서 파일 첨부 → 사전 업로드 → 칩 → 전송 payload 에 fileIds', async ({ authenticatedPage: page }) => {
     const uploaded = await stubUpload(page)
-    const sent = await stubSend(page)
+    const sends = await stubSend(page)
     await page.getByTestId('composer-attach-button').click()
     await expect(page.getByTestId('composer-attach-menu')).toBeVisible()
     await expect(page.getByTestId('composer-drive-link-btn')).toBeVisible()
@@ -100,7 +100,9 @@ test.describe('채팅 입력창 한 줄 레이아웃 (WP-235)', () => {
     await page.getByTestId('message-composer-input').click()
     await page.keyboard.type('첨부 확인 부탁드려요')
     await page.getByTestId('message-composer-submit').click()
-    await expect.poll(() => sent).toEqual([{ body: '첨부 확인 부탁드려요', fileIds: [9000] }])
+    await expect
+      .poll(() => sends.bodies<{ body: string; fileIds: number[] }>().map(({ body, fileIds }) => ({ body, fileIds })))
+      .toEqual([{ body: '첨부 확인 부탁드려요', fileIds: [9000] }])
   })
 
   test('스크린샷 붙여넣기 → 본문 대신 첨부 칩', async ({ authenticatedPage: page }) => {
@@ -127,6 +129,7 @@ test.describe('채팅 입력창 한 줄 레이아웃 (WP-235)', () => {
     // 첫 업로드(드롭한 큰 파일)는 테스트가 풀어 줄 때까지 붙잡고, 두 번째(붙여넣은 스크린샷)는 바로 응답한다.
     let releaseFirst!: () => void
     let calls = 0
+    const uploads = trackRequests(page, 'ANY', UPLOAD)
     await page.route((u) => u.pathname === UPLOAD, async (r) => {
       // 순번은 지역으로 잡는다 — 첫 요청이 풀려날 땐 calls 가 이미 2다.
       const nth = ++calls
@@ -144,7 +147,7 @@ test.describe('채팅 입력창 한 줄 레이아웃 (WP-235)', () => {
       return d
     })
     await page.getByTestId('message-composer').dispatchEvent('drop', { dataTransfer: dt })
-    await expect.poll(() => calls).toBe(1)
+    await expect.poll(uploads.count).toBe(1)
     await paste(input, { name: 'image.png', type: 'image/png' })
     // 두 번째 업로드가 끝나 칩이 보여도 첫 업로드가 남아 있으니 전송은 막혀 있다.
     await expect(page.getByTestId('composer-attachments')).toContainText('image.png')

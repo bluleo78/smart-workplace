@@ -3,6 +3,7 @@
 // 이슈 상태 변경(PATCH) onSuccess 후 목록 검색 API가 재호출되는지 검증.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 
@@ -12,10 +13,7 @@ const ISSUES_PATH = `/api/v1/projects/${PROJECT_KEY}/issues`;
 const ISSUE_DETAIL_PATH = `${ISSUES_PATH}/${ISSUE_NUMBER}`;
 
 // 이슈 목록 및 상세 공통 스텁 설정.
-async function setupStubs(
-  page: import('@playwright/test').Page,
-  searchCallTracker: { count: number },
-) {
+async function setupStubs(page: import('@playwright/test').Page) {
   // 프로젝트 메타
   await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
@@ -24,14 +22,13 @@ async function setupStubs(
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
 
-  // 이슈 검색(목록) 엔드포인트 — 호출 횟수 추적.
+  // 이슈 검색(목록) 엔드포인트.
   // pathname === /api/v1/projects/WP/issues 이고 숫자 경로 세그먼트가 없는 GET 요청만 매칭 (상세와 구분).
   const issue = createIssue({ id: ISSUE_NUMBER, number: ISSUE_NUMBER, title: '상태 변경 테스트 이슈', status: 'TODO' });
   await page.route(
     (url) => url.pathname === ISSUES_PATH,
     (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
-      searchCallTracker.count += 1;
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -82,13 +79,13 @@ test.describe('useUpdateIssue — 검색 캐시 무효화 (#175)', () => {
     '이슈 상태 변경 후 목록 복귀 시 검색 API가 재호출된다',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
-      const searchCallTracker = { count: 0 };
-      await setupStubs(page, searchCallTracker);
+      const searches = trackRequests(page, 'GET', ISSUES_PATH);
+      await setupStubs(page);
 
       // 1. 이슈 목록 진입 → 검색 API 최초 호출
       await page.goto(`/projects/${PROJECT_KEY}`);
       await expect(page.getByRole('link', { name: '상태 변경 테스트 이슈' })).toBeVisible();
-      const countAfterListLoad = searchCallTracker.count;
+      const countAfterListLoad = searches.count();
       expect(countAfterListLoad).toBeGreaterThanOrEqual(1);
 
       // 2. 이슈 상세 진입
@@ -108,7 +105,7 @@ test.describe('useUpdateIssue — 검색 캐시 무효화 (#175)', () => {
       await expect(page.getByRole('link', { name: '상태 변경 테스트 이슈' })).toBeVisible();
 
       // 검색 API가 목록 최초 진입 이후 추가로 호출됐는지 확인
-      expect(searchCallTracker.count).toBeGreaterThan(countAfterListLoad);
+      expect(searches.count()).toBeGreaterThan(countAfterListLoad);
     },
   );
 });

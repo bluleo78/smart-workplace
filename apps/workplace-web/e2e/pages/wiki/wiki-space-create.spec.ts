@@ -2,6 +2,8 @@
 // → 생성 후 새 스페이스로 이동 + 목록 반영 + 빈 이름 가드 (백엔드 없이 page.route 모킹).
 import type { WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
+import { expectStays } from '../../fixtures/wait'
 import { mockWikiNoSpaces } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
@@ -39,14 +41,13 @@ test('노트 — 드롭다운에서 새 팀 스페이스 생성 후 이동', { t
   const created: { space: WikiSpace | null } = { space: null }
   await mockWiki(page, created)
 
-  // 생성 요청 캡처 — payload {name} 검증 후 새 스페이스 반환.
-  let postBody: unknown = null
+  // 생성 요청 — 보낸 이름으로 새 스페이스 반환.
+  const posts = trackRequests(page, 'POST', '/api/v1/wiki/spaces')
   await page.route(
     (url) => url.pathname === '/api/v1/wiki/spaces',
     (route) => {
       if (route.request().method() === 'POST') {
-        postBody = route.request().postDataJSON()
-        const space = newTeamSpace((postBody as { name: string }).name)
+        const space = newTeamSpace((route.request().postDataJSON() as { name: string }).name)
         created.space = space
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(space) })
       }
@@ -69,7 +70,7 @@ test('노트 — 드롭다운에서 새 팀 스페이스 생성 후 이동', { t
   await page.getByTestId('wiki-space-create-confirm').click()
 
   // 처리: POST payload 는 {name} 만
-  await expect.poll(() => postBody).toEqual({ name: '제품팀 노트' })
+  await expect.poll(() => posts.lastBody()).toEqual({ name: '제품팀 노트' })
 
   // 출력: 새 스페이스로 이동 + 드롭다운(목록)에 새 스페이스 반영
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${NEW_SPACE_ID}`))
@@ -78,7 +79,7 @@ test('노트 — 드롭다운에서 새 팀 스페이스 생성 후 이동', { t
 })
 
 test('노트 — 스페이스가 하나도 없으면 /wiki 가 "준비 중"에 멈추지 않고 빈 상태에서 공간을 만든다(WP-143)', async ({ authenticatedPage: page }) => {
-  const state = await mockWikiNoSpaces(page, NEW_SPACE_ID)
+  const posts = await mockWikiNoSpaces(page, NEW_SPACE_ID)
 
   await page.goto('/wiki')
   await expect(page.getByTestId('wiki-no-spaces')).toBeVisible()
@@ -90,7 +91,7 @@ test('노트 — 스페이스가 하나도 없으면 /wiki 가 "준비 중"에 �
   await page.getByTestId('wiki-no-spaces-create').click()
   await page.getByTestId('wiki-space-create-input').fill('제품팀 노트')
   await page.getByTestId('wiki-space-create-confirm').click()
-  await expect.poll(() => state.postBody).toEqual({ name: '제품팀 노트' })
+  await expect.poll(() => posts.lastBody()).toEqual({ name: '제품팀 노트' })
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${NEW_SPACE_ID}`))
   await expect(page.getByRole('combobox')).toBeVisible()
 })
@@ -98,14 +99,7 @@ test('노트 — 스페이스가 하나도 없으면 /wiki 가 "준비 중"에 �
 test('노트 — 스페이스 이름이 비면 생성 요청이 나가지 않는다', async ({ authenticatedPage: page }) => {
   const created: { space: WikiSpace | null } = { space: null }
   await mockWiki(page, created)
-  let posted = false
-  await page.route(
-    (url) => url.pathname === '/api/v1/wiki/spaces',
-    (route) => {
-      if (route.request().method() === 'POST') { posted = true; return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }) }
-      return route.fallback()
-    },
-  )
+  const posts = trackRequests(page, 'POST', '/api/v1/wiki/spaces')
 
   await page.goto(`/wiki/spaces/${SPACE_ID}`)
   await page.getByRole('combobox').click()
@@ -114,21 +108,20 @@ test('노트 — 스페이스 이름이 비면 생성 요청이 나가지 않는
   // 공백만 입력 → 만들기 비활성, 요청 없음
   await page.getByTestId('wiki-space-create-input').fill('   ')
   await expect(page.getByTestId('wiki-space-create-confirm')).toBeDisabled()
-  expect(posted).toBe(false)
+  await expectStays(page, posts.count, 0)
 })
 
 test('노트 — 만들기 버튼을 동기적으로 연속 클릭해도 요청이 1번만 나간다', async ({ authenticatedPage: page }) => {
   const created: { space: WikiSpace | null } = { space: null }
   await mockWiki(page, created)
 
-  // POST 호출 횟수 카운트 — race condition 재현을 위해 약간의 지연을 준다
+  const posts = trackRequests(page, 'POST', '/api/v1/wiki/spaces')
+  // POST 응답에 약간의 지연을 준다 — race condition 재현
   // (실제 네트워크 latency가 있는 환경에서 더블 서브밋이 재현되기 쉬운 조건을 모사).
-  let postCount = 0
   await page.route(
     (url) => url.pathname === '/api/v1/wiki/spaces',
     async (route) => {
       if (route.request().method() === 'POST') {
-        postCount += 1
         await new Promise((r) => setTimeout(r, 200))
         const body = route.request().postDataJSON() as { name: string }
         const space = newTeamSpace(body.name)
@@ -155,7 +148,7 @@ test('노트 — 만들기 버튼을 동기적으로 연속 클릭해도 요청�
 
   // 처리 완료(이동) 대기 후 POST 는 정확히 1번만 발생해야 한다
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${NEW_SPACE_ID}`))
-  expect(postCount).toBe(1)
+  expect(posts.count()).toBe(1)
 })
 
 test('노트 — 취소 후 재오픈 시 이전 입력값이 남지 않는다', async ({ authenticatedPage: page }) => {

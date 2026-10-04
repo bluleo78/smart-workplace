@@ -5,6 +5,7 @@ import { Buffer } from 'buffer'
 
 import { createPageResponse } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 import {
   createChannel,
@@ -169,13 +170,12 @@ test.describe('MessageComposer — 파일 업로드 중 전송 차단 (#152)', (
     async ({ authenticatedPage: page }) => {
       await stubCommon(page)
 
-      // POST 전송 API 호출 감지용 (호출되면 안 됨)
-      let messageSentCount = 0
+      // POST 전송 API — 호출되면 안 됨
+      const messageSends = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`)
       await page.route(
         (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
         (route) => {
           if (route.request().method() === 'POST') {
-            messageSentCount++
             return route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
           }
           return route.fallback()
@@ -217,7 +217,7 @@ test.describe('MessageComposer — 파일 업로드 중 전송 차단 (#152)', (
       // eslint-disable-next-line playwright/no-force-option -- 비활성 버튼을 일부러 눌러 전송이 막히는지 검증(actionability 대기 시 영원히 대기)
       await page.getByTestId('message-composer-submit').click({ force: true })
 
-      await expectStays(page, () => messageSentCount, 0, { ms: 100 })
+      await expectStays(page, messageSends.count, 0, { ms: 100 })
 
       // 업로드 완료 → 이후 정상 전송 가능
       resolveUpload()

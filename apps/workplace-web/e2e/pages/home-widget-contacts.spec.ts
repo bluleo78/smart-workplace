@@ -6,6 +6,7 @@
 import { external, externalDetail, member, page } from '../factories/contacts.factory'
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockHomeChatGeneration } from '../fixtures/home-chat-mock'
+import { trackRequests } from '../fixtures/requests'
 
 test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
   test(
@@ -58,20 +59,17 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
       ],
     })
 
-    // 쿼리 파라미터 캡처용.
-    let capturedUrl = ''
+    const lists = trackRequests(pg, 'ANY', '/api/v1/contacts')
     await pg.route(
       (url) => url.pathname === '/api/v1/contacts',
-      (route) => {
-        capturedUrl = route.request().url()
-        return route.fulfill({
+      (route) =>
+        route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify(
             page([external({ id: 100, name: '박외부', organization: 'Corp' })]),
           ),
-        })
-      },
+        }),
     )
 
     await pg.goto('/')
@@ -81,7 +79,7 @@ test.describe('#460 홈 챗 도크 연락처 위젯 렌더', () => {
 
     await expect(pg.getByTestId('contacts-items')).toBeVisible()
     // 필터가 API 쿼리 파라미터로 전달됐는지 검증.
-    const params = new URL(capturedUrl).searchParams
+    const params = lists.lastUrl()!.searchParams
     expect(params.get('search')).toBe('박')
     expect(params.get('organization')).toBe('Corp')
   })

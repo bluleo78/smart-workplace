@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { createFile, createFolder, personalSpace, createSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const SPACE_ID = 1
 const FOLDER_ID = 10
@@ -98,13 +99,12 @@ test.describe('드라이브 벌크 작업', () => {
     await stubSpaces(page)
     await stubItems(page)
 
-    // 삭제 엔드포인트 — body 캡처 후 204 반환.
-    let deleteBody: unknown = null
+    // 삭제 엔드포인트 — 204 반환.
+    const deletes = trackRequests(page, 'DELETE', `/api/v1/drive/spaces/${SPACE_ID}/items`)
     await page.route(
       (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
       async (route) => {
         if (route.request().method() === 'DELETE') {
-          deleteBody = route.request().postDataJSON()
           await route.fulfill({ status: 204, body: '' })
         } else {
           await route.fallback()
@@ -125,19 +125,18 @@ test.describe('드라이브 벌크 작업', () => {
     await page.getByTestId('drive-confirm-confirm').click()
 
     // DELETE body 검증
-    await expect.poll(() => deleteBody).toMatchObject({ fileIds: [FILE_ID], folderIds: [FOLDER_ID] })
+    await expect.poll(() => deletes.lastBody()).toMatchObject({ fileIds: [FILE_ID], folderIds: [FOLDER_ID] })
   })
 
   test('벌크 이동 — 폴더 선택 후 PATCH .../items/move 요청을 보낸다', async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
     await stubItems(page)
 
-    let moveBody: unknown = null
+    const moves = trackRequests(page, 'PATCH', `/api/v1/drive/spaces/${SPACE_ID}/items/move`)
     await page.route(
       (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items/move`,
       async (route) => {
         if (route.request().method() === 'PATCH') {
-          moveBody = route.request().postDataJSON()
           await route.fulfill({ status: 204, body: '' })
         } else {
           await route.fallback()
@@ -168,19 +167,18 @@ test.describe('드라이브 벌크 작업', () => {
     // '여기로' 클릭 — 루트(null)로 이동.
     await page.getByTestId('folder-picker-confirm').click()
 
-    await expect.poll(() => moveBody).toMatchObject({ fileIds: [FILE_ID], folderIds: [] })
+    await expect.poll(() => moves.lastBody()).toMatchObject({ fileIds: [FILE_ID], folderIds: [] })
   })
 
   test('벌크 ZIP 다운로드 — POST .../download-zip 요청에 fileIds/folderIds 전달', async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
     await stubItems(page)
 
-    let zipBody: unknown = null
+    const zips = trackRequests(page, 'POST', `/api/v1/drive/spaces/${SPACE_ID}/download-zip`)
     await page.route(
       (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/download-zip`,
       async (route) => {
         if (route.request().method() === 'POST') {
-          zipBody = route.request().postDataJSON()
           // 빈 blob 으로 응답 — 실제 ZIP 내용 불필요.
           await route.fulfill({ status: 200, contentType: 'application/zip', body: '' })
         } else {
@@ -199,7 +197,7 @@ test.describe('드라이브 벌크 작업', () => {
     await page.getByTestId('bulk-zip').click()
 
     // 삭제/이동 시나리오와 동일하게 request body 검증
-    await expect.poll(() => zipBody).toMatchObject({ fileIds: [FILE_ID], folderIds: [FOLDER_ID] })
+    await expect.poll(() => zips.lastBody()).toMatchObject({ fileIds: [FILE_ID], folderIds: [FOLDER_ID] })
   })
 
   test('전체선택 — select-all 클릭 시 모든 항목이 선택되고, 다시 클릭 시 해제된다', async ({ authenticatedPage: page }) => {
@@ -252,12 +250,11 @@ test.describe('드라이브 벌크 작업', () => {
       (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ hits: [], semantic: false }) }),
     )
 
-    let deleteBody: unknown = null
+    const deletes = trackRequests(page, 'DELETE', `/api/v1/drive/spaces/${SPACE_ID}/items`)
     await page.route(
       (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
       async (route) => {
         if (route.request().method() === 'DELETE') {
-          deleteBody = route.request().postDataJSON()
           await route.fulfill({ status: 204, body: '' })
         } else {
           await route.fallback()
@@ -285,7 +282,7 @@ test.describe('드라이브 벌크 작업', () => {
     await expect(page.getByTestId('drive-confirm-dialog')).toBeVisible()
     await page.getByTestId('drive-confirm-confirm').click()
 
-    await expect.poll(() => deleteBody).toMatchObject({ fileIds: [FILE_ID], folderIds: [FOLDER_ID] })
+    await expect.poll(() => deletes.lastBody()).toMatchObject({ fileIds: [FILE_ID], folderIds: [FOLDER_ID] })
 
     // 삭제 후 검색 결과가 재조회되며 선택 상태가 초기화된다(벌크 툴바 사라짐).
     await expect(page.getByTestId('bulk-toolbar')).toHaveCount(0)

@@ -6,6 +6,7 @@ import type { Page } from '@playwright/test'
 import { external, member, page as makePage } from '../../factories/contacts.factory'
 import { personalDetail, sharedDetail, tree } from '../../factories/userGroups.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 
 test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true })
@@ -28,12 +29,11 @@ async function expectCoarse(page: Page) {
 }
 
 test('조직도 노드: hover 아이콘 대신 ⋯ 드롭다운 → 삭제 확인 → DELETE', async ({ adminPage: page }) => {
-  let deleted = false
+  const deletes = trackRequests(page, 'DELETE', '/api/v1/user-groups/10')
   // 먼저 등록한 GET 스텁보다 뒤에 등록한 핸들러가 우선 — DELETE 만 가로채고 나머지는 앞 스텁으로.
   await stubBase(page)
   await page.route((u) => u.pathname === '/api/v1/user-groups/10', (r) => {
     if (r.request().method() !== 'DELETE') return r.fallback()
-    deleted = true
     return r.fulfill({ status: 204, body: '' })
   })
   await page.goto('/contacts')
@@ -56,17 +56,16 @@ test('조직도 노드: hover 아이콘 대신 ⋯ 드롭다운 → 삭제 확�
   await del.click()
   // 바로 지우지 않고 기존 확인 다이얼로그를 거친다.
   await expect(page.getByTestId('org-delete-confirm')).toBeVisible()
-  expect(deleted).toBe(false)
+  expect(deletes.count()).toBe(0)
   await page.getByTestId('org-delete-confirm-btn').click()
-  await expect.poll(() => deleted).toBe(true)
+  await deletes.waitFor()
 })
 
 test('내 그룹: ⋯ 드롭다운 → 수정 → PATCH 본문', async ({ authenticatedPage: page }) => {
-  let patchBody: unknown = null
+  const patches = trackRequests(page, 'PATCH', '/api/v1/user-groups/20')
   await stubBase(page)
   await page.route((u) => u.pathname === '/api/v1/user-groups/20', (r) => {
     if (r.request().method() !== 'PATCH') return r.fallback()
-    patchBody = r.request().postDataJSON()
     return r.fulfill(json(personalDetail({ name: '내 분류(수정)' })))
   })
   await page.goto('/contacts')
@@ -80,16 +79,13 @@ test('내 그룹: ⋯ 드롭다운 → 수정 → PATCH 본문', async ({ authen
   await page.getByTestId('g-name').fill('내 분류(수정)')
   await page.getByTestId('g-save').click()
   await expect(page.getByTestId('group-form-dialog')).toBeHidden()
-  expect(patchBody).toMatchObject({ name: '내 분류(수정)' })
+  expect(patches.lastBody()).toMatchObject({ name: '내 분류(수정)' })
 })
 
 test('즐겨찾기 ★: 안 보이는 ★ 는 탭해도 요청이 없고, 즐겨찾기된 ★ 는 탭으로 해제된다', async ({ authenticatedPage: page }) => {
-  const calls: string[] = []
+  const calls = trackRequests(page, 'ANY', '/api/v1/contacts/favorites')
   await stubBase(page, makePage([member({ isFavorite: true }), external()]))
-  await page.route((u) => u.pathname === '/api/v1/contacts/favorites', (r) => {
-    calls.push(r.request().method())
-    return r.fulfill({ status: 204, body: '' })
-  })
+  await page.route((u) => u.pathname === '/api/v1/contacts/favorites', (r) => r.fulfill({ status: 204, body: '' }))
   await page.goto('/contacts')
   await expectCoarse(page)
 
@@ -100,12 +96,12 @@ test('즐겨찾기 ★: 안 보이는 ★ 는 탭해도 요청이 없고, 즐겨
   const hb = (await hidden.boundingBox())!
   await page.touchscreen.tap(hb.x + hb.width / 2, hb.y + hb.height / 2)
   // 부재 확인 — 요청이 일정 시간 "일어나지 않음"을 지켜본다(WP-225 expectStays).
-  await expectStays(page, () => calls.length, 0, { ms: 500 })
+  await expectStays(page, calls.count, 0, { ms: 500 })
 
   // 양성 대조: 즐겨찾기된 ★ 는 보이고 탭하면 해제(DELETE) 요청이 나간다 — 위 탭이 실제로 일어났음을 보증.
   const shown = page.getByTestId('contact-fav-MEMBER-1')
   await expect(shown).toHaveCSS('opacity', '1')
   const sb = (await shown.boundingBox())!
   await page.touchscreen.tap(sb.x + sb.width / 2, sb.y + sb.height / 2)
-  await expect.poll(() => calls).toEqual(['DELETE'])
+  await expect.poll(() => calls.requests().map((r) => r.method())).toEqual(['DELETE'])
 })

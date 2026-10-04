@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures/auth.fixture';
+import { trackRequests } from '../fixtures/requests';
 import { expectStays } from '../fixtures/wait';
 
 // SSE 통합 — 단일 /api/v1/events 커넥션 1개가 chat·messaging·notify 이벤트를 모두 받아 fan-out 하는지 검증.
@@ -6,13 +7,12 @@ import { expectStays } from '../fixtures/wait';
 // authenticatedPage 필수 — 미인증 page 면 AppLayout 이 마운트되지 않아 스트림 자체가 안 열려 거짓 음성 통과한다.
 test.describe('SSE 단일 멀티플렉싱 스트림', () => {
   test('통합 /events 한 커넥션이 messaging·notify 이벤트를 fan-out 한다', async ({ authenticatedPage: page }) => {
-    const opened: string[] = [];
-    // 구 스트림이 열리면 기록(열리면 실패 신호).
-    for (const old of ['chat/stream', 'messaging/stream', 'notifications/stream']) {
-      await page.route(`**/api/v1/${old}`, (route) => {
-        opened.push(old);
-        route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
-      });
+    const OLD_STREAMS = ['chat/stream', 'messaging/stream', 'notifications/stream'];
+    // 구 스트림이 열리면 실패 신호.
+    const oldOpened = trackRequests(page, 'ANY', (u) => OLD_STREAMS.some((old) => u.pathname === `/api/v1/${old}`));
+    for (const old of OLD_STREAMS) {
+      await page.route(`**/api/v1/${old}`, (route) =>
+        route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }));
     }
     // 통합 스트림 — 핸드셰이크만 200 으로 응답(이벤트 본문은 본 스펙 범위에서 생략 가능).
     await page.route('**/api/v1/events', (route) =>
@@ -24,6 +24,6 @@ test.describe('SSE 단일 멀티플렉싱 스트림', () => {
     const eventsReq = page.waitForRequest('**/api/v1/events');
     await page.goto('/');
     await eventsReq;
-    await expectStays(page, () => opened, [], { ms: 200 });
+    await expectStays(page, oldOpened.count, 0, { ms: 200 });
   });
 });

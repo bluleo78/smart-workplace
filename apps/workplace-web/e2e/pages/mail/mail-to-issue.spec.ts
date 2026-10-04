@@ -3,6 +3,7 @@
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 test.describe('메일→이슈 승격', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
@@ -57,12 +58,11 @@ test.describe('메일→이슈 승격', () => {
           ]),
         }),
     )
-    // 승격 API 스텁 + payload 캡처.
-    let promotePayload: unknown
+    // 승격 API 스텁.
+    const promotes = trackRequests(page, 'ANY', '/api/v1/mail/messages/7/issue')
     await page.route(
       (u) => u.pathname === '/api/v1/mail/messages/7/issue',
       async (route) => {
-        promotePayload = route.request().postDataJSON()
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -95,7 +95,7 @@ test.describe('메일→이슈 승격', () => {
     await expect(page.getByText('이슈 FIN-12 를 만들었어요')).toBeVisible()
 
     // 승격 payload 검증 — assigneeIds 에 AI(9) 포함.
-    expect(promotePayload).toMatchObject({
+    expect(promotes.lastBody()).toMatchObject({
       projectKey: 'FIN',
       title: '정산 자료 검토',
       priority: 'HIGH',

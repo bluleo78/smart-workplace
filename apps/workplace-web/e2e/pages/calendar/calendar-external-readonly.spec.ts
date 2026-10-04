@@ -6,6 +6,8 @@ import type { Calendar, CalendarEvent } from '../../../src/types/calendar'
 import { attendee, calendar, calendarEvent } from '../../factories/calendar.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
+import { expectStays } from '../../fixtures/wait'
 
 // 타임존 고정 — 이슈 #493 교훈: 호스트 TZ 에 따라 날짜 경계가 달라지므로 반드시 핀.
 test.use({ timezoneId: 'Asia/Seoul' })
@@ -299,12 +301,7 @@ test('다른 사람이 주최한 미팅의 내 동기화 사본은 주최자만 
   await stubForDialog(page, [localDefault, writableM365], [invitedCopy])
 
   // 수정·삭제 요청이 나가면 안 된다 — 나가면 기록해 실패시킨다.
-  const writes: string[] = []
-  page.on('request', (r) => {
-    if (r.url().includes('/calendar/events/50') && ['PATCH', 'DELETE'].includes(r.method())) {
-      writes.push(r.method())
-    }
-  })
+  const writes = trackRequests(page, 'ANY', (_url, r) => r.url().includes('/calendar/events/50') && ['PATCH', 'DELETE'].includes(r.method()))
 
   await page.goto('/calendar')
   await page.getByTestId('calendar-event-50').first().click()
@@ -319,7 +316,7 @@ test('다른 사람이 주최한 미팅의 내 동기화 사본은 주최자만 
   await expect(page.getByTestId('calendar-form-delete')).toHaveCount(0)
   // 참석자 추가도 불가(눌러도 저장되지 않던 버튼 숨김)
   await expect(page.getByTestId('attendee-add-btn')).toHaveCount(0)
-  expect(writes).toEqual([])
+  await expectStays(page, writes.count, 0)
 })
 
 test('내 캘린더에 없는 초대 일정은 상세 로드 전부터 수정 불가이고 RSVP 만 가능하다', async ({

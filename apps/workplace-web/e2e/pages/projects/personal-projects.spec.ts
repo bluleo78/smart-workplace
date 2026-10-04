@@ -5,6 +5,7 @@
 import { createMember, createProject } from '../../factories/project.factory';
 import { createPageResponse, mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 
 // Test 1 — happy path 전체 파이프라인:
 // 개인 프로젝트 생성(payload 에 key 없음·type PERSONAL) → 사이드바 개인 섹션 노출 → 설정에 멤버 관리 없음.
@@ -23,7 +24,7 @@ test(
     // GET /projects — 생성 전엔 빈 목록, POST 이후엔 PABC 노출(create → 사이드바 반영 파이프라인 검증).
     // created 토글은 POST 라우트 핸들러에서 처리(테스트 본문 타이밍 의존 race 회피).
     let created = false;
-    const createdPayloads: unknown[] = [];
+    const creates = trackRequests(page, 'POST', '/api/v1/projects');
     await page.route(
       (url) => url.pathname === '/api/v1/projects',
       (route) => {
@@ -36,7 +37,6 @@ test(
           });
         }
         if (method === 'POST') {
-          createdPayloads.push(route.request().postDataJSON());
           created = true;
           return route.fulfill({
             status: 200,
@@ -68,8 +68,8 @@ test(
     await expect(page.getByTestId('personal-project-PABC')).toBeVisible();
 
     // 페이로드 검증 — name·type 전달, key 는 미전송(서버 자동).
-    expect(createdPayloads).toHaveLength(1);
-    const payload = createdPayloads[0] as { name: string; type: string; key?: string };
+    expect(creates.count()).toBe(1);
+    const payload = creates.bodies<{ name: string; type: string; key?: string }>()[0];
     expect(payload).toMatchObject({ name: '개인 작업', type: 'PERSONAL' });
     expect(payload.key).toBeUndefined();
 

@@ -5,6 +5,7 @@
 import type { WorkspaceAssistant } from '../../src/types/assistant';
 import type { ProviderCredentialMeta } from '../../src/types/providerCredential';
 import { expect, test } from '../fixtures/auth.fixture';
+import { trackRequests } from '../fixtures/requests';
 
 // 테스트용 AGENT 픽스처.
 const AGENT_ID = 5;
@@ -83,7 +84,7 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
         thinkingDepth: null,
       };
 
-      let putPayload: unknown = null;
+      const puts = trackRequests(page, 'PUT', '/api/v1/admin/workspace-assistant');
 
       await page.route('**/api/v1/admin/workspace-assistant', (route) => {
         const method = route.request().method();
@@ -95,7 +96,6 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
           });
         }
         if (method === 'PUT') {
-          putPayload = route.request().postDataJSON();
           wsState.agentUserId = AGENT_ID;
           wsState.agentName = AGENT_FIXTURE.name;
           wsState.hasActiveToken = true;
@@ -134,13 +134,14 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
       await expect(forceDialog).toBeVisible();
 
       // 프로브 미확정 상태이므로 PUT 은 아직 호출되지 않아야 한다.
-      expect(putPayload).toBeNull();
+      expect(puts.count()).toBe(0);
 
       // "그래도 지정" 확인 → 그제서야 PUT 호출.
       await page.getByTestId('workspace-assistant-force-set-confirm').click();
 
       // PUT payload = { agentUserId: AGENT_ID } 확인.
-      await expect.poll(() => putPayload).toEqual({ agentUserId: AGENT_ID });
+      await puts.waitFor();
+      expect(puts.lastBody()).toEqual({ agentUserId: AGENT_ID });
     },
   );
 
@@ -155,7 +156,7 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
       model: null as string | null,
       thinkingDepth: null as string | null,
     };
-    let putPayload: unknown = null;
+    const puts = trackRequests(page, 'PUT', '/api/v1/admin/workspace-assistant');
 
     await page.route('**/api/v1/admin/workspace-assistant', (route) => {
       const method = route.request().method();
@@ -163,7 +164,6 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(wsState) });
       }
       if (method === 'PUT') {
-        putPayload = route.request().postDataJSON();
         wsState.agentUserId = AGENT_ID;
         wsState.agentName = AGENT_FIXTURE.name;
         wsState.hasActiveToken = true;
@@ -204,18 +204,18 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
 
     const forceDialog = page.getByTestId('workspace-assistant-force-set-dialog');
     await expect(forceDialog).toBeVisible();
-    expect(putPayload).toBeNull();
+    expect(puts.count()).toBe(0);
 
     // 취소하면 지정되지 않아야 한다.
     await page.getByTestId('workspace-assistant-force-set-cancel').click();
     await expect(forceDialog).toBeHidden();
-    expect(putPayload).toBeNull();
+    expect(puts.count()).toBe(0);
     await expect(toggle).not.toBeChecked();
   });
 
   // 시나리오 2: 현재 공통 비서 → "지정 해제" → 영향 경고 확인 다이얼로그 → 확인 → DELETE 호출 (#643).
   test('현재 공통 비서 → 지정 해제 → 경고 확인 → DELETE 호출', async ({ adminPage: page }) => {
-    let deleteCallCount = 0;
+    const deletes = trackRequests(page, 'DELETE', '/api/v1/admin/workspace-assistant');
 
     // 공통 비서 = AGENT_ID 지정 상태.
     const wsData: WorkspaceAssistant = {
@@ -236,7 +236,6 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
         });
       }
       if (method === 'DELETE') {
-        deleteCallCount += 1;
         wsData.agentUserId = null;
         return route.fulfill({ status: 204, body: '' });
       }
@@ -271,18 +270,18 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
 
     const clearDialog = page.getByTestId('workspace-assistant-clear-confirm-dialog');
     await expect(clearDialog).toBeVisible();
-    expect(deleteCallCount).toBe(0);
+    expect(deletes.count()).toBe(0);
 
     // "해제" 확인 → 그제서야 DELETE 호출.
     await page.getByTestId('workspace-assistant-clear-confirm-confirm').click();
 
     // DELETE 가 1회 호출되어야 한다.
-    await expect.poll(() => deleteCallCount).toBe(1);
+    await expect.poll(deletes.count).toBe(1);
   });
 
   // 시나리오 2b: 해제 경고 다이얼로그에서 취소하면 DELETE 가 호출되지 않아야 한다 (#643).
   test('공통 비서 해제 경고 다이얼로그 취소 → DELETE 미호출', async ({ adminPage: page }) => {
-    let deleteCallCount = 0;
+    const deletes = trackRequests(page, 'DELETE', '/api/v1/admin/workspace-assistant');
     const wsData = {
       agentUserId: AGENT_ID as number | null,
       agentName: AGENT_FIXTURE.name as string | null,
@@ -297,7 +296,6 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(wsData) });
       }
       if (method === 'DELETE') {
-        deleteCallCount += 1;
         wsData.agentUserId = null;
         return route.fulfill({ status: 204, body: '' });
       }
@@ -329,7 +327,7 @@ test.describe('에이전트 관리 공통 비서 섹션', () => {
     await expect(clearDialog).toBeHidden();
 
     // 취소했으므로 DELETE 미호출 + 토글은 여전히 ON 이어야 한다.
-    expect(deleteCallCount).toBe(0);
+    expect(deletes.count()).toBe(0);
     await expect(toggle).toBeChecked();
   });
 

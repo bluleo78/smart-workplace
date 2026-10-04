@@ -6,13 +6,14 @@ import { makeEpicType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import { installFakeViewport, setKeyboard } from '../../fixtures/keyboard';
 import { expect, expectNoHorizontalOverflow, historyMarks, stubChat, test } from '../../fixtures/mobile.fixture';
+import { trackRequests } from '../../fixtures/requests';
 
 const KEY = 'WP';
 const json = (b: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(b) });
 const EPIC = createIssue({ id: 50, number: 50, projectKey: KEY, type: makeEpicType(), title: '결제 개편 에픽' });
 
 async function mockCreate(page: Page) {
-  const posts: Record<string, unknown>[] = [];
+  const posts = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/issues`);
   await stubChat(page);
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/types`, (r) => r.fulfill(json(systemTypes())));
@@ -20,7 +21,6 @@ async function mockCreate(page: Page) {
     r.fulfill(json([{ userId: 1, name: '양동희', username: 'dh.yang@iacloud.kr', kind: 'HUMAN' }, { userId: 2, name: '김개발', username: 'dev.kim@iacloud.kr', kind: 'HUMAN' }])));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues`, (r) => {
     if (r.request().method() === 'POST') {
-      posts.push(r.request().postDataJSON());
       return r.fulfill(json(createIssue({ id: 99, number: 99, projectKey: KEY, title: 'new' })));
     }
     return r.fulfill(json(createIssueSearchResponse([EPIC], null)));
@@ -54,8 +54,8 @@ test.describe('생성 시트', () => {
     await page.getByTestId('issue-create-title').fill('결제 실패 시 재시도 안내');
     await page.getByTestId('issue-create-submit').click();
     await expect(sheet).toHaveCount(0);
-    expect(posts[0]).toMatchObject({ title: '결제 실패 시 재시도 안내', priority: 'MID' });
-    expect(posts[0]).not.toHaveProperty('parentNumber');
+    expect(posts.bodies<Record<string, unknown>>()[0]).toMatchObject({ title: '결제 실패 시 재시도 안내', priority: 'MID' });
+    expect(posts.bodies<Record<string, unknown>>()[0]).not.toHaveProperty('parentNumber');
     await expectNoHorizontalOverflow(page);
   });
 
@@ -208,8 +208,8 @@ test.describe('생성 칩 줄', () => {
     await expect(title).toBeFocused();
     await expect(page.getByTestId('create-chip-priority')).toContainText('높음');
     await page.getByTestId('issue-create-submit').click();
-    await expect.poll(() => posts.length).toBe(1);
-    expect(posts[0]).toMatchObject({ priority: 'HIGH' });
+    await expect.poll(posts.count).toBe(1);
+    expect(posts.bodies<Record<string, unknown>>()[0]).toMatchObject({ priority: 'HIGH' });
   });
 
   test('담당자·마감·에픽·시작일이 페이로드에 실린다', async ({ authenticatedPage: page }) => {
@@ -235,10 +235,10 @@ test.describe('생성 칩 줄', () => {
     await page.getByTestId('create-start-sheet-today').click();
     await expect(title).toBeFocused();
     await page.getByTestId('issue-create-submit').click();
-    await expect.poll(() => posts.length).toBe(1);
-    expect(posts[0]).toMatchObject({ assigneeIds: [2], parentNumber: 50 });
-    expect(posts[0].dueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(posts[0].startDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    await expect.poll(posts.count).toBe(1);
+    expect(posts.bodies<Record<string, unknown>>()[0]).toMatchObject({ assigneeIds: [2], parentNumber: 50 });
+    expect(posts.bodies<Record<string, unknown>>()[0].dueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(posts.bodies<Record<string, unknown>>()[0].startDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   test('⋯ 시트를 액션 없이 닫으면 제목 칸으로 포커스 복귀', async ({ authenticatedPage: page }) => {
@@ -276,8 +276,8 @@ test.describe('생성 칩 줄', () => {
     await expect(parent).toBeFocused();
     await parent.fill('7');
     await page.getByTestId('issue-create-submit').click();
-    await expect.poll(() => posts.length).toBe(1);
-    expect(posts[0]).toMatchObject({ parentNumber: 7, typeId: 5 });
+    await expect.poll(posts.count).toBe(1);
+    expect(posts.bodies<Record<string, unknown>>()[0]).toMatchObject({ parentNumber: 7, typeId: 5 });
   });
 
   test('✦ AI 제안 — 유형·우선순위 반영, 이유 표시, 제목 포커스 유지', async ({ authenticatedPage: page }) => {
@@ -333,9 +333,9 @@ test.describe('생성 칩 줄', () => {
     await page.getByTestId('create-type-sheet').getByTestId('picker-option-6').click();
     await expect(page.getByTestId('create-chip-epic')).toHaveCount(0);
     await page.getByTestId('issue-create-submit').click();
-    await expect.poll(() => posts.length).toBe(1);
-    expect(posts[0]).toMatchObject({ typeId: 6 });
-    expect(posts[0]).not.toHaveProperty('parentNumber');
+    await expect.poll(posts.count).toBe(1);
+    expect(posts.bodies<Record<string, unknown>>()[0]).toMatchObject({ typeId: 6 });
+    expect(posts.bodies<Record<string, unknown>>()[0]).not.toHaveProperty('parentNumber');
   });
 
   test('개인 프로젝트는 유형·에픽 칩이 없다', async ({ authenticatedPage: page }) => {

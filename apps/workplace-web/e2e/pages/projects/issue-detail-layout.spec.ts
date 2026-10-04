@@ -3,6 +3,7 @@
 // Task 4: 채팅 접기 패널 자동 토글 + 3구역 flex 레이아웃.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createAttachment } from '../../factories/attachment.factory';
 import { createChatMessage, createChatThread } from '../../factories/chat.factory';
@@ -194,13 +195,10 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
   test('드라이브 스페이스 조회가 중복 호출되지 않는다 (#798)', async ({ authenticatedPage: page }) => {
     await mockIssueDetail(page, { attachmentCount: 0 });
     await mockAttachmentList(page, []);
-    let spacesCallCount = 0;
+    const spaceFetches = trackRequests(page, 'ANY', '/api/v1/drive/spaces');
     await page.route(
       (url) => url.pathname === '/api/v1/drive/spaces',
-      (route) => {
-        spacesCallCount += 1;
-        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
-      },
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     );
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
@@ -208,7 +206,7 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
     // 채팅 컴포저(useAttachmentDraft)는 드로워 안에서 늦게 마운트된다 — 마운트된 뒤에 창을 열어야 그 중복 호출을 본다.
     await page.getByTestId('issue-chat-open').click();
     await expect(page.getByTestId('chat-composer-input')).toBeVisible();
-    await expectStays(page, () => spacesCallCount, 1, { reach: true });
+    await expectStays(page, spaceFetches.count, 1, { reach: true });
   });
 
   test('첨부는 본문 설명 아래 스트립으로 표시되고 사이드바엔 없다', async ({

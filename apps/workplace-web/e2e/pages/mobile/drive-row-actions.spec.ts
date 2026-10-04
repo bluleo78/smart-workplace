@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test'
 import { createFile, createFolder, createSpace, personalSpace } from '../../factories/drive.factory'
 import { json, longPress, stubChannelMessages } from '../../fixtures/mobile-chat'
 import { expect, test } from '../../fixtures/mobile.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const SPACE_ID = 1
 // 실데이터 폭 검증용 긴 이름.
@@ -61,12 +62,9 @@ test.describe('모바일 드라이브 행 액션', () => {
   test('파일 ⋮ → 공유 링크는 공유 모달, 삭제는 확인 후 DELETE', async ({ authenticatedPage: page }) => {
     await stubDrive(page)
     await page.route('**/api/v1/drive/files/70/share-links', (r) => r.fulfill(json([])))
-    let deleted = false
-    await page.route('**/api/v1/drive/files/70', (r) => {
-      if (r.request().method() !== 'DELETE') return r.fallback()
-      deleted = true
-      return r.fulfill({ status: 204 })
-    })
+    const deletes = trackRequests(page, 'DELETE', '/api/v1/drive/files/70')
+    await page.route('**/api/v1/drive/files/70', (r) =>
+      r.request().method() === 'DELETE' ? r.fulfill({ status: 204 }) : r.fallback())
     await page.goto(`/drive/spaces/${SPACE_ID}`)
 
     await page.getByTestId('drive-row-more-file-70').tap()
@@ -78,17 +76,14 @@ test.describe('모바일 드라이브 행 액션', () => {
     await page.getByTestId('drive-row-more-file-70').tap()
     await page.getByTestId('mobile-action-delete').tap()
     await page.getByTestId('drive-confirm-confirm').tap()
-    await expect.poll(() => deleted).toBe(true)
+    await deletes.waitFor()
   })
 
   test('폴더 ⋮ → 이름 변경은 새 이름으로 PATCH', async ({ authenticatedPage: page }) => {
     await stubDrive(page)
-    let body: unknown = null
-    await page.route('**/api/v1/drive/folders/10', (r) => {
-      if (r.request().method() !== 'PATCH') return r.fallback()
-      body = r.request().postDataJSON()
-      return r.fulfill(json({ ...FOLDER, name: '계약 자료' }))
-    })
+    const patches = trackRequests(page, 'PATCH', '/api/v1/drive/folders/10')
+    await page.route('**/api/v1/drive/folders/10', (r) =>
+      r.request().method() === 'PATCH' ? r.fulfill(json({ ...FOLDER, name: '계약 자료' })) : r.fallback())
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await page.getByTestId('drive-row-more-folder-10').tap()
     const sheet = page.getByTestId('drive-row-sheet')
@@ -97,7 +92,7 @@ test.describe('모바일 드라이브 행 액션', () => {
     await expect(page.getByTestId('folder-name-input')).toHaveValue(FOLDER.name)
     await page.getByTestId('folder-name-input').fill('계약 자료')
     await page.getByTestId('folder-name-confirm').tap()
-    await expect.poll(() => body).toEqual({ name: '계약 자료' })
+    await expect.poll(() => patches.lastBody()).toEqual({ name: '계약 자료' })
   })
 
   test('원본 유실 파일은 다운로드·공유·복사가 비활성, 보관된 공간은 쓰기 작업이 비활성', async ({ authenticatedPage: page }) => {
@@ -124,12 +119,9 @@ test.describe('모바일 드라이브 행 액션', () => {
 
   test('길게 누르면 선택 모드 — 탭은 선택 토글(미리보기 안 열림), 하단 바로 일괄 삭제, ✕ 로 종료', async ({ authenticatedPage: page }) => {
     await stubDrive(page)
-    let bulkBody: unknown = null
-    await page.route(`**/api/v1/drive/spaces/${SPACE_ID}/items`, (r) => {
-      if (r.request().method() !== 'DELETE') return r.fallback()
-      bulkBody = r.request().postDataJSON()
-      return r.fulfill({ status: 204 })
-    })
+    const bulkDeletes = trackRequests(page, 'DELETE', `/api/v1/drive/spaces/${SPACE_ID}/items`)
+    await page.route(`**/api/v1/drive/spaces/${SPACE_ID}/items`, (r) =>
+      r.request().method() === 'DELETE' ? r.fulfill({ status: 204 }) : r.fallback())
     await page.goto(`/drive/spaces/${SPACE_ID}`)
 
     await longPress(page, page.getByTestId('drive-row-file-70'))
@@ -153,7 +145,8 @@ test.describe('모바일 드라이브 행 액션', () => {
 
     await bar.getByTestId('bulk-delete').tap()
     await page.getByTestId('drive-confirm-confirm').tap()
-    await expect.poll(() => bulkBody).toEqual({ fileIds: [70], folderIds: [] })
+    await bulkDeletes.waitFor()
+    expect(bulkDeletes.lastBody()).toEqual({ fileIds: [70], folderIds: [] })
 
     // 새 선택 → ✕ 로 선택 모드 종료, ⋮ 복귀.
     await longPress(page, page.getByTestId('drive-row-file-70'))
@@ -251,18 +244,12 @@ test.describe('드라이브 행 액션 — 터치 태블릿(≥1024px)', () => {
 
   test('폴더 행 ⋯ → 이름 변경 PATCH, 삭제는 확인 후 DELETE', async ({ authenticatedPage: page }) => {
     await stubDrive(page)
-    let body: unknown = null
-    let deleted = false
+    const patches = trackRequests(page, 'PATCH', '/api/v1/drive/folders/10')
+    const deletes = trackRequests(page, 'DELETE', '/api/v1/drive/folders/10')
     await page.route('**/api/v1/drive/folders/10', (r) => {
       const m = r.request().method()
-      if (m === 'PATCH') {
-        body = r.request().postDataJSON()
-        return r.fulfill(json({ ...FOLDER, name: '계약 자료' }))
-      }
-      if (m === 'DELETE') {
-        deleted = true
-        return r.fulfill({ status: 204 })
-      }
+      if (m === 'PATCH') return r.fulfill(json({ ...FOLDER, name: '계약 자료' }))
+      if (m === 'DELETE') return r.fulfill({ status: 204 })
       return r.fallback()
     })
     await page.goto(`/drive/spaces/${SPACE_ID}`)
@@ -276,13 +263,13 @@ test.describe('드라이브 행 액션 — 터치 태블릿(≥1024px)', () => {
     await expect(page.getByTestId('folder-name-input')).toBeVisible()
     await page.getByTestId('folder-name-input').fill('계약 자료')
     await page.getByTestId('folder-name-confirm').tap()
-    await expect.poll(() => body).toEqual({ name: '계약 자료' })
+    await expect.poll(() => patches.lastBody()).toEqual({ name: '계약 자료' })
 
     await page.getByTestId('drive-row-more-folder-10').tap()
     await page.getByTestId('drive-row-action-delete').click()
     await expect(page.getByTestId('drive-confirm-confirm')).toBeVisible()
     await page.getByTestId('drive-confirm-confirm').tap()
-    await expect.poll(() => deleted).toBe(true)
+    await deletes.waitFor()
   })
 
   test('체크박스로 선택해도 ⋯ 는 남고, 행 탭은 미리보기를 연다(길게 누르기 선택 모드 없음)', async ({ authenticatedPage: page }) => {

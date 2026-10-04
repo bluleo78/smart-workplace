@@ -2,6 +2,7 @@
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import type { DriveSpace } from '../../../src/types/drive'
 
 // 개인 공간 + 팀 공간(OWNER) — DriveSidebar 가 마운트 시 페치한다.
@@ -53,12 +54,11 @@ test.describe('드라이브 TEAM 공간 이름 변경/삭제', () => {
 
   test('이름 변경 → PATCH payload 검증 → 목록 반영', async ({ authenticatedPage: page }) => {
     await mockBaseRoutes(page)
-    let patchBody: unknown = null
+    const patches = trackRequests(page, 'PATCH', '/api/v1/drive/spaces/2')
     await page.route(
       (url) => url.pathname === '/api/v1/drive/spaces/2',
       async (r) => {
         if (r.request().method() === 'PATCH') {
-          patchBody = r.request().postDataJSON()
           await r.fulfill({ json: { ...spaces[1], name: '제품팀' } })
         } else {
           await r.fallback()
@@ -71,7 +71,7 @@ test.describe('드라이브 TEAM 공간 이름 변경/삭제', () => {
     const input = page.getByTestId('rename-dialog-input')
     await input.fill('제품팀')
     await page.getByTestId('rename-dialog-confirm').click()
-    await expect.poll(() => patchBody).toEqual({ name: '제품팀' })
+    await expect.poll(() => patches.lastBody()).toEqual({ name: '제품팀' })
   })
 
   // #696 — 다른 TEAM 공간과 이름이 겹치면 409 → 다이얼로그 유지 + 인라인 에러(컨테이너류 이름 하드 차단 정책).
@@ -105,12 +105,11 @@ test.describe('드라이브 TEAM 공간 이름 변경/삭제', () => {
 
   test('삭제 → 경고 다이얼로그 → DELETE 호출', async ({ authenticatedPage: page }) => {
     await mockBaseRoutes(page)
-    let deleteCalled = false
+    const deletes = trackRequests(page, 'DELETE', '/api/v1/drive/spaces/2')
     await page.route(
       (url) => url.pathname === '/api/v1/drive/spaces/2',
       async (r) => {
         if (r.request().method() === 'DELETE') {
-          deleteCalled = true
           await r.fulfill({ status: 204, body: '' })
         } else {
           await r.fallback()
@@ -123,7 +122,7 @@ test.describe('드라이브 TEAM 공간 이름 변경/삭제', () => {
     // 경고 다이얼로그에 공간명 표시
     await expect(page.getByTestId('drive-space-delete-dialog')).toContainText('기획팀')
     await page.getByTestId('drive-space-delete-confirm').click()
-    await expect.poll(() => deleteCalled).toBe(true)
+    await deletes.waitFor()
   })
 })
 
@@ -133,12 +132,11 @@ test.describe('드라이브 TEAM 공간 ⋯ — 터치 태블릿(≥1024px)', ()
 
   test('⋯ 가 상시 보이고(44px, 이름과 안 겹침) 탭으로 이름 변경 PATCH 한다', async ({ authenticatedPage: page }) => {
     await mockBaseRoutes(page)
-    let patchBody: unknown = null
+    const patches = trackRequests(page, 'PATCH', '/api/v1/drive/spaces/2')
     await page.route(
       (url) => url.pathname === '/api/v1/drive/spaces/2',
       async (r) => {
         if (r.request().method() === 'PATCH') {
-          patchBody = r.request().postDataJSON()
           await r.fulfill({ json: { ...spaces[1], name: '제품팀' } })
         } else {
           await r.fallback()
@@ -160,6 +158,6 @@ test.describe('드라이브 TEAM 공간 ⋯ — 터치 태블릿(≥1024px)', ()
     await page.getByTestId('drive-space-rename-2').click()
     await page.getByTestId('rename-dialog-input').fill('제품팀')
     await page.getByTestId('rename-dialog-confirm').click()
-    await expect.poll(() => patchBody).toEqual({ name: '제품팀' })
+    await expect.poll(() => patches.lastBody()).toEqual({ name: '제품팀' })
   })
 })

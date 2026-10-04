@@ -6,6 +6,7 @@ import { createChatMessage } from '../../factories/chat.factory'
 import { createDm, createDmParticipant, createMessage } from '../../factories/messaging.factory'
 import { DETAIL, json, KEY, longPress, stubChannelMessages, stubIssue } from '../../fixtures/mobile-chat'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 
 test.describe('H1 메시지 길게 누르기 작업 시트', () => {
@@ -29,12 +30,9 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
 
   test('타인 메시지: 이모지 줄 + 스레드·복사(수정·삭제 없음), 이모지를 누르면 반응이 붙는다', async ({ authenticatedPage: page }) => {
     await stubChannelMessages(page)
-    let reacted: string | null = null
-    await page.route((u) => u.pathname === '/api/v1/messaging/messages/10/reactions', (r) => {
-      if (r.request().method() !== 'POST') return r.fallback()
-      reacted = (r.request().postDataJSON() as { emoji: string }).emoji
-      return r.fulfill({ status: 204, body: '' })
-    })
+    const reactions = trackRequests(page, 'POST', '/api/v1/messaging/messages/10/reactions')
+    await page.route((u) => u.pathname === '/api/v1/messaging/messages/10/reactions', (r) =>
+      r.request().method() === 'POST' ? r.fulfill({ status: 204, body: '' }) : r.fallback())
     await page.goto('/chat/channels/1')
     await longPress(page, page.getByTestId('message-body-10'))
 
@@ -53,7 +51,7 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
 
     await sheet.getByTestId('message-action-react-👍').first().tap()
     await expect(sheet).toHaveCount(0)
-    await expect.poll(() => reacted).toBe('👍')
+    await expect.poll(() => reactions.lastBody<{ emoji: string }>()?.emoji).toBe('👍')
     await expect(page.getByTestId('reaction-pill-10-👍')).toBeVisible()
     // 반응 칩은 터치에서 32px 이상.
     expect((await page.getByTestId('reaction-pill-10-👍').boundingBox())!.height).toBeGreaterThanOrEqual(32)
@@ -74,12 +72,9 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
 
   test('본인 메시지: 수정은 인라인 에디터, 삭제는 실행 취소 토스트(취소하면 DELETE 없음)', async ({ authenticatedPage: page }) => {
     await stubChannelMessages(page)
-    let deleteCalls = 0
-    await page.route((u) => u.pathname === '/api/v1/messaging/messages/11', (r) => {
-      if (r.request().method() !== 'DELETE') return r.fallback()
-      deleteCalls += 1
-      return r.fulfill({ status: 204, body: '' })
-    })
+    const deletes = trackRequests(page, 'DELETE', '/api/v1/messaging/messages/11')
+    await page.route((u) => u.pathname === '/api/v1/messaging/messages/11', (r) =>
+      r.request().method() === 'DELETE' ? r.fulfill({ status: 204, body: '' }) : r.fallback())
     // 실행 취소 지연(5s)을 가상 시계로 넘긴다
     await page.clock.install()
     await page.goto('/chat/channels/1')
@@ -101,7 +96,7 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
     await page.getByRole('button', { name: '실행 취소' }).tap()
     // UNDO_DELETE_DELAY_MS(5s) 경과 — 취소했으므로 DELETE 가 나가지 않는다.
     await page.clock.fastForward(5500)
-    await expectStays(page, () => deleteCalls, 0, { ms: 200 })
+    await expectStays(page, deletes.count, 0, { ms: 200 })
   })
 })
 
@@ -204,17 +199,16 @@ async function stubNewMessage(page: Page) {
     }
     return r.fulfill(json(created ? [dm] : []))
   })
-  const sent: string[] = []
+  const sends = trackRequests(page, 'POST', `/api/v1/messaging/channels/${DM_ID}/messages`)
   await page.route((u) => u.pathname === `/api/v1/messaging/channels/${DM_ID}/messages`, (r) => {
     if (r.request().method() === 'POST') {
       const body = (r.request().postDataJSON() as { body: string }).body
-      sent.push(body)
       return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(createMessage({ id: 9, channelId: DM_ID, body })) })
     }
     return r.fulfill(json({ items: [], nextCursor: null, hasMore: false }))
   })
   await page.route((u) => u.pathname === `/api/v1/messaging/channels/${DM_ID}/read`, (r) => r.fulfill({ status: 204, body: '' }))
-  return sent
+  return sends
 }
 
 test.describe('M1~M4 새 메시지·입력', () => {
@@ -245,7 +239,7 @@ test.describe('M1~M4 새 메시지·입력', () => {
   })
 
   test('M2·M4: Enter 는 줄바꿈, 보내기 버튼만 전송 → DM 으로 replace 이동(뒤로가기로 빈 작성 화면에 돌아오지 않음)', async ({ authenticatedPage: page }) => {
-    const sent = await stubNewMessage(page)
+    const sends = await stubNewMessage(page)
     await page.goto('/chat/new')
     await page.getByTestId('new-message-recipient-input').fill('밥')
     await page.getByTestId('member-search-row-2').tap()
@@ -258,21 +252,20 @@ test.describe('M1~M4 새 메시지·입력', () => {
     await page.keyboard.type('둘째 줄')
     // Enter 로는 전송되지 않았다(줄바꿈만) — 아직 작성 화면.
     await expect(page).toHaveURL(/\/chat\/new$/)
-    expect(sent).toHaveLength(0)
+    expect(sends.count()).toBe(0)
 
     await page.getByTestId('message-composer-submit').tap()
-    await expect.poll(() => sent).toEqual(['첫 줄\n둘째 줄'])
+    await expect.poll(() => sends.bodies<{ body: string }>().map((b) => b.body)).toEqual(['첫 줄\n둘째 줄'])
     await expect(page).toHaveURL(new RegExp(`/chat/dms/${DM_ID}$`))
     expect(await page.evaluate(() => history.length)).toBe(lengthBefore)
   })
 
   test('M4: 이슈 채팅 입력 안내는 "메시지를 입력하세요"(Shift+Enter 안내 없음), Enter 는 줄바꿈', async ({ authenticatedPage: page }) => {
     await stubIssue(page)
-    const posted: string[] = []
+    const posts = trackRequests(page, 'POST', '/api/v1/chat/threads/100/messages')
     await page.route('**/api/v1/chat/threads/100/messages', (r) => {
       if (r.request().method() !== 'POST') return r.fallback()
       const body = (r.request().postDataJSON() as { body: string }).body
-      posted.push(body)
       return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(createChatMessage({ id: 600, threadId: 100, body })) })
     })
     await page.goto(`/projects/${KEY}/issues/1?chat=1`)
@@ -282,8 +275,8 @@ test.describe('M1~M4 새 메시지·입력', () => {
     await page.keyboard.type('가')
     await page.keyboard.press('Enter')
     await page.keyboard.type('나')
-    expect(posted).toHaveLength(0)
+    expect(posts.count()).toBe(0)
     await page.getByTestId('chat-composer-submit').tap()
-    await expect.poll(() => posted).toEqual(['가\n나'])
+    await expect.poll(() => posts.bodies<{ body: string }>().map((b) => b.body)).toEqual(['가\n나'])
   })
 })

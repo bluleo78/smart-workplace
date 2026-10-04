@@ -2,6 +2,7 @@
 // 회원가입(auth.ts)·구성원 추가(AddMemberDialog.tsx)와 동일한 규칙을 changePasswordSchema 에도 적용해
 // 서버 왕복 없이 클라이언트 단계에서 차단되고 한국어 안내 메시지가 표시되는지 검증한다.
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 test.describe('프로필 설정 — 새 비밀번호 복잡도 검증', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
@@ -14,9 +15,8 @@ test.describe('프로필 설정 — 새 비밀번호 복잡도 검증', () => {
     authenticatedPage: page,
   }) => {
     // 서버로 요청이 가면 실패시키는 라우트 — 클라이언트 검증이 먼저 막아야 이 라우트가 호출되지 않는다
-    let changePasswordCalled = false
+    const changes = trackRequests(page, 'ANY', '/api/v1/users/me/password')
     await page.route('**/api/v1/users/me/password', (route) => {
-      changePasswordCalled = true
       return route.fulfill({
         status: 400,
         contentType: 'application/json',
@@ -35,7 +35,7 @@ test.describe('프로필 설정 — 새 비밀번호 복잡도 검증', () => {
     // 한국어 인라인 에러 메시지가 표시된다 — 영문 서버 메시지가 아니다
     await expect(page.getByText('대문자를 1자 이상 포함해야 합니다')).toBeVisible()
     await expect(page.getByText(/Password must contain/)).toHaveCount(0)
-    expect(changePasswordCalled).toBe(false)
+    expect(changes.count()).toBe(0)
   })
 
   test('숫자 없이 대소문자만 입력하면 한국어 에러가 표시된다', async ({ authenticatedPage: page }) => {

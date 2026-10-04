@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test'
 import type { WikiPageSummary } from '../../../src/types/wiki'
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../../factories/wiki.factory'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const PERSONAL = wikiSpace({ id: 1, type: 'PERSONAL', name: '내 위키', role: 'OWNER' })
 const TEAM = wikiSpace({ id: 2, type: 'TEAM', name: '팀 위키', role: 'OWNER' })
@@ -26,7 +27,8 @@ const PAGE_PATH = /^\/api\/v1\/wiki\/pages\/(\d+)$/
  */
 async function mockWiki(page: Page) {
   const trees = structuredClone(TREES)
-  const state: { hidden: number[]; createBody: unknown } = { hidden: [], createBody: null }
+  const creates = trackRequests(page, 'POST', TREE_PATH)
+  const state = { hidden: [] as number[], createBody: () => creates.lastBody() }
   await page.route(
     (u) => u.pathname === '/api/v1/wiki/spaces',
     (r) => r.fulfill({ json: [PERSONAL, TEAM, EMPTY].filter((sp) => !state.hidden.includes(sp.id)) }),
@@ -36,7 +38,6 @@ async function mockWiki(page: Page) {
     (r) => {
       const spaceId = Number(TREE_PATH.exec(new URL(r.request().url()).pathname)![1])
       if (r.request().method() === 'POST') {
-        state.createBody = r.request().postDataJSON()
         trees[spaceId].push(wikiPageSummary({ id: CREATED_PAGE_ID, title: '' }))
         return r.fulfill({ json: wikiPageDetail({ id: CREATED_PAGE_ID, spaceId, title: '', body: '' }) })
       }
@@ -143,7 +144,7 @@ test('페이지가 없는 공간은 빈 상태를 보이고, [새 페이지 만�
   await expectNoHorizontalOverflow(page)
 
   await empty.getByTestId('wiki-no-pages-create').click()
-  await expect.poll(() => wiki.createBody).toEqual({ parentId: null, title: '' })
+  await expect.poll(wiki.createBody).toEqual({ parentId: null, title: '' })
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/3/pages/${CREATED_PAGE_ID}$`))
   await expect(page.getByTestId('wiki-page-header')).toBeVisible()
 })
@@ -152,7 +153,7 @@ test('빈 공간의 [AI 초안으로 시작]은 페이지를 만들고 초안 �
   const wiki = await mockWiki(page)
   await page.goto('/wiki/spaces/3')
   await page.getByTestId('wiki-no-pages-ai-draft').click()
-  await expect.poll(() => wiki.createBody).toEqual({ parentId: null, title: '' })
+  await expect.poll(wiki.createBody).toEqual({ parentId: null, title: '' })
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/3/pages/${CREATED_PAGE_ID}$`))
   await expect(page.getByRole('dialog').getByRole('textbox')).toBeVisible()
 })

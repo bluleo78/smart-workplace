@@ -5,6 +5,7 @@ import type { MailUnreadCounts } from '../../../src/types/mailMessage'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 test.describe('메일 사이드바', () => {
   test('계정 스위처 → 다른 계정 선택 시 /mail/:id 이동 + 폴더 INBOX 초기화', async ({
@@ -15,15 +16,12 @@ test.describe('메일 사이드바', () => {
       mailAccount({ id: 1, emailAddress: 'me@example.com' }),
       mailAccount({ id: 2, emailAddress: 'work@example.com' }),
     ])
-    // 두 계정의 메시지 목록은 빈 배열로 스텁(folder 파라미터 수집).
-    const seen: { id: string; folder: string }[] = []
+    // 두 계정의 메시지 목록은 빈 배열로 스텁 — 계정 1 목록 요청의 folder 파라미터를 본다.
+    const account1Lists = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/messages')
     for (const id of ['1', '2']) {
       await page.route(
         (url) => url.pathname === `/api/v1/mail/accounts/${id}/messages`,
-        (route) => {
-          seen.push({ id, folder: new URL(route.request().url()).searchParams.get('folder') ?? '' })
-          return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-        },
+        (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
     }
 
@@ -37,7 +35,7 @@ test.describe('메일 사이드바', () => {
     await expect(page).toHaveURL(/\/mail\/1$/)
     await expect(page.getByTestId('mail-account-switcher')).toContainText('me@example.com')
     // 전환 후 계정 1 목록 요청의 folder 는 SENT 가 아니어야 한다(INBOX 초기화).
-    await expect.poll(() => seen.some((s) => s.id === '1' && s.folder !== 'SENT')).toBe(true)
+    await expect.poll(() => account1Lists.urls().some((u) => (u.searchParams.get('folder') ?? '') !== 'SENT')).toBe(true)
   })
 
   test('폴더 nav active — 보낸편지함 진입 시 aria-current', async ({

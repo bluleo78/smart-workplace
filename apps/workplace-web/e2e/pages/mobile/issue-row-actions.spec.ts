@@ -6,6 +6,7 @@ import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueTy
 import { createProject } from '../../factories/project.factory';
 import { longPressWithMouse } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
+import { bodyOf, trackRequests } from '../../fixtures/requests';
 
 const KEY = 'WP';
 const ISSUES = `/api/v1/projects/${KEY}/issues`;
@@ -16,9 +17,10 @@ const EPIC = createIssue({ id: 10, number: 10, projectKey: KEY, title: '결제 �
 const LONG = createIssue({ id: 21, number: 21, projectKey: KEY, title: '결제 모듈 환불 처리 간헐적 실패 원인 분석 — PG 콜백 타임아웃 시 PENDING 잔류', type: makeTaskType(), status: 'TODO' });
 const OTHER = createIssue({ id: 22, number: 22, projectKey: KEY, title: '환불 콜백 재시도 로직 추가', type: makeTaskType(), status: 'TODO' });
 
-/** 목록·에픽·메타 스텁. PATCH 호출을 calls 에 모은다. group=none 으로 진입해 사이클 기본 그룹을 피한다. */
+/** 목록·에픽·메타 스텁. 돌려주는 calls() 는 status/parent 변경 요청 기록. group=none 으로 진입해 사이클 기본 그룹을 피한다. */
 async function mock(page: Page, { member = true, issues = [LONG, OTHER] } = {}) {
-  const calls: { path: string; body: unknown }[] = [];
+  const changes = trackRequests(page, 'ANY', /\/issues\/\d+\/(status|parent)$/);
+  const calls = () => changes.requests().map((req) => ({ path: new URL(req.url()).pathname, body: bodyOf(req) }));
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: member }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/types`, (r) => r.fulfill(json(systemTypes())));
   for (const p of [`/api/v1/projects/${KEY}/members`, `/api/v1/projects/${KEY}/labels`, `/api/v1/projects/${KEY}/cycles`, `/api/v1/projects/${KEY}/views`]) {
@@ -32,10 +34,7 @@ async function mock(page: Page, { member = true, issues = [LONG, OTHER] } = {}) 
     const list = isEpicList ? [EPIC] : status ? issues.filter((i) => status.split(',').includes(i.status)) : issues;
     return r.fulfill(json(createIssueSearchResponse(list, null)));
   });
-  await page.route((u) => /\/issues\/\d+\/(status|parent)$/.test(u.pathname), async (r) => {
-    calls.push({ path: new URL(r.request().url()).pathname, body: r.request().postDataJSON() });
-    return r.fulfill(json({}));
-  });
+  await page.route((u) => /\/issues\/\d+\/(status|parent)$/.test(u.pathname), (r) => r.fulfill(json({})));
   return calls;
 }
 
@@ -64,7 +63,7 @@ test.describe('이슈 행 길게 누르기', () => {
     await page.getByTestId('mobile-action-status').click();
     await expect(page.getByTestId('issue-status-picker')).toBeVisible();
     await page.getByTestId('picker-option-IN_PROGRESS').click();
-    await expect.poll(() => calls.find((c) => c.path.endsWith('/issues/21/status'))?.body).toEqual({ status: 'IN_PROGRESS' });
+    await expect.poll(() => calls().find((c) => c.path.endsWith('/issues/21/status'))?.body).toEqual({ status: 'IN_PROGRESS' });
   });
 
   test('에픽 지정 → 에픽 선택 → PATCH parent', async ({ authenticatedPage: page }) => {
@@ -74,7 +73,7 @@ test.describe('이슈 행 길게 누르기', () => {
     await page.getByTestId('mobile-action-epic').click();
     await expect(page.getByTestId('issue-epic-picker')).toBeVisible();
     await page.getByTestId('picker-option-10').click();
-    await expect.poll(() => calls.find((c) => c.path.endsWith('/issues/21/parent'))?.body).toEqual({ parentNumber: 10 });
+    await expect.poll(() => calls().find((c) => c.path.endsWith('/issues/21/parent'))?.body).toEqual({ parentNumber: 10 });
   });
 
   test('비멤버는 상태·에픽 행이 없다', async ({ authenticatedPage: page }) => {
@@ -124,7 +123,7 @@ test.describe('모바일 선택 모드', () => {
     await page.getByTestId('bulk-status-trigger').click();
     await expect(page.getByTestId('bulk-status-picker')).toBeVisible();
     await page.getByTestId('picker-option-DONE').click();
-    await expect.poll(() => calls.filter((c) => c.path.endsWith('/status')).length).toBe(2);
+    await expect.poll(() => calls().filter((c) => c.path.endsWith('/status')).length).toBe(2);
     await expect(bar).toHaveCount(0);
   });
 
@@ -180,7 +179,7 @@ test.describe('모바일 보드 카드', () => {
     await expect(page.getByTestId('mobile-action-select')).toHaveCount(0);
     await page.getByTestId('mobile-action-status').click();
     await page.getByTestId('picker-option-DONE').click();
-    await expect.poll(() => calls.find((c) => c.path.endsWith('/issues/21/status'))?.body).toEqual({ status: 'DONE' });
+    await expect.poll(() => calls().find((c) => c.path.endsWith('/issues/21/status'))?.body).toEqual({ status: 'DONE' });
     await expect(page.getByTestId('issue-card-drag-overlay')).toHaveCount(0);
   });
 

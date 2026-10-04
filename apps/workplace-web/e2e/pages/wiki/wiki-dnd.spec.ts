@@ -4,6 +4,7 @@
 // 시뮬레이션(hover → down → move(0,0) → move(target, steps) → up)을 그대로 미러링한다.
 import type { WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { bodyOf, trackRequests } from '../../fixtures/requests'
 
 const SPACE_ID = 1
 
@@ -85,13 +86,12 @@ test(
           : route.fallback(),
     )
 
-    // move PATCH — 204(빈 본문), payload 캡처.
-    let movePayload: unknown = null
+    // move PATCH — 204(빈 본문).
+    const moves = trackRequests(page, 'PATCH', '/api/v1/wiki/pages/12/move')
     await page.route(
       (url) => url.pathname === '/api/v1/wiki/pages/12/move',
       (route) => {
         if (route.request().method() !== 'PATCH') return route.fallback()
-        movePayload = route.request().postDataJSON()
         return route.fulfill({ status: 204, body: '' })
       },
     )
@@ -106,7 +106,7 @@ test(
     await dragRowTo(page, 'C', 'A')
 
     // 컨트랙트 검증 — 루트 최상단으로 이동(parentId null, position 0).
-    await expect.poll(() => movePayload).toEqual({ parentId: null, position: 0 })
+    await expect.poll(() => moves.lastBody()).toEqual({ parentId: null, position: 0 })
   },
 )
 
@@ -147,15 +147,18 @@ test('위키 사이드바 — 부모를 자기 자식 아래로 드롭해도 후
         : route.fallback(),
   )
 
-  // 어떤 페이지의 move 든 전부 캡처 — "후손이 parentId 로 나갔는가" 를 봐야 하므로 경로를 넓게 잡는다.
-  const moves: { pageId: number; parentId: number | null; position: number }[] = []
+  // 어떤 페이지의 move 든 전부 기록 — "후손이 parentId 로 나갔는가" 를 봐야 하므로 경로를 넓게 잡는다.
+  const movePatches = trackRequests(page, 'PATCH', /\/api\/v1\/wiki\/pages\/\d+\/move$/)
+  const moves = () =>
+    movePatches.requests().map((r) => {
+      const pageId = Number(r.url().match(/pages\/(\d+)\/move/)![1])
+      const { parentId, position } = bodyOf(r) as { parentId: number | null; position: number }
+      return { pageId, parentId, position }
+    })
   await page.route(
     (url) => /\/api\/v1\/wiki\/pages\/\d+\/move$/.test(url.pathname),
     (route) => {
       if (route.request().method() !== 'PATCH') return route.fallback()
-      const pageId = Number(route.request().url().match(/pages\/(\d+)\/move/)![1])
-      const { parentId, position } = route.request().postDataJSON()
-      moves.push({ pageId, parentId, position })
       return route.fulfill({ status: 204, body: '' })
     },
   )
@@ -168,11 +171,11 @@ test('위키 사이드바 — 부모를 자기 자식 아래로 드롭해도 후
   await dragRowTo(page, 'A', 'A1', 24)
 
   // 드래그가 실제로 동작했음을 먼저 고정한다 — PATCH 가 0건이면 아래 단언이 공허하게 통과한다.
-  await expect.poll(() => moves.length).toBeGreaterThan(0)
-  expect(moves.filter((m) => m.pageId === 10 && m.parentId === 20)).toEqual([])
+  await movePatches.waitFor()
+  expect(moves().filter((m) => m.pageId === 10 && m.parentId === 20)).toEqual([])
   // 후손을 뺀 뒤 남은 이웃(B) 기준의 합법 이동으로 바뀐다 — position 도 같은 배열로 계산되는지 함께 고정.
   // 후손이 있는 트리에서 position 을 단언하는 건 이 테스트뿐이다(@smoke 는 루트 3개 평면 트리).
-  expect(moves).toEqual([{ pageId: 10, parentId: 11, position: 0 }])
+  expect(moves()).toEqual([{ pageId: 10, parentId: 11, position: 0 }])
 })
 
 // #758 서버가 트리를 깨는 이동(자기 자신/후손을 부모로)을 400 으로 거부한다. 사이드바 DnD 는 드래그 중인

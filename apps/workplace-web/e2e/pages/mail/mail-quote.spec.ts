@@ -6,6 +6,7 @@
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { retryOnNavigation } from '../../fixtures/wait'
 
 /** 실제 메일처럼 완전 문서 + 표 + 인라인 style + 긴 서명. */
@@ -140,12 +141,11 @@ test.describe('메일 인용문 보존', () => {
   test('발송 payload 는 에디터 본문 + 인용문 순서이고 원문이 무손실이다', async ({
     authenticatedPage: page,
   }) => {
-    let sent: { bodyHtml: string; bodyText: string } | null = null
+    const sends = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/send')
     await mockInbox(page)
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/send',
       async (route) => {
-        sent = route.request().postDataJSON()
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -159,7 +159,8 @@ test.describe('메일 인용문 보존', () => {
     await page.keyboard.type('스토리지 항목만 조정하면 될 것 같습니다.')
     await page.getByTestId('mail-compose-send').click()
 
-    await expect.poll(() => sent).not.toBeNull()
+    await sends.waitFor()
+    const sent = sends.lastBody<{ bodyHtml: string; bodyText: string }>()
     const html = sent!.bodyHtml
     // 순서: 내 본문이 인용문보다 앞
     expect(html.indexOf('스토리지 항목만')).toBeLessThan(html.indexOf('<blockquote>'))
@@ -191,12 +192,11 @@ test.describe('메일 인용문 보존', () => {
   test('인용문 제거 버튼으로 지우면 블록이 사라지고 발송 payload 에 인용문이 실리지 않는다', async ({
     authenticatedPage: page,
   }) => {
-    let sent: { bodyHtml: string; bodyText: string } | null = null
+    const sends = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/send')
     await mockInbox(page)
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/send',
       async (route) => {
-        sent = route.request().postDataJSON()
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -215,7 +215,8 @@ test.describe('메일 인용문 보존', () => {
     await page.keyboard.type('기밀 문단 없이 회신합니다.')
     await page.getByTestId('mail-compose-send').click()
 
-    await expect.poll(() => sent).not.toBeNull()
+    await sends.waitFor()
+    const sent = sends.lastBody<{ bodyHtml: string; bodyText: string }>()
     expect(sent!.bodyHtml).not.toContain('<blockquote>')
     expect(sent!.bodyHtml).toContain('기밀 문단 없이 회신합니다.')
   })
@@ -310,12 +311,11 @@ test.describe('메일 인용문 인라인 이미지', () => {
   test('답장 인용문 미리보기에 원본 인라인 이미지가 보이고, 발송 payload 에 재첨부 대상이 실린다', async ({
     authenticatedPage: page,
   }) => {
-    let sent: { bodyHtml: string; inlineImages?: { attachmentId: number; contentId: string }[] } | null = null
+    const sends = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/send')
     await mockInlineInbox(page)
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/send',
       async (route) => {
-        sent = route.request().postDataJSON()
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -337,7 +337,8 @@ test.describe('메일 인용문 인라인 이미지', () => {
     await expect(frame.locator('#q-gone')).toHaveCount(0)
 
     await page.getByTestId('mail-compose-send').click()
-    await expect.poll(() => sent).not.toBeNull()
+    await sends.waitFor()
+    const sent = sends.lastBody<{ bodyHtml: string; inlineImages?: { attachmentId: number; contentId: string }[] }>()
     // 발송 본문은 cid: 를 유지(서버가 같은 Content-ID 파트를 붙임) — data URI 가 섞이면 안 된다
     expect(sent!.bodyHtml).toContain('src="cid:7dc8b642.png"')
     expect(sent!.bodyHtml).not.toContain('data:image')
@@ -346,12 +347,11 @@ test.describe('메일 인용문 인라인 이미지', () => {
   })
 
   test('전달도 인라인 이미지를 재첨부 대상으로 싣는다', async ({ authenticatedPage: page }) => {
-    let sent: { inlineImages?: { attachmentId: number; contentId: string }[] } | null = null
+    const sends = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/send')
     await mockInlineInbox(page)
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/send',
       async (route) => {
-        sent = route.request().postDataJSON()
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -364,17 +364,17 @@ test.describe('메일 인용문 인라인 이미지', () => {
     await page.getByTestId('mail-compose-to').fill('peer@test.local')
     await page.getByTestId('mail-compose-send').click()
 
-    await expect.poll(() => sent).not.toBeNull()
+    await sends.waitFor()
+    const sent = sends.lastBody<{ inlineImages?: { attachmentId: number; contentId: string }[] }>()
     expect(sent!.inlineImages).toEqual([{ attachmentId: 21, contentId: '7dc8b642.png' }])
   })
 
   test('인용문을 제거하면 재첨부 대상도 보내지 않는다', async ({ authenticatedPage: page }) => {
-    let sent: { inlineImages?: unknown } | null = null
+    const sends = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/send')
     await mockInlineInbox(page)
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/send',
       async (route) => {
-        sent = route.request().postDataJSON()
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -389,7 +389,8 @@ test.describe('메일 인용문 인라인 이미지', () => {
     await page.keyboard.type('인용 없이 회신')
     await page.getByTestId('mail-compose-send').click()
 
-    await expect.poll(() => sent).not.toBeNull()
+    await sends.waitFor()
+    const sent = sends.lastBody<{ inlineImages?: unknown }>()
     expect(sent!.inlineImages).toBeUndefined()
   })
 

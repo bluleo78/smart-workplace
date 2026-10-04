@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { external, externalDetail, page as makePage } from '../../factories/contacts.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 // 목록: 항상 외부 1건 노출.
 async function stubList(page: Page) {
@@ -33,11 +34,10 @@ async function stubDetail(page: Page, over = {}) {
 
 test('외부 연락처 생성', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await stubList(page)
-  let posted: Record<string, unknown> | null = null
+  const posts = trackRequests(page, 'POST', '/api/v1/contacts/external')
   await page.route(
     (url) => url.pathname === '/api/v1/contacts/external',
     (route) => {
-      posted = route.request().postDataJSON()
       return route.fulfill({
         status: 201,
         contentType: 'application/json',
@@ -67,10 +67,8 @@ test('외부 연락처 생성', { tag: '@smoke' }, async ({ authenticatedPage: p
   await page.getByTestId('c-save').click()
 
   // payload 검증
-  await expect.poll(() => posted).not.toBeNull()
-  expect(posted!.name).toBe('신규연락처')
-  expect(posted!.email).toBe('new@corp.com')
-  expect(posted!.visibility).toBe('PERSONAL')
+  await posts.waitFor()
+  expect(posts.lastBody()).toMatchObject({ name: '신규연락처', email: 'new@corp.com', visibility: 'PERSONAL' })
   // 다이얼로그 닫힘
   await expect(page.getByTestId('external-contact-dialog')).toHaveCount(0)
   // UI 반영 — 신규 행이 목록에 노출된다
@@ -80,12 +78,11 @@ test('외부 연락처 생성', { tag: '@smoke' }, async ({ authenticatedPage: p
 test('외부 연락처 편집', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await stubList(page)
   await stubDetail(page)
-  let patched: Record<string, unknown> | null = null
+  const patches = trackRequests(page, 'PATCH', '/api/v1/contacts/external/100')
   await page.route(
     (url) => url.pathname === '/api/v1/contacts/external/100',
     (route) => {
       if (route.request().method() !== 'PATCH') return route.fallback()
-      patched = route.request().postDataJSON()
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -116,8 +113,8 @@ test('외부 연락처 편집', { tag: '@smoke' }, async ({ authenticatedPage: p
   )
   await page.getByTestId('c-save').click()
 
-  await expect.poll(() => patched).not.toBeNull()
-  expect(patched!.name).toBe('수정됨')
+  await patches.waitFor()
+  expect(patches.lastBody()).toMatchObject({ name: '수정됨' })
   // UI 반영 — 상세 패널이 수정된 이름을 보여준다
   await expect(page.getByTestId('contact-detail-external')).toContainText('수정됨')
 })
@@ -125,12 +122,11 @@ test('외부 연락처 편집', { tag: '@smoke' }, async ({ authenticatedPage: p
 test('외부 연락처 삭제', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await stubList(page)
   await stubDetail(page)
-  let deleted = false
+  const deletes = trackRequests(page, 'DELETE', '/api/v1/contacts/external/100')
   await page.route(
     (url) => url.pathname === '/api/v1/contacts/external/100',
     (route) => {
       if (route.request().method() !== 'DELETE') return route.fallback()
-      deleted = true
       return route.fulfill({ status: 204, body: '' })
     },
   )
@@ -154,7 +150,7 @@ test('외부 연락처 삭제', { tag: '@smoke' }, async ({ authenticatedPage: p
   // DeleteConfirmDialog 확인 — AlertDialogAction "삭제"
   await page.getByRole('button', { name: '삭제' }).last().click()
 
-  await expect.poll(() => deleted).toBe(true)
+  await deletes.waitFor()
   // 선택 해제 → empty 상태 — DS §2.5 4요소 패턴(아이콘+제목+설명) 확인
   const emptyState = page.getByTestId('contact-detail-empty')
   await expect(emptyState).toBeVisible()
@@ -168,12 +164,11 @@ test('외부 연락처 생성 — 이름+이메일 중복 시 확인 다이얼�
   authenticatedPage: page,
 }) => {
   await stubList(page)
-  const requests: { force: boolean; body: Record<string, unknown> }[] = []
+  const posts = trackRequests(page, 'POST', '/api/v1/contacts/external')
   await page.route(
     (url) => url.pathname === '/api/v1/contacts/external',
     (route) => {
       const force = new URL(route.request().url()).searchParams.get('force') === 'true'
-      requests.push({ force, body: route.request().postDataJSON() })
       if (!force) {
         // 최초 요청(force 미지정) — 소프트 중복 경고 409
         return route.fulfill({
@@ -223,10 +218,9 @@ test('외부 연락처 생성 — 이름+이메일 중복 시 확인 다이얼�
   await page.getByTestId('contact-duplicate-confirm').click()
 
   // 2번의 POST — 1차 force=false(409), 2차 force=true(201)
-  await expect.poll(() => requests.length).toBe(2)
-  expect(requests[0].force).toBe(false)
-  expect(requests[1].force).toBe(true)
-  expect(requests[1].body.name).toBe('김민수')
+  await expect.poll(posts.count).toBe(2)
+  expect(posts.urls().map((u) => u.searchParams.get('force') === 'true')).toEqual([false, true])
+  expect(posts.bodies<{ name: string }>()[1].name).toBe('김민수')
 
   // 확인 다이얼로그 + 생성 다이얼로그 모두 닫히고 신규 행이 목록에 반영됨
   await expect(page.getByTestId('contact-duplicate-dialog')).toHaveCount(0)

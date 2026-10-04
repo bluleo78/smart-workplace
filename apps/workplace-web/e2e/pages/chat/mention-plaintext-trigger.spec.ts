@@ -7,6 +7,7 @@ import { createMember } from '../../factories/auth.factory'
 import { createPageResponse } from '../../fixtures/api-mock'
 import { createChannel, createChannelMember, createMessage } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const CHANNEL_ID = 710
 // "My AI" 에이전트 — 이름에 공백이 있어 평문 타이핑 시 suggestion 이 매칭하지 못하고 평문으로 남는다(#366 핵심).
@@ -129,13 +130,13 @@ test.describe('#366 평문 @에이전트 멘션 → <@id> 변환', () => {
   test('평문 "@My AI hello" 전송 시 payload.body 가 "<@99> hello" 로 변환된다', async ({
     authenticatedPage: page,
   }) => {
-    // 전송 POST 를 가로채 payload.body 를 캡처한다(GET stub 보다 나중에 등록 → POST 우선 처리).
-    let sentBody: string | null = null
+    // 전송 POST 응답(GET stub 보다 나중에 등록 → POST 우선 처리).
+    const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`)
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
       (route) => {
         if (route.request().method() === 'POST') {
-          sentBody = (route.request().postDataJSON() as { body: string }).body
+          const sentBody = (route.request().postDataJSON() as { body: string }).body
           return route.fulfill({
             status: 201,
             contentType: 'application/json',
@@ -146,7 +147,7 @@ test.describe('#366 평문 @에이전트 멘션 → <@id> 변환', () => {
                 authorId: 1,
                 authorName: 'bluleo78',
                 authorKind: 'HUMAN',
-                body: sentBody ?? '',
+                body: sentBody,
                 createdAt: '2026-06-06T03:20:00',
               }),
             ),
@@ -171,7 +172,7 @@ test.describe('#366 평문 @에이전트 멘션 → <@id> 변환', () => {
     await page.getByTestId('message-composer-submit').click()
 
     // payload.body 가 <@99> 로 변환되어 전송되어야 백엔드가 AI 를 트리거할 수 있다.
-    await expect.poll(() => sentBody).toBe('<@99> hello')
+    await expect.poll(() => posts.lastBody<{ body: string }>()?.body).toBe('<@99> hello')
   })
 })
 
@@ -188,14 +189,13 @@ test('워크스페이스 에이전트가 100명을 넘어도 마지막 페이지
   await stubMessagesGet(page, CHANNEL_ID)
   await stubMarkRead(page, CHANNEL_ID)
   const LAST_AGENT_ID = 5000
-  const requestedPages: string[] = []
+  const agentPages = trackRequests(page, 'GET', (url) => url.pathname === '/api/v1/members' && url.searchParams.get('kind') === 'AGENT')
   await page.route(
     (url) => url.pathname === '/api/v1/members',
     (route) => {
       if (route.request().method() !== 'GET') return route.fallback()
       const params = new URL(route.request().url()).searchParams
       const n = Number(params.get('page') ?? 0)
-      if (params.get('kind') === 'AGENT') requestedPages.push(String(n))
       const agents =
         n === 0
           ? Array.from({ length: 100 }, (_, i) => createMember({ userId: 1000 + i, name: `봇${i}`, username: `bot${i}`, kind: 'AGENT' }))
@@ -209,5 +209,5 @@ test('워크스페이스 에이전트가 100명을 넘어도 마지막 페이지
   await page.getByTestId('message-composer-input').click()
   await page.keyboard.type('@막내')
   await expect(page.getByTestId(`chat-mention-option-${LAST_AGENT_ID}`)).toBeVisible()
-  expect(requestedPages).toEqual(expect.arrayContaining(['0', '1']))
+  expect(agentPages.urls().map((u) => String(Number(u.searchParams.get('page') ?? 0)))).toEqual(expect.arrayContaining(['0', '1']))
 })

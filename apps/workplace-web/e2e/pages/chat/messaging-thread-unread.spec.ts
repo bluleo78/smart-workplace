@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 
 import { createChannel, createChannelMember, createMessage } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 const ME_ID = 1
 
@@ -101,14 +102,10 @@ test(
       createMessage({ id: 8100, channelId: CHANNEL_ID, parentMessageId: PARENT_ID, body: '새 답글' }),
     ])
 
-    // markThreadRead 호출 캡처.
-    let threadReadCalled = false
+    const threadReads = trackRequests(page, 'ANY', `/api/v1/messaging/messages/${PARENT_ID}/thread/read`)
     await page.route(
       (url) => url.pathname === `/api/v1/messaging/messages/${PARENT_ID}/thread/read`,
-      (route) => {
-        threadReadCalled = true
-        return route.fulfill({ status: 204, body: '' })
-      },
+      (route) => route.fulfill({ status: 204, body: '' }),
     )
 
     await page.goto(`/chat/channels/${CHANNEL_ID}`)
@@ -119,7 +116,7 @@ test(
     // 답글 링크 클릭 → 패널 열림 → markThreadRead 호출.
     await page.getByTestId(`message-thread-link-${PARENT_ID}`).click()
     await expect(page.getByTestId('thread-panel')).toBeVisible()
-    await expect.poll(() => threadReadCalled).toBe(true)
+    await threadReads.waitFor()
   },
 )
 

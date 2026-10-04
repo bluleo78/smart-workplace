@@ -2,8 +2,9 @@ import type { Locator, Page } from '@playwright/test'
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { measureBox, stableBox } from '../fixtures/wait'
+import { trackRequests } from '../fixtures/requests'
 import { createUser } from '../factories/auth.factory'
-import { mockHomeChatCancel, mockHomeChatGeneration, mockHomeProposals, proposal } from '../fixtures/home-chat-mock'
+import { type HomeChatStartBody, mockHomeChatCancel, mockHomeChatGeneration, mockHomeProposals, proposal } from '../fixtures/home-chat-mock'
 import type { HomeMessage, HomeSessionPage } from '../../src/types/home'
 
 // global-chat.spec.ts — AI 어시스턴트 신규 모드(side/fullscreen/chip) E2E.
@@ -92,14 +93,7 @@ test('비-홈(이슈) 페이지에서 챗 제출 시 제자리에서 어시스�
     totalPages: 0,
   })
   // compose → 통합 /events 채널로 델타/완료 전달(#593 편입).
-  let composePayload: unknown = null;
-  let resolveCompose: (() => void) | null = null;
-  const composeRequested = new Promise<void>((resolve) => { resolveCompose = resolve; });
-  await mockHomeChatGeneration(page, {
-    onStart: (body) => {
-      composePayload = body;
-      resolveCompose?.();
-    },
+  const composes = await mockHomeChatGeneration(page, {
     frames: [
       { event: 'delta', data: { text: '내 HIGH 이슈를 ' } },
       { event: 'delta', data: { text: '정리했어요' } },
@@ -117,8 +111,8 @@ test('비-홈(이슈) 페이지에서 챗 제출 시 제자리에서 어시스�
   await page.getByRole('button', { name: '보내기' }).click()
 
   // 3) compose 요청 페이로드 검증(새 세션이므로 sessionId null, 입력 query 그대로)
-  await composeRequested
-  expect(composePayload).toMatchObject({ sessionId: null, query: '내 HIGH 이슈' })
+  await composes.waitFor()
+  expect(composes.lastBody()).toMatchObject({ sessionId: null, query: '내 HIGH 이슈' })
 
   // 4) 어시스턴트 응답이 챗 패널에 제자리로 렌더된다(사용자 질의 + 응답 턴)
   await expect(page.getByTestId('chat-panel')).toContainText('내 HIGH 이슈')
@@ -134,11 +128,7 @@ test('AI 채팅 입력 — Shift+Enter 는 줄바꿈, Enter 는 전송(query 에
   authenticatedPage: page,
 }) => {
   // 과거 버그: 단일행 <input> 이라 줄바꿈 자체가 불가능했다 → textarea + Enter/Shift+Enter 규칙.
-  let composePayload: { query?: string } | null = null;
-  await mockHomeChatGeneration(page, {
-    onStart: (body) => {
-      composePayload = body as { query?: string };
-    },
+  const composes = await mockHomeChatGeneration(page, {
     frames: [{ event: 'done', data: { sessionId: 's-multiline' } }],
   });
 
@@ -153,7 +143,7 @@ test('AI 채팅 입력 — Shift+Enter 는 줄바꿈, Enter 는 전송(query 에
   await expect(input).toHaveValue('첫 줄\n둘째 줄')
 
   await page.keyboard.press('Enter')
-  await expect.poll(() => composePayload?.query).toBe('첫 줄\n둘째 줄')
+  await expect.poll(() => composes.lastBody<HomeChatStartBody>()?.query).toBe('첫 줄\n둘째 줄')
   await expect(input).toHaveValue('')
 })
 
@@ -1080,11 +1070,8 @@ test('보류된 전환의 대상 대화를 삭제하면 보류가 취소되어 �
     await deleteDone
     return r.fulfill({ status: 204, body: '' })
   })
-  let restoreCalls = 0
-  await page.route((u) => u.pathname === '/api/v1/home/sessions/s-target/messages', (r) => {
-    restoreCalls++
-    return r.fulfill({ json: [] })
-  })
+  const restores = trackRequests(page, 'ANY', '/api/v1/home/sessions/s-target/messages')
+  await page.route((u) => u.pathname === '/api/v1/home/sessions/s-target/messages', (r) => r.fulfill({ json: [] }))
   await page.route((u) => u.pathname === '/api/v1/home/sessions/s-target/proposals', (r) => r.fulfill({ json: [] }))
   let release!: () => void
   await mockHomeChatGeneration(page, {
@@ -1110,7 +1097,7 @@ test('보류된 전환의 대상 대화를 삭제하면 보류가 취소되어 �
   release()
   await expect(panel).toContainText('첫 답변')
   await expect(panel).toContainText('첫 질문') // 불시 전환 없음
-  expect(restoreCalls).toBe(0)
+  expect(restores.count()).toBe(0)
   finishDelete()
 })
 
@@ -1120,14 +1107,11 @@ test('생성 중 다른 대화 선택 → [중단하고 이동]: 취소 요청 1
     items: [{ id: 's-old', title: '지난 대화', lastMessageAt: '2026-10-01T00:00:00Z', widgetCount: 0 }],
     nextCursor: null,
   })
-  let msgCalls = 0
+  const msgs = trackRequests(page, 'ANY', '/api/v1/home/sessions/s-old/messages')
   const oldMessages: HomeMessage[] = [
     { id: 1, role: 'USER', content: '지난 질문', widgets: null, toolCalls: null, createdAt: '2026-10-01T00:00:00Z' },
   ]
-  await page.route((u) => u.pathname === '/api/v1/home/sessions/s-old/messages', (r) => {
-    msgCalls++
-    return r.fulfill({ json: oldMessages })
-  })
+  await page.route((u) => u.pathname === '/api/v1/home/sessions/s-old/messages', (r) => r.fulfill({ json: oldMessages }))
   await page.route((u) => u.pathname === '/api/v1/home/sessions/s-old/proposals', (r) => r.fulfill({ json: [] }))
   const cancel = await mockHomeChatCancel(page)
   const never = new Promise<void>(() => {})
@@ -1142,7 +1126,7 @@ test('생성 중 다른 대화 선택 → [중단하고 이동]: 취소 요청 1
   await guard.getByRole('button', { name: '중단하고 이동' }).click()
   await expect(guard).toHaveCount(0)
   await expect(page.getByTestId('chat-panel')).toContainText('지난 질문')
-  await expect.poll(() => msgCalls).toBe(1)
+  await expect.poll(msgs.count).toBe(1)
   await expect.poll(() => cancel.calls.length).toBe(1)
 })
 

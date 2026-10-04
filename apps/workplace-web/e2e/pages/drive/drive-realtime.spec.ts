@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test'
 import { createFile, createSpace, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents'
+import { trackRequests } from '../../fixtures/requests'
 
 const SPACE_ID = 1
 
@@ -97,9 +98,8 @@ test.describe('드라이브 실시간 반영 (WP-63)', () => {
     await stubSpaces(page, () => [personalSpace(), createSpace()])
     await stubItems(page, () => ({ folders: [], files: [createFile({ id: 20, name: 'a.txt' })] }))
     let trashOk = false
-    let trashCalls = 0
+    const trashes = trackRequests(page, 'ANY', /^\/api\/v1\/drive\/spaces\/[^/]+\/trash$/)
     await page.route('**/api/v1/drive/spaces/*/trash', (route) => {
-      trashCalls++
       return trashOk
         ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) })
         : route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
@@ -113,7 +113,7 @@ test.describe('드라이브 실시간 반영 (WP-63)', () => {
 
     // 휴지통이 복구된 뒤 이벤트가 와도 사용자가 다시 열기 전엔 휴지통 뷰로 바뀌지 않는다.
     trashOk = true
-    const trashCallsBefore = trashCalls
+    const trashCallsBefore = trashes.count()
     // 고정 대기 대신 이벤트가 실제로 처리돼 목록 재조회가 끝난 뒤에 단언한다(WP-225).
     // 회귀(실패 뒤 휴지통 열림 상태가 남음)는 같은 무효화에서 휴지통 재조회로 드러나는데, 목록과 휴지통 요청은
     // 함께 나가므로 목록 응답이 온 시점에 휴지통 요청이 없었으면 휴지통 뷰로 바뀔 경로도 없다.
@@ -122,7 +122,7 @@ test.describe('드라이브 실시간 반영 (WP-63)', () => {
     )
     events.deliver(frame('drive', 'updated'))
     await refetched
-    expect(trashCalls, '휴지통을 다시 열지 않았는데 휴지통 재조회가 나갔다').toBe(trashCallsBefore)
+    expect(trashes.count(), '휴지통을 다시 열지 않았는데 휴지통 재조회가 나갔다').toBe(trashCallsBefore)
     await expect(page.getByTestId('trash-view')).toHaveCount(0)
     await expect(page.getByTestId('select-file-20')).toBeVisible()
   })

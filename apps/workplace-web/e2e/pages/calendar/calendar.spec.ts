@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 import type { CalendarEvent } from '../../../src/types/calendar'
 import { calendarEvent, recurringCalendarEvent } from '../../factories/calendar.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 
 /**
  * GET/POST /api/v1/calendar/events 를 메서드별로 분기 모킹.
@@ -293,11 +294,7 @@ test(
     const store: CalendarEvent[] = [calendarEvent({ id: 1 })]
     await stubCalendarEvents(page, store)
 
-    // DELETE 요청 발생 횟수 추적
-    let deleteCount = 0
-    page.on('request', (req) => {
-      if (req.method() === 'DELETE' && req.url().includes('/api/v1/calendar/events')) deleteCount++
-    })
+    const deletes = trackRequests(page, 'DELETE', (url) => url.pathname.startsWith('/api/v1/calendar/events'))
 
     await page.goto('/calendar')
 
@@ -310,7 +307,7 @@ test(
     // '취소' 클릭 → 다이얼로그 닫힘, DELETE 미발생, 일정 카드 유지
     await page.getByTestId('calendar-confirm-delete-cancel').click()
     await expect(page.getByTestId('calendar-confirm-delete-dialog')).toBeHidden()
-    expect(deleteCount).toBe(0)
+    expect(deletes.count()).toBe(0)
     await expect(page.getByTestId('calendar-event-1')).toBeVisible()
   },
 )
@@ -506,11 +503,8 @@ test(
     const store: CalendarEvent[] = []
     await stubCalendarEvents(page, store)
 
-    // POST 가 발생하지 않아야 함을 증명하기 위해 요청 카운트 추적
-    let postCount = 0
-    page.on('request', (req) => {
-      if (req.method() === 'POST' && req.url().includes('/api/v1/calendar/events')) postCount++
-    })
+    // POST 가 발생하지 않아야 한다
+    const posts = trackRequests(page, 'POST', (url) => url.pathname.startsWith('/api/v1/calendar/events'))
 
     await page.goto('/calendar')
 
@@ -535,7 +529,7 @@ test(
     await expect(page.getByText('반복 종료 날짜는 시작일 이후여야 합니다')).toBeVisible()
     await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
     // POST 가 전혀 발생하지 않았음(orphan 저장 차단)
-    expect(postCount).toBe(0)
+    expect(posts.count()).toBe(0)
   },
 )
 
@@ -641,9 +635,9 @@ test(
   async ({ authenticatedPage: page }) => {
     await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
 
-    // POST 호출 횟수 카운트 — race condition 재현을 위해 약간의 지연을 준다
+    const posts = trackRequests(page, 'POST', (url) => url.pathname.startsWith('/api/v1/calendar/events'))
+    // POST 응답에 약간의 지연을 준다 — race condition 재현
     // (isPending state 리렌더가 늦게 반영되는 실제 조건을 모사).
-    let postCount = 0
     await page.route(
       (url) => url.pathname.startsWith('/api/v1/calendar/events'),
       async (route) => {
@@ -656,7 +650,6 @@ test(
           })
         }
         if (method === 'POST') {
-          postCount += 1
           await new Promise((r) => setTimeout(r, 200))
           const body = JSON.parse(route.request().postData() ?? '{}') as Partial<CalendarEvent>
           return route.fulfill({
@@ -685,7 +678,7 @@ test(
 
     // 다이얼로그가 닫힐 때까지(처리 완료) 대기 후 POST 는 정확히 1번만 발생해야 한다
     await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
-    expect(postCount).toBe(1)
+    expect(posts.count()).toBe(1)
   },
 )
 

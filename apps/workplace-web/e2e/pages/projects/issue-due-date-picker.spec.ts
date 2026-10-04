@@ -3,6 +3,7 @@
 // 입력(날짜 선택) → 처리(PATCH payload) → 출력(UI 반영) 전 파이프라인 검증.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 
@@ -16,7 +17,7 @@ async function setupStubs(
   initialDueDate: string | null = null,
 ) {
   let currentDueDate = initialDueDate;
-  const patches: Record<string, unknown>[] = [];
+  const patches = trackRequests(page, 'PATCH', ISSUE_DETAIL_PATH);
 
   await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
     route.fulfill({
@@ -59,13 +60,12 @@ async function setupStubs(
     );
   }
 
-  // PATCH — payload 기록 + dueDate 상태 갱신.
+  // PATCH — dueDate 상태 갱신.
   await page.route(
     (url) => url.pathname === ISSUE_DETAIL_PATH,
     (route) => {
       if (route.request().method() !== 'PATCH') return route.fallback();
       const payload = route.request().postDataJSON() as Record<string, unknown>;
-      patches.push(payload);
       if (typeof payload.dueDate === 'string') currentDueDate = payload.dueDate;
       if (payload.clearDueDate === true) currentDueDate = null;
       return route.fulfill({
@@ -120,8 +120,8 @@ test.describe('이슈 상세 마감일 DatePicker (#284)', () => {
       await day15.click();
 
       // PATCH 요청이 dueDate를 포함해야 함.
-      await expect.poll(() => patches.length).toBeGreaterThanOrEqual(1);
-      const last = patches[patches.length - 1];
+      await patches.waitFor();
+      const last = patches.lastBody<Record<string, unknown>>()!;
       expect(typeof last.dueDate).toBe('string');
       // YYYY-MM-DD 형식 검증.
       expect(last.dueDate).toMatch(/^\d{4}-\d{2}-15$/);
@@ -147,8 +147,8 @@ test.describe('이슈 상세 마감일 DatePicker (#284)', () => {
       await page.getByTestId('due-date-clear').click();
 
       // PATCH에 clearDueDate: true 포함 확인.
-      await expect.poll(() => patches.length).toBeGreaterThanOrEqual(1);
-      const last = patches[patches.length - 1];
+      await patches.waitFor();
+      const last = patches.lastBody<Record<string, unknown>>()!;
       expect(last.clearDueDate).toBe(true);
 
       // 지우기 후 트리거가 "없음" 표시로 복원.

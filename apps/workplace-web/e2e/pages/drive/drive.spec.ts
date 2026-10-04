@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { createFile, createFolder, createSpace, makeTrashList, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { dismissByOutsideClick, measureBox } from '../../fixtures/wait'
 
 const SPACE_ID = 1
@@ -264,12 +265,11 @@ test('검색어 입력 시 결과를 경로와 함께 보여주고, 폴더 결�
           })
         : route.fallback(),
   )
-  // 검색 결과 — q query param 캡처
-  let searchQuery = ''
+  // 검색 결과 — q query param 확인
+  const searches = trackRequests(page, 'ANY', `/api/v1/drive/spaces/${SPACE_ID}/search`)
   await page.route(
     (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/search`,
     (route) => {
-      searchQuery = new URL(route.request().url()).searchParams.get('q') ?? ''
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -312,7 +312,7 @@ test('검색어 입력 시 결과를 경로와 함께 보여주고, 폴더 결�
   // 입력 → API query param 검증
   await page.getByLabel('파일명 및 콘텐츠 검색').fill('report')
   await expect(page.getByTestId('search-results')).toBeVisible()
-  expect(searchQuery).toBe('report')
+  expect(searches.lastUrl()?.searchParams.get('q')).toBe('report')
 
   // 응답 → UI 반영(경로 표시 포함)
   await expect(page.getByText('report-final.txt')).toBeVisible()
@@ -406,19 +406,16 @@ test('썸네일 생성 실패(404) 파일은 폴더 재방문 시 요청을 반�
     (route) => route.fulfill({ json: [{ id: FOLDER_ID, name: 'sub' }] }),
   )
 
-  let thumbnailRequestCount = 0
+  const thumbnails = trackRequests(page, 'ANY', '/api/v1/drive/files/14/thumbnail')
   await page.route(
     (url) => url.pathname === '/api/v1/drive/files/14/thumbnail',
-    (route) => {
-      thumbnailRequestCount += 1
-      return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' })
-    },
+    (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }),
   )
 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByText('broken.png')).toBeVisible()
-  await expect.poll(() => thumbnailRequestCount).toBeGreaterThanOrEqual(1)
-  const countAfterFirstVisit = thumbnailRequestCount
+  await thumbnails.waitFor()
+  const countAfterFirstVisit = thumbnails.count()
 
   // 하위 폴더로 이동(클라이언트 라우팅, 풀리로드 없음) → 루트로 복귀를 반복해도
   // 캐시된 404(negative cache)를 재요청하지 않는다.
@@ -429,7 +426,7 @@ test('썸네일 생성 실패(404) 파일은 폴더 재방문 시 요청을 반�
     await expect(page.getByText('broken.png')).toBeVisible()
   }
 
-  expect(thumbnailRequestCount).toBe(countAfterFirstVisit)
+  expect(thumbnails.count()).toBe(countAfterFirstVisit)
 })
 
 test('휴지통 — 조회 후 복원하면 목록이 갱신된다', async ({ authenticatedPage: page }) => {
@@ -540,12 +537,11 @@ test('폴더 생성 실패(400) 시 에러 토스트로 사유를 안내한다',
   await stubSpaces(page)
   await stubItems(page, () => ({ folders: [], files: [] }))
   // 공백만 입력 → 클라이언트 가드(if(!name)) 통과 → 서버 @NotBlank 400 + 한국어 message.
-  let folderPosted = false
+  const folderPosts = trackRequests(page, 'POST', `/api/v1/drive/spaces/${SPACE_ID}/folders`)
   await page.route(
     (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/folders`,
     (route) => {
       if (route.request().method() !== 'POST') return route.fallback()
-      folderPosted = true
       return route.fulfill({
         status: 400,
         contentType: 'application/json',
@@ -565,7 +561,7 @@ test('폴더 생성 실패(400) 시 에러 토스트로 사유를 안내한다',
 
   // 서버 메시지가 그대로 토스트로 노출(이전엔 토스트 없이 unhandled rejection).
   await expect(page.getByText('폴더 이름은 비어 있을 수 없습니다')).toBeVisible()
-  expect(folderPosted).toBe(true)
+  expect(folderPosts.count()).toBeGreaterThan(0)
 })
 
 // #360 — 빈값 확인 클릭 시 인라인 에러 메시지 표시 (무음 실패 수정)
@@ -573,12 +569,11 @@ test('새 폴더 — 이름 빈값 확인 클릭 시 인라인 에러 메시지�
   await stubSpaces(page)
   await stubItems(page, () => ({ folders: [], files: [] }))
 
-  let folderPosted = false
+  const folderPosts = trackRequests(page, 'POST', `/api/v1/drive/spaces/${SPACE_ID}/folders`)
   await page.route(
     (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/folders`,
     (route) => {
       if (route.request().method() !== 'POST') return route.fallback()
-      folderPosted = true
       return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(createFolder()) })
     },
   )
@@ -597,13 +592,13 @@ test('새 폴더 — 이름 빈값 확인 클릭 시 인라인 에러 메시지�
   // 다이얼로그가 닫히지 않고 유지되어야 한다
   await expect(page.getByTestId('folder-name-input')).toBeVisible()
   // API 호출 없어야 한다
-  expect(folderPosted).toBe(false)
+  expect(folderPosts.count()).toBe(0)
 
   // 이름 입력 시 에러 메시지 제거, 정상 제출 가능
   await page.getByTestId('folder-name-input').fill('문서')
   await expect(page.getByTestId('folder-name-error')).toHaveCount(0)
   await page.getByTestId('folder-name-confirm').click()
-  expect(folderPosted).toBe(true)
+  await folderPosts.waitFor()
 })
 
 // #360 — 폴더 이름변경 다이얼로그도 동일하게 빈값 인라인 에러 표시
@@ -612,12 +607,11 @@ test('폴더 이름변경 — 이름 지우고 확인 클릭 시 인라인 에�
   await stubSpaces(page)
   await stubItems(page, () => ({ folders: [folder], files: [] }))
 
-  let patchCalled = false
+  const patches = trackRequests(page, 'PATCH', '/api/v1/drive/folders/10')
   await page.route(
     (url) => url.pathname === '/api/v1/drive/folders/10',
     (route) => {
       if (route.request().method() !== 'PATCH') return route.fallback()
-      patchCalled = true
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(folder) })
     },
   )
@@ -635,7 +629,7 @@ test('폴더 이름변경 — 이름 지우고 확인 클릭 시 인라인 에�
   await page.getByTestId('folder-name-input').fill('')
   await page.getByTestId('folder-name-confirm').click()
   await expect(page.getByTestId('folder-name-error')).toBeVisible()
-  expect(patchCalled).toBe(false)
+  expect(patches.count()).toBe(0)
 })
 
 test('업로드 실패(400) 시 에러 토스트를 표시한다', async ({ authenticatedPage: page }) => {
@@ -755,13 +749,10 @@ test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내
   await stubSpaces(page)
   await stubItems(page, () => ({ folders: [], files: [] }))
   // 업로드 엔드포인트가 호출되면 안 된다(클라이언트 사전 차단).
-  let uploadCalled = false
+  const uploads = trackRequests(page, 'ANY', `/api/v1/drive/spaces/${SPACE_ID}/files`)
   await page.route(
     (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
-    (route) => {
-      uploadCalled = true
-      return route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
-    },
+    (route) => route.fulfill({ status: 201, contentType: 'application/json', body: '{}' }),
   )
 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
@@ -775,7 +766,7 @@ test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내
   })
 
   await expect(page.getByText('파일 크기가 25MB를 초과합니다.')).toBeVisible()
-  expect(uploadCalled).toBe(false)
+  expect(uploads.count()).toBe(0)
 
   // #715 — 에러 토스트가 헤더 툴바(검색/새 폴더/업로드)를 가려 클릭을 막지 않아야 한다.
   const toaster = page.locator('[data-sonner-toaster]')
@@ -838,11 +829,10 @@ test('빈 폴더 진입 시 empty state 4요소가 표시되고 업로드 CTA가
   await stubSpaces(page)
   await stubItems(page, () => state)
 
-  let uploadCalled = false
+  const uploads = trackRequests(page, 'ANY', `/api/v1/drive/spaces/${SPACE_ID}/files`)
   await page.route(
     (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
     (route) => {
-      uploadCalled = true
       const file = createFile({ name: 'test.txt' })
       state.files = [file]
       return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(file) })
@@ -865,7 +855,7 @@ test('빈 폴더 진입 시 empty state 4요소가 표시되고 업로드 CTA가
     buffer: Buffer.from('hello'),
   })
   await expect(page.getByText('test.txt')).toBeVisible()
-  expect(uploadCalled).toBe(true)
+  expect(uploads.count()).toBeGreaterThan(0)
 })
 
 // #135 — window.prompt/confirm → shadcn Dialog/AlertDialog 교체 검증
@@ -875,14 +865,13 @@ test('폴더 생성 — Dialog 표시, 이름 입력 후 확인 시 POST 호출'
   await stubSpaces(page)
   await stubItems(page, () => state)
 
-  let postedName = ''
+  const folderPosts = trackRequests(page, 'POST', `/api/v1/drive/spaces/${SPACE_ID}/folders`)
   await page.route(
     (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/folders`,
     (route) => {
       if (route.request().method() !== 'POST') return route.fallback()
       const body = route.request().postDataJSON() as { name?: string }
-      postedName = body.name ?? ''
-      const folder = createFolder({ name: postedName })
+      const folder = createFolder({ name: body.name ?? '' })
       state.folders = [folder]
       return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(folder) })
     },
@@ -900,7 +889,7 @@ test('폴더 생성 — Dialog 표시, 이름 입력 후 확인 시 POST 호출'
   await page.getByTestId('folder-name-confirm').click()
 
   // POST body 검증 — 이름이 정확히 전달됐는지
-  expect(postedName).toBe('보고서')
+  expect(folderPosts.lastBody<{ name?: string }>()?.name).toBe('보고서')
   // UI 갱신 확인
   await expect(page.getByRole('button', { name: '보고서' })).toBeVisible()
 })
@@ -911,13 +900,13 @@ test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 
   await stubSpaces(page)
   await stubItems(page, () => state)
 
-  let patchedName = ''
+  const patches = trackRequests(page, 'PATCH', '/api/v1/drive/folders/10')
   await page.route(
     (url) => url.pathname === '/api/v1/drive/folders/10',
     (route) => {
       if (route.request().method() !== 'PATCH') return route.fallback()
       const body = route.request().postDataJSON() as { name?: string }
-      patchedName = body.name ?? ''
+      const patchedName = body.name ?? ''
       state.folders = [{ ...folder, name: patchedName }]
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...folder, name: patchedName }) })
     },
@@ -938,7 +927,7 @@ test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 
   await page.getByTestId('folder-name-confirm').click()
 
   // PATCH body 검증
-  expect(patchedName).toBe('보관함')
+  expect(patches.lastBody<{ name?: string }>()?.name).toBe('보관함')
   await expect(page.getByRole('button', { name: '보관함' })).toBeVisible()
 })
 
@@ -947,13 +936,10 @@ test('파일 삭제 — AlertDialog 표시 후 취소 시 DELETE 호출 안 함'
   await stubSpaces(page)
   await stubItems(page, () => ({ folders: [], files: [file] }))
 
-  let deleteCalled = false
+  const fileCalls = trackRequests(page, 'ANY', `/api/v1/drive/files/${file.id}`)
   await page.route(
     (url) => url.pathname === `/api/v1/drive/files/${file.id}`,
-    (route) => {
-      deleteCalled = true
-      return route.fulfill({ status: 204, body: '' })
-    },
+    (route) => route.fulfill({ status: 204, body: '' }),
   )
 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
@@ -968,7 +954,7 @@ test('파일 삭제 — AlertDialog 표시 후 취소 시 DELETE 호출 안 함'
   // 취소 → API 호출 없이 파일 그대로
   await page.getByTestId('drive-confirm-cancel').click()
   await expect(page.getByTestId('drive-confirm-dialog')).not.toBeVisible()
-  expect(deleteCalled).toBe(false)
+  expect(fileCalls.count()).toBe(0)
   await expect(page.getByText('memo.txt')).toBeVisible()
 })
 
@@ -1105,6 +1091,7 @@ test('파일 업로드 후 새로고침 없이 사이드바 사용량이 갱신�
 
   // 쿼터 조회는 업로드 전/후로 다른 값을 응답 — 몇 번째 호출인지로 판단.
   // formatFileSize 는 1024 진법(MiB/GiB 표기 "MB"/"GB") 이므로 바이트 값을 역산해서 맞춘다.
+  const quotas = trackRequests(page, 'ANY', '/api/v1/drive/quota')
   let quotaCalls = 0
   await page.route('**/api/v1/drive/quota', (route) => {
     quotaCalls += 1
@@ -1125,7 +1112,7 @@ test('파일 업로드 후 새로고침 없이 사이드바 사용량이 갱신�
 
   // 업로드 전: 최초 조회 값(54.8MB) 표시.
   await expect(page.getByTestId('drive-usage-text')).toContainText('54.8')
-  expect(quotaCalls).toBe(1)
+  expect(quotas.count()).toBe(1)
 
   // 업로드 완료.
   await page.getByTestId('file-input').setInputFiles({
@@ -1137,7 +1124,7 @@ test('파일 업로드 후 새로고침 없이 사이드바 사용량이 갱신�
 
   // 새로고침 없이 사이드바 사용량이 갱신된 값(55.0MB)으로 바뀌어야 한다 — 재조회가 실제로 일어났는지도 검증.
   await expect(page.getByTestId('drive-usage-text')).toContainText('55.0')
-  expect(quotaCalls).toBeGreaterThan(1)
+  expect(quotas.count()).toBeGreaterThan(1)
 })
 
 // #319 — FolderPickerModal shadcn Dialog 전환: Esc·오버레이 클릭 닫기 검증

@@ -3,6 +3,7 @@
 import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import type { CycleResponse } from '../../../src/types/cycle';
@@ -88,18 +89,18 @@ test('마일스톤 레인의 그리드/차트 경계 구분선이 아래 차트 
 
 test('툴바 버튼으로 마일스톤 생성', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  let posted: Record<string, unknown> | null = null;
+  const posts = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/milestones`);
   await page.route(`**/api/v1/projects/${KEY}/milestones`, (route) => {
     if (route.request().method() === 'POST') {
-      posted = route.request().postDataJSON() as Record<string, unknown>;
+      const posted = route.request().postDataJSON() as Record<string, unknown>;
       return route.fulfill({
         status: 201,
         contentType: 'application/json',
         body: JSON.stringify({
           id: 2,
           projectId: 1,
-          name: posted!.name,
-          dueDate: posted!.dueDate,
+          name: posted.name,
+          dueDate: posted.dueDate,
           description: null,
           createdAt: '',
           updatedAt: '',
@@ -114,16 +115,15 @@ test('툴바 버튼으로 마일스톤 생성', async ({ authenticatedPage: page
   await page.getByTestId('milestone-name-input').fill('v1.0 베타');
   await page.getByTestId('milestone-due-date-input').fill('2026-07-18');
   await page.getByTestId('milestone-submit').click();
-  await expect.poll(() => posted).toMatchObject({ name: 'v1.0 베타', dueDate: '2026-07-18' });
+  await expect.poll(() => posts.lastBody()).toMatchObject({ name: 'v1.0 베타', dueDate: '2026-07-18' });
   await expect(page.getByTestId('milestone-form-dialog')).toBeHidden();
 });
 
 test('레인 빈 곳 클릭 → 클릭 좌표 날짜가 채워진 생성 다이얼로그', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  let posted: Record<string, unknown> | null = null;
+  const posts = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/milestones`);
   await page.route(`**/api/v1/projects/${KEY}/milestones`, (route) => {
     if (route.request().method() === 'POST') {
-      posted = route.request().postDataJSON() as Record<string, unknown>;
       return route.fulfill({ status: 201, contentType: 'application/json', body: '{}' });
     }
     return route.fallback();
@@ -137,7 +137,7 @@ test('레인 빈 곳 클릭 → 클릭 좌표 날짜가 채워진 생성 다이�
   await expect(dueDateInput).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
   await page.getByTestId('milestone-name-input').fill('레인 생성 마일스톤');
   await page.getByTestId('milestone-submit').click();
-  await expect.poll(() => posted).toMatchObject({ name: '레인 생성 마일스톤' });
+  await expect.poll(() => posts.lastBody()).toMatchObject({ name: '레인 생성 마일스톤' });
 });
 
 test('레인 좌측 끝(라벨 근처) 클릭 → 날짜가 클램프되어 비정상(1970년 등) 값이 채워지지 않는다', async ({
@@ -160,10 +160,10 @@ test('레인 좌측 끝(라벨 근처) 클릭 → 날짜가 클램프되어 비�
 
 test('칩 클릭 → 편집 팝오버에서 이름 수정', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  let patch: Record<string, unknown> | null = null;
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/milestones/1`);
   await page.route(`**/api/v1/projects/${KEY}/milestones/1`, (route) => {
     if (route.request().method() === 'PATCH') {
-      patch = route.request().postDataJSON() as Record<string, unknown>;
+      const patch = route.request().postDataJSON() as Record<string, unknown>;
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -186,17 +186,16 @@ test('칩 클릭 → 편집 팝오버에서 이름 수정', async ({ authenticat
   const nameInput = page.getByTestId('milestone-popover-name-input');
   await nameInput.fill('v1 최종 출시');
   await nameInput.blur();
-  await expect.poll(() => patch).toMatchObject({ name: 'v1 최종 출시' });
+  await expect.poll(() => patches.lastBody()).toMatchObject({ name: 'v1 최종 출시' });
 });
 
 test('팝오버 — 이름을 지우고 blur하면 저장 요청 없이 에러 토스트 + 원래 값으로 복원 (#672)', async ({
   authenticatedPage: page,
 }) => {
   await setupStubs(page);
-  let patchCalled = false;
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/milestones/1`);
   await page.route(`**/api/v1/projects/${KEY}/milestones/1`, (route) => {
     if (route.request().method() === 'PATCH') {
-      patchCalled = true;
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(baseMilestones()[0]) });
     }
     return route.fallback();
@@ -208,17 +207,16 @@ test('팝오버 — 이름을 지우고 blur하면 저장 요청 없이 에러 �
   await nameInput.blur();
   await expect(page.getByText('마일스톤 이름은 비울 수 없습니다.')).toBeVisible();
   await expect(nameInput).toHaveValue('v1 출시');
-  expect(patchCalled).toBe(false);
+  expect(patches.count()).toBe(0);
 });
 
 test('팝오버 — 마감일을 지우고 blur하면 저장 요청 없이 에러 토스트 + 원래 값으로 복원 (#672)', async ({
   authenticatedPage: page,
 }) => {
   await setupStubs(page);
-  let patchCalled = false;
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/milestones/1`);
   await page.route(`**/api/v1/projects/${KEY}/milestones/1`, (route) => {
     if (route.request().method() === 'PATCH') {
-      patchCalled = true;
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(baseMilestones()[0]) });
     }
     return route.fallback();
@@ -230,15 +228,14 @@ test('팝오버 — 마감일을 지우고 blur하면 저장 요청 없이 에�
   await dueDateInput.blur();
   await expect(page.getByText('마감일은 비울 수 없습니다.')).toBeVisible();
   await expect(dueDateInput).toHaveValue('2026-08-01');
-  expect(patchCalled).toBe(false);
+  expect(patches.count()).toBe(0);
 });
 
 test('팝오버에서 삭제 — AlertDialog 경고 경유', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  let deleted = false;
+  const deletes = trackRequests(page, 'DELETE', `/api/v1/projects/${KEY}/milestones/1`);
   await page.route(`**/api/v1/projects/${KEY}/milestones/1`, (route) => {
     if (route.request().method() === 'DELETE') {
-      deleted = true;
       return route.fulfill({ status: 204 });
     }
     return route.fallback();
@@ -248,7 +245,7 @@ test('팝오버에서 삭제 — AlertDialog 경고 경유', async ({ authentica
   await page.getByTestId('milestone-delete-trigger').click();
   await expect(page.getByText('연결된 이슈 1개의 연결이 해제됩니다')).toBeVisible();
   await page.getByRole('button', { name: '삭제' }).last().click();
-  await expect.poll(() => deleted).toBe(true);
+  await deletes.waitFor();
 });
 
 test('readOnly(비멤버) — 칩 편집·레인 클릭 생성이 비활성', async ({ authenticatedPage: page }) => {

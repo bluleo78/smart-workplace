@@ -1,22 +1,22 @@
 // 팀 리스트 뷰 E2E — 아이콘 렌더(상태/우선순위/유형/담당자) + 행 전체 클릭으로 상세 이동.
 import { expect, test } from '../../fixtures/auth.fixture';
+import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType } from '../../factories/issueType.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 
 const KEY = 'WP';
 
-// 이슈 검색 요청 캡처 — 프로젝트 메타 스텁 + 검색 GET 의 마지막 요청 URL 을 돌려주는 getter 반환(행 1개 응답).
+// 이슈 검색 — 프로젝트 메타 스텁 + 검색 GET 의 마지막 요청 URL 을 돌려주는 getter 반환(행 1개 응답).
 async function captureSearch(page: import('@playwright/test').Page) {
   await page.route(`**/api/v1/projects/${KEY}`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
   );
-  let searchUrl: URL | null = null;
+  const searches = trackRequests(page, 'GET', `/api/v1/projects/${KEY}/issues`);
   await page.route(
     (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
     (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
-      searchUrl = new URL(route.request().url());
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -24,7 +24,7 @@ async function captureSearch(page: import('@playwright/test').Page) {
       });
     },
   );
-  return () => searchUrl;
+  return () => searches.lastUrl() ?? null;
 }
 
 async function mock(page: import('@playwright/test').Page, issues: ReturnType<typeof createIssue>[]) {
@@ -222,17 +222,14 @@ test.describe('팀 리스트 뷰', () => {
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     );
 
-    const issueRequestUrls: string[] = [];
     await page.route(
       (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
-      (route) => {
-        issueRequestUrls.push(route.request().url());
-        return route.fulfill({
+      (route) =>
+        route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify(createIssueSearchResponse([], null)),
-        });
-      },
+        }),
     );
 
     await page.goto(`/projects/${KEY}`);
@@ -284,13 +281,11 @@ test.describe('팀 리스트 뷰', () => {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
     );
 
-    const requestUrls: string[] = [];
+    const searches = trackRequests(page, 'ANY', `/api/v1/projects/${KEY}/issues`);
     await page.route(
       (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
       (route) => {
-        const url = route.request().url();
-        requestUrls.push(url);
-        const hasQ = new URL(url).searchParams.has('q');
+        const hasQ = new URL(route.request().url()).searchParams.has('q');
         // q 파라미터가 있으면 빈 결과, 없으면 이슈 1건 반환
         const body = hasQ
           ? JSON.stringify(createIssueSearchResponse([], null))
@@ -318,7 +313,7 @@ test.describe('팀 리스트 뷰', () => {
     await expect(page.getByTestId('issue-row-5')).toBeVisible();
 
     // 마지막 요청(필터 초기화 후)에 q 파라미터가 없어야 한다
-    const lastUrl = new URL(requestUrls[requestUrls.length - 1]);
+    const lastUrl = searches.lastUrl()!;
     expect(lastUrl.searchParams.has('q')).toBe(false);
   });
 
