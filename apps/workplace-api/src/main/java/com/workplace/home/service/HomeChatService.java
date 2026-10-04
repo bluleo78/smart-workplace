@@ -13,7 +13,6 @@ import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.exception.HomeChatUnavailableException;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
-import java.io.InterruptedIOException;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -285,9 +284,9 @@ public class HomeChatService {
                       sseRegistry.fanOut(Set.of(callerId), "home.chat.tool", toolPayload);
                     });
               } catch (Exception e) {
-                // composeStream 이 인터럽트로 인한 예외만 여기까지 던진다(그 외 오류는 위 onError
-                // 콜백에서 이미 처리 후 정상 반환) — WikiAiService/DriveOverviewService 와 동일 패턴.
-                boolean cancelled = isInterruption(e);
+                // composeStream·fitToBudget(동기 요약) 은 인터럽트로 인한 예외만 여기까지 던진다(그 외 오류는
+                // onError 콜백·요약 폴백에서 이미 처리) — WikiAiService/DriveOverviewService 와 동일 패턴.
+                boolean cancelled = HomeInterruptions.isInterruption(e);
                 Map<String, Object> payload =
                     cancelled
                         ? Map.of("correlationId", correlationId, "cancelled", true)
@@ -300,20 +299,6 @@ public class HomeChatService {
   /** 진행 중인 생성을 취소한다. 소유자 불일치/미존재면 레지스트리가 403/404 예외를 던진다. */
   public void cancelChat(String correlationId, long callerId) {
     registry.cancel(correlationId, callerId);
-  }
-
-  /**
-   * 예외 체인(cause chain)을 순회해 InterruptedException/InterruptedIOException 이 있는지 검사한다
-   * (WikiAiService.isInterruption 과 동일 — 취소로 인한 인터럽트가 블로킹 read 를 통과할 때 여러 겹으로 감싸질 수 있어 최상위 타입만 보면
-   * 놓친다).
-   */
-  private static boolean isInterruption(Throwable e) {
-    for (Throwable cur = e; cur != null; cur = cur.getCause()) {
-      if (cur instanceof InterruptedException || cur instanceof InterruptedIOException) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**

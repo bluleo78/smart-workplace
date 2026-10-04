@@ -86,6 +86,8 @@ public class HomeContextSummaryService {
   /**
    * 하드 상한(예산) 이내면 그대로, 넘으면 동기 요약(onCompacting 으로 진행 표시 후). 요약이 실패하면 오래된 원문부터 버려 예산에 맞춘다 — 채팅은 계속
    * 진행.
+   *
+   * <p>단, 요약 중 사용자 취소(인터럽트)면 폴백하지 않고 예외를 그대로 던진다(HomeChatService 가 cancelled 로 처리).
    */
   public ContextSnapshot fitToBudget(
       long callerId,
@@ -99,6 +101,12 @@ public class HomeContextSummaryService {
     try {
       return compact(callerId, sessionId, snap, spec);
     } catch (RuntimeException e) {
+      // 사용자 취소(registry.cancel → 펌프 인터럽트)는 요약 실패가 아니다 — 폴백으로 compose 를 이어가면 취소된 턴이 도구 부작용·
+      // ASSISTANT 영속까지 진행된다. 인터럽트 플래그를 복원하고 그대로 던져 HomeChatService 가 cancelled 신호를 내게 한다.
+      if (Thread.currentThread().isInterrupted() || HomeInterruptions.isInterruption(e)) {
+        Thread.currentThread().interrupt();
+        throw e;
+      }
       log.warn("홈 채팅 동기 요약 실패 — 오래된 원문을 버려 예산에 맞춤: session={} {}", sessionId, e.getMessage());
       return new ContextSnapshot(
           snap.summary(),

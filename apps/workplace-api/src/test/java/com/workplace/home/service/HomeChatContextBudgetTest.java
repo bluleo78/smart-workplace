@@ -9,6 +9,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -27,6 +28,7 @@ import com.workplace.home.outbound.ChatMessages.ContextSummaryRequest;
 import com.workplace.home.outbound.ChatMessages.ContextSummaryResult;
 import com.workplace.home.repository.HomeSessionRepository.SummaryState;
 import com.workplace.support.IntegrationTestBase;
+import java.io.InterruptedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +44,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.web.client.RestClientException;
 
 /**
  * 메인 AI 채팅 토큰 예산 + 누적 요약 통합 테스트(WP-232). 예산을 400 으로 낮춰(trigger 300 / target 200 / 메시지 상한 100)
@@ -206,6 +209,32 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
     // 예산 400 → 최신 8건(400) 유지, 가장 오래된 2건 버림.
     assertThat(req.recentContext()).hasSize(8);
     assertThat(req.recentContext().get(0).content()).startsWith("질문2");
+    assertThat(sessionService.getContextSummary(uid, sid)).isEqualTo(new SummaryState(null, null));
+  }
+
+  /** 동기 요약 중 사용자 취소(인터럽트)는 요약 실패 폴백으로 삼키지 않는다 — compose 없이 cancelled 로 끝난다. */
+  @Test
+  void 동기요약_중_취소되면_compose_없이_cancelled_로_끝난다() throws Exception {
+    long uid = user();
+    UUID sid = sessionService.create(uid).id();
+    for (int i = 1; i <= 5; i++) {
+      sessionService.appendMessage(uid, sid, "USER", body("질문" + i, 46), null, null, null);
+      sessionService.appendMessage(uid, sid, "ASSISTANT", body("답변" + i, 46), null, null, null);
+    }
+    // registry.cancel → future.cancel(true) 로 블로킹 read 가 끊긴 모양(RestClientException ←
+    // InterruptedIOException).
+    when(summaryClient.summarize(any()))
+        .thenThrow(
+            new HomeContextSummaryException(
+                "cancelled",
+                new RestClientException("io", new InterruptedIOException("interrupted"))));
+
+    chatService.startChat(uid, sid, "다음");
+
+    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+    verify(sseRegistry, timeout(5000)).fanOut(any(), eq("home.chat.error"), payload.capture());
+    assertThat(((Map<?, ?>) payload.getValue()).get("cancelled")).isEqualTo(true);
+    verify(chatClient, never()).composeStream(any(), any(), any(), any(), any(), any(), any());
     assertThat(sessionService.getContextSummary(uid, sid)).isEqualTo(new SummaryState(null, null));
   }
 
