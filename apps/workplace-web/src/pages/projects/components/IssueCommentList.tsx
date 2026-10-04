@@ -94,25 +94,28 @@ function CommentItem({
   return (
     <li
       className={[
-        'relative group border rounded p-3',
+        // min-w-0 — 카드가 flex/grid 자식일 때 긴 내용이 카드 폭을 밀어내지 않게(WP-228).
+        'relative group min-w-0 border rounded p-3',
         isAgent ? 'border-ai-accent/50 bg-ai-accent-subtle/40' : '',
       ].join(' ')}
       data-agent={isAgent ? 'true' : undefined}
     >
       {/* 헤더: 작성자 + 날짜 + (본인 코멘트) 수정·삭제 버튼 */}
       <div className="flex items-center justify-between gap-1">
-        <div className="text-sm text-muted-foreground flex items-center gap-1">
-          <span>{comment.authorName}</span>
+        {/* 긴 작성자명이 날짜·⋯ 를 밀어내지 않게 — 래퍼가 남은 폭만 쓰고(min-w-0 flex-1) 이름만 말줄임,
+            AI 배지·날짜는 줄지도 꺾이지도 않는다(WP-228). */}
+        <div className="text-sm text-muted-foreground flex min-w-0 flex-1 items-center gap-1">
+          <span className="min-w-0 truncate">{comment.authorName}</span>
           {isAgent && (
             <Badge
               variant="secondary"
-              className="bg-ai-accent-subtle text-ai-accent"
+              className="shrink-0 bg-ai-accent-subtle text-ai-accent"
             >
               AI
             </Badge>
           )}
           {/* parseUtcDate 를 내장한 formatDateTimeMinute 로 UTC→로컬 변환 + 분 단위 표시 (#320) */}
-          <span>· {formatDateTimeMinute(comment.createdAt)}</span>
+          <span className="shrink-0 whitespace-nowrap">· {formatDateTimeMinute(comment.createdAt)}</span>
         </div>
 
         {/* 본인 HUMAN 코멘트에만 액션 노출 — 터치는 ⋯ 메뉴, 마우스는 hover 아이콘 */}
@@ -187,7 +190,8 @@ function CommentItem({
       ) : (
         /* 디자인 시스템 body-secondary 적용 — text-sm(14px) · leading-6 · text-foreground (#344) */
         /* 같은 페이지의 이슈 채팅(ChatMessageRow)과 동일한 멘션 칩 스타일로 <@id> 토큰을 렌더 (#785, #208) */
-        <div className="whitespace-pre-wrap mt-1 text-sm leading-6 text-foreground">
+        /* [overflow-wrap:anywhere] — 공백 없는 긴 URL·단어도 카드 폭에서 줄바꿈(WP-228). */
+        <div className="whitespace-pre-wrap mt-1 text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
           {parseMessageSegments(comment.body, mentionUsers).map((seg, i) =>
             seg.type === 'text' ? (
               <span key={i}>{seg.value}</span>

@@ -7,7 +7,7 @@ import { createAgentComment, createComment, createIssue, createIssueDetail, crea
 import { makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import { json } from '../../fixtures/mobile-chat';
-import { expect, stubChat, test } from '../../fixtures/mobile.fixture';
+import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 
 const KEY = 'WP';
 const BASE = `/api/v1/projects/${KEY}/issues/7`;
@@ -110,4 +110,30 @@ test('타인·AGENT 코멘트에는 ⋯ 가 없다', async ({ authenticatedPage:
   await expect(page.getByText('타인의 코멘트')).toBeVisible();
   await expect(page.getByTestId('issue-comment-more-11')).toHaveCount(0);
   await expect(page.getByTestId('issue-comment-more-12')).toHaveCount(0);
+});
+
+// WP-228 — 공백 없는 긴 URL 은 카드 폭에서 줄바꿈되고, 긴 작성자명은 말줄임되어 날짜가 한 줄로 남는다.
+test('긴 URL·긴 작성자명 코멘트도 카드 폭 안에 머문다', async ({ authenticatedPage: page }) => {
+  const LONG_URL = `https://drive.example.com/share/${'a1b2c3d4e5'.repeat(12)}?ref=${'x'.repeat(40)}`;
+  const LONG_NAME = '외부협력사 프로젝트 매니저 홍길동(주식회사아주긴회사이름테크놀로지솔루션즈)';
+  await setup(page, [
+    createComment({ id: 21, issueId: ISSUE_ID, authorId: ME_ID + 999, authorName: LONG_NAME, body: `참고 링크 ${LONG_URL}` }),
+  ]);
+  const card = page.getByRole('listitem').filter({ hasText: '참고 링크' });
+  await expect(card).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  const vw = page.viewportSize()!.width;
+  const cardBox = (await card.boundingBox())!;
+  expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(vw);
+
+  // 날짜는 한 줄(text-sm 줄 높이 20px — 꺾이면 40px) + 카드 오른쪽 안.
+  const date = card.locator('span', { hasText: /^· / });
+  const dateBox = (await date.boundingBox())!;
+  expect(dateBox.height).toBeLessThan(28);
+  expect(dateBox.x + dateBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+
+  // 작성자명은 말줄임 — 실제 글자 폭(scrollWidth)이 보이는 폭(clientWidth)보다 크다.
+  const clipped = await card.getByText(LONG_NAME).evaluate((el) => el.scrollWidth > el.clientWidth);
+  expect(clipped).toBe(true);
 });
