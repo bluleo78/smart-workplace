@@ -10,6 +10,11 @@ vi.mock('../agent/run-home-priority-classify.js', () => ({
   runHomePriorityClassify: vi.fn(),
 }));
 
+vi.mock('../agent/run-home-context-summary.js', async (orig) => ({
+  ...(await orig<typeof import('../agent/run-home-context-summary.js')>()),
+  runHomeContextSummary: vi.fn(),
+}));
+
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 vi.mock('../logger.js', () => ({ log: logMock }));
 
@@ -17,6 +22,7 @@ import { createHomeRouter, chatSchema } from './home.js';
 import { JSON_BODY_LIMIT } from '../index-config.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
+import { runHomeContextSummary } from '../agent/run-home-context-summary.js';
 
 // 비서 필드를 포함한 유효 페이로드(요청 본문 계약).
 function validBody(over: Record<string, unknown> = {}) {
@@ -293,5 +299,29 @@ describe('JSON 본문 한도 (WP-232)', () => {
     const res = await request(app).post('/echo').send(big);
     expect(res.status).toBe(200);
     expect(JSON_BODY_LIMIT).toBe('4mb');
+  });
+});
+
+describe('POST /home/context-summary (WP-232)', () => {
+  const body = {
+    assistantAgentId: 7, model: 'm', maxTurns: 3, timeoutMs: 60_000,
+    previousSummary: null, messages: [{ role: 'USER', content: 'a' }],
+  };
+  it('성공 → 200 { summary }', async () => {
+    vi.mocked(runHomeContextSummary).mockResolvedValue({ summary: 's' });
+    const res = await request(buildApp()).post('/home/context-summary').send(body);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ summary: 's' });
+  });
+  it('스키마 위반 → 400 (러너 미호출)', async () => {
+    const res = await request(buildApp()).post('/home/context-summary').send({ ...body, messages: [] });
+    expect(res.status).toBe(400);
+    expect(runHomeContextSummary).not.toHaveBeenCalled();
+  });
+  it('러너 실패 → 502', async () => {
+    vi.mocked(runHomeContextSummary).mockRejectedValue(new Error('boom'));
+    const res = await request(buildApp()).post('/home/context-summary').send(body);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'home-context-summary_failed' });
   });
 });

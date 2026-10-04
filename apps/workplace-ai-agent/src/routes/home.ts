@@ -9,6 +9,7 @@ import { z } from 'zod';
 
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
+import { homeContextSummaryInput, runHomeContextSummary } from '../agent/run-home-context-summary.js';
 import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
 import { log } from '../logger.js';
 import { screenContextSchema } from '../agent/screen-context.js';
@@ -45,9 +46,9 @@ export const chatSchema = z.object({
   thinkingDepth: z.enum(['NONE', 'NORMAL', 'DEEP']),
   maxTurns: z.number().int().positive(),
   timeoutMs: z.number().int().positive(),
-  // WP-54: 현재 화면 컨텍스트(nullable). plain z.object 는 미정의 키를 버리므로 명시해야 전달된다.
   // WP-232: 누적 요약(nullable). API 는 요약이 없으면 null 을 보낸다. plain z.object 는 미정의 키를 버리므로 명시.
   contextSummary: z.string().nullish(),
+  // WP-54: 현재 화면 컨텍스트(nullable). plain z.object 는 미정의 키를 버리므로 명시해야 전달된다.
   screenContext: screenContextSchema.nullish(),
 });
 
@@ -168,6 +169,21 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     } catch (e) {
       console.error('[home-priority-classify] 실패:', e instanceof Error ? e.message : String(e));
       res.status(502).json({ error: 'home_priority_classify_failed' });
+    }
+  });
+
+  // WP-232: 메인 AI 채팅 누적 요약 — workplace-api 가 동기 호출. 400(스키마)/200/502(러너 실패).
+  router.post('/home/context-summary', async (req, res) => {
+    const parsed = homeContextSummaryInput.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues });
+      return;
+    }
+    try {
+      res.status(200).json(await runHomeContextSummary(parsed.data, deps));
+    } catch (e) {
+      console.error('[home-context-summary] 실패:', e instanceof Error ? e.message : String(e));
+      res.status(502).json({ error: 'home-context-summary_failed' });
     }
   });
 
