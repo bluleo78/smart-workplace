@@ -7,6 +7,7 @@
 // 피드백이 end-to-end 로 동작함을 증명한다.
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { resizeAndSettle } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 const NEW_PAGE_ID = 100
@@ -471,6 +472,7 @@ test('위키 — 낙관적 동시성 충돌(409): 배너 노출 + 자동저장 �
   expect(putAfterConflict).toBeGreaterThan(0)
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('충돌 후 추가 입력')
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 디바운스(800ms)를 넘겨도 추가 PUT 이 나가지 않음(부재)을 확인
   await page.waitForTimeout(1500)
   expect(putCount).toBe(putAfterConflict)
 })
@@ -770,13 +772,15 @@ test('위키 — 디바운스 대기 중 리마운트(뷰포트 lg 경계 전환
   await page.keyboard.type('플러시')
   // 디바운스(800ms)가 끝나기 전에 모바일 폭으로 좁혀 에디터를 리마운트시킨다.
   const t0 = Date.now()
-  await page.setViewportSize({ width: 390, height: 844 })
+  // 1024 경계를 넘어 모바일 셸로 리마운트되므로 전환 완료까지 기다린다 — PUT 시각은 라우트에서 기록돼 영향 없음 (WP-225)
+  await resizeAndSettle(page, { width: 390, height: 844 })
   await expect.poll(() => puts.length).toBeGreaterThan(0)
   // flush 는 언마운트 즉시 — 디바운스 잔여 시간(수백 ms)을 기다리지 않는다.
   expect(puts[0].at - t0).toBeLessThan(400)
   expect(puts[0].body).toContain('플러시')
   // 옛 타이머가 뒤늦게 한 번 더 PUT 하지 않는다(중복 저장·409 방지). 디바운스 창(800ms)을 넘겨 부재 확인 —
   // "일어나지 않음" 확인이라 고정 대기가 불가피하다.
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 디바운스 창을 넘겨 옛 타이머의 중복 PUT 이 없음(부재)을 확인
   await page.waitForTimeout(1000)
   expect(puts).toHaveLength(1)
 })
@@ -822,7 +826,8 @@ test('위키 — lg 경계 전환 리마운트 후 에디터는 방금 친 글�
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('플러시')
   // 디바운스 전에 모바일 폭으로 → 에디터 리마운트 + 언마운트 flush.
-  await page.setViewportSize({ width: 390, height: 844 })
+  // 모바일 셸 전환이 끝나기 전에 옛 에디터를 누르지 않도록 셸 교체까지 기다린다 (WP-225)
+  await resizeAndSettle(page, { width: 390, height: 844 })
   await expect.poll(() => puts.length).toBe(1)
   // 리마운트된 에디터가 방금 친 글자를 보인다(옛 캐시 본문으로 뜨지 않음).
   const editor = page.locator('.ProseMirror')

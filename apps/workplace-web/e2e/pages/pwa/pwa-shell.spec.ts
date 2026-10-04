@@ -7,9 +7,11 @@ test.use({ serviceWorkers: 'allow' })
 test.describe('PWA 셸', () => {
   test('manifest 가 연결되고 앱 정보가 올바르다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     await page.goto('/')
-    const href = await page.locator('link[rel="manifest"]').getAttribute('href')
-    expect(href).toBeTruthy()
-    const res = await page.request.get(href!)
+    const manifestLink = page.locator('link[rel="manifest"]')
+    // 링크 주입을 기다린 뒤 값을 읽는다 (WP-225)
+    await expect(manifestLink).toHaveAttribute('href', /.+/)
+    const href = (await manifestLink.getAttribute('href'))!
+    const res = await page.request.get(href)
     expect(res.ok()).toBeTruthy()
     const manifest = await res.json()
     expect(manifest.name).toBe('Gen:iA Works')

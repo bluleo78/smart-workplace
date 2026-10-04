@@ -260,6 +260,7 @@ test('위키 — AI 생성 중 최신 내용을 불러오면 생성을 취소해
   // 늦게 도착한 델타는 무시된다. 재연결 응답이 실제로 전달된 뒤 렌더 반영 여유를 두고 부재를 확인한다 —
   // "일어나지 않음" 확인이라 짧은 고정 대기가 불가피하다.
   await expect.poll(() => lateDelivered, { timeout: 10_000 }).toBe(true)
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 늦게 온 델타가 본문에 반영되지 않음(부재)을 확인
   await page.waitForTimeout(500)
   await expect(editor).toHaveText('AI가 고친 본문')
   expect(server.body).toBe('AI가 고친 본문')

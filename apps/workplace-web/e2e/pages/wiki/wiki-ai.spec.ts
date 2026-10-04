@@ -12,6 +12,7 @@
 import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { stableBox } from '../../fixtures/wait'
 import { buildWikiAiSse } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
@@ -382,6 +383,7 @@ test('위키 변형 — VIEWER 는 변형 툴바가 노출되지 않는다', asy
   await expect(page.locator('.ProseMirror')).toBeVisible()
   await typeAndSelectAll(page, '원본 문장')
 
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 선택 후 일정 시간 동안 툴바가 끝내 뜨지 않음(부재)을 확인
   await page.waitForTimeout(500)
   await expect(page.getByTestId('wiki-ai-toolbar')).toHaveCount(0)
   expect(aiCalled).toBe(0)
@@ -396,6 +398,7 @@ test('위키 변형 — 단일 undo 로 변형 전 원본으로 복원된다', a
   await typeAndSelectAll(page, '원본 문장')
   // 의도된 고정 대기 — ProseMirror history 는 newGroupDelay(500ms) 안의 변경을 한 undo 그룹으로 묶는다.
   // 입력과 AI 변형이 같은 그룹이 되면 undo 가 입력까지 지워 "원본으로 복원"을 검증할 수 없다(WP-82 에서 확인).
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 에디터 history 그룹 지연(newGroupDelay)은 관찰할 UI 신호가 없어 고정 대기가 불가피
   await page.waitForTimeout(600)
 
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
@@ -428,6 +431,7 @@ test('위키 /ai — VIEWER 는 슬래시 AI 메뉴가 노출되지 않는다', 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
 
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- '/' 입력 후 일정 시간 동안 슬래시 메뉴가 끝내 뜨지 않음(부재)을 확인
   await page.waitForTimeout(500)
   await expect(page.getByTestId('wiki-slash-popover')).toHaveCount(0)
   expect(aiCalled).toBe(0)
@@ -543,7 +547,9 @@ test('위키 AI 노출 — VIEWER 는 버튼이 숨지 않고 비활성 + 사유
   await expect(page.getByTestId('wiki-ai-header-reason')).toContainText('읽기 전용')
 
   // 비활성이므로 클릭해도 생성이 시작되지 않는다.
+  // eslint-disable-next-line playwright/no-force-option -- aria-disabled 버튼은 Playwright 가 비활성으로 보고 클릭을 거부하므로, 눌러도 무반응인지 확인하려면 강제 클릭이 필요
   await aiButton.click({ force: true })
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 클릭 후 일정 시간 동안 생성 요청이 나가지 않음(부재)을 확인
   await page.waitForTimeout(300)
   expect(aiCalled).toBe(0)
 })
@@ -764,19 +770,25 @@ test('위키 변형 툴바 — 뷰포트 하단 선택에서도 톤 드롭다운
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
 
   const vp = page.viewportSize()!
-  const tBox = (await page.getByTestId('wiki-ai-tb-rewrite_tone').boundingBox())!
-  // 이 테스트가 공허해지지 않도록: 트리거 아래 여백이 메뉴 높이(약 138px)보다 작아야
-  // flip/shift 가 실제로 개입한다.
-  expect(vp.height - (tBox.y + tBox.height)).toBeLessThan(138)
+  // 리사이즈 직후 tippy 가 툴바를 다시 배치하는 중일 수 있어 측정+단언을 재시도한다 (WP-225)
+  await expect(async () => {
+    const tBox = await stableBox(page.getByTestId('wiki-ai-tb-rewrite_tone'))
+    // 이 테스트가 공허해지지 않도록: 트리거 아래 여백이 메뉴 높이(약 138px)보다 작아야
+    // flip/shift 가 실제로 개입한다.
+    expect(vp.height - (tBox.y + tBox.height)).toBeLessThan(138)
+  }).toPass()
 
   await page.getByTestId('wiki-ai-tb-rewrite_tone').click()
   await expect(page.getByTestId('wiki-ai-tone-격식체')).toBeVisible()
 
-  const mBox = (await page.locator('[data-slot="dropdown-menu-content"]').first().boundingBox())!
-  expect(mBox.y).toBeGreaterThanOrEqual(0)
-  expect(mBox.x).toBeGreaterThanOrEqual(0)
-  expect(mBox.y + mBox.height).toBeLessThanOrEqual(vp.height)
-  expect(mBox.x + mBox.width).toBeLessThanOrEqual(vp.width)
+  // 메뉴는 열린 뒤 flip/shift 로 위치를 다시 잡으므로 자리 잡을 때까지 재시도한다 (WP-225)
+  await expect(async () => {
+    const mBox = await stableBox(page.locator('[data-slot="dropdown-menu-content"]').first())
+    expect(mBox.y).toBeGreaterThanOrEqual(0)
+    expect(mBox.x).toBeGreaterThanOrEqual(0)
+    expect(mBox.y + mBox.height).toBeLessThanOrEqual(vp.height)
+    expect(mBox.x + mBox.width).toBeLessThanOrEqual(vp.width)
+  }).toPass()
 })
 
 // ── 이미지 NodeSelection 오노출 회귀 (#772) ─────────────────────────────────
@@ -820,6 +832,7 @@ test('위키 변형 — 이미지 노드 선택(NodeSelection)에서는 툴바�
   // 아래 toolbar 부재 단언이 공허해진다(애초에 선택이 없어서 안 뜬 것일 수 있다).
   await expect(page.locator('.ProseMirror .ProseMirror-selectednode')).toHaveCount(1)
 
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 이미지 선택 후 일정 시간 동안 툴바가 끝내 뜨지 않음(부재)을 확인
   await page.waitForTimeout(300)
   await expect(page.getByTestId('wiki-ai-toolbar')).toHaveCount(0)
   expect(aiCalled).toBe(0)
@@ -927,6 +940,7 @@ test('위키 서식 — VIEWER 는 서식 버튼도 노출되지 않는다 (#687
   await expect(page.locator('.ProseMirror')).toBeVisible()
   await typeAndSelectAll(page, '원본 문장')
 
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 선택 후 일정 시간 동안 서식 툴바가 끝내 뜨지 않음(부재)을 확인
   await page.waitForTimeout(500)
   await expect(page.getByTestId('wiki-ai-toolbar')).toHaveCount(0)
   await expect(page.getByTestId('wiki-format-tb-bold')).toHaveCount(0)
@@ -976,19 +990,22 @@ test('위키 서식 — 좁은 화면에서는 툴바가 줄바꿈되고 버튼�
   await expect(toolbar).toBeVisible()
 
   // EditorFloatingToolbar 가 maxWidth: calc(100vw - 2rem) 로 뷰포트를 벗어나지 않게 가드한다.
-  const box = (await toolbar.boundingBox())!
+  // 좁은 화면(모바일 셸)에서 툴바가 뜬 직후 tippy 재배치·줄바꿈이 끝나기 전일 수 있어 측정+단언을 재시도한다 (WP-225)
   const vp = page.viewportSize()!
-  expect(box.x).toBeGreaterThanOrEqual(0)
-  expect(box.x + box.width).toBeLessThanOrEqual(vp.width)
+  await expect(async () => {
+    const box = await stableBox(toolbar)
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(vp.width)
 
-  // 진짜 검증 포인트: 바깥 박스가 뷰포트 안에 들어와도(위 단언) 내용이 클리핑돼 숨을 수 있다
-  // (scrollWidth > clientWidth). flex-wrap 없이 단일 행이면 여기서 걸린다 — 이 컨테이너에서
-  // flex-wrap 을 제거하면 반드시 실패해야 공허하지 않은 테스트다.
-  const overflow = await toolbar.evaluate((el) => ({ s: el.scrollWidth, c: el.clientWidth }))
-  expect(overflow.s).toBeLessThanOrEqual(overflow.c)
+    // 진짜 검증 포인트: 바깥 박스가 뷰포트 안에 들어와도(위 단언) 내용이 클리핑돼 숨을 수 있다
+    // (scrollWidth > clientWidth). flex-wrap 없이 단일 행이면 여기서 걸린다 — 이 컨테이너에서
+    // flex-wrap 을 제거하면 반드시 실패해야 공허하지 않은 테스트다.
+    const overflow = await toolbar.evaluate((el) => ({ s: el.scrollWidth, c: el.clientWidth }))
+    expect(overflow.s).toBeLessThanOrEqual(overflow.c)
 
-  // 줄바꿈으로 2줄 이상이 됐는지도 함께 확인(한 줄 34px 보다 커야 실제로 wrap 됐다는 증거).
-  expect(box.height).toBeGreaterThan(40)
+    // 줄바꿈으로 2줄 이상이 됐는지도 함께 확인(한 줄 34px 보다 커야 실제로 wrap 됐다는 증거).
+    expect(box.height).toBeGreaterThan(40)
+  }).toPass()
 
   // 서식 그룹뿐 아니라 뒤쪽(AI 변형·이슈로 만들기)까지 — 좁은 화면에서 넘치던 건 뒤쪽 버튼들이다.
   // 전부 실제로 클릭 가능한 크기(0×0 으로 찌그러지지 않음)로 보여야 한다.
@@ -1008,7 +1025,7 @@ test('위키 서식 — 좁은 화면에서는 툴바가 줄바꿈되고 버튼�
   ]) {
     const btn = page.getByTestId(testId)
     await expect(btn).toBeVisible()
-    const bbox = (await btn.boundingBox())!
+    const bbox = await stableBox(btn, testId)
     expect(bbox.width).toBeGreaterThan(0)
     expect(bbox.height).toBeGreaterThan(0)
   }

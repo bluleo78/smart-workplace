@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { stableBox } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 const space: WikiSpace = {
@@ -178,8 +179,11 @@ test('노트 헤더 — 긴 제목의 브레드크럼이 전역 AI 어시스턴�
   await expect(nav).toBeVisible()
   await expect(launcher).toBeVisible()
 
-  const [navBox, launcherBox] = await Promise.all([nav.boundingBox(), launcher.boundingBox()])
-  if (!navBox || !launcherBox) throw new Error('bounding box 계산 실패')
-  // 브레드크럼 nav 의 우측 끝이 AI 런처의 좌측 끝을 넘지 않아야 한다(= 겹치지 않음).
-  expect(navBox.x + navBox.width).toBeLessThanOrEqual(launcherBox.x)
+  // 헤더·런처가 보인 직후엔 레이아웃(truncate 폭)이 자리 잡기 전일 수 있어 측정+단언을 재시도한다 (WP-225)
+  await expect(async () => {
+    const navBox = await stableBox(nav, 'nav')
+    const launcherBox = await stableBox(launcher, 'launcher')
+    // 브레드크럼 nav 의 우측 끝이 AI 런처의 좌측 끝을 넘지 않아야 한다(= 겹치지 않음).
+    expect(navBox.x + navBox.width).toBeLessThanOrEqual(launcherBox.x)
+  }).toPass()
 })

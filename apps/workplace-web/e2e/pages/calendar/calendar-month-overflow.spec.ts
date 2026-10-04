@@ -5,6 +5,7 @@ import { calendarEvent } from '../../factories/calendar.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { stableBox } from '../../fixtures/wait'
 
 // 지정 날짜에 몰린 일정 N건 (id 10~). 월 뷰 한 셀에 모두 걸린다.
 function crowdedDay(day = '2026-06-10', count = 10): CalendarEvent[] {
@@ -38,8 +39,8 @@ test(
     const cell = page.getByTestId('calendar-cell-2026-06-10')
     const chips = cell.locator('[data-testid^="calendar-event-"]')
     await expect(chips.first()).toBeVisible()
-    const visible = await chips.count()
-    expect(visible).toBeGreaterThan(3)
+    // 셀 높이 측정 후 채움 개수가 정해지므로, 첫 칩이 보인 직후가 아니라 자리 잡을 때까지 다시 센다 (WP-225)
+    await expect.poll(() => chips.count()).toBeGreaterThan(3)
   },
 )
 
@@ -60,11 +61,13 @@ test('작은 화면 — 넘치는 만큼 +N 이 정확히 표시된다', async (
   const cell = page.getByTestId('calendar-cell-2026-06-10')
   const chips = cell.locator('[data-testid^="calendar-event-"]')
   await expect(chips.first()).toBeVisible()
-  const visible = await chips.count()
 
   // +N 표시가 존재하고, 그 숫자는 (전체 10 - 보이는 개수) 와 정확히 일치해야 한다.
-  const overflowText = await cell.getByText(/^\+\d+$/).textContent()
-  expect(overflowText).toBe(`+${10 - visible}`)
+  // 셀 높이 측정으로 개수가 다시 정해지는 동안 두 값이 어긋날 수 있어 함께 재시도한다 (WP-225)
+  await expect(async () => {
+    const visible = await chips.count()
+    await expect(cell.getByText(/^\+\d+$/)).toHaveText(`+${10 - visible}`, { timeout: 1000 })
+  }).toPass()
 })
 
 test(
@@ -93,10 +96,11 @@ test(
     await expect(dueChip).toBeVisible()
 
     // 마커 하단이 셀 경계 안에 있어야 한다(클립되지 않음).
-    const dueBox = await dueChip.boundingBox()
-    const cellBox = await cell.boundingBox()
-    expect(dueBox).not.toBeNull()
-    expect(cellBox).not.toBeNull()
-    expect(dueBox!.y + dueBox!.height).toBeLessThanOrEqual(cellBox!.y + cellBox!.height)
+    // 이벤트 채움이 끝나 배치가 자리 잡을 때까지 측정+단언을 재시도한다 (WP-225)
+    await expect(async () => {
+      const dueBox = await stableBox(dueChip)
+      const cellBox = await stableBox(cell)
+      expect(dueBox.y + dueBox.height).toBeLessThanOrEqual(cellBox.y + cellBox.height)
+    }).toPass()
   },
 )

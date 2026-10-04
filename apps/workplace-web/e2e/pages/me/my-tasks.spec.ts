@@ -166,9 +166,9 @@ test('내 작업 — 상태·우선순위가 텍스트 배지 아닌 아이콘�
     ]),
   )
   await page.goto('/me/tasks/assigned')
-  await page.waitForSelector('[data-testid="assigned-row-77"]')
 
   const row = page.getByTestId('assigned-row-77')
+  await expect(row).toBeVisible()
 
   // 아이콘 방식: svg role=img + aria-label/title 확인.
   await expect(row.getByRole('img', { name: /상태:/ })).toBeVisible()
