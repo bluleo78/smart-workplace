@@ -8,6 +8,7 @@ import { useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { Button } from '@/components/ui/button';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import type { IssueResponse } from '@/types/issue';
 import type { ProjectResponse } from '@/types/project';
 
@@ -15,6 +16,7 @@ import { parseFilters, parseGroupBy, parseView, toClientGroupBy } from '../../..
 import { IssueBoardView } from '../components/IssueBoardView';
 import { IssueCreateDialog } from '../components/IssueCreateDialog';
 import { IssueFilterBar } from '../components/IssueFilterBar';
+import { MobileIssueToolbar } from '../components/mobile/MobileIssueToolbar';
 import type { IssueFilterBarOptions } from '../hooks/useIssueFilterControls';
 import { PersonalChecklistView } from './PersonalChecklistView';
 import { PersonalTaskPanel } from './PersonalTaskPanel';
@@ -42,6 +44,7 @@ const PERSONAL_FILTER_OPTIONS: IssueFilterBarOptions = {
 
 // 개인 프로젝트 상세 본체. ProjectDetailPage 에서 type==='PERSONAL' 일 때만 렌더된다.
 export function PersonalProjectDetail({ project }: { project: ProjectResponse }) {
+  const isMobile = useIsMobile();
   const key = project.key;
   const [params] = useSearchParams();
   const view = parseView(params);
@@ -71,9 +74,14 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
           mobilePrimaryAction={<HeaderIconAction label="빠른 추가" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>}
           mobileActions={null}
         />
-        {/* 팀과 동일한 상단 툴바(검색·필터·그룹·뷰토글). 개인 옵션으로 사이클·유형 숨김. */}
+        {/* 팀과 동일한 상단 툴바(검색·필터·그룹·뷰토글). 개인 옵션으로 사이클·유형 숨김.
+            모바일은 팀과 같은 한 줄 툴바(WP-221) — 저장 뷰·에픽이 없으므로 뷰 칩·에픽 칩 없이. */}
         <div className="border-b px-4">
-          <IssueFilterBar projectKey={key} options={PERSONAL_FILTER_OPTIONS} />
+          {isMobile ? (
+            <MobileIssueToolbar projectKey={key} options={PERSONAL_FILTER_OPTIONS} showViewChip={false} />
+          ) : (
+            <IssueFilterBar projectKey={key} options={PERSONAL_FILTER_OPTIONS} />
+          )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {/* 개인 화면 본문 — 전체폭. 좌우 여백은 헤더(px-4) 축과 맞춘다.

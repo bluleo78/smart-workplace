@@ -35,6 +35,8 @@ interface ChatMessageListProps {
   renderEditor: (message: ChatMessageResponse) => React.ReactNode;
   /** true 면 고정 높이 대신 부모 높이를 채운다(드로워 등 flex 컨테이너 내부). */
   fill?: boolean;
+  /** true 면 빈 상태를 낮게(py-6) — 카드 없는 모바일 개인 작업 채팅 섹션용(WP-221). */
+  compact?: boolean;
 }
 
 export function ChatMessageList({
@@ -49,6 +51,7 @@ export function ChatMessageList({
   editingMessageId,
   renderEditor,
   fill = false,
+  compact = false,
 }: ChatMessageListProps) {
   const lastRef = useRef<HTMLLIElement | null>(null);
   const scrollRootRef = useRef<HTMLDivElement | null>(null);
@@ -111,7 +114,7 @@ export function ChatMessageList({
     return (
       <div
         className={`flex items-center justify-center text-sm text-muted-foreground ${
-          fill ? 'h-full min-h-32' : 'h-32'
+          fill ? 'h-full min-h-32' : compact ? 'py-6' : 'h-32'
         }`}
         data-testid="chat-empty"
       >

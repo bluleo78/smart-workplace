@@ -23,6 +23,13 @@ export function eunNeun(word: string) {
   return code >= 0 && code % 28 > 0 ? '은' : '는';
 }
 
+/** 마지막 음절 받침에 따라 "으로"/"로" 반환 — 받침 없음·ㄹ받침은 "로"(예: 목록으로, 체크리스트로, 파일로) */
+export function euroRo(word: string) {
+  const code = word.charCodeAt(word.length - 1) - 0xac00;
+  const jong = code >= 0 ? code % 28 : 0;
+  return jong === 0 || jong === 8 ? '로' : '으로';
+}
+
 /** 이름 앞의 법인 표기 — (주)·(유)·(재)·(사) 괄호형과 ㈜·㈲ 합자. 이니셜 계산에서만 건너뛴다. */
 const LEGAL_ENTITY_PREFIX = /^(?:\([주유재사]\)|[㈜㈲])\s*/u
 

@@ -3,6 +3,7 @@
 // 타이핑: 입력 시 typing 송신 + 다른 멤버 typing 표시. mark-read 는 debounce 게이팅.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble';
 
@@ -29,12 +30,21 @@ interface IssueChatSectionProps {
   issueNumber: number;
   /** true 면 카드 크롬·헤더 없이 부모(드로워) 높이를 채운다. 메시지 영역 flex-1, 컴포저 하단 고정. */
   embedded?: boolean;
+  /**
+   * 주어지면 footer(타이핑·AI 작업 버블·입력창)를 이 요소로 포털한다 — 모바일 개인 작업 상세가 입력줄을 화면 하단 in-flow 줄에
+   * 붙여 키보드 바로 위에 두기 위해(WP-221). null = 대상이 아직 마운트 전이라 렌더 보류. 미지정 = 기존 위치(카드/드로워 안).
+   */
+  footerContainer?: HTMLElement | null;
+  /** true 면 카드·헤더 크롬 없이 「채팅」 소제목 + 목록만(모바일 개인 작업 상세 — 메모와 같은 급, WP-221 디자인 리뷰 R2). */
+  plain?: boolean;
 }
 
 export function IssueChatSection({
   projectKey,
   issueNumber,
   embedded = false,
+  footerContainer,
+  plain = false,
 }: IssueChatSectionProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const auth = useAuth();
@@ -246,6 +256,7 @@ export function IssueChatSection({
       onMarkRead={(id) => setPendingReadId(id)}
       editingMessageId={editingId}
       fill={embedded}
+      compact={plain}
       renderEditor={(m) => (
         <ChatMessageEditor
           initialBody={m.body}
@@ -304,6 +315,9 @@ export function IssueChatSection({
       )}
     </>
   );
+  // 포털 대상이 있으면 그리로, null(대상 마운트 전)이면 보류, 미지정이면 제자리(데스크톱·드로워 DOM 불변).
+  const footerNode =
+    footerContainer === undefined ? footer : footerContainer ? createPortal(footer, footerContainer) : null;
 
   // embedded — 카드/헤더 없이 부모 높이 채움. 메시지 영역 flex-1 스크롤, footer 하단 고정.
   if (embedded) {
@@ -314,8 +328,18 @@ export function IssueChatSection({
         className="flex min-h-0 flex-1 flex-col"
       >
         <div className="min-h-0 flex-1">{messageList}</div>
-        {footer}
+        {footerNode}
       </div>
+    );
+  }
+
+  if (plain) {
+    return (
+      <section ref={rootRef as React.Ref<HTMLElement>} data-testid="chat-section" aria-label="채팅" className="space-y-1">
+        <h2 className="text-xs font-medium text-muted-foreground">채팅</h2>
+        {messageList}
+        {footerNode}
+      </section>
     );
   }
 
@@ -331,7 +355,7 @@ export function IssueChatSection({
       </CardHeader>
       <CardContent className="p-0">
         {messageList}
-        {footer}
+        {footerNode}
       </CardContent>
     </Card>
   );

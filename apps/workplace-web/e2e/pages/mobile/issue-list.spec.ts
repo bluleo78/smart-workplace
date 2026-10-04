@@ -157,6 +157,21 @@ test.describe('모바일 툴바', () => {
     await expect(page.getByTestId('mobile-search-input')).toHaveValue('환불');
   });
 
+  test('검색 모드를 오갔다 와도 선택한 저장 뷰가 유지된다(칩 라벨·WP-221 회귀)', async ({ authenticatedPage: page }) => {
+    await mock(page, { views: [MY_BUG_VIEW] });
+    await page.goto(`/projects/${KEY}`);
+    await page.getByTestId('mobile-chip-view').click();
+    await page.getByTestId('mobile-view-option-5').click();
+    await expect(page.getByTestId('mobile-view-sheet')).toBeHidden();
+    await expect(page.getByTestId('mobile-chip-view')).toHaveText('내 버그');
+    await page.getByTestId('mobile-search-open').click();
+    await page.getByTestId('mobile-search-input').fill('환불');
+    await expect(page).toHaveURL(/q=%ED%99%98%EB%B6%88/);
+    await page.getByTestId('mobile-search-cancel').click();
+    // 검색어가 붙어 조건이 달라져도 선택한 뷰 이름을 유지한다(뷰 업데이트 대상 보존).
+    await expect(page.getByTestId('mobile-chip-view')).toHaveText('내 버그');
+  });
+
   test('그룹 시트 — 에픽으로 묶기', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}`);

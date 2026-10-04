@@ -1,17 +1,14 @@
 // 개인 작업 상세 — 뷰별 하이브리드: 리스트/체크리스트=인플로우 사이드 패널, 보드=중앙 모달(#231).
 // ?task=N 이 있을 때만 표시. 기존 필드 위젯 + 이슈 chat 재사용. ESC·✕·같은 행 재클릭으로 닫힘.
 import { X } from 'lucide-react';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 
-import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { LabelChip } from '@/components/labels/LabelChip';
 import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
-import { useIssue, useUpdateIssue } from '@/hooks/queries/useIssue';
 import { useHistoryParam } from '@/hooks/useHistoryParam';
-import { buildIssueDetailContext } from '@/lib/aiScreenContext/builders/issue';
-import { isNotFoundError } from '@/lib/api-error';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { parseId } from '@/lib/historyParam';
 import { cn } from '@/lib/utils';
 
@@ -20,6 +17,8 @@ import { IssueChatSection } from '../components/chat/IssueChatSection';
 import { InlineEditableTitle } from '../components/InlineEditableTitle';
 import { IssuePrioritySelect } from '../components/IssuePrioritySelect';
 import { IssueStatusSelect } from '../components/IssueStatusSelect';
+import { PersonalTaskMobile } from './PersonalTaskMobile';
+import { usePersonalTask } from './usePersonalTask';
 
 /**
  * ?task=N 쿼리 파라미터를 감지해 상세를 연다.
@@ -38,10 +37,32 @@ export function PersonalTaskPanel({
   // 콜드 딥링크는 task 만 지운다(WP-208).
   const taskParam = useHistoryParam('task');
   const number = parseId(taskParam.value);
-  const open = number != null;
-  const close = taskParam.close;
+  const isMobile = useIsMobile();
 
-  // ESC 로 닫기 — panel 모드 한정(modal 은 Radix Dialog 가 ESC 처리).
+  // 모바일(<1024px) — 모드(보드 모달/리스트 패널)와 무관하게 전체 화면 상세(WP-221). 768~1023px 에서 400px 패널이
+  // 콘텐츠를 짓누르던 문제도 이 분기로 해소된다. 데스크톱은 기존 모달/패널 그대로.
+  return isMobile ? (
+    <PersonalTaskMobile projectKey={projectKey} number={number} onClose={taskParam.close} />
+  ) : (
+    <PersonalTaskPanelDesktop projectKey={projectKey} mode={mode} number={number} close={taskParam.close} />
+  );
+}
+
+/** 데스크톱 상세 — 보드=중앙 모달, 리스트·체크리스트=인플로우 사이드 패널. 열림 판단은 상위의 number. */
+function PersonalTaskPanelDesktop({
+  projectKey,
+  mode,
+  number,
+  close,
+}: {
+  projectKey: string;
+  mode: 'panel' | 'modal';
+  number: number | null;
+  close: () => void;
+}) {
+  const open = number != null;
+
+  // ESC 로 닫기 — panel 모드 한정(modal 은 Radix Dialog 가 ESC 처리 — 이중 닫기 방지).
   useEffect(() => {
     if (!open || mode === 'modal') return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
@@ -113,21 +134,8 @@ export function PersonalTaskDetail({
   onClose: () => void;
   asModal?: boolean;
 }) {
-  const q = useIssue(projectKey, number);
-  const update = useUpdateIssue(projectKey, number);
-  // 원격 삭제 후 재조회 404 — stale q.data 가 남아도 필드/제목을 숨기고 not-found 만 보여준다.
-  const gone = isNotFoundError(q.error);
-  const data = gone ? undefined : q.data;
-  // WP-54: 열린 개인 태스크를 AI 화면 컨텍스트 대상(focus)으로 등록 — 범위는 '개인 프로젝트'로 덮어쓴다.
-  // 패널이 닫혀 언마운트되거나 이슈가 없으면(로딩·404) 해제된다.
-  const screenContext = useMemo(
-    () =>
-      data
-        ? { ...buildIssueDetailContext({ projectKey, issue: data.summary }), scope: { label: '개인 프로젝트', refs: { projectKey } } }
-        : null,
-    [data, projectKey],
-  );
-  useRegisterAiScreenContext(screenContext);
+  // 조회·수정·404 판정·AI 화면 컨텍스트 등록은 모바일 전체 화면과 공유(WP-221).
+  const { q, update, data } = usePersonalTask(projectKey, number);
 
   return (
     // 스크롤 컨테이너 — 외부 wrapper가 h-full flex flex-col이므로 flex-1로 남은 높이 채움.
