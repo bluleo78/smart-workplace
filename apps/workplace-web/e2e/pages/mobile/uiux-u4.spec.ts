@@ -6,10 +6,13 @@ import { createChatMessage } from '../../factories/chat.factory'
 import { createDm, createDmParticipant, createMessage } from '../../factories/messaging.factory'
 import { DETAIL, json, KEY, longPress, stubChannelMessages, stubIssue } from '../../fixtures/mobile-chat'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { expectStays } from '../../fixtures/wait'
 
 test.describe('H1 메시지 길게 누르기 작업 시트', () => {
   test('터치 셸에선 툴바를 그리지 않고, 탭은 시트를 열지 않는다(멘션 칩 탭 포함)', async ({ authenticatedPage: page }) => {
     await stubChannelMessages(page)
+    // 길게 누르기 판정 타이머(450ms)를 실제로 기다리지 않도록 시계를 설치한다 — 설치만 하면 시간은 그대로 흐른다.
+    await page.clock.install()
     await page.goto('/chat/channels/1')
     await expect(page.getByTestId('message-body-10')).toBeVisible()
     await expect(page.getByTestId('message-toolbar-10')).toHaveCount(0)
@@ -17,9 +20,9 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
 
     await page.getByTestId('message-body-11').tap()
     await page.getByTestId('mention-chip-20').tap()
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 길게 누르기 판정 시간을 넘겨도 시트가 뜨지 않음(부재) 확인
-    await page.waitForTimeout(700) // 길게 누르기 판정 시간(450ms)보다 오래 기다려도 시트는 없다.
-    await expect(page.getByTestId('message-action-sheet')).toHaveCount(0)
+    // 길게 누르기 판정 시간(450ms)을 넘겨도 시트는 없다.
+    await page.clock.fastForward(700)
+    await expectStays(page, () => page.getByTestId('message-action-sheet').count(), 0, { ms: 200 })
     // iOS 텍스트 선택·콜아웃 억제.
     await expect(page.getByTestId('message-10')).toHaveCSS('user-select', 'none')
   })
@@ -98,9 +101,8 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
     await page.getByRole('button', { name: '실행 취소' }).tap()
     // UNDO_DELETE_DELAY_MS(5s) 경과 — 취소했으므로 DELETE 가 나가지 않는다.
     await page.clock.fastForward(5500)
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 지연 만료 시 나갔을 DELETE 요청이 도착할 틈을 준 뒤 부재를 확인
-    await page.waitForTimeout(300)
-    expect(deleteCalls).toBe(0)
+    // 지연 만료 시 나갔을 DELETE 요청이 도착할 틈을 두고 부재를 확인
+    await expectStays(page, () => deleteCalls, 0, { ms: 200 })
   })
 })
 

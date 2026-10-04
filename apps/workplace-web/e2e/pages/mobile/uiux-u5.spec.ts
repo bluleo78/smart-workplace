@@ -2,6 +2,7 @@
 // C1 드로워 닫힘 가드 · C2 수정 중 행은 길게 누르기 제외 · C3 복사 실패 안내 · A1 스크린리더용 "메시지 작업" 버튼.
 import { DETAIL, KEY, longPress, stubChannelMessages, stubIssue } from '../../fixtures/mobile-chat'
 import { expect, test } from '../../fixtures/mobile.fixture'
+import { expectStays } from '../../fixtures/wait'
 
 test.describe('C1 이슈 채팅 드로워 — 앞으로가기로 다시 열린 뒤에도 닫힌다', () => {
   test('열기 → ‹ 닫기 → 브라우저 앞으로가기(드로워 다시 열림) → ‹ 로 다시 닫힌다', async ({ authenticatedPage: page }) => {
@@ -38,9 +39,8 @@ test.describe('C2 수정 중인 메시지는 길게 누르기 대상이 아니�
     await expect(page.getByTestId('message-11').getByRole('button', { name: '메시지 작업' })).toHaveCount(0)
 
     await longPress(page, editor)
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 판정 시간(450ms) 이후에도 시트가 뜨지 않음(부재) 확인(WP-82 허용 사유)
-    await page.waitForTimeout(300)
-    await expect(page.getByTestId('message-action-sheet')).toHaveCount(0)
+    // 판정 시간(450ms) 이후에도 시트가 뜨지 않음(부재)
+    await expectStays(page, () => page.getByTestId('message-action-sheet').count(), 0)
   })
 })
 

@@ -65,3 +65,26 @@ export async function resizeAndSettle(page: Page, size: { width: number; height:
   await page.setViewportSize(size);
   await expect(page.getByTestId('mobile-shell')).toHaveCount(size.width < 1024 ? 1 : 0);
 }
+
+/**
+ * 부재 확인 — 값이 지금 expected 이고, ms 동안 지켜봐도 그대로인지 단언한다.
+ * "요청이 더 나가지 않는다 / 무언가 나타나지 않는다"는 일정 시간 아무 일도 없음을 봐야 하므로 고정 대기가
+ * 불가피하다. 그 대기를 이 한 곳에 모으고, 창 시작·끝 두 시점을 모두 확인해 시작 전에 이미 어긋난 경우도 잡는다.
+ * 앱 타이머(디바운스·재시도 백오프·지연 삭제)가 원인이면 가능한 한 page.clock 으로 그 타이머를 먼저 넘긴 뒤 쓴다.
+ *
+ *   await expectStays(page, () => patchCount, 0)               // 요청 카운터
+ *   await expectStays(page, () => toolbar.count(), 0, { ms: 500 }) // 화면 요소
+ */
+export async function expectStays<T>(
+  page: Page,
+  read: () => T | Promise<T>,
+  expected: T,
+  { ms = 300, message }: { ms?: number; message?: string } = {},
+) {
+  const before: unknown = await read();
+  expect(before, message).toEqual(expected);
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 부재 확인은 일정 시간 아무 일도 없음을 지켜봐야 한다
+  await page.waitForTimeout(ms);
+  const after: unknown = await read();
+  expect(after, message).toEqual(expected);
+}
