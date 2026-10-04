@@ -17,7 +17,11 @@ interface DeleteConfirmDialogProps {
   entityName: string;
   itemName: string;
   onConfirm: () => void;
-  trigger: ReactNode;
+  /** 트리거 버튼. 외부 state 로 여닫는 controlled 모드(open/onOpenChange)에선 생략한다. */
+  trigger?: ReactNode;
+  /** controlled 모드 — 모바일 액션 시트처럼 트리거 밖에서 확인창을 여는 경우(WP-223). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   /** 기본 자동 생성 문구 대신 사용할 커스텀 설명. 미지정 시 자동 생성. */
   description?: ReactNode;
 }
@@ -27,13 +31,17 @@ export function DeleteConfirmDialog({
   itemName,
   onConfirm,
   trigger,
+  open,
+  onOpenChange,
   description,
 }: DeleteConfirmDialogProps) {
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild onClick={(e) => e.stopPropagation()}>
-        {trigger}
-      </AlertDialogTrigger>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      {trigger && (
+        <AlertDialogTrigger asChild onClick={(e) => e.stopPropagation()}>
+          {trigger}
+        </AlertDialogTrigger>
+      )}
       <AlertDialogContent onClick={(e) => e.stopPropagation()}>
         <AlertDialogHeader>
           <AlertDialogTitle>{entityName} 삭제</AlertDialogTitle>

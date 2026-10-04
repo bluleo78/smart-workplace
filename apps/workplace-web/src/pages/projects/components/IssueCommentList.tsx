@@ -6,16 +6,18 @@
 // 코멘트는 별도 mentions 필드가 없으므로(백엔드 미지원) 프로젝트 멤버 목록으로 <@id> 토큰을
 // 이름/종류로 역매핑한다(읽기 렌더·수정 폼 초기값 공용).
 
-import { Pencil, Trash2 } from 'lucide-react';
+import { MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
 import { RichInput } from '@/components/mentions/RichInput';
 import type { MentionCandidate, MentionUser } from '@/components/mentions/types';
+import { MobileActionSheet } from '@/components/mobile/MobileActionSheet';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 import { useDeleteComment, useUpdateComment } from '../../../hooks/queries/useIssueComments';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
@@ -46,6 +48,10 @@ function CommentItem({
   mentionCandidates: MentionCandidate[];
 }) {
   const [editing, setEditing] = useState(false);
+  // WP-223: 모바일은 hover 가 없어 ⋯ → 액션 시트로 수정·삭제를 연다. 삭제 확인창은 트리거 밖에서 state 로 연다.
+  const isMobile = useIsMobile();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const update = useUpdateComment(projectKey, issueNumber, issueId);
   const remove = useDeleteComment(projectKey, issueNumber, issueId);
@@ -74,6 +80,8 @@ function CommentItem({
     }
   };
 
+  const itemName = comment.body.slice(0, 20) + (comment.body.length > 20 ? '…' : '');
+
   return (
     <li
       className={[
@@ -99,7 +107,19 @@ function CommentItem({
         </div>
 
         {/* 본인 HUMAN 코멘트에만 hover 시 액션 버튼 노출 */}
-        {isOwn && !editing && (
+        {isOwn && !editing && isMobile && (
+          // 44px 터치 영역이 헤더 줄 높이를 키우지 않도록 음수 마진으로 시각 크기만 유지(DrivePage 행 ⋮ 와 동일).
+          <button
+            type="button"
+            onClick={() => setSheetOpen(true)}
+            aria-label="코멘트 더보기"
+            data-testid={`issue-comment-more-${comment.id}`}
+            className="-my-3 -mr-2 flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground active:bg-accent"
+          >
+            <MoreVertical className="size-5" aria-hidden />
+          </button>
+        )}
+        {isOwn && !editing && !isMobile && (
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <Button
               variant="ghost"
@@ -112,7 +132,7 @@ function CommentItem({
             </Button>
             <DeleteConfirmDialog
               entityName="코멘트"
-              itemName={comment.body.slice(0, 20) + (comment.body.length > 20 ? '…' : '')}
+              itemName={itemName}
               onConfirm={handleDelete}
               trigger={
                 <Button
@@ -128,6 +148,28 @@ function CommentItem({
           </div>
         )}
       </div>
+
+      {isOwn && isMobile && (
+        <>
+          <MobileActionSheet
+            open={sheetOpen}
+            onClose={() => setSheetOpen(false)}
+            title="코멘트"
+            testId="issue-comment-sheet"
+            actions={[
+              { key: 'edit', label: '수정', icon: <Pencil />, onSelect: () => setEditing(true) },
+              { key: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: () => setConfirmOpen(true) },
+            ]}
+          />
+          <DeleteConfirmDialog
+            entityName="코멘트"
+            itemName={itemName}
+            onConfirm={handleDelete}
+            open={confirmOpen}
+            onOpenChange={setConfirmOpen}
+          />
+        </>
+      )}
 
       {/* 본문: 편집 모드면 인라인 RichInput(@멘션), 아니면 멘션 칩 포함 텍스트 */}
       {editing ? (
