@@ -12,7 +12,8 @@ public final class ChatMessages {
    * 사용자 ID. ai-agent 가 MCP 도구(드라이브·캘린더 등) 컨텍스트를 assistantAgentId 아닌 실제 요청자 기준으로 실행하기 위해 전달한다(refs
    * #376). tenantId — 요청자의 active-tenant(nullable). ai-agent 가 workplace-api 대리 호출 시
    * X-On-Behalf-Of-Tenant 로 실어 보내, 다중/무 멤버십일 때 AgentTenantResolver 가 fail-closed 되는 것을 막는다(#719).
-   * screenContext — 현재 화면 컨텍스트(WP-54, nullable). ai-agent 가 user 메시지 prefix 로 임베드.
+   * screenContext — 현재 화면 컨텍스트(WP-54, nullable). ai-agent 가 user 메시지 prefix 로 임베드. contextSummary —
+   * 누적 요약(WP-232, nullable).
    */
   public record ChatRequest(
       String query,
@@ -24,7 +25,9 @@ public final class ChatMessages {
       String thinkingDepth,
       int maxTurns,
       int timeoutMs,
-      AiScreenContext screenContext) {}
+      AiScreenContext screenContext,
+      /** WP-232: 토큰 예산을 넘친 앞부분 대화의 누적 요약(nullable). ai-agent 가 원문 이력 앞에 싣는다. */
+      String contextSummary) {}
 
   /** 세션 최근 메시지(텍스트만 — 위젯 jsonb 제외). */
   public record ContextMessage(String role, String content) {}

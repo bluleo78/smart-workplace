@@ -57,6 +57,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
   @MockitoBean TenantScopedRunner tenantScopedRunner;
   @Autowired HomeSessionService sessionService;
   @Autowired HomeProposalService proposalService;
+  @Autowired HomeContextSummaryService contextService;
   @Autowired AiAgentProperties aiAgentProperties;
   @Autowired ObjectMapper objectMapper;
 
@@ -118,6 +119,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
     return new HomeChatService(
         sessionService,
         proposalService,
+        contextService,
         chatClient,
         aiAgentProperties,
         objectMapper,

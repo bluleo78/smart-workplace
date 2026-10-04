@@ -451,11 +451,11 @@ class HomeChatServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * #843: 확인카드 결과(ACTION_*) 행은 대화 한도(6)에 세지 않고 함께 따라온다 — "모두 승인" 여러 건이 직전 대화를 밀어내지 않고, 결과 행도 AI 맥락에
-   * 남는다.
+   * #843 + WP-232: 확인카드 결과(ACTION_*) 행은 토큰 예산 안에서 대화와 함께 순서대로 실린다 — 메시지 개수 한도가 없어졌으므로 이전 대화도 밀려나지
+   * 않는다.
    */
   @Test
-  void 확인카드_결과행은_대화한도에_세지_않고_recentContext_에_함께_실린다() throws Exception {
+  void 확인카드_결과행은_예산_안에서_대화와_함께_순서대로_실린다() throws Exception {
     long uid = user("ctxa" + System.nanoTime());
     var s = sessionService.create(uid);
     for (int i = 1; i <= 4; i++) {
@@ -482,11 +482,22 @@ class HomeChatServiceTest extends IntegrationTestBase {
 
     ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
     verify(chatClient).composeStream(captor.capture(), any(), any(), any(), any(), any(), any());
-    // 대화 6개(질문2~답4) + 결과 3줄 — 결과 행 때문에 질문2/답2 가 밀려나지 않는다.
+    // 기본 예산(128k) 안이라 대화 8개 + 결과 3줄 전부가 순서대로 실리고 요약은 없다.
     assertThat(captor.getValue().recentContext())
         .extracting("content")
         .containsExactly(
-            "질문2", "답2", "질문3", "답3", "질문4", "답4", "승인 완료: 카드1", "승인 완료: 카드2", "승인 완료: 카드3");
+            "질문1",
+            "답1",
+            "질문2",
+            "답2",
+            "질문3",
+            "답3",
+            "질문4",
+            "답4",
+            "승인 완료: 카드1",
+            "승인 완료: 카드2",
+            "승인 완료: 카드3");
+    assertThat(captor.getValue().contextSummary()).isNull();
   }
 
   /**

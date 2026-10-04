@@ -10,11 +10,9 @@ import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.dto.AiScreenContext;
-import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.exception.HomeChatUnavailableException;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
-import com.workplace.home.outbound.ChatMessages.ContextMessage;
 import java.io.InterruptedIOException;
 import java.time.Duration;
 import java.util.HashMap;
@@ -32,8 +30,8 @@ import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.stereotype.Service;
 
 /**
- * 홈 채팅 오케스트레이션 (B2, #593 편입): 세션 ensure → recentContext 구성 → 비서 해석 → USER 영속 → ai-agent SSE 구독 → 통합
- * /events 채널(home.chat.*)로 fanOut → done 시 ASSISTANT 영속.
+ * 홈 채팅 오케스트레이션 (B2, #593 편입): 세션 ensure → 맥락 스냅샷(누적 요약 + 원문, WP-232) 구성 → 비서 해석 → USER 영속 →
+ * ai-agent SSE 구독 → 통합 /events 채널(home.chat.*)로 fanOut → done 시 ASSISTANT 영속.
  *
  * <p>권한·비서 해석은 스트림 시작 전 동기 실행 — 실패하면 GlobalExceptionHandler 가 일반 4xx 로 매핑한다(깨진 스트림 X). ASSISTANT
  * 영속은 펌프 스레드(aiChatStreamExecutor)에서 수행되므로 TenantContextTaskDecorator 가 GUC 를 전파한다.
@@ -55,23 +53,18 @@ public class HomeChatService {
    */
   private static final int COMPOSE_MIN_TIMEOUT_MS = 180_000;
 
-  /** follow-up 맥락으로 전달할 직전 대화(USER/ASSISTANT) 메시지 최대 개수(토큰 폭주 방지). */
-  private static final int CONTEXT_LIMIT = 6;
-
-  /**
-   * 맥락 전체 행 상한(#843). 확인카드 결과(ACTION_*) 행은 대화 한도에 세지 않고 그 사이에 따라오게 하되("모두 승인" N건이 직전 대화를 밀어내지 않도록),
-   * 결과 행이 폭증해도 맥락이 무한히 커지지 않게 전체 행 수를 제한한다.
-   */
-  private static final int CONTEXT_ROW_CAP = 20;
-
   /** MCP 프리픽스(mcp__workplace__update_status → update_status). 도구 이름 판별 전에 벗겨낸다. */
   private static final Pattern MCP_PREFIX = Pattern.compile("^mcp__[^_]+__");
 
   /** WP-158: 위젯 도구 이름 → 위젯 타입(show_issue_list → issue_list). 웹 widgetTypeFromToolName 과 같은 규칙. */
   private static final Pattern SHOW_TOOL = Pattern.compile("show_([a-z_]+)$");
 
+  /** WP-232: 동기 요약 중 진행 라벨(home.chat.progress). */
+  static final String COMPACTING_LABEL = "이전 대화를 정리하는 중";
+
   private final HomeSessionService sessionService;
   private final HomeProposalService proposalService;
+  private final HomeContextSummaryService contextService;
   private final AiAgentChatClient chatClient;
   private final AiAgentProperties aiAgentProperties;
   private final ObjectMapper objectMapper;
@@ -83,6 +76,7 @@ public class HomeChatService {
   public HomeChatService(
       HomeSessionService sessionService,
       HomeProposalService proposalService,
+      HomeContextSummaryService contextService,
       AiAgentChatClient chatClient,
       AiAgentProperties aiAgentProperties,
       ObjectMapper objectMapper,
@@ -92,6 +86,7 @@ public class HomeChatService {
       SseRegistry sseRegistry) {
     this.sessionService = sessionService;
     this.proposalService = proposalService;
+    this.contextService = contextService;
     this.chatClient = chatClient;
     this.aiAgentProperties = aiAgentProperties;
     this.objectMapper = objectMapper;
@@ -107,11 +102,11 @@ public class HomeChatService {
   }
 
   /**
-   * enabled 확인·세션 ensure·recentContext 구성·비서 해석·USER 영속을 동기 수행한 뒤, 펌프를 레지스트리에 등록하고 correlationId 를
-   * 즉시 반환한다.
+   * enabled 확인·세션 ensure·맥락 스냅샷 로드·비서 해석·USER 영속을 동기 수행한 뒤, 펌프를 레지스트리에 등록하고 correlationId 를 즉시
+   * 반환한다.
    *
-   * <p>enabled 확인·세션 ensure·recentContext 구성·비서 해석·USER appendMessage 는 요청 스레드에서 동기 수행 → 실패 시
-   * 4xx/5xx. ai-agent 호출은 비동기(전용 executor 스레드).
+   * <p>enabled 확인·세션 ensure·맥락 스냅샷 로드·비서 해석·USER appendMessage 는 요청 스레드에서 동기 수행 → 실패 시 4xx/5xx.
+   * ai-agent 호출은 비동기(전용 executor 스레드).
    *
    * @param callerId 요청 사용자 ID
    * @param sessionId null 이면 새 세션 생성
@@ -129,8 +124,8 @@ public class HomeChatService {
     // 2) 세션 ensure — sessionId null 이면 새 세션 생성.
     UUID sid = sessionId != null ? sessionId : sessionService.create(callerId).id();
 
-    // 3) 현재 query 적재 전, 기존 대화에서 최근 N개를 텍스트 전용 맥락으로 구성.
-    List<ContextMessage> recentContext = buildRecentContext(callerId, sid);
+    // 3) 현재 query 적재 전, 세션 맥락 스냅샷(누적 요약 + 경계 이후 원문)을 확보(WP-232). 예산 초과 시 압축은 pump 에서.
+    HomeContextSummaryService.ContextSnapshot snapshot = contextService.load(callerId, sid);
 
     // 4) 비서 해석 — 미설정이면 HomeAssistantNotConfiguredException(503) 로 단락.
     AssistantSpec spec = assistantResolver.resolve(callerId);
@@ -144,25 +139,8 @@ public class HomeChatService {
       proposalService.expirePending(callerId, sid);
     }
 
-    // userId: 요청 사용자 ID — ai-agent 의 MCP 도구가 assistantAgentId 아닌 실제 요청자 컨텍스트로
-    // 드라이브·캘린더 등 사용자 귀속 리소스를 조회·수정하게 한다(refs #376).
-    // tenantId: 요청 스레드의 active-tenant(JwtAuthenticationFilter 가 설정) — ai-agent 가 workplace-api
-    // 대리 호출 시 X-On-Behalf-Of-Tenant 로 되돌려 보내야, 요청자가 다중/무 멤버십일 때 AgentTenantResolver
-    // 가 fail-closed(테넌트 미해결→RLS GUC 미주입→권한 전부 거부) 되지 않는다(#719).
-    ChatRequest req =
-        new ChatRequest(
-            query,
-            recentContext,
-            spec.agentUserId(),
-            callerId,
-            TenantContext.get(),
-            spec.model(),
-            spec.thinkingDepth(),
-            spec.maxTurns(),
-            // #456: compose 는 다중 도메인 위임으로 기본 60s 를 넘기 쉬워 하한(180s)을 적용.
-            Math.max(spec.timeoutMs(), COMPOSE_MIN_TIMEOUT_MS),
-            // WP-54: 화면 컨텍스트 1:1 전달(USER 메시지 영속에는 포함하지 않는다).
-            screenContext);
+    // #719: 요청 스레드의 active-tenant 를 미리 캡처해 pump 에서 ChatRequest 에 싣는다.
+    Long tenantId = TenantContext.get();
 
     // 위임 라벨 + 도구 호출을 도착 순서로 누적(done 시 home_message.tool_calls 로 영속).
     // CopyOnWriteArrayList: 펌프 스레드에서 쓰고 done 핸들러에서 읽는 구조에 안전.
@@ -177,6 +155,38 @@ public class HomeChatService {
         correlationId ->
             () -> {
               try {
+                // WP-232: 예산 초과 시 이 턴에서 동기 요약(진행 라벨 표시) — 요청 스레드를 막지 않도록 pump 에서 수행.
+                HomeContextSummaryService.ContextSnapshot ctx =
+                    contextService.fitToBudget(
+                        callerId,
+                        sid,
+                        snapshot,
+                        spec,
+                        () ->
+                            sseRegistry.fanOut(
+                                Set.of(callerId),
+                                "home.chat.progress",
+                                Map.of("correlationId", correlationId, "label", COMPACTING_LABEL)));
+                // userId: 요청 사용자 ID — ai-agent 의 MCP 도구가 assistantAgentId 아닌 실제 요청자 컨텍스트로
+                // 드라이브·캘린더 등 사용자 귀속 리소스를 조회·수정하게 한다(refs #376).
+                // tenantId: 요청 스레드에서 캡처한 active-tenant(JwtAuthenticationFilter 가 설정) — ai-agent 가
+                // workplace-api 대리 호출 시 X-On-Behalf-Of-Tenant 로 되돌려 보내야, 요청자가 다중/무 멤버십일 때
+                // AgentTenantResolver 가 fail-closed(테넌트 미해결→RLS GUC 미주입→권한 전부 거부) 되지 않는다(#719).
+                ChatRequest req =
+                    new ChatRequest(
+                        query,
+                        ctx.toContext(),
+                        spec.agentUserId(),
+                        callerId,
+                        tenantId,
+                        spec.model(),
+                        spec.thinkingDepth(),
+                        spec.maxTurns(),
+                        // #456: compose 는 다중 도메인 위임으로 기본 60s 를 넘기 쉬워 하한(180s)을 적용.
+                        Math.max(spec.timeoutMs(), COMPOSE_MIN_TIMEOUT_MS),
+                        // WP-54: 화면 컨텍스트 1:1 전달(USER 메시지 영속에는 포함하지 않는다).
+                        screenContext,
+                        ctx.summary());
                 chatClient.composeStream(
                     req,
                     // delta: 즉시 fanOut(누적 버퍼는 더 이상 필요 없음 — done 은 ai-agent 가 준 fullText 사용).
@@ -203,6 +213,8 @@ public class HomeChatService {
                       donePayload.put("sessionId", sid.toString());
                       donePayload.put("widgets", widgets);
                       sseRegistry.fanOut(Set.of(callerId), "home.chat.done", donePayload);
+                      // WP-232: 맥락이 trigger 를 넘었으면 다음 턴을 위해 비동기 요약 예약(예외 없음, 응답 지연 없음).
+                      contextService.scheduleIfNeeded(callerId, sid);
                     },
                     // error(진짜 오류만 — 취소는 아래 catch 로 별도 처리): home.chat.error fanOut.
                     msg ->
@@ -315,23 +327,6 @@ public class HomeChatService {
     if (n.startsWith("show_") || n.startsWith("propose_")) return false;
     if (n.equals("respond_chat") || n.equals("submit_response")) return false;
     return true;
-  }
-
-  /**
-   * 세션의 최근 메시지를 텍스트 전용(role+content)으로 — 대화 메시지는 마지막 CONTEXT_LIMIT 개, 그 사이의 확인카드 결과 행은 함께 포함한다(전체
-   * CONTEXT_ROW_CAP 상한).
-   */
-  private List<ContextMessage> buildRecentContext(long callerId, UUID sessionId) {
-    List<HomeMessageResponse> all = sessionService.getMessages(callerId, sessionId);
-    int from = all.size();
-    int conversational = 0;
-    while (from > 0 && conversational < CONTEXT_LIMIT && all.size() - from < CONTEXT_ROW_CAP) {
-      from--;
-      if (!all.get(from).role().startsWith("ACTION_")) conversational++;
-    }
-    return all.subList(from, all.size()).stream()
-        .map(m -> new ContextMessage(m.role(), m.content()))
-        .toList();
   }
 
   /** 위젯 JsonNode → 영속용 JSON 문자열. null/누락이면 null(USER 메시지 컨벤션과 동일). */

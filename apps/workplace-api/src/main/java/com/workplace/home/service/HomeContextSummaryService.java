@@ -1,0 +1,170 @@
+package com.workplace.home.service;
+
+import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.util.TokenEstimates;
+import com.workplace.home.outbound.AiAgentContextSummaryClient;
+import com.workplace.home.outbound.ChatMessages.ContextMessage;
+import com.workplace.home.outbound.ChatMessages.ContextSummaryRequest;
+import com.workplace.home.repository.HomeSessionRepository.SummaryState;
+import com.workplace.home.service.HomeContextPolicy.Msg;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
+import org.springframework.stereotype.Service;
+
+/**
+ * 메인 AI 채팅 맥락(누적 요약 + 원문 이력) 구성·요약 갱신(WP-232).
+ *
+ * <ul>
+ *   <li>load — 세션 요약 상태와 그 경계 이후 원문(메시지별 상한 적용)을 읽는다(요청 스레드, 현재 USER 저장 전).
+ *   <li>fitToBudget — 예산 초과 시 그 턴에서 동기 요약(pump 스레드). 실패하면 오래된 원문부터 버린다.
+ *   <li>scheduleIfNeeded — 턴 종료 후 trigger 초과면 전용 executor 로 비동기 요약 예약(세션당 1건).
+ * </ul>
+ *
+ * 요약 저장은 조건부 갱신이라 동기·비동기 요약이 겹쳐도 늦게 끝난 쪽은 버려진다.
+ */
+@Slf4j
+@Service
+public class HomeContextSummaryService {
+
+  /** 요약 실행 예산 — 도구 없는 단발 요약. 클라이언트 read 90s 이내. */
+  static final int SUMMARY_MAX_TURNS = 3;
+
+  static final int SUMMARY_TIMEOUT_MS = 60_000;
+
+  private final HomeSessionService sessionService;
+  private final AiAgentContextSummaryClient summaryClient;
+  private final AssistantResolver assistantResolver;
+  private final HomeChatProperties props;
+  private final AsyncTaskExecutor executor;
+
+  /** 비동기 요약 진행 중인 세션 — 같은 세션 중복 예약 방지(단일 인스턴스 가정, 중복돼도 조건부 갱신이 막는다). */
+  private final Set<UUID> inFlight = ConcurrentHashMap.newKeySet();
+
+  public HomeContextSummaryService(
+      HomeSessionService sessionService,
+      AiAgentContextSummaryClient summaryClient,
+      AssistantResolver assistantResolver,
+      HomeChatProperties props,
+      @Qualifier("homeContextSummaryExecutor") AsyncTaskExecutor executor) {
+    this.sessionService = sessionService;
+    this.summaryClient = summaryClient;
+    this.assistantResolver = assistantResolver;
+    this.props = props;
+    this.executor = executor;
+  }
+
+  /** 한 턴의 맥락 스냅샷 — summary/uptoId 는 세션 저장값, raw 는 경계 이후 원문(오래된 순). */
+  public record ContextSnapshot(String summary, Long uptoId, List<Msg> raw) {
+    /** ai-agent 요청용 원문 이력. */
+    public List<ContextMessage> toContext() {
+      return raw.stream().map(m -> new ContextMessage(m.role(), m.content())).toList();
+    }
+  }
+
+  /** 세션 요약 상태와 경계 이후 원문을 읽는다. 메시지별 상한을 넘는 본문은 잘라 둔다. */
+  public ContextSnapshot load(long callerId, UUID sessionId) {
+    SummaryState state = sessionService.getContextSummary(callerId, sessionId);
+    Long upto = state.uptoMessageId();
+    List<Msg> raw =
+        sessionService.getMessages(callerId, sessionId).stream()
+            .filter(m -> upto == null || m.id() > upto)
+            .map(
+                m ->
+                    HomeContextPolicy.capContent(
+                        new Msg(m.id(), m.role(), m.content()), props.perMessageCap()))
+            .toList();
+    return new ContextSnapshot(state.summary(), upto, raw);
+  }
+
+  /**
+   * 하드 상한(예산) 이내면 그대로, 넘으면 동기 요약(onCompacting 으로 진행 표시 후). 요약이 실패하면 오래된 원문부터 버려 예산에 맞춘다 — 채팅은 계속
+   * 진행.
+   */
+  public ContextSnapshot fitToBudget(
+      long callerId,
+      UUID sessionId,
+      ContextSnapshot snap,
+      AssistantSpec spec,
+      Runnable onCompacting) {
+    int budget = props.contextTokenBudget();
+    if (HomeContextPolicy.total(snap.summary(), snap.raw()) <= budget) return snap;
+    onCompacting.run();
+    try {
+      return compact(callerId, sessionId, snap, spec);
+    } catch (RuntimeException e) {
+      log.warn("홈 채팅 동기 요약 실패 — 오래된 원문을 버려 예산에 맞춤: session={} {}", sessionId, e.getMessage());
+      return new ContextSnapshot(
+          snap.summary(),
+          snap.uptoId(),
+          HomeContextPolicy.dropOldestToFit(snap.summary(), snap.raw(), budget));
+    }
+  }
+
+  /**
+   * 턴 종료 후 호출 — 요약 + 원문이 trigger 를 넘으면 비동기 요약을 예약한다. 예외를 던지지 않는다(채팅 done 처리에 영향 X). 실패하면 다음 턴 종료 시
+   * 다시 시도된다.
+   */
+  public void scheduleIfNeeded(long callerId, UUID sessionId) {
+    try {
+      ContextSnapshot snap = load(callerId, sessionId);
+      if (HomeContextPolicy.total(snap.summary(), snap.raw()) <= props.summarizeTrigger()) return;
+      if (!inFlight.add(sessionId)) return;
+      try {
+        executor.execute(() -> runAsync(callerId, sessionId));
+      } catch (TaskRejectedException e) {
+        inFlight.remove(sessionId);
+        log.warn("홈 채팅 요약 예약 거부(큐 포화) — 다음 턴에 재시도: session={}", sessionId);
+      }
+    } catch (RuntimeException e) {
+      log.warn("홈 채팅 요약 예약 판단 실패: session={} {}", sessionId, e.getMessage());
+    }
+  }
+
+  /** 비동기 요약 본체 — 최신 상태를 다시 읽어 압축한다. */
+  private void runAsync(long callerId, UUID sessionId) {
+    try {
+      compact(callerId, sessionId, load(callerId, sessionId), assistantResolver.resolve(callerId));
+    } catch (RuntimeException e) {
+      log.warn("홈 채팅 비동기 요약 실패(다음 턴 재시도): session={} {}", sessionId, e.getMessage());
+    } finally {
+      inFlight.remove(sessionId);
+    }
+  }
+
+  /**
+   * 원문을 target 까지 남기고 앞부분을 기존 요약에 합쳐 저장한 뒤, 이번 턴에 쓸 새 스냅샷을 돌려준다. 접을 구간이 없으면(꼬리만 남음) 그대로. 조건부 저장에서
+   * 지면(다른 요약이 먼저 경계를 옮김) 저장만 생략하고 이번 턴은 방금 만든 요약으로 진행한다.
+   */
+  private ContextSnapshot compact(
+      long callerId, UUID sessionId, ContextSnapshot snap, AssistantSpec spec) {
+    List<Msg> raw = snap.raw();
+    int b = HomeContextPolicy.boundary(raw, props.summarizeTarget());
+    if (b == 0) return snap;
+    List<Msg> fold = raw.subList(0, b);
+    String summary =
+        summaryClient
+            .summarize(
+                new ContextSummaryRequest(
+                    spec.agentUserId(),
+                    spec.model(),
+                    SUMMARY_MAX_TURNS,
+                    SUMMARY_TIMEOUT_MS,
+                    snap.summary(),
+                    fold.stream().map(m -> new ContextMessage(m.role(), m.content())).toList()))
+            .summary();
+    String capped = TokenEstimates.truncate(summary, props.perMessageCap());
+    long newUpto = fold.get(b - 1).id();
+    if (sessionService.saveContextSummary(callerId, sessionId, snap.uptoId(), capped, newUpto)
+        == 0) {
+      log.debug("홈 채팅 요약 저장 경합 패배 — 결과 폐기: session={}", sessionId);
+    }
+    return new ContextSnapshot(capped, newUpto, raw.subList(b, raw.size()));
+  }
+}
