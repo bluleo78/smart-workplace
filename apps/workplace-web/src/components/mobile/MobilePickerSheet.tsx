@@ -17,7 +17,7 @@ export interface PickerOption {
 }
 
 export function MobilePickerSheet({
-  open, onClose, title, options, value, onSelect, searchable = false, testId = 'mobile-picker-sheet', headerAction, listFooter,
+  open, onClose, title, options, value, onSelect, searchable = false, testId = 'mobile-picker-sheet', headerAction, listFooter, reserveCheck = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -32,6 +32,8 @@ export function MobilePickerSheet({
   headerAction?: ReactNode;
   /** 옵션 목록 아래에 붙는 선택 불가 줄(예: 「불러오는 중…」). 없으면 아무것도 렌더하지 않는다. */
   listFooter?: ReactNode;
+  /** 미선택 줄에도 ✓ 자리를 비워 둔다 — hint 가 줄마다 같은 x 에 서야 하는 시트(진행률 등)용. 선택된 줄만 hint 가 밀리지 않게. */
+  reserveCheck?: boolean;
 }) {
   const [q, setQ] = useState('');
   const keyword = q.trim().toLowerCase();
@@ -83,8 +85,9 @@ export function MobilePickerSheet({
             >
               {o.icon}
               <span className="min-w-0 flex-1 truncate">{o.label}</span>
-              {o.hint && <span className="shrink-0 text-xs text-muted-foreground">{o.hint}</span>}
-              {selected && <Check className="text-primary" aria-hidden />}
+              {/* hint 는 선택 줄(font-medium)에서도 보통 굵기 — 굵기가 바뀌면 ch 폭이 달라져 줄마다 위치가 어긋난다. */}
+              {o.hint && <span className="shrink-0 text-xs font-normal text-muted-foreground">{o.hint}</span>}
+              {selected ? <Check className="text-primary" aria-hidden /> : reserveCheck && <span className="size-5 shrink-0" aria-hidden />}
             </button>
           );
         })}

@@ -25,10 +25,11 @@ const LONG = createIssue({
   ],
   assignees: [user(1, '김하나'), user(2, '이둘'), user(3, '박셋'), user(4, '최넷')],
 });
-// 에픽 시트용 에픽 2건 — 진행 있는 것(4건 중 1건 완료)과 하위 없는 것.
+// 에픽 시트용 에픽 3건 — 진행 있는 것(4건 중 1건 완료), 하위 없는 것, 숫자가 긴 것(정렬 확인용).
 const EPICS = [
   createIssue({ id: 30, number: 30, projectKey: KEY, title: '결제 안정화', type: makeEpicType(), childCount: 4, childDoneCount: 1 }),
   createIssue({ id: 12, number: 12, projectKey: KEY, title: '온보딩 개선', type: makeEpicType(), childCount: 0, childDoneCount: 0 }),
+  createIssue({ id: 31, number: 31, projectKey: KEY, title: '레거시 이관', type: makeEpicType(), childCount: 125, childDoneCount: 10 }),
 ];
 const PLAIN = createIssue({ id: 22, number: 22, projectKey: KEY, title: '일반 이슈', priority: 'MID' });
 const SUB = createIssue({
@@ -285,6 +286,19 @@ test.describe('모바일 에픽 시트', () => {
     await expect(page.getByTestId('mobile-epic-sheet')).toBeHidden();
     await expect(page).toHaveURL(/parent=30/);
     await expect(page.getByTestId('mobile-chip-epic')).toContainText('결제 안정화');
+  });
+
+  test('진행 바는 숫자 길이·선택(✓) 여부와 상관없이 줄마다 같은 자리에 선다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    // 30 을 선택해 둔다 — 선택된 줄에만 ✓ 가 붙어도 바가 밀리지 않아야 한다.
+    await page.goto(`/projects/${KEY}?group=none&parent=30`);
+    await page.getByTestId('mobile-chip-epic').click();
+    const sheet = page.getByTestId('mobile-epic-sheet');
+    await expect(sheet.getByTestId('picker-option-epic-30')).toHaveAttribute('aria-selected', 'true');
+    const boxes = await Promise.all(
+      [30, 12, 31].map(async (n) => (await sheet.getByTestId(`picker-option-epic-${n}`).getByRole('progressbar').boundingBox())!),
+    );
+    for (const b of boxes.slice(1)) expect(b.x).toBeCloseTo(boxes[0].x, 0);
   });
 
   test('에픽 칩 ✕ 터치 영역은 32×32 이상, 툴바 높이는 그대로', async ({ authenticatedPage: page }) => {

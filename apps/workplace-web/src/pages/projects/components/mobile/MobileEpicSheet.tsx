@@ -34,12 +34,13 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
         value: `epic-${ep.number}`,
         label: ep.title,
         // 진행률 바 + 완료/전체 — 데스크톱 패널과 같은 정보. 트랙은 bg-border — bg-muted 는 시트 배경과 거의 같아 0% 가 안 보인다.
+        // 숫자 칸은 폭 고정(7ch — 「/」 가 0 보다 넓어 「999/999」 까지 여유)·오른쪽 정렬 — 「0/0」과 「10/125」처럼 길이가 달라도 바가 줄마다 같은 x 에 선다.
         hint: (
           <span className="flex items-center gap-1.5 tabular-nums">
             <span className="h-1 w-11 overflow-hidden rounded-full bg-border" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
               <span className="block h-full bg-primary" style={{ width: `${pct}%` }} />
             </span>
-            {ep.childDoneCount}/{ep.childCount}
+            <span className="min-w-[7ch] text-right">{ep.childDoneCount}/{ep.childCount}</span>
           </span>
         ),
       };
@@ -83,6 +84,7 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
         value={value}
         onSelect={onSelect}
         searchable={epics.length > 8}
+        reserveCheck
         headerAction={
           canCreateIssue && epicType ? (
             <button

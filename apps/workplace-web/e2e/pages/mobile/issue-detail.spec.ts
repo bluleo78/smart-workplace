@@ -184,6 +184,24 @@ test.describe('속성 칩', () => {
     await expect.poll(() => calls.find((c) => c.path.endsWith('/parent'))?.body).toEqual({ parentNumber: 50 });
   });
 
+  test('에픽 시트 완료/전체 숫자는 길이·선택(✓) 여부와 상관없이 오른쪽 끝이 맞는다', async ({ authenticatedPage: page }) => {
+    await mockDetail(page, { parent: { number: 50, title: EPIC.title, type: makeEpicType() } });
+    const BIG = createIssue({ id: 51, number: 51, projectKey: KEY, title: '레거시 이관', type: makeEpicType(), childCount: 125, childDoneCount: 10 });
+    await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues`, (r) => {
+      if (r.request().method() !== 'GET' || new URL(r.request().url()).searchParams.has('parent')) return r.fallback();
+      return r.fulfill(json(createIssueSearchResponse([EPIC, BIG], null)));
+    });
+    await openDetail(page);
+    await page.getByTestId('mobile-prop-epic').click();
+    const sheet = page.getByTestId('issue-epic-sheet');
+    await expect(sheet.getByTestId('picker-option-50')).toHaveAttribute('aria-selected', 'true');
+    const right = async (n: number) => {
+      const b = (await sheet.getByTestId(`picker-option-${n}`).locator('.tabular-nums').boundingBox())!;
+      return b.x + b.width;
+    };
+    expect(await right(51)).toBeCloseTo(await right(50), 0);
+  });
+
   test('에픽 목록 조회 중엔 「에픽 없음」 아래 「불러오는 중…」 — 응답 후 에픽 옵션으로 바뀐다', async ({ authenticatedPage: page }) => {
     await mockDetail(page);
     // 에픽 목록(부모 필터 없는 검색) 응답을 붙잡아 둔다 — 나중에 등록한 route 가 먼저 매칭된다.
