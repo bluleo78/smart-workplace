@@ -3,13 +3,16 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import simpleImportSort from 'eslint-plugin-simple-import-sort'
+import playwright from 'eslint-plugin-playwright'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default defineConfig([
-  globalIgnores(['dist', 'src/components/ui', 'e2e', 'playwright-report', 'test-results']),
+  globalIgnores(['dist', 'src/components/ui', 'playwright-report', 'test-results']),
   {
     files: ['**/*.{ts,tsx}'],
+    // E2E 는 아래 전용 블록만 적용 — 앱용 React·import 정렬 규칙을 스펙 267개에 걸지 않는다.
+    ignores: ['e2e/**'],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
@@ -51,5 +54,25 @@ export default defineConfig([
   {
     files: ['src/sw.ts'],
     languageOptions: { globals: globals.serviceworker },
+  },
+  // E2E — Playwright 규칙만 적용한다. 비동기 타이밍 의존(고정 대기·1회 읽기·await 누락)의 재유입을 막는다(WP-225).
+  {
+    files: ['e2e/**/*.ts'],
+    extends: [playwright.configs['flat/recommended']],
+    languageOptions: { parser: tseslint.parser },
+    rules: {
+      // 타이밍 의존을 숨기거나 만드는 패턴 — 부재 확인처럼 불가피한 고정 대기는 사유와 함께 disable 주석으로 둔다(WP-82).
+      'playwright/no-wait-for-timeout': 'error',
+      'playwright/no-wait-for-selector': 'error',
+      'playwright/no-force-option': 'error',
+      // 비동기와 무관한 스타일 규칙은 끈다 — lint-staged 의 --fix 가 손대는 파일마다 무관한 diff 를 만들지 않게.
+      'playwright/no-useless-not': 'off',
+      'playwright/consistent-spacing-between-blocks': 'off',
+      'playwright/prefer-to-have-length': 'off',
+      'playwright/no-conditional-in-test': 'off',
+      'playwright/no-conditional-expect': 'off',
+      'playwright/no-skipped-test': 'off',
+      'playwright/expect-expect': 'off',
+    },
   },
 ])

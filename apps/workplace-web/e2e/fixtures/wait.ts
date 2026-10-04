@@ -45,3 +45,18 @@ export async function dismissByOutsideClick(page: Page, layer: Locator, point = 
     await expect(layer).toHaveCount(0, { timeout: 1000 });
   }).toPass();
 }
+
+/**
+ * 뷰포트를 바꾸고 앱 셸 전환(1024 경계: 데스크톱 AppLayout ↔ MobileShell)이 끝날 때까지 기다린다.
+ * 경계를 넘으면 화면이 통째로 다시 마운트되므로, 바로 재면 옛 배치나 사라지는 요소를 잡는다.
+ * 셸 전환 뒤에도 내부가 늦게 자리 잡을 수 있으니 측정 단언은 stableBox·expect(...).toPass() 와 함께 쓴다.
+ * AppLayout 밖 화면(로그인 등)은 셸이 없으므로 settleShell: false 로 크기만 바꾼다.
+ */
+export async function resizeAndSettle(
+  page: Page,
+  size: { width: number; height: number },
+  { settleShell = true }: { settleShell?: boolean } = {},
+) {
+  await page.setViewportSize(size);
+  if (settleShell) await expect(page.getByTestId('mobile-shell')).toHaveCount(size.width < 1024 ? 1 : 0);
+}
