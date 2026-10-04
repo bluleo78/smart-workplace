@@ -111,8 +111,12 @@ test.describe('드라이브 실시간 반영 (WP-63)', () => {
 
     // 휴지통이 복구된 뒤 이벤트가 와도 사용자가 다시 열기 전엔 휴지통 뷰로 바뀌지 않는다.
     trashOk = true
+    // 고정 대기 대신 이벤트가 실제로 처리돼 목록 재조회가 끝난 뒤에 단언한다(WP-225).
+    const refetched = page.waitForResponse(
+      (r) => new URL(r.url()).pathname === `/api/v1/drive/spaces/${SPACE_ID}/items` && r.request().method() === 'GET',
+    )
     events.deliver(frame('drive', 'updated'))
-    await page.waitForTimeout(500)
+    await refetched
     await expect(page.getByTestId('trash-view')).toHaveCount(0)
     await expect(page.getByTestId('select-file-20')).toBeVisible()
   })

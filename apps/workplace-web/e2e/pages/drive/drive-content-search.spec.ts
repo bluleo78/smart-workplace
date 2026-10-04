@@ -94,6 +94,7 @@ test('검색어 2자 미만은 검색을 실행하지 않는다', async ({ authe
   await page.waitForURL(/drive\/spaces\/\d+/)
 
   await page.getByLabel('파일명 및 콘텐츠 검색').fill('a')
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- debounce(300ms) 가 지난 뒤에도 검색 요청이 없음(부재)을 확인
   await page.waitForTimeout(400) // debounce(300ms) 경과 대기
 
   expect(searchCalled).toBe(false)

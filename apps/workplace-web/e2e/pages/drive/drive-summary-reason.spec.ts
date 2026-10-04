@@ -92,17 +92,20 @@ test('PENDING 무한 지속 → 폴링 상한 초과 시 지연 안내로 전환
   await card.locator('summary').click()
   await expect(page.getByTestId('drive-summary-loading')).toBeVisible()
 
-  // IN_PROGRESS_POLLS(40) 회에 도달할 때까지 3초씩 40회 전진 — 매 tick 마다 실제 fetch 가
-  // 완료될 시간(waitForTimeout)을 real time 으로 짧게 준다(클록은 setTimeout/Date 만 가상화하고
-  // 네트워크 응답의 마이크로태스크 처리는 실제 이벤트 루프 틱이 필요하기 때문).
-  for (let i = 0; i < 40; i++) {
-    await page.clock.fastForward(3000)
-    await page.waitForTimeout(30)
-  }
-
-  await expect(page.getByTestId('drive-summary-reason')).toHaveText(
-    '요약 생성이 지연되고 있습니다. 잠시 후 다시 열어 주세요.',
-  )
+  // IN_PROGRESS_POLLS(40) 회에 도달할 때까지 3초씩 전진하며 폴링한다. 고정 30ms 틱은 부하 시 fetch 가
+  // 끝나기 전에 다음 시계를 당겨 요청이 합쳐지고(횟수 미달) 끝내 안내가 안 뜰 수 있으므로, 안내가 뜰 때까지
+  // 전진→실시간 폴링 간격(fetch 처리 시간)→확인을 반복한다(WP-225).
+  const reason = page.getByTestId('drive-summary-reason')
+  await expect
+    .poll(
+      async () => {
+        await page.clock.fastForward(3000)
+        return (await reason.count()) > 0 ? reason.textContent() : null
+      },
+      { timeout: 60_000, intervals: [100] },
+    )
+    .toBe('요약 생성이 지연되고 있습니다. 잠시 후 다시 열어 주세요.')
+  await expect(reason).toHaveText('요약 생성이 지연되고 있습니다. 잠시 후 다시 열어 주세요.')
   await expect(page.getByTestId('drive-summary-loading')).toHaveCount(0)
 })
 

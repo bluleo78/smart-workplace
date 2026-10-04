@@ -88,7 +88,9 @@ test('다운로드 액션은 downloadUrl(첨부 콘텐츠 경로)을 요청', as
   await page.goto('/drive/attachments')
   const row = page.getByTestId('drive-attachment-row-1')
   await row.hover()
-  await row.getByTestId('drive-attachment-download-1').click({ force: true })
+  // 다운로드 버튼은 group-hover 로만 보인다 — 강제 클릭 대신 호버로 드러난 뒤 실제 클릭 경로로 누른다(WP-225).
+  await expect(row.getByTestId('drive-attachment-download-1')).toBeVisible()
+  await row.getByTestId('drive-attachment-download-1').click()
   await expect.poll(() => downloadReq).toBe(true)
 })
 

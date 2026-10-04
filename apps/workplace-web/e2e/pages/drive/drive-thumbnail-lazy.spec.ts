@@ -57,7 +57,10 @@ test('파일 목록 진입 시 뷰포트 밖 썸네일은 요청하지 않고, �
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByText('photo-0.png')).toBeVisible()
 
+  // 보이는 항목의 썸네일 요청이 실제로 나간 것부터 조건 대기한다(WP-225).
+  await expect.poll(() => requestedIds.size).toBeGreaterThan(0)
   // 초기 렌더 직후 잠시 대기 — 지연 로딩이 아니라면 이 시점에 이미 FILE_COUNT 만큼 요청이 나갔을 것.
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 뷰포트 밖 항목의 썸네일 요청이 추가로 나가지 않음(부재)을 확인
   await page.waitForTimeout(500)
   const countAfterInitialRender = requestedIds.size
   expect(countAfterInitialRender).toBeGreaterThan(0)

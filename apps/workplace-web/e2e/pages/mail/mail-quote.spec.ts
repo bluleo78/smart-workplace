@@ -6,6 +6,7 @@
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { retryOnNavigation } from '../../fixtures/wait'
 
 /** 실제 메일처럼 완전 문서 + 표 + 인라인 style + 긴 서명. */
 const FULL_DOC_BODY = [
@@ -329,8 +330,9 @@ test.describe('메일 인용문 인라인 이미지', () => {
     // 미리보기: cid → data URI 치환, 실제 디코딩(naturalWidth=1), 매칭 안 된 cid 이미지는 제거됨
     const frame = page.frameLocator('[data-testid="mail-compose-quote-frame"]')
     await expect(frame.locator('#q-inline')).toHaveAttribute('src', /^data:image\/png;base64,/)
+    // 인용 미리보기 srcdoc 재작성 순간의 evaluate 예외(문서 교체)는 poll 이 재시도하지 않으므로 넘겨 다시 잰다(WP-225).
     await expect
-      .poll(() => frame.locator('#q-inline').evaluate((el) => (el as HTMLImageElement).naturalWidth))
+      .poll(() => retryOnNavigation(() => frame.locator('#q-inline').evaluate((el) => (el as HTMLImageElement).naturalWidth)))
       .toBe(1)
     await expect(frame.locator('#q-gone')).toHaveCount(0)
 

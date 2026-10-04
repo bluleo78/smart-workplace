@@ -90,6 +90,7 @@ test.describe('메일 읽음 조작 — 데스크톱(WP-187)', () => {
     await page.getByTestId('mail-row-11').click()
     await expect(page.getByTestId('mail-detail')).toBeVisible()
     // 상세가 그려진 뒤 짧게 기다려도 요청이 없다(첫 열람 판정은 목록 행 seen 으로 즉시 끝난다).
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 이미 읽은 메일에 읽음 요청이 나가지 않음(부재)을 확인
     await page.waitForTimeout(300)
     expect(read.requests).toHaveLength(0)
   })

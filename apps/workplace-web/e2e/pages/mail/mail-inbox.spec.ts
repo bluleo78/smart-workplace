@@ -117,11 +117,13 @@ test.describe('받은편지함', () => {
     await page.getByTestId('mail-search').pressSequentially('lunch', { delay: 30 })
 
     // debounce(300ms) 전에는 추가 요청이 없어야 한다.
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- debounce 만료 전 구간에 추가 목록 요청이 없음(부재)을 확인
     await page.waitForTimeout(150)
     expect(requestCount).toBe(initialCount)
 
     // debounce 이후에는 정확히 1건만 추가로 요청돼야 한다(글자 수만큼 아님).
     await expect.poll(() => requestCount, { timeout: 2000 }).toBe(initialCount + 1)
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- debounce 1회 발사 뒤 뒤늦은 추가 요청이 없음(부재)을 확인
     await page.waitForTimeout(300)
     expect(requestCount).toBe(initialCount + 1)
   })
@@ -409,8 +411,9 @@ test.describe('받은편지함', () => {
     const frame = page.frameLocator('[data-testid="mail-body-html"]')
     await expect(frame.locator('#inline')).toHaveAttribute('src', /^data:image\/png;base64,/)
     // 실제로 이미지가 디코딩돼 로드됐는지(깨진 이미지면 naturalWidth=0)
+    // srcdoc 재작성 순간의 evaluate 예외(문서 교체)는 poll 이 재시도하지 않으므로 넘겨 다시 잰다(WP-225).
     await expect
-      .poll(() => frame.locator('#inline').evaluate((el) => (el as HTMLImageElement).naturalWidth))
+      .poll(() => retryOnNavigation(() => frame.locator('#inline').evaluate((el) => (el as HTMLImageElement).naturalWidth)))
       .toBe(1)
     await expect(frame.locator('#missing')).toHaveAttribute('src', 'cid:none.png')
     expect(requested).toEqual(['/api/v1/mail/attachments/5/content'])
@@ -843,9 +846,13 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
     })
     await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail()) // WP-214: 조회는 읽음 처리하지 않아 안 읽음 그대로 응답
+    const read = await mockApi(page, 'POST', '/api/v1/mail/messages/10/read', null, { capture: true })
     await page.clock.install()
     await page.goto('/mail/1?unread=true')
     await page.getByTestId('mail-row-10').click()
+    // 첫 열람 읽음 처리가 토글·시계 전진 뒤로 밀리면 10 이 유지 집합에 늦게 들어가 되살아날 수 있으므로,
+    // 읽음 요청이 나간 뒤에 토글을 조작한다(WP-225).
+    await read.waitForRequest()
     opened = true
     await page.getByTestId('mail-unread-toggle').click() // off — 목록에 10 이 있고 prev 행에도 보관된다
     await expect(page).not.toHaveURL(/unread=true/)

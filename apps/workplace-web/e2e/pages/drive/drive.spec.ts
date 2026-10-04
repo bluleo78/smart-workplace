@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { createFile, createFolder, createSpace, makeTrashList, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { dismissByOutsideClick, stableBox } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 
@@ -823,8 +824,11 @@ for (const width of [390, 800, 1280]) {
     // 진입 애니메이션이 아닌 최종 위치에서 잰다.
     const toast = page.locator('[data-sonner-toast]').first()
     await expect(toast).toHaveAttribute('data-mounted', 'true')
-    const [headerBox, toastBox] = await Promise.all([page.getByTestId('page-header').boundingBox(), toast.boundingBox()])
-    expect(toastBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height)
+    // 셸·토스트가 자리 잡는 찰나의 null·옛 배치 측정을 넘기도록 재측정하며 단언한다(WP-225).
+    await expect(async () => {
+      const [headerBox, toastBox] = await Promise.all([stableBox(page.getByTestId('page-header')), stableBox(toast)])
+      expect(toastBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height)
+    }).toPass()
   })
 }
 
@@ -1194,10 +1198,7 @@ test('FolderPickerModal — 오버레이(배경) 클릭으로 닫힌다', async 
   // 뷰포트 좌상단(모달 콘텐츠 밖 영역)을 클릭하여 오버레이 클릭을 시뮬레이션
   // Radix 는 바깥 클릭 리스너를 마운트 직후가 아니라 setTimeout(0) 뒤에 붙인다 — 부하가 걸리면 모달이 보인 직후의
   // 클릭이 리스너보다 먼저 들어가 무시되므로(전체 스위트에서만 실패), 닫힐 때까지 클릭을 다시 시도한다.
-  await expect(async () => {
-    await page.mouse.click(10, 10)
-    await expect(page.getByTestId('folder-picker')).not.toBeVisible({ timeout: 1000 })
-  }).toPass()
+  await dismissByOutsideClick(page, page.getByTestId('folder-picker'), { x: 10, y: 10 })
 })
 
 // 용량 초과(409) 업로드 거부 토스트 — 서버 메시지가 그대로 표시돼야 한다.
