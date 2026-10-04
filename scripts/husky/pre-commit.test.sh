@@ -97,22 +97,10 @@ run_case "web 변경 → vitest 실행" \
   "apps/workplace-web/src/lib/notifGrouping.ts" \
   "vitest 단위 테스트 실행"
 
-# WP-225) 바뀐 E2E 스펙 반복 실행 게이트
-run_case "e2e 스펙 변경 → preview 반복 실행" \
-  "apps/workplace-web/e2e/pages/wiki/wiki-ai.spec.ts" \
-  '반복 실행(preview, --repeat-each=5 --retries=0): e2e/pages/wiki/wiki-ai.spec.ts'
-
-run_case "스펙 아닌 e2e 헬퍼 변경 → 반복 실행 없음" \
+# e2e 공용 fixture 변경 → 전체 E2E
+run_case "e2e fixture 변경 → 전체 E2E" \
   "apps/workplace-web/e2e/fixtures/wiki-mock.ts" \
-  '전체 E2E' \
-  '반복 실행'
-
-export SKIP_E2E_REPEAT=1
-run_case "SKIP_E2E_REPEAT → 반복 실행 skip" \
-  "apps/workplace-web/e2e/pages/wiki/wiki-ai.spec.ts" \
-  'SKIP_E2E_REPEAT 설정' \
-  '--repeat-each'
-unset SKIP_E2E_REPEAT
+  '전체 E2E'
 
 # 12) api 만 변경 → vitest 미실행
 run_case "api 만 변경 → vitest 미실행" \
