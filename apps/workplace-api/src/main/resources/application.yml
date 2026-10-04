@@ -81,6 +81,11 @@ workplace:
     base-url: ${WORKPLACE_AI_AGENT_URL:http://localhost:7070}
     internal-token: ${WORKPLACE_AI_AGENT_TOKEN}  # 기본값 없음 — 미설정 시 앱 기동 실패 (보안)
     enabled: ${WORKPLACE_AI_AGENT_ENABLED:true}
+  # WP-232: 메인 AI 채팅이 ai-agent 로 넘기는 "누적 요약 + 원문 이력" 근사 토큰 하드 상한.
+  # 75% 초과 시 턴 종료 후 비동기 요약(원문 50%까지 압축), 100% 초과 시 그 턴에서 동기 요약.
+  home:
+    chat:
+      context-token-budget: ${WORKPLACE_HOME_CHAT_CONTEXT_TOKEN_BUDGET:128000}
   worker:
     base-url: ${WORKPLACE_WORKER_URL:http://localhost:7080}
     internal-token: ${INTERNAL_SERVICE_TOKEN:${WORKPLACE_AI_AGENT_TOKEN:}}  # 단일 내부 토큰 — ai-agent 와 동일
