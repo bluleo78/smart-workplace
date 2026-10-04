@@ -8,20 +8,20 @@ import { createLabel, toLabelSummary } from '../../factories/label.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture';
+import { trackRequests } from '../../fixtures/requests';
+import { expectStays } from '../../fixtures/wait';
 
 const KEY = 'PME';
 // 실데이터 폭 검증용 긴 제목.
 const LONG_TITLE = '연말정산 증빙서류 정리 및 의료비·교육비 공제 항목 누락 여부 재확인 후 회사 제출';
 const LABELS = [createLabel({ id: 1, name: '세금' }), createLabel({ id: 2, name: '긴급' })];
 
-/** 개인 프로젝트 + 작업 1건 스텁. PATCH(이슈)·PUT(라벨) 은 캡처해 돌려준다. savedViews 는 요청 횟수만 센다. */
+/** 개인 프로젝트 + 작업 1건 스텁. PATCH(이슈)·PUT(라벨) 은 캡처해 돌려준다. savedViews 는 요청 기록만 돌려준다. */
 async function stubPersonal(page: Page) {
   const issue = createIssue({ projectKey: KEY, number: 1, title: LONG_TITLE, status: 'TODO', labels: [toLabelSummary(LABELS[0])] });
-  const savedViewRequests: string[] = [];
-  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/saved-views`, (r) => {
-    savedViewRequests.push(r.request().url());
-    return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
-  });
+  const savedViewRequests = trackRequests(page, 'ANY', `/api/v1/projects/${KEY}/saved-views`);
+  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/saved-views`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true }));
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues`, createIssueSearchResponse([issue]));
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}/labels`, LABELS);
@@ -54,7 +54,7 @@ test.describe('개인 툴바', () => {
     await toggle.tap();
     await expect(page).toHaveURL(/view=board/);
     await expect(toggle).toHaveAttribute('aria-label', '체크리스트로 전환');
-    expect(savedViewRequests).toHaveLength(0);
+    await expectStays(page, savedViewRequests.count, 0);
     await expectNoHorizontalOverflow(page);
   });
 
@@ -165,7 +165,8 @@ test.describe('작업 상세(전체 화면)', () => {
     await page.addStyleTag({ content: '[data-sonner-toast][data-type="error"] { pointer-events: auto !important; }' });
     const toast = page.locator('[data-sonner-toast]').first();
     await expect(toast).toBeVisible();
-    expect(patch.requests).toHaveLength(0);
+    // PATCH 는 한 번 나갔고(응답은 뒤에 등록한 500 스텁) 그 실패로 토스트가 떴다.
+    expect(patch.requests).toHaveLength(1);
     // 토스트 중앙 좌표의 최상단 요소가 토스트 자신(레이어가 덮지 않음).
     const onTop = await toast.evaluate((el) => {
       const r = el.getBoundingClientRect();

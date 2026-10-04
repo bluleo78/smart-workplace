@@ -7,6 +7,8 @@ import { systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import { json } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
+import { trackRequests } from '../../fixtures/requests';
+import { expectStays } from '../../fixtures/wait';
 
 const KEY = 'WP';
 const now = new Date().toISOString();
@@ -22,14 +24,13 @@ const CYCLES = [
 const PROGRESS: CycleProgress[] = [{ cycleId: 1, total: 20, done: 9, byStatus: { DONE: 9, TODO: 11 } }];
 
 async function setup(page: Page) {
-  const deletes: number[] = [];
+  const deletes = trackRequests(page, 'DELETE', /\/api\/v1\/projects\/WP\/cycles\/\d+$/);
   await stubChat(page);
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/cycles`, (r) => r.fulfill(json(CYCLES)));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/cycles/progress`, (r) => r.fulfill(json(PROGRESS)));
   await page.route((u) => /\/api\/v1\/projects\/WP\/cycles\/\d+$/.test(u.pathname), (r) => {
     if (r.request().method() !== 'DELETE') return r.fallback();
-    deletes.push(Number(new URL(r.request().url()).pathname.split('/').pop()));
     return r.fulfill({ status: 204 });
   });
   // 행 탭 후 도착하는 프로젝트 상세의 최소 스텁 — 미스텁 요청이 프록시로 새지 않게.
@@ -80,14 +81,14 @@ test('⋯ → 삭제 → 취소는 유지, 확인은 DELETE', async ({ authentic
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: '취소' }).tap();
   await expect(dialog).toBeHidden();
-  expect(deletes).toHaveLength(0);
+  await expectStays(page, deletes.count, 0);
 
   await page.getByTestId('cycle-more-2').tap();
   await sheet.getByTestId('mobile-action-delete').tap();
   await expect(sheet).toBeHidden();
   await dialog.getByRole('button', { name: '삭제' }).tap();
   await expect(dialog).toBeHidden();
-  await expect.poll(() => deletes).toEqual([2]);
+  await expect.poll(() => deletes.urls().map((u) => Number(u.pathname.split('/').pop()))).toEqual([2]);
 });
 
 test('행 탭 → 그 사이클로 필터된 이슈 목록', async ({ authenticatedPage: page }) => {
