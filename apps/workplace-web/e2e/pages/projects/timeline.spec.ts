@@ -2,6 +2,7 @@
 import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectStays } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import type { CycleResponse } from '../../../src/types/cycle';
@@ -280,9 +281,8 @@ test('비멤버는 드래그 비활성', async ({ authenticatedPage: page }) => 
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 200, box.y + box.height / 2, { steps: 8 });
   await page.mouse.up();
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 비멤버 드래그 후 PATCH 가 나가지 않음(부재)을 확인하는 대기
-  await page.waitForTimeout(300);
-  expect(patchFired).toBe(false);
+  // 비멤버 드래그 후 PATCH 가 나가지 않음(부재)
+  await expectStays(page, () => patchFired, false);
 });
 
 test('의존 화살표 렌더 (표시 전용)', async ({ authenticatedPage: page }) => {

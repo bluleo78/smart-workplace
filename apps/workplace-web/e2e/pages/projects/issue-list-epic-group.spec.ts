@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
-import { measureBox } from '../../fixtures/wait';
+import { expectStays, measureBox } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
@@ -115,16 +115,14 @@ test.describe('이슈 목록 그룹 접기 + 무한 스크롤', () => {
     );
     await page.goto(`/projects/${KEY}?group=epic`);
     await expect(page.getByTestId('issue-row-1')).toBeVisible();
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 행이 화면을 채운 동안 2페이지 요청이 없음(부재)을 확인하는 대기
-    await page.waitForTimeout(500);
-    expect(page2Requests).toBe(0); // 양성 대조 — 행이 화면을 채운 동안엔 로드 안 함
+    // 양성 대조 — 행이 화면을 채운 동안엔 2페이지를 로드하지 않는다
+    await expectStays(page, () => page2Requests, 0, { ms: 500 });
 
     await page.getByTestId('list-group-toggle-epic-12').click();
     await page.getByTestId('list-group-toggle-epic-30').click();
     await expect(page.getByTestId('issue-row-1')).toHaveCount(0);
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 전부 접혀 sentinel 이 보여도 2페이지 요청이 없음(부재)을 확인하는 대기
-    await page.waitForTimeout(1000);
-    expect(page2Requests).toBe(0); // 전부 접힘 → sentinel 이 보여도 로드하지 않는다
+    // 전부 접힘 → sentinel 이 보여도 2페이지를 로드하지 않는다
+    await expectStays(page, () => page2Requests, 0, { ms: 1000 });
 
     await page.getByTestId('list-group-toggle-epic-30').click();
     // 펼친 행이 화면을 채우므로 목록 끝까지 스크롤해 sentinel 을 노출 → 정상 재개

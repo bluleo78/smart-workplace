@@ -7,6 +7,7 @@
 //   2,3,… 으로 부풀어오른다. 따라서 "배지 == 1" 단언이 곧 dedup 검증이다.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectStays } from '../../fixtures/wait';
 import { createChatMember, createChatMessage, createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
@@ -105,9 +106,11 @@ test(
     // 단일 연결에서도 중복 전달되므로 dedup 이 없으면 배지가 '2' 가 된다(결정적 dedup 검증).
     const oneCreated = `event: chat.message.created\ndata: ${JSON.stringify(incoming)}\n\n`;
     const sseCreated = oneCreated + oneCreated;
+    let eventsCalls = 0;
     await page.route(
       (url) => url.pathname === '/api/v1/events',
       async (route) => {
+        eventsCalls += 1;
         await threadReady;
         // 접힘 패널의 onChatMessageCreated 구독 등록 대기.
         await new Promise((resolve) => setTimeout(resolve, 200));
@@ -120,6 +123,9 @@ test(
       },
     );
 
+    // 재연결 백오프(1~2s, setTimeout)를 결정적으로 넘기려고 앱 타이머를 가상 시계로 둔다 — goto 전에 설치.
+    await page.clock.install();
+
     // ── 페이지 진입 — 채팅 드로워 닫힘, 헤더 채팅 버튼 노출 ──────────────
     // 채팅 버튼은 제목 '앞'(최좌측) 고정이라 중앙 상단 AI 런처 칩과 겹치지 않는다(뷰포트 우회 불필요).
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
@@ -129,10 +135,13 @@ test(
     const badge = page.getByTestId('issue-chat-unread-badge');
     await expect(badge).toBeVisible();
     await expect(badge).toHaveText('1');
-    // 재연결 사이클(백오프 ~1s) 한 번 지나도 동일 메시지가 중복 카운트되지 않는다.
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 재연결 후 중복 카운트가 생기지 않음(부재)을 확인하는 대기
-    await page.waitForTimeout(1500);
-    await expect(badge).toHaveText('1');
+    // 재연결 사이클 한 번 지나도 동일 메시지가 중복 카운트되지 않는다.
+    // 스트림 종료 후 재연결 지연은 1000ms + random(<1000ms) — 2s 를 흘려 재연결을 확실히 일으킨다.
+    const callsBefore = eventsCalls;
+    await page.clock.runFor(2_000);
+    await expect.poll(() => eventsCalls).toBeGreaterThan(callsBefore);
+    // 재연결 응답(라우트에서 200ms 지연 후 같은 created 2건)이 반영될 시간을 포함해 지켜본다.
+    await expectStays(page, () => badge.textContent(), '1', { ms: 500 });
 
     // ── Phase 2: 드로워 열기 → 배지 사라지고 메시지 본문 표시 ─────────────────
     await page.getByTestId('issue-chat-open').click();

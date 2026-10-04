@@ -7,6 +7,7 @@
 //  5) (#734) 에이전트를 이름으로 검색해도 노출 / 비활성 사용자는 후보에서 제외
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectStays } from '../../fixtures/wait';
 import type { MemberSummary } from '../../../src/types/member';
 
 const PROJECT_KEY = 'WP';
@@ -434,9 +435,8 @@ test.describe('멤버 추가 검색 picker', () => {
     await row.click({ force: true }).catch(() => {
       // pointer-events: none 으로 인해 click 이 무시될 수 있음 — 의도된 동작.
     });
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 비활성 행 클릭 후 멤버 추가 POST 가 없음(부재)을 확인하는 대기
-    await page.waitForTimeout(200);
-    expect(postCount).toBe(0);
+    // 비활성 행 클릭 후 멤버 추가 POST 가 없음(부재)
+    await expectStays(page, () => postCount, 0, { ms: 200 });
   });
 });
 

@@ -3,7 +3,7 @@ import type { Page, Route } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
-import { measureBox, stableBox } from '../../fixtures/wait';
+import { expectStays, measureBox, stableBox } from '../../fixtures/wait';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
@@ -77,12 +77,6 @@ async function setup(
     await page.addInitScript(() => localStorage.setItem('epicSidePanel.open.WP', 'true'));
   }
   return { patches };
-}
-
-// 부재 확인 전용 대기 — "놓은 뒤 PATCH·이동이 일어나지 않음"은 기다릴 조건이 없어 짧게 흘려보낸 뒤 단언한다(WP-82 예외: 부재 확인).
-async function waitForNoRequest(page: Page) {
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 놓은 뒤 PATCH·이동이 일어나지 않음(부재)을 확인하는 대기
-  await page.waitForTimeout(300);
 }
 
 // 드래그 시작 — PointerSensor distance:5 를 넘기도록 조금 움직인다. 이후 moveOver/drop 로 이어간다.
@@ -179,8 +173,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     const { patches } = await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO', parent: parentOf(EPIC_A) })], panelOpen: true });
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
     await dragTo(page, 'issue-card-1', `epic-filter-${EPIC_A.number}`);
-    await waitForNoRequest(page);
-    expect(patches).toEqual([]);
+    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
+    await expectStays(page, () => patches, []);
   });
 
   test('드래그 시작 후 이동 없이 곧바로 놓으면 PATCH 없음', async ({ authenticatedPage: page }) => {
@@ -189,8 +183,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
     await startDrag(page, 'issue-card-1');
     await page.mouse.up();
-    await waitForNoRequest(page);
-    expect(patches).toEqual([]);
+    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
+    await expectStays(page, () => patches, []);
     expect(statusPatch.patched).toBe(false);
   });
 
@@ -204,8 +198,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     // 틈 = 패널 오른쪽 끝과 첫 컬럼 왼쪽 끝의 중간, 컬럼 세로 중앙.
     await page.mouse.move((aside.x + aside.width + col.x) / 2, col.y + col.height / 2, { steps: 10 });
     await page.mouse.up();
-    await waitForNoRequest(page);
-    expect(patches).toEqual([]);
+    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
+    await expectStays(page, () => patches, []);
     expect(statusPatch.patched).toBe(false);
   });
 
@@ -222,8 +216,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
       await startDrag(page, 'issue-card-1');
       await moveOver(page, c.target);
       await page.mouse.up();
-      await waitForNoRequest(page);
-      expect(patches).toEqual([]);
+      // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
+      await expectStays(page, () => patches, []);
       expect(statusPatch.patched).toBe(false);
     });
   }
@@ -252,8 +246,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     expect(y).toBeLessThan(panel.y + panel.height);
     await page.mouse.move(x, y, { steps: 10 });
     await page.mouse.up();
-    await waitForNoRequest(page);
-    expect(patches).toEqual([]);
+    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
+    await expectStays(page, () => patches, []);
     expect(statusPatch.patched).toBe(false);
   });
 
@@ -321,8 +315,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId(`epic-filter-${EPIC_A.number}`)).toHaveAttribute('data-drop-state', 'blocked');
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
     await page.mouse.up();
-    await waitForNoRequest(page);
-    expect(patches).toEqual([]);
+    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
+    await expectStays(page, () => patches, []);
   });
 
   test('EPIC 드래그: 사유 배너, PATCH 없음', async ({ authenticatedPage: page }) => {
@@ -332,8 +326,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId('epic-drop-blocked-reason')).toHaveText('에픽은 다른 에픽에 넣을 수 없습니다');
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
     await page.mouse.up();
-    await waitForNoRequest(page);
-    expect(patches).toEqual([]);
+    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
+    await expectStays(page, () => patches, []);
   });
 
   test('비멤버: 드래그 안 됨', async ({ authenticatedPage: page }) => {
@@ -346,8 +340,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId('issue-row-1')).not.toHaveClass(/opacity-40/);
     await expect(page.getByTestId('epic-drop-hint')).not.toBeAttached();
     await page.mouse.up();
-    await waitForNoRequest(page);
-    expect(patches).toEqual([]);
+    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
+    await expectStays(page, () => patches, []);
   });
 
   for (const status of [403, 500]) {
@@ -447,8 +441,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await page.mouse.move(box.x + 90, box.y + box.height / 2, { steps: 5 });
     await page.mouse.move(box.x + 60, box.y + box.height / 2, { steps: 5 });
     await page.mouse.up();
-    await waitForNoRequest(page);
-    await expect(page).toHaveURL(/view=list/);
+    // 원위치 놓기는 상세로 이동하지 않는다(목록에 머묾).
+    await expectStays(page, () => /view=list/.test(page.url()), true);
     await page.getByTestId('issue-row-1').click({ position: { x: 60, y: box.height / 2 } });
     await expect(page).toHaveURL(/\/projects\/WP\/issues\/1$/);
   });
@@ -478,8 +472,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     expect(overlapped, '「전체 이슈」 아래에 스크롤로 가려진 에픽 사각형이 겹쳐야 한다').toBe(true);
     await page.mouse.move(p.x, p.y, { steps: 10 });
     await page.mouse.up();
-    await waitForNoRequest(page);
-    expect(patches).toEqual([]);
+    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
+    await expectStays(page, () => patches, []);
   });
 
   // 떠 있는 패널(고정 높이)이라 에픽 목록이 내부 스크롤된다 — 도킹 패널은 목록 높이가 제한되지 않아 페이지가 스크롤되고,
@@ -646,7 +640,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(canceled).toHaveClass(/bg-accent\/30/);
     await page.keyboard.press('Space');
     await expect.poll(() => statusBody).toEqual({ status: 'CANCELED' });
-    await waitForNoRequest(page);
-    expect(patches).toEqual([]);
+    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
+    await expectStays(page, () => patches, []);
   });
 });

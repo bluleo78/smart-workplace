@@ -3,6 +3,7 @@
 // - 25MB 초과 파일은 클라이언트 사전 검증에서 토스트 + POST 차단
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectStays } from '../../fixtures/wait';
 import { createAttachment } from '../../factories/attachment.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
@@ -229,10 +230,8 @@ test.describe('이슈 첨부', () => {
 
     await expect(page.getByText('huge.bin는 25MB 한도를 초과합니다')).toBeVisible();
     // 사전 검증 통과 파일이 없으므로 POST 가 발생하지 않아야 한다.
-    // 짧은 대기 후 카운트 확인 — 즉시 검사 시 mutate 비동기 진입 전에 통과할 수 있음.
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 업로드 POST 가 일어나지 않음(부재)을 확인하는 대기
-    await page.waitForTimeout(300);
-    expect(postCount).toBe(0);
+    // 즉시 검사는 mutate 비동기 진입 전에 통과할 수 있어 일정 시간 지켜본다.
+    await expectStays(page, () => postCount, 0);
   });
 
   test('이슈당 첨부 한도(10개) 초과 시 올바른 조사 포함 토스트 표시', async ({
@@ -282,9 +281,8 @@ test.describe('이슈 첨부', () => {
     ).toBeVisible();
     // 첫 번째 파일만 POST 발생해야 한다 — 첫 POST 도착은 조건 대기로 확인(WP-225).
     await expect.poll(() => postCount).toBe(1);
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 두 번째 파일의 POST 가 뒤늦게라도 일어나지 않음(부재)을 확인하는 대기
-    await page.waitForTimeout(300);
-    expect(postCount).toBe(1);
+    // 두 번째 파일의 POST 가 뒤늦게라도 나가지 않는지 본다.
+    await expectStays(page, () => postCount, 1);
   });
 
   // #782 — 업로드 pending 동안 드롭존에 스피너(Loader2 + animate-spin) 표시 회귀 테스트.

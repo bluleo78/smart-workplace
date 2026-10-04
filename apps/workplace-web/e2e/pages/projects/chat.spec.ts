@@ -3,7 +3,7 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { mockGatedEvents } from '../../fixtures/gatedEvents';
-import { measureBox, resizeAndSettle, stableBox } from '../../fixtures/wait';
+import { expectStays, measureBox, resizeAndSettle, stableBox } from '../../fixtures/wait';
 import {
   createChatMember,
   createChatMessage,
@@ -872,9 +872,7 @@ test.describe('이슈 chat panel', () => {
     // 에디터는 닫히고(취소처럼 처리), PATCH 는 호출되지 않아야 한다.
     await expect(page.getByTestId('chat-message-editor')).toHaveCount(0);
     await expect(page.getByTestId('chat-message-body-800')).toHaveText('원본');
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 변경 없는 저장에서 PATCH 가 나가지 않음(부재)을 확인하는 대기
-    await page.waitForTimeout(300);
-    expect(stubs.patchPayloads).toEqual([]);
+    await expectStays(page, () => stubs.patchPayloads, []);
   });
 
   // #43 회귀 — 멘션 메시지 전송 시 서버 응답 전 optimistic 칩이 올바른 이름으로 보인다(@알 수 없음 X).

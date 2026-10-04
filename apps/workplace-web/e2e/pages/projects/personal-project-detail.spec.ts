@@ -7,6 +7,7 @@ import { createLabel, toLabelSummary } from '../../factories/label.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectStays } from '../../fixtures/wait';
 import type { IssueStatus } from '../../../src/types/issue';
 import type { UserSummary } from '../../../src/types/user';
 
@@ -801,7 +802,6 @@ test('개인 보드는 스크롤 전에는 컬럼 다음 페이지를 요청하�
 
   await page.goto(`/projects/${KEY}?view=board`);
   await expect(page.getByTestId('board-col-TODO')).toContainText('TODO 긴 컬럼 이슈 29');
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 스크롤 전 다음 페이지 연쇄 요청이 없음(부재) 확인 — 연쇄 로드는 마운트 직후 일어나므로 잠시 둔다(WP-82 예외)
-  await page.waitForTimeout(1000);
-  expect(nextPageRequests).toBe(0);
+  // 스크롤 전 다음 페이지 연쇄 요청이 없음(부재) — 연쇄 로드는 마운트 직후 일어나므로 1초 지켜본다(WP-82)
+  await expectStays(page, () => nextPageRequests, 0, { ms: 1000 });
 });

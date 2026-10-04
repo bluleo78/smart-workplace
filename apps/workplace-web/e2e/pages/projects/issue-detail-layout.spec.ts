@@ -3,6 +3,7 @@
 // Task 4: 채팅 접기 패널 자동 토글 + 3구역 flex 레이아웃.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectStays } from '../../fixtures/wait';
 import { createAttachment } from '../../factories/attachment.factory';
 import { createChatMessage, createChatThread } from '../../factories/chat.factory';
 import {
@@ -206,9 +207,7 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
     await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
     // 첫 호출 도착은 조건 대기로 확인한 뒤(WP-225), 채팅 컴포저까지 마운트돼도 중복 호출이 없는지 본다.
     await expect.poll(() => spacesCallCount).toBe(1);
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 늦게 마운트되는 컴포저의 중복 spaces 호출이 없음(부재)을 확인하는 대기
-    await page.waitForTimeout(300);
-    expect(spacesCallCount).toBe(1);
+    await expectStays(page, () => spacesCallCount, 1);
   });
 
   test('첨부는 본문 설명 아래 스트립으로 표시되고 사이드바엔 없다', async ({

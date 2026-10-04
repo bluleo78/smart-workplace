@@ -8,6 +8,7 @@ import type { IssueResponse } from '../../../src/types/issue';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectStays } from '../../fixtures/wait';
 
 const KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${KEY}/issues`;
@@ -176,12 +177,6 @@ async function clickUndo(page: Page, moves: MoveBody[]) {
   }).toPass();
 }
 
-// 부재 확인 전용 대기 — "놓은 뒤 이동 요청이 없음"은 기다릴 조건이 없어 짧게 흘려보낸 뒤 단언한다(WP-82 예외: 부재 확인).
-async function waitForNoRequest(page: Page) {
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 놓은 뒤 이동 요청이 나가지 않음(부재)을 확인하는 대기
-  await page.waitForTimeout(300);
-}
-
 test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
   test(
     '진행 중 → 접힌 예정 구간 헤더 — 이동 요청·즉시 반영·되돌리기',
@@ -269,8 +264,8 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
     await expect(row(page, 'cycle-1', 12)).toBeVisible();
 
     await dragRowTo(page, row(page, 'cycle-1', 12), 'cycle-1');
-    await waitForNoRequest(page);
-    expect(moves).toEqual([]);
+    // 놓은 뒤 이동 요청이 나가지 않는지 본다.
+    await expectStays(page, () => moves, []);
     await expect(row(page, 'cycle-1', 12)).toBeVisible();
   });
 
@@ -285,8 +280,8 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
       await expect(page.getByTestId('list-cycle-drop-blocked-cycle-5')).toHaveText('완료된 사이클에는 놓을 수 없음');
       await expect(section(page, 'cycle-5')).not.toHaveAttribute('data-drop-target', 'true');
     });
-    await waitForNoRequest(page);
-    expect(moves).toEqual([]);
+    // 놓은 뒤 이동 요청이 나가지 않는지 본다.
+    await expectStays(page, () => moves, []);
     await expect(section(page, 'cycle-5')).not.toHaveAttribute('data-drop-blocked', 'true');
 
     // 완료 구간의 행은 사이클 이동에서 빠진다 — 다른 구간 위로 끌어도 반응·요청 없음(끝난 스프린트 이력 보호).
@@ -296,8 +291,8 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
       await expect(section(page, 'cycle-1')).not.toHaveAttribute('data-drop-target', 'true');
       await expect(section(page, 'cycle-5')).not.toHaveAttribute('data-drop-blocked', 'true');
     });
-    await waitForNoRequest(page);
-    expect(moves).toEqual([]);
+    // 놓은 뒤 이동 요청이 나가지 않는지 본다.
+    await expectStays(page, () => moves, []);
     await expect(row(page, 'cycle-5', 51)).toBeVisible();
   });
 
@@ -321,8 +316,8 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
     await expect(r).not.toHaveAttribute('aria-roledescription', '드래그 가능한 이슈');
 
     await dragRowTo(page, r, 'cycle-2');
-    await waitForNoRequest(page);
-    expect(moves).toEqual([]);
+    // 놓은 뒤 이동 요청이 나가지 않는지 본다.
+    await expectStays(page, () => moves, []);
     await expect(page.getByTestId('issue-row-drag-overlay')).toHaveCount(0);
   });
 
