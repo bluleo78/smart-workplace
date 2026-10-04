@@ -28,4 +28,19 @@ public final class ChatMessages {
 
   /** 세션 최근 메시지(텍스트만 — 위젯 jsonb 제외). */
   public record ContextMessage(String role, String content) {}
+
+  /**
+   * 누적 요약 요청(WP-232) — ai-agent /home/context-summary. previousSummary 는 직전 누적 요약(첫 요약이면 null),
+   * messages 는 이번에 합칠 구간(오래된 순).
+   */
+  public record ContextSummaryRequest(
+      long assistantAgentId,
+      String model,
+      int maxTurns,
+      int timeoutMs,
+      String previousSummary,
+      List<ContextMessage> messages) {}
+
+  /** 누적 요약 응답(WP-232). */
+  public record ContextSummaryResult(String summary) {}
 }

@@ -151,6 +151,23 @@ public class OutboundConfig {
   }
 
   /**
+   * 메인 AI 채팅 누적 요약 전용 executor(WP-232). 요약 HTTP(read 90s)가 스레드를 오래 점유하므로 채팅 스트림
+   * 펌프(aiChatStreamExecutor)와 분리한다. 세션당 1건만 예약되고(in-flight 가드) 지연돼도 원문이 유지되므로 소형 풀. 큐 초과는 reject →
+   * 다음 턴에 재예약. TenantContext 를 전파해 워커의 트랜잭션이 RLS GUC 를 받게 한다.
+   */
+  @Bean(name = "homeContextSummaryExecutor")
+  public org.springframework.core.task.AsyncTaskExecutor homeContextSummaryExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(1);
+    executor.setMaxPoolSize(2);
+    executor.setQueueCapacity(50);
+    executor.setThreadNamePrefix("home-ctx-summary-");
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.initialize();
+    return executor;
+  }
+
+  /**
    * Drive Overview SSE 펌프 전용 executor. ai-agent SSE 로 스레드를 10–300s 점유하므로 wiki/chat 스트림과 분리해 경합을
    * 회피한다. core/max 4/8, queue 는 작게(동시 스트림 수 제한) — 초과 요청은 호출 스레드에서 reject 되어 빠르게 오류로 떨어지게 둔다.
    */
