@@ -1,6 +1,7 @@
 import type { DriveContentSearchResponse } from '../../../src/api/contentSearch'
 import type { DriveSpace } from '../../../src/types/drive'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectStays } from '../../fixtures/wait'
 
 /**
  * 드라이브 통합 검색 E2E — 헤더 검색 입력 1개로 파일명+콘텐츠 검색을 동시 실행하고,
@@ -90,14 +91,15 @@ test('검색어 2자 미만은 검색을 실행하지 않는다', async ({ authe
     return route.fulfill({ json: { hits: [], semantic: false } })
   })
 
+  // 검색 디바운스(300ms) 를 실시간으로 기다리지 않도록 가상 시계를 설치한다(설치만 하면 시간은 평소처럼 흐른다).
+  await page.clock.install()
   await page.goto('/drive')
   await page.waitForURL(/drive\/spaces\/\d+/)
 
   await page.getByLabel('파일명 및 콘텐츠 검색').fill('a')
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- debounce(300ms) 가 지난 뒤에도 검색 요청이 없음(부재)을 확인
-  await page.waitForTimeout(400) // debounce(300ms) 경과 대기
-
-  expect(searchCalled).toBe(false)
+  // debounce(300ms) 를 넘긴 뒤에도 검색 요청이 없어야 한다 — 요청이 route 에 닿을 짧은 실시간 여유만 둔다.
+  await page.clock.runFor(400)
+  await expectStays(page, () => searchCalled, false, { ms: 200 })
   await expect(page.getByTestId('search-results')).toHaveCount(0)
 })
 

@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures/auth.fixture';
+import { expectStays } from '../fixtures/wait';
 
 // SSE 통합 — 단일 /api/v1/events 커넥션 1개가 chat·messaging·notify 이벤트를 모두 받아 fan-out 하는지 검증.
 // (구 /chat/stream·/messaging/stream·/notifications/stream 은 더 이상 열리지 않는다.)
@@ -23,9 +24,7 @@ test.describe('SSE 단일 멀티플렉싱 스트림', () => {
     const eventsReq = page.waitForRequest('**/api/v1/events');
     await page.goto('/');
     await eventsReq;
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 구 스트림이 뒤늦게라도 열리지 않음(부재)을 확인할 여유
-    await page.waitForTimeout(200); // 구 스트림이 뒤늦게 열릴 여지까지 흡수
-    // 통합 스트림이 단독으로 열렸는지 — 구 엔드포인트는 한 번도 열리지 않아야 한다.
-    expect(opened).toEqual([]);
+    // 통합 스트림이 단독으로 열렸는지 — 구 엔드포인트는 뒤늦게라도 한 번도 열리지 않아야 한다.
+    await expectStays(page, () => opened, [], { ms: 200 });
   });
 });

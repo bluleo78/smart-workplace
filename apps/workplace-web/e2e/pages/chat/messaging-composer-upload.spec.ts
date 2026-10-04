@@ -5,6 +5,7 @@ import { Buffer } from 'buffer'
 
 import { createPageResponse } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectStays } from '../../fixtures/wait'
 import {
   createChannel,
   createChannelMember,
@@ -217,9 +218,7 @@ test.describe('MessageComposer — 파일 업로드 중 전송 차단 (#152)', (
       await page.getByTestId('message-composer-submit').click({ force: true })
 
       // 메시지 전송 API 미호출 확인 (100ms 후에도 0건)
-      // eslint-disable-next-line playwright/no-wait-for-timeout -- 강제 클릭 후 전송 POST 가 발생하지 않음(부재)을 확인
-      await page.waitForTimeout(100)
-      expect(messageSentCount).toBe(0)
+      await expectStays(page, () => messageSentCount, 0, { ms: 100 })
 
       // 업로드 완료 → 이후 정상 전송 가능
       resolveUpload()

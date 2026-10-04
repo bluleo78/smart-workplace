@@ -8,6 +8,7 @@ import {
   createMessage,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectStays } from '../../fixtures/wait'
 import { UNDO_DELETE_DELAY_MS } from '../../../src/lib/deleteWithUndo'
 
 // auth.fixture 의 createUser() 기본 id = 1 → "본인" 메시지 판정 기준.
@@ -288,9 +289,7 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     // 가상 시계로 지연을 즉시 넘긴 뒤, 타이머가 살아 있었다면 나갔을 요청이 라우트에 닿을 짧은 실시간 여유만 둔다
     // (타이머 만료 → DELETE 경로 자체는 위 '삭제하면 (삭제됨)' 테스트가 같은 방식으로 증명한다).
     await page.clock.runFor(UNDO_DELETE_DELAY_MS + 1000)
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 취소된 타이머의 DELETE 요청이 나가지 않음(부재)을 확인할 실시간 여유
-    await page.waitForTimeout(300)
-    expect(deleteCalled).toBe(false)
+    await expectStays(page, () => deleteCalled, false)
     await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('살아남을 메시지')
   })
 

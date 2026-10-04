@@ -14,6 +14,7 @@ import { createMember } from '../../factories/auth.factory';
 import { createPageResponse } from '../../fixtures/api-mock';
 import { createChannel, createChannelMember } from '../../factories/messaging.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectStays } from '../../fixtures/wait';
 
 const CHANNEL_ID = 52;
 const ME_ID = 1;
@@ -210,8 +211,6 @@ test(
     // 구코드: 종료 추적 없음 → tool 이벤트가 다시 set → 버블 부활(이 단언에서 실패 = 회귀 감지).
     // 뒤늦은 tool 이 전달된 뒤, 처리될 짧은 여유를 준 다음에도 버블이 없어야 한다.
     await staleServed;
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 전달된 뒤늦은 tool 처리 후 버블이 되살아나지 않음(부재)을 확인
-    await page.waitForTimeout(500);
-    await expect(page.getByTestId('ai-working-bubble')).toHaveCount(0);
+    await expectStays(page, () => page.getByTestId('ai-working-bubble').count(), 0, { ms: 500 });
   },
 );

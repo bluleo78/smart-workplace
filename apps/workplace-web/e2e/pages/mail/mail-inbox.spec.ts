@@ -5,7 +5,7 @@ import type { EmailMessageDetail, MailUnreadCounts } from '../../../src/types/ma
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { retryOnNavigation } from '../../fixtures/wait'
+import { expectStays, retryOnNavigation } from '../../fixtures/wait'
 
 // GET /mail/accounts/1/messages — query 파라미터에 따라 분기(검색 검증).
 async function stubMessages(page: Page) {
@@ -117,15 +117,12 @@ test.describe('받은편지함', () => {
     await page.getByTestId('mail-search').pressSequentially('lunch', { delay: 30 })
 
     // debounce(300ms) 전에는 추가 요청이 없어야 한다.
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- debounce 만료 전 구간에 추가 목록 요청이 없음(부재)을 확인
-    await page.waitForTimeout(150)
-    expect(requestCount).toBe(initialCount)
+    await expectStays(page, () => requestCount, initialCount, { ms: 150 })
 
     // debounce 이후에는 정확히 1건만 추가로 요청돼야 한다(글자 수만큼 아님).
     await expect.poll(() => requestCount, { timeout: 2000 }).toBe(initialCount + 1)
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- debounce 1회 발사 뒤 뒤늦은 추가 요청이 없음(부재)을 확인
-    await page.waitForTimeout(300)
-    expect(requestCount).toBe(initialCount + 1)
+    // debounce 1회 발사 뒤 뒤늦은 추가 요청이 없어야 한다.
+    await expectStays(page, () => requestCount, initialCount + 1)
   })
 
   test('동기화 버튼 → sync 호출 + 토스트', async ({ authenticatedPage: page }) => {

@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectStays } from '../../fixtures/wait'
 import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents'
 
 /** 계정·안 읽은 수·목록(10=안읽음, 11=읽음)을 모킹한다. 안 읽은 수 요청은 캡처해 갱신 여부를 본다(F25). */
@@ -90,9 +91,7 @@ test.describe('메일 읽음 조작 — 데스크톱(WP-187)', () => {
     await page.getByTestId('mail-row-11').click()
     await expect(page.getByTestId('mail-detail')).toBeVisible()
     // 상세가 그려진 뒤 짧게 기다려도 요청이 없다(첫 열람 판정은 목록 행 seen 으로 즉시 끝난다).
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 이미 읽은 메일에 읽음 요청이 나가지 않음(부재)을 확인
-    await page.waitForTimeout(300)
-    expect(read.requests).toHaveLength(0)
+    await expectStays(page, () => read.requests.length, 0)
   })
 
   test('목록에 없는 메일 딥링크 — 상세가 안 읽음이면 읽음 요청을 보낸다(WP-214)', async ({ authenticatedPage: page }) => {
