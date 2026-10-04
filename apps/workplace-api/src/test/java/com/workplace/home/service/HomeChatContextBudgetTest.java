@@ -29,6 +29,7 @@ import com.workplace.home.outbound.ChatMessages.ContextSummaryResult;
 import com.workplace.home.repository.HomeSessionRepository.SummaryState;
 import com.workplace.support.IntegrationTestBase;
 import java.io.InterruptedIOException;
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -236,6 +237,35 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
     assertThat(((Map<?, ?>) payload.getValue()).get("cancelled")).isEqualTo(true);
     verify(chatClient, never()).composeStream(any(), any(), any(), any(), any(), any(), any());
     assertThat(sessionService.getContextSummary(uid, sid)).isEqualTo(new SummaryState(null, null));
+  }
+
+  /**
+   * 요약 read 타임아웃(SocketTimeoutException — InterruptedIOException 하위)은 취소가 아니라 요약 실패 — 폴백 후 채팅 진행.
+   */
+  @Test
+  void 동기요약_read_타임아웃은_취소가_아니라_폴백하고_채팅은_진행된다() throws Exception {
+    long uid = user();
+    UUID sid = sessionService.create(uid).id();
+    for (int i = 1; i <= 5; i++) {
+      sessionService.appendMessage(uid, sid, "USER", body("질문" + i, 46), null, null, null);
+      sessionService.appendMessage(uid, sid, "ASSISTANT", body("답변" + i, 46), null, null, null);
+    }
+    when(summaryClient.summarize(any()))
+        .thenThrow(
+            new HomeContextSummaryException(
+                "timeout",
+                new RestClientException("io", new SocketTimeoutException("Read timed out"))));
+    CountDownLatch latch = stubDone("네");
+
+    chatService.startChat(uid, sid, "다음");
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    ChatRequest req = sentRequest();
+    assertThat(req.contextSummary()).isNull();
+    // 실패 테스트와 동일 — 예산 400 → 최신 8건 유지, 가장 오래된 2건 버림.
+    assertThat(req.recentContext()).hasSize(8);
+    assertThat(req.recentContext().get(0).content()).startsWith("질문2");
+    verify(sseRegistry, never()).fanOut(any(), eq("home.chat.error"), any());
   }
 
   @Test

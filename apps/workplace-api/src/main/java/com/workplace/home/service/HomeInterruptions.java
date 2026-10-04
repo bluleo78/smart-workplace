@@ -1,6 +1,7 @@
 package com.workplace.home.service;
 
 import java.io.InterruptedIOException;
+import java.net.SocketTimeoutException;
 
 /**
  * 홈 채팅 취소(Future.cancel(true)) 판별 헬퍼. HomeChatService(펌프 바깥 catch)와 HomeContextSummaryService(동기 요약
@@ -18,6 +19,22 @@ final class HomeInterruptions {
   static boolean isInterruption(Throwable e) {
     for (Throwable cur = e; cur != null; cur = cur.getCause()) {
       if (cur instanceof InterruptedException || cur instanceof InterruptedIOException) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 동기 요약 경로 전용 "사용자 취소" 판별. isInterruption 과 달리 SocketTimeoutException(InterruptedIOException 하위)은
+   * 취소로 보지 않는다 — 요약 read 타임아웃은 요약 실패라 폴백으로 채팅을 이어가야 한다(WP-232). HttpTimeoutException 은
+   * InterruptedIOException 이 아니므로 자연히 제외된다. compose 경로의 기존 판별(isInterruption)은 바꾸지 않는다.
+   */
+  static boolean isUserCancel(Throwable e) {
+    if (Thread.currentThread().isInterrupted()) return true;
+    for (Throwable cur = e; cur != null; cur = cur.getCause()) {
+      if (cur instanceof InterruptedException) return true;
+      if (cur instanceof InterruptedIOException && !(cur instanceof SocketTimeoutException)) {
         return true;
       }
     }

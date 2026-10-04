@@ -102,8 +102,9 @@ public class HomeContextSummaryService {
       return compact(callerId, sessionId, snap, spec);
     } catch (RuntimeException e) {
       // 사용자 취소(registry.cancel → 펌프 인터럽트)는 요약 실패가 아니다 — 폴백으로 compose 를 이어가면 취소된 턴이 도구 부작용·
-      // ASSISTANT 영속까지 진행된다. 인터럽트 플래그를 복원하고 그대로 던져 HomeChatService 가 cancelled 신호를 내게 한다.
-      if (Thread.currentThread().isInterrupted() || HomeInterruptions.isInterruption(e)) {
+      // ASSISTANT 영속까지 진행된다. 인터럽트 플래그를 복원하고 그대로 던져 HomeChatService 가 cancelled 신호를 내게 한다(요약
+      // read 타임아웃은 취소가 아니라 실패 — 아래 폴백).
+      if (HomeInterruptions.isUserCancel(e)) {
         Thread.currentThread().interrupt();
         throw e;
       }
