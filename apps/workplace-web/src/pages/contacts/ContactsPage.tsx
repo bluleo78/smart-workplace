@@ -62,7 +62,8 @@ function ContactRow({
           </span>
         </span>
       </button>
-      {/* 즐겨찾기 토글 — hover 시 표시, 이미 즐겨찾기면 항상 표시 */}
+      {/* 즐겨찾기 토글 — hover 시 표시, 이미 즐겨찾기면 항상 표시.
+          WP-237: 터치 기기(coarse)에선 hover 가 없어 안 보이는 ★ 가 오터치로 즐겨찾기될 수 있어 탭을 막는다(추가는 상세 패널 ★ 로). */}
       <button
         type="button"
         data-testid={`contact-fav-${c.type}-${c.id}`}
@@ -71,7 +72,7 @@ function ContactRow({
         onClick={() => toggle.mutate({ targetType: c.type, targetId: c.id, isFavorite: c.isFavorite })}
         className={cn(
           'shrink-0 rounded p-1 transition-opacity',
-          c.isFavorite ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          c.isFavorite ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 pointer-coarse:pointer-events-none',
         )}
       >
         <Star className={cn('h-4 w-4', c.isFavorite && 'fill-yellow-400 text-yellow-400')} />

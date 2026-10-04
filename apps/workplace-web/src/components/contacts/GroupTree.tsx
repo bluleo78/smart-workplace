@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { userGroupsApi } from '@/api/userGroups'
+import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,6 +18,7 @@ import {
 import { useDeleteUserGroup } from '@/hooks/queries/useUserGroupMutations'
 import { useUserGroups } from '@/hooks/queries/useUserGroups'
 import { useAuth } from '@/hooks/useAuth'
+import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
 import { cn } from '@/lib/utils'
 import type { UserGroupDetail, UserGroupNode, UserGroupVisibility } from '@/types/userGroup'
 
@@ -37,11 +39,15 @@ interface NodeProps {
 function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelete }: NodeProps) {
   const [expanded, setExpanded] = useState(true)
   const hasChildren = node.children.length > 0
+  // WP-237: 터치 기기(hover 없음)에선 숨은 편집/삭제 아이콘 대신 ⋯ 하나로 모은다. 마우스 데스크톱은 기존 hover 아이콘 그대로.
+  const coarse = useIsCoarsePointer()
   return (
     <div>
       <div
         className={cn(
+          // coarse 에서 편집 가능한 행은 44px 로 키워 ⋯ 탭 영역이 이웃 행과 겹치지 않게 한다.
           'group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm',
+          editable && 'pointer-coarse:min-h-11 pointer-coarse:py-0',
           selectedId === node.id ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
@@ -70,7 +76,17 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
         >
           {node.name}
         </button>
-        {editable && (
+        {editable && (coarse ? (
+          <TouchRowActionsMenu
+            title={node.name}
+            testId={`group-more-${node.id}`}
+            actions={[
+              { key: 'group-edit', label: '수정', icon: <Pencil />, onSelect: () => onEdit?.(node) },
+              // 삭제는 기존 확인 다이얼로그(setDeleteTarget → AlertDialog)를 그대로 거친다.
+              { key: 'group-delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: () => onDelete?.(node) },
+            ]}
+          />
+        ) : (
           <span className="hidden shrink-0 gap-1 group-hover:flex">
             <button
               type="button"
@@ -89,7 +105,7 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
               <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
           </span>
-        )}
+        ))}
       </div>
       {expanded &&
         node.children.map((c) => (
