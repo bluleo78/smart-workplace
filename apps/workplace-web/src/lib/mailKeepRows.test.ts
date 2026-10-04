@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { EmailMessageSummary } from '@/types/mailMessage'
 
-import { markSeenInKept, mergeKeptRows } from './mailKeepRows'
+import { markSeenInKept, mergeKeptRows, withOpenRow } from './mailKeepRows'
 
 const row = (id: number, receivedAt: string, seen = false): EmailMessageSummary => ({
   id, accountId: 1, threadId: `t${id}`, fromAddress: 'a@b', fromName: null, subject: `s${id}`, snippet: null,
@@ -47,5 +47,24 @@ describe('markSeenInKept', () => {
     expect(out.get(1)?.seen).toBe(false)
     expect(out.get(2)?.seen).toBe(true)
     expect(out.has(9)).toBe(false)
+  })
+})
+
+describe('withOpenRow', () => {
+  it('열린 행을 끼운 새 Map — 원본은 건드리지 않는다', () => {
+    const kept = new Map<number, EmailMessageSummary>()
+    const open = row(2, '2026-10-03T02:00:00Z')
+    const out = withOpenRow(kept, open)
+    expect(out?.get(2)).toBe(open)
+    expect(kept.size).toBe(0)
+    expect(withOpenRow(undefined, open)?.get(2)).toBe(open)
+  })
+  it('이미 유지 중이면 유지 스냅샷이 우선(열린 행으로 덮지 않는다)', () => {
+    const kept = new Map([[2, row(2, '2026-10-03T02:00:00Z', true)]])
+    expect(withOpenRow(kept, row(2, '2026-10-03T02:00:00Z'))).toBe(kept)
+  })
+  it('열린 행이 없으면 그대로', () => {
+    const kept = new Map<number, EmailMessageSummary>()
+    expect(withOpenRow(kept, undefined)).toBe(kept)
   })
 })

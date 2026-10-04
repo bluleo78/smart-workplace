@@ -25,3 +25,12 @@ export function markSeenInKept(
   const target = ids === 'all' ? null : new Set(ids)
   return new Map([...kept].map(([id, r]) => [id, !target || target.has(id) ? { ...r, seen } : r]))
 }
+
+/** 열린 메일 행(선택 시점 스냅샷)을 끼운 유지 스냅샷(WP-230) — 이미 유지 중이거나 row 가 없으면 kept 그대로. 원본은 건드리지 않는다. */
+export function withOpenRow(
+  kept: ReadonlyMap<number, EmailMessageSummary> | undefined,
+  row: EmailMessageSummary | undefined,
+): ReadonlyMap<number, EmailMessageSummary> | undefined {
+  if (!row || kept?.has(row.id)) return kept
+  return new Map(kept).set(row.id, row)
+}

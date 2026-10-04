@@ -823,9 +823,7 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
     await page.clock.install()
     await page.goto('/mail/1?unread=true')
     await page.getByTestId('mail-row-10').click()
-    // 앱은 상세 조회가 끝난 뒤 첫 열람 읽음 처리에서 행을 "안 읽은 메일만" 유지 집합에 넣는다.
-    // 그 전에 시계를 당겨 재조회(10 이 빠진 목록)가 먼저 끝나면 넣을 행이 없어 사라지므로,
-    // 읽음 요청이 나간 뒤에 재조회를 일으킨다(WP-225).
+    // 읽음 처리가 끝난 뒤의 재조회 경로 — 읽음 처리 전에 재조회가 먼저 끝나는 경로는 아래 WP-230 테스트가 본다.
     await read.waitForRequest()
     opened = true
     const before = listCalls
@@ -836,6 +834,65 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
     await page.getByTestId('mail-filter-category-개인').click()
     await page.getByTestId('mail-filter-category-업무').click()
     await expect(page.getByTestId('mail-row-10')).toHaveCount(0)
+  })
+
+  test('안 읽은 메일만 + 메일 열기 → 상세 조회 전에 재조회가 10 을 빼도 목록에 남음 (WP-230)', async ({ authenticatedPage: page }) => {
+    await stubCounts(page)
+    let opened = false
+    let listCalls = 0
+    await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages', (route) => {
+      listCalls++
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opened ? [summary({ id: 11 })] : [summary({ id: 10 }), summary({ id: 11 })]) })
+    })
+    // 상세 응답을 붙잡아 둬 첫 열람 읽음 처리(상세 조회 완료 후)보다 재조회가 먼저 끝나게 한다.
+    let releaseDetail!: () => void
+    const detailGate = new Promise<void>((r) => (releaseDetail = r))
+    let detailRequested = false
+    await page.route((u) => u.pathname === '/api/v1/mail/messages/10', async (route) => {
+      detailRequested = true
+      await detailGate
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail()) })
+    })
+    const read = await mockApi(page, 'POST', '/api/v1/mail/messages/10/read', null, { capture: true })
+    await page.clock.install()
+    await page.goto('/mail/1?unread=true')
+    await page.getByTestId('mail-row-10').click()
+    await expect.poll(() => detailRequested).toBe(true)
+    opened = true // 다른 기기에서 읽음 처리돼 서버가 10 을 뺀 상황
+    const before = listCalls
+    await page.clock.fastForward(61_000)
+    await expect.poll(() => listCalls).toBeGreaterThan(before)
+    // 요청이 나간 직후엔 응답 반영 전이라 한 번 보이는 것으로는 부족하다 — 반영될 시간 동안 계속 남는지 지켜본다.
+    const row10 = () => page.getByTestId('mail-row-10').count()
+    await expectStays(page, row10, 1, { ms: 500 })
+    // 상세가 도착해 읽음 처리까지 끝나도 남는다.
+    releaseDetail()
+    await read.waitForRequest()
+    await expectStays(page, row10, 1, { ms: 300 })
+  })
+
+  test('안 읽은 메일만 — 상세 도착 전에 다른 메일로 옮긴 메일은 유지하지 않음 (WP-230)', async ({ authenticatedPage: page }) => {
+    await stubCounts(page)
+    let readElsewhere = false
+    let listCalls = 0
+    await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages', (route) => {
+      listCalls++
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(readElsewhere ? [summary({ id: 11 })] : [summary({ id: 10 }), summary({ id: 11 })]) })
+    })
+    // 10 의 상세는 끝내 오지 않는다 — 읽음 판정 전에 선택을 떠난 경우.
+    await page.route((u) => u.pathname === '/api/v1/mail/messages/10', () => new Promise<void>(() => {}))
+    await mockApi(page, 'GET', '/api/v1/mail/messages/11', detail({ id: 11 }))
+    await mockApi(page, 'POST', '/api/v1/mail/messages/11/read', null)
+    await page.clock.install()
+    await page.goto('/mail/1?unread=true')
+    await page.getByTestId('mail-row-10').click()
+    await page.getByTestId('mail-row-11').click()
+    readElsewhere = true // 10 은 이 기기에서 읽지 않았고, 다른 기기에서 읽혀 서버가 뺀다
+    const before = listCalls
+    await page.clock.fastForward(61_000)
+    await expect.poll(() => listCalls).toBeGreaterThan(before)
+    await expect(page.getByTestId('mail-row-10')).toHaveCount(0)
+    await expect(page.getByTestId('mail-row-11')).toBeVisible()
   })
 
   test('토글 off→on 으로 돌아와도 읽은 메일은 되살아나지 않는다', async ({ authenticatedPage: page }) => {

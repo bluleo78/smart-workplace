@@ -25,7 +25,7 @@ import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { handleApiError } from '@/lib/api-error'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatDateTime, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
-import { markSeenInKept, mergeKeptRows } from '@/lib/mailKeepRows'
+import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
 import { mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
@@ -598,13 +598,28 @@ export function MailInboxPage() {
   // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
   const keepKey = `${accountId ?? ''}|${search}|${view.key}`
   // 연 행의 스냅샷(읽음 처리본)을 읽음 처리 시점에 보관 — 서버가 읽음으로 빼도 mergeKeptRows 가 그대로 되살린다(applyToggle).
-  const [kept, setKept] = useState<{ key: string; rows: Map<number, EmailMessageSummary> }>({ key: keepKey, rows: new Map() })
+  const [kept, setKept] = useState<{ key: string; rows: ReadonlyMap<number, EmailMessageSummary> }>({ key: keepKey, rows: new Map() })
   // 키가 바뀌면 렌더 중에 실제로 비운다(숨기기만 하면 같은 키로 돌아올 때 되살아난다).
   if (kept.key !== keepKey) setKept({ key: keepKey, rows: new Map() })
+  const keptRows = kept.key === keepKey ? kept.rows : undefined
+  // WP-230: 고르는 순간의 목록 행을 잡아 두고 열려 있는 동안 목록에 끼운다 — 읽음 판정(상세 조회 완료 후) 전에 재조회가 행을 빼도
+  // 남게. 판정 때 유지 집합으로 옮기고, 판정 전에 떠나면 자연히 빠진다. 선택이 바뀔 때만 잡는다(보기만 바뀌면 낡은 캐시 행을 잡지 않게).
+  const [selection, setSelection] = useState<{ id: number | null; key: string; row?: EmailMessageSummary }>({ id: selectedId, key: keepKey })
+  if (selection.id !== selectedId) {
+    const row = view.unreadOnly && selectedId != null ? fetchedMessages?.find((r) => r.id === selectedId) : undefined
+    setSelection({ id: selectedId, key: keepKey, row })
+  }
+  const openRow = selection.id === selectedId && selection.key === keepKey ? selection.row : undefined
   const messages = useMemo(
-    () => mergeKeptRows(fetchedMessages, kept.key === keepKey ? kept.rows : undefined),
-    [fetchedMessages, kept, keepKey],
+    () => mergeKeptRows(fetchedMessages, withOpenRow(keptRows, openRow)),
+    [fetchedMessages, keptRows, openRow],
   )
+  // 유지 집합의 한 행을 넣거나 바꾼다(키가 바뀐 뒤 늦게 와도 새 보기에 새지 않게 현재 키로 쓴다).
+  const putKept = (id: number, row: EmailMessageSummary) =>
+    setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, row) }))
+  // 유지 스냅샷 → 서버 목록(최신) → 열린 행 스냅샷(서버가 이미 뺀 경우) 순으로 행을 찾는다.
+  const findRow = (id: number) =>
+    keptRows?.get(id) ?? fetchedMessages?.find((r) => r.id === id) ?? (openRow?.id === id ? openRow : undefined)
   // WP-187 읽음/안읽음 전환 — 새 훅은 모두 아래 !accountId 조기 return 보다 앞에 둔다(훅 순서).
   const toggleRead = useToggleRead()
   // 터치 셸에는 hover 가 없어 행 전환 버튼을 렌더하지 않는다.
@@ -616,11 +631,9 @@ export function MailInboxPage() {
    * 실패하면 훅이 목록 캐시를 되돌리고, 여기서는 스냅샷만 이전 값으로 되돌린다.
    */
   const applyToggle = (id: number, seen: boolean) => {
-    const prevKept = kept.key === keepKey ? kept.rows.get(id) : undefined
-    const row = prevKept ?? fetchedMessages?.find((r) => r.id === id)
-    if (row && (prevKept || (view.unreadOnly && seen))) {
-      setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, { ...row, seen }) }))
-    }
+    const prevKept = keptRows?.get(id)
+    const row = findRow(id)
+    if (row && (prevKept || (view.unreadOnly && seen))) putKept(id, { ...row, seen })
     toggleRead.mutate(
       { id, seen },
       {
@@ -637,7 +650,7 @@ export function MailInboxPage() {
   }
   // WP-214 첫 열람 읽음 처리 — 상세 조회는 읽음 처리하지 않으므로 안 읽은 메일을 열 때 한 번만 읽음 요청을 보낸다(판정 규칙은 훅 주석).
   // applyToggle 이라 "안 읽은 메일만" 보기에서도 연 행이 유지 집합에 들어가 재조회로 사라지지 않는다. 이미 읽음으로 보이던 행도
-  // 그 보기에서 열었다면 보기·토글을 바꾸기 전까지 유지한다(WP-186).
+  // 그 보기에서 열었다면 읽음으로 맞춰 보기·토글을 바꾸기 전까지 유지한다(WP-186).
   const openedDetail = useMailMessageSeen(selectedId)
   useMarkReadOnOpen(
     selectedId,
@@ -647,10 +660,8 @@ export function MailInboxPage() {
         applyToggle(id, true)
         return
       }
-      const row = fetchedMessages?.find((r) => r.id === id)
-      if (view.unreadOnly && row) {
-        setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, row) }))
-      }
+      const row = findRow(id)
+      if (view.unreadOnly && row) putKept(id, { ...row, seen: true })
     },
   )
   /**
