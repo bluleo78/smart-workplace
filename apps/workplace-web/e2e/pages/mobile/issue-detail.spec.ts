@@ -463,8 +463,7 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await expect.poll(() => calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({ body: '바뀐 본문' });
     await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
     await expect(page.getByTestId('issue-comment-input')).toBeVisible();
-    // 부재 확인(중복 저장 없음) — 늦게 올 수 있는 두 번째 PATCH 를 잠시 기다린다.
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 두 번째 PATCH 의 부재 확인
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 늦게 올 수 있는 두 번째 PATCH 의 부재(중복 저장 없음) 확인
     await page.waitForTimeout(300);
     expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
   });

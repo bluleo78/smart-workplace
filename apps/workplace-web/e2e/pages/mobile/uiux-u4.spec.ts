@@ -77,6 +77,8 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
       deleteCalls += 1
       return r.fulfill({ status: 204, body: '' })
     })
+    // 실행 취소 지연(setTimeout 5s)을 실제로 기다리지 않도록 시계를 설치한다 — 설치만 하면 시간은 그대로 흐른다.
+    await page.clock.install()
     await page.goto('/chat/channels/1')
 
     await longPress(page, page.getByTestId('message-body-11'))
@@ -94,8 +96,10 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
     await page.getByTestId('message-action-delete').tap()
     await expect(page.getByTestId('message-action-sheet')).toHaveCount(0)
     await page.getByRole('button', { name: '실행 취소' }).tap()
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 취소 뒤 실행 취소 지연(5s)이 지나도 DELETE 가 나가지 않음(부재) 확인
-    await page.waitForTimeout(5500) // UNDO_DELETE_DELAY_MS(5s) 경과 — 취소했으므로 DELETE 가 나가지 않는다.
+    // UNDO_DELETE_DELAY_MS(5s) 경과 — 취소했으므로 DELETE 가 나가지 않는다.
+    await page.clock.fastForward(5500)
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 지연 만료 시 나갔을 DELETE 요청이 도착할 틈을 준 뒤 부재를 확인
+    await page.waitForTimeout(300)
     expect(deleteCalls).toBe(0)
   })
 })

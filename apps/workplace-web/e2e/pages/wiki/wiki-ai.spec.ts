@@ -12,7 +12,7 @@
 import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { stableBox } from '../../fixtures/wait'
+import { measureBox, stableBox } from '../../fixtures/wait'
 import { buildWikiAiSse } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
@@ -772,7 +772,7 @@ test('위키 변형 툴바 — 뷰포트 하단 선택에서도 톤 드롭다운
   const vp = page.viewportSize()!
   // 리사이즈 직후 tippy 가 툴바를 다시 배치하는 중일 수 있어 측정+단언을 재시도한다 (WP-225)
   await expect(async () => {
-    const tBox = await stableBox(page.getByTestId('wiki-ai-tb-rewrite_tone'))
+    const tBox = await measureBox(page.getByTestId('wiki-ai-tb-rewrite_tone'))
     // 이 테스트가 공허해지지 않도록: 트리거 아래 여백이 메뉴 높이(약 138px)보다 작아야
     // flip/shift 가 실제로 개입한다.
     expect(vp.height - (tBox.y + tBox.height)).toBeLessThan(138)
@@ -783,7 +783,7 @@ test('위키 변형 툴바 — 뷰포트 하단 선택에서도 톤 드롭다운
 
   // 메뉴는 열린 뒤 flip/shift 로 위치를 다시 잡으므로 자리 잡을 때까지 재시도한다 (WP-225)
   await expect(async () => {
-    const mBox = await stableBox(page.locator('[data-slot="dropdown-menu-content"]').first())
+    const mBox = await measureBox(page.locator('[data-slot="dropdown-menu-content"]').first())
     expect(mBox.y).toBeGreaterThanOrEqual(0)
     expect(mBox.x).toBeGreaterThanOrEqual(0)
     expect(mBox.y + mBox.height).toBeLessThanOrEqual(vp.height)
@@ -993,7 +993,7 @@ test('위키 서식 — 좁은 화면에서는 툴바가 줄바꿈되고 버튼�
   // 좁은 화면(모바일 셸)에서 툴바가 뜬 직후 tippy 재배치·줄바꿈이 끝나기 전일 수 있어 측정+단언을 재시도한다 (WP-225)
   const vp = page.viewportSize()!
   await expect(async () => {
-    const box = await stableBox(toolbar)
+    const box = await measureBox(toolbar)
     expect(box.x).toBeGreaterThanOrEqual(0)
     expect(box.x + box.width).toBeLessThanOrEqual(vp.width)
 

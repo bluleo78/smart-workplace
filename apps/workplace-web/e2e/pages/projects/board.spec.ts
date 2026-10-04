@@ -1016,8 +1016,7 @@ test('담당자 그룹 보드에서 카드를 다른 그룹 카드 위에 놓아
   await expect(card).toHaveCSS('opacity', '0.4');
   await expect(page.getByTestId('issue-card-drag-overlay')).toBeVisible();
   await page.mouse.up();
-  // 부재 확인 — 상태 PATCH 가 나가지 않음은 기다릴 조건이 없어 짧게 흘려보낸 뒤 단언(WP-82 예외).
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 상태 PATCH 가 나가지 않음(부재)을 확인하는 대기
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 상태 PATCH 가 나가지 않음(부재)은 기다릴 조건이 없어 짧게 흘려보낸 뒤 단언(WP-82 예외)
   await page.waitForTimeout(300);
   expect(statusPatched).toBe(false);
 });

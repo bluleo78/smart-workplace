@@ -3,7 +3,7 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { mockGatedEvents } from '../../fixtures/gatedEvents';
-import { stableBox } from '../../fixtures/wait';
+import { measureBox, resizeAndSettle, stableBox } from '../../fixtures/wait';
 import {
   createChatMember,
   createChatMessage,
@@ -582,14 +582,14 @@ test.describe('이슈 chat panel', () => {
     // 창 크기 변경 직후엔 셸(모바일↔데스크톱) 전환 레이아웃이 아직 안 끝났을 수 있어, 자리 잡을 때까지 다시 잰다(부하 시 flaky).
     await expect(assertCardInsideRow).toPass();
     // 320 은 모바일 레이아웃(<1024)이라 다시 그려지는 동안 옛 배치를 잴 수 있어, 새 배치에서 맞을 때까지 다시 잰다(WP-225).
-    await page.setViewportSize({ width: 320, height: 800 });
+    await resizeAndSettle(page, { width: 320, height: 800 });
     await expect(assertCardInsideRow).toPass();
-    await page.setViewportSize({ width: 1280, height: 720 });
+    await resizeAndSettle(page, { width: 1280, height: 720 });
 
     // 좌표: 본인 말풍선은 타인 본문보다 오른쪽에서 끝난다(데스크톱으로 되돌린 직후라 같은 이유로 다시 잰다).
     await expect(async () => {
-      const ownBox = await stableBox(ownBody);
-      const peerBox = await stableBox(page.getByTestId('chat-message-body-610'));
+      const ownBox = await measureBox(ownBody);
+      const peerBox = await measureBox(page.getByTestId('chat-message-body-610'));
       expect(ownBox.x).toBeGreaterThan(peerBox.x);
     }).toPass();
 

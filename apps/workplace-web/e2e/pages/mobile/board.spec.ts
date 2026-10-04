@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
+import { longPressWithMouse } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 
 const KEY = 'WP';
@@ -42,16 +43,6 @@ async function mock(page: Page, { issues: seed = [LONG, TODO2, PROG, DONE1], mor
     const more = status != null && status === moreStatus && !url.searchParams.get('cursor');
     return r.fulfill(json(createIssueSearchResponse(list, more ? 'next' : null)));
   });
-}
-
-/** 카드를 길게 누르기 — 마우스 down 후 650ms 유지. */
-async function longPress(page: Page, testId: string) {
-  const box = (await page.getByTestId(testId).boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 길게 누르기 제스처 자체의 유지 시간(손가락을 누르고 있는 동작)이라 조건 대기로 바꿀 수 없다
-  await page.waitForTimeout(650);
-  await page.mouse.up();
 }
 
 test.describe('모바일 보드 카드', () => {
@@ -134,7 +125,7 @@ test.describe('모바일 보드 상태 탭', () => {
     await mock(page);
     await page.goto(`/projects/${KEY}?view=board&group=none`);
     await expect(page).toHaveURL(/boardTab=IN_PROGRESS/);
-    await longPress(page, 'issue-card-1047');
+    await longPressWithMouse(page, page.getByTestId('issue-card-1047'));
     await page.getByTestId('mobile-action-status').click();
     await page.getByTestId('picker-option-DONE').click();
     await expect(page.getByTestId('board-tab-count-DONE')).toHaveText('2');

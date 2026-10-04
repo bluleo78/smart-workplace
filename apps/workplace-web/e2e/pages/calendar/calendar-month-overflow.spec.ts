@@ -5,7 +5,7 @@ import { calendarEvent } from '../../factories/calendar.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { stableBox } from '../../fixtures/wait'
+import { measureBox } from '../../fixtures/wait'
 
 // 지정 날짜에 몰린 일정 N건 (id 10~). 월 뷰 한 셀에 모두 걸린다.
 function crowdedDay(day = '2026-06-10', count = 10): CalendarEvent[] {
@@ -98,8 +98,8 @@ test(
     // 마커 하단이 셀 경계 안에 있어야 한다(클립되지 않음).
     // 이벤트 채움이 끝나 배치가 자리 잡을 때까지 측정+단언을 재시도한다 (WP-225)
     await expect(async () => {
-      const dueBox = await stableBox(dueChip)
-      const cellBox = await stableBox(cell)
+      const dueBox = await measureBox(dueChip)
+      const cellBox = await measureBox(cell)
       expect(dueBox.y + dueBox.height).toBeLessThanOrEqual(cellBox.y + cellBox.height)
     }).toPass()
   },

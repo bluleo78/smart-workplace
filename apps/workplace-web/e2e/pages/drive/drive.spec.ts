@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { createFile, createFolder, createSpace, makeTrashList, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { dismissByOutsideClick, stableBox } from '../../fixtures/wait'
+import { dismissByOutsideClick, measureBox } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 
@@ -826,7 +826,7 @@ for (const width of [390, 800, 1280]) {
     await expect(toast).toHaveAttribute('data-mounted', 'true')
     // 셸·토스트가 자리 잡는 찰나의 null·옛 배치 측정을 넘기도록 재측정하며 단언한다(WP-225).
     await expect(async () => {
-      const [headerBox, toastBox] = await Promise.all([stableBox(page.getByTestId('page-header')), stableBox(toast)])
+      const [headerBox, toastBox] = await Promise.all([measureBox(page.getByTestId('page-header')), measureBox(toast)])
       expect(toastBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height)
     }).toPass()
   })

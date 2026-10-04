@@ -560,9 +560,7 @@ test.describe('메시지 좌/우 분리', () => {
       expect(await hasHorizontalOverflow(page, 'message-list')).toBe(false)
     }
     await assertCardInside()
-    // 좁은 채팅 컬럼에서도 동일. 700 은 모바일 레이아웃(<1024)이라 다시 그려지는 동안 옛 배치를 잴 수 있어,
-    // 새 배치에서 단언이 맞을 때까지 다시 잰다(WP-225).
-    // 1024 경계를 넘으므로 MobileShell 로 전환이 끝난 뒤 잰다(WP-225).
+    // 좁은 채팅 컬럼에서도 동일. 700 은 1024 경계를 넘으므로 MobileShell 전환이 끝난 뒤, 새 배치에서 맞을 때까지 다시 잰다(WP-225).
     await resizeAndSettle(page, { width: 700, height: 800 })
     await expect(assertCardInside).toPass()
     // 카드가 좁아져도 크기 라벨("48 KB")은 줄바꿈되지 않고 한 줄로 남는다(파일명만 줄어든다).

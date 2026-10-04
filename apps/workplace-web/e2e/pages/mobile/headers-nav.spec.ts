@@ -95,7 +95,6 @@ test('⋯ 메뉴는 바깥을 누르거나 Esc 로 닫힌다', async ({ authenti
   await expect(menu).toBeVisible()
   // 바깥 클릭 감지가 열린 직후 등록되기 전이면 무시되므로 닫힐 때까지 다시 누른다(WP-225).
   await dismissByOutsideClick(page, menu, { x: 200, y: 500 })
-  await expect(menu).toBeHidden()
 })
 
 test('프로젝트 상세: ＋ 새 태스크는 인라인, 사이클·타임라인·설정은 ⋯ 메뉴', async ({ authenticatedPage: page }) => {

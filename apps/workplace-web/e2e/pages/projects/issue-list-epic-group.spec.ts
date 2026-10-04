@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
-import { stableBox } from '../../fixtures/wait';
+import { measureBox } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
@@ -174,10 +174,10 @@ test.describe('이슈 목록 데스크톱 에픽 칩', () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
         // (b) 제목은 최소 8rem 보장
         const link = row.getByRole('link', { name: /결제 모듈/ });
-        expect((await stableBox(link)).width).toBeGreaterThanOrEqual(128);
+        expect((await measureBox(link)).width).toBeGreaterThanOrEqual(128);
         // (c) 칩이 스크롤 영역 오른쪽 끝 안에 있다.
-        const sb = await stableBox(scroll);
-        const cb = await stableBox(chip);
+        const sb = await measureBox(scroll);
+        const cb = await measureBox(chip);
         expect(cb.x + cb.width).toBeLessThanOrEqual(sb.x + sb.width + 1);
         // (d) 제목 칸이 폭을 가져가도 마감 날짜는 한 줄로(글자 단위로 꺾이지 않는다).
         // 텍스트 줄 수 = Range 의 클라이언트 사각형 수(한 줄이면 1).
@@ -189,9 +189,9 @@ test.describe('이슈 목록 데스크톱 에픽 칩', () => {
         expect(dueLines, `${width}px 마감 칸 줄바꿈`).toBe(1);
         // (e) ID 칸이 최소 내용폭으로 쪼그라들어 「WP-21」 이 제목에 붙지 않는다 — 한 줄 + 제목과 8px 이상 간격.
         const idText = row.getByText(`${KEY}-21`, { exact: true });
-        const ib = await stableBox(idText);
+        const ib = await measureBox(idText);
         expect(ib.height, `${width}px ID 줄바꿈`).toBeLessThan(24);
-        const lb = await stableBox(link);
+        const lb = await measureBox(link);
         expect(lb.x - (ib.x + ib.width), `${width}px ID-제목 간격`).toBeGreaterThanOrEqual(8);
       }).toPass();
     }

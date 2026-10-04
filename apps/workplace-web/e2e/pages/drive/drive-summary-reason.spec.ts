@@ -92,9 +92,7 @@ test('PENDING 무한 지속 → 폴링 상한 초과 시 지연 안내로 전환
   await card.locator('summary').click()
   await expect(page.getByTestId('drive-summary-loading')).toBeVisible()
 
-  // IN_PROGRESS_POLLS(40) 회에 도달할 때까지 3초씩 전진하며 폴링한다. 고정 30ms 틱은 부하 시 fetch 가
-  // 끝나기 전에 다음 시계를 당겨 요청이 합쳐지고(횟수 미달) 끝내 안내가 안 뜰 수 있으므로, 안내가 뜰 때까지
-  // 전진→실시간 폴링 간격(fetch 처리 시간)→확인을 반복한다(WP-225).
+  // 안내가 뜰 때까지 시계 3초 전진→fetch 처리 시간 확보→확인을 반복해 IN_PROGRESS_POLLS(40) 회에 도달한다(WP-225).
   const reason = page.getByTestId('drive-summary-reason')
   await expect
     .poll(
@@ -102,10 +100,9 @@ test('PENDING 무한 지속 → 폴링 상한 초과 시 지연 안내로 전환
         await page.clock.fastForward(3000)
         return (await reason.count()) > 0 ? reason.textContent() : null
       },
-      { timeout: 60_000, intervals: [100] },
+      { timeout: 15_000, intervals: [100] },
     )
     .toBe('요약 생성이 지연되고 있습니다. 잠시 후 다시 열어 주세요.')
-  await expect(reason).toHaveText('요약 생성이 지연되고 있습니다. 잠시 후 다시 열어 주세요.')
   await expect(page.getByTestId('drive-summary-loading')).toHaveCount(0)
 })
 

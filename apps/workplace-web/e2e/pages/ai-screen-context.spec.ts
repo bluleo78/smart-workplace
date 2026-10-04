@@ -479,7 +479,6 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
     // 페이지 영역(다이얼로그 바깥, 패널 아님) 클릭 → 닫힘.
     // 열린 직후 바깥 클릭은 Radix 가 무시할 수 있어 닫힐 때까지 재시도한다 (WP-225).
     await dismissByOutsideClick(page, dialog, { x: dlg!.x - 40, y: dlg!.y + 40 })
-    await expect(dialog).toBeHidden()
     await expect(page.getByTestId('ai-aware-dialog-overlay')).toHaveCount(0)
     await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   })

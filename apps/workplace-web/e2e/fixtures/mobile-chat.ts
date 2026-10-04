@@ -7,6 +7,7 @@ import { createIssue, createIssueDetail, createIssueSearchResponse } from '../fa
 import { createChannelMember, createMessage } from '../factories/messaging.factory'
 import { createProject } from '../factories/project.factory'
 import { stubChat } from './mobile.fixture'
+import { stableBox } from './wait'
 
 export const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
 
@@ -16,7 +17,7 @@ export const json = (body: unknown) => ({ status: 200, contentType: 'application
  * "발동 뒤 손을 뗄 때 오는 click" 억제까지 검증할 수 있다.
  */
 export async function longPress(page: Page, target: Locator, holdMs = 700) {
-  const box = (await target.boundingBox())!
+  const box = await stableBox(target)
   const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
   const cdp = await page.context().newCDPSession(page)
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] })
@@ -24,6 +25,19 @@ export async function longPress(page: Page, target: Locator, holdMs = 700) {
   await page.waitForTimeout(holdMs)
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   await cdp.detach()
+}
+
+/**
+ * 마우스 길게 누르기 — 요소 중심으로 이동 → down → holdMs 유지 → up.
+ * 보드 카드·이슈 행처럼 마우스 포인터 이벤트로 길게 누르기를 판정하는 화면에서 쓴다.
+ */
+export async function longPressWithMouse(page: Page, target: Locator, holdMs = 650) {
+  const box = await stableBox(target)
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 길게 누르기 제스처 자체의 유지 시간(누르고 있는 동작)이라 조건 대기로 바꿀 수 없다
+  await page.waitForTimeout(holdMs)
+  await page.mouse.up()
 }
 
 // ── 팀 채팅(채널 1) ────────────────────────────────────────────────────────────

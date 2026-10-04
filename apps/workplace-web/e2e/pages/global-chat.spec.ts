@@ -1,6 +1,7 @@
+import type { Locator, Page } from '@playwright/test'
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
-import { stableBox } from '../fixtures/wait'
+import { measureBox, stableBox } from '../fixtures/wait'
 import { createUser } from '../factories/auth.factory'
 import { mockHomeChatCancel, mockHomeChatGeneration, mockHomeProposals, proposal } from '../fixtures/home-chat-mock'
 import type { HomeMessage, HomeSessionPage } from '../../src/types/home'
@@ -11,6 +12,34 @@ import type { HomeMessage, HomeSessionPage } from '../../src/types/home'
 
 const mockChatSessions = async (page: Parameters<typeof mockApi>[0], sessions: HomeSessionPage) => {
   await mockApi(page, 'GET', '/api/v1/home/sessions', sessions)
+}
+
+/**
+ * 사이드 패널 리사이즈 핸들(패널 좌측 경계, 폭 4px)을 왼쪽으로 dx 만큼 끌어 폭을 넓히고, 넓어진 폭을 돌려준다.
+ * 고정 대기 대신 드래그+폭 확인을 한 단위로 재시도한다 — pointermove 리스너는 pointerdown 핸들러에서 동기 등록되고,
+ * 빗나가면 경계를 다시 재서 끈다(넓어지는 방향이라 재시도해도 단언 의미는 같다). transition 은 fixture 가 0s 로 꺼 둔다 (WP-225).
+ */
+async function dragPanelHandle(
+  page: Page,
+  panel: Locator,
+  dx: number,
+  steps: number,
+  assertWidth: (width: number) => void,
+): Promise<number> {
+  let width = 0
+  await expect(async () => {
+    const pb = await measureBox(panel, 'ai-side-panel')
+    // 핸들 위치: 패널 좌측 경계 + 2px (핸들 폭 4px 의 중심)
+    const hx = pb.x + 2
+    const hy = pb.y + pb.height / 2
+    await page.mouse.move(hx, hy)
+    await page.mouse.down()
+    await page.mouse.move(hx - dx, hy, { steps })
+    await page.mouse.up()
+    width = (await measureBox(panel, 'ai-side-panel')).width
+    assertWidth(width)
+  }).toPass()
+  return width
 }
 
 // ── 기존 케이스 (모달→side 오픈 방식으로 유지) ──────────────────────────────
@@ -312,8 +341,8 @@ test('사이드 패널 헤더 닫기 버튼으로 패널이 닫히고 본문이 
   // 패널 헤더가 대화 선택 스위처 위 레이어에 위치한다.
   // 패널이 자리 잡는 중 옛 배치를 잴 수 있어 측정+단언을 한 단위로 재시도한다 (WP-225).
   await expect(async () => {
-    const headerBox = await stableBox(header, 'ai-panel-header')
-    const switcherBox = await stableBox(page.getByTestId('chat-session-switcher'), 'chat-session-switcher')
+    const headerBox = await measureBox(header, 'ai-panel-header')
+    const switcherBox = await measureBox(page.getByTestId('chat-session-switcher'), 'chat-session-switcher')
     expect(headerBox.y + headerBox.height).toBeLessThanOrEqual(switcherBox.y)
   }).toPass()
 
@@ -365,30 +394,13 @@ test('사이드 패널이 본문을 밀어낸다(reflow) + 핸들 드래그 후 
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   // 본문이 줄어들어야 함(reflow) — 패널이 열린 뒤 reflow 가 반영될 때까지 다시 잰다 (WP-225).
-  await expect.poll(async () => (await stableBox(main, 'main')).width).toBeLessThan(before)
+  await expect.poll(async () => (await main.boundingBox())?.width ?? Infinity).toBeLessThan(before)
 
   // 핸들 드래그로 폭 확대 (기본 380 → +120 = ~500)
   // 핸들은 absolute left-0, w-1(4px) — 패널의 좌측 경계.
   const panel = page.getByTestId('ai-side-panel')
-  // 고정 대기(50ms) 대신, 드래그가 폭에 반영될 때까지 드래그+확인을 한 단위로 재시도한다 (WP-225).
-  // pointermove 리스너는 pointerdown 핸들러에서 동기 등록되므로 별도 대기가 필요 없고, 혹시 드래그가
-  // 빗나가면 패널 좌측 경계를 다시 재서 끈다(넓어지는 방향이라 재시도해도 단언 의미는 같다).
-  await expect(async () => {
-    const pb = await stableBox(panel, 'ai-side-panel')
-    // 핸들 위치: 패널 좌측 경계 + 2px (핸들 폭 4px 의 중심)
-    const hx = pb.x + 2
-    const hy = pb.y + pb.height / 2
-    await page.mouse.move(hx, hy)
-    await page.mouse.down()
-    // 10 스텝으로 천천히 왼쪽으로 드래그 (패널 폭 증가 방향)
-    await page.mouse.move(hx - 120, hy, { steps: 10 })
-    await page.mouse.up()
-    // 폭이 넓어질 때까지 조건 대기 — fixture 가 transition 을 0s 로 꺼 두어 도달값이 곧 최종값이다.
-    await expect
-      .poll(async () => (await stableBox(panel, 'ai-side-panel')).width, { timeout: 2000 })
-      .toBeGreaterThan(380)
-  }).toPass()
-  const widened = (await stableBox(panel, 'ai-side-panel')).width
+  // 10 스텝으로 천천히 왼쪽으로 드래그 (패널 폭 증가 방향)
+  const widened = await dragPanelHandle(page, panel, 120, 10, (w) => expect(w).toBeGreaterThan(380))
 
   // 페이지 재로드 후 폭이 localStorage 에서 복원되어야 함
   await page.reload()
@@ -397,7 +409,7 @@ test('사이드 패널이 본문을 밀어낸다(reflow) + 핸들 드래그 후 
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   // 재로드 직후 패널 폭 복원이 반영될 때까지 다시 잰다 (WP-225).
   await expect
-    .poll(async () => Math.abs((await stableBox(panel, 'ai-side-panel')).width - widened))
+    .poll(async () => Math.abs(((await panel.boundingBox())?.width ?? Infinity) - widened))
     .toBeLessThan(8)
 })
 
@@ -416,21 +428,8 @@ test('사이드 패널을 최대 폭으로 넓혀도 AI 칩이 대화 선택 스
   await expect(panel).toBeVisible()
 
   // 핸들을 왼쪽 끝까지 드래그하여 패널을 상한 폭(600)까지 확대 → 칩과 충돌 영역에 진입.
-  // 고정 대기(50ms) 대신 드래그+폭 확인을 한 단위로 재시도한다 — 상한에서 클램프되므로 재시도해도 결과가 같다 (WP-225).
-  await expect(async () => {
-    const pb = await stableBox(panel, 'ai-side-panel')
-    const hx = pb.x + 2
-    const hy = pb.y + pb.height / 2
-    await page.mouse.move(hx, hy)
-    await page.mouse.down()
-    // 충분히 큰 거리(중심을 향해)로 끌어 상한(600)까지 클램프되게 한다.
-    await page.mouse.move(hx - 400, hy, { steps: 12 })
-    await page.mouse.up()
-    // 거의 상한까지 넓어질 때까지 조건 대기 — transition 은 fixture 가 0s 로 꺼 둔다.
-    await expect
-      .poll(async () => (await stableBox(panel, 'ai-side-panel')).width, { timeout: 2000 })
-      .toBeGreaterThanOrEqual(560)
-  }).toPass()
+  // 충분히 큰 거리(중심을 향해)로 끌어 상한(600)까지 클램프되게 한다 — 클램프되므로 재시도해도 결과가 같다.
+  await dragPanelHandle(page, panel, 400, 12, (w) => expect(w).toBeGreaterThanOrEqual(560))
 
   // 대화 선택 스위처가 헤더에 존재해야(빈 상태에서도 "대화 선택" 버튼 렌더)
   const switcher = page.getByTestId('chat-session-switcher')
@@ -438,10 +437,10 @@ test('사이드 패널을 최대 폭으로 넓혀도 AI 칩이 대화 선택 스
 
   // 핵심 검증 1(기하): 칩 우측 끝이 스위처 좌측 끝보다 왼쪽(또는 같음) → 시각적 겹침 없음.
   // 패널 폭 변경 뒤 칩 재정렬이 늦게 반영될 수 있어 측정+단언을 한 단위로 재시도한다 (WP-225).
-  let swBox = await stableBox(switcher, 'chat-session-switcher')
+  let swBox!: Awaited<ReturnType<typeof measureBox>>
   await expect(async () => {
-    const chipBox = await stableBox(page.getByTestId('chat-launcher'), 'chat-launcher')
-    swBox = await stableBox(switcher, 'chat-session-switcher')
+    const chipBox = await measureBox(page.getByTestId('chat-launcher'), 'chat-launcher')
+    swBox = await measureBox(switcher, 'chat-session-switcher')
     expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(swBox.x)
   }).toPass()
 
@@ -537,9 +536,9 @@ test('풀스크린에서 메시지 전송 시 첫 chat-turn 이 상단 AI 칩·�
 
   // 전송 직후 turn 이 렌더·스크롤로 자리 잡는 중일 수 있어 측정+단언을 한 단위로 재시도한다 (WP-225).
   await expect(async () => {
-    const turnBox = await stableBox(firstTurn, 'chat-turn')
-    const chipBox = await stableBox(page.getByTestId('chat-launcher'), 'chat-launcher')
-    const closeBox = await stableBox(page.getByTestId('ai-panel-close'), 'ai-panel-close')
+    const turnBox = await measureBox(firstTurn, 'chat-turn')
+    const chipBox = await measureBox(page.getByTestId('chat-launcher'), 'chat-launcher')
+    const closeBox = await measureBox(page.getByTestId('ai-panel-close'), 'ai-panel-close')
 
     // 1) 첫 turn 의 top 이 칩 bottom 이상 → 칩과 수직 비겹침(칩에 가려지지 않음)
     expect(turnBox.y).toBeGreaterThanOrEqual(chipBox.y + chipBox.height)

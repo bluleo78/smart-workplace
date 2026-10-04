@@ -55,7 +55,8 @@ export default defineConfig({
 
   // 단언 기본 타임아웃 5초는 서버 부하 시 lazy 라우트 트랜스폼 지연(간헐 5~8초)에 걸려
   // 비결정적 실패를 낸다. 10초로 올려 통과 경로 속도엔 영향 없이 지연 스파이크를 흡수한다.
-  expect: { timeout: 10_000 },
+  // toPass 는 기본값이 테스트 타임아웃(30초)이라 회귀 시 한 시도에 30초씩 돈다 — 단언 타임아웃과 맞춘다(WP-225).
+  expect: { timeout: 10_000, toPass: { timeout: 10_000 } },
 
   use: {
     baseURL: HOST,

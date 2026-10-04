@@ -179,8 +179,7 @@ test('⌃ 연타 — PUT 이 직렬로 나가 마지막 상태(펼침)가 저장
   await expect(card.getByTestId('mobile-widget-collapse')).toHaveAttribute('aria-expanded', 'false')
   await card.getByTestId('mobile-widget-collapse').click() // 펼치기 — 화면은 즉시(낙관), PUT 은 앞 PUT 뒤로 줄 선다
   await expect(card.getByTestId('mobile-widget-collapse')).toHaveAttribute('aria-expanded', 'true')
-  // 부재 확인 — 두 번째 PUT 이 첫 응답 전에 나가지 않음을 보려면 잠깐 기다릴 수밖에 없다(직렬화 검증).
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 첫 응답 전 두 번째 PUT 이 나가지 않음(부재)을 확인하는 대기
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 첫 응답 전 두 번째 PUT 이 나가지 않음(부재)을 확인하는 대기(직렬화 검증)
   await page.waitForTimeout(300)
   expect(stub.puts).toHaveLength(1)
   release()

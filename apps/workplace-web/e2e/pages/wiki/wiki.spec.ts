@@ -778,8 +778,7 @@ test('위키 — 디바운스 대기 중 리마운트(뷰포트 lg 경계 전환
   // flush 는 언마운트 즉시 — 디바운스 잔여 시간(수백 ms)을 기다리지 않는다.
   expect(puts[0].at - t0).toBeLessThan(400)
   expect(puts[0].body).toContain('플러시')
-  // 옛 타이머가 뒤늦게 한 번 더 PUT 하지 않는다(중복 저장·409 방지). 디바운스 창(800ms)을 넘겨 부재 확인 —
-  // "일어나지 않음" 확인이라 고정 대기가 불가피하다.
+  // 옛 타이머가 뒤늦게 한 번 더 PUT 하지 않는다(중복 저장·409 방지). 디바운스 창은 800ms.
   // eslint-disable-next-line playwright/no-wait-for-timeout -- 디바운스 창을 넘겨 옛 타이머의 중복 PUT 이 없음(부재)을 확인
   await page.waitForTimeout(1000)
   expect(puts).toHaveLength(1)

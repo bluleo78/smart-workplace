@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
+import { longPressWithMouse } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 
 const KEY = 'WP';
@@ -38,16 +39,6 @@ async function mock(page: Page, { member = true, issues = [LONG, OTHER] } = {}) 
   return calls;
 }
 
-/** 길게 누르기 — 터치 프로젝트라도 pointer 이벤트로 600ms 유지. */
-async function longPress(page: Page, testId: string) {
-  const box = (await page.getByTestId(testId).boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 길게 누르기 제스처 자체의 유지 시간(손가락을 누르고 있는 동작)이라 조건 대기로 바꿀 수 없다
-  await page.waitForTimeout(650);
-  await page.mouse.up();
-}
-
 test.describe('이슈 행 길게 누르기', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
     await stubChat(page);
@@ -57,7 +48,7 @@ test.describe('이슈 행 길게 누르기', () => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
     await expect(page.getByTestId('select-issue-21')).toHaveCount(0);
-    await longPress(page, 'issue-row-21');
+    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
     await expect(page.getByTestId('mobile-action-sheet')).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?group=none$`));
     await expect(page.getByTestId('mobile-action-select')).toBeVisible();
@@ -69,7 +60,7 @@ test.describe('이슈 행 길게 누르기', () => {
   test('상태 변경 → 시트에서 진행 중 선택 → PATCH status', async ({ authenticatedPage: page }) => {
     const calls = await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
-    await longPress(page, 'issue-row-21');
+    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
     await page.getByTestId('mobile-action-status').click();
     await expect(page.getByTestId('issue-status-picker')).toBeVisible();
     await page.getByTestId('picker-option-IN_PROGRESS').click();
@@ -79,7 +70,7 @@ test.describe('이슈 행 길게 누르기', () => {
   test('에픽 지정 → 에픽 선택 → PATCH parent', async ({ authenticatedPage: page }) => {
     const calls = await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
-    await longPress(page, 'issue-row-21');
+    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
     await page.getByTestId('mobile-action-epic').click();
     await expect(page.getByTestId('issue-epic-picker')).toBeVisible();
     await page.getByTestId('picker-option-10').click();
@@ -89,7 +80,7 @@ test.describe('이슈 행 길게 누르기', () => {
   test('비멤버는 상태·에픽 행이 없다', async ({ authenticatedPage: page }) => {
     await mock(page, { member: false });
     await page.goto(`/projects/${KEY}?group=none`);
-    await longPress(page, 'issue-row-21');
+    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
     await expect(page.getByTestId('mobile-action-status')).toHaveCount(0);
     await expect(page.getByTestId('mobile-action-epic')).toHaveCount(0);
   });
@@ -97,7 +88,7 @@ test.describe('이슈 행 길게 누르기', () => {
   test('에픽 이슈에는 에픽 지정이 없다', async ({ authenticatedPage: page }) => {
     await mock(page, { issues: [EPIC, LONG] });
     await page.goto(`/projects/${KEY}?group=none`);
-    await longPress(page, 'issue-row-10');
+    await longPressWithMouse(page, page.getByTestId('issue-row-10'));
     await expect(page.getByTestId('mobile-action-status')).toBeVisible();
     await expect(page.getByTestId('mobile-action-epic')).toHaveCount(0);
   });
@@ -111,7 +102,7 @@ test.describe('모바일 선택 모드', () => {
   test('선택 → 탭으로 추가 선택(이동 없음) → 하단 바 → 일괄 상태 변경 → 종료', async ({ authenticatedPage: page }) => {
     const calls = await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
-    await longPress(page, 'issue-row-21');
+    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
     await page.getByTestId('mobile-action-select').click();
 
     const bar = page.getByTestId('issue-bulk-toolbar');
@@ -140,7 +131,7 @@ test.describe('모바일 선택 모드', () => {
   test('✕ 버튼(선택 해제)으로 선택 모드를 끝내면 탭이 다시 상세로 이동한다', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
-    await longPress(page, 'issue-row-21');
+    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
     await page.getByTestId('mobile-action-select').click();
     // 상태 「완료」와 혼동되지 않게 텍스트 대신 ✕ 아이콘 + aria-label.
     await expect(page.getByTestId('bulk-clear')).toHaveAttribute('aria-label', '선택 해제');
@@ -159,11 +150,11 @@ test.describe('모바일 선택 토글 라벨', () => {
   test('이미 선택된 행을 길게 누르면 「선택 해제」, 누르면 선택이 풀린다', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
-    await longPress(page, 'issue-row-21');
+    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
     await expect(page.getByTestId('mobile-action-select')).toHaveText('선택');
     await page.getByTestId('mobile-action-select').click();
     await expect(page.getByTestId('issue-bulk-toolbar')).toContainText('1개 선택');
-    await longPress(page, 'issue-row-21');
+    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
     await expect(page.getByTestId('mobile-action-select')).toHaveText('선택 해제');
     await page.getByTestId('mobile-action-select').click();
     await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
@@ -182,7 +173,7 @@ test.describe('모바일 보드 카드', () => {
     await expect(card).toBeVisible();
     // 드래그 비활성 — dnd-kit 이 붙이는 roledescription 이 없다.
     await expect(card).not.toHaveAttribute('aria-roledescription', /.+/);
-    await longPress(page, 'issue-card-21');
+    await longPressWithMouse(page, page.getByTestId('issue-card-21'));
     await expect(page.getByTestId('mobile-action-sheet')).toBeVisible();
     // 상세로 이동하지 않는다 — 기본 탭은 첫 로드 후 boardTab 으로 URL 에 고정되므로 쿼리는 허용.
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?view=board(&boardTab=\\w+)?$`));
@@ -203,7 +194,7 @@ test.describe('모바일 보드 카드', () => {
     await mock(page, { member: false });
     await page.goto(`/projects/${KEY}?view=board`);
     await expect(page.getByTestId('issue-card-21')).toBeVisible();
-    await longPress(page, 'issue-card-21');
+    await longPressWithMouse(page, page.getByTestId('issue-card-21'));
     await expect(page.getByTestId('mobile-action-sheet')).toHaveCount(0);
     // 길게 눌렀다 뗀 것은 탭이 아니다 — 보드에 남는다(WP-217). dev 서버는 상세 청크 로딩이 느려 이동이 가려졌었다.
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?view=board`));

@@ -3,7 +3,7 @@ import type { Page, Route } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
-import { stableBox } from '../../fixtures/wait';
+import { measureBox, stableBox } from '../../fixtures/wait';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
@@ -87,7 +87,7 @@ async function waitForNoRequest(page: Page) {
 
 // 드래그 시작 — PointerSensor distance:5 를 넘기도록 조금 움직인다. 이후 moveOver/drop 로 이어간다.
 async function startDrag(page: Page, sourceTestId: string) {
-  const box = (await page.getByTestId(sourceTestId).boundingBox())!;
+  const box = await stableBox(page.getByTestId(sourceTestId), sourceTestId);
   const x = box.x + Math.min(60, box.width / 2);
   const y = box.y + box.height / 2;
   await page.mouse.move(x, y);
@@ -97,7 +97,7 @@ async function startDrag(page: Page, sourceTestId: string) {
 async function moveOver(page: Page, targetTestId: string) {
   const target = page.getByTestId(targetTestId);
   await expect(target).toBeVisible();
-  const box = (await target.boundingBox())!;
+  const box = await stableBox(target, targetTestId);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
 }
 // 이슈 1 상태 PATCH 호출 여부 기록 — 요청은 그대로 흘려보낸다(fallback).
@@ -634,8 +634,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     // 전제: 떠 있는 패널이 CANCELED 컬럼과 실제로 겹쳐야 이 테스트가 의미가 있다.
     // 패널이 막 뜬 직후라 배치가 자리 잡을 때까지 다시 재며 단언한다(WP-225).
     await expect(async () => {
-      const panelBox = await stableBox(page.getByTestId('epic-side-panel'));
-      const canceledBox = await stableBox(page.getByTestId('board-col-CANCELED'));
+      const panelBox = await measureBox(page.getByTestId('epic-side-panel'));
+      const canceledBox = await measureBox(page.getByTestId('board-col-CANCELED'));
       expect(panelBox.x).toBeLessThan(canceledBox.x + canceledBox.width);
       expect(panelBox.x + panelBox.width).toBeGreaterThan(canceledBox.x);
     }).toPass();

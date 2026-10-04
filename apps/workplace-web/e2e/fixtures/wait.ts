@@ -9,11 +9,19 @@ type Box = NonNullable<Awaited<ReturnType<Locator['boundingBox']>>>;
 /**
  * 요소의 boundingBox 를 null 이 아닐 때까지 다시 잰다(끝내 없으면 실패).
  * 뷰포트가 1024 경계를 넘으면 목록이 모바일/데스크톱 레이아웃으로 다시 마운트되는 등, 보인다고 확인한
- * 직후에도 요소가 바뀌어 null 이 될 수 있다. 측정값으로 단언까지 하려면 expect(...).toPass() 로 감싼다.
+ * 직후에도 요소가 바뀌어 null 이 될 수 있다. 측정값으로 단언까지 하려면 expect(...).toPass() 안에서
+ * measureBox 를 쓴다(재시도는 toPass 가 맡으므로 안에서 또 기다리지 않는다).
  */
 export async function stableBox(locator: Locator, message = 'boundingBox'): Promise<Box> {
   let box: Box | null = null;
   await expect.poll(async () => (box = await locator.boundingBox()), { message }).not.toBeNull();
+  return box!;
+}
+
+/** toPass 안에서 쓰는 즉시 측정 — null 이면 바로 던져 바깥 toPass 가 다시 시도하게 한다. */
+export async function measureBox(locator: Locator, message = 'boundingBox'): Promise<Box> {
+  const box = await locator.boundingBox();
+  expect(box, message).not.toBeNull();
   return box!;
 }
 
@@ -51,13 +59,9 @@ export async function dismissByOutsideClick(page: Page, layer: Locator, point = 
  * 뷰포트를 바꾸고 앱 셸 전환(1024 경계: 데스크톱 AppLayout ↔ MobileShell)이 끝날 때까지 기다린다.
  * 경계를 넘으면 화면이 통째로 다시 마운트되므로, 바로 재면 옛 배치나 사라지는 요소를 잡는다.
  * 셸 전환 뒤에도 내부가 늦게 자리 잡을 수 있으니 측정 단언은 stableBox·expect(...).toPass() 와 함께 쓴다.
- * AppLayout 밖 화면(로그인 등)은 셸이 없으므로 settleShell: false 로 크기만 바꾼다.
+ * AppLayout 안(로그인 뒤) 화면에서 goto 이후에만 쓴다 — 셸이 없는 화면은 setViewportSize 를 그대로 쓴다.
  */
-export async function resizeAndSettle(
-  page: Page,
-  size: { width: number; height: number },
-  { settleShell = true }: { settleShell?: boolean } = {},
-) {
+export async function resizeAndSettle(page: Page, size: { width: number; height: number }) {
   await page.setViewportSize(size);
-  if (settleShell) await expect(page.getByTestId('mobile-shell')).toHaveCount(size.width < 1024 ? 1 : 0);
+  await expect(page.getByTestId('mobile-shell')).toHaveCount(size.width < 1024 ? 1 : 0);
 }
