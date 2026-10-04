@@ -32,8 +32,11 @@ describe('startSwUpdateChecks', () => {
   })
   afterEach(() => vi.useRealTimers())
 
-  const start = (doc: EventTarget & { visibilityState: DocumentVisibilityState }) =>
-    startSwUpdateChecks({ update }, { doc, isOnline: () => online })
+  let win: EventTarget
+  const start = (doc: EventTarget & { visibilityState: DocumentVisibilityState }) => {
+    win = new EventTarget()
+    return startSwUpdateChecks({ update }, { doc, win, isOnline: () => online })
+  }
 
   it('주기마다 update 를 호출', () => {
     const { doc } = fakeDoc()
@@ -75,6 +78,22 @@ describe('startSwUpdateChecks', () => {
     expect(update).not.toHaveBeenCalled()
   })
 
+  it('복귀 순간 오프라인이었으면 다시 연결될 때 확인, 숨겨진 상태의 재연결은 무시', () => {
+    const f = fakeDoc()
+    start(f.doc)
+    online = false
+    f.show()
+    expect(update).not.toHaveBeenCalled()
+    online = true
+    win.dispatchEvent(new Event('online'))
+    expect(update).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(UPDATE_CHECK_COOLDOWN_MS)
+    f.hide()
+    win.dispatchEvent(new Event('online'))
+    expect(update).toHaveBeenCalledTimes(1)
+  })
+
   it('update 실패는 삼킨다(네트워크 오류로 앱이 깨지지 않게)', async () => {
     update.mockRejectedValueOnce(new Error('offline'))
     const f = fakeDoc()
@@ -89,6 +108,7 @@ describe('startSwUpdateChecks', () => {
     const stop = start(f.doc)
     stop()
     f.show()
+    win.dispatchEvent(new Event('online'))
     vi.advanceTimersByTime(UPDATE_CHECK_INTERVAL_MS * 2)
     expect(update).not.toHaveBeenCalled()
   })
