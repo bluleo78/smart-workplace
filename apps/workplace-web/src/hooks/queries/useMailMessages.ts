@@ -66,13 +66,19 @@ export function useUnreadSummary(enabled: boolean) {
 /**
  * WP-187 한 통 읽음/안읽음 전환 — 목록 캐시의 seen 을 낙관적으로 바꾸고 실패하면 되돌린다.
  * 안 읽은 수는 낙관 갱신하지 않고(F17) 완료(settle) 시 무효화로 서버 값을 다시 받는다.
+ * WP-220: 데이터 없이 첫 조회 중인 목록은 취소하지 않는다 — 취소하면 데이터 없는 idle 로 되돌아가 다시 조회하지 않아
+ * "받은 메일이 없습니다"로 멈춘다. 전환 시작 때 목록 조회가 진행 중이었다면(취소한 재조회·읽음 처리 전 응답) 완료 뒤 목록을 다시 받는다
+ * (refreshListsAfterToggle). 평소에는 낙관 갱신만으로 끝나 목록을 다시 받지 않는다.
  */
 export function useToggleRead() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, seen }: { id: number; seen: boolean }) => (seen ? markMessageRead(id) : markMessageUnread(id)),
     onMutate: async ({ id, seen }) => {
-      await qc.cancelQueries({ queryKey: ['mail-messages'] });
+      pendingToggles += 1;
+      // 진행 중이던 목록 조회(취소할 재조회·첫 조회)가 있으면 완료 뒤 다시 받아야 한다.
+      if (qc.isFetching({ queryKey: ['mail-messages'] }) > 0) listsNeedRefresh = true;
+      await qc.cancelQueries({ queryKey: ['mail-messages'], predicate: (q) => q.state.data !== undefined });
       const snapshot = qc.getQueriesData<EmailMessageSummary[]>({ queryKey: ['mail-messages'] });
       qc.setQueriesData<EmailMessageSummary[]>({ queryKey: ['mail-messages'], exact: false }, (old) =>
         old?.map((m) => (m.id === id ? { ...m, seen } : m)),
@@ -84,9 +90,36 @@ export function useToggleRead() {
       handleApiError(e, '읽음 상태를 바꾸지 못했어요');
     },
     onSettled: () => {
+      pendingToggles -= 1;
       invalidateMailCounts(qc);
+      void refreshListsAfterToggle(qc);
     },
   });
+}
+
+/**
+ * 진행 중인 읽음 전환 수 — onMutate 에서 늘리고 onSettled 에서 줄인다(onMutate 가 실패해도 onSettled 는 불린다).
+ * qc.isMutating 은 onSettled 안에선 자기 자신을 세지만, 진행 중 조회를 기다린 뒤의 재확인 시점엔 셀지가 타이밍에 달려 있어 직접 센다.
+ */
+let pendingToggles = 0;
+/** 어떤 전환이 진행 중이던 목록 조회와 겹쳤다 — 마지막 전환이 끝난 뒤 목록을 다시 받아야 한다. */
+let listsNeedRefresh = false;
+
+/**
+ * WP-220 읽음 전환 완료 뒤 목록 재조회. 동시에 여러 통을 전환하면 마지막 하나만 다시 받는다 —
+ * 앞 전환의 재조회는 다음 전환의 cancelQueries 가 지워 버리므로, 진행 중 전환이 남아 있으면 그쪽 완료에 맡긴다.
+ * 데이터 없는 목록은 invalidate 가 진행 중 조회를 끊지 않고 그 결과(읽음 처리 전 값)를 그대로 쓰므로,
+ * 진행 중 조회가 끝나기(성공·실패 무관)를 기다린 뒤 다시 받는다.
+ */
+async function refreshListsAfterToggle(qc: QueryClient) {
+  if (pendingToggles > 0 || !listsNeedRefresh) return;
+  await Promise.allSettled(
+    qc.getQueryCache().findAll({ queryKey: ['mail-messages'], fetchStatus: 'fetching' }).map((q) => q.promise),
+  );
+  // 기다리는 사이 새 전환이 시작됐으면 그 완료가 다시 받는다.
+  if (pendingToggles > 0) return;
+  listsNeedRefresh = false;
+  await qc.invalidateQueries({ queryKey: ['mail-messages'] });
 }
 
 /** WP-187 모두 읽음 실행 — 성공 시 목록·안 읽은 수·탭 합계를 무효화하고 "N통 읽음 처리" 토스트. */

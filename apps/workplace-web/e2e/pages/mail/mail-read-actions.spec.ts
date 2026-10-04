@@ -104,6 +104,37 @@ test.describe('메일 읽음 조작 — 데스크톱(WP-187)', () => {
     expect(read.requests).toHaveLength(1)
   })
 
+  test('목록 첫 조회 중 읽음 요청이 나가도 목록이 비지 않고, 읽음 반영된 목록을 다시 받는다(WP-220)', async ({ authenticatedPage: page }) => {
+    await stub(page)
+    await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail({ id: 10 }))
+    // 첫 목록 응답을 읽음 처리 완료(settle — 안 읽은 수 재조회) 뒤까지 붙잡아 둔다.
+    // 첫 조회 중에 읽음 처리가 끼어들고, 그 첫 응답(읽음 전 값)이 처리 완료보다 늦게 오는 가장 나쁜 순서를 고정한다.
+    let settle!: () => void
+    const settled = new Promise<void>((resolve) => { settle = resolve })
+    let seen = false
+    await page.route('**/api/v1/mail/messages/10/read', async (route) => {
+      seen = true
+      await route.fulfill({ status: 200, body: '' })
+    })
+    await page.route('**/api/v1/mail/accounts/1/unread-counts', async (route) => {
+      if (seen) settle()
+      await route.fallback()
+    })
+    // 서버 상태를 흉내 낸다 — 요청 시점의 읽음 상태를 돌려준다(읽음 처리 전 요청은 안 읽음).
+    await page.route('**/api/v1/mail/accounts/1/messages?**', async (route) => {
+      const rows = [summary({ id: 10, seen }), summary({ id: 11, seen: true })]
+      if (!seen) await settled
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
+    })
+    await page.goto('/mail/1?messageId=10')
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
+    // 취소된 첫 조회 때문에 "받은 메일이 없습니다"로 멈추지 않고 행이 보인다.
+    await expect(page.getByTestId('mail-row-10')).toBeVisible()
+    await expect(page.getByTestId('mail-row-11')).toBeVisible()
+    // 첫 응답이 읽음 처리 전 값이어도 완료 뒤 재조회로 읽음 스타일이 된다.
+    await expect(page.getByTestId('mail-unread-bar-10')).toHaveCount(0)
+  })
+
   test('상세 안읽음 → API 후 상세 닫힘, 다시 열면 다시 읽음 요청(WP-214)', async ({ authenticatedPage: page }) => {
     await stub(page)
     await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail({ id: 10 }))
