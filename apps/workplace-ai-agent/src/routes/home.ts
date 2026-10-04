@@ -46,6 +46,8 @@ export const chatSchema = z.object({
   maxTurns: z.number().int().positive(),
   timeoutMs: z.number().int().positive(),
   // WP-54: 현재 화면 컨텍스트(nullable). plain z.object 는 미정의 키를 버리므로 명시해야 전달된다.
+  // WP-232: 누적 요약(nullable). API 는 요약이 없으면 null 을 보낸다. plain z.object 는 미정의 키를 버리므로 명시.
+  contextSummary: z.string().nullish(),
   screenContext: screenContextSchema.nullish(),
 });
 

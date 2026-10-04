@@ -32,6 +32,8 @@ function isActionResult(m: ContextMessage): boolean {
 export interface ChatInput {
   query: string;
   recentContext?: ContextMessage[];
+  // WP-232: 토큰 예산을 넘친 앞부분 대화의 누적 요약(nullable). 원문 이력(recentContext) 앞에 싣는다.
+  contextSummary?: string | null;
   // 비서 설정 — workplace-api 가 요청별로 해석해 전달(env 미사용).
   assistantAgentId: number;
   // #376: 요청 사용자 ID — MCP 도구(드라이브·캘린더 등)를 assistantAgentId 아닌 실제 요청자 컨텍스트로 실행.
@@ -87,20 +89,22 @@ async function filterIssueDetailWidgets(
 type UnassignResult = { ok: boolean; canonical?: string };
 
 // 이전 대화 줄 라벨 — ACTION_* 는 사용자 발화로 오인되지 않게 [승인 결과] 로 표시(시스템 프롬프트 규칙 7 과 짝).
-function contextLabel(m: ContextMessage): string {
+// WP-232: 요약 러너도 같은 라벨을 쓰도록 export.
+export function contextLabel(m: ContextMessage): string {
   if (m.role === 'ASSISTANT') return 'AI';
   if (isActionResult(m)) return '[승인 결과]';
   return '사용자';
 }
 
 // recentContext·화면 컨텍스트를 단발 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
-// 순서: 이전 대화 → 현재 화면 → (미확인 승인 결과) → 현재 요청. 둘 다 없으면 query 원문.
+// 순서: 이전 대화 요약(WP-232) → 이전 대화 → 현재 화면 → (미확인 승인 결과) → 현재 요청. 모두 없으면 query 원문.
 function buildChatUserMessage(input: ChatInput): string {
   const ctx = input.recentContext ?? [];
+  const summary = input.contextSummary ? `이전 대화 요약:\n${input.contextSummary}\n\n` : '';
   const screen = input.screenContext ? `${formatScreenContext(input.screenContext)}\n\n` : '';
-  if (ctx.length === 0 && !screen) return input.query;
+  if (ctx.length === 0 && !screen && !summary) return input.query;
   const history = ctx.length ? `이전 대화:\n${ctx.map((m) => `${contextLabel(m)}: ${m.content}`).join('\n')}\n\n` : '';
-  return `${history}${screen}${unseenResultsBlock(ctx)}현재 요청: ${input.query}`;
+  return `${summary}${history}${screen}${unseenResultsBlock(ctx)}현재 요청: ${input.query}`;
 }
 
 // #849: AI 가 아직 언급하지 않은 승인 결과(마지막 AI 답 이후의 ACTION_* 행)를 현재 요청 바로 앞에 다시 둔다.

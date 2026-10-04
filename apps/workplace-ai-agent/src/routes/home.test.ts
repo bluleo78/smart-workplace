@@ -14,6 +14,7 @@ const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn()
 vi.mock('../logger.js', () => ({ log: logMock }));
 
 import { createHomeRouter, chatSchema } from './home.js';
+import { JSON_BODY_LIMIT } from '../index-config.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
 
@@ -89,6 +90,11 @@ describe('chatSchema', () => {
   });
   it('screenContext 상한 초과 → 파싱 실패', () => {
     expect(chatSchema.safeParse(validBody({ screenContext: { view: 'x'.repeat(51) } })).success).toBe(false);
+  });
+  it('contextSummary 문자열/null/생략 모두 파싱 성공하고 값이 보존된다 (WP-232)', () => {
+    expect(chatSchema.parse(validBody({ contextSummary: '요약' })).contextSummary).toBe('요약');
+    expect(chatSchema.safeParse(validBody({ contextSummary: null })).success).toBe(true);
+    expect(chatSchema.safeParse(validBody()).success).toBe(true);
   });
 });
 
@@ -275,5 +281,17 @@ describe('/ai/chat 로그', () => {
     const start = logMock.info.mock.calls.find((c) => c[1] === 'start');
     const done = logMock.info.mock.calls.find((c) => c[1] === 'done');
     expect(start![2].requestId).toBe(done![2].requestId);
+  });
+});
+
+describe('JSON 본문 한도 (WP-232)', () => {
+  it('128k 토큰 이력(약 400KB) 본문을 받을 수 있게 한도를 4mb 로 둔다', async () => {
+    const app = express();
+    app.use(express.json({ limit: JSON_BODY_LIMIT }));
+    app.post('/echo', (req, res) => res.json({ len: JSON.stringify(req.body).length }));
+    const big = { text: '가'.repeat(150_000) }; // UTF-8 약 450KB
+    const res = await request(app).post('/echo').send(big);
+    expect(res.status).toBe(200);
+    expect(JSON_BODY_LIMIT).toBe('4mb');
   });
 });

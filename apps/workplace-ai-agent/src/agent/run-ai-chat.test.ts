@@ -776,6 +776,71 @@ describe('runAiChatStream — 승인 결과 맥락 라벨 (#843)', () => {
   });
 });
 
+// WP-232: 예산을 넘친 앞부분은 누적 요약으로 대체되어 contextSummary 로 온다 — 원문 이력 앞에 둔다.
+describe('runAiChatStream — 누적 요약 블록 (WP-232)', () => {
+  it('요약이 있으면 이전 대화 원문보다 앞에 요약 블록을 싣는다', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    await runAiChatStream(
+      baseInput({
+        query: '처음에 정한 마감일 언제였지?',
+        contextSummary: '사용자는 WP-100 마감일을 10월 31일로 정했다.',
+        recentContext: [
+          { role: 'USER', content: '고마워' },
+          { role: 'ASSISTANT', content: '천만에요.' },
+        ],
+      }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    const prompt = streamSpy.mock.calls[0][0].userMessage as string;
+    expect(prompt.startsWith('이전 대화 요약:\n사용자는 WP-100 마감일을 10월 31일로 정했다.\n\n')).toBe(true);
+    expect(prompt.indexOf('이전 대화 요약:')).toBeLessThan(prompt.indexOf('이전 대화:\n'));
+    expect(prompt).toContain('현재 요청: 처음에 정한 마감일 언제였지?');
+  });
+
+  it('요약만 있고 원문 이력이 없어도 요약 블록 + 현재 요청을 싣는다', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    await runAiChatStream(
+      baseInput({ query: '계속', contextSummary: '요약본' }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(streamSpy.mock.calls[0][0].userMessage).toBe('이전 대화 요약:\n요약본\n\n현재 요청: 계속');
+  });
+
+  it('요약이 null 이면 기존 출력과 동일하다(이력·화면 없으면 query 원문)', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    await runAiChatStream(
+      baseInput({ query: '내 할 일', contextSummary: null }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(streamSpy.mock.calls[0][0].userMessage).toBe('내 할 일');
+  });
+
+  it('요약이 있어도 #849 미확인 승인 결과 재강조는 유지된다', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    await runAiChatStream(
+      baseInput({
+        query: '잘 됐어?',
+        contextSummary: '요약본',
+        recentContext: [
+          { role: 'ASSISTANT', content: '삭제를 제안했습니다.' },
+          { role: 'ACTION_DONE', content: '승인 완료: 회의 삭제' },
+        ],
+      }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    const prompt = streamSpy.mock.calls[0][0].userMessage as string;
+    expect(prompt).toContain('방금 사용자가 처리한 확인 카드 결과(규칙 7):\n- 승인 완료: 회의 삭제\n\n현재 요청: 잘 됐어?');
+  });
+});
+
 // #379/#407→#381: SDK 내부-메시지 정규식 override 는 삭제됨.
 describe('runAiChatStream — SDK 내부 메시지 누수 가드 (#381, ex-#379/#407)', () => {
   it('라우터 result 에 SDK-leak prose 가 있어도 fullText 는 fallback (prose 미사용)', async () => {

@@ -19,6 +19,7 @@ import { createIssueRouter } from './routes/issue.js';
 import { createDriveRouter } from './routes/drive.js';
 import { createInternalBridgeRouter } from './routes/internal-bridge.js';
 import { createModelsRouter } from './routes/models.js';
+import { JSON_BODY_LIMIT } from './index-config.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -43,7 +44,7 @@ const workplaceApi = createWorkplaceApiClient({
 const app = express();
 const PORT = Number(process.env.PORT ?? DEFAULT_PORT);
 
-app.use(express.json());
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
 app.use(healthRouter);
 app.use(internalAuth);
 app.use(createEventsRouter({ client: workplaceApi }));
