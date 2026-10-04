@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -293,7 +294,12 @@ public class HomeChatService {
                 Map<String, Object> payload =
                     cancelled
                         ? Map.of("correlationId", correlationId, "cancelled", true)
-                        : Map.of("correlationId", correlationId, "message", e.getMessage());
+                        : Map.of(
+                            "correlationId",
+                            correlationId,
+                            "message",
+                            // 메시지 없는 예외도 있어 Map.of 의 null NPE 를 막는다.
+                            Objects.requireNonNullElse(e.getMessage(), "채팅 처리 중 오류가 발생했습니다"));
                 sseRegistry.fanOut(Set.of(callerId), "home.chat.error", payload);
               }
             });

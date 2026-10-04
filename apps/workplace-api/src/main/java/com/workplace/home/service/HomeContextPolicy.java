@@ -53,6 +53,22 @@ public final class HomeContextPolicy {
     return i;
   }
 
+  /**
+   * 요약 청크 끝 인덱스: [0, limit) 접을 구간에서 가장 오래된 메시지부터 누적 비용이 target 이내인 만큼(최소 1건 — 단건은 이미 메시지별 상한 이하).
+   * 접을 구간 전체를 한 번에 보내면 장기 세션에서 요약 모델 맥락·요청 크기를 넘어 영영 실패하므로 청크로 나눠 접는다.
+   */
+  public static int chunkEnd(List<Msg> raw, int limit, int target) {
+    int sum = 0;
+    int end = 0;
+    while (end < limit) {
+      int c = cost(raw.get(end));
+      if (end > 0 && sum + c > target) break;
+      sum += c;
+      end++;
+    }
+    return end;
+  }
+
   /** 요약 실패 폴백: 요약 포함 예산에 맞을 때까지 오래된 원문부터 버린 나머지(꼬리는 유지). */
   public static List<Msg> dropOldestToFit(String summary, List<Msg> raw, int budget) {
     int b = boundary(raw, budget - TokenEstimates.estimate(summary));

@@ -49,6 +49,18 @@ class HomeContextPolicyTest {
   }
 
   @Test
+  void 요약_청크는_오래된것부터_target_이내_접을구간_안에서_최소1건() {
+    // 각 비용 50, 6건. 접을 구간 [0,5) 에서 target 120 → 2건(100).
+    List<Msg> raw = new ArrayList<>();
+    for (int i = 0; i < 6; i++) raw.add(m(i + 1, i % 2 == 0 ? "USER" : "ASSISTANT", 46));
+    assertThat(HomeContextPolicy.chunkEnd(raw, 5, 120)).isEqualTo(2);
+    // 접을 구간이 더 작으면 그 끝에서 멈춘다.
+    assertThat(HomeContextPolicy.chunkEnd(raw, 1, 120)).isEqualTo(1);
+    // 단건이 target 을 넘어도 최소 1건은 접는다(진행 보장).
+    assertThat(HomeContextPolicy.chunkEnd(raw, 5, 30)).isEqualTo(1);
+  }
+
+  @Test
   void 폴백은_요약포함_예산에_맞게_오래된것부터_버린다() {
     List<Msg> raw = List.of(m(1, "USER", 46), m(2, "ASSISTANT", 46), m(3, "USER", 46));
     List<Msg> kept = HomeContextPolicy.dropOldestToFit("가".repeat(20), raw, 125);

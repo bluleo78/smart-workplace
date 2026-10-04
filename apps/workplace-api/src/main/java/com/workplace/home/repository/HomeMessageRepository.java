@@ -85,7 +85,9 @@ public class HomeMessageRepository {
     return dsl.select(HOME_MESSAGE.ID, HOME_MESSAGE.ROLE, HOME_MESSAGE.CONTENT)
         .from(HOME_MESSAGE)
         .where(cond)
-        .orderBy(HOME_MESSAGE.CREATED_AT.asc(), HOME_MESSAGE.ID.asc())
+        // 경계 필터(ID > upto)와 같은 기준인 id 순으로만 정렬한다 — created_at 은 트랜잭션 시작 시각이라 겹친 트랜잭션에서 id 와 순서가
+        // 뒤바뀔 수 있고, 그러면 경계 앞뒤가 엇갈려 어떤 메시지는 요약에도 원문에도 실리지 않는다.
+        .orderBy(HOME_MESSAGE.ID.asc())
         .fetch(r -> new ContextRow(r.value1(), r.value2(), r.value3()));
   }
 

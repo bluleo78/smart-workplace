@@ -153,7 +153,8 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
       sessionService.appendMessage(uid, sid, "USER", body("질문" + i, 46), null, null, null);
       sessionService.appendMessage(uid, sid, "ASSISTANT", body("답변" + i, 46), null, null, null);
     }
-    when(summaryClient.summarize(any())).thenReturn(new ContextSummaryResult("요약본"));
+    when(summaryClient.summarize(any()))
+        .thenReturn(new ContextSummaryResult("요약1"), new ContextSummaryResult("요약본"));
     CountDownLatch latch = stubDone("네");
 
     chatService.startChat(uid, sid, "처음 질문이 뭐였지?");
@@ -161,17 +162,21 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
 
     var order = inOrder(summaryClient, chatClient);
     ArgumentCaptor<ContextSummaryRequest> sc = ArgumentCaptor.forClass(ContextSummaryRequest.class);
-    order.verify(summaryClient).summarize(sc.capture());
+    order.verify(summaryClient, org.mockito.Mockito.times(2)).summarize(sc.capture());
     order.verify(chatClient).composeStream(any(), any(), any(), any(), any(), any(), any());
 
-    // target 200 → 최신 4건(200) 유지, 앞 6건 요약.
-    assertThat(sc.getValue().previousSummary()).isNull();
-    assertThat(sc.getValue().messages())
+    // target 200 → 최신 4건(200) 유지, 앞 6건 요약 — 청크(≤ target)로 나눠 4건 → 2건 순으로 접는다.
+    ContextSummaryRequest firstChunk = sc.getAllValues().get(0);
+    ContextSummaryRequest secondChunk = sc.getAllValues().get(1);
+    assertThat(firstChunk.previousSummary()).isNull();
+    assertThat(firstChunk.messages())
         .extracting(ContextMessage::content)
         .first()
         .asString()
         .startsWith("질문1");
-    assertThat(sc.getValue().messages()).hasSize(6);
+    assertThat(firstChunk.messages()).hasSize(4);
+    assertThat(secondChunk.previousSummary()).isEqualTo("요약1");
+    assertThat(secondChunk.messages()).hasSize(2);
 
     ChatRequest req = sentRequest();
     assertThat(req.contextSummary()).isEqualTo("요약본");
@@ -313,9 +318,9 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
 
     chatService.startChat(uid, sid, "다음");
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
-    // 동기 요약 1회 후, 압축된 원문(200)+요약+이번 Q/A 는 trigger(300) 미만 → 추가 요약 없음.
+    // 동기 요약(접을 6건 = 청크 4건 + 2건, 2회) 후, 압축된 원문(200)+요약+이번 Q/A 는 trigger(300) 미만 → 추가 요약 없음.
     Thread.sleep(500); // 비동기 예약이 잘못 일어났다면 실행될 시간
-    verify(summaryClient, org.mockito.Mockito.times(1)).summarize(any());
+    verify(summaryClient, org.mockito.Mockito.times(2)).summarize(any());
   }
 
   @Test
@@ -430,5 +435,75 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
     verify(sseRegistry, timeout(5000)).fanOut(any(), eq("home.chat.error"), payload.capture());
     assertThat(((Map<?, ?>) payload.getValue()).get("cancelled")).isEqualTo(true);
     verify(chatClient, never()).composeStream(any(), any(), any(), any(), any(), any(), any());
+  }
+
+  /**
+   * 요약 경계가 없는(배포 전부터 길어진) 세션 — 접을 구간 전체를 한 번에 보내지 않고 오래된 순 청크(≤ target)로 나눠 접는다. 동기 턴은 지연 상한을 위해 최대
+   * 3청크만 접고, 그래도 예산을 넘으면 이번 턴만 오래된 원문을 버려 맞춘다. 청크마다 요약은 앞 청크 결과를 이어받고 경계가 저장된다.
+   */
+  @Test
+  void 경계없는_장기세션은_청크단위로_접고_동기턴은_최대3청크후_예산에_맞춘다() throws Exception {
+    long uid = user();
+    UUID sid = sessionService.create(uid).id();
+    // 비용 50 × 30건 = 1500 ≫ 400, 요약 경계 없음.
+    for (int i = 1; i <= 15; i++) {
+      sessionService.appendMessage(uid, sid, "USER", body("질문" + i, 46), null, null, null);
+      sessionService.appendMessage(uid, sid, "ASSISTANT", body("답변" + i, 46), null, null, null);
+    }
+    List<ContextSummaryRequest> requests = new java.util.concurrent.CopyOnWriteArrayList<>();
+    doAnswer(
+            inv -> {
+              requests.add(inv.getArgument(0));
+              return new ContextSummaryResult("요약" + requests.size());
+            })
+        .when(summaryClient)
+        .summarize(any());
+    // compose 시점의 요약 호출·저장 상태를 고정한다(턴 종료 후 비동기 요약이 이어서 접기 때문).
+    List<ContextSummaryRequest> syncRequests = new ArrayList<>();
+    SummaryState[] atCompose = new SummaryState[1];
+    CountDownLatch latch = new CountDownLatch(1);
+    doAnswer(
+            inv -> {
+              syncRequests.addAll(requests);
+              atCompose[0] = sessionService.getContextSummary(uid, sid);
+              BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("네", null);
+              latch.countDown();
+              return null;
+            })
+        .when(chatClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+
+    chatService.startChat(uid, sid, "처음 질문이 뭐였지?");
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    assertThat(syncRequests).hasSize(3);
+    for (ContextSummaryRequest r : syncRequests) {
+      int cost =
+          HomeContextPolicy.total(
+              null,
+              r.messages().stream()
+                  .map(m -> new HomeContextPolicy.Msg(0, m.role(), m.content()))
+                  .toList());
+      assertThat(cost).isLessThanOrEqualTo(200);
+    }
+    assertThat(syncRequests.get(0).previousSummary()).isNull();
+    assertThat(syncRequests.get(0).messages().get(0).content()).startsWith("질문1");
+    assertThat(syncRequests.get(1).previousSummary()).isEqualTo("요약1");
+    assertThat(syncRequests.get(2).previousSummary()).isEqualTo("요약2");
+
+    // 청크 3개(4건씩) = 12건 접힘 → 경계는 12번째 메시지(답변6).
+    long lastFoldedId = sessionService.getMessages(uid, sid).get(11).id();
+    assertThat(atCompose[0]).isEqualTo(new SummaryState("요약3", lastFoldedId));
+
+    ChatRequest req = sentRequest();
+    assertThat(req.contextSummary()).isEqualTo("요약3");
+    List<HomeContextPolicy.Msg> sent =
+        req.recentContext().stream()
+            .map(m -> new HomeContextPolicy.Msg(0, m.role(), m.content()))
+            .toList();
+    assertThat(HomeContextPolicy.total(req.contextSummary(), sent)).isLessThanOrEqualTo(400);
+    assertThat(req.recentContext().get(req.recentContext().size() - 1).content())
+        .startsWith("답변15");
   }
 }

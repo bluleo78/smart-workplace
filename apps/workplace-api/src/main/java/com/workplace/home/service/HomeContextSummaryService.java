@@ -48,6 +48,12 @@ public class HomeContextSummaryService {
    */
   static final Duration FAILURE_COOLDOWN = Duration.ofMinutes(5);
 
+  /**
+   * 한 번의 요약 실행(compact)에서 접는 최대 청크 수. 동기 요약은 채팅 턴을 막고 서므로(청크당 요약 호출 1회) 지연 상한을 두고, 남은 분량은 다음 트리거(턴
+   * 종료 비동기 요약)에서 이어 접는다.
+   */
+  static final int MAX_CHUNKS_PER_COMPACTION = 3;
+
   private final HomeSessionService sessionService;
   private final AiAgentContextSummaryClient summaryClient;
   private final AssistantResolver assistantResolver;
@@ -121,7 +127,11 @@ public class HomeContextSummaryService {
     if (coolingDown(sessionId)) return dropOldestToFit(snap, budget);
     onCompacting.run();
     try {
-      return compact(callerId, sessionId, snap, spec);
+      ContextSnapshot compacted = compact(callerId, sessionId, snap, spec);
+      // 청크 상한에 걸려 아직 예산을 넘으면 이번 턴만 오래된 원문을 버려 맞춘다(저장하지 않음 — 다음 트리거에서 이어 접는다).
+      return HomeContextPolicy.total(compacted.summary(), compacted.raw()) <= budget
+          ? compacted
+          : dropOldestToFit(compacted, budget);
     } catch (RuntimeException e) {
       // 사용자 취소(registry.cancel → 펌프 인터럽트)는 요약 실패가 아니다 — 폴백으로 compose 를 이어가면 취소된 턴이 도구 부작용·
       // ASSISTANT 영속까지 진행된다. 인터럽트 플래그를 복원하고 그대로 던져 HomeChatService 가 cancelled 신호를 내게 한다(요약
@@ -195,34 +205,44 @@ public class HomeContextSummaryService {
   }
 
   /**
-   * 원문을 target 까지 남기고 앞부분을 기존 요약에 합쳐 저장한 뒤, 이번 턴에 쓸 새 스냅샷을 돌려준다. 접을 구간이 없으면(꼬리만 남음) 그대로. 조건부 저장에서
-   * 지면(다른 요약이 먼저 경계를 옮김) 저장만 생략하고 이번 턴은 방금 만든 요약으로 진행한다.
+   * 원문을 target 까지 남기고 앞부분을 기존 요약에 접어 저장한 뒤, 이번 턴에 쓸 새 스냅샷을 돌려준다. 접을 구간은 오래된 순 청크(누적 비용 ≤ target)로
+   * 나눠 청크마다 요약·조건부 저장하고 새 상태에서 이어간다 — 경계 없는 장기 세션도 요약 요청 크기가 제한돼 실패가 고착되지 않는다. 남은 원문이 target 경계 안에
+   * 들거나 MAX_CHUNKS_PER_COMPACTION 청크를 접으면 멈춘다. 조건부 저장에서 지면(다른 요약이 먼저 경계를 옮김) 루프를 멈추고 이번 턴은 방금 만든
+   * 요약으로 진행한다. 중간 청크가 실패하면 이미 저장된 청크는 그대로 두고 예외를 던진다(호출부의 실패 처리).
    */
   private ContextSnapshot compact(
       long callerId, UUID sessionId, ContextSnapshot snap, AssistantSpec spec) {
-    List<Msg> raw = snap.raw();
-    int b = HomeContextPolicy.boundary(raw, props.summarizeTarget());
-    if (b == 0) return snap;
-    List<Msg> fold = raw.subList(0, b);
-    String summary =
-        summaryClient
-            .summarize(
-                new ContextSummaryRequest(
-                    spec.agentUserId(),
-                    spec.model(),
-                    SUMMARY_MAX_TURNS,
-                    SUMMARY_TIMEOUT_MS,
-                    snap.summary(),
-                    toContextMessages(fold)))
-            .summary();
-    // 요약 호출 성공 — 쿨다운 해제(저장 경합에 져도 ai-agent 는 정상이므로).
-    failedUntil.remove(sessionId);
-    String capped = TokenEstimates.truncate(summary, props.perMessageCap());
-    long newUpto = fold.get(b - 1).id();
-    if (sessionService.saveContextSummary(callerId, sessionId, snap.uptoId(), capped, newUpto)
-        == 0) {
-      log.debug("홈 채팅 요약 저장 경합 패배 — 결과 폐기: session={}", sessionId);
+    int target = props.summarizeTarget();
+    ContextSnapshot cur = snap;
+    for (int n = 0; n < MAX_CHUNKS_PER_COMPACTION; n++) {
+      List<Msg> raw = cur.raw();
+      int b = HomeContextPolicy.boundary(raw, target);
+      if (b == 0) break;
+      int end = HomeContextPolicy.chunkEnd(raw, b, target);
+      List<Msg> fold = raw.subList(0, end);
+      String summary =
+          summaryClient
+              .summarize(
+                  new ContextSummaryRequest(
+                      spec.agentUserId(),
+                      spec.model(),
+                      SUMMARY_MAX_TURNS,
+                      SUMMARY_TIMEOUT_MS,
+                      cur.summary(),
+                      toContextMessages(fold)))
+              .summary();
+      // 요약 호출 성공 — 쿨다운 해제(저장 경합에 져도 ai-agent 는 정상이므로).
+      failedUntil.remove(sessionId);
+      String capped = TokenEstimates.truncate(summary, props.perMessageCap());
+      long newUpto = fold.get(end - 1).id();
+      ContextSnapshot next = new ContextSnapshot(capped, newUpto, raw.subList(end, raw.size()));
+      if (sessionService.saveContextSummary(callerId, sessionId, cur.uptoId(), capped, newUpto)
+          == 0) {
+        log.debug("홈 채팅 요약 저장 경합 패배 — 이후 청크 중단: session={}", sessionId);
+        return next;
+      }
+      cur = next;
     }
-    return new ContextSnapshot(capped, newUpto, raw.subList(b, raw.size()));
+    return cur;
   }
 }
