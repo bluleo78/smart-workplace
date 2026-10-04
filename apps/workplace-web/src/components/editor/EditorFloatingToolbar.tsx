@@ -1,7 +1,7 @@
 import type { Editor } from '@tiptap/core'
 import type { EditorState } from '@tiptap/pm/state'
 import { BubbleMenu } from '@tiptap/react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useRef } from 'react'
 
 /** 에디터 플로팅 툴바 표면. tippy 배치와 팝오버 표면 스타일만 담당하고 내용은 children 이 채운다.
  *  AI 변형 툴바 · 표 툴바 · (향후) 기본 서식 툴바가 같은 표면을 쓰게 하려는 프리미티브다.
@@ -31,13 +31,21 @@ export function EditorFloatingToolbar({
   getReferenceClientRect?: () => DOMRect | null
   children: ReactNode
 }) {
+  // tiptap BubbleMenu 는 플러그인을 마운트 때 한 번만 등록해(effect deps=[editor, element]) 넘긴
+  // shouldShow·tippyOptions 가 그 시점 클로저로 굳는다. 권한(disabled)이 늦게 확정되면 false 로 굳어
+  // 툴바가 영영 안 뜨므로(WP-225), 최신 콜백을 ref 로 들고 BubbleMenu 에는 ref 를 읽는 함수만 넘긴다.
+  const latest = useRef({ shouldShow, getReferenceClientRect })
+  useEffect(() => {
+    latest.current = { shouldShow, getReferenceClientRect }
+  })
+
   if (!editor) return null
 
   return (
     <BubbleMenu
       editor={editor}
       pluginKey={pluginKey}
-      shouldShow={({ editor: ed, state }) => shouldShow({ editor: ed, state })}
+      shouldShow={({ editor: ed, state }) => latest.current.shouldShow({ editor: ed, state })}
       // 기본 250ms 는 빠른 드래그·클릭에서 툴바가 안 뜬 것처럼 느껴진다.
       updateDelay={0}
       tippyOptions={{
@@ -49,7 +57,7 @@ export function EditorFloatingToolbar({
         ...(getReferenceClientRect
           ? {
               getReferenceClientRect: () =>
-                getReferenceClientRect() ?? new DOMRect(0, 0, 0, 0),
+                latest.current.getReferenceClientRect?.() ?? new DOMRect(0, 0, 0, 0),
             }
           : {}),
       }}

@@ -932,6 +932,35 @@ test('위키 서식 — VIEWER 는 서식 버튼도 노출되지 않는다 (#687
   await expect(page.getByTestId('wiki-format-tb-bold')).toHaveCount(0)
 })
 
+// WP-225 — BubbleMenu 는 shouldShow 를 마운트 때 한 번만 등록한다. 스페이스 목록(권한)이 에디터보다
+// 늦게 오면 disabled=true 로 굳어 편집 가능해진 뒤에도 툴바가 영영 안 떴다(좁은 화면 스펙의 간헐 실패 원인).
+test('위키 서식 — 스페이스 권한이 에디터보다 늦게 와도 선택하면 툴바가 뜬다 (WP-225)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+  // 나중 등록 라우트가 먼저 실행된다 — 스페이스 목록을 에디터가 마운트될 때까지 붙잡아 뒀다가
+  // 원래 목 핸들러로 넘긴다(고정 지연 대신 순서를 직접 보장).
+  let releaseSpaces!: () => void
+  const spacesHeld = new Promise<void>((resolve) => (releaseSpaces = resolve))
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    async (route) => {
+      await spacesHeld
+      return route.fallback()
+    },
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  const editor = page.locator('.ProseMirror')
+  // 권한 확정 전엔 읽기 전용(fail-closed)으로 먼저 마운트된다 — 그 뒤에 권한을 내려보낸다.
+  await expect(editor).toHaveAttribute('contenteditable', 'false')
+  releaseSpaces()
+  await expect(editor).toHaveAttribute('contenteditable', 'true')
+  await typeAndSelectAll(page, '늦게 온 권한')
+
+  await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
+})
+
 test('위키 서식 — 좁은 화면에서는 툴바가 줄바꿈되고 버튼이 잘려서 숨지 않는다 (#687)', async ({
   authenticatedPage: page,
 }) => {
