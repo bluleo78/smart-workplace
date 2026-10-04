@@ -98,6 +98,16 @@ public class HomeSession extends TableImpl<HomeSessionRecord> {
      */
     public final TableField<HomeSessionRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
 
+    /**
+     * The column <code>public.home_session.context_summary</code>.
+     */
+    public final TableField<HomeSessionRecord, String> CONTEXT_SUMMARY = createField(DSL.name("context_summary"), SQLDataType.CLOB, this, "");
+
+    /**
+     * The column <code>public.home_session.summary_upto_message_id</code>.
+     */
+    public final TableField<HomeSessionRecord, Long> SUMMARY_UPTO_MESSAGE_ID = createField(DSL.name("summary_upto_message_id"), SQLDataType.BIGINT, this, "");
+
     private HomeSession(Name alias, Table<HomeSessionRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

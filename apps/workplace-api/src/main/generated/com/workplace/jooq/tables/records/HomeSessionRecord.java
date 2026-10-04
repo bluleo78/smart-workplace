@@ -119,6 +119,34 @@ public class HomeSessionRecord extends UpdatableRecordImpl<HomeSessionRecord> {
         return (Long) get(6);
     }
 
+    /**
+     * Setter for <code>public.home_session.context_summary</code>.
+     */
+    public void setContextSummary(String value) {
+        set(7, value);
+    }
+
+    /**
+     * Getter for <code>public.home_session.context_summary</code>.
+     */
+    public String getContextSummary() {
+        return (String) get(7);
+    }
+
+    /**
+     * Setter for <code>public.home_session.summary_upto_message_id</code>.
+     */
+    public void setSummaryUptoMessageId(Long value) {
+        set(8, value);
+    }
+
+    /**
+     * Getter for <code>public.home_session.summary_upto_message_id</code>.
+     */
+    public Long getSummaryUptoMessageId() {
+        return (Long) get(8);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -142,7 +170,7 @@ public class HomeSessionRecord extends UpdatableRecordImpl<HomeSessionRecord> {
     /**
      * Create a detached, initialised HomeSessionRecord
      */
-    public HomeSessionRecord(UUID id, Long userId, String title, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime lastMessageAt, Long tenantId) {
+    public HomeSessionRecord(UUID id, Long userId, String title, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime lastMessageAt, Long tenantId, String contextSummary, Long summaryUptoMessageId) {
         super(HomeSession.HOME_SESSION);
 
         setId(id);
@@ -152,6 +180,8 @@ public class HomeSessionRecord extends UpdatableRecordImpl<HomeSessionRecord> {
         setUpdatedAt(updatedAt);
         setLastMessageAt(lastMessageAt);
         setTenantId(tenantId);
+        setContextSummary(contextSummary);
+        setSummaryUptoMessageId(summaryUptoMessageId);
         resetChangedOnNotNull();
     }
 }

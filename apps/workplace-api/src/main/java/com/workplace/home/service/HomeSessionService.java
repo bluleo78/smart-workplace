@@ -56,6 +56,23 @@ public class HomeSessionService {
     return messageRepo.findBySession(sessionId).stream().map(this::toResponse).toList();
   }
 
+  /** 세션 누적 요약 상태(WP-232). 소유자 검증 후 반환, 요약이 없으면 (null, null). */
+  @Transactional(readOnly = true)
+  public HomeSessionRepository.SummaryState getContextSummary(long callerId, UUID sessionId) {
+    ensureOwner(callerId, sessionId);
+    return sessionRepo
+        .findSummary(sessionId)
+        .orElse(new HomeSessionRepository.SummaryState(null, null));
+  }
+
+  /** 세션 누적 요약 조건부 저장(WP-232). 갱신 행 수 반환(0 = 다른 요약이 먼저 경계를 옮김). */
+  @Transactional
+  public int saveContextSummary(
+      long callerId, UUID sessionId, Long expectedUpto, String summary, long newUpto) {
+    ensureOwner(callerId, sessionId);
+    return sessionRepo.updateSummary(sessionId, expectedUpto, summary, newUpto);
+  }
+
   /**
    * 확인카드 처리 결과(#843)를 대화 이력에 남기고 저장된 메시지를 돌려준다. 다음 턴 recentContext 에 포함돼 AI 가 승인·실패·거절을 안다.
    *

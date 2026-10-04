@@ -105,6 +105,30 @@ public class HomeSessionRepository {
     return dsl.deleteFrom(HOME_SESSION).where(HOME_SESSION.ID.eq(id)).execute();
   }
 
+  /** 누적 요약 상태 조회(WP-232). 세션이 없으면 empty. */
+  public Optional<SummaryState> findSummary(UUID id) {
+    return dsl.select(HOME_SESSION.CONTEXT_SUMMARY, HOME_SESSION.SUMMARY_UPTO_MESSAGE_ID)
+        .from(HOME_SESSION)
+        .where(HOME_SESSION.ID.eq(id))
+        .fetchOptional(r -> new SummaryState(r.value1(), r.value2()));
+  }
+
+  /**
+   * 누적 요약 조건부 갱신(WP-232). 경계가 expectedUpto 그대로일 때만 바꾼다 — 비동기·동기 요약이 겹쳐도 늦게 끝난 쪽이 앞선 결과를 덮어쓰지 않게. 갱신
+   * 행 수(0 = 경합 패배 또는 세션 없음) 반환.
+   */
+  public int updateSummary(UUID id, Long expectedUpto, String summary, long newUpto) {
+    return dsl.update(HOME_SESSION)
+        .set(HOME_SESSION.CONTEXT_SUMMARY, summary)
+        .set(HOME_SESSION.SUMMARY_UPTO_MESSAGE_ID, newUpto)
+        .where(HOME_SESSION.ID.eq(id))
+        .and(HOME_SESSION.SUMMARY_UPTO_MESSAGE_ID.isNotDistinctFrom(expectedUpto))
+        .execute();
+  }
+
+  /** 누적 요약 상태 — 둘 다 null 이면 아직 요약 없음. */
+  public record SummaryState(String summary, Long uptoMessageId) {}
+
   /** 세션 단건 row. */
   public record Row(
       UUID id,
