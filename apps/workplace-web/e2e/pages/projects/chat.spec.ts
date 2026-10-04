@@ -576,15 +576,18 @@ test.describe('이슈 chat panel', () => {
       expect(card.x + card.width).toBeLessThanOrEqual(row.x + row.width + 1);
       expect(card.width).toBeLessThanOrEqual(row.width * ratio + 1);
     };
-    await assertCardInsideRow();
+    // 창 크기 변경 직후엔 셸(모바일↔데스크톱) 전환 레이아웃이 아직 안 끝났을 수 있어, 자리 잡을 때까지 다시 잰다(부하 시 flaky).
+    await expect(assertCardInsideRow).toPass();
     await page.setViewportSize({ width: 320, height: 800 });
-    await assertCardInsideRow();
+    await expect(assertCardInsideRow).toPass();
     await page.setViewportSize({ width: 1280, height: 720 });
 
     // 좌표: 본인 말풍선은 타인 본문보다 오른쪽에서 끝난다.
-    const ownBox = (await ownBody.boundingBox())!;
-    const peerBox = (await page.getByTestId('chat-message-body-610').boundingBox())!;
-    expect(ownBox.x).toBeGreaterThan(peerBox.x);
+    await expect(async () => {
+      const ownBox = (await ownBody.boundingBox())!;
+      const peerBox = (await page.getByTestId('chat-message-body-610').boundingBox())!;
+      expect(ownBox.x).toBeGreaterThan(peerBox.x);
+    }).toPass();
 
     // 툴바: hover 전 opacity 0 이지만 tab 순서에는 있다 → 포커스만으로 드러난다.
     const toolbar = page.getByTestId('chat-message-toolbar-611');
@@ -596,6 +599,7 @@ test.describe('이슈 chat panel', () => {
 
     // 툴바는 말풍선 위에 있고 겹치지 않는다.
     const toolbarBox = (await toolbar.boundingBox())!;
+    const ownBox = (await ownBody.boundingBox())!;
     expect(toolbarBox.y + toolbarBox.height).toBeLessThanOrEqual(ownBox.y + 0.5);
 
     // 타인 메시지에는 툴바가 없다(수정·삭제는 본인만).

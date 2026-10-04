@@ -1,13 +1,15 @@
 // chat 메시지 작성 폼 — RichInput 래퍼 + 파일/드라이브 첨부. (#358)
+// 한 줄 레이아웃 [＋] [입력] [보내기] + 이미지 붙여넣기·파일 드롭(WP-235) — 메시징 MessageComposer 와 같은 구성.
 // Enter=전송(모바일 터치 셸은 줄바꿈 — lib/submitEnter), Shift+Enter=줄바꿈, @=멘션. 전송 후 비우고 포커스 유지.
 
-import { Cloud, Paperclip, X } from 'lucide-react';
-
 import { chatApi } from '@/api/chat';
-import { FolderPickerModal } from '@/components/drive/FolderPickerModal';
+import { ComposerAttachmentChips } from '@/components/chat/ComposerAttachmentChips';
+import { ComposerAttachMenu } from '@/components/chat/ComposerAttachMenu';
+import { ComposerDropOverlay } from '@/components/chat/ComposerDropOverlay';
 import { convertPlaintextMentions } from '@/components/mentions/mentionSerialize';
 import { RichInput } from '@/components/mentions/RichInput';
 import { useAttachmentDraft } from '@/hooks/useAttachmentDraft';
+import { useComposerFileDrop } from '@/hooks/useComposerFileDrop';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
 import { MESSAGE_PLACEHOLDER } from '@/lib/submitEnter';
 
@@ -29,16 +31,12 @@ interface ChatComposerProps {
 }
 
 export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus }: ChatComposerProps) {
-  // inputRef 를 별도 구조분해 — react-hooks/refs 가 객체 전체를 ref로 오판하는 오탐 방지.
   const {
-    inputRef: attachInputRef,
     pending,
     pendingDrive,
     uploading,
     personalSpaceId,
     spacesResolved,
-    drivePickerOpen,
-    setDrivePickerOpen,
     onFiles,
     removeFile,
     removeDrive,
@@ -48,6 +46,8 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus 
     fileIds,
     driveFileIds,
   } = useAttachmentDraft((files) => chatApi.uploadAttachments(threadId, files));
+  // 입력창 영역 파일 드롭 → 사전 업로드(WP-235).
+  const { isDragging, dropProps } = useComposerFileDrop(onFiles);
   // 터치 셸은 Enter 가 줄바꿈이라(가상 키보드, M4) Shift+Enter 안내가 맞지 않는다 — 팀 채팅과 같은 문구.
   // 판정은 isSubmitEnter 와 같은 터치 셸 기준(안내 문구와 실제 키 동작이 어긋나지 않게). 그 밖은 RichInput 기본 문구.
   // TipTap 은 에디터 생성 시점의 placeholder 를 쓰므로 마운트 시 값이 적용된다.
@@ -62,48 +62,14 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus 
   };
 
   return (
-    <div className="border-t p-3" data-testid="chat-composer">
-      {/* 업로드 대기 중인 첨부 파일 + 드라이브 링크 칩 목록 */}
-      {hasAny && (
-        <ul className="mb-2 flex flex-wrap gap-2" data-testid="chat-composer-attachments">
-          {pending.map((p) => (
-            <li
-              key={p.fileId}
-              className="flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-xs"
-            >
-              <span className="max-w-[10rem] truncate">{p.originalName}</span>
-              <button type="button" aria-label="첨부 제거" onClick={() => removeFile(p.fileId)}>
-                <X className="h-3 w-3" />
-              </button>
-            </li>
-          ))}
-          {pendingDrive.map((d) => (
-            <li
-              key={d.driveFileId}
-              data-testid={`chat-composer-drive-chip-${d.driveFileId}`}
-              className="flex items-center gap-1 rounded-md border bg-info-subtle px-2 py-1 text-xs text-info"
-            >
-              <Cloud className="h-3 w-3" />
-              <span className="max-w-[10rem] truncate">{d.name}</span>
-              <button
-                type="button"
-                aria-label="드라이브 링크 제거"
-                onClick={() => removeDrive(d.driveFileId)}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {/* 숨김 파일 입력 — Paperclip 버튼 클릭 시 트리거 */}
-      <input
-        ref={attachInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        data-testid="chat-composer-file-input"
-        onChange={(e) => onFiles(e.target.files)}
+    <div className="relative border-t p-3" data-testid="chat-composer" {...dropProps}>
+      {isDragging && <ComposerDropOverlay />}
+      <ComposerAttachmentChips
+        testIdPrefix="chat-composer"
+        pending={pending}
+        pendingDrive={pendingDrive}
+        onRemoveFile={removeFile}
+        onRemoveDrive={removeDrive}
       />
       <RichInput
         members={members}
@@ -117,52 +83,20 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus 
         submitLabel={uploading ? '업로드 중…' : '보내기'}
         submitDisabled={uploading}
         maxLength={4000}
+        inlineSubmit
+        onFiles={onFiles}
         leftActions={
-          <>
-            {/* 파일 첨부 버튼 */}
-            <button
-              type="button"
-              aria-label="파일 첨부"
-              data-testid="chat-composer-attach-button"
-              className="rounded-md p-2 hover:bg-accent/40"
-              onClick={() => attachInputRef.current?.click()}
-            >
-              <Paperclip className="h-4 w-4" />
-            </button>
-            {/* 드라이브에서 링크 버튼 — 개인 스페이스 미확인 시 비활성 */}
-            <button
-              type="button"
-              aria-label="드라이브에서 링크"
-              data-testid="chat-composer-drive-link-btn"
-              disabled={!spacesResolved || personalSpaceId == null}
-              title={
-                spacesResolved && personalSpaceId == null
-                  ? '드라이브를 사용할 수 없습니다'
-                  : '드라이브에서 링크'
-              }
-              className="rounded-md p-2 hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() => setDrivePickerOpen(true)}
-            >
-              <Cloud className="h-4 w-4" />
-            </button>
-          </>
+          <ComposerAttachMenu
+            testIdPrefix="chat-composer"
+            onFiles={onFiles}
+            personalSpaceId={personalSpaceId}
+            spacesResolved={spacesResolved}
+            onAddDrive={addDrive}
+          />
         }
         inputTestId="chat-composer-input"
         submitTestId="chat-composer-submit"
       />
-      {/* 드라이브 파일 피커 모달 — 개인 스페이스 기준 (#358) */}
-      {drivePickerOpen && personalSpaceId != null && (
-        <FolderPickerModal
-          spaceId={personalSpaceId}
-          title="링크할 파일 선택"
-          mode="file"
-          onPickFile={(driveFileId, name) => {
-            addDrive(driveFileId, name);
-            setDrivePickerOpen(false);
-          }}
-          onClose={() => setDrivePickerOpen(false)}
-        />
-      )}
     </div>
   );
 }

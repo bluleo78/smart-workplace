@@ -584,8 +584,9 @@ test.describe('메시지 좌/우 분리', () => {
   })
 
   test('스크롤 영역 위 끝에 걸린 메시지의 툴바는 아래로 뒤집혀 잘리지 않는다', async ({ authenticatedPage: page }) => {
-    // 목록이 스크롤되도록 창 높이를 줄인다.
-    await page.setViewportSize({ width: 1280, height: 420 })
+    // 목록이 스크롤되도록 창 높이를 줄인다. 입력창이 한 줄(WP-235)이라 목록 영역이 그만큼 커져,
+    // 행 33 을 위 끝까지 올릴 스크롤 여유가 남도록 370px 로 둔다.
+    await page.setViewportSize({ width: 1280, height: 370 })
     const viewport = page.getByTestId('message-scroll-area')
     // 행의 위 끝을 스크롤 영역 위 끝에 딱 붙인다 → 위쪽 툴바는 영역 밖으로 나간다.
     // 창 크기 변경 뒤 목록의 "맨 아래 유지" 스크롤이 늦게 올 수 있어, 두 번 연속 정렬된 상태로 남을 때까지 반복한다.

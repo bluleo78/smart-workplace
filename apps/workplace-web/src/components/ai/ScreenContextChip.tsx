@@ -8,6 +8,7 @@ import { Eye, EyeOff, X } from 'lucide-react';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { chipLabel } from '@/lib/aiScreenContext/common';
+import { HIT_AREA } from '@/lib/hitArea';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
 // 칩 공통 외형 — 두 상태가 같은 높이(py-0.5 + leading-4 + border)를 공유한다.
@@ -15,8 +16,6 @@ import type { AiScreenContext } from '@/types/aiScreenContext';
 const CHIP_BASE =
   'mb-1.5 flex w-fit max-w-[min(100%,36rem)] items-center gap-1 rounded-full border py-0.5 pl-2 pr-1.5 text-xs leading-4';
 
-// 칩 안 작은 버튼 공통 — 칩은 키우지 않고 가상 요소로 터치 영역만 40px 로 넓힌다(모바일 오버레이 대응).
-const HIT_AREA = "relative after:absolute after:-inset-2 after:content-['']";
 const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40';
 
 // 툴팁은 AI 사이드 패널(z-[60], 모바일 전체 오버레이) 위에 떠야 하므로 기본 z-50 보다 올린다.

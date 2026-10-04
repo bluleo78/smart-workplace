@@ -191,13 +191,13 @@ test(
     await page.getByTestId('issue-chat-open').click();
     await expect(page.getByTestId('chat-section')).toBeVisible();
 
-    // ── 검증 1: 첨부 버튼 노출 ───────────────────────────────────────────
-    const attachBtn = page.getByTestId('chat-composer-attach-button');
-    await expect(attachBtn).toBeVisible();
+    // ── 검증 1: ＋ 첨부 메뉴 → 파일 첨부 항목 노출 (WP-235 한 줄 레이아웃) ─────
+    await page.getByTestId('chat-composer-attach-button').click();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByTestId('chat-composer-attach-file').click();
 
     // ── 검증 2: 파일 선택 → 업로드 스텁 호출 → 펜딩 칩 노출 ─────────────
-    // setInputFiles: chat-composer-file-input(hidden) 에 직접 파일 주입.
-    await page.getByTestId('chat-composer-file-input').setInputFiles({
+    await (await chooser).setFiles({
       name: 'test-file.txt',
       mimeType: 'text/plain',
       buffer: Buffer.from('hello'),
@@ -381,9 +381,10 @@ test(
     await page.getByTestId('issue-chat-open').click();
     await expect(page.getByTestId('chat-section')).toBeVisible();
 
-    // ── 검증 1: 드라이브 링크 버튼 활성화 ─────────────────────────────────
+    // ── 검증 1: ＋ 메뉴의 드라이브 링크 항목 활성화 (WP-235) ─────────────────
+    await page.getByTestId('chat-composer-attach-button').click();
     const driveLinkBtn = page.getByTestId('chat-composer-drive-link-btn');
-    await expect(driveLinkBtn).not.toBeDisabled();
+    await expect(driveLinkBtn).not.toHaveAttribute('data-disabled');
 
     // ── 검증 2: 파일 피커 열림 → 파일 클릭 → 드라이브 칩 노출 (drive_file.id 기준) ──
     // data-testid="file-picker-file-{f.id}" → DRIVE_PK 로 렌더. 수정 전엔 f.fileId(BLOB_ID) 전달.

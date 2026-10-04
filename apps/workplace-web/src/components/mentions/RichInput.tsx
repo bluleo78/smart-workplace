@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
 import { Button } from '@/components/ui/button';
+import { filesFromPaste, isFileDrag } from '@/lib/clipboardFiles';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { isSubmitEnter } from '@/lib/submitEnter';
 
@@ -46,8 +47,12 @@ interface RichInputProps {
   // 직렬화 본문(serializeToBody) 기준 최대 글자 수. 초과 시 전송 버튼 비활성화 + 카운터 빨간 표시.
   maxLength?: number;
   autoFocus?: boolean;
-  // 버튼 행 좌측에 추가로 렌더할 노드(파일 첨부 버튼 등). 미전달 시 우측 버튼만 노출.
+  // 버튼 행 좌측에 추가로 렌더할 노드(파일 첨부 버튼 등). 미전달 시 우측 버튼만 노출. inlineSubmit 이면 에디터 왼쪽.
   leftActions?: React.ReactNode;
+  /** 파일 첨부를 받는 입력창(WP-235). 전달하면 두 가지가 바뀐다:
+   *  ① 클립보드 파일(스크린샷 등) 붙여넣기를 본문 대신 여기로 넘긴다(텍스트가 함께 오면 텍스트 우선, lib/clipboardFiles).
+   *  ② 에디터 위 파일 드롭은 ProseMirror 기본 처리를 막고 버블링만 시킨다 — 업로드는 호출처 래퍼의 useComposerFileDrop 이 받는다. */
+  onFiles?: (files: File[]) => void;
   inputTestId: string;
   submitTestId: string;
   cancelTestId?: string;
@@ -55,8 +60,9 @@ interface RichInputProps {
    *  에디터 class 는 useEditor 생성 시 1회만 적용되므로 마운트 후 동적 변경은 지원하지 않는다.
    *  Tailwind 가 클래스를 생성하도록 호출부에 리터럴로 쓴다. */
   editorMaxHeightClass?: string;
-  /** 모바일 하단 코멘트(WP-196 디자인 리뷰): 에디터 오른쪽에 아이콘 전송 버튼을 붙여 한 줄로 — 2단(에디터+버튼 행)은
-   *  하단 고정 줄이 화면을 너무 차지했다. 글자 수 카운터는 한도 80% 를 넘을 때만 노출. leftActions·onCancel 은 렌더하지 않는다.
+  /** 한 줄 레이아웃: [leftActions] [에디터] [전송] — 2단(에디터+버튼 행)은 하단 고정 줄이 화면을 너무 차지했다(WP-196 모바일 코멘트,
+   *  WP-235 채팅 입력창). 여러 줄이면 에디터만 위로 늘고 양옆 버튼은 하단 정렬. 전송은 모바일 44px 아이콘 / 데스크톱 텍스트 버튼.
+   *  글자 수 카운터는 한도 80% 를 넘을 때만 노출. onCancel 은 렌더하지 않는다.
    *  전송 탭이 에디터를 blur 하면 iOS 키보드가 내려가고 전송 후 비동기 focus 로는 다시 안 올라오므로(사용자 제스처 밖)
    *  전송 버튼은 포커스를 빼앗지 않는다(keepFocusProps — 기본 레이아웃 전송 버튼도 같다, WP-224). 기본 false. */
   inlineSubmit?: boolean;
@@ -83,6 +89,7 @@ export function RichInput({
   cancelTestId,
   editorMaxHeightClass = 'max-h-40',
   inlineSubmit = false,
+  onFiles,
 }: RichInputProps) {
   // 에디터 본문 공백 여부 — disableWhenEmpty 가 true 일 때 전송 버튼 비활성화에 사용.
   // initialBody 가 있으면 비어있지 않은 상태로 초기화.
@@ -133,6 +140,12 @@ export function RichInput({
   const maxLengthRef = useRef(maxLength);
   useEffect(() => {
     maxLengthRef.current = maxLength;
+  });
+
+  // onFiles 최신값을 handlePaste/handleDrop(useEditor 1회 생성 클로저)에서 참조 — 위 ref 패턴 동일.
+  const onFilesRef = useRef(onFiles);
+  useEffect(() => {
+    onFilesRef.current = onFiles;
   });
 
   // 동기적 in-flight 가드(#586) — ref 는 즉시(리렌더 없이) 반영되므로 같은 이벤트 루프 틱
@@ -240,8 +253,22 @@ export function RichInput({
       attributes: {
         'data-testid': inputTestId,
         'aria-label': '채팅 메시지 작성',
-        class: `min-h-[44px] ${editorMaxHeightClass} overflow-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`,
+        // 한 줄 레이아웃 데스크톱은 36px(＋·보내기 버튼과 같은 높이), 그 밖은 44px 터치 타깃.
+        // 모바일 한 줄은 원형 ＋·보내기와 어울리게 둥근 모서리(메인 AI 채팅 모바일 입력과 같은 rounded-2xl).
+        class: `${inlineSubmit ? 'min-h-11 max-lg:rounded-2xl lg:min-h-9 lg:py-1.5' : 'min-h-[44px]'} ${editorMaxHeightClass} overflow-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`,
       },
+      // 클립보드 파일(스크린샷 등)은 본문에 넣지 않고 첨부로 넘긴다. 텍스트가 함께 있으면 텍스트 붙여넣기(filesFromPaste).
+      handlePaste: (_view, event) => {
+        const handler = onFilesRef.current;
+        if (!handler) return false;
+        const files = filesFromPaste(event.clipboardData);
+        if (files.length === 0) return false;
+        handler(files);
+        return true;
+      },
+      // 파일 드롭은 ProseMirror 가 처리하지 않게만 막는다(true → preventDefault). 이벤트는 래퍼로 버블링돼
+      // useComposerFileDrop 이 업로드한다 — 에디터 밖(칩 영역 등) 드롭과 한 경로로 처리하려고.
+      handleDrop: (_view, event) => !!onFilesRef.current && isFileDrag(event.dataTransfer),
       handleKeyDown: (_view, event) => {
         // suggestion 팝업이 열려있으면 Enter 는 mention 플러그인이 먼저 처리(키 위임)하므로 여기선 무시.
         if (isSubmitEnter(event)) {
@@ -326,26 +353,29 @@ export function RichInput({
     (maxLength != null && charCount > maxLength);
 
   if (inlineSubmit) {
-    // 한 줄 레이아웃 — 에디터(min-w-0 flex-1: 좁은 폭에서 TipTap 이 넘치지 않게) + 44px 아이콘 전송 버튼(에디터 min-h 와 같아 한 줄일 때 높이 일치).
+    // 한 줄 레이아웃 [leftActions] [에디터] [전송] — 에디터만 min-w-0 flex-1 로 늘고(좁은 폭에서 TipTap 이 넘치지 않게) 양옆은 하단 정렬.
     // 카운터는 한도 80% 초과 시에만 — 평소엔 하단 줄 높이를 늘리지 않는다.
     const showCount = maxLength != null && charCount > maxLength * 0.8;
     return (
       <div className="flex flex-col gap-1" data-testid={`${inputTestId}-wrap`}>
         <div className="flex flex-row items-end gap-2">
+          {leftActions && <div className="flex shrink-0 items-center">{leftActions}</div>}
           <div className="relative min-w-0 flex-1">
             <EditorContent editor={editor} />
           </div>
+          {/* 전송: 모바일은 44px 원형 아이콘(메인 AI 채팅 모바일 전송과 같은 메신저 관례), 데스크톱은 텍스트 버튼(에디터 한 줄 36px 와 같은 높이).
+              에디터처럼 CSS 브레이크포인트로만 바꾼다 — 라벨이 '업로드 중…' 으로 바뀌면 데스크톱엔 글자로, 모바일엔 접근 이름으로 전달. */}
           <Button
             type="button"
-            size="icon-lg"
-            className="size-11 shrink-0"
+            className="shrink-0 max-lg:size-11 max-lg:rounded-full max-lg:p-0"
             aria-label={submitLabel}
             onClick={submit}
             {...keepFocusProps}
             data-testid={submitTestId}
             disabled={submitBlocked}
           >
-            <ArrowUp className="size-5" aria-hidden />
+            <ArrowUp className="size-5 lg:hidden" aria-hidden />
+            <span className="max-lg:hidden">{submitLabel}</span>
           </Button>
         </div>
         {showCount && (

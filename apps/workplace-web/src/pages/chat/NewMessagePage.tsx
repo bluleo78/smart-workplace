@@ -103,6 +103,14 @@ export default function NewMessagePage() {
     }
   }
 
+  // 받는 사람 입력에서 Tab → 메시지 입력(contenteditable)으로 곧장. 입력기가 없으면(수신자 0명) 기본 Tab 동작.
+  const composerRef = useRef<HTMLDivElement>(null)
+  const focusComposer = () => {
+    const editor = composerRef.current?.querySelector<HTMLElement>('[contenteditable="true"]')
+    editor?.focus()
+    return !!editor
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="new-message-page">
       {/* 모바일: 병합 상세 헤더에 "새 메시지" 를 등록해 레이아웃의 모듈 제목("채팅") 바를 대신한다(M1).
@@ -120,6 +128,7 @@ export default function NewMessagePage() {
             max={MAX_TARGETS}
             excludeUserIds={new Set([myId])}
             autoFocus
+            onTabOut={focusComposer}
           />
         </div>
       </header>
@@ -132,15 +141,17 @@ export default function NewMessagePage() {
       </div>
 
       {/* channelId=0: DM 이 아직 없으므로 첨부는 holdFiles 로 보관만 하고 전송 시 업로드한다(WP-99). */}
-      <MessageComposer
-        channelId={0}
-        uploadFn={holdFiles}
-        members={members}
-        // sending 은 disabled 에 넣지 않는다 — 넣으면 전송 중 입력기가 언마운트돼 실패 시 본문이 사라진다.
-        // 중복 전송은 handleSend 의 sending 가드와 RichInput 의 제출 중 가드가 막는다.
-        disabled={selected.length === 0}
-        onSend={handleSend}
-      />
+      <div ref={composerRef} className="contents">
+        <MessageComposer
+          channelId={0}
+          uploadFn={holdFiles}
+          members={members}
+          // sending 은 disabled 에 넣지 않는다 — 넣으면 전송 중 입력기가 언마운트돼 실패 시 본문이 사라진다.
+          // 중복 전송은 handleSend 의 sending 가드와 RichInput 의 제출 중 가드가 막는다.
+          disabled={selected.length === 0}
+          onSend={handleSend}
+        />
+      </div>
     </div>
   )
 }

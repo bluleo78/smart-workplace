@@ -36,6 +36,8 @@ export interface RecipientInputProps {
   excludeUserIds?: Set<number>
   // 마운트 시 입력에 포커스해 목록을 바로 연다.
   autoFocus?: boolean
+  // Tab 으로 다음 칸(메시지 입력)에 직접 포커스 — 포커스를 옮겼으면 true. 입력창 앞의 ＋ 버튼을 건너뛰게 한다(#883, WP-235).
+  onTabOut?: () => boolean
 }
 
 export function RecipientInput({
@@ -45,6 +47,7 @@ export function RecipientInput({
   max,
   excludeUserIds,
   autoFocus = false,
+  onTabOut,
 }: RecipientInputProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
@@ -113,6 +116,8 @@ export function RecipientInput({
       if (query === '' && selected.length > 0) onRemove(selected[selected.length - 1].id)
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       setOpen(true)
+    } else if (e.key === 'Tab' && !e.shiftKey && onTabOut?.()) {
+      e.preventDefault()
     }
   }
 
