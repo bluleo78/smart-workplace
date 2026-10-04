@@ -275,6 +275,28 @@ test.describe('모바일 에픽 시트', () => {
     await expect(page.getByTestId('mobile-chip-epic')).toHaveText('◆ 에픽');
   });
 
+  test('에픽 행 끝 「›」 — 시트를 닫고 필터 없이 에픽 상세로 이동, 전체·미할당 행엔 없음 (WP-227)', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    await page.getByTestId('mobile-chip-epic').click();
+    const sheet = page.getByTestId('mobile-epic-sheet');
+    await expect(sheet).toBeVisible();
+    await expect(page.getByTestId('picker-option-all-detail')).toHaveCount(0);
+    await expect(page.getByTestId('picker-option-unassigned-detail')).toHaveCount(0);
+    const detail = page.getByTestId('picker-option-epic-30-detail');
+    await expect(detail).toHaveAccessibleName('결제 안정화 상세 열기');
+    // 터치 영역 44×44 이상.
+    const box = (await detail.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    // 「›」 가 생겨도 제목·진행 힌트는 그대로 보인다.
+    await expect(page.getByTestId('picker-option-epic-30')).toContainText('1/4');
+    await expect(sheet).toHaveJSProperty('scrollWidth', await sheet.evaluate((el) => el.clientWidth));
+    await detail.click();
+    await expect(sheet).toBeHidden();
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/30$`));
+  });
+
   test('이미 선택된 에픽을 다시 눌러도 필터가 유지된다', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);

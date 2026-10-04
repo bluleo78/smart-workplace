@@ -1,7 +1,9 @@
 // 모바일 「◆ 에픽」 칩 + 선택 시트(WP-194) — 데스크톱 EpicSidePanel(224px 고정, 목록을 118px 로 줄임)을 대체.
 // 선택은 패널과 같은 useEpicFilter 로 URL(parent/topLevel)에 반영. 칩은 선택 시 「◆ 에픽명 ✕」(✕ = 전체로 복귀).
+// 에픽 행 끝 「›」 = 시트를 닫고 에픽 상세로 이동(WP-227, 데스크톱 패널 hover ↗ 의 모바일 대응).
 import { Plus, X } from 'lucide-react';
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { MobilePickerSheet, type PickerOption } from '@/components/mobile/MobilePickerSheet';
 import { cn } from '@/lib/utils';
@@ -16,6 +18,7 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
   const { epicType, epics } = useProjectEpics(projectKey);
   const [open, setOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const navigate = useNavigate();
 
   // 칩 라벨 — 선택된 에픽이 첫 페이지 목록에 없으면(URL 직접 진입) 번호로 표시.
   const label =
@@ -33,6 +36,7 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
       return {
         value: `epic-${ep.number}`,
         label: ep.title,
+        detail: { label: `${ep.title} 상세 열기`, onOpen: () => navigate(`/projects/${projectKey}/issues/${ep.number}`) },
         // 진행률 바 + 완료/전체 — 데스크톱 패널과 같은 정보. 트랙은 bg-border — bg-muted 는 시트 배경과 거의 같아 0% 가 안 보인다.
         // 숫자 칸은 폭 고정(7ch — 「/」 가 0 보다 넓어 「999/999」 까지 여유)·오른쪽 정렬 — 「0/0」과 「10/125」처럼 길이가 달라도 바가 줄마다 같은 x 에 선다.
         hint: (

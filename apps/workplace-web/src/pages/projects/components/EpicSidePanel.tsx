@@ -2,11 +2,13 @@
 // 이슈 검색을 단일 필터링한다(Jira 클래식 보드의 에픽 패널 패턴). 백엔드 변경 없이 기존
 // type=EPIC 검색 + parent=<epicNumber> 필터 + childCount/childDoneCount 를 재사용한다.
 // 열림/닫힘은 ViewChipBar 의 「에픽」 토글이 단일 진입점(조건 마운트).
+// 항목 hover·키보드 포커스 시 ↗ 로 에픽 상세를 연다(WP-227).
 // 이슈 드래그 중에는 「에픽 미할당」·각 에픽이 드롭 대상이 된다(IssueDndProvider 안일 때). floating 이면 닫힌 패널을
 // 드래그 동안만 뷰포트 오른쪽에 띄우는 임시 모드.
 import { useDroppable } from '@dnd-kit/core';
-import { Layers, Plus } from 'lucide-react';
+import { ArrowUpRight, Layers, Plus } from 'lucide-react';
 import { type RefObject, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -144,6 +146,7 @@ export function EpicSidePanel({
           epics.map((ep) => (
             <EpicItemButton
               key={ep.number}
+              projectKey={projectKey}
               epic={ep}
               selected={selectedEpic === ep.number}
               activeIssue={activeIssue}
@@ -232,10 +235,12 @@ function UnassignedButton({
   );
 }
 
-// 에픽 항목 버튼 — 클릭은 해당 에픽 필터 토글, 드래그 중에는 그 에픽으로 연결하는 드롭 대상.
+// 에픽 항목 — 버튼 클릭은 해당 에픽 필터 토글, 드래그 중에는 그 에픽으로 연결하는 드롭 대상.
+// hover·키보드 포커스 시 오른쪽 개수 자리를 ↗ 상세 링크로 바꾼다(WP-227) — 버튼 안에 링크를 둘 수 없어 형제로 겹쳐 둔다.
 function EpicItemButton({
-  epic: ep, selected, activeIssue, clip, onClick,
+  projectKey, epic: ep, selected, activeIssue, clip, onClick,
 }: {
+  projectKey: string;
   epic: IssueResponse;
   selected: boolean;
   activeIssue: IssueResponse | null;
@@ -251,35 +256,66 @@ function EpicItemButton({
   const pct = ep.childCount > 0 ? Math.round((ep.childDoneCount / ep.childCount) * 100) : 0;
   // avatarColorClass 는 "bg-x-500 text-white" 복합 문자열 — 색점/진행바에는 bg-* 만 사용.
   const colorBg = avatarColorClass(ep.number).split(' ')[0];
+  // 드래그 중에는 상세 링크를 감춘다 — 드롭 상태 표시가 우선이고, 링크가 드롭 대상 위를 가리지 않게.
+  const showDetailLink = !activeIssue;
   return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      onClick={onClick}
-      aria-pressed={selected}
-      data-testid={`epic-filter-${ep.number}`}
-      data-drop-state={dropState}
-      className={dropItemClass(selected, activeIssue, dropClass)}
-    >
-      <span className="flex items-center gap-2">
-        <span className={cn('h-2 w-2 shrink-0 rounded-full', colorBg)} aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate" title={ep.title}>{ep.title}</span>
-        {/* 드래그 중인 이슈가 이미 속한 에픽 — 놓아도 변화가 없음을 알린다. */}
-        {dropState === 'current' && <span className="text-xs text-muted-foreground">현재</span>}
-        <span className="text-xs text-muted-foreground">
-          {ep.childDoneCount}/{ep.childCount}
-        </span>
-      </span>
-      {/* 진행바 — FreshnessBar 패턴(h-1 rounded-full bg-muted 트랙 + 색 채움). button 내부라 span 만 사용. */}
-      <span
-        role="progressbar"
-        aria-valuenow={pct}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        className="mt-1.5 ml-4 block h-1 overflow-hidden rounded-full bg-muted"
+    <div className="group relative">
+      <button
+        ref={setNodeRef}
+        type="button"
+        onClick={onClick}
+        aria-pressed={selected}
+        data-testid={`epic-filter-${ep.number}`}
+        data-drop-state={dropState}
+        // 포인터가 겹쳐 둔 ↗ 링크 위로 가도 행 hover 배경이 유지되게 group-hover 를 더한다.
+        // 터치 기기(≥1024px 태블릿, pointer-coarse — messageToolbar 와 같은 판정)는 ↗ 를 상시 노출하므로 오른쪽을 비워 개수와 겹치지 않게 한다.
+        className={cn(
+          dropItemClass(selected, activeIssue, dropClass),
+          showDetailLink && !selected && 'group-hover:bg-muted/50',
+          showDetailLink && 'pointer-coarse:pr-8',
+        )}
       >
-        <span className={cn('block h-full rounded-full', colorBg)} style={{ width: `${pct}%` }} />
-      </span>
-    </button>
+        <span className="flex items-center gap-2">
+          <span className={cn('h-2 w-2 shrink-0 rounded-full', colorBg)} aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate" title={ep.title}>{ep.title}</span>
+          {/* 드래그 중인 이슈가 이미 속한 에픽 — 놓아도 변화가 없음을 알린다. */}
+          {dropState === 'current' && <span className="text-xs text-muted-foreground">현재</span>}
+          {/* 개수 — hover·키보드 포커스 동안은 같은 자리에 ↗ 링크가 대신 보인다(제목 폭 손실 없음). */}
+          <span
+            className={cn(
+              'text-xs text-muted-foreground',
+              showDetailLink && 'group-hover:invisible group-kbd:invisible',
+            )}
+          >
+            {ep.childDoneCount}/{ep.childCount}
+          </span>
+        </span>
+        {/* 진행바 — FreshnessBar 패턴(h-1 rounded-full bg-muted 트랙 + 색 채움). button 내부라 span 만 사용. */}
+        <span
+          role="progressbar"
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          className="mt-1.5 ml-4 block h-1 overflow-hidden rounded-full bg-muted"
+        >
+          <span className={cn('block h-full rounded-full', colorBg)} style={{ width: `${pct}%` }} />
+        </span>
+      </button>
+      {showDetailLink && (
+        // 평소엔 투명 + 포인터 무시(개수 자리 클릭은 행 필터로) — hover·키보드 포커스(group-kbd) 때 보인다.
+        // invisible 이 아닌 opacity 로 감춘다: Tab 이동 순간 버튼 blur 로 group-kbd 가 풀려 invisible 링크는 건너뛰어진다.
+        // 터치 기기는 group-hover 가 안 걸리므로 상시 노출한다(개수는 그대로, 버튼 pr-8 로 자리 확보).
+        // 터치에선 ::after 로 사방 10px 넓혀 보이는 24px 를 터치 영역 44px 로 맞춘다(레이아웃 그대로).
+        <Link
+          to={`/projects/${projectKey}/issues/${ep.number}`}
+          aria-label={`${ep.title} 상세 열기`}
+          title="에픽 상세 열기"
+          data-testid={`epic-open-${ep.number}`}
+          className="pointer-events-none absolute right-1 top-1 flex size-6 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:pointer-events-auto group-hover:opacity-100 group-kbd:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:after:absolute pointer-coarse:after:-inset-2.5 pointer-coarse:after:content-['']"
+        >
+          <ArrowUpRight className="size-3.5" aria-hidden="true" />
+        </Link>
+      )}
+    </div>
   );
 }

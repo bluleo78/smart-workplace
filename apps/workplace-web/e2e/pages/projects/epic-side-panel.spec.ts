@@ -47,6 +47,25 @@ async function openEpicPanel(page: Page) {
   await expect(page.getByTestId('epic-side-panel')).toBeVisible();
 }
 
+// 에픽 상세 진입 ↗ (WP-227) 공통 — 에픽 2건(결제 리뉴얼 #10, 알림 개편 #11)을 띄우고 패널을 연다.
+async function setupDetailLinkPanel(page: Page) {
+  await stubProjectMeta(page);
+  await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
+  const epics = [epic(10, '결제 리뉴얼', 6, 10), epic(11, '알림 개편', 8, 10)];
+  await routeIssueSearch(page, (route, url) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        createIssueSearchResponse(url.searchParams.get('type') === String(makeEpicType().id) ? epics : []),
+      ),
+    }),
+  );
+  await page.goto(`/projects/${PROJECT_KEY}`);
+  await openEpicPanel(page);
+}
+
+
 test.describe('에픽 왼쪽 패널', () => {
   test(
     '에픽 목록 + 진행률 노출, 클릭 시 이슈 검색에 parent 쿼리 적용, 재클릭 시 해제',
@@ -416,5 +435,66 @@ test.describe('에픽 왼쪽 패널', () => {
     await page.getByTestId('epic-filter-unassigned').click();
     await expect(page).toHaveURL(/topLevel=true/);
     await expect(page).toHaveURL(/group=none/);
+  });
+
+  test.describe('에픽 상세 진입 ↗ (WP-227)', () => {
+    const setup = (page: Page) => setupDetailLinkPanel(page);
+
+    test('hover 시 개수 자리에 ↗ 가 보이고, 누르면 필터 없이 에픽 상세로 이동한다', async ({ authenticatedPage: page }) => {
+      await setup(page);
+      // 평소엔 숨김 — 개수만 보인다.
+      await expect(page.getByTestId('epic-open-10')).toHaveCSS('opacity', '0');
+      await expect(page.getByTestId('epic-filter-10')).toContainText('6/10');
+
+      await page.getByTestId('epic-filter-10').hover();
+      await expect(page.getByTestId('epic-open-10')).toHaveCSS('opacity', '1');
+      await expect(page.getByTestId('epic-open-10')).toHaveAccessibleName('결제 리뉴얼 상세 열기');
+      // 같은 자리 교체 — 개수는 감춰지고, hover 하지 않은 다른 에픽의 ↗ 는 숨김 유지.
+      await expect(page.getByTestId('epic-filter-10').getByText('6/10')).toBeHidden();
+      await expect(page.getByTestId('epic-open-11')).toHaveCSS('opacity', '0');
+
+      await page.getByTestId('epic-open-10').click();
+      await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/issues/10$`));
+    });
+
+    test('행 클릭은 여전히 필터 — ↗ 와 겹치지 않는 제목 영역 클릭 시 상세로 가지 않는다', async ({ authenticatedPage: page }) => {
+      await setup(page);
+      await page.getByTestId('epic-filter-11').getByText('알림 개편').click();
+      await expect(page).toHaveURL(/parent=11/);
+      await expect(page).not.toHaveURL(/\/issues\//);
+      await expect(page.getByTestId('epic-filter-11')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    test('키보드 — 에픽 버튼에 포커스하면 ↗ 가 보이고 Tab·Enter 로 상세에 간다', async ({ authenticatedPage: page }) => {
+      await setup(page);
+      // 키보드 모달리티로 전환한 뒤 포커스 — :focus-visible 이 성립해야 group-kbd 가 켜진다.
+      await page.keyboard.press('Tab');
+      await page.getByTestId('epic-filter-11').focus();
+      await expect(page.getByTestId('epic-open-11')).toHaveCSS('opacity', '1');
+      await page.keyboard.press('Tab');
+      await expect(page.getByTestId('epic-open-11')).toBeFocused();
+      await expect(page.getByTestId('epic-open-11')).toHaveCSS('opacity', '1');
+      await page.keyboard.press('Enter');
+      await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/issues/11$`));
+    });
+  });
+});
+
+// 리뷰 지적(WP-227): group-hover 는 hover 가능 기기에서만 걸려, 데스크톱 패널이 뜨는 ≥1024px 터치 태블릿에선 ↗ 에 닿을 수 없었다.
+// 터치 판정은 pointer-coarse(messageToolbar 와 동일).
+test.describe('에픽 상세 진입 ↗ — 터치 태블릿(≥1024px)', () => {
+  test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true });
+
+  test('↗ 가 상시 보이고 개수도 함께 보이며, 탭하면 에픽 상세로 이동한다', async ({ authenticatedPage: page }) => {
+    await setupDetailLinkPanel(page);
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+    await expect(page.getByTestId('epic-open-10')).toHaveCSS('opacity', '1');
+    await expect(page.getByTestId('epic-filter-10').getByText('6/10')).toBeVisible();
+    // 개수와 ↗ 가 겹치지 않는다.
+    const count = (await page.getByTestId('epic-filter-10').getByText('6/10').boundingBox())!;
+    const link = (await page.getByTestId('epic-open-10').boundingBox())!;
+    expect(count.x + count.width).toBeLessThanOrEqual(link.x);
+    await page.getByTestId('epic-open-10').tap();
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/issues/10$`));
   });
 });

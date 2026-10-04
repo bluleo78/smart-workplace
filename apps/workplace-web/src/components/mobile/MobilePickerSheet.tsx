@@ -1,7 +1,8 @@
 // 모바일 단일 선택 바텀시트 — 상태·우선순위·에픽·담당자 등 "목록에서 하나 고르기"의 공용 부품(WP-193~196).
 // 선택하면 onSelect 후 닫힌다. searchable 이면 상단 검색창(키보드는 시트 안에서만 — 시트·키보드 동시 표시 원칙상 바깥 입력칸은 이미 blur).
 // 그래버·제목 줄·safe-area 등 시트 껍데기는 MobileSheetShell 이 맡는다.
-import { Check } from 'lucide-react';
+// 옵션에 detail 이 있으면 행 끝에 「›」 버튼을 붙인다 — 선택 버튼 안에 중첩할 수 없어 형제로 둔다.
+import { Check, ChevronRight } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -14,6 +15,8 @@ export interface PickerOption {
   icon?: ReactNode;
   /** 오른쪽 보조 정보(개수·진행률 등). */
   hint?: ReactNode;
+  /** 행 끝 「›」 보조 버튼(예: 에픽 상세 열기, WP-227) — 행 탭(선택)과 별개로 동작한다. 누르면 시트를 닫고 실행. */
+  detail?: { label: string; onOpen: () => void };
 }
 
 export function MobilePickerSheet({
@@ -38,6 +41,8 @@ export function MobilePickerSheet({
   const [q, setQ] = useState('');
   const keyword = q.trim().toLowerCase();
   const shown = keyword ? options.filter((o) => o.label.toLowerCase().includes(keyword)) : options;
+  // 한 행이라도 「›」가 있으면 없는 행에도 같은 폭 자리를 비워 ✓·힌트 열을 맞춘다.
+  const hasDetail = options.some((o) => o.detail);
   const close = () => {
     setQ('');
     onClose();
@@ -70,7 +75,7 @@ export function MobilePickerSheet({
       <div role="listbox" aria-label={title} className="min-h-0 flex-1 overflow-y-auto py-1">
         {shown.map((o) => {
           const selected = o.value === value;
-          return (
+          const optionButton = (
             <button
               key={o.value}
               type="button"
@@ -81,7 +86,7 @@ export function MobilePickerSheet({
                 close();
                 onSelect(o.value);
               }}
-              className={cn(MOBILE_SHEET_ROW, selected && 'bg-accent font-medium')}
+              className={cn(MOBILE_SHEET_ROW, hasDetail && 'min-w-0 flex-1', selected && 'bg-accent font-medium')}
             >
               {o.icon}
               <span className="min-w-0 flex-1 truncate">{o.label}</span>
@@ -89,6 +94,30 @@ export function MobilePickerSheet({
               {o.hint && <span className="shrink-0 text-xs font-normal text-muted-foreground">{o.hint}</span>}
               {selected ? <Check className="text-primary" aria-hidden /> : reserveCheck && <span className="size-5 shrink-0" aria-hidden />}
             </button>
+          );
+          if (!hasDetail) return optionButton;
+          const { detail } = o;
+          return (
+            <div key={o.value} className={cn('flex items-stretch', selected && 'bg-accent')}>
+              {optionButton}
+              {detail ? (
+                <button
+                  type="button"
+                  aria-label={detail.label}
+                  data-testid={`picker-option-${o.value}-detail`}
+                  onClick={() => {
+                    close();
+                    detail.onOpen();
+                  }}
+                  // 보이는 폭 44px · 행 높이 그대로(≥44px) — 터치 영역 기준 충족. 왼쪽 구분선으로 행 탭 영역과 나눈다.
+                  className="flex w-11 shrink-0 items-center justify-center border-l text-muted-foreground active:bg-accent"
+                >
+                  <ChevronRight className="size-5" aria-hidden />
+                </button>
+              ) : (
+                <span className="w-11 shrink-0" aria-hidden />
+              )}
+            </div>
           );
         })}
         {listFooter}
