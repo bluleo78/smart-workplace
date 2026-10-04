@@ -67,9 +67,9 @@ export async function resizeAndSettle(page: Page, size: { width: number; height:
 }
 
 /**
- * 부재 확인 — 값이 지금 expected 이고, ms 동안 지켜봐도 그대로인지 단언한다.
+ * 부재 확인 — 값이 expected 에 닿은 뒤 ms 동안 지켜봐도 그대로인지 단언한다.
  * "요청이 더 나가지 않는다 / 무언가 나타나지 않는다"는 일정 시간 아무 일도 없음을 봐야 하므로 고정 대기가
- * 불가피하다. 그 대기를 이 한 곳에 모으고, 창 시작·끝 두 시점을 모두 확인해 시작 전에 이미 어긋난 경우도 잡는다.
+ * 불가피하다. 그 대기를 이 한 곳에 모으고, 창 시작·끝 두 시점을 모두 확인한다.
  * 앱 타이머(디바운스·재시도 백오프·지연 삭제)가 원인이면 가능한 한 page.clock 으로 그 타이머를 먼저 넘긴 뒤 쓴다.
  *
  *   await expectStays(page, () => patchCount, 0)               // 요청 카운터
@@ -81,8 +81,9 @@ export async function expectStays<T>(
   expected: T,
   { ms = 300, message }: { ms?: number; message?: string } = {},
 ) {
-  const before: unknown = await read();
-  expect(before, message).toEqual(expected);
+  // 먼저 기대값에 닿을 때까지 기다린다 — 기대값이 1 이상(예: 첫 PATCH 1회)이면 그 요청이 route 에 닿기 전에
+  // 창을 시작해 거짓 실패하지 않게. 기대값이 0 이면 즉시 통과한다.
+  await expect.poll(async (): Promise<unknown> => await read(), { message }).toEqual(expected);
   // eslint-disable-next-line playwright/no-wait-for-timeout -- 부재 확인은 일정 시간 아무 일도 없음을 지켜봐야 한다
   await page.waitForTimeout(ms);
   const after: unknown = await read();
