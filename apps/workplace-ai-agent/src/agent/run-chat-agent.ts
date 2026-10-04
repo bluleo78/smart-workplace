@@ -1,13 +1,11 @@
 // 6c: chat.message.posted → AGENT 결정 → 토큰·thread·첨부 준비 → 인-프로세스 MCP(chat) + SDK 실행.
 // 슬라이스 3: runSdkStream + buildInProcessWorkplaceMcpServer 로 전환(stdio MCP 서브프로세스 제거).
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+import { rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 import { CHAT_SYSTEM_PROMPT } from './chat-system-prompt.js';
 import { buildChatUserMessage } from './chat-user-message.js';
-import { prepareAttachments } from './attachment-prep.js';
+import { createAttachmentWorkDir, prepareAttachments } from './attachment-prep.js';
 import { runnerFor } from './agent-runner.js';
 import { fromRunnerEvent } from './chat-progress-parser.js';
 import { ProgressTracker } from './progress-tracker.js';
@@ -44,8 +42,8 @@ export async function runChatAgent(
     return;
   }
 
-  // per-run 임시폴더 — 첨부 다운로드 + Read cwd. Read 는 이 폴더 한정.
-  const workDir = mkdtempSync(path.join(tmpdir(), `chat-agent-${p.threadId}-`));
+  // per-run 임시폴더 — 첨부 다운로드 + Read cwd(opencode 허용 범위는 opencode-config 참고).
+  const workDir = createAttachmentWorkDir(agentId, p.threadId);
 
   try {
     const recent = await deps.client.getChatMessages(agentId, p.threadId, THREAD_PREFETCH);

@@ -11,6 +11,7 @@ import { registerBridge, releaseBridge } from './bridge-registry.js';
 import { buildOpencodeConfig, resolveStdioEntryCmd, splitOpencodeModel } from './opencode-config.js';
 import { acquireServer, evictServer, releaseServer, type OpencodeHandle, type SpawnOpencode } from './opencode-server-pool.js';
 import { createIsolatedOpencode } from './opencode-spawn.js';
+import { attachmentRootDir } from './attachment-prep.js';
 import { resolveOpencodeVision, type OpencodeVision } from './opencode-vision.js';
 import type { McpProfile } from '../mcp/tools.js';
 import type { RunnerEvent, RunnerUsage } from './runner-events.js';
@@ -43,13 +44,14 @@ function poolKeyFor(i: RunnerInput, vision: OpencodeVision): string | undefined 
 // 세션 생성 + 이벤트 구독 — 풀에서 재사용한 서버든 새로 스폰한 서버든 동일하게 거친다. 실패 시
 // (session.create 실패 또는 event.subscribe 실패) 그대로 throw 하고, 풀 사용 여부에 따른
 // 재시도 판단은 호출부(stream())가 한다.
-async function openSession(opencode: OpencodeHandle) {
-  const created = await opencode.client.session.create({});
+// query.directory: 인스턴스 디렉터리(WP-236). undefined 면 서버 기본(프로세스 cwd).
+async function openSession(opencode: OpencodeHandle, query: { directory: string } | undefined) {
+  const created = await opencode.client.session.create({ query });
   if (!created.data) {
     throw new Error(`opencode session 생성 실패: ${JSON.stringify(created.error)}`);
   }
   const session = created.data;
-  const es = await opencode.client.event.subscribe();
+  const es = await opencode.client.event.subscribe({ query });
   return { session, es };
 }
 
@@ -60,6 +62,9 @@ export class OpencodeRunner implements AgentRunner {
     const payload = requireOpencodeCredential(i);
 
     const runId = randomUUID();
+    // WP-236: 첨부 읽기 실행은 인스턴스 디렉터리를 에이전트 첨부 루트로 고정해 read 를 그 안으로 가둔다(이유는 attachmentRootDir).
+    // 실행별 폴더가 아닌 이유: opencode 는 디렉터리마다 인스턴스(MCP 포함)를 띄우므로 풀 키(agentId 포함)당 하나여야 웜 풀이 유지된다.
+    const directoryQuery = i.allowFileRead ? { directory: attachmentRootDir(i.agentId) } : undefined;
     let killed = false;
     let timedOut = false;
     // kill()/timeout 이 비동기 세션 abort 를 시도할 수 있도록 client/sessionId 를 클로저 밖에서 공유.
@@ -68,7 +73,7 @@ export class OpencodeRunner implements AgentRunner {
 
     const requestAbort = (): void => {
       if (liveClient && liveSessionId) {
-        void liveClient.session.abort({ path: { id: liveSessionId } }).catch(() => {});
+        void liveClient.session.abort({ path: { id: liveSessionId }, query: directoryQuery }).catch(() => {});
       }
     };
 
@@ -103,7 +108,7 @@ export class OpencodeRunner implements AgentRunner {
 
         let sessionResult: Awaited<ReturnType<typeof openSession>>;
         try {
-          sessionResult = await openSession(opencode);
+          sessionResult = await openSession(opencode, directoryQuery);
         } catch (firstErr) {
           // 풀에서 꺼낸 서버가 죽어있는 경우(session.create/event.subscribe 실패) — 즉시 폐기하고
           // 1회만 재시도한다. 풀 대상이 아니면(poolKey undefined) 재시도 없이 그대로 전파한다
@@ -119,7 +124,7 @@ export class OpencodeRunner implements AgentRunner {
           server = opencode.server;
           liveClient = opencode.client;
           try {
-            sessionResult = await openSession(opencode);
+            sessionResult = await openSession(opencode, directoryQuery);
           } catch (retryErr) {
             // 재시도로 새로 스폰한 서버까지 죽어있으면 그 서버를 풀에 남겨두지 않는다 — 남겨두면
             // outer finally 의 releaseServer(evict 아님)가 죽은 서버를 캐시에 유지해 TTL(5분) 동안
@@ -137,6 +142,7 @@ export class OpencodeRunner implements AgentRunner {
         void opencode.client.session
           .promptAsync({
             path: { id: session.id },
+            query: directoryQuery,
             body: {
               agent: 'primary',
               model: { providerID, modelID },

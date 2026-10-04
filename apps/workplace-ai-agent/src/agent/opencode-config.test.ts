@@ -163,6 +163,25 @@ describe('buildOpencodeConfig', () => {
     });
   });
 
+  // WP-236: 이슈 챗 첨부 — read 를 열고 바깥 경로는 external_directory 로 막는다(인스턴스 디렉터리는 러너가 첨부 루트로 지정).
+  it('allowFileRead=true 면 primary 에 read 허용 + external_directory deny', () => {
+    const cfg = buildOpencodeConfig(baseInput({ allowFileRead: true }), 'run-1', ['cmd'], VISION_ON);
+    expect(cfg.agent?.primary?.tools).toEqual({ '*': false, 'workplace*': true, read: true });
+    expect(cfg.agent?.primary?.permission).toEqual({
+      edit: 'deny',
+      bash: 'deny',
+      webfetch: 'deny',
+      external_directory: 'deny',
+    });
+  });
+
+  it('allowFileRead=true 여도 서브에이전트에는 read 를 열지 않는다', () => {
+    const cfg = buildOpencodeConfig(
+      baseInput({ allowFileRead: true, allowSubagents: true }), 'run-1', ['cmd'], VISION_ON,
+    );
+    expect(cfg.agent?.['issue-agent']?.tools?.read).toBeUndefined();
+  });
+
   it('allowSubagents=true 면 loadSubagents 변환분이 agent 블록에 포함', () => {
     const cfg = buildOpencodeConfig(baseInput({ allowSubagents: true }), 'run-1', ['cmd'], VISION_ON);
     expect(loadSubagents).toHaveBeenCalled();

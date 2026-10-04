@@ -54,6 +54,9 @@ const { acquireServer, releaseServer, evictServer } = vi.hoisted(() => ({
 }));
 vi.mock('./opencode-server-pool.js', () => ({ acquireServer, releaseServer, evictServer }));
 
+// WP-236: 첨부 루트(실제 tmpdir 폴더 생성)를 고정값으로.
+vi.mock('./attachment-prep.js', () => ({ attachmentRootDir: vi.fn((agentId: number) => `/att-root/${agentId}`) }));
+
 import { OpencodeRunner } from './opencode-runner.js';
 import { buildOpencodeConfig } from './opencode-config.js';
 import type { RunnerInput } from './agent-runner.js';
@@ -380,6 +383,36 @@ describe('OpencodeRunner.stream', () => {
     handle.kill();
     await expect(handle.done).resolves.toBeUndefined();
     expect(events).toEqual([]);
+  });
+
+  // WP-236: 첨부 읽기 실행은 인스턴스 디렉터리를 첨부 루트로 고정해 read 를 그 안으로 가둔다.
+  it('allowFileRead=true 면 session.create/event.subscribe/promptAsync/abort 에 첨부 루트 directory 를 넘긴다', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    sessionAbort.mockImplementation(async () => es.finish());
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(baseInput({ allowFileRead: true }), () => {});
+    await vi.waitFor(() => expect(sessionPromptAsync).toHaveBeenCalled());
+    handle.kill();
+    await handle.done;
+
+    const query = { directory: '/att-root/3' }; // baseInput agentId=3 — 에이전트별 루트
+    expect(sessionCreate).toHaveBeenCalledWith({ query });
+    expect(eventSubscribe).toHaveBeenCalledWith({ query });
+    expect(sessionPromptAsync).toHaveBeenCalledWith(expect.objectContaining({ query }));
+    expect(sessionAbort).toHaveBeenCalledWith({ path: { id: 'sess-1' }, query });
+  });
+
+  it('allowFileRead 미지정이면 directory 없이 서버 기본 디렉터리를 쓴다', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    await new OpencodeRunner().stream(baseInput(), () => {}).done;
+
+    expect(sessionCreate).toHaveBeenCalledWith({ query: undefined });
+    expect(eventSubscribe).toHaveBeenCalledWith({ query: undefined });
   });
 
   it('promptAsync 를 splitOpencodeModel 결과 + agent:primary + userMessage 로 호출', async () => {

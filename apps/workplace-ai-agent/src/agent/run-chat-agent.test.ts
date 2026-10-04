@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import path from 'node:path';
 import type { RunnerEvent } from './runner-events.js';
 
 // agent-runner mock — runnerFor().stream: onEvent 으로 가짜 RunnerEvent 3개 즉시 주입 후 done resolve.
@@ -7,10 +8,13 @@ const { streamSpy } = vi.hoisted(() => ({ streamSpy: vi.fn() }));
 vi.mock('./agent-runner.js', () => ({
   runnerFor: vi.fn(() => ({ stream: streamSpy, collect: vi.fn() })),
 }));
-vi.mock('./attachment-prep.js', () => ({ prepareAttachments: vi.fn(async () => []) }));
+vi.mock('./attachment-prep.js', async (orig) => ({
+  ...(await orig<typeof import('./attachment-prep.js')>()),
+  prepareAttachments: vi.fn(async () => []),
+}));
 
 import { runChatAgent } from './run-chat-agent.js';
-import { prepareAttachments } from './attachment-prep.js';
+import { attachmentRootDir, prepareAttachments } from './attachment-prep.js';
 import type { ChatEventEnvelope } from '../types/chat-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
@@ -63,11 +67,13 @@ describe('runChatAgent', () => {
     expect(prepareAttachments).toHaveBeenCalled();
     expect(streamSpy).toHaveBeenCalledOnce();
     const runCall = vi.mocked(streamSpy).mock.calls[0][0] as {
-      allowFileRead?: boolean; cwd?: string; includePartialMessages?: boolean;
+      allowFileRead?: boolean; cwd?: string; includePartialMessages?: boolean; agentId?: number;
       mcp?: { workplaceClient?: unknown; profile?: string; onBehalfOfId?: number };
     };
     expect(runCall.allowFileRead).toBe(true);
     expect(typeof runCall.cwd).toBe('string');
+    // WP-236: opencode 가 인스턴스 디렉터리로 쓰는 첨부 루트 아래여야 첨부를 읽을 수 있다(실행 후 폴더는 삭제됨)
+    expect(path.dirname(runCall.cwd!)).toBe(attachmentRootDir(runCall.agentId!));
     expect(runCall.includePartialMessages).toBe(false);
     // 러너가 인-프로세스 서버를 chat 프로필 + 멘션된 agentId(99)로 구성하도록 mcp 설정 전달
     expect(runCall.mcp).toMatchObject({ profile: 'chat', onBehalfOfId: 99 });
