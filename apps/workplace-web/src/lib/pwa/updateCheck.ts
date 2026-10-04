@@ -25,7 +25,8 @@ export function startSwUpdateChecks(
   registration: { update: () => Promise<unknown> },
   env: UpdateCheckEnv = browserEnv(),
 ): () => void {
-  let lastCheckedAt = -Infinity
+  // 등록 직전 페이지 로드에서 브라우저가 이미 sw.js 를 확인했으므로 쿨다운을 지금부터 센다.
+  let lastCheckedAt = Date.now()
 
   const check = () => {
     if (!env.isOnline()) return
@@ -40,7 +41,8 @@ export function startSwUpdateChecks(
     if (env.doc.visibilityState === 'visible') check()
   }
 
-  const timer = setInterval(check, UPDATE_CHECK_INTERVAL_MS)
+  // 숨겨진 탭은 확인해도 볼 사람이 없다 — 다시 보일 때 visibilitychange 가 확인한다.
+  const timer = setInterval(checkIfVisible, UPDATE_CHECK_INTERVAL_MS)
   env.doc.addEventListener('visibilitychange', checkIfVisible)
   env.win.addEventListener('online', checkIfVisible)
   return () => {

@@ -8,7 +8,8 @@ import { useRegisterSW } from 'virtual:pwa-register/react'
 import { startSwUpdateChecks } from '@/lib/pwa/updateCheck'
 
 export function PwaUpdatePrompt() {
-  // 업데이트 확인 정리 함수 — 등록 콜백이 다시 불려도 확인 타이머·리스너가 겹치지 않게 보관한다.
+  // 업데이트 확인 정리 함수 — StrictMode 로 등록 콜백이 두 번 불려도 확인 타이머·리스너가 겹치지 않게 보관한다.
+  // 앱 루트에 한 번만 마운트되어 언마운트되지 않으므로 별도 정리 effect 는 두지 않는다.
   const stopChecksRef = useRef<(() => void) | null>(null)
 
   const {
@@ -21,8 +22,6 @@ export function PwaUpdatePrompt() {
       stopChecksRef.current = startSwUpdateChecks(registration)
     },
   })
-
-  useEffect(() => () => stopChecksRef.current?.(), [])
 
   useEffect(() => {
     if (!needRefresh) return
