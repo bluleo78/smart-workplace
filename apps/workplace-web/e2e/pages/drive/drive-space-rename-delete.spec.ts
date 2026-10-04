@@ -126,3 +126,40 @@ test.describe('드라이브 TEAM 공간 이름 변경/삭제', () => {
     await expect.poll(() => deleteCalled).toBe(true)
   })
 })
+
+// WP-237: 터치 태블릿(≥1024px, pointer: coarse)은 hover 가 없어 ⋯ 에 닿지 못했다 → 상시 노출 + 44px, 링크 오른쪽 여백 확보.
+test.describe('드라이브 TEAM 공간 ⋯ — 터치 태블릿(≥1024px)', () => {
+  test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true })
+
+  test('⋯ 가 상시 보이고(44px, 이름과 안 겹침) 탭으로 이름 변경 PATCH 한다', async ({ authenticatedPage: page }) => {
+    await mockBaseRoutes(page)
+    let patchBody: unknown = null
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/spaces/2',
+      async (r) => {
+        if (r.request().method() === 'PATCH') {
+          patchBody = r.request().postDataJSON()
+          await r.fulfill({ json: { ...spaces[1], name: '제품팀' } })
+        } else {
+          await r.fallback()
+        }
+      },
+    )
+    await page.goto('/drive')
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
+
+    const menu = page.getByTestId('drive-space-menu-2')
+    await expect(menu).toHaveCSS('opacity', '1')
+    const m = (await menu.boundingBox())!
+    expect(m.width).toBeGreaterThanOrEqual(44)
+    expect(m.height).toBeGreaterThanOrEqual(44)
+    const name = (await page.getByTestId('drive-space-list').getByText('기획팀', { exact: true }).boundingBox())!
+    expect(name.x + name.width).toBeLessThanOrEqual(m.x)
+
+    await menu.tap()
+    await page.getByTestId('drive-space-rename-2').click()
+    await page.getByTestId('rename-dialog-input').fill('제품팀')
+    await page.getByTestId('rename-dialog-confirm').click()
+    await expect.poll(() => patchBody).toEqual({ name: '제품팀' })
+  })
+})

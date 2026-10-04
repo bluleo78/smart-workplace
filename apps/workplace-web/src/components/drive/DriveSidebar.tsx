@@ -184,48 +184,55 @@ export function DriveSidebar() {
           </button>
         </div>
         <nav className="mt-2 space-y-1" data-testid="drive-space-list">
-          {primary.map((s) => (
-            <div key={s.id} className="group/space relative flex items-center">
-              <NavLink
-                to={`/drive/spaces/${s.id}`}
-                className={({ isActive }) => sidebarLinkClass({ isActive }) + ' flex-1 pr-7'}
-              >
-                {/* 공간 종류 아이콘(WP-143) — 개인은 User, 팀은 Users. 첨부 모아보기(Paperclip)와 함께 모든 행이 아이콘을 갖도록 통일 */}
-                <SpaceTypeIcon personal={s.type === 'PERSONAL'} />
-                <span className="min-w-0 break-words">{s.type === 'PERSONAL' ? '내 드라이브' : s.name}</span>
-              </NavLink>
-              {/* TEAM 공간 + OWNER 만 이름 변경/삭제 메뉴 노출(개인·채널 공간 제외) */}
-              {s.type === 'TEAM' && s.role === 'OWNER' && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={`${s.name} 메뉴`}
-                      data-testid={`drive-space-menu-${s.id}`}
-                      className="absolute right-1 rounded p-1 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 group-hover/space:opacity-100"
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      data-testid={`drive-space-rename-${s.id}`}
-                      onSelect={() => setRenameTarget(s)}
-                    >
-                      이름 변경
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      data-testid={`drive-space-delete-${s.id}`}
-                      onSelect={() => setDeleteTarget(s)}
-                    >
-                      삭제
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-            </div>
-          ))}
+          {primary.map((s) => {
+            // TEAM 공간 + OWNER 만 이름 변경/삭제 메뉴 노출(개인·채널 공간 제외).
+            const hasMenu = s.type === 'TEAM' && s.role === 'OWNER'
+            return (
+              <div key={s.id} className="group/space relative flex items-center">
+                {/* 메뉴가 있는 행은 ⋯ 자리를 비운다 — 터치 기기(pointer: coarse)는 ⋯ 가 상시 44px 라 더 넓게(WP-237). */}
+                <NavLink
+                  to={`/drive/spaces/${s.id}`}
+                  className={({ isActive }) =>
+                    cn(sidebarLinkClass({ isActive }), 'flex-1 pr-7', hasMenu && 'pointer-coarse:pr-12')
+                  }
+                >
+                  {/* 공간 종류 아이콘(WP-143) — 개인은 User, 팀은 Users. 첨부 모아보기(Paperclip)와 함께 모든 행이 아이콘을 갖도록 통일 */}
+                  <SpaceTypeIcon personal={s.type === 'PERSONAL'} />
+                  <span className="min-w-0 break-words">{s.type === 'PERSONAL' ? '내 드라이브' : s.name}</span>
+                </NavLink>
+                {hasMenu && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={`${s.name} 메뉴`}
+                        data-testid={`drive-space-menu-${s.id}`}
+                        // 터치 기기(pointer: coarse)는 hover 가 없으므로 상시 노출 + 44px 터치 영역(WP-237).
+                        className="absolute right-1 rounded p-1 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 group-hover/space:opacity-100 pointer-coarse:flex pointer-coarse:size-11 pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:p-0 pointer-coarse:opacity-100"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        data-testid={`drive-space-rename-${s.id}`}
+                        onSelect={() => setRenameTarget(s)}
+                      >
+                        이름 변경
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        data-testid={`drive-space-delete-${s.id}`}
+                        onSelect={() => setDeleteTarget(s)}
+                      >
+                        삭제
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
+            )
+          })}
         </nav>
       </div>
 

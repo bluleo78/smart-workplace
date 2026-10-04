@@ -1,14 +1,16 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ChevronDown, ChevronRight, MoreHorizontal, Plus } from 'lucide-react'
+import { ChevronDown, ChevronRight, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
 
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
+import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
 
 // 들여쓰기 1단계 폭(px) — 사이드바와 동일 값.
 const INDENT = 16
@@ -17,6 +19,8 @@ const INDENT = 16
  * 노트 트리 행 — 접기 토글(자식 있을 때) + 제목(클릭=이동) + 호버 시 ＋(하위 생성)·⋯(삭제).
  * DnD 는 useSortable. PointerSensor distance:5 가 클릭과 드래그를 분리하므로 행 컨테이너에
  * listeners 를 두고, 내부 버튼은 stopPropagation 으로 이동/드래그와 분리한다.
+ * 터치 기기(pointer: coarse)는 hover 가 없어 ＋·⋯ 클러스터에 닿을 수 없으므로 44px ⋯ 하나로 모은다(WP-237) —
+ * 폭 <1024(휴대폰)는 액션 시트, ≥1024(태블릿)는 드롭다운. 마우스 데스크톱은 기존 hover 클러스터 그대로.
  */
 export function WikiTreeRow({
   id,
@@ -54,6 +58,9 @@ export function WikiTreeRow({
   })
   const style = { transform: CSS.Translate.toString(transform), transition }
   const label = title || '제목 없음'
+  const coarse = useIsCoarsePointer()
+  // 삭제는 메뉴/시트가 닫힌 뒤 다이얼로그를 연다 — 닫히는 오버레이의 포커스 복귀·pointer-events 정리와 겹치지 않게.
+  const requestDelete = () => setTimeout(() => onRequestDelete(id), 0)
   return (
     <div
       ref={setNodeRef}
@@ -99,36 +106,49 @@ export function WikiTreeRow({
             </AiSignalBadge>
           )}
         </button>
-        <div className="absolute right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-          <button
-            type="button"
-            aria-label="하위 페이지"
-            onClick={(e) => {
-              e.stopPropagation()
-              onAddChild(id)
-            }}
-            className="flex h-6 w-6 items-center justify-center rounded bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              aria-label="페이지 메뉴"
-              onClick={(e) => e.stopPropagation()}
+        {coarse ? (
+          // 터치: 제목 옆 제자리(absolute 아님)에 ⋯ 하나 — 제목을 덮지 않는다(WP-237).
+          // 행의 DnD 리스너로 이벤트가 새지 않게 isolateEvents 로 버블링을 끊는다.
+          <TouchRowActionsMenu
+            title={label}
+            ariaLabel="페이지 메뉴"
+            testId={`wiki-tree-more-${id}`}
+            sheetTestId="wiki-tree-action-sheet"
+            isolateEvents
+            actions={[
+              { key: 'wiki-add-child', label: '하위 페이지 추가', icon: <Plus />, onSelect: () => onAddChild(id) },
+              { key: 'wiki-delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: requestDelete },
+            ]}
+          />
+        ) : (
+          <div className="absolute right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <button
+              type="button"
+              aria-label="하위 페이지"
+              onClick={(e) => {
+                e.stopPropagation()
+                onAddChild(id)
+              }}
               className="flex h-6 w-6 items-center justify-center rounded bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
             >
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" onClick={(e) => e.stopPropagation()}>
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => setTimeout(() => onRequestDelete(id), 0)}
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                aria-label="페이지 메뉴"
+                onClick={(e) => e.stopPropagation()}
+                className="flex h-6 w-6 items-center justify-center rounded bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
               >
-                삭제
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" onClick={(e) => e.stopPropagation()}>
+                <DropdownMenuItem variant="destructive" onSelect={requestDelete}>
+                  삭제
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
       </div>
     </div>
   )

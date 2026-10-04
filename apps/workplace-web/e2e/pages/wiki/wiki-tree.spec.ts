@@ -337,3 +337,59 @@ test('하위 페이지 생성 — 400 이면 서버 메시지를 토스트로 �
 
   await expect(page.getByText('다른 공간의 페이지를 부모로 지정할 수 없습니다: page=1')).toBeVisible()
 })
+
+// WP-237: 터치 태블릿(≥1024px, pointer: coarse)은 hover 가 없어 ＋·⋯ 클러스터에 닿지 못했다 → 제목 옆 44px ⋯ 하나로 모아 드롭다운으로 연다.
+test.describe('트리 행 액션 — 터치 태블릿(≥1024px)', () => {
+  test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true })
+
+  test('⋯ 하나가 상시 보이고(＋ 없음, 제목과 안 겹침) 메뉴로 하위 페이지 추가(POST parentId)·삭제(DELETE)', async ({
+    authenticatedPage: page,
+  }) => {
+    await routeCommon(page)
+    let postBody: { parentId: number | null; title: string } | null = null
+    let deleteCalled = false
+    await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) => {
+      if (r.request().method() === 'POST') {
+        postBody = r.request().postDataJSON()
+        return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(detail(2, '', 1)) })
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ id: 1, parentId: null, title: '아주 긴 제품 문서 제목이 사이드바 폭을 넘어가는 경우', position: 0 }]),
+      })
+    })
+    await page.route('**/api/v1/wiki/pages/*', (r) => {
+      if (r.request().method() === 'DELETE') {
+        deleteCalled = true
+        return r.fulfill({ status: 204, body: '' })
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '제품 문서', null)) })
+    })
+
+    await page.goto(`/wiki/spaces/${SPACE_ID}`)
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
+    const row = page.getByTestId('wiki-tree-row-1')
+    const trigger = row.getByRole('button', { name: '페이지 메뉴' })
+    await expect(trigger).toBeVisible()
+    await expect(trigger).toHaveCSS('opacity', '1')
+    await expect(row.getByRole('button', { name: '하위 페이지' })).toHaveCount(0)
+    // 44px 터치 영역 + 제목 버튼과 겹치지 않음.
+    const t = (await trigger.boundingBox())!
+    expect(t.width).toBeGreaterThanOrEqual(44)
+    expect(t.height).toBeGreaterThanOrEqual(44)
+    const titleBox = (await row.getByRole('button', { name: /아주 긴 제품 문서/ }).boundingBox())!
+    expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(t.x)
+
+    await trigger.tap()
+    await page.getByRole('menuitem', { name: '하위 페이지 추가' }).click()
+    await expect.poll(() => postBody).not.toBeNull()
+    expect(postBody!.parentId).toBe(1)
+
+    await page.goto(`/wiki/spaces/${SPACE_ID}`)
+    await page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '페이지 메뉴' }).tap()
+    await page.getByRole('menuitem', { name: '삭제' }).click()
+    await page.getByTestId('wiki-delete-dialog').getByRole('button', { name: '삭제' }).click()
+    await expect.poll(() => deleteCalled).toBe(true)
+  })
+})

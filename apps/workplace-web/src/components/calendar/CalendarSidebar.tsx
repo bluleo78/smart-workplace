@@ -123,7 +123,7 @@ export function CalendarSidebar({
                   읽기 전용
                 </Badge>
               ) : (
-                /* 케밥(⋯) 메뉴 — hover 시만 노출. 편집 + (로컬 한정)모든 일정 삭제 */
+                /* 케밥(⋯) 메뉴 — hover 시만 노출(터치 기기는 상시, WP-237). 편집 + (로컬 한정)모든 일정 삭제 */
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -131,7 +131,8 @@ export function CalendarSidebar({
                       size="icon"
                       // focus-visible 노출 추가(키보드 포커스 시 opacity-0로 완전 비가시 상태였음) +
                       // 24x24 최소 터치 타겟(WCAG 2.5.8) 충족을 위해 h-6 w-6로 상향(#709).
-                      className="h-6 w-6 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+                      // 터치 기기(pointer: coarse)는 hover 가 없으므로 상시 노출 + 44px 터치 영역(WP-237).
+                      className="h-6 w-6 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 pointer-coarse:size-11 pointer-coarse:opacity-100"
                       data-testid={`calendar-menu-${c.id}`}
                       aria-label={`${c.name} 메뉴`}
                       onClick={(e) => e.stopPropagation()}
