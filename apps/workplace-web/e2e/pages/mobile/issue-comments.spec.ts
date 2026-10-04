@@ -64,6 +64,9 @@ test('내 코멘트 — ⋯ 는 44px 이상 · 수정 → 저장 → PATCH 와 �
   await more.click();
   await page.getByTestId('issue-comment-sheet').getByTestId('mobile-action-edit').click();
   await expect(page.getByTestId('issue-comment-sheet')).toBeHidden();
+  // WP-237: 「수정」을 고르면 ⋯ 메뉴(시트 포함)가 편집 모드로 언마운트된다 — 오버레이·body pointer-events 잠금이 남지 않아야 한다.
+  await expect(page.locator('[data-slot="sheet-overlay"]')).toHaveCount(0);
+  await expect(page.locator('body')).not.toHaveCSS('pointer-events', 'none');
   const input = page.getByTestId('issue-comment-edit-input');
   await expect(input).toContainText('내 코멘트 원본');
   await input.click();

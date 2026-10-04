@@ -54,11 +54,15 @@ export function IssueDriveLinkItem({
         </span>
         <span className="text-xs text-muted-foreground">{formatFileSize(link.sizeBytes)}</span>
         {canManage && (
+          // 마우스는 hover 시에만 노출. WP-237: 터치 기기(pointer: coarse)는 hover 가 없어 상시 노출 +
+          // 44px 터치 영역(음수 세로 마진으로 행 높이는 유지).
+          // ⋯ 로 감추지 않는 이유: 해제는 확인창을 거치므로 상시 노출해도 오조작이 바로 실행되지 않는다(즉시 실행인 IssueLinkRow 와의 의도적 차이).
           <Button
             variant="ghost"
             size="icon"
             aria-label="링크 제거"
-            className="hidden group-hover:inline-flex"
+            className="hidden group-hover:inline-flex pointer-coarse:-my-2.5 pointer-coarse:inline-flex pointer-coarse:size-11"
+            data-testid={`issue-drive-link-remove-${link.driveFileId}`}
             onClick={() => onRemove(link.driveFileId)}
           >
             <X className="h-4 w-4" />

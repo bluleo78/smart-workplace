@@ -86,7 +86,9 @@ export function ViewChipBar({
                   aria-label="뷰 메뉴"
                   // hidden/inline-flex 토글 대신 opacity 로 시각적으로만 숨김 — 항상 레이아웃에 존재해야
                   // 메뉴 오픈 중 :hover 판정이 사라져도 트리거 rect 가 유효해 Radix Popper 앵커가 깨지지 않는다(#693).
-                  className="ml-0.5 inline-flex min-w-6 rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100 data-[state=open]:opacity-100"
+                  // WP-237: 터치 태블릿(pointer: coarse)은 hover 가 없어 상시 노출 + 44px 터치 영역. 칩 줄이 flex-wrap 이라
+                  // ::after 확장(이웃 칩 탭을 가로챔) 대신 실제 크기를 키운다.
+                  className="ml-0.5 inline-flex min-w-6 rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100 data-[state=open]:opacity-100 pointer-coarse:size-11 pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:opacity-100 pointer-coarse:active:bg-accent"
                 >
                   ⋯
                 </DropdownMenuTrigger>
