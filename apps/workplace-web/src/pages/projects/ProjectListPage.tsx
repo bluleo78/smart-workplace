@@ -6,7 +6,9 @@ import { PageHeader } from '@/components/layout/PageHeader'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { useProjectFavorites } from '@/hooks/useProjectFavorites'
+import { cn } from '@/lib/utils'
 
 import { useProjects } from '../../hooks/queries/useProjects'
 import { ProjectCreateDialog } from './components/ProjectCreateDialog'
@@ -17,6 +19,8 @@ type SortKey = 'recent' | 'name'
 // 내가 멤버인 프로젝트 목록 (ADMIN 은 전체). 우상단 "+ 새 프로젝트" 로 생성 모달.
 export default function ProjectListPage() {
   const [open, setOpen] = useState(false)
+  // 모바일 정렬 토글 터치 영역 44px 확보(-my-3 로 레이아웃 높이 유지) — 데스크톱 클래스 불변(WP-197 디자인 리뷰 R7).
+  const isMobile = useIsMobile()
   const [sort, setSort] = useState<SortKey>('recent')
   // isError/refetch 구조분해 — API 실패 시 오류 상태와 재시도 버튼 표시
   const { data, isLoading, isError, refetch } = useProjects()
@@ -76,7 +80,7 @@ export default function ProjectListPage() {
                 <button
                   type="button"
                   data-testid="project-sort-toggle"
-                  className="flex items-center gap-1 hover:text-foreground"
+                  className={cn('flex items-center gap-1 hover:text-foreground', isMobile && '-my-3 min-h-11')}
                   onClick={() => setSort((s) => (s === 'recent' ? 'name' : 'recent'))}
                 >
                   정렬: {sort === 'recent' ? '최근 활동순' : '이름순'}

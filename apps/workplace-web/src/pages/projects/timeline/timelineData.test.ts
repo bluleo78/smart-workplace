@@ -6,6 +6,8 @@ import type { IssueTypeSummary } from '@/types/issueType';
 import type { MilestoneResponse } from '@/types/milestone';
 
 import {
+  type AgendaSection,
+  buildAgendaSections,
   cyclesToBands,
   defaultScheduleRange,
   filterRenderableDependencies,
@@ -256,5 +258,138 @@ describe('groupTimelineIssues', () => {
     ]);
     expect(groups).toEqual([]);
     expect(unscheduled).toEqual([]);
+  });
+});
+
+describe('buildAgendaSections', () => {
+  const TODAY = new Date(2026, 9, 15); // 2026-10-15(로컬)
+  const keys = (s: AgendaSection[]) => s.map((x) => x.key);
+  const nums = (s: AgendaSection) => s.rows.map((r) => r.issueNumber);
+
+  it('기준일(시작일 우선, 없으면 마감일)의 월 섹션을 오름차순으로, 기준일 없는 이슈는 맨 아래 「일정 미정」', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 1, startDate: '2026-11-03', dueDate: '2026-11-10' }),
+        issue({ number: 2, dueDate: '2026-09-20' }),
+        issue({ number: 3 }),
+        // 시작일만 — 간트(마감 필수)와 달리 미정이 아니라 시작 월에 둔다(R3).
+        issue({ number: 4, startDate: '2026-10-02' }),
+      ],
+      TODAY,
+    );
+    expect(keys(s)).toEqual(['2026-09', '2026-10', '2026-11', 'undated']);
+    expect(s.map((x) => x.label)).toEqual(['2026년 9월', '2026년 10월', '2026년 11월', '일정 미정']);
+    expect(nums(s[1])).toEqual([4]);
+    expect(nums(s[3])).toEqual([3]);
+    expect(s[3].rows[0].bar).toBeNull();
+    expect(s[3].todayRatio).toBeNull();
+  });
+
+  it('같은 월 안은 기준일 오름차순, 같으면 번호 오름차순', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 7, startDate: '2026-10-05' }),
+        issue({ number: 5, startDate: '2026-10-05' }),
+        issue({ number: 6, dueDate: '2026-10-01' }),
+      ],
+      TODAY,
+    );
+    expect(nums(s[0])).toEqual([6, 5, 7]);
+  });
+
+  it('에픽은 자기 기준일의 월에, 하위는 월이 달라도(미정 포함) 에픽 바로 아래 child 로 묶인다', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 40, title: '결제 개편', type: EPIC_TYPE, startDate: '2026-10-01', dueDate: '2026-12-15' }),
+        issue({ number: 41, parent: parentRef(40, '결제 개편'), startDate: '2026-11-05', dueDate: '2026-11-20' }),
+        issue({ number: 42, parent: parentRef(40, '결제 개편'), dueDate: '2026-10-08' }),
+        issue({ number: 43, parent: parentRef(40, '결제 개편') }),
+        issue({ number: 9, startDate: '2026-10-03' }),
+      ],
+      TODAY,
+    );
+    expect(keys(s)).toEqual(['2026-10']);
+    expect(s[0].rows.map((r) => [r.issueNumber, r.kind])).toEqual([
+      [40, 'epic'],
+      [42, 'child'],
+      [41, 'child'],
+      [43, 'child'],
+      [9, 'issue'],
+    ]);
+  });
+
+  it('에픽 기준일이 없으면 하위 중 가장 이른 기준일의 월, 머리 행 날짜·막대는 하위 롤업', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 50, title: '롤업 에픽', type: EPIC_TYPE }),
+        issue({ number: 51, parent: parentRef(50, '롤업 에픽'), startDate: '2026-09-25', dueDate: '2026-10-05' }),
+        issue({ number: 52, parent: parentRef(50, '롤업 에픽'), dueDate: '2026-11-02' }),
+      ],
+      TODAY,
+    );
+    expect(keys(s)).toEqual(['2026-09']);
+    const head = s[0].rows[0];
+    expect(head).toMatchObject({ issueNumber: 50, kind: 'epic', title: '롤업 에픽', start: '2026-09-25', due: '2026-11-02' });
+    expect(head.bar!.left).toBeCloseTo(24 / 30);
+    expect(head.bar!.right).toBe(1);
+  });
+
+  it('응답에 없는 에픽은 하위의 parent 요약으로 머리 행을 합성한다', () => {
+    const s = buildAgendaSections([issue({ number: 61, parent: parentRef(60, '합성 에픽'), dueDate: '2026-10-10' })], TODAY);
+    expect(s[0].rows.map((r) => [r.issueNumber, r.kind, r.title])).toEqual([
+      [60, 'epic', '합성 에픽'],
+      [61, 'child', '이슈'],
+    ]);
+  });
+
+  it('SUBTASK·CANCELED·취소된 에픽의 하위는 제외한다(간트와 같은 규칙)', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 1, dueDate: '2026-10-01' }),
+        issue({ number: 2, type: SUBTASK_TYPE, dueDate: '2026-10-02' }),
+        issue({ number: 3, status: 'CANCELED', dueDate: '2026-10-03' }),
+        issue({ number: 70, type: EPIC_TYPE, status: 'CANCELED', dueDate: '2026-10-04' }),
+        issue({ number: 71, parent: parentRef(70, '취소 에픽'), dueDate: '2026-10-05' }),
+      ],
+      TODAY,
+    );
+    expect(s.flatMap(nums)).toEqual([1]);
+  });
+
+  it('막대 = 섹션 월 안 비율, 월 밖은 0/1 로 잘린다(보이는 최소 폭은 컴포넌트 몫)', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 1, startDate: '2026-10-11', dueDate: '2026-10-20' }),
+        issue({ number: 2, startDate: '2026-09-25', dueDate: '2026-10-05' }),
+        issue({ number: 3, dueDate: '2026-10-31' }),
+        issue({ number: 40, type: EPIC_TYPE, startDate: '2026-10-01' }),
+        issue({ number: 41, parent: parentRef(40, '에픽'), startDate: '2026-11-05', dueDate: '2026-11-20' }),
+        issue({ number: 4, startDate: '2026-10-20', dueDate: '2026-10-12' }), // 시작 > 마감(잘못된 데이터) — 뒤집어 그린다
+      ],
+      TODAY,
+    );
+    const row = (n: number) => s.flatMap((x) => x.rows).find((r) => r.issueNumber === n)!;
+    expect(row(1).bar!.left).toBeCloseTo(10 / 31);
+    expect(row(1).bar!.right).toBeCloseTo(20 / 31);
+    expect(row(2).bar!.left).toBeCloseTo(24 / 30); // 9월 섹션
+    expect(row(2).bar!.right).toBe(1);
+    expect(row(3).bar!.left).toBeCloseTo(30 / 31);
+    expect(row(3).bar!.right).toBe(1);
+    expect(row(41).bar).toEqual({ left: 1, right: 1 }); // 10월 에픽 아래 11월 하위 — 오른쪽 끝으로 잘림
+    expect(row(4).bar!.left).toBeCloseTo(11 / 31);
+    expect(row(4).bar!.right).toBeCloseTo(20 / 31);
+  });
+
+  it('오늘 선 — 오늘이 속한 월 섹션만, 그날의 가운데 비율', () => {
+    const s = buildAgendaSections(
+      [issue({ number: 1, dueDate: '2026-09-10' }), issue({ number: 2, dueDate: '2026-10-10' })],
+      TODAY,
+    );
+    expect(s[0].todayRatio).toBeNull();
+    expect(s[1].todayRatio).toBeCloseTo(14.5 / 31);
+  });
+
+  it('빈 입력은 빈 배열', () => {
+    expect(buildAgendaSections([], TODAY)).toEqual([]);
   });
 });

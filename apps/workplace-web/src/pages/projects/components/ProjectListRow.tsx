@@ -2,6 +2,7 @@
 import { Star } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { formatRelativeTime } from '@/lib/formatters'
 import { nameColor, nameInitial, projectColor, projectInitial } from '@/lib/project-color'
 import { cn } from '@/lib/utils'
@@ -15,18 +16,27 @@ function progressLabel(p: ProjectResponse, pct: number): string {
   return `${p.issueTotal}개 중 ${pct}% 완료`
 }
 
-export function ProjectListRow({
-  project: p,
-  fav,
-  onToggleFav,
-}: {
+type RowProps = {
   project: ProjectResponse
   fav: boolean
   onToggleFav: (key: string) => void
-}) {
-  const c = projectColor(p.key)
-  const pct = p.issueTotal === 0 ? 0 : Math.round((p.issueDone / p.issueTotal) * 100)
-  const isPersonal = p.type === 'PERSONAL'
+}
+
+// 데스크톱·모바일 행이 공유하는 파생값 — 배지 색·완료율(바 너비와 라벨이 같은 값)·개인 여부.
+function rowBasics(p: ProjectResponse) {
+  return {
+    c: projectColor(p.key),
+    pct: p.issueTotal === 0 ? 0 : Math.round((p.issueDone / p.issueTotal) * 100),
+    isPersonal: p.type === 'PERSONAL',
+  }
+}
+
+export function ProjectListRow(props: RowProps) {
+  const isMobile = useIsMobile()
+  if (isMobile) return <ProjectListRowMobile {...props} />
+
+  const { project: p, fav, onToggleFav } = props
+  const { c, pct, isPersonal } = rowBasics(p)
   // 표시한 아바타 수를 넘는 잔여 멤버 수 — 음수 방지(방어적).
   const extra = Math.max(0, p.memberCount - p.memberNames.length)
 
@@ -120,6 +130,76 @@ export function ProjectListRow({
           className="justify-self-end p-1"
         >
           <Star className={cn('h-4 w-4', fav ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40')} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+// 모바일(WP-197) — 64px 한 줄 행. 데스크톱 5열 그리드는 좁은 폭에서 진행 라벨·아바타가 잘려 정보가 사라졌다.
+// 별 버튼은 <a> 안에 둘 수 없어 Link 의 형제로 두고, Link 가 나머지 폭 전체를 덮어 행 어디를 눌러도 상세로 간다.
+function ProjectListRowMobile({ project: p, fav, onToggleFav }: RowProps) {
+  const { c, pct, isPersonal } = rowBasics(p)
+  // 보조줄 진행 정보 — OPEN 은 유형이 우선(이슈 0건이어도 「접수함」), 그 외 0건은 「이슈 없음」.
+  const meta =
+    p.type === 'OPEN' ? (
+      <span>접수함</span>
+    ) : p.issueTotal === 0 ? (
+      <span>이슈 없음</span>
+    ) : (
+      <>
+        <span aria-hidden="true" className="h-1.5 w-[60px] shrink-0 overflow-hidden rounded-full bg-muted">
+          <span className="block h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: c.bg }} />
+        </span>
+        <span className="shrink-0">{pct}%</span>
+        <span aria-hidden="true">·</span>
+        <span className="shrink-0">{p.issueTotal}개</span>
+      </>
+    )
+  return (
+    <div
+      role="listitem"
+      data-testid={`project-row-${p.key}`}
+      className="flex h-16 items-center border-b pl-4 pr-1"
+    >
+      {/* 탭 하이라이트는 링크에만 — 행 루트에 두면 별 탭에도 행 전체가 칠해진다. */}
+      <Link
+        to={`/projects/${p.key}`}
+        className="flex h-full min-w-0 flex-1 items-center gap-3 active:bg-accent/40"
+      >
+        <span
+          aria-hidden="true"
+          data-testid={`project-badge-${p.key}`}
+          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold"
+          style={{ backgroundColor: c.bg, color: c.fg }}
+        >
+          {projectInitial(p.key)}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-semibold">{p.name}</span>
+          <span
+            data-testid={`project-row-meta-${p.key}`}
+            className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground"
+          >
+            <span className="shrink-0">{p.key}</span>
+            <span aria-hidden="true">·</span>
+            {meta}
+          </span>
+        </span>
+      </Link>
+      {/* 즐겨찾기 — 팀·OPEN 만(기존 규칙). 개인은 같은 폭의 빈 자리로 이름 끝 정렬을 맞춘다. 44px 터치. */}
+      {isPersonal ? (
+        <span aria-hidden="true" className="size-11 shrink-0" />
+      ) : (
+        <button
+          type="button"
+          data-testid={`fav-toggle-${p.key}`}
+          aria-label={fav ? '즐겨찾기 해제' : '즐겨찾기'}
+          aria-pressed={fav}
+          onClick={() => onToggleFav(p.key)}
+          className="flex size-11 shrink-0 items-center justify-center rounded-md active:bg-accent"
+        >
+          <Star className={cn('size-5', fav ? 'fill-warning text-warning' : 'text-muted-foreground/60')} />
         </button>
       )}
     </div>

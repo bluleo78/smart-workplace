@@ -7,27 +7,18 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/ui/button';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
-import { useCycles } from '../../../hooks/queries/useCycles';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useMilestones } from '../../../hooks/queries/useMilestones';
-import { useProjectDependencies } from '../../../hooks/queries/useProjectDependencies';
 import { useProject } from '../../../hooks/queries/useProjects';
-import { useTimelineIssueUpdate } from '../../../hooks/queries/useTimelineIssueUpdate';
 import { parseFilters } from '../../../lib/issueFilters';
 import type { MilestoneResponse } from '../../../types/milestone';
 import { MilestoneEditPopover } from './MilestoneEditPopover';
 import { MilestoneFormDialog } from './MilestoneFormDialog';
-import {
-  cyclesToBands,
-  defaultScheduleRange,
-  filterRenderableDependencies,
-  groupTimelineIssues,
-  milestonesToMarkers,
-} from './timelineData';
-import { TimelineFilterBar } from './TimelineFilterBar';
-import { TimelineGantt, type TimelineZoom } from './TimelineGantt';
-import { UnscheduledSection } from './UnscheduledSection';
+import { TimelineAgendaList } from './TimelineAgendaList';
+import type { TimelineZoom } from './TimelineGantt';
+import { TimelineGanttBody } from './TimelineGanttBody';
 
 export default function TimelinePage() {
   const { key = '' } = useParams();
@@ -53,9 +44,7 @@ export default function TimelinePage() {
 
   const project = useProject(key);
   const search = useIssueSearch(key, effectiveFilters, 100);
-  const cycles = useCycles(key);
   const milestones = useMilestones(key);
-  const dependencies = useProjectDependencies(key);
 
   // 이슈 전량이 필요한 화면이라 hasNextPage 동안 자동으로 다음 페이지를 페치한다.
   useEffect(() => {
@@ -63,50 +52,16 @@ export default function TimelinePage() {
   }, [search.hasNextPage, search.isFetchingNextPage, search]);
 
   const issues = useMemo(() => (search.data?.pages ?? []).flatMap((p) => p.items), [search.data]);
-  // 에픽 계층 트리(#649) — bars 평면 목록 대신 에픽 그룹 트리로 변환.
-  const { groups, unscheduled } = useMemo(() => groupTimelineIssues(issues), [issues]);
-  const cycleBands = useMemo(() => cyclesToBands(cycles.data ?? []), [cycles.data]);
-  const milestoneMarkers = useMemo(
-    () => milestonesToMarkers(milestones.data ?? []),
-    [milestones.data],
-  );
-  // 일정 미정/CANCELED 이슈로의 화살표는 SVAR 가 렌더할 노드가 없어 제외한다.
-  const renderableDependencies = useMemo(
-    () => filterRenderableDependencies(dependencies.data ?? [], groups.flatMap((g) => g.bars)),
-    [dependencies.data, groups],
-  );
-
-  // 에픽 그룹 펼침 상태 — localStorage 로 프로젝트별 지속(#649). 페이지가 소유하고
-  // TimelineGantt 는 expandedKeys/onToggleGroup props 로만 상태를 주고받는다.
-  // "펼친 것만 저장" 모델 — 초기값 빈 배열이면 모든 그룹이 접힘이 기본이다(사용자 요청).
-  const expandStorageKey = `timeline-expanded:${key}`;
-  const [expandedKeys, setExpandedKeys] = useState<string[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(expandStorageKey) ?? '[]') as string[];
-    } catch {
-      return [];
-    }
-  });
-  const handleToggleGroup = (groupKey: string, open: boolean) => {
-    setExpandedKeys((prev) => {
-      const next = open ? [...new Set([...prev, groupKey])] : prev.filter((k) => k !== groupKey);
-      localStorage.setItem(expandStorageKey, JSON.stringify(next));
-      return next;
-    });
-  };
-
+  // 모바일 = 아젠다(WP-197), 데스크톱 = 간트 본문(TimelineGanttBody) — 간트 전용 조회·계산은 그 본문 안에서만 돈다.
+  const isMobile = useIsMobile();
   const readOnly = !(project.data?.viewerIsMember ?? false);
-  const updateIssue = useTimelineIssueUpdate(key);
 
-  // 마일스톤별 연결된 이슈 수 — 이슈 목록에서 파생(팝오버 "연결된 이슈 N개" 표시용).
-  const linkedIssueCounts = useMemo(() => {
-    const counts = new Map<number, number>();
-    for (const issue of issues) {
-      if (issue.milestoneId == null) continue;
-      counts.set(issue.milestoneId, (counts.get(issue.milestoneId) ?? 0) + 1);
-    }
-    return counts;
-  }, [issues]);
+  // 마일스톤별 연결된 이슈 수 — 팝오버가 열린 마일스톤만 이슈 목록에서 센다("연결된 이슈 N개" 표시용).
+  const editingMilestoneId = milestoneEditState?.milestone.id;
+  const linkedIssueCount = useMemo(
+    () => (editingMilestoneId == null ? 0 : issues.filter((i) => i.milestoneId === editingMilestoneId).length),
+    [issues, editingMilestoneId],
+  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="timeline-page">
@@ -122,6 +77,15 @@ export default function TimelinePage() {
           </Button>
         }
         title="타임라인"
+        // 모바일: 줌·「오늘」은 아젠다에 의미가 없어 숨기고, 멤버만 「마일스톤 추가」(항목 1개라 헤더에 인라인 — U3-R7).
+        mobileActions={
+          readOnly ? null : (
+            <Button variant="ghost" size="sm" data-testid="milestone-add-button" onClick={() => setMilestoneDialogState({})}>
+              <Diamond aria-hidden />
+              마일스톤 추가
+            </Button>
+          )
+        }
         meta={<span className="text-muted-foreground">{project.data?.key}</span>}
         actions={
           <div className="flex items-center gap-1" role="group" aria-label="줌 전환">
@@ -165,47 +129,26 @@ export default function TimelinePage() {
           </div>
         }
       />
-      <div className="border-b px-4 py-1">
-        <TimelineFilterBar projectKey={key} />
-      </div>
-      <div className="min-h-0 flex-1 px-4 py-6" data-testid="timeline-gantt">
-        <TimelineGantt
-          groups={groups}
-          expandedKeys={expandedKeys}
-          onToggleGroup={handleToggleGroup}
-          milestones={milestoneMarkers}
-          cycles={cycleBands}
-          dependencies={renderableDependencies}
+      {isMobile ? (
+        <TimelineAgendaList
+          projectKey={key}
+          issues={issues}
+          milestones={milestones.data ?? []}
+          loading={search.isLoading || search.isFetchingNextPage || search.hasNextPage === true}
+          onOpenIssue={(n) => navigate(`/projects/${key}/issues/${n}`)}
+        />
+      ) : (
+        <TimelineGanttBody
+          projectKey={key}
+          issues={issues}
+          milestones={milestones.data}
           zoom={zoom}
           readOnly={readOnly}
           scrollToDate={scrollToDate}
-          onBarChange={(issueNumber, change) =>
-            updateIssue.mutate({
-              number: issueNumber,
-              data: { startDate: change.startDate, dueDate: change.dueDate },
-            })
-          }
-          onBarClick={(issueNumber) => navigate(`/projects/${key}/issues/${issueNumber}`)}
-          onMilestoneClick={(id, anchorRect) => {
-            const target = milestones.data?.find((m) => m.id === id);
-            if (target) setMilestoneEditState({ milestone: target, anchorRect });
-          }}
-          onLaneClick={(date) => {
-            if (readOnly) return;
-            setMilestoneDialogState({ defaultDueDate: date });
-          }}
+          onMilestoneClick={(milestone, anchorRect) => setMilestoneEditState({ milestone, anchorRect })}
+          onLaneClick={(date) => setMilestoneDialogState({ defaultDueDate: date })}
         />
-      </div>
-      <UnscheduledSection
-        issues={unscheduled}
-        readOnly={readOnly}
-        onSchedule={(issueNumber) =>
-          updateIssue.mutate({
-            number: issueNumber,
-            data: defaultScheduleRange(new Date()),
-          })
-        }
-      />
+      )}
       <MilestoneFormDialog
         projectKey={key}
         defaultDueDate={milestoneDialogState?.defaultDueDate}
@@ -218,7 +161,7 @@ export default function TimelinePage() {
         <MilestoneEditPopover
           projectKey={key}
           milestone={milestoneEditState.milestone}
-          linkedCount={linkedIssueCounts.get(milestoneEditState.milestone.id) ?? 0}
+          linkedCount={linkedIssueCount}
           anchorRect={milestoneEditState.anchorRect}
           onClose={() => setMilestoneEditState(null)}
         />

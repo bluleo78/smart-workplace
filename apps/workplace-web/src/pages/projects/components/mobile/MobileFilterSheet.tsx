@@ -6,6 +6,12 @@ import { MobileSheetShell } from '@/components/mobile/MobileSheetShell';
 
 import type { IssueFilterControls } from '../../hooks/useIssueFilterControls';
 
+/** 필터 시트가 실제로 쓰는 컨트롤만 — 이슈 목록(useIssueFilterControls)과 타임라인(useTimelineFilterControls)이 함께 넘길 수 있게(WP-197). */
+export type MobileFilterControls = Pick<
+  IssueFilterControls,
+  'facets' | 'filterValue' | 'onFilterChange' | 'activeFilterCount' | 'clearFacets'
+>;
+
 export function MobileFilterSheet({
   open,
   onClose,
@@ -13,7 +19,7 @@ export function MobileFilterSheet({
 }: {
   open: boolean;
   onClose: () => void;
-  controls: IssueFilterControls;
+  controls: MobileFilterControls;
 }) {
   return (
     <MobileSheetShell

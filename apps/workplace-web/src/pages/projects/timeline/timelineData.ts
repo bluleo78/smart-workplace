@@ -1,7 +1,7 @@
 // 이슈/사이클/마일스톤 응답을 TimelineGantt 가 소비하는 모델로 변환하는 순수 함수 모음.
 // 네트워크/상태와 분리해 vitest 로 검증한다.
 
-import { addDays, format } from 'date-fns';
+import { addDays, format, getDaysInMonth } from 'date-fns';
 
 import type { CycleResponse } from '@/types/cycle';
 import type { IssueResponse } from '@/types/issue';
@@ -76,6 +76,19 @@ function rollupRange(bars: TimelineBar[]): { start: string; due: string } | null
   return { start: starts.reduce((a, b) => (a < b ? a : b)), due: dues.reduce((a, b) => (a > b ? a : b)) };
 }
 
+/** 타임라인에 올릴 이슈 — SUBTASK(계획 단위 아님)·CANCELED·취소된 에픽의 하위 제외. 간트(groupTimelineIssues)와 모바일 아젠다가 같은 규칙을 쓴다. */
+function activeTimelineIssues(issues: IssueResponse[]): IssueResponse[] {
+  const canceledEpics = new Set(
+    issues.filter((i) => i.type?.name === 'EPIC' && i.status === 'CANCELED').map((i) => i.number),
+  );
+  return issues.filter((i) => {
+    if (i.type?.name === 'SUBTASK') return false;
+    if (i.status === 'CANCELED') return false;
+    if (i.parent?.type.name === 'EPIC' && canceledEpics.has(i.parent.number)) return false;
+    return true;
+  });
+}
+
 /**
  * 이슈를 에픽 트리 구조로 그룹핑 (#649).
  * - EPIC 유형 → 그룹 행, 하위 이슈는 parent(EPIC) 기준으로 소속. 에픽 없는 이슈는 no-epic 가상 그룹(맨 뒤).
@@ -88,16 +101,7 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
   groups: TimelineEpicGroup[];
   unscheduled: IssueResponse[];
 } {
-  const canceledEpics = new Set(
-    issues.filter((i) => i.type?.name === 'EPIC' && i.status === 'CANCELED').map((i) => i.number),
-  );
-  // 유효 이슈: SUBTASK/CANCELED/취소 에픽의 하위 제외.
-  const active = issues.filter((i) => {
-    if (i.type?.name === 'SUBTASK') return false;
-    if (i.status === 'CANCELED') return false;
-    if (i.parent?.type.name === 'EPIC' && canceledEpics.has(i.parent.number)) return false;
-    return true;
-  });
+  const active = activeTimelineIssues(issues);
 
   const epics = active.filter((i) => i.type?.name === 'EPIC');
   const epicByNumber = new Map(epics.map((e) => [e.number, e]));
@@ -120,7 +124,6 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
   // 에픽 그룹 — 응답에 있는 에픽 + 하위만 보이는 합성 에픽을 번호 오름차순으로.
   const epicNumbers = [...new Set([...epicByNumber.keys(), ...children.keys()])].sort((a, b) => a - b);
   for (const num of epicNumbers) {
-    if (canceledEpics.has(num)) continue;
     const epic = epicByNumber.get(num) ?? null;
     const kids = children.get(num) ?? [];
     const bars = kids.filter((k) => k.dueDate).map(toBar);
@@ -168,4 +171,147 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
   }
 
   return { groups, unscheduled };
+}
+
+// ─── 모바일 타임라인 아젠다(WP-197) ───────────────────────────────────────────────
+// 간트 대신 월별 세로 목록. 기준일 = 시작일(없으면 마감일). 에픽은 자기 기준일의 월에 두고 하위를 바로 아래에 묶는다
+// (하위의 월이 달라도 — 시안 기준). 날짜 계산은 yyyy-MM-dd 문자열로만 해 타임존과 무관하게 한다.
+
+/** 아젠다 행 1개. */
+export interface AgendaRow {
+  issueNumber: number;
+  title: string;
+  /** epic = 에픽 머리 행(굵게·보라), child = 에픽 하위(들여쓰기), issue = 에픽 없는 이슈. */
+  kind: 'epic' | 'child' | 'issue';
+  /** 표시 날짜(yyyy-MM-dd). 자기 날짜가 없는 에픽 머리 행은 하위 롤업(가장 이른 기준일 ~ 가장 늦은 끝). */
+  start: string | null;
+  due: string | null;
+  /** 섹션 월 안 막대 위치(0~1 비율, 월 밖은 0/1 로 잘림). 날짜가 하나도 없으면 null. */
+  bar: { left: number; right: number } | null;
+}
+
+/** 아젠다 섹션 1개 — 월 또는 「일정 미정」. */
+export interface AgendaSection {
+  /** 'yyyy-MM' 또는 'undated' — testid 접미사(agenda-month-{key}). */
+  key: string;
+  /** 「2026년 10월」 / 「일정 미정」. */
+  label: string;
+  /** 오늘이 이 월이면 오늘 선 위치(0~1, 그날의 가운데), 아니면 null. 미정 섹션은 항상 null. */
+  todayRatio: number | null;
+  rows: AgendaRow[];
+}
+
+const UNDATED_KEY = 'undated';
+const basisOf = (i: { startDate: string | null; dueDate: string | null }) => i.startDate ?? i.dueDate;
+const monthKeyOf = (date: string) => date.slice(0, 7);
+// 'YYYY-MM' 월의 일수 — m 은 1-based 라 Date 월 인덱스(0-based)로 바꿔 넘긴다.
+const daysInMonth = (key: string) => {
+  const [y, m] = key.split('-').map(Number);
+  return getDaysInMonth(new Date(y, m - 1, 1));
+};
+
+/** 날짜의 월 안 위치 — 이전 달이면 0, 다음 달이면 1(잘림). end=true 면 그날의 끝. */
+function ratioInMonth(key: string, date: string, end: boolean): number {
+  const dk = monthKeyOf(date);
+  if (dk < key) return 0;
+  if (dk > key) return 1;
+  return (Number(date.slice(8, 10)) - (end ? 0 : 1)) / daysInMonth(key);
+}
+
+/** 섹션 월 기준 막대 — 한쪽 날짜만 있으면 그날 하루, 시작 > 마감(잘못된 데이터)이면 뒤집는다. */
+function barIn(key: string, start: string | null, due: string | null): AgendaRow['bar'] {
+  const s = start ?? due;
+  const e = due ?? start;
+  if (!s || !e) return null;
+  const [a, b] = s <= e ? [s, e] : [e, s];
+  return { left: ratioInMonth(key, a, false), right: ratioInMonth(key, b, true) };
+}
+
+/** 기준일 오름차순(없으면 뒤), 같으면 번호 오름차순. */
+function byBasis(a: { basis: string | null; number: number }, b: { basis: string | null; number: number }): number {
+  if (a.basis !== b.basis) {
+    if (a.basis == null) return 1;
+    if (b.basis == null) return -1;
+    return a.basis < b.basis ? -1 : 1;
+  }
+  return a.number - b.number;
+}
+
+/** 이슈 → 모바일 아젠다 섹션(월 오름차순, 「일정 미정」 맨 뒤). today 는 오늘 선 위치에만 쓴다. */
+export function buildAgendaSections(issues: IssueResponse[], today: Date): AgendaSection[] {
+  const active = activeTimelineIssues(issues);
+  const epicByNumber = new Map(active.filter((i) => i.type?.name === 'EPIC').map((e) => [e.number, e]));
+  const children = new Map<number, IssueResponse[]>();
+  const loose: IssueResponse[] = [];
+  for (const i of active) {
+    if (i.type?.name === 'EPIC') continue;
+    if (i.parent?.type.name === 'EPIC') {
+      // 매번 배열을 복사하지 않고 같은 배열에 push(groupTimelineIssues 와 같은 방식).
+      const list = children.get(i.parent.number) ?? [];
+      list.push(i);
+      children.set(i.parent.number, list);
+    } else {
+      loose.push(i);
+    }
+  }
+
+  type Item = Omit<AgendaRow, 'bar'>;
+  // 블록 = 섹션에 함께 들어가는 행 묶음(에픽 머리 + 하위, 또는 단독 이슈). 블록 기준일로 섹션·순서를 정한다.
+  const blocks: { basis: string | null; number: number; items: Item[] }[] = [];
+  const toItem = (i: IssueResponse, kind: AgendaRow['kind']): Item => ({
+    issueNumber: i.number,
+    title: i.title,
+    kind,
+    start: i.startDate,
+    due: i.dueDate,
+  });
+
+  for (const num of new Set([...epicByNumber.keys(), ...children.keys()])) {
+    const epic = epicByNumber.get(num);
+    const kids = (children.get(num) ?? []).map((k) => ({ basis: basisOf(k), number: k.number, k })).sort(byBasis);
+    const kidBases = kids.map((x) => x.basis).filter((b): b is string => b != null); // byBasis 정렬이라 이미 오름차순
+    const kidEnds = kids
+      .map((x) => x.k.dueDate ?? x.k.startDate)
+      .filter((d): d is string => d != null)
+      .sort();
+    const own = epic ? basisOf(epic) : null;
+    // 에픽 자기 날짜가 있으면 그대로, 없으면(또는 응답에 에픽이 없으면) 하위 롤업으로 머리 행 날짜·막대를 만든다.
+    const head: Item =
+      epic && own
+        ? toItem(epic, 'epic')
+        : {
+            issueNumber: num,
+            title: epic?.title ?? kids[0]?.k.parent?.title ?? `#${num}`,
+            kind: 'epic',
+            start: kidBases[0] ?? null,
+            due: kidEnds[kidEnds.length - 1] ?? null,
+          };
+    blocks.push({ basis: own ?? kidBases[0] ?? null, number: num, items: [head, ...kids.map((x) => toItem(x.k, 'child'))] });
+  }
+  for (const i of loose) blocks.push({ basis: basisOf(i), number: i.number, items: [toItem(i, 'issue')] });
+  blocks.sort(byBasis);
+
+  const todayStr = format(today, 'yyyy-MM-dd');
+  const sections = new Map<string, AgendaSection>();
+  for (const b of blocks) {
+    const key = b.basis ? monthKeyOf(b.basis) : UNDATED_KEY;
+    let sec = sections.get(key);
+    if (!sec) {
+      const [y, m] = key.split('-');
+      sec =
+        key === UNDATED_KEY
+          ? { key, label: '일정 미정', todayRatio: null, rows: [] }
+          : {
+              key,
+              label: `${y}년 ${Number(m)}월`,
+              todayRatio:
+                monthKeyOf(todayStr) === key ? (Number(todayStr.slice(8, 10)) - 0.5) / daysInMonth(key) : null,
+              rows: [],
+            };
+      sections.set(key, sec);
+    }
+    for (const it of b.items) sec.rows.push({ ...it, bar: key === UNDATED_KEY ? null : barIn(key, it.start, it.due) });
+  }
+  // blocks 가 기준일 오름차순(미정 맨 뒤)이라 Map 삽입 순서 = 섹션 순서.
+  return [...sections.values()];
 }

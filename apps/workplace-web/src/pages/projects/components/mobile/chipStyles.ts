@@ -9,3 +9,6 @@ export const MOBILE_CHIP = `${HIT_EXPAND} inline-flex h-8 shrink-0 items-center 
 
 // 활성 칩(에픽 선택·필터 적용) — 테두리 대신 primary 틴트로 「걸려 있음」을 표시.
 export const MOBILE_CHIP_ACTIVE = 'border-primary/40 bg-primary/10 text-primary font-medium';
+
+// 가로 스크롤 칩 줄의 스크롤바 숨김 — 칩 줄(툴바·타임라인 아젠다)이 같은 규칙을 쓴다.
+export const HIDE_SCROLLBAR = '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden';

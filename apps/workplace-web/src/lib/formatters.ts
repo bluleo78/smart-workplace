@@ -67,6 +67,25 @@ export function formatDateMonthDay(dateStr: string | null | undefined): string {
 }
 
 /**
+ * 월·일 날짜 범위("8월 12일 ~ 8월 20일") — 모바일 사이클 행·타임라인 아젠다 행이 공유한다.
+ * 둘 다 없으면 empty. 화면마다 문구가 달라 옵션으로 고정한다:
+ * - collapseSameDay: 시작=마감이면 한 날짜만(아젠다).
+ * - openEnded: 한쪽만 있을 때 「8월 12일 ~」/「~ 8월 20일」 열린 범위(사이클). 끄면 그 날짜만(아젠다).
+ */
+export function formatDateRangeMonthDay(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  empty: string,
+  { collapseSameDay = false, openEnded = false }: { collapseSameDay?: boolean; openEnded?: boolean } = {},
+): string {
+  const s = start ? formatDateMonthDay(start) : '';
+  const e = end ? formatDateMonthDay(end) : '';
+  if (s && e) return collapseSameDay && s === e ? s : `${s} ~ ${e}`;
+  if (openEnded) return s ? `${s} ~` : e ? `~ ${e}` : empty;
+  return s || e || empty;
+}
+
+/**
  * 날짜만 표시 — `YYYY-MM-DD` zero-pad (이슈 #105).
  * `formatDateShort`는 로케일 의존이라 페이지 간 표시가 들쭉날쭉하여 별도 zero-pad 헬퍼 도입.
  */
