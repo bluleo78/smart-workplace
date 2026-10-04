@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { parseConfigFromEnv, buildHostBridge } from './stdio-entry.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+
+import { parseConfigFromEnv, buildHostBridge, registerStdioTool } from './stdio-entry.js';
+import type { McpTool } from './tools.js';
 
 function baseEnv(over: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   return {
@@ -142,5 +148,43 @@ describe('buildHostBridge', () => {
     const bridge = buildHostBridge('http://localhost:7070/internal/bridge', 'run-1', 'tok-123');
     expect(() => bridge.onSubmitResponse('답변')).not.toThrow();
     await vi.waitFor(() => expect(errSpy).toHaveBeenCalled());
+  });
+});
+
+// WP-240: stdio 경로(opencode)도 도구가 반환한 content 블록을 MCP 응답에 그대로 싣는지 실제 서버·클라이언트 왕복으로 확인.
+describe('registerStdioTool', () => {
+  async function callVia(handler: McpTool['handler']) {
+    const server = new McpServer({ name: 'workplace', version: '1.0.0' });
+    registerStdioTool(server, { name: 't', description: 'd', inputSchema: z.object({}), handler });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverT);
+    const client = new Client({ name: 'test', version: '0.0.1' });
+    await client.connect(clientT);
+    try {
+      return await client.callTool({ name: 't', arguments: {} });
+    } finally {
+      await client.close();
+    }
+  }
+
+  it('문자열 반환은 text 블록 하나(기존 동작)', async () => {
+    const res = await callVia(async () => '{"ok":true}');
+    expect(res.content).toEqual([{ type: 'text', text: '{"ok":true}' }]);
+  });
+
+  it('이미지 블록 배열은 그대로 전달', async () => {
+    const blocks = [
+      { type: 'text' as const, text: '첨부:' },
+      { type: 'image' as const, data: 'iVBORw0KGgo=', mimeType: 'image/png' },
+    ];
+    const res = await callVia(async () => blocks);
+    expect(res.content).toEqual(blocks);
+  });
+
+  it('핸들러 throw 는 isError 텍스트', async () => {
+    const res = await callVia(async () => {
+      throw new Error('boom');
+    });
+    expect(res).toMatchObject({ isError: true, content: [{ type: 'text', text: 'boom' }] });
   });
 });

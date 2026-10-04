@@ -274,7 +274,7 @@ describe('프로필 구성', () => {
 
   it('home 표시 도구는 {displayed:true} 만 반환한다(데이터 조회 X)', async () => {
     for (const t of buildTools(client(), AGENT_ID, 'home')) {
-      expect(JSON.parse(await t.handler({}))).toEqual({ displayed: true });
+      expect(JSON.parse((await t.handler({})) as string)).toEqual({ displayed: true });
     }
   });
 
@@ -485,7 +485,7 @@ describe('discover_channels (#350)', () => {
     vi.mocked(c.discoverChannels).mockResolvedValue([{ id: 3, name: '공지', kind: 'PUBLIC' }] as never);
     const out = await find(buildTools(c, AGENT_ID, 'messaging'), 'discover_channels').handler({ q: '공지' });
     expect(c.discoverChannels).toHaveBeenCalledWith(AGENT_ID, '공지');
-    expect(JSON.parse(out)).toEqual([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
+    expect(JSON.parse(out as string)).toEqual([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
   });
 });
 
@@ -877,7 +877,7 @@ describe('list_project_members (#846)', () => {
     c.sc.getProjectMembers.mockResolvedValue([
       { userId: 5, username: 'minsu', name: '김민수', role: 'OWNER' } as never,
     ]);
-    const out = JSON.parse(await find(buildTools(c, 7, 'assistant'), 'list_project_members').handler({ projectKey: 'WP' }));
+    const out = JSON.parse((await find(buildTools(c, 7, 'assistant'), 'list_project_members').handler({ projectKey: 'WP' })) as string);
     expect(c.sc.getProjectMembers).toHaveBeenCalledWith('WP');
     expect(out).toEqual([{ username: 'minsu', name: '김민수', role: 'OWNER' }]);
   });
@@ -1092,7 +1092,7 @@ describe('외부 연락처 쓰기', () => {
     const input = { name: '김거래', email: 'k@x.com', visibility: 'SHARED' as const };
     const out = await find(buildTools(c, AGENT_ID, 'assistant'), 'create_external_contact').handler(input);
     expect(c.createExternalContact).toHaveBeenCalledWith(AGENT_ID, input, undefined);
-    expect(JSON.parse(out)).toEqual({ id: 3, name: '김거래' });
+    expect(JSON.parse(out as string)).toEqual({ id: 3, name: '김거래' });
   });
 
   it('update_external_contact 는 externalId 를 경로 id 로 분리하고 나머지를 본문으로 넘긴다', async () => {
@@ -1138,7 +1138,7 @@ describe('드라이브 쓰기 (#333 M4, #840)', () => {
     vi.mocked(c.createFolder).mockResolvedValue({ id: 10, name: '신규폴더' } as never);
     const out = await find(buildTools(c, 7, 'assistant'), 'create_folder').handler({ spaceId: 1, name: '신규폴더' });
     expect(c.createFolder).toHaveBeenCalledWith(7, 1, null, '신규폴더');
-    expect(JSON.parse(out)).toMatchObject({ id: 10, name: '신규폴더' });
+    expect(JSON.parse(out as string)).toMatchObject({ id: 10, name: '신규폴더' });
   });
 
   it('rename_folder → client.renameFolder(agentId, folderId, name)', async () => {

@@ -3,13 +3,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Request, Response } from 'express';
-import { describeApiError } from '@smart-workplace/mcp-tools-shared';
+import { describeApiError, toMcpContent } from '@smart-workplace/mcp-tools-shared';
 import type { z } from 'zod';
 
 import { createPatApiClient } from '../clients/workplace-api.js';
 import { buildUserTools } from '../tools/index.js';
 
-/** 도구 배열을 McpServer 에 등록. 핸들러 문자열 반환 → content 로 래핑, 예외 → isError. */
+/** 도구 배열을 McpServer 에 등록. 핸들러 반환 → content(문자열은 text 블록, 블록 배열은 그대로 — WP-240), 예외 → isError. */
 export function buildMcpServer(apiBaseUrl: string, token: string): McpServer {
   const client = createPatApiClient({ baseURL: apiBaseUrl, token });
   const server = new McpServer({ name: 'smart-workplace', version: '0.1.0' });
@@ -24,7 +24,7 @@ export function buildMcpServer(apiBaseUrl: string, token: string): McpServer {
       },
       async (args: unknown) => {
         try {
-          return { content: [{ type: 'text' as const, text: await t.handler(args) }] };
+          return { content: toMcpContent(await t.handler(args)) };
         } catch (e) {
           // axios 에러는 상태코드+서버 메시지를 요약해 전달 (토큰 만료/권한 부족이 즉시 드러나도록)
           const msg = summarizeError(e);

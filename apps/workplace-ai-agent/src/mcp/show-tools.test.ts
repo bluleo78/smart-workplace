@@ -22,6 +22,6 @@ describe('assistant 프로필 show_* 도구(#460 Layer2)', () => {
   it('show_ 핸들러는 데이터를 반환하지 않는다(displayed)', async () => {
     const tool = buildTools(stubClient, 1, 'assistant').find((t) => t.name === 'show_calendar')!;
     const out = await tool.handler({ params: {} });
-    expect(JSON.parse(out)).toEqual({ displayed: true });
+    expect(JSON.parse(out as string)).toEqual({ displayed: true });
   });
 });

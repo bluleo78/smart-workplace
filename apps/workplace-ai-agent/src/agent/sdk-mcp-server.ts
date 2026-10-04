@@ -4,6 +4,7 @@
 // 컨텍스트(onBehalfOf/threadBinding/delegationContext)·호스트 브리지·도구 로깅은 인자로 직접 받는다.
 import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance, SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
+import { summarizeToolResult, toMcpContent } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -18,7 +19,7 @@ export interface ToolUseLine {
   toolName: string;
   args?: Record<string, unknown>; // start 에만
   isError?: boolean; // result 에만
-  result?: string; // result 에만(원본 문자열)
+  result?: string; // result 에만(이미지는 base64 대신 `[image/png 6KB]` 요약 — WP-240)
 }
 
 // 어댑터에 주입하는 도구-로깅 컨텍스트. onTool 과 공유 seq 카운터(서버 인스턴스 스코프).
@@ -29,7 +30,8 @@ interface AdaptCtx {
 
 // 단일 McpTool → SDK SdkMcpToolDefinition 어댑터.
 // - inputSchema: ZodObject → raw shape(.shape). 모든 도구가 z.object(...) 이므로 안전.
-// - handler: string 반환 → {content:[{type:'text',text}]}, throw → {isError:true,...}.
+// - handler: string 반환 → {content:[{type:'text',text}]}, content 블록 배열(이미지 등)은 그대로(WP-240),
+//   throw → {isError:true,...}.
 // - ctx 있으면 호출 직전/직후 onTool 로 라이브 발행(같은 seq 로 start/result 매칭).
 // 반환 제네릭은 SdkMcpToolDefinition<any> — <z.ZodRawShape> 로 좁히면 InferShape 가 never 추론.
 // (의도적 any: SDK 타입의 한계로 정확한 shape 제네릭을 줄 수 없음 → 룰 단건 비활성)
@@ -47,8 +49,10 @@ export function adaptMcpTool(t: McpTool, ctx?: AdaptCtx): SdkMcpToolDefinition<a
       }
       try {
         const out = await t.handler(args);
-        if (ctx?.onTool) ctx.onTool({ seq, event: 'tool_result', toolName: t.name, isError: false, result: out });
-        return { content: [{ type: 'text', text: out }] };
+        if (ctx?.onTool) {
+          ctx.onTool({ seq, event: 'tool_result', toolName: t.name, isError: false, result: summarizeToolResult(out) });
+        }
+        return { content: toMcpContent(out) };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (ctx?.onTool) ctx.onTool({ seq, event: 'tool_result', toolName: t.name, isError: true, result: msg });

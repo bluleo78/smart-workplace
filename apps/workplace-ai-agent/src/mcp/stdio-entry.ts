@@ -10,6 +10,7 @@
 // HTTP 콜백 브리지를 구성한다 — POST {MCP_BRIDGE_URL}/{runId} { kind, data }.
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { toMcpContent } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import { createWorkplaceApiClient } from '../clients/workplace-api.js';
@@ -122,16 +123,16 @@ export function buildHostBridge(bridgeUrl: string, runId: string, internalToken:
 }
 
 // 단일 McpTool → McpServer.registerTool 등록. inputSchema 는 항상 z.object(...) 이므로 .shape 사용
-// (sdk-mcp-server.ts 의 adaptMcpTool 과 동일 전제).
-function registerStdioTool(server: McpServer, t: McpTool): void {
+// (sdk-mcp-server.ts 의 adaptMcpTool 과 동일 전제). 테스트에서 실제 McpServer 왕복 검증용으로 export.
+export function registerStdioTool(server: McpServer, t: McpTool): void {
   const shape = (t.inputSchema as z.ZodObject<z.ZodRawShape>).shape;
   server.registerTool(
     t.name,
     { description: t.description, inputSchema: shape },
     async (args: unknown) => {
       try {
-        const out = await t.handler(args);
-        return { content: [{ type: 'text' as const, text: out }] };
+        // 문자열은 text 블록, content 블록 배열(이미지 등)은 그대로(WP-240).
+        return { content: toMcpContent(await t.handler(args)) };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         return { isError: true, content: [{ type: 'text' as const, text: msg }] };

@@ -1,13 +1,16 @@
 // src/mcp-tool.ts — MCP 도구 정의 타입. 두 앱 공유.
 // inputSchema 는 z.ZodTypeAny — ai-agent 의 중첩 래퍼 스키마(show_* 의 {params,layout})까지 포용하는 상위집합.
-// 핸들러는 문자열(주로 JSON)을 반환하고, SDK 응답 변환·에러 래핑은 각 앱 서버 레이어가 담당한다.
+// 핸들러는 문자열(주로 JSON) 또는 content 블록 배열(이미지 등, WP-240)을 반환하고,
+// SDK 응답 변환(toMcpContent)·에러 래핑은 각 앱 서버 레이어가 담당한다.
 import type { z } from 'zod';
+
+import type { McpToolResult } from './mcp-content.js';
 
 export interface McpTool {
   name: string;
   description: string;
   inputSchema: z.ZodTypeAny;
-  handler: (args: unknown) => Promise<string>;
+  handler: (args: unknown) => Promise<McpToolResult>;
 }
 
 /**
@@ -26,4 +29,6 @@ export type ToolKind = 'read' | 'write' | 'destructive';
  */
 export interface SharedTool extends McpTool {
   kind: ToolKind;
+  // 공유 도구는 모두 REST 결과를 문자열(JSON)로 반환한다 — 이미지 등 블록 반환은 에이전트 전용 도구만(WP-240).
+  handler: (args: unknown) => Promise<string>;
 }

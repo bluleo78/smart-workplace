@@ -75,6 +75,24 @@ describe('adaptMcpTool onTool emit (#462 슬라이스4)', () => {
     expect(lines[1]).toEqual({ seq: 1, event: 'tool_result', toolName: 't', isError: true, result: 'boom' });
   });
 
+  it('content 블록 배열(이미지)은 그대로 전달하고 onTool result 에는 base64 대신 요약을 남긴다 (WP-240)', async () => {
+    const lines: import('./sdk-mcp-server.js').ToolUseLine[] = [];
+    let seq = 0;
+    const image = { type: 'image' as const, data: 'A'.repeat(8192), mimeType: 'image/png' };
+    const adapted = adaptMcpTool(
+      {
+        name: 'read_chat_attachment', description: 'd', inputSchema: z.object({}),
+        handler: async () => [{ type: 'text' as const, text: '첨부:' }, image],
+      },
+      { onTool: (l) => lines.push(l), nextSeq: () => (seq += 1) },
+    );
+    const res = await adapted.handler({}, undefined);
+    expect(res).toEqual({ content: [{ type: 'text', text: '첨부:' }, image] });
+    expect(lines[1]).toEqual({
+      seq: 1, event: 'tool_result', toolName: 'read_chat_attachment', isError: false, result: '첨부:\n[image/png 6KB]',
+    });
+  });
+
   it('ctx 없으면 onTool emit 없이 기존 동작(하위호환)', async () => {
     const adapted = adaptMcpTool({ name: 't', description: 'd', inputSchema: z.object({}), handler: async () => 'x' });
     expect(await adapted.handler({}, undefined)).toEqual({ content: [{ type: 'text', text: 'x' }] });
