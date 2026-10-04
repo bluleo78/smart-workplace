@@ -139,6 +139,8 @@ function MessageRow({
           // WP-187: hover 시 읽음/안읽음 전환 — 행 열기와 분리(stopPropagation).
           // display 대신 opacity 로 숨겨 탭 순서에 남긴다 — 키보드 포커스 시에도 드러난다(접근성).
           // onKeyDown 도 멈춘다 — 행의 Enter/Space 처리(preventDefault)가 버튼 키보드 활성화를 삼키지 않게.
+          // WP-237: 터치(coarse) ≥1024 태블릿에선 숨은 채로 남으므로 탭이 닿지 않게 pointer-events 를 끈다 — 탭은 행 열기로 간다.
+          // (휴대폰 폭은 showToggle=false 로 아예 렌더 안 함. 읽음 전환은 메일 열기·상세 툴바로 대신한다.)
           <button
             type="button"
             data-testid={`mail-row-toggle-read-${m.id}`}
@@ -149,7 +151,7 @@ function MessageRow({
               onToggleRead()
             }}
             onKeyDown={(e) => e.stopPropagation()}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground opacity-0 outline-none transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40 group-hover:opacity-100"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground opacity-0 outline-none transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40 group-hover:opacity-100 pointer-coarse:pointer-events-none"
           >
             {m.seen ? <Mail className="h-3.5 w-3.5" /> : <MailOpen className="h-3.5 w-3.5" />}
           </button>

@@ -369,3 +369,24 @@ test.describe('메일 모두 읽음 — 데스크톱(WP-187)', () => {
     expect(run.requests).toHaveLength(0)
   })
 })
+
+// WP-237: ≥1024 터치 태블릿 — 토글은 숨은(opacity 0) 채 남으므로 탭이 닿지 않아야 한다. 그 자리를 탭하면 행이 열린다.
+test.describe('메일 행 토글 — 터치 태블릿(≥1024px) 오터치 방지', () => {
+  test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true })
+
+  test('숨은 토글 자리를 탭해도 안읽음 API 는 나가지 않고 메일이 열린다', async ({ authenticatedPage: page }) => {
+    await stub(page)
+    await mockApi(page, 'GET', '/api/v1/mail/messages/11', { ...detail({ id: 11 }), seen: true })
+    const unread = await mockApi(page, 'POST', '/api/v1/mail/messages/11/unread', null, { capture: true })
+    await page.goto('/mail/1')
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
+    const toggle = page.getByTestId('mail-row-toggle-read-11')
+    await expect(toggle).toHaveCSS('opacity', '0')
+    await expect(toggle).toHaveCSS('pointer-events', 'none')
+    // 같은 좌표를 터치스크린으로 탭(pointer-events:none 이라 행이 받는다 — actionability 우회용 force 대신).
+    const tb = (await toggle.boundingBox())!
+    await page.touchscreen.tap(tb.x + tb.width / 2, tb.y + tb.height / 2)
+    await expect(page.getByTestId('mail-detail')).toBeVisible()
+    await expectStays(page, () => unread.requests.length, 0)
+  })
+})

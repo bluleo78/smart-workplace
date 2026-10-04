@@ -215,3 +215,85 @@ test.describe('모바일 드라이브 행 액션', () => {
     expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height)
   })
 })
+
+// WP-237: ≥1024 터치 태블릿 — 폭은 데스크톱이지만 hover 가 없어 hover 액션 묶음 대신 ⋯ 하나로 같은 행 액션 목록을
+// 드롭다운으로 연다(화면 폭 하단 시트는 휴대폰 전용 — 다른 태블릿 행 메뉴와 일관).
+// 길게 누르기 다중선택은 폭 기준(휴대폰) 그대로라 태블릿은 데스크톱처럼 체크박스로 선택한다.
+test.describe('드라이브 행 액션 — 터치 태블릿(≥1024px)', () => {
+  test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true })
+
+  test('파일 행은 hover 묶음 없이 ⋯ 만 — 드롭다운의 다운로드가 다운로드 요청을 보낸다', async ({ authenticatedPage: page }) => {
+    await stubDrive(page)
+    await page.route('**/api/v1/drive/files/70/download', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/pdf', body: 'x' }))
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
+    const row = page.getByTestId('drive-row-file-70')
+    await expect(row).toBeVisible()
+    // hover 액션 묶음은 렌더하지 않는다 — 데스크톱 체크박스는 그대로 보인다(선택 진입 경로).
+    await expect(row.locator('[data-file-actions]')).toHaveCount(0)
+    await expect(page.getByTestId('select-file-70')).toBeVisible()
+    const more = page.getByTestId('drive-row-more-file-70')
+    await expect(more).toBeVisible()
+    expect((await more.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+
+    await more.tap()
+    await expect(page.getByTestId('drive-row-sheet')).toHaveCount(0)
+    const menu = page.getByRole('menu')
+    await expect(menu).toBeVisible()
+    // 휴대폰 시트와 같은 작업 목록(다운로드·공유·이동·복사·버전·삭제).
+    await expect(menu.getByRole('menuitem')).toHaveCount(6)
+    const req = page.waitForRequest('**/api/v1/drive/files/70/download')
+    await page.getByTestId('drive-row-action-download').click()
+    await req
+    await expect(menu).toBeHidden()
+  })
+
+  test('폴더 행 ⋯ → 이름 변경 PATCH, 삭제는 확인 후 DELETE', async ({ authenticatedPage: page }) => {
+    await stubDrive(page)
+    let body: unknown = null
+    let deleted = false
+    await page.route('**/api/v1/drive/folders/10', (r) => {
+      const m = r.request().method()
+      if (m === 'PATCH') {
+        body = r.request().postDataJSON()
+        return r.fulfill(json({ ...FOLDER, name: '계약 자료' }))
+      }
+      if (m === 'DELETE') {
+        deleted = true
+        return r.fulfill({ status: 204 })
+      }
+      return r.fallback()
+    })
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    const row = page.getByTestId('drive-row-folder-10')
+    await expect(row).toBeVisible()
+    await expect(row.getByRole('button', { name: '이름변경' })).toHaveCount(0)
+
+    await page.getByTestId('drive-row-more-folder-10').tap()
+    await page.getByTestId('drive-row-action-rename').click()
+    // 드롭다운이 닫힌 뒤에도 이름 변경 다이얼로그가 열린 채 유지된다(포커스 복귀로 닫히지 않음).
+    await expect(page.getByTestId('folder-name-input')).toBeVisible()
+    await page.getByTestId('folder-name-input').fill('계약 자료')
+    await page.getByTestId('folder-name-confirm').tap()
+    await expect.poll(() => body).toEqual({ name: '계약 자료' })
+
+    await page.getByTestId('drive-row-more-folder-10').tap()
+    await page.getByTestId('drive-row-action-delete').click()
+    await expect(page.getByTestId('drive-confirm-confirm')).toBeVisible()
+    await page.getByTestId('drive-confirm-confirm').tap()
+    await expect.poll(() => deleted).toBe(true)
+  })
+
+  test('체크박스로 선택해도 ⋯ 는 남고, 행 탭은 미리보기를 연다(길게 누르기 선택 모드 없음)', async ({ authenticatedPage: page }) => {
+    await stubDrive(page)
+    await page.route('**/api/v1/drive/files/70/content', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/pdf', body: 'x' }))
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await page.getByTestId('select-folder-10').tap()
+    await expect(page.getByTestId('bulk-toolbar')).toContainText('선택 1개')
+    await expect(page.getByTestId('drive-row-more-file-70')).toBeVisible()
+    await page.getByRole('button', { name: LONG_FILE, exact: true }).tap()
+    await expect(page).toHaveURL(new RegExp(`/drive/spaces/${SPACE_ID}\\?preview=70$`))
+  })
+})

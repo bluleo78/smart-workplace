@@ -63,13 +63,14 @@ export function NotificationGroupRow({
       </Link>
       {group.unreadIds.length > 0 && (
         // 제자리 읽음 — 평소 숨김, hover/포커스 시 노출되는 라벨 버튼(맨 체크표시의 affordance 모호함 해소).
+        // WP-237: 터치(coarse)에선 숨은 채로 탭이 닿지 않게 pointer-events 를 끈다 — 행 열기(=읽음)·「모두 읽음」이 대체 경로.
         <button
           type="button"
           data-testid="dash-notif-ack"
           aria-label={`읽음 처리: ${group.label}`}
           title="읽음 처리"
           onClick={() => onAck(group.unreadIds)}
-          className="mt-0.5 shrink-0 rounded border px-2 py-0.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100"
+          className="mt-0.5 shrink-0 rounded border px-2 py-0.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100 pointer-coarse:pointer-events-none"
         >
           읽음
         </button>

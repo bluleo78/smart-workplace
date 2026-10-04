@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
-import { measureBox } from '../fixtures/wait'
+import { expectStays, measureBox } from '../fixtures/wait'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
 import { detail as mailDetail, mailAccount, summary as mailRow } from '../factories/mail.factory'
 import { createChannel, createChannelMember, createMessage } from '../factories/messaging.factory'
@@ -3014,4 +3014,34 @@ test('데스크톱 — 요약 KPI 5칸 한 줄·안쪽 카드 테두리 유지(W
   const ys = await cells.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().y))
   expect(new Set(ys).size).toBe(1)
   await expect(page.getByTestId('dashboard-synthesis')).toHaveCSS('border-top-width', '1px')
+})
+
+// WP-237: ≥1024 터치 태블릿 — 숨은(opacity 0) 「읽음」 버튼은 탭이 닿지 않는다. 행 열기(=읽음)·「모두 읽음」이 대체 경로.
+test.describe('알림 위젯 — 터치 태블릿(≥1024px) 오터치 방지', () => {
+  test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true })
+
+  test('숨은 「읽음」 자리를 탭해도 read 요청이 없고, 행을 탭하면 열리며 읽음 처리된다', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockWidgets(page)
+    await mockApi(page, 'GET', '/api/v1/notifications', notifications())
+    const readCapture = await mockApi(page, 'POST', '/api/v1/notifications/1/read', {}, { status: 204, capture: true })
+    await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
+    await page.goto('/')
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
+
+    const ack = page.getByTestId('dash-notif-ack').first()
+    await expect(ack).toHaveCSS('opacity', '0')
+    await expect(ack).toHaveCSS('pointer-events', 'none')
+    // pointer-events:none 이라 actionability 가 막히므로 같은 좌표를 터치스크린으로 직접 탭한다.
+    const ab = (await ack.boundingBox())!
+    await page.touchscreen.tap(ab.x + ab.width / 2, ab.y + ab.height / 2)
+    await expectStays(page, () => readCapture.requests.length, 0)
+
+    // 행 탭(열기) — 기본 동작 그대로: 이동하면서 읽음 처리.
+    const before = page.url()
+    await page.getByRole('link', { name: /^알림 열기:/ }).first().tap()
+    await expect(readCapture.waitForRequest()).resolves.toBeTruthy()
+    await expect.poll(() => page.url()).not.toBe(before)
+  })
 })

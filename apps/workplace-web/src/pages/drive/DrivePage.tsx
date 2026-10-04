@@ -23,6 +23,7 @@ import { toast } from 'sonner'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet'
+import { TOUCH_ROW_TRIGGER, TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,6 +46,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
+import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
@@ -286,6 +288,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const isMobile = useIsMobile()
   // 선택이 하나라도 있으면 선택 모드 — 체크박스·하단 일괄 작업 바가 보이고, 행 탭은 열기 대신 선택 토글.
   const mobileSelecting = isMobile && selCount > 0
+  // WP-237: 손가락 포인터(≥1024 터치 태블릿)는 hover 묶음을 열 수 없으므로 같은 행 액션 목록을 ⋯ 드롭다운(TouchRowActionsMenu)으로 연다.
+  // 휴대폰 폭은 기존 ⋮ → 액션 시트(WP-216) 그대로. 길게 누르기 다중선택·선택 모드는 폭 기준(isMobile) 그대로 둔다 —
+  // 태블릿은 데스크톱처럼 체크박스가 상시 보여 선택 진입 경로가 이미 있고, 두 경로가 겹치면 탭 의미가 흔들린다.
+  const isCoarse = useIsCoarsePointer()
+  const tabletRowMenu = !isMobile && isCoarse
   const [rowSheet, setRowSheet] = useState<{ kind: 'file'; item: DriveFile } | { kind: 'folder'; item: DriveFolder } | null>(
     null,
   )
@@ -707,20 +714,33 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         onClick={onOpen}
         aria-label={`${name} 더보기`}
         data-testid={`drive-row-more-${testKey}`}
-        className="-my-1 flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground active:bg-accent"
+        className={cn('-my-1', TOUCH_ROW_TRIGGER)}
       >
         <MoreVertical className="size-5" aria-hidden />
       </button>
     )
   }
 
+  // WP-237: 터치 태블릿 행 ⋯ — 휴대폰 ⋮ 와 같은 testid·같은 작업 목록을 드롭다운으로 연다.
+  function renderTabletRowMenu(name: string, testKey: string, actions: MobileSheetAction[]) {
+    return (
+      <TouchRowActionsMenu
+        title={name}
+        testId={`drive-row-more-${testKey}`}
+        itemTestId={(key) => `drive-row-action-${key}`}
+        triggerClassName="-my-1"
+        actions={actions}
+      />
+    )
+  }
+
   // WP-216: 모바일 행 ⋮ 시트의 작업 목록 — 데스크톱 행 액션(인라인 버튼 + ⋯ 메뉴)과 같은 작업·같은 비활성 조건.
   // 보관된 공간은 쓰기 작업, 원본 유실 파일은 바이트가 필요한 작업(다운로드·공유·복사)을 막는다.
-  function rowSheetActions(): MobileSheetAction[] {
-    if (rowSheet == null) return []
+  // WP-237: 대상 행을 인자로 받아 터치 태블릿 드롭다운(TouchRowActionsMenu)도 같은 목록을 쓴다.
+  function rowActionsFor(target: { kind: 'file'; item: DriveFile } | { kind: 'folder'; item: DriveFolder }): MobileSheetAction[] {
     const archived = !!space?.archived
-    if (rowSheet.kind === 'folder') {
-      const f = rowSheet.item
+    if (target.kind === 'folder') {
+      const f = target.item
       return [
         { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => onRenameFolder(f.id, f.name), disabled: archived },
         { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name }), disabled: archived },
@@ -728,7 +748,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         { key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => onDeleteFolder(f.id), disabled: archived, destructive: true },
       ]
     }
-    const f = rowSheet.item
+    const f = target.item
     const missing = isMissingBlob(f)
     return [
       { key: 'download', label: '다운로드', icon: <Download />, onSelect: () => driveApi.downloadFile(f.id, f.name), disabled: missing },
@@ -1420,6 +1440,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 </span>
                 {isMobile ? (
                   !mobileSelecting && renderRowMore(f.name, `folder-${f.id}`, () => setRowSheet({ kind: 'folder', item: f }))
+                ) : tabletRowMenu ? (
+                  renderTabletRowMenu(f.name, `folder-${f.id}`, rowActionsFor({ kind: 'folder', item: f }))
                 ) : (
                   <>
                     {/* 행 액션 — 호버 또는 키보드 포커스(focus-visible)일 때만 노출. focus-within 이면 터치 탭의 포인터 포커스로도 열려
@@ -1508,9 +1530,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 </span>
                 {/* 행 액션 — 데스크톱은 호버 또는 키보드 포커스(focus-visible)일 때만 노출. 주요 3개 인라인 + 더보기(⋯).
                     focus-within 이면 터치 탭의 포인터 포커스로 열려 모바일에서 이름 버튼이 접히고 미리보기가 안 열린다(WP-208).
-                    모바일은 ⋮ 시트로 대신한다(WP-216). */}
+                    모바일은 ⋮ 시트(WP-216), 터치 태블릿은 ⋯ 드롭다운(WP-237)으로 대신한다. */}
                 {isMobile ? (
                   !mobileSelecting && renderRowMore(f.name, `file-${f.id}`, () => setRowSheet({ kind: 'file', item: f }))
+                ) : tabletRowMenu ? (
+                  renderTabletRowMenu(f.name, `file-${f.id}`, rowActionsFor({ kind: 'file', item: f }))
                 ) : (
                   <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-kbd:flex">
                     <Button
@@ -1623,7 +1647,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           open={rowSheet != null}
           onClose={() => setRowSheet(null)}
           title={rowSheet?.item.name ?? ''}
-          actions={rowSheetActions()}
+          actions={rowSheet ? rowActionsFor(rowSheet) : []}
           testId="drive-row-sheet"
         />
         {shareFile && <ShareLinkModal file={shareFile} onClose={() => setShareFile(null)} />}
