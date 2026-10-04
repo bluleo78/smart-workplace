@@ -1,27 +1,28 @@
-// 메시지 삭제 Undo 토스트(#125).
-// soft-delete 복구 API 가 없으므로 "지연 삭제" 패턴을 쓴다 — 실제 DELETE 호출을 일정 시간 미루고
-// 그동안 '실행 취소' 기회를 준다. 토스트가 자동으로 닫히거나(=지연 만료) X 로 닫히면 execute() 로 삭제를 확정하고,
-// '실행 취소' 액션을 누르면 타이머를 취소해 삭제 자체가 일어나지 않는다.
+// 메시지 삭제 Undo 토스트(#125). soft-delete 복구 API 가 없어 실제 DELETE 를 토스트가 떠 있는 동안 미룬다.
+// 삭제 시점은 토스트가 정한다(WP-238): 자동으로 닫히거나 사용자가 닫으면(스와이프 등) 삭제, '실행 취소'면 취소.
+// 별도 타이머를 두면 Sonner 가 hover·탭 숨김 동안 카운트다운을 멈출 때 어긋나, 삭제 뒤에도 '실행 취소'가 남았다.
 import { toast } from 'sonner';
 
-// 실행 취소 가능 시간(ms). 토스트 노출 시간과 동일하게 맞춰 시각적으로 동기화한다.
+// 실행 취소 가능 시간(ms) = 토스트 노출 시간.
 export const UNDO_DELETE_DELAY_MS = 5000;
 
-// execute: 지연 후 실제로 호출할 삭제 동작(보통 mutation.mutate(id)).
-export function deleteMessageWithUndo(execute: () => void, delayMs = UNDO_DELETE_DELAY_MS) {
-  let cancelled = false;
-  const timer = setTimeout(() => {
-    if (!cancelled) execute();
-  }, delayMs);
+// execute: 토스트가 닫힐 때 호출할 삭제 동작(보통 mutation.mutate(id)).
+export function deleteMessageWithUndo(execute: () => void) {
+  // 닫힘 경로(자동 닫힘·직접 닫기·실행 취소)는 한 번만 결론을 낸다 — 액션 클릭 뒤 onDismiss 가 이어져도 삭제되지 않게.
+  let settled = false;
+  const settle = (shouldDelete: boolean) => () => {
+    if (settled) return;
+    settled = true;
+    if (shouldDelete) execute();
+  };
 
   toast.success('메시지를 삭제했습니다', {
-    duration: delayMs,
+    duration: UNDO_DELETE_DELAY_MS,
+    onAutoClose: settle(true),
+    onDismiss: settle(true),
     action: {
       label: '실행 취소',
-      onClick: () => {
-        cancelled = true;
-        clearTimeout(timer);
-      },
+      onClick: settle(false),
     },
   });
 }

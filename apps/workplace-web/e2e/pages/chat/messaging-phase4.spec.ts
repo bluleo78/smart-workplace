@@ -8,7 +8,8 @@ import {
   createMessage,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { expectStays } from '../../fixtures/wait'
+import { trackRequests } from '../../fixtures/requests'
+import { expectStays, stableBox } from '../../fixtures/wait'
 import { UNDO_DELETE_DELAY_MS } from '../../../src/lib/deleteWithUndo'
 
 // auth.fixture 의 createUser() 기본 id = 1 → "본인" 메시지 판정 기준.
@@ -97,6 +98,37 @@ async function stubMessages(
           })
         : route.fallback(),
   )
+}
+
+// WP-238 Undo 토스트 테스트 공용 셋업 — 본인 메시지 1건 채널을 띄우고 DELETE 는 204 로 응답한다.
+// 가상 시계를 goto 전에 설치해 토스트 카운트다운을 시계로 넘긴다.
+async function setupUndoChannel(page: Page, channelId: number, msgId: number) {
+  const channel = createChannel({ id: channelId, name: 'Undo채널', member: true })
+  await stubChannelsList(page, [channel])
+  await stubDmsList(page)
+  await stubStream(page)
+  await stubChannelDetail(page, channel)
+  await stubMembers(page, channelId, [createChannelMember({ userId: ME_ID, name: '나' })])
+  await stubMessages(page, channelId, [
+    createMessage({ id: msgId, channelId, authorId: ME_ID, authorName: '나', body: '살아남을 메시지' }),
+  ])
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/messages/${msgId}`,
+    (route) => (route.request().method() === 'DELETE' ? route.fulfill({ status: 204 }) : route.fallback()),
+  )
+  await page.clock.install()
+  await page.goto(`/chat/channels/${channelId}`)
+  await expect(page.getByTestId(`message-body-${msgId}`)).toHaveText('살아남을 메시지')
+  return msgId
+}
+
+// 메시지 툴바는 group-hover 로만 보여 hover+click 을 한 단위로 재시도한다.
+async function clickDelete(page: Page, msgId: number) {
+  await expect(async () => {
+    await page.getByTestId(`message-${msgId}`).hover()
+    await page.getByTestId(`message-delete-${msgId}`).click({ timeout: 2000 })
+  }).toPass()
+  await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible()
 }
 
 test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
@@ -247,49 +279,60 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
 
   // 2-0) #125 — 삭제 클릭 후 '실행 취소' 를 누르면 DELETE 가 호출되지 않고 메시지가 보존된다.
   test('삭제 후 실행 취소를 누르면 메시지가 삭제되지 않는다', async ({ authenticatedPage: page }) => {
-    const CHANNEL_ID = 209
-    const MSG_ID = 850
-    const channel = createChannel({ id: CHANNEL_ID, name: 'Undo채널', member: true })
-    await stubChannelsList(page, [channel])
-    await stubDmsList(page)
-    await stubStream(page)
-    await stubChannelDetail(page, channel)
-    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
-    await stubMessages(page, CHANNEL_ID, [
-      createMessage({ id: MSG_ID, channelId: CHANNEL_ID, authorId: ME_ID, authorName: '나', body: '살아남을 메시지' }),
-    ])
+    const MSG_ID = await setupUndoChannel(page, 209, 850)
+    const deletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}`)
+    await clickDelete(page, MSG_ID)
 
-    // DELETE 가 한 번이라도 호출되면 기록 — 실행 취소 후엔 호출되지 않아야 한다.
-    let deleteCalled = false
-    await page.route(
-      (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}`,
-      (route) => {
-        if (route.request().method() !== 'DELETE') return route.fallback()
-        deleteCalled = true
-        return route.fulfill({ status: 204 })
-      },
-    )
-
-    // 삭제 지연(5s) 타이머를 가상 시계로 넘긴다
-    await page.clock.install()
-    await page.goto(`/chat/channels/${CHANNEL_ID}`)
-    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('살아남을 메시지')
-
-    await expect(async () => {
-      await page.getByTestId(`message-${MSG_ID}`).hover()
-      await page.getByTestId(`message-delete-${MSG_ID}`).click({ timeout: 2000 })
-    }).toPass()
-
-    // Undo 토스트의 '실행 취소' 액션 클릭 → 지연 타이머 취소.
     await page.getByRole('button', { name: '실행 취소' }).click()
-    // 실행 취소 처리(토스트 닫힘)가 끝난 뒤에 시계를 당긴다 — 처리 전에 당기면 타이머가 먼저 만료될 수 있다 (WP-225).
     await expect(page.getByText('메시지를 삭제했습니다')).toBeHidden()
-
-    // 타이머가 살아 있었다면 나갔을 DELETE 가 라우트에 닿을 짧은 실시간 여유만 둔다
-    // (타이머 만료 → DELETE 경로 자체는 위 '삭제하면 (삭제됨)' 테스트가 같은 방식으로 증명한다).
     await page.clock.runFor(UNDO_DELETE_DELAY_MS + 1000)
-    await expectStays(page, () => deleteCalled, false, { ms: 200 })
+    await expectStays(page, deletes.count, 0, { ms: 200 })
     await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('살아남을 메시지')
+  })
+
+  // WP-238 — 삭제 시점은 토스트가 정한다. 토스트에 마우스를 올려 카운트다운이 멈춘 동안에는 지연 시간이 지나도
+  // 삭제하지 않고, 그 뒤에 누른 '실행 취소'도 실제로 반영된다(예전엔 독립 타이머가 먼저 DELETE 를 보내 버렸다).
+  test('토스트에 마우스를 올려 둔 동안엔 삭제되지 않고 실행 취소가 반영된다', async ({ authenticatedPage: page }) => {
+    const MSG_ID = await setupUndoChannel(page, 210, 851)
+    const deletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}`)
+    await clickDelete(page, MSG_ID)
+
+    const undoToast = page.getByText('메시지를 삭제했습니다')
+    await undoToast.hover()
+    await page.clock.runFor(UNDO_DELETE_DELAY_MS * 2)
+    await expect(undoToast).toBeVisible()
+    await expectStays(page, deletes.count, 0, { ms: 200 })
+
+    await page.getByRole('button', { name: '실행 취소' }).click()
+    await expect(undoToast).toBeHidden()
+    await page.mouse.move(0, 0)
+    await page.clock.runFor(UNDO_DELETE_DELAY_MS * 2)
+    await expectStays(page, deletes.count, 0, { ms: 200 })
+    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('살아남을 메시지')
+  })
+
+  // WP-238 — 토스트를 밀어서 닫으면 '취소 안 함'으로 보고 지연 시간을 기다리지 않고 바로 삭제한다.
+  test('토스트를 밀어서 닫으면 바로 삭제된다', async ({ authenticatedPage: page }) => {
+    const MSG_ID = await setupUndoChannel(page, 211, 852)
+    const deletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}`)
+    await clickDelete(page, MSG_ID)
+
+    // 시계를 멈춰 지연 시간이 흐르지 않게 한다 — 삭제가 일어난다면 스와이프 때문이다.
+    // (지금 시각 측정과 pauseAt 사이에도 실시간이 흐르므로 0.5초 앞을 잡는다 — 토스트 5초 안쪽)
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 500))
+    const undoToast = page.getByText('메시지를 삭제했습니다')
+    // 글자 위에서 끌면 텍스트가 선택되고, Sonner 는 선택 중엔 스와이프를 무시한다 → 토스트 왼쪽 여백에서 시작한다.
+    const box = await stableBox(page.locator('[data-sonner-toast]'))
+    await page.mouse.move(box.x + 4, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + 120, box.y + box.height / 2, { steps: 8 })
+    await page.mouse.up()
+
+    await deletes.waitFor()
+    expect(deletes.count()).toBe(1)
+    // 토스트 퇴장 애니메이션(Sonner 내부 타이머)만 넘긴다.
+    await page.clock.runFor(500)
+    await expect(undoToast).toBeHidden()
   })
 
   // 2-1) #124 회귀 — 수정 실패(PATCH 500) 시 에디터가 강제로 닫히지 않고 입력 내용을 보존해야 한다.
