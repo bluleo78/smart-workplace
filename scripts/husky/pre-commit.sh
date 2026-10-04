@@ -105,6 +105,29 @@ else
   echo "[pre-commit] workplace-web 변경 없음 — E2E skip (gradle 단계에서 회귀 검증)"
 fi
 
+# 6.5) 바뀐 E2E 스펙 반복 실행 게이트 (WP-225)
+#    새로 추가·수정한 web E2E 스펙을 preview 빌드에서 재시도 없이 여러 번 돌려 타이밍 의존(flaky)을
+#    머지 전에 잡는다. dev 에선 통과하고 preview(빌드 결과물, 더 빠름)에서만 깨지는 스펙이 실제로 있었다.
+#    - 대상: staged 된 apps/workplace-web/e2e/**/*.spec.ts (파일 단위, 삭제 파일은 CHANGED 에서 이미 제외)
+#    - 횟수: E2E_REPEAT_EACH(기본 5). 급할 때 SKIP_E2E_REPEAT=1 로 건너뛴다.
+CHANGED_SPECS=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/e2e/.*\.spec\.ts$' || true)
+if [ -n "$CHANGED_SPECS" ] && [ -n "$SKIP_E2E_REPEAT" ]; then
+  echo "[pre-commit] SKIP_E2E_REPEAT 설정 — 바뀐 E2E 스펙 반복 실행 skip"
+elif [ -n "$CHANGED_SPECS" ]; then
+  REPEAT_EACH="${E2E_REPEAT_EACH:-5}"
+  SPEC_ARGS=$(printf '%s\n' "$CHANGED_SPECS" | sed 's|^apps/workplace-web/||' | tr '\n' ' ')
+  echo "[pre-commit] 바뀐 E2E 스펙 반복 실행(preview, --repeat-each=$REPEAT_EACH --retries=0): $SPEC_ARGS"
+  if [ -z "$PRECOMMIT_DRY_RUN" ]; then
+    # shellcheck disable=SC2086 — SPEC_ARGS 는 공백 구분 경로 목록이라 단어 분리가 의도다.
+    (cd apps/workplace-web && run_locked env E2E_SERVER=preview npx playwright test $SPEC_ARGS \
+      --repeat-each="$REPEAT_EACH" --retries=0) || {
+      echo "[pre-commit] ✗ 바뀐 스펙이 반복 실행에서 실패 — 대개 타이밍 의존(보이자마자 동작/측정)이다."
+      echo "    재현: cd apps/workplace-web && E2E_SERVER=preview npx playwright test <spec>:<line> --retries=0 --repeat-each=10"
+      exit 1
+    }
+  fi
+fi
+
 # 7) Gradle — 변경분 기반 선택 실행 (타임아웃 회피). 풀 회귀는 pre-push 가 담당.
 #    - 변경된 Java 에서 실행할 테스트 클래스를 도출:
 #        · 테스트 파일 변경 → 그 클래스 자신(--tests "*Xxx")
