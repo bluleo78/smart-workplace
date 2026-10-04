@@ -64,4 +64,27 @@ class HomeSessionContextSummaryTest extends IntegrationTestBase {
     assertThat(sessionService.getContextSummary(uid, sid))
         .isEqualTo(new SummaryState("둘째 요약", 20L));
   }
+
+  /** 맥락 원천(WP-232) — 요약 상태와 경계(uptoId) 이후 메시지의 id·role·content 만 생성순으로 읽는다. */
+  @Test
+  void 맥락원천은_요약상태와_경계이후_메시지만_생성순으로_돌려준다() {
+    long uid = user();
+    UUID sid = sessionService.create(uid).id();
+    long m1 = sessionService.appendMessage(uid, sid, "USER", "q1", null, null, null);
+    long m2 = sessionService.appendMessage(uid, sid, "ASSISTANT", "a1", "[]", null, null);
+    long m3 = sessionService.appendMessage(uid, sid, "USER", "q2", null, null, null);
+
+    // 요약 전 — 전체(경계 필터 없음).
+    var all = sessionService.getContextSource(uid, sid);
+    assertThat(all.state()).isEqualTo(new SummaryState(null, null));
+    assertThat(all.rows()).extracting(r -> r.id()).containsExactly(m1, m2, m3);
+    assertThat(all.rows().get(1).role()).isEqualTo("ASSISTANT");
+    assertThat(all.rows().get(1).content()).isEqualTo("a1");
+
+    // 요약 후 — 경계(m2) 초과분만.
+    sessionService.saveContextSummary(uid, sid, null, "요약", m2);
+    var after = sessionService.getContextSource(uid, sid);
+    assertThat(after.state()).isEqualTo(new SummaryState("요약", m2));
+    assertThat(after.rows()).extracting(r -> r.content()).containsExactly("q2");
+  }
 }

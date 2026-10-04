@@ -286,7 +286,10 @@ public class HomeChatService {
               } catch (Exception e) {
                 // composeStream·fitToBudget(동기 요약) 은 인터럽트로 인한 예외만 여기까지 던진다(그 외 오류는
                 // onError 콜백·요약 폴백에서 이미 처리) — WikiAiService/DriveOverviewService 와 동일 패턴.
-                boolean cancelled = HomeInterruptions.isInterruption(e);
+                // 인터럽트 플래그도 본다 — fitToBudget 은 isUserCancel(플래그 포함)로 취소를 판별해 cause 체인에 인터럽트가
+                // 없는 예외를 그대로 던질 수 있다. 체인만 보면 취소된 턴이 cancelled 대신 오류 메시지로 끝난다(WP-232).
+                boolean cancelled =
+                    HomeInterruptions.isInterruption(e) || Thread.currentThread().isInterrupted();
                 Map<String, Object> payload =
                     cancelled
                         ? Map.of("correlationId", correlationId, "cancelled", true)

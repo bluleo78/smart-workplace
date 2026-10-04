@@ -74,6 +74,25 @@ public class HomeMessageRepository {
   }
 
   /**
+   * 채팅 맥락용 경량 조회(WP-232) — 경계(uptoId) 이후 메시지의 id·role·content 만 생성순(findBySession 과 동일 정렬)으로 읽는다.
+   * 맥락 구성은 위젯·도구단계·표시블록 JSON 이 필요 없고 요약 경계 이전 메시지는 버리므로, 전체 조회(findBySession) 대신 쓴다.
+   *
+   * @param uptoId 누적 요약이 덮은 마지막 메시지 id. null 이면(요약 없음) 경계 필터 없이 전체.
+   */
+  public List<ContextRow> findContextAfter(UUID sessionId, Long uptoId) {
+    var cond = HOME_MESSAGE.SESSION_ID.eq(sessionId);
+    if (uptoId != null) cond = cond.and(HOME_MESSAGE.ID.gt(uptoId));
+    return dsl.select(HOME_MESSAGE.ID, HOME_MESSAGE.ROLE, HOME_MESSAGE.CONTENT)
+        .from(HOME_MESSAGE)
+        .where(cond)
+        .orderBy(HOME_MESSAGE.CREATED_AT.asc(), HOME_MESSAGE.ID.asc())
+        .fetch(r -> new ContextRow(r.value1(), r.value2(), r.value3()));
+  }
+
+  /** 채팅 맥락용 메시지 row(WP-232) — 맥락 구성에 필요한 필드만. */
+  public record ContextRow(long id, String role, String content) {}
+
+  /**
    * 메시지 단건 row.
    *
    * @param widgetsJson null 이거나 JSON 배열 문자열(위젯 스펙)

@@ -8,7 +8,10 @@ import com.workplace.home.outbound.ChatMessages.ContextMessage;
 import com.workplace.home.outbound.ChatMessages.ContextSummaryRequest;
 import com.workplace.home.repository.HomeSessionRepository.SummaryState;
 import com.workplace.home.service.HomeContextPolicy.Msg;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,7 +30,8 @@ import org.springframework.stereotype.Service;
  *   <li>scheduleIfNeeded — 턴 종료 후 trigger 초과면 전용 executor 로 비동기 요약 예약(세션당 1건).
  * </ul>
  *
- * 요약 저장은 조건부 갱신이라 동기·비동기 요약이 겹쳐도 늦게 끝난 쪽은 버려진다.
+ * 요약 저장은 조건부 갱신이라 동기·비동기 요약이 겹쳐도 늦게 끝난 쪽은 버려진다. 요약이 실패하면 세션별로 잠시(FAILURE_COOLDOWN) 요약을 쉬어, ai-agent
+ * 장애 중 매 턴 진행 라벨 + 긴 블록을 반복하지 않는다.
  */
 @Slf4j
 @Service
@@ -38,6 +42,12 @@ public class HomeContextSummaryService {
 
   static final int SUMMARY_TIMEOUT_MS = 60_000;
 
+  /**
+   * 요약 실패 후 같은 세션의 요약 재시도를 쉬는 시간. ai-agent 가 내려가 있으면 매 예산 초과 턴마다 동기 요약(진행 라벨 + 최대 read 90s 블록)이 반복돼
+   * 채팅이 매번 느려지므로, 그동안은 요약 없이 오래된 원문을 버리는 폴백으로 바로 진행한다.
+   */
+  static final Duration FAILURE_COOLDOWN = Duration.ofMinutes(5);
+
   private final HomeSessionService sessionService;
   private final AiAgentContextSummaryClient summaryClient;
   private final AssistantResolver assistantResolver;
@@ -46,6 +56,9 @@ public class HomeContextSummaryService {
 
   /** 비동기 요약 진행 중인 세션 — 같은 세션 중복 예약 방지(단일 인스턴스 가정, 중복돼도 조건부 갱신이 막는다). */
   private final Set<UUID> inFlight = ConcurrentHashMap.newKeySet();
+
+  /** 요약 실패 쿨다운 종료 시각(세션별, 인메모리 — 재기동 시 초기화돼도 다시 한 번 시도할 뿐이라 무해). */
+  private final Map<UUID, Instant> failedUntil = new ConcurrentHashMap<>();
 
   public HomeContextSummaryService(
       HomeSessionService sessionService,
@@ -64,23 +77,30 @@ public class HomeContextSummaryService {
   public record ContextSnapshot(String summary, Long uptoId, List<Msg> raw) {
     /** ai-agent 요청용 원문 이력. */
     public List<ContextMessage> toContext() {
-      return raw.stream().map(m -> new ContextMessage(m.role(), m.content())).toList();
+      return toContextMessages(raw);
     }
   }
 
-  /** 세션 요약 상태와 경계 이후 원문을 읽는다. 메시지별 상한을 넘는 본문은 잘라 둔다. */
+  /** Msg → ai-agent ContextMessage 변환(채팅 요청 이력·요약 요청 구간 공용). */
+  private static List<ContextMessage> toContextMessages(List<Msg> msgs) {
+    return msgs.stream().map(m -> new ContextMessage(m.role(), m.content())).toList();
+  }
+
+  /**
+   * 세션 요약 상태와 경계 이후 원문을 읽는다. 메시지별 상한을 넘는 본문은 잘라 둔다. 경계 이후 id·role·content 만 한 번에 읽어(전체 메시지 JSON 파싱
+   * 없음) 매 턴 시작·턴 종료 예약 판단 비용을 줄인다.
+   */
   public ContextSnapshot load(long callerId, UUID sessionId) {
-    SummaryState state = sessionService.getContextSummary(callerId, sessionId);
-    Long upto = state.uptoMessageId();
+    HomeSessionService.ContextSource src = sessionService.getContextSource(callerId, sessionId);
+    SummaryState state = src.state();
     List<Msg> raw =
-        sessionService.getMessages(callerId, sessionId).stream()
-            .filter(m -> upto == null || m.id() > upto)
+        src.rows().stream()
             .map(
-                m ->
+                r ->
                     HomeContextPolicy.capContent(
-                        new Msg(m.id(), m.role(), m.content()), props.perMessageCap()))
+                        new Msg(r.id(), r.role(), r.content()), props.perMessageCap()))
             .toList();
-    return new ContextSnapshot(state.summary(), upto, raw);
+    return new ContextSnapshot(state.summary(), state.uptoMessageId(), raw);
   }
 
   /**
@@ -97,6 +117,8 @@ public class HomeContextSummaryService {
       Runnable onCompacting) {
     int budget = props.contextTokenBudget();
     if (HomeContextPolicy.total(snap.summary(), snap.raw()) <= budget) return snap;
+    // 최근 요약 실패 쿨다운 중이면 요약을 시도하지 않고(진행 라벨도 없이) 바로 폴백한다.
+    if (coolingDown(sessionId)) return dropOldestToFit(snap, budget);
     onCompacting.run();
     try {
       return compact(callerId, sessionId, snap, spec);
@@ -109,18 +131,42 @@ public class HomeContextSummaryService {
         throw e;
       }
       log.warn("홈 채팅 동기 요약 실패 — 오래된 원문을 버려 예산에 맞춤: session={} {}", sessionId, e.getMessage());
-      return new ContextSnapshot(
-          snap.summary(),
-          snap.uptoId(),
-          HomeContextPolicy.dropOldestToFit(snap.summary(), snap.raw(), budget));
+      recordFailure(sessionId);
+      return dropOldestToFit(snap, budget);
     }
   }
 
+  /** 요약 없이 오래된 원문부터 버려 예산에 맞춘 스냅샷(요약 실패·쿨다운 폴백). */
+  private static ContextSnapshot dropOldestToFit(ContextSnapshot snap, int budget) {
+    return new ContextSnapshot(
+        snap.summary(),
+        snap.uptoId(),
+        HomeContextPolicy.dropOldestToFit(snap.summary(), snap.raw(), budget));
+  }
+
+  /** 세션이 요약 실패 쿨다운 중인지. 만료된 항목은 이때 지운다. */
+  private boolean coolingDown(UUID sessionId) {
+    Instant until = failedUntil.get(sessionId);
+    if (until == null) return false;
+    if (Instant.now().isBefore(until)) return true;
+    failedUntil.remove(sessionId, until);
+    return false;
+  }
+
+  /** 요약 실패 기록 — 쿨다운 시작. 다시 오지 않는 세션 항목이 쌓이지 않게 만료분을 함께 정리한다(실패 시에만 도는 O(n)). */
+  private void recordFailure(UUID sessionId) {
+    Instant now = Instant.now();
+    failedUntil.values().removeIf(until -> !now.isBefore(until));
+    failedUntil.put(sessionId, now.plus(FAILURE_COOLDOWN));
+  }
+
   /**
-   * 턴 종료 후 호출 — 요약 + 원문이 trigger 를 넘으면 비동기 요약을 예약한다. 예외를 던지지 않는다(채팅 done 처리에 영향 X). 실패하면 다음 턴 종료 시
-   * 다시 시도된다.
+   * 턴 종료 후 호출 — 요약 + 원문이 trigger 를 넘으면 비동기 요약을 예약한다. 예외를 던지지 않는다(채팅 done 처리에 영향 X). 실패하면
+   * 쿨다운(FAILURE_COOLDOWN) 이 지난 뒤의 턴 종료 시 다시 시도된다.
    */
   public void scheduleIfNeeded(long callerId, UUID sessionId) {
+    // 요약 실패 쿨다운 중이면 예약하지 않는다(장애 중 매 턴 헛된 요약 호출 방지).
+    if (coolingDown(sessionId)) return;
     try {
       ContextSnapshot snap = load(callerId, sessionId);
       if (HomeContextPolicy.total(snap.summary(), snap.raw()) <= props.summarizeTrigger()) return;
@@ -141,7 +187,8 @@ public class HomeContextSummaryService {
     try {
       compact(callerId, sessionId, load(callerId, sessionId), assistantResolver.resolve(callerId));
     } catch (RuntimeException e) {
-      log.warn("홈 채팅 비동기 요약 실패(다음 턴 재시도): session={} {}", sessionId, e.getMessage());
+      log.warn("홈 채팅 비동기 요약 실패(쿨다운 후 재시도): session={} {}", sessionId, e.getMessage());
+      recordFailure(sessionId);
     } finally {
       inFlight.remove(sessionId);
     }
@@ -166,8 +213,10 @@ public class HomeContextSummaryService {
                     SUMMARY_MAX_TURNS,
                     SUMMARY_TIMEOUT_MS,
                     snap.summary(),
-                    fold.stream().map(m -> new ContextMessage(m.role(), m.content())).toList()))
+                    toContextMessages(fold)))
             .summary();
+    // 요약 호출 성공 — 쿨다운 해제(저장 경합에 져도 ai-agent 는 정상이므로).
+    failedUntil.remove(sessionId);
     String capped = TokenEstimates.truncate(summary, props.perMessageCap());
     long newUpto = fold.get(b - 1).id();
     if (sessionService.saveContextSummary(callerId, sessionId, snap.uptoId(), capped, newUpto)

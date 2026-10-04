@@ -359,4 +359,76 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
     assertThat(TokenEstimates.estimate(assistant)).isLessThanOrEqualTo(100);
     verify(summaryClient, never()).summarize(any());
   }
+
+  /**
+   * 요약 실패 쿨다운 — ai-agent 장애 중 매 턴 동기 요약(진행 라벨 + 최대 90s 블록)을 반복하지 않는다. 첫 턴 실패 후 다음 예산 초과 턴은 요약 호출 없이
+   * 바로 오래된 원문을 버리고 진행한다(턴 종료 후 비동기 예약도 쿨다운 중엔 생략).
+   */
+  @Test
+  void 요약_실패후_쿨다운동안_다음턴은_요약을_재시도하지_않고_채팅은_진행된다() throws Exception {
+    long uid = user();
+    UUID sid = sessionService.create(uid).id();
+    for (int i = 1; i <= 5; i++) {
+      sessionService.appendMessage(uid, sid, "USER", body("질문" + i, 46), null, null, null);
+      sessionService.appendMessage(uid, sid, "ASSISTANT", body("답변" + i, 46), null, null, null);
+    }
+    when(summaryClient.summarize(any())).thenThrow(new HomeContextSummaryException("down", null));
+    CountDownLatch first = stubDone("네");
+    chatService.startChat(uid, sid, "다음");
+    assertThat(first.await(5, TimeUnit.SECONDS)).isTrue();
+    Thread.sleep(300); // 쿨다운이 없다면 비동기 예약이 실행될 시간
+
+    reset(chatClient);
+    CountDownLatch second = stubDone("네");
+    chatService.startChat(uid, sid, "그다음");
+    assertThat(second.await(5, TimeUnit.SECONDS)).isTrue();
+    Thread.sleep(300);
+
+    verify(summaryClient, org.mockito.Mockito.times(1)).summarize(any());
+    // 둘째 턴도 예산(400)에 맞춰 원문만 실린다.
+    ChatRequest req = sentRequest();
+    assertThat(req.contextSummary()).isNull();
+    assertThat(
+            HomeContextPolicy.total(
+                null,
+                req.recentContext().stream()
+                    .map(m -> new HomeContextPolicy.Msg(0, m.role(), m.content()))
+                    .toList()))
+        .isLessThanOrEqualTo(400);
+    // 정리 진행 라벨은 첫 턴에만.
+    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+    verify(sseRegistry, org.mockito.Mockito.atLeastOnce())
+        .fanOut(any(), eq("home.chat.progress"), payload.capture());
+    assertThat(payload.getAllValues())
+        .filteredOn(p -> "이전 대화를 정리하는 중".equals(((Map<?, ?>) p).get("label")))
+        .hasSize(1);
+  }
+
+  /**
+   * 취소 판정 정합 — 요약 예외의 cause 체인에 인터럽트가 없어도 펌프 스레드 인터럽트 플래그가 서 있으면(취소) 바깥 catch 도 cancelled 로
+   * 처리한다(fitToBudget 의 isUserCancel 과 같은 기준).
+   */
+  @Test
+  void 동기요약_중_인터럽트_플래그만_있어도_cancelled_로_끝난다() throws Exception {
+    long uid = user();
+    UUID sid = sessionService.create(uid).id();
+    for (int i = 1; i <= 5; i++) {
+      sessionService.appendMessage(uid, sid, "USER", body("질문" + i, 46), null, null, null);
+      sessionService.appendMessage(uid, sid, "ASSISTANT", body("답변" + i, 46), null, null, null);
+    }
+    doAnswer(
+            inv -> {
+              Thread.currentThread().interrupt();
+              throw new HomeContextSummaryException("cancelled", null);
+            })
+        .when(summaryClient)
+        .summarize(any());
+
+    chatService.startChat(uid, sid, "다음");
+
+    ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+    verify(sseRegistry, timeout(5000)).fanOut(any(), eq("home.chat.error"), payload.capture());
+    assertThat(((Map<?, ?>) payload.getValue()).get("cancelled")).isEqualTo(true);
+    verify(chatClient, never()).composeStream(any(), any(), any(), any(), any(), any(), any());
+  }
 }

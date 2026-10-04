@@ -65,6 +65,24 @@ public class HomeSessionService {
         .orElse(new HomeSessionRepository.SummaryState(null, null));
   }
 
+  /**
+   * 채팅 맥락 원천(WP-232) — 누적 요약 상태와 그 경계 이후 메시지(id·role·content)를 한 트랜잭션·한 번의 소유자 검증으로 읽는다.
+   * getMessages + getContextSummary 조합은 세션 전체 메시지(JSON 컬럼 포함)를 읽고 경계 이전을 버려 낭비라 맥락 구성은 이걸 쓴다.
+   */
+  @Transactional(readOnly = true)
+  public ContextSource getContextSource(long callerId, UUID sessionId) {
+    ensureOwner(callerId, sessionId);
+    HomeSessionRepository.SummaryState state =
+        sessionRepo
+            .findSummary(sessionId)
+            .orElse(new HomeSessionRepository.SummaryState(null, null));
+    return new ContextSource(state, messageRepo.findContextAfter(sessionId, state.uptoMessageId()));
+  }
+
+  /** 채팅 맥락 원천 — 누적 요약 상태 + 경계 이후 메시지(생성순). */
+  public record ContextSource(
+      HomeSessionRepository.SummaryState state, List<HomeMessageRepository.ContextRow> rows) {}
+
   /** 세션 누적 요약 조건부 저장(WP-232). 갱신 행 수 반환(0 = 다른 요약이 먼저 경계를 옮김). */
   @Transactional
   public int saveContextSummary(
