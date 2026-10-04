@@ -10,6 +10,7 @@ import com.workplace.issue.dto.IssueBodyImageResponse;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
 import com.workplace.issue.dto.UpdateIssueRequest;
@@ -466,8 +467,8 @@ public class IssueService {
                 : before.milestoneId());
 
     // closed_at 전이: 종료 상태로 진입 시 now(), 재오픈 시 NULL, 그 외 유지
-    boolean wasClosed = before.status().equals("DONE") || before.status().equals("CANCELED");
-    boolean nowClosed = newStatus.equals("DONE") || newStatus.equals("CANCELED");
+    boolean wasClosed = IssueStatuses.CLOSED.contains(before.status());
+    boolean nowClosed = IssueStatuses.CLOSED.contains(newStatus);
     Instant newClosedAt;
     if (nowClosed && !wasClosed) {
       newClosedAt = Instant.now();

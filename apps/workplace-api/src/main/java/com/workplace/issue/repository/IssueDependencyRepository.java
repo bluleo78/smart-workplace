@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.ISSUE_DEPENDENCY;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 
 import com.workplace.issue.dto.IssueLinkSummary;
+import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeSummary;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -197,8 +198,8 @@ public class IssueDependencyRepository {
                     .BLOCKS_ISSUE_ID
                     .in(issueIds)
                     .and(ISSUE.DELETED_AT.isNull())
-                    .and(ISSUE.STATUS.notIn("DONE", "CANCELED"))
-                    .and(target.STATUS.notIn("DONE", "CANCELED")))
+                    .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED))
+                    .and(target.STATUS.notIn(IssueStatuses.CLOSED)))
             .fetch(ISSUE_DEPENDENCY.BLOCKS_ISSUE_ID);
     Set<Long> blocked = new HashSet<>(ids);
     for (Long id : issueIds) {

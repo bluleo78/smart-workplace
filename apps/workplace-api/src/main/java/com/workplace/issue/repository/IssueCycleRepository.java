@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.ISSUE_CYCLE;
 
 import com.workplace.cycle.dto.CycleSummary;
 import com.workplace.issue.dto.CycleProgress;
+import com.workplace.issue.dto.IssueStatuses;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -89,7 +90,7 @@ public class IssueCycleRepository {
     for (Long id : cycleIds) {
       Map<String, Integer> byStatus = byCycle.getOrDefault(id, Map.of());
       int total = byStatus.values().stream().mapToInt(Integer::intValue).sum();
-      int done = byStatus.getOrDefault("DONE", 0);
+      int done = IssueStatuses.CLOSED.stream().mapToInt(s -> byStatus.getOrDefault(s, 0)).sum();
       result.add(new CycleProgress(id, total, done, byStatus));
     }
     return result;

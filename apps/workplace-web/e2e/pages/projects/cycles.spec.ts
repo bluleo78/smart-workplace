@@ -196,6 +196,27 @@ test.describe('사이클 관리', () => {
     },
   );
 
+  test(
+    '취소도 완료로 집계 — DONE 1·CANCELED 1 이면 2/2 완료(100%), 막대가 강조색으로 가득 찬다 (WP-243)',
+    async ({ authenticatedPage: page }) => {
+      const cycle = createCycle({ id: 1, name: '스프린트 1', status: 'ACTIVE' });
+      const progress: CycleProgress = {
+        cycleId: 1,
+        total: 2,
+        done: 2,
+        byStatus: { DONE: 1, CANCELED: 1 },
+      };
+
+      await setupCyclesPageStubs(page, [cycle], [progress]);
+      await page.goto(`/projects/${KEY}/cycles`);
+
+      const bar = page.getByTestId('cycle-progress-1');
+      await expect(bar).toContainText('2/2 완료 (100%)');
+      // DONE·CANCELED 두 세그먼트 모두 완료 계열(bg-success) 색이라 채워진 비율이 100% 텍스트와 일치한다.
+      await expect(bar.locator('[class*="bg-success"]')).toHaveCount(2);
+    },
+  );
+
   test('PageHeader 프로젝트 복귀 내비게이션 노출 (#667)', async ({ authenticatedPage: page }) => {
     await setupCyclesPageStubs(page, [], []);
     await page.goto(`/projects/${KEY}/cycles`);

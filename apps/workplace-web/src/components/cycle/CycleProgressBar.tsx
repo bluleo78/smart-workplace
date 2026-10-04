@@ -1,12 +1,14 @@
 // 사이클 진행 막대 — 상태별 누적(stacked) 바 + 완료율 텍스트.
 import type { CycleProgress } from '../../types/cycle';
 
-// DONE만 강조색을 갖고 나머지(TODO/IN_PROGRESS/CANCELED)는 트랙색으로 통일.
+// 종료 상태(DONE·CANCELED)만 강조색을 갖고 나머지(TODO/IN_PROGRESS)는 트랙색으로 통일.
 // (바의 채워진 비율이 항상 done/total 과 일치해야 아래 완료율 텍스트와 모순되지 않음 — #771)
+// 취소도 완료로 집계하므로(WP-243) 같은 계열 색을 옅게 써서 완료와 구분만 남기고 DONE 바로 뒤에 붙인다.
 const STATUS_COLOR: Record<string, string> = {
   DONE: 'bg-success',
+  CANCELED: 'bg-success/40',
 };
-const STATUS_ORDER = ['DONE', 'IN_PROGRESS', 'TODO', 'CANCELED'];
+const STATUS_ORDER = ['DONE', 'CANCELED', 'IN_PROGRESS', 'TODO'];
 
 /**
  * @param compact 한 줄 표기(막대 + "38%") — 목록 사이클 구간 헤더처럼 높이를 한 줄로 맞춰야 하는 곳(#878).

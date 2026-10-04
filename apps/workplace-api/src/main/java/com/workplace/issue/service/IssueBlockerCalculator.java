@@ -3,12 +3,12 @@ package com.workplace.issue.service;
 import com.workplace.issue.dto.IssueBlockerBadge;
 import com.workplace.issue.dto.IssueBlockerBadge.BlockerType;
 import com.workplace.issue.dto.IssueResponse;
+import com.workplace.issue.dto.IssueStatuses;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
@@ -25,9 +25,6 @@ public class IssueBlockerCalculator {
 
   /** STALE 판단 기준 일수 — IN_PROGRESS 상태에서 이 일수 이상 갱신 없으면 정체로 간주. */
   static final int STALE_DAYS = 3;
-
-  /** 완료·취소 상태 집합 — OVERDUE 계산에서 제외. */
-  private static final Set<String> TERMINAL = Set.of("DONE", "CANCELED");
 
   /**
    * 이슈의 블로커 배지 목록을 결정적으로 계산한다.
@@ -47,7 +44,7 @@ public class IssueBlockerCalculator {
 
     // OVERDUE: 마감일이 내일 이하이고 아직 종료되지 않음
     if (issue.dueDate() != null
-        && !TERMINAL.contains(issue.status())
+        && !IssueStatuses.CLOSED.contains(issue.status())
         && !issue.dueDate().isAfter(today.plusDays(1))) {
       badges.add(new IssueBlockerBadge(BlockerType.OVERDUE, "마감 임박/경과"));
     }

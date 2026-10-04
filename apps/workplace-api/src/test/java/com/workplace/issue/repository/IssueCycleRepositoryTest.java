@@ -94,4 +94,36 @@ class IssueCycleRepositoryTest extends IntegrationTestBase {
     assertThat(byId.get(c3.id()).total()).isZero();
     assertThat(byId.get(c3.id()).byStatus()).isEmpty();
   }
+
+  /** WP-243: 취소(CANCELED)도 Jira 처럼 완료 분류로 보고 done 에 집계한다 — 취소가 섞여도 100% 에 도달해야 한다. */
+  @Test
+  void canceled_issue_counts_as_done() {
+    Long owner = createUser("c");
+    ProjectResponse p =
+        projectService.create(owner, new CreateProjectRequest(uniqueKey("PC"), "P", "x"));
+    var c1 =
+        cycleService.create(owner, p.key(), new CreateCycleRequest("S1", null, null, null, null));
+    var done =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("D", null, null, null, null, null, null, null));
+    var canceled =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("C", null, null, null, null, null, null, null));
+    var todo =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("T", null, null, null, null, null, null, null));
+    setStatus(p.key(), done.number(), "DONE", p.id());
+    setStatus(p.key(), canceled.number(), "CANCELED", p.id());
+    for (var it : List.of(done, canceled, todo)) {
+      issueCycleService.replace(owner, p.key(), it.number(), List.of(c1.id()));
+    }
+
+    var progress =
+        issueCycleRepository.progressByProject(p.id()).stream()
+            .filter(x -> x.cycleId().equals(c1.id()))
+            .findFirst()
+            .orElseThrow();
+    assertThat(progress.total()).isEqualTo(3);
+    assertThat(progress.done()).isEqualTo(2);
+  }
 }

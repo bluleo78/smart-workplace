@@ -11,6 +11,7 @@ import static org.jooq.impl.DSL.noCondition;
 import static org.jooq.impl.DSL.notExists;
 
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
 import java.time.Instant;
@@ -351,7 +352,7 @@ public class IssueRepository {
           where.and(
               ISSUE
                   .STATUS
-                  .notIn("DONE", "CANCELED")
+                  .notIn(IssueStatuses.CLOSED)
                   .or(
                       exists(
                           dsl.selectOne()
@@ -459,7 +460,7 @@ public class IssueRepository {
       var blockerAlias = ISSUE.as("blocker");
       where =
           where
-              .and(ISSUE.STATUS.notIn("DONE", "CANCELED"))
+              .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED))
               .and(
                   org.jooq.impl.DSL.exists(
                       dsl.selectOne()
@@ -472,7 +473,7 @@ public class IssueRepository {
                               com.workplace.jooq.Tables.ISSUE_DEPENDENCY
                                   .BLOCKS_ISSUE_ID
                                   .eq(ISSUE.ID)
-                                  .and(blockerAlias.STATUS.notIn("DONE", "CANCELED"))
+                                  .and(blockerAlias.STATUS.notIn(IssueStatuses.CLOSED))
                                   .and(blockerAlias.DELETED_AT.isNull()))));
     }
     // Phase 4c — custom field 단일 동등 비교 필터 (fieldId+fieldValue 동시 지정 시). JSONB 를 텍스트로 캐스트하여 비교.
@@ -656,7 +657,7 @@ public class IssueRepository {
       var blockerAlias = ISSUE.as("blocker");
       where =
           where
-              .and(ISSUE.STATUS.notIn("DONE", "CANCELED"))
+              .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED))
               .and(
                   org.jooq.impl.DSL.exists(
                       dsl.selectOne()
@@ -669,7 +670,7 @@ public class IssueRepository {
                               com.workplace.jooq.Tables.ISSUE_DEPENDENCY
                                   .BLOCKS_ISSUE_ID
                                   .eq(ISSUE.ID)
-                                  .and(blockerAlias.STATUS.notIn("DONE", "CANCELED"))
+                                  .and(blockerAlias.STATUS.notIn(IssueStatuses.CLOSED))
                                   .and(blockerAlias.DELETED_AT.isNull()))));
     }
     // custom field 단일 동등 비교 필터 (fieldId+fieldValue 동시 지정 시). JSONB 를 텍스트로 캐스트하여 비교.
@@ -744,7 +745,7 @@ public class IssueRepository {
                 .PARENT_ISSUE_ID
                 .eq(parentId)
                 .and(ISSUE.DELETED_AT.isNull())
-                .and(ISSUE.STATUS.notIn("DONE", "CANCELED")))
+                .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED)))
         .orderBy(ISSUE.NUMBER)
         .fetch(ISSUE.NUMBER);
   }
@@ -800,7 +801,7 @@ public class IssueRepository {
     return result;
   }
 
-  /** 부모 id 집합 → 활성 + status=DONE 자식 수 맵. 진행률 표시용. */
+  /** 부모 id 집합 → 활성 + 종료({@link IssueStatuses#CLOSED}) 자식 수 맵. 진행률 표시용 — 취소도 완료로 집계(WP-243). */
   public Map<Long, Integer> countDoneChildrenByParentIds(List<Long> parentIds) {
     if (parentIds == null || parentIds.isEmpty()) return Map.of();
     Map<Long, Integer> result = new HashMap<>();
@@ -812,7 +813,7 @@ public class IssueRepository {
                 .PARENT_ISSUE_ID
                 .in(parentIds)
                 .and(ISSUE.DELETED_AT.isNull())
-                .and(ISSUE.STATUS.eq("DONE")))
+                .and(ISSUE.STATUS.in(IssueStatuses.CLOSED)))
         .groupBy(ISSUE.PARENT_ISSUE_ID)
         .fetch()
         .forEach(r -> result.put(r.value1(), r.value2()));

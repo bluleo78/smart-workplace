@@ -71,21 +71,28 @@ class IssueSearchServiceParentTest extends IntegrationTestBase {
             owner,
             p.key(),
             new CreateIssueRequest("c1", null, null, null, null, subId, parent.number(), null));
-    issueService.create(
-        owner,
-        p.key(),
-        new CreateIssueRequest("c2", null, null, null, null, subId, parent.number(), null));
+    var c2 =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("c2", null, null, null, null, subId, parent.number(), null));
     issueService.create(
         owner,
         p.key(),
         new CreateIssueRequest("c3", null, null, null, null, subId, parent.number(), null));
-    // c1 만 DONE 으로 전환
+    // c1 은 DONE, c2 는 CANCELED 로 전환 — 취소도 완료 분류라 진행률에 함께 집계된다(WP-243)
     issueService.update(
         owner,
         p.key(),
         c1.number(),
         new UpdateIssueRequest(
             null, null, "DONE", null, null, false, null, false, null, false, null));
+    issueService.update(
+        owner,
+        p.key(),
+        c2.number(),
+        new UpdateIssueRequest(
+            null, null, "CANCELED", null, null, false, null, false, null, false, null));
 
     Map<String, String> params = new HashMap<>();
     var resp = searchService.search(owner, p.key(), params);
@@ -93,7 +100,7 @@ class IssueSearchServiceParentTest extends IntegrationTestBase {
     var parentItem =
         resp.items().stream().filter(i -> i.number() == parent.number()).findFirst().orElseThrow();
     assertThat(parentItem.childCount()).isEqualTo(3);
-    assertThat(parentItem.childDoneCount()).isEqualTo(1);
+    assertThat(parentItem.childDoneCount()).isEqualTo(2);
     var childItem =
         resp.items().stream().filter(i -> i.number() == c1.number()).findFirst().orElseThrow();
     assertThat(childItem.parent()).isNotNull();
