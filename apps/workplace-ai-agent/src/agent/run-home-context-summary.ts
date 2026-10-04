@@ -4,7 +4,8 @@
 import { z } from 'zod';
 
 import { type RunAgentDeps } from './run-agent.js';
-import { runText } from './run-messaging-ai.js';
+import { runTextEvents } from './run-messaging-ai.js';
+import { finalText, resultOk } from './runner-events.js';
 import { contextLabel } from './run-ai-chat.js';
 
 export const homeContextSummaryInput = z.object({
@@ -34,20 +35,22 @@ export function buildContextSummaryMessage(input: HomeContextSummaryInput): stri
   return `기존 요약:\n${prev}\n\n새 대화 구간:\n${lines}`;
 }
 
-// 요약 실행 — 빈 결과는 실패로 본다(API 가 폴백 처리하도록 502 로 매핑되게 throw).
+// 요약 실행 — 실패한 실행(result ok:false·result 없음)과 빈 결과는 실패로 본다(API 가 폴백 처리하도록 502 로 매핑되게 throw).
+// 실패 실행의 부분 텍스트를 요약으로 저장하면 이후 모든 턴의 맥락이 오염되므로 반드시 거부한다.
 export async function runHomeContextSummary(
   input: HomeContextSummaryInput,
   deps: RunAgentDeps,
 ): Promise<{ summary: string }> {
   const { assistantAgentId, model, maxTurns, timeoutMs } = input;
-  const text = await runText(
+  const events = await runTextEvents(
     SUMMARY_PROMPT,
     buildContextSummaryMessage(input),
     { assistantAgentId, model, maxTurns, timeoutMs },
     deps,
     'home-context-summary',
   );
-  const summary = text.trim();
+  if (!resultOk(events)) throw new Error('요약 실행 실패');
+  const summary = finalText(events);
   if (!summary) throw new Error('빈 요약');
   return { summary };
 }

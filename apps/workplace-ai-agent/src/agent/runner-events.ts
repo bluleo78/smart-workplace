@@ -104,3 +104,10 @@ export function finalUsage(events: RunnerEvent[]): RunnerUsage | null {
   const resultEvent = events.find((e): e is Extract<RunnerEvent, { type: 'result' }> => e.type === 'result');
   return resultEvent?.usage ?? null;
 }
+
+// 실행이 성공으로 끝났는지 — result 이벤트가 있고 ok 일 때만 true. result 가 없으면(중단·타임아웃) 실패로 본다.
+// finalText 는 실패 실행의 부분 텍스트도 돌려주므로, 결과를 저장하는 호출자(누적 요약 등)는 이걸 먼저 확인한다.
+export function resultOk(events: RunnerEvent[]): boolean {
+  const resultEvent = events.find((e): e is Extract<RunnerEvent, { type: 'result' }> => e.type === 'result');
+  return resultEvent?.ok === true;
+}

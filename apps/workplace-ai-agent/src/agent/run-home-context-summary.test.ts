@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { runTextSpy } = vi.hoisted(() => ({ runTextSpy: vi.fn() }));
-vi.mock('./run-messaging-ai.js', () => ({ runText: runTextSpy }));
+const { runTextEventsSpy } = vi.hoisted(() => ({ runTextEventsSpy: vi.fn() }));
+vi.mock('./run-messaging-ai.js', () => ({ runTextEvents: runTextEventsSpy }));
 
 import {
   buildContextSummaryMessage,
@@ -37,19 +37,40 @@ describe('buildContextSummaryMessage', () => {
 });
 
 describe('runHomeContextSummary', () => {
-  it('runText 결과를 trim 해 summary 로 반환하고 태그를 home-context-summary 로 둔다', async () => {
-    runTextSpy.mockResolvedValue('  갱신된 요약  ');
+  // 러너 이벤트 픽스처 — result 이벤트의 ok/text 만 바꿔 성공·실패 실행을 흉내 낸다.
+  const resultEvents = (ok: boolean, text: string | null) => [{ type: 'result', ok, text, usage: null }];
+
+  it('러너 결과 텍스트를 trim 해 summary 로 반환하고 태그를 home-context-summary 로 둔다', async () => {
+    runTextEventsSpy.mockResolvedValue(resultEvents(true, '  갱신된 요약  '));
     const out = await runHomeContextSummary(
       { ...base, messages: [{ role: 'USER', content: 'a' }] },
       { client: {} as never },
     );
     expect(out).toEqual({ summary: '갱신된 요약' });
-    expect(runTextSpy.mock.calls[0][4]).toBe('home-context-summary');
-    expect(runTextSpy.mock.calls[0][2]).toEqual(base);
+    expect(runTextEventsSpy.mock.calls[0][4]).toBe('home-context-summary');
+    expect(runTextEventsSpy.mock.calls[0][2]).toEqual(base);
   });
 
   it('빈 결과면 예외(라우트가 502 로 매핑)', async () => {
-    runTextSpy.mockResolvedValue('   ');
+    runTextEventsSpy.mockResolvedValue(resultEvents(true, '   '));
+    await expect(
+      runHomeContextSummary({ ...base, messages: [{ role: 'USER', content: 'a' }] }, { client: {} as never }),
+    ).rejects.toThrow();
+  });
+});
+
+describe('runHomeContextSummary 실패 실행', () => {
+  // 러너가 실패(ok:false)로 끝나도 부분 텍스트가 있으면 runText 는 그걸 돌려준다 — 그 조각을 요약으로
+  // 저장하면 이후 턴 맥락이 오염되므로 요약 경로는 실패 실행을 거부해야 한다(라우트가 502 로 매핑).
+  it('result ok:false 면 부분 텍스트가 있어도 예외', async () => {
+    runTextEventsSpy.mockResolvedValue([{ type: 'result', ok: false, text: '부분 요약 조각', usage: null }]);
+    await expect(
+      runHomeContextSummary({ ...base, messages: [{ role: 'USER', content: 'a' }] }, { client: {} as never }),
+    ).rejects.toThrow();
+  });
+
+  it('result 이벤트가 없으면(중단된 실행) assistant_text 가 있어도 예외', async () => {
+    runTextEventsSpy.mockResolvedValue([{ type: 'assistant_text', text: '중간 텍스트' }]);
     await expect(
       runHomeContextSummary({ ...base, messages: [{ role: 'USER', content: 'a' }] }, { client: {} as never }),
     ).rejects.toThrow();

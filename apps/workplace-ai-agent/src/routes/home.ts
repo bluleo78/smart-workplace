@@ -183,7 +183,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
       res.status(200).json(await runHomeContextSummary(parsed.data, deps));
     } catch (e) {
       console.error('[home-context-summary] 실패:', e instanceof Error ? e.message : String(e));
-      res.status(502).json({ error: 'home-context-summary_failed' });
+      res.status(502).json({ error: 'home_context_summary_failed' });
     }
   });
 

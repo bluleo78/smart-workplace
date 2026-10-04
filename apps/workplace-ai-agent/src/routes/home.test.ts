@@ -322,6 +322,6 @@ describe('POST /home/context-summary (WP-232)', () => {
     vi.mocked(runHomeContextSummary).mockRejectedValue(new Error('boom'));
     const res = await request(buildApp()).post('/home/context-summary').send(body);
     expect(res.status).toBe(502);
-    expect(res.body).toEqual({ error: 'home-context-summary_failed' });
+    expect(res.body).toEqual({ error: 'home_context_summary_failed' });
   });
 });

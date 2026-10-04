@@ -1,7 +1,7 @@
 // 메시징 AI 러너 — 안읽은 일반 채널 메시지 배치에서 "암묵적으로 관련된 멤버"를 발굴한다.
 // run-mail-ai.ts 의 runText 패턴 미러. 도구 없이 텍스트 in/out.
 import { runnerFor } from './agent-runner.js';
-import { finalText } from './runner-events.js';
+import { finalText, type RunnerEvent } from './runner-events.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
 import { z } from 'zod';
@@ -26,16 +26,17 @@ const MESSAGING_CLASSIFY_PROMPT =
   '이름 언급, 담당 추정, 답을 기다리는 질문이 단서다. 단순 잡담·공지·인사는 제외. ' +
   '관련된 멤버만 JSON 으로: {"relevant":[{"userId":<id>,"reason":"<왜 한 문장>"}]}. 없으면 {"relevant":[]}.';
 
-// 공통 텍스트 러너 — 토큰 fetch → SDK 단발 실행 → 최종 텍스트. run-mail-ai.ts 미러. 도구 미사용.
-export async function runText(
+// 공통 텍스트 러너(이벤트판) — 토큰 fetch → SDK 단발 실행 → 러너 이벤트 그대로. 도구 미사용.
+// 실행 성공 여부(result.ok)까지 봐야 하는 호출자(누적 요약, WP-232)용. 나머지는 runText 사용.
+export async function runTextEvents(
   systemPrompt: string,
   userMessage: string,
   cfg: BaseConfig,
   deps: RunAgentDeps,
   tag: string,
-): Promise<string> {
+): Promise<RunnerEvent[]> {
   const credential = await deps.client.getProviderCredential(cfg.assistantAgentId);
-  const events = await runnerFor(credential).collect({
+  return runnerFor(credential).collect({
     userMessage,
     systemPrompt,
     // 우선순위: 요청 body(cfg.model) > redeem 응답(credential.model) > env/기본값.
@@ -47,7 +48,17 @@ export async function runText(
     logTag: `${tag}:${cfg.assistantAgentId}`,
     includePartialMessages: false,
   });
-  return finalText(events);
+}
+
+// 공통 텍스트 러너 — runTextEvents 의 최종 텍스트. run-mail-ai.ts 미러. 기존 의미(실패 실행의 부분 텍스트도 반환) 유지.
+export async function runText(
+  systemPrompt: string,
+  userMessage: string,
+  cfg: BaseConfig,
+  deps: RunAgentDeps,
+  tag: string,
+): Promise<string> {
+  return finalText(await runTextEvents(systemPrompt, userMessage, cfg, deps, tag));
 }
 
 // relevant 배열 파싱 — 모델이 코드펜스/잡설을 섞어도 JSON 객체를 파싱. 실패 시 빈 배열 폴백.
