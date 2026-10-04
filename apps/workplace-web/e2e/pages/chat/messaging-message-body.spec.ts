@@ -453,10 +453,15 @@ async function scrollViewportTop(page: Page, testId: string) {
   })
 }
 
-/** 요소의 boundingBox 를 non-null 로 돌려준다(없으면 테스트 실패). */
+/**
+ * 요소의 boundingBox 를 non-null 로 돌려준다(끝내 없으면 테스트 실패).
+ * boundingBox() 는 기다리지 않는다. 뷰포트가 1024 경계를 넘으면 목록이 모바일/데스크톱 레이아웃으로
+ * 다시 마운트되는데, 보인다고 확인한 직후에도 그 사이 요소가 바뀌어 null 이 될 수 있어 잡힐 때까지 다시 잰다(WP-225).
+ */
 async function box(page: Page, testId: string) {
-  const b = await page.getByTestId(testId).boundingBox()
-  expect(b, `${testId} boundingBox`).not.toBeNull()
+  const loc = page.getByTestId(testId)
+  let b: Awaited<ReturnType<typeof loc.boundingBox>> = null
+  await expect.poll(async () => (b = await loc.boundingBox()), { message: `${testId} boundingBox` }).not.toBeNull()
   return b!
 }
 
@@ -563,9 +568,10 @@ test.describe('메시지 좌/우 분리', () => {
       expect(await hasHorizontalOverflow(page, 'message-list')).toBe(false)
     }
     await assertCardInside()
-    // 좁은 채팅 컬럼에서도 동일.
+    // 좁은 채팅 컬럼에서도 동일. 700 은 모바일 레이아웃(<1024)이라 다시 그려지는 동안 옛 배치를 잴 수 있어,
+    // 새 배치에서 단언이 맞을 때까지 다시 잰다(WP-225).
     await page.setViewportSize({ width: 700, height: 800 })
-    await assertCardInside()
+    await expect(assertCardInside).toPass()
     // 카드가 좁아져도 크기 라벨("48 KB")은 줄바꿈되지 않고 한 줄로 남는다(파일명만 줄어든다).
     const size = page.getByTestId('attachment-card-900').getByText('48 KB')
     await expect(size).toHaveCSS('white-space', 'nowrap')
@@ -681,10 +687,15 @@ test.describe('메시지 좌/우 분리', () => {
     await expect(page.getByTestId('message-body-33').getByTestId('message-edited-33')).toHaveText('(수정됨)')
     // wrap-anywhere 말풍선에서도 '(수정됨)' 이 낱말 중간에서 끊기지 않는다.
     // 불변식은 white-space:nowrap 이고, 실제 한 줄 높이는 대표 폭 두 곳에서만 확인한다.
-    await expect(page.getByTestId('message-edited-33')).toHaveCSS('white-space', 'nowrap')
+    const edited = page.getByTestId('message-edited-33')
+    await expect(edited).toHaveCSS('white-space', 'nowrap')
+    // 900 은 모바일 레이아웃(<1024)이라 뷰포트 변경 뒤 목록이 다시 그려진다 — 한 번 재고 끝내지 않고
+    // 레이아웃이 자리 잡을 때까지 높이를 폴링한다(WP-225).
     for (const width of [900, 1200]) {
       await page.setViewportSize({ width, height: 800 })
-      expect((await box(page, 'message-edited-33')).height, `width ${width}`).toBeLessThan(24)
+      await expect
+        .poll(async () => (await edited.boundingBox())?.height ?? Infinity, { message: `width ${width}` })
+        .toBeLessThan(24)
     }
 
     await expect(page.getByTestId('message-34')).toHaveClass(/justify-end/)

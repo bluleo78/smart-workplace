@@ -466,9 +466,21 @@ test.describe('받은편지함', () => {
       await page.goto('/mail/1')
       await page.getByTestId('mail-row-10').click()
       const frame = page.frameLocator('[data-testid="mail-body-html"]')
-      const color = (id: string) => frame.locator(`#${id}`).evaluate((el) => getComputedStyle(el).color)
-      const bg = (id: string) => frame.locator(`#${id}`).evaluate((el) => getComputedStyle(el).backgroundColor)
-      return { frame, color, bg }
+      // 본문 iframe 은 srcdoc 를 다시 쓸 때(인라인 이미지 치환·원본/다크 전환·테마 전환) 새 문서를 띄운다.
+      // 그 순간의 evaluate 는 "Execution context was destroyed" 로 던져 expect.poll 이 재시도 없이 실패하므로,
+      // 새 문서가 뜰 때까지 다시 잰다(WP-225).
+      const computed = async (selector: string, prop: 'color' | 'backgroundColor' | 'backgroundImage' | 'boxShadow') => {
+        for (let attempt = 0; ; attempt++) {
+          try {
+            return await frame.locator(selector).evaluate((el, p) => getComputedStyle(el)[p], prop)
+          } catch (e) {
+            if (attempt >= 4 || !String(e).includes('Execution context was destroyed')) throw e
+          }
+        }
+      }
+      const color = (id: string) => computed(`#${id}`, 'color')
+      const bg = (id: string) => computed(`#${id}`, 'backgroundColor')
+      return { frame, color, bg, computed }
     }
 
     test('배경 없는 메일을 어둡게 변환·원본 보기 토글·라이트 전환 시 원본으로', async ({ authenticatedPage: page }) => {
@@ -481,7 +493,7 @@ test.describe('받은편지함', () => {
         (url) => url.pathname === '/api/v1/mail/attachments/5/content',
         (route) => route.fulfill({ status: 200, headers: { 'content-type': 'image/png' }, body: png }),
       )
-      const { frame, color, bg } = await openDarkMail(
+      const { frame, color, bg, computed } = await openDarkMail(
         page,
         '<html><head><style>p{margin-top:0}</style></head><body>' +
           '<div id="text" style="font-size:12pt; color:rgb(0,0,0); background-color:white">안녕하세요.</div>' +
@@ -496,7 +508,7 @@ test.describe('받은편지함', () => {
       await expect(frame.locator('#text')).toHaveText('안녕하세요.')
       // 배경은 흰색이 아닌 앱 다크 토큰, 검정 글자는 밝게, 강조 오렌지는 유지, 인라인 흰 배경은 투명으로
       await expect
-        .poll(() => frame.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor))
+        .poll(() => computed('body', 'backgroundColor'))
         .not.toMatch(/^rgba?\(255, 255, 255|^rgba\(0, 0, 0, 0\)/)
       await expect.poll(() => color('text')).toBe('rgb(237, 237, 237)')
       await expect.poll(() => color('accent')).toBe('rgb(243, 112, 33)')
@@ -530,7 +542,7 @@ test.describe('받은편지함', () => {
 
     // WP-159 — 형광펜·bgcolor·배경 이미지가 있어도 메일 전체를 원본(흰 바탕)으로 두지 않는다
     test('형광펜·bgcolor 뉴스레터도 다크로 변환하고 원본 보기 토글 제공', async ({ authenticatedPage: page }) => {
-      const { frame, color, bg } = await openDarkMail(
+      const { frame, color, bg, computed } = await openDarkMail(
         page,
         '<table bgcolor="#ffffff"><tr><td id="cell" style="color:#000000">뉴스레터</td></tr></table>' +
           '<h3><font id="hl" style="background-color:rgb(255,255,0)">■ 일정/장소</font></h3>' +
@@ -538,7 +550,7 @@ test.describe('받은편지함', () => {
       )
       await expect(frame.locator('#cell')).toHaveText('뉴스레터')
       await expect
-        .poll(() => frame.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor))
+        .poll(() => computed('body', 'backgroundColor'))
         .not.toMatch(/^rgba?\(255, 255, 255|^rgba\(0, 0, 0, 0\)/)
       await expect.poll(() => color('cell')).toBe('rgb(237, 237, 237)')
       // 형광펜은 노란색 계열로 남되 어둡게(R=G, B 낮음)
@@ -549,8 +561,7 @@ test.describe('받은편지함', () => {
       expect(r).toBeLessThan(100)
       // 배경 이미지는 그대로 두고 inset box-shadow 덮개로 어둡게, 함께 쓴 흰 배경색은 투명으로
       await expect.poll(() => bg('hero')).toBe('rgba(0, 0, 0, 0)')
-      const hero = (prop: 'backgroundImage' | 'boxShadow') =>
-        frame.locator('#hero').evaluate((el, p) => getComputedStyle(el)[p], prop)
+      const hero = (prop: 'backgroundImage' | 'boxShadow') => computed('#hero', prop)
       await expect.poll(() => hero('backgroundImage')).toMatch(/^url\(.*hero\.png/)
       await expect.poll(() => hero('boxShadow')).toContain('inset')
 
@@ -810,9 +821,14 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opened ? [summary({ id: 11 })] : [summary({ id: 10 }), summary({ id: 11 })]) })
     })
     await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail()) // WP-214: 조회는 읽음 처리하지 않아 안 읽음 그대로 응답
+    const read = await mockApi(page, 'POST', '/api/v1/mail/messages/10/read', null, { capture: true })
     await page.clock.install()
     await page.goto('/mail/1?unread=true')
     await page.getByTestId('mail-row-10').click()
+    // 앱은 상세 조회가 끝난 뒤 첫 열람 읽음 처리에서 행을 "안 읽은 메일만" 유지 집합에 넣는다.
+    // 그 전에 시계를 당겨 재조회(10 이 빠진 목록)가 먼저 끝나면 넣을 행이 없어 사라지므로,
+    // 읽음 요청이 나간 뒤에 재조회를 일으킨다(WP-225).
+    await read.waitForRequest()
     opened = true
     const before = listCalls
     // 60초 주기 재조회(refetchInterval)를 실제로 일으킨다 — 재조회가 없으면 행이 남는 것은 당연하므로, 요청이 나갔는지 먼저 확인한다
