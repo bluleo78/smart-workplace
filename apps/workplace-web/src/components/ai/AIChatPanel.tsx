@@ -28,6 +28,7 @@ import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
 import { sliceRange } from '@/lib/chatBlocks';
+import { keepFocusProps } from '@/lib/keepFocus';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
 
@@ -412,12 +413,14 @@ export function AIChatPanel({
             )}
             data-testid="chat-input"
           />
+          {/* 보내기·중단 탭이 입력창을 blur 하지 않게(keepFocusProps) — 보낼 때마다 iOS 키보드가 내려가지 않게(WP-224). */}
           {/* #335: 스트리밍 중에는 '보내기'를 '중단' 버튼으로 전환 — 클릭 시 진행 중 응답을 멈춘다. */}
           {pending ? (
             <Button
               type="button"
               variant="outline"
               onClick={onStop}
+              {...keepFocusProps}
               aria-label="응답 중단"
               data-testid="chat-stop"
             >
@@ -428,6 +431,7 @@ export function AIChatPanel({
             <Button
               type="submit"
               size="icon"
+              {...keepFocusProps}
               aria-label="보내기"
               disabled={!input.trim()}
               className="h-10 w-10 shrink-0 rounded-full bg-ai-accent text-ai-accent-foreground"
@@ -437,6 +441,7 @@ export function AIChatPanel({
           ) : (
             <Button
               type="submit"
+              {...keepFocusProps}
               disabled={!input.trim()}
               className="bg-ai-accent text-ai-accent-foreground"
             >

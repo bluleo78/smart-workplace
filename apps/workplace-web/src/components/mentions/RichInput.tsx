@@ -58,7 +58,7 @@ interface RichInputProps {
   /** 모바일 하단 코멘트(WP-196 디자인 리뷰): 에디터 오른쪽에 아이콘 전송 버튼을 붙여 한 줄로 — 2단(에디터+버튼 행)은
    *  하단 고정 줄이 화면을 너무 차지했다. 글자 수 카운터는 한도 80% 를 넘을 때만 노출. leftActions·onCancel 은 렌더하지 않는다.
    *  전송 탭이 에디터를 blur 하면 iOS 키보드가 내려가고 전송 후 비동기 focus 로는 다시 안 올라오므로(사용자 제스처 밖)
-   *  전송 버튼은 포커스를 빼앗지 않는다(keepFocusProps). 기본 false(데스크톱·채팅 불변). */
+   *  전송 버튼은 포커스를 빼앗지 않는다(keepFocusProps — 기본 레이아웃 전송 버튼도 같다, WP-224). 기본 false. */
   inlineSubmit?: boolean;
 }
 
@@ -390,11 +390,13 @@ export function RichInput({
               취소
             </Button>
           )}
+          {/* 전송 탭이 에디터를 blur 하지 않게(keepFocusProps) — 채팅 컴포저에서 보낼 때마다 iOS 키보드가 내려갔다 올라오지 않게(WP-224). */}
           <Button
             type="button"
             size="sm"
             className="max-lg:h-11"
             onClick={submit}
+            {...keepFocusProps}
             data-testid={submitTestId}
             disabled={submitBlocked}
           >
