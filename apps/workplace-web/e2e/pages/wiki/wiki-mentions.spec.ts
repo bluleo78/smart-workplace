@@ -20,6 +20,7 @@ import type {
 } from '../../../src/types/wiki'
 import { createMember } from '../../factories/auth.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectStays } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 const PAGE_ID = 400
@@ -379,9 +380,7 @@ test('위키 @ 멘션 — VIEWER 는 @ 멘션 피커가 노출되지 않는다(�
   // '@' 입력해도 allow 게이트(canEditRef=false)로 팝업이 뜨지 않고, 검색 API 도 호출되지 않는다.
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('@온보')
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- '@' 입력 후 일정 시간 동안 멘션 팝업·검색 호출이 끝내 없음(부재)을 확인
-  await page.waitForTimeout(500)
-  await expect(page.getByTestId('wiki-mention-popover')).toHaveCount(0)
+  await expectStays(page, () => page.getByTestId('wiki-mention-popover').count(), 0, { ms: 500 })
   expect(captured.wikiQ).toBeUndefined()
 })
 

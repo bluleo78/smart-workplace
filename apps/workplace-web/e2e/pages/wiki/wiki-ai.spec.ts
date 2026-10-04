@@ -12,7 +12,7 @@
 import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { measureBox, stableBox } from '../../fixtures/wait'
+import { expectStays, measureBox, stableBox } from '../../fixtures/wait'
 import { buildWikiAiSse } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
@@ -383,9 +383,8 @@ test('위키 변형 — VIEWER 는 변형 툴바가 노출되지 않는다', asy
   await expect(page.locator('.ProseMirror')).toBeVisible()
   await typeAndSelectAll(page, '원본 문장')
 
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 선택 후 일정 시간 동안 툴바가 끝내 뜨지 않음(부재)을 확인
-  await page.waitForTimeout(500)
-  await expect(page.getByTestId('wiki-ai-toolbar')).toHaveCount(0)
+  // 선택 후 일정 시간 동안 툴바가 끝내 뜨지 않음(부재)을 확인
+  await expectStays(page, () => page.getByTestId('wiki-ai-toolbar').count(), 0, { ms: 500 })
   expect(aiCalled).toBe(0)
 })
 
@@ -393,13 +392,14 @@ test('위키 변형 — 단일 undo 로 변형 전 원본으로 복원된다', a
   await setupWikiMocks(page, 'EDITOR')
   await mockWikiAiGeneration(page, { deltas: ['다듬어진 ', '문장'] })
 
+  // ProseMirror history 는 트랜잭션 시각(Date.now)으로 undo 그룹을 가르므로 가상 시계로 그 간격을 만든다 — goto 전 설치.
+  await page.clock.install()
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
   await typeAndSelectAll(page, '원본 문장')
-  // 의도된 고정 대기 — ProseMirror history 는 newGroupDelay(500ms) 안의 변경을 한 undo 그룹으로 묶는다.
-  // 입력과 AI 변형이 같은 그룹이 되면 undo 가 입력까지 지워 "원본으로 복원"을 검증할 수 없다(WP-82 에서 확인).
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 에디터 history 그룹 지연(newGroupDelay)은 관찰할 UI 신호가 없어 고정 대기가 불가피
-  await page.waitForTimeout(600)
+  // newGroupDelay(500ms) 안의 변경은 한 undo 그룹으로 묶인다. 입력과 AI 변형이 같은 그룹이 되면 undo 가
+  // 입력까지 지워 "원본으로 복원"을 검증할 수 없다(WP-82) — 시계를 600ms 넘겨 다른 그룹이 되게 한다.
+  await page.clock.fastForward(600)
 
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
   await page.getByTestId('wiki-ai-tb-polish').click()
@@ -431,9 +431,8 @@ test('위키 /ai — VIEWER 는 슬래시 AI 메뉴가 노출되지 않는다', 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
 
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- '/' 입력 후 일정 시간 동안 슬래시 메뉴가 끝내 뜨지 않음(부재)을 확인
-  await page.waitForTimeout(500)
-  await expect(page.getByTestId('wiki-slash-popover')).toHaveCount(0)
+  // '/' 입력 후 일정 시간 동안 슬래시 메뉴가 끝내 뜨지 않음(부재)을 확인
+  await expectStays(page, () => page.getByTestId('wiki-slash-popover').count(), 0, { ms: 500 })
   expect(aiCalled).toBe(0)
 })
 
@@ -549,9 +548,7 @@ test('위키 AI 노출 — VIEWER 는 버튼이 숨지 않고 비활성 + 사유
   // 비활성이므로 클릭해도 생성이 시작되지 않는다.
   // eslint-disable-next-line playwright/no-force-option -- aria-disabled 버튼은 Playwright 가 비활성으로 보고 클릭을 거부하므로, 눌러도 무반응인지 확인하려면 강제 클릭이 필요
   await aiButton.click({ force: true })
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 클릭 후 일정 시간 동안 생성 요청이 나가지 않음(부재)을 확인
-  await page.waitForTimeout(300)
-  expect(aiCalled).toBe(0)
+  await expectStays(page, () => aiCalled, 0)
 })
 
 test('위키 AI 노출 — 빈 본문에 placeholder 힌트와 초안 CTA 가 뜨고, 내용이 있으면 사라진다 (#733)', async ({
@@ -832,9 +829,8 @@ test('위키 변형 — 이미지 노드 선택(NodeSelection)에서는 툴바�
   // 아래 toolbar 부재 단언이 공허해진다(애초에 선택이 없어서 안 뜬 것일 수 있다).
   await expect(page.locator('.ProseMirror .ProseMirror-selectednode')).toHaveCount(1)
 
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 이미지 선택 후 일정 시간 동안 툴바가 끝내 뜨지 않음(부재)을 확인
-  await page.waitForTimeout(300)
-  await expect(page.getByTestId('wiki-ai-toolbar')).toHaveCount(0)
+  // 이미지 선택 후 일정 시간 동안 툴바가 끝내 뜨지 않음(부재)을 확인
+  await expectStays(page, () => page.getByTestId('wiki-ai-toolbar').count(), 0)
   expect(aiCalled).toBe(0)
 })
 
@@ -940,9 +936,8 @@ test('위키 서식 — VIEWER 는 서식 버튼도 노출되지 않는다 (#687
   await expect(page.locator('.ProseMirror')).toBeVisible()
   await typeAndSelectAll(page, '원본 문장')
 
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 선택 후 일정 시간 동안 서식 툴바가 끝내 뜨지 않음(부재)을 확인
-  await page.waitForTimeout(500)
-  await expect(page.getByTestId('wiki-ai-toolbar')).toHaveCount(0)
+  // 선택 후 일정 시간 동안 서식 툴바가 끝내 뜨지 않음(부재)을 확인
+  await expectStays(page, () => page.getByTestId('wiki-ai-toolbar').count(), 0, { ms: 500 })
   await expect(page.getByTestId('wiki-format-tb-bold')).toHaveCount(0)
 })
 

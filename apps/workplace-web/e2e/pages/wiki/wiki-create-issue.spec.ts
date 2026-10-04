@@ -1,6 +1,7 @@
 // 위키 노트→이슈 cross-app E2E — 선택 블록 → "이슈로 만들기" → 다이얼로그 → /api/v1/actions/confirm → 이슈 칩 삽입.
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectStays } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 const PAGE_ID = 400
@@ -91,7 +92,6 @@ test('위키 노트→이슈 — VIEWER 는 "이슈로 만들기" 미노출', as
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('내용')
   await page.keyboard.press('ControlOrMeta+a')
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 선택 후 일정 시간 동안 "이슈로 만들기" 버튼이 끝내 뜨지 않음(부재)을 확인
-  await page.waitForTimeout(400)
-  await expect(page.getByTestId('wiki-ai-tb-create-issue')).toHaveCount(0)
+  // 선택 후 일정 시간 동안 "이슈로 만들기" 버튼이 끝내 뜨지 않음(부재)을 확인
+  await expectStays(page, () => page.getByTestId('wiki-ai-tb-create-issue').count(), 0, { ms: 400 })
 })

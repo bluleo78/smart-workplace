@@ -7,7 +7,7 @@
 // 피드백이 end-to-end 로 동작함을 증명한다.
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { resizeAndSettle } from '../../fixtures/wait'
+import { expectStays, resizeAndSettle } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 const NEW_PAGE_ID = 100
@@ -450,7 +450,8 @@ test('위키 — 낙관적 동시성 충돌(409): 배너 노출 + 자동저장 �
     },
   )
 
-  // 1) 충돌 페이지로 바로 진입.
+  // 1) 충돌 페이지로 바로 진입. 자동저장 디바운스(setTimeout 800ms)를 넘기려고 가상 시계를 goto 전에 설치한다.
+  await page.clock.install()
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${CONFLICT_ID}`)
 
   // 2) 본문 입력 → debounce 자동저장 → PUT → 409.
@@ -467,14 +468,13 @@ test('위키 — 낙관적 동시성 충돌(409): 배너 노출 + 자동저장 �
   await expect(page.getByTestId('wiki-save-state')).toHaveText('충돌')
 
   // 4) 자동저장 중단 검증 — 배너 노출 시점의 PUT 수를 기록하고,
-  //    추가 입력 후 debounce(800ms)보다 길게 대기해도 PUT 이 늘지 않아야 한다.
+  //    추가 입력 후 debounce(800ms)를 시계로 넘겨도 PUT 이 늘지 않아야 한다.
   const putAfterConflict = putCount
   expect(putAfterConflict).toBeGreaterThan(0)
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('충돌 후 추가 입력')
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 디바운스(800ms)를 넘겨도 추가 PUT 이 나가지 않음(부재)을 확인
-  await page.waitForTimeout(1500)
-  expect(putCount).toBe(putAfterConflict)
+  await page.clock.fastForward(1500)
+  await expectStays(page, () => putCount, putAfterConflict, { ms: 200 })
 })
 
 // 삭제 UI — 사이드바 트리 노드 삭제 → 트리에서 사라짐(에러 경로 아님, 단순 동작 → 미태그).
@@ -767,6 +767,8 @@ test('위키 — 디바운스 대기 중 리마운트(뷰포트 lg 경계 전환
       return route.fulfill({ json: pageDetail(NEW_TITLE, 1) })
     },
   )
+  // 옛 디바운스 타이머를 시계로 넘겨 확인하려고 goto 전에 설치한다(설치만으론 시간이 실제처럼 흐른다).
+  await page.clock.install()
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${NEW_PAGE_ID}`)
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('플러시')
@@ -778,10 +780,9 @@ test('위키 — 디바운스 대기 중 리마운트(뷰포트 lg 경계 전환
   // flush 는 언마운트 즉시 — 디바운스 잔여 시간(수백 ms)을 기다리지 않는다.
   expect(puts[0].at - t0).toBeLessThan(400)
   expect(puts[0].body).toContain('플러시')
-  // 옛 타이머가 뒤늦게 한 번 더 PUT 하지 않는다(중복 저장·409 방지). 디바운스 창은 800ms.
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 디바운스 창을 넘겨 옛 타이머의 중복 PUT 이 없음(부재)을 확인
-  await page.waitForTimeout(1000)
-  expect(puts).toHaveLength(1)
+  // 옛 타이머가 뒤늦게 한 번 더 PUT 하지 않는다(중복 저장·409 방지). 디바운스 창(800ms)을 시계로 넘긴다.
+  await page.clock.fastForward(1000)
+  await expectStays(page, () => puts.length, 1, { ms: 200 })
 })
 
 // WP-121(리뷰 C2): flush 직후 리마운트된 에디터는 flush 전 캐시(옛 본문·version)로 뜨면 안 된다 —
