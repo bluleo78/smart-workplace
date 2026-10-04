@@ -191,20 +191,27 @@ test(
     await expect(page.getByTestId('ai-working-bubble')).toHaveCount(0, { timeout: 15000 });
 
     // ── Phase 3(핵심 회귀): 뒤늦은 tool(같은 streamId) → 버블이 되살아나면 안 된다 ──
+    // 뒤늦은 tool 이 실제로 전달됐는지 표식 — 전달 전에 부재를 확인하면 회귀를 못 잡는다 (WP-225).
+    let markStaleServed!: () => void;
+    const staleServed = new Promise<void>((resolve) => (markStaleServed = resolve));
     await page.route(
       (url) => url.pathname === '/api/v1/events',
-      (route) =>
-        route.fulfill({
+      (route) => {
+        markStaleServed();
+        return route.fulfill({
           status: 200,
           contentType: 'text/event-stream',
           headers: { 'cache-control': 'no-cache' },
           body: sseStaleTool,
-        }),
+        });
+      },
     );
 
     // 구코드: 종료 추적 없음 → tool 이벤트가 다시 set → 버블 부활(이 단언에서 실패 = 회귀 감지).
-    // 잠시 대기해 뒤늦은 tool 이 처리될 시간을 준 뒤에도 버블이 없어야 한다.
-    await page.waitForTimeout(1500);
+    // 뒤늦은 tool 이 전달된 뒤, 처리될 짧은 여유를 준 다음에도 버블이 없어야 한다.
+    await staleServed;
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 전달된 뒤늦은 tool 처리 후 버블이 되살아나지 않음(부재)을 확인
+    await page.waitForTimeout(500);
     await expect(page.getByTestId('ai-working-bubble')).toHaveCount(0);
   },
 );

@@ -445,7 +445,10 @@ test('정상 연결(유예 내)에는 재연결 배너가 깜빡이지 않는다
   // 연결 성립 전(아직 isConnected=false)인 300ms 시점 표본 — 유예 내라 배너가 떠선 안 된다.
   // isVisible() 는 즉시 평가(자동 대기 없음)이므로 "현재 숨김"을 정확히 검증한다.
   // (구버전: 마운트~연결 사이 !isConnected 로 항상 표시 → 이 시점 visible → 실패)
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 연결 성립 전(300ms) 시점에 배너가 없음을 표본 확인(부재 확인)
   await page.waitForTimeout(300);
+  // toBeHidden 은 숨겨질 때까지 기다려 "그 시점 표시" 회귀를 놓치므로 즉시 평가를 유지한다 (WP-225).
+  // eslint-disable-next-line playwright/prefer-web-first-assertions -- 시점 표본 검증이라 자동 대기 단언은 의미를 약화
   expect(await page.getByTestId('chat-reconnecting-banner').isVisible()).toBe(false);
 });
 

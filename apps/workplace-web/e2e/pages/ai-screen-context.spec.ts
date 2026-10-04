@@ -1,5 +1,6 @@
 // WP-54 — AI 채팅 화면 컨텍스트 E2E: 페이지가 등록한 컨텍스트가 칩으로 보이고 전송 body(screenContext)에 실린다.
 import { mockApi } from '../fixtures/api-mock'
+import { dismissByOutsideClick } from '../fixtures/wait'
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../factories/issue.factory'
@@ -476,7 +477,8 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
     expect(dlg!.x + dlg!.width).toBeLessThanOrEqual(panel!.x + 1)
 
     // 페이지 영역(다이얼로그 바깥, 패널 아님) 클릭 → 닫힘.
-    await page.mouse.click(dlg!.x - 40, dlg!.y + 40)
+    // 열린 직후 바깥 클릭은 Radix 가 무시할 수 있어 닫힐 때까지 재시도한다 (WP-225).
+    await dismissByOutsideClick(page, dialog, { x: dlg!.x - 40, y: dlg!.y + 40 })
     await expect(dialog).toBeHidden()
     await expect(page.getByTestId('ai-aware-dialog-overlay')).toHaveCount(0)
     await expect(page.getByTestId('ai-side-panel')).toBeVisible()

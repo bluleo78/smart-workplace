@@ -14,7 +14,7 @@ import {
   createMessage,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { stableBox } from '../../fixtures/wait'
+import { resizeAndSettle, stableBox } from '../../fixtures/wait'
 
 // auth.fixture 의 createUser() 기본 id = 1 → "본인" 메시지 판정.
 const CHANNEL_ID = 700
@@ -562,12 +562,13 @@ test.describe('메시지 좌/우 분리', () => {
     await assertCardInside()
     // 좁은 채팅 컬럼에서도 동일. 700 은 모바일 레이아웃(<1024)이라 다시 그려지는 동안 옛 배치를 잴 수 있어,
     // 새 배치에서 단언이 맞을 때까지 다시 잰다(WP-225).
-    await page.setViewportSize({ width: 700, height: 800 })
+    // 1024 경계를 넘으므로 MobileShell 로 전환이 끝난 뒤 잰다(WP-225).
+    await resizeAndSettle(page, { width: 700, height: 800 })
     await expect(assertCardInside).toPass()
     // 카드가 좁아져도 크기 라벨("48 KB")은 줄바꿈되지 않고 한 줄로 남는다(파일명만 줄어든다).
     const size = page.getByTestId('attachment-card-900').getByText('48 KB')
     await expect(size).toHaveCSS('white-space', 'nowrap')
-    expect((await size.boundingBox())!.height).toBeLessThan(24)
+    expect((await stableBox(size, '48 KB')).height).toBeLessThan(24)
   })
 
   test('목록 맨 위 메시지의 툴바가 목록 영역 밖으로 잘리지 않는다', async ({ authenticatedPage: page }) => {
@@ -684,7 +685,8 @@ test.describe('메시지 좌/우 분리', () => {
     // 900 은 모바일 레이아웃(<1024)이라 뷰포트 변경 뒤 목록이 다시 그려진다 — 한 번 재고 끝내지 않고
     // 레이아웃이 자리 잡을 때까지 높이를 폴링한다(WP-225).
     for (const width of [900, 1200]) {
-      await page.setViewportSize({ width, height: 800 })
+      // 900↔1200 은 1024 경계를 넘어 셸이 바뀌므로 전환 완료까지 기다린 뒤 잰다(WP-225).
+      await resizeAndSettle(page, { width, height: 800 })
       await expect
         .poll(async () => (await edited.boundingBox())?.height ?? Infinity, { message: `width ${width}` })
         .toBeLessThan(24)

@@ -213,9 +213,11 @@ test.describe('MessageComposer — 파일 업로드 중 전송 차단 (#152)', (
 
       // 비활성 버튼 강제 클릭 시도 (Playwright force 옵션) — 실제 click 은 막혀야 한다.
       // RichInput submit() 내 submitDisabledRef 가드가 Enter 경로도 차단.
+      // eslint-disable-next-line playwright/no-force-option -- 비활성 버튼을 일부러 눌러 전송이 막히는지 검증(actionability 대기 시 영원히 대기)
       await page.getByTestId('message-composer-submit').click({ force: true })
 
       // 메시지 전송 API 미호출 확인 (100ms 후에도 0건)
+      // eslint-disable-next-line playwright/no-wait-for-timeout -- 강제 클릭 후 전송 POST 가 발생하지 않음(부재)을 확인
       await page.waitForTimeout(100)
       expect(messageSentCount).toBe(0)
 

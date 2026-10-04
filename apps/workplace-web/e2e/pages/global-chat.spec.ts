@@ -1,5 +1,6 @@
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
+import { stableBox } from '../fixtures/wait'
 import { createUser } from '../factories/auth.factory'
 import { mockHomeChatCancel, mockHomeChatGeneration, mockHomeProposals, proposal } from '../fixtures/home-chat-mock'
 import type { HomeMessage, HomeSessionPage } from '../../src/types/home'
@@ -297,7 +298,8 @@ test('사이드 패널 헤더 닫기 버튼으로 패널이 닫히고 본문이 
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
   const main = page.locator('main')
-  const before = (await main.boundingBox())!.width
+  // goto 직후엔 본문이 아직 배치 전일 수 있어 null 이 아닐 때까지 잰다 (WP-225).
+  const before = (await stableBox(main, 'main')).width
 
   await page.getByTestId('chat-launcher').click() // → side
   const panel = page.getByTestId('ai-side-panel')
@@ -308,9 +310,12 @@ test('사이드 패널 헤더 닫기 버튼으로 패널이 닫히고 본문이 
   await expect(header.getByTestId('ai-mode-side')).toHaveAttribute('aria-pressed', 'true')
   await expect(header.getByTestId('ai-mode-fullscreen')).toHaveAttribute('aria-pressed', 'false')
   // 패널 헤더가 대화 선택 스위처 위 레이어에 위치한다.
-  const headerBox = (await header.boundingBox())!
-  const switcherBox = (await page.getByTestId('chat-session-switcher').boundingBox())!
-  expect(headerBox.y + headerBox.height).toBeLessThanOrEqual(switcherBox.y)
+  // 패널이 자리 잡는 중 옛 배치를 잴 수 있어 측정+단언을 한 단위로 재시도한다 (WP-225).
+  await expect(async () => {
+    const headerBox = await stableBox(header, 'ai-panel-header')
+    const switcherBox = await stableBox(page.getByTestId('chat-session-switcher'), 'chat-session-switcher')
+    expect(headerBox.y + headerBox.height).toBeLessThanOrEqual(switcherBox.y)
+  }).toPass()
 
   // 닫기 → 패널 제거 + 본문 폭 복원 + 칩 상태 closed
   await page.getByRole('button', { name: '닫기' }).click()
@@ -353,42 +358,47 @@ test('사이드 패널이 본문을 밀어낸다(reflow) + 핸들 드래그 후 
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
   const main = page.locator('main')
-  const before = (await main.boundingBox())!.width
+  // goto 직후엔 본문이 아직 배치 전일 수 있어 null 이 아닐 때까지 잰다 (WP-225).
+  const before = (await stableBox(main, 'main')).width
 
   // side 모드 열기
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
-  const after = (await main.boundingBox())!.width
-  // 본문이 줄어들어야 함(reflow)
-  expect(after).toBeLessThan(before)
+  // 본문이 줄어들어야 함(reflow) — 패널이 열린 뒤 reflow 가 반영될 때까지 다시 잰다 (WP-225).
+  await expect.poll(async () => (await stableBox(main, 'main')).width).toBeLessThan(before)
 
   // 핸들 드래그로 폭 확대 (기본 380 → +120 = ~500)
   // 핸들은 absolute left-0, w-1(4px) — 패널의 좌측 경계.
   const panel = page.getByTestId('ai-side-panel')
-  const pb = (await panel.boundingBox())!
-  // 핸들 위치: 패널 좌측 경계 + 2px (핸들 폭 4px 의 중심)
-  const hx = pb.x + 2
-  const hy = pb.y + pb.height / 2
-  await page.mouse.move(hx, hy)
-  await page.mouse.down()
-  // pointermove 리스너가 window 에 등록될 시간을 줌
-  await page.waitForTimeout(50)
-  // 10 스텝으로 천천히 왼쪽으로 드래그 (패널 폭 증가 방향)
-  await page.mouse.move(hx - 120, hy, { steps: 10 })
-  await page.mouse.up()
-  // 폭이 넓어질 때까지 조건 대기(고정 대기 대신) — fixture 가 transition 을 0s 로 꺼 두어 도달값이 곧 최종값이다.
-  await expect
-    .poll(async () => (await page.getByTestId('ai-side-panel').boundingBox())!.width)
-    .toBeGreaterThan(380)
-  const widened = (await page.getByTestId('ai-side-panel').boundingBox())!.width
+  // 고정 대기(50ms) 대신, 드래그가 폭에 반영될 때까지 드래그+확인을 한 단위로 재시도한다 (WP-225).
+  // pointermove 리스너는 pointerdown 핸들러에서 동기 등록되므로 별도 대기가 필요 없고, 혹시 드래그가
+  // 빗나가면 패널 좌측 경계를 다시 재서 끈다(넓어지는 방향이라 재시도해도 단언 의미는 같다).
+  await expect(async () => {
+    const pb = await stableBox(panel, 'ai-side-panel')
+    // 핸들 위치: 패널 좌측 경계 + 2px (핸들 폭 4px 의 중심)
+    const hx = pb.x + 2
+    const hy = pb.y + pb.height / 2
+    await page.mouse.move(hx, hy)
+    await page.mouse.down()
+    // 10 스텝으로 천천히 왼쪽으로 드래그 (패널 폭 증가 방향)
+    await page.mouse.move(hx - 120, hy, { steps: 10 })
+    await page.mouse.up()
+    // 폭이 넓어질 때까지 조건 대기 — fixture 가 transition 을 0s 로 꺼 두어 도달값이 곧 최종값이다.
+    await expect
+      .poll(async () => (await stableBox(panel, 'ai-side-panel')).width, { timeout: 2000 })
+      .toBeGreaterThan(380)
+  }).toPass()
+  const widened = (await stableBox(panel, 'ai-side-panel')).width
 
   // 페이지 재로드 후 폭이 localStorage 에서 복원되어야 함
   await page.reload()
   // 재로드 후 초기 모드는 closed — 다시 open
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
-  const restored = (await page.getByTestId('ai-side-panel').boundingBox())!.width
-  expect(Math.abs(restored - widened)).toBeLessThan(8)
+  // 재로드 직후 패널 폭 복원이 반영될 때까지 다시 잰다 (WP-225).
+  await expect
+    .poll(async () => Math.abs((await stableBox(panel, 'ai-side-panel')).width - widened))
+    .toBeLessThan(8)
 })
 
 test('사이드 패널을 최대 폭으로 넓혀도 AI 칩이 대화 선택 스위처를 가리거나 클릭을 가로채지 않는다 (#195)', async ({
@@ -406,26 +416,34 @@ test('사이드 패널을 최대 폭으로 넓혀도 AI 칩이 대화 선택 스
   await expect(panel).toBeVisible()
 
   // 핸들을 왼쪽 끝까지 드래그하여 패널을 상한 폭(600)까지 확대 → 칩과 충돌 영역에 진입.
-  const pb = (await panel.boundingBox())!
-  const hx = pb.x + 2
-  const hy = pb.y + pb.height / 2
-  await page.mouse.move(hx, hy)
-  await page.mouse.down()
-  await page.waitForTimeout(50)
-  // 충분히 큰 거리(중심을 향해)로 끌어 상한(600)까지 클램프되게 한다.
-  await page.mouse.move(hx - 400, hy, { steps: 12 })
-  await page.mouse.up()
-  // 거의 상한까지 넓어질 때까지 조건 대기(고정 대기 대신) — transition 은 fixture 가 0s 로 꺼 둔다.
-  await expect.poll(async () => (await panel.boundingBox())!.width).toBeGreaterThanOrEqual(560)
+  // 고정 대기(50ms) 대신 드래그+폭 확인을 한 단위로 재시도한다 — 상한에서 클램프되므로 재시도해도 결과가 같다 (WP-225).
+  await expect(async () => {
+    const pb = await stableBox(panel, 'ai-side-panel')
+    const hx = pb.x + 2
+    const hy = pb.y + pb.height / 2
+    await page.mouse.move(hx, hy)
+    await page.mouse.down()
+    // 충분히 큰 거리(중심을 향해)로 끌어 상한(600)까지 클램프되게 한다.
+    await page.mouse.move(hx - 400, hy, { steps: 12 })
+    await page.mouse.up()
+    // 거의 상한까지 넓어질 때까지 조건 대기 — transition 은 fixture 가 0s 로 꺼 둔다.
+    await expect
+      .poll(async () => (await stableBox(panel, 'ai-side-panel')).width, { timeout: 2000 })
+      .toBeGreaterThanOrEqual(560)
+  }).toPass()
 
   // 대화 선택 스위처가 헤더에 존재해야(빈 상태에서도 "대화 선택" 버튼 렌더)
   const switcher = page.getByTestId('chat-session-switcher')
   await expect(switcher).toBeVisible()
 
   // 핵심 검증 1(기하): 칩 우측 끝이 스위처 좌측 끝보다 왼쪽(또는 같음) → 시각적 겹침 없음.
-  const chipBox = (await page.getByTestId('chat-launcher').boundingBox())!
-  const swBox = (await switcher.boundingBox())!
-  expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(swBox.x)
+  // 패널 폭 변경 뒤 칩 재정렬이 늦게 반영될 수 있어 측정+단언을 한 단위로 재시도한다 (WP-225).
+  let swBox = await stableBox(switcher, 'chat-session-switcher')
+  await expect(async () => {
+    const chipBox = await stableBox(page.getByTestId('chat-launcher'), 'chat-launcher')
+    swBox = await stableBox(switcher, 'chat-session-switcher')
+    expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(swBox.x)
+  }).toPass()
 
   // 핵심 검증 2(히트테스트): 스위처 좌측 지점의 최상단 요소가 칩이 아니어야 클릭이 안 가로채진다.
   const hitTestid = await page.evaluate(
@@ -517,16 +535,19 @@ test('풀스크린에서 메시지 전송 시 첫 chat-turn 이 상단 AI 칩·�
   const firstTurn = page.getByTestId('chat-panel').getByTestId('chat-turn').first()
   await expect(firstTurn).toBeVisible()
 
-  const turnBox = (await firstTurn.boundingBox())!
-  const chipBox = (await page.getByTestId('chat-launcher').boundingBox())!
-  const closeBox = (await page.getByTestId('ai-panel-close').boundingBox())!
+  // 전송 직후 turn 이 렌더·스크롤로 자리 잡는 중일 수 있어 측정+단언을 한 단위로 재시도한다 (WP-225).
+  await expect(async () => {
+    const turnBox = await stableBox(firstTurn, 'chat-turn')
+    const chipBox = await stableBox(page.getByTestId('chat-launcher'), 'chat-launcher')
+    const closeBox = await stableBox(page.getByTestId('ai-panel-close'), 'ai-panel-close')
 
-  // 1) 첫 turn 의 top 이 칩 bottom 이상 → 칩과 수직 비겹침(칩에 가려지지 않음)
-  expect(turnBox.y).toBeGreaterThanOrEqual(chipBox.y + chipBox.height)
+    // 1) 첫 turn 의 top 이 칩 bottom 이상 → 칩과 수직 비겹침(칩에 가려지지 않음)
+    expect(turnBox.y).toBeGreaterThanOrEqual(chipBox.y + chipBox.height)
 
-  // 2) 첫 turn 이 닫기 X rect 와 겹치지 않음(헤더 영역 아래로 내려감).
-  //    사각형 비겹침: turn.top 이 close.bottom 이상이면 수직으로 분리됨.
-  expect(turnBox.y).toBeGreaterThanOrEqual(closeBox.y + closeBox.height)
+    // 2) 첫 turn 이 닫기 X rect 와 겹치지 않음(헤더 영역 아래로 내려감).
+    //    사각형 비겹침: turn.top 이 close.bottom 이상이면 수직으로 분리됨.
+    expect(turnBox.y).toBeGreaterThanOrEqual(closeBox.y + closeBox.height)
+  }).toPass()
 })
 
 test('긴 무공백 메시지가 말풍선 안에서 줄바꿈되어 메시지 패널에 가로 오버플로가 없다 (#202)', async ({

@@ -281,11 +281,14 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
 
     // Undo 토스트의 '실행 취소' 액션 클릭 → 지연 타이머 취소.
     await page.getByRole('button', { name: '실행 취소' }).click()
+    // 실행 취소 처리(토스트 닫힘)가 끝난 뒤에 시계를 당긴다 — 처리 전에 당기면 타이머가 먼저 만료될 수 있다 (WP-225).
+    await expect(page.getByText('메시지를 삭제했습니다')).toBeHidden()
 
     // 지연(5s) 보다 길게 경과시켜도 DELETE 가 호출되지 않고 본문이 그대로 유지돼야 한다.
     // 가상 시계로 지연을 즉시 넘긴 뒤, 타이머가 살아 있었다면 나갔을 요청이 라우트에 닿을 짧은 실시간 여유만 둔다
     // (타이머 만료 → DELETE 경로 자체는 위 '삭제하면 (삭제됨)' 테스트가 같은 방식으로 증명한다).
     await page.clock.runFor(UNDO_DELETE_DELAY_MS + 1000)
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 취소된 타이머의 DELETE 요청이 나가지 않음(부재)을 확인할 실시간 여유
     await page.waitForTimeout(300)
     expect(deleteCalled).toBe(false)
     await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('살아남을 메시지')

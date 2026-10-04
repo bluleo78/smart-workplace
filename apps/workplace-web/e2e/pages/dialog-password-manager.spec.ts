@@ -8,6 +8,7 @@
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi, createPageResponse } from '../fixtures/api-mock'
 import { createProject } from '../factories/project.factory'
+import { dismissByOutsideClick } from '../fixtures/wait'
 
 /** 1Password 인라인 메뉴를 흉내 낸 요소를 body 에 주입한다(shadow root 안에 클릭 가능한 버튼). */
 async function injectPasswordManagerMenu(page: import('@playwright/test').Page) {
@@ -46,7 +47,8 @@ test.describe('공용 다이얼로그 — 비밀번호 관리자 확장 상호�
   test('오버레이(진짜 바깥) 클릭은 여전히 다이얼로그를 닫는다', async ({
     authenticatedPage: page,
   }) => {
-    await page.mouse.click(5, 700)
+    // 열린 직후 바깥 클릭은 Radix 가 무시할 수 있어 닫힐 때까지 재시도한다 (WP-225).
+    await dismissByOutsideClick(page, page.getByRole('dialog', { name: '새 프로젝트' }), { x: 5, y: 700 })
     await expect(page.getByRole('dialog', { name: '새 프로젝트' })).not.toBeVisible()
   })
 })

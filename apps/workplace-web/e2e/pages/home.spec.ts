@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
+import { stableBox } from '../fixtures/wait'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
 import { detail as mailDetail, mailAccount, summary as mailRow } from '../factories/mail.factory'
 import { createChannel, createChannelMember, createMessage } from '../factories/messaging.factory'
@@ -1286,10 +1287,13 @@ test('위젯 추가 모달은 좁은 뷰포트에서 프리뷰 패널이 카드 
   const modal = page.getByTestId('add-widget-modal')
   const grid = modal.getByTestId('add-widget-grid')
   const preview = modal.getByTestId('add-widget-preview')
-  const gridBox = await grid.boundingBox()
-  const previewBox = await preview.boundingBox()
-  // lg 미만에서는 flex-col 이라 프리뷰의 y좌표가 카드 목록의 y좌표+높이보다 아래(세로 스택)여야 한다.
-  expect(previewBox!.y).toBeGreaterThanOrEqual(gridBox!.y + gridBox!.height - 1)
+  // 모달이 열리며 자리 잡는 중 옛 배치를 잴 수 있어 측정+단언을 한 단위로 재시도한다 (WP-225).
+  await expect(async () => {
+    const gridBox = await stableBox(grid, 'add-widget-grid')
+    const previewBox = await stableBox(preview, 'add-widget-preview')
+    // lg 미만에서는 flex-col 이라 프리뷰의 y좌표가 카드 목록의 y좌표+높이보다 아래(세로 스택)여야 한다.
+    expect(previewBox.y).toBeGreaterThanOrEqual(gridBox.y + gridBox.height - 1)
+  }).toPass()
 })
 
 // ── #339 회귀 가드 — startsAt null 시 Invalid Date 렌더 ──────────────────

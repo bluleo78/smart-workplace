@@ -80,6 +80,7 @@ test('전송 중 — 스피너와 함께 카드 버튼이 잠겨 중복 승인�
   await expect(approve).toBeDisabled();
   await expect(item.getByRole('button', { name: '거부' })).toBeDisabled();
   // 잠긴 버튼 강제 클릭도 요청을 늘리지 못한다.
+  // eslint-disable-next-line playwright/no-force-option -- 비활성(잠긴) 버튼을 일부러 눌러 중복 요청이 막히는지 검증
   await approve.click({ force: true });
   await expect(page.getByTestId('pending-action-card')).toHaveCount(0);
   expect(proposals.calls).toHaveLength(1);

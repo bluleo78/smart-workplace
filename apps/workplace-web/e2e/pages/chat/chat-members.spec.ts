@@ -264,9 +264,8 @@ test.describe('messaging 멤버 패널', () => {
     const roleSelect = page.getByTestId('member-role-select-2')
     await expect(roleSelect).toBeVisible()
     // AGENT 행의 select 옵션에는 OWNER 가 없어야 한다 — UX 상 승격 시도 자체를 차단.
-    const optionValues = await roleSelect.locator('option').allTextContents()
-    expect(optionValues).not.toContain('OWNER')
-    expect(optionValues).toEqual(expect.arrayContaining(['ADMIN', 'MEMBER']))
+    // 옵션 목록을 자동 재시도 단언으로 검증 — 렌더 직후 옵션이 덜 채워진 순간을 잡지 않도록 (WP-225).
+    await expect(roleSelect.locator('option')).toHaveText(['ADMIN', 'MEMBER'])
   })
 
   test('AGENT 를 OWNER 로 승격 시도 시 서버가 409 로 거부 (#598, 직접 API 조작 방어)', async ({
