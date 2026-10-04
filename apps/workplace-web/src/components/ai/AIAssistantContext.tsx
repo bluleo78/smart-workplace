@@ -14,13 +14,12 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 import { useChatSessionContext } from '@/hooks/chat-session-context';
-import { useHistoryParam } from '@/hooks/useHistoryParam';
+import { useHistoryParam, useStripStaleStateMark } from '@/hooks/useHistoryParam';
 import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile';
 import { type AiActivity, aiActivity, nextUnseenDone } from '@/lib/ai/aiActivity';
-import { currentHistoryState, readHistoryParam, stripHistoryKey } from '@/lib/historyParam';
+import { hasLiveStateMark } from '@/lib/historyParam';
 
 /** AI 어시스턴트 표시 모드. closed=닫힘, side=우측 도킹, fullscreen=콘텐츠 영역 2단. */
 export type AIMode = 'closed' | 'side' | 'fullscreen';
@@ -123,7 +122,7 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   // 위치가 바뀌지 않은 것으로 보여 동기화를 놓친다(WP-209).
   useEffect(() => {
     const onPop = () => {
-      const has = readHistoryParam({ search: '', state: currentHistoryState() }, HISTORY_KEY, 'state') != null;
+      const has = hasLiveStateMark(HISTORY_KEY);
       const mobile = getIsMobile();
       setMode((cur) => {
         const fs = effectiveMode(cur, mobile) === 'fullscreen';
@@ -137,18 +136,8 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   }, []);
 
   // 새로고침 뒤 남은 표식 정리(마운트 1회) — 모드는 closed 로 시작하므로, 남은 aiOpen+마크를 하위 화면이 상속해
-  // back 에 AI 가 되살아나거나 닫기가 하위 화면까지 되돌리지 않게 표식만 replace 로 지운다(다른 state·URL 보존).
-  const navigate = useNavigate();
-  const strippedRef = useRef(false);
-  useEffect(() => {
-    // StrictMode 이중 실행에서도 한 번만.
-    if (strippedRef.current) return;
-    strippedRef.current = true;
-    const state = currentHistoryState();
-    if (readHistoryParam({ search: '', state }, HISTORY_KEY, 'state') == null) return;
-    const { pathname, search, hash } = window.location;
-    void navigate({ pathname, search, hash }, { replace: true, state: stripHistoryKey(state, HISTORY_KEY, 'state') });
-  }, [navigate]);
+  // back 에 AI 가 되살아나거나 닫기가 하위 화면까지 되돌리지 않게 표식만 지운다.
+  useStripStaleStateMark(HISTORY_KEY);
 
   const open = useCallback(
     (m: Exclude<AIMode, 'closed'>) => {

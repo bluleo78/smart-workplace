@@ -6,13 +6,13 @@ import { createChatThread } from '../../factories/chat.factory';
 import { createAgentComment, createComment, createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
+import { json } from '../../fixtures/mobile-chat';
 import { expect, stubChat, test } from '../../fixtures/mobile.fixture';
 
 const KEY = 'WP';
 const BASE = `/api/v1/projects/${KEY}/issues/7`;
 const ISSUE_ID = 7;
 const ME_ID = 1; // auth fixture 의 기본 사용자
-const json = (b: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(b) });
 
 /** 이슈 7 상세 + 코멘트 API 스텁. 코멘트 상태는 서버처럼 PATCH/DELETE 로 갱신하고 호출을 기록한다. */
 async function setup(page: Page, initial: IssueCommentResponse[]) {

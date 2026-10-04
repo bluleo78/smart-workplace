@@ -7,6 +7,8 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import {
   createCloseGuard,
   currentHistoryIdx,
+  currentHistoryState,
+  hasLiveStateMark,
   type HistoryParamOptions,
   type HistoryPlan,
   type HistorySnapshot,
@@ -14,6 +16,7 @@ import {
   planClose,
   planOpen,
   readHistoryParam,
+  stripHistoryKey,
 } from '@/lib/historyParam'
 
 export interface HistoryParam {
@@ -82,4 +85,21 @@ export function useHistoryParam(key: string, opts: HistoryParamOptions = {}): Hi
   }, [snapshot, run, location.key, key, clear, mode])
 
   return { value, open, close }
+}
+
+/**
+ * 새로고침 뒤 남은 state 모드 표식을 마운트 1회 지운다(다른 state·URL 보존, replace).
+ * 오버레이는 닫힌 채 시작하므로 남은 표식은 back 을 한 번 헛돌게 하거나 하위 화면이 상속해 닫기가 엉뚱한 곳까지 되돌린다.
+ * skip=true(마운트 시점에 이미 열린 오버레이)면 지우지 않는다. StrictMode 이중 실행에도 한 번만.
+ */
+export function useStripStaleStateMark(key: string, skip = false) {
+  const navigate = useNavigate()
+  const strippedRef = useRef(false)
+  useEffect(() => {
+    if (strippedRef.current) return
+    strippedRef.current = true
+    if (skip || !hasLiveStateMark(key)) return
+    const { pathname, search, hash } = window.location
+    void navigate({ pathname, search, hash }, { replace: true, state: stripHistoryKey(currentHistoryState(), key, 'state') })
+  }, [key, skip, navigate])
 }

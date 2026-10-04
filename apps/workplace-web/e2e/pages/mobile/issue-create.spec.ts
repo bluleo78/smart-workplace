@@ -5,7 +5,7 @@ import { createIssue, createIssueSearchResponse } from '../../factories/issue.fa
 import { makeEpicType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import { installFakeViewport, setKeyboard } from '../../fixtures/keyboard';
-import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
+import { expect, expectNoHorizontalOverflow, historyMarks, stubChat, test } from '../../fixtures/mobile.fixture';
 
 const KEY = 'WP';
 const json = (b: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(b) });
@@ -142,10 +142,10 @@ test.describe('생성 시트', () => {
     await page.goto('/');
     const sheet = await openSheet(page);
     // 시트가 열린 동안엔 표식이 있어야 아래 「남지 않음」 단언이 의미가 있다.
-    await expect.poll(() => page.evaluate(() => JSON.stringify(history.state?.usr ?? null))).toContain('issueCreate');
+    await expect.poll(() => historyMarks(page)).toContain('issueCreate');
     await page.getByTestId('issue-create-cancel').click();
     await expect(sheet).toHaveCount(0);
-    await expect.poll(() => page.evaluate(() => JSON.stringify(history.state?.usr ?? null))).not.toContain('issueCreate');
+    await expect.poll(() => historyMarks(page)).not.toContain('issueCreate');
     await page.goBack();
     await expect(page).not.toHaveURL(new RegExp(`/projects/${KEY}`));
   });

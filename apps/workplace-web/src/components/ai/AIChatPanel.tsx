@@ -413,8 +413,8 @@ export function AIChatPanel({
             )}
             data-testid="chat-input"
           />
-          {/* 보내기·중단 탭이 입력창을 blur 하지 않게(keepFocusProps) — 보낼 때마다 iOS 키보드가 내려가지 않게(WP-224). */}
-          {/* #335: 스트리밍 중에는 '보내기'를 '중단' 버튼으로 전환 — 클릭 시 진행 중 응답을 멈춘다. */}
+          {/* #335: 스트리밍 중에는 '보내기'를 '중단' 버튼으로 전환 — 클릭 시 진행 중 응답을 멈춘다.
+              세 버튼 모두 keepFocusProps — 탭이 입력창을 blur 해 iOS 키보드가 내려가지 않게(WP-224). */}
           {pending ? (
             <Button
               type="button"

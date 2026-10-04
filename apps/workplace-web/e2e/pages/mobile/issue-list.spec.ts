@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
-import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
+import { expect, expectNoHorizontalOverflow, historyMarks, stubChat, test } from '../../fixtures/mobile.fixture';
 
 const KEY = 'WP';
 const ISSUES = `/api/v1/projects/${KEY}/issues`;
@@ -406,6 +406,20 @@ test.describe('모바일 에픽 시트', () => {
     await page.getByTestId('mobile-epic-create').click();
     await expect(page.getByTestId('mobile-epic-sheet')).toBeHidden();
     await expect(page.getByRole('dialog')).toBeVisible();
+  });
+
+  test('에픽 만들기 시트를 취소로 닫으면(닫기 = 언마운트) 히스토리 표식이 남지 않는다(WP-222)', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    await page.getByTestId('mobile-chip-epic').click();
+    await page.getByTestId('mobile-epic-create').click();
+    const sheet = page.getByTestId('issue-create-sheet');
+    await expect(sheet).toBeVisible();
+    const usr = () => historyMarks(page);
+    await expect.poll(() => historyMarks(page)).toContain('issueCreate');
+    await page.getByTestId('issue-create-cancel').click();
+    await expect(sheet).toHaveCount(0);
+    await expect.poll(() => historyMarks(page)).not.toContain('issueCreate');
   });
 
   test('비멤버에겐 에픽 만들기 버튼이 없다', async ({ authenticatedPage: page }) => {

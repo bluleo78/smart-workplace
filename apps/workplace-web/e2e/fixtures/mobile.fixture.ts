@@ -29,3 +29,8 @@ export async function expectNoHorizontalOverflow(page: Page) {
   const w = await page.evaluate(() => document.documentElement.scrollWidth)
   expect(w).toBeLessThanOrEqual(390)
 }
+
+/** 지금 history 항목의 router state(usr) 직렬화 — state 모드 히스토리 표식(예: issueCreate) 존재 단언용. */
+export function historyMarks(page: Page) {
+  return page.evaluate(() => JSON.stringify(history.state?.usr ?? null))
+}

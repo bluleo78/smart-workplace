@@ -170,3 +170,8 @@ export function liveHistoryKey(): string {
 export function currentHistoryState(): RouterState {
   return asState(rawHistoryState()?.usr)
 }
+
+/** 지금 브라우저 항목에 state 모드 표식이 있는지 — 라우터 위치 갱신(transition)보다 빠른 history.state 로 판정(WP-209). */
+export function hasLiveStateMark(key: string): boolean {
+  return readHistoryParam({ search: '', state: currentHistoryState() }, key, 'state') != null
+}
