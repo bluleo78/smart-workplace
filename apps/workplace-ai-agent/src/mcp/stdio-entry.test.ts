@@ -5,7 +5,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-import { parseConfigFromEnv, buildHostBridge, registerStdioTool } from './stdio-entry.js';
+import { parseConfigFromEnv, buildHostBridge, registerStdioTool, VISION_UNAVAILABLE_NOTICE } from './stdio-entry.js';
 import type { McpTool } from './tools.js';
 
 function baseEnv(over: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
@@ -30,7 +30,13 @@ describe('parseConfigFromEnv', () => {
       delegationContext: undefined,
       bridgeUrl: undefined,
       bridgeRunId: undefined,
+      vision: true,
     });
+  });
+
+  it('MCP_VISION=0 이면 vision=false, 1 이면 true(WP-241)', () => {
+    expect(parseConfigFromEnv(baseEnv({ MCP_VISION: '0' })).vision).toBe(false);
+    expect(parseConfigFromEnv(baseEnv({ MCP_VISION: '1' })).vision).toBe(true);
   });
 
   it('WORKPLACE_API_BASE_URL 누락 시 throw', () => {
@@ -153,9 +159,9 @@ describe('buildHostBridge', () => {
 
 // WP-240: stdio 경로(opencode)도 도구가 반환한 content 블록을 MCP 응답에 그대로 싣는지 실제 서버·클라이언트 왕복으로 확인.
 describe('registerStdioTool', () => {
-  async function callVia(handler: McpTool['handler']) {
+  async function callVia(handler: McpTool['handler'], opts?: { vision: boolean }) {
     const server = new McpServer({ name: 'workplace', version: '1.0.0' });
-    registerStdioTool(server, { name: 't', description: 'd', inputSchema: z.object({}), handler });
+    registerStdioTool(server, { name: 't', description: 'd', inputSchema: z.object({}), handler }, opts);
     const [clientT, serverT] = InMemoryTransport.createLinkedPair();
     await server.connect(serverT);
     const client = new Client({ name: 'test', version: '0.0.1' });
@@ -179,6 +185,20 @@ describe('registerStdioTool', () => {
     ];
     const res = await callVia(async () => blocks);
     expect(res.content).toEqual(blocks);
+  });
+
+  it('비전 미지원(vision=false)이면 이미지 블록을 안내 문구로 바꾼다(WP-241)', async () => {
+    const res = await callVia(
+      async () => [
+        { type: 'text' as const, text: '첨부:' },
+        { type: 'image' as const, data: 'iVBORw0KGgo=', mimeType: 'image/png' },
+      ],
+      { vision: false },
+    );
+    expect(res.content).toEqual([
+      { type: 'text', text: '첨부:' },
+      { type: 'text', text: `[image/png 1KB] ${VISION_UNAVAILABLE_NOTICE}` },
+    ]);
   });
 
   it('핸들러 throw 는 isError 텍스트', async () => {

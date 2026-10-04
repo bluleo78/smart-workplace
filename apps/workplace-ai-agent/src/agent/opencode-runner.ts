@@ -6,19 +6,22 @@
 import { randomUUID } from 'node:crypto';
 
 import { log } from '../logger.js';
-import type { AgentRunner, RunnerInput, RunnerStreamHandle } from './agent-runner.js';
+import type { AgentRunner, OpencodeProviderConfig, RunnerInput, RunnerStreamHandle } from './agent-runner.js';
 import { registerBridge, releaseBridge } from './bridge-registry.js';
 import { buildOpencodeConfig, resolveStdioEntryCmd, splitOpencodeModel } from './opencode-config.js';
 import { acquireServer, evictServer, releaseServer, type OpencodeHandle, type SpawnOpencode } from './opencode-server-pool.js';
 import { createIsolatedOpencode } from './opencode-spawn.js';
+import { resolveOpencodeVision, type OpencodeVision } from './opencode-vision.js';
 import type { McpProfile } from '../mcp/tools.js';
 import type { RunnerEvent, RunnerUsage } from './runner-events.js';
 
 // credential 이 opencode 가 아니면 이 러너를 쓸 수 없음(팩토리가 보장하지만 방어적으로 재확인).
-function requireOpencodeCredential(i: RunnerInput): void {
+// 통과하면 opencode payload 를 돌려준다(WP-241 비전 판단에 사용).
+function requireOpencodeCredential(i: RunnerInput): OpencodeProviderConfig {
   if (i.credential.provider !== 'opencode') {
     throw new Error('OpencodeRunner 는 opencode credential 만 지원합니다');
   }
+  return i.credential.payload;
 }
 
 // 웜 캐시 대상 프로필 — hostBridge 를 쓰는 실행은 프로필과 무관하게 poolKeyFor 가 추가로 제외한다.
@@ -31,9 +34,10 @@ const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'c
 // #849: 프로필과 무관하게 hostBridge 를 넘긴 실행도 제외한다 — 홈 채팅 라우터(assistant)가 propose 를
 // 직접 호출하는데, 재사용 서버의 MCP 는 첫 실행의 MCP_BRIDGE_RUN_ID 로 고정돼 있어 두 번째 실행부터
 // 확인 카드가 이미 해제된 브리지로 가서 조용히 사라졌다(AI 는 "제안했습니다" 라고 답하지만 카드 없음).
-function poolKeyFor(i: RunnerInput): string | undefined {
+// WP-241: vision 판단이 바뀌면(캐시 만료 후 provider 메타 변경 등) config 가 달라지므로 키에 포함해 새 서버를 띄운다.
+function poolKeyFor(i: RunnerInput, vision: OpencodeVision): string | undefined {
   if (!i.mcp || i.mcp.hostBridge || !POOL_ELIGIBLE_PROFILES.has(i.mcp.profile)) return undefined;
-  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.model}`;
+  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.model}:${String(vision)}`;
 }
 
 // 세션 생성 + 이벤트 구독 — 풀에서 재사용한 서버든 새로 스폰한 서버든 동일하게 거친다. 실패 시
@@ -53,7 +57,7 @@ export class OpencodeRunner implements AgentRunner {
   // 풀 대상 프로필(assistant/chat/issue)은 웜 서버 풀(opencode-server-pool.ts)에서 서버를
   // 재사용하고, hostBridge 를 쓰는 messaging/home 은 실행별로 새 프로세스를 스폰해 완전 격리한다.
   stream(i: RunnerInput, onEvent: (e: RunnerEvent) => void): RunnerStreamHandle {
-    requireOpencodeCredential(i);
+    const payload = requireOpencodeCredential(i);
 
     const runId = randomUUID();
     let killed = false;
@@ -72,13 +76,16 @@ export class OpencodeRunner implements AgentRunner {
       const hasBridge = Boolean(i.mcp?.hostBridge);
       if (i.mcp?.hostBridge) registerBridge(runId, i.mcp.hostBridge);
 
-      const poolKey = poolKeyFor(i);
+      let poolKey: string | undefined;
       let server: OpencodeHandle['server'] | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let errored = false;
       try {
+        // WP-241: 비전 판단 — try 안에서 해야 실패해도 finally 가 브리지를 해제한다.
+        const vision = await resolveOpencodeVision(payload, splitOpencodeModel(i.model).modelID);
+        poolKey = poolKeyFor(i, vision);
         const stdioEntryCmd = resolveStdioEntryCmd();
-        const config = buildOpencodeConfig(i, runId, stdioEntryCmd);
+        const config = buildOpencodeConfig(i, runId, stdioEntryCmd, { vision });
         // createIsolatedOpencode 는 (1) 포트 충돌 회피(port:0 → OS 할당)와 (2) 데이터 디렉터리
         // 격리(서버마다 고유 XDG_DATA_HOME → 자기 SQLite)를 함께 처리한다. 둘 다 동시 스폰 시 크래시를
         // 막기 위한 것 — 4096 포트 고정 충돌과 공유 opencode.db 'database is locked' 경합(opencode-spawn.ts).

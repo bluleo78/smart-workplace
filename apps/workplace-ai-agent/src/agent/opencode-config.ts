@@ -6,6 +6,7 @@ import type { Config as OpencodeConfig, AgentConfig as OpencodeAgentConfig } fro
 
 import { DEFAULT_API_BASE_URL, DEFAULT_PORT } from '../constants.js';
 import type { RunnerInput } from './agent-runner.js';
+import type { OpencodeVision } from './opencode-vision.js';
 import { loadSubagents, type SubagentDefinition } from './subagent-loader.js';
 
 // opencode 모델 표기 'providerId/modelId' 를 첫 '/' 기준으로 분해. 이 프로젝트의 opencode 모델
@@ -42,7 +43,7 @@ export function resolveStdioEntryCmd(): string[] {
 // MCP_THREAD_BINDING/MCP_DELEGATION_CONTEXT/MCP_BRIDGE_URL/MCP_BRIDGE_RUN_ID).
 // baseURL/internalToken 은 RunnerMcpConfig 에 없으므로(client 뒤에 캡슐화) 메인 프로세스 자신의
 // 부트스트랩 env(index.ts 가 이미 필수 검증)를 그대로 재사용한다 — 자식도 같은 workplace-api 를 호출.
-function buildMcpEnvironment(i: RunnerInput, runId: string): Record<string, string> {
+function buildMcpEnvironment(i: RunnerInput, runId: string, vision: OpencodeVision): Record<string, string> {
   const mcp = i.mcp;
   if (!mcp) return {};
   const env: Record<string, string> = {
@@ -50,6 +51,8 @@ function buildMcpEnvironment(i: RunnerInput, runId: string): Record<string, stri
     INTERNAL_SERVICE_TOKEN: process.env.INTERNAL_SERVICE_TOKEN ?? '',
     MCP_PROFILE: mcp.profile,
     MCP_ON_BEHALF_OF: String(mcp.onBehalfOfId),
+    // WP-241: 미지원이 확실할 때만 0 — 도구 결과의 이미지를 안내 문구로 바꾼다(stdio-entry). 알 수 없으면 그대로 넘긴다.
+    MCP_VISION: vision === false ? '0' : '1',
   };
   if (mcp.threadBinding) env.MCP_THREAD_BINDING = JSON.stringify(mcp.threadBinding);
   if (mcp.delegationContext) env.MCP_DELEGATION_CONTEXT = JSON.stringify(mcp.delegationContext);
@@ -66,13 +69,17 @@ function buildMcpEnvironment(i: RunnerInput, runId: string): Record<string, stri
 // SubagentDefinition → opencode AgentConfig(mode:'subagent'). model 미지정 = primary 상속.
 // tools 는 frontmatter allowlist 만 허용한다(#844). 예전엔 'workplace*' 전체를 열어 opencode 경로에서
 // allowlist 가 무력했다 — Claude SDK 경로와 도구 경계를 일치시킨다. 빌트인(bash/edit 등)은 '*': false 로 차단.
-export function toOpencodeSubagents(defs: Record<string, SubagentDefinition>): Record<string, OpencodeAgentConfig> {
+// promptSuffix 는 primary 와 같은 조건부 규칙(WP-241 비전 미지원 안내)을 서브에이전트에도 붙일 때 쓴다.
+export function toOpencodeSubagents(
+  defs: Record<string, SubagentDefinition>,
+  promptSuffix = '',
+): Record<string, OpencodeAgentConfig> {
   const out: Record<string, OpencodeAgentConfig> = {};
   for (const [name, d] of Object.entries(defs)) {
     const cfg: OpencodeAgentConfig = {
       mode: 'subagent',
       description: d.description,
-      prompt: d.prompt,
+      prompt: d.prompt + promptSuffix,
       // frontmatter 도구명(mcp__workplace__X) → opencode 도구명(workplace_X, '<서버명>_<도구명>' 규칙).
       tools: { '*': false, ...Object.fromEntries(d.tools.map((t) => [t.replace(/^mcp__workplace__/, 'workplace_'), true])) },
     };
@@ -82,41 +89,61 @@ export function toOpencodeSubagents(defs: Record<string, SubagentDefinition>): R
   return out;
 }
 
+// WP-241: 비전 지원이 확인되지 않은 모델(미지원·알 수 없음)의 시스템 프롬프트에 덧붙이는 규칙. 이미지를 못 보면
+// 모델이 "다시 첨부해 달라"고 되묻는데(실측), 재업로드로는 해결되지 않으므로 모델 전환을 안내하게 한다.
+export const NO_VISION_PROMPT_RULE = `
+
+## 이미지 입력
+현재 모델은 이미지를 보지 못할 수 있습니다. 도구 결과의 이미지를 볼 수 없거나 이미지 대신 안내 문구가 오면 사용자에게 파일을 다시 올려 달라고 요청하지 말고, 이미지 내용을 보려면 비서 설정에서 비전(이미지) 지원 모델로 전환해야 한다고 안내하세요. 파일 이름 등 텍스트로 알 수 있는 정보는 그대로 활용하세요.`;
+
+// opencode 모델 엔트리 — 비전 모델은 이미지 입력을 선언해야 opencode 가 이미지를 버리지 않는다(WP-233 실측).
+// 미지원·알 수 없음은 비워 opencode 자체 판단(custom=텍스트 전용, models.dev 등록 모델=자체 capability)에 맡긴다.
+function modelEntry(vision: OpencodeVision) {
+  return vision === true ? { modalities: { input: ['text' as const, 'image' as const], output: ['text' as const] } } : {};
+}
+
 // RunnerInput → opencode Config. i.credential 은 반드시 opencode credential 이어야 한다
 // (호출부는 OpencodeRunner 뿐이지만, credential 오분기를 조기에 잡기 위해 방어적으로 재확인).
-export function buildOpencodeConfig(i: RunnerInput, runId: string, stdioEntryCmd: string[]): OpencodeConfig {
+// opts.vision 은 opencode-vision.resolveOpencodeVision 결과(러너가 판단해 넘긴다).
+export function buildOpencodeConfig(
+  i: RunnerInput,
+  runId: string,
+  stdioEntryCmd: string[],
+  opts: { vision: OpencodeVision },
+): OpencodeConfig {
   if (i.credential.provider !== 'opencode') {
     throw new Error('buildOpencodeConfig 는 opencode credential 만 지원합니다');
   }
   const { payload } = i.credential;
   const { providerID, modelID } = splitOpencodeModel(i.model);
+  const promptSuffix = opts.vision === true ? '' : NO_VISION_PROMPT_RULE;
 
   const config: OpencodeConfig = {
     provider: {
       [payload.providerId]: {
         npm: payload.npm ?? '@ai-sdk/openai-compatible',
         options: payload.options,
-        models: { [modelID]: {} },
+        models: { [modelID]: modelEntry(opts.vision) },
       },
     },
     agent: {
       primary: {
         mode: 'primary',
-        prompt: i.systemPrompt,
+        prompt: i.systemPrompt + promptSuffix,
         maxSteps: i.maxTurns,
         // MCP-only: opencode 빌트인 도구(bash/edit/write/read 등)는 전부 차단하고 workplace MCP
         // 도구만 허용. 이름은 stdio-entry 서버명 'workplace' 접두 네임스페이스와 일치.
         tools: { '*': false, 'workplace*': true },
         permission: { edit: 'deny', bash: 'deny', webfetch: 'deny' },
       },
-      ...(i.allowSubagents ? toOpencodeSubagents(loadSubagents()) : {}),
+      ...(i.allowSubagents ? toOpencodeSubagents(loadSubagents(), promptSuffix) : {}),
     },
     mcp: i.mcp
       ? {
           workplace: {
             type: 'local',
             command: stdioEntryCmd,
-            environment: buildMcpEnvironment(i, runId),
+            environment: buildMcpEnvironment(i, runId, opts.vision),
           },
         }
       : {},

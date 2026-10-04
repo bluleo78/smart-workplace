@@ -29,6 +29,10 @@ vi.mock('./opencode-config.js', () => ({
   }),
 }));
 
+// WP-241: provider /models 조회를 막고 vision 판단을 테스트에서 고른다(기본 = 지원).
+const { resolveOpencodeVision } = vi.hoisted(() => ({ resolveOpencodeVision: vi.fn(async () => true) }));
+vi.mock('./opencode-vision.js', () => ({ resolveOpencodeVision }));
+
 // registerBridge/releaseBridge 페어링을 정확히 카운트하기 위해 registry 자체를 모킹.
 const { registerBridge, releaseBridge } = vi.hoisted(() => ({
   registerBridge: vi.fn(),
@@ -51,6 +55,7 @@ const { acquireServer, releaseServer, evictServer } = vi.hoisted(() => ({
 vi.mock('./opencode-server-pool.js', () => ({ acquireServer, releaseServer, evictServer }));
 
 import { OpencodeRunner } from './opencode-runner.js';
+import { buildOpencodeConfig } from './opencode-config.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { RunnerEvent } from './runner-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -510,10 +515,36 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     );
     await handle.done;
 
-    const expectedKey = '7:issue:42:openai/gpt-5';
+    const expectedKey = '7:issue:42:openai/gpt-5:true';
     expect(acquireServer).toHaveBeenCalledWith(expectedKey, expect.any(Function));
     expect(releaseServer).toHaveBeenCalledWith(expectedKey);
     expect(serverClose).not.toHaveBeenCalled(); // 풀 대상이므로 서버 자체는 닫지 않음
+  });
+
+  it('vision 판단 결과를 config 에 넘기고 풀 키에도 반영한다(WP-241)', async () => {
+    resolveOpencodeVision.mockResolvedValueOnce(false);
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const input = baseInput({ agentId: 7, model: 'openai/gpt-5', mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 42 } });
+    await new OpencodeRunner().stream(input, () => {}).done;
+
+    expect(resolveOpencodeVision).toHaveBeenCalledWith(
+      (input.credential as { payload: unknown }).payload,
+      'gpt-5',
+    );
+    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: false });
+    expect(acquireServer).toHaveBeenCalledWith('7:issue:42:openai/gpt-5:false', expect.any(Function));
+  });
+
+  it('비전 판단이 throw 해도 등록한 브리지를 해제한다(try/finally 안)', async () => {
+    resolveOpencodeVision.mockRejectedValueOnce(new Error('boom'));
+    const hostBridge = { onProposal: vi.fn(), onSubmitResponse: vi.fn(), onUnassignResult: vi.fn() };
+    const input = baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'messaging', onBehalfOfId: 1, hostBridge } });
+    await expect(new OpencodeRunner().stream(input, () => {}).done).rejects.toThrow('boom');
+    expect(registerBridge).toHaveBeenCalledOnce();
+    expect(releaseBridge).toHaveBeenCalledOnce();
   });
 
   it("profile='messaging' 은 acquireServer 를 호출하지 않고 기존처럼 요청 종료 시 server.close() 한다", async () => {
@@ -582,7 +613,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     );
     await handle.done;
 
-    const expectedKey = '1:assistant:9:openai/gpt-5';
+    const expectedKey = '1:assistant:9:openai/gpt-5:true';
     expect(evictServer).toHaveBeenCalledWith(expectedKey);
     expect(acquireServer).toHaveBeenCalledTimes(2);
     expect(acquireServer).toHaveBeenNthCalledWith(1, expectedKey, expect.any(Function));
@@ -604,7 +635,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
   });
 
   it('재시도로 새로 스폰한 서버까지 session.create 가 실패하면 evictServer 가 2회 호출된다(깨진 서버를 캐시에 남기지 않음)', async () => {
-    const expectedKey = '1:assistant:9:openai/gpt-5';
+    const expectedKey = '1:assistant:9:openai/gpt-5:true';
     sessionCreate
       .mockResolvedValueOnce({ data: undefined, error: { message: 'stale connection' } })
       .mockResolvedValueOnce({ data: undefined, error: { message: 'still stale after retry' } });

@@ -6,7 +6,18 @@ vi.mock('./subagent-loader.js', () => ({
   })),
 }));
 
-import { splitOpencodeModel, buildOpencodeConfig, toOpencodeSubagents, isDev, resolveStdioEntryCmd } from './opencode-config.js';
+import {
+  splitOpencodeModel,
+  buildOpencodeConfig,
+  toOpencodeSubagents,
+  isDev,
+  resolveStdioEntryCmd,
+  NO_VISION_PROMPT_RULE,
+} from './opencode-config.js';
+
+const VISION_ON = { vision: true };
+const VISION_OFF = { vision: false };
+const VISION_UNKNOWN = { vision: undefined };
 import { loadSubagents } from './subagent-loader.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -92,28 +103,57 @@ describe('buildOpencodeConfig', () => {
     delete process.env.INTERNAL_SERVICE_TOKEN;
   });
 
-  it('provider 블록: payload.providerId 로 등록 + npm 기본값 + 모델 등록', () => {
-    const cfg = buildOpencodeConfig(baseInput(), 'run-1', ['npx', 'tsx', 'entry.ts']);
+  it('provider 블록: payload.providerId 로 등록 + npm 기본값 + 비전 모델은 이미지 입력 선언(WP-241)', () => {
+    const cfg = buildOpencodeConfig(baseInput(), 'run-1', ['npx', 'tsx', 'entry.ts'], VISION_ON);
     expect(cfg.provider).toEqual({
       openai: {
         npm: '@ai-sdk/openai-compatible',
         options: { apiKey: 'sk-abc' },
-        models: { 'gpt-5': {} },
+        models: { 'gpt-5': { modalities: { input: ['text', 'image'], output: ['text'] } } },
       },
     });
+  });
+
+  it('비전 미지원: modalities 미선언 + 프롬프트 규칙 + MCP_VISION=0 + 서브에이전트 프롬프트에도 규칙(WP-241)', () => {
+    const client = {} as unknown as WorkplaceApiClient;
+    const cfg = buildOpencodeConfig(
+      baseInput({ allowSubagents: true, mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }),
+      'run-1',
+      ['cmd'],
+      VISION_OFF,
+    );
+    expect(cfg.provider?.openai?.models).toEqual({ 'gpt-5': {} });
+    expect(cfg.agent?.primary?.prompt).toBe('sys-prompt' + NO_VISION_PROMPT_RULE);
+    expect(cfg.agent?.['issue-agent']?.prompt).toBe('p' + NO_VISION_PROMPT_RULE);
+    const env = (cfg.mcp?.workplace as { environment?: Record<string, string> }).environment;
+    expect(env?.MCP_VISION).toBe('0');
+  });
+
+  it('비전 알 수 없음: modalities 미선언(opencode 자체 판단) + 프롬프트 규칙 + 이미지는 그대로(MCP_VISION=1)', () => {
+    const client = {} as unknown as WorkplaceApiClient;
+    const cfg = buildOpencodeConfig(
+      baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }),
+      'run-1',
+      ['cmd'],
+      VISION_UNKNOWN,
+    );
+    expect(cfg.provider?.openai?.models).toEqual({ 'gpt-5': {} });
+    expect(cfg.agent?.primary?.prompt).toBe('sys-prompt' + NO_VISION_PROMPT_RULE);
+    const env = (cfg.mcp?.workplace as { environment?: Record<string, string> }).environment;
+    expect(env?.MCP_VISION).toBe('1');
   });
 
   it('provider npm 지정 시 그대로 사용', () => {
     const cfg = buildOpencodeConfig(
       baseInput({ credential: { provider: 'opencode', payload: { providerId: 'openai', npm: '@ai-sdk/openai', options: {} }, model: null } }),
       'run-1',
-      ['cmd'],
+      ['cmd'], VISION_ON,
     );
     expect(cfg.provider?.openai?.npm).toBe('@ai-sdk/openai');
   });
 
   it('primary agent: systemPrompt/maxTurns→maxSteps/MCP-only tools/permission deny', () => {
-    const cfg = buildOpencodeConfig(baseInput(), 'run-1', ['cmd']);
+    const cfg = buildOpencodeConfig(baseInput(), 'run-1', ['cmd'], VISION_ON);
     expect(cfg.agent?.primary).toEqual({
       mode: 'primary',
       prompt: 'sys-prompt',
@@ -124,19 +164,19 @@ describe('buildOpencodeConfig', () => {
   });
 
   it('allowSubagents=true 면 loadSubagents 변환분이 agent 블록에 포함', () => {
-    const cfg = buildOpencodeConfig(baseInput({ allowSubagents: true }), 'run-1', ['cmd']);
+    const cfg = buildOpencodeConfig(baseInput({ allowSubagents: true }), 'run-1', ['cmd'], VISION_ON);
     expect(loadSubagents).toHaveBeenCalled();
     expect(cfg.agent?.['issue-agent']).toMatchObject({ mode: 'subagent', prompt: 'p' });
   });
 
   it('allowSubagents 미지정 시 서브에이전트 미포함', () => {
-    const cfg = buildOpencodeConfig(baseInput(), 'run-1', ['cmd']);
+    const cfg = buildOpencodeConfig(baseInput(), 'run-1', ['cmd'], VISION_ON);
     expect(loadSubagents).not.toHaveBeenCalled();
     expect(cfg.agent?.['issue-agent']).toBeUndefined();
   });
 
   it('mcp 미지정 시 mcp 블록 빈 객체', () => {
-    const cfg = buildOpencodeConfig(baseInput(), 'run-1', ['cmd']);
+    const cfg = buildOpencodeConfig(baseInput(), 'run-1', ['cmd'], VISION_ON);
     expect(cfg.mcp).toEqual({});
   });
 
@@ -153,7 +193,7 @@ describe('buildOpencodeConfig', () => {
         },
       }),
       'run-42',
-      ['npx', 'tsx', 'entry.ts'],
+      ['npx', 'tsx', 'entry.ts'], VISION_ON,
     );
     expect(cfg.mcp?.workplace).toEqual({
       type: 'local',
@@ -163,6 +203,7 @@ describe('buildOpencodeConfig', () => {
         INTERNAL_SERVICE_TOKEN: 'tok-internal',
         MCP_PROFILE: 'issue',
         MCP_ON_BEHALF_OF: '55',
+        MCP_VISION: '1',
         MCP_THREAD_BINDING: JSON.stringify({ channelId: 1, parentMessageId: 2 }),
         MCP_DELEGATION_CONTEXT: JSON.stringify({ actorId: 3, channelId: 1, parentMessageId: 2 }),
       },
@@ -181,7 +222,7 @@ describe('buildOpencodeConfig', () => {
         },
       }),
       'run-99',
-      ['cmd'],
+      ['cmd'], VISION_ON,
     );
     expect(cfg.mcp?.workplace?.type).toBe('local');
     const env = (cfg.mcp?.workplace as { environment?: Record<string, string> }).environment;
@@ -194,7 +235,7 @@ describe('buildOpencodeConfig', () => {
     const cfg = buildOpencodeConfig(
       baseInput({ mcp: { client, profile: 'home', onBehalfOfId: 1, onTool: vi.fn() } }),
       'run-7',
-      ['cmd'],
+      ['cmd'], VISION_ON,
     );
     const env = (cfg.mcp?.workplace as { environment?: Record<string, string> }).environment;
     expect(env?.MCP_BRIDGE_URL).toBeDefined();
@@ -203,11 +244,11 @@ describe('buildOpencodeConfig', () => {
 
   it('anthropic credential 로 호출하면 throw', () => {
     expect(() =>
-      buildOpencodeConfig(baseInput({ credential: { provider: 'anthropic', token: 't', model: null } }), 'run-1', ['cmd']),
+      buildOpencodeConfig(baseInput({ credential: { provider: 'anthropic', token: 't', model: null } }), 'run-1', ['cmd'], VISION_ON),
     ).toThrow();
   });
 
   it('model providerID 가 payload.providerId 와 다르면 throw', () => {
-    expect(() => buildOpencodeConfig(baseInput({ model: 'anthropic/claude' }), 'run-1', ['cmd'])).toThrow();
+    expect(() => buildOpencodeConfig(baseInput({ model: 'anthropic/claude' }), 'run-1', ['cmd'], VISION_ON)).toThrow();
   });
 });

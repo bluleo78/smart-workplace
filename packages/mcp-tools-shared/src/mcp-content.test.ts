@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeToolResult, toMcpContent, type McpContent } from './mcp-content.js';
+import { replaceImagesWithNotice, summarizeToolResult, toMcpContent, type McpContent } from './mcp-content.js';
 
 // 6KB 분량의 base64(실제 바이트 = 길이 × 3/4).
 const image6kb: McpContent = { type: 'image', data: 'A'.repeat(8192), mimeType: 'image/png' };
@@ -29,5 +29,15 @@ describe('summarizeToolResult', () => {
   });
   it('여러 텍스트 블록은 줄바꿈으로 잇는다', () => {
     expect(summarizeToolResult([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }])).toBe('a\nb');
+  });
+});
+
+describe('replaceImagesWithNotice', () => {
+  it('image 블록만 크기 표기 + 안내 text 블록으로 바꾸고 text 블록은 그대로 둔다', () => {
+    const out = replaceImagesWithNotice([{ type: 'text', text: 'a.png' }, image6kb], '볼 수 없음');
+    expect(out).toEqual([
+      { type: 'text', text: 'a.png' },
+      { type: 'text', text: '[image/png 6KB] 볼 수 없음' },
+    ]);
   });
 });

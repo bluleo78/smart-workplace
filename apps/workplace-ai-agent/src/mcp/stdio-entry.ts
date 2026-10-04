@@ -10,7 +10,7 @@
 // HTTP 콜백 브리지를 구성한다 — POST {MCP_BRIDGE_URL}/{runId} { kind, data }.
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { toMcpContent } from '@smart-workplace/mcp-tools-shared';
+import { replaceImagesWithNotice, toMcpContent } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import { createWorkplaceApiClient } from '../clients/workplace-api.js';
@@ -27,7 +27,13 @@ export interface StdioEntryConfig {
   delegationContext?: { actorId: number; channelId: number; parentMessageId?: number };
   bridgeUrl?: string;
   bridgeRunId?: string;
+  // WP-241: 모델이 이미지를 볼 수 있는지(MCP_VISION). false 면 도구 결과의 이미지를 안내 문구로 바꾼다.
+  vision: boolean;
 }
+
+// 이미지를 볼 수 없는 모델에 이미지 대신 넘기는 안내. 시스템 프롬프트 규칙(NO_VISION_PROMPT_RULE)과 짝을 이룬다.
+export const VISION_UNAVAILABLE_NOTICE =
+  '— 현재 모델은 이미지를 볼 수 없습니다. 다시 첨부를 요청하지 말고, 비전(이미지) 지원 모델로 전환이 필요하다고 안내하세요.';
 
 // env → 설정 파싱. 필수 항목 누락/형식 오류 시 throw(호출부에서 stderr 출력 + exit 1 처리).
 // process.env 를 직접 참조하지 않고 인자로 받아 테스트 가능하게 한다.
@@ -79,6 +85,8 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     delegationContext,
     bridgeUrl: env.MCP_BRIDGE_URL,
     bridgeRunId: env.MCP_BRIDGE_RUN_ID,
+    // 미지정은 지원으로 본다(러너는 항상 0/1 을 심는다 — 기존 동작 유지용 기본값).
+    vision: env.MCP_VISION !== '0',
   };
 }
 
@@ -124,15 +132,16 @@ export function buildHostBridge(bridgeUrl: string, runId: string, internalToken:
 
 // 단일 McpTool → McpServer.registerTool 등록. inputSchema 는 항상 z.object(...) 이므로 .shape 사용
 // (sdk-mcp-server.ts 의 adaptMcpTool 과 동일 전제). 테스트에서 실제 McpServer 왕복 검증용으로 export.
-export function registerStdioTool(server: McpServer, t: McpTool): void {
+export function registerStdioTool(server: McpServer, t: McpTool, opts: { vision: boolean } = { vision: true }): void {
   const shape = (t.inputSchema as z.ZodObject<z.ZodRawShape>).shape;
   server.registerTool(
     t.name,
     { description: t.description, inputSchema: shape },
     async (args: unknown) => {
       try {
-        // 문자열은 text 블록, content 블록 배열(이미지 등)은 그대로(WP-240).
-        return { content: toMcpContent(await t.handler(args)) };
+        // 문자열은 text 블록, content 블록 배열(이미지 등)은 그대로(WP-240). 비전 미지원이면 이미지→안내(WP-241).
+        const content = toMcpContent(await t.handler(args));
+        return { content: opts.vision ? content : replaceImagesWithNotice(content, VISION_UNAVAILABLE_NOTICE) };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         return { isError: true, content: [{ type: 'text' as const, text: msg }] };
@@ -165,7 +174,7 @@ async function main(): Promise<void> {
 
   // 서버명 'workplace' 고정 — mcp__workplace__* 네임스페이스 정합(sdk-mcp-server.ts 참고).
   const server = new McpServer({ name: 'workplace', version: '1.0.0' });
-  for (const t of tools) registerStdioTool(server, t);
+  for (const t of tools) registerStdioTool(server, t, { vision: config.vision });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

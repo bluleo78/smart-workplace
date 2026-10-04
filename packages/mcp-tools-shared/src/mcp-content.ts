@@ -31,3 +31,11 @@ export function summarizeToolResult(out: McpToolResult): string {
     )
     .join('\n');
 }
+
+/**
+ * 이미지를 볼 수 없는 모델(WP-241)용 — content 의 image 블록을 안내 text 블록으로 바꾼다. 이미지를 그냥 빼면
+ * 모델이 "다시 첨부해 달라"고 되묻는다(실측). 형식·크기 표기는 summarizeToolResult 와 같다.
+ */
+export function replaceImagesWithNotice(content: McpContent[], notice: string): McpContent[] {
+  return content.map((b) => (b.type === 'image' ? { type: 'text', text: `${summarizeToolResult([b])} ${notice}` } : b));
+}
