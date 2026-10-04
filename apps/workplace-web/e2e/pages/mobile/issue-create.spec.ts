@@ -107,6 +107,49 @@ test.describe('생성 시트', () => {
     await expect(page.getByTestId('issue-create-discard-dialog')).toHaveCount(0);
   });
 
+  test('빈 시트에서 시스템 back 하면 시트만 닫히고 페이지는 그대로(WP-222)', async ({ authenticatedPage: page }) => {
+    await mockCreate(page);
+    const sheet = await openSheet(page);
+    await page.goBack();
+    await expect(sheet).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));
+    await expect(page.getByTestId('mobile-new-issue')).toBeVisible();
+  });
+
+  test('내용이 있으면 back 은 버림 확인 — 계속 작성 후 다시 back, 버리기로 닫힘(WP-222)', async ({ authenticatedPage: page }) => {
+    await mockCreate(page);
+    const sheet = await openSheet(page);
+    const title = page.getByTestId('issue-create-title');
+    await title.fill('작성 중');
+    await page.goBack();
+    const dlg = page.getByTestId('issue-create-discard-dialog');
+    await expect(dlg).toBeVisible();
+    await expect(sheet).toBeVisible();
+    await page.getByTestId('issue-create-discard-keep').click();
+    await expect(dlg).toBeHidden();
+    await expect(sheet).toBeVisible();
+    await expect(title).toHaveValue('작성 중');
+    await page.goBack();
+    await expect(dlg).toBeVisible();
+    await page.getByTestId('issue-create-discard-confirm').click();
+    await expect(dlg).toBeHidden();
+    await expect(sheet).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));
+  });
+
+  test('취소로 닫은 뒤엔 표식이 남지 않아 back 한 번에 이전 페이지로 간다(WP-222)', async ({ authenticatedPage: page }) => {
+    await mockCreate(page);
+    await page.goto('/');
+    const sheet = await openSheet(page);
+    // 시트가 열린 동안엔 표식이 있어야 아래 「남지 않음」 단언이 의미가 있다.
+    await expect.poll(() => page.evaluate(() => JSON.stringify(history.state?.usr ?? null))).toContain('issueCreate');
+    await page.getByTestId('issue-create-cancel').click();
+    await expect(sheet).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => JSON.stringify(history.state?.usr ?? null))).not.toContain('issueCreate');
+    await page.goBack();
+    await expect(page).not.toHaveURL(new RegExp(`/projects/${KEY}`));
+  });
+
   test('키보드가 열리면 헤더는 맨 위, 칩 줄은 키보드 바로 위', async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await installFakeViewport(page);

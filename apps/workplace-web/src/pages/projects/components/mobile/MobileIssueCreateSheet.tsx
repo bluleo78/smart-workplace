@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
 import { useFocusReturn } from '@/hooks/useFocusReturn';
+import { useSheetHistory } from '@/hooks/useSheetHistory';
 
 import { formatDateMonthDay } from '../../../../lib/formatters';
 import { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
@@ -35,6 +36,11 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
   const startDate = watch('startDate');
   const title = watch('title') ?? '';
   const body = watch('body') ?? '';
+  // 시스템 back 으로 닫기(WP-222) — 빈 시트는 시트만 닫고, 내용이 있으면 버림 확인을 띄운다(항목은 훅이 다시 심는다).
+  useSheetHistory({
+    historyKey: 'issueCreate', open, hasContent: f.hasContent,
+    onClose: () => onOpenChange(false), onBlockedBack: () => setConfirmDiscard(true),
+  });
   // 닫기 요청 공통 경로 — 내용이 있으면 확인, 없으면 바로 닫는다(취소 버튼·Esc).
   const requestClose = () => {
     if (f.hasContent) setConfirmDiscard(true);
