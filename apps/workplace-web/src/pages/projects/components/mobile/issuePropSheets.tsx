@@ -31,10 +31,17 @@ export function EpicPickerSheet({
       onClose={onClose}
       title="에픽"
       searchable={epics.length > 8}
+      // 선택된 에픽 줄만 ✓ 때문에 숫자가 밀리지 않게 모든 줄에 ✓ 자리를 둔다.
+      reserveCheck
       value={value != null ? String(value) : NO_EPIC}
       options={[
         { value: NO_EPIC, label: '에픽 없음' },
-        ...epics.map((e) => ({ value: String(e.number), label: e.title, hint: `${e.childDoneCount}/${e.childCount}` })),
+        // 완료/전체는 폭 고정·오른쪽 정렬 — 길이가 다른 숫자도 줄마다 같은 자리에 선다.
+        ...epics.map((e) => ({
+          value: String(e.number),
+          label: e.title,
+          hint: <span className="inline-block min-w-[7ch] text-right tabular-nums">{e.childDoneCount}/{e.childCount}</span>,
+        })),
       ]}
       onSelect={(v) => onSelect(v === NO_EPIC ? null : Number(v))}
       // 지연 조회(시트를 처음 열 때 시작) 중엔 선택 불가 안내 줄 — 「에픽 없음」은 그대로 고를 수 있다.
