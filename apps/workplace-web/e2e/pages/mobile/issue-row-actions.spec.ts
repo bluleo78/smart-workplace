@@ -43,6 +43,7 @@ async function longPress(page: Page, testId: string) {
   const box = (await page.getByTestId(testId).boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 길게 누르기 제스처 자체의 유지 시간(손가락을 누르고 있는 동작)이라 조건 대기로 바꿀 수 없다
   await page.waitForTimeout(650);
   await page.mouse.up();
 }

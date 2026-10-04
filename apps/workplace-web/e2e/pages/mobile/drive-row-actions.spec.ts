@@ -180,9 +180,11 @@ test.describe('모바일 드라이브 행 액션', () => {
     await expect(bar).toContainText('1개 선택')
 
     // 모바일 체크박스는 탭을 받지 않아(pointer-events-none) 그 자리를 탭하면 행이 받는다 — force 로 같은 좌표를 탭.
+    // eslint-disable-next-line playwright/no-force-option -- 모바일 체크박스는 의도적으로 pointer-events-none 이라 같은 좌표 탭을 검증하려면 강제 탭이 필요하다
     await page.getByTestId('select-folder-10').tap({ force: true })
     await expect(page.getByTestId('select-folder-10')).toBeChecked()
     await expect(bar).toContainText('2개 선택')
+    // eslint-disable-next-line playwright/no-force-option -- 위와 같음(pointer-events-none 체크박스 좌표 탭)
     await page.getByTestId('select-file-70').tap({ force: true })
     await expect(page.getByTestId('select-file-70')).not.toBeChecked()
     await expect(bar).toContainText('1개 선택')

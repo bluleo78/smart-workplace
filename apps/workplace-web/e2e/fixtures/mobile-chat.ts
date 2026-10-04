@@ -20,6 +20,7 @@ export async function longPress(page: Page, target: Locator, holdMs = 700) {
   const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
   const cdp = await page.context().newCDPSession(page)
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] })
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 길게 누르기 제스처 자체의 유지 시간(손가락을 누르고 있는 동작)이라 조건 대기로 바꿀 수 없다
   await page.waitForTimeout(holdMs)
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   await cdp.detach()

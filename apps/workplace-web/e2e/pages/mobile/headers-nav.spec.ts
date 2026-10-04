@@ -8,6 +8,7 @@ import { createIssue, createIssueDetail } from '../../factories/issue.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { dismissByOutsideClick } from '../../fixtures/wait'
 
 const KEY = 'WP'
 const NUM = 2
@@ -92,7 +93,8 @@ test('⋯ 메뉴는 바깥을 누르거나 Esc 로 닫힌다', async ({ authenti
   await expect(menu).toBeHidden()
   await page.getByTestId('mobile-header-more').click()
   await expect(menu).toBeVisible()
-  await page.mouse.click(200, 500)
+  // 바깥 클릭 감지가 열린 직후 등록되기 전이면 무시되므로 닫힐 때까지 다시 누른다(WP-225).
+  await dismissByOutsideClick(page, menu, { x: 200, y: 500 })
   await expect(menu).toBeHidden()
 })
 

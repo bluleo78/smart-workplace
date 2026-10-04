@@ -14,6 +14,7 @@ import { createSpace } from '../../factories/drive.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
+import { resizeAndSettle } from '../../fixtures/wait'
 
 type Device = 'mobile' | 'desktop'
 
@@ -121,14 +122,15 @@ test('편집 중 lg 경계를 넘으면 미저장 초안은 어느 기기에도 
 
   // 데스크톱 폭 — AppLayout 이 셸을 갈아 끼우며 Dashboard 가 다시 마운트된다(편집 상태 초기화).
   // 모바일 초안은 데스크톱 화면·데스크톱 레이아웃 어디에도 섞이지 않고, 데스크톱 레이아웃을 device 없이 새로 조회한다.
-  await page.setViewportSize({ width: 1280, height: 800 })
+  // 1024 경계를 넘는 리사이즈 — 셸 교체가 끝난 뒤에 단언한다(WP-225).
+  await resizeAndSettle(page, { width: 1280, height: 800 })
   await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
   await expect.poll(() => stub.requests.some((r) => r.method === 'GET' && r.device === null)).toBe(true)
   await expect(page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]')).toBeVisible()
   await expect(page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')).toHaveCount(0)
 
   // 다시 모바일 폭 — 편집은 끝난 상태(보기 모드)이고 저장된 모바일 레이아웃 그대로다. 그동안 PUT 은 0건.
-  await page.setViewportSize({ width: 390, height: 664 })
+  await resizeAndSettle(page, { width: 390, height: 664 })
   await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
   await expect(myTasks).toBeVisible()
   expect(stub.puts).toHaveLength(0)
@@ -178,6 +180,7 @@ test('⌃ 연타 — PUT 이 직렬로 나가 마지막 상태(펼침)가 저장
   await card.getByTestId('mobile-widget-collapse').click() // 펼치기 — 화면은 즉시(낙관), PUT 은 앞 PUT 뒤로 줄 선다
   await expect(card.getByTestId('mobile-widget-collapse')).toHaveAttribute('aria-expanded', 'true')
   // 부재 확인 — 두 번째 PUT 이 첫 응답 전에 나가지 않음을 보려면 잠깐 기다릴 수밖에 없다(직렬화 검증).
+  // eslint-disable-next-line playwright/no-wait-for-timeout -- 첫 응답 전 두 번째 PUT 이 나가지 않음(부재)을 확인하는 대기
   await page.waitForTimeout(300)
   expect(stub.puts).toHaveLength(1)
   release()

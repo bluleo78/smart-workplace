@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test'
 import { createMessage, createThreadInboxItem } from '../../factories/messaging.factory'
 import { json, stubChannelMessages } from '../../fixtures/mobile-chat'
 import { expect, test } from '../../fixtures/mobile.fixture'
+import { stableBox } from '../../fixtures/wait'
 
 // 실데이터 폭 검증용 긴 답글.
 const LONG_REPLY = '배포 전 체크리스트를 다시 확인해 보니 결제 모듈 마이그레이션 스크립트가 운영 DB 에서 잠금을 오래 잡을 수 있어 야간 배포로 옮기는 게 좋겠습니다.'
@@ -93,6 +94,9 @@ test('데스크톱(≥1024px)은 채널 옆 w-96 패널 그대로', async ({ aut
   const panel = page.getByTestId('thread-panel')
   await expect(panel).toBeVisible()
   await expect(page.getByTestId('channel-column')).toBeVisible()
-  expect(Math.round((await panel.boundingBox())!.width)).toBe(384)
+  // 셸·패널 배치가 자리 잡기 전 측정을 피하려 null 아님·폭까지 재시도한다(WP-225).
+  await expect(async () => {
+    expect(Math.round((await stableBox(panel)).width)).toBe(384)
+  }).toPass()
   await expect(panel.getByTestId('thread-close')).toBeVisible()
 })

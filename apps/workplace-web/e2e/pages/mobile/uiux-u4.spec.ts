@@ -17,6 +17,7 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
 
     await page.getByTestId('message-body-11').tap()
     await page.getByTestId('mention-chip-20').tap()
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 길게 누르기 판정 시간을 넘겨도 시트가 뜨지 않음(부재) 확인
     await page.waitForTimeout(700) // 길게 누르기 판정 시간(450ms)보다 오래 기다려도 시트는 없다.
     await expect(page.getByTestId('message-action-sheet')).toHaveCount(0)
     // iOS 텍스트 선택·콜아웃 억제.
@@ -93,6 +94,7 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
     await page.getByTestId('message-action-delete').tap()
     await expect(page.getByTestId('message-action-sheet')).toHaveCount(0)
     await page.getByRole('button', { name: '실행 취소' }).tap()
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 취소 뒤 실행 취소 지연(5s)이 지나도 DELETE 가 나가지 않음(부재) 확인
     await page.waitForTimeout(5500) // UNDO_DELETE_DELAY_MS(5s) 경과 — 취소했으므로 DELETE 가 나가지 않는다.
     expect(deleteCalls).toBe(0)
   })

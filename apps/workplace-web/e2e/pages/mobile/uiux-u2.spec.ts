@@ -7,6 +7,7 @@ import { member, page as makeContactPage } from '../../factories/contacts.factor
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { dismissByOutsideClick } from '../../fixtures/wait'
 
 /** 실제 마우스로 길게 누른다 — 메뉴가 뜰 때까지 누른 채 기다렸다가 뗀다(떼는 click 이 이동을 일으키지 않는지도 함께). */
 async function longPress(page: Page, testId: string) {
@@ -44,7 +45,8 @@ test('앱 길게 누르기: 스크림이 깔리고 누른 칸이 들리며, 메�
   expect(mb.y).toBeGreaterThanOrEqual(tb.y + tb.height - 1)
   await expectNoHorizontalOverflow(page)
   // 스크림을 누르면 닫히고 이동하지 않는다.
-  await page.mouse.click(20, 780)
+  // 열린 직후의 클릭이 무시될 수 있어 메뉴가 닫힐 때까지 스크림을 다시 누른다(WP-225).
+  await dismissByOutsideClick(page, page.getByTestId('apps-menu'), { x: 20, y: 780 })
   await expect(page.getByTestId('apps-menu')).toHaveCount(0)
   await expect(scrim).toHaveCount(0)
   await expect(page).toHaveURL(/\/apps$/)

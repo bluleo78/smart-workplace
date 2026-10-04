@@ -5,6 +5,7 @@ import { member, memberDetail, page as makeContactPage } from '../../factories/c
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { resizeAndSettle } from '../../fixtures/wait'
 
 test('메일 본문(탭바 숨김)에서도 ✦ 로 AI 시트를 연다', async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
@@ -112,7 +113,8 @@ test('데스크톱 인박스 Popover 를 연 채 좁히면 닫기만 하고 알�
   await page.goto('/chat')
   await page.getByTestId('inbox-trigger').click()
   await expect(page.getByTestId('inbox-mark-all')).toBeVisible()
-  await page.setViewportSize({ width: 390, height: 844 })
+  // 1024 경계를 넘는 리사이즈 — 셸 교체(MobileShell 마운트)까지 기다린다(WP-225).
+  await resizeAndSettle(page, { width: 390, height: 844 })
   await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
   await expect(page).toHaveURL(/\/chat$/)
 })

@@ -42,7 +42,8 @@ export async function retryOnNavigation<R>(run: () => Promise<R>): Promise<R> {
 export async function dismissByOutsideClick(page: Page, layer: Locator, point = { x: 2, y: 2 }) {
   await expect(async () => {
     await page.mouse.click(point.x, point.y);
-    await expect(layer).toHaveCount(0, { timeout: 1000 });
+    // 닫힘 = DOM 에서 빠지거나(Radix Dialog) 숨겨진 채 남음(일부 메뉴) — toBeHidden 은 둘 다 통과한다.
+    await expect(layer).toBeHidden({ timeout: 1000 });
   }).toPass();
 }
 

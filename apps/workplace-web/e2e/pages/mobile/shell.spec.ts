@@ -1,6 +1,7 @@
 // 모바일 셸 E2E(WP-123) — 하단 탭바 구성·활성 표시·배지·AI 탭·뷰포트 전환.
 import { createUser } from '../../factories/auth.factory'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { resizeAndSettle } from '../../fixtures/wait'
 
 test('홈에서 5칸 탭바(홈·채팅 | AI | 메일·앱)가 보이고 레일·햄버거는 없다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
@@ -43,10 +44,11 @@ test('뷰포트 전환 — 데스크톱 폭이 되면 레일, 다시 좁히면 �
   await stubChat(page)
   await page.goto('/chat')
   await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
-  await page.setViewportSize({ width: 1280, height: 800 })
+  // 1024 경계를 넘는 리사이즈 — 셸 교체가 끝난 뒤에 단언한다(WP-225).
+  await resizeAndSettle(page, { width: 1280, height: 800 })
   await expect(page.getByTestId('app-rail')).toBeVisible()
   await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
-  await page.setViewportSize({ width: 390, height: 844 })
+  await resizeAndSettle(page, { width: 390, height: 844 })
   await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
   await expect(page).toHaveURL(/\/chat$/)
 })
@@ -57,10 +59,11 @@ test('데스크톱에서 연 side 패널은 좁히면 AI 시트로, 다시 넓�
   await page.goto('/')
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
-  await page.setViewportSize({ width: 390, height: 844 })
+  // 1024 경계를 넘는 리사이즈 — 셸 교체가 끝난 뒤에 단언한다(WP-225).
+  await resizeAndSettle(page, { width: 390, height: 844 })
   await expect(page.getByTestId('ai-sheet')).toBeVisible()
   await expect(page.getByTestId('mobile-tab-ai')).toHaveAttribute('aria-expanded', 'true')
-  await page.setViewportSize({ width: 1280, height: 800 })
+  await resizeAndSettle(page, { width: 1280, height: 800 })
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   await expect(page.getByTestId('ai-fullscreen')).toHaveCount(0)
 })
