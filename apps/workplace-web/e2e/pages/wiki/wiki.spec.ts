@@ -450,7 +450,7 @@ test('위키 — 낙관적 동시성 충돌(409): 배너 노출 + 자동저장 �
     },
   )
 
-  // 1) 충돌 페이지로 바로 진입. 자동저장 디바운스(setTimeout 800ms)를 넘기려고 가상 시계를 goto 전에 설치한다.
+  // 1) 충돌 페이지로 바로 진입. 자동저장 디바운스(800ms)를 가상 시계로 넘긴다.
   await page.clock.install()
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${CONFLICT_ID}`)
 
@@ -767,7 +767,7 @@ test('위키 — 디바운스 대기 중 리마운트(뷰포트 lg 경계 전환
       return route.fulfill({ json: pageDetail(NEW_TITLE, 1) })
     },
   )
-  // 옛 디바운스 타이머를 시계로 넘겨 확인하려고 goto 전에 설치한다(설치만으론 시간이 실제처럼 흐른다).
+  // 옛 자동저장 디바운스(800ms) 타이머를 가상 시계로 넘긴다
   await page.clock.install()
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${NEW_PAGE_ID}`)
   await page.locator('.ProseMirror').click()
@@ -780,7 +780,7 @@ test('위키 — 디바운스 대기 중 리마운트(뷰포트 lg 경계 전환
   // flush 는 언마운트 즉시 — 디바운스 잔여 시간(수백 ms)을 기다리지 않는다.
   expect(puts[0].at - t0).toBeLessThan(400)
   expect(puts[0].body).toContain('플러시')
-  // 옛 타이머가 뒤늦게 한 번 더 PUT 하지 않는다(중복 저장·409 방지). 디바운스 창(800ms)을 시계로 넘긴다.
+  // 옛 타이머가 뒤늦게 한 번 더 PUT 하지 않는다(중복 저장·409 방지).
   await page.clock.fastForward(1000)
   await expectStays(page, () => puts.length, 1, { ms: 200 })
 })

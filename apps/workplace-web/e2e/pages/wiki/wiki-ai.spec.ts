@@ -383,8 +383,7 @@ test('위키 변형 — VIEWER 는 변형 툴바가 노출되지 않는다', asy
   await expect(page.locator('.ProseMirror')).toBeVisible()
   await typeAndSelectAll(page, '원본 문장')
 
-  // 선택 후 일정 시간 동안 툴바가 끝내 뜨지 않음(부재)을 확인
-  await expectStays(page, () => page.getByTestId('wiki-ai-toolbar').count(), 0, { ms: 500 })
+  await expectStays(page, () => page.getByTestId('wiki-ai-toolbar').count(), 0)
   expect(aiCalled).toBe(0)
 })
 
@@ -392,7 +391,7 @@ test('위키 변형 — 단일 undo 로 변형 전 원본으로 복원된다', a
   await setupWikiMocks(page, 'EDITOR')
   await mockWikiAiGeneration(page, { deltas: ['다듬어진 ', '문장'] })
 
-  // ProseMirror history 는 트랜잭션 시각(Date.now)으로 undo 그룹을 가르므로 가상 시계로 그 간격을 만든다 — goto 전 설치.
+  // undo 그룹 경계(newGroupDelay 500ms, Date.now 기준)를 가상 시계로 넘긴다
   await page.clock.install()
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -431,8 +430,7 @@ test('위키 /ai — VIEWER 는 슬래시 AI 메뉴가 노출되지 않는다', 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
 
-  // '/' 입력 후 일정 시간 동안 슬래시 메뉴가 끝내 뜨지 않음(부재)을 확인
-  await expectStays(page, () => page.getByTestId('wiki-slash-popover').count(), 0, { ms: 500 })
+  await expectStays(page, () => page.getByTestId('wiki-slash-popover').count(), 0)
   expect(aiCalled).toBe(0)
 })
 
@@ -829,7 +827,6 @@ test('위키 변형 — 이미지 노드 선택(NodeSelection)에서는 툴바�
   // 아래 toolbar 부재 단언이 공허해진다(애초에 선택이 없어서 안 뜬 것일 수 있다).
   await expect(page.locator('.ProseMirror .ProseMirror-selectednode')).toHaveCount(1)
 
-  // 이미지 선택 후 일정 시간 동안 툴바가 끝내 뜨지 않음(부재)을 확인
   await expectStays(page, () => page.getByTestId('wiki-ai-toolbar').count(), 0)
   expect(aiCalled).toBe(0)
 })
@@ -936,8 +933,7 @@ test('위키 서식 — VIEWER 는 서식 버튼도 노출되지 않는다 (#687
   await expect(page.locator('.ProseMirror')).toBeVisible()
   await typeAndSelectAll(page, '원본 문장')
 
-  // 선택 후 일정 시간 동안 서식 툴바가 끝내 뜨지 않음(부재)을 확인
-  await expectStays(page, () => page.getByTestId('wiki-ai-toolbar').count(), 0, { ms: 500 })
+  await expectStays(page, () => page.getByTestId('wiki-ai-toolbar').count(), 0)
   await expect(page.getByTestId('wiki-format-tb-bold')).toHaveCount(0)
 })
 

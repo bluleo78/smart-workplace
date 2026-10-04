@@ -305,7 +305,7 @@ test.describe('커스텀 필드', () => {
       await expect(input).toHaveValue('5');
 
       // 정밀도 손실된 값이 서버로 전송되지 않아야 한다.
-      await expectStays(page, () => putCalled, false, { ms: 500 });
+      await expectStays(page, () => putCalled, false);
     },
   );
 

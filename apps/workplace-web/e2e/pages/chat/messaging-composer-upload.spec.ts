@@ -217,7 +217,6 @@ test.describe('MessageComposer — 파일 업로드 중 전송 차단 (#152)', (
       // eslint-disable-next-line playwright/no-force-option -- 비활성 버튼을 일부러 눌러 전송이 막히는지 검증(actionability 대기 시 영원히 대기)
       await page.getByTestId('message-composer-submit').click({ force: true })
 
-      // 메시지 전송 API 미호출 확인 (100ms 후에도 0건)
       await expectStays(page, () => messageSentCount, 0, { ms: 100 })
 
       // 업로드 완료 → 이후 정상 전송 가능

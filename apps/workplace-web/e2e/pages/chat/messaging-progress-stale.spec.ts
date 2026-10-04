@@ -197,20 +197,19 @@ test(
     const staleServed = new Promise<void>((resolve) => (markStaleServed = resolve));
     await page.route(
       (url) => url.pathname === '/api/v1/events',
-      (route) => {
-        markStaleServed();
-        return route.fulfill({
+      async (route) => {
+        await route.fulfill({
           status: 200,
           contentType: 'text/event-stream',
           headers: { 'cache-control': 'no-cache' },
           body: sseStaleTool,
         });
+        markStaleServed();
       },
     );
 
     // 구코드: 종료 추적 없음 → tool 이벤트가 다시 set → 버블 부활(이 단언에서 실패 = 회귀 감지).
-    // 뒤늦은 tool 이 전달된 뒤, 처리될 짧은 여유를 준 다음에도 버블이 없어야 한다.
     await staleServed;
-    await expectStays(page, () => page.getByTestId('ai-working-bubble').count(), 0, { ms: 500 });
+    await expectStays(page, () => page.getByTestId('ai-working-bubble').count(), 0);
   },
 );

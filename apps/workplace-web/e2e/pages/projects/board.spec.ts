@@ -875,12 +875,17 @@ test.describe('태스크 보드/검색', () => {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     });
 
+    // react-query 재시도 백오프(~1초)를 가상 시계로 넘긴다
+    await page.clock.install();
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+    await expect.poll(() => failedCalls).toBeGreaterThan(0);
+    await page.clock.fastForward(1500);
     const retry = page.getByTestId('board-col-more-TODO').getByRole('button', { name: /다시 시도/ });
-    await expect(retry).toBeVisible({ timeout: 15_000 });
+    await expect(retry).toBeVisible();
     // 실패 확정 후 추가 요청이 더 나가지 않는다(react-query 기본 재시도 포함 횟수에서 멈춤).
     const settled = failedCalls;
-    await expectStays(page, () => failedCalls, settled, { ms: 1500 });
+    await page.clock.fastForward(1500);
+    await expectStays(page, () => failedCalls, settled, { ms: 200 });
     // 다시 시도 → 요청 1회 더.
     await retry.click();
     await expect.poll(() => failedCalls).toBeGreaterThan(settled);
@@ -1015,6 +1020,5 @@ test('담당자 그룹 보드에서 카드를 다른 그룹 카드 위에 놓아
   await expect(card).toHaveCSS('opacity', '0.4');
   await expect(page.getByTestId('issue-card-drag-overlay')).toBeVisible();
   await page.mouse.up();
-  // 놓은 뒤 상태 PATCH 가 나가지 않는지 본다.
   await expectStays(page, () => statusPatched, false);
 });

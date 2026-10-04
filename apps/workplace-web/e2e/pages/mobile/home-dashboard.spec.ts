@@ -179,8 +179,8 @@ test('⌃ 연타 — PUT 이 직렬로 나가 마지막 상태(펼침)가 저장
   await expect(card.getByTestId('mobile-widget-collapse')).toHaveAttribute('aria-expanded', 'false')
   await card.getByTestId('mobile-widget-collapse').click() // 펼치기 — 화면은 즉시(낙관), PUT 은 앞 PUT 뒤로 줄 선다
   await expect(card.getByTestId('mobile-widget-collapse')).toHaveAttribute('aria-expanded', 'true')
-  // 첫 응답 전 두 번째 PUT 이 나가지 않음(부재) — 직렬화 검증
-  await expectStays(page, () => stub.puts.length, 1)
+  // 첫 응답 전 두 번째 PUT 이 나가지 않음 — 직렬화 검증
+  await expectStays(page, () => stub.puts.length, 1, { reach: true })
   release()
   await expect.poll(() => stub.puts.length).toBe(2)
   expect(stub.puts[0].widgets[0].collapsed).toBe(true)

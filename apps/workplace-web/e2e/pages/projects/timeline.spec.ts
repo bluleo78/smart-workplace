@@ -281,7 +281,6 @@ test('비멤버는 드래그 비활성', async ({ authenticatedPage: page }) => 
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 200, box.y + box.height / 2, { steps: 8 });
   await page.mouse.up();
-  // 비멤버 드래그 후 PATCH 가 나가지 않음(부재)
   await expectStays(page, () => patchFired, false);
 });
 

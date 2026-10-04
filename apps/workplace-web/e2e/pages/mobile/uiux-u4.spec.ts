@@ -11,7 +11,7 @@ import { expectStays } from '../../fixtures/wait'
 test.describe('H1 메시지 길게 누르기 작업 시트', () => {
   test('터치 셸에선 툴바를 그리지 않고, 탭은 시트를 열지 않는다(멘션 칩 탭 포함)', async ({ authenticatedPage: page }) => {
     await stubChannelMessages(page)
-    // 길게 누르기 판정 타이머(450ms)를 실제로 기다리지 않도록 시계를 설치한다 — 설치만 하면 시간은 그대로 흐른다.
+    // 길게 누르기 판정 타이머(450ms)를 가상 시계로 넘긴다
     await page.clock.install()
     await page.goto('/chat/channels/1')
     await expect(page.getByTestId('message-body-10')).toBeVisible()
@@ -80,7 +80,7 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
       deleteCalls += 1
       return r.fulfill({ status: 204, body: '' })
     })
-    // 실행 취소 지연(setTimeout 5s)을 실제로 기다리지 않도록 시계를 설치한다 — 설치만 하면 시간은 그대로 흐른다.
+    // 실행 취소 지연(5s)을 가상 시계로 넘긴다
     await page.clock.install()
     await page.goto('/chat/channels/1')
 
@@ -101,7 +101,6 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
     await page.getByRole('button', { name: '실행 취소' }).tap()
     // UNDO_DELETE_DELAY_MS(5s) 경과 — 취소했으므로 DELETE 가 나가지 않는다.
     await page.clock.fastForward(5500)
-    // 지연 만료 시 나갔을 DELETE 요청이 도착할 틈을 두고 부재를 확인
     await expectStays(page, () => deleteCalls, 0, { ms: 200 })
   })
 })

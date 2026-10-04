@@ -173,7 +173,6 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     const { patches } = await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO', parent: parentOf(EPIC_A) })], panelOpen: true });
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
     await dragTo(page, 'issue-card-1', `epic-filter-${EPIC_A.number}`);
-    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
     await expectStays(page, () => patches, []);
   });
 
@@ -183,7 +182,6 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
     await startDrag(page, 'issue-card-1');
     await page.mouse.up();
-    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
     await expectStays(page, () => patches, []);
     expect(statusPatch.patched).toBe(false);
   });
@@ -198,7 +196,6 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     // 틈 = 패널 오른쪽 끝과 첫 컬럼 왼쪽 끝의 중간, 컬럼 세로 중앙.
     await page.mouse.move((aside.x + aside.width + col.x) / 2, col.y + col.height / 2, { steps: 10 });
     await page.mouse.up();
-    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
     await expectStays(page, () => patches, []);
     expect(statusPatch.patched).toBe(false);
   });
@@ -216,7 +213,6 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
       await startDrag(page, 'issue-card-1');
       await moveOver(page, c.target);
       await page.mouse.up();
-      // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
       await expectStays(page, () => patches, []);
       expect(statusPatch.patched).toBe(false);
     });
@@ -246,7 +242,6 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     expect(y).toBeLessThan(panel.y + panel.height);
     await page.mouse.move(x, y, { steps: 10 });
     await page.mouse.up();
-    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
     await expectStays(page, () => patches, []);
     expect(statusPatch.patched).toBe(false);
   });
@@ -315,7 +310,6 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId(`epic-filter-${EPIC_A.number}`)).toHaveAttribute('data-drop-state', 'blocked');
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
     await page.mouse.up();
-    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
     await expectStays(page, () => patches, []);
   });
 
@@ -326,7 +320,6 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId('epic-drop-blocked-reason')).toHaveText('에픽은 다른 에픽에 넣을 수 없습니다');
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
     await page.mouse.up();
-    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
     await expectStays(page, () => patches, []);
   });
 
@@ -340,7 +333,6 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId('issue-row-1')).not.toHaveClass(/opacity-40/);
     await expect(page.getByTestId('epic-drop-hint')).not.toBeAttached();
     await page.mouse.up();
-    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
     await expectStays(page, () => patches, []);
   });
 
@@ -472,7 +464,6 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     expect(overlapped, '「전체 이슈」 아래에 스크롤로 가려진 에픽 사각형이 겹쳐야 한다').toBe(true);
     await page.mouse.move(p.x, p.y, { steps: 10 });
     await page.mouse.up();
-    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
     await expectStays(page, () => patches, []);
   });
 
@@ -640,7 +631,6 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(canceled).toHaveClass(/bg-accent\/30/);
     await page.keyboard.press('Space');
     await expect.poll(() => statusBody).toEqual({ status: 'CANCELED' });
-    // 놓은 뒤 에픽 PATCH 가 나가지 않는지 본다.
     await expectStays(page, () => patches, []);
   });
 });

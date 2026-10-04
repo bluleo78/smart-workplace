@@ -39,7 +39,6 @@ test.describe('C2 수정 중인 메시지는 길게 누르기 대상이 아니�
     await expect(page.getByTestId('message-11').getByRole('button', { name: '메시지 작업' })).toHaveCount(0)
 
     await longPress(page, editor)
-    // 판정 시간(450ms) 이후에도 시트가 뜨지 않음(부재)
     await expectStays(page, () => page.getByTestId('message-action-sheet').count(), 0)
   })
 })

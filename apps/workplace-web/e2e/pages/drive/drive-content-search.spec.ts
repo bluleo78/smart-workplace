@@ -91,13 +91,13 @@ test('검색어 2자 미만은 검색을 실행하지 않는다', async ({ authe
     return route.fulfill({ json: { hits: [], semantic: false } })
   })
 
-  // 검색 디바운스(300ms) 를 실시간으로 기다리지 않도록 가상 시계를 설치한다(설치만 하면 시간은 평소처럼 흐른다).
+  // 검색 디바운스(300ms)를 가상 시계로 넘긴다
   await page.clock.install()
   await page.goto('/drive')
   await page.waitForURL(/drive\/spaces\/\d+/)
 
   await page.getByLabel('파일명 및 콘텐츠 검색').fill('a')
-  // debounce(300ms) 를 넘긴 뒤에도 검색 요청이 없어야 한다 — 요청이 route 에 닿을 짧은 실시간 여유만 둔다.
+  // 디바운스를 넘긴 뒤 요청이 route 에 닿을 짧은 실시간 여유만 둔다.
   await page.clock.runFor(400)
   await expectStays(page, () => searchCalled, false, { ms: 200 })
   await expect(page.getByTestId('search-results')).toHaveCount(0)

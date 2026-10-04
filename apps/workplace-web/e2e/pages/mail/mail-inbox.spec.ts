@@ -109,20 +109,25 @@ test.describe('받은편지함', () => {
         return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
       },
     )
+    // 검색 디바운스(300ms)를 가상 시계로 넘긴다
+    await page.clock.install()
     await page.goto('/mail/1')
     await expect.poll(() => requestCount).toBeGreaterThanOrEqual(1)
     const initialCount = requestCount
+    // 타이핑·단언 사이 실시간 경과가 디바운스를 터뜨리지 않도록 시계를 멈춘다(runFor 로만 진행).
+    await page.clock.pauseAt(Date.now() + 1000)
 
     // 키 입력 시뮬레이션(한 글자씩) — fill()과 달리 실제 keystroke마다 onChange 를 발생시킨다.
     await page.getByTestId('mail-search').pressSequentially('lunch', { delay: 30 })
 
-    // debounce(300ms) 전에는 추가 요청이 없어야 한다.
-    await expectStays(page, () => requestCount, initialCount, { ms: 150 })
+    await page.clock.runFor(299)
+    await expectStays(page, () => requestCount, initialCount, { ms: 100 })
 
-    // debounce 이후에는 정확히 1건만 추가로 요청돼야 한다(글자 수만큼 아님).
-    await expect.poll(() => requestCount, { timeout: 2000 }).toBe(initialCount + 1)
-    // debounce 1회 발사 뒤 뒤늦은 추가 요청이 없어야 한다.
-    await expectStays(page, () => requestCount, initialCount + 1)
+    // 디바운스 만료 → 정확히 1건만 추가(글자 수만큼 아님).
+    await page.clock.runFor(2)
+    await expect.poll(() => requestCount).toBe(initialCount + 1)
+    await page.clock.runFor(1000)
+    await expectStays(page, () => requestCount, initialCount + 1, { ms: 200 })
   })
 
   test('동기화 버튼 → sync 호출 + 토스트', async ({ authenticatedPage: page }) => {

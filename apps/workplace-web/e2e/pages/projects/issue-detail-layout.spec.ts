@@ -205,9 +205,10 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
-    // 첫 호출 도착은 조건 대기로 확인한 뒤(WP-225), 채팅 컴포저까지 마운트돼도 중복 호출이 없는지 본다.
-    await expect.poll(() => spacesCallCount).toBe(1);
-    await expectStays(page, () => spacesCallCount, 1);
+    // 채팅 컴포저(useAttachmentDraft)는 드로워 안에서 늦게 마운트된다 — 마운트된 뒤에 창을 열어야 그 중복 호출을 본다.
+    await page.getByTestId('issue-chat-open').click();
+    await expect(page.getByTestId('chat-composer-input')).toBeVisible();
+    await expectStays(page, () => spacesCallCount, 1, { reach: true });
   });
 
   test('첨부는 본문 설명 아래 스트립으로 표시되고 사이드바엔 없다', async ({

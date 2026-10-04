@@ -802,6 +802,9 @@ test('개인 보드는 스크롤 전에는 컬럼 다음 페이지를 요청하�
 
   await page.goto(`/projects/${KEY}?view=board`);
   await expect(page.getByTestId('board-col-TODO')).toContainText('TODO 긴 컬럼 이슈 29');
-  // 스크롤 전 다음 페이지 연쇄 요청이 없음(부재) — 연쇄 로드는 마운트 직후 일어나므로 1초 지켜본다(WP-82)
-  await expectStays(page, () => nextPageRequests, 0, { ms: 1000 });
+  // 연쇄 로드는 sentinel 의 IntersectionObserver 판정 직후 일어난다 — 판정(화면 밖)이 한 번 돈 뒤에 창을 연다.
+  const sentinel = page.getByTestId('board-col-more-TODO');
+  await expect(sentinel).toBeAttached();
+  await expect(sentinel).not.toBeInViewport();
+  await expectStays(page, () => nextPageRequests, 0);
 });

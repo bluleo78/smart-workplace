@@ -405,8 +405,7 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await page.getByTestId('mobile-edit-save').click();
     await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
     await expect(page.getByTestId('issue-comment-input')).toBeVisible();
-    // 늦게 올 수 있는 중복 PATCH 의 부재 확인
-    await expectStays(page, () => calls.filter((c) => c.method === 'PATCH').length, 1);
+    await expectStays(page, () => calls.filter((c) => c.method === 'PATCH').length, 1, { reach: true });
     const patches = calls.filter((c) => c.method === 'PATCH');
     expect(patches[0].body).toMatchObject({ title: '새 제목' });
   });
@@ -448,7 +447,6 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await page.getByTestId('issue-title-input').fill('버릴 제목');
     await page.getByTestId('mobile-edit-cancel').click();
     await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
-    // 취소 뒤 PATCH 가 나가지 않음(부재)
     await expectStays(page, () => calls.filter((c) => c.method === 'PATCH').length, 0);
   });
 
@@ -462,7 +460,6 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await expect.poll(() => calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({ body: '바뀐 본문' });
     await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
     await expect(page.getByTestId('issue-comment-input')).toBeVisible();
-    // 늦게 올 수 있는 두 번째 PATCH 의 부재(중복 저장 없음)
     await expectStays(page, () => calls.filter((c) => c.method === 'PATCH').length, 1);
   });
 

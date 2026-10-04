@@ -92,6 +92,5 @@ test('위키 노트→이슈 — VIEWER 는 "이슈로 만들기" 미노출', as
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('내용')
   await page.keyboard.press('ControlOrMeta+a')
-  // 선택 후 일정 시간 동안 "이슈로 만들기" 버튼이 끝내 뜨지 않음(부재)을 확인
-  await expectStays(page, () => page.getByTestId('wiki-ai-tb-create-issue').count(), 0, { ms: 400 })
+  await expectStays(page, () => page.getByTestId('wiki-ai-tb-create-issue').count(), 0)
 })

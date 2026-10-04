@@ -18,15 +18,14 @@ test.describe('QueryClient 전역 retry 정책', () => {
       { status: 404, capture: true },
     );
 
-    // 재시도 backoff(앱 setTimeout)를 결정적으로 넘기기 위해 goto 전에 가상 시계를 설치한다.
+    // 재시도 backoff(~1초)를 가상 시계로 넘긴다
     await page.clock.install();
     await page.goto('/projects/NONEXISTENT999');
 
     // 첫 404 즉시 오류 화면 표시 (retry backoff 지연 없음)
     await expect(page.getByText('프로젝트를 불러올 수 없습니다')).toBeVisible();
 
-    // 기존 retry:1 동작이었다면 ~1초 후 2번째 요청이 발생한다. 그 backoff 창을 가상 시계로 넘기고,
-    // 재시도 요청이 route 에 닿을 짧은 창 동안 요청이 1회 그대로인지 확인.
+    // 기존 retry:1 동작이었다면 ~1초 후 2번째 요청이 발생한다.
     await page.clock.fastForward(1500);
     await expectStays(page, () => capture.requests.length, 1, { ms: 200 });
   });

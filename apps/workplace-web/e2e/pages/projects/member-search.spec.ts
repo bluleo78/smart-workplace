@@ -435,7 +435,6 @@ test.describe('멤버 추가 검색 picker', () => {
     await row.click({ force: true }).catch(() => {
       // pointer-events: none 으로 인해 click 이 무시될 수 있음 — 의도된 동작.
     });
-    // 비활성 행 클릭 후 멤버 추가 POST 가 없음(부재)
     await expectStays(page, () => postCount, 0, { ms: 200 });
   });
 });

@@ -380,7 +380,7 @@ test('위키 @ 멘션 — VIEWER 는 @ 멘션 피커가 노출되지 않는다(�
   // '@' 입력해도 allow 게이트(canEditRef=false)로 팝업이 뜨지 않고, 검색 API 도 호출되지 않는다.
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('@온보')
-  await expectStays(page, () => page.getByTestId('wiki-mention-popover').count(), 0, { ms: 500 })
+  await expectStays(page, () => page.getByTestId('wiki-mention-popover').count(), 0)
   expect(captured.wikiQ).toBeUndefined()
 })
 

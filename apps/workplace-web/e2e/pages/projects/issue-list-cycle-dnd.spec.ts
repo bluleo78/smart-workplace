@@ -264,7 +264,6 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
     await expect(row(page, 'cycle-1', 12)).toBeVisible();
 
     await dragRowTo(page, row(page, 'cycle-1', 12), 'cycle-1');
-    // 놓은 뒤 이동 요청이 나가지 않는지 본다.
     await expectStays(page, () => moves, []);
     await expect(row(page, 'cycle-1', 12)).toBeVisible();
   });
@@ -280,7 +279,6 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
       await expect(page.getByTestId('list-cycle-drop-blocked-cycle-5')).toHaveText('완료된 사이클에는 놓을 수 없음');
       await expect(section(page, 'cycle-5')).not.toHaveAttribute('data-drop-target', 'true');
     });
-    // 놓은 뒤 이동 요청이 나가지 않는지 본다.
     await expectStays(page, () => moves, []);
     await expect(section(page, 'cycle-5')).not.toHaveAttribute('data-drop-blocked', 'true');
 
@@ -291,7 +289,6 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
       await expect(section(page, 'cycle-1')).not.toHaveAttribute('data-drop-target', 'true');
       await expect(section(page, 'cycle-5')).not.toHaveAttribute('data-drop-blocked', 'true');
     });
-    // 놓은 뒤 이동 요청이 나가지 않는지 본다.
     await expectStays(page, () => moves, []);
     await expect(row(page, 'cycle-5', 51)).toBeVisible();
   });
@@ -316,7 +313,6 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
     await expect(r).not.toHaveAttribute('aria-roledescription', '드래그 가능한 이슈');
 
     await dragRowTo(page, r, 'cycle-2');
-    // 놓은 뒤 이동 요청이 나가지 않는지 본다.
     await expectStays(page, () => moves, []);
     await expect(page.getByTestId('issue-row-drag-overlay')).toHaveCount(0);
   });

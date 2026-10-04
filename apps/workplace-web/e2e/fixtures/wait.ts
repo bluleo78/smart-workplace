@@ -67,25 +67,33 @@ export async function resizeAndSettle(page: Page, size: { width: number; height:
 }
 
 /**
- * 부재 확인 — 값이 expected 에 닿은 뒤 ms 동안 지켜봐도 그대로인지 단언한다.
+ * 부재 확인 — ms 동안 값이 expected 로 유지되는지 50ms 간격으로 지켜본다(중간에 잠깐 어긋나도 잡는다).
  * "요청이 더 나가지 않는다 / 무언가 나타나지 않는다"는 일정 시간 아무 일도 없음을 봐야 하므로 고정 대기가
- * 불가피하다. 그 대기를 이 한 곳에 모으고, 창 시작·끝 두 시점을 모두 확인한다.
- * 앱 타이머(디바운스·재시도 백오프·지연 삭제)가 원인이면 가능한 한 page.clock 으로 그 타이머를 먼저 넘긴 뒤 쓴다.
+ * 불가피하다 — 그 대기를 이 한 곳에 모은다. 앱 타이머(디바운스·재시도 백오프·지연 삭제)가 원인이면 먼저
+ * page.clock 으로 그 타이머를 넘긴 뒤 짧은 창(200ms 안팎)으로 쓴다.
  *
- *   await expectStays(page, () => patchCount, 0)               // 요청 카운터
- *   await expectStays(page, () => toolbar.count(), 0, { ms: 500 }) // 화면 요소
+ * 기본은 엄격 — 창 시작 순간부터 expected 여야 한다(이미 어긋나 있으면 바로 실패).
+ * 직전 동작이 값을 expected 로 "바꾸는" 중이면(첫 PATCH 1회 도착, 닫히는 중인 레이어) reach: true 로
+ * expected 에 닿을 때까지 기다린 뒤 창을 연다.
+ *
+ *   await expectStays(page, () => patchCount, 0)                       // 아무 요청도 없어야 함
+ *   await expectStays(page, () => puts.length, 1, { reach: true })      // 첫 PUT 도착 뒤 더 없음
+ *   await expectStays(page, () => toolbar.count(), 0, { ms: 500 })      // 화면 요소
  */
 export async function expectStays<T>(
   page: Page,
   read: () => T | Promise<T>,
   expected: T,
-  { ms = 300, message }: { ms?: number; message?: string } = {},
+  { ms = 300, reach = false, message }: { ms?: number; reach?: boolean; message?: string } = {},
 ) {
-  // 먼저 기대값에 닿을 때까지 기다린다 — 기대값이 1 이상(예: 첫 PATCH 1회)이면 그 요청이 route 에 닿기 전에
-  // 창을 시작해 거짓 실패하지 않게. 기대값이 0 이면 즉시 통과한다.
-  await expect.poll(async (): Promise<unknown> => await read(), { message }).toEqual(expected);
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 부재 확인은 일정 시간 아무 일도 없음을 지켜봐야 한다
-  await page.waitForTimeout(ms);
-  const after: unknown = await read();
-  expect(after, message).toEqual(expected);
+  if (reach) await expect.poll(async (): Promise<unknown> => read(), { message }).toEqual(expected);
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value: unknown = await read();
+    expect(value, message).toEqual(expected);
+    const left = deadline - Date.now();
+    if (left <= 0) return;
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 부재 확인은 일정 시간 아무 일도 없음을 지켜봐야 한다
+    await page.waitForTimeout(Math.min(50, left));
+  }
 }

@@ -60,8 +60,8 @@ test('파일 목록 진입 시 뷰포트 밖 썸네일은 요청하지 않고, �
 
   // 보이는 항목의 썸네일 요청이 실제로 나간 것부터 조건 대기한다(WP-225).
   await expect.poll(() => requestedIds.size).toBeGreaterThan(0)
-  // 초기 렌더 뒤 500ms 동안 지켜봐도 전체 수에 닿지 않아야 한다 — 지연 로딩이 아니라면 이미 FILE_COUNT 만큼 나갔을 것.
-  await expectStays(page, () => requestedIds.size < FILE_COUNT, true, { ms: 500 })
+  // 지연 로딩이 아니라면 이미 FILE_COUNT 만큼 나갔을 것.
+  await expectStays(page, () => requestedIds.size < FILE_COUNT, true)
   const countAfterInitialRender = requestedIds.size
   expect(countAfterInitialRender).toBeGreaterThan(0)
   // 뷰포트 밖(60개 중 후반부) 항목은 아직 요청되지 않아 전체 파일 수보다 적어야 한다(N+1 해소 확인).

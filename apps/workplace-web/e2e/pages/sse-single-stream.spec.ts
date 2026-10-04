@@ -24,7 +24,6 @@ test.describe('SSE 단일 멀티플렉싱 스트림', () => {
     const eventsReq = page.waitForRequest('**/api/v1/events');
     await page.goto('/');
     await eventsReq;
-    // 통합 스트림이 단독으로 열렸는지 — 구 엔드포인트는 뒤늦게라도 한 번도 열리지 않아야 한다.
     await expectStays(page, () => opened, [], { ms: 200 });
   });
 });
