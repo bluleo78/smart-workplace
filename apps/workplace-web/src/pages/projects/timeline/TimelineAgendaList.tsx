@@ -8,6 +8,7 @@ import { useMemo, useRef, useState } from 'react';
 
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState';
 import { MobileSheetShell } from '@/components/mobile/MobileSheetShell';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 import { formatDateMonthDay, formatDateRangeMonthDay } from '../../../lib/formatters';
@@ -42,6 +43,7 @@ export function TimelineAgendaList({
   onOpenIssue,
   view,
   periodChip,
+  onShowAllPeriods,
 }: {
   projectKey: string;
   /** TimelinePage 가 조회한 이슈 전량 — 아젠다 섹션은 여기서 파생(조회 추가 없음). */
@@ -52,6 +54,8 @@ export function TimelineAgendaList({
   onOpenIssue: (issueNumber: number) => void;
   view: TimelineViewOptions;
   periodChip?: ReactNode;
+  /** 기간 빈 상태의 「전체 기간 보기」 — 기간을 전체로 바꾼다. */
+  onShowAllPeriods: () => void;
 }) {
   // 아젠다 섹션 — 이 컴포넌트는 모바일에서만 마운트되므로 데스크톱에선 계산 자체가 일어나지 않는다.
   const sections = useMemo(() => buildAgendaSections(issues, new Date(), view), [issues, view]);
@@ -77,6 +81,11 @@ export function TimelineAgendaList({
       icon={CalendarRange}
       title="이 기간에 걸친 이슈가 없어요"
       description="기간을 「전체」로 바꿔 보세요"
+      action={
+        <Button variant="outline" className="min-h-11" data-testid="timeline-period-show-all" onClick={onShowAllPeriods}>
+          전체 기간 보기
+        </Button>
+      }
       className={className}
       data-testid="timeline-agenda-empty"
     />

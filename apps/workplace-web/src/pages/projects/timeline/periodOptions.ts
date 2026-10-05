@@ -1,7 +1,6 @@
 // 조회 기간 선택지(WP-247) — 데스크톱 드롭다운과 모바일 시트가 같은 목록을 쓴다.
-// 사이클은 상태(진행 중 → 계획됨 → 완료됨) 순, 같은 상태 안에서는 시작일이 늦은 것부터(최근 것이 위). 날짜 없는 사이클은 고를 수 없어 뺀다.
+// 사이클은 상태(진행 중 → 예정 → 완료됨) 순, 같은 상태 안에서는 시작일이 늦은 것부터(최근 것이 위). 날짜 없는 사이클은 고를 수 없어 뺀다.
 import type { CycleResponse, CycleStatus } from '@/types/cycle';
-import { CYCLE_STATUS_LABEL } from '@/types/cycle';
 
 import { formatPeriodSpan, parsePeriodParam, periodParamToString } from './timelineData';
 import type { PeriodParam } from './timelineTypes';
@@ -14,6 +13,8 @@ export interface PeriodOption {
 }
 
 const STATUS_ORDER: Record<CycleStatus, number> = { ACTIVE: 0, PLANNED: 1, COMPLETED: 2 };
+// 타임라인 기간 UI 용어 — 트리거·대체 안내가 PLANNED 를 「예정」이라 부르므로 선택지도 맞춘다(공용 CYCLE_STATUS_LABEL 은 「계획됨」).
+const STATUS_LABEL: Record<CycleStatus, string> = { ACTIVE: '진행 중', PLANNED: '예정', COMPLETED: '완료됨' };
 
 export function periodOptions(cycles: CycleResponse[], today: Date): PeriodOption[] {
   const dated = cycles
@@ -23,7 +24,7 @@ export function periodOptions(cycles: CycleResponse[], today: Date): PeriodOptio
     { value: 'active', label: '활성 사이클', hint: '기본', group: 'cycle' },
     ...dated.map((c) => ({
       value: `cycle-${c.id}`,
-      label: `${c.name} (${CYCLE_STATUS_LABEL[c.status]})`,
+      label: `${c.name} (${STATUS_LABEL[c.status]})`,
       hint: formatPeriodSpan(c.startDate, c.endDate, today),
       group: 'cycle' as const,
     })),

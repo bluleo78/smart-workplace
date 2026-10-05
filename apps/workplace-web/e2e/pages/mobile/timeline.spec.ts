@@ -253,6 +253,13 @@ test('기간에 걸친 일정 있는 이슈가 없으면 미정 섹션 위에 �
   // 안내가 미정 섹션보다 위.
   const [e, u] = [(await empty.boundingBox())!, (await page.getByTestId('agenda-undated').boundingBox())!];
   expect(e.y).toBeLessThan(u.y);
+  // 「전체 기간 보기」(44px) → period=all, 월 섹션이 다시 보인다.
+  const showAll = page.getByTestId('timeline-period-show-all');
+  expect((await showAll.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await showAll.tap();
+  await expect(page).toHaveURL(/period=all/);
+  await expect(page.getByTestId('timeline-agenda-empty')).toHaveCount(0);
+  await expect(page.getByTestId('agenda-month-2026-10')).toBeVisible();
 });
 
 test('기간 시트 「직접 지정」 — 날짜 두 칸을 적용하면 URL·칩 라벨이 바뀌고 시트가 닫힌다 (WP-247)', async ({ authenticatedPage: page }) => {

@@ -106,7 +106,8 @@ const MONTH_SCALES: IScaleConfig[] = [
 // SVAR 기본 그리드 컬럼 헤더가 영문(Task name/Start date/Duration)이라 앱 전체 한국어 UI와
 // 어긋남 — id/width 는 SVAR 기본값(getDefaultColumns)을 유지하고 header 텍스트만 교체한다.
 const GRID_COLUMNS: IColumnConfig[] = [
-  { id: 'text', header: '이슈', width: 183, flexgrow: 1, sort: true },
+  // 240 — 취소 에픽에서 옮겨진 이슈의 「← 원래 에픽」 접미사가 잘리지 않게(WP-247 UI 리뷰).
+  { id: 'text', header: '이슈', width: 240, flexgrow: 1, sort: true },
   // 미정 행(날짜 없는 하위/막대 없는 에픽)은 시작일/기간 대신 "미정" 표기. template 을 주면 SVAR
   // 기본 포매터(start=%d-%m-%Y) 대신 이 함수가 쓰이므로, 일반 행은 동일 포맷(dd-MM-yyyy)을 유지한다.
   {

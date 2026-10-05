@@ -17,6 +17,8 @@ export function PeriodRangeForm({
   const [from, setFrom] = useState(initial?.from ?? '');
   const [to, setTo] = useState(initial?.to ?? '');
   const valid = from !== '' && to !== '' && from <= to;
+  // 둘 다 채웠는데 뒤집혔을 때만 이유를 보인다(비어 있을 때는 비활성 버튼으로 충분).
+  const reversed = from !== '' && to !== '' && from > to;
   const input = cn('h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm', inputClassName);
   return (
     <form
@@ -31,6 +33,11 @@ export function PeriodRangeForm({
         <span className="text-muted-foreground" aria-hidden="true">–</span>
         <input type="date" aria-label="종료일" data-testid="period-range-to" value={to} onChange={(e) => setTo(e.target.value)} className={input} />
       </div>
+      {reversed && (
+        <p data-testid="period-range-error" className="text-xs text-destructive">
+          시작일이 종료일보다 늦어요
+        </p>
+      )}
       <Button type="submit" size="sm" disabled={!valid} data-testid="period-range-apply" className={buttonClassName}>
         적용
       </Button>

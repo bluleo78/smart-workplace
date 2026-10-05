@@ -30,6 +30,7 @@ export function TimelinePeriodChip({
       <button
         type="button"
         data-testid="agenda-chip-period"
+        title={period ? period.label : '전체'}
         onClick={() => setOpen(true)}
         className={cn(MOBILE_CHIP, MOBILE_CHIP_ACTIVE, 'shrink-0')}
       >

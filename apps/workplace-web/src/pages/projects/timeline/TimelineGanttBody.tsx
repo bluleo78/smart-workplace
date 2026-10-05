@@ -7,6 +7,7 @@ import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { Button } from '@/components/ui/button';
 import type { CycleResponse } from '@/types/cycle';
 
 import { useProjectDependencies } from '../../../hooks/queries/useProjectDependencies';
@@ -39,6 +40,7 @@ export function TimelineGanttBody({
   periodPicker,
   loading,
   cycles,
+  onShowAllPeriods,
 }: {
   projectKey: string;
   issues: IssueResponse[];
@@ -55,6 +57,8 @@ export function TimelineGanttBody({
   loading?: boolean;
   /** 사이클 목록 — 기간 훅(useTimelinePeriod)이 이미 조회한 것을 받아 밴드만 그린다(같은 조회를 두 번 하지 않는다). */
   cycles: CycleResponse[];
+  /** 기간 빈 상태의 「전체 기간 보기」 — 기간을 전체로 바꾼다. */
+  onShowAllPeriods: () => void;
 }) {
   const navigate = useNavigate();
   const dependencies = useProjectDependencies(key);
@@ -87,10 +91,15 @@ export function TimelineGanttBody({
       </div>
       <div className="min-h-0 flex-1 px-4 py-6" data-testid="timeline-gantt">
         {!loading && periodIsCause ? (
-          <div data-testid="timeline-period-empty" className="flex flex-1 flex-col items-center justify-center gap-1 py-16 text-center">
+          <div data-testid="timeline-period-empty" className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
             <CalendarRange className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
-            <p className="text-sm font-medium">이 기간에 걸친 이슈가 없어요</p>
-            <p className="text-xs text-muted-foreground">기간을 「전체」로 바꿔 보세요</p>
+            <div className="space-y-1">
+              <p className="text-sm font-medium">이 기간에 걸친 이슈가 없어요</p>
+              <p className="text-xs text-muted-foreground">기간을 「전체」로 바꿔 보세요</p>
+            </div>
+            <Button size="sm" variant="outline" data-testid="timeline-period-show-all" onClick={onShowAllPeriods}>
+              전체 기간 보기
+            </Button>
           </div>
         ) : (
           <TimelineGantt

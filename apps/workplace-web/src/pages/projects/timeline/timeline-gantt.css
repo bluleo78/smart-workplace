@@ -85,16 +85,24 @@
   --wx-gantt-summary-color: var(--success);
   --epic: var(--success);
 }
+/* 다크 모드(.dark 클래스 — index.css 의 custom-variant)는 success 가 밝아져 흰 글자 대비가 ~2.9:1 —
+   막대 위 글자를 배경색(어두운 색)으로 바꿔 4.5:1 이상을 맞춘다. SVAR 요약 막대 글자는 --wx-gantt-summary-font-color 로 칠한다. */
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-status='DONE'] {
+  --wx-gantt-summary-font-color: var(--background);
+  color: var(--background);
+}
 
 /* 취소 에픽(WP-247, 「취소」 상태 필터일 때만 나온다) — muted 빗금 + 흐린 글자. 진행 중·완료와 모양(빗금)으로도 구분한다. */
 .timeline-gantt-root .wx-bar.wx-summary[data-epic-status='CANCELED'] {
   --wx-gantt-summary-color: var(--muted);
   background-image: repeating-linear-gradient(
     135deg,
-    color-mix(in oklab, var(--muted-foreground) 35%, transparent) 0 6px,
+    color-mix(in oklab, var(--muted-foreground) 18%, transparent) 0 6px,
     transparent 6px 12px
   );
-  color: var(--muted-foreground);
+  /* 빗금 위 글자 — muted-foreground 는 빗금과 겹쳐 대비가 모자라 전경색을 70% 로 흐려 쓴다(라이트·다크 모두 4.5:1 이상). */
+  --wx-gantt-summary-font-color: color-mix(in oklab, var(--foreground) 70%, var(--muted));
+  color: color-mix(in oklab, var(--foreground) 70%, var(--muted));
 }
 
 /* 막대 없이 그리드 행만 보이는 두 부류 — 정적 CSS 로만 숨긴다(MutationObserver 계열 DOM 조작은

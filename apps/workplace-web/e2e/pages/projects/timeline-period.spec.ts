@@ -128,7 +128,9 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await page.getByTestId('period-range-from').fill('2026-09-20');
     await page.getByTestId('period-range-to').fill('2026-09-10');
     await expect(page.getByTestId('period-range-apply')).toBeDisabled();
+    await expect(page.getByTestId('period-range-error')).toHaveText('시작일이 종료일보다 늦어요');
     await page.getByTestId('period-range-to').fill('2026-09-30');
+    await expect(page.getByTestId('period-range-error')).toHaveCount(0);
     await page.getByTestId('period-range-apply').click();
     await expect(page).toHaveURL(/period=range%3A2026-09-20%7E2026-09-30|period=range:2026-09-20~2026-09-30/);
     await expect(page.getByTestId('timeline-period-trigger')).toContainText('9/20–9/30');
@@ -143,6 +145,10 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     const trigger = page.getByTestId('timeline-period-trigger');
     await expect(trigger).toContainText('GW-3 (예정)');
     await expect(trigger).toHaveAttribute('title', '활성 사이클이 없어 가장 가까운 예정 사이클로 봅니다');
+    // 팝오버 맨 위에도 같은 안내, 선택지 용어는 「예정」.
+    await trigger.click();
+    await expect(page.getByTestId('timeline-period-fallback-note')).toHaveText('활성 사이클이 없어 가장 가까운 예정 사이클로 봅니다');
+    await expect(page.getByTestId('timeline-period-option-cycle-3')).toContainText('GW-3 (예정)');
   });
 
   test('응답이 0건이면(필터·새 프로젝트) 기본 기간이어도 기간 빈 상태를 띄우지 않는다 — 기간이 원인이 아님', async ({ authenticatedPage: page }) => {
@@ -158,6 +164,11 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await page.goto(`/projects/${KEY}/timeline?period=range:2025-01-01~2025-01-31`);
     await expect(page.getByTestId('timeline-period-empty')).toContainText('이 기간에 걸친 이슈가 없어요');
     await expect(page.getByTestId('timeline-period-empty')).toContainText('기간을 「전체」로 바꿔 보세요');
+    // 「전체 기간 보기」 → period=all, 간트에 이슈가 다시 보인다.
+    await page.getByTestId('timeline-period-show-all').click();
+    await expect(page).toHaveURL(/period=all/);
+    await expect(page.getByTestId('timeline-period-empty')).toHaveCount(0);
+    await expect(gridRow(page, '이번 에픽')).toBeVisible();
   });
 });
 

@@ -167,6 +167,7 @@ export default function TimelinePage() {
           loading={issuesLoading}
           onOpenIssue={(n) => navigate(`/projects/${key}/issues/${n}`)}
           view={view}
+          onShowAllPeriods={() => changePeriod({ kind: 'all' })}
           periodChip={<TimelinePeriodChip param={periodCtl.param} period={periodCtl.period} cycles={periodCtl.cycles} onChange={changePeriod} />}
         />
       ) : (
@@ -183,6 +184,7 @@ export default function TimelinePage() {
           periodPicker={periodPicker}
           loading={issuesLoading}
           cycles={periodCtl.cycles}
+          onShowAllPeriods={() => changePeriod({ kind: 'all' })}
         />
       )}
       <MilestoneFormDialog
