@@ -4,7 +4,7 @@
 import { addDays, addMonths, differenceInCalendarDays, endOfQuarter, format, getDaysInMonth, isValid, parseISO, startOfQuarter, subMonths } from 'date-fns';
 
 import type { CycleResponse } from '@/types/cycle';
-import type { IssueResponse } from '@/types/issue';
+import type { IssueResponse, IssueStatus } from '@/types/issue';
 import type { MilestoneResponse } from '@/types/milestone';
 
 import type {
@@ -16,6 +16,7 @@ import type {
   TimelineEpicGroup,
   TimelineMilestoneMarker,
   TimelinePeriod,
+  TimelineViewOptions,
 } from './timelineTypes';
 
 /** 시작/종료 날짜가 모두 있는 사이클만 밴드로 변환. */
@@ -89,7 +90,7 @@ const NO_EPIC_KEY = 'no-epic';
 export const epicGroupKey = (epicNumber: number) => `epic-${epicNumber}`;
 
 /** IssueResponse → TimelineBar 변환 (dueDate 필수 — 호출부가 사전에 필터링). */
-function toBar(issue: IssueResponse): TimelineBar {
+function toBar(issue: TimelineIssue): TimelineBar {
   return {
     issueNumber: issue.number,
     issueKey: `${issue.projectKey}-${issue.number}`,
@@ -97,6 +98,7 @@ function toBar(issue: IssueResponse): TimelineBar {
     start: issue.startDate,
     due: issue.dueDate!,
     status: issue.status,
+    ...(issue.formerEpicTitle ? { formerEpicTitle: issue.formerEpicTitle } : {}),
   };
 }
 
@@ -110,6 +112,18 @@ function rollupRange(bars: TimelineBar[]): DateSpan | null {
   const dues = bars.map((b) => b.due);
   return { start: starts.reduce((a, b) => (a < b ? a : b)), due: dues.reduce((a, b) => (a > b ? a : b)) };
 }
+
+/** 화면 거름을 거친 이슈 — 취소된 에픽에서 「에픽 없음」으로 옮겨진 이슈는 원래 에픽 제목을 싣는다(WP-247). */
+export type TimelineIssue = IssueResponse & { formerEpicTitle?: string };
+
+/** 이슈의 날짜 구간 — 한쪽만 있으면 그날 하루, 뒤집혀 있으면 바로잡는다. 둘 다 없으면 null. */
+function spanOf(start: string | null, due: string | null): DateSpan | null {
+  const s = start ?? due;
+  const e = due ?? start;
+  if (!s || !e) return null;
+  return s <= e ? { start: s, due: e } : { start: e, due: s };
+}
+const overlaps = (span: DateSpan, p: { from: string; to: string }) => span.start <= p.to && span.due >= p.from;
 
 /** 에픽 자체 기간 — 마감일이 있을 때만(시작일이 없거나 마감일보다 늦으면 마감일 하루), 없으면 null(WP-248). 간트·아젠다 공용. */
 function epicOwnRange(epic: Pick<IssueResponse, 'startDate' | 'dueDate'>): DateSpan | null {
@@ -131,38 +145,84 @@ function intersectSpan(a: DateSpan, b: DateSpan): DateSpan | null {
   return start <= due ? { start, due } : null;
 }
 
-/** 타임라인에 올릴 이슈 — SUBTASK(계획 단위 아님)·CANCELED·취소된 에픽의 하위 제외. 간트(groupTimelineIssues)와 모바일 아젠다가 같은 규칙을 쓴다. */
-function activeTimelineIssues(issues: IssueResponse[]): IssueResponse[] {
-  const canceledEpics = new Set(
-    issues.filter((i) => i.type?.name === 'EPIC' && i.status === 'CANCELED').map((i) => i.number),
+/**
+ * 타임라인에 올릴 이슈 — 간트(groupTimelineIssues)와 모바일 아젠다(buildAgendaSections)가 같은 규칙을 쓴다.
+ * 1) 상태: SUBTASK 제외. 취소 이슈·취소 에픽은 「취소」 상태 필터(includeCanceled)일 때만 남긴다.
+ *    취소된 에픽의 할 일·진행 중 하위는 부모를 떼어 「에픽 없음」으로 옮기고(formerEpicTitle), 완료·취소 하위는 숨긴다.
+ * 2) 기간(period): 에픽은 자체 기간 또는 하위 실제 범위가 겹치면 하위 전부와 함께 보인다(일정 초과 하위도 보이게).
+ *    에픽 없는 이슈는 자기 구간으로. 날짜가 전혀 없는 에픽·이슈는 「일정 미정」에 남도록 거르지 않는다.
+ */
+export function prepareTimelineIssues(
+  issues: IssueResponse[],
+  { includeCanceled = false, period = null }: TimelineViewOptions = {},
+): TimelineIssue[] {
+  const canceledEpics = new Map(
+    issues.filter((i) => i.type?.name === 'EPIC' && i.status === 'CANCELED').map((i) => [i.number, i.title]),
   );
-  return issues.filter((i) => {
-    if (i.type?.name === 'SUBTASK') return false;
-    if (i.status === 'CANCELED') return false;
-    if (i.parent?.type.name === 'EPIC' && canceledEpics.has(i.parent.number)) return false;
-    return true;
+  const byStatus: TimelineIssue[] = [];
+  for (const i of issues) {
+    if (i.type?.name === 'SUBTASK') continue;
+    const canceledParent = i.parent?.type.name === 'EPIC' ? canceledEpics.get(i.parent.number) : undefined;
+    if (canceledParent !== undefined) {
+      if (i.status === 'TODO' || i.status === 'IN_PROGRESS') byStatus.push({ ...i, parent: null, formerEpicTitle: canceledParent });
+      continue;
+    }
+    if (i.status === 'CANCELED' && !includeCanceled) continue;
+    byStatus.push(i);
+  }
+  if (!period) return byStatus;
+
+  // 에픽 번호 → 하위(응답에 에픽이 없는 합성 묶음 포함).
+  const kidsOf = new Map<number, TimelineIssue[]>();
+  for (const i of byStatus) {
+    if (i.type?.name !== 'EPIC' && i.parent?.type.name === 'EPIC') {
+      const list = kidsOf.get(i.parent.number) ?? [];
+      list.push(i);
+      kidsOf.set(i.parent.number, list);
+    }
+  }
+  const epicByNumber = new Map(byStatus.filter((i) => i.type?.name === 'EPIC').map((e) => [e.number, e]));
+  const visibleEpics = new Set<number>();
+  for (const num of new Set([...epicByNumber.keys(), ...kidsOf.keys()])) {
+    const epic = epicByNumber.get(num);
+    // 에픽 기간 = 간트 막대(groupTimelineIssues 의 range)와 같은 정의 — 막대는 기간 안인데 거름에서 빠지는 어긋남을 막는다(WP-247 코멘트, WP-248).
+    // 여기에 하위 실제 범위(rollup, WP-249 얇은 막대)를 더해 range ∪ rollup 과 겹치면 보인다 — 에픽 기간이 지났어도 남은 하위가 조회 기간에 걸치면 보이게.
+    const own = epic ? epicOwnRange(epic) : null;
+    const kidSpans = (kidsOf.get(num) ?? []).map((k) => spanOf(k.startDate, k.dueDate)).filter((s): s is DateSpan => s != null);
+    const rollup = kidSpans.length
+      ? { start: kidSpans.map((s) => s.start).reduce((a, b) => (a < b ? a : b)), due: kidSpans.map((s) => s.due).reduce((a, b) => (a > b ? a : b)) }
+      : null;
+    // 마감일도 날짜 있는 하위도 없으면(시작일만 있는 에픽 포함) 간트에 막대가 없다 — 「일정 미정」처럼 기간과 무관하게 남긴다.
+    const undated = !own && !rollup;
+    if (undated || (own && overlaps(own, period)) || (rollup && overlaps(rollup, period))) visibleEpics.add(num);
+  }
+  return byStatus.filter((i) => {
+    if (i.type?.name === 'EPIC') return visibleEpics.has(i.number);
+    if (i.parent?.type.name === 'EPIC') return visibleEpics.has(i.parent.number);
+    const span = spanOf(i.startDate, i.dueDate);
+    return span == null || overlaps(span, period);
   });
 }
 
 /**
  * 이슈를 에픽 트리 구조로 그룹핑 (#649).
  * - EPIC 유형 → 그룹 행, 하위 이슈는 parent(EPIC) 기준으로 소속. 에픽 없는 이슈는 no-epic 가상 그룹(맨 뒤).
- * - SUBTASK 는 계획 단위가 아니므로 전면 제외. CANCELED 는 자신 제외 + (에픽이면) 하위 전체 제외.
+ * - SUBTASK 는 계획 단위가 아니므로 전면 제외. 상태·기간 거름은 prepareTimelineIssues(WP-247).
  * - range: 에픽 자체 기간(마감일이 있을 때, 시작일 없으면 마감일 하루) 우선, 없으면 하위 막대 min start(없으면 due) ~ max due 롤업(WP-248).
  * - rollup: range 가 에픽 자체 기간일 때의 하위 롤업 — 에픽 막대 아래 얇은 막대로 그린다(WP-249).
  *   범위를 계산할 수 없는 그룹은 간트에 그릴 것이 없으므로 groups 에서 제외한다(하위 미정 이슈는 unscheduled 로).
  * - 에픽이 필터로 응답에 없어도 하위의 parent 요약으로 그룹을 합성한다(제목/진행률은 보이는 하위 기준).
  */
-export function groupTimelineIssues(issues: IssueResponse[]): {
+export function groupTimelineIssues(issues: IssueResponse[], opts: TimelineViewOptions = {}): {
   groups: TimelineEpicGroup[];
   unscheduled: IssueResponse[];
 } {
-  const active = activeTimelineIssues(issues);
+  const active = prepareTimelineIssues(issues, opts);
 
   const epics = active.filter((i) => i.type?.name === 'EPIC');
   const epicByNumber = new Map(epics.map((e) => [e.number, e]));
-  const children = new Map<number, IssueResponse[]>(); // epicNumber → 하위
-  const looseIssues: IssueResponse[] = [];
+  const children = new Map<number, TimelineIssue[]>(); // epicNumber → 하위
+  const looseIssues: TimelineIssue[] = [];
   for (const issue of active) {
     if (issue.type?.name === 'EPIC') continue;
     if (issue.parent?.type.name === 'EPIC') {
@@ -201,6 +261,7 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
       key: epicGroupKey(num),
       epicNumber: num,
       title: epic?.title ?? kids[0]?.parent?.title ?? `#${num}`,
+      status: epic?.status ?? null,
       ...epicProgress(epic, kids),
       range,
       rollup,
@@ -217,6 +278,7 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
       key: NO_EPIC_KEY,
       epicNumber: null,
       title: '에픽 없음',
+      status: null,
       done: 0,
       total: 0,
       // 그리드의 시작일/기간 컬럼에 의미 있는 값을 보이기 위해 에픽 그룹과 동일하게 롤업(#662).
@@ -245,6 +307,10 @@ export interface AgendaRow {
   /** 표시 날짜(yyyy-MM-dd). 자기 날짜가 없는 에픽 머리 행은 하위 롤업(가장 이른 기준일 ~ 가장 늦은 끝). */
   start: string | null;
   due: string | null;
+  /** 이슈 상태 — 완료·취소 에픽 행 표시용(WP-247). 합성 에픽 머리 행은 TODO 로 둔다. */
+  status: IssueStatus;
+  /** 취소된 에픽에서 옮겨진 단독 행의 원래 에픽 제목(WP-247). */
+  formerEpicTitle?: string;
   /** 섹션 월 안 막대 위치(0~1 비율, 월 밖은 0/1 로 잘림). 날짜가 하나도 없으면 null. */
   bar: { left: number; right: number } | null;
   /** 소속 에픽 번호 — epic 행은 자기 번호, child 는 부모 에픽, issue 는 null. 접기(WP-251)에 쓴다. */
@@ -315,11 +381,11 @@ function byBasis(a: { basis: string | null; number: number }, b: { basis: string
 }
 
 /** 이슈 → 모바일 아젠다 섹션(월 오름차순, 「일정 미정」 맨 뒤). today 는 오늘 선 위치에만 쓴다. */
-export function buildAgendaSections(issues: IssueResponse[], today: Date): AgendaSection[] {
-  const active = activeTimelineIssues(issues);
+export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: TimelineViewOptions = {}): AgendaSection[] {
+  const active = prepareTimelineIssues(issues, opts);
   const epicByNumber = new Map(active.filter((i) => i.type?.name === 'EPIC').map((e) => [e.number, e]));
-  const children = new Map<number, IssueResponse[]>();
-  const loose: IssueResponse[] = [];
+  const children = new Map<number, TimelineIssue[]>();
+  const loose: TimelineIssue[] = [];
   for (const i of active) {
     if (i.type?.name === 'EPIC') continue;
     if (i.parent?.type.name === 'EPIC') {
@@ -336,7 +402,7 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date): Agend
   type Item = Omit<AgendaRow, 'bar' | 'rollup'> & { rollupSpan?: DateSpan; insideSpan?: DateSpan | null };
   // 블록 = 섹션에 함께 들어가는 행 묶음(에픽 머리 + 하위, 또는 단독 이슈). 블록 기준일로 섹션·순서를 정한다.
   const blocks: { basis: string | null; number: number; items: Item[] }[] = [];
-  const toItem = (i: IssueResponse, kind: AgendaRow['kind'], epicNumber: number | null): Item => ({
+  const toItem = (i: TimelineIssue, kind: AgendaRow['kind'], epicNumber: number | null): Item => ({
     issueNumber: i.number,
     title: i.title,
     kind,
@@ -345,6 +411,8 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date): Agend
     epicNumber,
     progress: null,
     hasChildren: false,
+    status: i.status,
+    ...(i.formerEpicTitle ? { formerEpicTitle: i.formerEpicTitle } : {}),
   });
 
   for (const num of new Set([...epicByNumber.keys(), ...children.keys()])) {
@@ -371,6 +439,7 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date): Agend
         issueNumber: num,
         title: epic?.title ?? kids[0]?.k.parent?.title ?? `#${num}`,
         kind: 'epic',
+        status: epic?.status ?? 'TODO',
         start: kidSpan?.start ?? null,
         due: kidSpan?.due ?? null,
         ...epicRow,

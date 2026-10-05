@@ -11,6 +11,8 @@ export interface TimelineBar {
   start: string | null;
   due: string;
   status: IssueStatus;
+  /** 취소된 에픽에서 「에픽 없음」으로 옮겨진 이슈의 원래 에픽 제목(WP-247). */
+  formerEpicTitle?: string;
 }
 
 /** 프로젝트 마일스톤 — 상단 고정 레인의 칩/점선으로 렌더된다(#648, 더 이상 SVAR task 가 아니다). */
@@ -45,6 +47,8 @@ export interface TimelineEpicGroup {
   key: string;
   epicNumber: number | null;
   title: string;
+  /** 에픽 상태 — 완료·취소 막대 표시용(WP-247). 응답에 에픽이 없는 합성 그룹·no-epic 은 null. */
+  status: IssueStatus | null;
   done: number;
   total: number;
   /** 에픽 막대 범위 — 에픽 자체 기간 우선, 없으면 하위 막대 min-start~max-due 롤업(#662·WP-248, no-epic 은 롤업). 둘 다 없으면 null. 간트 영역의 막대 표시 여부는 이 값과 무관(no-epic 은 group id 기준 CSS 로 항상 숨김). */
@@ -73,4 +77,10 @@ export interface TimelinePeriod {
   to: string;
   label: string;
   fallbackNote: string | null;
+}
+
+/** 타임라인 화면 거름 옵션(WP-247). includeCanceled = 상태 필터에 「취소」가 있음. period 가 null/없음이면 기간으로 거르지 않는다. */
+export interface TimelineViewOptions {
+  includeCanceled?: boolean;
+  period?: TimelinePeriod | null;
 }
