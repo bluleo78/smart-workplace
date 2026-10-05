@@ -50,7 +50,7 @@ const CLOSED_EPICS = [
   createIssue({ id: 53, number: 53, projectKey: KEY, title: '구 메신저 연동', type: makeEpicType(), status: 'CANCELED' }),
 ];
 
-async function mock(page: Page, opts: { views?: unknown[]; member?: boolean; closedEpics?: unknown[] } = {}) {
+async function mock(page: Page, opts: { views?: unknown[]; member?: boolean; closedEpics?: unknown[]; epics?: unknown[] } = {}) {
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: opts.member ?? true }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/types`, (r) => r.fulfill(json(systemTypes())));
   for (const p of [`/members`, `/labels`, `/cycles`]) {
@@ -63,7 +63,7 @@ async function mock(page: Page, opts: { views?: unknown[]; member?: boolean; clo
     const isEpicList = sp.get('type') === String(makeEpicType().id);
     // status 에 DONE 이 있으면 종료 에픽 조회 — 기본 [] (구역 없음).
     const isClosedQuery = (sp.get('status') ?? '').includes('DONE');
-    const body = isEpicList ? (isClosedQuery ? (opts.closedEpics ?? []) : EPICS) : [LONG, PLAIN, SUB];
+    const body = isEpicList ? (isClosedQuery ? (opts.closedEpics ?? []) : (opts.epics ?? EPICS)) : [LONG, PLAIN, SUB];
     return r.fulfill(json(createIssueSearchResponse(body as never[], null)));
   });
 }
@@ -511,5 +511,37 @@ test.describe('모바일 에픽 시트', () => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none&parent=99`);
     await expect(page.getByTestId('mobile-chip-epic')).toContainText('에픽 #99');
+  });
+
+  test('에픽 시트 검색: 활성 에픽엔 매칭되지 않고 종료 에픽만 매칭되면 그 종료 구역을 펼쳐 보여주고, 선택 후 재열 시 검색창이 비어 있다 (WP-245 I2·I3)', async ({ authenticatedPage: page }) => {
+    // 활성 에픽 9개 + 종료 에픽 2개 — 검색창이 나타난다(epics.length > 8).
+    const manyEpics = Array.from({ length: 9 }, (_, i) =>
+      createIssue({ id: 10 + i, number: 10 + i, projectKey: KEY, title: `진행 에픽 ${i + 1}`, type: makeEpicType() })
+    );
+    await mock(page, { epics: manyEpics, closedEpics: CLOSED_EPICS });
+    await page.goto(`/projects/${KEY}?group=none`);
+    await page.getByTestId('mobile-chip-epic').click();
+    const sheet = page.getByTestId('mobile-epic-sheet');
+    const search = sheet.getByTestId('mobile-epic-sheet-search');
+    await expect(search).toBeVisible();
+
+    // 검색어 — 활성 에픽과 고정 옵션(전체·미할당)과 겹치지 않고, 종료 에픽 중 하나만 매칭.
+    const keyword = '팀 채팅';
+    await search.fill(keyword);
+
+    // 「결과가 없습니다」 가 아니라 종료 구역이 펼쳐 보인다.
+    await expect(sheet).not.toContainText('결과가 없습니다');
+    await expect(sheet.getByTestId('mobile-epic-closed-toggle')).toHaveAttribute('aria-expanded', 'true');
+    // 매칭된 종료 에픽 52 가 보인다.
+    await expect(sheet.getByTestId('mobile-epic-closed-52')).toBeVisible();
+
+    // 종료 에픽 선택 — ctx.close() 를 쓰므로 검색창이 맑혀진다(I3).
+    await sheet.getByTestId('mobile-epic-closed-52').click();
+    await expect(sheet).toBeHidden();
+    await expect(page).toHaveURL(/parent=52/);
+
+    // 다시 열기 — 검색창이 비어 있다 (시트 컴포넌트가 q 상태를 유지).
+    await page.getByTestId('mobile-chip-epic').click();
+    await expect(search).toHaveValue('');
   });
 });

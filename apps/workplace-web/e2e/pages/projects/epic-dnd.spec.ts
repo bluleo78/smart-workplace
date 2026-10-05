@@ -631,17 +631,27 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expectStays(page, patches, []);
   });
 
-  test('드래그 중에는 「종료된 에픽」 구역이 사라지고, 놓으면 다시 보인다 (WP-245)', async ({ authenticatedPage: page }) => {
+  test('드래그 중에는 「종료된 에픽」 구역이 숨겨지고, 놓으면 다시 보이며 펼침 상태가 유지된다 (WP-245)', async ({ authenticatedPage: page }) => {
     await setup(page, {
       issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO' })],
       closedEpics: [createIssue({ id: 12, number: 12, title: '끝난 에픽', type: makeEpicType(), status: 'DONE', childCount: 0, childDoneCount: 0 })],
       panelOpen: true,
     });
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
-    await expect(page.getByTestId('epic-closed-toggle')).toBeVisible();
+    // 섹션 펼치기 — toggle 을 클릭해 펼침 상태로 만든다.
+    const toggle = page.getByTestId('epic-closed-toggle');
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    // 종료된 에픽 행이 보인다.
+    await expect(page.getByTestId('epic-closed-filter-12')).toBeVisible();
+    // 드래그 시작 — 섹션이 숨겨진다(DOM 에서 제거되지 않음, display:none 또는 visibility:hidden).
     await startDrag(page, 'issue-card-1');
-    await expect(page.getByTestId('epic-closed-section')).not.toBeAttached();
+    await expect(page.getByTestId('epic-closed-section')).not.toBeVisible();
+    // 드래그 종료 — 섹션이 다시 보이고, 펼침 상태가 유지된다.
     await page.mouse.up();
-    await expect(page.getByTestId('epic-closed-section')).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByTestId('epic-closed-filter-12')).toBeVisible();
   });
 });

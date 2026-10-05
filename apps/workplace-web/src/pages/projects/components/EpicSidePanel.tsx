@@ -156,14 +156,14 @@ export function EpicSidePanel({
             />
           ))
         )}
-        {/* 종료된 에픽(WP-245) — 드롭 대상이 아니므로 드래그 중에는 그리지 않는다. 로딩 중에도 숨겨 스켈레톤 아래 깜빡임을 막는다. */}
-        {!activeIssue && !loading && (
-          <ClosedEpicsSection
-            projectKey={projectKey}
-            selectedEpic={selectedEpic}
-            onSelect={(n) => select({ kind: 'epic', number: n })}
-          />
-        )}
+        {/* 종료된 에픽(WP-245) — 드롭 대상이 아니므로 드래그 중에는 숨긴다. 로딩 중에도 숨겨 스켈레톤 아래 깜빡임을 막는다.
+          마운트는 유지해 사용자의 펼침 상태를 드래그 후에도 보존한다(Review Focus 4). */}
+        <ClosedEpicsSection
+          projectKey={projectKey}
+          selectedEpic={selectedEpic}
+          onSelect={(n) => select({ kind: 'epic', number: n })}
+          hidden={!!activeIssue || loading}
+        />
       </div>
 
       {/* 푸터 — 빈 상태의 "다음 행동"이자 상시 생성 진입점. 생성 권한 + EPIC 유형이 있을 때만. */}

@@ -1,7 +1,7 @@
 // 모바일 「◆ 에픽」 칩 + 선택 시트(WP-194) — 데스크톱 EpicSidePanel(224px 고정, 목록을 118px 로 줄임)을 대체.
 // 선택은 패널과 같은 useEpicFilter 로 URL(parent/topLevel)에 반영. 칩은 선택 시 「◆ 에픽명 ✕」(✕ = 전체로 복귀).
 // 에픽 행 끝 「›」 = 시트를 닫고 에픽 상세로 이동(WP-227, 데스크톱 패널 hover ↗ 의 모바일 대응).
-import { ChevronRight, Plus, X } from 'lucide-react';
+import { Check, ChevronRight, Plus, X } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -18,9 +18,9 @@ import { HIT_EXPAND, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './chipStyles';
 export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: string; canCreateIssue: boolean }) {
   const { choice, select } = useEpicFilter(projectKey);
   const { epicType, epics } = useProjectEpics(projectKey);
-  const closed = useClosedEpics(projectKey);
-  const [closedToggled, setClosedToggled] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
+  const closed = useClosedEpics(projectKey, open || choice.kind === 'epic');
+  const [closedToggled, setClosedToggled] = useState<boolean | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const navigate = useNavigate();
 
@@ -97,23 +97,30 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
         onSelect={onSelect}
         searchable={epics.length > 8}
         reserveCheck
-        listFooter={
-          closed.epics.length > 0 ? (
-            // 종료된 에픽(WP-245) — 옵션 목록 아래 접힘 구역. 선택은 옵션과 같은 select 경로, 「›」 는 상세.
+        listFooter={({ close, keyword }) => {
+          // 종료된 에픽(WP-245) — 옵션 목록 아래 접힘 구역. 검색어가 있으면 필터링하고 펼쳐 보여준다(I2).
+          if (closed.epics.length === 0) return null;
+          // 검색어로 필터링 — 없으면 전체 목록.
+          const matched = keyword ? closed.epics.filter((ep) => ep.title.toLowerCase().includes(keyword)) : closed.epics;
+          // 검색어가 있을 때 종료 에픽이 매칭되지 않으면 푸터 전체를 숨겨 「결과가 없습니다」만 보인다(I2).
+          if (keyword && matched.length === 0) return null;
+          // 검색어가 있으면 항상 펼침, 없으면 사용자 토글 상태를 따른다.
+          const expanded = keyword ? true : closedOpen;
+          return (
             <div className="border-t">
               <button
                 type="button"
-                aria-expanded={closedOpen}
+                aria-expanded={expanded}
                 data-testid="mobile-epic-closed-toggle"
-                onClick={() => setClosedToggled(!closedOpen)}
+                onClick={() => setClosedToggled(!expanded)}
                 className={cn(MOBILE_SHEET_ROW, 'text-sm text-muted-foreground')}
               >
-                <ChevronRight className={cn('size-4 transition-transform', closedOpen && 'rotate-90')} aria-hidden />
+                <ChevronRight className={cn('transition-transform', expanded && 'rotate-90')} aria-hidden />
                 <span className="flex-1">종료된 에픽</span>
-                <span>{closed.epics.length}</span>
+                <span>{matched.length}</span>
               </button>
-              {closedOpen &&
-                closed.epics.map((ep) => {
+              {expanded &&
+                matched.map((ep) => {
                   const selected = selectedNumber === ep.number;
                   return (
                     <div key={ep.number} className={cn('flex items-stretch', selected && 'bg-accent')}>
@@ -123,7 +130,7 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
                         aria-selected={selected}
                         data-testid={`mobile-epic-closed-${ep.number}`}
                         onClick={() => {
-                          setOpen(false);
+                          close();
                           if (!selected) select({ kind: 'epic', number: ep.number });
                         }}
                         className={cn(MOBILE_SHEET_ROW, 'min-w-0 flex-1', selected && 'font-medium')}
@@ -132,13 +139,14 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
                           {ep.title}
                         </span>
                         <ClosedStatusBadge status={ep.status} />
+                        {selected ? <Check className="text-primary" aria-hidden /> : <span className="size-5 shrink-0" aria-hidden />}
                       </button>
                       <button
                         type="button"
                         aria-label={`${ep.title} 상세 열기`}
                         data-testid={`mobile-epic-closed-${ep.number}-detail`}
                         onClick={() => {
-                          setOpen(false);
+                          close();
                           navigate(`/projects/${projectKey}/issues/${ep.number}`);
                         }}
                         className="flex w-11 shrink-0 items-center justify-center border-l text-muted-foreground active:bg-accent"
@@ -149,8 +157,8 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
                   );
                 })}
             </div>
-          ) : null
-        }
+          );
+        }}
         headerAction={
           canCreateIssue && epicType ? (
             <button

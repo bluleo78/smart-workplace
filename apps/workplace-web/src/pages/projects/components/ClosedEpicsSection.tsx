@@ -1,5 +1,5 @@
 // 에픽 패널 맨 아래 「종료된 에픽 N」 구역(WP-245) — 완료·취소 에픽을 기본 접힘으로 두고, 펼치면 흐리게 보여 필터·상세 열기로 쓴다.
-// Linear 의 닫힌 그룹 패턴. 종료 에픽은 드롭 대상이 아니라 드래그 중에는 패널이 이 구역을 아예 그리지 않는다(EpicSidePanel).
+// Linear 의 닫힌 그룹 패턴. 종료 에픽은 드롭 대상이 아니라 드래그 중에는 이 섹션이 DOM 에서 숨겨진다(EpicSidePanel).
 // 펼침: 사용자가 누른 값이 없으면 「선택된 에픽이 종료 목록에 있음」으로 정한다 — URL 로 종료 에픽에 들어와도 선택이 보이고, 누르면 접힌다.
 import { ArrowUpRight, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
@@ -12,13 +12,14 @@ import { useClosedEpics } from '../../../hooks/queries/useProjectEpics';
 import { avatarColorClass } from '../../../lib/avatarColor';
 
 export function ClosedEpicsSection({
-  projectKey, selectedEpic, onSelect,
-}: { projectKey: string; selectedEpic: number | null; onSelect: (epicNumber: number) => void }) {
+  projectKey, selectedEpic, onSelect, hidden = false,
+}: { projectKey: string; selectedEpic: number | null; onSelect: (epicNumber: number) => void; hidden?: boolean }) {
   const { epics } = useClosedEpics(projectKey);
   const [toggled, setToggled] = useState<boolean | null>(null);
   const autoOpen = selectedEpic != null && epics.some((e) => e.number === selectedEpic);
   const open = toggled ?? autoOpen;
-  if (epics.length === 0) return null;
+  // 드래그 중 등 뷰에서 숨겨야 할 때 또는 종료된 에픽이 없을 때 — 훅은 항상 실행된다(Compiler 린트).
+  if (hidden || epics.length === 0) return null;
 
   return (
     <div data-testid="epic-closed-section" className="mt-2 border-t pt-2">
