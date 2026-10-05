@@ -68,6 +68,19 @@ describe('presentAttachments', () => {
     expect(p.section).not.toContain('read_attachment_text');
   });
 
+  // WP-244: 스캔 PDF 에 "텍스트 PDF 로 다시 올려 달라" 는 제안이 나와 상태 줄·안내문에 금지를 명시한다.
+  it.each(['SKIPPED', 'FAILED'] as const)('%s 줄은 재업로드·다른 형식 요청 금지로 끝난다', async (st) => {
+    const p = await presentAttachments('opencode', ok([a(3, 'scan.pdf', 'application/pdf', status(st, '스캔 PDF'))]), deps);
+    expect(p.section).toContain('스캔 PDF — 다시 올리거나 다른 형식으로 올려 달라고 하지 말 것');
+  });
+
+  it('안내문은 재업로드·다른 형식 요청을 금지한다(두 러너 모두)', async () => {
+    for (const kind of ['anthropic', 'opencode'] as const) {
+      const p = await presentAttachments(kind, ok([a(3, 'x.docx', 'application/msword', ready(5))]), deps);
+      expect(p.guidance).toContain('다시 올려 달라거나 다른 형식(텍스트 PDF 등)으로 올려 달라는 제안도 하지 마세요');
+    }
+  });
+
   it('READY + 잘림 → 잘림 표기', async () => {
     const p = await presentAttachments('opencode', ok([a(3, 'x.txt', 'text/plain', ready(500000, true))]), deps);
     expect(p.section).toContain('잘림');

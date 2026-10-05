@@ -60,7 +60,8 @@ function extractionLine(a: AgentAttachment): string {
       return '텍스트 추출 중 — 잠시 후 다시 물어봐 달라고 안내';
     case 'SKIPPED':
     case 'FAILED':
-      return `텍스트로 읽을 수 없음: ${x.reason ?? '사유 미상'}`;
+      // 스캔 PDF 등에서 모델이 "텍스트 레이어 있는 PDF 로 다시 올려 달라" 고 제안한 사례가 있어 줄 자체에 금지를 붙인다.
+      return `텍스트로 읽을 수 없음: ${x.reason ?? '사유 미상'} — 다시 올리거나 다른 형식으로 올려 달라고 하지 말 것`;
     default:
       return '텍스트 추출 대상 아님';
   }
@@ -99,7 +100,7 @@ function detailLines(kind: RunnerKind, a: AgentAttachment, downloads: Map<number
 
 // 두 러너 공통 문장 — 추출 상태가 READY 가 아닐 때의 응대 규칙.
 const GUIDANCE_COMMON =
-  '추출 중이거나 읽을 수 없는 첨부는 그 상태와 사유를 알리고, 다시 올려 달라고 요청하지 마세요.';
+  '추출 중이거나 읽을 수 없는 첨부는 그 상태와 사유를 알리고, 다시 올려 달라거나 다른 형식(텍스트 PDF 등)으로 올려 달라는 제안도 하지 마세요.';
 const GUIDANCE_CLAUDE =
   '첨부는 위 안내대로 읽으세요: 로컬경로는 Read, 텍스트는 read_attachment_text(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기). ' +
   GUIDANCE_COMMON;
