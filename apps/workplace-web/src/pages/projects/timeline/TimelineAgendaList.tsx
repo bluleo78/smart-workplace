@@ -1,5 +1,5 @@
 // 모바일 타임라인 아젠다(WP-197) — 간트(가로 캔버스·드래그)는 390px 에서 읽기 어려워 월별 세로 목록으로 보여 준다.
-// 상단 칩 줄 [필터 N][마일스톤 N][일정 미정 N] + 월 섹션(에픽 머리 행 아래 하위 들여쓰기) + 행마다 그 월 기준 미니 막대·오늘 선.
+// 상단 칩 줄 [기간 칩][필터 N][마일스톤 N][일정 미정 N] + 월 섹션(에픽 머리 행 아래 하위 들여쓰기) + 행마다 그 월 기준 미니 막대·오늘 선.
 // 에픽은 기본 접힘 — 왼쪽 펼침 버튼으로 하위를 보고(진행률은 제목 옆 배지), 펼침 상태는 데스크톱 간트와 공유한다(WP-251).
 // 데이터는 TimelinePage 가 이미 조회한 이슈(→ buildAgendaSections)·마일스톤 — 조회 추가 없음. 막대 드래그·마일스톤 편집은 범위 밖.
 import { CalendarRange, ChevronDown, Diamond } from 'lucide-react';
@@ -16,6 +16,7 @@ import type { MilestoneResponse } from '../../../types/milestone';
 import { HIDE_SCROLLBAR, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from '../components/mobile/chipStyles';
 import { MobileFilterSheet } from '../components/mobile/MobileFilterSheet';
 import { type AgendaRow, buildAgendaSections, epicGroupKey } from './timelineData';
+import { TimelineStatusBadge } from './TimelineStatusBadge';
 import type { TimelineViewOptions } from './timelineTypes';
 import { useTimelineExpanded } from './useTimelineExpanded';
 import { useTimelineFilterControls } from './useTimelineFilterControls';
@@ -97,8 +98,15 @@ export function TimelineAgendaList({
       {isEmpty ? (
         <MobileEmptyState
           icon={CalendarRange}
-          title="표시할 이슈가 없어요"
-          description={filter.activeFilterCount > 0 ? '필터를 풀면 더 많은 이슈가 보여요.' : '진행할 이슈가 생기면 여기에 일정순으로 모여요. 취소된 이슈와 하위 태스크는 보이지 않아요.'}
+          // 조회 기간이 걸려 있으면 기간 문구(WP-247) — 데스크톱 timeline-period-empty 와 같은 안내.
+          title={view.period ? '이 기간에 걸친 이슈가 없어요' : '표시할 이슈가 없어요'}
+          description={
+            view.period
+              ? '기간을 「전체」로 바꿔 보세요'
+              : filter.activeFilterCount > 0
+                ? '필터를 풀면 더 많은 이슈가 보여요.'
+                : '진행할 이슈가 생기면 여기에 일정순으로 모여요. 취소된 이슈와 하위 태스크는 보이지 않아요.'
+          }
           className="flex-1"
           data-testid="timeline-agenda-empty"
         />
@@ -130,9 +138,18 @@ export function TimelineAgendaList({
                         // 들이지 않는다 — 모든 행이 같은 월 트랙을 써야 날짜 위치·오늘 선이 행 사이에서 세로로 맞는다.
                         className="flex min-h-11 w-full flex-col gap-1.5 border-b py-2.5 pr-4 pl-11 text-left active:bg-accent"
                       >
-                        <span className={cn('line-clamp-2 text-sm', r.kind === 'epic' && 'font-semibold text-ai-accent', r.kind === 'child' && 'ml-4')}>
+                        <span
+                          className={cn(
+                            'line-clamp-2 text-sm',
+                            r.kind === 'epic' && 'font-semibold',
+                            r.kind === 'epic' && (r.status === 'DONE' ? 'text-success' : r.status === 'CANCELED' ? 'text-muted-foreground' : 'text-ai-accent'),
+                            r.kind === 'child' && 'ml-4',
+                          )}
+                        >
                           {r.kind === 'epic' && <Diamond className="mr-1 inline size-3.5 align-[-2px]" aria-hidden />}
-                          {r.title}
+                          <span className={cn(r.kind === 'epic' && r.status === 'CANCELED' && 'line-through')}>{r.title}</span>
+                          {r.kind === 'epic' && <TimelineStatusBadge status={r.status} />}
+                          {r.formerEpicTitle && <span className="ml-1 text-xs text-muted-foreground">← {r.formerEpicTitle}</span>}
                           {r.progress && r.progress.total > 0 && (
                             <span data-testid="agenda-progress" className="ml-1.5 inline-block rounded-full bg-ai-accent/10 px-1.5 align-[1px] text-xs font-semibold">
                               <span aria-hidden="true">{r.progress.done}/{r.progress.total}</span>
@@ -147,7 +164,7 @@ export function TimelineAgendaList({
                             <span className={cn('relative block w-full rounded-full bg-muted', r.kind === 'epic' ? 'h-1.5' : 'h-1')}>
                               <span
                                 data-testid="agenda-bar"
-                                className={cn('absolute inset-y-0 rounded-full', r.kind === 'epic' ? 'bg-ai-accent' : 'bg-primary')}
+                                className={cn('absolute inset-y-0 rounded-full', r.kind === 'epic' ? (r.status === 'DONE' ? 'bg-success' : r.status === 'CANCELED' ? 'bg-muted-foreground/40' : 'bg-ai-accent') : 'bg-primary')}
                                 style={spanStyle(r.bar)}
                               />
                             </span>

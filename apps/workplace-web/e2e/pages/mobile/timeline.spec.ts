@@ -1,7 +1,9 @@
 // 모바일 타임라인(WP-197) — 간트 대신 월별 아젠다: 섹션 순서, 에픽 하위 들여쓰기, 미니 막대·오늘 선, 칩(필터·마일스톤·일정 미정).
 // WP-251 — 에픽 기본 접힘·펼침 유지(데스크톱과 같은 저장소 키), 진행률 배지, 에픽 기간 vs 하위 실제 범위 얇은 막대.
+// WP-247 — 기간 칩·시트와 완료·취소 에픽 상태 표시.
 import type { Page } from '@playwright/test';
 
+import type { CycleResponse } from '../../../src/types/cycle';
 import type { IssueResponse } from '../../../src/types/issue';
 import type { MilestoneResponse } from '../../../src/types/milestone';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
@@ -27,13 +29,23 @@ const ISSUES: IssueResponse[] = [
   I({ id: 13, number: 13, title: '시작일만 있는 이슈', startDate: '2026-11-02' }),
   I({ id: 11, number: 11, title: '일정 미정 이슈 A' }),
   I({ id: 12, number: 12, title: '일정 미정 이슈 B' }),
+  // WP-247: 완료 에픽 80, 취소 에픽 90 과 그 진행 중 하위 91(취소 에픽에서 「에픽 없음」으로 옮겨진다).
+  I({ id: 80, number: 80, title: '완료 에픽', type: makeEpicType(), status: 'DONE', startDate: '2026-10-02', dueDate: '2026-10-09' }),
+  I({ id: 90, number: 90, title: '취소 에픽', type: makeEpicType(), status: 'CANCELED', startDate: '2026-10-03', dueDate: '2026-10-12' }),
+  I({ id: 91, number: 91, title: '취소 에픽의 진행 중 하위', parent: { number: 90, title: '취소 에픽', type: makeEpicType() }, status: 'IN_PROGRESS', startDate: '2026-10-05', dueDate: '2026-10-08' }),
 ];
 const MILESTONES: MilestoneResponse[] = [
   { id: 1, projectId: 1, name: 'v2 베타', dueDate: '2026-11-01', description: null, createdAt: '', updatedAt: '' },
   { id: 2, projectId: 1, name: 'v2 정식 출시', dueDate: '2026-12-20', description: null, createdAt: '', updatedAt: '' },
 ];
 
-async function setup(page: Page, opts: { member?: boolean; query?: string } = {}) {
+// 사이클 팩토리 — 기간 칩 테스트(WP-247)용 CycleResponse.
+function createCycle(o: Partial<CycleResponse>): CycleResponse {
+  return { id: 1, projectId: 1, name: 'GW-1', goal: null, startDate: '2026-09-01', endDate: '2026-09-30', status: 'PLANNED', createdAt: '', updatedAt: '', ...o };
+}
+
+/** period: 기본 'all'(기간 거름 없이 기존 검증 유지), null 이면 period 없이 진입해 기본(활성 사이클) 기간을 쓴다. */
+async function setup(page: Page, opts: { member?: boolean; query?: string; cycles?: CycleResponse[]; period?: string | null } = {}) {
   await page.clock.setFixedTime(new Date('2026-10-15T03:00:00Z')); // 오늘 = 2026-10-15(KST)
   await stubChat(page);
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, viewerIsMember: opts.member ?? true }))));
@@ -43,11 +55,14 @@ async function setup(page: Page, opts: { member?: boolean; query?: string } = {}
     return r.fulfill(json(createIssueSearchResponse(status.includes('DONE') ? [] : ISSUES, null)));
   });
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/milestones`, (r) => r.fulfill(json(MILESTONES)));
-  await page.route((u) => [`/api/v1/projects/${KEY}/cycles`, `/api/v1/projects/${KEY}/issue-dependencies`, `/api/v1/projects/${KEY}/members`, `/api/v1/projects/${KEY}/labels`].includes(u.pathname), (r) => r.fulfill(json([])));
-  // 기간 필터 고정(WP-247) — 쿼리 파라미터가 있으면 &period=all, 없으면 ?period=all 추가
-  const query = opts.query ?? '';
-  const periodQuery = query ? `${query}&period=all` : '?period=all';
-  await page.goto(`/projects/${KEY}/timeline${periodQuery}`);
+  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/cycles`, (r) => r.fulfill(json(opts.cycles ?? [])));
+  await page.route((u) => [`/api/v1/projects/${KEY}/issue-dependencies`, `/api/v1/projects/${KEY}/members`, `/api/v1/projects/${KEY}/labels`].includes(u.pathname), (r) => r.fulfill(json([])));
+  // 기간 필터 고정(WP-247) — 기본 period=all 을 쿼리에 덧붙인다(null 이면 붙이지 않음).
+  const params = new URLSearchParams((opts.query ?? '').replace(/^\?/, ''));
+  const period = opts.period === undefined ? 'all' : opts.period;
+  if (period) params.set('period', period);
+  const qs = params.toString();
+  await page.goto(`/projects/${KEY}/timeline${qs ? `?${qs}` : ''}`);
   await expect(page.getByTestId('timeline-agenda')).toBeVisible();
 }
 
@@ -188,3 +203,51 @@ test('에픽 행 — 제목 옆 진행률 배지, 하위 실제 범위 얇은 �
   await expectNoHorizontalOverflow(page);
 });
 
+test('기간 칩 — 맨 앞에 활성 사이클 라벨, 시트에서 바꾸면 아젠다가 다시 걸러진다 (WP-247)', async ({ authenticatedPage: page }) => {
+  // 오늘(10/15)이 활성 사이클 GW-2 안에 들도록 10/8~10/21. GW-3 는 예정.
+  const cycles: CycleResponse[] = [
+    createCycle({ id: 1, name: 'GW-2', startDate: '2026-10-08', endDate: '2026-10-21', status: 'ACTIVE' }),
+    createCycle({ id: 2, name: 'GW-3', startDate: '2026-11-01', endDate: '2026-11-14', status: 'PLANNED' }),
+  ];
+  // period 없이 진입 — 기본값은 활성 사이클(GW-2).
+  await setup(page, { cycles, period: null });
+  const chips = page.locator('[data-testid^="agenda-chip-"]');
+  await expect(chips.first()).toHaveAttribute('data-testid', 'agenda-chip-period');
+  await expect(page.getByTestId('agenda-chip-period')).toContainText('GW-2');
+  // 에픽 40(10/1~12/15)이 기간과 겹쳐 11월 하위 41 도 함께 남는다 — 에픽은 기본 접힘이라 펼쳐서 확인(WP-251).
+  await expandEpic(page, 40);
+  await expect(page.getByTestId('agenda-row-41')).toBeVisible();
+  await expect(page.getByTestId('agenda-row-13')).toHaveCount(0); // 11/2 시작 단독 — 기간 밖
+  await page.getByTestId('agenda-chip-period').click();
+  const sheet = page.getByTestId('agenda-period-sheet');
+  await sheet.getByTestId('picker-option-all').click();
+  await expect(page).toHaveURL(/period=all/);
+  await expect(page.getByTestId('agenda-row-13')).toBeVisible();
+  // 필터 개수에는 기간이 들어가지 않는다.
+  await expect(page.getByTestId('agenda-chip-filter')).toHaveText('필터');
+  await expectNoHorizontalOverflow(page);
+});
+
+test('기간이 걸린 채 0건이면 기간 빈 상태 문구 (WP-247)', async ({ authenticatedPage: page }) => {
+  // 스텁은 DONE 상태 필터에 0건을 준다 — 직접 지정 기간이 걸려 있으니 「전체」로 바꾸라는 안내.
+  await setup(page, { query: '?status=DONE', period: 'range:2030-01-01~2030-01-31' });
+  const empty = page.getByTestId('timeline-agenda-empty');
+  await expect(empty).toContainText('이 기간에 걸친 이슈가 없어요');
+  await expect(empty).toContainText('기간을 「전체」로 바꿔 보세요');
+  await expect(page.getByTestId('agenda-chip-period')).toBeVisible();
+});
+
+test('완료 에픽은 완료 배지, 「취소」 필터면 취소 에픽이 배지·취소선으로, 옮겨진 하위는 단독 행 (WP-247)', async ({ authenticatedPage: page }) => {
+  await setup(page);
+  await expect(page.getByTestId('agenda-row-80').getByTestId('agenda-status-badge')).toHaveText('완료');
+  await expect(page.getByTestId('agenda-row-80').getByTestId('agenda-bar')).toHaveClass(/bg-success/);
+  await expect(page.getByTestId('agenda-row-90')).toHaveCount(0);
+  await expect(page.getByTestId('agenda-row-91')).toHaveAttribute('data-kind', 'issue');
+  await expect(page.getByTestId('agenda-row-91')).toContainText('← 취소 에픽');
+  // 「취소」 상태 필터 URL 로 다시 진입 — 스텁은 status 를 무시하고 같은 목록을 준다.
+  await page.goto(`/projects/${KEY}/timeline?period=all&status=CANCELED`);
+  const canceled = page.getByTestId('agenda-row-90');
+  await expect(canceled.getByTestId('agenda-status-badge')).toHaveText('취소');
+  await expect(canceled.locator('.line-through')).toBeVisible();
+  await expect(canceled.getByTestId('agenda-bar')).toHaveClass(/bg-muted-foreground/);
+});

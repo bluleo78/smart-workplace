@@ -17,6 +17,7 @@ import type { MilestoneResponse } from '../../../types/milestone';
 import { MilestoneEditPopover } from './MilestoneEditPopover';
 import { MilestoneFormDialog } from './MilestoneFormDialog';
 import { TimelineAgendaList } from './TimelineAgendaList';
+import { TimelinePeriodChip } from './TimelinePeriodChip';
 import { resolvePeriod } from './timelineData';
 import type { TimelineZoom } from './TimelineGantt';
 import { TimelineGanttBody } from './TimelineGanttBody';
@@ -163,6 +164,7 @@ export default function TimelinePage() {
           loading={search.isLoading || search.isFetchingNextPage || search.hasNextPage === true}
           onOpenIssue={(n) => navigate(`/projects/${key}/issues/${n}`)}
           view={view}
+          periodChip={<TimelinePeriodChip param={periodCtl.param} period={periodCtl.period} cycles={periodCtl.cycles} onChange={changePeriod} />}
         />
       ) : (
         <TimelineGanttBody
