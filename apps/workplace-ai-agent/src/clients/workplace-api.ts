@@ -13,6 +13,36 @@ import {
   type SharedToolClient,
 } from '@smart-workplace/mcp-tools-shared';
 
+// WP-244: 첨부 추출 상태·구간 읽기 응답(WP-242 서버 계약 그대로).
+export type ExtractionStatus = 'PENDING' | 'READY' | 'SKIPPED' | 'FAILED' | 'NONE';
+export interface ExtractionInfo {
+  status: ExtractionStatus;
+  totalChars: number | null;
+  truncated: boolean;
+  reasonCode: string | null;
+  reason: string | null;
+}
+export interface ExtractedTextSlice {
+  fileId: number;
+  status: ExtractionStatus;
+  offset: number;
+  totalChars: number | null;
+  truncated: boolean;
+  nextOffset: number | null;
+  text: string | null;
+  reasonCode: string | null;
+  reason: string | null;
+}
+// WP-244: 챗 메시지에 붙은 첨부 메타(추출 상태 포함).
+export interface ChatAttachmentMeta {
+  fileId: number;
+  messageId: number;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  extraction?: ExtractionInfo;
+}
+
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).
 export interface ChatMessageItem {
   id: number;
@@ -21,6 +51,8 @@ export interface ChatMessageItem {
   body: string;
   createdAt: string;
   deleted: boolean;
+  // WP-244: 메시지 첨부(추출 상태 포함) — 없으면 생략.
+  attachments?: ChatAttachmentMeta[];
 }
 
 // #350: 채널 목록/탐색 응답 단건 — 채널 이름 → channelId 해석에 사용.
@@ -84,6 +116,8 @@ export interface AttachmentMeta {
   originalName: string;
   mimeType: string;
   sizeBytes: number;
+  // WP-244: 추출 상태(서버가 내려줄 때만).
+  extraction?: ExtractionInfo;
 }
 
 // A2: 진행 상태 단계.
@@ -165,11 +199,23 @@ export interface WorkplaceApiClient {
     issueKey: string,
     fileId: number,
   ): Promise<{ data: Buffer; mimeType: string }>;
+  // WP-244: 첨부 추출 텍스트 구간 읽기(offset·limit 생략 시 서버 기본 0·32000) + 챗 첨부 원본 다운로드(Claude 로컬 Read 용).
+  readIssueAttachmentText(agentId: number, issueKey: string, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
+  readChatAttachmentText(agentId: number, threadId: number, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
+  downloadChatAttachment(agentId: number, threadId: number, messageId: number, fileId: number): Promise<{ data: Buffer; mimeType: string }>;
   // #719: 요청자의 active-tenant 를 X-On-Behalf-Of-Tenant 로 싣는 스코프 클라이언트를 반환한다.
   // 인-프로세스 MCP 서버는 이 인스턴스를 서브에이전트까지 공유하므로, run 당 1회 스코프하면
   // 위임 도구 호출까지 전부 동일하게 적용된다(다중/무 멤버십 요청자의 AgentTenantResolver
   // fail-closed 방지).
   withOnBehalfOfTenant(tenantId: number): WorkplaceApiClient;
+}
+
+// WP-244: 구간 읽기 쿼리 — 생략한 값은 보내지 않아 서버 기본값(offset 0, limit 32000)을 따른다.
+function rangeParams(offset?: number, limit?: number): Record<string, number> {
+  const p: Record<string, number> = {};
+  if (offset !== undefined) p.offset = offset;
+  if (limit !== undefined) p.limit = limit;
+  return p;
 }
 
 export function createWorkplaceApiClient(opts: {
@@ -382,6 +428,32 @@ export function createWorkplaceApiClient(opts: {
         `/projects/${projectKey}/issues/${number}/attachments/${fileId}/content`,
         { ...onBehalfOf(agentId), responseType: 'arraybuffer' },
       );
+      const mimeType = String(r.headers['content-type'] ?? 'application/octet-stream');
+      return { data: Buffer.from(r.data as ArrayBuffer), mimeType };
+    },
+
+    async readIssueAttachmentText(agentId, issueKey, fileId, offset, limit) {
+      const { projectKey, number } = parseIssueKey(issueKey);
+      const r = await http.get(`/projects/${projectKey}/issues/${number}/attachments/${fileId}/text`, {
+        ...onBehalfOf(agentId),
+        params: rangeParams(offset, limit),
+      });
+      return r.data as ExtractedTextSlice;
+    },
+
+    async readChatAttachmentText(agentId, threadId, fileId, offset, limit) {
+      const r = await http.get(`/chat/threads/${threadId}/attachments/${fileId}/text`, {
+        ...onBehalfOf(agentId),
+        params: rangeParams(offset, limit),
+      });
+      return r.data as ExtractedTextSlice;
+    },
+
+    async downloadChatAttachment(agentId, threadId, messageId, fileId) {
+      const r = await http.get(`/chat/threads/${threadId}/messages/${messageId}/attachments/${fileId}/content`, {
+        ...onBehalfOf(agentId),
+        responseType: 'arraybuffer',
+      });
       const mimeType = String(r.headers['content-type'] ?? 'application/octet-stream');
       return { data: Buffer.from(r.data as ArrayBuffer), mimeType };
     },

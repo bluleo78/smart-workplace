@@ -146,6 +146,9 @@ function client(): TestClient {
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
     listIssueAttachments: vi.fn().mockResolvedValue([]),
     downloadIssueAttachment: vi.fn(),
+    readIssueAttachmentText: vi.fn(),
+    readChatAttachmentText: vi.fn(),
+    downloadChatAttachment: vi.fn(),
   };
   return Object.assign(c, { sc });
 }

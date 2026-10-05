@@ -241,6 +241,62 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(res.mimeType).toBe('image/png');
   });
 
+  // --- WP-244: 첨부 추출 텍스트 ---
+
+  it('readIssueAttachmentText → GET .../attachments/{fileId}/text?offset&limit + 헤더', async () => {
+    const slice = { fileId: 3, status: 'READY', offset: 0, totalChars: 5, truncated: false, nextOffset: null, text: '안녕하세요', reasonCode: null, reason: null };
+    nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/projects/WP/issues/1/attachments/3/text`)
+      .query({ offset: '100', limit: '500' })
+      .reply(200, slice);
+    expect(await newClient().readIssueAttachmentText(AGENT_ID, 'WP-1', 3, 100, 500)).toEqual(slice);
+  });
+
+  it('readIssueAttachmentText → offset·limit 생략 시 쿼리 없이 호출(서버 기본값)', async () => {
+    // 요청 URL 에 쿼리스트링이 실제로 없는지 직접 검증한다(nock .query({}) 는 파라미터가 있어도 통과할 수 있음).
+    let requestedPath = '';
+    nock(BASE)
+      .get(uri => {
+        requestedPath = uri;
+        return uri.startsWith(`${PREFIX}/projects/WP/issues/1/attachments/3/text`);
+      })
+      .reply(200, { fileId: 3, status: 'PENDING' });
+    expect((await newClient().readIssueAttachmentText(AGENT_ID, 'WP-1', 3)).status).toBe('PENDING');
+    expect(requestedPath).not.toContain('?');
+  });
+
+  it('readChatAttachmentText → GET /chat/threads/{id}/attachments/{fileId}/text', async () => {
+    nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .get(`${PREFIX}/chat/threads/5/attachments/8/text`)
+      .query({ offset: '0' })
+      .reply(200, { fileId: 8, status: 'READY', text: 'x' });
+    expect((await newClient().readChatAttachmentText(AGENT_ID, 5, 8, 0)).text).toBe('x');
+  });
+
+  it('downloadChatAttachment → GET /chat/threads/{id}/messages/{msgId}/attachments/{fileId}/content', async () => {
+    nock(BASE)
+      .get(`${PREFIX}/chat/threads/5/messages/9/attachments/8/content`)
+      .reply(200, Buffer.from('PDF'), { 'content-type': 'application/pdf' });
+    const r = await newClient().downloadChatAttachment(AGENT_ID, 5, 9, 8);
+    expect(r.data.toString()).toBe('PDF');
+    expect(r.mimeType).toBe('application/pdf');
+  });
+
+  it('getChatMessages → 메시지 attachments(extraction 포함)를 그대로 전달', async () => {
+    nock(BASE)
+      .get(`${PREFIX}/chat/threads/5/messages`)
+      .query({ limit: '20' })
+      .reply(200, {
+        items: [{ id: 1, authorName: 'A', authorKind: 'HUMAN', body: 'b', createdAt: 't', deleted: false,
+          attachments: [{ fileId: 8, messageId: 1, originalName: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 3,
+            extraction: { status: 'READY', totalChars: 3, truncated: false, reasonCode: null, reason: null } }] }],
+      });
+    const items = await newClient().getChatMessages(AGENT_ID, 5, 20);
+    expect(items[0].attachments?.[0].extraction?.status).toBe('READY');
+  });
+
   // --- #333 M4: 메일 수동 동기화 ---
 
   describe('syncMail', () => {
