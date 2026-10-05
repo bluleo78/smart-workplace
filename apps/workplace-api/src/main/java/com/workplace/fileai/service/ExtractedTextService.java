@@ -20,8 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 추출 텍스트 공용 읽기(WP-242) — 첨부 목록의 extraction 블록과 글자 구간 읽기.
  *
  * <p>권한은 판정하지 않는다. 호출하는 도메인 엔드포인트가 "이 사용자가 이 대상을 볼 수 있고, fileId 가 그 대상의 첨부인지"를 먼저 확인한다. 자르기는
- * SQL(substr/char_length)로 한다 — 워커(Python len)와 Postgres 는 코드포인트 기준이고 Java String 은 UTF-16 기준이라 Java 에서
- * 자르면 이모지 등 서로게이트 쌍에서 offset 이 어긋난다.
+ * SQL(substr/char_length)로 한다 — 워커(Python len)와 Postgres 는 코드포인트 기준이고 Java String 은 UTF-16 기준이라
+ * Java 에서 자르면 이모지 등 서로게이트 쌍에서 offset 이 어긋난다.
  */
 @Service
 @RequiredArgsConstructor
@@ -78,7 +78,8 @@ public class ExtractedTextService {
     Field<Integer> total = DSL.charLength(FILE_EXTRACTION.EXTRACTED_TEXT).as("total_chars");
     // SQL substr 은 1부터 센다.
     Field<String> slice =
-        DSL.substring(FILE_EXTRACTION.EXTRACTED_TEXT, DSL.val(offset + 1), DSL.val(lim)).as("slice");
+        DSL.substring(FILE_EXTRACTION.EXTRACTED_TEXT, DSL.val(offset + 1), DSL.val(lim))
+            .as("slice");
     var r =
         dsl.select(
                 FILE_EXTRACTION.STATUS,

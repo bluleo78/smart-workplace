@@ -63,7 +63,8 @@ public class IssueAttachmentRepository {
                     r.get(FILE.SIZE_BYTES),
                     r.get(ISSUE_ATTACHMENT.ATTACHED_BY),
                     r.get(USER.NAME),
-                    r.get(ISSUE_ATTACHMENT.ATTACHED_AT).toInstant()));
+                    r.get(ISSUE_ATTACHMENT.ATTACHED_AT).toInstant(),
+                    null));
   }
 
   /** fileId 로 매핑 단건 조회 — 권한 검증·삭제·다운로드 전에 사용. */
@@ -93,7 +94,8 @@ public class IssueAttachmentRepository {
                     r.get(FILE.SIZE_BYTES),
                     r.get(ISSUE_ATTACHMENT.ATTACHED_BY),
                     r.get(USER.NAME),
-                    r.get(ISSUE_ATTACHMENT.ATTACHED_AT).toInstant()));
+                    r.get(ISSUE_ATTACHMENT.ATTACHED_AT).toInstant(),
+                    null));
   }
 
   /**

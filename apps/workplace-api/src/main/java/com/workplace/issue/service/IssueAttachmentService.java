@@ -1,5 +1,11 @@
 package com.workplace.issue.service;
 
+import com.workplace.fileai.ExtractionProfile;
+import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.dto.ExtractionInfo;
+import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
+import com.workplace.fileai.service.ExtractedTextService;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueAttachmentResponse;
 import com.workplace.issue.exception.AttachmentLimitExceededException;
 import com.workplace.issue.exception.AttachmentNotFoundException;
@@ -12,8 +18,10 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,6 +38,8 @@ public class IssueAttachmentService {
   private final ProjectAccessGuard accessGuard;
   private final IssueHistoryRecorder historyRecorder;
   private final IssueChangeNotifier changeNotifier;
+  private final ApplicationEventPublisher eventPublisher;
+  private final ExtractedTextService extractedText;
 
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
@@ -77,7 +87,17 @@ public class IssueAttachmentService {
     for (MultipartFile mf : files) {
       Long fileId = storage.storeAndInsert(mf, callerId);
       repo.insert(fileId, issue.id(), callerId);
-      added.add(repo.findById(fileId).orElseThrow(() -> new AttachmentNotFoundException(fileId)));
+      IssueAttachmentResponse row =
+          repo.findById(fileId).orElseThrow(() -> new AttachmentNotFoundException(fileId));
+      added.add(row);
+      // 이슈 첨부는 업로드 즉시 영구 파일 → 여기서 텍스트 추출을 요청한다(WP-242). 첨부는 요약·임베딩 없는 TEXT_ONLY.
+      Long tenantId = TenantContext.get();
+      eventPublisher.publishEvent(
+          new FileExtractionRequestedEvent(
+              fileId,
+              tenantId != null ? tenantId : 0L,
+              row.mimeType(),
+              ExtractionProfile.TEXT_ONLY));
     }
 
     // 4) history 한 건 — payload 에 added 만 포함.
@@ -95,7 +115,13 @@ public class IssueAttachmentService {
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
-    return repo.findByIssue(issue.id());
+    List<IssueAttachmentResponse> rows = repo.findByIssue(issue.id());
+    // 첨부별 추출 상태를 한 번에 붙인다(WP-242). 행이 없으면 NONE(배포 전 첨부).
+    Map<Long, ExtractionInfo> infos =
+        extractedText.info(rows.stream().map(IssueAttachmentResponse::fileId).toList());
+    return rows.stream()
+        .map(a -> a.withExtraction(infos.getOrDefault(a.fileId(), ExtractionInfo.NONE)))
+        .toList();
   }
 
   /**
@@ -116,6 +142,25 @@ public class IssueAttachmentService {
       throw new AttachmentNotFoundException(fileId);
     }
     return storage.load(fileId);
+  }
+
+  /**
+   * 첨부 추출 텍스트 구간 읽기(WP-242). 권한·소속 판정은 download 와 같다 — 조회 가드(비멤버 403) + 다른 이슈의 fileId·없는 fileId 는
+   * 404. 상태·사유·자르기는 fileai 공용 서비스가 맡는다.
+   */
+  @Transactional(readOnly = true)
+  public ExtractedTextSlice readText(
+      Long callerId, String projectKey, int number, Long fileId, int offset, int limit) {
+    var project = accessGuard.assertReadable(projectKey, callerId);
+    var issue =
+        issueRepository
+            .findByProjectAndNumber(project.id(), number)
+            .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    var att = repo.findById(fileId).orElseThrow(() -> new AttachmentNotFoundException(fileId));
+    if (!att.issueId().equals(issue.id())) {
+      throw new AttachmentNotFoundException(fileId);
+    }
+    return extractedText.read(fileId, offset, limit);
   }
 
   /**

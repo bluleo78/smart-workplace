@@ -2,6 +2,7 @@ package com.workplace.issue.service;
 
 import static com.workplace.jooq.Tables.FILE;
 
+import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
@@ -61,10 +62,9 @@ public class IssueAttachmentStorage {
     String relativePath = pathBuilder.build(StorageDomain.ISSUE, originalName);
     fileStore.store(relativePath, mf);
 
-    String mime =
-        mf.getContentType() != null && !mf.getContentType().isBlank()
-            ? mf.getContentType()
-            : "application/octet-stream";
+    // 브라우저 Content-Type 이 비었거나 octet-stream 이면 확장자로 보정 — 추출 가능 판정이 mime 기준이라
+    // 보정이 없으면 PDF 가 미지원으로 SKIPPED 된다(WP-242, 파일 업로드 경로와 같은 규칙).
+    String mime = MimeNormalizer.normalize(originalName, mf.getContentType());
 
     return dsl.insertInto(FILE)
         .set(FILE.ORIGINAL_NAME, originalName)

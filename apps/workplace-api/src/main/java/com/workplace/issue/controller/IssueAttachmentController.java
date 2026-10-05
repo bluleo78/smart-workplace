@@ -1,5 +1,6 @@
 package com.workplace.issue.controller;
 
+import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.dto.IssueAttachmentResponse;
 import com.workplace.issue.service.IssueAttachmentService;
@@ -65,6 +66,20 @@ public class IssueAttachmentController {
       @PathVariable Long fileId) {
     service.delete((Long) auth.getPrincipal(), key, number, fileId);
     return ResponseEntity.noContent().build();
+  }
+
+  /** 첨부 추출 텍스트 구간 읽기(WP-242) — 에이전트가 PDF·오피스 첨부를 글자로 나눠 읽는다. limit 상한 32,000자. */
+  @GetMapping("/{fileId}/text")
+  @RequirePermission("project:read")
+  public ResponseEntity<ExtractedTextSlice> readText(
+      Authentication auth,
+      @PathVariable String key,
+      @PathVariable int number,
+      @PathVariable Long fileId,
+      @RequestParam(defaultValue = "0") int offset,
+      @RequestParam(defaultValue = "32000") int limit) {
+    return ResponseEntity.ok(
+        service.readText((Long) auth.getPrincipal(), key, number, fileId, offset, limit));
   }
 
   /** 다운로드 — 멤버 전체. Content-Disposition: attachment 로 파일명 유지. */

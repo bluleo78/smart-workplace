@@ -23,7 +23,12 @@ public record ExtractionInfo(
    * @param hasText extracted_text 가 null 이 아닌지
    */
   public static ExtractionInfo of(
-      String internalStatus, String error, String mime, Integer totalChars, Boolean truncated, boolean hasText) {
+      String internalStatus,
+      String error,
+      String mime,
+      Integer totalChars,
+      Boolean truncated,
+      boolean hasText) {
     if (internalStatus == null) return NONE;
     switch (internalStatus) {
       case "PENDING", "EXTRACTING":
@@ -31,7 +36,9 @@ public record ExtractionInfo(
       case "TEXT_READY", "SUMMARIZING", "DONE":
         return new ExtractionInfo("READY", totalChars, Boolean.TRUE.equals(truncated), null, null);
       case "FAILED":
-        if (hasText) return new ExtractionInfo("READY", totalChars, Boolean.TRUE.equals(truncated), null, null);
+        if (hasText)
+          return new ExtractionInfo(
+              "READY", totalChars, Boolean.TRUE.equals(truncated), null, null);
         break;
       default:
         break;

@@ -90,7 +90,8 @@ class ExtractedTextServiceTest extends IntegrationTestBase {
     ExtractedTextSlice s = service.read(id, 0, 100_000);
     assertThat(s.text()).hasSize(32_000);
     assertThat(s.nextOffset()).isEqualTo(32_000);
-    assertThatThrownBy(() -> service.read(id, -1, 10)).isInstanceOf(InvalidTextRangeException.class);
+    assertThatThrownBy(() -> service.read(id, -1, 10))
+        .isInstanceOf(InvalidTextRangeException.class);
     assertThatThrownBy(() -> service.read(id, 0, 0)).isInstanceOf(InvalidTextRangeException.class);
   }
 
@@ -107,7 +108,8 @@ class ExtractedTextServiceTest extends IntegrationTestBase {
       offset = s.nextOffset();
     }
     assertThat(sb.toString()).isEqualTo(text);
-    assertThat(service.read(id, 0, 1).totalChars()).isEqualTo(text.codePointCount(0, text.length()));
+    assertThat(service.read(id, 0, 1).totalChars())
+        .isEqualTo(text.codePointCount(0, text.length()));
   }
 
   @Test
@@ -127,8 +129,10 @@ class ExtractedTextServiceTest extends IntegrationTestBase {
 
   @Test
   void TEXT_READY_와_SUMMARIZING_도_READY() {
-    assertThat(service.read(seed("text/plain", "TEXT_READY", "ab", false, null), 0, 10).status()).isEqualTo("READY");
-    assertThat(service.read(seed("text/plain", "SUMMARIZING", "ab", false, null), 0, 10).status()).isEqualTo("READY");
+    assertThat(service.read(seed("text/plain", "TEXT_READY", "ab", false, null), 0, 10).status())
+        .isEqualTo("READY");
+    assertThat(service.read(seed("text/plain", "SUMMARIZING", "ab", false, null), 0, 10).status())
+        .isEqualTo("READY");
   }
 
   @Test
@@ -169,7 +173,9 @@ class ExtractedTextServiceTest extends IntegrationTestBase {
                     .set(FILE_EXTRACTION.FILE_ID, id)
                     .set(FILE_EXTRACTION.STATUS, status)
                     .set(FILE_EXTRACTION.EXTRACTED_TEXT, text)
-                    .set(FILE_EXTRACTION.CHAR_COUNT, text == null ? null : text.codePointCount(0, text.length()))
+                    .set(
+                        FILE_EXTRACTION.CHAR_COUNT,
+                        text == null ? null : text.codePointCount(0, text.length()))
                     .set(FILE_EXTRACTION.TRUNCATED, truncated)
                     .set(FILE_EXTRACTION.ERROR, error)
                     .set(FILE_EXTRACTION.PROFILE, "TEXT_ONLY")
