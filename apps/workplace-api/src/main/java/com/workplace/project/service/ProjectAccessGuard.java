@@ -81,18 +81,31 @@ public class ProjectAccessGuard {
         projectRepository
             .findByKey(projectKey)
             .orElseThrow(() -> new ProjectNotFoundException(projectKey));
+    if (!isReadable(project, userId)) {
+      throw new ProjectAccessDeniedException("프로젝트 멤버가 아닙니다");
+    }
+    return project;
+  }
+
+  /**
+   * {@link #assertReadable} 의 boolean 판정(같은 규칙). projectId 로 찾고, 프로젝트가 없으면(삭제 포함) false. threadId 만
+   * 아는 호출부(이슈 챗 스레드 경유 이슈 첨부 조회, WP-244)가 이슈 첨부 API 와 같은 조회 규칙을 쓰게 한다.
+   */
+  public boolean canRead(long projectId, Long userId) {
+    return projectRepository.findById(projectId).map(p -> isReadable(p, userId)).orElse(false);
+  }
+
+  /** 조회 규칙 한 곳 — OPEN 은 테넌트 전원, TEAM 은 멤버 또는 ADMIN, PERSONAL 은 멤버(소유자)만. */
+  private boolean isReadable(ProjectRow project, Long userId) {
     if ("OPEN".equals(project.type())) {
-      return project; // OPEN: 테넌트 전원 허용 (RLS 가 타 테넌트 차단)
+      return true; // OPEN: 테넌트 전원 허용 (RLS 가 타 테넌트 차단)
     }
     boolean isPersonal = "PERSONAL".equals(project.type());
     // 비PERSONAL 이고 ADMIN 이면 허용 (PERSONAL 은 소유자만)
     if (!isPersonal && permissionChecker.userHasRole(userId, "ADMIN")) {
-      return project;
+      return true;
     }
-    memberRepository
-        .find(project.id(), userId)
-        .orElseThrow(() -> new ProjectAccessDeniedException("프로젝트 멤버가 아닙니다"));
-    return project;
+    return memberRepository.find(project.id(), userId).isPresent();
   }
 
   /**

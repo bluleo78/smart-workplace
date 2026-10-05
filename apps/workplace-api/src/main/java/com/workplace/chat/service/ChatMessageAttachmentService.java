@@ -170,19 +170,23 @@ public class ChatMessageAttachmentService {
   }
 
   /**
-   * 첨부 추출 텍스트 구간 읽기(WP-242). 스레드 열람 권한(기존 가드, 없으면 403) + fileId 가 이 스레드의 챗 첨부이거나 스레드가 딸린 이슈의 첨부인지(둘
-   * 다 아니면 404).
+   * 첨부 추출 텍스트 구간 읽기(WP-242). fileId 가 이 스레드의 챗 첨부면 스레드 열람 권한(기존 가드, 없으면 403), 스레드가 딸린 이슈의 첨부면 이슈 첨부
+   * 열람 권한({@link ChatIssueAttachmentService#ensureCanReadIssueAttachments}, 없으면 403)으로 판정한다. 둘 다
+   * 아니면 404.
    *
-   * <p>WP-244: 이슈 첨부도 같은 경로로 받는다 — 이슈 챗 AI(역할·프로젝트 멤버십 없는 AGENT)가 이슈 첨부 API 대신 스레드 권한으로 읽고, 도구 인자가
-   * 챗·이슈 첨부 모두 {@code {threadId, fileId}} 한 가지로 같아진다.
+   * <p>WP-244: 이슈 첨부도 같은 경로로 받는다 — 이슈 챗 AI(역할·프로젝트 멤버십 없는 AGENT)가 이슈 첨부 API 대신 이 경로로 읽고, 도구 인자가
+   * 챗·이슈 첨부 모두 {@code {threadId, fileId}} 한 가지로 같아진다. 이슈 첨부는 스레드 멤버십만으로 열지 않는다(프로젝트에서 빠진 사람 차단).
    */
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(
       long callerId, long threadId, long fileId, int offset, int limit) {
-    threadAccess.ensureCanRead(threadId, callerId);
-    if (!repo.isAttachedToThread(fileId, threadId)
-        && !issueAttachments.isIssueAttachment(threadId, fileId)) {
-      throw new ChatAttachmentNotFoundException(fileId);
+    if (issueAttachments.isIssueAttachment(threadId, fileId)) {
+      issueAttachments.ensureCanReadIssueAttachments(threadId, callerId);
+    } else {
+      threadAccess.ensureCanRead(threadId, callerId);
+      if (!repo.isAttachedToThread(fileId, threadId)) {
+        throw new ChatAttachmentNotFoundException(fileId);
+      }
     }
     return extractedText.read(fileId, offset, limit);
   }

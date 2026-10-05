@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
+import static com.workplace.jooq.Tables.USER;
 
 import java.util.HashSet;
 import java.util.List;
@@ -68,6 +69,12 @@ public class IssueStakeholderLookup {
   public boolean isOpenProject(long projectId) {
     return dsl.fetchExists(
         dsl.selectOne().from(PROJECT).where(PROJECT.ID.eq(projectId).and(PROJECT.TYPE.eq("OPEN"))));
+  }
+
+  /** 사용자가 AGENT(kind) 인지 — 스레드 경유 이슈 첨부 조회에서 멘션돼 참여한 에이전트만 허용하는 판정용(WP-244). */
+  public boolean isAgentUser(long userId) {
+    return dsl.fetchExists(
+        dsl.selectOne().from(USER).where(USER.ID.eq(userId).and(USER.KIND.eq("AGENT"))));
   }
 
   /** 이슈의 assignee user.id 목록. */

@@ -1,14 +1,21 @@
 package com.workplace.chat;
 
 import static com.workplace.jooq.tables.FileExtraction.FILE_EXTRACTION;
+import static com.workplace.jooq.tables.Project.PROJECT;
+import static com.workplace.jooq.tables.ProjectMember.PROJECT_MEMBER;
 import static com.workplace.jooq.tables.User.USER;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.chat.service.ChatFixtures;
+import com.workplace.chat.service.ChatIssueAttachmentService;
+import com.workplace.chat.service.ChatMessageAttachmentService;
 import com.workplace.chat.service.ChatThreadService;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
@@ -46,6 +53,8 @@ class ChatIssueAttachmentTest extends IntegrationTestBase {
   @Autowired ChatThreadService threadService;
   @Autowired ChatThreadMemberRepository memberRepo;
   @Autowired IssueAttachmentService issueAttachmentService;
+  @Autowired ChatIssueAttachmentService chatIssueAttachments;
+  @Autowired ChatMessageAttachmentService chatAttachments;
   @Autowired ChatFixtures fx;
   @Autowired DSLContext dsl;
   @Autowired TransactionTemplate tx;
@@ -256,5 +265,62 @@ class ChatIssueAttachmentTest extends IntegrationTestBase {
         .perform(as(agentId, get("/api/v1/chat/threads/{id}/issue-attachments", threadId)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.length()").value(0));
+  }
+
+  /** 사람 호출자가 스레드 경유로 이슈 첨부 목록·텍스트·원본을 모두 읽을 수 있는지(서비스 직접 호출). */
+  private void assertReadsAll(long callerId, long threadId, long fileId) {
+    assertThat(chatIssueAttachments.list(callerId, threadId))
+        .extracting(r -> r.fileId())
+        .containsExactly(fileId);
+    assertThat(chatAttachments.readText(callerId, threadId, fileId, 0, 3).text()).isEqualTo("abc");
+    assertThat(chatIssueAttachments.download(callerId, threadId, fileId).sizeBytes())
+        .isEqualTo(PDF_BYTES.length);
+  }
+
+  /** 목록·텍스트·원본이 모두 403(ChatThreadNotMemberException)인지. */
+  private void assertDeniedAll(long callerId, long threadId, long fileId) {
+    assertThatThrownBy(() -> chatIssueAttachments.list(callerId, threadId))
+        .isInstanceOf(ChatThreadNotMemberException.class);
+    assertThatThrownBy(() -> chatAttachments.readText(callerId, threadId, fileId, 0, 3))
+        .isInstanceOf(ChatThreadNotMemberException.class);
+    assertThatThrownBy(() -> chatIssueAttachments.download(callerId, threadId, fileId))
+        .isInstanceOf(ChatThreadNotMemberException.class);
+  }
+
+  @Test
+  void 프로젝트에서_빠진_사람은_스레드_멤버로_남아도_이슈_첨부_403() {
+    // 스레드 멤버십은 추가만 되고 프로젝트 멤버 제외 시 정리되지 않는다 — 스레드 멤버십만으로 이슈 첨부를 열면 안 된다.
+    ChatFixtures.Setup s = fx.setup();
+    long threadId = threadOf(s);
+    joinThread(threadId, s.assigneeId());
+    long fileId = uploadIssuePdf(s);
+    markDone(fileId, "abcdef");
+    assertReadsAll(s.assigneeId(), threadId, fileId); // 프로젝트 멤버일 때는 허용
+
+    inTx(
+        () ->
+            dsl.deleteFrom(PROJECT_MEMBER)
+                .where(PROJECT_MEMBER.PROJECT_ID.eq(s.projectId()))
+                .and(PROJECT_MEMBER.USER_ID.eq(s.assigneeId()))
+                .execute());
+
+    assertDeniedAll(s.assigneeId(), threadId, fileId);
+  }
+
+  @Test
+  void OPEN_프로젝트는_비멤버_사람도_스레드_경유로_이슈_첨부를_읽는다() {
+    ChatFixtures.Setup s = fx.setup();
+    long threadId = threadOf(s);
+    long fileId = uploadIssuePdf(s);
+    markDone(fileId, "abcdef");
+    inTx(
+        () ->
+            dsl.update(PROJECT)
+                .set(PROJECT.TYPE, "OPEN")
+                .where(PROJECT.ID.eq(s.projectId()))
+                .execute());
+
+    // 프로젝트 멤버도 스레드 멤버도 아닌 사람 — 이슈 첨부 API 와 같은 조회 규칙(OPEN 은 테넌트 전원)으로 허용.
+    assertReadsAll(s.outsiderId(), threadId, fileId);
   }
 }
