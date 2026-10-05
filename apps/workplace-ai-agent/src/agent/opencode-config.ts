@@ -56,6 +56,8 @@ function buildMcpEnvironment(i: RunnerInput, runId: string, vision: OpencodeVisi
   };
   if (mcp.threadBinding) env.MCP_THREAD_BINDING = JSON.stringify(mcp.threadBinding);
   if (mcp.delegationContext) env.MCP_DELEGATION_CONTEXT = JSON.stringify(mcp.delegationContext);
+  // WP-244: chat 도구의 실행 스레드 바인딩. env 는 스폰 시 고정되므로 chat 이 웜 풀 대상이 아님을 전제로 한다(opencode-runner.ts).
+  if (mcp.chatThreadId != null) env.MCP_CHAT_THREAD_ID = String(mcp.chatThreadId);
   // hostBridge(propose/submit/unassign 콜백) 또는 onTool(도구 호출 로깅) 이 필요하면 브리지 좌표를
   // 심는다. 실제 등록(registerBridge)은 러너가 수행 — 이 함수는 순수 config 조립만 담당.
   if (mcp.hostBridge || mcp.onTool) {

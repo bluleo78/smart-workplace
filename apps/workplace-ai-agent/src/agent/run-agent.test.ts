@@ -37,7 +37,6 @@ function client(token: string | Error): WorkplaceApiClient {
     postMessagingProgress: vi.fn().mockResolvedValue(undefined),
     listThreadIssueAttachments: vi.fn().mockResolvedValue([]),
     downloadThreadIssueAttachment: vi.fn(),
-    readIssueAttachmentText: vi.fn(),
     readChatAttachmentText: vi.fn(),
     downloadChatAttachment: vi.fn(),
     syncMail: vi.fn().mockResolvedValue({} as never),

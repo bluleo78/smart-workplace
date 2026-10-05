@@ -25,6 +25,8 @@ export interface StdioEntryConfig {
   onBehalfOfId: number;
   threadBinding?: { channelId: number; parentMessageId: number };
   delegationContext?: { actorId: number; channelId: number; parentMessageId?: number };
+  // WP-244: chat 프로필 실행 스레드 바인딩(MCP_CHAT_THREAD_ID).
+  chatThreadId?: number;
   bridgeUrl?: string;
   bridgeRunId?: string;
   // WP-241: 모델이 이미지를 볼 수 있는지(MCP_VISION). false 면 도구 결과의 이미지를 안내 문구로 바꾼다.
@@ -76,6 +78,14 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     }
   }
 
+  let chatThreadId: number | undefined;
+  if (env.MCP_CHAT_THREAD_ID) {
+    chatThreadId = Number(env.MCP_CHAT_THREAD_ID);
+    if (!Number.isInteger(chatThreadId) || chatThreadId <= 0) {
+      throw new Error(`MCP_CHAT_THREAD_ID 는 양의 정수여야 합니다. 받은 값: ${env.MCP_CHAT_THREAD_ID}`);
+    }
+  }
+
   return {
     baseURL,
     internalToken,
@@ -83,6 +93,7 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     onBehalfOfId,
     threadBinding,
     delegationContext,
+    chatThreadId,
     bridgeUrl: env.MCP_BRIDGE_URL,
     bridgeRunId: env.MCP_BRIDGE_RUN_ID,
     // 미지정은 지원으로 본다(러너는 항상 0/1 을 심는다 — 기존 동작 유지용 기본값).
@@ -170,6 +181,7 @@ async function main(): Promise<void> {
     config.threadBinding,
     config.delegationContext,
     hostBridge,
+    config.chatThreadId,
   );
 
   // 서버명 'workplace' 고정 — mcp__workplace__* 네임스페이스 정합(sdk-mcp-server.ts 참고).

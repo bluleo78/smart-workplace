@@ -30,16 +30,13 @@ const getChatThreadInput = z.object({
   threadId: z.number().int().positive(),
 });
 
-// WP-244: 첨부 추출 텍스트 구간 읽기 입력 — 이슈 첨부는 issueKey, 챗 메시지 첨부는 threadId 중 정확히 하나.
+// WP-244: 첨부 추출 텍스트 구간 읽기 입력 — 이슈 첨부·챗 메시지 첨부 모두 스레드 경유(threadId + fileId)로 읽는다.
+// (예전 issueKey 분기는 실행 스레드에 묶을 수 없고 프롬프트도 더는 쓰지 않아 제거했다.)
 // limit 상한 32000 은 서버 계약(WP-242)과 같다 — 넘기면 서버가 400 이므로 스키마에서 먼저 막는다.
-// refine(ZodEffects)을 쓰지 않는 이유: sdk-mcp-server·stdio-entry 가 inputSchema.shape 를 읽으므로
-// 반드시 순수 z.object 여야 한다. "정확히 하나" 검사는 handler 에서 수행한다.
 // 선택 인자는 nullish — 모델이 안 쓰는 인자를 null 로 채워 보내는 경우가 있어 null 도 "미지정" 으로 받는다.
 const readAttachmentTextInput = z.object({
   fileId: z.number().int().positive(),
-  // WP-244: 이슈 챗 프롬프트는 이슈·챗 첨부 모두 threadId 로 안내한다(스레드 경유 읽기). issueKey 는 하위 호환용으로만 남긴다.
-  issueKey: z.string().min(1).nullish(),
-  threadId: z.number().int().positive().nullish(),
+  threadId: z.number().int().positive(),
   offset: z.number().int().min(0).nullish(),
   limit: z.number().int().min(1).max(32000).nullish(),
 });
@@ -323,6 +320,9 @@ export function buildTools(
   delegationContext?: { actorId: number; channelId: number; parentMessageId?: number },
   // #462 슬라이스4: 인-프로세스 호스트 브리지. 지정 시 propose/submit/unassign 이 파일 대신 콜백 사용.
   hostBridge?: HostBridge,
+  // WP-244: chat 프로필 실행이 답하는 이슈 챗 스레드. 지정 시 chat 도구는 이 스레드 외의 threadId 를 거부한다
+  // (모델이 다른 스레드를 읽거나 거기에 쓰지 못하게). 미지정이면 기존 동작.
+  chatThreadId?: number,
 ): McpTool[] {
   // #846: 두 앱 공유 도구(이슈·프로젝트·노트·캘린더·메일·구성원·메시징·드라이브 읽기) — 프로필이 이름으로 골라 쓴다.
   // 같은 이름의 도구를 여기서 따로 정의하지 않는다(tools.test.ts 패리티 테스트가 강제) — 정의가 두 벌이면 파라미터가 어긋난다.
@@ -390,6 +390,12 @@ export function buildTools(
     // opencode 는 chat 프로필을 웜 풀에서 빼 실행마다 stdio MCP 프로세스를 새로 띄운다(WP-244, opencode-runner.ts).
     // 시스템 프롬프트 지시를 AI가 무시하는 비결정적 동작을 코드 레벨에서 결정론적으로 차단한다.
     let addChatMessageCalled = false;
+    // WP-244: 실행 스레드 바인딩 — 다른 threadId 는 API 호출 전에 거부한다.
+    const assertBoundThread = (threadId: number): void => {
+      if (chatThreadId != null && threadId !== chatThreadId) {
+        throw new Error(`이 대화(threadId ${chatThreadId})의 스레드만 사용할 수 있습니다. 받은 threadId: ${threadId}`);
+      }
+    };
     return [
       sharedTool('get_issue_detail'),
       sharedTool('list_wiki_spaces'),
@@ -401,6 +407,7 @@ export function buildTools(
         inputSchema: getChatThreadInput,
         async handler(args) {
           const { threadId } = getChatThreadInput.parse(args);
+          assertBoundThread(threadId);
           return JSON.stringify(await client.getChatMessages(agentId, threadId, 50));
         },
       },
@@ -413,19 +420,11 @@ export function buildTools(
         inputSchema: readAttachmentTextInput,
         async handler(args) {
           const parsed = readAttachmentTextInput.parse(args);
-          // threadId(이슈·챗 첨부 공통, 스레드 경유)와 issueKey(하위 호환, 이슈 첨부 API)는 조회 경로가 달라 정확히 하나만
-          // 허용 — API 호출 전에 차단한다(null 은 미지정과 같게).
-          const { issueKey: key, threadId, fileId } = parsed;
-          if ((key == null) === (threadId == null)) {
-            throw new Error('threadId(이슈·챗 첨부 공통) 또는 issueKey 중 정확히 하나를 지정하세요');
-          }
+          const { threadId, fileId } = parsed;
+          assertBoundThread(threadId);
           const offset = parsed.offset ?? undefined;
           const limit = parsed.limit ?? READ_ATTACHMENT_DEFAULT_LIMIT;
-          const slice =
-            key != null
-              ? await client.readIssueAttachmentText(agentId, key, fileId, offset, limit)
-              : await client.readChatAttachmentText(agentId, threadId!, fileId, offset, limit);
-          return JSON.stringify(slice);
+          return JSON.stringify(await client.readChatAttachmentText(agentId, threadId, fileId, offset, limit));
         },
       },
       {
@@ -434,13 +433,15 @@ export function buildTools(
           'chat thread 에 답변 메시지를 작성합니다. 본문은 마크다운 지원. 정확히 한 번만 호출하세요.',
         inputSchema: addChatMessageInput,
         async handler(args) {
+          // 다른 스레드로의 답변은 1회 가드를 소모하기 전에 거부한다(올바른 스레드로 다시 부를 수 있게).
+          const { threadId, body } = addChatMessageInput.parse(args);
+          assertBoundThread(threadId);
           // #433: 2번째 이후 호출 차단 — 중복 응답 방지.
           if (addChatMessageCalled) {
             console.error('[mcp:add_chat_message] 중복 호출 감지 — 차단됨 (threadId 참고: args)');
             return '이미 이 요청에 대한 답변을 등록했습니다. 추가 호출은 무시됩니다.';
           }
           addChatMessageCalled = true;
-          const { threadId, body } = addChatMessageInput.parse(args);
           await client.addChatMessage(agentId, threadId, body);
           return 'ok';
         },

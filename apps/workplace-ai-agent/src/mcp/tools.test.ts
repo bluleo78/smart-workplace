@@ -146,7 +146,6 @@ function client(): TestClient {
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
     listThreadIssueAttachments: vi.fn().mockResolvedValue([]),
     downloadThreadIssueAttachment: vi.fn(),
-    readIssueAttachmentText: vi.fn(),
     readChatAttachmentText: vi.fn(),
     downloadChatAttachment: vi.fn(),
   };
@@ -443,17 +442,17 @@ describe('chat 도구', () => {
     expect(c.addChatMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('read_attachment_text(issueKey) → readIssueAttachmentText(agentId, issueKey, fileId, offset, limit)', async () => {
+  it('read_attachment_text(threadId) → readChatAttachmentText(agentId, threadId, fileId, offset, limit)', async () => {
     const c = client();
-    vi.mocked(c.readIssueAttachmentText).mockResolvedValue({
+    vi.mocked(c.readChatAttachmentText).mockResolvedValue({
       fileId: 3, status: 'READY', offset: 0, totalChars: 2, truncated: false, nextOffset: null, text: '본문', reasonCode: null, reason: null,
     });
-    const out = await find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text').handler({ issueKey: 'WP-1', fileId: 3, offset: 0, limit: 100 });
-    expect(c.readIssueAttachmentText).toHaveBeenCalledWith(AGENT_ID, 'WP-1', 3, 0, 100);
+    const out = await find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text').handler({ threadId: 5, fileId: 3, offset: 0, limit: 100 });
+    expect(c.readChatAttachmentText).toHaveBeenCalledWith(AGENT_ID, 5, 3, 0, 100);
     expect(JSON.parse(out as string).text).toBe('본문');
   });
 
-  it('read_attachment_text(threadId) → readChatAttachmentText, offset 생략 시 undefined·limit 생략 시 12000', async () => {
+  it('read_attachment_text(threadId) → offset 생략 시 undefined·limit 생략 시 12000', async () => {
     const c = client();
     vi.mocked(c.readChatAttachmentText).mockResolvedValue({ fileId: 8, status: 'PENDING' } as never);
     await find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text').handler({ threadId: 5, fileId: 8 });
@@ -462,26 +461,56 @@ describe('chat 도구', () => {
 
   it('read_attachment_text: 안 쓰는 인자를 null 로 보내도 미지정으로 처리', async () => {
     const c = client();
-    vi.mocked(c.readIssueAttachmentText).mockResolvedValue({ fileId: 3, status: 'PENDING' } as never);
+    vi.mocked(c.readChatAttachmentText).mockResolvedValue({ fileId: 3, status: 'PENDING' } as never);
     await find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text')
-      .handler({ issueKey: 'WP-1', threadId: null, fileId: 3, offset: null, limit: null });
-    expect(c.readIssueAttachmentText).toHaveBeenCalledWith(AGENT_ID, 'WP-1', 3, undefined, 12000);
-    expect(c.readChatAttachmentText).not.toHaveBeenCalled();
+      .handler({ threadId: 5, fileId: 3, offset: null, limit: null });
+    expect(c.readChatAttachmentText).toHaveBeenCalledWith(AGENT_ID, 5, 3, undefined, 12000);
   });
 
-  it('read_attachment_text: issueKey·threadId 둘 다/둘 다 없음 → 오류, API 미호출', async () => {
+  it('read_attachment_text: threadId 없으면 오류, API 미호출', async () => {
     const c = client();
     const t = find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text');
     await expect(t.handler({ fileId: 3 })).rejects.toThrow();
-    await expect(t.handler({ fileId: 3, issueKey: 'WP-1', threadId: 5 })).rejects.toThrow();
-    expect(c.readIssueAttachmentText).not.toHaveBeenCalled();
     expect(c.readChatAttachmentText).not.toHaveBeenCalled();
   });
 
   it('read_attachment_text: limit 은 1..32000', async () => {
     const t = find(buildTools(client(), AGENT_ID, 'chat'), 'read_attachment_text');
-    await expect(t.handler({ issueKey: 'WP-1', fileId: 3, limit: 32001 })).rejects.toThrow();
-    await expect(t.handler({ issueKey: 'WP-1', fileId: 3, limit: 0 })).rejects.toThrow();
+    await expect(t.handler({ threadId: 5, fileId: 3, limit: 32001 })).rejects.toThrow();
+    await expect(t.handler({ threadId: 5, fileId: 3, limit: 0 })).rejects.toThrow();
+  });
+
+  // WP-244: 실행 스레드 바인딩 — chatThreadId 가 있으면 다른 threadId 는 API 호출 전에 거부한다.
+  describe('실행 스레드 바인딩(chatThreadId)', () => {
+    const bound = (c: WorkplaceApiClient) => buildTools(c, AGENT_ID, 'chat', undefined, undefined, undefined, 5);
+
+    it('다른 threadId 의 read_attachment_text·get_chat_thread·add_chat_message 는 한국어 오류, API 미호출', async () => {
+      const c = client();
+      const tools = bound(c);
+      await expect(find(tools, 'read_attachment_text').handler({ threadId: 6, fileId: 3 })).rejects.toThrow(/스레드만 사용할 수 있습니다/);
+      await expect(find(tools, 'get_chat_thread').handler({ threadId: 6 })).rejects.toThrow(/스레드만 사용할 수 있습니다/);
+      await expect(find(tools, 'add_chat_message').handler({ threadId: 6, body: 'x' })).rejects.toThrow(/스레드만 사용할 수 있습니다/);
+      expect(c.readChatAttachmentText).not.toHaveBeenCalled();
+      expect(c.getChatMessages).not.toHaveBeenCalled();
+      expect(c.addChatMessage).not.toHaveBeenCalled();
+    });
+
+    it('다른 스레드로의 add_chat_message 거부는 1회 가드를 소모하지 않는다', async () => {
+      const c = client();
+      const t = find(bound(c), 'add_chat_message');
+      await expect(t.handler({ threadId: 6, body: 'x' })).rejects.toThrow();
+      expect(await t.handler({ threadId: 5, body: '답변' })).toBe('ok');
+      expect(c.addChatMessage).toHaveBeenCalledWith(AGENT_ID, 5, '답변');
+    });
+
+    it('바인딩된 threadId 는 그대로 동작', async () => {
+      const c = client();
+      vi.mocked(c.readChatAttachmentText).mockResolvedValue({ fileId: 3, status: 'PENDING' } as never);
+      await find(bound(c), 'read_attachment_text').handler({ threadId: 5, fileId: 3 });
+      await find(bound(c), 'get_chat_thread').handler({ threadId: 5 });
+      expect(c.readChatAttachmentText).toHaveBeenCalledWith(AGENT_ID, 5, 3, undefined, 12000);
+      expect(c.getChatMessages).toHaveBeenCalledWith(AGENT_ID, 5, 50);
+    });
   });
 
   it('get_chat_thread → client.getChatMessages(agentId, threadId, 50)', async () => {

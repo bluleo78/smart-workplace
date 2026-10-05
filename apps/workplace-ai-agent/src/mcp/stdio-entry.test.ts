@@ -28,6 +28,7 @@ describe('parseConfigFromEnv', () => {
       onBehalfOfId: 42,
       threadBinding: undefined,
       delegationContext: undefined,
+      chatThreadId: undefined,
       bridgeUrl: undefined,
       bridgeRunId: undefined,
       vision: true,
@@ -78,6 +79,15 @@ describe('parseConfigFromEnv', () => {
     expect(() => parseConfigFromEnv(baseEnv({ MCP_THREAD_BINDING: '{not json' }))).toThrow(
       /MCP_THREAD_BINDING/,
     );
+  });
+
+  // WP-244: chat 도구 실행 스레드 바인딩.
+  it('MCP_CHAT_THREAD_ID 를 숫자로 파싱한다', () => {
+    expect(parseConfigFromEnv(baseEnv({ MCP_CHAT_THREAD_ID: '17' })).chatThreadId).toBe(17);
+  });
+
+  it.each(['abc', '0', '-3', '1.5'])('MCP_CHAT_THREAD_ID 가 양의 정수가 아니면(%s) throw', (v) => {
+    expect(() => parseConfigFromEnv(baseEnv({ MCP_CHAT_THREAD_ID: v }))).toThrow(/MCP_CHAT_THREAD_ID/);
   });
 
   it('MCP_DELEGATION_CONTEXT JSON 을 파싱한다', () => {

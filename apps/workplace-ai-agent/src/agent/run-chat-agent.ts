@@ -191,7 +191,8 @@ export async function runChatAgent(
           cwd: workDir, // 첨부 Read 스코프 — 누락 시 tmpdir 로 새 스코프(첨부 읽기 조용히 실패)
           allowFileRead: true,
           includePartialMessages: false, // CLI 가 partial 미전달이었음 — 파서 입력 계약 동일 유지
-          mcp: { client: deps.client, onBehalfOfId: agentId, profile: 'chat' },
+          // WP-244: chat 도구를 이 실행의 스레드에 묶는다(다른 스레드 읽기·쓰기 거부).
+          mcp: { client: deps.client, onBehalfOfId: agentId, profile: 'chat', chatThreadId: p.threadId },
         },
         (e) => {
           if (e.type === 'tool_use') {

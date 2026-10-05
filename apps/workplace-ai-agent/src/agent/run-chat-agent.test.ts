@@ -91,6 +91,8 @@ describe('runChatAgent', () => {
     expect(runCall.includePartialMessages).toBe(false);
     // 러너가 인-프로세스 서버를 chat 프로필 + 멘션된 agentId(99)로 구성하도록 mcp 설정 전달
     expect(runCall.mcp).toMatchObject({ profile: 'chat', onBehalfOfId: 99 });
+    // WP-244: chat 도구는 이 실행의 스레드(5)에 묶인다.
+    expect(runCall.mcp).toMatchObject({ chatThreadId: 5 });
   });
 
   it('mentions 에 AGENT 없으면 spawn 생략', async () => {

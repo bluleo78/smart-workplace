@@ -29,6 +29,7 @@ function toSdkRunInput(i: RunnerInput): SdkRunInput {
       delegationContext: i.mcp.delegationContext,
       hostBridge: i.mcp.hostBridge,
       onTool: i.mcp.onTool,
+      chatThreadId: i.mcp.chatThreadId,
     });
     mcpServers = { workplace };
   }

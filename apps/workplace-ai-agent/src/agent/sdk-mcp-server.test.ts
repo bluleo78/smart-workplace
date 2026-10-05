@@ -107,7 +107,7 @@ describe('buildInProcessWorkplaceMcpServer', () => {
     const server = buildInProcessWorkplaceMcpServer({
       client, onBehalfOfId: 99, profile: 'messaging', threadBinding, delegationContext,
     });
-    expect(buildTools).toHaveBeenCalledWith(client, 99, 'messaging', threadBinding, delegationContext, undefined);
+    expect(buildTools).toHaveBeenCalledWith(client, 99, 'messaging', threadBinding, delegationContext, undefined, undefined);
     // lastCall: 테스트 순서·다른 호출에 영향받지 않게 마지막 호출 인자로 단언.
     const opts = vi.mocked(createSdkMcpServer).mock.lastCall![0] as { name: string; tools: unknown[] };
     expect(opts.name).toBe('workplace');
@@ -119,6 +119,13 @@ describe('buildInProcessWorkplaceMcpServer', () => {
     const client = {} as WorkplaceApiClient;
     const hostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: () => {} };
     buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'assistant', hostBridge });
-    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, hostBridge);
+    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, hostBridge, undefined);
+  });
+
+  // WP-244: chat 프로필 실행 스레드 바인딩은 7번째 인자.
+  it('chatThreadId 를 buildTools 7번째 인자로 전달', () => {
+    const client = {} as WorkplaceApiClient;
+    buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'chat', chatThreadId: 17 });
+    expect(buildTools).toHaveBeenCalledWith(client, 1, 'chat', undefined, undefined, undefined, 17);
   });
 });

@@ -102,6 +102,18 @@ describe('ClaudeSdkRunner.collect', () => {
     expect(arg.mcpServers?.workplace).toBe(MCP_SENTINEL);
   });
 
+  // WP-244: chat 프로필 실행 스레드 바인딩이 인-프로세스 MCP 서버로 전달된다.
+  it('mcp.chatThreadId → buildInProcessWorkplaceMcpServer 에 전달', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([]);
+    const client = { getOAuthToken: vi.fn() } as unknown as WorkplaceApiClient;
+    await new ClaudeSdkRunner().collect(
+      baseInput({ mcp: { client, profile: 'chat', onBehalfOfId: 9, chatThreadId: 17 } }),
+    );
+    expect(buildInProcessWorkplaceMcpServer).toHaveBeenCalledWith(
+      expect.objectContaining({ profile: 'chat', chatThreadId: 17 }),
+    );
+  });
+
   it('mcp 미지정 시 mcpServers 미전달', async () => {
     vi.mocked(runSdkCollect).mockResolvedValue([]);
     const runner = new ClaudeSdkRunner();

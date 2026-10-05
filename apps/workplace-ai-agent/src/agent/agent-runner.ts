@@ -31,6 +31,8 @@ export interface RunnerMcpConfig {
   delegationContext?: { actorId: number; channelId: number; parentMessageId?: number };
   hostBridge?: HostBridge;
   onTool?: (line: ToolUseLine) => void;
+  // WP-244: chat 프로필 실행이 답하는 이슈 챗 스레드 — chat 도구가 다른 threadId 를 거부하게 묶는다.
+  chatThreadId?: number;
 }
 
 export interface RunnerInput {

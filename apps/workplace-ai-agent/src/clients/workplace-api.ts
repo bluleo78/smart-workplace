@@ -197,9 +197,7 @@ export interface WorkplaceApiClient {
   listThreadIssueAttachments(agentId: number, threadId: number): Promise<AttachmentMeta[]>;
   downloadThreadIssueAttachment(agentId: number, threadId: number, fileId: number): Promise<{ data: Buffer; mimeType: string }>;
   // WP-244: 첨부 추출 텍스트 구간 읽기(offset·limit 생략 시 서버 기본 0·32000) + 챗 첨부 원본 다운로드(Claude 로컬 Read 용).
-  // readChatAttachmentText 는 스레드의 챗 첨부와 스레드가 딸린 이슈의 첨부를 모두 받는다. readIssueAttachmentText 는
-  // read_attachment_text 도구의 issueKey 인자(하위 호환) 전용.
-  readIssueAttachmentText(agentId: number, issueKey: string, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
+  // readChatAttachmentText 는 스레드의 챗 첨부와 스레드가 딸린 이슈의 첨부를 모두 받는다.
   readChatAttachmentText(agentId: number, threadId: number, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
   downloadChatAttachment(agentId: number, threadId: number, messageId: number, fileId: number): Promise<{ data: Buffer; mimeType: string }>;
   // #719: 요청자의 active-tenant 를 X-On-Behalf-Of-Tenant 로 싣는 스코프 클라이언트를 반환한다.
@@ -424,15 +422,6 @@ export function createWorkplaceApiClient(opts: {
       });
       const mimeType = String(r.headers['content-type'] ?? 'application/octet-stream');
       return { data: Buffer.from(r.data as ArrayBuffer), mimeType };
-    },
-
-    async readIssueAttachmentText(agentId, issueKey, fileId, offset, limit) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      const r = await http.get(`/projects/${projectKey}/issues/${number}/attachments/${fileId}/text`, {
-        ...onBehalfOf(agentId),
-        params: rangeParams(offset, limit),
-      });
-      return r.data as ExtractedTextSlice;
     },
 
     async readChatAttachmentText(agentId, threadId, fileId, offset, limit) {

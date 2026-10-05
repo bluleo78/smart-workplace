@@ -73,8 +73,18 @@ export function buildInProcessWorkplaceMcpServer(i: {
   // #462 슬라이스4: 호스트 브리지(propose/submit/unassign 콜백)·도구 로깅 콜백.
   hostBridge?: HostBridge;
   onTool?: (line: ToolUseLine) => void;
+  // WP-244: chat 프로필 실행 스레드 바인딩.
+  chatThreadId?: number;
 }): McpSdkServerConfigWithInstance {
-  const tools = buildTools(i.client, i.onBehalfOfId, i.profile, i.threadBinding, i.delegationContext, i.hostBridge);
+  const tools = buildTools(
+    i.client,
+    i.onBehalfOfId,
+    i.profile,
+    i.threadBinding,
+    i.delegationContext,
+    i.hostBridge,
+    i.chatThreadId,
+  );
   // 라우터·서브에이전트 호출이 같은 인스턴스를 공유하므로 seq 카운터 1개로 전체 순서 보존.
   let seq = 0;
   const ctx: AdaptCtx = { onTool: i.onTool, nextSeq: () => (seq += 1) };

@@ -229,6 +229,18 @@ describe('buildOpencodeConfig', () => {
     });
   });
 
+  // WP-244: chat 도구의 실행 스레드 바인딩이 stdio MCP env 로 전달된다.
+  it('mcp.chatThreadId 있으면 MCP_CHAT_THREAD_ID 추가', () => {
+    const client = {} as unknown as WorkplaceApiClient;
+    const cfg = buildOpencodeConfig(
+      baseInput({ mcp: { client, profile: 'chat', onBehalfOfId: 1, chatThreadId: 17 } }),
+      'run-1',
+      ['cmd'],
+    );
+    const env = (cfg.mcp?.workplace as { environment?: Record<string, string> }).environment;
+    expect(env?.MCP_CHAT_THREAD_ID).toBe('17');
+  });
+
   it('mcp.hostBridge 있으면 MCP_BRIDGE_URL/MCP_BRIDGE_RUN_ID 추가', () => {
     const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(
