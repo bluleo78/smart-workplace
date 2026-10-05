@@ -38,6 +38,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   move_wiki_page: { label: '노트 이동', icon: '📦' },
   // 이슈 컨텍스트 대화
   get_chat_thread: { label: '대화 조회', icon: '💬' },
+  read_attachment_text: { label: '첨부 읽기', icon: '📎' },
   add_chat_message: { label: '메시지 작성', icon: '💬' },
   // 메시징
   list_channels: { label: '채널 목록', icon: '📋' },

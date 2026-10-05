@@ -210,6 +210,7 @@ describe('프로필 구성', () => {
       'get_issue_detail',
       'get_wiki_page',
       'list_wiki_spaces',
+      'read_attachment_text',
       'search_wiki',
     ]);
   });
@@ -440,6 +441,38 @@ describe('chat 도구', () => {
     expect(await t.handler({ threadId: 5, body: '첫 답변' })).toBe('ok');
     expect(await t.handler({ threadId: 5, body: '두 번째 답변' })).toContain('이미');
     expect(c.addChatMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('read_attachment_text(issueKey) → readIssueAttachmentText(agentId, issueKey, fileId, offset, limit)', async () => {
+    const c = client();
+    vi.mocked(c.readIssueAttachmentText).mockResolvedValue({
+      fileId: 3, status: 'READY', offset: 0, totalChars: 2, truncated: false, nextOffset: null, text: '본문', reasonCode: null, reason: null,
+    });
+    const out = await find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text').handler({ issueKey: 'WP-1', fileId: 3, offset: 0, limit: 100 });
+    expect(c.readIssueAttachmentText).toHaveBeenCalledWith(AGENT_ID, 'WP-1', 3, 0, 100);
+    expect(JSON.parse(out as string).text).toBe('본문');
+  });
+
+  it('read_attachment_text(threadId) → readChatAttachmentText, offset·limit 생략 시 undefined', async () => {
+    const c = client();
+    vi.mocked(c.readChatAttachmentText).mockResolvedValue({ fileId: 8, status: 'PENDING' } as never);
+    await find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text').handler({ threadId: 5, fileId: 8 });
+    expect(c.readChatAttachmentText).toHaveBeenCalledWith(AGENT_ID, 5, 8, undefined, undefined);
+  });
+
+  it('read_attachment_text: issueKey·threadId 둘 다/둘 다 없음 → 오류, API 미호출', async () => {
+    const c = client();
+    const t = find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text');
+    await expect(t.handler({ fileId: 3 })).rejects.toThrow();
+    await expect(t.handler({ fileId: 3, issueKey: 'WP-1', threadId: 5 })).rejects.toThrow();
+    expect(c.readIssueAttachmentText).not.toHaveBeenCalled();
+    expect(c.readChatAttachmentText).not.toHaveBeenCalled();
+  });
+
+  it('read_attachment_text: limit 은 1..32000', async () => {
+    const t = find(buildTools(client(), AGENT_ID, 'chat'), 'read_attachment_text');
+    await expect(t.handler({ issueKey: 'WP-1', fileId: 3, limit: 32001 })).rejects.toThrow();
+    await expect(t.handler({ issueKey: 'WP-1', fileId: 3, limit: 0 })).rejects.toThrow();
   });
 
   it('get_chat_thread → client.getChatMessages(agentId, threadId, 50)', async () => {

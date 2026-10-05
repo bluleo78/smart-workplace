@@ -30,6 +30,18 @@ const getChatThreadInput = z.object({
   threadId: z.number().int().positive(),
 });
 
+// WP-244: 첨부 추출 텍스트 구간 읽기 입력 — 이슈 첨부는 issueKey, 챗 메시지 첨부는 threadId 중 정확히 하나.
+// limit 상한 32000 은 서버 계약(WP-242)과 같다 — 넘기면 서버가 400 이므로 스키마에서 먼저 막는다.
+// refine(ZodEffects)을 쓰지 않는 이유: sdk-mcp-server·stdio-entry 가 inputSchema.shape 를 읽으므로
+// 반드시 순수 z.object 여야 한다. "정확히 하나" 검사는 handler 에서 수행한다.
+const readAttachmentTextInput = z.object({
+  fileId: z.number().int().positive(),
+  issueKey: z.string().min(1).optional(),
+  threadId: z.number().int().positive().optional(),
+  offset: z.number().int().min(0).optional(),
+  limit: z.number().int().min(1).max(32000).optional(),
+});
+
 // #833: 구성원 쓰기 제안 입력. roleId 대신 역할명을 받는다 — 실행기가 서버에서 이름→id 를 해석하므로
 // 에이전트에 role:read 권한을 추가로 줄 필요가 없다.
 const proposeSetMemberRoleInput = z.object({
@@ -383,6 +395,24 @@ export function buildTools(
         async handler(args) {
           const { threadId } = getChatThreadInput.parse(args);
           return JSON.stringify(await client.getChatMessages(agentId, threadId, 50));
+        },
+      },
+      {
+        name: 'read_attachment_text',
+        description:
+          '첨부파일의 추출 텍스트를 구간 단위로 읽습니다. 프롬프트 첨부 섹션에 적힌 그대로 호출하세요 — 이슈 첨부는 issueKey, 챗 첨부는 threadId 와 fileId. ' +
+          '결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽습니다. status 가 READY 가 아니면 text 없이 상태·사유만 옵니다.',
+        inputSchema: readAttachmentTextInput,
+        async handler(args) {
+          const { fileId, issueKey: key, threadId, offset, limit } = readAttachmentTextInput.parse(args);
+          // 이슈 첨부/챗 첨부는 조회 경로가 달라 정확히 하나만 허용 — API 호출 전에 차단한다.
+          if ((key === undefined) === (threadId === undefined)) {
+            throw new Error('issueKey(이슈 첨부) 또는 threadId(챗 첨부) 중 정확히 하나를 지정하세요');
+          }
+          const slice = key !== undefined
+            ? await client.readIssueAttachmentText(agentId, key, fileId, offset, limit)
+            : await client.readChatAttachmentText(agentId, threadId!, fileId, offset, limit);
+          return JSON.stringify(slice);
         },
       },
       {
