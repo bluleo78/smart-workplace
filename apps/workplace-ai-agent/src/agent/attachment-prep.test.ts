@@ -3,55 +3,50 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, realpathSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import {
-  prepareAttachments,
-  createAttachmentWorkDir,
-  attachmentRootDir,
-} from './attachment-prep.js';
+import { downloadAttachments, createAttachmentWorkDir, attachmentRootDir } from './attachment-prep.js';
+import { NO_EXTRACTION, type AgentAttachment } from './attachment-source.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
-describe('prepareAttachments', () => {
+function att(fileId: number, origin: AgentAttachment['origin'], sizeBytes = 5, name = 'a.png'): AgentAttachment {
+  return { origin, fileId, originalName: name, mimeType: 'image/png', sizeBytes, extraction: NO_EXTRACTION };
+}
+
+describe('downloadAttachments', () => {
   let dir = '';
   let client: WorkplaceApiClient;
-
   beforeEach(() => {
     dir = mkdtempSync(path.join(tmpdir(), 'att-test-'));
     client = {
-      listIssueAttachments: vi.fn(),
-      downloadIssueAttachment: vi.fn(),
+      downloadIssueAttachment: vi.fn().mockResolvedValue({ data: Buffer.from('PNGAB'), mimeType: 'image/png' }),
+      downloadChatAttachment: vi.fn().mockResolvedValue({ data: Buffer.from('CHAT'), mimeType: 'image/png' }),
     } as unknown as WorkplaceApiClient;
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('첨부 다운로드 → 파일 기록 + manifest', async () => {
-    vi.mocked(client.listIssueAttachments).mockResolvedValue([
-      { fileId: 3, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 5 },
-    ]);
-    vi.mocked(client.downloadIssueAttachment).mockResolvedValue({
-      data: Buffer.from('PNGAB'),
-      mimeType: 'image/png',
-    });
-
-    const manifest = await prepareAttachments(client, 99, 'WP-1', dir);
-
-    expect(manifest).toHaveLength(1);
-    expect(manifest[0]).toMatchObject({ originalName: 'a.png', skipped: false });
-    expect(existsSync(manifest[0].localPath!)).toBe(true);
-    expect(readFileSync(manifest[0].localPath!, 'utf8')).toBe('PNGAB');
+  it('이슈 첨부 → downloadIssueAttachment 로 받아 파일 기록', async () => {
+    const r = await downloadAttachments(client, 99, [att(3, { kind: 'issue', issueKey: 'WP-1' })], dir);
+    const o = r.get(3) as { localPath: string };
+    expect(existsSync(o.localPath)).toBe(true);
+    expect(readFileSync(o.localPath, 'utf8')).toBe('PNGAB');
+    expect(client.downloadIssueAttachment).toHaveBeenCalledWith(99, 'WP-1', 3);
   });
 
-  it('파일당 상한 초과 → skip', async () => {
-    vi.mocked(client.listIssueAttachments).mockResolvedValue([
-      { fileId: 4, originalName: 'big.bin', mimeType: 'application/octet-stream', sizeBytes: 11 * 1024 * 1024 },
-    ]);
-    const manifest = await prepareAttachments(client, 99, 'WP-1', dir);
-    expect(manifest[0].skipped).toBe(true);
+  it('챗 첨부 → downloadChatAttachment(threadId, messageId)', async () => {
+    const r = await downloadAttachments(client, 99, [att(8, { kind: 'chat', threadId: 5, messageId: 9 })], dir);
+    expect(client.downloadChatAttachment).toHaveBeenCalledWith(99, 5, 9, 8);
+    expect(readFileSync((r.get(8) as { localPath: string }).localPath, 'utf8')).toBe('CHAT');
+  });
+
+  it('파일당 상한 초과 → skipReason, 다운로드 안 함', async () => {
+    const r = await downloadAttachments(client, 99, [att(4, { kind: 'issue', issueKey: 'WP-1' }, 11 * 1024 * 1024)], dir);
+    expect(r.get(4)).toEqual({ skipReason: '파일당 상한(10MB) 초과' });
     expect(client.downloadIssueAttachment).not.toHaveBeenCalled();
   });
 
-  it('첨부 없음 → 빈 manifest', async () => {
-    vi.mocked(client.listIssueAttachments).mockResolvedValue([]);
-    expect(await prepareAttachments(client, 99, 'WP-1', dir)).toEqual([]);
+  it('다운로드 실패 → skipReason 에 사유', async () => {
+    vi.mocked(client.downloadIssueAttachment).mockRejectedValue(new Error('boom'));
+    const r = await downloadAttachments(client, 99, [att(3, { kind: 'issue', issueKey: 'WP-1' })], dir);
+    expect(r.get(3)).toEqual({ skipReason: '다운로드 실패: boom' });
   });
 });
 

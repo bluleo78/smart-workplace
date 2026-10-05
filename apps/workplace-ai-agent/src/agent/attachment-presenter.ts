@@ -1,0 +1,103 @@
+// WP-244: 공통 첨부 목록(AgentAttachment)을 러너에 맞는 프롬프트 문구로 바꾼다.
+// Claude 는 이미지·PDF 를 로컬 Read 로 직접 보고, 그 외는 추출 텍스트 도구로 읽는다.
+// opencode 는 빌트인 도구가 막혀 로컬 파일을 못 읽으므로 추출 텍스트 도구만 안내한다(이미지는 볼 수 없음).
+import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+import type { ProviderCredential } from './agent-runner.js';
+import { downloadAttachments, type DownloadOutcome } from './attachment-prep.js';
+import type { AgentAttachment } from './attachment-source.js';
+
+export type RunnerKind = ProviderCredential['provider'];
+
+export interface PresentedAttachments {
+  section: string; // 프롬프트 "## 첨부파일" 본문
+  guidance: string; // 첨부 읽는 방법 안내(첨부 없으면 빈 문자열)
+}
+
+type FileKind = 'image' | 'pdf' | 'other';
+
+function fileKind(mime: string): FileKind {
+  if (mime.startsWith('image/')) return 'image';
+  if (mime === 'application/pdf') return 'pdf';
+  return 'other';
+}
+
+/** 프롬프트에 그대로 옮겨 쓸 도구 호출 예 — 모델이 출처 인자를 헷갈리지 않게 완성형으로 준다. */
+function toolCall(a: AgentAttachment): string {
+  const where = a.origin.kind === 'issue' ? `issueKey:"${a.origin.issueKey}"` : `threadId:${a.origin.threadId}`;
+  return `read_attachment_text({${where}, fileId:${a.fileId}})`;
+}
+
+/** 추출 상태별 한 줄(공통). READY 만 도구 호출을 안내하고, 나머지는 상태·사유만 — 재업로드 요청을 유도하지 않는다. */
+function extractionLine(a: AgentAttachment): string {
+  const x = a.extraction;
+  switch (x.status) {
+    case 'READY':
+      return `텍스트: ${toolCall(a)} — 약 ${x.totalChars ?? 0}자${x.truncated ? ' (추출 상한으로 잘림)' : ''}`;
+    case 'PENDING':
+      return '텍스트 추출 중 — 잠시 후 다시 물어봐 달라고 안내';
+    case 'SKIPPED':
+    case 'FAILED':
+      return `텍스트로 읽을 수 없음: ${x.reason ?? '사유 미상'}`;
+    default:
+      return '텍스트 추출 대상 아님';
+  }
+}
+
+function header(a: AgentAttachment): string {
+  const where = a.origin.kind === 'issue' ? '이슈 첨부' : '챗 첨부';
+  return `- [${where}] ${a.originalName} (${a.mimeType}, ${a.sizeBytes}B)`;
+}
+
+function localLine(o: DownloadOutcome | undefined): string {
+  if (!o) return '로컬 파일 없음';
+  return 'localPath' in o ? `로컬경로: ${o.localPath}` : `원본 건너뜀: ${o.skipReason}`;
+}
+
+/** 항목별 하위 줄 — 러너·파일 종류·추출 상태 조합. */
+function detailLines(kind: RunnerKind, a: AgentAttachment, downloads: Map<number, DownloadOutcome>): string[] {
+  const fk = fileKind(a.mimeType);
+  if (kind === 'anthropic') {
+    if (fk === 'image') return [localLine(downloads.get(a.fileId))];
+    if (fk === 'pdf') {
+      const o = downloads.get(a.fileId);
+      const lines = [localLine(o)];
+      // PDF 는 Read 로 그림까지 보지만, 길거나 원본을 못 받았을 때를 위해 READY 면 텍스트 도구도 병기한다.
+      if (a.extraction.status === 'READY' || !o || !('localPath' in o)) lines.push(extractionLine(a));
+      return lines;
+    }
+    return [extractionLine(a)];
+  }
+  if (fk === 'image') return ['이 비서(모델)는 이미지를 볼 수 없음 — 내용을 글로 알려 달라고 안내'];
+  return [extractionLine(a)];
+}
+
+const GUIDANCE_CLAUDE =
+  '첨부는 위 안내대로 읽으세요: 로컬경로는 Read, 텍스트는 read_attachment_text(결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽기). ' +
+  '추출 중이거나 읽을 수 없는 첨부는 그 상태와 사유를 알리고, 다시 올려 달라고 요청하지 마세요.';
+const GUIDANCE_OPENCODE =
+  '첨부는 위 안내대로 read_attachment_text 로 읽으세요(결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽기). ' +
+  '추출 중이거나 읽을 수 없는 첨부는 그 상태와 사유를 알리고, 다시 올려 달라고 요청하지 마세요.';
+
+export async function presentAttachments(
+  kind: RunnerKind,
+  attachments: AgentAttachment[],
+  deps: { client: WorkplaceApiClient; agentId: number; workDir: string },
+): Promise<PresentedAttachments> {
+  if (attachments.length === 0) return { section: '첨부 없음', guidance: '' };
+
+  // Claude 만 원본을 받는다 — 이미지·PDF 처럼 Read 로 직접 보는 편이 나은 것만(오피스는 원본이 쓸모없다).
+  const downloads =
+    kind === 'anthropic'
+      ? await downloadAttachments(
+          deps.client,
+          deps.agentId,
+          attachments.filter((a) => fileKind(a.mimeType) !== 'other'),
+          deps.workDir,
+        )
+      : new Map<number, DownloadOutcome>();
+
+  const section = attachments
+    .map((a) => [header(a), ...detailLines(kind, a, downloads).map((l) => `  - ${l}`)].join('\n'))
+    .join('\n');
+  return { section, guidance: kind === 'anthropic' ? GUIDANCE_CLAUDE : GUIDANCE_OPENCODE };
+}

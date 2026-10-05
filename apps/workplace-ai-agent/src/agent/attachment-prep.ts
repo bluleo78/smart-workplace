@@ -1,10 +1,12 @@
-// 6c: 이슈 첨부를 per-run 임시폴더로 다운로드. 용량 가드 + manifest 반환.
-// 모델은 이 manifest 의 localPath 를 Read 로 직접 읽는다(이미지/PDF/텍스트 네이티브).
+// 이슈 챗 첨부 원본을 per-run 임시폴더로 받는 Claude 전용 헬퍼(WP-244 에서 presenter 하위로 축소).
+// Claude 는 이미지·PDF 를 Read 로 직접 본다. opencode 에는 원본을 받지 않고 추출 텍스트 도구만 안내한다(presenter 참고).
+// 실행 폴더(createAttachmentWorkDir)는 opencode read 를 가두는 에이전트별 루트 아래에 만든다(WP-236).
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+import type { AgentAttachment } from './attachment-source.js';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 파일당 10MB
 const MAX_TOTAL_BYTES = 30 * 1024 * 1024; // 합계 30MB
@@ -25,57 +27,43 @@ export function createAttachmentWorkDir(agentId: number, threadId: number): stri
   return mkdtempSync(path.join(attachmentRootDir(agentId), `chat-agent-${threadId}-`));
 }
 
-export interface AttachmentManifestEntry {
-  fileId: number;
-  originalName: string;
-  mimeType: string;
-  sizeBytes: number;
-  skipped: boolean;
-  skipReason?: string;
-  localPath?: string;
-}
+export type DownloadOutcome = { localPath: string } | { skipReason: string };
 
 // 안전한 파일명 — 경로 분리자/상위 이동 제거.
 function safeName(name: string): string {
   return path.basename(name).replace(/[^\w.\-가-힣 ]+/g, '_');
 }
 
-export async function prepareAttachments(
+/** 주어진 첨부만 순서대로 받는다. 상한·실패는 skipReason 으로 돌려주고 나머지는 계속 받는다. */
+export async function downloadAttachments(
   client: WorkplaceApiClient,
   agentId: number,
-  issueKey: string,
+  attachments: AgentAttachment[],
   destDir: string,
-): Promise<AttachmentManifestEntry[]> {
-  const list = await client.listIssueAttachments(agentId, issueKey);
-  const manifest: AttachmentManifestEntry[] = [];
+): Promise<Map<number, DownloadOutcome>> {
+  const result = new Map<number, DownloadOutcome>();
   let total = 0;
-
-  for (const a of list) {
-    const base: AttachmentManifestEntry = {
-      fileId: a.fileId,
-      originalName: a.originalName,
-      mimeType: a.mimeType,
-      sizeBytes: a.sizeBytes,
-      skipped: false,
-    };
+  for (const a of attachments) {
     if (a.sizeBytes > MAX_FILE_BYTES) {
-      manifest.push({ ...base, skipped: true, skipReason: '파일당 상한(10MB) 초과' });
+      result.set(a.fileId, { skipReason: '파일당 상한(10MB) 초과' });
       continue;
     }
     if (total + a.sizeBytes > MAX_TOTAL_BYTES) {
-      manifest.push({ ...base, skipped: true, skipReason: '합계 상한(30MB) 초과' });
+      result.set(a.fileId, { skipReason: '합계 상한(30MB) 초과' });
       continue;
     }
     try {
-      const { data } = await client.downloadIssueAttachment(agentId, issueKey, a.fileId);
+      const { data } =
+        a.origin.kind === 'issue'
+          ? await client.downloadIssueAttachment(agentId, a.origin.issueKey, a.fileId)
+          : await client.downloadChatAttachment(agentId, a.origin.threadId, a.origin.messageId, a.fileId);
       const localPath = path.join(destDir, `${a.fileId}-${safeName(a.originalName)}`);
       writeFileSync(localPath, data);
       total += a.sizeBytes;
-      manifest.push({ ...base, localPath });
+      result.set(a.fileId, { localPath });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      manifest.push({ ...base, skipped: true, skipReason: `다운로드 실패: ${msg}` });
+      result.set(a.fileId, { skipReason: `다운로드 실패: ${e instanceof Error ? e.message : String(e)}` });
     }
   }
-  return manifest;
+  return result;
 }
