@@ -45,14 +45,14 @@ function createCycle(o: Partial<CycleResponse>): CycleResponse {
 }
 
 /** period: 기본 'all'(기간 거름 없이 기존 검증 유지), null 이면 period 없이 진입해 기본(활성 사이클) 기간을 쓴다. */
-async function setup(page: Page, opts: { member?: boolean; query?: string; cycles?: CycleResponse[]; period?: string | null } = {}) {
+async function setup(page: Page, opts: { member?: boolean; query?: string; cycles?: CycleResponse[]; period?: string | null; issues?: IssueResponse[] } = {}) {
   await page.clock.setFixedTime(new Date('2026-10-15T03:00:00Z')); // 오늘 = 2026-10-15(KST)
   await stubChat(page);
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, viewerIsMember: opts.member ?? true }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues`, (r) => {
     // 상태 DONE 필터 = 0건(빈 상태 케이스).
     const status = new URL(r.request().url()).searchParams.get('status') ?? '';
-    return r.fulfill(json(createIssueSearchResponse(status.includes('DONE') ? [] : ISSUES, null)));
+    return r.fulfill(json(createIssueSearchResponse(status.includes('DONE') ? [] : (opts.issues ?? ISSUES), null)));
   });
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/milestones`, (r) => r.fulfill(json(MILESTONES)));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/cycles`, (r) => r.fulfill(json(opts.cycles ?? [])));
@@ -217,12 +217,14 @@ test('기간 칩 — 맨 앞에 활성 사이클 라벨, 시트에서 바꾸면 
   // 에픽 40(10/1~12/15)이 기간과 겹쳐 11월 하위 41 도 함께 남는다 — 에픽은 기본 접힘이라 펼쳐서 확인(WP-251).
   await expandEpic(page, 40);
   await expect(page.getByTestId('agenda-row-41')).toBeVisible();
-  await expect(page.getByTestId('agenda-row-13')).toHaveCount(0); // 11/2 시작 단독 — 기간 밖
+  await expect(page.getByTestId('agenda-row-25')).toHaveCount(0); // 10/25 마감 단독 — 기간(10/8~10/21) 밖
+  // 마감일 없는 단독(13, 11/2 시작)은 간트에선 「일정 미정」이라 기간과 무관하게 남는다.
+  await expect(page.getByTestId('agenda-row-13')).toBeVisible();
   await page.getByTestId('agenda-chip-period').click();
   const sheet = page.getByTestId('agenda-period-sheet');
   await sheet.getByTestId('picker-option-all').click();
   await expect(page).toHaveURL(/period=all/);
-  await expect(page.getByTestId('agenda-row-13')).toBeVisible();
+  await expect(page.getByTestId('agenda-row-25')).toBeVisible();
   // 필터 개수에는 기간이 들어가지 않는다.
   await expect(page.getByTestId('agenda-chip-filter')).toHaveText('필터');
   await expectNoHorizontalOverflow(page);
@@ -240,7 +242,8 @@ test('응답 0건이면 기본(활성) 기간이어도 기간 문구가 아닌 �
 
 test('기간에 걸친 일정 있는 이슈가 없으면 미정 섹션 위에 기간 빈 상태 — 데스크톱과 같은 조건 (WP-247)', async ({ authenticatedPage: page }) => {
   // 모든 일정 있는 이슈와 먼 직접 지정 기간 — 일정 미정 이슈(11·12)는 기간과 무관하게 남는다.
-  await setup(page, { period: 'range:2030-01-01~2030-01-31' });
+  // 시작일만 있는 13 은 마감일이 없어 기간과 무관하게 남고, 모바일에선 시작 월(11월) 섹션에 보이므로 이 검증에서 뺀다.
+  await setup(page, { period: 'range:2030-01-01~2030-01-31', issues: ISSUES.filter((i) => i.number !== 13) });
   const empty = page.getByTestId('timeline-agenda-empty');
   await expect(empty).toContainText('이 기간에 걸친 이슈가 없어요');
   await expect(empty).toContainText('기간을 「전체」로 바꿔 보세요');
@@ -263,8 +266,8 @@ test('기간 시트 「직접 지정」 — 날짜 두 칸을 적용하면 URL·
   await expect(page).toHaveURL(/period=range(:|%3A)2026-10-01(~|%7E)2026-10-14/);
   await expect(page.getByTestId('agenda-chip-period')).toContainText('10/1–10/14');
   await expect(sheet).toHaveCount(0);
-  // 기간 밖 단독 이슈(11/2 시작)는 빠진다.
-  await expect(page.getByTestId('agenda-row-13')).toHaveCount(0);
+  // 기간 밖 단독 이슈(10/25 마감)는 빠진다.
+  await expect(page.getByTestId('agenda-row-25')).toHaveCount(0);
 });
 
 test('완료 에픽은 완료 배지, 「취소」 필터면 취소 에픽이 배지·취소선으로, 옮겨진 하위는 단독 행 (WP-247)', async ({ authenticatedPage: page }) => {

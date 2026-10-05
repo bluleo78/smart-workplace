@@ -140,7 +140,8 @@ function epicProgress(epic: IssueResponse | null | undefined, kids: IssueRespons
 
 /**
  * 하위 실제 범위 — 하위 날짜(시작·마감) 전체의 최소 ~ 최대. 날짜 있는 하위가 없으면 null.
- * 시작 > 마감인 잘못된 데이터도 뒤집히지 않는다. 아젠다 얇은 막대(WP-251)와 조회 기간 거름(WP-247)이 같은 정의를 쓴다.
+ * 시작 > 마감인 잘못된 데이터도 뒤집히지 않는다. 아젠다 얇은 막대·머리 행 날짜(WP-251)용.
+ * 조회 기간 거름은 간트 막대와 맞추려고 이것 대신 마감일 있는 하위만의 rollupRange 를 쓴다(WP-247).
  */
 function childDateSpan(kids: Pick<IssueResponse, 'startDate' | 'dueDate'>[]): DateSpan | null {
   const dates = kids.flatMap((k) => [k.startDate, k.dueDate]).filter((d): d is string => d != null).sort();
@@ -157,9 +158,11 @@ function intersectSpan(a: DateSpan, b: DateSpan): DateSpan | null {
 /**
  * 타임라인에 올릴 이슈 — 간트(groupTimelineIssues)와 모바일 아젠다(buildAgendaSections)가 같은 규칙을 쓴다.
  * 1) 상태: SUBTASK 제외. 취소 이슈·취소 에픽은 「취소」 상태 필터(includeCanceled)일 때만 남긴다.
- *    취소된 에픽의 할 일·진행 중 하위는 부모를 떼어 「에픽 없음」으로 옮기고(formerEpicTitle), 완료·취소 하위는 숨긴다.
- * 2) 기간(period): 에픽은 자체 기간 또는 하위 실제 범위가 겹치면 하위 전부와 함께 보인다(일정 초과 하위도 보이게).
- *    에픽 없는 이슈는 자기 구간으로. 날짜가 전혀 없는 에픽·이슈는 「일정 미정」에 남도록 거르지 않는다.
+ *    취소된 에픽의 할 일·진행 중 하위는 부모를 떼어 「에픽 없음」으로 옮기고(formerEpicTitle), 완료·취소 하위는
+ *    「취소」 필터면 (보이는) 취소 에픽 아래 그대로 두고, 아니면 숨긴다.
+ * 2) 기간(period): 에픽은 간트 막대와 같은 정의로 판단한다 — 자체 기간(epicOwnRange) 또는 마감일 있는 하위 롤업
+ *    (rollupRange — 간트 range/얇은 막대와 같은 min(start ?? due) ~ max(due))이 겹치면 하위 전부와 함께 보인다(일정 초과 하위도 보이게).
+ *    에픽 없는 이슈는 자기 구간으로. 마감일이 없는 이슈(간트에선 막대 없이 「일정 미정」)와 막대가 없는 에픽은 거르지 않는다.
  */
 export function prepareTimelineIssues(
   issues: IssueResponse[],
@@ -174,6 +177,8 @@ export function prepareTimelineIssues(
     const canceledParent = i.parent?.type.name === 'EPIC' ? canceledEpics.get(i.parent.number) : undefined;
     if (canceledParent !== undefined) {
       if (i.status === 'TODO' || i.status === 'IN_PROGRESS') byStatus.push({ ...i, parent: null, formerEpicTitle: canceledParent });
+      // 완료·취소 하위 — 「취소」 필터로 취소 에픽이 보일 때는 그 아래 하위로 둔다.
+      else if (includeCanceled) byStatus.push(i);
       continue;
     }
     if (i.status === 'CANCELED' && !includeCanceled) continue;
@@ -195,18 +200,20 @@ export function prepareTimelineIssues(
   for (const num of new Set([...epicByNumber.keys(), ...kidsOf.keys()])) {
     const epic = epicByNumber.get(num);
     // 에픽 기간 = 간트 막대(groupTimelineIssues 의 range)와 같은 정의 — 막대는 기간 안인데 거름에서 빠지는 어긋남을 막는다(WP-247 코멘트, WP-248).
-    // 여기에 하위 실제 범위(rollup, WP-249 얇은 막대)를 더해 range ∪ rollup 과 겹치면 보인다 — 에픽 기간이 지났어도 남은 하위가 조회 기간에 걸치면 보이게.
+    // 여기에 마감일 있는 하위 롤업(간트 rollupRange — WP-249 얇은 막대와 같은 정의)을 더해 range ∪ rollup 과 겹치면 보인다 —
+    // 에픽 기간이 지났어도 남은 하위가 조회 기간에 걸치면 보이게. 마감일 없는 하위는 간트에 막대가 없어 판단에 넣지 않는다.
     const own = epic ? epicOwnRange(epic) : null;
-    const rollup = childDateSpan(kidsOf.get(num) ?? []);
-    // 마감일도 날짜 있는 하위도 없으면(시작일만 있는 에픽 포함) 간트에 막대가 없다 — 「일정 미정」처럼 기간과 무관하게 남긴다.
+    const rollup = rollupRange((kidsOf.get(num) ?? []).filter((k) => k.dueDate).map(toBar));
+    // 마감일도 마감일 있는 하위도 없으면(시작일만 있는 에픽 포함) 간트에 막대가 없다 — 「일정 미정」처럼 기간과 무관하게 남긴다.
     const undated = !own && !rollup;
     if (undated || (own && overlaps(own, period)) || (rollup && overlaps(rollup, period))) visibleEpics.add(num);
   }
   return byStatus.filter((i) => {
     if (i.type?.name === 'EPIC') return visibleEpics.has(i.number);
     if (i.parent?.type.name === 'EPIC') return visibleEpics.has(i.parent.number);
-    const span = spanOf(i.startDate, i.dueDate);
-    return span == null || overlaps(span, period);
+    // 마감일 없는 이슈는 간트에서 「일정 미정」(막대는 dueDate 필수) — 기간과 무관하게 남긴다.
+    if (!i.dueDate) return true;
+    return overlaps(spanOf(i.startDate, i.dueDate)!, period);
   });
 }
 

@@ -718,12 +718,12 @@ describe('prepareTimelineIssues — 조회 기간 (WP-247)', () => {
         issue({ number: 41, parent: parentRef(40, 'E'), dueDate: '2026-08-10' }),
         issue({ number: 1, dueDate: '2026-10-14' }), // 끝날 = 기간 끝 → 포함
         issue({ number: 2, startDate: '2026-10-15', dueDate: '2026-10-20' }), // 기간 다음날 시작 → 제외
-        issue({ number: 3, startDate: '2026-09-30' }), // 시작일만 — 하루 구간, 기간 전날 → 제외
+        issue({ number: 3, startDate: '2026-09-30' }), // 시작일만 — 마감일이 없어 간트에선 「일정 미정」 → 기간과 무관하게 남김
         issue({ number: 4, startDate: '2026-09-01', dueDate: '2026-12-01' }), // 기간을 감쌈 → 포함
       ],
       { period: P },
     );
-    expect(nums(r)).toEqual([1, 4]);
+    expect(nums(r)).toEqual([1, 3, 4]);
   });
 
   it('날짜 없는 에픽·이슈는 기간과 무관하게 남는다(일정 미정)', () => {
@@ -767,6 +767,47 @@ describe('prepareTimelineIssues — 조회 기간 (WP-247)', () => {
       { period: P },
     );
     expect(r.map((i) => [i.number, i.parent, i.formerEpicTitle])).toEqual([[72, null, '취소 에픽']]);
+  });
+
+  it('마감일 없는 단독 이슈는 시작일이 기간 밖이어도 남는다 — 간트에선 막대 없이 「일정 미정」', () => {
+    const xs = [issue({ number: 3, startDate: '2026-11-20' }), issue({ number: 4, startDate: '2026-11-20', dueDate: '2026-11-25' })];
+    expect(nums(prepareTimelineIssues(xs, { period: P }))).toEqual([3]);
+    // 간트에서도 일정 미정 섹션으로 간다.
+    expect(groupTimelineIssues(xs, { period: P }).unscheduled.map((i) => i.number)).toEqual([3]);
+  });
+
+  it('에픽 판정의 하위 범위는 마감일 있는 하위만(간트 rollupRange) — 시작일만 있는 하위는 넣지 않는다', () => {
+    const r = prepareTimelineIssues(
+      [
+        // 에픽 60: 자체 기간 없음. 하위 61 은 시작일만(기간 안), 62 는 8월 마감 → 막대 = 8월 → 빠진다.
+        issue({ number: 60, type: EPIC_TYPE }),
+        issue({ number: 61, parent: parentRef(60, 'G'), startDate: '2026-10-05' }),
+        issue({ number: 62, parent: parentRef(60, 'G'), dueDate: '2026-08-05' }),
+        // 에픽 65: 자체 기간 없음 + 하위가 시작일만 → 간트 막대 없음 → 일정 미정처럼 남긴다.
+        issue({ number: 65, type: EPIC_TYPE }),
+        issue({ number: 66, parent: parentRef(65, 'H'), startDate: '2026-12-01' }),
+      ],
+      { period: P },
+    );
+    expect(nums(r)).toEqual([65, 66]);
+    // 간트 막대(range)와 거름 판정이 같다 — 에픽 60 의 막대는 8월 하루.
+    const g = groupTimelineIssues([issue({ number: 60, type: EPIC_TYPE }), issue({ number: 62, parent: parentRef(60, 'G'), dueDate: '2026-08-05' })]);
+    expect(g.groups[0].range).toEqual({ start: '2026-08-05', due: '2026-08-05' });
+  });
+
+  it('취소 에픽의 완료·취소 하위 — 「취소」 필터면 취소 에픽 아래 하위로 남고, 아니면 숨는다. 남은 일은 늘 「에픽 없음」', () => {
+    const xs = [
+      issue({ number: 70, title: '취소 에픽', type: EPIC_TYPE, status: 'CANCELED', startDate: '2026-10-01', dueDate: '2026-10-10' }),
+      issue({ number: 71, parent: parentRef(70, '취소 에픽'), status: 'DONE', dueDate: '2026-10-03' }),
+      issue({ number: 72, parent: parentRef(70, '취소 에픽'), status: 'CANCELED', dueDate: '2026-10-04' }),
+      issue({ number: 73, parent: parentRef(70, '취소 에픽'), status: 'TODO', dueDate: '2026-10-05' }),
+    ];
+    expect(prepareTimelineIssues(xs).map((i) => [i.number, i.parent?.number ?? null])).toEqual([[73, null]]);
+    const withCanceled = prepareTimelineIssues(xs, { includeCanceled: true, period: P });
+    expect(withCanceled.map((i) => [i.number, i.parent?.number ?? null])).toEqual([[70, null], [71, 70], [72, 70], [73, null]]);
+    // 간트에선 취소 에픽 그룹 아래 완료·취소 하위 막대.
+    const epic = groupTimelineIssues(xs, { includeCanceled: true }).groups.find((g) => g.epicNumber === 70)!;
+    expect(epic.bars.map((b) => b.issueNumber)).toEqual([71, 72]);
   });
 
   it('period 가 없으면 거르지 않는다', () => {
