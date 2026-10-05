@@ -47,9 +47,15 @@ class AttachmentExtractionBackfillTest extends IntegrationTestBase {
   static class FakeSourceConfig {
     static final List<ExtractionBackfillSource.Target> TARGETS = new CopyOnWriteArrayList<>();
 
+    /** true 면 findMissing 이 예외를 던진다 — 시드 실패 격리 검증용. */
+    static volatile boolean THROW = false;
+
     @Bean
     ExtractionBackfillSource fakeBackfillSource() {
-      return limit -> TARGETS.stream().limit(limit).toList();
+      return limit -> {
+        if (THROW) throw new IllegalStateException("poison source");
+        return TARGETS.stream().limit(limit).toList();
+      };
     }
   }
 
@@ -66,6 +72,7 @@ class AttachmentExtractionBackfillTest extends IntegrationTestBase {
   @AfterEach
   void cleanup() {
     FakeSourceConfig.TARGETS.clear();
+    FakeSourceConfig.THROW = false;
     if (!fileIds.isEmpty()) {
       cleanupInTenant(
           TENANT,
@@ -123,6 +130,18 @@ class AttachmentExtractionBackfillTest extends IntegrationTestBase {
     FakeSourceConfig.TARGETS.add(new ExtractionBackfillSource.Target(fileId, "application/pdf"));
     scheduler.runOnce();
     // 공유 DB 에 다른 테스트 잔여 행이 있을 수 있어 최소 1회 호출 + 시드한 파일의 행이 EXTRACTING 으로 넘어갔는지로 확인한다.
+    verify(workerClient, atLeastOnce())
+        .dispatchExtract(anyLong(), any(), eq("application/pdf"), anyLong(), eq(true));
+    assertThat(row(fileId).get(0)).isEqualTo("EXTRACTING");
+  }
+
+  @Test
+  void 시드가_실패해도_기존_PENDING_복구_디스패치는_계속된다() {
+    long fileId = seedFile("application/pdf");
+    inTenantRun(
+        () -> rowWriter.write(fileId, TENANT, "application/pdf", ExtractionProfile.TEXT_ONLY));
+    FakeSourceConfig.THROW = true;
+    scheduler.runOnce();
     verify(workerClient, atLeastOnce())
         .dispatchExtract(anyLong(), any(), eq("application/pdf"), anyLong(), eq(true));
     assertThat(row(fileId).get(0)).isEqualTo("EXTRACTING");

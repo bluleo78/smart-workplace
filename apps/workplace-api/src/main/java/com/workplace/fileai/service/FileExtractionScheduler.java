@@ -45,11 +45,12 @@ public class FileExtractionScheduler {
   @SchedulerLock(name = "FileExtractionScheduler.runOnce")
   public void runOnce() {
     // ① 테넌트별 재개 대상 수집 — Runner 가 테넌트별 짧은 트랜잭션 + GUC 주입(RLS 통과).
+    // 기존 첨부 백필 시드(WP-244)는 별도 패스·별도 트랜잭션으로 먼저 돈다 — 시드가 실패(SQL 오류)해도 해당 테넌트의 아래 수집 패스
+    // (PENDING·lease 만료 복구)가 같이 롤백되지 않게 격리한다. 시드된 PENDING 행은 아래 findResumable 이 같은 회차에 줍는다.
+    tenantRunner.forEachActiveTenant(this::seedMissingAttachments);
     List<TenantFile> targets = new ArrayList<>();
     tenantRunner.forEachActiveTenant(
         tenantId -> {
-          // 기존 첨부 백필(WP-244): 추출 행이 없는 첨부에 TEXT_ONLY 행을 만든다 — 아래 findResumable 이 같은 회차에 디스패치한다.
-          seedMissingAttachments(tenantId);
           for (long fileId : jobRepo.findResumable()) {
             targets.add(new TenantFile(tenantId, fileId));
           }
