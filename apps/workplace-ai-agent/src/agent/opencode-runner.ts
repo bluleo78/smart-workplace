@@ -29,7 +29,11 @@ function requireOpencodeCredential(i: RunnerInput): OpencodeProviderConfig {
 // messaging/home 은 MCP_BRIDGE_RUN_ID(요청마다 고유)가 stdio 자식 프로세스 부팅 시 env 로
 // 고정되므로 서버 재사용이 브리지 콜백 라우팅을 깨뜨릴 수 있어 제외한다.
 // (docs/superpowers/specs/2026-07-03-opencode-warm-cache-design.md 참고)
-const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'chat', 'issue']);
+// WP-244: chat 도 제외한다 — chat 프로필의 add_chat_message 는 "실행당 1회" 가드(#433)를 buildTools 클로저에
+// 두는데, 재사용 서버는 stdio MCP 프로세스를 실행 사이에 살려 두므로 첫 답변 후 가드가 계속 true 로 남아
+// 이후 모든 이슈 챗 답변이 "이미 등록했습니다" 로 조용히 버려졌다. stdio MCP 의 env 는 서버 스폰 때 고정되고
+// opencode 는 MCP 호출에 세션별 식별자를 넘기지 않아 가드를 실행 단위로 묶을 통로가 없다 — 지연보다 정확성을 택한다.
+const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'issue']);
 
 // RunnerInput → 풀 키. 대상 프로필이 아니면 undefined(호출부가 풀을 건너뛰는 신호로 사용).
 // #849: 프로필과 무관하게 hostBridge 를 넘긴 실행도 제외한다 — 홈 채팅 라우터(assistant)가 propose 를
@@ -56,8 +60,9 @@ async function openSession(opencode: OpencodeHandle, query: { directory: string 
 }
 
 export class OpencodeRunner implements AgentRunner {
-  // 풀 대상 프로필(assistant/chat/issue)은 웜 서버 풀(opencode-server-pool.ts)에서 서버를
-  // 재사용하고, hostBridge 를 쓰는 messaging/home 은 실행별로 새 프로세스를 스폰해 완전 격리한다.
+  // 풀 대상 프로필(assistant/issue)은 웜 서버 풀(opencode-server-pool.ts)에서 서버를
+  // 재사용하고, hostBridge 를 쓰는 messaging/home 과 실행당 1회 가드가 있는 chat 은
+  // 실행별로 새 프로세스를 스폰해 완전 격리한다.
   stream(i: RunnerInput, onEvent: (e: RunnerEvent) => void): RunnerStreamHandle {
     const payload = requireOpencodeCredential(i);
 

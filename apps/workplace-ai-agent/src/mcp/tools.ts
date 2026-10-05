@@ -385,7 +385,8 @@ export function buildTools(
 
   if (profile === 'chat') {
     // #433: 단일 이벤트 처리 중 add_chat_message 중복 호출 방지.
-    // MCP 서버는 CLI run 당 하나의 프로세스로 실행되어 buildTools 클로저가 run 단위로 격리된다.
+    // buildTools 클로저가 run 단위로 격리돼야 성립한다 — Claude 는 실행마다 인-프로세스 서버를 새로 만들고,
+    // opencode 는 chat 프로필을 웜 풀에서 빼 실행마다 stdio MCP 프로세스를 새로 띄운다(WP-244, opencode-runner.ts).
     // 시스템 프롬프트 지시를 AI가 무시하는 비결정적 동작을 코드 레벨에서 결정론적으로 차단한다.
     let addChatMessageCalled = false;
     return [

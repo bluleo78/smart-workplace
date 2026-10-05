@@ -1,6 +1,6 @@
 // Task14(#627) — opencode 러너 웜 서버 풀. OpencodeRunner.stream() 이 요청마다 opencode 서버
 // 프로세스를 새로 스폰했다 죽이는 대신(스폰 자체가 ~380~400ms), hostBridge 를 쓰지 않는 프로필
-// (assistant/chat/issue)에 한해 이 모듈이 서버 프로세스를 키(agentId+profile+onBehalfOfId+model)
+// (assistant/issue — chat 은 실행당 1회 가드 때문에 제외, opencode-runner.ts 참고)에 한해 이 모듈이 서버 프로세스를 키(agentId+profile+onBehalfOfId+model)
 // 별로 재사용한다. bridge-registry.ts 와 동일한 패턴 — 모듈 스코프 Map, 프로세스 재시작 시
 // 초기화되어도 무방(영속화 불필요). 설계 근거: docs/superpowers/specs/2026-07-03-opencode-warm-cache-design.md
 import type { createOpencode } from '@opencode-ai/sdk';

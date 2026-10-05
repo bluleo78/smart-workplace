@@ -616,6 +616,25 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     expect(serverClose).toHaveBeenCalledTimes(1);
   });
 
+  // WP-244: chat 프로필의 add_chat_message 실행당 1회 가드는 stdio MCP 프로세스(클로저)에 산다 — 서버를 재사용하면
+  // 첫 답변 후 가드가 남아 이후 답변이 모두 버려졌다. 매 실행 새로 스폰해야 한다.
+  it("profile='chat' 은 풀을 거치지 않고 실행마다 새로 스폰한 뒤 요청 종료 시 server.close() 한다", async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(
+      baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'chat', onBehalfOfId: 1 } }),
+      () => {},
+    );
+    await handle.done;
+
+    expect(acquireServer).not.toHaveBeenCalled();
+    expect(releaseServer).not.toHaveBeenCalled();
+    expect(serverClose).toHaveBeenCalledTimes(1);
+  });
+
   it('mcp 가 없으면(mcp undefined) 풀을 거치지 않고 기존처럼 완전 스폰/종료한다', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
@@ -659,7 +678,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
 
     const runner = new OpencodeRunner();
     const handle = runner.stream(
-      baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'chat', onBehalfOfId: 1 } }),
+      baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'assistant', onBehalfOfId: 1 } }),
       () => {},
     );
 
