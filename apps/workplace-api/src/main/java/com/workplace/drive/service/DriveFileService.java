@@ -12,14 +12,15 @@ import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.outbound.DriveChangeNotifier;
-import com.workplace.drive.outbound.DriveFileUploadedEvent;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.drive.repository.DriveQuotaRepository;
 import com.workplace.file.dto.FileUploadResponse;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.ExtractionReasons;
+import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.repository.UserRepository;
 import java.io.IOException;
@@ -121,21 +122,14 @@ public class DriveFileService {
             "sizeBytes", file.getSize(),
             "versionNo", versionNo));
 
-    // 추출 파이프라인 트리거 — 커밋 후 FileExtractionListener 가 file_extraction 행을 생성(PENDING/SKIPPED).
-    // storageKey 는 file 테이블의 storage_path(워커가 blob 위치 특정에 사용).
-    String storageKey =
-        dsl.select(com.workplace.jooq.Tables.FILE.STORAGE_PATH)
-            .from(com.workplace.jooq.Tables.FILE)
-            .where(com.workplace.jooq.Tables.FILE.ID.eq(uploaded.id()))
-            .fetchOne(com.workplace.jooq.Tables.FILE.STORAGE_PATH);
+    // 추출 파이프라인 트리거(WP-242) — 같은 트랜잭션에서 file_extraction 행이 생기고, 커밋 후 워커로 디스패치된다.
+    // 드라이브는 요약·임베딩까지 하는 FULL 프로파일.
     eventPublisher.publishEvent(
-        new DriveFileUploadedEvent(
+        new FileExtractionRequestedEvent(
             uploaded.id(),
             tenantId != null ? tenantId : 0L,
             uploaded.mimeType(),
-            uploaded.fileCategory(),
-            file.getSize(),
-            storageKey != null ? storageKey : ""));
+            ExtractionProfile.FULL));
 
     // 새 버전 흡수도 created 로 둔다(프론트는 op 구분 없이 목록을 갱신).
     notifier.itemsChanged(OP_CREATED, spaceId, List.of(driveFileId), callerId);

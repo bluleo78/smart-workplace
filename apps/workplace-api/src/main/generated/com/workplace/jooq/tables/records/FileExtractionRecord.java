@@ -296,6 +296,20 @@ public class FileExtractionRecord extends UpdatableRecordImpl<FileExtractionReco
         return get(17);
     }
 
+    /**
+     * Setter for <code>public.file_extraction.profile</code>.
+     */
+    public void setProfile(String value) {
+        set(18, value);
+    }
+
+    /**
+     * Getter for <code>public.file_extraction.profile</code>.
+     */
+    public String getProfile() {
+        return (String) get(18);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -319,7 +333,7 @@ public class FileExtractionRecord extends UpdatableRecordImpl<FileExtractionReco
     /**
      * Create a detached, initialised FileExtractionRecord
      */
-    public FileExtractionRecord(Long fileId, String status, String extractedText, Integer charCount, Boolean truncated, String lang, String summary, String summaryModel, Integer attempts, OffsetDateTime leasedUntil, String error, OffsetDateTime extractedAt, OffsetDateTime summarizedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, Object searchTv, Object embedding) {
+    public FileExtractionRecord(Long fileId, String status, String extractedText, Integer charCount, Boolean truncated, String lang, String summary, String summaryModel, Integer attempts, OffsetDateTime leasedUntil, String error, OffsetDateTime extractedAt, OffsetDateTime summarizedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, Object searchTv, Object embedding, String profile) {
         super(FileExtraction.FILE_EXTRACTION);
 
         setFileId(fileId);
@@ -340,6 +354,7 @@ public class FileExtractionRecord extends UpdatableRecordImpl<FileExtractionReco
         setTenantId(tenantId);
         setSearchTv(searchTv);
         setEmbedding(embedding);
+        setProfile(profile);
         resetChangedOnNotNull();
     }
 }

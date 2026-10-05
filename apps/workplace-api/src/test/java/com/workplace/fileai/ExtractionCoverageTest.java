@@ -7,7 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 
-import com.workplace.drive.outbound.DriveFileUploadedEvent;
+import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.fileai.repository.FileExtractionRepository;
 import com.workplace.fileai.repository.WorkerJobRepository;
@@ -69,7 +69,7 @@ class ExtractionCoverageTest extends IntegrationTestBase {
     doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
     long fileId = createFileInTenant(1L, "text/html");
     publishInTenant(
-        1L, new DriveFileUploadedEvent(fileId, 1L, "text/html", "TEXT", 10, "x/f.html"));
+        1L, new FileExtractionRequestedEvent(fileId, 1L, "text/html", ExtractionProfile.FULL));
     // nudge 로 EXTRACTING 까지 전이(PENDING 은 즉시 소비됨) — 최소한 SKIPPED 가 아니어야 한다.
     assertThat(readStatusInTenant(1L, fileId)).isEqualTo("EXTRACTING");
   }
@@ -78,7 +78,7 @@ class ExtractionCoverageTest extends IntegrationTestBase {
   void imageFile_skipReasonStartsWithImage() {
     long fileId = createFileInTenant(1L, "image/png");
     publishInTenant(
-        1L, new DriveFileUploadedEvent(fileId, 1L, "image/png", "IMAGE", 10, "x/f.png"));
+        1L, new FileExtractionRequestedEvent(fileId, 1L, "image/png", ExtractionProfile.FULL));
     assertThat(readStatusInTenant(1L, fileId)).isEqualTo("SKIPPED");
     assertThat(readErrorInTenant(1L, fileId)).startsWith("image:");
   }
@@ -87,7 +87,8 @@ class ExtractionCoverageTest extends IntegrationTestBase {
   void zipFile_skipReasonStartsWithUnsupportedMime() {
     long fileId = createFileInTenant(1L, "application/zip");
     publishInTenant(
-        1L, new DriveFileUploadedEvent(fileId, 1L, "application/zip", "OTHER", 10, "x/f.zip"));
+        1L,
+        new FileExtractionRequestedEvent(fileId, 1L, "application/zip", ExtractionProfile.FULL));
     assertThat(readStatusInTenant(1L, fileId)).isEqualTo("SKIPPED");
     assertThat(readErrorInTenant(1L, fileId)).startsWith("unsupported-mime:");
   }
@@ -211,7 +212,7 @@ class ExtractionCoverageTest extends IntegrationTestBase {
     }
   }
 
-  private void publishInTenant(long tenantId, DriveFileUploadedEvent event) {
+  private void publishInTenant(long tenantId, FileExtractionRequestedEvent event) {
     Long prev = TenantContext.get();
     TenantContext.set(tenantId);
     try {

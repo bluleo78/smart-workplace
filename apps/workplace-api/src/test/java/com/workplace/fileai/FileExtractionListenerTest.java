@@ -6,8 +6,9 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.verifyNoInteractions;
 
-import com.workplace.drive.outbound.DriveFileUploadedEvent;
+import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -23,7 +24,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * DriveFileUploadedEvent → FileExtractionListener → file_extraction 행 생성 통합 검증.
+ * FileExtractionRequestedEvent → FileExtractionListener → file_extraction 행 생성 통합 검증.
  *
  * <p>AFTER_COMMIT 리스너가 실제로 커밋 후 PENDING/SKIPPED 행을 생성하는지 확인한다. REQUIRES_NEW 로 커밋되므로 단일 롤백-트랜잭션 패턴
  * 사용 불가 — @AfterEach 에서 cleanupInTenant 로 잔여 행을 삭제한다(#512 방지).
@@ -74,7 +75,7 @@ class FileExtractionListenerTest extends IntegrationTestBase {
     doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
     long fileId = createFileInTenant(1L, "text/plain");
     publishInTenant(
-        1L, new DriveFileUploadedEvent(fileId, 1L, "text/plain", "TEXT", 10, "x/f.txt"));
+        1L, new FileExtractionRequestedEvent(fileId, 1L, "text/plain", ExtractionProfile.FULL));
     String status = readStatusInTenant(1L, fileId);
     // nudge 로 EXTRACTING 까지 전이 (PENDING 은 nudge 성공 시 즉시 소비됨)
     assertThat(status).isEqualTo("EXTRACTING");
@@ -85,8 +86,71 @@ class FileExtractionListenerTest extends IntegrationTestBase {
     // image/png(IMAGE 카테고리) → 추출 불가 → SKIPPED 행 생성 검증
     long fileId = createFileInTenant(1L, "image/png");
     publishInTenant(
-        1L, new DriveFileUploadedEvent(fileId, 1L, "image/png", "IMAGE", 10, "x/f.png"));
+        1L, new FileExtractionRequestedEvent(fileId, 1L, "image/png", ExtractionProfile.FULL));
     assertThat(readStatusInTenant(1L, fileId)).isEqualTo("SKIPPED");
+  }
+
+  @Test
+  void 프로파일이_행에_기록된다() {
+    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    long fileId = createFileInTenant(1L, "application/pdf");
+    publishInTenant(
+        1L,
+        new FileExtractionRequestedEvent(
+            fileId, 1L, "application/pdf", ExtractionProfile.TEXT_ONLY));
+    assertThat(readProfileInTenant(1L, fileId)).isEqualTo("TEXT_ONLY");
+  }
+
+  @Test
+  void 미지원_형식도_프로파일과_함께_SKIPPED() {
+    long fileId = createFileInTenant(1L, "application/zip");
+    publishInTenant(
+        1L,
+        new FileExtractionRequestedEvent(
+            fileId, 1L, "application/zip", ExtractionProfile.TEXT_ONLY));
+    assertThat(readStatusInTenant(1L, fileId)).isEqualTo("SKIPPED");
+    assertThat(readProfileInTenant(1L, fileId)).isEqualTo("TEXT_ONLY");
+  }
+
+  @Test
+  void 발행_트랜잭션이_롤백되면_추출_행도_없다() {
+    // 행 생성이 발행 트랜잭션 안에서 일어나므로 업로드/바인딩이 롤백되면 추출 행도 함께 사라져야 한다(WP-242 원자성).
+    long fileId = createFileInTenant(1L, "text/plain");
+    Long prev = TenantContext.get();
+    TenantContext.set(1L);
+    try {
+      new TransactionTemplate(txManager)
+          .executeWithoutResult(
+              status -> {
+                publisher.publishEvent(
+                    new FileExtractionRequestedEvent(
+                        fileId, 1L, "text/plain", ExtractionProfile.TEXT_ONLY));
+                status.setRollbackOnly();
+              });
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
+    assertThat(readStatusInTenant(1L, fileId)).isNull();
+    verifyNoInteractions(workerClient);
+  }
+
+  /** 지정 테넌트 컨텍스트(GUC)에서 file_extraction.profile 을 조회한다. */
+  private String readProfileInTenant(long tenantId, long fileId) {
+    Long prev = TenantContext.get();
+    TenantContext.set(tenantId);
+    try {
+      return new TransactionTemplate(txManager)
+          .execute(
+              status ->
+                  dsl.select(FILE_EXTRACTION.PROFILE)
+                      .from(FILE_EXTRACTION)
+                      .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                      .fetchOne(FILE_EXTRACTION.PROFILE));
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
   }
 
   /**
@@ -139,7 +203,7 @@ class FileExtractionListenerTest extends IntegrationTestBase {
    * 지정 테넌트 컨텍스트에서 이벤트를 발행한다. TransactionTemplate 으로 커밋이 발생해야 AFTER_COMMIT 리스너가 실행된다. TenantContext
    * 는 REQUIRES_NEW 리스너의 GUC 주입에도 사용된다.
    */
-  private void publishInTenant(long tenantId, DriveFileUploadedEvent event) {
+  private void publishInTenant(long tenantId, FileExtractionRequestedEvent event) {
     Long prev = TenantContext.get();
     TenantContext.set(tenantId);
     try {

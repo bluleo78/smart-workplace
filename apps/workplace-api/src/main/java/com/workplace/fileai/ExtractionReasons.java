@@ -3,9 +3,9 @@ package com.workplace.fileai;
 /**
  * file_extraction 의 원시 error 문자열을 사유 코드와 사용자 문구로 바꾸는 단일 지점(WP-242).
  *
- * <p>error 컬럼에는 워커·리스너가 남긴 원시값({@code image:…}, {@code unsupported-mime:…}, {@code oversize}, {@code
- * empty}, {@code extract-error:…} 등)이 들어 있다. 이를 API 응답에 그대로 노출하면 내부 예외 메시지·경로가 새므로, 드라이브 요약과 첨부
- * 구간 읽기가 모두 이 클래스를 거쳐 정해진 코드·문구만 내보낸다. 스키마는 바꾸지 않고 문자열을 해석한다.
+ * <p>error 컬럼에는 워커·리스너가 남긴 원시값({@code image:…}, {@code unsupported-mime:…}, {@code oversize},
+ * {@code empty}, {@code extract-error:…} 등)이 들어 있다. 이를 API 응답에 그대로 노출하면 내부 예외 메시지·경로가 새므로, 드라이브 요약과
+ * 첨부 구간 읽기가 모두 이 클래스를 거쳐 정해진 코드·문구만 내보낸다. 스키마는 바꾸지 않고 문자열을 해석한다.
  */
 public final class ExtractionReasons {
 
@@ -25,7 +25,8 @@ public final class ExtractionReasons {
   /**
    * 내부 상태·원시 error·mime 으로 사유 코드를 정한다.
    *
-   * @param internalStatus file_extraction.status (PENDING/EXTRACTING/TEXT_READY/SUMMARIZING/DONE/SKIPPED/FAILED)
+   * @param internalStatus file_extraction.status
+   *     (PENDING/EXTRACTING/TEXT_READY/SUMMARIZING/DONE/SKIPPED/FAILED)
    * @param error file_extraction.error 원시값(없을 수 있음)
    * @param mime file.mime_type — 빈 텍스트를 스캔 PDF 와 구분하는 데만 쓴다(없을 수 있음)
    * @return SKIPPED/FAILED 가 아니면 null

@@ -16,12 +16,16 @@ class ExtractionReasonsTest {
 
   @Test
   void SKIPPED_원시값을_코드로_분류한다() {
-    assertThat(ExtractionReasons.classify("SKIPPED", "image:image/png", "image/png")).isEqualTo(Code.IMAGE);
-    assertThat(ExtractionReasons.classify("SKIPPED", "unsupported-mime:application/zip", "application/zip"))
+    assertThat(ExtractionReasons.classify("SKIPPED", "image:image/png", "image/png"))
+        .isEqualTo(Code.IMAGE);
+    assertThat(
+            ExtractionReasons.classify(
+                "SKIPPED", "unsupported-mime:application/zip", "application/zip"))
         .isEqualTo(Code.UNSUPPORTED_TYPE);
     assertThat(ExtractionReasons.classify("SKIPPED", "non-extractable:OTHER", "x/y"))
         .isEqualTo(Code.UNSUPPORTED_TYPE);
-    assertThat(ExtractionReasons.classify("SKIPPED", "oversize", "application/pdf")).isEqualTo(Code.TOO_LARGE);
+    assertThat(ExtractionReasons.classify("SKIPPED", "oversize", "application/pdf"))
+        .isEqualTo(Code.TOO_LARGE);
     assertThat(ExtractionReasons.classify("SKIPPED", "extract-error:boom", "application/pdf"))
         .isEqualTo(Code.EXTRACTION_ERROR);
     // 과거 행: 워커 예외 메시지가 접두 없이 남아 있다 → 알 수 없는 값은 추출 오류로 본다.
@@ -31,7 +35,8 @@ class ExtractionReasonsTest {
 
   @Test
   void 빈_텍스트는_PDF면_스캔_PDF_아니면_EMPTY() {
-    assertThat(ExtractionReasons.classify("SKIPPED", "empty", "application/pdf")).isEqualTo(Code.SCANNED_PDF);
+    assertThat(ExtractionReasons.classify("SKIPPED", "empty", "application/pdf"))
+        .isEqualTo(Code.SCANNED_PDF);
     assertThat(ExtractionReasons.classify("SKIPPED", "empty-text:DONE", "application/pdf"))
         .isEqualTo(Code.SCANNED_PDF);
     assertThat(ExtractionReasons.classify("SKIPPED", "empty", "text/plain")).isEqualTo(Code.EMPTY);
@@ -40,7 +45,8 @@ class ExtractionReasonsTest {
 
   @Test
   void FAILED_는_요약_실패() {
-    assertThat(ExtractionReasons.classify("FAILED", "timeout", "application/pdf")).isEqualTo(Code.SUMMARY_FAILED);
+    assertThat(ExtractionReasons.classify("FAILED", "timeout", "application/pdf"))
+        .isEqualTo(Code.SUMMARY_FAILED);
   }
 
   @Test
@@ -48,7 +54,8 @@ class ExtractionReasonsTest {
     for (Code c : Code.values()) {
       assertThat(ExtractionReasons.message(c)).isNotBlank();
     }
-    assertThat(ExtractionReasons.message(Code.SCANNED_PDF)).isEqualTo("스캔된 PDF로 보여 읽을 수 있는 글자가 없습니다.");
+    assertThat(ExtractionReasons.message(Code.SCANNED_PDF))
+        .isEqualTo("스캔된 PDF로 보여 읽을 수 있는 글자가 없습니다.");
     assertThat(ExtractionReasons.message(null)).isNull();
   }
 }

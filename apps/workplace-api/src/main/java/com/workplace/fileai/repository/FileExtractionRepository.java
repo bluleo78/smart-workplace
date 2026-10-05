@@ -2,6 +2,7 @@ package com.workplace.fileai.repository;
 
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 
+import com.workplace.fileai.ExtractionProfile;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -13,11 +14,12 @@ public class FileExtractionRepository {
 
   private final DSLContext dsl;
 
-  /** 업로드 시 PENDING 행 생성. 동일 file_id 의 중복 업로드에 대비해 ON CONFLICT DO NOTHING(이미 PENDING/DONE 이면 무시). */
-  public void upsertPending(long fileId, long tenantId) {
+  /** 추출 요청 시 PENDING 행 생성. 같은 file_id 가 이미 있으면 무시(프로파일도 바꾸지 않음). */
+  public void upsertPending(long fileId, long tenantId, ExtractionProfile profile) {
     dsl.insertInto(FILE_EXTRACTION)
         .set(FILE_EXTRACTION.FILE_ID, fileId)
         .set(FILE_EXTRACTION.STATUS, "PENDING")
+        .set(FILE_EXTRACTION.PROFILE, profile.name())
         .set(FILE_EXTRACTION.TENANT_ID, tenantId)
         .onConflict(FILE_EXTRACTION.FILE_ID)
         .doNothing()
@@ -29,11 +31,12 @@ public class FileExtractionRepository {
    *
    * @param reason SKIPPED 사유 (error 컬럼에 기록, 최대 500자)
    */
-  public void markSkipped(long fileId, long tenantId, String reason) {
+  public void markSkipped(long fileId, long tenantId, ExtractionProfile profile, String reason) {
     dsl.insertInto(FILE_EXTRACTION)
         .set(FILE_EXTRACTION.FILE_ID, fileId)
         .set(FILE_EXTRACTION.STATUS, "SKIPPED")
         .set(FILE_EXTRACTION.ERROR, reason)
+        .set(FILE_EXTRACTION.PROFILE, profile.name())
         .set(FILE_EXTRACTION.TENANT_ID, tenantId)
         .onConflict(FILE_EXTRACTION.FILE_ID)
         .doNothing()

@@ -16,6 +16,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import org.jooq.Check;
 import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.ForeignKey;
@@ -36,6 +37,7 @@ import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
 import org.jooq.impl.DefaultDataType;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -163,6 +165,11 @@ public class FileExtraction extends TableImpl<FileExtractionRecord> {
     @Deprecated
     public final TableField<FileExtractionRecord, Object> EMBEDDING = createField(DSL.name("embedding"), DefaultDataType.getDefaultDataType("\"public\".\"vector\""), this, "");
 
+    /**
+     * The column <code>public.file_extraction.profile</code>.
+     */
+    public final TableField<FileExtractionRecord, String> PROFILE = createField(DSL.name("profile"), SQLDataType.VARCHAR(16).nullable(false).defaultValue(DSL.field(DSL.raw("'FULL'::character varying"), SQLDataType.VARCHAR)), this, "");
+
     private FileExtraction(Name alias, Table<FileExtractionRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -267,6 +274,13 @@ public class FileExtraction extends TableImpl<FileExtractionRecord> {
             _tenant = new TenantPath(this, Keys.FILE_EXTRACTION__FILE_EXTRACTION_TENANT_ID_FKEY, null);
 
         return _tenant;
+    }
+
+    @Override
+    public List<Check<FileExtractionRecord>> getChecks() {
+        return Arrays.asList(
+            Internal.createCheck(this, DSL.name("file_extraction_profile_check"), "(((profile)::text = ANY ((ARRAY['FULL'::character varying, 'TEXT_ONLY'::character varying])::text[])))", true)
+        );
     }
 
     @Override

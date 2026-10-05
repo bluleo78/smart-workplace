@@ -26,7 +26,10 @@ public class DriveFileSummaryRepository {
   public SummaryRow findSummary(long fileId) {
     var r =
         dsl.select(
-                FILE_EXTRACTION.SUMMARY, FILE_EXTRACTION.STATUS, FILE_EXTRACTION.ERROR, FILE.MIME_TYPE)
+                FILE_EXTRACTION.SUMMARY,
+                FILE_EXTRACTION.STATUS,
+                FILE_EXTRACTION.ERROR,
+                FILE.MIME_TYPE)
             .from(FILE)
             .leftJoin(FILE_EXTRACTION)
             .on(FILE_EXTRACTION.FILE_ID.eq(FILE.ID))
