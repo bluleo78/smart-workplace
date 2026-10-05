@@ -37,6 +37,16 @@ class MimeNormalizerTest {
   }
 
   @Test
+  @DisplayName("빈 문자열·공백 mime 은 미지 확장자에서 octet-stream 으로 폴백(빈 Content-Type 방지)")
+  void blankMimeFallsBackToOctetStream() {
+    assertThat(MimeNormalizer.normalize("a.unknownext", "")).isEqualTo("application/octet-stream");
+    assertThat(MimeNormalizer.normalize("a.unknownext", "  "))
+        .isEqualTo("application/octet-stream");
+    assertThat(MimeNormalizer.normalize("a.unknownext", null))
+        .isEqualTo("application/octet-stream");
+  }
+
+  @Test
   @DisplayName("확장자 대소문자 무시")
   void caseInsensitive() {
     assertThat(MimeNormalizer.normalize("A.HWP", "application/octet-stream"))

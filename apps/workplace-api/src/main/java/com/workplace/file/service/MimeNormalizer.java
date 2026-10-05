@@ -61,6 +61,7 @@ public final class MimeNormalizer {
         return mapped;
       }
     }
-    return browserMime != null ? browserMime : "application/octet-stream";
+    // 빈 문자열("")을 그대로 돌려주면 다운로드 시 MediaType.parseMediaType("") 가 실패하므로 null/blank 는 안전 폴백
+    return browserMime != null && !browserMime.isBlank() ? browserMime : "application/octet-stream";
   }
 }

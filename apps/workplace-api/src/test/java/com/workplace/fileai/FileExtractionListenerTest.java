@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -26,8 +27,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * FileExtractionRequestedEvent → FileExtractionListener → file_extraction 행 생성 통합 검증.
  *
- * <p>AFTER_COMMIT 리스너가 실제로 커밋 후 PENDING/SKIPPED 행을 생성하는지 확인한다. REQUIRES_NEW 로 커밋되므로 단일 롤백-트랜잭션 패턴
- * 사용 불가 — @AfterEach 에서 cleanupInTenant 로 잔여 행을 삭제한다(#512 방지).
+ * <p>추출 행(PENDING/SKIPPED)은 발행 트랜잭션 안에서 동기 생성되고(원자성), AFTER_COMMIT 단계는 워커 디스패치(nudge)만 맡는다. 커밋이 필요한
+ * 흐름이라 단일 롤백-트랜잭션 패턴 사용 불가 — @AfterEach 에서 cleanupInTenant 로 잔여 행을 삭제한다(#512 방지).
  */
 @TestPropertySource(properties = "workplace.worker.enabled=true")
 class FileExtractionListenerTest extends IntegrationTestBase {
@@ -70,8 +71,8 @@ class FileExtractionListenerTest extends IntegrationTestBase {
 
   @Test
   void textFile_createsPendingRow() {
-    // text/plain(TEXT 카테고리) 업로드 이벤트 → PENDING 행 생성 후 즉시 dispatchPending nudge → EXTRACTING
-    // FileExtractionListener 가 PENDING 생성 후 dispatchPending 을 호출해 PENDING→EXTRACTING CAS 전이함
+    // text/plain(추출 가능 mime) 이벤트 → 발행 트랜잭션에서 PENDING 행 생성, 커밋 후 AFTER_COMMIT 이
+    // dispatchPending 으로 PENDING→EXTRACTING CAS 전이시킨다
     doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
     long fileId = createFileInTenant(1L, "text/plain");
     publishInTenant(
@@ -83,7 +84,7 @@ class FileExtractionListenerTest extends IntegrationTestBase {
 
   @Test
   void imageFile_isSkipped() {
-    // image/png(IMAGE 카테고리) → 추출 불가 → SKIPPED 행 생성 검증
+    // image/png(mime 기반 추출 불가 판정) → SKIPPED 행 생성 검증
     long fileId = createFileInTenant(1L, "image/png");
     publishInTenant(
         1L, new FileExtractionRequestedEvent(fileId, 1L, "image/png", ExtractionProfile.FULL));
@@ -125,6 +126,13 @@ class FileExtractionListenerTest extends IntegrationTestBase {
                 publisher.publishEvent(
                     new FileExtractionRequestedEvent(
                         fileId, 1L, "text/plain", ExtractionProfile.TEXT_ONLY));
+                // 같은 트랜잭션 안에서 이미 PENDING 행이 보여야 한다 — 동기 생성의 증거(AFTER_COMMIT 이면 아직 null)
+                assertThat(
+                        dsl.select(FILE_EXTRACTION.STATUS)
+                            .from(FILE_EXTRACTION)
+                            .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                            .fetchOne(FILE_EXTRACTION.STATUS))
+                    .isEqualTo("PENDING");
                 status.setRollbackOnly();
               });
     } finally {
@@ -133,6 +141,24 @@ class FileExtractionListenerTest extends IntegrationTestBase {
     }
     assertThat(readStatusInTenant(1L, fileId)).isNull();
     verifyNoInteractions(workerClient);
+  }
+
+  @Test
+  void 트랜잭션_밖에서_발행하면_IllegalStateException() {
+    // 원자성 계약 위반(트랜잭션 없는 발행)은 조용히 넘기지 않고 예외로 드러내야 한다.
+    Long prev = TenantContext.get();
+    TenantContext.set(1L);
+    try {
+      assertThatThrownBy(
+              () ->
+                  publisher.publishEvent(
+                      new FileExtractionRequestedEvent(
+                          1L, 1L, "text/plain", ExtractionProfile.TEXT_ONLY)))
+          .isInstanceOf(IllegalStateException.class);
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
   }
 
   /** 지정 테넌트 컨텍스트(GUC)에서 file_extraction.profile 을 조회한다. */
@@ -200,8 +226,8 @@ class FileExtractionListenerTest extends IntegrationTestBase {
   }
 
   /**
-   * 지정 테넌트 컨텍스트에서 이벤트를 발행한다. TransactionTemplate 으로 커밋이 발생해야 AFTER_COMMIT 리스너가 실행된다. TenantContext
-   * 는 REQUIRES_NEW 리스너의 GUC 주입에도 사용된다.
+   * 지정 테넌트 컨텍스트에서 이벤트를 발행한다. 행 생성은 이 트랜잭션 안에서 동기로 일어나고, 커밋되어야 AFTER_COMMIT 디스패치가 실행된다.
+   * TenantContext 는 트랜잭션·REQUIRES_NEW 디스패치의 GUC 주입에 사용된다.
    */
   private void publishInTenant(long tenantId, FileExtractionRequestedEvent event) {
     Long prev = TenantContext.get();

@@ -201,9 +201,7 @@ public class WorkerJobRepository {
   public boolean advanceToSkipped(long fileId, String error) {
     return dsl.update(FILE_EXTRACTION)
             .set(FILE_EXTRACTION.STATUS, "SKIPPED")
-            .set(
-                FILE_EXTRACTION.ERROR,
-                error == null ? null : error.substring(0, Math.min(error.length(), 500)))
+            .set(FILE_EXTRACTION.ERROR, truncateError(error))
             .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
             .and(FILE_EXTRACTION.STATUS.eq("EXTRACTING"))
             .execute()

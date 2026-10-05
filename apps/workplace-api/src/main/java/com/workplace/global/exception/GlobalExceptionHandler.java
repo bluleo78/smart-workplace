@@ -23,6 +23,7 @@ import com.workplace.file.exception.FileBlobMissingException;
 import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
+import com.workplace.fileai.exception.InvalidTextRangeException;
 import com.workplace.global.dto.ErrorResponse;
 import com.workplace.home.exception.HomeChatUnavailableException;
 import com.workplace.home.outbound.AiAgentComposeException;
@@ -1414,9 +1415,9 @@ public class GlobalExceptionHandler {
   }
 
   /** WP-242 — 추출 텍스트 구간 읽기 범위 오류(offset 음수·limit 1 미만) → 400. */
-  @ExceptionHandler(com.workplace.fileai.exception.InvalidTextRangeException.class)
+  @ExceptionHandler(InvalidTextRangeException.class)
   public ResponseEntity<ErrorResponse> handleInvalidTextRange(
-      com.workplace.fileai.exception.InvalidTextRangeException ex, HttpServletRequest request) {
+      InvalidTextRangeException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }

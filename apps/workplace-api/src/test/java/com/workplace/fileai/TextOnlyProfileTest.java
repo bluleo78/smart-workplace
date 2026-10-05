@@ -124,6 +124,21 @@ class TextOnlyProfileTest extends IntegrationTestBase {
     assertThat(error).startsWith("extract-error:").hasSizeLessThanOrEqualTo(500);
   }
 
+  @Test
+  void TEXT_ONLY_는_재개_백스톱과_요약_클레임에서_제외된다() {
+    // spec §7.4: TEXT_ONLY 는 요약 경로에 들어가면 안 된다 — TEXT_READY / 리스 만료 SUMMARIZING 모두 제외
+    long textReady = seedWith("TEXT_ONLY", "TEXT_READY", 0, null);
+    long expiredSummarizing =
+        seedWith("TEXT_ONLY", "SUMMARIZING", 1, java.time.OffsetDateTime.now().minusMinutes(10));
+    // 대조군: FULL TEXT_READY 는 재개 대상이어야 한다(테스트가 실패할 수 있음을 증명)
+    long fullReady = seedWith("FULL", "TEXT_READY", 0, null);
+
+    List<Long> resumable = inTenant(() -> jobs.findResumable());
+    assertThat(resumable).contains(fullReady).doesNotContain(textReady, expiredSummarizing);
+    assertThat(inTenant(() -> jobs.claimForSummary(textReady))).isFalse();
+    assertThat(inTenant(() -> jobs.claimForSummary(expiredSummarizing))).isFalse();
+  }
+
   // ── 헬퍼 ──────────────────────────────────────────────
 
   /** 사용자 + file + EXTRACTING 추출 행을 만든다(지정 프로파일). */
@@ -135,6 +150,25 @@ class TextOnlyProfileTest extends IntegrationTestBase {
                 .set(FILE_EXTRACTION.FILE_ID, fileId)
                 .set(FILE_EXTRACTION.STATUS, "EXTRACTING")
                 .set(FILE_EXTRACTION.PROFILE, profile)
+                .set(FILE_EXTRACTION.TENANT_ID, TENANT)
+                .execute());
+    return fileId;
+  }
+
+  /** 지정 프로파일·상태·시도 횟수·리스 만료 시각의 추출 행을 만든다(텍스트 추출 완료 상태). */
+  private long seedWith(
+      String profile, String status, int attempts, java.time.OffsetDateTime leasedUntil) {
+    long fileId = seedFile("application/pdf");
+    inTenantRun(
+        () ->
+            dsl.insertInto(FILE_EXTRACTION)
+                .set(FILE_EXTRACTION.FILE_ID, fileId)
+                .set(FILE_EXTRACTION.STATUS, status)
+                .set(FILE_EXTRACTION.EXTRACTED_TEXT, "본문")
+                .set(FILE_EXTRACTION.CHAR_COUNT, 2)
+                .set(FILE_EXTRACTION.PROFILE, profile)
+                .set(FILE_EXTRACTION.ATTEMPTS, attempts)
+                .set(FILE_EXTRACTION.LEASED_UNTIL, leasedUntil)
                 .set(FILE_EXTRACTION.TENANT_ID, TENANT)
                 .execute());
     return fileId;
