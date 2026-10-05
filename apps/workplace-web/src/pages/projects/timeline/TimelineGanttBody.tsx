@@ -92,7 +92,7 @@ export function TimelineGanttBody({
           readOnly={readOnly}
           scrollToDate={scrollToDate}
           onBarChange={(issueNumber, change) =>
-            updateIssue.mutate({
+            updateIssue.mutateAsync({
               number: issueNumber,
               data: { startDate: change.startDate, dueDate: change.dueDate },
             })

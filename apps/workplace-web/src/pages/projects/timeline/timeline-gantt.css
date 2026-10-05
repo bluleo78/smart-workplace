@@ -44,6 +44,36 @@
   --wx-gantt-summary-color: var(--epic);
   pointer-events: none;
 }
+/* 에픽 요약 막대 높이 축소 — 아래 얇은 막대(WP-249)가 다음 행 막대에 붙지 않고 자기 행(40px) 안에 들어가도록.
+   SVAR 가 inline style 로 top 3px·height 33px 을 넣어 !important 로만 덮을 수 있다. 모든 에픽에 같게 적용해 높이를 통일한다. */
+.timeline-gantt-root .wx-bar.wx-summary {
+  height: 26px !important;
+  line-height: 26px !important;
+}
+/* 얇은 막대가 없는 에픽은 행 가운데로 — top 3px 에 26px 이면 위로 치우친다(40px 행: (40-26)/2 = 7px). */
+.timeline-gantt-root .wx-bar.wx-summary:not([style*='--rollup-left']) {
+  transform: translateY(4px);
+}
+/* 에픽 막대 아래 얇은 막대 — 하위 이슈 실제 범위(WP-249). 위치·폭·기간 안쪽 구간(%)은 TimelineGantt 가
+   요약 막대 style 에 CSS 변수로 주입하고, 변수가 있는 막대에만 그린다(에픽 자체 기간이 있고 날짜 있는 하위가 있을 때).
+   기간 안쪽은 에픽 색 옅게, 에픽 기간 밖으로 나간 앞·뒤 구간은 destructive 로 칠한다(추가 DOM 노드 없이 그라데이션 1개). */
+.timeline-gantt-root .wx-bar.wx-summary[style*='--rollup-left']::after {
+  content: '';
+  position: absolute;
+  top: calc(100% + 2px);
+  left: var(--rollup-left);
+  width: var(--rollup-width);
+  height: 4px;
+  border-radius: 2px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    var(--destructive) var(--rollup-in-start),
+    color-mix(in oklab, var(--epic) 80%, transparent) var(--rollup-in-start),
+    color-mix(in oklab, var(--epic) 80%, transparent) var(--rollup-in-end),
+    var(--destructive) var(--rollup-in-end)
+  );
+}
 /* no-epic 그룹의 막대는 항상 숨긴다 — 그리드 컬럼엔 롤업 값이 뜨지만(#662)
    간트 영역엔 롤업 막대를 그리지 않는다는 불변식은 group id 기준으로 유지. */
 .timeline-gantt-root .wx-bar.wx-summary[data-task-id$='group-no-epic'] {

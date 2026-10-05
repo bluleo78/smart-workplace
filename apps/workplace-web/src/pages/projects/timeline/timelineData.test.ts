@@ -13,6 +13,7 @@ import {
   filterRenderableDependencies,
   groupTimelineIssues,
   milestonesToMarkers,
+  rollupOverlay,
 } from './timelineData';
 import type { TimelineBar } from './timelineTypes';
 
@@ -243,6 +244,48 @@ describe('groupTimelineIssues', () => {
     expect(unscheduled).toEqual([]);
   });
 
+  // WP-248 — 에픽에 기간을 설정하면 날짜 있는 하위가 있어도 막대는 에픽 기간, 하위 롤업은 rollup 으로 분리.
+  it('에픽 자체 기간이 있으면 range 는 에픽 기간, rollup 은 하위 롤업 (WP-248)', () => {
+    const epic = issue({ number: 40, title: 'A', type: EPIC_TYPE, startDate: '2026-10-01', dueDate: '2026-10-31' });
+    const c1 = issue({ number: 41, parent: parentRef(40, 'A'), startDate: '2026-10-06', dueDate: '2026-10-12' });
+    const c2 = issue({ number: 42, parent: parentRef(40, 'A'), startDate: '2026-10-27', dueDate: '2026-11-04' });
+    const g = groupTimelineIssues([epic, c1, c2]).groups[0];
+    expect(g.range).toEqual({ start: '2026-10-01', due: '2026-10-31' });
+    expect(g.rollup).toEqual({ start: '2026-10-06', due: '2026-11-04' });
+  });
+
+  it('에픽에 마감일만 있으면 range 는 마감일 하루 (WP-248)', () => {
+    const epic = issue({ number: 40, title: 'A', type: EPIC_TYPE, dueDate: '2026-10-31' });
+    const c1 = issue({ number: 41, parent: parentRef(40, 'A'), startDate: '2026-10-06', dueDate: '2026-10-12' });
+    const g = groupTimelineIssues([epic, c1]).groups[0];
+    expect(g.range).toEqual({ start: '2026-10-31', due: '2026-10-31' });
+    expect(g.rollup).toEqual({ start: '2026-10-06', due: '2026-10-12' });
+  });
+
+  it('에픽에 마감일이 없으면 range 는 하위 롤업이고 rollup 은 따로 두지 않는다 (WP-248)', () => {
+    // 시작일만 있는 에픽도 기간으로 보지 않는다 — 끝을 알 수 없어 기존처럼 하위 롤업으로 그린다.
+    const epic = issue({ number: 40, title: 'A', type: EPIC_TYPE, startDate: '2026-10-01' });
+    const c1 = issue({ number: 41, parent: parentRef(40, 'A'), startDate: '2026-10-06', dueDate: '2026-10-12' });
+    const g = groupTimelineIssues([epic, c1]).groups[0];
+    expect(g.range).toEqual({ start: '2026-10-06', due: '2026-10-12' });
+    expect(g.rollup).toBeNull();
+  });
+
+  it('에픽 시작일이 마감일보다 늦으면 range 는 마감일 하루로 본다', () => {
+    const epic = issue({ number: 40, title: 'A', type: EPIC_TYPE, startDate: '2026-11-05', dueDate: '2026-10-31' });
+    const c1 = issue({ number: 41, parent: parentRef(40, 'A'), startDate: '2026-10-06', dueDate: '2026-10-12' });
+    expect(groupTimelineIssues([epic, c1]).groups[0].range).toEqual({ start: '2026-10-31', due: '2026-10-31' });
+  });
+
+  it('날짜 있는 하위가 없으면 rollup 은 null, no-epic 그룹도 rollup 은 null (WP-248)', () => {
+    const epic = issue({ number: 40, title: 'A', type: EPIC_TYPE, startDate: '2026-10-01', dueDate: '2026-10-31' });
+    const undated = issue({ number: 41, parent: parentRef(40, 'A') });
+    const loose = issue({ number: 18, dueDate: '2026-10-08' });
+    const { groups } = groupTimelineIssues([epic, undated, loose]);
+    expect(groups.find((g) => g.key === 'epic-40')?.rollup).toBeNull();
+    expect(groups.find((g) => g.key === 'no-epic')?.rollup).toBeNull();
+  });
+
   it('마감일만 있는 에픽 없는 이슈는 no-epic 그룹의 dueOnly 막대', () => {
     const loose = issue({ number: 18, dueDate: '2026-07-08' });
     const { groups } = groupTimelineIssues([loose]);
@@ -258,6 +301,46 @@ describe('groupTimelineIssues', () => {
     ]);
     expect(groups).toEqual([]);
     expect(unscheduled).toEqual([]);
+  });
+});
+
+describe('rollupOverlay', () => {
+  // 에픽 막대(10/1~10/31, 31일) 기준 얇은 막대의 위치·폭과 기간 안쪽 구간을 % 로 계산한다 (WP-249).
+  const epic = { start: '2026-10-01', due: '2026-10-31' };
+
+  it('하위가 에픽 기간 안이면 안쪽 구간이 얇은 막대 전체(0~100%)', () => {
+    const o = rollupOverlay(epic, { start: '2026-10-06', due: '2026-10-12' });
+    expect(o.left).toBeCloseTo((5 / 31) * 100);
+    expect(o.width).toBeCloseTo((7 / 31) * 100);
+    expect(o.inStart).toBe(0);
+    expect(o.inEnd).toBe(100);
+  });
+
+  it('뒤로 넘치면 안쪽 구간은 에픽 끝까지, 이후는 초과', () => {
+    // 10/27~11/4 = 9일 중 10/27~10/31 5일이 안쪽
+    const o = rollupOverlay(epic, { start: '2026-10-27', due: '2026-11-04' });
+    expect(o.left).toBeCloseTo((26 / 31) * 100);
+    expect(o.width).toBeCloseTo((9 / 31) * 100);
+    expect(o.inStart).toBe(0);
+    expect(o.inEnd).toBeCloseTo((5 / 9) * 100);
+  });
+
+  it('앞으로 넘치면 left 가 음수이고 안쪽 구간은 에픽 시작부터', () => {
+    // 9/28~10/3 = 6일 중 앞 3일(9/28~9/30)이 초과
+    const o = rollupOverlay(epic, { start: '2026-09-28', due: '2026-10-03' });
+    expect(o.left).toBeCloseTo((-3 / 31) * 100);
+    expect(o.inStart).toBeCloseTo(50);
+    expect(o.inEnd).toBe(100);
+  });
+
+  it('뒤집힌 롤업(start > due)도 유한한 값을 낸다', () => {
+    const o = rollupOverlay(epic, { start: '2026-10-12', due: '2026-10-06' });
+    for (const v of Object.values(o)) expect(Number.isFinite(v)).toBe(true);
+  });
+
+  it('에픽 기간과 전혀 겹치지 않으면 전 구간 초과(inStart = inEnd)', () => {
+    const o = rollupOverlay(epic, { start: '2026-11-03', due: '2026-11-05' });
+    expect(o.inStart).toBe(o.inEnd);
   });
 });
 
