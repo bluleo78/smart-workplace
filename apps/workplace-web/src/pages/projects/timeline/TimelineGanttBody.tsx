@@ -1,6 +1,7 @@
 // 데스크톱 타임라인 본문 — 필터바·간트·일정 미정 섹션. TimelinePage 에서 분리해 데스크톱(≥1024px)에서만 마운트한다.
 // 왜: 의존성 조회·사이클 조회·에픽 그룹/화살표 계산은 간트 전용이라, 모바일 아젠다(WP-197)에선 돌 필요가 없다.
 // 이슈 전량·마일스톤·자동 다음 페이지 페치·마일스톤 다이얼로그/팝오버 상태는 모바일과 공유하므로 TimelinePage 가 소유한다.
+// 빈 상태(WP-247): 조회 기간에 걸친 일정 있는 이슈가 없으면 빈 상태 표시. 일정 미정 이슈는 항상 표시되므로 unscheduled 개수는 확인하지 않는다.
 import { CalendarRange } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
@@ -75,7 +76,7 @@ export function TimelineGanttBody({
         <TimelineFilterBar projectKey={key} leading={periodPicker} />
       </div>
       <div className="min-h-0 flex-1 px-4 py-6" data-testid="timeline-gantt">
-        {groups.length === 0 && unscheduled.length === 0 && view.period && !loading ? (
+        {!loading && view.period && groups.length === 0 ? (
           <div data-testid="timeline-period-empty" className="flex flex-1 flex-col items-center justify-center gap-1 py-16 text-center">
             <CalendarRange className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
             <p className="text-sm font-medium">이 기간에 걸친 이슈가 없어요</p>

@@ -134,11 +134,7 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
 
   test('기간에 걸친 이슈가 없으면 빈 상태 문구', async ({ authenticatedPage: page }) => {
     await setupStubs(page);
-    await page.goto(`/projects/${KEY}/timeline`);
-    await page.getByTestId('timeline-period-trigger').click();
-    await page.getByTestId('period-range-from').fill('2025-01-01');
-    await page.getByTestId('period-range-to').fill('2025-01-31');
-    await page.getByTestId('period-range-apply').click();
+    await page.goto(`/projects/${KEY}/timeline?period=range:2025-01-01~2025-01-31`);
     await expect(page.getByTestId('timeline-period-empty')).toContainText('이 기간에 걸친 이슈가 없어요');
     await expect(page.getByTestId('timeline-period-empty')).toContainText('기간을 「전체」로 바꿔 보세요');
   });
