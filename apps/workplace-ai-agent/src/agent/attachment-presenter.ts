@@ -1,12 +1,22 @@
 // WP-244: 공통 첨부 목록(AgentAttachment)을 러너에 맞는 프롬프트 문구로 바꾼다.
 // Claude 는 이미지·PDF·텍스트를 로컬 Read 로 직접 보고, 그 외는 추출 텍스트 도구로 읽는다.
-// opencode 는 빌트인 도구가 막혀 로컬 파일을 못 읽으므로 추출 텍스트 도구만 안내한다(이미지는 볼 수 없음).
+// opencode 는 비전 지원 모델(WP-241 판단)일 때만 이미지를 로컬 read 로 보고(WP-236 의 read 허용 범위),
+// 그 외 파일은 추출 텍스트 도구로 읽는다 — custom provider 모델은 PDF 입력을 못 받는다.
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import type { ProviderCredential } from './agent-runner.js';
 import { downloadAttachments, type DownloadOutcome } from './attachment-prep.js';
 import type { AgentAttachment, CollectedAttachments } from './attachment-source.js';
 
 export type RunnerKind = ProviderCredential['provider'];
+
+/**
+ * 첨부를 읽는 쪽(러너+모델)의 능력. imageVision 은 모델이 이미지를 볼 수 있는지 —
+ * Claude 는 항상 true, opencode 는 resolveOpencodeVision 이 true 로 판단한 경우만(알 수 없음은 false 로 본다).
+ */
+export interface AttachmentReader {
+  runner: RunnerKind;
+  imageVision: boolean;
+}
 
 export interface PresentedAttachments {
   section: string; // 프롬프트 "## 첨부파일" 본문
@@ -35,12 +45,14 @@ export function fileKind(mime: string): FileKind {
 }
 
 /**
- * 이 러너가 첨부 원본을 로컬에서 직접 읽을 수 있는지.
- * Claude(anthropic) 는 이미지·PDF·텍스트를 workDir 에 받아 Read 하므로 추출을 기다릴 필요가 없다.
- * opencode 는 로컬 파일을 못 읽어 추출 텍스트 도구에만 의존한다.
+ * 이 러너·모델이 첨부 원본을 로컬에서 직접 읽을 수 있는지 — true 면 workDir 에 원본을 받는다.
+ * Claude(anthropic) 는 이미지·PDF·텍스트를 Read 하므로 추출을 기다릴 필요가 없다.
+ * opencode 는 비전 모델일 때 이미지만 read 로 본다. 나머지는 추출 텍스트 도구에 의존한다.
  */
-export function readsLocally(kind: RunnerKind, mime: string): boolean {
-  return kind === 'anthropic' && fileKind(mime) !== 'other';
+export function readsLocally(reader: AttachmentReader, mime: string): boolean {
+  const fk = fileKind(mime);
+  if (reader.runner === 'anthropic') return fk !== 'other';
+  return fk === 'image' && reader.imageVision;
 }
 
 /**
@@ -86,9 +98,9 @@ function localLine(o: DownloadOutcome | undefined): string {
 }
 
 /** 항목별 하위 줄 — 러너·파일 종류·추출 상태 조합. */
-function detailLines(kind: RunnerKind, a: AgentAttachment, downloads: Map<number, DownloadOutcome>): string[] {
+function detailLines(reader: AttachmentReader, a: AgentAttachment, downloads: Map<number, DownloadOutcome>): string[] {
   const fk = fileKind(a.mimeType);
-  if (readsLocally(kind, a.mimeType)) {
+  if (readsLocally(reader, a.mimeType)) {
     const o = downloads.get(a.fileId);
     const lines = [localLine(o)];
     // PDF·텍스트는 Read 로 직접 보되, 길거나 원본을 못 받았을 때를 위해 READY 면(또는 원본이 없으면) 텍스트 도구도 병기한다.
@@ -96,7 +108,7 @@ function detailLines(kind: RunnerKind, a: AgentAttachment, downloads: Map<number
     if (fk !== 'image' && (a.extraction.status === 'READY' || !o || !('localPath' in o))) lines.push(extractionLine(a));
     return lines;
   }
-  if (kind !== 'anthropic' && fk === 'image') return ['이 비서(모델)는 이미지를 볼 수 없음 — 내용을 글로 알려 달라고 안내'];
+  if (fk === 'image') return ['이 비서(모델)는 이미지를 볼 수 없음 — 내용을 글로 알려 달라고 안내'];
   return [extractionLine(a)];
 }
 
@@ -109,12 +121,21 @@ const GUIDANCE_CLAUDE =
 const GUIDANCE_OPENCODE =
   '첨부는 위 안내대로 read_attachment_text 로 읽으세요(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기). ' +
   GUIDANCE_COMMON;
+// 비전 opencode 모델 — 이미지 로컬경로는 빌트인 read 로 본다(opencode 도구 이름은 소문자 read).
+const GUIDANCE_OPENCODE_VISION =
+  '첨부는 위 안내대로 읽으세요: 로컬경로(이미지)는 read, 텍스트는 read_attachment_text(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기). ' +
+  GUIDANCE_COMMON;
+
+function guidanceFor(reader: AttachmentReader): string {
+  if (reader.runner === 'anthropic') return GUIDANCE_CLAUDE;
+  return reader.imageVision ? GUIDANCE_OPENCODE_VISION : GUIDANCE_OPENCODE;
+}
 
 /** 이슈 첨부 목록을 못 불러왔을 때의 줄 — 목록이 비어 보여도 "첨부 없음" 으로 단정하지 않게 한다(I1). */
 const ISSUE_LIST_FAILED_LINE = '- [이슈 첨부] 목록을 불러올 수 없음(권한 등) — 이슈에 첨부가 없다고 단정하지 말 것';
 
 export async function presentAttachments(
-  kind: RunnerKind,
+  reader: AttachmentReader,
   collected: CollectedAttachments,
   deps: { client: WorkplaceApiClient; agentId: number; workDir: string },
 ): Promise<PresentedAttachments> {
@@ -124,22 +145,18 @@ export async function presentAttachments(
     return { section: issueListFailed ? ISSUE_LIST_FAILED_LINE : '첨부 없음', guidance: '' };
   }
 
-  // Claude 만 원본을 받는다 — 이미지·PDF·텍스트처럼 Read 로 직접 볼 수 있는 것만(오피스는 원본이 쓸모없다).
-  // 텍스트는 추출이 PENDING/NONE/FAILED 여도 Claude 가 원본을 읽을 수 있어야 한다.
+  // 로컬로 직접 볼 수 있는 것만 원본을 받는다(오피스는 원본이 쓸모없다) — Claude 는 이미지·PDF·텍스트,
+  // 비전 opencode 는 이미지만. 텍스트는 추출이 PENDING/NONE/FAILED 여도 Claude 가 원본을 읽을 수 있어야 한다.
+  const local = attachments.filter((a) => readsLocally(reader, a.mimeType));
   const downloads =
-    kind === 'anthropic'
-      ? await downloadAttachments(
-          deps.client,
-          deps.agentId,
-          attachments.filter((a) => readsLocally(kind, a.mimeType)),
-          deps.workDir,
-        )
+    local.length > 0
+      ? await downloadAttachments(deps.client, deps.agentId, local, deps.workDir)
       : new Map<number, DownloadOutcome>();
 
   const lines = attachments.map((a) =>
-    [header(a), ...detailLines(kind, a, downloads).map((l) => `  - ${l}`)].join('\n'),
+    [header(a), ...detailLines(reader, a, downloads).map((l) => `  - ${l}`)].join('\n'),
   );
   if (issueListFailed) lines.unshift(ISSUE_LIST_FAILED_LINE);
   const section = lines.join('\n');
-  return { section, guidance: kind === 'anthropic' ? GUIDANCE_CLAUDE : GUIDANCE_OPENCODE };
+  return { section, guidance: guidanceFor(reader) };
 }

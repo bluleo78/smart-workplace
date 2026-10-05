@@ -26,6 +26,8 @@ import type { ChatEventEnvelope } from '../types/chat-events.js';
 import type { ExtractionInfo, WorkplaceApiClient } from '../clients/workplace-api.js';
 import type { AgentAttachment, CollectedAttachments } from './attachment-source.js';
 
+// Claude 는 항상 이미지·PDF·텍스트를 로컬로 본다(presenter 에 넘기는 reader).
+const CLAUDE_READER = { runner: 'anthropic', imageVision: true };
 const NONE: CollectedAttachments = { attachments: [], issueListFailed: false };
 
 // 기본 stream 구현 — search_wiki tool_use → tool_done → result 순으로 발행.
@@ -78,7 +80,7 @@ describe('runChatAgent', () => {
     // 이슈 첨부는 스레드 경유로 조회한다(WP-244 — 비멤버 에이전트의 이슈 첨부 API 403 회피).
     expect(fetchIssueAttachments).toHaveBeenCalledWith(expect.anything(), 99, 5);
     expect(mergeAttachments).toHaveBeenCalledWith({ attachments: [], failed: false }, 5, []);
-    expect(presentAttachments).toHaveBeenCalledWith('anthropic', NONE, expect.objectContaining({ agentId: 99 }));
+    expect(presentAttachments).toHaveBeenCalledWith(CLAUDE_READER, NONE, expect.objectContaining({ agentId: 99 }));
     expect(streamSpy).toHaveBeenCalledOnce();
     const runCall = vi.mocked(streamSpy).mock.calls[0][0] as {
       allowFileRead?: boolean; cwd?: string; includePartialMessages?: boolean; agentId?: number;
@@ -137,7 +139,26 @@ describe('runChatAgent 러너 분기', () => {
     const d = deps();
     vi.mocked(d.client.getProviderCredential).mockResolvedValue({ provider: 'opencode', payload: {} as never, model: null } as never);
     await runChatAgent(env, d);
-    expect(presentAttachments).toHaveBeenCalledWith('opencode', NONE, expect.anything());
+    expect(presentAttachments).toHaveBeenCalledWith({ runner: 'opencode', imageVision: false }, NONE, expect.anything());
+  });
+
+  // WP-241·244 통합: 비전 지원 opencode 모델이면 presenter 가 이미지를 로컬로 보게 한다.
+  it('opencode 비전 모델 → presenter 에 imageVision true 전달', async () => {
+    const d = deps();
+    vi.mocked(d.client.getProviderCredential).mockResolvedValue({
+      provider: 'opencode',
+      payload: { vision: true },
+      model: 'neuralwatt/qwen',
+    } as never);
+    await runChatAgent(env, d);
+    expect(presentAttachments).toHaveBeenCalledWith({ runner: 'opencode', imageVision: true }, NONE, expect.anything());
+  });
+
+  it('opencode 모델 형식이 잘못돼도 비전 판단은 실패하지 않고 이미지 미지원으로 진행', async () => {
+    const d = deps();
+    vi.mocked(d.client.getProviderCredential).mockResolvedValue({ provider: 'opencode', payload: { vision: true }, model: 'no-slash' } as never);
+    await runChatAgent(env, d);
+    expect(presentAttachments).toHaveBeenCalledWith({ runner: 'opencode', imageVision: false }, NONE, expect.anything());
   });
 });
 
@@ -200,7 +221,7 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
     expect(d.sleep).toHaveBeenCalledTimes(1);
     expect(d.sleep).toHaveBeenCalledWith(TRIGGER_POLL_INTERVAL_MS);
     expect(d.client.getChatMessages).toHaveBeenCalledTimes(2);
-    expect(presentAttachments).toHaveBeenCalledWith('anthropic', onMessage(9, 'READY'), expect.anything());
+    expect(presentAttachments).toHaveBeenCalledWith(CLAUDE_READER, onMessage(9, 'READY'), expect.anything());
   });
 
   it('제한 시간까지 PENDING 이면 PENDING 그대로 진행', async () => {
@@ -210,7 +231,7 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
     const polls = Math.ceil(TRIGGER_POLL_TIMEOUT_MS / TRIGGER_POLL_INTERVAL_MS);
     expect(d.sleep).toHaveBeenCalledTimes(polls);
     expect(d.client.getChatMessages).toHaveBeenCalledTimes(1 + polls);
-    expect(presentAttachments).toHaveBeenCalledWith('anthropic', onMessage(9, 'PENDING'), expect.anything());
+    expect(presentAttachments).toHaveBeenCalledWith(CLAUDE_READER, onMessage(9, 'PENDING'), expect.anything());
     expect(streamSpy).toHaveBeenCalledOnce();
   });
 
@@ -228,7 +249,7 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
     vi.mocked(mergeAttachments).mockReturnValue(onMessage(9, 'PENDING'));
     await runChatAgent(env, d);
     expect(d.sleep).toHaveBeenCalledTimes(1);
-    expect(presentAttachments).toHaveBeenCalledWith('anthropic', onMessage(9, 'PENDING'), expect.anything());
+    expect(presentAttachments).toHaveBeenCalledWith(CLAUDE_READER, onMessage(9, 'PENDING'), expect.anything());
     expect(streamSpy).toHaveBeenCalledOnce();
   });
 

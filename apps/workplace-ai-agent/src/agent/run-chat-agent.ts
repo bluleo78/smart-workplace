@@ -7,7 +7,9 @@ import { CHAT_SYSTEM_PROMPT } from './chat-system-prompt.js';
 import { buildChatUserMessage } from './chat-user-message.js';
 import { createAttachmentWorkDir } from './attachment-prep.js';
 import { fetchIssueAttachments, mergeAttachments, type CollectedAttachments } from './attachment-source.js';
-import { presentAttachments, readsLocally } from './attachment-presenter.js';
+import { presentAttachments, readsLocally, type AttachmentReader } from './attachment-presenter.js';
+import { splitOpencodeModel } from './opencode-config.js';
+import { resolveOpencodeVision } from './opencode-vision.js';
 import { runnerFor } from './agent-runner.js';
 import { fromRunnerEvent } from './chat-progress-parser.js';
 import { ProgressTracker } from './progress-tracker.js';
@@ -61,6 +63,22 @@ async function agentAlreadyReplied(
   }
 }
 
+/**
+ * 첨부를 읽는 쪽 능력 — opencode 는 모델의 비전 지원 여부(WP-241)에 따라 이미지를 로컬로 볼 수 있다.
+ * 러너도 같은 판단을 하지만 credential 단위로 캐시되므로 여기서 먼저 불러도 조회는 한 번이다.
+ * 예외를 던지지 않는다. 알 수 없음(undefined)은 볼 수 없는 것으로 본다 — 이미지를 받았는데 모델이 못 보면 "다시 첨부해 달라" 응답이 나온다.
+ */
+async function attachmentReader(credential: ProviderCredential, model: string): Promise<AttachmentReader> {
+  if (credential.provider === 'anthropic') return { runner: 'anthropic', imageVision: true };
+  try {
+    const vision = await resolveOpencodeVision(credential.payload, splitOpencodeModel(model).modelID);
+    return { runner: 'opencode', imageVision: vision === true };
+  } catch {
+    // 모델 형식 오류 등은 러너가 실행 오류로 알린다 — 여기서는 이미지를 못 보는 것으로만 두고 진행.
+    return { runner: 'opencode', imageVision: false };
+  }
+}
+
 /** runChatAgent 의존성 — sleep 은 테스트에서 실제로 기다리지 않게 주입할 수 있다. */
 export type RunChatAgentDeps = RunAgentDeps & { sleep?: (ms: number) => Promise<void> };
 
@@ -68,10 +86,10 @@ const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(r
 
 /**
  * 트리거 메시지(방금 올라온 메시지)의 첨부 중 아직 추출 중이고, 이 러너가 로컬로 읽지 못하는 것이 있는지.
- * Claude 가 Read 로 직접 보는 이미지·PDF·텍스트는 추출을 기다릴 이유가 없다(opencode 는 모두 대기 대상).
+ * Claude 가 Read 로 직접 보는 이미지·PDF·텍스트는 추출을 기다릴 이유가 없다(opencode 는 비전 모델의 이미지 외 모두 대기 대상).
  */
 function triggerPending(
-  runner: ProviderCredential['provider'],
+  reader: AttachmentReader,
   c: CollectedAttachments,
   messageId: number,
 ): boolean {
@@ -80,7 +98,7 @@ function triggerPending(
       a.origin.kind === 'chat' &&
       a.origin.messageId === messageId &&
       a.extraction.status === 'PENDING' &&
-      !readsLocally(runner, a.mimeType),
+      !readsLocally(reader, a.mimeType),
   );
 }
 
@@ -96,17 +114,17 @@ async function awaitTriggerExtraction(
     agentId: number;
     threadId: number;
     messageId: number;
-    runner: ProviderCredential['provider'];
+    reader: AttachmentReader;
     issue: { attachments: AgentAttachment[]; failed: boolean };
     recent: ChatMessageItem[];
   },
 ): Promise<{ recent: ChatMessageItem[]; collected: CollectedAttachments }> {
-  const { agentId, threadId, messageId, runner, issue } = ctx;
+  const { agentId, threadId, messageId, reader, issue } = ctx;
   let recent = ctx.recent;
   let collected = mergeAttachments(issue, threadId, recent);
   const sleep = deps.sleep ?? defaultSleep;
   const maxPolls = Math.ceil(TRIGGER_POLL_TIMEOUT_MS / TRIGGER_POLL_INTERVAL_MS);
-  for (let i = 0; i < maxPolls && triggerPending(runner, collected, messageId); i++) {
+  for (let i = 0; i < maxPolls && triggerPending(reader, collected, messageId); i++) {
     await sleep(TRIGGER_POLL_INTERVAL_MS);
     try {
       recent = await deps.client.getChatMessages(agentId, threadId, THREAD_PREFETCH);
@@ -166,30 +184,33 @@ export async function runChatAgent(
 
     void emit('started');
     try {
-      // 이슈 첨부 목록은 메시지 조회와 병렬로 1회만 받는다(대기 루프에서는 메시지만 다시 받음).
-      const [firstRecent, issue] = await Promise.all([
+      // 모델 결정 이원화 해소: 이벤트 경로는 요청 body 가 없어 redeem 응답을 env/기본값보다 우선한다.
+      // 첨부 표현이 모델의 비전 지원에 달려 있어 첨부 준비보다 먼저 정한다.
+      const model = credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
+      // 이슈 첨부 목록은 메시지 조회와 병렬로 1회만 받는다(대기 루프에서는 메시지만 다시 받음). 비전 판단도 함께.
+      const [firstRecent, issue, reader] = await Promise.all([
         deps.client.getChatMessages(agentId, p.threadId, THREAD_PREFETCH),
         fetchIssueAttachments(deps.client, agentId, p.threadId),
+        attachmentReader(credential, model),
       ]);
-      // WP-244: 공통 첨부 목록(이슈+챗) → 러너별 표현. Claude 만 이미지·PDF 원본을 workDir 에 받는다.
+      // WP-244: 공통 첨부 목록(이슈+챗) → 러너별 표현. 로컬로 볼 수 있는 원본만 workDir 에 받는다
+      // (Claude 는 이미지·PDF·텍스트, 비전 opencode 는 이미지).
       // 트리거 메시지 첨부가 추출 중이면 잠시 기다려 상태를 갱신한다.
       const { recent, collected } = await awaitTriggerExtraction(deps, {
         agentId,
         threadId: p.threadId,
         messageId: p.messageId,
-        runner: credential.provider,
+        reader,
         issue,
         recent: firstRecent,
       });
-      const presented = await presentAttachments(credential.provider, collected, {
+      const presented = await presentAttachments(reader, collected, {
         client: deps.client,
         agentId,
         workDir,
       });
       const userMessage = buildChatUserMessage(p, recent, presented);
 
-      // 모델 결정 이원화 해소: 이벤트 경로는 요청 body 가 없어 redeem 응답을 env/기본값보다 우선한다.
-      const model = credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
       const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
       const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
 
