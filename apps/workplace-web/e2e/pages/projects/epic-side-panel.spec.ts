@@ -602,6 +602,58 @@ test.describe('에픽 왼쪽 패널', () => {
       await expect(page.getByTestId('epic-filter-10')).toBeVisible();
       await expect(page.getByTestId('epic-closed-section')).not.toBeAttached();
     });
+
+    test('종료 에픽이 100개를 초과하면 다음 페이지를 자동으로 페치한다 (WP-245)', async ({ authenticatedPage: page }) => {
+      await stubProjectMeta(page);
+      await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
+
+      // 진행 중 에픽 2개 + 종료 에픽 1차 100개 + 2차 1개 = 101 종료
+      const activeEpics = [epic(1, '진행 에픽', 1, 1, 'IN_PROGRESS'), epic(2, '진행 에픽 2', 2, 2, 'IN_PROGRESS')];
+      const closedPage1 = Array.from({ length: 100 }, (_, i) => epic(100 + i, `종료 에픽 ${i + 1}`, 1, 1, 'DONE'));
+      const closedPage2 = [epic(200, '마지막 종료 에픽', 1, 1, 'DONE')];
+
+      await routeIssueSearch(page, (route, url) => {
+        const isEpicSearch = url.searchParams.get('type') === String(makeEpicType().id);
+        const statuses = (url.searchParams.get('status') ?? '').split(',').filter(Boolean);
+        const cursor = url.searchParams.get('cursor');
+
+        let items: IssueResponse[] = [];
+        let nextCursor: string | null = null;
+
+        if (isEpicSearch) {
+          if (statuses.includes('IN_PROGRESS') || statuses.includes('TODO')) {
+            items = activeEpics.filter((e) => statuses.length === 0 || statuses.includes(e.status));
+            nextCursor = null;
+          } else if (statuses.includes('DONE') || statuses.includes('CANCELED')) {
+            if (cursor) {
+              items = closedPage2;
+              nextCursor = null;
+            } else {
+              items = closedPage1;
+              nextCursor = 'nextPage';
+            }
+          }
+        }
+
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssueSearchResponse(items, nextCursor)),
+        });
+      });
+
+      await page.goto(`/projects/${PROJECT_KEY}`);
+      await openEpicPanel(page);
+
+      // 종료된 에픽 구역 펼치기 — 초기 100개 + 자동 페칭된 1개
+      const toggle = page.getByTestId('epic-closed-toggle');
+      await expect.poll(() => toggle.textContent()).toContain('101');
+      await toggle.click();
+
+      // 마지막 페이지의 에픽이 렌더되는지 확인
+      await expect(page.getByTestId('epic-closed-filter-200')).toBeVisible();
+      await expect(page.getByTestId('epic-closed-filter-200')).toContainText('마지막 종료 에픽');
+    });
   });
 });
 

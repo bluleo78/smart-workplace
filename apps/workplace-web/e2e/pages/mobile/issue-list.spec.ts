@@ -544,4 +544,27 @@ test.describe('모바일 에픽 시트', () => {
     await page.getByTestId('mobile-chip-epic').click();
     await expect(search).toHaveValue('');
   });
+
+  test('활성 에픽이 2개 + 종료 에픽 8개 = 10개일 때 검색창이 보인다 (WP-245)', async ({ authenticatedPage: page }) => {
+    // 활성 에픽 2개 + 종료 에픽 8개 — 합계 10개 > 8이므로 검색창 표시
+    const fewEpics = Array.from({ length: 2 }, (_, i) =>
+      createIssue({ id: 10 + i, number: 10 + i, projectKey: KEY, title: `에픽 ${i + 1}`, type: makeEpicType() })
+    );
+    const manyClosedEpics = Array.from({ length: 8 }, (_, i) =>
+      createIssue({ id: 52 + i, number: 52 + i, projectKey: KEY, title: `종료 에픽 ${i + 1}`, type: makeEpicType(), status: 'DONE' })
+    );
+    await mock(page, { epics: fewEpics, closedEpics: manyClosedEpics });
+    await page.goto(`/projects/${KEY}?group=none`);
+    await page.getByTestId('mobile-chip-epic').click();
+    const sheet = page.getByTestId('mobile-epic-sheet');
+    const search = sheet.getByTestId('mobile-epic-sheet-search');
+
+    // 검색창이 보인다 (2 + 8 > 8)
+    await expect(search).toBeVisible();
+
+    // 종료 에픽 중 하나로 검색 — 매칭되면 펼쳐 보인다
+    await search.fill('종료 에픽 3');
+    await expect(sheet.getByTestId('mobile-epic-closed-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await expect(sheet.getByTestId('mobile-epic-closed-54')).toBeVisible();
+  });
 });

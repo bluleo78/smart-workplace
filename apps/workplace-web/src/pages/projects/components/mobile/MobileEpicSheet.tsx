@@ -95,7 +95,7 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
         options={options}
         value={value}
         onSelect={onSelect}
-        searchable={epics.length > 8}
+        searchable={epics.length + closed.epics.length > 8}
         reserveCheck
         listFooter={({ close, keyword }) => {
           // 종료된 에픽(WP-245) — 옵션 목록 아래 접힘 구역. 검색어가 있으면 필터링하고 펼쳐 보여준다(I2).

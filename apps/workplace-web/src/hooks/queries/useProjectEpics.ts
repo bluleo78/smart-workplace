@@ -1,5 +1,7 @@
 // 프로젝트 에픽 목록 조회 — 에픽 패널과 프로젝트 페이지(드래그 전 미리 데우기)가 같은 캐시를 공유한다.
 // 백엔드 변경 없이 type=EPIC 검색(topLevel, 상태 필터, 100건)을 재사용한다.
+import { useEffect } from 'react';
+
 import type { IssueFilters } from '../../types/issue';
 import { useIssueSearch } from './useIssueSearch';
 import { useIssueTypes } from './useIssueTypes';
@@ -38,16 +40,21 @@ function useEpicList(projectKey: string, statuses: string[], enabled: boolean) {
   // 훅 순서 고정 — epicType 미확정 시 typeIds:[-1] 자리채움 + enabled=false 로 요청만 막는다.
   const epicSearch = useIssueSearch(projectKey, epicListFilters(epicType?.id ?? -1, statuses), 100, enabled && !!epicType);
   const epics = epicSearch.data?.pages.flatMap((p) => p.items ?? []) ?? [];
-  // 로딩: 유형 목록 로딩 중이거나, EPIC 유형 확정 후 에픽 검색 로딩 중.
-  const loading = types.isLoading || (!!epicType && epicSearch.isLoading);
-  return { epicType, epics, loading };
+  // 로딩: 유형 목록 로딩 중이거나, EPIC 유형 확정 후 에픽 검색 로딩 중. 종료 에픽은 첫 페이지만 로딩 표시(뒤 페이지 로딩 중엔 섹션 유지).
+  const loading = types.isLoading || (!!epicType && epicSearch.isLoading && !epicSearch.data);
+  return { epicType, epics, loading, epicSearch };
 }
 
 export function useProjectEpics(projectKey: string, enabled = true) {
-  return useEpicList(projectKey, OPEN_EPIC_STATUSES, enabled);
+  const { epicType, epics, loading } = useEpicList(projectKey, OPEN_EPIC_STATUSES, enabled);
+  return { epicType, epics, loading };
 }
 
 export function useClosedEpics(projectKey: string, enabled = true) {
-  const { epics, loading } = useEpicList(projectKey, CLOSED_EPIC_STATUSES, enabled);
+  const { epics, loading, epicSearch } = useEpicList(projectKey, CLOSED_EPIC_STATUSES, enabled);
+  // 종료 에픽은 계속 쌓여 100건을 넘을 수 있다 — 개수·자동 펼침·칩 라벨이 맞도록 전량을 받는다.
+  useEffect(() => {
+    if (epicSearch.hasNextPage && !epicSearch.isFetchingNextPage) void epicSearch.fetchNextPage();
+  }, [epicSearch.hasNextPage, epicSearch.isFetchingNextPage, epicSearch]);
   return { epics, loading };
 }
