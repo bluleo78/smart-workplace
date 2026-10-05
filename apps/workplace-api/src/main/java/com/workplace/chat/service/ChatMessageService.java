@@ -21,15 +21,14 @@ import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.chat.repository.IssueStakeholderLookup;
 import com.workplace.drive.service.DriveLinkService;
-import com.workplace.fileai.dto.ExtractionInfo;
 import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.MentionParser;
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -193,25 +192,22 @@ public class ChatMessageService {
         new ChatThreadProgressEvent(threadId, callerId, name, streamId, phase, steps));
   }
 
-  /** 첨부 맵의 각 첨부에 추출 상태를 일괄로 붙인다(WP-242). RLS 트랜잭션 안에서 호출된다. */
+  /**
+   * 첨부 맵의 각 첨부에 추출 상태를 일괄로 붙인다(WP-242). RLS 트랜잭션 안에서 호출된다.
+   *
+   * <p>전체 첨부를 한 리스트로 펴서 attach 를 한 번만 호출(조회 1회)한 뒤 messageId 로 다시 묶는다. 스트림 순서가 유지돼 메시지별 첨부 순서는
+   * 그대로다.
+   */
   private Map<Long, List<ChatMessageAttachmentResponse>> withExtraction(
       Map<Long, List<ChatMessageAttachmentResponse>> amap) {
-    List<Long> fileIds =
-        amap.values().stream()
-            .flatMap(List::stream)
-            .map(ChatMessageAttachmentResponse::fileId)
-            .toList();
-    if (fileIds.isEmpty()) return amap;
-    Map<Long, ExtractionInfo> infos = extractedText.info(fileIds);
-    Map<Long, List<ChatMessageAttachmentResponse>> out = new HashMap<>();
-    amap.forEach(
-        (msgId, list) ->
-            out.put(
-                msgId,
-                list.stream()
-                    .map(a -> a.withExtraction(infos.getOrDefault(a.fileId(), ExtractionInfo.NONE)))
-                    .toList()));
-    return out;
+    List<ChatMessageAttachmentResponse> all = amap.values().stream().flatMap(List::stream).toList();
+    return extractedText
+        .attach(
+            all,
+            ChatMessageAttachmentResponse::fileId,
+            ChatMessageAttachmentResponse::withExtraction)
+        .stream()
+        .collect(Collectors.groupingBy(ChatMessageAttachmentResponse::messageId));
   }
 
   /** 단일 메시지 조회 + 첨부·드라이브 링크 하이드레이션. RLS 트랜잭션 내에서만 호출해야 첨부가 보인다. */

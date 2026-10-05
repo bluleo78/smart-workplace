@@ -4,13 +4,11 @@ import com.workplace.chat.exception.ChatAttachmentNotFoundException;
 import com.workplace.chat.exception.InvalidChatAttachmentException;
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.repository.ChatMessageRepository;
-import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.storage.FileStore;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.service.ExtractedTextService;
-import com.workplace.global.tenant.TenantContext;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -94,14 +92,13 @@ public class ChatMessageAttachmentService {
     }
     List<UploadedFile> out = new ArrayList<>();
     for (MultipartFile mf : files) {
-      Long id = storage.storeTemporary(mf, callerId);
-      // 저장값(storeTemporary)과 응답값이 갈라지지 않도록 같은 정규화를 쓴다(WP-242).
-      String mime = MimeNormalizer.normalize(mf.getOriginalFilename(), mf.getContentType());
+      // 저장소가 돌려준 정규화 mime 을 그대로 응답에 쓴다 — 저장값과 응답값이 갈라지지 않는다(WP-242).
+      var stored = storage.storeTemporary(mf, callerId);
       out.add(
           new UploadedFile(
-              id,
+              stored.fileId(),
               mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file",
-              mime,
+              stored.mimeType(),
               mf.getSize()));
     }
     return out;
@@ -135,13 +132,9 @@ public class ChatMessageAttachmentService {
     }
     repo.promoteToPermanent(fileIds);
     // 메시지에 붙어 영구 파일이 된 시점에 텍스트 추출을 요청한다(WP-242). 버려진 임시 업로드는 여기 오지 않아 추출하지 않는다.
-    // TenantContext 가 비면 언박싱 NPE 로 전송이 실패하지 않도록 DriveFileService 와 같은 0L 가드.
-    Long tenantId = TenantContext.get();
-    long tid = tenantId != null ? tenantId : 0L;
     for (var b : bindables) {
       eventPublisher.publishEvent(
-          new FileExtractionRequestedEvent(
-              b.fileId(), tid, b.mimeType(), ExtractionProfile.TEXT_ONLY));
+          FileExtractionRequestedEvent.of(b.fileId(), b.mimeType(), ExtractionProfile.TEXT_ONLY));
     }
   }
 

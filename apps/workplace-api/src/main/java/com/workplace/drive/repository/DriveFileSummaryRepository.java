@@ -38,7 +38,11 @@ public class DriveFileSummaryRepository {
     if (r == null) {
       return new SummaryRow(null, null, null, null);
     }
-    return new SummaryRow(r.value1(), r.value2(), r.value3(), r.value4());
+    return new SummaryRow(
+        r.get(FILE_EXTRACTION.SUMMARY),
+        r.get(FILE_EXTRACTION.STATUS),
+        r.get(FILE_EXTRACTION.ERROR),
+        r.get(FILE.MIME_TYPE));
   }
 
   /** file_extraction 원시 조회 결과(summary, status, error) + 사유 판정용 mime. */

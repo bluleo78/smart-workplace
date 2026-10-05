@@ -2,10 +2,8 @@ package com.workplace.issue.service;
 
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.dto.ExtractedTextSlice;
-import com.workplace.fileai.dto.ExtractionInfo;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.service.ExtractedTextService;
-import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueAttachmentResponse;
 import com.workplace.issue.exception.AttachmentLimitExceededException;
 import com.workplace.issue.exception.AttachmentNotFoundException;
@@ -18,7 +16,6 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -91,13 +88,8 @@ public class IssueAttachmentService {
           repo.findById(fileId).orElseThrow(() -> new AttachmentNotFoundException(fileId));
       added.add(row);
       // 이슈 첨부는 업로드 즉시 영구 파일 → 여기서 텍스트 추출을 요청한다(WP-242). 첨부는 요약·임베딩 없는 TEXT_ONLY.
-      Long tenantId = TenantContext.get();
       eventPublisher.publishEvent(
-          new FileExtractionRequestedEvent(
-              fileId,
-              tenantId != null ? tenantId : 0L,
-              row.mimeType(),
-              ExtractionProfile.TEXT_ONLY));
+          FileExtractionRequestedEvent.of(fileId, row.mimeType(), ExtractionProfile.TEXT_ONLY));
     }
 
     // 4) history 한 건 — payload 에 added 만 포함.
@@ -115,13 +107,11 @@ public class IssueAttachmentService {
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
-    List<IssueAttachmentResponse> rows = repo.findByIssue(issue.id());
     // 첨부별 추출 상태를 한 번에 붙인다(WP-242). 행이 없으면 NONE(배포 전 첨부).
-    Map<Long, ExtractionInfo> infos =
-        extractedText.info(rows.stream().map(IssueAttachmentResponse::fileId).toList());
-    return rows.stream()
-        .map(a -> a.withExtraction(infos.getOrDefault(a.fileId(), ExtractionInfo.NONE)))
-        .toList();
+    return extractedText.attach(
+        repo.findByIssue(issue.id()),
+        IssueAttachmentResponse::fileId,
+        IssueAttachmentResponse::withExtraction);
   }
 
   /**

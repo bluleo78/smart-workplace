@@ -46,14 +46,17 @@ public class ChatMessageAttachmentStorage {
     this.tempExpiryHours = tempExpiryHours;
   }
 
+  /** 임시 저장 결과 — fileId 와 저장에 실제 쓴 정규화 mime(응답이 같은 값을 쓰도록 단일 출처로 돌려준다). */
+  public record Stored(Long fileId, String mimeType) {}
+
   /**
-   * 파일을 코어 FileStore 에 저장 후 file row 를 임시로 INSERT 해 fileId 를 반환.
+   * 파일을 코어 FileStore 에 저장 후 file row 를 임시로 INSERT 해 fileId 와 정규화 mime 을 반환.
    *
    * <p>STORAGE_PATH 에는 상대경로(tenant-{id}/chat/...)만 저장. expires_at = now + tempExpiryHours.
    *
    * @throws IOException 파일 저장 실패 시
    */
-  public Long storeTemporary(MultipartFile mf, Long uploaderId) throws IOException {
+  public Stored storeTemporary(MultipartFile mf, Long uploaderId) throws IOException {
     String originalName = mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file";
     // 코어 FilePathBuilder 가 UUID·날짜·확장자·테넌트 디렉토리를 일괄 생성(상대경로)
     String relativePath = pathBuilder.build(StorageDomain.CHAT, originalName);
@@ -66,18 +69,20 @@ public class ChatMessageAttachmentStorage {
     String mime = MimeNormalizer.normalize(originalName, mf.getContentType());
 
     OffsetDateTime now = OffsetDateTime.now();
-    return dsl.insertInto(FILE)
-        .set(FILE.ORIGINAL_NAME, originalName)
-        .set(FILE.STORED_NAME, storedName)
-        .set(FILE.MIME_TYPE, mime)
-        .set(FILE.SIZE_BYTES, mf.getSize())
-        .set(FILE.CATEGORY, "ATTACHMENT")
-        .set(FILE.STORAGE_PATH, relativePath) // 상대경로만 저장 — 절대경로 복원은 FileStore.resolve()
-        .set(FILE.UPLOADED_BY, uploaderId)
-        .set(FILE.CREATED_AT, now)
-        .set(FILE.EXPIRES_AT, now.plusHours(tempExpiryHours))
-        .returning(FILE.ID)
-        .fetchOne()
-        .getId();
+    Long fileId =
+        dsl.insertInto(FILE)
+            .set(FILE.ORIGINAL_NAME, originalName)
+            .set(FILE.STORED_NAME, storedName)
+            .set(FILE.MIME_TYPE, mime)
+            .set(FILE.SIZE_BYTES, mf.getSize())
+            .set(FILE.CATEGORY, "ATTACHMENT")
+            .set(FILE.STORAGE_PATH, relativePath) // 상대경로만 저장 — 절대경로 복원은 FileStore.resolve()
+            .set(FILE.UPLOADED_BY, uploaderId)
+            .set(FILE.CREATED_AT, now)
+            .set(FILE.EXPIRES_AT, now.plusHours(tempExpiryHours))
+            .returning(FILE.ID)
+            .fetchOne()
+            .getId();
+    return new Stored(fileId, mime);
   }
 }

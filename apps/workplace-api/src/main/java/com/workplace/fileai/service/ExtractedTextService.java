@@ -8,10 +8,15 @@ import com.workplace.fileai.dto.ExtractionInfo;
 import com.workplace.fileai.exception.InvalidTextRangeException;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Field;
+import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,14 +59,46 @@ public class ExtractedTextService {
             r ->
                 out.put(
                     r.get(FILE_EXTRACTION.FILE_ID),
-                    ExtractionInfo.of(
-                        r.get(FILE_EXTRACTION.STATUS),
-                        r.get(FILE_EXTRACTION.ERROR),
-                        r.get(FILE.MIME_TYPE),
+                    toInfo(
+                        r,
                         r.get(FILE_EXTRACTION.CHAR_COUNT),
-                        r.get(FILE_EXTRACTION.TRUNCATED),
                         Boolean.TRUE.equals(r.get(hasText)))));
     return out;
+  }
+
+  /**
+   * 목록 항목에 추출 상태를 붙여 돌려준다 — 도메인별 첨부 목록의 "info 조회 + NONE 기본값" 중복을 모은 공용 헬퍼.
+   *
+   * <p>info() 를 한 번만 호출(쿼리 1회)하고, 추출 행이 없는 항목(배포 전 첨부)은 {@link ExtractionInfo#NONE} 으로 채운다.
+   *
+   * @param fileId 항목에서 코어 file.id 를 꺼내는 함수
+   * @param withExtraction 항목에 추출 정보를 붙인 사본을 만드는 함수
+   */
+  @Transactional(readOnly = true)
+  public <T> List<T> attach(
+      List<T> items, Function<T, Long> fileId, BiFunction<T, ExtractionInfo, T> withExtraction) {
+    if (items.isEmpty()) return List.of();
+    Map<Long, ExtractionInfo> infos = info(items.stream().map(fileId).toList());
+    return items.stream()
+        .map(i -> withExtraction.apply(i, infos.getOrDefault(fileId.apply(i), ExtractionInfo.NONE)))
+        .toList();
+  }
+
+  /**
+   * info()/read() 공용 변환 — status/error/truncated/mime 컬럼을 가진 조회 행을 외부 계약({@link ExtractionInfo})으로
+   * 바꾼다.
+   *
+   * @param totalChars 전체 글자 수(info 는 char_count 컬럼, read 는 SQL char_length)
+   * @param hasText extracted_text 가 null 이 아닌지
+   */
+  private static ExtractionInfo toInfo(Record r, Integer totalChars, boolean hasText) {
+    return ExtractionInfo.of(
+        r.get(FILE_EXTRACTION.STATUS),
+        r.get(FILE_EXTRACTION.ERROR),
+        r.get(FILE.MIME_TYPE),
+        totalChars,
+        r.get(FILE_EXTRACTION.TRUNCATED),
+        hasText);
   }
 
   /**
@@ -96,20 +133,12 @@ public class ExtractedTextService {
 
     Integer totalChars = r == null ? null : r.get(total);
     ExtractionInfo info =
-        r == null
-            ? ExtractionInfo.NONE
-            : ExtractionInfo.of(
-                r.get(FILE_EXTRACTION.STATUS),
-                r.get(FILE_EXTRACTION.ERROR),
-                r.get(FILE.MIME_TYPE),
-                totalChars,
-                r.get(FILE_EXTRACTION.TRUNCATED),
-                totalChars != null);
+        r == null ? ExtractionInfo.NONE : toInfo(r, totalChars, totalChars != null);
     if (!"READY".equals(info.status())) {
       return new ExtractedTextSlice(
           fileId, info.status(), offset, null, null, null, null, info.reasonCode(), info.reason());
     }
-    String text = r.get(slice) == null ? "" : r.get(slice);
+    String text = Objects.requireNonNullElse(r.get(slice), "");
     int returned = text.codePointCount(0, text.length());
     int end = offset + returned;
     Integer next = returned > 0 && end < totalChars ? end : null;

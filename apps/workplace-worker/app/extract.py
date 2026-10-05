@@ -127,14 +127,15 @@ def extract_text(data: bytes, mime: str, max_chars: int, page_markers: bool = Fa
     return {"text": text, "charCount": len(text), "lang": None, "truncated": truncated}
 
 
-def _dispatch(data: bytes, mime: str, page_markers: bool = False) -> str:
+def _dispatch(data: bytes, mime: str, page_markers: bool) -> str:
     """mime 타입에 따라 적절한 파서를 선택해 텍스트 추출.
 
     api `ExtractableTypes` 와 1:1 미러 — 한쪽만 고치면 드리프트(#735).
     """
     if mime == "application/pdf":
         # PDF: pymupdf(fitz) 로 페이지별 텍스트를 뽑아 [페이지 N] 표식으로 잇는다(WP-242).
-        # 표식은 첨부(page_markers=True)에만 — 드라이브 검색 오염 방지. 표식은 모델이 출처 페이지를 말하고 후속 '페이지 이미지 보기'가 볼 페이지를 정하는 기준이다.
+        # 표식은 첨부(page_markers=True)에만 — 드라이브 검색 오염 방지.
+        # 모델이 출처 페이지를 말하고 후속 '페이지 이미지 보기'가 볼 페이지를 정하는 기준이다.
         # 모든 페이지가 비면(스캔 PDF) 표식만 남지 않도록 빈 문자열을 돌려 empty 판정을 유지한다.
         import fitz  # pymupdf
         with fitz.open(stream=data, filetype="pdf") as doc:

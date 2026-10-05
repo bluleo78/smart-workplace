@@ -30,18 +30,18 @@ public record ExtractionInfo(
       Boolean truncated,
       boolean hasText) {
     if (internalStatus == null) return NONE;
-    switch (internalStatus) {
-      case "PENDING", "EXTRACTING":
-        return new ExtractionInfo("PENDING", null, null, null, null);
-      case "TEXT_READY", "SUMMARIZING", "DONE":
-        return new ExtractionInfo("READY", totalChars, Boolean.TRUE.equals(truncated), null, null);
-      case "FAILED":
-        if (hasText)
-          return new ExtractionInfo(
-              "READY", totalChars, Boolean.TRUE.equals(truncated), null, null);
-        break;
-      default:
-        break;
+    if ("PENDING".equals(internalStatus) || "EXTRACTING".equals(internalStatus)) {
+      return new ExtractionInfo("PENDING", null, null, null, null);
+    }
+    // 요약 단계 상태이거나, 요약만 실패(FAILED)했어도 텍스트가 남아 있으면 읽을 수 있다.
+    boolean ready =
+        switch (internalStatus) {
+          case "TEXT_READY", "SUMMARIZING", "DONE" -> true;
+          case "FAILED" -> hasText;
+          default -> false;
+        };
+    if (ready) {
+      return new ExtractionInfo("READY", totalChars, Boolean.TRUE.equals(truncated), null, null);
     }
     ExtractionReasons.Code code = ExtractionReasons.classify(internalStatus, error, mime);
     String external = "FAILED".equals(internalStatus) ? "FAILED" : "SKIPPED";

@@ -125,11 +125,8 @@ public class DriveFileService {
     // 추출 파이프라인 트리거(WP-242) — 같은 트랜잭션에서 file_extraction 행이 생기고, 커밋 후 워커로 디스패치된다.
     // 드라이브는 요약·임베딩까지 하는 FULL 프로파일.
     eventPublisher.publishEvent(
-        new FileExtractionRequestedEvent(
-            uploaded.id(),
-            tenantId != null ? tenantId : 0L,
-            uploaded.mimeType(),
-            ExtractionProfile.FULL));
+        FileExtractionRequestedEvent.of(
+            uploaded.id(), uploaded.mimeType(), ExtractionProfile.FULL));
 
     // 새 버전 흡수도 created 로 둔다(프론트는 op 구분 없이 목록을 갱신).
     notifier.itemsChanged(OP_CREATED, spaceId, List.of(driveFileId), callerId);
