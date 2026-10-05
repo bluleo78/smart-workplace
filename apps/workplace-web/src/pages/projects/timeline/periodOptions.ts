@@ -3,7 +3,7 @@
 import type { CycleResponse, CycleStatus } from '@/types/cycle';
 import { CYCLE_STATUS_LABEL } from '@/types/cycle';
 
-import { formatPeriodSpan } from './timelineData';
+import { formatPeriodSpan, parsePeriodParam, periodParamToString } from './timelineData';
 import type { PeriodParam } from './timelineTypes';
 
 export interface PeriodOption {
@@ -33,14 +33,11 @@ export function periodOptions(cycles: CycleResponse[], today: Date): PeriodOptio
   ];
 }
 
-/** 현재 PeriodParam 을 선택지 값으로 — 체크 표시용. range 는 「직접 지정」 폼이 맡아 'range'. */
-export function periodOptionValue(p: PeriodParam): string {
-  return p.kind === 'cycle' ? `cycle-${p.id}` : p.kind;
-}
+/**
+ * 현재 PeriodParam 을 선택지 값으로 — 체크 표시용. 선택지 값은 URL 값과 같은 형식이라 URL 직렬화를 그대로 쓴다
+ * (기본 active 만 URL 에서 빠지므로 'active'). range 는 「range:…」 값이라 어떤 선택지와도 맞지 않는다 — 「직접 지정」 폼이 맡는다.
+ */
+export const periodOptionValue = (p: PeriodParam): string => periodParamToString(p) ?? 'active';
 
-/** 선택지 값 → PeriodParam. */
-export function periodOptionToParam(value: string): PeriodParam {
-  if (value.startsWith('cycle-')) return { kind: 'cycle', id: Number(value.slice('cycle-'.length)) };
-  if (value === 'quarter' || value === 'rolling' || value === 'all') return { kind: value };
-  return { kind: 'active' };
-}
+/** 선택지 값 → PeriodParam — URL 값 해석과 같다. */
+export const periodOptionToParam = parsePeriodParam;

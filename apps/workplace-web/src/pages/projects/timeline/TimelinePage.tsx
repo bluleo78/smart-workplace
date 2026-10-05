@@ -86,6 +86,9 @@ export default function TimelinePage() {
     [issues, editingMilestoneId],
   );
 
+  // 첫 로드·자동 다음 페이지 페치 중 — 간트·아젠다 모두 이 동안 빈 상태를 띄우지 않는다.
+  const issuesLoading = search.isLoading || search.isFetchingNextPage || search.hasNextPage === true;
+
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="timeline-page">
       <PageHeader
@@ -161,7 +164,7 @@ export default function TimelinePage() {
           projectKey={key}
           issues={issues}
           milestones={milestones.data ?? []}
-          loading={search.isLoading || search.isFetchingNextPage || search.hasNextPage === true}
+          loading={issuesLoading}
           onOpenIssue={(n) => navigate(`/projects/${key}/issues/${n}`)}
           view={view}
           periodChip={<TimelinePeriodChip param={periodCtl.param} period={periodCtl.period} cycles={periodCtl.cycles} onChange={changePeriod} />}
@@ -178,7 +181,8 @@ export default function TimelinePage() {
           onLaneClick={(date) => setMilestoneDialogState({ defaultDueDate: date })}
           view={view}
           periodPicker={periodPicker}
-          loading={search.isLoading || search.isFetchingNextPage || search.hasNextPage === true}
+          loading={issuesLoading}
+          cycles={periodCtl.cycles}
         />
       )}
       <MilestoneFormDialog

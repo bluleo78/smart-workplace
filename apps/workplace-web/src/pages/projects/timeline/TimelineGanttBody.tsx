@@ -1,5 +1,5 @@
 // 데스크톱 타임라인 본문 — 필터바·간트·일정 미정 섹션. TimelinePage 에서 분리해 데스크톱(≥1024px)에서만 마운트한다.
-// 왜: 의존성 조회·사이클 조회·에픽 그룹/화살표 계산은 간트 전용이라, 모바일 아젠다(WP-197)에선 돌 필요가 없다.
+// 왜: 의존성 조회·에픽 그룹/화살표 계산은 간트 전용이라, 모바일 아젠다(WP-197)에선 돌 필요가 없다.
 // 이슈 전량·마일스톤·자동 다음 페이지 페치·마일스톤 다이얼로그/팝오버 상태는 모바일과 공유하므로 TimelinePage 가 소유한다.
 // 빈 상태(WP-247): 조회 기간에 걸친 일정 있는 이슈가 없으면 빈 상태 표시. 일정 미정 이슈는 항상 표시되므로 unscheduled 개수는 확인하지 않는다.
 import { CalendarRange } from 'lucide-react';
@@ -7,7 +7,8 @@ import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { useCycles } from '../../../hooks/queries/useCycles';
+import type { CycleResponse } from '@/types/cycle';
+
 import { useProjectDependencies } from '../../../hooks/queries/useProjectDependencies';
 import { useTimelineIssueUpdate } from '../../../hooks/queries/useTimelineIssueUpdate';
 import type { IssueResponse } from '../../../types/issue';
@@ -37,6 +38,7 @@ export function TimelineGanttBody({
   view,
   periodPicker,
   loading,
+  cycles,
 }: {
   projectKey: string;
   issues: IssueResponse[];
@@ -51,9 +53,10 @@ export function TimelineGanttBody({
   view: TimelineViewOptions;
   periodPicker?: ReactNode;
   loading?: boolean;
+  /** 사이클 목록 — 기간 훅(useTimelinePeriod)이 이미 조회한 것을 받아 밴드만 그린다(같은 조회를 두 번 하지 않는다). */
+  cycles: CycleResponse[];
 }) {
   const navigate = useNavigate();
-  const cycles = useCycles(key);
   const dependencies = useProjectDependencies(key);
   const updateIssue = useTimelineIssueUpdate(key);
 
@@ -66,7 +69,7 @@ export function TimelineGanttBody({
     () => view.period != null && groups.length === 0 && groupTimelineIssues(issues, { includeCanceled }).groups.length > 0,
     [issues, includeCanceled, view.period, groups.length],
   );
-  const cycleBands = useMemo(() => cyclesToBands(cycles.data ?? []), [cycles.data]);
+  const cycleBands = useMemo(() => cyclesToBands(cycles), [cycles]);
   const milestoneMarkers = useMemo(() => milestonesToMarkers(milestones ?? []), [milestones]);
   // 일정 미정/CANCELED 이슈로의 화살표는 SVAR 가 렌더할 노드가 없어 제외한다.
   const renderableDependencies = useMemo(

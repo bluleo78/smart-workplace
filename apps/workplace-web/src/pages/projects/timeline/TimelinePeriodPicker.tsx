@@ -1,7 +1,8 @@
 // 타임라인 필터바 맨 앞 「◷ 기간」 드롭다운(WP-247) — 기간도 「어떤 이슈를 볼지」 정하는 필터라 담당자·상태 옆에 둔다.
 // 기본값이어도 강조 표시로 라벨을 늘 보여 지금 걸러져 있음을 알린다. 대체 기간이면 title 툴팁으로 이유를 알린다.
+import { format, parseISO } from 'date-fns';
 import { CalendarRange, Check, ChevronDown } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -18,7 +19,9 @@ export function TimelinePeriodPicker({
   param, period, cycles, onChange,
 }: { param: PeriodParam; period: TimelinePeriod | null; cycles: CycleResponse[]; onChange: (p: PeriodParam) => void }) {
   const [open, setOpen] = useState(false);
-  const options = periodOptions(cycles, new Date());
+  // 선택지는 사이클·오늘(일 단위)에만 달라진다 — 날짜 키로 메모를 고정한다.
+  const todayKey = format(new Date(), 'yyyy-MM-dd');
+  const options = useMemo(() => periodOptions(cycles, parseISO(todayKey)), [cycles, todayKey]);
   const current = periodOptionValue(param);
   const pick = (p: PeriodParam) => {
     setOpen(false);

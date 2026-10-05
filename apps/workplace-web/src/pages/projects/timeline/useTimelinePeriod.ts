@@ -1,5 +1,6 @@
 // 타임라인 조회 기간 훅(WP-247) — URL `period` 를 읽고 쓰며, 사이클 목록으로 실제 기간을 푼다. 데스크톱 드롭다운·모바일 칩 시트가 공유한다.
-// 사이클 조회가 끝나기 전에는 ready=false — 페이지는 이 동안 간트·아젠다를 그리지 않아 걸러지지 않은 목록이 비치지 않게 한다.
+// 사이클이 필요한 기간(active·cycle)인데 사이클 조회가 끝나기 전이면 ready=false — 페이지는 이 동안 간트·아젠다를 그리지 않아
+// 걸러지지 않은 목록이 비치지 않게 한다. 분기·rolling·직접 지정·전체는 사이클 없이 풀리므로 기다리지 않는다.
 import { format, parseISO } from 'date-fns';
 import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -34,5 +35,6 @@ export function useTimelinePeriod(projectKey: string) {
       },
       { replace: true },
     );
-  return { param, period, cycles: cycleList, ready: !cycles.isLoading, setParam };
+  const needsCycles = param.kind === 'active' || param.kind === 'cycle';
+  return { param, period, cycles: cycleList, ready: !(needsCycles && cycles.isLoading), setParam };
 }

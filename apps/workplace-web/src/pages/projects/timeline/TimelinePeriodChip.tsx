@@ -1,7 +1,8 @@
 // 모바일 아젠다 칩 줄 맨 앞 「◷ 기간」 칩(WP-247) — 기본값이어도 강조 표시. 누르면 데스크톱 드롭다운과 같은 선택지의 시트.
 // 「직접 지정」은 시트 목록 아래 날짜 두 칸(PeriodRangeForm). 대체 기간이면 목록 아래(직접 지정 위)에 이유를 적는다.
+import { format, parseISO } from 'date-fns';
 import { CalendarRange, ChevronDown } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 import { cn } from '@/lib/utils';
@@ -16,6 +17,12 @@ export function TimelinePeriodChip({
   param, period, cycles, onChange,
 }: { param: PeriodParam; period: TimelinePeriod | null; cycles: CycleResponse[]; onChange: (p: PeriodParam) => void }) {
   const [open, setOpen] = useState(false);
+  // 선택지는 사이클·오늘(일 단위)에만 달라진다 — 날짜 키로 메모를 고정한다.
+  const todayKey = format(new Date(), 'yyyy-MM-dd');
+  const options = useMemo(
+    () => periodOptions(cycles, parseISO(todayKey)).map((o) => ({ value: o.value, label: o.label, hint: o.hint ?? undefined })),
+    [cycles, todayKey],
+  );
   // 칩은 좁아 이름만 — 「GW-2 · 10/1–10/14」 에서 「 · 」 앞. 전체면 「전체」.
   const short = period ? period.label.split(' · ')[0] : '전체';
   return (
@@ -35,7 +42,7 @@ export function TimelinePeriodChip({
         onClose={() => setOpen(false)}
         title="조회 기간"
         testId="agenda-period-sheet"
-        options={periodOptions(cycles, new Date()).map((o) => ({ value: o.value, label: o.label, hint: o.hint ?? undefined }))}
+        options={options}
         value={periodOptionValue(param)}
         onSelect={(v) => onChange(periodOptionToParam(v))}
         listFooter={
