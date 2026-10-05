@@ -37,7 +37,7 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커(+이슈 컨텍스트 chat)
 ## Architecture (목표)
 
 - **모노레포**: pnpm workspaces + Turborepo
-- **백엔드**: 모듈러 모놀리스 (Spring Boot + Spring Modulith)
+- **백엔드**: 모듈러 모놀리스 (Spring Boot — Spring Modulith 는 쓰지 않음. 모듈은 패키지로 나누고 ArchUnit 으로 일부 규칙을 검증)
   - core: identity / thread / search / file / notify / ai
   - domain: issue(v1, 완료) · chat(이슈 컨텍스트, 완료) · messaging(팀 채팅 — Phase 1·2 완료, 3~7 백로그 #60–64) · notify(인박스/알림, 진행 중 #54) → 노트 / drive (이후)
 - **프론트엔드**: Vite + React 19 + TS + Tailwind 4 + shadcn/ui
