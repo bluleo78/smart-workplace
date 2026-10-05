@@ -1,0 +1,7 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><style>body{font-family:'Pretendard',sans-serif;margin:48px;line-height:1.6;color:#111}h1{font-size:26px}h2{font-size:18px;margin-top:28px;border-bottom:1px solid #ddd}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px 10px;font-size:13px}</style>
+<h1>모바일 주문 앱 2.0 요구사항 정의서</h1><p>누리커머스 · 모바일팀 · v1.2 · 2026년 10월</p>
+<h2>1. 배경</h2><p>재구매 고객의 40%가 지난 주문과 같은 상품을 다시 담기 위해 평균 4번 이상 화면을 이동한다. 2.0에서는 간편 재주문, 포인트·쿠폰 통합, 배송 추적 개편으로 재구매 경험을 단순화한다.</p>
+<h2>2. 목표 지표</h2><table><tr><th>지표</th><th>현재</th><th>목표</th></tr><tr><td>재주문 소요 시간</td><td>평균 48초</td><td>20초 이하</td></tr><tr><td>결제 단계 이탈률</td><td>15%</td><td>10%</td></tr><tr><td>포인트·쿠폰 문의</td><td>월 1,200건</td><td>월 840건</td></tr></table>
+<h2>3. 기능 요구사항</h2><p><b>간편 재주문</b> — 최근 주문을 한 번에 장바구니에 담는다. 품절 상품은 같은 카테고리의 대체 상품을 제안하고 사용자가 확인 후 담는다.</p><p><b>포인트·쿠폰 통합</b> — 결제 단계에서 포인트와 쿠폰을 한 화면에서 적용한다. "포인트 모두 쓰기" 버튼을 제공한다.</p><p><b>배송 추적 개편</b> — 택배사 실시간 위치 API를 연동해 지도에 표시한다.</p>
+<h2>4. 일정</h2><p>베타 오픈: 10월 중순(사내 테스터 200명) · 정식 출시: 11월 말(앱스토어·플레이스토어 동시)</p>
+<h2>5. 위험 요소</h2><p>결제사(페이링크) 샌드박스 연동 일정 지연 시 포인트 통합 기능의 베타 포함 여부를 재검토한다. 택배사 API 사양 확정이 늦어지면 배송 추적은 정식 출시 이후로 이동한다.</p></html>

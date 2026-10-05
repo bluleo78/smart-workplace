@@ -26,14 +26,14 @@ pip install fastapi "uvicorn[standard]" pymupdf python-docx openpyxl httpx
 | 변수 | 설명 | 예시 |
 |------|------|------|
 | `WORKER_BLOB_BASE` | api 가 파일을 저장하는 uploadDir 절대 경로 | `/Users/yourname/project/upload-data` |
-| `WORKPLACE_API_BASE_URL` | api 내부 베이스 URL | `http://localhost:6060/api/v1` |
+| `WORKPLACE_API_BASE_URL` | api 루트 URL(콜백 `/internal/worker/**` 는 루트 경로 — `/api/v1` 을 붙이면 콜백이 거부돼 추출이 EXTRACTING 에서 멈춘다) | `http://localhost:6060` |
 | `INTERNAL_SERVICE_TOKEN` | api / ai-agent 와 동일한 내부 서비스 토큰 | *(비밀값 — .env 에만 기록)* |
 
 로컬 `.env` 예시:
 
 ```dotenv
 WORKER_BLOB_BASE=/Users/yourname/git/smart-workplace/upload-data
-WORKPLACE_API_BASE_URL=http://localhost:6060/api/v1
+WORKPLACE_API_BASE_URL=http://localhost:6060
 INTERNAL_SERVICE_TOKEN=dev-secret-token
 ```
 
@@ -60,7 +60,7 @@ api  ──rw──► [uploads-data volume] ◄──ro── worker
 - `api` 컨테이너: `/data/uploads` (읽기/쓰기)
 - `worker` 컨테이너: `/data/uploads:ro` (읽기 전용)
 - `WORKER_BLOB_BASE=/data/uploads` 를 worker 에 주입
-- worker → api 콜백에 `WORKPLACE_API_BASE_URL=http://api:9090/api/v1` 사용
+- worker → api 콜백에 `WORKPLACE_API_BASE_URL=http://api:9090` 사용(루트 — 콜백 경로 `/internal/worker/**` 에 `/api/v1` 이 붙지 않는다)
 - `INTERNAL_SERVICE_TOKEN` 은 api 의 `WORKPLACE_AI_AGENT_TOKEN` 과 **동일 값** 사용
 
 운영 `docker-compose.prod.yml` 에 `worker` 서비스와 `uploads-data` 명명 볼륨이 이미 선언되어 있다.

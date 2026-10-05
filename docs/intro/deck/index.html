@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Gen:iA Works 제품 소개</title>
+<!--
+  Gen:iA Works 고객용 제품 소개 자료(16:9).
+  화면은 모두 shots/ 의 실제 캡처(격리 스택 + 가상 회사 데이터, capture-screens.mjs)다.
+  번호 표시는 촬영 때 기록한 실제 요소 좌표(shots/boxes.js)로 그린다:
+    <b class="ann area"  data-box="샷:대상" data-n="1">            영역 — 빨간 테두리 박스
+    <b class="ann point" data-box="샷:대상" data-n="2" data-side>   지점 — 가장자리 점 + 지시선
+  잘라 보기: data-crop="x,y,w,h"(원본 px) 또는 data-crop-box="샷:대상"(기록된 요소 주변).
+  AI 기능은 장마다 빠짐없이 번호로 짚는다. 화면 문구·기능 설명은 현재 코드 근거로만 쓴다 — docs/intro/README.md.
+  빌드: node docs/intro/scripts/build-pdf.mjs
+-->
+<link rel="stylesheet" href="deck.css">
+</head>
+<body>
+
+<!-- 1. 표지 -->
+<section class="slide cover">
+  <div class="brand">
+    <span class="mark"><img src="../../../apps/workplace-web/public/favicon.svg" width="40" height="40" alt=""></span>
+    Gen:iA Works
+  </div>
+  <h1>AI가 <em>팀원</em>으로<br>일하는 워크플레이스</h1>
+  <p>이슈·대화·메일·캘린더·노트·드라이브를 한 곳에서.<br>그리고 그 안에서 AI가 일을 맡아 처리합니다.</p>
+  <div class="frame"><div class="bar"><i></i><i></i><i></i></div><div class="shot"><img src="shots/home.png" alt=""></div></div>
+  <div class="foot">제품 소개</div>
+</section>
+
+<!-- 2. 한 곳에 -->
+<section class="slide layout-shot">
+  <div class="head">
+    <div class="eyebrow">워크플레이스</div>
+    <div class="headline">업무 도구 전부를 한 곳에</div>
+    <div class="sub">여러 서비스를 오가지 않고, 하나의 화면에서 오늘 할 일을 확인하고 시작합니다.</div>
+  </div>
+  <div class="callouts">
+    <div class="callout"><div class="n">1</div><div><b>모든 업무 도구</b><span>대화·메일·캘린더·작업·드라이브·노트·연락처를 왼쪽 메뉴 하나로 오갑니다.</span></div></div>
+    <div class="callout"><div class="n">2</div><div><b>오늘의 요약</b><span>오늘 마감, 멘션, 안 읽은 대화, 오늘 일정을 한눈에 봅니다.</span></div></div>
+    <div class="callout"><div class="n">3</div><div><b>지금 신경 쓸 일</b><span>나를 찾는 일부터 먼저 보여 줍니다.</span></div></div>
+    <div class="callout ai"><div class="n">4</div><div><b>AI 어시스턴트</b><span>어느 화면에서든 AI를 불러 일을 시킵니다.</span></div></div>
+  </div>
+  <div class="frame">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div class="shot">
+      <img src="shots/home.png" alt="">
+      <b class="ann area" data-box="home:rail" data-n="1"></b>
+      <b class="ann area" data-box="home:counts" data-n="2"></b>
+      <b class="ann area" data-box="home:focus" data-n="3"></b>
+      <b class="ann point" data-box="home:ai" data-n="4" data-side="bottom"><i></i></b>
+    </div>
+  </div>
+  <span class="page-no">2</span>
+</section>
+
+<!-- 3. AI 도 담당자로 -->
+<section class="slide layout-shot">
+  <div class="head">
+    <div class="eyebrow ai">AI 팀원 · 01</div>
+    <div class="headline">AI도 팀원으로 지정합니다</div>
+    <div class="sub">AI는 별도의 챗봇 창이 아니라, 담당자 목록에 사람과 나란히 있는 구성원입니다.</div>
+  </div>
+  <div class="callouts">
+    <div class="callout"><div class="n">1</div><div><b>담당자 선택</b><span>사람에게 일을 맡기듯 같은 목록에서 고릅니다.</span></div></div>
+    <div class="callout ai"><div class="n">2</div><div><b>AI 에이전트 "지니"</b><span>"에이전트" 표시가 붙은 AI 구성원에게 이슈를 맡깁니다.</span></div></div>
+    <div class="callout ai"><div class="n">3</div><div><b>AI 제안 받기</b><span>제목을 보고 이슈 유형 분류를 AI가 제안합니다.</span></div></div>
+  </div>
+  <div class="frame">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div class="shot">
+      <img src="shots/assignee.png" alt="">
+      <b class="ann area" data-box="assignee:picker" data-n="1"></b>
+      <b class="ann point" data-box="assignee:agent" data-n="2" data-side="left" data-len="70"><i></i></b>
+    </div>
+  </div>
+  <div class="zoom-panel" style="left:96px;top:860px;width:470px;">
+    <div class="zhead"><span class="n">3</span>이슈 속성 패널 · AI 제안 받기</div>
+    <div data-crop="2270,840,560,112">
+      <img src="shots/issue-summary.png" alt="">
+    </div>
+  </div>
+  <span class="page-no">3</span>
+</section>
+
+<!-- 4. 맡기면 AI 가 처리 — 왼쪽: 코멘트 화면 / 오른쪽: 같은 이슈의 이력 탭 -->
+<section class="slide">
+  <div class="head">
+    <div class="eyebrow ai">AI 팀원 · 02</div>
+    <div class="headline">맡기면 AI가 직접 처리합니다</div>
+    <div class="sub">담당자로 지정하면 AI가 착수하고, 결과를 코멘트로 남긴 뒤 완료 처리합니다.</div>
+  </div>
+  <div class="frame" style="left:96px;top:300px;width:1060px;">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div class="shot">
+      <img src="shots/ai-issue.png" alt="">
+      <b class="ann area" data-box="ai-issue:start" data-n="1"></b>
+      <b class="ann area" data-box="ai-issue:result" data-n="2"></b>
+    </div>
+  </div>
+  <div class="zoom-panel" style="left:1196px;top:290px;width:628px;">
+    <div class="zhead"><span class="n">3</span>같은 이슈 · 이력 탭</div>
+    <div data-crop="670,1010,760,290" data-pad="8">
+      <img src="shots/ai-issue-history.png" alt="">
+      <b class="ann area nolabel" data-box="ai-issue-history:changes"></b>
+    </div>
+  </div>
+  <div class="callouts" style="left:1236px;top:620px;width:588px;gap:26px">
+    <div class="callout ai"><div class="n">1</div><div><b>착수 코멘트</b><span>무엇을 근거로 할지 먼저 밝히고 시작합니다.</span></div></div>
+    <div class="callout ai"><div class="n">2</div><div><b>결과 코멘트</b><span>요청한 체크리스트를 이슈·코멘트를 근거로 작성합니다.</span></div></div>
+    <div class="callout ai"><div class="n">3</div><div><b>상태 변경도 AI가</b><span>할 일 → 진행 중 → 완료. 모든 변경이 이력에 남습니다.</span></div></div>
+  </div>
+  <span class="page-no">4</span>
+</section>
+
+<!-- 5. AI 위임 작업 -->
+<section class="slide layout-shot">
+  <div class="head">
+    <div class="eyebrow ai">AI 팀원 · 03</div>
+    <div class="headline">AI에게 맡긴 일을 한눈에</div>
+    <div class="sub">내가 AI에게 맡겨 진행 중인 일이 한 목록에 모입니다.</div>
+  </div>
+  <div class="callouts">
+    <div class="callout ai"><div class="n">1</div><div><b>AI 위임 작업</b><span>"내 작업" 옆에 AI에게 맡긴 일이 따로 모입니다.</span></div></div>
+    <div class="callout ai"><div class="n">2</div><div><b>진행 상태와 담당 AI</b><span>어느 AI가 어떤 일을 하고 있는지 확인합니다. 끝난 일은 이슈에 결과가 남습니다.</span></div></div>
+  </div>
+  <div class="frame">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div class="shot">
+      <img src="shots/ai-tasks.png" alt="">
+      <b class="ann area" data-box="ai-tasks:nav" data-n="1"></b>
+      <b class="ann area" data-box="ai-tasks:rows" data-n="2"></b>
+    </div>
+  </div>
+  <span class="page-no">5</span>
+</section>
+
+<!-- 6. 어디서든 AI 에게 요청 -->
+<section class="slide">
+  <div class="head">
+    <div class="eyebrow ai">AI 팀원 · 04</div>
+    <div class="headline">어디서든 말로 일을 시킵니다</div>
+    <div class="sub">어느 화면에서든 AI를 부르면, 이슈·일정·대화·노트를 함께 보고 답합니다.</div>
+  </div>
+  <div class="frame" style="left:96px;top:290px;width:1060px;">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div class="shot">
+      <img src="shots/ai-panel.png" alt="">
+      <b class="ann point" data-box="ai-panel:launcher" data-n="1" data-side="bottom"><i></i></b>
+      <b class="ann area" data-box="ai-panel:answer" data-n="2"></b>
+      <b class="ann point" data-box="ai-panel:context" data-n="3" data-side="left" data-len="60"><i></i></b>
+    </div>
+  </div>
+  <div class="zoom-panel" style="left:1196px;top:290px;width:628px;">
+    <div class="zhead"><span class="n">4</span>이슈 안에서 · 채팅</div>
+    <div data-crop-box="issue-chat:drawer" data-crop-pad="0" data-pad="0" data-max-h="700">
+      <img src="shots/issue-chat.png" alt="">
+    </div>
+  </div>
+  <div class="callouts row" style="left:96px;top:950px;width:1060px;">
+    <div class="callout ai"><div class="n">1</div><div><b>AI 어시스턴트 ⌘K</b></div></div>
+    <div class="callout ai"><div class="n">2</div><div><b>업무 데이터로 답변</b></div></div>
+    <div class="callout ai"><div class="n">3</div><div><b>보던 화면 참고</b></div></div>
+    <div class="callout ai"><div class="n">4</div><div><b>이슈 채팅 @AI</b></div></div>
+  </div>
+  <span class="page-no">6</span>
+</section>
+
+<!-- 7. 대화가 바로 일이 된다 -->
+<section class="slide">
+  <div class="head">
+    <div class="eyebrow ai">AI 팀원 · 05</div>
+    <div class="headline">대화가 바로 일이 됩니다</div>
+    <div class="sub">채널에서 AI에게 부탁하면 이슈를 제안하고, 승인 한 번이면 등록해서 직접 맡습니다.</div>
+  </div>
+  <div class="frame" style="left:96px;top:300px;width:1060px;">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div class="shot">
+      <img src="shots/channel-proposal.png" alt="">
+      <b class="ann point" data-box="channel-proposal:mention" data-n="1" data-side="left" data-len="40"><i></i></b>
+      <b class="ann area" data-box="channel-proposal:card" data-n="2"></b>
+      <b class="ann point" data-box="channel-proposal:approve" data-n="3" data-side="right" data-len="60"><i></i></b>
+    </div>
+  </div>
+  <div class="zoom-panel" style="left:1196px;top:290px;width:628px;">
+    <div class="zhead"><span class="n">4</span>승인 직후</div>
+    <div data-crop="690,1000,1200,490" data-pad="1">
+      <img src="shots/channel-confirmed.png" alt="">
+      <b class="ann area nolabel" data-box="channel-confirmed:done"></b>
+    </div>
+  </div>
+  <div class="callouts" style="left:1236px;top:650px;width:588px;gap:18px">
+    <div class="callout"><div class="n">1</div><div><b>@지니 에게 부탁</b><span>대화하던 채널에서 바로 요청합니다.</span></div></div>
+    <div class="callout ai"><div class="n">2</div><div><b>AI가 이슈를 제안</b><span>제목·우선순위·프로젝트·담당을 채워 제안합니다.</span></div></div>
+    <div class="callout ai"><div class="n">3</div><div><b>승인 한 번</b><span>사람이 확인하고 승인해야 등록됩니다.</span></div></div>
+    <div class="callout ai"><div class="n">4</div><div><b>AI가 맡아 처리</b><span>이슈를 만들고 직접 담당합니다.</span></div></div>
+  </div>
+  <span class="page-no">7</span>
+</section>
+
+<!-- 8. AI 가 정리 -->
+<section class="slide">
+  <div class="head">
+    <div class="eyebrow ai">AI 팀원 · 06</div>
+    <div class="headline">흩어진 맥락은 AI가 정리합니다</div>
+    <div class="sub">이슈의 현재 상황도, 자리를 비운 사이의 대화도 AI가 요약해 줍니다.</div>
+  </div>
+  <div class="zoom-panel" style="left:96px;top:290px;width:1400px;">
+    <div class="zhead"><span class="n">1</span>이슈 · AI 현황 요약</div>
+    <div data-crop-box="issue-summary:card" data-crop-pad="0">
+      <img src="shots/issue-summary.png" alt="">
+    </div>
+  </div>
+  <div class="zoom-panel" style="left:96px;top:636px;width:1400px;">
+    <div class="zhead"><span class="n">2</span>채널 · 놓친 대화 요약</div>
+    <div data-crop-box="catchup:card" data-crop-pad="0">
+      <img src="shots/catchup.png" alt="">
+    </div>
+  </div>
+  <div class="callouts" style="left:1540px;top:340px;width:300px">
+    <div class="callout ai"><div class="n">1</div><div><b>원인·진행 상태와 다음 액션</b><span>이슈 본문·코멘트를 읽고 지금 상황을 정리합니다.</span></div></div>
+  </div>
+  <div class="callouts" style="left:1540px;top:690px;width:300px">
+    <div class="callout ai"><div class="n">2</div><div><b>결정된 것·오간 이야기</b><span>안 읽은 대화가 쌓이면 요약이 먼저 열리고, 원문으로 바로 이동합니다.</span></div></div>
+  </div>
+  <span class="page-no">8</span>
+</section>
+
+<!-- 9. 메일 ① 분류·요약 -->
+<section class="slide layout-shot">
+  <div class="head">
+    <div class="eyebrow ai">업무 전체 · 메일</div>
+    <div class="headline">메일은 AI가 먼저 읽고 정리합니다</div>
+    <div class="sub">Microsoft 365 메일을 연결하면 AI가 메일을 분류하고, 내용을 요약하고, 답장과 할 일 등록까지 돕습니다.</div>
+  </div>
+  <div class="callouts">
+    <div class="callout ai"><div class="n">1</div><div><b>AI 분류</b><span>업무·개인·알림 등으로 메일을 자동 분류합니다.</span></div></div>
+    <div class="callout ai"><div class="n">2</div><div><b>AI 요약</b><span>긴 메일도 요점부터 확인합니다.</span></div></div>
+    <div class="callout ai"><div class="n">3</div><div><b>AI 답장 초안 · AI 이슈 생성</b><span>메일에서 바로 답장 초안을 만들고, 할 일로 등록합니다(다음 장).</span></div></div>
+  </div>
+  <div class="frame">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div class="shot">
+      <img src="shots/mail-detail.png" alt="">
+      <b class="ann point" data-box="mail-list:category" data-n="1" data-side="bottom" data-len="40"><i></i></b>
+      <b class="ann area" data-box="mail-detail:summary" data-n="2"></b>
+      <b class="ann area" data-box="mail-detail:actions" data-n="3"></b>
+    </div>
+  </div>
+  <span class="page-no">9</span>
+</section>
+
+<!-- 10. 메일 ② 답장 초안·이슈 생성 -->
+<section class="slide">
+  <div class="head">
+    <div class="eyebrow ai">업무 전체 · 메일</div>
+    <div class="headline">답장도, 할 일 등록도 AI가 초안을</div>
+    <div class="sub">메일을 열면 AI 답장 초안과 AI 이슈 생성이 바로 옆에 있습니다. 보내기·등록은 사람이 확인한 뒤에 합니다.</div>
+  </div>
+  <div class="zoom-panel" style="left:96px;top:300px;width:852px;">
+    <div class="zhead"><span class="n">1</span>AI 답장 초안</div>
+    <div data-crop-box="mail-reply:dock" data-crop-pad="0" data-max-h="690">
+      <img src="shots/mail-reply.png" alt="">
+    </div>
+  </div>
+  <div class="zoom-panel" style="left:972px;top:300px;width:852px;">
+    <div class="zhead"><span class="n">2</span>AI 이슈 생성 · 이슈로 만들기 (AI 초안)</div>
+    <div data-crop-box="mail-issue:dialog" data-crop-pad="-8" data-max-h="690">
+      <img src="shots/mail-issue.png" alt="">
+    </div>
+  </div>
+  <span class="page-no">10</span>
+</section>
+
+<!-- 11. 계획과 진행 -->
+<section class="slide">
+  <div class="head">
+    <div class="eyebrow">업무 전체 · 작업 관리</div>
+    <div class="headline">계획과 진행을 함께 봅니다</div>
+    <div class="sub">스프린트(사이클) 단위로 작업을 관리하고, 타임라인에서 에픽 일정과 마일스톤을 확인합니다.</div>
+  </div>
+  <div class="zoom-panel" style="left:96px;top:300px;width:852px;">
+    <div class="zhead"><span class="n">1</span>사이클별 작업 목록</div>
+    <div class="shot"><img src="shots/project.png" alt="" style="width:100%"><b class="ann area" data-box="project:cycle" data-n="1"></b></div>
+  </div>
+  <div class="zoom-panel" style="left:972px;top:300px;width:852px;">
+    <div class="zhead"><span class="n">2</span>타임라인 · 마일스톤</div>
+    <div class="shot"><img src="shots/timeline.png" alt="" style="width:100%"><b class="ann point" data-box="timeline:milestone" data-n="2" data-side="bottom" data-len="40"><i></i></b></div>
+  </div>
+  <span class="page-no">11</span>
+</section>
+
+<!-- 12. 노트 -->
+<section class="slide">
+  <div class="head">
+    <div class="eyebrow">업무 전체 · 노트</div>
+    <div class="headline">팀의 지식은 노트에, AI가 읽고 일합니다</div>
+    <div class="sub">요구사항·회의록을 노트에 정리해 두면, AI가 업무를 처리할 때 근거로 찾아 씁니다.</div>
+  </div>
+  <div class="frame" style="left:96px;top:300px;width:1060px;">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div class="shot"><img src="shots/wiki-prd.png" alt=""><b class="ann area" data-box="wiki-prd:tree" data-n="1"></b></div>
+  </div>
+  <div class="zoom-panel" style="left:1196px;top:290px;width:628px;">
+    <div class="zhead"><span class="n">2</span>AI에게 맡긴 이슈 · 착수 코멘트</div>
+    <div data-crop="600,620,1010,170">
+      <img src="shots/ai-note.png" alt="">
+    </div>
+  </div>
+  <div class="callouts" style="left:1236px;top:560px;width:588px;gap:22px">
+    <div class="callout"><div class="n">1</div><div><b>스페이스별 문서</b><span>프로젝트 문서를 스페이스로 묶고 멤버에게만 공개합니다.</span></div></div>
+    <div class="callout ai"><div class="n">2</div><div><b>AI의 업무 근거</b><span>스페이스 멤버인 AI는 PRD를 읽고 작업에 반영합니다.</span></div></div>
+  </div>
+  <span class="page-no">12</span>
+</section>
+
+<!-- 13. 드라이브 -->
+<section class="slide">
+  <div class="head">
+    <div class="eyebrow ai">업무 전체 · 드라이브</div>
+    <div class="headline">파일은 열기 전에 AI 요약부터</div>
+    <div class="sub">팀 공간에 올린 문서는 본문까지 읽혀, 미리보기에서 AI 요약을 바로 확인합니다.</div>
+  </div>
+  <div class="frame" style="left:96px;top:280px;width:700px;">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div class="shot"><img src="shots/drive.png" alt=""><b class="ann area" data-box="drive:files" data-n="1"></b></div>
+  </div>
+  <div class="callouts" style="left:880px;top:330px;width:900px;gap:30px">
+    <div class="callout"><div class="n">1</div><div><b>팀 공간</b><span>프로젝트별 공간에 문서를 모아 함께 씁니다.</span></div></div>
+    <div class="callout ai"><div class="n">2</div><div><b>AI 요약</b><span>PDF·워드 문서는 본문까지 읽어, 미리보기에서 요점부터 보여 줍니다.</span></div></div>
+  </div>
+  <div class="zoom-panel" style="left:96px;top:732px;width:1728px;">
+    <div class="zhead"><span class="n">2</span>파일 미리보기 · AI 요약</div>
+    <div data-crop-box="drive-preview:summary" data-crop-pad="0" data-max-h="260">
+      <img src="shots/drive-preview.png" alt="">
+    </div>
+  </div>
+  <span class="page-no">13</span>
+</section>
+
+<!-- 14. 캘린더 -->
+<section class="slide layout-shot">
+  <div class="head">
+    <div class="eyebrow">업무 전체 · 캘린더</div>
+    <div class="headline">회사 캘린더와 팀 일정을 한 화면에</div>
+    <div class="sub">Microsoft 365 캘린더를 연결하면 회사 일정과 팀 일정, 내 이슈 마감일이 함께 보입니다.</div>
+  </div>
+  <div class="callouts">
+    <div class="callout"><div class="n">1</div><div><b>Microsoft 365 연동</b><span>메일 계정을 연결하면 캘린더도 자동으로 동기화됩니다.</span></div></div>
+    <div class="callout"><div class="n">2</div><div><b>내 이슈 마감일</b><span>담당 이슈의 마감일을 일정과 같은 화면에 겹쳐 봅니다.</span></div></div>
+    <div class="callout"><div class="n">3</div><div><b>팀 일정</b><span>참석자를 초대하고 응답을 받습니다.</span></div></div>
+  </div>
+  <div class="frame">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div class="shot">
+      <img src="shots/calendar.png" alt="">
+      <b class="ann area" data-box="calendar:m365" data-n="1"></b>
+      <b class="ann point" data-box="calendar:due" data-n="2" data-side="right"><i></i></b>
+      <b class="ann point" data-box="calendar:event" data-n="3" data-side="bottom"><i></i></b>
+    </div>
+  </div>
+  <span class="page-no">14</span>
+</section>
+
+<!-- 15. 모바일 -->
+<section class="slide">
+  <div class="head">
+    <div class="eyebrow">어디서든</div>
+    <div class="headline">휴대폰에서도 같은 업무, 같은 AI</div>
+    <div class="sub">모바일 전용 화면으로 이동 중에도 확인하고, 승인하고, AI에게 요청합니다.</div>
+  </div>
+  <div class="phone" style="left:146px"><div class="screen shot"><img src="shots/mobile-home.png" alt=""><b class="ann point" data-box="mobile-home:ai" data-n="1" data-side="top" data-len="70"><i></i></b></div></div>
+  <div class="phone" style="left:606px"><div class="screen shot"><img src="shots/mobile-channel.png" alt=""><b class="ann area" data-box="mobile-channel:card" data-n="2" data-pad="3"></b></div></div>
+  <div class="phone" style="left:1066px"><div class="screen shot"><img src="shots/mobile-ai.png" alt=""><b class="ann area" data-box="mobile-ai:answer" data-n="3" data-pad="0"></b></div></div>
+  <div class="phone-cap" style="left:96px"><b>모바일 홈</b><span>하단 탭의 AI ① 로 바로 요청</span></div>
+  <div class="phone-cap" style="left:556px"><b>이동 중에도 승인</b><span>AI 제안 ② 을 승인하면 AI가 처리</span></div>
+  <div class="phone-cap" style="left:1016px"><b>탭 하나로 AI에게</b><span>일정·작업 정리 ③</span></div>
+  <div class="mobile-foot">
+    <div><b>앱처럼 설치</b>홈 화면에 추가해 앱처럼 실행합니다.</div>
+    <div><b>푸시 알림</b>DM·멘션·이슈 변경·일정 알림을 종류별로 골라 받습니다.</div>
+    <div><b>손에 맞춘 조작</b>시트형 선택창, 뒤로 스와이프.</div>
+  </div>
+  <span class="page-no">15</span>
+</section>
+
+<!-- 16. 외부 AI 도구 -->
+<section class="slide">
+  <div class="head">
+    <div class="eyebrow">연결</div>
+    <div class="headline">쓰던 AI 도구에서도 같은 업무 공간에</div>
+    <div class="sub">개인 API 토큰 하나로, 외부 AI 도구가 내 권한 그대로 이슈·일정·노트를 읽고 처리합니다.</div>
+  </div>
+  <div class="diagram" style="top:310px;bottom:380px">
+    <div class="box">
+      <h3>사내에서 쓰는 AI 도구</h3>
+      <p>코딩 도우미, 데스크톱 AI 비서 등<br>표준 연동 방식을 지원하는 도구</p>
+    </div>
+    <div class="link"><div class="line"></div>개인 API 토큰<br>(내 권한으로만)</div>
+    <div class="box hub">
+      <h3>Gen:iA Works</h3>
+      <p>도구가 접근할 수 있는 업무 영역</p>
+      <div class="chips">
+        <span class="chip">이슈</span><span class="chip">프로젝트</span><span class="chip">캘린더</span><span class="chip">메일</span>
+        <span class="chip">대화</span><span class="chip">노트</span><span class="chip">드라이브</span><span class="chip">연락처</span>
+        <span class="chip">구성원</span><span class="chip">알림</span>
+      </div>
+    </div>
+  </div>
+  <div class="zoom-panel" style="left:96px;top:760px;width:1100px;">
+    <div class="zhead"><span class="n">1</span>설정 › API 토큰</div>
+    <div data-crop="560,150,2300,240" data-pad="4">
+      <img src="shots/tokens.png" alt="">
+      <b class="ann area nolabel" data-box="tokens:row"></b>
+    </div>
+  </div>
+  <div class="label" style="left:1236px;top:800px;width:588px;display:block;font-size:24px;font-weight:600;color:var(--ink-2);line-height:1.5">토큰은 개인별로 발급·회수합니다.<br>회수하면 외부 도구의 접근이 즉시 차단됩니다.</div>
+  <span class="page-no">16</span>
+</section>
+
+<!-- 17. 관리자 통제 -->
+<section class="slide">
+  <div class="head">
+    <div class="eyebrow">관리</div>
+    <div class="headline">관리자가 AI를 통제합니다</div>
+    <div class="sub">어떤 AI를, 어떤 모델로 쓸지 관리자가 정하고, 연결은 언제든 회수합니다.</div>
+  </div>
+  <div class="frame" style="left:96px;top:300px;width:1060px;">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div class="shot"><img src="shots/agents.png" alt=""><b class="ann area" data-box="agents:row" data-n="1"></b></div>
+  </div>
+  <div class="zoom-panel" style="left:1196px;top:290px;width:628px;">
+    <div class="zhead"><span class="n">2</span>에이전트 상세 · AI 연결 및 모델</div>
+    <div data-crop-box="agent-detail:connection" data-crop-pad="0">
+      <img src="shots/agent-detail.png" alt="">
+    </div>
+  </div>
+  <div class="callouts" style="left:1236px;top:700px;width:588px;gap:22px">
+    <div class="callout"><div class="n">1</div><div><b>에이전트 관리</b><span>AI 구성원을 만들고 공통·개인 비서를 구분합니다.</span></div></div>
+    <div class="callout ai"><div class="n">2</div><div><b>AI 연결 및 모델</b><span>연결 방식과 모델, 생각의 깊이를 고르고 재발급·회수합니다.</span></div></div>
+  </div>
+  <span class="page-no">17</span>
+</section>
+
+<script src="shots/boxes.js"></script>
+<script src="deck.js"></script>
+</body>
+</html>
