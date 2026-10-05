@@ -24,7 +24,7 @@ describe('collectAttachments', () => {
       msg(12, [{ fileId: 3, messageId: 12, originalName: 'b.docx', mimeType: 'x', sizeBytes: 1 }]),
       msg(11, [{ fileId: 2, messageId: 11, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 1 }]),
     ];
-    const out = await collectAttachments(client, 99, 'WP-1', 5, recent);
+    const { attachments: out } = await collectAttachments(client, 99, 'WP-1', 5, recent);
     expect(out.map((a) => a.fileId)).toEqual([1, 2, 3]);
     expect(out[0].origin).toEqual({ kind: 'issue', issueKey: 'WP-1' });
     expect(out[1].origin).toEqual({ kind: 'chat', threadId: 5, messageId: 11 });
@@ -32,14 +32,14 @@ describe('collectAttachments', () => {
   });
 
   it('extraction 누락 → NONE', async () => {
-    const out = await collectAttachments(client, 99, 'WP-1', 5, [
+    const { attachments: out } = await collectAttachments(client, 99, 'WP-1', 5, [
       msg(1, [{ fileId: 2, messageId: 1, originalName: 'a', mimeType: 'x', sizeBytes: 1 }]),
     ]);
     expect(out[0].extraction).toEqual(NO_EXTRACTION);
   });
 
   it('삭제된 메시지의 첨부는 제외', async () => {
-    const out = await collectAttachments(client, 99, 'WP-1', 5, [
+    const { attachments: out } = await collectAttachments(client, 99, 'WP-1', 5, [
       msg(1, [{ fileId: 2, messageId: 1, originalName: 'a', mimeType: 'x', sizeBytes: 1 }], true),
     ]);
     expect(out).toEqual([]);
@@ -49,19 +49,25 @@ describe('collectAttachments', () => {
     vi.mocked(client.listIssueAttachments).mockResolvedValue([
       { fileId: 2, originalName: 'a', mimeType: 'x', sizeBytes: 1 },
     ]);
-    const out = await collectAttachments(client, 99, 'WP-1', 5, [
+    const { attachments: out } = await collectAttachments(client, 99, 'WP-1', 5, [
       msg(1, [{ fileId: 2, messageId: 1, originalName: 'a', mimeType: 'x', sizeBytes: 1 }]),
     ]);
     expect(out).toHaveLength(1);
     expect(out[0].origin.kind).toBe('issue');
   });
 
-  it('이슈_목록_실패_시_챗_첨부만', async () => {
+  it('이슈_목록_실패_시_챗_첨부만 + issueListFailed=true', async () => {
     vi.mocked(client.listIssueAttachments).mockRejectedValue(new Error('403'));
-    const out = await collectAttachments(client, 99, 'WP-1', 5, [
+    const r = await collectAttachments(client, 99, 'WP-1', 5, [
       msg(1, [{ fileId: 2, messageId: 1, originalName: 'a', mimeType: 'x', sizeBytes: 1 }]),
     ]);
-    expect(out.map((a) => a.fileId)).toEqual([2]);
+    expect(r.attachments.map((a) => a.fileId)).toEqual([2]);
+    expect(r.issueListFailed).toBe(true);
     expect(console.warn).toHaveBeenCalled();
+  });
+
+  it('이슈 목록 성공 → issueListFailed=false', async () => {
+    const r = await collectAttachments(client, 99, 'WP-1', 5, []);
+    expect(r.issueListFailed).toBe(false);
   });
 });

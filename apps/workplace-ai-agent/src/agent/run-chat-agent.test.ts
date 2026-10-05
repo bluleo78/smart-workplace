@@ -8,17 +8,22 @@ const { streamSpy } = vi.hoisted(() => ({ streamSpy: vi.fn() }));
 vi.mock('./agent-runner.js', () => ({
   runnerFor: vi.fn(() => ({ stream: streamSpy, collect: vi.fn() })),
 }));
-vi.mock('./attachment-source.js', () => ({ collectAttachments: vi.fn(async () => []) }));
+vi.mock('./attachment-source.js', () => ({
+  collectAttachments: vi.fn(async () => ({ attachments: [], issueListFailed: false })),
+}));
 vi.mock('./attachment-presenter.js', () => ({
   presentAttachments: vi.fn(async () => ({ section: '첨부 없음', guidance: '' })),
 }));
 
-import { runChatAgent } from './run-chat-agent.js';
+import { runChatAgent, TRIGGER_POLL_INTERVAL_MS, TRIGGER_POLL_TIMEOUT_MS } from './run-chat-agent.js';
 import { attachmentRootDir } from './attachment-prep.js';
 import { collectAttachments } from './attachment-source.js';
 import { presentAttachments } from './attachment-presenter.js';
 import type { ChatEventEnvelope } from '../types/chat-events.js';
-import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+import type { ExtractionInfo, WorkplaceApiClient } from '../clients/workplace-api.js';
+import type { AgentAttachment, CollectedAttachments } from './attachment-source.js';
+
+const NONE: CollectedAttachments = { attachments: [], issueListFailed: false };
 
 // 기본 stream 구현 — search_wiki tool_use → tool_done → result 순으로 발행.
 function defaultStreamImpl(_i: unknown, onEvent: (e: RunnerEvent) => void) {
@@ -61,14 +66,14 @@ describe('runChatAgent', () => {
     streamSpy.mockImplementation(defaultStreamImpl);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(collectAttachments).mockResolvedValue([]);
+    vi.mocked(collectAttachments).mockResolvedValue(NONE);
     vi.mocked(presentAttachments).mockResolvedValue({ section: '첨부 없음', guidance: '' });
   });
 
   it('mentions AGENT → 토큰 fetch + 첨부 준비 + SDK spawn(allowFileRead, cwd, mcp, partial=false)', async () => {
     await runChatAgent(env, deps());
     expect(collectAttachments).toHaveBeenCalledWith(expect.anything(), 99, 'WP-1', 5, []);
-    expect(presentAttachments).toHaveBeenCalledWith('anthropic', [], expect.objectContaining({ agentId: 99 }));
+    expect(presentAttachments).toHaveBeenCalledWith('anthropic', NONE, expect.objectContaining({ agentId: 99 }));
     expect(streamSpy).toHaveBeenCalledOnce();
     const runCall = vi.mocked(streamSpy).mock.calls[0][0] as {
       allowFileRead?: boolean; cwd?: string; includePartialMessages?: boolean; agentId?: number;
@@ -126,7 +131,7 @@ describe('runChatAgent 러너 분기', () => {
     streamSpy.mockImplementation(defaultStreamImpl);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(collectAttachments).mockResolvedValue([]);
+    vi.mocked(collectAttachments).mockResolvedValue(NONE);
     vi.mocked(presentAttachments).mockResolvedValue({ section: '첨부 없음', guidance: '' });
   });
 
@@ -134,7 +139,7 @@ describe('runChatAgent 러너 분기', () => {
     const d = deps();
     vi.mocked(d.client.getProviderCredential).mockResolvedValue({ provider: 'opencode', payload: {} as never, model: null } as never);
     await runChatAgent(env, d);
-    expect(presentAttachments).toHaveBeenCalledWith('opencode', [], expect.anything());
+    expect(presentAttachments).toHaveBeenCalledWith('opencode', NONE, expect.anything());
   });
 });
 
@@ -144,7 +149,7 @@ describe('runChatAgent 진행 발행', () => {
     streamSpy.mockImplementation(defaultStreamImpl);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(collectAttachments).mockResolvedValue([]);
+    vi.mocked(collectAttachments).mockResolvedValue(NONE);
     vi.mocked(presentAttachments).mockResolvedValue({ section: '첨부 없음', guidance: '' });
   });
 
@@ -176,5 +181,68 @@ describe('runChatAgent 진행 발행', () => {
     // 모든 호출이 동일 streamId
     const ids = new Set(postChatProgress.mock.calls.map((c: unknown[]) => (c[2] as { streamId: string }).streamId));
     expect(ids.size).toBe(1);
+  });
+});
+
+describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
+  const ex = (status: ExtractionInfo['status']): ExtractionInfo => ({
+    status, totalChars: status === 'READY' ? 10 : null, truncated: false, reasonCode: null, reason: null,
+  });
+  // 트리거 메시지(env.payload.messageId=9)의 챗 첨부
+  const onMessage = (messageId: number, status: ExtractionInfo['status']): CollectedAttachments => ({
+    attachments: [{
+      origin: { kind: 'chat', threadId: 5, messageId }, fileId: 3, originalName: 'a.pdf',
+      mimeType: 'application/pdf', sizeBytes: 1, extraction: ex(status),
+    } satisfies AgentAttachment],
+    issueListFailed: false,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    streamSpy.mockImplementation(defaultStreamImpl);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(presentAttachments).mockResolvedValue({ section: 'x', guidance: '' });
+  });
+
+  it('트리거 첨부 PENDING → 재조회에서 READY 가 되면 READY 로 표시', async () => {
+    const d = { ...deps(), sleep: vi.fn(async () => {}) };
+    vi.mocked(collectAttachments)
+      .mockResolvedValueOnce(onMessage(9, 'PENDING'))
+      .mockResolvedValueOnce(onMessage(9, 'READY'));
+    await runChatAgent(env, d);
+    expect(d.sleep).toHaveBeenCalledTimes(1);
+    expect(d.sleep).toHaveBeenCalledWith(TRIGGER_POLL_INTERVAL_MS);
+    expect(d.client.getChatMessages).toHaveBeenCalledTimes(2);
+    expect(presentAttachments).toHaveBeenCalledWith('anthropic', onMessage(9, 'READY'), expect.anything());
+  });
+
+  it('제한 시간까지 PENDING 이면 PENDING 그대로 진행', async () => {
+    const d = { ...deps(), sleep: vi.fn(async () => {}) };
+    vi.mocked(collectAttachments).mockResolvedValue(onMessage(9, 'PENDING'));
+    await runChatAgent(env, d);
+    const polls = Math.ceil(TRIGGER_POLL_TIMEOUT_MS / TRIGGER_POLL_INTERVAL_MS);
+    expect(d.sleep).toHaveBeenCalledTimes(polls);
+    expect(d.client.getChatMessages).toHaveBeenCalledTimes(1 + polls);
+    expect(presentAttachments).toHaveBeenCalledWith('anthropic', onMessage(9, 'PENDING'), expect.anything());
+    expect(streamSpy).toHaveBeenCalledOnce();
+  });
+
+  it('트리거 메시지에 PENDING 첨부가 없으면 기다리지 않는다(다른 메시지의 PENDING 은 무시)', async () => {
+    const d = { ...deps(), sleep: vi.fn(async () => {}) };
+    vi.mocked(collectAttachments).mockResolvedValue(onMessage(8, 'PENDING'));
+    await runChatAgent(env, d);
+    expect(d.sleep).not.toHaveBeenCalled();
+    expect(d.client.getChatMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it('재조회 실패 → 기다림을 멈추고 마지막 상태로 진행', async () => {
+    const d = { ...deps(), sleep: vi.fn(async () => {}) };
+    vi.mocked(d.client.getChatMessages).mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('boom'));
+    vi.mocked(collectAttachments).mockResolvedValue(onMessage(9, 'PENDING'));
+    await runChatAgent(env, d);
+    expect(d.sleep).toHaveBeenCalledTimes(1);
+    expect(presentAttachments).toHaveBeenCalledWith('anthropic', onMessage(9, 'PENDING'), expect.anything());
+    expect(streamSpy).toHaveBeenCalledOnce();
   });
 });

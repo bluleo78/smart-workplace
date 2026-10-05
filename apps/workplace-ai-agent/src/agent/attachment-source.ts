@@ -15,6 +15,13 @@ export interface AgentAttachment {
   extraction: ExtractionInfo;
 }
 
+/** collectAttachments 결과 — 이슈 첨부 목록 실패 여부를 함께 넘겨 프롬프트가 "첨부 없음" 으로 단정하지 않게 한다. */
+export interface CollectedAttachments {
+  attachments: AgentAttachment[];
+  /** 이슈 첨부 목록 조회가 실패했는지(대개 에이전트가 프로젝트 멤버가 아니어서 403). */
+  issueListFailed: boolean;
+}
+
 /** 서버 응답에 extraction 이 없을 때(추출 대상 아님·구버전 응답) 쓰는 기본값. */
 export const NO_EXTRACTION: ExtractionInfo = {
   status: 'NONE',
@@ -27,6 +34,7 @@ export const NO_EXTRACTION: ExtractionInfo = {
 /**
  * 이슈 첨부와 recent(이미 받아 둔 최근 스레드 메시지)의 첨부를 하나로 모은다. 추가 API 호출은 이슈 첨부 목록 1회뿐.
  * 이슈 첨부 목록이 실패해도(권한 등) 챗 첨부만으로 진행한다 — 첨부 하나 때문에 답변 전체를 막지 않기 위해.
+ * 대신 issueListFailed 로 실패를 알려, 모델이 "이슈에 첨부가 없다" 고 잘못 단정하지 않게 한다.
  */
 export async function collectAttachments(
   client: WorkplaceApiClient,
@@ -34,9 +42,10 @@ export async function collectAttachments(
   issueKey: string,
   threadId: number,
   recent: ChatMessageItem[],
-): Promise<AgentAttachment[]> {
+): Promise<CollectedAttachments> {
   const out: AgentAttachment[] = [];
   const seen = new Set<number>();
+  let issueListFailed = false;
 
   try {
     for (const a of await client.listIssueAttachments(agentId, issueKey)) {
@@ -51,6 +60,7 @@ export async function collectAttachments(
       });
     }
   } catch (e) {
+    issueListFailed = true;
     console.warn('[attachment-source] 이슈 첨부 목록 조회 실패 — 챗 첨부만 사용', {
       issueKey,
       error: e instanceof Error ? e.message : String(e),
@@ -73,5 +83,5 @@ export async function collectAttachments(
       });
     }
   }
-  return out;
+  return { attachments: out, issueListFailed };
 }

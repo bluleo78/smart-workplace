@@ -4,7 +4,7 @@
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import type { ProviderCredential } from './agent-runner.js';
 import { downloadAttachments, type DownloadOutcome } from './attachment-prep.js';
-import type { AgentAttachment } from './attachment-source.js';
+import type { AgentAttachment, CollectedAttachments } from './attachment-source.js';
 
 export type RunnerKind = ProviderCredential['provider'];
 
@@ -78,12 +78,19 @@ const GUIDANCE_OPENCODE =
   '첨부는 위 안내대로 read_attachment_text 로 읽으세요(결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽기). ' +
   '추출 중이거나 읽을 수 없는 첨부는 그 상태와 사유를 알리고, 다시 올려 달라고 요청하지 마세요.';
 
+/** 이슈 첨부 목록을 못 불러왔을 때의 줄 — 목록이 비어 보여도 "첨부 없음" 으로 단정하지 않게 한다(I1). */
+const ISSUE_LIST_FAILED_LINE = '- [이슈 첨부] 목록을 불러올 수 없음(권한 등) — 이슈에 첨부가 없다고 단정하지 말 것';
+
 export async function presentAttachments(
   kind: RunnerKind,
-  attachments: AgentAttachment[],
+  collected: CollectedAttachments,
   deps: { client: WorkplaceApiClient; agentId: number; workDir: string },
 ): Promise<PresentedAttachments> {
-  if (attachments.length === 0) return { section: '첨부 없음', guidance: '' };
+  const { attachments, issueListFailed } = collected;
+  if (attachments.length === 0) {
+    // 이슈 목록 실패면 "첨부 없음" 대신 실패 줄만 — 읽을 첨부가 없으니 읽는 방법 안내는 필요 없다.
+    return { section: issueListFailed ? ISSUE_LIST_FAILED_LINE : '첨부 없음', guidance: '' };
+  }
 
   // Claude 만 원본을 받는다 — 이미지·PDF 처럼 Read 로 직접 보는 편이 나은 것만(오피스는 원본이 쓸모없다).
   const downloads =
@@ -96,8 +103,10 @@ export async function presentAttachments(
         )
       : new Map<number, DownloadOutcome>();
 
-  const section = attachments
-    .map((a) => [header(a), ...detailLines(kind, a, downloads).map((l) => `  - ${l}`)].join('\n'))
-    .join('\n');
+  const lines = attachments.map((a) =>
+    [header(a), ...detailLines(kind, a, downloads).map((l) => `  - ${l}`)].join('\n'),
+  );
+  if (issueListFailed) lines.unshift(ISSUE_LIST_FAILED_LINE);
+  const section = lines.join('\n');
   return { section, guidance: kind === 'anthropic' ? GUIDANCE_CLAUDE : GUIDANCE_OPENCODE };
 }
