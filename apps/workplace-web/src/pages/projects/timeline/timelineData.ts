@@ -333,8 +333,9 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date): Agend
     const progress = epic
       ? { done: epic.childDoneCount, total: epic.childCount }
       : { done: kids.filter((x) => x.k.status === 'DONE').length, total: kids.length };
-    const kidSpan: Span | null =
-      kidBases.length > 0 ? { start: kidBases[0], end: kidEnds[kidEnds.length - 1] ?? kidBases[0] } : null;
+    // 시작 > 마감인 잘못된 하위 하나만 있으면 뒤집힐 수 있어 정렬해 둔다(에픽 구간도 같은 방식).
+    const [kidStart, kidEnd] = kidBases.length > 0 ? [kidBases[0], kidEnds[kidEnds.length - 1] ?? kidBases[0]].sort() : [];
+    const kidSpan: Span | null = kidStart && kidEnd ? { start: kidStart, end: kidEnd } : null;
     // 에픽 자기 날짜가 있으면 그대로, 없으면(또는 응답에 에픽이 없으면) 하위 롤업으로 머리 행 날짜·막대를 만든다.
     let head: Item;
     if (epic && own) {

@@ -528,6 +528,17 @@ describe('buildAgendaSections', () => {
     expect(row(41).rollup).toBeNull();
   });
 
+  it('뒤집힌 하위 구간(시작 > 마감)도 rollup 안쪽 구간을 계산한다', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 40, title: 'E', type: EPIC_TYPE, startDate: '2026-10-01', dueDate: '2026-10-20' }),
+        issue({ number: 41, parent: parentRef(40, 'E'), startDate: '2026-10-15', dueDate: '2026-10-05' }),
+      ],
+      TODAY,
+    );
+    expect(s[0].rows[0].rollup!.inside).not.toBeNull();
+  });
+
   it('빈 입력은 빈 배열', () => {
     expect(buildAgendaSections([], TODAY)).toEqual([]);
   });
