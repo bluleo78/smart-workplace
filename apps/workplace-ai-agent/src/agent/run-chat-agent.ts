@@ -7,7 +7,7 @@ import { CHAT_SYSTEM_PROMPT } from './chat-system-prompt.js';
 import { buildChatUserMessage } from './chat-user-message.js';
 import { createAttachmentWorkDir } from './attachment-prep.js';
 import { collectAttachments, type CollectedAttachments } from './attachment-source.js';
-import { presentAttachments } from './attachment-presenter.js';
+import { presentAttachments, readsLocally } from './attachment-presenter.js';
 import { runnerFor } from './agent-runner.js';
 import { fromRunnerEvent } from './chat-progress-parser.js';
 import { ProgressTracker } from './progress-tracker.js';
@@ -32,10 +32,21 @@ export type RunChatAgentDeps = RunAgentDeps & { sleep?: (ms: number) => Promise<
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** 트리거 메시지(방금 올라온 메시지)의 첨부 중 아직 추출 중인 것이 있는지. */
-function triggerPending(c: CollectedAttachments, messageId: number): boolean {
+/**
+ * 트리거 메시지(방금 올라온 메시지)의 첨부 중 아직 추출 중이고, 이 러너가 로컬로 읽지 못하는 것이 있는지.
+ * Claude 가 Read 로 직접 보는 이미지·PDF·텍스트는 추출을 기다릴 이유가 없다(opencode 는 모두 대기 대상).
+ */
+function triggerPending(
+  runner: ProviderCredential['provider'],
+  c: CollectedAttachments,
+  messageId: number,
+): boolean {
   return c.attachments.some(
-    (a) => a.origin.kind === 'chat' && a.origin.messageId === messageId && a.extraction.status === 'PENDING',
+    (a) =>
+      a.origin.kind === 'chat' &&
+      a.origin.messageId === messageId &&
+      a.extraction.status === 'PENDING' &&
+      !readsLocally(runner, a.mimeType),
   );
 }
 
@@ -50,12 +61,13 @@ async function awaitTriggerExtraction(
   issueKey: string,
   threadId: number,
   messageId: number,
+  runner: ProviderCredential['provider'],
   recent: ChatMessageItem[],
   collected: CollectedAttachments,
 ): Promise<{ recent: ChatMessageItem[]; collected: CollectedAttachments }> {
   const sleep = deps.sleep ?? defaultSleep;
   const maxPolls = Math.ceil(TRIGGER_POLL_TIMEOUT_MS / TRIGGER_POLL_INTERVAL_MS);
-  for (let i = 0; i < maxPolls && triggerPending(collected, messageId); i++) {
+  for (let i = 0; i < maxPolls && triggerPending(runner, collected, messageId); i++) {
     await sleep(TRIGGER_POLL_INTERVAL_MS);
     try {
       recent = await deps.client.getChatMessages(agentId, threadId, THREAD_PREFETCH);
@@ -99,31 +111,8 @@ export async function runChatAgent(
   const workDir = createAttachmentWorkDir(agentId, p.threadId);
 
   try {
-    const firstRecent = await deps.client.getChatMessages(agentId, p.threadId, THREAD_PREFETCH);
-    // WP-244: 공통 첨부 목록(이슈+챗) → 러너별 표현. Claude 만 이미지·PDF 원본을 workDir 에 받는다.
-    const firstCollected = await collectAttachments(deps.client, agentId, p.issueKey, p.threadId, firstRecent);
-    // 트리거 메시지 첨부가 추출 중이면 잠시 기다려 상태를 갱신한다.
-    const { recent, collected } = await awaitTriggerExtraction(
-      deps,
-      agentId,
-      p.issueKey,
-      p.threadId,
-      p.messageId,
-      firstRecent,
-      firstCollected,
-    );
-    const presented = await presentAttachments(credential.provider, collected, {
-      client: deps.client,
-      agentId,
-      workDir,
-    });
-    const userMessage = buildChatUserMessage(p, recent, presented);
-
-    // 모델 결정 이원화 해소: 이벤트 경로는 요청 body 가 없어 redeem 응답을 env/기본값보다 우선한다.
-    const model = credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
-    const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
-    const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
-
+    // 첨부 수집·추출 대기(최대 ~12초) 전에 'started' 를 내보내 채팅이 곧바로 진행 중으로 보이게 한다.
+    // 이후 러너 실행 전 단계에서 예외가 나면 아래 catch 가 'error' 를 발행해 started 만 남고 끝나는 일을 막는다.
     // 스트리밍 진행 발행 — 단일 streamId 로 started→tool→done/error 를 API 에 POST.
     // progress POST 실패는 본 흐름을 막지 않는다(표시용). 에러는 로깅만.
     const streamId = randomUUID();
@@ -138,34 +127,66 @@ export async function runChatAgent(
     };
 
     void emit('started');
-    const logTag = `chat-agent:${p.issueKey}:thread${p.threadId}:${agentId}`;
-    // 인-프로세스 MCP 서버(chat 프로필)는 러너 내부에서 구성 — onBehalfOf = 멘션된 agentId(ACTING_USER_ID 없음).
-    const handle = runnerFor(credential).stream(
-      {
-        userMessage,
-        systemPrompt: CHAT_SYSTEM_PROMPT,
-        model,
-        maxTurns,
-        credential,
-        agentId,
-        timeoutMs,
-        logTag,
-        cwd: workDir, // 첨부 Read 스코프 — 누락 시 tmpdir 로 새 스코프(첨부 읽기 조용히 실패)
-        allowFileRead: true,
-        includePartialMessages: false, // CLI 가 partial 미전달이었음 — 파서 입력 계약 동일 유지
-        mcp: { client: deps.client, onBehalfOfId: agentId, profile: 'chat' },
-      },
-      (e) => {
-        const sig = fromRunnerEvent(e);
-        if (tracker.apply(sig)) void emit('tool');
-      },
-    );
     try {
-      await handle.done;
-      await emit('done'); // 마지막 알림은 기다린다 — 종료 대기(WP-167)가 실행 promise 만 보고도 완료 알림까지 보장되게
+      const firstRecent = await deps.client.getChatMessages(agentId, p.threadId, THREAD_PREFETCH);
+      // WP-244: 공통 첨부 목록(이슈+챗) → 러너별 표현. Claude 만 이미지·PDF 원본을 workDir 에 받는다.
+      const firstCollected = await collectAttachments(deps.client, agentId, p.issueKey, p.threadId, firstRecent);
+      // 트리거 메시지 첨부가 추출 중이면 잠시 기다려 상태를 갱신한다.
+      const { recent, collected } = await awaitTriggerExtraction(
+        deps,
+        agentId,
+        p.issueKey,
+        p.threadId,
+        p.messageId,
+        credential.provider,
+        firstRecent,
+        firstCollected,
+      );
+      const presented = await presentAttachments(credential.provider, collected, {
+        client: deps.client,
+        agentId,
+        workDir,
+      });
+      const userMessage = buildChatUserMessage(p, recent, presented);
+
+      // 모델 결정 이원화 해소: 이벤트 경로는 요청 body 가 없어 redeem 응답을 env/기본값보다 우선한다.
+      const model = credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
+      const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
+      const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
+
+      const logTag = `chat-agent:${p.issueKey}:thread${p.threadId}:${agentId}`;
+      // 인-프로세스 MCP 서버(chat 프로필)는 러너 내부에서 구성 — onBehalfOf = 멘션된 agentId(ACTING_USER_ID 없음).
+      const handle = runnerFor(credential).stream(
+        {
+          userMessage,
+          systemPrompt: CHAT_SYSTEM_PROMPT,
+          model,
+          maxTurns,
+          credential,
+          agentId,
+          timeoutMs,
+          logTag,
+          cwd: workDir, // 첨부 Read 스코프 — 누락 시 tmpdir 로 새 스코프(첨부 읽기 조용히 실패)
+          allowFileRead: true,
+          includePartialMessages: false, // CLI 가 partial 미전달이었음 — 파서 입력 계약 동일 유지
+          mcp: { client: deps.client, onBehalfOfId: agentId, profile: 'chat' },
+        },
+        (e) => {
+          const sig = fromRunnerEvent(e);
+          if (tracker.apply(sig)) void emit('tool');
+        },
+      );
+      try {
+        await handle.done;
+        await emit('done'); // 마지막 알림은 기다린다 — 종료 대기(WP-167)가 실행 promise 만 보고도 완료 알림까지 보장되게
+      } catch (e) {
+        console.error('[run-chat-agent] SDK 스트림 실패', { threadId: p.threadId, error: e });
+        await emit('error');
+      }
     } catch (e) {
-      console.error('[run-chat-agent] SDK 스트림 실패', { threadId: p.threadId, error: e });
+      // 러너 실행 전(첨부 수집·프롬프트 구성) 실패 — 'started' 만 남지 않게 error 를 알리고, 기존처럼 호출자에 전파한다.
       await emit('error');
+      throw e;
     }
   } finally {
     rmSync(workDir, { recursive: true, force: true });

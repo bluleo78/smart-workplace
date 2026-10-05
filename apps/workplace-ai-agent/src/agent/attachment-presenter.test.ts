@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('./attachment-prep.js', () => ({ downloadAttachments: vi.fn() }));
 
-import { presentAttachments } from './attachment-presenter.js';
+import { presentAttachments, readsLocally } from './attachment-presenter.js';
 import { downloadAttachments } from './attachment-prep.js';
 import { NO_EXTRACTION, type AgentAttachment } from './attachment-source.js';
 import type { ExtractionInfo, WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -116,5 +116,36 @@ describe('presentAttachments', () => {
       const p = await presentAttachments(kind, ok([a(3, 'x.txt', 'text/plain', ready(5))]), deps);
       expect(p.guidance).toContain('필요한 만큼만');
     }
+  });
+
+  it('Claude: txt PENDING 이어도 원본을 받아 로컬경로를 보여 준다', async () => {
+    const p = await presentAttachments('anthropic', ok([a(4, 'n.txt', 'text/plain', status('PENDING'))]), deps);
+    expect(vi.mocked(downloadAttachments).mock.calls[0][2].map((x) => x.fileId)).toEqual([4]);
+    expect(p.section).toContain('로컬경로: /tmp/w/4-n.txt');
+  });
+
+  it('Claude: txt READY 면 로컬경로와 텍스트 도구 줄을 모두 보여 준다', async () => {
+    const p = await presentAttachments('anthropic', ok([a(4, 'n.txt', 'text/plain', ready(50))]), deps);
+    expect(p.section).toContain('로컬경로: /tmp/w/4-n.txt');
+    expect(p.section).toContain('read_attachment_text({issueKey:"WP-1", fileId:4})');
+  });
+
+  it('Claude: json(application/json)도 텍스트로 받고, docx 는 받지 않는다', async () => {
+    const list = [a(5, 'c.json', 'application/json', status('NONE')), a(6, 'm.docx', 'application/msword', ready(5))];
+    await presentAttachments('anthropic', ok(list), deps);
+    expect(vi.mocked(downloadAttachments).mock.calls[0][2].map((x) => x.fileId)).toEqual([5]);
+  });
+
+  it('opencode: txt 는 다운로드하지 않고 텍스트 도구만', async () => {
+    const p = await presentAttachments('opencode', ok([a(4, 'n.txt', 'text/plain', ready(50))]), deps);
+    expect(downloadAttachments).not.toHaveBeenCalled();
+    expect(p.section).not.toContain('로컬경로');
+    expect(p.section).toContain('read_attachment_text');
+  });
+
+  it('readsLocally: Claude 만 이미지·PDF·텍스트를 로컬로 읽는다', () => {
+    expect(readsLocally('anthropic', 'text/csv')).toBe(true);
+    expect(readsLocally('anthropic', 'application/vnd.ms-excel')).toBe(false);
+    expect(readsLocally('opencode', 'application/pdf')).toBe(false);
   });
 });

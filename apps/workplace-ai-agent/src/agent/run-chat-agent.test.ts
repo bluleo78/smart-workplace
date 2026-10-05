@@ -11,7 +11,9 @@ vi.mock('./agent-runner.js', () => ({
 vi.mock('./attachment-source.js', () => ({
   collectAttachments: vi.fn(async () => ({ attachments: [], issueListFailed: false })),
 }));
-vi.mock('./attachment-presenter.js', () => ({
+vi.mock('./attachment-presenter.js', async (orig) => ({
+  // readsLocally 는 실제 구현을 써서 추출 대기 판단까지 함께 검증한다.
+  ...(await orig<typeof import('./attachment-presenter.js')>()),
   presentAttachments: vi.fn(async () => ({ section: '첨부 없음', guidance: '' })),
 }));
 
@@ -189,10 +191,12 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
     status, totalChars: status === 'READY' ? 10 : null, truncated: false, reasonCode: null, reason: null,
   });
   // 트리거 메시지(env.payload.messageId=9)의 챗 첨부
-  const onMessage = (messageId: number, status: ExtractionInfo['status']): CollectedAttachments => ({
+  const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  // 기본 mime 은 Claude 가 로컬로 못 읽는 docx — 추출을 기다려야 하는 대표 사례.
+  const onMessage = (messageId: number, status: ExtractionInfo['status'], mimeType = DOCX): CollectedAttachments => ({
     attachments: [{
-      origin: { kind: 'chat', threadId: 5, messageId }, fileId: 3, originalName: 'a.pdf',
-      mimeType: 'application/pdf', sizeBytes: 1, extraction: ex(status),
+      origin: { kind: 'chat', threadId: 5, messageId }, fileId: 3, originalName: 'a.bin',
+      mimeType, sizeBytes: 1, extraction: ex(status),
     } satisfies AgentAttachment],
     issueListFailed: false,
   });
@@ -244,5 +248,42 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
     expect(d.sleep).toHaveBeenCalledTimes(1);
     expect(presentAttachments).toHaveBeenCalledWith('anthropic', onMessage(9, 'PENDING'), expect.anything());
     expect(streamSpy).toHaveBeenCalledOnce();
+  });
+
+  it('Claude + 트리거 PENDING PDF → 로컬 Read 가능하므로 기다리지 않는다', async () => {
+    const d = { ...deps(), sleep: vi.fn(async () => {}) };
+    vi.mocked(collectAttachments).mockResolvedValue(onMessage(9, 'PENDING', 'application/pdf'));
+    await runChatAgent(env, d);
+    expect(d.sleep).not.toHaveBeenCalled();
+    expect(d.client.getChatMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it('opencode + 트리거 PENDING PDF → 로컬로 못 읽으므로 기다린다', async () => {
+    const { runnerFor } = await import('./agent-runner.js');
+    void runnerFor;
+    const d = { ...deps(), sleep: vi.fn(async () => {}) };
+    vi.mocked(d.client.getProviderCredential).mockResolvedValue({ provider: 'opencode' } as never);
+    vi.mocked(collectAttachments).mockResolvedValue(onMessage(9, 'PENDING', 'application/pdf'));
+    await runChatAgent(env, d);
+    expect(d.sleep).toHaveBeenCalled();
+  });
+
+  it('추출 대기 전에 started 를 먼저 발행한다', async () => {
+    const order: string[] = [];
+    const d = { ...deps(), sleep: vi.fn(async () => { order.push('sleep'); }) };
+    vi.mocked(d.client.postChatProgress).mockImplementation(async (_a, _t, b: { phase: string }) => { order.push(b.phase); });
+    vi.mocked(collectAttachments).mockResolvedValue(onMessage(9, 'PENDING'));
+    await runChatAgent(env, d);
+    expect(order[0]).toBe('started');
+    expect(order.indexOf('started')).toBeLessThan(order.indexOf('sleep'));
+  });
+
+  it('러너 실행 전 단계가 실패하면 error 를 발행하고 예외를 전파한다', async () => {
+    const d = deps();
+    const phases: string[] = [];
+    vi.mocked(d.client.postChatProgress).mockImplementation(async (_a, _t, b: { phase: string }) => { phases.push(b.phase); });
+    vi.mocked(collectAttachments).mockRejectedValue(new Error('boom'));
+    await expect(runChatAgent(env, d)).rejects.toThrow('boom');
+    expect(phases).toEqual(['started', 'error']);
   });
 });

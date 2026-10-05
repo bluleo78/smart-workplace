@@ -1,5 +1,5 @@
 // WP-244: 공통 첨부 목록(AgentAttachment)을 러너에 맞는 프롬프트 문구로 바꾼다.
-// Claude 는 이미지·PDF 를 로컬 Read 로 직접 보고, 그 외는 추출 텍스트 도구로 읽는다.
+// Claude 는 이미지·PDF·텍스트를 로컬 Read 로 직접 보고, 그 외는 추출 텍스트 도구로 읽는다.
 // opencode 는 빌트인 도구가 막혀 로컬 파일을 못 읽으므로 추출 텍스트 도구만 안내한다(이미지는 볼 수 없음).
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import type { ProviderCredential } from './agent-runner.js';
@@ -13,12 +13,34 @@ export interface PresentedAttachments {
   guidance: string; // 첨부 읽는 방법 안내(첨부 없으면 빈 문자열)
 }
 
-type FileKind = 'image' | 'pdf' | 'other';
+export type FileKind = 'image' | 'pdf' | 'text' | 'other';
 
-function fileKind(mime: string): FileKind {
+// 서버 ExtractableTypes 의 TEXT_LIKE_EXTRA 와 같은 목록 — text/* 외에 텍스트로 읽을 수 있는 application/* 타입.
+// 서버와 어긋나면 Claude 가 원본을 받는 범위와 추출 대상 범위가 달라지므로 함께 갱신할 것.
+const TEXT_LIKE_EXTRA = new Set([
+  'application/json',
+  'application/xml',
+  'application/x-yaml',
+  'application/yaml',
+  'application/javascript',
+  'application/x-sh',
+]);
+
+/** MIME → 파일 종류. 프레젠터(다운로드·문구)와 run-chat-agent(추출 대기 판단)가 함께 쓴다. */
+export function fileKind(mime: string): FileKind {
   if (mime.startsWith('image/')) return 'image';
   if (mime === 'application/pdf') return 'pdf';
+  if (mime.startsWith('text/') || TEXT_LIKE_EXTRA.has(mime)) return 'text';
   return 'other';
+}
+
+/**
+ * 이 러너가 첨부 원본을 로컬에서 직접 읽을 수 있는지.
+ * Claude(anthropic) 는 이미지·PDF·텍스트를 workDir 에 받아 Read 하므로 추출을 기다릴 필요가 없다.
+ * opencode 는 로컬 파일을 못 읽어 추출 텍스트 도구에만 의존한다.
+ */
+export function readsLocally(kind: RunnerKind, mime: string): boolean {
+  return kind === 'anthropic' && fileKind(mime) !== 'other';
 }
 
 /** 프롬프트에 그대로 옮겨 쓸 도구 호출 예 — 모델이 출처 인자를 헷갈리지 않게 완성형으로 준다. */
@@ -65,10 +87,10 @@ function detailLines(kind: RunnerKind, a: AgentAttachment, downloads: Map<number
   const fk = fileKind(a.mimeType);
   if (kind === 'anthropic') {
     if (fk === 'image') return [localLine(downloads.get(a.fileId))];
-    if (fk === 'pdf') {
+    if (fk === 'pdf' || fk === 'text') {
       const o = downloads.get(a.fileId);
       const lines = [localLine(o)];
-      // PDF 는 Read 로 그림까지 보지만, 길거나 원본을 못 받았을 때를 위해 READY 면 텍스트 도구도 병기한다.
+      // PDF·텍스트는 Read 로 직접 보되, 길거나 원본을 못 받았을 때를 위해 READY 면(또는 원본이 없으면) 텍스트 도구도 병기한다.
       if (a.extraction.status === 'READY' || !o || !('localPath' in o)) lines.push(extractionLine(a));
       return lines;
     }
@@ -99,13 +121,14 @@ export async function presentAttachments(
     return { section: issueListFailed ? ISSUE_LIST_FAILED_LINE : '첨부 없음', guidance: '' };
   }
 
-  // Claude 만 원본을 받는다 — 이미지·PDF 처럼 Read 로 직접 보는 편이 나은 것만(오피스는 원본이 쓸모없다).
+  // Claude 만 원본을 받는다 — 이미지·PDF·텍스트처럼 Read 로 직접 볼 수 있는 것만(오피스는 원본이 쓸모없다).
+  // 텍스트는 추출이 PENDING/NONE/FAILED 여도 Claude 가 원본을 읽을 수 있어야 한다.
   const downloads =
     kind === 'anthropic'
       ? await downloadAttachments(
           deps.client,
           deps.agentId,
-          attachments.filter((a) => fileKind(a.mimeType) !== 'other'),
+          attachments.filter((a) => readsLocally(kind, a.mimeType)),
           deps.workDir,
         )
       : new Map<number, DownloadOutcome>();
