@@ -44,7 +44,13 @@ const MY_BUG_VIEW = {
   mine: true, pinned: false, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
 };
 
-async function mock(page: Page, opts: { views?: unknown[]; member?: boolean } = {}) {
+// 종료된 에픽(WP-245) — 에픽 조회에 status=DONE,CANCELED 가 오면 돌려주는 목록. 번호는 진행 중 EPICS 와 겹치지 않게 52·53.
+const CLOSED_EPICS = [
+  createIssue({ id: 52, number: 52, projectKey: KEY, title: '팀 채팅 1차', type: makeEpicType(), status: 'DONE' }),
+  createIssue({ id: 53, number: 53, projectKey: KEY, title: '구 메신저 연동', type: makeEpicType(), status: 'CANCELED' }),
+];
+
+async function mock(page: Page, opts: { views?: unknown[]; member?: boolean; closedEpics?: unknown[] } = {}) {
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: opts.member ?? true }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/types`, (r) => r.fulfill(json(systemTypes())));
   for (const p of [`/members`, `/labels`, `/cycles`]) {
@@ -53,8 +59,12 @@ async function mock(page: Page, opts: { views?: unknown[]; member?: boolean } = 
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/saved-views`, (r) => r.fulfill(json(opts.views ?? [])));
   await page.route((u) => u.pathname === ISSUES, (r) => {
     if (r.request().method() !== 'GET') return r.fallback();
-    const isEpicList = new URL(r.request().url()).searchParams.get('type') === String(makeEpicType().id);
-    return r.fulfill(json(createIssueSearchResponse(isEpicList ? EPICS : [LONG, PLAIN, SUB], null)));
+    const sp = new URL(r.request().url()).searchParams;
+    const isEpicList = sp.get('type') === String(makeEpicType().id);
+    // status 에 DONE 이 있으면 종료 에픽 조회 — 기본 [] (구역 없음).
+    const isClosedQuery = (sp.get('status') ?? '').includes('DONE');
+    const body = isEpicList ? (isClosedQuery ? (opts.closedEpics ?? []) : EPICS) : [LONG, PLAIN, SUB];
+    return r.fulfill(json(createIssueSearchResponse(body as never[], null)));
   });
 }
 
@@ -466,6 +476,35 @@ test.describe('모바일 에픽 시트', () => {
     await page.getByTestId('mobile-chip-epic').click();
     await expect(page.getByTestId('mobile-epic-sheet')).toBeVisible();
     await expect(page.getByTestId('mobile-epic-create')).toHaveCount(0);
+  });
+
+  test('에픽 시트 맨 아래 「종료된 에픽」 을 펼쳐 종료 에픽으로 필터하고, URL 진입 시 칩에 제목이 보인다 (WP-245)', async ({ authenticatedPage: page }) => {
+    await mock(page, { closedEpics: CLOSED_EPICS });
+    await page.goto(`/projects/${KEY}?group=none`);
+    await page.getByTestId('mobile-chip-epic').click();
+    const sheet = page.getByTestId('mobile-epic-sheet');
+    const toggle = sheet.getByTestId('mobile-epic-closed-toggle');
+    await expect(toggle).toContainText('종료된 에픽');
+    await expect(toggle).toContainText('2');
+    await expect(sheet.getByTestId('mobile-epic-closed-52')).not.toBeAttached();
+    await toggle.click();
+    await expect(sheet.getByTestId('mobile-epic-closed-52')).toContainText('완료');
+    await expect(sheet.getByTestId('mobile-epic-closed-53')).toContainText('취소');
+    await sheet.getByTestId('mobile-epic-closed-52').click();
+    await expect(sheet).toBeHidden();
+    await expect(page).toHaveURL(/parent=52/);
+    await expect(page.getByTestId('mobile-chip-epic')).toContainText('팀 채팅 1차');
+
+    // 새로고침(URL 진입) — 칩 라벨이 번호가 아닌 제목, 시트를 열면 구역이 펼쳐져 선택이 보인다.
+    await page.reload();
+    await expect(page.getByTestId('mobile-chip-epic')).toContainText('팀 채팅 1차');
+    await page.getByTestId('mobile-chip-epic').click();
+    await expect(page.getByTestId('mobile-epic-closed-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByTestId('mobile-epic-closed-52')).toHaveAttribute('aria-selected', 'true');
+
+    // 「›」 = 시트 닫고 상세
+    await page.getByTestId('mobile-epic-closed-53-detail').click();
+    await expect(page).toHaveURL(/\/issues\/53$/);
   });
 
   test('목록에 없는 에픽 번호로 진입하면 칩에 번호를 표시한다', async ({ authenticatedPage: page }) => {
