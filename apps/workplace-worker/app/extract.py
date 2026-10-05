@@ -131,10 +131,18 @@ def _dispatch(data: bytes, mime: str) -> str:
     api `ExtractableTypes` 와 1:1 미러 — 한쪽만 고치면 드리프트(#735).
     """
     if mime == "application/pdf":
-        # PDF: pymupdf(fitz) 로 페이지별 텍스트 결합
+        # PDF: pymupdf(fitz) 로 페이지별 텍스트를 뽑아 [페이지 N] 표식으로 잇는다(WP-242).
+        # 표식은 모델이 출처 페이지를 말하고 후속 '페이지 이미지 보기'가 볼 페이지를 정하는 기준이다.
+        # 모든 페이지가 비면(스캔 PDF) 표식만 남지 않도록 빈 문자열을 돌려 empty 판정을 유지한다.
         import fitz  # pymupdf
         with fitz.open(stream=data, filetype="pdf") as doc:
-            return "\n".join(page.get_text() for page in doc).strip()
+            pages = [page.get_text().strip() for page in doc]
+        if not any(pages):
+            return ""
+        parts = [pages[0]]
+        for no, body in enumerate(pages[1:], start=2):
+            parts.append(f"\n\n[페이지 {no}]\n\n{body}")
+        return "".join(parts).strip()
 
     if mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
         # DOCX: python-docx 로 단락 텍스트 추출

@@ -115,3 +115,28 @@ def test_xlsx(tmp_path):
     )
     assert "이름" in r["text"]
     assert "홍길동" in r["text"]
+
+
+def _make_pdf(pages: list[str]) -> bytes:
+    """pymupdf 로 페이지별 텍스트를 가진 PDF 바이트를 만든다(빈 문자열이면 텍스트 없는 페이지)."""
+    import fitz
+    doc = fitz.open()
+    for body in pages:
+        page = doc.new_page()
+        if body:
+            page.insert_text((72, 72), body)
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+def test_pdf_page_markers():
+    """2페이지부터 [페이지 N] 표식으로 페이지 경계를 남긴다(WP-242 — 출처 인용·후속 페이지 이미지 보기 기준)."""
+    r = extract_text(_make_pdf(["first", "second", "third"]), "application/pdf", max_chars=10_000)
+    assert r["text"] == "first\n\n[페이지 2]\n\nsecond\n\n[페이지 3]\n\nthird"
+
+
+def test_pdf_without_text_is_empty():
+    """텍스트 레이어가 없는(스캔) PDF 는 표식만 남기지 않고 빈 문자열 — 워커가 SKIPPED/empty 로 보고해야 한다."""
+    r = extract_text(_make_pdf(["", ""]), "application/pdf", max_chars=10_000)
+    assert r["text"] == ""
