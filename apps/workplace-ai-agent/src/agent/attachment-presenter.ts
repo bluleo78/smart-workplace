@@ -85,27 +85,27 @@ function localLine(o: DownloadOutcome | undefined): string {
 /** 항목별 하위 줄 — 러너·파일 종류·추출 상태 조합. */
 function detailLines(kind: RunnerKind, a: AgentAttachment, downloads: Map<number, DownloadOutcome>): string[] {
   const fk = fileKind(a.mimeType);
-  if (kind === 'anthropic') {
-    if (fk === 'image') return [localLine(downloads.get(a.fileId))];
-    if (fk === 'pdf' || fk === 'text') {
-      const o = downloads.get(a.fileId);
-      const lines = [localLine(o)];
-      // PDF·텍스트는 Read 로 직접 보되, 길거나 원본을 못 받았을 때를 위해 READY 면(또는 원본이 없으면) 텍스트 도구도 병기한다.
-      if (a.extraction.status === 'READY' || !o || !('localPath' in o)) lines.push(extractionLine(a));
-      return lines;
-    }
-    return [extractionLine(a)];
+  if (readsLocally(kind, a.mimeType)) {
+    const o = downloads.get(a.fileId);
+    const lines = [localLine(o)];
+    // PDF·텍스트는 Read 로 직접 보되, 길거나 원본을 못 받았을 때를 위해 READY 면(또는 원본이 없으면) 텍스트 도구도 병기한다.
+    // 이미지는 로컬 경로만.
+    if (fk !== 'image' && (a.extraction.status === 'READY' || !o || !('localPath' in o))) lines.push(extractionLine(a));
+    return lines;
   }
-  if (fk === 'image') return ['이 비서(모델)는 이미지를 볼 수 없음 — 내용을 글로 알려 달라고 안내'];
+  if (kind !== 'anthropic' && fk === 'image') return ['이 비서(모델)는 이미지를 볼 수 없음 — 내용을 글로 알려 달라고 안내'];
   return [extractionLine(a)];
 }
 
+// 두 러너 공통 문장 — 추출 상태가 READY 가 아닐 때의 응대 규칙.
+const GUIDANCE_COMMON =
+  '추출 중이거나 읽을 수 없는 첨부는 그 상태와 사유를 알리고, 다시 올려 달라고 요청하지 마세요.';
 const GUIDANCE_CLAUDE =
   '첨부는 위 안내대로 읽으세요: 로컬경로는 Read, 텍스트는 read_attachment_text(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기). ' +
-  '추출 중이거나 읽을 수 없는 첨부는 그 상태와 사유를 알리고, 다시 올려 달라고 요청하지 마세요.';
+  GUIDANCE_COMMON;
 const GUIDANCE_OPENCODE =
   '첨부는 위 안내대로 read_attachment_text 로 읽으세요(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기). ' +
-  '추출 중이거나 읽을 수 없는 첨부는 그 상태와 사유를 알리고, 다시 올려 달라고 요청하지 마세요.';
+  GUIDANCE_COMMON;
 
 /** 이슈 첨부 목록을 못 불러왔을 때의 줄 — 목록이 비어 보여도 "첨부 없음" 으로 단정하지 않게 한다(I1). */
 const ISSUE_LIST_FAILED_LINE = '- [이슈 첨부] 목록을 불러올 수 없음(권한 등) — 이슈에 첨부가 없다고 단정하지 말 것';

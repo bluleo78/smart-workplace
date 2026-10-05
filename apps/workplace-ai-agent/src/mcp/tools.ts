@@ -411,22 +411,17 @@ export function buildTools(
         inputSchema: readAttachmentTextInput,
         async handler(args) {
           const parsed = readAttachmentTextInput.parse(args);
-          // null → undefined 정규화(미지정과 같게).
-          const key = parsed.issueKey ?? undefined;
-          const threadId = parsed.threadId ?? undefined;
+          // 이슈 첨부/챗 첨부는 조회 경로가 달라 정확히 하나만 허용 — API 호출 전에 차단한다(null 은 미지정과 같게).
+          const { issueKey: key, threadId, fileId } = parsed;
+          if ((key == null) === (threadId == null)) {
+            throw new Error('issueKey(이슈 첨부) 또는 threadId(챗 첨부) 중 정확히 하나를 지정하세요');
+          }
           const offset = parsed.offset ?? undefined;
           const limit = parsed.limit ?? READ_ATTACHMENT_DEFAULT_LIMIT;
-          // 이슈 첨부/챗 첨부는 조회 경로가 달라 정확히 하나만 허용 — API 호출 전에 차단한다.
-          const exactlyOneError = 'issueKey(이슈 첨부) 또는 threadId(챗 첨부) 중 정확히 하나를 지정하세요';
-          if (key !== undefined && threadId !== undefined) throw new Error(exactlyOneError);
-          let slice;
-          if (key !== undefined) {
-            slice = await client.readIssueAttachmentText(agentId, key, parsed.fileId, offset, limit);
-          } else if (threadId !== undefined) {
-            slice = await client.readChatAttachmentText(agentId, threadId, parsed.fileId, offset, limit);
-          } else {
-            throw new Error(exactlyOneError);
-          }
+          const slice =
+            key != null
+              ? await client.readIssueAttachmentText(agentId, key, fileId, offset, limit)
+              : await client.readChatAttachmentText(agentId, threadId!, fileId, offset, limit);
           return JSON.stringify(slice);
         },
       },

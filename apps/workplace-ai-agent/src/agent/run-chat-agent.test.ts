@@ -9,7 +9,8 @@ vi.mock('./agent-runner.js', () => ({
   runnerFor: vi.fn(() => ({ stream: streamSpy, collect: vi.fn() })),
 }));
 vi.mock('./attachment-source.js', () => ({
-  collectAttachments: vi.fn(async () => ({ attachments: [], issueListFailed: false })),
+  fetchIssueAttachments: vi.fn(async () => ({ attachments: [], failed: false })),
+  mergeAttachments: vi.fn(() => ({ attachments: [], issueListFailed: false })),
 }));
 vi.mock('./attachment-presenter.js', async (orig) => ({
   // readsLocally 는 실제 구현을 써서 추출 대기 판단까지 함께 검증한다.
@@ -19,7 +20,7 @@ vi.mock('./attachment-presenter.js', async (orig) => ({
 
 import { runChatAgent, TRIGGER_POLL_INTERVAL_MS, TRIGGER_POLL_TIMEOUT_MS } from './run-chat-agent.js';
 import { attachmentRootDir } from './attachment-prep.js';
-import { collectAttachments } from './attachment-source.js';
+import { fetchIssueAttachments, mergeAttachments } from './attachment-source.js';
 import { presentAttachments } from './attachment-presenter.js';
 import type { ChatEventEnvelope } from '../types/chat-events.js';
 import type { ExtractionInfo, WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -55,26 +56,27 @@ function deps() {
     client: {
       getProviderCredential: vi.fn(async () => ({ provider: 'anthropic', token: 'TK', model: null })),
       getChatMessages: vi.fn(async () => []),
-      listIssueAttachments: vi.fn(async () => []),
-      downloadIssueAttachment: vi.fn(),
       postChatProgress: vi.fn().mockResolvedValue(undefined),
     } as unknown as WorkplaceApiClient,
   };
 }
 
-describe('runChatAgent', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    streamSpy.mockImplementation(defaultStreamImpl);
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(collectAttachments).mockResolvedValue(NONE);
-    vi.mocked(presentAttachments).mockResolvedValue({ section: '첨부 없음', guidance: '' });
-  });
+// 모든 테스트 공통 초기화 — mock 호출 기록 리셋 후 기본 stream·첨부 결과(첨부 없음)를 깐다.
+beforeEach(() => {
+  vi.clearAllMocks();
+  streamSpy.mockImplementation(defaultStreamImpl);
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.mocked(fetchIssueAttachments).mockResolvedValue({ attachments: [], failed: false });
+  vi.mocked(mergeAttachments).mockReturnValue(NONE);
+  vi.mocked(presentAttachments).mockResolvedValue({ section: '첨부 없음', guidance: '' });
+});
 
+describe('runChatAgent', () => {
   it('mentions AGENT → 토큰 fetch + 첨부 준비 + SDK spawn(allowFileRead, cwd, mcp, partial=false)', async () => {
     await runChatAgent(env, deps());
-    expect(collectAttachments).toHaveBeenCalledWith(expect.anything(), 99, 'WP-1', 5, []);
+    expect(fetchIssueAttachments).toHaveBeenCalledWith(expect.anything(), 99, 'WP-1');
+    expect(mergeAttachments).toHaveBeenCalledWith({ attachments: [], failed: false }, 5, []);
     expect(presentAttachments).toHaveBeenCalledWith('anthropic', NONE, expect.objectContaining({ agentId: 99 }));
     expect(streamSpy).toHaveBeenCalledOnce();
     const runCall = vi.mocked(streamSpy).mock.calls[0][0] as {
@@ -128,15 +130,6 @@ describe('runChatAgent', () => {
 });
 
 describe('runChatAgent 러너 분기', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    streamSpy.mockImplementation(defaultStreamImpl);
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(collectAttachments).mockResolvedValue(NONE);
-    vi.mocked(presentAttachments).mockResolvedValue({ section: '첨부 없음', guidance: '' });
-  });
-
   it('opencode credential → presenter 에 opencode 전달', async () => {
     const d = deps();
     vi.mocked(d.client.getProviderCredential).mockResolvedValue({ provider: 'opencode', payload: {} as never, model: null } as never);
@@ -146,23 +139,12 @@ describe('runChatAgent 러너 분기', () => {
 });
 
 describe('runChatAgent 진행 발행', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    streamSpy.mockImplementation(defaultStreamImpl);
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(collectAttachments).mockResolvedValue(NONE);
-    vi.mocked(presentAttachments).mockResolvedValue({ section: '첨부 없음', guidance: '' });
-  });
-
   it('started → tool → done 순으로 postChatProgress 를 호출한다', async () => {
     const postChatProgress = vi.fn().mockResolvedValue(undefined);
     const testDeps = {
       client: {
         getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 't', model: null }),
         getChatMessages: vi.fn().mockResolvedValue([]),
-        listIssueAttachments: vi.fn().mockResolvedValue([]),
-        downloadIssueAttachment: vi.fn(),
         postChatProgress,
       },
     } as never;
@@ -201,19 +183,16 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
     issueListFailed: false,
   });
 
+  // 공통 beforeEach 가 기본값을 깔고, 여기선 첨부 섹션만 바꾼다.
   beforeEach(() => {
-    vi.clearAllMocks();
-    streamSpy.mockImplementation(defaultStreamImpl);
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(presentAttachments).mockResolvedValue({ section: 'x', guidance: '' });
   });
 
   it('트리거 첨부 PENDING → 재조회에서 READY 가 되면 READY 로 표시', async () => {
     const d = { ...deps(), sleep: vi.fn(async () => {}) };
-    vi.mocked(collectAttachments)
-      .mockResolvedValueOnce(onMessage(9, 'PENDING'))
-      .mockResolvedValueOnce(onMessage(9, 'READY'));
+    vi.mocked(mergeAttachments)
+      .mockReturnValueOnce(onMessage(9, 'PENDING'))
+      .mockReturnValueOnce(onMessage(9, 'READY'));
     await runChatAgent(env, d);
     expect(d.sleep).toHaveBeenCalledTimes(1);
     expect(d.sleep).toHaveBeenCalledWith(TRIGGER_POLL_INTERVAL_MS);
@@ -223,7 +202,7 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
 
   it('제한 시간까지 PENDING 이면 PENDING 그대로 진행', async () => {
     const d = { ...deps(), sleep: vi.fn(async () => {}) };
-    vi.mocked(collectAttachments).mockResolvedValue(onMessage(9, 'PENDING'));
+    vi.mocked(mergeAttachments).mockReturnValue(onMessage(9, 'PENDING'));
     await runChatAgent(env, d);
     const polls = Math.ceil(TRIGGER_POLL_TIMEOUT_MS / TRIGGER_POLL_INTERVAL_MS);
     expect(d.sleep).toHaveBeenCalledTimes(polls);
@@ -234,7 +213,7 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
 
   it('트리거 메시지에 PENDING 첨부가 없으면 기다리지 않는다(다른 메시지의 PENDING 은 무시)', async () => {
     const d = { ...deps(), sleep: vi.fn(async () => {}) };
-    vi.mocked(collectAttachments).mockResolvedValue(onMessage(8, 'PENDING'));
+    vi.mocked(mergeAttachments).mockReturnValue(onMessage(8, 'PENDING'));
     await runChatAgent(env, d);
     expect(d.sleep).not.toHaveBeenCalled();
     expect(d.client.getChatMessages).toHaveBeenCalledTimes(1);
@@ -243,7 +222,7 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
   it('재조회 실패 → 기다림을 멈추고 마지막 상태로 진행', async () => {
     const d = { ...deps(), sleep: vi.fn(async () => {}) };
     vi.mocked(d.client.getChatMessages).mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('boom'));
-    vi.mocked(collectAttachments).mockResolvedValue(onMessage(9, 'PENDING'));
+    vi.mocked(mergeAttachments).mockReturnValue(onMessage(9, 'PENDING'));
     await runChatAgent(env, d);
     expect(d.sleep).toHaveBeenCalledTimes(1);
     expect(presentAttachments).toHaveBeenCalledWith('anthropic', onMessage(9, 'PENDING'), expect.anything());
@@ -252,7 +231,7 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
 
   it('Claude + 트리거 PENDING PDF → 로컬 Read 가능하므로 기다리지 않는다', async () => {
     const d = { ...deps(), sleep: vi.fn(async () => {}) };
-    vi.mocked(collectAttachments).mockResolvedValue(onMessage(9, 'PENDING', 'application/pdf'));
+    vi.mocked(mergeAttachments).mockReturnValue(onMessage(9, 'PENDING', 'application/pdf'));
     await runChatAgent(env, d);
     expect(d.sleep).not.toHaveBeenCalled();
     expect(d.client.getChatMessages).toHaveBeenCalledTimes(1);
@@ -263,7 +242,7 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
     void runnerFor;
     const d = { ...deps(), sleep: vi.fn(async () => {}) };
     vi.mocked(d.client.getProviderCredential).mockResolvedValue({ provider: 'opencode' } as never);
-    vi.mocked(collectAttachments).mockResolvedValue(onMessage(9, 'PENDING', 'application/pdf'));
+    vi.mocked(mergeAttachments).mockReturnValue(onMessage(9, 'PENDING', 'application/pdf'));
     await runChatAgent(env, d);
     expect(d.sleep).toHaveBeenCalled();
   });
@@ -272,7 +251,7 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
     const order: string[] = [];
     const d = { ...deps(), sleep: vi.fn(async () => { order.push('sleep'); }) };
     vi.mocked(d.client.postChatProgress).mockImplementation(async (_a, _t, b: { phase: string }) => { order.push(b.phase); });
-    vi.mocked(collectAttachments).mockResolvedValue(onMessage(9, 'PENDING'));
+    vi.mocked(mergeAttachments).mockReturnValue(onMessage(9, 'PENDING'));
     await runChatAgent(env, d);
     expect(order[0]).toBe('started');
     expect(order.indexOf('started')).toBeLessThan(order.indexOf('sleep'));
@@ -282,7 +261,7 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
     const d = deps();
     const phases: string[] = [];
     vi.mocked(d.client.postChatProgress).mockImplementation(async (_a, _t, b: { phase: string }) => { phases.push(b.phase); });
-    vi.mocked(collectAttachments).mockRejectedValue(new Error('boom'));
+    vi.mocked(fetchIssueAttachments).mockRejectedValue(new Error('boom'));
     await expect(runChatAgent(env, d)).rejects.toThrow('boom');
     expect(phases).toEqual(['started', 'error']);
   });

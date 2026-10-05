@@ -1,7 +1,8 @@
 // 이슈 챗 첨부 원본을 per-run 임시폴더로 받는 Claude 전용 헬퍼(WP-244 에서 presenter 하위로 축소).
 // Claude 는 이미지·PDF 를 Read 로 직접 본다. opencode 에는 원본을 받지 않고 추출 텍스트 도구만 안내한다(presenter 참고).
 // 실행 폴더(createAttachmentWorkDir)는 opencode read 를 가두는 에이전트별 루트 아래에 만든다(WP-236).
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -58,7 +59,7 @@ export async function downloadAttachments(
           ? await client.downloadIssueAttachment(agentId, a.origin.issueKey, a.fileId)
           : await client.downloadChatAttachment(agentId, a.origin.threadId, a.origin.messageId, a.fileId);
       const localPath = path.join(destDir, `${a.fileId}-${safeName(a.originalName)}`);
-      writeFileSync(localPath, data);
+      await writeFile(localPath, data);
       total += a.sizeBytes;
       result.set(a.fileId, { localPath });
     } catch (e) {

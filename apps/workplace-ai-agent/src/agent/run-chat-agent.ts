@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { CHAT_SYSTEM_PROMPT } from './chat-system-prompt.js';
 import { buildChatUserMessage } from './chat-user-message.js';
 import { createAttachmentWorkDir } from './attachment-prep.js';
-import { collectAttachments, type CollectedAttachments } from './attachment-source.js';
+import { fetchIssueAttachments, mergeAttachments, type CollectedAttachments } from './attachment-source.js';
 import { presentAttachments, readsLocally } from './attachment-presenter.js';
 import { runnerFor } from './agent-runner.js';
 import { fromRunnerEvent } from './chat-progress-parser.js';
@@ -14,6 +14,7 @@ import { ProgressTracker } from './progress-tracker.js';
 import { pickMentionedAgentId } from './chat-agent-resolver.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
+import type { AgentAttachment } from './attachment-source.js';
 import type { ChatEventEnvelope } from '../types/chat-events.js';
 import type { ChatMessageItem } from '../clients/workplace-api.js';
 import type { ProviderCredential } from './agent-runner.js';
@@ -51,20 +52,25 @@ function triggerPending(
 }
 
 /**
- * 트리거 메시지 첨부가 PENDING 이면 최근 메시지를 다시 받아 첨부 상태를 갱신한다(최대 TRIGGER_POLL_TIMEOUT_MS).
- * 시간 대신 횟수로 묶는다 — 주입된 sleep 이 즉시 끝나도 무한 루프가 되지 않게. 재조회 실패는 마지막 결과로 진행(답변을 막지 않음).
+ * 트리거 메시지 첨부가 PENDING 이면 최근 메시지만 다시 받아 챗 첨부 상태를 갱신한다(최대 TRIGGER_POLL_TIMEOUT_MS).
+ * 이슈 첨부 목록은 한 번 받은 것을 그대로 쓴다(재호출 없음). 시간 대신 횟수로 묶는다 — 주입된 sleep 이 즉시 끝나도
+ * 무한 루프가 되지 않게. 재조회 실패는 마지막 결과로 진행(답변을 막지 않음).
  * 갱신된 recent 도 돌려줘 프롬프트의 메시지 목록과 첨부 상태가 같은 시점을 가리키게 한다.
  */
 async function awaitTriggerExtraction(
   deps: RunChatAgentDeps,
-  agentId: number,
-  issueKey: string,
-  threadId: number,
-  messageId: number,
-  runner: ProviderCredential['provider'],
-  recent: ChatMessageItem[],
-  collected: CollectedAttachments,
+  ctx: {
+    agentId: number;
+    threadId: number;
+    messageId: number;
+    runner: ProviderCredential['provider'];
+    issue: { attachments: AgentAttachment[]; failed: boolean };
+    recent: ChatMessageItem[];
+  },
 ): Promise<{ recent: ChatMessageItem[]; collected: CollectedAttachments }> {
+  const { agentId, threadId, messageId, runner, issue } = ctx;
+  let recent = ctx.recent;
+  let collected = mergeAttachments(issue, threadId, recent);
   const sleep = deps.sleep ?? defaultSleep;
   const maxPolls = Math.ceil(TRIGGER_POLL_TIMEOUT_MS / TRIGGER_POLL_INTERVAL_MS);
   for (let i = 0; i < maxPolls && triggerPending(runner, collected, messageId); i++) {
@@ -78,8 +84,7 @@ async function awaitTriggerExtraction(
       });
       break;
     }
-    // 이슈 첨부 목록도 다시 부른다(재사용보다 단순 — 최대 8회 추가 호출).
-    collected = await collectAttachments(deps.client, agentId, issueKey, threadId, recent);
+    collected = mergeAttachments(issue, threadId, recent);
   }
   return { recent, collected };
 }
@@ -128,20 +133,21 @@ export async function runChatAgent(
 
     void emit('started');
     try {
-      const firstRecent = await deps.client.getChatMessages(agentId, p.threadId, THREAD_PREFETCH);
+      // 이슈 첨부 목록은 메시지 조회와 병렬로 1회만 받는다(대기 루프에서는 메시지만 다시 받음).
+      const [firstRecent, issue] = await Promise.all([
+        deps.client.getChatMessages(agentId, p.threadId, THREAD_PREFETCH),
+        fetchIssueAttachments(deps.client, agentId, p.issueKey),
+      ]);
       // WP-244: 공통 첨부 목록(이슈+챗) → 러너별 표현. Claude 만 이미지·PDF 원본을 workDir 에 받는다.
-      const firstCollected = await collectAttachments(deps.client, agentId, p.issueKey, p.threadId, firstRecent);
       // 트리거 메시지 첨부가 추출 중이면 잠시 기다려 상태를 갱신한다.
-      const { recent, collected } = await awaitTriggerExtraction(
-        deps,
+      const { recent, collected } = await awaitTriggerExtraction(deps, {
         agentId,
-        p.issueKey,
-        p.threadId,
-        p.messageId,
-        credential.provider,
-        firstRecent,
-        firstCollected,
-      );
+        threadId: p.threadId,
+        messageId: p.messageId,
+        runner: credential.provider,
+        issue,
+        recent: firstRecent,
+      });
       const presented = await presentAttachments(credential.provider, collected, {
         client: deps.client,
         agentId,

@@ -31,11 +31,79 @@ export const NO_EXTRACTION: ExtractionInfo = {
   reason: null,
 };
 
+/** 서버 첨부 응답 항목 → AgentAttachment. 이슈·챗 매핑이 출처(origin)만 다르므로 한곳에서 만든다. */
+function toAttachment(
+  origin: AttachmentOrigin,
+  meta: { fileId: number; originalName: string; mimeType: string; sizeBytes: number; extraction?: ExtractionInfo | null },
+): AgentAttachment {
+  return {
+    origin,
+    fileId: meta.fileId,
+    originalName: meta.originalName,
+    mimeType: meta.mimeType,
+    sizeBytes: meta.sizeBytes,
+    extraction: meta.extraction ?? NO_EXTRACTION,
+  };
+}
+
 /**
- * 이슈 첨부와 recent(이미 받아 둔 최근 스레드 메시지)의 첨부를 하나로 모은다. 추가 API 호출은 이슈 첨부 목록 1회뿐.
- * 이슈 첨부 목록이 실패해도(권한 등) 챗 첨부만으로 진행한다 — 첨부 하나 때문에 답변 전체를 막지 않기 위해.
- * 대신 issueListFailed 로 실패를 알려, 모델이 "이슈에 첨부가 없다" 고 잘못 단정하지 않게 한다.
+ * 이슈 첨부 목록을 1회 조회한다. 실패해도(권한 등) 던지지 않고 failed=true 로 알려, 챗 첨부만으로 진행하게 한다
+ * — 첨부 하나 때문에 답변 전체를 막지 않기 위해. 호출자는 failed 로 모델이 "이슈에 첨부가 없다" 고 단정하지 않게 한다.
  */
+export async function fetchIssueAttachments(
+  client: WorkplaceApiClient,
+  agentId: number,
+  issueKey: string,
+): Promise<{ attachments: AgentAttachment[]; failed: boolean }> {
+  try {
+    const list = await client.listIssueAttachments(agentId, issueKey);
+    return { attachments: list.map((a) => toAttachment({ kind: 'issue', issueKey }, a)), failed: false };
+  } catch (e) {
+    console.warn('[attachment-source] 이슈 첨부 목록 조회 실패 — 챗 첨부만 사용', {
+      issueKey,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return { attachments: [], failed: true };
+  }
+}
+
+/**
+ * recent(이미 받아 둔 최근 스레드 메시지)의 첨부(순수 함수). excludeFileIds(이슈 첨부 등)에 있는 fileId 는 건너뛰어
+ * 이슈 쪽을 우선하고, 챗끼리도 fileId 중복은 먼저 나온 것만 쓴다. 삭제된 메시지의 첨부는 대화에서 빠진 것으로 본다.
+ */
+export function chatAttachments(
+  threadId: number,
+  recent: ChatMessageItem[],
+  excludeFileIds: ReadonlySet<number> = new Set(),
+): AgentAttachment[] {
+  const seen = new Set(excludeFileIds);
+  const out: AgentAttachment[] = [];
+  // 오래된→최신 순(프롬프트의 thread 흐름과 같은 순서).
+  for (const m of [...recent].sort((x, y) => x.id - y.id)) {
+    if (m.deleted) continue;
+    for (const a of m.attachments ?? []) {
+      if (seen.has(a.fileId)) continue;
+      seen.add(a.fileId);
+      out.push(toAttachment({ kind: 'chat', threadId, messageId: m.id }, a));
+    }
+  }
+  return out;
+}
+
+/** 이슈 첨부 + 챗 첨부를 합친다(이슈 우선). 이슈 목록 조회 1회 + 순수 합성. */
+export function mergeAttachments(
+  issue: { attachments: AgentAttachment[]; failed: boolean },
+  threadId: number,
+  recent: ChatMessageItem[],
+): CollectedAttachments {
+  const exclude = new Set(issue.attachments.map((a) => a.fileId));
+  return {
+    attachments: [...issue.attachments, ...chatAttachments(threadId, recent, exclude)],
+    issueListFailed: issue.failed,
+  };
+}
+
+/** 한 번에 모으는 편의 함수 — 이슈 목록 1회 조회 후 mergeAttachments. */
 export async function collectAttachments(
   client: WorkplaceApiClient,
   agentId: number,
@@ -43,45 +111,5 @@ export async function collectAttachments(
   threadId: number,
   recent: ChatMessageItem[],
 ): Promise<CollectedAttachments> {
-  const out: AgentAttachment[] = [];
-  const seen = new Set<number>();
-  let issueListFailed = false;
-
-  try {
-    for (const a of await client.listIssueAttachments(agentId, issueKey)) {
-      seen.add(a.fileId);
-      out.push({
-        origin: { kind: 'issue', issueKey },
-        fileId: a.fileId,
-        originalName: a.originalName,
-        mimeType: a.mimeType,
-        sizeBytes: a.sizeBytes,
-        extraction: a.extraction ?? NO_EXTRACTION,
-      });
-    }
-  } catch (e) {
-    issueListFailed = true;
-    console.warn('[attachment-source] 이슈 첨부 목록 조회 실패 — 챗 첨부만 사용', {
-      issueKey,
-      error: e instanceof Error ? e.message : String(e),
-    });
-  }
-
-  // 오래된→최신 순(프롬프트의 thread 흐름과 같은 순서). 삭제된 메시지의 첨부는 대화에서 빠진 것으로 본다.
-  for (const m of [...recent].sort((x, y) => x.id - y.id)) {
-    if (m.deleted) continue;
-    for (const a of m.attachments ?? []) {
-      if (seen.has(a.fileId)) continue;
-      seen.add(a.fileId);
-      out.push({
-        origin: { kind: 'chat', threadId, messageId: m.id },
-        fileId: a.fileId,
-        originalName: a.originalName,
-        mimeType: a.mimeType,
-        sizeBytes: a.sizeBytes,
-        extraction: a.extraction ?? NO_EXTRACTION,
-      });
-    }
-  }
-  return { attachments: out, issueListFailed };
+  return mergeAttachments(await fetchIssueAttachments(client, agentId, issueKey), threadId, recent);
 }
