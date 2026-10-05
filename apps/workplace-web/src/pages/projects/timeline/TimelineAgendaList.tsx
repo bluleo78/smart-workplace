@@ -144,7 +144,8 @@ export function TimelineAgendaList({
                         {r.bar && (
                           // 막대 묶음 — 위: 자기 기간 막대, 아래(에픽만): 하위 실제 범위 얇은 막대. 오늘 선은 묶음 전체를 세로로 가로지른다.
                           <span className="relative flex flex-col gap-0.5" aria-hidden="true">
-                            <span className="relative block h-1 w-full rounded-full bg-muted">
+                            {/* 에픽 막대는 하위·일반 이슈(4px)보다 두껍게(6px) 해 위계를 드러낸다. */}
+                            <span className={cn('relative block w-full rounded-full bg-muted', r.kind === 'epic' ? 'h-1.5' : 'h-1')}>
                               <span
                                 data-testid="agenda-bar"
                                 className={cn('absolute inset-y-0 rounded-full', r.kind === 'epic' ? 'bg-ai-accent' : 'bg-primary')}
@@ -153,7 +154,7 @@ export function TimelineAgendaList({
                             </span>
                             {/* 에픽 기간 밖으로 나간 하위 구간은 빨강(데스크톱 WP-249 와 같은 규칙). */}
                             {r.rollup && (
-                              <span className="relative block h-0.5 w-full">
+                              <span className="relative block h-0.75 w-full">
                                 <span data-testid="agenda-rollup" className="absolute inset-y-0 rounded-full bg-destructive" style={spanStyle(r.rollup.bar)} />
                                 {r.rollup.inside && (
                                   <span data-testid="agenda-rollup-inside" className="absolute inset-y-0 rounded-full bg-ai-accent/70" style={spanStyle(r.rollup.inside)} />
