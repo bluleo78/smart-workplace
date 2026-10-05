@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.event.FileExtractionDoneEvent;
 import com.workplace.fileai.exception.FileAiException;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
@@ -219,17 +220,23 @@ public class FileExtractionPipeline {
     jobs.markJobDone(jobId);
 
     if ("DONE".equals(result.status()) && result.text() != null && !result.text().isBlank()) {
-      // EXTRACTING→TEXT_READY CAS (스테일 콜백은 CAS 실패 → 무시)
+      // TEXT_ONLY(첨부)는 요약·임베딩 없이 바로 DONE — 에이전트는 글자만 읽는다(WP-242).
+      boolean textOnly = jobs.findProfile(fileId) == ExtractionProfile.TEXT_ONLY;
+      // EXTRACTING→TEXT_READY(또는 DONE) CAS (스테일 콜백은 CAS 실패 → 무시)
       boolean advanced =
           jobs.advanceToTextReady(
               fileId,
               result.text(),
               result.charCount() != null ? result.charCount() : result.text().length(),
               Boolean.TRUE.equals(result.truncated()),
-              result.lang());
+              result.lang(),
+              textOnly ? "DONE" : "TEXT_READY");
       if (!advanced) {
         log.debug("TEXT_READY 전이 CAS 실패 — 스테일 콜백 무시: jobId={} fileId={}", jobId, fileId);
         return;
+      }
+      if (textOnly) {
+        return; // 요약 nudge·DONE 이벤트(임베딩) 없음
       }
       // TEXT_READY 커밋 후 요약 nudge — afterCommit 등록으로 커밋 완료 이후에만 CAS 가 성공함을 보장
       final long capturedFileId = fileId;
@@ -257,7 +264,11 @@ public class FileExtractionPipeline {
           });
     } else {
       // DONE 이지만 텍스트 없거나 SKIPPED/FAILED → SKIPPED
-      String error = result.error() != null ? result.error() : "empty-text:" + result.status();
+      // 워커 예외(FAILED)는 접두를 붙여 사유 판정이 EXTRACTION_ERROR 로 확정되게 한다(WP-242). 그 외 원시값은 그대로.
+      String error =
+          "FAILED".equals(result.status())
+              ? "extract-error:" + (result.error() != null ? result.error() : "")
+              : (result.error() != null ? result.error() : "empty-text:" + result.status());
       boolean advanced = jobs.advanceToSkipped(fileId, error);
       if (!advanced) {
         log.debug("SKIPPED 전이 CAS 실패 — 스테일 콜백 무시: jobId={} fileId={}", jobId, fileId);

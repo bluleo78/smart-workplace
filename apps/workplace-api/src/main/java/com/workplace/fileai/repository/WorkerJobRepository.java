@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.WORKER_JOB;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.fileai.ExtractionProfile;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -150,6 +151,16 @@ public class WorkerJobRepository {
     }
   }
 
+  /** 추출 프로파일 조회(WP-242). 행이 없거나 값이 없으면 FULL 로 본다(기존 드라이브 동작 유지). */
+  public ExtractionProfile findProfile(long fileId) {
+    String p =
+        dsl.select(FILE_EXTRACTION.PROFILE)
+            .from(FILE_EXTRACTION)
+            .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+            .fetchOne(FILE_EXTRACTION.PROFILE);
+    return "TEXT_ONLY".equals(p) ? ExtractionProfile.TEXT_ONLY : ExtractionProfile.FULL;
+  }
+
   /**
    * file_extraction EXTRACTING→TEXT_READY CAS (스테일 콜백 가드).
    *
@@ -157,12 +168,20 @@ public class WorkerJobRepository {
    * extracted_text/char_count/truncated/lang/extracted_at 을 저장한다. 이미 TEXT_READY/DONE/FAILED 이면 0행
    * 업데이트 → 무시(스테일 콜백).
    *
+   * <p>TEXT_ONLY 는 요약 없이 바로 DONE(WP-242) — targetStatus 로 "TEXT_READY" 또는 "DONE" 을 넘긴다.
+   *
+   * @param targetStatus 전이 목표 상태("TEXT_READY" 또는 "DONE")
    * @return 실제로 전이된 경우 true
    */
   public boolean advanceToTextReady(
-      long fileId, String extractedText, int charCount, boolean truncated, String lang) {
+      long fileId,
+      String extractedText,
+      int charCount,
+      boolean truncated,
+      String lang,
+      String targetStatus) {
     return dsl.update(FILE_EXTRACTION)
-            .set(FILE_EXTRACTION.STATUS, "TEXT_READY")
+            .set(FILE_EXTRACTION.STATUS, targetStatus)
             .set(FILE_EXTRACTION.EXTRACTED_TEXT, extractedText)
             .set(FILE_EXTRACTION.CHAR_COUNT, charCount)
             .set(FILE_EXTRACTION.TRUNCATED, truncated)
@@ -182,7 +201,9 @@ public class WorkerJobRepository {
   public boolean advanceToSkipped(long fileId, String error) {
     return dsl.update(FILE_EXTRACTION)
             .set(FILE_EXTRACTION.STATUS, "SKIPPED")
-            .set(FILE_EXTRACTION.ERROR, error)
+            .set(
+                FILE_EXTRACTION.ERROR,
+                error == null ? null : error.substring(0, Math.min(error.length(), 500)))
             .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
             .and(FILE_EXTRACTION.STATUS.eq("EXTRACTING"))
             .execute()
@@ -205,6 +226,8 @@ public class WorkerJobRepository {
             .set(FILE_EXTRACTION.ATTEMPTS, FILE_EXTRACTION.ATTEMPTS.add(1))
             .set(FILE_EXTRACTION.LEASED_UNTIL, now.plus(SUMMARY_LEASE_DURATION))
             .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+            // TEXT_ONLY(첨부)는 요약 대상이 아니다(WP-242)
+            .and(FILE_EXTRACTION.PROFILE.eq("FULL"))
             .and(
                 FILE_EXTRACTION
                     .STATUS
@@ -348,12 +371,16 @@ public class WorkerJobRepository {
                         .STATUS
                         .eq("SUMMARIZING")
                         .and(FILE_EXTRACTION.LEASED_UNTIL.lessThan(now))
-                        .and(FILE_EXTRACTION.ATTEMPTS.lessThan(MAX_SUMMARY_ATTEMPTS)))
+                        .and(FILE_EXTRACTION.ATTEMPTS.lessThan(MAX_SUMMARY_ATTEMPTS))
+                        // TEXT_ONLY(첨부)는 요약 대상이 아니다(WP-242)
+                        .and(FILE_EXTRACTION.PROFILE.eq("FULL")))
                 .or(
                     FILE_EXTRACTION
                         .STATUS
                         .eq("TEXT_READY")
-                        .and(FILE_EXTRACTION.ATTEMPTS.lessThan(MAX_SUMMARY_ATTEMPTS))))
+                        .and(FILE_EXTRACTION.ATTEMPTS.lessThan(MAX_SUMMARY_ATTEMPTS))
+                        // TEXT_ONLY(첨부)는 요약 대상이 아니다(WP-242)
+                        .and(FILE_EXTRACTION.PROFILE.eq("FULL"))))
         // 재개방 백필 시 한 틱 전량 디스패치를 막는 상한(#735).
         .limit(resumeBatchSize)
         .fetch(FILE_EXTRACTION.FILE_ID);
@@ -446,6 +473,8 @@ public class WorkerJobRepository {
         .from(FILE_EXTRACTION)
         .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
         .and(FILE_EXTRACTION.STATUS.eq("DONE"))
+        // TEXT_ONLY(첨부)는 임베딩 대상이 아니다(WP-242)
+        .and(FILE_EXTRACTION.PROFILE.eq("FULL"))
         .fetchOptional(
             r ->
                 new EmbedContext(
@@ -483,6 +512,8 @@ public class WorkerJobRepository {
         .from(FILE_EXTRACTION)
         .where(FILE_EXTRACTION.STATUS.eq("DONE"))
         .and(FILE_EXTRACTION.EMBEDDING.isNull())
+        // TEXT_ONLY(첨부)는 요약·임베딩 대상이 아니다(WP-242)
+        .and(FILE_EXTRACTION.PROFILE.eq("FULL"))
         // (1) 살아있는 RUNNING embed 잡이 없는 것만
         .and(
             DSL.notExists(
