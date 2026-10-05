@@ -1,6 +1,7 @@
 package com.workplace.chat;
 
 import static com.workplace.jooq.tables.FileExtraction.FILE_EXTRACTION;
+import static com.workplace.jooq.tables.Issue.ISSUE;
 import static com.workplace.jooq.tables.Project.PROJECT;
 import static com.workplace.jooq.tables.ProjectMember.PROJECT_MEMBER;
 import static com.workplace.jooq.tables.User.USER;
@@ -322,5 +323,40 @@ class ChatIssueAttachmentTest extends IntegrationTestBase {
 
     // 프로젝트 멤버도 스레드 멤버도 아닌 사람 — 이슈 첨부 API 와 같은 조회 규칙(OPEN 은 테넌트 전원)으로 허용.
     assertReadsAll(s.outsiderId(), threadId, fileId);
+  }
+
+  @Test
+  void 이슈가_소프트_삭제되면_스레드_경유_이슈_첨부는_404() throws Exception {
+    ChatFixtures.Setup s = fx.setup();
+    long threadId = threadOf(s);
+    long agentId = insertAgent();
+    joinThread(threadId, agentId);
+    long fileId = uploadIssuePdf(s);
+    markDone(fileId, "abcdef");
+    inTx(
+        () ->
+            dsl.update(ISSUE)
+                .set(ISSUE.DELETED_AT, java.time.OffsetDateTime.now())
+                .where(ISSUE.ID.eq(s.issueId()))
+                .execute());
+
+    mockMvc
+        .perform(as(agentId, get("/api/v1/chat/threads/{id}/issue-attachments", threadId)))
+        .andExpect(status().isNotFound());
+    mockMvc
+        .perform(
+            as(
+                agentId,
+                get("/api/v1/chat/threads/{id}/attachments/{fileId}/text", threadId, fileId)))
+        .andExpect(status().isNotFound());
+    mockMvc
+        .perform(
+            as(
+                agentId,
+                get(
+                    "/api/v1/chat/threads/{id}/issue-attachments/{fileId}/content",
+                    threadId,
+                    fileId)))
+        .andExpect(status().isNotFound());
   }
 }

@@ -1,5 +1,6 @@
 package com.workplace.chat.service;
 
+import com.workplace.chat.exception.ChatThreadIssueDeletedException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.chat.repository.IssueStakeholderLookup;
@@ -53,7 +54,8 @@ public class ChatIssueAttachmentService {
   }
 
   /**
-   * 스레드 경유 이슈 첨부 열람 권한 확인 — 프로젝트 조회 가능자 또는 이 스레드 멤버인 AGENT. 없으면 ChatThreadNotMemberException(403).
+   * 스레드 경유 이슈 첨부 열람 권한 확인 — 프로젝트 조회 가능자 또는 이 스레드 멤버인 AGENT. 없으면 ChatThreadNotMemberException(403),
+   * 이슈가 삭제됐으면 ChatThreadIssueDeletedException(404).
    *
    * @return 스레드가 딸린 이슈 id
    */
@@ -67,6 +69,10 @@ public class ChatIssueAttachmentService {
             || (memberRepo.isMember(threadId, callerId) && lookup.isAgentUser(callerId));
     if (!allowed) {
       throw new ChatThreadNotMemberException(threadId, callerId);
+    }
+    // 이슈가 소프트 삭제됐으면 스레드가 남아 있어도 첨부를 내주지 않는다(404) — 메시지 전송의 삭제 가드와 같은 판정(#621).
+    if (lookup.isIssueDeletedByThreadId(threadId)) {
+      throw new ChatThreadIssueDeletedException(threadId);
     }
     return ctx.issueId();
   }
