@@ -5,7 +5,9 @@ import { randomUUID } from 'node:crypto';
 
 import { CHAT_SYSTEM_PROMPT } from './chat-system-prompt.js';
 import { buildChatUserMessage } from './chat-user-message.js';
-import { createAttachmentWorkDir, prepareAttachments } from './attachment-prep.js';
+import { createAttachmentWorkDir } from './attachment-prep.js';
+import { collectAttachments } from './attachment-source.js';
+import { presentAttachments } from './attachment-presenter.js';
 import { runnerFor } from './agent-runner.js';
 import { fromRunnerEvent } from './chat-progress-parser.js';
 import { ProgressTracker } from './progress-tracker.js';
@@ -47,8 +49,14 @@ export async function runChatAgent(
 
   try {
     const recent = await deps.client.getChatMessages(agentId, p.threadId, THREAD_PREFETCH);
-    const attachments = await prepareAttachments(deps.client, agentId, p.issueKey, workDir);
-    const userMessage = buildChatUserMessage(p, recent, attachments);
+    // WP-244: 공통 첨부 목록(이슈+챗) → 러너별 표현. Claude 만 이미지·PDF 원본을 workDir 에 받는다.
+    const attachments = await collectAttachments(deps.client, agentId, p.issueKey, p.threadId, recent);
+    const presented = await presentAttachments(credential.provider, attachments, {
+      client: deps.client,
+      agentId,
+      workDir,
+    });
+    const userMessage = buildChatUserMessage(p, recent, presented);
 
     // 모델 결정 이원화 해소: 이벤트 경로는 요청 body 가 없어 redeem 응답을 env/기본값보다 우선한다.
     const model = credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;

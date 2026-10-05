@@ -8,13 +8,15 @@ const { streamSpy } = vi.hoisted(() => ({ streamSpy: vi.fn() }));
 vi.mock('./agent-runner.js', () => ({
   runnerFor: vi.fn(() => ({ stream: streamSpy, collect: vi.fn() })),
 }));
-vi.mock('./attachment-prep.js', async (orig) => ({
-  ...(await orig<typeof import('./attachment-prep.js')>()),
-  prepareAttachments: vi.fn(async () => []),
+vi.mock('./attachment-source.js', () => ({ collectAttachments: vi.fn(async () => []) }));
+vi.mock('./attachment-presenter.js', () => ({
+  presentAttachments: vi.fn(async () => ({ section: '첨부 없음', guidance: '' })),
 }));
 
 import { runChatAgent } from './run-chat-agent.js';
-import { attachmentRootDir, prepareAttachments } from './attachment-prep.js';
+import { attachmentRootDir } from './attachment-prep.js';
+import { collectAttachments } from './attachment-source.js';
+import { presentAttachments } from './attachment-presenter.js';
 import type { ChatEventEnvelope } from '../types/chat-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
@@ -59,12 +61,14 @@ describe('runChatAgent', () => {
     streamSpy.mockImplementation(defaultStreamImpl);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(prepareAttachments).mockResolvedValue([]);
+    vi.mocked(collectAttachments).mockResolvedValue([]);
+    vi.mocked(presentAttachments).mockResolvedValue({ section: '첨부 없음', guidance: '' });
   });
 
   it('mentions AGENT → 토큰 fetch + 첨부 준비 + SDK spawn(allowFileRead, cwd, mcp, partial=false)', async () => {
     await runChatAgent(env, deps());
-    expect(prepareAttachments).toHaveBeenCalled();
+    expect(collectAttachments).toHaveBeenCalledWith(expect.anything(), 99, 'WP-1', 5, []);
+    expect(presentAttachments).toHaveBeenCalledWith('anthropic', [], expect.objectContaining({ agentId: 99 }));
     expect(streamSpy).toHaveBeenCalledOnce();
     const runCall = vi.mocked(streamSpy).mock.calls[0][0] as {
       allowFileRead?: boolean; cwd?: string; includePartialMessages?: boolean; agentId?: number;
@@ -116,13 +120,32 @@ describe('runChatAgent', () => {
   });
 });
 
+describe('runChatAgent 러너 분기', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    streamSpy.mockImplementation(defaultStreamImpl);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(collectAttachments).mockResolvedValue([]);
+    vi.mocked(presentAttachments).mockResolvedValue({ section: '첨부 없음', guidance: '' });
+  });
+
+  it('opencode credential → presenter 에 opencode 전달', async () => {
+    const d = deps();
+    vi.mocked(d.client.getProviderCredential).mockResolvedValue({ provider: 'opencode', payload: {} as never, model: null } as never);
+    await runChatAgent(env, d);
+    expect(presentAttachments).toHaveBeenCalledWith('opencode', [], expect.anything());
+  });
+});
+
 describe('runChatAgent 진행 발행', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     streamSpy.mockImplementation(defaultStreamImpl);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(prepareAttachments).mockResolvedValue([]);
+    vi.mocked(collectAttachments).mockResolvedValue([]);
+    vi.mocked(presentAttachments).mockResolvedValue({ section: '첨부 없음', guidance: '' });
   });
 
   it('started → tool → done 순으로 postChatProgress 를 호출한다', async () => {

@@ -7,5 +7,7 @@ describe('CHAT_SYSTEM_PROMPT', () => {
     expect(CHAT_SYSTEM_PROMPT).toContain('add_chat_message');
     expect(CHAT_SYSTEM_PROMPT).toContain('한 번');
     expect(CHAT_SYSTEM_PROMPT).toContain('Read');
+    expect(CHAT_SYSTEM_PROMPT).toContain('read_attachment_text');
+    expect(CHAT_SYSTEM_PROMPT).toContain('다시 올려 달라고 요청하지');
   });
 });
