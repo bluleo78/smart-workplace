@@ -279,7 +279,8 @@ export function groupTimelineIssues(issues: IssueResponse[], opts: TimelineViewO
       key: epicGroupKey(num),
       epicNumber: num,
       title: epic?.title ?? kids[0]?.parent?.title ?? `#${num}`,
-      status: epic?.status ?? null,
+      // 합성 그룹(응답에 에픽 없음)은 하위가 실어 온 부모 상태로 — 「취소」 필터로 남은 취소 에픽 하위 묶음도 취소 표시가 되게(WP-247).
+      status: epic?.status ?? kids[0]?.parent?.status ?? null,
       ...epicProgress(epic, kids),
       range,
       rollup,
@@ -456,7 +457,8 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: 
         issueNumber: num,
         title: epic?.title ?? kids[0]?.k.parent?.title ?? `#${num}`,
         kind: 'epic',
-        status: epic?.status ?? 'TODO',
+        // 합성 머리 행은 하위가 실어 온 부모 상태(없으면 TODO) — 간트 합성 그룹과 같은 규칙.
+        status: epic?.status ?? kids[0]?.k.parent?.status ?? 'TODO',
         start: kidSpan?.start ?? null,
         due: kidSpan?.due ?? null,
         ...epicRow,
