@@ -137,7 +137,7 @@ export function EpicSidePanel({
           <div className="flex flex-col items-center gap-2 px-2 py-10 text-center" data-testid="epic-panel-empty">
             {/* 빈 상태 — 아이콘+제목+설명(06-feedback-states §B). 다음 행동은 푸터 「＋ 에픽 만들기」. */}
             <Layers className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
-            <p className="text-sm font-medium">아직 에픽이 없습니다</p>
+            <p className="text-sm font-medium">진행 중인 에픽이 없습니다</p>
             <p className="text-xs text-muted-foreground">
               에픽으로 큰 작업을 묶어 진행률을 추적할 수 있습니다
             </p>

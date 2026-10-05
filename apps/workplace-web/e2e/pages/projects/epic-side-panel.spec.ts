@@ -8,7 +8,7 @@ import { measureBox } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
-import type { IssueResponse } from '../../../src/types/issue';
+import type { IssueResponse, IssueStatus } from '../../../src/types/issue';
 
 const PROJECT_KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${PROJECT_KEY}/issues`;
@@ -18,7 +18,7 @@ async function stubProjectMeta(page: Page) {
   await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/members`, []);
 }
 
-function epic(number: number, title: string, done: number, total: number): IssueResponse {
+function epic(number: number, title: string, done: number, total: number, status?: IssueStatus): IssueResponse {
   return createIssue({
     id: number,
     number,
@@ -26,6 +26,7 @@ function epic(number: number, title: string, done: number, total: number): Issue
     type: makeEpicType(),
     childCount: total,
     childDoneCount: done,
+    ...(status ? { status } : {}),
   });
 }
 
@@ -133,6 +134,41 @@ test.describe('에픽 왼쪽 패널', () => {
       ).toHaveAttribute('aria-valuenow', '60');
     },
   );
+
+  test('완료·취소된 에픽은 패널에 나오지 않는다 — 에픽 조회를 진행 중 상태로 좁힌다 (WP-246)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
+
+    const all = [
+      epic(10, '진행 중 에픽', 1, 4, 'IN_PROGRESS'),
+      epic(11, '할 일 에픽', 0, 2, 'TODO'),
+      epic(12, '완료된 에픽', 3, 3, 'DONE'),
+      epic(13, '취소된 에픽', 0, 1, 'CANCELED'),
+    ];
+    // 서버처럼 status 파라미터로 거른다 — 파라미터가 없으면 종료된 에픽까지 그대로 돌려준다.
+    // 네 상태를 모두 넣었으므로 10·11 만 보이면 요청 status 가 정확히 {TODO, IN_PROGRESS} 임이 확인된다.
+    await routeIssueSearch(page, (route, url) => {
+      const isEpicSearch = url.searchParams.get('type') === String(makeEpicType().id);
+      const statuses = url.searchParams.get('status')?.split(',');
+      const items = isEpicSearch ? all.filter((e) => !statuses || statuses.includes(e.status)) : [];
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(items)),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_KEY}`);
+    await openEpicPanel(page);
+
+    await expect(page.getByTestId('epic-filter-10')).toBeVisible();
+    await expect(page.getByTestId('epic-filter-11')).toBeVisible();
+    await expect(page.getByTestId('epic-filter-12')).not.toBeAttached();
+    await expect(page.getByTestId('epic-filter-13')).not.toBeAttached();
+    await expect(page.getByTestId('epic-panel-count')).toHaveText('2');
+  });
 
   test('에픽 미할당 클릭 시 topLevel+excludeEpics 로 조회하고(유형 필터 불변), 재클릭 시 해제된다 (#874)', async ({
     authenticatedPage: page,
@@ -283,7 +319,7 @@ test.describe('에픽 왼쪽 패널', () => {
     await openEpicPanel(page);
 
     await expect(page.getByTestId('epic-panel-empty')).toBeVisible();
-    await expect(page.getByTestId('epic-panel-empty')).toContainText('아직 에픽이 없습니다');
+    await expect(page.getByTestId('epic-panel-empty')).toContainText('진행 중인 에픽이 없습니다');
     await expect(page.getByTestId('epic-panel-count')).toHaveText('0');
   });
 
