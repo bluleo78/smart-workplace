@@ -63,6 +63,18 @@ export function TimelineAgendaList({
   const { isOpen, toggle } = useTimelineExpanded(projectKey);
   const groupKeyOf = (epicNumber: number | null) => (epicNumber == null ? null : epicGroupKey(epicNumber));
   const isEmpty = !loading && sections.length === 0;
+  // 기간 빈 상태(WP-247) — 데스크톱(timeline-period-empty)과 같은 조건: 기간이 걸렸고 날짜 있는 섹션이 하나도 없으면.
+  // 일정 미정 이슈는 기간과 무관하게 남으므로, 미정 섹션이 있으면 그 위에 안내를 두고 미정 섹션은 그대로 보인다.
+  const periodEmpty = !loading && view.period != null && !sections.some((s) => s.key !== 'undated');
+  const periodEmptyState = (className?: string) => (
+    <MobileEmptyState
+      icon={CalendarRange}
+      title="이 기간에 걸친 이슈가 없어요"
+      description="기간을 「전체」로 바꿔 보세요"
+      className={className}
+      data-testid="timeline-agenda-empty"
+    />
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="timeline-agenda">
@@ -95,23 +107,19 @@ export function TimelineAgendaList({
         )}
       </div>
 
-      {isEmpty ? (
+      {isEmpty && periodEmpty ? (
+        periodEmptyState('flex-1')
+      ) : isEmpty ? (
         <MobileEmptyState
           icon={CalendarRange}
-          // 조회 기간이 걸려 있으면 기간 문구(WP-247) — 데스크톱 timeline-period-empty 와 같은 안내.
-          title={view.period ? '이 기간에 걸친 이슈가 없어요' : '표시할 이슈가 없어요'}
-          description={
-            view.period
-              ? '기간을 「전체」로 바꿔 보세요'
-              : filter.activeFilterCount > 0
-                ? '필터를 풀면 더 많은 이슈가 보여요.'
-                : '진행할 이슈가 생기면 여기에 일정순으로 모여요. 취소된 이슈와 하위 태스크는 보이지 않아요.'
-          }
+          title="표시할 이슈가 없어요"
+          description={filter.activeFilterCount > 0 ? '필터를 풀면 더 많은 이슈가 보여요.' : '진행할 이슈가 생기면 여기에 일정순으로 모여요. 취소된 이슈와 하위 태스크는 보이지 않아요.'}
           className="flex-1"
           data-testid="timeline-agenda-empty"
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto pb-4">
+          {periodEmpty && periodEmptyState('pt-10 pb-6')}
           {sections.map((sec) => (
             <section
               key={sec.key}

@@ -237,6 +237,35 @@ test('기간이 걸린 채 0건이면 기간 빈 상태 문구 (WP-247)', async 
   await expect(page.getByTestId('agenda-chip-period')).toBeVisible();
 });
 
+test('기간에 걸친 일정 있는 이슈가 없으면 미정 섹션 위에 기간 빈 상태 — 데스크톱과 같은 조건 (WP-247)', async ({ authenticatedPage: page }) => {
+  // 모든 일정 있는 이슈와 먼 직접 지정 기간 — 일정 미정 이슈(11·12)는 기간과 무관하게 남는다.
+  await setup(page, { period: 'range:2030-01-01~2030-01-31' });
+  const empty = page.getByTestId('timeline-agenda-empty');
+  await expect(empty).toContainText('이 기간에 걸친 이슈가 없어요');
+  await expect(empty).toContainText('기간을 「전체」로 바꿔 보세요');
+  await expect(page.getByTestId('agenda-undated')).toBeVisible();
+  await expect(page.getByTestId('agenda-row-11')).toBeVisible();
+  await expect(page.locator('[data-testid^="agenda-month-"]')).toHaveCount(0);
+  // 안내가 미정 섹션보다 위.
+  const [e, u] = [(await empty.boundingBox())!, (await page.getByTestId('agenda-undated').boundingBox())!];
+  expect(e.y).toBeLessThan(u.y);
+});
+
+test('기간 시트 「직접 지정」 — 날짜 두 칸을 적용하면 URL·칩 라벨이 바뀌고 시트가 닫힌다 (WP-247)', async ({ authenticatedPage: page }) => {
+  await setup(page);
+  await page.getByTestId('agenda-chip-period').click();
+  const sheet = page.getByTestId('agenda-period-sheet');
+  await expect(sheet).toBeVisible();
+  await sheet.getByTestId('period-range-from').fill('2026-10-01');
+  await sheet.getByTestId('period-range-to').fill('2026-10-14');
+  await sheet.getByTestId('period-range-apply').click();
+  await expect(page).toHaveURL(/period=range(:|%3A)2026-10-01(~|%7E)2026-10-14/);
+  await expect(page.getByTestId('agenda-chip-period')).toContainText('10/1–10/14');
+  await expect(sheet).toHaveCount(0);
+  // 기간 밖 단독 이슈(11/2 시작)는 빠진다.
+  await expect(page.getByTestId('agenda-row-13')).toHaveCount(0);
+});
+
 test('완료 에픽은 완료 배지, 「취소」 필터면 취소 에픽이 배지·취소선으로, 옮겨진 하위는 단독 행 (WP-247)', async ({ authenticatedPage: page }) => {
   await setup(page);
   await expect(page.getByTestId('agenda-row-80').getByTestId('agenda-status-badge')).toHaveText('완료');

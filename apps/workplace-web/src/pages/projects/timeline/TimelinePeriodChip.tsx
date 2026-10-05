@@ -1,13 +1,13 @@
 // 모바일 아젠다 칩 줄 맨 앞 「◷ 기간」 칩(WP-247) — 기본값이어도 강조 표시. 누르면 데스크톱 드롭다운과 같은 선택지의 시트.
-// 「직접 지정」은 시트 목록 아래 날짜 두 칸(PeriodRangeForm). 대체 기간이면 시트 제목 아래에 이유를 적는다.
-import { CalendarRange } from 'lucide-react';
+// 「직접 지정」은 시트 목록 아래 날짜 두 칸(PeriodRangeForm). 대체 기간이면 목록 아래(직접 지정 위)에 이유를 적는다.
+import { CalendarRange, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 import { cn } from '@/lib/utils';
 import type { CycleResponse } from '@/types/cycle';
 
-import { HIDE_SCROLLBAR, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from '../components/mobile/chipStyles';
+import { MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from '../components/mobile/chipStyles';
 import { periodOptions, periodOptionToParam, periodOptionValue } from './periodOptions';
 import { PeriodRangeForm } from './PeriodRangeForm';
 import type { PeriodParam, TimelinePeriod } from './timelineTypes';
@@ -28,6 +28,7 @@ export function TimelinePeriodChip({
       >
         <CalendarRange className="size-3.5" aria-hidden />
         <span className="max-w-[8rem] truncate">{short}</span>
+        <ChevronDown className="size-3.5" aria-hidden />
       </button>
       <MobilePickerSheet
         open={open}
@@ -38,8 +39,8 @@ export function TimelinePeriodChip({
         value={periodOptionValue(param)}
         onSelect={(v) => onChange(periodOptionToParam(v))}
         listFooter={
-          <div className={cn('border-t px-4 pt-3 pb-2', HIDE_SCROLLBAR)}>
-            {period?.fallbackNote && <p className="pb-2 text-xs text-warning-foreground">{period.fallbackNote}</p>}
+          <div className="border-t px-4 pt-3 pb-2">
+            {period?.fallbackNote && <p className="pb-2 text-xs text-muted-foreground">{period.fallbackNote}</p>}
             <p className="pb-1.5 text-xs text-muted-foreground">직접 지정</p>
             <PeriodRangeForm
               initial={param.kind === 'range' ? { from: param.from, to: param.to } : null}
