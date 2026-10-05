@@ -217,25 +217,25 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(scope.isDone()).toBe(true);
   });
 
-  // --- 6c: 이슈 첨부 ---
+  // --- WP-244: 스레드 경유 이슈 첨부 ---
 
-  it('listIssueAttachments → GET /projects/{key}/issues/{n}/attachments', async () => {
+  it('listThreadIssueAttachments → GET /chat/threads/{id}/issue-attachments', async () => {
     nock(BASE)
       .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/projects/WP/issues/1/attachments`)
+      .get(`${PREFIX}/chat/threads/5/issue-attachments`)
       .reply(200, [
         { fileId: 3, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 100 },
       ]);
-    const list = await newClient().listIssueAttachments(AGENT_ID, 'WP-1');
+    const list = await newClient().listThreadIssueAttachments(AGENT_ID, 5);
     expect(list[0]).toMatchObject({ fileId: 3, originalName: 'a.png', mimeType: 'image/png' });
   });
 
-  it('downloadIssueAttachment → GET .../content (바이트 + mimeType)', async () => {
+  it('downloadThreadIssueAttachment → GET /chat/threads/{id}/issue-attachments/{fileId}/content (바이트 + mimeType)', async () => {
     nock(BASE)
       .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .get(`${PREFIX}/projects/WP/issues/1/attachments/3/content`)
+      .get(`${PREFIX}/chat/threads/5/issue-attachments/3/content`)
       .reply(200, Buffer.from('PNGDATA'), { 'Content-Type': 'image/png' });
-    const res = await newClient().downloadIssueAttachment(AGENT_ID, 'WP-1', 3);
+    const res = await newClient().downloadThreadIssueAttachment(AGENT_ID, 5, 3);
     expect(Buffer.isBuffer(res.data)).toBe(true);
     expect(res.data.toString()).toBe('PNGDATA');
     expect(res.mimeType).toBe('image/png');

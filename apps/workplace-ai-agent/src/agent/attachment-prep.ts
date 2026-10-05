@@ -56,7 +56,7 @@ export async function downloadAttachments(
     try {
       const { data } =
         a.origin.kind === 'issue'
-          ? await client.downloadIssueAttachment(agentId, a.origin.issueKey, a.fileId)
+          ? await client.downloadThreadIssueAttachment(agentId, a.origin.threadId, a.fileId)
           : await client.downloadChatAttachment(agentId, a.origin.threadId, a.origin.messageId, a.fileId);
       const localPath = path.join(destDir, `${a.fileId}-${safeName(a.originalName)}`);
       await writeFile(localPath, data);

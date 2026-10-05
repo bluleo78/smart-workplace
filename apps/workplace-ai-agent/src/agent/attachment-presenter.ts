@@ -43,10 +43,12 @@ export function readsLocally(kind: RunnerKind, mime: string): boolean {
   return kind === 'anthropic' && fileKind(mime) !== 'other';
 }
 
-/** 프롬프트에 그대로 옮겨 쓸 도구 호출 예 — 모델이 출처 인자를 헷갈리지 않게 완성형으로 준다. */
+/**
+ * 프롬프트에 그대로 옮겨 쓸 도구 호출 예 — 모델이 인자를 헷갈리지 않게 완성형으로 준다.
+ * 이슈 첨부·챗 첨부 모두 스레드 경유로 읽으므로 형태가 같다(WP-244 — 이슈 첨부 API 는 비멤버 에이전트에 403).
+ */
 function toolCall(a: AgentAttachment): string {
-  const where = a.origin.kind === 'issue' ? `issueKey:"${a.origin.issueKey}"` : `threadId:${a.origin.threadId}`;
-  return `read_attachment_text({${where}, fileId:${a.fileId}})`;
+  return `read_attachment_text({threadId:${a.origin.threadId}, fileId:${a.fileId}})`;
 }
 
 /** 추출 상태별 한 줄(공통). READY 만 도구 호출을 안내하고, 나머지는 상태·사유만 — 재업로드 요청을 유도하지 않는다. */

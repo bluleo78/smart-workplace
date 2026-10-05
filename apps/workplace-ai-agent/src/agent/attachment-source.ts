@@ -2,8 +2,9 @@
 // 러너와 무관한 "무엇이 있고 추출 상태가 어떤지" 만 담는다. 러너별 표현은 attachment-presenter.ts 몫.
 import type { ChatMessageItem, ExtractionInfo, WorkplaceApiClient } from '../clients/workplace-api.js';
 
+// 이슈 첨부도 스레드 경유로 조회·다운로드·텍스트 읽기를 하므로 threadId 를 갖는다(WP-244 — 에이전트는 프로젝트 멤버가 아님).
 export type AttachmentOrigin =
-  | { kind: 'issue'; issueKey: string }
+  | { kind: 'issue'; threadId: number }
   | { kind: 'chat'; threadId: number; messageId: number };
 
 export interface AgentAttachment {
@@ -18,7 +19,7 @@ export interface AgentAttachment {
 /** collectAttachments 결과 — 이슈 첨부 목록 실패 여부를 함께 넘겨 프롬프트가 "첨부 없음" 으로 단정하지 않게 한다. */
 export interface CollectedAttachments {
   attachments: AgentAttachment[];
-  /** 이슈 첨부 목록 조회가 실패했는지(대개 에이전트가 프로젝트 멤버가 아니어서 403). */
+  /** 이슈 첨부 목록 조회가 실패했는지(스레드 열람 권한 없음·일시 오류 등). */
   issueListFailed: boolean;
 }
 
@@ -47,20 +48,21 @@ function toAttachment(
 }
 
 /**
- * 이슈 첨부 목록을 1회 조회한다. 실패해도(권한 등) 던지지 않고 failed=true 로 알려, 챗 첨부만으로 진행하게 한다
- * — 첨부 하나 때문에 답변 전체를 막지 않기 위해. 호출자는 failed 로 모델이 "이슈에 첨부가 없다" 고 단정하지 않게 한다.
+ * 스레드가 딸린 이슈의 첨부 목록을 스레드 경유로 1회 조회한다(WP-244 — 이슈 첨부 API 는 프로젝트 멤버가 아닌 에이전트에 403).
+ * 실패해도(권한 등) 던지지 않고 failed=true 로 알려, 챗 첨부만으로 진행하게 한다 — 첨부 하나 때문에 답변 전체를 막지 않기 위해.
+ * 호출자는 failed 로 모델이 "이슈에 첨부가 없다" 고 단정하지 않게 한다.
  */
 export async function fetchIssueAttachments(
   client: WorkplaceApiClient,
   agentId: number,
-  issueKey: string,
+  threadId: number,
 ): Promise<{ attachments: AgentAttachment[]; failed: boolean }> {
   try {
-    const list = await client.listIssueAttachments(agentId, issueKey);
-    return { attachments: list.map((a) => toAttachment({ kind: 'issue', issueKey }, a)), failed: false };
+    const list = await client.listThreadIssueAttachments(agentId, threadId);
+    return { attachments: list.map((a) => toAttachment({ kind: 'issue', threadId }, a)), failed: false };
   } catch (e) {
     console.warn('[attachment-source] 이슈 첨부 목록 조회 실패 — 챗 첨부만 사용', {
-      issueKey,
+      threadId,
       error: e instanceof Error ? e.message : String(e),
     });
     return { attachments: [], failed: true };
@@ -107,9 +109,8 @@ export function mergeAttachments(
 export async function collectAttachments(
   client: WorkplaceApiClient,
   agentId: number,
-  issueKey: string,
   threadId: number,
   recent: ChatMessageItem[],
 ): Promise<CollectedAttachments> {
-  return mergeAttachments(await fetchIssueAttachments(client, agentId, issueKey), threadId, recent);
+  return mergeAttachments(await fetchIssueAttachments(client, agentId, threadId), threadId, recent);
 }

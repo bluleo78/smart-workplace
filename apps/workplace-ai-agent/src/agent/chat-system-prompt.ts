@@ -7,7 +7,7 @@ export const CHAT_SYSTEM_PROMPT = `당신은 Gen:iA Works 의 AI 어시스턴트
 ## 사용 가능한 도구
 - get_chat_thread({threadId}): 현재 thread 의 과거 메시지 조회
 - add_chat_message({threadId, body}): chat 에 답변 작성 (마크다운 지원)
-- read_attachment_text({issueKey 또는 threadId, fileId, offset?, limit?}): 첨부의 추출 텍스트를 구간 단위로 읽기 (nextOffset 으로 이어 읽기)
+- read_attachment_text({threadId, fileId, offset?, limit?}): 첨부의 추출 텍스트를 구간 단위로 읽기 (nextOffset 으로 이어 읽기)
 - Read: 프롬프트 첨부 섹션에 로컬경로가 주어진 첨부만 직접 읽기 (이미지·PDF)
 - get_issue_detail({issueKey}): 코멘트·이력 등 추가 정보가 필요할 때만. 단, 프로젝트 멤버가 아닌 경우 접근이 막힐 수 있으니 1차로 의존하지 마세요.
 

@@ -107,11 +107,38 @@ public class IssueAttachmentService {
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    return listByIssueId(issue.id());
+  }
+
+  /**
+   * issueId 로 첨부 목록(추출 상태 포함). <b>권한 판정을 하지 않는다</b> — 호출자가 이미 열람 권한을 확인했어야 한다(WP-244: 이슈 챗 스레드 경유
+   * 조회는 chat 모듈이 스레드 열람 가드로 판정한 뒤 부른다).
+   */
+  @Transactional(readOnly = true)
+  public List<IssueAttachmentResponse> listByIssueId(long issueId) {
     // 첨부별 추출 상태를 한 번에 붙인다(WP-242). 행이 없으면 NONE(배포 전 첨부).
     return extractedText.attach(
-        repo.findByIssue(issue.id()),
+        repo.findByIssue(issueId),
         IssueAttachmentResponse::fileId,
         IssueAttachmentResponse::withExtraction);
+  }
+
+  /** fileId 가 이 이슈의 첨부인지. 권한 판정 없음 — {@link #listByIssueId} 와 같은 전제(WP-244). */
+  @Transactional(readOnly = true)
+  public boolean isAttachedToIssue(long issueId, long fileId) {
+    return repo.findById(fileId).map(a -> Long.valueOf(issueId).equals(a.issueId())).orElse(false);
+  }
+
+  /**
+   * issueId 기준 다운로드. 권한 판정 없음 — {@link #listByIssueId} 와 같은 전제(WP-244). 다른 이슈의 fileId·없는 fileId 는
+   * 404 로 통일(정보 누출 방지).
+   */
+  @Transactional(readOnly = true)
+  public IssueAttachmentStorage.StoredFile downloadByIssueId(long issueId, Long fileId) {
+    if (!isAttachedToIssue(issueId, fileId)) {
+      throw new AttachmentNotFoundException(fileId);
+    }
+    return storage.load(fileId);
   }
 
   /**
@@ -126,12 +153,8 @@ public class IssueAttachmentService {
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
-    var att = repo.findById(fileId).orElseThrow(() -> new AttachmentNotFoundException(fileId));
-    if (!att.issueId().equals(issue.id())) {
-      // 다른 이슈의 첨부 ID로 요청 — 정보 누출 방지를 위해 404 로 통일.
-      throw new AttachmentNotFoundException(fileId);
-    }
-    return storage.load(fileId);
+    // 다른 이슈의 첨부 ID로 요청하면 정보 누출 방지를 위해 404 로 통일한다.
+    return downloadByIssueId(issue.id(), fileId);
   }
 
   /**

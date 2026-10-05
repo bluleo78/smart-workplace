@@ -143,7 +143,7 @@ export async function runChatAgent(
       // 이슈 첨부 목록은 메시지 조회와 병렬로 1회만 받는다(대기 루프에서는 메시지만 다시 받음).
       const [firstRecent, issue] = await Promise.all([
         deps.client.getChatMessages(agentId, p.threadId, THREAD_PREFETCH),
-        fetchIssueAttachments(deps.client, agentId, p.issueKey),
+        fetchIssueAttachments(deps.client, agentId, p.threadId),
       ]);
       // WP-244: 공통 첨부 목록(이슈+챗) → 러너별 표현. Claude 만 이미지·PDF 원본을 workDir 에 받는다.
       // 트리거 메시지 첨부가 추출 중이면 잠시 기다려 상태를 갱신한다.

@@ -75,7 +75,8 @@ beforeEach(() => {
 describe('runChatAgent', () => {
   it('mentions AGENT → 토큰 fetch + 첨부 준비 + SDK spawn(allowFileRead, cwd, mcp, partial=false)', async () => {
     await runChatAgent(env, deps());
-    expect(fetchIssueAttachments).toHaveBeenCalledWith(expect.anything(), 99, 'WP-1');
+    // 이슈 첨부는 스레드 경유로 조회한다(WP-244 — 비멤버 에이전트의 이슈 첨부 API 403 회피).
+    expect(fetchIssueAttachments).toHaveBeenCalledWith(expect.anything(), 99, 5);
     expect(mergeAttachments).toHaveBeenCalledWith({ attachments: [], failed: false }, 5, []);
     expect(presentAttachments).toHaveBeenCalledWith('anthropic', NONE, expect.objectContaining({ agentId: 99 }));
     expect(streamSpy).toHaveBeenCalledOnce();

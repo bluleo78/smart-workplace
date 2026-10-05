@@ -8,7 +8,7 @@ import { NO_EXTRACTION, type AgentAttachment } from './attachment-source.js';
 import type { ExtractionInfo, WorkplaceApiClient } from '../clients/workplace-api.js';
 
 const deps = { client: {} as WorkplaceApiClient, agentId: 99, workDir: '/tmp/w' };
-const ISSUE = { kind: 'issue' as const, issueKey: 'WP-1' };
+const ISSUE = { kind: 'issue' as const, threadId: 5 };
 const CHAT = { kind: 'chat' as const, threadId: 5, messageId: 9 };
 const ready = (n: number, truncated = false): ExtractionInfo => ({ status: 'READY', totalChars: n, truncated, reasonCode: null, reason: null });
 const status = (s: ExtractionInfo['status'], reason: string | null = null): ExtractionInfo => ({ status: s, totalChars: null, truncated: false, reasonCode: null, reason });
@@ -41,7 +41,7 @@ describe('presentAttachments', () => {
     expect(vi.mocked(downloadAttachments).mock.calls[0][2].map((x) => x.fileId)).toEqual([1, 2]);
     expect(p.section).toContain('/tmp/w/1-shot.png');
     expect(p.section).toContain('/tmp/w/2-spec.pdf');
-    expect(p.section).toContain('read_attachment_text({issueKey:"WP-1", fileId:2})');
+    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:2})');
     expect(p.section).toContain('read_attachment_text({threadId:5, fileId:3})');
     expect(p.section).toContain('[챗 첨부] memo.docx');
     expect(p.guidance).toContain('Read');
@@ -52,7 +52,7 @@ describe('presentAttachments', () => {
     const p = await presentAttachments('opencode', ok(list), deps);
     expect(downloadAttachments).not.toHaveBeenCalled();
     expect(p.section).toContain('이미지를 볼 수 없');
-    expect(p.section).toContain('read_attachment_text({issueKey:"WP-1", fileId:2})');
+    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:2})');
     expect(p.section).not.toContain('로컬경로');
     expect(p.guidance).not.toContain('Read');
   });
@@ -81,6 +81,14 @@ describe('presentAttachments', () => {
     }
   });
 
+  // WP-244: 이슈 첨부도 스레드 경유로 읽는다 — 프롬프트가 issueKey 에 기대지 않는다(비멤버 에이전트의 이슈 첨부 API 403 회피).
+  it('이슈 첨부도 [이슈 첨부] 라벨에 threadId 도구 호출로 안내한다', async () => {
+    const p = await presentAttachments('opencode', ok([a(7, 'spec.docx', 'application/msword', ready(5))]), deps);
+    expect(p.section).toContain('- [이슈 첨부] spec.docx');
+    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:7})');
+    expect(p.section).not.toContain('issueKey');
+  });
+
   it('READY + 잘림 → 잘림 표기', async () => {
     const p = await presentAttachments('opencode', ok([a(3, 'x.txt', 'text/plain', ready(500000, true))]), deps);
     expect(p.section).toContain('잘림');
@@ -90,7 +98,7 @@ describe('presentAttachments', () => {
     vi.mocked(downloadAttachments).mockResolvedValue(new Map([[2, { skipReason: '파일당 상한(10MB) 초과' }]]));
     const p = await presentAttachments('anthropic', ok([a(2, 'big.pdf', 'application/pdf', ready(9))]), deps);
     expect(p.section).toContain('파일당 상한(10MB) 초과');
-    expect(p.section).toContain('read_attachment_text({issueKey:"WP-1", fileId:2})');
+    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:2})');
   });
 
   it('이슈 목록 실패 + 다른 첨부 없음 → "첨부 없음" 대신 단정 금지 줄', async () => {
@@ -119,7 +127,7 @@ describe('presentAttachments', () => {
   it('READY 인데 totalChars null → 글자 수 생략, truncated null 은 잘림 아님', async () => {
     const ex: ExtractionInfo = { status: 'READY', totalChars: null, truncated: null, reasonCode: null, reason: null };
     const p = await presentAttachments('opencode', ok([a(3, 'x.txt', 'text/plain', ex)]), deps);
-    expect(p.section).toContain('read_attachment_text({issueKey:"WP-1", fileId:3})');
+    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:3})');
     expect(p.section).not.toContain('약 ');
     expect(p.section).not.toContain('잘림');
   });
@@ -140,7 +148,7 @@ describe('presentAttachments', () => {
   it('Claude: txt READY 면 로컬경로와 텍스트 도구 줄을 모두 보여 준다', async () => {
     const p = await presentAttachments('anthropic', ok([a(4, 'n.txt', 'text/plain', ready(50))]), deps);
     expect(p.section).toContain('로컬경로: /tmp/w/4-n.txt');
-    expect(p.section).toContain('read_attachment_text({issueKey:"WP-1", fileId:4})');
+    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:4})');
   });
 
   it('Claude: json(application/json)도 텍스트로 받고, docx 는 받지 않는다', async () => {

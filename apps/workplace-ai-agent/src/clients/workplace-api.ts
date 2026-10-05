@@ -192,14 +192,13 @@ export interface WorkplaceApiClient {
   ): Promise<void>;
   // L3 위임: 위임자(delegatorId)가 참여 중인 프로젝트 목록 — AI 가 이슈 라우팅 projectKey 를 고를 소스.
   listDelegationCandidates(agentId: number, delegatorId: number): Promise<{ key: string; name: string }[]>;
-  // 6c: 이슈 첨부
-  listIssueAttachments(agentId: number, issueKey: string): Promise<AttachmentMeta[]>;
-  downloadIssueAttachment(
-    agentId: number,
-    issueKey: string,
-    fileId: number,
-  ): Promise<{ data: Buffer; mimeType: string }>;
+  // WP-244: 이슈 챗 스레드 경유 이슈 첨부 — 멘션된 AGENT 는 프로젝트 멤버가 아니라 이슈 첨부 API 가 403 이므로
+  // 스레드 열람 권한으로 그 스레드가 딸린 이슈의 첨부 목록(추출 상태 포함)·원본을 받는다.
+  listThreadIssueAttachments(agentId: number, threadId: number): Promise<AttachmentMeta[]>;
+  downloadThreadIssueAttachment(agentId: number, threadId: number, fileId: number): Promise<{ data: Buffer; mimeType: string }>;
   // WP-244: 첨부 추출 텍스트 구간 읽기(offset·limit 생략 시 서버 기본 0·32000) + 챗 첨부 원본 다운로드(Claude 로컬 Read 용).
+  // readChatAttachmentText 는 스레드의 챗 첨부와 스레드가 딸린 이슈의 첨부를 모두 받는다. readIssueAttachmentText 는
+  // read_attachment_text 도구의 issueKey 인자(하위 호환) 전용.
   readIssueAttachmentText(agentId: number, issueKey: string, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
   readChatAttachmentText(agentId: number, threadId: number, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
   downloadChatAttachment(agentId: number, threadId: number, messageId: number, fileId: number): Promise<{ data: Buffer; mimeType: string }>;
@@ -376,12 +375,8 @@ export function createWorkplaceApiClient(opts: {
 
 
 
-    async listIssueAttachments(agentId, issueKey) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      const r = await http.get(
-        `/projects/${projectKey}/issues/${number}/attachments`,
-        onBehalfOf(agentId),
-      );
+    async listThreadIssueAttachments(agentId, threadId) {
+      const r = await http.get(`/chat/threads/${threadId}/issue-attachments`, onBehalfOf(agentId));
       const list: AttachmentMeta[] = Array.isArray(r.data) ? r.data : [];
       return list;
     },
@@ -422,12 +417,11 @@ export function createWorkplaceApiClient(opts: {
       await http.patch(`/drive/files/${fileId}/move`, { targetFolderId: targetFolderId ?? null }, onBehalfOf(agentId));
     },
 
-    async downloadIssueAttachment(agentId, issueKey, fileId) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      const r = await http.get(
-        `/projects/${projectKey}/issues/${number}/attachments/${fileId}/content`,
-        { ...onBehalfOf(agentId), responseType: 'arraybuffer' },
-      );
+    async downloadThreadIssueAttachment(agentId, threadId, fileId) {
+      const r = await http.get(`/chat/threads/${threadId}/issue-attachments/${fileId}/content`, {
+        ...onBehalfOf(agentId),
+        responseType: 'arraybuffer',
+      });
       const mimeType = String(r.headers['content-type'] ?? 'application/octet-stream');
       return { data: Buffer.from(r.data as ArrayBuffer), mimeType };
     },

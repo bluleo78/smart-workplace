@@ -45,6 +45,9 @@ public class ChatMessageAttachmentService {
   /** 추출 텍스트 구간 읽기(WP-242). */
   private final ExtractedTextService extractedText;
 
+  /** 스레드가 딸린 이슈의 첨부 판정(WP-244) — 텍스트 읽기 경로가 이슈 첨부도 받게 한다. */
+  private final ChatIssueAttachmentService issueAttachments;
+
   /** 파일 1개당 최대 크기(바이트). 기본 25MB. */
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
@@ -60,7 +63,8 @@ public class ChatMessageAttachmentService {
       FileStore fileStore,
       ChatThreadAccess threadAccess,
       ApplicationEventPublisher eventPublisher,
-      ExtractedTextService extractedText) {
+      ExtractedTextService extractedText,
+      ChatIssueAttachmentService issueAttachments) {
     this.storage = storage;
     this.repo = repo;
     this.messageRepo = messageRepo;
@@ -68,6 +72,7 @@ public class ChatMessageAttachmentService {
     this.threadAccess = threadAccess;
     this.eventPublisher = eventPublisher;
     this.extractedText = extractedText;
+    this.issueAttachments = issueAttachments;
   }
 
   /**
@@ -164,12 +169,19 @@ public class ChatMessageAttachmentService {
         row.sizeBytes());
   }
 
-  /** 첨부 추출 텍스트 구간 읽기(WP-242). 스레드 열람 권한(기존 가드, 없으면 403) + fileId 가 이 스레드 첨부인지(아니면 404). */
+  /**
+   * 첨부 추출 텍스트 구간 읽기(WP-242). 스레드 열람 권한(기존 가드, 없으면 403) + fileId 가 이 스레드의 챗 첨부이거나 스레드가 딸린 이슈의 첨부인지(둘
+   * 다 아니면 404).
+   *
+   * <p>WP-244: 이슈 첨부도 같은 경로로 받는다 — 이슈 챗 AI(역할·프로젝트 멤버십 없는 AGENT)가 이슈 첨부 API 대신 스레드 권한으로 읽고, 도구 인자가
+   * 챗·이슈 첨부 모두 {@code {threadId, fileId}} 한 가지로 같아진다.
+   */
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(
       long callerId, long threadId, long fileId, int offset, int limit) {
     threadAccess.ensureCanRead(threadId, callerId);
-    if (!repo.isAttachedToThread(fileId, threadId)) {
+    if (!repo.isAttachedToThread(fileId, threadId)
+        && !issueAttachments.isIssueAttachment(threadId, fileId)) {
       throw new ChatAttachmentNotFoundException(fileId);
     }
     return extractedText.read(fileId, offset, limit);

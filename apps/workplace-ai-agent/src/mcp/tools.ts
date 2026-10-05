@@ -37,6 +37,7 @@ const getChatThreadInput = z.object({
 // 선택 인자는 nullish — 모델이 안 쓰는 인자를 null 로 채워 보내는 경우가 있어 null 도 "미지정" 으로 받는다.
 const readAttachmentTextInput = z.object({
   fileId: z.number().int().positive(),
+  // WP-244: 이슈 챗 프롬프트는 이슈·챗 첨부 모두 threadId 로 안내한다(스레드 경유 읽기). issueKey 는 하위 호환용으로만 남긴다.
   issueKey: z.string().min(1).nullish(),
   threadId: z.number().int().positive().nullish(),
   offset: z.number().int().min(0).nullish(),
@@ -406,16 +407,17 @@ export function buildTools(
       {
         name: 'read_attachment_text',
         description:
-          '첨부파일의 추출 텍스트를 구간 단위로 읽습니다. 프롬프트 첨부 섹션에 적힌 그대로 호출하세요 — 이슈 첨부는 issueKey, 챗 첨부는 threadId 와 fileId. ' +
+          '첨부파일의 추출 텍스트를 구간 단위로 읽습니다. 프롬프트 첨부 섹션에 적힌 그대로 threadId 와 fileId 로 호출하세요(이슈 첨부·챗 첨부 공통). ' +
           `limit 생략 시 ${READ_ATTACHMENT_DEFAULT_LIMIT}자(최대 32000). 필요한 만큼만 읽고, 결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽습니다. ` +
           'status 가 READY 가 아니면 text 없이 상태·사유만 옵니다.',
         inputSchema: readAttachmentTextInput,
         async handler(args) {
           const parsed = readAttachmentTextInput.parse(args);
-          // 이슈 첨부/챗 첨부는 조회 경로가 달라 정확히 하나만 허용 — API 호출 전에 차단한다(null 은 미지정과 같게).
+          // threadId(이슈·챗 첨부 공통, 스레드 경유)와 issueKey(하위 호환, 이슈 첨부 API)는 조회 경로가 달라 정확히 하나만
+          // 허용 — API 호출 전에 차단한다(null 은 미지정과 같게).
           const { issueKey: key, threadId, fileId } = parsed;
           if ((key == null) === (threadId == null)) {
-            throw new Error('issueKey(이슈 첨부) 또는 threadId(챗 첨부) 중 정확히 하나를 지정하세요');
+            throw new Error('threadId(이슈·챗 첨부 공통) 또는 issueKey 중 정확히 하나를 지정하세요');
           }
           const offset = parsed.offset ?? undefined;
           const limit = parsed.limit ?? READ_ATTACHMENT_DEFAULT_LIMIT;
