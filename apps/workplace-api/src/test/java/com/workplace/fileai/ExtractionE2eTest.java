@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKER_JOB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
@@ -118,7 +119,9 @@ class ExtractionE2eTest extends IntegrationTestBase {
    */
   @Test
   void uploadToDone_endToEnd() throws Exception {
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
     var mockSummary = "테스트 요약문";
     mockAiSummarize(mockSummary);
 
@@ -148,7 +151,9 @@ class ExtractionE2eTest extends IntegrationTestBase {
    */
   @Test
   void concurrentSummarize_callsAiOnce() throws Exception {
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
     AtomicInteger callCount = new AtomicInteger(0);
     // ai-agent 호출 횟수를 세면서 정상 응답 반환 (doAnswer 로 실제 메서드 호출 없이 stub 교체)
     org.mockito.Mockito.doAnswer(
@@ -214,7 +219,9 @@ class ExtractionE2eTest extends IntegrationTestBase {
    */
   @Test
   void summaryFailure_staysTextReady_thenResumes() {
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
 
     long fileId = createTextReadyFile(1L);
 
@@ -245,7 +252,9 @@ class ExtractionE2eTest extends IntegrationTestBase {
    */
   @Test
   void poisonFile_reachesMaxAttempts_thenFailed() {
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
     doThrow(new RuntimeException("영구 ai-agent 오류")).when(aiAgentDriveClient).summarize(any());
 
     long fileId = createTextReadyFile(1L);
@@ -290,7 +299,9 @@ class ExtractionE2eTest extends IntegrationTestBase {
    */
   @Test
   void stuckSummarizing_leasedUntilPast_isReclaimed() {
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
     mockAiSummarize("복구 요약");
 
     // SUMMARIZING + leased_until=과거 행을 직접 삽입해 프로세스 크래시 상황을 시뮬레이션

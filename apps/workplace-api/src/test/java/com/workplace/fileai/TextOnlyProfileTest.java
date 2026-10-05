@@ -5,6 +5,8 @@ import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -139,6 +141,22 @@ class TextOnlyProfileTest extends IntegrationTestBase {
     assertThat(inTenant(() -> jobs.claimForSummary(expiredSummarizing))).isFalse();
   }
 
+  /** 페이지 표식은 첨부(TEXT_ONLY) 추출에만 요청한다 — 드라이브 검색 오염 방지(WP-242). */
+  @Test
+  void TEXT_ONLY_디스패치는_pageMarkers_true_로_워커를_부른다() {
+    long fileId = seedPending("TEXT_ONLY");
+    inTenantRun(() -> pipeline.dispatchPending(fileId));
+    verify(workerClient).dispatchExtract(anyLong(), any(), any(), anyLong(), eq(true));
+  }
+
+  /** 드라이브(FULL)는 표식 없이(false) 디스패치한다. */
+  @Test
+  void FULL_디스패치는_pageMarkers_false_로_워커를_부른다() {
+    long fileId = seedPending("FULL");
+    inTenantRun(() -> pipeline.dispatchPending(fileId));
+    verify(workerClient).dispatchExtract(anyLong(), any(), any(), anyLong(), eq(false));
+  }
+
   // ── 헬퍼 ──────────────────────────────────────────────
 
   /** 사용자 + file + EXTRACTING 추출 행을 만든다(지정 프로파일). */
@@ -149,6 +167,20 @@ class TextOnlyProfileTest extends IntegrationTestBase {
             dsl.insertInto(FILE_EXTRACTION)
                 .set(FILE_EXTRACTION.FILE_ID, fileId)
                 .set(FILE_EXTRACTION.STATUS, "EXTRACTING")
+                .set(FILE_EXTRACTION.PROFILE, profile)
+                .set(FILE_EXTRACTION.TENANT_ID, TENANT)
+                .execute());
+    return fileId;
+  }
+
+  /** 사용자 + file + PENDING 추출 행을 만든다(디스패치 대상, 지정 프로파일). */
+  private long seedPending(String profile) {
+    long fileId = seedFile("application/pdf");
+    inTenantRun(
+        () ->
+            dsl.insertInto(FILE_EXTRACTION)
+                .set(FILE_EXTRACTION.FILE_ID, fileId)
+                .set(FILE_EXTRACTION.STATUS, "PENDING")
                 .set(FILE_EXTRACTION.PROFILE, profile)
                 .set(FILE_EXTRACTION.TENANT_ID, TENANT)
                 .execute());

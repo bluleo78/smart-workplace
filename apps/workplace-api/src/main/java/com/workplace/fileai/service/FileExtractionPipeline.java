@@ -144,7 +144,11 @@ public class FileExtractionPipeline {
 
     // 파일 메타 조회(storageKey, mime, tenantId)
     var meta =
-        dsl.select(FILE.STORAGE_PATH, FILE.MIME_TYPE, FILE_EXTRACTION.TENANT_ID)
+        dsl.select(
+                FILE.STORAGE_PATH,
+                FILE.MIME_TYPE,
+                FILE_EXTRACTION.TENANT_ID,
+                FILE_EXTRACTION.PROFILE)
             .from(FILE)
             .join(FILE_EXTRACTION)
             .on(FILE_EXTRACTION.FILE_ID.eq(FILE.ID))
@@ -159,6 +163,8 @@ public class FileExtractionPipeline {
     String storageKey = meta.get(FILE.STORAGE_PATH);
     String mime = meta.get(FILE.MIME_TYPE);
     long tenantId = meta.get(FILE_EXTRACTION.TENANT_ID);
+    // WP-242: [페이지 N] 표식은 첨부(TEXT_ONLY)에만 — 드라이브(FULL) 검색·요약·임베딩 오염 방지.
+    final boolean capturedPageMarkers = "TEXT_ONLY".equals(meta.get(FILE_EXTRACTION.PROFILE));
 
     // worker_job 생성 (params: {fileId, storageKey, mime} — Jackson 직렬화)
     long jobId = jobs.createExtractJob(tenantId, fileId, storageKey, mime);
@@ -176,7 +182,11 @@ public class FileExtractionPipeline {
             try {
               // tenantId 를 페이로드에 포함해 워커가 콜백 시 에코하도록 한다(콜백 컨트롤러가 TenantContext 복원).
               worker.dispatchExtract(
-                  capturedJobId, capturedStorageKey, capturedMime, capturedTenantId);
+                  capturedJobId,
+                  capturedStorageKey,
+                  capturedMime,
+                  capturedTenantId,
+                  capturedPageMarkers);
             } catch (RuntimeException ex) {
               // 워커 도달 불가 — 추출 claim 을 해제(EXTRACTING→PENDING)해 다음 스케줄러 틱에 조용히 재개한다.
               // 연결 실패는 FAILED 아님(FAILED 는 워커 실 처리 후 오류용). lease 만료(10분) 대기를 회피한다.

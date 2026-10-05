@@ -38,14 +38,15 @@ class WorkerClientTest {
             new WorkerProperties.Embed("BAAI/bge-m3", 1024, 8000, true));
     var client = new WorkerClient(props);
 
-    client.dispatchExtract(10L, "uploads/file.pdf", "application/pdf", 3L);
+    client.dispatchExtract(10L, "uploads/file.pdf", "application/pdf", 3L, true);
 
     server.stop(0);
     assertThat(captured.get())
         .contains("\"jobId\":10")
         .contains("\"storageKey\":\"uploads/file.pdf\"")
         .contains("\"mime\":\"application/pdf\"")
-        .contains("\"tenantId\":3");
+        .contains("\"tenantId\":3")
+        .contains("\"pageMarkers\":true");
   }
 
   /** dispatchEmbed 가 /tasks/embed 에 jobId·text·tenantId 를 포함한 본문을 POST 하는지 검증한다. */

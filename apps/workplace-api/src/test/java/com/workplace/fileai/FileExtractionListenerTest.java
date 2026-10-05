@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -73,7 +74,9 @@ class FileExtractionListenerTest extends IntegrationTestBase {
   void textFile_createsPendingRow() {
     // text/plain(추출 가능 mime) 이벤트 → 발행 트랜잭션에서 PENDING 행 생성, 커밋 후 AFTER_COMMIT 이
     // dispatchPending 으로 PENDING→EXTRACTING CAS 전이시킨다
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
     long fileId = createFileInTenant(1L, "text/plain");
     publishInTenant(
         1L, new FileExtractionRequestedEvent(fileId, 1L, "text/plain", ExtractionProfile.FULL));
@@ -93,7 +96,9 @@ class FileExtractionListenerTest extends IntegrationTestBase {
 
   @Test
   void 프로파일이_행에_기록된다() {
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
     long fileId = createFileInTenant(1L, "application/pdf");
     publishInTenant(
         1L,

@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doNothing;
 
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
@@ -66,7 +67,9 @@ class ExtractionCoverageTest extends IntegrationTestBase {
   @Test
   void htmlFile_isPending() {
     // #735 진범 — text/html 은 카테고리 매핑이 없어도(또는 TEXT 로 매핑돼도) mime 축 판정으로 추출 가능해야 한다.
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
     long fileId = createFileInTenant(1L, "text/html");
     publishInTenant(
         1L, new FileExtractionRequestedEvent(fileId, 1L, "text/html", ExtractionProfile.FULL));

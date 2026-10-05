@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKER_JOB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doNothing;
@@ -129,7 +130,9 @@ class ExtractionPipelineTest extends IntegrationTestBase {
    */
   @Test
   void dispatch_thenCallback_setsTextReady() throws Exception {
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
 
     long fileId = createPendingFile(1L);
 
@@ -144,7 +147,8 @@ class ExtractionPipelineTest extends IntegrationTestBase {
 
     assertThat(readStatus(1L, fileId)).isEqualTo("EXTRACTING");
     long jobId = latestJobId(1L, fileId);
-    verify(workerClient, atLeastOnce()).dispatchExtract(eq(jobId), any(), any(), any(Long.class));
+    verify(workerClient, atLeastOnce())
+        .dispatchExtract(eq(jobId), any(), any(), any(Long.class), anyBoolean());
 
     // 콜백: worker→api POST /internal/worker/jobs/{jobId}/result
     mockMvc
@@ -164,7 +168,9 @@ class ExtractionPipelineTest extends IntegrationTestBase {
   /** 스테일 콜백: DONE 콜백 → TEXT_READY 전이 후 두 번째 DONE 콜백은 무시(이미 TEXT_READY). */
   @Test
   void staleCallback_isIgnored() throws Exception {
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
 
     long fileId = createPendingFile(1L);
     TenantContext.set(1L);
@@ -204,7 +210,9 @@ class ExtractionPipelineTest extends IntegrationTestBase {
   /** 동시 2회 dispatchPending → CAS 로 worker_job 이 1개만 생성됨(이중 잡 방지). */
   @Test
   void concurrentDispatch_createsSingleJob() throws Exception {
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
 
     long fileId = createPendingFile(1L);
 
@@ -249,13 +257,16 @@ class ExtractionPipelineTest extends IntegrationTestBase {
     assertThat(jobCount).isEqualTo(1);
 
     // WorkerClient 도 1회만 호출됨
-    verify(workerClient, times(1)).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    verify(workerClient, times(1))
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
   }
 
   /** 잘못된 토큰으로 콜백 → 401. */
   @Test
   void callback_withWrongToken_isRejected() throws Exception {
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
 
     long fileId = createPendingFile(1L);
     TenantContext.set(1L);
@@ -285,7 +296,9 @@ class ExtractionPipelineTest extends IntegrationTestBase {
    */
   @Test
   void callback_withTenantId_setsTextReadyInCorrectTenant() throws Exception {
-    doNothing().when(workerClient).dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
 
     // 동적 신규 테넌트에 파일 생성 및 EXTRACTING 전이
     long fileId = createPendingFileForTenant2();
@@ -329,7 +342,7 @@ class ExtractionPipelineTest extends IntegrationTestBase {
   void dispatch_workerUnreachable_revertsToPending_notFailed() {
     doThrow(new RestClientException("connection refused"))
         .when(workerClient)
-        .dispatchExtract(any(Long.class), any(), any(), any(Long.class));
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
 
     long fileId = createPendingFile(1L);
 

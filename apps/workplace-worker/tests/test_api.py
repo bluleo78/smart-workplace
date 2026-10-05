@@ -49,3 +49,19 @@ def test_extract_endpoint_requires_auth(monkeypatch, tmp_path):
     r = c.post("/tasks/extract", headers={"Authorization": "Internal secret"},
                json={"jobId": 1, "storageKey": "a", "mime": "text/plain", "tenantId": 1})
     assert r.status_code == 202
+
+
+def test_run_extract_passes_page_markers(monkeypatch, tmp_path):
+    """ExtractTask.pageMarkers 가 extract_text(page_markers=) 로 전달되고, 생략 시 False(구버전 API 호환)다."""
+    monkeypatch.setenv("WORKER_BLOB_BASE", str(tmp_path))
+    monkeypatch.setenv("WORKPLACE_API_BASE_URL", "http://api")
+    monkeypatch.setenv("INTERNAL_SERVICE_TOKEN", "secret")
+    monkeypatch.setattr("app.callback.post_result", lambda *a, **kw: None)
+    (tmp_path / "a.txt").write_text("hi")
+    from app import config, main
+    monkeypatch.setattr(config, "BLOB_BASE", str(tmp_path))  # config 는 import 시점 고정이라 직접 패치
+    seen = []
+    monkeypatch.setattr(main, "extract_text", lambda data, mime, max_chars, page_markers=False: seen.append(page_markers) or {"text": "x"})
+    main._run_extract(main.ExtractTask(jobId=1, storageKey="a.txt", mime="text/plain", tenantId=1, pageMarkers=True))
+    main._run_extract(main.ExtractTask(jobId=1, storageKey="a.txt", mime="text/plain", tenantId=1))
+    assert seen == [True, False]

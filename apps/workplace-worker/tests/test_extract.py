@@ -132,11 +132,18 @@ def _make_pdf(pages: list[str]) -> bytes:
 
 def test_pdf_page_markers():
     """2페이지부터 [페이지 N] 표식으로 페이지 경계를 남긴다(WP-242 — 출처 인용·후속 페이지 이미지 보기 기준)."""
-    r = extract_text(_make_pdf(["first", "second", "third"]), "application/pdf", max_chars=10_000)
+    r = extract_text(_make_pdf(["first", "second", "third"]), "application/pdf", max_chars=10_000, page_markers=True)
     assert r["text"] == "first\n\n[페이지 2]\n\nsecond\n\n[페이지 3]\n\nthird"
+
+
+def test_pdf_without_markers_joins_pages():
+    """page_markers 기본값(False, 드라이브 FULL) 은 표식 없이 페이지를 \n 으로만 잇는다 — 드라이브 검색 오염 방지."""
+    r = extract_text(_make_pdf(["first", "second", "third"]), "application/pdf", max_chars=10_000)
+    assert r["text"] == "first\nsecond\nthird"
 
 
 def test_pdf_without_text_is_empty():
     """텍스트 레이어가 없는(스캔) PDF 는 표식만 남기지 않고 빈 문자열 — 워커가 SKIPPED/empty 로 보고해야 한다."""
-    r = extract_text(_make_pdf(["", ""]), "application/pdf", max_chars=10_000)
-    assert r["text"] == ""
+    for markers in (False, True):
+        r = extract_text(_make_pdf(["", ""]), "application/pdf", max_chars=10_000, page_markers=markers)
+        assert r["text"] == ""

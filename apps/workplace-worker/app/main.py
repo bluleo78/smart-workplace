@@ -18,6 +18,7 @@ class ExtractTask(BaseModel):
     storageKey: str
     mime: str
     tenantId: int  # C1: api 가 전달한 테넌트 ID — 워커는 해석하지 않고 콜백 시 그대로 에코
+    pageMarkers: bool = False  # WP-242: 첨부(TEXT_ONLY)만 true. 구버전 api 호환 기본 false
 
 
 @app.post("/tasks/extract", status_code=202, dependencies=[Depends(require_internal)])
@@ -69,7 +70,7 @@ def _run_extract(t: ExtractTask) -> None:
         if size > config.MAX_BYTES:
             callback.post_result(t.jobId, {**base_payload, "status": "SKIPPED", "error": "oversize"})
             return
-        r = extract_text(path.read_bytes(), t.mime, config.MAX_CHARS)
+        r = extract_text(path.read_bytes(), t.mime, config.MAX_CHARS, page_markers=t.pageMarkers)
         if not r["text"]:
             callback.post_result(t.jobId, {**base_payload, "status": "SKIPPED", "error": "empty"})
             return

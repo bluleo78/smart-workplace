@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WORKER_JOB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -72,7 +73,7 @@ class ExtractionGateTest extends IntegrationTestBase {
 
     assertThat(readStatus(fileId)).isEqualTo("PENDING");
     assertThat(extractJobCount(fileId)).isZero();
-    verify(workerClient, never()).dispatchExtract(anyLong(), any(), any(), anyLong());
+    verify(workerClient, never()).dispatchExtract(anyLong(), any(), any(), anyLong(), anyBoolean());
   }
 
   private String readStatus(long fileId) {

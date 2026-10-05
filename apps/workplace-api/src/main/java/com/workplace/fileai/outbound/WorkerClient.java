@@ -38,9 +38,12 @@ public class WorkerClient {
    * @param storageKey 파일 스토리지 경로(file.storage_path)
    * @param mime MIME 타입 (워커 파서 분기용)
    * @param tenantId 테넌트 ID — 워커가 콜백 페이로드에 그대로 에코(round-trip). 콜백 수신 측이 TenantContext 복원에 사용.
+   * @param pageMarkers PDF 추출 텍스트에 [페이지 N] 표식을 넣을지. WP-242: 표식은 첨부(TEXT_ONLY) 전용 — 드라이브(FULL)에 넣으면
+   *     내용 검색·스니펫·요약·임베딩에 "페이지" 가 섞여 오염되므로 false.
    */
-  public void dispatchExtract(long jobId, String storageKey, String mime, long tenantId) {
-    post("/tasks/extract", new ExtractTask(jobId, storageKey, mime, tenantId));
+  public void dispatchExtract(
+      long jobId, String storageKey, String mime, long tenantId, boolean pageMarkers) {
+    post("/tasks/extract", new ExtractTask(jobId, storageKey, mime, tenantId, pageMarkers));
   }
 
   /**
@@ -83,7 +86,8 @@ public class WorkerClient {
    *
    * <p>tenantId 는 워커가 해석하지 않고 콜백 페이로드에 그대로 에코한다. 콜백 컨트롤러가 RLS GUC 복원에 사용.
    */
-  public record ExtractTask(long jobId, String storageKey, String mime, long tenantId) {}
+  public record ExtractTask(
+      long jobId, String storageKey, String mime, long tenantId, boolean pageMarkers) {}
 
   /**
    * 워커 /tasks/embed 요청 본문(zod/pydantic 와 1:1).
