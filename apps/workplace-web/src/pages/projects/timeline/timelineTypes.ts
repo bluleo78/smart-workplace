@@ -41,8 +41,11 @@ export interface TimelineEpicGroup {
   title: string;
   done: number;
   total: number;
-  /** 하위 막대 min-start~max-due 롤업(#662, no-epic 포함). 막대가 없으면 null — 그리드 컬럼용. 간트 영역의 막대 표시 여부는 이 값과 무관(no-epic 은 group id 기준 CSS 로 항상 숨김). */
+  /** 에픽 막대 범위 — 에픽 자체 기간 우선, 없으면 하위 막대 min-start~max-due 롤업(#662·WP-248, no-epic 은 롤업). 둘 다 없으면 null. 간트 영역의 막대 표시 여부는 이 값과 무관(no-epic 은 group id 기준 CSS 로 항상 숨김). */
   range: { start: string; due: string } | null;
+  /** 하위 막대 롤업 — range 가 에픽 자체 기간일 때만 값이 있고, 에픽 막대 아래 얇은 막대(실제 범위·초과 구간)로 그린다(WP-249).
+      range 가 이미 하위 롤업이거나 날짜 있는 하위가 없으면 null. */
+  rollup: { start: string; due: string } | null;
   bars: TimelineBar[];
   /** 날짜(마감일) 없는 하위 이슈 — 에픽 아래 행으로 표시(간트 막대 없음, 시작일/기간 "미정").
       "일정 미정" 섹션 대신 소속 에픽 아래에 노출한다(중복 없음). no-epic 그룹은 항상 빈 배열. */

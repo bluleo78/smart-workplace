@@ -16,6 +16,7 @@ import { Diamond } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useRef } from 'react'
 
+import { rollupOverlay } from './timelineData'
 import type {
   TimelineCycleBand,
   TimelineDependencyEdge,
@@ -157,6 +158,16 @@ export function TimelineGantt({
 
   // 그룹(에픽)의 하위 이슈 막대를 평탄화 — 색상 주입 이펙트/의존성 필터링용(#649, groups.flatMap 반복 방지).
   const bars = useMemo(() => groups.flatMap((g) => g.bars), [groups])
+
+  // 에픽 막대 아래 얇은 막대(하위 실제 범위, WP-249) — 에픽 요약 막대에 주입할 CSS 변수 값(%)을 미리 계산한다.
+  // rollup 은 range 가 에픽 자체 기간일 때만 있으므로 range 도 항상 있다(막대 없는 '-nobar' 요약은 대상 아님).
+  const rollupOverlays = useMemo(
+    () =>
+      groups.flatMap((g) =>
+        g.range && g.rollup ? [{ taskId: groupTaskId(g.key), ...rollupOverlay(g.range, g.rollup) }] : [],
+      ),
+    [groups],
+  )
 
   const tasks = useMemo<ITask[]>(() => {
     // SVAR 는 bar 엘리먼트에 task 필드 기반 커스텀 className 주입 API 가 없음(고정 `wx-bar wx-${type}`,
@@ -394,6 +405,20 @@ export function TimelineGantt({
         el.style.setProperty('--wx-gantt-task-color', color)
         el.style.setProperty('--wx-gantt-task-fill-color', color)
       }
+      // 에픽 요약 막대의 얇은 막대 변수(WP-249) — 같은 이유(SVAR 재렌더가 style 을 씻어냄)로 이 옵저버에서 함께 재적용한다.
+      // 실제 그리기는 timeline-gantt.css 의 ::after. SVAR 는 문자열 id 에 ':' 접두를 붙여 렌더하므로 둘 다 정확 매칭한다
+      // (접미사 매칭은 위 #649 회귀처럼 다른 막대와 겹칠 수 있어 쓰지 않는다).
+      for (const o of rollupOverlays) {
+        const el = container.querySelector<HTMLElement>(
+          `.wx-bar[data-task-id=":${o.taskId}"], .wx-bar[data-task-id="${o.taskId}"]`,
+        )
+        const left = `${o.left}%`
+        if (!el || el.style.getPropertyValue('--rollup-left') === left) continue
+        el.style.setProperty('--rollup-left', left)
+        el.style.setProperty('--rollup-width', `${o.width}%`)
+        el.style.setProperty('--rollup-in-start', `${o.inStart}%`)
+        el.style.setProperty('--rollup-in-end', `${o.inEnd}%`)
+      }
     }
     applyColors()
     const observer = new MutationObserver(applyColors)
@@ -404,7 +429,7 @@ export function TimelineGantt({
       attributeFilter: ['style', 'class'],
     })
     return () => observer.disconnect()
-  }, [bars, tasks])
+  }, [bars, tasks, rollupOverlays])
 
   // 의존성 모순 링크 강조(#669) — SVAR 는 링크별 커스텀 className/color 주입 API 가 없어(바 색상과
   // 동일한 제약, 위 STATUS_BAR_COLOR 이펙트 참조) `data-link-id` 를 가진 <g> 안의 `.wx-line-draw`

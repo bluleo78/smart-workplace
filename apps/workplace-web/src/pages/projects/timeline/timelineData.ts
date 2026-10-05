@@ -51,6 +51,34 @@ export function defaultScheduleRange(today: Date): { startDate: string; dueDate:
   };
 }
 
+/** yyyy-MM-dd 두 날짜의 일수 차(b - a). UTC 자정으로 해석해 타임존·DST 와 무관하게 정수로 떨어진다. */
+const dayDiff = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86_400_000;
+
+/**
+ * 에픽 막대(range) 기준 얇은 막대(rollup)의 기하 — 모두 % (WP-249).
+ * - left/width: 에픽 막대 폭 대비 얇은 막대의 위치·폭. 앞으로 넘치면 left 가 음수, 뒤로 넘치면 left+width > 100.
+ * - inStart/inEnd: 얇은 막대 폭 대비 에픽 기간 안쪽 구간. 이 밖은 초과 구간(빨강). 겹침이 없으면 inStart = inEnd.
+ * 막대는 마감일 당일을 포함하므로(끝 = due + 1일) 일수에 1 을 더한다.
+ */
+export function rollupOverlay(
+  range: { start: string; due: string },
+  rollup: { start: string; due: string },
+): { left: number; width: number; inStart: number; inEnd: number } {
+  const epicDays = dayDiff(range.start, range.due) + 1;
+  const rollupDays = dayDiff(rollup.start, rollup.due) + 1;
+  const offset = dayDiff(range.start, rollup.start); // 에픽 시작 → 얇은 막대 시작
+  const pct = (days: number, of: number) => (days / of) * 100;
+  const clamp = (v: number) => Math.min(rollupDays, Math.max(0, v));
+  const inStart = clamp(-offset); // 얇은 막대 안에서 에픽 시작 위치
+  const inEnd = Math.max(inStart, clamp(epicDays - offset)); // 얇은 막대 안에서 에픽 끝 위치
+  return {
+    left: pct(offset, epicDays),
+    width: pct(rollupDays, epicDays),
+    inStart: pct(inStart, rollupDays),
+    inEnd: pct(inEnd, rollupDays),
+  };
+}
+
 const NO_EPIC_KEY = 'no-epic';
 
 /** IssueResponse → TimelineBar 변환 (dueDate 필수 — 호출부가 사전에 필터링). */
@@ -93,7 +121,8 @@ function activeTimelineIssues(issues: IssueResponse[]): IssueResponse[] {
  * 이슈를 에픽 트리 구조로 그룹핑 (#649).
  * - EPIC 유형 → 그룹 행, 하위 이슈는 parent(EPIC) 기준으로 소속. 에픽 없는 이슈는 no-epic 가상 그룹(맨 뒤).
  * - SUBTASK 는 계획 단위가 아니므로 전면 제외. CANCELED 는 자신 제외 + (에픽이면) 하위 전체 제외.
- * - range: 하위 막대 min start(없으면 due) ~ max due 롤업. 하위 막대가 없으면 에픽 자체 start/due 폴백.
+ * - range: 에픽 자체 기간(마감일이 있을 때, 시작일 없으면 마감일 하루) 우선, 없으면 하위 막대 min start(없으면 due) ~ max due 롤업(WP-248).
+ * - rollup: range 가 에픽 자체 기간일 때의 하위 롤업 — 에픽 막대 아래 얇은 막대로 그린다(WP-249).
  *   범위를 계산할 수 없는 그룹은 간트에 그릴 것이 없으므로 groups 에서 제외한다(하위 미정 이슈는 unscheduled 로).
  * - 에픽이 필터로 응답에 없어도 하위의 parent 요약으로 그룹을 합성한다(제목/진행률은 보이는 하위 기준).
  */
@@ -130,12 +159,14 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
     // 미정 하위는 "일정 미정" 섹션이 아니라 소속 에픽 아래 행으로 노출한다(중복 없음).
     const undatedChildren = kids.filter((k) => !k.dueDate);
 
-    // range: 날짜 있는 자식 롤업 → 없으면 에픽 자체 날짜 → 그것도 없으면 null.
+    // range(에픽 막대): 에픽 자체 기간(마감일 기준) 우선 → 없으면 날짜 있는 자식 롤업 → 그것도 없으면 null (WP-248).
     // null 이어도 그룹은 만든다 — 에픽 막대는 안 그리지만 그룹 행/펼침·미정 자식 노출은 유지한다.
-    let range: TimelineEpicGroup['range'] = rollupRange(bars);
-    if (range === null && epic?.dueDate) {
-      range = { start: epic.startDate ?? epic.dueDate, due: epic.dueDate };
-    }
+    // rollup(얇은 막대, WP-249): 에픽 기간으로 막대를 그릴 때만 하위 실제 범위를 따로 둔다 —
+    // 막대가 이미 하위 롤업이면 같은 내용이라 생략한다.
+    const childRange = rollupRange(bars);
+    const ownRange = epic?.dueDate ? { start: epic.startDate ?? epic.dueDate, due: epic.dueDate } : null;
+    const range: TimelineEpicGroup['range'] = ownRange ?? childRange;
+    const rollup: TimelineEpicGroup['rollup'] = ownRange ? childRange : null;
     // 합성 그룹(응답에 에픽 객체 없음)인데 자식도 전혀 없으면 무의미 — 스킵(실제로는 발생 안 함).
     if (!epic && kids.length === 0) continue;
 
@@ -146,6 +177,7 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
       done: epic ? epic.childDoneCount : kids.filter((k) => k.status === 'DONE').length,
       total: epic ? epic.childCount : kids.length,
       range,
+      rollup,
       bars,
       undatedChildren,
     });
@@ -165,6 +197,7 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
       // 간트 영역의 막대는 range 여부와 무관하게 group id 기준 CSS 로 항상 숨긴다(timeline-gantt.css) —
       // "no-epic 은 롤업 막대를 그리지 않는다" 는 시각적 불변식은 그대로 유지된다.
       range: rollupRange(looseBars),
+      rollup: null, // no-epic 은 막대 자체를 그리지 않는다.
       bars: looseBars,
       undatedChildren: [], // no-epic 그룹은 미정 자식 개념이 없다(미정 loose 는 unscheduled 로).
     });
