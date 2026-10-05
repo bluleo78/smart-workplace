@@ -42,7 +42,7 @@ Smart Workplace 의 **모듈러 모놀리스 백엔드**. identity(인증·권�
 | `role` | 역할 CRUD·권한 할당. 시스템 역할(ADMIN/USER) 수정 불가 |
 | `permission` | 권한 목록 조회. 코드 형식 `{resource}:{action}` (예: `user:read`) |
 | `audit` | 행위 감사 로그 (JSONB 메타) |
-| `file` | 업로드 파일 메타. 바이너리는 디스크/오브젝트 스토리지에 별도 저장 |
+| `file` | 업로드 파일 메타. 바이너리는 디스크/오브젝트 스토리지에 별도 저장. 추출 백필: `ExtractionBackfillSource` SPI(이슈·챗 구현) → `FileExtractionScheduler` 가 3분마다 최대 100건씩 추출 행 없는 첨부를 TEXT_ONLY 로 시드(회차당 재개 수집은 디스패치) |
 | `health` | `/api/v1/health`, Actuator 헬스 |
 | `global` | SecurityConfig, JwtAuthenticationFilter, GlobalExceptionHandler, `@RequirePermission`, 공통 DTO, EncryptionService(AES-256-GCM) |
 | `home` | 홈 대시보드 집계 — 내 이슈·워치·활동 |

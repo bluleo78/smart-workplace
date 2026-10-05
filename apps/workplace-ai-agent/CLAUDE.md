@@ -37,7 +37,7 @@ src/
     system-prompt         # LLM 시스템 프롬프트 상수
     user-message          # 4 type 별 user message 빌더
   mcp/
-    tools                 # 프로필별 buildTools — 공유 도구(packages/mcp-tools-shared, workplace-mcp 와 같은 정의)를 이름으로 골라 쓰고, 에이전트 전용 도구(propose_*/show_*/submit_response/chat 등)만 직접 정의
+    tools                 # 프로필별 buildTools — 공유 도구(packages/mcp-tools-shared, workplace-mcp 와 같은 정의)를 이름으로 골라 쓰고, 에이전트 전용 도구(propose_*/show_*/submit_response/chat 등)만 직접 정의. 이슈 챗 첨부: `collectAttachments` 가 이슈·스레드 메시지 첨부와 추출 상태를 모은 뒤 → `presentAttachments(runner, …)` 가 러너별로 표현(Claude: 임시폴더에 받아 Read·PDF 이미지, 그 외 텍스트 도구 / opencode: 텍스트만, 이미지 불가 안내) → 모델은 chat 프로필 MCP 도구 `read_attachment_text({issueKey|threadId, fileId, offset?, limit?})` 로 추출 텍스트를 구간 단위로 읽음.
     stdio-entry            # stdio MCP 엔트리포인트 — opencode 러너(별도 프로세스, Task9)가 spawn
   clients/              # workplace-api 호출용 axios client (코멘트/상태/담당자/조회 4 메서드)
   middleware/           # internal-auth (Authorization: Internal {token})
