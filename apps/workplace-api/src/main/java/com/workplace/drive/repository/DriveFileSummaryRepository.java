@@ -1,9 +1,9 @@
 package com.workplace.drive.repository;
 
+import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 
 import org.jooq.DSLContext;
-import org.jooq.Record3;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -11,7 +11,7 @@ import org.springframework.stereotype.Repository;
  * 스코프하므로 호출은 반드시 트랜잭션 안에서(테넌트 GUC 주입). 행이 없으면 전부 null.
  *
  * <p>error 는 raw 값(예: {@code unsupported-mime:application/zip})을 그대로 반환한다 — 사용자 문구 매핑은 {@code
- * DriveFileService.toReason} 이 담당(#735, raw error 를 API 응답에 직접 노출하지 않기 위함).
+ * ExtractionReasons} 가 담당(#735, raw error 를 API 응답에 직접 노출하지 않기 위함).
  */
 @Repository
 public class DriveFileSummaryRepository {
@@ -22,19 +22,22 @@ public class DriveFileSummaryRepository {
     this.dsl = dsl;
   }
 
-  /** 코어 file id 로 요약·상태·오류 조회. 행 없으면 전부 null. */
+  /** 코어 file id 로 요약·상태·오류·mime 조회. 추출 행이 없으면 summary/status/error 는 null. */
   public SummaryRow findSummary(long fileId) {
-    Record3<String, String, String> r =
-        dsl.select(FILE_EXTRACTION.SUMMARY, FILE_EXTRACTION.STATUS, FILE_EXTRACTION.ERROR)
-            .from(FILE_EXTRACTION)
-            .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+    var r =
+        dsl.select(
+                FILE_EXTRACTION.SUMMARY, FILE_EXTRACTION.STATUS, FILE_EXTRACTION.ERROR, FILE.MIME_TYPE)
+            .from(FILE)
+            .leftJoin(FILE_EXTRACTION)
+            .on(FILE_EXTRACTION.FILE_ID.eq(FILE.ID))
+            .where(FILE.ID.eq(fileId))
             .fetchOne();
     if (r == null) {
-      return new SummaryRow(null, null, null);
+      return new SummaryRow(null, null, null, null);
     }
-    return new SummaryRow(r.value1(), r.value2(), r.value3());
+    return new SummaryRow(r.value1(), r.value2(), r.value3(), r.value4());
   }
 
-  /** file_extraction 원시 조회 결과(summary, status, error). */
-  public record SummaryRow(String summary, String status, String error) {}
+  /** file_extraction 원시 조회 결과(summary, status, error) + 사유 판정용 mime. */
+  public record SummaryRow(String summary, String status, String error, String mime) {}
 }

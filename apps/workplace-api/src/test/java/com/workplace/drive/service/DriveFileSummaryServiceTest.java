@@ -101,7 +101,7 @@ class DriveFileSummaryServiceTest extends IntegrationTestBase {
 
   @Test
   void SKIPPED_unsupported_mime은_사용자문구로_매핑되고_raw_error를_노출하지_않는다() {
-    // #735: toReason 이 raw error(unsupported-mime:...)를 사용자 문구로 바꿔야 한다.
+    // #735: ExtractionReasons 가 raw error(unsupported-mime:...)를 사용자 문구로 바꿔야 한다.
     seedFixtureWithError("압축.zip", "SKIPPED", "unsupported-mime:application/zip");
 
     TenantContext.set(tid2);
@@ -118,7 +118,7 @@ class DriveFileSummaryServiceTest extends IntegrationTestBase {
     TenantContext.set(tid2);
     FileSummaryResponse res = fileService.fileSummary(memberId, driveFileId);
 
-    assertThat(res.reason()).isEqualTo("이미지 파일은 요약하지 않습니다.");
+    assertThat(res.reason()).isEqualTo("이미지 파일은 글자를 추출하지 않습니다.");
   }
 
   // ---------------------------------------------------------------- @AfterEach
