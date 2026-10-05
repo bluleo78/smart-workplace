@@ -32,7 +32,8 @@ function extractionLine(a: AgentAttachment): string {
   const x = a.extraction;
   switch (x.status) {
     case 'READY':
-      return `텍스트: ${toolCall(a)} — 약 ${x.totalChars ?? 0}자${x.truncated ? ' (추출 상한으로 잘림)' : ''}`;
+      // 글자 수를 모르면(totalChars null) "약 0자" 로 오해하지 않게 생략. truncated null 은 잘리지 않은 것으로 본다.
+      return `텍스트: ${toolCall(a)}${x.totalChars != null ? ` — 약 ${x.totalChars}자` : ''}${x.truncated ? ' (추출 상한으로 잘림)' : ''}`;
     case 'PENDING':
       return '텍스트 추출 중 — 잠시 후 다시 물어봐 달라고 안내';
     case 'SKIPPED':
@@ -43,9 +44,15 @@ function extractionLine(a: AgentAttachment): string {
   }
 }
 
+/** 파일명의 제어문자(\r \n \t 포함)를 공백으로 — 사용자 파일명이 프롬프트 줄 구조를 깨거나 지시문을 끼워 넣지 못하게. */
+function sanitizeName(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  return name.replace(/[\u0000-\u001F\u007F]/g, ' ');
+}
+
 function header(a: AgentAttachment): string {
   const where = a.origin.kind === 'issue' ? '이슈 첨부' : '챗 첨부';
-  return `- [${where}] ${a.originalName} (${a.mimeType}, ${a.sizeBytes}B)`;
+  return `- [${where}] ${sanitizeName(a.originalName)} (${a.mimeType}, ${a.sizeBytes}B)`;
 }
 
 function localLine(o: DownloadOutcome | undefined): string {
@@ -72,10 +79,10 @@ function detailLines(kind: RunnerKind, a: AgentAttachment, downloads: Map<number
 }
 
 const GUIDANCE_CLAUDE =
-  '첨부는 위 안내대로 읽으세요: 로컬경로는 Read, 텍스트는 read_attachment_text(결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽기). ' +
+  '첨부는 위 안내대로 읽으세요: 로컬경로는 Read, 텍스트는 read_attachment_text(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기). ' +
   '추출 중이거나 읽을 수 없는 첨부는 그 상태와 사유를 알리고, 다시 올려 달라고 요청하지 마세요.';
 const GUIDANCE_OPENCODE =
-  '첨부는 위 안내대로 read_attachment_text 로 읽으세요(결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽기). ' +
+  '첨부는 위 안내대로 read_attachment_text 로 읽으세요(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기). ' +
   '추출 중이거나 읽을 수 없는 첨부는 그 상태와 사유를 알리고, 다시 올려 달라고 요청하지 마세요.';
 
 /** 이슈 첨부 목록을 못 불러왔을 때의 줄 — 목록이 비어 보여도 "첨부 없음" 으로 단정하지 않게 한다(I1). */

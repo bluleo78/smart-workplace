@@ -18,7 +18,7 @@ export type ExtractionStatus = 'PENDING' | 'READY' | 'SKIPPED' | 'FAILED' | 'NON
 export interface ExtractionInfo {
   status: ExtractionStatus;
   totalChars: number | null;
-  truncated: boolean;
+  truncated: boolean | null; // 서버가 null 을 줄 수 있음 — 소비자는 false 로 취급
   reasonCode: string | null;
   reason: string | null;
 }
@@ -27,7 +27,7 @@ export interface ExtractedTextSlice {
   status: ExtractionStatus;
   offset: number;
   totalChars: number | null;
-  truncated: boolean;
+  truncated: boolean | null; // 서버가 null 을 줄 수 있음 — 소비자는 false 로 취급
   nextOffset: number | null;
   text: string | null;
   reasonCode: string | null;

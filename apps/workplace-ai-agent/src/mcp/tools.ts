@@ -34,13 +34,18 @@ const getChatThreadInput = z.object({
 // limit 상한 32000 은 서버 계약(WP-242)과 같다 — 넘기면 서버가 400 이므로 스키마에서 먼저 막는다.
 // refine(ZodEffects)을 쓰지 않는 이유: sdk-mcp-server·stdio-entry 가 inputSchema.shape 를 읽으므로
 // 반드시 순수 z.object 여야 한다. "정확히 하나" 검사는 handler 에서 수행한다.
+// 선택 인자는 nullish — 모델이 안 쓰는 인자를 null 로 채워 보내는 경우가 있어 null 도 "미지정" 으로 받는다.
 const readAttachmentTextInput = z.object({
   fileId: z.number().int().positive(),
-  issueKey: z.string().min(1).optional(),
-  threadId: z.number().int().positive().optional(),
-  offset: z.number().int().min(0).optional(),
-  limit: z.number().int().min(1).max(32000).optional(),
+  issueKey: z.string().min(1).nullish(),
+  threadId: z.number().int().positive().nullish(),
+  offset: z.number().int().min(0).nullish(),
+  limit: z.number().int().min(1).max(32000).nullish(),
 });
+
+// limit 미지정 시 기본 구간 길이. 서버 기본(32000)보다 작게 — 컨텍스트가 작은 모델이 한 번에 너무 많이 받지 않게 한다.
+// 더 필요하면 모델이 limit 을 최대 32000 까지 직접 지정하거나 nextOffset 으로 이어 읽는다.
+const READ_ATTACHMENT_DEFAULT_LIMIT = 12000;
 
 // #833: 구성원 쓰기 제안 입력. roleId 대신 역할명을 받는다 — 실행기가 서버에서 이름→id 를 해석하므로
 // 에이전트에 role:read 권한을 추가로 줄 필요가 없다.
@@ -401,17 +406,27 @@ export function buildTools(
         name: 'read_attachment_text',
         description:
           '첨부파일의 추출 텍스트를 구간 단위로 읽습니다. 프롬프트 첨부 섹션에 적힌 그대로 호출하세요 — 이슈 첨부는 issueKey, 챗 첨부는 threadId 와 fileId. ' +
-          '결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽습니다. status 가 READY 가 아니면 text 없이 상태·사유만 옵니다.',
+          `limit 생략 시 ${READ_ATTACHMENT_DEFAULT_LIMIT}자(최대 32000). 필요한 만큼만 읽고, 결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽습니다. ` +
+          'status 가 READY 가 아니면 text 없이 상태·사유만 옵니다.',
         inputSchema: readAttachmentTextInput,
         async handler(args) {
-          const { fileId, issueKey: key, threadId, offset, limit } = readAttachmentTextInput.parse(args);
+          const parsed = readAttachmentTextInput.parse(args);
+          // null → undefined 정규화(미지정과 같게).
+          const key = parsed.issueKey ?? undefined;
+          const threadId = parsed.threadId ?? undefined;
+          const offset = parsed.offset ?? undefined;
+          const limit = parsed.limit ?? READ_ATTACHMENT_DEFAULT_LIMIT;
           // 이슈 첨부/챗 첨부는 조회 경로가 달라 정확히 하나만 허용 — API 호출 전에 차단한다.
-          if ((key === undefined) === (threadId === undefined)) {
-            throw new Error('issueKey(이슈 첨부) 또는 threadId(챗 첨부) 중 정확히 하나를 지정하세요');
+          const exactlyOneError = 'issueKey(이슈 첨부) 또는 threadId(챗 첨부) 중 정확히 하나를 지정하세요';
+          if (key !== undefined && threadId !== undefined) throw new Error(exactlyOneError);
+          let slice;
+          if (key !== undefined) {
+            slice = await client.readIssueAttachmentText(agentId, key, parsed.fileId, offset, limit);
+          } else if (threadId !== undefined) {
+            slice = await client.readChatAttachmentText(agentId, threadId, parsed.fileId, offset, limit);
+          } else {
+            throw new Error(exactlyOneError);
           }
-          const slice = key !== undefined
-            ? await client.readIssueAttachmentText(agentId, key, fileId, offset, limit)
-            : await client.readChatAttachmentText(agentId, threadId!, fileId, offset, limit);
           return JSON.stringify(slice);
         },
       },

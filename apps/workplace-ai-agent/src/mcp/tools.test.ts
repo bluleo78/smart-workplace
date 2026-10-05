@@ -453,11 +453,20 @@ describe('chat 도구', () => {
     expect(JSON.parse(out as string).text).toBe('본문');
   });
 
-  it('read_attachment_text(threadId) → readChatAttachmentText, offset·limit 생략 시 undefined', async () => {
+  it('read_attachment_text(threadId) → readChatAttachmentText, offset 생략 시 undefined·limit 생략 시 12000', async () => {
     const c = client();
     vi.mocked(c.readChatAttachmentText).mockResolvedValue({ fileId: 8, status: 'PENDING' } as never);
     await find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text').handler({ threadId: 5, fileId: 8 });
-    expect(c.readChatAttachmentText).toHaveBeenCalledWith(AGENT_ID, 5, 8, undefined, undefined);
+    expect(c.readChatAttachmentText).toHaveBeenCalledWith(AGENT_ID, 5, 8, undefined, 12000);
+  });
+
+  it('read_attachment_text: 안 쓰는 인자를 null 로 보내도 미지정으로 처리', async () => {
+    const c = client();
+    vi.mocked(c.readIssueAttachmentText).mockResolvedValue({ fileId: 3, status: 'PENDING' } as never);
+    await find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text')
+      .handler({ issueKey: 'WP-1', threadId: null, fileId: 3, offset: null, limit: null });
+    expect(c.readIssueAttachmentText).toHaveBeenCalledWith(AGENT_ID, 'WP-1', 3, undefined, 12000);
+    expect(c.readChatAttachmentText).not.toHaveBeenCalled();
   });
 
   it('read_attachment_text: issueKey·threadId 둘 다/둘 다 없음 → 오류, API 미호출', async () => {
