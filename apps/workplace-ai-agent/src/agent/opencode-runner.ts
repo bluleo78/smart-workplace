@@ -67,9 +67,11 @@ export class OpencodeRunner implements AgentRunner {
     const payload = requireOpencodeCredential(i);
 
     const runId = randomUUID();
-    // WP-236: 첨부 읽기 실행은 인스턴스 디렉터리를 에이전트 첨부 루트로 고정해 read 를 그 안으로 가둔다(이유는 attachmentRootDir).
-    // 실행별 폴더가 아닌 이유: opencode 는 디렉터리마다 인스턴스(MCP 포함)를 띄우므로 풀 키(agentId 포함)당 하나여야 웜 풀이 유지된다.
-    const directoryQuery = i.allowFileRead ? { directory: attachmentRootDir(i.agentId) } : undefined;
+    // WP-236: 첨부 읽기 실행은 인스턴스 디렉터리를 첨부 폴더로 고정해 read 를 그 안으로 가둔다(실경로 이유는 attachmentRootDir).
+    // WP-244: 실행 폴더(cwd, createAttachmentWorkDir)가 있으면 그것으로 좁힌다 — 에이전트 루트로 두면 같은 에이전트가
+    // 동시에 도는 다른 스레드(다른 프로젝트일 수 있음)의 첨부 이미지가 목록·read 로 보인다. 첨부 읽기 실행(이슈 챗 chat 프로필)은
+    // 웜 풀 대상이 아니라 실행마다 서버를 새로 띄우므로 실행별 디렉터리여도 풀 비용이 없다. cwd 가 없으면 에이전트 루트.
+    const directoryQuery = i.allowFileRead ? { directory: i.cwd ?? attachmentRootDir(i.agentId) } : undefined;
     let killed = false;
     let timedOut = false;
     // kill()/timeout 이 비동기 세션 abort 를 시도할 수 있도록 client/sessionId 를 클로저 밖에서 공유.

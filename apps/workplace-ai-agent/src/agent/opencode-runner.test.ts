@@ -404,6 +404,19 @@ describe('OpencodeRunner.stream', () => {
     expect(sessionAbort).toHaveBeenCalledWith({ path: { id: 'sess-1' }, query });
   });
 
+  // WP-244: 실행 폴더가 있으면 에이전트 루트 대신 그 폴더로 좁혀, 같은 에이전트의 다른 스레드 첨부가 보이지 않게 한다.
+  it('allowFileRead=true + cwd 면 실행 폴더를 directory 로 넘긴다', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    await new OpencodeRunner().stream(baseInput({ allowFileRead: true, cwd: '/att-root/3/chat-agent-5-x' }), () => {}).done;
+
+    const query = { directory: '/att-root/3/chat-agent-5-x' };
+    expect(sessionCreate).toHaveBeenCalledWith({ query });
+    expect(sessionPromptAsync).toHaveBeenCalledWith(expect.objectContaining({ query }));
+  });
+
   it('allowFileRead 미지정이면 directory 없이 서버 기본 디렉터리를 쓴다', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });

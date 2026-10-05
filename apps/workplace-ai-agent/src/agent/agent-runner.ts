@@ -47,7 +47,7 @@ export interface RunnerInput {
   logTag: string;
   requestId?: string;
   includePartialMessages?: boolean;
-  // 첨부 Read 허용. opencode 러너는 에이전트 첨부 루트 안만 읽게 하므로 cwd 는 createAttachmentWorkDir 로 만든다.
+  // 첨부 Read 허용. opencode 러너는 cwd(없으면 에이전트 첨부 루트) 안만 읽게 하므로 cwd 는 createAttachmentWorkDir 로 만든다.
   allowFileRead?: boolean;
   allowSubagents?: boolean;
   cwd?: string;

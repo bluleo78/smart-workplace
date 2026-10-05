@@ -135,7 +135,7 @@ export function buildOpencodeConfig(
         maxSteps: i.maxTurns,
         // MCP-only: opencode 빌트인 도구(bash/edit/write/read 등)는 전부 차단하고 workplace MCP
         // 도구만 허용. 이름은 stdio-entry 서버명 'workplace' 접두 네임스페이스와 일치.
-        // 예외(WP-236): allowFileRead(이슈 챗 첨부)면 read 를 연다. 러너가 인스턴스 디렉터리를 에이전트 첨부 루트로
+        // 예외(WP-236): allowFileRead(이슈 챗 첨부)면 read 를 연다. 러너가 인스턴스 디렉터리를 실행 첨부 폴더로
         // 지정하므로 read 는 그 안만 닿고, 바깥은 external_directory 로 막는다.
         tools: { '*': false, 'workplace*': true, ...(i.allowFileRead ? { read: true } : {}) },
         permission: {

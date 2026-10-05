@@ -12,9 +12,10 @@ import type { AgentAttachment } from './attachment-source.js';
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 파일당 10MB
 const MAX_TOTAL_BYTES = 30 * 1024 * 1024; // 합계 30MB
 
-// 에이전트별 첨부 작업폴더 루트(WP-236). opencode 러너는 이 폴더를 인스턴스 디렉터리로 써서 read 를 이 안으로 가둔다.
-// 에이전트별인 이유 — opencode read 는 디렉터리 목록도 보여주므로 루트를 공유하면 다른 에이전트(다른 테넌트)의
-// 진행 중 실행 첨부가 보인다. 이슈 챗 도구는 이미 에이전트 신원(onBehalfOf=agentId)으로 동작하므로 경계를 맞춘 것.
+// 에이전트별 첨부 작업폴더 루트(WP-236). 실행 폴더는 이 아래에 만들고, opencode 러너는 실행 폴더(없으면 이 루트)를
+// 인스턴스 디렉터리로 써서 read 를 그 안으로 가둔다(WP-244 — 같은 에이전트의 다른 스레드 첨부도 보이지 않게).
+// 에이전트별로 나누는 이유 — opencode read 는 디렉터리 목록도 보여주므로 루트를 공유하면 다른 에이전트(다른 테넌트)의
+// 진행 중 실행 첨부가 보인다.
 // 실경로로 둔다 — opencode 는 실경로 기준으로 디렉터리 안/밖을 판정하므로 심링크 tmpdir(macOS /var→/private/var)
 // 경로를 프롬프트에 넣으면 첨부가 '외부'로 판정돼 read 가 거부된다.
 export function attachmentRootDir(agentId: number): string {
