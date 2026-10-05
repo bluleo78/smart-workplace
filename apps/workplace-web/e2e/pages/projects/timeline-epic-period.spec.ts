@@ -72,7 +72,7 @@ function thinBar(bar: Locator) {
 
 test('에픽 막대·그리드 시작일이 에픽에 설정한 기간으로 표시된다 (WP-248)', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   // 그리드 시작일 = 에픽 시작일(하위 최소 시작 07-06 이 아님)
   await expect(page.locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '기간 에픽' })).toContainText(
     '01-07-2026',
@@ -89,7 +89,7 @@ test('에픽 막대 아래 얇은 막대가 하위 실제 범위를 그리고 �
   authenticatedPage: page,
 }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expandGroup(page, '기간 에픽');
   const { perDay } = await pxPerDay(page);
   const bar = summaryBar(page, 40);
@@ -114,7 +114,7 @@ test('에픽 막대 아래 얇은 막대가 하위 실제 범위를 그리고 �
 
 test('에픽 자체 기간이 없으면 막대는 하위 롤업이고 얇은 막대는 그리지 않는다', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '기간 없는 에픽' })).toContainText(
     '14-07-2026',
   );
@@ -136,7 +136,7 @@ test('하위 막대를 드래그해 저장해도 에픽 막대는 에픽 기간�
     Object.assign(child, { startDate: body.startDate, dueDate: body.dueDate });
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(child) });
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expandGroup(page, '기간 에픽');
   const { box, perDay } = await pxPerDay(page);
   const before = (await summaryBar(page, 40).boundingBox())!;
@@ -175,7 +175,7 @@ test('하위 마감일만 바뀌어 얇은 막대 시작이 그대로여도 폭�
     Object.assign(child, { startDate: '2026-07-06', dueDate: '2026-08-10' });
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(child) });
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expandGroup(page, '기간 에픽');
   const bar = summaryBar(page, 40);
   await expect.poll(() => bar.evaluate((el) => el.style.getPropertyValue('--rollup-in-end'))).toMatch(/^86\.66/);
@@ -193,7 +193,7 @@ test('날짜 있는 하위가 없어지면 얇은 막대가 사라진다', async
     for (const n of [41, 42]) Object.assign(list.find((i) => i.number === n)!, { startDate: null, dueDate: null });
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(list[1]) });
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expandGroup(page, '기간 에픽');
   const bar = summaryBar(page, 40);
   await expect.poll(() => bar.evaluate((el) => el.style.getPropertyValue('--rollup-left'))).not.toBe('');
@@ -209,7 +209,7 @@ test('하위 막대 저장이 실패해도 하위·에픽 막대가 원래 자�
       ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: '일정 변경에 실패했습니다' }) })
       : route.fallback(),
   );
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expandGroup(page, '기간 에픽');
   // 드래그 중 차트가 스크롤될 수 있어, 움직이지 않는 하위 42 막대 기준 상대 위치로 비교한다.
   const layout = async () => {

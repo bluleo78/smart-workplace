@@ -93,7 +93,7 @@ test.describe('PageHeader — 전체폭 본문 페이지 정렬 (#880)', () => {
   // container 최대폭(1536px)보다 넓어야 어긋남이 드러난다.
   test.use({ viewport: { width: 2000, height: 900 } })
 
-  for (const path of ['/projects/WP', '/projects/WP/timeline']) {
+  for (const path of ['/projects/WP', '/projects/WP/timeline?period=all']) {
     test(`${path} 헤더 제목·액션이 헤더 좌우 끝에 붙는다`, async ({ authenticatedPage: page }) => {
       await mockApi(page, 'GET', '/api/v1/projects/WP', createProject())
       await page.goto(path)

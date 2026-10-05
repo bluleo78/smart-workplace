@@ -19,6 +19,8 @@ import { MilestoneFormDialog } from './MilestoneFormDialog';
 import { TimelineAgendaList } from './TimelineAgendaList';
 import type { TimelineZoom } from './TimelineGantt';
 import { TimelineGanttBody } from './TimelineGanttBody';
+import type { TimelineViewOptions } from './timelineTypes';
+import { useTimelinePeriod } from './useTimelinePeriod';
 
 export default function TimelinePage() {
   const { key = '' } = useParams();
@@ -45,6 +47,8 @@ export default function TimelinePage() {
   const project = useProject(key);
   const search = useIssueSearch(key, effectiveFilters, 100);
   const milestones = useMilestones(key);
+  // 조회 기간(WP-247) — 화면 거름은 상태 필터의 「취소」 포함 여부와 함께 간트·아젠다에 넘긴다(조회 자체는 전량 그대로).
+  const periodCtl = useTimelinePeriod(key);
 
   // 이슈 전량이 필요한 화면이라 hasNextPage 동안 자동으로 다음 페이지를 페치한다.
   useEffect(() => {
@@ -55,6 +59,12 @@ export default function TimelinePage() {
   // 모바일 = 아젠다(WP-197), 데스크톱 = 간트 본문(TimelineGanttBody) — 간트 전용 조회·계산은 그 본문 안에서만 돈다.
   const isMobile = useIsMobile();
   const readOnly = !(project.data?.viewerIsMember ?? false);
+  // filters 는 렌더마다 새로 파싱되므로 boolean 으로 줄여 메모 키로 쓴다.
+  const includeCanceled = filters.statuses.includes('CANCELED');
+  const view = useMemo<TimelineViewOptions>(
+    () => ({ includeCanceled, period: periodCtl.period }),
+    [includeCanceled, periodCtl.period],
+  );
 
   // 마일스톤별 연결된 이슈 수 — 팝오버가 열린 마일스톤만 이슈 목록에서 센다("연결된 이슈 N개" 표시용).
   const editingMilestoneId = milestoneEditState?.milestone.id;
@@ -129,13 +139,18 @@ export default function TimelinePage() {
           </div>
         }
       />
-      {isMobile ? (
+      {!periodCtl.ready ? (
+        <div data-testid="timeline-period-loading" className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+          불러오는 중…
+        </div>
+      ) : isMobile ? (
         <TimelineAgendaList
           projectKey={key}
           issues={issues}
           milestones={milestones.data ?? []}
           loading={search.isLoading || search.isFetchingNextPage || search.hasNextPage === true}
           onOpenIssue={(n) => navigate(`/projects/${key}/issues/${n}`)}
+          view={view}
         />
       ) : (
         <TimelineGanttBody
@@ -147,6 +162,7 @@ export default function TimelinePage() {
           scrollToDate={scrollToDate}
           onMilestoneClick={(milestone, anchorRect) => setMilestoneEditState({ milestone, anchorRect })}
           onLaneClick={(date) => setMilestoneDialogState({ defaultDueDate: date })}
+          view={view}
         />
       )}
       <MilestoneFormDialog

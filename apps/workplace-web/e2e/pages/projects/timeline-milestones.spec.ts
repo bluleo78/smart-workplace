@@ -62,7 +62,7 @@ function setupStubs(
 
 test('마일스톤이 상단 레인 칩으로 렌더되고 이슈 행을 차지하지 않는다', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.getByTestId('milestone-lane')).toBeVisible();
   await expect(page.getByTestId('milestone-chip-1')).toContainText('v1 출시');
   // SVAR 차트에는 milestone 타입 다이아몬드가 더 이상 없다 — 완전히 레인으로 분리됐다.
@@ -73,7 +73,7 @@ test('마일스톤이 상단 레인 칩으로 렌더되고 이슈 행을 차지�
 
 test('마일스톤 레인의 그리드/차트 경계 구분선이 아래 차트 경계와 이어진다', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.getByTestId('milestone-lane')).toBeVisible();
   const divider = page.getByTestId('milestone-lane-divider');
   await expect(divider).toBeAttached();
@@ -109,7 +109,7 @@ test('툴바 버튼으로 마일스톤 생성', async ({ authenticatedPage: page
     }
     return route.fallback();
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await page.getByTestId('milestone-add-button').click();
   await expect(page.getByTestId('milestone-form-dialog')).toBeVisible();
   await page.getByTestId('milestone-name-input').fill('v1.0 베타');
@@ -128,7 +128,7 @@ test('레인 빈 곳 클릭 → 클릭 좌표 날짜가 채워진 생성 다이�
     }
     return route.fallback();
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await page.getByTestId('milestone-lane').click({ position: { x: 400, y: 16 } });
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
@@ -146,7 +146,7 @@ test('레인 좌측 끝(라벨 근처) 클릭 → 날짜가 클램프되어 비�
   // 최종 리뷰 Minor #1 회귀 테스트 — dateFromClientX 가 클램프 없이 음수 offsetX 를 그대로
   // 날짜로 환산하면 "마일스톤" 라벨 근처(레인 좌측 끝) 클릭 시 1970년대 등 비정상 날짜가 채워졌다.
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   // x=2 는 "마일스톤" 라벨 바로 옆(레인 좌측 끝) — 스크롤 컨테이너 기준 offsetX 가 음수가 되는 지점.
   await page.getByTestId('milestone-lane').click({ position: { x: 2, y: 16 } });
   const dialog = page.getByRole('dialog');
@@ -172,7 +172,7 @@ test('칩 클릭 → 편집 팝오버에서 이름 수정', async ({ authenticat
     }
     return route.fallback();
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await page.getByTestId('milestone-chip-1').click();
   const popover = page.getByRole('dialog').or(page.getByTestId('milestone-edit-popover'));
   await expect(popover).toBeVisible();
@@ -200,7 +200,7 @@ test('팝오버 — 이름을 지우고 blur하면 저장 요청 없이 에러 �
     }
     return route.fallback();
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await page.getByTestId('milestone-chip-1').click();
   const nameInput = page.getByTestId('milestone-popover-name-input');
   await nameInput.fill('');
@@ -221,7 +221,7 @@ test('팝오버 — 마감일을 지우고 blur하면 저장 요청 없이 에�
     }
     return route.fallback();
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await page.getByTestId('milestone-chip-1').click();
   const dueDateInput = page.getByTestId('milestone-popover-due-date-input');
   await dueDateInput.fill('');
@@ -240,7 +240,7 @@ test('팝오버에서 삭제 — AlertDialog 경고 경유', async ({ authentica
     }
     return route.fallback();
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await page.getByTestId('milestone-chip-1').click();
   await page.getByTestId('milestone-delete-trigger').click();
   await expect(page.getByText('연결된 이슈 1개의 연결이 해제됩니다')).toBeVisible();
@@ -250,7 +250,7 @@ test('팝오버에서 삭제 — AlertDialog 경고 경유', async ({ authentica
 
 test('readOnly(비멤버) — 칩 편집·레인 클릭 생성이 비활성', async ({ authenticatedPage: page }) => {
   await setupStubs(page, { viewerIsMember: false });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.getByTestId('milestone-add-button')).toHaveCount(0);
   // 레인 빈 곳 클릭 — readOnly 에서는 handleLaneClick 이 조기 반환해 생성 다이얼로그가 뜨지 않는다.
   await page.getByTestId('milestone-lane').click({ position: { x: 400, y: 16 } });
@@ -259,7 +259,7 @@ test('readOnly(비멤버) — 칩 편집·레인 클릭 생성이 비활성', as
 
 test('readOnly(비멤버) — 마일스톤 칩 클릭 시 편집 팝오버가 열리지 않는다', async ({ authenticatedPage: page }) => {
   await setupStubs(page, { viewerIsMember: false });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await page.getByTestId('milestone-chip-1').click();
   const popover = page.getByRole('dialog').or(page.getByTestId('milestone-edit-popover'));
   await expect(popover).toHaveCount(0);

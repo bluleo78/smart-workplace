@@ -58,7 +58,7 @@ function setupStubs(page: Page) {
 
 test('간트 행 높이가 40px 로 렌더된다', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
   await expandNoEpicGroup(page);
   // SVAR 차트 영역의 이슈 막대 행 — cellHeight prop 이 적용되면 40px.
@@ -74,7 +74,7 @@ test('간트 행 높이가 40px 로 렌더된다', async ({ authenticatedPage: p
 
 test('시간축 텍스트 위계 — 상단 스케일 14px semibold, 하단 12px', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
   const scaleRows = page.locator('.timeline-gantt-root .wx-scale .wx-row');
   const top = await scaleRows.nth(0).locator('.wx-cell').first().evaluate((el) => {
@@ -94,7 +94,7 @@ test('다크 모드에서 간트가 컨테이너 높이를 꽉 채운다', async
   // next-themes 저장키('theme')를 로드 전에 dark 로 심어 WillowDark 래퍼로 렌더시킨다.
   await page.addInitScript(() => window.localStorage.setItem('theme', 'dark'));
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
   // 실제로 WillowDark 가 렌더됐는지(다크 클래스) 확인 — 테스트 전제 보증.
   // (WillowDark 는 .wx-theme 를 중첩 렌더하므로 .first() 로 strict 매칭 회피)

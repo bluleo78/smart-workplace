@@ -97,7 +97,7 @@ function setupStubs(page: Page) {
 
 test('에픽 그룹 행 + 하위 트리 + 에픽 없음 그룹이 렌더된다', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   const grid = page.locator('.timeline-gantt-root .wx-grid');
   await expect(grid).toContainText('온보딩 개편'); // 에픽 그룹 행
   await expect(grid).toContainText('(1/2)'); // 진행률
@@ -122,7 +122,7 @@ test('에픽 그룹 행 + 하위 트리 + 에픽 없음 그룹이 렌더된다',
 
 test('에픽 펼치기 → 하위 행 노출 + localStorage 저장, 재방문 시 복원', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   const grid = page.locator('.timeline-gantt-root .wx-grid');
   // 기본 접힘 → 하위 숨김.
   await expect(grid).not.toContainText('가입 플로우');
@@ -139,7 +139,7 @@ test('에픽 펼치기 → 하위 행 노출 + localStorage 저장, 재방문 �
 
 test('미정 에픽 자식은 "일정 미정"이 아니라 에픽 아래 행으로 노출된다(중복 제거)', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   const grid = page.locator('.timeline-gantt-root .wx-grid');
   // 에픽을 펼치면 미정 자식(42, 온보딩 미정 하위)이 에픽(40) 아래 그리드 행으로 보인다.
   await expandGroup(page, '온보딩 개편');
@@ -152,7 +152,7 @@ test('미정 에픽 자식은 "일정 미정"이 아니라 에픽 아래 행으�
 
 test('에픽 그룹 행 클릭 → 에픽 이슈 상세로 이동', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await page.locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '온보딩 개편' }).click();
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/40`));
 });
@@ -227,7 +227,7 @@ test('하위 이슈가 모두 일정 미정인 에픽만 배치돼도 간트가 
   authenticatedPage: page,
 }) => {
   await setupBareEpicStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   const grid = page.locator('.timeline-gantt-root .wx-grid');
   // 크래시 시 PageErrorBoundary 가 이 텍스트로 전체 페이지를 대체한다 — 그리드 자체가
   // 정상 렌더된다는 것이 곧 크래시하지 않았다는 증거.
@@ -273,7 +273,7 @@ test('이슈 번호 접미사 충돌(5 vs 25)에도 프리즈 없이 각 막대�
   authenticatedPage: page,
 }) => {
   await setupSuffixCollisionStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   // 막대 25 는 에픽(10) 아래, 막대 5 는 "에픽 없음" 그룹 아래 — 기본 접힘에선 둘 다 숨겨진다.
   // 두 그룹을 모두 펼쳐야 5·25 가 동시에 렌더돼 접미사 충돌(색 주입 MutationObserver 무한 루프)
   // 조건이 성립한다.
@@ -324,7 +324,7 @@ test('에픽에 미정 하위가 있으면 펼침 가능하고 미정 행은 막
   authenticatedPage: page,
 }) => {
   await setupEpicWithUndatedStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   const grid = page.locator('.timeline-gantt-root .wx-grid');
   // 기본 접힘 → 자식 숨김. 에픽은 펼침 가능해야 한다.
   await expect(grid).not.toContainText('백엔드 설계');

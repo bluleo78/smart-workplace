@@ -102,7 +102,7 @@ test('간트 영역이 컨텐츠 컨테이너 높이를 꽉 채운다 (Willow �
   authenticatedPage: page,
 }) => {
   await setupTimelineStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
   // timeline-gantt-root 는 간트 위젯이 채워야 할 실제 컨테이너 — .wx-chart 가 그 높이만큼
   // 채워지는지 확인한다(둘 다 같은 부모 아래라 동일해야 정상).
@@ -385,7 +385,7 @@ test('일정 모순 의존성 링크가 destructive 색으로 강조된다', asy
     }),
   );
 
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
   await expandNoEpicGroup(page);
   await expect(page.locator('[data-link-id]')).toHaveCount(2);

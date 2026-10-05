@@ -41,7 +41,17 @@ export function useTimelineFilterControls(
   const labels = useLabels(projectKey);
   const members = useProjectMembers(projectKey);
   const milestones = useMilestones(projectKey);
-  const write = (next: IssueFilters) => setParams(filtersToParams(next, 'list', null), { replace: true });
+  // filtersToParams 는 URL 을 새로 만든다 — 타임라인 전용 `period`(WP-247)는 필터 모델 밖이라 이전 값을 옮겨 둔다.
+  const write = (next: IssueFilters) =>
+    setParams(
+      (prev) => {
+        const out = filtersToParams(next, 'list', null);
+        const period = prev.get('period');
+        if (period) out.set('period', period);
+        return out;
+      },
+      { replace: true },
+    );
 
   const facets: FacetDef[] = [
     {

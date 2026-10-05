@@ -44,7 +44,10 @@ async function setup(page: Page, opts: { member?: boolean; query?: string } = {}
   });
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/milestones`, (r) => r.fulfill(json(MILESTONES)));
   await page.route((u) => [`/api/v1/projects/${KEY}/cycles`, `/api/v1/projects/${KEY}/issue-dependencies`, `/api/v1/projects/${KEY}/members`, `/api/v1/projects/${KEY}/labels`].includes(u.pathname), (r) => r.fulfill(json([])));
-  await page.goto(`/projects/${KEY}/timeline${opts.query ?? ''}`);
+  // 기간 필터 고정(WP-247) — 쿼리 파라미터가 있으면 &period=all, 없으면 ?period=all 추가
+  const query = opts.query ?? '';
+  const periodQuery = query ? `${query}&period=all` : '?period=all';
+  await page.goto(`/projects/${KEY}/timeline${periodQuery}`);
   await expect(page.getByTestId('timeline-agenda')).toBeVisible();
 }
 

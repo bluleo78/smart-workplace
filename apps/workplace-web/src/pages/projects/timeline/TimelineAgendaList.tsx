@@ -3,6 +3,7 @@
 // 에픽은 기본 접힘 — 왼쪽 펼침 버튼으로 하위를 보고(진행률은 제목 옆 배지), 펼침 상태는 데스크톱 간트와 공유한다(WP-251).
 // 데이터는 TimelinePage 가 이미 조회한 이슈(→ buildAgendaSections)·마일스톤 — 조회 추가 없음. 막대 드래그·마일스톤 편집은 범위 밖.
 import { CalendarRange, ChevronDown, Diamond } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useMemo, useRef, useState } from 'react';
 
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState';
@@ -15,6 +16,7 @@ import type { MilestoneResponse } from '../../../types/milestone';
 import { HIDE_SCROLLBAR, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from '../components/mobile/chipStyles';
 import { MobileFilterSheet } from '../components/mobile/MobileFilterSheet';
 import { type AgendaRow, buildAgendaSections, epicGroupKey } from './timelineData';
+import type { TimelineViewOptions } from './timelineTypes';
 import { useTimelineExpanded } from './useTimelineExpanded';
 import { useTimelineFilterControls } from './useTimelineFilterControls';
 
@@ -37,6 +39,8 @@ export function TimelineAgendaList({
   milestones,
   loading,
   onOpenIssue,
+  view,
+  periodChip,
 }: {
   projectKey: string;
   /** TimelinePage 가 조회한 이슈 전량 — 아젠다 섹션은 여기서 파생(조회 추가 없음). */
@@ -45,9 +49,11 @@ export function TimelineAgendaList({
   /** 첫 로드·자동 다음 페이지 페치 중 — 이 동안은 빈 상태를 띄우지 않는다(깜빡임 방지). */
   loading: boolean;
   onOpenIssue: (issueNumber: number) => void;
+  view: TimelineViewOptions;
+  periodChip?: ReactNode;
 }) {
   // 아젠다 섹션 — 이 컴포넌트는 모바일에서만 마운트되므로 데스크톱에선 계산 자체가 일어나지 않는다.
-  const sections = useMemo(() => buildAgendaSections(issues, new Date()), [issues]);
+  const sections = useMemo(() => buildAgendaSections(issues, new Date(), view), [issues, view]);
   const filter = useTimelineFilterControls(projectKey, { includeAssignee: true });
   const [sheet, setSheet] = useState<'filter' | 'milestones' | null>(null);
   const undatedRef = useRef<HTMLElement | null>(null);
@@ -61,6 +67,7 @@ export function TimelineAgendaList({
     <div className="flex min-h-0 flex-1 flex-col" data-testid="timeline-agenda">
       {/* 칩 줄 — 「필터」는 항상(0건이어도 풀 수 있게), 마일스톤·일정 미정은 N>0 일 때만. 넘치면 가로 스크롤. */}
       <div className={cn('flex shrink-0 items-center gap-1.5 overflow-x-auto border-b px-4 py-2', HIDE_SCROLLBAR)}>
+        {periodChip}
         <button
           type="button"
           data-testid="agenda-chip-filter"

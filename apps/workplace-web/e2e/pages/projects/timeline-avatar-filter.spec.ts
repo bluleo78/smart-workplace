@@ -59,7 +59,7 @@ function setupStubs(page: Page) {
 
 test('아바타 스택 — 최대 5명 + 초과 인원 +N 버튼', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.getByTestId('assignee-avatar-stack')).toBeVisible();
   // overflow 버튼도 'assignee-avatar-' 로 시작하므로 별도 testid(assignee-avatar-overflow)를 제외한다.
   await expect(
@@ -73,7 +73,7 @@ test('아바타 스택 — 최대 5명 + 초과 인원 +N 버튼', async ({ auth
 test('아바타 클릭 → assignee 필터 토글, URL·이슈 검색 쿼리 반영', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   const issueSearches = trackRequests(page, 'ANY', (u) => u.pathname.endsWith(`/projects/${KEY}/issues`) && u.search !== '');
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await page.getByTestId('assignee-avatar-2').click();
   // URL SearchParams 단일 소스 — parseFilters 가 읽는 assignee 파라미터로 직렬화된다.
   await expect(page).toHaveURL(/assignee/);
@@ -86,7 +86,7 @@ test('아바타 클릭 → assignee 필터 토글, URL·이슈 검색 쿼리 반
 
 test('+N 팝오버에서 나머지 멤버 토글 가능', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await page.getByTestId('assignee-avatar-overflow').click();
   await page.getByRole('button', { name: '한여섯' }).click();
   await expect(page).toHaveURL(/assignee/);

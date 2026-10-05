@@ -1,6 +1,7 @@
 // 데스크톱 타임라인 본문 — 필터바·간트·일정 미정 섹션. TimelinePage 에서 분리해 데스크톱(≥1024px)에서만 마운트한다.
 // 왜: 의존성 조회·사이클 조회·에픽 그룹/화살표 계산은 간트 전용이라, 모바일 아젠다(WP-197)에선 돌 필요가 없다.
 // 이슈 전량·마일스톤·자동 다음 페이지 페치·마일스톤 다이얼로그/팝오버 상태는 모바일과 공유하므로 TimelinePage 가 소유한다.
+import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -18,6 +19,7 @@ import {
 } from './timelineData';
 import { TimelineFilterBar } from './TimelineFilterBar';
 import { TimelineGantt, type TimelineZoom } from './TimelineGantt';
+import type { TimelineViewOptions } from './timelineTypes';
 import { UnscheduledSection } from './UnscheduledSection';
 import { useTimelineExpanded } from './useTimelineExpanded';
 
@@ -30,6 +32,8 @@ export function TimelineGanttBody({
   readOnly,
   onMilestoneClick,
   onLaneClick,
+  view,
+  periodPicker,
 }: {
   projectKey: string;
   issues: IssueResponse[];
@@ -41,6 +45,8 @@ export function TimelineGanttBody({
   onMilestoneClick: (milestone: MilestoneResponse, anchorRect: DOMRect) => void;
   /** 빈 레인 클릭 — 해당 날짜로 마일스톤 생성 다이얼로그(읽기 전용 판단은 여기서). */
   onLaneClick: (date: string) => void;
+  view: TimelineViewOptions;
+  periodPicker?: ReactNode;
 }) {
   const navigate = useNavigate();
   const cycles = useCycles(key);
@@ -48,7 +54,7 @@ export function TimelineGanttBody({
   const updateIssue = useTimelineIssueUpdate(key);
 
   // 에픽 계층 트리(#649) — bars 평면 목록 대신 에픽 그룹 트리로 변환.
-  const { groups, unscheduled } = useMemo(() => groupTimelineIssues(issues), [issues]);
+  const { groups, unscheduled } = useMemo(() => groupTimelineIssues(issues, view), [issues, view]);
   const cycleBands = useMemo(() => cyclesToBands(cycles.data ?? []), [cycles.data]);
   const milestoneMarkers = useMemo(() => milestonesToMarkers(milestones ?? []), [milestones]);
   // 일정 미정/CANCELED 이슈로의 화살표는 SVAR 가 렌더할 노드가 없어 제외한다.
@@ -63,7 +69,7 @@ export function TimelineGanttBody({
   return (
     <>
       <div className="border-b px-4 py-1">
-        <TimelineFilterBar projectKey={key} />
+        <TimelineFilterBar projectKey={key} leading={periodPicker} />
       </div>
       <div className="min-h-0 flex-1 px-4 py-6" data-testid="timeline-gantt">
         <TimelineGantt
