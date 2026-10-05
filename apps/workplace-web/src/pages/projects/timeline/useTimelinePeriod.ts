@@ -17,7 +17,8 @@ export function useTimelinePeriod(projectKey: string) {
   // 오늘은 날짜(일) 단위로만 쓰므로 렌더마다 새로 만들어도 결과가 같다 — 문자열 키로 메모를 고정한다.
   const todayKey = format(new Date(), 'yyyy-MM-dd');
   // 사이클 조회 실패면 활성 사이클 기본값 대신 rolling 으로 대체(안내 문구 포함).
-  const cyclesFailed = cycles.isError;
+  // 캐시된 사이클이 있으면 백그라운드 재조회가 실패해도 그 데이터로 푼다 — 데이터가 아예 없을 때만 대체 기간.
+  const cyclesFailed = cycles.isError && !cycles.data;
   const period = useMemo(
     () => resolvePeriod(param, cycleList, parseISO(todayKey), { cyclesFailed }),
     [param, cycleList, todayKey, cyclesFailed],

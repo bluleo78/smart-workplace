@@ -39,7 +39,7 @@ export function TimelinePeriodPicker({
           <ChevronDown className="size-3.5" aria-hidden />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-1" data-testid="timeline-period-popover">
+      <PopoverContent align="start" aria-label="조회 기간" className="w-72 p-1" data-testid="timeline-period-popover">
         {/* 메뉴(role=menu) 안에 폼을 둘 수 없어(ARIA) 선택지는 aria-pressed 버튼 묶음(role=group), 직접 지정 폼은 묶음 밖에 둔다. */}
         <div>
           {(['cycle', 'preset', 'all'] as const).map((g) => (
