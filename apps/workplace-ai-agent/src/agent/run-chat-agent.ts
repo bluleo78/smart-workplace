@@ -35,6 +35,32 @@ function isAddChatMessage(name: string): boolean {
   return name === 'add_chat_message' || name.endsWith('_add_chat_message');
 }
 
+// 대체 답변 전 확인용으로 다시 받는 최근 메시지 수 — 트리거 이후 에이전트 답변만 찾으면 되므로 작게.
+const REPLY_CHECK_LIMIT = 10;
+
+/**
+ * 트리거 메시지 이후 이 에이전트가 쓴 메시지가 이미 있는지. opencode 는 도구 이벤트가 완료 상태로만 와 tool_use 가
+ * 누락될 수 있어, 이벤트만 보고 대체 답변을 올리면 중복 답변이 된다 — 실제 스레드로 한 번 더 확인한다.
+ * 확인 자체가 실패하면 false(답변 누락이 중복보다 더 큰 손해라 대체 답변을 진행).
+ */
+async function agentAlreadyReplied(
+  deps: RunChatAgentDeps,
+  agentId: number,
+  threadId: number,
+  triggerMessageId: number,
+): Promise<boolean> {
+  try {
+    const recent = await deps.client.getChatMessages(agentId, threadId, REPLY_CHECK_LIMIT);
+    return recent.some((m) => m.id > triggerMessageId && m.authorId === agentId && !m.deleted);
+  } catch (e) {
+    console.warn('[run-chat-agent] 답변 여부 확인 실패 — 대체 답변 진행', {
+      threadId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return false;
+  }
+}
+
 /** runChatAgent 의존성 — sleep 은 테스트에서 실제로 기다리지 않게 주입할 수 있다. */
 export type RunChatAgentDeps = RunAgentDeps & { sleep?: (ms: number) => Promise<void> };
 
@@ -223,7 +249,7 @@ export async function runChatAgent(
         const fallbackText = finalResult?.ok
           ? (sawText ? lastSegment : (finalResult.text ?? '')).trim()
           : undefined;
-        if (!replied && fallbackText) {
+        if (!replied && fallbackText && !(await agentAlreadyReplied(deps, agentId, p.threadId, p.messageId))) {
           // 실패해도 진행 표시는 done 으로 닫는다 — 러너 자체는 성공했으므로 스트림 실패로 기록하지 않는다.
           console.warn('[run-chat-agent] add_chat_message 없이 끝남 — 최종 텍스트로 대신 답변 등록', {
             threadId: p.threadId,

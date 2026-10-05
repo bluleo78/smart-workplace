@@ -46,6 +46,8 @@ export interface ChatAttachmentMeta {
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).
 export interface ChatMessageItem {
   id: number;
+  // 작성자 user id — 대체 답변 전 "이 에이전트가 이미 답했는지" 확인용(WP-244). 서버는 항상 주지만 구버전 응답 대비 선택.
+  authorId?: number;
   authorName: string;
   authorKind: 'HUMAN' | 'AGENT';
   body: string;

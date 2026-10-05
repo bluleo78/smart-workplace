@@ -366,6 +366,39 @@ describe('runChatAgent add_chat_message 누락 대체 답변(WP-244)', () => {
     expect(d.client.addChatMessage).not.toHaveBeenCalled();
   });
 
+  // tool_use 이벤트가 누락돼도(opencode 가 완료 상태로만 보낸 경우) 스레드에 이미 답이 있으면 중복으로 올리지 않는다.
+  it('트리거 이후 이 에이전트 메시지가 이미 있으면 올리지 않는다', async () => {
+    streamSpy.mockImplementation(streamWith([{ type: 'result', ok: true, text: '답변', usage: null }]));
+    const d = depsWithAdd();
+    vi.mocked(d.client.getChatMessages).mockResolvedValue([
+      { id: 9, authorId: 7, authorName: 'A', authorKind: 'HUMAN', body: '@AI', createdAt: 't', deleted: false },
+      { id: 10, authorId: 99, authorName: 'AI', authorKind: 'AGENT', body: '답변', createdAt: 't', deleted: false },
+    ]);
+    await runChatAgent(env, d);
+    expect(d.client.addChatMessage).not.toHaveBeenCalled();
+  });
+
+  it('트리거 이전의 에이전트 메시지·다른 사용자 메시지는 답변으로 보지 않는다', async () => {
+    streamSpy.mockImplementation(streamWith([{ type: 'result', ok: true, text: '답변', usage: null }]));
+    const d = depsWithAdd();
+    vi.mocked(d.client.getChatMessages).mockResolvedValue([
+      { id: 8, authorId: 99, authorName: 'AI', authorKind: 'AGENT', body: '예전 답변', createdAt: 't', deleted: false },
+      { id: 11, authorId: 7, authorName: 'A', authorKind: 'HUMAN', body: '추가 질문', createdAt: 't', deleted: false },
+    ]);
+    await runChatAgent(env, d);
+    expect(d.client.addChatMessage).toHaveBeenCalledWith(99, 5, '답변');
+  });
+
+  it('답변 여부 확인이 실패하면 대체 답변을 진행한다', async () => {
+    streamSpy.mockImplementation(streamWith([{ type: 'result', ok: true, text: '답변', usage: null }]));
+    const d = depsWithAdd();
+    vi.mocked(d.client.getChatMessages)
+      .mockResolvedValueOnce([]) // 프롬프트 준비용 조회
+      .mockRejectedValueOnce(new Error('500')); // 답변 여부 확인
+    await runChatAgent(env, d);
+    expect(d.client.addChatMessage).toHaveBeenCalledWith(99, 5, '답변');
+  });
+
   it('result ok:false 이면 올리지 않는다', async () => {
     streamSpy.mockImplementation(streamWith([{ type: 'result', ok: false, text: '중간 텍스트', usage: null }]));
     const d = depsWithAdd();
