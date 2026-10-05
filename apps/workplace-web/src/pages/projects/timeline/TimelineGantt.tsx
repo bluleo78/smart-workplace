@@ -209,8 +209,8 @@ export function TimelineGantt({
       // undefined 이거나 명시적으로 null 로 비워진(_clearBranch) 노드에 `open: true` 를 주면
       // `null/undefined.forEach()` 로 크래시한다(#656). `type` 은 이 크래시와 무관하며(둘 다
       // 영향받음), 실제 불변식은 "자식이 없으면 open 필드 자체를 넣지 않는다"이다.
-      // 날짜 자식 + 미정 자식 중 하나라도 있으면 펼침 가능한 summary. (자식 0이면 잎 — #656 가드 유지)
       // 그룹은 항상 summary 로 렌더(완료·취소 에픽 식별 위해 wx-summary 클래스 필요, WP-247).
+      // 자식이 없는 그룹은 open 필드를 넣지 않음(#656 가드) — 완료/취소 에픽은 색칠되지만 펼칠 수 없다.
       const hasChildren = group.bars.length > 0 || group.undatedChildren.length > 0
       // range 가 null 이면 그릴 에픽 막대가 없다 — id 에 '-nobar' 를 붙여 정적 CSS 로 막대만 숨긴다.
       const noBar = group.range === null

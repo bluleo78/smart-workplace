@@ -160,10 +160,17 @@ test.describe('타임라인 완료·취소 에픽 표시 (WP-247)', () => {
     ]);
     await expect(summary(page, 40)).toHaveAttribute('data-epic-status', 'DONE');
     await expect(gridRow(page, '끝난 에픽')).toContainText('완료');
-    const success = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--success').trim());
+    // 완료 색상 검증 — 프로브 요소에서 --success 계산값을 읽어 요약 막대 배경과 비교
+    const probeColor = await page.evaluate(() => {
+      const probe = document.createElement('div');
+      probe.style.color = 'var(--success)';
+      document.documentElement.appendChild(probe);
+      const computed = getComputedStyle(probe).color;
+      probe.remove();
+      return computed;
+    });
     const bg = await summary(page, 40).evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(bg).not.toBe('');
-    expect(success).not.toBe('');
+    expect(bg).toBe(probeColor);
   });
 
   test('취소 에픽 — 기본은 숨고 하위 진행 중 이슈는 「에픽 없음」에 원래 에픽 이름과 함께, 「취소」 필터면 빗금 막대', async ({ authenticatedPage: page }) => {
@@ -172,11 +179,14 @@ test.describe('타임라인 완료·취소 에픽 표시 (WP-247)', () => {
       createIssue({ number: 71, title: '녹음 업로드 API', status: 'IN_PROGRESS', parent: parent(70, '음성 메모'), startDate: '2026-10-05', dueDate: '2026-10-08' }),
     ];
     await setup(page, list);
-    await expect(gridRow(page, '음성 메모 ·')).toHaveCount(0);
+    // 「취소」 상태 필터 없으면 취소 에픽이 숨겨진다 — 요약 막대가 없음을 확인
     await expect(gridRow(page, '에픽 없음')).toBeVisible();
+    await expect(summary(page, 70)).toHaveCount(0);
+    // 취소 에픽의 진행 중 하위는 「에픽 없음」 그룹에 원래 에픽 이름과 함께 표시
     await gridRow(page, '에픽 없음').locator('.wx-toggle-icon, [class*="toggle"]').first().click();
     await expect(gridRow(page, '녹음 업로드 API')).toContainText('← 음성 메모');
 
+    // 「취소」 필터를 추가하면 취소 에픽이 빗금 막대로 표시됨
     await setup(page, [list[0]], '?period=all&status=CANCELED');
     await expect(summary(page, 70)).toHaveAttribute('data-epic-status', 'CANCELED');
     await expect(gridRow(page, '음성 메모')).toContainText('취소');
