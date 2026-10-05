@@ -52,9 +52,9 @@ export function ClosedEpicsSection({
                 >
                   {/* 흐림은 제목·색점에만 — 배지는 또렷하게 둬 상태를 읽을 수 있게 한다. */}
                   <span className="flex items-center gap-2">
-                    <span className={cn('h-2 w-2 shrink-0 rounded-full opacity-50', avatarColorClass(ep.number).split(' ')[0])} aria-hidden="true" />
+                    <span className={cn('h-2 w-2 shrink-0 rounded-full opacity-50 dark:opacity-70', avatarColorClass(ep.number).split(' ')[0])} aria-hidden="true" />
                     <span
-                      className={cn('min-w-0 flex-1 truncate text-muted-foreground', ep.status === 'CANCELED' && 'line-through')}
+                      className={cn('min-w-0 flex-1 truncate', selected ? 'text-foreground' : 'text-muted-foreground', ep.status === 'CANCELED' && 'line-through')}
                       title={ep.title}
                     >
                       {ep.title}

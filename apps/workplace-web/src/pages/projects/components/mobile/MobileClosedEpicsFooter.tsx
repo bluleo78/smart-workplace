@@ -33,10 +33,12 @@ export function MobileClosedEpicsFooter({
         type="button"
         aria-expanded={expanded}
         data-testid="mobile-epic-closed-toggle"
+        // 검색 중에는 맞는 종료 에픽을 늘 펼쳐 두므로 접을 수 없다 — 눌러도 반응 없는 버튼처럼 보이지 않게 비활성·쉐브론 숨김.
+        disabled={searching}
         onClick={() => onToggle(!expanded)}
-        className={cn(MOBILE_SHEET_ROW, 'text-sm text-muted-foreground')}
+        className={cn(MOBILE_SHEET_ROW, 'text-sm text-muted-foreground disabled:opacity-100')}
       >
-        <ChevronRight className={cn('transition-transform', expanded && 'rotate-90')} aria-hidden />
+        <ChevronRight className={cn('transition-transform', expanded && 'rotate-90', searching && 'invisible')} aria-hidden />
         <span className="flex-1">종료된 에픽</span>
         <span>{epics.length}</span>
       </button>
@@ -57,7 +59,7 @@ export function MobileClosedEpicsFooter({
                 }}
                 className={cn(MOBILE_SHEET_ROW, 'min-w-0 flex-1', selected && 'font-medium')}
               >
-                <span className={cn('min-w-0 flex-1 truncate text-muted-foreground', ep.status === 'CANCELED' && 'line-through')}>
+                <span className={cn('min-w-0 flex-1 truncate', selected ? 'text-foreground' : 'text-muted-foreground', ep.status === 'CANCELED' && 'line-through')}>
                   {ep.title}
                 </span>
                 <ClosedStatusBadge status={ep.status} />
