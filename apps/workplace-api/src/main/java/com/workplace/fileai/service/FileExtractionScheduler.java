@@ -2,6 +2,7 @@ package com.workplace.fileai.service;
 
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.inbound.ExtractionBackfillSource;
+import com.workplace.fileai.outbound.WorkerProperties;
 import com.workplace.fileai.repository.WorkerJobRepository;
 import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
@@ -16,7 +17,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * 파일 추출·요약 백필 스케줄러. 3분 주기로 미완(PENDING/lease 만료 EXTRACTING·SUMMARIZING/TEXT_READY) 파일을 재처리한다. ① 수집
- * 전에 기존 첨부 백필 시드(WP-244)도 한다.
+ * 전에 기존 첨부 백필 시드(WP-244)도 한다 — 시드량은 재개 상한(resume-batch-size)에서 이미 대기 중인 TEXT_ONLY PENDING 수를 뺀 만큼으로
+ * 묶이고, 재개 수집은 FULL(드라이브)을 먼저 집으므로 첨부 백필은 남는 슬롯만큼만 천천히 소진된다.
  *
  * <p>MailSummaryScheduler 의 2단계 패턴을 미러한다. ① {@link TenantScopedRunner} 로 테넌트별 짧은 트랜잭션에서 재개 대상 목록만
  * 수집(RLS 통과), ② Runner 트랜잭션 밖에서 TenantContext 만 주입해 dispatchPending/summarizePending 처리 — IMAP/LLM
@@ -34,11 +36,15 @@ public class FileExtractionScheduler {
   private final WorkerJobRepository jobRepo;
   private final FileExtractionPipeline pipeline;
 
-  /** 회차당 테넌트·소스별 백필 시드 상한 — 백로그는 3분 주기로 소진된다(WP-244). */
+  /**
+   * 회차당 테넌트별 백필 시드 절대 상한(WP-244). 실제 예산은 이 값과 "재개 상한 − 대기 중 TEXT_ONLY PENDING 수" 중 작은 쪽이다 — 한 틱에
+   * 디스패치할 수 있는 양보다 많이 시드해 봐야 PENDING 큐만 길어지기 때문.
+   */
   static final int BACKFILL_BATCH = 100;
 
   private final List<ExtractionBackfillSource> backfillSources;
   private final FileExtractionRowWriter rowWriter;
+  private final WorkerProperties workerProps;
 
   /** 3분 주기 백필. */
   @Scheduled(fixedRate = 180_000)
@@ -46,8 +52,12 @@ public class FileExtractionScheduler {
   public void runOnce() {
     // ① 테넌트별 재개 대상 수집 — Runner 가 테넌트별 짧은 트랜잭션 + GUC 주입(RLS 통과).
     // 기존 첨부 백필 시드(WP-244)는 별도 패스·별도 트랜잭션으로 먼저 돈다 — 시드가 실패(SQL 오류)해도 해당 테넌트의 아래 수집 패스
-    // (PENDING·lease 만료 복구)가 같이 롤백되지 않게 격리한다. 시드된 PENDING 행은 아래 findResumable 이 같은 회차에 줍는다.
-    tenantRunner.forEachActiveTenant(this::seedMissingAttachments);
+    // (PENDING·lease 만료 복구)가 같이 롤백되지 않게 격리한다. 시드된 PENDING 행은 아래 findResumable 이 재개 상한 안에서(FULL 다음
+    // 순서로) 줍는다.
+    // 워커가 꺼진 환경에서는 시드하지 않는다 — dispatchPending 이 no-op 이라 시드한 행이 영원히 PENDING("추출 중")으로 남는다.
+    if (workerProps.enabled()) {
+      tenantRunner.forEachActiveTenant(this::seedMissingAttachments);
+    }
     List<TenantFile> targets = new ArrayList<>();
     tenantRunner.forEachActiveTenant(
         tenantId -> {
@@ -88,14 +98,24 @@ public class FileExtractionScheduler {
   }
 
   /**
-   * 소스마다 추출 행이 없는 첨부를 최대 {@value #BACKFILL_BATCH}건 TEXT_ONLY 로 시드한다. 테넌트 GUC 가 주입된 트랜잭션 안에서 호출해야
-   * 한다(소스 조회·행 삽입 모두 RLS 범위). 빠진 행만 만들므로 멱등이다.
+   * 추출 행이 없는 첨부를 TEXT_ONLY 로 시드한다. 테넌트당 예산 = max(0, min({@value #BACKFILL_BATCH}, 재개 상한 − 현재
+   * TEXT_ONLY PENDING 수))이고, 소스 순서대로 남은 예산을 넘겨 나눠 쓴다(SKIPPED 로 끝나는 이미지도 예산을 쓴다 — 보수적이며 재등장하지 않는다).
+   * 테넌트 GUC 가 주입된 트랜잭션 안에서 호출해야 한다(소스 조회·행 삽입 모두 RLS 범위). 빠진 행만 만들므로 멱등이다.
    */
   void seedMissingAttachments(long tenantId) {
+    int remaining =
+        Math.max(
+            0,
+            Math.min(BACKFILL_BATCH, jobRepo.resumeBatchSize() - jobRepo.countPendingTextOnly()));
     for (ExtractionBackfillSource source : backfillSources) {
-      for (ExtractionBackfillSource.Target t : source.findMissing(BACKFILL_BATCH)) {
+      if (remaining <= 0) {
+        return;
+      }
+      List<ExtractionBackfillSource.Target> targets = source.findMissing(remaining);
+      for (ExtractionBackfillSource.Target t : targets) {
         rowWriter.write(t.fileId(), tenantId, t.mime(), ExtractionProfile.TEXT_ONLY);
       }
+      remaining -= targets.size();
     }
   }
 }

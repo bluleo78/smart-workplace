@@ -36,7 +36,14 @@ import org.springframework.transaction.support.TransactionTemplate;
  * WP-244: 백스톱 스케줄러가 추출 행 없는 기존 첨부를 TEXT_ONLY 로 시드하고, 행 생성 판정(PENDING/SKIPPED)을 writer 로 공유한다. 도메인
  * 픽스처 없이 스케줄러 시드만 보도록 테스트 전용 소스를 쓴다(실 소스는 Task 1 테스트가 검증).
  */
-@TestPropertySource(properties = "workplace.worker.enabled=true")
+// resume-batch-size 를 크게 — 공유 Testcontainers DB 의 다른 테스트 잔여 재개 행·TEXT_ONLY PENDING 수와 무관하게 시드 예산과
+// 같은 회차
+// 디스패치가 이 테스트의 파일까지 닿게 한다(기본 50 이면 잔여 행에 밀려 깨질 수 있음).
+@TestPropertySource(
+    properties = {
+      "workplace.worker.enabled=true",
+      "workplace.worker.extract.resume-batch-size=100000"
+    })
 @Import(AttachmentExtractionBackfillTest.FakeSourceConfig.class)
 class AttachmentExtractionBackfillTest extends IntegrationTestBase {
 
@@ -148,8 +155,8 @@ class AttachmentExtractionBackfillTest extends IntegrationTestBase {
   }
 
   @Test
-  void 다른_테넌트_첨부는_시드하지_않는다() {
-    // writer 가 tenantId 인자로 행을 쓰므로, GUC(테넌트 1) 와 다른 tenant 로의 삽입이 막히는지 확인한다.
+  void GUC_와_다른_테넌트로는_행을_쓸_수_없다() {
+    // writer 가 tenantId 인자로 행을 쓰므로, GUC(테넌트 1) 와 다른 tenant 로의 삽입이 RLS WITH CHECK·FK 로 거부되는지 확인한다.
     long fileId = seedFile("application/pdf");
     assertThatThrownBy(
             () ->

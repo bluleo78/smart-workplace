@@ -340,6 +340,8 @@ public class WorkerJobRepository {
    *       전이되거나 다음 claimForSummary 에서 전이됨
    * </ul>
    *
+   * <p>결과는 resume-batch-size 상한으로 잘리며, FULL 프로파일 행이 TEXT_ONLY 보다 먼저 온다(그 안에서는 file_id 오름차순).
+   *
    * @return 재개 대상 파일 id 목록 (tenantId 는 caller 가 TenantContext 로 설정)
    */
   public List<Long> findResumable() {
@@ -368,9 +370,32 @@ public class WorkerJobRepository {
                         .eq("TEXT_READY")
                         .and(FILE_EXTRACTION.ATTEMPTS.lessThan(MAX_SUMMARY_ATTEMPTS))
                         .and(FULL_ONLY)))
+        // 상한을 넘을 때 FULL(드라이브 — 요약 재시도·lease 만료 복구 포함)을 TEXT_ONLY(첨부 백필, WP-244)보다 먼저 집는다. 첨부
+        // 백필이 쌓여도 드라이브 복구가 굶지 않게 하기 위함. 같은 프로파일 안에서는 file_id 오름차순(오래된 것 먼저)으로 결정적 순서.
+        .orderBy(
+            DSL.when(FULL_ONLY, DSL.inline(0)).otherwise(DSL.inline(1)),
+            FILE_EXTRACTION.FILE_ID.asc())
         // 재개방 백필 시 한 틱 전량 디스패치를 막는 상한(#735).
         .limit(resumeBatchSize)
         .fetch(FILE_EXTRACTION.FILE_ID);
+  }
+
+  /** 백필 스케줄러 한 틱당 재개 파일 상한 — 첨부 백필 시드 예산 계산에 쓴다(WP-244). */
+  public int resumeBatchSize() {
+    return resumeBatchSize;
+  }
+
+  /**
+   * 현재 테넌트의 TEXT_ONLY PENDING 행 수 — 아직 디스패치되지 않은 첨부 추출 대기열 길이. 백필 시드가 재개 상한을 넘겨 큐를 범람시키지 않게 예산을 깎는
+   * 데 쓴다(WP-244). 테넌트 GUC 가 주입된 트랜잭션 안에서 호출해야 한다.
+   */
+  public int countPendingTextOnly() {
+    return dsl.fetchCount(
+        FILE_EXTRACTION,
+        FILE_EXTRACTION
+            .STATUS
+            .eq("PENDING")
+            .and(FILE_EXTRACTION.PROFILE.eq(ExtractionProfile.TEXT_ONLY.name())));
   }
 
   /** 요약 컨텍스트 — ai-agent 호출에 필요한 파일 정보. */
