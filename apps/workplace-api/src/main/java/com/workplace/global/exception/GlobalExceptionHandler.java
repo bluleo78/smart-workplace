@@ -1412,6 +1412,14 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
+  /** WP-242 — 추출 텍스트 구간 읽기 범위 오류(offset 음수·limit 1 미만) → 400. */
+  @ExceptionHandler(com.workplace.fileai.exception.InvalidTextRangeException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidTextRange(
+      com.workplace.fileai.exception.InvalidTextRangeException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
   /** Phase 6a — chat 메시지 id 미존재 또는 soft-deleted → 404. */
   @ExceptionHandler(ChatMessageNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleChatMessageNotFound(
