@@ -40,8 +40,8 @@ function useEpicList(projectKey: string, statuses: string[], enabled: boolean) {
   // 훅 순서 고정 — epicType 미확정 시 typeIds:[-1] 자리채움 + enabled=false 로 요청만 막는다.
   const epicSearch = useIssueSearch(projectKey, epicListFilters(epicType?.id ?? -1, statuses), 100, enabled && !!epicType);
   const epics = epicSearch.data?.pages.flatMap((p) => p.items ?? []) ?? [];
-  // 로딩: 유형 목록 로딩 중이거나, EPIC 유형 확정 후 에픽 검색 로딩 중. 종료 에픽은 첫 페이지만 로딩 표시(뒤 페이지 로딩 중엔 섹션 유지).
-  const loading = types.isLoading || (!!epicType && epicSearch.isLoading && !epicSearch.data);
+  // 로딩: 유형 목록 로딩 중이거나, EPIC 유형 확정 후 첫 페이지 로딩 중(isLoading 은 데이터가 없을 때만 참 — 뒤 페이지 로딩은 해당 없음).
+  const loading = types.isLoading || (!!epicType && epicSearch.isLoading);
   return { epicType, epics, loading, epicSearch };
 }
 
@@ -53,8 +53,10 @@ export function useProjectEpics(projectKey: string, enabled = true) {
 export function useClosedEpics(projectKey: string, enabled = true) {
   const { epics, loading, epicSearch } = useEpicList(projectKey, CLOSED_EPIC_STATUSES, enabled);
   // 종료 에픽은 계속 쌓여 100건을 넘을 수 있다 — 개수·자동 펼침·칩 라벨이 맞도록 전량을 받는다.
+  // 쿼리 객체 전체가 아니라 페이지 상태만 의존해 상태 변화마다 이펙트가 다시 돌지 않게 한다.
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = epicSearch;
   useEffect(() => {
-    if (epicSearch.hasNextPage && !epicSearch.isFetchingNextPage) void epicSearch.fetchNextPage();
-  }, [epicSearch.hasNextPage, epicSearch.isFetchingNextPage, epicSearch]);
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
   return { epics, loading };
 }

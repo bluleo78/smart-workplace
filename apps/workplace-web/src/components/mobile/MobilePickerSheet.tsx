@@ -33,7 +33,7 @@ export function MobilePickerSheet({
   testId?: string;
   /** 제목 줄 오른쪽 액션(예: 「에픽 만들기」). 없으면 제목만 렌더한다. */
   headerAction?: ReactNode;
-  /** 옵션 목록 아래에 붙는 영역. 함수면 검색 필터링된 결과와 닫기 함수를 받아 조건부 렌더링할 수 있다(WP-245). */
+  /** 옵션 목록 아래에 붙는 영역. 함수면 현재 검색어와 닫기 함수(검색어도 비움)를 받는다(WP-245). null 을 돌려주면 옵션이 0건일 때 「결과가 없습니다」를 띄운다. */
   listFooter?: ReactNode | ((ctx: { close: () => void; keyword: string }) => ReactNode);
   /** 미선택 줄에도 ✓ 자리를 비워 둔다 — hint 가 줄마다 같은 x 에 서야 하는 시트(진행률 등)용. 선택된 줄만 hint 가 밀리지 않게. */
   reserveCheck?: boolean;
