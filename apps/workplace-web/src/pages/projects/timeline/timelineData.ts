@@ -83,6 +83,9 @@ export function rollupOverlay(
 
 const NO_EPIC_KEY = 'no-epic';
 
+/** 에픽 그룹 키 — 간트 그룹(TimelineEpicGroup.key)과 펼침 상태 저장(useTimelineExpanded)이 같은 형식을 쓴다. */
+export const epicGroupKey = (epicNumber: number) => `epic-${epicNumber}`;
+
 /** IssueResponse → TimelineBar 변환 (dueDate 필수 — 호출부가 사전에 필터링). */
 function toBar(issue: IssueResponse): TimelineBar {
   return {
@@ -176,7 +179,7 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
     if (!epic && kids.length === 0) continue;
 
     groups.push({
-      key: `epic-${num}`,
+      key: epicGroupKey(num),
       epicNumber: num,
       title: epic?.title ?? kids[0]?.parent?.title ?? `#${num}`,
       done: epic ? epic.childDoneCount : kids.filter((k) => k.status === 'DONE').length,
@@ -226,6 +229,16 @@ export interface AgendaRow {
   due: string | null;
   /** 섹션 월 안 막대 위치(0~1 비율, 월 밖은 0/1 로 잘림). 날짜가 하나도 없으면 null. */
   bar: { left: number; right: number } | null;
+  /** 소속 에픽 번호 — epic 행은 자기 번호, child 는 부모 에픽, issue 는 null. 접기(WP-251)에 쓴다. */
+  epicNumber: number | null;
+  /** 에픽 행 진행률(완료/전체) — 응답에 에픽이 있으면 서버 집계, 합성 에픽이면 보이는 하위 기준. 그 밖의 행은 null. */
+  progress: { done: number; total: number } | null;
+  /**
+   * 에픽 행 아래 얇은 막대(WP-251, 데스크톱 WP-249 와 같은 규칙) — 날짜 있는 하위의 실제 범위(bar)와
+   * 그중 에픽 기간 안쪽 구간(inside, 겹침 없으면 null). bar 중 inside 밖은 초과 구간이다.
+   * 에픽 자체 날짜가 없거나(머리 막대가 이미 하위 롤업) 날짜 있는 하위가 없으면 null.
+   */
+  rollup: { bar: { left: number; right: number }; inside: { left: number; right: number } | null } | null;
 }
 
 /** 아젠다 섹션 1개 — 월 또는 「일정 미정」. */
@@ -293,15 +306,19 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date): Agend
     }
   }
 
-  type Item = Omit<AgendaRow, 'bar'>;
+  // 막대는 섹션 월이 정해진 뒤 계산하므로, 그 전엔 날짜 구간만 들고 있는다(rollupSpan/insideSpan).
+  type Span = { start: string; end: string };
+  type Item = Omit<AgendaRow, 'bar' | 'rollup'> & { rollupSpan?: Span; insideSpan?: Span | null };
   // 블록 = 섹션에 함께 들어가는 행 묶음(에픽 머리 + 하위, 또는 단독 이슈). 블록 기준일로 섹션·순서를 정한다.
   const blocks: { basis: string | null; number: number; items: Item[] }[] = [];
-  const toItem = (i: IssueResponse, kind: AgendaRow['kind']): Item => ({
+  const toItem = (i: IssueResponse, kind: AgendaRow['kind'], epicNumber: number | null): Item => ({
     issueNumber: i.number,
     title: i.title,
     kind,
     start: i.startDate,
     due: i.dueDate,
+    epicNumber,
+    progress: null,
   });
 
   for (const num of new Set([...epicByNumber.keys(), ...children.keys()])) {
@@ -313,20 +330,37 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date): Agend
       .filter((d): d is string => d != null)
       .sort();
     const own = epic ? basisOf(epic) : null;
+    const progress = epic
+      ? { done: epic.childDoneCount, total: epic.childCount }
+      : { done: kids.filter((x) => x.k.status === 'DONE').length, total: kids.length };
+    const kidSpan: Span | null =
+      kidBases.length > 0 ? { start: kidBases[0], end: kidEnds[kidEnds.length - 1] ?? kidBases[0] } : null;
     // 에픽 자기 날짜가 있으면 그대로, 없으면(또는 응답에 에픽이 없으면) 하위 롤업으로 머리 행 날짜·막대를 만든다.
-    const head: Item =
-      epic && own
-        ? toItem(epic, 'epic')
-        : {
-            issueNumber: num,
-            title: epic?.title ?? kids[0]?.k.parent?.title ?? `#${num}`,
-            kind: 'epic',
-            start: kidBases[0] ?? null,
-            due: kidEnds[kidEnds.length - 1] ?? null,
-          };
-    blocks.push({ basis: own ?? kidBases[0] ?? null, number: num, items: [head, ...kids.map((x) => toItem(x.k, 'child'))] });
+    let head: Item;
+    if (epic && own) {
+      head = { ...toItem(epic, 'epic', num), progress };
+      // 에픽 기간(한쪽 날짜만 있으면 그날 하루) vs 하위 실제 범위 — 얇은 막대와 기간 안쪽 구간(WP-251).
+      if (kidSpan) {
+        const [es, ee] = [epic.startDate ?? own, epic.dueDate ?? own].sort();
+        const inStart = kidSpan.start > es ? kidSpan.start : es;
+        const inEnd = kidSpan.end < ee ? kidSpan.end : ee;
+        head.rollupSpan = kidSpan;
+        head.insideSpan = inStart <= inEnd ? { start: inStart, end: inEnd } : null;
+      }
+    } else {
+      head = {
+        issueNumber: num,
+        title: epic?.title ?? kids[0]?.k.parent?.title ?? `#${num}`,
+        kind: 'epic',
+        start: kidSpan?.start ?? null,
+        due: kidSpan?.end ?? null,
+        epicNumber: num,
+        progress,
+      };
+    }
+    blocks.push({ basis: own ?? kidBases[0] ?? null, number: num, items: [head, ...kids.map((x) => toItem(x.k, 'child', num))] });
   }
-  for (const i of loose) blocks.push({ basis: basisOf(i), number: i.number, items: [toItem(i, 'issue')] });
+  for (const i of loose) blocks.push({ basis: basisOf(i), number: i.number, items: [toItem(i, 'issue', null)] });
   blocks.sort(byBasis);
 
   const todayStr = format(today, 'yyyy-MM-dd');
@@ -348,7 +382,20 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date): Agend
             };
       sections.set(key, sec);
     }
-    for (const it of b.items) sec.rows.push({ ...it, bar: key === UNDATED_KEY ? null : barIn(key, it.start, it.due) });
+    for (const { rollupSpan, insideSpan, ...it } of b.items) {
+      const dated = key !== UNDATED_KEY;
+      sec.rows.push({
+        ...it,
+        bar: dated ? barIn(key, it.start, it.due) : null,
+        rollup:
+          dated && rollupSpan
+            ? {
+                bar: barIn(key, rollupSpan.start, rollupSpan.end)!,
+                inside: insideSpan ? barIn(key, insideSpan.start, insideSpan.end) : null,
+              }
+            : null,
+      });
+    }
   }
   // blocks 가 기준일 오름차순(미정 맨 뒤)이라 Map 삽입 순서 = 섹션 순서.
   return [...sections.values()];

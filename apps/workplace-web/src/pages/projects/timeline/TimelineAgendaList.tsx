@@ -1,7 +1,8 @@
 // 모바일 타임라인 아젠다(WP-197) — 간트(가로 캔버스·드래그)는 390px 에서 읽기 어려워 월별 세로 목록으로 보여 준다.
 // 상단 칩 줄 [필터 N][마일스톤 N][일정 미정 N] + 월 섹션(에픽 머리 행 아래 하위 들여쓰기) + 행마다 그 월 기준 미니 막대·오늘 선.
+// 에픽은 기본 접힘 — 왼쪽 펼침 버튼으로 하위를 보고(진행률은 제목 옆 배지), 펼침 상태는 데스크톱 간트와 공유한다(WP-251).
 // 데이터는 TimelinePage 가 이미 조회한 이슈(→ buildAgendaSections)·마일스톤 — 조회 추가 없음. 막대 드래그·마일스톤 편집은 범위 밖.
-import { CalendarRange, Diamond } from 'lucide-react';
+import { CalendarRange, ChevronDown, Diamond } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState';
@@ -13,12 +14,21 @@ import type { IssueResponse } from '../../../types/issue';
 import type { MilestoneResponse } from '../../../types/milestone';
 import { HIDE_SCROLLBAR, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from '../components/mobile/chipStyles';
 import { MobileFilterSheet } from '../components/mobile/MobileFilterSheet';
-import { type AgendaRow, buildAgendaSections } from './timelineData';
+import { type AgendaRow, buildAgendaSections, epicGroupKey } from './timelineData';
+import { useTimelineExpanded } from './useTimelineExpanded';
 import { useTimelineFilterControls } from './useTimelineFilterControls';
 
 // 행 날짜 문구 — 둘 다 있으면 범위, 한쪽만 있으면 그 날짜, 없으면 「일정 미정」.
 function rowDateText(r: AgendaRow): string {
   return formatDateRangeMonthDay(r.start, r.due, '일정 미정', { collapseSameDay: true });
+}
+
+// 월 비율 구간 → 막대 style. 월 밖으로 잘려 폭이 0 이어도 끝에 2px 막대가 남게 — left 는 트랙 안으로, width 는 최소 2px(Review Focus 2).
+function spanStyle(span: { left: number; right: number }) {
+  return {
+    left: `min(${span.left * 100}%, calc(100% - 2px))`,
+    width: `max(2px, ${(span.right - span.left) * 100}%)`,
+  };
 }
 
 export function TimelineAgendaList({
@@ -41,7 +51,15 @@ export function TimelineAgendaList({
   const filter = useTimelineFilterControls(projectKey, { includeAssignee: true });
   const [sheet, setSheet] = useState<'filter' | 'milestones' | null>(null);
   const undatedRef = useRef<HTMLElement | null>(null);
-  const undatedCount = sections.find((s) => s.key === 'undated')?.rows.length ?? 0;
+  // 「일정 미정 N」 = 미정 섹션의 날짜 없는 이슈 수 — 접힌 에픽의 하위도 센다(행이 숨어도 일정이 없는 건 같다).
+  const undatedCount = sections.find((s) => s.key === 'undated')?.rows.filter((r) => !r.start && !r.due).length ?? 0;
+  const { expandedKeys, toggle } = useTimelineExpanded(projectKey);
+  const expanded = new Set(expandedKeys);
+  // 하위 행이 하나라도 있는 에픽만 펼침 버튼을 단다.
+  const epicsWithChildren = useMemo(
+    () => new Set(sections.flatMap((sec) => sec.rows).flatMap((r) => (r.kind === 'child' && r.epicNumber != null ? [r.epicNumber] : []))),
+    [sections],
+  );
   const isEmpty = !loading && sections.length === 0;
 
   return (
@@ -94,46 +112,80 @@ export function TimelineAgendaList({
               {/* 월 제목 — 스크롤 중에도 어느 달인지 보이게 sticky. */}
               <h2 className="sticky top-0 z-10 border-b bg-muted px-4 py-2 text-xs font-semibold text-muted-foreground">{sec.label}</h2>
               <ul>
-                {sec.rows.map((r) => (
-                  <li key={r.issueNumber}>
-                    <button
-                      type="button"
-                      data-testid={`agenda-row-${r.issueNumber}`}
-                      data-kind={r.kind}
-                      onClick={() => onOpenIssue(r.issueNumber)}
-                      className={cn(
-                        'flex min-h-11 w-full flex-col gap-1.5 border-b py-2.5 pr-4 text-left active:bg-accent',
-                        r.kind === 'child' ? 'pl-9' : 'pl-4',
-                      )}
-                    >
-                      <span className={cn('line-clamp-2 text-sm', r.kind === 'epic' && 'font-semibold text-ai-accent')}>
-                        {r.kind === 'epic' && <Diamond className="mr-1 inline size-3.5 align-[-2px]" aria-hidden />}
-                        {r.title}
-                      </span>
-                      {r.bar && (
-                        <span className="relative block h-1 w-full rounded-full bg-muted" aria-hidden="true">
-                          {/* 월 밖으로 잘려 폭이 0 이어도 끝에 2px 막대가 남게 — left 는 트랙 안으로, width 는 최소 2px(Review Focus 2). */}
-                          <span
-                            data-testid="agenda-bar"
-                            className={cn('absolute inset-y-0 rounded-full', r.kind === 'epic' ? 'bg-ai-accent' : 'bg-primary')}
-                            style={{
-                              left: `min(${r.bar.left * 100}%, calc(100% - 2px))`,
-                              width: `max(2px, ${(r.bar.right - r.bar.left) * 100}%)`,
-                            }}
-                          />
-                          {sec.todayRatio != null && (
+                {sec.rows.map((r) => {
+                  // 접힌 에픽의 하위 행은 그리지 않는다.
+                  if (r.kind === 'child' && !expanded.has(epicGroupKey(r.epicNumber!))) return null;
+                  const hasToggle = r.kind === 'epic' && epicsWithChildren.has(r.issueNumber);
+                  const open = expanded.has(epicGroupKey(r.issueNumber));
+                  return (
+                    <li key={r.issueNumber} className="relative">
+                      <button
+                        type="button"
+                        data-testid={`agenda-row-${r.issueNumber}`}
+                        data-kind={r.kind}
+                        onClick={() => onOpenIssue(r.issueNumber)}
+                        // 왼쪽 펼침 버튼 자리(44px)만큼 모든 행을 같이 들인다. 하위는 제목·날짜 글자만 한 단 더 들이고 막대는
+                        // 들이지 않는다 — 모든 행이 같은 월 트랙을 써야 날짜 위치·오늘 선이 행 사이에서 세로로 맞는다.
+                        className="flex min-h-11 w-full flex-col gap-1.5 border-b py-2.5 pr-4 pl-11 text-left active:bg-accent"
+                      >
+                        <span className={cn('line-clamp-2 text-sm', r.kind === 'epic' && 'font-semibold text-ai-accent', r.kind === 'child' && 'ml-4')}>
+                          {r.kind === 'epic' && <Diamond className="mr-1 inline size-3.5 align-[-2px]" aria-hidden />}
+                          {r.title}
+                          {r.progress && r.progress.total > 0 && (
                             <span
-                              data-testid="agenda-today"
-                              className="absolute -inset-y-0.5 w-px bg-destructive"
-                              style={{ left: `min(${sec.todayRatio * 100}%, calc(100% - 1px))` }}
-                            />
+                              data-testid="agenda-progress"
+                              aria-label={`하위 ${r.progress.total}개 중 ${r.progress.done}개 완료`}
+                              className="ml-1.5 inline-block rounded-full bg-ai-accent/10 px-1.5 align-[1px] text-xs font-semibold"
+                            >
+                              {r.progress.done}/{r.progress.total}
+                            </span>
                           )}
                         </span>
+                        {r.bar && (
+                          // 막대 묶음 — 위: 자기 기간 막대, 아래(에픽만): 하위 실제 범위 얇은 막대. 오늘 선은 묶음 전체를 세로로 가로지른다.
+                          <span className="relative flex flex-col gap-0.5" aria-hidden="true">
+                            <span className="relative block h-1 w-full rounded-full bg-muted">
+                              <span
+                                data-testid="agenda-bar"
+                                className={cn('absolute inset-y-0 rounded-full', r.kind === 'epic' ? 'bg-ai-accent' : 'bg-primary')}
+                                style={spanStyle(r.bar)}
+                              />
+                            </span>
+                            {/* 에픽 기간 밖으로 나간 하위 구간은 빨강(데스크톱 WP-249 와 같은 규칙). */}
+                            {r.rollup && (
+                              <span className="relative block h-0.5 w-full">
+                                <span data-testid="agenda-rollup" className="absolute inset-y-0 rounded-full bg-destructive" style={spanStyle(r.rollup.bar)} />
+                                {r.rollup.inside && (
+                                  <span data-testid="agenda-rollup-inside" className="absolute inset-y-0 rounded-full bg-ai-accent/70" style={spanStyle(r.rollup.inside)} />
+                                )}
+                              </span>
+                            )}
+                            {sec.todayRatio != null && (
+                              <span
+                                data-testid="agenda-today"
+                                className="absolute -inset-y-1 w-px bg-destructive"
+                                style={{ left: `min(${sec.todayRatio * 100}%, calc(100% - 1px))` }}
+                              />
+                            )}
+                          </span>
+                        )}
+                        <span className={cn('text-xs text-muted-foreground', r.kind === 'child' && 'ml-4')}>{rowDateText(r)}</span>
+                      </button>
+                      {hasToggle && (
+                        <button
+                          type="button"
+                          data-testid={`agenda-toggle-${r.issueNumber}`}
+                          aria-expanded={open}
+                          aria-label={open ? '하위 이슈 접기' : '하위 이슈 펼치기'}
+                          onClick={() => toggle(epicGroupKey(r.issueNumber), !open)}
+                          className="absolute top-0 left-0 flex size-11 items-center justify-center text-muted-foreground active:bg-accent"
+                        >
+                          <ChevronDown className={cn('size-4 transition-transform', !open && '-rotate-90')} aria-hidden />
+                        </button>
                       )}
-                      <span className="text-xs text-muted-foreground">{rowDateText(r)}</span>
-                    </button>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           ))}

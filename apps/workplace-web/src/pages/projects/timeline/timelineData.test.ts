@@ -472,6 +472,62 @@ describe('buildAgendaSections', () => {
     expect(s[1].todayRatio).toBeCloseTo(14.5 / 31);
   });
 
+  // WP-251 — 에픽 접기·진행률·에픽 기간 vs 하위 실제 범위 구분.
+  it('행마다 소속 에픽 번호, 에픽 행엔 진행률', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 40, title: 'E', type: EPIC_TYPE, startDate: '2026-10-01', dueDate: '2026-10-31', childCount: 3, childDoneCount: 1 }),
+        issue({ number: 41, parent: parentRef(40, 'E'), dueDate: '2026-10-08' }),
+        issue({ number: 9, dueDate: '2026-10-03' }),
+        issue({ number: 61, parent: parentRef(60, '합성'), dueDate: '2026-10-10', status: 'DONE' }),
+      ],
+      TODAY,
+    );
+    const row = (n: number) => s.flatMap((x) => x.rows).find((r) => r.issueNumber === n)!;
+    expect([row(40).epicNumber, row(41).epicNumber, row(9).epicNumber]).toEqual([40, 40, null]);
+    expect(row(40).progress).toEqual({ done: 1, total: 3 });
+    expect(row(60).progress).toEqual({ done: 1, total: 1 }); // 합성 에픽은 보이는 하위 기준
+    expect(row(41).progress).toBeNull();
+    expect(row(9).progress).toBeNull();
+  });
+
+  it('에픽 자체 기간이 있으면 rollup = 하위 실제 범위 막대 + 에픽 기간 안쪽 구간(월 비율)', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 40, title: 'E', type: EPIC_TYPE, startDate: '2026-10-01', dueDate: '2026-10-20' }),
+        issue({ number: 41, parent: parentRef(40, 'E'), startDate: '2026-10-11', dueDate: '2026-10-25' }),
+      ],
+      TODAY,
+    );
+    const head = s[0].rows[0];
+    expect(head.bar!.left).toBe(0);
+    expect(head.bar!.right).toBeCloseTo(20 / 31);
+    expect(head.rollup!.bar.left).toBeCloseTo(10 / 31);
+    expect(head.rollup!.bar.right).toBeCloseTo(25 / 31);
+    // 안쪽 = 10/11~10/20, 10/21~10/25 는 초과
+    expect(head.rollup!.inside!.left).toBeCloseTo(10 / 31);
+    expect(head.rollup!.inside!.right).toBeCloseTo(20 / 31);
+  });
+
+  it('하위가 에픽 기간과 겹치지 않으면 inside 는 null, 에픽 자체 기간이 없거나 날짜 있는 하위가 없으면 rollup 은 null', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 40, title: 'E', type: EPIC_TYPE, startDate: '2026-10-01', dueDate: '2026-10-05' }),
+        issue({ number: 41, parent: parentRef(40, 'E'), dueDate: '2026-10-20' }),
+        issue({ number: 50, title: 'R', type: EPIC_TYPE }),
+        issue({ number: 51, parent: parentRef(50, 'R'), dueDate: '2026-10-10' }),
+        issue({ number: 70, title: 'U', type: EPIC_TYPE, dueDate: '2026-10-12' }),
+        issue({ number: 71, parent: parentRef(70, 'U') }),
+      ],
+      TODAY,
+    );
+    const row = (n: number) => s.flatMap((x) => x.rows).find((r) => r.issueNumber === n)!;
+    expect(row(40).rollup!.inside).toBeNull();
+    expect(row(50).rollup).toBeNull();
+    expect(row(70).rollup).toBeNull();
+    expect(row(41).rollup).toBeNull();
+  });
+
   it('빈 입력은 빈 배열', () => {
     expect(buildAgendaSections([], TODAY)).toEqual([]);
   });

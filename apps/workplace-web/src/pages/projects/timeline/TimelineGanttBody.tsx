@@ -1,7 +1,7 @@
 // 데스크톱 타임라인 본문 — 필터바·간트·일정 미정 섹션. TimelinePage 에서 분리해 데스크톱(≥1024px)에서만 마운트한다.
 // 왜: 의존성 조회·사이클 조회·에픽 그룹/화살표 계산은 간트 전용이라, 모바일 아젠다(WP-197)에선 돌 필요가 없다.
 // 이슈 전량·마일스톤·자동 다음 페이지 페치·마일스톤 다이얼로그/팝오버 상태는 모바일과 공유하므로 TimelinePage 가 소유한다.
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { useCycles } from '../../../hooks/queries/useCycles';
@@ -19,6 +19,7 @@ import {
 import { TimelineFilterBar } from './TimelineFilterBar';
 import { TimelineGantt, type TimelineZoom } from './TimelineGantt';
 import { UnscheduledSection } from './UnscheduledSection';
+import { useTimelineExpanded } from './useTimelineExpanded';
 
 export function TimelineGanttBody({
   projectKey: key,
@@ -56,24 +57,8 @@ export function TimelineGanttBody({
     [dependencies.data, groups],
   );
 
-  // 에픽 그룹 펼침 상태 — localStorage 로 프로젝트별 지속(#649). 이 본문이 소유하고
-  // TimelineGantt 는 expandedKeys/onToggleGroup props 로만 상태를 주고받는다.
-  // "펼친 것만 저장" 모델 — 초기값 빈 배열이면 모든 그룹이 접힘이 기본이다(사용자 요청).
-  const expandStorageKey = `timeline-expanded:${key}`;
-  const [expandedKeys, setExpandedKeys] = useState<string[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(expandStorageKey) ?? '[]') as string[];
-    } catch {
-      return [];
-    }
-  });
-  const handleToggleGroup = (groupKey: string, open: boolean) => {
-    setExpandedKeys((prev) => {
-      const next = open ? [...new Set([...prev, groupKey])] : prev.filter((k) => k !== groupKey);
-      localStorage.setItem(expandStorageKey, JSON.stringify(next));
-      return next;
-    });
-  };
+  // 에픽 그룹 펼침 상태 — 모바일 아젠다와 공유(useTimelineExpanded). TimelineGantt 는 props 로만 주고받는다.
+  const { expandedKeys, toggle: handleToggleGroup } = useTimelineExpanded(key);
 
   return (
     <>
