@@ -26,6 +26,7 @@ import {
 } from '../../../lib/epicDnd';
 import type { IssueResponse, ParentRef } from '../../../types/issue';
 import { useEpicFilter } from '../hooks/useEpicFilter';
+import { ClosedEpicsSection } from './ClosedEpicsSection';
 import { IssueCreateDialog } from './IssueCreateDialog';
 import { useIssueDnd } from './IssueDndProvider';
 
@@ -154,6 +155,14 @@ export function EpicSidePanel({
               onClick={() => select({ kind: 'epic', number: ep.number })}
             />
           ))
+        )}
+        {/* 종료된 에픽(WP-245) — 드롭 대상이 아니므로 드래그 중에는 그리지 않는다. 로딩 중에도 숨겨 스켈레톤 아래 깜빡임을 막는다. */}
+        {!activeIssue && !loading && (
+          <ClosedEpicsSection
+            projectKey={projectKey}
+            selectedEpic={selectedEpic}
+            onSelect={(n) => select({ kind: 'epic', number: n })}
+          />
         )}
       </div>
 

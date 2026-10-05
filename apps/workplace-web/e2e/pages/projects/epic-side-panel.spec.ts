@@ -537,6 +537,72 @@ test.describe('에픽 왼쪽 패널', () => {
       await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/issues/11$`));
     });
   });
+
+  test.describe('종료된 에픽 구역 (WP-245)', () => {
+    // 진행 중 10·11, 종료 12(완료)·13(취소). 에픽 조회는 status 쿼리(CSV)로 나눠 응답한다.
+    const all = [
+      epic(10, '결제 리뉴얼', 6, 10, 'IN_PROGRESS'),
+      epic(11, '알림 개편', 8, 10, 'TODO'),
+      epic(12, '팀 채팅 1차', 5, 5, 'DONE'),
+      epic(13, '음성 메모', 0, 3, 'CANCELED'),
+    ];
+    async function setup(page: Page, epics: IssueResponse[] = all, path = `/projects/${PROJECT_KEY}`) {
+      await stubProjectMeta(page);
+      await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
+      await routeIssueSearch(page, (route, url) => {
+        const isEpic = url.searchParams.get('type') === String(makeEpicType().id);
+        const statuses = (url.searchParams.get('status') ?? '').split(',').filter(Boolean);
+        const items = isEpic ? epics.filter((e) => statuses.length === 0 || statuses.includes(e.status)) : [];
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(items)) });
+      });
+      await page.goto(path);
+      await openEpicPanel(page);
+    }
+
+    test('기본은 접혀 있고 개수만 보이며, 펼치면 종료 에픽이 배지와 함께 보인다', async ({ authenticatedPage: page }) => {
+      await setup(page);
+      const toggle = page.getByTestId('epic-closed-toggle');
+      await expect(toggle).toContainText('종료된 에픽');
+      await expect(toggle).toContainText('2');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.getByTestId('epic-closed-filter-12')).not.toBeAttached();
+      // 헤더 숫자는 진행 중만
+      await expect(page.getByTestId('epic-panel-count')).toHaveText('2');
+
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.getByTestId('epic-closed-filter-12')).toContainText('완료');
+      await expect(page.getByTestId('epic-closed-filter-13')).toContainText('취소');
+      // 취소 에픽 제목은 취소선
+      await expect(page.getByTestId('epic-closed-filter-13').getByText('음성 메모')).toHaveCSS('text-decoration-line', 'line-through');
+    });
+
+    test('종료 에픽을 누르면 그 에픽으로 필터하고, ↗ 는 상세로 간다', async ({ authenticatedPage: page }) => {
+      await setup(page);
+      await page.getByTestId('epic-closed-toggle').click();
+      await page.getByTestId('epic-closed-filter-12').click();
+      await expect(page).toHaveURL(/parent=12/);
+      await expect(page.getByTestId('epic-closed-filter-12')).toHaveAttribute('aria-pressed', 'true');
+      await page.getByTestId('epic-closed-filter-12').hover();
+      await page.getByTestId('epic-closed-open-12').click();
+      await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/issues/12$`));
+    });
+
+    test('URL 로 종료 에픽에 들어오면 구역이 펼쳐져 있고, 머리 행으로 접을 수 있다', async ({ authenticatedPage: page }) => {
+      await setup(page, all, `/projects/${PROJECT_KEY}?parent=13`);
+      await expect(page.getByTestId('epic-closed-toggle')).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.getByTestId('epic-closed-filter-13')).toHaveAttribute('aria-pressed', 'true');
+      await page.getByTestId('epic-closed-toggle').click();
+      await expect(page.getByTestId('epic-closed-toggle')).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.getByTestId('epic-closed-filter-13')).not.toBeAttached();
+    });
+
+    test('종료 에픽이 없으면 구역이 없다', async ({ authenticatedPage: page }) => {
+      await setup(page, all.slice(0, 2));
+      await expect(page.getByTestId('epic-filter-10')).toBeVisible();
+      await expect(page.getByTestId('epic-closed-section')).not.toBeAttached();
+    });
+  });
 });
 
 // 리뷰 지적(WP-227): group-hover 는 hover 가능 기기에서만 걸려, 데스크톱 패널이 뜨는 ≥1024px 터치 태블릿에선 ↗ 에 닿을 수 없었다.

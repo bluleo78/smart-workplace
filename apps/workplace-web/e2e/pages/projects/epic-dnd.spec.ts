@@ -37,6 +37,8 @@ async function setup(
     issuesByCycle?: Record<string, number[]>;
     // 에픽 목록 — 기본 A·B. 긴 목록(스크롤) 검증은 많이 넘긴다.
     epics?: { number: number; title: string }[];
+    // 종료된 에픽(WP-245) — 에픽 조회에 status=DONE,CANCELED 가 오면 이 목록을 돌려준다. 기본 [] (구역 없음).
+    closedEpics?: IssueResponse[];
   },
 ) {
   const epics = opts.epics ?? [EPIC_A, EPIC_B];
@@ -60,8 +62,9 @@ async function setup(
       if (route.request().method() !== 'GET') return route.fallback();
       const url = new URL(route.request().url());
       const cycleParam = url.searchParams.get('cycle');
+      const isClosedQuery = (url.searchParams.get('status') ?? '').includes('DONE');
       const body = url.searchParams.get('type') === String(makeEpicType().id)
-        ? epics.map(epic)
+        ? (isClosedQuery ? (opts.closedEpics ?? []) : epics.map(epic))
         : opts.issuesByCycle && cycleParam != null
           ? (opts.issuesByCycle[cycleParam] ?? []).map((n) => issues.get(n)!)
           : [...issues.values()];
@@ -626,5 +629,19 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await page.keyboard.press('Space');
     await expect.poll(() => statusPatches.lastBody()).toEqual({ status: 'CANCELED' });
     await expectStays(page, patches, []);
+  });
+
+  test('드래그 중에는 「종료된 에픽」 구역이 사라지고, 놓으면 다시 보인다 (WP-245)', async ({ authenticatedPage: page }) => {
+    await setup(page, {
+      issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO' })],
+      closedEpics: [createIssue({ id: 12, number: 12, title: '끝난 에픽', type: makeEpicType(), status: 'DONE', childCount: 0, childDoneCount: 0 })],
+      panelOpen: true,
+    });
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+    await expect(page.getByTestId('epic-closed-toggle')).toBeVisible();
+    await startDrag(page, 'issue-card-1');
+    await expect(page.getByTestId('epic-closed-section')).not.toBeAttached();
+    await page.mouse.up();
+    await expect(page.getByTestId('epic-closed-section')).toBeVisible();
   });
 });
