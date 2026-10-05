@@ -17,9 +17,11 @@ import type { MilestoneResponse } from '../../../types/milestone';
 import { MilestoneEditPopover } from './MilestoneEditPopover';
 import { MilestoneFormDialog } from './MilestoneFormDialog';
 import { TimelineAgendaList } from './TimelineAgendaList';
+import { resolvePeriod } from './timelineData';
 import type { TimelineZoom } from './TimelineGantt';
 import { TimelineGanttBody } from './TimelineGanttBody';
-import type { TimelineViewOptions } from './timelineTypes';
+import { TimelinePeriodPicker } from './TimelinePeriodPicker';
+import type { PeriodParam, TimelineViewOptions } from './timelineTypes';
 import { useTimelinePeriod } from './useTimelinePeriod';
 
 export default function TimelinePage() {
@@ -64,6 +66,16 @@ export default function TimelinePage() {
   const view = useMemo<TimelineViewOptions>(
     () => ({ includeCanceled, period: periodCtl.period }),
     [includeCanceled, periodCtl.period],
+  );
+
+  // 기간을 바꾸면 간트를 새 기간 시작일로 옮긴다 — 새 기간이 화면 밖일 수 있어서. 전체(null)면 그대로.
+  const changePeriod = (p: PeriodParam) => {
+    periodCtl.setParam(p);
+    const next = resolvePeriod(p, periodCtl.cycles, new Date());
+    if (next) setScrollToDate(next.from);
+  };
+  const periodPicker = (
+    <TimelinePeriodPicker param={periodCtl.param} period={periodCtl.period} cycles={periodCtl.cycles} onChange={changePeriod} />
   );
 
   // 마일스톤별 연결된 이슈 수 — 팝오버가 열린 마일스톤만 이슈 목록에서 센다("연결된 이슈 N개" 표시용).
@@ -163,6 +175,8 @@ export default function TimelinePage() {
           onMilestoneClick={(milestone, anchorRect) => setMilestoneEditState({ milestone, anchorRect })}
           onLaneClick={(date) => setMilestoneDialogState({ defaultDueDate: date })}
           view={view}
+          periodPicker={periodPicker}
+          loading={search.isLoading || search.isFetchingNextPage || search.hasNextPage === true}
         />
       )}
       <MilestoneFormDialog

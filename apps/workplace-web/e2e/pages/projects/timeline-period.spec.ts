@@ -81,4 +81,65 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await expect(gridRow(page, '이번 에픽')).toBeVisible();
     await expect(gridRow(page, '지난 에픽')).toHaveCount(0);
   });
+
+  test('드롭다운 — 라벨이 늘 보이고, 다른 사이클·이번 분기·전체를 고르면 URL·목록이 바뀐다', async ({ authenticatedPage: page }) => {
+    await setupStubs(page);
+    await page.goto(`/projects/${KEY}/timeline`);
+    const trigger = page.getByTestId('timeline-period-trigger');
+    await expect(trigger).toContainText('GW-2 · 10/1–10/14');
+    await trigger.click();
+    const pop = page.getByTestId('timeline-period-popover');
+    await expect(pop.getByTestId('timeline-period-option-active')).toHaveAttribute('aria-checked', 'true');
+    await expect(pop.getByTestId('timeline-period-option-cycle-1')).toContainText('완료됨');
+    await pop.getByTestId('timeline-period-option-cycle-1').click();
+    await expect(page).toHaveURL(/period=cycle-1/);
+    await expect(gridRow(page, '지난 에픽')).toBeVisible();
+    await expect(trigger).toContainText('GW-1');
+
+    await trigger.click();
+    await page.getByTestId('timeline-period-option-all').click();
+    await expect(page).toHaveURL(/period=all/);
+    await expect(gridRow(page, '지난 에픽')).toBeVisible();
+    await expect(gridRow(page, '이번 에픽')).toBeVisible();
+    await expect(trigger).toContainText('전체');
+
+    await trigger.click();
+    await page.getByTestId('timeline-period-option-active').click();
+    await expect(page).not.toHaveURL(/period=/);
+  });
+
+  test('직접 지정 — 시작 > 종료면 적용할 수 없고, 적용하면 range 로 저장된다', async ({ authenticatedPage: page }) => {
+    await setupStubs(page);
+    await page.goto(`/projects/${KEY}/timeline`);
+    await page.getByTestId('timeline-period-trigger').click();
+    await page.getByTestId('period-range-from').fill('2026-09-20');
+    await page.getByTestId('period-range-to').fill('2026-09-10');
+    await expect(page.getByTestId('period-range-apply')).toBeDisabled();
+    await page.getByTestId('period-range-to').fill('2026-09-30');
+    await page.getByTestId('period-range-apply').click();
+    await expect(page).toHaveURL(/period=range%3A2026-09-20%7E2026-09-30|period=range:2026-09-20~2026-09-30/);
+    await expect(page.getByTestId('timeline-period-trigger')).toContainText('9/20–9/30');
+    await expect(gridRow(page, '지난 에픽')).toBeVisible();
+  });
+
+  test('활성 사이클이 없으면 대체 기간 라벨과 안내 툴팁', async ({ authenticatedPage: page }) => {
+    await setupStubs(page, {
+      cycles: [cycle({ id: 3, name: 'GW-3', status: 'PLANNED', startDate: '2026-10-15', endDate: '2026-10-28' })],
+    });
+    await page.goto(`/projects/${KEY}/timeline`);
+    const trigger = page.getByTestId('timeline-period-trigger');
+    await expect(trigger).toContainText('GW-3 (예정)');
+    await expect(trigger).toHaveAttribute('title', '활성 사이클이 없어 가장 가까운 예정 사이클로 봅니다');
+  });
+
+  test('기간에 걸친 이슈가 없으면 빈 상태 문구', async ({ authenticatedPage: page }) => {
+    await setupStubs(page);
+    await page.goto(`/projects/${KEY}/timeline`);
+    await page.getByTestId('timeline-period-trigger').click();
+    await page.getByTestId('period-range-from').fill('2025-01-01');
+    await page.getByTestId('period-range-to').fill('2025-01-31');
+    await page.getByTestId('period-range-apply').click();
+    await expect(page.getByTestId('timeline-period-empty')).toContainText('이 기간에 걸친 이슈가 없어요');
+    await expect(page.getByTestId('timeline-period-empty')).toContainText('기간을 「전체」로 바꿔 보세요');
+  });
 });

@@ -1,6 +1,7 @@
 // 데스크톱 타임라인 본문 — 필터바·간트·일정 미정 섹션. TimelinePage 에서 분리해 데스크톱(≥1024px)에서만 마운트한다.
 // 왜: 의존성 조회·사이클 조회·에픽 그룹/화살표 계산은 간트 전용이라, 모바일 아젠다(WP-197)에선 돌 필요가 없다.
 // 이슈 전량·마일스톤·자동 다음 페이지 페치·마일스톤 다이얼로그/팝오버 상태는 모바일과 공유하므로 TimelinePage 가 소유한다.
+import { CalendarRange } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -34,6 +35,7 @@ export function TimelineGanttBody({
   onLaneClick,
   view,
   periodPicker,
+  loading,
 }: {
   projectKey: string;
   issues: IssueResponse[];
@@ -47,6 +49,7 @@ export function TimelineGanttBody({
   onLaneClick: (date: string) => void;
   view: TimelineViewOptions;
   periodPicker?: ReactNode;
+  loading?: boolean;
 }) {
   const navigate = useNavigate();
   const cycles = useCycles(key);
@@ -72,32 +75,40 @@ export function TimelineGanttBody({
         <TimelineFilterBar projectKey={key} leading={periodPicker} />
       </div>
       <div className="min-h-0 flex-1 px-4 py-6" data-testid="timeline-gantt">
-        <TimelineGantt
-          groups={groups}
-          expandedKeys={expandedKeys}
-          onToggleGroup={handleToggleGroup}
-          milestones={milestoneMarkers}
-          cycles={cycleBands}
-          dependencies={renderableDependencies}
-          zoom={zoom}
-          readOnly={readOnly}
-          scrollToDate={scrollToDate}
-          onBarChange={(issueNumber, change) =>
-            updateIssue.mutateAsync({
-              number: issueNumber,
-              data: { startDate: change.startDate, dueDate: change.dueDate },
-            })
-          }
-          onBarClick={(issueNumber) => navigate(`/projects/${key}/issues/${issueNumber}`)}
-          onMilestoneClick={(id, anchorRect) => {
-            const target = milestones?.find((m) => m.id === id);
-            if (target) onMilestoneClick(target, anchorRect);
-          }}
-          onLaneClick={(date) => {
-            if (readOnly) return;
-            onLaneClick(date);
-          }}
-        />
+        {groups.length === 0 && unscheduled.length === 0 && view.period && !loading ? (
+          <div data-testid="timeline-period-empty" className="flex flex-1 flex-col items-center justify-center gap-1 py-16 text-center">
+            <CalendarRange className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
+            <p className="text-sm font-medium">이 기간에 걸친 이슈가 없어요</p>
+            <p className="text-xs text-muted-foreground">기간을 「전체」로 바꿔 보세요</p>
+          </div>
+        ) : (
+          <TimelineGantt
+            groups={groups}
+            expandedKeys={expandedKeys}
+            onToggleGroup={handleToggleGroup}
+            milestones={milestoneMarkers}
+            cycles={cycleBands}
+            dependencies={renderableDependencies}
+            zoom={zoom}
+            readOnly={readOnly}
+            scrollToDate={scrollToDate}
+            onBarChange={(issueNumber, change) =>
+              updateIssue.mutateAsync({
+                number: issueNumber,
+                data: { startDate: change.startDate, dueDate: change.dueDate },
+              })
+            }
+            onBarClick={(issueNumber) => navigate(`/projects/${key}/issues/${issueNumber}`)}
+            onMilestoneClick={(id, anchorRect) => {
+              const target = milestones?.find((m) => m.id === id);
+              if (target) onMilestoneClick(target, anchorRect);
+            }}
+            onLaneClick={(date) => {
+              if (readOnly) return;
+              onLaneClick(date);
+            }}
+          />
+        )}
       </div>
       <UnscheduledSection
         issues={unscheduled}
