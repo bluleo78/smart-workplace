@@ -152,6 +152,8 @@ describe('runChatAgent 러너 분기', () => {
     } as never);
     await runChatAgent(env, d);
     expect(presentAttachments).toHaveBeenCalledWith({ runner: 'opencode', imageVision: true }, NONE, expect.anything());
+    // 첨부 표현에 쓴 판단을 러너에도 그대로 넘긴다(러너가 다시 판단하지 않음).
+    expect(vi.mocked(streamSpy).mock.calls[0][0]).toMatchObject({ opencodeVision: { value: true } });
   });
 
   it('opencode 모델 형식이 잘못돼도 비전 판단은 실패하지 않고 이미지 미지원으로 진행', async () => {

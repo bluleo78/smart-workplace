@@ -5,6 +5,7 @@ import type { RunnerEvent } from './runner-events.js';
 import type { HostBridge, McpProfile } from '../mcp/tools.js';
 import type { ToolUseLine } from './sdk-mcp-server.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+import type { OpencodeVision } from './opencode-vision.js';
 import { ClaudeSdkRunner } from './claude-sdk-runner.js';
 import { OpencodeRunner } from './opencode-runner.js';
 
@@ -52,6 +53,9 @@ export interface RunnerInput {
   allowSubagents?: boolean;
   cwd?: string;
   mcp?: RunnerMcpConfig;
+  // opencode 전용: 호출자가 이미 판단한 비전 지원 여부 — 있으면 러너가 다시 판단하지 않고 그대로 써서
+  // 프롬프트(첨부 표현)와 config(modalities)가 같은 값을 보게 한다. 없으면 러너가 판단. value undefined = 알 수 없음.
+  opencodeVision?: { value: OpencodeVision };
 }
 
 export interface RunnerStreamHandle {

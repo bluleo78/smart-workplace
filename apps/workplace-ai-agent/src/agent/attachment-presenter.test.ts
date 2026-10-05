@@ -50,10 +50,10 @@ describe('presentAttachments', () => {
     expect(p.guidance).toContain('Read');
   });
 
-  it('opencode 는 다운로드하지 않는다 — 이미지는 볼 수 없음, PDF 는 텍스트 도구', async () => {
+  it('opencode 는 받을 첨부가 없다 — 이미지는 볼 수 없음, PDF 는 텍스트 도구', async () => {
     const list = [a(1, 'shot.png', 'image/png', status('SKIPPED', '이미지')), a(2, 'spec.pdf', 'application/pdf', ready(1200))];
     const p = await presentAttachments(OC, ok(list), deps);
-    expect(downloadAttachments).not.toHaveBeenCalled();
+    expect(vi.mocked(downloadAttachments).mock.calls[0][2]).toEqual([]); // 로컬로 볼 첨부 없음
     expect(p.section).toContain('이미지를 볼 수 없');
     expect(p.section).toContain('read_attachment_text({threadId:5, fileId:2})');
     expect(p.section).not.toContain('로컬경로');
@@ -160,9 +160,9 @@ describe('presentAttachments', () => {
     expect(vi.mocked(downloadAttachments).mock.calls[0][2].map((x) => x.fileId)).toEqual([5]);
   });
 
-  it('opencode: txt 는 다운로드하지 않고 텍스트 도구만', async () => {
+  it('opencode: txt 는 받지 않고 텍스트 도구만', async () => {
     const p = await presentAttachments(OC, ok([a(4, 'n.txt', 'text/plain', ready(50))]), deps);
-    expect(downloadAttachments).not.toHaveBeenCalled();
+    expect(vi.mocked(downloadAttachments).mock.calls[0][2]).toEqual([]); // 로컬로 볼 첨부 없음
     expect(p.section).not.toContain('로컬경로');
     expect(p.section).toContain('read_attachment_text');
   });
@@ -194,8 +194,8 @@ describe('presentAttachments', () => {
     expect(p.section).toContain('원본 건너뜀: 파일당 상한 초과');
   });
 
-  it('비전 opencode 라도 이미지가 없으면 다운로드하지 않는다', async () => {
+  it('비전 opencode 라도 이미지가 없으면 받을 첨부가 없다', async () => {
     await presentAttachments(OC_VISION, ok([a(2, 'spec.pdf', 'application/pdf', ready(10))]), deps);
-    expect(downloadAttachments).not.toHaveBeenCalled();
+    expect(vi.mocked(downloadAttachments).mock.calls[0][2]).toEqual([]); // 로컬로 볼 첨부 없음
   });
 });

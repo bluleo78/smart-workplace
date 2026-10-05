@@ -7,7 +7,7 @@ import type { ProviderCredential } from './agent-runner.js';
 import { downloadAttachments, type DownloadOutcome } from './attachment-prep.js';
 import type { AgentAttachment, CollectedAttachments } from './attachment-source.js';
 
-export type RunnerKind = ProviderCredential['provider'];
+type RunnerKind = ProviderCredential['provider'];
 
 /**
  * 첨부를 읽는 쪽(러너+모델)의 능력. imageVision 은 모델이 이미지를 볼 수 있는지 —
@@ -112,23 +112,21 @@ function detailLines(reader: AttachmentReader, a: AgentAttachment, downloads: Ma
   return [extractionLine(a)];
 }
 
-// 두 러너 공통 문장 — 추출 상태가 READY 가 아닐 때의 응대 규칙.
+const TEXT_TOOL_HOW =
+  'read_attachment_text(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기)';
+// 공통 문장 — 추출 상태가 READY 가 아닐 때의 응대 규칙.
 const GUIDANCE_COMMON =
   '추출 중이거나 읽을 수 없는 첨부는 그 상태와 사유를 알리고, 다시 올려 달라거나 다른 형식(텍스트 PDF 등)으로 올려 달라는 제안도 하지 마세요.';
-const GUIDANCE_CLAUDE =
-  '첨부는 위 안내대로 읽으세요: 로컬경로는 Read, 텍스트는 read_attachment_text(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기). ' +
-  GUIDANCE_COMMON;
-const GUIDANCE_OPENCODE =
-  '첨부는 위 안내대로 read_attachment_text 로 읽으세요(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기). ' +
-  GUIDANCE_COMMON;
-// 비전 opencode 모델 — 이미지 로컬경로는 빌트인 read 로 본다(opencode 도구 이름은 소문자 read).
-const GUIDANCE_OPENCODE_VISION =
-  '첨부는 위 안내대로 읽으세요: 로컬경로(이미지)는 read, 텍스트는 read_attachment_text(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기). ' +
-  GUIDANCE_COMMON;
 
+/** 첨부 읽는 방법 안내 — 로컬경로를 읽는 도구(Claude Read, 비전 opencode 는 소문자 read)만 러너·모델별로 다르다. */
 function guidanceFor(reader: AttachmentReader): string {
-  if (reader.runner === 'anthropic') return GUIDANCE_CLAUDE;
-  return reader.imageVision ? GUIDANCE_OPENCODE_VISION : GUIDANCE_OPENCODE;
+  const how =
+    reader.runner === 'anthropic'
+      ? `로컬경로는 Read, 텍스트는 ${TEXT_TOOL_HOW}`
+      : reader.imageVision
+        ? `로컬경로(이미지)는 read, 텍스트는 ${TEXT_TOOL_HOW}`
+        : TEXT_TOOL_HOW;
+  return `첨부는 위 안내대로 읽으세요: ${how}. ${GUIDANCE_COMMON}`;
 }
 
 /** 이슈 첨부 목록을 못 불러왔을 때의 줄 — 목록이 비어 보여도 "첨부 없음" 으로 단정하지 않게 한다(I1). */
@@ -147,11 +145,12 @@ export async function presentAttachments(
 
   // 로컬로 직접 볼 수 있는 것만 원본을 받는다(오피스는 원본이 쓸모없다) — Claude 는 이미지·PDF·텍스트,
   // 비전 opencode 는 이미지만. 텍스트는 추출이 PENDING/NONE/FAILED 여도 Claude 가 원본을 읽을 수 있어야 한다.
-  const local = attachments.filter((a) => readsLocally(reader, a.mimeType));
-  const downloads =
-    local.length > 0
-      ? await downloadAttachments(deps.client, deps.agentId, local, deps.workDir)
-      : new Map<number, DownloadOutcome>();
+  const downloads = await downloadAttachments(
+    deps.client,
+    deps.agentId,
+    attachments.filter((a) => readsLocally(reader, a.mimeType)),
+    deps.workDir,
+  );
 
   const lines = attachments.map((a) =>
     [header(a), ...detailLines(reader, a, downloads).map((l) => `  - ${l}`)].join('\n'),

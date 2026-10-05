@@ -8,8 +8,7 @@ import { buildChatUserMessage } from './chat-user-message.js';
 import { createAttachmentWorkDir } from './attachment-prep.js';
 import { fetchIssueAttachments, mergeAttachments, type CollectedAttachments } from './attachment-source.js';
 import { presentAttachments, readsLocally, type AttachmentReader } from './attachment-presenter.js';
-import { splitOpencodeModel } from './opencode-config.js';
-import { resolveOpencodeVision } from './opencode-vision.js';
+import { resolveOpencodeModelVision, type OpencodeVision } from './opencode-vision.js';
 import { runnerFor } from './agent-runner.js';
 import { fromRunnerEvent } from './chat-progress-parser.js';
 import { ProgressTracker } from './progress-tracker.js';
@@ -64,19 +63,22 @@ async function agentAlreadyReplied(
 }
 
 /**
- * 첨부를 읽는 쪽 능력 — opencode 는 모델의 비전 지원 여부(WP-241)에 따라 이미지를 로컬로 볼 수 있다.
- * 러너도 같은 판단을 하지만 credential 단위로 캐시되므로 여기서 먼저 불러도 조회는 한 번이다.
- * 예외를 던지지 않는다. 알 수 없음(undefined)은 볼 수 없는 것으로 본다 — 이미지를 받았는데 모델이 못 보면 "다시 첨부해 달라" 응답이 나온다.
+ * opencode 모델의 비전 지원 여부(WP-241) — 첨부 표현과 러너 config 가 같은 값을 쓰도록 여기서 한 번 판단해 둘 다에 넘긴다.
+ * 예외를 던지지 않는다: 모델 형식 오류 등은 undefined 를 돌려 러너가 스스로 판단하다 실행 오류로 알리게 한다.
  */
-async function attachmentReader(credential: ProviderCredential, model: string): Promise<AttachmentReader> {
-  if (credential.provider === 'anthropic') return { runner: 'anthropic', imageVision: true };
+async function opencodeVisionFor(credential: ProviderCredential, model: string): Promise<{ value: OpencodeVision } | undefined> {
+  if (credential.provider !== 'opencode') return undefined;
   try {
-    const vision = await resolveOpencodeVision(credential.payload, splitOpencodeModel(model).modelID);
-    return { runner: 'opencode', imageVision: vision === true };
+    return { value: await resolveOpencodeModelVision(credential.payload, model) };
   } catch {
-    // 모델 형식 오류 등은 러너가 실행 오류로 알린다 — 여기서는 이미지를 못 보는 것으로만 두고 진행.
-    return { runner: 'opencode', imageVision: false };
+    return undefined;
   }
+}
+
+/** 첨부를 읽는 쪽 능력. 비전을 알 수 없거나(undefined) 판단 실패면 볼 수 없는 것으로 본다 — 못 보는 이미지를 주면 "다시 첨부해 달라" 응답이 나온다. */
+function attachmentReader(credential: ProviderCredential, vision: { value: OpencodeVision } | undefined): AttachmentReader {
+  if (credential.provider === 'anthropic') return { runner: 'anthropic', imageVision: true };
+  return { runner: 'opencode', imageVision: vision?.value === true };
 }
 
 /** runChatAgent 의존성 — sleep 은 테스트에서 실제로 기다리지 않게 주입할 수 있다. */
@@ -188,11 +190,12 @@ export async function runChatAgent(
       // 첨부 표현이 모델의 비전 지원에 달려 있어 첨부 준비보다 먼저 정한다.
       const model = credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
       // 이슈 첨부 목록은 메시지 조회와 병렬로 1회만 받는다(대기 루프에서는 메시지만 다시 받음). 비전 판단도 함께.
-      const [firstRecent, issue, reader] = await Promise.all([
+      const [firstRecent, issue, opencodeVision] = await Promise.all([
         deps.client.getChatMessages(agentId, p.threadId, THREAD_PREFETCH),
         fetchIssueAttachments(deps.client, agentId, p.threadId),
-        attachmentReader(credential, model),
+        opencodeVisionFor(credential, model),
       ]);
+      const reader = attachmentReader(credential, opencodeVision);
       // WP-244: 공통 첨부 목록(이슈+챗) → 러너별 표현. 로컬로 볼 수 있는 원본만 workDir 에 받는다
       // (Claude 는 이미지·PDF·텍스트, 비전 opencode 는 이미지).
       // 트리거 메시지 첨부가 추출 중이면 잠시 기다려 상태를 갱신한다.
@@ -237,6 +240,7 @@ export async function runChatAgent(
           logTag,
           cwd: workDir, // 첨부 Read 스코프 — 누락 시 tmpdir 로 새 스코프(첨부 읽기 조용히 실패)
           allowFileRead: true,
+          opencodeVision, // 첨부 표현에 쓴 판단을 러너 config 에도 그대로
           includePartialMessages: false, // CLI 가 partial 미전달이었음 — 파서 입력 계약 동일 유지
           // WP-244: chat 도구를 이 실행의 스레드에 묶는다(다른 스레드 읽기·쓰기 거부).
           mcp: { client: deps.client, onBehalfOfId: agentId, profile: 'chat', chatThreadId: p.threadId },

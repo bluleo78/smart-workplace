@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto';
 
 import { log } from '../logger.js';
 import type { OpencodeProviderConfig } from './agent-runner.js';
+import { splitOpencodeModel } from './opencode-config.js';
 
 // 성공 결과는 오래(모델 목록은 거의 안 바뀜), 실패는 짧게 캐시해 일시 장애 후 곧 회복되게 한다.
 export const VISION_CACHE_TTL_MS = 60 * 60 * 1000;
@@ -103,4 +104,9 @@ export async function resolveOpencodeVision(payload: OpencodeProviderConfig, mod
   if (typeof baseURL !== 'string' || !baseURL) return undefined;
   const models = await getModelsVision(baseURL, typeof apiKey === 'string' ? apiKey : undefined);
   return models?.get(modelID);
+}
+
+/** 'providerId/modelId' 형식 모델 문자열로 판단. 모델 형식이 잘못되면 splitOpencodeModel 이 던진다. */
+export function resolveOpencodeModelVision(payload: OpencodeProviderConfig, model: string): Promise<OpencodeVision> {
+  return resolveOpencodeVision(payload, splitOpencodeModel(model).modelID);
 }

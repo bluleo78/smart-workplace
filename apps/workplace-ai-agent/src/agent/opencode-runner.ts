@@ -12,7 +12,7 @@ import { buildOpencodeConfig, resolveStdioEntryCmd, splitOpencodeModel } from '.
 import { acquireServer, evictServer, releaseServer, type OpencodeHandle, type SpawnOpencode } from './opencode-server-pool.js';
 import { createIsolatedOpencode } from './opencode-spawn.js';
 import { attachmentRootDir } from './attachment-prep.js';
-import { resolveOpencodeVision, type OpencodeVision } from './opencode-vision.js';
+import { resolveOpencodeModelVision, type OpencodeVision } from './opencode-vision.js';
 import type { McpProfile } from '../mcp/tools.js';
 import type { RunnerEvent, RunnerUsage } from './runner-events.js';
 
@@ -93,8 +93,8 @@ export class OpencodeRunner implements AgentRunner {
       let timer: ReturnType<typeof setTimeout> | undefined;
       let errored = false;
       try {
-        // WP-241: 비전 판단 — try 안에서 해야 실패해도 finally 가 브리지를 해제한다.
-        const vision = await resolveOpencodeVision(payload, splitOpencodeModel(i.model).modelID);
+        // WP-241: 비전 판단 — try 안에서 해야 실패해도 finally 가 브리지를 해제한다. 호출자가 판단해 넘겼으면 그 값.
+        const vision = i.opencodeVision ? i.opencodeVision.value : await resolveOpencodeModelVision(payload, i.model);
         poolKey = poolKeyFor(i, vision);
         const stdioEntryCmd = resolveStdioEntryCmd();
         const config = buildOpencodeConfig(i, runId, stdioEntryCmd, { vision });

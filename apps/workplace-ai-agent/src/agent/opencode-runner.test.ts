@@ -30,8 +30,8 @@ vi.mock('./opencode-config.js', () => ({
 }));
 
 // WP-241: provider /models 조회를 막고 vision 판단을 테스트에서 고른다(기본 = 지원).
-const { resolveOpencodeVision } = vi.hoisted(() => ({ resolveOpencodeVision: vi.fn(async () => true) }));
-vi.mock('./opencode-vision.js', () => ({ resolveOpencodeVision }));
+const { resolveOpencodeModelVision } = vi.hoisted(() => ({ resolveOpencodeModelVision: vi.fn(async () => true) }));
+vi.mock('./opencode-vision.js', () => ({ resolveOpencodeModelVision }));
 
 // registerBridge/releaseBridge 페어링을 정확히 카운트하기 위해 registry 자체를 모킹.
 const { registerBridge, releaseBridge } = vi.hoisted(() => ({
@@ -568,7 +568,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
   });
 
   it('vision 판단 결과를 config 에 넘기고 풀 키에도 반영한다(WP-241)', async () => {
-    resolveOpencodeVision.mockResolvedValueOnce(false);
+    resolveOpencodeModelVision.mockResolvedValueOnce(false);
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
     es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
@@ -576,16 +576,28 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     const input = baseInput({ agentId: 7, model: 'openai/gpt-5', mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 42 } });
     await new OpencodeRunner().stream(input, () => {}).done;
 
-    expect(resolveOpencodeVision).toHaveBeenCalledWith(
+    expect(resolveOpencodeModelVision).toHaveBeenCalledWith(
       (input.credential as { payload: unknown }).payload,
-      'gpt-5',
+      'openai/gpt-5',
     );
     expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: false });
     expect(acquireServer).toHaveBeenCalledWith('7:issue:42:openai/gpt-5:false', expect.any(Function));
   });
 
+  it('호출자가 판단한 opencodeVision 을 넘기면 다시 판단하지 않고 그 값을 config 에 쓴다', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const input = baseInput({ opencodeVision: { value: undefined } });
+    await new OpencodeRunner().stream(input, () => {}).done;
+
+    expect(resolveOpencodeModelVision).not.toHaveBeenCalled();
+    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: undefined });
+  });
+
   it('비전 판단이 throw 해도 등록한 브리지를 해제한다(try/finally 안)', async () => {
-    resolveOpencodeVision.mockRejectedValueOnce(new Error('boom'));
+    resolveOpencodeModelVision.mockRejectedValueOnce(new Error('boom'));
     const hostBridge = { onProposal: vi.fn(), onSubmitResponse: vi.fn(), onUnassignResult: vi.fn() };
     const input = baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'messaging', onBehalfOfId: 1, hostBridge } });
     await expect(new OpencodeRunner().stream(input, () => {}).done).rejects.toThrow('boom');
