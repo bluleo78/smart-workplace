@@ -1,13 +1,14 @@
 // 이슈/사이클/마일스톤 응답을 TimelineGantt 가 소비하는 모델로 변환하는 순수 함수 모음.
 // 네트워크/상태와 분리해 vitest 로 검증한다.
 
-import { addDays, format, getDaysInMonth } from 'date-fns';
+import { addDays, differenceInCalendarDays, format, getDaysInMonth, parseISO } from 'date-fns';
 
 import type { CycleResponse } from '@/types/cycle';
 import type { IssueResponse } from '@/types/issue';
 import type { MilestoneResponse } from '@/types/milestone';
 
 import type {
+  DateSpan,
   TimelineBar,
   TimelineCycleBand,
   TimelineDependencyEdge,
@@ -51,8 +52,8 @@ export function defaultScheduleRange(today: Date): { startDate: string; dueDate:
   };
 }
 
-/** yyyy-MM-dd 두 날짜의 일수 차(b - a). UTC 자정으로 해석해 타임존·DST 와 무관하게 정수로 떨어진다. */
-const dayDiff = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86_400_000;
+/** yyyy-MM-dd 두 날짜의 일수 차(b - a). */
+const dayDiff = (a: string, b: string) => differenceInCalendarDays(parseISO(b), parseISO(a));
 
 /**
  * 에픽 막대(range) 기준 얇은 막대(rollup)의 기하 — 모두 % (WP-249).
@@ -61,8 +62,8 @@ const dayDiff = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86_4
  * 막대는 마감일 당일을 포함하므로(끝 = due + 1일) 일수에 1 을 더한다.
  */
 export function rollupOverlay(
-  range: { start: string; due: string },
-  rollup: { start: string; due: string },
+  range: DateSpan,
+  rollup: DateSpan,
 ): { left: number; width: number; inStart: number; inEnd: number } {
   // 최소 1일 — 하위 롤업은 이슈별 start/due 를 따로 모아(min/max) 뒤집힐 수 있어 0·음수 나눗셈을 막는다.
   const epicDays = Math.max(1, dayDiff(range.start, range.due) + 1);
@@ -98,7 +99,7 @@ function toBar(issue: IssueResponse): TimelineBar {
  * 막대 목록의 min-start(없으면 due) ~ max-due 롤업 range 계산 (#662).
  * 에픽 그룹과 no-epic 그룹이 동일한 규칙을 쓴다 — bars 가 비어 있으면 null.
  */
-function rollupRange(bars: TimelineBar[]): { start: string; due: string } | null {
+function rollupRange(bars: TimelineBar[]): DateSpan | null {
   if (bars.length === 0) return null;
   const starts = bars.map((b) => b.start ?? b.due);
   const dues = bars.map((b) => b.due);

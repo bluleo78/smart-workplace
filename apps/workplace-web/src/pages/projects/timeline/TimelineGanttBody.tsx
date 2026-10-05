@@ -46,8 +46,6 @@ export function TimelineGanttBody({
   const dependencies = useProjectDependencies(key);
   const updateIssue = useTimelineIssueUpdate(key);
 
-  // 막대 저장 실패 횟수 — 간트 revision 으로 넘겨 실패 시 서버 상태로 다시 그리게 한다(TimelineGantt revision 참조, WP-248).
-  const [failedSaves, setFailedSaves] = useState(0);
   // 에픽 계층 트리(#649) — bars 평면 목록 대신 에픽 그룹 트리로 변환.
   const { groups, unscheduled } = useMemo(() => groupTimelineIssues(issues), [issues]);
   const cycleBands = useMemo(() => cyclesToBands(cycles.data ?? []), [cycles.data]);
@@ -93,12 +91,11 @@ export function TimelineGanttBody({
           zoom={zoom}
           readOnly={readOnly}
           scrollToDate={scrollToDate}
-          revision={failedSaves}
           onBarChange={(issueNumber, change) =>
-            updateIssue.mutate(
-              { number: issueNumber, data: { startDate: change.startDate, dueDate: change.dueDate } },
-              { onError: () => setFailedSaves((n) => n + 1) },
-            )
+            updateIssue.mutateAsync({
+              number: issueNumber,
+              data: { startDate: change.startDate, dueDate: change.dueDate },
+            })
           }
           onBarClick={(issueNumber) => navigate(`/projects/${key}/issues/${issueNumber}`)}
           onMilestoneClick={(id, anchorRect) => {

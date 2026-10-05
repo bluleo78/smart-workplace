@@ -14,7 +14,7 @@ import {
 import { addDays, format, parseISO } from 'date-fns'
 import { Diamond } from 'lucide-react'
 import { useTheme } from 'next-themes'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { rollupOverlay } from './timelineData'
 import type {
@@ -51,13 +51,8 @@ export interface TimelineGanttProps {
   readOnly: boolean
   /** [오늘] 버튼 등에서 특정 날짜로 스크롤 이동 */
   scrollToDate?: string
-  /**
-   * 바뀌면 데이터가 같아도 SVAR 가 tasks 를 다시 파싱하게 하는 값 — 막대 저장 실패 시 올린다(WP-248).
-   * SVAR init 은 새 tasks 를 이전 값과 깊은 비교해 같으면 무시하므로, 실패 후 재조회 응답이 이전과 같으면
-   * 드래그로 옮겨진 막대(와 하위 기준으로 재계산된 에픽 요약 막대)가 그대로 남는다.
-   */
-  revision?: number
-  onBarChange: (issueNumber: number, change: { startDate: string; dueDate: string }) => void
+  /** 막대 이동/리사이즈 저장. 실패하면 reject 해야 간트가 서버 상태로 되돌린다(아래 saveFailures 참조). */
+  onBarChange: (issueNumber: number, change: { startDate: string; dueDate: string }) => Promise<unknown>
   onBarClick: (issueNumber: number) => void
   onMilestoneClick: (id: number, anchorRect: DOMRect) => void
   onLaneClick: (date: string, anchorRect: DOMRect) => void
@@ -85,14 +80,15 @@ const isUndatedRow = (row: unknown): boolean => {
 
 // 이슈 상태별 막대 색상 — IssueStatusIcon/IssueStatusBadge 와 동일한 시맨틱 토큰(hex 금지). CANCELED 이슈는
 // groupTimelineIssues 에서 막대 목록 자체에 포함되지 않아 매핑 대상이 아니다.
-// 에픽 요약 막대에 주입하는 얇은 막대 CSS 변수 이름(WP-249) — timeline-gantt.css 의 ::after 가 읽는다.
-const ROLLUP_VARS = ['--rollup-left', '--rollup-width', '--rollup-in-start', '--rollup-in-end']
-
 const STATUS_BAR_COLOR: Record<'TODO' | 'IN_PROGRESS' | 'DONE', string> = {
   TODO: 'var(--muted-foreground)',
   IN_PROGRESS: 'var(--primary)',
   DONE: 'var(--success)',
 }
+
+// 에픽 요약 막대에 주입하는 얇은 막대 CSS 변수(WP-249) — timeline-gantt.css 의 ::after 가 읽는다. 값이 없으면 모두 제거.
+const ROLLUP_VARS = ['--rollup-left', '--rollup-width', '--rollup-in-start', '--rollup-in-end'] as const
+const NO_ROLLUP_VALUES = ROLLUP_VARS.map(() => '')
 
 const WEEK_SCALES: IScaleConfig[] = [
   { unit: 'month', step: 1, format: (date) => format(date, 'yyyy년 M월') },
@@ -143,7 +139,6 @@ export function TimelineGantt({
   zoom,
   readOnly,
   scrollToDate,
-  revision = 0,
   onBarChange,
   onBarClick,
   onMilestoneClick,
@@ -169,17 +164,24 @@ export function TimelineGantt({
   // 그룹(에픽)의 하위 이슈 막대를 평탄화 — 색상 주입 이펙트/의존성 필터링용(#649, groups.flatMap 반복 방지).
   const bars = useMemo(() => groups.flatMap((g) => g.bars), [groups])
 
-  // 에픽 막대 아래 얇은 막대(하위 실제 범위, WP-249) — 에픽 요약 막대에 주입할 CSS 변수 값(%)을 미리 계산한다.
-  // rollup 은 range 가 에픽 자체 기간일 때만 있으므로 range 도 항상 있다(막대 없는 '-nobar' 요약은 대상 아님).
-  const overlayByTaskId = useMemo(
+  // 에픽 막대 아래 얇은 막대(하위 실제 범위, WP-249) — 요약 막대 id → ROLLUP_VARS 순서의 CSS 값(%)을 미리 만든다.
+  // rollup 은 range 가 에픽 자체 기간일 때만 있으므로 range 도 항상 있다.
+  const rollupValuesByTaskId = useMemo(
     () =>
       new Map(
-        groups.flatMap((g) =>
-          g.range && g.rollup ? [[groupTaskId(g.key), rollupOverlay(g.range, g.rollup)] as const] : [],
-        ),
+        groups.flatMap((g) => {
+          if (!g.range || !g.rollup) return []
+          const o = rollupOverlay(g.range, g.rollup)
+          return [[groupTaskId(g.key), [o.left, o.width, o.inStart, o.inEnd].map((v) => `${v}%`)] as const]
+        }),
       ),
     [groups],
   )
+
+  // 막대 저장 실패 횟수 — 그룹 행에 실어 SVAR 가 tasks 를 다시 파싱하게 한다(WP-248). SVAR init 은 새 tasks 를
+  // 이전 값과 깊은 비교해 같으면 무시하므로, 실패 후 재조회 응답이 이전과 같으면 드래그로 옮겨진 막대(와 하위 기준으로
+  // 재계산된 에픽 요약 막대)가 그대로 남는다.
+  const [saveFailures, setSaveFailures] = useState(0)
 
   const tasks = useMemo<ITask[]>(() => {
     // SVAR 는 bar 엘리먼트에 task 필드 기반 커스텀 className 주입 API 가 없음(고정 `wx-bar wx-${type}`,
@@ -220,7 +222,7 @@ export function TimelineGantt({
         type: hasChildren ? 'summary' : 'task',
         ...(hasChildren ? { open: expanded.has(group.key) } : {}),
         ...(noBar ? { nobar: true } : {}), // 시작일/기간 컬럼 "미정" 표기용 마커
-        revision, // 깊은 비교를 깨 SVAR 재파싱을 강제하는 값(props revision 참조) — 그룹 행에만 실어도 충분하다
+        saveFailures, // 위 saveFailures 참조 — 그룹 행에만 실어도 깊은 비교가 깨진다
       })
       // 미정 하위(#에픽펼침) — 에픽 아래 그리드 행으로만 보이고 간트 막대는 CSS 로 숨긴다.
       // unscheduled:true 로 두어 에픽 요약 막대 span 계산에서 제외한다(placeholder 날짜가 span 을 늘리지 않게).
@@ -254,7 +256,7 @@ export function TimelineGantt({
       }
     }
     return result
-  }, [groups, expandedKeys, revision])
+  }, [groups, expandedKeys, saveFailures])
 
   // 이슈번호 → 마감일 맵 — 의존성 모순(#669) 판정에 사용. bars 는 이미 화면에 렌더되는 이슈만 담고
   // 있으므로 별도 조회 없이 여기서 파생한다.
@@ -418,26 +420,16 @@ export function TimelineGantt({
         el.style.setProperty('--wx-gantt-task-color', color)
         el.style.setProperty('--wx-gantt-task-fill-color', color)
       }
-      // 에픽 요약 막대의 얇은 막대 변수(WP-249) — 같은 이유(SVAR 재렌더가 style 을 씻어냄)로 이 옵저버에서 함께 재적용한다.
-      // 실제 그리기는 timeline-gantt.css 의 ::after. 요약 막대 전부를 돌며 값이 있으면 넣고, 없어졌으면(하위 날짜 삭제 등)
-      // 지운다 — 에픽 막대 자체가 그대로면 SVAR 가 style 을 다시 쓰지 않아 옛 변수가 남기 때문이다.
-      // SVAR 는 문자열 id 에 ':' 접두를 붙여 렌더하므로 접두를 떼고 정확 매칭한다(접미사 매칭은 #649 회귀 전례).
+      // 얇은 막대 변수(WP-249)도 같은 이유로 여기서 재적용한다. 요약 막대 전부를 돌며 값이 없어진 막대는 지운다 —
+      // 에픽 막대 자체가 그대로면 SVAR 가 style 을 다시 쓰지 않아 옛 변수가 남는다. 다른 값만 써서 옵저버 루프를 막는다.
+      // SVAR 는 문자열 id 에 ':' 접두를 붙여 렌더하므로 떼고 정확 매칭한다(접미사 매칭은 #649 회귀 전례).
       for (const el of container.querySelectorAll<HTMLElement>('.wx-bar.wx-summary')) {
-        const o = overlayByTaskId.get((el.dataset.taskId ?? '').replace(/^:/, ''))
-        const vars: [string, string][] = o
-          ? [
-              ['--rollup-left', `${o.left}%`],
-              ['--rollup-width', `${o.width}%`],
-              ['--rollup-in-start', `${o.inStart}%`],
-              ['--rollup-in-end', `${o.inEnd}%`],
-            ]
-          : ROLLUP_VARS.map((name) => [name, ''])
-        // 4개가 모두 같으면 재기록을 건너뛴다 — 옵저버 무한 루프 방지(위 상태색과 같은 원칙).
-        if (vars.every(([name, value]) => el.style.getPropertyValue(name) === value)) continue
-        for (const [name, value] of vars) {
-          if (value) el.style.setProperty(name, value)
+        const values = rollupValuesByTaskId.get((el.dataset.taskId ?? '').replace(/^:/, '')) ?? NO_ROLLUP_VALUES
+        ROLLUP_VARS.forEach((name, i) => {
+          if (el.style.getPropertyValue(name) === values[i]) return
+          if (values[i]) el.style.setProperty(name, values[i])
           else el.style.removeProperty(name)
-        }
+        })
       }
     }
     applyColors()
@@ -449,7 +441,7 @@ export function TimelineGantt({
       attributeFilter: ['style', 'class'],
     })
     return () => observer.disconnect()
-  }, [bars, tasks, overlayByTaskId])
+  }, [bars, tasks, rollupValuesByTaskId])
 
   // 의존성 모순 링크 강조(#669) — SVAR 는 링크별 커스텀 className/color 주입 API 가 없어(바 색상과
   // 동일한 제약, 위 STATUS_BAR_COLOR 이펙트 참조) `data-link-id` 를 가진 <g> 안의 `.wx-line-draw`
@@ -639,7 +631,7 @@ export function TimelineGantt({
                 onBarChange(id, {
                   startDate: format(task.start, 'yyyy-MM-dd'),
                   dueDate: format(addDays(task.end, -1), 'yyyy-MM-dd'),
-                })
+                }).catch(() => setSaveFailures((n) => n + 1)) // 에러 안내는 호출부(mutation) 몫
               }
             }}
             onSelectTask={(ev) => {
