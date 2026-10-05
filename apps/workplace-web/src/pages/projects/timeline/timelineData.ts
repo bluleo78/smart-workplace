@@ -138,6 +138,15 @@ function epicProgress(epic: IssueResponse | null | undefined, kids: IssueRespons
     : { done: kids.filter((k) => k.status === 'DONE').length, total: kids.length };
 }
 
+/**
+ * 하위 실제 범위 — 하위 날짜(시작·마감) 전체의 최소 ~ 최대. 날짜 있는 하위가 없으면 null.
+ * 시작 > 마감인 잘못된 데이터도 뒤집히지 않는다. 아젠다 얇은 막대(WP-251)와 조회 기간 거름(WP-247)이 같은 정의를 쓴다.
+ */
+function childDateSpan(kids: Pick<IssueResponse, 'startDate' | 'dueDate'>[]): DateSpan | null {
+  const dates = kids.flatMap((k) => [k.startDate, k.dueDate]).filter((d): d is string => d != null).sort();
+  return dates.length > 0 ? { start: dates[0], due: dates[dates.length - 1] } : null;
+}
+
 /** 두 날짜 구간의 겹침 — 없으면 null. */
 function intersectSpan(a: DateSpan, b: DateSpan): DateSpan | null {
   const start = a.start > b.start ? a.start : b.start;
@@ -188,10 +197,7 @@ export function prepareTimelineIssues(
     // 에픽 기간 = 간트 막대(groupTimelineIssues 의 range)와 같은 정의 — 막대는 기간 안인데 거름에서 빠지는 어긋남을 막는다(WP-247 코멘트, WP-248).
     // 여기에 하위 실제 범위(rollup, WP-249 얇은 막대)를 더해 range ∪ rollup 과 겹치면 보인다 — 에픽 기간이 지났어도 남은 하위가 조회 기간에 걸치면 보이게.
     const own = epic ? epicOwnRange(epic) : null;
-    const kidSpans = (kidsOf.get(num) ?? []).map((k) => spanOf(k.startDate, k.dueDate)).filter((s): s is DateSpan => s != null);
-    const rollup = kidSpans.length
-      ? { start: kidSpans.map((s) => s.start).reduce((a, b) => (a < b ? a : b)), due: kidSpans.map((s) => s.due).reduce((a, b) => (a > b ? a : b)) }
-      : null;
+    const rollup = childDateSpan(kidsOf.get(num) ?? []);
     // 마감일도 날짜 있는 하위도 없으면(시작일만 있는 에픽 포함) 간트에 막대가 없다 — 「일정 미정」처럼 기간과 무관하게 남긴다.
     const undated = !own && !rollup;
     if (undated || (own && overlaps(own, period)) || (rollup && overlaps(rollup, period))) visibleEpics.add(num);
@@ -420,8 +426,7 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: 
     const kids = (children.get(num) ?? []).map((k) => ({ basis: basisOf(k), number: k.number, k })).sort(byBasis);
     const kidBases = kids.map((x) => x.basis).filter((b): b is string => b != null); // byBasis 정렬이라 이미 오름차순
     // 하위 실제 범위 = 하위 날짜 전체의 최소 ~ 최대(시작 > 마감인 잘못된 데이터도 뒤집히지 않는다).
-    const kidDates = kids.flatMap((x) => [x.k.startDate, x.k.dueDate]).filter((d): d is string => d != null).sort();
-    const kidSpan: DateSpan | null = kidDates.length > 0 ? { start: kidDates[0], due: kidDates[kidDates.length - 1] } : null;
+    const kidSpan = childDateSpan(kids.map((x) => x.k));
     const own = epic ? basisOf(epic) : null;
     const epicRow = { epicNumber: num, progress: epicProgress(epic, kids.map((x) => x.k)), hasChildren: kids.length > 0 };
     // 에픽 자기 날짜가 있으면 그대로, 없으면(또는 응답에 에픽이 없으면) 하위 롤업으로 머리 행 날짜·막대를 만든다.
