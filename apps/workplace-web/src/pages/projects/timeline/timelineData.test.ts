@@ -528,6 +528,26 @@ describe('buildAgendaSections', () => {
     expect(row(41).rollup).toBeNull();
   });
 
+  it('hasChildren·overflow — 하위 유무와 에픽 기간 초과 여부, 시작일만 있는 에픽은 데스크톱처럼 rollup 없음', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 40, title: 'E', type: EPIC_TYPE, startDate: '2026-10-01', dueDate: '2026-10-20' }),
+        issue({ number: 41, parent: parentRef(40, 'E'), startDate: '2026-10-11', dueDate: '2026-10-25' }),
+        issue({ number: 50, title: 'F', type: EPIC_TYPE, startDate: '2026-10-01', dueDate: '2026-10-31' }),
+        issue({ number: 51, parent: parentRef(50, 'F'), dueDate: '2026-10-10' }),
+        issue({ number: 60, title: 'S', type: EPIC_TYPE, startDate: '2026-10-02' }),
+        issue({ number: 61, parent: parentRef(60, 'S'), dueDate: '2026-10-09' }),
+        issue({ number: 70, title: 'N', type: EPIC_TYPE, dueDate: '2026-10-12' }),
+      ],
+      TODAY,
+    );
+    const row = (n: number) => s.flatMap((x) => x.rows).find((r) => r.issueNumber === n)!;
+    expect([row(40).hasChildren, row(70).hasChildren, row(41).hasChildren]).toEqual([true, false, false]);
+    expect(row(40).rollup).toMatchObject({ span: { start: '2026-10-11', due: '2026-10-25' }, overflow: true });
+    expect(row(50).rollup!.overflow).toBe(false);
+    expect(row(60).rollup).toBeNull();
+  });
+
   it('뒤집힌 하위 구간(시작 > 마감)도 rollup 안쪽 구간을 계산한다', () => {
     const s = buildAgendaSections(
       [

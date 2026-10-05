@@ -53,13 +53,8 @@ export function TimelineAgendaList({
   const undatedRef = useRef<HTMLElement | null>(null);
   // 「일정 미정 N」 = 미정 섹션의 날짜 없는 이슈 수 — 접힌 에픽의 하위도 센다(행이 숨어도 일정이 없는 건 같다).
   const undatedCount = sections.find((s) => s.key === 'undated')?.rows.filter((r) => !r.start && !r.due).length ?? 0;
-  const { expandedKeys, toggle } = useTimelineExpanded(projectKey);
-  const expanded = new Set(expandedKeys);
-  // 하위 행이 하나라도 있는 에픽만 펼침 버튼을 단다.
-  const epicsWithChildren = useMemo(
-    () => new Set(sections.flatMap((sec) => sec.rows).flatMap((r) => (r.kind === 'child' && r.epicNumber != null ? [r.epicNumber] : []))),
-    [sections],
-  );
+  const { isOpen, toggle } = useTimelineExpanded(projectKey);
+  const groupKeyOf = (epicNumber: number | null) => (epicNumber == null ? null : epicGroupKey(epicNumber));
   const isEmpty = !loading && sections.length === 0;
 
   return (
@@ -114,9 +109,9 @@ export function TimelineAgendaList({
               <ul>
                 {sec.rows.map((r) => {
                   // 접힌 에픽의 하위 행은 그리지 않는다.
-                  if (r.kind === 'child' && !expanded.has(epicGroupKey(r.epicNumber!))) return null;
-                  const hasToggle = r.kind === 'epic' && epicsWithChildren.has(r.issueNumber);
-                  const open = expanded.has(epicGroupKey(r.issueNumber));
+                  if (r.kind === 'child' && !isOpen(groupKeyOf(r.epicNumber))) return null;
+                  const hasToggle = r.kind === 'epic' && r.hasChildren;
+                  const open = isOpen(groupKeyOf(r.issueNumber));
                   return (
                     <li key={r.issueNumber} className="relative">
                       <button
@@ -132,12 +127,9 @@ export function TimelineAgendaList({
                           {r.kind === 'epic' && <Diamond className="mr-1 inline size-3.5 align-[-2px]" aria-hidden />}
                           {r.title}
                           {r.progress && r.progress.total > 0 && (
-                            <span
-                              data-testid="agenda-progress"
-                              aria-label={`하위 ${r.progress.total}개 중 ${r.progress.done}개 완료`}
-                              className="ml-1.5 inline-block rounded-full bg-ai-accent/10 px-1.5 align-[1px] text-xs font-semibold"
-                            >
-                              {r.progress.done}/{r.progress.total}
+                            <span data-testid="agenda-progress" className="ml-1.5 inline-block rounded-full bg-ai-accent/10 px-1.5 align-[1px] text-xs font-semibold">
+                              <span aria-hidden="true">{r.progress.done}/{r.progress.total}</span>
+                              <span className="sr-only">하위 {r.progress.total}개 중 {r.progress.done}개 완료</span>
                             </span>
                           )}
                         </span>
@@ -157,7 +149,12 @@ export function TimelineAgendaList({
                               <span className="relative block h-0.75 w-full">
                                 <span data-testid="agenda-rollup" className="absolute inset-y-0 rounded-full bg-destructive" style={spanStyle(r.rollup.bar)} />
                                 {r.rollup.inside && (
-                                  <span data-testid="agenda-rollup-inside" className="absolute inset-y-0 rounded-full bg-ai-accent/70" style={spanStyle(r.rollup.inside)} />
+                                  // 불투명하게 섞는다 — 반투명이면 아래 빨강이 비쳐 초과 구간과 경계가 흐려진다.
+                                  <span
+                                    data-testid="agenda-rollup-inside"
+                                    className="absolute inset-y-0 rounded-full bg-[color-mix(in_oklab,var(--ai-accent)_70%,var(--background))]"
+                                    style={spanStyle(r.rollup.inside)}
+                                  />
                                 )}
                               </span>
                             )}
@@ -170,14 +167,22 @@ export function TimelineAgendaList({
                             )}
                           </span>
                         )}
-                        <span className={cn('text-xs text-muted-foreground', r.kind === 'child' && 'ml-4')}>{rowDateText(r)}</span>
+                        <span className={cn('text-xs text-muted-foreground', r.kind === 'child' && 'ml-4')}>
+                          {rowDateText(r)}
+                          {/* 막대는 aria-hidden 이라 하위 실제 범위·초과는 스크린리더에 글로 알린다(색만으로 전달 금지). */}
+                          {r.rollup && (
+                            <span className="sr-only">
+                              {`, 하위 일정 ${formatDateRangeMonthDay(r.rollup.span.start, r.rollup.span.due, '', { collapseSameDay: true })}${r.rollup.overflow ? ' (에픽 기간 초과)' : ''}`}
+                            </span>
+                          )}
+                        </span>
                       </button>
                       {hasToggle && (
                         <button
                           type="button"
                           data-testid={`agenda-toggle-${r.issueNumber}`}
                           aria-expanded={open}
-                          aria-label={open ? '하위 이슈 접기' : '하위 이슈 펼치기'}
+                          aria-label={`${r.title} 하위 이슈 ${open ? '접기' : '펼치기'}`}
                           onClick={() => toggle(epicGroupKey(r.issueNumber), !open)}
                           className="absolute top-0 left-0 flex size-11 items-center justify-center text-muted-foreground active:bg-accent"
                         >

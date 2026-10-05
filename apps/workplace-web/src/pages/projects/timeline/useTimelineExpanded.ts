@@ -1,7 +1,7 @@
 // 타임라인 에픽 그룹 펼침 상태 — 프로젝트별 localStorage 지속(#649). 데스크톱 간트와 모바일 아젠다(WP-251)가
 // 같은 키·같은 그룹 키(epicGroupKey)를 써서 한 기기 안에서 펼친 에픽이 양쪽에 똑같이 보인다.
 // "펼친 것만 저장" 모델 — 빈 목록이면 모든 그룹이 접힘이 기본이다(사용자 요청).
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 export function useTimelineExpanded(projectKey: string) {
   const storageKey = `timeline-expanded:${projectKey}`;
@@ -24,5 +24,8 @@ export function useTimelineExpanded(projectKey: string) {
       return next;
     });
   };
-  return { expandedKeys, toggle };
+  const expandedSet = useMemo(() => new Set(expandedKeys), [expandedKeys]);
+  /** 그룹 키가 펼쳐져 있는지 — null(에픽 없음)은 항상 false. */
+  const isOpen = (groupKey: string | null) => groupKey != null && expandedSet.has(groupKey);
+  return { expandedKeys, isOpen, toggle };
 }

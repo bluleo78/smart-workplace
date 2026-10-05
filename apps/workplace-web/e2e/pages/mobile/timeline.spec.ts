@@ -165,8 +165,10 @@ test('에픽은 기본 접힘 — 펼침 버튼으로 하위를 펼치고 접으
 test('에픽 행 — 제목 옆 진행률 배지, 하위 실제 범위 얇은 막대와 에픽 기간 밖 초과 구간', async ({ authenticatedPage: page }) => {
   await setup(page);
   const epic = page.getByTestId('agenda-row-30');
-  await expect(epic.getByTestId('agenda-progress')).toHaveText('1/2');
-  await expect(epic.getByTestId('agenda-progress')).toHaveAccessibleName('하위 2개 중 1개 완료');
+  await expect(epic.getByTestId('agenda-progress').locator('[aria-hidden="true"]')).toHaveText('1/2');
+  await expect(epic.getByTestId('agenda-progress')).toContainText('하위 2개 중 1개 완료'); // 스크린리더 문구(sr-only)
+  await expect(epic).toContainText('하위 일정 10월 5일 ~ 10월 14일 (에픽 기간 초과)');
+  await expect(page.getByTestId('agenda-toggle-30')).toHaveAccessibleName('넘친 에픽 하위 이슈 펼치기');
   // 에픽 막대 = 10/1~10/10, 얇은 막대 = 하위 10/5~10/14, 그중 10/5~10/10 이 안쪽(나머지는 빨강 초과).
   const box = async (id: string) => (await epic.getByTestId(id).boundingBox())!;
   const [bar, rollup, inside] = [await box('agenda-bar'), await box('agenda-rollup'), await box('agenda-rollup-inside')];
@@ -179,6 +181,7 @@ test('에픽 행 — 제목 옆 진행률 배지, 하위 실제 범위 얇은 �
   const e40 = page.getByTestId('agenda-row-40');
   const [r40, i40] = [(await e40.getByTestId('agenda-rollup').boundingBox())!, (await e40.getByTestId('agenda-rollup-inside').boundingBox())!];
   expect(Math.round(i40.width)).toBe(Math.round(r40.width));
+  await expect(e40).not.toContainText('에픽 기간 초과');
   await expectNoHorizontalOverflow(page);
 });
 
