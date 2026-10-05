@@ -57,3 +57,20 @@ export interface TimelineEpicGroup {
       "일정 미정" 섹션 대신 소속 에픽 아래에 노출한다(중복 없음). no-epic 그룹은 항상 빈 배열. */
   undatedChildren: IssueResponse[];
 }
+
+/** URL `period` 값(WP-247) — 조회 기간 선택지. active 가 기본(URL 생략). */
+export type PeriodParam =
+  | { kind: 'active' }
+  | { kind: 'cycle'; id: number }
+  | { kind: 'quarter' }
+  | { kind: 'rolling' }
+  | { kind: 'range'; from: string; to: string }
+  | { kind: 'all' };
+
+/** 풀린 조회 기간(양끝 포함, yyyy-MM-dd). fallbackNote 는 요청한 기간을 못 써서 다른 기간으로 대체했을 때의 안내. */
+export interface TimelinePeriod {
+  from: string;
+  to: string;
+  label: string;
+  fallbackNote: string | null;
+}

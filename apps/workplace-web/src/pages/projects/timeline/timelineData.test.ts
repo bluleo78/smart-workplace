@@ -11,8 +11,12 @@ import {
   cyclesToBands,
   defaultScheduleRange,
   filterRenderableDependencies,
+  formatPeriodSpan,
   groupTimelineIssues,
   milestonesToMarkers,
+  parsePeriodParam,
+  periodParamToString,
+  resolvePeriod,
   rollupOverlay,
 } from './timelineData';
 import type { TimelineBar } from './timelineTypes';
@@ -561,5 +565,98 @@ describe('buildAgendaSections', () => {
 
   it('빈 입력은 빈 배열', () => {
     expect(buildAgendaSections([], TODAY)).toEqual([]);
+  });
+});
+
+describe('parsePeriodParam / periodParamToString (WP-247)', () => {
+  it.each([
+    [null, { kind: 'active' }],
+    ['active', { kind: 'active' }],
+    ['cycle-7', { kind: 'cycle', id: 7 }],
+    ['quarter', { kind: 'quarter' }],
+    ['rolling', { kind: 'rolling' }],
+    ['range:2026-10-01~2026-10-20', { kind: 'range', from: '2026-10-01', to: '2026-10-20' }],
+    ['range:2026-10-20~2026-10-01', { kind: 'range', from: '2026-10-01', to: '2026-10-20' }], // 뒤집힘 → 바로잡기
+    ['all', { kind: 'all' }],
+    ['range:2026-13-01~x', { kind: 'active' }], // 형식 오류
+    ['cycle-abc', { kind: 'active' }],
+    ['bogus', { kind: 'active' }],
+  ])('%s → %o', (raw, expected) => {
+    expect(parsePeriodParam(raw)).toEqual(expected);
+  });
+
+  it('active 는 URL 에서 빠지고 나머지는 왕복한다', () => {
+    expect(periodParamToString({ kind: 'active' })).toBeNull();
+    for (const s of ['cycle-7', 'quarter', 'rolling', 'range:2026-10-01~2026-10-20', 'all']) {
+      expect(periodParamToString(parsePeriodParam(s))).toBe(s);
+    }
+  });
+});
+
+describe('resolvePeriod (WP-247)', () => {
+  const TODAY_P = new Date(2026, 9, 5); // 2026-10-05 로컬
+  const gw1 = cycle({ id: 1, name: 'GW-1', status: 'COMPLETED', startDate: '2026-09-17', endDate: '2026-09-30' });
+  const gw2 = cycle({ id: 2, name: 'GW-2', status: 'ACTIVE', startDate: '2026-10-01', endDate: '2026-10-14' });
+  const gw3 = cycle({ id: 3, name: 'GW-3', status: 'PLANNED', startDate: '2026-10-15', endDate: '2026-10-28' });
+
+  it('활성 사이클 하나 — 그 기간과 이름', () => {
+    expect(resolvePeriod({ kind: 'active' }, [gw1, gw2, gw3], TODAY_P)).toEqual({
+      from: '2026-10-01', to: '2026-10-14', label: 'GW-2 · 10/1–10/14', fallbackNote: null,
+    });
+  });
+
+  it('활성 사이클 여럿 — 합친 기간', () => {
+    const other = cycle({ id: 4, name: 'B팀', status: 'ACTIVE', startDate: '2026-09-28', endDate: '2026-10-10' });
+    expect(resolvePeriod({ kind: 'active' }, [gw2, other], TODAY_P)).toEqual({
+      from: '2026-09-28', to: '2026-10-14', label: '활성 사이클 2개 · 9/28–10/14', fallbackNote: null,
+    });
+  });
+
+  it('날짜 없는 활성 사이클은 없는 것으로 보고 가장 가까운 예정 사이클로 대체', () => {
+    const undated = cycle({ id: 5, name: '날짜 없음', status: 'ACTIVE' });
+    const later = cycle({ id: 6, name: 'GW-4', status: 'PLANNED', startDate: '2026-11-01', endDate: '2026-11-14' });
+    expect(resolvePeriod({ kind: 'active' }, [undated, later, gw3], TODAY_P)).toEqual({
+      from: '2026-10-15', to: '2026-10-28', label: 'GW-3 (예정) · 10/15–10/28',
+      fallbackNote: '활성 사이클이 없어 가장 가까운 예정 사이클로 봅니다',
+    });
+  });
+
+  it('오늘 이후 예정 사이클이 없으면 시작일이 오늘에 가장 가까운 예정 사이클', () => {
+    const past = cycle({ id: 7, name: '지난 계획', status: 'PLANNED', startDate: '2026-09-20', endDate: '2026-10-03' });
+    const older = cycle({ id: 8, name: '더 지난 계획', status: 'PLANNED', startDate: '2026-08-01', endDate: '2026-08-14' });
+    expect(resolvePeriod({ kind: 'active' }, [older, past], TODAY_P)?.from).toBe('2026-09-20');
+  });
+
+  it('활성·예정 사이클이 없으면 최근 3개월 ~ 향후 6개월', () => {
+    expect(resolvePeriod({ kind: 'active' }, [gw1], TODAY_P)).toEqual({
+      from: '2026-07-05', to: '2027-04-05', label: '최근 3개월 ~ 향후 6개월',
+      fallbackNote: '활성·예정 사이클이 없어 최근 3개월 ~ 향후 6개월로 봅니다',
+    });
+  });
+
+  it('지정 사이클 — 그 기간, 없거나 날짜가 비면 활성 규칙으로 대체하고 알린다', () => {
+    expect(resolvePeriod({ kind: 'cycle', id: 1 }, [gw1, gw2], TODAY_P)).toEqual({
+      from: '2026-09-17', to: '2026-09-30', label: 'GW-1 · 9/17–9/30', fallbackNote: null,
+    });
+    expect(resolvePeriod({ kind: 'cycle', id: 99 }, [gw1, gw2], TODAY_P)).toEqual({
+      from: '2026-10-01', to: '2026-10-14', label: 'GW-2 · 10/1–10/14',
+      fallbackNote: '선택한 사이클을 찾을 수 없거나 날짜가 없어 활성 사이클 기준으로 봅니다',
+    });
+  });
+
+  it('이번 분기·직접 지정·전체', () => {
+    expect(resolvePeriod({ kind: 'quarter' }, [], TODAY_P)).toEqual({
+      from: '2026-10-01', to: '2026-12-31', label: '이번 분기 · 10/1–12/31', fallbackNote: null,
+    });
+    expect(resolvePeriod({ kind: 'range', from: '2026-10-03', to: '2026-11-02' }, [], TODAY_P)).toEqual({
+      from: '2026-10-03', to: '2026-11-02', label: '10/3–11/2', fallbackNote: null,
+    });
+    expect(resolvePeriod({ kind: 'rolling' }, [], TODAY_P)?.label).toBe('최근 3개월 ~ 향후 6개월');
+    expect(resolvePeriod({ kind: 'all' }, [gw2], TODAY_P)).toBeNull();
+  });
+
+  it('연도가 오늘과 다르면 기간 문구에 연도를 붙인다', () => {
+    expect(formatPeriodSpan('2025-12-01', '2026-01-14', TODAY_P)).toBe('2025/12/1–2026/1/14');
+    expect(formatPeriodSpan('2026-10-01', '2026-10-14', TODAY_P)).toBe('10/1–10/14');
   });
 });

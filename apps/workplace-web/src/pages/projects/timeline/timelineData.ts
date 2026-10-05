@@ -1,7 +1,7 @@
 // 이슈/사이클/마일스톤 응답을 TimelineGantt 가 소비하는 모델로 변환하는 순수 함수 모음.
 // 네트워크/상태와 분리해 vitest 로 검증한다.
 
-import { addDays, differenceInCalendarDays, format, getDaysInMonth, parseISO } from 'date-fns';
+import { addDays, addMonths, differenceInCalendarDays, endOfQuarter, format, getDaysInMonth, isValid, parseISO, startOfQuarter, subMonths } from 'date-fns';
 
 import type { CycleResponse } from '@/types/cycle';
 import type { IssueResponse } from '@/types/issue';
@@ -9,11 +9,13 @@ import type { MilestoneResponse } from '@/types/milestone';
 
 import type {
   DateSpan,
+  PeriodParam,
   TimelineBar,
   TimelineCycleBand,
   TimelineDependencyEdge,
   TimelineEpicGroup,
   TimelineMilestoneMarker,
+  TimelinePeriod,
 } from './timelineTypes';
 
 /** 시작/종료 날짜가 모두 있는 사이클만 밴드로 변환. */
@@ -417,4 +419,106 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date): Agend
   }
   // blocks 가 기준일 오름차순(미정 맨 뒤)이라 Map 삽입 순서 = 섹션 순서.
   return [...sections.values()];
+}
+
+// ─── 조회 기간(WP-247) ────────────────────────────────────────────────────────────
+// URL `period` 값 ↔ PeriodParam, 그리고 사이클·오늘 기준으로 실제 기간(양끝 포함)을 푼다. 화면 거름은 prepareTimelineIssues.
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const validIso = (s: string) => ISO_DATE.test(s) && isValid(parseISO(s));
+const iso = (d: Date) => format(d, 'yyyy-MM-dd');
+
+/** URL 값 → PeriodParam. 비었거나 알 수 없거나 형식이 틀리면 active(기본). range 가 뒤집혀 있으면 바로잡는다. */
+export function parsePeriodParam(raw: string | null): PeriodParam {
+  if (raw === 'all' || raw === 'quarter' || raw === 'rolling') return { kind: raw };
+  const cycleMatch = raw?.match(/^cycle-(\d+)$/);
+  if (cycleMatch) return { kind: 'cycle', id: Number(cycleMatch[1]) };
+  const rangeMatch = raw?.match(/^range:(.+)~(.+)$/);
+  if (rangeMatch && validIso(rangeMatch[1]) && validIso(rangeMatch[2])) {
+    const [from, to] = rangeMatch[1] <= rangeMatch[2] ? [rangeMatch[1], rangeMatch[2]] : [rangeMatch[2], rangeMatch[1]];
+    return { kind: 'range', from, to };
+  }
+  return { kind: 'active' };
+}
+
+/** PeriodParam → URL 값. 기본(active)은 null 을 돌려 URL 에서 뺀다. */
+export function periodParamToString(p: PeriodParam): string | null {
+  switch (p.kind) {
+    case 'active':
+      return null;
+    case 'cycle':
+      return `cycle-${p.id}`;
+    case 'range':
+      return `range:${p.from}~${p.to}`;
+    default:
+      return p.kind;
+  }
+}
+
+/** 기간 문구 "10/1–10/14" — 어느 한쪽이라도 연도가 오늘과 다르면 양쪽에 연도를 붙인다("2025/12/1–2026/1/14"). */
+export function formatPeriodSpan(from: string, to: string, today: Date): string {
+  const year = String(today.getFullYear());
+  const withYear = from.slice(0, 4) !== year || to.slice(0, 4) !== year;
+  const md = (d: string) => `${withYear ? `${d.slice(0, 4)}/` : ''}${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+  return `${md(from)}–${md(to)}`;
+}
+
+type DatedCycle = CycleResponse & { startDate: string; endDate: string };
+const isDated = (c: CycleResponse): c is DatedCycle => Boolean(c.startDate && c.endDate);
+const ROLLING_LABEL = '최근 3개월 ~ 향후 6개월';
+
+function rollingPeriod(today: Date, fallbackNote: string | null): TimelinePeriod {
+  return { from: iso(subMonths(today, 3)), to: iso(addMonths(today, 6)), label: ROLLING_LABEL, fallbackNote };
+}
+
+/** 활성 사이클 규칙 — 날짜 있는 ACTIVE 합집합 → 가장 가까운 PLANNED → rolling. note 는 대체 시 덧씌울 안내(지정 사이클 대체용). */
+function activePeriod(cycles: CycleResponse[], today: Date, note: string | null): TimelinePeriod {
+  const active = cycles.filter((c) => c.status === 'ACTIVE').filter(isDated);
+  if (active.length > 0) {
+    const from = active.map((c) => c.startDate).reduce((a, b) => (a < b ? a : b));
+    const to = active.map((c) => c.endDate).reduce((a, b) => (a > b ? a : b));
+    const name = active.length === 1 ? active[0].name : `활성 사이클 ${active.length}개`;
+    return { from, to, label: `${name} · ${formatPeriodSpan(from, to, today)}`, fallbackNote: note };
+  }
+  const todayStr = iso(today);
+  const planned = cycles.filter((c) => c.status === 'PLANNED').filter(isDated);
+  if (planned.length > 0) {
+    // 오늘 이후 가장 먼저 시작하는 것, 없으면 시작일이 오늘에 가장 가까운 것.
+    const upcoming = planned.filter((c) => c.startDate >= todayStr).sort((a, b) => a.startDate.localeCompare(b.startDate));
+    const distance = (c: DatedCycle) => Math.abs(differenceInCalendarDays(parseISO(c.startDate), today));
+    const pick = upcoming[0] ?? [...planned].sort((a, b) => distance(a) - distance(b))[0];
+    return {
+      from: pick.startDate,
+      to: pick.endDate,
+      label: `${pick.name} (예정) · ${formatPeriodSpan(pick.startDate, pick.endDate, today)}`,
+      fallbackNote: note ?? '활성 사이클이 없어 가장 가까운 예정 사이클로 봅니다',
+    };
+  }
+  return rollingPeriod(today, note ?? '활성·예정 사이클이 없어 최근 3개월 ~ 향후 6개월로 봅니다');
+}
+
+/** PeriodParam → 실제 조회 기간. all 이면 null(거르지 않음). */
+export function resolvePeriod(param: PeriodParam, cycles: CycleResponse[], today: Date): TimelinePeriod | null {
+  switch (param.kind) {
+    case 'all':
+      return null;
+    case 'rolling':
+      return rollingPeriod(today, null);
+    case 'quarter': {
+      const from = iso(startOfQuarter(today));
+      const to = iso(endOfQuarter(today));
+      return { from, to, label: `이번 분기 · ${formatPeriodSpan(from, to, today)}`, fallbackNote: null };
+    }
+    case 'range':
+      return { from: param.from, to: param.to, label: formatPeriodSpan(param.from, param.to, today), fallbackNote: null };
+    case 'cycle': {
+      const c = cycles.find((x) => x.id === param.id);
+      if (c && isDated(c)) {
+        return { from: c.startDate, to: c.endDate, label: `${c.name} · ${formatPeriodSpan(c.startDate, c.endDate, today)}`, fallbackNote: null };
+      }
+      return activePeriod(cycles, today, '선택한 사이클을 찾을 수 없거나 날짜가 없어 활성 사이클 기준으로 봅니다');
+    }
+    case 'active':
+      return activePeriod(cycles, today, null);
+  }
 }
