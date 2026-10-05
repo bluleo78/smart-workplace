@@ -28,6 +28,13 @@ const THREAD_PREFETCH = 20;
 export const TRIGGER_POLL_INTERVAL_MS = 1_500;
 export const TRIGGER_POLL_TIMEOUT_MS = 12_000;
 
+/**
+ * 도구 이름이 add_chat_message 인지 — 러너마다 접두사가 달라(Claude `mcp__workplace__`, opencode `workplace_`) 끝부분으로 본다.
+ */
+function isAddChatMessage(name: string): boolean {
+  return name === 'add_chat_message' || name.endsWith('_add_chat_message');
+}
+
 /** runChatAgent 의존성 — sleep 은 테스트에서 실제로 기다리지 않게 주입할 수 있다. */
 export type RunChatAgentDeps = RunAgentDeps & { sleep?: (ms: number) => Promise<void> };
 
@@ -161,6 +168,10 @@ export async function runChatAgent(
       const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
 
       const logTag = `chat-agent:${p.issueKey}:thread${p.threadId}:${agentId}`;
+      // WP-244: 모델(특히 opencode)이 답을 다 써 놓고 add_chat_message 없이 평문으로 끝내면 사용자는 아무것도 못 받는다.
+      // 도구 호출 여부와 마지막 result 를 기억해 두었다가, 정상 종료인데 답변 등록이 없으면 그 평문을 대신 올린다.
+      let replied = false;
+      let finalResult: { ok: boolean; text: string | null } | undefined;
       // 인-프로세스 MCP 서버(chat 프로필)는 러너 내부에서 구성 — onBehalfOf = 멘션된 agentId(ACTING_USER_ID 없음).
       const handle = runnerFor(credential).stream(
         {
@@ -178,16 +189,35 @@ export async function runChatAgent(
           mcp: { client: deps.client, onBehalfOfId: agentId, profile: 'chat' },
         },
         (e) => {
+          if (e.type === 'tool_use' && isAddChatMessage(e.name)) replied = true;
+          if (e.type === 'result') finalResult = { ok: e.ok, text: e.text };
           const sig = fromRunnerEvent(e);
           if (tracker.apply(sig)) void emit('tool');
         },
       );
+      let runOk = false;
       try {
         await handle.done;
-        await emit('done'); // 마지막 알림은 기다린다 — 종료 대기(WP-167)가 실행 promise 만 보고도 완료 알림까지 보장되게
+        runOk = true;
       } catch (e) {
         console.error('[run-chat-agent] SDK 스트림 실패', { threadId: p.threadId, error: e });
         await emit('error');
+      }
+      if (runOk) {
+        const fallbackText = finalResult?.ok ? finalResult.text?.trim() : undefined;
+        if (!replied && fallbackText) {
+          // 실패해도 진행 표시는 done 으로 닫는다 — 러너 자체는 성공했으므로 스트림 실패로 기록하지 않는다.
+          console.warn('[run-chat-agent] add_chat_message 없이 끝남 — 최종 텍스트로 대신 답변 등록', {
+            threadId: p.threadId,
+            agentId,
+          });
+          try {
+            await deps.client.addChatMessage(agentId, p.threadId, fallbackText);
+          } catch (e) {
+            console.error('[run-chat-agent] 대체 답변 등록 실패', { threadId: p.threadId, error: e });
+          }
+        }
+        await emit('done'); // 마지막 알림은 기다린다 — 종료 대기(WP-167)가 실행 promise 만 보고도 완료 알림까지 보장되게
       }
     } catch (e) {
       // 러너 실행 전(첨부 수집·프롬프트 구성) 실패 — 'started' 만 남지 않게 error 를 알리고, 기존처럼 호출자에 전파한다.

@@ -266,3 +266,78 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
     expect(phases).toEqual(['started', 'error']);
   });
 });
+
+// WP-244: 모델이 add_chat_message 없이 평문으로 끝내면 그 평문을 대신 올린다(사용자가 아무것도 못 받는 일 방지).
+describe('runChatAgent add_chat_message 누락 대체 답변(WP-244)', () => {
+  // 주어진 이벤트들을 발행하고 done 을 resolve(또는 reject)하는 stream 구현.
+  function streamWith(events: RunnerEvent[], fail = false) {
+    return (_i: unknown, onEvent: (e: RunnerEvent) => void) => {
+      for (const e of events) onEvent(e);
+      return { done: fail ? Promise.reject(new Error('boom')) : Promise.resolve(), kill: vi.fn() };
+    };
+  }
+  function depsWithAdd() {
+    const d = deps();
+    (d.client as unknown as { addChatMessage: unknown }).addChatMessage = vi.fn().mockResolvedValue(undefined);
+    return d;
+  }
+
+  it('도구 호출 없이 정상 종료 + 최종 텍스트 → 그 텍스트(trim)를 대신 등록하고 경고를 남긴다', async () => {
+    streamSpy.mockImplementation(streamWith([{ type: 'result', ok: true, text: '  답변입니다  ', usage: null }]));
+    const d = depsWithAdd();
+    await runChatAgent(env, d);
+    expect(d.client.addChatMessage).toHaveBeenCalledWith(99, 5, '답변입니다');
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('대신 답변 등록'), expect.anything());
+    // 진행 표시는 done 으로 닫힌다.
+    const phases = vi.mocked(d.client.postChatProgress).mock.calls.map((c) => (c[2] as { phase: string }).phase);
+    expect(phases.at(-1)).toBe('done');
+  });
+
+  it.each(['mcp__workplace__add_chat_message', 'workplace_add_chat_message'])(
+    '%s 를 호출했으면 대체 답변을 올리지 않는다',
+    async (name) => {
+      streamSpy.mockImplementation(
+        streamWith([
+          { type: 'tool_use', name, input: {}, parentToolUseId: null },
+          { type: 'tool_done' },
+          { type: 'result', ok: true, text: '등록했습니다', usage: null },
+        ]),
+      );
+      const d = depsWithAdd();
+      await runChatAgent(env, d);
+      expect(d.client.addChatMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([null, '   '])('최종 텍스트가 비어 있으면(%j) 올리지 않는다', async (text) => {
+    streamSpy.mockImplementation(streamWith([{ type: 'result', ok: true, text, usage: null }]));
+    const d = depsWithAdd();
+    await runChatAgent(env, d);
+    expect(d.client.addChatMessage).not.toHaveBeenCalled();
+  });
+
+  it('result ok:false 이면 올리지 않는다', async () => {
+    streamSpy.mockImplementation(streamWith([{ type: 'result', ok: false, text: '중간 텍스트', usage: null }]));
+    const d = depsWithAdd();
+    await runChatAgent(env, d);
+    expect(d.client.addChatMessage).not.toHaveBeenCalled();
+  });
+
+  it('러너가 실패(done reject)하면 올리지 않고 error 를 발행한다', async () => {
+    streamSpy.mockImplementation(streamWith([{ type: 'result', ok: true, text: '답변', usage: null }], true));
+    const d = depsWithAdd();
+    await runChatAgent(env, d);
+    expect(d.client.addChatMessage).not.toHaveBeenCalled();
+    const phases = vi.mocked(d.client.postChatProgress).mock.calls.map((c) => (c[2] as { phase: string }).phase);
+    expect(phases.at(-1)).toBe('error');
+  });
+
+  it('대체 답변 등록이 실패해도 던지지 않고 done 으로 닫는다', async () => {
+    streamSpy.mockImplementation(streamWith([{ type: 'result', ok: true, text: '답변', usage: null }]));
+    const d = depsWithAdd();
+    vi.mocked(d.client.addChatMessage).mockRejectedValue(new Error('403'));
+    await expect(runChatAgent(env, d)).resolves.toBeUndefined();
+    const phases = vi.mocked(d.client.postChatProgress).mock.calls.map((c) => (c[2] as { phase: string }).phase);
+    expect(phases.at(-1)).toBe('done');
+  });
+});
