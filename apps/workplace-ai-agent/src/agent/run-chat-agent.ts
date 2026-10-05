@@ -172,6 +172,11 @@ export async function runChatAgent(
       // 도구 호출 여부와 마지막 result 를 기억해 두었다가, 정상 종료인데 답변 등록이 없으면 그 평문을 대신 올린다.
       let replied = false;
       let finalResult: { ok: boolean; text: string | null } | undefined;
+      // 마지막 도구 호출 이후의 텍스트 구간. opencode 의 result.text 는 실행 중 모든 텍스트를 구분자 없이 이어 붙여
+      // "확인해 보겠습니다.요약: …" 처럼 중간 문장이 섞이므로, 텍스트 이벤트를 받아 tool_use 마다 비우고 마지막 구간만 쓴다.
+      // (opencode 는 text_delta, partial 이 꺼진 Claude 는 assistant_text 로 텍스트가 온다.)
+      let sawText = false;
+      let lastSegment = '';
       // 인-프로세스 MCP 서버(chat 프로필)는 러너 내부에서 구성 — onBehalfOf = 멘션된 agentId(ACTING_USER_ID 없음).
       const handle = runnerFor(credential).stream(
         {
@@ -189,7 +194,16 @@ export async function runChatAgent(
           mcp: { client: deps.client, onBehalfOfId: agentId, profile: 'chat' },
         },
         (e) => {
-          if (e.type === 'tool_use' && isAddChatMessage(e.name)) replied = true;
+          if (e.type === 'tool_use') {
+            if (isAddChatMessage(e.name)) replied = true;
+            lastSegment = '';
+          } else if (e.type === 'text_delta') {
+            sawText = true;
+            lastSegment += e.text;
+          } else if (e.type === 'assistant_text') {
+            sawText = true;
+            lastSegment += (lastSegment ? '\n\n' : '') + e.text;
+          }
           if (e.type === 'result') finalResult = { ok: e.ok, text: e.text };
           const sig = fromRunnerEvent(e);
           if (tracker.apply(sig)) void emit('tool');
@@ -204,7 +218,10 @@ export async function runChatAgent(
         await emit('error');
       }
       if (runOk) {
-        const fallbackText = finalResult?.ok ? finalResult.text?.trim() : undefined;
+        // 텍스트 이벤트를 받았으면 마지막 구간만(비어 있으면 올리지 않음), 텍스트 이벤트가 전혀 없었으면 result.text 로 대신한다.
+        const fallbackText = finalResult?.ok
+          ? (sawText ? lastSegment : (finalResult.text ?? '')).trim()
+          : undefined;
         if (!replied && fallbackText) {
           // 실패해도 진행 표시는 done 으로 닫는다 — 러너 자체는 성공했으므로 스트림 실패로 기록하지 않는다.
           console.warn('[run-chat-agent] add_chat_message 없이 끝남 — 최종 텍스트로 대신 답변 등록', {

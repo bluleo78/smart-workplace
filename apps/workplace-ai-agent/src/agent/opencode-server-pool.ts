@@ -14,7 +14,7 @@ export type SpawnOpencode = () => Promise<OpencodeHandle>;
 export const IDLE_TTL_MS = 5 * 60 * 1000;
 // 웜 풀에 유지할 최대 서버 수. opencode 서버 하나가 ~380MB(실측)를 상주하므로, 생존 서버 총량
 // 상한(OPENCODE_MAX_LIVE_SERVERS, opencode-spawn.ts, 기본 3)보다 작게 둔다 — 그래야 웜 풀이 생존
-// 슬롯을 전부 점유해 풀 비대상(mail/messaging/home) 요청이 슬롯을 못 얻고 굶는 상황을 막고,
+// 슬롯을 전부 점유해 풀 비대상(mail/messaging/home, 그리고 WP-244 부터 chat) 요청이 슬롯을 못 얻고 굶는 상황을 막고,
 // 새 키가 오면 enforceCapacity 가 유휴 풀 서버를 축출해 슬롯을 비운다. 기본 2, env 로 조정.
 export const MAX_POOL_SIZE = Math.max(1, Number(process.env.OPENCODE_MAX_POOL_SIZE ?? '2') || 2);
 

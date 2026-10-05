@@ -294,6 +294,53 @@ describe('runChatAgent add_chat_message 누락 대체 답변(WP-244)', () => {
     expect(phases.at(-1)).toBe('done');
   });
 
+  it('opencode: 도구 호출 전 중간 텍스트는 빼고 마지막 도구 호출 이후 텍스트만 올린다', async () => {
+    streamSpy.mockImplementation(
+      streamWith([
+        { type: 'text_delta', text: '첨부를 확인해 ', parentToolUseId: null },
+        { type: 'text_delta', text: '보겠습니다.', parentToolUseId: null },
+        { type: 'tool_use', name: 'workplace_read_attachment_text', input: {}, parentToolUseId: null },
+        { type: 'tool_done' },
+        { type: 'text_delta', text: '요약: ', parentToolUseId: null },
+        { type: 'text_delta', text: '핵심 내용', parentToolUseId: null },
+        // opencode result.text 는 모든 델타를 이어 붙인 값
+        { type: 'result', ok: true, text: '첨부를 확인해 보겠습니다.요약: 핵심 내용', usage: null },
+      ]),
+    );
+    const d = depsWithAdd();
+    await runChatAgent(env, d);
+    expect(d.client.addChatMessage).toHaveBeenCalledWith(99, 5, '요약: 핵심 내용');
+  });
+
+  it('Claude: assistant_text 도 마지막 도구 호출 이후 구간만 쓴다', async () => {
+    streamSpy.mockImplementation(
+      streamWith([
+        { type: 'assistant_text', text: '확인해 보겠습니다.' },
+        { type: 'tool_use', name: 'mcp__workplace__read_attachment_text', input: {}, parentToolUseId: null },
+        { type: 'tool_done' },
+        { type: 'assistant_text', text: '최종 답변' },
+        { type: 'result', ok: true, text: '최종 답변', usage: null },
+      ]),
+    );
+    const d = depsWithAdd();
+    await runChatAgent(env, d);
+    expect(d.client.addChatMessage).toHaveBeenCalledWith(99, 5, '최종 답변');
+  });
+
+  it('마지막 도구 호출 이후 텍스트가 없으면 중간 텍스트로 대신하지 않는다', async () => {
+    streamSpy.mockImplementation(
+      streamWith([
+        { type: 'text_delta', text: '확인해 보겠습니다.', parentToolUseId: null },
+        { type: 'tool_use', name: 'workplace_read_attachment_text', input: {}, parentToolUseId: null },
+        { type: 'tool_done' },
+        { type: 'result', ok: true, text: '확인해 보겠습니다.', usage: null },
+      ]),
+    );
+    const d = depsWithAdd();
+    await runChatAgent(env, d);
+    expect(d.client.addChatMessage).not.toHaveBeenCalled();
+  });
+
   it.each(['mcp__workplace__add_chat_message', 'workplace_add_chat_message'])(
     '%s 를 호출했으면 대체 답변을 올리지 않는다',
     async (name) => {
