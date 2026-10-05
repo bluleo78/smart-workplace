@@ -1,5 +1,7 @@
 package com.workplace.fileai.service;
 
+import com.workplace.fileai.ExtractionProfile;
+import com.workplace.fileai.inbound.ExtractionBackfillSource;
 import com.workplace.fileai.repository.WorkerJobRepository;
 import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
@@ -13,7 +15,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 파일 추출·요약 백필 스케줄러. 3분 주기로 미완(PENDING/lease 만료 EXTRACTING·SUMMARIZING/TEXT_READY) 파일을 재처리한다.
+ * 파일 추출·요약 백필 스케줄러. 3분 주기로 미완(PENDING/lease 만료 EXTRACTING·SUMMARIZING/TEXT_READY) 파일을 재처리한다. ① 수집
+ * 전에 기존 첨부 백필 시드(WP-244)도 한다.
  *
  * <p>MailSummaryScheduler 의 2단계 패턴을 미러한다. ① {@link TenantScopedRunner} 로 테넌트별 짧은 트랜잭션에서 재개 대상 목록만
  * 수집(RLS 통과), ② Runner 트랜잭션 밖에서 TenantContext 만 주입해 dispatchPending/summarizePending 처리 — IMAP/LLM
@@ -31,6 +34,12 @@ public class FileExtractionScheduler {
   private final WorkerJobRepository jobRepo;
   private final FileExtractionPipeline pipeline;
 
+  /** 회차당 테넌트·소스별 백필 시드 상한 — 백로그는 3분 주기로 소진된다(WP-244). */
+  static final int BACKFILL_BATCH = 100;
+
+  private final List<ExtractionBackfillSource> backfillSources;
+  private final FileExtractionRowWriter rowWriter;
+
   /** 3분 주기 백필. */
   @Scheduled(fixedRate = 180_000)
   @SchedulerLock(name = "FileExtractionScheduler.runOnce")
@@ -39,6 +48,8 @@ public class FileExtractionScheduler {
     List<TenantFile> targets = new ArrayList<>();
     tenantRunner.forEachActiveTenant(
         tenantId -> {
+          // 기존 첨부 백필(WP-244): 추출 행이 없는 첨부에 TEXT_ONLY 행을 만든다 — 아래 findResumable 이 같은 회차에 디스패치한다.
+          seedMissingAttachments(tenantId);
           for (long fileId : jobRepo.findResumable()) {
             targets.add(new TenantFile(tenantId, fileId));
           }
@@ -72,6 +83,18 @@ public class FileExtractionScheduler {
     }
     if (guard.tripped()) {
       log.warn("파일 요약 회차 중단 — ai-agent 불가, 남은 파일 {}개의 요약은 다음 주기", summarySkipped);
+    }
+  }
+
+  /**
+   * 소스마다 추출 행이 없는 첨부를 최대 {@value #BACKFILL_BATCH}건 TEXT_ONLY 로 시드한다. 테넌트 GUC 가 주입된 트랜잭션 안에서 호출해야
+   * 한다(소스 조회·행 삽입 모두 RLS 범위). 빠진 행만 만들므로 멱등이다.
+   */
+  void seedMissingAttachments(long tenantId) {
+    for (ExtractionBackfillSource source : backfillSources) {
+      for (ExtractionBackfillSource.Target t : source.findMissing(BACKFILL_BATCH)) {
+        rowWriter.write(t.fileId(), tenantId, t.mime(), ExtractionProfile.TEXT_ONLY);
+      }
     }
   }
 }

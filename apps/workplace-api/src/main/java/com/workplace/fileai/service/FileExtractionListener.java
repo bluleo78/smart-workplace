@@ -2,7 +2,6 @@ package com.workplace.fileai.service;
 
 import com.workplace.fileai.ExtractableTypes;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
-import com.workplace.fileai.repository.FileExtractionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
@@ -26,7 +25,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @RequiredArgsConstructor
 public class FileExtractionListener {
 
-  private final FileExtractionRepository repo;
+  private final FileExtractionRowWriter rowWriter;
   private final FileExtractionPipeline pipeline;
 
   /**
@@ -40,12 +39,7 @@ public class FileExtractionListener {
       throw new IllegalStateException(
           "FileExtractionRequestedEvent 는 트랜잭션 안에서 발행해야 한다: fileId=" + e.fileId());
     }
-    if (!ExtractableTypes.supports(e.mime())) {
-      repo.markSkipped(
-          e.fileId(), e.tenantId(), e.profile(), ExtractableTypes.skipReason(e.mime()));
-      return;
-    }
-    repo.upsertPending(e.fileId(), e.tenantId(), e.profile());
+    rowWriter.write(e.fileId(), e.tenantId(), e.mime(), e.profile());
   }
 
   /**
