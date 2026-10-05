@@ -301,4 +301,51 @@ class IssueSearchServiceParentTest extends IntegrationTestBase {
 
     assertThat(titles).containsExactly("epicChild");
   }
+
+  /**
+   * WP-247 — 검색 응답의 parent 요약에 부모 상태가 실린다. 필터로 부모(에픽) 행이 응답에서 빠져도 하위 이슈만으로 부모가 취소됐는지 알 수 있어야 타임라인이
+   * 취소 에픽의 하위를 「에픽 없음」으로 옮길 수 있다. 부모가 TODO 일 때와 CANCELED 로 바뀐 뒤를 모두 확인한다.
+   */
+  @Test
+  void search_result_parent_carries_parent_status() {
+    Long owner = createUser("h");
+    var p = newProject(owner, "PS8");
+    Long epicId = typeRepository.findByProjectAndName(p.id(), "EPIC").orElseThrow().id();
+
+    var epic =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("epic", null, null, null, null, epicId, null, null));
+    var child =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("epicChild", null, null, null, null, null, epic.number(), null));
+
+    // 부모 행이 응답에 없도록 하위 이슈만 조회 — parent 필터가 에픽 자신은 제외한다
+    var params = new HashMap<String, String>();
+    params.put("parent", String.valueOf(epic.number()));
+    var before =
+        searchService.search(owner, p.key(), params).items().stream()
+            .filter(i -> i.number() == child.number())
+            .findFirst()
+            .orElseThrow();
+    assertThat(before.parent().status()).isEqualTo("TODO");
+
+    // 에픽을 취소 — 하위는 열린 채로 남고 parent.status 만 CANCELED 로 바뀌어야 한다
+    issueService.update(
+        owner,
+        p.key(),
+        epic.number(),
+        new UpdateIssueRequest(
+            null, null, "CANCELED", null, null, false, null, false, null, false, null));
+    var after =
+        searchService.search(owner, p.key(), params).items().stream()
+            .filter(i -> i.number() == child.number())
+            .findFirst()
+            .orElseThrow();
+    assertThat(after.status()).isEqualTo("TODO");
+    assertThat(after.parent().status()).isEqualTo("CANCELED");
+  }
 }

@@ -653,7 +653,8 @@ public class IssueService {
                   oldParentType.id(),
                   oldParentType.name(),
                   oldParentType.colorToken(),
-                  oldParentType.icon()));
+                  oldParentType.icon()),
+              oldParent.status());
       issueRepository.updateParent(issue.id(), null);
       historyRecorder.recordParentChanged(callerId, issue.id(), oldParentRef, null);
     }
@@ -773,7 +774,8 @@ public class IssueService {
                   newParentType.id(),
                   newParentType.name(),
                   newParentType.colorToken(),
-                  newParentType.icon()));
+                  newParentType.icon()),
+              newParent.status());
     }
 
     Long currentParentId = row.parentIssueId();
@@ -793,7 +795,8 @@ public class IssueService {
                   oldParentType.id(),
                   oldParentType.name(),
                   oldParentType.colorToken(),
-                  oldParentType.icon()));
+                  oldParentType.icon()),
+              oldParent.status());
     }
 
     issueRepository.updateParent(row.id(), newParentId);

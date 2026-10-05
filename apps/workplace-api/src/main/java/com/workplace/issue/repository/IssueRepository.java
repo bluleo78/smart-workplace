@@ -751,7 +751,8 @@ public class IssueRepository {
   }
 
   /**
-   * N+1 회피 — 자식 id 집합 → 부모 요약. self-alias 로 부모 row 와 부모 type 을 함께 fetch. 부모가 없는 id 는 결과 맵에서 제외된다.
+   * N+1 회피 — 자식 id 집합 → 부모 요약. self-alias 로 부모 row(번호·제목·상태)와 부모 type 을 함께 fetch. 부모가 없는 id 는 결과
+   * 맵에서 제외된다.
    */
   public Map<Long, ParentRef> findParentRefsByIssueIds(List<Long> issueIds) {
     if (issueIds == null || issueIds.isEmpty()) return Map.of();
@@ -761,6 +762,7 @@ public class IssueRepository {
             ISSUE.ID,
             p.NUMBER,
             p.TITLE,
+            p.STATUS,
             ISSUE_TYPE_DEF.ID,
             ISSUE_TYPE_DEF.NAME,
             ISSUE_TYPE_DEF.COLOR_TOKEN,
@@ -783,7 +785,9 @@ public class IssueRepository {
                             r.get(ISSUE_TYPE_DEF.ID),
                             r.get(ISSUE_TYPE_DEF.NAME),
                             r.get(ISSUE_TYPE_DEF.COLOR_TOKEN),
-                            r.get(ISSUE_TYPE_DEF.ICON)))));
+                            r.get(ISSUE_TYPE_DEF.ICON)),
+                        // 부모 상태 — 부모 행이 응답에 없어도 하위만으로 부모 취소 여부를 판단하게(WP-247)
+                        r.get(p.STATUS))));
     return result;
   }
 
