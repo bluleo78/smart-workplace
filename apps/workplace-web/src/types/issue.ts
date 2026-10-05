@@ -14,6 +14,9 @@ export interface ParentRef {
   number: number;
   title: string;
   type: IssueTypeSummary;
+  // 부모 이슈의 현재 상태 — 필터로 부모(에픽) 행이 응답에 없어도 취소 여부를 알 수 있게 서버가 싣는다(WP-247).
+  // 이력 등 다른 payload 에는 없을 수 있어 선택.
+  status?: IssueStatus;
 }
 
 // 의존성 응답에 임베드되는 이슈 요약 (Phase 4b).

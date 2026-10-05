@@ -159,7 +159,8 @@ function intersectSpan(a: DateSpan, b: DateSpan): DateSpan | null {
  * 타임라인에 올릴 이슈 — 간트(groupTimelineIssues)와 모바일 아젠다(buildAgendaSections)가 같은 규칙을 쓴다.
  * 1) 상태: SUBTASK 제외. 취소 이슈·취소 에픽은 「취소」 상태 필터(includeCanceled)일 때만 남긴다.
  *    취소된 에픽의 할 일·진행 중 하위는 부모를 떼어 「에픽 없음」으로 옮기고(formerEpicTitle), 완료·취소 하위는
- *    「취소」 필터면 (보이는) 취소 에픽 아래 그대로 두고, 아니면 숨긴다.
+ *    「취소」 필터면 (보이는) 취소 에픽 아래 그대로 두고, 아니면 숨긴다. 필터로 취소 에픽 행이 응답에 없어도 하위의
+ *    parent.status 가 CANCELED 면 같은 규칙을 적용한다(「취소」 필터의 완료·취소 하위는 부모 요약으로 합성한 묶음 아래 남는다).
  * 2) 기간(period): 에픽은 간트 막대와 같은 정의로 판단한다 — 자체 기간(epicOwnRange) 또는 마감일 있는 하위 롤업
  *    (rollupRange — 간트 range/얇은 막대와 같은 min(start ?? due) ~ max(due))이 겹치면 하위 전부와 함께 보인다(일정 초과 하위도 보이게).
  *    에픽 없는 이슈는 자기 구간으로. 마감일이 없는 이슈(간트에선 막대 없이 「일정 미정」)와 막대가 없는 에픽은 거르지 않는다.
@@ -174,7 +175,11 @@ export function prepareTimelineIssues(
   const byStatus: TimelineIssue[] = [];
   for (const i of issues) {
     if (i.type?.name === 'SUBTASK') continue;
-    const canceledParent = i.parent?.type.name === 'EPIC' ? canceledEpics.get(i.parent.number) : undefined;
+    // 취소 에픽 하위 판정 — 응답의 취소 에픽 우선, 필터로 에픽 행이 빠졌으면 하위의 parent.status 로 판단한다(WP-247).
+    const canceledParent =
+      i.parent?.type.name === 'EPIC'
+        ? (canceledEpics.get(i.parent.number) ?? (i.parent.status === 'CANCELED' ? i.parent.title : undefined))
+        : undefined;
     if (canceledParent !== undefined) {
       if (i.status === 'TODO' || i.status === 'IN_PROGRESS') byStatus.push({ ...i, parent: null, formerEpicTitle: canceledParent });
       // 완료·취소 하위 — 「취소」 필터로 취소 에픽이 보일 때는 그 아래 하위로 둔다.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CycleResponse } from '@/types/cycle';
-import type { IssueResponse } from '@/types/issue';
+import type { IssueResponse, IssueStatus } from '@/types/issue';
 import type { IssueTypeSummary } from '@/types/issueType';
 import type { MilestoneResponse } from '@/types/milestone';
 
@@ -138,7 +138,8 @@ const SUBTASK_TYPE: IssueTypeSummary = {
   icon: 'CornerDownRight',
 };
 
-const parentRef = (number: number, title: string) => ({ number, title, type: EPIC_TYPE });
+// status: 부모(에픽) 상태 — 응답에 에픽 행이 없을 때 취소 여부 판단 근거(WP-247). 생략하면 이력 등 상태 없는 payload 와 같다.
+const parentRef = (number: number, title: string, status?: IssueStatus) => ({ number, title, type: EPIC_TYPE, ...(status ? { status } : {}) });
 
 describe('groupTimelineIssues', () => {
   it('에픽 하위 이슈를 에픽 그룹으로, 에픽 없는 이슈를 no-epic 그룹으로 묶는다', () => {
@@ -808,6 +809,31 @@ describe('prepareTimelineIssues — 조회 기간 (WP-247)', () => {
     // 간트에선 취소 에픽 그룹 아래 완료·취소 하위 막대.
     const epic = groupTimelineIssues(xs, { includeCanceled: true }).groups.find((g) => g.epicNumber === 70)!;
     expect(epic.bars.map((b) => b.issueNumber)).toEqual([71, 72]);
+  });
+
+  it('응답에 없는 취소 에픽 — parent.status 로 판단해 남은 일은 「에픽 없음」(← 부모 제목), 완료·취소 하위는 「취소」 필터일 때만 합성 묶음에 남는다', () => {
+    // 담당자·라벨 등 필터로 취소 에픽 70 자체는 응답에 없고 하위만 왔다.
+    const xs = [
+      issue({ number: 71, parent: parentRef(70, '빠진 취소 에픽', 'CANCELED'), status: 'IN_PROGRESS', dueDate: '2026-10-03' }),
+      issue({ number: 72, parent: parentRef(70, '빠진 취소 에픽', 'CANCELED'), status: 'DONE', dueDate: '2026-10-04' }),
+      issue({ number: 73, parent: parentRef(70, '빠진 취소 에픽', 'CANCELED'), status: 'CANCELED', dueDate: '2026-10-05' }),
+    ];
+    expect(prepareTimelineIssues(xs).map((i) => [i.number, i.parent, i.formerEpicTitle])).toEqual([[71, null, '빠진 취소 에픽']]);
+    // 간트에서도 「에픽 없음」 그룹의 막대로 옮겨진다.
+    const { groups } = groupTimelineIssues(xs);
+    expect(groups.map((g) => g.key)).toEqual(['no-epic']);
+    expect(groups[0].bars).toEqual([expect.objectContaining({ issueNumber: 71, formerEpicTitle: '빠진 취소 에픽' })]);
+    // 「취소」 필터면 완료·취소 하위는 부모 요약으로 합성한 취소 에픽 묶음 아래 그대로 남는다.
+    const withCanceled = prepareTimelineIssues(xs, { includeCanceled: true });
+    expect(withCanceled.map((i) => [i.number, i.parent?.number ?? null])).toEqual([[71, null], [72, 70], [73, 70]]);
+  });
+
+  it('응답에 없는 에픽이 취소가 아니면(parent.status TODO·상태 없음) 하위는 그 에픽 묶음에 남는다', () => {
+    const r = prepareTimelineIssues([
+      issue({ number: 81, parent: parentRef(80, '열린 에픽', 'TODO'), status: 'TODO' }),
+      issue({ number: 82, parent: parentRef(80, '열린 에픽'), status: 'DONE' }),
+    ]);
+    expect(r.map((i) => [i.number, i.parent?.number ?? null, i.formerEpicTitle])).toEqual([[81, 80, undefined], [82, 80, undefined]]);
   });
 
   it('period 가 없으면 거르지 않는다', () => {
