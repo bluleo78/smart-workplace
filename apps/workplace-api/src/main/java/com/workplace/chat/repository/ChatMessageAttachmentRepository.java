@@ -1,5 +1,6 @@
 package com.workplace.chat.repository;
 
+import static com.workplace.jooq.tables.ChatMessage.CHAT_MESSAGE;
 import static com.workplace.jooq.tables.ChatMessageAttachment.CHAT_MESSAGE_ATTACHMENT;
 import static com.workplace.jooq.tables.File.FILE;
 import static com.workplace.jooq.tables.User.USER;
@@ -24,12 +25,18 @@ public class ChatMessageAttachmentRepository {
   }
 
   /** 바인딩 검증용 파일 상태(소유자/만료/이미 바인딩 여부). */
-  public record Bindable(Long fileId, Long uploadedBy, OffsetDateTime expiresAt, boolean bound) {}
+  public record Bindable(
+      Long fileId, Long uploadedBy, OffsetDateTime expiresAt, boolean bound, String mimeType) {}
 
   /** 파일 존재 시 바인딩 후보 정보 반환. chat_message_attachment LEFT JOIN 으로 bound 여부 포함. */
   public Optional<Bindable> findBindable(Long fileId) {
     var r =
-        dsl.select(FILE.ID, FILE.UPLOADED_BY, FILE.EXPIRES_AT, CHAT_MESSAGE_ATTACHMENT.MESSAGE_ID)
+        dsl.select(
+                FILE.ID,
+                FILE.UPLOADED_BY,
+                FILE.EXPIRES_AT,
+                FILE.MIME_TYPE,
+                CHAT_MESSAGE_ATTACHMENT.MESSAGE_ID)
             .from(FILE)
             .leftJoin(CHAT_MESSAGE_ATTACHMENT)
             .on(CHAT_MESSAGE_ATTACHMENT.FILE_ID.eq(FILE.ID))
@@ -41,7 +48,19 @@ public class ChatMessageAttachmentRepository {
             r.get(FILE.ID),
             r.get(FILE.UPLOADED_BY),
             r.get(FILE.EXPIRES_AT),
-            r.get(CHAT_MESSAGE_ATTACHMENT.MESSAGE_ID) != null));
+            r.get(CHAT_MESSAGE_ATTACHMENT.MESSAGE_ID) != null,
+            r.get(FILE.MIME_TYPE)));
+  }
+
+  /** fileId 가 이 스레드의 어떤 메시지에 바인딩된 첨부인지(WP-242 — 구간 읽기 소속 확인). */
+  public boolean isAttachedToThread(long fileId, long threadId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(CHAT_MESSAGE_ATTACHMENT)
+            .join(CHAT_MESSAGE)
+            .on(CHAT_MESSAGE.ID.eq(CHAT_MESSAGE_ATTACHMENT.MESSAGE_ID))
+            .where(CHAT_MESSAGE_ATTACHMENT.FILE_ID.eq(fileId))
+            .and(CHAT_MESSAGE.THREAD_ID.eq(threadId)));
   }
 
   /** 정션 INSERT — file 을 특정 chat 메시지에 바인딩. */
@@ -90,7 +109,8 @@ public class ChatMessageAttachmentRepository {
                     r.get(FILE.SIZE_BYTES),
                     r.get(CHAT_MESSAGE_ATTACHMENT.ATTACHED_BY),
                     r.get(USER.NAME),
-                    r.get(CHAT_MESSAGE_ATTACHMENT.ATTACHED_AT).toInstant()))
+                    r.get(CHAT_MESSAGE_ATTACHMENT.ATTACHED_AT).toInstant(),
+                    null))
         .stream()
         .collect(Collectors.groupingBy(ChatMessageAttachmentResponse::messageId));
   }

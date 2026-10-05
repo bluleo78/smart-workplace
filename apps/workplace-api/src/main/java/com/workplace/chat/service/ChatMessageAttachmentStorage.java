@@ -2,6 +2,7 @@ package com.workplace.chat.service;
 
 import static com.workplace.jooq.tables.File.FILE;
 
+import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
@@ -61,10 +62,8 @@ public class ChatMessageAttachmentStorage {
     // STORED_NAME 에는 경로 마지막 세그먼트(UUID 파일명)만 저장해 "저장된 파일명" 의미를 유지
     String storedName = relativePath.substring(relativePath.lastIndexOf('/') + 1);
 
-    String mime =
-        mf.getContentType() != null && !mf.getContentType().isBlank()
-            ? mf.getContentType()
-            : "application/octet-stream";
+    // 브라우저 Content-Type 이 비었거나 octet-stream 이면 확장자로 보정(WP-242) — 추출 가능 판정이 mime 기준.
+    String mime = MimeNormalizer.normalize(originalName, mf.getContentType());
 
     OffsetDateTime now = OffsetDateTime.now();
     return dsl.insertInto(FILE)

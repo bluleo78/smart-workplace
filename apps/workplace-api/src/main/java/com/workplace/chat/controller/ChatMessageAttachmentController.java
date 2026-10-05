@@ -2,6 +2,7 @@ package com.workplace.chat.controller;
 
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.service.ChatMessageAttachmentService;
+import com.workplace.fileai.dto.ExtractedTextSlice;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -42,6 +43,17 @@ public class ChatMessageAttachmentController {
       @RequestParam("files") List<MultipartFile> files)
       throws IOException {
     return ResponseEntity.ok(service.upload(callerId, threadId, files));
+  }
+
+  /** 첨부 추출 텍스트 구간 읽기(WP-242). limit 상한 32,000자. */
+  @GetMapping("/threads/{id}/attachments/{fileId}/text")
+  public ResponseEntity<ExtractedTextSlice> readText(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long threadId,
+      @PathVariable long fileId,
+      @RequestParam(defaultValue = "0") int offset,
+      @RequestParam(defaultValue = "32000") int limit) {
+    return ResponseEntity.ok(service.readText(callerId, threadId, fileId, offset, limit));
   }
 
   /** 다운로드(스트리밍). 스레드 멤버만 허용. 교차 스레드 접근 시 4xx 반환. */

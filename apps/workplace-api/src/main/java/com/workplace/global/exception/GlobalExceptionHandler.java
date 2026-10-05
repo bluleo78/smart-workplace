@@ -6,6 +6,7 @@ import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.auth.exception.TenantAccessDeniedException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
+import com.workplace.chat.exception.ChatAttachmentNotFoundException;
 import com.workplace.chat.exception.ChatMessageAuthorMismatchException;
 import com.workplace.chat.exception.ChatMessageNotFoundException;
 import com.workplace.chat.exception.ChatThreadIssueDeletedException;
@@ -1418,6 +1419,14 @@ public class GlobalExceptionHandler {
       com.workplace.fileai.exception.InvalidTextRangeException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 스레드 첨부가 아니거나 없는 fileId → 404(WP-242). */
+  @ExceptionHandler(ChatAttachmentNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleChatAttachmentNotFound(
+      ChatAttachmentNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
   }
 
   /** Phase 6a — chat 메시지 id 미존재 또는 soft-deleted → 404. */

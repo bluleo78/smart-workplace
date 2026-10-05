@@ -1,14 +1,22 @@
 package com.workplace.chat.service;
 
+import com.workplace.chat.exception.ChatAttachmentNotFoundException;
 import com.workplace.chat.exception.InvalidChatAttachmentException;
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.repository.ChatMessageRepository;
+import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.storage.FileStore;
+import com.workplace.fileai.ExtractionProfile;
+import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
+import com.workplace.fileai.service.ExtractedTextService;
+import com.workplace.global.tenant.TenantContext;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -33,6 +41,12 @@ public class ChatMessageAttachmentService {
   // WP-213: 선업로드는 쓰기 권한만 확인(참여는 메시지 전송 시).
   private final ChatThreadAccess threadAccess;
 
+  /** 첨부 바인딩 시 텍스트 추출 요청 이벤트 발행용(WP-242). */
+  private final ApplicationEventPublisher eventPublisher;
+
+  /** 추출 텍스트 구간 읽기(WP-242). */
+  private final ExtractedTextService extractedText;
+
   /** 파일 1개당 최대 크기(바이트). 기본 25MB. */
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
@@ -46,12 +60,16 @@ public class ChatMessageAttachmentService {
       ChatMessageAttachmentRepository repo,
       ChatMessageRepository messageRepo,
       FileStore fileStore,
-      ChatThreadAccess threadAccess) {
+      ChatThreadAccess threadAccess,
+      ApplicationEventPublisher eventPublisher,
+      ExtractedTextService extractedText) {
     this.storage = storage;
     this.repo = repo;
     this.messageRepo = messageRepo;
     this.fileStore = fileStore;
     this.threadAccess = threadAccess;
+    this.eventPublisher = eventPublisher;
+    this.extractedText = extractedText;
   }
 
   /**
@@ -77,10 +95,8 @@ public class ChatMessageAttachmentService {
     List<UploadedFile> out = new ArrayList<>();
     for (MultipartFile mf : files) {
       Long id = storage.storeTemporary(mf, callerId);
-      String mime =
-          mf.getContentType() != null && !mf.getContentType().isBlank()
-              ? mf.getContentType()
-              : "application/octet-stream";
+      // 저장값(storeTemporary)과 응답값이 갈라지지 않도록 같은 정규화를 쓴다(WP-242).
+      String mime = MimeNormalizer.normalize(mf.getOriginalFilename(), mf.getContentType());
       out.add(
           new UploadedFile(
               id,
@@ -101,7 +117,8 @@ public class ChatMessageAttachmentService {
       throw new InvalidChatAttachmentException();
     }
     OffsetDateTime now = OffsetDateTime.now();
-    // 1차 패스: 전부 유효한지 검증.
+    // 1차 패스: 전부 유효한지 검증. 이벤트 발행용으로 후보를 모아 둔다.
+    List<ChatMessageAttachmentRepository.Bindable> bindables = new ArrayList<>();
     for (Long fileId : fileIds) {
       var b = repo.findBindable(fileId).orElseThrow(InvalidChatAttachmentException::new);
       // 소유자 불일치, 이미 바인딩됨, 만료된 임시 파일이면 거부.
@@ -110,12 +127,22 @@ public class ChatMessageAttachmentService {
       if (!ownedByCaller || b.bound() || expired) {
         throw new InvalidChatAttachmentException();
       }
+      bindables.add(b);
     }
     // 2차 패스: 정션 INSERT + 임시 만료 해제(영구 승격).
     for (Long fileId : fileIds) {
       repo.bind(fileId, messageId, callerId);
     }
     repo.promoteToPermanent(fileIds);
+    // 메시지에 붙어 영구 파일이 된 시점에 텍스트 추출을 요청한다(WP-242). 버려진 임시 업로드는 여기 오지 않아 추출하지 않는다.
+    // TenantContext 가 비면 언박싱 NPE 로 전송이 실패하지 않도록 DriveFileService 와 같은 0L 가드.
+    Long tenantId = TenantContext.get();
+    long tid = tenantId != null ? tenantId : 0L;
+    for (var b : bindables) {
+      eventPublisher.publishEvent(
+          new FileExtractionRequestedEvent(
+              b.fileId(), tid, b.mimeType(), ExtractionProfile.TEXT_ONLY));
+    }
   }
 
   /**
@@ -142,6 +169,17 @@ public class ChatMessageAttachmentService {
         row.originalName(),
         row.mimeType(),
         row.sizeBytes());
+  }
+
+  /** 첨부 추출 텍스트 구간 읽기(WP-242). 스레드 열람 권한(기존 가드, 없으면 403) + fileId 가 이 스레드 첨부인지(아니면 404). */
+  @Transactional(readOnly = true)
+  public ExtractedTextSlice readText(
+      long callerId, long threadId, long fileId, int offset, int limit) {
+    threadAccess.ensureCanRead(threadId, callerId);
+    if (!repo.isAttachedToThread(fileId, threadId)) {
+      throw new ChatAttachmentNotFoundException(fileId);
+    }
+    return extractedText.read(fileId, offset, limit);
   }
 
   /** 선업로드 응답 한 건. messageId 에 바인딩하기 전까지는 임시 상태. */

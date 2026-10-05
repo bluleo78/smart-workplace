@@ -1,5 +1,6 @@
 package com.workplace.chat.service;
 
+import com.workplace.chat.dto.ChatMessageAttachmentResponse;
 import com.workplace.chat.dto.ChatMessagePage;
 import com.workplace.chat.dto.ChatMessageResponse;
 import com.workplace.chat.dto.CreateChatMessageRequest;
@@ -20,11 +21,15 @@ import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.chat.repository.IssueStakeholderLookup;
 import com.workplace.drive.service.DriveLinkService;
+import com.workplace.fileai.dto.ExtractionInfo;
+import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.MentionParser;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -50,6 +55,8 @@ public class ChatMessageService {
   private final IssueStakeholderLookup issueLookup;
   // WP-213: 이슈 토크 읽기/쓰기 접근 판정 + 보낼 때 자동 참여.
   private final ChatThreadAccess threadAccess;
+  // WP-242: 첨부 추출 상태 하이드레이션.
+  private final ExtractedTextService extractedText;
 
   /**
    * 메시지 작성. 스레드 멤버가 아니어도 댓글 작성 권한이 있으면 이 시점에 대화에 자동 참여한다(WP-213). 빈 메시지(본문도 첨부도 드라이브링크도 없음) 거부.
@@ -186,13 +193,34 @@ public class ChatMessageService {
         new ChatThreadProgressEvent(threadId, callerId, name, streamId, phase, steps));
   }
 
+  /** 첨부 맵의 각 첨부에 추출 상태를 일괄로 붙인다(WP-242). RLS 트랜잭션 안에서 호출된다. */
+  private Map<Long, List<ChatMessageAttachmentResponse>> withExtraction(
+      Map<Long, List<ChatMessageAttachmentResponse>> amap) {
+    List<Long> fileIds =
+        amap.values().stream()
+            .flatMap(List::stream)
+            .map(ChatMessageAttachmentResponse::fileId)
+            .toList();
+    if (fileIds.isEmpty()) return amap;
+    Map<Long, ExtractionInfo> infos = extractedText.info(fileIds);
+    Map<Long, List<ChatMessageAttachmentResponse>> out = new HashMap<>();
+    amap.forEach(
+        (msgId, list) ->
+            out.put(
+                msgId,
+                list.stream()
+                    .map(a -> a.withExtraction(infos.getOrDefault(a.fileId(), ExtractionInfo.NONE)))
+                    .toList()));
+    return out;
+  }
+
   /** 단일 메시지 조회 + 첨부·드라이브 링크 하이드레이션. RLS 트랜잭션 내에서만 호출해야 첨부가 보인다. */
   private ChatMessageResponse findOne(long messageId) {
     ChatMessageResponse base =
         messageRepo
             .findById(messageId, userMentionHydrator::asMentionResponses)
             .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
-    var amap = attachmentRepo.findByMessageIds(List.of(messageId));
+    var amap = withExtraction(attachmentRepo.findByMessageIds(List.of(messageId)));
     var dlinks = driveLinkService.listLinks("CHAT_MESSAGE", messageId);
     return base.withAttachments(amap.getOrDefault(messageId, List.of())).withDriveLinks(dlinks);
   }
@@ -201,7 +229,7 @@ public class ChatMessageService {
   private ChatMessagePage enrichAttachments(ChatMessagePage page) {
     List<Long> ids = page.items().stream().map(ChatMessageResponse::id).toList();
     if (ids.isEmpty()) return page;
-    var amap = attachmentRepo.findByMessageIds(ids);
+    var amap = withExtraction(attachmentRepo.findByMessageIds(ids));
     var dmap = driveLinkService.listLinksBatch("CHAT_MESSAGE", ids);
     List<ChatMessageResponse> items =
         page.items().stream()
