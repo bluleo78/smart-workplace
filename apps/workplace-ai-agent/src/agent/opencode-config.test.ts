@@ -236,6 +236,7 @@ describe('buildOpencodeConfig', () => {
       baseInput({ mcp: { client, profile: 'chat', onBehalfOfId: 1, chatThreadId: 17 } }),
       'run-1',
       ['cmd'],
+      VISION_ON,
     );
     const env = (cfg.mcp?.workplace as { environment?: Record<string, string> }).environment;
     expect(env?.MCP_CHAT_THREAD_ID).toBe('17');
