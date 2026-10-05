@@ -645,16 +645,7 @@ public class IssueService {
     if (releasesParent) {
       var oldParent = issueRepository.findById(issue.parentIssueId()).orElseThrow();
       var oldParentType = typeRepository.findById(oldParent.typeId()).orElseThrow();
-      var oldParentRef =
-          new ParentRef(
-              oldParent.number(),
-              oldParent.title(),
-              new IssueTypeSummary(
-                  oldParentType.id(),
-                  oldParentType.name(),
-                  oldParentType.colorToken(),
-                  oldParentType.icon()),
-              oldParent.status());
+      var oldParentRef = toParentRef(oldParent, oldParentType);
       issueRepository.updateParent(issue.id(), null);
       historyRecorder.recordParentChanged(callerId, issue.id(), oldParentRef, null);
     }
@@ -766,16 +757,7 @@ public class IssueService {
         throw new ParentNotAllowedException();
       }
       newParentId = newParent.id();
-      newRef =
-          new ParentRef(
-              newParent.number(),
-              newParent.title(),
-              new IssueTypeSummary(
-                  newParentType.id(),
-                  newParentType.name(),
-                  newParentType.colorToken(),
-                  newParentType.icon()),
-              newParent.status());
+      newRef = toParentRef(newParent, newParentType);
     }
 
     Long currentParentId = row.parentIssueId();
@@ -787,21 +769,21 @@ public class IssueService {
     if (currentParentId != null) {
       var oldParent = issueRepository.findById(currentParentId).orElseThrow();
       var oldParentType = typeRepository.findById(oldParent.typeId()).orElseThrow();
-      oldRef =
-          new ParentRef(
-              oldParent.number(),
-              oldParent.title(),
-              new IssueTypeSummary(
-                  oldParentType.id(),
-                  oldParentType.name(),
-                  oldParentType.colorToken(),
-                  oldParentType.icon()),
-              oldParent.status());
+      oldRef = toParentRef(oldParent, oldParentType);
     }
 
     issueRepository.updateParent(row.id(), newParentId);
     historyRecorder.recordParentChanged(callerId, row.id(), oldRef, newRef);
     changeNotifier.updated(project, number, row.id(), callerId);
     return get(callerId, projectKey, number);
+  }
+
+  /** 부모 이슈 행·유형 행 → 응답·이력용 부모 요약(번호·제목·유형·상태, WP-247). 상위 변경 경로 세 곳이 같은 모양으로 만든다. */
+  private static ParentRef toParentRef(IssueRow parent, com.workplace.issue.dto.IssueTypeRow type) {
+    return new ParentRef(
+        parent.number(),
+        parent.title(),
+        new IssueTypeSummary(type.id(), type.name(), type.colorToken(), type.icon()),
+        parent.status());
   }
 }
