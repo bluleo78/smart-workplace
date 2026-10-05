@@ -80,6 +80,23 @@
   display: none;
 }
 
+/* 완료 에픽(WP-247) — 요약 막대를 완료 색으로. 얇은 막대의 기간 안쪽 구간도 같은 계열로 맞춘다. */
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-status='DONE'] {
+  --wx-gantt-summary-color: var(--success);
+  --epic: var(--success);
+}
+
+/* 취소 에픽(WP-247, 「취소」 상태 필터일 때만 나온다) — muted 빗금 + 흐린 글자. 진행 중·완료와 모양(빗금)으로도 구분한다. */
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-status='CANCELED'] {
+  --wx-gantt-summary-color: var(--muted);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--muted-foreground) 35%, transparent) 0 6px,
+    transparent 6px 12px
+  );
+  color: var(--muted-foreground);
+}
+
 /* 막대 없이 그리드 행만 보이는 두 부류 — 정적 CSS 로만 숨긴다(MutationObserver 계열 DOM 조작은
    상태색 접미사충돌 프리즈 전례가 있어 금지). id 네임스페이스로 구분:
    - 미정 하위(undated-{번호}): 에픽 아래 행으로만, 간트 막대 없음.

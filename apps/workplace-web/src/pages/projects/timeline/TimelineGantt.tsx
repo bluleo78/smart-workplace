@@ -16,6 +16,8 @@ import { Diamond } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import type { IssueStatus } from '@/types/issue'
+
 import { rollupOverlay } from './timelineData'
 import type {
   TimelineCycleBand,
@@ -78,12 +80,13 @@ const isUndatedRow = (row: unknown): boolean => {
   return !!r.undated || !!r.nobar
 }
 
-// 이슈 상태별 막대 색상 — IssueStatusIcon/IssueStatusBadge 와 동일한 시맨틱 토큰(hex 금지). CANCELED 이슈는
-// groupTimelineIssues 에서 막대 목록 자체에 포함되지 않아 매핑 대상이 아니다.
-const STATUS_BAR_COLOR: Record<'TODO' | 'IN_PROGRESS' | 'DONE', string> = {
+// 이슈 상태별 막대 색상 — IssueStatusIcon/IssueStatusBadge 와 동일한 시맨틱 토큰(hex 금지). CANCELED 는 「취소」 상태 필터일 때만
+// 막대로 온다(WP-247) — 흐린 회색.
+const STATUS_BAR_COLOR: Record<IssueStatus, string> = {
   TODO: 'var(--muted-foreground)',
   IN_PROGRESS: 'var(--primary)',
   DONE: 'var(--success)',
+  CANCELED: 'color-mix(in oklab, var(--muted-foreground) 55%, transparent)',
 }
 
 // 에픽 요약 막대에 주입하는 얇은 막대 CSS 변수(WP-249) — timeline-gantt.css 의 ::after 가 읽는다. 값이 없으면 모두 제거.
@@ -178,6 +181,12 @@ export function TimelineGantt({
     [groups],
   )
 
+  // 요약 막대 id → 종료 상태(WP-247). 진행 중 에픽은 넣지 않아 속성이 없다.
+  const epicStatusByTaskId = useMemo(
+    () => new Map(groups.flatMap((g) => (g.status === 'DONE' || g.status === 'CANCELED' ? [[groupTaskId(g.key), g.status] as const] : []))),
+    [groups],
+  )
+
   // 막대 저장 실패 횟수 — 그룹 행에 실어 SVAR 가 tasks 를 다시 파싱하게 한다(WP-248). SVAR init 은 새 tasks 를
   // 이전 값과 깊은 비교해 같으면 무시하므로, 실패 후 재조회 응답이 이전과 같으면 드래그로 옮겨진 막대(와 하위 기준으로
   // 재계산된 에픽 요약 막대)가 그대로 남는다.
@@ -201,6 +210,7 @@ export function TimelineGantt({
       // `null/undefined.forEach()` 로 크래시한다(#656). `type` 은 이 크래시와 무관하며(둘 다
       // 영향받음), 실제 불변식은 "자식이 없으면 open 필드 자체를 넣지 않는다"이다.
       // 날짜 자식 + 미정 자식 중 하나라도 있으면 펼침 가능한 summary. (자식 0이면 잎 — #656 가드 유지)
+      // 그룹은 항상 summary 로 렌더(완료·취소 에픽 식별 위해 wx-summary 클래스 필요, WP-247).
       const hasChildren = group.bars.length > 0 || group.undatedChildren.length > 0
       // range 가 null 이면 그릴 에픽 막대가 없다 — id 에 '-nobar' 를 붙여 정적 CSS 로 막대만 숨긴다.
       const noBar = group.range === null
@@ -209,17 +219,22 @@ export function TimelineGantt({
         id: summaryId,
         // 진행률은 텍스트로 병기 — SVAR 그리드 셀 커스텀 렌더 미지원 전제의 안전한 표현.
         // 에픽 없음 그룹(epicNumber === null)은 진행률 대신 최상위 이슈(막대) 개수를 병기한다.
-        text:
-          group.epicNumber === null
-            ? `${group.title} (${group.bars.length})`
-            : group.total > 0
-              ? `${group.title} (${group.done}/${group.total})`
-              : group.title,
+        // 완료·취소 에픽은 그리드에 상태를 병기한다(WP-247) — 진행률과 같은 이유로 text 에 싣는다(셀 커스텀 렌더 미사용).
+        text: (() => {
+          const baseText =
+            group.epicNumber === null
+              ? `${group.title} (${group.bars.length})`
+              : group.total > 0
+                ? `${group.title} (${group.done}/${group.total})`
+                : group.title
+          const statusSuffix = group.status === 'DONE' ? ' · 완료' : group.status === 'CANCELED' ? ' · 취소' : ''
+          return baseText + statusSuffix
+        })(),
         // no-epic 도 range 를 롤업해 받으므로(#662) 그리드 시작일/기간 컬럼엔 항상 실제 값이 뜬다.
         // 그래도 range 자체가 비는 케이스(막대 없는 에픽)를 위해 group.bars[0]?.due 폴백은 유지 (SVAR 는 start 필수).
         start: parseISO(fallbackDate),
         end: addDays(parseISO(fallbackDue), 1),
-        type: hasChildren ? 'summary' : 'task',
+        type: 'summary',
         ...(hasChildren ? { open: expanded.has(group.key) } : {}),
         ...(noBar ? { nobar: true } : {}), // 시작일/기간 컬럼 "미정" 표기용 마커
         saveFailures, // 위 saveFailures 참조 — 그룹 행에만 실어도 깊은 비교가 깨진다
@@ -245,7 +260,7 @@ export function TimelineGantt({
         result.push({
           id: bar.issueNumber,
           parent: groupId,
-          text: `${bar.issueKey} ${bar.title}`,
+          text: `${bar.issueKey} ${bar.title}${bar.formerEpicTitle ? ` ← ${bar.formerEpicTitle}` : ''}`,
           start: startDate,
           end: endDate,
           type: 'task',
@@ -409,7 +424,6 @@ export function TimelineGantt({
     if (!container) return
     const applyColors = () => {
       for (const bar of bars) {
-        if (bar.status === 'CANCELED') continue
         const color = STATUS_BAR_COLOR[bar.status]
         // data-task-id 는 이슈 번호와 정확히 일치해야 한다 — 이전의 접미사 매칭($=)은 번호 5 가
         // 번호 25(에픽 자식)의 접미사라 둘 다 매칭돼 querySelector 가 같은 막대를 반환, 서로 다른
@@ -424,12 +438,19 @@ export function TimelineGantt({
       // 에픽 막대 자체가 그대로면 SVAR 가 style 을 다시 쓰지 않아 옛 변수가 남는다. 다른 값만 써서 옵저버 루프를 막는다.
       // SVAR 는 문자열 id 에 ':' 접두를 붙여 렌더하므로 떼고 정확 매칭한다(접미사 매칭은 #649 회귀 전례).
       for (const el of container.querySelectorAll<HTMLElement>('.wx-bar.wx-summary')) {
-        const values = rollupValuesByTaskId.get((el.dataset.taskId ?? '').replace(/^:/, '')) ?? NO_ROLLUP_VALUES
+        const id = (el.dataset.taskId ?? '').replace(/^:/, '')
+        const values = rollupValuesByTaskId.get(id) ?? NO_ROLLUP_VALUES
         ROLLUP_VARS.forEach((name, i) => {
           if (el.style.getPropertyValue(name) === values[i]) return
           if (values[i]) el.style.setProperty(name, values[i])
           else el.style.removeProperty(name)
         })
+        // 완료·취소 에픽 표시(WP-247) — 색은 CSS 가 data-epic-status 로 칠한다. 값이 같으면 건드리지 않아 옵저버 루프를 막는다.
+        const status = epicStatusByTaskId.get(id) ?? null
+        if ((el.dataset.epicStatus ?? null) !== status) {
+          if (status) el.dataset.epicStatus = status
+          else delete el.dataset.epicStatus
+        }
       }
     }
     applyColors()
@@ -441,7 +462,7 @@ export function TimelineGantt({
       attributeFilter: ['style', 'class'],
     })
     return () => observer.disconnect()
-  }, [bars, tasks, rollupValuesByTaskId])
+  }, [bars, tasks, rollupValuesByTaskId, epicStatusByTaskId])
 
   // 의존성 모순 링크 강조(#669) — SVAR 는 링크별 커스텀 className/color 주입 API 가 없어(바 색상과
   // 동일한 제약, 위 STATUS_BAR_COLOR 이펙트 참조) `data-link-id` 를 가진 <g> 안의 `.wx-line-draw`

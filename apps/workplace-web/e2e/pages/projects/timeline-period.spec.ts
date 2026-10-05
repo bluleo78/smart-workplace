@@ -139,3 +139,48 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await expect(page.getByTestId('timeline-period-empty')).toContainText('기간을 「전체」로 바꿔 보세요');
   });
 });
+
+test.describe('타임라인 완료·취소 에픽 표시 (WP-247)', () => {
+  async function setup(page: Page, list: IssueResponse[], query = '?period=all') {
+    await setupStubs(page);
+    await page.unroute(`**/api/v1/projects/${KEY}/issues?*`);
+    await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(list)) })
+        : route.fallback(),
+    );
+    await page.goto(`/projects/${KEY}/timeline${query}`);
+  }
+  const summary = (page: Page, n: number) => page.locator(`.timeline-gantt-root .wx-bar.wx-summary[data-task-id$="group-epic-${n}"]`);
+
+  test('완료 에픽 — 요약 막대가 완료 색, 그리드에 「완료」', async ({ authenticatedPage: page }) => {
+    await setup(page, [
+      createIssue({ number: 40, title: '끝난 에픽', type: EPIC_TYPE, status: 'DONE', startDate: '2026-10-01', dueDate: '2026-10-10', childCount: 1, childDoneCount: 1 }),
+      createIssue({ number: 41, title: '끝난 하위', status: 'DONE', parent: parent(40, '끝난 에픽'), startDate: '2026-10-02', dueDate: '2026-10-05' }),
+    ]);
+    await expect(summary(page, 40)).toHaveAttribute('data-epic-status', 'DONE');
+    await expect(gridRow(page, '끝난 에픽')).toContainText('완료');
+    const success = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--success').trim());
+    const bg = await summary(page, 40).evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(bg).not.toBe('');
+    expect(success).not.toBe('');
+  });
+
+  test('취소 에픽 — 기본은 숨고 하위 진행 중 이슈는 「에픽 없음」에 원래 에픽 이름과 함께, 「취소」 필터면 빗금 막대', async ({ authenticatedPage: page }) => {
+    const list = [
+      createIssue({ number: 70, title: '음성 메모', type: EPIC_TYPE, status: 'CANCELED', startDate: '2026-10-03', dueDate: '2026-10-12', childCount: 1 }),
+      createIssue({ number: 71, title: '녹음 업로드 API', status: 'IN_PROGRESS', parent: parent(70, '음성 메모'), startDate: '2026-10-05', dueDate: '2026-10-08' }),
+    ];
+    await setup(page, list);
+    await expect(gridRow(page, '음성 메모 ·')).toHaveCount(0);
+    await expect(gridRow(page, '에픽 없음')).toBeVisible();
+    await gridRow(page, '에픽 없음').locator('.wx-toggle-icon, [class*="toggle"]').first().click();
+    await expect(gridRow(page, '녹음 업로드 API')).toContainText('← 음성 메모');
+
+    await setup(page, [list[0]], '?period=all&status=CANCELED');
+    await expect(summary(page, 70)).toHaveAttribute('data-epic-status', 'CANCELED');
+    await expect(gridRow(page, '음성 메모')).toContainText('취소');
+    const bgImage = await summary(page, 70).evaluate((el) => getComputedStyle(el).backgroundImage);
+    expect(bgImage).toContain('repeating-linear-gradient');
+  });
+});
