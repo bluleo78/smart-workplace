@@ -6,8 +6,14 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 export function PeriodRangeForm({
-  initial, onApply, inputClassName,
-}: { initial: { from: string; to: string } | null; onApply: (from: string, to: string) => void; inputClassName?: string }) {
+  initial, onApply, inputClassName, buttonClassName,
+}: {
+  initial: { from: string; to: string } | null;
+  onApply: (from: string, to: string) => void;
+  /** 날짜 칸·적용 버튼 추가 클래스 — 모바일 시트는 터치 영역 44px(h-11)·16px 글자로 키운다. */
+  inputClassName?: string;
+  buttonClassName?: string;
+}) {
   const [from, setFrom] = useState(initial?.from ?? '');
   const [to, setTo] = useState(initial?.to ?? '');
   const valid = from !== '' && to !== '' && from <= to;
@@ -25,7 +31,7 @@ export function PeriodRangeForm({
         <span className="text-muted-foreground" aria-hidden="true">–</span>
         <input type="date" aria-label="종료일" data-testid="period-range-to" value={to} onChange={(e) => setTo(e.target.value)} className={input} />
       </div>
-      <Button type="submit" size="sm" disabled={!valid} data-testid="period-range-apply">
+      <Button type="submit" size="sm" disabled={!valid} data-testid="period-range-apply" className={buttonClassName}>
         적용
       </Button>
     </form>

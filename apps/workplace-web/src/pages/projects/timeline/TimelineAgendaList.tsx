@@ -65,7 +65,13 @@ export function TimelineAgendaList({
   const isEmpty = !loading && sections.length === 0;
   // 기간 빈 상태(WP-247) — 데스크톱(timeline-period-empty)과 같은 조건: 기간이 걸렸고 날짜 있는 섹션이 하나도 없으면.
   // 일정 미정 이슈는 기간과 무관하게 남으므로, 미정 섹션이 있으면 그 위에 안내를 두고 미정 섹션은 그대로 보인다.
-  const periodEmpty = !loading && view.period != null && !sections.some((s) => s.key !== 'undated');
+  // 단, 기간이 원인일 때만 — 기간을 빼면 날짜 있는 섹션이 생길 때. 필터 0건·새 프로젝트면 기존(WP-197) 빈 상태 문구를 쓴다.
+  const hasDated = sections.some((s) => s.key !== 'undated');
+  const periodIsCause = useMemo(
+    () => view.period != null && !hasDated && buildAgendaSections(issues, new Date(), { ...view, period: null }).some((s) => s.key !== 'undated'),
+    [issues, view, hasDated],
+  );
+  const periodEmpty = !loading && periodIsCause;
   const periodEmptyState = (className?: string) => (
     <MobileEmptyState
       icon={CalendarRange}

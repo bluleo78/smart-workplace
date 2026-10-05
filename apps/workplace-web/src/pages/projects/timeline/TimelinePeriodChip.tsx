@@ -44,7 +44,8 @@ export function TimelinePeriodChip({
             <p className="pb-1.5 text-xs text-muted-foreground">직접 지정</p>
             <PeriodRangeForm
               initial={param.kind === 'range' ? { from: param.from, to: param.to } : null}
-              inputClassName="h-10 text-base"
+              inputClassName="h-11 text-base"
+              buttonClassName="h-11"
               onApply={(from, to) => {
                 setOpen(false);
                 onChange({ kind: 'range', from, to });

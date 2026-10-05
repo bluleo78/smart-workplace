@@ -571,8 +571,19 @@ function activePeriod(cycles: CycleResponse[], today: Date, note: string | null)
   return rollingPeriod(today, note ?? '활성·예정 사이클이 없어 최근 3개월 ~ 향후 6개월로 봅니다');
 }
 
-/** PeriodParam → 실제 조회 기간. all 이면 null(거르지 않음). */
-export function resolvePeriod(param: PeriodParam, cycles: CycleResponse[], today: Date): TimelinePeriod | null {
+/**
+ * PeriodParam → 실제 조회 기간. all 이면 null(거르지 않음).
+ * cyclesFailed: 사이클 조회 실패 — 사이클이 필요한 active·cycle 은 rolling 으로 대체하고 이유를 안내한다.
+ */
+export function resolvePeriod(
+  param: PeriodParam,
+  cycles: CycleResponse[],
+  today: Date,
+  { cyclesFailed = false }: { cyclesFailed?: boolean } = {},
+): TimelinePeriod | null {
+  if (cyclesFailed && (param.kind === 'active' || param.kind === 'cycle')) {
+    return rollingPeriod(today, '사이클을 불러오지 못해 최근 3개월 ~ 향후 6개월로 봅니다');
+  }
   switch (param.kind) {
     case 'all':
       return null;

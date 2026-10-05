@@ -228,12 +228,13 @@ test('기간 칩 — 맨 앞에 활성 사이클 라벨, 시트에서 바꾸면 
   await expectNoHorizontalOverflow(page);
 });
 
-test('기간이 걸린 채 0건이면 기간 빈 상태 문구 (WP-247)', async ({ authenticatedPage: page }) => {
-  // 스텁은 DONE 상태 필터에 0건을 준다 — 직접 지정 기간이 걸려 있으니 「전체」로 바꾸라는 안내.
-  await setup(page, { query: '?status=DONE', period: 'range:2030-01-01~2030-01-31' });
+test('응답 0건이면 기본(활성) 기간이어도 기간 문구가 아닌 필터 빈 상태 — 기간이 원인이 아님 (WP-247)', async ({ authenticatedPage: page }) => {
+  // 스텁은 DONE 상태 필터에 0건을 준다. period 없이 진입 → 기본 기간이 걸려 있지만 「전체」로 바꿔도 0건이다.
+  await setup(page, { query: '?status=DONE', period: null });
   const empty = page.getByTestId('timeline-agenda-empty');
-  await expect(empty).toContainText('이 기간에 걸친 이슈가 없어요');
-  await expect(empty).toContainText('기간을 「전체」로 바꿔 보세요');
+  await expect(empty).toContainText('표시할 이슈가 없어요');
+  await expect(empty).toContainText('필터를 풀면 더 많은 이슈가 보여요.');
+  await expect(empty).not.toContainText('이 기간에 걸친 이슈가 없어요');
   await expect(page.getByTestId('agenda-chip-period')).toBeVisible();
 });
 

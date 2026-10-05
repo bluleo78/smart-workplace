@@ -668,6 +668,16 @@ describe('resolvePeriod (WP-247)', () => {
     expect(resolvePeriod({ kind: 'all' }, [gw2], TODAY_P)).toBeNull();
   });
 
+  it('사이클 조회 실패면 active·cycle 은 rolling 으로 대체하고 이유를 알린다 — 사이클이 필요 없는 기간은 그대로', () => {
+    const note = '사이클을 불러오지 못해 최근 3개월 ~ 향후 6개월로 봅니다';
+    expect(resolvePeriod({ kind: 'active' }, [], TODAY_P, { cyclesFailed: true })).toEqual({
+      from: '2026-07-05', to: '2027-04-05', label: '최근 3개월 ~ 향후 6개월', fallbackNote: note,
+    });
+    expect(resolvePeriod({ kind: 'cycle', id: 2 }, [gw2], TODAY_P, { cyclesFailed: true })?.fallbackNote).toBe(note);
+    expect(resolvePeriod({ kind: 'quarter' }, [], TODAY_P, { cyclesFailed: true })?.fallbackNote).toBeNull();
+    expect(resolvePeriod({ kind: 'all' }, [], TODAY_P, { cyclesFailed: true })).toBeNull();
+  });
+
   it('연도가 오늘과 다르면 기간 문구에 연도를 붙인다', () => {
     expect(formatPeriodSpan('2025-12-01', '2026-01-14', TODAY_P)).toBe('2025/12/1–2026/1/14');
     expect(formatPeriodSpan('2026-10-01', '2026-10-14', TODAY_P)).toBe('10/1–10/14');

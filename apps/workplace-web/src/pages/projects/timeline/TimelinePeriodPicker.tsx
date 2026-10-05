@@ -40,25 +40,27 @@ export function TimelinePeriodPicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-1" data-testid="timeline-period-popover">
-        <div role="menu" aria-label="조회 기간">
+        {/* 메뉴(role=menu) 안에 폼을 둘 수 없어(ARIA) 선택지는 aria-pressed 버튼 묶음(role=group), 직접 지정 폼은 묶음 밖에 둔다. */}
+        <div>
           {(['cycle', 'preset', 'all'] as const).map((g) => (
             <div key={g} className={cn(g !== 'cycle' && 'mt-1 border-t pt-1')}>
-              {GROUP_LABEL[g] && <p className="px-2 pt-1 pb-0.5 text-[11px] text-muted-foreground">{GROUP_LABEL[g]}</p>}
-              {options.filter((o) => o.group === g).map((o) => (
-                <button
-                  key={o.value}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={current === o.value}
-                  data-testid={`timeline-period-option-${o.value}`}
-                  onClick={() => pick(periodOptionToParam(o.value))}
-                  className={cn('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted', current === o.value && 'bg-accent font-medium')}
-                >
-                  <span className="min-w-0 flex-1 truncate">{o.label}</span>
-                  {o.hint && <span className="shrink-0 text-xs font-normal text-muted-foreground">{o.hint}</span>}
-                  <Check className={cn('size-3.5 shrink-0', current !== o.value && 'invisible')} aria-hidden />
-                </button>
-              ))}
+              {GROUP_LABEL[g] && <p className="px-2 pt-1 pb-0.5 text-[11px] text-muted-foreground" aria-hidden="true">{GROUP_LABEL[g]}</p>}
+              <div role="group" aria-label={GROUP_LABEL[g] ?? '전체'}>
+                {options.filter((o) => o.group === g).map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    aria-pressed={current === o.value}
+                    data-testid={`timeline-period-option-${o.value}`}
+                    onClick={() => pick(periodOptionToParam(o.value))}
+                    className={cn('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted', current === o.value && 'bg-accent font-medium')}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{o.label}</span>
+                    {o.hint && <span className="shrink-0 text-xs font-normal text-muted-foreground">{o.hint}</span>}
+                    <Check className={cn('size-3.5 shrink-0', current !== o.value && 'invisible')} aria-hidden />
+                  </button>
+                ))}
+              </div>
               {g === 'preset' && (
                 <div className="px-2 pt-1 pb-1.5">
                   <p className="pb-1 text-[11px] text-muted-foreground">직접 지정</p>

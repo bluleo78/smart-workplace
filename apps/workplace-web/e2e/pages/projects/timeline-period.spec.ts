@@ -31,7 +31,11 @@ function issues(): IssueResponse[] {
   ];
 }
 
-async function setupStubs(page: Page, { cycles = CYCLES, cycleDelayMs = 0 }: { cycles?: CycleResponse[]; cycleDelayMs?: number } = {}) {
+/** issueList: 이슈 응답 대체(0건 등), cyclesStatus: 사이클 응답 상태 코드(조회 실패 검증용). */
+async function setupStubs(
+  page: Page,
+  { cycles = CYCLES, cycleDelayMs = 0, issueList }: { cycles?: CycleResponse[]; cycleDelayMs?: number; issueList?: IssueResponse[] } = {},
+) {
   const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   const get = (url: string, body: () => unknown, delay = 0) =>
     page.route(url, async (route) => {
@@ -44,7 +48,7 @@ async function setupStubs(page: Page, { cycles = CYCLES, cycleDelayMs = 0 }: { c
     get(`**/api/v1/projects/${KEY}/members`, () => [createMember({ userId: 2, name: '김개발', username: 'kim@example.com' })]),
     get(`**/api/v1/projects/${KEY}/labels`, () => []),
     get(`**/api/v1/projects/${KEY}`, () => createProject({ key: KEY })),
-    get(`**/api/v1/projects/${KEY}/issues?*`, () => createIssueSearchResponse(issues())),
+    get(`**/api/v1/projects/${KEY}/issues?*`, () => createIssueSearchResponse(issueList ?? issues())),
     get(`**/api/v1/projects/${KEY}/cycles`, () => cycles, cycleDelayMs),
     get(`**/api/v1/projects/${KEY}/milestones`, () => []),
     get(`**/api/v1/projects/${KEY}/issue-dependencies`, () => []),
@@ -77,7 +81,8 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await setupStubs(page, { cycleDelayMs: 1500 });
     await page.goto(`/projects/${KEY}/timeline`);
     await expect(page.getByTestId('timeline-period-loading')).toBeVisible();
-    await expect(gridRow(page, '지난 에픽')).toHaveCount(0);
+    // 로딩 중에는 간트 자체를 그리지 않는다(거르지 않은 목록이 비칠 자리가 없음).
+    await expect(page.getByTestId('timeline-gantt')).toHaveCount(0);
     await expect(gridRow(page, '이번 에픽')).toBeVisible();
     await expect(gridRow(page, '지난 에픽')).toHaveCount(0);
   });
@@ -89,12 +94,20 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await expect(trigger).toContainText('GW-2 · 10/1–10/14');
     await trigger.click();
     const pop = page.getByTestId('timeline-period-popover');
-    await expect(pop.getByTestId('timeline-period-option-active')).toHaveAttribute('aria-checked', 'true');
+    await expect(pop.getByTestId('timeline-period-option-active')).toHaveAttribute('aria-pressed', 'true');
     await expect(pop.getByTestId('timeline-period-option-cycle-1')).toContainText('완료됨');
     await pop.getByTestId('timeline-period-option-cycle-1').click();
     await expect(page).toHaveURL(/period=cycle-1/);
     await expect(gridRow(page, '지난 에픽')).toBeVisible();
     await expect(trigger).toContainText('GW-1');
+
+    // 이번 분기(오늘 10/5 → 4분기) — GW-1(9월) 에픽은 빠지고 이번 에픽은 보인다.
+    await trigger.click();
+    await page.getByTestId('timeline-period-option-quarter').click();
+    await expect(page).toHaveURL(/period=quarter/);
+    await expect(trigger).toContainText('이번 분기 · 10/1–12/31');
+    await expect(gridRow(page, '이번 에픽')).toBeVisible();
+    await expect(gridRow(page, '지난 에픽')).toHaveCount(0);
 
     await trigger.click();
     await page.getByTestId('timeline-period-option-all').click();
@@ -130,6 +143,14 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     const trigger = page.getByTestId('timeline-period-trigger');
     await expect(trigger).toContainText('GW-3 (예정)');
     await expect(trigger).toHaveAttribute('title', '활성 사이클이 없어 가장 가까운 예정 사이클로 봅니다');
+  });
+
+  test('응답이 0건이면(필터·새 프로젝트) 기본 기간이어도 기간 빈 상태를 띄우지 않는다 — 기간이 원인이 아님', async ({ authenticatedPage: page }) => {
+    await setupStubs(page, { issueList: [] });
+    await page.goto(`/projects/${KEY}/timeline`);
+    await expect(page.getByTestId('timeline-period-trigger')).toContainText('GW-2');
+    await expect(page.locator('.timeline-gantt-root')).toBeVisible();
+    await expect(page.getByTestId('timeline-period-empty')).toHaveCount(0);
   });
 
   test('기간에 걸친 이슈가 없으면 빈 상태 문구', async ({ authenticatedPage: page }) => {

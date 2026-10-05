@@ -59,6 +59,13 @@ export function TimelineGanttBody({
 
   // 에픽 계층 트리(#649) — bars 평면 목록 대신 에픽 그룹 트리로 변환.
   const { groups, unscheduled } = useMemo(() => groupTimelineIssues(issues, view), [issues, view]);
+  // 기간 빈 상태는 기간이 원인일 때만(WP-247) — 기간을 빼면 그릴 막대가 있을 때. 필터 0건·새 프로젝트는 「전체」로 바꿔도
+  // 달라지지 않으므로 기존 빈 간트를 그대로 둔다. 기간 결과가 비었을 때만 한 번 더 계산한다.
+  const { includeCanceled } = view;
+  const periodIsCause = useMemo(
+    () => view.period != null && groups.length === 0 && groupTimelineIssues(issues, { includeCanceled }).groups.length > 0,
+    [issues, includeCanceled, view.period, groups.length],
+  );
   const cycleBands = useMemo(() => cyclesToBands(cycles.data ?? []), [cycles.data]);
   const milestoneMarkers = useMemo(() => milestonesToMarkers(milestones ?? []), [milestones]);
   // 일정 미정/CANCELED 이슈로의 화살표는 SVAR 가 렌더할 노드가 없어 제외한다.
@@ -76,7 +83,7 @@ export function TimelineGanttBody({
         <TimelineFilterBar projectKey={key} leading={periodPicker} />
       </div>
       <div className="min-h-0 flex-1 px-4 py-6" data-testid="timeline-gantt">
-        {!loading && view.period && groups.length === 0 ? (
+        {!loading && periodIsCause ? (
           <div data-testid="timeline-period-empty" className="flex flex-1 flex-col items-center justify-center gap-1 py-16 text-center">
             <CalendarRange className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
             <p className="text-sm font-medium">이 기간에 걸친 이슈가 없어요</p>
