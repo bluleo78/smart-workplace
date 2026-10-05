@@ -64,8 +64,9 @@ export function rollupOverlay(
   range: { start: string; due: string },
   rollup: { start: string; due: string },
 ): { left: number; width: number; inStart: number; inEnd: number } {
-  const epicDays = dayDiff(range.start, range.due) + 1;
-  const rollupDays = dayDiff(rollup.start, rollup.due) + 1;
+  // 최소 1일 — 하위 롤업은 이슈별 start/due 를 따로 모아(min/max) 뒤집힐 수 있어 0·음수 나눗셈을 막는다.
+  const epicDays = Math.max(1, dayDiff(range.start, range.due) + 1);
+  const rollupDays = Math.max(1, dayDiff(rollup.start, rollup.due) + 1);
   const offset = dayDiff(range.start, rollup.start); // 에픽 시작 → 얇은 막대 시작
   const pct = (days: number, of: number) => (days / of) * 100;
   const clamp = (v: number) => Math.min(rollupDays, Math.max(0, v));
@@ -164,7 +165,10 @@ export function groupTimelineIssues(issues: IssueResponse[]): {
     // rollup(얇은 막대, WP-249): 에픽 기간으로 막대를 그릴 때만 하위 실제 범위를 따로 둔다 —
     // 막대가 이미 하위 롤업이면 같은 내용이라 생략한다.
     const childRange = rollupRange(bars);
-    const ownRange = epic?.dueDate ? { start: epic.startDate ?? epic.dueDate, due: epic.dueDate } : null;
+    // 시작일이 마감일보다 늦은 잘못된 데이터는 마감일 하루로 본다(뒤집힌 막대·0일 나눗셈 방지).
+    const ownRange = epic?.dueDate
+      ? { start: epic.startDate && epic.startDate <= epic.dueDate ? epic.startDate : epic.dueDate, due: epic.dueDate }
+      : null;
     const range: TimelineEpicGroup['range'] = ownRange ?? childRange;
     const rollup: TimelineEpicGroup['rollup'] = ownRange ? childRange : null;
     // 합성 그룹(응답에 에픽 객체 없음)인데 자식도 전혀 없으면 무의미 — 스킵(실제로는 발생 안 함).

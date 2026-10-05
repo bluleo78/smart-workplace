@@ -271,6 +271,12 @@ describe('groupTimelineIssues', () => {
     expect(g.rollup).toBeNull();
   });
 
+  it('에픽 시작일이 마감일보다 늦으면 range 는 마감일 하루로 본다', () => {
+    const epic = issue({ number: 40, title: 'A', type: EPIC_TYPE, startDate: '2026-11-05', dueDate: '2026-10-31' });
+    const c1 = issue({ number: 41, parent: parentRef(40, 'A'), startDate: '2026-10-06', dueDate: '2026-10-12' });
+    expect(groupTimelineIssues([epic, c1]).groups[0].range).toEqual({ start: '2026-10-31', due: '2026-10-31' });
+  });
+
   it('날짜 있는 하위가 없으면 rollup 은 null, no-epic 그룹도 rollup 은 null (WP-248)', () => {
     const epic = issue({ number: 40, title: 'A', type: EPIC_TYPE, startDate: '2026-10-01', dueDate: '2026-10-31' });
     const undated = issue({ number: 41, parent: parentRef(40, 'A') });
@@ -325,6 +331,11 @@ describe('rollupOverlay', () => {
     expect(o.left).toBeCloseTo((-3 / 31) * 100);
     expect(o.inStart).toBeCloseTo(50);
     expect(o.inEnd).toBe(100);
+  });
+
+  it('뒤집힌 롤업(start > due)도 유한한 값을 낸다', () => {
+    const o = rollupOverlay(epic, { start: '2026-10-12', due: '2026-10-06' });
+    for (const v of Object.values(o)) expect(Number.isFinite(v)).toBe(true);
   });
 
   it('에픽 기간과 전혀 겹치지 않으면 전 구간 초과(inStart = inEnd)', () => {

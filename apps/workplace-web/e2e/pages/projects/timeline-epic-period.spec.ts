@@ -155,3 +155,72 @@ test('하위 막대를 드래그해 저장해도 에픽 막대는 에픽 기간�
     .toEqual([0, 0]);
 });
 
+
+// 코드 리뷰 지적 — 에픽 막대 자체가 그대로면 SVAR 가 style 을 다시 쓰지 않으므로, 얇은 막대 변수는 직접 갱신·제거해야 한다.
+async function dragChild41(page: Page, days: number) {
+  const { box, perDay } = await pxPerDay(page);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + days * perDay, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+}
+
+test('하위 마감일만 바뀌어 얇은 막대 시작이 그대로여도 폭·초과 구간이 갱신된다', async ({ authenticatedPage: page }) => {
+  const list = issues();
+  await setupStubs(page, list);
+  // 42(07-27~08-04) 의 끝 리사이즈 대신, 41 을 08-10 까지 늘린 것처럼 재조회 응답을 바꾼다 — 시작(07-06)은 그대로.
+  await page.route(`**/api/v1/projects/${KEY}/issues/41`, (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    const child = list.find((i) => i.number === 41)!;
+    Object.assign(child, { startDate: '2026-07-06', dueDate: '2026-08-10' });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(child) });
+  });
+  await page.goto(`/projects/${KEY}/timeline`);
+  await expandGroup(page, '기간 에픽');
+  const bar = summaryBar(page, 40);
+  await expect.poll(() => bar.evaluate((el) => el.style.getPropertyValue('--rollup-in-end'))).toMatch(/^86\.66/);
+  await dragChild41(page, 3);
+  // 07-06~08-10 = 36일 중 26일이 안쪽 → 72.2%
+  await expect.poll(() => bar.evaluate((el) => el.style.getPropertyValue('--rollup-in-end'))).toMatch(/^72\.2/);
+});
+
+test('날짜 있는 하위가 없어지면 얇은 막대가 사라진다', async ({ authenticatedPage: page }) => {
+  const list = issues();
+  await setupStubs(page, list);
+  await page.route(`**/api/v1/projects/${KEY}/issues/41`, (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    // 저장과 함께 두 하위의 날짜가 모두 비워진 상태를 재조회에 반영(다른 사용자가 지운 상황과 같다).
+    for (const n of [41, 42]) Object.assign(list.find((i) => i.number === n)!, { startDate: null, dueDate: null });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(list[1]) });
+  });
+  await page.goto(`/projects/${KEY}/timeline`);
+  await expandGroup(page, '기간 에픽');
+  const bar = summaryBar(page, 40);
+  await expect.poll(() => bar.evaluate((el) => el.style.getPropertyValue('--rollup-left'))).not.toBe('');
+  await dragChild41(page, 3);
+  await expect.poll(() => bar.evaluate((el) => el.style.getPropertyValue('--rollup-left'))).toBe('');
+  expect((await thinBar(bar)).content).toBe('none');
+});
+
+test('하위 막대 저장이 실패해도 하위·에픽 막대가 원래 자리로 돌아온다', async ({ authenticatedPage: page }) => {
+  await setupStubs(page);
+  await page.route(`**/api/v1/projects/${KEY}/issues/41`, (route) =>
+    route.request().method() === 'PATCH'
+      ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: '일정 변경에 실패했습니다' }) })
+      : route.fallback(),
+  );
+  await page.goto(`/projects/${KEY}/timeline`);
+  await expandGroup(page, '기간 에픽');
+  // 드래그 중 차트가 스크롤될 수 있어, 움직이지 않는 하위 42 막대 기준 상대 위치로 비교한다.
+  const layout = async () => {
+    const anchor = (await page.locator('.timeline-gantt-root [data-task-id="42"]').boundingBox())!;
+    const child = (await page.locator('.timeline-gantt-root [data-task-id="41"]').boundingBox())!;
+    const epic = (await summaryBar(page, 40).boundingBox())!;
+    return [child.x - anchor.x, epic.x - anchor.x, epic.width].map(Math.round);
+  };
+  const before = await layout();
+  await dragChild41(page, 3);
+  await expect(page.getByText('일정 변경에 실패했습니다')).toBeVisible();
+  // SVAR 는 드래그로 하위를 옮기고 에픽 요약 막대도 하위 기준으로 다시 계산해 둔다 — 실패 복원 뒤엔 모두 원래대로여야 한다.
+  await expect.poll(layout).toEqual(before);
+});
