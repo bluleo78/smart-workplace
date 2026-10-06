@@ -7,6 +7,7 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.HomeMessageAttachment.HomeMessageAttachmentPath;
 import com.workplace.jooq.tables.HomeSession.HomeSessionPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.records.HomeMessageRecord;
@@ -217,6 +218,19 @@ public class HomeMessage extends TableImpl<HomeMessageRecord> {
             _homeSession = new HomeSessionPath(this, Keys.HOME_MESSAGE__HOME_MESSAGE_SESSION_ID_FKEY, null);
 
         return _homeSession;
+    }
+
+    private transient HomeMessageAttachmentPath _homeMessageAttachment;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.home_message_attachment</code> table
+     */
+    public HomeMessageAttachmentPath homeMessageAttachment() {
+        if (_homeMessageAttachment == null)
+            _homeMessageAttachment = new HomeMessageAttachmentPath(this, null, Keys.HOME_MESSAGE_ATTACHMENT__HOME_MESSAGE_ATTACHMENT_MESSAGE_ID_FKEY.getInverseKey());
+
+        return _homeMessageAttachment;
     }
 
     @Override

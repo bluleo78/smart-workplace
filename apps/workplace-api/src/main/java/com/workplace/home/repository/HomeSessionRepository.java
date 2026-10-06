@@ -48,6 +48,19 @@ public class HomeSessionRepository {
                     r.get(HOME_SESSION.LAST_MESSAGE_AT).toInstant()));
   }
 
+  /**
+   * 세션 행 잠금(WP-234) — 같은 세션에 첨부를 붙이는 전송을 줄 세워 "세션당 첨부 30개" 검사가 동시 전송에 뚫리지 않게 한다. 트랜잭션 안에서만 의미가 있다.
+   * 세션이 없으면 false.
+   */
+  public boolean lockForUpdate(UUID id) {
+    return dsl.select(HOME_SESSION.ID)
+        .from(HOME_SESSION)
+        .where(HOME_SESSION.ID.eq(id))
+        .forUpdate()
+        .fetchOptional()
+        .isPresent();
+  }
+
   /** 사용자의 세션 목록을 last_message_at 최신순으로 반환. cursor 키셋 페이지네이션. widgetCount = 세션 내 위젯 총합. */
   public List<Summary> listByUser(long userId, CursorCodec.Decoded cursor, int limit) {
     var widgetCount =

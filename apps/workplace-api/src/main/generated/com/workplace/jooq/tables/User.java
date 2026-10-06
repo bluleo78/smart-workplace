@@ -29,6 +29,7 @@ import com.workplace.jooq.tables.DriveSpaceMember.DriveSpaceMemberPath;
 import com.workplace.jooq.tables.EmailAccount.EmailAccountPath;
 import com.workplace.jooq.tables.EventAttendee.EventAttendeePath;
 import com.workplace.jooq.tables.File.FilePath;
+import com.workplace.jooq.tables.HomeMessageAttachment.HomeMessageAttachmentPath;
 import com.workplace.jooq.tables.HomeSession.HomeSessionPath;
 import com.workplace.jooq.tables.Issue.IssuePath;
 import com.workplace.jooq.tables.IssueAssignee.IssueAssigneePath;
@@ -593,6 +594,19 @@ public class User extends TableImpl<UserRecord> {
             _file = new FilePath(this, null, Keys.FILE__FILE_UPLOADED_BY_FKEY.getInverseKey());
 
         return _file;
+    }
+
+    private transient HomeMessageAttachmentPath _homeMessageAttachment;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.home_message_attachment</code> table
+     */
+    public HomeMessageAttachmentPath homeMessageAttachment() {
+        if (_homeMessageAttachment == null)
+            _homeMessageAttachment = new HomeMessageAttachmentPath(this, null, Keys.HOME_MESSAGE_ATTACHMENT__HOME_MESSAGE_ATTACHMENT_ATTACHED_BY_FKEY.getInverseKey());
+
+        return _homeMessageAttachment;
     }
 
     private transient HomeSessionPath _homeSession;

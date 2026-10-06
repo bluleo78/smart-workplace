@@ -41,6 +41,7 @@ import com.workplace.jooq.tables.File;
 import com.workplace.jooq.tables.FileExtraction;
 import com.workplace.jooq.tables.HomeActionProposal;
 import com.workplace.jooq.tables.HomeMessage;
+import com.workplace.jooq.tables.HomeMessageAttachment;
 import com.workplace.jooq.tables.HomeSession;
 import com.workplace.jooq.tables.Issue;
 import com.workplace.jooq.tables.IssueAiSummary;
@@ -309,6 +310,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.home_message</code>.
      */
     public final HomeMessage HOME_MESSAGE = HomeMessage.HOME_MESSAGE;
+
+    /**
+     * The table <code>public.home_message_attachment</code>.
+     */
+    public final HomeMessageAttachment HOME_MESSAGE_ATTACHMENT = HomeMessageAttachment.HOME_MESSAGE_ATTACHMENT;
 
     /**
      * The table <code>public.home_session</code>.
@@ -676,6 +682,7 @@ public class Public extends SchemaImpl {
             FileExtraction.FILE_EXTRACTION,
             HomeActionProposal.HOME_ACTION_PROPOSAL,
             HomeMessage.HOME_MESSAGE,
+            HomeMessageAttachment.HOME_MESSAGE_ATTACHMENT,
             HomeSession.HOME_SESSION,
             Issue.ISSUE,
             IssueAiSummary.ISSUE_AI_SUMMARY,

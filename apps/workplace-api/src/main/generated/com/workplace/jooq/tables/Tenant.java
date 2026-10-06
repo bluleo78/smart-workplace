@@ -38,6 +38,7 @@ import com.workplace.jooq.tables.File.FilePath;
 import com.workplace.jooq.tables.FileExtraction.FileExtractionPath;
 import com.workplace.jooq.tables.HomeActionProposal.HomeActionProposalPath;
 import com.workplace.jooq.tables.HomeMessage.HomeMessagePath;
+import com.workplace.jooq.tables.HomeMessageAttachment.HomeMessageAttachmentPath;
 import com.workplace.jooq.tables.HomeSession.HomeSessionPath;
 import com.workplace.jooq.tables.Issue.IssuePath;
 import com.workplace.jooq.tables.IssueAiSummary.IssueAiSummaryPath;
@@ -1065,6 +1066,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _homeActionProposal = new HomeActionProposalPath(this, null, Keys.HOME_ACTION_PROPOSAL__HOME_ACTION_PROPOSAL_TENANT_ID_FKEY.getInverseKey());
 
         return _homeActionProposal;
+    }
+
+    private transient HomeMessageAttachmentPath _homeMessageAttachment;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.home_message_attachment</code> table
+     */
+    public HomeMessageAttachmentPath homeMessageAttachment() {
+        if (_homeMessageAttachment == null)
+            _homeMessageAttachment = new HomeMessageAttachmentPath(this, null, Keys.HOME_MESSAGE_ATTACHMENT__HOME_MESSAGE_ATTACHMENT_TENANT_ID_FKEY.getInverseKey());
+
+        return _homeMessageAttachment;
     }
 
     private transient IssueBodyImagePath _issueBodyImage;

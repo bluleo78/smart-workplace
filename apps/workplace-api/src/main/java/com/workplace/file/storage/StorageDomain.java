@@ -7,7 +7,8 @@ public enum StorageDomain {
   CHAT("chat"),
   MESSAGING("messaging"),
   MAIL("mail"),
-  WIKI("wiki"); // 노트 본문 이미지 첨부
+  WIKI("wiki"), // 노트 본문 이미지 첨부
+  HOME("home"); // 메인 AI 채팅 첨부(WP-234)
 
   private final String segment;
 

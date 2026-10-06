@@ -41,6 +41,7 @@ import com.workplace.jooq.tables.File;
 import com.workplace.jooq.tables.FileExtraction;
 import com.workplace.jooq.tables.HomeActionProposal;
 import com.workplace.jooq.tables.HomeMessage;
+import com.workplace.jooq.tables.HomeMessageAttachment;
 import com.workplace.jooq.tables.HomeSession;
 import com.workplace.jooq.tables.Issue;
 import com.workplace.jooq.tables.IssueAiSummary;
@@ -294,6 +295,11 @@ public class Tables {
      * The table <code>public.home_message</code>.
      */
     public static final HomeMessage HOME_MESSAGE = HomeMessage.HOME_MESSAGE;
+
+    /**
+     * The table <code>public.home_message_attachment</code>.
+     */
+    public static final HomeMessageAttachment HOME_MESSAGE_ATTACHMENT = HomeMessageAttachment.HOME_MESSAGE_ATTACHMENT;
 
     /**
      * The table <code>public.home_session</code>.
