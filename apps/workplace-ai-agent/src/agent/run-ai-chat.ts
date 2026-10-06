@@ -276,6 +276,7 @@ export async function runAiChatStream(
         hostBridge,
         onTool,
         homeSessionId: input.sessionId ?? undefined, // WP-234: read_chat_attachment 세션 바인딩
+        onBehalfOfTenantId: input.tenantId ?? undefined, // WP-259: opencode stdio MCP 도 같은 테넌트로 호출
       },
     },
     (ev) => {

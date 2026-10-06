@@ -13,7 +13,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { replaceImagesWithNotice, toMcpContent } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
-import { createWorkplaceApiClient } from '../clients/workplace-api.js';
+import { createWorkplaceApiClient, type WorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildTools, type HostBridge, type McpProfile, type McpTool } from './tools.js';
 
 const MCP_PROFILES: readonly McpProfile[] = ['issue', 'chat', 'home', 'messaging', 'assistant'];
@@ -29,6 +29,8 @@ export interface StdioEntryConfig {
   chatThreadId?: number;
   // WP-234: 메인 AI 채팅 세션 바인딩(MCP_HOME_SESSION_ID).
   homeSessionId?: string;
+  // WP-259: 요청자 테넌트(MCP_ON_BEHALF_OF_TENANT) — 있으면 모든 api 호출에 X-On-Behalf-Of-Tenant 를 싣는다.
+  onBehalfOfTenantId?: number;
   bridgeUrl?: string;
   bridgeRunId?: string;
   // WP-241: 모델이 이미지를 볼 수 있는지(MCP_VISION). false 면 도구 결과의 이미지를 안내 문구로 바꾼다.
@@ -99,6 +101,14 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     homeSessionId = env.MCP_HOME_SESSION_ID;
   }
 
+  let onBehalfOfTenantId: number | undefined;
+  if (env.MCP_ON_BEHALF_OF_TENANT) {
+    onBehalfOfTenantId = Number(env.MCP_ON_BEHALF_OF_TENANT);
+    if (!Number.isInteger(onBehalfOfTenantId) || onBehalfOfTenantId <= 0) {
+      throw new Error(`MCP_ON_BEHALF_OF_TENANT 는 양의 정수여야 합니다. 받은 값: ${env.MCP_ON_BEHALF_OF_TENANT}`);
+    }
+  }
+
   return {
     baseURL,
     internalToken,
@@ -108,6 +118,7 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     delegationContext,
     chatThreadId,
     homeSessionId,
+    onBehalfOfTenantId,
     bridgeUrl: env.MCP_BRIDGE_URL,
     bridgeRunId: env.MCP_BRIDGE_RUN_ID,
     // 미지정은 지원으로 본다(러너는 항상 0/1 을 심는다 — 기존 동작 유지용 기본값).
@@ -175,13 +186,20 @@ export function registerStdioTool(server: McpServer, t: McpTool, opts: { vision:
   );
 }
 
+// 설정 → workplace-api 클라이언트. 테넌트가 있으면 Claude 경로(run-ai-chat 의 withOnBehalfOfTenant)와 같은
+// X-On-Behalf-Of-Tenant 스코프로 만든다(WP-259). 테스트에서 헤더를 검증하려고 export.
+export function createClientFromConfig(config: StdioEntryConfig): WorkplaceApiClient {
+  return createWorkplaceApiClient({
+    baseURL: config.baseURL,
+    internalToken: config.internalToken,
+    onBehalfOfTenantId: config.onBehalfOfTenantId,
+  });
+}
+
 async function main(): Promise<void> {
   const config = parseConfigFromEnv(process.env);
 
-  const client = createWorkplaceApiClient({
-    baseURL: config.baseURL,
-    internalToken: config.internalToken,
-  });
+  const client = createClientFromConfig(config);
 
   const hostBridge =
     config.bridgeUrl && config.bridgeRunId

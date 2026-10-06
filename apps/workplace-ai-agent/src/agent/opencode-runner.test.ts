@@ -561,10 +561,22 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     );
     await handle.done;
 
-    const expectedKey = '7:issue:42:openai/gpt-5:true';
+    const expectedKey = '7:issue:42:-:openai/gpt-5:true';
     expect(acquireServer).toHaveBeenCalledWith(expectedKey, expect.any(Function));
     expect(releaseServer).toHaveBeenCalledWith(expectedKey);
     expect(serverClose).not.toHaveBeenCalled(); // 풀 대상이므로 서버 자체는 닫지 않음
+  });
+
+  // WP-259: 테넌트는 stdio MCP env 로 고정되므로 같은 사용자라도 테넌트가 다르면 다른 서버를 써야 한다.
+  it('mcp.onBehalfOfTenantId 를 풀 키에 넣는다(WP-259)', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const mcp = { client: {} as unknown as WorkplaceApiClient, profile: 'issue' as const, onBehalfOfId: 42, onBehalfOfTenantId: 5 };
+    await new OpencodeRunner().stream(baseInput({ agentId: 7, model: 'openai/gpt-5', mcp }), () => {}).done;
+
+    expect(acquireServer).toHaveBeenCalledWith('7:issue:42:5:openai/gpt-5:true', expect.any(Function));
   });
 
   it('vision 판단 결과를 config 에 넘기고 풀 키에도 반영한다(WP-241)', async () => {
@@ -581,7 +593,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
       'openai/gpt-5',
     );
     expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: false });
-    expect(acquireServer).toHaveBeenCalledWith('7:issue:42:openai/gpt-5:false', expect.any(Function));
+    expect(acquireServer).toHaveBeenCalledWith('7:issue:42:-:openai/gpt-5:false', expect.any(Function));
   });
 
   it('호출자가 판단한 opencodeVision 을 넘기면 다시 판단하지 않고 그 값을 config 에 쓴다', async () => {
@@ -709,7 +721,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     );
     await handle.done;
 
-    const expectedKey = '1:assistant:9:openai/gpt-5:true';
+    const expectedKey = '1:assistant:9:-:openai/gpt-5:true';
     expect(evictServer).toHaveBeenCalledWith(expectedKey);
     expect(acquireServer).toHaveBeenCalledTimes(2);
     expect(acquireServer).toHaveBeenNthCalledWith(1, expectedKey, expect.any(Function));
@@ -731,7 +743,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
   });
 
   it('재시도로 새로 스폰한 서버까지 session.create 가 실패하면 evictServer 가 2회 호출된다(깨진 서버를 캐시에 남기지 않음)', async () => {
-    const expectedKey = '1:assistant:9:openai/gpt-5:true';
+    const expectedKey = '1:assistant:9:-:openai/gpt-5:true';
     sessionCreate
       .mockResolvedValueOnce({ data: undefined, error: { message: 'stale connection' } })
       .mockResolvedValueOnce({ data: undefined, error: { message: 'still stale after retry' } });

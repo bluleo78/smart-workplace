@@ -101,4 +101,4 @@ AGENT 자격으로 workplace-api 를 직접 호출할 때만 사용.
 - 프롬프트: `formatHomeAttachmentsBlock`(`agent/home-attachments.ts`)이 매 턴 `## 이 대화의 첨부` 를 현재 요청 앞에 고정 주입(요약 후에도 연속성 유지). 문구는 비전 판단(`opencodeVisionFor`, 실행당 1회 → `RunnerInput.opencodeVision` 과 같은 값)에 따라 다르다.
 - 도구: assistant 프로필 `read_chat_attachment({fileId, offset?, limit?})`(`mcp/home-attachment-tool.ts`). 세션은 실행 단위 바인딩 — Claude 는 `RunnerMcpConfig.homeSessionId`, opencode 는 env `MCP_HOME_SESSION_ID`(이 실행은 웜 풀 제외). 바인딩이 없으면 오류. 문서는 추출 텍스트 구간, 이미지(jpeg/png/gif/webp, ≤3.75MB)는 이미지 블록, 그 외는 사유 안내. 하위 에이전트는 이 도구가 없으므로 라우터가 읽어 위임 prompt 에 옮겨 적는다.
 - 추출 대기: 이번 메시지 문서가 PENDING 이면 실행 전 최대 20초(2초×10회) 세션 목록을 재조회(`awaitHomeExtraction`), 대기 중 progress 라벨 1회.
-- 알려진 제약: opencode stdio MCP 는 `X-On-Behalf-Of-Tenant` 를 싣지 않는다(기존 assistant 도구 공통).
+- 테넌트: Claude 는 `withOnBehalfOfTenant` 로 스코프한 client 를 쓰고, opencode stdio MCP 는 `RunnerMcpConfig.onBehalfOfTenantId` → env `MCP_ON_BEHALF_OF_TENANT` 로 받아 같은 `X-On-Behalf-Of-Tenant` 를 싣는다(웜 풀 키에도 포함, WP-259).

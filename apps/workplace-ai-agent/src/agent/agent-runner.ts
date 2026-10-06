@@ -36,6 +36,9 @@ export interface RunnerMcpConfig {
   chatThreadId?: number;
   // WP-234: 메인 AI 채팅 실행의 세션(home_session.id) — assistant 의 read_chat_attachment 가 이 세션 첨부만 읽게 묶는다.
   homeSessionId?: string;
+  // WP-259: 요청자의 active-tenant. Claude 경로는 client 가 이미 테넌트 스코프(withOnBehalfOfTenant)라 쓰지 않고,
+  // 별도 프로세스인 opencode stdio MCP 가 env 로 받아 자기 클라이언트에 X-On-Behalf-Of-Tenant 를 싣는 데 쓴다.
+  onBehalfOfTenantId?: number;
 }
 
 export interface RunnerInput {

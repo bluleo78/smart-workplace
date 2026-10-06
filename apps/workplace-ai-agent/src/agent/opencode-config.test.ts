@@ -252,6 +252,15 @@ describe('buildOpencodeConfig', () => {
     expect(env(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }))).not.toHaveProperty('MCP_HOME_SESSION_ID');
   });
 
+  // WP-259: 요청자 테넌트가 stdio MCP env 로 전달된다 — 없으면 다중 멤버십 사용자의 도구 호출이 fail-closed.
+  it('mcp.onBehalfOfTenantId 있으면 MCP_ON_BEHALF_OF_TENANT 추가, 없으면 키 없음', () => {
+    const client = {} as unknown as WorkplaceApiClient;
+    const env = (i: RunnerInput) =>
+      (buildOpencodeConfig(i, 'run-1', ['cmd'], VISION_ON).mcp?.workplace as { environment?: Record<string, string> }).environment;
+    expect(env(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1, onBehalfOfTenantId: 5 } }))?.MCP_ON_BEHALF_OF_TENANT).toBe('5');
+    expect(env(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }))).not.toHaveProperty('MCP_ON_BEHALF_OF_TENANT');
+  });
+
   it('mcp.hostBridge 있으면 MCP_BRIDGE_URL/MCP_BRIDGE_RUN_ID 추가', () => {
     const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(

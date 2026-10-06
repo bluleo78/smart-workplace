@@ -5,7 +5,9 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-import { parseConfigFromEnv, buildHostBridge, registerStdioTool, VISION_UNAVAILABLE_NOTICE } from './stdio-entry.js';
+import nock from 'nock';
+
+import { parseConfigFromEnv, buildHostBridge, createClientFromConfig, registerStdioTool, VISION_UNAVAILABLE_NOTICE } from './stdio-entry.js';
 import type { McpTool } from './tools.js';
 
 function baseEnv(over: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
@@ -95,6 +97,15 @@ describe('parseConfigFromEnv', () => {
     const sid = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
     expect(parseConfigFromEnv(baseEnv({ MCP_HOME_SESSION_ID: sid })).homeSessionId).toBe(sid);
     expect(parseConfigFromEnv(baseEnv()).homeSessionId).toBeUndefined();
+  });
+
+  it('MCP_ON_BEHALF_OF_TENANT 를 onBehalfOfTenantId 로 파싱한다(WP-259)', () => {
+    expect(parseConfigFromEnv(baseEnv({ MCP_ON_BEHALF_OF_TENANT: '5' })).onBehalfOfTenantId).toBe(5);
+    expect(parseConfigFromEnv(baseEnv()).onBehalfOfTenantId).toBeUndefined();
+  });
+
+  it.each(['0', '-1', '1.5', 'abc'])('MCP_ON_BEHALF_OF_TENANT 가 양의 정수가 아니면(%s) throw', (v) => {
+    expect(() => parseConfigFromEnv(baseEnv({ MCP_ON_BEHALF_OF_TENANT: v }))).toThrow(/MCP_ON_BEHALF_OF_TENANT/);
   });
 
   it.each(['abc', '12', '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f/../x'])('MCP_HOME_SESSION_ID 가 UUID 가 아니면(%s) throw', (v) => {
@@ -227,5 +238,26 @@ describe('registerStdioTool', () => {
       throw new Error('boom');
     });
     expect(res).toMatchObject({ isError: true, content: [{ type: 'text', text: 'boom' }] });
+  });
+});
+
+// WP-259: stdio MCP 클라이언트가 테넌트 헤더를 실제로 싣는지 HTTP 수준에서 확인한다.
+describe('createClientFromConfig', () => {
+  afterEach(() => nock.cleanAll());
+
+  it('onBehalfOfTenantId 가 있으면 X-On-Behalf-Of-Tenant 를 싣고, 없으면 싣지 않는다', async () => {
+    const base = 'http://localhost:9090/api/v1';
+    const withTenant = nock(base, { reqheaders: { 'X-On-Behalf-Of-Tenant': '5' } })
+      .get('/home/sessions/3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f/attachments')
+      .reply(200, []);
+    const cfg = parseConfigFromEnv(baseEnv({ MCP_ON_BEHALF_OF_TENANT: '5' }));
+    await createClientFromConfig(cfg).listHomeSessionAttachments(42, '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f');
+    expect(withTenant.isDone()).toBe(true);
+
+    const without = nock(base, { badheaders: ['X-On-Behalf-Of-Tenant'] })
+      .get('/home/sessions/3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f/attachments')
+      .reply(200, []);
+    await createClientFromConfig(parseConfigFromEnv(baseEnv())).listHomeSessionAttachments(42, '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f');
+    expect(without.isDone()).toBe(true);
   });
 });

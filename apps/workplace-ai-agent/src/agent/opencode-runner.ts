@@ -42,9 +42,10 @@ const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'i
 // WP-241: vision 판단이 바뀌면(캐시 만료 후 provider 메타 변경 등) config 가 달라지므로 키에 포함해 새 서버를 띄운다.
 // WP-234: homeSessionId 가 있는 실행도 제외한다 — read_chat_attachment 의 세션은 stdio MCP env 로 고정돼, 재사용 서버면
 // 이전 대화 세션에 묶인 채 남는다(지금은 메인 채팅이 hostBridge 로 이미 제외되지만 그 전제에 기대지 않는다).
+// WP-259: 테넌트(MCP_ON_BEHALF_OF_TENANT)도 env 로 고정되므로 키에 넣는다 — 같은 사용자라도 테넌트가 다르면 서버를 나눈다.
 function poolKeyFor(i: RunnerInput, vision: OpencodeVision): string | undefined {
   if (!i.mcp || i.mcp.hostBridge || i.mcp.homeSessionId != null || !POOL_ELIGIBLE_PROFILES.has(i.mcp.profile)) return undefined;
-  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.model}:${String(vision)}`;
+  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.mcp.onBehalfOfTenantId ?? '-'}:${i.model}:${String(vision)}`;
 }
 
 // 세션 생성 + 이벤트 구독 — 풀에서 재사용한 서버든 새로 스폰한 서버든 동일하게 거친다. 실패 시

@@ -284,6 +284,8 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
     );
     expect(withOnBehalfOfTenant).toHaveBeenCalledWith(7);
     expect(streamSpy.mock.calls[0][0].mcp.client).toBe(scopedClient);
+    // WP-259: 별도 프로세스(opencode stdio MCP)도 같은 테넌트로 호출하도록 값 자체도 넘긴다.
+    expect(streamSpy.mock.calls[0][0].mcp.onBehalfOfTenantId).toBe(7);
   });
 
   // #719: tenantId 가 없으면(null/undefined) 원본 클라이언트를 그대로 써야 한다 — 불필요한 스코프 생성 방지.
@@ -291,6 +293,7 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
     streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(streamSpy.mock.calls[0][0].mcp.client).toBe(fakeClient);
+    expect(streamSpy.mock.calls[0][0].mcp.onBehalfOfTenantId).toBeUndefined();
   });
 
   // #467: 과거 first-write-guard 는 onSubmitResponse 가 두 번 호출되면 첫 답만 남기고 두 번째를
