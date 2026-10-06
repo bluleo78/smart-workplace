@@ -113,12 +113,22 @@ public class HomeSessionService {
         sessionRepo
             .findSummary(sessionId)
             .orElse(new HomeSessionRepository.SummaryState(null, null));
-    return new ContextSource(state, messageRepo.findContextAfter(sessionId, state.uptoMessageId()));
+    List<HomeMessageRepository.ContextRow> rows =
+        messageRepo.findContextAfter(sessionId, state.uptoMessageId());
+    // WP-234: 원문 구간 USER 메시지의 첨부 파일명을 한 번에 읽는다(표시 [첨부: …] 용).
+    List<Long> userIds =
+        rows.stream()
+            .filter(r -> "USER".equals(r.role()))
+            .map(HomeMessageRepository.ContextRow::id)
+            .toList();
+    return new ContextSource(state, rows, attachmentRepo.findNamesByMessageIds(userIds));
   }
 
-  /** 채팅 맥락 원천 — 누적 요약 상태 + 경계 이후 메시지(생성순). */
+  /** 채팅 맥락 원천 — 누적 요약 상태 + 경계 이후 메시지(생성순) + 메시지별 첨부 파일명(WP-234, 없으면 키 없음). */
   public record ContextSource(
-      HomeSessionRepository.SummaryState state, List<HomeMessageRepository.ContextRow> rows) {}
+      HomeSessionRepository.SummaryState state,
+      List<HomeMessageRepository.ContextRow> rows,
+      Map<Long, List<String>> attachmentNames) {}
 
   /** 세션 누적 요약 조건부 저장(WP-232). 갱신 행 수 반환(0 = 다른 요약이 먼저 경계를 옮김). */
   @Transactional

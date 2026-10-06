@@ -12,6 +12,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.exception.HomeChatUnavailableException;
 import com.workplace.home.outbound.AiAgentChatClient;
+import com.workplace.home.outbound.ChatMessages.ChatAttachment;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import java.time.Duration;
 import java.util.HashMap;
@@ -154,7 +155,10 @@ public class HomeChatService {
     AssistantSpec spec = assistantResolver.resolve(callerId);
 
     // 5) USER 메시지 영속 + 첨부 연결(WP-234) — 한 트랜잭션(세션 잠금·상한·승격·추출 요청 포함).
-    attachmentService.appendUserMessage(callerId, sid, text, fileIds);
+    long userMessageId = attachmentService.appendUserMessage(callerId, sid, text, fileIds);
+
+    // 5-1) WP-234: 세션 전체 첨부(요약 경계 이전 포함)를 매 턴 DB 에서 만든다 — 앞부분이 요약으로 바뀌어도 AI 가 파일을 안다.
+    List<ChatAttachment> attachments = attachmentService.listForChat(callerId, sid, userMessageId);
 
     // 6) 이전 턴의 미처리 확인카드 만료(#843) — 웹은 새 질문 시 카드를 비우므로, 복원 시 되살아나지 않게 서버도 맞춘다.
     // 새 세션이면 만료할 카드가 없다.
@@ -209,7 +213,10 @@ public class HomeChatService {
                         Math.max(spec.timeoutMs(), COMPOSE_MIN_TIMEOUT_MS),
                         // WP-54: 화면 컨텍스트 1:1 전달(USER 메시지 영속에는 포함하지 않는다).
                         screenContext,
-                        ctx.summary());
+                        ctx.summary(),
+                        // WP-234: 첨부 읽기 도구 세션 바인딩 + 세션 첨부 목록.
+                        sid.toString(),
+                        attachments);
                 chatClient.composeStream(
                     req,
                     // delta: 즉시 fanOut(누적 버퍼는 더 이상 필요 없음 — done 은 ai-agent 가 준 fullText 사용).

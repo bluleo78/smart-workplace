@@ -102,9 +102,19 @@ public class HomeContextSummaryService {
     List<Msg> raw =
         src.rows().stream()
             .map(
-                r ->
-                    HomeContextPolicy.capContent(
-                        new Msg(r.id(), r.role(), r.content()), props.perMessageCap()))
+                r -> {
+                  Msg capped =
+                      HomeContextPolicy.capContent(
+                          new Msg(r.id(), r.role(), r.content()), props.perMessageCap());
+                  // WP-234: 첨부 표시는 상한 자르기 뒤에 붙인다 — 긴 본문이 잘려도 파일 흔적은 남게. 토큰 추정·요약 입력 모두 표시 포함.
+                  List<String> names = src.attachmentNames().getOrDefault(r.id(), List.of());
+                  return names.isEmpty()
+                      ? capped
+                      : new Msg(
+                          capped.id(),
+                          capped.role(),
+                          HomeAttachmentMarker.append(capped.content(), names));
+                })
             .toList();
     return new ContextSnapshot(state.summary(), state.uptoMessageId(), raw);
   }

@@ -11,6 +11,7 @@ import com.workplace.home.dto.HomeAttachment;
 import com.workplace.home.dto.HomeUploadedFile;
 import com.workplace.home.exception.HomeAttachmentInvalidException;
 import com.workplace.home.exception.HomeAttachmentNotFoundException;
+import com.workplace.home.outbound.ChatMessages.ChatAttachment;
 import com.workplace.home.repository.HomeAttachmentRepository;
 import com.workplace.home.repository.HomeAttachmentRepository.Candidate;
 import com.workplace.home.repository.HomeAttachmentRepository.StoredFile;
@@ -168,6 +169,26 @@ public class HomeAttachmentService {
               id, byId.get(id).mimeType(), ExtractionProfile.TEXT_ONLY));
     }
     return messageId;
+  }
+
+  /**
+   * ai-agent 요청용 세션 첨부(WP-234) — 매 턴 DB 에서 세션 전체를 읽는다(요약 경계 이전 포함). currentMessageId 에 붙은 파일은
+   * current=true.
+   */
+  @Transactional(readOnly = true)
+  public List<ChatAttachment> listForChat(long callerId, UUID sessionId, long currentMessageId) {
+    return sessionService.getAttachments(callerId, sessionId).stream()
+        .map(
+            a ->
+                new ChatAttachment(
+                    a.fileId(),
+                    a.messageId(),
+                    a.originalName(),
+                    a.mimeType(),
+                    a.sizeBytes(),
+                    a.messageId() == currentMessageId,
+                    a.extraction()))
+        .toList();
   }
 
   /** 세션 첨부 목록 — 세션 소유자만(없음·남의 세션 404). */
