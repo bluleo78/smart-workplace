@@ -1,13 +1,19 @@
 package com.workplace.home.service;
 
 import com.workplace.chat.service.ChatMessageAttachmentStorage;
+import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
 import com.workplace.fileai.ExtractionProfile;
+import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
+import com.workplace.fileai.service.ExtractedTextService;
+import com.workplace.home.dto.HomeAttachment;
 import com.workplace.home.dto.HomeUploadedFile;
 import com.workplace.home.exception.HomeAttachmentInvalidException;
+import com.workplace.home.exception.HomeAttachmentNotFoundException;
 import com.workplace.home.repository.HomeAttachmentRepository;
 import com.workplace.home.repository.HomeAttachmentRepository.Candidate;
+import com.workplace.home.repository.HomeAttachmentRepository.StoredFile;
 import com.workplace.home.repository.HomeSessionRepository;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -65,6 +71,12 @@ public class HomeAttachmentService {
 
   /** 추출 요청 이벤트 발행(fileai). */
   private final ApplicationEventPublisher eventPublisher;
+
+  /** 추출 텍스트 구간 읽기(WP-242 공통 서비스). */
+  private final ExtractedTextService extractedText;
+
+  /** 원본 절대경로 복원. */
+  private final FileStore fileStore;
 
   /** 파일 1개당 최대 크기(바이트) — 이슈 챗과 같은 설정. */
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
@@ -156,6 +168,40 @@ public class HomeAttachmentService {
               id, byId.get(id).mimeType(), ExtractionProfile.TEXT_ONLY));
     }
     return messageId;
+  }
+
+  /** 세션 첨부 목록 — 세션 소유자만(없음·남의 세션 404). */
+  @Transactional(readOnly = true)
+  public List<HomeAttachment> list(long callerId, UUID sessionId) {
+    return sessionService.getAttachments(callerId, sessionId);
+  }
+
+  /**
+   * 첨부 추출 텍스트 구간 읽기(WP-242 계약 재사용). 그 세션 메시지에 붙은 파일만 — 다른 세션 파일은 404.
+   *
+   * @throws com.workplace.fileai.exception.InvalidTextRangeException offset &lt; 0 또는 limit &lt; 1
+   *     (400)
+   */
+  @Transactional(readOnly = true)
+  public ExtractedTextSlice readText(
+      long callerId, UUID sessionId, long fileId, int offset, int limit) {
+    requireStored(callerId, sessionId, fileId);
+    return extractedText.read(fileId, offset, limit);
+  }
+
+  /** 원본 스트리밍용 저장 정보 — path 를 절대경로로 복원해 돌려준다(컨트롤러가 FileSystemResource 로 바로 쓴다). */
+  @Transactional(readOnly = true)
+  public StoredFile content(long callerId, UUID sessionId, long fileId) {
+    StoredFile f = requireStored(callerId, sessionId, fileId);
+    return new StoredFile(
+        fileStore.resolve(f.path()).toString(), f.originalName(), f.mimeType(), f.sizeBytes());
+  }
+
+  /** 세션 소유 + 그 세션 첨부인지 확인. */
+  private StoredFile requireStored(long callerId, UUID sessionId, long fileId) {
+    sessionService.ensureOwner(callerId, sessionId);
+    return repo.findStoredFile(sessionId, fileId)
+        .orElseThrow(() -> new HomeAttachmentNotFoundException(fileId));
   }
 
   /** 입력 형태 검사 — 개수 상한·null 요소·중복. 존재·소유 판정은 checkBindable. */

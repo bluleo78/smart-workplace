@@ -2,16 +2,21 @@ package com.workplace.home.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.fileai.service.ExtractedTextService;
+import com.workplace.home.dto.HomeAttachment;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.dto.HomeSessionResponse;
 import com.workplace.home.dto.HomeSessionSummary;
 import com.workplace.home.exception.HomeSessionNotFoundException;
 import com.workplace.home.repository.CursorCodec;
+import com.workplace.home.repository.HomeAttachmentRepository;
 import com.workplace.home.repository.HomeMessageRepository;
 import com.workplace.home.repository.HomeSessionRepository;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import org.springframework.stereotype.Service;
@@ -26,6 +31,8 @@ public class HomeSessionService {
   private final HomeSessionRepository sessionRepo;
   private final HomeMessageRepository messageRepo;
   private final ObjectMapper objectMapper;
+  private final HomeAttachmentRepository attachmentRepo;
+  private final ExtractedTextService extractedText;
 
   @Transactional
   public HomeSessionResponse create(long callerId) {
@@ -53,7 +60,37 @@ public class HomeSessionService {
   @Transactional(readOnly = true)
   public List<HomeMessageResponse> getMessages(long callerId, UUID sessionId) {
     ensureOwner(callerId, sessionId);
-    return messageRepo.findBySession(sessionId).stream().map(this::toResponse).toList();
+    // WP-234: 세션 첨부를 한 번에 읽어 메시지별로 나눈다(N+1 회피). 순서는 findBySession 순서 유지.
+    Map<Long, List<HomeAttachment>> byMessage =
+        loadAttachments(sessionId).stream()
+            .collect(Collectors.groupingBy(HomeAttachment::messageId));
+    return messageRepo.findBySession(sessionId).stream()
+        .map(m -> toResponse(m, byMessage.getOrDefault(m.id(), List.of())))
+        .toList();
+  }
+
+  /** 세션 첨부 목록(WP-234) — 소유자 검증 후 요약 경계 이전 메시지의 첨부까지 전부. */
+  @Transactional(readOnly = true)
+  public List<HomeAttachment> getAttachments(long callerId, UUID sessionId) {
+    ensureOwner(callerId, sessionId);
+    return loadAttachments(sessionId);
+  }
+
+  /** 세션 첨부 + 추출 상태(쿼리 2회). 추출 행이 없으면 NONE. */
+  private List<HomeAttachment> loadAttachments(UUID sessionId) {
+    List<HomeAttachment> items =
+        attachmentRepo.findBySession(sessionId).stream()
+            .map(
+                r ->
+                    new HomeAttachment(
+                        r.fileId(),
+                        r.messageId(),
+                        r.originalName(),
+                        r.mimeType(),
+                        r.sizeBytes(),
+                        null))
+            .toList();
+    return extractedText.attach(items, HomeAttachment::fileId, HomeAttachment::withExtraction);
   }
 
   /** 세션 누적 요약 상태(WP-232). 소유자 검증 후 반환, 요약이 없으면 (null, null). */
@@ -101,7 +138,7 @@ public class HomeSessionService {
       long callerId, UUID sessionId, String role, String content) {
     long id = appendMessage(callerId, sessionId, role, content, null, null, null);
     // 결과 줄은 위젯·도구단계가 없고 화면은 createdAt 을 쓰지 않으므로 재조회 없이 응답을 만든다.
-    return new HomeMessageResponse(id, role, content, null, null, null, Instant.now());
+    return new HomeMessageResponse(id, role, content, null, null, null, Instant.now(), List.of());
   }
 
   /**
@@ -169,7 +206,8 @@ public class HomeSessionService {
     return t.length() <= TITLE_MAX ? t : t.substring(0, TITLE_MAX);
   }
 
-  private HomeMessageResponse toResponse(HomeMessageRepository.Row m) {
+  private HomeMessageResponse toResponse(
+      HomeMessageRepository.Row m, List<HomeAttachment> attachments) {
     return new HomeMessageResponse(
         m.id(),
         m.role(),
@@ -177,7 +215,8 @@ public class HomeSessionService {
         parse(m.widgetsJson()),
         parse(m.toolCallsJson()),
         parse(m.contentBlocksJson()),
-        m.createdAt());
+        m.createdAt(),
+        attachments);
   }
 
   @SneakyThrows
