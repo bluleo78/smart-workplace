@@ -194,9 +194,14 @@ public class HomeSessionService {
     return id;
   }
 
+  /**
+   * 세션 삭제. 메시지·첨부 연결은 FK CASCADE 로 지워지고, 첨부 파일 본체는 만료시각을 지금으로 당겨 FileCleanupService(1시간 주기)가 디스크·행을
+   * 치우게 한다(WP-234) — 같은 트랜잭션이라 삭제가 롤백되면 만료 표시도 함께 롤백된다.
+   */
   @Transactional
   public void delete(long callerId, UUID sessionId) {
     ensureOwner(callerId, sessionId);
+    attachmentRepo.expireSessionFiles(sessionId);
     sessionRepo.delete(sessionId);
   }
 
