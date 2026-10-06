@@ -1320,6 +1320,6 @@ test('사이드 패널 — 긴 대화 제목은 말줄임으로 줄고 「새 �
     expect(sw.x + sw.width).toBeLessThanOrEqual(btn.x)
     expect(btn.x + btn.width).toBeLessThanOrEqual(panel.x + panel.width)
   }).toPass()
-  // 제목은 말줄임으로 줄어든다.
+  // 제목은 여전히 말줄임으로 줄어든다(기존 동작 확인 — 회귀 검출은 위 버튼 측정이 맡는다).
   expect(await titleEl.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
 })
