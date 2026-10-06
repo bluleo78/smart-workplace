@@ -162,6 +162,86 @@ describe('OpencodeRunner.stream', () => {
     ]);
   });
 
+  // WP-263: 메인 AI 채팅 라우터가 도구를 부른 단계에서 덧붙이는 진행 서술("먼저 확인하겠습니다")은 내보내지 않는다.
+  describe('assistant 라우터 진행 서술 걸러내기(WP-263)', () => {
+    const asstMsg = (id: string, sessionID = 'sess-1') => ({
+      type: 'message.updated',
+      properties: { info: { id, sessionID, role: 'assistant', tokens: { input: 0, output: 0 } } },
+    });
+    const text = (id: string, messageID: string, t: string, sessionID = 'sess-1') => ({
+      type: 'message.part.updated',
+      properties: { part: { id, sessionID, messageID, type: 'text', text: t } },
+    });
+    const tool = (id: string, messageID: string, name: string, sessionID = 'sess-1') => ({
+      type: 'message.part.updated',
+      properties: {
+        part: { id, sessionID, messageID, type: 'tool', callID: id, tool: name, state: { status: 'running', input: { fileId: 1 }, time: { start: 0 } } },
+      },
+    });
+    const assistant = (over: Partial<RunnerInput['mcp'] & object> = {}) =>
+      baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'assistant', onBehalfOfId: 1, ...over } });
+    const textOf = (events: RunnerEvent[]) =>
+      events.flatMap((e) => (e.type === 'text_delta' ? [e.text] : [])).join('');
+    const run = async (input: RunnerInput, pushes: unknown[]) => {
+      const es = makeEventStream();
+      eventSubscribe.mockResolvedValue({ stream: es.stream });
+      for (const p of pushes) es.push(p as never);
+      es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+      const events: RunnerEvent[] = [];
+      await new OpencodeRunner().stream(input, (e) => events.push(e)).done;
+      return events;
+    };
+
+    it('도구가 나온 메시지의 이후 text 는 버리고, 도구 없는 다음 메시지의 답만 내보낸다(result 도 같게)', async () => {
+      const events = await run(assistant(), [
+        asstMsg('m1'),
+        text('p1', 'm1', ''), // 실측: text part 가 빈 채로 도구보다 먼저 생긴다
+        tool('t1', 'm1', 'workplace_read_chat_attachment'),
+        text('p1', 'm1', 'PDF 파일을 먼저 확인하겠습니다.'),
+        asstMsg('m2'),
+        text('p2', 'm2', '매출은 12억입니다.'),
+      ]);
+      expect(textOf(events)).toBe('매출은 12억입니다.');
+      expect(events.at(-1)).toMatchObject({ type: 'result', text: '매출은 12억입니다.' });
+    });
+
+    it('도구보다 먼저 나온 text 는 그대로 둔다(이미 스트리밍된 몫)', async () => {
+      const events = await run(assistant(), [
+        asstMsg('m1'),
+        text('p1', 'm1', '확인해 볼게요.'),
+        tool('t1', 'm1', 'workplace_list_events'),
+        text('p1', 'm1', '확인해 볼게요. 잠시만요.'),
+      ]);
+      expect(textOf(events)).toBe('확인해 볼게요.');
+    });
+
+    it.each(['workplace_show_calendar', 'workplace_propose_create_event', 'mcp__workplace__show_issue_list'])(
+      '결과 없이 답을 쓰는 도구(%s)와 같은 메시지의 text 는 남긴다',
+      async (name) => {
+        const events = await run(assistant(), [asstMsg('m1'), tool('t1', 'm1', name), text('p1', 'm1', '오늘 일정이에요.')]);
+        expect(textOf(events)).toBe('오늘 일정이에요.');
+      },
+    );
+
+    it('assistant 가 아닌 프로필은 걸러내지 않는다', async () => {
+      const events = await run(
+        baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 1 } }),
+        [asstMsg('m1'), tool('t1', 'm1', 'workplace_get_issue'), text('p1', 'm1', '이슈를 확인하겠습니다.')],
+      );
+      expect(textOf(events)).toBe('이슈를 확인하겠습니다.');
+    });
+
+    it('서브에이전트(자식 세션) text 는 걸러내지 않는다', async () => {
+      const events = await run(assistant(), [
+        { type: 'session.updated', properties: { info: { id: 'sess-2', parentID: 'sess-1' } } },
+        asstMsg('c1', 'sess-2'),
+        tool('t1', 'c1', 'workplace_get_issue', 'sess-2'),
+        text('p1', 'c1', '하위 진행', 'sess-2'),
+      ]);
+      expect(events).toContainEqual({ type: 'text_delta', text: '하위 진행', parentToolUseId: 'sess-2' });
+    });
+  });
+
   it('properties.delta 가 있으면 그 값을 그대로 text_delta 로 사용', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });

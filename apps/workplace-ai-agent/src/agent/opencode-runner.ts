@@ -33,6 +33,10 @@ function requireOpencodeCredential(i: RunnerInput): OpencodeProviderConfig {
 // 두는데, 재사용 서버는 stdio MCP 프로세스를 실행 사이에 살려 두므로 첫 답변 후 가드가 계속 true 로 남아
 // 이후 모든 이슈 챗 답변이 "이미 등록했습니다" 로 조용히 버려졌다. stdio MCP 의 env 는 서버 스폰 때 고정되고
 // opencode 는 MCP 호출에 세션별 식별자를 넘기지 않아 가드를 실행 단위로 묶을 통로가 없다 — 지연보다 정확성을 택한다.
+// WP-263: 결과를 보지 않고도 답을 쓸 수 있는 도구 — 화면 표시(show_*)·확인 카드 제안(propose_*). 이름은 opencode 표기
+// (workplace_<도구>)와 SDK 표기(mcp__workplace__<도구>)를 모두 받는다.
+const RESULT_FREE_TOOL = /^(?:mcp__workplace__|workplace_)?(?:show|propose)_/;
+
 const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'issue']);
 
 // RunnerInput → 풀 키. 대상 프로필이 아니면 undefined(호출부가 풀을 건너뛰는 신호로 사용).
@@ -191,6 +195,14 @@ export class OpencodeRunner implements AgentRunner {
         // 뒤따름). role 구분 없이 모든 text part 를 델타로 처리하면 사용자 입력 자체가 응답으로
         // 에코된다(실측 버그) — assistant 메시지 id 만 추적해 그 messageID 의 text part 만 델타로 다룬다.
         const assistantMessageIds = new Set<string>();
+        // WP-263: 메인 AI 채팅 라우터의 '진행 서술' 걸러내기. opencode 는 단계(step)마다 assistant 메시지를 새로 만들고,
+        // 모델(qwen 등)이 도구를 부른 같은 단계에서 "PDF 파일을 먼저 확인하겠습니다." 같은 text 를 덧붙여 말풍선에 남았다(라이브 실측 —
+        // 사고는 reasoning part 로 따로 와 이미 버려진다). 그 단계의 text 는 도구 결과를 보기 전에 쓴 것이라 답이 될 수 없으므로,
+        // 결과를 기다리는 도구가 나온 메시지의 이후 text 는 내보내지 않는다. show_*(화면 표시)·propose_*(확인 카드)는 결과 없이도
+        // 답을 쓸 수 있어 제외한다. 범위는 assistant 프로필의 primary 세션만(다른 실행·서브에이전트 text 는 각자 쓰임이 달라 건드리지 않는다).
+        // 프롬프트 규칙은 실측에서 오히려 이미지 읽기를 건너뛰게 만들어(5회 중 4회) 쓰지 않는다.
+        const filterNarration = i.mcp?.profile === 'assistant';
+        const narrationMessageIds = new Set<string>();
 
         for await (const ev of es.stream) {
           if (killed) break;
@@ -216,6 +228,8 @@ export class OpencodeRunner implements AgentRunner {
               if (!assistantMessageIds.has(part.messageID)) continue; // user 메시지 echo 방지
               const delta = typeof ev.properties.delta === 'string' ? ev.properties.delta : part.text.slice(lastPartLen.get(part.id) ?? 0);
               lastPartLen.set(part.id, part.text.length);
+              // 판정은 델타마다 한다 — text part 가 도구보다 먼저 (빈 채로) 생기고 도구 뒤에 채워지는 경우가 있다(실측).
+              if (narrationMessageIds.has(part.messageID)) continue;
               if (delta) {
                 fullText += delta;
                 onEvent({ type: 'text_delta', text: delta, parentToolUseId });
@@ -225,6 +239,7 @@ export class OpencodeRunner implements AgentRunner {
 
             if (part.type === 'tool') {
               const status = part.state.status;
+              if (filterNarration && !isChildSession && !RESULT_FREE_TOOL.test(part.tool)) narrationMessageIds.add(part.messageID);
               // opencode 도구는 MCP(별도 프로세스) 경유지만, opencode 서버 자신이 호출 상태(입력/출력)를
               // Part.state 로 추적해 스트림에 실어주므로 args/result 를 근사가 아니라 실값으로 확보 가능.
               // WP-262: 시작은 running 에서 낸다 — pending 은 모델이 인자를 스트리밍하는 중(state.raw)이라 input 이
