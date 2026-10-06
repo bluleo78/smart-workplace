@@ -10,12 +10,16 @@
 //    따라가도록 ResizeObserver 로, 하단 고정 상태면 콘텐츠 높이 변화 때마다 다시 하단으로.
 //  - 컨테이너 자체가 줄어드는 경우(모바일 키보드가 올라와 셸이 줄어듦 등)도 같은 옵저버로 잡는다 —
 //    높이만 줄고 scrollTop 은 그대로라 바닥에 있던 마지막 메시지들이 아래로 가려졌다(WP-154 후속).
+//  - 사용자가 위로 올리면(휠·터치·키·스크롤바 입력, 또는 콘텐츠 높이 변화 없이 위로 움직인 scroll 이벤트) 하단 고정을
+//    즉시 푼다 — 스트리밍으로 콘텐츠가 계속 자라도 올린 위치를 지킨다. 다시 하단 근처로 내리면 고정이 돌아온다(WP-234).
 import { useEffect, useRef } from 'react'
 
 import type { EntryAnchor } from '@/lib/chatEntryAnchor'
 
 // 하단으로 간주하는 여유(px). 이 안쪽이면 "붙어 있음".
 const NEAR_BOTTOM_PX = 80
+// 위로 스크롤하는 키 — 컨테이너에 포커스가 있을 때 누르면 하단 고정을 푼다.
+const UP_KEYS = new Set(['ArrowUp', 'PageUp', 'Home'])
 
 // 앵커 start 정렬 시 위쪽 여백(px) — 카드 테두리가 화면 위 끝에 딱 붙지 않게.
 const ANCHOR_START_GAP_PX = 8
@@ -36,48 +40,102 @@ export function useStickToBottom(
   const ref = useRef<HTMLDivElement | null>(null)
   // 직전 렌더 시점에 하단 근처였는지. 스크롤 이벤트로 갱신.
   const stuckRef = useRef(true)
+  // 앵커를 기다리는 중(앵커 미판단이거나, 앵커 id 는 있으나 아직 DOM에 없음) — 스크롤 핸들러·ResizeObserver 가 하단으로 끌어내리지 않게 차단.
+  const pendingAnchor = useRef(!!initialAnchorId || anchorPending)
+
+  // 직전에 관측한 scrollTop·콘텐츠 높이 — scroll 이벤트가 사용자가 위로 올린 것인지 판정하는 기준.
+  // scroll 이벤트뿐 아니라 프로그램 스크롤(toBottom)·ResizeObserver 에서도 갱신한다.
+  const observed = useRef({ top: 0, height: 0 })
+  const observe = (el: HTMLDivElement) => {
+    observed.current = { top: el.scrollTop, height: el.scrollHeight }
+  }
 
   // 하단으로 스크롤(요소 있을 때만).
   const toBottom = () => {
     const el = ref.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    observed.current = { top: el.scrollTop, height: el.scrollHeight }
   }
 
-  // 스크롤 위치 추적 — 하단 근처면 stuck=true.
+  // 스크롤 위치 추적 — 하단 근처면 stuck=true, 사용자가 위로 올리면 stuck=false.
   useEffect(() => {
     const el = ref.current
     if (!el) return
     // 직전에 본 보이는 높이 — 컨테이너가 줄 때 브라우저의 스크롤 보정(scroll anchoring)이 scroll 이벤트를 먼저 보내는데,
     // 그 시점의 거리로 판정하면 사용자가 스크롤하지 않았는데도 하단 고정이 풀린다. 높이가 바뀐 스크롤은 상태를 유지한다.
     let lastClientHeight = el.clientHeight
-    // 직전 scroll 이벤트의 scrollTop·콘텐츠 높이 — 사용자가 위로 올린 스크롤인지 판정용.
-    let lastTop = el.scrollTop
-    let lastScrollHeight = el.scrollHeight
+    observe(el)
+    // 사용자가 위로 올리려는 입력(휠·터치·키·스크롤바)은 scroll 이벤트보다 먼저 와서 고정을 바로 푼다 — 스트리밍처럼 콘텐츠가
+    // 매 프레임 자라면 depKey·ResizeObserver 가 바닥으로 다시 맞춰 사용자의 스크롤이 이벤트에 닿기 전에 지워지고, 닿더라도
+    // 그 사이 높이가 바뀌어 아래 보정 규칙에 걸려 되돌려졌다(WP-234). 이미 맨 위(올라갈 곳 없음)면 아무 일도 없으니 풀지 않는다 —
+    // 짧은 대화에서 헛휠 한 번에 고정이 풀려 이후 응답을 따라가지 않는 일을 막는다.
+    const release = () => {
+      if (el.scrollTop > 0) stuckRef.current = false
+    }
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) release()
+    }
+    // 터치는 손가락이 아래로 끌릴 때가 위로 스크롤이다.
+    let touchY: number | null = null
+    const onTouchStart = (e: TouchEvent) => {
+      touchY = e.touches[0]?.clientY ?? null
+    }
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY
+      if (touchY != null && y != null && y > touchY) release()
+    }
+    // 키보드 스크롤 — 입력창 안의 화살표·Home 은 커서 이동이라 제외한다.
+    const onKeyDown = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t?.closest('input, textarea, [contenteditable="true"]')) return
+      if (UP_KEYS.has(e.key)) release()
+    }
+    // 스크롤바 끌기 — 컨테이너 자신의 내용 폭(clientWidth) 바깥(=스크롤바 영역)을 누른 경우만.
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.target === el && e.offsetX >= el.clientWidth) release()
+    }
     const onScroll = () => {
-      const top = el.scrollTop
-      const movedUp = top < lastTop
-      const contentChanged = el.scrollHeight !== lastScrollHeight
-      lastTop = top
-      lastScrollHeight = el.scrollHeight
+      // 소수 scrollTop 반올림 오차(1px)를 넘는 위쪽 이동만 위로 움직인 것으로 본다.
+      const movedUp = el.scrollTop < observed.current.top - 1
+      const contentChanged = el.scrollHeight !== observed.current.height
+      observe(el)
       if (el.clientHeight !== lastClientHeight) {
         lastClientHeight = el.clientHeight
         if (stuckRef.current) toBottom()
         return
       }
-      const dist = el.scrollHeight - el.scrollTop - el.clientHeight
-      // 하단 고정 중, 위로 움직이지 않았거나 그 사이 콘텐츠 높이가 바뀐 스크롤은 사용자가 떠난 것이 아니다 —
-      // 이미지·위젯이 연달아 커지거나 잠깐 줄 때, 브라우저 스크롤 앵커링·스크롤 위치 보정(clamp)·직전 프로그램 스크롤이 보낸
-      // 이벤트를 다음 높이 변화까지 반영된 상태로 읽으면 거리가 커 보여 고정이 풀렸다(WP-234, 썸네일 2장 복원).
-      // 이런 경우엔 고정을 유지하고 바닥으로 다시 맞춘다. 높이 변화 없이 위로 올린 스크롤만 아래 거리 판정으로 간다.
-      if (stuckRef.current && (!movedUp || contentChanged)) {
-        if (dist > 0) toBottom()
+      // 콘텐츠 높이가 그대로인데 위로 움직인 스크롤은 사용자 의도다(입력 이벤트 없이 오는 스크롤 포함) — 고정을 푼다.
+      if (movedUp && !contentChanged) {
+        stuckRef.current = false
         return
       }
-      stuckRef.current = dist <= NEAR_BOTTOM_PX
+      const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+      // 하단 고정 중, 위로 움직이지 않았거나 그 사이 콘텐츠 높이가 바뀐 스크롤은 사용자가 떠난 것이 아니다 —
+      // 썸네일이 스켈레톤에서 잠깐 줄었다 커질 때 브라우저 위치 보정(clamp)·스크롤 앵커링이 보낸 이벤트가 ResizeObserver 보다 먼저,
+      // 때로는 다음 성장까지 반영된 높이로 도착해 "위로 올림"처럼 보였다(WP-234 W15, 썸네일 2장 복원).
+      // 사용자가 실제로 올린 경우는 위 입력 리스너가 이미 고정을 풀어 이 분기에 오지 않는다. 앵커를 기다리는 중엔 끌어내리지 않는다.
+      if (stuckRef.current) {
+        if (dist > 0 && !pendingAnchor.current) toBottom()
+        return
+      }
+      stuckRef.current = !movedUp && dist <= NEAR_BOTTOM_PX
     }
+    el.addEventListener('wheel', onWheel, { passive: true })
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: true })
+    el.addEventListener('keydown', onKeyDown)
+    el.addEventListener('pointerdown', onPointerDown)
     el.addEventListener('scroll', onScroll, { passive: true })
     onScroll()
-    return () => el.removeEventListener('scroll', onScroll)
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('keydown', onKeyDown)
+      el.removeEventListener('pointerdown', onPointerDown)
+      el.removeEventListener('scroll', onScroll)
+    }
   }, [])
 
   // 최초 위치 잡기(1회): 앵커가 있으면 그쪽(구분선=center, 상단 캐치업 카드=start)으로, 없으면 하단으로.
@@ -88,8 +146,6 @@ export function useStickToBottom(
   // resetKey 효과가 앵커 스크롤을 덮어쓰지 않도록 하는 유일한 게이트.
   // AIChatPanel(앵커 없음)에서는 영원히 false → resetKey 세션 전환 시 하단 강제가 정상 동작(#455).
   const anchorScrollDone = useRef(false)
-  // 앵커를 기다리는 중(앵커 미판단이거나, 앵커 id 는 있으나 아직 DOM에 없음) — ResizeObserver 가 하단으로 끌어내리지 않게 차단.
-  const pendingAnchor = useRef(!!initialAnchorId || anchorPending)
   useEffect(() => {
     if (initialDone.current) return
     const el = ref.current
@@ -152,6 +208,9 @@ export function useStickToBottom(
     if (!el || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
       if (stuckRef.current && !pendingAnchor.current) el.scrollTop = el.scrollHeight
+      // 높이 변화로 브라우저가 scrollTop 을 보정(clamp)했을 수 있다 — 기준을 지금 값으로 맞춰, 뒤따르는 scroll 이벤트가
+      // 이 보정을 사용자의 위쪽 스크롤로 오판하지 않게 한다.
+      observe(el)
     })
     ro.observe(el)
     for (const child of Array.from(el.children)) ro.observe(child)

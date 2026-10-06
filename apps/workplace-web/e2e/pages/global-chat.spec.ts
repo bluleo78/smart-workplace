@@ -954,6 +954,108 @@ test('세션 로드 후 콘텐츠 높이가 비동기로 커져도 하단 고정
     .toBeLessThanOrEqual(80)
 })
 
+// 스트리밍 SSE 를 시간에 걸쳐 흘리는 하네스 — route.fulfill 은 본문을 한 번에 보내므로, 마커 헤더가 붙은 /events 응답을
+// fetch 래퍼가 '테스트가 밀어 넣는 스트림'으로 바꾼다(auth.fixture 의 SSE_HOLD 와 같은 방식, 마커만 다르다).
+// 래퍼는 fixture 래퍼 위에 덧씌워지고 route 는 나중 등록이 우선(LIFO)이라 이 스펙에서만 기본 스트림을 대체한다.
+const SSE_PUSH_HEADER = 'x-e2e-sse-push'
+
+async function mockStreamingHomeChat(page: Page, correlationId: string): Promise<(frame: string) => Promise<void>> {
+  await page.route(
+    (url) => url.pathname === '/api/v1/ai/chat',
+    (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ correlationId }) })
+        : route.fallback(),
+  )
+  await page.route('**/api/v1/events', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { [SSE_PUSH_HEADER]: '1' }, body: '' }),
+  )
+  await page.addInitScript((marker) => {
+    const w = window as unknown as { __ssePush?: (text: string) => void }
+    const prev = window.fetch.bind(window)
+    window.fetch = async (input, init) => {
+      const res = await prev(input, init)
+      if (res.headers.get(marker) !== '1') return res
+      const enc = new TextEncoder()
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          w.__ssePush = (text) => controller.enqueue(enc.encode(text))
+        },
+      })
+      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers })
+    }
+  }, SSE_PUSH_HEADER)
+  return async (frame) => {
+    await page.waitForFunction(() => typeof (window as unknown as { __ssePush?: unknown }).__ssePush === 'function')
+    await page.evaluate((f) => (window as unknown as { __ssePush: (t: string) => void }).__ssePush(f), frame)
+  }
+}
+
+test('스트리밍 응답 중에도 위로 올린 스크롤은 하단으로 끌려 내려가지 않는다 (WP-234 useStickToBottom)', async ({
+  authenticatedPage: page,
+}) => {
+  // 회귀: 하단 고정 중에는 델타마다 콘텐츠가 자라 depKey·ResizeObserver 가 매번 바닥으로 다시 맞추고,
+  // 스크롤 핸들러도 "그 사이 높이가 바뀐 위쪽 스크롤"을 보정으로 보고 바닥으로 되돌려, 스트리밍이 끝날 때까지 위로 올릴 수 없었다.
+  await page.setViewportSize({ width: 1280, height: 520 })
+  await mockChatSessions(page, {
+    items: [{ id: 's-stream', title: '스트리밍 대화', lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  })
+  const messages: HomeMessage[] = Array.from({ length: 30 }, (_, i) => ({
+    id: i + 1,
+    role: i % 2 === 0 ? 'USER' : 'ASSISTANT',
+    content: `메시지 ${i + 1}`,
+    widgets: null,
+    toolCalls: null,
+    createdAt: '2026-06-08T00:00:00Z',
+  }))
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-stream/messages', messages)
+  const correlationId = 'corr-stream'
+  const push = await mockStreamingHomeChat(page, correlationId)
+  const delta = (text: string) =>
+    push(`event: home.chat.delta\ndata: ${JSON.stringify({ correlationId, text })}\n\n`)
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-session-switcher').click()
+  await page.getByTestId('chat-session-select').first().click()
+  await expect(page.getByTestId('chat-session-item')).toHaveCount(0)
+  await expect(page.getByTestId('chat-panel')).toContainText('메시지 30')
+
+  const scroll = page.getByTestId('chat-scroll')
+  const dist = () => scroll.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)
+  await page.getByTestId('chat-input').fill('길게 답해 줘')
+  await page.getByRole('button', { name: '보내기' }).click()
+
+  // 스트리밍 시작 — 하단 고정 상태에서 델타를 따라 내려간다.
+  for (let i = 0; i < 5; i++) await delta(`\n\n앞부분 ${i}`)
+  await expect(page.getByTestId('chat-panel')).toContainText('앞부분 4')
+  await expect.poll(dist).toBeLessThanOrEqual(2)
+
+  // 사용자가 휠로 위로 올리는 동안·뒤에도 델타가 계속 온다.
+  const box = await scroll.boundingBox()
+  if (!box) throw new Error('chat-scroll 위치를 잴 수 없다')
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  const heightBefore = await scroll.evaluate((el) => el.scrollHeight)
+  for (let i = 0; i < 20; i++) {
+    if (i === 2) await page.mouse.wheel(0, -600)
+    await delta(`\n\n이어지는 줄 ${i}`)
+    // 델타 사이에 두 프레임을 넘긴다 — 실제 스트리밍처럼 델타가 여러 프레임에 나눠 도착하게 한다.
+    await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+  }
+  await expect(page.getByTestId('chat-panel')).toContainText('이어지는 줄 19')
+  // 스트리밍이 실제로 콘텐츠를 키웠는지(전제) — 그 사이에도 위로 올린 위치에 머문다.
+  expect(await scroll.evaluate((el) => el.scrollHeight)).toBeGreaterThan(heightBefore + 100)
+  await expect.poll(dist).toBeGreaterThan(300)
+  // 다시 맨 아래로 내리면 고정이 돌아와, 다음 델타를 따라간다.
+  await scroll.evaluate((el) => {
+    el.scrollTop = el.scrollHeight
+  })
+  await delta('\n\n마지막 줄')
+  await expect(page.getByTestId('chat-panel')).toContainText('마지막 줄')
+  await expect.poll(dist).toBeLessThanOrEqual(2)
+})
+
 // aiAvailable 게이트 — 비서 없으면 AIChip(chat-launcher) 미렌더.
 test('aiAvailable=false 이면 AIChip(chat-launcher) 이 렌더되지 않는다', async ({ authenticatedPage: page }) => {
   // aiAvailable:false 로 재정의(fixture 기본값 true 위에 LIFO 우선).
