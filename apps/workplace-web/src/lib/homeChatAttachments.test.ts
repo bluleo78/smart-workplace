@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ATTACHMENT_MAX_BYTES } from '@/lib/attachmentLimits';
 import type { ChatTurn, HomeAttachment } from '@/types/home';
 
 import {
@@ -7,7 +8,6 @@ import {
   countSessionAttachments,
   homeAttachmentContentPath,
   isHomeChatImage,
-  MAX_ATTACHMENT_BYTES,
   oversizeMessage,
   PER_MESSAGE_LIMIT_MSG,
   PER_SESSION_LIMIT_MSG,
@@ -43,8 +43,8 @@ describe('checkAttachmentCounts — 메시지 10 · 세션 30', () => {
 
 describe('splitOversize — 25MB', () => {
   it('정확히 25MB 는 통과, 1바이트라도 넘으면 제외', () => {
-    const ok = { name: 'a', size: MAX_ATTACHMENT_BYTES };
-    const big = { name: 'b', size: MAX_ATTACHMENT_BYTES + 1 };
+    const ok = { name: 'a', size: ATTACHMENT_MAX_BYTES };
+    const big = { name: 'b', size: ATTACHMENT_MAX_BYTES + 1 };
     expect(splitOversize([ok, big])).toEqual({ accepted: [ok], rejected: [big] });
   });
   it('안내 문구에 빠진 파일명을 나열한다', () => {

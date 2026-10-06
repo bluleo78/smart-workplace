@@ -4,8 +4,8 @@
 import type { IssueAttachment } from '../types/attachment';
 import { client } from './client';
 
-// 클라이언트 사전 검증용 한도 — 백엔드 limit 와 일치해야 한다.
-export const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+// 클라이언트 사전 검증용 한도 — 백엔드 limit 와 일치해야 한다. 파일당 25MB 는 메인 AI 채팅과 공용이라 lib 에서 다시 내보낸다.
+export { ATTACHMENT_MAX_BYTES } from '../lib/attachmentLimits';
 export const ATTACHMENT_MAX_PER_ISSUE = 10;
 
 // 이슈에 부착된 첨부 목록 조회.
