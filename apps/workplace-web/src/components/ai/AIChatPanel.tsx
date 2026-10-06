@@ -4,10 +4,12 @@
 import { ArrowUp, ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square } from 'lucide-react';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
+import { homeApi } from '@/api/home';
 import { ActionResultLine } from '@/components/ai/ActionResultLine';
 import { AiLabel } from '@/components/ai/AiLabel';
 import { AISessionItems } from '@/components/ai/AISessionList';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
+import { HomeMessageImage } from '@/components/ai/HomeMessageImage';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { ScreenContextChip } from '@/components/ai/ScreenContextChip';
@@ -16,6 +18,7 @@ import { ToolStepList } from '@/components/ai/ToolStepList';
 import { ComposerAttachmentChips } from '@/components/chat/ComposerAttachmentChips';
 import { ComposerAttachMenu } from '@/components/chat/ComposerAttachMenu';
 import { ComposerDropOverlay } from '@/components/chat/ComposerDropOverlay';
+import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList';
 import { getChatWidget } from '@/components/home/widgets/chatWidgetRegistry';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,12 +35,17 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
+import { handleApiErrorAsync } from '@/lib/api-error';
 import { sliceRange } from '@/lib/chatBlocks';
 import { filesFromPaste } from '@/lib/clipboardFiles';
 import { countSessionAttachments } from '@/lib/homeChatAttachments';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
+
+// 사용자 말풍선 — whitespace-pre-wrap 로 공백/개행 보존 + [overflow-wrap:anywhere] 로 URL·토큰 등 무공백 긴 문자열도
+// 강제 줄바꿈해 말풍선이 폭 상한을 넘어 가로 오버플로하지 않도록 한다(#202).
+const USER_BUBBLE = 'whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl bg-ai-accent px-3 py-1.5 text-sm text-ai-accent-foreground';
 
 interface Props extends AssistantChat {
   /** 헤더 세션 스위처 표시 여부(기본 true). 풀스크린은 좌측 목록이 대신하므로 false. */
@@ -290,15 +298,32 @@ export function AIChatPanel({
                       </div>
                     </div>
                   )
-                ) : (
-                  <span
-                    className={cn(
-                      // whitespace-pre-wrap 로 공백/개행은 보존하되,
-                      // [overflow-wrap:anywhere] 로 URL·토큰 등 무공백 긴 문자열도 강제 줄바꿈해
-                      // 말풍선이 max-w-[80%] 를 넘어 가로 오버플로하지 않도록 한다 (#202)
-                      'max-w-[80%] whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl bg-ai-accent px-3 py-1.5 text-sm text-ai-accent-foreground',
+                ) : t.attachments?.length ? (
+                  // WP-234: 첨부가 있는 사용자 턴 — 시안 5 대로 본문 말풍선을 위에, 첨부(썸네일·문서 카드)를 그 아래에 오른쪽 정렬로 쌓는다.
+                  // 첨부만 보낸 턴은 본문 말풍선 없이 첨부만. 폭 제약은 래퍼가(min-w-0 로 긴 파일명도 넘치지 않게).
+                  <div className="flex min-w-0 max-w-[80%] flex-col items-end gap-1" data-testid="chat-turn-attachments">
+                    {t.content && (
+                      <span className={cn('max-w-full', USER_BUBBLE)} data-testid="chat-user-bubble">
+                        {t.content}
+                      </span>
                     )}
-                  >
+                    <MessageAttachmentList
+                      attachments={t.attachments}
+                      className="max-w-full items-end"
+                      onDownloadAttachment={(a) => {
+                        // 새 대화 첫 메시지는 응답이 끝나 세션이 정해지기 전까지 원본 경로가 없다.
+                        if (!currentSessionId) return;
+                        void homeApi
+                          .downloadAttachment(currentSessionId, a.fileId, a.originalName)
+                          .catch((e: unknown) => handleApiErrorAsync(e, '첨부를 내려받지 못했습니다'));
+                      }}
+                      // 메인 AI 채팅은 드라이브 링크를 받지 않는다(driveLinks 미전달 → 호출되지 않음).
+                      onDownloadDriveLink={() => {}}
+                      renderImage={(a) => <HomeMessageImage sessionId={currentSessionId} attachment={a} />}
+                    />
+                  </div>
+                ) : (
+                  <span className={cn('max-w-[80%]', USER_BUBBLE)} data-testid="chat-user-bubble">
                     {t.content}
                   </span>
                 )}
