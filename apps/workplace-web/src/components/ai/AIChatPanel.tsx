@@ -38,7 +38,7 @@ import { visibleSteps } from '@/lib/aiToolLabels';
 import { handleApiErrorAsync } from '@/lib/api-error';
 import { sliceRange } from '@/lib/chatBlocks';
 import { filesFromPaste } from '@/lib/clipboardFiles';
-import { countSessionAttachments, isHomeChatImage } from '@/lib/homeChatAttachments';
+import { countSessionAttachments } from '@/lib/homeChatAttachments';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
@@ -46,9 +46,6 @@ import { cn } from '@/lib/utils';
 // 사용자 말풍선 — whitespace-pre-wrap 로 공백/개행 보존 + [overflow-wrap:anywhere] 로 URL·토큰 등 무공백 긴 문자열도
 // 강제 줄바꿈해 말풍선이 폭 상한을 넘어 가로 오버플로하지 않도록 한다(#202).
 const USER_BUBBLE = 'whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl bg-ai-accent px-3 py-1.5 text-sm text-ai-accent-foreground';
-
-/** 사용자 턴 첨부 중 썸네일로 그릴 것 — 렌더마다 새 함수를 만들지 않게 모듈에 둔다(WP-234). */
-const isHomeTurnImage = (a: { mimeType: string }) => isHomeChatImage(a.mimeType);
 
 interface Props extends AssistantChat {
   /** 헤더 세션 스위처 표시 여부(기본 true). 풀스크린은 좌측 목록이 대신하므로 false. */
@@ -324,9 +321,7 @@ export function AIChatPanel({
                           .downloadAttachment(currentSessionId, a.fileId, a.originalName)
                           .catch((e: unknown) => handleApiErrorAsync(e, '첨부를 내려받지 못했습니다'));
                       }}
-                      // 썸네일은 api·ai-agent 와 같은 4종만 — SVG·HEIC 등은 문서 카드(다운로드)로 그린다.
                       // 메인 AI 채팅은 드라이브 링크를 받지 않아 driveLinks·onDownloadDriveLink 를 넘기지 않는다.
-                      isImage={isHomeTurnImage}
                       renderImage={(a) => <HomeMessageImage sessionId={currentSessionId} attachment={a} />}
                     />
                   </div>

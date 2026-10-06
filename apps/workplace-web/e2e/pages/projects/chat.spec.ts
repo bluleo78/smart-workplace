@@ -1248,4 +1248,49 @@ test.describe('이슈 chat panel', () => {
     );
     await expect(page.getByTestId('chat-composer')).toHaveCount(0);
   });
+
+  // WP-260: 이슈 채팅도 SVG·HEIC 는 썸네일(새 탭 blob) 대신 다운로드 카드 — SVG 스크립트가 앱 출처로 돌지 않게.
+  test('SVG·HEIC 첨부는 썸네일이 아니라 카드로 보이고 원본을 받지 않는다 (WP-260)', async ({ authenticatedPage: page }) => {
+    const detailRef = {
+      current: createIssueDetail({ summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'SVG 첨부' }) }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    const att = (fileId: number, originalName: string, mimeType: string) => ({
+      fileId,
+      messageId: 620,
+      originalName,
+      mimeType,
+      sizeBytes: 512,
+      attachedById: 99,
+      attachedByName: 'AI Agent',
+      attachedAt: '2026-01-01T10:00:00Z',
+    });
+    stubs.thread = {
+      ...stubs.thread,
+      recentMessages: [
+        createChatMessage({
+          id: 620,
+          threadId: THREAD_ID,
+          authorId: 99,
+          authorName: 'AI Agent',
+          authorKind: 'AGENT',
+          body: '도면입니다',
+          attachments: [att(960, 'diagram.svg', 'image/svg+xml'), att(961, 'photo.heic', 'image/heic')],
+        }),
+      ],
+    };
+    stubs.messages = stubs.thread.recentMessages;
+    await setupChatStubs(page, stubs);
+    const contentGets = trackRequests(page, 'GET', /\/attachments\/\d+\/content$/);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByTestId('issue-chat-open').click();
+
+    await expect(page.getByTestId('attachment-card-960')).toContainText('diagram.svg');
+    await expect(page.getByTestId('attachment-card-961')).toContainText('photo.heic');
+    await expect(page.getByTestId('attachment-image-960')).toHaveCount(0);
+    await expect(page.getByTestId('attachment-image-loading-960')).toHaveCount(0);
+    expect(contentGets.count()).toBe(0);
+  });
 });

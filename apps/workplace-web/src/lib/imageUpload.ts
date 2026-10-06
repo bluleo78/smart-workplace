@@ -4,6 +4,15 @@
 /** 허용 이미지 MIME — 서버 ImageSniffer 화이트리스트와 같다(SVG 는 스크립트 벡터라 제외). */
 export const ACCEPTED_IMAGE_TYPES: ReadonlySet<string> = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 
+/**
+ * 채팅 첨부를 썸네일(<img>·새 탭 원본)로 그려도 되는 이미지인지 — 위 4종만. 그 외 image/*(SVG·HEIC·TIFF…)는 다운로드 카드로 보낸다.
+ * SVG 를 앱 출처 blob URL 로 새 탭에 열면 그 안의 스크립트가 앱 권한으로 돌고(서버 Content-Disposition 은 fetch→blob 경로에 무력),
+ * HEIC 는 브라우저가 못 그려 깨진다. api HomeAttachmentController.INLINE_MIMES·ai-agent HOME_IMAGE_MIMES 와도 같은 4종이다. (WP-234, WP-260)
+ */
+export function isInlineImageType(mimeType: string): boolean {
+  return ACCEPTED_IMAGE_TYPES.has(mimeType)
+}
+
 /** 업로드 크기 상한(10MB) — 서버 max-file-size-bytes 기본값과 같다. */
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 

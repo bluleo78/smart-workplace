@@ -3,8 +3,9 @@ import { toast } from 'sonner';
 
 import { homeApi } from '@/api/home';
 import { useAttachmentDraft } from '@/hooks/useAttachmentDraft';
-import { checkAttachmentCounts, isHomeChatImage, oversizeMessage, splitOversize } from '@/lib/homeChatAttachments';
+import { checkAttachmentCounts, oversizeMessage, splitOversize } from '@/lib/homeChatAttachments';
 import { downscaleImageForUpload } from '@/lib/imageDownscale';
+import { isInlineImageType } from '@/lib/imageUpload';
 import type { HomeUploadedFile, TurnAttachment } from '@/types/home';
 
 /** 로컬 미리보기 — sent 는 전송 스냅숏으로 화면 턴에 넘겨 수락·거절을 기다리는 중(이 URL 은 이미 턴이 그리고 있다). */
@@ -53,7 +54,7 @@ export function useHomeChatAttachments({
     // blob 은 서버 mime 이 아니라 File.type 을 물려받으므로 둘 다 본다 — SVG 등은 blob 자체를 만들지 않는다.
     data.forEach((u, i) => {
       const f = accepted[i];
-      if (f && isHomeChatImage(u.mimeType) && isHomeChatImage(f.type)) {
+      if (f && isInlineImageType(u.mimeType) && isInlineImageType(f.type)) {
         previews.current.set(u.fileId, { url: URL.createObjectURL(f), sent: false });
       }
     });

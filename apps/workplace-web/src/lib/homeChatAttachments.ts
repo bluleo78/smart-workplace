@@ -1,23 +1,12 @@
 // 메인 AI 채팅 첨부(WP-234) 순수 규칙 — 상한 판정·세션 첨부 수·25MB 분리·턴 첨부 변환·미리보기 해제·원본 경로.
 // useHomeChatAttachments·useChatSession·homeApi 가 공유하고 vitest 로 검증한다(브라우저 없이 판정되는 부분만 모았다).
 import { ATTACHMENT_MAX_BYTES } from '@/lib/attachmentLimits';
-import { ACCEPTED_IMAGE_TYPES } from '@/lib/imageUpload';
 import type { ChatTurn, HomeMessage, TurnAttachment } from '@/types/home';
 
 /** 메시지당 첨부 수 — 이슈 챗과 같은 10개(이슈 첨부의 ATTACHMENT_MAX_PER_ISSUE 는 이슈 전체 누적 상한이라 뜻이 달라 공유하지 않는다). */
 export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 /** 세션당 첨부 수 — 매 턴 프롬프트에 넣는 첨부 목록 크기를 묶는다. */
 export const MAX_ATTACHMENTS_PER_SESSION = 30;
-
-/**
- * 썸네일로 그려도 되는 이미지인지. 4종 밖의 image/*(SVG·HEIC·TIFF…)는 문서 카드(다운로드)로 보낸다 —
- * SVG 를 앱 출처 blob URL 로 새 탭에 열면 그 안의 스크립트가 앱 권한으로 돌고(self-XSS), HEIC 는 브라우저가 못 그려 깨진다.
- */
-export function isHomeChatImage(mimeType: string): boolean {
-  // 본문 이미지 업로드 허용 4종(ACCEPTED_IMAGE_TYPES)이 api HomeAttachmentController.INLINE_MIMES·ai-agent HOME_IMAGE_MIMES 와
-  // 같은 jpeg/png/gif/webp 라 그대로 쓴다(정확히 일치 비교도 같다).
-  return ACCEPTED_IMAGE_TYPES.has(mimeType);
-}
 
 /** 서버(HomeAttachmentService.tooManyMessage) 400 문구와 글자 그대로 같게 유지한다(PF-C3). */
 export const PER_MESSAGE_LIMIT_MSG = `한 번에 첨부할 수 있는 파일은 최대 ${MAX_ATTACHMENTS_PER_MESSAGE}개예요.`;

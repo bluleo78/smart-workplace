@@ -1,5 +1,6 @@
 import { Cloud, FileText } from 'lucide-react'
 
+import { isInlineImageType } from '@/lib/imageUpload'
 import { cn } from '@/lib/utils'
 import type { DriveLink } from '@/types/drive'
 import type { MessageAttachment } from '@/types/messaging'
@@ -18,14 +19,13 @@ type AttachmentLike = Pick<MessageAttachment, 'fileId' | 'originalName' | 'mimeT
  * 크기·링크 배지는 shrink-0 whitespace-nowrap 으로 좁은 카드에서도 한 줄을 유지한다. 이미지는 renderImage 로 위임, 그 외는 다운로드 카드.
  * 도메인(팀/이슈/메인 AI 채팅) 무관 — 다운로드 핸들러·이미지 렌더를 주입받는다. (#80, #358, WP-234)
  * className 은 정렬 등 배치만 덧붙인다(예: 메인 AI 채팅 사용자 말풍선의 오른쪽 정렬). 기본값은 기존 동작.
- * isImage 는 renderImage 로 보낼지 판정한다 — 기본은 image/* 전부(팀·이슈 채팅 기존 동작), 메인 AI 채팅은 4종만 넘긴다. */
+ * 썸네일(renderImage)은 isInlineImageType 4종만 — SVG·HEIC 등 그 외 image/* 는 다운로드 카드로 그린다(SVG blob 새 탭 스크립트 실행 방지, WP-260). */
 export function MessageAttachmentList<A extends AttachmentLike>({
   attachments,
   driveLinks = [],
   onDownloadAttachment,
   onDownloadDriveLink,
   renderImage,
-  isImage = (a) => a.mimeType.startsWith('image/'),
   className,
 }: {
   attachments: A[]
@@ -34,14 +34,13 @@ export function MessageAttachmentList<A extends AttachmentLike>({
   /** 드라이브 링크 다운로드 — driveLinks 를 넘길 때만 필요하다(메인 AI 채팅은 둘 다 생략, WP-234). */
   onDownloadDriveLink?: (dl: DriveLink) => void
   renderImage: (a: A) => React.ReactNode
-  isImage?: (a: A) => boolean
   className?: string
 }) {
   if ((!attachments || attachments.length === 0) && driveLinks.length === 0) return null
   return (
     <div className={cn('mt-1 flex flex-col gap-1', className)} data-testid="message-attachments">
       {attachments.map((a) =>
-        isImage(a) ? (
+        isInlineImageType(a.mimeType) ? (
           <span key={a.fileId}>{renderImage(a)}</span>
         ) : (
           <button

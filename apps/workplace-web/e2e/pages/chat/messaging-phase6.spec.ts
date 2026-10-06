@@ -385,4 +385,50 @@ test.describe('messaging Phase 6 — 메시지 파일 첨부', () => {
       await expect(page.getByTestId(`attachment-image-${FILE_ID}`)).toBeVisible()
     },
   )
+
+  // WP-260: SVG 는 앱 출처 blob 새 탭으로 열면 스크립트가 돈다 — 썸네일 대신 다운로드 카드, 원본도 받지 않는다.
+  test('SVG·HEIC 첨부는 썸네일이 아니라 카드로 보이고 원본을 받지 않는다', async ({ authenticatedPage: page }) => {
+    const CHANNEL_ID = 603
+    const MSG_ID = 9730
+    const channel = createChannel({ id: CHANNEL_ID, name: 'SVG채널' })
+    const att = (fileId: number, originalName: string, mimeType: string) => ({
+      fileId,
+      messageId: MSG_ID,
+      originalName,
+      mimeType,
+      sizeBytes: 512,
+      attachedById: 2,
+      attachedByName: '동료',
+      attachedAt: new Date('2026-06-03T00:00:00Z').toISOString(),
+    })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [
+      createMessage({
+        id: MSG_ID,
+        channelId: CHANNEL_ID,
+        authorId: 2,
+        authorName: '동료',
+        body: '도면 공유',
+        attachments: [att(8830, 'diagram.svg', 'image/svg+xml'), att(8831, 'photo.heic', 'image/heic'), att(8832, 'shot.png', 'image/png')],
+      }),
+    ])
+    await stubAttachmentContent(page, CHANNEL_ID, MSG_ID, 8832)
+    const contentGets = trackRequests(page, 'GET', /\/attachments\/\d+\/content$/)
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+
+    // 4종(png)만 썸네일, SVG·HEIC 는 파일명이 보이는 카드.
+    await expect(page.getByTestId('attachment-image-8832')).toBeVisible()
+    await expect(page.getByTestId('attachment-card-8830')).toContainText('diagram.svg')
+    await expect(page.getByTestId('attachment-card-8831')).toContainText('photo.heic')
+    await expect(page.getByTestId('attachment-image-8830')).toHaveCount(0)
+    await expect(page.getByTestId('attachment-image-loading-8830')).toHaveCount(0)
+    // 원본 blob 은 png 것만 받는다(같은 파일 재요청은 개발 모드 이중 effect 몫이라 묶어 본다) — SVG 는 새 탭 objectURL 이 만들어질 수 없다.
+    expect([...new Set(contentGets.urls().map((u) => u.pathname.split('/').at(-2)))]).toEqual(['8832'])
+  })
 })
