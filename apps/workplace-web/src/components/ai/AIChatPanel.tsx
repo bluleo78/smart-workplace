@@ -146,6 +146,8 @@ export function AIChatPanel({
       (accepted) => {
         // 서버가 받아들였을 때만 보낸 파일을 초안에서 뺀다 — 거절(400)이면 칩을 남겨 사유 토스트를 보고 고칠 수 있게.
         if (accepted) attach.commitSent(sentIds);
+        // 거절되면 지운 질문도 되돌린다 — 칩과 함께 그대로 다시 보낼 수 있게. 그 사이 새로 쓴 글은 덮지 않는다(비어 있을 때만).
+        else if (query) setInput((prev) => (prev === '' ? query : prev));
       },
     );
     setSuppressedIdentity(null); // 1회 제외는 이번 전송으로 소진 — 다음 전송부터 다시 포함.

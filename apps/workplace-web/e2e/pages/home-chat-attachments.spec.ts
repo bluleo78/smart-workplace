@@ -327,8 +327,12 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
 
     await drop(page, Array.from({ length: 5 }, (_, i) => ({ name: `r${i}.txt`, type: 'text/plain' })))
     await expect(page.getByTestId('ai-composer-attachments').getByRole('listitem')).toHaveCount(5)
+    const input = page.getByTestId('chat-input')
+    await input.fill('이 파일들 정리해줘')
     await page.getByTestId('chat-send').click()
     await expect(toast(page, '잠시 후 다시 보내 주세요.')).toBeVisible()
+    // 거절되면 입력한 질문도 입력창에 되돌아온다(칩과 함께 그대로 다시 보낼 수 있게).
+    await expect(input).toHaveValue('이 파일들 정리해줘')
     // 거절된 턴의 말풍선엔 첨부가 없다 — 복원된 첫 턴의 첨부 목록 하나만 있고 r0.txt 카드는 없다.
     await expect(page.getByTestId('chat-panel').getByTestId('message-attachments')).toHaveCount(1)
     await expect(page.getByTestId('chat-panel').getByTestId('attachment-card-7000')).toHaveCount(0)
@@ -349,8 +353,34 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     await starts.waitFor(2)
     const [first, second] = starts.bodies<HomeChatStartBody>()
     expect(first.fileIds).toEqual([7000, 7001, 7002, 7003, 7004])
-    expect(second).toMatchObject({ sessionId: 's-retry', query: '', fileIds: first.fileIds })
+    expect(second).toMatchObject({ sessionId: 's-retry', query: '이 파일들 정리해줘', fileIds: first.fileIds })
     await expect(page.getByTestId('ai-composer-attachments')).toHaveCount(0)
+  })
+
+  test('거절(400)이 늦게 오면 그 사이 새로 입력한 글은 덮어쓰지 않는다', async ({ authenticatedPage: page }) => {
+    await stubUpload(page)
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    await page.route((u) => u.pathname === '/api/v1/ai/chat', async (r) => {
+      if (r.request().method() !== 'POST') return r.fallback()
+      await gate
+      return r.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 400, error: 'Bad Request', message: '잠시 후 다시 보내 주세요.' } satisfies ErrorResponse),
+      })
+    })
+    await openPanel(page)
+    const input = page.getByTestId('chat-input')
+    await paste(page, { name: 'memo.txt', type: 'text/plain' })
+    await expect(page.getByTestId('ai-composer-attachments')).toContainText('memo.txt')
+    await input.fill('처음 질문')
+    await page.getByTestId('chat-send').click()
+    await expect(input).toHaveValue('')
+    await input.fill('새로 쓰는 중')
+    release()
+    await expect(toast(page, '잠시 후 다시 보내 주세요.')).toBeVisible()
+    await expectStays(page, () => input.inputValue(), '새로 쓰는 중')
   })
 
   test('새 대화로 옮기면 첨부 초안이 비고, 첫 응답으로 세션 id 가 정해질 땐 비지 않는다', async ({ authenticatedPage: page }) => {
