@@ -151,10 +151,12 @@ export function FilePreviewModal({
     >
       {aiAware.overlay}
       {/* #731: 사용자가 우하단 코너를 드래그해 크기 조절(CSS 네이티브 resize). 세션 동안만 유지(닫으면 리셋).
-          base 의 grid→flex-col 로 전환해 본문이 늘어난 높이를 채우게 하고, sm:max-w-lg 도 함께 덮어 초기 폭 확보. */}
+          base 의 grid→flex-col 로 전환해 본문이 늘어난 높이를 채우게 하고, sm:max-w-lg 도 함께 덮어 초기 폭 확보.
+          WP-212: resize 손잡이·최소 폭(24rem=384px)은 데스크톱(lg, 앱 모바일 기준 <1024px 의 반대)에서만 —
+          휴대폰엔 드래그할 마우스가 없고, min-w 가 max-w-[95vw] 보다 우선해 360px 폰에서 모달이 화면 밖으로 넘쳤다. */}
       <DialogContent
         className={cn(
-          'flex resize flex-col overflow-hidden h-[80vh] max-h-[95vh] min-h-[20rem] w-[64rem] max-w-[95vw] min-w-[24rem] sm:max-w-[95vw]',
+          'flex flex-col overflow-hidden h-[80vh] max-h-[95vh] min-h-[20rem] w-[64rem] max-w-[95vw] sm:max-w-[95vw] lg:resize lg:min-w-[24rem]',
           aiAware.contentClassName,
         )}
         {...aiAware.contentProps}

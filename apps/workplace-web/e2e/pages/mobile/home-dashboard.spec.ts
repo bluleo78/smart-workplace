@@ -523,3 +523,33 @@ test('이슈 목록 타일 — 다음 페이지가 있으면 건수 배지에 + 
   await page.goto('/')
   await expect(page.locator('[data-widget-id="il-1"]').getByTestId('mobile-widget-count')).toHaveText('2+')
 })
+
+// WP-258 — 같은 이슈 멘션은 모바일 요약 위젯에서도 한 줄 + 건수로 묶이고, 긴 제목이 건수·시각을 밀어내지 않는다.
+test('요약 — 같은 이슈 멘션 여러 건은 한 줄(멘션 N · 시각), 긴 제목은 말줄임·가로 넘침 없음', async ({
+  authenticatedPage: page,
+}) => {
+  const LONG = '결제 모듈 리팩터링 후 정산 배치가 이중 집계되는 문제 조사 및 재발 방지 대책 수립'
+  const notif = (id: number, issueNumber: number, issueTitle: string, createdAt: string): NotificationResponse => ({
+    id, type: 'COMMENTED', actorId: 3, actorName: '홍길동', actorKind: 'HUMAN', issueId: issueNumber, projectKey: 'WP',
+    issueNumber, issueTitle, commentId: id, eventId: null, eventTitle: null, eventStartsAt: null, read: false, createdAt,
+  })
+  await stubWidgetData(page)
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    notif(1, 7, LONG, '2026-06-16T01:00:00Z'),
+    notif(2, 7, LONG, '2026-06-16T02:00:00Z'),
+    notif(3, 8, '배포 체크리스트 정리', '2026-06-16T00:00:00Z'),
+  ] satisfies NotificationResponse[])
+  await stubDashboard(page, { mobile: layout(['synthesis']) })
+  await page.goto('/')
+
+  const attention = page.getByTestId('dashboard-attention')
+  await expect(attention.getByRole('link')).toHaveCount(2)
+  const focus = page.getByTestId('dashboard-attention-focus')
+  await expect(focus).toContainText(/멘션 2 · /)
+  // 건수·시각 메타가 화면(포커스 카드) 오른쪽 안에 남는다 — 긴 제목은 말줄임.
+  const meta = focus.locator('span', { hasText: /^멘션 2 · / })
+  const metaBox = (await meta.boundingBox())!
+  const focusBox = (await focus.boundingBox())!
+  expect(metaBox.x + metaBox.width).toBeLessThanOrEqual(focusBox.x + focusBox.width)
+  await expectNoHorizontalOverflow(page)
+})

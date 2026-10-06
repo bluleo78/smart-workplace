@@ -505,3 +505,65 @@ test.describe('IssueCommentList 새로고침 유실 경고 (#620)', () => {
     await expect.poll(() => dispatchBeforeUnload(page)).toBe(false);
   });
 });
+
+test.describe('AGENT 코멘트 마크다운 렌더 (WP-254)', () => {
+  // AI 가 남기는 진행 보고형 코멘트 — 제목·체크리스트·굵게·멘션 토큰·원시 HTML 을 함께 담는다.
+  const AGENT_BODY = [
+    '## 조사 결과',
+    '',
+    '**원인**: 정산 배치가 재시도 시 멱등 키 없이 다시 적재했습니다. 담당 <@1> 확인 부탁드립니다.',
+    '',
+    '- [x] 로그 수집',
+    '- [ ] 재현 테스트 작성',
+    '- [ ] 수정 배포',
+    '',
+    '<b>raw</b>',
+  ].join('\n');
+
+  test('AGENT 코멘트는 마크다운으로 — 체크리스트는 불릿 없는 읽기 전용 체크박스, 원시 HTML 은 해석하지 않는다', async ({ authenticatedPage: page }) => {
+    const members = [createMember({ userId: 1, name: 'Tester' }), createAgentMember()];
+    const agentComment = createAgentComment({ id: 30, issueId: ISSUE_ID, body: AGENT_BODY });
+    const detailRef = { current: createIssueDetail({ comments: [agentComment] }) };
+    await setupIssueStubs(page, detailRef, members);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    const item = page.locator('section[aria-label="코멘트"] li[data-agent="true"]');
+    const md = item.getByTestId('markdown-content');
+    await expect(md).toBeVisible();
+
+    // 제목·굵게가 마크다운 요소로 변환되고 원시 기호(##, **)는 남지 않는다.
+    await expect(md.getByRole('heading', { name: '조사 결과' })).toBeVisible();
+    await expect(md.locator('strong')).toHaveText('원인');
+    await expect(md).not.toContainText('##');
+    await expect(md).not.toContainText('**');
+
+    // GFM 체크리스트 — 체크 상태가 원문대로, 읽기 전용, 불릿 없음.
+    const boxes = md.locator('input[type="checkbox"]');
+    await expect(boxes).toHaveCount(3);
+    await expect(boxes.nth(0)).toBeChecked();
+    await expect(boxes.nth(1)).not.toBeChecked();
+    await expect(boxes.nth(2)).not.toBeChecked();
+    for (let i = 0; i < 3; i++) await expect(boxes.nth(i)).toBeDisabled();
+    await expect(md.locator('ul').first()).toHaveCSS('list-style-type', 'none');
+
+    // <@id> 토큰은 원문 대신 '@이름' 으로.
+    await expect(md).toContainText('담당 @Tester 확인');
+    await expect(md).not.toContainText('<@1>');
+
+    // 원시 HTML 비허용 — 태그가 해석되지 않고 b 요소가 생기지 않는다.
+    await expect(md.locator('b')).toHaveCount(0);
+  });
+
+  test('사람 코멘트는 마크다운을 해석하지 않고 평문 그대로 둔다', async ({ authenticatedPage: page }) => {
+    const human = createComment({ id: 31, issueId: ISSUE_ID, authorId: 2, authorName: '김개발', body: '**굵게 아님**\n- [ ] 체크 아님' });
+    const detailRef = { current: createIssueDetail({ comments: [human] }) };
+    await setupIssueStubs(page, detailRef);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    const item = page.locator('section[aria-label="코멘트"] ul li').first();
+    await expect(item).toContainText('**굵게 아님**');
+    await expect(item).toContainText('- [ ] 체크 아님');
+    await expect(item.getByTestId('markdown-content')).toHaveCount(0);
+    await expect(item.locator('input[type="checkbox"]')).toHaveCount(0);
+  });
+});

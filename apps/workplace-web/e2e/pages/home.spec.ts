@@ -3041,3 +3041,59 @@ test.describe('알림 위젯 — 터치 태블릿(≥1024px) 오터치 방지', 
     await expect.poll(() => page.url()).not.toBe(before)
   })
 })
+
+// ── WP-258 — 같은 이슈 멘션 알림은 "지금 신경 쓸 일" 에 한 줄로 묶는다 ─────────────────
+
+/** 안 읽은 COMMENTED 알림 — 이슈 번호·제목·시각만 바꿔 쓴다. */
+function commentNotif(id: number, issueNumber: number, issueTitle: string, createdAt: string): NotificationResponse {
+  return {
+    id,
+    type: 'COMMENTED',
+    actorId: 3,
+    actorName: '홍길동',
+    actorKind: 'HUMAN',
+    issueId: issueNumber,
+    projectKey: 'WP',
+    issueNumber,
+    issueTitle,
+    commentId: id,
+    eventId: null,
+    eventTitle: null,
+    eventStartsAt: null,
+    read: false,
+    createdAt,
+  }
+}
+
+test('합성 — 같은 이슈 멘션 3건은 한 줄(멘션 3)로 묶이고 카운트 셀은 전체 4건 그대로다 (WP-258)', async ({
+  authenticatedPage: page,
+}) => {
+  const A = '결제 모듈 리팩터링 후 정산 배치가 이중 집계되는 문제 조사 및 재발 방지 대책 수립'
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    commentNotif(1, 7, A, '2026-06-16T01:00:00Z'),
+    commentNotif(2, 7, A, '2026-06-16T03:00:00Z'),
+    commentNotif(3, 7, A, '2026-06-16T02:00:00Z'),
+    commentNotif(4, 8, '이슈 B', '2026-06-16T00:00:00Z'),
+  ] satisfies NotificationResponse[])
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
+  await page.goto('/')
+
+  const attention = page.getByTestId('dashboard-attention')
+  // 묶음 2줄 — 최신(03:00) 묶음이 포커스 카드, 이슈 B 가 나머지 목록 한 줄.
+  await expect(attention.getByRole('link')).toHaveCount(2)
+  await expect(attention).toContainText('지금 신경 쓸 일 (2)')
+  const focus = page.getByTestId('dashboard-attention-focus')
+  await expect(focus).toContainText(A)
+  await expect(focus).toContainText(/멘션 3 · /)
+  await expect(focus).toHaveAttribute('href', '/projects/WP/issues/7')
+  await expect(focus).toHaveAccessibleName(`알림 열기: ${A} (멘션 3건)`)
+  const rest = attention.locator('ul a')
+  await expect(rest).toHaveCount(1)
+  await expect(rest.first()).toContainText('이슈 B')
+  // 단건 묶음은 건수 없이 '멘션'.
+  await expect(rest.first()).not.toContainText(/멘션 \d/)
+  await expect(rest.first()).not.toContainText(' · ')
+  await expect(rest.first()).toHaveAttribute('href', '/projects/WP/issues/8')
+  // 상단 카운트 셀은 묶기 전 안 읽은 멘션 4건 그대로.
+  await expect(page.getByRole('button', { name: '멘션 4건' })).toBeVisible()
+})

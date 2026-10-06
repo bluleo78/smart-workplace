@@ -20,14 +20,15 @@ import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
 import { todayRange } from '@/lib/calendarRange'
-import { parseUtcDate } from '@/lib/formatters'
+import { formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
 
-import { isMentionLike, notifLabel, notifTarget } from '../notifTarget'
+import { isMentionLike, notifLabel } from '../notifTarget'
 import { mailBadgeCount } from '../widgets/mobile/summaries/summaryLogic'
+import { groupMentionNotifs } from './groupMentions'
 import { dueQueryFrom, localDateKey } from './synthesisDates'
 
 // 위젯 추가 모달 프리뷰 전용(#브레인스토밍 2026-07-03) — 6개 하위 훅 각각의 응답을 그대로 미러링한
@@ -207,21 +208,28 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   }
 
   // 2) @멘션(안 읽은 COMMENTED) — urgency 1.
+  // WP-258: 같은 이슈에 코멘트가 여러 번 달리면 같은 제목 줄이 반복됐다 → 이동 대상(notifTarget) 기준으로
+  // 묶어 한 줄 + 건수·최신 시각("멘션 2 · 3시간 전")으로 보여준다. 단건은 다른 행과 같은 짧은 라벨('멘션') 유지.
+  // 상단 '멘션' 카운트 셀은 묶기 전 건수 그대로.
   if (previewData || !notifs.isError) {
-    for (const n of notifItems) {
-      if (isMentionLike(n) && !n.read) {
-        rows.push({
-          key: `notif-${n.id}`,
-          source: '멘션',
-          title: notifLabel(n),
-          meta: '멘션',
-          to: notifTarget(n),
-          ariaLabel: `알림 열기: ${notifLabel(n)}`,
-          urgency: 1,
-          recency: parseUtcDate(n.createdAt).getTime(),
-          aiScore: priorityScoreOf('MENTION', String(n.id)),
-        })
-      }
+    for (const g of groupMentionNotifs(notifItems)) {
+      const n = g.latest
+      // AI 점수 대표값 — 묶음 중 최고 점수(배치가 일부만 채점했어도 매칭된 값 중 가장 급한 것을 따른다).
+      const scores = g.items
+        .map((it) => priorityScoreOf('MENTION', String(it.id)))
+        .filter((s): s is number => s != null)
+      const count = g.items.length
+      rows.push({
+        key: `notif-${g.key}`,
+        source: '멘션',
+        title: notifLabel(n),
+        meta: count > 1 ? `멘션 ${count} · ${formatRelativeTime(n.createdAt)}` : '멘션',
+        to: g.to,
+        ariaLabel: `알림 열기: ${notifLabel(n)}${count > 1 ? ` (멘션 ${count}건)` : ''}`,
+        urgency: 1,
+        recency: parseUtcDate(n.createdAt).getTime(),
+        aiScore: scores.length > 0 ? Math.max(...scores) : null,
+      })
     }
   }
 

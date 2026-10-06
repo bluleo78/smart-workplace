@@ -6,14 +6,39 @@ import { cn } from '@/lib/utils'
 
 const REMARK_PLUGINS = [remarkGfm]
 
+/** 목록 클래스 — 체크리스트(contains-task-list)면 불릿 없이 얕게, 아니면 지정한 불릿 스타일. */
+function listClass(className: string | undefined, marker: string): string {
+  return className?.includes('contains-task-list') ? 'list-none space-y-0.5 pl-1' : `${marker} space-y-0.5 pl-5`
+}
+
 /** 요소별 스타일 — 렌더마다 객체를 새로 만들지 않도록 모듈 범위에 둔다. */
 const BASE_COMPONENTS: Components = {
   p: ({ children }) => <p className="whitespace-pre-wrap leading-relaxed">{children}</p>,
   h1: ({ children }) => <h1 className="text-base font-semibold">{children}</h1>,
   h2: ({ children }) => <h2 className="text-sm font-semibold">{children}</h2>,
   h3: ({ children }) => <h3 className="text-sm font-semibold">{children}</h3>,
-  ul: ({ children }) => <ul className="list-disc space-y-0.5 pl-5">{children}</ul>,
-  ol: ({ children }) => <ol className="list-decimal space-y-0.5 pl-5">{children}</ol>,
+  // GFM 체크리스트(`- [ ]`)는 remark-gfm 이 ul.contains-task-list > li.task-list-item > input 으로 낸다(WP-254).
+  // 불릿과 체크박스가 겹쳐 보이지 않도록 체크리스트 목록만 불릿을 끄고 들여쓰기를 줄인다(일반 목록은 그대로).
+  ul: ({ children, className }) => (
+    <ul className={listClass(className, 'list-disc')}>{children}</ul>
+  ),
+  ol: ({ children, className }) => (
+    <ol className={listClass(className, 'list-decimal')}>{children}</ol>
+  ),
+  // 체크리스트 항목 — 체크박스를 왼쪽 여백에 절대배치해, 긴 항목이 줄바꿈돼도 둘째 줄이 체크박스 밑으로 파고들지 않고
+  // 글머리 들여쓰기(hanging indent)를 유지한다. loose list 에선 체크박스가 li 직속이 아닌 p 안에 들어가도 li 기준으로 놓인다.
+  li: ({ children, className }) =>
+    className?.includes('task-list-item') ? <li className="relative pl-5">{children}</li> : <li>{children}</li>,
+  // remark-gfm 이 내는 input 은 체크리스트 체크박스뿐(원시 HTML 비허용) — 원문의 [x]/[ ] 상태만 읽기 전용으로 보여준다.
+  input: ({ checked }) => (
+    <input
+      type="checkbox"
+      checked={checked}
+      disabled
+      readOnly
+      className="absolute left-0 top-[0.3em] size-3.5 accent-primary"
+    />
+  ),
   a: ({ children, href }) => (
     <a href={href} target="_blank" rel="noreferrer" className="text-primary underline">
       {children}

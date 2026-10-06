@@ -143,3 +143,28 @@ test('긴 URL·긴 작성자명 코멘트도 카드 폭 안에 머문다', async
   const clipped = await card.getByText(LONG_NAME).evaluate((el) => el.scrollWidth > el.clientWidth);
   expect(clipped).toBe(true);
 });
+
+// WP-254 — AI 코멘트 마크다운(제목·체크리스트·표·긴 URL)도 휴대폰 카드 폭 안에 머문다.
+test('AGENT 마크다운 코멘트 — 체크리스트·표·긴 URL 이 카드 폭을 넘지 않는다', async ({ authenticatedPage: page }) => {
+  const LONG_URL = `https://ci.example.com/runs/${'9f8e7d6c5b'.repeat(10)}`;
+  const body = [
+    '## 배포 전 점검 결과 보고',
+    '',
+    '- [x] 마이그레이션 드라이런 — 운영 스냅샷 기준 12분 소요, 잠금 대기 없음',
+    '- [ ] 정산 배치 재시도 멱등성 확인(재현 스크립트 작성 중)',
+    '',
+    '| 항목 | 결과 | 비고 |',
+    '| --- | --- | --- |',
+    '| 단위 테스트 | 통과 | 1,284건 |',
+    '| E2E | 실패 1 | 결제 취소 플로우 타임아웃 |',
+    '',
+    `로그: ${LONG_URL}`,
+  ].join('\n');
+  await setup(page, [createAgentComment({ id: 40, issueId: ISSUE_ID, body })]);
+  const card = page.locator('li[data-agent="true"]');
+  await expect(card.getByTestId('markdown-content').locator('input[type="checkbox"]')).toHaveCount(2);
+  await expectNoHorizontalOverflow(page);
+  const vw = page.viewportSize()!.width;
+  const cardBox = (await card.boundingBox())!;
+  expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(vw);
+});

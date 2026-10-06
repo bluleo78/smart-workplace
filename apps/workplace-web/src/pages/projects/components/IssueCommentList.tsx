@@ -10,6 +10,7 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
 import { RichInput } from '@/components/mentions/RichInput';
 import type { MentionCandidate, MentionUser } from '@/components/mentions/types';
@@ -30,6 +31,16 @@ import type { IssueCommentResponse } from '../../../types/issue';
 import { COMMENT_MAX_LENGTH, IssueCommentComposer } from './IssueCommentComposer';
 
 // 개별 코멘트 항목 — 본인 HUMAN 코멘트에만 수정·삭제 액션 제공.
+// 마크다운 특수문자 — 멘션 이름에 섞여 있으면 강조·링크 등으로 해석되지 않게 백슬래시로 이스케이프한다.
+const MD_SPECIAL = /[\\`*_[\]<>#|~]/g;
+
+/** AGENT 코멘트용 — <@id> 토큰을 '@이름' 평문으로 바꾼다(마크다운이 토큰을 해석하지 못해 원문이 노출되므로). 미해결 id 는 '@알 수 없음'. */
+function mentionsToMarkdown(body: string, users: MentionUser[]): string {
+  return parseMessageSegments(body, users)
+    .map((seg) => (seg.type === 'text' ? seg.value : `@${seg.name.replace(MD_SPECIAL, '\\$&')}`))
+    .join('');
+}
+
 function CommentItem({
   comment,
   isOwn,
@@ -187,6 +198,13 @@ function CommentItem({
             cancelTestId="issue-comment-edit-cancel"
           />
         </div>
+      ) : isAgent ? (
+        /* WP-254: AI(에이전트) 코멘트는 체크리스트·제목·표 등 마크다운을 쓰므로 MarkdownMessage 로 렌더
+           (이슈 채팅 ChatMessageRow 와 동일 패턴 — 사람 코멘트는 아래 멘션 칩 평문 유지). 원시 HTML 은 여전히 비허용.
+           whitespace-pre-wrap 은 빼야 한다 — 블록 사이 개행 텍스트 노드가 빈 줄로 보인다(p 가 자체로 줄바꿈 보존). */
+        <MarkdownMessage className="mt-1 leading-6 text-foreground">
+          {mentionsToMarkdown(comment.body, mentionUsers)}
+        </MarkdownMessage>
       ) : (
         /* 디자인 시스템 body-secondary 적용 — text-sm(14px) · leading-6 · text-foreground (#344) */
         /* 같은 페이지의 이슈 채팅(ChatMessageRow)과 동일한 멘션 칩 스타일로 <@id> 토큰을 렌더 (#785, #208) */
