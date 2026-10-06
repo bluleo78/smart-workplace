@@ -3,37 +3,14 @@
 // 사진 보관함 → 업로드 칩 → 첨부만 전송 → 말풍선 썸네일까지, 가로 넘침이 없는지 검증한다.
 import { Buffer } from 'buffer'
 
-import type { Locator, Page } from '@playwright/test'
-
 import { createHomeAttachment } from '../../factories/homeAttachment.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../../fixtures/home-chat-mock'
 import { json } from '../../fixtures/mobile-chat'
-import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { expect, expectNoHorizontalOverflow, expectOnTop, stubChat, test } from '../../fixtures/mobile.fixture'
 import { solidPng } from '../../fixtures/png'
 import { trackRequests } from '../../fixtures/requests'
 import type { HomeMessage, HomeSessionPage, HomeUploadedFile } from '../../../src/types/home'
-
-/**
- * 대상이 실제로 맨 위에 있는지 — toBeVisible 은 가림을 보지 않는다(ai-sheet.spec 과 같은 판정, 스펙 간 import 금지라 둔다).
- * Radix 모달은 body 에 pointer-events:none 을 걸므로 판정하는 순간만 되돌려 elementFromPoint 를 읽는다.
- */
-async function expectOnTop(page: Page, target: Locator, containerSelector: string) {
-  const b = (await target.boundingBox())!
-  const onTop = await page.evaluate(
-    ([x, y, sel]) => {
-      const prev = document.body.style.pointerEvents
-      document.body.style.pointerEvents = 'auto'
-      try {
-        return document.elementFromPoint(x, y)?.closest(sel) != null
-      } finally {
-        document.body.style.pointerEvents = prev
-      }
-    },
-    [b.x + b.width / 2, b.y + b.height / 2, containerSelector] as const,
-  )
-  expect(onTop).toBe(true)
-}
 
 test('AI 시트: ＋ 바텀시트가 시트 위에 뜨고(드라이브 없음) 사진 → 칩 → 첨부만 전송 → 썸네일', async ({ authenticatedPage: page }) => {
   await stubChat(page)

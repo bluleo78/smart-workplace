@@ -1,32 +1,10 @@
 // 모바일 AI 시트(WP-191) — 보던 화면 위 바텀 시트, 진입 버튼 생성 중·완료 표시, 대화 전환 보호, 목록 화면 컨텍스트.
-import type { Locator, Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 
 import { wikiPageSummary, wikiSpace } from '../../factories/wiki.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { mockHomeChatGeneration } from '../../fixtures/home-chat-mock'
-import { expect, stubChat, test } from '../../fixtures/mobile.fixture'
-
-/**
- * 대상 요소가 실제로 맨 위에 있는지(가려지지 않았는지) — toBeVisible 은 가림을 보지 않는다.
- * Radix 모달은 body 에 pointer-events:none 을 걸어 가린 층(시트)이 히트 테스트에서 빠지므로,
- * 판정하는 순간만 body 의 pointer-events 를 되돌려 쌓임 순서 그대로 elementFromPoint 를 읽는다.
- */
-async function expectOnTop(page: Page, target: Locator, containerSelector: string) {
-  const b = (await target.boundingBox())!
-  const onTop = await page.evaluate(
-    ([x, y, sel]) => {
-      const prev = document.body.style.pointerEvents
-      document.body.style.pointerEvents = 'auto'
-      try {
-        return document.elementFromPoint(x, y)?.closest(sel) != null
-      } finally {
-        document.body.style.pointerEvents = prev
-      }
-    },
-    [b.x + b.width / 2, b.y + b.height / 2, containerSelector] as const,
-  )
-  expect(onTop).toBe(true)
-}
+import { expect, expectOnTop, stubChat, test } from '../../fixtures/mobile.fixture'
 
 /** 생성 지연 게이트 — release() 전까지 SSE 프레임을 보류한다. */
 function gate() {
