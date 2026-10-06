@@ -487,6 +487,48 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     })
   }
 
+  // 사용자 턴의 오른쪽 끝 정렬 — 썸네일이 말풍선·문서 카드와 같은 x 에서 끝나야 한다(인라인 래퍼 회귀 방지).
+  for (const mode of ['side', 'fullscreen'] as const) {
+    test(`세션 복원(${mode}): 이미지 썸네일의 오른쪽 끝이 말풍선·문서 카드와 같다`, async ({ authenticatedPage: page }) => {
+      await mockApi(page, 'GET', '/api/v1/home/sessions', {
+        items: [{ id: 's-a', title: '자료 모음', lastMessageAt: '2026-10-06T00:00:00Z', widgetCount: 0 }],
+        nextCursor: null,
+      } satisfies HomeSessionPage)
+      await mockApi(page, 'GET', '/api/v1/home/sessions/s-a/messages', [
+        {
+          id: 1, role: 'USER', content: '자료 모음', widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:00Z',
+          attachments: [
+            createHomeAttachment({ fileId: 77, originalName: 'board.png', mimeType: 'image/png', sizeBytes: 68 }),
+            createHomeAttachment({ fileId: 78, originalName: 'spec.pdf' }),
+          ],
+        },
+      ] satisfies HomeMessage[])
+      await page.route((u) => u.pathname === '/api/v1/home/sessions/s-a/attachments/77/content', (r) =>
+        r.fulfill({ status: 200, contentType: 'image/png', body: solidPng(480, 320) }))
+      await openPanel(page)
+      if (mode === 'fullscreen') {
+        await page.getByTestId('chat-launcher').click()
+        await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+        // 전체 화면은 좌측 목록에서 바로 고른다(스위처 드롭다운 없음).
+        await page.getByTestId('chat-session-select').first().click()
+        await expect(page.getByTestId('chat-turn').first()).toContainText('자료 모음')
+      } else {
+        await restoreFirstSession(page)
+      }
+      const turn = page.getByTestId('chat-turn').first()
+      await expect(turn.getByTestId('attachment-image-77')).toHaveAttribute('src', /^blob:/)
+      // 원본 비율 폭(256px 높이 기준 384px)이 20rem 상한(320px)보다 넓은 이미지라야 래퍼 폭 회귀를 잡는다.
+      await expect.poll(async () => (await turn.getByTestId('attachment-image-77').boundingBox())?.width ?? 0).toBeGreaterThan(200)
+      const right = async (id: string) => {
+        const b = (await turn.getByTestId(id).boundingBox())!
+        return b.x + b.width
+      }
+      const imgRight = await right('attachment-image-77')
+      expect(Math.abs(imgRight - (await right('chat-user-bubble')))).toBeLessThanOrEqual(1)
+      expect(Math.abs(imgRight - (await right('attachment-card-78')))).toBeLessThanOrEqual(1)
+    })
+  }
+
   // 4종(jpeg·png·gif·webp) 밖의 image/* — api 는 attachment 로 내리고 ai-agent 도 이미지 블록으로 보내지 않는다.
   // 웹도 썸네일·새 탭 blob 링크 없이 문서 카드(다운로드)로만 그린다(SVG 를 앱 출처 blob 으로 열면 스크립트가 돈다).
   const NON_INLINE_IMAGES = [

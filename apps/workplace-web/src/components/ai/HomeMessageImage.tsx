@@ -28,13 +28,15 @@ export function HomeMessageImage({ sessionId, attachment }: { sessionId: string 
     );
   }
   return (
-    <a href={url} target="_blank" rel="noreferrer">
+    // 상한(20rem)은 고정값으로 <a> 에 두고 img 는 그 안에서 100% 로만 줄인다. min(100%,20rem) 을 img 에 두면 감싼 요소의
+    // 폭 계산(max-content)에서 퍼센트가 무시돼 래퍼가 원본 비율 폭(예: 384px)으로 잡히고, 오른쪽 정렬 때 썸네일 끝이 말풍선·카드보다 안쪽에서 끝난다.
+    <a href={url} target="_blank" rel="noreferrer" className="block w-fit max-w-80">
       <img
         src={url}
         alt={attachment.originalName}
         data-testid={`attachment-image-${attachment.fileId}`}
-        // 시안 7: 좁은 모바일 시트에서는 말풍선 폭에 맞춰 줄고(max-w-full), 넓을 땐 이슈 챗 썸네일과 같은 20rem 상한.
-        className="max-h-64 w-auto max-w-[min(100%,20rem)] rounded-md border object-contain"
+        // 시안 7: 좁은 모바일 시트에서는 말풍선 폭에 맞춰 줄고(max-w-full), 넓을 땐 부모 <a> 의 20rem 상한(이슈 챗 썸네일과 같음).
+        className="max-h-64 block w-auto max-w-full rounded-md border object-contain"
       />
     </a>
   );
