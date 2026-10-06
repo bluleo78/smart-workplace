@@ -6,8 +6,8 @@ import {
   buildReadChatAttachmentTool,
   HOME_IMAGE_MAX_BYTES,
   NO_HOME_SESSION_ERROR,
-  READ_CHAT_ATTACHMENT_DEFAULT_LIMIT,
 } from './home-attachment-tool.js';
+import { READ_ATTACHMENT_DEFAULT_LIMIT } from './attachment-read-schema.js';
 
 const SID = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
 const USER = 42;
@@ -50,7 +50,7 @@ describe('read_chat_attachment', () => {
   it('문서 READY → 텍스트 구간 JSON(offset 생략 undefined, limit 기본 12000)', async () => {
     const c = mockClient([att(8, 'application/pdf', ex('READY'))]);
     const out = await tool(c).handler({ fileId: 8 });
-    expect(c.readHomeAttachmentText).toHaveBeenCalledWith(USER, SID, 8, undefined, READ_CHAT_ATTACHMENT_DEFAULT_LIMIT);
+    expect(c.readHomeAttachmentText).toHaveBeenCalledWith(USER, SID, 8, undefined, READ_ATTACHMENT_DEFAULT_LIMIT);
     expect(JSON.parse(out as string)).toMatchObject({ text: '본문', nextOffset: 12000 });
   });
 
@@ -59,7 +59,7 @@ describe('read_chat_attachment', () => {
     await tool(c).handler({ fileId: 8, offset: 12000, limit: 32000 });
     expect(c.readHomeAttachmentText).toHaveBeenLastCalledWith(USER, SID, 8, 12000, 32000);
     await tool(c).handler({ fileId: 8, offset: null, limit: null });
-    expect(c.readHomeAttachmentText).toHaveBeenLastCalledWith(USER, SID, 8, undefined, READ_CHAT_ATTACHMENT_DEFAULT_LIMIT);
+    expect(c.readHomeAttachmentText).toHaveBeenLastCalledWith(USER, SID, 8, undefined, READ_ATTACHMENT_DEFAULT_LIMIT);
   });
 
   it('limit 은 1..32000 — 범위 밖은 스키마 오류', async () => {

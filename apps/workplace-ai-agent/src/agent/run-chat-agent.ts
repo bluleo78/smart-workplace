@@ -14,6 +14,7 @@ import { fromRunnerEvent } from './chat-progress-parser.js';
 import { ProgressTracker } from './progress-tracker.js';
 import { pickMentionedAgentId } from './chat-agent-resolver.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
+import { defaultSleep } from './sleep.js';
 import type { RunAgentDeps } from './run-agent.js';
 import type { AgentAttachment } from './attachment-source.js';
 import type { ChatEventEnvelope } from '../types/chat-events.js';
@@ -70,8 +71,6 @@ function attachmentReader(credential: ProviderCredential, vision: { value: Openc
 
 /** runChatAgent 의존성 — sleep 은 테스트에서 실제로 기다리지 않게 주입할 수 있다. */
 export type RunChatAgentDeps = RunAgentDeps & { sleep?: (ms: number) => Promise<void> };
-
-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
  * 트리거 메시지(방금 올라온 메시지)의 첨부 중 아직 추출 중이고, 이 러너가 로컬로 읽지 못하는 것이 있는지.

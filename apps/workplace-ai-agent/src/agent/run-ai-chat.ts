@@ -13,6 +13,7 @@ import { runnerFor } from './agent-runner.js';
 import type { RunnerEvent } from './runner-events.js';
 import { parseChatEvents } from './chat-parser.js';
 import { thinkingDirective } from './thinking.js';
+import { defaultSleep } from './sleep.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
 import type { ProviderCredential } from './agent-runner.js';
@@ -23,7 +24,6 @@ import { awaitHomeExtraction, DEFAULT_ATTACHMENT_QUERY, EXTRACTION_WAIT_LABEL, f
 
 /** runAiChatStream 의존성 — sleep 은 추출 대기 테스트에서 실제로 기다리지 않게 주입한다(RunChatAgentDeps 와 같은 방식). */
 export type RunAiChatDeps = RunAgentDeps & { sleep?: (ms: number) => Promise<void> };
-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export interface ContextMessage {
   // 'USER' | 'ASSISTANT' | 'ACTION_DONE' | 'ACTION_FAILED' | 'ACTION_REJECTED'(#843 확인카드 처리 결과)
@@ -196,11 +196,6 @@ export async function runAiChatStream(
 
   // 우선순위: 요청 body(input.model) > redeem 응답(credential.model) > env/기본값.
   const model = input.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
-  // WP-234: 비전 판단은 실행당 1회 — 첨부 블록 문구와 러너 config(RunnerInput.opencodeVision)가 같은 값을 쓴다(WP-244 패턴).
-  // Claude 는 항상 이미지를 본다. opencode 는 지원이 확인된 경우만(알 수 없음은 못 보는 것으로 안내 — 재첨부 요청 방지).
-  const opencodeVision = await opencodeVisionFor(credential, model);
-  const imageVision = credential.provider === 'anthropic' || opencodeVision?.value === true;
-
   // 요청 시점 Seoul 기준 오늘 날짜를 계산해 상대 날짜 필터 앵커로 주입한다.
   const seoulToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
   const systemPrompt = ASSISTANT_SYSTEM_PROMPT + dateContextDirective(seoulToday) + thinkingDirective(input.thinkingDepth);
@@ -213,19 +208,26 @@ export async function runAiChatStream(
   //   fail-closed 되어 이슈/캘린더/연락처 등 권한 도구가 전부 403 나는 문제를 막는다.
   const mcpClient = input.tenantId != null ? deps.client.withOnBehalfOfTenant(input.tenantId) : deps.client;
 
-  // WP-234: 이번 메시지 문서가 추출 중이면 잠시 기다려 상태를 갱신한다 — 재조회는 요청자(userId) 대행·테넌트 스코프로,
+  // WP-234: 비전 판단은 실행당 1회 — 첨부 블록 문구와 러너 config(RunnerInput.opencodeVision)가 같은 값을 쓴다(WP-244 패턴).
+  // Claude 는 항상 이미지를 본다. opencode 는 지원이 확인된 경우만(알 수 없음은 못 보는 것으로 안내 — 재첨부 요청 방지).
+  // 이번 메시지 문서가 추출 중이면 잠시 기다려 상태를 갱신한다 — 재조회는 요청자(userId) 대행·테넌트 스코프로,
   // 웹과 같은 세션 첨부 엔드포인트를 쓴다. 세션이 없으면(구 API) 대기하지 않는다.
-  const attachments = input.sessionId
-    ? await awaitHomeExtraction({
-        client: mcpClient,
-        onBehalfOfId: input.userId,
-        sessionId: input.sessionId,
-        attachments: input.attachments ?? [],
-        sleep: deps.sleep ?? defaultSleep,
-        signal,
-        onWait: () => onProgress?.(EXTRACTION_WAIT_LABEL),
-      })
-    : (input.attachments ?? []);
+  // 둘은 서로 독립이라 함께 기다린다 — 비전 조회가 콜드여도 추출 대기와 직렬로 늘어나지 않게(opencodeVisionFor 는 reject 하지 않는다).
+  const [opencodeVision, attachments] = await Promise.all([
+    opencodeVisionFor(credential, model),
+    input.sessionId
+      ? awaitHomeExtraction({
+          client: mcpClient,
+          onBehalfOfId: input.userId,
+          sessionId: input.sessionId,
+          attachments: input.attachments ?? [],
+          sleep: deps.sleep ?? defaultSleep,
+          signal,
+          onWait: () => onProgress?.(EXTRACTION_WAIT_LABEL),
+        })
+      : (input.attachments ?? []),
+  ]);
+  const imageVision = credential.provider === 'anthropic' || opencodeVision?.value === true;
   const userMessage = buildChatUserMessage({ ...input, attachments }, imageVision);
 
   const events: RunnerEvent[] = [];

@@ -12,6 +12,7 @@ import {
   type McpTool,
 } from '@smart-workplace/mcp-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+import { READ_ATTACHMENT_DEFAULT_LIMIT, readRangeShape } from './attachment-read-schema.js';
 import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
 
 // sdk-mcp-server.ts / stdio-entry.ts 가 './tools.js' 에서 McpTool 을 계속 import 하므로 재-export 유지.
@@ -33,18 +34,12 @@ const getChatThreadInput = z.object({
 
 // WP-244: 첨부 추출 텍스트 구간 읽기 입력 — 이슈 첨부·챗 메시지 첨부 모두 스레드 경유(threadId + fileId)로 읽는다.
 // (예전 issueKey 분기는 실행 스레드에 묶을 수 없고 프롬프트도 더는 쓰지 않아 제거했다.)
-// limit 상한 32000 은 서버 계약(WP-242)과 같다 — 넘기면 서버가 400 이므로 스키마에서 먼저 막는다.
-// 선택 인자는 nullish — 모델이 안 쓰는 인자를 null 로 채워 보내는 경우가 있어 null 도 "미지정" 으로 받는다.
+// offset/limit 범위·기본 길이는 메인 채팅 read_chat_attachment 와 공유(attachment-read-schema).
 const readAttachmentTextInput = z.object({
   fileId: z.number().int().positive(),
   threadId: z.number().int().positive(),
-  offset: z.number().int().min(0).nullish(),
-  limit: z.number().int().min(1).max(32000).nullish(),
+  ...readRangeShape,
 });
-
-// limit 미지정 시 기본 구간 길이. 서버 기본(32000)보다 작게 — 컨텍스트가 작은 모델이 한 번에 너무 많이 받지 않게 한다.
-// 더 필요하면 모델이 limit 을 최대 32000 까지 직접 지정하거나 nextOffset 으로 이어 읽는다.
-const READ_ATTACHMENT_DEFAULT_LIMIT = 12000;
 
 // #833: 구성원 쓰기 제안 입력. roleId 대신 역할명을 받는다 — 실행기가 서버에서 이름→id 를 해석하므로
 // 에이전트에 role:read 권한을 추가로 줄 필요가 없다.
