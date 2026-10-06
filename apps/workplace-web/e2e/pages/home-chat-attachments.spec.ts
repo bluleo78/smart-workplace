@@ -182,6 +182,11 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     await expect(send).toBeDisabled()
     // 시안 1-3: 올라가는 중인 파일은 스피너 칩으로 보인다(아직 초안 칩은 아니다).
     await expect(page.getByTestId('ai-composer-uploading-chip')).toContainText('shot.png')
+    // 동작 줄이기 설정에선 스피너가 돌지 않는다(디자인 시스템 08 — 점선 테두리·sr-only 「업로드 중」이 상태를 대신 알린다).
+    const spinner = page.getByTestId('ai-composer-uploading-chip').locator('svg')
+    await expect.poll(() => spinner.evaluate((el) => getComputedStyle(el).animationName)).not.toBe('none')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await expect.poll(() => spinner.evaluate((el) => getComputedStyle(el).animationName)).toBe('none')
     await input.press('Enter')
     await expectStays(page, starts.count, 0)
 

@@ -58,7 +58,7 @@ export function ComposerAttachmentChips({
           data-testid={`${testIdPrefix}-uploading-chip`}
           className="flex items-center gap-1 rounded-md border border-dashed bg-card px-2 py-1 text-xs text-muted-foreground"
         >
-          <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+          <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden />
           <span className="max-w-[10rem] truncate">{name}</span>
           <span className="sr-only">업로드 중</span>
         </li>
