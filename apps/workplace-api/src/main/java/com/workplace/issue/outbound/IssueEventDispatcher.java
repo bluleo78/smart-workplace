@@ -6,7 +6,6 @@ import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.EventEnvelope;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
-import com.workplace.issue.outbound.IssueDomainEvents.IssueCreatedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import java.util.HashMap;
 import java.util.List;
@@ -22,6 +21,9 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * 도메인 이벤트 → ai-agent 발사. AFTER_COMMIT 에서만 동작 — 트랜잭션 롤백 시 발사하지 않는다. 모든 핸들러는 enabled / AGENT assignee
  * / self-loop 필터를 거친 뒤 envelope 을 만들어 client 에 위임한다. 핸들러는 @Async("aiAgentEventExecutor") 로 별도 스레드에서
  * 실행되어 ai-agent 다운 시의 재시도 백오프가 도메인 처리(호출 스레드)에 영향을 주지 않는다.
+ *
+ * <p>WP-253: IssueCreatedEvent 는 발사하지 않는다. 담당자를 지정한 생성은 IssueAssignedEvent(added=전원)도 함께 발행되므로 둘 다
+ * 발사하면 AI 가 2회 실행된다 — 트리거는 "담당 지정" 하나로 통일. (ai-agent 는 롤링 배포 호환을 위해 issue.created 수신을 유지한다.)
  */
 @Slf4j
 @Component
@@ -30,24 +32,6 @@ public class IssueEventDispatcher {
 
   private final AiAgentEventClient client;
   private final AiAgentProperties props;
-
-  @Async("aiAgentEventExecutor")
-  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-  public void onIssueCreated(IssueCreatedEvent e) {
-    if (skip(e.actor(), e.assignees())) return;
-    Map<String, Object> p =
-        baseFields(
-            e.issueId(),
-            e.projectKey(),
-            e.issueKey(),
-            e.title(),
-            e.actor(),
-            e.assignees(),
-            e.occurredAt());
-    p.put("status", e.status());
-    p.put("priority", e.priority());
-    dispatch("issue.created", p, e.issueKey());
-  }
 
   @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)

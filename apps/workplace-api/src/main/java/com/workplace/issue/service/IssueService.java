@@ -240,9 +240,11 @@ public class IssueService {
       if (!uid.equals(callerId)) watcherAutoEnroller.enroll(row.id(), uid, callerId);
     }
 
-    // 5) 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent dispatcher 가 받아 발사)
+    // 5) 도메인 이벤트 발행 (AFTER_COMMIT 리스너들이 처리)
     //    - IssueCreatedEvent 는 항상 발행 (assignee 가 비어있어도)
     //    - assignee 가 있으면 initial 상태로 IssueAssignedEvent 도 함께 발행 (added=all, removed=[])
+    //    - WP-253: ai-agent 디스패처는 IssueAssignedEvent 만 발사한다(AI 실행 1회). 그래서 담당자가 있는 생성에서
+    //      assigned 발행을 빼면 AGENT 담당 이슈가 AI 에 전달되지 않는다 — 이 불변식을 유지할 것.
     var actor =
         userRepository
             .findById(callerId)

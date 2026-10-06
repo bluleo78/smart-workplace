@@ -146,7 +146,8 @@ public class UserService {
 
   /**
    * Phase 5a — AGENT 유저 생성. ADMIN 권한은 컨트롤러의 @RequirePermission 으로 가드한다. password=NULL, kind='AGENT'
-   * 로 저장되며 별도 역할은 부여하지 않는다(필요 시 ADMIN 이 부여).
+   * 로 저장되며, 기본 AGENT 역할을 부여한다(WP-252) — 역할 0개면 project:read/issue:write 등 권한이 전무해 담당 이슈 조회·처리가 403
+   * 으로 막히기 때문. 개인 비서 생성 경로(PersonalAssistantService)와 동일한 방식이며, 추가 역할은 ADMIN 이 개별 설정한다.
    */
   @Transactional
   public UserResponse createAgent(Long callerId, CreateAgentRequest req) {
@@ -164,6 +165,11 @@ public class UserService {
       throw new IllegalStateException("에이전트 생성에는 active 테넌트 컨텍스트가 필요합니다.");
     }
     membershipRepository.create(created.id(), tenantId, "ACTIVE");
+    // WP-252: 기본 AGENT 역할 부여 — user_role.tenant_id 는 요청 tx 의 GUC(active 테넌트)로 자동 충전된다.
+    // AGENT 역할은 테넌트별로 시드돼 있다(V75 + 신규 테넌트 프로비저닝).
+    roleRepository
+        .findByName("AGENT")
+        .ifPresent(role -> userRepository.addRole(created.id(), role.id()));
     String callerUsername = resolveUsername(callerId);
     // 감사 로그 — AGENT_CREATED (action_type, resource=user, resource_id=신규 user id)
     auditLogService.log(

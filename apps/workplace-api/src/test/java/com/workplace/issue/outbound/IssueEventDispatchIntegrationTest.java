@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
@@ -26,6 +27,7 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.user.repository.UserRepository;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -137,8 +139,8 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
   }
 
   @Test
-  @DisplayName("AGENT 를 assignee 로 한 이슈 생성 → created + assigned 2회 발사")
-  void create_with_agent_assignee_publishes_two() {
+  @DisplayName("AGENT 를 assignee 로 한 이슈 생성 → assigned 1회만 발사 (WP-253: AI 중복 실행 방지)")
+  void create_with_agent_assignee_publishes_assigned_once() {
     var fx = seed();
     issueService.create(
         fx.humanId(),
@@ -146,11 +148,14 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
         new CreateIssueRequest(
             "AI 가 할 일", "본문", "MID", null, List.of(fx.agentId()), null, null, null));
 
+    // timeout().times(1) 은 첫 호출 즉시 통과해 늦게 오는 2번째 발사를 놓친다 → after() 로 창을 다 기다린 뒤 정확히 1회 검증.
     var captor = ArgumentCaptor.forClass(EventEnvelope.class);
-    verify(client, timeout(2000).times(2)).publish(captor.capture());
-    assertThat(captor.getAllValues())
-        .extracting(EventEnvelope::type)
-        .containsExactlyInAnyOrder("issue.created", "issue.assigned");
+    verify(client, after(1000).times(1)).publish(captor.capture());
+    var env = captor.getValue();
+    assertThat(env.type()).isEqualTo("issue.assigned");
+    @SuppressWarnings("unchecked")
+    var added = (List<Map<String, Object>>) env.payload().get("added");
+    assertThat(added).extracting(m -> m.get("id")).containsExactly(fx.agentId());
   }
 
   @Test
@@ -191,7 +196,7 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
     var env = captor.getValue();
     assertThat(env.type()).isEqualTo("issue.assigned");
     @SuppressWarnings("unchecked")
-    var added = (List<java.util.Map<String, Object>>) env.payload().get("added");
+    var added = (List<Map<String, Object>>) env.payload().get("added");
     assertThat(added).extracting(m -> m.get("id")).contains(fx.agentId());
   }
 
@@ -205,8 +210,8 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
             fx.projectKey(),
             new CreateIssueRequest(
                 "AI 작업", "본문", "MID", null, List.of(fx.agentId()), null, null, null));
-    // setup 단계 비동기 발사 2회(created+assigned) 완료를 기다린 뒤 reset — async 라 reset 너머로 흘러오지 않게.
-    verify(client, timeout(2000).times(2)).publish(any(EventEnvelope.class));
+    // setup 단계 비동기 발사 1회(assigned) 완료를 기다린 뒤 reset — async 라 reset 너머로 흘러오지 않게.
+    verify(client, timeout(2000).times(1)).publish(any(EventEnvelope.class));
     org.mockito.Mockito.reset(client);
     doNothing().when(client).publish(any(EventEnvelope.class));
 
@@ -229,8 +234,8 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
             fx.projectKey(),
             new CreateIssueRequest(
                 "AI 작업", "본문", "MID", null, List.of(fx.agentId()), null, null, null));
-    // setup 단계 비동기 발사 2회 완료 대기 후 reset.
-    verify(client, timeout(2000).times(2)).publish(any(EventEnvelope.class));
+    // setup 단계 비동기 발사 1회(assigned) 완료 대기 후 reset.
+    verify(client, timeout(2000).times(1)).publish(any(EventEnvelope.class));
     org.mockito.Mockito.reset(client);
     doNothing().when(client).publish(any(EventEnvelope.class));
 
@@ -254,8 +259,8 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
             fx.projectKey(),
             new CreateIssueRequest(
                 "AI 작업", "본문", "MID", null, List.of(fx.agentId()), null, null, null));
-    // setup 단계 비동기 발사 2회 완료 대기 후 reset.
-    verify(client, timeout(2000).times(2)).publish(any(EventEnvelope.class));
+    // setup 단계 비동기 발사 1회(assigned) 완료 대기 후 reset.
+    verify(client, timeout(2000).times(1)).publish(any(EventEnvelope.class));
     org.mockito.Mockito.reset(client);
     doNothing().when(client).publish(any(EventEnvelope.class));
 

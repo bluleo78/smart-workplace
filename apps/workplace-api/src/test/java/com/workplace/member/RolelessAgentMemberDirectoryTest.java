@@ -1,5 +1,6 @@
 package com.workplace.member;
 
+import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -10,6 +11,7 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.user.dto.CreateAgentRequest;
 import com.workplace.user.service.UserService;
 import java.util.UUID;
+import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
@@ -30,16 +32,23 @@ class RolelessAgentMemberDirectoryTest extends IntegrationTestBase {
   @Autowired private MockMvc mockMvc;
   @Autowired private UserService userService;
   @Autowired private PermissionService permissionService;
+  @Autowired private DSLContext dsl;
 
-  /** 실제 관리자 생성 경로로 역할 없는 에이전트를 만든다(현재 테넌트 ACTIVE 멤버십만 부여됨). */
+  /**
+   * 실제 관리자 생성 경로로 에이전트를 만든 뒤 역할을 모두 회수해 역할 0개 상태로 만든다. WP-252 부터 createAgent 는 기본 AGENT 역할을 부여하지만,
+   * 관리자가 역할을 모두 해제한 에이전트도 멤버십 기반 기본 권한(member:read)은 유지돼야 하므로 그 상태를 재현한다.
+   */
   private Long createRolelessAgent() {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
-    return userService
-        .createAgent(
-            null,
-            new CreateAgentRequest(
-                "roleless-" + suffix, "역할없음", "roleless-" + suffix + "@example.com"))
-        .id();
+    Long agentId =
+        userService
+            .createAgent(
+                null,
+                new CreateAgentRequest(
+                    "roleless-" + suffix, "역할없음", "roleless-" + suffix + "@example.com"))
+            .id();
+    dsl.deleteFrom(USER_ROLE).where(USER_ROLE.USER_ID.eq(agentId)).execute();
+    return agentId;
   }
 
   @Test

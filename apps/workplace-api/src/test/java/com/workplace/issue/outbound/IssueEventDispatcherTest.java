@@ -11,7 +11,6 @@ import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.EventEnvelope;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
-import com.workplace.issue.outbound.IssueDomainEvents.IssueCreatedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import java.time.Instant;
 import java.util.List;
@@ -46,18 +45,18 @@ class IssueEventDispatcherTest {
   void AGENT_assignee_없음_skip() {
     dispatcher = build(true);
     var event =
-        new IssueCreatedEvent(
+        new IssueAssignedEvent(
             1L,
             "WP",
             "WP-1",
             "t",
-            "TODO",
-            "MID",
             HUMAN_ACTOR,
             List.of(HUMAN_ASSIGNEE),
+            List.of(HUMAN_ASSIGNEE),
+            List.of(),
             Instant.now());
 
-    dispatcher.onIssueCreated(event);
+    dispatcher.onIssueAssigned(event);
 
     verify(client, never()).publish(Mockito.any());
   }
@@ -66,28 +65,27 @@ class IssueEventDispatcherTest {
   void AGENT_assignee_있음_actor_HUMAN_발사() {
     dispatcher = build(true);
     var event =
-        new IssueCreatedEvent(
+        new IssueAssignedEvent(
             42L,
             "WP",
             "WP-42",
             "분석",
-            "TODO",
-            "MID",
             HUMAN_ACTOR,
             List.of(AGENT_ASSIGNEE),
+            List.of(AGENT_ASSIGNEE),
+            List.of(),
             Instant.parse("2026-05-25T12:00:00Z"));
 
-    dispatcher.onIssueCreated(event);
+    dispatcher.onIssueAssigned(event);
 
     var captor = ArgumentCaptor.forClass(EventEnvelope.class);
     verify(client, times(1)).publish(captor.capture());
     var env = captor.getValue();
-    assertThat(env.type()).isEqualTo("issue.created");
+    assertThat(env.type()).isEqualTo("issue.assigned");
     assertThat(env.payload()).containsEntry("issueKey", "WP-42");
     assertThat(env.payload()).containsEntry("issueId", 42L);
     assertThat(env.payload()).containsEntry("issueTitle", "분석");
-    assertThat(env.payload()).containsEntry("status", "TODO");
-    assertThat(env.payload()).containsEntry("priority", "MID");
+    assertThat(env.payload()).containsKeys("added", "removed");
   }
 
   @Test
@@ -131,14 +129,13 @@ class IssueEventDispatcherTest {
     verify(client, never()).publish(Mockito.any());
   }
 
+  /** WP-253: issue.created 는 발사하지 않는다(AI 실행 트리거는 issue.assigned 로 통일) — 나머지 3종 type 문자열 검증. */
   @Test
-  void 모든_4종_type_문자열_정확() {
+  void 발사_3종_type_문자열_정확() {
     dispatcher = build(true);
     var common = List.of(AGENT_ASSIGNEE);
     var now = Instant.now();
 
-    dispatcher.onIssueCreated(
-        new IssueCreatedEvent(1L, "WP", "WP-1", "t", "TODO", "MID", HUMAN_ACTOR, common, now));
     dispatcher.onIssueAssigned(
         new IssueAssignedEvent(1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, common, List.of(), now));
     dispatcher.onIssueCommented(
@@ -148,10 +145,9 @@ class IssueEventDispatcherTest {
             1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, "TODO", "IN_PROGRESS", now));
 
     var captor = ArgumentCaptor.forClass(EventEnvelope.class);
-    verify(client, times(4)).publish(captor.capture());
+    verify(client, times(3)).publish(captor.capture());
     assertThat(captor.getAllValues())
         .extracting(EventEnvelope::type)
-        .containsExactly(
-            "issue.created", "issue.assigned", "issue.commented", "issue.status_changed");
+        .containsExactly("issue.assigned", "issue.commented", "issue.status_changed");
   }
 }
