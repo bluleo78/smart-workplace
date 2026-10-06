@@ -1,8 +1,11 @@
+import { downloadBlob } from '@/lib/download';
+import { homeAttachmentContentPath } from '@/lib/homeChatAttachments';
 import type {
   ActivityPage,
   ChatRequest,
   HomeMessage,
   HomeSessionPage,
+  HomeUploadedFile,
   PendingAction,
   ProposalOutcome,
 } from '@/types/home';
@@ -62,4 +65,28 @@ export const homeApi = {
   /** 진행 중인 채팅 생성 취소. */
   cancelChat: (correlationId: string) =>
     client.delete<void>(`/ai/chat/${correlationId}`),
+
+  /**
+   * WP-234: 첨부 사전 업로드 — 세션이 아니라 호출자 단위다(새 대화 첫 메시지 전엔 세션이 없다).
+   * multipart 필드명 `files`. 응답은 요청 순서대로 온다(이미지 미리보기 짝짓기에 쓴다).
+   */
+  uploadAttachments: (files: File[]) => {
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f);
+    return client.post<HomeUploadedFile[]>('/home/attachments', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  /** WP-234: 세션 첨부 원본 blob — Bearer 인증이라 img src 로 직접 걸 수 없어 objectURL 로 바꿔 쓴다. */
+  fetchAttachmentBlob: (sessionId: string, fileId: number) =>
+    client
+      .get<Blob>(homeAttachmentContentPath(sessionId, fileId), { responseType: 'blob' })
+      .then((r) => r.data),
+
+  /** WP-234: 세션 첨부 다운로드(문서 카드 클릭). */
+  downloadAttachment: async (sessionId: string, fileId: number, fileName: string) => {
+    const blob = await homeApi.fetchAttachmentBlob(sessionId, fileId);
+    downloadBlob(fileName, blob);
+  },
 };

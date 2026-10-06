@@ -24,9 +24,12 @@ export interface WidgetSpec {
 
 export interface ChatRequest {
   sessionId: string | null;
+  /** WP-234: 첨부만 보내면 빈 문자열(서버가 fileIds 가 있을 때만 허용). */
   query: string;
   /** WP-54: 현재 화면 컨텍스트 — 없으면 키 자체를 생략한다. */
   screenContext?: AiScreenContext;
+  /** WP-234: 미리 올린 첨부(POST /home/attachments 응답의 fileId). 없으면 키 생략. */
+  fileIds?: number[];
 }
 
 /** AI 도구 호출/위임 단계 — 어시스턴트 턴 인라인 표시 + 복원. */
@@ -85,6 +88,8 @@ export interface MessageTurn {
   steps?: ToolStep[];
   /** #463: 도착 순 인터리브 블록(텍스트/위젯/도구 그룹 — WP-157). AIChatPanel 이 블록 순서대로 렌더. */
   contentBlocks?: ContentBlock[];
+  /** WP-234: 사용자 턴 첨부 — 보낸 직후(낙관적)엔 로컬 미리보기 포함, 복원 시엔 서버 첨부. */
+  attachments?: TurnAttachment[];
 }
 
 /** 세션 스위처 목록 항목 (GET /home/sessions). */
@@ -106,11 +111,14 @@ export interface HomeMessage {
   id: number;
   /** ACTION_* = 확인카드 처리 결과(#843). 다음 턴 AI 맥락에도 포함된다. */
   role: 'USER' | 'ASSISTANT' | 'ACTION_DONE' | 'ACTION_FAILED' | 'ACTION_REJECTED';
-  content: string;
+  /** WP-234: 첨부만 보낸 USER 메시지는 비어(null) 있을 수 있다. */
+  content: string | null;
   widgets: WidgetSpec[] | null;
   toolCalls: ToolStep[] | null;
   /** WP-158: 표시 블록 순서(ASSISTANT 전용). 없으면(이전 메시지·순서 재현 불가) 폴백 렌더. */
   contentBlocks?: ContentBlock[] | null;
+  /** WP-234: 이 메시지에 붙은 첨부(USER). 서버는 없으면 빈 배열 — 구버전 응답·E2E 픽스처 호환을 위해 선택 필드. */
+  attachments?: HomeAttachment[];
   createdAt: string; // ISO 8601
 }
 
@@ -169,4 +177,36 @@ export interface ProposalOutcome {
   };
   /** 대화 이력에 추가된 결과 메시지(role=ACTION_*). */
   message: HomeMessage;
+}
+
+/** WP-234: POST /home/attachments 응답 항목 — 이슈 챗 업로드(UploadedFile)와 같은 모양. */
+export interface HomeUploadedFile {
+  fileId: number;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+/** WP-234: 첨부 텍스트 추출 상태 — 백엔드 ExtractionInfo(WP-242 공통 계약)와 1:1. */
+export interface ExtractionInfo {
+  status: 'PENDING' | 'READY' | 'SKIPPED' | 'FAILED' | 'NONE';
+  /** READY 일 때 전체 글자 수. */
+  totalChars: number | null;
+  /** READY 일 때 앞부분만 저장됐는지. */
+  truncated: boolean | null;
+  /** SKIPPED/FAILED 사유 코드. */
+  reasonCode: string | null;
+  /** SKIPPED/FAILED 사용자 문구. */
+  reason: string | null;
+}
+
+/** WP-234: 세션 첨부(GET /home/sessions/{sid}/attachments · 메시지 조회 attachments 항목). */
+export interface HomeAttachment extends HomeUploadedFile {
+  messageId: number;
+  extraction: ExtractionInfo;
+}
+
+/** WP-234: 화면 턴 첨부 — 표시 필드 + 방금 보낸 이미지의 로컬 미리보기(blob:) URL. */
+export interface TurnAttachment extends HomeUploadedFile {
+  previewUrl?: string;
 }

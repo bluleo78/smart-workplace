@@ -42,10 +42,10 @@ const OUTCOME_BY_ROLE: Partial<Record<HomeMessage['role'], ActionOutcome>> = {
  */
 function messageToTurn(m: HomeMessage): ChatTurn {
   const outcome = OUTCOME_BY_ROLE[m.role];
-  if (outcome) return { role: 'action', outcome, content: m.content };
+  if (outcome) return { role: 'action', outcome, content: m.content ?? '' };
   return {
     role: m.role === 'ASSISTANT' ? 'assistant' : 'user',
-    content: m.content,
+    content: m.content ?? '', // WP-234: 첨부만 보낸 메시지는 null 일 수 있어 빈 문자열로 정규화
     widgets: m.widgets ?? undefined,
     steps: m.toolCalls ?? undefined,
     contentBlocks: m.contentBlocks ? reconcileBlocks(m.contentBlocks, m.widgets ?? []) : undefined,

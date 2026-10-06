@@ -1,0 +1,71 @@
+// 메인 AI 채팅 첨부(WP-234) 순수 규칙 — 상한 판정·세션 첨부 수·25MB 분리·턴 첨부 변환·미리보기 해제·원본 경로.
+// useHomeChatAttachments·useChatSession·homeApi 가 공유하고 vitest 로 검증한다(브라우저 없이 판정되는 부분만 모았다).
+import type { ChatTurn, HomeMessage, TurnAttachment } from '@/types/home';
+
+/** 파일당 상한 — 서버 workplace.storage.attachment 와 같은 25MB. */
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+/** 메시지당 첨부 수 — 이슈 챗과 같은 10개. */
+export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
+/** 세션당 첨부 수 — 매 턴 프롬프트에 넣는 첨부 목록 크기를 묶는다. */
+export const MAX_ATTACHMENTS_PER_SESSION = 30;
+
+/** 서버(HomeAttachmentService.tooManyMessage) 400 문구와 글자 그대로 같게 유지한다(PF-C3). */
+export const PER_MESSAGE_LIMIT_MSG = `한 번에 첨부할 수 있는 파일은 최대 ${MAX_ATTACHMENTS_PER_MESSAGE}개예요.`;
+/** 서버(HomeAttachmentService.MSG_SESSION_LIMIT) 400 문구와 글자 그대로 같게 유지한다(PF-C3). */
+export const PER_SESSION_LIMIT_MSG = `이 대화에는 파일을 최대 ${MAX_ATTACHMENTS_PER_SESSION}개까지 첨부할 수 있어요. 새 대화를 열어 주세요.`;
+
+/** 개수 판정 결과 — ok=false 면 message 를 토스트로 보이고 이번 묶음 전체를 올리지 않는다. */
+export type CountCheck = { ok: true } | { ok: false; message: string };
+
+/**
+ * 새로 고른(붙여넣은·드롭한) 파일 묶음을 받아도 되는지 개수로 판정한다. 서버도 같은 상한으로 막지만,
+ * 업로드 전에 막아야 쓸데없는 전송·임시 파일이 생기지 않는다. 둘 다 넘으면 바로 고칠 수 있는 메시지 상한을 먼저 알린다.
+ *
+ * @param incoming 이번 묶음의 파일 수
+ * @param draftCount 입력창 초안에 이미 있는 파일 + 아직 업로드 중인 파일 수
+ * @param sessionCount 현재 대화에서 이미 보낸 첨부 수
+ */
+export function checkAttachmentCounts(incoming: number, draftCount: number, sessionCount: number): CountCheck {
+  if (draftCount + incoming > MAX_ATTACHMENTS_PER_MESSAGE) return { ok: false, message: PER_MESSAGE_LIMIT_MSG };
+  if (sessionCount + draftCount + incoming > MAX_ATTACHMENTS_PER_SESSION) {
+    return { ok: false, message: PER_SESSION_LIMIT_MSG };
+  }
+  return { ok: true };
+}
+
+/** 25MB 를 넘는 파일을 떼어 낸다 — 이미지 축소 뒤 크기로 판정해야 큰 사진이 줄어든 뒤 통과한다. */
+export function splitOversize<T extends { size: number }>(files: T[]): { accepted: T[]; rejected: T[] } {
+  const accepted: T[] = [];
+  const rejected: T[] = [];
+  for (const f of files) (f.size > MAX_ATTACHMENT_BYTES ? rejected : accepted).push(f);
+  return { accepted, rejected };
+}
+
+/** 25MB 초과 안내 — 어떤 파일이 빠졌는지 이름을 나열한다. */
+export function oversizeMessage(names: string[]): string {
+  return `25MB를 넘는 파일은 첨부할 수 없어요: ${names.join(', ')}`;
+}
+
+/** 현재 대화의 사용자 턴에 붙은 첨부 수 — 세션 30개 상한의 클라이언트 측 기준(복원·낙관적 턴 모두 포함). */
+export function countSessionAttachments(turns: ChatTurn[]): number {
+  return turns.reduce((n, t) => n + (t.role === 'user' ? (t.attachments?.length ?? 0) : 0), 0);
+}
+
+/** 영속 메시지의 첨부 → 화면 턴 첨부. 없거나 비면 undefined(첨부 없는 기존 턴과 같은 모양). */
+export function toTurnAttachments(m: Pick<HomeMessage, 'attachments'>): TurnAttachment[] | undefined {
+  if (!m.attachments || m.attachments.length === 0) return undefined;
+  return m.attachments.map(({ fileId, originalName, mimeType, sizeBytes }) => ({ fileId, originalName, mimeType, sizeBytes }));
+}
+
+/** 턴들이 들고 있던 로컬 미리보기(blob:) URL 해제 — 새 대화·세션 복원으로 턴이 통째로 바뀔 때 호출한다. */
+export function revokeTurnPreviews(turns: ChatTurn[]): void {
+  for (const t of turns) {
+    if (t.role !== 'user') continue;
+    for (const a of t.attachments ?? []) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+  }
+}
+
+/** 세션 첨부 원본 경로(client baseURL /api/v1 기준) — 썸네일 blob·다운로드가 공유한다. */
+export function homeAttachmentContentPath(sessionId: string, fileId: number): string {
+  return `/home/sessions/${sessionId}/attachments/${fileId}/content`;
+}
