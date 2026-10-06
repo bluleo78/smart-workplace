@@ -90,6 +90,11 @@ export interface MessageTurn {
   contentBlocks?: ContentBlock[];
   /** WP-234: 사용자 턴 첨부 — 보낸 직후(낙관적)엔 로컬 미리보기 포함, 복원 시엔 서버 첨부. */
   attachments?: TurnAttachment[];
+  /**
+   * WP-190: 정지(stopped)·오류(failed)·시간 초과(timeout)로 끝난 답변 — 본문 아래 "중단됨"/"오류로 중단됨"/"시간 초과로 중단됨".
+   * timeout 은 라이브 종결(home.chat.cancelled{reason:'timeout'})에만 쓴다 — 저장된 STOPPED 는 다시 열면 "중단됨" 이다(스펙).
+   */
+  interrupted?: 'stopped' | 'failed' | 'timeout';
 }
 
 /** 세션 스위처 목록 항목 (GET /home/sessions). */
@@ -119,6 +124,8 @@ export interface HomeMessage {
   contentBlocks?: ContentBlock[] | null;
   /** WP-234: 이 메시지에 붙은 첨부(USER). 서버는 없으면 빈 배열 — 구버전 응답·E2E 픽스처 호환을 위해 선택 필드. */
   attachments?: HomeAttachment[];
+  /** WP-190: 답변 종결 상태. 구 API 응답엔 없을 수 있다. */
+  status?: 'COMPLETE' | 'STOPPED' | 'FAILED';
   createdAt: string; // ISO 8601
 }
 
@@ -209,4 +216,23 @@ export interface HomeAttachment extends HomeUploadedFile {
 /** WP-234: 화면 턴 첨부 — 표시 필드 + 방금 보낸 이미지의 로컬 미리보기(blob:) URL. */
 export interface TurnAttachment extends HomeUploadedFile {
   previewUrl?: string;
+}
+
+/** POST /ai/chat 응답(WP-190). sessionId 는 새 대화면 서버가 만든 id — 구 API 엔 없을 수 있어 선택. */
+export interface HomeChatStarted {
+  correlationId: string;
+  sessionId?: string;
+}
+
+/** 서버 기준 생성 중 대화 1건(GET /ai/chat/active). */
+export interface ActiveChatItem {
+  sessionId: string;
+  correlationId: string;
+  startedAt: string; // ISO 8601
+}
+
+/** GET /ai/chat/active — 생성 중 대화 + 사용자 동시 생성 상한. */
+export interface ActiveChats {
+  limit: number;
+  items: ActiveChatItem[];
 }

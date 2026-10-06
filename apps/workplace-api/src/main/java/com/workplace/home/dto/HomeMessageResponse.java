@@ -14,6 +14,8 @@ public record HomeMessageResponse(
     JsonNode toolCalls,
     /** 표시 블록 순서(텍스트·도구 그룹·위젯, ASSISTANT 전용 — WP-158). null 이면 웹 폴백 렌더. */
     JsonNode contentBlocks,
+    /** 답변 종결 상태(WP-190) — COMPLETE·STOPPED(정지·타임아웃)·FAILED(오류). */
+    String status,
     Instant createdAt,
     /** 이 메시지에 붙은 첨부(WP-234, USER 전용). 없으면 빈 배열 — 새로고침 후 말풍선 복원. */
     List<HomeAttachment> attachments) {}

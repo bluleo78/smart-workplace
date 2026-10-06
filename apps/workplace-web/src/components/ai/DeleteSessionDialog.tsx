@@ -17,10 +17,13 @@ interface Props {
   onConfirm: (id: string) => void;
   /** 취소/바깥 클릭 → 닫기. */
   onCancel: () => void;
+  /** WP-190: 대상 대화가 답변 생성 중이면 삭제가 생성도 멈춘다는 걸 알린다. */
+  isGenerating?: (id: string) => boolean;
 }
 
 /** pendingDeleteId 패턴을 캡슐화한 삭제 확인 다이얼로그. */
-export function DeleteSessionDialog({ sessionId, onConfirm, onCancel }: Props) {
+export function DeleteSessionDialog({ sessionId, onConfirm, onCancel, isGenerating }: Props) {
+  const generating = sessionId !== null && !!isGenerating?.(sessionId);
   return (
     <AlertDialog open={sessionId !== null} onOpenChange={(v) => !v && onCancel()}>
       {/* WP-54: 포털 레이어지만 패널 React 트리 안에서 렌더돼 AI 표면으로 판별된다(aiPanelSurface.markAiPanelEvent). */}
@@ -29,7 +32,9 @@ export function DeleteSessionDialog({ sessionId, onConfirm, onCancel }: Props) {
         <AlertDialogHeader>
           <AlertDialogTitle>대화 삭제</AlertDialogTitle>
           <AlertDialogDescription>
-            이 대화를 삭제하시겠습니까? 삭제된 대화는 복구할 수 없습니다.
+            {generating
+              ? '삭제하면 진행 중인 답변도 중단돼요. 삭제된 대화는 복구할 수 없어요.'
+              : '이 대화를 삭제하시겠습니까? 삭제된 대화는 복구할 수 없습니다.'}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

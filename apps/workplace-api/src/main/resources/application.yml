@@ -86,6 +86,7 @@ workplace:
   home:
     chat:
       context-token-budget: ${WORKPLACE_HOME_CHAT_CONTEXT_TOKEN_BUDGET:128000}
+      max-concurrent-per-user: ${WORKPLACE_HOME_CHAT_MAX_CONCURRENT_PER_USER:3}
   worker:
     base-url: ${WORKPLACE_WORKER_URL:http://localhost:7080}
     internal-token: ${INTERNAL_SERVICE_TOKEN:${WORKPLACE_AI_AGENT_TOKEN:}}  # 단일 내부 토큰 — ai-agent 와 동일

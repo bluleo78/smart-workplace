@@ -35,6 +35,7 @@ export function AIFullscreen() {
           setPendingDeleteId(null);
         }}
         onCancel={() => setPendingDeleteId(null)}
+        isGenerating={chat.isGenerating}
       />
 
       {/* 좌: 세션 목록(데스크톱 전용이라 항상 보인다) */}
@@ -54,6 +55,7 @@ export function AIFullscreen() {
           <AISessionItems
             sessions={chat.sessions}
             currentSessionId={chat.currentSessionId}
+            statusOf={chat.sessionStatus}
             onSelect={chat.onSelectSession}
             onDelete={setPendingDeleteId}
           />

@@ -8,10 +8,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.HomeAttachmentTestSupport;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.exception.HomeAttachmentInvalidException;
+import com.workplace.home.exception.HomeChatConcurrencyLimitException;
+import com.workplace.home.exception.HomeChatSessionBusyException;
 import com.workplace.home.exception.HomeSessionNotFoundException;
 import com.workplace.home.repository.HomeSessionRepository;
 import java.sql.Connection;
@@ -106,6 +109,49 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
     }
     assertThat(sessionCount(uid)).isEqualTo(before);
     verify(chatClient, never()).composeStream(any(), any(), any(), any(), any(), any(), any());
+  }
+
+  @Autowired StreamingGenerationRegistry registry;
+
+  /** 홈 채팅 슬롯을 직접 잡는다 — 생성 중 상태를 흉내 내 409·429 를 만든다(WP-190). */
+  private StreamingGenerationRegistry.Reservation hold(long uid, String key) {
+    return registry.reserve(
+        uid, new StreamingGenerationRegistry.GenerationTag(HomeChatService.scope(), key), 3);
+  }
+
+  @Test
+  void 같은_대화가_생성_중이라_409_로_거절되면_첨부를_연결하지_않고_질문도_남기지_않는다() {
+    long uid = user();
+    UUID sid = sessionService.create(uid).id();
+    long pdf = upload(uid, "a.pdf", "application/pdf", "%PDF".getBytes());
+    StreamingGenerationRegistry.Reservation busy = hold(uid, sid.toString());
+    try {
+      assertThatThrownBy(() -> chatService.startChat(uid, sid, "봐 줘", null, List.of(pdf)))
+          .isInstanceOf(HomeChatSessionBusyException.class);
+    } finally {
+      busy.release();
+    }
+    // WP-190 × WP-234: 예약이 저장보다 먼저라 거절된 요청의 첨부는 임시 상태 그대로(연결·승격 없음) — 같은 파일로 다시 보낼 수 있다.
+    assertThat(messageIdOf(pdf)).isNull();
+    assertThat(expiresAtOf(pdf)).isNotNull();
+    assertThat(sessionService.getMessages(uid, sid)).isEmpty();
+  }
+
+  @Test
+  void 상한으로_429_거절되면_새_세션도_첨부_연결도_남기지_않는다() {
+    long uid = user();
+    long pdf = upload(uid, "a.pdf", "application/pdf", "%PDF".getBytes());
+    List<StreamingGenerationRegistry.Reservation> held = new ArrayList<>();
+    try {
+      for (int i = 0; i < 3; i++) held.add(hold(uid, UUID.randomUUID().toString()));
+      assertThatThrownBy(() -> chatService.startChat(uid, null, "봐 줘", null, List.of(pdf)))
+          .isInstanceOf(HomeChatConcurrencyLimitException.class);
+    } finally {
+      held.forEach(StreamingGenerationRegistry.Reservation::release);
+    }
+    assertThat(sessionCount(uid)).isZero();
+    assertThat(messageIdOf(pdf)).isNull();
+    assertThat(expiresAtOf(pdf)).isNotNull();
   }
 
   @Test

@@ -109,6 +109,11 @@ class ChatBlockRecorder {
     return out.isEmpty() ? null : out;
   }
 
+  /** 지금까지 스트리밍된 텍스트 전체(WP-190) — 정지·오류로 끝난 턴의 부분 답변 본문. */
+  synchronized String streamedText() {
+    return streamed.toString();
+  }
+
   /** i 번째 text 블록의 끝 오프셋 — 다음 text 블록의 시작, 없으면 스트리밍 끝. */
   private int textEnd(int i) {
     for (int j = i + 1; j < blocks.size(); j++) {

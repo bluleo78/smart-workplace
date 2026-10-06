@@ -28,6 +28,16 @@ public class HomeSessionRepository {
         .getId();
   }
 
+  /** 지정 id 로 새 세션 생성(WP-190) — 홈 채팅이 예약 키로 쓴 id 를 그대로 세션 id 로 쓴다. */
+  public UUID insert(long userId, UUID id) {
+    return dsl.insertInto(HOME_SESSION)
+        .set(HOME_SESSION.ID, id)
+        .set(HOME_SESSION.USER_ID, userId)
+        .returning(HOME_SESSION.ID)
+        .fetchOne()
+        .getId();
+  }
+
   /** 세션 단건 조회. */
   public Optional<Row> findById(UUID id) {
     return dsl.select(

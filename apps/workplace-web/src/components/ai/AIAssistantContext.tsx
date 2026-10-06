@@ -15,10 +15,11 @@ import {
   useState,
 } from 'react';
 
-import { useChatSessionContext } from '@/hooks/chat-session-context';
+import { useTriggerActivity } from '@/hooks/useChatStreams';
 import { useHistoryParam, useStripStaleStateMark } from '@/hooks/useHistoryParam';
 import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile';
-import { type AiActivity, aiActivity, nextUnseenDone } from '@/lib/ai/aiActivity';
+import { type AiActivity } from '@/lib/ai/aiActivity';
+import { chatStreams } from '@/lib/ai/chatStreams';
 import { hasLiveStateMark } from '@/lib/historyParam';
 
 /** AI 어시스턴트 표시 모드. closed=닫힘, side=우측 도킹, fullscreen=콘텐츠 영역 2단. */
@@ -87,14 +88,13 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   const [rawMode, setMode] = useState<AIMode>('closed');
   const isMobile = useIsMobile();
   const mode = effectiveMode(rawMode, isMobile);
-  // WP-191: 닫힌 사이 끝난 답변 표시. ChatSessionProvider 가 이 Provider 바깥(AppLayout)이라 pending 을 읽을 수 있다.
-  // effect 대신 렌더 중 조정("prop 변화 시 state 조정" 패턴) — 완료 순간과 같은 프레임에 점이 뜬다.
-  const { pending } = useChatSessionContext();
+  // WP-190: 진입 버튼은 모든 대화를 모아 보여 준다 — 하나라도 생성 중이면 pending, 아니면 확인 안 한 완료가 있으면 done.
+  // 저장소에 패널 열림을 알려 "보고 있는 대화" 판정(새 답변 해제·표시)에 쓴다.
   const isOpen = mode !== 'closed';
-  const [track, setTrack] = useState({ pending, unseenDone: false });
-  const unseenDone = nextUnseenDone({ prevPending: track.pending, pending, open: isOpen, unseenDone: track.unseenDone });
-  if (track.pending !== pending || track.unseenDone !== unseenDone) setTrack({ pending, unseenDone });
-  const triggerActivity: AiActivity = isOpen ? 'idle' : aiActivity(pending, unseenDone);
+  useEffect(() => {
+    chatStreams.setPanelOpen(isOpen);
+  }, [isOpen]);
+  const triggerActivity: AiActivity = useTriggerActivity(isOpen);
   const [sidePanelWidth, setWidth] = useState<number>(readInitialWidth);
 
   // 전체화면 히스토리 — 들어갈 때 push, 나올 때 그 항목을 되돌린다(공용 useHistoryParam state 모드).

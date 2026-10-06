@@ -81,11 +81,11 @@ class HomeContextPolicyTest {
 
   @Test
   void 설정_기본값과_파생비율() {
-    HomeChatProperties d = new HomeChatProperties(null);
+    HomeChatProperties d = new HomeChatProperties(null, null);
     assertThat(d.contextTokenBudget()).isEqualTo(128_000);
     assertThat(d.summarizeTrigger()).isEqualTo(96_000);
     assertThat(d.summarizeTarget()).isEqualTo(64_000);
     assertThat(d.perMessageCap()).isEqualTo(32_000);
-    assertThat(new HomeChatProperties(0).contextTokenBudget()).isEqualTo(128_000);
+    assertThat(new HomeChatProperties(0, null).contextTokenBudget()).isEqualTo(128_000);
   }
 }

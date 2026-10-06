@@ -41,6 +41,14 @@ public class HomeSessionService {
     return new HomeSessionResponse(row.id(), row.title(), row.createdAt(), row.lastMessageAt());
   }
 
+  /** 지정 id 로 세션 생성(WP-190) — 예약이 거절되면 세션을 아예 만들지 않도록 id 를 먼저 정해 둔 경로. */
+  @Transactional
+  public HomeSessionResponse create(long callerId, UUID id) {
+    sessionRepo.insert(callerId, id);
+    var row = sessionRepo.findById(id).orElseThrow(() -> new HomeSessionNotFoundException(id));
+    return new HomeSessionResponse(row.id(), row.title(), row.createdAt(), row.lastMessageAt());
+  }
+
   @Transactional(readOnly = true)
   public Page list(long callerId, String cursor, int size) {
     int limit = Math.min(100, Math.max(1, size));
@@ -148,16 +156,11 @@ public class HomeSessionService {
       long callerId, UUID sessionId, String role, String content) {
     long id = appendMessage(callerId, sessionId, role, content, null, null, null);
     // 결과 줄은 위젯·도구단계가 없고 화면은 createdAt 을 쓰지 않으므로 재조회 없이 응답을 만든다.
-    return new HomeMessageResponse(id, role, content, null, null, null, Instant.now(), List.of());
+    return new HomeMessageResponse(
+        id, role, content, null, null, null, "COMPLETE", Instant.now(), List.of());
   }
 
-  /**
-   * 7b(compose)가 호출. USER 첫 메시지면 제목 자동 설정.
-   *
-   * @param widgetsJson ASSISTANT 위젯 스펙(nullable)
-   * @param toolCallsJson AI 도구 호출/위임 단계 JSON(ASSISTANT 전용, nullable)
-   * @param contentBlocksJson 표시 블록 순서 JSON(ASSISTANT 전용, nullable — WP-158)
-   */
+  /** 7b(compose)가 호출. 정상 완료(COMPLETE)로 저장한다 — 부분 답변은 status 오버로드 사용(WP-190). */
   @Transactional
   public long appendMessage(
       long callerId,
@@ -167,9 +170,39 @@ public class HomeSessionService {
       String widgetsJson,
       String toolCallsJson,
       String contentBlocksJson) {
+    return appendMessage(
+        callerId,
+        sessionId,
+        role,
+        content,
+        widgetsJson,
+        toolCallsJson,
+        contentBlocksJson,
+        "COMPLETE");
+  }
+
+  /**
+   * 메시지 영속. USER 첫 메시지면 제목 자동 설정.
+   *
+   * @param widgetsJson ASSISTANT 위젯 스펙(nullable)
+   * @param toolCallsJson AI 도구 호출/위임 단계 JSON(ASSISTANT 전용, nullable)
+   * @param contentBlocksJson 표시 블록 순서 JSON(ASSISTANT 전용, nullable — WP-158)
+   * @param status 답변 종결 상태(WP-190) — COMPLETE·STOPPED·FAILED
+   */
+  @Transactional
+  public long appendMessage(
+      long callerId,
+      UUID sessionId,
+      String role,
+      String content,
+      String widgetsJson,
+      String toolCallsJson,
+      String contentBlocksJson,
+      String status) {
     ensureOwner(callerId, sessionId);
     long id =
-        messageRepo.insert(sessionId, role, content, widgetsJson, toolCallsJson, contentBlocksJson);
+        messageRepo.insert(
+            sessionId, role, content, widgetsJson, toolCallsJson, contentBlocksJson, status);
     String titleIfNull = "USER".equals(role) ? trimTitle(content) : null;
     sessionRepo.touch(sessionId, titleIfNull);
     return id;
@@ -195,7 +228,7 @@ public class HomeSessionService {
    * 트랜잭션 안에서 돈다(패키지 전용이라 외부 모듈은 부를 수 없다).
    */
   long insertUserMessage(UUID sessionId, String content, String titleFallback) {
-    long id = messageRepo.insert(sessionId, "USER", content, null, null, null);
+    long id = messageRepo.insert(sessionId, "USER", content, null, null, null, "COMPLETE");
     String title = trimTitle(content);
     if (title == null && titleFallback != null) title = trimTitle(titleFallback);
     sessionRepo.touch(sessionId, title);
@@ -243,6 +276,7 @@ public class HomeSessionService {
         parse(m.widgetsJson()),
         parse(m.toolCallsJson()),
         parse(m.contentBlocksJson()),
+        m.status(),
         m.createdAt(),
         attachments);
   }

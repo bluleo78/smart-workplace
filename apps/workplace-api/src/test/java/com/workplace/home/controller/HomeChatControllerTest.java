@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -21,12 +22,18 @@ import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.home.dto.AiScreenContext;
+import com.workplace.home.dto.HomeChatActiveResponse;
+import com.workplace.home.dto.HomeChatStartedResponse;
+import com.workplace.home.exception.HomeChatConcurrencyLimitException;
+import com.workplace.home.exception.HomeChatSessionBusyException;
 import com.workplace.home.service.HomeChatService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,11 +76,12 @@ class HomeChatControllerTest {
     when(permissionService.getUserPermissions(1L)).thenReturn(Set.of("project:read"));
   }
 
-  @Test
-  void chat_시작하면_correlationId_즉시_반환() throws Exception {
-    when(chatService.startChat(eq(1L), isNull(), eq("내 할 일"), isNull(), eq(List.of())))
-        .thenReturn("corr-1");
+  private static final UUID SID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
 
+  @Test
+  void chat_시작하면_correlationId_와_sessionId_를_즉시_반환() throws Exception {
+    when(chatService.startChat(eq(1L), isNull(), eq("내 할 일"), isNull(), eq(List.of())))
+        .thenReturn(new HomeChatStartedResponse("corr-1", SID));
     mockMvc
         .perform(
             post("/api/v1/ai/chat")
@@ -81,14 +89,61 @@ class HomeChatControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"query\":\"내 할 일\"}"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.correlationId").value("corr-1"));
+        .andExpect(jsonPath("$.correlationId").value("corr-1"))
+        .andExpect(jsonPath("$.sessionId").value(SID.toString()));
+  }
+
+  /** WP-190: 생성 중 목록 + 상한. */
+  @Test
+  void active_는_상한과_생성_중_목록을_돌려준다() throws Exception {
+    when(chatService.active(1L))
+        .thenReturn(
+            new HomeChatActiveResponse(
+                3,
+                List.of(
+                    new HomeChatActiveResponse.Item(
+                        SID, "corr-1", Instant.parse("2026-10-05T00:00:00Z")))));
+    mockMvc
+        .perform(get("/api/v1/ai/chat/active").header("Authorization", "Bearer v"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.limit").value(3))
+        .andExpect(jsonPath("$.items[0].sessionId").value(SID.toString()))
+        .andExpect(jsonPath("$.items[0].correlationId").value("corr-1"));
+  }
+
+  @Test
+  void 같은_대화가_생성_중이면_409_CHAT_SESSION_BUSY() throws Exception {
+    when(chatService.startChat(eq(1L), any(), any(), any(), any()))
+        .thenThrow(new HomeChatSessionBusyException());
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"query\":\"q\",\"sessionId\":\"" + SID + "\"}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("CHAT_SESSION_BUSY"));
+  }
+
+  @Test
+  void 동시_생성_상한이면_429_CHAT_CONCURRENCY_LIMIT() throws Exception {
+    when(chatService.startChat(eq(1L), any(), any(), any(), any()))
+        .thenThrow(new HomeChatConcurrencyLimitException(3));
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"query\":\"q\"}"))
+        .andExpect(status().isTooManyRequests())
+        .andExpect(jsonPath("$.errors.code").value("CHAT_CONCURRENCY_LIMIT"));
   }
 
   /** WP-54: 화면 컨텍스트가 역직렬화돼 서비스로 전달된다. */
   @Test
   void chat_화면_컨텍스트를_서비스로_전달한다() throws Exception {
     when(chatService.startChat(eq(1L), isNull(), eq("이거 요약"), any(), eq(List.of())))
-        .thenReturn("corr-2");
+        .thenReturn(new HomeChatStartedResponse("corr-2", SID));
     String body =
         """
         {"query":"이거 요약","screenContext":{"view":"이슈 상세",
@@ -179,7 +234,7 @@ class HomeChatControllerTest {
   @Test
   void 첨부만_보내면_fileIds_를_서비스로_전달한다() throws Exception {
     when(chatService.startChat(eq(1L), isNull(), eq(""), isNull(), eq(List.of(7L, 8L))))
-        .thenReturn("corr-3");
+        .thenReturn(new HomeChatStartedResponse("corr-3", SID));
     mockMvc
         .perform(
             post("/api/v1/ai/chat")

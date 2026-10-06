@@ -137,6 +137,8 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
   // 결국 "/" 에 착지하므로 빈 기본 목록 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // 세션을 검증하는 spec 은 더 구체적 목록을 나중에 등록 → 그쪽이 우선한다.
   await mockApi(page, 'GET', '/api/v1/home/sessions', { items: [], nextCursor: null })
+  // WP-190: 앱 시작·SSE 재연결 때 생성 중 대화를 재동기화한다 — 미스텁이면 dev 프록시로 누수된다. 스펙이 나중에 등록한 route 가 우선(LIFO).
+  await mockApi(page, 'GET', '/api/v1/ai/chat/active', { limit: 3, items: [] })
   // #843: 세션 복원 시 미처리 확인카드(/home/sessions/:id/proposals)도 함께 페치한다 — 빈 기본 스텁.
   // 카드 복원을 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.
   await page.route(

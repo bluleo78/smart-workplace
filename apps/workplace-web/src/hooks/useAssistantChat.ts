@@ -1,8 +1,13 @@
 // src/hooks/useAssistantChat.ts
 // AI 어시스턴트 채팅 브리지 — 챗 세션 상태 + 세션 목록을 모은다.
 // 어시스턴트는 어느 경로에서든 제자리(in-place)에서 답한다 — 홈으로 강제 이동/캔버스 구성 없음.
+// WP-190: 대화별 상태(목록 문구·헤더 점·상한) 노출.
+import { useEffect } from 'react';
+
 import { useChatSessionContext } from '@/hooks/chat-session-context';
 import { useSessions } from '@/hooks/queries/useHomeQueries';
+import type { AiActivity } from '@/lib/ai/aiActivity';
+import { chatStreams, type SessionStatus } from '@/lib/ai/chatStreams';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { ChatTurn, HomeSessionSummary, ProposalCard, TurnAttachment } from '@/types/home';
 
@@ -13,23 +18,31 @@ export interface AssistantChat {
   currentSessionId: string | null;
   /** '새 대화' 전이 신호(nonce) — 증가 시 패널이 미전송 입력 초안을 비운다(#204). */
   newSessionNonce: number;
-  /** WP-54: screenContext — 패널이 칩 상태를 반영해 넘기는 현재 화면 컨텍스트(없으면 미전송).
-   *  WP-234: attachments — 이번 메시지 첨부. 반환값은 서버가 요청을 받아들였는지(첨부 초안 비움 판단). */
+  /**
+   * WP-54 화면 컨텍스트 포함 전송. WP-234: attachments — 이번 메시지 첨부.
+   * false 면 서버가 받지 않았다(409·429·400 등) — 패널이 입력을 되돌리고 첨부 초안을 남긴다(WP-190·WP-234).
+   */
   onSubmit: (query: string, screenContext?: AiScreenContext, attachments?: TurnAttachment[]) => Promise<boolean>;
-  /** WP-234: 실제 대화 전환(새 대화·세션 복원) 신호 — 증가 시 패널이 첨부 초안을 비운다. */
+  /** WP-234: 실제 대화 전환(새 대화·대화 선택·현재 대화 삭제) 신호 — 증가 시 패널이 첨부 초안을 비운다. */
   attachmentResetNonce: number;
-  /** #335: 스트리밍 중단 — 진행 중 AI 응답을 멈춘다(부분 응답은 보존). */
+  /** #335: 현재 대화의 생성만 멈춘다(부분 응답 보존). */
   onStop: () => void;
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
-  /** WP-191: 확인창 표시 여부 — 보류가 있고 사용자가 [기다리기]로 닫지 않았을 때. 패널이 다시 마운트돼도 유지된다. */
-  guardOpen: boolean;
-  /** [기다리기] — 확인창만 닫고 보류는 유지(생성이 끝나면 자동 전환). */
-  onWaitSwitch: () => void;
-  /** [중단하고 이동] */
-  onConfirmSwitch: () => void;
   onDeleteSession: (id: string) => void;
-  /** #351: 보류 확인 카드 배열(없으면 빈 배열). #843: 카드별 진행 상태(pending/submitting/failed) 포함. */
+  /** WP-190: 사용자 동시 생성 상한(서버 값, 기본 3). */
+  limit: number;
+  /** WP-190: 다른 대화가 상한만큼 답변 중 — 입력창 위 안내. */
+  atLimit: boolean;
+  /** WP-190: 전송 막힘(상한 또는 ■ 뒤 서버 종결 대기). */
+  sendBlocked: boolean;
+  /** WP-190: 현재 대화를 뺀 나머지의 생성 중/새 답변 — 헤더 "대화 목록" 점. */
+  otherActivity: AiActivity;
+  /** WP-190: 대화 목록 둘째 줄 상태. */
+  sessionStatus: (id: string) => SessionStatus;
+  /** WP-190: 삭제 확인창 문구 분기. */
+  isGenerating: (id: string) => boolean;
+  /** #351/#843: 확인 카드 배열(카드별 진행 상태 포함). */
   pendingActions: ProposalCard[];
   /** 단일 카드 승인 — 성공이면 카드 제거, 실패면 카드에 사유 표시. 결과는 대화 이력에 기록된다. */
   onConfirmActionItem: (card: ProposalCard) => void;
@@ -44,6 +57,10 @@ export interface AssistantChat {
 export function useAssistantChat(): AssistantChat {
   const session = useChatSessionContext();
   const sessions = useSessions();
+  // WP-190: 목록이 완전할 때만 사라진 대화의 "새 답변" 표시를 지운다(R15).
+  useEffect(() => {
+    if (sessions.data) chatStreams.pruneUnseen(sessions.data.items.map((s) => s.id), sessions.data.nextCursor === null);
+  }, [sessions.data]);
 
   return {
     turns: session.turns,
@@ -54,12 +71,15 @@ export function useAssistantChat(): AssistantChat {
     attachmentResetNonce: session.attachmentResetNonce,
     onSubmit: session.submitQuery,
     onStop: session.stopStreaming,
-    onNewSession: session.requestNewSession,
-    onSelectSession: session.requestSelectSession,
-    guardOpen: session.guardOpen,
-    onWaitSwitch: session.dismissHeldSwitch,
-    onConfirmSwitch: session.stopStreaming,
+    onNewSession: session.newSession,
+    onSelectSession: (id) => void session.restoreSession(id),
     onDeleteSession: session.deleteSession,
+    limit: session.limit,
+    atLimit: session.atLimit,
+    sendBlocked: session.sendBlocked,
+    otherActivity: session.otherActivity,
+    sessionStatus: session.sessionStatus,
+    isGenerating: session.isGenerating,
     pendingActions: session.pendingActions,
     onConfirmActionItem: (card) => void session.confirmActionItem(card),
     onConfirmAllActionItems: () => void session.confirmAllActionItems(),

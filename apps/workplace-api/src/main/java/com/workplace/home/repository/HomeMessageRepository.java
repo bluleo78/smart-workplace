@@ -22,6 +22,7 @@ public class HomeMessageRepository {
    * @param toolCallsJson AI 도구 호출/위임 단계 JSON(ASSISTANT 전용). null 이면 tool_calls 컬럼을 null 로 저장.
    * @param contentBlocksJson 표시 블록 순서 JSON(ASSISTANT 전용, WP-158). null 이면 content_blocks 컬럼을 null 로
    *     저장.
+   * @param status COMPLETE·STOPPED·FAILED(WP-190)
    */
   public long insert(
       UUID sessionId,
@@ -29,7 +30,8 @@ public class HomeMessageRepository {
       String content,
       String widgetsJson,
       String toolCallsJson,
-      String contentBlocksJson) {
+      String contentBlocksJson,
+      String status) {
     return dsl.insertInto(HOME_MESSAGE)
         .set(HOME_MESSAGE.SESSION_ID, sessionId)
         .set(HOME_MESSAGE.ROLE, role)
@@ -39,6 +41,7 @@ public class HomeMessageRepository {
         .set(
             HOME_MESSAGE.CONTENT_BLOCKS,
             contentBlocksJson == null ? null : JSONB.valueOf(contentBlocksJson))
+        .set(HOME_MESSAGE.STATUS, status)
         .returning(HOME_MESSAGE.ID)
         .fetchOne()
         .getId();
@@ -53,6 +56,7 @@ public class HomeMessageRepository {
             HOME_MESSAGE.WIDGETS,
             HOME_MESSAGE.TOOL_CALLS,
             HOME_MESSAGE.CONTENT_BLOCKS,
+            HOME_MESSAGE.STATUS,
             HOME_MESSAGE.CREATED_AT)
         .from(HOME_MESSAGE)
         .where(HOME_MESSAGE.SESSION_ID.eq(sessionId))
@@ -70,6 +74,7 @@ public class HomeMessageRepository {
                     r.get(HOME_MESSAGE.CONTENT_BLOCKS) == null
                         ? null
                         : r.get(HOME_MESSAGE.CONTENT_BLOCKS).data(),
+                    r.get(HOME_MESSAGE.STATUS),
                     r.get(HOME_MESSAGE.CREATED_AT).toInstant()));
   }
 
@@ -100,6 +105,7 @@ public class HomeMessageRepository {
    * @param widgetsJson null 이거나 JSON 배열 문자열(위젯 스펙)
    * @param toolCallsJson null 이거나 JSON 배열 문자열(AI 도구 호출/위임 단계)
    * @param contentBlocksJson null 이거나 JSON 배열 문자열(표시 블록 순서, WP-158)
+   * @param status 답변 종결 상태 — COMPLETE·STOPPED·FAILED(WP-190)
    */
   public record Row(
       long id,
@@ -108,5 +114,6 @@ public class HomeMessageRepository {
       String widgetsJson,
       String toolCallsJson,
       String contentBlocksJson,
+      String status,
       java.time.Instant createdAt) {}
 }

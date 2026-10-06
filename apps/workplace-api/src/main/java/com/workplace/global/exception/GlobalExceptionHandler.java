@@ -25,6 +25,8 @@ import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.fileai.exception.InvalidTextRangeException;
 import com.workplace.global.dto.ErrorResponse;
+import com.workplace.home.exception.HomeChatConcurrencyLimitException;
+import com.workplace.home.exception.HomeChatSessionBusyException;
 import com.workplace.home.exception.HomeChatUnavailableException;
 import com.workplace.home.outbound.AiAgentComposeException;
 import com.workplace.issue.exception.AttachmentLimitExceededException;
@@ -324,6 +326,20 @@ public class GlobalExceptionHandler {
       HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
+  /**
+   * WP-190: 홈 채팅 동시 생성 거절 — 같은 대화 생성 중이면 409(웹은 토스트), 사용자 동시 생성 상한이면 429(웹은 입력창 위 상한 안내). 웹이 상태코드로
+   * 안내를 고르므로 errors.code 로 사유를 함께 싣는다.
+   */
+  @ExceptionHandler({HomeChatSessionBusyException.class, HomeChatConcurrencyLimitException.class})
+  public ResponseEntity<ErrorResponse> handleHomeChatRejected(
+      RuntimeException ex, HttpServletRequest request) {
+    boolean busy = ex instanceof HomeChatSessionBusyException;
+    HttpStatus status = busy ? HttpStatus.CONFLICT : HttpStatus.TOO_MANY_REQUESTS;
+    String code = busy ? HomeChatSessionBusyException.CODE : HomeChatConcurrencyLimitException.CODE;
+    return ResponseEntity.status(status)
+        .body(buildError(status, ex.getMessage(), Map.of("code", code), request));
   }
 
   // 드라이브 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400)

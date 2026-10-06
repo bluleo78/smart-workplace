@@ -4,14 +4,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * 메인 AI 채팅 맥락 설정(WP-232). contextTokenBudget 은 ai-agent 로 넘기는 "누적 요약 + 원문 이력" 의 근사 토큰 하드 상한이다 —
- * 컨텍스트가 작은 모델을 붙일 때 이 값만 낮춘다. 나머지 임계는 비율로 파생한다.
+ * 컨텍스트가 작은 모델을 붙일 때 이 값만 낮춘다. 나머지 임계는 비율로 파생한다. maxConcurrentPerUser 는 사용자당 동시 답변 생성 상한(WP-190 — 초과
+ * 요청은 대기열 없이 429).
  */
 @ConfigurationProperties("workplace.home.chat")
-public record HomeChatProperties(Integer contextTokenBudget) {
+public record HomeChatProperties(Integer contextTokenBudget, Integer maxConcurrentPerUser) {
 
   /** 미설정·비정상 값이면 128k(일반적인 256k 컨텍스트 모델의 절반 — 시스템 프롬프트·도구 결과 여유). */
   public HomeChatProperties {
     if (contextTokenBudget == null || contextTokenBudget <= 0) contextTokenBudget = 128_000;
+    if (maxConcurrentPerUser == null || maxConcurrentPerUser <= 0) maxConcurrentPerUser = 3;
   }
 
   /** 턴 종료 후 비동기 요약을 예약하는 임계(75%). */

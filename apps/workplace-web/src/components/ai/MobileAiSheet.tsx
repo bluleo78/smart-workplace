@@ -9,10 +9,12 @@ import { AIChatPanel } from '@/components/ai/AIChatPanel';
 import { AIPanelControls } from '@/components/ai/AIPanelHeader';
 import { markAiPanelEvent } from '@/components/ai/aiPanelSurface';
 import { AISessionItems } from '@/components/ai/AISessionList';
+import { AiStatusDot } from '@/components/ai/AiStatusDot';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { useTabBarVisible } from '@/components/mobile/useTabBarVisible';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useAssistantChat } from '@/hooks/useAssistantChat';
+import { sessionListLabel } from '@/lib/ai/aiActivity';
 import { cn } from '@/lib/utils';
 
 // 이만큼(px) 넘게 끌어내리면 닫는다 — 그보다 짧으면 제자리로.
@@ -109,6 +111,7 @@ function SheetPanel() {
             setPendingDeleteId(null);
           }}
           onCancel={() => setPendingDeleteId(null)}
+          isGenerating={chat.isGenerating}
         />
         {/* 끌기 영역 — 손잡이 + 헤더. touch-none 으로 브라우저 스크롤 제스처 대신 포인터 이벤트를 받는다. */}
         <div
@@ -128,15 +131,21 @@ function SheetPanel() {
               <DropdownMenuTrigger
                 title={current?.title ?? '대화 목록'}
                 data-testid="ai-sheet-session-switcher"
-                className="flex h-11 shrink-0 items-center gap-1 rounded-md px-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                aria-label={sessionListLabel('대화 목록', chat.otherActivity)}
+                className="relative flex h-11 shrink-0 items-center gap-1 rounded-md px-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
                 대화 목록
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                {/* WP-190: 다른 대화가 답변 중이거나 새 답변이 있으면 점. */}
+                {chat.otherActivity !== 'idle' && (
+                  <AiStatusDot data-testid="chat-session-switcher-dot" className="right-1 top-2" />
+                )}
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="z-[80] w-72">
+              <DropdownMenuContent align="end" collisionPadding={8} className="z-[80] w-72">
                 <AISessionItems
                   sessions={chat.sessions}
                   currentSessionId={chat.currentSessionId}
+                  statusOf={chat.sessionStatus}
                   onSelect={(id) => {
                     chat.onSelectSession(id);
                     setMenuOpen(false); // 선택 후 닫기(#451)
@@ -159,7 +168,7 @@ function SheetPanel() {
           </div>
         </div>
         <div className="min-h-0 flex-1">
-          <AIChatPanel {...chat} showSessionSwitcher={false} autoFocus />
+          <AIChatPanel {...chat} showSessionSwitcher={false} autoFocus onShowSessions={() => setMenuOpen(true)} />
         </div>
       </div>
     </div>

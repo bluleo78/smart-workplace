@@ -1,8 +1,10 @@
 import { downloadBlob } from '@/lib/download';
 import { homeAttachmentContentPath } from '@/lib/homeChatAttachments';
 import type {
+  ActiveChats,
   ActivityPage,
   ChatRequest,
+  HomeChatStarted,
   HomeMessage,
   HomeSessionPage,
   HomeUploadedFile,
@@ -60,7 +62,10 @@ export const homeApi = {
 
   /** AI 채팅 생성 시작(#593 편입) — correlationId 즉시 반환, 실제 델타는 /events 로 도착. */
   startChat: (body: ChatRequest) =>
-    client.post<{ correlationId: string }>('/ai/chat', body),
+    client.post<HomeChatStarted>('/ai/chat', body),
+
+  /** 생성 중 대화 목록 + 상한(WP-190) — 앱 시작·SSE 재연결·409/429 직후 재동기화. */
+  activeChats: () => client.get<ActiveChats>('/ai/chat/active'),
 
   /** 진행 중인 채팅 생성 취소. */
   cancelChat: (correlationId: string) =>

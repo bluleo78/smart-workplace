@@ -60,6 +60,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
   @Autowired HomeContextSummaryService contextService;
   @Autowired HomeAttachmentService attachmentService;
   @Autowired AiAgentProperties aiAgentProperties;
+  @Autowired HomeChatProperties chatProperties;
   @Autowired ObjectMapper objectMapper;
 
   @Autowired
@@ -128,7 +129,8 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         assistantResolver,
         aiChatStreamExecutor,
         registry,
-        capturingSseRegistry);
+        capturingSseRegistry,
+        chatProperties);
   }
 
   private void stubAssistant() {
@@ -212,7 +214,8 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    String correlationId = serviceCapturing(captured).startChat(uid, null, "다음주 회의 잡아줘");
+    String correlationId =
+        serviceCapturing(captured).startChat(uid, null, "다음주 회의 잡아줘").correlationId();
 
     // 펌프 완료 대기(최대 5초).
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
@@ -254,7 +257,8 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    String correlationId = serviceCapturing(captured).startChat(uid, null, "내일 10시 회의 잡아줘");
+    String correlationId =
+        serviceCapturing(captured).startChat(uid, null, "내일 10시 회의 잡아줘").correlationId();
 
     // 펌프 완료 대기(최대 5초).
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
@@ -303,7 +307,8 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
     List<SentEvent> captured = new ArrayList<>();
-    String correlationId = serviceCapturing(captured).startChat(uid, null, "메일 보여줘");
+    String correlationId =
+        serviceCapturing(captured).startChat(uid, null, "메일 보여줘").correlationId();
 
     // 펌프 완료 대기(최대 5초).
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();

@@ -2,8 +2,12 @@
 // 테두리 회전(.ai-ring)은 호스트 모양(캡슐·원·칩)에 따라 달라 호스트가 붙인다. 이 컴포넌트를 감싸는 호스트는 relative 여야 한다.
 import { Sparkles } from 'lucide-react';
 
+import { AiStatusDot } from '@/components/ai/AiStatusDot';
 import type { AiActivity } from '@/lib/ai/aiActivity';
 import { cn } from '@/lib/utils';
+
+/** 생성 중 ✦ 반짝임(동작 줄이기면 적용 안 됨). AiSparkle·세션 목록 상태 줄이 공유한다. */
+export const AI_TWINKLE_CLASS = 'motion-safe:animate-[ai-twinkle_1.1s_ease-in-out_infinite]';
 
 export function AiSparkle({
   activity,
@@ -21,18 +25,13 @@ export function AiSparkle({
     <>
       <Sparkles
         aria-hidden
-        className={cn(className, pending && 'motion-safe:animate-[ai-twinkle_1.1s_ease-in-out_infinite]')}
+        className={cn(className, pending && AI_TWINKLE_CLASS)}
       />
       {/* done: 항상 점 / pending: 동작 줄이기일 때만 점(움직임 대체) */}
       {(activity === 'done' || pending) && (
-        <span
+        <AiStatusDot
           data-testid="ai-trigger-dot"
-          aria-hidden
-          className={cn(
-            'pointer-events-none absolute h-2 w-2 rounded-full bg-ai-accent ring-2 ring-background',
-            pending && 'hidden motion-reduce:block',
-            dotClassName,
-          )}
+          className={cn(pending && 'hidden motion-reduce:block', dotClassName)}
         />
       )}
     </>

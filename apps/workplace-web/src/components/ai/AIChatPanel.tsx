@@ -2,18 +2,18 @@
 // AI 어시스턴트 공유 채팅 본문 — 세션 스위처 헤더 + 메시지 이력 + 입력바.
 // side(AISidePanel) / fullscreen(AIFullscreen) 모두 재사용. 컨테이너(폭/포지션)는 호출측 책임.
 import { ArrowUp, ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square } from 'lucide-react';
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import { homeApi } from '@/api/home';
 import { ActionResultLine } from '@/components/ai/ActionResultLine';
 import { AiLabel } from '@/components/ai/AiLabel';
 import { AISessionItems } from '@/components/ai/AISessionList';
+import { AiStatusDot } from '@/components/ai/AiStatusDot';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { HomeMessageImage } from '@/components/ai/HomeMessageImage';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { ScreenContextChip } from '@/components/ai/ScreenContextChip';
-import { SessionSwitchGuardDialog } from '@/components/ai/SessionSwitchGuardDialog';
 import { ToolStepList } from '@/components/ai/ToolStepList';
 import { ComposerAttachmentChips } from '@/components/chat/ComposerAttachmentChips';
 import { ComposerAttachMenu } from '@/components/chat/ComposerAttachMenu';
@@ -33,6 +33,7 @@ import { useComposerFileDrop } from '@/hooks/useComposerFileDrop';
 import { useHomeChatAttachments } from '@/hooks/useHomeChatAttachments';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
+import { sessionListLabel } from '@/lib/ai/aiActivity';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
 import { handleApiErrorAsync } from '@/lib/api-error';
@@ -42,6 +43,7 @@ import { countSessionAttachments } from '@/lib/homeChatAttachments';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
+import type { MessageTurn } from '@/types/home';
 
 // 사용자 말풍선 — whitespace-pre-wrap 로 공백/개행 보존 + [overflow-wrap:anywhere] 로 URL·토큰 등 무공백 긴 문자열도
 // 강제 줄바꿈해 말풍선이 폭 상한을 넘어 가로 오버플로하지 않도록 한다(#202).
@@ -52,7 +54,16 @@ interface Props extends AssistantChat {
   showSessionSwitcher?: boolean;
   /** 마운트 시 입력에 포커스(패널 열림과 함께 호출). */
   autoFocus?: boolean;
+  /** WP-190: 상한 안내의 [대화 목록 보기] — 사이드 패널은 헤더 드롭다운을 직접 연다, 풀스크린은 목록이 늘 보여 생략. */
+  onShowSessions?: () => void;
 }
+
+/** WP-190: 중단된 답변 아래 라벨 — 시간 초과는 라이브 종결에서만 온다(저장된 STOPPED 는 다시 열면 "중단됨"). */
+const INTERRUPTED_LABEL: Record<NonNullable<MessageTurn['interrupted']>, string> = {
+  stopped: '중단됨',
+  failed: '오류로 중단됨',
+  timeout: '시간 초과로 중단됨',
+};
 
 /** AI 어시스턴트 채팅 본문(controlled). 컨테이너에 맞춰 h-full 로 채운다. */
 export function AIChatPanel({
@@ -66,10 +77,13 @@ export function AIChatPanel({
   attachmentResetNonce,
   onNewSession,
   onSelectSession,
-  guardOpen,
-  onWaitSwitch,
-  onConfirmSwitch,
   onDeleteSession,
+  otherActivity,
+  sessionStatus,
+  isGenerating,
+  sendBlocked,
+  limit,
+  atLimit,
   pendingActions,
   onConfirmActionItem,
   onConfirmAllActionItems,
@@ -77,6 +91,7 @@ export function AIChatPanel({
   onRequestProposalFix,
   showSessionSwitcher = true,
   autoFocus = false,
+  onShowSessions,
 }: Props) {
   const current = sessions.find((s) => s.id === currentSessionId);
   const [input, setInput] = useState('');
@@ -87,6 +102,8 @@ export function AIChatPanel({
   // Radix 자동 닫힘이 동작하지 않으므로, controlled 로 두고 선택 직후 명시적으로 닫는다.
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // WP-190: [대화 목록 보기] — 헤더 스위처가 있으면 그 드롭다운을, 없으면(모바일 시트) 호출측이 넘긴 동작을 쓴다.
+  const showSessions = showSessionSwitcher ? () => setSessionMenuOpen(true) : onShowSessions;
 
   // 자동 하단 스크롤(#452) — 전송/스트리밍 델타/도구 단계/확인 카드 변화를 depKey 로 묶어,
   // 사용자가 하단 근처를 보고 있을 때만 새 내용으로 따라 내려간다(useStickToBottom 정책).
@@ -138,22 +155,23 @@ export function AIChatPanel({
 
   const submit = () => {
     const query = input.trim();
-    // Enter 는 버튼 disabled 를 거치지 않으므로 같은 판정을 여기서도 한다.
-    if (pending || !canSend) return;
+    // Enter 는 버튼 disabled 를 거치지 않으므로 같은 판정을 여기서도 한다. WP-190: 상한·응답 전 ■ 대기면 전송만 막는다.
+    if (pending || !canSend || sendBlocked) return;
+    const ctx = contextActive ? screenContext : undefined;
     const attachments = attach.snapshot();
-    void onSubmit(query, contextActive ? screenContext : undefined, attachments).then((accepted) => {
-      // 서버가 받아들였을 때만 보낸 파일을 초안에서 뺀다 — 거절(400)이면 칩을 남겨 사유 토스트를 보고 고칠 수 있게.
+    setSuppressedIdentity(null); // 1회 제외는 이번 전송으로 소진 — 다음 전송부터 다시 포함.
+    setInput('');
+    void onSubmit(query, ctx, attachments).then((accepted) => {
+      // 서버가 받아들였을 때만 보낸 파일을 초안에서 뺀다(WP-234) — 거절(400)이면 칩을 남겨 사유 토스트를 보고 고칠 수 있게.
       if (accepted) {
         attach.commitSent(attachments);
         return;
       }
-      // 거절 — 턴에 넘겼던 미리보기를 초안으로 돌려받는다(시트가 닫혀 초안이 없으면 해제).
+      // 거절(400·409·429 등) — 턴에 넘겼던 미리보기를 초안으로 돌려받는다(시트가 닫혀 초안이 없으면 해제).
       attach.releaseRejected(attachments);
-      // 지운 질문도 되돌린다 — 칩과 함께 그대로 다시 보낼 수 있게. 그 사이 새로 쓴 글은 덮지 않는다(비어 있을 때만).
+      // 지운 질문도 되돌린다 — 칩과 함께 그대로 다시 보낼 수 있게. 그 사이 새로 쓴 글은 덮지 않는다(비어 있을 때만, WP-190·WP-234).
       setInput((prev) => prev || query);
     });
-    setSuppressedIdentity(null); // 1회 제외는 이번 전송으로 소진 — 다음 전송부터 다시 포함.
-    setInput('');
   };
 
   return (
@@ -166,8 +184,8 @@ export function AIChatPanel({
           setPendingDeleteId(null);
         }}
         onCancel={() => setPendingDeleteId(null)}
+        isGenerating={isGenerating}
       />
-      <SessionSwitchGuardDialog open={guardOpen} onWait={onWaitSwitch} onStop={onConfirmSwitch} />
 
       {/* 헤더 — 좌: 대화 선택 드롭다운 / 우: ＋새 대화.
           긴 제목은 말줄임으로 줄고 「새 대화」는 한 줄을 지킨다(WP-261) — 트리거 min-w-0 로 줄어들 수 있게 하고 버튼은 shrink-0·nowrap. */}
@@ -175,14 +193,19 @@ export function AIChatPanel({
         <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3">
           <DropdownMenu open={sessionMenuOpen} onOpenChange={setSessionMenuOpen}>
             <DropdownMenuTrigger
-              className="flex min-w-0 items-center gap-1.5 rounded px-2 py-1 text-sm font-medium hover:bg-muted"
+              className="relative flex min-w-0 items-center gap-1.5 rounded px-2 py-1 text-sm font-medium hover:bg-muted"
               data-testid="chat-session-switcher"
+              aria-label={sessionListLabel(current?.title ?? '대화 선택', otherActivity)}
             >
               <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
               <span className="max-w-[16rem] min-w-0 truncate" data-testid="chat-session-title">
                 {current?.title ?? '대화 선택'}
               </span>
               <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+              {/* WP-190: 다른 대화가 답변 중이거나 새 답변이 있으면 우상단 점(AiSparkle 완료 점과 같은 모양). */}
+              {otherActivity !== 'idle' && (
+                <AiStatusDot data-testid="chat-session-switcher-dot" className="right-0.5 top-0.5" />
+              )}
             </DropdownMenuTrigger>
             {/* WP-54: body 포털이라 DOM 상 패널 밖이지만, React 이벤트가 패널 루트로 전파돼 AI 표면으로 판별된다
                 (aiPanelSurface.markAiPanelEvent) — 열린 엔티티 다이얼로그가 닫히지 않음. 패널 트리 밖에서 렌더하면 안 된다. */}
@@ -190,6 +213,7 @@ export function AIChatPanel({
               <AISessionItems
                 sessions={sessions}
                 currentSessionId={currentSessionId}
+                statusOf={sessionStatus}
                 onSelect={(id) => {
                   onSelectSession(id);
                   setSessionMenuOpen(false); // 선택 후 드롭다운 닫기(#451)
@@ -218,122 +242,130 @@ export function AIChatPanel({
           </div>
         ) : (
           <ul className="space-y-2">
-            {turns.map((t, i) =>
-              // #843: 확인카드 처리 결과 — 말풍선이 아닌 한 줄 시스템 기록.
-              t.role === 'action' ? (
-                <li key={i} data-testid="chat-turn" className="flex">
-                  <ActionResultLine outcome={t.outcome} content={t.content} />
-                </li>
-              ) :
-              // 빈 어시스턴트 턴은 아직 첫 토큰을 받지 않은 상태 — 3-dot 이 대신 렌더되므로 skip.
-              // 단, 위젯이 있으면(show_* 단독 응답) content 가 비어도 위젯을 렌더해야 하므로 skip 안 함(#431).
-              t.role === 'assistant' && t.content === '' && !t.widgets?.length && !t.contentBlocks?.length && !visibleSteps(t.steps ?? []).length ? null : (
-              <li
-                key={i}
-                data-testid="chat-turn"
-                className={cn('flex', t.role === 'assistant' ? 'justify-start' : 'justify-end')}
-              >
-                {t.role === 'assistant' ? (
-                  t.contentBlocks?.length ? (
-                    // #463: 라이브 인터리브 — 블록 도착순으로 text↔widget↔도구 그룹(WP-157) 렌더.
-                    <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
-                      {t.contentBlocks.map((b, bi, blocks) => {
-                        if (b.kind === 'tools') {
-                          // WP-157: 도구 그룹 = steps[stepStart ~ 다음 tools 블록의 stepStart). result 이벤트는 steps 만
-                          // 갱신하므로 상태 전이(실행 중→✓)가 그대로 반영된다. 표시할 단계가 없으면 ToolStepList 가 null.
-                          const [from, to] = sliceRange(blocks, bi);
+            {turns.map((t, i) => (
+              <Fragment key={i}>
+                {/* #843: 확인카드 처리 결과 — 말풍선이 아닌 한 줄 시스템 기록. */}
+                {t.role === 'action' ? (
+                  <li data-testid="chat-turn" className="flex">
+                    <ActionResultLine outcome={t.outcome} content={t.content} />
+                  </li>
+                ) :
+                // 빈 어시스턴트 턴은 아직 첫 토큰을 받지 않은 상태 — 3-dot 이 대신 렌더되므로 skip.
+                // 단, 위젯이 있으면(show_* 단독 응답) content 가 비어도 위젯을 렌더해야 하므로 skip 안 함(#431).
+                t.role === 'assistant' && t.content === '' && !t.widgets?.length && !t.contentBlocks?.length && !visibleSteps(t.steps ?? []).length ? null : (
+                <li
+                  data-testid="chat-turn"
+                  className={cn('flex', t.role === 'assistant' ? 'justify-start' : 'justify-end')}
+                >
+                  {t.role === 'assistant' ? (
+                    t.contentBlocks?.length ? (
+                      // #463: 라이브 인터리브 — 블록 도착순으로 text↔widget↔도구 그룹(WP-157) 렌더.
+                      <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
+                        {t.contentBlocks.map((b, bi, blocks) => {
+                          if (b.kind === 'tools') {
+                            // WP-157: 도구 그룹 = steps[stepStart ~ 다음 tools 블록의 stepStart). result 이벤트는 steps 만
+                            // 갱신하므로 상태 전이(실행 중→✓)가 그대로 반영된다. 표시할 단계가 없으면 ToolStepList 가 null.
+                            const [from, to] = sliceRange(blocks, bi);
+                            return (
+                              <div key={bi} className="self-start" data-testid="chat-block-tools">
+                                <ToolStepList steps={(t.steps ?? []).slice(from, to)} />
+                              </div>
+                            );
+                          }
+                          if (b.kind === 'text') {
+                            // 이 텍스트 블록의 범위 = textStart ~ 다음 text 블록의 textStart(없으면 끝까지).
+                            // 위젯·도구 블록은 오프셋 공간이 달라 범위 계산에서 제외 → 사이 텍스트도 정확 분리.
+                            const [from, to] = sliceRange(blocks, bi);
+                            const text = t.content.slice(from, to);
+                            if (!text.trim()) return null;
+                            return (
+                              <div key={bi} className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground" data-testid="chat-block">
+                                <MarkdownMessage>{text}</MarkdownMessage>
+                              </div>
+                            );
+                          }
+                          const Widget = getChatWidget(b.widget.type);
+                          if (!Widget) return null;
                           return (
-                            <div key={bi} className="self-start" data-testid="chat-block-tools">
-                              <ToolStepList steps={(t.steps ?? []).slice(from, to)} />
+                            <div key={bi} data-testid="chat-block">
+                              <Suspense fallback={<Skeleton className="h-24 w-full" />}>
+                                <Widget params={b.widget.params} />
+                              </Suspense>
                             </div>
                           );
-                        }
-                        if (b.kind === 'text') {
-                          // 이 텍스트 블록의 범위 = textStart ~ 다음 text 블록의 textStart(없으면 끝까지).
-                          // 위젯·도구 블록은 오프셋 공간이 달라 범위 계산에서 제외 → 사이 텍스트도 정확 분리.
-                          const [from, to] = sliceRange(blocks, bi);
-                          const text = t.content.slice(from, to);
-                          if (!text.trim()) return null;
-                          return (
-                            <div key={bi} className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground" data-testid="chat-block">
-                              <MarkdownMessage>{text}</MarkdownMessage>
-                            </div>
-                          );
-                        }
-                        const Widget = getChatWidget(b.widget.type);
-                        if (!Widget) return null;
-                        return (
-                          <div key={bi} data-testid="chat-block">
-                            <Suspense fallback={<Skeleton className="h-24 w-full" />}>
-                              <Widget params={b.widget.params} />
-                            </Suspense>
+                        })}
+                      </div>
+                    ) : t.widgets?.length ? (
+                      // #431: 히스토리/위젯-only 폴백(기존 2-섹션). contentBlocks 없을 때 사용.
+                      <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
+                        {/* 도구 호출 단계 인라인 표시 — 위젯 위에 렌더. 표시 가능 step 이 있을 때만. */}
+                        {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
+                        {t.content && (
+                          <div className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground">
+                            <MarkdownMessage>{t.content}</MarkdownMessage>
                           </div>
-                        );
-                      })}
-                    </div>
-                  ) : t.widgets?.length ? (
-                    // #431: 히스토리/위젯-only 폴백(기존 2-섹션). contentBlocks 없을 때 사용.
-                    <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
-                      {/* 도구 호출 단계 인라인 표시 — 위젯 위에 렌더. 표시 가능 step 이 있을 때만. */}
-                      {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
-                      {t.content && (
-                        <div className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground">
+                        )}
+                        {t.widgets.map((w, wi) => {
+                          const Widget = getChatWidget(w.type);
+                          if (!Widget) return null; // 미등록 위젯 타입은 skip.
+                          return (
+                            <Suspense key={wi} fallback={<Skeleton className="h-24 w-full" />}>
+                              <Widget params={w.params} />
+                            </Suspense>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      // #356: AI 응답은 마크다운 렌더(## ** 표 등 원시 기호 노출 방지).
+                      // AI 답변 블록 — AiLabel(✨ AI)로 AI 생성임을 명시(패널 자체가 AI 맥락이라 아우라 컨테이너는 생략).
+                      // 폭 제약(max-w-[80%])·min-w-0 은 래퍼가 담당 — flex 아이템 기본 min-width:auto 로 무공백 긴 토큰이
+                      // 80% 를 넘겨 가로 오버플로하던 회귀(#202) 방지. 내부 말풍선은 래퍼 폭을 채운다.
+                      <div className="flex min-w-0 max-w-[80%] flex-col gap-0.5">
+                        <AiLabel>AI</AiLabel>
+                        <div className="min-w-0 rounded-2xl bg-muted px-3 py-1.5 text-foreground">
+                          {/* 도구 호출 단계 인라인 표시 — 본문 위에 렌더. 표시 가능 step 이 있을 때만. */}
+                          {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
                           <MarkdownMessage>{t.content}</MarkdownMessage>
                         </div>
+                      </div>
+                    )
+                  ) : t.attachments?.length ? (
+                    // WP-234: 첨부가 있는 사용자 턴 — 시안 5 대로 본문 말풍선을 위에, 첨부(썸네일·문서 카드)를 그 아래에 오른쪽 정렬로 쌓는다.
+                    // 첨부만 보낸 턴은 본문 말풍선 없이 첨부만. 폭 제약은 래퍼가(min-w-0 로 긴 파일명도 넘치지 않게).
+                    <div className="flex min-w-0 max-w-[80%] flex-col items-end gap-1" data-testid="chat-turn-attachments">
+                      {t.content && (
+                        <span className={cn('max-w-full', USER_BUBBLE)} data-testid="chat-user-bubble">
+                          {t.content}
+                        </span>
                       )}
-                      {t.widgets.map((w, wi) => {
-                        const Widget = getChatWidget(w.type);
-                        if (!Widget) return null; // 미등록 위젯 타입은 skip.
-                        return (
-                          <Suspense key={wi} fallback={<Skeleton className="h-24 w-full" />}>
-                            <Widget params={w.params} />
-                          </Suspense>
-                        );
-                      })}
+                      <MessageAttachmentList
+                        attachments={t.attachments}
+                        className="max-w-full items-end"
+                        onDownloadAttachment={(a) => {
+                          // 새 대화 첫 메시지는 응답이 끝나 세션이 정해지기 전까지 원본 경로가 없다.
+                          if (!currentSessionId) return;
+                          void homeApi
+                            .downloadAttachment(currentSessionId, a.fileId, a.originalName)
+                            .catch((e: unknown) => handleApiErrorAsync(e, '첨부를 내려받지 못했습니다'));
+                        }}
+                        // 메인 AI 채팅은 드라이브 링크를 받지 않아 driveLinks·onDownloadDriveLink 를 넘기지 않는다.
+                        renderImage={(a) => <HomeMessageImage sessionId={currentSessionId} attachment={a} />}
+                      />
                     </div>
                   ) : (
-                    // #356: AI 응답은 마크다운 렌더(## ** 표 등 원시 기호 노출 방지).
-                    // AI 답변 블록 — AiLabel(✨ AI)로 AI 생성임을 명시(패널 자체가 AI 맥락이라 아우라 컨테이너는 생략).
-                    // 폭 제약(max-w-[80%])·min-w-0 은 래퍼가 담당 — flex 아이템 기본 min-width:auto 로 무공백 긴 토큰이
-                    // 80% 를 넘겨 가로 오버플로하던 회귀(#202) 방지. 내부 말풍선은 래퍼 폭을 채운다.
-                    <div className="flex min-w-0 max-w-[80%] flex-col gap-0.5">
-                      <AiLabel>AI</AiLabel>
-                      <div className="min-w-0 rounded-2xl bg-muted px-3 py-1.5 text-foreground">
-                        {/* 도구 호출 단계 인라인 표시 — 본문 위에 렌더. 표시 가능 step 이 있을 때만. */}
-                        {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
-                        <MarkdownMessage>{t.content}</MarkdownMessage>
-                      </div>
-                    </div>
-                  )
-                ) : t.attachments?.length ? (
-                  // WP-234: 첨부가 있는 사용자 턴 — 시안 5 대로 본문 말풍선을 위에, 첨부(썸네일·문서 카드)를 그 아래에 오른쪽 정렬로 쌓는다.
-                  // 첨부만 보낸 턴은 본문 말풍선 없이 첨부만. 폭 제약은 래퍼가(min-w-0 로 긴 파일명도 넘치지 않게).
-                  <div className="flex min-w-0 max-w-[80%] flex-col items-end gap-1" data-testid="chat-turn-attachments">
-                    {t.content && (
-                      <span className={cn('max-w-full', USER_BUBBLE)} data-testid="chat-user-bubble">
-                        {t.content}
-                      </span>
-                    )}
-                    <MessageAttachmentList
-                      attachments={t.attachments}
-                      className="max-w-full items-end"
-                      onDownloadAttachment={(a) => {
-                        // 새 대화 첫 메시지는 응답이 끝나 세션이 정해지기 전까지 원본 경로가 없다.
-                        if (!currentSessionId) return;
-                        void homeApi
-                          .downloadAttachment(currentSessionId, a.fileId, a.originalName)
-                          .catch((e: unknown) => handleApiErrorAsync(e, '첨부를 내려받지 못했습니다'));
-                      }}
-                      // 메인 AI 채팅은 드라이브 링크를 받지 않아 driveLinks·onDownloadDriveLink 를 넘기지 않는다.
-                      renderImage={(a) => <HomeMessageImage sessionId={currentSessionId} attachment={a} />}
-                    />
-                  </div>
-                ) : (
-                  <span className={cn('max-w-[80%]', USER_BUBBLE)} data-testid="chat-user-bubble">
-                    {t.content}
-                  </span>
+                    <span className={cn('max-w-[80%]', USER_BUBBLE)} data-testid="chat-user-bubble">
+                      {t.content}
+                    </span>
+                  )}
+                </li>
                 )}
-              </li>
+                {/* WP-190: 정지·오류로 끝난 답변 — 본문 아래 작은 muted 글씨. 라이브 정지·복원(STOPPED/FAILED) 공통. */}
+                {t.role === 'assistant' && t.interrupted && (
+                  <li data-testid="chat-interrupted" className="-mt-1 pl-1 text-xs text-muted-foreground">
+                    {INTERRUPTED_LABEL[t.interrupted]}
+                  </li>
+                )}
+              </Fragment>
             ))}
             {/* #351: 일괄 확인 카드 — 항목별 승인/거부.
                 #843: 항목은 제자리에서 상태만 바뀐다 — 전송 중(스피너·잠금) / 실패(사유 인라인 + AI에게 수정 요청·닫기).
@@ -436,6 +468,30 @@ export function AIChatPanel({
         {...dropProps}
       >
         {isDragging && <ComposerDropOverlay />}
+        {/* WP-190: 다른 대화가 상한만큼 답변 중이면 미리 알린다 — 입력은 가능, 전송만 막힌다(sendBlocked). */}
+        {/* 라이브 리전은 항상 마운트해 둬야 상한 안내가 나타날 때 스크린리더가 읽는다(조건부 마운트는 낭독 누락). */}
+        <div role="status" aria-live="polite">
+          {atLimit && (
+            <div
+              id="chat-limit-notice"
+              data-testid="chat-limit-notice"
+              className="mb-2 flex items-start gap-1.5 rounded-md bg-ai-accent-subtle px-2.5 py-1.5 text-xs text-foreground"
+            >
+              <Sparkles aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ai-accent" />
+              <span className="min-w-0 flex-1">다른 대화 {limit}개가 답변 중이에요. 하나가 끝나면 보낼 수 있어요.</span>
+              {showSessions && (
+                <button
+                  type="button"
+                  onClick={showSessions}
+                  // ::after 로 터치 영역만 44px 이상으로 확장 — 레이아웃 높이는 그대로.
+                  className="relative shrink-0 rounded-sm font-medium after:absolute after:-inset-x-1.5 after:-inset-y-3.5 after:content-[''] text-ai-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                >
+                  대화 목록 보기
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         {/* WP-54: 현재 화면 컨텍스트 칩 — 포함/제외(이번 1회) 상태 + 되돌리기. 상세는 ScreenContextChip. */}
         <ScreenContextChip
           context={screenContext}
@@ -513,7 +569,8 @@ export function AIChatPanel({
               size="icon"
               {...keepFocusProps}
               aria-label="보내기"
-              disabled={!canSend}
+              disabled={!canSend || sendBlocked}
+              aria-describedby={atLimit ? 'chat-limit-notice' : undefined}
               data-testid="chat-send"
               className="h-10 w-10 shrink-0 rounded-full bg-ai-accent text-ai-accent-foreground"
             >
@@ -523,7 +580,8 @@ export function AIChatPanel({
             <Button
               type="submit"
               {...keepFocusProps}
-              disabled={!canSend}
+              disabled={!canSend || sendBlocked}
+              aria-describedby={atLimit ? 'chat-limit-notice' : undefined}
               className="bg-ai-accent text-ai-accent-foreground"
               data-testid="chat-send"
             >

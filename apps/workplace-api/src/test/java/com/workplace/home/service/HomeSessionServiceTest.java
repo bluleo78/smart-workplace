@@ -78,4 +78,16 @@ class HomeSessionServiceTest extends IntegrationTestBase {
 
     assertThat(sessionService.list(u, null, 30).items()).isEmpty();
   }
+
+  /** WP-190: 정지·오류로 끝난 부분 답변은 상태와 함께 저장되고 복원 응답에 실린다. 기존 호출은 COMPLETE. */
+  @Test
+  void 부분_답변_상태를_저장하고_복원_응답에_싣는다() {
+    long u = user("st" + System.nanoTime());
+    HomeSessionResponse s = sessionService.create(u);
+    sessionService.appendMessage(u, s.id(), "USER", "보고서 요약해줘", null, null, null);
+    sessionService.appendMessage(u, s.id(), "ASSISTANT", "요약을 시작하면", null, null, null, "STOPPED");
+
+    List<HomeMessageResponse> msgs = sessionService.getMessages(u, s.id());
+    assertThat(msgs).extracting(HomeMessageResponse::status).containsExactly("COMPLETE", "STOPPED");
+  }
 }

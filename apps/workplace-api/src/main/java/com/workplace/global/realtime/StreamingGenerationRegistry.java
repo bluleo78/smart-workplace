@@ -1,6 +1,8 @@
 package com.workplace.global.realtime;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 import java.util.function.Function;
 import org.springframework.core.task.AsyncTaskExecutor;
 
@@ -34,4 +36,53 @@ public interface StreamingGenerationRegistry {
    * 완료/타임아웃/오탈자) {@link StreamingGenerationNotFoundException} 을 던진다.
    */
   void cancel(String correlationId, long callerId);
+
+  /** 생성 분류 태그(WP-190) — scope 는 도메인(예: "home"), key 는 그 안의 대상(예: 홈 채팅 sessionId). */
+  record GenerationTag(String scope, String key) {}
+
+  /** 진행 중인 태그 생성 1건 — 새로고침·재연결 뒤 웹이 "생성 중" 상태를 복원하는 원천. */
+  record ActiveGeneration(String correlationId, String key, Instant startedAt) {}
+
+  /** 취소 사유 — 사용자 명시 취소와 서버 타임아웃을 구분해 웹에 알린다. */
+  enum CancelReason {
+    USER,
+    TIMEOUT
+  }
+
+  /** reserve 로 잡은 실행 슬롯. correlationId 는 예약 시점에 발급돼 이벤트 봉투에 바로 실을 수 있다. */
+  interface Reservation {
+    String correlationId();
+
+    /** 취소됐다면 그 사유, 아니면 null — 태스크가 종결 이벤트(cancelled reason)를 고를 때 읽는다. */
+    CancelReason cancelReason();
+
+    /**
+     * 슬롯을 반납한다(멱등). 태스크는 종결 이벤트를 내보내기 <b>전에</b> 직접 호출한다 — 이벤트를 받은 클라이언트가 곧바로 같은 대상으로 다시 요청해도 BUSY 로
+     * 막히지 않게. 래퍼의 finally 반납은 안전망이다.
+     */
+    void release();
+  }
+
+  /**
+   * 태그 생성 슬롯을 원자적으로 예약한다(확인 + 등록). 같은 (소유자, scope, key) 가 진행 중이면 BUSY, 소유자의 같은 scope 진행 수가 상한 이상이면
+   * LIMIT 으로 {@link com.workplace.global.exception.StreamingGenerationRejectedException} 을 던진다. 예약
+   * 후 실패하면 호출자가 {@link Reservation#release()} 해야 한다.
+   */
+  Reservation reserve(long ownerUserId, GenerationTag tag, int perUserLimit);
+
+  /**
+   * 예약한 슬롯으로 태스크를 제출하고 타임아웃을 건다. executor 가 거절하면 슬롯을 반납하고 예외를 그대로 던진다.
+   *
+   * @param onAbortedBeforeStart 태스크가 실행되기 전에(큐 대기 중) 취소·타임아웃되면 슬롯 반납 직후 호출된다 — 태스크가 돌지 않아도 종결 이벤트를
+   *     내보내 클라이언트가 "생성 중" 에 갇히지 않게 한다. 취소한 스레드(요청·타임아웃 스케줄러)에서 실행된다.
+   */
+  void launch(
+      Reservation reservation,
+      AsyncTaskExecutor executor,
+      Duration timeout,
+      Runnable task,
+      Runnable onAbortedBeforeStart);
+
+  /** 소유자의 scope 별 진행 중 태그 생성(시작 시각 오름차순). */
+  List<ActiveGeneration> active(long ownerUserId, String scope);
 }

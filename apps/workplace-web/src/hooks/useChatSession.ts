@@ -1,568 +1,190 @@
+// 챗 세션 어댑터(WP-190) — 대화별 스트림 저장소(chatStreams)의 "현재 대화" 칸을 읽고 쓰며, API 호출(시작·취소·복원·확인카드)을 맡는다.
+// AppLayout 레벨에서 1회 생성해 컨텍스트로 공유한다(side/fullscreen/모바일 시트가 같은 상태를 본다). 대화를 옮겨도 진행 중 생성은 끊지 않는다.
 import { useQueryClient } from '@tanstack/react-query';
-import { isAxiosError } from 'axios';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 
 import { homeApi } from '@/api/home';
-import { chatStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQueries';
-import { isVisibleStep, widgetTypeFromToolName } from '@/lib/aiToolLabels';
-import { extractApiError, handleApiError } from '@/lib/api-error';
-import { pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
-import { revokeTurnPreviews, toTurnAttachments, withoutTurnAttachments } from '@/lib/homeChatAttachments';
+import { confirmAllProposalCards, confirmProposalCard, currentTarget, isStaleProposal } from '@/hooks/chatProposals';
+import { resyncActiveChats } from '@/hooks/chatStreamsSync';
+import { homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQueries';
+import { useAuth } from '@/hooks/useAuth';
+import { useChatStreamsSnapshot } from '@/hooks/useChatStreams';
+import { chatStartRejection } from '@/lib/ai/chatErrors';
+import {
+  atLimit,
+  chatStreams,
+  connectChatEvents,
+  currentSessionId,
+  DRAFT_PREFIX,
+  isGenerating,
+  otherActivity,
+  sendBlocked,
+  sessionStatus,
+} from '@/lib/ai/chatStreams';
+import { FAILED_EMPTY, messageToTurn } from '@/lib/ai/chatTurns';
+import { handleApiError } from '@/lib/api-error';
 import type { AiScreenContext } from '@/types/aiScreenContext';
-import type {
-  ActionOutcome,
-  ChatTurn,
-  HomeMessage,
-  PendingAction,
-  ProposalCard,
-  ToolEventDto,
-  ToolStep,
-  TurnAttachment,
-  WidgetSpec,
-  WidgetType,
-} from '@/types/home';
+import type { ChatTurn, PendingAction, ProposalCard, TurnAttachment } from '@/types/home';
 
-/** 생성 중 요청된 대화 전환(WP-191) — 확인창이 결정할 때까지 보류된다. */
-export type SessionSwitch = { kind: 'new' } | { kind: 'select'; id: string };
+const EMPTY_TURNS: ChatTurn[] = [];
+const EMPTY_CARDS: ProposalCard[] = [];
 
-/** #843: 서버 제안 → 화면 카드(대기 상태). */
-const toCards = (actions: PendingAction[]): ProposalCard[] =>
-  actions.map((a) => ({ ...a, phase: 'pending' as const }));
-
-/** #843: ACTION_* 역할 → 결과 종류. */
-const OUTCOME_BY_ROLE: Partial<Record<HomeMessage['role'], ActionOutcome>> = {
-  ACTION_DONE: 'done',
-  ACTION_FAILED: 'failed',
-  ACTION_REJECTED: 'rejected',
-};
-
-/**
- * 영속 메시지 → 화면 턴. 스트리밍 결과·세션 복원이 같은 규칙을 쓴다.
- * #843: ACTION_* 는 사용자 말풍선이 아니라 확인카드 처리 결과 줄(role='action')로 복원한다.
- * WP-158: 서버가 영속한 블록 순서가 있으면 라이브 done 과 같이 위젯 목록으로 재조정해 도착순 렌더를 재현한다.
- */
-function messageToTurn(m: HomeMessage): ChatTurn {
-  // WP-234: 첨부만 보낸 USER 메시지는 content 가 비어(null) 올 수 있다 — 화면 턴은 항상 문자열로 맞춘다
-  // (AIChatPanel 이 content.length·slice 를 바로 쓴다).
-  const content = m.content ?? '';
-  const outcome = OUTCOME_BY_ROLE[m.role];
-  if (outcome) return { role: 'action', outcome, content };
-  return {
-    role: m.role === 'ASSISTANT' ? 'assistant' : 'user',
-    content,
-    // WP-234: 새로고침·세션 복원 후에도 말풍선에 첨부를 다시 그린다.
-    attachments: toTurnAttachments(m),
-    widgets: m.widgets ?? undefined,
-    steps: m.toolCalls ?? undefined,
-    contentBlocks: m.contentBlocks ? reconcileBlocks(m.contentBlocks, m.widgets ?? []) : undefined,
-  };
-}
-
-/** 카드 자체가 무효(이미 처리됨 409 · 없음 404)인지 — 다시 눌러도 소용없으므로 실패로 확정한다. */
-const isStaleProposal = (e: unknown) =>
-  isAxiosError(e) && (e.response?.status === 409 || e.response?.status === 404);
-
-/**
- * 챗 전용 세션 상태 코디네이터 — sessionId / 대화 transcript 를 한 곳에서 전이.
- * (구 홈 세션 훅에서 캔버스 결합을 떼어낸 챗-only 버전. 캔버스/위젯 의존 없음.)
- * AppLayout 레벨에서 1회 생성해 컨텍스트로 공유 — side/fullscreen 패널이 같은 세션을 본다.
- */
 export function useChatSession() {
   const del = useDeleteSession();
   const qc = useQueryClient();
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [turns, setTurns] = useState<ChatTurn[]>([]);
-  // 스트리밍 pending 상태 — 구 AI chat isPending 대체.
-  const [pending, setPendingState] = useState(false);
-  // pending 의 ref 미러 — requestSwitch 가 state 클로저(stale)·재생성 없이 "생성 중?"을 즉시 판단한다.
-  const pendingRef = useRef(false);
-  const setPending = useCallback((v: boolean) => {
-    pendingRef.current = v;
-    setPendingState(v);
-  }, []);
-  // #351: 보류 확인 액션 배열 — 일괄 카드 렌더. 단건도 길이1 배열로 관리.
-  // #843: 카드마다 진행 상태(pending/submitting/failed)를 함께 들고 있어, 실패해도 제자리에서 사유를 보여준다.
-  const [pendingActions, setPendingActions] = useState<ProposalCard[]>([]);
-  // '새 대화' 전이 신호(nonce) — newSession() 호출마다 증가. 패널 로컬 입력(미전송 초안)을
-  // effect 로 비우기 위한 트리거. 신선한(아직 chat 안 한) 세션에서 sessionId/turns 는
-  // 이미 빈 값이라 prop 변화가 패널에 보이지 않으므로, 명시적 카운터로 전이를 전달한다(#204).
-  const [newSessionNonce, setNewSessionNonce] = useState(0);
-  // WP-234: 입력창 첨부 초안 초기화 신호 — 실제 대화 전환(새 대화·세션 복원)에서만 증가한다.
-  // currentSessionId 변화로 판단하면 새 대화의 첫 응답이 끝나 id 가 null→값으로 바뀔 때도 초안이 지워진다.
-  // 보류 전환([기다리기])은 실행되는 시점(newSession/restoreSession 호출)에 증가한다.
-  const [attachmentResetNonce, setAttachmentResetNonce] = useState(0);
-  // 작업 세대 카운터 — 사용자 전이(chat/새세션/복원)마다 증가. 비동기 결과는
-  // 자신이 캡처한 세대가 여전히 최신일 때만 반영(in-flight AI chat 과 세션 전환의 레이스로
-  // stale 응답이 복원/리셋 상태를 덮어쓰는 것 방지).
-  const opSeq = useRef(0);
-  // sessionId ref — submitQuery 의 클로저에서 최신 sessionId 를 읽기 위한 미러.
-  // setSessionId(state) 는 비동기이므로 클로저 캡처 시 stale 값을 참조할 수 있다.
-  const sessionIdRef = useRef<string | null>(null);
-  // 진행 중인 SSE 스트림의 AbortController — newSession/restoreSession 시 취소.
-  const abortRef = useRef<AbortController | null>(null);
-  // WP-191: 생성 중 요청된 전환 — 화면(확인창) 표시용 state + 비동기 완료 경로에서 읽는 ref 미러.
-  const [heldSwitch, setHeldSwitchRaw] = useState<SessionSwitch | null>(null);
-  // [기다리기]를 눌러 확인창만 닫은 상태 — 패널이 언마운트(시트 닫힘·모드 전환)돼도 잃지 않도록 보류와 함께 여기서 든다.
-  const [heldDismissed, setHeldDismissed] = useState(false);
-  // 보류를 바꿀 때마다 닫힘 표시를 되돌린다 — 새 요청은 확인창을 다시 열고, 해제되면 표시도 사라진다.
-  const setHeldSwitch = useCallback((s: SessionSwitch | null) => {
-    setHeldSwitchRaw(s);
-    setHeldDismissed(false);
-  }, []);
-  const heldRef = useRef<SessionSwitch | null>(null);
-  // 보류 비우기 — ref 와 state 미러를 항상 함께 지운다(여러 경로에서 쌍으로 복붙하던 것을 한 곳으로).
-  const clearHeld = useCallback(() => {
-    heldRef.current = null;
-    setHeldSwitch(null);
-  }, [setHeldSwitch]);
-  // 보류 전환 실행기 — newSession/restoreSession 이 아래에서 정의되므로 effect 에서 최신 함수로 채운다.
-  const releaseHeldRef = useRef<() => void>(() => {});
+  const { user, activeTenant } = useAuth();
+  const snap = useChatStreamsSnapshot();
+  // 사용자·워크스페이스가 바뀌면 저장소를 비운다(R15) — 대화는 테넌트별이다.
+  const ownerKey = user ? `${user.id}:${activeTenant?.tenantId ?? 0}` : null;
 
-  // sessionIdRef 를 sessionId state 와 동기화하는 헬퍼.
-  const updateSessionId = useCallback((id: string | null) => {
-    sessionIdRef.current = id;
-    setSessionId(id);
+  // 서버 이력으로 칸 채우기 — 복원과 자리표시 종결 재조회가 공용. #843: 카드 조회 실패는 이력 복원을 막지 않는다.
+  const reload = useCallback(async (id: string) => {
+    try {
+      const [{ data }, proposals] = await Promise.all([
+        homeApi.sessionMessages(id),
+        homeApi.sessionProposals(id).then((r) => r.data).catch(() => [] as PendingAction[]),
+      ]);
+      chatStreams.load(id, data.map(messageToTurn), proposals);
+    } catch (err) {
+      handleApiError(err, '세션을 불러오지 못했습니다');
+    }
   }, []);
 
-  // 챗 명령 → SSE AI chat. 빈 assistant 턴을 먼저 추가하고,
-  // delta 마다 마지막 턴의 content 에 누적 → done 에서 sessionId 확정.
-  // WP-54: screenContext — 패널 칩이 활성일 때만 넘어오는 현재 화면 컨텍스트(없으면 요청 본문에서 키 생략).
-  // WP-234: attachments — 이번 메시지 첨부(낙관적 턴 표시용, 미리보기 포함). 반환 Promise 는 서버가 요청을
-  // 받아들였는지(true) — 패널이 그때만 첨부 초안을 비운다(거절 400 이면 칩을 남겨 사유를 보고 고칠 수 있게).
+  useEffect(() => {
+    chatStreams.setOwner(ownerKey);
+    if (ownerKey) void resyncActiveChats();
+  }, [ownerKey]);
+  useEffect(() => {
+    chatStreams.setEffects({
+      sessionsChanged: () => void qc.invalidateQueries({ queryKey: homeKeys.sessions() }),
+      refetch: (id) => void reload(id),
+    });
+  }, [qc, reload]);
+  // home.chat.* 는 저장소가 한 곳에서 구독한다(요청마다 붙였다 떼지 않음).
+  useEffect(() => connectChatEvents(chatStreams), []);
+
+  /**
+   * 질문 전송. 낙관적으로 두 턴을 붙이고 POST → correlationId 를 칸에 등록한다.
+   * WP-234: attachments — 이번 메시지 첨부(낙관적 사용자 턴에 미리보기와 함께 붙이고, fileIds 로 POST 본문에 싣는다).
+   * @returns 서버가 요청을 받아들였는지. false(409·429·400·네트워크 오류 등)면 패널이 입력·첨부 초안을 되돌린다(R17·WP-234).
+   */
   const submitQuery = useCallback(
-    (query: string, screenContext?: AiScreenContext, attachments?: TurnAttachment[]): Promise<boolean> => {
-      const gen = ++opSeq.current;
+    async (query: string, screenContext?: AiScreenContext, attachments?: TurnAttachment[]): Promise<boolean> => {
+      const { key, gen, userTurn } = chatStreams.startTurn(query, attachments);
+      const sessionId = key.startsWith(DRAFT_PREFIX) ? null : key;
       const fileIds = attachments?.map((a) => a.fileId) ?? [];
-      // 사용자 턴 + 빈 어시스턴트 턴을 즉시 추가 — 빈 어시스턴트 턴이 있을 때만 3-dot 표시.
-      // 낙관적 사용자 턴은 객체를 붙들어 둔다 — 거절되면 이 턴에서 첨부를 뗀다(동일성으로 찾음).
-      const userTurn: ChatTurn = { role: 'user', content: query, ...(attachments?.length ? { attachments } : {}) };
-      setTurns((t) => [...t, userTurn, { role: 'assistant', content: '' }]);
-      // 수락 신호 — onStarted 에서 true, 그 전에 실패·중단으로 끝나면 finally 에서 false(먼저 정해진 값이 남는다).
-      let wasAccepted = false;
-      let settleAccepted!: (accepted: boolean) => void;
-      const accepted = new Promise<boolean>((resolve) => {
-        settleAccepted = resolve;
-      });
-      const ac = new AbortController();
-      abortRef.current = ac;
-      setPending(true);
-      setPendingActions([]);      // #351: 새 제출 — 이전 확인 카드 배열 폐기
-      chatStream(
-        {
-          sessionId: sessionIdRef.current,
+      try {
+        // WP-54: screenContext 는 있을 때만 키를 싣는다. WP-234: fileIds 도 있을 때만(없는 요청은 기존 본문과 동일).
+        const { data } = await homeApi.startChat({
+          sessionId,
           query,
           ...(screenContext ? { screenContext } : {}),
           ...(fileIds.length ? { fileIds } : {}),
-        },
-        (delta) => {
-          // stale 세대(newSession/restore 가 끼어든 경우)면 델타를 버린다.
-          if (opSeq.current !== gen) return;
-          setTurns((t) => {
-            const next = [...t];
-            const last = next[next.length - 1];
-            if (!last || last.role !== 'assistant') return t; // 방어 — turns 가 리셋된 경우 skip.
-            // ...last 로 steps/widgets 등 기존 필드 보존 — delta 가 turn 을 통째 교체하면
-            // 도구 호출 단계(steps)가 최종 응답 도착 순간 사라진다(#449).
-            // #463: 텍스트 블록 누적 — 직전 블록이 text 가 아닐 때만 새 블록 추가(현재 content 길이=슬라이스 오프셋).
-            const contentBlocks = pushTextBlock(last.contentBlocks ?? [], last.content.length);
-            next[next.length - 1] = { ...last, content: last.content + delta, contentBlocks };
-            return next;
-          });
-        },
-        ac.signal,
-        (label) => {
-          // #333 M2: stale 세대면 무시(델타와 동일 가드). 위임 진행 라벨을 마지막 어시스턴트 턴의
-          // steps 에 delegation 단계로 추가 — ToolStepList 가 버블 안에 중첩 렌더.
-          if (opSeq.current !== gen) return;
-          setTurns((t) => {
-            const next = [...t];
-            const last = next[next.length - 1];
-            if (last?.role !== 'assistant') return t;
-            const prev = last.steps ?? [];
-            const steps = [...prev, { kind: 'delegation' as const, label }];
-            // WP-157: 도착 위치에 도구 그룹 블록을 남겨 텍스트 사이에 순서대로 렌더한다.
-            const contentBlocks = pushToolsBlock(last.contentBlocks ?? [], prev.length);
-            next[next.length - 1] = { ...last, steps, contentBlocks };
-            return next;
-          });
-        },
-        (actions, sid) => {
-          // #351: 보류 확인 액션들 수신 — 일괄 카드로 렌더.
-          if (opSeq.current !== gen) return;
-          // #843: 새 세션이면 sessionId 가 done 에서야 오는데 카드는 그보다 먼저 온다 — 여기서 세션을 확정해
-          // done 전에 승인해도 결과가 올바른 세션에 기록·복원되게 한다.
-          if (sid && !sessionIdRef.current) updateSessionId(sid);
-          setPendingActions(toCards(actions));
-        },
-        (evt: ToolEventDto) => {
-          // tool SSE 이벤트 — start: running step 추가, result: 상태 갱신(done/error).
-          if (opSeq.current !== gen) return;
-          setTurns((t) => {
-            const next = [...t];
-            const last = next[next.length - 1];
-            if (last?.role !== 'assistant') return t;
-            const steps = [...(last.steps ?? [])];
-            // #461: 점진 렌더 — show_* 도구는 done 을 기다리지 않고 도착 즉시 위젯을 누적해
-            // 인라인 렌더한다(체감 지연 단축). done 이벤트가 최종 위젯 목록으로 덮어쓰므로
-            // (authoritative) 여기 누적은 조기 표시용이며 같은 순서·내용이라 깜빡임이 없다.
-            let widgets = last.widgets;
-            // #463: contentBlocks — 위젯 도착 시 pushWidgetBlock 으로 도착순 인터리브 유지.
-            let contentBlocks = last.contentBlocks ?? [];
-            if (evt.phase === 'start') {
-              const step: ToolStep = { kind: 'tool', seq: evt.seq, toolName: evt.toolName, args: evt.args, status: 'running' };
-              // WP-157: 표시되는 단계만 그룹 블록을 연다 — 숨김 도구(show_* 등)가 빈 풍선을 만들거나 텍스트를 끊지 않게.
-              if (isVisibleStep(step)) contentBlocks = pushToolsBlock(contentBlocks, steps.length);
-              steps.push(step);
-              const wtype = evt.toolName ? widgetTypeFromToolName(evt.toolName) : null;
-              if (wtype) {
-                const w: WidgetSpec = {
-                  type: wtype as WidgetType,
-                  params: (evt.args?.params as Record<string, unknown>) ?? {},
-                };
-                const layout = evt.args?.layout as WidgetSpec['layout'] | undefined;
-                if (layout) w.layout = layout;
-                widgets = [...(last.widgets ?? []), w];
-                // #463: 위젯 블록을 도착순으로 누적(텍스트 사이에 위젯이 오는 인터리브 지원).
-                contentBlocks = pushWidgetBlock(contentBlocks, w);
-              }
-            } else {
-              const idx = steps.findIndex((s) => s.kind === 'tool' && s.seq === evt.seq && s.status === 'running');
-              if (idx !== -1) steps[idx] = { ...steps[idx], status: evt.isError ? 'error' : 'done' };
-            }
-            next[next.length - 1] = { ...last, steps, widgets, contentBlocks };
-            return next;
-          });
-        },
-        // WP-234: POST /ai/chat 수락 — 패널이 보낸 첨부를 초안에서 뺀다.
-        () => {
-          wasAccepted = true;
-          settleAccepted(true);
-        },
-      )
-        .then((r) => {
-          if (opSeq.current !== gen) return; // stale 세대 폐기
-          // #431: done 이벤트의 위젯을 마지막 어시스턴트 턴에 부착 — 챗 도크가 인라인 렌더.
-          // show_* 단독 응답은 content 가 빈 문자열이므로, 위젯이 있으면 빈 버블 대신 위젯이 보인다.
-          // #463 I1: done.widgets(서버 #404 필터 후)가 있을 때만 authoritative 로 widgets 갱신 +
-          //   contentBlocks 의 widget 블록 재조정(필터된 위젯 제거). done.widgets 가 비어 있으면
-          //   라이브 tool 이벤트로 누적된 위젯을 보존한다(#461 점진 렌더 — done 이 위젯을 늦게/안 줘도 표시).
-          //   프로덕션에선 라이브 위젯이 항상 done.widgets 에 포함되므로(compose-parser 수집),
-          //   빈 done.widgets 는 '전부 필터' edge 뿐 — 그 경우만 라이브 잔존(reload 시 자가복구).
-          if (r.widgets && r.widgets.length > 0) {
-            const authoritative = r.widgets;
-            setTurns((t) => {
-              const next = [...t];
-              const last = next[next.length - 1];
-              if (last?.role !== 'assistant') return t; // 방어 — turns 리셋된 경우 skip.
-              const contentBlocks = last.contentBlocks
-                ? reconcileBlocks(last.contentBlocks, authoritative)
-                : last.contentBlocks;
-              next[next.length - 1] = { ...last, widgets: authoritative, contentBlocks };
-              return next;
-            });
-          }
-          if (r.sessionId) {
-            updateSessionId(r.sessionId);
-            // 새 세션 생성 / 마지막 메시지 시각 갱신을 세션 스위처 목록에 반영.
-            void qc.invalidateQueries({ queryKey: homeKeys.sessions() });
-          }
-        })
-        .catch((e: unknown) => {
-          // AbortError 는 의도적 취소이므로 무시, 그 외는 토스트 + 에러 버블 표시.
-          if ((e as Error).name !== 'AbortError') {
-            handleApiError(e, 'AI 구성에 실패했습니다');
-            // 빈 어시스턴트 턴(로딩 중)을 에러 안내 텍스트로 교체 — 사용자가 상황 파악·재시도 가능.
-            setTurns((t) => {
-              const next = [...t];
-              const last = next[next.length - 1];
-              if (last?.role === 'assistant' && last.content === '') {
-                next[next.length - 1] = {
-                  role: 'assistant',
-                  content: '응답 생성에 실패했습니다. 다시 시도해 주세요.',
-                };
-              }
-              return next;
-            });
-          }
-        })
-        .finally(() => {
-          settleAccepted(false); // 수락 전에 끝났으면 거절로 확정(이미 true 면 무시된다)
-          // WP-234: 서버가 받지 않은 전송이면 낙관적 턴의 첨부를 뗀다 — 초안 칩이 남아 재전송되므로
-          // 보낸 것처럼 보이거나 세션 30개 계산에 이중으로 잡히면 안 된다. 미리보기 URL 은 초안 소유라 해제하지 않는다.
-          // 세대 확인 대신 객체 동일성으로 찾는다(중단 뒤 늦은 거절도 처리, 대화가 바뀌었으면 아무것도 안 함).
-          if (!wasAccepted && attachments?.length) setTurns((t) => withoutTurnAttachments(t, userTurn));
-          if (opSeq.current === gen) {
-            setPending(false);
-            // WP-191: 생성이 끝나면 보류해 둔 전환을 실행한다(확인창에서 [기다리기]를 고른 경우 포함).
-            releaseHeldRef.current();
-          }
         });
-      return accepted;
+        const { cancelNow } = chatStreams.attach(key, gen, data.correlationId, data.sessionId);
+        if (cancelNow) void homeApi.cancelChat(data.correlationId).catch(() => {});
+        // 새 세션을 목록에 바로 보인다(생성 중 상태 문구를 붙일 행이 필요).
+        if (!sessionId) void qc.invalidateQueries({ queryKey: homeKeys.sessions() });
+        return true;
+      } catch (e) {
+        const rejection = chatStartRejection(e);
+        // 서버가 받지 않았다 — 낙관적 사용자 턴의 첨부도 뗀다(WP-234: 보낸 것처럼 보이거나 세션 30개 계산에 이중으로 잡히지 않게).
+        chatStreams.failStart(key, gen, rejection ? null : FAILED_EMPTY, userTurn);
+        if (rejection) {
+          if (rejection === 'busy') toast.error('이 대화는 아직 답변 중이에요');
+          // limit: 입력창 위 상한 안내가 재동기화 결과로 뜬다.
+          void resyncActiveChats();
+        } else {
+          handleApiError(e, 'AI 구성에 실패했습니다');
+        }
+        return false;
+      }
     },
-    [qc, updateSessionId, setPending],
+    [qc],
   );
 
-  // #335: 스트리밍 중단 — 사용자가 진행 중인 AI 응답을 멈춘다.
-  // abort() 가 SSE fetch 를 끊으면 ai-agent 가 연결 종료를 감지해 Claude CLI 자식을 SIGTERM 한다.
-  // opSeq 를 증가시켜 늦게 도착하는 델타/진행/액션을 stale 로 차단하고(부분 응답 오염 방지),
-  // 누적된 부분 응답은 turns 에 그대로 남겨 '커밋'한다(새로고침 전까지 화면 보존).
+  // #335: 현재 대화의 생성만 멈춘다 — 부분 답변은 칸에 남고, 서버가 STOPPED 로 저장한다.
   const stopStreaming = useCallback(() => {
-    if (!abortRef.current) {
-      // 진행 중 스트림이 없어도 보류 전환은 실행한다(WP-191).
-      releaseHeldRef.current();
-      return;
-    }
-    opSeq.current++;
-    abortRef.current.abort();
-    abortRef.current = null;
-    setPending(false);
-    releaseHeldRef.current(); // WP-191: [중단하고 이동] — 중단 직후 보류 전환 실행
-    setPendingActions([]); // #351: 중단 시 확인 카드 배열 폐기
-    // 첫 토큰 전 중단이면 빈 어시스턴트 말풍선만 남으므로 중단 안내 문구로 대체한다.
-    setTurns((t) => {
-      const next = [...t];
-      const last = next[next.length - 1];
-      if (last?.role === 'assistant' && last.content === '') {
-        next[next.length - 1] = { role: 'assistant', content: '응답을 중단했어요.' };
-      }
-      return next;
-    });
-  }, [setPending]);
+    const key = chatStreams.getSnapshot().currentKey;
+    if (!key) return;
+    const cid = chatStreams.stopLocal(key);
+    if (cid) void homeApi.cancelChat(cid).catch(() => {});
+  }, []);
 
-  // 새 세션 — 로컬 리셋만(POST 안 함; 첫 chat 이 서버에서 세션 생성). in-flight 작업 무효화.
-  // opts.keepDraft: 보류됐던 '새 대화'를 나중에 실행하는 경로 전용 — 기다리는 동안 사용자가 입력한
-  // 다음 질문(초안)을 지우지 않도록 초안 초기화 신호(nonce)를 발행하지 않는다.
-  // 직접/즉시 새 대화는 옵션 없이 호출돼 종전대로 초안을 비운다(#204).
-  const newSession = useCallback((opts?: { keepDraft?: boolean }) => {
-    // WP-191: 어떤 실제 전환이든 보류를 취소한다(삭제 등으로 직접 호출돼도 옛 보류가 나중에 튀어나오지 않게).
-    // releaseHeld 는 호출 전에 이미 비우므로 1회 실행 보장은 유지된다.
-    clearHeld();
-    opSeq.current++;
-    // in-flight SSE 스트림 취소 — 취소 후 stale 델타가 빈 turns 배열에 접근하는 것 방지.
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setPending(false);
-    setPendingActions([]); // #351: 새 세션 시 확인 카드 배열 초기화
-    updateSessionId(null);
-    // WP-234: 이전 턴들이 들고 있던 이미지 미리보기 URL 을 해제하며 비운다.
-    setTurns((prev) => {
-      revokeTurnPreviews(prev);
-      return [];
-    });
-    // '새 대화'는 깨끗한 빈 입력으로 시작해야 하므로 패널 로컬 입력·첨부 초안 초기화 신호 발행(#204, WP-234).
-    // keepDraft(보류 해제)는 기다리는 동안 입력·첨부한 다음 질문을 보존한다.
-    if (!opts?.keepDraft) {
-      setNewSessionNonce((n) => n + 1);
-      setAttachmentResetNonce((n) => n + 1);
-    }
-  }, [updateSessionId, clearHeld, setPending]);
+  // 새 대화 — 진행 중 생성은 그대로 두고 현재 칸만 비운다(WP-191 확인창 제거).
+  const newSession = useCallback(() => chatStreams.newConversation(), []);
 
-  // 복원 — 메시지 fetch → transcript 재현(AI 재호출 없음, 위젯 fold 없음).
+  // 대화 선택 — 칸이 있으면 그대로(생성 중이면 스트리밍이 이어 보인다), 없으면 서버에서 읽는다(R14).
+  // 칸은 있어도 이력이 아직이면(복원 조회 전에 보낸 질문이 만든 칸·그 조회 실패) 다시 읽는다 — load 가 라이브 턴 앞에 붙인다.
   const restoreSession = useCallback(
     async (id: string) => {
-      clearHeld(); // WP-191: 실제 전환은 보류를 취소한다(newSession 과 동일)
-      const gen = ++opSeq.current;
-      // in-flight SSE 스트림 취소 — 복원된 세션에 구 스트림 델타가 섞이는 것 방지.
-      abortRef.current?.abort();
-      abortRef.current = null;
-      setPending(false);
-      setPendingActions([]); // #351: 세션 복원 시 확인 카드 배열 초기화
-      setAttachmentResetNonce((n) => n + 1); // WP-234: 다른 대화로 옮기면 첨부 초안은 비운다(세션 30개 상한도 대화별).
-      try {
-        // #843: 미처리 확인카드도 서버에 영속되므로 메시지와 함께 복원한다. 카드 조회가 실패해도 대화 이력 복원은
-        // 막지 않는다(카드는 부가 정보 — 없으면 카드 없이 보여주는 편이 세션을 못 여는 것보다 낫다).
-        const [{ data }, proposals] = await Promise.all([
-          homeApi.sessionMessages(id),
-          homeApi
-            .sessionProposals(id)
-            .then((r) => r.data)
-            .catch(() => [] as PendingAction[]),
-        ]);
-        // fetch 중 더 최신 전이가 있었으면 폐기.
-        if (opSeq.current !== gen) return;
-        // #431: 복원 시에도 ASSISTANT 위젯을 함께 재현(서버가 widgets 영속) — 빈 버블 방지.
-        // toolCalls → steps 매핑: 서버가 영속한 도구 호출 단계를 인라인 표시로 복원.
-        updateSessionId(id);
-        setTurns((prev) => {
-          revokeTurnPreviews(prev);
-          return data.map(messageToTurn);
-        });
-        setPendingActions(toCards(proposals));
-      } catch (err) {
-        handleApiError(err, '세션을 불러오지 못했습니다');
-      }
+      chatStreams.select(id);
+      if (!chatStreams.hasHistory(id)) await reload(id);
     },
-    [updateSessionId, clearHeld, setPending],
+    [reload],
   );
 
-  // #843: 카드 상태 갱신 헬퍼 — 카드는 제자리에 머물고 phase/error 만 바뀐다(예전의 제거→끝에 재삽입 제거).
-  const patchCard = useCallback((id: number, patch: Partial<ProposalCard>) => {
-    setPendingActions((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-  }, []);
-  const removeCard = useCallback((id: number) => {
-    setPendingActions((prev) => prev.filter((c) => c.id !== id));
-  }, []);
-
-  /**
-   * #843: 단일 카드 승인. 서버가 성공·실패를 모두 대화 이력에 기록하고 그 메시지를 돌려주므로, 결과 줄을 transcript 에
-   * 붙인다(다음 턴 AI 도 같은 기록을 본다). 성공이면 카드 제거, 실패면 카드에 사유 표시.
-   * 네트워크 오류처럼 서버가 판정하지 못한 경우만 대기 상태로 되돌려 다시 누를 수 있게 한다.
-   *
-   * @returns 결과 종류 — "모두 승인" 집계용. 세대가 바뀌어 반영하지 않았으면 null.
-   */
-  const confirmActionItem = useCallback(
-    async (card: ProposalCard): Promise<ActionOutcome | null> => {
-      if (card.phase !== 'pending') return null; // 중복 클릭 방지 — submitting·failed 카드는 무시.
-      const gen = opSeq.current;
-      patchCard(card.id, { phase: 'submitting', error: undefined });
-      try {
-        const { data } = await homeApi.confirmProposal(card.id);
-        // 새 질문·세션 전환이 끼어들었으면 transcript 가 바뀌었으므로 반영하지 않는다(서버엔 이미 기록됨).
-        if (opSeq.current !== gen) return null;
-        setTurns((t) => [...t, messageToTurn(data.message)]);
-        if (data.proposal.status === 'DONE') {
-          removeCard(card.id);
-          return 'done';
-        }
-        patchCard(card.id, {
-          phase: 'failed',
-          error: data.proposal.errorMessage ?? '처리하지 못했습니다',
-        });
-        return 'failed';
-      } catch (e) {
-        if (opSeq.current !== gen) return null;
-        if (isStaleProposal(e)) {
-          patchCard(card.id, { phase: 'failed', error: extractApiError(e, '이미 처리된 확인 카드입니다') });
-        } else {
-          patchCard(card.id, { phase: 'pending' });
-          handleApiError(e, '승인 요청을 보내지 못했습니다');
-        }
-        return 'failed';
-      }
+  // 삭제 — 생성 중이면 먼저 취소해 슬롯을 비우고(지운 대화에 답변 저장 시도 방지), 성공하면 칸을 잊는다.
+  const deleteSession = useCallback(
+    (id: string) => {
+      const s = chatStreams.getSnapshot();
+      const cid = isGenerating(s, id) ? (s.active.get(id) ?? s.entries.get(id)?.correlationId ?? null) : null;
+      const remove = () => del.mutate(id, { onSuccess: () => chatStreams.forget(id) });
+      // 취소 후 삭제(스펙 §4) — 취소 실패(이미 끝남 등)여도 삭제는 진행한다.
+      if (cid) void homeApi.cancelChat(cid).catch(() => {}).finally(remove);
+      else remove();
     },
-    [patchCard, removeCard],
+    [del],
   );
 
-  /**
-   * #843: "모두 승인" — 대기 카드를 카드 순서대로 하나씩 승인하고(결과 줄 순서 = 카드 순서, 앞 작업에 의존하는 제안의 경합 방지),
-   * 실패가 섞였으면 토스트 1건으로 집계한다(예전엔 병렬 호출로 토스트가 건마다 쌓였다).
-   */
-  const confirmAllActionItems = useCallback(async () => {
-    const targets = pendingActions.filter((c) => c.phase === 'pending');
-    let failed = 0;
-    for (const card of targets) {
-      const outcome = await confirmActionItem(card);
-      if (outcome === null) return; // 세대 전이 — 나머지도 반영 불가
-      if (outcome === 'failed') failed++;
+  // #843: 승인 — 클릭 시점의 대화를 잡아 결과를 그 대화에만 붙인다(대화를 옮겨도 다른 대화로 새지 않게, chatProposals).
+  const confirmActionItem = useCallback((card: ProposalCard) => confirmProposalCard(card, currentTarget()), []);
+  const confirmAllActionItems = useCallback(() => confirmAllProposalCards(currentTarget()), []);
+
+  /** #843: 거부 — 대기 카드는 서버에 REJECTED 기록 후 결과 줄, 실패 카드는 닫기만. */
+  const dismissActionItem = useCallback(async (card: ProposalCard) => {
+    const at = currentTarget();
+    if (!at) return;
+    if (card.phase === 'failed') {
+      chatStreams.removeCard(at.key, at.gen, card.id);
+      return;
     }
-    // 개수만 알린다 — 사유는 카드 인라인·결과 줄에 이미 있다(중복 표시 금지).
-    if (failed > 0) toast.error(`${targets.length}건 중 ${failed}건을 처리하지 못했어요`);
-    else toast.success(`${targets.length}건을 모두 처리했어요`);
-  }, [pendingActions, confirmActionItem]);
+    if (card.phase !== 'pending') return;
+    chatStreams.patchCard(at.key, at.gen, card.id, { phase: 'submitting' });
+    try {
+      const { data } = await homeApi.rejectProposal(card.id);
+      if (!chatStreams.appendTurn(at.key, at.gen, messageToTurn(data.message))) return;
+      chatStreams.removeCard(at.key, at.gen, card.id);
+    } catch (e) {
+      if (isStaleProposal(e)) chatStreams.removeCard(at.key, at.gen, card.id);
+      else chatStreams.patchCard(at.key, at.gen, card.id, { phase: 'pending' });
+      handleApiError(e, '거부 요청을 보내지 못했습니다');
+    }
+  }, []);
 
-  /**
-   * #843: 거부 — 대기 카드는 서버에 REJECTED 로 기록(AI 가 같은 제안을 반복하지 않도록)하고 결과 줄을 붙인다.
-   * 실패(failed) 카드는 이미 종결 상태라 서버 호출 없이 닫기만 한다.
-   */
-  const dismissActionItem = useCallback(
-    async (card: ProposalCard) => {
-      if (card.phase === 'failed') {
-        removeCard(card.id);
-        return;
-      }
-      if (card.phase !== 'pending') return;
-      const gen = opSeq.current;
-      patchCard(card.id, { phase: 'submitting' });
-      try {
-        const { data } = await homeApi.rejectProposal(card.id);
-        if (opSeq.current !== gen) return;
-        setTurns((t) => [...t, messageToTurn(data.message)]);
-        removeCard(card.id);
-      } catch (e) {
-        if (opSeq.current !== gen) return;
-        if (isStaleProposal(e)) {
-          removeCard(card.id);
-        } else {
-          patchCard(card.id, { phase: 'pending' });
-        }
-        handleApiError(e, '거부 요청을 보내지 못했습니다');
-      }
-    },
-    [patchCard, removeCard],
-  );
-
-  /**
-   * #843: 실패 카드 → "AI에게 수정 요청". 같은 파라미터 재시도는 반드시 다시 실패하므로 재시도 버튼 대신 AI 에게 고쳐 달라고 한다.
-   * 실패 사유는 이미 대화 이력([승인 결과])에 있어 AI 가 그대로 참고한다.
-   */
+  /** #843: 실패 카드 → AI 에게 사유를 반영해 다시 제안 요청(화면 컨텍스트 없이). */
   const requestProposalFix = useCallback(
     (card: ProposalCard) => {
-      // WP-54: 실패 카드 재제안은 화면과 무관 — 화면 컨텍스트 없이 보낸다.
       void submitQuery(`「${card.summary}」 승인이 실패했어요. 실패 사유를 반영해서 다시 제안해 줘.`);
     },
     [submitQuery],
   );
 
-  // 삭제 — 활성 세션이면 새 세션으로 리셋.
-  const deleteSession = useCallback(
-    (id: string) => {
-      // 보류된 전환의 대상을 지우려 하면 삭제 요청 시점에 보류를 버린다(나중에 없는 대화를 복원하려 하지 않게).
-      // onSuccess 까지 미루면 삭제 응답보다 답변 완료가 먼저 와 방금 지운 대화로 전환되는 경합이 생긴다.
-      const h = heldRef.current;
-      if (h?.kind === 'select' && h.id === id) {
-        clearHeld();
-      }
-      del.mutate(id, {
-        onSuccess: () => {
-          if (id === sessionId) newSession();
-        },
-      });
-    },
-    [del, sessionId, newSession, clearHeld],
-  );
-
-  // WP-191: 보류 전환 실행기 — 실행 직전 비워 중복 실행을 막는다(완료·중단이 겹쳐도 1회).
-  useEffect(() => {
-    releaseHeldRef.current = () => {
-      const s = heldRef.current;
-      if (!s) return;
-      clearHeld();
-      if (s.kind === 'new') newSession({ keepDraft: true }); // 보류 해제: 그 사이 입력한 초안 보존
-      else void restoreSession(s.id);
-    };
-  }, [newSession, restoreSession, clearHeld]);
-
-  // 생성 중이면 보류(확인창), 아니면 즉시 전환.
-  const requestSwitch = useCallback(
-    (s: SessionSwitch) => {
-      if (!pendingRef.current) {
-        if (s.kind === 'new') newSession();
-        else void restoreSession(s.id);
-        return;
-      }
-      heldRef.current = s;
-      setHeldSwitch(s);
-    },
-    [newSession, restoreSession, setHeldSwitch],
-  );
-  const requestNewSession = useCallback(() => requestSwitch({ kind: 'new' }), [requestSwitch]);
-  const requestSelectSession = useCallback((id: string) => requestSwitch({ kind: 'select', id }), [requestSwitch]);
-  // [기다리기] — 확인창만 닫고 보류는 유지(생성이 끝나면 실행). 닫힘 표시는 여기서 들어 재오픈해도 다시 뜨지 않는다.
-  const dismissHeldSwitch = useCallback(() => setHeldDismissed(true), []);
-
+  const entry = snap.currentKey ? snap.entries.get(snap.currentKey) : undefined;
   return {
-    // 확인창 표시 여부 — 보류가 있고 [기다리기]로 닫지 않았을 때.
-    guardOpen: heldSwitch != null && !heldDismissed,
-    dismissHeldSwitch,
-    requestNewSession,
-    requestSelectSession,
-    sessionId,
-    turns,
-    newSessionNonce,
-    attachmentResetNonce,
-    pending,
-    pendingActions,
+    sessionId: currentSessionId(snap),
+    turns: entry?.turns ?? EMPTY_TURNS,
+    pending: entry?.pending ?? false,
+    pendingActions: entry?.pendingActions ?? EMPTY_CARDS,
+    newSessionNonce: snap.newSessionNonce,
+    attachmentResetNonce: snap.attachmentResetNonce,
+    limit: snap.limit,
+    atLimit: atLimit(snap),
+    sendBlocked: sendBlocked(snap),
+    otherActivity: otherActivity(snap),
+    sessionStatus: (id: string) => sessionStatus(snap, id),
+    isGenerating: (id: string) => isGenerating(snap, id),
     confirmActionItem,
     confirmAllActionItems,
     dismissActionItem,

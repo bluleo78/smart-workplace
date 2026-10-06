@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { emitAiStreamEvent } from '../lib/aiEventBus';
 import { subscribeEventStream } from '../lib/eventStream';
 import { isProtectedKey } from '../lib/resourceInvalidation';
+import { resyncActiveChats } from './chatStreamsSync';
 import { handleChatEvent } from './useChatStream';
 import { handleIssueEvent } from './useIssueStream';
 import { handleMessagingEvent } from './useMessageStream';
@@ -107,7 +108,11 @@ export function useEventStream(currentUserId: number): { isConnected: boolean } 
       url: '/api/v1/events',
       onEvent: (name, data) =>
         routeStreamEvent(name, data, { qc, currentUserId: currentUserIdRef.current }),
-      onOpen: catchUp.onOpen,
+      // WP-190: 연결·재연결마다 생성 중 대화를 서버 기준으로 다시 맞춘다(끊긴 동안 놓친 종결을 따라잡는다).
+      onOpen: () => {
+        catchUp.onOpen();
+        void resyncActiveChats();
+      },
       onConnectedChange: setIsConnected,
     });
     return () => {

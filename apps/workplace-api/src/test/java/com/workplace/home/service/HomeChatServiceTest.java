@@ -125,7 +125,7 @@ class HomeChatServiceTest extends IntegrationTestBase {
         .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
-    String correlationId = composeService.startChat(uid, null, "내 할 일");
+    String correlationId = composeService.startChat(uid, null, "내 할 일").correlationId();
     assertThat(correlationId).isNotBlank();
 
     // 펌프 완료 대기(최대 5초).
@@ -557,7 +557,7 @@ class HomeChatServiceTest extends IntegrationTestBase {
         .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
-    String correlationId = composeService.startChat(uid, null, "내일 10시 회의 잡아줘");
+    String correlationId = composeService.startChat(uid, null, "내일 10시 회의 잡아줘").correlationId();
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     @SuppressWarnings("unchecked")
@@ -584,7 +584,7 @@ class HomeChatServiceTest extends IntegrationTestBase {
         .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
-    String correlationId = composeService.startChat(uid, null, "안녕");
+    String correlationId = composeService.startChat(uid, null, "안녕").correlationId();
 
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
@@ -618,7 +618,7 @@ class HomeChatServiceTest extends IntegrationTestBase {
         .when(chatClient)
         .composeStream(any(), any(), any(), any(), any(), any(), any());
 
-    String correlationId = composeService.startChat(uid, null, "안녕");
+    String correlationId = composeService.startChat(uid, null, "안녕").correlationId();
     assertThat(started.await(2, TimeUnit.SECONDS)).isTrue();
 
     composeService.cancelChat(correlationId, uid);
