@@ -40,8 +40,10 @@ const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'i
 // 직접 호출하는데, 재사용 서버의 MCP 는 첫 실행의 MCP_BRIDGE_RUN_ID 로 고정돼 있어 두 번째 실행부터
 // 확인 카드가 이미 해제된 브리지로 가서 조용히 사라졌다(AI 는 "제안했습니다" 라고 답하지만 카드 없음).
 // WP-241: vision 판단이 바뀌면(캐시 만료 후 provider 메타 변경 등) config 가 달라지므로 키에 포함해 새 서버를 띄운다.
+// WP-234: homeSessionId 가 있는 실행도 제외한다 — read_chat_attachment 의 세션은 stdio MCP env 로 고정돼, 재사용 서버면
+// 이전 대화 세션에 묶인 채 남는다(지금은 메인 채팅이 hostBridge 로 이미 제외되지만 그 전제에 기대지 않는다).
 function poolKeyFor(i: RunnerInput, vision: OpencodeVision): string | undefined {
-  if (!i.mcp || i.mcp.hostBridge || !POOL_ELIGIBLE_PROFILES.has(i.mcp.profile)) return undefined;
+  if (!i.mcp || i.mcp.hostBridge || i.mcp.homeSessionId != null || !POOL_ELIGIBLE_PROFILES.has(i.mcp.profile)) return undefined;
   return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.model}:${String(vision)}`;
 }
 

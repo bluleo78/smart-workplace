@@ -27,6 +27,8 @@ export interface StdioEntryConfig {
   delegationContext?: { actorId: number; channelId: number; parentMessageId?: number };
   // WP-244: chat 프로필 실행 스레드 바인딩(MCP_CHAT_THREAD_ID).
   chatThreadId?: number;
+  // WP-234: 메인 AI 채팅 세션 바인딩(MCP_HOME_SESSION_ID).
+  homeSessionId?: string;
   bridgeUrl?: string;
   bridgeRunId?: string;
   // WP-241: 모델이 이미지를 볼 수 있는지(MCP_VISION). false 면 도구 결과의 이미지를 안내 문구로 바꾼다.
@@ -36,6 +38,9 @@ export interface StdioEntryConfig {
 // 이미지를 볼 수 없는 모델에 이미지 대신 넘기는 안내. 시스템 프롬프트 규칙(NO_VISION_PROMPT_RULE)과 짝을 이룬다.
 export const VISION_UNAVAILABLE_NOTICE =
   '— 현재 모델은 이미지를 볼 수 없습니다. 다시 첨부를 요청하지 말고, 비전(이미지) 지원 모델로 전환이 필요하다고 안내하세요.';
+
+// WP-234: home_session.id 형식 — 경로 조각으로 쓰이므로 UUID 외 문자열은 부팅 단계에서 거부한다.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // env → 설정 파싱. 필수 항목 누락/형식 오류 시 throw(호출부에서 stderr 출력 + exit 1 처리).
 // process.env 를 직접 참조하지 않고 인자로 받아 테스트 가능하게 한다.
@@ -86,6 +91,14 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     }
   }
 
+  let homeSessionId: string | undefined;
+  if (env.MCP_HOME_SESSION_ID) {
+    if (!UUID_RE.test(env.MCP_HOME_SESSION_ID)) {
+      throw new Error(`MCP_HOME_SESSION_ID 는 UUID 여야 합니다. 받은 값: ${env.MCP_HOME_SESSION_ID}`);
+    }
+    homeSessionId = env.MCP_HOME_SESSION_ID;
+  }
+
   return {
     baseURL,
     internalToken,
@@ -94,6 +107,7 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     threadBinding,
     delegationContext,
     chatThreadId,
+    homeSessionId,
     bridgeUrl: env.MCP_BRIDGE_URL,
     bridgeRunId: env.MCP_BRIDGE_RUN_ID,
     // 미지정은 지원으로 본다(러너는 항상 0/1 을 심는다 — 기존 동작 유지용 기본값).
@@ -182,6 +196,7 @@ async function main(): Promise<void> {
     config.delegationContext,
     hostBridge,
     config.chatThreadId,
+    config.homeSessionId,
   );
 
   // 서버명 'workplace' 고정 — mcp__workplace__* 네임스페이스 정합(sdk-mcp-server.ts 참고).

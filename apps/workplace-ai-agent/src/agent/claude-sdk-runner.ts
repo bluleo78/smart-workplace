@@ -30,6 +30,7 @@ function toSdkRunInput(i: RunnerInput): SdkRunInput {
       hostBridge: i.mcp.hostBridge,
       onTool: i.mcp.onTool,
       chatThreadId: i.mcp.chatThreadId,
+      homeSessionId: i.mcp.homeSessionId, // WP-234: 메인 AI 채팅 세션 바인딩
     });
     mcpServers = { workplace };
   }

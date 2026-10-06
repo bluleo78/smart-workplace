@@ -34,6 +34,8 @@ export interface RunnerMcpConfig {
   onTool?: (line: ToolUseLine) => void;
   // WP-244: chat 프로필 실행이 답하는 이슈 챗 스레드 — chat 도구가 다른 threadId 를 거부하게 묶는다.
   chatThreadId?: number;
+  // WP-234: 메인 AI 채팅 실행의 세션(home_session.id) — assistant 의 read_chat_attachment 가 이 세션 첨부만 읽게 묶는다.
+  homeSessionId?: string;
 }
 
 export interface RunnerInput {

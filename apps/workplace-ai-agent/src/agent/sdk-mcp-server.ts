@@ -75,6 +75,8 @@ export function buildInProcessWorkplaceMcpServer(i: {
   onTool?: (line: ToolUseLine) => void;
   // WP-244: chat 프로필 실행 스레드 바인딩.
   chatThreadId?: number;
+  // WP-234: 메인 AI 채팅 세션 바인딩.
+  homeSessionId?: string;
 }): McpSdkServerConfigWithInstance {
   const tools = buildTools(
     i.client,
@@ -84,6 +86,7 @@ export function buildInProcessWorkplaceMcpServer(i: {
     i.delegationContext,
     i.hostBridge,
     i.chatThreadId,
+    i.homeSessionId,
   );
   // 라우터·서브에이전트 호출이 같은 인스턴스를 공유하므로 seq 카운터 1개로 전체 순서 보존.
   let seq = 0;

@@ -114,6 +114,18 @@ describe('ClaudeSdkRunner.collect', () => {
     );
   });
 
+  // WP-234: 메인 AI 채팅 세션 바인딩이 인-프로세스 MCP 서버로 전달된다(toSdkRunInput 은 필드를 하나씩 복사하므로 누락 위험).
+  it('mcp.homeSessionId → buildInProcessWorkplaceMcpServer 에 전달', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([]);
+    const client = { getOAuthToken: vi.fn() } as unknown as WorkplaceApiClient;
+    await new ClaudeSdkRunner().collect(
+      baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 9, homeSessionId: '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f' } }),
+    );
+    expect(buildInProcessWorkplaceMcpServer).toHaveBeenCalledWith(
+      expect.objectContaining({ profile: 'assistant', homeSessionId: '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f' }),
+    );
+  });
+
   it('mcp 미지정 시 mcpServers 미전달', async () => {
     vi.mocked(runSdkCollect).mockResolvedValue([]);
     const runner = new ClaudeSdkRunner();

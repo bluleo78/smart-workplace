@@ -90,6 +90,17 @@ describe('parseConfigFromEnv', () => {
     expect(() => parseConfigFromEnv(baseEnv({ MCP_CHAT_THREAD_ID: v }))).toThrow(/MCP_CHAT_THREAD_ID/);
   });
 
+  // WP-234: 메인 AI 채팅 세션 바인딩(home_session.id, UUID).
+  it('MCP_HOME_SESSION_ID 를 그대로 homeSessionId 로 파싱한다', () => {
+    const sid = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
+    expect(parseConfigFromEnv(baseEnv({ MCP_HOME_SESSION_ID: sid })).homeSessionId).toBe(sid);
+    expect(parseConfigFromEnv(baseEnv()).homeSessionId).toBeUndefined();
+  });
+
+  it.each(['abc', '12', '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f/../x'])('MCP_HOME_SESSION_ID 가 UUID 가 아니면(%s) throw', (v) => {
+    expect(() => parseConfigFromEnv(baseEnv({ MCP_HOME_SESSION_ID: v }))).toThrow(/MCP_HOME_SESSION_ID/);
+  });
+
   it('MCP_DELEGATION_CONTEXT JSON 을 파싱한다', () => {
     const config = parseConfigFromEnv(
       baseEnv({ MCP_DELEGATION_CONTEXT: JSON.stringify({ actorId: 1, channelId: 2 }) }),

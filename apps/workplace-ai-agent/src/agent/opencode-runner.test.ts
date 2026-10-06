@@ -660,6 +660,25 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     expect(serverClose).toHaveBeenCalledTimes(1);
   });
 
+  // WP-234: read_chat_attachment 는 세션을 env(MCP_HOME_SESSION_ID)로 고정한다 — 재사용 서버면 이전 대화 세션에 묶인다.
+  it("profile='assistant' + homeSessionId(hostBridge 없음)도 풀을 거치지 않는다", async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(
+      baseInput({
+        mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'assistant', onBehalfOfId: 1, homeSessionId: '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f' },
+      }),
+      () => {},
+    );
+    await handle.done;
+
+    expect(acquireServer).not.toHaveBeenCalled();
+    expect(serverClose).toHaveBeenCalledTimes(1);
+  });
+
   it('mcp 가 없으면(mcp undefined) 풀을 거치지 않고 기존처럼 완전 스폰/종료한다', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });

@@ -242,6 +242,16 @@ describe('buildOpencodeConfig', () => {
     expect(env?.MCP_CHAT_THREAD_ID).toBe('17');
   });
 
+  // WP-234: 메인 AI 채팅 세션 바인딩이 stdio MCP env 로 전달된다.
+  it('mcp.homeSessionId 있으면 MCP_HOME_SESSION_ID 추가, 없으면 키 없음', () => {
+    const client = {} as unknown as WorkplaceApiClient;
+    const sid = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
+    const env = (i: RunnerInput) =>
+      (buildOpencodeConfig(i, 'run-1', ['cmd'], VISION_ON).mcp?.workplace as { environment?: Record<string, string> }).environment;
+    expect(env(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1, homeSessionId: sid } }))?.MCP_HOME_SESSION_ID).toBe(sid);
+    expect(env(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }))).not.toHaveProperty('MCP_HOME_SESSION_ID');
+  });
+
   it('mcp.hostBridge 있으면 MCP_BRIDGE_URL/MCP_BRIDGE_RUN_ID 추가', () => {
     const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(
