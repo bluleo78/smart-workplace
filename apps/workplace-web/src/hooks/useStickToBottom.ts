@@ -20,6 +20,8 @@ import type { EntryAnchor } from '@/lib/chatEntryAnchor'
 const NEAR_BOTTOM_PX = 80
 // 위로 스크롤하는 키 — 컨테이너에 포커스가 있을 때 누르면 하단 고정을 푼다.
 const UP_KEYS = new Set(['ArrowUp', 'PageUp', 'Home'])
+// 휠·키 입력 뒤 채팅 영역이 실제로 움직였는지 판정하기까지 기다리는 시간(ms) — 부드러운 스크롤의 첫 프레임이 지날 만큼.
+const SETTLE_MS = 150
 
 // 앵커 start 정렬 시 위쪽 여백(px) — 카드 테두리가 화면 위 끝에 딱 붙지 않게.
 const ANCHOR_START_GAP_PX = 8
@@ -70,13 +72,36 @@ export function useStickToBottom(
     // 매 프레임 자라면 depKey·ResizeObserver 가 바닥으로 다시 맞춰 사용자의 스크롤이 이벤트에 닿기 전에 지워지고, 닿더라도
     // 그 사이 높이가 바뀌어 아래 보정 규칙에 걸려 되돌려졌다(WP-234). 이미 맨 위(올라갈 곳 없음)면 아무 일도 없으니 풀지 않는다 —
     // 짧은 대화에서 헛휠 한 번에 고정이 풀려 이후 응답을 따라가지 않는 일을 막는다.
+    // 입력이 실제로 채팅 영역을 움직이지 않을 수도 있다 — 터치 슬롭 안의 작은 끌림(탭·길게 누르기), 안쪽 스크롤러(코드 블록 등)가
+    // 소비한 휠. 그러면 scroll 이벤트가 오지 않아 고정이 풀린 채 남는다. 그래서 입력 시점의 위치·고정 상태를 기억해 두고(pendingRelease),
+    // 입력이 끝났는데(터치 끝·휠/키/포인터 뒤 잠시) 위치가 그대로면 되돌린다. 위로 움직인 scroll 이벤트가 오면 해제를 확정한다.
+    let pendingRelease: { top: number; stuck: boolean } | null = null
+    let settleTimer: ReturnType<typeof setTimeout> | undefined
     const release = () => {
-      if (el.scrollTop > 0) stuckRef.current = false
+      if (el.scrollTop <= 0) return
+      pendingRelease ??= { top: el.scrollTop, stuck: stuckRef.current }
+      stuckRef.current = false
+    }
+    const settle = () => {
+      clearTimeout(settleTimer)
+      if (pendingRelease && Math.abs(el.scrollTop - pendingRelease.top) <= 1) {
+        stuckRef.current = pendingRelease.stuck
+        // 잠정 해제 동안 자란 콘텐츠만큼 밀려 있을 수 있다 — 고정으로 되돌렸으면 바닥으로 맞춘다.
+        if (stuckRef.current && !pendingAnchor.current) toBottom()
+      }
+      pendingRelease = null
+    }
+    // 휠·키는 끝을 알리는 이벤트가 없다 — 마지막 입력 뒤 잠시(부드러운 스크롤이 첫 프레임을 움직일 만큼) 기다렸다 판정한다.
+    const settleSoon = () => {
+      clearTimeout(settleTimer)
+      settleTimer = setTimeout(settle, SETTLE_MS)
     }
     const onWheel = (e: WheelEvent) => {
-      if (e.deltaY < 0) release()
+      if (e.deltaY >= 0) return
+      release()
+      settleSoon()
     }
-    // 터치는 손가락이 아래로 끌릴 때가 위로 스크롤이다.
+    // 터치는 손가락이 아래로 끌릴 때가 위로 스크롤이다. 손을 떼면 판정한다.
     let touchY: number | null = null
     const onTouchStart = (e: TouchEvent) => {
       touchY = e.touches[0]?.clientY ?? null
@@ -85,13 +110,19 @@ export function useStickToBottom(
       const y = e.touches[0]?.clientY
       if (touchY != null && y != null && y > touchY) release()
     }
+    const onTouchEnd = () => {
+      touchY = null
+      settle()
+    }
     // 키보드 스크롤 — 입력창 안의 화살표·Home 은 커서 이동이라 제외한다.
     const onKeyDown = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null
       if (t?.closest('input, textarea, [contenteditable="true"]')) return
-      if (UP_KEYS.has(e.key)) release()
+      if (!UP_KEYS.has(e.key)) return
+      release()
+      settleSoon()
     }
-    // 스크롤바 끌기 — 컨테이너 자신의 내용 폭(clientWidth) 바깥(=스크롤바 영역)을 누른 경우만.
+    // 스크롤바 끌기 — 컨테이너 자신의 내용 폭(clientWidth) 바깥(=스크롤바 영역)을 누른 경우만. 놓으면 판정한다.
     const onPointerDown = (e: PointerEvent) => {
       if (e.target === el && e.offsetX >= el.clientWidth) release()
     }
@@ -106,6 +137,11 @@ export function useStickToBottom(
         return
       }
       // 콘텐츠 높이가 그대로인데 위로 움직인 스크롤은 사용자 의도다(입력 이벤트 없이 오는 스크롤 포함) — 고정을 푼다.
+      // 입력으로 잠정 해제한 뒤 실제로 위로 움직였으면 해제를 확정한다(높이 변화와 무관 — 사용자 입력이 먼저 있었다).
+      if (movedUp && pendingRelease) {
+        pendingRelease = null
+        clearTimeout(settleTimer)
+      }
       if (movedUp && !contentChanged) {
         stuckRef.current = false
         return
@@ -124,16 +160,25 @@ export function useStickToBottom(
     el.addEventListener('wheel', onWheel, { passive: true })
     el.addEventListener('touchstart', onTouchStart, { passive: true })
     el.addEventListener('touchmove', onTouchMove, { passive: true })
+    el.addEventListener('touchend', onTouchEnd, { passive: true })
+    el.addEventListener('touchcancel', onTouchEnd, { passive: true })
     el.addEventListener('keydown', onKeyDown)
     el.addEventListener('pointerdown', onPointerDown)
+    el.addEventListener('pointerup', settle)
+    el.addEventListener('pointercancel', settle)
     el.addEventListener('scroll', onScroll, { passive: true })
     onScroll()
     return () => {
+      clearTimeout(settleTimer)
       el.removeEventListener('wheel', onWheel)
       el.removeEventListener('touchstart', onTouchStart)
       el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
       el.removeEventListener('keydown', onKeyDown)
       el.removeEventListener('pointerdown', onPointerDown)
+      el.removeEventListener('pointerup', settle)
+      el.removeEventListener('pointercancel', settle)
       el.removeEventListener('scroll', onScroll)
     }
   }, [])

@@ -81,6 +81,53 @@ export async function mockHomeChatGeneration(
   return starts
 }
 
+// 스트리밍 SSE 를 시간에 걸쳐 흘리는 하네스 — route.fulfill 은 본문을 한 번에 보내므로, 마커 헤더가 붙은 /events 응답을
+// fetch 래퍼가 '테스트가 밀어 넣는 스트림'으로 바꾼다(auth.fixture 의 SSE_HOLD 와 같은 방식, 마커만 다르다).
+// 래퍼는 fixture 래퍼 위에 덧씌워지고 route 는 나중 등록이 우선(LIFO)이라 이 하네스를 부른 스펙에서만 기본 스트림을 대체한다.
+const SSE_PUSH_HEADER = 'x-e2e-sse-push'
+
+/**
+ * POST /api/v1/ai/chat 시작(고정 correlationId) + 테스트가 프레임을 하나씩 밀어 넣는 /api/v1/events 스트림(WP-234).
+ * delta(text) 는 home.chat.delta 프레임 하나를 보낸다 — 델타가 여러 프레임에 걸쳐 도착하는 실제 스트리밍을 재현한다.
+ * page.goto 전에 불러야 한다(init script).
+ */
+export async function mockStreamingHomeChat(
+  page: Page,
+  correlationId = 'corr-stream',
+): Promise<{ push: (frame: string) => Promise<void>; delta: (text: string) => Promise<void> }> {
+  await page.route(
+    (url) => url.pathname === '/api/v1/ai/chat',
+    (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ correlationId }) })
+        : route.fallback(),
+  )
+  await page.route('**/api/v1/events', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { [SSE_PUSH_HEADER]: '1' }, body: '' }),
+  )
+  await page.addInitScript((marker) => {
+    const w = window as unknown as { __ssePush?: (text: string) => void }
+    const prev = window.fetch.bind(window)
+    window.fetch = async (input, init) => {
+      const res = await prev(input, init)
+      if (res.headers.get(marker) !== '1') return res
+      const enc = new TextEncoder()
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          w.__ssePush = (text) => controller.enqueue(enc.encode(text))
+        },
+      })
+      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers })
+    }
+  }, SSE_PUSH_HEADER)
+  const push = async (frame: string) => {
+    await page.waitForFunction(() => typeof (window as unknown as { __ssePush?: unknown }).__ssePush === 'function')
+    await page.evaluate((f) => (window as unknown as { __ssePush: (t: string) => void }).__ssePush(f), frame)
+  }
+  const delta = (text: string) => push(buildHomeChatSse([{ event: 'delta', data: { text } }], correlationId))
+  return { push, delta }
+}
+
 /** DELETE /api/v1/ai/chat/{correlationId} 취소 모킹 — 스탑 버튼 E2E 용. 호출 여부/횟수를 검증할 수 있다. */
 export async function mockHomeChatCancel(page: Page): Promise<{ readonly calls: string[] }> {
   const path = /^\/api\/v1\/ai\/chat\/[^/]+$/
