@@ -50,6 +50,8 @@ test('AI 시트: ＋ 바텀시트가 시트 위에 뜨고(드라이브 없음) �
   const sheet = page.getByTestId('ai-composer-attach-sheet')
   await expect(sheet.getByRole('button')).toHaveText(['카메라로 찍기', '사진 보관함', '파일'])
   await expectOnTop(page, page.getByTestId('mobile-action-photo'), '[data-testid="ai-composer-attach-sheet"]')
+  // 시안 7-2: 바텀시트의 딤도 AI 시트 위 — 시트 헤더를 덮어 흐린다(콘텐츠만 올라가면 시트가 밝은 채로 남는다).
+  await expectOnTop(page, page.getByTestId('ai-sheet-new-session'), '[data-slot="sheet-overlay"]')
 
   const chooser = page.waitForEvent('filechooser')
   await page.getByTestId('mobile-action-photo').tap()

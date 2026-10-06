@@ -455,11 +455,11 @@ export function AIChatPanel({
         />
         <div className="flex items-end gap-2">
           {/* WP-234: ＋ 첨부 — 드라이브 제외(개인 스페이스·드라이브 콜백은 쓰이지 않는 자리 값).
-              메뉴·바텀시트가 AI 시트(z-[60]) 뒤로 숨지 않게 세션 스위처와 같은 z-[80] 층. */}
+              메뉴·바텀시트(딤 포함)가 AI 시트(z-[60]) 뒤로 숨지 않게 세션 스위처와 같은 z-[80] 층. */}
           <ComposerAttachMenu
             testIdPrefix="ai-composer"
             drive={false}
-            layerClassName="z-[80]"
+            aboveAiSheet
             onFiles={(files) => void attach.addFiles(files)}
             personalSpaceId={null}
             spacesResolved

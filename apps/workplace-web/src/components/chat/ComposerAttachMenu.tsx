@@ -1,7 +1,7 @@
 // 채팅 입력창의 ＋ 첨부 메뉴 (WP-235) — 한 줄 입력창 [＋] [입력] [보내기] 의 ＋.
 // 데스크톱: 팝오버(파일 첨부·드라이브에서 링크). 모바일: 바텀시트(카메라로 찍기·사진 보관함·파일·드라이브에서 링크).
 // 파일 선택 input 과 드라이브 파일 피커(#80)를 이 컴포넌트가 소유한다 — 카메라(capture)·사진(image/*)·일반 파일은 각각 다른 input.
-// 메시징(MessageComposer)·이슈 챗(ChatComposer)이 공유하고, 메인 AI 채팅(WP-234)은 drive=false·layerClassName 으로 재사용한다.
+// 메시징(MessageComposer)·이슈 챗(ChatComposer)이 공유하고, 메인 AI 채팅(WP-234)은 drive=false·aboveAiSheet 로 재사용한다.
 import { Camera, Cloud, Image as ImageIcon, Paperclip, Plus } from 'lucide-react';
 import { type ChangeEvent, useRef, useState } from 'react';
 
@@ -23,7 +23,7 @@ export function ComposerAttachMenu({
   spacesResolved,
   onAddDrive,
   drive = true,
-  layerClassName,
+  aboveAiSheet = false,
 }: {
   /** testid 접두사 — 기존 E2E 와 맞춰 메시징은 'composer', 이슈 챗은 'chat-composer'. */
   testIdPrefix: string;
@@ -35,8 +35,8 @@ export function ComposerAttachMenu({
   onAddDrive: (driveFileId: number, name: string) => void;
   /** 「드라이브에서 링크」 표시 여부(기본 true). 메인 AI 채팅은 드라이브 링크를 받지 않아 false(WP-234). */
   drive?: boolean;
-  /** 메뉴·바텀시트 층 클래스 — body 포털(z-50)이 z-[60] AI 시트 뒤로 숨지 않게 올린다(WP-234). */
-  layerClassName?: string;
+  /** AI 시트(z-[60]) 안에서 쓸 때 true — body 포털(z-50)인 메뉴·바텀시트(딤 포함)를 z-[80] 으로 올린다(WP-234). */
+  aboveAiSheet?: boolean;
 }) {
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -80,7 +80,7 @@ export function ComposerAttachMenu({
             open={sheetOpen}
             onClose={() => setSheetOpen(false)}
             title="첨부"
-            className={layerClassName}
+            aboveAiSheet={aboveAiSheet}
             actions={[
               { key: 'camera', label: '카메라로 찍기', icon: <Camera />, onSelect: () => cameraRef.current?.click() },
               { key: 'photo', label: '사진 보관함', icon: <ImageIcon />, onSelect: () => photoRef.current?.click() },
@@ -94,7 +94,7 @@ export function ComposerAttachMenu({
       ) : (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="start" className={layerClassName} data-testid={`${testIdPrefix}-attach-menu`}>
+          <DropdownMenuContent side="top" align="start" className={aboveAiSheet ? 'z-[80]' : undefined} data-testid={`${testIdPrefix}-attach-menu`}>
             <DropdownMenuItem data-testid={`${testIdPrefix}-attach-file`} onSelect={() => fileRef.current?.click()}>
               <Paperclip /> 파일 첨부
             </DropdownMenuItem>

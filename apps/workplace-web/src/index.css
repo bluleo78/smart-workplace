@@ -554,6 +554,10 @@
 [data-slot='alert-dialog-overlay']:has(+ [data-ai-confirm]) {
   z-index: 80;
 }
+/* 같은 이유로 AI 시트 안에서 여는 바텀시트(＋ 첨부, WP-234)의 딤 — 콘텐츠 표식(data-ai-layer)을 따라 함께 올린다. */
+[data-slot='sheet-overlay']:has(+ [data-ai-layer]) {
+  z-index: 80;
+}
 
 /* ===== WikiEditor — ProseMirror 헤딩 타이포그래피 =====
  * Tailwind v4 preflight가 h1~h6 기본 스타일을 리셋하므로
