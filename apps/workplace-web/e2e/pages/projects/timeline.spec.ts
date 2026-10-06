@@ -166,7 +166,8 @@ test('이슈 막대가 상태별로 다른 색으로 렌더된다 (#639)', async
     });
   });
 
-  await page.goto(`/projects/${KEY}/timeline`);
+  // 사이클이 없으면 기본 기간이 rolling(오늘−3개월~)이라 7월 고정 날짜 막대가 날짜가 지나며 빠진다 — 전체 기간으로 본다(WP-247).
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
   await expandNoEpicGroup(page);
 
