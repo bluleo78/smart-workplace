@@ -215,6 +215,64 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
         .isInstanceOf(HomeSessionNotFoundException.class);
   }
 
+  /**
+   * 첨부 전송이 세션 행을 잠근 채 파일을 붙이고 영구 승격하는 사이 세션을 지우면, 삭제는 그 잠금을 기다렸다가 전송이 붙인 파일까지 만료 표시한다. 잠금 없이 만료 표시를
+   * 먼저 하면 아직 커밋되지 않은 연결을 보지 못해 그 파일이 영구(만료 없음)로 남고, 연결은 CASCADE 로 지워져 영영 치워지지 않는다.
+   */
+  @Test
+  void 첨부_전송이_세션_잠금을_쥔_사이_삭제해도_전송이_붙인_파일까지_만료된다() throws Exception {
+    long uid = user();
+    UUID sid = sessionService.create(uid).id();
+    List<Long> ids = uploadMany(uid, 1);
+    CountDownLatch bound = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      // 1) 전송이 한 트랜잭션 안에서 세션 행을 잠그고 파일을 붙여 승격한 뒤, 신호를 받을 때까지 커밋을 미룬다.
+      Future<?> sender =
+          pool.submit(
+              () -> {
+                TenantContext.set(1L);
+                try {
+                  new TransactionTemplate(txManager)
+                      .executeWithoutResult(
+                          st -> {
+                            attachmentService.appendUserMessage(uid, sid, "붙임", ids);
+                            bound.countDown();
+                            awaitQuietly(release);
+                          });
+                } finally {
+                  TenantContext.clear();
+                }
+                return null;
+              });
+      assertThat(bound.await(10, TimeUnit.SECONDS)).isTrue();
+      // 2) 삭제는 소유 확인 뒤 세션 행 잠금에서 기다린다.
+      Future<Throwable> deleter =
+          pool.submit(
+              () -> {
+                TenantContext.set(1L);
+                try {
+                  sessionService.delete(uid, sid);
+                  return null;
+                } catch (Throwable t) {
+                  return t;
+                } finally {
+                  TenantContext.clear();
+                }
+              });
+      awaitLockWaiter(deleter);
+      // 3) 전송이 커밋되면 삭제가 이어서 그 연결을 보고 만료 표시한다.
+      release.countDown();
+      sender.get(10, TimeUnit.SECONDS);
+      assertThat(deleter.get(10, TimeUnit.SECONDS)).isNull();
+    } finally {
+      release.countDown();
+      pool.shutdownNow();
+    }
+    assertThat(expiresAtOf(ids.get(0))).isNotNull();
+  }
+
   /** 다른 트랜잭션이 세션 행을 잠근 채로 전송을 보내 잠금 대기에 들게 한 뒤, 세션을 지우고 커밋한다. 전송이 던진 예외(성공이면 null)를 돌려준다. */
   private Throwable sendWhileSessionDeleted(long uid, UUID sid, List<Long> ids) throws Exception {
     CountDownLatch locked = new CountDownLatch(1);

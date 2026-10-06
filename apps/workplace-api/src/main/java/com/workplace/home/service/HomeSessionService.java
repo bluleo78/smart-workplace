@@ -197,10 +197,15 @@ public class HomeSessionService {
   /**
    * 세션 삭제. 메시지·첨부 연결은 FK CASCADE 로 지워지고, 첨부 파일 본체는 만료시각을 지금으로 당겨 FileCleanupService(1시간 주기)가 디스크·행을
    * 치우게 한다(WP-234) — 같은 트랜잭션이라 삭제가 롤백되면 만료 표시도 함께 롤백된다.
+   *
+   * <p>만료 표시 전에 세션 행을 잠근다 — 첨부 전송(HomeAttachmentService.appendUserMessage)은 같은 잠금을 쥔 채 파일을 붙이고 영구
+   * 승격하므로, 잠금 없이 먼저 만료 표시를 하면 아직 커밋되지 않은 그 연결을 보지 못한다. 그러면 그 파일은 만료 없이 남고 연결만 CASCADE 로 지워져 영영 치워지지
+   * 않는다. 잠금을 기다리는 사이 세션이 이미 지워졌으면 404.
    */
   @Transactional
   public void delete(long callerId, UUID sessionId) {
     ensureOwner(callerId, sessionId);
+    if (!sessionRepo.lockForUpdate(sessionId)) throw new HomeSessionNotFoundException(sessionId);
     attachmentRepo.expireSessionFiles(sessionId);
     sessionRepo.delete(sessionId);
   }
