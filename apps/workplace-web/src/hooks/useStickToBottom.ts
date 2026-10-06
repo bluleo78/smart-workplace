@@ -157,29 +157,24 @@ export function useStickToBottom(
       }
       stuckRef.current = !movedUp && dist <= NEAR_BOTTOM_PX
     }
-    el.addEventListener('wheel', onWheel, { passive: true })
-    el.addEventListener('touchstart', onTouchStart, { passive: true })
-    el.addEventListener('touchmove', onTouchMove, { passive: true })
-    el.addEventListener('touchend', onTouchEnd, { passive: true })
-    el.addEventListener('touchcancel', onTouchEnd, { passive: true })
-    el.addEventListener('keydown', onKeyDown)
-    el.addEventListener('pointerdown', onPointerDown)
-    el.addEventListener('pointerup', settle)
-    el.addEventListener('pointercancel', settle)
-    el.addEventListener('scroll', onScroll, { passive: true })
+    // 등록·해제를 같은 표로 한다(scroll 은 마지막 — 등록 직후 onScroll() 로 현재 상태를 한 번 판정). passive 는 해제 매칭에 무관하다.
+    const listeners: [string, EventListener, AddEventListenerOptions?][] = [
+      ['wheel', onWheel as EventListener, { passive: true }],
+      ['touchstart', onTouchStart as EventListener, { passive: true }],
+      ['touchmove', onTouchMove as EventListener, { passive: true }],
+      ['touchend', onTouchEnd, { passive: true }],
+      ['touchcancel', onTouchEnd, { passive: true }],
+      ['keydown', onKeyDown as EventListener],
+      ['pointerdown', onPointerDown as EventListener],
+      ['pointerup', settle],
+      ['pointercancel', settle],
+      ['scroll', onScroll, { passive: true }],
+    ]
+    for (const [type, fn, opts] of listeners) el.addEventListener(type, fn, opts)
     onScroll()
     return () => {
       clearTimeout(settleTimer)
-      el.removeEventListener('wheel', onWheel)
-      el.removeEventListener('touchstart', onTouchStart)
-      el.removeEventListener('touchmove', onTouchMove)
-      el.removeEventListener('touchend', onTouchEnd)
-      el.removeEventListener('touchcancel', onTouchEnd)
-      el.removeEventListener('keydown', onKeyDown)
-      el.removeEventListener('pointerdown', onPointerDown)
-      el.removeEventListener('pointerup', settle)
-      el.removeEventListener('pointercancel', settle)
-      el.removeEventListener('scroll', onScroll)
+      for (const [type, fn] of listeners) el.removeEventListener(type, fn)
     }
   }, [])
 
