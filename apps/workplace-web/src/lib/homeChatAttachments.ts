@@ -65,6 +65,23 @@ export function revokeTurnPreviews(turns: ChatTurn[]): void {
   }
 }
 
+/**
+ * 서버가 받아들이지 않은 전송(400·수락 전 실패)의 낙관적 사용자 턴에서 첨부를 뗀다.
+ * 그대로 두면 거절된 파일이 보낸 것처럼 보이고, 세션 30개 계산에 잡혀 재전송이 이중 집계되며,
+ * 초안 칩을 ×로 지울 때 초안이 해제한 blob URL 을 이 턴이 계속 그려 깨진 이미지가 된다.
+ * 미리보기 URL 은 초안(입력창)이 여전히 소유하므로 여기서 해제하지 않는다.
+ * 대상은 객체 동일성으로 찾는다 — 그 사이 대화가 바뀌어 턴이 없으면 배열을 그대로 돌려준다.
+ */
+export function withoutTurnAttachments(turns: ChatTurn[], target: ChatTurn): ChatTurn[] {
+  const idx = turns.indexOf(target);
+  if (idx === -1 || target.role !== 'user') return turns;
+  const next = [...turns];
+  const stripped = { ...target };
+  delete stripped.attachments;
+  next[idx] = stripped;
+  return next;
+}
+
 /** 세션 첨부 원본 경로(client baseURL /api/v1 기준) — 썸네일 blob·다운로드가 공유한다. */
 export function homeAttachmentContentPath(sessionId: string, fileId: number): string {
   return `/home/sessions/${sessionId}/attachments/${fileId}/content`;

@@ -13,6 +13,7 @@ import {
   revokeTurnPreviews,
   splitOversize,
   toTurnAttachments,
+  withoutTurnAttachments,
 } from './homeChatAttachments';
 
 const extraction = { status: 'READY', totalChars: 10, truncated: false, reasonCode: null, reason: null } as const;
@@ -85,6 +86,26 @@ describe('revokeTurnPreviews', () => {
     ]);
     expect(revoke).toHaveBeenCalledTimes(1);
     expect(revoke).toHaveBeenCalledWith('blob:one');
+  });
+});
+
+describe('withoutTurnAttachments — 거절된 전송의 낙관적 턴', () => {
+  afterEach(() => vi.restoreAllMocks());
+  it('대상 턴(같은 객체)의 첨부만 떼고, 미리보기 URL 은 해제하지 않는다(초안 소유)', () => {
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const sent: ChatTurn = { role: 'user', content: '이전', attachments: [att(1)] };
+    const target: ChatTurn = { role: 'user', content: 'q', attachments: [{ ...att(2), previewUrl: 'blob:two' }] };
+    const turns: ChatTurn[] = [sent, { role: 'assistant', content: 'a' }, target, { role: 'assistant', content: '' }];
+    const next = withoutTurnAttachments(turns, target);
+    expect(next[2]).toEqual({ role: 'user', content: 'q' });
+    expect(next[0]).toBe(sent);
+    expect(countSessionAttachments(next)).toBe(1);
+    expect(revoke).not.toHaveBeenCalled();
+  });
+  it('대상이 없으면(대화가 바뀜) 배열을 그대로 돌려준다', () => {
+    const turns: ChatTurn[] = [{ role: 'user', content: 'q', attachments: [att(1)] }];
+    const other: ChatTurn = { role: 'user', content: 'q', attachments: [att(1)] };
+    expect(withoutTurnAttachments(turns, other)).toBe(turns);
   });
 });
 

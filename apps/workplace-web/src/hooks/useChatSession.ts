@@ -8,7 +8,7 @@ import { chatStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQ
 import { isVisibleStep, widgetTypeFromToolName } from '@/lib/aiToolLabels';
 import { extractApiError, handleApiError } from '@/lib/api-error';
 import { pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
-import { revokeTurnPreviews, toTurnAttachments } from '@/lib/homeChatAttachments';
+import { revokeTurnPreviews, toTurnAttachments, withoutTurnAttachments } from '@/lib/homeChatAttachments';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type {
   ActionOutcome,
@@ -135,12 +135,11 @@ export function useChatSession() {
       const gen = ++opSeq.current;
       const fileIds = attachments?.map((a) => a.fileId) ?? [];
       // 사용자 턴 + 빈 어시스턴트 턴을 즉시 추가 — 빈 어시스턴트 턴이 있을 때만 3-dot 표시.
-      setTurns((t) => [
-        ...t,
-        { role: 'user', content: query, ...(attachments?.length ? { attachments } : {}) },
-        { role: 'assistant', content: '' },
-      ]);
+      // 낙관적 사용자 턴은 객체를 붙들어 둔다 — 거절되면 이 턴에서 첨부를 뗀다(동일성으로 찾음).
+      const userTurn: ChatTurn = { role: 'user', content: query, ...(attachments?.length ? { attachments } : {}) };
+      setTurns((t) => [...t, userTurn, { role: 'assistant', content: '' }]);
       // 수락 신호 — onStarted 에서 true, 그 전에 실패·중단으로 끝나면 finally 에서 false(먼저 정해진 값이 남는다).
+      let wasAccepted = false;
       let settleAccepted!: (accepted: boolean) => void;
       const accepted = new Promise<boolean>((resolve) => {
         settleAccepted = resolve;
@@ -236,7 +235,10 @@ export function useChatSession() {
           });
         },
         // WP-234: POST /ai/chat 수락 — 패널이 보낸 첨부를 초안에서 뺀다.
-        () => settleAccepted(true),
+        () => {
+          wasAccepted = true;
+          settleAccepted(true);
+        },
       )
         .then((r) => {
           if (opSeq.current !== gen) return; // stale 세대 폐기
@@ -286,6 +288,10 @@ export function useChatSession() {
         })
         .finally(() => {
           settleAccepted(false); // 수락 전에 끝났으면 거절로 확정(이미 true 면 무시된다)
+          // WP-234: 서버가 받지 않은 전송이면 낙관적 턴의 첨부를 뗀다 — 초안 칩이 남아 재전송되므로
+          // 보낸 것처럼 보이거나 세션 30개 계산에 이중으로 잡히면 안 된다. 미리보기 URL 은 초안 소유라 해제하지 않는다.
+          // 세대 확인 대신 객체 동일성으로 찾는다(중단 뒤 늦은 거절도 처리, 대화가 바뀌었으면 아무것도 안 함).
+          if (!wasAccepted && attachments?.length) setTurns((t) => withoutTurnAttachments(t, userTurn));
           if (opSeq.current === gen) {
             setPending(false);
             // WP-191: 생성이 끝나면 보류해 둔 전환을 실행한다(확인창에서 [기다리기]를 고른 경우 포함).
