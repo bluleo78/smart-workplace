@@ -47,6 +47,9 @@ import { cn } from '@/lib/utils';
 // 강제 줄바꿈해 말풍선이 폭 상한을 넘어 가로 오버플로하지 않도록 한다(#202).
 const USER_BUBBLE = 'whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl bg-ai-accent px-3 py-1.5 text-sm text-ai-accent-foreground';
 
+/** 사용자 턴 첨부 중 썸네일로 그릴 것 — 렌더마다 새 함수를 만들지 않게 모듈에 둔다(WP-234). */
+const isHomeTurnImage = (a: { mimeType: string }) => isHomeChatImage(a.mimeType);
+
 interface Props extends AssistantChat {
   /** 헤더 세션 스위처 표시 여부(기본 true). 풀스크린은 좌측 목록이 대신하므로 false. */
   showSessionSwitcher?: boolean;
@@ -134,27 +137,24 @@ export function AIChatPanel({
   // 입력창 영역 파일 드롭 → 사전 업로드(WP-235 부품 재사용).
   const { isDragging, dropProps } = useComposerFileDrop((files) => void attach.addFiles(files));
   // 보낼 수 있는지 — 글이나 첨부가 있어야 하고, 업로드 중이면 막는다(늦게 끝난 파일이 빠진 채 나가지 않게).
-  const canSend = (input.trim().length > 0 || attach.hasAny) && !attach.uploading;
+  const canSend = (input.trim().length > 0 || attach.pending.length > 0) && !attach.uploading;
 
   const submit = () => {
     const query = input.trim();
     // Enter 는 버튼 disabled 를 거치지 않으므로 같은 판정을 여기서도 한다.
     if (pending || !canSend) return;
     const attachments = attach.snapshot();
-    const sentIds = attachments.map((a) => a.fileId);
-    void onSubmit(query, contextActive ? screenContext : undefined, attachments.length ? attachments : undefined).then(
-      (accepted) => {
-        // 서버가 받아들였을 때만 보낸 파일을 초안에서 뺀다 — 거절(400)이면 칩을 남겨 사유 토스트를 보고 고칠 수 있게.
-        if (accepted) {
-          attach.commitSent(sentIds);
-          return;
-        }
-        // 거절 — 턴에 넘겼던 미리보기를 초안으로 돌려받는다(시트가 닫혀 초안이 없으면 해제).
-        attach.releaseRejected(sentIds);
-        // 지운 질문도 되돌린다 — 칩과 함께 그대로 다시 보낼 수 있게. 그 사이 새로 쓴 글은 덮지 않는다(비어 있을 때만).
-        if (query) setInput((prev) => (prev === '' ? query : prev));
-      },
-    );
+    void onSubmit(query, contextActive ? screenContext : undefined, attachments).then((accepted) => {
+      // 서버가 받아들였을 때만 보낸 파일을 초안에서 뺀다 — 거절(400)이면 칩을 남겨 사유 토스트를 보고 고칠 수 있게.
+      if (accepted) {
+        attach.commitSent(attachments);
+        return;
+      }
+      // 거절 — 턴에 넘겼던 미리보기를 초안으로 돌려받는다(시트가 닫혀 초안이 없으면 해제).
+      attach.releaseRejected(attachments);
+      // 지운 질문도 되돌린다 — 칩과 함께 그대로 다시 보낼 수 있게. 그 사이 새로 쓴 글은 덮지 않는다(비어 있을 때만).
+      setInput((prev) => prev || query);
+    });
     setSuppressedIdentity(null); // 1회 제외는 이번 전송으로 소진 — 다음 전송부터 다시 포함.
     setInput('');
   };
@@ -324,10 +324,9 @@ export function AIChatPanel({
                           .downloadAttachment(currentSessionId, a.fileId, a.originalName)
                           .catch((e: unknown) => handleApiErrorAsync(e, '첨부를 내려받지 못했습니다'));
                       }}
-                      // 메인 AI 채팅은 드라이브 링크를 받지 않는다(driveLinks 미전달 → 호출되지 않음).
-                      onDownloadDriveLink={() => {}}
                       // 썸네일은 api·ai-agent 와 같은 4종만 — SVG·HEIC 등은 문서 카드(다운로드)로 그린다.
-                      isImage={(a) => isHomeChatImage(a.mimeType)}
+                      // 메인 AI 채팅은 드라이브 링크를 받지 않아 driveLinks·onDownloadDriveLink 를 넘기지 않는다.
+                      isImage={isHomeTurnImage}
                       renderImage={(a) => <HomeMessageImage sessionId={currentSessionId} attachment={a} />}
                     />
                   </div>
@@ -453,26 +452,20 @@ export function AIChatPanel({
             inputRef.current?.focus();
           }}
         />
-        {/* WP-234: 첨부 대기 칩(＋ 업로드 중 진행 칩) — 드라이브 링크는 받지 않으므로 pendingDrive 는 항상 비어 있다. */}
+        {/* WP-234: 첨부 대기 칩(＋ 업로드 중 진행 칩) — 드라이브 링크는 받지 않으므로 드라이브 칩 props 는 넘기지 않는다. */}
         <ComposerAttachmentChips
           testIdPrefix="ai-composer"
           pending={attach.pending}
-          pendingDrive={[]}
           uploadingNames={attach.uploadingNames}
           onRemoveFile={attach.removeFile}
-          onRemoveDrive={() => {}}
         />
         <div className="flex items-end gap-2">
-          {/* WP-234: ＋ 첨부 — 드라이브 제외(개인 스페이스·드라이브 콜백은 쓰이지 않는 자리 값).
+          {/* WP-234: ＋ 첨부 — 드라이브 제외(드라이브 props 를 넘기지 않으면 「드라이브에서 링크」가 없다).
               메뉴·바텀시트(딤 포함)가 AI 시트(z-[60]) 뒤로 숨지 않게 세션 스위처와 같은 z-[80] 층. */}
           <ComposerAttachMenu
             testIdPrefix="ai-composer"
-            drive={false}
             aboveAiSheet
             onFiles={(files) => void attach.addFiles(files)}
-            personalSpaceId={null}
-            spacesResolved
-            onAddDrive={() => {}}
           />
           {/* 여러 줄 입력 — Enter 전송, Shift+Enter 줄바꿈(isSubmitEnter, RichInput 과 공용 규칙). */}
           <Textarea

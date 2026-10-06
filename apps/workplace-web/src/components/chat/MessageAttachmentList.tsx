@@ -31,7 +31,8 @@ export function MessageAttachmentList<A extends AttachmentLike>({
   attachments: A[]
   driveLinks?: DriveLink[]
   onDownloadAttachment: (a: A) => void
-  onDownloadDriveLink: (dl: DriveLink) => void
+  /** 드라이브 링크 다운로드 — driveLinks 를 넘길 때만 필요하다(메인 AI 채팅은 둘 다 생략, WP-234). */
+  onDownloadDriveLink?: (dl: DriveLink) => void
   renderImage: (a: A) => React.ReactNode
   isImage?: (a: A) => boolean
   className?: string
@@ -62,7 +63,7 @@ export function MessageAttachmentList<A extends AttachmentLike>({
           key={dl.driveFileId}
           type="button"
           data-testid={`message-drive-link-${dl.driveFileId}`}
-          onClick={() => onDownloadDriveLink(dl)}
+          onClick={() => onDownloadDriveLink?.(dl)}
           className="flex max-w-full min-w-0 items-center gap-2 rounded-md border bg-card px-2 py-1 text-left text-sm hover:bg-accent/40"
         >
           <Cloud className="h-4 w-4 shrink-0 text-info" />

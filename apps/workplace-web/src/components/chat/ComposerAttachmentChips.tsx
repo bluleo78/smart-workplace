@@ -8,7 +8,7 @@ import { HIT_AREA } from '@/lib/hitArea';
 export function ComposerAttachmentChips({
   testIdPrefix,
   pending,
-  pendingDrive,
+  pendingDrive = [],
   onRemoveFile,
   onRemoveDrive,
   uploadingNames = [],
@@ -16,9 +16,11 @@ export function ComposerAttachmentChips({
   /** testid 접두사 — 메시징 'composer', 이슈 챗 'chat-composer'(기존 E2E 와 같은 id). */
   testIdPrefix: string;
   pending: PendingFile[];
-  pendingDrive: PendingDriveFile[];
+  /** 드라이브 링크 칩 — 드라이브를 받지 않는 메인 AI 채팅(WP-234)은 생략한다(기본 빈 목록). */
+  pendingDrive?: PendingDriveFile[];
   onRemoveFile: (fileId: number) => void;
-  onRemoveDrive: (driveFileId: number) => void;
+  /** 드라이브 칩 × — pendingDrive 를 넘길 때만 필요하다. */
+  onRemoveDrive?: (driveFileId: number) => void;
   /** 업로드 중인 파일 이름 — 스피너 칩으로 보인다(메인 AI 채팅, WP-234). 기본 빈 목록이라 메시징·이슈 챗은 그대로. */
   uploadingNames?: string[];
 }) {
@@ -45,7 +47,7 @@ export function ComposerAttachmentChips({
             type="button"
             aria-label="드라이브 링크 제거"
             className={HIT_AREA}
-            onClick={() => onRemoveDrive(d.driveFileId)}
+            onClick={() => onRemoveDrive?.(d.driveFileId)}
           >
             <X className="h-3 w-3" />
           </button>
