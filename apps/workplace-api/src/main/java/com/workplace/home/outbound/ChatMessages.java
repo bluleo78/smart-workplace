@@ -2,6 +2,7 @@ package com.workplace.home.outbound;
 
 import com.workplace.fileai.dto.ExtractionInfo;
 import com.workplace.home.dto.AiScreenContext;
+import com.workplace.home.dto.HomeAttachment;
 import java.util.List;
 
 /** ai-agent /ai/compose 요청 계약 (7b). 응답은 SSE 스트림으로 받으므로 본 파일은 요청 본문만 정의한다. */
@@ -45,7 +46,20 @@ public final class ChatMessages {
       String mimeType,
       long sizeBytes,
       boolean current,
-      ExtractionInfo extraction) {}
+      ExtractionInfo extraction) {
+
+    /** 세션 첨부(HomeAttachment)에서 만든다 — current 만 호출자가 정한다(이번 턴 USER 메시지에 붙었는지). */
+    public static ChatAttachment from(HomeAttachment a, boolean current) {
+      return new ChatAttachment(
+          a.fileId(),
+          a.messageId(),
+          a.originalName(),
+          a.mimeType(),
+          a.sizeBytes(),
+          current,
+          a.extraction());
+    }
+  }
 
   /** 세션 최근 메시지(텍스트만 — 위젯 jsonb 제외). */
   public record ContextMessage(String role, String content) {}

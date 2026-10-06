@@ -143,7 +143,8 @@ public class HomeChatService {
     String text = query == null || query.isBlank() ? "" : query;
 
     // 1-1) WP-234: 첨부 입력 사전 검증 — 세션을 만들기 전에 걸러 잘못된 요청이 빈 새 세션을 남기지 않게 한다.
-    attachmentService.precheck(callerId, text, fileIds);
+    // 파일 존재·소유 판정은 새 세션일 때만(기존 세션은 USER 영속 단계의 잠금 경로가 같은 400 으로 거절).
+    attachmentService.precheck(callerId, text, fileIds, sessionId == null);
 
     // 2) 세션 ensure — sessionId null 이면 새 세션 생성.
     UUID sid = sessionId != null ? sessionId : sessionService.create(callerId).id();

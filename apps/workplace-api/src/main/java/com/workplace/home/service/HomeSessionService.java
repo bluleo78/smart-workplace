@@ -187,6 +187,14 @@ public class HomeSessionService {
   public long appendUserMessage(
       long callerId, UUID sessionId, String content, String titleFallback) {
     ensureOwner(callerId, sessionId);
+    return insertUserMessage(sessionId, content, titleFallback);
+  }
+
+  /**
+   * USER 메시지 저장 — 소유 검증 생략판. 같은 요청에서 이미 ensureOwner 를 거친 호출자(HomeAttachmentService 첨부 전송)만 쓴다. 호출자
+   * 트랜잭션 안에서 돈다(패키지 전용이라 외부 모듈은 부를 수 없다).
+   */
+  long insertUserMessage(UUID sessionId, String content, String titleFallback) {
     long id = messageRepo.insert(sessionId, "USER", content, null, null, null);
     String title = trimTitle(content);
     if (title == null && titleFallback != null) title = trimTitle(titleFallback);

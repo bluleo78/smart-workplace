@@ -97,14 +97,11 @@ public class ChatMessageAttachmentService {
     }
     List<UploadedFile> out = new ArrayList<>();
     for (MultipartFile mf : files) {
-      // 저장소가 돌려준 정규화 mime 을 그대로 응답에 쓴다 — 저장값과 응답값이 갈라지지 않는다(WP-242).
+      // 저장소가 돌려준 표시 이름·정규화 mime 을 그대로 응답에 쓴다 — 저장값과 응답값이 갈라지지 않는다(WP-242).
       var stored = storage.storeTemporary(mf, callerId);
       out.add(
           new UploadedFile(
-              stored.fileId(),
-              mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file",
-              stored.mimeType(),
-              mf.getSize()));
+              stored.fileId(), stored.originalName(), stored.mimeType(), mf.getSize()));
     }
     return out;
   }

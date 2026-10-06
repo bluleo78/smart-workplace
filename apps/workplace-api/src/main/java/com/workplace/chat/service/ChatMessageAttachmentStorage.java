@@ -46,8 +46,10 @@ public class ChatMessageAttachmentStorage {
     this.tempExpiryHours = tempExpiryHours;
   }
 
-  /** 임시 저장 결과 — fileId 와 저장에 실제 쓴 정규화 mime(응답이 같은 값을 쓰도록 단일 출처로 돌려준다). */
-  public record Stored(Long fileId, String mimeType) {}
+  /**
+   * 임시 저장 결과 — fileId, 저장에 실제 쓴 표시 이름(원본명 없으면 "file")과 정규화 mime. 응답이 저장값과 같은 값을 쓰도록 단일 출처로 돌려준다.
+   */
+  public record Stored(Long fileId, String originalName, String mimeType) {}
 
   /**
    * 파일을 코어 FileStore 에 저장 후 file row 를 임시로 INSERT 해 fileId 와 정규화 mime 을 반환.
@@ -94,6 +96,6 @@ public class ChatMessageAttachmentStorage {
             .returning(FILE.ID)
             .fetchOne()
             .getId();
-    return new Stored(fileId, mime);
+    return new Stored(fileId, originalName, mime);
   }
 }

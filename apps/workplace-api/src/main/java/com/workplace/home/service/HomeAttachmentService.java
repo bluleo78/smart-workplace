@@ -95,21 +95,22 @@ public class HomeAttachmentService {
    */
   public List<HomeUploadedFile> upload(long callerId, List<MultipartFile> files) {
     if (files == null || files.isEmpty()) throw new HomeAttachmentInvalidException(MSG_NO_FILES);
-    if (files.size() > maxPerMessage) throw new HomeAttachmentInvalidException(tooManyMessage());
+    checkCount(files.size());
     for (MultipartFile mf : files) {
       if (mf.getSize() > maxFileSize) throw new HomeAttachmentInvalidException(MSG_TOO_LARGE);
     }
     List<HomeUploadedFile> out = new ArrayList<>();
     for (MultipartFile mf : files) {
-      // 저장소와 같은 규칙으로 표시 이름을 정한다(null → "file").
-      String name = mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file";
       ChatMessageAttachmentStorage.Stored stored;
       try {
         stored = storage.storeTemporary(mf, callerId, StorageDomain.HOME);
       } catch (IOException e) {
         throw new UncheckedIOException("첨부 저장 실패", e);
       }
-      out.add(new HomeUploadedFile(stored.fileId(), name, stored.mimeType(), mf.getSize()));
+      // 표시 이름·mime 은 저장소가 실제로 쓴 값을 그대로 쓴다(응답과 저장값이 갈라지지 않게).
+      out.add(
+          new HomeUploadedFile(
+              stored.fileId(), stored.originalName(), stored.mimeType(), mf.getSize()));
     }
     return out;
   }
@@ -117,15 +118,18 @@ public class HomeAttachmentService {
   /**
    * 전송 전 사전 검증(잠금 없음) — 세션을 만들기 전에 불러, 잘못된 fileId 로 빈 새 세션이 남지 않게 한다. 실제 연결은 appendUserMessage 가
    * 잠금을 잡고 다시 검증한다.
+   *
+   * <p>형태 검사(빈 전송·개수·null·중복)는 항상 한다. 존재·소유 판정(findCandidates)은 새 세션을 만들 때만 한다 — 기존 세션이면 남길 빈 세션이
+   * 없고, appendUserMessage 의 잠금 경로가 같은 문구(400)로 거절한다.
+   *
+   * @param newSession 이번 전송이 새 세션을 만드는지(sessionId 미지정)
    */
   @Transactional(readOnly = true)
-  public void precheck(long callerId, String query, List<Long> fileIds) {
-    List<Long> ids = fileIds == null ? List.of() : fileIds;
-    if ((query == null || query.isBlank()) && ids.isEmpty()) {
-      throw new HomeAttachmentInvalidException(MSG_EMPTY);
-    }
+  public void precheck(long callerId, String query, List<Long> fileIds, boolean newSession) {
+    List<Long> ids = normalizeIds(fileIds);
+    requireContentOrFiles(query, ids);
     validateIds(ids);
-    checkBindable(callerId, ids, repo.findCandidates(ids));
+    if (newSession) checkBindable(callerId, ids, repo.findCandidates(ids));
   }
 
   /**
@@ -143,11 +147,9 @@ public class HomeAttachmentService {
    */
   public long appendUserMessage(long callerId, UUID sessionId, String query, List<Long> fileIds) {
     String content = query == null || query.isBlank() ? "" : query;
-    List<Long> ids = fileIds == null ? List.of() : fileIds;
-    if (ids.isEmpty()) {
-      if (content.isEmpty()) throw new HomeAttachmentInvalidException(MSG_EMPTY);
-      return sessionService.appendUserMessage(callerId, sessionId, content, null);
-    }
+    List<Long> ids = normalizeIds(fileIds);
+    requireContentOrFiles(content, ids);
+    if (ids.isEmpty()) return sessionService.appendUserMessage(callerId, sessionId, content, null);
     validateIds(ids);
     sessionService.ensureOwner(callerId, sessionId);
     // 잠금 → 개수 확인 순서가 중요하다 — 거꾸로면 두 전송이 같은 개수를 보고 둘 다 통과한다.
@@ -157,9 +159,9 @@ public class HomeAttachmentService {
       throw new HomeAttachmentInvalidException(MSG_SESSION_LIMIT);
     }
     Map<Long, Candidate> byId = checkBindable(callerId, ids, repo.lockCandidates(ids));
+    // 소유는 위에서 확인했다 — 같은 요청에서 세션 조회를 다시 하지 않는 검증 생략 경로로 저장한다.
     long messageId =
-        sessionService.appendUserMessage(
-            callerId, sessionId, content, byId.get(ids.get(0)).originalName());
+        sessionService.insertUserMessage(sessionId, content, byId.get(ids.get(0)).originalName());
     for (Long id : ids) repo.bind(id, messageId, callerId);
     // 승격은 반드시 이 트랜잭션 안에 둔다 — 같은 파일을 동시에 붙이려는 뒤 요청은 잠금 대기 후 file 행의 expires_at(NULL)을 보고 거절된다.
     // 승격을 커밋 뒤로 미루면 뒤 요청이 "임시"로 보고 정션 INSERT 에서 PK 위반(500)이 난다.
@@ -180,16 +182,7 @@ public class HomeAttachmentService {
   @Transactional(readOnly = true)
   public List<ChatAttachment> listForChat(long callerId, UUID sessionId, long currentMessageId) {
     return sessionService.getAttachments(callerId, sessionId).stream()
-        .map(
-            a ->
-                new ChatAttachment(
-                    a.fileId(),
-                    a.messageId(),
-                    a.originalName(),
-                    a.mimeType(),
-                    a.sizeBytes(),
-                    a.messageId() == currentMessageId,
-                    a.extraction()))
+        .map(a -> ChatAttachment.from(a, a.messageId() == currentMessageId))
         .toList();
   }
 
@@ -227,9 +220,26 @@ public class HomeAttachmentService {
         .orElseThrow(() -> new HomeAttachmentNotFoundException(fileId));
   }
 
+  /** fileIds 정규화 — null 은 빈 목록(첨부 없음)으로 본다. */
+  private static List<Long> normalizeIds(List<Long> fileIds) {
+    return fileIds == null ? List.of() : fileIds;
+  }
+
+  /** 본문도 첨부도 없는 전송 거절 — 본문은 null·공백이면 빈 것으로 본다. */
+  private static void requireContentOrFiles(String query, List<Long> ids) {
+    if ((query == null || query.isBlank()) && ids.isEmpty()) {
+      throw new HomeAttachmentInvalidException(MSG_EMPTY);
+    }
+  }
+
+  /** 요청당 개수 상한 검사 — 업로드와 전송(fileIds)이 같은 상한·문구를 쓴다. */
+  private void checkCount(int count) {
+    if (count > maxPerMessage) throw new HomeAttachmentInvalidException(tooManyMessage());
+  }
+
   /** 입력 형태 검사 — 개수 상한·null 요소·중복. 존재·소유 판정은 checkBindable. */
   private void validateIds(List<Long> ids) {
-    if (ids.size() > maxPerMessage) throw new HomeAttachmentInvalidException(tooManyMessage());
+    checkCount(ids.size());
     if (ids.stream().anyMatch(Objects::isNull)) {
       throw new HomeAttachmentInvalidException(MSG_INVALID_FILE);
     }
