@@ -4,7 +4,7 @@
 import { useChatSessionContext } from '@/hooks/chat-session-context';
 import { useSessions } from '@/hooks/queries/useHomeQueries';
 import type { AiScreenContext } from '@/types/aiScreenContext';
-import type { ChatTurn, HomeSessionSummary, ProposalCard } from '@/types/home';
+import type { ChatTurn, HomeSessionSummary, ProposalCard, TurnAttachment } from '@/types/home';
 
 export interface AssistantChat {
   turns: ChatTurn[];
@@ -13,8 +13,11 @@ export interface AssistantChat {
   currentSessionId: string | null;
   /** '새 대화' 전이 신호(nonce) — 증가 시 패널이 미전송 입력 초안을 비운다(#204). */
   newSessionNonce: number;
-  /** WP-54: screenContext — 패널이 칩 상태를 반영해 넘기는 현재 화면 컨텍스트(없으면 미전송). */
-  onSubmit: (query: string, screenContext?: AiScreenContext) => void;
+  /** WP-54: screenContext — 패널이 칩 상태를 반영해 넘기는 현재 화면 컨텍스트(없으면 미전송).
+   *  WP-234: attachments — 이번 메시지 첨부. 반환값은 서버가 요청을 받아들였는지(첨부 초안 비움 판단). */
+  onSubmit: (query: string, screenContext?: AiScreenContext, attachments?: TurnAttachment[]) => Promise<boolean>;
+  /** WP-234: 실제 대화 전환(새 대화·세션 복원) 신호 — 증가 시 패널이 첨부 초안을 비운다. */
+  attachmentResetNonce: number;
   /** #335: 스트리밍 중단 — 진행 중 AI 응답을 멈춘다(부분 응답은 보존). */
   onStop: () => void;
   onNewSession: () => void;
@@ -48,6 +51,7 @@ export function useAssistantChat(): AssistantChat {
     sessions: sessions.data?.items ?? [],
     currentSessionId: session.sessionId,
     newSessionNonce: session.newSessionNonce,
+    attachmentResetNonce: session.attachmentResetNonce,
     onSubmit: session.submitQuery,
     onStop: session.stopStreaming,
     onNewSession: session.requestNewSession,

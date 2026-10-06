@@ -33,8 +33,8 @@ export function buildHomeChatSse(frames: HomeChatFrame[], correlationId: string)
  * 델타/누적 텍스트 대신 완성된 frames 배열을 그대로 넘기면 되므로, 기존에
  * `event: delta\ndata: {...}` 형태로 직접 SSE 본문을 조립하던 스펙들은 frames 배열로만 옮기면 된다.
  */
-/** POST /api/v1/ai/chat 시작 요청 본문. */
-export type HomeChatStartBody = { sessionId: string | null; query: string; screenContext?: AiScreenContext }
+/** POST /api/v1/ai/chat 시작 요청 본문. WP-234: fileIds 는 첨부가 있을 때만 실린다. */
+export type HomeChatStartBody = { sessionId: string | null; query: string; screenContext?: AiScreenContext; fileIds?: number[] }
 
 export async function mockHomeChatGeneration(
   page: Page,

@@ -8,6 +8,7 @@ import { chatStream, homeKeys, useDeleteSession } from '@/hooks/queries/useHomeQ
 import { isVisibleStep, widgetTypeFromToolName } from '@/lib/aiToolLabels';
 import { extractApiError, handleApiError } from '@/lib/api-error';
 import { pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
+import { revokeTurnPreviews, toTurnAttachments } from '@/lib/homeChatAttachments';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type {
   ActionOutcome,
@@ -17,6 +18,7 @@ import type {
   ProposalCard,
   ToolEventDto,
   ToolStep,
+  TurnAttachment,
   WidgetSpec,
   WidgetType,
 } from '@/types/home';
@@ -41,11 +43,16 @@ const OUTCOME_BY_ROLE: Partial<Record<HomeMessage['role'], ActionOutcome>> = {
  * WP-158: 서버가 영속한 블록 순서가 있으면 라이브 done 과 같이 위젯 목록으로 재조정해 도착순 렌더를 재현한다.
  */
 function messageToTurn(m: HomeMessage): ChatTurn {
+  // WP-234: 첨부만 보낸 USER 메시지는 content 가 비어(null) 올 수 있다 — 화면 턴은 항상 문자열로 맞춘다
+  // (AIChatPanel 이 content.length·slice 를 바로 쓴다).
+  const content = m.content ?? '';
   const outcome = OUTCOME_BY_ROLE[m.role];
-  if (outcome) return { role: 'action', outcome, content: m.content ?? '' };
+  if (outcome) return { role: 'action', outcome, content };
   return {
     role: m.role === 'ASSISTANT' ? 'assistant' : 'user',
-    content: m.content ?? '', // WP-234: 첨부만 보낸 메시지는 null 일 수 있어 빈 문자열로 정규화
+    content,
+    // WP-234: 새로고침·세션 복원 후에도 말풍선에 첨부를 다시 그린다.
+    attachments: toTurnAttachments(m),
     widgets: m.widgets ?? undefined,
     steps: m.toolCalls ?? undefined,
     contentBlocks: m.contentBlocks ? reconcileBlocks(m.contentBlocks, m.widgets ?? []) : undefined,
@@ -81,6 +88,10 @@ export function useChatSession() {
   // effect 로 비우기 위한 트리거. 신선한(아직 chat 안 한) 세션에서 sessionId/turns 는
   // 이미 빈 값이라 prop 변화가 패널에 보이지 않으므로, 명시적 카운터로 전이를 전달한다(#204).
   const [newSessionNonce, setNewSessionNonce] = useState(0);
+  // WP-234: 입력창 첨부 초안 초기화 신호 — 실제 대화 전환(새 대화·세션 복원)에서만 증가한다.
+  // currentSessionId 변화로 판단하면 새 대화의 첫 응답이 끝나 id 가 null→값으로 바뀔 때도 초안이 지워진다.
+  // 보류 전환([기다리기])은 실행되는 시점(newSession/restoreSession 호출)에 증가한다.
+  const [attachmentResetNonce, setAttachmentResetNonce] = useState(0);
   // 작업 세대 카운터 — 사용자 전이(chat/새세션/복원)마다 증가. 비동기 결과는
   // 자신이 캡처한 세대가 여전히 최신일 때만 반영(in-flight AI chat 과 세션 전환의 레이스로
   // stale 응답이 복원/리셋 상태를 덮어쓰는 것 방지).
@@ -117,17 +128,34 @@ export function useChatSession() {
   // 챗 명령 → SSE AI chat. 빈 assistant 턴을 먼저 추가하고,
   // delta 마다 마지막 턴의 content 에 누적 → done 에서 sessionId 확정.
   // WP-54: screenContext — 패널 칩이 활성일 때만 넘어오는 현재 화면 컨텍스트(없으면 요청 본문에서 키 생략).
+  // WP-234: attachments — 이번 메시지 첨부(낙관적 턴 표시용, 미리보기 포함). 반환 Promise 는 서버가 요청을
+  // 받아들였는지(true) — 패널이 그때만 첨부 초안을 비운다(거절 400 이면 칩을 남겨 사유를 보고 고칠 수 있게).
   const submitQuery = useCallback(
-    (query: string, screenContext?: AiScreenContext) => {
+    (query: string, screenContext?: AiScreenContext, attachments?: TurnAttachment[]): Promise<boolean> => {
       const gen = ++opSeq.current;
+      const fileIds = attachments?.map((a) => a.fileId) ?? [];
       // 사용자 턴 + 빈 어시스턴트 턴을 즉시 추가 — 빈 어시스턴트 턴이 있을 때만 3-dot 표시.
-      setTurns((t) => [...t, { role: 'user', content: query }, { role: 'assistant', content: '' }]);
+      setTurns((t) => [
+        ...t,
+        { role: 'user', content: query, ...(attachments?.length ? { attachments } : {}) },
+        { role: 'assistant', content: '' },
+      ]);
+      // 수락 신호 — onStarted 에서 true, 그 전에 실패·중단으로 끝나면 finally 에서 false(먼저 정해진 값이 남는다).
+      let settleAccepted!: (accepted: boolean) => void;
+      const accepted = new Promise<boolean>((resolve) => {
+        settleAccepted = resolve;
+      });
       const ac = new AbortController();
       abortRef.current = ac;
       setPending(true);
       setPendingActions([]);      // #351: 새 제출 — 이전 확인 카드 배열 폐기
       chatStream(
-        { sessionId: sessionIdRef.current, query, ...(screenContext ? { screenContext } : {}) },
+        {
+          sessionId: sessionIdRef.current,
+          query,
+          ...(screenContext ? { screenContext } : {}),
+          ...(fileIds.length ? { fileIds } : {}),
+        },
         (delta) => {
           // stale 세대(newSession/restore 가 끼어든 경우)면 델타를 버린다.
           if (opSeq.current !== gen) return;
@@ -207,6 +235,8 @@ export function useChatSession() {
             return next;
           });
         },
+        // WP-234: POST /ai/chat 수락 — 패널이 보낸 첨부를 초안에서 뺀다.
+        () => settleAccepted(true),
       )
         .then((r) => {
           if (opSeq.current !== gen) return; // stale 세대 폐기
@@ -255,12 +285,14 @@ export function useChatSession() {
           }
         })
         .finally(() => {
+          settleAccepted(false); // 수락 전에 끝났으면 거절로 확정(이미 true 면 무시된다)
           if (opSeq.current === gen) {
             setPending(false);
             // WP-191: 생성이 끝나면 보류해 둔 전환을 실행한다(확인창에서 [기다리기]를 고른 경우 포함).
             releaseHeldRef.current();
           }
         });
+      return accepted;
     },
     [qc, updateSessionId, setPending],
   );
@@ -307,10 +339,17 @@ export function useChatSession() {
     setPending(false);
     setPendingActions([]); // #351: 새 세션 시 확인 카드 배열 초기화
     updateSessionId(null);
-    setTurns([]);
-    // '새 대화'는 깨끗한 빈 입력으로 시작해야 하므로 패널 로컬 입력 초기화 신호 발행(#204).
-    // restoreSession(세션 선택)/submit 에서는 발행하지 않아 세션별 초안 보존(by-design)을 깨지 않는다.
-    if (!opts?.keepDraft) setNewSessionNonce((n) => n + 1);
+    // WP-234: 이전 턴들이 들고 있던 이미지 미리보기 URL 을 해제하며 비운다.
+    setTurns((prev) => {
+      revokeTurnPreviews(prev);
+      return [];
+    });
+    // '새 대화'는 깨끗한 빈 입력으로 시작해야 하므로 패널 로컬 입력·첨부 초안 초기화 신호 발행(#204, WP-234).
+    // keepDraft(보류 해제)는 기다리는 동안 입력·첨부한 다음 질문을 보존한다.
+    if (!opts?.keepDraft) {
+      setNewSessionNonce((n) => n + 1);
+      setAttachmentResetNonce((n) => n + 1);
+    }
   }, [updateSessionId, clearHeld, setPending]);
 
   // 복원 — 메시지 fetch → transcript 재현(AI 재호출 없음, 위젯 fold 없음).
@@ -323,6 +362,7 @@ export function useChatSession() {
       abortRef.current = null;
       setPending(false);
       setPendingActions([]); // #351: 세션 복원 시 확인 카드 배열 초기화
+      setAttachmentResetNonce((n) => n + 1); // WP-234: 다른 대화로 옮기면 첨부 초안은 비운다(세션 30개 상한도 대화별).
       try {
         // #843: 미처리 확인카드도 서버에 영속되므로 메시지와 함께 복원한다. 카드 조회가 실패해도 대화 이력 복원은
         // 막지 않는다(카드는 부가 정보 — 없으면 카드 없이 보여주는 편이 세션을 못 여는 것보다 낫다).
@@ -338,7 +378,10 @@ export function useChatSession() {
         // #431: 복원 시에도 ASSISTANT 위젯을 함께 재현(서버가 widgets 영속) — 빈 버블 방지.
         // toolCalls → steps 매핑: 서버가 영속한 도구 호출 단계를 인라인 표시로 복원.
         updateSessionId(id);
-        setTurns(data.map(messageToTurn));
+        setTurns((prev) => {
+          revokeTurnPreviews(prev);
+          return data.map(messageToTurn);
+        });
         setPendingActions(toCards(proposals));
       } catch (err) {
         handleApiError(err, '세션을 불러오지 못했습니다');
@@ -450,7 +493,7 @@ export function useChatSession() {
   const requestProposalFix = useCallback(
     (card: ProposalCard) => {
       // WP-54: 실패 카드 재제안은 화면과 무관 — 화면 컨텍스트 없이 보낸다.
-      submitQuery(`「${card.summary}」 승인이 실패했어요. 실패 사유를 반영해서 다시 제안해 줘.`);
+      void submitQuery(`「${card.summary}」 승인이 실패했어요. 실패 사유를 반영해서 다시 제안해 줘.`);
     },
     [submitQuery],
   );
@@ -511,6 +554,7 @@ export function useChatSession() {
     sessionId,
     turns,
     newSessionNonce,
+    attachmentResetNonce,
     pending,
     pendingActions,
     confirmActionItem,

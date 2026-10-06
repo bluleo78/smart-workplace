@@ -116,15 +116,21 @@ export async function chatStream(
   onProgress?: (label: string) => void,
   onPendingAction?: (actions: PendingAction[], sessionId?: string) => void,
   onTool?: (evt: ToolEventDto) => void,
+  onStarted?: () => void,
 ): Promise<{ sessionId?: string; widgets?: WidgetSpec[] }> {
   if (signal.aborted) throw abortError();
 
   // WP-54: screenContext 는 있을 때만 키를 싣는다(없는 요청은 기존 본문과 동일).
+  // WP-234: fileIds 도 있을 때만 싣는다 — 본문을 필드별로 다시 만들므로 여기서 빠뜨리면 첨부가 조용히 사라진다.
   const startRes = await homeApi.startChat({
     sessionId: body.sessionId,
     query: body.query,
     ...(body.screenContext ? { screenContext: body.screenContext } : {}),
+    ...(body.fileIds?.length ? { fileIds: body.fileIds } : {}),
   });
+  // WP-234: 서버가 요청을 받아들였다(USER 메시지·첨부 연결 저장 완료) — 호출측이 입력창 첨부 초안을 비운다.
+  // abort 확인보다 먼저 알린다: 그 사이 중단돼도 서버엔 이미 저장됐다.
+  onStarted?.();
   const correlationId = startRes.data.correlationId;
 
   if (signal.aborted) {
