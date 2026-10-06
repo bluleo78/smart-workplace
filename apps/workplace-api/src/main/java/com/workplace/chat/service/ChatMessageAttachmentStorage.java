@@ -57,9 +57,20 @@ public class ChatMessageAttachmentStorage {
    * @throws IOException 파일 저장 실패 시
    */
   public Stored storeTemporary(MultipartFile mf, Long uploaderId) throws IOException {
+    return storeTemporary(mf, uploaderId, StorageDomain.CHAT);
+  }
+
+  /**
+   * 저장 도메인을 지정해 임시 저장한다 — 메인 AI 채팅(HOME)처럼 이슈 챗과 같은 흐름을 쓰되 경로 도메인만 달라야 할 때(WP-234). 도메인에 따라
+   * tenant-{id}/{domain}/{date}/{uuid}.ext 로 분리된다.
+   *
+   * @throws IOException 파일 저장 실패 시
+   */
+  public Stored storeTemporary(MultipartFile mf, Long uploaderId, StorageDomain domain)
+      throws IOException {
     String originalName = mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file";
     // 코어 FilePathBuilder 가 UUID·날짜·확장자·테넌트 디렉토리를 일괄 생성(상대경로)
-    String relativePath = pathBuilder.build(StorageDomain.CHAT, originalName);
+    String relativePath = pathBuilder.build(domain, originalName);
     fileStore.store(relativePath, mf);
 
     // STORED_NAME 에는 경로 마지막 세그먼트(UUID 파일명)만 저장해 "저장된 파일명" 의미를 유지
