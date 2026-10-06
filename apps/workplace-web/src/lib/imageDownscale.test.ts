@@ -17,10 +17,21 @@ describe('isDownscalableType', () => {
   });
 });
 
-describe('downscaleTarget — 긴 변 2048 · 4MB', () => {
-  it('긴 변 2048 이하이고 4MB 이하면 그대로(null)', () => {
+/** ai-agent HOME_IMAGE_MAX_BYTES(3.75MiB) — 이보다 큰 원본은 이미지 블록으로 보내지 못하고 재업로드를 안내한다. */
+const AGENT_IMAGE_BLOCK_MAX_BYTES = 3_932_160;
+
+describe('downscaleTarget — 긴 변 2048 · 3.5MiB', () => {
+  it('재인코딩 기준은 3.5MiB(3,670,016 바이트)이고 ai-agent 이미지 블록 상한보다 작다', () => {
+    expect(DOWNSCALE_TRIGGER_BYTES).toBe(3_670_016);
+    expect(DOWNSCALE_TRIGGER_BYTES).toBeLessThan(AGENT_IMAGE_BLOCK_MAX_BYTES);
+  });
+  it('긴 변 2048 이하이고 3.5MiB 이하면 그대로(null)', () => {
     expect(downscaleTarget(2048, 1000, 1 * MB)).toBeNull();
-    expect(downscaleTarget(800, 600, DOWNSCALE_TRIGGER_BYTES)).toBeNull();
+    expect(downscaleTarget(800, 600, 3_670_016)).toBeNull();
+  });
+  it('3.5MiB 를 1바이트라도 넘으면 재인코딩 — 3.75MiB 근처 고해상도 스크린샷이 그대로 올라가 도구에서 막히지 않게', () => {
+    expect(downscaleTarget(2048, 1536, 3_670_017)).toEqual({ width: 2048, height: 1536 });
+    expect(downscaleTarget(2048, 1536, AGENT_IMAGE_BLOCK_MAX_BYTES)).toEqual({ width: 2048, height: 1536 });
   });
   it('가로가 길면 가로를 2048 로 맞추고 비율 유지', () => {
     expect(downscaleTarget(4000, 3000, 1 * MB)).toEqual({ width: 2048, height: 1536 });
@@ -28,7 +39,7 @@ describe('downscaleTarget — 긴 변 2048 · 4MB', () => {
   it('세로가 길면 세로를 2048 로 맞춘다(반올림)', () => {
     expect(downscaleTarget(1000, 3000, 1 * MB)).toEqual({ width: 683, height: 2048 });
   });
-  it('크기는 작아도 4MB 를 넘으면 같은 크기로 JPEG 재인코딩', () => {
+  it('크기는 작아도 3.5MiB 를 넘으면 같은 크기로 JPEG 재인코딩', () => {
     expect(downscaleTarget(1500, 1000, DOWNSCALE_TRIGGER_BYTES + 1)).toEqual({ width: 1500, height: 1000 });
   });
   it('아주 가는 이미지도 0px 이 되지 않는다', () => {

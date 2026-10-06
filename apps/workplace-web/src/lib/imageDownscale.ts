@@ -4,8 +4,12 @@
 
 /** 축소 후 긴 변(px). */
 export const DOWNSCALE_MAX_EDGE = 2048;
-/** 이 크기를 넘으면 치수가 작아도 JPEG 로 다시 인코딩한다. */
-export const DOWNSCALE_TRIGGER_BYTES = 4 * 1024 * 1024;
+/**
+ * 이 크기(3.5MiB)를 넘으면 치수가 작아도 JPEG 로 다시 인코딩한다.
+ * ai-agent 이미지 블록 상한(HOME_IMAGE_MAX_BYTES 3.75MiB)보다 작게 둬야, 축소 없이 올라간 이미지가 도구에서
+ * "모델에 보낼 수 없음 — 다시 올려 달라"로 막히지 않는다(여유분 256KiB).
+ */
+export const DOWNSCALE_TRIGGER_BYTES = 3.5 * 1024 * 1024;
 /** JPEG 품질 — 문서 스크린샷 글자가 뭉개지지 않는 선. */
 export const DOWNSCALE_JPEG_QUALITY = 0.85;
 
@@ -19,7 +23,7 @@ export function isDownscalableType(mime: string): boolean {
 
 /**
  * 축소 목표 치수. 그대로 올려도 되면 null.
- * 긴 변이 2048 이하인데 4MB 를 넘으면 같은 치수로 JPEG 재인코딩만 한다(용량만 줄임).
+ * 긴 변이 2048 이하인데 3.5MiB 를 넘으면 같은 치수로 JPEG 재인코딩만 한다(용량만 줄임).
  */
 export function downscaleTarget(width: number, height: number, sizeBytes: number): { width: number; height: number } | null {
   const longEdge = Math.max(width, height);
