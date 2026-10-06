@@ -43,6 +43,16 @@ export interface ChatAttachmentMeta {
   extraction?: ExtractionInfo;
 }
 
+// WP-234: 메인 AI 채팅 세션 첨부 메타(서버 HomeAttachment 계약 그대로). 세션 목록 응답은 extraction 을 항상 싣는다.
+export interface HomeAttachmentMeta {
+  fileId: number;
+  messageId: number;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  extraction: ExtractionInfo;
+}
+
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).
 export interface ChatMessageItem {
   id: number;
@@ -202,6 +212,11 @@ export interface WorkplaceApiClient {
   // readChatAttachmentText 는 스레드의 챗 첨부와 스레드가 딸린 이슈의 첨부를 모두 받는다.
   readChatAttachmentText(agentId: number, threadId: number, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
   downloadChatAttachment(agentId: number, threadId: number, messageId: number, fileId: number): Promise<{ data: Buffer; mimeType: string }>;
+  // WP-234: 메인 AI 채팅 세션 첨부 — 웹과 같은 /home/sessions/{sid}/attachments* 를 요청자(onBehalfOfId=userId) 대행으로 부른다.
+  // 서버가 세션 소유자·세션 연결 여부를 확인하므로(타 세션 파일은 404) 여기서는 경로만 맞춘다.
+  listHomeSessionAttachments(onBehalfOfId: number, sessionId: string): Promise<HomeAttachmentMeta[]>;
+  readHomeAttachmentText(onBehalfOfId: number, sessionId: string, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
+  downloadHomeAttachment(onBehalfOfId: number, sessionId: string, fileId: number): Promise<{ data: Buffer; mimeType: string }>;
   // #719: 요청자의 active-tenant 를 X-On-Behalf-Of-Tenant 로 싣는 스코프 클라이언트를 반환한다.
   // 인-프로세스 MCP 서버는 이 인스턴스를 서브에이전트까지 공유하므로, run 당 1회 스코프하면
   // 위임 도구 호출까지 전부 동일하게 적용된다(다중/무 멤버십 요청자의 AgentTenantResolver
@@ -437,6 +452,29 @@ export function createWorkplaceApiClient(opts: {
     async downloadChatAttachment(agentId, threadId, messageId, fileId) {
       const r = await http.get(`/chat/threads/${threadId}/messages/${messageId}/attachments/${fileId}/content`, {
         ...onBehalfOf(agentId),
+        responseType: 'arraybuffer',
+      });
+      const mimeType = String(r.headers['content-type'] ?? 'application/octet-stream');
+      return { data: Buffer.from(r.data as ArrayBuffer), mimeType };
+    },
+
+    // WP-234: 세션 id 는 UUID 라 그대로 써도 되지만, 경로 주입을 원천 차단하려고 인코딩한다.
+    async listHomeSessionAttachments(onBehalfOfId, sessionId) {
+      const r = await http.get(`/home/sessions/${encodeURIComponent(sessionId)}/attachments`, onBehalfOf(onBehalfOfId));
+      return r.data as HomeAttachmentMeta[];
+    },
+
+    async readHomeAttachmentText(onBehalfOfId, sessionId, fileId, offset, limit) {
+      const r = await http.get(`/home/sessions/${encodeURIComponent(sessionId)}/attachments/${fileId}/text`, {
+        ...onBehalfOf(onBehalfOfId),
+        params: rangeParams(offset, limit),
+      });
+      return r.data as ExtractedTextSlice;
+    },
+
+    async downloadHomeAttachment(onBehalfOfId, sessionId, fileId) {
+      const r = await http.get(`/home/sessions/${encodeURIComponent(sessionId)}/attachments/${fileId}/content`, {
+        ...onBehalfOf(onBehalfOfId),
         responseType: 'arraybuffer',
       });
       const mimeType = String(r.headers['content-type'] ?? 'application/octet-stream');

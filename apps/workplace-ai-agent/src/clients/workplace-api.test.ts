@@ -287,6 +287,67 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(items[0].attachments?.[0].extraction?.status).toBe('READY');
   });
 
+  // --- WP-234: 메인 AI 채팅 세션 첨부 ---
+  const SID = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
+
+  it('listHomeSessionAttachments → GET /home/sessions/{sid}/attachments + 요청자 대행 헤더', async () => {
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', '42')
+      .get(`${PREFIX}/home/sessions/${SID}/attachments`)
+      .reply(200, [
+        {
+          fileId: 8, messageId: 3, originalName: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 10,
+          extraction: { status: 'READY', totalChars: 10, truncated: false, reasonCode: null, reason: null },
+        },
+      ]);
+    const list = await newClient().listHomeSessionAttachments(42, SID);
+    expect(scope.isDone()).toBe(true);
+    expect(list[0].extraction.status).toBe('READY');
+  });
+
+  it('listHomeSessionAttachments → withOnBehalfOfTenant 스코프면 X-On-Behalf-Of-Tenant 동봉', async () => {
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of-tenant', '5')
+      .get(`${PREFIX}/home/sessions/${SID}/attachments`)
+      .reply(200, []);
+    await newClient().withOnBehalfOfTenant(5).listHomeSessionAttachments(42, SID);
+    expect(scope.isDone()).toBe(true);
+  });
+
+  it('readHomeAttachmentText → GET /home/sessions/{sid}/attachments/{fileId}/text?offset&limit', async () => {
+    nock(BASE)
+      .matchHeader('x-on-behalf-of', '42')
+      .get(`${PREFIX}/home/sessions/${SID}/attachments/8/text`)
+      .query({ offset: '100', limit: '12000' })
+      .reply(200, { fileId: 8, status: 'READY', text: '본문', nextOffset: 200 });
+    const s = await newClient().readHomeAttachmentText(42, SID, 8, 100, 12000);
+    expect(s.text).toBe('본문');
+    expect(s.nextOffset).toBe(200);
+  });
+
+  it('readHomeAttachmentText → offset·limit 생략 시 쿼리 없이 호출', async () => {
+    let requestedPath = '';
+    nock(BASE)
+      .get((uri) => {
+        requestedPath = uri;
+        return uri.startsWith(`${PREFIX}/home/sessions/${SID}/attachments/8/text`);
+      })
+      .reply(200, { fileId: 8, status: 'PENDING' });
+    await newClient().readHomeAttachmentText(42, SID, 8);
+    expect(requestedPath).not.toContain('?');
+  });
+
+  it('downloadHomeAttachment → GET /home/sessions/{sid}/attachments/{fileId}/content (바이너리)', async () => {
+    nock(BASE)
+      .matchHeader('x-on-behalf-of', '42')
+      .get(`${PREFIX}/home/sessions/${SID}/attachments/8/content`)
+      .reply(200, Buffer.from('PNGDATA'), { 'content-type': 'image/png' });
+    const r = await newClient().downloadHomeAttachment(42, SID, 8);
+    expect(r.data.toString()).toBe('PNGDATA');
+    expect(r.mimeType).toBe('image/png');
+  });
+
   // --- #333 M4: 메일 수동 동기화 ---
 
   describe('syncMail', () => {
