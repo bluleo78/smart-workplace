@@ -19,7 +19,11 @@ import type { ProviderCredential } from './agent-runner.js';
 import type { HostBridge } from '../mcp/tools.js';
 import { formatScreenContext, type ScreenContext } from './screen-context.js';
 import { opencodeVisionFor } from './opencode-vision.js';
-import { DEFAULT_ATTACHMENT_QUERY, formatHomeAttachmentsBlock, type HomeChatAttachment } from './home-attachments.js';
+import { awaitHomeExtraction, DEFAULT_ATTACHMENT_QUERY, EXTRACTION_WAIT_LABEL, formatHomeAttachmentsBlock, type HomeChatAttachment } from './home-attachments.js';
+
+/** runAiChatStream 의존성 — sleep 은 추출 대기 테스트에서 실제로 기다리지 않게 주입한다(RunChatAgentDeps 와 같은 방식). */
+export type RunAiChatDeps = RunAgentDeps & { sleep?: (ms: number) => Promise<void> };
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export interface ContextMessage {
   // 'USER' | 'ASSISTANT' | 'ACTION_DONE' | 'ACTION_FAILED' | 'ACTION_REJECTED'(#843 확인카드 처리 결과)
@@ -140,7 +144,7 @@ const ROUTER_FALLBACK_TEXT = '요청을 처리하지 못했어요. 다시 시도
 // signal abort 시 SDK query 를 kill 해 자원 누수를 막는다.
 export async function runAiChatStream(
   input: ChatInput,
-  deps: RunAgentDeps,
+  deps: RunAiChatDeps,
   onText: (t: string) => void,
   signal: AbortSignal,
   onProgress?: (label: string) => void, // #333: Agent 위임 시작 시 호출('이슈 전문가에게 위임 중')
@@ -200,7 +204,29 @@ export async function runAiChatStream(
   // 요청 시점 Seoul 기준 오늘 날짜를 계산해 상대 날짜 필터 앵커로 주입한다.
   const seoulToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
   const systemPrompt = ASSISTANT_SYSTEM_PROMPT + dateContextDirective(seoulToday) + thinkingDirective(input.thinkingDepth);
-  const userMessage = buildChatUserMessage(input, imageVision);
+  // #376: MCP 도구(드라이브·캘린더·메일 등) 실행 주체(X-On-Behalf-Of)는 요청자(userId).
+  //   stdio 서버(workplace-mcp-server.ts:36)와 동일 우선순위: userId ?? agentId.
+  //   LLM 인증 자격(credential)은 여전히 getProviderCredential(agentId) — 비서 에이전트 자격 유지.
+  // #719: tenantId 가 있으면 X-On-Behalf-Of-Tenant 를 실어 보내는 스코프 클라이언트로 교체.
+  //   서브에이전트도 이 인-프로세스 MCP 서버(같은 클라이언트 인스턴스)를 공유하므로 위임 도구
+  //   호출까지 한 번에 커버된다 — 요청자가 다중/무 멤버십일 때 AgentTenantResolver 가
+  //   fail-closed 되어 이슈/캘린더/연락처 등 권한 도구가 전부 403 나는 문제를 막는다.
+  const mcpClient = input.tenantId != null ? deps.client.withOnBehalfOfTenant(input.tenantId) : deps.client;
+
+  // WP-234: 이번 메시지 문서가 추출 중이면 잠시 기다려 상태를 갱신한다 — 재조회는 요청자(userId) 대행·테넌트 스코프로,
+  // 웹과 같은 세션 첨부 엔드포인트를 쓴다. 세션이 없으면(구 API) 대기하지 않는다.
+  const attachments = input.sessionId
+    ? await awaitHomeExtraction({
+        client: mcpClient,
+        onBehalfOfId: input.userId,
+        sessionId: input.sessionId,
+        attachments: input.attachments ?? [],
+        sleep: deps.sleep ?? defaultSleep,
+        signal,
+        onWait: () => onProgress?.(EXTRACTION_WAIT_LABEL),
+      })
+    : (input.attachments ?? []);
+  const userMessage = buildChatUserMessage({ ...input, attachments }, imageVision);
 
   const events: RunnerEvent[] = [];
   // #463: 라우터 자유 prose 를 onDelta 로 라이브 emit 하면서 동시에 누적. 완료 후 답 결정에 사용.
@@ -225,14 +251,6 @@ export async function runAiChatStream(
   });
 
   // 인-프로세스 MCP 서버(assistant 프로파일 + hostBridge + onTool)·서브에이전트 정의는 러너 내부에서 구성.
-  // #376: MCP 도구(드라이브·캘린더·메일 등) 실행 주체(X-On-Behalf-Of)는 요청자(userId).
-  //   stdio 서버(workplace-mcp-server.ts:36)와 동일 우선순위: userId ?? agentId.
-  //   LLM 인증 자격(credential)은 여전히 getProviderCredential(agentId) — 비서 에이전트 자격 유지.
-  // #719: tenantId 가 있으면 X-On-Behalf-Of-Tenant 를 실어 보내는 스코프 클라이언트로 교체.
-  //   서브에이전트도 이 인-프로세스 MCP 서버(같은 클라이언트 인스턴스)를 공유하므로 위임 도구
-  //   호출까지 한 번에 커버된다 — 요청자가 다중/무 멤버십일 때 AgentTenantResolver 가
-  //   fail-closed 되어 이슈/캘린더/연락처 등 권한 도구가 전부 403 나는 문제를 막는다.
-  const mcpClient = input.tenantId != null ? deps.client.withOnBehalfOfTenant(input.tenantId) : deps.client;
   const handle = runnerFor(credential).stream(
     {
       userMessage,

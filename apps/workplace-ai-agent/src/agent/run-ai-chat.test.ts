@@ -1380,6 +1380,50 @@ describe('runAiChatStream — 메인 AI 채팅 첨부 (WP-234)', () => {
     streamSpy.mockImplementation(makeRunnerImpl([textDelta('ok'), result('')]));
   });
 
+  it('이번 메시지 문서가 PENDING 이면 실행 전 재조회해 갱신된 상태로 프롬프트를 만들고 진행 라벨을 1회 발행', async () => {
+    const list = vi.fn().mockResolvedValue([{ ...pdf, extraction: { ...pdf.extraction, status: 'READY', totalChars: 777 } }]);
+    const client = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 't', model: null }),
+      toolClient: () => fakeTools, listHomeSessionAttachments: list } as never;
+    const onProgress = vi.fn();
+    const sleep = vi.fn(async () => {});
+    await runAiChatStream(
+      baseInput({ sessionId: SID, attachments: [{ ...pdf, extraction: { ...pdf.extraction, status: 'PENDING', totalChars: null } }] }),
+      { client, sleep }, () => {}, new AbortController().signal, onProgress,
+    );
+    expect(list).toHaveBeenCalledWith(1, SID); // 요청자 userId(baseInput 의 1) 대행
+    expect(sleep).toHaveBeenCalledTimes(1);
+    expect(onProgress).toHaveBeenCalledWith('첨부 파일 읽을 준비 중');
+    expect(runnerInput().userMessage).toContain('fileId 8 · 텍스트 약 777자');
+  });
+
+  it('tenantId 스코프 클라이언트로 재조회 — tenantId 가 있으면 추출 대기 재조회도 테넌트 스코프 클라이언트로', async () => {
+    const scopedList = vi.fn().mockResolvedValue([pdf]);
+    const scoped = { listHomeSessionAttachments: scopedList, toolClient: () => fakeTools };
+    const client = {
+      getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 't', model: null }),
+      toolClient: () => fakeTools,
+      listHomeSessionAttachments: vi.fn(),
+      withOnBehalfOfTenant: vi.fn().mockReturnValue(scoped),
+    } as never;
+    await runAiChatStream(
+      baseInput({ tenantId: 5, sessionId: SID, attachments: [{ ...pdf, extraction: { ...pdf.extraction, status: 'PENDING' } }] }),
+      { client, sleep: vi.fn(async () => {}) }, () => {}, new AbortController().signal,
+    );
+    expect(scopedList).toHaveBeenCalledWith(1, SID);
+    expect((client as { listHomeSessionAttachments: ReturnType<typeof vi.fn> }).listHomeSessionAttachments).not.toHaveBeenCalled();
+  });
+
+  it('sessionId 가 없으면(구 API) 대기·재조회 없음', async () => {
+    const list = vi.fn();
+    const client = { getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 't', model: null }),
+      toolClient: () => fakeTools, listHomeSessionAttachments: list } as never;
+    await runAiChatStream(
+      baseInput({ attachments: [{ ...pdf, extraction: { ...pdf.extraction, status: 'PENDING' } }] }),
+      { client, sleep: vi.fn(async () => {}) }, () => {}, new AbortController().signal,
+    );
+    expect(list).not.toHaveBeenCalled();
+  });
+
   it('Claude: 첨부 블록(비전 가능 문구)을 현재 요청 앞에 싣고 세션을 MCP 에 묶는다', async () => {
     await run({ sessionId: SID, attachments: [pdf, png] });
     const prompt = runnerInput().userMessage;

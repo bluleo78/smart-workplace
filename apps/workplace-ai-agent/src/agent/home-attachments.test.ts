@@ -1,9 +1,14 @@
 // WP-234: 메인 AI 채팅 첨부 — 요청 스키마와 프롬프트 블록(비전별 문구·상태 표기·위임 안내).
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import {
+  awaitHomeExtraction,
+  currentExtractionPending,
   DEFAULT_ATTACHMENT_QUERY,
   formatHomeAttachmentsBlock,
+  HOME_EXTRACTION_POLL_INTERVAL_MS,
+  HOME_EXTRACTION_POLL_TIMEOUT_MS,
   homeChatAttachmentSchema,
   type HomeChatAttachment,
 } from './home-attachments.js';
@@ -96,5 +101,70 @@ describe('formatHomeAttachmentsBlock', () => {
 
   it('기본 질의 문구 상수', () => {
     expect(DEFAULT_ATTACHMENT_QUERY).toBe('첨부한 파일을 확인해 주세요.');
+  });
+});
+
+describe('추출 대기 (WP-234)', () => {
+  const SID = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
+  const pending = a({ fileId: 8, current: true, extraction: st('PENDING') });
+  const readyMeta = { fileId: 8, messageId: 3, originalName: '회의록.pdf', mimeType: 'application/pdf', sizeBytes: 1, extraction: ready };
+  const deps = (list: ReturnType<typeof vi.fn>) => ({
+    client: { listHomeSessionAttachments: list } as unknown as WorkplaceApiClient,
+    onBehalfOfId: 42,
+    sessionId: SID,
+    sleep: vi.fn(async () => {}),
+  });
+
+  it('currentExtractionPending — 이번 메시지의 이미지 아닌 PENDING 만 대상', () => {
+    expect(currentExtractionPending([pending])).toBe(true);
+    expect(currentExtractionPending([{ ...pending, current: false }])).toBe(false);
+    expect(currentExtractionPending([{ ...pending, mimeType: 'image/png' }])).toBe(false);
+    expect(currentExtractionPending([a({ current: true })])).toBe(false);
+  });
+
+  it('대기 대상이 없으면 재조회·sleep·onWait 없음', async () => {
+    const list = vi.fn();
+    const d = { ...deps(list), attachments: [a({ current: true })], onWait: vi.fn() };
+    expect(await awaitHomeExtraction(d)).toEqual([a({ current: true })]);
+    expect(list).not.toHaveBeenCalled();
+    expect(d.sleep).not.toHaveBeenCalled();
+    expect(d.onWait).not.toHaveBeenCalled();
+  });
+
+  it('PENDING → 1회 재조회로 READY 가 되면 멈추고 갱신된 상태를 돌려준다(current 유지)', async () => {
+    const list = vi.fn().mockResolvedValue([readyMeta]);
+    const d = { ...deps(list), attachments: [pending], onWait: vi.fn() };
+    const out = await awaitHomeExtraction(d);
+    expect(d.onWait).toHaveBeenCalledTimes(1);
+    expect(d.sleep).toHaveBeenCalledTimes(1);
+    expect(d.sleep).toHaveBeenCalledWith(HOME_EXTRACTION_POLL_INTERVAL_MS);
+    expect(list).toHaveBeenCalledWith(42, SID);
+    expect(out[0]).toMatchObject({ fileId: 8, current: true, extraction: { status: 'READY' } });
+  });
+
+  it('계속 PENDING 이면 횟수 상한(타임아웃/간격)에서 멈추고 PENDING 그대로 진행', async () => {
+    const list = vi.fn().mockResolvedValue([{ ...readyMeta, extraction: st('PENDING') }]);
+    const d = { ...deps(list), attachments: [pending] };
+    const out = await awaitHomeExtraction(d);
+    const polls = Math.ceil(HOME_EXTRACTION_POLL_TIMEOUT_MS / HOME_EXTRACTION_POLL_INTERVAL_MS);
+    expect(d.sleep).toHaveBeenCalledTimes(polls);
+    expect(list).toHaveBeenCalledTimes(polls);
+    expect(out[0].extraction.status).toBe('PENDING');
+  });
+
+  it('재조회 실패면 마지막 상태로 즉시 진행', async () => {
+    const list = vi.fn().mockRejectedValue(new Error('503'));
+    const d = { ...deps(list), attachments: [pending] };
+    const out = await awaitHomeExtraction(d);
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(out[0].extraction.status).toBe('PENDING');
+  });
+
+  it('이미 중단된 요청이면 재조회하지 않는다', async () => {
+    const list = vi.fn();
+    const ac = new AbortController();
+    ac.abort();
+    await awaitHomeExtraction({ ...deps(list), attachments: [pending], signal: ac.signal });
+    expect(list).not.toHaveBeenCalled();
   });
 });

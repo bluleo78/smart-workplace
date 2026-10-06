@@ -3,6 +3,8 @@
 // 답하고 "다시 첨부해 달라"고 하지 않게 하는 연속성의 핵심이다. 읽기는 read_chat_attachment(필요할 때만)로 한다.
 import { z } from 'zod';
 
+import type { HomeAttachmentMeta, WorkplaceApiClient } from '../clients/workplace-api.js';
+import { log } from '../logger.js';
 import { isSendableImage } from '../mcp/home-attachment-tool.js';
 import { fileKind, sanitizeName } from './attachment-presenter.js';
 
@@ -79,4 +81,59 @@ export function formatHomeAttachmentsBlock(attachments: HomeChatAttachment[], im
       `- ${a.current ? '[이번 메시지] ' : ''}${sanitizeName(a.originalName)} (${a.mimeType}, ${sizeLabel(a.sizeBytes)}) — fileId ${a.fileId} · ${statusLabel(a, imageVision)}`,
   );
   return `## 이 대화의 첨부\n${lines.join('\n')}\n${imageVision ? HOW_VISION : HOW_NO_VISION} ${GUIDANCE_COMMON}\n\n`;
+}
+
+// WP-234: 이번 메시지 첨부는 추출이 비동기라 첫 턴에는 거의 항상 PENDING 이다. 실행 전 최대 20초(2초 간격 10회) 기다린다.
+// 메인 채팅은 Claude 도 로컬 Read 가 꺼져 있어(allowFileRead:false) 러너와 무관하게 문서는 추출을 기다릴 대상이다.
+export const HOME_EXTRACTION_POLL_INTERVAL_MS = 2_000;
+export const HOME_EXTRACTION_POLL_TIMEOUT_MS = 20_000;
+/** 대기 중 SSE progress 라벨 — 최대 20초 무응답 화면을 막는다. */
+export const EXTRACTION_WAIT_LABEL = '첨부 파일 읽을 준비 중';
+
+/** 이번 메시지(current) 첨부 중 이미지가 아니고 추출 중(PENDING)인 것이 있는지. 이미지는 추출 대상이 아니다. */
+export function currentExtractionPending(attachments: HomeChatAttachment[]): boolean {
+  return attachments.some((a) => a.current && fileKind(a.mimeType) !== 'image' && a.extraction.status === 'PENDING');
+}
+
+/** 최신 세션 목록의 추출 상태만 덮어쓴다 — current 표시는 요청(API)이 정한 값을 유지한다. */
+function refreshExtraction(attachments: HomeChatAttachment[], latest: HomeAttachmentMeta[]): HomeChatAttachment[] {
+  const byId = new Map(latest.map((l) => [l.fileId, l.extraction]));
+  return attachments.map((a) => {
+    const x = byId.get(a.fileId);
+    return x ? { ...a, extraction: x } : a;
+  });
+}
+
+/**
+ * 이번 메시지 문서가 PENDING 이면 세션 목록을 다시 받아 상태를 갱신한다(run-chat-agent awaitTriggerExtraction 과 같은 방식).
+ * 시간 대신 횟수로 묶는다 — 주입된 sleep 이 즉시 끝나도 무한 루프가 되지 않게. 재조회 실패나 요청 중단이면
+ * 마지막 상태로 진행한다(답변을 막지 않음 — 도구가 "추출 중"으로 답한다).
+ */
+export async function awaitHomeExtraction(ctx: {
+  client: WorkplaceApiClient;
+  onBehalfOfId: number;
+  sessionId: string;
+  attachments: HomeChatAttachment[];
+  sleep: (ms: number) => Promise<void>;
+  signal?: AbortSignal;
+  onWait?: () => void;
+}): Promise<HomeChatAttachment[]> {
+  let current = ctx.attachments;
+  if (!currentExtractionPending(current) || ctx.signal?.aborted) return current;
+  ctx.onWait?.();
+  const maxPolls = Math.ceil(HOME_EXTRACTION_POLL_TIMEOUT_MS / HOME_EXTRACTION_POLL_INTERVAL_MS);
+  for (let i = 0; i < maxPolls && currentExtractionPending(current); i++) {
+    await ctx.sleep(HOME_EXTRACTION_POLL_INTERVAL_MS);
+    if (ctx.signal?.aborted) break;
+    try {
+      current = refreshExtraction(current, await ctx.client.listHomeSessionAttachments(ctx.onBehalfOfId, ctx.sessionId));
+    } catch (e) {
+      log.warn('ai-chat', 'attachment_poll_fail', {
+        sessionId: ctx.sessionId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      break;
+    }
+  }
+  return current;
 }

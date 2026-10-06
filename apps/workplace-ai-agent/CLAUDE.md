@@ -38,6 +38,7 @@ src/
     user-message          # 4 type 별 user message 빌더
   mcp/
     tools                 # 프로필별 buildTools — 공유 도구(packages/mcp-tools-shared, workplace-mcp 와 같은 정의)를 이름으로 골라 쓰고, 에이전트 전용 도구(propose_*/show_*/submit_response/chat 등)만 직접 정의. 이슈 챗 첨부: `collectAttachments` 가 이슈 첨부(스레드 경유 `GET /chat/threads/{id}/issue-attachments` — 멘션된 AGENT 는 프로젝트 비멤버라 이슈 첨부 API 가 403)·스레드 메시지 첨부와 추출 상태를 모은 뒤 → `presentAttachments(reader, …)` 가 러너·모델별로 표현(Claude: 임시폴더에 받아 Read·PDF 이미지, 그 외 텍스트 도구 / opencode: 비전 모델(`resolveOpencodeVision`)이면 이미지만 받아 빌트인 `read`, 그 외 텍스트 도구·이미지 불가 안내) → 모델은 chat 프로필 MCP 도구 `read_attachment_text({threadId, fileId, offset?, limit?})` 로 추출 텍스트를 구간 단위로 읽음(이슈·챗 첨부 공통). chat 도구(get_chat_thread·read_attachment_text·add_chat_message)는 실행 스레드에 묶여(`chatThreadId`, opencode 는 env `MCP_CHAT_THREAD_ID`) 다른 threadId 를 거부.
+    home-attachment-tool  # WP-234 메인 AI 채팅 첨부 읽기(read_chat_attachment) — 세션 바인딩(homeSessionId)
     stdio-entry            # stdio MCP 엔트리포인트 — opencode 러너(별도 프로세스, Task9)가 spawn
   clients/              # workplace-api 호출용 axios client (코멘트/상태/담당자/조회 4 메서드)
   middleware/           # internal-auth (Authorization: Internal {token})
@@ -93,3 +94,11 @@ AGENT 자격으로 workplace-api 를 직접 호출할 때만 사용.
 ## AI 화면 컨텍스트 (WP-54)
 
 `screenContext`(`routes/home.ts` chatSchema) → `formatScreenContext`(`src/agent/screen-context.ts`) 가 user 메시지 앞에 `## 현재 화면` 블록을 붙인다. 라우터 규칙은 `assistant-system-prompt.ts` 의 `## 현재 화면 맥락`(subagent 위임 시 식별자 복사)에 있다.
+
+## 메인 AI 채팅 첨부 (WP-234)
+
+- 요청: `chatSchema` 의 `sessionId`(UUID, 선택)·`attachments`(세션 전체 첨부 + `current`, 생략 시 `[]`). 빈 `query` 는 이번 메시지 첨부가 있을 때만 허용하고 `DEFAULT_ATTACHMENT_QUERY` 로 대체. ai-agent 를 먼저 재기동하므로 구 API 요청(필드 없음)도 받는다.
+- 프롬프트: `formatHomeAttachmentsBlock`(`agent/home-attachments.ts`)이 매 턴 `## 이 대화의 첨부` 를 현재 요청 앞에 고정 주입(요약 후에도 연속성 유지). 문구는 비전 판단(`opencodeVisionFor`, 실행당 1회 → `RunnerInput.opencodeVision` 과 같은 값)에 따라 다르다.
+- 도구: assistant 프로필 `read_chat_attachment({fileId, offset?, limit?})`(`mcp/home-attachment-tool.ts`). 세션은 실행 단위 바인딩 — Claude 는 `RunnerMcpConfig.homeSessionId`, opencode 는 env `MCP_HOME_SESSION_ID`(이 실행은 웜 풀 제외). 바인딩이 없으면 오류. 문서는 추출 텍스트 구간, 이미지(jpeg/png/gif/webp, ≤3.75MB)는 이미지 블록, 그 외는 사유 안내. 하위 에이전트는 이 도구가 없으므로 라우터가 읽어 위임 prompt 에 옮겨 적는다.
+- 추출 대기: 이번 메시지 문서가 PENDING 이면 실행 전 최대 20초(2초×10회) 세션 목록을 재조회(`awaitHomeExtraction`), 대기 중 progress 라벨 1회.
+- 알려진 제약: opencode stdio MCP 는 `X-On-Behalf-Of-Tenant` 를 싣지 않는다(기존 assistant 도구 공통).
