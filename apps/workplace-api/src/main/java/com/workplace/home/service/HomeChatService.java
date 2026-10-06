@@ -65,6 +65,10 @@ public class HomeChatService {
   private final HomeSessionService sessionService;
   private final HomeProposalService proposalService;
   private final HomeContextSummaryService contextService;
+
+  /** WP-234: 첨부 검증·연결·세션 첨부 목록. */
+  private final HomeAttachmentService attachmentService;
+
   private final AiAgentChatClient chatClient;
   private final AiAgentProperties aiAgentProperties;
   private final ObjectMapper objectMapper;
@@ -77,6 +81,7 @@ public class HomeChatService {
       HomeSessionService sessionService,
       HomeProposalService proposalService,
       HomeContextSummaryService contextService,
+      HomeAttachmentService attachmentService,
       AiAgentChatClient chatClient,
       AiAgentProperties aiAgentProperties,
       ObjectMapper objectMapper,
@@ -87,6 +92,7 @@ public class HomeChatService {
     this.sessionService = sessionService;
     this.proposalService = proposalService;
     this.contextService = contextService;
+    this.attachmentService = attachmentService;
     this.chatClient = chatClient;
     this.aiAgentProperties = aiAgentProperties;
     this.objectMapper = objectMapper;
@@ -96,9 +102,15 @@ public class HomeChatService {
     this.sseRegistry = sseRegistry;
   }
 
-  /** 화면 컨텍스트 없는 호출(기존 호출부·테스트 호환) — null 컨텍스트로 위임. */
+  /** 화면 컨텍스트 없는 호출(기존 호출부·테스트 호환) — null 컨텍스트, 첨부 없음으로 위임. */
   public String startChat(long callerId, UUID sessionId, String query) {
-    return startChat(callerId, sessionId, query, null);
+    return startChat(callerId, sessionId, query, null, List.of());
+  }
+
+  /** 첨부 없는 호출(기존 호출부·테스트 호환) — 첨부 없음으로 위임. */
+  public String startChat(
+      long callerId, UUID sessionId, String query, AiScreenContext screenContext) {
+    return startChat(callerId, sessionId, query, screenContext, List.of());
   }
 
   /**
@@ -112,14 +124,25 @@ public class HomeChatService {
    * @param sessionId null 이면 새 세션 생성
    * @param query 자연어 명령
    * @param screenContext 현재 화면 컨텍스트(WP-54, nullable) — 저장하지 않고 이번 요청에만 ai-agent 로 전달
+   * @param fileIds 선업로드한 첨부 id(WP-234, null·빈 목록 허용) — USER 메시지와 같은 트랜잭션에서 연결·승격된다
    * @return 발급된 correlationId
    */
   public String startChat(
-      long callerId, UUID sessionId, String query, AiScreenContext screenContext) {
+      long callerId,
+      UUID sessionId,
+      String query,
+      AiScreenContext screenContext,
+      List<Long> fileIds) {
     // 1) enabled 확인 — 비활성이면 시작 전 예외로 단락.
     if (!aiAgentProperties.enabled()) {
       throw new HomeChatUnavailableException("AI 채팅 기능이 현재 비활성화되어 있어요.");
     }
+
+    // WP-234: 공백뿐인 본문은 ""로 정규화(저장·ai-agent 전달 공통 — ai-agent 는 빈 문자열만 기본 문구로 바꾼다).
+    String text = query == null || query.isBlank() ? "" : query;
+
+    // 1-1) WP-234: 첨부 입력 사전 검증 — 세션을 만들기 전에 걸러 잘못된 요청이 빈 새 세션을 남기지 않게 한다.
+    attachmentService.precheck(callerId, text, fileIds);
 
     // 2) 세션 ensure — sessionId null 이면 새 세션 생성.
     UUID sid = sessionId != null ? sessionId : sessionService.create(callerId).id();
@@ -130,8 +153,8 @@ public class HomeChatService {
     // 4) 비서 해석 — 미설정이면 HomeAssistantNotConfiguredException(503) 로 단락.
     AssistantSpec spec = assistantResolver.resolve(callerId);
 
-    // 5) USER 메시지 영속 — 요청 스레드(요청 tx) 에서 즉시 저장(tool_calls 는 USER 메시지에 없음).
-    sessionService.appendMessage(callerId, sid, "USER", query, null, null, null);
+    // 5) USER 메시지 영속 + 첨부 연결(WP-234) — 한 트랜잭션(세션 잠금·상한·승격·추출 요청 포함).
+    attachmentService.appendUserMessage(callerId, sid, text, fileIds);
 
     // 6) 이전 턴의 미처리 확인카드 만료(#843) — 웹은 새 질문 시 카드를 비우므로, 복원 시 되살아나지 않게 서버도 맞춘다.
     // 새 세션이면 만료할 카드가 없다.
@@ -174,7 +197,7 @@ public class HomeChatService {
                 // AgentTenantResolver 가 fail-closed(테넌트 미해결→RLS GUC 미주입→권한 전부 거부) 되지 않는다(#719).
                 ChatRequest req =
                     new ChatRequest(
-                        query,
+                        text,
                         ctx.toContext(),
                         spec.agentUserId(),
                         callerId,

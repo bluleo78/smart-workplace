@@ -58,6 +58,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
   @Autowired HomeSessionService sessionService;
   @Autowired HomeProposalService proposalService;
   @Autowired HomeContextSummaryService contextService;
+  @Autowired HomeAttachmentService attachmentService;
   @Autowired AiAgentProperties aiAgentProperties;
   @Autowired ObjectMapper objectMapper;
 
@@ -120,6 +121,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         sessionService,
         proposalService,
         contextService,
+        attachmentService,
         chatClient,
         aiAgentProperties,
         objectMapper,

@@ -128,6 +128,25 @@ public class HomeSessionService {
     return id;
   }
 
+  /**
+   * USER 메시지 저장(WP-234). 본문이 비면(첨부만 보낸 메시지) 첫 첨부 파일명을 세션 제목 후보로 쓴다 — 빈 문자열이 제목으로 굳으면(coalesce) 이후
+   * 텍스트 메시지로도 제목이 생기지 않기 때문.
+   *
+   * @param content 저장할 본문(첨부만 보낸 경우 "")
+   * @param titleFallback 본문이 비었을 때 쓸 제목 후보(nullable)
+   * @return 저장된 메시지 id
+   */
+  @Transactional
+  public long appendUserMessage(
+      long callerId, UUID sessionId, String content, String titleFallback) {
+    ensureOwner(callerId, sessionId);
+    long id = messageRepo.insert(sessionId, "USER", content, null, null, null);
+    String title = trimTitle(content);
+    if (title == null && titleFallback != null) title = trimTitle(titleFallback);
+    sessionRepo.touch(sessionId, title);
+    return id;
+  }
+
   @Transactional
   public void delete(long callerId, UUID sessionId) {
     ensureOwner(callerId, sessionId);
@@ -143,7 +162,9 @@ public class HomeSessionService {
     if (row.userId() != callerId) throw new HomeSessionNotFoundException(sessionId);
   }
 
+  /** 제목 후보 — 비었으면 null(제목을 정하지 않음), 길면 TITLE_MAX 자로 자른다. */
   private static String trimTitle(String content) {
+    if (content == null || content.isBlank()) return null;
     String t = content.strip();
     return t.length() <= TITLE_MAX ? t : t.substring(0, TITLE_MAX);
   }

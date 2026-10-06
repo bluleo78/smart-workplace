@@ -25,6 +25,7 @@ import com.workplace.home.service.HomeChatService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,7 +71,8 @@ class HomeChatControllerTest {
 
   @Test
   void chat_시작하면_correlationId_즉시_반환() throws Exception {
-    when(chatService.startChat(eq(1L), isNull(), eq("내 할 일"), isNull())).thenReturn("corr-1");
+    when(chatService.startChat(eq(1L), isNull(), eq("내 할 일"), isNull(), eq(List.of())))
+        .thenReturn("corr-1");
 
     mockMvc
         .perform(
@@ -85,7 +87,8 @@ class HomeChatControllerTest {
   /** WP-54: 화면 컨텍스트가 역직렬화돼 서비스로 전달된다. */
   @Test
   void chat_화면_컨텍스트를_서비스로_전달한다() throws Exception {
-    when(chatService.startChat(eq(1L), isNull(), eq("이거 요약"), any())).thenReturn("corr-2");
+    when(chatService.startChat(eq(1L), isNull(), eq("이거 요약"), any(), eq(List.of())))
+        .thenReturn("corr-2");
     String body =
         """
         {"query":"이거 요약","screenContext":{"view":"이슈 상세",
@@ -101,7 +104,7 @@ class HomeChatControllerTest {
                 .content(body))
         .andExpect(status().isOk());
     var captor = org.mockito.ArgumentCaptor.forClass(AiScreenContext.class);
-    verify(chatService).startChat(eq(1L), isNull(), eq("이거 요약"), captor.capture());
+    verify(chatService).startChat(eq(1L), isNull(), eq("이거 요약"), captor.capture(), eq(List.of()));
     assertThat(captor.getValue().focus().refs()).containsEntry("issueKey", "WP-12");
     assertThat(captor.getValue().scope().count()).isEqualTo(3);
   }
@@ -168,7 +171,23 @@ class HomeChatControllerTest {
                 .header("Authorization", "Bearer v")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"query\":\"\"}"))
-        .andExpect(status().isBadRequest());
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("메시지를 입력하거나 파일을 첨부해 주세요."));
+  }
+
+  /** WP-234: 본문이 비어도 fileIds 가 있으면 서비스로 넘긴다. */
+  @Test
+  void 첨부만_보내면_fileIds_를_서비스로_전달한다() throws Exception {
+    when(chatService.startChat(eq(1L), isNull(), eq(""), isNull(), eq(List.of(7L, 8L))))
+        .thenReturn("corr-3");
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"query\":\"\",\"fileIds\":[7,8]}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.correlationId").value("corr-3"));
   }
 
   @Test
