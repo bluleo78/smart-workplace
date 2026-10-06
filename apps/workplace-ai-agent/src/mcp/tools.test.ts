@@ -262,6 +262,8 @@ describe('프로필 구성', () => {
       'list_drive_spaces', 'list_drive_items', 'search_drive', 'get_drive_file_summary', 'search_drive_content',
       // 알림(#850)
       'list_notifications', 'mark_notification_read', 'mark_all_notifications_read',
+      // 메인 AI 채팅 첨부(WP-234)
+      'read_chat_attachment',
       'create_folder', 'rename_folder', 'move_folder', 'move_file', 'propose_delete_file', 'propose_delete_folder',
       // #856 확인카드 제안
       'propose_add_attendees', 'propose_remove_attendee', 'propose_update_project_member_role', 'propose_remove_project_member',
@@ -388,6 +390,32 @@ describe('도구 표시 라벨 (#879)', () => {
   it('실존하지 않거나 숨김인 도구의 라벨이 없다', () => {
     const stale = Object.keys(TOOL_LABELS).filter((k) => !allNames.has(k) || !isDisplayableTool(k));
     expect(stale).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-234: 메인 AI 채팅 첨부 읽기 — assistant 전용, 실행 세션 바인딩(8번째 인자)
+// ---------------------------------------------------------------------------
+describe('read_chat_attachment 프로필·바인딩 (WP-234)', () => {
+  const SID = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
+
+  it('assistant 기본(바인딩 없음) → 도구는 있으나 호출 시 오류, API 미호출', async () => {
+    const c = client();
+    await expect(find(buildTools(c, AGENT_ID, 'assistant'), 'read_chat_attachment').handler({ fileId: 1 }))
+      .rejects.toThrow(/메인 AI 채팅/);
+    expect(c.listHomeSessionAttachments).not.toHaveBeenCalled();
+  });
+
+  it('8번째 인자 homeSessionId 로 묶이면 그 세션 목록을 요청자 id 로 조회', async () => {
+    const c = client();
+    vi.mocked(c.listHomeSessionAttachments).mockResolvedValue([]);
+    const t = find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, SID), 'read_chat_attachment');
+    await expect(t.handler({ fileId: 1 })).rejects.toThrow(/이 대화의 첨부가 아닙니다/);
+    expect(c.listHomeSessionAttachments).toHaveBeenCalledWith(AGENT_ID, SID);
+  });
+
+  it.each(['issue', 'chat', 'home', 'messaging'] as McpProfile[])('%s 프로필에는 없다', (p) => {
+    expect(buildTools(client(), AGENT_ID, p).map((t) => t.name)).not.toContain('read_chat_attachment');
   });
 });
 

@@ -39,6 +39,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   // 이슈 컨텍스트 대화
   get_chat_thread: { label: '대화 조회', icon: '💬' },
   read_attachment_text: { label: '첨부 읽기', icon: '📎' },
+  read_chat_attachment: { label: '첨부 읽기', icon: '📎' }, // WP-234: 메인 AI 채팅 첨부
   add_chat_message: { label: '메시지 작성', icon: '💬' },
   // 메시징
   list_channels: { label: '채널 목록', icon: '📋' },

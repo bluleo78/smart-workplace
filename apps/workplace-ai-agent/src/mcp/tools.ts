@@ -12,6 +12,7 @@ import {
   type McpTool,
 } from '@smart-workplace/mcp-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
 
 // sdk-mcp-server.ts / stdio-entry.ts 가 './tools.js' 에서 McpTool 을 계속 import 하므로 재-export 유지.
 export type { McpTool };
@@ -323,6 +324,9 @@ export function buildTools(
   // WP-244: chat 프로필 실행이 답하는 이슈 챗 스레드. 지정 시 chat 도구는 이 스레드 외의 threadId 를 거부한다
   // (모델이 다른 스레드를 읽거나 거기에 쓰지 못하게). 미지정이면 기존 동작.
   chatThreadId?: number,
+  // WP-234: 메인 AI 채팅 실행의 세션(home_session.id). assistant 의 read_chat_attachment 가 이 세션 첨부만 읽게 묶는다.
+  // 미지정이면 도구는 있지만 호출 시 오류(메인 채팅 외 실행).
+  homeSessionId?: string,
 ): McpTool[] {
   // #846: 두 앱 공유 도구(이슈·프로젝트·노트·캘린더·메일·구성원·메시징·드라이브 읽기) — 프로필이 이름으로 골라 쓴다.
   // 같은 이름의 도구를 여기서 따로 정의하지 않는다(tools.test.ts 패리티 테스트가 강제) — 정의가 두 벌이면 파라미터가 어긋난다.
@@ -1299,6 +1303,7 @@ export function buildTools(
       sharedTool('create_channel'), sharedTool('open_dm'), sharedTool('leave_channel'),
       sharedTool('get_mail_summary'), sharedTool('draft_mail_reply'), sharedTool('draft_issue_from_mail'),
       sharedTool('create_issue_from_mail'), sharedTool('mark_mail_read'),
+      buildReadChatAttachmentTool(client, agentId, homeSessionId), // WP-234: 메인 AI 채팅 첨부 읽기(세션 바인딩)
       submitResponseTool,        // #381: 서브에이전트 전용 — 최종 답변 구조화 제출(사이드카 기록)
       ...buildShowTools(),
       // #460 Layer2: 도메인 단순 조회 표시 위젯 — 위임(서브에이전트 nested loop, 느림) 대신 직접 표시.
