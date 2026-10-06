@@ -19,7 +19,7 @@ export interface WikiAiStreamArgs {
     | 'polish'
   prompt?: string
   selection?: string
-  // 토큰 델타 1개 — 커서 위치에 즉시 삽입.
+  // 토큰 델타 1개 — 호출 측이 버퍼링했다가 onDone 에서 한 번에 삽입한다(조각별 마크다운 파싱 깨짐 방지, WP-255).
   onDelta: (text: string) => void
   // 정상 종료(done 이벤트) — 자동저장 디바운스가 이어받는다.
   onDone: () => void

@@ -31,6 +31,8 @@ import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../type
 import { useWikiImageUpload } from './useWikiImageUpload'
 import { type GenerateActionKey, type TransformActionKey } from './wikiAiActions'
 import { WikiAiBubbleToolbar } from './WikiAiBubbleToolbar'
+import { insertAiMarkdown } from './wikiAiInsert'
+import { stripLeadingTitleHeading } from './wikiAiTitleHeading'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
 import { buildBreadcrumb } from './wikiBreadcrumb'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
@@ -69,6 +71,11 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   const [sourceOpen, setSourceOpen] = useState(false)
   const [sourceMarkdown, setSourceMarkdown] = useState('')
   const [title, setTitle] = useState(page.title)
+  // AI 결과의 제목 H1 제거 판정용 최신 제목(편집 중 미저장분 포함) — 스트림 완료 콜백이 렌더 밖에서 읽는다.
+  const titleRef = useRef(title)
+  useEffect(() => {
+    titleRef.current = title
+  })
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const versionRef = useRef(page.version)
   const firstSaveRef = useRef(true)
@@ -139,26 +146,38 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 별도 ref 를 두면 이름만 다른 중복이 된다.
 
   // action → startWikiAiStream 트리거. summarize/continue 는 즉시, draft 는 토픽 입력 후.
+  // 스트림을 버퍼링했다가 done 시 1회 삽입한다(WP-255, runTransform 과 같은 방식). 토큰마다 insertContent 하면
+  // tiptap-markdown 이 조각마다 따로 파싱해 `**목`/`적**` 처럼 쪼개진 서식·표가 기호로 남고, `- ` 가 목록 안
+  // 커서에서 다시 파싱돼 목록이 계단식으로 중첩됐다. 생성 중에는 하단 "생성 중…" 표시·헤더 스피너가 진행을 알린다.
   const runAction = useCallback(
     (action: WikiAiAction, prompt?: string) => {
-      if (!editorRef.current) return
+      const ed = editorRef.current
+      if (!ed) return
       // 진행 중 스트림이 있으면 먼저 중단(latest action wins). 이렇게 하지 않으면 두 스트림의
-      // onDelta 가 토큰을 교차 삽입하고, abortRef 가 덮어써져 이전 스트림이 취소 불가가 되며,
+      // 결과가 함께 삽입되고, abortRef 가 덮어써져 이전 스트림이 취소 불가가 되며,
       // 먼저 끝난 스트림의 onDone 이 아직 진행 중인 스트림의 aiBusy/abortRef 를 지워버린다.
       abortRef.current?.()
       abortRef.current = null
+      // 삽입 위치는 시작 시점의 커서(슬래시 메뉴를 연 자리·헤더 액션의 본문 끝)로 고정한다.
+      const { from, to } = ed.state.selection
       setAiBusy(true)
+      let buffer = ''
       const handle = startWikiAiStream({
         pageId: page.id,
         action,
         prompt,
         onDelta: (text) => {
-          // 커서 위치에 토큰 삽입 — 'update' 이벤트가 발화돼 자동저장이 자연히 트리거된다.
-          editorRef.current?.commands.insertContent(text)
+          buffer += text
         },
         onDone: () => {
           setAiBusy(false)
           abortRef.current = null
+          const e2 = editorRef.current
+          // 모델이 페이지 제목을 H1 으로 반복하면 본문 밖 제목 입력란과 이중으로 보인다 — 삽입 전에 걷어낸다.
+          const content = stripLeadingTitleHeading(buffer, titleRef.current)
+          if (!e2 || !content.trim()) return
+          // 전체 결과를 한 번에 마크다운 파싱·삽입(단일 트랜잭션 → 단일 undo, 'update' 로 자동저장 트리거).
+          insertAiMarkdown(e2, from, to, content)
         },
         onError: (message) => {
           setAiBusy(false)
@@ -198,14 +217,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           const e2 = editorRef.current
           if (!e2 || !buffer) return
           // 캡처한 범위를 결과로 1회 교체(삭제+삽입 단일 트랜잭션 → 단일 undo).
-          // 스트림 중 문서가 바뀌었을 수 있어 from/to 를 현재 문서 크기로 클램프한다.
-          // from 도 클램프하지 않으면 스트림 중 대량 삭제 시 범위가 문서 끝을 초과해 예외가 난다.
-          const size = e2.state.doc.content.size
-          e2
-            .chain()
-            .focus()
-            .insertContentAt({ from: Math.min(from, size), to: Math.min(to, size) }, buffer)
-            .run()
+          insertAiMarkdown(e2, from, to, buffer)
         },
         onError: (message) => {
           setAiBusy(false)
@@ -549,7 +561,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     return pending
   }, [])
 
-  // 생성 취소 — ESC 또는 버튼. abort 후 상태 복귀(부분 삽입은 자동저장이 보존).
+  // 생성 취소 — ESC 또는 버튼. abort 후 상태 복귀. 결과는 완료 시에만 삽입하므로 받은 부분 결과는 버려진다(WP-255).
   const cancelAi = useCallback(() => {
     abortRef.current?.()
     abortRef.current = null
@@ -795,7 +807,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           <div aria-live="polite" aria-atomic="true" className="sr-only">
             {aiBusy ? 'AI 생성 중' : ''}
           </div>
-          {/* AI 생성 중 시각 표시 + 취소 — 부분 텍스트는 이미 삽입되어 자동저장된다. */}
+          {/* AI 생성 중 시각 표시 + 취소 — 결과는 완료 시 한 번에 삽입되므로 그동안 헤더 스피너와 함께 진행을 알린다(WP-255). */}
           {aiBusy && (
             <div className="flex items-center gap-2 pt-2 text-xs leading-4 text-muted-foreground">
               <span className="flex items-center gap-2" data-testid="wiki-ai-busy">

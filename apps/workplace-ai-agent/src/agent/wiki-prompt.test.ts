@@ -43,3 +43,14 @@ describe('buildWikiUserMessage — 변형 액션', () => {
     expect(msg).toContain('전체 본문');
   });
 });
+
+describe('buildWikiUserMessage — draft', () => {
+  // 페이지 제목 H1 반복 금지 지시(WP-255) — 제목이 본문 밖에 따로 보여 이중 표시되던 문제.
+  it('주제·참고 제목과 함께 제목 H1 반복 금지 지시를 포함한다', () => {
+    const msg = buildWikiUserMessage(input({ action: 'draft', prompt: '4분기 계획', pageTitle: '출시 계획' }));
+    expect(msg).toContain('4분기 계획');
+    expect(msg).toContain('출시 계획');
+    expect(msg).toContain('H1');
+    expect(msg).toContain('반복하지 마');
+  });
+});

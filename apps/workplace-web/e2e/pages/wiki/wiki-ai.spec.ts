@@ -6,9 +6,9 @@
 // 시 1회 연결되므로, 응답을 즉시 fulfill 하면 사용자 액션보다 먼저 도착해 유실된다(messaging-progress.spec.ts
 // 의 "await 로 보류 후 fulfill" 패턴과 동일).
 //
-// SSE 모킹 한계: Playwright route.fulfill 은 본문을 한 방에 전달하므로 토큰 점진 렌더(progressive)
-// 는 검증하지 않는다(설계 한계). 최종 합쳐진 텍스트가 에디터에 삽입되는지 + POST payload 의 action
-// 만 파이프라인 전체로 검증한다.
+// 생성 결과는 done 시 한 번에 삽입된다(WP-255 — 토큰별 삽입은 마크다운이 조각마다 파싱돼 깨졌다).
+// 최종 합쳐진 텍스트가 에디터에 삽입되는지 + POST payload 의 action 을 파이프라인 전체로 검증한다.
+// 토큰 경계로 쪼갠 서식 렌더·생성 중 표시는 wiki-ai-draft-markdown.spec.ts 가 담당한다.
 import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'

@@ -38,7 +38,9 @@ export function buildWikiUserMessage(i: WikiComposeInput): string {
     case 'continue':
       return `다음 문서의 마지막 부분을 자연스럽게 이어서 작성해줘. 이미 쓰인 내용은 반복하지 마.\n\n제목: ${i.pageTitle}\n\n${i.pageBody}`;
     case 'draft':
-      return `다음 주제로 노트 문서 초안을 작성해줘: ${i.prompt ?? ''}\n\n(참고 제목: ${i.pageTitle})`;
+      // 페이지 제목은 본문 밖 입력란에 따로 표시되므로, 본문 첫 줄에 H1 으로 반복하면 제목이 두 번 보인다(WP-255).
+      // 웹도 삽입 전에 같은 제목 H1 을 걷어내지만(wikiAiTitleHeading) 1차로 프롬프트에서 막는다.
+      return `다음 주제로 노트 문서 초안을 작성해줘: ${i.prompt ?? ''}\n\n(참고 제목: ${i.pageTitle})\n\n페이지 제목은 이미 문서 위에 따로 표시되므로 본문 첫 줄에 제목을 H1(# 제목)으로 반복하지 마. 섹션은 ## 부터 시작해.`;
     case 'rewrite_tone':
       // 톤(prompt)으로 재작성. 의미 유지, 변환문만 출력(시스템 프롬프트가 머리말 억제).
       return `다음 텍스트를 "${i.prompt ?? '격식체'}" 톤으로 자연스럽게 다시 써줘. 의미는 유지하고, 변환된 텍스트만 출력해.\n\n${ctx}`;
