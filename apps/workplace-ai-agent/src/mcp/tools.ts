@@ -557,6 +557,7 @@ export function buildTools(
 
   // 7b: home 표시 지시 도구(데이터 조회 X). home/assistant 프로파일이 공유한다.
   // 핸들러는 모두 {displayed:true} — 실제 렌더링은 프론트엔드가 담당.
+  // 화면 표시 도구는 show_* 이름을 지킨다 — opencode 러너가 이 접두로 '결과 없이 답을 쓰는 도구'를 가려 진행 서술 필터에서 뺀다(WP-263, propose_* 도 같다).
   const buildShowTools = (): McpTool[] => {
     const displayed = async () => JSON.stringify({ displayed: true });
     return [

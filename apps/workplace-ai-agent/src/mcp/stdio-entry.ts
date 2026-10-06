@@ -44,6 +44,15 @@ export const VISION_UNAVAILABLE_NOTICE =
 // WP-234: home_session.id 형식 — 경로 조각으로 쓰이므로 UUID 외 문자열은 부팅 단계에서 거부한다.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// 선택 env 의 양의 정수 파싱 — 없으면 undefined, 있는데 양의 정수가 아니면 throw(MCP_CHAT_THREAD_ID·MCP_ON_BEHALF_OF_TENANT).
+function optionalPositiveIntEnv(env: NodeJS.ProcessEnv, name: string): number | undefined {
+  const raw = env[name];
+  if (!raw) return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) throw new Error(`${name} 는 양의 정수여야 합니다. 받은 값: ${raw}`);
+  return n;
+}
+
 // env → 설정 파싱. 필수 항목 누락/형식 오류 시 throw(호출부에서 stderr 출력 + exit 1 처리).
 // process.env 를 직접 참조하지 않고 인자로 받아 테스트 가능하게 한다.
 export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
@@ -85,13 +94,7 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     }
   }
 
-  let chatThreadId: number | undefined;
-  if (env.MCP_CHAT_THREAD_ID) {
-    chatThreadId = Number(env.MCP_CHAT_THREAD_ID);
-    if (!Number.isInteger(chatThreadId) || chatThreadId <= 0) {
-      throw new Error(`MCP_CHAT_THREAD_ID 는 양의 정수여야 합니다. 받은 값: ${env.MCP_CHAT_THREAD_ID}`);
-    }
-  }
+  const chatThreadId = optionalPositiveIntEnv(env, 'MCP_CHAT_THREAD_ID');
 
   let homeSessionId: string | undefined;
   if (env.MCP_HOME_SESSION_ID) {
@@ -101,13 +104,7 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     homeSessionId = env.MCP_HOME_SESSION_ID;
   }
 
-  let onBehalfOfTenantId: number | undefined;
-  if (env.MCP_ON_BEHALF_OF_TENANT) {
-    onBehalfOfTenantId = Number(env.MCP_ON_BEHALF_OF_TENANT);
-    if (!Number.isInteger(onBehalfOfTenantId) || onBehalfOfTenantId <= 0) {
-      throw new Error(`MCP_ON_BEHALF_OF_TENANT 는 양의 정수여야 합니다. 받은 값: ${env.MCP_ON_BEHALF_OF_TENANT}`);
-    }
-  }
+  const onBehalfOfTenantId = optionalPositiveIntEnv(env, 'MCP_ON_BEHALF_OF_TENANT');
 
   return {
     baseURL,
