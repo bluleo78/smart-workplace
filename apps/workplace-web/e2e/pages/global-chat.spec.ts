@@ -1287,3 +1287,39 @@ test('보류 중 현재 대화를 삭제하면 보류가 취소되어 다음 질
   await expect(panel).toContainText('셋째 질문')
   releaseSecond() // 붙잡아 둔 구 스트림을 풀어 정리(세대가 달라 무시되어야 한다)
 })
+
+test('사이드 패널 — 긴 대화 제목은 말줄임으로 줄고 「새 대화」 버튼은 한 줄을 지킨다 (WP-261)', async ({
+  authenticatedPage: page,
+}) => {
+  // 회귀(WP-261): 제목 영역이 줄지 않아 오른쪽 「새 대화」 버튼이 눌려 글자가 한 자씩 세로로 쌓였다.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const title = '첨부한 이미지와 PDF 내용을 한 줄씩 요약해줘 — 그리고 다음 주 일정까지 정리'
+  await mockChatSessions(page, {
+    items: [{ id: 's-lt1', title, lastMessageAt: '2026-06-08T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  })
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-lt1/messages', [] satisfies HomeMessage[])
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click() // → side
+  await page.getByTestId('chat-session-switcher').click()
+  await page.getByTestId('chat-session-select').first().click()
+  const titleEl = page.getByTestId('chat-session-title')
+  await expect(titleEl).toHaveText(title)
+
+  const newSession = page.getByTestId('chat-new-session')
+  // 패널이 자리 잡는 중 옛 배치를 잴 수 있어 측정+단언을 한 단위로 재시도한다.
+  await expect(async () => {
+    // 버튼은 한 줄 — 높이가 한 줄 버튼(약 28px)이고 글자가 잘리지 않는다.
+    const btn = await measureBox(newSession, 'chat-new-session')
+    expect(btn.height).toBeLessThan(36)
+    expect(await newSession.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+    // 버튼이 스위처와 겹치지 않고 패널 안에 있다.
+    const sw = await measureBox(page.getByTestId('chat-session-switcher'), 'chat-session-switcher')
+    const panel = await measureBox(page.getByTestId('ai-side-panel'), 'ai-side-panel')
+    expect(sw.x + sw.width).toBeLessThanOrEqual(btn.x)
+    expect(btn.x + btn.width).toBeLessThanOrEqual(panel.x + panel.width)
+  }).toPass()
+  // 제목은 말줄임으로 줄어든다.
+  expect(await titleEl.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+})

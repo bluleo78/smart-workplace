@@ -169,17 +169,20 @@ export function AIChatPanel({
       />
       <SessionSwitchGuardDialog open={guardOpen} onWait={onWaitSwitch} onStop={onConfirmSwitch} />
 
-      {/* 헤더 — 좌: 대화 선택 드롭다운 / 우: ＋새 대화. */}
+      {/* 헤더 — 좌: 대화 선택 드롭다운 / 우: ＋새 대화.
+          긴 제목은 말줄임으로 줄고 「새 대화」는 한 줄을 지킨다(WP-261) — 트리거 min-w-0 로 줄어들 수 있게 하고 버튼은 shrink-0·nowrap. */}
       {showSessionSwitcher && (
-        <div className="flex h-12 shrink-0 items-center justify-between border-b px-3">
+        <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3">
           <DropdownMenu open={sessionMenuOpen} onOpenChange={setSessionMenuOpen}>
             <DropdownMenuTrigger
-              className="flex items-center gap-1.5 rounded px-2 py-1 text-sm font-medium hover:bg-muted"
+              className="flex min-w-0 items-center gap-1.5 rounded px-2 py-1 text-sm font-medium hover:bg-muted"
               data-testid="chat-session-switcher"
             >
-              <MessageSquare className="h-4 w-4 text-muted-foreground" />
-              <span className="max-w-[16rem] truncate">{current?.title ?? '대화 선택'}</span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="max-w-[16rem] min-w-0 truncate" data-testid="chat-session-title">
+                {current?.title ?? '대화 선택'}
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
             </DropdownMenuTrigger>
             {/* WP-54: body 포털이라 DOM 상 패널 밖이지만, React 이벤트가 패널 루트로 전파돼 AI 표면으로 판별된다
                 (aiPanelSurface.markAiPanelEvent) — 열린 엔티티 다이얼로그가 닫히지 않음. 패널 트리 밖에서 렌더하면 안 된다. */}
@@ -199,7 +202,7 @@ export function AIChatPanel({
             type="button"
             data-testid="chat-new-session"
             onClick={onNewSession}
-            className="flex items-center gap-1 rounded px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <Plus className="h-4 w-4" /> 새 대화
           </button>
