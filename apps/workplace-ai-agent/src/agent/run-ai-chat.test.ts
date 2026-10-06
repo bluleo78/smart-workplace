@@ -11,6 +11,11 @@ vi.mock('./agent-runner.js', () => ({
 }));
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 vi.mock('../logger.js', () => ({ log: logMock }));
+// WP-234: 비전 판단(실행당 1회)을 테스트에서 고른다. 기본 undefined = anthropic(판단 불필요).
+const { opencodeVisionFor } = vi.hoisted(() => ({
+  opencodeVisionFor: vi.fn(async (): Promise<{ value: boolean | undefined } | undefined> => undefined),
+}));
+vi.mock('./opencode-vision.js', () => ({ opencodeVisionFor }));
 
 import { runAiChatStream, type ChatInput } from './run-ai-chat.js';
 
@@ -76,6 +81,7 @@ function makeRunnerImpl(events: RunnerEvent[], spec: SidecarSpec = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   streamSpy.mockReset();
+  opencodeVisionFor.mockReset().mockResolvedValue(undefined);
   (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
     vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null });
 });
@@ -265,7 +271,8 @@ describe('runAiChatStream (스트리밍 — SSE 라우트용)', () => {
     const scopedClient = { scoped: true } as never;
     const withOnBehalfOfTenant = vi.fn().mockReturnValue(scopedClient);
     const clientWithTenant = {
-      getProviderCredential: vi.fn(),
+      // WP-234: 비전 판단이 credential.provider 를 보므로 실제처럼 자격을 돌려준다.
+      getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null }),
       toolClient: () => ({ getIssueDetail: vi.fn().mockResolvedValue({ issueKey: 'EX-1', title: 't' }) }),
       withOnBehalfOfTenant,
     } as never;
@@ -1350,5 +1357,78 @@ describe('runAiChatStream — 화면 컨텍스트 (WP-54)', () => {
     streamSpy.mockImplementation(makeRunnerImpl([result('')]));
     await runAiChatStream(baseInput({ query: '내 할 일', screenContext: null }), { client: fakeClient }, () => {}, new AbortController().signal);
     expect(streamSpy.mock.calls[0][0].userMessage).toBe('내 할 일');
+  });
+});
+
+describe('runAiChatStream — 메인 AI 채팅 첨부 (WP-234)', () => {
+  const SID = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
+  const pdf = {
+    fileId: 8, messageId: 3, originalName: '회의록.pdf', mimeType: 'application/pdf', sizeBytes: 2048, current: true,
+    extraction: { status: 'READY' as const, totalChars: 5000, truncated: false, reasonCode: null, reason: null },
+  };
+  const png = {
+    fileId: 9, messageId: 2, originalName: '화면.png', mimeType: 'image/png', sizeBytes: 2048, current: false,
+    extraction: { status: 'NONE' as const, totalChars: null, truncated: null, reasonCode: null, reason: null },
+  };
+  const opencodeCred = { provider: 'opencode', payload: { providerId: 'custom', options: {} }, model: null };
+  const run = (over: Partial<ChatInput>) =>
+    runAiChatStream(baseInput(over), { client: fakeClient }, () => {}, new AbortController().signal);
+  const runnerInput = () => streamSpy.mock.calls[0][0] as RunnerInput;
+
+  // 중괄호 필수: 화살표가 mock(함수)을 반환하면 vitest 가 그것을 teardown 으로 호출해 인자 없는 stream 호출이 난다.
+  beforeEach(() => {
+    streamSpy.mockImplementation(makeRunnerImpl([textDelta('ok'), result('')]));
+  });
+
+  it('Claude: 첨부 블록(비전 가능 문구)을 현재 요청 앞에 싣고 세션을 MCP 에 묶는다', async () => {
+    await run({ sessionId: SID, attachments: [pdf, png] });
+    const prompt = runnerInput().userMessage;
+    expect(prompt).toContain('## 이 대화의 첨부\n- [이번 메시지] 회의록.pdf');
+    expect(prompt).toContain('fileId 9 · 이미지');
+    expect(prompt).toContain('이미지·문서 모두 read_chat_attachment');
+    expect(prompt.indexOf('## 이 대화의 첨부')).toBeLessThan(prompt.indexOf('현재 요청: 내 할 일'));
+    expect(runnerInput().mcp?.homeSessionId).toBe(SID);
+    expect(opencodeVisionFor).toHaveBeenCalledTimes(1);
+  });
+
+  it('opencode 비전 미지원: 프롬프트는 이미지 불가 문구, 러너에도 같은 판단을 1회만 내려 전달', async () => {
+    (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
+      vi.fn().mockResolvedValue(opencodeCred);
+    opencodeVisionFor.mockResolvedValue({ value: false });
+    await run({ model: 'custom/glm-5.3', sessionId: SID, attachments: [pdf, png] });
+    const prompt = runnerInput().userMessage;
+    expect(prompt).toContain('fileId 9 · 이미지 — 이 비서(모델)는 이미지를 볼 수 없음');
+    expect(prompt).toContain('이미지 내용을 글로 알려 달라고');
+    expect(runnerInput().opencodeVision).toEqual({ value: false });
+    expect(opencodeVisionFor).toHaveBeenCalledTimes(1);
+    expect(opencodeVisionFor).toHaveBeenCalledWith(opencodeCred, 'custom/glm-5.3');
+  });
+
+  it('opencode 비전 알 수 없음: 프롬프트는 볼 수 없는 쪽, 러너에는 {value: undefined} 그대로', async () => {
+    (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
+      vi.fn().mockResolvedValue(opencodeCred);
+    opencodeVisionFor.mockResolvedValue({ value: undefined });
+    await run({ model: 'custom/x', sessionId: SID, attachments: [png] });
+    expect(runnerInput().userMessage).toContain('이 비서(모델)는 이미지를 볼 수 없음');
+    expect(runnerInput().opencodeVision).toEqual({ value: undefined });
+  });
+
+  it('opencode 비전 가능: 이미지·문서 모두 읽기 문구', async () => {
+    (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
+      vi.fn().mockResolvedValue(opencodeCred);
+    opencodeVisionFor.mockResolvedValue({ value: true });
+    await run({ model: 'custom/qwen3.6-35b', sessionId: SID, attachments: [png] });
+    expect(runnerInput().userMessage).toContain('이미지·문서 모두 read_chat_attachment');
+  });
+
+  it('빈 query(첨부만 전송) → 현재 요청은 기본 문구', async () => {
+    await run({ query: '', sessionId: SID, attachments: [pdf] });
+    expect(runnerInput().userMessage.endsWith('현재 요청: 첨부한 파일을 확인해 주세요.')).toBe(true);
+  });
+
+  it('첨부·세션 없음 → userMessage 는 기존과 바이트 동일, homeSessionId 없음', async () => {
+    await run({});
+    expect(runnerInput().userMessage).toBe('내 할 일');
+    expect(runnerInput().mcp?.homeSessionId).toBeUndefined();
   });
 });

@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { ASSISTANT_SYSTEM_PROMPT, dateContextDirective, delegationLabel } from './assistant-system-prompt.js';
 
 describe('ASSISTANT_SYSTEM_PROMPT', () => {
+  // WP-234: 시스템 규칙이 "분석은 위임"이라 첨부 요약이 하위 에이전트(도구·첨부 블록 없음)로 새지 않게, 라우터가 직접 읽게 한다.
+  it('첨부 질문은 라우터가 read_chat_attachment 로 직접 읽고, 위임 시 내용을 옮겨 적도록 안내', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('read_chat_attachment');
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/첨부.*위임 prompt 에 옮겨/s);
+  });
+
   it('순수 라우터 지시 + issue-agent 위임 테이블 + general-purpose 금지 문구 포함', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('라우터');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('issue-agent');

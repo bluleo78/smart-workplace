@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  opencodeVisionFor,
   parseModelsVision,
   resetVisionCache,
   resolveOpencodeVision,
@@ -139,5 +140,25 @@ describe('resolveOpencodeVision', () => {
     vi.setSystemTime(Date.now() + VISION_FAILURE_TTL_MS + 1000);
     fetchMock.mockImplementation(async () => okResponse(MODELS_BODY));
     expect(await resolveOpencodeVision(payload(), 'qwen3.6-35b')).toBe(true);
+  });
+});
+
+// WP-244→WP-234: 첨부 표현과 러너 config 가 같은 값을 쓰도록 호출자가 한 번 판단하는 래퍼(이슈 챗·메인 채팅 공용).
+describe('opencodeVisionFor', () => {
+  it('anthropic 은 판단하지 않는다(undefined)', async () => {
+    expect(await opencodeVisionFor({ provider: 'anthropic', token: 't', model: null }, 'claude-sonnet-4-6')).toBeUndefined();
+  });
+
+  it('opencode 수동 설정은 {value} 로 감싼다(조회 없음)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const cred = { provider: 'opencode' as const, payload: payload({ vision: false }), model: null };
+    expect(await opencodeVisionFor(cred, 'custom/glm-5.3')).toEqual({ value: false });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('모델 형식 오류는 던지지 않고 undefined', async () => {
+    const cred = { provider: 'opencode' as const, payload: payload({ vision: true }), model: null };
+    expect(await opencodeVisionFor(cred, 'no-slash-model')).toBeUndefined();
   });
 });

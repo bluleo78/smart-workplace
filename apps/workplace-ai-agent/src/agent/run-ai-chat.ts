@@ -18,6 +18,8 @@ import type { RunAgentDeps } from './run-agent.js';
 import type { ProviderCredential } from './agent-runner.js';
 import type { HostBridge } from '../mcp/tools.js';
 import { formatScreenContext, type ScreenContext } from './screen-context.js';
+import { opencodeVisionFor } from './opencode-vision.js';
+import { DEFAULT_ATTACHMENT_QUERY, formatHomeAttachmentsBlock, type HomeChatAttachment } from './home-attachments.js';
 
 export interface ContextMessage {
   // 'USER' | 'ASSISTANT' | 'ACTION_DONE' | 'ACTION_FAILED' | 'ACTION_REJECTED'(#843 확인카드 처리 결과)
@@ -49,6 +51,10 @@ export interface ChatInput {
   requestId?: string;
   // WP-54: 사용자가 보고 있는 화면(대상·목록 상태). user 메시지 prefix 로 임베드(시스템 프롬프트 규칙과 짝).
   screenContext?: ScreenContext | null;
+  // WP-234: 메인 AI 채팅 세션 — read_chat_attachment 를 이 세션 첨부에 묶는다(구 API 는 없음).
+  sessionId?: string | null;
+  // WP-234: 세션 전체 첨부(요약 경계 이전 포함, current=이번 메시지). 매 턴 "## 이 대화의 첨부" 블록으로 싣는다.
+  attachments?: HomeChatAttachment[];
 }
 
 // #404: show_issue_detail 위젯에서 존재하지 않는 이슈 번호를 결정론적으로 차단한다.
@@ -96,15 +102,19 @@ export function contextLabel(m: ContextMessage): string {
   return '사용자';
 }
 
-// recentContext·화면 컨텍스트를 단발 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
-// 순서: 이전 대화 요약(WP-232) → 이전 대화 → 현재 화면 → (미확인 승인 결과) → 현재 요청. 모두 없으면 query 원문.
-function buildChatUserMessage(input: ChatInput): string {
+// recentContext·화면 컨텍스트·첨부를 단발 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
+// 순서: 이전 대화 요약(WP-232) → 이전 대화 → 현재 화면 → 이 대화의 첨부(WP-234) → (미확인 승인 결과) → 현재 요청.
+// 모두 없으면 query 원문. imageVision 은 실행당 1회 판단한 값(러너 config 와 같은 값)이다.
+function buildChatUserMessage(input: ChatInput, imageVision: boolean): string {
   const ctx = input.recentContext ?? [];
   const summary = input.contextSummary ? `이전 대화 요약:\n${input.contextSummary}\n\n` : '';
   const screen = input.screenContext ? `${formatScreenContext(input.screenContext)}\n\n` : '';
-  if (ctx.length === 0 && !screen && !summary) return input.query;
+  const attachments = formatHomeAttachmentsBlock(input.attachments ?? [], imageVision);
+  // WP-234: 첨부만 보낸 메시지(빈 query)는 기본 문구로 — 스키마가 이번 메시지 첨부가 있을 때만 빈 query 를 허용한다.
+  const query = input.query.trim() ? input.query : DEFAULT_ATTACHMENT_QUERY;
+  if (ctx.length === 0 && !screen && !summary && !attachments) return query;
   const history = ctx.length ? `이전 대화:\n${ctx.map((m) => `${contextLabel(m)}: ${m.content}`).join('\n')}\n\n` : '';
-  return `${summary}${history}${screen}${unseenResultsBlock(ctx)}현재 요청: ${input.query}`;
+  return `${summary}${history}${screen}${attachments}${unseenResultsBlock(ctx)}현재 요청: ${query}`;
 }
 
 // #849: AI 가 아직 언급하지 않은 승인 결과(마지막 AI 답 이후의 ACTION_* 행)를 현재 요청 바로 앞에 다시 둔다.
@@ -180,17 +190,21 @@ export async function runAiChatStream(
     },
   };
 
+  // 우선순위: 요청 body(input.model) > redeem 응답(credential.model) > env/기본값.
+  const model = input.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
+  // WP-234: 비전 판단은 실행당 1회 — 첨부 블록 문구와 러너 config(RunnerInput.opencodeVision)가 같은 값을 쓴다(WP-244 패턴).
+  // Claude 는 항상 이미지를 본다. opencode 는 지원이 확인된 경우만(알 수 없음은 못 보는 것으로 안내 — 재첨부 요청 방지).
+  const opencodeVision = await opencodeVisionFor(credential, model);
+  const imageVision = credential.provider === 'anthropic' || opencodeVision?.value === true;
+
   // 요청 시점 Seoul 기준 오늘 날짜를 계산해 상대 날짜 필터 앵커로 주입한다.
   const seoulToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
   const systemPrompt = ASSISTANT_SYSTEM_PROMPT + dateContextDirective(seoulToday) + thinkingDirective(input.thinkingDepth);
-  const userMessage = buildChatUserMessage(input);
+  const userMessage = buildChatUserMessage(input, imageVision);
 
   const events: RunnerEvent[] = [];
   // #463: 라우터 자유 prose 를 onDelta 로 라이브 emit 하면서 동시에 누적. 완료 후 답 결정에 사용.
   let streamedText = '';
-
-  // 우선순위: 요청 body(input.model) > redeem 응답(credential.model) > env/기본값.
-  const model = input.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
 
   log.info('ai-chat', 'cli_spawn', {
     requestId: input.requestId,
@@ -234,12 +248,14 @@ export async function runAiChatStream(
       includePartialMessages: true, // partial text_delta 수신(스트리밍)
       allowSubagents: true, // #333: Agent 도구 허용(라우터 위임에 필요) — 러너가 subagent 정의를 구성
       allowFileRead: false, // 홈 컴포즈는 파일 읽기 불필요 — 보안 최소권한
+      opencodeVision, // WP-234: 첨부 블록 문구에 쓴 판단을 러너 config 에도 그대로
       mcp: {
         client: mcpClient,
         onBehalfOfId: input.userId ?? agentId,
         profile: 'assistant',
         hostBridge,
         onTool,
+        homeSessionId: input.sessionId ?? undefined, // WP-234: read_chat_attachment 세션 바인딩
       },
     },
     (ev) => {

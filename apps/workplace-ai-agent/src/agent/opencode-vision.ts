@@ -11,7 +11,7 @@
 import { createHash } from 'node:crypto';
 
 import { log } from '../logger.js';
-import type { OpencodeProviderConfig } from './agent-runner.js';
+import type { OpencodeProviderConfig, ProviderCredential } from './agent-runner.js';
 import { splitOpencodeModel } from './opencode-config.js';
 
 // 성공 결과는 오래(모델 목록은 거의 안 바뀜), 실패는 짧게 캐시해 일시 장애 후 곧 회복되게 한다.
@@ -109,4 +109,18 @@ export async function resolveOpencodeVision(payload: OpencodeProviderConfig, mod
 /** 'providerId/modelId' 형식 모델 문자열로 판단. 모델 형식이 잘못되면 splitOpencodeModel 이 던진다. */
 export function resolveOpencodeModelVision(payload: OpencodeProviderConfig, model: string): Promise<OpencodeVision> {
   return resolveOpencodeVision(payload, splitOpencodeModel(model).modelID);
+}
+
+/**
+ * 실행당 한 번 내리는 비전 판단(WP-244, WP-234 메인 채팅도 사용) — 첨부 표현(프롬프트)과 러너 config(modalities)가
+ * 같은 값을 쓰도록 호출자가 판단해 RunnerInput.opencodeVision 으로도 넘긴다. anthropic 은 판단하지 않는다(undefined).
+ * 예외를 던지지 않는다: 모델 형식 오류 등은 undefined 를 돌려 러너가 스스로 판단하다 실행 오류로 알리게 한다.
+ */
+export async function opencodeVisionFor(credential: ProviderCredential, model: string): Promise<{ value: OpencodeVision } | undefined> {
+  if (credential.provider !== 'opencode') return undefined;
+  try {
+    return { value: await resolveOpencodeModelVision(credential.payload, model) };
+  } catch {
+    return undefined;
+  }
 }

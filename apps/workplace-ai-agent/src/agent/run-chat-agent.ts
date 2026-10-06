@@ -8,7 +8,7 @@ import { buildChatUserMessage } from './chat-user-message.js';
 import { createAttachmentWorkDir } from './attachment-prep.js';
 import { fetchIssueAttachments, mergeAttachments, type CollectedAttachments } from './attachment-source.js';
 import { presentAttachments, readsLocally, type AttachmentReader } from './attachment-presenter.js';
-import { resolveOpencodeModelVision, type OpencodeVision } from './opencode-vision.js';
+import { opencodeVisionFor, type OpencodeVision } from './opencode-vision.js';
 import { runnerFor } from './agent-runner.js';
 import { fromRunnerEvent } from './chat-progress-parser.js';
 import { ProgressTracker } from './progress-tracker.js';
@@ -59,19 +59,6 @@ async function agentAlreadyReplied(
       error: e instanceof Error ? e.message : String(e),
     });
     return false;
-  }
-}
-
-/**
- * opencode 모델의 비전 지원 여부(WP-241) — 첨부 표현과 러너 config 가 같은 값을 쓰도록 여기서 한 번 판단해 둘 다에 넘긴다.
- * 예외를 던지지 않는다: 모델 형식 오류 등은 undefined 를 돌려 러너가 스스로 판단하다 실행 오류로 알리게 한다.
- */
-async function opencodeVisionFor(credential: ProviderCredential, model: string): Promise<{ value: OpencodeVision } | undefined> {
-  if (credential.provider !== 'opencode') return undefined;
-  try {
-    return { value: await resolveOpencodeModelVision(credential.payload, model) };
-  } catch {
-    return undefined;
   }
 }
 
