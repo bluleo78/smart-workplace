@@ -15,21 +15,26 @@ export type PendingDriveFile = { driveFileId: number; name: string }
 /**
  * 첨부 초안 상태 훅 — 파일 사전 업로드(pending) + 드라이브 링크(pendingDrive) + 개인 스페이스(드라이브 피커 시작 위치).
  * MessageComposer(팀 채팅)·ChatComposer(이슈 채팅)가 공유. uploadFn 으로 도메인별 업로드 API 주입. (#358)
+ * options.drive=false(메인 AI 채팅, WP-234)면 드라이브 링크를 받지 않으므로 스페이스를 조회하지 않는다 — 기본 true.
  */
 export function useAttachmentDraft(
   uploadFn: (files: File[]) => Promise<{ data: PendingFile[] }>,
+  options: { drive?: boolean } = {},
 ) {
+  const drive = options.drive ?? true
   const [pending, setPending] = useState<PendingFile[]>([])
   const [pendingDrive, setPendingDrive] = useState<PendingDriveFile[]>([])
   // 진행 중 업로드 수 — 붙여넣기·드롭·＋ 로 업로드가 겹칠 수 있어(WP-235) on/off 플래그 대신 센다.
   // 먼저 끝난 업로드가 플래그를 꺼 버리면 다른 업로드 도중 전송이 열려 늦은 파일이 다음 메시지로 새어 나간다.
   const [inFlight, setInFlight] = useState(0)
   const [personalSpaceId, setPersonalSpaceId] = useState<number | null>(null)
-  const [spacesResolved, setSpacesResolved] = useState(false)
+  // 드라이브를 쓰지 않으면 처음부터 '확인 끝·개인 스페이스 없음'이다(조회 안 함).
+  const [spacesResolved, setSpacesResolved] = useState(!drive)
 
   // PERSONAL 스페이스 조회 — 드라이브 피커 시작 위치. queryKey 공유로 IssueAttachmentStrip 등
   // 동일 이슈 화면에 동시 마운트되는 다른 컴포넌트와 요청이 dedup 된다 (#798).
-  const spacesQuery = useDriveSpaces()
+  // 쿼리가 꺼지면 isSuccess·isError 가 모두 false 라 아래 effect 는 바로 return 한다.
+  const spacesQuery = useDriveSpaces({ enabled: drive })
   useEffect(() => {
     if (!spacesQuery.isSuccess && !spacesQuery.isError) return
     if (spacesQuery.isError) {

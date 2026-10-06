@@ -95,8 +95,10 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     await page.goto('/projects/WP/issues/12')
     await page.getByTestId('chat-launcher').click()
 
-    // 입력창에서 Shift+Tab 한 번 → 바로 앞(칩의 ×)으로 이동. 접근성 이름으로 찾아 실제 버튼인지 확인.
+    // 입력창에서 Shift+Tab 두 번 → 입력 행의 ＋ 첨부(WP-234)를 지나 바로 앞(칩의 ×)으로 이동. 접근성 이름으로 찾아 실제 버튼인지 확인.
     await page.getByTestId('chat-input').click()
+    await page.keyboard.press('Shift+Tab')
+    await expect(page.getByTestId('ai-composer-attach-button')).toBeFocused()
     await page.keyboard.press('Shift+Tab')
     const remove = page.getByRole('button', { name: '이번 질문에만 화면 정보 빼기(보낸 뒤 다시 포함)' })
     await expect(remove).toBeFocused()

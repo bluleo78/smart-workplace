@@ -13,6 +13,9 @@ import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenCo
 import { ScreenContextChip } from '@/components/ai/ScreenContextChip';
 import { SessionSwitchGuardDialog } from '@/components/ai/SessionSwitchGuardDialog';
 import { ToolStepList } from '@/components/ai/ToolStepList';
+import { ComposerAttachmentChips } from '@/components/chat/ComposerAttachmentChips';
+import { ComposerAttachMenu } from '@/components/chat/ComposerAttachMenu';
+import { ComposerDropOverlay } from '@/components/chat/ComposerDropOverlay';
 import { getChatWidget } from '@/components/home/widgets/chatWidgetRegistry';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,11 +26,15 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
+import { useComposerFileDrop } from '@/hooks/useComposerFileDrop';
+import { useHomeChatAttachments } from '@/hooks/useHomeChatAttachments';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
 import { sliceRange } from '@/lib/chatBlocks';
+import { filesFromPaste } from '@/lib/clipboardFiles';
+import { countSessionAttachments } from '@/lib/homeChatAttachments';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
@@ -48,6 +55,7 @@ export function AIChatPanel({
   sessions,
   currentSessionId,
   newSessionNonce,
+  attachmentResetNonce,
   onNewSession,
   onSelectSession,
   guardOpen,
@@ -112,10 +120,26 @@ export function AIChatPanel({
   }
   const contextActive = screenContext != null && suppressedIdentity !== screenIdentity;
 
+  // WP-234: 첨부 초안 — 개수 상한(메시지 10·세션 30)·이미지 축소·25MB·로컬 미리보기는 훅이 맡는다.
+  const sessionAttachmentCount = useMemo(() => countSessionAttachments(turns), [turns]);
+  const attach = useHomeChatAttachments({ sessionAttachmentCount, resetNonce: attachmentResetNonce });
+  // 입력창 영역 파일 드롭 → 사전 업로드(WP-235 부품 재사용).
+  const { isDragging, dropProps } = useComposerFileDrop((files) => void attach.addFiles(files));
+  // 보낼 수 있는지 — 글이나 첨부가 있어야 하고, 업로드 중이면 막는다(늦게 끝난 파일이 빠진 채 나가지 않게).
+  const canSend = (input.trim().length > 0 || attach.hasAny) && !attach.uploading;
+
   const submit = () => {
     const query = input.trim();
-    if (!query || pending) return;
-    onSubmit(query, contextActive ? screenContext : undefined);
+    // Enter 는 버튼 disabled 를 거치지 않으므로 같은 판정을 여기서도 한다.
+    if (pending || !canSend) return;
+    const attachments = attach.snapshot();
+    const sentIds = attachments.map((a) => a.fileId);
+    void onSubmit(query, contextActive ? screenContext : undefined, attachments.length ? attachments : undefined).then(
+      (accepted) => {
+        // 서버가 받아들였을 때만 보낸 파일을 초안에서 뺀다 — 거절(400)이면 칩을 남겨 사유 토스트를 보고 고칠 수 있게.
+        if (accepted) attach.commitSent(sentIds);
+      },
+    );
     setSuppressedIdentity(null); // 1회 제외는 이번 전송으로 소진 — 다음 전송부터 다시 포함.
     setInput('');
   };
@@ -375,8 +399,12 @@ export function AIChatPanel({
           e.preventDefault();
           submit();
         }}
-        className="border-t p-2"
+        // WP-234: 입력창 영역 전체가 파일 드롭 영역 — 오버레이 기준점이 되도록 relative.
+        className="relative border-t p-2"
+        data-testid="ai-composer"
+        {...dropProps}
       >
+        {isDragging && <ComposerDropOverlay />}
         {/* WP-54: 현재 화면 컨텍스트 칩 — 포함/제외(이번 1회) 상태 + 되돌리기. 상세는 ScreenContextChip. */}
         <ScreenContextChip
           context={screenContext}
@@ -391,7 +419,27 @@ export function AIChatPanel({
             inputRef.current?.focus();
           }}
         />
+        {/* WP-234: 첨부 대기 칩(＋ 업로드 중 진행 칩) — 드라이브 링크는 받지 않으므로 pendingDrive 는 항상 비어 있다. */}
+        <ComposerAttachmentChips
+          testIdPrefix="ai-composer"
+          pending={attach.pending}
+          pendingDrive={[]}
+          uploadingNames={attach.uploadingNames}
+          onRemoveFile={attach.removeFile}
+          onRemoveDrive={() => {}}
+        />
         <div className="flex items-end gap-2">
+          {/* WP-234: ＋ 첨부 — 드라이브 제외(개인 스페이스·드라이브 콜백은 쓰이지 않는 자리 값).
+              메뉴·바텀시트가 AI 시트(z-[60]) 뒤로 숨지 않게 세션 스위처와 같은 z-[80] 층. */}
+          <ComposerAttachMenu
+            testIdPrefix="ai-composer"
+            drive={false}
+            layerClassName="z-[80]"
+            onFiles={(files) => void attach.addFiles(files)}
+            personalSpaceId={null}
+            spacesResolved
+            onAddDrive={() => {}}
+          />
           {/* 여러 줄 입력 — Enter 전송, Shift+Enter 줄바꿈(isSubmitEnter, RichInput 과 공용 규칙). */}
           <Textarea
             ref={inputRef}
@@ -403,6 +451,13 @@ export function AIChatPanel({
                 e.preventDefault();
                 submit();
               }
+            }}
+            // WP-234: 클립보드 파일(스크린샷 등)은 본문 대신 첨부로. 텍스트가 함께 있으면 텍스트 붙여넣기(filesFromPaste).
+            onPaste={(e) => {
+              const files = filesFromPaste(e.clipboardData);
+              if (files.length === 0) return;
+              e.preventDefault();
+              void attach.addFiles(files);
             }}
             // 모바일엔 하드웨어 키보드 단축키(⌘K)가 없으므로 힌트를 뺀다(U2-3).
             placeholder={isMobile ? 'AI 에게 요청…' : 'AI 에게 요청…  (⌘K)'}
@@ -433,7 +488,8 @@ export function AIChatPanel({
               size="icon"
               {...keepFocusProps}
               aria-label="보내기"
-              disabled={!input.trim()}
+              disabled={!canSend}
+              data-testid="chat-send"
               className="h-10 w-10 shrink-0 rounded-full bg-ai-accent text-ai-accent-foreground"
             >
               <ArrowUp className="h-5 w-5" />
@@ -442,10 +498,11 @@ export function AIChatPanel({
             <Button
               type="submit"
               {...keepFocusProps}
-              disabled={!input.trim()}
+              disabled={!canSend}
               className="bg-ai-accent text-ai-accent-foreground"
+              data-testid="chat-send"
             >
-              보내기
+              {attach.uploading ? '업로드 중…' : '보내기'}
             </Button>
           )}
         </div>
