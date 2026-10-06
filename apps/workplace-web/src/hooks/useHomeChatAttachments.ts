@@ -30,6 +30,12 @@ export function useHomeChatAttachments({
 }) {
   // fileId → blob: 미리보기. 초안에서 빼면 해제, 전송이 수락되면 턴이 쓰므로 해제하지 않고 목록에서만 뺀다.
   const previews = useRef(new Map<number, string>());
+  // 전송 스냅숏으로 화면 턴에 넘겼지만 아직 수락·거절이 정해지지 않은 미리보기(fileId → blob:). 이 URL 은 이미 턴이 그리고 있어
+  // 초안이 해제하면 안 된다 — 시트를 닫아 입력창이 언마운트돼도(턴은 대화 상태에 남는다) 썸네일이 깨지지 않게 한다.
+  // 수락되면 턴 소유로 확정(commitSent), 거절되면 초안으로 돌아오거나(releaseRejected) 초안이 없으면 그때 해제한다.
+  const handedOff = useRef(new Map<number, string>());
+  // 언마운트 여부 — 거절이 언마운트 뒤에 정해지면 미리보기를 돌려받을 초안이 없으므로 바로 해제한다.
+  const mounted = useRef(true);
   // 아직 초안에 들어오지 않은(업로드 중인) 파일 수 — 겹친 업로드로 메시지 10개를 넘기지 않게 개수 판정에 더한다.
   // 같은 틱에 연달아 들어온 묶음도 서로를 봐야 하므로 state 가 아닌 ref 로 동기 집계한다.
   const queued = useRef(0);
@@ -79,9 +85,10 @@ export function useHomeChatAttachments({
     }
   };
 
+  // 초안 미리보기 해제 — 전송에 넘겨 턴이 그리고 있는 것(handedOff)은 목록에서만 빼고 URL 은 남긴다(정리는 releaseRejected·턴 몫).
   const revoke = (fileId: number) => {
     const url = previews.current.get(fileId);
-    if (url) URL.revokeObjectURL(url);
+    if (url && !handedOff.current.has(fileId)) URL.revokeObjectURL(url);
     previews.current.delete(fileId);
   };
 
@@ -91,23 +98,40 @@ export function useHomeChatAttachments({
     draft.removeFile(fileId);
   };
 
-  /** 전송용 스냅숏 — 화면 턴 첨부(이미지는 로컬 미리보기 포함). */
+  /** 전송용 스냅숏 — 화면 턴 첨부(이미지는 로컬 미리보기 포함). 넘긴 미리보기는 수락·거절이 정해질 때까지 초안이 해제하지 않는다. */
   const snapshot = (): TurnAttachment[] =>
-    draft.pending.map((p) => ({ ...p, previewUrl: previews.current.get(p.fileId) }));
+    draft.pending.map((p) => {
+      const previewUrl = previews.current.get(p.fileId);
+      if (previewUrl) handedOff.current.set(p.fileId, previewUrl);
+      return { ...p, previewUrl };
+    });
 
   /** 전송이 수락되면 보낸 파일만 초안에서 뺀다 — 그 사이 새로 붙인 파일은 남기고, 미리보기는 턴이 쓰므로 해제하지 않는다. */
   const commitSent = (fileIds: number[]) => {
     for (const id of fileIds) {
+      handedOff.current.delete(id);
       previews.current.delete(id);
       draft.removeFile(id);
     }
   };
 
-  /** 대화 전환 — 초안과 미리보기를 모두 비운다. */
+  /**
+   * 전송이 거절되면(턴의 첨부는 useChatSession 이 뗀다) 넘겼던 미리보기를 초안으로 돌려받는다. 초안에 더는 없으면 — 그 사이 칩을
+   * ×로 뺐거나, 입력창이 언마운트돼 초안 자체가 사라졌으면 — 아무도 그리지 않으므로 여기서 해제한다.
+   */
+  const releaseRejected = (fileIds: number[]) => {
+    for (const id of fileIds) {
+      const url = handedOff.current.get(id);
+      if (!url) continue;
+      handedOff.current.delete(id);
+      if (!mounted.current || previews.current.get(id) !== url) URL.revokeObjectURL(url);
+    }
+  };
+
+  /** 대화 전환 — 초안과 미리보기를 비운다(전송에 넘긴 것은 턴 전환 쪽 revokeTurnPreviews 가 해제한다). */
   const clear = () => {
     resetGen.current += 1;
-    for (const url of previews.current.values()) URL.revokeObjectURL(url);
-    previews.current.clear();
+    for (const id of [...previews.current.keys()]) revoke(id);
     draft.reset();
   };
 
@@ -116,11 +140,15 @@ export function useHomeChatAttachments({
     if (resetNonce > 0) onReset();
   }, [resetNonce]);
 
-  // 언마운트(시트 닫힘·모드 전환) — 보내지 않은 미리보기만 해제한다(보낸 것은 이미 목록에서 빠져 턴이 소유).
+  // 언마운트(시트 닫힘·모드 전환) — 보내지 않은 미리보기만 해제한다. 수락된 것은 이미 목록에서 빠져 턴이 소유하고,
+  // 전송에 넘겨 수락을 기다리는 것(handedOff)은 지금 턴이 그리고 있어 남긴다 — 거절되면 releaseRejected 가 해제한다.
   useEffect(() => {
+    mounted.current = true;
     const map = previews.current;
+    const sent = handedOff.current;
     return () => {
-      for (const url of map.values()) URL.revokeObjectURL(url);
+      mounted.current = false;
+      for (const [id, url] of map) if (!sent.has(id)) URL.revokeObjectURL(url);
     };
   }, []);
 
@@ -134,5 +162,6 @@ export function useHomeChatAttachments({
     removeFile,
     snapshot,
     commitSent,
+    releaseRejected,
   };
 }

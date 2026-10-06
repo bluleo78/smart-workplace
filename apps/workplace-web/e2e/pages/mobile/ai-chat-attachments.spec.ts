@@ -3,6 +3,8 @@
 // 사진 보관함 → 업로드 칩 → 첨부만 전송 → 말풍선 썸네일까지, 가로 넘침이 없는지 검증한다.
 import { Buffer } from 'buffer'
 
+import type { Page } from '@playwright/test'
+
 import { createHomeAttachment } from '../../factories/homeAttachment.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../../fixtures/home-chat-mock'
@@ -98,4 +100,87 @@ test('AI 시트: 복원한 대화의 썸네일이 스켈레톤보다 크게 늦�
     await expect.poll(async () => (await page.getByTestId(`attachment-image-${id}`).boundingBox())?.height ?? 0).toBeGreaterThan(200)
   }
   await expect.poll(() => page.getByTestId('chat-scroll').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(2)
+})
+
+/**
+ * 이미지 하나를 올려 보내고, POST /ai/chat(수락) 응답을 붙잡아 둔 채 시트를 닫는다(입력창 언마운트). 테스트가 outcome 으로 응답을 풀게 한다.
+ * 앱이 만들고 해제한 blob URL 을 기록한다(window.__blobs).
+ */
+async function sendImageThenCloseSheet(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __blobs: { created: string[]; revoked: string[] } }
+    w.__blobs = { created: [], revoked: [] }
+    const create = URL.createObjectURL.bind(URL)
+    const revoke = URL.revokeObjectURL.bind(URL)
+    URL.createObjectURL = (o: Blob | MediaSource) => {
+      const url = create(o)
+      w.__blobs.created.push(url)
+      return url
+    }
+    URL.revokeObjectURL = (url: string) => {
+      w.__blobs.revoked.push(url)
+      revoke(url)
+    }
+  })
+  await stubChat(page)
+  await page.route((u) => u.pathname === '/api/v1/home/attachments', (r) =>
+    r.fulfill(json([{ fileId: 9310, originalName: 'site.png', mimeType: 'image/png', sizeBytes: 100 }] satisfies HomeUploadedFile[])))
+  // POST /ai/chat(수락)을 테스트가 풀 때까지 붙잡아 둔다 — 그동안 전송은 아직 수락 전이다.
+  let respond!: (outcome: 'accept' | 'reject') => void
+  const outcome = new Promise<'accept' | 'reject'>((r) => (respond = r))
+  const starts = trackRequests(page, 'POST', '/api/v1/ai/chat')
+  await page.route((u) => u.pathname === '/api/v1/ai/chat', async (r) => {
+    if (r.request().method() !== 'POST') return r.fallback()
+    if ((await outcome) === 'accept') return r.fulfill(json({ correlationId: 'corr-close' }))
+    return r.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 400, error: 'Bad Request', message: '첨부 파일을 사용할 수 없어요. 파일을 다시 올려 주세요.' }),
+    })
+  })
+  await page.goto('/chat')
+  await page.getByTestId('mobile-tab-ai').click()
+  await page.getByTestId('ai-composer-attach-button').tap()
+  const chooser = page.waitForEvent('filechooser')
+  await page.getByTestId('mobile-action-photo').tap()
+  await (await chooser).setFiles({ name: 'site.png', mimeType: 'image/png', buffer: solidPng(120, 80) })
+  await expect(page.getByTestId('ai-composer-attachments')).toContainText('site.png')
+
+  await page.getByTestId('chat-panel').getByTestId('chat-send').tap()
+  await expect.poll(() => starts.count()).toBe(1)
+  // 수락 전 — 낙관적 턴이 로컬 미리보기로 그려진다.
+  const thumb = page.getByTestId('chat-turn').first().getByTestId('attachment-image-9310')
+  const loaded = () => thumb.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)
+  await expect.poll(loaded).toBe(true)
+  const previewUrl = (await thumb.getAttribute('src')) ?? ''
+
+  // 수락 전에 시트를 닫는다 — 입력창(첨부 초안)이 언마운트된다.
+  await page.getByTestId('ai-sheet-backdrop').click({ position: { x: 10, y: 10 } })
+  await expect(page.getByTestId('ai-sheet')).toHaveCount(0)
+  const revoked = () =>
+    page.evaluate((url) => (window as unknown as { __blobs: { revoked: string[] } }).__blobs.revoked.includes(url), previewUrl)
+  return { respond, starts, thumb, loaded, previewUrl, revoked }
+}
+
+test('AI 시트: 이미지를 보내고 서버가 받기 전에 시트를 닫았다 열어도 보낸 턴의 썸네일이 깨지지 않는다', async ({ authenticatedPage: page }) => {
+  // 회귀: 시트를 닫아 입력창(첨부 초안)이 언마운트되면, 방금 전송 스냅숏으로 턴에 넘긴(아직 수락 전) 미리보기 blob URL 까지 해제해
+  // 다시 연 시트의 낙관적 턴 썸네일이 깨졌다. 전송에 넘긴 미리보기는 턴 소유라 초안이 해제하지 않아야 한다.
+  const { respond, thumb, loaded, previewUrl, revoked } = await sendImageThenCloseSheet(page)
+  expect(await revoked()).toBe(false)
+  respond('accept')
+  await page.getByTestId('mobile-tab-ai').click()
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
+  await expect(thumb).toHaveAttribute('src', previewUrl)
+  await expect.poll(loaded).toBe(true)
+  expect(await revoked()).toBe(false)
+})
+
+test('AI 시트: 시트를 닫은 사이 전송이 거절되면 턴에서 첨부가 빠지고 넘겼던 미리보기 URL 도 해제된다', async ({ authenticatedPage: page }) => {
+  // 초안이 언마운트돼 미리보기를 돌려받을 곳이 없으므로, 거절이 정해질 때 해제해야 새로고침 전까지 blob 이 남지 않는다.
+  const { respond, revoked } = await sendImageThenCloseSheet(page)
+  respond('reject')
+  await expect.poll(revoked).toBe(true)
+  await page.getByTestId('mobile-tab-ai').click()
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
+  await expect(page.getByTestId('chat-turn').first().getByTestId('message-attachments')).toHaveCount(0)
 })
