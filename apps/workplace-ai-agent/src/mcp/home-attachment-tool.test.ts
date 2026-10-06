@@ -104,15 +104,24 @@ describe('read_chat_attachment', () => {
     expect(Array.isArray(await tool(ok).handler({ fileId: 9 }))).toBe(true);
     const big = mockClient([att(9, 'image/jpeg', ex('NONE'), HOME_IMAGE_MAX_BYTES + 1)]);
     const out = (await tool(big).handler({ fileId: 9 })) as string;
-    expect(out).toContain('모델에 보낼 수 없습니다');
+    expect(out).toContain('크기(3932161B)');
+    expect(out).not.toContain('형식(');
     expect(big.downloadHomeAttachment).not.toHaveBeenCalled();
   });
 
   it('HEIC 등 미지원 이미지 형식 → 안내, 다운로드 없음', async () => {
     const c = mockClient([att(9, 'image/heic', ex('NONE'))]);
     const out = (await tool(c).handler({ fileId: 9 })) as string;
-    expect(out).toContain('image/heic');
+    expect(out).toContain('형식(image/heic)');
+    expect(out).not.toContain('크기(');
     expect(out).toContain('JPEG·PNG');
+    expect(c.downloadHomeAttachment).not.toHaveBeenCalled();
+  });
+
+  it('형식과 크기가 모두 문제면 둘 다 말한다', async () => {
+    const c = mockClient([att(9, 'image/heic', ex('NONE'), HOME_IMAGE_MAX_BYTES + 1)]);
+    const out = (await tool(c).handler({ fileId: 9 })) as string;
+    expect(out).toContain('형식(image/heic)과 크기(3932161B)');
     expect(c.downloadHomeAttachment).not.toHaveBeenCalled();
   });
 });

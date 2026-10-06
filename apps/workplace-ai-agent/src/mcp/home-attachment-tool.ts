@@ -69,7 +69,11 @@ export function buildReadChatAttachmentTool(
       }
       if (fileKind(a.mimeType) === 'image') {
         if (!isSendableImage(a)) {
-          return `${JSON.stringify(a.originalName)}: 이 이미지 형식·크기(${a.mimeType}, ${a.sizeBytes}B)는 모델에 보낼 수 없습니다. 사용자에게 JPEG·PNG(3.75MB 이하)로 다시 올려 달라고 안내하세요.`;
+          // 실제 사유만 말한다 — 형식만 문제인데 크기까지 탓하면 모델이 엉뚱한 안내를 한다.
+          const reasons: string[] = [];
+          if (!HOME_IMAGE_MIMES.has(a.mimeType)) reasons.push(`형식(${a.mimeType})`);
+          if (a.sizeBytes > HOME_IMAGE_MAX_BYTES) reasons.push(`크기(${a.sizeBytes}B)`);
+          return `${JSON.stringify(a.originalName)}: 이 이미지의 ${reasons.join('과 ')}는 모델에 보낼 수 없습니다. 사용자에게 JPEG·PNG(3.75MB 이하)로 다시 올려 달라고 안내하세요.`;
         }
         const { data } = await client.downloadHomeAttachment(onBehalfOfId, homeSessionId, a.fileId);
         // mimeType 은 목록 값 — 응답 Content-Type 은 파라미터(charset 등)가 붙을 수 있어 모델 입력 형식으로 부적합.
