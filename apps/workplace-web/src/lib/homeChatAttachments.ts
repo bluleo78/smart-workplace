@@ -9,6 +9,20 @@ export const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 /** 세션당 첨부 수 — 매 턴 프롬프트에 넣는 첨부 목록 크기를 묶는다. */
 export const MAX_ATTACHMENTS_PER_SESSION = 30;
 
+/**
+ * 메인 AI 채팅이 이미지(썸네일·로컬 미리보기)로 다루는 mime — api HomeAttachmentController.INLINE_MIMES·
+ * ai-agent HOME_IMAGE_MIMES 와 같은 4종(정확히 일치 비교도 같다).
+ */
+const HOME_CHAT_IMAGE_MIMES: ReadonlySet<string> = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
+/**
+ * 썸네일로 그려도 되는 이미지인지. 4종 밖의 image/*(SVG·HEIC·TIFF…)는 문서 카드(다운로드)로 보낸다 —
+ * SVG 를 앱 출처 blob URL 로 새 탭에 열면 그 안의 스크립트가 앱 권한으로 돌고(self-XSS), HEIC 는 브라우저가 못 그려 깨진다.
+ */
+export function isHomeChatImage(mimeType: string): boolean {
+  return HOME_CHAT_IMAGE_MIMES.has(mimeType);
+}
+
 /** 서버(HomeAttachmentService.tooManyMessage) 400 문구와 글자 그대로 같게 유지한다(PF-C3). */
 export const PER_MESSAGE_LIMIT_MSG = `한 번에 첨부할 수 있는 파일은 최대 ${MAX_ATTACHMENTS_PER_MESSAGE}개예요.`;
 /** 서버(HomeAttachmentService.MSG_SESSION_LIMIT) 400 문구와 글자 그대로 같게 유지한다(PF-C3). */

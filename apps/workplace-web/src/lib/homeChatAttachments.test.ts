@@ -6,6 +6,7 @@ import {
   checkAttachmentCounts,
   countSessionAttachments,
   homeAttachmentContentPath,
+  isHomeChatImage,
   MAX_ATTACHMENT_BYTES,
   oversizeMessage,
   PER_MESSAGE_LIMIT_MSG,
@@ -119,5 +120,17 @@ describe('상한 안내 문구 — 서버 400 문구와 동일(PF-C3)', () => {
   it('메시지·세션 상한 문구가 api HomeAttachmentService 와 글자 그대로 같다', () => {
     expect(PER_MESSAGE_LIMIT_MSG).toBe('한 번에 첨부할 수 있는 파일은 최대 10개예요.');
     expect(PER_SESSION_LIMIT_MSG).toBe('이 대화에는 파일을 최대 30개까지 첨부할 수 있어요. 새 대화를 열어 주세요.');
+  });
+});
+
+describe('isHomeChatImage', () => {
+  it('api INLINE_MIMES·ai-agent HOME_IMAGE_MIMES 와 같은 4종만 이미지로 본다', () => {
+    for (const mime of ['image/jpeg', 'image/png', 'image/gif', 'image/webp']) expect(isHomeChatImage(mime)).toBe(true);
+  });
+
+  it('그 외 image/*(SVG·HEIC·TIFF 등)와 비이미지는 문서로 본다 — SVG blob 새 탭 스크립트 실행·깨진 썸네일 방지', () => {
+    for (const mime of ['image/svg+xml', 'image/heic', 'image/tiff', 'image/bmp', 'application/pdf', 'text/html', '']) {
+      expect(isHomeChatImage(mime)).toBe(false);
+    }
   });
 });

@@ -1,4 +1,5 @@
 import { useHomeAttachmentBlob } from '@/hooks/useHomeAttachmentBlob';
+import { isHomeChatImage } from '@/lib/homeChatAttachments';
 import type { TurnAttachment } from '@/types/home';
 
 /**
@@ -6,10 +7,14 @@ import type { TurnAttachment } from '@/types/home';
  * 방금 보낸 이미지는 로컬 미리보기(previewUrl)를 그대로 쓴다 — 새 대화는 첫 응답이 끝나기 전엔 세션 id 가 없어
  * 서버 원본을 받을 수 없다. 복원된 이미지는 세션 첨부 원본을 blob 으로 받는다.
  * testid 는 이슈·팀 채팅 썸네일과 같은 attachment-image-{fileId}.
+ * 썸네일 4종(isHomeChatImage) 밖이면 원본도 받지 않고 파일명만 보인다 — 목록이 카드로 보내므로 평소엔 오지 않는 방어선이다
+ * (SVG 를 앱 출처 blob 새 탭으로 열면 스크립트가 돈다).
  */
 export function HomeMessageImage({ sessionId, attachment }: { sessionId: string | null; attachment: TurnAttachment }) {
-  // 미리보기가 있으면 서버 요청을 하지 않는다(세션 id 를 null 로 넘겨 훅을 멈춘다).
-  const remote = useHomeAttachmentBlob(attachment.previewUrl ? null : sessionId, attachment.fileId);
+  const inline = isHomeChatImage(attachment.mimeType);
+  // 미리보기가 있거나 4종 밖이면 서버 요청을 하지 않는다(세션 id 를 null 로 넘겨 훅을 멈춘다 — 훅은 조건부로 부를 수 없다).
+  const remote = useHomeAttachmentBlob(attachment.previewUrl || !inline ? null : sessionId, attachment.fileId);
+  if (!inline) return <span className="text-xs text-muted-foreground">{attachment.originalName}</span>;
   const url = attachment.previewUrl ?? remote.url;
   if (remote.error) return <span className="text-xs text-muted-foreground">이미지를 불러올 수 없습니다</span>;
   if (!url) {

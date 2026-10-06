@@ -38,7 +38,7 @@ import { visibleSteps } from '@/lib/aiToolLabels';
 import { handleApiErrorAsync } from '@/lib/api-error';
 import { sliceRange } from '@/lib/chatBlocks';
 import { filesFromPaste } from '@/lib/clipboardFiles';
-import { countSessionAttachments } from '@/lib/homeChatAttachments';
+import { countSessionAttachments, isHomeChatImage } from '@/lib/homeChatAttachments';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
@@ -319,6 +319,8 @@ export function AIChatPanel({
                       }}
                       // 메인 AI 채팅은 드라이브 링크를 받지 않는다(driveLinks 미전달 → 호출되지 않음).
                       onDownloadDriveLink={() => {}}
+                      // 썸네일은 api·ai-agent 와 같은 4종만 — SVG·HEIC 등은 문서 카드(다운로드)로 그린다.
+                      isImage={(a) => isHomeChatImage(a.mimeType)}
                       renderImage={(a) => <HomeMessageImage sessionId={currentSessionId} attachment={a} />}
                     />
                   </div>

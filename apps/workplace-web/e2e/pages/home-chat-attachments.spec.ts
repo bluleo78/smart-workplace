@@ -457,6 +457,74 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     })
   }
 
+  // 4종(jpeg·png·gif·webp) 밖의 image/* — api 는 attachment 로 내리고 ai-agent 도 이미지 블록으로 보내지 않는다.
+  // 웹도 썸네일·새 탭 blob 링크 없이 문서 카드(다운로드)로만 그린다(SVG 를 앱 출처 blob 으로 열면 스크립트가 돈다).
+  const NON_INLINE_IMAGES = [
+    { name: 'logo.svg', type: 'image/svg+xml' },
+    { name: 'IMG_0001.heic', type: 'image/heic' },
+  ] as const
+
+  test('4종 밖 이미지(SVG·HEIC)는 보낸 직후에도 문서 카드로 그리고 로컬 미리보기 blob 을 만들지 않는다', async ({ authenticatedPage: page }) => {
+    // 앱 코드가 만드는 blob URL 의 원본 타입을 기록한다 — SVG·HEIC 파일로는 미리보기를 만들지 않아야 한다.
+    await page.addInitScript(() => {
+      const w = window as unknown as { __blobTypes: string[] }
+      w.__blobTypes = []
+      const orig = URL.createObjectURL.bind(URL)
+      URL.createObjectURL = (o: Blob | MediaSource) => {
+        if (o instanceof Blob) w.__blobTypes.push(o.type)
+        return orig(o)
+      }
+    })
+    await stubUpload(page)
+    const starts = await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-svg' } }] })
+    await openPanel(page)
+    for (const f of NON_INLINE_IMAGES) {
+      await paste(page, f)
+      await expect(page.getByTestId('ai-composer-attachments')).toContainText(f.name)
+    }
+    await page.getByTestId('chat-send').click()
+    await expect.poll(() => starts.lastBody<HomeChatStartBody>()).toMatchObject({ query: '', fileIds: [7000, 7001] })
+
+    const atts = page.getByTestId('chat-turn').first().getByTestId('message-attachments')
+    await expect(atts.getByTestId('attachment-card-7000')).toContainText('logo.svg')
+    await expect(atts.getByTestId('attachment-card-7001')).toContainText('IMG_0001.heic')
+    await expect(atts.locator('img')).toHaveCount(0)
+    await expect(atts.locator('a[target="_blank"]')).toHaveCount(0)
+    const blobTypes = await page.evaluate(() => (window as unknown as { __blobTypes: string[] }).__blobTypes)
+    expect(blobTypes.filter((t) => t === 'image/svg+xml' || t === 'image/heic')).toEqual([])
+  })
+
+  test('세션 복원: 4종 밖 이미지(SVG·HEIC)는 원본을 미리 받지 않고 문서 카드로 그리며, 카드는 내려받는다', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/home/sessions', {
+      items: [{ id: 's-v', title: '벡터 대화', lastMessageAt: '2026-10-06T00:00:00Z', widgetCount: 0 }],
+      nextCursor: null,
+    } satisfies HomeSessionPage)
+    await mockApi(page, 'GET', '/api/v1/home/sessions/s-v/messages', [
+      {
+        id: 1, role: 'USER', content: '자료 모음', widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:00Z',
+        attachments: NON_INLINE_IMAGES.map((f, i) =>
+          createHomeAttachment({ fileId: 95 + i, originalName: f.name, mimeType: f.type, sizeBytes: 512 })),
+      },
+    ] satisfies HomeMessage[])
+    const contents = trackRequests(page, 'GET', /\/api\/v1\/home\/sessions\/s-v\/attachments\/\d+\/content$/)
+    await page.route((u) => u.pathname === '/api/v1/home/sessions/s-v/attachments/95/content', (r) =>
+      r.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg"/>' }))
+    await openPanel(page)
+    await restoreFirstSession(page)
+
+    const atts = page.getByTestId('chat-turn').first().getByTestId('message-attachments')
+    await expect(atts.getByTestId('attachment-card-95')).toContainText('logo.svg')
+    await expect(atts.getByTestId('attachment-card-96')).toContainText('IMG_0001.heic')
+    await expect(atts.locator('img')).toHaveCount(0)
+    await expect(atts.locator('a[target="_blank"]')).toHaveCount(0)
+    // 썸네일용 원본 요청이 나가지 않는다 — 카드를 누를 때만 내려받는다.
+    await expectStays(page, contents.count, 0)
+
+    const download = page.waitForEvent('download')
+    await atts.getByTestId('attachment-card-95').click()
+    expect((await download).suggestedFilename()).toBe('logo.svg')
+  })
+
   test('세션 복원: 원본을 받지 못하면 썸네일 자리에 안내 문구', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/home/sessions', {
       items: [{ id: 's-e', title: '깨진 이미지', lastMessageAt: '2026-10-06T00:00:00Z', widgetCount: 0 }],

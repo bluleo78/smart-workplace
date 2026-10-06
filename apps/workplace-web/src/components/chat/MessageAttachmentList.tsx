@@ -17,13 +17,15 @@ type AttachmentLike = Pick<MessageAttachment, 'fileId' | 'originalName' | 'mimeT
 /** 메시지 본문 아래 첨부 목록. 카드는 max-w-full min-w-0 로 부모 폭에 묶이고, 파일명(truncate)만 줄어든다 —
  * 크기·링크 배지는 shrink-0 whitespace-nowrap 으로 좁은 카드에서도 한 줄을 유지한다. 이미지는 renderImage 로 위임, 그 외는 다운로드 카드.
  * 도메인(팀/이슈/메인 AI 채팅) 무관 — 다운로드 핸들러·이미지 렌더를 주입받는다. (#80, #358, WP-234)
- * className 은 정렬 등 배치만 덧붙인다(예: 메인 AI 채팅 사용자 말풍선의 오른쪽 정렬). 기본값은 기존 동작. */
+ * className 은 정렬 등 배치만 덧붙인다(예: 메인 AI 채팅 사용자 말풍선의 오른쪽 정렬). 기본값은 기존 동작.
+ * isImage 는 renderImage 로 보낼지 판정한다 — 기본은 image/* 전부(팀·이슈 채팅 기존 동작), 메인 AI 채팅은 4종만 넘긴다. */
 export function MessageAttachmentList<A extends AttachmentLike>({
   attachments,
   driveLinks = [],
   onDownloadAttachment,
   onDownloadDriveLink,
   renderImage,
+  isImage = (a) => a.mimeType.startsWith('image/'),
   className,
 }: {
   attachments: A[]
@@ -31,13 +33,14 @@ export function MessageAttachmentList<A extends AttachmentLike>({
   onDownloadAttachment: (a: A) => void
   onDownloadDriveLink: (dl: DriveLink) => void
   renderImage: (a: A) => React.ReactNode
+  isImage?: (a: A) => boolean
   className?: string
 }) {
   if ((!attachments || attachments.length === 0) && driveLinks.length === 0) return null
   return (
     <div className={cn('mt-1 flex flex-col gap-1', className)} data-testid="message-attachments">
       {attachments.map((a) =>
-        a.mimeType.startsWith('image/') ? (
+        isImage(a) ? (
           <span key={a.fileId}>{renderImage(a)}</span>
         ) : (
           <button

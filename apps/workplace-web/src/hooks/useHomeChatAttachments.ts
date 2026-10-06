@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 
 import { homeApi } from '@/api/home';
 import { useAttachmentDraft } from '@/hooks/useAttachmentDraft';
-import { checkAttachmentCounts, oversizeMessage, splitOversize } from '@/lib/homeChatAttachments';
+import { checkAttachmentCounts, isHomeChatImage, oversizeMessage, splitOversize } from '@/lib/homeChatAttachments';
 import { downscaleImageForUpload } from '@/lib/imageDownscale';
 import type { HomeUploadedFile, TurnAttachment } from '@/types/home';
 
@@ -48,10 +48,13 @@ export function useHomeChatAttachments({
     const { data } = await homeApi.uploadAttachments(accepted);
     // 그 사이 대화가 바뀌었으면 이 업로드는 이전 대화의 초안이다 — 초안에 넣지 않는다(서버 임시 파일은 만료로 정리된다).
     if (gen !== resetGen.current) return { data: [] };
-    // 서버는 요청 순서대로 응답한다 — 같은 자리의 파일로 미리보기를 만든다(이미지만).
+    // 서버는 요청 순서대로 응답한다 — 같은 자리의 파일로 미리보기를 만든다(썸네일 4종만).
+    // blob 은 서버 mime 이 아니라 File.type 을 물려받으므로 둘 다 본다 — SVG 등은 blob 자체를 만들지 않는다.
     data.forEach((u, i) => {
       const f = accepted[i];
-      if (f && u.mimeType.startsWith('image/')) previews.current.set(u.fileId, URL.createObjectURL(f));
+      if (f && isHomeChatImage(u.mimeType) && isHomeChatImage(f.type)) {
+        previews.current.set(u.fileId, URL.createObjectURL(f));
+      }
     });
     return { data };
   };
