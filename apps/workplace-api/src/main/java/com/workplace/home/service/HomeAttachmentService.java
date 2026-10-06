@@ -11,6 +11,7 @@ import com.workplace.home.dto.HomeAttachment;
 import com.workplace.home.dto.HomeUploadedFile;
 import com.workplace.home.exception.HomeAttachmentInvalidException;
 import com.workplace.home.exception.HomeAttachmentNotFoundException;
+import com.workplace.home.exception.HomeSessionNotFoundException;
 import com.workplace.home.outbound.ChatMessages.ChatAttachment;
 import com.workplace.home.repository.HomeAttachmentRepository;
 import com.workplace.home.repository.HomeAttachmentRepository.Candidate;
@@ -150,7 +151,8 @@ public class HomeAttachmentService {
     validateIds(ids);
     sessionService.ensureOwner(callerId, sessionId);
     // 잠금 → 개수 확인 순서가 중요하다 — 거꾸로면 두 전송이 같은 개수를 보고 둘 다 통과한다.
-    sessionRepo.lockForUpdate(sessionId);
+    // 잠금을 기다리는 사이 세션이 지워졌으면 행이 없다 — 그대로 진행하면 메시지 INSERT 가 FK 위반(500)이 되므로 404 로 끝낸다.
+    if (!sessionRepo.lockForUpdate(sessionId)) throw new HomeSessionNotFoundException(sessionId);
     if (repo.countBySession(sessionId) + ids.size() > MAX_PER_SESSION) {
       throw new HomeAttachmentInvalidException(MSG_SESSION_LIMIT);
     }
