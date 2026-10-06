@@ -81,8 +81,8 @@ function extractionLine(a: AgentAttachment): string {
   }
 }
 
-/** 파일명의 제어문자(\r \n \t 포함)를 공백으로 — 사용자 파일명이 프롬프트 줄 구조를 깨거나 지시문을 끼워 넣지 못하게. */
-function sanitizeName(name: string): string {
+/** 파일명의 제어문자(\r \n \t 포함)를 공백으로 — 사용자 파일명이 프롬프트 줄 구조를 깨거나 지시문을 끼워 넣지 못하게. 메인 AI 채팅 첨부 블록(WP-234)도 같이 쓴다. */
+export function sanitizeName(name: string): string {
   // eslint-disable-next-line no-control-regex
   return name.replace(/[\u0000-\u001F\u007F]/g, ' ');
 }

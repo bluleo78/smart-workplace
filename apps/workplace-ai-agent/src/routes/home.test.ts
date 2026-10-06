@@ -102,6 +102,38 @@ describe('chatSchema', () => {
     expect(chatSchema.safeParse(validBody({ contextSummary: null })).success).toBe(true);
     expect(chatSchema.safeParse(validBody()).success).toBe(true);
   });
+
+  // WP-234: 메인 AI 채팅 첨부
+  const SID = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
+  const att = (current: boolean) => ({
+    fileId: 8, messageId: 3, originalName: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 10, current,
+    extraction: { status: 'READY', totalChars: 10, truncated: false, reasonCode: null, reason: null },
+  });
+
+  it('구 API 페이로드(sessionId·attachments 없음)도 파싱 성공 — attachments 는 빈 배열 (WP-234 롤링 배포)', () => {
+    const parsed = chatSchema.parse(validBody());
+    expect(parsed.attachments).toEqual([]);
+    expect(parsed.sessionId).toBeUndefined();
+  });
+
+  it('sessionId(UUID)·attachments 가 보존된다, attachments null 은 빈 배열', () => {
+    const parsed = chatSchema.parse(validBody({ sessionId: SID, attachments: [att(true)] }));
+    expect(parsed.sessionId).toBe(SID);
+    expect(parsed.attachments[0]).toMatchObject({ fileId: 8, current: true });
+    expect(chatSchema.parse(validBody({ attachments: null })).attachments).toEqual([]);
+  });
+
+  it('sessionId 가 UUID 가 아니면 파싱 실패', () => {
+    expect(chatSchema.safeParse(validBody({ sessionId: 'abc' })).success).toBe(false);
+  });
+
+  it('빈 query + 이번 메시지 첨부(current) 있음 → 파싱 성공', () => {
+    expect(chatSchema.safeParse(validBody({ query: '', sessionId: SID, attachments: [att(true)] })).success).toBe(true);
+  });
+
+  it('빈 query + 이전 턴 첨부만(current 없음) → 파싱 실패', () => {
+    expect(chatSchema.safeParse(validBody({ query: '  ', sessionId: SID, attachments: [att(false)] })).success).toBe(false);
+  });
 });
 
 describe('POST /ai/chat', () => {
@@ -146,6 +178,22 @@ describe('POST /ai/chat', () => {
     const res = await request(buildApp()).post('/ai/chat').send(validBody({ query: '   ' }));
     expect(res.status).toBe(400);
     expect(runAiChatStream).not.toHaveBeenCalled();
+  });
+
+  // WP-234: 첨부 필드가 러너 입력까지 전달된다(plain z.object 는 미정의 키를 버리므로 스키마 명시 필요).
+  it('sessionId·attachments 를 runAiChatStream 입력으로 전달', async () => {
+    vi.mocked(runAiChatStream).mockResolvedValue({ fullText: 'ok', widgets: null, pendingActions: [], usage: null });
+    const sid = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
+    const attachment = {
+      fileId: 8, messageId: 3, originalName: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 10, current: true,
+      extraction: { status: 'PENDING', totalChars: null, truncated: null, reasonCode: null, reason: null },
+    };
+    await request(buildApp()).post('/ai/chat').send(validBody({ query: '', sessionId: sid, attachments: [attachment] }));
+    expect(runAiChatStream).toHaveBeenCalledWith(
+      expect.objectContaining({ query: '', sessionId: sid, attachments: [attachment] }),
+      expect.anything(), expect.any(Function), expect.anything(),
+      expect.any(Function), expect.any(Function), expect.any(Function),
+    );
   });
 
   it('비서 필드 누락 → 400 (러너 미호출)', async () => {

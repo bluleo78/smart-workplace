@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 
+import { homeChatAttachmentSchema } from '../agent/home-attachments.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { homeContextSummaryInput, runHomeContextSummary } from '../agent/run-home-context-summary.js';
@@ -30,27 +31,41 @@ const priorityClassifySchema = z.object({
   timeoutMs: z.number(),
 });
 
-export const chatSchema = z.object({
-  // 공백 전용 쿼리("   ")는 trim 후 min(1) 검사로 거부 (#430).
-  query: z.string().trim().min(1),
-  recentContext: z
-    .array(z.object({ role: z.string(), content: z.string() }))
-    .optional(),
-  assistantAgentId: z.number().int().positive(),
-  // #376: 요청 사용자 ID — MCP 도구 컨텍스트를 assistantAgentId 아닌 실제 요청자로 설정하기 위해 전달.
-  userId: z.number().int().positive(),
-  // #719: 요청자의 active-tenant(nullable). workplace-api 대리 호출 시 X-On-Behalf-Of-Tenant 로
-  // 되돌려 보내, 다중/무 멤버십일 때 AgentTenantResolver 가 fail-closed 되는 것을 막는다.
-  tenantId: z.number().int().positive().nullish(),
-  model: z.string().min(1),
-  thinkingDepth: z.enum(['NONE', 'NORMAL', 'DEEP']),
-  maxTurns: z.number().int().positive(),
-  timeoutMs: z.number().int().positive(),
-  // WP-232: 누적 요약(nullable). API 는 요약이 없으면 null 을 보낸다. plain z.object 는 미정의 키를 버리므로 명시.
-  contextSummary: z.string().nullish(),
-  // WP-54: 현재 화면 컨텍스트(nullable). plain z.object 는 미정의 키를 버리므로 명시해야 전달된다.
-  screenContext: screenContextSchema.nullish(),
-});
+export const chatSchema = z
+  .object({
+    // 공백 전용 쿼리("   ")는 trim 후 빈 문자열 — 아래 refine 이 이번 메시지 첨부가 없으면 거부한다 (#430).
+    // WP-234: 첨부만 보낸 메시지는 query 가 빈 문자열로 온다(러너가 DEFAULT_ATTACHMENT_QUERY 로 대체).
+    query: z.string().trim(),
+    recentContext: z
+      .array(z.object({ role: z.string(), content: z.string() }))
+      .optional(),
+    assistantAgentId: z.number().int().positive(),
+    // #376: 요청 사용자 ID — MCP 도구 컨텍스트를 assistantAgentId 아닌 실제 요청자로 설정하기 위해 전달.
+    userId: z.number().int().positive(),
+    // #719: 요청자의 active-tenant(nullable). workplace-api 대리 호출 시 X-On-Behalf-Of-Tenant 로
+    // 되돌려 보내, 다중/무 멤버십일 때 AgentTenantResolver 가 fail-closed 되는 것을 막는다.
+    tenantId: z.number().int().positive().nullish(),
+    model: z.string().min(1),
+    thinkingDepth: z.enum(['NONE', 'NORMAL', 'DEEP']),
+    maxTurns: z.number().int().positive(),
+    timeoutMs: z.number().int().positive(),
+    // WP-232: 누적 요약(nullable). API 는 요약이 없으면 null 을 보낸다. plain z.object 는 미정의 키를 버리므로 명시.
+    contextSummary: z.string().nullish(),
+    // WP-54: 현재 화면 컨텍스트(nullable). plain z.object 는 미정의 키를 버리므로 명시해야 전달된다.
+    screenContext: screenContextSchema.nullish(),
+    // WP-234: 세션 id — read_chat_attachment 를 이 세션에 묶는다. 운영은 ai-agent 를 먼저 재기동하므로
+    // 구 API(필드 없음)도 받아야 해 선택으로 둔다.
+    sessionId: z.uuid().nullish(),
+    // WP-234: 세션 전체 첨부(요약 경계 이전 포함) — 매 턴 프롬프트 블록의 근거. 구 API 는 생략 → 빈 배열.
+    attachments: z
+      .array(homeChatAttachmentSchema)
+      .nullish()
+      .transform((v) => v ?? []),
+  })
+  .refine((d) => d.query.length > 0 || d.attachments.some((a) => a.current), {
+    message: 'query 가 비어 있으면 이번 메시지 첨부가 있어야 합니다',
+    path: ['query'],
+  });
 
 export function createHomeRouter(deps: RunAgentDeps): Router {
   const router = Router();
