@@ -12,6 +12,7 @@ import { createHomeAttachment } from '../factories/homeAttachment.factory'
 import { mockApi } from '../fixtures/api-mock'
 import { expect, test } from '../fixtures/auth.fixture'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../fixtures/home-chat-mock'
+import { solidPng } from '../fixtures/png'
 import { trackRequests } from '../fixtures/requests'
 import { expectStays } from '../fixtures/wait'
 
@@ -382,11 +383,8 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     await expect(page.getByTestId('chat-send')).toHaveText('보내기')
     await expect(page.getByTestId('chat-send')).toBeDisabled()
   })
-  // 1×1 PNG — 썸네일 원본 응답용.
-  const PNG_1X1 = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
-    'base64',
-  )
+  // 썸네일 원본 응답용 — 128px 스켈레톤보다 커지는(최대 256px) 실제 크기 PNG 라야 "늦게 커져도 하단 고정"(W15) 경로를 탄다.
+  const PNG_TALL = solidPng(600, 900)
 
   test('보낸 직후(세션 id 없음)에도 이미지는 로컬 미리보기로 보인다', async ({ authenticatedPage: page }) => {
     await stubUpload(page)
@@ -429,7 +427,7 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
         r.fulfill({
           status: 200,
           contentType: r.request().url().endsWith('/77/content') ? 'image/png' : 'application/pdf',
-          body: r.request().url().endsWith('/77/content') ? PNG_1X1 : Buffer.from('%PDF-1.4'),
+          body: r.request().url().endsWith('/77/content') ? PNG_TALL : Buffer.from('%PDF-1.4'),
         }))
       await openPanel(page)
       await page.getByTestId('chat-session-switcher').click()
@@ -439,6 +437,8 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
       await expect(turns).toHaveCount(2)
       const userTurn = turns.first()
       await expect(userTurn.getByTestId('attachment-image-77')).toHaveAttribute('src', /^blob:/)
+      // 스켈레톤(128px)보다 크게 그려졌는지 — 아래 하단 고정 단언이 높이 증가 경로를 검증한다는 전제.
+      await expect.poll(async () => (await userTurn.getByTestId('attachment-image-77').boundingBox())?.height ?? 0).toBeGreaterThan(200)
       await expect(userTurn.getByTestId('attachment-card-78')).toContainText('spec.pdf')
       // 첨부만 보낸 턴은 본문 말풍선이 없다.
       await expect(userTurn.getByTestId('chat-user-bubble')).toHaveCount(0)

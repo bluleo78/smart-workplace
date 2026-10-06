@@ -5,11 +5,14 @@ import { Buffer } from 'buffer'
 
 import type { Locator, Page } from '@playwright/test'
 
+import { createHomeAttachment } from '../../factories/homeAttachment.factory'
+import { mockApi } from '../../fixtures/api-mock'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../../fixtures/home-chat-mock'
 import { json } from '../../fixtures/mobile-chat'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { solidPng } from '../../fixtures/png'
 import { trackRequests } from '../../fixtures/requests'
-import type { HomeUploadedFile } from '../../../src/types/home'
+import type { HomeMessage, HomeSessionPage, HomeUploadedFile } from '../../../src/types/home'
 
 /**
  * 대상이 실제로 맨 위에 있는지 — toBeVisible 은 가림을 보지 않는다(ai-sheet.spec 과 같은 판정, 스펙 간 import 금지라 둔다).
@@ -82,4 +85,40 @@ test('AI 시트: 새 대화로 옮기면 첨부 초안이 빈다', async ({ auth
   await expect(page.getByTestId('ai-composer-attachments')).toContainText('memo.txt')
   await page.getByTestId('ai-sheet-new-session').tap()
   await expect(page.getByTestId('ai-composer-attachments')).toHaveCount(0)
+})
+
+test('AI 시트: 복원한 대화의 썸네일이 스켈레톤보다 크게 늦게 커져도 맨 아래에 붙어 있다', async ({ authenticatedPage: page }) => {
+  // 두 썸네일이 연달아 커지면(128px 스켈레톤 → 최대 256px) 브라우저 스크롤 앵커링이 보낸 scroll 이벤트를
+  // 다음 성장까지 반영된 높이로 읽어 "사용자가 위로 올렸다"로 오판, 하단 고정이 풀리던 회귀(W15).
+  await stubChat(page)
+  await mockApi(page, 'GET', '/api/v1/home/sessions', {
+    items: [{ id: 's-t', title: '사진 대화', lastMessageAt: '2026-10-06T00:00:00Z', widgetCount: 0 }],
+    nextCursor: null,
+  } satisfies HomeSessionPage)
+  const messages: HomeMessage[] = [
+    {
+      id: 1, role: 'USER', content: '현장 사진이에요', widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:00Z',
+      attachments: [createHomeAttachment({ fileId: 61, originalName: 'a.png', mimeType: 'image/png' })],
+    },
+    { id: 2, role: 'ASSISTANT', content: '확인했어요', widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:01Z' },
+    {
+      id: 3, role: 'USER', content: '', widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:02Z',
+      attachments: [createHomeAttachment({ fileId: 62, messageId: 3, originalName: 'b.png', mimeType: 'image/png' })],
+    },
+    { id: 4, role: 'ASSISTANT', content: '두 번째도 확인했어요', widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:03Z' },
+  ]
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-t/messages', messages)
+  const tall = solidPng(600, 900)
+  await page.route((u) => /^\/api\/v1\/home\/sessions\/s-t\/attachments\/(61|62)\/content$/.test(u.pathname), (r) =>
+    r.fulfill({ status: 200, contentType: 'image/png', body: tall }))
+
+  await page.goto('/chat')
+  await page.getByTestId('mobile-tab-ai').click()
+  await page.getByTestId('ai-sheet-session-switcher').click()
+  await page.getByTestId('chat-session-select').first().click()
+  // 썸네일이 실제로 스켈레톤(128px)보다 커졌는지 — 높이 증가 경로를 탔다는 전제.
+  for (const id of [61, 62]) {
+    await expect.poll(async () => (await page.getByTestId(`attachment-image-${id}`).boundingBox())?.height ?? 0).toBeGreaterThan(200)
+  }
+  await expect.poll(() => page.getByTestId('chat-scroll').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(2)
 })

@@ -50,13 +50,29 @@ export function useStickToBottom(
     // 직전에 본 보이는 높이 — 컨테이너가 줄 때 브라우저의 스크롤 보정(scroll anchoring)이 scroll 이벤트를 먼저 보내는데,
     // 그 시점의 거리로 판정하면 사용자가 스크롤하지 않았는데도 하단 고정이 풀린다. 높이가 바뀐 스크롤은 상태를 유지한다.
     let lastClientHeight = el.clientHeight
+    // 직전 scroll 이벤트의 scrollTop·콘텐츠 높이 — 사용자가 위로 올린 스크롤인지 판정용.
+    let lastTop = el.scrollTop
+    let lastScrollHeight = el.scrollHeight
     const onScroll = () => {
+      const top = el.scrollTop
+      const movedUp = top < lastTop
+      const contentChanged = el.scrollHeight !== lastScrollHeight
+      lastTop = top
+      lastScrollHeight = el.scrollHeight
       if (el.clientHeight !== lastClientHeight) {
         lastClientHeight = el.clientHeight
         if (stuckRef.current) toBottom()
         return
       }
       const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+      // 하단 고정 중, 위로 움직이지 않았거나 그 사이 콘텐츠 높이가 바뀐 스크롤은 사용자가 떠난 것이 아니다 —
+      // 이미지·위젯이 연달아 커지거나 잠깐 줄 때, 브라우저 스크롤 앵커링·스크롤 위치 보정(clamp)·직전 프로그램 스크롤이 보낸
+      // 이벤트를 다음 높이 변화까지 반영된 상태로 읽으면 거리가 커 보여 고정이 풀렸다(WP-234, 썸네일 2장 복원).
+      // 이런 경우엔 고정을 유지하고 바닥으로 다시 맞춘다. 높이 변화 없이 위로 올린 스크롤만 아래 거리 판정으로 간다.
+      if (stuckRef.current && (!movedUp || contentChanged)) {
+        if (dist > 0) toBottom()
+        return
+      }
       stuckRef.current = dist <= NEAR_BOTTOM_PX
     }
     el.addEventListener('scroll', onScroll, { passive: true })
