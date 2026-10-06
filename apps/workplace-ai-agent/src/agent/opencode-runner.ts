@@ -227,15 +227,19 @@ export class OpencodeRunner implements AgentRunner {
               const status = part.state.status;
               // opencode 도구는 MCP(별도 프로세스) 경유지만, opencode 서버 자신이 호출 상태(입력/출력)를
               // Part.state 로 추적해 스트림에 실어주므로 args/result 를 근사가 아니라 실값으로 확보 가능.
-              if ((status === 'pending' || status === 'running') && !startedTools.has(part.id)) {
+              // WP-262: 시작은 running 에서 낸다 — pending 은 모델이 인자를 스트리밍하는 중(state.raw)이라 input 이
+              // 항상 {} 다(실측: pending {} → running {fileId}). running 없이 바로 끝나면 종료 때 시작을 먼저 낸다.
+              const finished = status === 'completed' || status === 'error';
+              if ((status === 'running' || finished) && !startedTools.has(part.id)) {
                 startedTools.add(part.id);
                 seq += 1;
                 toolSeq.set(part.id, seq);
                 onEvent({ type: 'tool_use', name: part.tool, input: part.state.input, parentToolUseId });
                 i.mcp?.onTool?.({ seq, event: 'tool_use_start', toolName: part.tool, args: part.state.input });
-              } else if ((status === 'completed' || status === 'error') && !finishedTools.has(part.id)) {
+              }
+              if ((status === 'completed' || status === 'error') && !finishedTools.has(part.id)) {
                 finishedTools.add(part.id);
-                const startSeq = toolSeq.get(part.id) ?? (seq += 1);
+                const startSeq = toolSeq.get(part.id)!;
                 onEvent({ type: 'tool_done' });
                 i.mcp?.onTool?.({
                   seq: startSeq,

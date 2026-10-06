@@ -183,13 +183,20 @@ describe('OpencodeRunner.stream', () => {
     expect(events[0]).toEqual({ type: 'text_delta', text: '!!!', parentToolUseId: null });
   });
 
-  it('tool part 전이(pending→completed) → tool_use/tool_done + onTool 미러', async () => {
+  // WP-262: 실제 opencode 순서 — pending 은 인자 스트리밍 중이라 input {}, running 에서 채워진다(라이브 실측).
+  it('tool part 전이(pending{}→running→completed) → running 의 실제 인자로 tool_use/tool_done + onTool 미러', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
     es.push({
       type: 'message.part.updated',
       properties: {
-        part: { id: 't1', sessionID: 'sess-1', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'mcp__workplace__get_issue', state: { status: 'pending', input: { key: 'ABC-1' }, raw: '' } },
+        part: { id: 't1', sessionID: 'sess-1', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'mcp__workplace__get_issue', state: { status: 'pending', input: {}, raw: '{"key":' } },
+      },
+    });
+    es.push({
+      type: 'message.part.updated',
+      properties: {
+        part: { id: 't1', sessionID: 'sess-1', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'mcp__workplace__get_issue', state: { status: 'running', input: { key: 'ABC-1' }, time: { start: 0 } } },
       },
     });
     es.push({
@@ -235,7 +242,7 @@ describe('OpencodeRunner.stream', () => {
   it('도구 2개가 인터리브(A시작→B시작→A완료→B완료)돼도 각 result 의 seq 가 자신의 start 와 일치 — 프론트 useChatSession.ts 의 seq 매칭(running→done)이 순서와 무관하게 성립함을 보증', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
-    const toolPart = (id: string, status: 'pending' | 'completed', extra: Record<string, unknown> = {}) => ({
+    const toolPart = (id: string, status: 'pending' | 'running' | 'completed', extra: Record<string, unknown> = {}) => ({
       type: 'message.part.updated',
       properties: {
         part: {
@@ -247,13 +254,17 @@ describe('OpencodeRunner.stream', () => {
           tool: 'mcp__workplace__get_issue',
           state:
             status === 'pending'
-              ? { status: 'pending', input: { key: id }, raw: '' }
-              : { status: 'completed', input: { key: id }, output: `{"id":"${id}"}`, title: 't', metadata: {}, time: { start: 0, end: 1 }, ...extra },
+              ? { status: 'pending', input: {}, raw: '' }
+              : status === 'running'
+                ? { status: 'running', input: { key: id }, time: { start: 0 } }
+                : { status: 'completed', input: { key: id }, output: `{"id":"${id}"}`, title: 't', metadata: {}, time: { start: 0, end: 1 }, ...extra },
         },
       },
     });
     es.push(toolPart('a', 'pending'));
     es.push(toolPart('b', 'pending'));
+    es.push(toolPart('a', 'running'));
+    es.push(toolPart('b', 'running'));
     es.push(toolPart('a', 'completed'));
     es.push(toolPart('b', 'completed'));
     es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
@@ -340,7 +351,7 @@ describe('OpencodeRunner.stream', () => {
     es.push({
       type: 'message.part.updated',
       properties: {
-        part: { id: 't1', sessionID: 'sess-1', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'mcp__workplace__get_issue', state: { status: 'pending', input: { key: 'ABC-1' }, raw: '' } },
+        part: { id: 't1', sessionID: 'sess-1', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'mcp__workplace__get_issue', state: { status: 'running', input: { key: 'ABC-1' }, time: { start: 0 } } },
       },
     });
     es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
@@ -351,6 +362,58 @@ describe('OpencodeRunner.stream', () => {
     await handle.done;
 
     expect(events[0]).toEqual({ type: 'tool_use', name: 'mcp__workplace__get_issue', input: { key: 'ABC-1' }, parentToolUseId: null });
+  });
+
+  // WP-262: pending(input {}) 만으로는 시작을 내지 않는다 — 빈 인자 카드·로그가 남지 않게.
+  it('pending 만 온 도구는 시작 이벤트를 내지 않는다', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({
+      type: 'message.part.updated',
+      properties: {
+        part: { id: 't1', sessionID: 'sess-1', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'mcp__workplace__get_issue', state: { status: 'pending', input: {}, raw: '' } },
+      },
+    });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const onTool = vi.fn();
+    const events: RunnerEvent[] = [];
+    await new OpencodeRunner().stream(
+      baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 1, onTool } }),
+      (e) => events.push(e),
+    ).done;
+
+    expect(events).toEqual([{ type: 'result', ok: true, text: '', usage: null }]);
+    expect(onTool).not.toHaveBeenCalled();
+  });
+
+  // WP-262: running 을 건너뛰고 바로 끝난 도구(예: 입력 검증 오류)도 시작→결과 짝이 맞아야 한다.
+  it('pending 에서 바로 error 로 끝나면 종료 시점 인자로 시작을 먼저 내고 같은 seq 로 결과를 낸다', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    const part = (state: Record<string, unknown>) => ({
+      type: 'message.part.updated',
+      properties: { part: { id: 't1', sessionID: 'sess-1', messageID: 'm1', type: 'tool', callID: 'c1', tool: 'mcp__workplace__get_issue', state } },
+    });
+    es.push(part({ status: 'pending', input: {}, raw: '' }));
+    es.push(part({ status: 'error', input: { key: 'X' }, error: 'bad input', time: { start: 0, end: 1 } }));
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const onTool = vi.fn();
+    const events: RunnerEvent[] = [];
+    await new OpencodeRunner().stream(
+      baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 1, onTool } }),
+      (e) => events.push(e),
+    ).done;
+
+    expect(events.slice(0, 2)).toEqual([
+      { type: 'tool_use', name: 'mcp__workplace__get_issue', input: { key: 'X' }, parentToolUseId: null },
+      { type: 'tool_done' },
+    ]);
+    expect(onTool.mock.calls.map((c) => c[0])).toEqual([
+      { seq: 1, event: 'tool_use_start', toolName: 'mcp__workplace__get_issue', args: { key: 'X' } },
+      { seq: 1, event: 'tool_result', toolName: 'mcp__workplace__get_issue', isError: true, result: 'bad input' },
+    ]);
   });
 
   it('session.error → done 이 reject', async () => {
