@@ -12,10 +12,27 @@
 //    높이만 줄고 scrollTop 은 그대로라 바닥에 있던 마지막 메시지들이 아래로 가려졌다(WP-154 후속).
 import { useEffect, useRef } from 'react'
 
+import type { EntryAnchor } from '@/lib/chatEntryAnchor'
+
 // 하단으로 간주하는 여유(px). 이 안쪽이면 "붙어 있음".
 const NEAR_BOTTOM_PX = 80
 
-export function useStickToBottom(depKey: unknown, resetKey?: unknown, initialAnchorId?: string) {
+// 앵커 start 정렬 시 위쪽 여백(px) — 카드 테두리가 화면 위 끝에 딱 붙지 않게.
+const ANCHOR_START_GAP_PX = 8
+
+/**
+ * @param initialAnchor 최초 진입 시 이동할 앵커(id + 정렬). 미전달이면 하단.
+ * @param anchorPending true 면 앵커 여부를 아직 판단할 수 없음(예: DM 상세 미로드) — 하단으로 확정하지 않고 기다린다.
+ *   메시지가 상세보다 먼저 오면 앵커 없이 하단으로 확정돼 버려 이후 나타난 앵커를 놓치기 때문이다(WP-256).
+ */
+export function useStickToBottom(
+  depKey: unknown,
+  resetKey?: unknown,
+  initialAnchor?: EntryAnchor,
+  anchorPending = false,
+) {
+  const initialAnchorId = initialAnchor?.id
+  const initialAnchorAlign = initialAnchor?.align ?? 'center'
   const ref = useRef<HTMLDivElement | null>(null)
   // 직전 렌더 시점에 하단 근처였는지. 스크롤 이벤트로 갱신.
   const stuckRef = useRef(true)
@@ -47,7 +64,7 @@ export function useStickToBottom(depKey: unknown, resetKey?: unknown, initialAnc
     return () => el.removeEventListener('scroll', onScroll)
   }, [])
 
-  // 최초 위치 잡기(1회): 미읽음 앵커가 있으면 그쪽(center)으로, 없으면 하단으로.
+  // 최초 위치 잡기(1회): 앵커가 있으면 그쪽(구분선=center, 상단 캐치업 카드=start)으로, 없으면 하단으로.
   // 메시지가 비동기로 늦게 로드돼 앵커가 나중에 등장해도 놓치지 않도록,
   // 콘텐츠(스크롤 가능 높이)가 생기기 전엔 '완료'로 확정하지 않고 다음 depKey 에서 재시도한다.
   const initialDone = useRef(false)
@@ -55,29 +72,41 @@ export function useStickToBottom(depKey: unknown, resetKey?: unknown, initialAnc
   // resetKey 효과가 앵커 스크롤을 덮어쓰지 않도록 하는 유일한 게이트.
   // AIChatPanel(앵커 없음)에서는 영원히 false → resetKey 세션 전환 시 하단 강제가 정상 동작(#455).
   const anchorScrollDone = useRef(false)
-  // 앵커를 기다리는 중(initialAnchorId 있고 아직 DOM에 없음) — ResizeObserver 가 하단으로 끌어내리지 않게 차단.
-  const pendingAnchor = useRef(!!initialAnchorId)
+  // 앵커를 기다리는 중(앵커 미판단이거나, 앵커 id 는 있으나 아직 DOM에 없음) — ResizeObserver 가 하단으로 끌어내리지 않게 차단.
+  const pendingAnchor = useRef(!!initialAnchorId || anchorPending)
   useEffect(() => {
     if (initialDone.current) return
     const el = ref.current
     if (!el) return
+    if (anchorPending) {
+      pendingAnchor.current = true
+      return // 앵커 판단 전 — 확정하지 않고 다음 렌더에서 재시도
+    }
     if (initialAnchorId) {
       const anchor = el.querySelector(`#${CSS.escape(initialAnchorId)}`) as HTMLElement | null
       if (anchor) {
-        // overflow 컨테이너 기준 scrollTop 을 getBoundingClientRect 으로 정확히 계산해 center 로 맞춘다.
+        // overflow 컨테이너 기준 scrollTop 을 getBoundingClientRect 으로 정확히 계산한다.
+        // center = 앵커를 가운데로(구분선), start = 앵커 윗변을 위쪽에(키 큰 캐치업 카드가 잘리지 않게).
         const anchorRect = anchor.getBoundingClientRect()
         const elRect = el.getBoundingClientRect()
-        el.scrollTop = el.scrollTop + (anchorRect.top - elRect.top) - el.clientHeight / 2 + anchor.offsetHeight / 2
+        const offset = anchorRect.top - elRect.top
+        el.scrollTop =
+          initialAnchorAlign === 'start'
+            ? el.scrollTop + offset - ANCHOR_START_GAP_PX
+            : el.scrollTop + offset - el.clientHeight / 2 + anchor.offsetHeight / 2
         stuckRef.current = false // 하단 아님 — 이후 새 메시지가 화면을 끌어내리지 않게
         pendingAnchor.current = false
         initialDone.current = true
         anchorScrollDone.current = true // 앵커 스크롤 완료 — resetKey 하단 강제 비활성화
+        return
       }
+      pendingAnchor.current = true
       return // 앵커 기대되나 아직 미렌더 → 다음 depKey 에서 재시도
     }
+    pendingAnchor.current = false
     toBottom()
     if (el.scrollHeight > el.clientHeight) initialDone.current = true // 콘텐츠 생겼을 때만 확정
-  }, [depKey, initialAnchorId])
+  }, [depKey, initialAnchorId, initialAnchorAlign, anchorPending])
 
   // resetKey 변경(세션 전환 등): 하단 고정으로 리셋하고 무조건 하단으로(#455).
   // stuck 여부와 무관하게 의도적 전환이므로 항상 최신 메시지를 보여준다.
@@ -92,8 +121,9 @@ export function useStickToBottom(depKey: unknown, resetKey?: unknown, initialAnc
   }, [resetKey])
 
   // depKey 변경(새 메시지/스트리밍 델타): 붙어 있었으면 하단으로.
+  // 앵커를 기다리는 중엔 내리지 않는다 — 바닥의 마지막 메시지가 보이면 자동 읽음 처리돼 앵커(캐치업)가 무의미해진다(WP-256).
   useEffect(() => {
-    if (stuckRef.current) toBottom()
+    if (stuckRef.current && !pendingAnchor.current) toBottom()
   }, [depKey])
 
   // 콘텐츠 높이 변화(비동기 마크다운/지연 위젯/이미지) 추적 — 하단 고정 상태면 계속 하단 유지.

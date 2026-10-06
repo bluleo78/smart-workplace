@@ -4,7 +4,7 @@
 import type { Locator, Page } from '@playwright/test'
 
 import { mailAccount, summary } from '../../factories/mail.factory'
-import { createMessage } from '../../factories/messaging.factory'
+import { createChannel, createMessage } from '../../factories/messaging.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { json, stubChannelMessages } from '../../fixtures/mobile-chat'
 import { expect, test } from '../../fixtures/mobile.fixture'
@@ -212,6 +212,9 @@ test('목록 바닥을 보던 중 키보드가 열려 목록이 줄어도 바닥
   ).reverse()
   await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/messages', (r) =>
     r.request().method() === 'GET' ? r.fulfill(json({ items, nextCursor: null, hasMore: false })) : r.fallback())
+  // 다 읽은 방 — 미읽음이 있으면 진입 시 캐치업 카드 윗변으로 앵커돼(WP-256) "바닥을 보던 중" 전제가 깨진다.
+  await page.route((u) => u.pathname === '/api/v1/messaging/channels/1', (r) =>
+    r.request().method() === 'GET' ? r.fulfill(json(createChannel({ id: 1, name: '모바일-개편', lastReadMessageId: 139 }))) : r.fallback())
   await page.goto('/chat/channels/1')
   const area = page.getByTestId('message-scroll-area')
   const distFromBottom = () => area.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)

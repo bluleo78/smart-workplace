@@ -22,6 +22,7 @@ import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
 import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { useToolbarReveal } from '@/hooks/useToolbarReveal'
+import { CATCHUP_TOP_ANCHOR_ID } from '@/lib/chatEntryAnchor'
 import { deleteMessageWithUndo } from '@/lib/deleteWithUndo'
 import { getDateKey } from '@/lib/formatters'
 import { shouldStartNewGroup } from '@/lib/messageGrouping'
@@ -106,8 +107,11 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
     // 터치 셸이면 길게 누르기를 목록 하나가 위임으로 받는다(행은 data-message-id 만 단다). 아니면 핸들러 없음.
     <div className="flex flex-col gap-2 p-4 max-lg:px-3" data-testid="message-list" {...longPress}>
       {ordered.length === 0 && emptyState}
-      {/* 구분선이 로드된 메시지 범위 밖(전부 미읽음)일 땐 카드를 목록 상단에 렌더. */}
-      {catchupSlot != null && unreadDividerBeforeId == null && catchupSlot}
+      {/* 구분선이 로드된 메시지 범위 밖(전부 미읽음)일 땐 카드를 목록 상단에 렌더.
+          래퍼 id 는 진입 스크롤 앵커(start 정렬) — 바닥에서 시작하면 카드가 화면 밖이 된다(WP-256). */}
+      {catchupSlot != null && unreadDividerBeforeId == null && (
+        <div id={CATCHUP_TOP_ANCHOR_ID}>{catchupSlot}</div>
+      )}
       {ordered.map((m, idx) => {
         const isLast = idx === ordered.length - 1
         const prev = idx > 0 ? ordered[idx - 1] : null
