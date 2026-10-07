@@ -6,13 +6,18 @@ vi.mock('../agent/run-wiki-compose.js', () => ({
   runWikiCompose: vi.fn(),
 }));
 
+vi.mock('../agent/run-wiki-summarize.js', () => ({
+  runWikiSummarize: vi.fn(),
+}));
+
 import { createWikiRouter, wikiComposeSchema } from './wiki.js';
 import { runWikiCompose } from '../agent/run-wiki-compose.js';
+import { runWikiSummarize } from '../agent/run-wiki-summarize.js';
 
 // 유효 페이로드(요청 본문 계약).
 function validBody(over: Record<string, unknown> = {}) {
   return {
-    action: 'summarize',
+    action: 'continue',
     pageTitle: '온보딩 가이드',
     pageBody: '## 개요\n절차.',
     assistantAgentId: 7,
@@ -68,7 +73,7 @@ describe('POST /wiki/compose', () => {
     expect(res.text).toContain('event: done\ndata: {}');
     // 러너에 파싱된 페이로드가 그대로 전달됐는지 회귀 가드.
     expect(runWikiCompose).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'summarize', assistantAgentId: 7 }),
+      expect.objectContaining({ action: 'continue', assistantAgentId: 7 }),
       expect.anything(),
       expect.any(Function),
       expect.anything(),
@@ -86,5 +91,46 @@ describe('POST /wiki/compose', () => {
     const res = await request(buildApp()).post('/wiki/compose').send(validBody());
     expect(res.text).toContain('event: error');
     expect(res.text).toContain('compose_failed');
+  });
+});
+
+describe('wikiComposeSchema — WP-301', () => {
+  it('summarize 액션은 제거되어 파싱 실패', () => {
+    expect(wikiComposeSchema.safeParse(validBody({ action: 'summarize' })).success).toBe(false);
+  });
+});
+
+// WP-301 노트 상단 요약 — 비스트리밍 단발.
+describe('POST /wiki/summarize', () => {
+  const body = {
+    title: '주간회의',
+    body: '## 결정\n배포 확정.',
+    assistantAgentId: 7,
+    model: 'claude-sonnet-4-6',
+    maxTurns: 3,
+    timeoutMs: 60_000,
+  };
+
+  it('러너 결과를 {summary} 로 반환', async () => {
+    vi.mocked(runWikiSummarize).mockResolvedValue({ summary: '배포를 확정했다.' });
+    const res = await request(buildApp()).post('/wiki/summarize').send(body);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ summary: '배포를 확정했다.' });
+    expect(runWikiSummarize).toHaveBeenCalledWith(expect.objectContaining({ title: '주간회의', assistantAgentId: 7 }), expect.anything());
+  });
+
+  it('필수 필드 누락 → 400, 러너 미호출', async () => {
+    const { body: _b, ...rest } = body;
+    void _b;
+    const res = await request(buildApp()).post('/wiki/summarize').send(rest);
+    expect(res.status).toBe(400);
+    expect(runWikiSummarize).not.toHaveBeenCalled();
+  });
+
+  it('러너 실패 → 502', async () => {
+    vi.mocked(runWikiSummarize).mockRejectedValue(new Error('boom'));
+    const res = await request(buildApp()).post('/wiki/summarize').send(body);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'wiki-summarize_failed' });
   });
 });

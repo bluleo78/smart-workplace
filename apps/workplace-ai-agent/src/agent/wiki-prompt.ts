@@ -2,7 +2,6 @@
 // 도구를 쓰지 않는 순수 텍스트 생성이라 컨텍스트(본문/선택/지시문)는 모두 프롬프트에 임베드한다.
 
 export type WikiAiAction =
-  | 'summarize'
   | 'draft'
   | 'continue'
   | 'rewrite_tone'
@@ -22,7 +21,7 @@ export interface WikiComposeInput {
   action: WikiAiAction;
   pageTitle: string;
   pageBody: string; // 현재 본문(마크다운)
-  selection?: string; // 선택 영역(요약 대상이 있을 때)
+  selection?: string; // 선택 영역(변형 대상이 있을 때)
   prompt?: string; // draft 지시문
 }
 
@@ -33,8 +32,6 @@ export const WIKI_SYSTEM_PROMPT =
 export function buildWikiUserMessage(i: WikiComposeInput): string {
   const ctx = i.selection?.trim() ? i.selection : i.pageBody;
   switch (i.action) {
-    case 'summarize':
-      return `다음 문서를 핵심만 간결히 요약해줘(마크다운 불릿).\n\n제목: ${i.pageTitle}\n\n${ctx}`;
     case 'continue':
       return `다음 문서의 마지막 부분을 자연스럽게 이어서 작성해줘. 이미 쓰인 내용은 반복하지 마.\n\n제목: ${i.pageTitle}\n\n${i.pageBody}`;
     case 'draft':
