@@ -4,7 +4,6 @@ import type { Page } from '@playwright/test'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
-import { dismissByOutsideClick } from '../../fixtures/wait'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory'
 import { systemTypes } from '../../factories/issueType.factory'
 import { createProject } from '../../factories/project.factory'
@@ -229,6 +228,10 @@ test.describe('이슈 본문 이미지 — 표시', () => {
     await img.click()
     await expect(page.getByRole('dialog')).toBeVisible()
     await expect(page.getByTestId('issue-body-textarea')).toHaveCount(0)
+    // WP-277: 통합 뷰어의 단건 — ‹ › 없음.
+    await expect(page.getByTestId('attachment-viewer')).toBeVisible()
+    await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0)
   })
 
   test('지워졌거나 수거된 이미지는 대체 문구를 보여준다', async ({ authenticatedPage: page }) => {
@@ -262,7 +265,7 @@ test.describe('이슈 본문 이미지 — 표시', () => {
     await expect(page.getByText('업로드가 끝나지 않은 이미지가 있습니다')).toBeVisible()
   })
 
-  test('미리보기를 닫기 버튼·Escape·오버레이로 닫아도 편집 모드로 들어가지 않는다', async ({ authenticatedPage: page }) => {
+  test('미리보기를 닫기 버튼·Escape 로 닫거나 뷰어 안쪽을 눌러도 편집 모드로 들어가지 않는다', async ({ authenticatedPage: page }) => {
     await setupDetailStubs(page, `![bug.png](${IMG_URL})`)
     await page.route(`**${IMG_URL}`, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
     await page.goto(`/projects/${KEY}/issues/1`)
@@ -284,9 +287,12 @@ test.describe('이슈 본문 이미지 — 표시', () => {
 
     await img.click()
     await expect(dialog).toBeVisible()
-    // 열리자마자 누른 바깥 클릭은 Radix 가 무시할 수 있어 닫힐 때까지 다시 누른다(WP-225).
-    await dismissByOutsideClick(page, dialog)
+    // WP-277: 통합 뷰어는 전체 화면이라 바깥(오버레이)이 없다. 대신 포털 안쪽 클릭이 React 트리로 번져
+    // 본문 "클릭=편집 진입" 이 되지 않는지 본다 — 뷰어 본문·헤더를 눌러도 편집창이 열리지 않아야 한다.
+    await page.getByTestId('preview-body').click({ position: { x: 5, y: 5 } })
+    await page.getByTestId('preview-meta').click()
     await expect(ta).toHaveCount(0)
+    await expect(dialog).toBeVisible()
   })
   test('PDF 같은 비이미지 파일을 드롭하면 토스트로 거부하고 기본 동작을 막아 입력한 글이 유지된다', async ({ authenticatedPage: page }) => {
     await setupDetailStubs(page, '기존 본문')

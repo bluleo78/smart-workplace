@@ -49,3 +49,49 @@ test('첨부 이미지 미리보기 — downloadUrl 콘텐츠 요청 + 드라이
   await expect(page.getByTestId('drive-summary-card')).toHaveCount(0)
   await expect(page.getByTestId('file-backlinks')).toHaveCount(0)
 })
+
+// WP-277: 묶음 = 클릭한 첨부가 속한 출처 그룹(같은 이슈·같은 메시지). ‹ › 는 그 그룹 안에서만 움직이고
+// 순번(n / m)도 그 그룹의 개수를 센다 — 다른 출처 첨부로 넘어가지 않는다.
+test('첨부 모아보기 — ‹ › 는 같은 출처 그룹 안에서만 이동하고 순번은 그룹 개수', async ({ authenticatedPage: page }) => {
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+  const att = (fileId: number, name: string, sourceType: 'ISSUE' | 'MESSAGE', label: string, link: string, url: string) => ({
+    fileId, name, mimeType: 'image/png', sizeBytes: 100, hasThumbnail: false,
+    sourceType, sourceLabel: label, deepLink: link, downloadUrl: url, attachedAt: '2026-07-01T10:00:00Z',
+  })
+  await page.route('**/api/v1/drive/spaces', (r) => r.fulfill({ json: [{ id: 1, name: '내 드라이브', type: 'PERSONAL' }] }))
+  await page.route('**/api/v1/drive/attachments**', (r) =>
+    r.fulfill({
+      json: {
+        items: [
+          att(1, 'a1.png', 'ISSUE', 'PROJ-1 제목', '/projects/PROJ/issues/1', '/api/v1/projects/PROJ/issues/1/attachments/1/content'),
+          att(2, 'a2.png', 'ISSUE', 'PROJ-1 제목', '/projects/PROJ/issues/1', '/api/v1/projects/PROJ/issues/1/attachments/2/content'),
+          att(3, 'm1.png', 'MESSAGE', '#general', '/chat/channels/5', '/api/v1/messaging/channels/5/messages/9/attachments/3/content'),
+        ],
+        nextCursor: null,
+      },
+    }),
+  )
+  await page.route('**/api/v1/drive/files/*/thumbnail', (r) => r.fulfill({ status: 404 }))
+  await page.route(/\/attachments\/\d+\/content$/, (r) =>
+    r.fulfill({ contentType: 'image/png', body: Buffer.from(PNG, 'base64') }),
+  )
+
+  await page.goto('/drive/attachments')
+  await page.getByRole('button', { name: 'a1.png' }).click()
+  const viewer = page.getByTestId('attachment-viewer')
+  await expect(viewer).toBeVisible()
+  await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
+  await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0)
+  await page.getByRole('button', { name: '다음 파일' }).click()
+  await expect(page.getByTestId('preview-meta')).toContainText('2 / 2')
+  // 그룹의 끝 — 다음 그룹(메시지 첨부)으로 넘어가지 않는다.
+  await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(viewer).toHaveCount(0)
+
+  // 메시지 그룹은 1건 — ‹ › 없음
+  await page.getByRole('button', { name: 'm1.png' }).click()
+  await expect(viewer).toBeVisible()
+  await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0)
+})

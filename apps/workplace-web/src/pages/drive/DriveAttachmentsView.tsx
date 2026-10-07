@@ -2,16 +2,17 @@
 // 출처 필터(전체/이슈/메시지) + 이름 검색 + 행별 "저장"(내 드라이브 임포트) 지원.
 
 import { ChevronDown, Paperclip } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { driveApi } from '@/api/drive'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { DriveThumbnail } from '@/components/drive/DriveThumbnail'
-import { FilePreviewModal } from '@/components/drive/FilePreviewModal'
 import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { SearchInput } from '@/components/ui/search-input'
+import { AttachmentViewer } from '@/components/viewer/AttachmentViewer'
 import { useImportToDrive } from '@/components/viewer/useImportToDrive'
+import { resolveBundle, virtualAttachmentItem } from '@/components/viewer/viewerItems'
 import { useDriveAttachments } from '@/hooks/queries/useDriveAttachments'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { mimeToCategory } from '@/lib/fileCategory'
@@ -40,7 +41,7 @@ export function DriveAttachmentsView() {
   // 가져오기(개인 공간 조회 → 폴더 선택 → 임포트)는 통합 뷰어와 같은 훅을 쓴다.
   const importer = useImportToDrive()
 
-  // 미리보기 = URL ?preview=<fileId>(시스템 뒤로가기로 닫힘, WP-208). 필터 변경·재조회로 목록에서 빠져도 열린 모달이
+  // 미리보기 = URL ?preview=file:<fileId>(시스템 뒤로가기로 닫힘, WP-208). 필터 변경·재조회로 목록에서 빠져도 열린 모달이
   // 사라지지 않게 클릭한 첨부를 기억한다.
   const previewParam = useHistoryParam('preview')
   const [previewSnap, setPreviewSnap] = useState<VirtualAttachment | null>(null)
@@ -54,13 +55,18 @@ export function DriveAttachmentsView() {
       return next
     })
 
-  const items = query.data?.pages.flatMap((p) => p.items) ?? []
-  // 미리보기 대상 해석 — 현재 목록 → 클릭 스냅숏 순(단건 조회 API 없음).
-  const preview =
-    previewParam.value == null
-      ? null
-      : (items.find((a) => String(a.fileId) === previewParam.value) ??
-        (previewSnap && String(previewSnap.fileId) === previewParam.value ? previewSnap : null))
+  // 페이지 데이터가 같으면 같은 배열 — 아래 그룹 계산 memo 가 렌더마다 깨지지 않게 한다.
+  const items = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data])
+  // 묶음 = 클릭한 첨부가 속한 출처 그룹(같은 이슈·같은 메시지) — ‹ › 는 같은 묶음 안에서만 움직인다.
+  const groups = useMemo(() => groupAttachments(items), [items])
+  const groupOf = (key: string | null) =>
+    groups.find((g) => g.items.some((a) => `file:${a.fileId}` === key))
+  // 열린 첨부 해석 — 현재 목록의 그룹 → 클릭 스냅숏 1건 순(단건 조회 API 없음, 필터 변경으로 빠져도 유지).
+  const bundle = resolveBundle(
+    (groupOf(previewParam.value)?.items ?? []).map(virtualAttachmentItem),
+    previewParam.value,
+    previewSnap ? virtualAttachmentItem(previewSnap) : null,
+  )
   const isLoading = query.isLoading
 
   return (
@@ -109,7 +115,7 @@ export function DriveAttachmentsView() {
           />
         ) : (
           <div>
-            {groupAttachments(items).map((g) => {
+            {groups.map((g) => {
               const isCollapsed = collapsed.has(g.key)
               const isIssue = g.sourceType === 'ISSUE'
               return (
@@ -159,7 +165,7 @@ export function DriveAttachmentsView() {
                           {/* 파일명 — 클릭 시 미리보기 */}
                           <button
                             type="button"
-                            onClick={() => { setPreviewSnap(a); previewParam.open(String(a.fileId)) }}
+                            onClick={() => { setPreviewSnap(a); previewParam.open(`file:${a.fileId}`) }}
                             className="min-w-0 flex-1 truncate text-left font-medium hover:underline"
                           >
                             {a.name}
@@ -210,8 +216,22 @@ export function DriveAttachmentsView() {
       {/* 폴더 선택 모달 — 저장 버튼 클릭 시 열림 */}
       {importer.picker}
 
-      {/* 첨부 미리보기 모달 — FilePreviewModal 첨부 분기 */}
-      {preview && <FilePreviewModal attachment={preview} onClose={previewParam.close} />}
+      {/* 통합 첨부 뷰어 — 같은 출처 그룹 단위로 넘긴다. 키 = file:{fileId}. */}
+      {bundle && (
+        <AttachmentViewer
+          items={bundle.items}
+          index={bundle.index}
+          onIndexChange={(i) => {
+            const target = bundle.items[i]
+            if (!target) return // 목록이 줄어 범위를 벗어난 요청은 무시
+            // 넘긴 첨부도 스냅숏으로 갱신 — 이후 필터 변경·재조회로 목록에서 빠져도 열린 뷰어가 유지된다.
+            const a = items.find((x) => `file:${x.fileId}` === target.key)
+            if (a) setPreviewSnap(a)
+            previewParam.open(target.key)
+          }}
+          onClose={previewParam.close}
+        />
+      )}
     </div>
   )
 }

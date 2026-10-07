@@ -3,7 +3,7 @@
 //   1. 이슈 드라이브 링크 — ACTIVE 링크 렌더("링크" 배지 + spaceName), TRASHED 링크 dimmed + "휴지통에 있음"
 //   2. 드라이브 가상 첨부 뷰 — ISSUE/MESSAGE 항목 렌더 + 출처 필터 chip → source 파라미터 캡처
 //      + 저장 버튼 → import POST fileId 캡처; 빈 응답 시 ChatEmptyState 확인.
-//   3. 백링크 (file-backlinks) — test.skip: FilePreviewModal은 drive-page 내에서 클릭으로만 열리며,
+//   3. 백링크 (file-backlinks) — test.skip: 통합 뷰어는 drive-page 내에서 클릭으로만 열리며,
 //      drive 공간 진입이 필요해 모킹 비용이 높다. 핵심 시나리오(1·2) 통과 후 추가 예정.
 
 import type { Page } from '@playwright/test'
@@ -496,12 +496,12 @@ test(
   },
 )
 
-// ── 시나리오 3: 백링크 (skip — FilePreviewModal 은 drive-page 내에서만 열림) ───
+// ── 시나리오 3: 백링크 (skip — 통합 뷰어는 drive-page 내에서만 열림) ───
 
 test.skip(
   '파일 미리보기 모달 — /drive/files/{id}/backlinks mock → file-backlinks 렌더·href 확인',
   async ({ authenticatedPage: page }) => {
-    // TODO: FilePreviewModal 은 DrivePage 에서 파일 행 클릭으로만 열린다.
+    // TODO: 통합 뷰어는 DrivePage 에서 파일 행 클릭으로만 열린다.
     // DrivePage 자체가 스페이스/아이템 목록 등 다수의 모킹이 필요하고,
     // 파일 row를 hover → click 해야 미리보기가 열리는 구조.
     // drive.spec.ts 에서 이미 PreviewModal 기본 동작을 커버하므로,
