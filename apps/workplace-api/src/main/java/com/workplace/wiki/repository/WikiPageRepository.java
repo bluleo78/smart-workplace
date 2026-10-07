@@ -131,22 +131,58 @@ public class WikiPageRepository {
         .execute();
   }
 
-  /** WP-301 노트 요약 저장본 행(요약·요약 당시 버전·시각). */
-  public record SummaryRow(
-      String summary, Integer summaryVersion, java.time.OffsetDateTime summarizedAt) {}
+  /**
+   * WP-301 요약 상태 계산에 필요한 값 한 행 — 권한 확인용 공간 id, 현재 버전, 앞뒤 공백을 뺀 본문 길이, 요약 저장본(요약·요약 당시 버전·시각). 본문 전체
+   * 대신 길이만 받아 노트를 열 때마다 호출되는 요약 GET 이 큰 본문을 읽지 않게 한다.
+   */
+  public record SummaryState(
+      long spaceId,
+      int version,
+      int bodyLength,
+      String summary,
+      Integer summaryVersion,
+      java.time.OffsetDateTime summarizedAt) {}
 
-  /** WP-301 요약 저장본 조회. 페이지가 없으면 empty. */
-  public Optional<SummaryRow> findSummary(long pageId) {
-    return dsl.select(
-            WIKI_PAGE.AI_SUMMARY, WIKI_PAGE.AI_SUMMARY_VERSION, WIKI_PAGE.AI_SUMMARIZED_AT)
+  /**
+   * 앞뒤 공백(스페이스·탭·개행·CR·FF·VT)을 뺀 본문 글자 수. Java {@code strip()} 의 흔한 공백과 같은 기준이다 — 다만 DB 는 코드 포인트로
+   * 세므로 이모지 등 보조 문자는 Java {@code length()} 보다 1 적게 센다(요약 대상 400자 경계에서만 차이).
+   */
+  private static final org.jooq.Field<Integer> STRIPPED_BODY_LENGTH =
+      org.jooq
+          .impl
+          .DSL
+          .field(
+              "coalesce(char_length(btrim({0}, E' \\t\\n\\r\\f\\v')), 0)",
+              Integer.class, WIKI_PAGE.BODY)
+          // 별칭을 붙여 SELECT·RETURNING 결과에서 같은 이름으로 꺼낸다.
+          .as("stripped_body_length");
+
+  /** {@link SummaryState} 를 이루는 컬럼 — 조회(SELECT)와 저장(RETURNING)이 같은 목록을 쓴다. */
+  private static final List<org.jooq.SelectField<?>> SUMMARY_STATE_FIELDS =
+      List.of(
+          WIKI_PAGE.SPACE_ID,
+          WIKI_PAGE.VERSION,
+          STRIPPED_BODY_LENGTH,
+          WIKI_PAGE.AI_SUMMARY,
+          WIKI_PAGE.AI_SUMMARY_VERSION,
+          WIKI_PAGE.AI_SUMMARIZED_AT);
+
+  private static SummaryState toSummaryState(org.jooq.Record r) {
+    return new SummaryState(
+        r.get(WIKI_PAGE.SPACE_ID),
+        r.get(WIKI_PAGE.VERSION),
+        r.get(STRIPPED_BODY_LENGTH),
+        r.get(WIKI_PAGE.AI_SUMMARY),
+        r.get(WIKI_PAGE.AI_SUMMARY_VERSION),
+        r.get(WIKI_PAGE.AI_SUMMARIZED_AT));
+  }
+
+  /** WP-301 요약 상태 단일 조회(본문은 길이만). 페이지가 없으면 empty. */
+  public Optional<SummaryState> findSummaryState(long pageId) {
+    return dsl.select(SUMMARY_STATE_FIELDS)
         .from(WIKI_PAGE)
         .where(WIKI_PAGE.ID.eq(pageId))
-        .fetchOptional(
-            r ->
-                new SummaryRow(
-                    r.get(WIKI_PAGE.AI_SUMMARY),
-                    r.get(WIKI_PAGE.AI_SUMMARY_VERSION),
-                    r.get(WIKI_PAGE.AI_SUMMARIZED_AT)));
+        .fetchOptional(WikiPageRepository::toSummaryState);
   }
 
   /**
@@ -154,10 +190,11 @@ public class WikiPageRepository {
    * (recordAiUsage 와 같은 이유: 편집기 낙관적 동시성 보호).
    *
    * <p>더 오래된 버전으로 만든 결과가 이미 저장된 새 요약을 덮지 않도록 {@code ai_summary_version <= sourceVersion} 조건을 건다.
+   * 갱신된 행의 상태를 RETURNING 으로 함께 받아, AI 호출 중 다른 저장이 있었어도(버전·본문 길이 변화) 따로 되읽지 않고 최신 상태를 계산할 수 있게 한다.
    *
-   * @return 갱신 행 수(0 이면 더 새 요약이 이미 있음)
+   * @return 갱신된 행의 상태(empty 면 더 새 요약이 이미 있음)
    */
-  public int saveSummaryIfNotOlder(
+  public Optional<SummaryState> saveSummaryIfNotOlder(
       long pageId, String summary, int sourceVersion, java.time.OffsetDateTime at) {
     return dsl.update(WIKI_PAGE)
         .set(WIKI_PAGE.AI_SUMMARY, summary)
@@ -169,7 +206,9 @@ public class WikiPageRepository {
                 .AI_SUMMARY_VERSION
                 .isNull()
                 .or(WIKI_PAGE.AI_SUMMARY_VERSION.le(sourceVersion)))
-        .execute();
+        .returningResult(SUMMARY_STATE_FIELDS)
+        .fetchOptional()
+        .map(WikiPageRepository::toSummaryState);
   }
 
   /**

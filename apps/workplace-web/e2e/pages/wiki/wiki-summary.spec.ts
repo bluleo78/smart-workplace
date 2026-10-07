@@ -1,9 +1,16 @@
 // WP-301 노트 상단 AI 요약 카드 E2E — GET/POST /wiki/pages/{id}/summary 를 모킹한다.
 //
 // 카드는 제목 아래·본문 위에 놓이고, 요약이 없으면(MISSING) 노트당 한 번 자동 생성한다.
-// 낡음은 편집기의 liveVersion(저장 응답 version)과 summaryVersion 을 비교해 판정한다.
+// 낡음은 요약 캐시의 status 로 그린다 — 내 저장 직후엔 편집기가 저장 응답 version 으로 캐시를 STALE 로 맞춘다.
 import type { Page } from '@playwright/test'
-import type { WikiPageDetail, WikiPageSummary, WikiPageSummaryState, WikiRole, WikiSpace } from '../../../src/types/wiki'
+import type {
+  WikiPageDetail,
+  WikiPageSummary,
+  WikiPageSummaryState,
+  WikiRole,
+  WikiSpace,
+  WikiSummaryStatus,
+} from '../../../src/types/wiki'
 import { createUser } from '../../factories/auth.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -44,34 +51,13 @@ function pageDetail(id: number, body: string, version = 1): WikiPageDetail {
 
 // 공통 모킹: 스페이스(역할 가변) + 트리(PAGE_ID·OTHER_ID) + 페이지 GET/PUT(자동저장 시 version+1).
 async function setupWikiMocks(page: Page, role: WikiRole = 'OWNER') {
-  await page.route(
-    (url) => url.pathname === '/api/v1/wiki/spaces',
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([space(role)]) })
-        : route.fallback(),
-  )
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([
-              { id: PAGE_ID, parentId: null, title: TITLES[PAGE_ID], position: 0, aiLastUsedAt: null },
-              { id: OTHER_ID, parentId: null, title: TITLES[OTHER_ID], position: 1, aiLastUsedAt: null },
-            ] satisfies WikiPageSummary[]),
-          })
-        : route.fallback(),
-  )
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/members`,
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-        : route.fallback(),
-  )
+  // GET 전용 고정 응답은 공용 mockApi 로(다른 메서드는 fallback).
+  await mockApi(page, 'GET', '/api/v1/wiki/spaces', [space(role)])
+  await mockApi(page, 'GET', `/api/v1/wiki/spaces/${SPACE_ID}/pages`, [
+    { id: PAGE_ID, parentId: null, title: TITLES[PAGE_ID], position: 0, aiLastUsedAt: null },
+    { id: OTHER_ID, parentId: null, title: TITLES[OTHER_ID], position: 1, aiLastUsedAt: null },
+  ] satisfies WikiPageSummary[])
+  await mockApi(page, 'GET', `/api/v1/wiki/spaces/${SPACE_ID}/members`, [])
   const bodies: Record<number, string> = { [PAGE_ID]: LONG, [OTHER_ID]: '짧다' }
   const versions: Record<number, number> = { [PAGE_ID]: 1, [OTHER_ID]: 1 }
   await page.route(
@@ -127,27 +113,19 @@ async function mockSummary(
   return calls
 }
 
-const ready = (v = 1, summary = '배포를 10/9 로 확정했다.'): WikiPageSummaryState => ({
-  summary,
-  status: 'READY',
-  summaryVersion: v,
-  pageVersion: v,
-  summarizedAt: '2026-10-08T05:20:00Z',
-})
-const missing = (): WikiPageSummaryState => ({
+/** 요약 상태 빌더 — 기본은 요약 없는 version 1 상태, over 로 필드를 덮는다. */
+const state = (status: WikiSummaryStatus, over: Partial<WikiPageSummaryState> = {}): WikiPageSummaryState => ({
   summary: null,
-  status: 'MISSING',
+  status,
   summaryVersion: null,
   pageVersion: 1,
   summarizedAt: null,
+  ...over,
 })
-const tooShort = (): WikiPageSummaryState => ({
-  summary: null,
-  status: 'TOO_SHORT',
-  summaryVersion: null,
-  pageVersion: 1,
-  summarizedAt: null,
-})
+const ready = (v = 1, summary = '배포를 10/9 로 확정했다.') =>
+  state('READY', { summary, summaryVersion: v, pageVersion: v, summarizedAt: '2026-10-08T05:20:00Z' })
+const missing = () => state('MISSING')
+const tooShort = () => state('TOO_SHORT')
 
 async function openPage(page: Page, id = PAGE_ID) {
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${id}`)
@@ -175,25 +153,24 @@ test('긴 노트를 열면 자동으로 요약을 만들어 제목 아래·본�
   expect(cardBox!.y + cardBox!.height).toBeLessThanOrEqual(bodyBox!.y)
 })
 
-test('짧은 노트는 요약 카드를 그리지 않고 생성도 요청하지 않는다', async ({ authenticatedPage: page }) => {
-  await setupWikiMocks(page)
-  const calls = await mockSummary(page, { initial: tooShort() })
-  await openPage(page)
+// 카드 비노출 상태 — 짧은 노트(TOO_SHORT)·공용 비서 없음(UNAVAILABLE)은 같은 기대(카드 없음·생성 요청 없음)를 갖는다.
+for (const { status, name } of [
+  { status: 'TOO_SHORT', name: '짧은 노트는 요약 카드를 그리지 않고 생성도 요청하지 않는다' },
+  {
+    status: 'UNAVAILABLE',
+    name: '공용 비서가 없어 요약할 수 없는 노트(UNAVAILABLE)는 카드를 그리지 않고 생성도 요청하지 않는다',
+  },
+] as const) {
+  test(name, async ({ authenticatedPage: page }) => {
+    await setupWikiMocks(page)
+    const calls = await mockSummary(page, { initial: state(status) })
+    await openPage(page)
 
-  await expect.poll(() => calls.get).toBe(1)
-  await expect(page.getByTestId('wiki-ai-summary')).toHaveCount(0)
-  expect(calls.post).toBe(0)
-})
-
-test('공용 비서가 없어 요약할 수 없는 노트(UNAVAILABLE)는 카드를 그리지 않고 생성도 요청하지 않는다', async ({ authenticatedPage: page }) => {
-  await setupWikiMocks(page)
-  const calls = await mockSummary(page, { initial: { ...missing(), status: 'UNAVAILABLE' } })
-  await openPage(page)
-
-  await expect.poll(() => calls.get).toBe(1)
-  await expect(page.getByTestId('wiki-ai-summary')).toHaveCount(0)
-  expect(calls.post).toBe(0)
-})
+    await expect.poll(() => calls.get).toBe(1)
+    await expect(page.getByTestId('wiki-ai-summary')).toHaveCount(0)
+    expect(calls.post).toBe(0)
+  })
+}
 
 test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하면 새 요약으로 바뀐다', async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page)
@@ -221,8 +198,27 @@ test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하�
   await expect(page.getByTestId('wiki-ai-summary-stale')).toHaveCount(0)
 })
 
+test('요약 생성 중에 저장하면 도착한 요약을 낡음으로 표시한다', async ({ authenticatedPage: page }) => {
+  // 생성 응답(pageVersion 1)이 저장(version 2) 뒤에 도착 — 응답만 믿으면 최신처럼 보이므로 노트 캐시 버전에 맞춰 STALE 로 본다.
+  await setupWikiMocks(page)
+  await mockSummary(page, { initial: missing(), post: ready(1, 'A 요약'), delayMs: 3000 })
+  await openPage(page)
+  await expect(page.getByTestId('wiki-ai-summary-loading')).toBeVisible()
+
+  const saved = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/v1/wiki/pages/${PAGE_ID}`) && r.request().method() === 'PUT',
+  )
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' 생성 중 편집')
+  await saved
+
+  await expect(page.getByTestId('wiki-ai-summary')).toContainText('A 요약')
+  await expect(page.getByTestId('wiki-ai-summary-stale')).toBeVisible()
+})
+
 test('서버가 STALE 로 알려 주면 편집기 버전이 같아도 낡음 표시를 보여 준다', async ({ authenticatedPage: page }) => {
-  // 다른 사람이 저장해 서버만 낡음을 아는 상황 — summaryVersion 이 편집기 liveVersion(1)과 같아도 status 를 따른다.
+  // 다른 사람이 저장해 서버만 낡음을 아는 상황 — summaryVersion 이 편집기 version(1)과 같아도 status 를 따른다.
   await setupWikiMocks(page)
   await mockSummary(page, { initial: { ...ready(1), status: 'STALE', pageVersion: 2 }, post: ready(2, '새 요약') })
   await openPage(page)

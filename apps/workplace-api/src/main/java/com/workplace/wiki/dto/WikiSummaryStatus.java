@@ -16,5 +16,10 @@ public enum WikiSummaryStatus {
   STALE,
   MISSING,
   TOO_SHORT,
-  UNAVAILABLE
+  UNAVAILABLE;
+
+  /** 요약을 새로 만들어야 하는 상태인가 — 요약 없음(MISSING) 또는 낡음(STALE). 생성 여부 판정을 한곳에 둔다. */
+  public boolean needsGeneration() {
+    return this == MISSING || this == STALE;
+  }
 }

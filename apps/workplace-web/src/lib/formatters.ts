@@ -158,10 +158,8 @@ export function formatDateTimeMinute(dateStr: string | null | undefined): string
  * parseUtcDate 로 서버 문자열을 파싱한다. null/undefined/무효 입력 → '-'.
  */
 export function formatMonthDayClock(dateStr: string | null | undefined): string {
-  if (!dateStr) return '-';
-  const d = parseUtcDate(dateStr);
-  if (Number.isNaN(d.getTime())) return '-';
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  // 무효 입력 가드는 로케일 포매터들과 같은 공통 경로를 쓴다(null/undefined/무효 → '-').
+  return formatLocaleOrDash(dateStr, (d) => `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`);
 }
 
 /**

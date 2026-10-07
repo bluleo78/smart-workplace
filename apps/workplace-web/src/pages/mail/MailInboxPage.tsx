@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 
 import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
+import { AiSummarySkeleton } from '@/components/ai/AiSummarySkeleton'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -372,11 +373,7 @@ function MessageDetailPanel({
             {summaryData?.summary ? (
               <span>{summaryData.summary}</span>
             ) : (
-              <div data-testid="mail-ai-summary-loading" className="mt-2 flex flex-col gap-1.5">
-                <div className="h-2 w-full animate-pulse rounded bg-ai-accent/20" />
-                <div className="h-2 w-3/4 animate-pulse rounded bg-ai-accent/20" />
-                <div className="h-2 w-1/2 animate-pulse rounded bg-ai-accent/20" />
-              </div>
+              <AiSummarySkeleton testId="mail-ai-summary-loading" />
             )}
           </AiContent>
         )}

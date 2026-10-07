@@ -177,10 +177,11 @@ class WikiSummaryServiceTest extends IntegrationTestBase {
     // 새 버전(v+1) 요약이 먼저 저장된 상황을 만든다.
     pages.saveSummaryIfNotOlder(p.id(), "새 요약", p.version() + 1, OffsetDateTime.now());
 
-    int affected = pages.saveSummaryIfNotOlder(p.id(), "옛 요약", p.version(), OffsetDateTime.now());
+    // 갱신하지 않았으면 empty(이전의 영향 행 수 0 과 같은 의미).
+    var affected = pages.saveSummaryIfNotOlder(p.id(), "옛 요약", p.version(), OffsetDateTime.now());
 
-    assertThat(affected).isZero();
-    assertThat(pages.findSummary(p.id()).orElseThrow().summary()).isEqualTo("새 요약");
+    assertThat(affected).isEmpty();
+    assertThat(pages.findSummaryState(p.id()).orElseThrow().summary()).isEqualTo("새 요약");
   }
 
   /** 짧은 노트는 ai-agent 를 호출하지 않는다. */
@@ -371,6 +372,35 @@ class WikiSummaryServiceTest extends IntegrationTestBase {
     assertThat(s.summarizedAt()).isNull();
   }
 
+  /** 길이 판정은 앞뒤 공백(개행·탭 포함)을 뺀 글자 수로 한다 — 공백으로만 400자를 넘긴 본문은 TOO_SHORT. */
+  @Test
+  void get_whitespacePaddedShortBody_isTooShort() {
+    long u = seedUser();
+    WikiPageDetail p = pageWithBody(u, "\n\t  " + "가".repeat(400) + " \n\r\n\t");
+
+    assertThat(summaryService.get(u, p.id()).status()).isEqualTo(WikiSummaryStatus.TOO_SHORT);
+  }
+
+  /** AI 호출 중 노트가 저장되면 생성 응답은 저장 시점의 최신 버전 기준이라 STALE — 막 만든 요약이 최신인 것처럼 보이지 않는다. */
+  @Test
+  void generate_editDuringAgentCall_returnsStale() {
+    long u = seedUser();
+    WikiPageDetail p = pageWithBody(u, LONG_BODY);
+    when(agent.summarize(any()))
+        .thenAnswer(
+            inv -> {
+              pageService.save(
+                  u, p.id(), new SavePageRequest("주간회의", LONG_BODY + "추가", p.version(), false));
+              return new WikiAiAgentSummaryClient.Res("요약");
+            });
+
+    WikiPageSummaryState s = summaryService.generate(u, p.id());
+
+    assertThat(s.status()).isEqualTo(WikiSummaryStatus.STALE);
+    assertThat(s.summaryVersion()).isEqualTo(p.version());
+    assertThat(s.pageVersion()).isEqualTo(p.version() + 1);
+  }
+
   @Test
   void generate_agentFailure_throwsSummaryFailed() {
     long u = seedUser();
@@ -380,7 +410,7 @@ class WikiSummaryServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> summaryService.generate(u, p.id()))
         .isInstanceOf(WikiSummaryFailedException.class);
-    assertThat(pages.findSummary(p.id()).orElseThrow().summary()).isNull();
+    assertThat(pages.findSummaryState(p.id()).orElseThrow().summary()).isNull();
   }
 
   @Test

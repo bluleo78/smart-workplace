@@ -14,7 +14,6 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -23,7 +22,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 노트 상단 AI 요약(WP-301). 본문을 바꾸지 않는 읽기 보조라 VIEWER 이상이면 조회·생성할 수 있다.
  *
  * <p>트랜잭션 경계: RLS 의 {@code app.tenant_id} GUC 는 트랜잭션 시작 시 주입되므로(#654) DB 접근은 반드시 트랜잭션 안에서 한다. 다만
- * ai-agent 호출(수십 초)을 트랜잭션 안에 두면 커넥션을 오래 쥐므로, generate 는 TransactionTemplate 으로 "스냅샷 읽기 → (트랜잭션 밖)
+ * ai-agent 호출(수십 초)을 트랜잭션 안에 두면 커넥션을 오래 쥐므로, generate 는 TransactionTemplate 으로 "상태·본문 읽기 → (트랜잭션 밖)
  * AI 호출 → 저장" 세 단계로 나눈다.
  */
 @Service
@@ -69,13 +68,8 @@ public class WikiSummaryService {
 
   /** 현재 요약 상태를 계산한다. 비멤버는 NotFound(존재 은닉). */
   public WikiPageSummaryState get(long callerId, long pageId) {
-    // 공용 비서 조회도 DB(RLS) 접근이라 같은 읽기 트랜잭션 안에서, 권한 확인 뒤에 한다. 비서 조회는 MISSING/UNAVAILABLE 을 가를 때만
-    // 필요하므로 지연 평가한다 — 노트를 열 때마다 호출되는 GET 에서 요약이 이미 있으면 비서 조회 비용을 아낀다.
-    return readTx.execute(
-        st -> {
-          WikiPageDetail page = loadForViewer(callerId, pageId);
-          return state(page, memoize(this::workspaceAssistant));
-        });
+    // 공용 비서 조회도 DB(RLS) 접근이라 같은 읽기 트랜잭션 안에서, 권한 확인 뒤에 한다(evaluate 가 필요할 때만 조회).
+    return readTx.execute(st -> evaluate(loadStateForViewer(callerId, pageId)).state());
   }
 
   /**
@@ -83,16 +77,13 @@ public class WikiSummaryService {
    * (UNAVAILABLE), 이미 현재 버전 요약이 있음(READY, 중복 POST·연타 비용 방지). 낡은 요약(STALE)인데 공용 비서가 없으면 새로 만들 수 없으므로
    * 실패로 알린다 — "다시 요약"이 아무 변화 없이 끝나지 않게 웹의 실패 UI 를 띄우기 위함이다.
    *
-   * <p>같은 노트에 대한 동시 생성 요청은 JVM 안에서 하나로 합친다(in-flight coalescing) — 먼저 온 요청만 ai-agent 를 부르고 나머지는 그
-   * 결과(또는 예외)를 공유한다. 권한 확인은 호출자마다 각자 한다. 여러 레플리카 사이의 중복 호출은 여전히 가능하지만, 저장은 {@code
+   * <p>같은 노트에 대한 동시 생성 요청은 JVM 안에서 하나로 합친다(in-flight coalescing) — 먼저 온 요청(리더)만 상태를 읽고 ai-agent 를
+   * 부르며, 나머지는 그 결과(또는 예외)를 공유한다. 권한 확인은 합류 전에 호출자마다 각자 한다. 여러 레플리카 사이의 중복 호출은 여전히 가능하지만, 저장은 {@code
    * saveSummaryIfNotOlder} 조건부 갱신이라 결과 정합성은 지켜진다.
    */
   public WikiPageSummaryState generate(long callerId, long pageId) {
-    // 1) 권한 확인 + 현재 상태 — 권한 확인을 비서 조회보다 먼저 해 비멤버엔 존재를 숨긴다.
-    Snapshot snap = snapshot(callerId, pageId);
-    if (!snap.needsGeneration()) {
-      return snap.state();
-    }
+    // 1) 권한 확인 — 진행 중 생성에 합류하기 전에 해야 비멤버가 남의 요약 결과를 받지 않는다(비멤버엔 존재도 숨김).
+    readTx.executeWithoutResult(st -> loadStateForViewer(callerId, pageId));
     // 2) 같은 노트의 진행 중 생성이 있으면 그 결과를 함께 기다린다.
     CompletableFuture<WikiPageSummaryState> mine = new CompletableFuture<>();
     CompletableFuture<WikiPageSummaryState> running = inFlight.putIfAbsent(pageId, mine);
@@ -100,10 +91,8 @@ public class WikiSummaryService {
       return await(running);
     }
     try {
-      // 리더가 된 뒤 상태를 다시 본다 — 직전 리더가 막 저장을 끝냈다면(1단계 스냅샷 이후) 다시 부를 필요가 없다.
-      Snapshot fresh = snapshot(callerId, pageId);
-      WikiPageSummaryState result =
-          fresh.needsGeneration() ? summarizeAndSave(pageId, fresh) : fresh.state();
+      // 3) 리더만 상태를 읽는다 — 직전 리더가 막 저장을 끝냈다면 READY 라 다시 부르지 않는다.
+      WikiPageSummaryState result = generateAsLeader(pageId);
       mine.complete(result);
       return result;
     } catch (RuntimeException e) {
@@ -115,29 +104,43 @@ public class WikiSummaryService {
   }
 
   /**
-   * 스냅샷 — 권한 확인 + 요약 대상 본문/버전 고정. 요약은 이 노트를 보는 모든 사람이 공유하므로 호출자 개인 비서(임의 엔드포인트일 수 있음)가 아닌 공용 비서로만
-   * 만든다. MISSING/STALE 일 때만 비서를 확정한다.
+   * 리더의 생성 — 같은 읽기 트랜잭션에서 상태를 계산하고, 생성 대상(MISSING/STALE)일 때만 본문과 공용 비서를 확정한 뒤 트랜잭션 밖에서 요약한다. 요약은 이
+   * 노트를 보는 모든 사람이 공유하므로 호출자 개인 비서(임의 엔드포인트일 수 있음)가 아닌 공용 비서로만 만든다.
    */
-  private Snapshot snapshot(long callerId, long pageId) {
-    return readTx.execute(
-        st -> {
-          WikiPageDetail p = loadForViewer(callerId, pageId);
-          Supplier<Optional<AssistantSpec>> assistant = memoize(this::workspaceAssistant);
-          WikiPageSummaryState s = state(p, assistant);
-          boolean target =
-              s.status() == WikiSummaryStatus.MISSING || s.status() == WikiSummaryStatus.STALE;
-          return new Snapshot(p, target ? assistant.get() : Optional.empty(), s);
-        });
+  private WikiPageSummaryState generateAsLeader(long pageId) {
+    Target target =
+        readTx.execute(
+            st -> {
+              Evaluated e =
+                  evaluate(
+                      pages
+                          .findSummaryState(pageId)
+                          .orElseThrow(() -> new WikiPageNotFoundException(pageId)));
+              WikiSummaryStatus status = e.state().status();
+              if (!status.needsGeneration()) {
+                return new Target(e.state(), null, Optional.empty());
+              }
+              WikiPageDetail page =
+                  pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+              // MISSING 은 evaluate 가 이미 비서를 조회했으므로 재사용하고, STALE 일 때만 여기서 조회한다.
+              Optional<AssistantSpec> assistant =
+                  status == WikiSummaryStatus.MISSING
+                      ? e.assistant()
+                      : assistantResolver.resolveWorkspaceOrEmpty();
+              return new Target(e.state(), page, assistant);
+            });
+    return target.page() == null
+        ? target.state()
+        : summarizeAndSave(pageId, target.page(), target.assistant());
   }
 
   /** 트랜잭션 밖에서 ai-agent 를 불러 요약을 만들고 조건부로 저장한 뒤 최신 상태를 돌려준다. */
-  private WikiPageSummaryState summarizeAndSave(long pageId, Snapshot snap) {
-    WikiPageDetail page = snap.page();
-    if (snap.assistant().isEmpty()) {
-      // MISSING 이면 state() 가 이미 UNAVAILABLE 로 바꿨으므로 여기 오는 건 STALE 뿐 — 옛 요약은 있지만 새로 만들 수 없다.
-      throw new WikiSummaryFailedException("공용 AI 비서가 없어 요약을 새로 만들 수 없습니다.", null);
-    }
-    AssistantSpec spec = snap.assistant().get();
+  private WikiPageSummaryState summarizeAndSave(
+      long pageId, WikiPageDetail page, Optional<AssistantSpec> assistant) {
+    // MISSING 이면 evaluate 가 이미 UNAVAILABLE 로 바꿨으므로 비서가 없는 건 STALE 뿐 — 옛 요약은 있지만 새로 만들 수 없다.
+    AssistantSpec spec =
+        assistant.orElseThrow(
+            () -> new WikiSummaryFailedException("공용 AI 비서가 없어 요약을 새로 만들 수 없습니다.", null));
     // 트랜잭션 밖 AI 호출 — 본문은 상한까지만 보낸다.
     WikiAiAgentSummaryClient.Res res =
         agent.summarize(
@@ -148,18 +151,22 @@ public class WikiSummaryService {
                 spec.model(),
                 MAX_TURNS,
                 spec.timeoutMs()));
-    String summary = res == null || res.summary() == null ? "" : res.summary().strip();
-    if (summary.isEmpty()) {
-      throw new WikiSummaryFailedException("AI 가 빈 요약을 돌려줬습니다.", null);
-    }
-    // 저장 — 오래된 결과가 새 요약을 덮지 않도록 조건부 갱신. 이후 최신 행으로 상태를 다시 계산한다.
+    // 응답이 없거나 공백뿐이면 실패 — 빈 카드를 저장하지 않는다.
+    String summary =
+        Optional.ofNullable(res)
+            .map(WikiAiAgentSummaryClient.Res::summary)
+            .map(String::strip)
+            .filter(s -> !s.isEmpty())
+            .orElseThrow(() -> new WikiSummaryFailedException("AI 가 빈 요약을 돌려줬습니다.", null));
+    // 저장 — 오래된 결과가 새 요약을 덮지 않도록 조건부 갱신. 갱신됐으면 RETURNING 으로 받은 최신 행(AI 호출 중 바뀐 버전·본문 길이 포함)으로,
+    // 더 새 요약이 있어 갱신하지 않았을 때만 다시 읽어 상태를 계산한다. 두 경우 모두 요약이 있어 비서 조회는 일어나지 않는다.
     return writeTx.execute(
-        st -> {
-          pages.saveSummaryIfNotOlder(pageId, summary, page.version(), OffsetDateTime.now());
-          WikiPageDetail latest =
-              pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-          return state(latest, () -> Optional.of(spec));
-        });
+        st ->
+            pages
+                .saveSummaryIfNotOlder(pageId, summary, page.version(), OffsetDateTime.now())
+                .or(() -> pages.findSummaryState(pageId))
+                .map(row -> evaluate(row).state())
+                .orElseThrow(() -> new WikiPageNotFoundException(pageId)));
   }
 
   /**
@@ -177,7 +184,7 @@ public class WikiSummaryService {
     return body.substring(0, end);
   }
 
-  /** 진행 중 생성 결과를 기다린다. 리더의 예외(실패·권한 없음 등)는 원래 타입 그대로 다시 던져 웹이 같은 실패 UI 를 보이게 한다. */
+  /** 진행 중 생성 결과를 기다린다. 리더의 예외(실패 등)는 원래 타입 그대로 다시 던져 웹이 같은 실패 UI 를 보이게 한다. */
   private static WikiPageSummaryState await(CompletableFuture<WikiPageSummaryState> running) {
     try {
       return running.join();
@@ -189,77 +196,50 @@ public class WikiSummaryService {
     }
   }
 
-  /** 한 번만 평가하는 Supplier — 같은 트랜잭션에서 공용 비서를 두 번 조회하지 않게 한다. */
-  private static <T> Supplier<T> memoize(Supplier<T> s) {
-    return new Supplier<>() {
-      private T value;
-      private boolean done;
-
-      @Override
-      public T get() {
-        if (!done) {
-          value = s.get();
-          done = true;
-        }
-        return value;
-      }
-    };
+  /** 요약 상태 행 로드 + VIEWER 권한 확인(본문은 읽지 않는다). */
+  private WikiPageRepository.SummaryState loadStateForViewer(long callerId, long pageId) {
+    WikiPageRepository.SummaryState row =
+        pages.findSummaryState(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    return row;
   }
 
-  /** 페이지 로드 + VIEWER 권한 확인. */
-  private WikiPageDetail loadForViewer(long callerId, long pageId) {
-    WikiPageDetail page =
-        pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-    perms.requireRole(page.spaceId(), callerId, "VIEWER");
-    return page;
-  }
+  /** 상태 계산 결과 — 계산 중 공용 비서를 조회했다면(요약 없음 + 본문 충분) 그 결과도 함께 둬 generate 가 다시 조회하지 않게 한다. */
+  private record Evaluated(WikiPageSummaryState state, Optional<AssistantSpec> assistant) {}
 
-  /** generate 스냅샷 — 같은 읽기 트랜잭션에서 고정한 페이지·공용 비서(MISSING/STALE 일 때만 확정)·현재 상태. */
-  private record Snapshot(
-      WikiPageDetail page, Optional<AssistantSpec> assistant, WikiPageSummaryState state) {
-    /** 요약을 새로 만들어야 하는 상태인가 — 요약 없음(MISSING) 또는 낡음(STALE). */
-    boolean needsGeneration() {
-      return state.status() == WikiSummaryStatus.MISSING
-          || state.status() == WikiSummaryStatus.STALE;
-    }
-  }
-
-  /** 공용(워크스페이스) 비서 — 없으면 empty. 트랜잭션 안에서 호출한다(RLS). 요약 생성 가능 여부와 생성 주체를 함께 정한다. */
-  private Optional<AssistantSpec> workspaceAssistant() {
-    return assistantResolver.resolveWorkspaceOrEmpty();
-  }
+  /** 리더가 고정한 생성 대상 — page 가 null 이면 생성 대상이 아니어서 state 를 그대로 돌려준다. */
+  private record Target(
+      WikiPageSummaryState state, WikiPageDetail page, Optional<AssistantSpec> assistant) {}
 
   /**
-   * 저장본과 현재 페이지로 상태를 계산한다(트랜잭션 안에서 호출).
+   * 요약 상태 행으로 상태를 계산한다(트랜잭션 안에서 호출).
    *
    * <p>본문이 짧으면(빈 노트 포함) 옛 요약이 남아 있어도 TOO_SHORT 로 보고 summary·버전·시각을 비워 보낸다 — 웹은 summary 가 없으면 카드를
    * 그리지 않으므로 빈 노트에 지난 요약이 떠 있지 않는다.
    *
-   * @param assistant 공용 비서(지연 평가) — 요약이 없고 본문이 충분히 길 때만 조회해 MISSING(자동 생성 대상)과 UNAVAILABLE 을 가른다
+   * <p>공용 비서는 요약이 없고 본문이 충분히 길 때만 조회해 MISSING(자동 생성 대상)과 UNAVAILABLE 을 가른다 — 노트를 열 때마다 호출되는 GET 에서
+   * 요약이 이미 있으면 비서 조회 비용을 아낀다.
    */
-  private WikiPageSummaryState state(
-      WikiPageDetail page, Supplier<Optional<AssistantSpec>> assistant) {
-    WikiPageRepository.SummaryRow row =
-        pages.findSummary(page.id()).orElseThrow(() -> new WikiPageNotFoundException(page.id()));
-    if (!isLongEnough(page.body())) {
-      return new WikiPageSummaryState(
-          null, WikiSummaryStatus.TOO_SHORT, null, page.version(), null);
+  private Evaluated evaluate(WikiPageRepository.SummaryState row) {
+    if (row.bodyLength() <= MIN_BODY_CHARS) {
+      return new Evaluated(
+          new WikiPageSummaryState(null, WikiSummaryStatus.TOO_SHORT, null, row.version(), null),
+          Optional.empty());
     }
+    Optional<AssistantSpec> assistant = Optional.empty();
     WikiSummaryStatus status;
     if (row.summary() != null) {
       status =
-          row.summaryVersion() != null && row.summaryVersion() >= page.version()
+          row.summaryVersion() != null && row.summaryVersion() >= row.version()
               ? WikiSummaryStatus.READY
               : WikiSummaryStatus.STALE;
     } else {
-      status =
-          assistant.get().isPresent() ? WikiSummaryStatus.MISSING : WikiSummaryStatus.UNAVAILABLE;
+      assistant = assistantResolver.resolveWorkspaceOrEmpty();
+      status = assistant.isPresent() ? WikiSummaryStatus.MISSING : WikiSummaryStatus.UNAVAILABLE;
     }
-    return new WikiPageSummaryState(
-        row.summary(), status, row.summaryVersion(), page.version(), row.summarizedAt());
-  }
-
-  private static boolean isLongEnough(String body) {
-    return body != null && body.strip().length() > MIN_BODY_CHARS;
+    return new Evaluated(
+        new WikiPageSummaryState(
+            row.summary(), status, row.summaryVersion(), row.version(), row.summarizedAt()),
+        assistant);
   }
 }

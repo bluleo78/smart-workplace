@@ -1,8 +1,6 @@
 // WP-301 노트 상단 요약 러너 — 비서 OAuth 토큰 → SDK 단발 실행 → 최종 텍스트.
-// runDriveSummarize 와 같은 패턴(도구 미사용 텍스트 in/out).
-import { runnerFor } from './agent-runner.js';
-import { finalText } from './runner-events.js';
-import { DEFAULT_MODEL } from './model-defaults.js';
+// 도구 미사용 텍스트 in/out 이라 공용 runText(run-mail-ai)를 그대로 쓴다(runDriveSummarize 와 같은 경로).
+import { runText } from './run-mail-ai.js';
 import { WIKI_SUMMARIZE_PROMPT } from './prompts/wiki.js';
 import type { RunAgentDeps } from './run-agent.js';
 
@@ -28,19 +26,8 @@ export async function runWikiSummarize(
   i: WikiSummarizeInput,
   deps: RunAgentDeps,
 ): Promise<{ summary: string }> {
-  const credential = await deps.client.getProviderCredential(i.assistantAgentId);
   const userMessage = `제목: ${i.title}\n\n<note>\n${escapeNoteBody(i.body)}\n</note>`;
-  const events = await runnerFor(credential).collect({
-    userMessage,
-    systemPrompt: WIKI_SUMMARIZE_PROMPT,
-    // 우선순위: 요청 body > redeem 응답 > env/기본값(runDriveSummarize 와 동일).
-    model: i.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL,
-    maxTurns: i.maxTurns,
-    credential,
-    agentId: i.assistantAgentId,
-    timeoutMs: i.timeoutMs,
-    logTag: `wiki-summarize:${i.assistantAgentId}`,
-    includePartialMessages: false,
-  });
-  return { summary: finalText(events).trim() };
+  // 모델 우선순위(요청 body > redeem 응답 > env/기본값)·로그 태그 형식은 runText 가 처리한다.
+  const text = await runText(WIKI_SUMMARIZE_PROMPT, userMessage, i, deps, 'wiki-summarize');
+  return { summary: text.trim() };
 }

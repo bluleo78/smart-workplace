@@ -1,5 +1,6 @@
 import './wiki-editor.css'
 
+import { useQueryClient } from '@tanstack/react-query'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import { TableCell } from '@tiptap/extension-table-cell'
@@ -25,6 +26,7 @@ import {
 import { useWikiMentions } from '../../hooks/queries/useWikiMentions'
 import { useDeletePage, useSavePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
+import { syncWikiSummaryVersion } from '../../hooks/queries/useWikiSummary'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
@@ -57,6 +59,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   const navigate = useNavigate()
   const location = useLocation()
   const save = useSavePage(spaceId)
+  const queryClient = useQueryClient()
   const del = useDeletePage(spaceId)
   const { data: tree } = useWikiTree(spaceId)
   // 브레드크럼 — 이미 로드된 전체 트리에서 파생(추가 API 없음).
@@ -79,8 +82,6 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   })
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const versionRef = useRef(page.version)
-  // WP-301 요약 카드의 낡음 판정용 — versionRef 는 렌더를 일으키지 않으므로 같은 값을 상태로도 들고 있는다.
-  const [liveVersion, setLiveVersion] = useState(page.version)
   const firstSaveRef = useRef(true)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -513,7 +514,8 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         {
           onSuccess: (data) => {
             versionRef.current = data.version
-            setLiveVersion(data.version)
+            // WP-301 요약 캐시를 새 버전에 맞춘다(낡음 표시·짧은 노트 성장 재조회).
+            syncWikiSummaryVersion(queryClient, page.id, data.version)
             firstSaveRef.current = false
             setSaveState('saved')
           },
@@ -530,7 +532,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         },
       )
     },
-    [editor, page.id, save, saveState],
+    [editor, page.id, save, saveState, queryClient],
   )
 
   // 디바운스 대기 중인 저장의 제목 — 언마운트 flush 가 클로저가 아닌 최신 값을 쓰도록 ref 로 보관.
@@ -596,7 +598,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       editor.commands.setTextSelection(Math.min(from, editor.state.doc.content.size))
       setTitle(next.title)
       versionRef.current = next.version
-      setLiveVersion(next.version)
+      syncWikiSummaryVersion(queryClient, next.id, next.version)
       // 다음 내 저장이 원격 수정본을 리비전으로 남기도록 snapshot 을 다시 켠다(작성자가 바뀐 경계).
       firstSaveRef.current = true
       setSaveState('idle')
@@ -607,7 +609,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         if (!editor.isDestroyed) hydrateWikiMentions(editor, r.data ?? [])
       })
     },
-    [editor, page, cancelAi, cancelPendingSave, refetchMentions],
+    [editor, page, cancelAi, cancelPendingSave, refetchMentions, queryClient],
   )
   useEffect(() => {
     if (!editor) return
@@ -751,7 +753,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
             className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
           />
           {/* WP-301 노트 상단 AI 요약 — 제목 아래·본문 위(시안 A). 본문을 바꾸지 않는 읽기 보조라 뷰어에게도 보인다. */}
-          <WikiSummaryCard pageId={page.id} liveVersion={liveVersion} />
+          <WikiSummaryCard pageId={page.id} />
           {/* 빈 페이지 AI CTA — 초안 작성이 가장 유효한 순간(#733). 본문이 채워지면 사라진다.
               에디터 아래가 아니라 제목 바로 밑에 둔다: 본문 클릭영역(min-h 300px) 뒤에 두면
               placeholder 와 300px 떨어져 시각적 연결이 끊긴다.
