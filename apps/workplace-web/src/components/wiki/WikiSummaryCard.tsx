@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 
 import { AiContent } from '@/components/ai/AiContent'
 import { AiSummarySkeleton } from '@/components/ai/AiSummarySkeleton'
+import { bulletLines } from '@/components/ai/bulletLines'
 import { formatMonthDayClock } from '@/lib/formatters'
 
 import { useGenerateWikiSummary, useWikiSummary } from '../../hooks/queries/useWikiSummary'
@@ -46,8 +47,7 @@ export function WikiSummaryCard({ pageId }: { pageId: number }) {
         <AiSummarySkeleton testId="wiki-ai-summary-loading" />
       ) : (
         <>
-          {/* 낡은 요약은 흐리게 — 내용은 남겨 두되 최신이 아님을 시각적으로 알린다. */}
-          {data.summary && <span className={stale ? 'opacity-60' : undefined}>{data.summary}</span>}
+          {data.summary && <SummaryText text={data.summary} stale={stale} />}
           {/* 터치 기기에선 재생성 버튼의 히트 영역이 넓어지므로 구분점과 겹치지 않게 간격도 조금 넓힌다. */}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground pointer-coarse:gap-x-3">
             {failedHere ? (
@@ -83,6 +83,29 @@ export function WikiSummaryCard({ pageId }: { pageId: number }) {
  * 터치(coarse 포인터)에선 높이를 44px 로 키우되 같은 크기의 음수 세로 마진으로 상쇄해
  * 줄 높이·카드 크기(시각 밀도)는 데스크톱과 똑같이 유지하고 탭 영역만 넓힌다.
  */
+/**
+ * 요약 본문 — `• ` 목록이면 <ul> 로 그려 줄바꿈된 긴 항목이 기호 뒤로 들여써지게 하고(모바일에서 둘째 줄이 왼쪽 끝으로
+ * 붙지 않게), 목록이 아니면 원문 그대로 둔다. 낡은 요약은 흐리게 — 내용은 남겨 두되 최신이 아님을 시각적으로 알린다.
+ */
+function SummaryText({ text, stale }: { text: string; stale: boolean }) {
+  const items = bulletLines(text)
+  const className = stale ? 'opacity-60' : undefined
+  if (!items) {
+    return (
+      <div data-testid="wiki-ai-summary-text" className={className}>
+        {text}
+      </div>
+    )
+  }
+  return (
+    <ul data-testid="wiki-ai-summary-text" className={`list-disc pl-4 ${className ?? ''}`}>
+      {items.map((item, i) => (
+        <li key={i}>{item}</li>
+      ))}
+    </ul>
+  )
+}
+
 function RegenerateButton({ testId, label, onClick }: { testId: string; label: string; onClick: () => void }) {
   return (
     <button

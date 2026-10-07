@@ -153,6 +153,37 @@ test('긴 노트를 열면 자동으로 요약을 만들어 제목 아래·본�
   expect(cardBox!.y + cardBox!.height).toBeLessThanOrEqual(bodyBox!.y)
 })
 
+test('목록형 요약은 목록으로 그려 항목마다 한 줄씩, 긴 항목은 기호 뒤로 들여써 보인다', async ({ authenticatedPage: page }) => {
+  await setupWikiMocks(page)
+  const items = ['배포를 10/9 로 확정했다.', 'QA 는 수요일까지 마친다.', '롤백 기준은 오류율 2%.']
+  await mockSummary(page, { initial: ready(1, items.map((t) => `• ${t}`).join('\n')) })
+  await openPage(page)
+
+  // 스크린리더에도 목록으로 읽히고, 항목은 기호(•)를 뗀 문장이다.
+  const list = page.getByTestId('wiki-ai-summary-text')
+  await expect(list.getByRole('listitem')).toHaveText(items)
+  // 항목이 한 줄씩 아래로 쌓인다.
+  const boxes = await list.getByRole('listitem').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top))
+  expect(boxes[1]).toBeGreaterThan(boxes[0])
+  expect(boxes[2]).toBeGreaterThan(boxes[1])
+  // 항목 글자는 카드 왼쪽 끝보다 안쪽(기호 뒤)에서 시작한다 — 줄바꿈된 둘째 줄도 같은 들여쓰기를 따른다.
+  const [listLeft, itemLeft] = await list.evaluate((el) => [
+    el.getBoundingClientRect().left,
+    el.querySelector('li')!.getBoundingClientRect().left,
+  ])
+  expect(itemLeft).toBeGreaterThan(listLeft)
+})
+
+test('목록이 아닌 옛 문단형 요약은 원문 그대로 보인다', async ({ authenticatedPage: page }) => {
+  await setupWikiMocks(page)
+  await mockSummary(page, { initial: ready(1, '배포를 10/9 로 확정했다. QA 는 수요일까지 마친다.') })
+  await openPage(page)
+
+  const text = page.getByTestId('wiki-ai-summary-text')
+  await expect(text).toHaveText('배포를 10/9 로 확정했다. QA 는 수요일까지 마친다.')
+  await expect(text.getByRole('listitem')).toHaveCount(0)
+})
+
 // 카드 비노출 상태 — 짧은 노트(TOO_SHORT)·공용 비서 없음(UNAVAILABLE)은 같은 기대(카드 없음·생성 요청 없음)를 갖는다.
 for (const { status, name } of [
   { status: 'TOO_SHORT', name: '짧은 노트는 요약 카드를 그리지 않고 생성도 요청하지 않는다' },
