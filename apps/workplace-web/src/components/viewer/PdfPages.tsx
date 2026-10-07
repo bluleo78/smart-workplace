@@ -1,5 +1,7 @@
-import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
+import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist'
 import { useEffect, useRef, useState } from 'react'
+
+import { capRenderScale } from './pdfScale'
 
 /** 페이지 크기를 알기 전 자리표시 비율(US Letter). */
 const DEFAULT_RATIO = 792 / 612
@@ -37,6 +39,8 @@ export function PdfPages({
     let alive = true
     // 문서 정리는 loadingTask.destroy() 로 한다(v6 의 PDFDocumentProxy 에는 destroy 가 없다).
     let task: PDFDocumentLoadingTask | null = null
+    // 이전 문서는 곧 destroy 되므로 페이지들이 닫힌 문서에 getPage 하지 않게 먼저 비운다.
+    setDoc(null)
     void (async () => {
       const pdfjs = await import('pdfjs-dist')
       const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
@@ -63,6 +67,10 @@ export function PdfPages({
   }, [])
 
   // 현재 페이지 보고 — 페이지별 노출 비율을 모아 가장 많이 보이는 쪽을 알린다(변경분만 오는 entries 로는 비교 불가).
+  // 문서가 바뀔 때만 1쪽·전체 쪽수를 알린다.
+  useEffect(() => {
+    if (doc) onPage(1, doc.numPages)
+  }, [doc, onPage])
   const ready = doc != null && width > 0
   useEffect(() => {
     const root = rootRef.current
@@ -84,8 +92,7 @@ export function PdfPages({
         onPage(best, total)
       }
     }
-    onPage(1, total)
-    last = 1
+    // 시작값 0 — 관찰 첫 콜백이 실제 현재 쪽을 알린다(리사이즈로 이펙트가 다시 돌아도 1쪽으로 튀지 않음).
     const io = new IntersectionObserver(
       (entries) => {
         for (const e of entries) ratios.set(Number((e.target as HTMLElement).dataset.page), e.intersectionRatio)
@@ -115,14 +122,16 @@ export function PdfPages({
 function PdfPage({ doc, pageNumber, cssWidth }: { doc: PDFDocumentProxy; pageNumber: number; cssWidth: number }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const [visible, setVisible] = useState(pageNumber === 1)
+  const pageRef = useRef<PDFPageProxy | null>(null)
   const [ratio, setRatio] = useState(DEFAULT_RATIO)
   // 같은 캔버스에 render 가 겹치면 pdf.js 가 거부하므로, 직전 렌더가 끝난(취소된) 뒤에 다음을 시작한다.
   const prevRender = useRef<Promise<unknown>>(Promise.resolve())
 
+  // 근처 600px 안에 들어오면 그리고, 멀어지면 다시 visible=false 로 돌려 비트맵을 풀어 준다(양방향).
   useEffect(() => {
     const el = ref.current
-    if (!el || visible) return
-    const io = new IntersectionObserver(([e]) => e.isIntersecting && setVisible(true), { rootMargin: '600px' })
+    if (!el) return
+    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { rootMargin: '600px' })
     io.observe(el)
     return () => io.disconnect()
   }, [visible])
@@ -138,7 +147,10 @@ function PdfPage({ doc, pageNumber, cssWidth }: { doc: PDFDocumentProxy; pageNum
       await prevRender.current
       const canvas = ref.current
       if (cancelled || !canvas) return
-      const vp = page.getViewport({ scale: (cssWidth / base.width) * window.devicePixelRatio })
+      pageRef.current = page
+      // 해상도만 낮춰 iOS 캔버스 픽셀 한도를 지킨다(CSS 크기는 style 로 고정).
+      const pxScale = capRenderScale(cssWidth, cssWidth * (base.height / base.width), window.devicePixelRatio)
+      const vp = page.getViewport({ scale: (cssWidth / base.width) * pxScale })
       canvas.width = Math.floor(vp.width)
       canvas.height = Math.floor(vp.height)
       task = page.render({ canvas, viewport: vp })
@@ -149,6 +161,21 @@ function PdfPage({ doc, pageNumber, cssWidth }: { doc: PDFDocumentProxy; pageNum
       task?.cancel()
     }
   }, [doc, pageNumber, cssWidth, visible])
+
+  // 화면에서 멀어지거나 사라질 때 캔버스 비트맵(수십 MB)과 pdf.js 페이지 자원을 놓는다.
+  // CSS 폭·높이는 style 로 유지되므로 자리(스크롤 위치)는 변하지 않는다.
+  useEffect(() => {
+    if (!visible) return
+    const canvas = ref.current
+    return () => {
+      if (canvas) {
+        canvas.width = 0
+        canvas.height = 0
+      }
+      pageRef.current?.cleanup()
+      pageRef.current = null
+    }
+  }, [visible, doc, pageNumber])
 
   return (
     <canvas
