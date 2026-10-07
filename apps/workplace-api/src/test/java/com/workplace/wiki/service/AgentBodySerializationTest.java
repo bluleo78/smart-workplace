@@ -20,7 +20,7 @@ class AgentBodySerializationTest {
   void serialize_nullOptionals_omitsSelectionAndPrompt() throws Exception {
     WikiAiService.AgentBody body =
         new WikiAiService.AgentBody(
-            WikiAiAction.SUMMARIZE,
+            WikiAiAction.CONTINUE,
             "설계 문서",
             "## 본문",
             null, // selection
@@ -46,7 +46,7 @@ class AgentBodySerializationTest {
             "maxTurns",
             "timeoutMs");
     // action 은 소문자 와이어.
-    assertThat(json.get("action").asText()).isEqualTo("summarize");
+    assertThat(json.get("action").asText()).isEqualTo("continue");
     assertThat(json.get("assistantAgentId").asLong()).isEqualTo(900L);
     assertThat(json.has("selection")).isFalse();
     assertThat(json.has("prompt")).isFalse();

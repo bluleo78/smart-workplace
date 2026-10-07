@@ -16,25 +16,31 @@ class WikiAiActionTest {
     // 프론트가 소문자로 보낸 액션이 enum 으로 바인딩되는지(요청 본문 안에서).
     WikiAiRequest req =
         mapper.readValue(
-            "{\"action\":\"summarize\",\"prompt\":null,\"selection\":null}", WikiAiRequest.class);
-    assertThat(req.action()).isEqualTo(WikiAiAction.SUMMARIZE);
+            "{\"action\":\"continue\",\"prompt\":null,\"selection\":null}", WikiAiRequest.class);
+    assertThat(req.action()).isEqualTo(WikiAiAction.CONTINUE);
 
     assertThat(mapper.readValue("\"draft\"", WikiAiAction.class)).isEqualTo(WikiAiAction.DRAFT);
     assertThat(mapper.readValue("\"continue\"", WikiAiAction.class))
         .isEqualTo(WikiAiAction.CONTINUE);
   }
 
+  /** WP-301: 본문 삽입형 요약은 제거됐다 — summarize 는 더 이상 유효한 액션이 아니다. */
+  @Test
+  void summarize_isNoLongerAccepted() {
+    assertThatThrownBy(() -> WikiAiAction.from("summarize"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
   @Test
   void deserialize_isCaseTolerant() throws Exception {
     // 대문자/혼합 입력도 관용적으로 바인딩.
-    assertThat(mapper.readValue("\"SUMMARIZE\"", WikiAiAction.class))
-        .isEqualTo(WikiAiAction.SUMMARIZE);
+    assertThat(mapper.readValue("\"CONTINUE\"", WikiAiAction.class))
+        .isEqualTo(WikiAiAction.CONTINUE);
   }
 
   @Test
   void serialize_toLowercaseWire() throws Exception {
     // 에이전트로 전달될 본문 직렬화도 소문자여야 함(아니면 zod enum 거부).
-    assertThat(mapper.writeValueAsString(WikiAiAction.SUMMARIZE)).isEqualTo("\"summarize\"");
     assertThat(mapper.writeValueAsString(WikiAiAction.DRAFT)).isEqualTo("\"draft\"");
     assertThat(mapper.writeValueAsString(WikiAiAction.CONTINUE)).isEqualTo("\"continue\"");
   }
