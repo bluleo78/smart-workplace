@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Download, Minus, Plus, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Cloud, Download, Minus, Plus, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { driveApi } from '../../api/drive'
@@ -12,14 +12,30 @@ import { Button } from '../ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '../ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 import type { ViewerItem } from './types'
+import { useImportToDrive } from './useImportToDrive'
+import { useSummaryAvailability } from './useSummaryAvailability'
 import { ViewerBody } from './ViewerBody'
-import { ViewerBacklinks, ViewerSummaryCard } from './ViewerDriveExtras'
+import { ViewerMoreMenu } from './ViewerMoreMenu'
 import { middleEllipsis, navState, resolvePending, routeKey } from './viewerNav'
+import { ViewerSidePanel } from './ViewerSidePanel'
 
 /** 확대 단계(25%)와 범위. */
 const ZOOM_STEP = 0.25
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 3
+
+/** 사이드 패널 마지막 열림 상태 저장 키('1' 열림 / '0' 닫힘) — 사용자가 직접 토글한 값만 기억한다. */
+const PANEL_STORAGE_KEY = 'attachment-viewer:summary-panel'
+
+/** 저장된 패널 상태를 읽는다 — 저장소 접근이 막힌 환경(사생활 모드 등)에서도 죽지 않게 try/catch. */
+function readPanelPref(): boolean | null {
+  try {
+    const v = localStorage.getItem(PANEL_STORAGE_KEY)
+    return v === '1' ? true : v === '0' ? false : null
+  } catch {
+    return null
+  }
+}
 
 const edgeBtnClass =
   'absolute top-1/2 z-10 flex size-11 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-ring'
@@ -34,8 +50,8 @@ export function AttachmentViewer({
   items,
   index,
   onIndexChange,
-  // defaultPanelOpen 은 사이드 패널(후속 태스크)에서 쓴다 — 인터페이스만 먼저 고정.
   onClose,
+  defaultPanelOpen,
 }: {
   items: ViewerItem[]
   index: number
@@ -64,6 +80,24 @@ export function AttachmentViewer({
   const meta = [item.sizeBytes != null ? formatFileSize(item.sizeBytes) : null, nav.label || null, pageLabel]
     .filter(Boolean)
     .join(' · ')
+  // 사이드 패널 — 초기값 = 저장된 마지막 상태, 없으면 호출부 기본값(드라이브는 펼침). 묶음 안에서 넘겨도 유지된다.
+  const [panelOpen, setPanelOpen] = useState(() => readPanelPref() ?? defaultPanelOpen ?? false)
+  const togglePanel = (open: boolean) => {
+    setPanelOpen(open)
+    try {
+      localStorage.setItem(PANEL_STORAGE_KEY, open ? '1' : '0')
+    } catch {
+      // 저장 실패는 무시 — 이번 세션 상태만 유지.
+    }
+  }
+  const summary = useSummaryAvailability(item)
+  const showPanel = summary === 'show' && panelOpen
+  // ☁ 가져오기 — 업로드 첨부(importFileId)에서만 공간 조회를 켠다.
+  const importer = useImportToDrive(item.importFileId != null)
+  const canImport = item.importFileId != null && importer.ready
+  const startImport = () => {
+    if (item.importFileId != null) importer.begin(item.importFileId)
+  }
   const prevBtn = useRef<HTMLButtonElement>(null)
   const nextBtn = useRef<HTMLButtonElement>(null)
 
@@ -190,7 +224,31 @@ export function AttachmentViewer({
                 </Tooltip>
               </TooltipProvider>
             )}
-            {/* ✨·☁·⋯ 는 후속 태스크 */}
+            {item.importFileId != null && (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="드라이브로 가져오기"
+                title={importer.unavailable ? '드라이브를 사용할 수 없습니다' : undefined}
+                disabled={!canImport}
+                onClick={startImport}
+              >
+                <Cloud />
+              </Button>
+            )}
+            {summary === 'show' && (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="AI 요약"
+                aria-pressed={panelOpen}
+                onClick={() => togglePanel(!panelOpen)}
+              >
+                <Sparkles />
+              </Button>
+            )}
+            <ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} />
+            <div className="mx-1 h-5 w-px bg-border" aria-hidden />
             <DialogClose asChild>
               <Button variant="ghost" size="icon" aria-label="닫기">
                 <X />
@@ -198,9 +256,9 @@ export function AttachmentViewer({
             </DialogClose>
           </div>
         </header>
-        {/* 과도기: 드라이브 요약 카드·참조된 곳을 기존 모달처럼 본문 위·아래에 둔다(후속 태스크에서 사이드 패널로 이동). */}
-        <ViewerSummaryCard driveFileId={item.summaryDriveFileId} />
-        <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* 본문 영역 + 사이드 패널 — lg 미만은 세로로 쌓고, lg 이상은 오른쪽 열. › 는 본문 영역 끝(= 패널 왼쪽)에 붙는다. */}
+        <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {/* 항목별로 상태가 초기화되도록 key. */}
           <ViewerBody key={item.key} item={item} zoom={zoom} onPage={onPage} />
           {nav.hasPrev && (
@@ -231,7 +289,10 @@ export function AttachmentViewer({
             {items.length > 1 ? `${item.name}, ${items.length}개 중 ${idx + 1}번째` : ''}
           </p>
         </div>
-        <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />
+        {showPanel && <ViewerSidePanel item={item} onClose={() => togglePanel(false)} />}
+        </div>
+        {/* 폴더 선택 모달 — 뷰어 Dialog 안에 그려 포커스 트랩 안에 둔다. */}
+        {importer.picker}
       </DialogContent>
     </Dialog>
   )

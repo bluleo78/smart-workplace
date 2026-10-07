@@ -20,13 +20,24 @@ interface StubFile {
   sizeBytes: number
 }
 
+/** stubDriveFiles 가 등록한 id → 파일명. */
+const NAMES: Record<number, string> = {}
+
 /** 공간·목록·콘텐츠·썸네일(404)·요약(PENDING)·참조된 곳([]) 을 route 로 막는다. */
 async function stubDriveFiles(
   page: Page,
   files: StubFile[],
   bodies: Record<number, string | Buffer>,
-  opts: { delayMs?: Record<number, number> } = {},
+  opts: {
+    delayMs?: Record<number, number>
+    /** 파일 id → 요약 응답(기본 PENDING). */
+    summary?: Record<number, { summary: string | null; status: string; reason?: string }>
+    /** 파일 id → 참조된 곳 목록(기본 []). */
+    backlinks?: Record<number, unknown[]>
+  } = {},
 ) {
+  // openPreview 가 id 로 파일명을 찾도록 기억한다.
+  for (const f of files) NAMES[f.id] = f.name
   await page.route(
     (u) => u.pathname === '/api/v1/drive/spaces',
     (r) => (r.request().method() === 'GET' ? r.fulfill({ json: [personalSpace(), createSpace()] }) : r.fallback()),
@@ -67,15 +78,17 @@ async function stubDriveFiles(
     await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/thumbnail`, (r) => r.fulfill({ status: 404 }))
     await page.route(
       (u) => u.pathname === `/api/v1/drive/files/${f.id}/summary`,
-      (r) => r.fulfill({ json: { summary: null, status: 'PENDING' } }),
+      (r) => r.fulfill({ json: opts.summary?.[f.id] ?? { summary: null, status: 'PENDING' } }),
     )
-    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/backlinks`, (r) => r.fulfill({ json: [] }))
+    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/backlinks`, (r) =>
+      r.fulfill({ json: opts.backlinks?.[f.id] ?? [] }),
+    )
   }
 }
 
 /** 드라이브 목록에서 파일명(또는 id 로 찾은 파일명) 버튼을 눌러 뷰어를 연다. */
 async function openPreview(page: Page, nameOrId: string | number) {
-  const name = typeof nameOrId === 'number' ? ({ 80: 'a.txt', 81: 'b.txt', 82: 'c.txt' } as Record<number, string>)[nameOrId] : nameOrId
+  const name = typeof nameOrId === 'number' ? NAMES[nameOrId] : nameOrId
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await page.getByRole('button', { name, exact: true }).click()
   await expect(page.getByTestId('preview-body')).toBeVisible()
@@ -85,7 +98,7 @@ test('확장자 없는 긴 이름도 헤더 버튼이 화면 안에 남는다', 
   const name = 'x'.repeat(200)
   await stubDriveFiles(page, [{ id: 70, name, mimeType: 'text/plain', sizeBytes: 4 }], { 70: 'body' })
   await openPreview(page, name)
-  await expect(page.getByRole('button', { name: '닫기' })).toBeInViewport()
+  await expect(page.getByRole('button', { name: '닫기', exact: true })).toBeInViewport()
   await expect(page.getByTestId('preview-download')).toBeInViewport()
 })
 
@@ -166,4 +179,50 @@ test.describe('묶음 넘김', () => {
     await page.goto('/drive/spaces/1?preview=999')
     await expect(page.getByTestId('preview-not-found')).toBeVisible()
   })
+})
+
+test('드라이브에서 열면 요약 패널이 기본 펼침이고 참조된 곳이 보인다', async ({ authenticatedPage: page }) => {
+  await stubDriveFiles(page, [{ id: 90, name: 'doc.md', mimeType: 'text/markdown', sizeBytes: 5 }], { 90: '# hi' }, {
+    summary: { 90: { summary: '요약 본문', status: 'DONE' } },
+    backlinks: { 90: [{ sourceType: 'ISSUE', sourceId: 3, label: 'WP-3 검토', deepLink: '/projects/WP/issues/3' }] },
+  })
+  await openPreview(page, 90)
+  const panel = page.getByTestId('viewer-side-panel')
+  await expect(panel.getByTestId('drive-summary-card')).toContainText('요약 본문')
+  await expect(panel.getByTestId('file-backlink-ISSUE-3')).toBeVisible()
+  await page.getByRole('button', { name: 'AI 요약' }).click()
+  await expect(panel).toHaveCount(0)
+})
+
+test('마지막 패널 열림 상태를 기억해 다시 열어도 유지한다', async ({ authenticatedPage: page }) => {
+  await stubDriveFiles(page, [{ id: 91, name: 'again.md', mimeType: 'text/markdown', sizeBytes: 5 }], { 91: '# hi' }, {
+    summary: { 91: { summary: '기억', status: 'DONE' } },
+  })
+  await openPreview(page, 91)
+  await expect(page.getByTestId('viewer-side-panel')).toBeVisible()
+  await page.getByRole('button', { name: 'AI 요약' }).click()
+  await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'again.md', exact: true }).click()
+  await expect(page.getByTestId('preview-body')).toBeVisible()
+  await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0)
+})
+
+test('AI 사이드 패널을 연 채로 뷰어가 패널을 가리지 않고, 패널에서 → 는 넘기지 않는다', async ({ authenticatedPage: page }) => {
+  await stubDriveFiles(page, [
+    { id: 80, name: 'a.txt', mimeType: 'text/plain', sizeBytes: 1 },
+    { id: 81, name: 'b.txt', mimeType: 'text/plain', sizeBytes: 1 },
+  ], { 80: 'A', 81: 'B' })
+  await openPreview(page, 80)
+  await page.keyboard.press('ControlOrMeta+k') // 뷰어가 열린 채 ⌘K — ai-screen-context.spec 과 같은 방식
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  const panelInput = page.getByTestId('chat-input')
+  await panelInput.click()
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByTestId('preview-body')).toContainText('A')
+  const viewer = await page.getByTestId('attachment-viewer').boundingBox()
+  const panel = await page.getByTestId('ai-side-panel').boundingBox()
+  expect(viewer!.x + viewer!.width).toBeLessThanOrEqual(panel!.x + 1)
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('attachment-viewer')).toBeVisible() // Esc 는 패널만 닫음
 })

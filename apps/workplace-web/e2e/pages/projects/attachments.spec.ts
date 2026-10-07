@@ -703,4 +703,68 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await expect(page.getByTestId('preview-unavailable')).toBeVisible();
     await expect(page.getByTestId('preview-download')).toHaveCount(0);
   });
+
+  test('이슈 드라이브 링크의 요약이 403 이면 ✨ 버튼이 없다', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [], [driveLink(603)]);
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/files/603/summary',
+      (route) => route.fulfill({ status: 403, json: { message: 'forbidden' } }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'linked-603.txt 미리보기' }).click();
+    await expect(page.getByTestId('preview-body')).toContainText('LINKED-BODY');
+    await expect(page.getByRole('button', { name: 'AI 요약' })).toHaveCount(0);
+  });
+
+  test('이슈 드라이브 링크는 ✨ 로 요약 패널을 열고, ⋯ 에 드라이브에서 열기가 있다', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [], [driveLink(604)]);
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/files/604/summary',
+      (route) => route.fulfill({ json: { summary: '링크 요약', status: 'DONE' } }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'linked-604.txt 미리보기' }).click();
+    // 이슈에서 열면 기본 접힘(defaultPanelOpen 없음).
+    await expect(page.getByTestId('preview-body')).toContainText('LINKED-BODY');
+    await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0);
+    await page.getByRole('button', { name: 'AI 요약' }).click();
+    await expect(page.getByTestId('viewer-side-panel').getByTestId('drive-summary-card')).toContainText('링크 요약');
+    await page.getByRole('button', { name: '더 보기' }).click();
+    await expect(page.getByRole('menuitem', { name: '드라이브에서 열기' })).toBeVisible();
+  });
+
+  test('업로드 첨부는 ✨ 없이 ☁ 와 ⋯ 를 보여 주고 ☁ 로 드라이브에 가져온다', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [createAttachment({ fileId: 7701, originalName: 'up.txt', mimeType: 'text/plain' })], []);
+    await page.route(
+      (url) => url.pathname === '/api/v1/projects/WP/issues/1/attachments/7701/content',
+      (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'UP' }),
+    );
+    // 개인 공간·폴더 목록·임포트 — setupCommonStubs 의 빈 공간 목록보다 나중에 등록해 우선한다.
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/spaces',
+      (route) =>
+        route.fulfill({
+          json: [{ id: 1, type: 'PERSONAL', name: '내 드라이브', ownerId: 1, role: 'OWNER', archived: false, createdAt: '2026-06-01T00:00:00Z' }],
+        }),
+    );
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/spaces/1/items',
+      (route) => route.fulfill({ json: { folders: [], files: [] } }),
+    );
+    const imports = trackRequests(page, 'POST', /\/api\/v1\/drive\/spaces\/1\/import-attachment$/);
+    await page.route(/\/api\/v1\/drive\/spaces\/1\/import-attachment$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'up.txt 미리보기' }).click();
+    await expect(page.getByTestId('preview-body')).toContainText('UP');
+    await expect(page.getByRole('button', { name: 'AI 요약' })).toHaveCount(0);
+    await page.getByRole('button', { name: '더 보기' }).click();
+    await expect(page.getByRole('menuitem', { name: '링크 복사' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '드라이브로 가져오기' }).click();
+    await expect(page.getByTestId('folder-picker')).toBeVisible();
+    await page.getByTestId('folder-picker').getByTestId('folder-picker-confirm').click();
+    await expect.poll(() => imports.count()).toBe(1);
+  });
 });

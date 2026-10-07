@@ -2,25 +2,23 @@
 // 출처 필터(전체/이슈/메시지) + 이름 검색 + 행별 "저장"(내 드라이브 임포트) 지원.
 
 import { ChevronDown, Paperclip } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { toast } from 'sonner'
+import { useState } from 'react'
 
 import { driveApi } from '@/api/drive'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { DriveThumbnail } from '@/components/drive/DriveThumbnail'
 import { FilePreviewModal } from '@/components/drive/FilePreviewModal'
-import { FolderPickerModal } from '@/components/drive/FolderPickerModal'
 import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { SearchInput } from '@/components/ui/search-input'
+import { useImportToDrive } from '@/components/viewer/useImportToDrive'
 import { useDriveAttachments } from '@/hooks/queries/useDriveAttachments'
-import { useImportAttachment } from '@/hooks/queries/useImportAttachment'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { mimeToCategory } from '@/lib/fileCategory'
 import { formatFileSize } from '@/lib/formatters'
 import { LABEL_COLORS } from '@/lib/labelColors'
 import { cn } from '@/lib/utils'
-import type { DriveSpace, VirtualAttachment } from '@/types/drive'
+import type { VirtualAttachment } from '@/types/drive'
 
 import { groupAttachments } from './groupAttachments'
 
@@ -39,13 +37,9 @@ export function DriveAttachmentsView() {
   const query = useDriveAttachments({ source, q })
   // 본문 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
-  const importMut = useImportAttachment()
+  // 가져오기(개인 공간 조회 → 폴더 선택 → 임포트)는 통합 뷰어와 같은 훅을 쓴다.
+  const importer = useImportToDrive()
 
-  // 내 드라이브(PERSONAL) 공간 ID — 저장 시 임포트 대상 공간.
-  const [personalSpaceId, setPersonalSpaceId] = useState<number | null>(null)
-  // 공간 조회 완료 여부 — 로딩 중 disabled 와 조회 실패 disabled 를 구분하기 위해 사용.
-  const [spacesResolved, setSpacesResolved] = useState(false)
-  const [importing, setImporting] = useState<VirtualAttachment | null>(null)
   // 미리보기 = URL ?preview=<fileId>(시스템 뒤로가기로 닫힘, WP-208). 필터 변경·재조회로 목록에서 빠져도 열린 모달이
   // 사라지지 않게 클릭한 첨부를 기억한다.
   const previewParam = useHistoryParam('preview')
@@ -59,26 +53,6 @@ export function DriveAttachmentsView() {
       else next.add(key)
       return next
     })
-
-  useEffect(() => {
-    let mounted = true
-    void driveApi
-      .listSpaces()
-      .then(({ data }) => {
-        if (!mounted) return
-        const personal = (data as DriveSpace[]).find((s) => s.type === 'PERSONAL')
-        if (personal) setPersonalSpaceId(personal.id)
-        setSpacesResolved(true)
-      })
-      .catch(() => {
-        if (!mounted) return
-        toast.error('드라이브 스페이스를 불러오지 못했습니다.')
-        setSpacesResolved(true)
-      })
-    return () => {
-      mounted = false
-    }
-  }, [])
 
   const items = query.data?.pages.flatMap((p) => p.items) ?? []
   // 미리보기 대상 해석 — 현재 목록 → 클릭 스냅숏 순(단건 조회 API 없음).
@@ -212,16 +186,9 @@ export function DriveAttachmentsView() {
                             variant="outline"
                             size="xs"
                             data-testid={`drive-attachment-save-${a.fileId}`}
-                            disabled={!spacesResolved || personalSpaceId === null}
-                            title={
-                              spacesResolved && personalSpaceId === null
-                                ? '드라이브를 사용할 수 없습니다'
-                                : undefined
-                            }
-                            onClick={() => {
-                              if (personalSpaceId === null) return
-                              setImporting(a)
-                            }}
+                            disabled={!importer.ready}
+                            title={importer.unavailable ? '드라이브를 사용할 수 없습니다' : undefined}
+                            onClick={() => importer.begin(a.fileId)}
                             className="shrink-0"
                           >
                             내 드라이브에 저장
@@ -241,18 +208,7 @@ export function DriveAttachmentsView() {
       </div>
 
       {/* 폴더 선택 모달 — 저장 버튼 클릭 시 열림 */}
-      {importing && personalSpaceId !== null && (
-        <FolderPickerModal
-          spaceId={personalSpaceId}
-          title="저장할 폴더 선택"
-          mode="folder"
-          onConfirm={(folderId) => {
-            importMut.mutate({ spaceId: personalSpaceId, folderId, fileId: importing.fileId })
-            setImporting(null)
-          }}
-          onClose={() => setImporting(null)}
-        />
-      )}
+      {importer.picker}
 
       {/* 첨부 미리보기 모달 — FilePreviewModal 첨부 분기 */}
       {preview && <FilePreviewModal attachment={preview} onClose={previewParam.close} />}

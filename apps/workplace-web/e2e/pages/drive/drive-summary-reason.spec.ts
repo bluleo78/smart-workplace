@@ -47,7 +47,7 @@ async function openPreview(page: import('@playwright/test').Page) {
 // #735: 요약 불가는 기본 펼침(defaultOpen=summaryUnavailable) — 클릭 없이 바로 사유가 보여야
 // "왜 요약이 없는지" 를 숨기지 않는다는 계약을 검증한다. click() 을 넣으면 접힌 상태에서도
 // 통과해버려 이 회귀를 못 잡는다.
-test('SKIPPED(사유 있음) → 클릭 없이 카드가 기본 펼침, 사유 평문 표시', async ({ authenticatedPage: page }) => {
+test('SKIPPED(사유 있음) → 클릭 없이 카드가 보임, 사유 평문 표시', async ({ authenticatedPage: page }) => {
   await setupDrive(page)
   await page.route('**/api/v1/drive/files/*/summary', (route) =>
     route.fulfill({
@@ -57,7 +57,6 @@ test('SKIPPED(사유 있음) → 클릭 없이 카드가 기본 펼침, 사유 �
   await openPreview(page)
   const card = page.getByTestId('drive-summary-card')
   await expect(card).toBeVisible()
-  await expect(card).toHaveJSProperty('open', true)
   await expect(page.getByTestId('drive-summary-reason')).toHaveText(
     '이 형식은 텍스트 추출을 지원하지 않습니다.',
   )
@@ -71,7 +70,6 @@ test('PENDING → 스켈레톤 표시(폴링 상한 이전)', async ({ authentic
   await openPreview(page)
   const card = page.getByTestId('drive-summary-card')
   await expect(card).toBeVisible()
-  await card.locator('summary').click()
   await expect(page.getByTestId('drive-summary-loading')).toBeVisible()
 })
 
@@ -89,7 +87,6 @@ test('PENDING 무한 지속 → 폴링 상한 초과 시 지연 안내로 전환
   await openPreview(page)
   const card = page.getByTestId('drive-summary-card')
   await expect(card).toBeVisible()
-  await card.locator('summary').click()
   await expect(page.getByTestId('drive-summary-loading')).toBeVisible()
 
   // 안내가 뜰 때까지 시계 3초 전진→fetch 처리 시간 확보→확인을 반복해 IN_PROGRESS_POLLS(40) 회에 도달한다(WP-225).
@@ -114,7 +111,6 @@ test('DONE → 요약 본문 표시', async ({ authenticatedPage: page }) => {
   await openPreview(page)
   const card = page.getByTestId('drive-summary-card')
   await expect(card).toBeVisible()
-  await card.locator('summary').click()
   await expect(card).toContainText('요약 본문')
   await expect(page.getByTestId('drive-summary-reason')).toHaveCount(0)
 })

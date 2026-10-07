@@ -44,7 +44,7 @@ async function openPreview(page: import('@playwright/test').Page) {
   await expect(page.getByTestId('preview-body')).toBeVisible()
 }
 
-test('요약 DONE → 카드 표시(기본 접힘, 클릭 시 펼침)', async ({ authenticatedPage: page }) => {
+test('요약 DONE → 패널에 카드가 기본 펼침으로 표시', async ({ authenticatedPage: page }) => {
   await setupDrive(page)
   await page.route('**/api/v1/drive/files/*/summary', (route) =>
     route.fulfill({ json: { summary: '이 문서의 핵심 요약입니다.', status: 'DONE' } }),
@@ -52,13 +52,8 @@ test('요약 DONE → 카드 표시(기본 접힘, 클릭 시 펼침)', async ({
   await openPreview(page)
   const card = page.getByTestId('drive-summary-card')
   await expect(card).toBeVisible()
-  // chevron affordance 존재.
-  await expect(page.locator('[data-testid="drive-summary-card"] > summary .lucide-chevron-right')).toBeVisible()
-  // 기본 접힘: <details> open=false.
-  await expect(card).toHaveJSProperty('open', false)
-  // 헤더 클릭 → 펼쳐져 요약 본문 노출.
-  await card.locator('summary').click()
-  await expect(card).toHaveJSProperty('open', true)
+  // WP-277: 카드는 접힘 없이 사이드 패널에 항상 펼쳐져 있다(패널 자체가 토글).
+  await expect(page.getByTestId('viewer-side-panel').getByTestId('drive-summary-card')).toBeVisible()
   await expect(card).toContainText('핵심 요약')
 })
 
@@ -71,29 +66,25 @@ test('요약에 마크다운 헤딩 포함 → 원시 기호(#) 대신 파싱된
   )
   await openPreview(page)
   const card = page.getByTestId('drive-summary-card')
-  await card.locator('summary').click()
   // 파싱된 heading 요소로 렌더 — 원시 '#' 기호가 텍스트로 남지 않아야 한다.
   const heading = card.getByRole('heading', { name: '파일 요약: 문서.docx' })
   await expect(heading).toBeVisible()
   await expect(card).not.toContainText('# 파일 요약')
 })
 
-test('추출 진행중 → 펼치면 스켈레톤 표시', async ({ authenticatedPage: page }) => {
+test('추출 진행중 → 스켈레톤 표시', async ({ authenticatedPage: page }) => {
   await setupDrive(page)
   await page.route('**/api/v1/drive/files/*/summary', (route) =>
     route.fulfill({ json: { summary: null, status: 'EXTRACTING' } }),
   )
   await openPreview(page)
-  // 접힘 상태에선 스켈레톤 비노출.
-  await expect(page.getByTestId('drive-summary-loading')).toBeHidden()
-  // 펼치면 스켈레톤 노출.
-  await page.getByTestId('drive-summary-card').locator('summary').click()
+  // 패널이 기본 펼침이라 클릭 없이 스켈레톤이 보인다.
   await expect(page.getByTestId('drive-summary-loading')).toBeVisible()
 })
 
 // #735: SKIPPED 는 이제 카드를 숨기지 않고 사유를 보여준다 — reason 미지정 시 폴백 문구.
 // 요약 불가 카드는 기본 펼침이라 클릭 없이도 사유가 바로 보여야 한다.
-test('요약 불가(SKIPPED, reason 없음) → 클릭 없이 카드 기본 펼침, 폴백 문구 표시', async ({
+test('요약 불가(SKIPPED, reason 없음) → 클릭 없이 사유 표시, 폴백 문구 표시', async ({
   authenticatedPage: page,
 }) => {
   await setupDrive(page)
@@ -103,7 +94,6 @@ test('요약 불가(SKIPPED, reason 없음) → 클릭 없이 카드 기본 펼�
   await openPreview(page)
   const card = page.getByTestId('drive-summary-card')
   await expect(card).toBeVisible()
-  await expect(card).toHaveJSProperty('open', true)
   await expect(page.getByTestId('drive-summary-reason')).toHaveText('요약을 사용할 수 없습니다.')
 })
 
@@ -161,7 +151,7 @@ test('헤더 — 형식·크기 표시, 아이콘 다운로드(툴팁)·닫기�
   await expect(page.getByRole('tooltip')).toHaveText('다운로드')
 
   // 닫기 X 는 기본 코너 버튼 대신 헤더 액션 줄에 하나만 있고, 다운로드와 세로 중심이 맞는다.
-  const close = dialog.getByRole('button', { name: '닫기' })
+  const close = dialog.getByRole('button', { name: '닫기', exact: true })
   await expect(close).toHaveCount(1)
   const [d, c] = await Promise.all([download.boundingBox(), close.boundingBox()])
   expect(d && c).toBeTruthy()
