@@ -104,8 +104,9 @@ async function mockSummary(
   page: Page,
   opts: { initial: WikiPageSummaryState; post?: WikiPageSummaryState | 'fail'; delayMs?: number; pageId?: number },
 ) {
-  const calls = { get: 0, post: 0 }
   let current = opts.initial
+  // setCurrent — 이후 GET 이 돌려줄 상태를 바꾼다(저장으로 본문이 길어진 상황 등).
+  const calls = { get: 0, post: 0, setCurrent: (s: WikiPageSummaryState) => void (current = s) }
   await page.route(`**/api/v1/wiki/pages/${opts.pageId ?? PAGE_ID}/summary`, async (route) => {
     if (route.request().method() === 'GET') {
       calls.get++
@@ -196,7 +197,7 @@ test('공용 비서가 없어 요약할 수 없는 노트(UNAVAILABLE)는 카드
 
 test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하면 새 요약으로 바뀐다', async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page)
-  await mockSummary(page, { initial: ready(1), post: ready(2, '새 요약') })
+  const calls = await mockSummary(page, { initial: ready(1), post: ready(2, '새 요약') })
   await openPage(page)
 
   const card = page.getByTestId('wiki-ai-summary')
@@ -212,10 +213,44 @@ test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하�
   await page.keyboard.type(' 추가 내용')
   await saved
   await expect(page.getByTestId('wiki-ai-summary-stale')).toBeVisible()
+  // READY/STALE 에서는 저장마다 요약을 다시 조회하지 않는다(TOO_SHORT 일 때만 재조회).
+  expect(calls.get).toBe(1)
 
   await page.getByTestId('wiki-ai-summary-refresh').click()
   await expect(card).toContainText('새 요약')
   await expect(page.getByTestId('wiki-ai-summary-stale')).toHaveCount(0)
+})
+
+test('서버가 STALE 로 알려 주면 편집기 버전이 같아도 낡음 표시를 보여 준다', async ({ authenticatedPage: page }) => {
+  // 다른 사람이 저장해 서버만 낡음을 아는 상황 — summaryVersion 이 편집기 liveVersion(1)과 같아도 status 를 따른다.
+  await setupWikiMocks(page)
+  await mockSummary(page, { initial: { ...ready(1), status: 'STALE', pageVersion: 2 }, post: ready(2, '새 요약') })
+  await openPage(page)
+
+  await expect(page.getByTestId('wiki-ai-summary')).toContainText('배포를 10/9 로 확정했다.')
+  await expect(page.getByTestId('wiki-ai-summary-stale')).toBeVisible()
+})
+
+test('짧던 노트가 저장으로 길어지면 상태를 다시 조회해 요약을 한 번 만든다', async ({ authenticatedPage: page }) => {
+  await setupWikiMocks(page)
+  const calls = await mockSummary(page, { initial: tooShort(), post: ready(2, '길어진 노트 요약') })
+  await openPage(page)
+  await expect.poll(() => calls.get).toBe(1)
+  await expect(page.getByTestId('wiki-ai-summary')).toHaveCount(0)
+
+  // 저장 뒤 서버는 본문이 충분히 길어져 MISSING 으로 본다.
+  calls.setCurrent({ ...missing(), pageVersion: 2 })
+  const saved = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/v1/wiki/pages/${PAGE_ID}`) && r.request().method() === 'PUT',
+  )
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' 내용을 더 쓴다')
+  await saved
+
+  await expect(page.getByTestId('wiki-ai-summary')).toContainText('길어진 노트 요약')
+  await expect.poll(() => calls.get).toBe(2)
+  await expectStays(page, () => calls.post, 1, { ms: 1000 })
 })
 
 test('요약 생성에 실패하면 한 번만 시도하고 다시 시도 버튼을 보여 준다', async ({ authenticatedPage: page }) => {

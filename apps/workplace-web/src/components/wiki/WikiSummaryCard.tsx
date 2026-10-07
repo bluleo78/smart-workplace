@@ -9,11 +9,13 @@ import { useGenerateWikiSummary, useWikiSummary } from '../../hooks/queries/useW
  * WP-301 노트 상단 AI 요약 카드 — 메일·드라이브와 같은 AiContent 톤.
  *
  * - 요약이 없고(MISSING) 노트가 충분히 길면 노트당 한 번 자동 생성한다. 실패해도 자동 재시도하지 않는다(비용·무한 반복 방지).
- * - 낡음은 서버 status 대신 편집기의 liveVersion 과 summaryVersion 을 비교한다 — 내 저장 직후에도 즉시 반영되게.
+ * - 낡음은 서버 status(STALE) 또는 편집기의 liveVersion > summaryVersion 이면 표시한다 — 다른 사람의 저장(서버가 아는 낡음)과
+ *   내 저장 직후(서버를 다시 묻기 전)를 모두 반영하기 위함.
+ * - TOO_SHORT 인 동안에는 저장(liveVersion 변화)마다 상태를 다시 조회한다 — 짧던 노트가 길어져 MISSING 이 되면 자동 생성이 뜨게.
  * - TOO_SHORT·조회 실패·AI 불가(쿼리 비활성)면 아무것도 그리지 않는다.
  */
 export function WikiSummaryCard({ pageId, liveVersion }: { pageId: number; liveVersion: number }) {
-  const { data } = useWikiSummary(pageId)
+  const { data, refetch } = useWikiSummary(pageId)
   const generate = useGenerateWikiSummary()
   // 노트별 자동 생성 1회 가드 — 같은 노트로 다시 렌더돼도 재요청하지 않는다.
   const autoTried = useRef<number | null>(null)
@@ -27,6 +29,19 @@ export function WikiSummaryCard({ pageId, liveVersion }: { pageId: number; liveV
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.status, pageId])
 
+  // 짧은 노트가 저장으로 길어졌는지 확인 — TOO_SHORT 일 때만 저장마다 재조회하고, 다른 상태에선 저장마다 GET 하지 않는다.
+  // 첫 렌더·노트 전환(liveVersion 이 처음 보는 값)에는 쿼리가 스스로 불러오므로 이전 값과 달라졌을 때만 재조회한다.
+  const seenVersion = useRef({ pageId, liveVersion })
+  useEffect(() => {
+    const prev = seenVersion.current
+    seenVersion.current = { pageId, liveVersion }
+    if (prev.pageId === pageId && prev.liveVersion !== liveVersion && data?.status === 'TOO_SHORT') {
+      void refetch()
+    }
+    // data·refetch 변화로는 다시 돌지 않게 liveVersion·pageId 만 본다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveVersion, pageId])
+
   // 다른 노트의 생성 상태가 이 카드에 새지 않도록 변수로 확인한다.
   const pendingHere = generate.isPending && generate.variables === pageId
   const failedHere = generate.isError && generate.variables === pageId
@@ -34,7 +49,9 @@ export function WikiSummaryCard({ pageId, liveVersion }: { pageId: number; liveV
   if (!data) return null
   if (!data.summary && !pendingHere && !failedHere) return null // TOO_SHORT 또는 생성 전
 
-  const stale = data.summary != null && data.summaryVersion != null && data.summaryVersion < liveVersion
+  const stale =
+    data.summary != null &&
+    (data.status === 'STALE' || (data.summaryVersion != null && data.summaryVersion < liveVersion))
 
   return (
     <AiContent label="AI 요약" collapsible defaultOpen className="mb-4" data-testid="wiki-ai-summary">

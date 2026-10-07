@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -28,6 +29,13 @@ import com.workplace.wiki.repository.WikiPageRepository;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -245,6 +253,106 @@ class WikiSummaryServiceTest extends IntegrationTestBase {
     assertThat(req.getValue().body()).hasSize(32_000);
     assertThat(req.getValue().maxTurns()).isEqualTo(1);
     assertThat(req.getValue().assistantAgentId()).isEqualTo(900L);
+  }
+
+  /** 자르는 경계에 이모지(서로게이트 쌍)가 걸리면 한 글자 덜 잘라 홀로 남은 high surrogate 를 보내지 않는다. */
+  @Test
+  void generate_capDoesNotSplitSurrogatePair() {
+    long u = seedUser();
+    // 31,999자 뒤에 이모지(2 char) — 32,000 번째 char 가 high surrogate 가 된다.
+    String body = "가".repeat(31_999) + "😀" + "나".repeat(100);
+    WikiPageDetail p = pageWithBody(u, body);
+    when(agent.summarize(any())).thenReturn(new WikiAiAgentSummaryClient.Res("요약"));
+
+    summaryService.generate(u, p.id());
+
+    ArgumentCaptor<WikiAiAgentSummaryClient.Req> req =
+        ArgumentCaptor.forClass(WikiAiAgentSummaryClient.Req.class);
+    verify(agent).summarize(req.capture());
+    String sent = req.getValue().body();
+    assertThat(sent).hasSize(31_999);
+    assertThat(Character.isHighSurrogate(sent.charAt(sent.length() - 1))).isFalse();
+  }
+
+  /** 낡은 요약(STALE)에서 공용 비서가 사라졌으면 "다시 요약"이 조용히 끝나지 않도록 실패로 알린다. */
+  @Test
+  void generate_staleWithoutWorkspaceAssistant_throwsSummaryFailed() {
+    long u = seedUser();
+    WikiPageDetail p = pageWithBody(u, LONG_BODY);
+    when(agent.summarize(any())).thenReturn(new WikiAiAgentSummaryClient.Res("요약"));
+    summaryService.generate(u, p.id());
+    pageService.save(u, p.id(), new SavePageRequest("주간회의", LONG_BODY + "추가", p.version(), false));
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+
+    assertThatThrownBy(() -> summaryService.generate(u, p.id()))
+        .isInstanceOf(WikiSummaryFailedException.class)
+        .hasMessageContaining("공용 AI 비서가 없어");
+    verify(agent, times(1)).summarize(any());
+    assertThat(summaryService.get(u, p.id()).status()).isEqualTo(WikiSummaryStatus.STALE);
+  }
+
+  /** 요약이 이미 있으면 GET 은 공용 비서를 조회하지 않는다 — 노트를 열 때마다 드는 조회 비용을 아낀다. */
+  @Test
+  void get_withSummary_doesNotResolveAssistant() {
+    long u = seedUser();
+    WikiPageDetail p = pageWithBody(u, LONG_BODY);
+    pages.saveSummaryIfNotOlder(p.id(), "요약", p.version(), OffsetDateTime.now());
+    clearInvocations(assistantResolver);
+
+    assertThat(summaryService.get(u, p.id()).status()).isEqualTo(WikiSummaryStatus.READY);
+    verify(assistantResolver, never()).resolveWorkspaceOrEmpty();
+  }
+
+  /** 같은 노트에 동시에 들어온 생성 요청은 ai-agent 를 한 번만 부르고 결과를 함께 받는다. */
+  @Test
+  void generate_concurrentCallsShareOneAgentCall() throws Exception {
+    long u = seedUser();
+    WikiPageDetail p = pageWithBody(u, LONG_BODY);
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    when(agent.summarize(any()))
+        .thenAnswer(
+            inv -> {
+              entered.countDown();
+              assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+              return new WikiAiAgentSummaryClient.Res("동시 요약");
+            });
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      Callable<WikiPageSummaryState> call =
+          () -> {
+            TenantContext.set(1L); // RLS 테넌트는 스레드 로컬이라 작업 스레드에도 넣는다.
+            try {
+              return summaryService.generate(u, p.id());
+            } finally {
+              TenantContext.clear();
+            }
+          };
+      Future<WikiPageSummaryState> first = pool.submit(call);
+      assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue(); // 리더가 AI 호출 중
+      AtomicReference<Thread> secondThread = new AtomicReference<>();
+      Future<WikiPageSummaryState> second =
+          pool.submit(
+              () -> {
+                secondThread.set(Thread.currentThread());
+                return call.call();
+              });
+      // 두 번째 요청이 진행 중 생성을 기다리며 멈출 때까지(=스냅샷을 MISSING 으로 본 뒤) 기다린 다음 리더를 풀어 준다.
+      long deadline = System.currentTimeMillis() + 10_000;
+      while (System.currentTimeMillis() < deadline) {
+        Thread t = secondThread.get();
+        if (t != null && t.getState() == Thread.State.WAITING) break;
+        Thread.sleep(20);
+      }
+      release.countDown();
+
+      assertThat(first.get(10, TimeUnit.SECONDS).summary()).isEqualTo("동시 요약");
+      assertThat(second.get(10, TimeUnit.SECONDS).summary()).isEqualTo("동시 요약");
+      verify(agent, times(1)).summarize(any());
+    } finally {
+      release.countDown();
+      pool.shutdownNow();
+    }
   }
 
   /** 본문을 400자 이하로 줄이면 옛 요약이 있어도 TOO_SHORT 이고 summary 는 null — 웹 카드가 숨는다. */
