@@ -11,6 +11,7 @@ import { DocxPreview } from '../drive/preview/DocxPreview'
 import { SheetPreview } from '../drive/preview/SheetPreview'
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
 import { Button } from '../ui/button'
+import { PdfPages } from './PdfPages'
 import type { ViewerItem } from './types'
 import { usePreviewBlob } from './usePreviewBlob'
 
@@ -23,6 +24,9 @@ const TEXT_PREVIEW_LIMIT = 200_000
  */
 const TEXT_DECODE_MAX_BYTES = 1024 * 1024
 
+/** onPage 미지정 호출부용 빈 콜백(모듈 상수라 PdfPages 이펙트가 다시 돌지 않는다). */
+const noopPage = () => {}
+
 /** 문서형(종이 카드 안에 그리는) 형식 — 다크 캔버스 위에서 읽기 편하도록 밝은 카드에 둔다. */
 function PaperCard({ children }: { children: React.ReactNode }) {
   return <div className="mx-auto max-w-4xl rounded-md bg-card p-6 text-card-foreground">{children}</div>
@@ -31,9 +35,18 @@ function PaperCard({ children }: { children: React.ReactNode }) {
 /**
  * 뷰어 본문 — 종류별 렌더와 상태 화면(로딩·오류·10MB 확인·미지원·사용 불가).
  * 항목이 바뀌면 이전 결과를 비우고 다시 변환한다(넘김 대응 — 호출부가 key={item.key} 도 준다).
- * FilePreviewModal 의 본문 변환 로직을 이식한 것이며, PDF 는 아직 검증된 blob 의 iframe 이다(pdf.js 는 후속).
+ * FilePreviewModal 의 본문 변환 로직을 이식한 것이며, PDF 는 검증된 blob 을 pdf.js(PdfPages)로 전 페이지 그린다.
  */
-export function ViewerBody({ item, zoom = 1 }: { item: ViewerItem; zoom?: number }) {
+export function ViewerBody({
+  item,
+  zoom = 1,
+  onPage,
+}: {
+  item: ViewerItem
+  zoom?: number
+  /** PDF 현재 페이지 보고 — 호출부가 useCallback 으로 고정해 넘긴다(PdfPages 이펙트 의존성). */
+  onPage?: (current: number, total: number) => void
+}) {
   const kind = resolvePreviewKind(item.mimeType)
   const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
   const parsed = kind === 'XLSX' || kind === 'DOCX'
@@ -42,6 +55,8 @@ export function ViewerBody({ item, zoom = 1 }: { item: ViewerItem; zoom?: number
   const source = usePreviewBlob(item, renderable)
   const { blob, confirmSize } = source
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  // WP-203: toVerifiedPdfBlob 을 통과한 blob 만 pdf.js 로 넘긴다.
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null)
   const [text, setText] = useState<string | null>(null)
   const [buffer, setBuffer] = useState<ArrayBuffer | null>(null)
   const [convertError, setConvertError] = useState(false)
@@ -52,18 +67,20 @@ export function ViewerBody({ item, zoom = 1 }: { item: ViewerItem; zoom?: number
     !error &&
     renderable &&
     blobUrl == null &&
+    pdfBlob == null &&
     text == null &&
     buffer == null &&
     confirmSize == null
   // iframe(PDF·HTML·DOCX)은 캔버스를 가득 채우고, 그 외(텍스트·표·안내 문구)는 안쪽 여백을 둔다.
   const fillsFrame =
-    !error && ((kind === 'PDF' && blobUrl) || (kind === 'HTML' && text != null) || (kind === 'DOCX' && buffer))
+    !error && ((kind === 'PDF' && pdfBlob) || (kind === 'HTML' && text != null) || (kind === 'DOCX' && buffer))
 
   // 받은 blob → 종류별 표시 형태. blob 이 바뀌면(파일 전환) 이전 결과를 비우고 다시 변환한다.
   useEffect(() => {
     let alive = true
     let created: string | null = null
     setBlobUrl(null)
+    setPdfBlob(null)
     setText(null)
     setBuffer(null)
     setConvertError(false)
@@ -88,7 +105,10 @@ export function ViewerBody({ item, zoom = 1 }: { item: ViewerItem; zoom?: number
       }
       if (kind === 'IMAGE') showUrl(blob)
       // PDF 는 시그니처 검증 + application/pdf 재래핑을 통과해야만 뷰어로 넘긴다.
-      else if (kind === 'PDF') showUrl(await toVerifiedPdfBlob(blob))
+      else if (kind === 'PDF') {
+        const verified = await toVerifiedPdfBlob(blob)
+        if (alive) setPdfBlob(verified)
+      }
       else if (textLike) {
         const t = await blobToText(blob, { maxBytes: TEXT_DECODE_MAX_BYTES })
         if (alive) setText(t.slice(0, TEXT_PREVIEW_LIMIT))
@@ -157,8 +177,8 @@ export function ViewerBody({ item, zoom = 1 }: { item: ViewerItem; zoom?: number
           style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}
         />
       )}
-      {!error && kind === 'PDF' && blobUrl && (
-        <iframe src={blobUrl} title={item.name} className="block h-full min-h-[60vh] w-full border-0" />
+      {!error && kind === 'PDF' && pdfBlob && (
+        <PdfPages blob={pdfBlob} zoom={zoom} onPage={onPage ?? noopPage} onError={() => setConvertError(true)} />
       )}
       {!error && kind === 'MARKDOWN' && text != null && (
         <PaperCard>

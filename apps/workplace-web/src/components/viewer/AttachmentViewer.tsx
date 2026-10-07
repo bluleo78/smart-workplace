@@ -1,4 +1,5 @@
 import { Download, X } from 'lucide-react'
+import { useCallback, useState } from 'react'
 
 import { driveApi } from '../../api/drive'
 import { formatFileSize } from '../../lib/formatters'
@@ -34,7 +35,15 @@ export function AttachmentViewer({
   const aiAware = useAiPanelAwareDialog({ open: true, size: 'lightbox' })
   const item = items[index]
   const nav = navState(index, items.length)
-  const meta = [item.sizeBytes != null ? formatFileSize(item.sizeBytes) : null, nav.label || null]
+  // PDF 현재 페이지 — 항목 key 와 함께 들어 다른 항목으로 넘어가면 자동으로 무시된다.
+  const [pdfPage, setPdfPage] = useState<{ key: string; current: number; total: number } | null>(null)
+  const itemKey = item.key
+  const onPage = useCallback(
+    (current: number, total: number) => setPdfPage({ key: itemKey, current, total }),
+    [itemKey],
+  )
+  const pageLabel = pdfPage && pdfPage.key === itemKey ? `p.${pdfPage.current} / ${pdfPage.total}` : null
+  const meta = [item.sizeBytes != null ? formatFileSize(item.sizeBytes) : null, nav.label || null, pageLabel]
     .filter(Boolean)
     .join(' · ')
   // 헤더 다운로드는 경로만 있으면 된다 — blob 훅을 하나 더 만들지 않는다.
@@ -106,7 +115,7 @@ export function AttachmentViewer({
         <ViewerSummaryCard driveFileId={item.summaryDriveFileId} />
         <div className="relative flex min-h-0 flex-1 flex-col">
           {/* 항목별로 상태가 초기화되도록 key. */}
-          <ViewerBody key={item.key} item={item} />
+          <ViewerBody key={item.key} item={item} onPage={onPage} />
           {/* ‹ › 는 후속 태스크 */}
         </div>
         <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />

@@ -1,0 +1,162 @@
+import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
+import { useEffect, useRef, useState } from 'react'
+
+/** 페이지 크기를 알기 전 자리표시 비율(US Letter). */
+const DEFAULT_RATIO = 792 / 612
+
+/**
+ * PDF 전 페이지를 세로로 이어 그린다(WP-277) — iframe 내장 뷰어는 iOS 에서 첫 페이지만 보일 수 있어 pdf.js 로 직접 렌더.
+ * pdf.js 는 동적 import 라 PDF 를 열 때만 내려받는다(초기 번들 무영향).
+ * 페이지는 화면 근처에 들어올 때(IntersectionObserver)만 그려 큰 문서도 첫 화면이 빨리 뜬다.
+ * 호출부는 toVerifiedPdfBlob 을 통과한 blob 만 넘긴다(위장 HTML 차단, WP-203).
+ */
+export function PdfPages({
+  blob,
+  zoom = 1,
+  onPage,
+  onError,
+}: {
+  blob: Blob
+  zoom?: number
+  /** 현재 페이지(화면에 가장 많이 걸친 쪽)와 전체 쪽수 — 호출부는 useCallback 으로 고정해 넘긴다. */
+  onPage: (current: number, total: number) => void
+  /** 문서를 열지 못했을 때(손상 PDF 등) — 호출부가 오류 화면으로 바꾼다. */
+  onError?: () => void
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
+  const [width, setWidth] = useState(0)
+  // onError 는 이펙트 의존성에서 빼기 위해 ref 로 최신값만 든다.
+  const onErrorRef = useRef(onError)
+  useEffect(() => {
+    onErrorRef.current = onError
+  })
+
+  // 문서 열기 — blob 이 바뀌면 이전 문서를 닫는다.
+  useEffect(() => {
+    let alive = true
+    // 문서 정리는 loadingTask.destroy() 로 한다(v6 의 PDFDocumentProxy 에는 destroy 가 없다).
+    let task: PDFDocumentLoadingTask | null = null
+    void (async () => {
+      const pdfjs = await import('pdfjs-dist')
+      const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+      pdfjs.GlobalWorkerOptions.workerSrc = worker.default
+      const data = new Uint8Array(await blob.arrayBuffer())
+      if (!alive) return
+      task = pdfjs.getDocument({ data })
+      const d = await task.promise
+      if (alive) setDoc(d)
+    })().catch(() => alive && onErrorRef.current?.())
+    return () => {
+      alive = false
+      void task?.destroy()
+    }
+  }, [blob])
+
+  // 폭 맞춤 기준 폭 — 컨테이너 크기 변화(AI 패널 열림·창 크기)에 반응.
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setWidth(Math.max(0, Math.min(e.contentRect.width - 32, 1000))))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // 현재 페이지 보고 — 페이지별 노출 비율을 모아 가장 많이 보이는 쪽을 알린다(변경분만 오는 entries 로는 비교 불가).
+  const ready = doc != null && width > 0
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root || !doc || !ready) return
+    const total = doc.numPages
+    const ratios = new Map<number, number>()
+    let last = 0
+    const report = () => {
+      let best = 1
+      let bestRatio = -1
+      for (const [n, r] of ratios) {
+        if (r > bestRatio || (r === bestRatio && n < best)) {
+          best = n
+          bestRatio = r
+        }
+      }
+      if (best !== last) {
+        last = best
+        onPage(best, total)
+      }
+    }
+    onPage(1, total)
+    last = 1
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) ratios.set(Number((e.target as HTMLElement).dataset.page), e.intersectionRatio)
+        report()
+      },
+      { root, threshold: [0, 0.25, 0.5, 0.75, 1] },
+    )
+    root.querySelectorAll('[data-page]').forEach((n) => io.observe(n))
+    return () => io.disconnect()
+  }, [doc, ready, onPage])
+
+  return (
+    <div ref={rootRef} className="flex h-full min-h-0 flex-col gap-4 overflow-auto py-4" data-testid="pdf-document">
+      {doc &&
+        width > 0 &&
+        Array.from({ length: doc.numPages }, (_, i) => (
+          <PdfPage key={i + 1} doc={doc} pageNumber={i + 1} cssWidth={width * zoom} />
+        ))}
+    </div>
+  )
+}
+
+/**
+ * 한 페이지 — 화면 근처에 들어올 때 devicePixelRatio 배율로 그려 확대해도 선명하게 한다.
+ * 실제 페이지 비율을 알면 자리표시 높이를 그 비율로 바꿔, 크기가 다른 페이지도 찌그러지지 않게 한다.
+ */
+function PdfPage({ doc, pageNumber, cssWidth }: { doc: PDFDocumentProxy; pageNumber: number; cssWidth: number }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const [visible, setVisible] = useState(pageNumber === 1)
+  const [ratio, setRatio] = useState(DEFAULT_RATIO)
+  // 같은 캔버스에 render 가 겹치면 pdf.js 가 거부하므로, 직전 렌더가 끝난(취소된) 뒤에 다음을 시작한다.
+  const prevRender = useRef<Promise<unknown>>(Promise.resolve())
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el || visible) return
+    const io = new IntersectionObserver(([e]) => e.isIntersecting && setVisible(true), { rootMargin: '600px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [visible])
+
+  useEffect(() => {
+    if (!visible) return
+    let cancelled = false
+    let task: RenderTask | null = null
+    void doc.getPage(pageNumber).then(async (page) => {
+      const base = page.getViewport({ scale: 1 })
+      if (cancelled) return
+      setRatio(base.height / base.width)
+      await prevRender.current
+      const canvas = ref.current
+      if (cancelled || !canvas) return
+      const vp = page.getViewport({ scale: (cssWidth / base.width) * window.devicePixelRatio })
+      canvas.width = Math.floor(vp.width)
+      canvas.height = Math.floor(vp.height)
+      task = page.render({ canvas, viewport: vp })
+      prevRender.current = task.promise.catch(() => undefined)
+    }).catch(() => undefined)
+    return () => {
+      cancelled = true
+      task?.cancel()
+    }
+  }, [doc, pageNumber, cssWidth, visible])
+
+  return (
+    <canvas
+      ref={ref}
+      data-page={pageNumber}
+      data-testid={`pdf-page-${pageNumber}`}
+      className="mx-auto shrink-0 bg-white shadow-md"
+      style={{ width: cssWidth, height: cssWidth * ratio }}
+    />
+  )
+}
