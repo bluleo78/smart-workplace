@@ -7,12 +7,10 @@
 
 import { Cloud, Paperclip, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { toast } from 'sonner';
 
 import { ATTACHMENT_MAX_PER_ISSUE } from '../../../api/issueAttachments';
 import { FolderPickerModal } from '../../../components/drive/FolderPickerModal';
 import { MobileActionSheet } from '../../../components/mobile/MobileActionSheet';
-import { DRIVE_SPACES_ERROR_TOAST_ID } from '../../../components/viewer/useImportToDrive';
 import { useDriveSpaces } from '../../../hooks/queries/useDriveSpaces';
 import { useAddIssueDriveLink } from '../../../hooks/queries/useIssueDriveLinks';
 import { useUploadIssueAttachments } from '../../../hooks/queries/useUploadIssueAttachments';
@@ -54,14 +52,13 @@ export function IssueAttachmentStrip({
   // 스페이스 목록에서 PERSONAL 타입 스페이스 조회. queryKey 공유로 useAttachmentDraft 등
   // 동일 이슈 화면에 동시 마운트되는 다른 컴포넌트와 요청이 dedup 된다 (#798).
   // 링크 버튼이 숨겨지는 열람자(편집 권한 없음)는 조회 자체를 생략 — 불필요한 요청·실패 토스트 방지(WP-202).
-  const spacesQuery = useDriveSpaces({ enabled: canEditContent });
+  // 실패 토스트는 조회 훅이 뷰어(useImportToDrive)와 같은 고정 id 로 띄운다 — 같은 실패 토스트가 겹쳐 쌓이지 않게.
+  const spacesQuery = useDriveSpaces({ enabled: canEditContent, errorToast: true });
   useEffect(() => {
     if (!spacesQuery.isSuccess && !spacesQuery.isError) return;
     if (spacesQuery.isError) {
-      // 스페이스 조회 실패 시 토스트로 안내하고 버튼은 비활성 유지.
+      // 스페이스 조회 실패 시(토스트는 조회 훅이 안내) 버튼은 비활성 유지.
       setSpacesResolved(true);
-      // 뷰어(useImportToDrive)와 같은 id — 같은 실패 토스트가 겹쳐 쌓이지 않게.
-      toast.error('드라이브 스페이스를 불러오지 못했습니다.', { id: DRIVE_SPACES_ERROR_TOAST_ID });
       return;
     }
     const personal = spacesQuery.data.find((s) => s.type === 'PERSONAL');

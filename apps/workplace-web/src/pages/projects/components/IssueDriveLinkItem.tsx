@@ -26,8 +26,8 @@ export function IssueDriveLinkItem({
   link: DriveLink
   canManage: boolean
   onRemove: (driveFileId: number) => void
-  /** 이름 클릭 — 통합 뷰어 열기. 없으면 예전처럼 바로 다운로드. 휴지통이어도 열 수 있다(뷰어가 '사용할 수 없음' 안내). */
-  onPreview?: () => void
+  /** 이름 클릭 — 통합 뷰어 열기. 휴지통이어도 열 수 있다(뷰어가 '사용할 수 없음' 안내). */
+  onPreview: () => void
 }) {
   const navigate = useNavigate()
   const trashed = link.availability === 'TRASHED'
@@ -39,13 +39,12 @@ export function IssueDriveLinkItem({
     >
       <div className="flex items-center gap-2">
         <FileTypeIcon mimeType={link.mimeType} />
-        {/* 파일명 클릭 → 통합 뷰어(휴지통이면 뷰어가 안내만 보여 준다). onPreview 가 없으면 다운로드(휴지통이면 비활성). */}
+        {/* 파일명 클릭 → 통합 뷰어(휴지통이면 뷰어가 안내만 보여 준다). */}
         <button
           type="button"
-          disabled={!onPreview && trashed}
-          onClick={() => (onPreview ? onPreview() : downloadIssueDriveLink(projectKey, number, link.driveFileId, link.name))}
-          className="flex-1 truncate text-left font-medium hover:underline disabled:cursor-not-allowed"
-          aria-label={`${link.name} ${onPreview ? '미리보기' : '다운로드'}`}
+          onClick={onPreview}
+          className="flex-1 truncate text-left font-medium hover:underline"
+          aria-label={`${link.name} 미리보기`}
         >
           {link.name}
         </button>
@@ -57,8 +56,8 @@ export function IssueDriveLinkItem({
           <Cloud className="h-3 w-3" /> 링크
         </span>
         <span className="text-xs text-muted-foreground">{formatFileSize(link.sizeBytes)}</span>
-        {/* 다운로드 아이콘 — 미리보기를 쓰는 경우에만. 원본이 활성이 아니면(휴지통·삭제) 받을 수 없으므로 숨긴다 — 뷰어의 '사용할 수 없음' 기준과 같다. */}
-        {onPreview && link.availability === 'ACTIVE' && (
+        {/* 다운로드 아이콘 — 원본이 활성이 아니면(휴지통·삭제) 받을 수 없으므로 숨긴다 — 뷰어의 '사용할 수 없음' 기준과 같다. */}
+        {link.availability === 'ACTIVE' && (
           <Button
             variant="ghost"
             size="icon-xs"

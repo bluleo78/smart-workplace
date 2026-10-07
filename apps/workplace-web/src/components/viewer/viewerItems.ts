@@ -8,6 +8,18 @@ import type { ViewerItem } from './types'
 export const driveViewerKey = (driveFileId: number) => `drive:${driveFileId}`
 export const fileViewerKey = (fileId: number) => `file:${fileId}`
 
+/** 묶음 키 형식(`file:{숫자}`·`drive:{숫자}`) — 만드는 쪽(위 두 함수)과 읽는 쪽(parseViewerKey)이 같은 규칙을 쓴다. */
+const VIEWER_KEY_RE = /^(file|drive):(\d+)$/
+
+/**
+ * 묶음 키 → 종류·숫자 id. 형식이 아니면(null·다른 용도의 ?preview 값) null.
+ * 왜: 호출부가 접두어를 문자열로 자르거나 정규식을 따로 들고 있지 않게(키 형식이 바뀌어도 여기만 고친다).
+ */
+export function parseViewerKey(key: string | null): { kind: 'file' | 'drive'; id: number } | null {
+  const m = key == null ? null : VIEWER_KEY_RE.exec(key)
+  return m ? { kind: m[1] as 'file' | 'drive', id: Number(m[2]) } : null
+}
+
 /** 드라이브 화면의 파일 — 요약·참조된 곳을 쓰고, 이미 드라이브라 가져오기는 없다. */
 export function driveFileItem(f: DriveFile): ViewerItem {
   return {

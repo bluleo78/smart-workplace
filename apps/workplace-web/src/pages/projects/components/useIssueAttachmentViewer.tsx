@@ -9,7 +9,7 @@ import { useCallback, useMemo } from 'react';
 
 import { AttachmentViewer } from '../../../components/viewer/AttachmentViewer';
 import { useViewerBundle } from '../../../components/viewer/useViewerBundle';
-import { issueAttachmentItem, issueDriveLinkItem } from '../../../components/viewer/viewerItems';
+import { issueAttachmentItem, issueDriveLinkItem, parseViewerKey } from '../../../components/viewer/viewerItems';
 import { ViewerNotFound } from '../../../components/viewer/ViewerNotFound';
 import { useIssueAttachments } from '../../../hooks/queries/useIssueAttachments';
 import { useIssueDriveLinks } from '../../../hooks/queries/useIssueDriveLinks';
@@ -39,7 +39,7 @@ export function useIssueAttachmentViewer(projectKey: string, number: number): {
     [projectKey, number],
   );
   // 이 화면이 여는 키(file:·drive:)만 다룬다 — 다른 용도의 ?preview 값을 "찾을 수 없음"으로 안내하지 않게.
-  const ownKey = /^(file|drive):\d+$/.test(previewParam.value ?? '') ? previewParam.value : null;
+  const ownKey = parseViewerKey(previewParam.value) != null ? previewParam.value : null;
   const viewer = useViewerBundle({
     list: sources,
     toItem,

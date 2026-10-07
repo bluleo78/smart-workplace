@@ -4,10 +4,13 @@ import type { IssueAttachment } from '../../types/attachment'
 import type { DriveFile, DriveLink, VirtualAttachment } from '../../types/drive'
 import {
   driveFileItem,
+  driveViewerKey,
+  fileViewerKey,
   issueAttachmentItem,
   issueBodyImageItem,
   issueDriveLinkItem,
   normalizeAttachmentPreviewKey,
+  parseViewerKey,
   resolveBundle,
   virtualAttachmentItem,
 } from './viewerItems'
@@ -95,5 +98,18 @@ describe('normalizeAttachmentPreviewKey', () => {
   it('이미 키 형식이거나 비어 있으면 그대로', () => {
     expect(normalizeAttachmentPreviewKey('file:9')).toBe('file:9')
     expect(normalizeAttachmentPreviewKey(null)).toBeNull()
+  })
+})
+
+describe('parseViewerKey', () => {
+  it('키를 만든 함수와 왕복한다(file·drive)', () => {
+    expect(parseViewerKey(driveViewerKey(70))).toEqual({ kind: 'drive', id: 70 })
+    expect(parseViewerKey(fileViewerKey(200))).toEqual({ kind: 'file', id: 200 })
+  })
+
+  it('형식이 아닌 값(null·숫자만·다른 접두어·숫자 아님·여분 문자)은 null', () => {
+    for (const v of [null, '', '70', 'mail:1', 'drive:', 'drive:abc', 'drive:1x', ' file:1', 'file:-1']) {
+      expect(parseViewerKey(v)).toBeNull()
+    }
   })
 })

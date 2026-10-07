@@ -47,9 +47,7 @@ export function useViewerBundle<T>({
   /** 뷰어 넘김 — 목록이 줄어 범위를 벗어난 요청은 무시한다. */
   const onIndexChange = (i: number) => {
     const t = sources[i]
-    if (t === undefined) return
-    setSnapshot(t)
-    openKey(toItem(t).key)
+    if (t !== undefined) open(t)
   }
   return {
     bundle,

@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 
+import { SCROLL_REGION_RING, scrollRegionProps } from '../../../lib/scrollRegion'
+import { cn } from '../../../lib/utils'
+
 /** 과대 표 보호를 위한 시트당 최대 행. */
 const MAX_ROWS = 500
 
@@ -66,13 +69,7 @@ export function SheetPreview({ buffer }: { buffer: ArrayBuffer }) {
         </div>
       )}
       {/* 가로 스크롤 영역은 포커스를 받을 수 있게 둔다 — 클릭·Tab 으로 들어오면 뷰어가 ←/→ 를 표 스크롤에 양보한다(data-hscroll). */}
-      <div
-        className="overflow-x-auto rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        data-hscroll
-        tabIndex={0}
-        role="region"
-        aria-label="표 가로 스크롤"
-      >
+      <div {...scrollRegionProps('표 가로 스크롤')} className={cn('overflow-x-auto rounded-sm', SCROLL_REGION_RING)}>
         <table className="w-full border-collapse text-xs">
           <tbody>
             {sheet.rows.map((row, r) => (

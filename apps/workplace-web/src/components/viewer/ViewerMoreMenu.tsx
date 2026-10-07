@@ -2,6 +2,7 @@ import { MoreHorizontal } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import { copyText } from '../../lib/copyText'
 import { Button } from '../ui/button'
 import {
   DropdownMenu,
@@ -32,11 +33,11 @@ export function ViewerMoreMenu({
   // 빈 메뉴(⋯ 를 눌러도 아무것도 없음)는 그리지 않는다.
   if (!item.sourceLink && !shareable && !onImport && !item.driveOpen) return null
   // 현재 URL 에 ?preview= 가 있어 그대로 공유하면 같은 뷰어가 열린다.
+  // copyText 는 Clipboard API 가 없거나 거부돼도(사내망 http 등) execCommand 로 한 번 더 시도하고 성공 여부만 돌려준다.
   const copyLink = () => {
-    void navigator.clipboard
-      .writeText(window.location.href)
-      .then(() => toast.success('링크를 복사했습니다'))
-      .catch(() => toast.error('링크를 복사하지 못했습니다'))
+    void copyText(window.location.href).then((ok) =>
+      ok ? toast.success('링크를 복사했습니다') : toast.error('링크를 복사하지 못했습니다'),
+    )
   }
   return (
     <DropdownMenu>

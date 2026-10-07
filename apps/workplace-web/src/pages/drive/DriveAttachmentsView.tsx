@@ -13,7 +13,7 @@ import { SearchInput } from '@/components/ui/search-input'
 import { AttachmentViewer } from '@/components/viewer/AttachmentViewer'
 import { useImportToDrive } from '@/components/viewer/useImportToDrive'
 import { useViewerBundle } from '@/components/viewer/useViewerBundle'
-import { normalizeAttachmentPreviewKey, virtualAttachmentItem } from '@/components/viewer/viewerItems'
+import { fileViewerKey, normalizeAttachmentPreviewKey, virtualAttachmentItem } from '@/components/viewer/viewerItems'
 import { ViewerNotFound } from '@/components/viewer/ViewerNotFound'
 import { useDriveAttachments } from '@/hooks/queries/useDriveAttachments'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
@@ -64,7 +64,7 @@ export function DriveAttachmentsView() {
   // 묶음 = 클릭한 첨부가 속한 출처 그룹(같은 이슈·같은 메시지) — ‹ › 는 같은 묶음 안에서만 움직인다.
   const groups = useMemo(() => groupAttachments(items), [items])
   const groupOf = (key: string | null) =>
-    groups.find((g) => g.items.some((a) => `file:${a.fileId}` === key))
+    groups.find((g) => g.items.some((a) => fileViewerKey(a.fileId) === key))
   // 열린 첨부 해석 — 현재 목록의 그룹 → 스냅숏 1건 순(단건 조회 API 없음, 필터 변경으로 빠져도 유지).
   // not-found 는 끝 페이지까지 받은 뒤에만 판정한다 — 아직 안 받은 페이지에 있을 수 있는 딥링크를 잘못 "없음"으로 안내하지 않게.
   // 예전 숫자 딥링크(?preview=123)도 file:123 으로 읽는다.

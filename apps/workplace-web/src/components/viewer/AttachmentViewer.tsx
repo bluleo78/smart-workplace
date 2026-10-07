@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, Cloud, Download, Minus, Plus, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { driveApi } from '../../api/drive'
+import { getIsMobile } from '../../hooks/useIsMobile'
 import { formatFileSize } from '../../lib/formatters'
 import { resolvePreviewKind } from '../../lib/previewKind'
 import { cn } from '../../lib/utils'
@@ -11,6 +11,7 @@ import { FileTypeIcon } from '../drive/FileTypeIcon'
 import { Button } from '../ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '../ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
+import { downloadViewerItem } from './downloadViewerItem'
 import type { ViewerItem } from './types'
 import { useImportToDrive } from './useImportToDrive'
 import { useSummaryAvailability } from './useSummaryAvailability'
@@ -35,19 +36,6 @@ function readPanelPref(): boolean | null {
     return v === '1' ? true : v === '0' ? false : null
   } catch {
     return null
-  }
-}
-
-/**
- * 호출부 기본값(defaultPanelOpen)을 따를 만큼 넓은 화면(lg ≥ 1024px)인지.
- * 좁은 화면에선 패널이 본문 아래로 쌓여 본문을 가리므로, 사용자가 직접 연 적이 없으면 접힌 채 연다.
- * matchMedia 가 없는 환경(구형·테스트)에서는 좁은 화면으로 본다.
- */
-function isWideViewport(): boolean {
-  try {
-    return typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 1024px)').matches
-  } catch {
-    return false
   }
 }
 
@@ -103,7 +91,8 @@ export function AttachmentViewer({
     .filter(Boolean)
     .join(' · ')
   // 사이드 패널 — 초기값 = 저장된 마지막 상태, 없으면 호출부 기본값(드라이브는 펼침, 단 lg 이상에서만). 묶음 안에서 넘겨도 유지된다.
-  const [panelOpen, setPanelOpen] = useState(() => readPanelPref() ?? (!!defaultPanelOpen && isWideViewport()))
+  // 좁은 화면(모바일 폭 — 앱 공용 기준 MOBILE_MEDIA_QUERY)에선 패널이 본문 아래로 쌓여 본문을 가리므로, 사용자가 직접 연 적이 없으면 접힌 채 연다.
+  const [panelOpen, setPanelOpen] = useState(() => readPanelPref() ?? (!!defaultPanelOpen && !getIsMobile()))
   const togglePanel = (open: boolean) => {
     setPanelOpen(open)
     try {
@@ -136,14 +125,6 @@ export function AttachmentViewer({
     // onIndexChange 는 호출부가 매 렌더 새로 만들어도 현재 항목이 바뀐 시점에만 보면 된다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemKey])
-  // 닫힘·언마운트 시 남은 목표를 버린다.
-  useEffect(
-    () => () => {
-      pendingKey.current = null
-      focusEdge.current = null
-    },
-    [],
-  )
   // 끝에 닿았으면 반대쪽 버튼으로 포커스(WCAG 2.4.3) — 버튼이 커밋된 뒤(effect)에 옮기므로 마운트 타이밍에 흔들리지 않는다.
   useEffect(() => {
     const edge = focusEdge.current
@@ -192,8 +173,6 @@ export function AttachmentViewer({
     else if (action === 'zoomOut') zoomOut()
     else zoomReset()
   }
-  // 헤더 다운로드는 경로만 있으면 된다 — blob 훅을 하나 더 만들지 않는다.
-  const download = () => driveApi.downloadByPath(item.downloadPath, item.name)
 
   return (
     <Dialog open modal={aiAware.modal} onOpenChange={(o) => !o && onClose()}>
@@ -241,7 +220,7 @@ export function AttachmentViewer({
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => void download()}
+                      onClick={() => void downloadViewerItem(item)}
                       aria-label="다운로드"
                       data-testid="preview-download"
                     >

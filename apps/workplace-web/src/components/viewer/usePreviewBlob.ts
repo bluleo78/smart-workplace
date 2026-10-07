@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { driveApi } from '../../api/drive'
 import { needsPreviewConfirm } from '../../lib/previewContent'
+import { downloadViewerItem } from './downloadViewerItem'
 import type { ViewerItem } from './types'
 
 /**
@@ -38,7 +39,7 @@ export function usePreviewBlob(item: ViewerItem, enabled: boolean) {
     error,
     confirmSize,
     confirm: () => setConsentedKey(item.key),
-    download: () => driveApi.downloadByPath(item.downloadPath, item.name),
+    download: () => downloadViewerItem(item),
     retry: () => setAttempt((n) => n + 1),
   }
 }

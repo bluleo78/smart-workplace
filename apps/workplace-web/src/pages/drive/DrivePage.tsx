@@ -66,7 +66,7 @@ import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
 import { SearchInput } from '../../components/ui/search-input'
 import { AttachmentViewer } from '../../components/viewer/AttachmentViewer'
 import { useViewerBundle } from '../../components/viewer/useViewerBundle'
-import { driveFileItem } from '../../components/viewer/viewerItems'
+import { driveFileItem, driveViewerKey, parseViewerKey } from '../../components/viewer/viewerItems'
 import { ViewerNotFound } from '../../components/viewer/ViewerNotFound'
 import { driveKeys } from '../../hooks/queries/driveKeys'
 import { useDriveItems } from '../../hooks/queries/useDriveItems'
@@ -269,12 +269,15 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const viewer = useViewerBundle({
     list: viewItems.files,
     toItem: driveFileItem,
-    currentKey: previewId != null ? `drive:${previewId}` : null,
+    currentKey: previewId != null ? driveViewerKey(previewId) : null,
     // 조회가 끝나면(실패 포함) 판정한다 — 실패 시 영영 판정하지 않으면 뷰어도 안내도 없이 낡은 ?preview 만 남는다.
     ready: results == null && !itemsQuery.isPlaceholderData && (itemsQuery.isSuccess || itemsQuery.isError),
-    openKey: (key) => previewParam.open(key.slice('drive:'.length)),
+    // 묶음 키는 언제나 driveFileItem 이 만든 `drive:{id}` — URL 에는 숫자 id 만 쓴다.
+    openKey: (key) => {
+      const parsed = parseViewerKey(key)
+      if (parsed?.kind === 'drive') previewParam.open(String(parsed.id))
+    },
   })
-  const openPreview = viewer.open
   // 미리보기 대상(AI 화면 컨텍스트용) — 뷰어 묶음이 해석한 현재 원본(목록 → 스냅숏)을 그대로 쓴다.
   const preview: DriveFile | null = viewer.current
   // 렌더마다 Set 을 새로 만들지 않도록 입력(뷰 목록·선택 집합)이 바뀔 때만 다시 계산한다.
@@ -1292,7 +1295,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                       <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
                       <button
                         type="button"
-                        onClick={() => (isMissingBlob(f) ? onUnavailableClick() : openPreview(f))}
+                        onClick={() => (isMissingBlob(f) ? onUnavailableClick() : viewer.open(f))}
                         className={cn(
                           'min-w-0 flex-1 text-left text-sm',
                           isMissingBlob(f) ? 'text-muted-foreground' : 'hover:underline',
@@ -1502,7 +1505,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
                 <button
                   type="button"
-                  onClick={() => (isMissingBlob(f) ? onUnavailableClick() : openPreview(f))}
+                  onClick={() => (isMissingBlob(f) ? onUnavailableClick() : viewer.open(f))}
                   className={cn(
                     'min-w-0 flex-1 text-left text-sm',
                     isMissingBlob(f) ? 'text-muted-foreground' : 'hover:underline',
