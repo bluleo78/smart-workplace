@@ -11,13 +11,9 @@ import { handleApiError } from '../../lib/api-error';
 import type { IssuePriority } from '../../types/issue';
 import type { UserSummary } from '../../types/user';
 import { patchIssueInSearchCache } from './issueSearchCache';
+import { invalidateIssueCaches } from './useBulkIssueActions';
 import { issueKeys } from './useIssues';
 
-// 검색·상세 캐시 동기화 — 사이클 진행률은 상태·삭제만 바꾸므로 여기선 다루지 않는다(삭제는 아래에서 따로).
-function invalidateIssue(qc: ReturnType<typeof useQueryClient>, projectKey: string) {
-  qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
-  qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });
-}
 
 /** 우선순위 변경 — 낙관적 패치. version 은 보내지 않는다(목록 행은 최신 version 을 보장하지 않음, 일괄 변경과 같은 정책). */
 export function useUpdateIssuePriority(projectKey: string) {
@@ -31,7 +27,7 @@ export function useUpdateIssuePriority(projectKey: string) {
       handleApiError(err, '우선순위 변경에 실패했습니다');
     },
     onSuccess: () => toast.success('우선순위를 변경했습니다'),
-    onSettled: () => invalidateIssue(qc, projectKey),
+    onSettled: () => invalidateIssueCaches(qc, projectKey),
   });
 }
 
@@ -55,7 +51,7 @@ export function useSetIssueAssignees(projectKey: string) {
       qc.invalidateQueries({ queryKey: ['watchers', projectKey, number] });
       toast.success(successMessage ?? '담당자를 변경했습니다');
     },
-    onSettled: () => invalidateIssue(qc, projectKey),
+    onSettled: () => invalidateIssueCaches(qc, projectKey),
   });
 }
 

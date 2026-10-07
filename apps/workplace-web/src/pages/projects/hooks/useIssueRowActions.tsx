@@ -3,23 +3,14 @@
 // - 모바일(WP-273 시안 M1): 「⋯」·길게 누르기 → 액션 시트(줄마다 현재 값) → 상태·담당자·우선순위·에픽·AI 선택 시트.
 // 시트는 한 번에 하나만 연다. 변경은 낙관적 mutation(상태·에픽은 드래그와 같은 경로)을 재사용한다.
 import { Bot, Check, CheckSquare, CircleDot, Layers, Link2, SignalHigh, Trash2, UserRound } from 'lucide-react';
-import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { IssuePriorityBars } from '@/components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon';
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { AgentBadge } from '@/components/users/AgentBadge';
 import { UserAvatar } from '@/components/users/UserAvatar';
 import { useAuth } from '@/hooks/useAuth';
@@ -34,7 +25,7 @@ import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
 import { epicDragBlockReason } from '../../../lib/epicDnd';
 import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
-import { rowMenuItems, toggleAssigneeIds } from '../../../lib/issueRowMenu';
+import { rowMenuItems, toggleAssigneeIds, toSummary } from '../../../lib/issueRowMenu';
 import type { IssuePriority, IssueResponse, IssueStatus } from '../../../types/issue';
 import type { MemberResponse } from '../../../types/project';
 import type { UserSummary } from '../../../types/user';
@@ -63,11 +54,6 @@ export function openRowMenuAtPointer(e: MouseEvent<HTMLElement>, issue: IssueRes
   const r = e.currentTarget.getBoundingClientRect();
   const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
   openMenu(issue, inside ? { x: e.clientX, y: e.clientY, align: 'start' } : { x: r.left + 16, y: r.bottom, align: 'start' });
-}
-
-// 프로젝트 멤버 → 담당자 요약(낙관적 패치로 행에 바로 그릴 값).
-function toSummary(m: MemberResponse): UserSummary {
-  return { id: m.userId, username: m.username, name: m.name, kind: m.kind };
 }
 
 export function useIssueRowActions({
@@ -115,14 +101,8 @@ export function useIssueRowActions({
   const bulkPriority = useBulkUpdatePriority(projectKey);
   const bulkAssign = useBulkAssign(projectKey);
   const bulkDelete = useBulkDeleteIssues(projectKey);
-  // 에픽 목록은 에픽 항목을 쓸 때만 필요 — 모바일 멤버이거나 데스크톱 메뉴가 열렸을 때만 조회(훅 순서 고정).
-  const { epics, epicType, loading: epicsLoading } = useProjectEpics(projectKey, canEdit && (isMobile || state?.kind === 'menu'));
-
-  // open(길게 누르기)은 모바일에서만 — 행·카드는 핸들러 유무로 길게 누르기 연결 여부를 정한다. 안정 참조(행 memo).
-  const open = useMemo(
-    () => (isMobile ? (issue: IssueResponse) => setState({ kind: 'sheet', issue, sheet: 'actions', assigneeIds: issue.assignees.map((a) => a.id) }) : undefined),
-    [isMobile],
-  );
+  // 에픽 목록은 에픽 항목을 쓸 때만 필요 — 메뉴·시트가 열렸을 때만 조회(훅 순서 고정). 프로젝트 화면이 미리 데워 두어 보통 캐시 적중.
+  const { epics, epicType, loading: epicsLoading } = useProjectEpics(projectKey, canEdit && state != null);
   // openMenu 는 최신 선택 집합을 읽어야 하지만, deps 에 넣으면 선택이 바뀔 때마다 모든 행 memo 가 깨진다(#716) — ref 로 읽는다.
   const selectedRef = useRef(selected);
   useEffect(() => {
@@ -142,6 +122,8 @@ export function useIssueRowActions({
     },
     [isMobile],
   );
+  // 길게 누르기는 모바일에서만 — 좌표 없이 열면 액션 시트다. 행·카드는 핸들러 유무로 길게 누르기 연결 여부를 정한다.
+  const open = isMobile ? openMenu : undefined;
   const close = () => setState(null);
 
   const issue = state?.kind === 'menu' ? state.target.issue : state?.issue;
@@ -217,27 +199,24 @@ export function useIssueRowActions({
     setPendingDelete(null);
   };
 
+  // 다중 선택·하위 태스크가 있을 때만 기본 문구(「"제목" 태스크를 정말 삭제…」) 대신 경고를 덧붙인다.
+  const deleteCount = pendingDelete?.numbers.length ?? 0;
+  const deleteChildren = pendingDelete?.issue.childCount ?? 0;
   const deleteDialog = (
-    <AlertDialog open={pendingDelete != null} onOpenChange={(o) => !o && setPendingDelete(null)}>
-      <AlertDialogContent data-testid="issue-row-delete-dialog">
-        <AlertDialogHeader>
-          <AlertDialogTitle>태스크 삭제</AlertDialogTitle>
-          <AlertDialogDescription>
-            {pendingDelete && pendingDelete.numbers.length > 1
-              ? `선택한 ${pendingDelete.numbers.length}개 태스크를 삭제할까요? 이 작업은 되돌릴 수 없습니다.`
-              : pendingDelete && pendingDelete.issue.childCount > 0
-                ? `「${pendingDelete.issue.title}」에는 하위 태스크가 ${pendingDelete.issue.childCount}개 있습니다. 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`
-                : `「${pendingDelete?.issue.title ?? ''}」을(를) 삭제할까요? 이 작업은 되돌릴 수 없습니다.`}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>취소</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" data-testid="issue-row-delete-confirm" onClick={confirmDelete}>
-            삭제
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <DeleteConfirmDialog
+      open={pendingDelete != null}
+      onOpenChange={(o) => !o && setPendingDelete(null)}
+      entityName="태스크"
+      itemName={pendingDelete?.issue.title ?? ''}
+      onConfirm={confirmDelete}
+      description={
+        deleteCount > 1
+          ? `선택한 ${deleteCount}개 태스크를 삭제할까요? 이 작업은 되돌릴 수 없습니다.`
+          : deleteChildren > 0
+            ? `「${pendingDelete?.issue.title}」에는 하위 태스크가 ${deleteChildren}개 있습니다. 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`
+            : undefined
+      }
+    />
   );
 
   // ── 데스크톱 ──────────────────────────────────────────
@@ -277,29 +256,19 @@ export function useIssueRowActions({
   const assigneeNames = issue
     ? members.filter((m) => assigneeIds.includes(m.userId)).map((m) => m.name).join(', ') || '미지정'
     : '';
-  const actions: MobileSheetAction[] = [];
-  if (issue && items.status) {
-    actions.push({ key: 'status', label: '상태', icon: <CircleDot />, hint: ISSUE_STATUS_LABEL[issue.status], onSelect: () => toSheet('status') });
-  }
-  if (issue && items.assignee) {
-    actions.push({ key: 'assignee', label: '담당자', icon: <UserRound />, hint: assigneeNames, onSelect: () => toSheet('assignee') });
-  }
-  if (issue && items.priority) {
-    actions.push({ key: 'priority', label: '우선순위', icon: <SignalHigh />, hint: ISSUE_PRIORITY_LABEL[issue.priority], onSelect: () => toSheet('priority') });
-  }
-  if (issue && items.epic) {
-    actions.push({ key: 'epic', label: '에픽', icon: <Layers />, hint: issue.parent?.title ?? '없음', onSelect: () => toSheet('epic') });
-  }
-  if (issue && items.ai) {
-    actions.push({
-      key: 'ai', label: 'AI에게 맡기기', icon: <Bot />, ai: true,
-      // AI 멤버가 하나면 바로 맡기고, 여럿이면 고르는 시트로.
-      onSelect: () => (agents.length === 1 ? delegate(agents[0]) : toSheet('ai')),
-    });
-  }
-  if (issue) actions.push({ key: 'copy-link', label: '링크 복사', icon: <Link2 />, onSelect: copyLink });
-  if (issue && onSelect) actions.push({ key: 'select', label: isSelected?.(issue) ? '선택 해제' : '선택', icon: <CheckSquare />, onSelect: () => onSelect(issue) });
-  if (issue && items.delete) actions.push({ key: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: askDelete });
+  const actions: MobileSheetAction[] = !issue
+    ? []
+    : ([
+        items.status && { key: 'status', label: '상태', icon: <CircleDot />, hint: ISSUE_STATUS_LABEL[issue.status], onSelect: () => toSheet('status') },
+        items.assignee && { key: 'assignee', label: '담당자', icon: <UserRound />, hint: assigneeNames, onSelect: () => toSheet('assignee') },
+        items.priority && { key: 'priority', label: '우선순위', icon: <SignalHigh />, hint: ISSUE_PRIORITY_LABEL[issue.priority], onSelect: () => toSheet('priority') },
+        items.epic && { key: 'epic', label: '에픽', icon: <Layers />, hint: issue.parent?.title ?? '없음', onSelect: () => toSheet('epic') },
+        // AI 멤버가 하나면 바로 맡기고, 여럿이면 고르는 시트로.
+        items.ai && { key: 'ai', label: 'AI에게 맡기기', icon: <Bot />, ai: true, onSelect: () => (agents.length === 1 ? delegate(agents[0]) : toSheet('ai')) },
+        { key: 'copy-link', label: '링크 복사', icon: <Link2 />, onSelect: copyLink },
+        onSelect && { key: 'select', label: isSelected?.(issue) ? '선택 해제' : '선택', icon: <CheckSquare />, onSelect: () => onSelect(issue) },
+        items.delete && { key: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: askDelete },
+      ] as (MobileSheetAction | false | undefined)[]).filter((a): a is MobileSheetAction => !!a);
 
   const sheets = (
     <>

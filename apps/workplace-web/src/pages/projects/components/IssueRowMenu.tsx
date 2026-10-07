@@ -22,7 +22,7 @@ import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { AgentBadge } from '../../../components/users/AgentBadge';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL } from '../../../lib/issueGrouping';
-import type { RowMenuItems } from '../../../lib/issueRowMenu';
+import { type RowMenuItems, toSummary } from '../../../lib/issueRowMenu';
 import type { IssuePriority, IssueResponse, IssueStatus } from '../../../types/issue';
 import type { MemberResponse } from '../../../types/project';
 
@@ -132,7 +132,7 @@ export function IssueRowMenu({
               {members.map((m) =>
                 bulk ? (
                   <DropdownMenuItem key={m.userId} onSelect={() => onBulkAssign([m.userId])} data-testid={`row-menu-assignee-${m.userId}`}>
-                    <UserAvatar user={{ id: m.userId, username: m.username, name: m.name }} size="xs" agent={m.kind === 'AGENT'} />
+                    <UserAvatar user={toSummary(m)} size="xs" agent={m.kind === 'AGENT'} />
                     <span className="truncate">{m.name}</span>
                   </DropdownMenuItem>
                 ) : (
@@ -146,7 +146,7 @@ export function IssueRowMenu({
                     }}
                     data-testid={`row-menu-assignee-${m.userId}`}
                   >
-                    <UserAvatar user={{ id: m.userId, username: m.username, name: m.name }} size="xs" agent={m.kind === 'AGENT'} />
+                    <UserAvatar user={toSummary(m)} size="xs" agent={m.kind === 'AGENT'} />
                     <span className="truncate">{m.name}</span>
                     {m.kind === 'AGENT' && <AgentBadge size="xs" />}
                   </DropdownMenuCheckboxItem>
@@ -202,7 +202,7 @@ export function IssueRowMenu({
               <DropdownMenuSubContent>
                 {agents.map((a) => (
                   <DropdownMenuItem key={a.userId} onSelect={() => onDelegate(a)} data-testid={`row-menu-ai-${a.userId}`}>
-                    <UserAvatar user={{ id: a.userId, username: a.username, name: a.name }} size="xs" agent />
+                    <UserAvatar user={toSummary(a)} size="xs" agent />
                     {a.name}
                   </DropdownMenuItem>
                 ))}

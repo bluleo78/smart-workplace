@@ -2,6 +2,7 @@
 // 왜 분리했나: 권한(멤버·삭제)·다중 선택·AI 멤버 유무 조합이 많아 UI 안에 흩어지면 두 화면이 서로 다르게 어긋난다.
 import type { IssueResponse } from '../types/issue';
 import type { MemberResponse } from '../types/project';
+import type { UserSummary } from '../types/user';
 
 export interface RowMenuContext {
   issue: Pick<IssueResponse, 'assignees' | 'reporterId'>;
@@ -53,4 +54,9 @@ export function rowMenuItems(ctx: RowMenuContext): RowMenuItems {
 /** 담당자 집합에서 id 를 넣거나 뺀 새 id 목록 — 메뉴의 담당자 항목은 체크 토글이다(집합 교체 API 라 전체를 보낸다). */
 export function toggleAssigneeIds(current: number[], id: number): number[] {
   return current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+}
+
+/** 프로젝트 멤버 → 담당자 요약 — 낙관적 패치로 행에 바로 그릴 값이자 메뉴·시트의 아바타 입력. */
+export function toSummary(m: MemberResponse): UserSummary {
+  return { id: m.userId, username: m.username, name: m.name, kind: m.kind };
 }

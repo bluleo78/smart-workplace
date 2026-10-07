@@ -186,8 +186,8 @@ test.describe('이슈 행 ⋯ 메뉴 — 목록(데스크톱)', () => {
 
     await page.getByTestId('issue-row-7').click({ button: 'right' });
     await page.getByTestId('row-menu-delete').click();
-    await expect(page.getByTestId('issue-row-delete-dialog')).toContainText('로그인 세션 만료 처리');
-    await page.getByTestId('issue-row-delete-confirm').click();
+    await expect(page.getByRole('alertdialog')).toContainText('로그인 세션 만료 처리');
+    await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).click();
     await api.waitFor();
     expect(api.calls()).toEqual([{ method: 'DELETE', path: `${ISSUES}/7`, body: null }]);
   });

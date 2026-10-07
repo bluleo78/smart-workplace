@@ -38,7 +38,7 @@ function reportBulkResult(results: PromiseSettledResult<unknown>[], successLabel
 // 공통 무효화 — 검색/상세 캐시를 모두 갱신.
 // 사이클 진행률도 함께 — 목록 사이클 구간 헤더(#878)가 행 바로 위에 진행률을 보이므로, 일괄 완료·삭제 직후
 // 행만 바뀌고 진행률이 옛 값으로 남지 않게 한다(검색 키 패밀리 밖이라 자동으로 걸리지 않는다).
-function invalidateIssueCaches(qc: ReturnType<typeof useQueryClient>, projectKey: string) {
+export function invalidateIssueCaches(qc: ReturnType<typeof useQueryClient>, projectKey: string) {
   qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
   qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });
   qc.invalidateQueries({ queryKey: ['cycleProgress', projectKey] });

@@ -105,7 +105,7 @@ test.describe('모바일 이슈 행 ⋯ 메뉴', () => {
 
     await page.getByTestId('issue-row-21-menu').click();
     await page.getByTestId('mobile-action-delete').click();
-    await page.getByTestId('issue-row-delete-confirm').click();
+    await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).click();
     await expect.poll(calls).toEqual([{ method: 'DELETE', path: `${ISSUES}/21`, body: null }]);
   });
 
