@@ -963,7 +963,9 @@ import type { ActionSlot, ShareState, SlotId } from './viewerActions'
 import { middleEllipsis } from './viewerNav'
 
 /** 바 겹침 레이어 공통 — 본문 위에 반투명으로 뜨고, 숨김 시 inert·투명(탭으로 다시 표시, Task 6). */
-const barClass = 'absolute inset-x-0 z-20 bg-background/80 backdrop-blur transition-opacity duration-200'
+// 좌우 안전영역도 직접 — absolute inset-x-0 은 루트의 padding(safe-area)을 무시하므로 가로 모드에서 ✕·⋯ 가 노치 아래로 들어간다(시안 M5).
+const barClass =
+  'absolute inset-x-0 z-20 bg-background/80 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur transition-opacity duration-200'
 
 /**
  * 모바일 상단 바(WP-278, 스펙 §4.2·시안 M1) — ✕ · 파일명(가운데 말줄임)/순번·쪽 · ⋯.
@@ -1346,7 +1348,8 @@ export function ViewerSummarySheet({ item, onClose }: { item: ViewerItem; onClos
       aria-label="AI 요약"
       data-testid="viewer-summary-sheet"
       className={cn(
-        'absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-xl border-t border-border bg-background transition-[height] duration-200',
+        // 좌우 안전영역 — absolute 라 루트 padding 을 받지 못한다(가로 모드 노치).
+        'absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-xl border-t border-border bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] transition-[height] duration-200',
         expanded ? 'h-[calc(100%-3.5rem-env(safe-area-inset-top))]' : 'h-1/2',
       )}
     >
@@ -1850,6 +1853,8 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
 }
 ```
 
+> **린트 주의:** React Compiler/`react-hooks` 규칙이 "훅 인자(`stage`) 변경"으로 `stage.style.*` 쓰기를 지적하면 규칙을 끄지 말고, 콜백 ref state(`stage`)는 이펙트 의존성으로만 쓰고 실제 style 쓰기는 `const el = useRef<HTMLElement | null>(null); el.current = stage` 로 비춘 ref 를 통해 한다.
+
 - [ ] **Step 5: 무대 touch-action CSS**
 
 `src/index.css` 끝(또는 Task 3 에서 넣은 뷰어 규칙 아래)에:
@@ -2041,6 +2046,7 @@ test.describe('아래로 닫기·탭 바 토글', () => {
     }
   })
 
+  // 참고: 탭의 click 이 포커스를 본문·다이얼로그로 옮기므로 이 테스트는 R7 없이도 통과할 수 있다 — R7 은 방어적 규칙(블루투스 키보드·스크린리더 경로)이고 회귀 신호로만 둔다.
   test('끝까지 스와이프한 뒤에도 탭이 바를 숨긴다(제스처 넘김은 ‹ › 로 포커스를 옮기지 않음)', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [IMG(70), IMG(71)])
     await openViewer(page, '사진70.png')
@@ -2189,16 +2195,20 @@ export function useIsLandscape(): boolean {
 
 ```tsx
   // 바 숨김 — 가로 모드는 기본 숨김(시안 M5), 탭으로 토글(모바일 배치만, 판정 R5).
-  // 회전하면 그 방향의 기본값으로 돌아가도록 방향과 함께 든다(이펙트에서 setState 하지 않는 파생 패턴 — zoomState 와 같은 방식).
+  // 회전할 때마다 그 방향의 기본값으로 되돌린다 — 렌더 중 상태 갱신(useViewerBundle 의 스냅숏과 같은 수렴 패턴, 이펙트 setState 아님).
+  // 주의: "저장된 방향과 다를 때만 기본값" 식의 파생으로 두면 가로→(탭으로 표시)→세로→가로 에서 낡은 '표시'가 되살아난다(Review Focus 4).
   const landscape = useIsLandscape()
   const [bars, setBars] = useState({ landscape, hidden: landscape })
+  if (bars.landscape !== landscape) setBars({ landscape, hidden: landscape })
+  // 갱신이 반영되는 재렌더 전 한 번은 새 방향 기본값으로 본다.
   const barsHidden = mobile && (bars.landscape === landscape ? bars.hidden : landscape)
   const topBarRef = useRef<HTMLElement>(null)
   const bottomBarRef = useRef<HTMLDivElement>(null)
-  /** 탭 = 바 토글. 포커스가 바 안이면 숨기지 않는다(스펙 §5.1) — inert 바 안에 포커스가 갇히지 않게. */
+  /** 탭 = 바 토글. 포커스가 바(‹ › 포함) 안이면 숨기지 않는다(스펙 §5.1) — inert 로 빠질 요소 안에 포커스가 갇히지 않게. */
   const toggleBars = () => {
     const a = document.activeElement
-    if (!barsHidden && (topBarRef.current?.contains(a) || bottomBarRef.current?.contains(a))) return
+    const inBars = [topBarRef.current, bottomBarRef.current, prevBtn.current, nextBtn.current].some((el) => el?.contains(a))
+    if (!barsHidden && inBars) return
     setBars({ landscape, hidden: !barsHidden })
   }
   // 아래로 닫기 때 옅어지는 배경 — 루트 배경을 이 레이어로 옮겨 투명도만 바꾼다(하드코딩 색 없이 토큰 유지).
@@ -2353,6 +2363,24 @@ test.describe('핀치·두 번 탭 확대', () => {
     await expect(stage).toHaveAttribute('data-zoom', '2')
   })
 
+  test('PDF 축소(3배 → 맞춤 쪽)에서도 보던 위치가 비례해 유지된다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
+    await openViewer(page, 'doc.pdf')
+    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    const stage = page.getByTestId('viewer-stage')
+    const doc = page.getByTestId('pdf-document')
+    const c = await centerOf(stage)
+    await touchPinch(page, c, 60, 600)
+    await expect(stage).toHaveAttribute('data-zoom', '3')
+    // 문서 중간쯤으로 스크롤해 둔 뒤(최대값 근처가 아닌 위치) 반쯤 모은다.
+    await doc.evaluate((el) => (el.scrollTop = Math.round(el.scrollHeight * 0.4)))
+    const ratioBefore = await doc.evaluate((el) => el.scrollTop / el.scrollHeight)
+    await touchPinch(page, c, 300, 200)
+    await expect.poll(async () => Number(await stage.getAttribute('data-zoom'))).toBeLessThan(3)
+    // 축소 뒤 스크롤 비율이 크게 어긋나지 않는다(브라우저가 잘라 낸 값을 기준으로 쓰면 맨 끝/맨 앞으로 튄다).
+    await expect.poll(async () => Math.abs((await doc.evaluate((el) => el.scrollTop / el.scrollHeight)) - ratioBefore)).toBeLessThan(0.08)
+  })
+
   test('확대 대상이 아닌 문서(마크다운)는 핀치·두 번 탭에 반응하지 않는다', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [MD(72)])
     await openViewer(page, '메모72.md')
@@ -2498,11 +2526,15 @@ type Track = OneFinger | Pinch | { kind: 'ignore' } | null
 
 ```tsx
   // 터치 확대 기준점 — 커밋 직후(레이아웃 반영 뒤) 그 점이 제자리에 남도록 스크롤을 맞춘다(판정 R1).
-  const zoomAnchor = useRef<{ from: number; to: number; focus: { x: number; y: number } } | null>(null)
-  /** 핀치·두 번 탭 확정 — 배율을 바꾸고 기준점을 기억한다. */
+  const zoomAnchor = useRef<{ from: number; to: number; focus: { x: number; y: number }; left: number; top: number } | null>(null)
+  /**
+   * 핀치·두 번 탭 확정 — 배율을 바꾸고 기준점과 "바뀌기 전" 스크롤 위치를 기억한다.
+   * 왜 전 위치를 미리 재나: 축소하면 내용이 먼저 줄어 브라우저가 scrollLeft/Top 을 새 최대값으로 잘라 버려, 레이아웃 뒤에 읽으면 틀린 기준이 된다.
+   */
   const zoomAt = (next: number, focus: { x: number; y: number }) => {
     if (next === zoom) return
-    zoomAnchor.current = { from: zoom, to: next, focus }
+    const el = stage?.querySelector<HTMLElement>('[data-hscroll]')
+    zoomAnchor.current = { from: zoom, to: next, focus, left: el?.scrollLeft ?? 0, top: el?.scrollTop ?? 0 }
     setZoom(() => next)
   }
   useLayoutEffect(() => {
@@ -2512,7 +2544,7 @@ type Track = OneFinger | Pinch | { kind: 'ignore' } | null
     // 이미지 = 본문 자신, PDF = pdf-document — 둘 다 확대 스크롤 영역 표식(data-hscroll)을 단다(판정 R4).
     const el = stage.querySelector<HTMLElement>('[data-hscroll]')
     if (!el) return
-    const s = anchorScroll({ scrollLeft: el.scrollLeft, scrollTop: el.scrollTop, focusX: a.focus.x, focusY: a.focus.y, from: a.from, to: a.to })
+    const s = anchorScroll({ scrollLeft: a.left, scrollTop: a.top, focusX: a.focus.x, focusY: a.focus.y, from: a.from, to: a.to })
     el.scrollLeft = s.left
     el.scrollTop = s.top
   }, [zoom, stage])
