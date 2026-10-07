@@ -234,17 +234,10 @@ export const driveApi = {
   // 임의 콘텐츠 경로의 원본 Blob. 구현은 api/blobContent.ts 공용 모듈(wiki 등 타 도메인과 공유).
   fetchBlobByPath,
 
-  // 임의 콘텐츠 경로 다운로드 → a[download] 트리거.
+  // 임의 콘텐츠 경로 다운로드 → a[download] 트리거. URL 해제 지연은 downloadBlob 이 맡는다(iOS 저장 실패 방지, WP-278).
   downloadByPath: async (path: string, fileName: string) => {
     const { data } = await client.get<Blob>(stripApiPrefix(path), { responseType: 'blob' })
-    const url = URL.createObjectURL(data)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = fileName
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    downloadBlob(fileName, data)
   },
 
   // 버전 이력(#79)
