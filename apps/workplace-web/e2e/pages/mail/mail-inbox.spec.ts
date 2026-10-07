@@ -6,7 +6,7 @@ import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
-import { expectStays, retryOnNavigation } from '../../fixtures/wait'
+import { expectStays, expectThinScrollbar, retryOnNavigation } from '../../fixtures/wait'
 
 // GET /mail/accounts/1/messages — query 파라미터에 따라 분기(검색 검증).
 async function stubMessages(page: Page) {
@@ -501,6 +501,8 @@ test.describe('받은편지함', () => {
       await expect.poll(() => color('accent')).toBe('rgb(243, 112, 33)')
       await expect.poll(() => bg('text')).toBe('rgba(0, 0, 0, 0)')
       await expect(frame.locator('#inline')).toHaveAttribute('src', /^data:image\/png;base64,/)
+      // WP-275: 다크 변환(재직렬화)된 본문에도 슬림 스크롤바가 주입된다 — srcDoc 은 앱 CSS 를 상속하지 않는다.
+      await expectThinScrollbar(frame, '#text')
 
       // "원본 배경으로 보기" → 변환 전 원본(검정 글자, 인라인 이미지 유지), 다시 누르면 다크 변환으로
       const toggle = page.getByTestId('mail-body-theme-toggle')

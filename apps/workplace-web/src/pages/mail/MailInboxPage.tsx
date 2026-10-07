@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils'
 import { downloadMailAttachment, getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDialog'
+import { SandboxedHtmlFrame } from '../../components/SandboxedHtmlFrame'
 import { mailMessageKeys } from '../../hooks/queries/mailMessageKeys'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
@@ -519,11 +520,10 @@ function MessageDetailPanel({
                 {showOriginal ? '다크 배경으로 보기' : '원본 배경으로 보기'}
               </Button>
             )}
-            <iframe
+            <SandboxedHtmlFrame
               data-testid="mail-body-html"
               title="메일 본문"
-              sandbox=""
-              srcDoc={bodyHtml}
+              html={bodyHtml}
               className="min-h-[300px] w-full flex-1 border-0"
             />
           </div>

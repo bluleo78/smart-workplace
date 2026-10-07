@@ -5,12 +5,13 @@
 // 영역에 부적합하므로(10-accessibility.md:33), 표면 강등 액자(bg-muted/40) 안에 원본
 // "종이"를 넣어 경계를 만든다.
 //
-// 원문은 신뢰 불가 HTML 이므로 sandbox="" iframe + srcDoc 으로만 렌더한다
-// (프로젝트 관례: MailInboxPage.tsx 등). dangerouslySetInnerHTML 금지.
+// 원문은 신뢰 불가 HTML 이므로 공용 격리 iframe(SandboxedHtmlFrame — sandbox="" + srcDoc)으로만
+// 렌더한다. dangerouslySetInnerHTML 금지.
 
 import { ChevronRight, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
+import { SandboxedHtmlFrame } from '@/components/SandboxedHtmlFrame';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useInlineMailHtml } from '@/hooks/queries/useMailMessages';
@@ -109,11 +110,10 @@ export function MailQuoteBlock({
       <div className="rounded-lg border border-border bg-muted/40 p-1">
         {/* bg-white 는 하드코딩 색이지만 의도적 — iframe 안은 실제 메일 원본 문서이고
             종이 배경은 테마에 따라 바뀌면 안 된다. */}
-        <iframe
+        <SandboxedHtmlFrame
           data-testid="mail-compose-quote-frame"
           title="인용된 원문"
-          sandbox=""
-          srcDoc={previewHtml ?? quoteHtml}
+          html={previewHtml ?? quoteHtml}
           className={cn('w-full rounded-md border-0 bg-white', tall ? 'h-64' : 'h-40')}
         />
       </div>

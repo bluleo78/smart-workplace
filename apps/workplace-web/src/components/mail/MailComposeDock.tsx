@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 
 import { useCoachDraft, useSendMail } from '../../hooks/queries/useMailMessages';
 import type { CoachingNote } from '../../types/mailMessage';
+import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame';
 import { useMailCompose } from './MailComposeContext';
 import { MailComposer, type MailComposerHandle } from './MailComposer';
 import { MailQuoteBlock } from './MailQuoteBlock';
@@ -286,12 +287,11 @@ export function MailComposeDock() {
                   {coach.data.improvedBodyHtml && (
                     <div className="flex flex-col gap-1.5">
                       <span className="text-xs font-semibold uppercase text-muted-foreground">다듬은 개선본</span>
-                      {/* 스크립트 차단 iframe — LLM 생성 HTML 을 sandbox="" 로 격리해 XSS 방지. */}
-                      <iframe
+                      {/* LLM 생성 HTML 은 공용 격리 iframe(SandboxedHtmlFrame, sandbox="")으로 렌더해 XSS 방지. */}
+                      <SandboxedHtmlFrame
                         data-testid="mail-coaching-improved"
                         title="다듬은 개선본"
-                        sandbox=""
-                        srcDoc={coach.data.improvedBodyHtml}
+                        html={coach.data.improvedBodyHtml}
                         className="min-h-[8rem] w-full rounded border border-border bg-muted/40"
                       />
                       <div className="flex gap-2">

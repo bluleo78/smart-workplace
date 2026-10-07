@@ -6,13 +6,13 @@ import { useDriveFileSummary } from '../../hooks/queries/useDriveFileSummary'
 import { useFileBacklinks } from '../../hooks/queries/useFileBacklinks'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
 import { formatFileSize } from '../../lib/formatters'
-import { withPreviewScrollbar } from '../../lib/htmlPreviewDoc'
 import { resolvePreviewKind } from '../../lib/previewKind'
 import { cn } from '../../lib/utils'
 import type { DriveFile, VirtualAttachment } from '../../types/drive'
 import { AiContent } from '../ai/AiContent'
 import { MarkdownMessage } from '../ai/MarkdownMessage'
 import { useAiPanelAwareDialog } from '../ai/useAiPanelAwareDialog'
+import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
 import { Button } from '../ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
@@ -136,10 +136,7 @@ export function FilePreviewModal({
       else if (kind === 'PDF') showUrl(await toVerifiedPdfBlob(blob))
       else if (textLike) {
         const t = await blobToText(blob, { maxBytes: TEXT_DECODE_MAX_BYTES })
-        const sliced = t.slice(0, TEXT_PREVIEW_LIMIT)
-        // WP-274: HTML 은 srcDoc 으로만 쓰인다 — 앱 CSS 를 못 받아 OS 기본 두꺼운 스크롤바가 보이므로
-        // 받을 때 한 번 슬림 스크롤바 스타일을 주입해 둔다(렌더마다 수 MB 문자열을 다시 잇지 않게).
-        if (alive) setText(kind === 'HTML' ? withPreviewScrollbar(sliced) : sliced)
+        if (alive) setText(t.slice(0, TEXT_PREVIEW_LIMIT))
       } else {
         // 바이너리 파서(XLSX/DOCX)는 arrayBuffer 가 필요.
         const buf = await blob.arrayBuffer()
@@ -283,13 +280,12 @@ export function FilePreviewModal({
             <iframe src={blobUrl} title={name} className="block h-full min-h-[60vh] w-full border-0" />
           )}
           {!error && kind === 'MARKDOWN' && text != null && <MarkdownMessage>{text}</MarkdownMessage>}
-          {/* HTML 은 sandbox="" + srcDoc 격리 iframe 으로 렌더 — 스크립트/폼/네비게이션 전면 차단(#486 XSS 패턴, #732). */}
+          {/* HTML 은 격리 iframe 으로 렌더 — 스크립트/폼/네비게이션 전면 차단(#486 XSS 패턴, #732). */}
           {!error && kind === 'HTML' && text != null && (
-            <iframe
+            <SandboxedHtmlFrame
               data-testid="html-document"
               title={name}
-              sandbox=""
-              srcDoc={text}
+              html={text}
               className="block h-full min-h-[60vh] w-full border-0"
             />
           )}

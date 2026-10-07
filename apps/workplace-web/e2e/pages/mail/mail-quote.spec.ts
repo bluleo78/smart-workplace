@@ -3,11 +3,12 @@
 // MailQuoteBlock 이 표시하며, 발송 시 bodyHtml = 에디터 본문 + quote.html 로 합쳐진다.
 // 저장된 원문은 완전 HTML 문서이므로 표·서식 보존과 <style> 누출 차단을 함께
 // 단정한다 — 존재 단언만으로는 누출 버그를 놓친다.
+import { THIN_SCROLLBAR_STYLE } from '../../../src/lib/sandboxedHtml'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
-import { retryOnNavigation } from '../../fixtures/wait'
+import { expectThinScrollbar, retryOnNavigation } from '../../fixtures/wait'
 
 /** 실제 메일처럼 완전 문서 + 표 + 인라인 style + 긴 서명. */
 const FULL_DOC_BODY = [
@@ -79,11 +80,15 @@ test.describe('메일 인용문 보존', () => {
     expect(srcDoc).toContain('bgcolor="#eeeeee"')
     expect(srcDoc).toContain('style="color:#0000ff"')
     expect(srcDoc).toContain('<font color="red">')
-    // 누출 차단: 원문 스타일시트와 문서 래퍼
-    expect(srcDoc).not.toContain('<style')
-    expect(srcDoc).not.toContain('Papyrus')
-    expect(srcDoc).not.toContain('<html')
-    expect(srcDoc).not.toContain('<head')
+    // 누출 차단: 원문 스타일시트와 문서 래퍼. 공용 격리 프레임이 넣는 슬림 스크롤바 스타일(WP-275)은
+    // 정확히 그 문자열 하나만 빼고 본다 — 원문 <style> 이 새면 여전히 잡힌다.
+    const original = srcDoc!.replace(THIN_SCROLLBAR_STYLE, '')
+    expect(original).not.toContain('<style')
+    expect(original).not.toContain('Papyrus')
+    expect(original).not.toContain('<html')
+    expect(original).not.toContain('<head')
+    // WP-275: 고정 높이(h-40) 안에서 내부 스크롤하는 인용 프레임에도 슬림 스크롤바가 적용된다.
+    await expectThinScrollbar(page.frameLocator('[data-testid="mail-compose-quote-frame"]'))
   })
 
   test('높이 토글이 펼침 상태를 무너뜨리지 않는다', async ({ authenticatedPage: page }) => {
