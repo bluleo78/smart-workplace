@@ -114,15 +114,63 @@ test('다운로드 버튼이 상단 헤더에 있다', async ({ authenticatedPag
   )
   await openPreview(page)
   // 헤더에 다운로드 버튼이 존재.
-  const download = page.getByRole('button', { name: '다운로드' })
+  const download = page.getByRole('button', { name: '다운로드', exact: true })
   await expect(download).toBeVisible()
   // 단순 존재가 아니라 '미리보기 본문보다 DOM 상위(헤더)' 배치를 검증 — 핵심 요구.
   const beforePreview = await page.evaluate(() => {
-    const btn = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === '다운로드')
+    const btn = document.querySelector('[data-testid="preview-download"]')
     const body = document.querySelector('[data-testid="preview-body"]')
     if (!btn || !body) return false
     // body 가 btn 을 뒤따르면(FOLLOWING) btn 이 더 앞 = 헤더 위치.
     return Boolean(btn.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING)
   })
   expect(beforePreview).toBe(true)
+})
+
+// WP-274: 다운로드는 ghost 아이콘 버튼(툴팁·aria-label), 닫기 X 는 같은 액션 줄, 헤더에 "형식 · 크기" 줄.
+test('헤더 — 형식·크기 표시, 아이콘 다운로드(툴팁)·닫기가 한 줄에 정렬', async ({ authenticatedPage: page }) => {
+  await setupDrive(page)
+  await page.route('**/api/v1/drive/files/*/summary', (route) =>
+    route.fulfill({ json: { summary: null, status: 'SKIPPED' } }),
+  )
+  let downloadRequested = false
+  await page.route('**/api/v1/drive/files/1/download', (route) => {
+    downloadRequested = true
+    return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: 'x' })
+  })
+  await openPreview(page)
+  const dialog = page.getByRole('dialog')
+
+  // 열자마자 툴팁이 뜨지 않는다(첫 포커스가 다운로드 버튼으로 가면 툴팁이 첫 Escape 를 먹어 모달이 안 닫혔다).
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+
+  // 파일명 아래 보조 줄: 확장자(대문자) · 크기.
+  await expect(dialog.getByTestId('preview-meta')).toHaveText('DOCX · 1.0 KB')
+
+  // 다운로드는 글자 없는 아이콘 버튼 — 접근성 이름은 aria-label 로 유지된다.
+  const download = dialog.getByRole('button', { name: '다운로드', exact: true })
+  await expect(download).toBeVisible()
+  await expect(download).toHaveText('')
+  // 강조(primary 채움) 버튼이 아니어야 한다 — 시선이 문서보다 버튼에 먼저 가던 문제.
+  await expect(download).not.toHaveClass(/bg-primary/)
+
+  // 호버 시 툴팁으로 의미를 알린다.
+  await download.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('다운로드')
+
+  // 닫기 X 는 기본 코너 버튼 대신 헤더 액션 줄에 하나만 있고, 다운로드와 세로 중심이 맞는다.
+  const close = dialog.getByRole('button', { name: '닫기' })
+  await expect(close).toHaveCount(1)
+  const [d, c] = await Promise.all([download.boundingBox(), close.boundingBox()])
+  expect(d && c).toBeTruthy()
+  expect(Math.abs(d!.y + d!.height / 2 - (c!.y + c!.height / 2))).toBeLessThanOrEqual(1)
+  expect(c!.x).toBeGreaterThan(d!.x)
+
+  // 클릭 → 실제 다운로드 요청.
+  await download.click()
+  await expect.poll(() => downloadRequested).toBe(true)
+
+  // 닫기 → 모달이 닫힌다.
+  await close.click()
+  await expect(page.getByTestId('preview-body')).toHaveCount(0)
 })

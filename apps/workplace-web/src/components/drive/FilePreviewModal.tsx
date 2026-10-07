@@ -1,3 +1,4 @@
+import { Download, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { blobToText, toVerifiedPdfBlob } from '../../api/blobContent'
@@ -5,6 +6,7 @@ import { useDriveFileSummary } from '../../hooks/queries/useDriveFileSummary'
 import { useFileBacklinks } from '../../hooks/queries/useFileBacklinks'
 import { useAiAvailable } from '../../hooks/useAiAvailable'
 import { formatFileSize } from '../../lib/formatters'
+import { withPreviewScrollbar } from '../../lib/htmlPreviewDoc'
 import { resolvePreviewKind } from '../../lib/previewKind'
 import { cn } from '../../lib/utils'
 import type { DriveFile, VirtualAttachment } from '../../types/drive'
@@ -12,7 +14,9 @@ import { AiContent } from '../ai/AiContent'
 import { MarkdownMessage } from '../ai/MarkdownMessage'
 import { useAiPanelAwareDialog } from '../ai/useAiPanelAwareDialog'
 import { Button } from '../ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
+import { FileTypeIcon } from './FileTypeIcon'
 import { CsvTablePreview } from './preview/CsvTablePreview'
 import { DocxPreview } from './preview/DocxPreview'
 import { SheetPreview } from './preview/SheetPreview'
@@ -36,7 +40,7 @@ type PreviewAttachment = Pick<VirtualAttachment, 'fileId' | 'name' | 'mimeType' 
 /**
  * 파일 미리보기 모달. IMAGE→img, PDF→iframe, Markdown→렌더, HTML→sandbox iframe, TEXT→pre, CSV→표, 그 외→미지원 안내.
  * 파일(DriveFile)과 첨부(VirtualAttachment)를 공통 모델로 정규화해 처리한다.
- * 이미지/PDF 는 objectURL 을 만들고 닫힐 때 revoke. 상단 헤더에 다운로드 버튼, AI 요약은 기본 접힘.
+ * 이미지/PDF 는 objectURL 을 만들고 닫힐 때 revoke. AI 요약은 기본 접힘.
  */
 export function FilePreviewModal({
   file,
@@ -61,6 +65,9 @@ export function FilePreviewModal({
   const kind = resolvePreviewKind(mimeType)
   const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
   const parsed = kind === 'XLSX' || kind === 'DOCX'
+  // 헤더 보조 줄 — 확장자(대문자) · 크기. 확장자로 보기 어려운 꼬리(공백 포함·5자 초과, 예: "v2.final draft")면 크기만.
+  const ext = /\.([A-Za-z0-9]{1,5})$/.exec(name)?.[1].toUpperCase() ?? ''
+  const metaLine = [ext, formatFileSize(sizeBytes)].filter(Boolean).join(' · ')
   // 실제 렌더 가능한 종류.
   const renderable = kind === 'IMAGE' || kind === 'PDF' || textLike || parsed
 
@@ -101,6 +108,9 @@ export function FilePreviewModal({
   // 이 조건이 없으면 useEffect 완료 전까지 preview-body 가 완전히 빈 화면으로 보인다.
   const loading =
     !error && renderable && blobUrl == null && text == null && buffer == null && confirmSize == null
+  // WP-274: iframe(PDF·HTML·DOCX)은 프레임을 가득 채우고, 그 외(텍스트·표·안내 문구)는 프레임 안쪽 여백을 둔다.
+  const fillsFrame =
+    !error && ((kind === 'PDF' && blobUrl) || (kind === 'HTML' && text != null) || (kind === 'DOCX' && buffer))
 
   // 받은 blob → 종류별 표시 형태. blob 이 바뀌면(파일 전환) 이전 결과를 비우고 다시 변환한다.
   useEffect(() => {
@@ -126,7 +136,10 @@ export function FilePreviewModal({
       else if (kind === 'PDF') showUrl(await toVerifiedPdfBlob(blob))
       else if (textLike) {
         const t = await blobToText(blob, { maxBytes: TEXT_DECODE_MAX_BYTES })
-        if (alive) setText(t.slice(0, TEXT_PREVIEW_LIMIT))
+        const sliced = t.slice(0, TEXT_PREVIEW_LIMIT)
+        // WP-274: HTML 은 srcDoc 으로만 쓰인다 — 앱 CSS 를 못 받아 OS 기본 두꺼운 스크롤바가 보이므로
+        // 받을 때 한 번 슬림 스크롤바 스타일을 주입해 둔다(렌더마다 수 MB 문자열을 다시 잇지 않게).
+        if (alive) setText(kind === 'HTML' ? withPreviewScrollbar(sliced) : sliced)
       } else {
         // 바이너리 파서(XLSX/DOCX)는 arrayBuffer 가 필요.
         const buf = await blob.arrayBuffer()
@@ -155,21 +168,60 @@ export function FilePreviewModal({
           WP-212: resize 손잡이·최소 폭(24rem=384px)은 데스크톱(lg, 앱 모바일 기준 <1024px 의 반대)에서만 —
           휴대폰엔 드래그할 마우스가 없고, min-w 가 max-w-[95vw] 보다 우선해 360px 폰에서 모달이 화면 밖으로 넘쳤다. */}
       <DialogContent
+        // WP-274: 기본 코너 X 는 헤더와 따로 떠 다운로드 버튼과 정렬이 어긋난다 — 헤더 액션 줄에 직접 둔다.
+        showCloseButton={false}
         className={cn(
           'flex flex-col overflow-hidden h-[80vh] max-h-[95vh] min-h-[20rem] w-[64rem] max-w-[95vw] sm:max-w-[95vw] lg:resize lg:min-w-[24rem]',
           aiAware.contentClassName,
         )}
         {...aiAware.contentProps}
+        // 열릴 때 첫 포커스가 다운로드 아이콘 버튼에 가면 툴팁이 바로 뜨고, 첫 Escape 를 툴팁이 먹어
+        // 모달이 닫히지 않는다 — 포커스는 다이얼로그 자체에 둔다(Tab 으로 버튼에 가면 툴팁은 그대로 뜬다).
+        // AI 패널 공존 훅의 처리(복원 대상 캡처·모드 전환 시 포커스 유지)를 먼저 돌리고, 그쪽이 막지 않았을 때만 바꾼다.
+        onOpenAutoFocus={(e) => {
+          aiAware.contentProps.onOpenAutoFocus(e)
+          if (e.defaultPrevented) return
+          e.preventDefault()
+          ;(e.currentTarget as HTMLElement | null)?.focus()
+        }}
       >
-        {/* 상단 툴바: 파일명 + 다운로드 액션 */}
-        <DialogHeader>
-          <div className="flex items-center justify-between gap-2 pr-6">
-            <DialogTitle className="truncate">{name}</DialogTitle>
-            <Button variant="default" size="sm" onClick={source.download} className="shrink-0">
-              다운로드
-            </Button>
+        {/* WP-274 상단 툴바: 유형 아이콘 + 파일명/형식·크기 | 다운로드 · 닫기.
+            다운로드는 보조 동작이라 ghost 아이콘 버튼으로 낮춰 문서보다 튀지 않게 하고, 의미는 툴팁·aria-label 로 전한다. */}
+        <DialogHeader className="flex-row items-center gap-3 text-left">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted" aria-hidden>
+            <FileTypeIcon mimeType={mimeType} className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="truncate text-base leading-snug">{name}</DialogTitle>
+            <p className="truncate text-xs text-muted-foreground" data-testid="preview-meta">
+              {metaLine}
+            </p>
           </div>
           <DialogDescription className="sr-only">{name} 미리보기</DialogDescription>
+          <div className="flex shrink-0 items-center gap-1">
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={source.download}
+                    aria-label="다운로드"
+                    data-testid="preview-download"
+                  >
+                    <Download />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">다운로드</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <div className="mx-1 h-5 w-px bg-border" aria-hidden />
+            <DialogClose asChild>
+              <Button variant="ghost" size="icon-sm" aria-label="닫기">
+                <X />
+              </Button>
+            </DialogClose>
+          </div>
         </DialogHeader>
         {/* #526: 콘텐츠 요약 — 상단으로 이동, 기본 접힘. previewable 게이트 밖(Office 파일에서도 노출).
             #735: 단 요약 불가(SKIPPED/FAILED)일 때는 기본 펼침 — 사유는 한 줄이라 접어둘 이유가 없고,
@@ -204,7 +256,12 @@ export function FilePreviewModal({
         )}
         {/* 미리보기 본문 — #731: flex-1 로 남은 높이를 채워 리사이즈에 반응(min-h-0 없으면 flex 자식이 안 줄어들어 스크롤 불가). */}
         <div
-          className={`min-h-0 flex-1 overflow-auto${kind === 'IMAGE' ? ' flex items-center justify-center' : ''}`}
+          // WP-274: 얇은 테두리·둥근 모서리 프레임으로 문서 영역을 모달과 구분한다.
+          className={cn(
+            'min-h-0 flex-1 overflow-auto rounded-md border',
+            !fillsFrame && 'p-3',
+            kind === 'IMAGE' && 'flex items-center justify-center',
+          )}
           data-testid="preview-body"
         >
           {error && <p className="text-sm text-destructive">미리보기를 불러오지 못했습니다.</p>}
@@ -223,7 +280,7 @@ export function FilePreviewModal({
             <img src={blobUrl} alt={name} className="mx-auto max-w-full" />
           )}
           {!error && kind === 'PDF' && blobUrl && (
-            <iframe src={blobUrl} title={name} className="h-full min-h-[60vh] w-full" />
+            <iframe src={blobUrl} title={name} className="block h-full min-h-[60vh] w-full border-0" />
           )}
           {!error && kind === 'MARKDOWN' && text != null && <MarkdownMessage>{text}</MarkdownMessage>}
           {/* HTML 은 sandbox="" + srcDoc 격리 iframe 으로 렌더 — 스크립트/폼/네비게이션 전면 차단(#486 XSS 패턴, #732). */}
@@ -233,7 +290,7 @@ export function FilePreviewModal({
               title={name}
               sandbox=""
               srcDoc={text}
-              className="h-full min-h-[60vh] w-full border-0"
+              className="block h-full min-h-[60vh] w-full border-0"
             />
           )}
           {!error && kind === 'TEXT' && text != null && (

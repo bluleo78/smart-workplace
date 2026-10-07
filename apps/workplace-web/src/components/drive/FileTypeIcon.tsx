@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 
 import { resolvePreviewKind } from '../../lib/previewKind'
+import { cn } from '../../lib/utils'
 
 /** 압축 파일 mime — 프리뷰 종류와 별개로 아이콘만 구분한다. */
 const ARCHIVE_MIMES = new Set([
@@ -22,8 +23,9 @@ const ARCHIVE_MIMES = new Set([
   'application/x-tar',
 ])
 
-export function FileTypeIcon({ mimeType }: { mimeType: string }) {
-  const cls = 'h-4 w-4 shrink-0 text-muted-foreground'
+/** className 으로 기본 크기·색(h-4 · muted)을 덮어쓸 수 있다 — 미리보기 헤더처럼 더 크게 쓰는 곳용(WP-274). */
+export function FileTypeIcon({ mimeType, className }: { mimeType: string; className?: string }) {
+  const cls = cn('h-4 w-4 shrink-0 text-muted-foreground', className)
   if (ARCHIVE_MIMES.has(mimeType)) return <FileArchive className={cls} aria-hidden />
   switch (resolvePreviewKind(mimeType)) {
     case 'IMAGE':
