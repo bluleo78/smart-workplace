@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 import type { ViewerItem } from './types'
 import { useImportToDrive } from './useImportToDrive'
 import { useSummaryAvailability } from './useSummaryAvailability'
+import { ViewerBacklinks } from './ViewerBacklinks'
 import { ViewerBody } from './ViewerBody'
 import { ViewerMoreMenu } from './ViewerMoreMenu'
 import { middleEllipsis, navState, resolvePending, routeKey } from './viewerNav'
@@ -258,39 +259,45 @@ export function AttachmentViewer({
         </header>
         {/* 본문 영역 + 사이드 패널 — lg 미만은 세로로 쌓고, lg 이상은 오른쪽 열. › 는 본문 영역 끝(= 패널 왼쪽)에 붙는다. */}
         <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* 항목별로 상태가 초기화되도록 key. */}
-          <ViewerBody key={item.key} item={item} zoom={zoom} onPage={onPage} />
-          {nav.hasPrev && (
-            <button ref={prevBtn} type="button" aria-label="이전 파일" onClick={() => go(-1)} className={cn(edgeBtnClass, 'left-3')}>
-              <ChevronLeft />
-            </button>
-          )}
-          {nav.hasNext && (
-            <button ref={nextBtn} type="button" aria-label="다음 파일" onClick={() => go(1)} className={cn(edgeBtnClass, 'right-3')}>
-              <ChevronRight />
-            </button>
-          )}
-          {zoomable && (
-            <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-black/60 px-1 text-white">
-              <Button variant="ghost" size="icon" aria-label="축소" disabled={zoom <= ZOOM_MIN} onClick={() => setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))}>
-                <Minus />
-              </Button>
-              <Button variant="ghost" className="min-w-16 px-2 text-xs" aria-label="맞춤" onClick={() => setZoom(() => 1)}>
-                {zoom === 1 ? '폭 맞춤' : `${Math.round(zoom * 100)}%`}
-              </Button>
-              <Button variant="ghost" size="icon" aria-label="확대" disabled={zoom >= ZOOM_MAX} onClick={() => setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))}>
-                <Plus />
-              </Button>
-            </div>
-          )}
-          {/* 스크린리더용 위치 안내 — 넘길 때 파일명과 순번을 읽어 준다. */}
-          <p className="sr-only" aria-live="polite" data-testid="viewer-live">
-            {items.length > 1 ? `${item.name}, ${items.length}개 중 ${idx + 1}번째` : ''}
-          </p>
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            {/* 항목별로 상태가 초기화되도록 key. */}
+            <ViewerBody key={item.key} item={item} zoom={zoom} onPage={onPage} />
+            {nav.hasPrev && (
+              <button ref={prevBtn} type="button" aria-label="이전 파일" onClick={() => go(-1)} className={cn(edgeBtnClass, 'left-3')}>
+                <ChevronLeft />
+              </button>
+            )}
+            {nav.hasNext && (
+              <button ref={nextBtn} type="button" aria-label="다음 파일" onClick={() => go(1)} className={cn(edgeBtnClass, 'right-3')}>
+                <ChevronRight />
+              </button>
+            )}
+            {zoomable && (
+              <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-black/60 px-1 text-white">
+                <Button variant="ghost" size="icon" aria-label="축소" disabled={zoom <= ZOOM_MIN} onClick={() => setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))}>
+                  <Minus />
+                </Button>
+                <Button variant="ghost" className="min-w-16 px-2 text-xs" aria-label="맞춤" onClick={() => setZoom(() => 1)}>
+                  {zoom === 1 ? '폭 맞춤' : `${Math.round(zoom * 100)}%`}
+                </Button>
+                <Button variant="ghost" size="icon" aria-label="확대" disabled={zoom >= ZOOM_MAX} onClick={() => setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))}>
+                  <Plus />
+                </Button>
+              </div>
+            )}
+            {/* 스크린리더용 위치 안내 — 넘길 때 파일명과 순번을 읽어 준다. */}
+            <p className="sr-only" aria-live="polite" data-testid="viewer-live">
+              {items.length > 1 ? `${item.name}, ${items.length}개 중 ${idx + 1}번째` : ''}
+            </p>
+          </div>
+          {showPanel && <ViewerSidePanel item={item} onClose={() => togglePanel(false)} />}
         </div>
-        {showPanel && <ViewerSidePanel item={item} onClose={() => togglePanel(false)} />}
-        </div>
+        {/* ✨ 를 쓸 수 없어도(AI 꺼짐·요약 403) 참조된 곳은 얇은 띠로 보인다 — 비어 있으면 아무것도 그리지 않는다. */}
+        {summary !== 'show' && item.backlinksDriveFileId != null && (
+          <div className="max-h-32 shrink-0 overflow-y-auto border-t border-border px-4 py-3">
+            <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />
+          </div>
+        )}
         {/* 폴더 선택 모달 — 뷰어 Dialog 안에 그려 포커스 트랩 안에 둔다. */}
         {importer.picker}
       </DialogContent>

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { createElement, useEffect, useState } from 'react'
+import { createElement, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useDriveSpaces } from '../../hooks/queries/useDriveSpaces'
@@ -20,8 +20,13 @@ export function useImportToDrive(enabled = true) {
   // 조회 완료 = 성공이거나 실패 — 로딩 중 비활성과 조회 실패 비활성을 구분하는 데 쓴다.
   const resolved = !enabled || spaces.isSuccess || spaces.isError
 
+  // 실패 토스트는 한 번만 — 재조회로 isError 가 다시 뒤집혀도 반복하지 않는다.
+  const toasted = useRef(false)
   useEffect(() => {
-    if (spaces.isError) toast.error('드라이브 스페이스를 불러오지 못했습니다.')
+    if (spaces.isError && !toasted.current) {
+      toasted.current = true
+      toast.error('드라이브 스페이스를 불러오지 못했습니다.')
+    }
   }, [spaces.isError])
 
   const picker: ReactNode =

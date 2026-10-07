@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 
 import { createSpace, personalSpace } from '../../factories/drive.factory'
+import { createUser } from '../../factories/auth.factory'
+import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 
 const SPACE_ID = 1
@@ -225,4 +227,19 @@ test('AI 사이드 패널을 연 채로 뷰어가 패널을 가리지 않고, �
   expect(viewer!.x + viewer!.width).toBeLessThanOrEqual(panel!.x + 1)
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('attachment-viewer')).toBeVisible() // Esc 는 패널만 닫음
+})
+
+test('AI 가 꺼져 있어도 참조된 곳은 보이고 ✨ 버튼은 없다', async ({ authenticatedPage: page }) => {
+  // fixture 기본(aiAvailable:true)을 false 로 재정의(나중 등록 우선).
+  await mockApi(page, 'GET', '/api/v1/users/me', {
+    ...createUser({ aiAvailable: false }),
+    roles: [{ id: 2, name: 'USER', description: '일반 사용자', isSystem: true }],
+  })
+  await stubDriveFiles(page, [{ id: 92, name: 'noai.md', mimeType: 'text/markdown', sizeBytes: 5 }], { 92: '# hi' }, {
+    backlinks: { 92: [{ sourceType: 'ISSUE', sourceId: 3, label: 'WP-3 검토', deepLink: '/projects/WP/issues/3' }] },
+  })
+  await openPreview(page, 92)
+  await expect(page.getByTestId('file-backlink-ISSUE-3')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'AI 요약' })).toHaveCount(0)
+  await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0)
 })

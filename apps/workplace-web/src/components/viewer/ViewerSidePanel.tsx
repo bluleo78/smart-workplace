@@ -1,11 +1,11 @@
 import { X } from 'lucide-react'
 
 import { useDriveFileSummary } from '../../hooks/queries/useDriveFileSummary'
-import { useFileBacklinks } from '../../hooks/queries/useFileBacklinks'
 import { AiContent } from '../ai/AiContent'
 import { MarkdownMessage } from '../ai/MarkdownMessage'
 import { Button } from '../ui/button'
 import type { ViewerItem } from './types'
+import { ViewerBacklinks } from './ViewerBacklinks'
 
 /** AI 요약 카드 — 접힘 없이 항상 펼침(패널 자체가 토글). 상태 계산은 기존 모달 카드(#526·#633·#735)와 같다. */
 function SummaryCard({ driveFileId }: { driveFileId: number }) {
@@ -46,26 +46,6 @@ function SummaryCard({ driveFileId }: { driveFileId: number }) {
   )
 }
 
-/** "참조된 곳" — 이 파일을 링크한 이슈·메시지 목록. 비어 있으면 섹션 자체를 숨긴다. */
-function Backlinks({ driveFileId }: { driveFileId: number }) {
-  const backlinks = useFileBacklinks(driveFileId)
-  if ((backlinks.data?.length ?? 0) === 0) return null
-  return (
-    <div data-testid="file-backlinks">
-      <p className="mb-1 text-xs font-medium text-muted-foreground">참조된 곳</p>
-      <ul className="space-y-1">
-        {backlinks.data!.map((b) => (
-          <li key={`${b.sourceType}-${b.sourceId}`} data-testid={`file-backlink-${b.sourceType}-${b.sourceId}`}>
-            <a href={b.deepLink} className="text-sm text-primary hover:underline">
-              {b.label}
-            </a>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
 /**
  * 뷰어 오른쪽 사이드 패널(WP-277) — AI 요약 + 참조된 곳.
  * lg 이상은 오른쪽 w-80 열, 그보다 좁으면 본문 아래에 쌓는다(모바일 바텀시트는 WP-278 에서).
@@ -84,7 +64,7 @@ export function ViewerSidePanel({ item, onClose }: { item: ViewerItem; onClose: 
       </div>
       <div className="space-y-4">
         {item.summaryDriveFileId != null && <SummaryCard driveFileId={item.summaryDriveFileId} />}
-        {item.backlinksDriveFileId != null && <Backlinks driveFileId={item.backlinksDriveFileId} />}
+        {item.backlinksDriveFileId != null && <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />}
       </div>
     </aside>
   )
