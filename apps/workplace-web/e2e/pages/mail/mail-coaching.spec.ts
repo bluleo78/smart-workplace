@@ -2,6 +2,7 @@
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectThinScrollbar } from '../../fixtures/wait'
 
 test.describe('메일 초안 코칭', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
@@ -38,6 +39,8 @@ test.describe('메일 초안 코칭', () => {
     // 개선본은 sandboxed iframe 내부에 렌더되므로 frameLocator 로 접근.
     const improvedFrame = page.frameLocator('[data-testid="mail-coaching-improved"]')
     await expect(improvedFrame.locator('body')).toContainText('다듬은 개선본입니다')
+    // WP-275: 개선본 iframe 도 공용 격리 프레임 — 슬림 스크롤바가 주입된다.
+    await expectThinScrollbar(improvedFrame)
 
     // 개선본으로 교체 → 본문 반영
     await page.getByTestId('mail-coaching-apply').click()

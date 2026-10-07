@@ -2,7 +2,7 @@
 // 간헐 실패의 공통 원인은 "보인다"를 확인하자마자 앱이 아직 준비되지 않은 순간에 행동·측정하는 것이다.
 // Playwright 의 boundingBox()·evaluate()·좌표 클릭은 자동 대기·재시도가 없어, 레이아웃이 다시 그려지거나
 // 문서가 교체되는 찰나에 걸리면 null·예외·무시된 입력이 된다. 아래 헬퍼는 그 찰나를 넘길 때까지 다시 시도한다.
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type FrameLocator, type Locator, type Page } from '@playwright/test';
 
 type Box = NonNullable<Awaited<ReturnType<Locator['boundingBox']>>>;
 
@@ -40,6 +40,16 @@ export async function retryOnNavigation<R>(run: () => Promise<R>): Promise<R> {
       if (attempt >= 4 || !String(e).includes('Execution context was destroyed')) throw e;
     }
   }
+}
+
+/**
+ * 격리 iframe(SandboxedHtmlFrame) 문서 안 요소의 스크롤바가 슬림(thin)인지 조건 대기로 확인한다(WP-275).
+ * srcdoc 문서가 뜨기 전(about:blank)이나 교체 순간에 재면 틀린 값·예외가 나므로 poll + retryOnNavigation 으로 감싼다.
+ */
+export async function expectThinScrollbar(frame: FrameLocator, selector = 'body') {
+  await expect
+    .poll(() => retryOnNavigation(() => frame.locator(selector).evaluate((el) => getComputedStyle(el).scrollbarWidth)))
+    .toBe('thin');
 }
 
 /**

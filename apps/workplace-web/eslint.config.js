@@ -40,6 +40,12 @@ export default defineConfig([
           message:
             '날짜/시간 표시는 toLocale*String 직접 호출 대신 공용 포매터(src/lib/formatters.ts)를 사용하세요. 필요한 포맷이 없으면 포매터를 추가하세요. (docs/CODING_CONVENTION.md "날짜/시간 표시 포맷" 참조)',
         },
+        // srcDoc iframe 은 sandbox 격리·슬림 스크롤바 주입을 빠뜨리기 쉽다 — 드라이브만 고치고 메일이 남았던 일(WP-274→275).
+        {
+          selector: "JSXOpeningElement[name.name='iframe'] > JSXAttribute[name.name='srcDoc']",
+          message:
+            'srcDoc iframe 은 직접 쓰지 말고 SandboxedHtmlFrame(src/components/SandboxedHtmlFrame.tsx)을 사용하세요 — sandbox 격리와 슬림 스크롤바 주입을 함께 맡습니다.',
+        },
       ],
     },
   },

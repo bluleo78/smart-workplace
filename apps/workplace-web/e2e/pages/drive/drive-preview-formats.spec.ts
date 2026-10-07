@@ -8,6 +8,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
+import { expectThinScrollbar } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 // ESM 컨텍스트: __dirname 대신 이 스펙 파일 기준 디렉토리.
@@ -441,11 +442,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await expect(iframe).toHaveAttribute('sandbox', '')
     // WP-274: DOCX 도 srcDoc iframe — 앱 CSS 를 못 받으므로 슬림 스크롤바가 주입돼야 하고,
     // 프레임을 여백 없이 채운다(HTML 미리보기와 같은 모양).
-    const scrollbarWidth = await page
-      .frameLocator('[data-testid="docx-document"]')
-      .locator('body')
-      .evaluate((el) => getComputedStyle(el).scrollbarWidth)
-    expect(scrollbarWidth).toBe('thin')
+    await expectThinScrollbar(page.frameLocator('[data-testid="docx-document"]'))
     await expect(body).not.toHaveClass(/\bp-3\b/)
   })
 
@@ -508,7 +505,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await expect(iframe).toHaveAttribute('sandbox', '')
     // WP-274: srcDoc 은 앱 CSS 를 못 받으므로 슬림 스크롤바 스타일을 주입한다 —
     // DOCTYPE 뒤에 둬야 quirks 모드로 바뀌지 않는다(맨 앞은 그대로 DOCTYPE).
-    await expect(iframe).toHaveAttribute('srcdoc', /^<!doctype html><style data-preview-scrollbar>[^<]*scrollbar-width:thin/)
+    await expect(iframe).toHaveAttribute('srcdoc', /^<!doctype html><style data-thin-scrollbar>[^<]*scrollbar-width:thin/)
     await expect(iframe).toHaveAttribute('srcdoc', /<\/style><html><body><h1>안녕 HTML/)
     // 실제 렌더 결과: iframe 문서 안 스크롤바가 thin 이고, 문서는 표준 모드(CSS1Compat)를 유지한다.
     const [scrollbarWidth, compatMode] = await page

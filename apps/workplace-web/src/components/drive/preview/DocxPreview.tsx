@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 
-import { withPreviewScrollbar } from '../../../lib/htmlPreviewDoc'
+import { SandboxedHtmlFrame } from '../../SandboxedHtmlFrame'
 
 /**
- * DOCX 를 mammoth(lazy import)로 HTML 변환 후 sandbox iframe(srcDoc)으로 격리 렌더한다.
+ * DOCX 를 mammoth(lazy import)로 HTML 변환 후 공용 격리 iframe(SandboxedHtmlFrame)으로 렌더한다.
  * 문서 내용은 신뢰 불가(외부 파일) → 스크립트·same-origin 불허 sandbox 로 XSS 차단(#486 패턴).
  * mammoth 는 Vite browser 필드로 브라우저 번들이 해석된다(node fs 의존 없음).
  */
@@ -25,8 +25,7 @@ export function DocxPreview({ buffer }: { buffer: ArrayBuffer }) {
         const convertToHtml = mod.convertToHtml ?? mod.default?.convertToHtml
         if (!convertToHtml) throw new Error('mammoth.convertToHtml 을 찾지 못함(import interop)')
         const result = await convertToHtml({ arrayBuffer: buffer })
-        // WP-274: srcDoc 은 앱 CSS 를 못 받으므로 HTML 미리보기와 같은 슬림 스크롤바 스타일을 주입한다.
-        if (alive) setHtml(withPreviewScrollbar(result.value))
+        if (alive) setHtml(result.value)
       } catch {
         if (alive) setFailed(true)
       }
@@ -40,11 +39,10 @@ export function DocxPreview({ buffer }: { buffer: ArrayBuffer }) {
   if (failed) return <p className="p-3 text-sm text-destructive">문서를 읽지 못했습니다.</p>
   if (html == null) return <p className="p-3 text-sm text-muted-foreground">불러오는 중…</p>
   return (
-    <iframe
+    <SandboxedHtmlFrame
       data-testid="docx-document"
       title="문서 미리보기"
-      sandbox=""
-      srcDoc={html}
+      html={html}
       className="block h-full min-h-[60vh] w-full border-0"
     />
   )
