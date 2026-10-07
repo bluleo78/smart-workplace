@@ -148,7 +148,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 들어오며(#748) 게이트 의미가 "편집 가능"이 됐고, canUseAi 와 canEdit 는 원래부터 동일 식이라
   // 별도 ref 를 두면 이름만 다른 중복이 된다.
 
-  // action → startWikiAiStream 트리거. summarize/continue 는 즉시, draft 는 토픽 입력 후.
+  // action → startWikiAiStream 트리거. continue 는 즉시, draft 는 토픽 입력 후.
   // 스트림을 버퍼링했다가 done 시 1회 삽입한다(WP-255, runTransform 과 같은 방식). 토큰마다 insertContent 하면
   // tiptap-markdown 이 조각마다 따로 파싱해 `**목`/`적**` 처럼 쪼개진 서식·표가 기호로 남고, `- ` 가 목록 안
   // 커서에서 다시 파싱돼 목록이 계단식으로 중첩됐다. 생성 중에는 하단 "생성 중…" 표시·헤더 스피너가 진행을 알린다.
@@ -360,7 +360,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         // 이미지가 든 페이지를 열었다 저장하면 영구 삭제됐다(AI/MCP 위키 도구가 본문을 직접 쓴다).
         // 노드 이름 'image' 유지 + inline:true 는 라운드트립 무손실의 필수 조건 — wikiImageNode.ts 참조.
         WikiImage,
-        // 표(#742) — StarterKit 에 없어서 마크다운 표가 문단으로 합쳐져 깨졌다. AI 생성물(/ai 요약·초안)이
+        // 표(#742) — StarterKit 에 없어서 마크다운 표가 문단으로 합쳐져 깨졌다. AI 생성물(/ai 초안·이어쓰기)이
         // 표를 자주 만들기 때문에 체감 결함이 컸다. tiptap-markdown 이 table 직렬화기를 내장하고 있어
         // 저장 → 재로드 라운드트립이 성립한다(GFM 으로 표현 못 하는 병합셀 등은 자체 폴백).
         // resizable 은 끈다 — 열 너비를 픽셀로 문서에 심으면 마크다운 직렬화에서 버려져 무의미하다.

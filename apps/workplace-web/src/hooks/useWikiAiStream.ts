@@ -9,7 +9,6 @@ import { onAiStreamEvent } from '../lib/aiEventBus'
 export interface WikiAiStreamArgs {
   pageId: number
   action:
-    | 'summarize'
     | 'draft'
     | 'continue'
     | 'rewrite_tone'

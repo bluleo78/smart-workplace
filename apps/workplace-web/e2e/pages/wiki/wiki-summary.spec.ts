@@ -260,3 +260,21 @@ test('AI 를 쓸 수 없는 사용자는 요약 조회 자체를 하지 않는�
   await expectStays(page, () => calls.get, 0, { ms: 500 })
   await expect(page.getByTestId('wiki-ai-summary')).toHaveCount(0)
 })
+
+test('헤더 AI 메뉴·슬래시 메뉴에는 본문 삽입형 AI 요약이 없다', async ({ authenticatedPage: page }) => {
+  // 요약은 상단 카드로 옮겼으므로 생성 계열은 초안·이어쓰기만 남는다.
+  await setupWikiMocks(page, 'EDITOR')
+  await mockSummary(page, { initial: tooShort() })
+  await openPage(page)
+
+  await page.getByTestId('wiki-ai-header-button').click()
+  await expect(page.getByTestId('wiki-ai-header-draft')).toBeVisible()
+  await expect(page.getByTestId('wiki-ai-header-continue')).toBeVisible()
+  await expect(page.getByTestId('wiki-ai-header-summarize')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('/')
+  await expect(page.getByTestId('wiki-slash-option-continue')).toBeVisible()
+  await expect(page.getByTestId('wiki-slash-option-summarize')).toHaveCount(0)
+})

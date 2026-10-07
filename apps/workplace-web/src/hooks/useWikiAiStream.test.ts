@@ -27,15 +27,15 @@ describe('startWikiAiStream', () => {
     const onDone = vi.fn()
     const onError = vi.fn()
 
-    startWikiAiStream({ pageId: 1, action: 'summarize', onDelta, onDone, onError })
+    startWikiAiStream({ pageId: 1, action: 'continue', onDelta, onDone, onError })
     await flush()
 
     emitAiStreamEvent('wiki.ai.delta', { correlationId: 'other', text: '무시됨' })
-    emitAiStreamEvent('wiki.ai.delta', { correlationId: 'corr-1', text: '요약: ' })
+    emitAiStreamEvent('wiki.ai.delta', { correlationId: 'corr-1', text: '이어서: ' })
     emitAiStreamEvent('wiki.ai.done', { correlationId: 'corr-1' })
 
     expect(onDelta).toHaveBeenCalledTimes(1)
-    expect(onDelta).toHaveBeenCalledWith('요약: ')
+    expect(onDelta).toHaveBeenCalledWith('이어서: ')
     expect(onDone).toHaveBeenCalledTimes(1)
     expect(onError).not.toHaveBeenCalled()
   })
@@ -45,7 +45,7 @@ describe('startWikiAiStream', () => {
     const onDone = vi.fn()
     const onError = vi.fn()
 
-    startWikiAiStream({ pageId: 1, action: 'summarize', onDelta: vi.fn(), onDone, onError })
+    startWikiAiStream({ pageId: 1, action: 'continue', onDelta: vi.fn(), onDone, onError })
     await flush()
 
     emitAiStreamEvent('wiki.ai.error', { correlationId: 'corr-2', message: '실패' })
@@ -64,7 +64,7 @@ describe('startWikiAiStream', () => {
     const onDone = vi.fn()
     const onError = vi.fn()
 
-    startWikiAiStream({ pageId: 1, action: 'summarize', onDelta, onDone, onError })
+    startWikiAiStream({ pageId: 1, action: 'continue', onDelta, onDone, onError })
     await flush()
 
     emitAiStreamEvent('wiki.ai.error', { correlationId: 'corr-3', cancelled: true })
@@ -81,7 +81,7 @@ describe('startWikiAiStream', () => {
 
     const handle = startWikiAiStream({
       pageId: 1,
-      action: 'summarize',
+      action: 'continue',
       onDelta,
       onDone: vi.fn(),
       onError: vi.fn(),

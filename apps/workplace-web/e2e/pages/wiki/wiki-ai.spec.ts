@@ -149,12 +149,12 @@ async function mockWikiAiGeneration(page: Page, opts: { deltas: string[] }) {
   return starts
 }
 
-test('위키 /ai — 슬래시 메뉴 → AI 요약 → /events 스트림이 에디터에 삽입된다', { tag: '@smoke' }, async ({
+test('위키 /ai — 슬래시 메뉴 → AI 이어쓰기 → /events 스트림이 에디터에 삽입된다', { tag: '@smoke' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
 
-  const aiStarts = await mockWikiAiGeneration(page, { deltas: ['요약: ', '핵심 내용'] })
+  const aiStarts = await mockWikiAiGeneration(page, { deltas: ['이어서: ', '핵심 내용'] })
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -163,10 +163,10 @@ test('위키 /ai — 슬래시 메뉴 → AI 요약 → /events 스트림이 에
   await page.keyboard.type('/')
   await expect(page.getByTestId('wiki-slash-popover')).toBeVisible()
 
-  await page.getByTestId('wiki-slash-option-summarize').click()
+  await page.getByTestId('wiki-slash-option-continue').click()
 
-  await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('summarize')
-  await expect(page.locator('.ProseMirror')).toContainText('요약: 핵심 내용')
+  await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('continue')
+  await expect(page.locator('.ProseMirror')).toContainText('이어서: 핵심 내용')
 })
 
 test('위키 /ai 슬래시 메뉴 — 매칭 없는 검색어 입력 시 팝오버 유지 + 빈 상태 안내 (#670)', async ({
@@ -183,7 +183,7 @@ test('위키 /ai 슬래시 메뉴 — 매칭 없는 검색어 입력 시 팝오�
   const popover = page.getByTestId('wiki-slash-popover')
   await expect(popover).toBeVisible()
   await expect(page.getByTestId('wiki-slash-empty')).toContainText('일치하는 명령이 없습니다')
-  await expect(page.getByTestId('wiki-slash-option-summarize')).toHaveCount(0)
+  await expect(page.getByTestId('wiki-slash-option-continue')).toHaveCount(0)
 })
 
 test('위키 /ai — AI 초안: 토픽 다이얼로그 입력 후 draft payload(prompt 포함) 전송', async ({
@@ -191,7 +191,7 @@ test('위키 /ai — AI 초안: 토픽 다이얼로그 입력 후 draft payload(
 }) => {
   await setupWikiMocks(page, 'OWNER')
 
-  const aiStarts = await mockWikiAiGeneration(page, { deltas: ['요약: ', '핵심 내용'] })
+  const aiStarts = await mockWikiAiGeneration(page, { deltas: ['초안: ', '핵심 내용'] })
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -209,7 +209,7 @@ test('위키 /ai — AI 초안: 토픽 다이얼로그 입력 후 draft payload(
 
   await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('draft')
   expect(aiStarts.lastBody<AiStartBody>()?.prompt).toBe(topic)
-  await expect(page.locator('.ProseMirror')).toContainText('요약: 핵심 내용')
+  await expect(page.locator('.ProseMirror')).toContainText('초안: 핵심 내용')
 })
 
 test('위키 /ai — 진행 중 생성이 있으면 새 액션이 이전 생성을 취소한다(latest wins)', async ({
@@ -256,22 +256,22 @@ test('위키 /ai — 진행 중 생성이 있으면 새 액션이 이전 생성�
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
 
-  // 1) 첫 액션(AI 요약) 트리거.
-  await page.locator('.ProseMirror').click()
-  await page.keyboard.type('/')
-  await page.getByTestId('wiki-slash-option-summarize').click()
-  await expect.poll(() => starts.bodies<AiStartBody>().map((b) => b.action)).toEqual(['summarize'])
-
-  // 2) 두 번째 액션(AI 이어쓰기) 트리거 — 첫 생성이 DELETE 로 취소되고 두 번째가 시작된다.
+  // 1) 첫 액션(AI 이어쓰기) 트리거.
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
   await page.getByTestId('wiki-slash-option-continue').click()
-  await expect.poll(() => starts.bodies<AiStartBody>().map((b) => b.action)).toEqual(['summarize', 'continue'])
+  await expect.poll(() => starts.bodies<AiStartBody>().map((b) => b.action)).toEqual(['continue'])
+
+  // 2) 두 번째 액션(다시 AI 이어쓰기) 트리거 — 첫 생성이 DELETE 로 취소되고 두 번째가 시작된다.
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('/')
+  await page.getByTestId('wiki-slash-option-continue').click()
+  await expect.poll(() => starts.bodies<AiStartBody>().map((b) => b.action)).toEqual(['continue', 'continue'])
   await expect.poll(() => cancels.urls().map((u) => u.pathname.split('/').pop())).toEqual(['corr-1'])
 
   // 3) 두 번째 생성의 텍스트만 삽입되고, 첫 생성의 텍스트는 나타나지 않는다.
   await expect(page.locator('.ProseMirror')).toContainText('이어쓰기 완료')
-  await expect(page.locator('.ProseMirror')).not.toContainText('요약')
+  await expect(page.locator('.ProseMirror')).not.toContainText('첫 이어쓰기')
 })
 
 // ── 팝업 max-height 회귀 (#250) ─────────────────────────────────────────────
@@ -432,11 +432,11 @@ const LONG_BODY = [
   '3. 간장을 팬 가장자리에 둘러 향을 올리고, 불을 끈 뒤 참기름으로 마무리합니다.',
 ].join('\n')
 
-test('위키 AI 노출 — 헤더 AI 버튼이 상시 보이고 요약 액션을 실행한다 (#733)', { tag: '@smoke' }, async ({
+test('위키 AI 노출 — 헤더 AI 버튼이 상시 보이고 이어쓰기 액션을 실행한다 (#733)', { tag: '@smoke' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR', LONG_BODY)
-  const aiStarts = await mockWikiAiGeneration(page, { deltas: ['요약: ', '집밥 3가지 레시피'] })
+  const aiStarts = await mockWikiAiGeneration(page, { deltas: ['이어서: ', '집밥 3가지 레시피'] })
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -447,10 +447,10 @@ test('위키 AI 노출 — 헤더 AI 버튼이 상시 보이고 요약 액션을
   await expect(aiButton).not.toHaveAttribute('aria-disabled', 'true')
 
   await aiButton.click()
-  await page.getByTestId('wiki-ai-header-summarize').click()
+  await page.getByTestId('wiki-ai-header-continue').click()
 
-  await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('summarize')
-  await expect(page.locator('.ProseMirror')).toContainText('요약: 집밥 3가지 레시피')
+  await expect.poll(() => aiStarts.lastBody<AiStartBody>()?.action).toBe('continue')
+  await expect(page.locator('.ProseMirror')).toContainText('이어서: 집밥 3가지 레시피')
 })
 
 test('위키 AI 노출 — 헤더 AI 초안: 토픽 다이얼로그를 열고 draft 를 전송한다 (#733)', async ({
@@ -1002,7 +1002,7 @@ test('위키 /ai 슬래시 메뉴 — 블록 타입 6종이 서식 섹션에 노
 
   // 블록 섹션 헤더("서식")와 AI 섹션 헤더("AI")로 두 그룹이 시각적으로 구분된다.
   await expect(page.getByText('서식', { exact: true })).toBeVisible()
-  await expect(page.getByTestId('wiki-slash-option-summarize')).toBeVisible()
+  await expect(page.getByTestId('wiki-slash-option-continue')).toBeVisible()
 })
 
 test('위키 /ai 슬래시 메뉴 — 제목1 삽입 시 블록 타입이 heading 으로 바뀐다 (#687)', { tag: '@smoke' }, async ({
