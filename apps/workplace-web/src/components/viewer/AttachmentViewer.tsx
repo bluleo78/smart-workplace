@@ -45,9 +45,10 @@ export function AttachmentViewer({
       {aiAware.overlay}
       <DialogContent
         showCloseButton={false}
-        // 기본 DialogContent 의 가운데 정렬·max-w·테두리를 덮어 전체 화면으로 — 다크 토큰 강제(.dark).
+        // 기본 DialogContent 의 가운데 정렬·max-w·테두리를 덮어 전체 화면으로 — 기본의 w-full 은 w-auto 로 덮는다(width 100% 고정이 inset 을 과제약해 lg:right 패널 비움이 무시됨).
+        // — 다크 토큰 강제(.dark).
         className={cn(
-          'dark fixed inset-0 top-0 left-0 flex h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 bg-background p-0 text-foreground sm:max-w-none',
+          'dark fixed inset-0 top-0 left-0 flex h-[100dvh] w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 bg-background p-0 text-foreground sm:max-w-none',
           aiAware.contentClassName,
         )}
         {...aiAware.contentProps}
