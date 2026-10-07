@@ -19,7 +19,7 @@ import { IssueDependenciesSection } from './IssueDependenciesSection';
 import { IssueParentSlot } from './IssueParentSlot';
 import { IssuePrioritySelect } from './IssuePrioritySelect';
 import { IssuePropertyGroup } from './IssuePropertyGroup';
-import { IssueReporterValue } from './IssueReporterValue';
+import { IssueReporterField } from './IssueReporterField';
 import { IssueStatusSelect } from './IssueStatusSelect';
 import { MilestonePickerPopover } from './MilestonePickerPopover';
 
@@ -159,16 +159,8 @@ export function IssuePropertyRail({
               disabled={updatePending || !canEditWorkflow}
             />
           </div>
-          {/* 보고자 — 읽기 전용(WP-272). 담당자 필드와 좌측 정렬을 맞추려 같은 px-3 여백을 둔다.
-              reporter 가 undefined(구버전 서버 응답)면 「알 수 없음」으로 오해하지 않게 행 자체를 숨긴다. */}
-          {reporter !== undefined && (
-            <div className="space-y-1">
-              <span className="text-xs font-medium text-muted-foreground">보고자</span>
-              <div className="px-3 py-2">
-                <IssueReporterValue reporter={reporter} createdAt={createdAt} />
-              </div>
-            </div>
-          )}
+          {/* 보고자 — 읽기 전용(WP-272). 구버전 서버 응답(reporter 없음)이면 필드가 스스로 숨는다. */}
+          <IssueReporterField reporter={reporter} createdAt={createdAt} layout="rail" />
           {/* AI 분류 제안 — 섹션 가장 아래(목업 배치). 구분선 후 full-width. */}
           {aiButton && (
             <>

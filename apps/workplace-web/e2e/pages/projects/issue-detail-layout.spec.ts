@@ -49,6 +49,8 @@ async function mockIssueDetail(
     ...(history !== undefined && { history }),
     ...(reporter !== undefined && { reporter }),
   });
+  // reporter 키를 undefined 로 명시하면 필드가 없는 구버전 서버 응답을 흉내 낸다(롤링 배포).
+  if ('reporter' in overrides && reporter === undefined) delete detail.reporter;
 
   await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
     route.fulfill({
@@ -235,15 +237,6 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
   test('구버전 서버라 reporter 필드가 없으면 보고자 행을 숨긴다', async ({ authenticatedPage: page }) => {
     // 롤링 배포 중 구 API 응답 — reporter 키 자체가 없다(「알 수 없음」으로 오해하게 하지 않는다).
     await mockIssueDetail(page, { reporter: undefined });
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`,
-      (route) => {
-        const { reporter: _omit, ...legacy } = createIssueDetail({
-          summary: createIssue({ projectKey: PROJECT_KEY }),
-        });
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(legacy) });
-      },
-    );
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
     await expect(page.getByTestId('issue-status-select')).toBeVisible();
