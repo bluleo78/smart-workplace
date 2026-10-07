@@ -184,6 +184,16 @@ test('짧은 노트는 요약 카드를 그리지 않고 생성도 요청하지 
   expect(calls.post).toBe(0)
 })
 
+test('공용 비서가 없어 요약할 수 없는 노트(UNAVAILABLE)는 카드를 그리지 않고 생성도 요청하지 않는다', async ({ authenticatedPage: page }) => {
+  await setupWikiMocks(page)
+  const calls = await mockSummary(page, { initial: { ...missing(), status: 'UNAVAILABLE' } })
+  await openPage(page)
+
+  await expect.poll(() => calls.get).toBe(1)
+  await expect(page.getByTestId('wiki-ai-summary')).toHaveCount(0)
+  expect(calls.post).toBe(0)
+})
+
 test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하면 새 요약으로 바뀐다', async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page)
   await mockSummary(page, { initial: ready(1), post: ready(2, '새 요약') })

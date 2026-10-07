@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -25,11 +26,13 @@ import com.workplace.wiki.exception.WikiSummaryFailedException;
 import com.workplace.wiki.outbound.WikiAiAgentSummaryClient;
 import com.workplace.wiki.repository.WikiPageRepository;
 import java.time.OffsetDateTime;
+import java.util.Optional;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -53,8 +56,9 @@ class WikiSummaryServiceTest extends IntegrationTestBase {
   @BeforeEach
   void setTenant() {
     TenantContext.set(1L);
-    when(assistantResolver.resolve(anyLong()))
-        .thenReturn(new AssistantSpec(900L, "claude-test", "NORMAL", 3, 60_000));
+    // 요약은 모든 독자가 공유하므로 공용(워크스페이스) 비서로만 만든다 — 호출자 개인 비서는 쓰지 않는다.
+    when(assistantResolver.resolveWorkspaceOrEmpty())
+        .thenReturn(Optional.of(new AssistantSpec(900L, "claude-test", "NORMAL", 3, 60_000)));
   }
 
   @AfterEach
@@ -132,7 +136,7 @@ class WikiSummaryServiceTest extends IntegrationTestBase {
     assertThat(s.pageVersion()).isEqualTo(p.version() + 1);
   }
 
-  /** Review Focus 2 — 요약 생성 뒤에도 편집기가 들고 있던 version 으로 저장이 성공해야 한다. */
+  /** 요약 생성은 노트 version·updated_at 을 바꾸지 않는다 — 생성 뒤에도 편집기가 들고 있던 version 으로 저장이 성공해야 한다. */
   @Test
   void generate_keepsVersionAndUpdatedAt() {
     long u = seedUser();
@@ -157,7 +161,7 @@ class WikiSummaryServiceTest extends IntegrationTestBase {
     assertThat(saved.version()).isEqualTo(p.version() + 1);
   }
 
-  /** Review Focus 1 — 더 오래된 버전으로 만든 결과는 새 요약을 덮지 않는다. */
+  /** 더 오래된 버전으로 만든 결과는 새 요약을 덮지 않는다. */
   @Test
   void generate_olderResultDoesNotOverwriteNewer() {
     long u = seedUser();
@@ -171,7 +175,7 @@ class WikiSummaryServiceTest extends IntegrationTestBase {
     assertThat(pages.findSummary(p.id()).orElseThrow().summary()).isEqualTo("새 요약");
   }
 
-  /** Review Focus 4 — 짧은 노트는 ai-agent 를 호출하지 않는다. */
+  /** 짧은 노트는 ai-agent 를 호출하지 않는다. */
   @Test
   void generate_tooShort_skipsAgent() {
     long u = seedUser();
@@ -181,6 +185,82 @@ class WikiSummaryServiceTest extends IntegrationTestBase {
 
     assertThat(s.status()).isEqualTo(WikiSummaryStatus.TOO_SHORT);
     verify(agent, never()).summarize(any());
+  }
+
+  /** 요약이 없고 공용 비서도 없으면 생성할 수 없으므로 UNAVAILABLE(카드 비노출). */
+  @Test
+  void get_noWorkspaceAssistant_isUnavailable() {
+    long u = seedUser();
+    WikiPageDetail p = pageWithBody(u, LONG_BODY);
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+
+    WikiPageSummaryState s = summaryService.get(u, p.id());
+
+    assertThat(s.status()).isEqualTo(WikiSummaryStatus.UNAVAILABLE);
+    assertThat(s.summary()).isNull();
+  }
+
+  /** 공용 비서가 없으면 POST 해도 ai-agent 를 부르지 않고 현재 상태를 돌려준다. */
+  @Test
+  void generate_noWorkspaceAssistant_skipsAgent() {
+    long u = seedUser();
+    WikiPageDetail p = pageWithBody(u, LONG_BODY);
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
+
+    WikiPageSummaryState s = summaryService.generate(u, p.id());
+
+    assertThat(s.status()).isEqualTo(WikiSummaryStatus.UNAVAILABLE);
+    verify(agent, never()).summarize(any());
+    verify(assistantResolver, never()).resolve(anyLong());
+  }
+
+  /** 이미 현재 버전의 요약이 있으면(READY) 다시 POST 해도 ai-agent 를 부르지 않는다 — 중복 생성 비용 방지. */
+  @Test
+  void generate_alreadyReady_skipsAgent() {
+    long u = seedUser();
+    WikiPageDetail p = pageWithBody(u, LONG_BODY);
+    when(agent.summarize(any())).thenReturn(new WikiAiAgentSummaryClient.Res("요약"));
+    summaryService.generate(u, p.id());
+
+    WikiPageSummaryState s = summaryService.generate(u, p.id());
+
+    assertThat(s.status()).isEqualTo(WikiSummaryStatus.READY);
+    assertThat(s.summary()).isEqualTo("요약");
+    verify(agent, times(1)).summarize(any());
+  }
+
+  /** ai-agent 로 보내는 본문은 32,000자로 자르고, 단발 요약이라 maxTurns 는 1 로 고정한다. */
+  @Test
+  void generate_capsBodyAndUsesSingleTurn() {
+    long u = seedUser();
+    String huge = "가".repeat(40_000);
+    WikiPageDetail p = pageWithBody(u, huge);
+    when(agent.summarize(any())).thenReturn(new WikiAiAgentSummaryClient.Res("요약"));
+
+    summaryService.generate(u, p.id());
+
+    ArgumentCaptor<WikiAiAgentSummaryClient.Req> req =
+        ArgumentCaptor.forClass(WikiAiAgentSummaryClient.Req.class);
+    verify(agent).summarize(req.capture());
+    assertThat(req.getValue().body()).hasSize(32_000);
+    assertThat(req.getValue().maxTurns()).isEqualTo(1);
+    assertThat(req.getValue().assistantAgentId()).isEqualTo(900L);
+  }
+
+  /** 본문을 400자 이하로 줄이면 옛 요약이 있어도 TOO_SHORT 이고 summary 는 null — 웹 카드가 숨는다. */
+  @Test
+  void get_shortenedBodyWithOldSummary_isTooShortWithoutSummary() {
+    long u = seedUser();
+    WikiPageDetail p = pageWithBody(u, LONG_BODY);
+    when(agent.summarize(any())).thenReturn(new WikiAiAgentSummaryClient.Res("요약"));
+    summaryService.generate(u, p.id());
+
+    pageService.save(u, p.id(), new SavePageRequest("주간회의", "", p.version(), false));
+
+    WikiPageSummaryState s = summaryService.get(u, p.id());
+    assertThat(s.status()).isEqualTo(WikiSummaryStatus.TOO_SHORT);
+    assertThat(s.summary()).isNull();
+    assertThat(s.summarizedAt()).isNull();
   }
 
   @Test
