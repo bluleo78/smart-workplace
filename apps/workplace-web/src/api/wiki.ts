@@ -8,6 +8,7 @@ import type {
   WikiMentionRef,
   WikiPageDetail,
   WikiPageSummary,
+  WikiPageSummaryState,
   WikiSearchResult,
   WikiSpace,
 } from '../types/wiki'
@@ -59,6 +60,11 @@ export const wikiApi = {
   // 진행 중인 AI 생성 취소.
   cancelAi: (pageId: number, correlationId: string) =>
     client.delete<void>(`/wiki/pages/${pageId}/ai/${correlationId}`),
+
+  // WP-301 노트 상단 AI 요약 — 조회(상태 계산)·생성(저장 후 상태 반환).
+  getSummary: (pageId: number) => client.get<WikiPageSummaryState>(`/wiki/pages/${pageId}/summary`),
+  generateSummary: (pageId: number) =>
+    client.post<WikiPageSummaryState>(`/wiki/pages/${pageId}/summary`),
 
   // #751: 본문 이미지 업로드. 응답 url 을 그대로 마크다운에 삽입한다(클라이언트가 경로를 조립하지 않는다).
   uploadAttachment: (pageId: number, file: File) => {

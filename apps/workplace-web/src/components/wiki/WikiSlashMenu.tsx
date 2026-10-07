@@ -9,7 +9,6 @@ import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import { AiLabel } from '@/components/ai/AiLabel'
 
 export type WikiAiAction =
-  | 'summarize'
   | 'draft'
   | 'continue'
   | 'rewrite_tone'

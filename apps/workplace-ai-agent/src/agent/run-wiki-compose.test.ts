@@ -48,7 +48,7 @@ describe('runWikiCompose', () => {
       return { done: Promise.resolve(), kill: () => {} };
     });
     const got: string[] = [];
-    await runWikiCompose(baseInput('summarize'), { client: fakeClient }, (t) => got.push(t));
+    await runWikiCompose(baseInput('continue'), { client: fakeClient }, (t) => got.push(t));
     expect(got.join('')).toBe('요약: 핵심');
     // 회귀 가드: 비서 자격증명을 요청의 assistantAgentId(7)로 실제 fetch 했는지 검증.
     expect((fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential).toHaveBeenCalledWith(7);
@@ -81,7 +81,7 @@ describe('runWikiCompose', () => {
       kill: () => {},
     });
     await expect(
-      runWikiCompose(baseInput('summarize'), { client: fakeClient }, () => {}),
+      runWikiCompose(baseInput('continue'), { client: fakeClient }, () => {}),
     ).rejects.toThrow('sdk boom');
   });
 
@@ -94,7 +94,7 @@ describe('runWikiCompose', () => {
       kill,
     });
     const ac = new AbortController();
-    const p = runWikiCompose(baseInput('summarize'), { client: fakeClient }, () => {}, ac.signal);
+    const p = runWikiCompose(baseInput('continue'), { client: fakeClient }, () => {}, ac.signal);
     // 토큰 fetch(microtask) 후 리스너가 붙도록 한 틱 양보한 뒤 abort.
     await new Promise((r) => setTimeout(r, 0));
     ac.abort();
@@ -112,7 +112,7 @@ describe('runWikiCompose', () => {
     });
     const ac = new AbortController();
     ac.abort(); // fetch 전에 이미 종료된 상태
-    const p = runWikiCompose(baseInput('summarize'), { client: fakeClient }, () => {}, ac.signal);
+    const p = runWikiCompose(baseInput('continue'), { client: fakeClient }, () => {}, ac.signal);
     await new Promise((r) => setTimeout(r, 0));
     expect(kill).toHaveBeenCalledOnce();
     resolveDone();

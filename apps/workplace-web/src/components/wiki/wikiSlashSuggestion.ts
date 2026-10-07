@@ -134,7 +134,7 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
             editor.chain().focus().deleteRange(range).run()
             ctx.onActionRef.current(props.key as GenerateActionKey)
           },
-          // query 로 라벨/key 필터(예: "/요약"). 셀 안('/'가 tableCell.content='block+' 안에서
+          // query 로 라벨/key 필터(예: "/이어쓰기"). 셀 안('/'가 tableCell.content='block+' 안에서
           // 눌린 경우)에서는 '표' 항목을 뺀다 — 스키마상 중첩 표는 유효하지만 tiptap-markdown 은
           // 중첩 table 을 GFM 으로 직렬화 못 해 바깥 표 전체가 raw HTML 로 새어버린다(회귀 테스트
           // 참고: e2e/pages/wiki/wiki-table-editing.spec.ts 의 "중첩 표 회귀").

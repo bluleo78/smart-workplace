@@ -97,7 +97,7 @@ class WikiAiServiceTest {
         .when(perms)
         .requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"));
 
-    assertThatThrownBy(() -> service.startCompose(CALLER, PAGE_ID, summarize()))
+    assertThatThrownBy(() -> service.startCompose(CALLER, PAGE_ID, continueAction()))
         .isInstanceOf(WikiForbiddenException.class);
 
     verify(agent, never()).stream(any(), any(), any());
@@ -113,13 +113,13 @@ class WikiAiServiceTest {
     when(assistantResolver.resolve(CALLER)).thenReturn(spec());
 
     ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
-    service.startCompose(CALLER, PAGE_ID, summarize());
+    service.startCompose(CALLER, PAGE_ID, continueAction());
 
     verify(agent).stream(bodyCaptor.capture(), any(), any());
     WikiAiService.AgentBody body = (WikiAiService.AgentBody) bodyCaptor.getValue();
     assertThat(body.pageTitle()).isEqualTo("설계 문서");
     assertThat(body.pageBody()).isEqualTo("## 본문\n내용");
-    assertThat(body.action()).isEqualTo(WikiAiAction.SUMMARIZE);
+    assertThat(body.action()).isEqualTo(WikiAiAction.CONTINUE);
     assertThat(body.assistantAgentId()).isEqualTo(900L);
     assertThat(body.model()).isEqualTo("claude-opus");
   }
@@ -144,7 +144,7 @@ class WikiAiServiceTest {
         .when(agent)
         .stream(any(), any(), any());
 
-    String correlationId = service.startCompose(CALLER, PAGE_ID, summarize());
+    String correlationId = service.startCompose(CALLER, PAGE_ID, continueAction());
     assertThat(correlationId).isNotBlank();
 
     @SuppressWarnings("unchecked")
@@ -185,9 +185,9 @@ class WikiAiServiceTest {
         .when(agent)
         .stream(any(), any(), any());
 
-    service.startCompose(CALLER, PAGE_ID, summarize());
+    service.startCompose(CALLER, PAGE_ID, continueAction());
 
-    verify(pageService).recordAiUsage(PAGE_ID, WikiAiAction.SUMMARIZE);
+    verify(pageService).recordAiUsage(PAGE_ID, WikiAiAction.CONTINUE);
   }
 
   /** agent.stream 이 예외를 던지면 wiki.ai.error(message 포함)로 fanOut 된다. */
@@ -198,7 +198,7 @@ class WikiAiServiceTest {
     when(assistantResolver.resolve(CALLER)).thenReturn(spec());
     doThrow(new RuntimeException("ai-agent 응답 실패")).when(agent).stream(any(), any(), any());
 
-    String correlationId = service.startCompose(CALLER, PAGE_ID, summarize());
+    String correlationId = service.startCompose(CALLER, PAGE_ID, continueAction());
 
     verify(sseRegistry)
         .fanOut(
@@ -215,7 +215,7 @@ class WikiAiServiceTest {
     when(assistantResolver.resolve(CALLER)).thenReturn(spec());
     doThrow(new RuntimeException("ai-agent 응답 실패")).when(agent).stream(any(), any(), any());
 
-    service.startCompose(CALLER, PAGE_ID, summarize());
+    service.startCompose(CALLER, PAGE_ID, continueAction());
 
     verify(pageService, never()).recordAiUsage(anyLong(), any());
   }
@@ -240,9 +240,9 @@ class WikiAiServiceTest {
         .when(agent)
         .stream(any(), any(), any());
 
-    service.startCompose(CALLER, PAGE_ID, summarize());
+    service.startCompose(CALLER, PAGE_ID, continueAction());
 
-    verify(pageService).recordAiUsage(PAGE_ID, WikiAiAction.SUMMARIZE);
+    verify(pageService).recordAiUsage(PAGE_ID, WikiAiAction.CONTINUE);
   }
 
   /** #736: attribution 기록이 실패해도(예외 격리) wiki.ai.done fanOut 은 그대로 발생한다. */
@@ -265,7 +265,7 @@ class WikiAiServiceTest {
         .when(agent)
         .stream(any(), any(), any());
 
-    String correlationId = service.startCompose(CALLER, PAGE_ID, summarize());
+    String correlationId = service.startCompose(CALLER, PAGE_ID, continueAction());
 
     verify(sseRegistry)
         .fanOut(eq(Set.of(CALLER)), eq("wiki.ai.done"), eq(Map.of("correlationId", correlationId)));
@@ -317,7 +317,7 @@ class WikiAiServiceTest {
         .when(agent)
         .stream(any(), any(), any());
 
-    String correlationId = svc.startCompose(CALLER, PAGE_ID, summarize());
+    String correlationId = svc.startCompose(CALLER, PAGE_ID, continueAction());
     assertThat(started.await(1, TimeUnit.SECONDS)).isTrue();
 
     svc.cancelCompose(correlationId, CALLER);
@@ -353,7 +353,7 @@ class WikiAiServiceTest {
     verify(mockRegistry).cancel("corr-1", CALLER);
   }
 
-  private WikiAiRequest summarize() {
-    return new WikiAiRequest(WikiAiAction.SUMMARIZE, null, null);
+  private WikiAiRequest continueAction() {
+    return new WikiAiRequest(WikiAiAction.CONTINUE, null, null);
   }
 }

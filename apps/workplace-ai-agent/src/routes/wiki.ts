@@ -7,10 +7,21 @@ import { z } from 'zod';
 
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runWikiCompose } from '../agent/run-wiki-compose.js';
+import { runWikiSummarize } from '../agent/run-wiki-summarize.js';
+import { handler } from './mail.js';
+
+// WP-301 노트 상단 요약 요청 스키마(workplace-api WikiAiAgentSummaryClient.Req 와 1:1).
+export const wikiSummarizeSchema = z.object({
+  title: z.string(),
+  body: z.string().min(1),
+  assistantAgentId: z.number().int().positive(),
+  model: z.string().min(1),
+  maxTurns: z.number().int().positive(),
+  timeoutMs: z.number().int().positive(),
+});
 
 export const wikiComposeSchema = z.object({
   action: z.enum([
-    'summarize',
     'draft',
     'continue',
     'rewrite_tone',
@@ -33,6 +44,9 @@ export const wikiComposeSchema = z.object({
 
 export function createWikiRouter(deps: RunAgentDeps): Router {
   const router = Router();
+
+  // WP-301 노트 상단 요약: {title, body} → {summary} (비스트리밍 단발).
+  router.post('/wiki/summarize', handler(wikiSummarizeSchema, runWikiSummarize, deps, 'wiki-summarize'));
 
   router.post('/wiki/compose', async (req, res) => {
     const parsed = wikiComposeSchema.safeParse(req.body);

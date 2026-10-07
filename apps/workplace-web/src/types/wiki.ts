@@ -92,3 +92,15 @@ export type WikiAttachment = {
   mimeType: string
   sizeBytes: number
 }
+
+/** WP-301 노트 상단 AI 요약 상태(백엔드 WikiSummaryStatus). */
+export type WikiSummaryStatus = 'READY' | 'STALE' | 'MISSING' | 'TOO_SHORT' | 'UNAVAILABLE'
+
+/** WP-301 노트 요약 응답 — summaryVersion 은 요약 당시 노트 버전, pageVersion 은 응답 시점 버전. */
+export interface WikiPageSummaryState {
+  summary: string | null
+  status: WikiSummaryStatus
+  summaryVersion: number | null
+  pageVersion: number
+  summarizedAt: string | null
+}

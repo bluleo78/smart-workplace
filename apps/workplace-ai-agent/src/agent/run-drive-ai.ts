@@ -1,9 +1,9 @@
 // 드라이브 파일 요약·콘텐츠 검색 오버뷰 러너.
 // runDriveSummarize: 비서 OAuth 토큰 fetch → SDK 단발 실행 → 텍스트 추출.
 // runDriveOverview: 검색 발췌 목록 → SDK 스트리밍 → 인용 달린 답변 델타 콜백.
-// 도구 미사용 텍스트 in/out. run-mail-ai 의 runText 패턴을 미러.
+// 도구 미사용 텍스트 in/out. runDriveSummarize 는 run-mail-ai 의 공용 runText 를 그대로 쓴다.
 import { runnerFor } from './agent-runner.js';
-import { finalText } from './runner-events.js';
+import { runText } from './run-mail-ai.js';
 import { extractTextDelta } from './wiki-delta-parser.js';
 import { DRIVE_SUMMARIZE_PROMPT } from './prompts/drive.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
@@ -84,21 +84,9 @@ export async function runDriveSummarize(
   i: DriveSummarizeInput,
   deps: RunAgentDeps,
 ): Promise<{ summary: string }> {
-  // 비서 OAuth 토큰 취득 — 에이전트 자격으로 LLM 호출.
-  const credential = await deps.client.getProviderCredential(i.assistantAgentId);
   // 비신뢰 파일 본문을 userMessage 에 포함. 시스템 프롬프트에서 지시 무시 명시.
   const userMessage = `파일명: ${i.fileName}\n형식: ${i.mime}\n\n본문:\n${i.text}`;
-  const events = await runnerFor(credential).collect({
-    userMessage,
-    systemPrompt: DRIVE_SUMMARIZE_PROMPT,
-    // 우선순위: 요청 body(i.model) > redeem 응답(credential.model) > env/기본값.
-    model: i.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL,
-    maxTurns: i.maxTurns,
-    credential,
-    agentId: i.assistantAgentId,
-    timeoutMs: i.timeoutMs,
-    logTag: `drive-summarize:${i.assistantAgentId}`,
-    includePartialMessages: false,
-  });
-  return { summary: finalText(events).trim() };
+  // 비서 OAuth 토큰 취득·모델 우선순위(요청 body > redeem 응답 > env/기본값)는 공용 runText 가 처리한다.
+  const text = await runText(DRIVE_SUMMARIZE_PROMPT, userMessage, i, deps, 'drive-summarize');
+  return { summary: text.trim() };
 }

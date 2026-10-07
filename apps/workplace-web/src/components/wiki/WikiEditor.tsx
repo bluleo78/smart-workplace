@@ -1,5 +1,6 @@
 import './wiki-editor.css'
 
+import { useQueryClient } from '@tanstack/react-query'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
 import { TableCell } from '@tiptap/extension-table-cell'
@@ -25,6 +26,7 @@ import {
 import { useWikiMentions } from '../../hooks/queries/useWikiMentions'
 import { useDeletePage, useSavePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
+import { syncWikiSummaryVersion } from '../../hooks/queries/useWikiSummary'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
@@ -47,6 +49,7 @@ import { createWikiMentionExtension } from './wikiMentionSuggestion'
 import { type SaveState,type WikiAiState,WikiPageHeader } from './WikiPageHeader'
 import type { WikiAiAction } from './WikiSlashMenu'
 import { createWikiSlashExtension } from './wikiSlashSuggestion'
+import { WikiSummaryCard } from './WikiSummaryCard'
 import { WikiTableContextMenu } from './WikiTableContextMenu'
 import { createWikiTableShortcuts } from './wikiTableShortcuts'
 import { WikiTableToolbar } from './WikiTableToolbar'
@@ -56,6 +59,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   const navigate = useNavigate()
   const location = useLocation()
   const save = useSavePage(spaceId)
+  const queryClient = useQueryClient()
   const del = useDeletePage(spaceId)
   const { data: tree } = useWikiTree(spaceId)
   // 브레드크럼 — 이미 로드된 전체 트리에서 파생(추가 API 없음).
@@ -145,7 +149,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 들어오며(#748) 게이트 의미가 "편집 가능"이 됐고, canUseAi 와 canEdit 는 원래부터 동일 식이라
   // 별도 ref 를 두면 이름만 다른 중복이 된다.
 
-  // action → startWikiAiStream 트리거. summarize/continue 는 즉시, draft 는 토픽 입력 후.
+  // action → startWikiAiStream 트리거. continue 는 즉시, draft 는 토픽 입력 후.
   // 스트림을 버퍼링했다가 done 시 1회 삽입한다(WP-255, runTransform 과 같은 방식). 토큰마다 insertContent 하면
   // tiptap-markdown 이 조각마다 따로 파싱해 `**목`/`적**` 처럼 쪼개진 서식·표가 기호로 남고, `- ` 가 목록 안
   // 커서에서 다시 파싱돼 목록이 계단식으로 중첩됐다. 생성 중에는 하단 "생성 중…" 표시·헤더 스피너가 진행을 알린다.
@@ -357,7 +361,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         // 이미지가 든 페이지를 열었다 저장하면 영구 삭제됐다(AI/MCP 위키 도구가 본문을 직접 쓴다).
         // 노드 이름 'image' 유지 + inline:true 는 라운드트립 무손실의 필수 조건 — wikiImageNode.ts 참조.
         WikiImage,
-        // 표(#742) — StarterKit 에 없어서 마크다운 표가 문단으로 합쳐져 깨졌다. AI 생성물(/ai 요약·초안)이
+        // 표(#742) — StarterKit 에 없어서 마크다운 표가 문단으로 합쳐져 깨졌다. AI 생성물(/ai 초안·이어쓰기)이
         // 표를 자주 만들기 때문에 체감 결함이 컸다. tiptap-markdown 이 table 직렬화기를 내장하고 있어
         // 저장 → 재로드 라운드트립이 성립한다(GFM 으로 표현 못 하는 병합셀 등은 자체 폴백).
         // resizable 은 끈다 — 열 너비를 픽셀로 문서에 심으면 마크다운 직렬화에서 버려져 무의미하다.
@@ -510,6 +514,8 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         {
           onSuccess: (data) => {
             versionRef.current = data.version
+            // WP-301 요약 캐시를 새 버전에 맞춘다(낡음 표시·짧은 노트 성장 재조회).
+            syncWikiSummaryVersion(queryClient, page.id, data.version)
             firstSaveRef.current = false
             setSaveState('saved')
           },
@@ -526,7 +532,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         },
       )
     },
-    [editor, page.id, save, saveState],
+    [editor, page.id, save, saveState, queryClient],
   )
 
   // 디바운스 대기 중인 저장의 제목 — 언마운트 flush 가 클로저가 아닌 최신 값을 쓰도록 ref 로 보관.
@@ -592,6 +598,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       editor.commands.setTextSelection(Math.min(from, editor.state.doc.content.size))
       setTitle(next.title)
       versionRef.current = next.version
+      syncWikiSummaryVersion(queryClient, next.id, next.version)
       // 다음 내 저장이 원격 수정본을 리비전으로 남기도록 snapshot 을 다시 켠다(작성자가 바뀐 경계).
       firstSaveRef.current = true
       setSaveState('idle')
@@ -602,7 +609,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         if (!editor.isDestroyed) hydrateWikiMentions(editor, r.data ?? [])
       })
     },
-    [editor, page, cancelAi, cancelPendingSave, refetchMentions],
+    [editor, page, cancelAi, cancelPendingSave, refetchMentions, queryClient],
   )
   useEffect(() => {
     if (!editor) return
@@ -745,6 +752,8 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
             placeholder="제목 없음"
             className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
           />
+          {/* WP-301 노트 상단 AI 요약 — 제목 아래·본문 위(시안 A). 본문을 바꾸지 않는 읽기 보조라 뷰어에게도 보인다. */}
+          <WikiSummaryCard pageId={page.id} />
           {/* 빈 페이지 AI CTA — 초안 작성이 가장 유효한 순간(#733). 본문이 채워지면 사라진다.
               에디터 아래가 아니라 제목 바로 밑에 둔다: 본문 클릭영역(min-h 300px) 뒤에 두면
               placeholder 와 300px 떨어져 시각적 연결이 끊긴다.

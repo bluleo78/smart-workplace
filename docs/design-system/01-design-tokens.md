@@ -180,6 +180,7 @@ Smart Workplace의 색상 시스템은 **인디고(h≈264) 계열을 브랜드 
 | `--warning` | `oklch(0.84 0.16 84)` | `oklch(0.76 0.14 84)` | 앰버 — 주의 상태 |
 | `--warning-foreground` | `oklch(0.2 0 0)` | `oklch(0.985 0 0)` | Warning 위 텍스트 |
 | `--warning-subtle` | `oklch(0.97 0.04 84)` | `oklch(0.2 0.04 84)` | 연한 황색 배경 |
+| `--warning-text` | `oklch(0.5 0.12 70)` | `var(--warning)` | 경고 **문구** 색 — 배경 없이 본문/카드 위에 놓이는 경고 텍스트(`text-warning-text`). `--warning` 은 밝은 채움·아이콘용이라 라이트에서 작은 글자로 쓰면 AA 미달(약 1.5:1) |
 | `--info` | `oklch(0.55 0.15 240)` | `oklch(0.7 0.13 240)` | 청색 — 정보/진행 상태 (예: 동기화 중) |
 | `--info-foreground` | `oklch(0.985 0 0)` | `oklch(0.985 0 0)` | Info 위 텍스트 |
 | `--info-subtle` | `oklch(0.95 0.04 240)` | `oklch(0.2 0.04 240)` | 연한 청색 배경 |
@@ -200,7 +201,7 @@ Smart Workplace의 색상 시스템은 **인디고(h≈264) 계열을 브랜드 
 <div className="bg-info-subtle text-info border border-info/20">동기화 중…</div>
 ```
 
-이들 토큰은 `@theme inline`에서 `--color-success`, `--color-warning`, `--color-info`(및 `-foreground`·`-subtle`)로 매핑되어 `bg-success`, `text-warning`, `border-info-subtle` 등의 유틸리티로 쓸 수 있다.
+이들 토큰은 `@theme inline`에서 `--color-success`, `--color-warning`, `--color-info`(및 `-foreground`·`-subtle`, 경고는 `-text` 추가)로 매핑되어 `bg-success`, `text-warning`, `border-info-subtle` 등의 유틸리티로 쓸 수 있다.
 
 ---
 

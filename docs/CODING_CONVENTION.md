@@ -99,6 +99,7 @@ private static final long ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000L;
 | 로그/타임스탬프 — 초 단위 | `formatDateTime` | `2026-07-15 14:59:59` | 감사 로그 등 정밀도 필요한 곳 |
 | 툴팁/활동 — 분 단위 | `formatDateTimeMinute` | `2026-07-15 14:59` | hover 절대시간, 댓글/타임라인 |
 | 상대시간 | `formatRelativeTime` | `5분 전`, `3개월 전` | 피드·알림·목록 보조 표기 |
+| 짧은 보조 표기 — 월/일 + 시각 | `formatMonthDayClock` | `10/8 14:20` | 24시간제, 브라우저 로컬 타임존. 노트 AI 요약 시각(WP-301) |
 | 시각만 — 채팅 버블 | `formatClockTime` | `오후 3:24` | `Asia/Seoul` 고정 |
 | 시각만 — 컴팩트 거터 | `formatClockTimeCompact` | `15:24` | 24시간제, 좁은 폭 |
 | 시각만 — 캘린더 로컬 | `formatLocalClockTime24` | `14:30` | 24시간제, **브라우저 로컬 타임존**(캘린더 날짜 계산과 기준 일치) |

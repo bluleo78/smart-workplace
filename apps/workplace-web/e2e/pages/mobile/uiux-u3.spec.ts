@@ -89,7 +89,7 @@ test('R1 노트: 페이지 ⋯ 메뉴 맨 위 "AI 작성" 묶음 — 편집 권�
   const menu = page.getByRole('menu')
   await expect(menu.getByText('AI 작성')).toBeVisible()
   const first = menu.getByRole('menuitem').first()
-  await expect(first).toHaveAttribute('data-testid', 'wiki-ai-header-summarize')
+  await expect(first).toHaveAttribute('data-testid', 'wiki-ai-header-draft')
   await expect(first).not.toHaveAttribute('data-disabled', /.*/)
   await expect(page.getByTestId('wiki-ai-header-draft')).toBeVisible()
   await expect(page.getByTestId('wiki-ai-menu-reason')).toHaveCount(0)
@@ -104,7 +104,7 @@ test('R1 노트(읽기 전용): AI 작성 항목은 비활성, 사유는 흐리�
   const reason = page.getByTestId('wiki-ai-menu-reason')
   await expect(reason).toContainText('읽기 전용')
   expect(await reason.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
-  await expect(page.getByTestId('wiki-ai-header-summarize')).toHaveAttribute('data-disabled', '')
+  await expect(page.getByTestId('wiki-ai-header-draft')).toHaveAttribute('data-disabled', '')
 })
 
 test('C2 ⋯ 메뉴 항목이 연 다이얼로그 안의 ↓ 키는 메뉴가 가로채지 않는다(preventDefault 없음)', async ({ authenticatedPage: page }) => {
@@ -256,7 +256,7 @@ test('R1 노트: AI 작성 실행 중에는 헤더에 생성 중 스피너가 �
   const header = page.getByTestId('wiki-page-header')
   await expect(header.getByTestId('wiki-ai-header-busy')).toHaveCount(0)
   await header.getByRole('button', { name: '페이지 메뉴' }).click()
-  await page.getByTestId('wiki-ai-header-summarize').click()
+  await page.getByTestId('wiki-ai-header-continue').click()
   await expect(header.getByTestId('wiki-ai-header-busy')).toBeVisible()
 })
 

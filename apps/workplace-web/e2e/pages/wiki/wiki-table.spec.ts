@@ -1,5 +1,5 @@
 // 노트 에디터 표 렌더·마크다운 라운드트립 E2E (#742) — Table 확장 미도입으로 마크다운 표가
-// 문단으로 합쳐져 깨지던 회귀를 막는다. AI 생성물(/ai 요약·초안)이 표를 자주 만들어 체감 결함이 컸다.
+// 문단으로 합쳐져 깨지던 회귀를 막는다. AI 생성물(/ai 초안·이어쓰기)이 표를 자주 만들어 체감 결함이 컸다.
 import type { Page } from '@playwright/test'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { lastSaved, mockWikiPageEditor } from '../../fixtures/wiki-mock'
@@ -73,10 +73,10 @@ test('슬래시 메뉴에서 표 삽입 + 삽입 경로 마크다운 라운드�
   // 컨테이너 마킹을 group 으로 옮겼다). 표 행에는 AI 마커가 붙지 않아야 한다.
   const popover = page.getByTestId('wiki-slash-popover')
   await expect(popover.getByRole('group', { name: 'AI' })).toBeVisible()
-  await expect(popover.getByRole('group', { name: 'AI' })).toContainText('AI 요약')
+  await expect(popover.getByRole('group', { name: 'AI' })).toContainText('AI 이어쓰기')
   await expect(popover.getByTestId('wiki-slash-option-table')).toHaveCount(1)
   await expect(popover.getByRole('group', { name: 'AI' }).getByTestId('wiki-slash-option-table')).toHaveCount(0)
-  await expect(page.getByTestId('wiki-slash-option-summarize')).toBeVisible()
+  await expect(page.getByTestId('wiki-slash-option-draft')).toBeVisible()
   await page.getByTestId('wiki-slash-option-table').click()
 
   // 목록이 같은 팝업 안에서 그리드로 바뀐다 — 새 팝오버 레이어가 생기지 않아야 한다.

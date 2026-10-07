@@ -152,6 +152,20 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
     (url) => /^\/api\/v1\/wiki\/pages\/\d+\/mentions$/.test(url.pathname),
     (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   )
+  // WP-301: 노트를 열 때마다 상단 요약 카드가 /wiki/pages/:id/summary 를 조회한다 — 미스텁이면 dev 프록시로 누수되고,
+  // MISSING 으로 보이면 자동 생성(POST)까지 나간다. 기본은 TOO_SHORT(카드 없음·생성 안 함)로 두고,
+  // 요약을 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.
+  await page.route(
+    (url) => /^\/api\/v1\/wiki\/pages\/\d+\/summary$/.test(url.pathname),
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ summary: null, status: 'TOO_SHORT', summaryVersion: null, pageVersion: 1, summarizedAt: null }),
+          })
+        : route.fallback(),
+  )
   // 백링크(Task 9 예정)도 같은 자리에서 빈 기본 스텁으로 누수 예방.
   await page.route(
     (url) => /^\/api\/v1\/wiki\/pages\/\d+\/backlinks$/.test(url.pathname),
