@@ -1,16 +1,9 @@
 import { useEffect, useRef } from 'react'
 
 import { AiContent } from '@/components/ai/AiContent'
+import { formatMonthDayClock } from '@/lib/formatters'
 
 import { useGenerateWikiSummary, useWikiSummary } from '../../hooks/queries/useWikiSummary'
-
-/** 요약 시각 표시(예: 10/8 14:20 요약). */
-function formatSummarizedAt(iso: string): string {
-  const d = new Date(iso)
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  return `${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm} 요약`
-}
 
 /**
  * WP-301 노트 상단 AI 요약 카드 — 메일·드라이브와 같은 AiContent 톤.
@@ -84,7 +77,7 @@ export function WikiSummaryCard({ pageId, liveVersion }: { pageId: number; liveV
                 </button>
               </>
             ) : (
-              data.summarizedAt && <span>{formatSummarizedAt(data.summarizedAt)}</span>
+              data.summarizedAt && <span>{`${formatMonthDayClock(data.summarizedAt)} 요약`}</span>
             )}
           </div>
         </>

@@ -153,6 +153,18 @@ export function formatDateTimeMinute(dateStr: string | null | undefined): string
 }
 
 /**
+ * 월/일 + 24시간 시각 — `10/8 14:20` (브라우저 로컬 타임존, WP-301).
+ * 월·일은 zero-pad 하지 않고 시·분만 zero-pad 한다 — 노트 AI 요약 카드의 "요약 시각"처럼 연도가 불필요한 짧은 보조 표기용.
+ * parseUtcDate 로 서버 문자열을 파싱한다. null/undefined/무효 입력 → '-'.
+ */
+export function formatMonthDayClock(dateStr: string | null | undefined): string {
+  if (!dateStr) return '-';
+  const d = parseUtcDate(dateStr);
+  if (Number.isNaN(d.getTime())) return '-';
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/**
  * 상대시간 포맷 — `방금 전`, `5분 전`, `3시간 전`, `2일 전`, `3개월 전`.
  * 페이지 간 일관성 확보를 위한 공통 포맷터 (이슈 #105).
  * UTC 파싱(parseUtcDate)을 사용하여 서버 LocalDateTime 문자열을 정확히 처리.
