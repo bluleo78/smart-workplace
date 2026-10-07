@@ -11,6 +11,7 @@ import { DocxPreview } from '../drive/preview/DocxPreview'
 import { SheetPreview } from '../drive/preview/SheetPreview'
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
 import { Button } from '../ui/button'
+import { fitImageWidth } from './imageFit'
 import { PdfPages } from './PdfPages'
 import type { ViewerItem } from './types'
 import { usePreviewBlob } from './usePreviewBlob'
@@ -60,6 +61,17 @@ export function ViewerBody({
   const [text, setText] = useState<string | null>(null)
   const [buffer, setBuffer] = useState<ArrayBuffer | null>(null)
   const [convertError, setConvertError] = useState(false)
+  // 이미지 확대 계산용 — 본문 내용 영역 크기(패딩 제외)와 이미지 원본 크기.
+  const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null)
+  const [box, setBox] = useState<{ w: number; h: number } | null>(null)
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
+  useEffect(() => {
+    if (!bodyEl || kind !== 'IMAGE') return
+    const ro = new ResizeObserver(([e]) => setBox({ w: e.contentRect.width, h: e.contentRect.height }))
+    ro.observe(bodyEl)
+    return () => ro.disconnect()
+  }, [bodyEl, kind])
+  const fitWidth = natural && box ? fitImageWidth(natural.w, natural.h, box.w, box.h) : null
   const error = source.error || convertError
   // #775: 에러도 아니고 콘텐츠도 아직 없는 렌더 가능 상태 = 비동기 페치 진행 중 — 빈 화면 대신 스켈레톤.
   const loading =
@@ -127,7 +139,10 @@ export function ViewerBody({
 
   return (
     <div
-      className={cn('min-h-0 flex-1 overflow-auto', !fillsFrame && 'p-4', kind === 'IMAGE' && 'flex items-center justify-center')}
+      ref={setBodyEl}
+      // 이미지는 flex + 자식 m-auto 로 가운데 둔다 — 넘치면 auto 여백이 0 이 되어(안전한 가운데 정렬) 위·왼쪽까지 스크롤된다.
+      // (items-center/justify-center 는 넘친 부분을 위·왼쪽 바깥으로 밀어내 스크롤로 닿을 수 없게 만든다.)
+      className={cn('min-h-0 flex-1 overflow-auto', !fillsFrame && 'p-4', kind === 'IMAGE' && 'flex')}
       data-testid="preview-body"
     >
       {/* 드라이브 링크 원본이 휴지통·삭제 — 받지 않고 안내만(다운로드 없음). */}
@@ -162,19 +177,21 @@ export function ViewerBody({
       )}
       {/* #775: 콘텐츠 페치 중(로딩) — AI 요약 카드와 같은 animate-pulse 스켈레톤 패턴 재사용. */}
       {loading && (
-        <div className="w-full max-w-md space-y-2" data-testid="preview-loading">
+        <div className="m-auto w-full max-w-md space-y-2" data-testid="preview-loading">
           <div className="h-3 w-full animate-pulse rounded bg-muted" />
           <div className="h-3 w-5/6 animate-pulse rounded bg-muted" />
           <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
         </div>
       )}
       {!error && kind === 'IMAGE' && blobUrl && (
-        // 확대는 transform 으로(레이아웃 불변) — 컨트롤 연결은 후속.
+        // 맞춤(확대 1)은 본문 안에 전체가 보이게, 확대는 맞춤 폭 × 배율을 명시 폭으로 준다(레이아웃 크기가 커져 스크롤 영역도 늘어난다).
+        // 크기를 재기 전에는 max-w/max-h 로 화면 안에 둔다.
         <img
           src={blobUrl}
           alt={item.name}
-          className="mx-auto max-w-full"
-          style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}
+          onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+          className={cn('m-auto shrink-0', fitWidth == null ? 'max-h-full max-w-full object-contain' : 'h-auto max-h-none max-w-none')}
+          style={fitWidth == null ? undefined : { width: fitWidth * zoom }}
         />
       )}
       {!error && kind === 'PDF' && pdfBlob && (

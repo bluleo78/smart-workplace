@@ -46,11 +46,20 @@ describe('issueAttachmentItem / issueDriveLinkItem', () => {
     })
     expect(issueAttachmentItem('WP', 12, a).summaryDriveFileId).toBeUndefined()
   })
-  it('이슈 드라이브 링크는 요약·드라이브에서 열기, 휴지통·삭제면 unavailable', () => {
+  it('이슈 드라이브 링크가 휴지통·삭제면 unavailable 이고 요약·드라이브에서 열기가 없다', () => {
     const l = { driveFileId: 70, fileId: 200, name: '기획안.pdf', mimeType: 'application/pdf', sizeBytes: 300, spaceId: 1, availability: 'TRASHED' } as DriveLink
+    const it = issueDriveLinkItem('WP', 12, l)
+    expect(it).toMatchObject({
+      key: 'drive:70', contentPath: '/projects/WP/issues/12/drive-links/70/content', unavailable: true,
+    })
+    // 휴지통·삭제된 원본은 요약·드라이브에서 열기를 걸지 않는다(열어도 볼 수 없는 곳으로 보내지 않게).
+    expect(it.summaryDriveFileId).toBeUndefined()
+    expect(it.driveOpenPath).toBeUndefined()
+  })
+  it('활성 드라이브 링크는 요약·드라이브에서 열기를 쓴다', () => {
+    const l = { driveFileId: 71, fileId: 201, name: 'b.pdf', mimeType: 'application/pdf', sizeBytes: 3, spaceId: 2, availability: 'ACTIVE' } as DriveLink
     expect(issueDriveLinkItem('WP', 12, l)).toMatchObject({
-      key: 'drive:70', contentPath: '/projects/WP/issues/12/drive-links/70/content',
-      summaryDriveFileId: 70, driveOpenPath: '/drive/spaces/1?preview=70', unavailable: true,
+      key: 'drive:71', summaryDriveFileId: 71, driveOpenPath: '/drive/spaces/2?preview=71', unavailable: false,
     })
   })
 })

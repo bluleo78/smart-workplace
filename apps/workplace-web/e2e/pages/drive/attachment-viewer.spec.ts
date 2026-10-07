@@ -10,6 +10,7 @@ import { createSpace, personalSpace } from '../../factories/drive.factory'
 import { createUser } from '../../factories/auth.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { solidPng } from '../../fixtures/png'
 
 const SPACE_ID = 1
 // ESM 컨텍스트: __dirname 대신 이 스펙 파일 기준 디렉토리.
@@ -122,6 +123,24 @@ test('PDF 는 모든 페이지를 세로로 그리고 현재 페이지를 보여
   await expect(page.getByTestId('preview-meta')).toContainText('p.3 / 3')
 })
 
+test('PDF 를 300% 로 확대해도 페이지 왼쪽 끝까지 스크롤된다', async ({ authenticatedPage: page }) => {
+  const pdf = fs.readFileSync(path.join(HERE, '../../fixtures/sample-3p.pdf'))
+  await stubDriveFiles(page, [{ id: 74, name: 'zoom.pdf', mimeType: 'application/pdf', sizeBytes: pdf.length }], { 74: pdf })
+  await openPreview(page, 'zoom.pdf')
+  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  // 100% → 300% (25% 단계 8번).
+  for (let i = 0; i < 8; i++) await page.getByRole('button', { name: '확대' }).click()
+  await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('300%')
+  const r = await page.getByTestId('pdf-document').evaluate((el) => {
+    el.scrollTo(0, 0)
+    const d = el.getBoundingClientRect()
+    const c = el.querySelector('[data-page="1"]')!.getBoundingClientRect()
+    return { overflow: el.scrollWidth > el.clientWidth, docLeft: d.left, pageLeft: c.left }
+  })
+  expect(r.overflow).toBe(true)
+  expect(r.pageLeft).toBeGreaterThanOrEqual(r.docLeft - 1)
+})
+
 test('PDF 로 위장한 HTML 은 렌더하지 않는다(WP-203 유지)', async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [{ id: 73, name: 'fake.pdf', mimeType: 'application/pdf', sizeBytes: 20 }], {
     73: '<html><script>1</script></html>',
@@ -176,7 +195,7 @@ test.describe('묶음 넘김', () => {
     await expect(page.getByRole('button', { name: '다음 파일' })).toBeFocused()
   })
 
-  test('딥링크로 목록에 없는 파일을 열면 1건 묶음', async ({ authenticatedPage: page }) => {
+  test('딥링크로 목록에 없는 파일을 열면 찾을 수 없음 안내', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, files, { 80: 'A', 81: 'B', 82: 'C' })
     await page.goto('/drive/spaces/1?preview=999')
     await expect(page.getByTestId('preview-not-found')).toBeVisible()
@@ -242,4 +261,132 @@ test('AI 가 꺼져 있어도 참조된 곳은 보이고 ✨ 버튼은 없다', 
   await expect(page.getByTestId('file-backlink-ISSUE-3')).toBeVisible()
   await expect(page.getByRole('button', { name: 'AI 요약' })).toHaveCount(0)
   await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0)
+})
+
+test.describe('확대(WP-277)', () => {
+  /** 본문 스크롤러와 이미지의 화면 사각형. */
+  async function rects(page: Page) {
+    return page.getByTestId('preview-body').evaluate((el) => {
+      const img = el.querySelector('img')!
+      const b = el.getBoundingClientRect()
+      const i = img.getBoundingClientRect()
+      return { body: { left: b.left, top: b.top, w: el.clientWidth, h: el.clientHeight, sw: el.scrollWidth, sh: el.scrollHeight }, img: { left: i.left, top: i.top, w: i.width, h: i.height } }
+    })
+  }
+
+  test('+/−/0 키와 확대·축소·맞춤 버튼이 이미지 크기를 바꾸고, 확대 후 왼쪽 위 끝까지 스크롤된다', async ({ authenticatedPage: page }) => {
+    const png = solidPng(2400, 1600)
+    await stubDriveFiles(page, [{ id: 95, name: 'big.png', mimeType: 'image/png', sizeBytes: png.length }], { 95: png })
+    await openPreview(page, 'big.png')
+    const img = page.getByTestId('preview-body').locator('img')
+    await expect(img).toBeVisible()
+    // 맞춤 — 이미지 전체가 본문 안에 들어온다.
+    await expect.poll(async () => (await rects(page)).img.w).toBeGreaterThan(100)
+    const fit = await rects(page)
+    expect(fit.img.w).toBeLessThanOrEqual(fit.body.w + 1)
+    expect(fit.img.h).toBeLessThanOrEqual(fit.body.h + 1)
+
+    await page.keyboard.press('+')
+    await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('125%')
+    await expect.poll(async () => Math.round((await rects(page)).img.w)).toBe(Math.round(fit.img.w * 1.25))
+    await page.keyboard.press('-')
+    await expect.poll(async () => Math.round((await rects(page)).img.w)).toBe(Math.round(fit.img.w))
+    await page.getByRole('button', { name: '확대' }).click()
+    await page.getByRole('button', { name: '확대' }).click()
+    await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('150%')
+    await page.getByRole('button', { name: '축소' }).click()
+    await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('125%')
+    await page.getByRole('button', { name: '맞춤' }).click()
+    await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('폭 맞춤')
+    await expect.poll(async () => Math.round((await rects(page)).img.w)).toBe(Math.round(fit.img.w))
+
+    // 300% — 키로 끝까지 확대한 뒤 0 키는 맞춤으로 되돌린다.
+    await page.getByTestId('preview-body').focus()
+    for (let i = 0; i < 8; i++) await page.keyboard.press('=')
+    await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('300%')
+    await expect.poll(async () => Math.round((await rects(page)).img.w)).toBe(Math.round(fit.img.w * 3))
+    // 왼쪽 위로 스크롤하면 이미지 왼쪽 위 끝이 본문 안에 보인다(transform 확대는 위·왼쪽이 잘려 닿을 수 없었다).
+    await page.getByTestId('preview-body').evaluate((el) => el.scrollTo(0, 0))
+    const zoomed = await rects(page)
+    expect(zoomed.body.sw).toBeGreaterThan(zoomed.body.w)
+    expect(zoomed.img.left).toBeGreaterThanOrEqual(zoomed.body.left - 1)
+    expect(zoomed.img.top).toBeGreaterThanOrEqual(zoomed.body.top - 1)
+    // 오른쪽 아래 끝까지도 스크롤로 닿는다.
+    await page.getByTestId('preview-body').evaluate((el) => el.scrollTo(el.scrollWidth, el.scrollHeight))
+    const end = await rects(page)
+    expect(end.img.left + end.img.w).toBeLessThanOrEqual(end.body.left + end.body.w + 1)
+    await page.keyboard.press('0')
+    await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('폭 맞춤')
+  })
+
+  test('세로로 긴 이미지도 맞춤에서 위쪽까지 전부 보인다', async ({ authenticatedPage: page }) => {
+    const png = solidPng(600, 2400)
+    await stubDriveFiles(page, [{ id: 96, name: 'tall.png', mimeType: 'image/png', sizeBytes: png.length }], { 96: png })
+    await openPreview(page, 'tall.png')
+    await expect(page.getByTestId('preview-body').locator('img')).toBeVisible()
+    await expect.poll(async () => (await rects(page)).img.h).toBeGreaterThan(100)
+    const r = await rects(page)
+    expect(r.img.top).toBeGreaterThanOrEqual(r.body.top - 1)
+    expect(r.img.h).toBeLessThanOrEqual(r.body.h + 1)
+  })
+})
+
+test('⋯ 메뉴가 열린 채 → 를 눌러도 파일이 넘어가지 않는다', async ({ authenticatedPage: page }) => {
+  await stubDriveFiles(page, [
+    { id: 80, name: 'a.txt', mimeType: 'text/plain', sizeBytes: 1 },
+    { id: 81, name: 'b.txt', mimeType: 'text/plain', sizeBytes: 1 },
+  ], { 80: 'A', 81: 'B' })
+  await openPreview(page, 80)
+  await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
+  await page.getByRole('button', { name: '더 보기' }).click()
+  await expect(page.getByRole('menuitem', { name: '링크 복사' })).toBeVisible()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
+  await expect(page).toHaveURL(/preview=80/)
+  await expect(page.getByTestId('preview-body')).toContainText('A')
+})
+
+test('뷰어 접근 이름은 전체 파일명 + 미리보기이고, 닫으면 연 버튼으로 포커스가 돌아온다', async ({ authenticatedPage: page }) => {
+  const name = '아주-긴-파일명-'.repeat(8) + 'v3.txt'
+  await stubDriveFiles(page, [{ id: 97, name, mimeType: 'text/plain', sizeBytes: 1 }], { 97: 'X' })
+  await openPreview(page, name)
+  await expect(page.getByRole('dialog', { name: `${name} 미리보기` })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
+  await expect(page.getByRole('button', { name, exact: true })).toBeFocused()
+})
+
+test('좁은 화면(lg 미만)에서는 드라이브여도 요약 패널을 접은 채 연다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 900, height: 800 })
+  await stubDriveFiles(page, [{ id: 93, name: 'narrow.md', mimeType: 'text/markdown', sizeBytes: 5 }], { 93: '# hi' }, {
+    summary: { 93: { summary: '좁은 화면 요약', status: 'DONE' } },
+  })
+  await openPreview(page, 93)
+  // ✨ 는 보이되(요약 가능) 패널은 접힘 — 본문 아래로 쌓여 본문을 가리지 않게.
+  await expect(page.getByRole('button', { name: 'AI 요약' })).toBeVisible()
+  await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0)
+  await page.getByRole('button', { name: 'AI 요약' }).click()
+  await expect(page.getByTestId('viewer-side-panel').getByTestId('drive-summary-card')).toContainText('좁은 화면 요약')
+})
+
+test('요약 응답 전에는 ✨·패널을 띄우지 않고 응답이 성공하면 보인다', async ({ authenticatedPage: page }) => {
+  await stubDriveFiles(page, [{ id: 94, name: 'slow.md', mimeType: 'text/markdown', sizeBytes: 5 }], { 94: '# hi' })
+  // 요약 응답을 붙잡아 둔다 — 그 사이 ✨ 가 먼저 떴다가 사라지는 깜빡임이 없어야 한다(403 링크 대비).
+  let release!: () => void
+  const gate = new Promise<void>((r) => (release = r))
+  await page.route(
+    (u) => u.pathname === '/api/v1/drive/files/94/summary',
+    async (r) => {
+      await gate
+      await r.fulfill({ json: { summary: '늦은 요약', status: 'DONE' } }).catch(() => {})
+    },
+  )
+  await openPreview(page, 94)
+  await expect(page.getByTestId('preview-body')).toContainText('hi')
+  await expect(page.getByRole('button', { name: 'AI 요약' })).toHaveCount(0)
+  await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0)
+  release()
+  await expect(page.getByTestId('viewer-side-panel').getByTestId('drive-summary-card')).toContainText('늦은 요약')
+  await expect(page.getByRole('button', { name: 'AI 요약' })).toBeVisible()
 })

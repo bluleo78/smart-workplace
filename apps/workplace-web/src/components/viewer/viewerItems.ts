@@ -51,6 +51,7 @@ export function issueAttachmentItem(projectKey: string, number: number, a: Issue
  */
 export function issueDriveLinkItem(projectKey: string, number: number, l: DriveLink): ViewerItem {
   const path = `/projects/${projectKey}/issues/${number}/drive-links/${l.driveFileId}/content`
+  const unavailable = l.availability !== 'ACTIVE'
   return {
     key: `drive:${l.driveFileId}`,
     name: l.name,
@@ -58,9 +59,11 @@ export function issueDriveLinkItem(projectKey: string, number: number, l: DriveL
     sizeBytes: l.sizeBytes,
     contentPath: path,
     downloadPath: path,
-    summaryDriveFileId: l.driveFileId,
-    driveOpenPath: `/drive/spaces/${l.spaceId}?preview=${l.driveFileId}`,
-    unavailable: l.availability !== 'ACTIVE',
+    // 원본이 휴지통·삭제면 요약·드라이브에서 열기를 걸지 않는다 — 열어도 볼 수 없는 곳(요약 없음·not-found)으로 보내지 않게.
+    ...(unavailable
+      ? {}
+      : { summaryDriveFileId: l.driveFileId, driveOpenPath: `/drive/spaces/${l.spaceId}?preview=${l.driveFileId}` }),
+    unavailable,
   }
 }
 

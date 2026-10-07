@@ -232,6 +232,8 @@ test.describe('이슈 본문 이미지 — 표시', () => {
     await expect(page.getByTestId('attachment-viewer')).toBeVisible()
     await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0)
+    // 본문 이미지는 URL 에 열림 상태가 없어 링크 복사가 의미 없다 — 항목이 없는 ⋯ 도 그리지 않는다.
+    await expect(page.getByRole('button', { name: '더 보기' })).toHaveCount(0)
   })
 
   test('지워졌거나 수거된 이미지는 대체 문구를 보여준다', async ({ authenticatedPage: page }) => {

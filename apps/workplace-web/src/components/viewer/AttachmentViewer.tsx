@@ -38,6 +38,19 @@ function readPanelPref(): boolean | null {
   }
 }
 
+/**
+ * 호출부 기본값(defaultPanelOpen)을 따를 만큼 넓은 화면(lg ≥ 1024px)인지.
+ * 좁은 화면에선 패널이 본문 아래로 쌓여 본문을 가리므로, 사용자가 직접 연 적이 없으면 접힌 채 연다.
+ * matchMedia 가 없는 환경(구형·테스트)에서는 좁은 화면으로 본다.
+ */
+function isWideViewport(): boolean {
+  try {
+    return typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 1024px)').matches
+  } catch {
+    return false
+  }
+}
+
 const edgeBtnClass =
   'absolute top-1/2 z-10 flex size-11 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-ring'
 
@@ -53,12 +66,16 @@ export function AttachmentViewer({
   onIndexChange,
   onClose,
   defaultPanelOpen,
+  shareable = true,
 }: {
   items: ViewerItem[]
   index: number
   onIndexChange: (i: number) => void
   onClose: () => void
+  /** 저장된 패널 상태가 없을 때 요약 패널을 펼친 채 열지(lg 이상에서만 적용). */
   defaultPanelOpen?: boolean
+  /** URL 로 같은 뷰어를 다시 열 수 있는 호출부인지 — false 면 ⋯ "링크 복사"를 숨긴다(이슈 본문 이미지처럼 히스토리 키가 없는 곳). */
+  shareable?: boolean
 }) {
   const aiAware = useAiPanelAwareDialog({ open: true, size: 'lightbox' })
   // 범위 밖 index(목록 재조회 직후 등)에도 죽지 않게 묶음 안으로 맞춘다 — 렌더 시 items 는 비어 있지 않다.
@@ -81,8 +98,8 @@ export function AttachmentViewer({
   const meta = [item.sizeBytes != null ? formatFileSize(item.sizeBytes) : null, nav.label || null, pageLabel]
     .filter(Boolean)
     .join(' · ')
-  // 사이드 패널 — 초기값 = 저장된 마지막 상태, 없으면 호출부 기본값(드라이브는 펼침). 묶음 안에서 넘겨도 유지된다.
-  const [panelOpen, setPanelOpen] = useState(() => readPanelPref() ?? defaultPanelOpen ?? false)
+  // 사이드 패널 — 초기값 = 저장된 마지막 상태, 없으면 호출부 기본값(드라이브는 펼침, 단 lg 이상에서만). 묶음 안에서 넘겨도 유지된다.
+  const [panelOpen, setPanelOpen] = useState(() => readPanelPref() ?? (!!defaultPanelOpen && isWideViewport()))
   const togglePanel = (open: boolean) => {
     setPanelOpen(open)
     try {
@@ -148,6 +165,9 @@ export function AttachmentViewer({
 
   // 키보드 — 판정은 routeKey(순수), 여기서는 DOM 맥락만 계산한다.
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // 포털로 그려진 자식(⋯ 드롭다운·폴더 선택 모달)의 키 이벤트도 React 트리를 따라 여기로 올라온다.
+    // 뷰어 DOM 밖에서 난 키는 그 자식의 것이므로(메뉴 안 ←/→ 등) 넘김·확대로 쓰지 않는다.
+    if (!e.currentTarget.contains(e.target as Node)) return
     const t = e.target as HTMLElement
     const scroller = t.closest<HTMLElement>('[data-hscroll]')
     const action = routeKey({
@@ -198,14 +218,16 @@ export function AttachmentViewer({
             <FileTypeIcon mimeType={item.mimeType} className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
+            {/* 접근 이름은 전체 파일명 + "미리보기"(스펙 §5.2) — 화면에는 가운데 말줄임 제목만 보인다. */}
             <DialogTitle className="truncate text-sm font-medium" title={item.name}>
-              {middleEllipsis(item.name, 60)}
+              <span aria-hidden>{middleEllipsis(item.name, 60)}</span>
+              <span className="sr-only">{item.name} 미리보기</span>
             </DialogTitle>
-            <p className="truncate text-xs text-muted-foreground" data-testid="preview-meta">
+            {/* 크기·순번·쪽 메타를 다이얼로그 설명으로 쓴다. */}
+            <DialogDescription className="truncate text-xs text-muted-foreground" data-testid="preview-meta">
               {meta}
-            </p>
+            </DialogDescription>
           </div>
-          <DialogDescription className="sr-only">{item.name} 미리보기</DialogDescription>
           <div className="flex shrink-0 items-center gap-1">
             {!item.unavailable && (
               <TooltipProvider delayDuration={300}>
@@ -248,7 +270,7 @@ export function AttachmentViewer({
                 <Sparkles />
               </Button>
             )}
-            <ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} />
+            <ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} shareable={shareable} />
             <div className="mx-1 h-5 w-px bg-border" aria-hidden />
             <DialogClose asChild>
               <Button variant="ghost" size="icon" aria-label="닫기">
@@ -293,7 +315,8 @@ export function AttachmentViewer({
           {showPanel && <ViewerSidePanel item={item} onClose={() => togglePanel(false)} />}
         </div>
         {/* ✨ 를 쓸 수 없어도(AI 꺼짐·요약 403) 참조된 곳은 얇은 띠로 보인다 — 비어 있으면 아무것도 그리지 않는다. */}
-        {summary !== 'show' && item.backlinksDriveFileId != null && (
+        {/* 요약 판정 중('loading')에는 띠도 그리지 않는다 — 곧 패널로 옮겨 갈 수 있어 띠→패널 깜빡임을 막는다. */}
+        {(summary === 'hidden' || summary === 'none') && item.backlinksDriveFileId != null && (
           <div className="max-h-32 shrink-0 overflow-y-auto border-t border-border px-4 py-3">
             <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />
           </div>

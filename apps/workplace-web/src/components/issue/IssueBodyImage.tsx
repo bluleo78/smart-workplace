@@ -53,6 +53,8 @@ function AuthIssueImage({ src, fileId, alt }: { src: string; fileId: number; alt
           index={0}
           onIndexChange={() => {}}
           onClose={() => setOpen(false)}
+          // 본문 이미지 뷰어는 URL 에 열림 상태가 없어 링크를 복사해도 같은 화면이 열리지 않는다.
+          shareable={false}
         />
       )}
     </>
