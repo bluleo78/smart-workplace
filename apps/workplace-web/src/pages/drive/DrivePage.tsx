@@ -59,12 +59,13 @@ import { driveApi } from '../../api/drive'
 import { DriveOverviewCard } from '../../components/drive/DriveOverviewCard'
 import { DrivePressRow } from '../../components/drive/DrivePressRow'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
-import { FilePreviewModal } from '../../components/drive/FilePreviewModal'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
 import { RowOverflowMenu } from '../../components/drive/RowOverflowMenu'
 import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
 import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
 import { SearchInput } from '../../components/ui/search-input'
+import { AttachmentViewer } from '../../components/viewer/AttachmentViewer'
+import { driveFileItem } from '../../components/viewer/viewerItems'
 import { driveKeys } from '../../hooks/queries/driveKeys'
 import { useDriveItems } from '../../hooks/queries/useDriveItems'
 import { useDriveSearch } from '../../hooks/queries/useDriveSearch'
@@ -1630,7 +1631,15 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             onClose={() => setBulkPicker(false)}
           />
         )}
-        {preview && <FilePreviewModal file={preview} onClose={previewParam.close} />}
+        {preview && (
+          <AttachmentViewer
+            items={[driveFileItem(preview)]}
+            index={0}
+            onIndexChange={() => {}}
+            onClose={previewParam.close}
+            defaultPanelOpen
+          />
+        )}
         {/* 삭제·이동된 파일 딥링크 — 조용히 URL 을 고치지 않고 안내 후 닫기로 되돌린다(WP-208). */}
         {previewMissing && (
           <Dialog open onOpenChange={(o) => { if (!o) previewParam.close() }}>

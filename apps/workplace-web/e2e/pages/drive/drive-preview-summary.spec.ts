@@ -114,7 +114,8 @@ test('다운로드 버튼이 상단 헤더에 있다', async ({ authenticatedPag
   )
   await openPreview(page)
   // 헤더에 다운로드 버튼이 존재.
-  const download = page.getByRole('button', { name: '다운로드', exact: true })
+  // (콘텐츠 stub 이 없어 본문이 오류 화면이면 거기에도 '다운로드' 버튼이 있으므로 헤더로 한정한다.)
+  const download = page.getByRole('dialog').locator('header').getByRole('button', { name: '다운로드', exact: true })
   await expect(download).toBeVisible()
   // 단순 존재가 아니라 '미리보기 본문보다 DOM 상위(헤더)' 배치를 검증 — 핵심 요구.
   const beforePreview = await page.evaluate(() => {
@@ -144,11 +145,12 @@ test('헤더 — 형식·크기 표시, 아이콘 다운로드(툴팁)·닫기�
   // 열자마자 툴팁이 뜨지 않는다(첫 포커스가 다운로드 버튼으로 가면 툴팁이 첫 Escape 를 먹어 모달이 안 닫혔다).
   await expect(page.getByRole('tooltip')).toHaveCount(0)
 
-  // 파일명 아래 보조 줄: 확장자(대문자) · 크기.
-  await expect(dialog.getByTestId('preview-meta')).toHaveText('DOCX · 1.0 KB')
+  // 파일명 아래 보조 줄: 크기(묶음이 2건 이상이면 " · n / m" 카운터가 붙는다 — WP-277 뷰어 헤더. 확장자는 파일명·아이콘이 이미 알린다).
+  await expect(dialog.getByTestId('preview-meta')).toHaveText('1.0 KB')
 
   // 다운로드는 글자 없는 아이콘 버튼 — 접근성 이름은 aria-label 로 유지된다.
-  const download = dialog.getByRole('button', { name: '다운로드', exact: true })
+  // 본문 오류 화면(콘텐츠 stub 없음)에도 '다운로드' 버튼이 있어 헤더로 한정한다.
+  const download = dialog.locator('header').getByRole('button', { name: '다운로드', exact: true })
   await expect(download).toBeVisible()
   await expect(download).toHaveText('')
   // 강조(primary 채움) 버튼이 아니어야 한다 — 시선이 문서보다 버튼에 먼저 가던 문제.
