@@ -227,7 +227,10 @@ export function AttachmentViewer({
                       <Download />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">다운로드</TooltipContent>
+                  {/* 툴팁도 body 로 포털되므로 뷰어와 같은 다크 토큰을 쓰게 dark 를 단다. */}
+                  <TooltipContent side="bottom" className="dark">
+                    다운로드
+                  </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             )}

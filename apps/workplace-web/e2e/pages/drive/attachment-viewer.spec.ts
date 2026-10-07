@@ -398,6 +398,23 @@ test('⋯ 메뉴가 열린 채 → 를 눌러도 파일이 넘어가지 않는�
   await expect(page.getByTestId('preview-body')).toContainText('A')
 })
 
+test('라이트 테마에서도 ⋯ 메뉴는 뷰어처럼 어두운 배경으로 뜬다', async ({ authenticatedPage: page }) => {
+  await stubDriveFiles(page, [{ id: 82, name: 'c.txt', mimeType: 'text/plain', sizeBytes: 1 }], { 82: 'C' })
+  await openPreview(page, 82)
+  await page.getByRole('button', { name: '더 보기' }).click()
+  const menu = page.getByRole('menu')
+  await expect(menu).toBeVisible()
+  // 포털로 body 에 붙는 메뉴가 라이트 토큰(흰 배경)으로 뜨지 않는지 — 배경 밝기로 본다.
+  // 토큰이 oklch 면 첫 값(L, 0~1)을, rgb 면 상대 휘도를 쓴다.
+  const luminance = await menu.evaluate((el) => {
+    const bg = getComputedStyle(el).backgroundColor
+    const m = bg.match(/[\d.]+/g)!.map(Number)
+    if (bg.startsWith('oklch')) return m[0] > 1 ? m[0] / 100 : m[0]
+    return (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255
+  })
+  expect(luminance).toBeLessThan(0.3)
+})
+
 test('뷰어 접근 이름은 전체 파일명 + 미리보기이고, 닫으면 연 버튼으로 포커스가 돌아온다', async ({ authenticatedPage: page }) => {
   const name = '아주-긴-파일명-'.repeat(8) + 'v3.txt'
   await stubDriveFiles(page, [{ id: 97, name, mimeType: 'text/plain', sizeBytes: 1 }], { 97: 'X' })

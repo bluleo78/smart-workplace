@@ -46,7 +46,8 @@ export function ViewerMoreMenu({
           <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      {/* 메뉴는 body 로 포털되어 뷰어 루트의 .dark 밖에 그려진다 — 같은 다크 토큰을 쓰도록 dark 를 직접 단다. */}
+      <DropdownMenuContent align="end" className="dark">
         {item.sourceLink && (
           // 라우트가 바뀌면 뷰어는 호출부 URL 상태와 함께 닫힌다.
           <DropdownMenuItem onSelect={() => navigate(item.sourceLink!)}>원본으로 이동</DropdownMenuItem>
