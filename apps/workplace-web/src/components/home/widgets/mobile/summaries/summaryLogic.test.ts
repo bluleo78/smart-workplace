@@ -13,6 +13,7 @@ import {
   joinNames,
   latestUnreadNotification,
   mailBadgeCount,
+  MAX_NAMES,
   pickBusiestChannel,
   pickLatestMail,
   pickNextEvent,
@@ -131,5 +132,19 @@ describe('알림·채널·이름', () => {
   })
   it('이름은 빈 값을 빼고 앞 5개만 · 로 잇는다', () => {
     expect(joinNames(['a', ' ', 'b', 'c', 'd', 'e', 'f'])).toBe('a · b · c · d · e')
+  })
+})
+
+// WP-160: 프로젝트·연락처 타일은 이름 MAX_NAMES 개만 조회한다 — 앞 MAX_NAMES 개만 받아도 한 줄 문구가 전체를 받을 때와 같아야 한다.
+describe('타일 이름 나열 조회 축소(WP-160)', () => {
+  it('앞 MAX_NAMES 개만 받아도 전체 목록과 같은 문구', () => {
+    const all = Array.from({ length: 20 }, (_, i) => `프로젝트 ${i + 1}`)
+    expect(joinNames(all.slice(0, MAX_NAMES))).toBe(joinNames(all))
+  })
+
+  it('MAX_NAMES 보다 적으면 전부 나열', () => {
+    const few = ['김철수', '이영희']
+    expect(few.length).toBeLessThan(MAX_NAMES)
+    expect(joinNames(few)).toBe('김철수 · 이영희')
   })
 })

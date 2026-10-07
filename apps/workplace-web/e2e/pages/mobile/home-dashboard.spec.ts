@@ -10,8 +10,11 @@ import type {
   MessagingSummary,
 } from '../../../src/types/dashboard'
 import type { NotificationResponse } from '../../../src/types/notification'
+import { member, page as contactPage } from '../../factories/contacts.factory'
 import { createSpace } from '../../factories/drive.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
+import { mailAccount, summary as mailRow } from '../../factories/mail.factory'
+import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
 import { bodyOf, trackRequests } from '../../fixtures/requests'
@@ -109,7 +112,7 @@ test('홈 조회는 device=mobile 로 나가고 데스크톱 레이아웃 요청
   expect(stub.requests().filter((r) => r.method === 'GET').every((r) => r.device === 'mobile')).toBe(true)
 })
 
-test('편집 중 lg 경계를 넘으면 미저장 초안은 어느 기기에도 저장되지 않고 편집이 끝난다', async ({
+test('편집 중 lg 경계를 넘으면 미저장 초안은 어느 기기에도 저장되지 않고, 원래 폭으로 돌아오면 복원된다 (WP-162)', async ({
   authenticatedPage: page,
 }) => {
   await stubWidgetData(page)
@@ -125,8 +128,8 @@ test('편집 중 lg 경계를 넘으면 미저장 초안은 어느 기기에도 
   await myTasks.getByTestId('widget-hide-toggle').click()
   await expect(myTasks).toHaveAttribute('data-hidden', 'true')
 
-  // 데스크톱 폭 — AppLayout 이 셸을 갈아 끼우며 Dashboard 가 다시 마운트된다(편집 상태 초기화).
-  // 모바일 초안은 데스크톱 화면·데스크톱 레이아웃 어디에도 섞이지 않고, 데스크톱 레이아웃을 device 없이 새로 조회한다.
+  // 데스크톱 폭 — AppLayout 이 셸을 갈아 끼우며 Dashboard 가 다시 마운트된다. 초안은 셸 밖 저장소에 남지만(WP-162)
+  // 편집은 시작한 기기(모바일)에 묶여 데스크톱에선 편집 모드가 아니다. 모바일 초안은 데스크톱 화면·데스크톱 레이아웃 어디에도 섞이지 않고, 데스크톱 레이아웃을 device 없이 새로 조회한다.
   // 1024 경계를 넘는 리사이즈 — 셸 교체가 끝난 뒤에 단언한다(WP-225).
   await resizeAndSettle(page, { width: 1280, height: 800 })
   await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
@@ -134,11 +137,18 @@ test('편집 중 lg 경계를 넘으면 미저장 초안은 어느 기기에도 
   await expect(page.locator('[data-testid="dashboard-widget"][data-widget="unread_mail"]')).toBeVisible()
   await expect(page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')).toHaveCount(0)
 
-  // 다시 모바일 폭 — 편집은 끝난 상태(보기 모드)이고 저장된 모바일 레이아웃 그대로다. 그동안 PUT 은 0건.
+  // 다시 모바일 폭 — 편집 모드와 미저장 초안(my_tasks 숨김)이 복원된다(WP-162). 그동안 PUT 은 0건.
   await resizeAndSettle(page, { width: 390, height: 664 })
-  await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
-  await expect(myTasks).toBeVisible()
+  await expect(page.getByTestId('dashboard-edit-banner')).toBeVisible()
+  await expect(myTasks).toHaveAttribute('data-hidden', 'true')
   expect(stub.puts()).toHaveLength(0)
+
+  // 저장은 시작 기기(모바일) 레이아웃으로만 간다.
+  await page.getByTestId('dashboard-edit-save').click()
+  await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
+  expect(stub.puts()).toHaveLength(1)
+  expect(stub.puts()[0].device).toBe('mobile')
+  expect(stub.puts()[0].widgets.find((w) => w.id === 'my_tasks')?.hidden).toBe(true)
 })
 
 test('본문형 ⌃ 접기 → device=mobile PUT 에 collapsed:true, 요약 한 줄 표시, 새로고침 후 유지', async ({
@@ -552,4 +562,48 @@ test('요약 — 같은 이슈 멘션 여러 건은 한 줄(멘션 N · 시각),
   const focusBox = (await focus.boundingBox())!
   expect(metaBox.x + metaBox.width).toBeLessThanOrEqual(focusBox.x + focusBox.width)
   await expectNoHorizontalOverflow(page)
+})
+
+test('타일 요약은 필요한 만큼만 조회한다 — 프로젝트 size·연락처 limit 5, 메일 limit 1, 요약 문구는 그대로 (WP-160)', async ({
+  authenticatedPage: page,
+}) => {
+  await stubWidgetData(page)
+  const projectNames = ['플랫폼 인프라 현대화', '고객 콘솔 리디자인', '모바일 앱 v2']
+  await mockApi(page, 'GET', '/api/v1/projects', {
+    content: projectNames.map((name, i) => createProject({ id: i + 1, key: `P${i + 1}`, name })),
+    page: 0,
+    size: 5,
+    totalElements: projectNames.length,
+    totalPages: 1,
+  })
+  await mockApi(page, 'GET', '/api/v1/contacts', contactPage([member({ name: '김철수' }), member({ id: 2, name: '이영희' })]))
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ id: 1 })])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [
+    mailRow({ id: 11, fromName: '홍길동', subject: '분기 보고서 검토 요청' }),
+  ])
+  const projectReqs = trackRequests(page, 'GET', '/api/v1/projects')
+  const contactReqs = trackRequests(page, 'GET', '/api/v1/contacts')
+  const mailReqs = trackRequests(page, 'GET', '/api/v1/mail/accounts/1/messages')
+  await stubDashboard(page, {
+    mobile: layout([
+      { id: 'pj-1', type: 'projects', count: 0, hidden: false, params: {}, label: null },
+      { id: 'ct-1', type: 'contacts', count: 0, hidden: false, params: {}, label: null },
+      { id: 'ml-1', type: 'mail_list', count: 0, hidden: false, params: {}, label: null },
+    ]),
+  })
+  await page.goto('/')
+
+  const tile = (id: string) => page.locator(`[data-testid="dashboard-widget"][data-widget-id="${id}"]`)
+  await expect(tile('pj-1').getByTestId('mobile-widget-summary-text')).toHaveText(projectNames.join(' · '))
+  await expect(tile('ct-1').getByTestId('mobile-widget-summary-text')).toHaveText('김철수 · 이영희')
+  await expect(tile('ml-1').getByTestId('mobile-widget-summary-text')).toHaveText('홍길동 · 분기 보고서 검토 요청')
+
+  // 요청은 모두 축소 크기로만 나간다(위젯 기본 크기 — 프로젝트 20건·연락처 서버 기본 30·메일 서버 기본 — 요청 없음).
+  const params = (reqs: ReturnType<typeof trackRequests>) => reqs.requests().map((r) => new URL(r.url()).searchParams)
+  expect(params(projectReqs).length).toBeGreaterThan(0)
+  expect(params(projectReqs).every((q) => q.get('size') === '5')).toBe(true)
+  expect(params(contactReqs).length).toBeGreaterThan(0)
+  expect(params(contactReqs).every((q) => q.get('limit') === '5')).toBe(true)
+  expect(params(mailReqs).length).toBeGreaterThan(0)
+  expect(params(mailReqs).every((q) => q.get('limit') === '1' && q.get('folder') === 'INBOX')).toBe(true)
 })

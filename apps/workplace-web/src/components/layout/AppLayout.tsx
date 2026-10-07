@@ -9,6 +9,7 @@ import { AIFullscreen } from '@/components/ai/AIFullscreen'
 import { AISidePanel } from '@/components/ai/AISidePanel'
 import { MobileAiSheet } from '@/components/ai/MobileAiSheet'
 import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
+import { DashboardEditDraftProvider } from '@/components/home/dashboard/DashboardEditDraftContext'
 import { AppRail } from '@/components/layout/AppRail'
 import { InboxProvider } from '@/components/layout/InboxContext'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
@@ -76,6 +77,9 @@ export function AppLayout() {
           <AiScreenContextProvider>
             {/* 인박스 패널 오픈 상태를 AppRail(InboxPanel)·본문이 공유 — 합성 레이어가 패널을 연다. */}
             <InboxProvider>
+              {/* WP-162: 홈 편집 초안 저장소 — 아래 셸 분기(isMobile)보다 바깥에 둬야 lg 경계 리사이즈로 셸이 바뀌어
+                  Dashboard 가 다시 마운트돼도 미저장 초안·편집 모드가 유지된다. */}
+              <DashboardEditDraftProvider>
               {/* 메시징 SSE 연결 상태를 하위 채팅 UI(ChatModuleLayout 끊김 배너)로 전달 */}
               <MessagingConnectionContext.Provider value={messagingConn}>
                 {/* WP-121: 모바일(<lg)은 탭바 셸, 데스크톱은 기존 레일 레이아웃(DOM 불변). */}
@@ -100,6 +104,7 @@ export function AppLayout() {
                   </div>
                 )}
               </MessagingConnectionContext.Provider>
+              </DashboardEditDraftProvider>
             </InboxProvider>
             {/* AI 칩 — fixed 상단 중앙, 데스크톱 전용(모바일은 탭바 가운데 AI 가 대신한다). 비서 있을 때만. */}
             {aiAvailable && !isMobile && <AIChip />}

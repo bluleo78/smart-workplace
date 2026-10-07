@@ -1,10 +1,13 @@
-// 카탈로그 위젯 모바일 타일 요약 한 줄(WP-142) — 각 위젯(chatWidgetRegistry 컴포넌트)이 params 로 부르는 쿼리 훅을
-// 같은 인자로 불러 같은 쿼리 키를 쓴다. 카탈로그 위젯은 모바일에서 모두 타일형이라 본문 대신 이 한 줄만 보인다.
-import { useContacts } from '@/hooks/queries/useContacts'
+// 카탈로그 위젯 모바일 타일 요약 한 줄(WP-142) — 각 위젯(chatWidgetRegistry 컴포넌트)이 params 로 부르는 쿼리와
+// 같은 필터·인자를 쓴다. 카탈로그 위젯은 모바일에서 모두 타일형이라 본문 대신 이 한 줄만 보인다.
+// WP-160: 한 줄에 필요한 만큼만 받는다 — 프로젝트·연락처는 이름 MAX_NAMES 개, 메일은 최신 1건(별도 쿼리 키).
+// 이슈 목록은 응답에 전체 건수(total)가 없고 타일 건수 배지가 받은 건수(items.length)·hasMore 로 "N"/"N+" 를 그리므로,
+// 크기를 줄이면 배지 문구가 바뀌어 위젯과 같은 조회를 유지한다. 노트·드라이브·채널은 원래 목록 자체가 작아 그대로 둔다.
+import { useContactsHead } from '@/hooks/queries/useContacts'
 import { useDriveSpaces } from '@/hooks/queries/useDriveSpaces'
 import { useActivity,useMyIssues } from '@/hooks/queries/useHomeQueries'
 import { useMailAccounts } from '@/hooks/queries/useMailAccounts'
-import { useMailMessages } from '@/hooks/queries/useMailMessages'
+import { useMailMessagesHead } from '@/hooks/queries/useMailMessages'
 import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useProjects } from '@/hooks/queries/useProjects'
@@ -16,7 +19,7 @@ import { mailSender } from '../../dashboard/bodyRules'
 import type { MobileSummaryProps } from '../types'
 import { Muted } from './Muted'
 import { summarize, useNextCalendarEvent } from './summarize'
-import { eventTimeLabel, joinNames, pickBusiestChannel, totalUnread } from './summaryLogic'
+import { eventTimeLabel, joinNames, MAX_NAMES, pickBusiestChannel, totalUnread } from './summaryLogic'
 
 /** 이슈 목록 — 건수 + 최상위 1건(키·제목). IssueListWidget 과 같은 params 기본값. */
 export function IssueListSummary({ params, render }: MobileSummaryProps) {
@@ -47,7 +50,8 @@ export function MailListSummary({ params, render }: MobileSummaryProps) {
   const unreadOnly = params?.unreadOnly === true
   const accounts = useMailAccounts()
   const accountId = (params?.accountId as number | undefined) ?? accounts.data?.[0]?.id ?? undefined
-  const messages = useMailMessages(accountId, folder, query, unreadOnly, '', false)
+  // 요약은 최신 1건만 보므로 1건만 받는다(WP-160). 필터(폴더·검색어·안 읽음)는 MailListWidget 과 같다.
+  const messages = useMailMessagesHead(accountId, folder, query, unreadOnly, 1)
   // 메일 목록 쿼리는 계정이 정해졌을 때만 돈다 — 계정이 없으면 그 쿼리의 로딩은 기다리지 않는다(오류는 둘 다 본다).
   const messagesState = { isLoading: Boolean(accountId) && messages.isLoading, isError: messages.isError }
   return summarize(render, [accounts, messagesState], () => {
@@ -110,16 +114,17 @@ export function ContactsSummary({ params, render }: MobileSummaryProps) {
   const typeFilter = ((params?.type as ContactTypeFilter) || 'ALL') as ContactTypeFilter
   const org = (params?.org as string) || undefined
   const title = (params?.title as string) || undefined
-  const q = useContacts(search, typeFilter, org, title)
+  // 이름 MAX_NAMES 개만 나열하므로 그만큼만 받는다(WP-160, 무한 스크롤 첫 페이지 30명 대신).
+  const q = useContactsHead(search, typeFilter, org, title, MAX_NAMES)
   return summarize(render, [q], () => ({
     status: 'ready',
-    text: joinNames((q.data?.pages?.[0]?.items ?? []).map((c) => c.name)) || <Muted>연락처 없음</Muted>,
+    text: joinNames((q.data?.items ?? []).map((c) => c.name)) || <Muted>연락처 없음</Muted>,
   }))
 }
 
-/** 프로젝트 — 이름 나열(ProjectsWidget 과 같은 첫 페이지 20건). */
+/** 프로젝트 — 이름 나열. 이름 MAX_NAMES 개만 보이므로 그만큼만 받는다(WP-160, ProjectsWidget 의 20건 대신). */
 export function ProjectsSummary({ render }: MobileSummaryProps) {
-  const q = useProjects(0, 20)
+  const q = useProjects(0, MAX_NAMES)
   return summarize(render, [q], () => ({
     status: 'ready',
     text: joinNames((q.data?.content ?? []).map((p) => p.name)) || <Muted>프로젝트 없음</Muted>,

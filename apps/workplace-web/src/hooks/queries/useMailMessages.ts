@@ -43,6 +43,28 @@ export function useMailMessages(
   });
 }
 
+/**
+ * 메시지 목록의 최신 N건만(WP-160) — 모바일 홈 메일 목록 타일 요약 한 줄(최신 1건)처럼 목록 전체가 필요 없는 곳용.
+ * 키는 같은 필터의 전체 목록 키 끝에 { limit } 을 붙인다 — 'mail-messages' prefix 무효화·읽음 낙관 갱신
+ * (setQueriesData, 같은 배열 모양)이 그대로 닿고, 전체 목록 캐시와는 섞이지 않는다.
+ */
+export function useMailMessagesHead(
+  accountId: number | undefined,
+  folder: MailFolder,
+  query: string,
+  unread: boolean,
+  limit: number,
+) {
+  return useQuery({
+    queryKey: [...mailMessageKeys.list(accountId ?? 0, folder, query, unread, '', false), { limit }] as const,
+    queryFn: () => listMessages(accountId as number, folder, query || undefined, unread, undefined, false, limit),
+    enabled: !!accountId,
+    // 전체 목록(useMailMessages)과 같은 주기 반영.
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
 /** WP-186 사이드바 안 읽은 수 + AI 분류 활성 여부. accountId 없으면 비활성. */
 export function useUnreadCounts(accountId: number | undefined) {
   return useQuery({

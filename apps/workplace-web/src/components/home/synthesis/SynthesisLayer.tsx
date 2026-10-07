@@ -26,8 +26,8 @@ import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
 
-import { isMentionLike, notifLabel } from '../notifTarget'
-import { mailBadgeCount } from '../widgets/mobile/summaries/summaryLogic'
+import { notifLabel } from '../notifTarget'
+import { computeSynthesisCounts } from './computeSynthesisCounts'
 import { groupMentionNotifs } from './groupMentions'
 import { dueQueryFrom, localDateKey } from './synthesisDates'
 
@@ -163,25 +163,23 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
 
   // ── 카운트 산출(소스별 에러/로딩 격리, previewData 있으면 항상 로딩/에러 없음) ──────────
   const dueItems: IssueDueMarker[] = previewData?.dues ?? dues.data ?? []
-  const dueTodayCount = dueItems.filter((d) => d.dueDate === todayKey).length
-
   // 합성 레이어도 첫 페이지(최근 20건)만 필요 — 무한스크롤은 InboxPanel 담당(#610).
   const notifItems: NotificationResponse[] =
     previewData?.notifications ?? flattenNotificationPages(notifs.data?.pages)
-  const mentionCount = notifItems.filter((n) => isMentionLike(n) && !n.read).length
-
   const mailData = previewData?.mail ?? mail.data
-  // 메일 카운트 — AI 분류 활성이면 "회신 필요 N", 비활성이면 "안 읽음 N"(모바일 요약과 같은 mailBadgeCount 스왑 규칙).
-  const mailCount = mailBadgeCount(mailData)
-  // classificationActive: 하나라도 aiEnabled 계정이 있으면 true(백엔드 집계).
-  const classifyOn = mailData?.classificationActive ?? false
-
-  const todayEventCount = (previewData?.events ?? events.data ?? []).length
-
   const messagingData = previewData?.messaging ?? messaging.data
-  // 메시징 KPI: 회신대기 ∪ AI 발굴(여전히 안읽음)의 합집합 dedup 카운트 → "확인 필요 N".
-  // (needsReplyCount + aiAttentionCount 단순 합산은 한 채널이 두 신호를 모두 가질 때 이중 집계됨 → 백엔드 attentionCount 단일값 사용.)
-  const chatNeedsAttention = messagingData?.attentionCount ?? 0
+  // KPI 5종 집계는 모바일 접힘 한 줄(useSynthesisCounts)과 같은 순수 함수 하나로 계산한다(WP-161).
+  // 메일은 AI 분류 활성이면 "회신 필요 N", 아니면 "안 읽음 N"(classifyOn 으로 라벨 스왑),
+  // 메시징은 회신대기 ∪ AI 발굴 dedup 값(백엔드 attentionCount)을 쓴다.
+  const counts = computeSynthesisCounts({
+    dues: dueItems,
+    notifications: notifItems,
+    mail: mailData,
+    events: previewData?.events ?? events.data ?? [],
+    messaging: messagingData,
+    todayKey,
+  })
+  const classifyOn = counts.classifyOn
 
   // ── 지금 신경 쓸 일 병합(클라이언트 규칙) ────────────────────────────────────
   const rows: AttentionRow[] = []
@@ -311,16 +309,16 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
     ai?: boolean
     testId?: string
   }[] = [
-    { label: '오늘 마감', count: dueTodayCount, to: '/me/tasks/assigned?dueDate=today', q: previewData ? noQuery : dues },
+    { label: '오늘 마감', count: counts.dueToday, to: '/me/tasks/assigned?dueDate=today', q: previewData ? noQuery : dues },
     // 멘션: 전용 페이지가 없어 라우팅 대신 알림 인박스 패널을 연다(#273).
-    { label: '멘션', count: mentionCount, onClick: () => openInbox(), q: previewData ? noQuery : notifs },
+    { label: '멘션', count: counts.mention, onClick: () => openInbox(), q: previewData ? noQuery : notifs },
     // 메일 KPI 스왑: 분류 활성 시 "회신 필요 N"(Sparkles), 비활성 시 "안 읽음 N".
     classifyOn
-      ? { label: '회신 필요', count: mailCount, to: '/mail', q: previewData ? noQuery : mail, ai: true }
-      : { label: '안 읽음', count: mailCount, to: '/mail', q: previewData ? noQuery : mail },
-    { label: '오늘 일정', count: todayEventCount, to: '/calendar', q: previewData ? noQuery : events },
+      ? { label: '회신 필요', count: counts.mail, to: '/mail', q: previewData ? noQuery : mail, ai: true }
+      : { label: '안 읽음', count: counts.mail, to: '/mail', q: previewData ? noQuery : mail },
+    { label: '오늘 일정', count: counts.event, to: '/calendar', q: previewData ? noQuery : events },
     // 메시징 KPI — 회신대기 + AI 발굴 합산. AI 신호 배지 표시. 딥링크: /chat.
-    { label: '확인 필요', count: chatNeedsAttention, to: '/chat', q: previewData ? noQuery : messaging, ai: true, testId: 'kpi-messaging' },
+    { label: '확인 필요', count: counts.chat, to: '/chat', q: previewData ? noQuery : messaging, ai: true, testId: 'kpi-messaging' },
   ]
 
   return (

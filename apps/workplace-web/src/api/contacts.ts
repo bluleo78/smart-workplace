@@ -20,6 +20,8 @@ export const contactsApi = {
     organization?: string
     title?: string
     cursor?: string
+    /** 한 페이지 건수(생략 시 서버 기본 30, 최대 100) — 모바일 홈 타일 요약처럼 앞 몇 명만 필요할 때(WP-160). */
+    limit?: number
   }) => client.get<ContactPage>('/contacts', { params }),
 
   // 외부 연락처 조직·직책 distinct 목록 — 고급 필터 드롭다운 옵션.

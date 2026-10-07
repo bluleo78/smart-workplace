@@ -12,7 +12,8 @@ import type { NotificationResponse } from '@/types/notification'
 import { eventTime, type QuadrantKey, quadrantOf, sortKey } from '../../dashboard/bodyRules'
 
 // 이름 나열 최대 개수 — 한 줄 말줄임에 어차피 가려질 뒷부분까지 만들지 않는다.
-const MAX_NAMES = 5
+// 타일 요약 조회도 이만큼만 받는다(프로젝트 size·연락처 limit, WP-160) — 값을 바꾸면 조회 건수도 같이 바뀐다.
+export const MAX_NAMES = 5
 
 /**
  * 다음 일정 — 지금 이후 시작하는 시각 일정 중 가장 이른 것, 없으면 종일 일정, 그것도 없으면 null(남은 일정 없음).

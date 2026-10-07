@@ -19,10 +19,14 @@ interface SaveDashboardVars {
   widgets: DashboardWidgetConfig[]
 }
 
+// 편집 저장 mutation 식별 키 — 진행 여부를 컴포넌트 수명과 무관하게 본다(useIsDashboardSaving).
+const SAVE_MUTATION_KEY = [...dashboardKeys.all, 'save'] as const
+
 /** 레이아웃 저장 + 해당 기기 캐시 갱신. */
 export function useSaveDashboardLayout() {
   const qc = useQueryClient()
   return useMutation({
+    mutationKey: SAVE_MUTATION_KEY,
     mutationFn: ({ device, widgets }: SaveDashboardVars) => dashboardApi.save(device, widgets),
     onSuccess: (data, { device }) => qc.setQueryData(dashboardKeys.layout(device), data),
   })
@@ -104,4 +108,9 @@ export function useToggleWidgetCollapsed() {
  */
 export function useIsCollapseSaving() {
   return useIsMutating({ mutationKey: COLLAPSE_MUTATION_KEY }) > 0
+}
+
+/** 편집 저장(PUT) 진행 중 여부 — 저장 중 Dashboard 가 재마운트돼도(lg 경계 리사이즈) 이어서 본다(WP-162). */
+export function useIsDashboardSaving() {
+  return useIsMutating({ mutationKey: SAVE_MUTATION_KEY }) > 0
 }

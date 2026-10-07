@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
-import { expectStays, measureBox } from '../fixtures/wait'
+import { expectStays, measureBox, resizeAndSettle } from '../fixtures/wait'
 import { trackRequests } from '../fixtures/requests'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
 import { detail as mailDetail, mailAccount, summary as mailRow } from '../factories/mail.factory'
@@ -911,6 +911,84 @@ test('편집 — 위젯 숨김 → 저장 시 hidden:true + 일반 뷰 제외', 
   // 일반 뷰는 숨김 위젯 제외 → unread_mail 만.
   await expect(page.getByTestId('dashboard-widget')).toHaveCount(1)
   await expect(page.getByTestId('dashboard-widget')).toHaveAttribute('data-widget', 'unread_mail')
+})
+
+test('편집 — 편집 중 lg 경계를 넘었다 돌아오면 미저장 초안과 편집 모드가 복원되고 저장은 데스크톱 레이아웃으로 간다 (WP-162)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks', 'unread_mail']))
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
+  await page.route(
+    (url) => url.pathname === '/api/v1/me/dashboard',
+    (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback()
+      return route.fulfill({ json: route.request().postDataJSON() })
+    },
+  )
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  const myTasksCard = page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')
+  await myTasksCard.getByTestId('widget-hide-toggle').click()
+  await expect(myTasksCard).toHaveAttribute('data-hidden', 'true')
+
+  // 1023px — 모바일 셸로 바뀌며 Dashboard 가 다시 마운트된다. 데스크톱 초안은 모바일 화면에 보이지 않고(편집 아님) 저장도 없다.
+  await resizeAndSettle(page, { width: 1023, height: 800 })
+  await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
+  await expect(page.getByTestId('dashboard-edit-toggle')).toBeVisible()
+  expect(puts.requests()).toHaveLength(0)
+
+  // 1280px 복귀 — 셸이 다시 바뀌어도 초안(my_tasks 숨김)·편집 모드·되돌리기가 그대로 살아 있다.
+  await resizeAndSettle(page, { width: 1280, height: 800 })
+  await expect(page.getByTestId('dashboard-edit-banner')).toBeVisible()
+  await expect(myTasksCard).toHaveAttribute('data-hidden', 'true')
+  await expect(page.getByTestId('dashboard-edit-undo')).toBeEnabled()
+  expect(puts.requests()).toHaveLength(0)
+
+  // 저장 — 데스크톱 레이아웃(device=mobile 아님)에 숨김이 반영된다.
+  await page.getByTestId('dashboard-edit-save').click()
+  await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
+  expect(puts.requests()).toHaveLength(1)
+  expect(new URL(puts.requests()[0].url()).searchParams.get('device')).not.toBe('mobile')
+  expect(puts.lastBody<DashboardPut>()!.widgets.find((w) => w.type === 'my_tasks')?.hidden).toBe(true)
+  await expect(page.getByTestId('dashboard-widget')).toHaveCount(1)
+})
+
+test('편집 — 저장 중 lg 경계를 넘어 모바일에서 새로 편집을 시작하면 늦게 끝난 데스크톱 저장이 그 편집을 닫지 않는다 (WP-162)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks', 'unread_mail']))
+  // 데스크톱 저장 PUT 을 붙잡아 두었다가 모바일 편집 시작 뒤에 응답한다.
+  let releasePut!: () => void
+  const putHeld = new Promise<void>((resolve) => (releasePut = resolve))
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
+  await page.route(
+    (url) => url.pathname === '/api/v1/me/dashboard',
+    async (route) => {
+      if (route.request().method() !== 'PUT') return route.fallback()
+      await putHeld
+      return route.fulfill({ json: route.request().postDataJSON() })
+    },
+  )
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.getByTestId('dashboard-edit-save').click()
+  await expect.poll(() => puts.requests().length).toBe(1)
+
+  // 1023px — 모바일 셸에서 새 편집 시작(데스크톱 저장은 아직 진행 중이라 모바일 저장 버튼은 비활성).
+  await resizeAndSettle(page, { width: 1023, height: 800 })
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await expect(page.getByTestId('dashboard-edit-banner')).toBeVisible()
+  await expect(page.getByTestId('dashboard-edit-save')).toBeDisabled()
+
+  // 데스크톱 저장 완료 — 모바일 편집은 그대로 남고, 저장 버튼이 다시 살아난다.
+  releasePut()
+  await expect(page.getByTestId('dashboard-edit-save')).toBeEnabled()
+  await expectStays(page, () => page.getByTestId('dashboard-edit-banner').isVisible(), true)
+  expect(new URL(puts.requests()[0].url()).searchParams.get('device')).not.toBe('mobile')
 })
 
 test('편집 — 항목 수 10 선택 → 저장 시 PUT payload count:10', async ({

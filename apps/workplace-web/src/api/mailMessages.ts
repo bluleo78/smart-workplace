@@ -34,7 +34,10 @@ export async function getSyncStatus(accountId: number): Promise<MailSyncStatus> 
   return data;
 }
 
-/** 계정의 메시지 목록(폴더 스코프, 최신순, 선택 검색어·unread·category·needsReply 필터). */
+/**
+ * 계정의 메시지 목록(폴더 스코프, 최신순, 선택 검색어·unread·category·needsReply 필터).
+ * limit 은 최신 N건만 받을 때(모바일 홈 타일 요약 등, WP-160) — 생략하면 서버 기본 건수.
+ */
 export async function listMessages(
   accountId: number,
   folder: MailFolder,
@@ -42,6 +45,7 @@ export async function listMessages(
   unread?: boolean,
   category?: string,
   needsReply?: boolean,
+  limit?: number,
 ): Promise<EmailMessageSummary[]> {
   const { data } = await client.get<EmailMessageSummary[]>(
     `/mail/accounts/${accountId}/messages`,
@@ -55,6 +59,7 @@ export async function listMessages(
         ...(category ? { category } : {}),
         // P2: 회신필요(미처리) 필터.
         ...(needsReply ? { needsReply: true } : {}),
+        ...(limit ? { limit } : {}),
       },
     },
   );
