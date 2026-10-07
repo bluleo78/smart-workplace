@@ -21,7 +21,21 @@ export function escapeNoteBody(body: string): string {
   return body.replace(/<\/(note)/gi, '<\\/$1');
 }
 
-/** 노트 제목·본문을 받아 3~5문장 요약을 돌려준다. 본문은 <note> 로 감싸 지시와 분리한다. */
+/**
+ * 모델 출력을 카드 표시 형식(`• ` 목록, 빈 줄 없음)으로 맞춘다 — 프롬프트로 `• ` 를 요구해도 모델이 가끔
+ * 마크다운 `- `·`* `·번호 목록이나 빈 줄을 섞어, 그대로 두면 메일 요약과 모양이 어긋나기 때문이다.
+ * 목록 기호가 없는 줄은 손대지 않는다(모델이 목록을 안 따른 경우에도 내용은 잃지 않게).
+ */
+export function normalizeSummaryBullets(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.replace(/^(?:[-*·•]|\d+[.)])\s+/, '• '))
+    .join('\n');
+}
+
+/** 노트 제목·본문을 받아 핵심 3~5개 `• ` 목록 요약을 돌려준다. 본문은 <note> 로 감싸 지시와 분리한다. */
 export async function runWikiSummarize(
   i: WikiSummarizeInput,
   deps: RunAgentDeps,
@@ -29,5 +43,5 @@ export async function runWikiSummarize(
   const userMessage = `제목: ${i.title}\n\n<note>\n${escapeNoteBody(i.body)}\n</note>`;
   // 모델 우선순위(요청 body > redeem 응답 > env/기본값)·로그 태그 형식은 runText 가 처리한다.
   const text = await runText(WIKI_SUMMARIZE_PROMPT, userMessage, i, deps, 'wiki-summarize');
-  return { summary: text.trim() };
+  return { summary: normalizeSummaryBullets(text) };
 }
