@@ -370,6 +370,38 @@ public class EmailAccountRecord extends UpdatableRecordImpl<EmailAccountRecord> 
         return (Integer) get(24);
     }
 
+    /**
+     * Setter for <code>public.email_account.seen_push_lease_owner</code>. 읽음
+     * 역동기화 리스 보유자 토큰(디스패치 1회마다 새 UUID) — 계정 단위 직렬화 (WP-188)
+     */
+    public void setSeenPushLeaseOwner(String value) {
+        set(25, value);
+    }
+
+    /**
+     * Getter for <code>public.email_account.seen_push_lease_owner</code>. 읽음
+     * 역동기화 리스 보유자 토큰(디스패치 1회마다 새 UUID) — 계정 단위 직렬화 (WP-188)
+     */
+    public String getSeenPushLeaseOwner() {
+        return (String) get(25);
+    }
+
+    /**
+     * Setter for <code>public.email_account.seen_push_lease_until</code>. 읽음
+     * 역동기화 리스 만료 시각(DB 시각) — 지나면 다른 실행이 가져갈 수 있음 (WP-188)
+     */
+    public void setSeenPushLeaseUntil(OffsetDateTime value) {
+        set(26, value);
+    }
+
+    /**
+     * Getter for <code>public.email_account.seen_push_lease_until</code>. 읽음
+     * 역동기화 리스 만료 시각(DB 시각) — 지나면 다른 실행이 가져갈 수 있음 (WP-188)
+     */
+    public OffsetDateTime getSeenPushLeaseUntil() {
+        return (OffsetDateTime) get(26);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -393,7 +425,7 @@ public class EmailAccountRecord extends UpdatableRecordImpl<EmailAccountRecord> 
     /**
      * Create a detached, initialised EmailAccountRecord
      */
-    public EmailAccountRecord(Long id, Long userId, String emailAddress, String displayName, String imapHost, Integer imapPort, String imapSecurity, String imapUsername, String smtpHost, Integer smtpPort, String smtpSecurity, String smtpUsername, String encryptedPassword, OffsetDateTime lastTestedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime disabledAt, Boolean aiEnabled, Long tenantId, OffsetDateTime lastSyncedAt, String provider, String oauthRefreshToken, String oauthAccessToken, OffsetDateTime oauthTokenExpiresAt, Integer aiClassifyVersion) {
+    public EmailAccountRecord(Long id, Long userId, String emailAddress, String displayName, String imapHost, Integer imapPort, String imapSecurity, String imapUsername, String smtpHost, Integer smtpPort, String smtpSecurity, String smtpUsername, String encryptedPassword, OffsetDateTime lastTestedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime disabledAt, Boolean aiEnabled, Long tenantId, OffsetDateTime lastSyncedAt, String provider, String oauthRefreshToken, String oauthAccessToken, OffsetDateTime oauthTokenExpiresAt, Integer aiClassifyVersion, String seenPushLeaseOwner, OffsetDateTime seenPushLeaseUntil) {
         super(EmailAccount.EMAIL_ACCOUNT);
 
         setId(id);
@@ -421,6 +453,8 @@ public class EmailAccountRecord extends UpdatableRecordImpl<EmailAccountRecord> 
         setOauthAccessToken(oauthAccessToken);
         setOauthTokenExpiresAt(oauthTokenExpiresAt);
         setAiClassifyVersion(aiClassifyVersion);
+        setSeenPushLeaseOwner(seenPushLeaseOwner);
+        setSeenPushLeaseUntil(seenPushLeaseUntil);
         resetChangedOnNotNull();
     }
 }

@@ -247,7 +247,7 @@ class EmailMessageReadStateRepositoryTest extends IntegrationTestBase {
     long id = fetched(box[1], box[2], "업무", false);
     messageRepo.markSeen(id);
 
-    List<SeenSyncItem> items = messageRepo.findPendingSeenSyncItems(List.of(id));
+    List<SeenSyncItem> items = messageRepo.findDueSeenSyncItems(box[1], 10);
     assertThat(items).singleElement().satisfies(it -> assertThat(it.seen()).isTrue());
 
     // 그 사이 사용자가 안읽음으로 되돌림 → true 로 보낸 결과로는 해제하지 않는다
@@ -257,7 +257,7 @@ class EmailMessageReadStateRepositoryTest extends IntegrationTestBase {
     assertThat(messageRepo.clearSeenPushPendingIn(List.of(id), false)).isEqualTo(1);
     assertThat(pending(id)).isFalse();
     // 대기가 풀린 행은 동기화 대상에서 빠진다
-    assertThat(messageRepo.findPendingSeenSyncItems(List.of(id))).isEmpty();
+    assertThat(messageRepo.findDueSeenSyncItems(box[1], 10)).isEmpty();
   }
 
   /** 묶음 해제 — 같은 호출 안에서도 보낸 값과 지금 seen 이 같은 행만 풀고, 다시 바뀐 행은 대기로 남긴다. 빈 목록은 0. */

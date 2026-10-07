@@ -119,7 +119,7 @@ class ImapReadSyncerTest extends IntegrationTestBase {
           ids[2] = insertLocalPendingRow(); // 서버 UID 없는 로컬 행 — 반영할 것이 없으니 끝난 것으로 본다
           assertThat(messageRepo.markSeen(ids[0])).isEqualTo(1);
           assertThat(messageRepo.markUnseen(ids[1])).isEqualTo(1);
-          items[0] = messageRepo.findPendingSeenSyncItems(List.of(ids[0], ids[1], ids[2]));
+          items[0] = messageRepo.findDueSeenSyncItems(seededAccount, 10);
           account[0] = accountRepo.findByIdAndUser(seededUser, seededAccount).orElseThrow();
         });
     assertThat(items[0]).hasSize(3);

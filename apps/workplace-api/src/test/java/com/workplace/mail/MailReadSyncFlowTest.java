@@ -305,9 +305,13 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
     org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isFalse();
   }
 
-  /** WP-187: 동기화 중 사용자가 다시 바꿨다면(서버엔 true 를 보냈는데 지금 seen=false) 대기 표시를 유지한다. */
+  /**
+   * WP-187/188: 동기화 중 사용자가 다시 바꿨다면(서버엔 true 를 보냈는데 지금 seen=false) 그 반영으로는 대기를 풀지 않고, 같은 리스 보유 안에서 새
+   * 값 (false)을 다시 보내 수렴한다 — 서버에 마지막으로 보낸 값 = 사용자의 마지막 값, 대기 해제.
+   */
+  @SuppressWarnings("unchecked")
   @Test
-  void dispatch_userChangedDuringSync_keepsPending() throws Exception {
+  void dispatch_userChangedDuringSync_resendsLatestValue() throws Exception {
     setSessionGuc(1L);
     seededUser = TestFixtures.createHuman(dsl);
     seededAccount = MailTestSupport.seedGraphAccount(dsl, seededUser);
@@ -315,18 +319,24 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
     when(graphTokenService.getAccessToken(seededUser, seededAccount)).thenReturn("FAKE_TOKEN");
     TenantContext.set(1L);
     cleanupInTenant(1L, () -> messageRepo.markSeen(seededMessage));
+    List<Object> sent = new java.util.concurrent.CopyOnWriteArrayList<>();
     when(graphApiClient.batch(eq("FAKE_TOKEN"), anyList()))
         .thenAnswer(
             inv -> {
-              // 서버 호출 도중 사용자가 되돌림 — 원격 호출은 트랜잭션 밖이라(WP-215) 이 변경은 따로 커밋되고, 뒤의 조건부 해제가 0행이 된다
-              cleanupInTenant(1L, () -> messageRepo.markUnseen(seededMessage));
+              List<GraphBatchRequest> reqs = inv.getArgument(1);
+              sent.add(reqs.get(0).body().get("isRead"));
+              if (sent.size() == 1) {
+                // 서버 호출 도중 사용자가 되돌림 — 원격 호출은 트랜잭션 밖이라(WP-215) 이 변경은 따로 커밋되고, 뒤의 조건부 해제가 0행이 된다
+                cleanupInTenant(1L, () -> messageRepo.markUnseen(seededMessage));
+              }
               return List.of(new GraphBatchResponse(String.valueOf(seededMessage), 200));
             });
 
     dispatcher.dispatch(
         new MessagesSeenChangedEvent(1L, seededUser, seededAccount, List.of(seededMessage)));
 
-    org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isTrue();
+    org.assertj.core.api.Assertions.assertThat(sent).containsExactly(true, false);
+    org.assertj.core.api.Assertions.assertThat(pushPending(seededMessage)).isFalse();
   }
 
   /** WP-187: 한 묶음에서 200 인 메일만 대기를 풀고, 429 인 메일은 대기를 유지한다. */

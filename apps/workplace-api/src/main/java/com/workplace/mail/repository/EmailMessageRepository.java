@@ -222,8 +222,8 @@ public class EmailMessageRepository {
    * 도달하지 않고, {@code DO UPDATE … RETURNING} 은 갱신된 행도 반환해 신규 삽입과 구별되지 않는다. INSERT 의 {@code
    * onConflictDoNothing} 은 동시 삽입 경합 안전망으로 남긴다.
    *
-   * <p>한계: 로컬 열람의 서버 반영이 끝내 실패해 seen_push_pending 이 남은 메일은 이후 서버 쪽 안읽음 되돌림이 반영되지 않는다(WP-148 이전 동작과
-   * 같음).
+   * <p>반영 대기(seen_push_pending) 행은 덮어쓰지 않는다. 서버 반영이 계속 실패하면 재시도 배치가 상한에서 포기하고 대기를 풀므로(WP-188), 그 뒤의
+   * 동기화부터 서버 상태를 따른다.
    *
    * <p>imapUid 는 Graph 계정에서 사용하지 않으므로 null 저장(IMAP 분기와 구별).
    *
@@ -326,8 +326,8 @@ public class EmailMessageRepository {
 
   /**
    * 서버 읽음 상태를 로컬에 반영해도 되는 행 조건(WP-148 단일 규칙): 값이 실제로 다르고({@code seen != 서버값}), 로컬 열람의 서버 반영 대기 중이
-   * 아니어야 한다. 대기 중인 행을 서버 상태로 덮으면 방금 로컬에서 읽은 메일이 안읽음으로 되돌아간다. 서버 반영이 예외로 실패한 메일만 대기가 남으므로, 그 메일은 이후
-   * 서버 안읽음 되돌림이 반영되지 않는 한계가 있다.
+   * 아니어야 한다. 대기 중인 행을 서버 상태로 덮으면 방금 로컬에서 읽은 메일이 안읽음으로 되돌아간다. 반영이 실패한 메일은 재시도 배치가 백오프로 다시 보내고, 상한에
+   * 닿으면 대기를 풀어 서버 상태를 따른다(WP-188).
    */
   private static Condition serverSeenApplicable(boolean serverSeen) {
     return EMAIL_MESSAGE.SEEN.ne(serverSeen).and(seenPushNotPending());
@@ -746,6 +746,17 @@ public class EmailMessageRepository {
   }
 
   /**
+   * WP-188 사용자가 읽음 상태를 바꿀 때 재시도 상태를 초기화하는 SET 묶음 — 실패 횟수 0, 다음 시도 = 지금(DB 시각). 새 사용자 조작은 지난 실패의
+   * 백오프를 기다리지 않고 바로 반영 대상이 되며, 이벤트가 큐 포화로 거절돼도 재시도 배치가 곧바로 줍는다.
+   */
+  private static Map<Field<?>, Object> resetSeenPushRetry() {
+    Map<Field<?>, Object> m = new LinkedHashMap<>();
+    m.put(EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS, 0);
+    m.put(EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT, DSL.currentOffsetDateTime());
+    return m;
+  }
+
+  /**
    * 로컬 열람 읽음 처리 — seen=true 와 함께 seen_push_pending=true(원본 서버 반영 대기)로 업데이트. 이미 읽은 건은
    * 스킵(SEEN.isFalse 조건). 실제 갱신된 행 수(0|1)를 반환한다. 대기 표시는 서버 반영이 예외 없이 끝나거나 반영할 방법이 없을 때 {@link
    * #clearSeenPushPendingIn} 로 풀린다(WP-148, WP-187 조건부).
@@ -754,6 +765,7 @@ public class EmailMessageRepository {
     return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN, true)
         .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true)
+        .set(resetSeenPushRetry())
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
         .execute();
@@ -764,6 +776,7 @@ public class EmailMessageRepository {
     return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN, false)
         .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true)
+        .set(resetSeenPushRetry())
         .where(EMAIL_MESSAGE.ID.eq(messageId))
         .and(EMAIL_MESSAGE.SEEN.isTrue())
         .execute();
@@ -799,14 +812,30 @@ public class EmailMessageRepository {
     return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN, true)
         .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true)
+        .set(resetSeenPushRetry())
         .where(EMAIL_MESSAGE.ID.in(unreadInView(accountId, category, needsReply, query, asOf)))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
         .returning(EMAIL_MESSAGE.ID)
         .fetch(EMAIL_MESSAGE.ID);
   }
 
-  /** WP-187 역동기화 대상 — 반영 대기 중인 행만, 처리 시점의 seen 과 서버 식별자. */
-  public List<SeenSyncItem> findPendingSeenSyncItems(List<Long> messageIds) {
+  /** WP-188 반영 대기이면서 백오프가 끝난(또는 처음인) 행 조건. 시각은 DB now() 로 비교한다. */
+  private static Condition seenPushDue() {
+    return EMAIL_MESSAGE
+        .SEEN_PUSH_PENDING
+        .isTrue()
+        .and(
+            EMAIL_MESSAGE
+                .SEEN_PUSH_NEXT_AT
+                .isNull()
+                .or(EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT.le(DSL.currentOffsetDateTime())));
+  }
+
+  /**
+   * WP-188 계정의 "지금 반영할" 대기 행 — 반영 대기 ∧ 다음 시도 시각이 됐거나 비어 있음, id 순 최대 limit 건. 메일·계정·폴더를 묶어 서버 식별자와
+   * 처리 시점의 seen 을 담는다 — 계정 리스를 쥔 뒤에 읽어야 늦게 도착한 옛 값이 최종값이 되지 않는다.
+   */
+  public List<SeenSyncItem> findDueSeenSyncItems(long accountId, int limit) {
     return dsl.select(
             EMAIL_MESSAGE.ID,
             EMAIL_MESSAGE.ACCOUNT_ID,
@@ -820,9 +849,10 @@ public class EmailMessageRepository {
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
-        .where(EMAIL_MESSAGE.ID.in(messageIds))
-        .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isTrue())
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(seenPushDue())
         .orderBy(EMAIL_MESSAGE.ID)
+        .limit(limit)
         .fetch(
             r ->
                 new SeenSyncItem(
@@ -837,8 +867,9 @@ public class EmailMessageRepository {
   }
 
   /**
-   * WP-187 조건부 대기 해제(묶음) — 서버에 보낸 값(pushedSeen)과 지금 seen 이 같은 행만 푼다. 그 사이 사용자가 다시 바꿨다면 표시를 유지해 뒤따르는
-   * 이벤트가 처리하게 한다(마지막 상태로 수렴). 보낸 값별로 한 번씩 호출한다. 빈 목록이면 쿼리 없이 0.
+   * WP-187 조건부 대기 해제(묶음) — 서버에 보낸 값(pushedSeen)과 지금 seen 이 같은 행만 푼다. 그 사이 사용자가 다시 바꿨다면 표시를 유지해 다음
+   * 반영이 새 값을 보낸다(마지막 상태로 수렴 — WP-188 에서 계정 리스로 반영이 직렬화되므로 "다음 반영"이 옛 반영을 앞지르지 않는다). 풀 때 재시도 상태도
+   * 초기화한다. 보낸 값별로 한 번씩 호출한다. 빈 목록이면 쿼리 없이 0.
    */
   public int clearSeenPushPendingIn(Collection<Long> messageIds, boolean pushedSeen) {
     if (messageIds.isEmpty()) {
@@ -846,11 +877,71 @@ public class EmailMessageRepository {
     }
     return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, false)
+        .set(EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS, 0)
+        .setNull(EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT)
         .where(EMAIL_MESSAGE.ID.in(messageIds))
         .and(EMAIL_MESSAGE.SEEN.eq(pushedSeen))
         .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isTrue())
         .execute();
   }
+
+  /**
+   * WP-188 반영 실패 기록(묶음) — 보낸 값(pushedSeen)과 지금 seen 이 같은 대기 행만 대상으로 한다(그 사이 사용자가 바꿨다면 mark* 가 이미
+   * 재시도 상태를 초기화했으므로 건드리지 않는다).
+   *
+   * <ol>
+   *   <li>이번 실패로 횟수가 maxAttempts 에 닿는 행은 <b>포기</b> — 대기를 풀어 다음 동기화가 서버 값으로 맞추게 한다(사용자 승인 정책).
+   *   <li>나머지는 횟수 +1, 다음 시도 = DB now() + min(2^이전횟수, 60)분(지수 백오프).
+   * </ol>
+   *
+   * @return 포기한(대기를 푼) 행 수 — 호출 측이 경고 로그에 쓴다
+   */
+  public int recordSeenPushFailure(
+      Collection<Long> messageIds, boolean pushedSeen, int maxAttempts) {
+    if (messageIds.isEmpty()) {
+      return 0;
+    }
+    Condition target =
+        EMAIL_MESSAGE
+            .ID
+            .in(messageIds)
+            .and(EMAIL_MESSAGE.SEEN.eq(pushedSeen))
+            .and(EMAIL_MESSAGE.SEEN_PUSH_PENDING.isTrue());
+    int givenUp =
+        dsl.update(EMAIL_MESSAGE)
+            .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, false)
+            .set(EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS, 0)
+            .setNull(EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT)
+            .where(target)
+            .and(EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS.plus(1).ge(maxAttempts))
+            .execute();
+    // 위에서 포기한 행은 pending=false 라 target 에서 빠진다
+    dsl.update(EMAIL_MESSAGE)
+        .set(EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS, EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS.plus(1))
+        .set(
+            EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT,
+            DSL.field(
+                "now() + make_interval(mins => least(60, power(2, {0})::int))",
+                OffsetDateTime.class, EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS))
+        .where(target)
+        .execute();
+    return givenUp;
+  }
+
+  /** WP-188 재시도 배치 대상 — 현재 테넌트(RLS)에서 지금 반영할 대기 행이 있는 활성 계정과 소유자. 부분 인덱스(반영 대기 행만)로 찾는다. */
+  @org.springframework.transaction.annotation.Transactional(readOnly = true)
+  public List<DueSeenPushAccount> findAccountsWithDueSeenPush() {
+    return dsl.selectDistinct(EMAIL_ACCOUNT.ID, EMAIL_ACCOUNT.USER_ID)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .where(seenPushDue())
+        .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .fetch(r -> new DueSeenPushAccount(r.get(EMAIL_ACCOUNT.ID), r.get(EMAIL_ACCOUNT.USER_ID)));
+  }
+
+  /** WP-188 재시도 배치가 처리할 계정 식별자와 소유 사용자. */
+  public record DueSeenPushAccount(long accountId, long userId) {}
 
   /** 사이드바용 — 특정 계정 INBOX 의 회신필요 건수. 목록 필터(needsReply)와 같은 단일 술어를 쓴다(WP-146). */
   public long countNeedsReplyForAccount(long accountId) {

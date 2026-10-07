@@ -442,6 +442,38 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
         return (Boolean) get(29);
     }
 
+    /**
+     * Setter for <code>public.email_message.seen_push_attempts</code>. 읽음 역동기화
+     * 연속 실패 횟수 — 상한에 닿으면 포기하고 서버 값을 따름 (WP-188)
+     */
+    public void setSeenPushAttempts(Integer value) {
+        set(30, value);
+    }
+
+    /**
+     * Getter for <code>public.email_message.seen_push_attempts</code>. 읽음 역동기화
+     * 연속 실패 횟수 — 상한에 닿으면 포기하고 서버 값을 따름 (WP-188)
+     */
+    public Integer getSeenPushAttempts() {
+        return (Integer) get(30);
+    }
+
+    /**
+     * Setter for <code>public.email_message.seen_push_next_at</code>. 읽음 역동기화
+     * 다음 시도 시각(지수 백오프). NULL 이면 즉시 대상 (WP-188)
+     */
+    public void setSeenPushNextAt(OffsetDateTime value) {
+        set(31, value);
+    }
+
+    /**
+     * Getter for <code>public.email_message.seen_push_next_at</code>. 읽음 역동기화
+     * 다음 시도 시각(지수 백오프). NULL 이면 즉시 대상 (WP-188)
+     */
+    public OffsetDateTime getSeenPushNextAt() {
+        return (OffsetDateTime) get(31);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -465,7 +497,7 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
     /**
      * Create a detached, initialised EmailMessageRecord
      */
-    public EmailMessageRecord(Long id, Long accountId, Long folderId, Long imapUid, String messageId, String threadId, String inReplyTo, String mailReferences, String fromAddress, String fromName, String toAddresses, String ccAddresses, OffsetDateTime sentAt, OffsetDateTime receivedAt, Boolean seen, Boolean hasAttachment, OffsetDateTime createdAt, String bccAddresses, Boolean aiNeedsReply, Long tenantId, OffsetDateTime needsReplyDoneAt, String providerMessageId, Long contentId, OffsetDateTime fetchedAt, String aiPersonalSummary, OffsetDateTime aiPersonalSummarizedAt, Boolean seenPushPending, Boolean aiNeedsReplyRaw, OffsetDateTime aiAnalyzedAt, Boolean aiPersonalSummarySkipped) {
+    public EmailMessageRecord(Long id, Long accountId, Long folderId, Long imapUid, String messageId, String threadId, String inReplyTo, String mailReferences, String fromAddress, String fromName, String toAddresses, String ccAddresses, OffsetDateTime sentAt, OffsetDateTime receivedAt, Boolean seen, Boolean hasAttachment, OffsetDateTime createdAt, String bccAddresses, Boolean aiNeedsReply, Long tenantId, OffsetDateTime needsReplyDoneAt, String providerMessageId, Long contentId, OffsetDateTime fetchedAt, String aiPersonalSummary, OffsetDateTime aiPersonalSummarizedAt, Boolean seenPushPending, Boolean aiNeedsReplyRaw, OffsetDateTime aiAnalyzedAt, Boolean aiPersonalSummarySkipped, Integer seenPushAttempts, OffsetDateTime seenPushNextAt) {
         super(EmailMessage.EMAIL_MESSAGE);
 
         setId(id);
@@ -498,6 +530,8 @@ public class EmailMessageRecord extends UpdatableRecordImpl<EmailMessageRecord> 
         setAiNeedsReplyRaw(aiNeedsReplyRaw);
         setAiAnalyzedAt(aiAnalyzedAt);
         setAiPersonalSummarySkipped(aiPersonalSummarySkipped);
+        setSeenPushAttempts(seenPushAttempts);
+        setSeenPushNextAt(seenPushNextAt);
         resetChangedOnNotNull();
     }
 }

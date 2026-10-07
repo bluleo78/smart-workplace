@@ -338,7 +338,8 @@ public class MailMessageService {
    * 리스너로 넘어가므로 불변 복사본으로 보낸다.
    *
    * <p>트랜잭션 밖 발행이라 @Async 리스너 실행기에 바로 제출된다 — 큐가 차서 거절({@link TaskRejectedException})돼도 DB 변경은 이미
-   * 커밋됐으므로 요청을 실패시키지 않는다. 행은 반영 대기(seen_push_pending)로 남아 이후 동기화가 맡는다(best-effort).
+   * 커밋됐으므로 요청을 실패시키지 않는다. 행은 반영 대기(seen_push_pending, 다음 시도=지금)로 남아 재시도 배치({@link
+   * MailReadSyncRetryScheduler})가 줍는다(WP-188).
    */
   private void publishSeenChanged(long userId, long accountId, List<Long> messageIds) {
     Long tenantId = TenantContext.get();
@@ -349,7 +350,7 @@ public class MailMessageService {
       } catch (TaskRejectedException e) {
         // 로그에는 계정 id 와 건수만 남긴다(메일 식별 정보 제외).
         log.warn(
-            "메일 읽음 역동기화 큐가 가득 차 이번 반영을 건너뜀 — 반영 대기로 남음: accountId={}, count={}",
+            "메일 읽음 역동기화 큐가 가득 차 이번 반영을 건너뜀 — 재시도 배치가 처리: accountId={}, count={}",
             accountId,
             messageIds.size());
       }

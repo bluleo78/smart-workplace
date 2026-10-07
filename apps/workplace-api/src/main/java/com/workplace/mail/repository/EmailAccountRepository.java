@@ -8,12 +8,15 @@ import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSecurity;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 // GraphTokenService 에서 사용하는 OAuth 토큰 DTO — 암호문 그대로 반환(복호화는 서비스 담당)
@@ -418,6 +421,60 @@ public class EmailAccountRepository {
 
   /** 자동 동기화 대상 계정 식별자. */
   public record ActiveAccount(long accountId, long userId) {}
+
+  // ── WP-188 읽음 역동기화 계정 리스 ─────────────────────────────────────────────
+  // api 인스턴스(레플리카)가 여러 개여도 한 계정의 원본 서버 반영은 한 번에 하나만 돌게 하는 DB 리스.
+  // JVM 락은 다른 인스턴스를 막지 못하므로 email_account 행의 원자적 UPDATE 로 획득한다. 시각 비교는 모두 DB now() —
+  // 인스턴스 간 시계 차이와 무관하다. 보유자가 죽으면 만료 시각이 지난 뒤 다른 실행이 가져간다(크래시 복구).
+
+  /** DB 시각 + ttl 식(초 단위). 리스 만료 시각 계산에 쓴다. */
+  private static Field<OffsetDateTime> nowPlus(Duration ttl) {
+    return DSL.field(
+        "now() + make_interval(secs => {0})", OffsetDateTime.class, val((double) ttl.toSeconds()));
+  }
+
+  /**
+   * 리스 획득 — 비어 있거나 만료된 경우에만 owner 로 잡는다. 한 UPDATE 문이라 동시에 여러 실행이 시도해도 한 쪽만 1행을 얻는다(행 잠금 후 WHERE
+   * 재평가). 같은 owner 의 재획득은 허용하지 않는다 — owner 는 디스패치마다 새로 만든다.
+   *
+   * @return 획득했으면 true
+   */
+  public boolean tryAcquireSeenPushLease(long accountId, String owner, Duration ttl) {
+    return dsl.update(EMAIL_ACCOUNT)
+            .set(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_OWNER, owner)
+            .set(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_UNTIL, nowPlus(ttl))
+            .where(EMAIL_ACCOUNT.ID.eq(accountId))
+            .and(
+                EMAIL_ACCOUNT
+                    .SEEN_PUSH_LEASE_UNTIL
+                    .isNull()
+                    .or(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_UNTIL.lt(DSL.currentOffsetDateTime())))
+            .execute()
+        == 1;
+  }
+
+  /**
+   * 리스 연장 — 아직 내가 쥐고 있고 만료 전일 때만. 만료 뒤에는 다른 실행이 가져갔을 수 있으므로 연장하지 않고 false 를 돌려 호출 측이 원격 반영을 멈추게 한다.
+   */
+  public boolean renewSeenPushLease(long accountId, String owner, Duration ttl) {
+    return dsl.update(EMAIL_ACCOUNT)
+            .set(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_UNTIL, nowPlus(ttl))
+            .where(EMAIL_ACCOUNT.ID.eq(accountId))
+            .and(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_OWNER.eq(owner))
+            .and(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_UNTIL.gt(DSL.currentOffsetDateTime()))
+            .execute()
+        == 1;
+  }
+
+  /** 리스 해제 — 내가 쥔 경우에만 비운다(이미 만료돼 남이 가져갔다면 건드리지 않는다). */
+  public void releaseSeenPushLease(long accountId, String owner) {
+    dsl.update(EMAIL_ACCOUNT)
+        .setNull(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_OWNER)
+        .setNull(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_UNTIL)
+        .where(EMAIL_ACCOUNT.ID.eq(accountId))
+        .and(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_OWNER.eq(owner))
+        .execute();
+  }
 
   /**
    * purge 대상(soft-deleted) 계정 목록 — 현재 테넌트의 disabled_at 이 채워진 계정.

@@ -215,6 +215,18 @@ public class EmailMessage extends TableImpl<EmailMessageRecord> {
      */
     public final TableField<EmailMessageRecord, Boolean> AI_PERSONAL_SUMMARY_SKIPPED = createField(DSL.name("ai_personal_summary_skipped"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
 
+    /**
+     * The column <code>public.email_message.seen_push_attempts</code>. 읽음 역동기화
+     * 연속 실패 횟수 — 상한에 닿으면 포기하고 서버 값을 따름 (WP-188)
+     */
+    public final TableField<EmailMessageRecord, Integer> SEEN_PUSH_ATTEMPTS = createField(DSL.name("seen_push_attempts"), SQLDataType.INTEGER.nullable(false).defaultValue(DSL.field(DSL.raw("0"), SQLDataType.INTEGER)), this, "읽음 역동기화 연속 실패 횟수 — 상한에 닿으면 포기하고 서버 값을 따름 (WP-188)");
+
+    /**
+     * The column <code>public.email_message.seen_push_next_at</code>. 읽음 역동기화
+     * 다음 시도 시각(지수 백오프). NULL 이면 즉시 대상 (WP-188)
+     */
+    public final TableField<EmailMessageRecord, OffsetDateTime> SEEN_PUSH_NEXT_AT = createField(DSL.name("seen_push_next_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "읽음 역동기화 다음 시도 시각(지수 백오프). NULL 이면 즉시 대상 (WP-188)");
+
     private EmailMessage(Name alias, Table<EmailMessageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -284,7 +296,7 @@ public class EmailMessage extends TableImpl<EmailMessageRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.EMAIL_MESSAGE_CONTENT_ID_IDX, Indexes.IDX_EMAIL_MESSAGE_RECEIVED, Indexes.IDX_EMAIL_MESSAGE_TENANT, Indexes.IDX_EMAIL_MESSAGE_THREAD, Indexes.UK_EMAIL_MESSAGE_PROVIDER_MSG);
+        return Arrays.asList(Indexes.EMAIL_MESSAGE_CONTENT_ID_IDX, Indexes.IDX_EMAIL_MESSAGE_RECEIVED, Indexes.IDX_EMAIL_MESSAGE_SEEN_PUSH_PENDING, Indexes.IDX_EMAIL_MESSAGE_TENANT, Indexes.IDX_EMAIL_MESSAGE_THREAD, Indexes.UK_EMAIL_MESSAGE_PROVIDER_MSG);
     }
 
     @Override

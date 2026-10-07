@@ -189,6 +189,18 @@ public class EmailAccount extends TableImpl<EmailAccountRecord> {
      */
     public final TableField<EmailAccountRecord, Integer> AI_CLASSIFY_VERSION = createField(DSL.name("ai_classify_version"), SQLDataType.INTEGER.nullable(false).defaultValue(DSL.field(DSL.raw("0"), SQLDataType.INTEGER)), this, "");
 
+    /**
+     * The column <code>public.email_account.seen_push_lease_owner</code>. 읽음
+     * 역동기화 리스 보유자 토큰(디스패치 1회마다 새 UUID) — 계정 단위 직렬화 (WP-188)
+     */
+    public final TableField<EmailAccountRecord, String> SEEN_PUSH_LEASE_OWNER = createField(DSL.name("seen_push_lease_owner"), SQLDataType.VARCHAR(64), this, "읽음 역동기화 리스 보유자 토큰(디스패치 1회마다 새 UUID) — 계정 단위 직렬화 (WP-188)");
+
+    /**
+     * The column <code>public.email_account.seen_push_lease_until</code>. 읽음
+     * 역동기화 리스 만료 시각(DB 시각) — 지나면 다른 실행이 가져갈 수 있음 (WP-188)
+     */
+    public final TableField<EmailAccountRecord, OffsetDateTime> SEEN_PUSH_LEASE_UNTIL = createField(DSL.name("seen_push_lease_until"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "읽음 역동기화 리스 만료 시각(DB 시각) — 지나면 다른 실행이 가져갈 수 있음 (WP-188)");
+
     private EmailAccount(Name alias, Table<EmailAccountRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

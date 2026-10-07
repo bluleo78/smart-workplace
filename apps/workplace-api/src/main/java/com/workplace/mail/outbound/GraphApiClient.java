@@ -14,6 +14,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,6 +34,14 @@ public class GraphApiClient {
 
   /** Graph API 베이스 URL. */
   private static final String GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
+
+  /** $batch 요청 타임아웃(WP-188) — 읽음 역동기화 계정 리스 시간(10분)이 조각당 최대 10회 호출을 넉넉히 덮도록 짧게 둔다. */
+  static final Duration BATCH_TIMEOUT = Duration.ofSeconds(20);
+
+  /**
+   * AAD 토큰 요청 타임아웃(WP-188) — 공용 HttpClient 엔 타임아웃이 없어, 토큰 갱신이 걸리면 트랜잭션 커넥션과 읽음 역동기화 리스를 무기한 붙잡는다.
+   */
+  static final Duration TOKEN_TIMEOUT = Duration.ofSeconds(20);
 
   private final HttpClient http;
   private final ObjectMapper mapper;
@@ -208,14 +217,25 @@ public class GraphApiClient {
    * @throws MailSendException 2xx 외 응답 또는 네트워크 실패
    */
   public <T> T post(String accessToken, String path, String jsonBody, Class<T> type) {
-    HttpRequest req =
+    return post(accessToken, path, jsonBody, type, null);
+  }
+
+  /**
+   * {@link #post(String, String, String, Class)} 에 요청 타임아웃(null 이면 없음)을 더한 형태. 타임아웃은 네트워크 오류로 던진다.
+   */
+  private <T> T post(
+      String accessToken, String path, String jsonBody, Class<T> type, Duration timeout) {
+    HttpRequest.Builder b =
         HttpRequest.newBuilder()
             .uri(URI.create(GRAPH_BASE_URL + path))
             .header("Authorization", "Bearer " + accessToken)
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-            .build();
+            .POST(HttpRequest.BodyPublishers.ofString(jsonBody));
+    if (timeout != null) {
+      b.timeout(timeout);
+    }
+    HttpRequest req = b.build();
     try {
       HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
       if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
@@ -266,7 +286,8 @@ public class GraphApiClient {
     } catch (JsonProcessingException e) {
       throw new MailSendException("Graph batch 직렬화 실패", e);
     }
-    JsonNode resp = post(accessToken, "/$batch", json, JsonNode.class);
+    // 요청 타임아웃 — 공용 HttpClient 엔 타임아웃이 없어, 걸린 요청이 읽음 역동기화 계정 리스(WP-188)보다 오래 끌지 않게 끊는다
+    JsonNode resp = post(accessToken, "/$batch", json, JsonNode.class, BATCH_TIMEOUT);
     List<GraphBatchResponse> out = new ArrayList<>();
     for (JsonNode n : resp.path("responses")) {
       out.add(new GraphBatchResponse(n.path("id").asText(), n.path("status").asInt()));
@@ -338,6 +359,7 @@ public class GraphApiClient {
             .uri(URI.create(tokenUrl))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .POST(HttpRequest.BodyPublishers.ofString(formBody))
+            .timeout(TOKEN_TIMEOUT)
             .build();
     try {
       HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
