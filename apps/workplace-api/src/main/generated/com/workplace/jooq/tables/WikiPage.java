@@ -130,6 +130,21 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
      */
     public final TableField<WikiPageRecord, String> AI_LAST_ACTION = createField(DSL.name("ai_last_action"), SQLDataType.VARCHAR(32), this, "");
 
+    /**
+     * The column <code>public.wiki_page.ai_summary</code>.
+     */
+    public final TableField<WikiPageRecord, String> AI_SUMMARY = createField(DSL.name("ai_summary"), SQLDataType.CLOB, this, "");
+
+    /**
+     * The column <code>public.wiki_page.ai_summary_version</code>.
+     */
+    public final TableField<WikiPageRecord, Integer> AI_SUMMARY_VERSION = createField(DSL.name("ai_summary_version"), SQLDataType.INTEGER, this, "");
+
+    /**
+     * The column <code>public.wiki_page.ai_summarized_at</code>.
+     */
+    public final TableField<WikiPageRecord, OffsetDateTime> AI_SUMMARIZED_AT = createField(DSL.name("ai_summarized_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private WikiPage(Name alias, Table<WikiPageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

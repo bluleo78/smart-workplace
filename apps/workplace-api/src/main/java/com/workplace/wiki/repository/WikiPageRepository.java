@@ -131,6 +131,47 @@ public class WikiPageRepository {
         .execute();
   }
 
+  /** WP-301 노트 요약 저장본 행(요약·요약 당시 버전·시각). */
+  public record SummaryRow(
+      String summary, Integer summaryVersion, java.time.OffsetDateTime summarizedAt) {}
+
+  /** WP-301 요약 저장본 조회. 페이지가 없으면 empty. */
+  public Optional<SummaryRow> findSummary(long pageId) {
+    return dsl.select(
+            WIKI_PAGE.AI_SUMMARY, WIKI_PAGE.AI_SUMMARY_VERSION, WIKI_PAGE.AI_SUMMARIZED_AT)
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.ID.eq(pageId))
+        .fetchOptional(
+            r ->
+                new SummaryRow(
+                    r.get(WIKI_PAGE.AI_SUMMARY),
+                    r.get(WIKI_PAGE.AI_SUMMARY_VERSION),
+                    r.get(WIKI_PAGE.AI_SUMMARIZED_AT)));
+  }
+
+  /**
+   * WP-301 요약 저장 — 요약 3컬럼만 갱신한다. {@code version}/{@code updated_at}/{@code updated_by} 는 건드리지 않는다
+   * (recordAiUsage 와 같은 이유: 편집기 낙관적 동시성 보호).
+   *
+   * <p>더 오래된 버전으로 만든 결과가 이미 저장된 새 요약을 덮지 않도록 {@code ai_summary_version <= sourceVersion} 조건을 건다.
+   *
+   * @return 갱신 행 수(0 이면 더 새 요약이 이미 있음)
+   */
+  public int saveSummaryIfNotOlder(
+      long pageId, String summary, int sourceVersion, java.time.OffsetDateTime at) {
+    return dsl.update(WIKI_PAGE)
+        .set(WIKI_PAGE.AI_SUMMARY, summary)
+        .set(WIKI_PAGE.AI_SUMMARY_VERSION, sourceVersion)
+        .set(WIKI_PAGE.AI_SUMMARIZED_AT, at)
+        .where(WIKI_PAGE.ID.eq(pageId))
+        .and(
+            WIKI_PAGE
+                .AI_SUMMARY_VERSION
+                .isNull()
+                .or(WIKI_PAGE.AI_SUMMARY_VERSION.le(sourceVersion)))
+        .execute();
+  }
+
   /**
    * #758 pageId 에서 parent_id 를 따라 루트까지 올라가며 만나는 모든 조상 id — <b>자기 자신을 포함</b>한다. 이동 가드에서 "새 부모의 조상
    * 체인에 이동 대상이 들어 있는가" 를 묻는 데 쓴다(자기 자신을 부모로 지정하는 경우도 체인 첫 행이라 같은 검사로 걸린다).

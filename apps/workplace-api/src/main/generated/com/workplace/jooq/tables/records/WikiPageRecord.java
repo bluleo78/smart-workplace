@@ -202,6 +202,48 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
         return (String) get(12);
     }
 
+    /**
+     * Setter for <code>public.wiki_page.ai_summary</code>.
+     */
+    public void setAiSummary(String value) {
+        set(13, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_page.ai_summary</code>.
+     */
+    public String getAiSummary() {
+        return (String) get(13);
+    }
+
+    /**
+     * Setter for <code>public.wiki_page.ai_summary_version</code>.
+     */
+    public void setAiSummaryVersion(Integer value) {
+        set(14, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_page.ai_summary_version</code>.
+     */
+    public Integer getAiSummaryVersion() {
+        return (Integer) get(14);
+    }
+
+    /**
+     * Setter for <code>public.wiki_page.ai_summarized_at</code>.
+     */
+    public void setAiSummarizedAt(OffsetDateTime value) {
+        set(15, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_page.ai_summarized_at</code>.
+     */
+    public OffsetDateTime getAiSummarizedAt() {
+        return (OffsetDateTime) get(15);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -225,7 +267,7 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
     /**
      * Create a detached, initialised WikiPageRecord
      */
-    public WikiPageRecord(Long id, Long tenantId, Long spaceId, Long parentId, String title, String body, Integer position, Integer version, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime aiLastUsedAt, String aiLastAction) {
+    public WikiPageRecord(Long id, Long tenantId, Long spaceId, Long parentId, String title, String body, Integer position, Integer version, Long updatedBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime aiLastUsedAt, String aiLastAction, String aiSummary, Integer aiSummaryVersion, OffsetDateTime aiSummarizedAt) {
         super(WikiPage.WIKI_PAGE);
 
         setId(id);
@@ -241,6 +283,9 @@ public class WikiPageRecord extends UpdatableRecordImpl<WikiPageRecord> {
         setUpdatedAt(updatedAt);
         setAiLastUsedAt(aiLastUsedAt);
         setAiLastAction(aiLastAction);
+        setAiSummary(aiSummary);
+        setAiSummaryVersion(aiSummaryVersion);
+        setAiSummarizedAt(aiSummarizedAt);
         resetChangedOnNotNull();
     }
 }

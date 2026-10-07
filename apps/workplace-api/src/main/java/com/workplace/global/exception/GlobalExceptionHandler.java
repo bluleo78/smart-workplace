@@ -1514,6 +1514,14 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request));
   }
 
+  /** WP-301 노트 AI 요약(ai-agent) 호출 실패·빈 요약 → 502(형제 AI 예외와 동일, 캐치올 500 회피하고 사유 노출). */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiSummaryFailedException.class)
+  public ResponseEntity<ErrorResponse> handleWikiSummaryFailed(
+      com.workplace.wiki.exception.WikiSummaryFailedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+        .body(buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request));
+  }
+
   /** Task10 — 모델 프로브(ai-agent POST /models/list) 호출 실패 → 502(형제 AI 예외와 동일, 캐치올 500 회피하고 사유 노출). */
   @ExceptionHandler(com.workplace.auth.exception.AssistantModelsProbeException.class)
   public ResponseEntity<ErrorResponse> handleAssistantModelsProbe(
