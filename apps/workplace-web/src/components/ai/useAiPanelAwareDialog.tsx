@@ -25,12 +25,14 @@ const SIDE_CONTENT_CLASS = {
   default:
     'lg:left-[calc((100%-var(--ai-side-width,0px))/2)] lg:max-w-[min(32rem,calc(100%-var(--ai-side-width,0px)-2rem))]',
   wide: 'lg:left-[calc((100%-var(--ai-side-width,0px))/2)] lg:max-w-[calc(100%-var(--ai-side-width,0px)-2rem)]',
+  // lightbox: 화면 전체를 덮는 뷰어(WP-277) — side 모드면 패널 폭만큼 오른쪽을 비운다.
+  lightbox: 'lg:right-[var(--ai-side-width,0px)]',
 } as const;
 
 interface Options {
   /** 다이얼로그 열림 여부 — side 모드에서 열린 동안만 페이지 영역을 inert 로 만든다. */
   open: boolean;
-  /** 콘텐츠 폭 프리셋 — 기본 다이얼로그(default) / 넓은 미리보기(wide). */
+  /** 콘텐츠 폭 프리셋 — 기본 다이얼로그(default) / 넓은 미리보기(wide) / 전체 화면 뷰어(lightbox). */
   size?: keyof typeof SIDE_CONTENT_CLASS;
 }
 

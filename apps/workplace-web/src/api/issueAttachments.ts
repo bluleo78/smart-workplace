@@ -44,7 +44,7 @@ export async function deleteAttachment(
   await client.delete<void>(`/projects/${projectKey}/issues/${number}/attachments/${fileId}`);
 }
 
-// 첨부 콘텐츠 경로 — 다운로드와 프리뷰(FilePreviewModal)가 같은 엔드포인트를 쓰도록 한 곳에서 만든다.
+// 첨부 콘텐츠 경로 — 다운로드와 프리뷰(통합 뷰어)가 같은 엔드포인트를 쓰도록 한 곳에서 만든다.
 export function attachmentContentPath(projectKey: string, number: number, fileId: number): string {
   return `/projects/${projectKey}/issues/${number}/attachments/${fileId}/content`;
 }

@@ -7,7 +7,8 @@ import { useState } from 'react'
 
 import { issueImageFileId } from '../../api/issueImages'
 import { useApiBlobUrl } from '../../hooks/queries/useApiBlobUrl'
-import { FilePreviewModal } from '../drive/FilePreviewModal'
+import { AttachmentViewer } from '../viewer/AttachmentViewer'
+import { issueBodyImageItem } from '../viewer/viewerItems'
 
 export function IssueBodyImage({ projectKey, src, alt }: { projectKey: string; src?: string; alt?: string }) {
   const fileId = issueImageFileId(projectKey, src)
@@ -46,9 +47,14 @@ function AuthIssueImage({ src, fileId, alt }: { src: string; fileId: number; alt
         onClick={() => setOpen(true)}
       />
       {open && (
-        <FilePreviewModal
-          attachment={{ fileId, name: alt || 'image', mimeType: blob?.type ?? 'image/png', sizeBytes: blob?.size ?? 0, downloadUrl: src }}
+        // 본문 이미지는 묶음 없는 단건 뷰어(‹ › 없음) — 이미 받은 blob 으로 크기·MIME 을 채운다.
+        <AttachmentViewer
+          items={[issueBodyImageItem({ src, fileId, alt, blob })]}
+          index={0}
+          onIndexChange={() => {}}
           onClose={() => setOpen(false)}
+          // 본문 이미지 뷰어는 URL 에 열림 상태가 없어 링크를 복사해도 같은 화면이 열리지 않는다.
+          shareable={false}
         />
       )}
     </>

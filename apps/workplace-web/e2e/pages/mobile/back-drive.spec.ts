@@ -101,7 +101,8 @@ test('첨부 모아보기 미리보기: goBack 은 모달만 닫는다', async (
   await page.goto('/drive/attachments')
   await page.getByRole('button', { name: LONG_NAME, exact: true }).tap()
   await expect(page.getByTestId('preview-body')).toBeVisible()
-  await expect(page).toHaveURL(/\/drive\/attachments\?preview=77$/)
+  // WP-277: 통합 뷰어의 묶음 키는 file:{fileId} — 콜론은 인코딩될 수 있다.
+  await expect(page).toHaveURL(/\/drive\/attachments\?preview=file(%3A|:)77$/)
   await page.goBack()
   await expect(page).toHaveURL(/\/drive\/attachments$/)
   await expect(page.getByTestId('preview-body')).toHaveCount(0)

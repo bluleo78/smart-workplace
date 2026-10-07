@@ -2,15 +2,24 @@
 // - 정상 업로드/삭제 happy path (smoke)
 // - 25MB 초과 파일은 클라이언트 사전 검증에서 토스트 + POST 차단
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { expect, test } from '../../fixtures/auth.fixture';
+import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createAttachment } from '../../factories/attachment.factory';
+import { createFile, createFolder, createSpace } from '../../factories/drive.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import type { IssueAttachment } from '../../../src/types/attachment';
 
 const PROJECT_KEY = 'WP';
+// ESM 컨텍스트: __dirname 대신 이 스펙 파일 기준 디렉토리. 실제 PDF 바이트는 공용 픽스처를 쓴다(pdf.js 가 그려야 하므로).
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const SAMPLE_PDF = fs.readFileSync(path.join(HERE, '../../fixtures/sample-3p.pdf'));
 
 // 공통 stub 묶음 — 프로젝트/멤버/이슈 상세/watcher/labels(PUT) 까지.
 async function setupCommonStubs(
@@ -474,14 +483,15 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
         createAttachment({ fileId: 7102, originalName: 'fake.pdf', mimeType: 'application/pdf' }),
       ],
       {
-        7101: { contentType: 'application/pdf', body: Buffer.from('%PDF-1.4\n%%EOF') },
+        7101: { contentType: 'application/pdf', body: SAMPLE_PDF },
         7102: { contentType: 'application/pdf', body: Buffer.from('<html><script>alert(1)</script></html>') },
       },
     );
     await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
 
     await page.getByRole('button', { name: 'real.pdf 미리보기' }).click();
-    await expect(page.getByTestId('preview-body').locator('iframe[title="real.pdf"]')).toBeVisible();
+    // WP-277: PDF 는 iframe 이 아니라 pdf.js 캔버스(페이지별 testid)로 그린다.
+    await expect(page.getByTestId('pdf-page-1')).toBeVisible();
     await page.keyboard.press('Escape');
 
     await page.getByRole('button', { name: 'fake.pdf 미리보기' }).click();
@@ -524,7 +534,8 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     expect(requested[7301]).toBeUndefined();
 
     const download = page.waitForEvent('download');
-    await page.getByRole('dialog').getByRole('button', { name: '다운로드' }).click();
+    // 뷰어는 헤더와 안내 화면에 다운로드가 각각 있다 — 안내 화면의 버튼을 쓴다.
+    await page.getByTestId('preview-body').getByRole('button', { name: '다운로드' }).click();
     expect((await download).suggestedFilename()).toBe('build.zip');
   });
 
@@ -586,5 +597,336 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     await dl.click();
     expect((await download).suggestedFilename()).toBe('spec.pdf');
     await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+});
+
+// WP-277 — 이슈 첨부·드라이브 링크를 한 묶음으로 → 로 넘기고, 휴지통 원본은 사용할 수 없음 안내만 보인다.
+test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64',
+  );
+
+  const driveLink = (driveFileId: number, over: Record<string, unknown> = {}) => ({
+    driveFileId,
+    fileId: driveFileId + 1000,
+    name: `linked-${driveFileId}.txt`,
+    mimeType: 'text/plain',
+    sizeBytes: 4,
+    hasThumbnail: false,
+    spaceId: 1,
+    spaceName: '팀 공간',
+    availability: 'ACTIVE',
+    createdById: 1,
+    createdAt: '2026-01-01T00:00:00Z',
+    ...over,
+  });
+
+  // 첨부 목록 + 드라이브 링크 목록·콘텐츠·요약·참조된 곳 stub.
+  async function stubBundle(
+    page: import('@playwright/test').Page,
+    attachments: IssueAttachment[],
+    links: ReturnType<typeof driveLink>[],
+  ) {
+    await setupCommonStubs(page, attachments.length);
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(attachments) })
+          : route.fallback(),
+    );
+    // setupCommonStubs 의 빈 drive-links 보다 나중에 등록해 우선한다.
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/drive-links`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(links) })
+          : route.fallback(),
+    );
+    for (const l of links) {
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/drive-links/${l.driveFileId}/content`,
+        (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'LINKED-BODY' }),
+      );
+      await page.route(
+        (url) => url.pathname === `/api/v1/drive/files/${l.driveFileId}/summary`,
+        (route) => route.fulfill({ json: { summary: null, status: 'PENDING' } }),
+      );
+      await page.route(
+        (url) => url.pathname === `/api/v1/drive/files/${l.driveFileId}/backlinks`,
+        (route) => route.fulfill({ json: [] }),
+      );
+    }
+  }
+
+  test('이미지·PDF·드라이브 링크 3건을 → 로 넘긴다', async ({ authenticatedPage: page }) => {
+    await stubBundle(
+      page,
+      [
+        createAttachment({ fileId: 7601, originalName: 'shot.png', mimeType: 'image/png' }),
+        createAttachment({ fileId: 7602, originalName: 'doc.pdf', mimeType: 'application/pdf' }),
+      ],
+      [driveLink(601)],
+    );
+    for (const [id, contentType, body] of [
+      [7601, 'image/png', PNG],
+      [7602, 'application/pdf', SAMPLE_PDF],
+    ] as const) {
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments/${id}/content`,
+        (route) => route.fulfill({ status: 200, contentType, body }),
+      );
+    }
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    await page.getByRole('button', { name: 'shot.png 미리보기' }).click();
+    await expect(page.getByTestId('preview-body').locator('img')).toBeVisible();
+    await expect(page.getByTestId('preview-meta')).toContainText('1 / 3');
+    await expect(page).toHaveURL(/preview=file(%3A|:)7601/);
+
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('pdf-page-1')).toBeVisible();
+    await expect(page.getByTestId('preview-meta')).toContainText('2 / 3');
+
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('preview-body')).toContainText('LINKED-BODY');
+    await expect(page.getByTestId('viewer-live')).toHaveText('linked-601.txt, 3개 중 3번째');
+    await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0);
+  });
+
+  test('드라이브 링크 원본이 휴지통이면 사용할 수 없음 안내만 보이고 다운로드는 없다', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubBundle(page, [], [driveLink(602, { name: 'gone.txt', availability: 'TRASHED' })]);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    await page.getByRole('button', { name: 'gone.txt 미리보기' }).click();
+    await expect(page.getByTestId('preview-unavailable')).toBeVisible();
+    await expect(page.getByTestId('preview-download')).toHaveCount(0);
+  });
+
+  test('원본이 삭제된 드라이브 링크 행에는 다운로드 아이콘이 없다(활성 링크에만 있다)', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [], [driveLink(606, { name: 'deleted.txt', availability: 'DELETED' }), driveLink(607, { name: 'alive.txt' })]);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await expect(page.getByRole('button', { name: 'alive.txt 다운로드' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'deleted.txt 미리보기' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'deleted.txt 다운로드' })).toHaveCount(0);
+  });
+
+  test('이슈 드라이브 링크의 요약이 403 이면 ✨ 버튼이 없다', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [], [driveLink(603)]);
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/files/603/summary',
+      (route) => route.fulfill({ status: 403, json: { message: 'forbidden' } }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'linked-603.txt 미리보기' }).click();
+    await expect(page.getByTestId('preview-body')).toContainText('LINKED-BODY');
+    await expect(page.getByRole('button', { name: 'AI 요약' })).toHaveCount(0);
+  });
+
+  test('이슈 드라이브 링크는 ✨ 로 요약 패널을 열고, ⋯ 에 드라이브에서 열기가 있다', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [], [driveLink(604)]);
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/files/604/summary',
+      (route) => route.fulfill({ json: { summary: '링크 요약', status: 'DONE' } }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'linked-604.txt 미리보기' }).click();
+    // 이슈에서 열면 기본 접힘(defaultPanelOpen 없음).
+    await expect(page.getByTestId('preview-body')).toContainText('LINKED-BODY');
+    await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0);
+    await page.getByRole('button', { name: 'AI 요약' }).click();
+    await expect(page.getByTestId('viewer-side-panel').getByTestId('drive-summary-card')).toContainText('링크 요약');
+    await page.getByRole('button', { name: '더 보기' }).click();
+    await expect(page.getByRole('menuitem', { name: '드라이브에서 열기' })).toBeVisible();
+  });
+
+  test('⋯ 드라이브에서 열기는 하위 폴더에 있는 링크 파일을 그 폴더에서 미리보기로 연다', async ({ authenticatedPage: page }) => {
+    // 링크 응답에는 폴더 id 가 없다 — 공간 이름 검색으로 폴더(5)를 찾아 ?folderId=5&preview=605 로 가야 한다.
+    await stubBundle(page, [], [driveLink(605, { name: 'deep.txt' })]);
+    const searches = trackRequests(page, 'GET', '/api/v1/drive/spaces/1/search');
+    const deep = createFile({ id: 605, folderId: 5, fileId: 1605, name: 'deep.txt', sizeBytes: 4 });
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/spaces/1/search',
+      (route) => route.fulfill({ json: { folders: [], files: [{ ...deep, folderPath: '하위' }] } }),
+    );
+    // 공간 루트에는 이 파일이 없다 — 루트로 열면 "찾을 수 없음"이 된다(회귀 조건).
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/spaces/1/items',
+      (route) =>
+        route.fulfill({
+          json:
+            new URL(route.request().url()).searchParams.get('parentId') === '5'
+              ? { folders: [], files: [deep] }
+              : { folders: [createFolder({ id: 5, name: '하위' })], files: [] },
+        }),
+    );
+    await page.route((url) => url.pathname === '/api/v1/drive/spaces/1', (route) => route.fulfill({ json: createSpace({ id: 1 }) }));
+    await page.route((url) => url.pathname === '/api/v1/drive/folders/5/path', (route) => route.fulfill({ json: [{ id: 5, name: '하위' }] }));
+    await page.route((url) => url.pathname === '/api/v1/drive/quota', (route) => route.fulfill({ json: { usedBytes: 0, quotaBytes: 1024 } }));
+    await page.route((url) => url.pathname === '/api/v1/drive/files/605/content', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/plain', body: 'DEEP' }),
+    );
+    await page.route((url) => url.pathname === '/api/v1/drive/files/605/thumbnail', (route) => route.fulfill({ status: 404 }));
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'deep.txt 미리보기' }).click();
+    await expect(page.getByTestId('preview-body')).toContainText('LINKED-BODY');
+    await page.getByRole('button', { name: '더 보기' }).click();
+    await page.getByRole('menuitem', { name: '드라이브에서 열기' }).click();
+
+    await expect(page).toHaveURL(/\/drive\/spaces\/1\?folderId=5&preview=605$/);
+    expect(searches.lastUrl()?.searchParams.get('q')).toBe('deep.txt');
+    // 드라이브 쪽 콘텐츠 경로로 같은 파일이 열린다 — 찾을 수 없음 안내가 아니다.
+    await expect(page.getByTestId('preview-body')).toContainText('DEEP');
+    await expect(page.getByTestId('preview-not-found')).toHaveCount(0);
+  });
+
+  test('드라이브 링크 조회가 실패해도 없는 첨부 딥링크는 찾을 수 없음 안내로 끝난다', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [], []);
+    // 나중 등록이 우선 — 링크 목록만 403(재시도 없음).
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/drive-links`,
+      (route) => route.fulfill({ status: 403, json: { message: 'forbidden' } }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1?preview=drive:999`);
+    await expect(page.getByTestId('preview-not-found')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page).not.toHaveURL(/preview=/);
+  });
+
+  test('업로드 첨부는 ✨ 없이 ☁ 와 ⋯ 를 보여 주고 ☁ 로 드라이브에 가져온다', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [createAttachment({ fileId: 7701, originalName: 'up.txt', mimeType: 'text/plain' })], []);
+    await page.route(
+      (url) => url.pathname === '/api/v1/projects/WP/issues/1/attachments/7701/content',
+      (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'UP' }),
+    );
+    // 개인 공간·폴더 목록·임포트 — setupCommonStubs 의 빈 공간 목록보다 나중에 등록해 우선한다.
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/spaces',
+      (route) =>
+        route.fulfill({
+          json: [{ id: 1, type: 'PERSONAL', name: '내 드라이브', ownerId: 1, role: 'OWNER', archived: false, createdAt: '2026-06-01T00:00:00Z' }],
+        }),
+    );
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/spaces/1/items',
+      (route) => route.fulfill({ json: { folders: [], files: [] } }),
+    );
+    const imports = trackRequests(page, 'POST', /\/api\/v1\/drive\/spaces\/1\/import-attachment$/);
+    await page.route(/\/api\/v1\/drive\/spaces\/1\/import-attachment$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'up.txt 미리보기' }).click();
+    await expect(page.getByTestId('preview-body')).toContainText('UP');
+    await expect(page.getByRole('button', { name: 'AI 요약' })).toHaveCount(0);
+    await page.getByRole('button', { name: '더 보기' }).click();
+    await expect(page.getByRole('menuitem', { name: '링크 복사' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '드라이브로 가져오기' }).click();
+    await expect(page.getByTestId('folder-picker')).toBeVisible();
+    await page.getByTestId('folder-picker').getByTestId('folder-picker-confirm').click();
+    await expect.poll(() => imports.count()).toBe(1);
+  });
+  test('열린 첨부가 실시간 재조회로 목록에서 빠져도 뷰어는 그 파일을 1건으로 유지한다', async ({ authenticatedPage: page }) => {
+    const a = createAttachment({ fileId: 7801, originalName: 'keep.txt', mimeType: 'text/plain' });
+    const b = createAttachment({ fileId: 7802, originalName: 'other.txt', mimeType: 'text/plain' });
+    await stubBundle(page, [a, b], []);
+    // 가변 목록 — 재조회 시 열린 첨부까지 모두 빠진다(마지막 첨부 삭제 = 목록 컴포넌트의 빈 분기).
+    let list: IssueAttachment[] = [a, b];
+    const listCalls = trackRequests(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`);
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(list) })
+          : route.fallback(),
+    );
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments/7801/content`,
+      (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'KEEP-BODY' }),
+    );
+    const events = await mockGatedEvents(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'keep.txt 미리보기' }).click();
+    await expect(page.getByTestId('preview-body')).toContainText('KEEP-BODY');
+    await expect(page.getByTestId('preview-meta')).toContainText('1 / 2');
+    const before = listCalls.count();
+
+    list = [];
+    events.deliver(
+      resourceChangedFrame({ resource: 'issue', op: 'updated', scopeType: 'PROJECT', scopeId: 1, ids: [1], actorId: 99, projectKey: PROJECT_KEY, issueNumber: 1 }),
+    );
+    await expect.poll(() => listCalls.count()).toBeGreaterThan(before);
+    // 스냅숏 1건 묶음 — 파일은 그대로, 순번·‹ › 는 없다. 찾을 수 없음 안내도 뜨지 않는다.
+    await expect(page.getByTestId('preview-meta')).not.toContainText('/ 2');
+    await expect(page.getByTestId('preview-body')).toContainText('KEEP-BODY');
+    await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0);
+    await expect(page.getByTestId('preview-not-found')).toHaveCount(0);
+    await expect(page).toHaveURL(/preview=file(%3A|:)7801/);
+  });
+
+  test('목록이 비는 재조회 뒤에도 뷰어가 다시 마운트되지 않아 확대 배율이 유지된다', async ({ authenticatedPage: page }) => {
+    const img = createAttachment({ fileId: 7811, originalName: 'zoom.png', mimeType: 'image/png' });
+    await stubBundle(page, [img], []);
+    let list: IssueAttachment[] = [img];
+    const listCalls = trackRequests(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`);
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(list) })
+          : route.fallback(),
+    );
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments/7811/content`,
+      (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
+    );
+    const events = await mockGatedEvents(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'zoom.png 미리보기' }).click();
+    await expect(page.getByTestId('preview-body').locator('img')).toBeVisible();
+    await page.getByRole('button', { name: '확대' }).click();
+    await page.getByRole('button', { name: '확대' }).click();
+    await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('150%');
+    const before = listCalls.count();
+
+    // 마지막 첨부가 빠지는 재조회 — 목록 컴포넌트가 빈 분기로 바뀌어도 뷰어는 같은 자리에 남아야 한다.
+    list = [];
+    events.deliver(
+      resourceChangedFrame({ resource: 'issue', op: 'updated', scopeType: 'PROJECT', scopeId: 1, ids: [1], actorId: 99, projectKey: PROJECT_KEY, issueNumber: 1 }),
+    );
+    await expect.poll(() => listCalls.count()).toBeGreaterThan(before);
+    await expect(page.getByTestId('attachment-list')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('150%');
+  });
+
+  test('삭제된 첨부 딥링크는 찾을 수 없음 안내를 보이고 닫으면 ?preview 가 지워진다', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [createAttachment({ fileId: 7901, originalName: 'live.txt', mimeType: 'text/plain' })], []);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1?preview=file:999`);
+    await expect(page.getByTestId('preview-not-found')).toBeVisible();
+    await expect(page.getByTestId('attachment-viewer')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('preview-not-found')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/preview=/);
+  });
+
+  test('뷰어를 닫으면 연 첨부 버튼으로 포커스가 돌아온다', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [createAttachment({ fileId: 7951, originalName: 'focus.txt', mimeType: 'text/plain' })], []);
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments/7951/content`,
+      (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'F' }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    const trigger = page.getByRole('button', { name: 'focus.txt 미리보기' });
+    await trigger.click();
+    await expect(page.getByRole('dialog', { name: 'focus.txt 미리보기' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('attachment-viewer')).toHaveCount(0);
+    await expect(trigger).toBeFocused();
   });
 });

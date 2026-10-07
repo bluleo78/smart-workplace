@@ -589,13 +589,14 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await expect(body.getByTestId('preview-loading')).toHaveCount(0)
   })
 
-  // #776: 작은 이미지(200x100)는 preview-body 컨테이너가 세로 중앙정렬(flex items-center
-  // justify-center) 되어 상단에 방치되지 않아야 한다. 텍스트/CSV 등 다른 kind 는 영향받지 않는다
+  // #776: 작은 이미지는 preview-body 가운데(가로·세로)에 놓여 상단에 방치되지 않아야 한다.
+  // WP-277: 확대 시 위·왼쪽까지 스크롤되도록 정렬을 items-center 대신 자식 m-auto(안전한 가운데 정렬)로 바꿨으므로
+  // 클래스가 아니라 실제 위치로 검증한다. 텍스트/CSV 등 다른 kind 는 영향받지 않는다
   // (위 'Markdown 파일은 서식 렌더된다' 테스트가 그 회귀 가드 역할을 겸한다).
   test('작은 이미지는 preview-body 가 세로 중앙정렬된다', async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
 
-    // 1x1 PNG 를 200x100 처럼 취급 — 실제 렌더 크기보다 컨테이너 정렬 클래스 자체를 검증하는 것이 목적.
+    // 1x1 PNG — 본문보다 훨씬 작아 가운데 정렬 여부가 위치로 드러난다.
     const PNG_1PX =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
     const PNG_BUF = Buffer.from(PNG_1PX, 'base64')
@@ -650,8 +651,13 @@ test.describe('드라이브 프리뷰 포맷', () => {
 
     const body = page.getByTestId('preview-body')
     await expect(body.locator('img')).toBeVisible()
-    // IMAGE kind 전용 세로 중앙정렬 클래스 — 컨테이너 class 속성으로 검증.
-    await expect(body).toHaveClass(/items-center/)
-    await expect(body).toHaveClass(/justify-center/)
+    // 이미지 중심이 본문 중심과 (1px 오차 안에서) 같다.
+    const off = await body.evaluate((el) => {
+      const b = el.getBoundingClientRect()
+      const i = el.querySelector('img')!.getBoundingClientRect()
+      return { x: Math.abs(i.left + i.width / 2 - (b.left + b.width / 2)), y: Math.abs(i.top + i.height / 2 - (b.top + b.height / 2)) }
+    })
+    expect(off.x).toBeLessThanOrEqual(1)
+    expect(off.y).toBeLessThanOrEqual(1)
   })
 })

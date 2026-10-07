@@ -1,5 +1,5 @@
-// 휴대폰 드라이브 미리보기 모달(WP-212) — 데스크톱 전용 resize 손잡이·최소 폭(24rem)이 모바일엔 붙지 않아
-// 작은 폰(360px)에서도 모달이 화면 안에 머물고 가로 넘침이 없다. 데스크톱 쪽은 drive/drive-preview-resize.spec.ts.
+// 휴대폰 드라이브 미리보기(WP-212 → WP-277) — 통합 뷰어는 전체 화면 라이트박스라
+// 작은 폰(360px)에서도 뷰포트를 꽉 채우고 가로 넘침이 없다.
 import type { Page } from '@playwright/test'
 
 import { createSpace, personalSpace } from '../../factories/drive.factory'
@@ -26,21 +26,18 @@ async function stubDrive(page: Page) {
 }
 
 for (const width of [360, 390]) {
-  test(`폭 ${width}px — 미리보기 모달에 resize 손잡이가 없고 화면 안에 머문다`, async ({ authenticatedPage: page }) => {
+  test(`폭 ${width}px — 미리보기가 전체 화면을 채우고 가로 넘침이 없다`, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width, height: 800 })
     await stubDrive(page)
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await page.getByRole('button', { name: LONG_NAME, exact: true }).tap()
 
-    const content = page.locator('[data-slot="dialog-content"]')
+    const viewer = page.getByTestId('attachment-viewer')
     await expect(page.getByTestId('preview-body')).toBeVisible()
-    // 손잡이(resize) 없음 — 데스크톱(lg)에서만 붙는다.
-    await expect(content).toHaveCSS('resize', 'none')
-    // 최소 폭 24rem(384px)이 max-w-[95vw] 를 이기지 않아 모달 좌우가 뷰포트 안.
-    const box = (await content.boundingBox())!
-    expect(box.x).toBeGreaterThanOrEqual(0)
-    expect(box.x + box.width).toBeLessThanOrEqual(width)
-    const scroll = await page.evaluate(() => document.documentElement.scrollWidth)
-    expect(scroll).toBeLessThanOrEqual(width)
+    const box = (await viewer.boundingBox())!
+    // 전체 화면 — 뷰포트를 꽉 채우고 가로 넘침이 없다.
+    expect(box.x).toBe(0)
+    expect(Math.round(box.width)).toBe(width)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 }

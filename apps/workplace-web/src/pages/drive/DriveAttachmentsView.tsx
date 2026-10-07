@@ -2,29 +2,33 @@
 // 출처 필터(전체/이슈/메시지) + 이름 검색 + 행별 "저장"(내 드라이브 임포트) 지원.
 
 import { ChevronDown, Paperclip } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { toast } from 'sonner'
+import { useMemo, useState } from 'react'
 
 import { driveApi } from '@/api/drive'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { DriveThumbnail } from '@/components/drive/DriveThumbnail'
-import { FilePreviewModal } from '@/components/drive/FilePreviewModal'
-import { FolderPickerModal } from '@/components/drive/FolderPickerModal'
 import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { SearchInput } from '@/components/ui/search-input'
+import { AttachmentViewer } from '@/components/viewer/AttachmentViewer'
+import { useImportToDrive } from '@/components/viewer/useImportToDrive'
+import { useViewerBundle } from '@/components/viewer/useViewerBundle'
+import { fileViewerKey, normalizeAttachmentPreviewKey, virtualAttachmentItem } from '@/components/viewer/viewerItems'
+import { ViewerNotFound } from '@/components/viewer/ViewerNotFound'
 import { useDriveAttachments } from '@/hooks/queries/useDriveAttachments'
-import { useImportAttachment } from '@/hooks/queries/useImportAttachment'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { mimeToCategory } from '@/lib/fileCategory'
 import { formatFileSize } from '@/lib/formatters'
 import { LABEL_COLORS } from '@/lib/labelColors'
 import { cn } from '@/lib/utils'
-import type { DriveSpace, VirtualAttachment } from '@/types/drive'
+import type { VirtualAttachment } from '@/types/drive'
 
 import { groupAttachments } from './groupAttachments'
 
 type SourceFilter = 'ALL' | 'ISSUE' | 'MESSAGE'
+
+/** 열린 첨부가 속한 그룹이 없을 때의 빈 목록 — 매 렌더 같은 배열이라 묶음 변환 memo 가 깨지지 않는다. */
+const NO_ATTACHMENTS: VirtualAttachment[] = []
 
 const SOURCE_LABELS: Record<SourceFilter, string> = {
   ALL: '전체',
@@ -39,17 +43,12 @@ export function DriveAttachmentsView() {
   const query = useDriveAttachments({ source, q })
   // 본문 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
-  const importMut = useImportAttachment()
+  // 가져오기(개인 공간 조회 → 폴더 선택 → 임포트)는 통합 뷰어와 같은 훅을 쓴다.
+  const importer = useImportToDrive()
 
-  // 내 드라이브(PERSONAL) 공간 ID — 저장 시 임포트 대상 공간.
-  const [personalSpaceId, setPersonalSpaceId] = useState<number | null>(null)
-  // 공간 조회 완료 여부 — 로딩 중 disabled 와 조회 실패 disabled 를 구분하기 위해 사용.
-  const [spacesResolved, setSpacesResolved] = useState(false)
-  const [importing, setImporting] = useState<VirtualAttachment | null>(null)
-  // 미리보기 = URL ?preview=<fileId>(시스템 뒤로가기로 닫힘, WP-208). 필터 변경·재조회로 목록에서 빠져도 열린 모달이
-  // 사라지지 않게 클릭한 첨부를 기억한다.
+  // 미리보기 = URL ?preview=file:<fileId>(시스템 뒤로가기로 닫힘, WP-208). 필터 변경·재조회로 목록에서 빠져도 열린 뷰어가
+  // 사라지지 않게 마지막으로 본 첨부를 기억한다(useViewerBundle).
   const previewParam = useHistoryParam('preview')
-  const [previewSnap, setPreviewSnap] = useState<VirtualAttachment | null>(null)
   // 접힌 그룹 key 집합(기본 모두 펼침). 세션 임시 — localStorage 미사용.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const toggleGroup = (key: string) =>
@@ -60,33 +59,24 @@ export function DriveAttachmentsView() {
       return next
     })
 
-  useEffect(() => {
-    let mounted = true
-    void driveApi
-      .listSpaces()
-      .then(({ data }) => {
-        if (!mounted) return
-        const personal = (data as DriveSpace[]).find((s) => s.type === 'PERSONAL')
-        if (personal) setPersonalSpaceId(personal.id)
-        setSpacesResolved(true)
-      })
-      .catch(() => {
-        if (!mounted) return
-        toast.error('드라이브 스페이스를 불러오지 못했습니다.')
-        setSpacesResolved(true)
-      })
-    return () => {
-      mounted = false
-    }
-  }, [])
-
-  const items = query.data?.pages.flatMap((p) => p.items) ?? []
-  // 미리보기 대상 해석 — 현재 목록 → 클릭 스냅숏 순(단건 조회 API 없음).
-  const preview =
-    previewParam.value == null
-      ? null
-      : (items.find((a) => String(a.fileId) === previewParam.value) ??
-        (previewSnap && String(previewSnap.fileId) === previewParam.value ? previewSnap : null))
+  // 페이지 데이터가 같으면 같은 배열 — 아래 그룹 계산 memo 가 렌더마다 깨지지 않게 한다.
+  const items = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data])
+  // 묶음 = 클릭한 첨부가 속한 출처 그룹(같은 이슈·같은 메시지) — ‹ › 는 같은 묶음 안에서만 움직인다.
+  const groups = useMemo(() => groupAttachments(items), [items])
+  const groupOf = (key: string | null) =>
+    groups.find((g) => g.items.some((a) => fileViewerKey(a.fileId) === key))
+  // 열린 첨부 해석 — 현재 목록의 그룹 → 스냅숏 1건 순(단건 조회 API 없음, 필터 변경으로 빠져도 유지).
+  // not-found 는 끝 페이지까지 받은 뒤에만 판정한다 — 아직 안 받은 페이지에 있을 수 있는 딥링크를 잘못 "없음"으로 안내하지 않게.
+  // 예전 숫자 딥링크(?preview=123)도 file:123 으로 읽는다.
+  const previewKey = normalizeAttachmentPreviewKey(previewParam.value)
+  const viewer = useViewerBundle({
+    list: groupOf(previewKey)?.items ?? NO_ATTACHMENTS,
+    toItem: virtualAttachmentItem,
+    currentKey: previewKey,
+    // 조회 실패도 판정 완료로 본다 — 실패 시 뷰어도 안내도 없이 낡은 ?preview 만 남지 않게.
+    ready: (query.isSuccess && !query.hasNextPage) || query.isError,
+    openKey: previewParam.open,
+  })
   const isLoading = query.isLoading
 
   return (
@@ -135,7 +125,7 @@ export function DriveAttachmentsView() {
           />
         ) : (
           <div>
-            {groupAttachments(items).map((g) => {
+            {groups.map((g) => {
               const isCollapsed = collapsed.has(g.key)
               const isIssue = g.sourceType === 'ISSUE'
               return (
@@ -185,7 +175,7 @@ export function DriveAttachmentsView() {
                           {/* 파일명 — 클릭 시 미리보기 */}
                           <button
                             type="button"
-                            onClick={() => { setPreviewSnap(a); previewParam.open(String(a.fileId)) }}
+                            onClick={() => viewer.open(a)}
                             className="min-w-0 flex-1 truncate text-left font-medium hover:underline"
                           >
                             {a.name}
@@ -212,16 +202,9 @@ export function DriveAttachmentsView() {
                             variant="outline"
                             size="xs"
                             data-testid={`drive-attachment-save-${a.fileId}`}
-                            disabled={!spacesResolved || personalSpaceId === null}
-                            title={
-                              spacesResolved && personalSpaceId === null
-                                ? '드라이브를 사용할 수 없습니다'
-                                : undefined
-                            }
-                            onClick={() => {
-                              if (personalSpaceId === null) return
-                              setImporting(a)
-                            }}
+                            disabled={!importer.ready}
+                            title={importer.unavailable ? '드라이브를 사용할 수 없습니다' : undefined}
+                            onClick={() => importer.begin(a.fileId)}
                             className="shrink-0"
                           >
                             내 드라이브에 저장
@@ -241,21 +224,19 @@ export function DriveAttachmentsView() {
       </div>
 
       {/* 폴더 선택 모달 — 저장 버튼 클릭 시 열림 */}
-      {importing && personalSpaceId !== null && (
-        <FolderPickerModal
-          spaceId={personalSpaceId}
-          title="저장할 폴더 선택"
-          mode="folder"
-          onConfirm={(folderId) => {
-            importMut.mutate({ spaceId: personalSpaceId, folderId, fileId: importing.fileId })
-            setImporting(null)
-          }}
-          onClose={() => setImporting(null)}
+      {importer.picker}
+
+      {/* 통합 첨부 뷰어 — 같은 출처 그룹 단위로 넘긴다. 키 = file:{fileId}. */}
+      {viewer.bundle && (
+        <AttachmentViewer
+          items={viewer.bundle.items}
+          index={viewer.bundle.index}
+          onIndexChange={viewer.onIndexChange}
+          onClose={previewParam.close}
         />
       )}
-
-      {/* 첨부 미리보기 모달 — FilePreviewModal 첨부 분기 */}
-      {preview && <FilePreviewModal attachment={preview} onClose={previewParam.close} />}
+      {/* 삭제됐거나 볼 수 없게 된 첨부 딥링크 — 드라이브와 같은 안내 후 닫으면 ?preview 를 지운다. */}
+      {viewer.missing && <ViewerNotFound onClose={previewParam.close} description="삭제되었거나 더 이상 볼 수 없는 첨부입니다." />}
     </div>
   )
 }
