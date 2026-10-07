@@ -139,6 +139,20 @@ test.describe('이슈 행 ⋯ 메뉴 — 목록(데스크톱)', () => {
     await expect(page.getByTestId('row-menu-ai')).toHaveCount(0);
   });
 
+  test('같은 메뉴에서 담당자를 뺀 뒤 AI에게 맡기면 뺀 사람을 되살리지 않는다', async ({ authenticatedPage: page }) => {
+    const api = await mock(page);
+    await page.goto(`/projects/${KEY}?view=list&group=none`);
+    await page.getByTestId('issue-row-7').click({ button: 'right' });
+    await page.getByTestId('row-menu-assignee').hover();
+    await page.getByTestId('row-menu-assignee-2').click();
+    await api.waitFor();
+    // 하위 메뉴만 닫고(포인터를 옮김) 같은 메뉴에서 이어서 위임한다.
+    await page.getByTestId('row-menu-ai').hover();
+    await page.getByTestId('row-menu-ai').click();
+    await api.waitFor(2);
+    expect(api.calls().map((c) => c.body)).toEqual([{ userIds: [] }, { userIds: [99] }]);
+  });
+
   test('에픽 › 결제 안정화 → PUT parent', async ({ authenticatedPage: page }) => {
     const api = await mock(page);
     await page.goto(`/projects/${KEY}?view=list&group=none`);

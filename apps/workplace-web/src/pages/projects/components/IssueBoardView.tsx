@@ -82,7 +82,8 @@ function IssueBoardViewInner({
   // 카드 ⋯·우클릭 메뉴(WP-273) — 컬럼 컴포넌트를 거치지 않고 컨텍스트로 카드에 전달한다.
   const { openMenu, menuIssueNumber } = cardActions;
   const cardMenu = useMemo(() => ({ openMenu, menuIssueNumber }), [openMenu, menuIssueNumber]);
-  // open 은 모바일 + 멤버일 때만 값이 있다(아니면 undefined → 길게 누르기 미연결).
+  // open 은 모바일에서만 값이 있다(데스크톱은 undefined → 길게 누르기 미연결, 우클릭·⋯ 메뉴를 쓴다).
+  // 비멤버도 「링크 복사」가 있어 시트가 열린다(WP-273) — 변경 항목만 숨긴다.
   const onCardLongPress = cardActions.open;
 
   // 그룹 보드는 컬럼(그룹)이 페이지 순서와 무관하게 동적으로 생기므로 컬럼별 스크롤 로드가 불가 →

@@ -3,7 +3,7 @@
 // - 모바일(WP-273 시안 M1): 「⋯」·길게 누르기 → 액션 시트(줄마다 현재 값) → 상태·담당자·우선순위·에픽·AI 선택 시트.
 // 시트는 한 번에 하나만 연다. 변경은 낙관적 mutation(상태·에픽은 드래그와 같은 경로)을 재사용한다.
 import { Bot, Check, CheckSquare, CircleDot, Layers, Link2, SignalHigh, Trash2, UserRound } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { IssuePriorityBars } from '@/components/issues/IssuePriorityBars';
@@ -53,6 +53,17 @@ type Open =
 /** 메뉴를 연 위치 — 우클릭 지점(start) 또는 ⋯ 버튼 아래 모서리(end). 모바일은 무시. */
 export type RowMenuAnchor = { x: number; y: number; align: 'start' | 'end' };
 export type OpenRowMenu = (issue: IssueResponse, anchor?: RowMenuAnchor) => void;
+
+/**
+ * 데스크톱 행·카드 우클릭 → 메뉴(WP-273). 마우스 우클릭은 커서 위치, 키보드(Shift+F10·메뉴 키)로 연 것은
+ * 좌표가 요소 밖(브라우저마다 0,0 또는 임의 위치)이므로 요소 왼쪽 아래에 연다 — 마우스 우클릭은 항상 요소 안에서 일어난다.
+ */
+export function openRowMenuAtPointer(e: MouseEvent<HTMLElement>, issue: IssueResponse, openMenu: OpenRowMenu) {
+  e.preventDefault();
+  const r = e.currentTarget.getBoundingClientRect();
+  const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  openMenu(issue, inside ? { x: e.clientX, y: e.clientY, align: 'start' } : { x: r.left + 16, y: r.bottom, align: 'start' });
+}
 
 // 프로젝트 멤버 → 담당자 요약(낙관적 패치로 행에 바로 그릴 값).
 function toSummary(m: MemberResponse): UserSummary {
@@ -105,7 +116,7 @@ export function useIssueRowActions({
   const bulkAssign = useBulkAssign(projectKey);
   const bulkDelete = useBulkDeleteIssues(projectKey);
   // 에픽 목록은 에픽 항목을 쓸 때만 필요 — 모바일 멤버이거나 데스크톱 메뉴가 열렸을 때만 조회(훅 순서 고정).
-  const { epics, epicType } = useProjectEpics(projectKey, canEdit && (isMobile || state?.kind === 'menu'));
+  const { epics, epicType, loading: epicsLoading } = useProjectEpics(projectKey, canEdit && (isMobile || state?.kind === 'menu'));
 
   // open(길게 누르기)은 모바일에서만 — 행·카드는 핸들러 유무로 길게 누르기 연결 여부를 정한다. 안정 참조(행 memo).
   const open = useMemo(
@@ -136,8 +147,13 @@ export function useIssueRowActions({
   const issue = state?.kind === 'menu' ? state.target.issue : state?.issue;
   const numbers = state?.kind === 'menu' ? state.target.numbers : issue ? [issue.number] : [];
   const bulk = numbers.length > 1;
+  // 메뉴가 열린 동안의 실제 담당자 — 열 때의 스냅샷(issue.assignees)이 아니라 토글이 반영된 assigneeIds 기준.
+  // 위임 여부 판정·AI 위임 요청이 같은 메뉴에서 바꾼 담당자를 되돌리지 않게 한다.
+  const known = new Map<number, UserSummary>((issue?.assignees ?? []).map((a) => [a.id, a]));
+  members.forEach((x) => known.set(x.userId, toSummary(x)));
+  const liveAssignees = (state?.assigneeIds ?? []).map((id) => known.get(id)).filter((u): u is UserSummary => u != null);
   const items = rowMenuItems({
-    issue: issue ?? { assignees: [], reporterId: -1 },
+    issue: { assignees: liveAssignees, reporterId: issue?.reporterId ?? -1 },
     canEdit,
     viewerId: user?.id ?? null,
     viewerIsOwner,
@@ -157,25 +173,28 @@ export function useIssueRowActions({
     if (bulk) bulkPriority.mutate({ numbers, priority: p }, afterBulk);
     else if (issue && p !== issue.priority) updatePriority.mutate({ number: issue.number, priority: p });
   };
+  // 메뉴 담당자 집합을 바꾸고 요청한다. 함수형 갱신 — 모바일 시트가 먼저 닫혔으면(null) 다시 열지 않는다.
+  // 실패하면 같은 이슈의 메뉴가 아직 열려 있을 때만 ✓ 를 이전 집합으로 되돌린다(캐시는 mutation 이 복원).
+  const replaceAssignees = (nextIds: number[], successMessage?: string) => {
+    if (!issue || !state) return;
+    const prevIds = state.assigneeIds;
+    const number = issue.number;
+    const sameIssue = (s: Open) => s != null && (s.kind === 'menu' ? s.target.issue.number : s.issue.number) === number;
+    setState((s) => (sameIssue(s) ? { ...s!, assigneeIds: nextIds } : s));
+    const next = nextIds.map((id) => known.get(id)).filter((u): u is UserSummary => u != null);
+    setAssignees.mutate(
+      { number, assignees: next, successMessage },
+      { onError: () => setState((s) => (sameIssue(s) ? { ...s!, assigneeIds: prevIds } : s)) },
+    );
+  };
   // 담당자 토글 — 집합 교체 API 라 현재 담당자 전체에 넣거나 빼서 보낸다. 멤버 목록에 없는 기존 담당자도 유지.
   const toggleAssignee = (m: MemberResponse) => {
-    if (!issue || !state) return;
-    const nextIds = toggleAssigneeIds(state.assigneeIds, m.userId);
-    const known = new Map<number, UserSummary>(issue.assignees.map((a) => [a.id, a]));
-    members.forEach((x) => known.set(x.userId, toSummary(x)));
-    const next = nextIds.map((id) => known.get(id)).filter((u): u is UserSummary => u != null);
-    setState({ ...state, assigneeIds: nextIds });
-    setAssignees.mutate({ number: issue.number, assignees: next });
+    if (state) replaceAssignees(toggleAssigneeIds(state.assigneeIds, m.userId));
   };
   const assignBulk = (userIds: number[]) => bulkAssign.mutate({ numbers, userIds }, afterBulk);
   // AI 위임 = AGENT 담당자 추가(기존 담당자 유지) — 위임 배지·AI 처리 흐름은 담당자 기준으로 동작한다.
   const delegate = (a: MemberResponse) => {
-    if (!issue) return;
-    setAssignees.mutate({
-      number: issue.number,
-      assignees: [...issue.assignees.filter((u) => u.id !== a.userId), toSummary(a)],
-      successMessage: `${a.name}에게 맡겼습니다`,
-    });
+    if (state) replaceAssignees([...state.assigneeIds.filter((id) => id !== a.userId), a.userId], `${a.name}에게 맡겼습니다`);
   };
   const changeEpic = (target: IssueResponse | null) => {
     if (!issue) return;
@@ -233,6 +252,7 @@ export function useIssueRowActions({
           members={members}
           agents={agents}
           epics={epics}
+          epicsLoading={epicsLoading}
           assigneeIds={assigneeIds}
           onStatus={changeStatus}
           onPriority={changePriority}

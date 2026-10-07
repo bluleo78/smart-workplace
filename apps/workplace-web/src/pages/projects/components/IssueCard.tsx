@@ -19,7 +19,7 @@ import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { IssueDragData } from '../../../lib/epicDnd';
 import type { IssueResponse } from '../../../types/issue';
-import type { OpenRowMenu } from '../hooks/useIssueRowActions';
+import { type OpenRowMenu, openRowMenuAtPointer } from '../hooks/useIssueRowActions';
 import { IssueCardMenuContext } from './issueCardMenuContext';
 import { IssueMobileMeta } from './IssueMobileMeta';
 import { RowMenuButton } from './RowMenuButton';
@@ -61,14 +61,9 @@ export function IssueCard({
   const { openMenu, menuIssueNumber } = useContext(IssueCardMenuContext);
   const onOpenMenu = asOverlay ? undefined : openMenu;
   const menuOpen = menuIssueNumber === issue.number;
-  // 데스크톱 우클릭 — 커서 위치에 메뉴. 모바일은 useLongPressCapture 의 onContextMenu(길게 터치)를 쓴다.
+  // 데스크톱 우클릭 — 브라우저 메뉴 대신 카드 메뉴. 모바일은 useLongPressCapture 의 onContextMenu(길게 터치)를 쓴다.
   const desktopContextMenu = !isMobile && onOpenMenu
-    ? (e: MouseEvent<HTMLDivElement>) => {
-        e.preventDefault();
-        const r = e.currentTarget.getBoundingClientRect();
-        const keyboard = e.clientX === 0 && e.clientY === 0;
-        onOpenMenu(issue, { x: keyboard ? r.left + 16 : e.clientX, y: keyboard ? r.bottom : e.clientY, align: 'start' });
-      }
+    ? (e: MouseEvent<HTMLDivElement>) => openRowMenuAtPointer(e, issue, onOpenMenu)
     : undefined;
   // 캡처 단계 click 억제 — 전면 오버레이 <Link> 이동까지 막는다. 콜백은 모바일·액션이 있을 때만 온다.
   // 모바일에선 액션이 없어도(비멤버) 길게 눌렀다 뗀 click 은 삼킨다 — 상세로 넘어가지 않게(WP-217).

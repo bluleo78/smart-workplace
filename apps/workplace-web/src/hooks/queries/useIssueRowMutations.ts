@@ -42,6 +42,8 @@ export function useUpdateIssuePriority(projectKey: string) {
 export function useSetIssueAssignees(projectKey: string) {
   const qc = useQueryClient();
   return useMutation({
+    // 집합 교체 PUT 을 빠르게 연달아 토글하면 요청이 겹쳐 서버 적용 순서가 뒤바뀔 수 있다 — 같은 scope 는 차례로 보낸다.
+    scope: { id: `issue-assignees-${projectKey}` },
     mutationFn: ({ number, assignees }: { number: number; assignees: UserSummary[]; successMessage?: string }) =>
       replaceIssueAssignees(projectKey, number, assignees.map((u) => u.id)),
     onMutate: ({ number, assignees }) => patchIssueInSearchCache(qc, projectKey, number, { assignees }),
@@ -57,15 +59,22 @@ export function useSetIssueAssignees(projectKey: string) {
   });
 }
 
-/** 단건 삭제 — 확인 다이얼로그 뒤에 호출한다. 행은 settle 재조회로 빠진다(낙관적 제거는 깜빡임, #881). */
+/**
+ * 단건 삭제 — 확인 다이얼로그 뒤에 호출한다. 행은 settle 재조회로 빠진다(낙관적 제거는 깜빡임, #881).
+ * 상세 화면의 useDeleteIssue 는 번호를 훅 인자로 받아 목록이 여러 행에 쓸 수 없어 따로 둔다.
+ * 지운 이슈의 상세 캐시는 재조회하면 404 오류 화면이 되므로 무효화 대신 제거한다.
+ */
 export function useRemoveIssue(projectKey: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (number: number) => issuesApi.remove(projectKey, number),
-    onSuccess: () => toast.success('태스크를 삭제했습니다'),
+    onSuccess: (_data, number) => {
+      qc.removeQueries({ queryKey: issueKeys.detail(projectKey, number) });
+      toast.success('태스크를 삭제했습니다');
+    },
     onError: (e) => handleApiError(e, '태스크 삭제에 실패했습니다'),
     onSettled: () => {
-      invalidateIssue(qc, projectKey);
+      qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
       qc.invalidateQueries({ queryKey: ['cycleProgress', projectKey] });
     },
   });

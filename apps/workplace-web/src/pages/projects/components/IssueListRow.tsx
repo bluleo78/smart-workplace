@@ -19,7 +19,7 @@ import { formatDateKorean } from '../../../lib/formatters';
 import { isEpicParent } from '../../../lib/issueGrouping';
 import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
-import type { OpenRowMenu } from '../hooks/useIssueRowActions';
+import { type OpenRowMenu, openRowMenuAtPointer } from '../hooks/useIssueRowActions';
 import { IssueRowMobileCell } from './IssueRowMobileCell';
 import { RowMenuButton } from './RowMenuButton';
 
@@ -100,15 +100,9 @@ export const IssueRow = memo(function IssueRow({
   const dragProps = canDrag && !isMobile
     ? { ...attributes, ...listeners, 'aria-roledescription': '드래그 가능한 이슈' }
     : {};
-  // 데스크톱 우클릭 — 브라우저 메뉴 대신 행 메뉴를 커서 위치에 연다. 키보드(Shift+F10·메뉴 키)는 좌표가 0 이라 행 왼쪽 아래에 연다.
-  // 모바일은 useLongPressCapture 의 onContextMenu(길게 터치)를 그대로 쓴다.
+  // 데스크톱 우클릭 — 브라우저 메뉴 대신 행 메뉴. 모바일은 useLongPressCapture 의 onContextMenu(길게 터치)를 그대로 쓴다.
   const desktopContextMenu = !isMobile && onOpenMenu
-    ? (e: MouseEvent<HTMLTableRowElement>) => {
-        e.preventDefault();
-        const r = e.currentTarget.getBoundingClientRect();
-        const keyboard = e.clientX === 0 && e.clientY === 0;
-        onOpenMenu(it, { x: keyboard ? r.left + 16 : e.clientX, y: keyboard ? r.bottom : e.clientY, align: 'start' });
-      }
+    ? (e: MouseEvent<HTMLTableRowElement>) => openRowMenuAtPointer(e, it, onOpenMenu)
     : undefined;
 
   return (

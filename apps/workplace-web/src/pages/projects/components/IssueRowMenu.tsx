@@ -44,6 +44,7 @@ export function IssueRowMenu({
   members,
   agents,
   epics,
+  epicsLoading,
   assigneeIds,
   onStatus,
   onPriority,
@@ -64,6 +65,8 @@ export function IssueRowMenu({
   agents: MemberResponse[];
   /** 지정 가능한 진행 중 에픽 — 에픽 항목을 열 때만 쓰인다. */
   epics: IssueResponse[];
+  /** 에픽 목록을 불러오는 중 — 메뉴를 처음 열 때 조회가 시작되므로 빈 목록을 「에픽 없음」뿐으로 오해하지 않게 표시한다. */
+  epicsLoading: boolean;
   /** 단건 메뉴의 현재 담당자 id — 체크 토글 중에도 메뉴가 열려 있으므로 호출처가 로컬 상태로 들고 있다. */
   assigneeIds: number[];
   onStatus: (s: IssueStatus) => void;
@@ -174,6 +177,9 @@ export function IssueRowMenu({
               <DropdownMenuCheckboxItem checked={cur?.parent == null} onSelect={() => onEpic(null)} data-testid="row-menu-epic-none">
                 에픽 없음
               </DropdownMenuCheckboxItem>
+              {epicsLoading && (
+                <DropdownMenuItem disabled data-testid="row-menu-epic-loading">불러오는 중…</DropdownMenuItem>
+              )}
               {epics.map((e) => (
                 <DropdownMenuCheckboxItem key={e.number} checked={cur?.parent?.number === e.number} onSelect={() => onEpic(e)} data-testid={`row-menu-epic-${e.number}`}>
                   <span className="min-w-0 flex-1 truncate">{e.title}</span>
