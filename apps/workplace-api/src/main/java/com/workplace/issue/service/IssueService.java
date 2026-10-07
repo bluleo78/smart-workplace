@@ -378,6 +378,14 @@ public class IssueService {
     boolean canWorkflow = memberOrAdmin;
     boolean canContent = memberOrAdmin || ("OPEN".equals(project.type()) && isReporter);
     boolean canDelete = isReporter || isOwner;
+    // 보고자 요약(WP-272) — 상세 화면이 이름·AI 여부를 그릴 수 있게 한다. 사용자 행이 없으면 null(프론트는 「알 수 없음」).
+    UserSummary reporter =
+        row.reporterId() == null
+            ? null
+            : userRepository
+                .findById(row.reporterId())
+                .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
+                .orElse(null);
 
     return new IssueDetailResponse(
         summaryResponse,
@@ -388,7 +396,8 @@ public class IssueService {
         aiContext,
         canContent,
         canWorkflow,
-        canDelete);
+        canDelete,
+        reporter);
   }
 
   /**

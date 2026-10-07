@@ -113,7 +113,7 @@ class IssueControllerTest {
 
   private IssueDetailResponse sampleDetail() {
     return new IssueDetailResponse(
-        sampleIssue(), "body", List.of(), List.of(), List.of(), null, true, true, true);
+        sampleIssue(), "body", List.of(), List.of(), List.of(), null, true, true, true, null);
   }
 
   @Test
@@ -307,7 +307,7 @@ class IssueControllerTest {
     IssueAiContext aiCtx = new IssueAiContext("요약 내용", "다음 행동", Instant.now(), List.of());
     IssueDetailResponse detail =
         new IssueDetailResponse(
-            sampleIssue(), "body", List.of(), List.of(), List.of(), aiCtx, true, true, true);
+            sampleIssue(), "body", List.of(), List.of(), List.of(), aiCtx, true, true, true, null);
     when(issueService.get(1L, "WP", 1)).thenReturn(detail);
 
     mockMvc

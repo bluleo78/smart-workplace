@@ -59,6 +59,7 @@ import { IssueBreadcrumbHeader } from './components/IssueBreadcrumbHeader';
 import { IssueChildrenSection } from './components/IssueChildrenSection';
 import { IssueCommentComposer } from './components/IssueCommentComposer';
 import { IssuePropertyRail } from './components/IssuePropertyRail';
+import { IssueReporterValue } from './components/IssueReporterValue';
 import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropertyChips';
 import { type EditBarControls, MobileEditBar } from './components/mobile/MobileEditBar';
 import { useEditBarControls } from './components/mobile/useEditBarControls';
@@ -634,6 +635,8 @@ export default function IssueDetailPage() {
               startDate={summary.startDate}
               milestoneId={summary.milestoneId}
               assignees={summary.assignees}
+              reporter={data.reporter}
+              createdAt={summary.createdAt}
               labels={summary.labels}
               blockedBy={summary.blockedBy}
               blocks={summary.blocks}
@@ -837,6 +840,11 @@ export default function IssueDetailPage() {
                 />
               </div>
             )}
+            {/* 보고자(WP-272) — 시트는 상태·담당 그룹을 숨기므로 유형 바로 아래 같은 라벨↔값 행으로 둔다. */}
+            <div className="flex items-center justify-between gap-2" data-testid="issue-more-props-reporter">
+              <span className="text-xs font-medium text-muted-foreground">보고자</span>
+              <IssueReporterValue reporter={data.reporter} createdAt={summary.createdAt} />
+            </div>
             {renderRail('sheet')}
           </div>
         </MobileSheetShell>

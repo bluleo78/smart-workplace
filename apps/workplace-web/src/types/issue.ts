@@ -145,6 +145,8 @@ export interface IssueDetailResponse {
   viewerCanEditContent: boolean;   // 제목·본문 편집 가능 (멤버 또는 OPEN reporter)
   viewerCanEditWorkflow: boolean;  // 상태·우선순위·유형·담당자 변경 가능 (멤버만)
   viewerCanDelete: boolean;        // 이슈 삭제 가능 (reporter 또는 OWNER)
+  // 보고자(만든 사람) 요약 (WP-272) — 사용자 행이 없으면 null. 구버전 서버(롤링 배포 중)는 undefined 일 수 있다.
+  reporter?: UserSummary | null;
 }
 
 export interface CreateIssueRequest {

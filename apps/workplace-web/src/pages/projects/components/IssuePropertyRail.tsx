@@ -19,6 +19,7 @@ import { IssueDependenciesSection } from './IssueDependenciesSection';
 import { IssueParentSlot } from './IssueParentSlot';
 import { IssuePrioritySelect } from './IssuePrioritySelect';
 import { IssuePropertyGroup } from './IssuePropertyGroup';
+import { IssueReporterValue } from './IssueReporterValue';
 import { IssueStatusSelect } from './IssueStatusSelect';
 import { MilestonePickerPopover } from './MilestonePickerPopover';
 
@@ -35,6 +36,8 @@ interface IssuePropertyRailProps {
   startDate: string | null;   // summary.startDate — 타임라인 간트 뷰 시작일 (#620)
   milestoneId: number | null; // summary.milestoneId
   assignees: UserSummary[];   // summary.assignees
+  reporter: UserSummary | null | undefined; // 상세 응답 reporter (WP-272)
+  createdAt: string;          // summary.createdAt — 보고자 옆 생성일
   labels: LabelSummary[];     // summary.labels
   blockedBy: IssueLinkSummary[];  // summary.blockedBy
   blocks: IssueLinkSummary[];     // summary.blocks
@@ -63,6 +66,8 @@ export function IssuePropertyRail({
   startDate,
   milestoneId,
   assignees,
+  reporter,
+  createdAt,
   labels,
   blockedBy,
   blocks,
@@ -153,6 +158,13 @@ export function IssuePropertyRail({
               current={assignees}
               disabled={updatePending || !canEditWorkflow}
             />
+          </div>
+          {/* 보고자 — 읽기 전용(WP-272). 담당자 필드와 좌측 정렬을 맞추려 같은 px-3 여백을 둔다. */}
+          <div className="space-y-1">
+            <span className="text-xs font-medium text-muted-foreground">보고자</span>
+            <div className="px-3 py-2">
+              <IssueReporterValue reporter={reporter} createdAt={createdAt} />
+            </div>
           </div>
           {/* AI 분류 제안 — 섹션 가장 아래(목업 배치). 구분선 후 full-width. */}
           {aiButton && (

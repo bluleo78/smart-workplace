@@ -241,6 +241,13 @@ test.describe('＋ 속성 시트', () => {
     await page.getByTestId('mobile-prop-more').click();
     const sheet = page.getByTestId('issue-more-props-sheet');
     await expect(sheet.getByTestId('issue-more-props-type')).toBeVisible();
+    // 보고자(WP-272) — 시트에서 유형 바로 아래 행으로 보인다(상태·담당 그룹은 시트에서 숨겨지므로).
+    const reporterRow = sheet.getByTestId('issue-more-props-reporter');
+    await expect(reporterRow).toContainText('보고자');
+    await expect(reporterRow.getByTestId('issue-reporter')).toContainText('양동희');
+    await expect(reporterRow.getByTestId('issue-reporter-created')).toContainText('생성');
+    const typeBox = await sheet.getByTestId('issue-more-props-type').boundingBox();
+    expect((await reporterRow.boundingBox())!.y).toBeGreaterThan(typeBox!.y);
     await expect(sheet.getByTestId('property-group-planning')).toBeVisible();
     await expect(sheet.getByTestId('issue-cycles-section')).toBeVisible();
     await expect(sheet.getByTestId('issue-milestone-section')).toBeVisible();

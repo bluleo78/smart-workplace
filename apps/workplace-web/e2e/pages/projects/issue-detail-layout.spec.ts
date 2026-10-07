@@ -23,6 +23,7 @@ import type {
   IssueResponse,
 } from '../../../src/types/issue';
 import type { LabelSummary } from '../../../src/types/label';
+import type { UserSummary } from '../../../src/types/user';
 
 const PROJECT_KEY = 'PROJ';
 const ISSUE_NUMBER = 1;
@@ -36,14 +37,17 @@ async function mockIssueDetail(
   overrides: Partial<IssueResponse> & {
     comments?: IssueCommentResponse[];
     history?: IssueHistoryEntry[];
+    // 상세 응답 reporter(WP-272) — 생략하면 팩토리 기본(양동희, HUMAN).
+    reporter?: UserSummary | null;
   } = {},
 ) {
-  const { comments, history, ...summaryOverrides } = overrides;
+  const { comments, history, reporter, ...summaryOverrides } = overrides;
   const summary = { ...createIssue({ projectKey: PROJECT_KEY }), ...summaryOverrides };
   const detail: IssueDetailResponse = createIssueDetail({
     summary,
     ...(comments !== undefined && { comments }),
     ...(history !== undefined && { history }),
+    ...(reporter !== undefined && { reporter }),
   });
 
   await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
@@ -188,6 +192,45 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
       await expect(page.getByTestId('issue-labels')).toBeVisible();
     },
   );
+
+  // WP-272 — 보고자는 상태·담당 그룹에서 담당자 아래에 읽기 전용으로 보인다(이름 · 생성일).
+  test('상태·담당 그룹 담당자 아래에 보고자 이름과 생성일이 보인다', async ({ authenticatedPage: page }) => {
+    // 정오 UTC — 어느 타임존에서도 10월 3일로 표시된다.
+    await mockIssueDetail(page, {
+      createdAt: '2026-10-03T03:00:00Z',
+      reporter: { id: 5, username: 'kim', name: '김보고', kind: 'HUMAN' },
+    });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const group = page.getByTestId('property-group-status-people');
+    const reporter = group.getByTestId('issue-reporter');
+    await expect(reporter).toContainText('김보고');
+    await expect(reporter.getByTestId('issue-reporter-created')).toHaveText('· 10월 3일 생성');
+    // 읽기 전용 — 편집 트리거(버튼)가 아니다.
+    await expect(reporter.getByRole('button')).toHaveCount(0);
+    // 담당자 필드보다 아래에 놓인다.
+    const assigneeBox = await group.getByTestId('assignee-picker-trigger').boundingBox();
+    const reporterBox = await reporter.boundingBox();
+    expect(reporterBox!.y).toBeGreaterThan(assigneeBox!.y);
+  });
+
+  test('AI(AGENT)가 만든 이슈는 보고자 아바타에 에이전트 표식이 붙는다', async ({ authenticatedPage: page }) => {
+    await mockIssueDetail(page, {
+      reporter: { id: 9, username: 'issue-agent', name: '이슈 에이전트', kind: 'AGENT' },
+    });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const reporter = page.getByTestId('issue-reporter');
+    await expect(reporter).toContainText('이슈 에이전트');
+    await expect(reporter.getByLabel('이슈 에이전트 (에이전트)')).toBeVisible();
+  });
+
+  test('보고자 정보를 찾지 못하면 「알 수 없음」으로 표시한다', async ({ authenticatedPage: page }) => {
+    await mockIssueDetail(page, { reporter: null });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    await expect(page.getByTestId('issue-reporter')).toContainText('알 수 없음');
+  });
 
   // #798 — useAttachmentDraft(이슈 채팅 컴포저)와 IssueAttachmentStrip이 동시 마운트되면서
   // 각각 raw axios로 /api/v1/drive/spaces 를 호출해 중복 요청이 나가던 회귀 방지.

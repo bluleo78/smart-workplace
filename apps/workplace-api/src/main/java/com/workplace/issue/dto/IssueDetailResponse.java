@@ -1,5 +1,6 @@
 package com.workplace.issue.dto;
 
+import com.workplace.global.dto.UserSummary;
 import java.util.List;
 
 /**
@@ -20,4 +21,9 @@ public record IssueDetailResponse(
     /** 워크플로(상태/유형/우선순위 등) 편집 가능 여부(멤버/ADMIN). */
     boolean viewerCanEditWorkflow,
     /** 이슈 삭제 가능 여부(reporter 본인 또는 프로젝트 OWNER). */
-    boolean viewerCanDelete) {}
+    boolean viewerCanDelete,
+    /**
+     * 보고자(이슈를 만든 사람) 요약 — 상세 속성 레일·모바일 속성 시트 표시용(WP-272). summary.reporterId 는 숫자뿐이라 이름·종류를 함께 싣는다.
+     * 사용자 행을 찾지 못하면 null.
+     */
+    UserSummary reporter) {}
