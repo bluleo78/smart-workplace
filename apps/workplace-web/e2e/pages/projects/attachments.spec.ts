@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createAttachment } from '../../factories/attachment.factory';
@@ -766,5 +767,68 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await expect(page.getByTestId('folder-picker')).toBeVisible();
     await page.getByTestId('folder-picker').getByTestId('folder-picker-confirm').click();
     await expect.poll(() => imports.count()).toBe(1);
+  });
+  test('열린 첨부가 실시간 재조회로 목록에서 빠져도 뷰어는 그 파일을 1건으로 유지한다', async ({ authenticatedPage: page }) => {
+    const a = createAttachment({ fileId: 7801, originalName: 'keep.txt', mimeType: 'text/plain' });
+    const b = createAttachment({ fileId: 7802, originalName: 'other.txt', mimeType: 'text/plain' });
+    await stubBundle(page, [a, b], []);
+    // 가변 목록 — 재조회 시 열린 첨부까지 모두 빠진다(마지막 첨부 삭제 = 목록 컴포넌트의 빈 분기).
+    let list: IssueAttachment[] = [a, b];
+    const listCalls = trackRequests(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`);
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(list) })
+          : route.fallback(),
+    );
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments/7801/content`,
+      (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'KEEP-BODY' }),
+    );
+    const events = await mockGatedEvents(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'keep.txt 미리보기' }).click();
+    await expect(page.getByTestId('preview-body')).toContainText('KEEP-BODY');
+    await expect(page.getByTestId('preview-meta')).toContainText('1 / 2');
+    const before = listCalls.count();
+
+    list = [];
+    events.deliver(
+      resourceChangedFrame({ resource: 'issue', op: 'updated', scopeType: 'PROJECT', scopeId: 1, ids: [1], actorId: 99, projectKey: PROJECT_KEY, issueNumber: 1 }),
+    );
+    await expect.poll(() => listCalls.count()).toBeGreaterThan(before);
+    // 스냅숏 1건 묶음 — 파일은 그대로, 순번·‹ › 는 없다. 찾을 수 없음 안내도 뜨지 않는다.
+    await expect(page.getByTestId('preview-meta')).not.toContainText('/ 2');
+    await expect(page.getByTestId('preview-body')).toContainText('KEEP-BODY');
+    await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0);
+    await expect(page.getByTestId('preview-not-found')).toHaveCount(0);
+    await expect(page).toHaveURL(/preview=file(%3A|:)7801/);
+  });
+
+  test('삭제된 첨부 딥링크는 찾을 수 없음 안내를 보이고 닫으면 ?preview 가 지워진다', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [createAttachment({ fileId: 7901, originalName: 'live.txt', mimeType: 'text/plain' })], []);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1?preview=file:999`);
+    await expect(page.getByTestId('preview-not-found')).toBeVisible();
+    await expect(page.getByTestId('attachment-viewer')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('preview-not-found')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/preview=/);
+  });
+
+  test('뷰어를 닫으면 연 첨부 버튼으로 포커스가 돌아온다', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [createAttachment({ fileId: 7951, originalName: 'focus.txt', mimeType: 'text/plain' })], []);
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments/7951/content`,
+      (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'F' }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    const trigger = page.getByRole('button', { name: 'focus.txt 미리보기' });
+    await trigger.click();
+    await expect(page.getByRole('dialog', { name: 'focus.txt 미리보기' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('attachment-viewer')).toHaveCount(0);
+    await expect(trigger).toBeFocused();
   });
 });

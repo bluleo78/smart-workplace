@@ -65,7 +65,9 @@ import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
 import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
 import { SearchInput } from '../../components/ui/search-input'
 import { AttachmentViewer } from '../../components/viewer/AttachmentViewer'
-import { driveFileItem, resolveBundle } from '../../components/viewer/viewerItems'
+import { useViewerBundle } from '../../components/viewer/useViewerBundle'
+import { driveFileItem } from '../../components/viewer/viewerItems'
+import { ViewerNotFound } from '../../components/viewer/ViewerNotFound'
 import { driveKeys } from '../../hooks/queries/driveKeys'
 import { useDriveItems } from '../../hooks/queries/useDriveItems'
 import { useDriveSearch } from '../../hooks/queries/useDriveSearch'
@@ -181,11 +183,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 미리보기 = URL ?preview=<드라이브 파일 id>(시스템 뒤로가기로 닫힘, WP-208). 단건 조회 API 가 없어
   // 현재 목록(검색 결과 포함)에서 찾고, 재조회·placeholder 로 잠깐 빠져도 깜빡이지 않게 마지막으로 연 파일을 기억한다.
   const previewParam = useHistoryParam('preview')
-  const [previewSnap, setPreviewSnap] = useState<DriveFile | null>(null)
-  function openPreview(f: DriveFile) {
-    setPreviewSnap(f)
-    previewParam.open(String(f.id))
-  }
   // 공유 링크 모달 대상 파일 — null 이면 닫힘.
   const [shareFile, setShareFile] = useState<DriveFile | null>(null)
   // 버전 이력 모달 대상 파일 — null 이면 닫힘.
@@ -265,20 +262,24 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 선택 집합과 현재 뷰(검색 중이면 검색 결과, 아니면 폴더 목록) id 의 교집합으로 걸러 쓴다.
   // 선택 수·벌크 작업 body·전체선택 판정·체크 상태 모두 이 걸러진 집합을 기준으로 한다.
   const viewItems = results ?? actualItems
-  // 미리보기 대상 해석 — 표시 중 목록(placeholder 포함) → 클릭 스냅숏 순. 목록이 실제로 로드됐는데도 없으면 not-found.
   const previewId = parseId(previewParam.value)
+  // 묶음 = 지금 보이는 목록(검색 중이면 검색 결과)의 파일 — 열린 동안 재조회로 빠져도 스냅숏으로 유지(useViewerBundle).
+  // URL 값은 기존대로 숫자 id(`?preview=70`) — 다른 화면(검색·홈 위젯·백링크·driveOpenPath)이 만드는 딥링크와 호환.
+  // 묶음 키는 `drive:{id}` 이므로 읽을 때·쓸 때 변환한다. 목록이 실제로 로드됐는데도 없으면 not-found(missing).
+  const viewer = useViewerBundle({
+    list: viewItems.files,
+    toItem: driveFileItem,
+    currentKey: previewId != null ? `drive:${previewId}` : null,
+    ready: results == null && itemsQuery.isSuccess && !itemsQuery.isPlaceholderData,
+    openKey: (key) => previewParam.open(key.slice('drive:'.length)),
+  })
+  const openPreview = viewer.open
+  // 미리보기 대상 해석(AI 화면 컨텍스트용) — 표시 중 목록(placeholder 포함) → 스냅숏 순.
   const preview: DriveFile | null =
     previewId == null
       ? null
-      : ((results ?? items).files.find((f) => f.id === previewId) ?? (previewSnap?.id === previewId ? previewSnap : null))
-  // 묶음 = 지금 보이는 목록(검색 중이면 검색 결과)의 파일 — 열린 동안 재조회로 빠져도 스냅숏으로 유지(resolveBundle).
-  const viewerFiles = useMemo(() => viewItems.files.map(driveFileItem), [viewItems.files])
-  // URL 값은 기존대로 숫자 id(`?preview=70`) — 다른 화면(검색·홈 위젯·백링크·driveOpenPath)이 만드는 딥링크와 호환.
-  // 묶음 키는 `drive:{id}` 이므로 비교 전에 변환한다.
-  const currentKey = previewId != null ? `drive:${previewId}` : null
-  const bundle = resolveBundle(viewerFiles, currentKey, previewSnap ? driveFileItem(previewSnap) : null)
-  const previewMissing =
-    previewId != null && bundle == null && results == null && itemsQuery.isSuccess && !itemsQuery.isPlaceholderData
+      : ((results ?? items).files.find((f) => f.id === previewId) ??
+        (viewer.snapshot?.id === previewId ? viewer.snapshot : null))
   // 렌더마다 Set 을 새로 만들지 않도록 입력(뷰 목록·선택 집합)이 바뀔 때만 다시 계산한다.
   const visibleSelFiles = useMemo(() => {
     const ids = new Set(viewItems.files.map((f) => f.id))
@@ -1637,35 +1638,18 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             onClose={() => setBulkPicker(false)}
           />
         )}
-        {bundle && (
+        {viewer.bundle && (
           <AttachmentViewer
-            items={bundle.items}
-            index={bundle.index}
+            items={viewer.bundle.items}
+            index={viewer.bundle.index}
             // 열린 상태의 open 은 replace 라 넘김이 히스토리를 쌓지 않는다.
-            onIndexChange={(i) => {
-              const target = bundle.items[i]
-              if (!target) return // 목록이 줄어 범위를 벗어난 요청은 무시
-              const id = target.key.slice('drive:'.length)
-              // 넘긴 파일도 스냅숏으로 갱신 — 이후 재조회로 목록에서 빠져도 열린 뷰어가 유지된다.
-              const f = viewItems.files.find((x) => String(x.id) === id)
-              if (f) setPreviewSnap(f)
-              previewParam.open(id)
-            }}
+            onIndexChange={viewer.onIndexChange}
             onClose={previewParam.close}
             defaultPanelOpen
           />
         )}
         {/* 삭제·이동된 파일 딥링크 — 조용히 URL 을 고치지 않고 안내 후 닫기로 되돌린다(WP-208). */}
-        {previewMissing && (
-          <Dialog open onOpenChange={(o) => { if (!o) previewParam.close() }}>
-            <DialogContent data-testid="preview-not-found">
-              <DialogHeader>
-                <DialogTitle>파일을 찾을 수 없습니다</DialogTitle>
-                <DialogDescription>삭제되었거나 다른 폴더로 이동한 파일입니다.</DialogDescription>
-              </DialogHeader>
-            </DialogContent>
-          </Dialog>
-        )}
+        {viewer.missing && <ViewerNotFound onClose={previewParam.close} />}
         {/* WP-216: 모바일 행 ⋮ 액션 시트 — 작업을 고르면 시트가 먼저 닫히고 기존 다이얼로그(이름 변경·이동·공유·삭제 확인)가 열린다. */}
         <MobileActionSheet
           open={rowSheet != null}

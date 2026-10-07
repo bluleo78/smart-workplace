@@ -95,3 +95,14 @@ test('첨부 모아보기 — ‹ › 는 같은 출처 그룹 안에서만 이�
   await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0)
 })
+
+// WP-277: 목록(끝 페이지까지)에 없는 첨부 딥링크 — 드라이브와 같은 찾을 수 없음 안내, 닫으면 ?preview 를 지운다.
+test('첨부 모아보기 — 없는 첨부 딥링크는 찾을 수 없음 안내', async ({ authenticatedPage: page }) => {
+  await page.route('**/api/v1/drive/spaces', (r) => r.fulfill({ json: [{ id: 1, name: '내 드라이브', type: 'PERSONAL' }] }))
+  await page.route('**/api/v1/drive/attachments**', (r) => r.fulfill({ json: { items: [], nextCursor: null } }))
+  await page.goto('/drive/attachments?preview=file:999')
+  await expect(page.getByTestId('preview-not-found')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('preview-not-found')).toHaveCount(0)
+  await expect(page).not.toHaveURL(/preview=/)
+})

@@ -9,6 +9,7 @@ import type { Page } from '@playwright/test'
 import { createSpace, personalSpace } from '../../factories/drive.factory'
 import { createUser } from '../../factories/auth.factory'
 import { mockApi } from '../../fixtures/api-mock'
+import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { solidPng } from '../../fixtures/png'
 
@@ -389,4 +390,36 @@ test('요약 응답 전에는 ✨·패널을 띄우지 않고 응답이 성공�
   release()
   await expect(page.getByTestId('viewer-side-panel').getByTestId('drive-summary-card')).toContainText('늦은 요약')
   await expect(page.getByRole('button', { name: 'AI 요약' })).toBeVisible()
+})
+
+test('열린 파일이 재조회로 목록에서 빠지면 1건 묶음으로 유지한다(순번·‹ › 없음)', async ({ authenticatedPage: page }) => {
+  const files = [
+    { id: 80, name: 'a.txt', mimeType: 'text/plain', sizeBytes: 1 },
+    { id: 81, name: 'b.txt', mimeType: 'text/plain', sizeBytes: 1 },
+  ]
+  await stubDriveFiles(page, files, { 80: 'A', 81: 'B' })
+  // 목록 재정의(나중 등록 우선) — 재조회 때 열린 a.txt 가 빠진다.
+  let listed = files
+  await page.route(
+    (u) => u.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+    (r) =>
+      r.fulfill({
+        json: {
+          folders: [],
+          files: listed.map((f) => ({ ...f, folderId: null, fileId: f.id + 1000, category: 'TEXT', createdAt: '2026-01-01T00:00:00Z' })),
+        },
+      }),
+  )
+  const events = await mockGatedEvents(page)
+  await openPreview(page, 80)
+  await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
+  listed = files.slice(1)
+  events.deliver(resourceChangedFrame({ resource: 'drive', op: 'deleted', scopeType: 'USER', scopeId: 1, spaceId: SPACE_ID, ids: [80], actorId: 99 }))
+  // 재조회 반영 확인 — 목록에서 a.txt 행이 사라진다(뷰어 뒤 페이지 DOM).
+  await expect(page.getByRole('button', { name: 'a.txt', exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('preview-meta')).not.toContainText('/ 2')
+  await expect(page.getByTestId('preview-body')).toContainText('A')
+  await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0)
+  await expect(page.getByTestId('preview-not-found')).toHaveCount(0)
 })

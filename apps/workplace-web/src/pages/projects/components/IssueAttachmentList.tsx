@@ -5,7 +5,7 @@
 // #80: 드라이브 링크도 동일 목록 하단에 병합 렌더.
 // WP-277: 첨부·드라이브 링크 이름 클릭 시 통합 뷰어(AttachmentViewer)를 연다 — 열림은 URL ?preview, 뷰어는 driveLinksOnly 가 아닌 인스턴스만 렌더.
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import {
   AlertDialog,
@@ -18,11 +18,15 @@ import {
   AlertDialogTitle,
 } from '../../../components/ui/alert-dialog';
 import { AttachmentViewer } from '../../../components/viewer/AttachmentViewer';
-import { issueAttachmentItem, issueDriveLinkItem, resolveBundle } from '../../../components/viewer/viewerItems';
+import { useViewerBundle } from '../../../components/viewer/useViewerBundle';
+import { issueAttachmentItem, issueDriveLinkItem } from '../../../components/viewer/viewerItems';
+import { ViewerNotFound } from '../../../components/viewer/ViewerNotFound';
 import { useDeleteIssueAttachment } from '../../../hooks/queries/useDeleteIssueAttachment';
 import { useIssueAttachments } from '../../../hooks/queries/useIssueAttachments';
 import { useIssueDriveLinks, useRemoveIssueDriveLink } from '../../../hooks/queries/useIssueDriveLinks';
 import { useHistoryParam } from '../../../hooks/useHistoryParam';
+import type { IssueAttachment } from '../../../types/attachment';
+import type { DriveLink } from '../../../types/drive';
 import { IssueAttachmentItem } from './IssueAttachmentItem';
 import { IssueDriveLinkItem } from './IssueDriveLinkItem';
 
@@ -57,18 +61,52 @@ export function IssueAttachmentList({
   const previewParam = useHistoryParam('preview');
   const items = q.data;
   const links = driveQ.data;
-  const bundleItems = useMemo(
-    () => [
-      ...(driveLinksOnly ? [] : (items ?? [])).map((a) => issueAttachmentItem(projectKey, number, a)),
-      ...(links ?? []).map((l) => issueDriveLinkItem(projectKey, number, l)),
-    ],
-    [items, links, driveLinksOnly, projectKey, number],
+  // 묶음 원본 = 업로드 첨부 + 드라이브 링크. 열린 파일이 목록에서 빠지면(실시간 재조회·다른 곳에서 삭제) 스냅숏으로 유지하고,
+  // 딥링크 대상이 목록에도 스냅숏에도 없으면 찾을 수 없음 안내(useViewerBundle).
+  const sources = useMemo<(IssueAttachment | DriveLink)[]>(
+    () => [...(driveLinksOnly ? [] : (items ?? [])), ...(links ?? [])],
+    [items, links, driveLinksOnly],
   );
-  const bundle = resolveBundle(bundleItems, previewParam.value, null);
+  const toItem = useCallback(
+    (t: IssueAttachment | DriveLink) =>
+      'driveFileId' in t ? issueDriveLinkItem(projectKey, number, t) : issueAttachmentItem(projectKey, number, t),
+    [projectKey, number],
+  );
+  // 이 화면이 여는 키(file:·drive:)만 다룬다 — 다른 용도의 ?preview 값을 "찾을 수 없음"으로 안내하지 않게.
+  const ownKey = /^(file|drive):\d+$/.test(previewParam.value ?? '') ? previewParam.value : null;
+  const viewer = useViewerBundle({
+    list: sources,
+    toItem,
+    currentKey: ownKey,
+    ready: q.isSuccess && driveQ.isSuccess,
+    openKey: previewParam.open,
+  });
+  // 뷰어·안내는 업로드 첨부까지 묶는 인스턴스(strip)만 그린다 — driveLinksOnly 인스턴스와 한 화면에 함께 마운트되므로 두 번 뜨지 않게.
+  // 로딩·빈 목록 분기에서도 함께 그려, 마지막 첨부가 지워져도 열린 뷰어(스냅숏)가 사라지지 않게 한다.
+  const viewerNode = driveLinksOnly ? null : (
+    <>
+      {viewer.bundle && (
+        <AttachmentViewer
+          items={viewer.bundle.items}
+          index={viewer.bundle.index}
+          onIndexChange={viewer.onIndexChange}
+          onClose={previewParam.close}
+        />
+      )}
+      {viewer.missing && (
+        <ViewerNotFound onClose={previewParam.close} description="삭제되었거나 이 이슈에서 빠진 첨부입니다." />
+      )}
+    </>
+  );
 
   // driveLinksOnly 모드: driveQ 만, 업로드 모드: q 만 기다림 (서로 독립, 파트A #80 Fix).
   if (driveLinksOnly ? driveQ.isLoading : q.isLoading) {
-    return <p className="text-xs text-muted-foreground py-2">로딩 중…</p>;
+    return (
+      <>
+        <p className="text-xs text-muted-foreground py-2">로딩 중…</p>
+        {viewerNode}
+      </>
+    );
   }
   // driveLinksOnly 모드: 드라이브 링크만 표시 (업로드 첨부는 별도 strip 에서 렌더).
   const visibleItems = driveLinksOnly ? [] : (items ?? []);
@@ -76,8 +114,13 @@ export function IssueAttachmentList({
 
   if (visibleItems.length === 0 && linkList.length === 0) {
     // strip 모드 또는 driveLinksOnly 빈 상태: 조용히 null 반환.
-    if (layout === 'strip' || driveLinksOnly) return null;
-    return <p className="text-xs text-muted-foreground py-2">첨부가 없습니다</p>;
+    if (layout === 'strip' || driveLinksOnly) return viewerNode;
+    return (
+      <>
+        <p className="text-xs text-muted-foreground py-2">첨부가 없습니다</p>
+        {viewerNode}
+      </>
+    );
   }
 
   // strip 모드: flex 가로 래핑 컨테이너
@@ -95,7 +138,7 @@ export function IssueAttachmentList({
             attachment={a}
             canDelete={a.attachedById === currentUserId || isOwner}
             layout={layout}
-            onPreview={(a) => previewParam.open(`file:${a.fileId}`)}
+            onPreview={viewer.open}
             onDelete={(fileId) => {
               // 삭제 확인은 AlertDialog 에서 처리 — window.confirm 대체 (#148).
               setPendingDeleteId(fileId);
@@ -110,25 +153,14 @@ export function IssueAttachmentList({
             number={number}
             link={link}
             canManage={link.createdById === currentUserId || isOwner}
-            onPreview={() => previewParam.open(`drive:${link.driveFileId}`)}
+            onPreview={() => viewer.open(link)}
             onRemove={(driveFileId) => setPendingRemoveLinkId(driveFileId)}
           />
         ))}
       </ul>
 
-      {/* 통합 뷰어 — strip(본문)과 list 가 한 화면에 함께 마운트되므로 driveLinksOnly 인스턴스는 그리지 않는다(두 번 뜨지 않게).
-          그 인스턴스의 묶음에 드라이브 링크도 들어 있어 링크 클릭도 이 뷰어가 받는다. */}
-      {!driveLinksOnly && bundle && (
-        <AttachmentViewer
-          items={bundle.items}
-          index={bundle.index}
-          onIndexChange={(i) => {
-            const target = bundle.items[i];
-            if (target) previewParam.open(target.key); // 목록이 줄어 범위를 벗어난 요청은 무시
-          }}
-          onClose={previewParam.close}
-        />
-      )}
+      {/* 통합 뷰어 — strip 인스턴스의 묶음에 드라이브 링크도 들어 있어, 아래 driveLinksOnly 목록의 링크 클릭도 이 뷰어가 받는다. */}
+      {viewerNode}
 
       {/* 첨부 삭제 확인 AlertDialog — window.confirm 대체 (#148) */}
       <AlertDialog

@@ -12,7 +12,9 @@ import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { SearchInput } from '@/components/ui/search-input'
 import { AttachmentViewer } from '@/components/viewer/AttachmentViewer'
 import { useImportToDrive } from '@/components/viewer/useImportToDrive'
-import { resolveBundle, virtualAttachmentItem } from '@/components/viewer/viewerItems'
+import { useViewerBundle } from '@/components/viewer/useViewerBundle'
+import { virtualAttachmentItem } from '@/components/viewer/viewerItems'
+import { ViewerNotFound } from '@/components/viewer/ViewerNotFound'
 import { useDriveAttachments } from '@/hooks/queries/useDriveAttachments'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { mimeToCategory } from '@/lib/fileCategory'
@@ -24,6 +26,9 @@ import type { VirtualAttachment } from '@/types/drive'
 import { groupAttachments } from './groupAttachments'
 
 type SourceFilter = 'ALL' | 'ISSUE' | 'MESSAGE'
+
+/** 열린 첨부가 속한 그룹이 없을 때의 빈 목록 — 매 렌더 같은 배열이라 묶음 변환 memo 가 깨지지 않는다. */
+const NO_ATTACHMENTS: VirtualAttachment[] = []
 
 const SOURCE_LABELS: Record<SourceFilter, string> = {
   ALL: '전체',
@@ -41,10 +46,9 @@ export function DriveAttachmentsView() {
   // 가져오기(개인 공간 조회 → 폴더 선택 → 임포트)는 통합 뷰어와 같은 훅을 쓴다.
   const importer = useImportToDrive()
 
-  // 미리보기 = URL ?preview=file:<fileId>(시스템 뒤로가기로 닫힘, WP-208). 필터 변경·재조회로 목록에서 빠져도 열린 모달이
-  // 사라지지 않게 클릭한 첨부를 기억한다.
+  // 미리보기 = URL ?preview=file:<fileId>(시스템 뒤로가기로 닫힘, WP-208). 필터 변경·재조회로 목록에서 빠져도 열린 뷰어가
+  // 사라지지 않게 마지막으로 본 첨부를 기억한다(useViewerBundle).
   const previewParam = useHistoryParam('preview')
-  const [previewSnap, setPreviewSnap] = useState<VirtualAttachment | null>(null)
   // 접힌 그룹 key 집합(기본 모두 펼침). 세션 임시 — localStorage 미사용.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const toggleGroup = (key: string) =>
@@ -61,12 +65,15 @@ export function DriveAttachmentsView() {
   const groups = useMemo(() => groupAttachments(items), [items])
   const groupOf = (key: string | null) =>
     groups.find((g) => g.items.some((a) => `file:${a.fileId}` === key))
-  // 열린 첨부 해석 — 현재 목록의 그룹 → 클릭 스냅숏 1건 순(단건 조회 API 없음, 필터 변경으로 빠져도 유지).
-  const bundle = resolveBundle(
-    (groupOf(previewParam.value)?.items ?? []).map(virtualAttachmentItem),
-    previewParam.value,
-    previewSnap ? virtualAttachmentItem(previewSnap) : null,
-  )
+  // 열린 첨부 해석 — 현재 목록의 그룹 → 스냅숏 1건 순(단건 조회 API 없음, 필터 변경으로 빠져도 유지).
+  // not-found 는 끝 페이지까지 받은 뒤에만 판정한다 — 아직 안 받은 페이지에 있을 수 있는 딥링크를 잘못 "없음"으로 안내하지 않게.
+  const viewer = useViewerBundle({
+    list: groupOf(previewParam.value)?.items ?? NO_ATTACHMENTS,
+    toItem: virtualAttachmentItem,
+    currentKey: previewParam.value,
+    ready: query.isSuccess && !query.hasNextPage,
+    openKey: previewParam.open,
+  })
   const isLoading = query.isLoading
 
   return (
@@ -165,7 +172,7 @@ export function DriveAttachmentsView() {
                           {/* 파일명 — 클릭 시 미리보기 */}
                           <button
                             type="button"
-                            onClick={() => { setPreviewSnap(a); previewParam.open(`file:${a.fileId}`) }}
+                            onClick={() => viewer.open(a)}
                             className="min-w-0 flex-1 truncate text-left font-medium hover:underline"
                           >
                             {a.name}
@@ -217,21 +224,16 @@ export function DriveAttachmentsView() {
       {importer.picker}
 
       {/* 통합 첨부 뷰어 — 같은 출처 그룹 단위로 넘긴다. 키 = file:{fileId}. */}
-      {bundle && (
+      {viewer.bundle && (
         <AttachmentViewer
-          items={bundle.items}
-          index={bundle.index}
-          onIndexChange={(i) => {
-            const target = bundle.items[i]
-            if (!target) return // 목록이 줄어 범위를 벗어난 요청은 무시
-            // 넘긴 첨부도 스냅숏으로 갱신 — 이후 필터 변경·재조회로 목록에서 빠져도 열린 뷰어가 유지된다.
-            const a = items.find((x) => `file:${x.fileId}` === target.key)
-            if (a) setPreviewSnap(a)
-            previewParam.open(target.key)
-          }}
+          items={viewer.bundle.items}
+          index={viewer.bundle.index}
+          onIndexChange={viewer.onIndexChange}
           onClose={previewParam.close}
         />
       )}
+      {/* 삭제됐거나 볼 수 없게 된 첨부 딥링크 — 드라이브와 같은 안내 후 닫으면 ?preview 를 지운다. */}
+      {viewer.missing && <ViewerNotFound onClose={previewParam.close} description="삭제되었거나 더 이상 볼 수 없는 첨부입니다." />}
     </div>
   )
 }
