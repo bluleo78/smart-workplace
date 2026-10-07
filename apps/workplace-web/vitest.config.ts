@@ -6,6 +6,9 @@ import path from 'path'
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // 빌드 상수 — vite.config.ts 와 같은 이름을 정의해야 이를 참조하는 모듈(collabSession 등)을 불러올 수 있다.
+  // 단위 테스트는 운영 빌드와 같은 경로(E2E 네임스페이스 없음)를 검증한다.
+  define: { __E2E__: 'false' },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

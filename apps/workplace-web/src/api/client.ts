@@ -1,5 +1,7 @@
 import axios from 'axios';
 
+import { isPermanentClientStatus } from '@/lib/api-error';
+
 let accessToken: string | null = null;
 
 export function setAccessToken(token: string | null) {
@@ -15,16 +17,25 @@ export function getAccessToken(): string | null {
 // 호출부에서 재사용할 수 있도록 별도 함수로 노출한다. 성공 여부만 boolean 으로 반환 — 리다이렉트는
 // 호출부(또는 다음 axios 401)가 처리.
 export async function refreshAccessToken(): Promise<boolean> {
+  return (await refreshAccessTokenOutcome()) === 'ok';
+}
+
+/**
+ * 갱신 결과를 세 갈래로 — 'ok' 성공, 'rejected' 서버가 갱신을 거절(4xx: 로그아웃으로 쿠키 없음·만료·정지 등 — 다시 시도해도
+ * 같다. 요청 시간 초과 408·요청 과다 429 는 제외), 'error' 네트워크·5xx·408·429 같은 일시 실패. 일시 실패와 로그인 상실을 갈라야 하는 호출부(노트 동시 편집 재접속)가 쓴다.
+ * 실패면 어느 쪽이든 메모리 토큰을 비운다(refreshAccessToken 과 같은 부수효과).
+ */
+export async function refreshAccessTokenOutcome(): Promise<'ok' | 'rejected' | 'error'> {
   try {
     // client 인스턴스가 아니라 bare axios — 응답 인터셉터 재진입을 피한다.
     const { data } = await axios.post('/api/v1/auth/refresh', null, {
       withCredentials: true,
     });
     setAccessToken(data.accessToken);
-    return true;
-  } catch {
+    return 'ok';
+  } catch (e) {
     setAccessToken(null);
-    return false;
+    return isPermanentClientStatus(axios.isAxiosError(e) ? e.response?.status : undefined) ? 'rejected' : 'error';
   }
 }
 

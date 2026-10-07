@@ -1,16 +1,21 @@
 package com.workplace.wiki.controller;
 
+import com.workplace.global.security.AuthDetails;
+import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.wiki.dto.CollabAccessResponse;
 import com.workplace.wiki.dto.MovePageRequest;
 import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.WikiBacklinksResponse;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageDetail;
+import com.workplace.wiki.service.WikiCollabDocService;
 import com.workplace.wiki.service.WikiHydrationService;
 import com.workplace.wiki.service.WikiPageService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,6 +23,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -28,6 +34,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class WikiPageController {
   private final WikiPageService pageService;
   private final WikiHydrationService hydrationService;
+  private final WikiCollabDocService collabService;
+  private final JwtTokenProvider jwtTokenProvider;
 
   @GetMapping("/{id}")
   public ResponseEntity<WikiPageDetail> get(
@@ -54,13 +62,45 @@ public class WikiPageController {
     return ResponseEntity.ok(hydrationService.backlinks(callerId, pageId));
   }
 
-  /** 저장(낙관적 동시성). 충돌 시 서비스가 WikiConflictException → 409. */
+  /**
+   * 노트 동시 편집 연결 권한(WP-286) — 웹·동기화 서버가 <b>사용자 토큰으로</b> 호출해 역할·테넌트·표시 이름을 받는다. 스펙은 내부 경로를 가정했지만 사용자
+   * 토큰으로 판정해야 "이 사용자가 이 페이지를 볼 수 있는가" 가 기존 인증 필터·RLS 그대로 성립하므로 공개 API 경로에 둔다(의도적 차이). 비멤버·페이지 없음은
+   * 404.
+   *
+   * <p>tokenExp: 요청이 JWT(access) 로 인증됐으면 그 exp(epoch 초), PAT·API 키·내부 토큰 등이면 null — 동기화 서버가 연결을 토큰
+   * 만료에 맞춰 끊는 데 쓴다.
+   */
+  @GetMapping("/{id}/collab-access")
+  public ResponseEntity<CollabAccessResponse> collabAccess(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @RequestHeader(value = "Authorization", required = false) String auth) {
+    return ResponseEntity.ok(collabService.access(callerId, pageId, jwtExpOf(auth)));
+  }
+
+  /** Bearer 가 서명 검증되는 access JWT 일 때만 exp 를 돌려준다(swp_/ak_ 같은 Bearer PAT·API 키는 검증 실패 → null). */
+  private Long jwtExpOf(String auth) {
+    if (auth == null || !auth.startsWith("Bearer ")) {
+      return null;
+    }
+    return jwtTokenProvider.accessTokenExpEpochSeconds(auth.substring("Bearer ".length()));
+  }
+
+  /**
+   * 저장. 제목만이면 나중 값 우선, 본문은 동기화 서버로 위임(WP-290·WP-285 — 규칙은 {@link WikiPageService#save}). 기존 낙관적 경로의
+   * 충돌은 409, 동기화 서버 장애는 503.
+   *
+   * <p>ai: 브라우저 JWT 세션(AuthDetails 있음)은 사람, PAT(원격 MCP)·API 키(AGENT)·Internal on-behalf-of(채팅 비서)처럼
+   * details 가 없는 인증은 AI 경로로 본다 — 동기화 서버의 ✦ 표시·스냅샷 귀속용.
+   */
   @PutMapping("/{id}")
   public ResponseEntity<WikiPageDetail> save(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long pageId,
-      @Valid @RequestBody SavePageRequest req) {
-    return ResponseEntity.ok(pageService.save(callerId, pageId, req));
+      @Valid @RequestBody SavePageRequest req,
+      Authentication authentication) {
+    boolean ai = AuthDetails.methodOf(authentication) == null;
+    return ResponseEntity.ok(pageService.save(callerId, pageId, req, ai));
   }
 
   @PatchMapping("/{id}/move")

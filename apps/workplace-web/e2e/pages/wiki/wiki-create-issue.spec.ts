@@ -1,6 +1,7 @@
 // 위키 노트→이슈 cross-app E2E — 선택 블록 → "이슈로 만들기" → 다이얼로그 → /api/v1/actions/confirm → 이슈 칩 삽입.
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { seedCollabFor } from '../../fixtures/collab'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 
@@ -74,9 +75,13 @@ test('위키 노트→이슈 — 선택 후 "이슈로 만들기" → confirm pa
   // 이슈 칩(wikiMention ISSUE)이 본문에 삽입되고 클릭 가능.
   const chip = page.locator('.ProseMirror [data-mtype="ISSUE"]')
   await expect(chip).toBeVisible()
+  // 노드엔 라벨이 없으므로(WP-294) 생성 직후 라벨은 삽입 때 기억한 값으로 보여야 한다(멘션 재조회 전).
+  await expect(chip).toHaveText('ME-12 회의 준비')
 })
 
 test('위키 노트→이슈 — VIEWER 는 "이슈로 만들기" 미노출', async ({ authenticatedPage: page }) => {
+  // 에디터 본문·역할은 동기화 서버 문서에서 온다(WP-172) — 모킹한 상세 본문·스페이스 역할과 같게 시드한다.
+  await seedCollabFor(page, PAGE_ID, pageDetail().body, 'VIEWER')
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>
     r.request().method() === 'GET'
       ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([space('VIEWER')]) }) : r.fallback())

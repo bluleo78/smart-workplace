@@ -2,7 +2,8 @@
 // 토큰 스킴: 유저 <@id>, 페이지 <#page:id>, 이슈 <#issue:id>.
 // chat 의 mentionSerialize 패턴을 위키(3종 멘션)로 확장.
 
-import type { WikiMentionType } from '../../types/wiki'
+// 멘션 종류 — 웹 types/wiki.ts 의 WikiMentionType 과 같은 값. 웹은 이 타입을 재수출해 쓴다.
+export type WikiMentionType = 'USER' | 'PAGE' | 'ISSUE'
 
 // 본문 한 조각 — 일반 텍스트 또는 멘션 토큰 하나.
 export type WikiSegment =

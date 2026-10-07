@@ -11,8 +11,8 @@
 // 불필요한 백슬래시를 남기지 않는다. state.inTable 은 tiptap-markdown 표 직렬화기가 켜고 끄는
 // 플래그로, 정확히 셀 내용을 렌더하는 구간에만 true 다.
 import { Text } from '@tiptap/extension-text'
-import type { MarkdownSerializerState } from 'prosemirror-markdown'
-import type { Node as PMNode } from 'prosemirror-model'
+import type { MarkdownSerializerState } from '@tiptap/pm/markdown'
+import type { Node as PMNode } from '@tiptap/pm/model'
 
 /** tiptap-markdown 기본 Text 직렬화기와 동일한 처리 — 이 확장이 기본 동작을 통째로 대체하므로 유지해야 한다. */
 function escapeHTML(value: string): string {

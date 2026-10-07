@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-//
 // #750 회귀 — 노트 본문의 이미지 마크다운이 로드→저장 라운드트립에서 소실되지 않는지 고정한다.
 // 원인: 스키마에 image 노드가 없으면 markdown-it 이 파싱한 이미지를 ProseMirror 가 통째로 버리고,
 // WikiEditor 가 getMarkdown() 결과를 그대로 저장해 이미지가 영구 삭제된다(alt 조차 남지 않음).
@@ -13,7 +11,7 @@ import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from 'tiptap-markdown'
 import { describe, expect, it } from 'vitest'
 
-import { WikiImage } from './wikiImageNode'
+import { WikiImageSchema } from './imageNode'
 
 /** WikiEditor 와 동일한 직렬화 경로로 마크다운을 왕복시킨다. */
 function roundtrip(markdown: string): string {
@@ -21,7 +19,7 @@ function roundtrip(markdown: string): string {
     extensions: [
       StarterKit,
       Markdown,
-      WikiImage,
+      WikiImageSchema,
       Table.configure({ resizable: false }),
       TableRow,
       TableHeader,

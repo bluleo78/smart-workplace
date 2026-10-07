@@ -18,6 +18,18 @@ if (!CI && !process.env.E2E_PORT) {
 const PORT = Number(process.env.E2E_PORT ?? 6173)
 const HOST = `http://localhost:${PORT}`
 
+// 노트 동시 편집 동기화 서버(workplace-collab, 테스트 모드) 포트 — E2E_PORT 와 같은 이유로 main 에서 한 번 정해
+// worker 가 상속한다(e2e/fixtures/collab.ts 가 이 값으로 /__test/* 를 부른다). 로컬은 30000~39999 로 웹 포트 대역과 겹치지 않게.
+if (!process.env.E2E_COLLAB_PORT) {
+  process.env.E2E_COLLAB_PORT = String(CI ? 6195 : 30000 + Math.floor(Math.random() * 10000))
+}
+const COLLAB_PORT = Number(process.env.E2E_COLLAB_PORT)
+// 테스트 모드 내부 토큰 — 셸·.env.local 의 INTERNAL_SERVICE_TOKEN/WORKPLACE_AI_AGENT_TOKEN 이 새어 들어와
+// e2e/fixtures/collab.ts 의 revalidate 호출이 401 이 되지 않도록 명시 주입한다. 포트와 같이 env 로 worker 에 물려
+// fixture 가 같은 값을 읽는다(literal 은 여기 한 곳).
+process.env.E2E_COLLAB_INTERNAL_TOKEN ??= 'collab-test-internal'
+const COLLAB_INTERNAL_TOKEN = process.env.E2E_COLLAB_INTERNAL_TOKEN
+
 // E2E 서버 모드(E2E_SERVER=preview 로 선택, 기본 dev).
 // - dev: Vite dev 서버. 요청마다 온디맨드 트랜스폼이라 워커를 늘려도 단일 서버가 병목이 된다.
 //   기동이 즉시라 소수 spec 을 돌리는 pre-commit·로컬 디버그(ui/headed)에 적합.
@@ -84,20 +96,33 @@ export default defineConfig({
     },
   ],
 
-  webServer: {
-    // --port/--strictPort 로 PORT 강제. 포트가 점유돼 있으면(드문 랜덤 충돌) 조용히 다른 포트로
-    // 새지 않고 즉시 실패하도록 strictPort 를 둔다.
-    // preview 모드는 tsc 없이 vite build 만 수행(타입 검사는 typecheck 게이트 담당) 후 같은 outDir 을 서빙.
-    // preview 서버는 server.proxy 를 상속하므로 모킹 누락 /api 는 dev 와 동일하게 즉시 503 이 된다.
-    command: PREVIEW
-      ? `pnpm exec vite build --outDir ${PREVIEW_OUT_DIR} --emptyOutDir --logLevel warn && pnpm exec vite preview --outDir ${PREVIEW_OUT_DIR} --port ${PORT} --strictPort`
-      : `pnpm dev --port ${PORT} --strictPort`,
-    // E2E 는 백엔드 없이 page.route() 모킹으로 동작 → 프록시 콜드스타트 대기를 끄도록 신호를 내린다.
-    env: { E2E: '1' },
-    url: HOST,
-    // 병렬 세션 격리를 위해 로컬에서도 기존 서버 재사용 금지(매 런 자체 서버 기동).
-    reuseExistingServer: false,
-    // preview 는 빌드 시간(부하 시 1분+)까지 포함해 기다려야 한다.
-    timeout: PREVIEW ? 300_000 : 120_000,
-  },
+  webServer: [
+    {
+      // 노트 동시 편집(WP-171) — API 없이 메모리 저장·인증 스텁으로 도는 테스트 모드 동기화 서버.
+      // 노트 에디터는 첫 동기화 전까지 본문 대신 skeleton 을 보이므로, 에디터를 여는 모든 spec 이 이 서버를 필요로 한다.
+      // 문서는 테스트마다 네임스페이스로 격리된다(auth.fixture 의 collabNs) — 병렬 worker 가 한 서버를 같이 써도 섞이지 않는다.
+      command: 'pnpm --filter @smart-workplace/workplace-collab start:test',
+      env: { PORT: String(COLLAB_PORT), COLLAB_TEST_MODE: '1', INTERNAL_SERVICE_TOKEN: COLLAB_INTERNAL_TOKEN },
+      url: `http://localhost:${COLLAB_PORT}/__test/health`,
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
+    {
+      // --port/--strictPort 로 PORT 강제. 포트가 점유돼 있으면(드문 랜덤 충돌) 조용히 다른 포트로
+      // 새지 않고 즉시 실패하도록 strictPort 를 둔다.
+      // preview 모드는 tsc 없이 vite build 만 수행(타입 검사는 typecheck 게이트 담당) 후 같은 outDir 을 서빙.
+      // preview 서버는 server.proxy 를 상속하므로 모킹 누락 /api 는 dev 와 동일하게 즉시 503 이 된다.
+      command: PREVIEW
+        ? `pnpm exec vite build --outDir ${PREVIEW_OUT_DIR} --emptyOutDir --logLevel warn && pnpm exec vite preview --outDir ${PREVIEW_OUT_DIR} --port ${PORT} --strictPort`
+        : `pnpm dev --port ${PORT} --strictPort`,
+      // E2E 는 백엔드 없이 page.route() 모킹으로 동작 → 프록시 콜드스타트 대기를 끄도록 신호를 내린다.
+      // E2E_COLLAB_PORT — vite 의 /collab 웹소켓 프록시가 위 동기화 서버로 가게 한다(vite.config.ts COLLAB_TARGET).
+      env: { E2E: '1', E2E_COLLAB_PORT: String(COLLAB_PORT) },
+      url: HOST,
+      // 병렬 세션 격리를 위해 로컬에서도 기존 서버 재사용 금지(매 런 자체 서버 기동).
+      reuseExistingServer: false,
+      // preview 는 빌드 시간(부하 시 1분+)까지 포함해 기다려야 한다.
+      timeout: PREVIEW ? 300_000 : 120_000,
+    },
+  ],
 })

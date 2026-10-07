@@ -63,6 +63,9 @@ export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
             data-testid={`chat-mention-option-${m.userId}`}
             data-agent={m.kind === 'AGENT' ? 'true' : undefined}
             onMouseEnter={() => setSelected(idx)}
+            // 누르는 순간 에디터가 포커스를 잃지 않게 한다(WP-302) — 잃으면 삽입 명령이 다음 프레임에 포커스를 되돌리기 전까지
+            // 친 키가 에디터 밖으로 샌다. 슬래시 메뉴·버블 툴바와 같은 방식.
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => select(idx)}
             className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${
               idx === selected ? 'bg-accent' : ''

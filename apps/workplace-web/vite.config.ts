@@ -53,7 +53,13 @@ function waitForApi(timeoutMs: number): Promise<boolean> {
 // - tailwindcss 플러그인으로 CSS 변환
 // - "@/..." → "src/..." 별칭
 // - 개발 서버 /api → workplace-api(6060) 프록시
+// 노트 동시 편집 동기화 서버(workplace-collab). E2E 는 테스트가 띄운 서버 포트(E2E_COLLAB_PORT)를 쓰고,
+// 없으면 /api 와 같은 이유로 닫힌 포트(9)로 보내 즉시 실패시킨다.
+const COLLAB_TARGET = `ws://localhost:${IS_E2E ? (process.env.E2E_COLLAB_PORT ?? 9) : 6095}`
+
 export default defineConfig({
+  // 빌드 상수 — E2E 빌드에서만 동기화 문서 이름에 테스트 네임스페이스를 붙인다(collabSession.docNameFor).
+  define: { __E2E__: JSON.stringify(IS_E2E) },
   plugins: [
     react(),
     tailwindcss(),
@@ -93,11 +99,19 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    // 공용 스키마 패키지(@smart-workplace/wiki-editor-schema)와 웹이 tiptap·prosemirror·yjs 를
+    // 반드시 같은 인스턴스로 쓰게 한다 — 둘로 갈리면 스키마 노드 타입·플러그인 키가 어긋난다(WP-284).
+    dedupe: ['@tiptap/core', '@tiptap/pm', 'yjs', 'y-prosemirror', 'prosemirror-model', 'prosemirror-state', 'prosemirror-view'],
   },
   server: {
     port: 6173,
     strictPort: true,
     proxy: {
+      // 노트 동시 편집 웹소켓 → workplace-collab
+      '/collab': {
+        target: COLLAB_TARGET,
+        ws: true,
+      },
       '/api': {
         target: API_TARGET,
         changeOrigin: true,

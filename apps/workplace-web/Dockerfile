@@ -11,12 +11,15 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 COPY patches ./patches
 COPY apps/workplace-web/package.json ./apps/workplace-web/
 COPY packages/mcp-tools-shared/package.json ./packages/mcp-tools-shared/
+COPY packages/wiki-editor-schema/package.json ./packages/wiki-editor-schema/
 
 RUN pnpm install --frozen-lockfile --filter @smart-workplace/workplace-web...
 
 # 도구 표시 라벨(#879)을 공유 패키지 소스에서 직접 import 한다(빌드 불요 — Vite 가 TS 를 그대로 번들).
 # 그 파일만 복사한다 — 공유 도구 핸들러 변경이 웹 이미지 레이어 캐시를 깨지 않게.
 COPY packages/mcp-tools-shared/src/tool-labels.ts ./packages/mcp-tools-shared/src/
+# 노트 에디터 공용 스키마(WP-284) — 마찬가지로 소스 TS 를 Vite 가 직접 번들한다(빌드 불요).
+COPY packages/wiki-editor-schema/src/ ./packages/wiki-editor-schema/src/
 COPY apps/workplace-web/ ./apps/workplace-web/
 
 # 운영 도메인에서 MCP 연결 명령이 localhost 로 안내되지 않도록 빌드 시점에 주입.

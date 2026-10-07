@@ -87,6 +87,11 @@ workplace:
     chat:
       context-token-budget: ${WORKPLACE_HOME_CHAT_CONTEXT_TOKEN_BUDGET:128000}
       max-concurrent-per-user: ${WORKPLACE_HOME_CHAT_MAX_CONCURRENT_PER_USER:3}
+  # WP-286 노트 동기화 서버(workplace-collab). 내부 토큰은 worker 와 같은 단일 내부 토큰을 공유한다.
+  collab:
+    base-url: ${WORKPLACE_COLLAB_URL:http://localhost:6095}
+    internal-token: ${INTERNAL_SERVICE_TOKEN:${WORKPLACE_AI_AGENT_TOKEN:}}
+    enabled: ${WORKPLACE_COLLAB_ENABLED:true}
   worker:
     base-url: ${WORKPLACE_WORKER_URL:http://localhost:7080}
     internal-token: ${INTERNAL_SERVICE_TOKEN:${WORKPLACE_AI_AGENT_TOKEN:}}  # 단일 내부 토큰 — ai-agent 와 동일

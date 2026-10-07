@@ -81,6 +81,14 @@ export async function handleApiErrorAsync(
  * resource.changed(deleted) 로 열린 상세가 재조회에서 404 를 받아도 TanStack Query 는 마지막 성공 data 를
  * 유지하므로, 화면이 error 를 먼저 보고 stale data 대신 not-found 상태를 그리는 데 쓴다.
  */
+/**
+ * 다시 보내도 결과가 같은 실패 상태인가 — 4xx(요청 시간 초과 408·요청 과다 429 제외). 네트워크 오류(상태 없음)·5xx 는 일시 실패.
+ * 토큰 갱신 거절(로그인 상실) 판정과 노트 제목 저장 재시도 포기가 같은 규칙을 쓴다.
+ */
+export function isPermanentClientStatus(status: number | undefined): boolean {
+  return status != null && status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
 export function isNotFoundError(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.status === 404;
 }

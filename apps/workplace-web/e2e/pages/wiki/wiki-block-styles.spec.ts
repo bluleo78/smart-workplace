@@ -6,6 +6,7 @@
 import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { seedCollabFor } from '../../fixtures/collab'
 
 const SPACE_ID = 1
 const PAGE_ID = 300
@@ -39,6 +40,8 @@ function pageDetail(body: string): WikiPageDetail {
 }
 
 async function setupWikiMocks(page: Page, body: string) {
+  // 에디터 본문·역할은 동기화 서버 문서에서 온다(WP-172) — 모킹한 상세 본문·스페이스 역할과 같게 시드한다.
+  await seedCollabFor(page, PAGE_ID, body, 'EDITOR')
   await page.route(
     (url) => url.pathname === '/api/v1/wiki/spaces',
     (route) =>

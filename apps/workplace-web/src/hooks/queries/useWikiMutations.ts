@@ -1,9 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { isAxiosError } from 'axios'
 
 import { wikiApi } from '../../api/wiki'
 import { handleApiError } from '../../lib/api-error'
-import type { SavePageRequest, WikiPageDetail } from '../../types/wiki'
+import type { WikiPageDetail } from '../../types/wiki'
 import { wikiKeys } from './wikiKeys'
 
 export function useCreatePage(spaceId: number) {
@@ -17,29 +16,20 @@ export function useCreatePage(spaceId: number) {
   })
 }
 
-export function useSavePage(spaceId: number) {
+/**
+ * 노트 제목 저장(WP-287) — 본문은 동기화 서버가 실시간으로 저장하므로 제목만 짧은 REST 로 보낸다(body:null = 본문 유지).
+ * 제목은 버전 검사 없이 나중 값 우선이라 409 가 없다. 성공하면 열린 페이지 캐시의 제목만 바꾸고(본문은 Yjs 가 원본이라
+ * 캐시 본문을 덮지 않는다) 사이드바 트리를 갱신한다.
+ */
+export function useSaveTitle(spaceId: number) {
   const qc = useQueryClient()
-  return useMutation<WikiPageDetail, unknown, { pageId: number; req: SavePageRequest }>({
-    mutationFn: ({ pageId, req }) => wikiApi.savePage(pageId, req).then((r) => r.data),
+  return useMutation<WikiPageDetail, unknown, { pageId: number; title: string }>({
+    mutationFn: ({ pageId, title }) => wikiApi.savePageTitle(pageId, title).then((r) => r.data),
     onSuccess: (data) => {
-      // 저장 응답이 오는 사이 다른 곳의 저장(SSE 재조회)으로 캐시가 더 새 version 이 됐으면 덮어쓰지 않는다 —
-      // 덮으면 열린 에디터가 원격 수정을 놓친다(WP-170).
-      qc.setQueryData<WikiPageDetail>(wikiKeys.page(data.id), (cur) =>
-        cur && cur.version > data.version ? cur : data,
-      )
+      qc.setQueryData<WikiPageDetail>(wikiKeys.page(data.id), (cur) => (cur ? { ...cur, title: data.title } : cur))
       qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) })
-      // 본문 저장으로 멘션/참조가 바뀔 수 있어 하이드레이션·백링크 캐시를 무효화한다.
-      // (staleTime 30s 와 결합 시 방금 삽입한 칩의 내비게이션 메타가 즉시 갱신되도록.)
-      qc.invalidateQueries({ queryKey: wikiKeys.mentions(data.id) })
-      qc.invalidateQueries({ queryKey: wikiKeys.backlinks(data.id) })
     },
-    onError: (err, { pageId }) => {
-      // 409 = 서버에 더 새 버전이 있다 — 최신본을 받아 와야 에디터가 '최신 내용 불러오기'를 제안할 수 있다(WP-170).
-      // SSE 가 끊겼거나 늦어도 충돌 시점에 한 번은 재조회한다.
-      if (isAxiosError(err) && err.response?.status === 409) {
-        qc.invalidateQueries({ queryKey: wikiKeys.page(pageId) })
-      }
-    },
+    // 실패 알림은 호출부(WikiEditor 의 제목 저장 스케줄러)가 연속 실패에 한 번만 한다 — 여기서 띄우면 재시도마다 쌓인다.
   })
 }
 

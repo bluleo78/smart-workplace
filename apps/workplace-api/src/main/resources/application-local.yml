@@ -59,6 +59,10 @@ workplace:
       model: bge-m3
       dimensions: 1024
       max-chars: 8000
+  collab:
+    # 노트 동기화 서버(workplace-collab, 6095) 서비스 간 토큰. 로컬 기본값을 collab 의 pnpm dev 기본값
+    # (config.ts DEV_INTERNAL_TOKEN)과 같게 둬야 양방향 내부 호출이 통과한다 — 없으면 빈 토큰으로 전부 401.
+    internal-token: ${INTERNAL_SERVICE_TOKEN:${WORKPLACE_AI_AGENT_TOKEN:changeme-local}}
   mail:
     m365:
       # 스파이크에서 확인된 Azure AD 앱 등록 ID — iacloud.kr 테넌트. client-secret 은 환경변수로만 주입.

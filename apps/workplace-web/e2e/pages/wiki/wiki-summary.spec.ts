@@ -1,7 +1,8 @@
 // WP-301 노트 상단 AI 요약 카드 E2E — GET/POST /wiki/pages/{id}/summary 를 모킹한다.
 //
 // 카드는 제목 아래·본문 위에 놓이고, 요약이 없으면(MISSING) 노트당 한 번 자동 생성한다.
-// 낡음은 요약 캐시의 status 로 그린다 — 내 저장 직후엔 편집기가 저장 응답 version 으로 캐시를 STALE 로 맞춘다.
+// 낡음은 요약 캐시의 status 로 그린다 — 본문은 동기화 서버(Yjs)가 파생 저장하며 version 을 올리고(WP-287), 편집기는
+// wiki.page.updated SSE → 페이지 재조회로 새 version 을 알게 되면 캐시를 STALE 로 맞춘다. 제목만 저장은 version 을 올리지 않는다.
 import type { Page } from '@playwright/test'
 import type {
   WikiPageDetail,
@@ -14,6 +15,8 @@ import type {
 import { createUser } from '../../factories/auth.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { seedCollabFor } from '../../fixtures/collab'
+import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { expectStays } from '../../fixtures/wait'
 
 const SPACE_ID = 1
@@ -49,7 +52,8 @@ function pageDetail(id: number, body: string, version = 1): WikiPageDetail {
   }
 }
 
-// 공통 모킹: 스페이스(역할 가변) + 트리(PAGE_ID·OTHER_ID) + 페이지 GET/PUT(자동저장 시 version+1).
+// 공통 모킹: 스페이스(역할 가변) + 트리(PAGE_ID·OTHER_ID) + 페이지 GET + 동기화 문서 시드.
+// 본문 저장은 REST PUT 이 아니라 동기화 서버의 파생 저장이므로, 그 결과(version+1 + wiki.page.updated)는 notifyUpdated 로 흉내 낸다.
 async function setupWikiMocks(page: Page, role: WikiRole = 'OWNER') {
   // GET 전용 고정 응답은 공용 mockApi 로(다른 메서드는 fallback).
   await mockApi(page, 'GET', '/api/v1/wiki/spaces', [space(role)])
@@ -60,6 +64,9 @@ async function setupWikiMocks(page: Page, role: WikiRole = 'OWNER') {
   await mockApi(page, 'GET', `/api/v1/wiki/spaces/${SPACE_ID}/members`, [])
   const bodies: Record<number, string> = { [PAGE_ID]: LONG, [OTHER_ID]: '짧다' }
   const versions: Record<number, number> = { [PAGE_ID]: 1, [OTHER_ID]: 1 }
+  // 에디터 본문은 동기화 서버 문서에서 온다 — 열기 전에 시드한다(시드는 열린 문서를 닫으므로 goto 전 1회).
+  for (const id of [PAGE_ID, OTHER_ID]) await seedCollabFor(page, id, bodies[id], role)
+  const events = await mockGatedEvents(page)
   await page.route(
     (url) => /^\/api\/v1\/wiki\/pages\/\d+$/.test(url.pathname),
     (route) => {
@@ -72,17 +79,31 @@ async function setupWikiMocks(page: Page, role: WikiRole = 'OWNER') {
           body: JSON.stringify(pageDetail(id, bodies[id], versions[id])),
         })
       }
-      if (method === 'PUT') {
-        versions[id] += 1
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(pageDetail(id, bodies[id], versions[id])),
-        })
-      }
       return route.fallback()
     },
   )
+  /**
+   * 서버 쪽 노트 변경 알림을 흉내 낸다 — bumpVersion 이면 동기화 서버의 본문 파생 저장(version+1), 아니면 제목만 저장(version 그대로).
+   * wiki.page.updated 를 보내고 그에 따른 페이지 재조회 응답까지 기다린다. 게이트 SSE 라 테스트당 한 번만 부를 수 있다.
+   */
+  async function notifyUpdated(opts: { bumpVersion: boolean }) {
+    if (opts.bumpVersion) versions[PAGE_ID] += 1
+    const refetch = page.waitForResponse(
+      (r) => new URL(r.url()).pathname === `/api/v1/wiki/pages/${PAGE_ID}` && r.request().method() === 'GET',
+    )
+    events.deliver(
+      `event: wiki.page.updated\ndata: ${JSON.stringify({ spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLES[PAGE_ID], actorId: 1 })}\n\n`,
+    )
+    await refetch
+  }
+  return { notifyUpdated }
+}
+
+/** 본문 편집 — 문서 끝에 글자를 쳐 넣는다(동기화 서버 문서에 들어감). 저장 결과 알림은 notifyUpdated 로 따로 보낸다. */
+async function typeAtEnd(page: Page, text: string) {
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.press('Control+End')
+  await page.keyboard.type(text)
 }
 
 /** summary 모킹: 초기 GET 응답과 POST 응답(또는 실패)을 지정. 호출 수를 센다. */
@@ -204,7 +225,7 @@ for (const { status, name } of [
 }
 
 test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하면 새 요약으로 바뀐다', async ({ authenticatedPage: page }) => {
-  await setupWikiMocks(page)
+  const wiki = await setupWikiMocks(page)
   const calls = await mockSummary(page, { initial: ready(1), post: ready(2, '새 요약') })
   await openPage(page)
 
@@ -212,14 +233,9 @@ test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하�
   await expect(card).toContainText('배포를 10/9 로 확정했다.')
   await expect(page.getByTestId('wiki-ai-summary-stale')).toHaveCount(0)
 
-  // 본문 편집 → 자동저장 PUT(version 2) → 카드가 낡음으로 바뀐다.
-  const saved = page.waitForResponse(
-    (r) => r.url().endsWith(`/api/v1/wiki/pages/${PAGE_ID}`) && r.request().method() === 'PUT',
-  )
-  await page.locator('.ProseMirror').click()
-  await page.keyboard.press('End')
-  await page.keyboard.type(' 추가 내용')
-  await saved
+  // 본문 편집 → 동기화 서버 파생 저장(version 2) → wiki.page.updated → 재조회 → 카드가 낡음으로 바뀐다.
+  await typeAtEnd(page, ' 추가 내용')
+  await wiki.notifyUpdated({ bumpVersion: true })
   await expect(page.getByTestId('wiki-ai-summary-stale')).toBeVisible()
   // READY/STALE 에서는 저장마다 요약을 다시 조회하지 않는다(TOO_SHORT 일 때만 재조회).
   expect(calls.get).toBe(1)
@@ -231,18 +247,13 @@ test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하�
 
 test('요약 생성 중에 저장하면 도착한 요약을 낡음으로 표시한다', async ({ authenticatedPage: page }) => {
   // 생성 응답(pageVersion 1)이 저장(version 2) 뒤에 도착 — 응답만 믿으면 최신처럼 보이므로 노트 캐시 버전에 맞춰 STALE 로 본다.
-  await setupWikiMocks(page)
+  const wiki = await setupWikiMocks(page)
   await mockSummary(page, { initial: missing(), post: ready(1, 'A 요약'), delayMs: 3000 })
   await openPage(page)
   await expect(page.getByTestId('wiki-ai-summary-loading')).toBeVisible()
 
-  const saved = page.waitForResponse(
-    (r) => r.url().endsWith(`/api/v1/wiki/pages/${PAGE_ID}`) && r.request().method() === 'PUT',
-  )
-  await page.locator('.ProseMirror').click()
-  await page.keyboard.press('End')
-  await page.keyboard.type(' 생성 중 편집')
-  await saved
+  await typeAtEnd(page, ' 생성 중 편집')
+  await wiki.notifyUpdated({ bumpVersion: true })
 
   await expect(page.getByTestId('wiki-ai-summary')).toContainText('A 요약')
   await expect(page.getByTestId('wiki-ai-summary-stale')).toBeVisible()
@@ -259,7 +270,7 @@ test('서버가 STALE 로 알려 주면 편집기 버전이 같아도 낡음 표
 })
 
 test('짧던 노트가 저장으로 길어지면 상태를 다시 조회해 요약을 한 번 만든다', async ({ authenticatedPage: page }) => {
-  await setupWikiMocks(page)
+  const wiki = await setupWikiMocks(page)
   const calls = await mockSummary(page, { initial: tooShort(), post: ready(2, '길어진 노트 요약') })
   await openPage(page)
   await expect.poll(() => calls.get).toBe(1)
@@ -267,17 +278,24 @@ test('짧던 노트가 저장으로 길어지면 상태를 다시 조회해 요�
 
   // 저장 뒤 서버는 본문이 충분히 길어져 MISSING 으로 본다.
   calls.setCurrent({ ...missing(), pageVersion: 2 })
-  const saved = page.waitForResponse(
-    (r) => r.url().endsWith(`/api/v1/wiki/pages/${PAGE_ID}`) && r.request().method() === 'PUT',
-  )
-  await page.locator('.ProseMirror').click()
-  await page.keyboard.press('End')
-  await page.keyboard.type(' 내용을 더 쓴다')
-  await saved
+  await typeAtEnd(page, ' 내용을 더 쓴다')
+  await wiki.notifyUpdated({ bumpVersion: true })
 
   await expect(page.getByTestId('wiki-ai-summary')).toContainText('길어진 노트 요약')
   await expect.poll(() => calls.get).toBe(2)
   await expectStays(page, () => calls.post, 1, { ms: 1000 })
+})
+
+test('제목만 바뀐 알림(version 그대로)은 요약을 낡음으로 만들지 않는다', async ({ authenticatedPage: page }) => {
+  // 동시 편집 도입 후 version 은 본문 파생 저장 순번이라 제목 저장은 올리지 않는다 — 재조회가 와도 같은 version 이면 READY 유지.
+  const wiki = await setupWikiMocks(page)
+  const calls = await mockSummary(page, { initial: ready(1) })
+  await openPage(page)
+  await expect(page.getByTestId('wiki-ai-summary')).toContainText('배포를 10/9 로 확정했다.')
+
+  await wiki.notifyUpdated({ bumpVersion: false })
+  await expectStays(page, () => page.getByTestId('wiki-ai-summary-stale').count(), 0, { ms: 1000 })
+  expect(calls.get).toBe(1)
 })
 
 test('요약 생성에 실패하면 한 번만 시도하고 다시 시도 버튼을 보여 준다', async ({ authenticatedPage: page }) => {

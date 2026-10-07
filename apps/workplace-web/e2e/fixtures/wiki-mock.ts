@@ -3,7 +3,8 @@ import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiRole, WikiSpace } from '../../src/types/wiki'
 import { wikiSpace } from '../factories/wiki.factory'
-import { type RequestTracker, trackRequests } from './requests'
+import { collabNsOf, readCollabMarkdown, seedCollabDoc } from './collab'
+import { trackRequests } from './requests'
 
 /**
  * 스페이스 목록은 POST 전엔 비어 있고, POST 후엔 새로 만든 스페이스 1개(id=newSpaceId)를 돌려준다.
@@ -35,17 +36,26 @@ export function buildWikiAiSse(deltas: string[], correlationId: string, done = t
   return parts.join('')
 }
 
-/** 마지막 PUT 저장 본문(마크다운). */
-export const lastSaved = (puts: RequestTracker) => puts.lastBody<{ body: string }>()?.body ?? ''
+/**
+ * 저장된 본문(마크다운) — 본문은 자동저장 PUT 이 아니라 실시간 동기화로 저장되므로(WP-172) 동기화 서버(테스트 모드)의
+ * page 네임스페이스 문서를 읽는다. 저장은 입력마다 바로 반영되니 `expect.poll(() => savedMarkdown(page, id))` 로 기다린다.
+ */
+export const savedMarkdown = (page: Page, pageId: number) => readCollabMarkdown(collabNsOf(page), pageId)
 
 /**
  * 노트 에디터 진입에 필요한 스페이스·트리·멤버·페이지 상세(GET/PUT) 라우트를 모킹한다
- * (wiki-image·wiki-table·wiki-table-editing·wiki-markdown-paste spec 공유). 페이지 PUT 기록(tracker)을 돌려준다.
+ * (wiki-image·wiki-table·wiki-table-editing·wiki-markdown-paste spec 공유). 페이지 PUT 기록(tracker)을 돌려준다 — 제목 저장 확인용.
+ * 본문은 동기화 서버(테스트 모드)에도 같은 내용·역할로 시드한다 — 에디터 본문은 이제 API 가 아니라 동기화 문서에서 온다(WP-172).
+ * collabNs 생략 시 page 컨텍스트의 네임스페이스(auth.fixture). 같은 문서에 두 번째로 붙는 컨텍스트는 seed:false
+ * (다시 시드하면 서버가 열린 문서를 닫아 먼저 붙은 쪽이 끊긴다). 본문 저장 결과는 savedMarkdown 으로 읽는다.
  */
 export async function mockWikiPageEditor(
   page: Page,
-  { spaceId, pageId, title, body, role = 'OWNER' }: { spaceId: number; pageId: number; title: string; body: string; role?: WikiRole },
+  {
+    spaceId, pageId, title, body, role = 'OWNER', collabNs, seed = true,
+  }: { spaceId: number; pageId: number; title: string; body: string; role?: WikiRole; collabNs?: string; seed?: boolean },
 ) {
+  if (seed) await seedCollabDoc(collabNs ?? collabNsOf(page), pageId, body, role)
   const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${pageId}`)
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>
     r.request().method() === 'GET'
@@ -65,4 +75,17 @@ export async function mockWikiPageEditor(
     return r.fallback()
   })
   return puts
+}
+
+/** 클립보드에 이미지 파일을 담아 .ProseMirror 에 paste 이벤트를 디스패치한다(handlePaste 진입점) — 노트 이미지 업로드 spec 공용. */
+export async function pasteImageFile(page: Page, mimeType: string, name: string) {
+  await page.locator('.ProseMirror').evaluate(
+    (el, args) => {
+      const file = new File([new Uint8Array([1, 2, 3])], args.name, { type: args.mimeType })
+      const dt = new DataTransfer()
+      dt.items.add(file)
+      el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }))
+    },
+    { mimeType, name },
+  )
 }

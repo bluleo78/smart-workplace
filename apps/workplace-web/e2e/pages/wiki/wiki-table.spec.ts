@@ -2,7 +2,7 @@
 // 문단으로 합쳐져 깨지던 회귀를 막는다. AI 생성물(/ai 초안·이어쓰기)이 표를 자주 만들어 체감 결함이 컸다.
 import type { Page } from '@playwright/test'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { lastSaved, mockWikiPageEditor } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 300
@@ -21,7 +21,7 @@ const setup = (page: Page, body: string) =>
   mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '분기 지표', body })
 
 test('표 렌더 + 마크다운 라운드트립', async ({ authenticatedPage: page }) => {
-  const puts = await setup(page, TABLE_MD)
+  await setup(page, TABLE_MD)
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
 
@@ -44,23 +44,21 @@ test('표 렌더 + 마크다운 라운드트립', async ({ authenticatedPage: pa
   expect(style.collapse).toBe('collapse')
   expect(parseFloat(style.thBorder)).toBeGreaterThan(0)
 
-  // 2) 편집 → 자동저장 payload 의 마크다운이 표를 보존하는가(라운드트립)
+  // 2) 편집 → 동기화 저장본(마크다운)이 표를 보존하는가(라운드트립)
   await page.locator('.ProseMirror p').filter({ hasText: '표 아래 문단' }).click()
   await page.keyboard.type(' 수정')
-  await puts.waitFor(1, { timeout: 5000 })
-  const md = lastSaved(puts)
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain('표 아래 문단. 수정')
+  const md = await savedMarkdown(page, PAGE_ID)
   expect(md).toContain('| 항목 |')
   expect(md).toContain('활성 사용자')
   expect(md).toMatch(/\|\s*---/)
-  expect(md).toContain('표 아래 문단. 수정')
-
 })
 
 test('슬래시 메뉴에서 표 삽입 + 삽입 경로 마크다운 라운드트립 (#748)', async ({
   authenticatedPage: page,
 }) => {
   // 빈 본문에서 시작 — 삽입 결과만 검증하도록 기존 표와 섞이지 않게 한다.
-  const puts = await setup(page, '')
+  await setup(page, '')
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
 
@@ -99,9 +97,8 @@ test('슬래시 메뉴에서 표 삽입 + 삽입 경로 마크다운 라운드�
   await expect(page.locator('.ProseMirror')).not.toContainText('/')
 
   await page.keyboard.type('항목')
-  await puts.waitFor(1, { timeout: 5000 })
-  const md = lastSaved(puts)
-  expect(md).toContain('항목')
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain('항목')
+  const md = await savedMarkdown(page, PAGE_ID)
   const delimiter = md.split('\n').find((l) => l.includes('---'))!
   expect(delimiter.split('---')).toHaveLength(5) // 4열
 })

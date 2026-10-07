@@ -47,6 +47,14 @@ if [ -n "$WEB_CHANGED" ]; then
   [ -n "$PRECOMMIT_DRY_RUN" ] || (cd apps/workplace-web && run_locked pnpm test)
 fi
 
+# 3.6) 노트 동기화 서버(workplace-collab) — 서버·공용 스키마 변경 시 vitest 전체(실제 Hocuspocus 서버, 수십 초 이내) (WP-288).
+# 공용 스키마(wiki-editor-schema)가 바뀌면 서버의 마크다운↔Yjs 코덱 결과가 달라지므로 함께 돌린다.
+COLLAB_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^(apps/workplace-collab/|packages/wiki-editor-schema/)' || true)
+if [ -n "$COLLAB_CHANGED" ]; then
+  echo "[pre-commit] workplace-collab/스키마 변경 — collab vitest 실행"
+  [ -n "$PRECOMMIT_DRY_RUN" ] || run_locked pnpm --filter @smart-workplace/workplace-collab test
+fi
+
 # 4) workplace-web 변경 영역 분석
 # src/pages/ 서브디렉토리 = 도메인. 하드코딩하면 도메인 추가 시 드리프트되므로 동적으로 도출한다.
 WEB_DOMAINS_RE=$(ls -d apps/workplace-web/src/pages/*/ 2>/dev/null | xargs -n1 basename | sort | tr '\n' '|' | sed 's/|$//')

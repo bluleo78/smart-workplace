@@ -5,12 +5,15 @@ import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiRole } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { seedCollabFor } from '../../fixtures/collab'
 
 const SPACE_ID = 1
 const PAGE_ID = 310
 const BODY = '원본 문장'
 
 async function setup(page: Page, role: WikiRole) {
+  // 에디터 본문·역할은 동기화 서버 문서에서 온다(WP-172) — 모킹한 상세 본문·스페이스 역할과 같게 시드한다.
+  await seedCollabFor(page, PAGE_ID, BODY, role)
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>
     r.request().method() === 'GET'
       ? r.fulfill({

@@ -8,3 +8,10 @@
   height: 0;
   pointer-events: none;
 }
+
+/* 이미지 업로드 자리표시자(WP-295) — 공유 문서가 아닌 내 화면 전용 위젯 데코레이션. 예전 텍스트 자리표시자처럼 본문 흐름 안에
+   글자로 보이되, 본문 글자와 구분되도록 흐린 색(시맨틱 토큰)으로 그린다. 선택·편집 대상이 아니다. */
+.wiki-editor .ProseMirror .wiki-upload-placeholder {
+  color: var(--muted-foreground);
+  user-select: none;
+}

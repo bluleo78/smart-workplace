@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-//
 // #755 회귀 — 표 셀 안의 파이프(|)가 저장 시 셀 구분자로 새어 셀이 쪼개지는 문제를 고정한다.
 // prosemirror-markdown 의 esc 는 ` * \ ~ [ ] _ 만 다루고 |는 손대지 않으며, tiptap-markdown 의
 // 표 직렬화기도 별도 처리가 없다. raw HTML 로 새는 것이 아니라 조용히 셀 개수가 바뀌는
@@ -13,8 +11,8 @@ import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from 'tiptap-markdown'
 import { describe, expect, it } from 'vitest'
 
-import { WikiImage } from './wikiImageNode'
-import { WikiMarkdownText } from './wikiMarkdownText'
+import { WikiImageSchema } from './imageNode'
+import { WikiMarkdownText } from './markdownText'
 
 /** WikiEditor 와 동일한 확장 구성으로 에디터를 만든다. */
 function createEditor(content: unknown): Editor {
@@ -23,7 +21,7 @@ function createEditor(content: unknown): Editor {
       StarterKit.configure({ text: false }),
       WikiMarkdownText,
       Markdown,
-      WikiImage,
+      WikiImageSchema,
       Table.configure({ resizable: false }),
       TableRow,
       TableHeader,

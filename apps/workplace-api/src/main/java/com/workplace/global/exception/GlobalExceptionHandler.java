@@ -467,6 +467,17 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
+  /**
+   * 노트 동기화 서버 장애(WP-285) → 503. 본문 저장은 동기화 서버가 원본이라 우회 저장이 없으므로, 캐치올(500)보다 먼저 잡아 "잠시 후 재시도" 가능한 일시
+   * 장애임을 알린다.
+   */
+  @ExceptionHandler(com.workplace.wiki.exception.CollabUnavailableException.class)
+  public ResponseEntity<ErrorResponse> handleCollabUnavailable(
+      com.workplace.wiki.exception.CollabUnavailableException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        .body(buildError(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), null, request));
+  }
+
   /** 위키 TEAM 공간 이름 중복 — 409(컨테이너류 이름 하드 차단 정책, #696). */
   @ExceptionHandler(com.workplace.wiki.exception.WikiSpaceNameDuplicatedException.class)
   public ResponseEntity<ErrorResponse> handleWikiSpaceNameDuplicated(

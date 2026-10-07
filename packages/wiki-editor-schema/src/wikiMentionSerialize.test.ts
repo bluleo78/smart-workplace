@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseWikiSegments, tokenFor } from './wikiMentionSerialize'
+import { parseWikiSegments, tokenFor } from './mentionTokens'
 
 describe('tokenFor', () => {
   it('타입별 토큰 형식을 만든다', () => {

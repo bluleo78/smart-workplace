@@ -1,13 +1,4 @@
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  FileCode,
-  Loader2,
-  MoreHorizontal,
-  Trash2,
-  TriangleAlert,
-} from 'lucide-react'
+import { ChevronDown, ChevronRight, FileCode, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
 import { Fragment } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
@@ -25,14 +16,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { StatusBadge } from '@/components/ui/status-badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { cn } from '@/lib/utils'
 
+import type { SyncStatus } from '../../lib/collab/collabStatus'
 import { GENERATE_ACTIONS, type GenerateActionKey } from './wikiAiActions'
-
-export type SaveState = 'idle' | 'saving' | 'saved' | 'conflict'
+import { WikiSyncStatusChip } from './WikiSyncStatusChip'
 
 /**
  * AI 사용 가능 상태 3분기 — 예전엔 boolean(canUseAi) 하나였고 false 면 메뉴 자체를 숨겨서
@@ -48,7 +38,7 @@ const AI_DISABLED_REASON: Record<Exclude<WikiAiState, 'ready'>, string> = {
 }
 
 /**
- * 노트 페이지 뷰 헤더 — 브레드크럼(조상 경로) + 저장상태 + AI 액션 버튼 + 더보기(삭제).
+ * 노트 페이지 뷰 헤더 — 브레드크럼(조상 경로) + 동기화 상태 칩 + AI 액션 버튼 + 더보기(삭제).
  * 데스크톱은 공용 Page.Header(h-14·border-b) 셸에 브레드크럼 nav(시맨틱 필요)를 leading 으로 넣는다.
  *
  * AI 버튼 상시 노출이 핵심 — 이전엔 ⋯ 드롭다운 안에 "AI 초안 작성" 하나만 묻혀 있어
@@ -56,7 +46,7 @@ const AI_DISABLED_REASON: Record<Exclude<WikiAiState, 'ready'>, string> = {
  */
 export function WikiPageHeader({
   crumbs,
-  saveState,
+  syncStatus,
   aiState,
   aiBusy,
   aiAttributed,
@@ -66,7 +56,8 @@ export function WikiPageHeader({
   onViewSource,
 }: {
   crumbs: { id: number; title: string }[]
-  saveState: SaveState
+  /** 실시간 동기화 상태(WP-287) — 예전 저장 상태(저장 중/저장됨/충돌)를 대체한다. */
+  syncStatus: SyncStatus
   aiState: WikiAiState
   aiBusy: boolean
   // #736: 이 페이지에 AI 생성 이력이 있는지 — 우측 AI 액션 버튼(기능 트리거)과는 별개로 좌측
@@ -119,30 +110,8 @@ export function WikiPageHeader({
     </Button>
   )
 
-  // 저장 상태 칩 — 모바일은 헤더 폭(제목)을 지키려 아이콘만 보이고 글자는 스크린리더용으로 남긴다.
-  const saveText = (label: string) => (isMobile ? <span className="sr-only">{label}</span> : label)
-  const saveBadge = (
-    <>
-      {saveState === 'saving' && (
-        <StatusBadge type="info" data-testid="wiki-save-state">
-          <Loader2 className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-          {saveText('저장 중…')}
-        </StatusBadge>
-      )}
-      {saveState === 'saved' && (
-        <StatusBadge type="success" data-testid="wiki-save-state">
-          <Check aria-hidden="true" />
-          {saveText('저장됨')}
-        </StatusBadge>
-      )}
-      {saveState === 'conflict' && (
-        <StatusBadge type="error" data-testid="wiki-save-state">
-          <TriangleAlert aria-hidden="true" />
-          {saveText('충돌')}
-        </StatusBadge>
-      )}
-    </>
-  )
+  // 동기화 상태 칩 — 모바일은 헤더 폭(제목)을 지키려 정상일 땐 점 하나, 문제가 있을 때만 짧은 글자로 커진다.
+  const syncChip = <WikiSyncStatusChip status={syncStatus} compact={isMobile} />
   // AI 액션 — 비활성이면 사유 툴팁, 활성이면 생성 메뉴.
   const aiControl = (
     <>
@@ -258,7 +227,7 @@ export function WikiPageHeader({
             {aiBusy && (
               <Loader2 data-testid="wiki-ai-header-busy" className="h-4 w-4 animate-spin text-ai-accent motion-reduce:animate-none" aria-hidden="true" />
             )}
-            {saveBadge}
+            {syncChip}
             {pageMenu}
           </div>
         }
@@ -312,7 +281,7 @@ export function WikiPageHeader({
       }
       actions={
         <>
-          {saveBadge}
+          {syncChip}
           {aiControl}
           {pageMenu}
         </>

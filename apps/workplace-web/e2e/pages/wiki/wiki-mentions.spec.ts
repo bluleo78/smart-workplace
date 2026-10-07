@@ -1,7 +1,7 @@
 // 위키 @ 통합 멘션 E2E — 백엔드 없이 route 모킹.
 // (a) '@' 입력 → 통합 검색 API 호출(query param) → 후보 렌더 → 선택 시 칩 삽입,
-// (b) 멘션 포함 본문 저장 PUT payload 에 토큰(<#page:id>·<@id>) 포함(입력→payload),
-// (c) 토큰 포함 page.body 로드 → 에디터에 칩 렌더(라운드트립) + 무편집 저장 시 본문 토큰 동일성.
+// (b) 멘션 포함 본문이 동기화 서버 문서(마크다운)에 토큰(<#page:id>·<@id>)으로 저장(입력→저장본, WP-172),
+// (c) 토큰 포함 본문 로드 → 에디터에 칩 렌더(라운드트립) + 무편집 저장 시 본문 토큰 동일성.
 import type {
   IssueResponse,
   IssueSearchResponse,
@@ -9,7 +9,6 @@ import type {
 import type { PageResponse } from '../../../src/types/common'
 import type { MemberSummary } from '../../../src/types/member'
 import type {
-  SavePageRequest,
   WikiBacklink,
   WikiMentionRef,
   WikiPageDetail,
@@ -20,8 +19,10 @@ import type {
 } from '../../../src/types/wiki'
 import { createMember } from '../../factories/auth.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { seedCollabFor } from '../../fixtures/collab'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
+import { savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 400
@@ -94,7 +95,7 @@ const ISSUE: IssueResponse = {
   customFields: [],
 }
 
-// 공통 모킹: 스페이스 + 트리 + 멤버 빈 스텁 + 페이지 GET/PUT. 페이지 PUT tracker 를 돌려준다.
+// 공통 모킹: 스페이스 + 트리 + 멤버 빈 스텁 + 페이지 GET/PUT(제목 저장). 본문 저장 결과는 동기화 서버에서 읽는다.
 async function setupWikiMocks(
   page: import('@playwright/test').Page,
   opts: {
@@ -104,7 +105,8 @@ async function setupWikiMocks(
     backlinks?: WikiBacklink[]
   },
 ) {
-  const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${PAGE_ID}`)
+  // 에디터 본문·역할은 동기화 서버 문서에서 온다(WP-172) — 모킹한 상세 본문·스페이스 역할과 같게 시드한다.
+  await seedCollabFor(page, PAGE_ID, opts.body, opts.role)
   await page.route(
     (url) => url.pathname === '/api/v1/wiki/spaces',
     (route) =>
@@ -188,7 +190,6 @@ async function setupWikiMocks(
       return route.fallback()
     },
   )
-  return puts
 }
 
 // 통합 검색 3종(유저/위키/이슈) 모킹. 검색별 요청 tracker 를 돌려준다(query param 확인용).
@@ -238,7 +239,7 @@ async function setupSearchMocks(page: import('@playwright/test').Page) {
 test('위키 @ 멘션 — 통합 검색 호출 → 후보 렌더 → 페이지 선택 시 칩 삽입 + 저장 토큰', {
   tag: '@smoke',
 }, async ({ authenticatedPage: page }) => {
-  const puts = await setupWikiMocks(page, { role: 'EDITOR', body: '' })
+  await setupWikiMocks(page, { role: 'EDITOR', body: '' })
   const search = await setupSearchMocks(page)
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
@@ -260,18 +261,24 @@ test('위키 @ 멘션 — 통합 검색 호출 → 후보 렌더 → 페이지 �
   await expect(page.getByTestId(`wiki-mention-option-ISSUE-${ISSUE.id}`)).toBeVisible()
 
   // 페이지 후보 선택 → 칩(라벨) 삽입. PAGE 는 멘션이 아닌 참조 링크라 "@" 프리픽스 없음.
-  await page.getByTestId(`wiki-mention-option-PAGE-${WIKI_PAGE.id}`).click()
-  await expect(page.locator('.ProseMirror span[data-mtype="PAGE"]')).toHaveText(WIKI_PAGE.title)
-
-  // (b) 자동저장 PUT payload 의 body 에 페이지 토큰(<#page:55>)이 포함된다(입력→payload).
-  await puts.waitFor()
-  await expect.poll(() => puts.lastBody<SavePageRequest>()?.body).toContain(`<#page:${WIKI_PAGE.id}>`)
-
-  // (c) USER 멘션은 채팅 칩과 동일하게 "@" 프리픽스가 붙어야 한다(#703).
+  // 누르는 순간(mousedown) 포커스가 에디터에 그대로 있어야 한다(WP-302) — 예전엔 포커스가 후보 버튼으로 갔다가
+  // 삽입 명령의 focus() 로 다음 프레임에 돌아와, 그 틈에 친 키(' '·'@')가 에디터 밖으로 샜다(preview 에서 재현).
+  // mousedown 의 기본 동작(포커스 이동)은 동기로 일어나므로 즉시 확인한다.
+  await page.getByTestId(`wiki-mention-option-PAGE-${WIKI_PAGE.id}`).hover()
+  await page.mouse.down()
+  expect(await page.evaluate(() => !!document.activeElement?.closest('.ProseMirror'))).toBe(true)
+  await page.mouse.up()
+  // (c) 기다림 없이 곧바로 이어 친다 — 키 입력이 새지 않으면 두 번째 멘션 팝업이 뜬다.
   await page.keyboard.type(' @온보')
-  await expect.poll(() => search.users.lastUrl()?.searchParams.get('search')).toBe('온보')
+  await expect(page.locator('.ProseMirror span[data-mtype="PAGE"]')).toHaveText(WIKI_PAGE.title)
+  await expect(page.getByTestId('wiki-mention-popover')).toBeVisible()
+
+  // USER 멘션은 채팅 칩과 동일하게 "@" 프리픽스가 붙어야 한다(#703).
   await page.getByTestId(`wiki-mention-option-USER-${USER.userId}`).click()
   await expect(page.locator(`.ProseMirror span[data-mtype="USER"]`)).toHaveText(`@${USER.name}`)
+
+  // (b) 동기화 서버에 저장된 마크다운에 페이지 토큰(<#page:55>)이 들어간다(입력→저장본).
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain(`<#page:${WIKI_PAGE.id}>`)
 })
 
 test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집 저장 라운드트립(토큰 동일성)', async ({
@@ -283,7 +290,7 @@ test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집
     { type: 'USER', id: 7, label: '앨리스', spaceId: null, projectKey: null, number: null },
     { type: 'PAGE', id: 55, label: '온보딩 가이드', spaceId: SPACE_ID, projectKey: null, number: null },
   ]
-  const puts = await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
+  await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
   // 검색 모킹은 불필요하나 누수 방지로 깔아둔다.
   await setupSearchMocks(page)
 
@@ -298,14 +305,40 @@ test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집
   await expect(page.locator('.ProseMirror')).not.toContainText('<@7>')
   await expect(page.locator('.ProseMirror')).not.toContainText('<#page:55>')
 
-  // 무편집 상태에서 글자를 하나 더 쳐 자동저장을 유발 → 본문 토큰이 동일하게 보존돼야 한다(라운드트립).
+  // 무편집 상태에서 글자를 하나 더 쳐 저장을 유발 → 본문 토큰이 동일하게 보존돼야 한다(라운드트립).
   await page.locator('.ProseMirror').click()
   await page.keyboard.press('End')
   await page.keyboard.type('!')
 
   // 토큰뿐 아니라 주변 텍스트·공백까지 보존되는지(직렬화 인접성 회귀)를 함께 검증한다.
-  await puts.waitFor()
-  await expect.poll(() => puts.lastBody<SavePageRequest>()?.body).toContain('담당 <@7> 은 <#page:55> 문서를')
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe('담당 <@7> 은 <#page:55> 문서를 본다!')
+})
+
+test('위키 @ 멘션 — 코드 안의 토큰은 칩이 되지 않고 글자 그대로 저장된다', async ({
+  authenticatedPage: page,
+}) => {
+  // 인라인 코드·코드블록 안 토큰은 문서 예시일 뿐 멘션이 아니다. 예전 클라 치환은 코드블록에서 RangeError,
+  // 인라인 코드에서 백틱 손실을 냈다(WP-294) — 이제 마크다운 파서가 코드 밖 토큰만 칩으로 만든다.
+  const BODY = '담당 <@7> 예시 `<@7>` 끝\n\n```\n<#page:55>\n```'
+  const MENTIONS: WikiMentionRef[] = [
+    { type: 'USER', id: 7, label: '앨리스', spaceId: null, projectKey: null, number: null },
+  ]
+  await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
+  await setupSearchMocks(page)
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror span[data-mtype="USER"]')).toHaveText('@앨리스')
+  // 코드 밖 토큰 하나만 칩 — 코드 안 토큰은 글자로 보인다.
+  await expect(page.locator('.ProseMirror [data-mtype]')).toHaveCount(1)
+  await expect(page.locator('.ProseMirror code').first()).toHaveText('<@7>')
+  await expect(page.locator('.ProseMirror pre')).toContainText('<#page:55>')
+
+  // 편집 후 저장 본문에서 코드 안 토큰·백틱이 그대로 보존된다.
+  await page.locator('.ProseMirror p').first().click()
+  await page.keyboard.press('End')
+  await page.keyboard.type('!')
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain('담당 <@7> 예시 `<@7>` 끝!')
+  expect(await savedMarkdown(page, PAGE_ID)).toContain('```\n<#page:55>\n```')
 })
 
 test('위키 @ 멘션 — 검색 결과 없을 때 결과 없음 메시지 표시(피드백)', async ({
@@ -370,7 +403,7 @@ test('위키 @ 멘션 — VIEWER 는 @ 멘션 피커가 노출되지 않는다(�
 })
 
 // ── S4: 멘션 칩 내비게이션 ──────────────────────────────────────────────────
-// 칩 노드 attrs 는 {mtype,id,label} 뿐이라 라우트의 spaceId/projectKey/number 는
+// 칩 노드 attrs 는 {mtype,id} 뿐이라 라우트의 spaceId/projectKey/number 는
 // useWikiMentions 해소 결과(WikiMentionRef)에서 룩업한다(노드 attrs 미추가 결정).
 
 test('위키 멘션 칩 — PAGE 칩 클릭 시 위키 페이지 경로로 이동(해소 spaceId 사용)', async ({

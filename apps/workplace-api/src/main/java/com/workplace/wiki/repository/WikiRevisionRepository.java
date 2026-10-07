@@ -2,6 +2,9 @@ package com.workplace.wiki.repository;
 
 import static com.workplace.jooq.Tables.WIKI_REVISION;
 
+import com.workplace.wiki.dto.WikiPageDetail;
+import java.time.OffsetDateTime;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -23,5 +26,19 @@ public class WikiRevisionRepository {
         .onConflict(WIKI_REVISION.PAGE_ID, WIKI_REVISION.VERSION)
         .doNothing()
         .execute();
+  }
+
+  /** 현재(바뀌기 직전) 페이지 상태를 그 version 의 리비전으로 적재 — 작성자는 직전 수정자. */
+  public void snapshot(WikiPageDetail current) {
+    snapshot(current.id(), current.version(), current.title(), current.body(), current.updatedBy());
+  }
+
+  /** 페이지의 가장 최근 리비전 적재 시각. 리비전이 없으면 empty. */
+  public Optional<OffsetDateTime> latestCreatedAt(long pageId) {
+    return dsl.select(org.jooq.impl.DSL.max(WIKI_REVISION.CREATED_AT))
+        .from(WIKI_REVISION)
+        .where(WIKI_REVISION.PAGE_ID.eq(pageId))
+        .fetchOptional()
+        .map(r -> r.value1());
   }
 }

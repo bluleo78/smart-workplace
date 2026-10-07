@@ -9,6 +9,7 @@ import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
+import com.workplace.wiki.exception.WikiPageNotFoundException;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -114,6 +115,49 @@ public class WikiPageRepository {
         .where(WIKI_PAGE.ID.eq(pageId))
         .and(WIKI_PAGE.VERSION.eq(expectedVersion))
         .execute();
+  }
+
+  /**
+   * 제목만 저장(WP-290) — 버전 검사도 version 증가도 없다(나중 값 우선). version 은 파생 body 갱신 순번이라 제목과 무관하고, 동시 편집 중에는
+   * 수 초마다 올라 검사하면 제목 저장이 409 를 자주 맞는다.
+   *
+   * @throws WikiPageNotFoundException 페이지가 없거나 RLS 로 보이지 않을 때
+   */
+  public void saveTitle(long pageId, String title, long editorId) {
+    int n =
+        dsl.update(WIKI_PAGE)
+            .set(WIKI_PAGE.TITLE, title)
+            .set(WIKI_PAGE.UPDATED_BY, editorId)
+            .set(WIKI_PAGE.UPDATED_AT, org.jooq.impl.DSL.currentOffsetDateTime())
+            .where(WIKI_PAGE.ID.eq(pageId))
+            .execute();
+    if (n == 0) {
+      throw new WikiPageNotFoundException(pageId);
+    }
+  }
+
+  /**
+   * 동기화 서버 파생 저장(WP-286) — 버전 검사 없이 body 를 갱신하고 version+1 한 값을 돌려준다. 동시 편집 병합은 이미 Yjs 가 끝냈으므로 낙관적
+   * 동시성 검사를 하지 않는다.
+   *
+   * @param editorId 이번 저장의 수정자. null 이면 updated_by 를 건드리지 않는다(편집자 없는 서버 내부 적용 — 직전 수정자 유지)
+   * @return 갱신 후 version
+   */
+  public int saveDerivedBody(long pageId, String body, Long editorId) {
+    var update =
+        dsl.update(WIKI_PAGE)
+            .set(WIKI_PAGE.BODY, body)
+            .set(WIKI_PAGE.VERSION, WIKI_PAGE.VERSION.plus(1))
+            .set(WIKI_PAGE.UPDATED_AT, org.jooq.impl.DSL.currentOffsetDateTime());
+    if (editorId != null) {
+      update = update.set(WIKI_PAGE.UPDATED_BY, editorId);
+    }
+    return update
+        .where(WIKI_PAGE.ID.eq(pageId))
+        .returning(WIKI_PAGE.VERSION)
+        .fetchOptional()
+        .map(r -> r.get(WIKI_PAGE.VERSION))
+        .orElseThrow(() -> new WikiPageNotFoundException(pageId));
   }
 
   /**
@@ -229,6 +273,24 @@ public class WikiPageRepository {
             SELECT id FROM chain
             """,
             pageId)
+        .map(r -> r.get(0, Long.class));
+  }
+
+  /**
+   * rootPageId 와 그 모든 하위 페이지 id(자기 자신 포함) — 삭제 시 CASCADE 로 함께 사라질 페이지 목록(WP-285 연결 재검증용). 삭제
+   * <b>전에</b> 조회해야 한다. 재귀항은 {@link #ancestorIdsInclusive} 와 같은 이유로 UNION(사이클 데이터에도 종료).
+   */
+  public java.util.List<Long> subtreeIdsInclusive(long rootPageId) {
+    return dsl.fetch(
+            """
+            WITH RECURSIVE tree(id) AS (
+              SELECT id FROM wiki_page WHERE id = ?
+              UNION
+              SELECT p.id FROM wiki_page p JOIN tree t ON p.parent_id = t.id
+            )
+            SELECT id FROM tree
+            """,
+            rootPageId)
         .map(r -> r.get(0, Long.class));
   }
 

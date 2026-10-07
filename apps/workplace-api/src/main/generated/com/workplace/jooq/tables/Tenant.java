@@ -77,6 +77,7 @@ import com.workplace.jooq.tables.UserPriorityItem.UserPriorityItemPath;
 import com.workplace.jooq.tables.UserRole.UserRolePath;
 import com.workplace.jooq.tables.WikiPage.WikiPagePath;
 import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
+import com.workplace.jooq.tables.WikiPageDoc.WikiPageDocPath;
 import com.workplace.jooq.tables.WikiReference.WikiReferencePath;
 import com.workplace.jooq.tables.WikiRevision.WikiRevisionPath;
 import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
@@ -1157,6 +1158,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _wikiPageAttachment = new WikiPageAttachmentPath(this, null, Keys.WIKI_PAGE_ATTACHMENT__WIKI_PAGE_ATTACHMENT_TENANT_ID_FKEY.getInverseKey());
 
         return _wikiPageAttachment;
+    }
+
+    private transient WikiPageDocPath _wikiPageDoc;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_doc</code> table
+     */
+    public WikiPageDocPath wikiPageDoc() {
+        if (_wikiPageDoc == null)
+            _wikiPageDoc = new WikiPageDocPath(this, null, Keys.WIKI_PAGE_DOC__WIKI_PAGE_DOC_TENANT_ID_FKEY.getInverseKey());
+
+        return _wikiPageDoc;
     }
 
     private transient WikiPagePath _wikiPage;

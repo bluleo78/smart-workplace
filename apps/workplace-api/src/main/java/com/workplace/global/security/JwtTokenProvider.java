@@ -138,6 +138,21 @@ public class JwtTokenProvider {
     return amr == null ? null : amr.toString();
   }
 
+  /**
+   * 서명 검증되는 access JWT 의 만료 시각(exp, epoch 초) — 그 밖(검증 실패·refresh 토큰·PAT 등)이면 null. 노트 동기화 서버가 연결을
+   * 토큰 만료에 맞춰 끊도록 collab-access 응답에 실어 보낸다(WP-286). 검증과 exp 추출을 한 번의 파싱으로 한다.
+   */
+  public Long accessTokenExpEpochSeconds(String token) {
+    try {
+      Claims claims = parseClaims(token);
+      return "access".equals(claims.get("type", String.class))
+          ? claims.getExpiration().toInstant().getEpochSecond()
+          : null;
+    } catch (JwtException | IllegalArgumentException e) {
+      return null;
+    }
+  }
+
   public Long getUserIdFromToken(String token) {
     String subject = parseClaims(token).getSubject();
     return Long.parseLong(subject);

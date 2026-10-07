@@ -5,8 +5,7 @@ import type { Page } from '@playwright/test'
 
 import type { WikiRole } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
-import type { RequestTracker } from '../../fixtures/requests'
-import { lastSaved, mockWikiPageEditor } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 300
@@ -20,16 +19,22 @@ const TABLE_MD = [
 const setup = (page: Page, body: string, role: WikiRole = 'OWNER') =>
   mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '표', body, role })
 
-/** 마지막 저장 payload 에서 파이프로 시작하는 줄만 뽑는다. */
-async function savedTableLines(puts: RequestTracker): Promise<string[]> {
-  await puts.waitFor(1, { timeout: 5000 })
-  return lastSaved(puts).split('\n').filter((l) => l.trim().startsWith('|'))
+/** 마크다운에서 파이프로 시작하는 줄(표)만 뽑는다. */
+const tableLines = (md: string) => md.split('\n').filter((l) => l.trim().startsWith('|'))
+
+/**
+ * 동기화 저장본(WP-172)의 표 줄 — 마지막 입력(until)이 저장본에 닿을 때까지 기다린 뒤 읽는다.
+ * 편집은 순서대로 동기화되므로 마지막 입력이 보이면 그 앞의 표 조작(열 추가·행 삭제)도 반영돼 있다.
+ */
+async function savedTableLines(page: Page, until: string): Promise<string[]> {
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain(until)
+  return tableLines(await savedMarkdown(page, PAGE_ID))
 }
 
 test('툴바 — 커서가 표 안에 있을 때만 뜨고, 열 추가가 마크다운까지 반영된다', async ({
   authenticatedPage: page,
 }) => {
-  const puts = await setup(page, TABLE_MD)
+  await setup(page, TABLE_MD)
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 
@@ -50,10 +55,10 @@ test('툴바 — 커서가 표 안에 있을 때만 뜨고, 열 추가가 마크
   await toolbar.getByTestId('wiki-table-cmd-addColumnAfter').click()
   await expect(page.locator('.ProseMirror table th')).toHaveCount(3)
 
-  // 저장 payload 가 3열 GFM 표인가 — 구분 행의 --- 개수로 판정한다.
+  // 저장본이 3열 GFM 표인가 — 구분 행의 --- 개수로 판정한다.
   await page.locator('.ProseMirror td').first().click()
   await page.keyboard.type('!')
-  const lines = await savedTableLines(puts)
+  const lines = await savedTableLines(page, '!')
   const delimiter = lines.find((l) => l.includes('---'))!
   expect(delimiter.split('---')).toHaveLength(4) // 3열 → --- 3개 → split 결과 4조각
   expect(lines).toHaveLength(4) // 헤더 + 구분 + 본문 2
@@ -74,7 +79,7 @@ test('툴바 — 헤더 행에서는 행 삭제가 비활성, 본문 행에서�
 })
 
 test('툴바 — 행 삭제가 마크다운에서도 사라진다', async ({ authenticatedPage: page }) => {
-  const puts = await setup(page, TABLE_MD)
+  await setup(page, TABLE_MD)
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 
@@ -84,7 +89,7 @@ test('툴바 — 행 삭제가 마크다운에서도 사라진다', async ({ aut
 
   await page.locator('.ProseMirror td').first().click()
   await page.keyboard.type('!')
-  const lines = await savedTableLines(puts)
+  const lines = await savedTableLines(page, '!')
   expect(lines).toHaveLength(3)
   expect(lines.join('\n')).not.toContain('API 설계')
 })
@@ -126,7 +131,7 @@ test('넓은 표는 본문을 밀지 않고 래퍼 안에서 가로 스크롤된
 })
 
 test('셀에 파이프를 입력해도 셀이 쪼개지지 않는다 (#755)', async ({ authenticatedPage: page }) => {
-  const puts = await setup(page, TABLE_MD)
+  await setup(page, TABLE_MD)
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 
@@ -134,7 +139,7 @@ test('셀에 파이프를 입력해도 셀이 쪼개지지 않는다 (#755)', as
   await page.keyboard.press('End')
   await page.keyboard.type('|긴급')
 
-  const lines = await savedTableLines(puts)
+  const lines = await savedTableLines(page, '긴급')
   // 이스케이프되지 않으면 이 행만 3칸이 되어 열 수가 어긋난다.
   expect(lines[3]).toBe('| 배포\\|긴급 | 이 |')
   expect(lines.join('\n')).not.toContain('<table')
@@ -182,10 +187,10 @@ test('우클릭 메뉴 — 셀에서 열리고 표 밖에서는 열리지 않는
   await expect(page.getByTestId('wiki-table-context-menu')).toHaveCount(0)
 })
 
-test('삽입 → 열 추가 → 저장 → 저장본으로 재로드까지 표가 보존된다', async ({
+test('삽입 → 열 추가 → 저장 → 새로고침해 저장본을 다시 받아도 표가 보존된다', async ({
   authenticatedPage: page,
 }) => {
-  const puts = await setup(page, '')
+  await setup(page, '')
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
 
@@ -202,31 +207,19 @@ test('삽입 → 열 추가 → 저장 → 저장본으로 재로드까지 표�
   await page.getByTestId('wiki-table-cmd-addColumnAfter').click()
   await expect(page.locator('.ProseMirror table th')).toHaveCount(5)
 
-  // 3) 저장 payload 가 5열 GFM 표인가
-  // 타이핑→열추가→클릭→타이핑 사이에 디바운스 자동저장이 여러 번 발화할 수 있어
-  // "저장이 1건 이상"만 기다리면 아직 'A' 가 반영되기 전의 중간 payload를 잡을 수
-  // 있다(병렬 워커 부하 시 관찰됨). 최종 형태(5열 구분선 + 'A' 포함)로 수렴할
-  // 때까지 폴링한다.
+  // 3) 저장본이 5열 GFM 표인가 — 마지막 입력 'A' 가 저장본에 닿으면 앞선 삽입·열 추가도 반영돼 있다.
   await page.locator('.ProseMirror td').first().click()
   await page.keyboard.type('A')
-  await expect
-    .poll(() => lastSaved(puts).split('\n').filter((l) => l.trim().startsWith('|')))
-    .toEqual(expect.arrayContaining([expect.stringContaining('A')]))
-  const lines = lastSaved(puts).split('\n').filter((l) => l.trim().startsWith('|'))
+  const lines = await savedTableLines(page, '| A')
   const delimiter = lines.find((l) => l.includes('---'))!
   expect(delimiter.split('---')).toHaveLength(6) // 5열
   expect(lines).toHaveLength(3) // 헤더 + 구분 + 본문 1
   expect(lines[0]).toContain('항목')
   // HTML 폴백으로 새지 않았는지 — <table 이 있으면 GFM 직렬화가 깨진 것이다.
-  expect(lastSaved(puts)).not.toContain('<table')
+  expect(await savedMarkdown(page, PAGE_ID)).not.toContain('<table')
 
-  // 4) 저장본을 그대로 다시 로드해 셀 단위로 확인
-  // page.unrouteAll 은 auth.fixture 가 심어둔 인증 스텁(/users/me 등)까지 제거해
-  // 재로드 시 로그인 화면으로 튕긴다 — 새 setup() 을 다시 등록해 페이지 라우트만
-  // LIFO 로 덮어쓴다(Playwright route 매칭은 마지막 등록이 우선).
-  const persisted = lastSaved(puts)
-  await setup(page, persisted)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  // 4) 새로고침 — 에디터가 동기화 서버의 저장본을 다시 받아 오므로 셀 단위로 그대로 보여야 한다.
+  await page.reload()
   const t = page.locator('.ProseMirror table')
   await expect(t.locator('th')).toHaveCount(5)
   await expect(t.locator('th').first()).toHaveText('항목')

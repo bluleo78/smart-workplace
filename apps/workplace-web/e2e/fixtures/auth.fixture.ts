@@ -1,9 +1,10 @@
-import { type Page, test as base } from '@playwright/test'
+import { type BrowserContext, type Page, test as base } from '@playwright/test'
 
 import type { TokenResponse, UserResponse } from '../../src/types/auth'
 import type { RoleResponse } from '../../src/types/role'
 import { createTokenResponse, createUser } from '../factories/auth.factory'
 import { mockApi } from './api-mock'
+import { injectCollabNamespace } from './collab'
 
 // 인증 모킹 fixture.
 // - 실제 백엔드 없이 인증된 상태 / 관리자 권한 상태의 page 를 제공.
@@ -19,7 +20,7 @@ const MOCK_ADMIN_ROLE: RoleResponse = {
   id: 1, name: 'ADMIN', description: '시스템 관리자', isSystem: true,
 }
 
-async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleResponse[], token: TokenResponse) {
+export async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleResponse[], token: TokenResponse) {
   // 애니메이션/트랜지션 전역 비활성화 — Radix 다이얼로그·hover 툴바·Sonner 토스트의 전환이
   // Playwright actionability 의 "element is not stable" 을 유발해(부하 시 hover 가 풀리기 전에
   // 클릭을 못 끝냄) 비결정적 플래키의 큰 축이었다. 모든 페이지/네비게이션에 주입한다.
@@ -242,9 +243,39 @@ async function setupAuthMocks(page: Page, user: UserResponse, roles: RoleRespons
 type AuthFixtures = {
   authenticatedPage: Page
   adminPage: Page
+  /**
+   * 노트 동시 편집 문서 네임스페이스(WP-172) — 테스트마다 고유. 모든 테스트 컨텍스트에 자동 주입되어
+   * (localStorage 'e2e:collabNs') 병렬 worker·프로젝트·재시도가 동기화 서버의 같은 문서를 공유하지 않는다.
+   */
+  collabNs: string
+  /** 같은 사용자로 로그인된 두 번째 브라우저 컨텍스트의 page — 같은 collabNs 문서에 붙는다(동시 편집 시나리오). */
+  newAuthedPage: () => Promise<Page>
 }
 
 export const test = base.extend<AuthFixtures>({
+  // auto — 노트를 열지 않는 테스트도 비용이 initScript 1개뿐이고, 노트를 여는 모든 spec 이 따로 요청하지 않아도 격리된다.
+  // 문서 이름 규칙([^/]+)에 맞게 '/' 등은 '-' 로 바꾼다. 프로젝트·재시도까지 넣어 재시도가 이전 시도의 편집을 이어받지 않게 한다.
+  collabNs: [
+    async ({ context }, use, testInfo) => {
+      const ns = `${testInfo.project.name}-${testInfo.testId}-r${testInfo.retry}-${testInfo.repeatEachIndex}`.replace(/[^\w-]/g, '-')
+      await injectCollabNamespace(context, ns)
+      await use(ns)
+    },
+    { auto: true },
+  ],
+  newAuthedPage: async ({ browser, collabNs }, use) => {
+    const contexts: BrowserContext[] = []
+    await use(async () => {
+      // browser.newContext() 는 테스트 러너가 config 의 use(baseURL·뷰포트·serviceWorkers 등)를 기본값으로 넣어 준다.
+      const ctx = await browser.newContext()
+      contexts.push(ctx)
+      await injectCollabNamespace(ctx, collabNs)
+      const page = await ctx.newPage()
+      await setupAuthMocks(page, createUser({ aiAvailable: true }), [MOCK_USER_ROLE], createTokenResponse())
+      return page
+    })
+    for (const ctx of contexts) await ctx.close()
+  },
   authenticatedPage: async ({ page }, use) => {
     // aiAvailable:true — 기존 AI affordance 테스트들이 칩/카드를 기대하므로 기본 활성.
     await setupAuthMocks(page, createUser({ aiAvailable: true }), [MOCK_USER_ROLE], createTokenResponse())

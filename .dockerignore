@@ -48,3 +48,8 @@ snapshots/
 **/*.jar
 **/*.war
 **/.gradle/
+
+# 노트 동기화 서버(WP-288) — 로컬 비밀(.env*)과 드라이런 결과(out/, 실제 노트 내용)가 이미지에 들어가지 않게.
+apps/workplace-collab/.env
+apps/workplace-collab/.env.local
+apps/workplace-collab/out/

@@ -1,7 +1,6 @@
 // 위키 REST API client. 모든 함수는 AxiosResponse 반환 — 호출처에서 .data unwrap.
 
 import type {
-  SavePageRequest,
   WikiAttachment,
   WikiBacklinksResponse,
   WikiMember,
@@ -35,8 +34,9 @@ export const wikiApi = {
     client.post<WikiPageDetail>(`/wiki/spaces/${spaceId}/pages`, { parentId, title }),
 
   getPage: (pageId: number) => client.get<WikiPageDetail>(`/wiki/pages/${pageId}`),
-  savePage: (pageId: number, req: SavePageRequest) =>
-    client.put<WikiPageDetail>(`/wiki/pages/${pageId}`, req),
+  // 제목만 저장 — 본문은 동기화 서버(Yjs)가 원본이라 웹은 본문을 REST 로 보내지 않는다(WP-287). body:null 은 서버 계약상 "본문 유지".
+  savePageTitle: (pageId: number, title: string) =>
+    client.put<WikiPageDetail>(`/wiki/pages/${pageId}`, { title, body: null }),
   movePage: (pageId: number, parentId: number | null, position: number) =>
     client.patch<void>(`/wiki/pages/${pageId}/move`, { parentId, position }),
   deletePage: (pageId: number) => client.delete<void>(`/wiki/pages/${pageId}`),

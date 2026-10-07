@@ -201,7 +201,13 @@ test.describe('IssueCommentList @멘션 자동완성 (#785)', () => {
     await page.keyboard.press('End');
     await page.keyboard.type(' @tester');
     await expect(page.getByTestId('chat-mention-popover')).toBeVisible();
-    await page.getByTestId('chat-mention-option-1').click();
+    // 후보를 누르는 순간에도 입력창이 포커스를 잃지 않는다(WP-302) — mousedown 기본 동작은 동기라 즉시 확인한다.
+    await page.getByTestId('chat-mention-option-1').hover();
+    await page.mouse.down();
+    expect(
+      await page.evaluate(() => !!document.activeElement?.closest('[data-testid="issue-comment-edit-input"]')),
+    ).toBe(true);
+    await page.mouse.up();
 
     await page.getByTestId('issue-comment-edit-save').click();
 

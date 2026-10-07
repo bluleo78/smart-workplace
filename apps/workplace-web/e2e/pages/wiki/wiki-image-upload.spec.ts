@@ -6,7 +6,9 @@
 import type { Page } from '@playwright/test'
 import type { WikiPageDetail } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { seedCollabFor } from '../../fixtures/collab'
 import { trackRequests } from '../../fixtures/requests'
+import { pasteImageFile, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 12
@@ -22,6 +24,8 @@ const PNG = Buffer.from(
 
 // wiki-image.spec.ts(#750)와 동일 패턴 — 에디터 진입에 필요한 스페이스/트리/멤버/상세 라우트.
 async function setup(page: Page, body: string) {
+  // 에디터 본문·역할은 동기화 서버 문서에서 온다(WP-172) — 모킹한 상세 본문·스페이스 역할과 같게 시드한다.
+  await seedCollabFor(page, PAGE_ID, body)
   await page.route(
     (u) => u.pathname === '/api/v1/wiki/spaces',
     (r) =>
@@ -92,19 +96,6 @@ async function stubUpload(page: Page, status: 201 | 500) {
   await page.route(CONTENT_PATH, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
 }
 
-// 클립보드에 이미지 파일을 담아 .ProseMirror 에 paste 이벤트를 디스패치한다(handlePaste 진입점).
-async function pasteImageFile(page: Page, mimeType: string, name: string) {
-  await page.locator('.ProseMirror').evaluate(
-    (el, args) => {
-      const file = new File([new Uint8Array([1, 2, 3])], args.name, { type: args.mimeType })
-      const dt = new DataTransfer()
-      dt.items.add(file)
-      el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }))
-    },
-    { mimeType, name },
-  )
-}
-
 // 클립보드에 이미지 파일과 텍스트를 동시에 담아 paste 이벤트를 디스패치한다 — 엑셀/워드에서
 // 셀 범위를 복사하면 렌더링된 image/png 와 text/plain 이 함께 클립보드에 실리는 혼합 붙여넣기를
 // 재현한다(핵심 회귀: 이 경우 기본 붙여넣기를 막으면 텍스트가 통째로 사라진다).
@@ -151,10 +142,9 @@ test.describe('노트 본문 이미지 업로드', () => {
     await expect(img).toHaveAttribute('src', /^blob:/)
   })
 
-  test('저장 payload 의 마크다운에 원본 API 경로가 담긴다', async ({ authenticatedPage: page }) => {
+  test('저장본 마크다운에 원본 API 경로가 담긴다', async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
-    const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${PAGE_ID}`)
     await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
     await expect(page.locator('.ProseMirror')).toBeVisible()
 
@@ -162,12 +152,10 @@ test.describe('노트 본문 이미지 업로드', () => {
     await pasteImageFile(page, 'image/png', 'pasted.png')
     await expect(page.getByTestId('wiki-image')).toBeVisible()
 
-    // 이미지 삽입 자체는 wikiImageUploadPlaceholder 메타가 없는 정상 트랜잭션이라 자동저장이 발화한다.
-    await expect(page.getByTestId('wiki-save-state')).toHaveText('저장됨', { timeout: 5000 })
-
-    // 0건이면 아래 인덱싱이 공허하게 통과한다 — 반드시 먼저 가드.
-    expect(puts.count()).toBeGreaterThan(0)
-    expect(puts.lastBody<{ body: string }>()?.body).toContain(`](${CONTENT_PATH})`)
+    // 업로드가 끝나 이미지 노드로 바뀐 문서가 동기화 서버에 저장된다(WP-172) — 화면용 blob URL 이 아니라
+    // 원본 API 경로가 마크다운에 담겨야 다른 접속자·새로고침에서도 이미지가 보인다.
+    await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain(`](${CONTENT_PATH})`)
+    expect(await savedMarkdown(page, PAGE_ID)).not.toContain('blob:')
   })
 
   test('업로드 실패 시 자리표시자가 사라지고 에러 토스트가 뜬다', async ({ authenticatedPage: page }) => {

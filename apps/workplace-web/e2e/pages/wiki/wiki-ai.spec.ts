@@ -12,9 +12,10 @@
 import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { seedCollabFor } from '../../fixtures/collab'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays, measureBox, stableBox } from '../../fixtures/wait'
-import { buildWikiAiSse } from '../../fixtures/wiki-mock'
+import { buildWikiAiSse, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 300
@@ -48,6 +49,8 @@ function pageDetail(body = ''): WikiPageDetail {
 // 공통 모킹: 스페이스(역할 가변) + 트리 + 페이지 GET/PUT(자동저장).
 // body: 페이지 본문 초기값(기본 빈 문자열). 시각검증·placeholder 테스트에서 실데이터 길이를 주입한다.
 async function setupWikiMocks(page: Page, role: WikiRole, body = '') {
+  // 에디터 본문·역할은 동기화 서버 문서에서 온다(WP-172) — 모킹한 상세 본문·스페이스 역할과 같게 시드한다.
+  await seedCollabFor(page, PAGE_ID, body, role)
   await page.route(
     (url) => url.pathname === '/api/v1/wiki/spaces',
     (route) =>
@@ -809,35 +812,10 @@ test('위키 변형 — 텍스트 선택은 이미지가 함께 있는 페이지
 // 정책(2026-09-08 사람 결정): 메일 컴포저(MailComposer.tsx)에 이미 있는 버튼 세트를 노트
 // 버블 툴바로 이식(굵게/기울임/제목1/제목2/불릿목록/인용) + 슬래시 메뉴에 블록 타입 6종 추가.
 
-test('위키 서식 — 선택 텍스트에 굵게 적용 후 저장/재조회에도 유지된다 (#687)', { tag: '@smoke' }, async ({
+test('위키 서식 — 선택 텍스트에 굵게 적용 후 저장/새로고침에도 유지된다 (#687)', { tag: '@smoke' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
-
-  // 자동저장 PUT 의 body 를 가로채 저장해 두고, 이후 GET 은 그 body 를 돌려준다(재조회 시뮬).
-  // setupWikiMocks 가 먼저 등록한 라우트를 이 라우트가 가로채고, savedBody 가 없을 때만
-  // fallback 으로 원래 핸들러에 위임한다(Playwright 는 나중 등록 라우트가 먼저 실행됨).
-  const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${PAGE_ID}`)
-  // 재조회 응답을 결정하는 상태 — 단언은 puts 로 읽는다.
-  let savedBody: string | null = null
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/pages/${PAGE_ID}`,
-    (route) => {
-      const method = route.request().method()
-      if (method === 'PUT') {
-        savedBody = (route.request().postDataJSON() as { body: string }).body
-        return route.fallback()
-      }
-      if (method === 'GET' && savedBody !== null) {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(pageDetail(savedBody)),
-        })
-      }
-      return route.fallback()
-    },
-  )
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -857,10 +835,10 @@ test('위키 서식 — 선택 텍스트에 굵게 적용 후 저장/재조회�
   // 툴바에서 버튼이 즉시 활성(pressed) 상태로 토글 표시돼야 한다.
   await expect(boldBtn).toHaveAttribute('aria-pressed', 'true')
 
-  // 자동저장(800ms debounce) 완료 대기 — markdown 직렬화 결과에 굵게(**)가 담긴다.
-  await expect.poll(() => puts.lastBody<{ body: string }>()?.body).toContain('**굵게 만들 문장**')
+  // 실시간 동기화 저장(WP-172) — 동기화 서버 문서의 markdown 직렬화 결과에 굵게(**)가 담긴다.
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe('**굵게 만들 문장**')
 
-  // 저장 후 재조회해도 굵게 서식이 유지된다.
+  // 새로고침하면 에디터가 동기화 서버 문서를 다시 받아 오는데, 그래도 굵게 서식이 유지된다.
   await page.reload()
   await expect(page.locator('.ProseMirror')).toBeVisible()
   await expect(page.locator('.ProseMirror strong')).toContainText('굵게 만들 문장')
@@ -912,10 +890,10 @@ test('위키 서식 — 스페이스 권한이 에디터보다 늦게 와도 선
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   const editor = page.locator('.ProseMirror')
-  // 권한 확정 전엔 읽기 전용(fail-closed)으로 먼저 마운트된다 — 그 뒤에 권한을 내려보낸다.
-  await expect(editor).toHaveAttribute('contenteditable', 'false')
-  releaseSpaces()
+  // 본문 편집 가능 여부는 동기화 서버가 알려 준 역할이 최종이다(WP-172) — 스페이스 권한이 아직 없어도 첫 동기화 뒤엔
+  // 편집 가능으로 마운트된다. 툴바(서식·AI)는 스페이스 권한을 보므로, 권한을 늦게 내려보내도 선택하면 뜨는지 본다.
   await expect(editor).toHaveAttribute('contenteditable', 'true')
+  releaseSpaces()
   await typeAndSelectAll(page, '늦게 온 권한')
 
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()

@@ -1,0 +1,109 @@
+import { describe, expect, it } from 'vitest'
+
+import { deriveBodyState, deriveSyncStatus, effectiveReadOnly, isEditRole, parseRoleMessage } from './collabStatus'
+
+// 헤더 상태 칩 판정 — 시안 collab-states/mobile-ux 의 ①~④.
+describe('deriveSyncStatus', () => {
+  const base = { connected: true, disconnectedForMs: 0, unsynced: false, readOnly: false }
+  it('live when connected', () => expect(deriveSyncStatus(base)).toBe('live'))
+  it('live when connected even with in-flight edits', () =>
+    expect(deriveSyncStatus({ ...base, unsynced: true })).toBe('live'))
+  it('readonly wins over everything', () =>
+    expect(deriveSyncStatus({ ...base, connected: false, unsynced: true, readOnly: true })).toBe('readonly'))
+  it('reconnecting for short drops', () =>
+    expect(deriveSyncStatus({ ...base, connected: false, disconnectedForMs: 2000 })).toBe('reconnecting'))
+  it('reconnecting just below the 5s threshold', () =>
+    expect(deriveSyncStatus({ ...base, connected: false, disconnectedForMs: 4999 })).toBe('reconnecting'))
+  it('offline at exactly 5s', () =>
+    expect(deriveSyncStatus({ ...base, connected: false, disconnectedForMs: 5000 })).toBe('offline'))
+  it('offline after 5s without local edits', () =>
+    expect(deriveSyncStatus({ ...base, connected: false, disconnectedForMs: 6000 })).toBe('offline'))
+  it('unsent when disconnected with local edits', () =>
+    expect(deriveSyncStatus({ ...base, connected: false, disconnectedForMs: 1000, unsynced: true })).toBe('unsent'))
+  it('unsent stays unsent long after the drop', () =>
+    expect(deriveSyncStatus({ ...base, connected: false, disconnectedForMs: 60_000, unsynced: true })).toBe('unsent'))
+  it('forbidden is terminal and wins over readonly', () =>
+    expect(deriveSyncStatus({ ...base, connected: false, unsynced: true, readOnly: true, forbidden: true })).toBe(
+      'forbidden',
+    ))
+  it('a lost login is terminal and wins over everything', () =>
+    expect(
+      deriveSyncStatus({ ...base, connected: false, unsynced: true, readOnly: true, everSynced: false, authLost: true }),
+    ).toBe('signed-out'))
+  it('forbidden=false behaves as omitted', () =>
+    expect(deriveSyncStatus({ ...base, forbidden: false })).toBe('live'))
+  // 처음 붙는 중(첫 동기화 전) — 중립 '연결 중'. 권한 로딩 중의 화면 readOnly 나 '재연결 중' 경고를 띄우지 않는다.
+  it('connecting before the first sync, even while the UI role is still read-only', () =>
+    expect(
+      deriveSyncStatus({ ...base, connected: false, disconnectedForMs: 1000, readOnly: true, everSynced: false }),
+    ).toBe('connecting'))
+  it('offline when the first sync has not happened for 5s', () =>
+    expect(deriveSyncStatus({ ...base, connected: false, disconnectedForMs: 5000, everSynced: false })).toBe('offline'))
+  it('forbidden wins over connecting', () =>
+    expect(deriveSyncStatus({ ...base, connected: false, everSynced: false, forbidden: true })).toBe('forbidden'))
+  it('a drop after the first sync is reconnecting, not connecting', () =>
+    expect(deriveSyncStatus({ ...base, connected: false, disconnectedForMs: 1000, everSynced: true })).toBe(
+      'reconnecting',
+    ))
+})
+
+describe('isEditRole', () => {
+  it('OWNER and EDITOR can edit', () => {
+    expect(isEditRole('OWNER')).toBe(true)
+    expect(isEditRole('EDITOR')).toBe(true)
+  })
+  it('anything else is read-only (fail-closed)', () => {
+    expect(isEditRole('VIEWER')).toBe(false)
+    expect(isEditRole('editor')).toBe(false)
+    expect(isEditRole('')).toBe(false)
+  })
+})
+
+describe('parseRoleMessage', () => {
+  it('reads the role from a collab:role message', () =>
+    expect(parseRoleMessage('{"type":"collab:role","role":"VIEWER"}')).toBe('VIEWER'))
+  it('ignores other stateless types', () => expect(parseRoleMessage('{"type":"other","role":"VIEWER"}')).toBeNull())
+  it('ignores a missing or non-string role', () => {
+    expect(parseRoleMessage('{"type":"collab:role"}')).toBeNull()
+    expect(parseRoleMessage('{"type":"collab:role","role":3}')).toBeNull()
+  })
+  it('ignores non-JSON payloads', () => {
+    expect(parseRoleMessage('not json')).toBeNull()
+    expect(parseRoleMessage('null')).toBeNull()
+  })
+})
+
+describe('effectiveReadOnly', () => {
+  it('falls back to the prop before the server says anything', () => {
+    expect(effectiveReadOnly({ propReadOnly: true, serverReadOnly: null })).toBe(true)
+    expect(effectiveReadOnly({ propReadOnly: false, serverReadOnly: null })).toBe(false)
+  })
+  it('VIEWER demotion makes an editor read-only', () =>
+    expect(effectiveReadOnly({ propReadOnly: false, serverReadOnly: true })).toBe(true))
+  it('EDITOR promotion re-enables editing even when the prop said read-only', () =>
+    expect(effectiveReadOnly({ propReadOnly: true, serverReadOnly: false })).toBe(false))
+  it('a session that lost its login is never editable', () =>
+    expect(effectiveReadOnly({ propReadOnly: false, serverReadOnly: false, authLost: true })).toBe(true))
+  it('a forbidden document is never editable', () =>
+    expect(effectiveReadOnly({ propReadOnly: false, serverReadOnly: false, forbidden: true })).toBe(true))
+})
+
+// 본문 자리 — 첫 동기화 전 skeleton 이 영영 남지 않게, 연결을 못 한 채 오프라인이 되면 안내로 바꾼다.
+describe('deriveBodyState', () => {
+  it('shows the body once synced, even while offline later', () => {
+    expect(deriveBodyState({ everSynced: true, forbidden: false, status: 'live' })).toBe('ready')
+    expect(deriveBodyState({ everSynced: true, forbidden: false, status: 'offline' })).toBe('ready')
+  })
+
+  it('keeps the skeleton while the first connection is still in progress', () => {
+    expect(deriveBodyState({ everSynced: false, forbidden: false, status: 'connecting' })).toBe('loading')
+  })
+
+  it('explains instead of a skeleton once the first connection has gone offline', () => {
+    expect(deriveBodyState({ everSynced: false, forbidden: false, status: 'offline' })).toBe('unreachable')
+  })
+
+  it('leaves forbidden to its own notice', () => {
+    expect(deriveBodyState({ everSynced: false, forbidden: true, status: 'forbidden' })).toBe('ready')
+  })
+})

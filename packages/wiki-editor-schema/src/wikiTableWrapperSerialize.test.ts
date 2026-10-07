@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-//
 // #754 부수효과 고정 — renderWrapper:true 를 켜면 Table 의 renderHTML 이 div.tableWrapper 를
 // 함께 내보내므로, GFM 으로 표현 못 하는 표(병합 셀 등)의 raw HTML 폴백 저장본에 래퍼 div 가
 // 섞인다. 우리 UI 는 병합 셀을 만들 수 없어 이 경로는 외부 입력(AI·MCP 가 쓴 본문)에서만 생기며,
@@ -13,7 +11,7 @@ import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from 'tiptap-markdown'
 import { describe, expect, it } from 'vitest'
 
-import { WikiMarkdownText } from './wikiMarkdownText'
+import { WikiMarkdownText } from './markdownText'
 
 function roundtrip(content: string): string {
   const editor = new Editor({

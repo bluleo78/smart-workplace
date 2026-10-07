@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { wikiApi } from '../../api/wiki'
 import { extractApiError } from '../../lib/api-error'
 import { clipboardHasText, INVALID_IMAGE_MSG, isValidImageFile } from '../../lib/imageUpload'
+import { startUploadPlaceholder } from './wikiUploadPlaceholder'
 
 // 형식·크기 검사와 클립보드 텍스트 판정은 이슈 본문 업로드와 공용(lib/imageUpload).
 const DATA_URI_REJECTED_MSG = '붙여넣은 이미지를 사용할 수 없습니다.'
@@ -28,14 +29,24 @@ async function extractDataUriFiles(html: string): Promise<File[]> {
   return files
 }
 
-let placeholderCounter = 0
+// 페이지별 살아 있는 에디터 뷰(WP-287). 업로드 중 에디터가 재마운트(WP-162 lg 경계 셸 전환)되면 옛 뷰는 파괴됐어도
+// 같은 문서를 가진 새 뷰에서 마무리해야 이미지가 사라지지 않는다(자리는 Yjs 상대 위치로 새 뷰에서 다시 푼다).
+const liveViews = new Map<number, EditorView>()
+
+/** WikiEditor 가 마운트한 뷰를 등록한다. 반환 함수로 해제(같은 뷰일 때만). */
+export function registerWikiEditorView(pageId: number, view: EditorView): () => void {
+  liveViews.set(pageId, view)
+  return () => {
+    if (liveViews.get(pageId) === view) liveViews.delete(pageId)
+  }
+}
 
 /**
  * 노트 본문 이미지 업로드 — 붙여넣기/드래그드롭 공용.
  *
- * <p>업로드 중에는 자리표시자 텍스트를 넣고, 완료되면 그 자리를 실제 이미지 노드로 바꾼다.
- * 위치는 좌표가 아니라 문서 변화에 따라간 자리표시자 텍스트를 다시 찾아 계산한다 —
- * 업로드 중 사용자가 계속 타이핑하면 원래 좌표가 밀리기 때문이다.
+ * <p>업로드 중에는 내 화면에만 자리표시자(로컬 데코레이션, wikiUploadPlaceholder)를 띄우고, 완료되면 그 자리에 실제 이미지
+ * 노드를 일반 편집으로 넣는다. 자리표시자는 공유 문서에 들어가지 않으므로 다른 사람에게 보이거나 본문에 저장되지 않는다(WP-295).
+ * 위치는 좌표가 아니라 문서 변화(내 입력·다른 사람의 편집)를 따라간 자리로 계산한다.
  *
  * @param canEditRef VIEWER 는 서버가 403 으로 거부하지만, 그 전에 클라이언트에서 조용히 막아
  *   "업로드에 실패했습니다" 같은 오해의 소지 있는 에러를 보이지 않게 한다(UX 전용 — 서버가
@@ -52,87 +63,60 @@ export function useWikiImageUpload(pageId: number, canEditRef: { current: boolea
     pageIdRef.current = pageId
   })
 
-  // 자리표시자 텍스트를 넣고, 업로드가 끝나면 문서에서 그 텍스트를 다시 찾아 image 노드로 교체.
-  // 좌표를 기억하지 않는 이유는 위 JSDoc 참조 — autosave debounce(800ms) 동안 사용자가 계속
-  // 타이핑하면 기억해둔 좌표가 밀려 엉뚱한 위치를 교체하게 된다.
-  const uploadOne = useCallback(async (view: EditorView, file: File) => {
-    const placeholder = `⏳ 이미지 업로드 중… #${++placeholderCounter}`
-    const insertTr = view.state.tr.insertText(placeholder, view.state.selection.from)
-    // 자리표시자는 사용자 콘텐츠가 아니다 — WikiEditor.tsx 의 자동저장 update 핸들러가 이 메타를
-    // 보고 저장을 건너뛴다(wikiMentionHydrate 와 동일 패턴). 성공/실패 시의 교체·삭제 트랜잭션은
-    // 표시하지 않는다 — 그건 실제 콘텐츠 변화이므로 정상적으로 자동저장돼야 한다.
-    // (잔여 위험: 업로드 중 사용자가 추가로 타이핑하면 그 트랜잭션은 표시되지 않은 채 저장되고,
-    //  그 시점 문서에 자리표시자 텍스트가 아직 있다면 함께 저장된다. 심지어 붙여넣기 *직전*에
-    //  이미 타이핑해 scheduleSave 타이머가 걸려 있었다면(단일 debounce 타이머라 자리표시자 삽입이
-    //  그 타이머를 리셋하지 않는다) 붙여넣은 뒤 아무것도 안 쳐도 ~800ms 후 그 타이머가 발화해
-    //  자리표시자가 그대로 저장될 수 있다(N3). 혼합 붙여넣기(텍스트+이미지, Blocker 픽스)는 이
-    //  위험을 실질적으로 더 키운다 — PM 이 텍스트를 삽입하는 트랜잭션은 메타 표시가 없는 일반
-    //  트랜잭션이라, 순수 이미지 붙여넣기라면 전혀 타이머가 안 걸렸을 자리에 *모든* 혼합
-    //  붙여넣기가 이제 800ms 자동저장 타이머를 건다. 업로드가 800ms 를 넘기면 자리표시자를 포함한
-    //  본문이 저장된다 — 다음 저장에서 자연히 자가 치유되지만, 그 사이 탭을 닫으면 영구적이다.
-    //  데코레이션 위젯으로 자리표시자를 문서 밖에 렌더링하는 것만이 근본 해결책이고 메타-스킵
-    //  설계로는 못 고친다 — 지금은 이 잔여 위험을 감수한다.)
-    insertTr.setMeta('wikiImageUploadPlaceholder', true)
-    view.dispatch(insertTr)
+  // 자리표시자(로컬 데코레이션)를 띄우고, 업로드가 끝나면 문서 변화를 따라간 그 자리에 image 노드를 넣는다.
+  const uploadOne = useCallback(async (startView: EditorView, file: File) => {
+    const uploadPageId = pageIdRef.current
+    const spot = startUploadPlaceholder(startView, startView.state.selection.from)
 
-    // 문서에서 자리표시자 텍스트를 다시 찾아 [from, to) 범위를 반환. 못 찾으면 null(사용자가 지움).
-    const findPlaceholder = (): { from: number; to: number } | null => {
-      let found: { from: number; to: number } | null = null
-      view.state.doc.descendants((node, pos) => {
-        if (found || !node.isText || !node.text) return true
-        const idx = node.text.indexOf(placeholder)
-        if (idx === -1) return true
-        found = { from: pos + idx, to: pos + idx + placeholder.length }
-        return false
-      })
-      return found
+    // 마무리할 뷰 — 시작한 뷰가 살아 있으면 그대로, 재마운트로 파괴됐으면 같은 페이지의 새 뷰.
+    // 파괴된 뷰에 dispatch 하면 TypeError 가 나서 toast 도 못 띄우고 조용히 죽는다.
+    const currentView = (): EditorView | null => {
+      if (!startView.isDestroyed) return startView
+      const v = liveViews.get(uploadPageId)
+      return v && !v.isDestroyed ? v : null
     }
 
+    let res: Awaited<ReturnType<typeof wikiApi.uploadAttachment>>
     try {
-      const res = await wikiApi.uploadAttachment(pageIdRef.current, file)
-      // WikiPageView 는 key={page.id} 로 리마운트된다 — 업로드 중 다른 페이지로 이동하면 이 view 는
-      // 파괴된 상태로 남는다. 파괴된 view 에 dispatch 하면 TypeError 가 나서 catch 로 떨어지고,
-      // catch 가 다시 dispatch 해 재차 throw 하며 toast 도 못 띄우고 조용히 죽는다.
-      if (view.isDestroyed) return
-      const range = findPlaceholder()
-      if (!range) {
-        // 자리표시자를 못 찾음 — 사용자가 지웠을 수도 있지만, 커서가 자리표시자 안에 들어가
-        // 한 글자를 치거나 IME 조합이 그 안에서 일어나 텍스트가 "변형"됐을 수도 있다. 후자면
-        // 업로드는 이미 서버에서 성공했는데 이미지가 문서에 들어가지 못하고 아무 알림도 없이
-        // 사라진다(invariant 1 위반, Fix 2). 의도적으로 지운 경우엔 toast 가 다소 거슬리지만,
-        // 업로드된 이미지를 무음으로 잃는 쪽이 훨씬 나쁘다. warning 을 쓰는 이유는 이 경로의
-        // 다수가 사용자 스스로의 undo/편집이 원인이라 error 의 빨간 스타일이 "고장났다"는
-        // 인상을 과하게 줄 수 있어서다.
-        toast.warning('업로드한 이미지를 넣을 위치를 찾지 못했습니다.')
-        return
-      }
-      try {
-        const tr = view.state.tr.replaceWith(
-          range.from,
-          range.to,
-          view.state.schema.nodes.image.create({ src: res.data.url, alt: file.name }),
-        )
-        view.dispatch(tr)
-      } catch {
-        // 자리표시자 위치가 image 노드를 허용하지 않는 콘텐츠(예: 코드블록)로 바뀐 경우 —
-        // 업로드 자체는 성공했으므로 "업로드 실패" 로 보고하면 안 된다(별도 메시지).
-        // toast 를 dispatch 보다 먼저 호출한다(N1) — 뒤에 두면 delete dispatch 가 던질 때
-        // toast 가 아예 실행되지 않고 예외만 위로 샌다.
-        toast.error('여기에는 이미지를 삽입할 수 없습니다.')
-        const stale = findPlaceholder()
-        if (stale) view.dispatch(view.state.tr.delete(stale.from, stale.to))
-      }
+      res = await wikiApi.uploadAttachment(uploadPageId, file)
     } catch (err) {
-      if (view.isDestroyed) return
-      // toast 를 dispatch 보다 먼저 호출한다(N1) — 같은 이유. view 가 살아있는데 delete dispatch
-      // 자체가 던지면(예: range 가 그새 무효화) 순서가 반대였을 경우 실패 toast 가 통째로 사라진다.
       // 서버가 보낸 구체적 사유(409 페이지당 첨부 상한, 400 매직바이트 판정 거부 등)가 있으면
       // 그대로 보여준다 — 전부 뭉뚱그리면 사용자가 왜 실패했는지 알 방법이 없다(Minor).
       toast.error(extractApiError(err, '이미지 업로드에 실패했습니다.'))
-      const range = findPlaceholder()
-      if (range) {
-        view.dispatch(view.state.tr.delete(range.from, range.to))
-      }
+      const view = currentView()
+      if (view) spot.remove(view)
+      return
+    }
+    // 이 페이지를 떠나 열린 뷰가 없으면 마무리할 수 없다 — 이미지를 조용히 잃지 않게 알린다.
+    // 자리표시자는 화면에만 있었으므로 문서에 남는 것은 없다.
+    const view = currentView()
+    if (!view) {
+      toast.warning('노트를 떠나 업로드한 이미지를 넣지 못했습니다.')
+      return
+    }
+    // 업로드 중 읽기 전용으로 바뀌었으면(VIEWER 강등) 넣지 않는다 — 서버가 받지 않는 편집이라 내 화면만 어긋난다.
+    if (!view.editable) {
+      spot.remove(view)
+      toast.warning('편집 권한이 없어 업로드한 이미지를 넣지 못했습니다.')
+      return
+    }
+    const pos = spot.position(view)
+    if (pos == null) {
+      // 자리를 풀 수 없음(재마운트된 뷰에 동기화 정보가 없는 예외 상황) — 업로드는 이미 서버에서 성공했으므로
+      // 이미지를 조용히 잃지 않게 알린다.
+      spot.remove(view)
+      toast.warning('업로드한 이미지를 넣을 위치를 찾지 못했습니다.')
+      return
+    }
+    try {
+      // 이미지 삽입과 자리표시자 걷기를 한 트랜잭션으로 — 사이에 깜빡임이 없다.
+      const tr = spot.removeIn(view.state.tr).insert(pos, view.state.schema.nodes.image.create({ src: res.data.url, alt: file.name }))
+      view.dispatch(tr)
+    } catch {
+      // 자리가 image 노드를 허용하지 않는 콘텐츠(예: 코드블록)로 바뀐 경우 — 업로드 자체는 성공했으므로
+      // "업로드 실패" 로 보고하면 안 된다(별도 메시지). toast 를 먼저 띄워 걷기가 던져도 알림은 남긴다(N1).
+      toast.error('여기에는 이미지를 삽입할 수 없습니다.')
+      spot.remove(view)
     }
   }, [])
 
@@ -142,11 +126,16 @@ export function useWikiImageUpload(pageId: number, canEditRef: { current: boolea
   const uploadSequential = useCallback(
     async (view: EditorView, files: File[]) => {
       for (const file of files) {
+        // 앞 파일 업로드 중 에디터가 재마운트됐으면 남은 파일은 넣을 커서 위치를 잃었다 — 조용히 버리지 않고 알린다.
+        if (view.isDestroyed) {
+          toast.warning('화면이 바뀌어 남은 이미지 업로드를 멈췄습니다.')
+          break
+        }
         try {
           await uploadOne(view, file)
         } catch {
           // uploadOne 은 API 실패·삽입 실패를 내부에서 이미 toast 로 알린다 — 여기서 잡는 건
-          // 그 처리 자체가 던지는 경우(예: 자리표시자 삽입 dispatch 가 파괴된 view 에서 실패)다.
+          // 그 처리 자체가 던지는 경우(예: 자리표시자 dispatch 가 파괴된 view 에서 실패)다.
           // 잡지 않으면 for 루프가 여기서 멈춰 나머지 파일들이 통째로 건너뛰어진다(N1).
         }
       }

@@ -1,5 +1,7 @@
 package com.workplace.wiki.service;
 
+import com.workplace.global.service.UserMentionHydrator;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.wiki.dto.CreatePageRequest;
 import com.workplace.wiki.dto.MovePageRequest;
 import com.workplace.wiki.dto.SavePageRequest;
@@ -10,31 +12,42 @@ import com.workplace.wiki.dto.WikiSearchResult;
 import com.workplace.wiki.exception.WikiConflictException;
 import com.workplace.wiki.exception.WikiInvalidMoveException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
+import com.workplace.wiki.outbound.CollabClient;
+import com.workplace.wiki.outbound.CollabClient.CollabApplyResult;
+import com.workplace.wiki.outbound.CollabProperties;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageAccessRevokedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageCreatedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageDeletedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageMovedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageUpdatedEvent;
 import com.workplace.wiki.repository.WikiPageRepository;
-import com.workplace.wiki.repository.WikiReferenceRepository;
 import com.workplace.wiki.repository.WikiRevisionRepository;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
-/** 위키 페이지 트리 + 낙관적 동시성 저장. 인가는 페이지의 공간 역할로 해석. */
+/** 위키 페이지 트리 + 저장. 인가는 페이지의 공간 역할로 해석. 동시 편집 도입 후 본문 저장은 동기화 서버로 위임한다(WP-285, {@link #save}). */
 @Service
 @RequiredArgsConstructor
 public class WikiPageService {
   private final WikiPageRepository pages;
   private final WikiRevisionRepository revisions;
   private final WikiPermissions perms;
-  private final WikiReferenceRepository references;
-  private final WikiReferenceParser refParser;
+  private final WikiBodyEffects bodyEffects;
   private final WikiAttachmentService attachments;
   private final ApplicationEventPublisher publisher;
+  private final CollabClient collab;
+  private final CollabProperties collabProps;
+  // WP-290 표시 이름 조회 — wiki 는 다른 도메인(user) 패키지를 import 하지 않으므로 global 하이드레이터를 쓴다(Task 3 와 동일).
+  private final UserMentionHydrator users;
+  // save() 는 트랜잭션 경계를 직접 나눈다(위임 중 행 잠금 금지) — TransactionTemplate 용.
+  private final PlatformTransactionManager txManager;
 
   /** 페이지 생성(말단 position). EDITOR 이상. */
   @Transactional
@@ -71,44 +84,131 @@ public class WikiPageService {
     return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
   }
 
-  /**
-   * 낙관적 동시성 저장. snapshot=true 면 직전 버전 상태를 wiki_revision 에 적재(명시 저장/세션 첫 편집). 자동저장은 snapshot=false 로
-   * 호출 → 리비전 미적재.
-   */
-  @Transactional
+  /** 사람(웹) 저장 — {@link #save(long, long, SavePageRequest, boolean)} 의 ai=false. */
   public WikiPageDetail save(long callerId, long pageId, SavePageRequest req) {
+    return save(callerId, pageId, req, false);
+  }
+
+  /**
+   * 노트 저장. 동시 편집 도입(WP-171) 후 규칙:
+   *
+   * <ul>
+   *   <li>제목만(body null): 버전 검사 없이 나중 값 우선(WP-290) — 파생 저장으로 version 이 수 초마다 올라 검사하면 409 가 잦다.
+   *   <li>본문 포함 + 동기화 서버 켜짐: 실시간 문서가 원본이므로 DB 를 직접 덮지 않고 동기화 서버에 적용을 위임한다(WP-285). DB 를 덮으면 다음 파생
+   *       저장이 그 변경을 지운다. 지금은 mode=replace 라 version 이 현재와 같을 때만 위임하고 다르면 기존처럼 409 — 3-way 병합은
+   *       WP-289(운영 배포는 그와 함께).
+   *   <li>본문 포함 + 동기화 서버 꺼짐(테스트·비상): 기존 낙관적 저장(version 필수, snapshot 지원).
+   * </ul>
+   *
+   * <p><b>트랜잭션 경계가 load-bearing 이다.</b> 이 메서드는 의도적으로 {@code @Transactional} 이 아니다. 위임 경로에서 동기화 서버는
+   * 응답 전에 이 API 의 {@code PUT /internal/wiki/pages/{id}/doc} 로 같은 wiki_page 행을 갱신한다. 제목 저장과 위임을 한
+   * 트랜잭션에 두면 제목 UPDATE 의 행 잠금을 쥔 채 그 콜백을 기다려 매 저장이 타임아웃까지 막힌다(구버전 웹·MCP 는 제목과 본문을 늘 함께 보낸다). 그래서 ①
+   * 권한 확인·제목 저장을 자기 트랜잭션으로 먼저 커밋하고 ② 트랜잭션 밖에서 위임한 뒤 ③ 읽기 트랜잭션으로 응답을 만든다. 위임이 실패하면 제목은 이미 커밋된 채 남고
+   * 본문 저장만 503 으로 실패한다(본문을 조용히 버리지 않는다).
+   *
+   * @param ai MCP·채팅 비서 등 AI 경로면 true — 동기화 서버가 ✦ 표시·스냅샷 귀속에 쓴다
+   */
+  public WikiPageDetail save(long callerId, long pageId, SavePageRequest req, boolean ai) {
+    boolean delegate = req.body() != null && collabProps.enabled();
+    TransactionTemplate tx = new TransactionTemplate(txManager);
+    if (!delegate) {
+      return tx.execute(s -> saveInTx(loadForEdit(callerId, pageId), callerId, req));
+    }
+
+    // 호출자가 트랜잭션을 열어 두었으면 ①이 거기에 합류해 제목 행 잠금이 위임 내내 남는다 — 교착 대신 즉시 실패시킨다.
+    if (TransactionSynchronizationManager.isActualTransactionActive()) {
+      throw new IllegalStateException("동기화 서버 본문 위임은 트랜잭션 밖에서 호출해야 합니다: page=" + pageId);
+    }
+    // ① 권한 확인 + 제목 커밋. 작성자 표시 이름도 여기서(트랜잭션 안 — RLS GUC 필요) 구해 둔다.
+    String actorName =
+        tx.execute(
+            s -> {
+              WikiPageDetail current = loadForEdit(callerId, pageId);
+              // 3-way 병합(WP-289) 전까지의 임시 규칙 — 기존 낙관적 저장과 같은 판정·같은 오류. 낡은 읽기로 만든 본문이 실시간 문서를
+              // 통째로 덮지 않게 version 이 현재와 다르면 409, 없으면 400. 제목 커밋·위임 전에 판정해 거절 시 아무것도 남기지 않는다.
+              requireCurrentVersion(current, req);
+              // AI(MCP·채팅 비서) 덮어쓰기는 편집 세션 간격과 무관하게 직전 본문을 남긴다 — 결과가 틀려도 되돌릴 수 있게. 명시
+              // snapshot 요청도 기존 경로처럼 따른다. 동기화 서버가 저장하기 전에 남겨야 덮이기 전 본문이 된다.
+              if (ai || req.snapshot()) {
+                revisions.snapshot(current);
+              }
+              saveTitleIfPresent(current, req, callerId);
+              return users.summaryOf(callerId).name();
+            });
+
+    // ② 트랜잭션 밖에서 위임.
+    CollabApplyResult applied =
+        collab.applyMarkdown(TenantContext.require(), pageId, req.body(), callerId, actorName, ai);
+
+    // ③ 응답 — version·body 는 동기화 서버가 저장한 값(재조회는 그 사이 다른 파생 저장으로 앞설 수 있다).
+    tx.setReadOnly(true);
+    return tx.execute(
+            s -> pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId)))
+        .withBody(applied.body(), applied.version());
+  }
+
+  /** 본문 저장의 기준 version 검사 — 없으면 400, 현재와 다르면 409(기존 낙관적 저장과 같은 오류). */
+  private static void requireCurrentVersion(WikiPageDetail current, SavePageRequest req) {
+    requireVersionPresent(req, current.id());
+    if (req.version() != current.version()) {
+      throw new WikiConflictException(current.id());
+    }
+  }
+
+  /** 본문 저장에는 기준 version 이 필요하다 — 없으면 400(위임·기존 낙관적 저장 공통). */
+  private static void requireVersionPresent(SavePageRequest req, long pageId) {
+    if (req.version() == null) {
+      throw new IllegalArgumentException("본문을 저장하려면 version 이 필요합니다: page=" + pageId);
+    }
+  }
+
+  /** 제목이 있으면 버전 검사 없이 저장하고(나중 값 우선, WP-290) SSE 로 알린다. 트랜잭션 안에서 호출. */
+  private void saveTitleIfPresent(WikiPageDetail current, SavePageRequest req, long callerId) {
+    if (req.title() != null) {
+      pages.saveTitle(current.id(), req.title(), callerId);
+      publishUpdated(current.spaceId(), current.id(), req.title(), callerId);
+    }
+  }
+
+  /** 페이지를 읽고 EDITOR 이상인지 확인한다. 트랜잭션 안에서 호출. */
+  private WikiPageDetail loadForEdit(long callerId, long pageId) {
     WikiPageDetail current =
         pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     perms.requireRole(current.spaceId(), callerId, "EDITOR");
+    return current;
+  }
+
+  /**
+   * 위임하지 않는 저장(트랜잭션 안). 제목만이면 버전 무관 저장, 본문이 있으면 기존 낙관적 저장. snapshot=true 면 직전 상태를 wiki_revision 에
+   * 적재(명시 저장/세션 첫 편집).
+   */
+  private WikiPageDetail saveInTx(WikiPageDetail current, long callerId, SavePageRequest req) {
+    long pageId = current.id();
+    if (req.body() == null) {
+      saveTitleIfPresent(current, req, callerId);
+      return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    }
+    requireVersionPresent(req, pageId);
 
     if (req.snapshot()) {
-      revisions.snapshot(
-          pageId, current.version(), current.title(), current.body(), current.updatedBy());
+      revisions.snapshot(current);
     }
 
     String title = req.title() != null ? req.title() : current.title();
-    // body null 이면 현재 본문 유지(title 과 대칭) — null 저장으로 본문·백링크 소실 방지.
-    String body = req.body() != null ? req.body() : current.body();
+    String body = req.body();
     int affected = pages.saveIfVersion(pageId, title, body, req.version(), callerId);
     if (affected == 0) {
       throw new WikiConflictException(pageId);
     }
-    // 본문에서 page/issue 참조를 추출해 백링크 테이블을 교체(diff-replace). 유저 멘션은 적재 안 함.
-    // save() 가 @Transactional 이므로 replaceForSource 의 delete+insert 가 원자적으로 묶인다.
-    // 추출은 실제 저장한 body 로 수행해야 본문과 백링크가 일관(null→유지 시 기존 백링크 보존).
-    references.replaceForSource(pageId, refParser.parse(pageId, body));
-    // 본문에 남아 있는 이미지 첨부는 영구화하고, 참조가 빠진 것은 강등한다(#759).
-    // 강등 = 즉시 삭제가 아니라 만료 재무장이다 — autosave 800ms 디바운스라 잘라내기-붙여넣기·undo 중간
-    // 상태가 각각 저장되고, 페이지 간 복사도 원본에서 참조가 빠진 것처럼 보인다. 유예 창 안에 참조가
-    // 돌아오면 원상 복구되고, 실제 삭제는 FileCleanupService 스윕이 보존 정책을 한 번 더 확인한 뒤 한다.
-    attachments.syncReferences(pageId, body);
-    WikiPageDetail saved =
-        pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-    // #724: 저장 사실을 스페이스 멤버에게 SSE 로 알린다 — 다른 탭/AI 편집이 즉시 반영되도록.
+    // 백링크 교체·첨부 영구화/강등·SSE — 동기화 서버 파생 저장과 같은 후처리(WikiBodyEffects).
+    bodyEffects.afterBodySaved(current.spaceId(), pageId, title, body, callerId);
+    return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+  }
+
+  /** #724: 저장 사실을 스페이스 멤버에게 SSE 로 알린다(AFTER_COMMIT) — 다른 탭/AI 편집이 즉시 반영되도록. 트랜잭션 안에서 호출. */
+  private void publishUpdated(long spaceId, long pageId, String title, long callerId) {
     publisher.publishEvent(
-        new WikiPageUpdatedEvent(
-            current.spaceId(), pageId, saved.title(), callerId, Instant.now()));
-    return saved;
+        new WikiPageUpdatedEvent(spaceId, pageId, title, callerId, Instant.now()));
   }
 
   /**
@@ -189,12 +289,18 @@ public class WikiPageService {
   @Transactional
   public void delete(long callerId, long pageId) {
     long spaceId = checkDeletable(callerId, pageId);
+    // WP-285: 자식은 CASCADE 로 함께 사라지므로 삭제 "전에" 서브트리를 모아 둔다 — 열린 편집 연결 재검증 대상.
+    List<Long> removedPageIds = pages.subtreeIdsInclusive(pageId);
     // #757: wiki_page_attachment 는 page_id ON DELETE CASCADE 라 pages.delete() 이후에는 매핑을 조회할
     // 수 없다 — 첨부 회수는 반드시 페이지 삭제 "직전"에 서브트리를 조회해야 한다(순서가 load-bearing).
     attachments.reclaimPageTree(pageId);
     pages.delete(pageId);
     // #724: 삭제를 스페이스 멤버에게 알려 트리·열린 페이지 캐시가 무효화되도록 한다.
     publisher.publishEvent(new WikiPageDeletedEvent(spaceId, pageId, callerId, Instant.now()));
+    // 테넌트는 지금 담는다 — 재검증 리스너는 커밋 후 별도 스레드에서 돈다.
+    publisher.publishEvent(
+        new WikiPageAccessRevokedEvent(
+            TenantContext.require(), spaceId, removedPageIds, Instant.now()));
   }
 
   /** 페이지 삭제 사전검증(#856) — 확인 카드 dry-run 이 {@link #delete} 와 같은 {@link #checkDeletable} 을 쓴다. */

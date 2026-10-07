@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { seedCollabFor } from '../../fixtures/collab'
 
 const SPACE_ID = 1
 const PAGE_ID = 320
@@ -11,6 +12,8 @@ const BODY = ['# 문서 제목', '', '본문 한 줄.', '', '| 항목 | 값 |', 
 async function setup(page: Page, opts: { role?: 'OWNER' | 'VIEWER'; title?: string } = {}) {
   const role = opts.role ?? 'OWNER'
   const title = opts.title ?? '문서 제목'
+  // 에디터 본문·역할은 동기화 서버 문서에서 온다(WP-172) — 모킹한 상세 본문·스페이스 역할과 같게 시드한다.
+  await seedCollabFor(page, PAGE_ID, BODY, role)
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>
     r.request().method() === 'GET'
       ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: SPACE_ID, type: 'PERSONAL', name: '내 노트', ownerId: 1, role, createdAt: '2026-06-01T00:00:00Z' }]) })

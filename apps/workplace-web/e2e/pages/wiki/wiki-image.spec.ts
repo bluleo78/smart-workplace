@@ -6,7 +6,7 @@
 // 실제로 추가될 예정인 첨부 콘텐츠 엔드포인트로, 아직 백엔드에는 없다.
 import type { Page } from '@playwright/test'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { lastSaved, mockWikiPageEditor } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 400
@@ -48,24 +48,21 @@ test.describe('노트 본문 이미지', () => {
     await expect(page.getByTestId('wiki-image')).toHaveCount(0)
   })
 
-  test('본문을 편집해도 이미지 마크다운이 저장 payload 에 남는다', async ({ authenticatedPage: page }) => {
+  test('본문을 편집해도 이미지 마크다운이 저장본에 남는다', async ({ authenticatedPage: page }) => {
     await page.route(CONTENT_PATH, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
-    const puts = await setup(page, `# 제목\n\n![대체텍스트](${CONTENT_PATH})\n\n본문`)
+    await setup(page, `# 제목\n\n![대체텍스트](${CONTENT_PATH})\n\n본문`)
 
     await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
     await expect(page.getByTestId('wiki-image')).toBeVisible()
 
-    // 본문 끝 문단을 클릭해 타이핑 → 800ms 디바운스 자동저장 발화.
+    // 본문 끝 문단을 클릭해 타이핑 → 실시간 동기화로 저장(WP-172).
     await page.locator('.ProseMirror p').filter({ hasText: '본문' }).click()
     await page.keyboard.press('End')
     await page.keyboard.type(' 추가')
 
-    // 자동저장 완료 표시 — 헤더 저장상태 칩(wiki-save-state).
-    await expect(page.getByTestId('wiki-save-state')).toHaveText('저장됨', { timeout: 5000 })
-
-    // 핵심 단언 — 저장 payload 에 이미지 마크다운이 살아 있어야 한다(#750 의 버그 그 자체).
-    expect(puts.count()).toBeGreaterThan(0)
-    expect(lastSaved(puts)).toContain(`![대체텍스트](${CONTENT_PATH})`)
+    // 편집이 저장본에 반영될 때까지 기다린 뒤, 그 저장본에 이미지 마크다운이 살아 있어야 한다(#750 의 버그 그 자체).
+    await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain('본문 추가')
+    expect(await savedMarkdown(page, PAGE_ID)).toContain(`![대체텍스트](${CONTENT_PATH})`)
   })
 
   test('외부 URL 이미지는 blob 변환 없이 원본 src 그대로 렌더된다', async ({ authenticatedPage: page }) => {

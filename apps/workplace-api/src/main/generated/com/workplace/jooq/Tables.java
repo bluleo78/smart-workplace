@@ -97,6 +97,7 @@ import com.workplace.jooq.tables.UserPriorityItem;
 import com.workplace.jooq.tables.UserRole;
 import com.workplace.jooq.tables.WikiPage;
 import com.workplace.jooq.tables.WikiPageAttachment;
+import com.workplace.jooq.tables.WikiPageDoc;
 import com.workplace.jooq.tables.WikiReference;
 import com.workplace.jooq.tables.WikiRevision;
 import com.workplace.jooq.tables.WikiSpace;
@@ -576,6 +577,11 @@ public class Tables {
      * The table <code>public.wiki_page_attachment</code>.
      */
     public static final WikiPageAttachment WIKI_PAGE_ATTACHMENT = WikiPageAttachment.WIKI_PAGE_ATTACHMENT;
+
+    /**
+     * The table <code>public.wiki_page_doc</code>.
+     */
+    public static final WikiPageDoc WIKI_PAGE_DOC = WikiPageDoc.WIKI_PAGE_DOC;
 
     /**
      * The table <code>public.wiki_reference</code>.

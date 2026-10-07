@@ -9,7 +9,7 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
-import { buildWikiAiSse, lastSaved, mockWikiPageEditor } from '../../fixtures/wiki-mock'
+import { buildWikiAiSse, mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 310
@@ -99,7 +99,7 @@ async function startDraft(page: Page) {
 test('노트 AI 초안 — 토큰 경계로 쪼개진 표·굵게·2단 목록이 실제 서식으로 렌더되고 제목 H1 은 빠진다 (WP-255)', async ({
   authenticatedPage: page,
 }) => {
-  const puts = await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: '' })
+  await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: '' })
   const starts = await mockAiStream(page, splitIntoTokens(DRAFT_MARKDOWN))
 
   await startDraft(page)
@@ -132,9 +132,10 @@ test('노트 AI 초안 — 토큰 경계로 쪼개진 표·굵게·2단 목록�
   // 코드 블록 — 공백 정규화 파싱(preserveWhitespace=false)에서도 줄바꿈·빈 줄·들여쓰기가 보존된다.
   expect(await editor.locator('pre').evaluate((el) => el.textContent)).toBe('if (ready) {\n  launch()\n\n  notify()\n}')
 
-  // 저장 파이프라인 — 자동저장된 마크다운에도 서식이 보존된다.
-  await expect.poll(() => lastSaved(puts)).toContain('**목적**')
-  const saved = lastSaved(puts)
+  // 저장 파이프라인 — 동기화 서버에 저장된 마크다운(WP-172)에도 서식이 보존된다. 생성 결과는 done 때 한 번에
+  // 삽입되므로 굵게가 보이면 표까지 함께 저장돼 있다.
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain('**목적**')
+  const saved = await savedMarkdown(page, PAGE_ID)
   expect(saved).toMatch(/^\|\s*설계\s*\|\s*김민수\s*\|/m)
   expect(saved).not.toContain(`# ${TITLE}`)
 })

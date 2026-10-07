@@ -27,11 +27,15 @@ export function handleWikiEvent(qc: QueryClient, eventName: string, data: unknow
   if (typeof p?.spaceId === 'number' && Number.isFinite(p.spaceId)) {
     qc.invalidateQueries({ queryKey: wikiKeys.tree(p.spaceId) });
   }
-  // 열려 있는 단건 페이지 — 다른 탭/AI 의 본문 수정 반영.
   if (typeof p?.pageId === 'number' && Number.isFinite(p.pageId)) {
+    // 열린 단건 페이지 — 제목·AI 사용 이력(aiLastUsedAt)·updatedAt 등 본문 밖 필드를 다시 불러온다. 삭제면 오류 화면.
+    // 본문은 동기화 서버(Yjs)가 에디터에 넣으며 에디터는 page.body 를 읽지 않아(WP-287) 재조회가 편집을 건드리지 않는다.
+    // 제목은 에디터의 판정기(wikiTitleSync)가 입력 중 덮어쓰기·늦은 메아리를 거른다.
     qc.invalidateQueries({ queryKey: wikiKeys.page(p.pageId) });
-    // 본문이 바뀌면 백링크 패널도 바뀔 수 있다(WP-170). 멘션 라벨은 열린 에디터가 원격본을 반영할 때 직접 재조회한다.
+    // 본문이 바뀌면 백링크 패널도 바뀔 수 있다(WP-170).
     qc.invalidateQueries({ queryKey: wikiKeys.backlinks(p.pageId) });
+    // 멘션 칩 라벨 — 다른 접속자·AI 가 넣은 멘션은 이 탭에 라벨 기억이 없어 해소 결과로만 채워진다(WP-294).
+    qc.invalidateQueries({ queryKey: wikiKeys.mentions(p.pageId) });
   }
   // 스페이스 목록(페이지 수 등 파생 정보)도 갱신될 수 있어 함께 무효화.
   qc.invalidateQueries({ queryKey: wikiKeys.spaces() });

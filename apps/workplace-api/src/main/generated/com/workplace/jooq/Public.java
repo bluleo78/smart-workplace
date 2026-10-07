@@ -97,6 +97,7 @@ import com.workplace.jooq.tables.UserPriorityItem;
 import com.workplace.jooq.tables.UserRole;
 import com.workplace.jooq.tables.WikiPage;
 import com.workplace.jooq.tables.WikiPageAttachment;
+import com.workplace.jooq.tables.WikiPageDoc;
 import com.workplace.jooq.tables.WikiReference;
 import com.workplace.jooq.tables.WikiRevision;
 import com.workplace.jooq.tables.WikiSpace;
@@ -593,6 +594,11 @@ public class Public extends SchemaImpl {
     public final WikiPageAttachment WIKI_PAGE_ATTACHMENT = WikiPageAttachment.WIKI_PAGE_ATTACHMENT;
 
     /**
+     * The table <code>public.wiki_page_doc</code>.
+     */
+    public final WikiPageDoc WIKI_PAGE_DOC = WikiPageDoc.WIKI_PAGE_DOC;
+
+    /**
      * The table <code>public.wiki_reference</code>.
      */
     public final WikiReference WIKI_REFERENCE = WikiReference.WIKI_REFERENCE;
@@ -738,6 +744,7 @@ public class Public extends SchemaImpl {
             UserRole.USER_ROLE,
             WikiPage.WIKI_PAGE,
             WikiPageAttachment.WIKI_PAGE_ATTACHMENT,
+            WikiPageDoc.WIKI_PAGE_DOC,
             WikiReference.WIKI_REFERENCE,
             WikiRevision.WIKI_REVISION,
             WikiSpace.WIKI_SPACE,

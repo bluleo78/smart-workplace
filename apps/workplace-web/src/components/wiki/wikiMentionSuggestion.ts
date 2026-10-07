@@ -22,6 +22,7 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js'
 const wikiMentionPluginKey = new PluginKey('wikiMentionAt')
 
 import type { WikiEntityCandidate } from '../../hooks/queries/useWikiEntitySearch'
+import { rememberMentionLabel } from './wikiMentionLabels'
 import { WikiMentionList, type WikiMentionListHandle } from './WikiMentionList'
 
 // 확장이 외부 React 상태를 스테일 없이 참조하기 위한 컨텍스트(전부 ref/콜백).
@@ -50,15 +51,17 @@ export function createWikiMentionExtension(ctx: WikiMentionContext): Extension {
           allow: () => ctx.canEditRef.current,
           // 선택 후보로 wikiMention 노드 삽입 + 트리거 텍스트 제거 + 트레일링 공백.
           // (extension-mention 과 동일하게 노드 뒤 공백을 둬 캐럿이 깔끔히 이어지게 한다.)
+          // 노드엔 라벨이 없으므로(WP-294) 고른 라벨을 먼저 기억해 둬야 칩 첫 렌더에 라벨이 보인다.
           command: ({ editor, range, props }) => {
             const item = props as WikiEntityCandidate
+            rememberMentionLabel(item.mtype, item.id, item.label)
             editor
               .chain()
               .focus()
               .insertContentAt(range, [
                 {
                   type: 'wikiMention',
-                  attrs: { mtype: item.mtype, id: item.id, label: item.label },
+                  attrs: { mtype: item.mtype, id: item.id },
                 },
                 { type: 'text', text: ' ' },
               ])

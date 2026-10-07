@@ -41,15 +41,10 @@ export interface WikiPageDetail {
   aiLastAction: string | null
 }
 
-export interface SavePageRequest {
-  title: string
-  body: string
-  version: number
-  snapshot: boolean
-}
-
 // 멘션 참조 종류 — 본문 토큰(<@id>·<#page:id>·<#issue:id>) 의 대상 타입.
-export type WikiMentionType = 'USER' | 'PAGE' | 'ISSUE'
+// 값은 공용 스키마 패키지가 원본(동기화 서버와 공유) — 웹은 재수출해 기존 import 경로를 유지한다.
+import type { WikiMentionType } from '@smart-workplace/wiki-editor-schema'
+export type { WikiMentionType }
 
 // 페이지 본문에 등장하는 멘션을 라벨/링크 정보로 해소한 참조(백엔드 1:1).
 export interface WikiMentionRef {

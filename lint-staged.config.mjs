@@ -8,10 +8,10 @@ import path from 'node:path'
 //   따라서 스테이징된 파일을 앱별로 묶어, 각 앱 디렉토리(cwd)에서 앱 기준 상대경로로 eslint 를
 //   실행한다. eslint 는 error 가 있으면 비0 종료 → 커밋 차단, import 정렬 등은 --fix 로 자동수정.
 //   (Java 포맷은 별도로 gradle test 내 Spotless 가 검증.)
-const APPS = ['workplace-web', 'workplace-admin']
+const APPS = ['workplace-web', 'workplace-admin', 'workplace-collab']
 
 export default {
-  'apps/{workplace-web,workplace-admin}/{src,e2e}/**/*.{ts,tsx}': (files) => {
+  'apps/{workplace-web,workplace-admin,workplace-collab}/{src,e2e}/**/*.{ts,tsx}': (files) => {
     // 절대경로로 들어온 스테이징 파일을 소속 앱별로 그룹핑.
     const byApp = new Map()
     for (const f of files) {

@@ -4,7 +4,7 @@
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
-import { lastSaved, mockWikiPageEditor } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 310
@@ -36,8 +36,8 @@ test('스파이크 — 합성 paste 가 마크다운으로 변환된다', async 
   await expect(page.locator('.ProseMirror h2')).toHaveText('붙여넣은 제목')
 })
 
-test('마크다운 블록이 서식으로 변환되고 저장 payload 로 왕복한다', async ({ authenticatedPage: page }) => {
-  const puts = await setup(page, '')
+test('마크다운 블록이 서식으로 변환되고 저장본으로 왕복한다', async ({ authenticatedPage: page }) => {
+  await setup(page, '')
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   await expect(page.locator('.ProseMirror')).toBeVisible()
 
@@ -61,12 +61,12 @@ test('마크다운 블록이 서식으로 변환되고 저장 payload 로 왕복
   await expect(ed.locator('table th')).toHaveCount(2)
   await expect(ed.locator('table td').first()).toHaveText('활성 사용자')
 
-  // 2) 자동저장(800ms 디바운스) payload 가 마크다운으로 되돌아가는가 — 라운드트립 무손실.
-  await puts.waitFor(1, { timeout: 5000 })
-  const body = lastSaved(puts)
+  // 2) 동기화 저장본(WP-172)이 마크다운으로 되돌아가는가 — 라운드트립 무손실. 붙여넣기는 한 번의 편집이라
+  // 표까지 들어오면 나머지 블록도 함께 저장돼 있다.
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain('| 활성 사용자 |')
+  const body = await savedMarkdown(page, PAGE_ID)
   expect(body).toContain('## 분기 지표')
   expect(body).toContain('- 첫째')
-  expect(body).toContain('| 활성 사용자 |')
 })
 
 // 주의: 이 테스트는 `transformPastedText` 스위치를 꺼도(되돌려도) 그대로 통과한다 — 그 기능
