@@ -55,3 +55,19 @@ export function middleEllipsis(name: string, max: number): string {
   if (headLen < 1) return name.slice(0, max - 1) + '…'
   return name.slice(0, headLen) + '…' + name.slice(name.length - tailLen)
 }
+
+/**
+ * 연타 중 "요청했지만 아직 반영 안 된 목표"(항목 key)를 현재 목록 기준으로 해석한다.
+ * 왜 key: 목록이 바뀌어도(재조회·삭제) 인덱스가 아니라 파일 자체를 가리켜야 엉뚱한 파일로 튀지 않는다.
+ * - 목표가 없거나 목록에서 사라졌거나 이미 현재 항목이면 버린다('clear').
+ * - 아직 도달 전이면 현재 목록에서의 위치로 이어서 요청한다('request').
+ */
+export function resolvePending(
+  items: { key: string }[],
+  currentKey: string,
+  pendingKey: string | null,
+): { kind: 'clear' } | { kind: 'request'; index: number } {
+  if (pendingKey == null || pendingKey === currentKey) return { kind: 'clear' }
+  const index = items.findIndex((i) => i.key === pendingKey)
+  return index < 0 ? { kind: 'clear' } : { kind: 'request', index }
+}

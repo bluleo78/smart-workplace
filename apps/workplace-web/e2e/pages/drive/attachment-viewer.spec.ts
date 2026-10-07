@@ -150,6 +150,17 @@ test.describe('묶음 넘김', () => {
     await expect(page.getByTestId('preview-body')).not.toContainText('B')
   })
 
+  test('2건 묶음에서 끝에 닿으면 반대쪽 버튼으로 포커스가 옮겨진다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, files.slice(0, 2), { 80: 'A', 81: 'B' })
+    await openPreview(page, 80)
+    await page.getByRole('button', { name: '다음 파일' }).click()
+    await expect(page.getByTestId('preview-body')).toContainText('B')
+    await expect(page.getByRole('button', { name: '이전 파일' })).toBeFocused()
+    await page.getByRole('button', { name: '이전 파일' }).click()
+    await expect(page.getByTestId('preview-body')).toContainText('A')
+    await expect(page.getByRole('button', { name: '다음 파일' })).toBeFocused()
+  })
+
   test('딥링크로 목록에 없는 파일을 열면 1건 묶음', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, files, { 80: 'A', 81: 'B', 82: 'C' })
     await page.goto('/drive/spaces/1?preview=999')

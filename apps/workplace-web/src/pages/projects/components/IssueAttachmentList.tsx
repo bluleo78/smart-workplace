@@ -122,7 +122,10 @@ export function IssueAttachmentList({
         <AttachmentViewer
           items={bundle.items}
           index={bundle.index}
-          onIndexChange={(i) => previewParam.open(bundle.items[i].key)}
+          onIndexChange={(i) => {
+            const target = bundle.items[i];
+            if (target) previewParam.open(target.key); // 목록이 줄어 범위를 벗어난 요청은 무시
+          }}
           onClose={previewParam.close}
         />
       )}

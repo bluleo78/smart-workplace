@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { type KeyContext, middleEllipsis, navState, routeKey } from './viewerNav'
+import { type KeyContext, middleEllipsis, navState, resolvePending, routeKey } from './viewerNav'
 
 const base: KeyContext = { key: 'ArrowRight', ctrlOrMeta: false, inAiPanel: false, inEditable: false, inHorizontalScroller: false, zoomable: true }
 
@@ -47,5 +47,22 @@ describe('middleEllipsis', () => {
   })
   it('확장자가 없어도 줄인다', () => {
     expect(middleEllipsis('a'.repeat(40), 10)).toHaveLength(10)
+  })
+})
+
+describe('resolvePending', () => {
+  const items = [{ key: 'a' }, { key: 'b' }, { key: 'c' }]
+  it('목표가 없거나 이미 현재 항목이면 버린다', () => {
+    expect(resolvePending(items, 'a', null)).toEqual({ kind: 'clear' })
+    expect(resolvePending(items, 'b', 'b')).toEqual({ kind: 'clear' })
+  })
+  it('아직 도달 전이면 현재 목록 위치로 이어서 요청한다', () => {
+    expect(resolvePending(items, 'a', 'c')).toEqual({ kind: 'request', index: 2 })
+  })
+  it('목록이 바뀌어 목표가 사라지면 버린다(엉뚱한 파일로 튀지 않는다)', () => {
+    expect(resolvePending([{ key: 'a' }, { key: 'b' }], 'a', 'c')).toEqual({ kind: 'clear' })
+  })
+  it('목록이 줄어도 목표 key 의 새 위치를 가리킨다', () => {
+    expect(resolvePending([{ key: 'b' }, { key: 'c' }], 'b', 'c')).toEqual({ kind: 'request', index: 1 })
   })
 })

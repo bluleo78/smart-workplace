@@ -14,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 import type { ViewerItem } from './types'
 import { ViewerBody } from './ViewerBody'
 import { ViewerBacklinks, ViewerSummaryCard } from './ViewerDriveExtras'
-import { middleEllipsis, navState, routeKey } from './viewerNav'
+import { middleEllipsis, navState, resolvePending, routeKey } from './viewerNav'
 
 /** 확대 단계(25%)와 범위. */
 const ZOOM_STEP = 0.25
@@ -67,29 +67,48 @@ export function AttachmentViewer({
   const prevBtn = useRef<HTMLButtonElement>(null)
   const nextBtn = useRef<HTMLButtonElement>(null)
 
-  // 키 연타 대응 — 부모(URL 훅)는 직전 이동이 렌더에 반영되기 전의 호출을 무시할 수 있다(낡은 위치 스냅숏 방어).
-  // 그래서 "요청했지만 아직 반영 안 된 목표 위치"를 ref 로 들고, 부모 index 가 바뀔 때 남은 목표가 있으면 이어서 요청한다.
-  const pendingIdx = useRef<number | null>(null)
+  // 키 연타 대응 — 부모(URL 훅)는 직전 이동이 렌더에 반영되기 전의 호출을 무시할 수 있다(낡은 위치 스냅숏 방어, 훅은 그대로 둔다).
+  // 그래서 "요청했지만 아직 반영 안 된 목표"를 항목 key 로 들고(목록이 바뀌어도 파일 자체를 가리키도록),
+  // 현재 항목이 바뀔 때마다 현재 목록에서 다시 해석해 이어서 요청한다(resolvePending). 사라진 목표는 버린다.
+  const pendingKey = useRef<string | null>(null)
+  // 끝에 닿은 방향 — 눌린 버튼이 사라진 뒤 커밋된 시점에 포커스를 옮기기 위한 표식.
+  const focusEdge = useRef<-1 | 1 | null>(null)
   useEffect(() => {
-    const target = pendingIdx.current
-    if (target == null) return
-    if (target === idx) pendingIdx.current = null
-    else onIndexChange(target)
-    // onIndexChange 는 호출부가 매 렌더 새로 만들어도 idx 변화 시점에만 보면 된다.
+    const r = resolvePending(items, itemKey, pendingKey.current)
+    if (r.kind === 'clear') pendingKey.current = null
+    else onIndexChange(r.index)
+    // onIndexChange 는 호출부가 매 렌더 새로 만들어도 현재 항목이 바뀐 시점에만 보면 된다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idx])
+  }, [itemKey])
+  // 닫힘·언마운트 시 남은 목표를 버린다.
+  useEffect(
+    () => () => {
+      pendingKey.current = null
+      focusEdge.current = null
+    },
+    [],
+  )
+  // 끝에 닿았으면 반대쪽 버튼으로 포커스(WCAG 2.4.3) — 버튼이 커밋된 뒤(effect)에 옮기므로 마운트 타이밍에 흔들리지 않는다.
+  useEffect(() => {
+    const edge = focusEdge.current
+    if (edge == null) return
+    if (edge === 1 && !nav.hasNext) {
+      prevBtn.current?.focus()
+      focusEdge.current = null
+    } else if (edge === -1 && !nav.hasPrev) {
+      nextBtn.current?.focus()
+      focusEdge.current = null
+    } else if (pendingKey.current == null) focusEdge.current = null
+  }, [idx, nav.hasPrev, nav.hasNext])
   /** 이전/다음으로 이동 — 끝에서는 아무것도 하지 않는다(순환 없음). */
   const go = (dir: -1 | 1) => {
-    const next = (pendingIdx.current ?? idx) + dir
+    // 기준 위치 = 대기 중인 목표가 현재 목록에 있으면 그 위치, 없으면 현재 위치.
+    const pend = pendingKey.current != null ? items.findIndex((i) => i.key === pendingKey.current) : -1
+    const next = (pend >= 0 ? pend : idx) + dir
     if (next < 0 || next >= items.length) return
-    pendingIdx.current = next
+    pendingKey.current = items[next].key
+    focusEdge.current = dir
     onIndexChange(next)
-    // 끝에 닿아 누른 버튼이 사라지면 포커스가 body(또는 Radix 트랩이 되돌린 다이얼로그)로 떨어지므로
-    // 끝에 닿은 방향이면 항상 반대쪽 버튼으로 옮긴다(WCAG 2.4.3). 반대쪽 버튼은 묶음이 2건 이상이면 늘 있다.
-    requestAnimationFrame(() => {
-      const gone = dir === 1 ? next === items.length - 1 : next === 0
-      if (gone) (dir === 1 ? prevBtn : nextBtn).current?.focus()
-    })
   }
 
   // 키보드 — 판정은 routeKey(순수), 여기서는 DOM 맥락만 계산한다.

@@ -1643,7 +1643,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             index={bundle.index}
             // 열린 상태의 open 은 replace 라 넘김이 히스토리를 쌓지 않는다.
             onIndexChange={(i) => {
-              const id = bundle.items[i].key.slice('drive:'.length)
+              const target = bundle.items[i]
+              if (!target) return // 목록이 줄어 범위를 벗어난 요청은 무시
+              const id = target.key.slice('drive:'.length)
               // 넘긴 파일도 스냅숏으로 갱신 — 이후 재조회로 목록에서 빠져도 열린 뷰어가 유지된다.
               const f = viewItems.files.find((x) => String(x.id) === id)
               if (f) setPreviewSnap(f)
