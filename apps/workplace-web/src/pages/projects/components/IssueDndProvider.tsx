@@ -29,9 +29,13 @@ import {
   type IssueDragData,
   issueKeyboardCoordinates,
   sameCycleSection,
+  snapRowChipToPointer,
 } from '../../../lib/epicDnd';
 import type { IssueResponse } from '../../../types/issue';
 import { IssueCard } from './IssueCard';
+
+// 렌더마다 새 배열을 만들지 않도록 모듈 상수로 둔다.
+const ROW_OVERLAY_MODIFIERS = [snapRowChipToPointer];
 
 type IssueDndState = { activeIssue: IssueResponse | null };
 const IssueDndCtx = createContext<IssueDndState | null>(null);
@@ -138,7 +142,8 @@ export function IssueDndProvider({ projectKey, children }: { projectKey: string;
         onDragCancel={() => setActive(null)}
       >
         {children}
-        <DragOverlay dropAnimation={null}>
+        {/* 행 칩은 원본 행보다 훨씬 좁아 포인터 기준으로 옮긴다 — 카드 고스트는 원본과 같은 크기라 그대로. */}
+        <DragOverlay dropAnimation={null} modifiers={active?.source === 'row' ? ROW_OVERLAY_MODIFIERS : undefined}>
           {active?.source === 'card' ? (
             <IssueCard projectKey={projectKey} issue={active.issue} asOverlay showType={active.showType ?? true} />
           ) : active?.source === 'row' ? (

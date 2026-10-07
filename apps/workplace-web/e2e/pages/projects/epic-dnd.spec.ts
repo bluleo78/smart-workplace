@@ -576,6 +576,26 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
   });
 
+  // 행 고스트 칩은 행보다 훨씬 좁다 — 행 오른쪽을 잡아도 칩이 행 왼쪽 끝이 아니라 포인터 밑에 떠야 한다.
+  test('목록 행 오른쪽을 잡아 끌면 고스트 칩이 포인터 밑에 뜬다', async ({ authenticatedPage: page }) => {
+    await setup(page, { issues: [createIssue({ id: 1, number: 1, title: '행' })], panelOpen: true });
+    await page.goto(`/projects/${PROJECT_KEY}?view=list`);
+    const box = await stableBox(page.getByTestId('issue-row-1'), 'issue-row-1');
+    // 칩 너비(최대 320px)보다 오른쪽을 잡는지 — 아니면 수정 전에도 통과하는 무의미한 검증이 된다(누르기 전에 확인).
+    expect(box.width).toBeGreaterThan(440);
+    const p = { x: box.x + box.width - 40, y: box.y + box.height / 2 };
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.down();
+    const end = { x: p.x - 30, y: p.y + 40 };
+    await page.mouse.move(end.x, end.y, { steps: 6 });
+    const chip = page.getByTestId('issue-row-drag-overlay');
+    await expect(async () => {
+      const g = await measureBox(chip, 'issue-row-drag-overlay');
+      expect(end.x >= g.x && end.x <= g.x + g.width && end.y >= g.y && end.y <= g.y + g.height).toBe(true);
+    }).toPass();
+    await page.mouse.up();
+  });
+
   test('보드 담당자 그룹: 여러 컬럼에 보이는 카드는 잡은 사본만 끌리고 고스트는 포인터 옆', async ({ authenticatedPage: page }) => {
     const { patches } = await setup(page, { issues: [twoAssignees()], panelOpen: true });
     await page.goto(`/projects/${PROJECT_KEY}?view=board&group=assignee`);
