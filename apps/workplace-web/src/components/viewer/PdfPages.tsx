@@ -1,5 +1,5 @@
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { capRenderScale } from './pdfScale'
 
@@ -26,6 +26,12 @@ export function PdfPages({
   onError?: () => void
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
+  // 페이지별 지연 렌더 관찰의 root 로 넘길 스크롤 요소 — 렌더 중 ref 를 읽지 않도록 콜백 ref 로 state 에 담는다.
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null)
+  const setRoot = useCallback((el: HTMLDivElement | null) => {
+    rootRef.current = el
+    setScroller(el)
+  }, [])
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
   const [width, setWidth] = useState(0)
   // onError 는 이펙트 의존성에서 빼기 위해 ref 로 최신값만 든다.
@@ -42,8 +48,10 @@ export function PdfPages({
     // 이전 문서는 곧 destroy 되므로 페이지들이 닫힌 문서에 getPage 하지 않게 먼저 비운다.
     setDoc(null)
     void (async () => {
-      const pdfjs = await import('pdfjs-dist')
-      const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+      // legacy 빌드 — 기본 빌드는 최신 API(Map.getOrInsertComputed·Math.sumPrecise 등)를 폴리필 없이 써서
+      // iOS Safari 등 구형 브라우저에서 문서를 열지 못한다. 워커도 같은 legacy 빌드와 짝을 맞춘다.
+      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+      const worker = await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')
       pdfjs.GlobalWorkerOptions.workerSrc = worker.default
       const data = new Uint8Array(await blob.arrayBuffer())
       if (!alive) return
@@ -105,11 +113,11 @@ export function PdfPages({
   }, [doc, ready, onPage])
 
   return (
-    <div ref={rootRef} className="flex h-full min-h-0 flex-col gap-4 overflow-auto py-4" data-testid="pdf-document">
+    <div ref={setRoot} className="flex h-full min-h-0 flex-col gap-4 overflow-auto py-4" data-testid="pdf-document">
       {doc &&
         width > 0 &&
         Array.from({ length: doc.numPages }, (_, i) => (
-          <PdfPage key={i + 1} doc={doc} pageNumber={i + 1} cssWidth={width * zoom} />
+          <PdfPage key={i + 1} doc={doc} pageNumber={i + 1} cssWidth={width * zoom} root={scroller} />
         ))}
     </div>
   )
@@ -119,7 +127,18 @@ export function PdfPages({
  * 한 페이지 — 화면 근처에 들어올 때 devicePixelRatio 배율로 그려 확대해도 선명하게 한다.
  * 실제 페이지 비율을 알면 자리표시 높이를 그 비율로 바꿔, 크기가 다른 페이지도 찌그러지지 않게 한다.
  */
-function PdfPage({ doc, pageNumber, cssWidth }: { doc: PDFDocumentProxy; pageNumber: number; cssWidth: number }) {
+function PdfPage({
+  doc,
+  pageNumber,
+  cssWidth,
+  root,
+}: {
+  doc: PDFDocumentProxy
+  pageNumber: number
+  cssWidth: number
+  /** 페이지를 잘라 보이는 스크롤 요소(pdf-document) — 뷰포트 기준이면 rootMargin 이 스크롤러에 잘려 무의미해진다. */
+  root: HTMLElement | null
+}) {
   const ref = useRef<HTMLCanvasElement>(null)
   const [visible, setVisible] = useState(pageNumber === 1)
   const pageRef = useRef<PDFPageProxy | null>(null)
@@ -127,14 +146,14 @@ function PdfPage({ doc, pageNumber, cssWidth }: { doc: PDFDocumentProxy; pageNum
   // 같은 캔버스에 render 가 겹치면 pdf.js 가 거부하므로, 직전 렌더가 끝난(취소된) 뒤에 다음을 시작한다.
   const prevRender = useRef<Promise<unknown>>(Promise.resolve())
 
-  // 근처 600px 안에 들어오면 그리고, 멀어지면 다시 visible=false 로 돌려 비트맵을 풀어 준다(양방향).
+  // 스크롤러 기준 근처 600px 안에 들어오면 그리고, 멀어지면 다시 visible=false 로 돌려 비트맵을 풀어 준다(양방향).
   useEffect(() => {
     const el = ref.current
-    if (!el) return
-    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { rootMargin: '600px' })
+    if (!el || !root) return
+    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { root, rootMargin: '600px' })
     io.observe(el)
     return () => io.disconnect()
-  }, [visible])
+  }, [visible, root])
 
   useEffect(() => {
     if (!visible) return
