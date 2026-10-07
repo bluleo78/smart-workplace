@@ -9,8 +9,8 @@ export function IssueReporterValue({
   reporter,
   createdAt,
 }: {
-  /** 상세 응답 reporter — 사용자 행을 찾지 못하면 null(「알 수 없음」). */
-  reporter: UserSummary | null | undefined;
+  /** 상세 응답 reporter — 사용자 행을 찾지 못하면 null(「알 수 없음」). 필드 없는 구버전 응답은 호출부가 행째 숨긴다. */
+  reporter: UserSummary | null;
   /** summary.createdAt — 이슈 생성 시각(UTC ISO). */
   createdAt: string;
 }) {

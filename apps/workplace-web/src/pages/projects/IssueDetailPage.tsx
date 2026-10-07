@@ -840,11 +840,14 @@ export default function IssueDetailPage() {
                 />
               </div>
             )}
-            {/* 보고자(WP-272) — 시트는 상태·담당 그룹을 숨기므로 유형 바로 아래 같은 라벨↔값 행으로 둔다. */}
-            <div className="flex items-center justify-between gap-2" data-testid="issue-more-props-reporter">
-              <span className="text-xs font-medium text-muted-foreground">보고자</span>
-              <IssueReporterValue reporter={data.reporter} createdAt={summary.createdAt} />
-            </div>
+            {/* 보고자(WP-272) — 시트는 상태·담당 그룹을 숨기므로 유형 바로 아래 같은 라벨↔값 행으로 둔다.
+                구버전 서버 응답(reporter 없음)이면 행을 숨긴다. */}
+            {data.reporter !== undefined && (
+              <div className="flex items-center justify-between gap-2" data-testid="issue-more-props-reporter">
+                <span className="text-xs font-medium text-muted-foreground">보고자</span>
+                <IssueReporterValue reporter={data.reporter} createdAt={summary.createdAt} />
+              </div>
+            )}
             {renderRail('sheet')}
           </div>
         </MobileSheetShell>

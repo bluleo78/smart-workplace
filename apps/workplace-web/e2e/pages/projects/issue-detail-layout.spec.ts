@@ -195,9 +195,9 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
 
   // WP-272 — 보고자는 상태·담당 그룹에서 담당자 아래에 읽기 전용으로 보인다(이름 · 생성일).
   test('상태·담당 그룹 담당자 아래에 보고자 이름과 생성일이 보인다', async ({ authenticatedPage: page }) => {
-    // 정오 UTC — 어느 타임존에서도 10월 3일로 표시된다.
+    // 정오 UTC — UTC-11 ~ UTC+11 어느 타임존에서도 10월 3일로 표시된다.
     await mockIssueDetail(page, {
-      createdAt: '2026-10-03T03:00:00Z',
+      createdAt: '2026-10-03T12:00:00Z',
       reporter: { id: 5, username: 'kim', name: '김보고', kind: 'HUMAN' },
     });
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
@@ -230,6 +230,25 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
 
     await expect(page.getByTestId('issue-reporter')).toContainText('알 수 없음');
+  });
+
+  test('구버전 서버라 reporter 필드가 없으면 보고자 행을 숨긴다', async ({ authenticatedPage: page }) => {
+    // 롤링 배포 중 구 API 응답 — reporter 키 자체가 없다(「알 수 없음」으로 오해하게 하지 않는다).
+    await mockIssueDetail(page, { reporter: undefined });
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`,
+      (route) => {
+        const { reporter: _omit, ...legacy } = createIssueDetail({
+          summary: createIssue({ projectKey: PROJECT_KEY }),
+        });
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(legacy) });
+      },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    await expect(page.getByTestId('issue-status-select')).toBeVisible();
+    await expect(page.getByTestId('issue-reporter')).toHaveCount(0);
+    await expect(page.getByTestId('property-group-status-people')).not.toContainText('보고자');
   });
 
   // #798 — useAttachmentDraft(이슈 채팅 컴포저)와 IssueAttachmentStrip이 동시 마운트되면서
