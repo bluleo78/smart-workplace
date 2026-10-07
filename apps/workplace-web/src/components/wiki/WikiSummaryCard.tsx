@@ -1,3 +1,4 @@
+import { AlertCircle } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 import { AiContent } from '@/components/ai/AiContent'
@@ -47,15 +48,21 @@ export function WikiSummaryCard({ pageId }: { pageId: number }) {
         <>
           {/* 낡은 요약은 흐리게 — 내용은 남겨 두되 최신이 아님을 시각적으로 알린다. */}
           {data.summary && <span className={stale ? 'opacity-60' : undefined}>{data.summary}</span>}
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+          {/* 터치 기기에선 재생성 버튼의 히트 영역이 넓어지므로 구분점과 겹치지 않게 간격도 조금 넓힌다. */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground pointer-coarse:gap-x-3">
             {failedHere ? (
               <>
-                <span>요약하지 못했어요</span>
+                {/* 실패는 낡음보다 강한 신호 — destructive 아이콘(비텍스트 3:1 충족)으로 오류임을 알리고,
+                    문구는 작은 글자 AA(4.5:1)를 지키도록 본문색으로 둔다(text-destructive 는 카드 배경 위 3.3:1). */}
+                <span data-testid="wiki-ai-summary-failed" className="inline-flex items-center gap-1 font-medium text-foreground">
+                  <AlertCircle className="h-3 w-3 shrink-0 text-destructive" aria-hidden="true" />
+                  요약하지 못했어요
+                </span>
                 <RegenerateButton testId="wiki-ai-summary-retry" label="다시 시도" onClick={regenerate} />
               </>
             ) : stale ? (
               <>
-                <span data-testid="wiki-ai-summary-stale" className="text-warning">
+                <span data-testid="wiki-ai-summary-stale" className="text-warning-text">
                   ⚠ 요약 이후 노트가 바뀌었어요
                 </span>
                 <span aria-hidden="true">·</span>
@@ -71,10 +78,19 @@ export function WikiSummaryCard({ pageId }: { pageId: number }) {
   )
 }
 
-/** 카드 하단의 요약 재생성 링크 버튼("다시 시도"·"다시 요약") — 같은 모양이라 하나로 둔다. */
+/**
+ * 카드 하단의 요약 재생성 링크 버튼("다시 시도"·"다시 요약") — 같은 모양이라 하나로 둔다.
+ * 터치(coarse 포인터)에선 높이를 44px 로 키우되 같은 크기의 음수 세로 마진으로 상쇄해
+ * 줄 높이·카드 크기(시각 밀도)는 데스크톱과 똑같이 유지하고 탭 영역만 넓힌다.
+ */
 function RegenerateButton({ testId, label, onClick }: { testId: string; label: string; onClick: () => void }) {
   return (
-    <button type="button" data-testid={testId} className="text-ai-accent underline" onClick={onClick}>
+    <button
+      type="button"
+      data-testid={testId}
+      className="text-ai-accent underline pointer-coarse:-my-3.5 pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center"
+      onClick={onClick}
+    >
       {label}
     </button>
   )

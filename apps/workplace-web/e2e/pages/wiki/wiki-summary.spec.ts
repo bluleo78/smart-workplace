@@ -255,7 +255,8 @@ test('요약 생성에 실패하면 한 번만 시도하고 다시 시도 버튼
   await openPage(page)
 
   const card = page.getByTestId('wiki-ai-summary')
-  await expect(card).toContainText('요약하지 못했어요')
+  // 실패는 회색 한 줄이 아니라 오류 표시(아이콘 + 문구)로 보여 준다.
+  await expect(page.getByTestId('wiki-ai-summary-failed')).toHaveText('요약하지 못했어요')
   // 자동 재시도 없음 — 2초 동안 POST 가 1건으로 유지돼야 한다.
   await expectStays(page, () => calls.post, 1, { ms: 2000 })
 

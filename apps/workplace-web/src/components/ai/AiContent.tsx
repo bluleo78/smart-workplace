@@ -46,7 +46,9 @@ export function AiContent({
     return (
       // group 으로 details[open] 상태를 chevron 회전에 전달.
       <details open={defaultOpen} className={`group ${box}`} data-testid={dataTestId}>
-        <summary className="flex cursor-pointer list-none items-center gap-1">
+        {/* 터치(coarse 포인터)에선 접기 행을 44px 탭 영역으로 키우고 같은 크기의 음수 세로 마진으로 상쇄해
+            카드 높이·여백은 데스크톱과 동일하게 유지한다(메일·드라이브·노트 요약 공통). */}
+        <summary className="flex cursor-pointer list-none items-center gap-1 pointer-coarse:-my-3.5 pointer-coarse:min-h-11">
           {/* 접힘 ▸ / 펼침 ▾ — details 열림 시 90도 회전 */}
           <ChevronRight
             className="h-3 w-3 shrink-0 text-ai-accent transition-transform group-open:rotate-90"

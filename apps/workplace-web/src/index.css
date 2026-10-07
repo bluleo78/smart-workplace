@@ -52,6 +52,7 @@
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning-subtle: var(--warning-subtle);
+  --color-warning-text: var(--warning-text);
   --color-epic: var(--epic);
   --color-epic-subtle: var(--epic-subtle);
   --color-info: var(--info);
@@ -122,6 +123,9 @@
   --warning: oklch(0.84 0.16 84);
   --warning-foreground: oklch(0.2 0 0);
   --warning-subtle: oklch(0.97 0.04 84);
+  /* 경고 문구용 텍스트 색 — --warning(밝은 앰버)은 채움·아이콘용이라 밝은 배경 위 작은 글자로는 대비가 부족(1.5:1)하다.
+     어둡게 내린 앰버로 흰/연한 배경 위 AA(4.5:1)를 보장한다. */
+  --warning-text: oklch(0.5 0.12 70);
   --info: oklch(0.55 0.15 240);
   --info-foreground: oklch(0.985 0 0);
   --info-subtle: oklch(0.95 0.04 240);
@@ -191,6 +195,8 @@
   --warning: oklch(0.76 0.14 84);
   --warning-foreground: oklch(0.985 0 0);
   --warning-subtle: oklch(0.2 0.04 84);
+  /* 다크: 어두운 배경 위에선 --warning 자체가 충분히 밝아(8:1+) 그대로 쓴다. */
+  --warning-text: var(--warning);
   --info: oklch(0.7 0.13 240);
   --info-foreground: oklch(0.985 0 0);
   --info-subtle: oklch(0.2 0.04 240);
