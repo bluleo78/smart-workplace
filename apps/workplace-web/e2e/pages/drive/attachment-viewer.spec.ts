@@ -490,3 +490,12 @@ test('열린 파일이 재조회로 목록에서 빠지면 1건 묶음으로 유
   await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0)
   await expect(page.getByTestId('preview-not-found')).toHaveCount(0)
 })
+
+test('데스크톱(마우스)은 모바일 하단 바 없이 헤더·확대 툴바를 그대로 쓴다', async ({ authenticatedPage: page }) => {
+  await stubDriveFiles(page, [{ id: 90, name: 'desk.png', mimeType: 'image/png', sizeBytes: 100 }], { 90: solidPng(800, 600) })
+  await openPreview(page, 'desk.png')
+  await expect(page.getByTestId('viewer-action-bar')).toHaveCount(0)
+  await expect(page.getByTestId('viewer-top-bar')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '확대' })).toBeVisible()
+  await expect(page.getByTestId('preview-download')).toBeVisible()
+})

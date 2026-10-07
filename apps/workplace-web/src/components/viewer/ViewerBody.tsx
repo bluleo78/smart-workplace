@@ -50,12 +50,18 @@ export function ViewerBody({
   item,
   zoom,
   onPage,
+  chromeInset,
 }: {
   item: ViewerItem
   /** 이미지·PDF 확대 배율(1 = 폭 맞춤). */
   zoom: number
   /** PDF 현재 페이지 보고 — 호출부가 useCallback 으로 고정해 넘긴다(PdfPages 이펙트 의존성). */
   onPage: (current: number, total: number) => void
+  /**
+   * 모바일 바가 본문 위에 겹쳐 뜰 때(WP-278) — 문서형(이미지 외)은 첫·끝 줄이 바에 가리지 않게 위·아래 여백을 둔다.
+   * 이미지는 사진 앱처럼 화면 전체에 맞추고 반투명 바가 위에 겹친다.
+   */
+  chromeInset?: boolean
 }) {
   const kind = resolvePreviewKind(item.mimeType)
   const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
@@ -154,7 +160,14 @@ export function ViewerBody({
       {...(zoomScroll ? scrollRegionProps('미리보기 스크롤 영역') : {})}
       // 이미지는 flex + 자식 m-auto 로 가운데 둔다 — 넘치면 auto 여백이 0 이 되어(안전한 가운데 정렬) 위·왼쪽까지 스크롤된다.
       // (items-center/justify-center 는 넘친 부분을 위·왼쪽 바깥으로 밀어내 스크롤로 닿을 수 없게 만든다.)
-      className={cn('min-h-0 flex-1 overflow-auto', !fillsFrame && 'p-4', kind === 'IMAGE' && 'flex', zoomScroll && SCROLL_REGION_RING_INSET)}
+      className={cn(
+        'min-h-0 flex-1 overflow-auto',
+        !fillsFrame && 'p-4',
+        kind === 'IMAGE' && 'flex',
+        zoomScroll && SCROLL_REGION_RING_INSET,
+        // 상단 바(3.5rem=min-h-14)·하단 4칸 바(min-h-14 + 여유) 높이만큼 + 노치/홈 인디케이터 안전영역.
+        chromeInset && kind !== 'IMAGE' && 'pt-[calc(3.5rem+env(safe-area-inset-top))] pb-[calc(4.5rem+env(safe-area-inset-bottom))]',
+      )}
       data-testid="preview-body"
     >
       {/* 드라이브 링크 원본이 휴지통·삭제 — 받지 않고 안내만(다운로드 없음). */}

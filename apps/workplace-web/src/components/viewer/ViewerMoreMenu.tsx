@@ -42,7 +42,7 @@ export function ViewerMoreMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="더 보기">
+        <Button variant="ghost" size="icon" className="pointer-coarse:size-11" aria-label="더 보기">
           <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>

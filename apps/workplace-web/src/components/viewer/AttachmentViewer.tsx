@@ -1,7 +1,8 @@
 import { ChevronLeft, ChevronRight, Cloud, Download, Minus, Plus, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { getIsMobile } from '../../hooks/useIsMobile'
+import { getIsMobile, useIsMobile } from '../../hooks/useIsMobile'
+import { useThemeColor } from '../../hooks/useThemeColor'
 import { formatFileSize } from '../../lib/formatters'
 import { resolvePreviewKind } from '../../lib/previewKind'
 import { cn } from '../../lib/utils'
@@ -15,8 +16,10 @@ import { downloadViewerItem } from './downloadViewerItem'
 import type { ViewerItem } from './types'
 import { useImportToDrive } from './useImportToDrive'
 import { useSummaryAvailability } from './useSummaryAvailability'
+import { actionSlots, type SlotId } from './viewerActions'
 import { ViewerBacklinks } from './ViewerBacklinks'
 import { ViewerBody } from './ViewerBody'
+import { ViewerActionBar, ViewerMobileTopBar } from './ViewerMobileBars'
 import { ViewerMoreMenu } from './ViewerMoreMenu'
 import { middleEllipsis, navState, resolvePending, routeKey } from './viewerNav'
 import { ViewerSidePanel } from './ViewerSidePanel'
@@ -66,6 +69,12 @@ export function AttachmentViewer({
   shareable?: boolean
 }) {
   const aiAware = useAiPanelAwareDialog({ open: true, size: 'lightbox' })
+  // 배치는 폭(모바일 셸 기준과 동일), 제스처는 coarse 포인터로 따로 판정한다(스펙 §3.2 — Task 5).
+  const mobile = useIsMobile()
+  // 모바일 몰입형 화면 — 열린 동안 상태바를 검정으로(스펙 §4.2, 판정 R15). 값은 CSS 가 아닌 브라우저 크롬 색이라 리터럴.
+  useThemeColor('#000000', mobile)
+  // 바 숨김(탭 토글·가로 모드) — Task 6 에서 상태로 바뀐다. 지금은 항상 보임.
+  const barsHidden = false
   // 범위 밖 index(목록 재조회 직후 등)에도 죽지 않게 묶음 안으로 맞춘다 — 렌더 시 items 는 비어 있지 않다.
   const idx = Math.min(Math.max(index, 0), items.length - 1)
   const item = items[idx]
@@ -90,6 +99,8 @@ export function AttachmentViewer({
   const meta = [item.sizeBytes != null ? formatFileSize(item.sizeBytes) : null, nav.label || null, pageLabel]
     .filter(Boolean)
     .join(' · ')
+  // 모바일 상단 2줄째는 순번·쪽만(시안 M1) — 크기는 데스크톱 헤더에만.
+  const mobileMeta = [nav.label || null, pageLabel].filter(Boolean).join(' · ')
   // 사이드 패널 — 초기값 = 저장된 마지막 상태, 없으면 호출부 기본값(드라이브는 펼침, 단 lg 이상에서만). 묶음 안에서 넘겨도 유지된다.
   // 좁은 화면(모바일 폭 — 앱 공용 기준 MOBILE_MEDIA_QUERY)에선 패널이 본문 아래로 쌓여 본문을 가리므로, 사용자가 직접 연 적이 없으면 접힌 채 연다.
   const [panelOpen, setPanelOpen] = useState(() => readPanelPref() ?? (!!defaultPanelOpen && !getIsMobile()))
@@ -108,6 +119,20 @@ export function AttachmentViewer({
   const canImport = item.importFileId != null && importer.ready
   const startImport = () => {
     if (item.importFileId != null) importer.begin(item.importFileId)
+  }
+  // 하단 4칸 — 공유는 Task 8 에서 blob 상태로 바뀐다(지금은 공유할 수 없음 비활성).
+  const shareState = 'unavailable' as const
+  const slots = actionSlots({
+    unavailable: !!item.unavailable,
+    share: shareState,
+    importable: item.importFileId == null ? 'none' : canImport ? 'ready' : 'disabled',
+    summary: summary === 'show',
+  })
+  /** 하단 칸 누름 — 저장은 기존 다운로드(감사 로그 경로), 드라이브는 ☁ 와 같은 가져오기, 요약은 패널(모바일은 시트) 토글. */
+  const onSlot = (id: SlotId) => {
+    if (id === 'save') void downloadViewerItem(item)
+    else if (id === 'drive') startImport()
+    else if (id === 'summary') togglePanel(!panelOpen)
   }
   const prevBtn = useRef<HTMLButtonElement>(null)
   const nextBtn = useRef<HTMLButtonElement>(null)
@@ -183,8 +208,12 @@ export function AttachmentViewer({
         // — 다크 토큰 강제(.dark).
         className={cn(
           'dark fixed inset-0 top-0 left-0 flex h-[100dvh] w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 bg-background p-0 text-foreground sm:max-w-none',
+          // 모바일: 포털이라 MobileShell 의 --vvh·안전영역 처리 밖 — 직접 적용(스펙 §4.2). 키보드가 없으면 변수 미설정 → 100dvh·0.
+          mobile && 'top-[var(--vv-top,0px)] h-[var(--vvh,100dvh)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]',
           aiAware.contentClassName,
         )}
+        // 키보드 열림 다이얼로그 규칙(index.css)에서 이 전체 화면 레이어를 골라 제외하는 표식.
+        data-viewer-root=""
         {...aiAware.contentProps}
         // 열릴 때 첫 포커스가 다운로드 아이콘 버튼에 가면 툴팁이 바로 뜨고, 첫 Escape 를 툴팁이 먹어
         // 뷰어가 닫히지 않는다 — 포커스는 다이얼로그 자체에 둔다. AI 패널 공존 훅의 처리를 먼저 돌리고, 막지 않았을 때만 바꾼다.
@@ -197,80 +226,94 @@ export function AttachmentViewer({
         onKeyDown={onKeyDown}
         data-testid="attachment-viewer"
       >
-        <header className="flex items-center gap-3 border-b border-border px-4 py-2">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted" aria-hidden>
-            <FileTypeIcon mimeType={item.mimeType} className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            {/* 접근 이름은 전체 파일명 + "미리보기"(스펙 §5.2) — 화면에는 가운데 말줄임 제목만 보인다. */}
-            <DialogTitle className="truncate text-sm font-medium" title={item.name}>
-              <span aria-hidden>{middleEllipsis(item.name, 60)}</span>
-              <span className="sr-only">{item.name} 미리보기</span>
-            </DialogTitle>
-            {/* 크기·순번·쪽 메타를 다이얼로그 설명으로 쓴다. */}
-            <DialogDescription className="truncate text-xs text-muted-foreground" data-testid="preview-meta">
-              {meta}
-            </DialogDescription>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {!item.unavailable && (
-              <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => void downloadViewerItem(item)}
-                      aria-label="다운로드"
-                      data-testid="preview-download"
-                    >
-                      <Download />
-                    </Button>
-                  </TooltipTrigger>
-                  {/* 툴팁도 body 로 포털되므로 뷰어와 같은 다크 토큰을 쓰게 dark 를 단다. */}
-                  <TooltipContent side="bottom" className="dark">
-                    다운로드
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            {item.importFileId != null && (
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="드라이브로 가져오기"
-                title={importer.unavailable ? '드라이브를 사용할 수 없습니다' : undefined}
-                disabled={!canImport}
-                onClick={startImport}
-              >
-                <Cloud />
-              </Button>
-            )}
-            {summary === 'show' && (
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="AI 요약"
-                aria-pressed={panelOpen}
-                onClick={() => togglePanel(!panelOpen)}
-              >
-                <Sparkles />
-              </Button>
-            )}
-            <ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} shareable={shareable} />
-            <div className="mx-1 h-5 w-px bg-border" aria-hidden />
-            <DialogClose asChild>
-              <Button variant="ghost" size="icon" aria-label="닫기">
-                <X />
-              </Button>
-            </DialogClose>
-          </div>
-        </header>
+        {/* 모바일: 본문 위에 겹치는 상단 바(✕·이름·순번·⋯) — 데스크톱 헤더 대신. */}
+        {mobile && (
+          <ViewerMobileTopBar
+            item={item}
+            meta={mobileMeta}
+            hidden={barsHidden}
+            more={<ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} shareable={shareable} />}
+          />
+        )}
+        {!mobile && (
+          <header className="flex items-center gap-3 border-b border-border px-4 py-2">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted" aria-hidden>
+              <FileTypeIcon mimeType={item.mimeType} className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              {/* 접근 이름은 전체 파일명 + "미리보기"(스펙 §5.2) — 화면에는 가운데 말줄임 제목만 보인다. */}
+              <DialogTitle className="truncate text-sm font-medium" title={item.name}>
+                <span aria-hidden>{middleEllipsis(item.name, 60)}</span>
+                <span className="sr-only">{item.name} 미리보기</span>
+              </DialogTitle>
+              {/* 크기·순번·쪽 메타를 다이얼로그 설명으로 쓴다. */}
+              <DialogDescription className="truncate text-xs text-muted-foreground" data-testid="preview-meta">
+                {meta}
+              </DialogDescription>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              {!item.unavailable && (
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="pointer-coarse:size-11"
+                        onClick={() => void downloadViewerItem(item)}
+                        aria-label="다운로드"
+                        data-testid="preview-download"
+                      >
+                        <Download />
+                      </Button>
+                    </TooltipTrigger>
+                    {/* 툴팁도 body 로 포털되므로 뷰어와 같은 다크 토큰을 쓰게 dark 를 단다. */}
+                    <TooltipContent side="bottom" className="dark">
+                      다운로드
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+              {item.importFileId != null && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="pointer-coarse:size-11"
+                  aria-label="드라이브로 가져오기"
+                  title={importer.unavailable ? '드라이브를 사용할 수 없습니다' : undefined}
+                  disabled={!canImport}
+                  onClick={startImport}
+                >
+                  <Cloud />
+                </Button>
+              )}
+              {summary === 'show' && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="pointer-coarse:size-11"
+                  aria-label="AI 요약"
+                  aria-pressed={panelOpen}
+                  onClick={() => togglePanel(!panelOpen)}
+                >
+                  <Sparkles />
+                </Button>
+              )}
+              <ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} shareable={shareable} />
+              <div className="mx-1 h-5 w-px bg-border" aria-hidden />
+              <DialogClose asChild>
+                <Button variant="ghost" size="icon" className="pointer-coarse:size-11" aria-label="닫기">
+                  <X />
+                </Button>
+              </DialogClose>
+            </div>
+          </header>
+        )}
         {/* 본문 영역 + 사이드 패널 — lg 미만은 세로로 쌓고, lg 이상은 오른쪽 열. › 는 본문 영역 끝(= 패널 왼쪽)에 붙는다. */}
         <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {/* 항목별로 상태가 초기화되도록 key. */}
-            <ViewerBody key={item.key} item={item} zoom={zoom} onPage={onPage} />
+            <ViewerBody key={item.key} item={item} zoom={zoom} onPage={onPage} chromeInset={mobile} />
             {nav.hasPrev && (
               <button ref={prevBtn} type="button" aria-label="이전 파일" onClick={() => go(-1)} className={cn(edgeBtnClass, 'left-3')}>
                 <ChevronLeft />
@@ -281,7 +324,8 @@ export function AttachmentViewer({
                 <ChevronRight />
               </button>
             )}
-            {zoomable && (
+            {/* 모바일은 하단 액션 바와 겹치고 확대는 핀치·두 번 탭으로 하므로 플로팅 툴바를 숨긴다(판정 R8). */}
+            {zoomable && !mobile && (
               <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-black/60 px-1 text-white">
                 <Button variant="ghost" size="icon" aria-label="축소" disabled={zoom <= ZOOM_MIN} onClick={zoomOut}>
                   <Minus />
@@ -303,10 +347,20 @@ export function AttachmentViewer({
         </div>
         {/* ✨ 를 쓸 수 없어도(AI 꺼짐·요약 403) 참조된 곳은 얇은 띠로 보인다 — 비어 있으면 아무것도 그리지 않는다. */}
         {/* 요약 판정 중('loading')에는 띠도 그리지 않는다 — 곧 패널로 옮겨 갈 수 있어 띠→패널 깜빡임을 막는다. */}
-        {(summary === 'hidden' || summary === 'none') && item.backlinksDriveFileId != null && (
+        {!mobile && (summary === 'hidden' || summary === 'none') && item.backlinksDriveFileId != null && (
           <div className="max-h-32 shrink-0 overflow-y-auto border-t border-border px-4 py-3">
             <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />
           </div>
+        )}
+        {/* 모바일 하단 4칸 바 — 참조된 곳 띠는 바 위 같은 겹침 레이어에 얹는다(판정 R11). */}
+        {mobile && (
+          <ViewerActionBar slots={slots} share={shareState} summaryOpen={showPanel} hidden={barsHidden} onAction={onSlot}>
+            {(summary === 'hidden' || summary === 'none') && item.backlinksDriveFileId != null && (
+              <div className="max-h-24 overflow-y-auto border-b border-border px-4 py-2">
+                <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />
+              </div>
+            )}
+          </ViewerActionBar>
         )}
         {/* 폴더 선택 모달 — 뷰어 Dialog 안에 그려 포커스 트랩 안에 둔다. */}
         {importer.picker}

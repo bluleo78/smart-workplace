@@ -264,6 +264,13 @@
   max-height: calc(var(--vvh) - 2rem);
   overflow-y: auto;
 }
+/* 통합 뷰어(WP-278)는 가운데 정렬 다이얼로그가 아니라 전체 화면 레이어다 — 위 규칙(top: 가운데 + translate 전제)을 받으면
+   AI 시트 입력 등으로 키보드가 열릴 때 화면 절반이 밖으로 밀린다. 보이는 영역 맨 위에 붙이고 높이는 컴포넌트의 --vvh 를 그대로 쓴다. */
+:root[data-keyboard-open] [data-slot="dialog-content"][data-viewer-root] {
+  top: var(--vv-top);
+  max-height: none;
+  overflow: hidden;
+}
 /* 하단 시트는 키보드 바로 위에 붙이고, 좌우 시트는 보이는 영역 높이만 차지한다(상단 시트는 그대로). */
 :root[data-keyboard-open] [data-slot="sheet-content"]:not([data-side="top"]) {
   bottom: var(--kb-inset);
