@@ -14,7 +14,7 @@ export function CsvTablePreview({ csv }: { csv: string }) {
   }
   const [header, ...body] = rows
   return (
-    <div className="overflow-x-auto" data-testid="csv-table">
+    <div className="overflow-x-auto" data-hscroll data-testid="csv-table">
       <table className="w-full border-collapse text-xs">
         <thead>
           <tr>

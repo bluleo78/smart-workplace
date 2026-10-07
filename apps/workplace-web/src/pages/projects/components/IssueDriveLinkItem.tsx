@@ -1,8 +1,9 @@
 // 이슈 드라이브 링크 1행 — 클라우드 배지 + 드라이브 위치 서브텍스트 (선택 C).
 // 무엇을: 업로드 첨부와 한 목록에 렌더하되 드라이브 링크임을 info 배지로 구분.
 // 왜: #80 이슈↔드라이브 파일 연결 시각화.
+// WP-277: 이름 클릭은 통합 뷰어(onPreview)를 열고, 다운로드는 별도 아이콘 버튼으로 둔다.
 
-import { Cloud, X } from 'lucide-react'
+import { Cloud, Download, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
@@ -18,12 +19,15 @@ export function IssueDriveLinkItem({
   link,
   canManage,
   onRemove,
+  onPreview,
 }: {
   projectKey: string
   number: number
   link: DriveLink
   canManage: boolean
   onRemove: (driveFileId: number) => void
+  /** 이름 클릭 — 통합 뷰어 열기. 없으면 예전처럼 바로 다운로드. 휴지통이어도 열 수 있다(뷰어가 '사용할 수 없음' 안내). */
+  onPreview?: () => void
 }) {
   const navigate = useNavigate()
   const trashed = link.availability === 'TRASHED'
@@ -35,13 +39,13 @@ export function IssueDriveLinkItem({
     >
       <div className="flex items-center gap-2">
         <FileTypeIcon mimeType={link.mimeType} />
-        {/* 파일명 클릭 → 드라이브 링크 다운로드 (휴지통이면 비활성화) */}
+        {/* 파일명 클릭 → 통합 뷰어(휴지통이면 뷰어가 안내만 보여 준다). onPreview 가 없으면 다운로드(휴지통이면 비활성). */}
         <button
           type="button"
-          disabled={trashed}
-          onClick={() => downloadIssueDriveLink(projectKey, number, link.driveFileId, link.name)}
+          disabled={!onPreview && trashed}
+          onClick={() => (onPreview ? onPreview() : downloadIssueDriveLink(projectKey, number, link.driveFileId, link.name))}
           className="flex-1 truncate text-left font-medium hover:underline disabled:cursor-not-allowed"
-          aria-label={`${link.name} 다운로드`}
+          aria-label={`${link.name} ${onPreview ? '미리보기' : '다운로드'}`}
         >
           {link.name}
         </button>
@@ -53,6 +57,19 @@ export function IssueDriveLinkItem({
           <Cloud className="h-3 w-3" /> 링크
         </span>
         <span className="text-xs text-muted-foreground">{formatFileSize(link.sizeBytes)}</span>
+        {/* 다운로드 아이콘 — 미리보기를 쓰는 경우에만, 원본이 휴지통이면 받을 수 없으므로 숨긴다. */}
+        {onPreview && !trashed && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="shrink-0 text-muted-foreground pointer-coarse:size-8"
+            onClick={() => downloadIssueDriveLink(projectKey, number, link.driveFileId, link.name)}
+            aria-label={`${link.name} 다운로드`}
+            title="다운로드"
+          >
+            <Download className="size-3.5" aria-hidden />
+          </Button>
+        )}
         {canManage && (
           // 마우스는 hover 시에만 노출. WP-237: 터치 기기(pointer: coarse)는 hover 가 없어 상시 노출 +
           // 44px 터치 영역(음수 세로 마진으로 행 높이는 유지).

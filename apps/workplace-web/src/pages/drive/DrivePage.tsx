@@ -65,7 +65,7 @@ import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
 import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
 import { SearchInput } from '../../components/ui/search-input'
 import { AttachmentViewer } from '../../components/viewer/AttachmentViewer'
-import { driveFileItem } from '../../components/viewer/viewerItems'
+import { driveFileItem, resolveBundle } from '../../components/viewer/viewerItems'
 import { driveKeys } from '../../hooks/queries/driveKeys'
 import { useDriveItems } from '../../hooks/queries/useDriveItems'
 import { useDriveSearch } from '../../hooks/queries/useDriveSearch'
@@ -271,8 +271,14 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     previewId == null
       ? null
       : ((results ?? items).files.find((f) => f.id === previewId) ?? (previewSnap?.id === previewId ? previewSnap : null))
+  // 묶음 = 지금 보이는 목록(검색 중이면 검색 결과)의 파일 — 열린 동안 재조회로 빠져도 스냅숏으로 유지(resolveBundle).
+  const viewerFiles = useMemo(() => viewItems.files.map(driveFileItem), [viewItems.files])
+  // URL 값은 기존대로 숫자 id(`?preview=70`) — 다른 화면(검색·홈 위젯·백링크·driveOpenPath)이 만드는 딥링크와 호환.
+  // 묶음 키는 `drive:{id}` 이므로 비교 전에 변환한다.
+  const currentKey = previewId != null ? `drive:${previewId}` : null
+  const bundle = resolveBundle(viewerFiles, currentKey, previewSnap ? driveFileItem(previewSnap) : null)
   const previewMissing =
-    previewId != null && preview == null && results == null && itemsQuery.isSuccess && !itemsQuery.isPlaceholderData
+    previewId != null && bundle == null && results == null && itemsQuery.isSuccess && !itemsQuery.isPlaceholderData
   // 렌더마다 Set 을 새로 만들지 않도록 입력(뷰 목록·선택 집합)이 바뀔 때만 다시 계산한다.
   const visibleSelFiles = useMemo(() => {
     const ids = new Set(viewItems.files.map((f) => f.id))
@@ -1631,11 +1637,18 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             onClose={() => setBulkPicker(false)}
           />
         )}
-        {preview && (
+        {bundle && (
           <AttachmentViewer
-            items={[driveFileItem(preview)]}
-            index={0}
-            onIndexChange={() => {}}
+            items={bundle.items}
+            index={bundle.index}
+            // 열린 상태의 open 은 replace 라 넘김이 히스토리를 쌓지 않는다.
+            onIndexChange={(i) => {
+              const id = bundle.items[i].key.slice('drive:'.length)
+              // 넘긴 파일도 스냅숏으로 갱신 — 이후 재조회로 목록에서 빠져도 열린 뷰어가 유지된다.
+              const f = viewItems.files.find((x) => String(x.id) === id)
+              if (f) setPreviewSnap(f)
+              previewParam.open(id)
+            }}
             onClose={previewParam.close}
             defaultPanelOpen
           />

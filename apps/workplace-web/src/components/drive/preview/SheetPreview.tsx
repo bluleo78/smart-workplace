@@ -65,7 +65,7 @@ export function SheetPreview({ buffer }: { buffer: ArrayBuffer }) {
           ))}
         </div>
       )}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" data-hscroll>
         <table className="w-full border-collapse text-xs">
           <tbody>
             {sheet.rows.map((row, r) => (
