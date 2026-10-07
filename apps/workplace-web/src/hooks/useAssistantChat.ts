@@ -34,8 +34,12 @@ export interface AssistantChat {
   limit: number;
   /** WP-190: 다른 대화가 상한만큼 답변 중 — 입력창 위 안내. */
   atLimit: boolean;
-  /** WP-190: 전송 막힘(상한 또는 ■ 뒤 서버 종결 대기). */
+  /** WP-190: 전송 막힘(상한·■ 뒤 서버 종결 대기·이력 읽는 중·다른 창에서 답변 중). */
   sendBlocked: boolean;
+  /** WP-266: 현재 대화가 다른 창에서 답변 중인데 이 창엔 아직 "답변 중" 표시가 없다 — 입력창 위 안내. */
+  busyElsewhere: boolean;
+  /** WP-265: 현재 대화의 생성 도중 SSE 가 다시 이어졌다 — 답변 아래 "끝나면 전체를 불러와요" 안내. */
+  reconnected: boolean;
   /** WP-190: 현재 대화를 뺀 나머지의 생성 중/새 답변 — 헤더 "대화 목록" 점. */
   otherActivity: AiActivity;
   /** WP-190: 대화 목록 둘째 줄 상태. */
@@ -77,6 +81,8 @@ export function useAssistantChat(): AssistantChat {
     limit: session.limit,
     atLimit: session.atLimit,
     sendBlocked: session.sendBlocked,
+    busyElsewhere: session.busyElsewhere,
+    reconnected: session.reconnected,
     otherActivity: session.otherActivity,
     sessionStatus: session.sessionStatus,
     isGenerating: session.isGenerating,

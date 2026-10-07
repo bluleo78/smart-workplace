@@ -123,6 +123,22 @@ class HomeChatConcurrencyTest extends IntegrationTestBase {
         .containsExactly("첫 질문");
   }
 
+  /** WP-267: 웹이 정한 correlationId 로 생성하고, 진행 중인 id 를 다시 쓰면 409 이며 새 세션·질문을 남기지 않는다. */
+  @Test
+  void 웹이_정한_correlationId_로_시작하고_진행중_id_재사용은_409() {
+    long uid = user();
+    UUID cid = UUID.randomUUID();
+    assertThat(chatService.startChat(uid, null, "첫 질문", null, List.of(), cid).correlationId())
+        .isEqualTo(cid.toString());
+    assertThat(chatService.active(uid).items())
+        .extracting(HomeChatActiveResponse.Item::correlationId)
+        .containsExactly(cid.toString());
+
+    assertThatThrownBy(() -> chatService.startChat(uid, null, "둘째", null, List.of(), cid))
+        .isInstanceOf(HomeChatSessionBusyException.class);
+    assertThat(sessionService.list(uid, null, 10).items()).hasSize(1);
+  }
+
   @Test
   void 네번째_대화는_429_이고_빈_세션을_만들지_않는다() {
     long uid = user();

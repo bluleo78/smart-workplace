@@ -24,13 +24,23 @@ export type LiveEvent = 'delta' | 'progress' | 'tool' | 'pending_action' | 'done
 export type StartReply = { correlationId: string; sessionId: string } | { status: 409 | 429 }
 
 export interface LiveChat {
-  /** 열린 SSE 에 home.chat.<event> 프레임 1개를 보낸다. */
+  /** 열린 SSE 에 home.chat.<event> 프레임 1개를 보낸다. correlationId 가 queueStart 의 이름이면 웹이 정한 실제 id 로 바꿔 보낸다. */
   push(event: LiveEvent, data: Record<string, unknown>): Promise<void>
-  /** 다음 POST /ai/chat 응답(순서대로 소비). status 면 그 오류로 거절. */
+  /**
+   * 다음 POST /ai/chat 응답(순서대로 소비). status 면 그 오류로 거절. WP-267: 웹이 correlationId 를 정해 보내므로 응답은 실제 서버처럼
+   * 그 id 를 돌려주고, reply.correlationId 는 테스트가 그 생성을 부르는 이름이 된다(push·cid 가 실제 id 로 바꾼다).
+   */
   queueStart(reply: StartReply): void
+  /** queueStart 이름 → 웹이 정한 실제 correlationId(아직 요청 전이면 이름 그대로). */
+  cid(name: string): string
+  /** 서버 생성 중 목록 — correlationId 가 queueStart 의 이름이면 실제 id 로 바꿔 돌려준다. */
   setActive(items: ActiveChatItem[], limit?: number): void
   setSessions(items: HomeSessionSummary[]): void
   setMessages(sessionId: string, messages: HomeMessage[]): void
+  /** 그 대화의 이력 조회 응답을 붙잡는다 — 돌려준 함수를 부르면 그때의 메시지로 응답한다(WP-266·268 "읽는 중" 관측). */
+  holdMessages(sessionId: string): () => void
+  /** SSE 를 끊었다가 앱이 다시 연결할 때까지 기다린다(WP-265 재연결). */
+  reconnect(): Promise<void>
   starts: RequestTracker
   cancels: RequestTracker
 }
@@ -52,9 +62,12 @@ export async function setupLiveChat(page: Page): Promise<LiveChat> {
   const starts = trackRequests(page, 'POST', '/api/v1/ai/chat')
   const cancels = trackRequests(page, 'DELETE', /^\/api\/v1\/ai\/chat\/[^/]+$/)
   const replies: StartReply[] = []
+  const ids = new Map<string, string>() // 이름 → 웹이 정한 correlationId
+  const cid = (name: string) => ids.get(name) ?? name
   let active: { limit: number; items: ActiveChatItem[] } = { limit: 3, items: [] }
   let sessions: HomeSessionSummary[] = []
   const messages = new Map<string, HomeMessage[]>()
+  const holds = new Map<string, Promise<void>>()
 
   await page.route((u) => u.pathname === '/api/v1/events', (route) =>
     route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { [LIVE_HEADER]: '1' }, body: '' }))
@@ -97,15 +110,21 @@ export async function setupLiveChat(page: Page): Promise<LiveChat> {
         body: JSON.stringify({ status: r.status, message: r.status === 429 ? '다른 대화 3개가 답변 중이에요.' : '이 대화는 아직 답변 중이에요', errors: { code } }),
       })
     }
-    return route.fulfill(json(r))
+    const sent = (route.request().postDataJSON() as { correlationId?: string } | null)?.correlationId
+    if (sent) ids.set(r.correlationId, sent)
+    return route.fulfill(json({ ...r, correlationId: cid(r.correlationId) }))
   })
   await page.route((u) => /^\/api\/v1\/ai\/chat\/[^/]+$/.test(u.pathname), (route) =>
     route.request().method() === 'DELETE' ? route.fulfill(json({})) : route.fallback())
-  await page.route((u) => u.pathname === '/api/v1/ai/chat/active', (route) => route.fulfill(json(active)))
+  await page.route((u) => u.pathname === '/api/v1/ai/chat/active', (route) =>
+    route.fulfill(json({ ...active, items: active.items.map((i) => ({ ...i, correlationId: cid(i.correlationId) })) })))
   await page.route((u) => u.pathname === '/api/v1/home/sessions', (route) =>
     route.request().method() === 'GET' ? route.fulfill(json({ items: sessions, nextCursor: null })) : route.fallback())
-  await page.route((u) => /^\/api\/v1\/home\/sessions\/[^/]+\/messages$/.test(u.pathname), (route) =>
-    route.fulfill(json(messages.get(new URL(route.request().url()).pathname.split('/')[5]) ?? [])))
+  await page.route((u) => /^\/api\/v1\/home\/sessions\/[^/]+\/messages$/.test(u.pathname), async (route) => {
+    const id = new URL(route.request().url()).pathname.split('/')[5]
+    await holds.get(id)
+    return route.fulfill(json(messages.get(id) ?? []))
+  })
   await page.route((u) => /^\/api\/v1\/home\/sessions\/[^/]+$/.test(u.pathname), (route) =>
     route.request().method() === 'DELETE' ? route.fulfill({ status: 204, body: '' }) : route.fallback())
 
@@ -117,13 +136,31 @@ export async function setupLiveChat(page: Page): Promise<LiveChat> {
         const bytes = new TextEncoder().encode(`event: ${name}\ndata: ${JSON.stringify(payload)}\n\n`)
         window.__e2eSse?.forEach((c) => c.enqueue(bytes))
         return window.__e2eSse?.size ?? 0
-      }, [`home.chat.${event}`, data] as const)
+      }, [`home.chat.${event}`, typeof data.correlationId === 'string' ? { ...data, correlationId: cid(data.correlationId) } : data] as const)
       expect(sent, '열린 SSE 스트림이 없다').toBeGreaterThan(0)
     },
     queueStart: (r) => void replies.push(r),
+    cid,
     setActive: (items, limit = 3) => void (active = { limit, items }),
     setSessions: (items) => void (sessions = items),
     setMessages: (id, m) => void messages.set(id, m),
+    holdMessages(id) {
+      let release!: () => void
+      holds.set(id, new Promise<void>((r) => (release = r)))
+      return () => {
+        holds.delete(id)
+        release()
+      }
+    },
+    async reconnect() {
+      await page.evaluate(() => {
+        const streams = [...(window.__e2eSse ?? [])]
+        window.__e2eSse?.clear()
+        streams.forEach((c) => c.error(new TypeError('network')))
+      })
+      // 앱은 1~2초 뒤 다시 연결한다(eventStream 백오프 첫 회).
+      await expect.poll(() => page.evaluate(() => window.__e2eSse?.size ?? 0), { timeout: 10_000 }).toBeGreaterThan(0)
+    },
     starts,
     cancels,
   }

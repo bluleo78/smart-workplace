@@ -13,6 +13,7 @@ import { useChatStreamsSnapshot } from '@/hooks/useChatStreams';
 import { chatStartRejection } from '@/lib/ai/chatErrors';
 import {
   atLimit,
+  busyElsewhere,
   chatStreams,
   connectChatEvents,
   currentSessionId,
@@ -28,6 +29,8 @@ import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { ChatTurn, PendingAction, ProposalCard, TurnAttachment } from '@/types/home';
 
 const EMPTY_TURNS: ChatTurn[] = [];
+/** WP-268: 이력 조회가 이만큼 끝나지 않으면 실패로 보고 전송 잠금을 푼다(응답 없는 요청에 입력이 영영 막히지 않게). */
+const HISTORY_LOCK_TIMEOUT_MS = 10_000;
 const EMPTY_CARDS: ProposalCard[] = [];
 
 export function useChatSession() {
@@ -39,11 +42,11 @@ export function useChatSession() {
   const ownerKey = user ? `${user.id}:${activeTenant?.tenantId ?? 0}` : null;
 
   // 서버 이력으로 칸 채우기 — 복원과 자리표시 종결 재조회가 공용. #843: 카드 조회 실패는 이력 복원을 막지 않는다.
-  const reload = useCallback(async (id: string) => {
+  const reload = useCallback(async (id: string, timeoutMs?: number) => {
     try {
       const [{ data }, proposals] = await Promise.all([
-        homeApi.sessionMessages(id),
-        homeApi.sessionProposals(id).then((r) => r.data).catch(() => [] as PendingAction[]),
+        homeApi.sessionMessages(id, timeoutMs),
+        homeApi.sessionProposals(id, timeoutMs).then((r) => r.data).catch(() => [] as PendingAction[]),
       ]);
       chatStreams.load(id, data.map(messageToTurn), proposals);
     } catch (err) {
@@ -65,13 +68,13 @@ export function useChatSession() {
   useEffect(() => connectChatEvents(chatStreams), []);
 
   /**
-   * 질문 전송. 낙관적으로 두 턴을 붙이고 POST → correlationId 를 칸에 등록한다.
+   * 질문 전송. 낙관적으로 두 턴을 붙이고(correlationId 도 이때 정해 라우팅에 올린다, WP-267) POST 에 실어 보낸다.
    * WP-234: attachments — 이번 메시지 첨부(낙관적 사용자 턴에 미리보기와 함께 붙이고, fileIds 로 POST 본문에 싣는다).
    * @returns 서버가 요청을 받아들였는지. false(409·429·400·네트워크 오류 등)면 패널이 입력·첨부 초안을 되돌린다(R17·WP-234).
    */
   const submitQuery = useCallback(
     async (query: string, screenContext?: AiScreenContext, attachments?: TurnAttachment[]): Promise<boolean> => {
-      const { key, gen, userTurn } = chatStreams.startTurn(query, attachments);
+      const { key, gen, correlationId, userTurn } = chatStreams.startTurn(query, attachments);
       const sessionId = key.startsWith(DRAFT_PREFIX) ? null : key;
       const fileIds = attachments?.map((a) => a.fileId) ?? [];
       try {
@@ -79,18 +82,20 @@ export function useChatSession() {
         const { data } = await homeApi.startChat({
           sessionId,
           query,
+          correlationId,
           ...(screenContext ? { screenContext } : {}),
           ...(fileIds.length ? { fileIds } : {}),
         });
-        const { cancelNow } = chatStreams.attach(key, gen, data.correlationId, data.sessionId);
-        if (cancelNow) void homeApi.cancelChat(data.correlationId).catch(() => {});
+        // 응답 전에 ■ 를 눌렀다면 서버가 받은 지금 취소한다(그때는 서버가 몰라 취소를 보내지 않았다).
+        const cancelNow = chatStreams.attach(correlationId, data.correlationId, data.sessionId);
+        if (cancelNow) void homeApi.cancelChat(cancelNow).catch(() => {});
         // 새 세션을 목록에 바로 보인다(생성 중 상태 문구를 붙일 행이 필요).
         if (!sessionId) void qc.invalidateQueries({ queryKey: homeKeys.sessions() });
         return true;
       } catch (e) {
         const rejection = chatStartRejection(e);
         // 서버가 받지 않았다 — 낙관적 사용자 턴의 첨부도 뗀다(WP-234: 보낸 것처럼 보이거나 세션 30개 계산에 이중으로 잡히지 않게).
-        chatStreams.failStart(key, gen, rejection ? null : FAILED_EMPTY, userTurn);
+        chatStreams.failStart(key, gen, correlationId, rejection ? null : FAILED_EMPTY, userTurn);
         if (rejection) {
           if (rejection === 'busy') toast.error('이 대화는 아직 답변 중이에요');
           // limit: 입력창 위 상한 안내가 재동기화 결과로 뜬다.
@@ -116,11 +121,15 @@ export function useChatSession() {
   const newSession = useCallback(() => chatStreams.newConversation(), []);
 
   // 대화 선택 — 칸이 있으면 그대로(생성 중이면 스트리밍이 이어 보인다), 없으면 서버에서 읽는다(R14).
-  // 칸은 있어도 이력이 아직이면(복원 조회 전에 보낸 질문이 만든 칸·그 조회 실패) 다시 읽는다 — load 가 라이브 턴 앞에 붙인다.
+  // 칸은 있어도 이력이 아직이면(그 조회가 실패한 칸) 다시 읽는다. WP-268: 읽는 동안은 전송을 막는다 — 실패·시간 초과면 푼다.
   const restoreSession = useCallback(
     async (id: string) => {
       chatStreams.select(id);
-      if (!chatStreams.hasHistory(id)) await reload(id);
+      if (chatStreams.hasHistory(id)) return;
+      const token = chatStreams.beginLoading(id);
+      // 요청 자체에 시간 제한을 둔다 — 잠금이 풀린 뒤 늦은 이력이 새 질문과 섞이지 않게.
+      await reload(id, HISTORY_LOCK_TIMEOUT_MS);
+      chatStreams.endLoading(id, token); // 성공이면 load 가 이미 풀었다(no-op). reload 는 실패를 삼킨다.
     },
     [reload],
   );
@@ -182,6 +191,8 @@ export function useChatSession() {
     limit: snap.limit,
     atLimit: atLimit(snap),
     sendBlocked: sendBlocked(snap),
+    busyElsewhere: busyElsewhere(snap),
+    reconnected: entry?.reconnected ?? false,
     otherActivity: otherActivity(snap),
     sessionStatus: (id: string) => sessionStatus(snap, id),
     isGenerating: (id: string) => isGenerating(snap, id),

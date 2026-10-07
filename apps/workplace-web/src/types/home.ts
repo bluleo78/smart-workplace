@@ -26,6 +26,8 @@ export interface ChatRequest {
   sessionId: string | null;
   /** WP-234: 첨부만 보내면 빈 문자열(서버가 fileIds 가 있을 때만 허용). */
   query: string;
+  /** WP-267: 웹이 정한 생성 id(UUID) — 응답보다 먼저 온 home.chat.* 이벤트도 바로 그 대화에 붙인다. */
+  correlationId: string;
   /** WP-54: 현재 화면 컨텍스트 — 없으면 키 자체를 생략한다. */
   screenContext?: AiScreenContext;
   /** WP-234: 미리 올린 첨부(POST /home/attachments 응답의 fileId). 없으면 키 생략. */

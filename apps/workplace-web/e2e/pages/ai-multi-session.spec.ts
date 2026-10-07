@@ -51,7 +51,7 @@ test('■ 정지는 그 대화만 멈추고 취소 요청 1회, 다른 대화의
   await live.push('delta', { correlationId: 'corr-b', sessionId: 's-b', text: 'B 부분 답변' })
   await page.getByTestId('chat-stop').click()
   await live.cancels.waitFor(1)
-  expect(live.cancels.lastUrl()?.pathname).toBe('/api/v1/ai/chat/corr-b')
+  expect(live.cancels.lastUrl()?.pathname).toBe(`/api/v1/ai/chat/${live.cid('corr-b')}`)
 
   await live.push('delta', { correlationId: 'corr-a', sessionId: 's-a', text: 'A 는 계속' })
   await page.getByTestId('chat-session-switcher').click()
@@ -145,7 +145,7 @@ test('생성 중인 대화 삭제는 중단 안내 후 취소 → 삭제 순으�
   await expect(dialog).toContainText('삭제하면 진행 중인 답변도 중단돼요')
   await dialog.getByRole('button', { name: '삭제' }).click()
   await deletes.waitFor(2)
-  expect(deletes.urls().map((u) => u.pathname)).toEqual(['/api/v1/ai/chat/corr-a', '/api/v1/home/sessions/s-a'])
+  expect(deletes.urls().map((u) => u.pathname)).toEqual([`/api/v1/ai/chat/${live.cid('corr-a')}`, '/api/v1/home/sessions/s-a'])
 })
 
 test('3개가 답변 중이면 4번째 대화는 안내와 함께 전송이 막히고, 하나가 끝나면 풀린다 (WP-190)', async ({ authenticatedPage: page }) => {
@@ -269,4 +269,113 @@ test('새로고침 뒤 서버 생성 중 목록으로 상태를 복원하고, �
   await expect(page.getByTestId('chat-panel')).toContainText('완성된 요약입니다')
   await expect(page.getByTestId('chat-panel')).not.toContainText('중간 조각')
   await expect(page.getByTestId('chat-pending')).toHaveCount(0)
+})
+
+test('열어 둔 대화가 다른 창에서 답변을 시작하면 이유를 안내하고, 그 질문과 "답변 중" 을 이어받는다 (WP-266)', async ({ authenticatedPage: page }) => {
+  const live = await setupLiveChat(page)
+  live.setSessions([summary('s-a', TITLE_A, 1)])
+  live.setMessages('s-a', [msg(1, 'USER', TITLE_A), msg(2, 'ASSISTANT', '요약본입니다')])
+  await openChatPanel(page)
+  const panel = page.getByTestId('chat-panel')
+  await page.getByTestId('chat-session-switcher').click()
+  await sessionItem(page, TITLE_A).getByTestId('chat-session-select').click()
+  await expect(panel).toContainText('요약본입니다')
+
+  // 다른 창이 같은 대화에 질문했다 — 이 창은 이벤트로 처음 안다. 이력 재조회가 끝나기 전엔 안내로 이유를 보인다.
+  const release = live.holdMessages('s-a')
+  live.setMessages('s-a', [msg(1, 'USER', TITLE_A), msg(2, 'ASSISTANT', '요약본입니다'), msg(3, 'USER', '다른 창에서 보낸 질문')])
+  await live.push('delta', { correlationId: 'corr-o', sessionId: 's-a', text: '다른 창 답변' })
+  const notice = page.getByTestId('chat-busy-elsewhere')
+  await expect(notice).toHaveText('이 대화는 다른 창에서 답변 중이에요. 끝나면 보낼 수 있어요.')
+  await page.getByTestId('chat-input').fill('나도 물어볼게')
+  const send = panel.getByRole('button', { name: '보내기' })
+  await expect(send).toBeDisabled()
+  await expect(send).toHaveAttribute('aria-describedby', 'chat-busy-notice')
+
+  release()
+  await expect(panel).toContainText('다른 창에서 보낸 질문')
+  await expect(page.getByTestId('chat-pending')).toBeVisible()
+  await expect(page.getByTestId('chat-stop')).toBeVisible()
+  await expect(notice).toHaveCount(0)
+  await expect(panel).not.toContainText('다른 창 답변') // 자리표시 — 중간 조각은 붙이지 않는다
+
+  live.setMessages('s-a', [
+    msg(1, 'USER', TITLE_A), msg(2, 'ASSISTANT', '요약본입니다'),
+    msg(3, 'USER', '다른 창에서 보낸 질문'), msg(4, 'ASSISTANT', '다른 창의 완성된 답변'),
+  ])
+  await live.push('done', { correlationId: 'corr-o', sessionId: 's-a', widgets: null })
+  await expect(panel).toContainText('다른 창의 완성된 답변')
+  await expect(page.getByTestId('chat-pending')).toHaveCount(0)
+  await expect(send).toBeEnabled()
+  await expect(page.getByTestId('chat-input')).toHaveValue('나도 물어볼게') // 입력은 막지 않았다
+})
+
+test('답변 중 SSE 가 다시 이어지면 받은 부분을 두고 안내하다가, 끝나면 전체 답변으로 바꾼다 (WP-265)', async ({ authenticatedPage: page }) => {
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  live.setSessions([summary('s-a', TITLE_A, 1)])
+  await openChatPanel(page)
+  const panel = page.getByTestId('chat-panel')
+  await ask(page, live, TITLE_A)
+  await live.push('delta', { correlationId: 'corr-a', sessionId: 's-a', text: '첫 문단입니다.' })
+  await expect(panel).toContainText('첫 문단입니다.')
+
+  live.setActive([{ sessionId: 's-a', correlationId: 'corr-a', startedAt: '2026-10-05T00:00:00Z' }]) // 재동기화 — 아직 생성 중
+  await live.reconnect()
+  const note = page.getByTestId('chat-reconnected')
+  await expect(note).toHaveText('연결이 다시 이어졌어요 · 답변이 끝나면 전체를 불러와요')
+  await expect(panel).toContainText('첫 문단입니다.') // 받은 부분은 지우지 않는다
+  await expect(page.getByTestId('chat-stop')).toBeVisible()
+
+  // 끊긴 사이 조각이 빠졌을 수 있어 이어 붙이지 않는다.
+  await live.push('delta', { correlationId: 'corr-a', sessionId: 's-a', text: ' 이어진 조각' })
+  await expectStays(page, async () => (await panel.textContent())?.includes('이어진 조각') ?? false, false)
+
+  live.setActive([])
+  live.setMessages('s-a', [msg(1, 'USER', TITLE_A), msg(2, 'ASSISTANT', '첫 문단입니다. 끊긴 사이 조각까지 온전한 답변')])
+  await live.push('done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null })
+  await expect(panel).toContainText('첫 문단입니다. 끊긴 사이 조각까지 온전한 답변')
+  await expect(note).toHaveCount(0)
+  await expect(page.getByTestId('chat-stop')).toHaveCount(0)
+})
+
+test('대화를 열고 이력을 읽는 동안은 보내기를 막고, 이력이 오면 그 뒤에 이어 보낸다 (WP-268)', async ({ authenticatedPage: page }) => {
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  live.setSessions([summary('s-a', TITLE_A, 1)])
+  live.setMessages('s-a', [msg(1, 'USER', TITLE_A), msg(2, 'ASSISTANT', '요약본입니다')])
+  await openChatPanel(page)
+  const panel = page.getByTestId('chat-panel')
+  const release = live.holdMessages('s-a')
+  await page.getByTestId('chat-session-switcher').click()
+  await sessionItem(page, TITLE_A).getByTestId('chat-session-select').click()
+  await page.getByTestId('chat-input').fill(TITLE_A)
+  const send = panel.getByRole('button', { name: '보내기' })
+  await expect(send).toBeDisabled()
+  await page.getByTestId('chat-input').press('Enter') // Enter 도 같은 판정
+  await expectStays(page, live.starts.count, 0)
+
+  release()
+  await expect(panel).toContainText('요약본입니다')
+  await expect(send).toBeEnabled()
+  await ask(page, live, TITLE_A) // 같은 질문을 다시 보내도 지난 쌍이 숨지 않는다
+  await expect(panel.getByTestId('chat-user-bubble')).toHaveCount(2)
+  await expect(panel).toContainText('요약본입니다')
+  expect(live.starts.lastBody()).toMatchObject({ sessionId: 's-a', query: TITLE_A, correlationId: live.cid('corr-a') })
+})
+
+test('이력 복원의 확인 카드 조회가 응답하지 않아도 시간 제한 뒤 보내기 잠금이 풀린다 (WP-268)', async ({ authenticatedPage: page }) => {
+  test.slow() // 복원 요청 시간 제한(10초)을 실제로 기다린다 — 브라우저 XHR 타임아웃이라 page.clock 으로 당길 수 없다.
+  const live = await setupLiveChat(page)
+  live.setSessions([summary('s-a', TITLE_A, 1)])
+  live.setMessages('s-a', [msg(1, 'USER', TITLE_A), msg(2, 'ASSISTANT', '요약본입니다')])
+  // 확인 카드 조회만 영영 응답하지 않는다(요청은 받되 fulfill 하지 않음).
+  await page.route((u) => u.pathname === '/api/v1/home/sessions/s-a/proposals', () => {})
+  await openChatPanel(page)
+  await page.getByTestId('chat-session-switcher').click()
+  await sessionItem(page, TITLE_A).getByTestId('chat-session-select').click()
+  await page.getByTestId('chat-input').fill('이어서 물어볼게')
+  const send = page.getByTestId('chat-panel').getByRole('button', { name: '보내기' })
+  await expect(send).toBeDisabled()
+  await expect(send).toBeEnabled({ timeout: 20_000 })
 })

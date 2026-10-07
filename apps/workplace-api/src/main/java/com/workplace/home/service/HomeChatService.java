@@ -132,6 +132,16 @@ public class HomeChatService {
     return startChat(callerId, sessionId, query, screenContext, List.of());
   }
 
+  /** 생성 id 를 서버가 발급하는 호출(기존 호출부·테스트 호환). */
+  public HomeChatStartedResponse startChat(
+      long callerId,
+      UUID sessionId,
+      String query,
+      AiScreenContext screenContext,
+      List<Long> fileIds) {
+    return startChat(callerId, sessionId, query, screenContext, fileIds, null);
+  }
+
   /**
    * 실행 슬롯 예약 → 비서 해석·세션 ensure·맥락 스냅샷·USER 영속(동기) → 펌프 제출. 실패는 4xx/5xx 로 그대로 던진다.
    *
@@ -143,6 +153,7 @@ public class HomeChatService {
    * @param query 자연어 명령
    * @param screenContext 현재 화면 컨텍스트(WP-54, nullable) — 저장하지 않고 이번 요청에만 ai-agent 로 전달
    * @param fileIds 선업로드한 첨부 id(WP-234, null·빈 목록 허용) — USER 메시지와 같은 트랜잭션에서 연결·승격된다
+   * @param correlationId 웹이 정한 생성 id(WP-267, nullable) — 없으면 서버가 발급한다. 진행 중인 생성과 겹치면 409
    * @return correlationId(이벤트 필터·취소) + sessionId(새 대화면 만든 id)
    */
   public HomeChatStartedResponse startChat(
@@ -150,7 +161,8 @@ public class HomeChatService {
       UUID sessionId,
       String query,
       AiScreenContext screenContext,
-      List<Long> fileIds) {
+      List<Long> fileIds,
+      UUID correlationId) {
     // 1) enabled 확인 — 비활성이면 시작 전 예외로 단락.
     if (!aiAgentProperties.enabled()) {
       throw new HomeChatUnavailableException("AI 채팅 기능이 현재 비활성화되어 있어요.");
@@ -172,7 +184,8 @@ public class HomeChatService {
           registry.reserve(
               callerId,
               new StreamingGenerationRegistry.GenerationTag(scope(), sid.toString()),
-              limit);
+              limit,
+              correlationId == null ? null : correlationId.toString());
     } catch (StreamingGenerationRejectedException e) {
       throw e.reason() == StreamingGenerationRejectedException.Reason.BUSY
           ? new HomeChatSessionBusyException()

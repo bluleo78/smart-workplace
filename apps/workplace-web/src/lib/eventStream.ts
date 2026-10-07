@@ -59,7 +59,8 @@ export function createSseParser(onEvent: (name: string, data: unknown) => void):
 export interface EventStreamOptions {
   url: string;
   onEvent: (name: string, data: unknown) => void;
-  onOpen?: () => void; // 연결 성공(재연결 포함) 직후 — catch-up invalidate 용
+  /** 연결 성공(재연결 포함) 직후 — catch-up invalidate 용. reconnect 는 이 구독에서 이미 한 번 열린 적이 있는가(WP-265). */
+  onOpen?: (info: { reconnect: boolean }) => void;
   onConnectedChange?: (connected: boolean) => void;
 }
 
@@ -67,6 +68,7 @@ export interface EventStreamOptions {
 export function subscribeEventStream(opts: EventStreamOptions): () => void {
   let cancelled = false;
   let attempt = 0;
+  let opened = false;
   let controller: AbortController | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -105,7 +107,8 @@ export function subscribeEventStream(opts: EventStreamOptions): () => void {
       if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
       attempt = 0;
       opts.onConnectedChange?.(true);
-      opts.onOpen?.();
+      opts.onOpen?.({ reconnect: opened });
+      opened = true;
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();

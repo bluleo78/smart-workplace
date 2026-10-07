@@ -43,16 +43,17 @@ export const homeApi = {
     client.get<HomeSessionPage>('/home/sessions', { params: { size } }),
 
   /** 세션 전체 메시지(복원용). */
-  sessionMessages: (sessionId: string) =>
-    client.get<HomeMessage[]>(`/home/sessions/${sessionId}/messages`),
+  /** timeoutMs — WP-268: 대화 복원은 이 시간 안에 끝나지 않으면 실패로 보고 전송 잠금을 푼다(요청도 함께 끝난다). sessionProposals 도 같다. */
+  sessionMessages: (sessionId: string, timeoutMs?: number) =>
+    client.get<HomeMessage[]>(`/home/sessions/${sessionId}/messages`, timeoutMs ? { timeout: timeoutMs } : undefined),
 
   /** 세션 삭제. */
   deleteSession: (sessionId: string) =>
     client.delete<void>(`/home/sessions/${sessionId}`),
 
   /** #843: 세션의 미처리 확인카드(새로고침·세션 복원 시 재표시). */
-  sessionProposals: (sessionId: string) =>
-    client.get<PendingAction[]>(`/home/sessions/${sessionId}/proposals`),
+  sessionProposals: (sessionId: string, timeoutMs?: number) =>
+    client.get<PendingAction[]>(`/home/sessions/${sessionId}/proposals`, timeoutMs ? { timeout: timeoutMs } : undefined),
 
   /** #843: 확인카드 승인 — 실행 실패도 200(proposal.status=FAILED + 사유). 이미 처리됨 409 · 없음 404. */
   confirmProposal: (id: number) => client.post<ProposalOutcome>(`/home/proposals/${id}/confirm`),

@@ -68,7 +68,17 @@ public interface StreamingGenerationRegistry {
    * LIMIT 으로 {@link com.workplace.global.exception.StreamingGenerationRejectedException} 을 던진다. 예약
    * 후 실패하면 호출자가 {@link Reservation#release()} 해야 한다.
    */
-  Reservation reserve(long ownerUserId, GenerationTag tag, int perUserLimit);
+  default Reservation reserve(long ownerUserId, GenerationTag tag, int perUserLimit) {
+    return reserve(ownerUserId, tag, perUserLimit, null);
+  }
+
+  /**
+   * {@link #reserve(long, GenerationTag, int)} 와 같되 correlationId 를 호출자가 정한다(WP-267) — 웹이 요청 전에 id
+   * 를 알아 응답보다 먼저 온 이벤트도 바로 라우팅하게. null 이면 새로 발급한다. 이미 진행 중인 생성과 겹치면(소유자 무관) BUSY 로 거절한다 — 남의 생성 핸들을
+   * 덮지 않게.
+   */
+  Reservation reserve(
+      long ownerUserId, GenerationTag tag, int perUserLimit, String requestedCorrelationId);
 
   /**
    * 예약한 슬롯으로 태스크를 제출하고 타임아웃을 건다. executor 가 거절하면 슬롯을 반납하고 예외를 그대로 던진다.

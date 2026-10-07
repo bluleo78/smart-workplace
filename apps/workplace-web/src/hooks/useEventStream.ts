@@ -6,6 +6,7 @@
 import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 
+import { chatStreams } from '../lib/ai/chatStreams';
 import { emitAiStreamEvent } from '../lib/aiEventBus';
 import { subscribeEventStream } from '../lib/eventStream';
 import { isProtectedKey } from '../lib/resourceInvalidation';
@@ -109,8 +110,10 @@ export function useEventStream(currentUserId: number): { isConnected: boolean } 
       onEvent: (name, data) =>
         routeStreamEvent(name, data, { qc, currentUserId: currentUserIdRef.current }),
       // WP-190: 연결·재연결마다 생성 중 대화를 서버 기준으로 다시 맞춘다(끊긴 동안 놓친 종결을 따라잡는다).
-      onOpen: () => {
+      // WP-265: 재연결이면 끊긴 동안의 답변 조각은 다시 오지 않으므로 라이브 생성은 자리표시로 돌려 끝나면 서버 이력으로 바꾼다.
+      onOpen: ({ reconnect }) => {
         catchUp.onOpen();
+        if (reconnect) chatStreams.markReconnected();
         void resyncActiveChats();
       },
       onConnectedChange: setIsConnected,

@@ -66,15 +66,21 @@ public class DefaultStreamingGenerationRegistry implements StreamingGenerationRe
       AsyncTaskExecutor executor,
       Duration timeout,
       Function<String, Runnable> taskFactory) {
-    GenerationHandle handle = register(ownerUserId, null);
+    GenerationHandle handle = register(ownerUserId, null, null);
     // wiki·drive 는 시작 전 취소 시 알릴 대상이 없다(웹이 요청 단위로 구독을 정리).
     launch(handle, executor, timeout, taskFactory.apply(handle.correlationId), () -> {});
     return handle.correlationId;
   }
 
   @Override
-  public Reservation reserve(long ownerUserId, GenerationTag tag, int perUserLimit) {
+  public Reservation reserve(
+      long ownerUserId, GenerationTag tag, int perUserLimit, String requestedCorrelationId) {
     synchronized (reserveLock) {
+      // 호출자가 정한 id 가 진행 중인 생성과 겹치면 거절 — 덮으면 기존 생성의 취소·종결 추적을 잃는다.
+      if (requestedCorrelationId != null && generations.containsKey(requestedCorrelationId)) {
+        throw new StreamingGenerationRejectedException(
+            StreamingGenerationRejectedException.Reason.BUSY);
+      }
       int running = 0;
       for (GenerationHandle h : generations.values()) {
         if (h.ownerUserId != ownerUserId || h.tag == null || !h.tag.scope().equals(tag.scope())) {
@@ -90,7 +96,7 @@ public class DefaultStreamingGenerationRegistry implements StreamingGenerationRe
         throw new StreamingGenerationRejectedException(
             StreamingGenerationRejectedException.Reason.LIMIT);
       }
-      return register(ownerUserId, tag);
+      return register(ownerUserId, tag, requestedCorrelationId);
     }
   }
 
@@ -158,15 +164,18 @@ public class DefaultStreamingGenerationRegistry implements StreamingGenerationRe
     timeoutScheduler.shutdownNow();
   }
 
-  private GenerationHandle register(long ownerUserId, GenerationTag tag) {
-    GenerationHandle handle = new GenerationHandle(ownerUserId, tag);
+  /** 핸들 등록 — correlationId 가 null 이면 새로 발급한다. */
+  private GenerationHandle register(long ownerUserId, GenerationTag tag, String correlationId) {
+    GenerationHandle handle =
+        new GenerationHandle(
+            correlationId != null ? correlationId : UUID.randomUUID().toString(), ownerUserId, tag);
     generations.put(handle.correlationId, handle);
     return handle;
   }
 
   /** 진행 중인 생성 1건의 소유자·태그·취소 핸들. future/timeoutFuture 는 launch 에서 순차 대입되므로 volatile. */
   private final class GenerationHandle implements Reservation {
-    final String correlationId = UUID.randomUUID().toString();
+    final String correlationId;
     final long ownerUserId;
     final GenerationTag tag;
     final Instant startedAt = Instant.now();
@@ -187,7 +196,8 @@ public class DefaultStreamingGenerationRegistry implements StreamingGenerationRe
     /** 시작 전 취소 콜백을 한 번만 부르기 위한 표식(abort·launch 양쪽이 시도). */
     final AtomicBoolean notified = new AtomicBoolean(false);
 
-    GenerationHandle(long ownerUserId, GenerationTag tag) {
+    GenerationHandle(String correlationId, long ownerUserId, GenerationTag tag) {
+      this.correlationId = correlationId;
       this.ownerUserId = ownerUserId;
       this.tag = tag;
     }

@@ -5,14 +5,14 @@
 // 모킹 방식: POST 라우트가 도착했다는 신호로 프라미스를 resolve 하고, /events 라우트가 그 프라미스를
 // await 한 뒤에야 SSE 본문을 흘린다 — /events 는 앱 마운트 시 1회 연결되므로, 응답을 즉시 fulfill 하면
 // 사용자 액션(전송 클릭)보다 먼저 도착해 유실된다.
-import type { Page } from '@playwright/test'
+import type { Page, Route } from '@playwright/test'
 
 import type { AiScreenContext } from '../../src/types/aiScreenContext'
 import { type RequestTracker, trackRequests } from './requests'
 
 /** home.chat.* 프레임 1개 — event 이름은 'home.chat.' 프리픽스를 뺀 부분만 지정한다. */
 export interface HomeChatFrame {
-  event: 'delta' | 'progress' | 'pending_action' | 'tool' | 'done' | 'error'
+  event: 'delta' | 'progress' | 'pending_action' | 'tool' | 'done' | 'error' | 'cancelled'
   data: Record<string, unknown>
 }
 
@@ -33,14 +33,22 @@ export function buildHomeChatSse(frames: HomeChatFrame[], correlationId: string)
  * 델타/누적 텍스트 대신 완성된 frames 배열을 그대로 넘기면 되므로, 기존에
  * `event: delta\ndata: {...}` 형태로 직접 SSE 본문을 조립하던 스펙들은 frames 배열로만 옮기면 된다.
  */
-/** POST /api/v1/ai/chat 시작 요청 본문. WP-234: fileIds 는 첨부가 있을 때만 실린다. */
-export type HomeChatStartBody = { sessionId: string | null; query: string; screenContext?: AiScreenContext; fileIds?: number[] }
+/** POST /api/v1/ai/chat 시작 요청 본문. WP-234: fileIds 는 첨부가 있을 때만 실린다. WP-267: correlationId 는 웹이 정한다. */
+export type HomeChatStartBody = {
+  sessionId: string | null
+  query: string
+  correlationId: string
+  screenContext?: AiScreenContext
+  fileIds?: number[]
+}
+
+/** 실제 서버처럼 웹이 보낸 correlationId 를 그대로 쓴다(WP-267). */
+const sentCorrelationId = (route: Route): string => (route.request().postDataJSON() as HomeChatStartBody).correlationId
 
 export async function mockHomeChatGeneration(
   page: Page,
   opts: {
     frames: HomeChatFrame[]
-    correlationId?: string
     /** 테스트가 resolve 할 때까지 SSE 프레임을 보류한다. */
     gate?: Promise<void>
   },
@@ -55,7 +63,7 @@ export async function mockHomeChatGeneration(
     (url) => url.pathname === '/api/v1/ai/chat',
     (route) => {
       if (route.request().method() !== 'POST') return route.fallback()
-      const correlationId = opts.correlationId ?? `corr-${Math.random().toString(36).slice(2)}`
+      const correlationId = sentCorrelationId(route)
       resolveStarted(correlationId)
       return route.fulfill({
         status: 200,
@@ -87,20 +95,26 @@ export async function mockHomeChatGeneration(
 const SSE_PUSH_HEADER = 'x-e2e-sse-push'
 
 /**
- * POST /api/v1/ai/chat 시작(고정 correlationId) + 테스트가 프레임을 하나씩 밀어 넣는 /api/v1/events 스트림(WP-234).
+ * POST /api/v1/ai/chat 시작(웹이 보낸 correlationId 그대로) + 테스트가 프레임을 하나씩 밀어 넣는 /api/v1/events 스트림(WP-234).
  * delta(text) 는 home.chat.delta 프레임 하나를 보낸다 — 델타가 여러 프레임에 걸쳐 도착하는 실제 스트리밍을 재현한다.
+ * send(frame) 는 마지막 시작 요청의 correlationId 로 임의 프레임 하나를 보낸다.
  * page.goto 전에 불러야 한다(init script).
  */
 export async function mockStreamingHomeChat(
   page: Page,
-  correlationId = 'corr-stream',
-): Promise<{ push: (frame: string) => Promise<void>; delta: (text: string) => Promise<void> }> {
+): Promise<{
+  push: (frame: string) => Promise<void>
+  delta: (text: string) => Promise<void>
+  send: (frame: HomeChatFrame) => Promise<void>
+}> {
+  let correlationId = ''
   await page.route(
     (url) => url.pathname === '/api/v1/ai/chat',
-    (route) =>
-      route.request().method() === 'POST'
-        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ correlationId }) })
-        : route.fallback(),
+    (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      correlationId = sentCorrelationId(route)
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ correlationId }) })
+    },
   )
   await page.route('**/api/v1/events', (route) =>
     route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { [SSE_PUSH_HEADER]: '1' }, body: '' }),
@@ -124,8 +138,9 @@ export async function mockStreamingHomeChat(
     await page.waitForFunction(() => typeof (window as unknown as { __ssePush?: unknown }).__ssePush === 'function')
     await page.evaluate((f) => (window as unknown as { __ssePush: (t: string) => void }).__ssePush(f), frame)
   }
-  const delta = (text: string) => push(buildHomeChatSse([{ event: 'delta', data: { text } }], correlationId))
-  return { push, delta }
+  const send = (frame: HomeChatFrame) => push(buildHomeChatSse([frame], correlationId))
+  const delta = (text: string) => send({ event: 'delta', data: { text } })
+  return { push, delta, send }
 }
 
 /** DELETE /api/v1/ai/chat/{correlationId} 취소 모킹 — 스탑 버튼 E2E 용. 호출 여부/횟수를 검증할 수 있다. */

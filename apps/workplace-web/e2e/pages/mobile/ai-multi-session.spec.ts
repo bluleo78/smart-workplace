@@ -1,5 +1,5 @@
 // 모바일 AI 시트 멀티 세션(WP-190) — 시트의 대화 목록 버튼 점·목록 상태 문구·상한 안내의 [대화 목록 보기].
-import { ask, sessionItem, setupLiveChat, summary, TITLE_A, TITLE_B, TITLE_C } from '../../fixtures/ai-live-chat'
+import { ask, msg, sessionItem, setupLiveChat, summary, TITLE_A, TITLE_B, TITLE_C } from '../../fixtures/ai-live-chat'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
 test('시트: 다른 대화가 답변 중이면 대화 목록 버튼에 점, 목록엔 상태 문구 (WP-190)', async ({ authenticatedPage: page }) => {
@@ -55,4 +55,38 @@ test('시트: 상한 안내의 [대화 목록 보기]가 시트 목록을 연다
   await expectNoHorizontalOverflow(page)
   await notice.getByRole('button', { name: '대화 목록 보기' }).click()
   await expect(sessionItem(page, TITLE_B)).toBeVisible()
+})
+
+test('시트: 다른 창에서 답변 중이면 짧은 안내를 보이고 보내기를 막는다 (WP-266)', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  const live = await setupLiveChat(page)
+  live.setSessions([summary('s-a', TITLE_A, 1)])
+  live.setMessages('s-a', [msg(1, 'USER', TITLE_A), msg(2, 'ASSISTANT', '요약본입니다')])
+  await page.goto('/chat')
+  await page.getByTestId('mobile-tab-ai').click()
+  await page.getByTestId('ai-sheet-session-switcher').click()
+  await sessionItem(page, TITLE_A).getByTestId('chat-session-select').click()
+  await expect(page.getByTestId('chat-panel')).toContainText('요약본입니다')
+  live.holdMessages('s-a')
+  await live.push('delta', { correlationId: 'corr-o', sessionId: 's-a', text: 'x' })
+  await expect(page.getByTestId('chat-busy-elsewhere')).toHaveText('다른 창에서 답변 중이에요. 끝나면 보낼 수 있어요.')
+  await page.getByTestId('chat-input').fill('나도 물어볼게')
+  await expect(page.getByTestId('chat-panel').getByRole('button', { name: '보내기' })).toBeDisabled()
+  await expectNoHorizontalOverflow(page)
+})
+
+test('시트: 답변 중 SSE 가 다시 이어지면 받은 부분 아래에 안내한다 (WP-265)', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  live.setSessions([summary('s-a', TITLE_A, 1)])
+  await page.goto('/chat')
+  await page.getByTestId('mobile-tab-ai').click()
+  await ask(page, live, TITLE_A)
+  await live.push('delta', { correlationId: 'corr-a', sessionId: 's-a', text: '첫 문단입니다.' })
+  live.setActive([{ sessionId: 's-a', correlationId: 'corr-a', startedAt: '2026-10-05T00:00:00Z' }])
+  await live.reconnect()
+  await expect(page.getByTestId('chat-reconnected')).toBeVisible()
+  await expect(page.getByTestId('chat-panel')).toContainText('첫 문단입니다.')
+  await expectNoHorizontalOverflow(page)
 })

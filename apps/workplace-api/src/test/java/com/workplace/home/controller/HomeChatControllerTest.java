@@ -80,7 +80,7 @@ class HomeChatControllerTest {
 
   @Test
   void chat_시작하면_correlationId_와_sessionId_를_즉시_반환() throws Exception {
-    when(chatService.startChat(eq(1L), isNull(), eq("내 할 일"), isNull(), eq(List.of())))
+    when(chatService.startChat(eq(1L), isNull(), eq("내 할 일"), isNull(), eq(List.of()), isNull()))
         .thenReturn(new HomeChatStartedResponse("corr-1", SID));
     mockMvc
         .perform(
@@ -113,7 +113,7 @@ class HomeChatControllerTest {
 
   @Test
   void 같은_대화가_생성_중이면_409_CHAT_SESSION_BUSY() throws Exception {
-    when(chatService.startChat(eq(1L), any(), any(), any(), any()))
+    when(chatService.startChat(eq(1L), any(), any(), any(), any(), any()))
         .thenThrow(new HomeChatSessionBusyException());
     mockMvc
         .perform(
@@ -127,7 +127,7 @@ class HomeChatControllerTest {
 
   @Test
   void 동시_생성_상한이면_429_CHAT_CONCURRENCY_LIMIT() throws Exception {
-    when(chatService.startChat(eq(1L), any(), any(), any(), any()))
+    when(chatService.startChat(eq(1L), any(), any(), any(), any(), any()))
         .thenThrow(new HomeChatConcurrencyLimitException(3));
     mockMvc
         .perform(
@@ -142,7 +142,7 @@ class HomeChatControllerTest {
   /** WP-54: 화면 컨텍스트가 역직렬화돼 서비스로 전달된다. */
   @Test
   void chat_화면_컨텍스트를_서비스로_전달한다() throws Exception {
-    when(chatService.startChat(eq(1L), isNull(), eq("이거 요약"), any(), eq(List.of())))
+    when(chatService.startChat(eq(1L), isNull(), eq("이거 요약"), any(), eq(List.of()), isNull()))
         .thenReturn(new HomeChatStartedResponse("corr-2", SID));
     String body =
         """
@@ -159,7 +159,8 @@ class HomeChatControllerTest {
                 .content(body))
         .andExpect(status().isOk());
     var captor = org.mockito.ArgumentCaptor.forClass(AiScreenContext.class);
-    verify(chatService).startChat(eq(1L), isNull(), eq("이거 요약"), captor.capture(), eq(List.of()));
+    verify(chatService)
+        .startChat(eq(1L), isNull(), eq("이거 요약"), captor.capture(), eq(List.of()), isNull());
     assertThat(captor.getValue().focus().refs()).containsEntry("issueKey", "WP-12");
     assertThat(captor.getValue().scope().count()).isEqualTo(3);
   }
@@ -233,7 +234,7 @@ class HomeChatControllerTest {
   /** WP-234: 본문이 비어도 fileIds 가 있으면 서비스로 넘긴다. */
   @Test
   void 첨부만_보내면_fileIds_를_서비스로_전달한다() throws Exception {
-    when(chatService.startChat(eq(1L), isNull(), eq(""), isNull(), eq(List.of(7L, 8L))))
+    when(chatService.startChat(eq(1L), isNull(), eq(""), isNull(), eq(List.of(7L, 8L)), isNull()))
         .thenReturn(new HomeChatStartedResponse("corr-3", SID));
     mockMvc
         .perform(
@@ -243,6 +244,36 @@ class HomeChatControllerTest {
                 .content("{\"query\":\"\",\"fileIds\":[7,8]}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.correlationId").value("corr-3"));
+  }
+
+  /** WP-267: 웹이 정한 correlationId 를 서비스로 넘긴다. */
+  @Test
+  void chat_웹이_정한_correlationId_를_서비스로_전달한다() throws Exception {
+    UUID cid = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
+    when(chatService.startChat(eq(1L), isNull(), eq("q"), isNull(), eq(List.of()), eq(cid)))
+        .thenReturn(new HomeChatStartedResponse(cid.toString(), SID));
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"query\":\"q\",\"correlationId\":\"" + cid + "\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.correlationId").value(cid.toString()));
+  }
+
+  /** WP-267: UUID 가 아닌 correlationId 는 400 — 서비스까지 가지 않는다. */
+  @Test
+  void chat_correlationId_가_UUID_가_아니면_400() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"query\":\"q\",\"correlationId\":\"not-a-uuid\"}"))
+        .andExpect(status().isBadRequest());
+    verify(chatService, org.mockito.Mockito.never())
+        .startChat(any(Long.class), any(), any(), any(), any(), any());
   }
 
   @Test

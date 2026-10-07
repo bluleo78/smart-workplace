@@ -10,16 +10,13 @@
 //   남는다 → '중단' 버튼이 계속 노출된 상태를 유지할 수 있다.
 
 import { expect, test } from '../fixtures/auth.fixture';
-import { mockHomeChatCancel, mockHomeChatGeneration } from '../fixtures/home-chat-mock';
+import { type HomeChatStartBody, mockHomeChatCancel, mockHomeChatGeneration } from '../fixtures/home-chat-mock';
 
 test(
   'AI 응답 스트리밍 중 중단 버튼 클릭 → 부분 응답 보존 + 입력 재개 + 취소 API 호출',
   { tag: '@smoke' },
   async ({ authenticatedPage: page }) => {
-    const correlationId = 'corr-abort-1';
-
-    await mockHomeChatGeneration(page, {
-      correlationId,
+    const starts = await mockHomeChatGeneration(page, {
       frames: [{ event: 'delta', data: { text: '부분 응답입니다' } }],
     });
     const cancel = await mockHomeChatCancel(page);
@@ -52,6 +49,9 @@ test(
 
     // 6) 취소 API(DELETE /api/v1/ai/chat/{correlationId}) 가 호출됐다.
     await expect.poll(() => cancel.calls.length).toBe(1);
+    // WP-267: 취소 대상은 웹이 정해 시작 요청에 실은 correlationId 다.
+    const { correlationId } = starts.lastBody<HomeChatStartBody>()!;
+    expect(correlationId).toMatch(/^[0-9a-f-]{36}$/);
     expect(cancel.calls[0]).toContain(`/api/v1/ai/chat/${correlationId}`);
   },
 );

@@ -65,6 +65,9 @@ const INTERRUPTED_LABEL: Record<NonNullable<MessageTurn['interrupted']>, string>
   timeout: '시간 초과로 중단됨',
 };
 
+const BUSY_NOTICE_ID = 'chat-busy-notice';
+const LIMIT_NOTICE_ID = 'chat-limit-notice';
+
 /** AI 어시스턴트 채팅 본문(controlled). 컨테이너에 맞춰 h-full 로 채운다. */
 export function AIChatPanel({
   turns,
@@ -82,6 +85,8 @@ export function AIChatPanel({
   sessionStatus,
   isGenerating,
   sendBlocked,
+  busyElsewhere,
+  reconnected,
   limit,
   atLimit,
   pendingActions,
@@ -152,6 +157,17 @@ export function AIChatPanel({
   const { isDragging, dropProps } = useComposerFileDrop((files) => void attach.addFiles(files));
   // 보낼 수 있는지 — 글이나 첨부가 있어야 하고, 업로드 중이면 막는다(늦게 끝난 파일이 빠진 채 나가지 않게).
   const canSend = (input.trim().length > 0 || attach.pending.length > 0) && !attach.uploading;
+
+  // 입력창 위 안내 — 다른 창에서 답변 중(WP-266)이 상한(WP-190)보다 우선. 보내기 버튼의 aria-describedby 도 같은 안내를 가리킨다.
+  const notice = busyElsewhere
+    ? {
+      id: BUSY_NOTICE_ID,
+      testId: 'chat-busy-elsewhere',
+      text: `${isMobile ? '다른 창에서 답변 중이에요.' : '이 대화는 다른 창에서 답변 중이에요.'} 끝나면 보낼 수 있어요.`,
+    }
+    : atLimit
+      ? { id: LIMIT_NOTICE_ID, testId: 'chat-limit-notice', text: `다른 대화 ${limit}개가 답변 중이에요. 하나가 끝나면 보낼 수 있어요.` }
+      : null;
 
   const submit = () => {
     const query = input.trim();
@@ -436,6 +452,17 @@ export function AIChatPanel({
                 </div>
               </li>
             )}
+            {/* WP-265: 생성 도중 연결이 다시 이어졌다 — 받은 부분은 그대로 두고, 끝나면 서버에 저장된 전체 답변으로 바뀐다. */}
+            {pending && reconnected && turns[turns.length - 1]?.content !== '' && (
+              <li
+                data-testid="chat-reconnected"
+                role="status"
+                className="-mt-1 flex items-center gap-1.5 pl-1 text-xs text-muted-foreground"
+              >
+                <Loader2 aria-hidden className="size-3 animate-spin" />
+                <span className="min-w-0">연결이 다시 이어졌어요 · 답변이 끝나면 전체를 불러와요</span>
+              </li>
+            )}
             {/* 3-dot 로딩 — pending 이고 아직 첫 토큰이 오지 않은 경우에만 표시.
                 첫 토큰 도착 후엔 assistant 말풍선 자체가 점진적으로 채워지므로 중복 표시 방지(#332). */}
             {pending && turns[turns.length - 1]?.content === '' && (
@@ -468,18 +495,18 @@ export function AIChatPanel({
         {...dropProps}
       >
         {isDragging && <ComposerDropOverlay />}
-        {/* WP-190: 다른 대화가 상한만큼 답변 중이면 미리 알린다 — 입력은 가능, 전송만 막힌다(sendBlocked). */}
+        {/* WP-190·266: 상한·다른 창 답변 중이면 미리 알린다 — 입력은 가능, 전송만 막힌다(sendBlocked). */}
         {/* 라이브 리전은 항상 마운트해 둬야 상한 안내가 나타날 때 스크린리더가 읽는다(조건부 마운트는 낭독 누락). */}
         <div role="status" aria-live="polite">
-          {atLimit && (
+          {notice && (
             <div
-              id="chat-limit-notice"
-              data-testid="chat-limit-notice"
+              id={notice.id}
+              data-testid={notice.testId}
               className="mb-2 flex items-start gap-1.5 rounded-md bg-ai-accent-subtle px-2.5 py-1.5 text-xs text-foreground"
             >
               <Sparkles aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ai-accent" />
-              <span className="min-w-0 flex-1">다른 대화 {limit}개가 답변 중이에요. 하나가 끝나면 보낼 수 있어요.</span>
-              {showSessions && (
+              <span className="min-w-0 flex-1">{notice.text}</span>
+              {notice.id === LIMIT_NOTICE_ID && showSessions && (
                 <button
                   type="button"
                   onClick={showSessions}
@@ -570,7 +597,7 @@ export function AIChatPanel({
               {...keepFocusProps}
               aria-label="보내기"
               disabled={!canSend || sendBlocked}
-              aria-describedby={atLimit ? 'chat-limit-notice' : undefined}
+              aria-describedby={notice?.id}
               data-testid="chat-send"
               className="h-10 w-10 shrink-0 rounded-full bg-ai-accent text-ai-accent-foreground"
             >
@@ -581,7 +608,7 @@ export function AIChatPanel({
               type="submit"
               {...keepFocusProps}
               disabled={!canSend || sendBlocked}
-              aria-describedby={atLimit ? 'chat-limit-notice' : undefined}
+              aria-describedby={notice?.id}
               className="bg-ai-accent text-ai-accent-foreground"
               data-testid="chat-send"
             >

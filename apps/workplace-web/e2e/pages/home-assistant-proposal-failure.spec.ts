@@ -3,7 +3,15 @@
 
 import { expect, test } from '../fixtures/auth.fixture';
 import { mockApi } from '../fixtures/api-mock';
-import { type HomeChatStartBody, mockHomeChatGeneration, mockHomeProposals, proposal } from '../fixtures/home-chat-mock';
+import {
+  type HomeChatStartBody,
+  mockHomeChatCancel,
+  mockHomeChatGeneration,
+  mockHomeProposals,
+  mockStreamingHomeChat,
+  proposal,
+} from '../fixtures/home-chat-mock';
+import { trackRequests } from '../fixtures/requests';
 import type { HomeMessage } from '../../src/types/home';
 
 /** 좁은 패널에서 줄바꿈을 검증하기 위한 실제 길이의 서버 사유(한국어·무공백 토큰 포함). */
@@ -142,18 +150,20 @@ test('세션 복원 — 결과 줄과 미처리 카드가 함께 복원된다', 
 });
 
 test('새 세션 — 카드가 done 보다 먼저 와도 봉투의 sessionId 로 세션이 확정된다', async ({ authenticatedPage: page }) => {
-  const chats = await mockHomeChatGeneration(page, {
-    // done 없음 — 카드만 오고 스트림이 아직 끝나지 않은 상황.
-    frames: [{ event: 'pending_action', data: { sessionId: 's-early', actions: [proposal(51, '팀 회의 생성')] } }],
-  });
+  const chats = trackRequests(page, 'POST', '/api/v1/ai/chat');
+  const { send } = await mockStreamingHomeChat(page);
+  await mockHomeChatCancel(page);
   await page.goto('/');
   await page.getByTestId('chat-launcher').click();
   await page.getByTestId('chat-input').fill('팀 회의 잡아줘');
   await page.getByRole('button', { name: '보내기' }).click();
+  // done 없음 — 카드만 오고 스트림이 아직 끝나지 않은 상황.
+  await send({ event: 'pending_action', data: { sessionId: 's-early', actions: [proposal(51, '팀 회의 생성')] } });
   await expect(page.getByTestId('pending-action-item')).toHaveCount(1);
 
-  // 스트림을 멈추고 다음 질문을 보내면 같은 세션으로 이어져야 한다(null 이면 결과가 엉뚱한 새 세션에 쌓인다).
+  // 스트림을 멈추고(서버가 cancelled 로 종결) 다음 질문을 보내면 같은 세션으로 이어져야 한다(null 이면 결과가 엉뚱한 새 세션에 쌓인다).
   await page.getByTestId('chat-stop').click();
+  await send({ event: 'cancelled', data: { sessionId: 's-early', reason: 'user' } });
   await page.getByTestId('chat-input').fill('고마워');
   await page.getByRole('button', { name: '보내기' }).click();
   await expect.poll(() => chats.bodies<HomeChatStartBody>().map((b) => b.sessionId)).toEqual([null, 's-early']);

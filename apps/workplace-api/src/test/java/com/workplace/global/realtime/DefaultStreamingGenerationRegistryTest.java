@@ -180,6 +180,24 @@ class DefaultStreamingGenerationRegistryTest {
                 assertThat(e.reason()).isEqualTo(StreamingGenerationRejectedException.Reason.BUSY));
   }
 
+  /** WP-267: 호출자가 정한 correlationId 로 예약하고, 진행 중인 생성과 겹치면(다른 소유자여도) BUSY — 반납 뒤엔 다시 쓸 수 있다. */
+  @Test
+  void reserve_요청한_correlationId_를_쓰고_진행중인_id_와_겹치면_BUSY() {
+    Reservation r = registry.reserve(1L, tag("s-a"), 3, "cid-1");
+    assertThat(r.correlationId()).isEqualTo("cid-1");
+    assertThatThrownBy(() -> registry.reserve(2L, tag("s-b"), 3, "cid-1"))
+        .isInstanceOfSatisfying(
+            StreamingGenerationRejectedException.class,
+            e ->
+                assertThat(e.reason()).isEqualTo(StreamingGenerationRejectedException.Reason.BUSY));
+    // 거절은 기존 생성을 덮지 않는다 — 원래 소유자의 생성 중 목록에 그대로 있다.
+    assertThat(registry.active(1L, "home"))
+        .extracting(ActiveGeneration::correlationId)
+        .containsExactly("cid-1");
+    r.release();
+    assertThat(registry.reserve(2L, tag("s-b"), 3, "cid-1").correlationId()).isEqualTo("cid-1");
+  }
+
   @Test
   void reserve_상한이면_LIMIT_다른_소유자와_다른_scope_는_세지_않는다() {
     // 태그 없는 기존 start() 생성은 상한에 세지 않는다(wiki·drive 영향 없음) — 태스크를 돌리지 않는

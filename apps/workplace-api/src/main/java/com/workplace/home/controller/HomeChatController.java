@@ -28,7 +28,7 @@ public class HomeChatController {
   /**
    * sessionId 미지정 시 새 세션 생성. 생성을 시작하고 {correlationId, sessionId} 를 즉시 반환한다 — 실제
    * delta/progress/tool/ pending_action/done/error/cancelled 는 통합 /events 채널(home.chat.*)로 전달된다. 같은
-   * 대화 생성 중 409, 상한 429(WP-190).
+   * 대화 생성 중 409, 상한 429(WP-190). correlationId 는 웹이 정해 보낼 수 있고(WP-267), 진행 중인 생성과 겹치면 409.
    *
    * <p>enabled 확인·첨부 검증·비서 해석·USER 영속(+첨부 연결)은 요청 스레드에서 동기 수행 → 실패 시 4xx/5xx. ai-agent 호출은 비동기.
    */
@@ -44,7 +44,8 @@ public class HomeChatController {
         request.sessionId(),
         request.query(),
         request.screenContext(),
-        request.fileIdsOrEmpty());
+        request.fileIdsOrEmpty(),
+        request.correlationId());
   }
 
   /** GET /api/v1/ai/chat/active — 호출자의 생성 중 대화와 상한(WP-190). 새로고침·SSE 재연결 뒤 웹이 상태를 복원한다. */

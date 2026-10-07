@@ -21,8 +21,6 @@ export const DRAFT_PREFIX = 'draft:';
 const MAX_IDLE_ENTRIES = 5;
 /** 재연결 재전송을 거르기 위해 기억하는 끝난 correlationId 수. */
 const MAX_FINISHED = 200;
-/** 라우팅 표에 아직 없는 correlationId 의 이벤트를 보류하는 최대 수(POST 응답보다 먼저 온 이벤트). */
-const MAX_ORPHANS = 100;
 const DEFAULT_LIMIT = 3;
 const UNSEEN_KEY_PREFIX = 'ai-chat-unseen:';
 const CHAT_EVENT_PREFIX = 'home.chat.';
@@ -33,20 +31,23 @@ export type SessionStatus = 'generating' | 'unseen' | null;
 /** 대화 1개의 화면 상태. */
 export interface StreamEntry {
   turns: ChatTurn[];
-  /** 이 칸의 답변이 생성 중인가(■·3-dot). ■ 를 누르면 즉시 false — 서버 종결은 active 가 따로 추적한다(R12). */
+  /** 이 칸의 답변이 생성 중인가(■·3-dot). ■ 를 누르면 즉시 false — 서버 종결은 correlationId 가 남아 추적한다(R12). */
   pending: boolean;
   pendingActions: ProposalCard[];
   /** 대화별 세대 — 새 질문·■·복원마다 증가. 이전 세대의 늦은 이벤트·카드 결과를 버린다(전역 opSeq 대체). */
   gen: number;
-  /** 이 칸에서 진행 중인 생성의 correlationId(■ 취소 대상). */
-  correlationId: string | null;
-  /** POST 응답 전에 ■ 를 눌렀다 — 응답이 오면 곧바로 취소한다. */
-  cancelOnAttach: boolean;
   /**
-   * 서버 이력을 이 칸에 반영했는가. 복원 조회가 끝나기 전에 보낸 질문이 만든 칸은 false — 늦게 온 이력을 (생성 중이어도) 앞에 붙여야
-   * 지난 대화가 보인다. 새 대화(draft)는 서버 이력이 없으므로 true.
+   * 이 칸에서 아직 서버 종결을 받지 않은 생성의 correlationId — 생성 중, ■ 뒤 종결 대기(POST 응답 전 포함), 이어받은 생성(자리표시).
+   * WP-267: 웹이 질문을 보낼 때 정하므로 POST 응답 전에도 있다. 종결·거절되면 null.
+   */
+  correlationId: string | null;
+  /**
+   * 서버 이력을 이 칸에 반영했는가 — 아니면 복원 때 다시 읽는다. 새 대화(draft)는 서버 이력이 없으므로 true.
+   * 이력 조회가 실패한 대화에서 보낸 질문이 만든 칸은 false.
    */
   historyLoaded: boolean;
+  /** WP-265: 생성 도중 SSE 가 다시 이어졌다 — 끊긴 사이 조각을 놓쳤을 수 있어 더 붙이지 않고, 끝나면 서버 이력으로 바꾼다. */
+  reconnected: boolean;
 }
 
 /** 구독자에게 주는 불변 스냅샷 — 변경이 있을 때만 새 참조. */
@@ -58,17 +59,23 @@ export interface ChatStreamsSnapshot {
   unseenDone: ReadonlySet<string>;
   limit: number;
   panelOpen: boolean;
+  /** WP-268: 서버 이력을 읽는 중인 대화 — 그동안은 보내지 않는다(이력과 새 질문이 뒤섞이지 않게). */
+  loading: ReadonlySet<string>;
   /** '새 대화' 전이 신호 — 패널이 미전송 초안을 비운다(#204). */
   newSessionNonce: number;
   /** WP-234: 실제 대화 전환(새 대화·다른 대화 선택·현재 대화 삭제) 신호 — 패널이 첨부 초안을 비운다(세션 30개 상한이 대화별). */
   attachmentResetNonce: number;
 }
 
-/** correlationId → 칸. placeholder 는 새로고침 등으로 이어받은 생성(중간 이벤트는 버리고 종결 때 재조회). */
+/**
+ * correlationId → 칸. placeholder 는 중간 이벤트를 버리고 종결 때 서버 이력을 다시 읽는 생성(새로고침·다른 창에서 이어받음, SSE 재연결).
+ * attached 는 서버가 이 생성을 받았음을 아는가(POST 응답·서버 목록·이벤트) — 모르면 ■ 의 취소 요청을 응답 뒤로 미룬다.
+ */
 interface CorrRoute {
   key: string;
   gen: number;
   placeholder: boolean;
+  attached: boolean;
 }
 
 /** 저장소가 바깥에 부탁하는 부수효과 — 어댑터가 배선한다. */
@@ -85,25 +92,10 @@ const blank = (): StreamEntry => ({
   pendingActions: [],
   gen: 0,
   correlationId: null,
-  cancelOnAttach: false,
   historyLoaded: false,
+  reconnected: false,
 });
 
-/**
- * 서버 이력 + 칸의 로컬 턴(이력 조회 전에 보낸 질문부터). 조회가 서버의 새 질문 저장 뒤에 처리됐으면 이력 끝에 같은 질문이 있다 —
- * 생성이 이미 끝났으면 그 답변까지 있을 수 있어(질문, 답변) 끝 두 자리까지 본다. 겹치는 부분은 로컬(라이브) 쪽을 남긴다.
- */
-function mergeHistory(history: ChatTurn[], local: ChatTurn[], pending: boolean): ChatTurn[] {
-  const first = local[0];
-  if (first?.role === 'user') {
-    const from = Math.max(0, history.length - (pending ? 1 : 2));
-    for (let i = history.length - 1; i >= from; i--) {
-      const t = history[i];
-      if (t.role === 'user' && t.content === first.content) return [...history.slice(0, i), ...local];
-    }
-  }
-  return [...history, ...local];
-}
 const sessionOf = (key: string | null): string | null => (key && !key.startsWith(DRAFT_PREFIX) ? key : null);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
@@ -125,12 +117,20 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
   let unseenDone = new Set<string>();
   let limit = DEFAULT_LIMIT;
   let panelOpen = false;
+  // 대화별 마지막 이력 조회 표식 — 앞선 조회의 끝이 뒤 조회의 잠금을 풀지 않게. 스냅샷용 집합은 바뀔 때만 새로 만든다.
+  const loadingTokens = new Map<string, number>();
+  let loading: ReadonlySet<string> = new Set();
+  /** 이력 조회 잠금 해제 — 바뀌었으면 true. */
+  function unlock(sessionId: string): boolean {
+    if (!loadingTokens.delete(sessionId)) return false;
+    loading = new Set(loadingTokens.keys());
+    return true;
+  }
   let newSessionNonce = 0;
   let attachmentResetNonce = 0;
   let ownerKey: string | null = null;
   const corrIndex = new Map<string, CorrRoute>();
   const finished = new Set<string>();
-  let orphans: { name: string; data: Record<string, unknown> }[] = [];
   const recent: string[] = []; // 최근 연 순서(앞이 최신)
   const activeAddedAt = new Map<string, number>(); // 로컬에서 active 에 넣은 시점(재동기화 경쟁 판정)
   let clock = 0;
@@ -144,6 +144,7 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
     unseenDone: new Set(unseenDone),
     limit,
     panelOpen,
+    loading,
     newSessionNonce,
     attachmentResetNonce,
   });
@@ -189,7 +190,7 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
         recent.splice(recent.indexOf(key), 1);
         continue;
       }
-      if (e.pending || active.has(key)) continue;
+      if (e.pending || e.correlationId || active.has(key)) continue;
       if (++idle > MAX_IDLE_ENTRIES) {
         revokeTurnPreviews(e.turns); // WP-234: 버리는 칸의 보낸 이미지 미리보기(blob:) 해제 — 다시 열면 서버 원본으로 그린다.
         entries.delete(key);
@@ -211,11 +212,19 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
     return to;
   }
 
+  function trackActive(sessionId: string, cid: string) {
+    active.set(sessionId, cid);
+    activeAddedAt.set(sessionId, ++clock);
+  }
+  function untrackActive(sessionId: string) {
+    active.delete(sessionId);
+    activeAddedAt.delete(sessionId);
+  }
+
   /** 보고 있지 않은 대화(또는 패널이 닫힌 동안의 현재 대화)가 끝나면 "새 답변". 성공·실패·중단 구분 없음. */
   function markFinished(sessionId: string | null) {
     if (!sessionId) return;
-    active.delete(sessionId);
-    activeAddedAt.delete(sessionId);
+    untrackActive(sessionId);
     if (!(panelOpen && sessionOf(currentKey) === sessionId)) {
       unseenDone.add(sessionId);
       saveUnseen();
@@ -234,28 +243,36 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
     markFinished(sessionId);
   }
 
-  /**
-   * POST 응답(attach)을 기다리는 새 대화 draft 칸이 있는가. 있으면 서버가 먼저 알려 준 낯선 correlationId 가 그 draft 의 것일 수 있으므로,
-   * 자리표시 라우팅·즉시 마감을 하지 않고 이벤트를 보류해 attach 가 순서대로(중간 → 종결) 재생하게 한다 — 그러지 않으면
-   * draft 칸이 아닌 sessionId 칸으로 라우팅돼 중간 이벤트가 버려지고, 종결이 먼저 끝나 attach 뒤 영영 "생성 중" 에 갇힌다.
-   */
-  function draftAwaitingAttach(): boolean {
-    for (const [k, e] of entries) if (k.startsWith(DRAFT_PREFIX) && e.correlationId === null && (e.pending || e.cancelOnAttach)) return true;
-    return false;
-  }
-
   /** 서버가 받지 않은 질문(409·429)의 낙관적 두 턴을 걷는다 — 남은 게 없는 draft 칸은 지운다(R17). */
   function removeOptimistic(key: string, e: StreamEntry) {
     const turns = e.turns.slice(0, -2);
     if (key.startsWith(DRAFT_PREFIX) && turns.length === 0) {
       entries.delete(key);
       if (currentKey === key) currentKey = null;
-    } else entries.set(key, { ...e, turns, pending: false, cancelOnAttach: false });
+    } else entries.set(key, { ...e, turns, pending: false });
   }
 
-  function hold(name: string, data: Record<string, unknown>) {
-    orphans.push({ name, data });
-    if (orphans.length > MAX_ORPHANS) orphans.shift();
+  /**
+   * 라우팅 표에 없는 생성의 이벤트 — 이 창이 보낸 질문은 보낼 때 등록하므로(WP-267) 다른 창이나 새로고침 전에 시작한 생성이다.
+   * 종결이면 끝난 것으로 기억해 늦게 온 재동기화 응답이 되살리지 못하게 한다(WP-264). 진행 중이면 이 저장소가 아는 대화일 때만
+   * 자리표시로 이어받고 이력을 다시 읽어 그 질문과 "답변 중" 을 보인다(WP-266) — SSE 는 워크스페이스 구분 없이 오므로 모르는 대화는
+   * 상한·목록에 넣지 않는다(다음 재동기화가 이 워크스페이스 것만 알려 준다).
+   */
+  function adopt(cid: string, sid: string | null, terminal: boolean) {
+    if (!sid) return;
+    const e = entries.get(sid);
+    if (terminal) {
+      retire(cid);
+      if (active.get(sid) === cid) markFinished(sid);
+      if (e && !e.pending) effects.refetch(sid);
+    } else {
+      if (!e) return;
+      trackActive(sid, cid);
+      corrIndex.set(cid, { key: sid, gen: e.gen, placeholder: true, attached: true });
+      if (!e.pending) effects.refetch(sid);
+    }
+    effects.sessionsChanged();
+    commit();
   }
 
   /** home.chat.* 이벤트 1건 반영. */
@@ -270,12 +287,7 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
     const terminal = kind === 'done' || kind === 'error' || kind === 'cancelled';
     const route = corrIndex.get(cid);
     if (!route) {
-      // 서버 active 와 일치하는 생성(다른 탭·라우팅 전 재동기화)의 종결이면 바로 마감, 그 외는 attach 를 기다린다(R16).
-      if (terminal && sid && active.get(sid) === cid && !draftAwaitingAttach()) {
-        finish(cid, sid);
-        effects.sessionsChanged();
-        commit();
-      } else hold(name, data);
+      adopt(cid, sid, terminal);
       return;
     }
     let key = route.key;
@@ -296,14 +308,13 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
       return;
     }
     // ■ 로 이미 로컬에서 끝낸 이전 세대의 종결(I2) — 사용자가 멈춘 생성이므로 "새 답변" 을 남기지 않는다.
-    // 라우팅만 은퇴시키고, active 가 아직 이 생성을 가리킬 때만 뺀다(■ 뒤 새 질문이 이미 active 를 차지했을 수 있다).
+    // active 는 아직 이 생성을 가리킬 때만 뺀다. 자리표시였다면 서버가 저장한 부분 답변을 다시 읽는다.
     if (e && e.gen !== route.gen) {
       retire(cid);
       const stoppedSid = sessionOf(key) ?? sid;
-      if (stoppedSid && active.get(stoppedSid) === cid) {
-        active.delete(stoppedSid);
-        activeAddedAt.delete(stoppedSid);
-      }
+      if (stoppedSid && active.get(stoppedSid) === cid) untrackActive(stoppedSid);
+      if (e.correlationId === cid) entries.set(key, { ...e, correlationId: null });
+      if (route.placeholder && sessionOf(key)) effects.refetch(key);
       effects.sessionsChanged();
       commit();
       return;
@@ -315,7 +326,7 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
         // 서버 시간 초과 취소는 사용자가 멈춘 것과 구분해 "시간 초과로 중단됨"(라이브만 — 저장은 STOPPED).
         else turns = markInterrupted(turns, kind === 'error' ? 'failed' : data.reason === 'timeout' ? 'timeout' : 'stopped');
       }
-      entries.set(key, { ...e, turns, pending: false, correlationId: null });
+      entries.set(key, { ...e, turns, pending: false, correlationId: null, reconnected: false });
       if (route.placeholder && sessionOf(key)) effects.refetch(key);
     }
     finish(cid, sessionOf(key) ?? sid);
@@ -343,9 +354,10 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
       entries = new Map();
       currentKey = null;
       active = new Map();
+      loadingTokens.clear();
+      loading = new Set();
       corrIndex.clear();
       finished.clear();
-      orphans = [];
       recent.length = 0;
       activeAddedAt.clear();
       limit = DEFAULT_LIMIT;
@@ -382,29 +394,35 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
       commit();
     },
 
-    /** 칸이 있고 서버 이력도 반영됐는가 — 아니면 복원 때 다시 읽는다(이력 조회 전에 보낸 질문이 만든 칸·그 조회가 실패한 칸). */
+    /** 칸이 있고 서버 이력도 반영됐는가 — 아니면 복원 때 다시 읽는다(그 조회가 실패한 칸 포함). */
     hasHistory: (key: string) => !!entries.get(key)?.historyLoaded,
 
+    /** WP-268: 이력 조회 시작 — 끝날 때까지 그 대화의 전송을 막는다. 돌려준 표식으로 endLoading 한다(성공은 load 도 푼다). */
+    beginLoading(sessionId: string): number {
+      const token = ++clock;
+      loadingTokens.set(sessionId, token);
+      loading = new Set(loadingTokens.keys());
+      commit();
+      return token;
+    },
+    /** WP-268: 이력 조회 끝(실패·시간 초과 포함) — 그 뒤에 시작한 조회가 있으면 잠금을 그대로 둔다. */
+    endLoading(sessionId: string, token: number) {
+      if (loadingTokens.get(sessionId) === token && unlock(sessionId)) commit();
+    },
+
     /**
-     * 서버 이력으로 칸 채우기. 라이브 생성 중인 칸은 덮지 않고, 이력 조회 전에 보낸 질문이 만든 칸엔 이력을 앞에 붙인다.
+     * 서버 이력으로 칸 채우기. 라이브 생성 중인 칸은 덮지 않는다(끝난 뒤 다시 열 때 읽도록 historyLoaded 는 그대로).
      * 서버 기준 생성 중이면 "답변 생성 중" 자리표시를 붙인다.
      */
     load(sessionId: string, turns: ChatTurn[], actions: PendingAction[]) {
+      const unlocked = unlock(sessionId);
       const cur = entries.get(sessionId);
-      // 복원 조회 중 보낸 질문이 만든 칸(아직 이력 없음, 낙관적 턴만) — POST 응답 전이든(attach 대기) 응답이 먼저 와 생성 중이든(라이브),
-      // 이미 끝났든. 덮어쓰거나 세대를 올리면 attach·라이브 라우팅이 그 세대로 이벤트를 받지 못해 질문·답변이 사라진 채 "생성 중" 에 갇히고,
-      // 건너뛰면 지난 대화가 이 브라우저 세션 동안 안 보인다(칸이 있으니 다시 열어도 재조회하지 않는다, R14) — 세대·correlationId·
-      // ■ 예약은 그대로 두고 서버 이력을 앞에 붙인다.
-      if (cur && !cur.historyLoaded && cur.turns.length > 0) {
-        entries.set(sessionId, { ...cur, turns: mergeHistory(turns, cur.turns, cur.pending), historyLoaded: true });
-        commit();
+      const curRoute = cur?.correlationId ? corrIndex.get(cur.correlationId) : undefined;
+      // 라이브 칸, 또는 재연결로 자리표시가 됐어도 POST 응답 전인 칸(덮으면 세대가 바뀌어 attach 가 ■ 로 오인해 취소한다).
+      if (cur?.pending && curRoute && (!curRoute.placeholder || !curRoute.attached)) {
+        if (unlocked) commit();
         return;
       }
-      const curRoute = cur?.correlationId ? corrIndex.get(cur.correlationId) : undefined;
-      if (cur?.pending && curRoute && !curRoute.placeholder) return;
-      // 이력이 이미 반영된 칸의 attach 대기(새 질문 POST 진행 중) — 로컬이 서버보다 앞서 있다. 덮으면 attach 가 세대를 잃고,
-      // 붙이면 이력이 두 번 보인다. POST 가 끝나면(attach·failStart) 이후 조회가 정상 경로를 탄다.
-      if (cur && cur.correlationId === null && (cur.pending || cur.cancelOnAttach)) return;
       const cid = active.get(sessionId) ?? null;
       const gen = (cur?.gen ?? 0) + 1;
       // WP-234: 로컬 턴을 서버 이력으로 갈아끼운다 — 버리는 턴의 미리보기(blob:) 해제(서버 턴은 원본 경로로 그린다).
@@ -416,10 +434,10 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
         pending: !!cid,
         gen,
         correlationId: cid,
-        cancelOnAttach: false,
         historyLoaded: true,
+        reconnected: false,
       });
-      if (cid) corrIndex.set(cid, { key: sessionId, gen, placeholder: true });
+      if (cid) corrIndex.set(cid, { key: sessionId, gen, placeholder: true, attached: true });
       if (!recent.includes(sessionId)) recent.push(sessionId);
       prune();
       commit();
@@ -427,17 +445,22 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
 
     /**
      * 새 질문 — 사용자 턴 + 빈 어시스턴트 턴, 세대 증가. 현재 칸이 없으면(새 대화) draft 칸을 만들어 현재로 삼는다.
+     * WP-267: correlationId 를 여기서 정해 곧바로 라우팅에 올린다 — POST 응답보다 먼저 온 이벤트도 이 칸에 붙는다.
      * WP-234: attachments 는 낙관적 사용자 턴에 붙인다(미리보기 포함). 돌려준 userTurn 으로 거절 시 첨부를 뗀다(failStart).
      */
-    startTurn(query: string, attachments?: TurnAttachment[]): { key: string; gen: number; userTurn: ChatTurn } {
+    startTurn(
+      query: string,
+      attachments?: TurnAttachment[],
+    ): { key: string; gen: number; correlationId: string; userTurn: ChatTurn } {
       let key = currentKey;
       if (!key) {
         key = `${DRAFT_PREFIX}${crypto.randomUUID()}`;
         currentKey = key;
       }
-      // 새 대화(draft)는 불러올 서버 이력이 없다. 칸 없는 기존 대화(복원 조회 중)는 이력이 아직이다 — load 가 앞에 붙인다.
+      // 새 대화(draft)는 불러올 서버 이력이 없다. 칸 없는 기존 대화(이력 조회 실패)는 다시 열 때 읽는다.
       const e = entries.get(key) ?? { ...blank(), historyLoaded: key.startsWith(DRAFT_PREFIX) };
       const gen = e.gen + 1;
+      const correlationId = crypto.randomUUID();
       const userTurn: ChatTurn = { role: 'user', content: query, ...(attachments?.length ? { attachments } : {}) };
       entries.set(key, {
         ...e,
@@ -445,91 +468,67 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
         pending: true,
         pendingActions: [], // #351: 새 제출 — 이전 확인 카드 폐기
         gen,
-        correlationId: null,
-        // ■ 뒤 POST 응답을 기다리는 취소 예약은 지우지 않는다(I3) — 지우면 멈춘 생성이 서버에서 끝까지 돈다.
-        // 예약은 그 POST 가 끝날 때(attach·failStart) 정리된다. 평소엔 sendBlocked 가 이 경로 자체를 막는다.
-        cancelOnAttach: e.cancelOnAttach,
+        correlationId,
+        reconnected: false,
       });
+      corrIndex.set(correlationId, { key, gen, placeholder: false, attached: false });
       touchRecent(key);
       commit();
-      return { key, gen, userTurn };
+      return { key, gen, correlationId, userTurn };
     },
 
     /**
-     * POST 성공 — 새 대화면 draft 키를 sessionId 로 바꾸고 correlationId 를 등록해 이벤트를 받는다. 보류된 이벤트를 재생한다.
-     * @returns 바뀐 키 + 곧바로 취소해야 하는지(응답 전 ■)
+     * POST 성공 — 새 대화면 draft 키를 sessionId 로 바꾸고 서버 생성 중 목록에 넣는다.
+     * serverCid 는 응답의 correlationId — 보낸 것과 다르면(웹이 정한 id 를 모르는 구 API) 라우팅을 그 id 로 옮긴다.
+     * @returns 곧바로 취소해야 하는 correlationId(응답 전에 ■ 를 눌렀다), 아니면 null
      */
-    attach(key: string, gen: number, correlationId: string, sessionId: string | undefined): { key: string; cancelNow: boolean } {
-      const k = sessionId && key.startsWith(DRAFT_PREFIX) ? rekey(key, sessionId) : key;
-      if (finished.has(correlationId)) {
-        // 안전망: 이미 끝난 생성(이벤트를 받을 길이 없다) — active 에 되살리지 않고 칸만 마감해 "생성 중" 에 갇히지 않게 한다.
-        const done = entries.get(k);
-        if (done && done.gen === gen) entries.set(k, { ...done, pending: false, correlationId: null, cancelOnAttach: false });
-        else if (done && done.cancelOnAttach && gen < done.gen) entries.set(k, { ...done, cancelOnAttach: false }); // 멈춘 POST 의 예약 정리
-        if (sessionId && active.get(sessionId) === correlationId) active.delete(sessionId);
+    attach(cid: string, serverCid: string, sessionId: string | undefined): string | null {
+      const route = corrIndex.get(cid);
+      // 이미 끝났다(종결 이벤트가 응답보다 먼저 왔거나 대화를 지웠다) — 되살리지 않는다.
+      if (!route) return null;
+      const key = sessionId && route.key.startsWith(DRAFT_PREFIX) ? rekey(route.key, sessionId) : route.key;
+      if (serverCid !== cid) corrIndex.delete(cid);
+      // 구 API 가 돌려준 id 의 생성이 응답보다 먼저 끝났다(이 창은 모르는 id 라 adopt 가 은퇴시켰다) — 칸만 마감한다.
+      if (finished.has(serverCid)) {
+        const done = entries.get(key);
+        if (done?.correlationId === cid) entries.set(key, { ...done, pending: false, correlationId: null });
         commit();
-        return { key: k, cancelNow: false };
+        return null;
       }
-      if (sessionId) {
-        active.set(sessionId, correlationId);
-        activeAddedAt.set(sessionId, ++clock);
-      }
-      corrIndex.set(correlationId, { key: k, gen, placeholder: false });
-      const e = entries.get(k);
-      let cancelNow = false;
-      if (e) {
-        // 취소 예약은 ■ 로 세대가 올라간 "이전" POST 의 것이다(stopLocal 이 세대를 올린다) — 그 POST 의 응답일 때만 소비한다.
-        // 같은 세대(■ 뒤 새 질문)의 응답이면 예약을 남겨 이전 POST 의 attach·failStart 가 처리하게 한다.
-        cancelNow = e.cancelOnAttach && gen < e.gen;
-        entries.set(k, {
-          ...e,
-          correlationId: e.gen === gen ? correlationId : e.correlationId,
-          cancelOnAttach: e.cancelOnAttach && !cancelNow,
-        });
-      }
-      const mine = orphans.filter((o) => o.data.correlationId === correlationId);
-      orphans = orphans.filter((o) => o.data.correlationId !== correlationId);
+      corrIndex.set(serverCid, { ...route, key, attached: true });
+      const e = entries.get(key);
+      if (e && serverCid !== cid && e.correlationId === cid) entries.set(key, { ...e, correlationId: serverCid });
+      if (sessionId) trackActive(sessionId, serverCid);
       commit();
-      mine.forEach((o) => applyEvent(o.name, o.data));
-      return { key: k, cancelNow };
+      return e && e.gen !== route.gen ? serverCid : null;
     },
 
     /**
      * POST 실패 — message 가 있으면 빈 어시스턴트 턴을 그 문구로(일반 오류), null 이면 두 턴을 걷는다(409·429 — 서버 무저장).
-     * WP-234: 턴이 남는 경우 그 질문의 사용자 턴(userTurn, 동일성으로 찾음)에서 첨부를 뗀다 — 서버가 받지 않았으니 초안 칩이 남아
-     * 재전송되고, 보낸 것처럼 보이거나 세션 30개 계산에 이중으로 잡히면 안 된다. 미리보기 URL 은 초안 소유라 해제하지 않는다.
+     * WP-234: 그 질문의 사용자 턴(userTurn, 동일성으로 찾음)에서 첨부를 뗀다 — 서버가 받지 않았으니 초안 칩이 남아 재전송되고,
+     * 보낸 것처럼 보이거나 세션 30개 계산에 이중으로 잡히면 안 된다. 미리보기 URL 은 초안 소유라 해제하지 않는다.
      */
-    failStart(key: string, gen: number, message: string | null, userTurn?: ChatTurn) {
+    failStart(startKey: string, gen: number, cid: string, message: string | null, userTurn?: ChatTurn) {
+      // 응답 전 이벤트가 draft 키를 sessionId 로 바꿨을 수 있다 — 라우팅이 아는 현재 키를 쓴다.
+      const key = corrIndex.get(cid)?.key ?? startKey;
+      retire(cid);
       const found = entries.get(key);
       if (!found) return;
-      const e = userTurn ? { ...found, turns: withoutTurnAttachments(found.turns, userTurn) } : found;
-      // 응답 전에 ■ 한 POST 의 실패(I1) — stopLocal 이 세대를 올렸어도 정리는 해야 한다. 취소 예약을 지우지 않으면 draft 가
-      // 영영 attach 대기로 남아(draftAwaitingAttach) 재동기화·종결을 막고, 기존 대화는 이후 load 마다 이력을 중복으로 붙인다.
-      if (e.gen !== gen) {
-        if (!(e.cancelOnAttach && e.correlationId === null && gen < e.gen)) {
-          // 세대가 바뀌었어도(■·새 질문 뒤 늦은 거절) 거절된 질문의 첨부는 뗀다(WP-234) — 세대 대신 턴 동일성으로 찾았다.
-          if (e.turns !== found.turns) {
-            entries.set(key, e);
-            commit();
-          }
-          return;
-        }
-        // ■ 뒤 새 질문이 없으면(세대가 ■ 한 번만큼만 올랐으면) 거절 시 낙관적 두 턴도 걷는다(R17). 일반 오류면 "중단됨" 표시를 그대로 둔다.
-        if (message === null && e.gen === gen + 1) removeOptimistic(key, e);
-        else entries.set(key, { ...e, cancelOnAttach: false });
-        commit();
-        return;
-      }
-      if (message !== null) {
+      let e = userTurn ? { ...found, turns: withoutTurnAttachments(found.turns, userTurn) } : found;
+      if (e.correlationId === cid) e = { ...e, correlationId: null };
+      if (message === null) removeOptimistic(key, e);
+      // 응답 전에 ■ 한 질문(세대가 올라갔다)은 "중단됨" 표시를 그대로 둔다.
+      else if (e.gen !== gen) entries.set(key, e);
+      else {
         const turns = e.turns.map((t, i) =>
           i === e.turns.length - 1 && t.role === 'assistant' && t.content === '' ? { role: 'assistant' as const, content: message } : t,
         );
         entries.set(key, { ...e, turns, pending: false });
-      } else removeOptimistic(key, e);
+      }
       commit();
     },
 
-    /** ■ — 이 칸의 세대를 올려 늦은 이벤트를 버리고 "중단됨" 표시. 서버 취소 대상 correlationId 를 돌려준다(없으면 attach 때 취소). */
+    /** ■ — 이 칸의 세대를 올려 늦은 이벤트를 버리고 "중단됨" 표시. 지금 보낼 취소 대상을 돌려준다(서버가 아직 모르면 null — attach 가 취소). */
     stopLocal(key: string): string | null {
       const e = entries.get(key);
       if (!e || !e.pending) return null;
@@ -539,11 +538,24 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
         pending: false,
         pendingActions: [],
         turns: markInterrupted(e.turns, 'stopped'),
-        correlationId: null,
-        cancelOnAttach: e.correlationId === null,
+        reconnected: false,
       });
       commit();
-      return e.correlationId;
+      return e.correlationId && corrIndex.get(e.correlationId)?.attached ? e.correlationId : null;
+    },
+
+    /** WP-265: SSE 가 (다시) 열렸다 — 끊긴 사이 조각을 놓쳤을 수 있는 라이브 생성을 자리표시로 돌려, 끝나면 서버 이력으로 바꾼다. */
+    markReconnected() {
+      let changed = false;
+      for (const [cid, r] of corrIndex) {
+        if (r.placeholder) continue;
+        const e = entries.get(r.key);
+        if (!e || e.gen !== r.gen || !e.pending) continue;
+        corrIndex.set(cid, { ...r, placeholder: true });
+        entries.set(r.key, { ...e, reconnected: true });
+        changed = true;
+      }
+      if (changed) commit();
     },
 
     /** 확인카드 상태 갱신 — 그 대화의 세대가 그대로일 때만. @returns 반영 여부 */
@@ -582,10 +594,9 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
       for (const [cid, r] of corrIndex) if (r.key === sessionId) cids.add(cid);
       cids.forEach(retire);
       revokeTurnPreviews(entries.get(sessionId)?.turns ?? []); // WP-234
-      orphans = orphans.filter((o) => !cids.has(o.data.correlationId as string));
       entries.delete(sessionId);
-      active.delete(sessionId);
-      activeAddedAt.delete(sessionId);
+      untrackActive(sessionId);
+      unlock(sessionId);
       const ri = recent.indexOf(sessionId);
       if (ri >= 0) recent.splice(ri, 1);
       if (unseenDone.delete(sessionId)) saveUnseen();
@@ -612,24 +623,27 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
     /** 재동기화 요청 직전 호출 — 돌려준 토큰 이후 로컬에서 시작한 생성은 응답에 없어도 지우지 않는다. */
     beginResync: () => ++clock,
 
-    /** 서버 생성 중 목록 반영. 서버에 없는 로컬 생성은 종결 이벤트를 놓친 것으로 보고 done 처럼 처리한다. */
+    /**
+     * 서버 생성 중 목록 반영. 서버에 없는 로컬 생성은 종결 이벤트를 놓친 것으로 보고 done 처럼 처리한다.
+     * 이 창이 모르는 생성(새로고침 전·다른 창)은 자리표시로 이어받고, 열어 둔 칸이면 이력을 다시 읽어 "답변 중" 을 보인다.
+     */
     setActive(items: ActiveChatItem[], newLimit: number, token: number) {
       limit = newLimit > 0 ? newLimit : DEFAULT_LIMIT;
       const server = new Map(items.map((i) => [i.sessionId, i.correlationId]));
       for (const [sid, cid] of [...active]) {
         if (server.has(sid) || (activeAddedAt.get(sid) ?? 0) > token) continue;
         const e = entries.get(sid);
-        if (e?.pending) entries.set(sid, { ...e, pending: false, correlationId: null });
+        if (e?.correlationId === cid) entries.set(sid, { ...e, pending: false, correlationId: null, reconnected: false });
         finish(cid, sid);
         if (entries.has(sid)) effects.refetch(sid);
       }
       for (const [sid, cid] of server) {
         if (finished.has(cid)) continue;
         active.set(sid, cid);
-        // attach 를 기다리는 draft 가 있으면 낯선 생성에 자리표시 라우팅을 걸지 않는다(draftAwaitingAttach 참고) — attach 가 소유한다.
-        // active 에는 넣어 상한 집계는 서버 기준을 따른다. draft 의 것이 아니었다면 다음 재동기화가 자리표시를 건다.
-        if (!corrIndex.has(cid) && !draftAwaitingAttach())
-          corrIndex.set(cid, { key: sid, gen: entries.get(sid)?.gen ?? 0, placeholder: true });
+        if (corrIndex.has(cid)) continue;
+        const e = entries.get(sid);
+        corrIndex.set(cid, { key: sid, gen: e?.gen ?? 0, placeholder: true, attached: true });
+        if (e && !e.correlationId) effects.refetch(sid);
       }
       commit();
     },
@@ -694,14 +708,22 @@ export function atLimit(s: ChatStreamsSnapshot): boolean {
   return s.active.size >= s.limit;
 }
 
-/** 전송 막힘 — 상한이거나, ■ 뒤 서버 종결을 기다리는 중(R12). */
+/** 전송 막힘 — 상한이거나, 이력을 읽는 중이거나(WP-268), ■ 뒤 서버 종결을 기다리거나(R12), 다른 창에서 답변 중. */
 export function sendBlocked(s: ChatStreamsSnapshot): boolean {
   const e = s.currentKey ? s.entries.get(s.currentKey) : undefined;
   if (e?.pending) return false;
-  // POST 응답 전에 ■ 한 칸(I3) — 아직 active 에 없어도 그 POST 가 끝날(attach·failStart) 때까지 막는다.
-  // 막지 않으면 재전송이 기존 대화는 409, 새 대화는 서버 세션을 둘 만들고 멈춘 생성이 끝까지 돈다.
-  if (e && e.correlationId === null && e.cancelOnAttach) return true;
+  if (s.currentKey && s.loading.has(s.currentKey)) return true;
+  // ■ 뒤 종결 대기(POST 응답 전 포함, I3) — 막지 않으면 재전송이 409 이거나 새 대화는 서버 세션을 둘 만든다.
+  if (e?.correlationId) return true;
   const cur = currentSessionId(s);
   if (cur && s.active.has(cur)) return true;
   return atLimit(s);
+}
+
+/** WP-266: 현재 대화가 이 창이 모르는 생성으로 답변 중 — 칸에 "답변 중" 표시가 아직 없을 때 입력창 위에 이유를 알린다. */
+export function busyElsewhere(s: ChatStreamsSnapshot): boolean {
+  const e = s.currentKey ? s.entries.get(s.currentKey) : undefined;
+  if (e?.pending || e?.correlationId) return false;
+  const cur = currentSessionId(s);
+  return !!cur && s.active.has(cur);
 }
