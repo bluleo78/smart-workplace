@@ -96,7 +96,7 @@ final class HomeChatTurn {
     emit("home.chat.error", Map.of("message", message));
   }
 
-  /** 취소 종결(사용자 ■·타임아웃) — 누적분을 STOPPED 로 남기고 반납 → home.chat.cancelled{reason} (+ 구 웹 호환 error). */
+  /** 취소 종결(사용자 ■·타임아웃) — 누적분을 STOPPED 로 남기고 반납 → home.chat.cancelled{reason}. */
   void cancel() {
     if (!finished.compareAndSet(false, true)) return;
     persistPartial(STATUS_STOPPED);
@@ -106,9 +106,6 @@ final class HomeChatTurn {
             ? "timeout"
             : "user";
     emit("home.chat.cancelled", Map.of("reason", reason));
-    // 구 웹 호환(R6): 구 웹은 cancelled 를 모르고 error{cancelled:true} 로 타임아웃을 알아챈다. 신 웹은 이 이벤트를 무시한다.
-    // 신 웹이 운영에 반영된 다음 배포에서 제거한다.
-    emit("home.chat.error", Map.of("cancelled", true));
   }
 
   /** 부분 답변 저장 — 누적 텍스트가 비면 질문만 남긴다(현행 유지). 끝나지 않은 도구 단계는 error 로 닫는다(R10). */

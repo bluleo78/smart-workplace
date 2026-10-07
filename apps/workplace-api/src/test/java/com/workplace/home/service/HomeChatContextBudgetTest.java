@@ -238,8 +238,9 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
     chatService.startChat(uid, sid, "다음");
 
     ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-    verify(sseRegistry, timeout(5000)).fanOut(any(), eq("home.chat.error"), payload.capture());
-    assertThat(((Map<?, ?>) payload.getValue()).get("cancelled")).isEqualTo(true);
+    verify(sseRegistry, timeout(5000)).fanOut(any(), eq("home.chat.cancelled"), payload.capture());
+    assertThat(((Map<?, ?>) payload.getValue()).get("reason")).isEqualTo("user");
+    verify(sseRegistry, never()).fanOut(any(), eq("home.chat.error"), any());
     verify(chatClient, never()).composeStream(any(), any(), any(), any(), any(), any(), any());
     assertThat(sessionService.getContextSummary(uid, sid)).isEqualTo(new SummaryState(null, null));
   }
@@ -432,8 +433,9 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
     chatService.startChat(uid, sid, "다음");
 
     ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-    verify(sseRegistry, timeout(5000)).fanOut(any(), eq("home.chat.error"), payload.capture());
-    assertThat(((Map<?, ?>) payload.getValue()).get("cancelled")).isEqualTo(true);
+    verify(sseRegistry, timeout(5000)).fanOut(any(), eq("home.chat.cancelled"), payload.capture());
+    assertThat(((Map<?, ?>) payload.getValue()).get("reason")).isEqualTo("user");
+    verify(sseRegistry, never()).fanOut(any(), eq("home.chat.error"), any());
     verify(chatClient, never()).composeStream(any(), any(), any(), any(), any(), any(), any());
   }
 

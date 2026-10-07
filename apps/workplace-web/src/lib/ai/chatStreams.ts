@@ -282,8 +282,6 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
     if (!cid || finished.has(cid)) return;
     const sid = str(data.sessionId);
     const kind = name.slice(CHAT_EVENT_PREFIX.length);
-    // R6: 구 호환 error{cancelled:true} 는 home.chat.cancelled 가 대신한다.
-    if (kind === 'error' && data.cancelled === true) return;
     const terminal = kind === 'done' || kind === 'error' || kind === 'cancelled';
     const route = corrIndex.get(cid);
     if (!route) {

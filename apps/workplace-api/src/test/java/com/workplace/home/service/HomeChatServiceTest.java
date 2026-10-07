@@ -626,10 +626,10 @@ class HomeChatServiceTest extends IntegrationTestBase {
 
   /**
    * 취소(cancelChat)로 펌프 스레드가 인터럽트될 때 — 실제 인터럽트 시 JDK HttpClient 블로킹 read 가 던지는 예외를 흉내 내 재현한다.
-   * home.chat.error(cancelled:true)로 fanOut 되는지 검증한다(WikiAiServiceTest 의 대응 테스트 미러).
+   * home.chat.cancelled{reason:user} 로만 fanOut 되고 home.chat.error 는 나가지 않는지 검증한다.
    */
   @Test
-  void cancelChat_으로_인터럽트되면_home_chat_error_cancelled_true_fanOut() throws Exception {
+  void cancelChat_으로_인터럽트되면_home_chat_cancelled_fanOut() throws Exception {
     long uid = user("cancel" + System.nanoTime());
     stubAssistant();
 
@@ -655,10 +655,12 @@ class HomeChatServiceTest extends IntegrationTestBase {
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
     verify(sseRegistry, org.mockito.Mockito.timeout(2000))
-        .fanOut(eq(Set.of(uid)), eq("home.chat.error"), payloadCaptor.capture());
+        .fanOut(eq(Set.of(uid)), eq("home.chat.cancelled"), payloadCaptor.capture());
     assertThat(payloadCaptor.getValue())
         .containsEntry("correlationId", correlationId)
-        .containsEntry("cancelled", true);
+        .containsEntry("reason", "user");
+    verify(sseRegistry, org.mockito.Mockito.never())
+        .fanOut(eq(Set.of(uid)), eq("home.chat.error"), any());
   }
 
   /** cancelChat 은 존재하지 않는 correlationId 에 대해 레지스트리의 예외 정책을 그대로 따른다(위임 확인). */

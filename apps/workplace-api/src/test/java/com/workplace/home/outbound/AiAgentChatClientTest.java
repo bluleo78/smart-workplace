@@ -281,9 +281,9 @@ class AiAgentChatClientTest {
 
   /**
    * #593: 취소(Future.cancel(true))로 인한 인터럽트는 onError 로 뭉뚱그려지지 않고 그대로 재throw 되어야 한다 — 호출자
-   * (HomeChatService)가 원인 체인을 검사해 cancelled:true 신호를 낼 수 있어야 하기 때문이다. 실제 소켓/스레드 인터럽트 대신, 테스트용
-   * HttpClient 주입 생성자로 http.send(...) 가 인터럽트로 인한
-   * 예외(UncheckedIOException(IOException(InterruptedException)))를 던지도록 목 처리해 결정적으로 재현한다.
+   * (HomeChatService)가 원인 체인을 검사해 cancelled 신호를 낼 수 있어야 하기 때문이다. 실제 소켓/스레드 인터럽트 대신, 테스트용 HttpClient
+   * 주입 생성자로 http.send(...) 가 인터럽트로 인한 예외(UncheckedIOException(IOException(InterruptedException)))를
+   * 던지도록 목 처리해 결정적으로 재현한다.
    */
   @Test
   void 인터럽트로_인한_예외는_onError_로_흡수하지_않고_그대로_재throw() throws Exception {

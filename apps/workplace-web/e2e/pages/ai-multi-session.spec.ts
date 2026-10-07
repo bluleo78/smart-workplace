@@ -220,7 +220,6 @@ test('■ 정지 → 부분 답변 아래 "중단됨", 새로고침 뒤 다시 �
   await page.getByTestId('chat-input').fill('이어서')
   await expect(page.getByTestId('chat-panel').getByRole('button', { name: '보내기' })).toBeDisabled()
   await live.push('cancelled', { correlationId: 'corr-a', sessionId: 's-a', reason: 'user' })
-  await live.push('error', { correlationId: 'corr-a', sessionId: 's-a', cancelled: true }) // 구 호환 — 무시
   await expect(page.getByTestId('chat-panel').getByRole('button', { name: '보내기' })).toBeEnabled()
   await expect(page.getByTestId('chat-interrupted')).toHaveCount(1)
 

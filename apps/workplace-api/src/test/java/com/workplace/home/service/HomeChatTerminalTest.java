@@ -40,9 +40,9 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
- * WP-190 홈 채팅 턴 종결 — 모든 home.chat 이벤트의 sessionId 봉투, 취소(cancelled{reason}+구 호환 error)·오류 종결의 부분 답변
- * 저장 (STOPPED·FAILED), "영속 → 반납 → 이벤트" 순서. @Transactional 을 쓰지 않는다(펌프 스레드 커밋 필요) — 만든
- * 사용자는 @AfterEach 에서 회수(#512).
+ * WP-190 홈 채팅 턴 종결 — 모든 home.chat 이벤트의 sessionId 봉투, 취소(cancelled{reason})·오류 종결의 부분 답변 저장
+ * (STOPPED·FAILED), "영속 → 반납 → 이벤트" 순서. @Transactional 을 쓰지 않는다(펌프 스레드 커밋 필요) — 만든 사용자는 @AfterEach
+ * 에서 회수(#512).
  */
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class HomeChatTerminalTest extends IntegrationTestBase {
@@ -201,9 +201,8 @@ class HomeChatTerminalTest extends IntegrationTestBase {
     assertThat(payloads("home.chat.cancelled").get(0))
         .containsEntry("reason", "user")
         .containsEntry("sessionId", r.sessionId().toString());
-    // 구 웹 호환 — 같은 취소를 error{cancelled:true} 로도 알린다(R6).
-    awaitTrue(() -> !payloads("home.chat.error").isEmpty());
-    assertThat(payloads("home.chat.error").get(0)).containsEntry("cancelled", true);
+    // 취소는 cancelled 로만 알린다 — error 는 보내지 않는다.
+    assertThat(payloads("home.chat.error")).isEmpty();
     assertThat(sessionService.getMessages(uid, r.sessionId()))
         .extracting(HomeMessageResponse::content, HomeMessageResponse::status)
         .containsExactly(tuple("길게 써줘", "COMPLETE"), tuple("멈출 답 ", "STOPPED"));

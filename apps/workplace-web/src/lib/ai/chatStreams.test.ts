@@ -110,12 +110,10 @@ describe('이벤트 라우팅·키 교체', () => {
     expect(effects.sessionsChanged).toHaveBeenCalledTimes(1);
   });
 
-  it('구 호환 error{cancelled:true} 는 무시하고 cancelled 로 마감한다', () => {
+  it('cancelled 로 마감하면 부분 답변이 중단됨으로 남는다', () => {
     const { s } = setup();
     ask(s, 'A', 'corr-a', 's-a');
     ev(s, 'delta', { correlationId: 'corr-a', sessionId: 's-a', text: '부분' });
-    ev(s, 'error', { correlationId: 'corr-a', sessionId: 's-a', cancelled: true });
-    expect(s.getSnapshot().entries.get('s-a')?.pending).toBe(true);
     ev(s, 'cancelled', { correlationId: 'corr-a', sessionId: 's-a', reason: 'user' });
     expect(s.getSnapshot().entries.get('s-a')).toMatchObject({ pending: false });
     expect(turnsOf(s, 's-a')?.[1]).toMatchObject({ content: '부분', interrupted: 'stopped' });

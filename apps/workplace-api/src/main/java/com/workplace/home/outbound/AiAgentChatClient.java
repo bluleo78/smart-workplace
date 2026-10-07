@@ -188,7 +188,7 @@ public class AiAgentChatClient {
 
     } catch (Exception e) {
       // 취소(Future.cancel(true))로 인한 인터럽트는 onError 콜백으로 뭉뚱그리지 않고 그대로
-      // 전파한다 — 호출자(HomeChatService)가 원인 체인을 검사해 cancelled:true 신호를 낼 수
+      // 전파한다 — 호출자(HomeChatService)가 원인 체인을 검사해 cancelled 신호를 낼 수
       // 있어야 한다(WikiAiService/DriveOverviewService 와 동일 요구). 그 외 실제 오류(네트워크·
       // JSON 등)는 기존과 동일하게 onError 콜백으로 흡수한다.
       if (isInterruption(e)) {
