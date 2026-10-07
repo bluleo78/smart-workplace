@@ -138,9 +138,9 @@ export function ViewerBody({
     }
   }, [blob, kind, textLike])
 
-  // 확대한 이미지는 본문 자체가 가로로 넘친다 — 표와 같은 규칙으로 포커스 가능한 가로 스크롤 영역이 되어,
-  // 클릭·Tab 으로 들어오면 ←/→ 가 파일 넘김 대신 스크롤에 쓰인다(맞춤 이하에선 탭 정지점을 늘리지 않는다).
-  const zoomScroll = kind === 'IMAGE' && zoom > 1
+  // 이미지는 확대하면 본문 자체가 가로로 넘친다 — 표와 같은 규칙으로 포커스 가능한 스크롤 영역이 되어,
+  // 클릭·Tab 으로 들어온 채 실제로 넘치면 ←/→ 가 파일 넘김 대신 스크롤에 쓰인다(배율과 무관하게 다는 이유는 zoomScroll.ts).
+  const zoomScroll = kind === 'IMAGE'
   return (
     <div
       ref={setBodyEl}

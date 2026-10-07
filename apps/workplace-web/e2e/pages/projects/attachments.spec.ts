@@ -870,6 +870,41 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await expect(page).toHaveURL(/preview=file(%3A|:)7801/);
   });
 
+  test('목록이 비는 재조회 뒤에도 뷰어가 다시 마운트되지 않아 확대 배율이 유지된다', async ({ authenticatedPage: page }) => {
+    const img = createAttachment({ fileId: 7811, originalName: 'zoom.png', mimeType: 'image/png' });
+    await stubBundle(page, [img], []);
+    let list: IssueAttachment[] = [img];
+    const listCalls = trackRequests(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`);
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(list) })
+          : route.fallback(),
+    );
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments/7811/content`,
+      (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
+    );
+    const events = await mockGatedEvents(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'zoom.png 미리보기' }).click();
+    await expect(page.getByTestId('preview-body').locator('img')).toBeVisible();
+    await page.getByRole('button', { name: '확대' }).click();
+    await page.getByRole('button', { name: '확대' }).click();
+    await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('150%');
+    const before = listCalls.count();
+
+    // 마지막 첨부가 빠지는 재조회 — 목록 컴포넌트가 빈 분기로 바뀌어도 뷰어는 같은 자리에 남아야 한다.
+    list = [];
+    events.deliver(
+      resourceChangedFrame({ resource: 'issue', op: 'updated', scopeType: 'PROJECT', scopeId: 1, ids: [1], actorId: 99, projectKey: PROJECT_KEY, issueNumber: 1 }),
+    );
+    await expect.poll(() => listCalls.count()).toBeGreaterThan(before);
+    await expect(page.getByTestId('attachment-list')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('150%');
+  });
+
   test('삭제된 첨부 딥링크는 찾을 수 없음 안내를 보이고 닫으면 ?preview 가 지워진다', async ({ authenticatedPage: page }) => {
     await stubBundle(page, [createAttachment({ fileId: 7901, originalName: 'live.txt', mimeType: 'text/plain' })], []);
     await page.goto(`/projects/${PROJECT_KEY}/issues/1?preview=file:999`);

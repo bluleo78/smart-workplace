@@ -115,11 +115,11 @@ export function PdfPages({
   }, [doc, ready, onPage])
 
   return (
-    // 확대해 가로로 넘치면 이미지와 같은 규칙의 포커스 가능한 가로 스크롤 영역이 된다(←/→ 를 넘김 대신 스크롤에 양보).
+    // 이미지와 같은 규칙의 포커스 가능한 스크롤 영역 — 확대해 가로로 넘치면 ←/→ 를 넘김 대신 스크롤에 양보한다.
     <div
       ref={setRoot}
-      {...(zoom > 1 ? ZOOM_SCROLL_PROPS : {})}
-      className={cn('flex h-full min-h-0 flex-col gap-4 overflow-auto py-4', zoom > 1 && ZOOM_SCROLL_RING)}
+      {...ZOOM_SCROLL_PROPS}
+      className={cn('flex h-full min-h-0 flex-col gap-4 overflow-auto py-4', ZOOM_SCROLL_RING)}
       data-testid="pdf-document"
     >
       {doc &&

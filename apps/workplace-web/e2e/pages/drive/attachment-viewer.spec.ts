@@ -370,11 +370,16 @@ test('확대한 이미지 안을 클릭하고 → 를 누르면 파일을 넘기
   const body = page.getByTestId('preview-body')
   await expect.poll(() => body.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
   await body.locator('img').click()
-  await expect(page.getByRole('region', { name: '확대 영역 스크롤' })).toBeFocused()
+  await expect(page.getByRole('region', { name: '미리보기 스크롤 영역' })).toBeFocused()
   await page.keyboard.press('ArrowRight')
   await expect.poll(() => body.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
   await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
   await expect(page).toHaveURL(/preview=88/)
+  // 맞춤으로 되돌린 뒤에도 키보드가 뷰어에 남아 → 로 다음 파일로 넘어간다(포커스가 body 로 빠지지 않음).
+  await page.keyboard.press('0')
+  await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('폭 맞춤')
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByTestId('preview-meta')).toContainText('2 / 2')
 })
 
 test('⋯ 메뉴가 열린 채 → 를 눌러도 파일이 넘어가지 않는다', async ({ authenticatedPage: page }) => {
