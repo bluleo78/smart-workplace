@@ -15,6 +15,7 @@ import { fitImageWidth } from './imageFit'
 import { PdfPages } from './PdfPages'
 import type { ViewerItem } from './types'
 import { usePreviewBlob } from './usePreviewBlob'
+import { ZOOM_SCROLL_PROPS, ZOOM_SCROLL_RING } from './zoomScroll'
 
 /** 텍스트 미리보기 최대 길이(과대 파일 보호). */
 const TEXT_PREVIEW_LIMIT = 200_000
@@ -137,12 +138,16 @@ export function ViewerBody({
     }
   }, [blob, kind, textLike])
 
+  // 확대한 이미지는 본문 자체가 가로로 넘친다 — 표와 같은 규칙으로 포커스 가능한 가로 스크롤 영역이 되어,
+  // 클릭·Tab 으로 들어오면 ←/→ 가 파일 넘김 대신 스크롤에 쓰인다(맞춤 이하에선 탭 정지점을 늘리지 않는다).
+  const zoomScroll = kind === 'IMAGE' && zoom > 1
   return (
     <div
       ref={setBodyEl}
+      {...(zoomScroll ? ZOOM_SCROLL_PROPS : {})}
       // 이미지는 flex + 자식 m-auto 로 가운데 둔다 — 넘치면 auto 여백이 0 이 되어(안전한 가운데 정렬) 위·왼쪽까지 스크롤된다.
       // (items-center/justify-center 는 넘친 부분을 위·왼쪽 바깥으로 밀어내 스크롤로 닿을 수 없게 만든다.)
-      className={cn('min-h-0 flex-1 overflow-auto', !fillsFrame && 'p-4', kind === 'IMAGE' && 'flex')}
+      className={cn('min-h-0 flex-1 overflow-auto', !fillsFrame && 'p-4', kind === 'IMAGE' && 'flex', zoomScroll && ZOOM_SCROLL_RING)}
       data-testid="preview-body"
     >
       {/* 드라이브 링크 원본이 휴지통·삭제 — 받지 않고 안내만(다운로드 없음). */}

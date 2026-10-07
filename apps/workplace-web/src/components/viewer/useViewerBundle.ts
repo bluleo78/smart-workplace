@@ -7,9 +7,9 @@ import { resolveBundle } from './viewerItems'
  * 뷰어 호출부(드라이브·첨부 모아보기·이슈 첨부) 공통 묶음 상태(WP-277).
  * - 현재 키(URL ?preview)를 목록에서 찾고, 목록에서 빠지면(재조회·필터 변경·다른 곳에서 삭제) 마지막으로 본 원본(스냅숏) 1건으로 유지한다.
  *   왜: 열린 뷰어가 목록 재조회로 다른 파일로 바뀌거나 사라지고 낡은 ?preview 만 URL 에 남는 일을 막는다.
- * - 목록이 실제로 로드됐는데(ready) 목록에도 스냅숏에도 없으면 missing — 호출부가 ViewerNotFound 로 안내한다.
+ * - 목록 조회가 끝났는데(ready — 실패 포함) 목록에도 스냅숏에도 없으면 missing — 호출부가 ViewerNotFound 로 안내한다.
  * - 넘김(onIndexChange)은 현재 묶음 범위 안에서만 URL 을 바꾼다.
- * 스냅숏은 원본(T) 그대로 들고 있어 호출부가 화면 컨텍스트(AI) 등에 재사용할 수 있다.
+ * 지금 열린 원본(T)은 current 로 내보내 호출부가 화면 컨텍스트(AI) 등에 재사용한다.
  *
  * @param toItem 원본 → ViewerItem. 렌더마다 새 함수면 목록 변환 memo 가 깨지므로 모듈 함수나 useCallback 으로 넘긴다.
  * @param openKey 묶음 키 → URL 반영(드라이브는 `drive:{id}` 를 숫자 id 로 바꿔 쓴다).
@@ -53,8 +53,9 @@ export function useViewerBundle<T>({
   }
   return {
     bundle,
+    /** 지금 열린 원본(목록 → 스냅숏 순으로 해석) — 호출부가 같은 조회를 반복하지 않고 화면 컨텍스트(AI) 등에 쓴다. */
+    current: bundle ? (sources[bundle.index] ?? null) : null,
     missing: currentKey != null && bundle == null && ready,
-    snapshot,
     open,
     onIndexChange,
   }

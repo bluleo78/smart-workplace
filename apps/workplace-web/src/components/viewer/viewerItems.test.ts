@@ -7,6 +7,7 @@ import {
   issueAttachmentItem,
   issueBodyImageItem,
   issueDriveLinkItem,
+  normalizeAttachmentPreviewKey,
   resolveBundle,
   virtualAttachmentItem,
 } from './viewerItems'
@@ -54,12 +55,12 @@ describe('issueAttachmentItem / issueDriveLinkItem', () => {
     })
     // 휴지통·삭제된 원본은 요약·드라이브에서 열기를 걸지 않는다(열어도 볼 수 없는 곳으로 보내지 않게).
     expect(it.summaryDriveFileId).toBeUndefined()
-    expect(it.driveOpenPath).toBeUndefined()
+    expect(it.driveOpen).toBeUndefined()
   })
   it('활성 드라이브 링크는 요약·드라이브에서 열기를 쓴다', () => {
     const l = { driveFileId: 71, fileId: 201, name: 'b.pdf', mimeType: 'application/pdf', sizeBytes: 3, spaceId: 2, availability: 'ACTIVE' } as DriveLink
     expect(issueDriveLinkItem('WP', 12, l)).toMatchObject({
-      key: 'drive:71', summaryDriveFileId: 71, driveOpenPath: '/drive/spaces/2?preview=71', unavailable: false,
+      key: 'drive:71', summaryDriveFileId: 71, driveOpen: { spaceId: 2, driveFileId: 71, name: 'b.pdf' }, unavailable: false,
     })
   })
 })
@@ -84,5 +85,15 @@ describe('resolveBundle', () => {
   it('닫힘·스냅숏 불일치면 null', () => {
     expect(resolveBundle([a], null, null)).toBeNull()
     expect(resolveBundle([a], 'z', { key: 'y' } as never)).toBeNull()
+  })
+})
+
+describe('normalizeAttachmentPreviewKey', () => {
+  it('예전 숫자 ?preview=123 은 file:123 으로 읽는다(옛 딥링크 호환)', () => {
+    expect(normalizeAttachmentPreviewKey('123')).toBe('file:123')
+  })
+  it('이미 키 형식이거나 비어 있으면 그대로', () => {
+    expect(normalizeAttachmentPreviewKey('file:9')).toBe('file:9')
+    expect(normalizeAttachmentPreviewKey(null)).toBeNull()
   })
 })

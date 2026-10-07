@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu'
+import { resolveDriveOpenPath } from './driveOpen'
 import type { ViewerItem } from './types'
 
 /**
@@ -29,7 +30,7 @@ export function ViewerMoreMenu({
 }) {
   const navigate = useNavigate()
   // 빈 메뉴(⋯ 를 눌러도 아무것도 없음)는 그리지 않는다.
-  if (!item.sourceLink && !shareable && !onImport && !item.driveOpenPath) return null
+  if (!item.sourceLink && !shareable && !onImport && !item.driveOpen) return null
   // 현재 URL 에 ?preview= 가 있어 그대로 공유하면 같은 뷰어가 열린다.
   const copyLink = () => {
     void navigator.clipboard
@@ -51,8 +52,11 @@ export function ViewerMoreMenu({
         )}
         {shareable && <DropdownMenuItem onSelect={copyLink}>링크 복사</DropdownMenuItem>}
         {onImport && <DropdownMenuItem onSelect={onImport}>드라이브로 가져오기</DropdownMenuItem>}
-        {item.driveOpenPath && (
-          <DropdownMenuItem onSelect={() => navigate(item.driveOpenPath!)}>드라이브에서 열기</DropdownMenuItem>
+        {item.driveOpen && (
+          // 파일이 있는 폴더를 찾아 연다 — 공간 루트로만 열면 하위 폴더 파일이 "찾을 수 없음"이 된다.
+          <DropdownMenuItem onSelect={() => void resolveDriveOpenPath(item.driveOpen!).then((to) => navigate(to))}>
+            드라이브에서 열기
+          </DropdownMenuItem>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

@@ -264,22 +264,19 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const viewItems = results ?? actualItems
   const previewId = parseId(previewParam.value)
   // 묶음 = 지금 보이는 목록(검색 중이면 검색 결과)의 파일 — 열린 동안 재조회로 빠져도 스냅숏으로 유지(useViewerBundle).
-  // URL 값은 기존대로 숫자 id(`?preview=70`) — 다른 화면(검색·홈 위젯·백링크·driveOpenPath)이 만드는 딥링크와 호환.
+  // URL 값은 기존대로 숫자 id(`?preview=70`) — 다른 화면(검색·홈 위젯·백링크·뷰어 "드라이브에서 열기")이 만드는 딥링크와 호환.
   // 묶음 키는 `drive:{id}` 이므로 읽을 때·쓸 때 변환한다. 목록이 실제로 로드됐는데도 없으면 not-found(missing).
   const viewer = useViewerBundle({
     list: viewItems.files,
     toItem: driveFileItem,
     currentKey: previewId != null ? `drive:${previewId}` : null,
-    ready: results == null && itemsQuery.isSuccess && !itemsQuery.isPlaceholderData,
+    // 조회가 끝나면(실패 포함) 판정한다 — 실패 시 영영 판정하지 않으면 뷰어도 안내도 없이 낡은 ?preview 만 남는다.
+    ready: results == null && !itemsQuery.isPlaceholderData && (itemsQuery.isSuccess || itemsQuery.isError),
     openKey: (key) => previewParam.open(key.slice('drive:'.length)),
   })
   const openPreview = viewer.open
-  // 미리보기 대상 해석(AI 화면 컨텍스트용) — 표시 중 목록(placeholder 포함) → 스냅숏 순.
-  const preview: DriveFile | null =
-    previewId == null
-      ? null
-      : ((results ?? items).files.find((f) => f.id === previewId) ??
-        (viewer.snapshot?.id === previewId ? viewer.snapshot : null))
+  // 미리보기 대상(AI 화면 컨텍스트용) — 뷰어 묶음이 해석한 현재 원본(목록 → 스냅숏)을 그대로 쓴다.
+  const preview: DriveFile | null = viewer.current
   // 렌더마다 Set 을 새로 만들지 않도록 입력(뷰 목록·선택 집합)이 바뀔 때만 다시 계산한다.
   const visibleSelFiles = useMemo(() => {
     const ids = new Set(viewItems.files.map((f) => f.id))

@@ -106,3 +106,43 @@ test('첨부 모아보기 — 없는 첨부 딥링크는 찾을 수 없음 안�
   await expect(page.getByTestId('preview-not-found')).toHaveCount(0)
   await expect(page).not.toHaveURL(/preview=/)
 })
+
+// WP-277: 예전 형식 딥링크(?preview=<숫자 fileId>)도 file:<id> 로 읽어 그 첨부를 연다 — 찾을 수 없음으로 떨어지지 않게.
+test('첨부 모아보기 — 예전 숫자 딥링크(?preview=77)도 그 첨부를 연다', async ({ authenticatedPage: page }) => {
+  await page.route('**/api/v1/drive/spaces', (r) => r.fulfill({ json: [{ id: 1, name: '내 드라이브', type: 'PERSONAL' }] }))
+  await page.route('**/api/v1/drive/attachments**', (r) =>
+    r.fulfill({
+      json: {
+        items: [
+          {
+            fileId: 77,
+            name: 'legacy.txt',
+            mimeType: 'text/plain',
+            sizeBytes: 6,
+            hasThumbnail: false,
+            sourceType: 'ISSUE',
+            sourceLabel: 'PROJ-1 제목',
+            deepLink: '/projects/PROJ/issues/1',
+            downloadUrl: '/api/v1/projects/PROJ/issues/1/attachments/77/content',
+            attachedAt: '2026-07-01T10:00:00Z',
+          },
+        ],
+        nextCursor: null,
+      },
+    }),
+  )
+  await page.route('**/api/v1/projects/PROJ/issues/1/attachments/77/content', (r) =>
+    r.fulfill({ contentType: 'text/plain', body: 'LEGACY' }),
+  )
+  await page.goto('/drive/attachments?preview=77')
+  await expect(page.getByTestId('preview-body')).toContainText('LEGACY')
+  await expect(page.getByTestId('preview-not-found')).toHaveCount(0)
+})
+
+// WP-277: 목록 조회가 실패해도 딥링크를 방치하지 않는다 — 찾을 수 없음 안내 후 닫으면 ?preview 를 지운다.
+test('첨부 모아보기 — 목록 조회 실패 시 딥링크는 찾을 수 없음 안내', async ({ authenticatedPage: page }) => {
+  await page.route('**/api/v1/drive/spaces', (r) => r.fulfill({ json: [{ id: 1, name: '내 드라이브', type: 'PERSONAL' }] }))
+  await page.route('**/api/v1/drive/attachments**', (r) => r.fulfill({ status: 403, json: { message: 'forbidden' } }))
+  await page.goto('/drive/attachments?preview=file:77')
+  await expect(page.getByTestId('preview-not-found')).toBeVisible()
+})

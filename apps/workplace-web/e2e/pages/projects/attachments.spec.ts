@@ -11,6 +11,7 @@ import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvent
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createAttachment } from '../../factories/attachment.factory';
+import { createFile, createFolder, createSpace } from '../../factories/drive.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import type { IssueAttachment } from '../../../src/types/attachment';
@@ -705,6 +706,14 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await expect(page.getByTestId('preview-download')).toHaveCount(0);
   });
 
+  test('원본이 삭제된 드라이브 링크 행에는 다운로드 아이콘이 없다(활성 링크에만 있다)', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [], [driveLink(606, { name: 'deleted.txt', availability: 'DELETED' }), driveLink(607, { name: 'alive.txt' })]);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await expect(page.getByRole('button', { name: 'alive.txt 다운로드' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'deleted.txt 미리보기' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'deleted.txt 다운로드' })).toHaveCount(0);
+  });
+
   test('이슈 드라이브 링크의 요약이 403 이면 ✨ 버튼이 없다', async ({ authenticatedPage: page }) => {
     await stubBundle(page, [], [driveLink(603)]);
     await page.route(
@@ -732,6 +741,60 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await expect(page.getByTestId('viewer-side-panel').getByTestId('drive-summary-card')).toContainText('링크 요약');
     await page.getByRole('button', { name: '더 보기' }).click();
     await expect(page.getByRole('menuitem', { name: '드라이브에서 열기' })).toBeVisible();
+  });
+
+  test('⋯ 드라이브에서 열기는 하위 폴더에 있는 링크 파일을 그 폴더에서 미리보기로 연다', async ({ authenticatedPage: page }) => {
+    // 링크 응답에는 폴더 id 가 없다 — 공간 이름 검색으로 폴더(5)를 찾아 ?folderId=5&preview=605 로 가야 한다.
+    await stubBundle(page, [], [driveLink(605, { name: 'deep.txt' })]);
+    const searches = trackRequests(page, 'GET', '/api/v1/drive/spaces/1/search');
+    const deep = createFile({ id: 605, folderId: 5, fileId: 1605, name: 'deep.txt', sizeBytes: 4 });
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/spaces/1/search',
+      (route) => route.fulfill({ json: { folders: [], files: [{ ...deep, folderPath: '하위' }] } }),
+    );
+    // 공간 루트에는 이 파일이 없다 — 루트로 열면 "찾을 수 없음"이 된다(회귀 조건).
+    await page.route(
+      (url) => url.pathname === '/api/v1/drive/spaces/1/items',
+      (route) =>
+        route.fulfill({
+          json:
+            new URL(route.request().url()).searchParams.get('parentId') === '5'
+              ? { folders: [], files: [deep] }
+              : { folders: [createFolder({ id: 5, name: '하위' })], files: [] },
+        }),
+    );
+    await page.route((url) => url.pathname === '/api/v1/drive/spaces/1', (route) => route.fulfill({ json: createSpace({ id: 1 }) }));
+    await page.route((url) => url.pathname === '/api/v1/drive/folders/5/path', (route) => route.fulfill({ json: [{ id: 5, name: '하위' }] }));
+    await page.route((url) => url.pathname === '/api/v1/drive/quota', (route) => route.fulfill({ json: { usedBytes: 0, quotaBytes: 1024 } }));
+    await page.route((url) => url.pathname === '/api/v1/drive/files/605/content', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/plain', body: 'DEEP' }),
+    );
+    await page.route((url) => url.pathname === '/api/v1/drive/files/605/thumbnail', (route) => route.fulfill({ status: 404 }));
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('button', { name: 'deep.txt 미리보기' }).click();
+    await expect(page.getByTestId('preview-body')).toContainText('LINKED-BODY');
+    await page.getByRole('button', { name: '더 보기' }).click();
+    await page.getByRole('menuitem', { name: '드라이브에서 열기' }).click();
+
+    await expect(page).toHaveURL(/\/drive\/spaces\/1\?folderId=5&preview=605$/);
+    expect(searches.lastUrl()?.searchParams.get('q')).toBe('deep.txt');
+    // 드라이브 쪽 콘텐츠 경로로 같은 파일이 열린다 — 찾을 수 없음 안내가 아니다.
+    await expect(page.getByTestId('preview-body')).toContainText('DEEP');
+    await expect(page.getByTestId('preview-not-found')).toHaveCount(0);
+  });
+
+  test('드라이브 링크 조회가 실패해도 없는 첨부 딥링크는 찾을 수 없음 안내로 끝난다', async ({ authenticatedPage: page }) => {
+    await stubBundle(page, [], []);
+    // 나중 등록이 우선 — 링크 목록만 403(재시도 없음).
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/drive-links`,
+      (route) => route.fulfill({ status: 403, json: { message: 'forbidden' } }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1?preview=drive:999`);
+    await expect(page.getByTestId('preview-not-found')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page).not.toHaveURL(/preview=/);
   });
 
   test('업로드 첨부는 ✨ 없이 ☁ 와 ⋯ 를 보여 주고 ☁ 로 드라이브에 가져온다', async ({ authenticatedPage: page }) => {

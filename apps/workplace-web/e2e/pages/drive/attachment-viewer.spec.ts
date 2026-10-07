@@ -332,6 +332,51 @@ test.describe('확대(WP-277)', () => {
   })
 })
 
+test('넓은 CSV 표 안을 클릭하고 → 를 누르면 파일을 넘기지 않고 표가 가로로 스크롤된다', async ({ authenticatedPage: page }) => {
+  // 30열 × 긴 셀 — 본문 폭보다 확실히 넓은 표.
+  const cols = Array.from({ length: 30 }, (_, i) => `column-${i}-${'x'.repeat(20)}`)
+  const csv = [cols.join(','), cols.map((c) => `${c}-value`).join(',')].join('\n')
+  await stubDriveFiles(page, [
+    { id: 86, name: 'wide.csv', mimeType: 'text/csv', sizeBytes: csv.length },
+    { id: 87, name: 'next.txt', mimeType: 'text/plain', sizeBytes: 1 },
+  ], { 86: csv, 87: 'N' })
+  await openPreview(page, 'wide.csv')
+  const table = page.getByTestId('csv-table')
+  await expect(table).toBeVisible()
+  await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
+  expect(await table.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+  // 표 안을 클릭하면 가로 스크롤 영역이 포커스를 받는다(접근 이름 "표 가로 스크롤").
+  await table.locator('td').first().click()
+  await expect(page.getByRole('region', { name: '표 가로 스크롤' })).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('ArrowRight')
+  // 파일은 그대로이고, 표가 가로로 스크롤됐다.
+  await expect.poll(() => table.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
+  await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
+  await expect(page).toHaveURL(/preview=86/)
+})
+
+test('확대한 이미지 안을 클릭하고 → 를 누르면 파일을 넘기지 않는다', async ({ authenticatedPage: page }) => {
+  const png = solidPng(2400, 1600)
+  await stubDriveFiles(page, [
+    { id: 88, name: 'zoom.png', mimeType: 'image/png', sizeBytes: png.length },
+    { id: 89, name: 'after.txt', mimeType: 'text/plain', sizeBytes: 1 },
+  ], { 88: png, 89: 'N' })
+  await openPreview(page, 'zoom.png')
+  await expect(page.getByTestId('preview-body').locator('img')).toBeVisible()
+  await page.getByRole('button', { name: '확대' }).click()
+  await page.getByRole('button', { name: '확대' }).click()
+  await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('150%')
+  const body = page.getByTestId('preview-body')
+  await expect.poll(() => body.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+  await body.locator('img').click()
+  await expect(page.getByRole('region', { name: '확대 영역 스크롤' })).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(() => body.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
+  await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
+  await expect(page).toHaveURL(/preview=88/)
+})
+
 test('⋯ 메뉴가 열린 채 → 를 눌러도 파일이 넘어가지 않는다', async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [
     { id: 80, name: 'a.txt', mimeType: 'text/plain', sizeBytes: 1 },

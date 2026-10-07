@@ -20,10 +20,17 @@ export interface ViewerItem {
   backlinksDriveFileId?: number
   /** 있으면 ☁ 드라이브로 가져오기(업로드 첨부 core fileId). */
   importFileId?: number
-  /** 있으면 ⋯ "드라이브에서 열기". */
-  driveOpenPath?: string
+  /** 있으면 ⋯ "드라이브에서 열기" — 누를 때 파일이 있는 폴더를 찾아 연다(driveOpen.ts). */
+  driveOpen?: DriveOpenTarget
   /** 있으면 ⋯ "원본으로 이동". */
   sourceLink?: string
   /** 드라이브 링크 원본이 휴지통·삭제 — 받지 않고 안내만. */
   unavailable?: boolean
+}
+
+/** ⋯ "드라이브에서 열기" 대상 — 폴더 id 를 모르므로 공간·파일 id·이름(폴더 검색용)만 든다. */
+export interface DriveOpenTarget {
+  spaceId: number
+  driveFileId: number
+  name: string
 }

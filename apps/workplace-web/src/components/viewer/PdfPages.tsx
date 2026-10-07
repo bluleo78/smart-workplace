@@ -1,7 +1,9 @@
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { cn } from '../../lib/utils'
 import { capRenderScale } from './pdfScale'
+import { ZOOM_SCROLL_PROPS, ZOOM_SCROLL_RING } from './zoomScroll'
 
 /** 페이지 크기를 알기 전 자리표시 비율(US Letter). */
 const DEFAULT_RATIO = 792 / 612
@@ -113,7 +115,13 @@ export function PdfPages({
   }, [doc, ready, onPage])
 
   return (
-    <div ref={setRoot} className="flex h-full min-h-0 flex-col gap-4 overflow-auto py-4" data-testid="pdf-document">
+    // 확대해 가로로 넘치면 이미지와 같은 규칙의 포커스 가능한 가로 스크롤 영역이 된다(←/→ 를 넘김 대신 스크롤에 양보).
+    <div
+      ref={setRoot}
+      {...(zoom > 1 ? ZOOM_SCROLL_PROPS : {})}
+      className={cn('flex h-full min-h-0 flex-col gap-4 overflow-auto py-4', zoom > 1 && ZOOM_SCROLL_RING)}
+      data-testid="pdf-document"
+    >
       {doc &&
         width > 0 &&
         Array.from({ length: doc.numPages }, (_, i) => (

@@ -13,7 +13,7 @@ import { SearchInput } from '@/components/ui/search-input'
 import { AttachmentViewer } from '@/components/viewer/AttachmentViewer'
 import { useImportToDrive } from '@/components/viewer/useImportToDrive'
 import { useViewerBundle } from '@/components/viewer/useViewerBundle'
-import { virtualAttachmentItem } from '@/components/viewer/viewerItems'
+import { normalizeAttachmentPreviewKey, virtualAttachmentItem } from '@/components/viewer/viewerItems'
 import { ViewerNotFound } from '@/components/viewer/ViewerNotFound'
 import { useDriveAttachments } from '@/hooks/queries/useDriveAttachments'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
@@ -67,11 +67,14 @@ export function DriveAttachmentsView() {
     groups.find((g) => g.items.some((a) => `file:${a.fileId}` === key))
   // 열린 첨부 해석 — 현재 목록의 그룹 → 스냅숏 1건 순(단건 조회 API 없음, 필터 변경으로 빠져도 유지).
   // not-found 는 끝 페이지까지 받은 뒤에만 판정한다 — 아직 안 받은 페이지에 있을 수 있는 딥링크를 잘못 "없음"으로 안내하지 않게.
+  // 예전 숫자 딥링크(?preview=123)도 file:123 으로 읽는다.
+  const previewKey = normalizeAttachmentPreviewKey(previewParam.value)
   const viewer = useViewerBundle({
-    list: groupOf(previewParam.value)?.items ?? NO_ATTACHMENTS,
+    list: groupOf(previewKey)?.items ?? NO_ATTACHMENTS,
     toItem: virtualAttachmentItem,
-    currentKey: previewParam.value,
-    ready: query.isSuccess && !query.hasNextPage,
+    currentKey: previewKey,
+    // 조회 실패도 판정 완료로 본다 — 실패 시 뷰어도 안내도 없이 낡은 ?preview 만 남지 않게.
+    ready: (query.isSuccess && !query.hasNextPage) || query.isError,
     openKey: previewParam.open,
   })
   const isLoading = query.isLoading

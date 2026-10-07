@@ -12,12 +12,14 @@ import { toast } from 'sonner';
 import { ATTACHMENT_MAX_PER_ISSUE } from '../../../api/issueAttachments';
 import { FolderPickerModal } from '../../../components/drive/FolderPickerModal';
 import { MobileActionSheet } from '../../../components/mobile/MobileActionSheet';
+import { DRIVE_SPACES_ERROR_TOAST_ID } from '../../../components/viewer/useImportToDrive';
 import { useDriveSpaces } from '../../../hooks/queries/useDriveSpaces';
 import { useAddIssueDriveLink } from '../../../hooks/queries/useIssueDriveLinks';
 import { useUploadIssueAttachments } from '../../../hooks/queries/useUploadIssueAttachments';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { IssueAttachmentDropzone } from './IssueAttachmentDropzone';
 import { IssueAttachmentList } from './IssueAttachmentList';
+import { useIssueAttachmentViewer } from './useIssueAttachmentViewer';
 
 export function IssueAttachmentStrip({
   projectKey,
@@ -36,6 +38,8 @@ export function IssueAttachmentStrip({
   canEditContent: boolean;
 }) {
   const isMobile = useIsMobile();
+  // WP-277: 통합 뷰어의 단일 소유자 — 업로드 칩 목록·드라이브 링크 목록 모두 이 하나의 URL·묶음 상태로 연다.
+  const attachmentViewer = useIssueAttachmentViewer(projectKey, number);
   const [pickerOpen, setPickerOpen] = useState(false);
   // 모바일 「＋ 첨부」 액션 시트·숨은 파일 입력(WP-196).
   const [attachSheetOpen, setAttachSheetOpen] = useState(false);
@@ -56,7 +60,8 @@ export function IssueAttachmentStrip({
     if (spacesQuery.isError) {
       // 스페이스 조회 실패 시 토스트로 안내하고 버튼은 비활성 유지.
       setSpacesResolved(true);
-      toast.error('드라이브 스페이스를 불러오지 못했습니다.');
+      // 뷰어(useImportToDrive)와 같은 id — 같은 실패 토스트가 겹쳐 쌓이지 않게.
+      toast.error('드라이브 스페이스를 불러오지 못했습니다.', { id: DRIVE_SPACES_ERROR_TOAST_ID });
       return;
     }
     const personal = spacesQuery.data.find((s) => s.type === 'PERSONAL');
@@ -87,6 +92,7 @@ export function IssueAttachmentStrip({
         currentUserId={currentUserId}
         isOwner={isOwner}
         layout="strip"
+        onPreview={attachmentViewer.onPreview}
       />
       {canEditContent && isMobile && (canPickFile || canPickDrive) && (
         // 모바일(WP-196): 드롭존·링크 두 버튼 대신 「＋ 첨부」 하나 → 액션 시트(파일 · 드라이브에서 링크).
@@ -166,6 +172,7 @@ export function IssueAttachmentStrip({
         isOwner={isOwner}
         layout="list"
         driveLinksOnly
+        onPreview={attachmentViewer.onPreview}
       />
 
       {/* 파일 피커 모달 — 개인 스페이스에서 시작 */}
@@ -181,6 +188,8 @@ export function IssueAttachmentStrip({
           onClose={() => setPickerOpen(false)}
         />
       )}
+      {/* 통합 뷰어·찾을 수 없음 — 목록의 로딩·빈·본 분기와 무관한 고정 위치에 한 번만 그려 리마운트(확대·패널·포커스 복귀 유실)를 막는다. */}
+      {attachmentViewer.viewerNode}
     </section>
   );
 }

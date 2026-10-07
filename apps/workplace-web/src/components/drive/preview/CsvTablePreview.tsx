@@ -14,7 +14,15 @@ export function CsvTablePreview({ csv }: { csv: string }) {
   }
   const [header, ...body] = rows
   return (
-    <div className="overflow-x-auto" data-hscroll data-testid="csv-table">
+    // 가로 스크롤 영역은 포커스를 받을 수 있게 둔다(tabIndex) — 클릭·Tab 으로 들어오면 뷰어가 ←/→ 를 넘김 대신 표 스크롤에 양보한다(data-hscroll).
+    <div
+      className="overflow-x-auto rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      data-hscroll
+      tabIndex={0}
+      role="region"
+      aria-label="표 가로 스크롤"
+      data-testid="csv-table"
+    >
       <table className="w-full border-collapse text-xs">
         <thead>
           <tr>

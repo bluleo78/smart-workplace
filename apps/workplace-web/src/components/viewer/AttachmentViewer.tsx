@@ -89,6 +89,10 @@ export function AttachmentViewer({
   const [zoomState, setZoomState] = useState<{ key: string; value: number }>({ key: itemKey, value: 1 })
   const zoom = zoomState.key === itemKey ? zoomState.value : 1
   const setZoom = (fn: (z: number) => number) => setZoomState({ key: itemKey, value: fn(zoom) })
+  // 확대 단계 — 키보드(+/-/0)와 하단 확대 툴바가 같은 규칙을 쓴다(소수 오차는 둘째 자리에서 자른다).
+  const zoomIn = () => setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
+  const zoomOut = () => setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))
+  const zoomReset = () => setZoom(() => 1)
   const [pdfPage, setPdfPage] = useState<{ key: string; current: number; total: number } | null>(null)
   const onPage = useCallback(
     (current: number, total: number) => setPdfPage({ key: itemKey, current, total }),
@@ -175,7 +179,8 @@ export function AttachmentViewer({
       ctrlOrMeta: e.ctrlKey || e.metaKey,
       inAiPanel: isInAiPanelDom(t),
       inEditable: t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName),
-      // 가로로 실제 스크롤되는 표 안이면 ←/→ 는 표가 먼저 쓴다(스펙 §5.2).
+      // 가로로 실제 스크롤되는 영역(표·확대한 이미지/PDF — 포커스 가능한 data-hscroll) 안이면 ←/→ 는 그 영역이 먼저 쓴다(스펙 §5.2).
+      // preventDefault 하지 않으므로 브라우저 기본 동작으로 그 영역이 가로 스크롤된다.
       inHorizontalScroller: !!scroller && scroller.scrollWidth > scroller.clientWidth,
       zoomable,
     })
@@ -183,9 +188,9 @@ export function AttachmentViewer({
     e.preventDefault()
     if (action === 'prev') go(-1)
     else if (action === 'next') go(1)
-    else if (action === 'zoomIn') setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
-    else if (action === 'zoomOut') setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))
-    else setZoom(() => 1)
+    else if (action === 'zoomIn') zoomIn()
+    else if (action === 'zoomOut') zoomOut()
+    else zoomReset()
   }
   // 헤더 다운로드는 경로만 있으면 된다 — blob 훅을 하나 더 만들지 않는다.
   const download = () => driveApi.downloadByPath(item.downloadPath, item.name)
@@ -296,13 +301,13 @@ export function AttachmentViewer({
             )}
             {zoomable && (
               <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-black/60 px-1 text-white">
-                <Button variant="ghost" size="icon" aria-label="축소" disabled={zoom <= ZOOM_MIN} onClick={() => setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))}>
+                <Button variant="ghost" size="icon" aria-label="축소" disabled={zoom <= ZOOM_MIN} onClick={zoomOut}>
                   <Minus />
                 </Button>
-                <Button variant="ghost" className="min-w-16 px-2 text-xs" aria-label="맞춤" onClick={() => setZoom(() => 1)}>
+                <Button variant="ghost" className="min-w-16 px-2 text-xs" aria-label="맞춤" onClick={zoomReset}>
                   {zoom === 1 ? '폭 맞춤' : `${Math.round(zoom * 100)}%`}
                 </Button>
-                <Button variant="ghost" size="icon" aria-label="확대" disabled={zoom >= ZOOM_MAX} onClick={() => setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))}>
+                <Button variant="ghost" size="icon" aria-label="확대" disabled={zoom >= ZOOM_MAX} onClick={zoomIn}>
                   <Plus />
                 </Button>
               </div>

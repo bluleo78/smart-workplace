@@ -1,12 +1,17 @@
 // 화면별 데이터 → ViewerItem 어댑터와 묶음 해석(WP-277). 순수 함수만 둔다(vitest 대상).
+import { attachmentContentPath } from '../../api/issueAttachments'
 import type { IssueAttachment } from '../../types/attachment'
 import type { DriveFile, DriveLink, VirtualAttachment } from '../../types/drive'
 import type { ViewerItem } from './types'
 
+/** 묶음 키 — 드라이브 파일·링크는 `drive:{driveFileId}`, 그 외 첨부는 `file:{fileId}`(URL ?preview 값). */
+export const driveViewerKey = (driveFileId: number) => `drive:${driveFileId}`
+export const fileViewerKey = (fileId: number) => `file:${fileId}`
+
 /** 드라이브 화면의 파일 — 요약·참조된 곳을 쓰고, 이미 드라이브라 가져오기는 없다. */
 export function driveFileItem(f: DriveFile): ViewerItem {
   return {
-    key: `drive:${f.id}`,
+    key: driveViewerKey(f.id),
     name: f.name,
     mimeType: f.mimeType,
     sizeBytes: f.sizeBytes,
@@ -20,7 +25,7 @@ export function driveFileItem(f: DriveFile): ViewerItem {
 /** 첨부 모아보기의 가상 첨부 — 서버가 준 downloadUrl 로 받고, 원본(이슈·메시지)으로 이동할 수 있다. */
 export function virtualAttachmentItem(a: VirtualAttachment): ViewerItem {
   return {
-    key: `file:${a.fileId}`,
+    key: fileViewerKey(a.fileId),
     name: a.name,
     mimeType: a.mimeType,
     sizeBytes: a.sizeBytes,
@@ -31,11 +36,11 @@ export function virtualAttachmentItem(a: VirtualAttachment): ViewerItem {
   }
 }
 
-/** 이슈 업로드 첨부 — 멤버 권한 콘텐츠 경로(api/issueAttachments 의 attachmentContentPath 와 같은 규칙). */
+/** 이슈 업로드 첨부 — 멤버 권한 콘텐츠 경로. 다운로드도 같은 엔드포인트라(api downloadAttachment 와 동일) 경로를 같이 쓴다. */
 export function issueAttachmentItem(projectKey: string, number: number, a: IssueAttachment): ViewerItem {
-  const path = `/projects/${projectKey}/issues/${number}/attachments/${a.fileId}/content`
+  const path = attachmentContentPath(projectKey, number, a.fileId)
   return {
-    key: `file:${a.fileId}`,
+    key: fileViewerKey(a.fileId),
     name: a.originalName,
     mimeType: a.mimeType,
     sizeBytes: a.sizeBytes,
@@ -53,7 +58,7 @@ export function issueDriveLinkItem(projectKey: string, number: number, l: DriveL
   const path = `/projects/${projectKey}/issues/${number}/drive-links/${l.driveFileId}/content`
   const unavailable = l.availability !== 'ACTIVE'
   return {
-    key: `drive:${l.driveFileId}`,
+    key: driveViewerKey(l.driveFileId),
     name: l.name,
     mimeType: l.mimeType,
     sizeBytes: l.sizeBytes,
@@ -62,15 +67,23 @@ export function issueDriveLinkItem(projectKey: string, number: number, l: DriveL
     // 원본이 휴지통·삭제면 요약·드라이브에서 열기를 걸지 않는다 — 열어도 볼 수 없는 곳(요약 없음·not-found)으로 보내지 않게.
     ...(unavailable
       ? {}
-      : { summaryDriveFileId: l.driveFileId, driveOpenPath: `/drive/spaces/${l.spaceId}?preview=${l.driveFileId}` }),
+      : { summaryDriveFileId: l.driveFileId, driveOpen: { spaceId: l.spaceId, driveFileId: l.driveFileId, name: l.name } }),
     unavailable,
   }
+}
+
+/**
+ * 첨부 모아보기 ?preview 값 정규화 — 예전 형식(숫자 fileId, `?preview=123`)을 지금 키(`file:123`)로 읽는다.
+ * 왜: 이전 버전이 만든 딥링크·북마크가 "찾을 수 없음"으로 떨어지지 않게(읽을 때만 바꾸고 URL 은 건드리지 않는다).
+ */
+export function normalizeAttachmentPreviewKey(value: string | null): string | null {
+  return value != null && /^\d+$/.test(value) ? fileViewerKey(Number(value)) : value
 }
 
 /** 이슈 본문 이미지 — 이미 받은 blob 이 있으면 타입·크기를 그대로 쓴다. */
 export function issueBodyImageItem({ src, fileId, alt, blob }: { src: string; fileId: number; alt: string; blob: Blob | null }): ViewerItem {
   return {
-    key: `file:${fileId}`,
+    key: fileViewerKey(fileId),
     name: alt || 'image',
     mimeType: blob?.type || 'image/png',
     sizeBytes: blob?.size ?? null,

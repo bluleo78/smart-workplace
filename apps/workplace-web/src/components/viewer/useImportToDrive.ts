@@ -1,10 +1,13 @@
 import type { ReactNode } from 'react'
-import { createElement, useEffect, useRef, useState } from 'react'
+import { createElement, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useDriveSpaces } from '../../hooks/queries/useDriveSpaces'
 import { useImportAttachment } from '../../hooks/queries/useImportAttachment'
 import { FolderPickerModal } from '../drive/FolderPickerModal'
+
+/** 공간 조회 실패 토스트 id — 같은 실패를 알리는 곳(뷰어·첨부 모아보기·이슈 첨부 스트립)이 공유해 한 개만 보인다. */
+export const DRIVE_SPACES_ERROR_TOAST_ID = 'drive-spaces-load-error'
 
 /**
  * "드라이브로 가져오기" 공용 흐름(WP-277) — 개인 공간 조회 → 폴더 선택 모달 → 임포트.
@@ -20,13 +23,9 @@ export function useImportToDrive(enabled = true) {
   // 조회 완료 = 성공이거나 실패 — 로딩 중 비활성과 조회 실패 비활성을 구분하는 데 쓴다.
   const resolved = !enabled || spaces.isSuccess || spaces.isError
 
-  // 실패 토스트는 한 번만 — 재조회로 isError 가 다시 뒤집혀도 반복하지 않는다.
-  const toasted = useRef(false)
+  // 실패 토스트는 화면 전체에서 한 번만 — 고정 id 로 띄워 뷰어를 다시 열거나 이슈 스트립이 같은 실패를 알려도 쌓이지 않는다.
   useEffect(() => {
-    if (spaces.isError && !toasted.current) {
-      toasted.current = true
-      toast.error('드라이브 스페이스를 불러오지 못했습니다.')
-    }
+    if (spaces.isError) toast.error('드라이브 스페이스를 불러오지 못했습니다.', { id: DRIVE_SPACES_ERROR_TOAST_ID })
   }, [spaces.isError])
 
   const picker: ReactNode =

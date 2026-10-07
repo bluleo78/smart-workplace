@@ -57,8 +57,8 @@ export function IssueDriveLinkItem({
           <Cloud className="h-3 w-3" /> 링크
         </span>
         <span className="text-xs text-muted-foreground">{formatFileSize(link.sizeBytes)}</span>
-        {/* 다운로드 아이콘 — 미리보기를 쓰는 경우에만, 원본이 휴지통이면 받을 수 없으므로 숨긴다. */}
-        {onPreview && !trashed && (
+        {/* 다운로드 아이콘 — 미리보기를 쓰는 경우에만. 원본이 활성이 아니면(휴지통·삭제) 받을 수 없으므로 숨긴다 — 뷰어의 '사용할 수 없음' 기준과 같다. */}
+        {onPreview && link.availability === 'ACTIVE' && (
           <Button
             variant="ghost"
             size="icon-xs"
