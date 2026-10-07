@@ -62,7 +62,10 @@ export function IssueCycleGroupedList({
   const { selected, toggle: toggleSelected, clear: clearSelected } = useIssueSelection(filterKey);
 
   // 모바일 길게 누르기 액션 — 시트는 구간 밖(목록 레벨)에서 하나만 소유한다.
-  const rowActions = useIssueRowActions({ projectKey, canEdit, onSelect: (i) => toggleSelected(i.number), isSelected: (i) => selected.has(i.number) });
+  const rowActions = useIssueRowActions({
+    projectKey, canEdit, onSelect: (i) => toggleSelected(i.number), isSelected: (i) => selected.has(i.number),
+    selected, onClearSelection: clearSelected,
+  });
 
   const sections = useMemo(
     () => buildCycleSections(cycles.data ?? [], filters.cycleIds),
@@ -132,6 +135,8 @@ export function IssueCycleGroupedList({
             onToggleSelect={toggleSelected}
             canDrag={canDrag}
             onLongPress={rowActions.open}
+            onOpenMenu={rowActions.openMenu}
+            menuIssueNumber={rowActions.menuIssueNumber}
             selectionMode={isMobile && selected.size > 0}
             hideEpic={filters.parentNumber != null}
           />

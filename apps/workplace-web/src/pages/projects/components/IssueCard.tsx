@@ -5,6 +5,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, Paperclip } from 'lucide-react';
+import { type MouseEvent, useContext } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -18,7 +19,10 @@ import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { IssueDragData } from '../../../lib/epicDnd';
 import type { IssueResponse } from '../../../types/issue';
+import type { OpenRowMenu } from '../hooks/useIssueRowActions';
+import { IssueCardMenuContext } from './issueCardMenuContext';
 import { IssueMobileMeta } from './IssueMobileMeta';
+import { RowMenuButton } from './RowMenuButton';
 
 export function IssueCard({
   projectKey,
@@ -53,6 +57,19 @@ export function IssueCard({
 }) {
   const isMobile = useIsMobile();
   const mobileBody = isMobile && !asOverlay;
+  // ⋯·우클릭 메뉴(WP-273) — 보드가 컨텍스트로 준다. 드래그 고스트(asOverlay)에는 달지 않는다.
+  const { openMenu, menuIssueNumber } = useContext(IssueCardMenuContext);
+  const onOpenMenu = asOverlay ? undefined : openMenu;
+  const menuOpen = menuIssueNumber === issue.number;
+  // 데스크톱 우클릭 — 커서 위치에 메뉴. 모바일은 useLongPressCapture 의 onContextMenu(길게 터치)를 쓴다.
+  const desktopContextMenu = !isMobile && onOpenMenu
+    ? (e: MouseEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        const r = e.currentTarget.getBoundingClientRect();
+        const keyboard = e.clientX === 0 && e.clientY === 0;
+        onOpenMenu(issue, { x: keyboard ? r.left + 16 : e.clientX, y: keyboard ? r.bottom : e.clientY, align: 'start' });
+      }
+    : undefined;
   // 캡처 단계 click 억제 — 전면 오버레이 <Link> 이동까지 막는다. 콜백은 모바일·액션이 있을 때만 온다.
   // 모바일에선 액션이 없어도(비멤버) 길게 눌렀다 뗀 click 은 삼킨다 — 상세로 넘어가지 않게(WP-217).
   const press = useLongPressCapture({
@@ -94,12 +111,13 @@ export function IssueCard({
       {...(asOverlay || (dragDisabled && isMobile) ? {} : attributes)}
       {...(asOverlay || (dragDisabled && isMobile) ? {} : listeners)}
       {...(asOverlay ? {} : press)}
+      {...(desktopContextMenu && { onContextMenu: desktopContextMenu })}
       // 오버레이(드래그 고스트)는 불투명 표면(bg-popover)만 쓴다 — 포인터가 항상 위에 있어 hover:bg-accent/30(반투명)이
       // 배경을 덮고, 다크의 --card 는 3% 알파라 아래 에픽 패널 글자가 비쳐 보였다(11-dark-mode: 떠 있는 레이어는 솔리드).
       className={`group relative rounded-md border p-3 text-sm transition-colors ${
         asOverlay
           ? 'bg-popover shadow-xl ring-2 ring-primary/40'
-          : `bg-card shadow-sm hover:bg-accent/30${dragDisabled ? '' : ' cursor-grab active:cursor-grabbing'}${isMobile ? ' select-none [-webkit-touch-callout:none]' : ''}`
+          : `${menuOpen ? 'bg-accent/30' : 'bg-card'} shadow-sm hover:bg-accent/30${dragDisabled ? '' : ' cursor-grab active:cursor-grabbing'}${isMobile ? ' select-none [-webkit-touch-callout:none]' : ''}`
       }`}
       // 오버레이는 별도 testid — 원본 카드와 testid 가 겹치면 드래그 중 카드 조회가 모호해진다.
       data-testid={asOverlay ? 'issue-card-drag-overlay' : `issue-card-${issue.number}`}
@@ -127,8 +145,19 @@ export function IssueCard({
         </span>
       )}
 
+      {/* 데스크톱 ⋯ — 호버·포커스 때 오른쪽 위에 뜬다. 전면 오버레이 링크(z-0)보다 위(z-20), 차단 ⛔ 도 덮는다. */}
+      {onOpenMenu && !mobileBody && (
+        <RowMenuButton
+          issue={issue}
+          onOpenMenu={onOpenMenu}
+          open={menuOpen}
+          testId={`issue-card-${issue.number}-menu`}
+          className="absolute right-1 top-1 z-20 bg-card"
+        />
+      )}
+
       {/* 모바일 본문(WP-195) — 드래그 고스트(asOverlay)는 데스크톱 본문 그대로. */}
-      {mobileBody && <MobileCardBody issue={issue} projectKey={projectKey} showStatus={showStatus} showType={showType} />}
+      {mobileBody && <MobileCardBody issue={issue} projectKey={projectKey} showStatus={showStatus} showType={showType} onOpenMenu={onOpenMenu} />}
       {!mobileBody && (
         <>
       <div className="flex items-center justify-between gap-2">
@@ -240,11 +269,14 @@ function MobileCardBody({
   projectKey,
   showStatus,
   showType,
+  onOpenMenu,
 }: {
   issue: IssueResponse;
   projectKey: string;
   showStatus: boolean;
   showType: boolean;
+  /** 「⋯」 → 액션 시트(WP-273 시안 M1). 전면 링크 위로 올려(z-10) 탭이 상세 이동으로 새지 않게 한다. */
+  onOpenMenu?: OpenRowMenu;
 }) {
   return (
     <>
@@ -256,11 +288,14 @@ function MobileCardBody({
           </span>
         )}
         <span
-          className="line-clamp-2 min-w-0 break-words font-medium leading-snug"
+          className="line-clamp-2 min-w-0 flex-1 break-words font-medium leading-snug"
           data-testid={`issue-card-${issue.number}-title`}
         >
           {issue.title}
         </span>
+        {onOpenMenu && (
+          <RowMenuButton issue={issue} onOpenMenu={onOpenMenu} alwaysVisible testId={`issue-card-${issue.number}-menu`} className="relative z-10" />
+        )}
       </div>
       <IssueMobileMeta issue={issue} projectKey={projectKey} testIdPrefix={`issue-card-${issue.number}`} className="mt-1.5" />
     </>

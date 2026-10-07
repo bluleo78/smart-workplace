@@ -6,7 +6,9 @@ import { Link } from 'react-router-dom';
 
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import type { IssueResponse } from '../../../types/issue';
+import type { OpenRowMenu } from '../hooks/useIssueRowActions';
 import { IssueMobileMeta } from './IssueMobileMeta';
+import { RowMenuButton } from './RowMenuButton';
 
 export function IssueRowMobileCell({
   issue: it,
@@ -15,6 +17,7 @@ export function IssueRowMobileCell({
   selected,
   hideEpic,
   colSpan,
+  onOpenMenu,
 }: {
   issue: IssueResponse;
   projectKey: string;
@@ -23,6 +26,8 @@ export function IssueRowMobileCell({
   hideEpic: boolean;
   /** 표 컬럼 수 — IssueListRow 가 넘긴다(상수를 여기서 import 하면 순환 참조). */
   colSpan: number;
+  /** 「⋯」 → 액션 시트(WP-273 시안 M1). 선택 모드에선 탭이 선택 토글이라 숨긴다. */
+  onOpenMenu?: OpenRowMenu;
 }) {
   return (
     <td colSpan={colSpan} className="px-1 py-2.5">
@@ -47,6 +52,7 @@ export function IssueRowMobileCell({
           </Link>
           <IssueMobileMeta issue={it} projectKey={projectKey} testIdPrefix={`issue-row-${it.number}`} hideEpic={hideEpic} selected={selected} />
         </div>
+        {onOpenMenu && <RowMenuButton issue={it} onOpenMenu={onOpenMenu} alwaysVisible testId={`issue-row-${it.number}-menu`} />}
       </div>
     </td>
   );

@@ -31,6 +31,7 @@ import {
 import type { CycleProgress } from '../../../types/cycle';
 import { CYCLE_STATUS_LABEL } from '../../../types/cycle';
 import type { IssueFilters, IssueResponse } from '../../../types/issue';
+import type { OpenRowMenu } from '../hooks/useIssueRowActions';
 import { IssueRow } from './IssueListRow';
 
 // 상태 배지 문구 — 목록 구간에선 PLANNED 를 「예정」으로 부른다(구간 순서 설명과 같은 말).
@@ -69,6 +70,7 @@ export function CycleSectionColumnHead({ visible = false }: { visible?: boolean 
         <th className={cn('hidden w-32 sm:table-cell', cell)}>
           <span className={cn(!visible && 'sr-only')}>마감</span>
         </th>
+        {!isMobile && <th className={cn('w-8', cell)}><span className="sr-only">작업</span></th>}
       </tr>
     </thead>
   );
@@ -92,6 +94,8 @@ export function IssueCycleSection({
   onToggleSelect,
   canDrag = false,
   onLongPress,
+  onOpenMenu,
+  menuIssueNumber = null,
   selectionMode = false,
   hideEpic = false,
 }: {
@@ -112,6 +116,10 @@ export function IssueCycleSection({
   canDrag?: boolean;
   /** 모바일 길게 누르기 액션(IssueCycleGroupedList 가 시트를 소유) — 없으면 비활성. */
   onLongPress?: (issue: IssueResponse) => void;
+  /** 「⋯」·우클릭 행 메뉴(WP-273) — 목록이 메뉴를 소유한다. */
+  onOpenMenu?: OpenRowMenu;
+  /** 데스크톱 메뉴가 열린 이슈 번호 — 그 행을 강조한다. */
+  menuIssueNumber?: number | null;
   selectionMode?: boolean;
   /** 특정 에픽 필터 중 — 행의 에픽 표시 생략(WP-194). */
   hideEpic?: boolean;
@@ -309,6 +317,8 @@ export function IssueCycleSection({
             onToggleSelect={onToggleSelect}
             canDrag={canDrag}
             onLongPress={onLongPress}
+            onOpenMenu={onOpenMenu}
+            menuIssueNumber={menuIssueNumber}
             selectionMode={selectionMode}
             hideEpic={hideEpic}
             // 완료 사이클 구간의 행은 사이클 이동에서 뺀다 — 끝난 스프린트 이력을 드래그 한 번으로 바꾸고, 되돌리기(완료 사이클
@@ -344,6 +354,8 @@ function SectionBody({
   onToggleSelect,
   canDrag,
   onLongPress,
+  onOpenMenu,
+  menuIssueNumber,
   selectionMode,
   hideEpic,
   cycleSection,
@@ -357,6 +369,8 @@ function SectionBody({
   onToggleSelect: (number: number) => void;
   canDrag: boolean;
   onLongPress?: (issue: IssueResponse) => void;
+  onOpenMenu?: OpenRowMenu;
+  menuIssueNumber: number | null;
   selectionMode: boolean;
   hideEpic: boolean;
   /** 이 구간 — 행 드래그 데이터의 출발 구간(사이클 이동 from). 없으면 사이클 이동 불가(완료 구간). */
@@ -405,6 +419,8 @@ function SectionBody({
             onToggleSelect={onToggleSelect}
             canDrag={canDrag}
             onLongPress={onLongPress}
+            onOpenMenu={onOpenMenu}
+            menuOpen={menuIssueNumber === it.number}
             selectionMode={selectionMode}
             hideEpic={hideEpic}
             // 한 이슈가 여러 사이클 구간에 동시에 보일 수 있어(M:N) 구간 키로 드래그 id 를 구분한다.

@@ -5,7 +5,7 @@
 import { type DragEndEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Inbox, Plus } from 'lucide-react';
-import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { LoadMoreFooter } from '@/components/ui/load-more-footer';
@@ -27,6 +27,7 @@ import type {
 } from '../../../types/issue';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { IssueCard } from './IssueCard';
+import { IssueCardMenuContext } from './issueCardMenuContext';
 import { IssueDndProvider, useIssueDnd } from './IssueDndProvider';
 import { MobileBoard, type MobileBoardTab } from './mobile/MobileBoard';
 
@@ -77,7 +78,10 @@ function IssueBoardViewInner({
   const groupQuery = useIssueSearch(projectKey, filters, 100, grouped);
   const updateStatus = useUpdateIssueStatus(projectKey);
   // 카드 길게 누르기 액션 시트(상태·에픽) — 선택 모드 없음. 시트는 컬럼과 형제로 렌더한다.
-  const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: statuses as IssueStatus[] });
+  const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: statuses as IssueStatus[], linkFor: cardTo });
+  // 카드 ⋯·우클릭 메뉴(WP-273) — 컬럼 컴포넌트를 거치지 않고 컨텍스트로 카드에 전달한다.
+  const { openMenu, menuIssueNumber } = cardActions;
+  const cardMenu = useMemo(() => ({ openMenu, menuIssueNumber }), [openMenu, menuIssueNumber]);
   // open 은 모바일 + 멤버일 때만 값이 있다(아니면 undefined → 길게 누르기 미연결).
   const onCardLongPress = cardActions.open;
 
@@ -171,7 +175,7 @@ function IssueBoardViewInner({
       .filter((c) => filters.statuses.length === 0 || filters.statuses.includes(c.status))
       .map(toTab);
     return (
-      <>
+      <IssueCardMenuContext.Provider value={cardMenu}>
         <MobileBoard tabs={tabs}>
           {(status, root) =>
             grouped ? (
@@ -204,7 +208,7 @@ function IssueBoardViewInner({
           }
         </MobileBoard>
         {cardActions.sheets}
-      </>
+      </IssueCardMenuContext.Provider>
     );
   }
 
@@ -217,7 +221,7 @@ function IssueBoardViewInner({
     const visibleIssues = allIssues.filter((it) => allowedStatuses.has(it.status));
     const groups = groupIssues(visibleIssues, groupBy);
     return (
-      <>
+      <IssueCardMenuContext.Provider value={cardMenu}>
       <BoardScroll
         footer={groupFooter('mt-3')}
       >
@@ -226,12 +230,12 @@ function IssueBoardViewInner({
         ))}
       </BoardScroll>
       {cardActions.sheets}
-      </>
+      </IssueCardMenuContext.Provider>
     );
   }
 
   return (
-    <>
+    <IssueCardMenuContext.Provider value={cardMenu}>
       <BoardStatusDropMonitor onDragEnd={handleDragEnd} />
       <BoardScroll>
         {columns.map((col) => (
@@ -251,7 +255,7 @@ function IssueBoardViewInner({
         ))}
       </BoardScroll>
       {cardActions.sheets}
-    </>
+    </IssueCardMenuContext.Provider>
   );
 }
 

@@ -16,6 +16,10 @@ export interface MobileSheetAction {
   destructive?: boolean;
   /** 지금은 할 수 없는 작업(보관된 공간·원본 유실 등) — 숨기지 않고 흐리게 보여 이유를 짐작하게 한다. */
   disabled?: boolean;
+  /** 행 오른쪽 현재 값(예: 이슈 상태 「할 일」) — 열자마자 지금 값을 확인하게 한다(WP-273). */
+  hint?: ReactNode;
+  /** AI 작업 — AI 강조색(text-ai-accent). */
+  ai?: boolean;
 }
 
 export function MobileActionSheet({
@@ -61,11 +65,14 @@ export function MobileActionSheet({
               }}
               className={cn(
                 'flex min-h-11 w-full items-center gap-3 px-4 text-left text-base active:bg-accent disabled:opacity-50 [&_svg]:size-5 [&_svg]:shrink-0',
-                a.destructive ? 'text-destructive' : 'text-foreground [&_svg]:text-muted-foreground',
+                a.destructive ? 'text-destructive' : a.ai ? 'text-ai-accent' : 'text-foreground [&_svg]:text-muted-foreground',
               )}
             >
               {a.icon}
               {a.label}
+              {a.hint != null && (
+                <span className="ml-auto flex min-w-0 items-center gap-1 truncate pl-3 text-sm text-muted-foreground">{a.hint}</span>
+              )}
             </button>
           ))}
         </div>

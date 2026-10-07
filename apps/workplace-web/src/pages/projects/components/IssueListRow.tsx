@@ -2,7 +2,7 @@
 // 행 전체 클릭으로 상세 이동(#234), 체크박스로 다중 선택(#606).
 
 import { useDraggable } from '@dnd-kit/core';
-import { memo, useCallback } from 'react';
+import { memo, type MouseEvent, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -19,11 +19,13 @@ import { formatDateKorean } from '../../../lib/formatters';
 import { isEpicParent } from '../../../lib/issueGrouping';
 import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
+import type { OpenRowMenu } from '../hooks/useIssueRowActions';
 import { IssueRowMobileCell } from './IssueRowMobileCell';
+import { RowMenuButton } from './RowMenuButton';
 
-// 목록 컬럼 수(체크박스·상태·우선순위·ID·제목·담당자·마감) — 그룹 헤더 colSpan 등에 쓴다.
-// 모바일은 체크박스 컬럼이 없어 1 적다(길게 누르기 → 액션 시트로 선택).
-export const ISSUE_LIST_COLUMN_COUNT = 7;
+// 목록 컬럼 수(체크박스·상태·우선순위·ID·제목·담당자·마감·⋯ 메뉴) — 그룹 헤더 colSpan 등에 쓴다.
+// 모바일은 체크박스·⋯ 컬럼이 없어 2 적다(⋯ 는 한 칸 셀 안, 선택은 액션 시트).
+export const ISSUE_LIST_COLUMN_COUNT = 8;
 export const ISSUE_LIST_COLUMN_COUNT_MOBILE = 6;
 
 // 리스트 행 — 평탄/그룹 렌더가 공유 (DRY). 행 전체 클릭 → 상세(#234).
@@ -38,6 +40,8 @@ export const IssueRow = memo(function IssueRow({
   dragScope,
   cycleSection,
   onLongPress,
+  onOpenMenu,
+  menuOpen = false,
   selectionMode = false,
   hideEpic = false,
 }: {
@@ -53,6 +57,10 @@ export const IssueRow = memo(function IssueRow({
   cycleSection?: CycleSectionRef;
   /** 모바일 길게 누르기(우클릭 포함) — 액션 시트를 연다. 없으면 길게 누르기 비활성. */
   onLongPress?: (issue: IssueResponse) => void;
+  /** 「⋯」·우클릭 메뉴(WP-273) — 목록이 소유한 메뉴를 연다. 없으면 ⋯ 를 그리지 않는다. */
+  onOpenMenu?: OpenRowMenu;
+  /** 이 행의 데스크톱 메뉴가 열려 있음 — 행 강조 + ⋯ 를 계속 보인다. */
+  menuOpen?: boolean;
   /** 선택 모드(1건 이상 선택됨) — 모바일에서 탭이 이동 대신 선택 토글이 된다. */
   selectionMode?: boolean;
   /** 특정 에픽 필터·에픽 그룹 안 — 에픽 표시(모바일 ◆ 메타·데스크톱 칩) 생략. */
@@ -92,15 +100,27 @@ export const IssueRow = memo(function IssueRow({
   const dragProps = canDrag && !isMobile
     ? { ...attributes, ...listeners, 'aria-roledescription': '드래그 가능한 이슈' }
     : {};
+  // 데스크톱 우클릭 — 브라우저 메뉴 대신 행 메뉴를 커서 위치에 연다. 키보드(Shift+F10·메뉴 키)는 좌표가 0 이라 행 왼쪽 아래에 연다.
+  // 모바일은 useLongPressCapture 의 onContextMenu(길게 터치)를 그대로 쓴다.
+  const desktopContextMenu = !isMobile && onOpenMenu
+    ? (e: MouseEvent<HTMLTableRowElement>) => {
+        e.preventDefault();
+        const r = e.currentTarget.getBoundingClientRect();
+        const keyboard = e.clientX === 0 && e.clientY === 0;
+        onOpenMenu(it, { x: keyboard ? r.left + 16 : e.clientX, y: keyboard ? r.bottom : e.clientY, align: 'start' });
+      }
+    : undefined;
 
   return (
     <tr
       ref={ref}
       {...dragProps}
       {...press}
+      {...(desktopContextMenu && { onContextMenu: desktopContextMenu })}
       onClick={() => navigate(to)}
       className={cn(
-        'border-b hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        'group border-b hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        menuOpen && 'bg-accent',
         isDragging && 'opacity-40',
         isMobile && 'select-none [-webkit-touch-callout:none]',
         isMobile && selected && 'bg-primary/10',
@@ -116,6 +136,7 @@ export const IssueRow = memo(function IssueRow({
           selected={selected}
           hideEpic={hideEpic}
           colSpan={ISSUE_LIST_COLUMN_COUNT_MOBILE}
+          onOpenMenu={selectionMode ? undefined : onOpenMenu}
         />
       ) : (
         <>
@@ -209,6 +230,10 @@ export const IssueRow = memo(function IssueRow({
         </td>
         <td className="hidden whitespace-nowrap pr-2 text-muted-foreground sm:table-cell" data-testid={`issue-row-${it.number}-due`}>
           {formatDateKorean(it.dueDate)}
+        </td>
+        {/* ⋯ 메뉴(WP-273 시안 A) — 호버·포커스 때만 보인다. 행 클릭(이동)·드래그로 새지 않게 버튼이 이벤트를 막는다. */}
+        <td className="w-8 pr-1">
+          {onOpenMenu && <RowMenuButton issue={it} onOpenMenu={onOpenMenu} open={menuOpen} testId={`issue-row-${it.number}-menu`} />}
         </td>
         </>
       )}

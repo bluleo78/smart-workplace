@@ -1,4 +1,4 @@
-// 이슈 리스트 뷰 벌크 작업 훅 (#606) — 상태 일괄 변경/담당자 일괄 지정/일괄 삭제.
+// 이슈 리스트 뷰 벌크 작업 훅 (#606) — 상태 일괄 변경/담당자 일괄 지정/우선순위 일괄 변경(WP-273)/일괄 삭제.
 // 전용 벌크 백엔드 엔드포인트가 없어 기존 단건 엔드포인트(PATCH .../status, PUT .../assignees,
 // DELETE .../{number})를 Promise.allSettled 로 병렬 순회한다(Drive #82 수정 방향 메모와 동일 전략).
 // 부분 실패 시에도 성공한 항목은 반영하고, 실패 건수를 토스트로 안내한다.
@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { replaceIssueAssignees } from '../../api/issueAssignees';
 import { issuesApi, updateIssueStatus } from '../../api/issues';
 import { extractApiError } from '../../lib/api-error';
-import type { IssueStatus } from '../../types/issue';
+import type { IssuePriority, IssueStatus } from '../../types/issue';
 import { issueKeys } from './useIssues';
 
 // 성공/실패 건수를 세어 결과 토스트를 띄우는 공통 헬퍼.
@@ -61,6 +61,17 @@ export function useBulkAssign(projectKey: string) {
     mutationFn: async ({ numbers, userIds }: { numbers: number[]; userIds: number[] }) =>
       Promise.allSettled(numbers.map((n) => replaceIssueAssignees(projectKey, n, userIds))),
     onSuccess: (results) => reportBulkResult(results, '담당자를 지정했습니다'),
+    onSettled: () => invalidateIssueCaches(qc, projectKey),
+  });
+}
+
+// 우선순위 일괄 변경(WP-273 행 메뉴의 다중 선택) — 일괄 바와 같은 allSettled 전략.
+export function useBulkUpdatePriority(projectKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ numbers, priority }: { numbers: number[]; priority: IssuePriority }) =>
+      Promise.allSettled(numbers.map((n) => issuesApi.update(projectKey, n, { priority }))),
+    onSuccess: (results) => reportBulkResult(results, '우선순위를 변경했습니다'),
     onSettled: () => invalidateIssueCaches(qc, projectKey),
   });
 }

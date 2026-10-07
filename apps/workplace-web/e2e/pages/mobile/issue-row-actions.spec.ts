@@ -189,11 +189,16 @@ test.describe('모바일 보드 카드', () => {
     await expect(page.getByTestId('issue-row-21')).not.toHaveAttribute('aria-roledescription', /.+/);
   });
 
-  test('비멤버 카드는 짧게 탭하면 상세로 이동하고, 길게 눌러도 시트가 뜨지 않는다', async ({ authenticatedPage: page }) => {
+  // WP-273: 비멤버도 「링크 복사」가 있어 시트는 뜨지만, 변경 항목(상태·에픽)은 없다.
+  test('비멤버 카드는 짧게 탭하면 상세로 이동하고, 길게 누르면 링크 복사만 있는 시트가 뜬다', async ({ authenticatedPage: page }) => {
     await mock(page, { member: false });
     await page.goto(`/projects/${KEY}?view=board`);
     await expect(page.getByTestId('issue-card-21')).toBeVisible();
     await longPressWithMouse(page, page.getByTestId('issue-card-21'));
+    await expect(page.getByTestId('mobile-action-copy-link')).toBeVisible();
+    await expect(page.getByTestId('mobile-action-status')).toHaveCount(0);
+    await expect(page.getByTestId('mobile-action-epic')).toHaveCount(0);
+    await page.keyboard.press('Escape');
     await expect(page.getByTestId('mobile-action-sheet')).toHaveCount(0);
     // 길게 눌렀다 뗀 것은 탭이 아니다 — 보드에 남는다(WP-217). dev 서버는 상세 청크 로딩이 느려 이동이 가려졌었다.
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?view=board`));
