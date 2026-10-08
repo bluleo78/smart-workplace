@@ -54,20 +54,6 @@ function mentionRule(md: MarkdownIt): void {
 }
 
 /**
- * 칩 뒤 소프트 줄바꿈 보존 — tiptap-markdown normalizeDOM 은 <pre> 밖 요소 바로 뒤 텍스트의 선행 \n 을
- * 지운다. 칩(span) 뒤 줄바꿈이 지워지면 '<@5>\n다음' 이 '<@5>다음' 으로 붙어 저장되므로, normalizeDOM 전에
- * 공백으로 바꿔 둔다(기존 텍스트 경로에서도 문단 안 \n 은 공백으로 접혔다).
- */
-function keepBreakAfterChip(element: HTMLElement): void {
-  element.querySelectorAll('span[data-mtype]').forEach((chip) => {
-    const next = chip.nextSibling
-    if (next?.nodeType === 3 /* TEXT_NODE */ && next.textContent?.startsWith('\n')) {
-      next.textContent = ` ${next.textContent.slice(1)}`
-    }
-  })
-}
-
-/**
  * 노트 멘션 칩 노드 스키마 — attrs 는 mtype·id 만(라벨은 문서에 저장하지 않고 화면에서 조회).
  * 라벨을 문서에 두면 페이지 제목이 바뀔 때마다 문서를 고쳐야 하고, AI 적용(updateYFragment) 때
  * 마크다운에 없는 속성이라 칩이 매번 다시 쓰이며 라벨이 지워졌다(WP-283).
@@ -116,11 +102,9 @@ export const WikiMention = Node.create({
           state.write(tokenFor(node.attrs.mtype, node.attrs.id))
         },
         parse: {
+          // 칩 뒤 소프트 줄바꿈은 markdownText.ts 의 updateDOM(keepSoftbreakAfterInline)이 지켜낸다(WP-314).
           setup(markdownit: MarkdownIt) {
             markdownit.use(mentionRule)
-          },
-          updateDOM(element: HTMLElement) {
-            keepBreakAfterChip(element)
           },
         },
       },

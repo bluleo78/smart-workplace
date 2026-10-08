@@ -148,3 +148,23 @@ test('HTML 로 붙여넣은 링크의 공백 든 주소가 인코딩돼 링크�
   await expect(page.locator('.ProseMirror a', { hasText: '내 문서' })).toHaveAttribute('href', 'https://example.com/my%20doc')
   await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe('[내 문서](https://example.com/my%20doc)')
 })
+
+// WP-314 — 여러 줄 붙여넣기는 줄마다 줄바꿈(hardBreak)으로 남아야 한다. 굵게 바로 뒤 줄바꿈도 마찬가지다.
+// 소프트 줄바꿈을 공백으로 바꾸던 첫 수정은 '첫 줄\n둘째 줄' 을 한 줄로 접었고, 수정 전 main 은 굵게 뒤 줄이 붙었다.
+test('여러 줄과 굵게 뒤 줄바꿈이 붙여넣기 후에도 줄바꿈으로 남는다 (WP-314)', async ({ authenticatedPage: page }) => {
+  await setup(page, '')
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+
+  await page.locator('.ProseMirror').click()
+  await pastePlainText(page, ['첫 줄', '둘째 줄', '**담당자**', '홍길동'].join('\n'))
+
+  const p = page.locator('.ProseMirror p').first()
+  await expect(p.locator('br')).toHaveCount(3)
+  await expect(p).toHaveText('첫 줄둘째 줄담당자홍길동')
+  await expect(p.locator('strong')).toHaveText('담당자')
+
+  // 저장본에도 하드 브레이크로 남는다.
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain('홍길동')
+  expect(await savedMarkdown(page, PAGE_ID)).toContain('첫 줄\\\n둘째 줄\\\n**담당자**\\\n홍길동')
+})

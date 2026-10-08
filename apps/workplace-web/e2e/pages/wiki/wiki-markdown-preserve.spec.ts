@@ -120,3 +120,24 @@ test('보기 전용에선 링크를 그냥 클릭하면 새 탭(opener 차단)�
   expect(popup.url()).toBe(LINK_URL)
   expect(await popup.evaluate(() => window.opener)).toBeNull()
 })
+
+test('굵게 바로 뒤 줄바꿈이 있어도 단어가 붙지 않고 저장 후에도 띄어져 있다 (WP-314)', async ({ authenticatedPage: page }) => {
+  // AI·MCP 도구가 쓴 본문처럼 문단 안 소프트 줄바꿈이 마크 바로 뒤에 온다.
+  await setup(page, ['**담당자**\n홍길동', '', '편집할 문단'].join('\n'))
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  const editor = page.locator('.ProseMirror[contenteditable="true"]')
+  await expect(editor).toBeVisible()
+
+  // 수정 전엔 normalizeDOM 이 줄바꿈을 지워 "담당자홍길동" 으로 붙어 보였다.
+  const first = editor.locator('p').first()
+  await expect(first).toHaveText('담당자 홍길동')
+
+  await typeAtEnd(page, '편집할 문단', ' 수정')
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain('편집할 문단 수정')
+  const saved = await savedMarkdown(page, PAGE_ID)
+  expect(saved).toContain('**담당자** 홍길동')
+  expect(saved).not.toContain('**담당자**홍길동')
+
+  await reopenFromSaved(page, saved)
+  await expect(first).toHaveText('담당자 홍길동')
+})
