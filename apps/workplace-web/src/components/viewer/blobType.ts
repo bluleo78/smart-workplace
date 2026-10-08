@@ -1,5 +1,5 @@
 // 미리보기 blob 형식 보정(WP-280) — 순수 함수(vitest 대상).
-import { isGenericMime } from '../../lib/mimeFromFilename'
+import { canonicalMime, isGenericMime } from '../../lib/mimeFromFilename'
 
 /**
  * 응답 blob 형식이 비었거나 범용(octet-stream 등, 파라미터 포함)인데 항목 형식(파일명 추론 등)을 알면 그 형식으로 다시 감싼다.
@@ -9,7 +9,8 @@ import { isGenericMime } from '../../lib/mimeFromFilename'
  */
 export function withItemType(blob: Blob, itemMime: string): Blob {
   if (!isGenericMime(blob.type) || isGenericMime(itemMime)) return blob
-  const target = itemMime.split(';')[0].trim().toLowerCase()
-  if (target === 'image/svg+xml' || target === blob.type) return blob
+  // 여기 오면 blob 형식은 범용이고 항목 형식은 구체적이라 둘이 같을 수 없다 — SVG 만 막으면 된다.
+  const target = canonicalMime(itemMime)
+  if (target === 'image/svg+xml') return blob
   return blob.slice(0, blob.size, target)
 }

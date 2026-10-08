@@ -21,6 +21,8 @@ export const MEMO_TEXT = '회의 메모 본문입니다'
 /** octet-stream 으로 오는 Markdown 첨부 — 제목이 렌더(h1)되는지 확인용. */
 export const README_MD = '# 설치 안내\n\n본문 단락입니다.'
 const OCTET = 'application/octet-stream'
+/** 첨부 콘텐츠 경로 — 라우트 매칭과 id 추출이 같은 정규식을 쓴다. */
+const ATTACHMENT_CONTENT_RE = /^\/api\/v1\/mail\/attachments\/(\d+)\/content$/
 
 /** 첨부 id → 응답(형식·바이트). 7번은 Graph 경로처럼 파라미터가 붙은 형식을 메타에 둔다. */
 const CONTENT: Record<number, { type: string; body: Buffer }> = {
@@ -73,9 +75,10 @@ export async function stubMailWithAttachments(page: Page) {
   )
   const contents = trackRequests(page, 'ANY', (url) => url.pathname.startsWith('/api/v1/mail/attachments/'))
   await page.route(
-    (url) => /^\/api\/v1\/mail\/attachments\/\d+\/content$/.test(url.pathname),
+    (url) => ATTACHMENT_CONTENT_RE.test(url.pathname),
     (route) => {
-      const id = Number(route.request().url().match(/attachments\/(\d+)\//)![1])
+      // 경로에서 id 를 한 번만 뽑는다 — 매처를 통과했으므로 늘 일치한다.
+      const id = Number(ATTACHMENT_CONTENT_RE.exec(new URL(route.request().url()).pathname)?.[1])
       const c = CONTENT[id]
       if (!c) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"없음"}' })
       return route.fulfill({
