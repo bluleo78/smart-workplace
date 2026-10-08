@@ -36,8 +36,9 @@ export const isMailViewerKey = (key: string | null): boolean => key != null && M
  * 왜: IMAP 경로는 파라미터를 떼서 저장하지만 Graph 경로는 원문 그대로라, resolvePreviewKind 의 정확 일치가 빗나가지 않게.
  * 비었거나 범용 형식(octet-stream·force-download 등)이면 파일명 확장자로 추론한다 — 메일 클라이언트가 PDF·이미지도
  * 범용 형식으로 보내는 일이 많아 그대로 두면 미리보기가 안 된다. 서버가 준 구체적인 형식은 그대로 믿는다. 추론도 안 되면 octet-stream.
+ * 메일 첨부 칩의 형식 아이콘도 이 값을 써서 칩과 뷰어가 같은 형식으로 보이게 한다.
  */
-function mailAttachmentMime(a: EmailAttachmentMeta): string {
+export function mailAttachmentMime(a: EmailAttachmentMeta): string {
   if (!isGenericMime(a.contentType)) return canonicalMime(a.contentType)
   return mimeFromFilename(a.filename) ?? 'application/octet-stream'
 }

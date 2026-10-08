@@ -2,6 +2,8 @@
 // 전체 화면 뷰어·하단 4칸(드라이브·요약 칸 비움)·스와이프 넘김, 그리고 뒤로가기가 뷰어 → 메일 상세 → 목록 순으로 한 겹씩 닫는지(back-mail.spec 과 같은 기대).
 import type { Page } from '@playwright/test'
 
+import { detail } from '../../factories/mail.factory'
+import { mockApi } from '../../fixtures/api-mock'
 import { stubMailWithAttachments } from '../../fixtures/mail-viewer-mock'
 import { expect, test } from '../../fixtures/mobile.fixture'
 import { centerOf, touchDrag } from '../../fixtures/touch'
@@ -70,4 +72,27 @@ test('✕ 로 닫아도 메일 상세에 남고, 상세 ‹ 는 받은편지함�
   await page.getByTestId('mail-back').getByTestId('mobile-back').click()
   await expect(page).toHaveURL(/\/mail\/1$/)
   await expect(page.getByTestId('mail-list')).toBeVisible()
+})
+
+test('360px 에서 긴 첨부 이름은 한 줄로 앞부분만 말줄임하고 확장자·크기는 보인다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 360, height: 780 })
+  await stubMailWithAttachments(page)
+  const longName = '2026년 하반기 사업 계획 및 예산 편성 검토 회의 자료 최종본 v12.pdf'
+  await mockApi(page, 'GET', '/api/v1/mail/messages/15', detail({
+    id: 15,
+    attachments: [{ id: 30, filename: longName, contentType: 'application/pdf', sizeBytes: 2_306_867, contentId: null }],
+  }))
+  await page.goto('/mail/1?messageId=15')
+  const chip = page.getByTestId('mail-attachment-open-30')
+  await expect(chip).toBeVisible()
+  // 전체 이름은 접근 이름·title 로 남는다.
+  await expect(chip).toHaveAttribute('title', `${longName} 미리보기`)
+  await expect(chip).toHaveAccessibleName(`${longName} 미리보기`)
+  // 화면 폭 안에 들어오고(가로 넘침 없음) 한 줄(터치 높이 44px)이다 — 이름 중간에서 줄바꿈되지 않는다.
+  const box = (await chip.boundingBox())!
+  expect(box.x + box.width).toBeLessThanOrEqual(360)
+  expect(box.height).toBeLessThanOrEqual(46)
+  // 꼬리(확장자)와 크기는 잘리지 않고 보인다.
+  await expect(chip.getByText('12.pdf', { exact: true })).toBeInViewport({ ratio: 1 })
+  await expect(chip.getByText('2.2 MB', { exact: true })).toBeInViewport({ ratio: 1 })
 })

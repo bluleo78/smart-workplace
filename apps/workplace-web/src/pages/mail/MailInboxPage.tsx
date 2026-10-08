@@ -24,7 +24,7 @@ import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
 import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { handleApiError } from '@/lib/api-error'
-import { formatClockTimePadded, formatDateMonthDayPadded, formatDateTime, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
+import { formatClockTimePadded, formatDateMonthDayPadded, formatDateTime, formatFileSize, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
 import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
@@ -33,10 +33,12 @@ import { mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailVie
 import { cn } from '@/lib/utils'
 
 import { getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
+import { FileTypeIcon } from '../../components/drive/FileTypeIcon'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDialog'
 import { SandboxedHtmlFrame } from '../../components/SandboxedHtmlFrame'
-import { mailAttachmentName } from '../../components/viewer/viewerItems'
+import { mailAttachmentMime, mailAttachmentName } from '../../components/viewer/viewerItems'
+import { splitName } from '../../components/viewer/viewerNav'
 import { mailMessageKeys } from '../../hooks/queries/mailMessageKeys'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
@@ -236,20 +238,34 @@ function AttachmentList({
 }) {
   return (
     <ul data-testid="mail-attachments" className="mt-2 flex flex-wrap gap-2">
-      {attachments.map((a) => (
-        <li key={a.id}>
-          <button
-            type="button"
-            data-testid={`mail-attachment-open-${a.id}`}
-            aria-label={`${mailAttachmentName(a)} 미리보기`}
-            onClick={() => onPreview(a)}
-            className="flex items-center gap-1 rounded border bg-muted px-2 py-1 text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11"
-          >
-            <Paperclip className="h-3 w-3 shrink-0" />
-            <span>{mailAttachmentName(a)}</span>
-          </button>
-        </li>
-      ))}
+      {attachments.map((a) => {
+        const name = mailAttachmentName(a)
+        // 확장자를 잃지 않게 앞부분만 말줄임하고 꼬리(확장자 포함)는 늘 보인다 — 뷰어 제목과 같은 규칙(splitName).
+        const [head, tail] = splitName(name)
+        return (
+          // min-w-0·max-w-full — flex-wrap 줄 폭을 넘지 않아야 360px 에서도 이름이 줄바꿈 대신 말줄임된다.
+          <li key={a.id} className="min-w-0 max-w-full">
+            {/* 칩 전체가 미리보기 버튼(WP-280) — 이슈 첨부 칩과 같은 형식 아이콘·크기 표시, 테두리가 바뀌는 hover 로 누를 수 있음을 알린다.
+                포커스 링은 공용 Button 과 같은 토큰(border-ring + ring-ring/50 3px) — 다크에서도 테두리와 구분된다. */}
+            <button
+              type="button"
+              data-testid={`mail-attachment-open-${a.id}`}
+              aria-label={`${name} 미리보기`}
+              title={`${name} 미리보기`}
+              onClick={() => onPreview(a)}
+              className="flex max-w-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border bg-muted px-2 py-1 text-left text-xs outline-none transition-colors hover:border-foreground/30 hover:bg-accent focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:max-w-[18rem] pointer-coarse:min-h-11"
+            >
+              <FileTypeIcon mimeType={mailAttachmentMime(a)} className="size-3.5" />
+              {/* whitespace-pre — 잘리는 자리 끝 공백이 flex 항목 끝에서 사라지지 않게(ViewerTitle 과 같은 이유). */}
+              <span className="flex min-w-0" data-testid={`mail-attachment-name-${a.id}`}>
+                <span className="min-w-0 truncate whitespace-pre">{head}</span>
+                <span className="shrink-0 whitespace-pre">{tail}</span>
+              </span>
+              <span className="shrink-0 text-muted-foreground">{formatFileSize(a.sizeBytes)}</span>
+            </button>
+          </li>
+        )
+      })}
     </ul>
   )
 }
