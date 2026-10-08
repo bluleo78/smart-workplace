@@ -1,9 +1,10 @@
 import { vi } from 'vitest';
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }));
-vi.mock('../logger.js', () => ({ log: { info: vi.fn(), error: vi.fn() } }));
+vi.mock('../logger.js', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { describe, expect, it } from 'vitest';
 import { buildSdkOptions, runSdkCollect, runSdkStream, type SdkRunInput } from './sdk-runner.js';
+import { RunnerLimitError } from './runner-limit.js';
 
 function baseInput(over: Partial<SdkRunInput> = {}): SdkRunInput {
   return {
@@ -152,6 +153,55 @@ describe('runSdkStream', () => {
     const h = runSdkStream({ ...input(), timeoutMs: 20 }, () => {});
     await expect(h.done).rejects.toThrow(/timeout/);
     expect(q.interrupt).toHaveBeenCalled();
+  });
+
+  it('timeout 은 RunnerLimitError(kind=timeout) 로 reject — 호출자가 한도 도달을 구분', async () => {
+    const q = makeQuery([{ type: 'assistant', message: { content: [] } }], { hang: true, gate: true });
+    vi.mocked(query).mockReturnValue(q as never);
+    const h = runSdkStream({ ...input(), timeoutMs: 20 }, () => {});
+    await expect(h.done).rejects.toMatchObject({ name: 'RunnerLimitError', kind: 'timeout' });
+  });
+
+  it('error_max_turns result 뒤 SDK throw → RunnerLimitError(kind=max_turns)', async () => {
+    // 운영 실측: error result 를 흘린 뒤 "Claude Code returned an error result: Reached maximum number of turns" 로 throw.
+    const gen = (async function* () {
+      yield { type: 'result', subtype: 'error_max_turns', is_error: true };
+      throw new Error('Claude Code returned an error result: Reached maximum number of turns (8)');
+    })();
+    vi.mocked(query).mockReturnValue(Object.assign(gen, { interrupt: vi.fn(async () => {}) }) as never);
+    const h = runSdkStream(input(), () => {});
+    const err = await h.done.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RunnerLimitError);
+    expect((err as RunnerLimitError).kind).toBe('max_turns');
+    expect((err as Error).message).toMatch(/maximum number of turns/);
+  });
+
+  it('result 없이 바로 턴 한도 문구로 throw 돼도 RunnerLimitError(kind=max_turns)', async () => {
+    const gen = (async function* () {
+      yield { type: 'assistant', message: { content: [] } };
+      throw new Error('Claude Code returned an error result: Reached maximum number of turns (8)');
+    })();
+    vi.mocked(query).mockReturnValue(Object.assign(gen, { interrupt: vi.fn(async () => {}) }) as never);
+    const h = runSdkStream(input(), () => {});
+    await expect(h.done).rejects.toMatchObject({ name: 'RunnerLimitError', kind: 'max_turns' });
+  });
+
+  it('throw 없이 error_max_turns result 로만 끝나도 RunnerLimitError(kind=max_turns)', async () => {
+    vi.mocked(query).mockReturnValue(makeQuery([{ type: 'result', subtype: 'error_max_turns', is_error: true }]) as never);
+    const h = runSdkStream(input(), () => {});
+    await expect(h.done).rejects.toMatchObject({ name: 'RunnerLimitError', kind: 'max_turns' });
+  });
+
+  it('그 외 실행 오류 throw 는 일반 Error 그대로(한도 오류로 바꾸지 않음)', async () => {
+    const gen = (async function* () {
+      yield { type: 'result', subtype: 'error_during_execution', is_error: true };
+      throw new Error('boom');
+    })();
+    vi.mocked(query).mockReturnValue(Object.assign(gen, { interrupt: vi.fn(async () => {}) }) as never);
+    const h = runSdkStream(input(), () => {});
+    const err = await h.done.catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(RunnerLimitError);
+    expect((err as Error).message).toBe('boom');
   });
 });
 

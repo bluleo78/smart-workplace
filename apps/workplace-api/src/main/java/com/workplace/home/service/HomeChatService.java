@@ -56,6 +56,15 @@ public class HomeChatService {
    */
   private static final int COMPOSE_MIN_TIMEOUT_MS = 180_000;
 
+  /**
+   * compose 전용 턴 한도 하한. maxTurns 는 질문 1건 처리 중 라우터가 도구·위임을 반복하는 횟수 상한인데, 공유 기본값
+   * 8(AssistantDefaults.MAX_TURNS)로는 "어제~오늘 완료된 이슈를 에픽 중심으로" 같은 조회도 끝나기 전에 끊겨 "오류로 중단됨"이 됐다(운영
+   * 실측). 무한 루프 방지용 안전장치로만 두도록 넉넉히 50 으로 올린다 — 실제 실행 시간은 위 timeout 하한(180s)이 묶는다.
+   *
+   * <p>공유 기본값을 올리지 않는 이유는 timeout 과 같다(다른 단발 AI 경로에 영향을 주지 않기 위해 compose 에만 하한 적용).
+   */
+  private static final int COMPOSE_MIN_MAX_TURNS = 50;
+
   /** MCP 프리픽스(mcp__workplace__update_status → update_status). 도구 이름 판별 전에 벗겨낸다. */
   private static final Pattern MCP_PREFIX = Pattern.compile("^mcp__[^_]+__");
 
@@ -298,7 +307,8 @@ public class HomeChatService {
               tenantId,
               spec.model(),
               spec.thinkingDepth(),
-              spec.maxTurns(),
+              // compose 는 다중 조회·위임으로 기본 8턴을 넘기기 쉬워 하한(50)을 적용.
+              Math.max(spec.maxTurns(), COMPOSE_MIN_MAX_TURNS),
               // #456: compose 는 다중 도메인 위임으로 기본 60s 를 넘기 쉬워 하한(180s)을 적용.
               Math.max(spec.timeoutMs(), COMPOSE_MIN_TIMEOUT_MS),
               // WP-54: 화면 컨텍스트 1:1 전달(USER 메시지 영속에는 포함하지 않는다).

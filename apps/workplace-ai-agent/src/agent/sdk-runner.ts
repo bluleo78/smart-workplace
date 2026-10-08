@@ -5,6 +5,7 @@ import type { AgentDefinition, McpServerConfig, Options } from '@anthropic-ai/cl
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { log } from '../logger.js';
 import { computeToolPolicy } from './tool-allowlist.js';
+import { RunnerLimitError } from './runner-limit.js';
 
 export interface SdkRunInput {
   userMessage: string;
@@ -74,6 +75,8 @@ export interface StreamHandle {
 //  - timeout → interrupt() + reject(cli_timeout)
 //  - kill()(상위 연결 종료) → interrupt() + 정상 resolve(cli_killed). interrupt 후 throw 는 sentinel 로 흡수.
 //  - result.is_error / 그 외 throw → reject(cli_exit / cli_spawn_error)
+//  - 턴 한도(result subtype 'error_max_turns')·timeout → RunnerLimitError 로 reject — 호출자가 한도 도달을
+//    일반 실행 오류와 구분해 부분 결과로 마무리할 수 있게 한다(메시지는 종전과 같아 잡지 않는 호출자는 영향 없음).
 export function runSdkStream(i: SdkRunInput, onLine: (line: string) => void): StreamHandle {
   const q = query({ prompt: i.userMessage, options: buildSdkOptions(i) });
   let manuallyKilled = false;
@@ -86,21 +89,29 @@ export function runSdkStream(i: SdkRunInput, onLine: (line: string) => void): St
       // interrupt 가 이미 끝난 query 에서 reject 해도 무시(unhandled rejection 방지)
       void q.interrupt().catch(() => {});
     }, i.timeoutMs);
-    let resultIsError = false;
+    // 마지막 result 의 subtype — 'success' 가 아니면 실패(is_error 는 falsy 여도 오류일 수 있어 신뢰 안 함),
+    // 'error_max_turns' 면 턴 한도 도달.
+    let resultSubtype: string | undefined;
+    // 턴 한도 도달을 로그하고 한도 오류로 만든다(throw 경로·result 경로 공용).
+    const maxTurnsError = (message: string) => {
+      log.warn('cli-runner', 'cli_max_turns', { requestId: i.requestId, maxTurns: i.maxTurns });
+      return new RunnerLimitError('max_turns', message);
+    };
     try {
       for await (const msg of q) {
         onLine(JSON.stringify(msg));
         const m = msg as { type?: string; subtype?: string };
-        // subtype 이 'success' 가 아니면 실패 — is_error 는 falsy 여도 오류일 수 있어 신뢰 안 함
-        if (m.type === 'result') resultIsError = m.subtype !== 'success';
+        if (m.type === 'result') resultSubtype = m.subtype;
       }
     } catch (e) {
       // 자기-개시 interrupt(kill/timeout) 후의 throw 는 흡수, 그 외 spawn/실행 오류만 전파.
       if (!manuallyKilled && !timedOut) {
-        log.error('cli-runner', 'cli_spawn_error', {
-          requestId: i.requestId,
-          error: e instanceof Error ? e.message : String(e),
-        });
+        // SDK 는 error result 를 흘린 뒤 "Claude Code returned an error result: Reached maximum number of turns"
+        // 로 throw 한다(운영 실측) — 앞서 받은 result subtype 으로 턴 한도 도달을 구분해 한도 오류로 바꾼다.
+        //   result 가 먼저 오지 않고 바로 throw 되는 경우에 대비해 SDK 오류 문구로도 판별한다.
+        const message = e instanceof Error ? e.message : String(e);
+        if (resultSubtype === 'error_max_turns' || /maximum number of turns/i.test(message)) throw maxTurnsError(message);
+        log.error('cli-runner', 'cli_spawn_error', { requestId: i.requestId, error: message });
         throw e;
       }
     } finally {
@@ -113,9 +124,11 @@ export function runSdkStream(i: SdkRunInput, onLine: (line: string) => void): St
     }
     if (timedOut) {
       log.error('cli-runner', 'cli_timeout', { requestId: i.requestId, timeoutMs: i.timeoutMs, durationMs });
-      throw new Error(`${i.logTag} timeout after ${i.timeoutMs}ms`);
+      throw new RunnerLimitError('timeout', `${i.logTag} timeout after ${i.timeoutMs}ms`);
     }
-    if (resultIsError) {
+    // throw 없이 error_max_turns result 로만 끝나는 경우도 같은 한도 오류로 다룬다.
+    if (resultSubtype === 'error_max_turns') throw maxTurnsError(`${i.logTag} reached maxTurns ${i.maxTurns}`);
+    if (resultSubtype !== undefined && resultSubtype !== 'success') {
       log.error('cli-runner', 'cli_exit', { requestId: i.requestId, durationMs });
       throw new Error(`${i.logTag} result is_error`);
     }
