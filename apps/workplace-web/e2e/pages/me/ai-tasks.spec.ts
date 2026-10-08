@@ -1,6 +1,7 @@
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockApi } from '../../fixtures/api-mock'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
+import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import type { UserSummary } from '../../../src/types/user'
 
 const human: UserSummary = { id: 1, username: 'kim', name: '김사람', kind: 'HUMAN' }
@@ -78,3 +79,21 @@ test('AI 위임 작업 — 비어 있으면 안내 문구', async ({ authenticat
   await expect(empty).toContainText('AI에게 맡긴 작업이 아직 없어요')
   await expect(empty).toContainText('이슈를 만들 때 담당자를 AI로 지정하면 여기에 표시됩니다.')
 })
+
+// 페이지 레이아웃 통합(Page) — AI 위임 작업도 h-14 헤더 바를 갖고, 헤더 제목·필터 바가 같은 시작선에 선다(넓은 화면 포함).
+for (const width of DESKTOP_WIDTHS) {
+  test.describe(`AI 위임 작업 헤더 바 @${width}px`, () => {
+    test.use({ viewport: { width, height: 1000 } })
+
+    test('제목은 헤더 바 안 h1, 헤더 하단 56px, 필터 바와 같은 x', async ({ authenticatedPage: page }) => {
+      await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([createIssue({ id: 31, assignees: [agent] })]))
+      await page.goto('/me/ai-tasks')
+      const header = page.getByTestId('page-header')
+      const title = header.getByRole('heading', { level: 1, name: 'AI 위임 작업' })
+      await expect(title).toBeVisible()
+      await expect(page.getByRole('heading', { level: 1, name: 'AI 위임 작업' })).toHaveCount(1)
+      await expectHeaderBottomAt56(header)
+      await expectStartAligned(title, page.getByTestId('me-task-filter-bar'))
+    })
+  })
+}

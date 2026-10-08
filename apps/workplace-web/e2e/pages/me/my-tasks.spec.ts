@@ -1,6 +1,7 @@
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockApi } from '../../fixtures/api-mock'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
+import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 
 // 내 작업 페이지(3탭) E2E — 할당/내가 만든 탭이 올바른 쿼리파라미터로 /me/issues 를 조회하고
 // 결과를 렌더하는지, 탭 클릭으로 경로가 바뀌는지 검증.
@@ -178,3 +179,23 @@ test('내 작업 — 상태·우선순위가 텍스트 배지 아닌 아이콘�
   await expect(row.getByText('진행 중')).toHaveCount(0)
   await expect(row.getByText('높음')).toHaveCount(0)
 })
+
+// 페이지 레이아웃 통합(Page) — 내 작업도 h-14 헤더 바를 갖고, 헤더 제목·탭·필터 바가 같은 시작선에 선다(넓은 화면 포함).
+for (const width of DESKTOP_WIDTHS) {
+  test.describe(`내 작업 헤더 바 @${width}px`, () => {
+    test.use({ viewport: { width, height: 1000 } })
+
+    test('제목은 헤더 바 안 h1, 헤더 하단 56px, 탭·필터 바와 같은 x', async ({ authenticatedPage: page }) => {
+      await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([createIssue({ id: 11 })]))
+      await page.goto('/me/tasks/assigned')
+      const header = page.getByTestId('page-header')
+      const title = header.getByRole('heading', { level: 1, name: '내 작업' })
+      await expect(title).toBeVisible()
+      // 본문에 제목이 한 번 더 그려지지 않는다(인-플로우 h1 제거).
+      await expect(page.getByRole('heading', { level: 1, name: '내 작업' })).toHaveCount(1)
+      await expectHeaderBottomAt56(header)
+      await expectStartAligned(title, page.getByRole('tablist'))
+      await expectStartAligned(title, page.getByTestId('me-task-filter-bar'))
+    })
+  })
+}
