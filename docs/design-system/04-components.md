@@ -70,10 +70,21 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 
 | Component | File | 역할 |
 |-----------|------|------|
-| PageHeader | `layout/PageHeader.tsx` | 컨텐츠 영역 표준 헤더 바 — 옵션·`h-14`·사이드바 헤더와 정렬 |
+| Page | `layout/Page.tsx` | 페이지 틀 — `<Page width>` + `Page.Header` + `Page.Body`. 헤더·본문이 여백(`pageGutterClass`)·폭 기준을 공유 |
+| Page.Header | `layout/Page.tsx` | 컨텐츠 영역 표준 헤더 바 — 옵션·`h-14`·사이드바 헤더와 정렬(데스크톱). 모바일은 탭 루트/병합 상세 헤더로 분기 |
+| Page.Body | `layout/Page.tsx` | 페이지 본문 — 스크롤 영역 + `page-body-content` 래퍼(`px-4 py-4`) |
+| PanelHeader | `layout/PanelHeader.tsx` | 앱 공통 패널(AI 옆 패널) 헤더 — `h-14 border-b px-4`. 본문 안 보조 칸에는 쓰지 않는다 |
+| subPaneHeaderClass | `layout/Page.tsx` | 본문 안 보조 칸(채널 스레드 칼럼·개인 작업 패널) 소제목 줄 토큰 — `h-[34px]` |
 
-> **PageHeader props**: `title`(선택, 좌측 제목 — `appTitleTextClass` 무게. 생략 시 제목 영역 미렌더 — 브레드크럼 등 다른 위치 표시자가 있는 페이지에 사용, 예: 드라이브) · `icon`(선택, 제목 앞 아이콘) · `meta`(선택, 제목 옆 보조 메타) · `actions`(선택, 우측 액션 슬롯) · `className` · `data-testid`(기본 `'page-header'`). 컨테이너는 `flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4` 로, 2차 사이드바 헤더(`sidebarTitleClass`)·홈 헤더와 한 선 정렬한다. 컨텐츠 헤더는 **옵션**이며, 두지 않는 문서/설정형 페이지는 인-플로우 제목 토큰 `pageTitleClass` 를 쓴다([05-page-patterns.md](./05-page-patterns.md) 참조).
-
+> **Page props**: `width`(`'full'`(기본) | `'reading'` — reading 은 본문을 왼쪽 정렬 `max-w-3xl`(768px)로 제한, `mx-auto` 금지) · `className` · `data-testid`.
+>
+> **Page.Header props**: `title`(선택, 좌측 제목 — `appTitleTextClass` 무게. 생략 시 제목 영역 미렌더 — 브레드크럼 등 다른 위치 표시자가 있는 페이지에 사용, 예: 드라이브) · `icon`(선택, 제목 앞 아이콘/컨트롤, 데스크톱 전용) · `leading`(선택, 제목 앞/대신 오는 위치 표시 — 이슈 ←+브레드크럼·위키 경로, 데스크톱 전용) · `meta`(선택, 제목 옆 보조 메타) · `actions`(선택, 우측 액션 슬롯) · `className` · `data-testid`(기본 `'page-header'`) · 모바일 전용 `mobilePrimaryAction`/`mobileActions`/`mobileMenuIcon`/`mobileMenuLabel`/`mobileHideSheetTrigger`/`mobileOnBack`. 데스크톱 컨테이너는 `flex h-14 shrink-0 items-center border-b` + 내부 래퍼 `pageGutterClass`(`px-4`)로 2차 사이드바 헤더(`sidebarTitleClass`)·홈 헤더와 한 선 정렬한다. AI 칩이 있으면(`useAiAvailable`) 좌측 그룹에 `aiChipSafeLeftMaxW` 클램프를 헤더가 직접 적용하므로 화면별 우회 처리는 두지 않는다(위키·드라이브 첨부의 개별 처리 제거됨). 일부 화면(내 작업·AI 위임 작업·드라이브 첨부)은 `Page.Header` 를 데스크톱에서만 쓰고 모바일은 기존 렌더를 유지한다.
+>
+> **Page.Body props**: `padded`(기본 `true` — 스크롤 영역 `page-body` + 안쪽 `page-body-content`(`px-4 py-4`, reading 이면 `max-w-3xl`). `false` 는 자체 레이아웃 본문(마스터-디테일·그리드·채팅) — 스크롤·여백은 화면이 소유하고 각 행은 `pageGutterClass` 를 쓴다) · `scrollRef`(스크롤 컨테이너 ref) · `className`(content 래퍼에 적용) · `data-testid`. 폭은 `Page` 의 `width` 를 컨텍스트로 읽는다.
+>
+> **PanelHeader props**: `title` · `actions` · `className` · `data-testid`. 앱 공통 패널 전용이며 페이지 헤더와 같은 56px·하단선으로 정렬한다.
+>
+> **헤더 바 직접 제작 금지(ESLint)**: `eslint.config.js` 의 `headerBarRule`(`no-restricted-syntax`)이 className 문자열에 `h-14` + `border-b` 가 함께 있으면 오류로 막는다 — `Page.Header` / `PanelHeader` / `subPaneHeaderClass` 를 쓴다. 예외 glob 은 헤더 틀 구현부와 모바일 헤더(`src/components/layout/**`, `src/components/mobile/**`, `src/**/mobile/**`)뿐이다. 컨텐츠 헤더는 **옵션**이며, 두지 않는 문서/설정형 페이지는 인-플로우 제목 토큰 `pageTitleClass` 를 쓴다([05-page-patterns.md](./05-page-patterns.md) 참조).
 ---
 
 ## B. 공통 래퍼 컴포넌트 상세
