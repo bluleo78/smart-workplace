@@ -17,13 +17,17 @@ export function canShareFile(file: File): boolean {
 
 /**
  * 공유 시트를 연다. 반드시 사용자 제스처(클릭) 핸들러 안에서 await 없이 바로 부른다 — await 뒤 호출은 NotAllowedError.
- * 사용자가 시트를 닫은 취소(AbortError)는 정상 흐름이라 조용히 끝낸다.
+ * 조용히 끝내는 경우:
+ * - AbortError — 사용자가 시트를 닫은 취소(정상 흐름).
+ * - InvalidStateError — 시트가 이미 열린 채 ⤴/⬇ 를 다시 탭함. 먼저 연 시트가 그대로 동작하므로 실패가 아니다.
+ *   (진행 중 플래그로 막지 않는 이유: share() 가 끝나지 않는 브라우저가 있으면 플래그가 영영 풀리지 않는다.)
  */
 export async function shareFile(file: File): Promise<void> {
   try {
     await navigator.share({ files: [file] })
   } catch (e) {
-    if ((e as DOMException)?.name === 'AbortError') return
+    const name = (e as DOMException)?.name
+    if (name === 'AbortError' || name === 'InvalidStateError') return
     toast.error('공유하지 못했습니다')
   }
 }

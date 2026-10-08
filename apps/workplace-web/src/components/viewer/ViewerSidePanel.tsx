@@ -61,13 +61,13 @@ export function ViewerPanelContent({ item }: { item: ViewerItem }) {
 /**
  * 뷰어 오른쪽 사이드 패널(WP-277) — AI 요약 + 참조된 곳.
  * 데스크톱 배치(lg 이상 = MOBILE_MEDIA_QUERY 밖)에서만 그려 오른쪽 w-80 열이 된다. lg 미만은 모바일 배치라 ViewerSummarySheet 를 쓴다.
- * (lg: 접두 없는 세로 쌓기 클래스는 WP-277 의 좁은 화면용 — 지금 배치에선 적용되지 않지만 데스크톱 클래스와 함께 그대로 둔다.)
+ * 그래서 WP-277 의 좁은 화면용 세로 쌓기 클래스(max-h·border-t)는 걷어내고 열 배치만 둔다.
  */
 export function ViewerSidePanel({ item, onClose }: { item: ViewerItem; onClose: () => void }) {
   return (
     <aside
       data-testid="viewer-side-panel"
-      className="max-h-[45%] w-full shrink-0 overflow-y-auto border-t border-border p-4 lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l"
+      className="w-80 shrink-0 overflow-y-auto border-l border-border p-4"
     >
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-medium">AI 요약</h2>
