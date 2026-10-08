@@ -30,13 +30,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         const { issueKey } = issueKeyInput.parse(args);
         // WP-176: update_issue 의 cycles 는 집합 교체라, 기존 사이클을 알아야 추가·제거 시 다른 사이클을 지우지 않는다 — 함께 동봉.
         const [raw, cycles] = await Promise.all([client.getIssueDetail(issueKey), client.getIssueCycles(issueKey)]);
-        // WP-307: 응답엔 milestoneId 만 있어 이름은 마일스톤이 붙은 이슈만 따로 조회한다. 실패하면 이름 조회 실패로 표시(미지정과 구분).
-        const milestoneId = (raw as { summary?: { milestoneId?: unknown } })?.summary?.milestoneId;
-        const milestones =
-          typeof milestoneId === 'number'
-            ? await client.getProjectMilestones(parseIssueKey(issueKey).projectKey).catch(() => [])
-            : [];
-        const detail = normalizeIssueDetail(raw, { milestoneNameById: new Map(milestones.map((m) => [m.id, m.name])) });
+        const detail = normalizeIssueDetail(raw);
         return JSON.stringify({ ...detail, cycles: cycles.map(({ name, status }) => ({ name, status })) });
       },
     },

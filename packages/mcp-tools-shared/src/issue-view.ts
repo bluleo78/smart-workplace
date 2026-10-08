@@ -12,30 +12,23 @@ export interface PersonView {
   kind: string | null;
 }
 
-/** {username,name,kind} 형태(UserSummary) → 사람 뷰. 숫자 id 는 빼고 사람은 username 으로만 가리킨다(#833). */
-export function toPersonView(u: Raw | null | undefined): PersonView | null {
-  if (!u) return null;
-  const username = typeof u.username === 'string' ? u.username : null;
-  const name = typeof u.name === 'string' && u.name ? u.name : (username ?? '');
-  return { username, name, kind: typeof u.kind === 'string' ? u.kind : 'HUMAN' };
-}
-
 /**
  * 평평한 작성자 필드(코멘트 author*·이력 actor*·첨부 attachedBy*) → 사람 뷰. username 이 없으면 null 로 두고 표시 이름으로 채우지 않는다 —
  * 표시 이름을 username 자리에 넣으면 LLM 이 그 값을 담당자 지정에 써서 실패한다(WP-307). 종류를 모르는 작성자(첨부자)는 kind null.
  */
 export function toAuthorView(username: unknown, name: unknown, kind: unknown): PersonView {
   const u = typeof username === 'string' && username ? username : null;
-  return { username: u, name: typeof name === 'string' ? name : (u ?? ''), kind: typeof kind === 'string' ? kind : null };
+  return { username: u, name: typeof name === 'string' && name ? name : (u ?? ''), kind: typeof kind === 'string' ? kind : null };
 }
 
-/** 마일스톤 id 는 있는데 이름을 조회하지 못했을 때의 표시 — "마일스톤 없음"(null)과 구분한다. */
-export const MILESTONE_UNRESOLVED = '(이름 조회 실패)';
+/** 중첩 사람 요약(UserSummary {username,name,kind}) → 사람 뷰. 숫자 id 는 빼고 사람은 username 으로만 가리킨다(#833). 종류가 없으면 HUMAN. */
+export function toPersonView(u: Raw): PersonView {
+  return toAuthorView(u.username, u.name, u.kind ?? 'HUMAN');
+}
 
-/** 마일스톤 id → 이름 뷰. 미지정이면 null, 이름을 못 찾으면 MILESTONE_UNRESOLVED. */
-export function milestoneView(milestoneId: unknown, nameById: ReadonlyMap<number, string>): string | null {
-  if (typeof milestoneId !== 'number') return null;
-  return nameById.get(milestoneId) ?? MILESTONE_UNRESOLVED;
+/** 사람 요약 배열(담당자 등) → 사람 뷰 배열. 배열이 아니면 빈 배열. */
+export function toPeopleView(list: unknown): PersonView[] {
+  return Array.isArray(list) ? (list as Raw[]).map(toPersonView) : [];
 }
 
 /**
@@ -52,8 +45,8 @@ export function toSeoulIso(v: unknown): string | null {
 
 /** 유형 요약({id,name,colorToken,icon}) → 이름. 색·아이콘은 LLM 에 쓸모없는 토큰이라 뺀다. */
 export function typeName(t: unknown): string | null {
-  if (t && typeof t === 'object' && typeof (t as Raw).name === 'string') return (t as Raw).name as string;
-  return typeof t === 'string' ? t : null;
+  const name = (t as Raw | null | undefined)?.name;
+  return typeof name === 'string' ? name : null;
 }
 
 /** 라벨 요약 배열 → 이름 배열(update_issue 의 labels 와 같은 값). */
@@ -61,16 +54,12 @@ export function labelNames(labels: unknown): string[] {
   return ((labels ?? []) as Raw[]).map((l) => l?.name).filter((n): n is string => typeof n === 'string');
 }
 
-/** 부모 요약(ParentRef: number·title·status) → issueKey 로 가리키는 뷰. 부모는 같은 프로젝트라 projectKey 를 빌린다. */
+/** 부모 요약(ParentRef: number·title·status) → issueKey 로 가리키는 뷰. 부모는 같은 프로젝트라 projectKey 를 빌린다. 키를 못 만들면 null. */
 export function toParentView(parent: unknown, projectKey: unknown): { issueKey: string; title: string; status: string | null } | null {
-  if (!parent || typeof parent !== 'object') return null;
-  const p = parent as Raw;
-  const number = typeof p.number === 'number' ? p.number : undefined;
-  return {
-    issueKey: formatIssueKey(typeof projectKey === 'string' ? projectKey : undefined, number) ?? String(number ?? ''),
-    title: typeof p.title === 'string' ? p.title : '',
-    status: typeof p.status === 'string' ? p.status : null,
-  };
+  const p = parent as Raw | null | undefined;
+  const issueKey = formatIssueKey(projectKey as string | undefined, p?.number as number | undefined);
+  if (!p || !issueKey) return null;
+  return { issueKey, title: String(p.title ?? ''), status: (p.status as string | undefined) ?? null };
 }
 
 /** 하위 이슈 진행률 — 하위가 없으면 null(빈 0/0 을 싣지 않는다). */

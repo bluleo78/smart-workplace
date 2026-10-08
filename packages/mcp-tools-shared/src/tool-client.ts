@@ -61,9 +61,9 @@ export interface IssueRow {
   updatedAt?: string | null;
   closedAt?: string | null;
   /** 서버는 유형 요약 객체({id,name,...})를 준다 — 뷰가 이름만 뽑는다. */
-  type?: { name?: string; [key: string]: unknown } | string | null;
+  type?: { name?: string; [key: string]: unknown } | null;
   labels?: { name?: string; [key: string]: unknown }[] | null;
-  milestoneId?: number | null;
+  milestoneName?: string | null;
   parent?: { number?: number; title?: string; status?: string; [key: string]: unknown } | null;
   childCount?: number;
   childDoneCount?: number;

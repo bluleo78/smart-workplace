@@ -42,6 +42,8 @@ export interface IssueResponse {
   startDate: string | null;
   // 연결된 마일스톤 id — 없으면 null (#620).
   milestoneId: number | null;
+  // 마일스톤 이름 — 없으면 null (WP-307, AI 도구용).
+  milestoneName?: string | null;
   reporterId: number;
   createdAt: string;
   updatedAt: string;

@@ -4,7 +4,8 @@ import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
 import { defaultListAssignee, resolveCycleFilter } from './resolve.js';
 import { formatIssueKey } from './parse.js';
-import { labelNames, milestoneView, toChildrenView, toParentView, toPersonView, toSeoulIso, typeName } from './issue-view.js';
+import { dropEmpty } from './compact.js';
+import { labelNames, toChildrenView, toParentView, toPeopleView, toSeoulIso, typeName } from './issue-view.js';
 import { listIssuesInput } from './schemas.js';
 import type { IssueListQuery, IssueRow, ProjectToolClient } from './tool-client.js';
 
@@ -24,9 +25,8 @@ export const updateProjectInput = z
 /**
  * GET /me/issues 이슈 행 → LLM 뷰. 사람은 username 으로만 노출한다(#833 — 숫자 id 를 쓰기 도구로 흘려보내지 않게).
  * WP-307: 날짜(시작·생성·수정·종료)·라벨·마일스톤·부모·하위 진행률을 싣는다. 본문·코멘트·이력은 상세(get_issue_detail)에만 둔다.
- * milestoneNameById 는 마일스톤 id → 이름(응답엔 id 뿐이라 핸들러가 프로젝트별로 조회해 넘긴다).
  */
-export function toIssueListItem(it: IssueRow, milestoneNameById: ReadonlyMap<number, string> = new Map()) {
+export function toIssueListItem(it: IssueRow) {
   const { projectKey, number } = it;
   return {
     issueKey: it.issueKey ?? (formatIssueKey(projectKey, number) ?? String(it.id ?? '')),
@@ -34,25 +34,18 @@ export function toIssueListItem(it: IssueRow, milestoneNameById: ReadonlyMap<num
     status: it.status ?? '',
     priority: it.priority ?? '',
     type: typeName(it.type),
-    assignees: (it.assignees ?? []).map((a) => toPersonView(a)!),
+    assignees: toPeopleView(it.assignees),
     dueDate: it.dueDate ?? null,
     startDate: it.startDate ?? null,
     createdAt: toSeoulIso(it.createdAt),
     updatedAt: toSeoulIso(it.updatedAt),
     closedAt: toSeoulIso(it.closedAt),
     labels: labelNames(it.labels),
-    milestone: milestoneView(it.milestoneId, milestoneNameById),
+    milestone: it.milestoneName ?? null,
     parent: toParentView(it.parent, projectKey),
     children: toChildrenView(it.childCount, it.childDoneCount),
     blocked: Boolean(it.blocked),
   };
-}
-
-/** 목록 행들의 마일스톤 id → 이름. 마일스톤이 붙은 행이 있는 프로젝트만, 프로젝트당 한 번 조회한다(행마다 부르지 않게). */
-async function milestoneNames(client: ProjectToolClient, items: IssueRow[]): Promise<Map<number, string>> {
-  const keys = [...new Set(items.filter((it) => it.milestoneId != null && it.projectKey).map((it) => it.projectKey!))];
-  const lists = await Promise.all(keys.map((k) => client.getProjectMilestones(k).catch(() => [])));
-  return new Map(lists.flat().map((m) => [m.id, m.name]));
 }
 
 /** 프로젝트 멤버 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833). get_project·list_project_members 공용. */
@@ -112,7 +105,7 @@ export function buildProjectTools(client: ProjectToolClient): SharedTool[] {
         'closedFrom/closedTo(종료일)·createdFrom/createdTo(생성일)는 Asia/Seoul 날짜(yyyy-MM-dd, 양끝 포함)이며, 종료일 범위는 DONE·CANCELED 모두 걸리니 ' +
         '"완료한 이슈"는 status=DONE 을 함께 주세요. ' +
         '각 항목은 issueKey·title·status·priority·type·assignees·dueDate·startDate·createdAt·updatedAt·closedAt(시각은 +09:00)·labels·milestone·' +
-        'parent·children(하위 진행률)·blocked 를 포함합니다. 본문·코멘트·변경 이력은 issueKey 로 get_issue_detail 을 호출하세요.',
+        'parent·children(하위 진행률)·blocked 를 포함하며, 값이 없는 키(null·빈 배열)는 생략됩니다. 본문·코멘트·변경 이력은 issueKey 로 get_issue_detail 을 호출하세요.',
       inputSchema: listIssuesInput,
       async handler(args) {
         const { priority, size, cycle: cycleCsv, ...p } = listIssuesInput.parse(args);
@@ -126,8 +119,8 @@ export function buildProjectTools(client: ProjectToolClient): SharedTool[] {
         if (priority?.length) query.priority = priority.join(',');
         query.size = size ?? 30;
         const items = await client.listIssues(query);
-        const milestones = await milestoneNames(client, items);
-        return JSON.stringify(items.map((it) => toIssueListItem(it, milestones)));
+        // #850: 행마다 반복되는 null·빈 배열 키는 빼 토큰을 줄인다(빠진 키 = 값 없음).
+        return JSON.stringify(items.map((it) => dropEmpty(toIssueListItem(it))));
       },
     },
     {

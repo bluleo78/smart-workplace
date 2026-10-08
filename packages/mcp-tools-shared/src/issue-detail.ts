@@ -4,10 +4,10 @@
 // AI 가 판단에 쓰는 정보(날짜·분류·계층·작성자·커스텀 필드·첨부·변경 이력)를 모두 싣는다.
 import {
   labelNames,
-  milestoneView,
   toAuthorView,
   toChildrenView,
   toParentView,
+  toPeopleView,
   toPersonView,
   toSeoulIso,
   typeName,
@@ -20,7 +20,7 @@ type Raw = Record<string, unknown>;
 export const ISSUE_DETAIL_HISTORY_LIMIT = 30;
 
 /** 의존성 링크 요약 — 백엔드 IssueLinkSummary(number,title,status,type) 중 LLM 필요분만. */
-export interface IssueLinkView {
+interface IssueLinkView {
   number: number;
   title: string;
   status: string;
@@ -55,12 +55,6 @@ export interface IssueDetail {
   comments: { id: number; body: string; author: PersonView; createdAt: string | null; updatedAt: string | null }[];
   /** 최근 변경 이력(오래된→최신). from/to 는 상태값 같은 문자열이거나, 집합 변경이면 객체(숫자 id·색 토큰 제외). */
   history: { at: string | null; actor: PersonView; event: string; from: unknown; to: unknown }[];
-}
-
-/** 정규화 보조 정보 — 응답만으로는 알 수 없는 이름을 채운다. */
-export interface IssueDetailContext {
-  /** 마일스톤 id → 이름. 응답엔 milestoneId 만 있고 update_issue 는 이름을 받는다. */
-  milestoneNameById?: ReadonlyMap<number, string>;
 }
 
 /** 이력 payload 에서 뺄 키 — 숫자 id 는 쓰기 도구로 흘려보내지 않고(#833), 색·아이콘은 LLM 에 쓸모없는 토큰이다. */
@@ -104,8 +98,8 @@ function historyValue(event: unknown, v: unknown): unknown {
 const links = (arr: unknown): IssueLinkView[] =>
   ((arr ?? []) as Raw[]).map((l) => ({ number: l.number as number, title: l.title as string, status: l.status as string }));
 
-/** summary 중첩을 풀고, 사람은 사람 뷰로, 시각은 KST 로, 마일스톤 id 는 context 로 이름을 찾는다. */
-export function normalizeIssueDetail(raw: unknown, ctx: IssueDetailContext = {}): IssueDetail {
+/** summary 중첩을 풀고, 사람은 사람 뷰로, 시각은 KST 로 바꾼다. */
+export function normalizeIssueDetail(raw: unknown): IssueDetail {
   const r = (raw ?? {}) as Raw;
   const s = (r.summary ?? {}) as Raw;
   const history = ((r.history ?? []) as Raw[]).slice(-ISSUE_DETAIL_HISTORY_LIMIT);
@@ -116,15 +110,15 @@ export function normalizeIssueDetail(raw: unknown, ctx: IssueDetailContext = {})
     status: String(s.status ?? r.status ?? ''),
     priority: String(s.priority ?? r.priority ?? ''),
     type: typeName(s.type),
-    assignees: ((s.assignees ?? r.assignees ?? []) as Raw[]).map((a) => toPersonView(a)!),
-    reporter: toPersonView(r.reporter as Raw | null),
+    assignees: toPeopleView(s.assignees ?? r.assignees),
+    reporter: r.reporter ? toPersonView(r.reporter as Raw) : null,
     dueDate: (s.dueDate as string | null) ?? null,
     startDate: (s.startDate as string | null) ?? null,
     createdAt: toSeoulIso(s.createdAt),
     updatedAt: toSeoulIso(s.updatedAt),
     closedAt: toSeoulIso(s.closedAt),
     labels: labelNames(s.labels),
-    milestone: milestoneView(s.milestoneId, ctx.milestoneNameById ?? new Map()),
+    milestone: (s.milestoneName as string | null) ?? null,
     parent: toParentView(s.parent, s.projectKey),
     children: toChildrenView(s.childCount, s.childDoneCount),
     blockedBy: links(s.blockedBy),

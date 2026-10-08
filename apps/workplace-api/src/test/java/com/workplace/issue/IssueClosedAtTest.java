@@ -1,6 +1,7 @@
 package com.workplace.issue;
 
 import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.MILESTONE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -131,6 +132,34 @@ class IssueClosedAtTest extends IntegrationTestBase {
     assertThat(comment.authorUsername()).isEqualTo(username);
     assertThat(detail.comments()).extracting(c -> c.authorUsername()).containsExactly(username);
     assertThat(detail.history()).extracting(h -> h.actorUsername()).containsOnly(username);
+  }
+
+  /** 마일스톤이 연결되면 응답에 이름이 함께 실린다(목록·상세) — AI 도구가 목록을 따로 조회하지 않는다(WP-307). */
+  @Test
+  void milestoneName_includedInListAndDetail() {
+    long issueId = issueRepository.insert(projectId, 1, "마일스톤 이슈", null, "MID", null, userId).id();
+    issueRepository.insert(projectId, 2, "마일스톤 없음", null, "MID", null, userId);
+    Long milestoneId =
+        baseDsl
+            .insertInto(MILESTONE)
+            .set(MILESTONE.PROJECT_ID, projectId)
+            .set(MILESTONE.NAME, "v1.0")
+            .set(MILESTONE.DUE_DATE, java.time.LocalDate.parse("2026-12-31"))
+            .returning(MILESTONE.ID)
+            .fetchOne()
+            .getId();
+    baseDsl
+        .update(ISSUE)
+        .set(ISSUE.MILESTONE_ID, milestoneId)
+        .where(ISSUE.ID.eq(issueId))
+        .execute();
+
+    assertThat(issueService.get(userId, projKey, 1).summary().milestoneName()).isEqualTo("v1.0");
+    assertThat(searchService.search(userId, projKey, Map.of()).items())
+        .extracting(IssueResponse::number, IssueResponse::milestoneName)
+        .containsExactlyInAnyOrder(
+            org.assertj.core.groups.Tuple.tuple(1, "v1.0"),
+            org.assertj.core.groups.Tuple.tuple(2, null));
   }
 
   // ── 헬퍼 ────────────────────────────────────────────────────────────────────────

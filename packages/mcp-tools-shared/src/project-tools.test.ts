@@ -187,13 +187,14 @@ describe('list_issues', () => {
         priority: 'HIGH',
         assignees: [{ id: 5005, username: 'alice', name: 'Alice', kind: 'HUMAN' }],
         dueDate: '2026-10-01',
-        type: 'BUG',
+        type: { id: 7, name: 'BUG', colorToken: 'RED', icon: 'Bug' },
         blocked: true,
       },
     ]);
     const raw = await tool(c, 'list_issues').handler({ status: 'IN_PROGRESS' });
+    // #850: 값이 없는 키(null·빈 배열)는 생략된다.
     expect(JSON.parse(raw)).toEqual([
-      expect.objectContaining({
+      {
         issueKey: 'WP-3',
         title: '버그',
         status: 'IN_PROGRESS',
@@ -202,17 +203,14 @@ describe('list_issues', () => {
         dueDate: '2026-10-01',
         type: 'BUG',
         blocked: true,
-      }),
+      },
     ]);
     expect(raw).not.toContain('9001');
     expect(raw).not.toContain('5005');
-    // 마일스톤이 붙은 행이 없으면 마일스톤 목록을 조회하지 않는다.
-    expect(c.getProjectMilestones).not.toHaveBeenCalled();
   });
 
   it('WP-307: 날짜·라벨·마일스톤·부모·하위 진행률을 싣고, 시각은 KST·유형은 이름만', async () => {
     const c = mockClient();
-    vi.mocked(c.getProjectMilestones).mockResolvedValue([{ id: 7, name: 'v1.0' }]);
     vi.mocked(c.listIssues).mockResolvedValue([
       {
         projectKey: 'WP',
@@ -228,7 +226,7 @@ describe('list_issues', () => {
         closedAt: '2026-10-07T15:30:00Z',
         type: { id: 6, name: 'TASK', colorToken: 'BLUE', icon: 'Circle' },
         labels: [{ id: 3, name: 'frontend', color: 'RED' }],
-        milestoneId: 7,
+        milestoneName: 'v1.0',
         parent: { number: 1, title: '에픽', type: { name: 'EPIC' }, status: 'IN_PROGRESS' },
         childCount: 3,
         childDoneCount: 1,
@@ -242,7 +240,6 @@ describe('list_issues', () => {
       status: 'DONE',
       priority: 'MID',
       type: 'TASK',
-      assignees: [],
       dueDate: '2026-10-10',
       startDate: '2026-10-01',
       createdAt: '2026-10-01T08:30:00+09:00',
@@ -254,7 +251,7 @@ describe('list_issues', () => {
       children: { total: 3, done: 1 },
       blocked: false,
     });
-    expect(c.getProjectMilestones).toHaveBeenCalledTimes(1);
+    expect(c.getProjectMilestones).not.toHaveBeenCalled();
     // 종료일 필터는 그대로 서버 쿼리로 간다.
     expect(issueQuery(c)).toMatchObject({ closedFrom: '2026-10-08' });
   });

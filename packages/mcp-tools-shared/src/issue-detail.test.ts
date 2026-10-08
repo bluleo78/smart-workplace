@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
-import { MILESTONE_UNRESOLVED } from './issue-view.js';
 
 // 백엔드 IssueDetailResponse 형태(요약은 summary 중첩, comment 는 flat author 필드).
 const raw = {
@@ -76,6 +75,7 @@ describe('normalizeIssueDetail', () => {
           type: { id: 7, name: 'BUG', colorToken: 'RED', icon: 'Bug' },
           labels: [{ id: 1, name: '긴급' }],
           milestoneId: 9,
+          milestoneName: 'v1.0',
           parent: { number: 2, title: '에픽', status: 'TODO' },
           childCount: 0,
           customFields: [{ defId: 4, name: '고객사', type: 'TEXT', value: 'ACME' }],
@@ -89,7 +89,6 @@ describe('normalizeIssueDetail', () => {
           { id: 2, actorId: 3, actorName: 'Bob', actorKind: 'AGENT', actorUsername: 'bob', eventType: 'LABELS_CHANGED', fromValue: null, toValue: '{"added":[{"id":1,"name":"긴급","colorToken":"RED"}],"removed":[]}', createdAt: '2026-10-07T15:31:00Z' },
         ],
       },
-      { milestoneNameById: new Map([[9, 'v1.0']]) },
     );
     expect(d).toMatchObject({
       issueKey: 'WP-5',
@@ -127,11 +126,6 @@ describe('normalizeIssueDetail', () => {
       history: [{ eventType: 'ATTACHMENTS_CHANGED', actorName: 'x', toValue: '{"added":[{"fileId":42,"originalName":"a.pdf"}],"removed":[]}' }],
     });
     expect(d.history[0].to).toEqual({ added: [{ originalName: 'a.pdf' }], removed: [] });
-  });
-
-  it('마일스톤 id 가 있는데 이름을 못 찾으면 미지정(null)과 구분해 표시한다', () => {
-    expect(normalizeIssueDetail({ summary: { title: 't', milestoneId: 9 } }).milestone).toBe(MILESTONE_UNRESOLVED);
-    expect(normalizeIssueDetail({ summary: { title: 't' } }).milestone).toBeNull();
   });
 
   it('이력은 최근 것만 싣는다', () => {
