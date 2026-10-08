@@ -7,9 +7,20 @@ export function stripApiPrefix(path: string): string {
   return path.replace(/^\/api\/v1/, '')
 }
 
-/** 임의 콘텐츠 경로(/api/v1/... 절대경로 가능)의 원본 Blob. 호출처가 objectURL/text() 로 변환. */
-export async function fetchBlobByPath(path: string): Promise<Blob> {
-  const { data } = await client.get<Blob>(stripApiPrefix(path), { responseType: 'blob' })
+/** 받는 중 진행 보고 — loaded 는 받은 바이트, total 은 응답 전체 크기(Content-Length 가 없으면 undefined). */
+export type BlobProgress = (p: { loaded: number; total: number | undefined }) => void
+
+/**
+ * 임의 콘텐츠 경로(/api/v1/... 절대경로 가능)의 원본 Blob. 호출처가 objectURL/text() 로 변환.
+ * onProgress 를 주면 받는 동안 진행을 보고한다(WP-281 영상·오디오 % 표시) — axios 의 onDownloadProgress 를 쓴다.
+ * fetch/ReadableStream 으로 바꾸지 않는 이유: Bearer 인터셉터·401 재발급 큐를 그대로 타야 하기 때문.
+ */
+export async function fetchBlobByPath(path: string, opts: { onProgress?: BlobProgress } = {}): Promise<Blob> {
+  const { onProgress } = opts
+  const { data } = await client.get<Blob>(stripApiPrefix(path), {
+    responseType: 'blob',
+    onDownloadProgress: onProgress ? (e) => onProgress({ loaded: e.loaded, total: e.total || undefined }) : undefined,
+  })
   return data
 }
 
