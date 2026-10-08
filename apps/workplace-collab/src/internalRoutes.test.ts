@@ -7,14 +7,14 @@ import {
   COLLAB_ROLE_CHANGED_TYPE,
   type CollabAiMarker,
 } from '@smart-workplace/wiki-editor-schema'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
 import { AiMarkerBoard } from './aiMarkers'
 import type { CollabConfig } from './config'
 import { FRAGMENT, normalizeMarkdown, yDocToMarkdown } from './markdownCodec'
-import { createMergeRunner } from './mergeRunner'
-import { apiAuthenticator, createCollabServer, type CollabServer } from './server'
+import { createMergeRunner, type MergeRunner } from './mergeRunner'
+import { apiAuthenticator, createCollabServer, type CollabDeps, type CollabServer } from './server'
 import { ApiClient } from './apiClient'
 import { connectClient, replaceTextAt, typeAt, type TestClient } from './testing/clients'
 import { startFakeApi, type FakeApi } from './testing/fakeApi'
@@ -45,6 +45,24 @@ describe('internal routes', () => {
     storeRetryMaxMs: 200,
   })
 
+  /** 데운 병합 워커에 첫 작업을 보낸다 — 워커 기동(부하 시 700ms+)이 끝날 때까지 기다린다. */
+  const warm = (m: MergeRunner) => m.prepare({ body: 'warm', bases: ['warm'], current: 'warm' }, 60_000)
+  /**
+   * 기본 병합 실행기 — 파일 전체가 데운 워커 하나를 함께 쓴다(WP-311). 테스트마다 서버를 새로 띄우면 첫 병합이 워커를 띄우는데,
+   * 그 기동 시간이 짧은 기한(applyDeadlineMs)·표식 대기 같은 시간 창 안에 끼어 부하 때 간헐 실패했다.
+   * 서버 종료가 공용 워커를 닫지 않게 destroy 만 비운 얇은 래퍼를 서버마다 넘긴다.
+   */
+  let sharedMerger: MergeRunner
+  const sharedMergerView = (): MergeRunner => ({ ...sharedMerger, destroy: async () => {} })
+  /**
+   * 서버를 띄운다 — 실행기를 넘기지 않으면 공용(데운) 실행기, 넘기면 그 실행기를 먼저 데운다.
+   * 작업 순번으로 지연·고장을 거는 실행기는 돌아온 뒤 호출자가 순번을 되돌린다.
+   */
+  const startApp = async (config: CollabConfig, deps: CollabDeps = {}) => {
+    if (deps.merger) await warm(deps.merger)
+    app = createCollabServer(config, { ...deps, merger: deps.merger ?? sharedMergerView() })
+    await app.listen()
+  }
   const httpUrl = () => `http://127.0.0.1:${app.address.port}`
   const connect = (token: string, name = DOC): TestClient => {
     const c = connectClient(app.address.port, name, token)
@@ -76,8 +94,7 @@ describe('internal routes', () => {
   /** 지연 저장을 길게 — 사람 입력이 apply 시점까지 미저장(dirty)으로 남게. */
   const restartWithLongDebounce = async () => {
     await app.destroy()
-    app = createCollabServer({ ...cfg(), debounceMs: 10000, maxDebounceMs: 20000 })
-    await app.listen()
+    await startApp({ ...cfg(), debounceMs: 10000, maxDebounceMs: 20000 })
   }
   /**
    * 병합 워커를 바꿔 다시 띄운다 — 워커 안 인위 지연(동기 블로킹)·짧은 시간 제한으로 느린 병합을 재현.
@@ -86,11 +103,12 @@ describe('internal routes', () => {
   const restartWithSlowMerge = async (timeoutMs: number, mergeDelayMs: number, over: Partial<CollabConfig> = {}) => {
     await app.destroy()
     let jobs = 0
-    app = createCollabServer(
+    await startApp(
       { ...cfg(), ...over },
       { merger: createMergeRunner({ timeoutMs, testDelayMs: () => (jobs++ === 0 ? 0 : mergeDelayMs) }) },
     )
-    await app.listen()
+    // 데우기 작업이 순번 0 을 썼다 — 요청의 첫 작업(정규화)이 다시 0 이 되게.
+    jobs = 0
     /** 병합 작업이 워커에 보내졌다(이제 워커가 지연 중 — 그 사이 입력은 "병합 계산 도중"이다). */
     return { mergeDispatched: () => jobs >= 2 }
   }
@@ -102,7 +120,18 @@ describe('internal routes', () => {
       .toBe(true)
   }
 
+  beforeAll(async () => {
+    sharedMerger = createMergeRunner()
+    await warm(sharedMerger)
+  })
+
+  afterAll(async () => {
+    await sharedMerger.destroy()
+  })
+
   beforeEach(async () => {
+    // 앞 테스트가 공용 워커를 잃었거나(시간 초과·고장) 대기열에 작업을 남겼어도 여기서 다시 데워 다음 테스트로 새지 않게.
+    await warm(sharedMerger)
     api = await startFakeApi(TOKEN)
     api.page(1, { tenantId: TENANT, body: BODY, version: 1 })
     api.page(2, { tenantId: TENANT, body: '다른 노트', version: 1 })
@@ -112,7 +141,7 @@ describe('internal routes', () => {
     clients = []
     authThrows = false
     const real = apiAuthenticator(new ApiClient(api.url, TOKEN))
-    app = createCollabServer(cfg(), {
+    await startApp(cfg(), {
       auth: {
         authenticate: (docName, pageId, token) => {
           if (authThrows) return Promise.reject(new Error('collab-access failed 500'))
@@ -120,11 +149,12 @@ describe('internal routes', () => {
         },
       },
     })
-    await app.listen()
   })
 
   afterEach(async () => {
     for (const c of clients) c.provider.destroy()
+    // 붙잡힌 저장이 남아 있으면(단언 실패로 끝남) 서버 종료가 그 저장을 기다리며 멈추지 않게 먼저 푼다.
+    api.releaseStores()
     await app.destroy()
     await api.close()
   })
@@ -268,9 +298,7 @@ describe('internal routes', () => {
 
     it('puts the requesting user last in editorIds (API uses the last one as updated_by)', async () => {
       // 지연 저장을 길게 — 두 사람의 입력이 저장되지 않은 채 apply 시점까지 편집자 집합에 남게.
-      await app.destroy()
-      app = createCollabServer({ ...cfg(), debounceMs: 10000, maxDebounceMs: 20000 })
-      await app.listen()
+      await restartWithLongDebounce()
       const a = connect('editor-token')
       const b = connect('editor2-token')
       await synced(a)
@@ -287,9 +315,7 @@ describe('internal routes', () => {
 
     describe('ordering across a failed apply store and its retry', () => {
       const setup = async () => {
-        await app.destroy()
-        app = createCollabServer({ ...cfg(), debounceMs: 10000, maxDebounceMs: 20000 })
-        await app.listen()
+        await restartWithLongDebounce()
         const a = connect('editor-token')
         const b = connect('editor2-token')
         await synced(a)
@@ -319,9 +345,7 @@ describe('internal routes', () => {
       })
 
       it('puts an editor who typed while the failing store was in flight after the restored ones', async () => {
-        await app.destroy()
-        app = createCollabServer({ ...cfg(), debounceMs: 10000, maxDebounceMs: 20000 })
-        await app.listen()
+        await restartWithLongDebounce()
         const a = connect('editor-token')
         const b = connect('editor2-token')
         await synced(a)
@@ -330,15 +354,16 @@ describe('internal routes', () => {
         typeAt(b.doc, 1, '남 ')
         await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('남 첫 문단')
         api.failStores = true
-        api.storeDelayMs = 500
+        // 저장 응답을 붙잡는다 — 시간 지연 대신, 아래 입력이 끝날 때까지 저장이 확실히 진행 중이게.
+        api.holdStores()
         const attempts = api.storeAttempts
         const pending = apply('# 제목\n\n남 첫 문단\n\n둘째 문단\n\nAPI')
         // apply 의 저장이 API 에 닿아 응답을 기다리는 동안 8 이 다시 고친다 — 실패 후 되돌린 [8, 5] 보다 더 최근.
         await expect.poll(() => api.storeAttempts).toBe(attempts + 1)
         typeAt(b.doc, 2, '도중 ')
         await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('도중 ')
+        api.releaseStores()
         expect((await pending).status).toBe(200)
-        api.storeDelayMs = 0
         api.failStores = false
         await expect.poll(() => api.stores.at(-1)?.body, { timeout: 5000 }).toContain('도중 ')
         expect(api.stores.at(-1)?.editorIds).toEqual([5, 8])
@@ -549,35 +574,40 @@ describe('internal routes', () => {
 
     it('answers 503 within the apply deadline while the document lock is held, and applies nothing', async () => {
       await app.destroy()
-      app = createCollabServer({ ...cfg(), applyDeadlineMs: 400 })
-      await app.listen()
+      await startApp({ ...cfg(), applyDeadlineMs: 400 })
       const a = connect('editor-token')
       await synced(a)
       await expect.poll(() => api.stores.length).toBe(1)
       // 다른 저장이 문서 잠금을 오래 쥐고 있다(느린 API 저장 흉내).
       let release!: () => void
-      const held = serverDoc()!.saveMutex.runExclusive(() => new Promise<void>((r) => (release = r)))
-      const started = performance.now()
+      const mutex = serverDoc()!.saveMutex
+      const held = mutex.runExclusive(() => new Promise<void>((r) => (release = r)))
       const res = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
       expect(res.status).toBe(503)
-      expect(performance.now() - started).toBeLessThan(2000)
+      expect(((await res.json()) as { error: string }).error).toMatch(/apply deadline exceeded/)
+      // 잠금이 아직 잡혀 있는데 답이 왔다 — 잠금 해제를 기다리지 않고 기한으로 답했다(벽시계 단언 없이 판정).
+      expect(mutex.isLocked()).toBe(true)
       // 잠금이 풀린 뒤에도 기한이 지난 요청은 적용·저장하지 않는다.
       release()
       await held
-      await new Promise((r) => setTimeout(r, 200))
+      // 뮤텍스는 FIFO — 빈 작업이 잠금을 얻었으면 앞서 줄 선(기한이 지난) 요청은 이미 잠금 구간을 끝냈다. 시간 대기 대신 이것을 기다린다.
+      await mutex.runExclusive(() => {})
       expect(yDocToMarkdown(serverDoc()!)).toBe(BODY)
       expect(api.stores).toHaveLength(1)
-      // 잠금을 잃지 않았다 — 다음 요청은 정상 처리된다.
+      // 잠금을 잃지 않았다 — 같은 잠금을 쓰는 지연 저장이 다음 입력을 저장하고,
+      typeAt(a.doc, 2, '사람 ')
+      await expect.poll(() => api.stores.length).toBe(2)
+      expect(api.stores[1].body).toBe('# 제목\n\n첫 문단\n\n사람 둘째 문단')
+      // 다음 요청도 정상 처리된다(공용 워커가 데워져 있어 400ms 기한 안에 병합이 끝난다 — WP-311).
       expect((await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')).status).toBe(200)
-      await expect.poll(() => yDocToMarkdown(a.doc)).toBe('# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      await expect.poll(() => yDocToMarkdown(a.doc)).toBe('# 제목\n\n첫 문단 AI\n\n사람 둘째 문단')
     })
 
     it('answers 200 with persisted:false when the apply store hangs past the deadline, and applies once', async () => {
       await app.destroy()
       // 적용 전 단계(워커 기동·정규화·병합)는 부하가 걸리면 수백 ms 가 걸린다 — 작업마다 300ms 지연으로 그 상황을 고정한다.
       // 기한은 그 준비가 끝나고도 남게 잡아, 이 테스트가 보려는 "적용 뒤 저장이 기한을 넘김"만 기한에 걸리게 한다.
-      app = createCollabServer({ ...cfg(), applyDeadlineMs: 2500 }, { merger: createMergeRunner({ testDelayMs: 300 }) })
-      await app.listen()
+      await startApp({ ...cfg(), applyDeadlineMs: 2500 }, { merger: createMergeRunner({ testDelayMs: 300 }) })
       const a = connect('editor-token')
       await synced(a)
       await expect.poll(() => api.stores.length).toBe(1)
@@ -633,7 +663,7 @@ describe('internal routes', () => {
 
     it('keeps other clients syncing while a slow merge runs off the event loop, and keeps their edits', async () => {
       // 워커가 2초 동안 동기 블로킹(CPU 바쁜 병합 흉내) — 메인 스레드에서 돌면 그동안 실시간 동기화가 멈춘다.
-      await restartWithSlowMerge(10_000, 2000)
+      const { mergeDispatched } = await restartWithSlowMerge(10_000, 2000)
       const a = connect('editor-token')
       const b = connect('editor2-token')
       await synced(a)
@@ -643,7 +673,8 @@ describe('internal routes', () => {
         settled = true
         return r
       })
-      await new Promise((r) => setTimeout(r, 300))
+      // 병합 작업이 워커로 갔다(이제 워커가 블로킹 중) — 시간 대기 대신 그 사건을 기다린다.
+      await expect.poll(mergeDispatched).toBe(true)
       typeAt(a.doc, 2, '도중 ')
       // 병합이 아직 끝나지 않았는데도 다른 접속자에게 곧바로 전달된다.
       await expect.poll(() => yDocToMarkdown(b.doc), { timeout: 1000 }).toContain('도중 둘째 문단')
@@ -700,8 +731,9 @@ describe('internal routes', () => {
       await app.destroy()
       let jobs = 0
       // 둘째 워커 작업(첫 요청의 병합)에서 워커가 죽는다.
-      app = createCollabServer(cfg(), { merger: createMergeRunner({ testFault: () => (jobs++ === 1 ? 'exit' : undefined) }) })
-      await app.listen()
+      await startApp(cfg(), { merger: createMergeRunner({ testFault: () => (jobs++ === 1 ? 'exit' : undefined) }) })
+      // 데우기 작업이 순번 0 을 썼다 — 첫 요청의 병합이 다시 순번 1 이 되게.
+      jobs = 0
       const a = connect('editor-token')
       await synced(a)
       await expect.poll(() => api.stores.length).toBe(1)
@@ -740,8 +772,7 @@ describe('internal routes', () => {
       )
     const restartWithMarkerMs = async (ms: number, markers?: AiMarkerBoard) => {
       await app.destroy()
-      app = createCollabServer({ ...cfg(), aiMarkerMs: ms }, markers ? { markers } : {})
-      await app.listen()
+      await startApp({ ...cfg(), aiMarkerMs: ms }, markers ? { markers } : {})
     }
 
     it('shows ✦ name at the changed block to open clients for a while', async () => {
@@ -816,7 +847,8 @@ describe('internal routes', () => {
       await synced(a)
       await synced(b)
       await expect.poll(() => api.stores.length).toBe(1)
-      api.storeDelayMs = 800
+      // 저장 응답을 붙잡는다 — 시간 지연(800ms) 대신, 아래 삽입이 서버에 닿을 때까지 적용 저장이 확실히 진행 중이게.
+      api.holdStores()
       const attempts = api.storeAttempts
       const pending = merge(BODY, '# 제목\n\n첫 문단\n\n둘째 문단 AI')
       // 적용은 끝났고(서버 문서에 AI 글) 즉시 저장이 API 에 가 있는 동안 —
@@ -827,8 +859,8 @@ describe('internal routes', () => {
       para.insert(0, [new Y.XmlText('맨 앞')])
       b.doc.getXmlFragment(FRAGMENT).insert(0, [para])
       await flushThrough(b, a, 'inserted-above')
+      api.releaseStores()
       expect((await pending).status).toBe(200)
-      api.storeDelayMs = 0
       await expect.poll(() => markersOn(a).length).toBe(1)
       const frag = a.doc.getXmlFragment(FRAGMENT)
       const abs = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(markersOn(a)[0].anchor), a.doc)

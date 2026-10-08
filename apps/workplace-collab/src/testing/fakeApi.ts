@@ -56,6 +56,13 @@ export interface FakeApi {
   storeAttempts: number
   /** PUT /doc 응답 지연(ms) — 저장 도중에 들어오는 편집을 재현. */
   storeDelayMs: number
+  /**
+   * releaseStores 를 부를 때까지 PUT /doc 응답을 붙잡는다 — "저장이 API 에 가 있는 동안"을 시간(storeDelayMs) 대신 사건으로 고정한다.
+   * 부하에서도 붙잡은 구간이 테스트 단계보다 먼저 끝나지 않는다(WP-311).
+   */
+  holdStores(): void
+  /** 붙잡은 PUT /doc 을 모두 풀어 준다(안 붙잡았으면 아무 일 없음) — 단언 실패로 끝난 테스트의 정리도 막히지 않게 close 도 부른다. */
+  releaseStores(): void
   /** 실패시킨 PUT /doc 호출 수. */
   storeFailures: number
   /** 없는 페이지(삭제)로 와서 404 로 답한 PUT /doc 호출 수. */
@@ -139,6 +146,7 @@ export async function startFakeApi(internalToken = 'test-token'): Promise<FakeAp
       if (req.method === 'PUT') {
         self.storeAttempts += 1
         if (self.storeDelayMs > 0) await new Promise((r) => setTimeout(r, self.storeDelayMs))
+        if (storeGate) await storeGate
         if (self.failStores) {
           self.storeFailures += 1
           return send(res, 503)
@@ -181,6 +189,9 @@ export async function startFakeApi(internalToken = 'test-token'): Promise<FakeAp
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
   const { port } = server.address() as AddressInfo
 
+  // holdStores 가 건 관문(과 그 여는 함수) — 풀릴 때까지 PUT /doc 응답을 미룬다.
+  let storeGate: Promise<void> | null = null
+  let openGate: (() => void) | null = null
   const self: FakeApi = {
     url: `http://127.0.0.1:${port}`,
     page(id, p) {
@@ -205,10 +216,20 @@ export async function startFakeApi(internalToken = 'test-token'): Promise<FakeAp
     storeNotFound: 0,
     storeAttempts: 0,
     storeDelayMs: 0,
+    holdStores() {
+      self.releaseStores()
+      storeGate = new Promise<void>((r) => (openGate = r))
+    },
+    releaseStores() {
+      openGate?.()
+      storeGate = null
+      openGate = null
+    },
     loads,
     accessCalls,
     close: () =>
       new Promise<void>((r) => {
+        self.releaseStores()
         server.closeAllConnections()
         server.close(() => r())
       }),
