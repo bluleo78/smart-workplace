@@ -1,6 +1,8 @@
 // 페이지 틀(Page) 정렬 E2E — 헤더 제목과 본문 첫 요소가 같은 16px 축에서 시작하는지, reading 폭이 왼쪽 정렬·768px 이하인지.
 import { createChatThread } from '../../factories/chat.factory'
+import { external, externalDetail, page as contactPage } from '../../factories/contacts.factory'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory'
+import { mailAccount, summary as mailSummary } from '../../factories/mail.factory'
 import { createProject } from '../../factories/project.factory'
 import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -71,6 +73,55 @@ for (const width of DESKTOP_WIDTHS) {
         header.getByRole('button', { name: '프로젝트로 돌아가기' }),
         page.getByTestId('unscheduled-section').locator('summary'),
       )
+    })
+  })
+}
+
+// 메일·연락처·캘린더·홈(마스터-디테일·그리드 본문) — Page 틀로 옮긴 뒤에도 헤더와 본문 행이 같은 16px 축.
+for (const width of DESKTOP_WIDTHS) {
+  test.describe(`Page 정렬(메일·연락처·캘린더·홈) @${width}px`, () => {
+    test.use({ viewport: { width, height: 1000 } })
+
+    test('메일 — 헤더 제목과 첫 메일 행 내용이 같은 x', async ({ authenticatedPage: page }) => {
+      await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+      // seen: true — 안 읽음 막대(absolute)가 첫 자식이 되지 않게.
+      await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [mailSummary({ id: 7, seen: true })])
+      await page.goto('/mail/1')
+      const header = page.getByTestId('page-header')
+      await expectHeaderBottomAt56(header)
+      // 행 상자는 px-4 를 포함해 왼쪽 끝에서 시작하므로 행의 첫 내용(발신자 줄)으로 비교한다.
+      await expectStartAligned(header.getByRole('heading', { level: 1 }), page.getByTestId('mail-row-7').locator('> *').first())
+    })
+
+    test('연락처 — 헤더 제목과 첫 행 내용이 같은 x, 상세 오른쪽 끝이 헤더 액션 오른쪽 끝과 같다', async ({ authenticatedPage: page }) => {
+      await mockApi(page, 'GET', '/api/v1/contacts', contactPage([external()]))
+      await mockApi(page, 'GET', '/api/v1/contacts/external/100', externalDetail())
+      await page.goto('/contacts')
+      const header = page.getByTestId('page-header')
+      await expectHeaderBottomAt56(header)
+      const row = page.getByTestId('contact-row-EXTERNAL-100')
+      await expectStartAligned(header.getByRole('heading', { level: 1 }), row.locator('> *').first())
+      await row.locator('> button').first().click()
+      // 상세 패널 여백도 페이지 여백(16px) — 상세 수정·삭제 버튼 오른쪽 끝 = 헤더 액션(새 외부 연락처) 오른쪽 끝.
+      const del = await boxOf(page.getByTestId('contact-delete'))
+      const action = await boxOf(header.getByTestId('contact-create'))
+      expect(Math.abs(del.x + del.width - (action.x + action.width))).toBeLessThanOrEqual(1)
+    })
+
+    test('캘린더 — 헤더 하단선 56', async ({ authenticatedPage: page }) => {
+      await mockApi(page, 'GET', '/api/v1/calendar/events', [])
+      await page.goto('/calendar')
+      await expectHeaderBottomAt56(page.getByTestId('page-header'))
+    })
+
+    test('홈 — 헤더 첫 요소(홈 아이콘)와 첫 위젯이 같은 x', async ({ authenticatedPage: page }) => {
+      await mockApi(page, 'GET', '/api/v1/me/dashboard', { widgets: [{ id: 'notifications', type: 'notifications', count: 5, hidden: false }] })
+      await mockApi(page, 'GET', '/api/v1/notifications', [])
+      await page.goto('/')
+      const header = page.getByTestId('canvas-header')
+      await expectHeaderBottomAt56(header)
+      // 홈은 제목 앞에 아이콘이 있어 헤더 첫 요소(아이콘)로 본문 축을 비교한다.
+      await expectStartAligned(header.locator('svg').first(), page.getByTestId('dashboard').locator('> *').first())
     })
   })
 }

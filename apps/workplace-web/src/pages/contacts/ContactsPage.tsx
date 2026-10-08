@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
-import { PageHeader } from '@/components/layout/PageHeader'
+import { Page } from '@/components/layout/Page'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
@@ -188,10 +188,10 @@ export function ContactsPage() {
 
   return (
     <>
-      <div className="flex h-full flex-col overflow-hidden">
+      <Page>
         {/* 전폭 헤더 — 연락처 제목 + 새 외부 연락처 버튼(그룹·일반 공통). 모바일 상세가 열리면 숨김 — 상세 헤더 한 줄만(U1-1) */}
         {showListChrome && (
-          <PageHeader
+          <Page.Header
             title="연락처"
             actions={
               /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
@@ -206,7 +206,8 @@ export function ContactsPage() {
             mobileActions={null}
           />
         )}
-        <div className="flex min-h-0 flex-1">
+        {/* 본문 — 목록·상세 마스터-디테일이라 스크롤·여백은 각 칸이 소유(padded=false), 행은 px-4 페이지 여백. */}
+        <Page.Body padded={false}>
           {/* 목록 (마스터) — 좁은 화면 + 선택 시 숨김 */}
           <div
             className={cn(
@@ -263,8 +264,8 @@ export function ContactsPage() {
             {isMobile && <MobileDetailBar data-testid="contact-back" title={detailName} onBack={contactParam.close} />}
             <ContactDetailPanel selected={selected} onDeleted={contactParam.close} />
           </div>
-        </div>
-      </div>
+        </Page.Body>
+      </Page>
 
       {/* 새 외부 연락처 생성 모달 */}
       <ExternalContactFormDialog open={createOpen} onOpenChange={setCreateOpen} contact={null} />

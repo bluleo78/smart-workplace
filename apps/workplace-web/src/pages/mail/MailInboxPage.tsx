@@ -9,7 +9,7 @@ import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { AiSummarySkeleton } from '@/components/ai/AiSummarySkeleton'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
-import { PageHeader } from '@/components/layout/PageHeader'
+import { Page } from '@/components/layout/Page'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
@@ -907,8 +907,8 @@ export function MailInboxPage() {
       // 헤더가 사라지면 탭 루트인데도 제목·알림 진입점이 없는 빈 화면이 된다.
       // ☰ 는 숨긴다(U3-R12) — 계정이 없으면 시트(폴더 목록)에 볼 것이 없다.
       return (
-        <div className="flex h-full min-h-0 flex-col">
-          <PageHeader title="메일" mobileHideSheetTrigger />
+        <Page>
+          <Page.Header title="메일" mobileHideSheetTrigger />
           <MobileEmptyState
             data-testid="mail-empty-accounts"
             className="flex-1"
@@ -921,7 +921,7 @@ export function MailInboxPage() {
               </Button>
             }
           />
-        </div>
+        </Page>
       )
     }
     return (
@@ -936,10 +936,10 @@ export function MailInboxPage() {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <Page>
       {/* 전폭 헤더 — 폴더명 + 동기화(받은편지함) + 검색. 기존 목록 툴바 대체. */}
       {showListChrome && (
-        <PageHeader
+        <Page.Header
           title={
             isMobile ? (
               view.title
@@ -1069,7 +1069,8 @@ export function MailInboxPage() {
           </div>
         </div>
       )}
-      <div className="flex min-h-0 flex-1">
+      {/* 본문 — 목록·상세 마스터-디테일이라 스크롤·여백은 각 칸이 소유(padded=false), 행은 px-4 페이지 여백. */}
+      <Page.Body padded={false}>
         {/* 목록 (마스터) — 좁은 화면 + 선택 시 숨김 */}
         <div
           className={cn(
@@ -1203,7 +1204,7 @@ export function MailInboxPage() {
             }}
           />
         </div>
-      </div>
+      </Page.Body>
       {/* WP-187 모두 읽음 확인 — 실행 취소 대신 확인을 거친다. */}
       <MailMarkAllReadDialog
         pending={markAllPending}
@@ -1238,6 +1239,6 @@ export function MailInboxPage() {
           onCreated={() => { /* linked-issue 무효화는 usePromoteToIssue 훅이 처리 */ }}
         />
       )}
-    </div>
+    </Page>
   )
 }

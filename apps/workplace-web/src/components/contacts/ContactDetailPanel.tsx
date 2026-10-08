@@ -54,21 +54,22 @@ export function ContactDetailPanel({
     )
   }
   if (isLoading) {
-    return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
+    return <div className="p-4 text-sm text-muted-foreground">불러오는 중…</div>
   }
   if (isError || !data) {
     return (
-      <div className="p-6 text-center">
+      <div className="p-4 text-center">
         <p className="text-sm text-destructive mb-2">연락처를 찾을 수 없습니다</p>
         <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
       </div>
     )
   }
 
+  // 상세 여백 p-4 — 페이지 여백(16px)과 같게 해 상세 오른쪽 끝이 헤더 액션 오른쪽 끝과 한 축에 선다.
   if (selected.type === 'MEMBER') {
     const m = data as MemberDetail
     return (
-      <div data-testid="contact-detail-member" className="p-6">
+      <div data-testid="contact-detail-member" className="p-4">
         <div className="mb-1 flex items-center gap-2">
           <h2 className="text-lg font-semibold">{m.name}</h2>
           {/* 멤버 즐겨찾기 토글 버튼 */}
@@ -93,7 +94,7 @@ export function ContactDetailPanel({
 
   const e = data as ExternalContactDetail
   return (
-    <div data-testid="contact-detail-external" className="p-6">
+    <div data-testid="contact-detail-external" className="p-4">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">

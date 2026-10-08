@@ -10,7 +10,7 @@ import { Home, Pencil, Plus, Undo2 } from 'lucide-react'
 import { useMemo } from 'react'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
-import { PageHeader } from '@/components/layout/PageHeader'
+import { Page } from '@/components/layout/Page'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -63,12 +63,12 @@ export function Dashboard() {
 
   if (isLoading)
     return (
-      <div className="flex h-full flex-col overflow-hidden">
-        <PageHeader data-testid="canvas-header" title="홈" icon={homeIcon} />
-        <div className="flex-1 overflow-auto p-4">
+      <Page>
+        <Page.Header data-testid="canvas-header" title="홈" icon={homeIcon} />
+        <Page.Body>
           <DashboardSkeleton />
-        </div>
-      </div>
+        </Page.Body>
+      </Page>
     )
 
   // 시스템 위젯 갤러리 — draft 에 아예 없는 시스템 타입만(싱글턴 재추가 경로). 카탈로그는 갤러리에 항상 전부 노출.
@@ -76,8 +76,8 @@ export function Dashboard() {
   const absentSystemWidgets = allDashboardWidgets().filter((w) => !draftSystemTypes.has(w.type))
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <PageHeader
+    <Page>
+      <Page.Header
         data-testid="canvas-header"
         title="홈"
         icon={homeIcon}
@@ -109,7 +109,7 @@ export function Dashboard() {
           )
         }
         // 모바일: [편집]/[위젯 추가] 텍스트 버튼 대신 같은 testid 의 아이콘 액션 하나(⋯ 없음, U1-2·U1-3).
-        // 홈 아이콘(homeIcon)은 장식이라 모바일 헤더에선 생략된다(PageHeader 는 모바일에서 icon 을 그리지 않음).
+        // 홈 아이콘(homeIcon)은 장식이라 모바일 헤더에선 생략된다(Page.Header 는 모바일에서 icon 을 그리지 않음).
         mobilePrimaryAction={
           !editing ? (
             <HeaderIconAction
@@ -133,7 +133,8 @@ export function Dashboard() {
         }
         mobileActions={null}
       />
-      <div className="flex-1 space-y-4 overflow-auto p-4">
+      {/* 본문 — 표준 스크롤·여백(Page.Body). 편집 배너·위젯 그리드 사이 간격만 space-y-4. */}
+      <Page.Body className="space-y-4">
         {editing && (
           <div
             className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-ai-accent/40 bg-ai-accent/5 px-4 py-2"
@@ -191,7 +192,7 @@ export function Dashboard() {
             mobile={isMobile}
           />
         )}
-      </div>
-    </div>
+      </Page.Body>
+    </Page>
   )
 }
