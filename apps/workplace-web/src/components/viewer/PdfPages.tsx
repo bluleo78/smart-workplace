@@ -209,6 +209,8 @@ function PdfPage({
     <canvas
       ref={ref}
       data-page={pageNumber}
+      // 확대 기준 요소 표식 — 페이지 사이 간격·위아래 여백은 배율을 따르지 않으므로 기준점을 페이지 안 비율로 잡는다.
+      data-zoom-content=""
       data-testid={`pdf-page-${pageNumber}`}
       className="mx-auto shrink-0 bg-white shadow-md"
       style={{ width: cssWidth, height: cssWidth * ratio }}

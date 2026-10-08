@@ -1,6 +1,8 @@
-import { X } from 'lucide-react'
+import { Maximize2, Minimize2, X } from 'lucide-react'
+import { useState } from 'react'
 
 import { useDriveFileSummary } from '../../hooks/queries/useDriveFileSummary'
+import { cn } from '../../lib/utils'
 import { AiContent } from '../ai/AiContent'
 import { MarkdownMessage } from '../ai/MarkdownMessage'
 import { Button } from '../ui/button'
@@ -46,15 +48,26 @@ function SummaryCard({ driveFileId }: { driveFileId: number }) {
   )
 }
 
+/** 패널·시트 공용 내용 — AI 요약 + 참조된 곳. 데스크톱 사이드 패널과 모바일 바텀시트가 같은 내용을 그린다. */
+export function ViewerPanelContent({ item }: { item: ViewerItem }) {
+  return (
+    <div className="space-y-4">
+      {item.summaryDriveFileId != null && <SummaryCard driveFileId={item.summaryDriveFileId} />}
+      {item.backlinksDriveFileId != null && <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />}
+    </div>
+  )
+}
+
 /**
  * 뷰어 오른쪽 사이드 패널(WP-277) — AI 요약 + 참조된 곳.
- * lg 이상은 오른쪽 w-80 열, 그보다 좁으면 본문 아래에 쌓는다(모바일 바텀시트는 WP-278 에서).
+ * 데스크톱 배치(lg 이상 = MOBILE_MEDIA_QUERY 밖)에서만 그려 오른쪽 w-80 열이 된다. lg 미만은 모바일 배치라 ViewerSummarySheet 를 쓴다.
+ * 그래서 WP-277 의 좁은 화면용 세로 쌓기 클래스(max-h·border-t)는 걷어내고 열 배치만 둔다.
  */
 export function ViewerSidePanel({ item, onClose }: { item: ViewerItem; onClose: () => void }) {
   return (
     <aside
       data-testid="viewer-side-panel"
-      className="max-h-[45%] w-full shrink-0 overflow-y-auto border-t border-border p-4 lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l"
+      className="w-80 shrink-0 overflow-y-auto border-l border-border p-4"
     >
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-medium">AI 요약</h2>
@@ -62,10 +75,65 @@ export function ViewerSidePanel({ item, onClose }: { item: ViewerItem; onClose: 
           <X />
         </Button>
       </div>
-      <div className="space-y-4">
-        {item.summaryDriveFileId != null && <SummaryCard driveFileId={item.summaryDriveFileId} />}
-        {item.backlinksDriveFileId != null && <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />}
-      </div>
+      <ViewerPanelContent item={item} />
     </aside>
+  )
+}
+
+/**
+ * 모바일 AI 요약 바텀시트(WP-278, 스펙 §4.2·시안 M4) — 반 높이로 열리고 "펼치기" 버튼으로 상단 바 아래까지 늘린다.
+ * 끌어 올리기 대신 버튼인 이유: 끌기만 되는 조작은 WCAG 2.5.7(끌기 동작 대안) 위반.
+ * 뷰어 다이얼로그 안에 그려 포커스 트랩·다크 토큰을 그대로 받는다. 하단 액션 바 위(z-30)에 겹친다.
+ */
+export function ViewerSummarySheet({
+  item,
+  onClose,
+  sheetRef,
+}: {
+  item: ViewerItem
+  onClose: () => void
+  /** 시트 루트 — 열 때 호출부가 포커스를 시트로 옮긴다(아래 액션 바는 inert 로 덮이므로). */
+  sheetRef?: React.Ref<HTMLElement>
+}) {
+  // 펼침 여부 — 시트를 닫았다 다시 열면(언마운트) 반 높이로 돌아간다.
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <section
+      ref={sheetRef}
+      // 프로그램 포커스만 받는다(Tab 순서에는 넣지 않음) — 열린 직후 화면낭독기가 "AI 요약" 영역부터 읽게.
+      tabIndex={-1}
+      aria-label="AI 요약"
+      data-testid="viewer-summary-sheet"
+      className={cn(
+        // 좌우 안전영역 — absolute 라 루트 padding 을 받지 못한다(가로 모드 노치).
+        // bg-popover + 위로 드리운 그림자 — 뷰어 배경(bg-background)보다 밝은 불투명 층으로 떠 보이게(시안 M4). 다크 bg-card 는 3% 반투명이라 뒤 문서가 비친다. shadow-lg 는 아래로만 드리워 위쪽 경계에 안 보인다.
+        'absolute inset-x-0 bottom-0 z-30 flex flex-col outline-none rounded-t-xl border-t border-border bg-popover text-popover-foreground shadow-[0_-8px_24px_rgb(0_0_0/0.45)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] transition-[height] duration-200',
+        // 펼침 = 상단 바(3.5rem=min-h-14 + 노치) 아래까지 — 닫기(✕)·파일명은 계속 보이게 남긴다.
+        expanded ? 'h-[calc(100%-3.5rem-env(safe-area-inset-top))]' : 'h-1/2',
+      )}
+    >
+      {/* 손잡이 막대 — 시트임을 알려 주는 장식(끌기 동작은 없음, 펼치기는 버튼). */}
+      <div aria-hidden className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-muted-foreground/40" data-testid="viewer-summary-sheet-handle" />
+      {/* 보이는 제목은 아래 카드 머리글 "✨ AI 요약" 하나만 둔다 — 시트 접근 이름은 section aria-label("AI 요약"). 제목이 빠진 자리는 justify-end 로 버튼을 오른쪽에 둔다. */}
+      <div className="flex items-center justify-end gap-1 px-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="min-h-11"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? <Minimize2 aria-hidden /> : <Maximize2 aria-hidden />}
+          {expanded ? '접기' : '펼치기'}
+        </Button>
+        <Button variant="ghost" size="icon" className="size-11" aria-label="요약 닫기" onClick={onClose}>
+          <X />
+        </Button>
+      </div>
+      {/* overscroll-contain — 시트 끝까지 스크롤해도 뒤 본문·페이지로 스크롤이 번지지 않게. 아래 여백은 홈 인디케이터만큼. */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        <ViewerPanelContent item={item} />
+      </div>
+    </section>
   )
 }

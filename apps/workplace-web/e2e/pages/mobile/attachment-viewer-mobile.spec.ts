@@ -1,0 +1,892 @@
+// 통합 첨부 뷰어 모바일 배치·제스처(WP-278) — iPhone 13 뷰포트 + chromium(coarse 포인터).
+// 터치는 CDP(e2e/fixtures/touch.ts)로만 만든다 — page.mouse 는 Touch Events·touch-action 경로를 타지 않는다.
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import type { Locator, Page } from '@playwright/test'
+
+import { type DriveStubFile, stubDriveFiles as stubDrive } from '../../fixtures/drive-mock'
+import { expect, test } from '../../fixtures/mobile.fixture'
+import { solidPng } from '../../fixtures/png'
+import {
+  centerOf,
+  pausePageClock,
+  type Pt,
+  touchDoubleTap,
+  touchDrag,
+  touchHold,
+  touchPinch,
+  touchPinchThenThirdFinger,
+  touchScrollThenPinch,
+  touchSwipeThenSecondFinger,
+  touchTap,
+} from '../../fixtures/touch'
+
+const SPACE_ID = 1
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const PDF = fs.readFileSync(path.join(HERE, '../../fixtures/sample-3p.pdf'))
+
+/** 이 spec 의 드라이브 모킹 — 요약 기본은 DONE(✨ 보임), ⬇ 저장 확인용 /download 도 막는다. */
+const stubDriveFiles = (page: Page, files: DriveStubFile[]) =>
+  stubDrive(page, files, { spaceId: SPACE_ID, download: true, defaultSummary: { summary: '핵심 요약입니다.', status: 'DONE' } })
+
+/** 목록에서 파일명을 탭해 뷰어를 연다. */
+async function openViewer(page: Page, name: string) {
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await page.getByRole('button', { name, exact: true }).tap()
+  await expect(page.getByTestId('preview-body')).toBeVisible()
+}
+
+/** 요소 안 비율 지점(fx·fy) — 확대 기준점 검증용. */
+async function fractionOf(el: Locator, p: Pt) {
+  const b = (await el.boundingBox())!
+  return { fx: (p.x - b.x) / b.width, fy: (p.y - b.y) / b.height }
+}
+/** 요소 안 비율 지점이 지금 화면에서 기준점 p 와 얼마나 떨어져 있는지(px) — 확대 뒤에도 손가락 아래 같은 내용이 남았는가. */
+async function anchorDrift(el: Locator, f: { fx: number; fy: number }, p: Pt) {
+  const b = (await el.boundingBox())!
+  return Math.hypot(b.x + f.fx * b.width - p.x, b.y + f.fy * b.height - p.y)
+}
+/** 확대 기준점 허용 오차(px) — 스크롤 정수 반올림·배율 둘째 자리 절사만큼. */
+const ANCHOR_TOLERANCE_PX = 3
+
+/** PDF 를 맨 아래로 스크롤한 뒤 3쪽의 화면에 보이는 부분 안쪽 한 점(가로 70%) — 앞 페이지 간격·여백이 쌓인 뒤 페이지 기준점 검증용. */
+async function pointOnLastPdfPage(page: Page): Promise<Pt> {
+  const doc = page.getByTestId('pdf-document')
+  await doc.evaluate((el) => (el.scrollTop = el.scrollHeight))
+  const p3 = page.getByTestId('pdf-page-3')
+  await expect(p3).toBeInViewport()
+  const d = (await doc.boundingBox())!
+  const b = (await p3.boundingBox())!
+  const top = Math.max(b.y, d.y)
+  const bottom = Math.min(b.y + b.height, d.y + d.height)
+  return { x: b.x + b.width * 0.7, y: top + (bottom - top) * 0.4 }
+}
+
+const IMG = (id: number, name = `사진${id}.png`): DriveStubFile => ({ id, name, mimeType: 'image/png', body: solidPng(800, 600) })
+const MD = (id: number, name = `메모${id}.md`, body = '# 제목\n\n본문'): DriveStubFile => ({ id, name, mimeType: 'text/markdown', body })
+
+test.describe('모바일 배치', () => {
+  for (const width of [360, 390]) {
+    test(`폭 ${width}px — 상단 바(✕·이름·순번·⋯)와 하단 4칸, 가로 넘침 없음`, async ({ authenticatedPage: page }) => {
+      await page.setViewportSize({ width, height: 800 })
+      await stubDriveFiles(page, [IMG(70), IMG(71), MD(72)])
+      await openViewer(page, '사진70.png')
+      const top = page.getByTestId('viewer-top-bar')
+      await expect(top.getByRole('button', { name: '닫기' })).toBeVisible()
+      await expect(page.getByTestId('preview-meta')).toHaveText('1 / 3')
+      // 4칸 순서·폭 — 각 칸이 바 폭의 1/4.
+      const bar = page.getByTestId('viewer-action-bar')
+      const ids = await bar.locator('[data-slot-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-slot-id')))
+      expect(ids).toEqual(['save', 'share', 'drive', 'summary'])
+      for (const id of ids) {
+        const b = (await bar.locator(`[data-slot-id="${id}"]`).boundingBox())!
+        expect(Math.abs(b.width - width / 4)).toBeLessThan(2)
+      }
+      // 드라이브 파일은 ☁ 없음(빈칸), ✨ 있음.
+      await expect(bar.locator('[data-slot-id="drive"]')).toHaveAttribute('data-state', 'empty')
+      await expect(page.getByTestId('viewer-slot-summary')).toBeEnabled()
+      // 모바일은 플로팅 확대 툴바가 없다(판정 R8).
+      await expect(page.getByRole('button', { name: '확대' })).toHaveCount(0)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    })
+  }
+
+  test('360px — 긴 파일명은 앞부분만 말줄임되고 확장자는 늘 보인다(넘침 없음)', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    const name = '2026_하반기_사업계획_도입제안서_최종_검토반영본_v3.png'
+    await stubDriveFiles(page, [IMG(73, name)])
+    await openViewer(page, name)
+    const title = page.getByTestId('viewer-top-bar').getByTestId('viewer-title')
+    const head = title.getByTestId('viewer-title-head')
+    const tail = title.getByTestId('viewer-title-tail')
+    // 꼬리(확장자 포함)는 줄지 않고 다 보이며 제목 상자 안에 있다.
+    await expect(tail).toHaveText('v3.png')
+    expect(await tail.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    const tb = (await title.boundingBox())!
+    const kb = (await tail.boundingBox())!
+    expect(kb.x).toBeGreaterThanOrEqual(tb.x - 0.5)
+    expect(kb.x + kb.width).toBeLessThanOrEqual(tb.x + tb.width + 0.5)
+    // 앞부분은 실제로 잘렸다(넘침을 말줄임으로 흡수) — 그래도 제목 자체는 넘치지 않는다.
+    expect(await head.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+    expect(await title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    // 접근 이름은 전체 파일명 + 미리보기 그대로.
+    await expect(page.getByRole('dialog')).toHaveAccessibleName(`${name} 미리보기`)
+  })
+
+  test('360px — ⋯ 메뉴 항목은 터치 높이 44px 이상, 메뉴는 화면 끝에서 띄운다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    await page.getByTestId('viewer-top-bar').getByRole('button', { name: '더 보기' }).tap()
+    const items = page.getByRole('menuitem')
+    await expect(items.first()).toBeVisible()
+    for (const b of await items.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))) {
+      expect(b).toBeGreaterThanOrEqual(44)
+    }
+    const menu = (await page.getByRole('menu').boundingBox())!
+    expect(menu.x + menu.width).toBeLessThanOrEqual(360 - 8 + 0.5)
+  })
+
+  test('가로 모드(844×390)도 넘침 없이 전체 화면', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 844, height: 390 })
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    const box = (await page.getByTestId('attachment-viewer').boundingBox())!
+    expect(Math.round(box.width)).toBe(844)
+    expect(Math.round(box.height)).toBe(390)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+
+  test('넘겨도 하단 칸 위치가 변하지 않는다 — ✨ 가 없는 파일은 그 칸만 비운다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), { ...IMG(71), summary: 403 }])
+    await openViewer(page, '사진70.png')
+    const bar = page.getByTestId('viewer-action-bar')
+    await expect(page.getByTestId('viewer-slot-summary')).toBeVisible()
+    const before = await Promise.all(['save', 'share', 'drive', 'summary'].map((id) => bar.locator(`[data-slot-id="${id}"]`).boundingBox()))
+    await page.getByRole('button', { name: '다음 파일' }).tap()
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
+    await expect(bar.locator('[data-slot-id="summary"]')).toHaveAttribute('data-state', 'empty')
+    const after = await Promise.all(['save', 'share', 'drive', 'summary'].map((id) => bar.locator(`[data-slot-id="${id}"]`).boundingBox()))
+    for (let k = 0; k < 4; k++) {
+      expect(after[k]!.x).toBeCloseTo(before[k]!.x, 0)
+      expect(after[k]!.width).toBeCloseTo(before[k]!.width, 0)
+    }
+  })
+
+  test('⬇ 저장은 파일을 내려받는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(72, 'note.md')])
+    await openViewer(page, 'note.md')
+    const download = page.waitForEvent('download')
+    await page.getByTestId('preview-download').tap()
+    expect((await download).suggestedFilename()).toBe('note.md')
+  })
+
+  test('열린 동안 상태바(theme-color)는 뷰어 배경색, 닫으면 원래 색으로 돌아온다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70)])
+    const color = () => page.locator('meta[name="theme-color"]').getAttribute('content')
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    const original = await color()
+    await page.getByRole('button', { name: '사진70.png', exact: true }).tap()
+    await expect(page.getByTestId('preview-body')).toBeVisible()
+    // 리터럴 검정이 아니라 뷰어 배경 레이어(bg-background 토큰)의 실제 색 — 상태바가 뷰어 배경과 이어진다.
+    const backdropRgb = await page.getByTestId('viewer-backdrop').evaluate((el) => {
+      const ctx = document.createElement('canvas').getContext('2d')!
+      ctx.fillStyle = getComputedStyle(el).backgroundColor
+      ctx.fillRect(0, 0, 1, 1)
+      const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
+      return `rgb(${r}, ${g}, ${b})`
+    })
+    await expect.poll(color).toBe(backdropRgb)
+    // 다크 배경이라 어둡다(각 채널 낮음) — 앱 보라색이 남지 않았다.
+    expect(backdropRgb.match(/\d+/g)!.map(Number).every((v) => v < 48)).toBe(true)
+    await page.getByTestId('viewer-top-bar').getByRole('button', { name: '닫기' }).tap()
+    await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
+    await expect.poll(color).toBe(original)
+  })
+})
+
+test.describe('AI 요약 시트', () => {
+  test('✨ 요약 → 반 높이 다크 시트, ⤢ 펼치기로 거의 전체, 요약 닫기로 닫힘', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(80, 'plan.md')])
+    await openViewer(page, 'plan.md')
+    // 모바일은 저장된 패널 상태와 무관하게 닫힌 채 연다(판정 R10).
+    await expect(page.getByTestId('viewer-summary-sheet')).toHaveCount(0)
+    await page.getByTestId('viewer-slot-summary').tap()
+    const sheet = page.getByTestId('viewer-summary-sheet')
+    await expect(sheet.getByTestId('drive-summary-card')).toContainText('핵심 요약입니다.')
+    // 보이는 "AI 요약" 제목은 카드 머리글 하나뿐(시트 자체 제목 없음) — 시트 접근 이름은 그대로 "AI 요약".
+    await expect(sheet.getByRole('heading', { name: 'AI 요약' })).toHaveCount(0)
+    await expect(sheet).toHaveAccessibleName('AI 요약')
+    await expect(sheet.getByTestId('viewer-summary-sheet-handle')).toBeVisible()
+    const vh = page.viewportSize()!.height
+    const half = (await sheet.boundingBox())!.height
+    expect(Math.abs(half - vh / 2)).toBeLessThan(vh * 0.08)
+    const expand = sheet.getByRole('button', { name: '펼치기' })
+    await expect(expand).toHaveAttribute('aria-expanded', 'false')
+    await expand.tap()
+    await expect(sheet.getByRole('button', { name: '접기' })).toHaveAttribute('aria-expanded', 'true')
+    await expect.poll(async () => (await sheet.boundingBox())!.height).toBeGreaterThan(vh * 0.8)
+    // 시트는 뷰어 다크 토큰 안에 있다(.dark 루트의 자손 — 하드코딩 색 없이 다크).
+    expect(await sheet.evaluate((el) => el.closest('.dark') != null)).toBe(true)
+    await sheet.getByRole('button', { name: '요약 닫기' }).tap()
+    await expect(sheet).toHaveCount(0)
+  })
+
+  test('시트를 열면 포커스가 시트로 가고 아래 액션 바는 inert, 닫으면 ✨ 칸으로 돌아온다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(80, 'plan.md')])
+    await openViewer(page, 'plan.md')
+    const bar = page.getByTestId('viewer-action-bar')
+    await page.getByTestId('viewer-slot-summary').tap()
+    const sheet = page.getByTestId('viewer-summary-sheet')
+    await expect(sheet).toBeFocused()
+    await expect(bar).toHaveAttribute('inert', '')
+    // 시트가 열린 동안 Tab 은 덮인 액션 바로 새지 않는다.
+    for (let k = 0; k < 4; k++) {
+      await page.keyboard.press('Tab')
+      expect(await page.evaluate(() => !!document.activeElement?.closest('[data-testid="viewer-action-bar"]'))).toBe(false)
+    }
+    await sheet.getByRole('button', { name: '요약 닫기' }).tap()
+    await expect(sheet).toHaveCount(0)
+    await expect(bar).not.toHaveAttribute('inert', '')
+    await expect(page.getByTestId('viewer-slot-summary')).toBeFocused()
+  })
+
+  test('모바일에서 열고 닫은 상태는 저장하지 않는다 — 데스크톱 마지막 상태를 덮지 않음', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(80, 'plan.md')])
+    await page.addInitScript(() => localStorage.setItem('attachment-viewer:summary-panel', '1'))
+    await openViewer(page, 'plan.md')
+    await expect(page.getByTestId('viewer-summary-sheet')).toHaveCount(0)
+    await page.getByTestId('viewer-slot-summary').tap()
+    await page.getByTestId('viewer-summary-sheet').getByRole('button', { name: '요약 닫기' }).tap()
+    expect(await page.evaluate(() => localStorage.getItem('attachment-viewer:summary-panel'))).toBe('1')
+  })
+})
+
+test.describe('AI 요약 시트 — 배치 전환', () => {
+  test('데스크톱 배치에서 펼친 패널은 모바일 배치로 바뀌어도 시트로 따라오지 않는다(판정 R10)', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(80, 'plan.md')])
+    // 데스크톱 마지막 상태 = 펼침.
+    await page.addInitScript(() => localStorage.setItem('attachment-viewer:summary-panel', '1'))
+    await openViewer(page, 'plan.md')
+    const vp = page.viewportSize()!
+    // 창을 넓혀 데스크톱 배치 — 저장된 대로 사이드 패널이 펼쳐진다.
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await expect(page.getByTestId('viewer-side-panel')).toBeVisible()
+    // 다시 모바일 폭(회전·창 축소) — 패널이 본문 절반을 가리는 시트로 바뀌지 않고 닫힌 채다.
+    await page.setViewportSize(vp)
+    await expect(page.getByTestId('viewer-action-bar')).toBeVisible()
+    await expect(page.getByTestId('viewer-summary-sheet')).toHaveCount(0)
+    await expect(page.getByTestId('viewer-slot-summary')).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
+test.describe('참조된 곳 띠', () => {
+  test('바 위에 띠가 얹혀도 문서 끝줄이 띠에 가려지지 않는다', async ({ authenticatedPage: page }) => {
+    // ✨ 불가(403) + 참조 여러 건 → 띠가 하단 바 위에 얹힌다(판정 R11).
+    const lines = Array.from({ length: 80 }, (_, i) => `줄 ${i + 1}`).join('\n\n')
+    const backlinks = [1, 2, 3].map((n) => ({ sourceType: 'ISSUE', sourceId: n, label: `WP-${n} 검토`, deepLink: `/projects/WP/issues/${n}` }))
+    await stubDriveFiles(page, [{ ...MD(85, 'long.md', `${lines}\n\n마지막 줄`), summary: 403, backlinks }])
+    await openViewer(page, 'long.md')
+    const strip = page.getByTestId('viewer-action-bar').getByTestId('file-backlinks')
+    await expect(strip).toBeVisible()
+    const body = page.getByTestId('preview-body')
+    const last = body.getByText('마지막 줄')
+    await expect(last).toBeAttached()
+    // 띠 높이까지 반영된 여백으로 맨 끝까지 스크롤한 뒤, 끝줄이 하단 겹침 바(띠 포함) 위에 있어야 한다.
+    await expect
+      .poll(async () => {
+        await body.evaluate((el) => el.scrollTo(0, el.scrollHeight))
+        const lastBox = (await last.boundingBox())!
+        const barBox = (await page.getByTestId('viewer-action-bar').boundingBox())!
+        return lastBox.y + lastBox.height <= barBox.y
+      })
+      .toBe(true)
+  })
+})
+
+test.describe('바 숨김과 본문 여백', () => {
+  test('가로 모드(바 기본 숨김) PDF 는 위아래 빈 띠 없이 화면 높이를 다 쓰고, 탭해 바를 보이면 여백이 돌아온다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 844, height: 390 })
+    await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
+    await openViewer(page, 'doc.pdf')
+    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expect(page.getByTestId('viewer-top-bar')).toHaveAttribute('inert', '')
+    const body = page.getByTestId('preview-body')
+    const pad = () => body.evaluate((el) => [getComputedStyle(el).paddingTop, getComputedStyle(el).paddingBottom])
+    // 바가 숨은 동안 본문(pdf-document 바깥)에는 여백이 없고, PDF 스크롤러가 화면 높이를 거의 다 쓴다.
+    await expect.poll(pad).toEqual(['0px', '0px'])
+    await expect.poll(async () => (await page.getByTestId('pdf-document').boundingBox())!.height).toBeGreaterThanOrEqual(388)
+    // 탭해서 바를 보이면 끝줄이 바에 가리지 않도록 여백이 다시 붙는다.
+    await touchTap(page, await centerOf(page.getByTestId('viewer-stage')))
+    await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
+    await expect.poll(async () => (await pad())[0]).not.toBe('0px')
+  })
+})
+
+const LONG_MD = `# 긴 문서\n\n${Array.from({ length: 120 }, (_, k) => `${k + 1}번째 줄 내용입니다.`).join('\n\n')}`
+/** 열이 많은 CSV — 390px 에서 가로로 넘친다. */
+const WIDE_CSV = [
+  Array.from({ length: 14 }, (_, k) => `열${k + 1}`).join(','),
+  ...Array.from({ length: 6 }, (_, r) => Array.from({ length: 14 }, (_, k) => `값${r}-${k}`).join(',')),
+].join('\n')
+
+test.describe('스와이프 넘김', () => {
+  test('왼쪽으로 폭 25% 넘게 밀면 다음, 오른쪽이면 이전', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71), IMG(72)])
+    await openViewer(page, '사진70.png')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchDrag(page, c, { x: c.x - 180, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 3')
+    await touchDrag(page, c, { x: c.x + 180, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 3')
+  })
+
+  test('짧고 느린 끌기는 제자리 — 무대도 원위치', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    const stage = page.getByTestId('viewer-stage')
+    const c = await centerOf(stage)
+    // 손을 떼기 전엔 무대가 손가락을 따라 움직여 있어야 한다 — 아니면 "원위치" 확인이 아무것도 안 한 경우에도 통과한다.
+    await touchDrag(page, c, { x: c.x - 60, y: c.y }, {
+      steps: 6,
+      stepDelayMs: 40,
+      beforeEnd: async () => expect(await stage.evaluate((el) => getComputedStyle(el).transform)).not.toBe('none'),
+    })
+    await expect.poll(() => stage.evaluate((el) => getComputedStyle(el).transform)).toBe('none')
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+  })
+
+  test('처음에서 오른쪽으로 밀어도 넘어가지 않는다(러버밴드, 순환 없음)', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchDrag(page, c, { x: c.x + 250, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+    await expect.poll(() => page.getByTestId('viewer-stage').evaluate((el) => getComputedStyle(el).transform)).toBe('none')
+  })
+
+  test('화면 가장자리 20px 안에서 시작한 스와이프는 무시(iOS 뒤로가기 보호)', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    const vw = page.viewportSize()!.width
+    const y = (await centerOf(page.getByTestId('viewer-stage'))).y
+    await touchDrag(page, { x: vw - 8, y }, { x: vw - 250, y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+  })
+
+  test('넓은 표는 내용이 먼저 — 가장자리에 닿은 뒤 다시 밀어야 다음 파일', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [{ id: 75, name: 'wide.csv', mimeType: 'text/csv', body: WIDE_CSV }, IMG(76)])
+    await openViewer(page, 'wide.csv')
+    const table = page.getByTestId('csv-table')
+    await expect(table).toBeVisible()
+    const c = await centerOf(table)
+    await touchDrag(page, { x: c.x + 100, y: c.y }, { x: c.x - 100, y: c.y })
+    // 넘기지 않은 것뿐 아니라 표가 실제로 먼저 스크롤됐는지 — 제스처가 아무 일도 안 한 경우와 구분.
+    await expect.poll(() => table.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+    // 오른쪽 끝까지 스크롤된 상태에서 다시 밀면 넘어간다.
+    await table.evaluate((el) => (el.scrollLeft = el.scrollWidth))
+    await touchDrag(page, { x: c.x + 100, y: c.y }, { x: c.x - 100, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
+  })
+
+  test('세로 끌기는 문서 스크롤(네이티브) — 넘기지 않는다, 가로 스와이프는 스크롤을 건드리지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(77, 'long.md', LONG_MD), IMG(78)])
+    await openViewer(page, 'long.md')
+    const body = page.getByTestId('preview-body')
+    await expect(body).toContainText('1번째 줄')
+    const c = await centerOf(body)
+    await touchDrag(page, { x: c.x, y: c.y + 150 }, { x: c.x, y: c.y - 150 })
+    await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+    // 스크롤된 문서 위에서도 가로 스와이프는 넘김(가로 스크롤 영역이 없으므로).
+    await touchDrag(page, c, { x: c.x - 180, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
+  })
+
+  test('본문 안 버튼(다시 시도) 위에서 시작한 스와이프는 넘기지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await page.route((u) => u.pathname === '/api/v1/drive/files/70/content', (r) => r.fulfill({ status: 500, body: '' }))
+    await openViewer(page, '사진70.png')
+    const retry = page.getByRole('button', { name: '다시 시도' })
+    await expect(retry).toBeVisible()
+    const c = await centerOf(retry)
+    await touchDrag(page, c, { x: c.x - 200, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+  })
+
+  test('스와이프 도중 두 번째 손가락이 닿으면 넘기지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(72), IMG(73)])
+    await openViewer(page, '메모72.md')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchSwipeThenSecondFinger(page, c, -180)
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+    await expect.poll(() => page.getByTestId('viewer-stage').evaluate((el) => getComputedStyle(el).transform)).toBe('none')
+  })
+
+  test('iPad 가로(1180px, 터치) — 데스크톱 배치에서도 스와이프가 동작한다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1180, height: 820 })
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    // 데스크톱 배치 — 하단 바 없음, 헤더 다운로드 있음.
+    await expect(page.getByTestId('viewer-action-bar')).toHaveCount(0)
+    await expect(page.getByTestId('preview-download')).toBeVisible()
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchDrag(page, c, { x: c.x - 400, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toContainText('2 / 2')
+  })
+})
+
+test.describe('아래로 닫기·탭 바 토글', () => {
+  test('원래 크기 이미지에서 아래로 쓸면 닫히고 URL 의 preview 도 사라진다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchDrag(page, { x: c.x, y: c.y - 100 }, { x: c.x, y: c.y + 250 })
+    await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
+    await expect(page).toHaveURL(new RegExp(`/drive/spaces/${SPACE_ID}$`))
+  })
+
+  test('문서는 맨 위에서 당길 때만 닫힌다 — 중간이면 스크롤', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(77, 'long.md', LONG_MD)])
+    await openViewer(page, 'long.md')
+    const body = page.getByTestId('preview-body')
+    await expect(body).toContainText('1번째 줄')
+    await body.evaluate((el) => (el.scrollTop = 600))
+    const c = await centerOf(body)
+    await touchDrag(page, { x: c.x, y: c.y - 120 }, { x: c.x, y: c.y + 120 })
+    await expect(page.getByTestId('attachment-viewer')).toBeVisible()
+    await body.evaluate((el) => (el.scrollTop = 0))
+    await touchDrag(page, { x: c.x, y: c.y - 120 }, { x: c.x, y: c.y + 220 })
+    await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
+  })
+
+  test('탭하면 상·하단 바와 ‹ › 가 숨고(inert) 다시 탭하면 돌아온다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchTap(page, c)
+    await expect(page.getByTestId('viewer-top-bar')).toHaveAttribute('inert', '')
+    await expect(page.getByTestId('viewer-action-bar')).toHaveAttribute('inert', '')
+    // ‹ › 도 바와 함께 숨는다(inert — 접근성 트리·탭 순서에서 빠짐).
+    await expect(page.locator('button[aria-label="다음 파일"]')).toHaveAttribute('inert', '')
+    await touchTap(page, c)
+    await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
+    await expect(page.locator('button[aria-label="다음 파일"]')).not.toHaveAttribute('inert', '')
+  })
+
+  test('숨긴 바에는 Tab 이 들어가지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    await touchTap(page, await centerOf(page.getByTestId('viewer-stage')))
+    await expect(page.getByTestId('viewer-top-bar')).toHaveAttribute('inert', '')
+    for (let k = 0; k < 6; k++) {
+      await page.keyboard.press('Tab')
+      const inBars = await page.evaluate(() =>
+        !!document.activeElement?.closest('[data-testid="viewer-top-bar"], [data-testid="viewer-action-bar"]'))
+      expect(inBars).toBe(false)
+    }
+  })
+
+  // 참고: 탭의 click 이 포커스를 본문·다이얼로그로 옮기므로 이 테스트는 R7 없이도 통과할 수 있다 — R7 은 방어적 규칙(블루투스 키보드·스크린리더 경로)이고 회귀 신호로만 둔다.
+  test('끝까지 스와이프한 뒤에도 탭이 바를 숨긴다(제스처 넘김은 ‹ › 로 포커스를 옮기지 않음)', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchDrag(page, c, { x: c.x - 180, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
+    await touchTap(page, c)
+    await expect(page.getByTestId('viewer-top-bar')).toHaveAttribute('inert', '')
+  })
+
+  test('탭 직후(300ms 안) 스와이프하면 대기 중이던 바 토글이 취소된다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    // 타이머를 멈춰 둔다 — 탭과 스와이프 사이 CDP 왕복이 벽시계 300ms 를 넘어도 토글 타이머가 먼저 터지지 않게(결정적).
+    await pausePageClock(page)
+    await touchTap(page, c)
+    await touchDrag(page, c, { x: c.x - 180, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
+    // 탭 판정 지연(300ms)을 넘겨 흘려도 취소된 토글은 터지지 않는다.
+    await page.clock.runFor(400)
+    await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
+  })
+
+  test('길게 누르기(500ms 이상)는 탭이 아니다 — 바를 숨기지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await pausePageClock(page)
+    // 제자리에서 600ms 누른 뒤 뗀다 — 멈춘 페이지 시계를 누른 동안 600ms 흘린다(실제로 기다리지 않음).
+    await touchHold(page, c, 600, { pageClock: true })
+    await page.clock.runFor(400)
+    await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
+  })
+
+  test('요약 시트가 열린 동안 본문을 탭해도 바를 숨기지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(80, 'plan.md')])
+    await openViewer(page, 'plan.md')
+    await page.getByTestId('viewer-slot-summary').tap()
+    const sheet = page.getByTestId('viewer-summary-sheet')
+    await expect(sheet.getByTestId('drive-summary-card')).toBeVisible()
+    // 시트는 무대 밖이라 시트 위 탭은 애초에 제스처를 타지 않는다 — 시트가 열린 채 "무대"(시트에 가리지 않은 위쪽 본문)를 탭해
+    // toggleBars 의 sheetOpen 가드가 실제로 막는지 확인한다.
+    const stage = page.getByTestId('viewer-stage')
+    const sb = (await stage.boundingBox())!
+    const top = (await sheet.boundingBox())!.y
+    // 상단 바(약 56px) 아래 ~ 시트 위 사이의 본문 지점.
+    const y = sb.y + 80
+    expect(y).toBeLessThan(top)
+    await pausePageClock(page)
+    await touchTap(page, { x: sb.x + sb.width / 2, y })
+    // 탭 판정 지연(300ms)을 흘려 토글 타이머가 실제로 돈 뒤에도 sheetOpen 가드로 바가 그대로다.
+    await page.clock.runFor(400)
+    await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
+  })
+
+  test('가로 모드는 바가 기본 숨김, 탭하면 표시 — 세로로 돌리면 다시 보이고 넘침 없음', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 844, height: 390 })
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    await expect(page.getByTestId('viewer-top-bar')).toHaveAttribute('inert', '')
+    await touchTap(page, await centerOf(page.getByTestId('viewer-stage')))
+    await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
+    await page.setViewportSize({ width: 844, height: 390 })
+    await expect(page.getByTestId('viewer-top-bar')).toHaveAttribute('inert', '')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+})
+
+test.describe('핀치·두 번 탭 확대', () => {
+  test('이미지 두 번 탭 = 2배(탭 지점 기준), 다시 두 번 탭 = 맞춤 — 바는 토글되지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    const stage = page.getByTestId('viewer-stage')
+    const img = page.getByRole('img', { name: '사진70.png' })
+    await expect(img).toBeVisible()
+    const w1 = (await img.boundingBox())!.width
+    const b = (await stage.boundingBox())!
+    // 이미지는 rAF 가 필요 없어 타이머를 멈춰 둔다 — 두 탭 사이에 단일 탭 토글(300ms)이 벽시계로 터지는 경합 제거.
+    await pausePageClock(page)
+    await touchDoubleTap(page, { x: b.x + b.width * 0.8, y: b.y + b.height / 2 })
+    await expect(stage).toHaveAttribute('data-zoom', '2')
+    await expect.poll(async () => (await img.boundingBox())!.width).toBeGreaterThan(w1 * 1.8)
+    // 오른쪽을 두 번 탭했으니 그 지점이 제자리에 남도록 오른쪽으로 스크롤돼 있다.
+    await expect.poll(() => page.getByTestId('preview-body').evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
+    // 두 번 탭 뒤 단일 탭 판정 지연(300ms)을 흘려도 바가 토글되지 않는다.
+    await page.clock.runFor(400)
+    await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
+    await touchDoubleTap(page, { x: b.x + b.width / 2, y: b.y + b.height / 2 })
+    await expect(stage).toHaveAttribute('data-zoom', '1')
+  })
+
+  test('이미지 핀치로 벌리면 확대(최대 3배), 모으면 맞춤 아래로 내려가지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    const stage = page.getByTestId('viewer-stage')
+    await expect(page.getByRole('img', { name: '사진70.png' })).toBeVisible()
+    const c = await centerOf(stage)
+    await touchPinch(page, c, 80, 200)
+    await expect.poll(async () => Number(await stage.getAttribute('data-zoom'))).toBeGreaterThan(1.5)
+    await touchPinch(page, c, 60, 600)
+    await expect(stage).toHaveAttribute('data-zoom', '3')
+    await touchPinch(page, c, 300, 40)
+    await expect(stage).toHaveAttribute('data-zoom', '1')
+    await expect.poll(() => stage.evaluate((el) => getComputedStyle(el).transform)).toBe('none')
+  })
+
+  test('확대한 이미지는 가로 끌기가 넘김이 아니라 팬', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    const stage = page.getByTestId('viewer-stage')
+    await expect(page.getByRole('img', { name: '사진70.png' })).toBeVisible()
+    const c = await centerOf(stage)
+    await touchDoubleTap(page, c)
+    await expect(stage).toHaveAttribute('data-zoom', '2')
+    await touchDrag(page, c, { x: c.x - 120, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+  })
+
+  test('PDF 핀치 확대는 페이지를 그 배율로 다시 그린다(1~3배), 두 번 탭은 2배', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
+    await openViewer(page, 'doc.pdf')
+    const page1 = page.getByTestId('pdf-page-1')
+    await expect(page1).toBeVisible()
+    const stage = page.getByTestId('viewer-stage')
+    const w1 = (await page1.boundingBox())!.width
+    // 맞춤 상태의 캔버스 백킹 폭(= CSS 폭 × DPR) — 렌더가 끝날 때까지 기다린 뒤 잰다.
+    await expect.poll(() => page1.evaluate((el: HTMLCanvasElement) => el.width)).toBeGreaterThan(0)
+    const backing1 = await page1.evaluate((el: HTMLCanvasElement) => el.width)
+    const c = await centerOf(stage)
+    await touchPinch(page, c, 80, 200)
+    await expect.poll(async () => Number(await stage.getAttribute('data-zoom'))).toBeGreaterThan(1.5)
+    await expect.poll(async () => (await page1.boundingBox())!.width).toBeGreaterThan(w1 * 1.5)
+    // 캔버스 백킹 해상도도 커졌다(CSS 확대가 아니라 그 배율로 재렌더 — 글자 선명).
+    await expect.poll(() => page1.evaluate((el: HTMLCanvasElement) => el.width)).toBeGreaterThan(backing1 * 1.3)
+    await touchDoubleTap(page, c)
+    await expect(stage).toHaveAttribute('data-zoom', '1')
+    await touchDoubleTap(page, c)
+    await expect(stage).toHaveAttribute('data-zoom', '2')
+  })
+
+  test('PDF 축소(3배 → 맞춤 쪽)에서도 보던 위치가 비례해 유지된다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
+    await openViewer(page, 'doc.pdf')
+    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    const stage = page.getByTestId('viewer-stage')
+    const doc = page.getByTestId('pdf-document')
+    const c = await centerOf(stage)
+    await touchPinch(page, c, 60, 600)
+    await expect(stage).toHaveAttribute('data-zoom', '3')
+    // 문서 중간쯤으로 스크롤해 둔 뒤(최대값 근처가 아닌 위치) 반쯤 모은다.
+    await doc.evaluate((el) => (el.scrollTop = Math.round(el.scrollHeight * 0.4)))
+    const ratioBefore = await doc.evaluate((el) => el.scrollTop / el.scrollHeight)
+    await touchPinch(page, c, 300, 200)
+    await expect.poll(async () => Number(await stage.getAttribute('data-zoom'))).toBeLessThan(3)
+    // 축소 뒤 스크롤 비율이 크게 어긋나지 않는다(브라우저가 잘라 낸 값을 기준으로 쓰면 맨 끝/맨 앞으로 튄다).
+    await expect.poll(async () => Math.abs((await doc.evaluate((el) => el.scrollTop / el.scrollHeight)) - ratioBefore)).toBeLessThan(0.08)
+  })
+
+  test('두 번 탭한 지점이 확대 뒤에도 손가락 아래 남는다 — 좌우 여백이 있는 세로 이미지', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [{ id: 75, name: 'tall.png', mimeType: 'image/png', body: solidPng(400, 1000) }])
+    await openViewer(page, 'tall.png')
+    const img = page.getByRole('img', { name: 'tall.png' })
+    // 맞춤 폭을 잰 뒤(명시 폭이 붙은 뒤)여야 배율이 크기에 반영된다.
+    await expect.poll(() => img.evaluate((el) => el.style.width)).not.toBe('')
+    const b = (await img.boundingBox())!
+    const stageBox = (await page.getByTestId('viewer-stage').boundingBox())!
+    // 맞춤에서는 좌우에 여백(가운데 정렬 auto 여백 + p-4)이 있다 — 단순 비례 모델이 어긋나던 조건.
+    expect(b.width).toBeLessThan(stageBox.width - 60)
+    const p = { x: b.x + b.width * 0.7, y: b.y + b.height * 0.3 }
+    const f = await fractionOf(img, p)
+    await pausePageClock(page)
+    await touchDoubleTap(page, p)
+    await expect(page.getByTestId('viewer-stage')).toHaveAttribute('data-zoom', '2')
+    // 2배에서는 가로·세로 모두 넘쳐 스크롤로 맞춘다 — 탭한 그림 지점이 여전히 손가락 아래.
+    await expect.poll(() => anchorDrift(img, f, p)).toBeLessThan(ANCHOR_TOLERANCE_PX)
+    expect(await page.getByTestId('preview-body').evaluate((el) => el.scrollLeft > 0 && el.scrollTop > 0)).toBe(true)
+  })
+
+  test('PDF 뒤 페이지에서 두 번 탭해도 탭한 지점이 제자리 — 페이지 간격·여백이 쌓여도 어긋나지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
+    await openViewer(page, 'doc.pdf')
+    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    const p3 = page.getByTestId('pdf-page-3')
+    const p = await pointOnLastPdfPage(page)
+    const f = await fractionOf(p3, p)
+    await touchDoubleTap(page, p)
+    await expect(page.getByTestId('viewer-stage')).toHaveAttribute('data-zoom', '2')
+    await expect.poll(() => anchorDrift(p3, f, p)).toBeLessThan(ANCHOR_TOLERANCE_PX)
+  })
+
+  test('PDF 뒤 페이지에서 핀치한 두 손가락 중점이 확대 뒤에도 제자리', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
+    await openViewer(page, 'doc.pdf')
+    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    const p3 = page.getByTestId('pdf-page-3')
+    const p = await pointOnLastPdfPage(page)
+    const f = await fractionOf(p3, p)
+    await touchPinch(page, p, 80, 200)
+    await expect.poll(async () => Number(await page.getByTestId('viewer-stage').getAttribute('data-zoom'))).toBeGreaterThan(1.5)
+    await expect.poll(() => anchorDrift(p3, f, p)).toBeLessThan(ANCHOR_TOLERANCE_PX)
+    // 미리보기 scale 은 확정 뒤 남지 않는다.
+    await expect.poll(() => page.getByTestId('viewer-stage').evaluate((el) => getComputedStyle(el).transform)).toBe('none')
+  })
+
+  test('문서를 손가락으로 스크롤하는 중 두 번째 손가락이 닿으면 핀치 미리보기·확대를 하지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
+    await openViewer(page, 'doc.pdf')
+    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    const stage = page.getByTestId('viewer-stage')
+    const doc = page.getByTestId('pdf-document')
+    const c = await centerOf(stage)
+    let transformDuringPinch = 'unset'
+    // 위로 끌어 문서를 아래로 스크롤(네이티브) — 스크롤이 시작된 뒤 두 번째 손가락을 얹고 벌린다.
+    await touchScrollThenPinch(page, { x: c.x - 60, y: c.y + 100 }, -160, 160, {
+      duringPinch: async () => {
+        transformDuringPinch = await stage.evaluate((el) => el.style.transform)
+      },
+    })
+    // 실제로 네이티브 스크롤이 일어난 상황이었다(재현 조건 확인).
+    expect(await doc.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+    expect(transformDuringPinch).toBe('')
+    await expect(stage).toHaveAttribute('data-zoom', '1')
+  })
+
+  test('확대 대상이 아닌 문서(마크다운)는 뷰어 배율이 그대로이고, 핀치는 브라우저 페이지 확대로 간다(WCAG 1.4.4)', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(72)])
+    await openViewer(page, '메모72.md')
+    const stage = page.getByTestId('viewer-stage')
+    await touchPinch(page, await centerOf(stage), 80, 240)
+    await expect(stage).toHaveAttribute('data-zoom', '1')
+    // touch-action: manipulation 이라 브라우저가 페이지를 확대한다(pan-x pan-y 였을 땐 1 그대로 — 글자를 키울 수단이 없었다).
+    await expect.poll(() => page.evaluate(() => window.visualViewport!.scale)).toBeGreaterThan(1)
+  })
+
+  test('형식별 무대 touch-action — 맞춤 이미지 none, PDF pan, 확대 대상이 아닌 문서는 브라우저 핀치를 살리는 manipulation', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), { id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }, MD(72)])
+    const touchAction = () =>
+      page.getByTestId('viewer-stage').evaluate((el) => [getComputedStyle(el).touchAction, getComputedStyle(el.querySelector('[data-testid="preview-body"]')!).touchAction])
+    await openViewer(page, '사진70.png')
+    await expect.poll(touchAction).toEqual(['none', 'none'])
+    await page.getByRole('button', { name: '다음 파일' }).tap()
+    await expect(page.getByTestId('pdf-document')).toBeVisible()
+    await expect.poll(touchAction).toEqual(['pan-x pan-y', 'pan-x pan-y'])
+    await page.getByRole('button', { name: '다음 파일' }).tap()
+    await expect(page.getByTestId('preview-body')).toContainText('본문')
+    await expect.poll(touchAction).toEqual(['manipulation', 'manipulation'])
+  })
+
+  test('브라우저 자체 확대 중(visualViewport.scale > 1)에는 한 손가락 끌기가 넘김이 아니라 페이지 팬', async ({ authenticatedPage: page }) => {
+    // chromium 에뮬레이션은 CDP 핀치로 페이지 배율을 바꾸지 않으므로 scale 만 흉내 낸다 — 판정 입력은 이 값 하나다.
+    await page.addInitScript(() => {
+      const vv = window.visualViewport
+      if (vv) Object.defineProperty(vv, 'scale', { configurable: true, get: () => (window as unknown as { __vvScale?: number }).__vvScale ?? 1 })
+    })
+    await stubDriveFiles(page, [MD(72), MD(73)])
+    await openViewer(page, '메모72.md')
+    const stage = page.getByTestId('viewer-stage')
+    const c = await centerOf(stage)
+    await page.evaluate(() => ((window as unknown as { __vvScale: number }).__vvScale = 2))
+    // 손을 떼기 전 무대가 손가락을 따라 움직이지 않았다(넘김으로 잠기지 않음) — 넘김 판정이 비동기로 늦게 반영돼도 결정적인 확인.
+    let transformWhileDragging = ''
+    await touchDrag(page, c, { x: c.x - 200, y: c.y }, {
+      beforeEnd: async () => {
+        transformWhileDragging = await stage.evaluate((el) => el.style.transform)
+      },
+    })
+    expect(transformWhileDragging).toBe('')
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+    // 같은 끌기도 배율이 1 로 돌아오면 다시 넘김이다(가드가 확대 상태에만 걸린다는 대조).
+    await page.evaluate(() => ((window as unknown as { __vvScale: number }).__vvScale = 1))
+    await touchDrag(page, c, { x: c.x - 200, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
+  })
+
+  test('핀치 중 세 번째 손가락이 닿으면 확정 없이 미리보기 배율을 걷어낸다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    const stage = page.getByTestId('viewer-stage')
+    await expect(page.getByRole('img', { name: '사진70.png' })).toBeVisible()
+    await touchPinchThenThirdFinger(page, await centerOf(stage), 80, 240)
+    await expect.poll(() => stage.evaluate((el) => getComputedStyle(el).transform)).toBe('none')
+    await expect(stage).toHaveAttribute('data-zoom', '1')
+  })
+
+  test('모바일 배치 + 터치에서는 플로팅 확대 툴바가 없다(확대는 핀치·두 번 탭)', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    await expect(page.getByRole('img', { name: '사진70.png' })).toBeVisible()
+    await expect(page.getByTestId('viewer-zoom-bar')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '확대' })).toHaveCount(0)
+  })
+})
+
+/** Web Share 를 흉내 낸다 — 호출된 파일을 window.__shared 에 기록. mode='abort' 면 사용자가 취소한 것처럼 AbortError. */
+async function stubWebShare(page: Page, mode: 'ok' | 'abort' = 'ok', opts: { standalone?: boolean } = {}) {
+  await page.addInitScript(
+    ([m, standalone]) => {
+      const w = window as unknown as { __shared: { name: string; type: string; size: number }[] }
+      w.__shared = []
+      Object.defineProperty(navigator, 'canShare', { configurable: true, value: (d?: { files?: File[] }) => !!d?.files?.length })
+      Object.defineProperty(navigator, 'share', {
+        configurable: true,
+        value: async (d: { files: File[] }) => {
+          w.__shared.push(...d.files.map((f) => ({ name: f.name, type: f.type, size: f.size })))
+          if (m === 'abort') throw new DOMException('cancel', 'AbortError')
+        },
+      })
+      if (standalone) Object.defineProperty(navigator, 'standalone', { configurable: true, value: true })
+    },
+    [mode, !!opts.standalone] as const,
+  )
+}
+const shared = (page: Page) => page.evaluate(() => (window as unknown as { __shared: unknown[] }).__shared)
+
+test.describe('공유·저장', () => {
+  test('blob 이 오기 전엔 "받는 중" 비활성, 오면 공유 시트에 그 파일을 넘긴다', async ({ authenticatedPage: page }) => {
+    await stubWebShare(page)
+    await stubDriveFiles(page, [{ ...IMG(70, 'site.png'), delayMs: 1500 }])
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await page.getByRole('button', { name: 'site.png', exact: true }).tap()
+    const share = page.getByTestId('viewer-slot-share')
+    await expect(share).toBeDisabled()
+    await expect(share).toHaveAccessibleName('공유 (받는 중)')
+    // 받는 중은 돌아가는 아이콘 + "받는 중" 글자 — "공유할 수 없음"(흐린 공유 아이콘)과 눈으로 구분된다.
+    await expect(share.getByTestId('viewer-slot-share-spinner')).toBeVisible()
+    await expect(share).toHaveText('받는 중')
+    await expect(share).toBeEnabled({ timeout: 10_000 })
+    await expect(share.getByTestId('viewer-slot-share-spinner')).toHaveCount(0)
+    await expect(share).toHaveText('공유')
+    await share.tap()
+    await expect.poll(() => shared(page)).toEqual([{ name: 'site.png', type: 'image/png', size: solidPng(800, 600).length }])
+  })
+
+  test('공유 시트를 취소해도 오류 토스트가 뜨지 않는다', async ({ authenticatedPage: page }) => {
+    await stubWebShare(page, 'abort')
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    await page.getByTestId('viewer-slot-share').tap()
+    await expect.poll(async () => (await shared(page)).length).toBe(1)
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 취소 뒤 토스트가 "뜨지 않음" 부재 확인이라 조건 대기로 바꿀 수 없다
+    await page.waitForTimeout(500)
+    await expect(page.getByText('공유하지 못했습니다')).toHaveCount(0)
+  })
+
+  test('blob 을 받지 않는 형식(미지원 zip)은 받는 중이 아니라 "공유할 수 없음"', async ({ authenticatedPage: page }) => {
+    await stubWebShare(page)
+    await stubDriveFiles(page, [{ id: 79, name: 'pack.zip', mimeType: 'application/zip', body: 'PK' }])
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await page.getByRole('button', { name: 'pack.zip', exact: true }).tap()
+    await expect(page.getByTestId('preview-unsupported')).toBeVisible()
+    await expect(page.getByTestId('viewer-slot-share')).toHaveAccessibleName('공유할 수 없음')
+    await expect(page.getByTestId('viewer-slot-share')).toBeDisabled()
+    await expect(page.getByTestId('viewer-slot-share')).toHaveText('공유')
+    await expect(page.getByTestId('viewer-slot-share-spinner')).toHaveCount(0)
+  })
+
+  for (const [label, canShare] of [
+    ['canShare 가 없는', 'absent'],
+    ['파일 공유를 거부하는(canShare 거짓)', 'false'],
+  ] as const) {
+    test(`${label} 브라우저는 공유 칸을 비활성이 아니라 빈칸으로 둔다(위치 유지)`, async ({ authenticatedPage: page }) => {
+      await page.addInitScript((mode) => {
+        // 데스크톱 Chrome·Firefox 처럼 파일 공유를 못 하는 브라우저를 흉내 낸다 — 헤드리스 기본 동작에 기대지 않는다.
+        if (mode === 'absent') Object.defineProperty(navigator, 'canShare', { configurable: true, value: undefined })
+        else Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false })
+        Object.defineProperty(navigator, 'share', { configurable: true, value: async () => {} })
+      }, canShare)
+      await stubDriveFiles(page, [IMG(70)])
+      await openViewer(page, '사진70.png')
+      await expect(page.getByRole('img', { name: '사진70.png' })).toBeVisible()
+      const bar = page.getByTestId('viewer-action-bar')
+      await expect(bar.locator('[data-slot-id="share"]')).toHaveAttribute('data-state', 'empty')
+      await expect(page.getByTestId('viewer-slot-share')).toHaveCount(0)
+      // 빈칸도 자리는 차지한다 — 저장 칸 바로 오른쪽 1/4 폭.
+      const w = page.viewportSize()!.width
+      const b = (await bar.locator('[data-slot-id="share"]').boundingBox())!
+      expect(Math.abs(b.width - w / 4)).toBeLessThan(2)
+    })
+  }
+
+  test('iOS 홈 화면 앱은 ⬇ 저장이 공유 시트로 간다(blob 이 있을 때) — 다운로드는 일어나지 않는다', async ({ authenticatedPage: page }) => {
+    await stubWebShare(page, 'ok', { standalone: true })
+    await stubDriveFiles(page, [MD(72, 'note.md')])
+    // 다운로드 경로(/download 요청·브라우저 다운로드 이벤트)를 세어 공유 시트 경로만 탔는지 본다.
+    let downloadRequests = 0
+    let downloads = 0
+    page.on('request', (r) => {
+      if (new URL(r.url()).pathname === '/api/v1/drive/files/72/download') downloadRequests++
+    })
+    page.on('download', () => downloads++)
+    await openViewer(page, 'note.md')
+    await expect(page.getByTestId('preview-body')).toContainText('본문')
+    await page.getByTestId('preview-download').tap()
+    await expect.poll(() => shared(page)).toEqual([expect.objectContaining({ name: 'note.md' })])
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 다운로드가 "일어나지 않음" 부재 확인이라 조건 대기로 바꿀 수 없다
+    await page.waitForTimeout(500)
+    expect(downloadRequests).toBe(0)
+    expect(downloads).toBe(0)
+  })
+
+  test('다른 파일로 넘기면 이전 파일 blob 으로 공유하지 않는다 — 새 파일이 올 때까지 받는 중, 오면 그 파일', async ({ authenticatedPage: page }) => {
+    await stubWebShare(page)
+    await stubDriveFiles(page, [IMG(70, 'first.png'), { ...MD(71, 'second.md'), delayMs: 1500 }])
+    await openViewer(page, 'first.png')
+    const share = page.getByTestId('viewer-slot-share')
+    await expect(share).toBeEnabled()
+    await page.getByRole('button', { name: '다음 파일' }).tap()
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
+    // 첫 파일 blob 이 메모리에 있어도 둘째 파일의 공유 칸은 받는 중(비활성)이다.
+    await expect(share).toBeDisabled()
+    await expect(share).toHaveAccessibleName('공유 (받는 중)')
+    await expect(share).toBeEnabled({ timeout: 10_000 })
+    await share.tap()
+    await expect.poll(() => shared(page)).toEqual([expect.objectContaining({ name: 'second.md' })])
+  })
+})

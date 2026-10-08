@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { FileX } from 'lucide-react'
+import { memo, useEffect, useRef, useState } from 'react'
 
 import { blobToText, toVerifiedPdfBlob } from '../../api/blobContent'
 import { formatFileSize } from '../../lib/formatters'
@@ -45,17 +46,35 @@ function PaperCard({ children }: { children: React.ReactNode }) {
  * 뷰어 본문 — 종류별 렌더와 상태 화면(로딩·오류·10MB 확인·미지원·사용 불가).
  * 항목이 바뀌면 이전 결과를 비우고 다시 변환한다(넘김 대응 — 호출부가 key={item.key} 도 준다).
  * 기존 드라이브 미리보기 모달의 본문 변환 로직을 이식한 것이며, PDF 는 검증된 blob 을 pdf.js(PdfPages)로 전 페이지 그린다.
+ * memo — 뷰어는 끌기 끝·바 토글·시트·blob 보고마다 다시 그려지는데 본문 props(항목·배율·고정 콜백)는 그대로인 경우가 많다.
+ * 콜백 props(onPage·onSource)는 호출부가 항목 key 동안 고정된 참조로 넘긴다.
  */
-export function ViewerBody({
+export const ViewerBody = memo(function ViewerBody({
   item,
   zoom,
   onPage,
+  chromeInset,
+  barsHidden,
+  onSource,
 }: {
   item: ViewerItem
   /** 이미지·PDF 확대 배율(1 = 폭 맞춤). */
   zoom: number
   /** PDF 현재 페이지 보고 — 호출부가 useCallback 으로 고정해 넘긴다(PdfPages 이펙트 의존성). */
   onPage: (current: number, total: number) => void
+  /**
+   * 모바일 바가 본문 위에 겹쳐 뜰 때(WP-278) — 문서형(이미지 외)은 첫·끝 줄이 바에 가리지 않게 위·아래 여백을 둔다.
+   * 이미지는 사진 앱처럼 화면 전체에 맞추고 반투명 바가 위에 겹친다.
+   */
+  chromeInset?: boolean
+  /** 모바일 바가 숨겨진 상태 — 본문 밖 스크롤러를 가진 형식(PDF·HTML·DOCX)은 여백을 거둬 전체 높이를 쓴다. */
+  barsHidden?: boolean
+  /**
+   * 원본 blob 상태 보고(WP-278) — 모바일 ⤴ 공유는 제스처 직후 동기 호출이 필요해 뷰어가 blob 을 미리 들고 있어야 한다.
+   * fetches = 이 항목이 지금 blob 을 받는(받을) 상태인가 — 미지원·사용 불가·10MB 동의 대기·오류면 거짓.
+   * 항목 구분은 호출부 몫 — 이 컴포넌트는 key={item.key} 로 항목마다 새로 붙으므로 보고는 늘 지금 항목의 것이다.
+   */
+  onSource?: (s: { blob: Blob | null; fetches: boolean }) => void
 }) {
   const kind = resolvePreviewKind(item.mimeType)
   const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
@@ -79,6 +98,15 @@ export function ViewerBody({
   }, [bodyEl, kind])
   const fitWidth = natural && box ? fitImageWidth(natural.w, natural.h, box.w, box.h) : null
   const error = source.error || convertError
+  // 부모(뷰어)에 blob 상태를 알린다 — 콜백은 최신값 ref 로 읽어 이펙트가 콜백 정체성에 흔들리지 않게.
+  const onSourceRef = useRef(onSource)
+  useEffect(() => {
+    onSourceRef.current = onSource
+  })
+  const fetches = renderable && !item.unavailable && confirmSize == null && !error
+  useEffect(() => {
+    onSourceRef.current?.({ blob, fetches })
+  }, [item.key, blob, fetches])
   // #775: 에러도 아니고 콘텐츠도 아직 없는 렌더 가능 상태 = 비동기 페치 진행 중 — 빈 화면 대신 스켈레톤.
   const loading =
     !item.unavailable &&
@@ -154,14 +182,31 @@ export function ViewerBody({
       {...(zoomScroll ? scrollRegionProps('미리보기 스크롤 영역') : {})}
       // 이미지는 flex + 자식 m-auto 로 가운데 둔다 — 넘치면 auto 여백이 0 이 되어(안전한 가운데 정렬) 위·왼쪽까지 스크롤된다.
       // (items-center/justify-center 는 넘친 부분을 위·왼쪽 바깥으로 밀어내 스크롤로 닿을 수 없게 만든다.)
-      className={cn('min-h-0 flex-1 overflow-auto', !fillsFrame && 'p-4', kind === 'IMAGE' && 'flex', zoomScroll && SCROLL_REGION_RING_INSET)}
+      className={cn(
+        'min-h-0 flex-1 overflow-auto',
+        !fillsFrame && 'p-4',
+        kind === 'IMAGE' && 'flex',
+        zoomScroll && SCROLL_REGION_RING_INSET,
+        // 상단 바(3.5rem=min-h-14 + 노치)·하단 겹침 바 높이 + 여유 1rem 만큼 비켜선다.
+        // 하단은 AttachmentViewer 가 잰 실제 높이(--viewer-bottom-chrome — "참조된 곳" 띠·홈 인디케이터 포함), 재기 전엔 4칸 바(3.5rem)+안전영역.
+        // 단 바를 숨기면(가로 기본·탭) PDF·HTML·DOCX 처럼 본문 밖에 스크롤러를 가진(fillsFrame) 형식은 여백을 거둔다 —
+        // 여백이 스크롤 영역 밖 고정 띠가 되어 가로 화면의 4할 가까이를 비우기 때문. 텍스트류는 여백이 내용과 함께 스크롤되므로
+        // 그대로 둔다(토글 때 글이 들썩이지 않게).
+        chromeInset &&
+          kind !== 'IMAGE' &&
+          !(fillsFrame && barsHidden) &&
+          'pt-[calc(3.5rem+env(safe-area-inset-top))] pb-[calc(var(--viewer-bottom-chrome,calc(3.5rem+env(safe-area-inset-bottom)))+1rem)]',
+      )}
       data-testid="preview-body"
     >
-      {/* 드라이브 링크 원본이 휴지통·삭제 — 받지 않고 안내만(다운로드 없음). */}
+      {/* 드라이브 링크 원본이 휴지통·삭제 — 받지 않고 안내만(다운로드 없음).
+          미지원 형식 화면과 같은 배치(가운데 큰 아이콘·이름·문구)로 맞춰 상태 화면끼리 생김새가 같게 한다. */}
       {item.unavailable && (
-        <p className="py-12 text-center text-sm text-muted-foreground" data-testid="preview-unavailable">
-          원본 파일을 사용할 수 없습니다.
-        </p>
+        <div className="flex flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-unavailable">
+          <FileX className="h-16 w-16 text-muted-foreground" aria-hidden />
+          <p className="text-sm font-medium break-all">{item.name}</p>
+          <p className="text-sm text-muted-foreground">원본 파일을 사용할 수 없습니다.</p>
+        </div>
       )}
       {!item.unavailable && error && (
         <div className="flex flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-error">
@@ -181,7 +226,7 @@ export function ViewerBody({
           <FileTypeIcon mimeType={item.mimeType} className="h-16 w-16" />
           <p className="text-sm font-medium break-all">{item.name}</p>
           {item.sizeBytes != null && <p className="text-xs text-muted-foreground">{formatFileSize(item.sizeBytes)}</p>}
-          <p className="text-sm text-muted-foreground">미리보기를 지원하지 않는 형식입니다.</p>
+          <p className="text-sm text-muted-foreground">이 형식은 미리 볼 수 없어요</p>
           <Button variant="outline" onClick={() => void source.download()}>
             다운로드
           </Button>
@@ -202,6 +247,8 @@ export function ViewerBody({
           src={content.url}
           alt={item.name}
           onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+          // 확대 기준 요소 표식 — 핀치·두 번 탭 기준점을 이 요소 안 비율로 잡는다(여백·가운데 정렬 여백은 배율을 따르지 않으므로).
+          data-zoom-content=""
           className={cn('m-auto shrink-0', fitWidth == null ? 'max-h-full max-w-full object-contain' : 'h-auto max-h-none max-w-none')}
           style={fitWidth == null ? undefined : { width: fitWidth * zoom }}
         />
@@ -261,4 +308,4 @@ export function ViewerBody({
       {!error && kind === 'DOCX' && content?.k === 'buffer' && <DocxPreview buffer={content.buffer} />}
     </div>
   )
-}
+})

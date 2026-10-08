@@ -1,14 +1,14 @@
 // 통합 첨부 뷰어(WP-277) — 드라이브 단건 E2E: 긴 파일명 헤더 보존·0 바이트 텍스트.
-// 드라이브 stub 은 drive-preview-formats.spec.ts 의 공간·목록 route 패턴을 따른다.
+// 드라이브 route 모킹은 공용 fixture(e2e/fixtures/drive-mock.ts) — 모바일 뷰어 spec 과 같이 쓴다.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { Page } from '@playwright/test'
 
-import { createSpace, personalSpace } from '../../factories/drive.factory'
 import { createUser } from '../../factories/auth.factory'
 import { mockApi } from '../../fixtures/api-mock'
+import { type DriveSummaryStub, stubDriveFiles as stubDrive } from '../../fixtures/drive-mock'
 import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { solidPng } from '../../fixtures/png'
@@ -27,67 +27,36 @@ interface StubFile {
 /** stubDriveFiles 가 등록한 id → 파일명. */
 const NAMES: Record<number, string> = {}
 
-/** 공간·목록·콘텐츠·썸네일(404)·요약(PENDING)·참조된 곳([]) 을 route 로 막는다. */
+/**
+ * 공간·목록·콘텐츠·썸네일(404)·요약(PENDING)·참조된 곳([]) 을 route 로 막는다 — 실제 route 는 공용 fixture(drive-mock).
+ * 이 spec 은 목록 크기(sizeBytes)와 본문을 따로 주는 호출이 많아 그 모양(파일 목록 + id → 본문·옵션)을 그대로 받아 넘긴다.
+ */
 async function stubDriveFiles(
   page: Page,
   files: StubFile[],
   bodies: Record<number, string | Buffer>,
   opts: {
+    /** 파일 id → 콘텐츠 응답 지연(ms) — 늦게 도착한 응답이 현재 파일 자리에 그려지지 않는지 보려는 용도. */
     delayMs?: Record<number, number>
     /** 파일 id → 요약 응답(기본 PENDING). */
-    summary?: Record<number, { summary: string | null; status: string; reason?: string }>
+    summary?: Record<number, DriveSummaryStub>
     /** 파일 id → 참조된 곳 목록(기본 []). */
     backlinks?: Record<number, unknown[]>
   } = {},
 ) {
   // openPreview 가 id 로 파일명을 찾도록 기억한다.
   for (const f of files) NAMES[f.id] = f.name
-  await page.route(
-    (u) => u.pathname === '/api/v1/drive/spaces',
-    (r) => (r.request().method() === 'GET' ? r.fulfill({ json: [personalSpace(), createSpace()] }) : r.fallback()),
+  await stubDrive(
+    page,
+    files.map((f) => ({
+      ...f,
+      body: bodies[f.id] ?? '',
+      delayMs: opts.delayMs?.[f.id],
+      summary: opts.summary?.[f.id],
+      backlinks: opts.backlinks?.[f.id],
+    })),
+    { spaceId: SPACE_ID },
   )
-  await page.route(
-    (u) => u.pathname === '/api/v1/drive/quota',
-    (r) => r.fulfill({ json: { usedBytes: 0, quotaBytes: 10737418240 } }),
-  )
-  await page.route(
-    (u) => u.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
-    (r) =>
-      r.fulfill({
-        json: {
-          folders: [],
-          files: files.map((f) => ({
-            id: f.id,
-            folderId: null,
-            fileId: f.id + 1000,
-            name: f.name,
-            mimeType: f.mimeType,
-            sizeBytes: f.sizeBytes,
-            category: 'TEXT',
-            createdAt: '2026-01-01T00:00:00Z',
-          })),
-        },
-      }),
-  )
-  for (const f of files) {
-    await page.route(
-      (u) => u.pathname === `/api/v1/drive/files/${f.id}/content`,
-      async (r) => {
-        // 지연 옵션 — 늦게 도착한 응답이 현재 파일 자리에 그려지지 않는지 보려는 용도.
-        const delay = opts.delayMs?.[f.id]
-        if (delay) await new Promise((res) => setTimeout(res, delay))
-        await r.fulfill({ status: 200, contentType: f.mimeType, body: bodies[f.id] ?? '' }).catch(() => {})
-      },
-    )
-    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/thumbnail`, (r) => r.fulfill({ status: 404 }))
-    await page.route(
-      (u) => u.pathname === `/api/v1/drive/files/${f.id}/summary`,
-      (r) => r.fulfill({ json: opts.summary?.[f.id] ?? { summary: null, status: 'PENDING' } }),
-    )
-    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/backlinks`, (r) =>
-      r.fulfill({ json: opts.backlinks?.[f.id] ?? [] }),
-    )
-  }
 }
 
 /** 드라이브 목록에서 파일명(또는 id 로 찾은 파일명) 버튼을 눌러 뷰어를 연다. */
@@ -434,8 +403,10 @@ test('좁은 화면(lg 미만)에서는 드라이브여도 요약 패널을 접�
   // ✨ 는 보이되(요약 가능) 패널은 접힘 — 본문 아래로 쌓여 본문을 가리지 않게.
   await expect(page.getByRole('button', { name: 'AI 요약' })).toBeVisible()
   await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0)
+  await expect(page.getByTestId('viewer-summary-sheet')).toHaveCount(0)
   await page.getByRole('button', { name: 'AI 요약' }).click()
-  await expect(page.getByTestId('viewer-side-panel').getByTestId('drive-summary-card')).toContainText('좁은 화면 요약')
+  // lg 미만은 모바일 배치(WP-278) — 요약은 본문 아래 패널 대신 바텀시트로 열린다.
+  await expect(page.getByTestId('viewer-summary-sheet').getByTestId('drive-summary-card')).toContainText('좁은 화면 요약')
 })
 
 test('요약 응답 전에는 ✨·패널을 띄우지 않고 응답이 성공하면 보인다', async ({ authenticatedPage: page }) => {
@@ -489,4 +460,34 @@ test('열린 파일이 재조회로 목록에서 빠지면 1건 묶음으로 유
   await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0)
   await expect(page.getByTestId('preview-not-found')).toHaveCount(0)
+})
+
+test('데스크톱(마우스)은 모바일 하단 바 없이 헤더·확대 툴바를 그대로 쓴다', async ({ authenticatedPage: page }) => {
+  await stubDriveFiles(page, [{ id: 90, name: 'desk.png', mimeType: 'image/png', sizeBytes: 100 }], { 90: solidPng(800, 600) })
+  await openPreview(page, 'desk.png')
+  await expect(page.getByTestId('viewer-action-bar')).toHaveCount(0)
+  await expect(page.getByTestId('viewer-top-bar')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '확대' })).toBeVisible()
+  await expect(page.getByTestId('preview-download')).toBeVisible()
+})
+
+test('좁은 창(900px) + 마우스는 모바일 배치여도 확대 툴바를 쓰고, 툴바는 하단 액션 바 위에 뜬다', async ({ authenticatedPage: page }) => {
+  // 1920 화면 반쪽 분할 같은 좁은 데스크톱 창 — 핀치·두 번 탭이 없으니 툴바가 유일하게 보이는 확대 수단이다(판정 R8 수정).
+  await page.setViewportSize({ width: 900, height: 800 })
+  await stubDriveFiles(page, [{ id: 96, name: 'narrow.png', mimeType: 'image/png', sizeBytes: 100 }], { 96: solidPng(800, 600) })
+  await openPreview(page, 'narrow.png')
+  const bar = page.getByTestId('viewer-action-bar')
+  await expect(bar).toBeVisible()
+  const zoomIn = page.getByRole('button', { name: '확대' })
+  await expect(zoomIn).toBeVisible()
+  // 툴바 아래끝이 액션 바 위끝보다 위 — 겹치지 않는다.
+  await expect
+    .poll(async () => {
+      const t = (await page.getByTestId('viewer-zoom-bar').boundingBox())!
+      const b = (await bar.boundingBox())!
+      return t.y + t.height <= b.y
+    })
+    .toBe(true)
+  await zoomIn.click()
+  await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('125%')
 })

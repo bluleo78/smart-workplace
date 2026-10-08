@@ -41,3 +41,5 @@ export function createMediaQueryStore(query: string): MediaQueryStore {
 export const mobileWidthStore = createMediaQueryStore(MOBILE_MEDIA_QUERY)
 /** 주 포인터가 손가락(coarse)인가 — 터치 셸 판정의 다른 반쪽. */
 export const coarsePointerStore = createMediaQueryStore('(pointer: coarse)')
+/** 가로 방향인가 — 모바일 뷰어는 가로에서 바를 기본 숨긴다(WP-278, 사진·영상 면적 우선). */
+export const landscapeStore = createMediaQueryStore('(orientation: landscape)')

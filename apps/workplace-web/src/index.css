@@ -264,6 +264,13 @@
   max-height: calc(var(--vvh) - 2rem);
   overflow-y: auto;
 }
+/* 통합 뷰어(WP-278)는 가운데 정렬 다이얼로그가 아니라 전체 화면 레이어다 — 위 규칙(top: 가운데 + translate 전제)을 받으면
+   AI 시트 입력 등으로 키보드가 열릴 때 화면 절반이 밖으로 밀린다. 보이는 영역 맨 위에 붙이고 높이는 컴포넌트의 --vvh 를 그대로 쓴다. */
+:root[data-keyboard-open] [data-slot="dialog-content"][data-viewer-root] {
+  top: var(--vv-top);
+  max-height: none;
+  overflow: hidden;
+}
 /* 하단 시트는 키보드 바로 위에 붙이고, 좌우 시트는 보이는 영역 높이만 차지한다(상단 시트는 그대로). */
 :root[data-keyboard-open] [data-slot="sheet-content"]:not([data-side="top"]) {
   bottom: var(--kb-inset);
@@ -742,4 +749,26 @@
   @variant lg {
     top: calc(3.5rem + 0.5rem) !important;
   }
+}
+
+/* 통합 뷰어 무대 터치 동작(WP-278, 판정 R2). 스크롤 컨테이너마다 touch-action 이 따로 계산되므로 무대 자손 전체에 같은 값을 건다.
+   none = 맞춤 이미지(스크롤할 것이 없어 스와이프·닫기·핀치를 전부 JS 가 받는다).
+   pan  = 확대한 이미지·PDF(가로·세로 네이티브 스크롤은 유지하고 브라우저 핀치 확대·두 번 탭 확대만 끈다 — 확대는 뷰어 배율로).
+   manipulation = 뷰어 배율이 없는 문서(마크다운·텍스트·CSV 등) — 브라우저 핀치 확대를 살린다(WCAG 1.4.4 글자 키우기).
+     두 번 탭 확대만 끈다. 확대된 페이지에서의 한 손가락 끌기는 훅이 visualViewport.scale 을 보고 넘김·닫기 대신 네이티브 팬으로 둔다.
+   overscroll-behavior 는 문서 맨 위에서 당길 때 Android 당겨서 새로고침·스크롤 체이닝이 페이지로 새지 않게. */
+[data-viewer-stage="none"],
+[data-viewer-stage="none"] * {
+  touch-action: none;
+}
+[data-viewer-stage="pan"],
+[data-viewer-stage="pan"] * {
+  touch-action: pan-x pan-y;
+}
+[data-viewer-stage="manipulation"],
+[data-viewer-stage="manipulation"] * {
+  touch-action: manipulation;
+}
+[data-viewer-stage] * {
+  overscroll-behavior: contain;
 }
