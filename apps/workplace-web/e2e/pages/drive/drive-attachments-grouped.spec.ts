@@ -1,4 +1,5 @@
 import { expect, test } from '../../fixtures/auth.fixture'
+import { boxOf, DESKTOP_WIDTHS, expectBelowHeader, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import { trackRequests } from '../../fixtures/requests'
 
 function page2() {
@@ -113,4 +114,39 @@ test('1440x900 데스크톱에서 AI 어시스턴트 칩이 출처 필터 버튼
   await page.getByTestId('drive-attachment-filter-issue').click()
   await expect.poll(() => lists.lastUrl()?.searchParams.get('source')).toBe('ISSUE')
   await expect(page.getByTestId('drive-attachment-filter-issue')).toHaveClass(/border-primary/)
+})
+
+// 페이지 레이아웃 통합(Page) — 첨부 모아보기도 56px 헤더 바(제목 + 검색)를 갖고, 출처 필터칩은 헤더 아래 본문 첫 줄에 선다.
+// 예전엔 AI 칩을 피하려 필터 바에 lg:pt-12 를 더해 헤더가 ~93px 로 두꺼웠다(#576) — 이제 헤더 좌측 클램프가 칩 충돌을 막는다.
+for (const width of DESKTOP_WIDTHS) {
+  test.describe(`첨부 모아보기 헤더 바 @${width}px`, () => {
+    test.use({ viewport: { width, height: 900 } })
+
+    test('제목·검색은 56px 헤더 안, 필터칩은 헤더 아래 같은 시작선', async ({ authenticatedPage: page }) => {
+      await stubAttachments(page)
+      await page.goto('/drive/attachments')
+      const header = page.getByTestId('page-header')
+      const title = header.getByRole('heading', { level: 1, name: '첨부 모아보기' })
+      await expect(title).toBeVisible()
+      await expectHeaderBottomAt56(header)
+      // 검색 입력은 헤더 안(우측 액션) — 본문 필터 줄에 중복으로 그려지지 않는다.
+      await expect(header.getByRole('textbox', { name: '파일 이름 검색' })).toBeVisible()
+      await expect(page.getByRole('textbox', { name: '파일 이름 검색' })).toHaveCount(1)
+      const chip = page.getByTestId('drive-attachment-filter-all')
+      await expectBelowHeader(chip)
+      await expectStartAligned(title, chip)
+      // 그룹 행 내용도 같은 페이지 여백 축(pageGutterClass)에서 시작한다.
+      await expectStartAligned(title, page.getByTestId('drive-attachment-group-toggle').first())
+    })
+  })
+}
+
+// 헤더 우측 검색 입력은 AI 칩(뷰포트 중앙 fixed) 영역과 겹치지 않는다 — 우측 그룹은 클램프 대상이 아니라 별도 확인.
+test('1440px — 헤더 검색 입력이 AI 칩과 겹치지 않는다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await stubAttachments(page)
+  await page.goto('/drive/attachments')
+  const search = page.getByTestId('page-header').getByRole('textbox', { name: '파일 이름 검색' })
+  const [s, c] = [await boxOf(search), await boxOf(page.getByTestId('chat-launcher'))]
+  expect(s.x).toBeGreaterThanOrEqual(c.x + c.width)
 })

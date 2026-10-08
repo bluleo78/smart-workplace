@@ -21,7 +21,7 @@ import { useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
-import { PageHeader } from '@/components/layout/PageHeader'
+import { Page, pageGutterClass } from '@/components/layout/Page'
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import { TOUCH_ROW_TRIGGER, TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
 import {
@@ -1048,8 +1048,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden" data-testid="drive-page">
-      <PageHeader
+    // 페이지 틀 — 헤더는 Page.Header, 본문(브레드크럼·드롭존 스크롤)은 화면이 소유하는 자체 레이아웃(padded=false).
+    <Page data-testid="drive-page">
+      <Page.Header
         actions={
           <>
             <SearchInput
@@ -1103,10 +1104,12 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       {/* breadcrumb 행 — 브라우즈 모드(검색·휴지통 아님)에서만. 폴더명 경로, 깊으면 … 접기.
           한 줄 고정(whitespace-nowrap+overflow-hidden) — 긴 폴더명이 줄바꿈되면 h-9 를 넘쳐 위 헤더 밑으로
           잘린다(좁은 드로워·모바일). 넘치면 세그먼트가 min-w-0·truncate 로 말줄임된다. */}
+      {/* 본문 — 브레드크럼 줄 + 드롭존 스크롤. 행 여백은 페이지 여백(pageGutterClass) 축. */}
+      <Page.Body padded={false} className="flex-col">
       {trash == null && !searching && (
         <nav
           aria-label="폴더 경로"
-          className="flex h-11 min-w-0 shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap border-b px-4 text-sm lg:h-9"
+          className={cn('flex h-11 min-w-0 shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap border-b text-sm lg:h-9', pageGutterClass)}
           data-testid="drive-breadcrumb"
         >
           <button
@@ -1150,7 +1153,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         </nav>
       )}
       <div
-        className="flex-1 overflow-y-auto p-4"
+        className={cn('min-h-0 flex-1 overflow-y-auto py-4', pageGutterClass)}
         data-testid="drive-dropzone"
         onDragOver={(e) => {
           e.preventDefault()
@@ -1424,8 +1427,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 {...rowPress('folder', f.id)}
                 data-testid={`drive-row-folder-${f.id}`}
                 className={cn(
-                  // 모바일은 파일 행(px-1)과 아이콘·⋮ 세로줄을 맞춘다.
-                  'group flex items-center gap-2 py-2 max-lg:min-h-14 max-lg:px-1',
+                  // 파일 행·열 헤더(px-1)와 같은 안쪽 여백 — 이름 칸이 같은 x 에서 시작하고 모바일 아이콘·⋮ 세로줄도 맞는다.
+                  'group flex items-center gap-2 px-1 py-2 max-lg:min-h-14',
                   rowSelectedClass('folder', f.id),
                 )}
               >
@@ -1672,6 +1675,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           />
         )}
       </div>
+      </Page.Body>
       {renderMobileBulkBar()}
 
       {/* 폴더 이름 입력 다이얼로그 — 새 폴더 생성 / 이름 변경. window.prompt 대체 (#135). */}
@@ -1761,6 +1765,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </Page>
   )
 }
