@@ -1,7 +1,9 @@
 // 화면별 데이터 → ViewerItem 어댑터와 묶음 해석(WP-277). 순수 함수만 둔다(vitest 대상).
 import { attachmentContentPath } from '../../api/issueAttachments'
+import { canonicalMime, isGenericMime, mimeFromFilename } from '../../lib/mimeFromFilename'
 import type { IssueAttachment } from '../../types/attachment'
 import type { DriveFile, DriveLink, VirtualAttachment } from '../../types/drive'
+import type { EmailAttachmentMeta } from '../../types/mailMessage'
 import type { ViewerItem } from './types'
 
 /** 묶음 키 — 드라이브 파일·링크는 `drive:{driveFileId}`, 그 외 첨부는 `file:{fileId}`(URL ?preview 값). */
@@ -18,6 +20,47 @@ const VIEWER_KEY_RE = /^(file|drive):(\d+)$/
 export function parseViewerKey(key: string | null): { kind: 'file' | 'drive'; id: number } | null {
   const m = key == null ? null : VIEWER_KEY_RE.exec(key)
   return m ? { kind: m[1] as 'file' | 'drive', id: Number(m[2]) } : null
+}
+
+/**
+ * 메일 첨부 키 `mail:{attachmentId}` — 메일 첨부 id 는 core fileId 가 아니라 `file:` 와 네임스페이스를 나눈다.
+ * parseViewerKey(file·drive) 와 따로 둔 이유: 드라이브·이슈 호스트가 그 파싱 결과를 "자기 키"로 보므로 메일 키가 섞이면 안 된다.
+ */
+export const mailViewerKey = (attachmentId: number) => `mail:${attachmentId}`
+const MAIL_KEY_RE = /^mail:\d+$/
+/** ?preview 값이 메일 첨부 키인지 — 메일 화면이 다른 용도의 ?preview 를 "찾을 수 없음"으로 안내하지 않게. */
+export const isMailViewerKey = (key: string | null): boolean => key != null && MAIL_KEY_RE.test(key)
+
+/**
+ * 메일 첨부 형식 — 파라미터·대소문자·별칭(application/x-pdf·image/jpg 등)을 정규화한다.
+ * 왜: IMAP 경로는 파라미터를 떼서 저장하지만 Graph 경로는 원문 그대로라, resolvePreviewKind 의 정확 일치가 빗나가지 않게.
+ * 비었거나 범용 형식(octet-stream·force-download 등)이면 파일명 확장자로 추론한다 — 메일 클라이언트가 PDF·이미지도
+ * 범용 형식으로 보내는 일이 많아 그대로 두면 미리보기가 안 된다. 서버가 준 구체적인 형식은 그대로 믿는다. 추론도 안 되면 octet-stream.
+ * 메일 첨부 칩의 형식 아이콘도 이 값을 써서 칩과 뷰어가 같은 형식으로 보이게 한다.
+ */
+export function mailAttachmentMime(a: EmailAttachmentMeta): string {
+  if (!isGenericMime(a.contentType)) return canonicalMime(a.contentType)
+  return mimeFromFilename(a.filename) ?? 'application/octet-stream'
+}
+
+/** 메일 첨부 표시·저장 이름 — 첨부 칩과 뷰어(제목·접근 이름·저장 파일명)가 같은 이름을 쓰게 한 곳에 둔다. */
+export const mailAttachmentName = (a: EmailAttachmentMeta) => a.filename || `attachment-${a.id}`
+
+/**
+ * 메일 첨부 — 소유자 전용 콘텐츠 경로로 받고 내려받기도 같은 경로다.
+ * ✨(요약)·☁(메일 첨부 가져오기 API 없음)·원본 이동(이미 메일 안)은 두지 않는다.
+ * 이름이 없으면 예전 다운로드 버튼과 같은 `attachment-{id}` 로 저장되게 한다.
+ */
+export function mailAttachmentItem(a: EmailAttachmentMeta): ViewerItem {
+  const path = `/mail/attachments/${a.id}/content`
+  return {
+    key: mailViewerKey(a.id),
+    name: mailAttachmentName(a),
+    mimeType: mailAttachmentMime(a),
+    sizeBytes: a.sizeBytes,
+    contentPath: path,
+    downloadPath: path,
+  }
 }
 
 /** 드라이브 화면의 파일 — 요약·참조된 곳을 쓰고, 이미 드라이브라 가져오기는 없다. */

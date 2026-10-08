@@ -15,8 +15,8 @@ export type PreviewKind =
   | 'DOCX'
   | 'UNSUPPORTED'
 
-const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
 /** mimeType → 프리뷰 종류. 매핑에 없으면 UNSUPPORTED. */
 export function resolvePreviewKind(mimeType: string): PreviewKind {

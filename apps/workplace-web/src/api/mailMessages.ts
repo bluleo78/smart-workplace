@@ -1,5 +1,4 @@
 // 받은편지함/보낸편지함 동기화·읽기·발송 API. baseURL '/api/v1' 가 client 에 포함.
-import { downloadBlob } from '../lib/download';
 import type {
   DraftCoachingRequest,
   EmailMessageDetail,
@@ -191,24 +190,6 @@ export async function sendMail(
     body,
   );
   return data;
-}
-
-/**
- * 첨부 파일 바이너리 다운로드. axios arraybuffer 로 수신 후 Blob 생성 → downloadBlob 헬퍼로 브라우저 다운로드를
- * 트리거한다. Bearer 인증이 필요한 API 이므로 단순 <a href> 대신 axios 를 사용한다.
- */
-export async function downloadMailAttachment(
-  attachmentId: number,
-  filename: string,
-): Promise<void> {
-  const { data, headers } = await client.get<ArrayBuffer>(
-    `/mail/attachments/${attachmentId}/content`,
-    { responseType: 'arraybuffer' },
-  );
-  const contentType =
-    (headers['content-type'] as string | undefined) || 'application/octet-stream';
-  const blob = new Blob([data], { type: contentType });
-  downloadBlob(filename || `attachment-${attachmentId}`, blob);
 }
 
 /**

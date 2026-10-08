@@ -213,7 +213,7 @@ export function AttachmentViewer({
     })
   /**
    * 하단 칸 누름. 공유·iOS 저장은 클릭 핸들러 안에서 await 없이 바로 공유 시트를 연다(제스처 직후 호출 규칙, 스펙 §5.4).
-   * 저장 기본은 downloadPath(드라이브 = 감사 로그 경로)로 다시 받는다 — iOS 홈 화면 앱만 메모리 blob 을 공유 시트로(판정 R13).
+   * 저장 기본은 downloadViewerItem — 감사 경로가 따로 없으면 메모리 blob, 드라이브는 /download 로 다시 받는다. iOS 홈 화면 앱만 메모리 blob 을 공유 시트로(판정 R13).
    * 드라이브는 ☁ 와 같은 가져오기, 요약은 패널(모바일은 시트) 토글.
    */
   const onSlot = (id: SlotId) => {
@@ -222,7 +222,7 @@ export function AttachmentViewer({
     } else if (id === 'save') {
       const method = resolveSaveMethod({ iosStandalone: isIOSStandalone(), shareable: shareableFile != null })
       if (method === 'share' && shareableFile) void shareFile(shareableFile)
-      else void downloadViewerItem(item)
+      else void downloadViewerItem(item, blob)
     } else if (id === 'drive') startImport()
     else if (id === 'summary') {
       // 하단 칸은 모바일 배치에만 있다 — 데스크톱 패널(과 저장된 상태)은 건드리지 않고 시트만 토글.
@@ -403,7 +403,7 @@ export function AttachmentViewer({
                         variant="ghost"
                         size="icon"
                         className="pointer-coarse:size-11"
-                        onClick={() => void downloadViewerItem(item)}
+                        onClick={() => void downloadViewerItem(item, blob)}
                         aria-label="다운로드"
                         data-testid="preview-download"
                       >

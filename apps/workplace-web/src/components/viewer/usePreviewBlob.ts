@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { driveApi } from '../../api/drive'
 import { needsPreviewConfirm } from '../../lib/previewContent'
+import { withItemType } from './blobType'
 import { downloadViewerItem } from './downloadViewerItem'
 import type { ViewerItem } from './types'
 
@@ -27,19 +28,21 @@ export function usePreviewBlob(item: ViewerItem, enabled: boolean) {
     if (!active || waiting) return
     driveApi
       .fetchBlobByPath(item.contentPath)
-      .then((b) => alive && setBlob(b))
+      // octet-stream 응답은 항목 형식(메일 첨부의 파일명 추론 등)으로 다시 감싸 렌더러·공유 File 이 맞는 형식을 보게 한다.
+      .then((b) => alive && setBlob(withItemType(b, item.mimeType)))
       .catch(() => alive && setError(true))
     return () => {
       alive = false
     }
-  }, [item.contentPath, active, waiting, attempt])
+  }, [item.contentPath, item.mimeType, active, waiting, attempt])
 
   return {
     blob,
     error,
     confirmSize,
     confirm: () => setConsentedKey(item.key),
-    download: () => downloadViewerItem(item),
+    // 이미 받은 blob 이 있으면 다시 받지 않는다(감사 경로가 따로 없는 항목) — 판단은 downloadViewerItem.
+    download: () => downloadViewerItem(item, blob),
     retry: () => setAttempt((n) => n + 1),
   }
 }

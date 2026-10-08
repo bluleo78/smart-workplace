@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, CheckCheck, Download, Forward, Inbox, Loader2, Mail, MailOpen, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Check, CheckCheck, Forward, Inbox, Loader2, Mail, MailOpen, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -24,7 +24,7 @@ import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
 import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
 import { handleApiError } from '@/lib/api-error'
-import { formatClockTimePadded, formatDateMonthDayPadded, formatDateTime, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
+import { formatClockTimePadded, formatDateMonthDayPadded, formatDateTime, formatFileSize, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
 import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
@@ -32,10 +32,13 @@ import { buildQuote, escapeHtml } from '@/lib/mailQuote'
 import { mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
 import { cn } from '@/lib/utils'
 
-import { downloadMailAttachment, getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
+import { getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
+import { FileTypeIcon } from '../../components/drive/FileTypeIcon'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDialog'
 import { SandboxedHtmlFrame } from '../../components/SandboxedHtmlFrame'
+import { mailAttachmentMime, mailAttachmentName } from '../../components/viewer/viewerItems'
+import { splitName } from '../../components/viewer/viewerNav'
 import { mailMessageKeys } from '../../hooks/queries/mailMessageKeys'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
@@ -55,8 +58,10 @@ import {
   useToggleRead,
   useUnreadCounts,
 } from '../../hooks/queries/useMailMessages'
-import type { EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
+import type { EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
+import { MAIL_DETAIL_PARAM } from './mailHistory'
 import { MailToIssueDialog } from './MailToIssueDialog'
+import { useMailAttachmentViewer } from './useMailAttachmentViewer'
 
 // 목록 로딩 중 시트·길게 누르기에 넘길 빈 목록 — 렌더마다 새 배열을 만들지 않게 모듈에 하나만 둔다.
 const EMPTY_MESSAGES: EmailMessageSummary[] = []
@@ -223,47 +228,44 @@ function extractEmail(token: string): string {
   return m ? m[1].trim() : token.trim()
 }
 
-// 첨부 파일 목록 — 파일명·아이콘 + 다운로드 버튼. Bearer 인증이 필요해 단순 <a href> 대신 axios 를 사용한다.
+// 첨부 파일 목록 — 칩을 누르면 통합 첨부 뷰어로 연다(WP-280). 다운로드는 뷰어의 ⬇ 가 맡는다.
 function AttachmentList({
   attachments,
+  onPreview,
 }: {
-  attachments: { id: number; filename: string | null; contentType: string | null; sizeBytes: number; contentId: string | null }[]
+  attachments: EmailAttachmentMeta[]
+  onPreview: (a: EmailAttachmentMeta) => void
 }) {
-  const [downloadingId, setDownloadingId] = useState<number | null>(null)
-
-  const handleDownload = async (attachmentId: number, filename: string | null) => {
-    if (downloadingId !== null) return
-    setDownloadingId(attachmentId)
-    try {
-      await downloadMailAttachment(attachmentId, filename || `attachment-${attachmentId}`)
-    } catch {
-      toast.error('첨부 파일 다운로드에 실패했습니다')
-    } finally {
-      setDownloadingId(null)
-    }
-  }
-
   return (
     <ul data-testid="mail-attachments" className="mt-2 flex flex-wrap gap-2">
-      {attachments.map((a) => (
-        <li
-          key={a.id}
-          className="flex items-center gap-1 rounded border bg-muted px-2 py-1 text-xs"
-        >
-          <Paperclip className="h-3 w-3 shrink-0" />
-          <span>{a.filename || '첨부파일'}</span>
-          <button
-            type="button"
-            data-testid={`mail-attachment-download-${a.id}`}
-            aria-label={`${a.filename || '첨부파일'} 다운로드`}
-            disabled={downloadingId === a.id}
-            onClick={() => handleDownload(a.id, a.filename)}
-            className="ml-1 rounded p-0.5 hover:bg-accent disabled:opacity-50"
-          >
-            <Download className="h-3 w-3" />
-          </button>
-        </li>
-      ))}
+      {attachments.map((a) => {
+        const name = mailAttachmentName(a)
+        // 확장자를 잃지 않게 앞부분만 말줄임하고 꼬리(확장자 포함)는 늘 보인다 — 뷰어 제목과 같은 규칙(splitName).
+        const [head, tail] = splitName(name)
+        return (
+          // min-w-0·max-w-full — flex-wrap 줄 폭을 넘지 않아야 360px 에서도 이름이 줄바꿈 대신 말줄임된다.
+          <li key={a.id} className="min-w-0 max-w-full">
+            {/* 칩 전체가 미리보기 버튼(WP-280) — 이슈 첨부 칩과 같은 형식 아이콘·크기 표시, 테두리가 바뀌는 hover 로 누를 수 있음을 알린다.
+                포커스 링은 공용 Button 과 같은 토큰(border-ring + ring-ring/50 3px) — 다크에서도 테두리와 구분된다. */}
+            <button
+              type="button"
+              data-testid={`mail-attachment-open-${a.id}`}
+              aria-label={`${name} 미리보기`}
+              title={`${name} 미리보기`}
+              onClick={() => onPreview(a)}
+              className="flex max-w-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border bg-muted px-2 py-1 text-left text-xs outline-none transition-colors hover:border-foreground/30 hover:bg-accent focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:max-w-[18rem] pointer-coarse:min-h-11"
+            >
+              <FileTypeIcon mimeType={mailAttachmentMime(a)} className="size-3.5" />
+              {/* whitespace-pre — 잘리는 자리 끝 공백이 flex 항목 끝에서 사라지지 않게(ViewerTitle 과 같은 이유). */}
+              <span className="flex min-w-0" data-testid={`mail-attachment-name-${a.id}`}>
+                <span className="min-w-0 truncate whitespace-pre">{head}</span>
+                <span className="shrink-0 whitespace-pre">{tail}</span>
+              </span>
+              <span className="shrink-0 text-muted-foreground">{formatFileSize(a.sizeBytes)}</span>
+            </button>
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -328,10 +330,20 @@ function MessageDetailPanel({
     () => (attachments ?? []).filter((a) => !inlinedIds.has(a.id)),
     [attachments, inlinedIds],
   )
+  // WP-280 첨부 뷰어 — 묶음은 목록에 보이는 첨부(인라인 이미지 제외). 상세 조회가 끝났거나(실패 포함) 열린 메일이 없으면
+  // "찾을 수 없음"을 판정한다 — 메일 없이·조회 실패로 남은 ?preview 가 뷰어도 안내도 없이 URL 에 남지 않게(다른 호스트와 같은 규칙).
+  const attachmentViewer = useMailAttachmentViewer(messageId, listedAttachments, messageId == null || detail != null || isError)
+  // 모든 분기(빈 상태·로딩·오류·상세)를 같은 Fragment 의 같은 자리에 뷰어 노드와 함께 그린다 — 분기가 바뀌어도 뷰어가 리마운트되지 않게.
+  const withViewer = (body: ReactNode) => (
+    <>
+      {body}
+      {attachmentViewer.viewerNode}
+    </>
+  )
 
   if (!messageId) {
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 (CTA는 단순 안내이므로 생략) */
-    return (
+    return withViewer(
       <div
         data-testid="mail-detail-empty"
         className="flex h-full flex-col items-center justify-center gap-3 text-center"
@@ -343,22 +355,22 @@ function MessageDetailPanel({
             왼쪽 목록에서 메일을 클릭하면 내용이 표시됩니다
           </p>
         </div>
-      </div>
+      </div>,
     )
   }
   if (isLoading) {
-    return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
+    return withViewer(<div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>)
   }
   if (isError || !detail) {
-    return (
+    return withViewer(
       <div className="p-6 text-center">
         <p className="text-sm text-destructive mb-2">메일을 불러오지 못했습니다</p>
         <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
-      </div>
+      </div>,
     )
   }
 
-  return (
+  return withViewer(
     <div data-testid="mail-detail" className="flex h-full flex-col overflow-y-auto">
       <div className="border-b p-4">
         {/* AI 요약 카드 — 비서 있을 때만. 객관 요약은 동의 불필요. 조회·생성 중에는 스켈레톤. */}
@@ -496,7 +508,7 @@ function MessageDetailPanel({
           )}
         </div>
         {listedAttachments.length > 0 && (
-          <AttachmentList attachments={listedAttachments} />
+          <AttachmentList attachments={listedAttachments} onPreview={attachmentViewer.onPreview} />
         )}
       </div>
       <div className="flex-1 p-4">
@@ -528,7 +540,7 @@ function MessageDetailPanel({
           <div className="text-sm text-muted-foreground">본문이 없습니다</div>
         )}
       </div>
-    </div>
+    </div>,
   )
 }
 
@@ -568,7 +580,8 @@ export function MailInboxPage() {
   }, [searchDraft])
   // 열린 메일 = URL ?messageId(상태의 단일 원천, WP-206). 행 클릭은 push 라 시스템 뒤로가기가 상세만 닫는다.
   // 홈 위젯 딥링크(#447)·푸시 알림도 같은 키 — 마운트 1회 읽기가 아니라 URL 실시간 파생이라 forward 재열림도 자연스럽다.
-  const mailParam = useHistoryParam('messageId')
+  // MAIL_DETAIL_PARAM: 다른 메일로 바꿀 때 앞 메일의 첨부 뷰어 키(?preview, WP-280)도 함께 지운다.
+  const mailParam = useHistoryParam('messageId', MAIL_DETAIL_PARAM)
   const selectedId = parseId(mailParam.value)
   // 모바일: 본문(상세)이 열려 있으면 하단 탭바를 숨긴다(WP-125).
   useHideTabBar(selectedId != null)
