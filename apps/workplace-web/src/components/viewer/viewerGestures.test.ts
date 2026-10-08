@@ -14,6 +14,7 @@ import {
   pickAnchorIndex,
   pinchZoom,
   releaseVelocity,
+  roundZoom,
   rubberBand,
   stageTouchAction,
 } from './viewerGestures'
@@ -215,5 +216,14 @@ describe('stageTouchAction', () => {
     expect(stageTouchAction(base)).toBe('none')
     expect(stageTouchAction({ ...base, zoom: 2 })).toBe('pan')
     expect(stageTouchAction({ ...base, image: false })).toBe('pan')
+  })
+})
+
+describe('roundZoom', () => {
+  it('부동소수 오차를 둘째 자리에서 자른다(핀치 확정·＋/－ 단계 공용)', () => {
+    expect(roundZoom(0.1 + 0.2)).toBe(0.3)
+    expect(roundZoom(1 + 0.25)).toBe(1.25)
+    expect(roundZoom(1.2345)).toBe(1.23)
+    expect(roundZoom(2)).toBe(2)
   })
 })

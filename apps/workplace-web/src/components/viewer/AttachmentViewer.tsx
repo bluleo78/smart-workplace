@@ -23,7 +23,7 @@ import { useViewerGestures, type ZoomAnchor } from './useViewerGestures'
 import { actionSlots, resolveSaveMethod, resolveShareState, type SlotId } from './viewerActions'
 import { ViewerBacklinks } from './ViewerBacklinks'
 import { ViewerBody } from './ViewerBody'
-import { anchoredScroll, stageTouchAction } from './viewerGestures'
+import { anchoredScroll, roundZoom, stageTouchAction } from './viewerGestures'
 import { ViewerActionBar, ViewerMobileTopBar, ViewerTitle } from './ViewerMobileBars'
 import { ViewerMoreMenu } from './ViewerMoreMenu'
 import { navState, resolvePending, routeKey } from './viewerNav'
@@ -121,8 +121,8 @@ export function AttachmentViewer({
   const zoom = zoomState.key === itemKey ? zoomState.value : 1
   const setZoom = (fn: (z: number) => number) => setZoomState({ key: itemKey, value: fn(zoom) })
   // 확대 단계 — 키보드(+/-/0)와 하단 확대 툴바가 같은 규칙을 쓴다(소수 오차는 둘째 자리에서 자른다).
-  const zoomIn = () => setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
-  const zoomOut = () => setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))
+  const zoomIn = () => setZoom((z) => Math.min(ZOOM_MAX, roundZoom(z + ZOOM_STEP)))
+  const zoomOut = () => setZoom((z) => Math.max(ZOOM_MIN, roundZoom(z - ZOOM_STEP)))
   const zoomReset = () => setZoom(() => 1)
   // 터치 확대 기준점 — 커밋 직후(레이아웃 반영 뒤) 그 점이 제자리에 남도록 스크롤을 맞춘다(판정 R1).
   const zoomAnchor = useRef<{ key: string; to: number; anchor: ZoomAnchor } | null>(null)

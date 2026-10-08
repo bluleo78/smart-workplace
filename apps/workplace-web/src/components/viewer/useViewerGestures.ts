@@ -21,6 +21,7 @@ import {
   pickAnchorIndex,
   pinchZoom,
   releaseVelocity,
+  roundZoom,
   type Sample,
   type ZoomFocus,
 } from './viewerGestures'
@@ -62,6 +63,12 @@ interface OneFinger {
   canPanRight: boolean
   atTop: boolean
   /**
+   * 시작 때 잰 무대 크기(px) — 끌기 중 매 touchmove 마다 clientWidth/Height 를 읽으면 직전 paint() 의 style 쓰기 뒤라
+   * 강제 레이아웃이 난다. 제스처 도중 무대 크기는 바뀌지 않으므로(transform 은 레이아웃 크기에 영향 없음) 한 번만 잰다.
+   */
+  width: number
+  height: number
+  /**
    * 브라우저가 이미 스크롤을 가져갔는가 — 취소할 수 없는(cancelable=false) touchmove 가 왔으면 참.
    * 이 상태에서 두 번째 손가락이 닿아도 핀치 미리보기를 걸지 않는다(네이티브 팬 위에 scale 이 겹치고, 확정 기준점도 이미 밀려 있다).
    */
@@ -93,46 +100,70 @@ const ZOOM_CONTENT = '[data-zoom-content]'
 
 /** 화면 좌표 (x, y) 의 확대 기준 — 가장 가까운 기준 요소와 그 안 비율. 기준 요소가 없으면 null. */
 function captureAnchor(stage: HTMLElement, x: number, y: number): ZoomAnchor | null {
+  // 빠른 길 — 점 바로 아래가 기준 요소면 그것. 기준 요소(페이지·이미지)끼리는 겹치지 않아, 점을 품은 요소는
+  // 아래 거리 스캔에서도 거리 0 으로 뽑히는 바로 그 요소다(모든 요소의 rect 를 재지 않아도 된다).
+  const hit = document.elementFromPoint(x, y)?.closest(ZOOM_CONTENT)
+  if (hit && stage.contains(hit)) return { el: hit, x, y, ...focusFraction(hit.getBoundingClientRect(), x, y) }
+  // 빗나가면(페이지 사이 간격·이미지 옆 여백·바가 위에 겹침) 가장 가까운 기준 요소를 고른다 — 잰 rect 를 비율 계산에도 그대로 쓴다.
   const els = Array.from(stage.querySelectorAll(ZOOM_CONTENT))
-  const k = pickAnchorIndex(
-    els.map((el) => el.getBoundingClientRect()),
-    x,
-    y,
-  )
+  const rects = els.map((el) => el.getBoundingClientRect())
+  const k = pickAnchorIndex(rects, x, y)
   if (k < 0) return null
-  const el = els[k]
-  return { el, x, y, ...focusFraction(el.getBoundingClientRect(), x, y) }
+  return { el: els[k], x, y, ...focusFraction(rects[k], x, y) }
 }
 
-/** 그 축으로 실제 스크롤되는 요소인가(overflow auto/scroll + 넘침, ±1px 허용). */
-function scrollable(el: Element, axis: 'x' | 'y'): el is HTMLElement {
-  if (!(el instanceof HTMLElement)) return false
-  const s = getComputedStyle(el)
-  const ov = axis === 'x' ? s.overflowX : s.overflowY
-  if (ov !== 'auto' && ov !== 'scroll') return false
-  return axis === 'x' ? el.scrollWidth > el.clientWidth + 1 : el.scrollHeight > el.clientHeight + 1
-}
+/** 실제 스크롤되는 overflow 값인가. */
+const scrollsOn = (ov: string) => ov === 'auto' || ov === 'scroll'
 
-/** 손가락 아래에서 무대까지 올라가며 그 축의 첫 스크롤 영역(판정 R4). 없으면 null. */
-function nearestScroller(target: Element, stage: HTMLElement, axis: 'x' | 'y'): HTMLElement | null {
-  for (let el: Element | null = target; el; el = el.parentElement) {
-    if (scrollable(el, axis)) return el
+/**
+ * 손가락 아래에서 무대까지 올라가며 가로·세로 각 축의 첫 스크롤 영역(overflow auto/scroll + 넘침, ±1px 허용)을 찾아(판정 R4)
+ * 시작 시점의 스크롤 여유를 돌려준다. 두 축을 한 번에 훑어 조상마다 getComputedStyle 을 한 번만 읽는다.
+ * - canPanLeft/Right: 가로 스크롤 영역의 남은 여유 — 없으면 둘 다 false(어느 방향이든 넘김).
+ * - atTop: 세로 스크롤 영역이 맨 위인가 — 세로 스크롤 영역이 없으면(맞춤 이미지 등) 참.
+ */
+function scrollRoom(target: Element, stage: HTMLElement): { canPanLeft: boolean; canPanRight: boolean; atTop: boolean } {
+  let sx: HTMLElement | null = null
+  let sy: HTMLElement | null = null
+  for (let el: Element | null = target; el && !(sx && sy); el = el.parentElement) {
+    if (el instanceof HTMLElement) {
+      const s = getComputedStyle(el)
+      if (!sx && scrollsOn(s.overflowX) && el.scrollWidth > el.clientWidth + 1) sx = el
+      if (!sy && scrollsOn(s.overflowY) && el.scrollHeight > el.clientHeight + 1) sy = el
+    }
+    // 무대 자신까지 보고 멈춘다.
     if (el === stage) break
   }
-  return null
+  return {
+    canPanLeft: !!sx && sx.scrollLeft > 1,
+    canPanRight: !!sx && sx.scrollLeft < sx.scrollWidth - sx.clientWidth - 1,
+    atTop: !sy || sy.scrollTop <= 1,
+  }
 }
 
-/** 손가락 아래 가로 스크롤 영역의 남은 여유 — 없으면 둘 다 false(어느 방향이든 넘김). */
-export function horizontalRoom(target: Element, stage: HTMLElement): { canPanLeft: boolean; canPanRight: boolean } {
-  const el = nearestScroller(target, stage, 'x')
-  if (!el) return { canPanLeft: false, canPanRight: false }
-  return { canPanLeft: el.scrollLeft > 1, canPanRight: el.scrollLeft < el.scrollWidth - el.clientWidth - 1 }
+/** 한 대상에 다는 터치 리스너 묶음. */
+interface TouchHandlers {
+  start?: (e: TouchEvent) => void
+  move: (e: TouchEvent) => void
+  end: (e: TouchEvent) => void
+  cancel: (e: TouchEvent) => void
 }
 
-/** 손가락 아래 세로 스크롤 영역이 맨 위인가 — 세로 스크롤 영역이 없으면(맞춤 이미지 등) 참. */
-export function atScrollTop(target: Element, stage: HTMLElement): boolean {
-  const el = nearestScroller(target, stage, 'y')
-  return !el || el.scrollTop <= 1
+/**
+ * 터치 리스너 묶음을 달고, 떼는 함수를 돌려준다.
+ * 옵션은 이벤트별로 고정 — touchmove 만 passive:false(우리 제스처로 판정되면 preventDefault 해야 하므로),
+ * touchstart 는 passive:true(시작에서는 막지 않는다 — 스크롤 시작을 늦추지 않게), end/cancel 은 기본값.
+ */
+function listen(target: EventTarget, h: TouchHandlers): () => void {
+  const entries: [string, (e: TouchEvent) => void, AddEventListenerOptions | undefined][] = [
+    ['touchmove', h.move, { passive: false }],
+    ['touchend', h.end, undefined],
+    ['touchcancel', h.cancel, undefined],
+  ]
+  if (h.start) entries.unshift(['touchstart', h.start, { passive: true }])
+  for (const [type, fn, opts] of entries) target.addEventListener(type, fn as EventListener, opts)
+  return () => {
+    for (const [type, fn] of entries) target.removeEventListener(type, fn as EventListener)
+  }
 }
 
 /**
@@ -143,12 +174,12 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
   useEffect(() => {
     latest.current = opts
   })
-  // 배경 레이어는 콜백 ref 로 늦게 들어오므로 의존성에 넣어 마운트된 뒤 리스너를 다시 단다.
-  const { enabled, backdrop: backdropEl } = opts
+  // 배경 레이어(backdrop)도 쓰는 시점에 latest 에서 읽는다 — 콜백 ref 로 늦게 들어와도 리스너를 다시 달 필요가 없다
+  // (의존성에 넣으면 열 때 리스너를 두 번 달고 뗀다). latest 갱신 이펙트가 위에 있어 아래 이펙트보다 먼저 돈다.
+  const { enabled } = opts
   useEffect(() => {
     if (!stage || !enabled) return
     let track: Track = null
-    const backdrop = backdropEl ?? null
     /** 단일 탭 지연 타이머 — 두 번 탭과 구분하고, 탭으로 옮겨간 포커스를 본 뒤 바를 토글하려고 기다린다(판정 R6). */
     let tapTimer: ReturnType<typeof setTimeout> | undefined
     /** 직전 단일 탭 — 다음 탭이 두 번 탭인지 가린다. 탭이 아닌 제스처가 끼면 비운다. */
@@ -175,19 +206,24 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         latest.current.onTap?.()
       }, DOUBLE_TAP_MS)
     }
-    /** 끌기 중 위치 — 전환 없이 즉시. 아래로 끌면 배경이 옅어진다(시안 M2, 최소 0.2 — 완전히 투명해져 뒤 화면이 튀지 않게). */
-    const paint = (x: number, y: number) => {
+    /**
+     * 끌기 중 위치 — 전환 없이 즉시. 아래로 끌면 배경이 옅어진다(시안 M2, 최소 0.2 — 완전히 투명해져 뒤 화면이 튀지 않게).
+     * height = 시작 때 잰 무대 높이(아래로 끌 때만 쓴다 — 원위치 paint(0, 0) 는 넘기지 않는다).
+     */
+    const paint = (x: number, y: number, height?: number) => {
+      const backdrop = latest.current.backdrop
       stage.style.transition = ''
       stage.style.transform = x || y ? `translate3d(${x}px, ${y}px, 0)` : ''
-      if (backdrop) backdrop.style.opacity = y > 0 ? String(Math.max(0.2, 1 - y / stage.clientHeight)) : ''
+      if (backdrop) backdrop.style.opacity = y > 0 ? String(Math.max(0.2, 1 - y / (height ?? stage.clientHeight))) : ''
     }
     /** 제자리로 부드럽게 돌아간다(넘김·닫기 취소). */
     const settle = () => {
+      const backdrop = latest.current.backdrop
       stage.style.transition = 'transform 200ms ease-out'
       stage.style.transform = ''
       if (backdrop) backdrop.style.opacity = ''
     }
-    /** 핀치 미리보기(scale·기준점)를 확정 없이 걷어낸다 — 세 번째 손가락·touchcancel 로 핀치가 끊길 때. */
+    /** 핀치 미리보기(scale·기준점)를 걷어낸다 — 확정·취소(세 번째 손가락·touchcancel)·정리 공용. */
     const clearPinchPreview = () => {
       stage.style.transition = ''
       stage.style.transform = ''
@@ -195,8 +231,29 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
     }
     /** 무대를 움직이는 중인 제스처인가 — 취소(두 번째 손가락·touchcancel) 때 원위치가 필요한 상태. */
     const moving = (t: Track) => t?.kind === 'one' && (t.lock === 'swipe' || t.lock === 'dismiss')
+    /**
+     * 진행 중이던 제스처를 확정 없이 끊는다 — 넘김·닫기는 원위치, 핀치는 미리보기를 걷는다.
+     * 핀치를 남겨 두면 data-zoom 과 다른 배율로 확대된 채 다음 파일까지 따라간다(무대는 항목별 key 가 없다).
+     */
+    const abortTrack = () => {
+      if (moving(track)) settle()
+      if (track?.kind === 'pinch') clearPinchPreview()
+    }
+    // 터치 도중 시작 대상이 DOM 에서 빠지는 경우(넘긴 직후 로딩 뼈대가 이미지로 바뀌는 등) — 이후 touchmove/end 는
+    // 떨어져 나간 그 요소로만 가고 무대까지 버블링되지 않아 탭·스와이프를 잃는다(끝난 줄 모르고 track 도 남음).
+    // 그래서 시작 대상에도 리스너를 걸되, 그 요소가 문서에서 빠진 뒤의 이벤트만 처리한다(붙어 있으면 무대 리스너가 받으므로 중복 없음).
+    /** 감시 중인 시작 대상 → 그 리스너를 떼는 함수. */
+    const watched = new Map<EventTarget, () => void>()
+    /** 이번 묶음의 시작 대상 감시를 모두 푼다. */
+    const unwatchAll = () => {
+      for (const unlisten of watched.values()) unlisten()
+      watched.clear()
+    }
     const onStart = (e: TouchEvent) => {
+      // 손을 모두 뗀 상태에서 새로 시작하면 지난 묶음의 감시는 버린다.
+      if (e.touches.length === 1) unwatchAll()
       const target = e.target as Element
+      if (target && (target as EventTarget) !== stage && !watched.has(target)) watched.set(target, listen(target, detached))
       const o = latest.current
       // 새 터치가 시작되면 대기 중인 단일 탭(바 토글)을 취소한다 — 탭 직후 300ms 안의 스와이프·핀치가 바를 토글하지 않게.
       // 이 터치가 다시 탭으로 끝나면 handleTap 이 두 번 탭 판정 또는 새 지연 토글을 건다(lastTap 은 그대로 둔다).
@@ -223,10 +280,8 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       }
       if (e.touches.length !== 1 || target.closest(INTERACTIVE)) {
         // 두 번째 손가락이 닿으면(확대 대상이 아니거나 세 손가락 이상) 진행 중이던 넘김·닫기를 원위치하고 이번 묶음은 무시한다.
-        if (moving(track)) settle()
-        // 핀치 중 세 번째 손가락(손바닥 오접촉 등) — 이후 묶음은 무시라 손을 떼도 확정·정리가 없으므로 미리보기를 지금 걷는다.
-        // 남겨 두면 data-zoom 과 다른 배율로 확대된 채 다음 파일까지 따라간다(무대는 항목별 key 가 없다).
-        if (track?.kind === 'pinch') clearPinchPreview()
+        // 핀치 중 세 번째 손가락(손바닥 오접촉 등)도 — 이후 묶음은 무시라 손을 떼도 확정·정리가 없으므로 미리보기를 지금 걷는다.
+        abortTrack()
         track = { kind: 'ignore' }
         return
       }
@@ -237,8 +292,9 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         startX: t.clientX,
         startY: t.clientY,
         samples: [{ t: e.timeStamp, x: t.clientX, y: t.clientY }],
-        ...horizontalRoom(target, stage),
-        atTop: atScrollTop(target, stage),
+        ...scrollRoom(target, stage),
+        width: stage.clientWidth,
+        height: stage.clientHeight,
         scrolling: false,
       }
     }
@@ -281,22 +337,23 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       if (track.lock === 'swipe') {
         // 우리 제스처 — 브라우저 스크롤·뒤로가기 제스처를 막고 무대를 손가락에 붙인다(끝이면 러버밴드).
         if (e.cancelable) e.preventDefault()
-        paint(dragOffset(dx, stage.clientWidth, o.hasPrev, o.hasNext), 0)
+        paint(dragOffset(dx, track.width, o.hasPrev, o.hasNext), 0)
       } else if (track.lock === 'dismiss') {
         // 아래로 닫기 — 당겨서 새로고침·스크롤 바운스를 막고 무대를 손가락에 붙인다(위로는 따라가지 않음).
         if (e.cancelable) e.preventDefault()
-        paint(0, Math.max(0, dy))
+        paint(0, Math.max(0, dy), track.height)
       }
     }
     const onEnd = (e: TouchEvent) => {
+      // 손을 모두 떼면 이번 묶음의 시작 대상 감시를 푼다(아래 어느 갈래로 끝나든).
+      if (e.touches.length === 0) unwatchAll()
       const cur = track
       if (cur?.kind === 'pinch') {
         // 한 손가락이라도 떼면 확정 — 남은 손가락은 다 뗄 때까지 무시(팬·넘김으로 튀지 않게).
         track = e.touches.length === 0 ? null : { kind: 'ignore' }
-        stage.style.transform = ''
-        stage.style.transformOrigin = ''
+        clearPinchPreview()
         // 배율은 둘째 자리에서 자른다(데스크톱 ＋/－ 단계와 같은 규칙 — data-zoom·표시가 긴 소수가 되지 않게).
-        const next = +(cur.startZoom * cur.scale).toFixed(2)
+        const next = roundZoom(cur.startZoom * cur.scale)
         if (next !== cur.startZoom) latest.current.onZoom(next, cur.anchor)
         return
       }
@@ -307,7 +364,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       if (cur.lock === 'swipe') {
         const dx = t.clientX - cur.startX
         const { vx } = releaseVelocity([...cur.samples, { t: e.timeStamp, x: t.clientX, y: t.clientY }])
-        const d = decideSwipe({ dx, vx, width: stage.clientWidth, hasPrev: o.hasPrev, hasNext: o.hasNext })
+        const d = decideSwipe({ dx, vx, width: cur.width, hasPrev: o.hasPrev, hasNext: o.hasNext })
         if (d === 'stay') settle()
         else {
           paint(0, 0)
@@ -317,7 +374,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         const dy = t.clientY - cur.startY
         const { vy } = releaseVelocity([...cur.samples, { t: e.timeStamp, x: t.clientX, y: t.clientY }])
         // 확정이면 무대·배경은 그대로 두고 닫는다(언마운트로 사라짐) — 원위치 애니메이션이 닫힘 위로 보이지 않게.
-        if (decideDismiss({ dy, vy, height: stage.clientHeight })) o.onDismiss()
+        if (decideDismiss({ dy, vy, height: cur.height })) o.onDismiss()
         else settle()
       } else if (cur.lock === 'pending' && e.touches.length === 0 && isTapDuration(cur.samples[0].t, e.timeStamp)) {
         // 판정 임계(6px) 안에서 짧게(500ms 미만) 끝난 터치 = 탭. 길게 누르기는 탭이 아니다.
@@ -327,69 +384,28 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       // 탭이 아닌 제스처(넘김·닫기·스크롤·길게 누르기)가 끼면 두 번 탭 판정을 끊는다.
       lastTap = null
     }
-    const onCancel = () => {
-      if (moving(track)) settle()
+    const onCancel = (e: TouchEvent) => {
+      if (e.touches.length === 0) unwatchAll()
       // 취소된 핀치는 확정하지 않고 미리보기만 걷어낸다.
-      if (track?.kind === 'pinch') clearPinchPreview()
+      abortTrack()
       track = null
       lastTap = null
     }
-    // 터치 도중 시작 대상이 DOM 에서 빠지는 경우(넘긴 직후 로딩 뼈대가 이미지로 바뀌는 등) — 이후 touchmove/end 는
-    // 떨어져 나간 그 요소로만 가고 무대까지 버블링되지 않아 탭·스와이프를 잃는다(끝난 줄 모르고 track 도 남음).
-    // 그래서 시작 대상에도 리스너를 걸되, 그 요소가 문서에서 빠진 뒤의 이벤트만 처리한다(붙어 있으면 무대 리스너가 받으므로 중복 없음).
-    const watched = new Set<EventTarget>()
+    /** 떨어져 나간 시작 대상에 다는 리스너 — 그 요소가 문서에서 빠진 뒤의 이벤트만 넘긴다. */
     const whenDetached =
-      <E extends TouchEvent>(fn: (e: E) => void) =>
-      (e: E) => {
+      (fn: (e: TouchEvent) => void) =>
+      (e: TouchEvent) => {
         if (!(e.currentTarget as Node).isConnected) fn(e)
       }
-    /** 손을 모두 떼면 이번 묶음의 시작 대상 감시를 푼다. */
-    const onEndWatched = (e: TouchEvent) => {
-      onEnd(e)
-      if (e.touches.length === 0) unwatchAll()
-    }
-    const onCancelWatched = (e: TouchEvent) => {
-      onCancel()
-      if (e.touches.length === 0) unwatchAll()
-    }
-    const detachedMove = whenDetached(onMove)
-    const detachedEnd = whenDetached(onEndWatched)
-    const detachedCancel = whenDetached(onCancelWatched)
-    function unwatchAll() {
-      for (const t of watched) {
-        t.removeEventListener('touchmove', detachedMove as EventListener)
-        t.removeEventListener('touchend', detachedEnd as EventListener)
-        t.removeEventListener('touchcancel', detachedCancel as EventListener)
-      }
-      watched.clear()
-    }
-    const onStartWatched = (e: TouchEvent) => {
-      // 손을 모두 뗀 상태에서 새로 시작하면 지난 묶음의 감시는 버린다.
-      if (e.touches.length === 1) unwatchAll()
-      const t = e.target
-      if (t && t !== stage && !watched.has(t)) {
-        watched.add(t)
-        t.addEventListener('touchmove', detachedMove as EventListener, { passive: false })
-        t.addEventListener('touchend', detachedEnd as EventListener)
-        t.addEventListener('touchcancel', detachedCancel as EventListener)
-      }
-      onStart(e)
-    }
-    stage.addEventListener('touchstart', onStartWatched, { passive: true })
-    stage.addEventListener('touchmove', onMove, { passive: false })
-    stage.addEventListener('touchend', onEndWatched)
-    stage.addEventListener('touchcancel', onCancelWatched)
+    const detached: TouchHandlers = { move: whenDetached(onMove), end: whenDetached(onEnd), cancel: whenDetached(onCancel) }
+    const unlistenStage = listen(stage, { start: onStart, move: onMove, end: onEnd, cancel: onCancel })
     return () => {
-      stage.removeEventListener('touchstart', onStartWatched)
-      stage.removeEventListener('touchmove', onMove)
-      stage.removeEventListener('touchend', onEndWatched)
-      stage.removeEventListener('touchcancel', onCancelWatched)
+      unlistenStage()
       unwatchAll()
-      stage.style.transform = ''
-      stage.style.transition = ''
-      stage.style.transformOrigin = ''
+      clearPinchPreview()
       clearTimeout(tapTimer)
+      const backdrop = latest.current.backdrop
       if (backdrop) backdrop.style.opacity = ''
     }
-  }, [stage, enabled, backdropEl])
+  }, [stage, enabled])
 }

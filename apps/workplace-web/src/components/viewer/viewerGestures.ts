@@ -1,5 +1,6 @@
 // 통합 뷰어 터치 제스처 판정 순수 로직(WP-278). 훅(useViewerGestures)은 DOM 에서 값만 재서 넘기고 결과대로만 움직인다.
 // 왜 순수 함수인가: 25%·플링·내용 우선·가장자리 같은 규칙은 브라우저 없이 경계값까지 검증해야 회귀를 잡는다(스펙 §8.1).
+import { LONG_PRESS_MS } from '../../hooks/useLongPress'
 
 /** 화면 좌우 가장자리 이 폭 안에서 시작한 제스처는 무시 — iOS 가장자리 뒤로가기와 겹치지 않게(스펙 §5.1). */
 export const EDGE_GUARD_PX = 20
@@ -21,9 +22,10 @@ export const DOUBLE_TAP_MS = 300
 export const DOUBLE_TAP_DIST_PX = 30
 /**
  * 탭으로 치는 최대 누름 시간(ms) — 이보다 오래 누른 채 뗀 것(길게 누르기·천천히 뗀 터치)은 탭이 아니다.
- * 500ms 는 브라우저 길게 누르기(문맥 메뉴) 판정 시작점과 같은 값 — 그 이상은 사용자가 탭이 아닌 다른 의도를 가진 것으로 본다.
+ * 앱 공용 길게 누르기 기준(LONG_PRESS_MS, 500ms)을 그대로 쓴다 — 브라우저 길게 누르기(문맥 메뉴) 판정 시작점과도 같은 값이라,
+ * 그 이상은 사용자가 탭이 아닌 다른 의도를 가진 것으로 본다. 한쪽만 바뀌어 "길게 누르기이면서 탭"인 구간이 생기지 않게 한 값을 공유한다.
  */
-export const TAP_MAX_MS = 500
+export const TAP_MAX_MS = LONG_PRESS_MS
 /**
  * 터치 확대 범위 — 맞춤(1) 아래로는 줄이지 않는다. PDF 1~3×(스펙 §5.1), 이미지도 같은 상한(판정 R9).
  * 단 iPad 처럼 툴바·키보드로 이미 1 미만(0.5·0.75)에 있으면 하한은 그 시작 배율 — 모으는 핀치가 오히려 1 로 튀어 확대되지 않게(pinchZoom).
@@ -161,6 +163,13 @@ export function stageTouchAction(i: { coarse: boolean; zoomable: boolean; image:
   if (!i.coarse) return undefined
   if (!i.zoomable) return 'manipulation'
   return i.image && i.zoom === 1 ? 'none' : 'pan'
+}
+
+/**
+ * 배율을 둘째 자리에서 자른다 — 핀치 확정·＋/－ 단계가 같은 규칙을 쓴다(data-zoom·표시가 0.30000000000000004 같은 긴 소수가 되지 않게).
+ */
+export function roundZoom(z: number): number {
+  return +z.toFixed(2)
 }
 
 /** 두 번 탭 목표 배율 — 맞춤이면 2배, 확대 중이면 맞춤. */
