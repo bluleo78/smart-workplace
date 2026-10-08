@@ -185,3 +185,28 @@ export async function touchPinchThenThirdFinger(page: Page, center: Pt, fromDist
     await s.detach()
   }
 }
+
+/**
+ * 한 손가락으로 dy 만큼 세로로 끌어(문서 네이티브 스크롤) 스크롤이 시작된 뒤 두 번째 손가락을 얹고 벌린다 —
+ * "네이티브 스크롤 중 두 번째 손가락" 재현. duringPinch 는 두 손가락이 벌어진 상태(떼기 전)에 불린다.
+ */
+export async function touchScrollThenPinch(page: Page, from: Pt, dy: number, spread: number, opts: { duringPinch?: () => Promise<void> } = {}) {
+  const s = await page.context().newCDPSession(page)
+  try {
+    const t0 = gestureStart()
+    await send(s, 'touchStart', [{ ...from, id: 0 }], t0)
+    for (let k = 1; k <= 8; k++) {
+      await send(s, 'touchMove', [{ x: from.x, y: from.y + (dy * k) / 8, id: 0 }], t0 + STEP_S * k)
+    }
+    const a = { x: from.x, y: from.y + dy, id: 0 }
+    const b = (d: number) => ({ x: a.x + 40 + d, y: a.y, id: 1 })
+    await send(s, 'touchStart', [a, b(0)], t0 + STEP_S * 9)
+    for (let k = 1; k <= 8; k++) {
+      await send(s, 'touchMove', [a, b((spread * k) / 8)], t0 + STEP_S * (9 + k))
+    }
+    await opts.duringPinch?.()
+    await send(s, 'touchEnd', [], t0 + STEP_S * 18)
+  } finally {
+    await s.detach()
+  }
+}

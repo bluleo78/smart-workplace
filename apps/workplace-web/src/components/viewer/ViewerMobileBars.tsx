@@ -13,6 +13,25 @@ const barClass =
   'absolute inset-x-0 z-20 bg-background/80 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur transition-opacity duration-200'
 
 /**
+ * 뷰어 제목·설명(데스크톱 헤더·모바일 상단 바 공용) — 다이얼로그 접근 이름은 전체 파일명 + "미리보기"(스펙 §5.2),
+ * 화면에는 max 글자 가운데 말줄임만 보인다. 설명(크기·순번·쪽 메타)은 preview-meta 로 다이얼로그 설명에 쓴다.
+ * 감싸는 배치(정렬·폭)는 호출부가 정한다.
+ */
+export function ViewerTitle({ item, max, meta }: { item: ViewerItem; max: number; meta: string }) {
+  return (
+    <>
+      <DialogTitle className="truncate text-sm font-medium" title={item.name}>
+        <span aria-hidden>{middleEllipsis(item.name, max)}</span>
+        <span className="sr-only">{item.name} 미리보기</span>
+      </DialogTitle>
+      <DialogDescription className="truncate text-xs text-muted-foreground" data-testid="preview-meta">
+        {meta}
+      </DialogDescription>
+    </>
+  )
+}
+
+/**
  * 모바일 상단 바(WP-278, 스펙 §4.2·시안 M1) — ✕ · 파일명(가운데 말줄임)/순번·쪽 · ⋯.
  * 노치 아래로 내려오도록 safe-area-inset-top 만큼 위 여백을 둔다(뷰어는 포털이라 MobileShell 의 안전영역 처리 밖).
  */
@@ -43,14 +62,7 @@ export function ViewerMobileTopBar({
         </Button>
       </DialogClose>
       <div className="min-w-0 flex-1 text-center">
-        {/* 접근 이름은 전체 파일명 + "미리보기"(데스크톱과 동일) — 화면에는 가운데 말줄임만. */}
-        <DialogTitle className="truncate text-sm font-medium" title={item.name}>
-          <span aria-hidden>{middleEllipsis(item.name, 28)}</span>
-          <span className="sr-only">{item.name} 미리보기</span>
-        </DialogTitle>
-        <DialogDescription className="truncate text-xs text-muted-foreground" data-testid="preview-meta">
-          {meta}
-        </DialogDescription>
+        <ViewerTitle item={item} max={28} meta={meta} />
       </div>
       <div className="flex size-11 shrink-0 items-center justify-center">{more}</div>
     </header>

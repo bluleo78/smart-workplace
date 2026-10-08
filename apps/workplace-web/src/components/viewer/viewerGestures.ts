@@ -168,15 +168,73 @@ export function doubleTapTarget(zoom: number): number {
   return zoom > 1 ? 1 : DOUBLE_TAP_ZOOM
 }
 
+/** 화면 좌표 사각형 — getBoundingClientRect 에서 필요한 값만(순수 함수 입력). */
+export interface Box {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
 /**
- * 배율이 from → to 로 바뀐 뒤의 스크롤 위치 — 스크롤 영역 안 기준점(focus, 영역 왼쪽 위 기준 px)이 화면의 같은 자리에 남게 한다.
- * 확대는 레이아웃 폭을 키우는 방식(WP-277)이라 내용 좌표가 배율에 비례한다는 가정. 음수는 0 으로(브라우저가 최대값은 자른다).
+ * 확대 기준점 — 제스처 시작(핀치)·탭(두 번 탭) 순간에 잰다.
+ * x·y: 화면 좌표(clientX/Y) — 확대 뒤에도 이 화면 위치에 같은 내용이 오게 한다.
+ * fx·fy: 그 점이 기준 요소(PDF 페이지 캔버스·이미지) 안 어디쯤인지(0~1 비율).
+ * 왜 요소 안 비율인가(판정 R1 수정): PDF 페이지 사이 간격(gap)·위아래 여백(py)·이미지 여백(p)·가운데 정렬 auto 여백은 배율을 따라 커지지 않는다.
+ * "스크롤 좌표 전체가 배율에 비례" 로 계산하면 뒤 페이지일수록(20쪽 ≈ 320px) 어긋나고, 여백 있는 이미지는 엉뚱한 끝으로 잘린다.
+ * 배율에 정확히 비례하는 것은 요소 자신의 크기뿐이므로 확대 뒤 그 요소의 실제 위치를 다시 재서 맞춘다.
  */
-export function anchorScroll(i: { scrollLeft: number; scrollTop: number; focusX: number; focusY: number; from: number; to: number }): { left: number; top: number } {
-  if (i.from <= 0) return { left: i.scrollLeft, top: i.scrollTop }
-  const r = i.to / i.from
+export interface ZoomFocus {
+  x: number
+  y: number
+  fx: number
+  fy: number
+}
+
+/** 사각형과 점 사이 거리(안이면 0) — 페이지 사이 간격에 놓인 점도 가장 가까운 페이지로 잡으려고. */
+function boxDistance(b: Box, x: number, y: number): number {
+  const dx = Math.max(b.left - x, 0, x - (b.left + b.width))
+  const dy = Math.max(b.top - y, 0, y - (b.top + b.height))
+  return Math.hypot(dx, dy)
+}
+
+/** 기준점에 가장 가까운 내용 요소의 순번(점을 품은 요소가 있으면 그것). 후보가 없으면 -1. */
+export function pickAnchorIndex(boxes: Box[], x: number, y: number): number {
+  let best = -1
+  let bestDist = Infinity
+  boxes.forEach((b, k) => {
+    const d = boxDistance(b, x, y)
+    if (d < bestDist) {
+      best = k
+      bestDist = d
+    }
+  })
+  return best
+}
+
+/**
+ * 점이 요소 안 어디쯤인지(0~1). 요소 밖(이미지 좌우 검은 여백·페이지 사이 간격)은 가장 가까운 끝(0 또는 1)으로 자른다 —
+ * 여백은 배율을 따라 커지지 않으므로 바깥으로 외삽하면 오히려 어긋난다. 크기가 0 인 축은 가운데(0.5).
+ */
+export function focusFraction(b: Box, x: number, y: number): { fx: number; fy: number } {
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
   return {
-    left: Math.max(0, Math.round((i.scrollLeft + i.focusX) * r - i.focusX)),
-    top: Math.max(0, Math.round((i.scrollTop + i.focusY) * r - i.focusY)),
+    fx: b.width > 0 ? clamp01((x - b.left) / b.width) : 0.5,
+    fy: b.height > 0 ? clamp01((y - b.top) / b.height) : 0.5,
+  }
+}
+
+/**
+ * 확대가 레이아웃에 반영된 뒤의 스크롤 위치 — 기준 요소의 "새" 화면 위치(box, 현재 스크롤 기준으로 잰 값)에서
+ * 기준 비율 지점이 기준 화면 좌표(focus.x·y)에 오도록 현재 스크롤에 차이만큼 더한다.
+ * 현재 스크롤과 새 위치를 같은 시점에 재므로, 축소 중 브라우저가 스크롤을 먼저 잘라 냈어도 기준이 틀어지지 않는다.
+ * 음수는 0 으로(브라우저가 최대값은 자른다).
+ */
+export function anchoredScroll(i: { scrollLeft: number; scrollTop: number; box: Box; focus: ZoomFocus }): { left: number; top: number } {
+  const px = i.box.left + i.focus.fx * i.box.width
+  const py = i.box.top + i.focus.fy * i.box.height
+  return {
+    left: Math.max(0, Math.round(i.scrollLeft + px - i.focus.x)),
+    top: Math.max(0, Math.round(i.scrollTop + py - i.focus.y)),
   }
 }

@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  anchorScroll,
+  anchoredScroll,
   decideDismiss,
   decideSwipe,
   doubleTapTarget,
   dragOffset,
+  focusFraction,
   isDoubleTap,
   isTapDuration,
   lockGesture,
   type LockInput,
+  pickAnchorIndex,
   pinchZoom,
   releaseVelocity,
   rubberBand,
@@ -148,16 +150,53 @@ describe('pinchZoom / doubleTapTarget', () => {
   })
 })
 
-describe('anchorScroll', () => {
-  it('확대 시 기준점이 화면의 같은 자리에 남는다', () => {
-    expect(anchorScroll({ scrollLeft: 0, scrollTop: 0, focusX: 100, focusY: 50, from: 1, to: 2 })).toEqual({ left: 100, top: 50 })
+describe('pickAnchorIndex', () => {
+  // PDF 3쪽 — 폭 300·높이 400, 페이지 사이 간격 16(배율과 무관한 고정 간격).
+  const pages = [0, 1, 2].map((k) => ({ left: 45, top: 16 + k * 416, width: 300, height: 400 }))
+  it('점을 품은 요소를 고른다', () => {
+    expect(pickAnchorIndex(pages, 100, 500)).toBe(1)
   })
-  it('축소는 반대로, 음수 스크롤은 0', () => {
-    expect(anchorScroll({ scrollLeft: 100, scrollTop: 50, focusX: 100, focusY: 50, from: 2, to: 1 })).toEqual({ left: 0, top: 0 })
-    expect(anchorScroll({ scrollLeft: 0, scrollTop: 0, focusX: 100, focusY: 50, from: 2, to: 1 })).toEqual({ left: 0, top: 0 })
+  it('페이지 사이 간격의 점은 가장 가까운 페이지', () => {
+    expect(pickAnchorIndex(pages, 100, 420)).toBe(0)
+    expect(pickAnchorIndex(pages, 100, 430)).toBe(1)
   })
-  it('잘못된 기준 배율(0 이하)이면 그대로', () => {
-    expect(anchorScroll({ scrollLeft: 7, scrollTop: 9, focusX: 1, focusY: 1, from: 0, to: 2 })).toEqual({ left: 7, top: 9 })
+  it('후보가 없으면 -1', () => {
+    expect(pickAnchorIndex([], 0, 0)).toBe(-1)
+  })
+})
+
+describe('focusFraction', () => {
+  const box = { left: 100, top: 200, width: 200, height: 400 }
+  it('요소 안 비율', () => {
+    expect(focusFraction(box, 150, 300)).toEqual({ fx: 0.25, fy: 0.25 })
+  })
+  it('요소 밖(좌우 여백·페이지 간격)은 가까운 끝으로 자른다', () => {
+    expect(focusFraction(box, 20, 700)).toEqual({ fx: 0, fy: 1 })
+  })
+  it('크기 0 축은 가운데', () => {
+    expect(focusFraction({ left: 0, top: 0, width: 0, height: 0 }, 5, 5)).toEqual({ fx: 0.5, fy: 0.5 })
+  })
+})
+
+describe('anchoredScroll', () => {
+  it('확대 뒤 기준 요소의 같은 비율 지점이 기준 화면 좌표에 오게 스크롤한다', () => {
+    // 3쪽(맞춤 top=848)의 가운데를 화면 y=400 에서 두 번 탭 → 2배. 확대 뒤(스크롤 그대로) 3쪽은 top=1680·높이 800.
+    const focus = { x: 195, y: 400, ...focusFraction({ left: 45, top: 848 - 600, width: 300, height: 400 }, 195, 400) }
+    // 맞춤 때 스크롤 600 에서 3쪽 화면 top 은 248 → fy = 0.38. 2배 뒤 같은 스크롤에서 3쪽 화면 top = 16+2*(800+16)-600 = 1048.
+    const s = anchoredScroll({ scrollLeft: 0, scrollTop: 600, box: { left: -105, top: 1048, width: 600, height: 800 }, focus })
+    // 그 지점(1048 + 0.38*800 = 1352)이 화면 y=400 으로 와야 하므로 스크롤 += 952. 가로도 같은 비율(0.5 → 195).
+    expect(s).toEqual({ left: 0, top: 1552 })
+    // 단순 비례 모델((600+400)*2-400 = 1600)은 고정 간격·여백만큼(48px) 어긋났다.
+    expect(s.top).not.toBe(1600)
+  })
+  it('가로도 기준 비율 지점을 맞춘다 — 음수 스크롤은 0', () => {
+    const focus = { x: 300, y: 100, fx: 0.8, fy: 0.5 }
+    expect(anchoredScroll({ scrollLeft: 0, scrollTop: 0, box: { left: 16, top: 0, width: 716, height: 200 }, focus })).toEqual({ left: 289, top: 0 })
+    expect(anchoredScroll({ scrollLeft: 0, scrollTop: 0, box: { left: 16, top: 0, width: 100, height: 200 }, focus: { ...focus, fx: 0 } })).toEqual({ left: 0, top: 0 })
+  })
+  it('축소로 브라우저가 스크롤을 이미 잘라 냈어도 현재 스크롤 기준으로 맞춘다', () => {
+    // 스크롤이 300 으로 잘린 상태에서 기준 요소가 화면 top=-100 에 있으면 fy=0.5 지점(-100+200=100)을 y=400 으로 → 300-300 = 0.
+    expect(anchoredScroll({ scrollLeft: 0, scrollTop: 300, box: { left: 0, top: -100, width: 390, height: 400 }, focus: { x: 0, y: 400, fx: 0, fy: 0.5 } })).toEqual({ left: 0, top: 0 })
   })
 })
 

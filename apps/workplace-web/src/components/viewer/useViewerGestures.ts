@@ -13,14 +13,22 @@ import {
   DOUBLE_TAP_MS,
   doubleTapTarget,
   dragOffset,
+  focusFraction,
   type GestureLock,
   isDoubleTap,
   isTapDuration,
   lockGesture,
+  pickAnchorIndex,
   pinchZoom,
   releaseVelocity,
   type Sample,
+  type ZoomFocus,
 } from './viewerGestures'
+
+/** 확대 기준 — 기준 요소(PDF 페이지 캔버스·이미지)와 그 안 비율·화면 좌표. 기준 요소가 없으면(아직 로딩) 호출부는 스크롤을 건드리지 않는다. */
+export interface ZoomAnchor extends ZoomFocus {
+  el: Element
+}
 
 export interface ViewerGestureOptions {
   /** 터치 제스처 사용 — coarse 포인터일 때만(스펙 §3.2: 폭이 아니라 pointer: coarse). */
@@ -39,8 +47,8 @@ export interface ViewerGestureOptions {
   onTap?: () => void
   /** 핀치·두 번 탭 확대 대상 형식인가(이미지·PDF, 사용 가능 항목). */
   zoomable: boolean
-  /** 확대 확정 — focus 는 확대 스크롤 영역([data-hscroll]) 왼쪽 위 기준 좌표(px). 이 점이 제자리에 남게 호출부가 스크롤을 맞춘다. */
-  onZoom: (next: number, focus: { x: number; y: number }) => void
+  /** 확대 확정 — anchor 의 기준 비율 지점이 화면의 같은 자리(anchor.x·y)에 남게 호출부가 레이아웃 뒤 스크롤을 맞춘다. */
+  onZoom: (next: number, anchor: ZoomAnchor | null) => void
 }
 
 /** 한 손가락 추적 상태 — 시작 시점의 스크롤 여유를 함께 들고 있어 첫 이동 판정에 쓴다. */
@@ -53,14 +61,19 @@ interface OneFinger {
   canPanLeft: boolean
   canPanRight: boolean
   atTop: boolean
+  /**
+   * 브라우저가 이미 스크롤을 가져갔는가 — 취소할 수 없는(cancelable=false) touchmove 가 왔으면 참.
+   * 이 상태에서 두 번째 손가락이 닿아도 핀치 미리보기를 걸지 않는다(네이티브 팬 위에 scale 이 겹치고, 확정 기준점도 이미 밀려 있다).
+   */
+  scrolling: boolean
 }
-/** 두 손가락 핀치 — 시작 거리·배율·중점(화면 좌표). 진행 중엔 무대 scale 미리보기만(판정 R1). */
+/** 두 손가락 핀치 — 시작 거리·배율·확대 기준(시작 중점). 진행 중엔 무대 scale 미리보기만(판정 R1). */
 interface Pinch {
   kind: 'pinch'
   startDist: number
   startZoom: number
-  midX: number
-  midY: number
+  /** 확대 기준 — 시작 때(무대 transform 이 없을 때) 잰다. 손을 뗄 때 재면 미리보기 scale 이 섞인 위치가 된다. */
+  anchor: ZoomAnchor | null
   /** 미리보기 scale 의 기준점(무대 왼쪽 위 기준 px) — 시작 때 한 번 잰다. 이동마다 재면 이미 걸린 scale 이 섞인 rect 로 기준점이 떠다닌다. */
   originX: number
   originY: number
@@ -74,6 +87,22 @@ type Track = OneFinger | Pinch | { kind: 'ignore' } | null
 const INTERACTIVE = 'button, a[href], input, textarea, select, [role="button"], [contenteditable="true"]'
 /** 표본 보관 개수 — 속도는 최근 100ms 만 보므로 이만큼이면 충분. */
 const MAX_SAMPLES = 20
+
+/** 확대 기준 요소 표식 — PDF 페이지 캔버스·이미지(ViewerBody·PdfPages 가 단다). 배율에 정확히 비례하는 건 이 요소들의 크기뿐이다. */
+const ZOOM_CONTENT = '[data-zoom-content]'
+
+/** 화면 좌표 (x, y) 의 확대 기준 — 가장 가까운 기준 요소와 그 안 비율. 기준 요소가 없으면 null. */
+function captureAnchor(stage: HTMLElement, x: number, y: number): ZoomAnchor | null {
+  const els = Array.from(stage.querySelectorAll(ZOOM_CONTENT))
+  const k = pickAnchorIndex(
+    els.map((el) => el.getBoundingClientRect()),
+    x,
+    y,
+  )
+  if (k < 0) return null
+  const el = els[k]
+  return { el, x, y, ...focusFraction(el.getBoundingClientRect(), x, y) }
+}
 
 /** 그 축으로 실제 스크롤되는 요소인가(overflow auto/scroll + 넘침, ±1px 허용). */
 function scrollable(el: Element, axis: 'x' | 'y'): el is HTMLElement {
@@ -129,12 +158,6 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       const [a, b] = [e.touches[0], e.touches[1]]
       return { dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), midX: (a.clientX + b.clientX) / 2, midY: (a.clientY + b.clientY) / 2 }
     }
-    /** 화면 좌표 → 확대 스크롤 영역([data-hscroll]) 왼쪽 위 기준 좌표(없으면 무대 기준) — 판정 R4. */
-    const toScrollerPoint = (x: number, y: number) => {
-      const el = stage.querySelector<HTMLElement>('[data-hscroll]') ?? stage
-      const r = el.getBoundingClientRect()
-      return { x: x - r.left, y: y - r.top }
-    }
     /** 움직임 없이 짧게 끝난 터치 — 두 번 탭이면 확대 전환, 아니면 지연 뒤 onTap(판정 R6). */
     const handleTap = (s: Sample) => {
       const o = latest.current
@@ -142,7 +165,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         // 두 번 탭 — 대기 중인 단일 탭(바 토글)을 취소하고 1× ↔ 2×(탭 지점 기준, 판정 R9).
         clearTimeout(tapTimer)
         lastTap = null
-        o.onZoom(doubleTapTarget(o.zoom), toScrollerPoint(s.x, s.y))
+        o.onZoom(doubleTapTarget(o.zoom), captureAnchor(stage, s.x, s.y))
         return
       }
       lastTap = s
@@ -178,7 +201,9 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       // 새 터치가 시작되면 대기 중인 단일 탭(바 토글)을 취소한다 — 탭 직후 300ms 안의 스와이프·핀치가 바를 토글하지 않게.
       // 이 터치가 다시 탭으로 끝나면 handleTap 이 두 번 탭 판정 또는 새 지연 토글을 건다(lastTap 은 그대로 둔다).
       clearTimeout(tapTimer)
-      if (e.touches.length === 2 && o.zoomable && !target.closest(INTERACTIVE)) {
+      // 첫 손가락으로 이미 네이티브 스크롤 중이면 두 번째 손가락은 무시 — 스크롤 위에 scale 미리보기를 겹치지 않는다(아래 ignore 로).
+      const nativeScrolling = track?.kind === 'one' && track.scrolling
+      if (e.touches.length === 2 && o.zoomable && !target.closest(INTERACTIVE) && !nativeScrolling) {
         // 스와이프·닫기 중 두 번째 손가락이 닿았으면 무대를 즉시 원위치하고 핀치로 이어간다(Review Focus 3).
         if (moving(track)) paint(0, 0)
         const f = twoFinger(e)
@@ -188,8 +213,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
           kind: 'pinch',
           startDist: f.dist,
           startZoom: o.zoom,
-          midX: f.midX,
-          midY: f.midY,
+          anchor: captureAnchor(stage, f.midX, f.midY),
           originX: f.midX - r.left,
           originY: f.midY - r.top,
           scale: 1,
@@ -215,6 +239,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         samples: [{ t: e.timeStamp, x: t.clientX, y: t.clientY }],
         ...horizontalRoom(target, stage),
         atTop: atScrollTop(target, stage),
+        scrolling: false,
       }
     }
     const onMove = (e: TouchEvent) => {
@@ -230,6 +255,9 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         return
       }
       if (track?.kind !== 'one' || e.touches.length !== 1) return
+      // 브라우저가 스크롤을 시작하면 이후 touchmove 는 취소할 수 없게 온다 — 그 신호로 "네이티브 스크롤 중"을 안다.
+      // (판정이 native 라도 가장자리 20px 시작처럼 브라우저가 스크롤하지 않는 경우가 있어 판정값 대신 이 신호를 쓴다.)
+      if (!e.cancelable) track.scrolling = true
       const o = latest.current
       const t = e.touches[0]
       const dx = t.clientX - track.startX
@@ -269,7 +297,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         stage.style.transformOrigin = ''
         // 배율은 둘째 자리에서 자른다(데스크톱 ＋/－ 단계와 같은 규칙 — data-zoom·표시가 긴 소수가 되지 않게).
         const next = +(cur.startZoom * cur.scale).toFixed(2)
-        if (next !== cur.startZoom) latest.current.onZoom(next, toScrollerPoint(cur.midX, cur.midY))
+        if (next !== cur.startZoom) latest.current.onZoom(next, cur.anchor)
         return
       }
       if (e.touches.length === 0) track = null

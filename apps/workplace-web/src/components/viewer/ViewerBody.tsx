@@ -240,6 +240,8 @@ export function ViewerBody({
           src={content.url}
           alt={item.name}
           onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+          // 확대 기준 요소 표식 — 핀치·두 번 탭 기준점을 이 요소 안 비율로 잡는다(여백·가운데 정렬 여백은 배율을 따르지 않으므로).
+          data-zoom-content=""
           className={cn('m-auto shrink-0', fitWidth == null ? 'max-h-full max-w-full object-contain' : 'h-auto max-h-none max-w-none')}
           style={fitWidth == null ? undefined : { width: fitWidth * zoom }}
         />
