@@ -5,6 +5,7 @@
 import { Monitor, PanelRight, Sparkles, X } from 'lucide-react';
 
 import { type AIMode, useAssistant } from '@/components/ai/AIAssistantContext';
+import { PanelHeader } from '@/components/layout/PanelHeader';
 import { cn } from '@/lib/utils';
 
 const iconBtn = 'rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground';
@@ -63,12 +64,10 @@ export function AIPanelTitle({ className }: { className?: string }) {
   );
 }
 
-/** 사이드 패널 상단 헤더 — 타이틀 + 모드 전환/닫기. */
+/**
+ * 사이드 패널 상단 헤더 — 타이틀 + 모드 전환/닫기.
+ * 앱 공통 PanelHeader(56px)를 써서 페이지 헤더 하단선과 한 선에 둔다(풀스크린·모바일 시트는 각자 상단 바 유지).
+ */
 export function AIPanelHeader() {
-  return (
-    <div data-testid="ai-panel-header" className="flex h-12 shrink-0 items-center justify-between border-b px-3">
-      <AIPanelTitle />
-      <AIPanelControls />
-    </div>
-  );
+  return <PanelHeader data-testid="ai-panel-header" title={<AIPanelTitle />} actions={<AIPanelControls />} />;
 }
