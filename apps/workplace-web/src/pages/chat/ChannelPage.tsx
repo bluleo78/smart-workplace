@@ -16,7 +16,7 @@ import { MessageList } from '@/components/chat/MessageList'
 import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
 import { RenameChannelModal } from '@/components/chat/RenameChannelModal'
 import { ThreadPanel } from '@/components/chat/ThreadPanel'
-import { Page } from '@/components/layout/Page'
+import { Page, pageGutterClass } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { Button } from '@/components/ui/button'
@@ -316,7 +316,7 @@ export default function ChannelPage() {
           </MessageScrollArea>
           {/* AI 작업 중 유령 버블 — progress 이벤트 발생 시 메시지 목록 하단에 렌더 */}
           {working.size > 0 && (
-            <ul className="px-4 pb-1">
+            <ul className={cn(pageGutterClass, 'pb-1')}>
               {[...working.values()].map((w) => (
                 <AiWorkingBubble key={w.streamId} agentName={w.agentName} steps={w.steps} />
               ))}

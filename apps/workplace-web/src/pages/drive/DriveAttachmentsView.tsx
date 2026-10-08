@@ -80,7 +80,7 @@ export function DriveAttachmentsView() {
     openKey: previewParam.open,
   })
   const isLoading = query.isLoading
-  // 모바일은 헤더 바 없이 필터 줄에 검색을 두던 기존 모양 그대로 — 데스크톱에서만 Page.Header 를 둔다.
+  // 모바일은 헤더 바 없이(Page.Header mobile="hidden") 필터 줄 맨 앞에 검색을 두던 기존 모양 그대로.
   const isMobile = useIsMobile()
   // 검색은 데스크톱에서도 헤더가 아닌 필터 줄에 둔다 — AI 옆 패널이 열리면 칩이 콘텐츠 오른쪽 끝(헤더 우측 액션 자리)으로
   // 밀려 헤더 검색을 가렸다. 헤더 아래 줄은 칩(top-2, 높이 32px)이 닿지 않는다. 데스크톱은 필터칩 뒤 오른쪽 끝(ml-auto).
@@ -96,7 +96,7 @@ export function DriveAttachmentsView() {
 
   return (
     <Page data-testid="drive-attachments-view">
-      {!isMobile && <Page.Header title="첨부 모아보기" />}
+      <Page.Header title="첨부 모아보기" mobile="hidden" />
       {/* 출처 필터칩 + 검색 — 헤더 아래 본문 첫 줄. 목록을 스크롤해도 남도록 스크롤 영역 밖에 둔다. */}
       <div className={cn('flex shrink-0 items-center gap-2 border-b py-2', pageGutterClass)}>
         {isMobile && search}
@@ -121,7 +121,7 @@ export function DriveAttachmentsView() {
 
       {/* 본문 — 로딩/빈상태/목록. 그룹 띠(배경·구분선)가 끝까지 닿도록 본문 여백을 비우고 행이 pageGutterClass 를 갖는다.
           스크롤 요소는 무한 스크롤 sentinel 의 root(scrollRef). */}
-      <Page.Body scrollRef={setScrollEl} className="p-0">
+      <Page.Body scrollRef={setScrollEl} inset={false}>
         {isLoading ? (
           <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
             불러오는 중…

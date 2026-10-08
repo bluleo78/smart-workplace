@@ -5,7 +5,7 @@ import { useEffect, useRef } from 'react';
 
 import { LabelChip } from '@/components/labels/LabelChip';
 import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
-import { subPaneHeaderClass } from '@/components/layout/Page';
+import { pageGutterClass, subPaneHeaderClass } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { useHistoryParam } from '@/hooks/useHistoryParam';
@@ -160,7 +160,7 @@ export function PersonalTaskDetail({
     // 스크롤 컨테이너 — 외부 wrapper가 h-full flex flex-col이므로 flex-1로 남은 높이 채움.
     <div className="flex flex-1 flex-col overflow-y-auto">
       {/* 제목 줄 — 모달은 기존 헤더 줄(border-b p-3), 패널은 소제목 줄 바로 아래 본문 첫머리. */}
-      <div className={asModal ? 'flex items-center justify-between border-b p-3' : 'px-4 pt-4'}>
+      <div className={asModal ? 'flex items-center justify-between border-b p-3' : cn(pageGutterClass, 'pt-4')}>
         {/* 제목 인라인 편집 — 패널·모달 공통(#718). 개인 이슈는 상세 페이지가 리다이렉트로 막혀
             드로어가 유일한 편집 경로이므로 여기에서 직접 편집한다. 모달은 Radix a11y 상 DialogTitle
             이 필수라 접근성용 텍스트만 sr-only 로 유지하고 편집 UI 를 시각적으로 노출한다. */}

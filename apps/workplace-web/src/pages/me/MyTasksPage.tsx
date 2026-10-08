@@ -9,8 +9,8 @@ import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useMeIssues } from '@/hooks/queries/useMeIssues'
 import { useWatchedIssues } from '@/hooks/queries/useWatchedIssues'
-import { useIsMobile } from '@/hooks/useIsMobile'
 import { buildMyTasksContext } from '@/lib/aiScreenContext/builders/issue'
+import { cn } from '@/lib/utils'
 
 import { meFacetParams } from './meFacetParams'
 import { MeTaskFilterBar } from './MeTaskFilterBar'
@@ -54,15 +54,14 @@ export default function MyTasksPage() {
   const [params] = useSearchParams()
   const facets = useMemo(() => (active === 'watched' ? {} : meFacetParams(params)), [active, params])
   useRegisterAiScreenContext(useMemo(() => buildMyTasksContext({ tab: active, facets }), [active, facets]))
-  // 모바일은 모듈 레이아웃의 뒤로가기 바(‹ 작업 ✦)가 헤더 — Page.Header 를 두면 그 바를 대체하므로 데스크톱에서만 헤더 바를 둔다.
-  const isMobile = useIsMobile()
 
   return (
     <Page>
-      {!isMobile && <Page.Header title="내 작업" />}
+      {/* 모바일은 모듈 레이아웃의 뒤로가기 바(‹ 작업 ✦)가 헤더 — Page.Header 를 두면 그 바를 대체하므로 모바일에선 숨긴다. */}
+      <Page.Header title="내 작업" mobile="hidden" />
       <Page.Body className="space-y-4">
-        {/* 모바일은 기존처럼 본문 첫 줄 큰 제목으로 화면 이름을 보인다. */}
-        {isMobile && <h1 className={pageTitleClass}>내 작업</h1>}
+        {/* 모바일은 기존처럼 본문 첫 줄 큰 제목으로 화면 이름을 보인다(데스크톱은 헤더 제목이 대신). */}
+        <h1 className={cn(pageTitleClass, 'lg:hidden')}>내 작업</h1>
         <Tabs value={active} onValueChange={(v) => navigate(`/me/tasks/${v}`)}>
           <TabsList>
             <TabsTrigger value="assigned" data-testid="tab-assigned">{MY_TASKS_TAB_LABEL.assigned}</TabsTrigger>

@@ -9,8 +9,8 @@ import { InfiniteIssueList } from '@/components/issue/InfiniteIssueList'
 import { Page } from '@/components/layout/Page'
 import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { useMeIssues } from '@/hooks/queries/useMeIssues'
-import { useIsMobile } from '@/hooks/useIsMobile'
 import { buildAiTasksContext } from '@/lib/aiScreenContext/builders/issue'
+import { cn } from '@/lib/utils'
 import type { IssueResponse } from '@/types/issue'
 
 import { meFacetParams } from './meFacetParams'
@@ -29,13 +29,12 @@ export default function AiDelegatedTasksPage() {
     ? query.data.pages.flatMap((p) => p.items ?? []).filter((x) => x != null && isAiDelegated(x)).length
     : undefined
   useRegisterAiScreenContext(useMemo(() => buildAiTasksContext({ facets, count }), [facets, count]))
-  // 모바일은 모듈 레이아웃의 뒤로가기 바(‹ 작업 ✦)가 헤더 — 데스크톱에서만 헤더 바를 둔다(내 작업과 동일).
-  const isMobile = useIsMobile()
   return (
     <Page>
-      {!isMobile && <Page.Header title="AI 위임 작업" />}
+      {/* 모바일은 모듈 레이아웃의 뒤로가기 바(‹ 작업 ✦)가 헤더 — 헤더 바는 데스크톱에서만(내 작업과 동일). */}
+      <Page.Header title="AI 위임 작업" mobile="hidden" />
       <Page.Body className="space-y-4">
-        {isMobile && <h1 className={pageTitleClass}>AI 위임 작업</h1>}
+        <h1 className={cn(pageTitleClass, 'lg:hidden')}>AI 위임 작업</h1>
         <MeTaskFilterBar />
         <InfiniteIssueList
           query={query}

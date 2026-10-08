@@ -159,12 +159,6 @@ async function gotoLongProject(page: Page) {
 }
 
 test.describe('긴 제목도 AI 칩과 겹치지 않고 남는 자리까지 보인다', () => {
-  test('1440 — 레일 접힘', async ({ authenticatedPage: page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 })
-    await gotoLongProject(page)
-    await expectHeaderFitsBeforeChip(page)
-  })
-
   test('1440 — 레일 펼침(152px)', async ({ authenticatedPage: page }) => {
     await page.addInitScript(() => window.localStorage.setItem('app-rail-expanded', 'true'))
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -173,6 +167,7 @@ test.describe('긴 제목도 AI 칩과 겹치지 않고 남는 자리까지 보�
     await expectHeaderFitsBeforeChip(page)
   })
 
+  // 접힘 상태(1440 기본)도 이 테스트의 첫 단언이 함께 본다.
   test('레일 토글 중에도 다시 맞춘다(접힘 → 펼침)', async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await gotoLongProject(page)

@@ -2,7 +2,7 @@
 import { ArrowUpDown, FolderOpen, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
-import { Page } from '@/components/layout/Page'
+import { Page, pageGutterClass } from '@/components/layout/Page'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -74,7 +74,7 @@ export default function ProjectListPage() {
         ) : (
           <div className="overflow-hidden rounded-xl border bg-card" role="list" aria-label="프로젝트 목록">
             {/* 헤더 — 정렬 토글만(페이지 타이틀이 이미 "프로젝트"라 라벨 중복 제거) */}
-            <div className="flex items-center justify-end border-b bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
+            <div className={cn('flex items-center justify-end border-b bg-muted/40 py-2 text-xs text-muted-foreground', pageGutterClass)}>
               <button
                 type="button"
                 data-testid="project-sort-toggle"
@@ -89,11 +89,11 @@ export default function ProjectListPage() {
             {/* 즐겨찾기 핀 그룹 */}
             {sorted.pinned.length > 0 && (
               <>
-                <div data-testid="fav-group" className="px-4 pt-2 text-xs font-bold text-muted-foreground">★ 즐겨찾기</div>
+                <div data-testid="fav-group" className={cn('pt-2 text-xs font-bold text-muted-foreground', pageGutterClass)}>★ 즐겨찾기</div>
                 {sorted.pinned.map((p) => (
                   <ProjectListRow key={p.id} project={p} fav onToggleFav={toggle} />
                 ))}
-                <div className="px-4 pt-2 text-xs font-bold text-muted-foreground">전체</div>
+                <div className={cn('pt-2 text-xs font-bold text-muted-foreground', pageGutterClass)}>전체</div>
               </>
             )}
             {sorted.rest.map((p) => (

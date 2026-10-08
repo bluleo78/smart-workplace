@@ -7,12 +7,24 @@ import { type RefObject, useLayoutEffect } from 'react'
 const CHIP_GAP = 16
 /** 칩이 아무리 가까워도 남기는 좌측 그룹 최소 폭(px) — 칩이 그룹보다 왼쪽에 있는 극단 배치 대비. */
 const MIN_GROUP_WIDTH = 120
+/** 칩 표식(AIChip 의 data-ai-chip). */
+const CHIP_SELECTOR = '[data-ai-chip]'
+
+/** 변경된 노드가 칩이거나 칩을 품고 있는지 — body 직계 자식 변화 중 칩과 무관한 portal(토스트·팝오버 등)은 건너뛴다. */
+function touchesChip(records: MutationRecord[]) {
+  return records.some((r) =>
+    [...r.addedNodes, ...r.removedNodes].some(
+      (n) => n instanceof Element && (n.matches(CHIP_SELECTOR) || n.querySelector(CHIP_SELECTOR) != null),
+    ),
+  )
+}
 
 /**
  * enabled 인 동안 group 의 style.maxWidth = 칩 좌측 − 그룹 좌측 − 16px(최소 120px). 칩이 없으면 제한을 푼다.
- * 재측정 시점: 헤더 크기 변화(레일 토글·패널 열림/폭 조절·창 크기 — ResizeObserver), 창 resize,
- * 칩의 left 전환 종료(transitionend), body 직계 자식 변화(칩 portal 이 늦게 붙거나 떨어질 때).
- * 측정은 rect 두 번 읽고 style 한 줄 쓰는 것뿐이라 콜백마다 바로 돌린다(그룹 폭 변경은 헤더 크기를 바꾸지 않아 루프 없음).
+ * 재측정 시점: 헤더 크기 변화(레일 토글·패널 열림/폭 조절·창 크기 — ResizeObserver),
+ * 칩의 left 전환 종료(transitionend), body 직계 자식 중 칩이 붙거나 떨어질 때(MutationObserver).
+ * 창 resize 는 헤더(콘텐츠 영역) 크기를 바꾸므로 ResizeObserver 가 함께 잡는다.
+ * 관찰자 콜백은 한 프레임에 모아(requestAnimationFrame) rect 두 번 읽고 style 한 번 쓴다 — 첫 측정만 페인트 전에 바로 한다.
  */
 export function useAiChipClamp(groupRef: RefObject<HTMLElement | null>, enabled: boolean) {
   useLayoutEffect(() => {
@@ -23,13 +35,19 @@ export function useAiChipClamp(groupRef: RefObject<HTMLElement | null>, enabled:
       return
     }
     let chip: HTMLElement | null = null
+    let frame = 0
+
+    // 칩 자신의 left 전환이 끝났을 때만 — 색·테두리 전환이나 자식에서 버블된 transitionend 는 위치와 무관.
+    const onTransitionEnd = (e: TransitionEvent) => {
+      if (e.target === chip && e.propertyName === 'left') schedule()
+    }
 
     const measure = () => {
       // 칩 portal 은 모드 전환·재마운트로 교체될 수 있어 매번 연결 상태를 확인하고 다시 찾는다.
-      const found = document.querySelector<HTMLElement>('[data-ai-chip]')
+      const found = document.querySelector<HTMLElement>(CHIP_SELECTOR)
       if (found !== chip) {
-        chip?.removeEventListener('transitionend', measure)
-        found?.addEventListener('transitionend', measure)
+        chip?.removeEventListener('transitionend', onTransitionEnd)
+        found?.addEventListener('transitionend', onTransitionEnd)
         chip = found
       }
       if (!chip) {
@@ -40,18 +58,27 @@ export function useAiChipClamp(groupRef: RefObject<HTMLElement | null>, enabled:
       group.style.maxWidth = `${Math.max(MIN_GROUP_WIDTH, room)}px`
     }
 
+    function schedule() {
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        measure()
+      })
+    }
+
     measure()
-    const resizeObserver = new ResizeObserver(measure)
+    const resizeObserver = new ResizeObserver(schedule)
     // 그룹의 위치·가용 폭은 헤더(=콘텐츠 영역 폭)를 따라 움직인다.
     resizeObserver.observe(group.parentElement ?? group)
-    const mutationObserver = new MutationObserver(measure)
+    const mutationObserver = new MutationObserver((records) => {
+      if (touchesChip(records)) schedule()
+    })
     mutationObserver.observe(document.body, { childList: true })
-    window.addEventListener('resize', measure)
     return () => {
+      cancelAnimationFrame(frame)
       resizeObserver.disconnect()
       mutationObserver.disconnect()
-      window.removeEventListener('resize', measure)
-      chip?.removeEventListener('transitionend', measure)
+      chip?.removeEventListener('transitionend', onTransitionEnd)
       group.style.maxWidth = ''
     }
   }, [groupRef, enabled])

@@ -6,6 +6,7 @@ import { createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeTaskType } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
+import { DESKTOP_WIDTHS, boxOf, expectStartAligned } from '../../fixtures/layout';
 
 const KEY = 'WP';
 const DETAIL_URL = (n: number) => new RegExp(`/projects/${KEY}/issues/${n}$`);
@@ -160,28 +161,20 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
 
 // 넓은 화면(2xl container max-width 1536px 초과)에서 헤더가 본문과 같은 좌우 축에 놓이는지 — 헤더가 container 로
 // 가운데 정렬되면 ← 버튼이 제목보다 수백 px 안쪽에서 시작하고 우측 액션이 본문 끝보다 앞에서 끝난다(372px 차이).
-test.describe('이슈 상세 헤더 — 넓은 화면 정렬', () => {
-  test.use({ viewport: { width: 2560, height: 1200 } });
+for (const width of DESKTOP_WIDTHS) {
+  test.describe(`이슈 상세 헤더 — 넓은 화면 정렬 @${width}px`, () => {
+    test.use({ viewport: { width, height: 1200 } });
 
-  test('← 버튼은 제목과 같은 x 에서 시작하고 헤더는 본문 전체폭을 쓴다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}/issues/8`);
-    const back = page.getByTestId('issue-back');
-    const title = page.getByTestId('issue-title-heading');
-    await expect(back).toBeVisible();
-    await expect(title).toBeVisible();
+    test('← 버튼은 제목과 같은 x 에서 시작하고 헤더는 본문 전체폭을 쓴다', async ({ authenticatedPage: page }) => {
+      await mock(page);
+      await page.goto(`/projects/${KEY}/issues/8`);
+      // 둘 다 페이지 여백(pageGutterClass, 16px) 축 — ← 버튼 박스의 왼쪽 끝과 제목 왼쪽 끝이 같아야 한다(반올림 오차만 허용).
+      await expectStartAligned(page.getByTestId('issue-back'), page.getByTestId('issue-title-heading'));
 
-    const backBox = (await back.boundingBox())!;
-    const titleBox = (await title.boundingBox())!;
-    // 둘 다 페이지 여백(pageGutterClass, 16px) 축 — ← 버튼 박스의 왼쪽 끝과 제목 왼쪽 끝이 같아야 한다(반올림 오차만 허용).
-    expect(Math.abs(backBox.x - titleBox.x)).toBeLessThanOrEqual(1);
-
-    // 헤더 내부 래퍼가 헤더 폭을 그대로 채운다(max-width 로 잘리지 않음).
-    const header = page.getByTestId('page-header');
-    const [headerW, innerW] = await header.evaluate((el) => [
-      el.getBoundingClientRect().width,
-      (el.firstElementChild as HTMLElement).getBoundingClientRect().width,
-    ]);
-    expect(innerW).toBe(headerW);
+      // 헤더 내부 래퍼가 헤더 폭을 그대로 채운다(max-width 로 잘리지 않음).
+      const header = page.getByTestId('page-header');
+      const [headerBox, innerBox] = await Promise.all([boxOf(header), boxOf(header.locator('> div').first())]);
+      expect(innerBox.width).toBe(headerBox.width);
+    });
   });
-});
+}

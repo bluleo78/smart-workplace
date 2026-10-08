@@ -13,7 +13,7 @@ import { DmHeader } from '@/components/chat/DmHeader'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
 import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
-import { Page } from '@/components/layout/Page'
+import { Page, pageGutterClass } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
 import { useChannelCatchup } from '@/hooks/queries/useChannelCatchup'
@@ -32,6 +32,7 @@ import { catchupWatermark } from '@/lib/catchupWatermark'
 import { chatEntryAnchor } from '@/lib/chatEntryAnchor'
 import { dmDisplayName } from '@/lib/dm'
 import { firstUnreadMessageId, unreadFromOthersCount } from '@/lib/unreadBoundary'
+import { cn } from '@/lib/utils'
 import type { DmResponse, UserKind } from '@/types/messaging'
 
 // DM 빈 상태 설명 — self/1:1/그룹 분기.
@@ -253,7 +254,7 @@ export default function DmPage() {
         </MessageScrollArea>
         {/* AI 작업 중 유령 버블 — progress 이벤트 발생 시 메시지 목록 하단에 렌더 */}
         {working.size > 0 && (
-          <ul className="px-4 pb-1">
+          <ul className={cn(pageGutterClass, 'pb-1')}>
             {[...working.values()].map((w) => (
               <AiWorkingBubble key={w.streamId} agentName={w.agentName} steps={w.steps} />
             ))}

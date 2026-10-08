@@ -15,9 +15,14 @@ const selfLayout: PageBodyProps = { children: null, padded: false, className: 'f
 // @ts-expect-error — padded=false 는 스크롤을 화면이 소유하므로 scrollRef 를 받지 않는다.
 const selfLayoutWithRef: PageBodyProps = { children: null, padded: false, scrollRef: ref }
 
+// 허용: 기본 스크롤 본문의 여백만 비우기(inset=false). 금지: padded=false 는 여백 자체가 화면 소유라 inset 을 받지 않는다.
+const scrollNoInset: PageBodyProps = { children: null, inset: false, scrollRef: ref }
+// @ts-expect-error — padded=false 에 inset 은 의미가 없다.
+const selfLayoutWithInset: PageBodyProps = { children: null, padded: false, inset: false }
+
 describe('PageBodyProps', () => {
   it('padded=false 와 scrollRef 를 함께 받지 않는다(타입 수준 — typecheck 가 검증)', () => {
     expectTypeOf<Extract<PageBodyProps, { padded: false }>['scrollRef']>().toEqualTypeOf<undefined>()
-    expect([paddedWithRef, selfLayout, selfLayoutWithRef]).toHaveLength(3)
+    expect([paddedWithRef, selfLayout, selfLayoutWithRef, scrollNoInset, selfLayoutWithInset]).toHaveLength(5)
   })
 })
