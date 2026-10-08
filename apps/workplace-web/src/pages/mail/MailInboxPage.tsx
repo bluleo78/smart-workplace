@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, CheckCheck, Forward, Inbox, Loader2, Mail, MailOpen, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -36,6 +36,7 @@ import { getMessage, getViewUnreadCount, type MailViewScope } from '../../api/ma
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDialog'
 import { SandboxedHtmlFrame } from '../../components/SandboxedHtmlFrame'
+import { mailAttachmentName } from '../../components/viewer/viewerItems'
 import { mailMessageKeys } from '../../hooks/queries/mailMessageKeys'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
@@ -56,6 +57,7 @@ import {
   useUnreadCounts,
 } from '../../hooks/queries/useMailMessages'
 import type { EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
+import { MAIL_DETAIL_PARAM } from './mailHistory'
 import { MailToIssueDialog } from './MailToIssueDialog'
 import { useMailAttachmentViewer } from './useMailAttachmentViewer'
 
@@ -239,12 +241,12 @@ function AttachmentList({
           <button
             type="button"
             data-testid={`mail-attachment-open-${a.id}`}
-            aria-label={`${a.filename || '첨부파일'} 미리보기`}
+            aria-label={`${mailAttachmentName(a)} 미리보기`}
             onClick={() => onPreview(a)}
             className="flex items-center gap-1 rounded border bg-muted px-2 py-1 text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11"
           >
             <Paperclip className="h-3 w-3 shrink-0" />
-            <span>{a.filename || '첨부파일'}</span>
+            <span>{mailAttachmentName(a)}</span>
           </button>
         </li>
       ))}
@@ -312,13 +314,20 @@ function MessageDetailPanel({
     () => (attachments ?? []).filter((a) => !inlinedIds.has(a.id)),
     [attachments, inlinedIds],
   )
-  // WP-280 첨부 뷰어 — 묶음은 목록에 보이는 첨부(인라인 이미지 제외). 상세를 받은 뒤에만 "찾을 수 없음"을 판정한다
-  // (뷰어 노드는 상세 성공 트리에만 그리므로 조회 실패 중엔 낡은 ?preview 를 두고, 다시 시도로 받으면 그대로 열린다).
-  const attachmentViewer = useMailAttachmentViewer(listedAttachments, detail != null)
+  // WP-280 첨부 뷰어 — 묶음은 목록에 보이는 첨부(인라인 이미지 제외). 상세 조회가 끝났거나(실패 포함) 열린 메일이 없으면
+  // "찾을 수 없음"을 판정한다 — 메일 없이·조회 실패로 남은 ?preview 가 뷰어도 안내도 없이 URL 에 남지 않게(다른 호스트와 같은 규칙).
+  const attachmentViewer = useMailAttachmentViewer(listedAttachments, messageId == null || detail != null || isError)
+  // 모든 분기(빈 상태·로딩·오류·상세)를 같은 Fragment 의 같은 자리에 뷰어 노드와 함께 그린다 — 분기가 바뀌어도 뷰어가 리마운트되지 않게.
+  const withViewer = (body: ReactNode) => (
+    <>
+      {body}
+      {attachmentViewer.viewerNode}
+    </>
+  )
 
   if (!messageId) {
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 (CTA는 단순 안내이므로 생략) */
-    return (
+    return withViewer(
       <div
         data-testid="mail-detail-empty"
         className="flex h-full flex-col items-center justify-center gap-3 text-center"
@@ -330,22 +339,22 @@ function MessageDetailPanel({
             왼쪽 목록에서 메일을 클릭하면 내용이 표시됩니다
           </p>
         </div>
-      </div>
+      </div>,
     )
   }
   if (isLoading) {
-    return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
+    return withViewer(<div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>)
   }
   if (isError || !detail) {
-    return (
+    return withViewer(
       <div className="p-6 text-center">
         <p className="text-sm text-destructive mb-2">메일을 불러오지 못했습니다</p>
         <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
-      </div>
+      </div>,
     )
   }
 
-  return (
+  return withViewer(
     <div data-testid="mail-detail" className="flex h-full flex-col overflow-y-auto">
       <div className="border-b p-4">
         {/* AI 요약 카드 — 비서 있을 때만. 객관 요약은 동의 불필요. 조회·생성 중에는 스켈레톤. */}
@@ -515,9 +524,7 @@ function MessageDetailPanel({
           <div className="text-sm text-muted-foreground">본문이 없습니다</div>
         )}
       </div>
-      {/* 첨부 뷰어(포털) — 상세 트리 루트에 한 번만 둬 인라인 이미지 판정·재조회로 목록이 바뀌어도 리마운트되지 않게 한다. */}
-      {attachmentViewer.viewerNode}
-    </div>
+    </div>,
   )
 }
 
@@ -557,8 +564,8 @@ export function MailInboxPage() {
   }, [searchDraft])
   // 열린 메일 = URL ?messageId(상태의 단일 원천, WP-206). 행 클릭은 push 라 시스템 뒤로가기가 상세만 닫는다.
   // 홈 위젯 딥링크(#447)·푸시 알림도 같은 키 — 마운트 1회 읽기가 아니라 URL 실시간 파생이라 forward 재열림도 자연스럽다.
-  // clear: 다른 메일로 바꿀 때 앞 메일의 첨부 뷰어 키(?preview, WP-280)가 남아 "찾을 수 없음"으로 뜨지 않게 함께 지운다.
-  const mailParam = useHistoryParam('messageId', { clear: ['preview'] })
+  // MAIL_DETAIL_PARAM: 다른 메일로 바꿀 때 앞 메일의 첨부 뷰어 키(?preview, WP-280)도 함께 지운다.
+  const mailParam = useHistoryParam('messageId', MAIL_DETAIL_PARAM)
   const selectedId = parseId(mailParam.value)
   // 모바일: 본문(상세)이 열려 있으면 하단 탭바를 숨긴다(WP-125).
   useHideTabBar(selectedId != null)
@@ -1166,6 +1173,8 @@ export function MailInboxPage() {
             />
           )}
           <MessageDetailPanel
+            // 메일마다 새로 그린다 — 앞 메일의 첨부 뷰어 스냅숏이 남아 다른 메일 URL 에서 앞 메일 첨부를 보여 주지 않게(WP-280).
+            key={selectedId ?? 'none'}
             messageId={selectedId}
             aiEnabled={aiEnabled}
             aiDraftPending={replyDraft.isPending}

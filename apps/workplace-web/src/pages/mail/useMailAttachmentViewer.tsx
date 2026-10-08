@@ -13,7 +13,8 @@ import type { EmailAttachmentMeta } from '../../types/mailMessage'
 
 /**
  * @param attachments 묶음 원본 — 본문 인라인 이미지로 표시된 첨부를 뺀 목록(listedAttachments).
- * @param ready 메일 상세 조회가 끝났는지(실패 포함) — 끝났는데 키가 목록에도 스냅숏에도 없으면 "찾을 수 없음".
+ * @param ready "찾을 수 없음"을 판정해도 되는지 — 상세 조회가 끝났거나(실패 포함) 열린 메일이 없을 때 참.
+ *   참인데 키가 목록에도 스냅숏에도 없으면 ViewerNotFound(닫으면 ?preview 를 지운다).
  */
 export function useMailAttachmentViewer(
   attachments: EmailAttachmentMeta[],

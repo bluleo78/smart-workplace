@@ -1,6 +1,7 @@
 // 메일 첨부 뷰어 E2E 모킹(WP-280) — 데스크톱·모바일 spec 이 같은 메일·첨부 구성을 쓴다.
 // 10번 메일: HTML 본문에 cid 인라인 이미지(5) 1개 + 일반 첨부 PDF(6)·텍스트(7).
 // 인라인 이미지는 본문에 표시되므로 첨부 목록·뷰어 묶음에서 빠져야 한다(묶음 = 6·7, "n / 2").
+// 12번 메일: 메일 클라이언트가 형식을 octet-stream·빈 값으로 보낸 PDF(8)·Markdown(9) — 파일명 확장자로 추론해 미리 봐야 한다.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,12 +18,18 @@ const PDF = fs.readFileSync(path.join(HERE, 'sample-3p.pdf'))
 const PNG = solidPng(8, 8)
 /** 텍스트 첨부 본문 — 뷰어 본문에 그대로 보이는지 확인용. */
 export const MEMO_TEXT = '회의 메모 본문입니다'
+/** octet-stream 으로 오는 Markdown 첨부 — 제목이 렌더(h1)되는지 확인용. */
+export const README_MD = '# 설치 안내\n\n본문 단락입니다.'
+const OCTET = 'application/octet-stream'
 
 /** 첨부 id → 응답(형식·바이트). 7번은 Graph 경로처럼 파라미터가 붙은 형식을 메타에 둔다. */
 const CONTENT: Record<number, { type: string; body: Buffer }> = {
   5: { type: 'image/png', body: PNG },
   6: { type: 'application/pdf', body: PDF },
   7: { type: 'text/plain; charset=utf-8', body: Buffer.from(MEMO_TEXT, 'utf-8') },
+  // 실제 서버처럼 저장된 형식(octet-stream)을 응답 헤더로도 준다.
+  8: { type: OCTET, body: PDF },
+  9: { type: OCTET, body: Buffer.from(README_MD, 'utf-8') },
 }
 
 /**
@@ -31,7 +38,11 @@ const CONTENT: Record<number, { type: string; body: Buffer }> = {
  */
 export async function stubMailWithAttachments(page: Page) {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
-  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary(), summary({ id: 11, subject: '점심 메뉴', seen: true })])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [
+    summary(),
+    summary({ id: 11, subject: '점심 메뉴', seen: true }),
+    summary({ id: 12, subject: '스캔 문서', seen: true }),
+  ])
   await mockApi(
     page,
     'GET',
@@ -47,6 +58,19 @@ export async function stubMailWithAttachments(page: Page) {
     }),
   )
   await mockApi(page, 'GET', '/api/v1/mail/messages/11', detail({ id: 11, subject: '점심 메뉴', attachments: [] }))
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/mail/messages/12',
+    detail({
+      id: 12,
+      subject: '스캔 문서',
+      attachments: [
+        { id: 8, filename: 'scan.PDF', contentType: OCTET, sizeBytes: PDF.length, contentId: null },
+        { id: 9, filename: 'readme.md', contentType: null, sizeBytes: 40, contentId: null },
+      ],
+    }),
+  )
   const contents = trackRequests(page, 'ANY', (url) => url.pathname.startsWith('/api/v1/mail/attachments/'))
   await page.route(
     (url) => /^\/api\/v1\/mail\/attachments\/\d+\/content$/.test(url.pathname),

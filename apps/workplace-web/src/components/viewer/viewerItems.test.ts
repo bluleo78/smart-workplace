@@ -134,6 +134,14 @@ describe('mailAttachmentItem', () => {
     expect(mailAttachmentItem(att({ contentType: ' Image/PNG; name="a.png"' })).mimeType).toBe('image/png')
   })
 
+  it('octet-stream·빈 형식이면 파일명 확장자로 추론한다 — 서버의 구체적인 형식은 그대로 믿는다', () => {
+    expect(mailAttachmentItem(att({ filename: 'report.PDF', contentType: 'application/octet-stream' })).mimeType).toBe('application/pdf')
+    expect(mailAttachmentItem(att({ filename: 'notes.md', contentType: null })).mimeType).toBe('text/markdown')
+    expect(mailAttachmentItem(att({ filename: 'page.htm', contentType: 'Application/Octet-Stream; name=page.htm' })).mimeType).toBe('text/html')
+    expect(mailAttachmentItem(att({ filename: 'a.tar.gz', contentType: 'application/octet-stream' })).mimeType).toBe('application/octet-stream')
+    expect(mailAttachmentItem(att({ filename: 'a.pdf', contentType: 'image/png' })).mimeType).toBe('image/png')
+  })
+
   it('형식·파일명이 없으면 octet-stream·attachment-{id} 로 채운다(예전 다운로드 파일명 규칙)', () => {
     const it = mailAttachmentItem(att({ filename: null, contentType: null }))
     expect(it.mimeType).toBe('application/octet-stream')
