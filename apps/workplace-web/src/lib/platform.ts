@@ -20,3 +20,8 @@ export function isStandaloneDisplay(): boolean {
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   )
 }
+
+/** iOS 홈 화면 앱(standalone)인가 — 뷰어 저장 방식(a[download] 가 불안정해 공유 시트로 대체, WP-278) 판정용. */
+export function isIOSStandalone(): boolean {
+  return isIOSDevice() && isStandaloneDisplay()
+}

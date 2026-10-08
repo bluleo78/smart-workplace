@@ -1,7 +1,7 @@
 // 모바일 하단 탭바 — [slot0, slot1, AI, slot2, 앱]. AI 는 가운데 칸의 그라데이션 캡슐(다른 탭과 같은 선상, AI 미사용이면 제외).
 // Slack(탭바 회귀)·Teams(앱 1급 노출)·Linear(구성 변경) 패턴을 따른다.
 import { LayoutGrid } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useAssistant } from '@/components/ai/AIAssistantContext'
@@ -12,6 +12,7 @@ import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useUnreadCount } from '@/hooks/queries/useUnreadCount'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
+import { useObservedHeight } from '@/hooks/useObservedHeight'
 import { aiTriggerLabel } from '@/lib/ai/aiActivity'
 import { DEFAULT_TAB_SLOTS } from '@/lib/mobile/tabConfig'
 import { MOBILE_TABS, type MobileTabId, under } from '@/lib/mobile/tabs'
@@ -50,24 +51,17 @@ const TAB_BADGE_CLASS = 'absolute right-[calc(50%-18px)] top-0.5 h-4 min-w-4 tex
 /**
  * 실제 탭바 높이(안전영역 포함)를 :root 의 --mobile-tabbar-h 로 공개한다 — 메일 작성 도크 등 fixed 부품이
  * 탭바 위로 뜨게 하되, 탭바가 숨으면(언마운트) 변수를 지워 폴백 0 으로 화면 하단에 붙는다.
- * 고정 px 를 복제하지 않도록 렌더된 높이를 ResizeObserver 로 관측한다.
+ * 고정 px 를 복제하지 않도록 렌더된 높이를 관측한다(useObservedHeight — 뷰어 하단 바와 공용).
+ * 반환값은 탭바 요소에 다는 콜백 ref.
  */
 function useTabBarHeightVar() {
-  const ref = useRef<HTMLElement>(null)
-  useEffect(() => {
-    const bar = ref.current
-    if (!bar) return
+  const [bar, setBar] = useState<HTMLElement | null>(null)
+  useObservedHeight(bar, (h) => {
     const root = document.documentElement
-    const sync = () => root.style.setProperty('--mobile-tabbar-h', `${bar.offsetHeight}px`)
-    sync()
-    const ro = new ResizeObserver(sync)
-    ro.observe(bar)
-    return () => {
-      ro.disconnect()
-      root.style.removeProperty('--mobile-tabbar-h')
-    }
-  }, [])
-  return ref
+    if (h == null) root.style.removeProperty('--mobile-tabbar-h')
+    else root.style.setProperty('--mobile-tabbar-h', `${h}px`)
+  })
+  return setBar
 }
 
 /** 하단 탭바 — 슬롯 탭·AI 캡슐 버튼·앱 목록. */

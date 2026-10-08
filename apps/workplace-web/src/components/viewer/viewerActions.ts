@@ -39,7 +39,8 @@ export function actionSlots(i: {
 /**
  * ⬇ 저장 방식. iOS 홈 화면 앱(standalone)은 a[download] 가 불안정해 공유 시트("파일에 저장")로 대체한다(스펙 §5.4).
  * 공유 시트도 blob 이 메모리에 있어야 제스처 직후 호출할 수 있으므로, 없으면 기존 다운로드로 둔다.
+ * shareable = 메모리 blob 으로 만든 File 이 있고 canShare 가 받아 준다(둘 중 하나라도 아니면 거짓).
  */
-export function resolveSaveMethod(i: { iosStandalone: boolean; blobReady: boolean; canShareFile: boolean }): 'share' | 'download' {
-  return i.iosStandalone && i.blobReady && i.canShareFile ? 'share' : 'download'
+export function resolveSaveMethod(i: { iosStandalone: boolean; shareable: boolean }): 'share' | 'download' {
+  return i.iosStandalone && i.shareable ? 'share' : 'download'
 }

@@ -40,12 +40,12 @@ describe('actionSlots', () => {
 })
 
 describe('resolveSaveMethod', () => {
-  it('iOS 홈 화면 앱 + blob + 공유 가능이면 공유 시트로 저장', () => {
-    expect(resolveSaveMethod({ iosStandalone: true, blobReady: true, canShareFile: true })).toBe('share')
+  it('iOS 홈 화면 앱 + 공유 가능한 메모리 blob 이면 공유 시트로 저장', () => {
+    expect(resolveSaveMethod({ iosStandalone: true, shareable: true })).toBe('share')
   })
-  it('그 외는 기존 다운로드', () => {
-    expect(resolveSaveMethod({ iosStandalone: false, blobReady: true, canShareFile: true })).toBe('download')
-    expect(resolveSaveMethod({ iosStandalone: true, blobReady: false, canShareFile: false })).toBe('download')
-    expect(resolveSaveMethod({ iosStandalone: true, blobReady: true, canShareFile: false })).toBe('download')
+  it('그 외(홈 화면 앱 아님·blob 없음·공유 불가)는 기존 다운로드', () => {
+    expect(resolveSaveMethod({ iosStandalone: false, shareable: true })).toBe('download')
+    expect(resolveSaveMethod({ iosStandalone: true, shareable: false })).toBe('download')
+    expect(resolveSaveMethod({ iosStandalone: false, shareable: false })).toBe('download')
   })
 })

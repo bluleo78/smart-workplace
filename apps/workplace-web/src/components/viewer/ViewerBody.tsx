@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 
 import { blobToText, toVerifiedPdfBlob } from '../../api/blobContent'
 import { formatFileSize } from '../../lib/formatters'
@@ -45,8 +45,10 @@ function PaperCard({ children }: { children: React.ReactNode }) {
  * 뷰어 본문 — 종류별 렌더와 상태 화면(로딩·오류·10MB 확인·미지원·사용 불가).
  * 항목이 바뀌면 이전 결과를 비우고 다시 변환한다(넘김 대응 — 호출부가 key={item.key} 도 준다).
  * 기존 드라이브 미리보기 모달의 본문 변환 로직을 이식한 것이며, PDF 는 검증된 blob 을 pdf.js(PdfPages)로 전 페이지 그린다.
+ * memo — 뷰어는 끌기 끝·바 토글·시트·blob 보고마다 다시 그려지는데 본문 props(항목·배율·고정 콜백)는 그대로인 경우가 많다.
+ * 콜백 props(onPage·onSource)는 호출부가 항목 key 동안 고정된 참조로 넘긴다.
  */
-export function ViewerBody({
+export const ViewerBody = memo(function ViewerBody({
   item,
   zoom,
   onPage,
@@ -69,8 +71,9 @@ export function ViewerBody({
   /**
    * 원본 blob 상태 보고(WP-278) — 모바일 ⤴ 공유는 제스처 직후 동기 호출이 필요해 뷰어가 blob 을 미리 들고 있어야 한다.
    * fetches = 이 항목이 지금 blob 을 받는(받을) 상태인가 — 미지원·사용 불가·10MB 동의 대기·오류면 거짓.
+   * 항목 구분은 호출부 몫 — 이 컴포넌트는 key={item.key} 로 항목마다 새로 붙으므로 보고는 늘 지금 항목의 것이다.
    */
-  onSource?: (s: { key: string; blob: Blob | null; fetches: boolean }) => void
+  onSource?: (s: { blob: Blob | null; fetches: boolean }) => void
 }) {
   const kind = resolvePreviewKind(item.mimeType)
   const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
@@ -101,7 +104,7 @@ export function ViewerBody({
   })
   const fetches = renderable && !item.unavailable && confirmSize == null && !error
   useEffect(() => {
-    onSourceRef.current?.({ key: item.key, blob, fetches })
+    onSourceRef.current?.({ blob, fetches })
   }, [item.key, blob, fetches])
   // #775: 에러도 아니고 콘텐츠도 아직 없는 렌더 가능 상태 = 비동기 페치 진행 중 — 빈 화면 대신 스켈레톤.
   const loading =
@@ -301,4 +304,4 @@ export function ViewerBody({
       {!error && kind === 'DOCX' && content?.k === 'buffer' && <DocxPreview buffer={content.buffer} />}
     </div>
   )
-}
+})

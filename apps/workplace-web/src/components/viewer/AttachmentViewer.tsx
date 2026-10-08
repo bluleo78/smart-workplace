@@ -4,9 +4,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useIsCoarsePointer } from '../../hooks/useIsCoarsePointer'
 import { useIsLandscape } from '../../hooks/useIsLandscape'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useObservedHeight } from '../../hooks/useObservedHeight'
+import { useResetOnChange } from '../../hooks/useResetOnChange'
 import { elementBackgroundRgb, useThemeColor } from '../../hooks/useThemeColor'
 import { formatFileSize } from '../../lib/formatters'
-import { isIOSDevice, isStandaloneDisplay } from '../../lib/platform'
+import { isIOSStandalone } from '../../lib/platform'
 import { resolvePreviewKind } from '../../lib/previewKind'
 import { cn } from '../../lib/utils'
 import { isInAiPanelDom } from '../ai/aiPanelSurface'
@@ -18,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 import { downloadViewerItem } from './downloadViewerItem'
 import type { ViewerItem } from './types'
 import { useImportToDrive } from './useImportToDrive'
+import { useItemState } from './useItemState'
 import { useSummaryAvailability } from './useSummaryAvailability'
 import { useViewerGestures, type ZoomAnchor } from './useViewerGestures'
 import { actionSlots, resolveSaveMethod, resolveShareState, type SlotId } from './viewerActions'
@@ -82,14 +85,12 @@ export function AttachmentViewer({
   // 무대(본문 감싸기) — 제스처 리스너·끌기 transform 대상. 콜백 ref 로 state 에 담아 훅이 붙을 시점을 안다.
   const [stage, setStage] = useState<HTMLDivElement | null>(null)
   // 바 숨김 — 가로 모드는 기본 숨김(시안 M5), 탭으로 토글(모바일 배치만, 판정 R5).
-  // 회전할 때마다 그 방향의 기본값으로 되돌린다 — 렌더 중 상태 갱신(useViewerBundle 의 스냅숏과 같은 수렴 패턴, 이펙트 setState 아님).
+  // 회전할 때마다 그 방향의 기본값으로 되돌린다 — useResetOnChange 의 렌더 중 수렴(이펙트 setState 아님).
   // 주의: "저장된 방향과 다를 때만 기본값" 식의 파생으로 두면 가로→(탭으로 표시)→세로→가로 에서 낡은 '표시'가 되살아난다(Review Focus 4).
   const landscape = useIsLandscape()
-  const [bars, setBars] = useState({ landscape, hidden: landscape })
-  if (bars.landscape !== landscape) setBars({ landscape, hidden: landscape })
+  const [barsPref, setBarsPref] = useResetOnChange(landscape, landscape)
   // 숨김은 모바일 배치 + 터치(coarse)에서만 — 좁은 창 + 마우스는 다시 보이게 할 탭이 없으므로 바 항상 표시(판정 R5), 데스크톱 배치도 항상 표시.
-  // 방향이 바뀐 렌더는 위 setBars 로 즉시 다시 그려지고(그 렌더 결과는 버려진다) 커밋되는 값은 항상 새 방향 기준이라 bars.hidden 하나만 본다.
-  const barsHidden = mobile && coarse && bars.hidden
+  const barsHidden = mobile && coarse && barsPref
   const topBarRef = useRef<HTMLElement>(null)
   // 아래로 닫기 때 옅어지는 배경 — 루트 배경을 이 레이어로 옮겨 투명도만 바꾼다(하드코딩 색 없이 토큰 유지).
   const [backdrop, setBackdrop] = useState<HTMLDivElement | null>(null)
@@ -102,13 +103,9 @@ export function AttachmentViewer({
   // 바 요소는 콜백 ref 로 상태에 담는다 — Dialog 포털이 내용을 첫 커밋 뒤에 붙여, useRef + 마운트 effect 로는 요소를 놓친다.
   const [actionBarEl, setActionBarEl] = useState<HTMLDivElement | null>(null)
   const [bottomChrome, setBottomChrome] = useState<number | null>(null)
-  useEffect(() => {
-    if (!actionBarEl) return
-    // 띠는 참조 목록이 늦게 도착해 나중에 생기므로 한 번 재지 않고 크기 변화를 계속 따라간다.
-    const ro = new ResizeObserver(() => setBottomChrome(actionBarEl.offsetHeight))
-    ro.observe(actionBarEl)
-    return () => ro.disconnect()
-  }, [actionBarEl])
+  // 띠는 참조 목록이 늦게 도착해 나중에 생기므로 한 번 재지 않고 크기 변화를 계속 따라간다(탭바와 같은 관측 훅).
+  // 바는 모바일 배치에서만 붙고 값도 모바일에서만 쓰므로, 바가 사라질 때 null 로 지워져도 화면은 같다.
+  useObservedHeight(actionBarEl, setBottomChrome)
   // 범위 밖 index(목록 재조회 직후 등)에도 죽지 않게 묶음 안으로 맞춘다 — 렌더 시 items 는 비어 있지 않다.
   const idx = Math.min(Math.max(index, 0), items.length - 1)
   const item = items[idx]
@@ -116,14 +113,12 @@ export function AttachmentViewer({
   const kind = resolvePreviewKind(item.mimeType)
   const zoomable = !item.unavailable && (kind === 'IMAGE' || kind === 'PDF')
   const itemKey = item.key
-  // 확대·PDF 현재 페이지 — 항목 key 와 함께 들어 다른 항목으로 넘어가면 자동으로 초기화(무시)된다.
-  const [zoomState, setZoomState] = useState<{ key: string; value: number }>({ key: itemKey, value: 1 })
-  const zoom = zoomState.key === itemKey ? zoomState.value : 1
-  const setZoom = (fn: (z: number) => number) => setZoomState({ key: itemKey, value: fn(zoom) })
+  // 확대·PDF 현재 페이지·원본 blob — 항목 key 와 함께 들어(useItemState) 다른 항목으로 넘어가면 자동으로 초기화(무시)된다.
+  const [zoom, setZoom] = useItemState(itemKey, 1)
   // 확대 단계 — 키보드(+/-/0)와 하단 확대 툴바가 같은 규칙을 쓴다(소수 오차는 둘째 자리에서 자른다).
-  const zoomIn = () => setZoom((z) => Math.min(ZOOM_MAX, roundZoom(z + ZOOM_STEP)))
-  const zoomOut = () => setZoom((z) => Math.max(ZOOM_MIN, roundZoom(z - ZOOM_STEP)))
-  const zoomReset = () => setZoom(() => 1)
+  const zoomIn = () => setZoom(Math.min(ZOOM_MAX, roundZoom(zoom + ZOOM_STEP)))
+  const zoomOut = () => setZoom(Math.max(ZOOM_MIN, roundZoom(zoom - ZOOM_STEP)))
+  const zoomReset = () => setZoom(1)
   // 터치 확대 기준점 — 커밋 직후(레이아웃 반영 뒤) 그 점이 제자리에 남도록 스크롤을 맞춘다(판정 R1).
   const zoomAnchor = useRef<{ key: string; to: number; anchor: ZoomAnchor } | null>(null)
   /**
@@ -133,7 +128,7 @@ export function AttachmentViewer({
   const zoomAt = (next: number, anchor: ZoomAnchor | null) => {
     if (next === zoom) return
     zoomAnchor.current = anchor ? { key: itemKey, to: next, anchor } : null
-    setZoom(() => next)
+    setZoom(next)
   }
   useLayoutEffect(() => {
     const a = zoomAnchor.current
@@ -148,12 +143,10 @@ export function AttachmentViewer({
     el.scrollLeft = s.left
     el.scrollTop = s.top
   }, [zoom, stage, itemKey])
-  const [pdfPage, setPdfPage] = useState<{ key: string; current: number; total: number } | null>(null)
-  const onPage = useCallback(
-    (current: number, total: number) => setPdfPage({ key: itemKey, current, total }),
-    [itemKey],
-  )
-  const pageLabel = pdfPage && pdfPage.key === itemKey ? `p.${pdfPage.current} / ${pdfPage.total}` : null
+  const [pdfPage, setPdfPage] = useItemState<{ current: number; total: number } | null>(itemKey, null)
+  // setter 가 항목 key 동안 고정이라 onPage 도 고정 — PdfPages 이펙트 의존성·memo(ViewerBody) 를 흔들지 않는다.
+  const onPage = useCallback((current: number, total: number) => setPdfPage({ current, total }), [setPdfPage])
+  const pageLabel = pdfPage ? `p.${pdfPage.current} / ${pdfPage.total}` : null
   const meta = [item.sizeBytes != null ? formatFileSize(item.sizeBytes) : null, nav.label || null, pageLabel]
     .filter(Boolean)
     .join(' · ')
@@ -173,12 +166,11 @@ export function AttachmentViewer({
   const summary = useSummaryAvailability(item)
   const showPanel = summary === 'show' && panelOpen
   // 모바일 요약 시트 — 데스크톱 패널과 따로 든다. 모바일 배치로 들어올 때마다(회전·창 크기) 닫힌 채 시작한다(판정 R10).
-  // 같이 들면 데스크톱 배치에서 펼친 패널이 회전 한 번에 본문 절반을 가리는 시트로 바뀐다. 전환은 bars 와 같은 렌더 중 수렴 패턴.
-  const [sheet, setSheet] = useState({ mobile, open: false })
-  if (sheet.mobile !== mobile) setSheet({ mobile, open: false })
+  // 같이 들면 데스크톱 배치에서 펼친 패널이 회전 한 번에 본문 절반을 가리는 시트로 바뀐다. 전환은 바 숨김과 같은 useResetOnChange.
+  const [sheetPref, setSheetPref] = useResetOnChange(mobile, false)
   // 열면 포커스를 시트로, 닫으면 ✨ 칸으로 돌린다(시트가 덮는 액션 바는 그동안 inert).
   // 사용자가 직접 열고 닫을 때만 옮긴다 — 넘김 중 요약 판정(loading↔show)으로 시트가 잠깐 사라졌다 생겨도 포커스를 흔들지 않게.
-  const sheetOpen = mobile && summary === 'show' && sheet.open
+  const sheetOpen = mobile && summary === 'show' && sheetPref
   const [sheetEl, setSheetEl] = useState<HTMLElement | null>(null)
   const sheetFocus = useRef<'open' | 'close' | null>(null)
   // ☁ 가져오기 — 업로드 첨부(importFileId)에서만 공간 조회를 켠다.
@@ -187,16 +179,16 @@ export function AttachmentViewer({
   const startImport = () => {
     if (item.importFileId != null) importer.begin(item.importFileId)
   }
-  // 현재 항목 blob — 항목 key 와 함께 들어 다른 항목으로 넘기면 자동으로 무시된다(zoomState 와 같은 방식).
-  const [source, setSource] = useState<{ key: string; blob: Blob | null; fetches: boolean } | null>(null)
-  const cur = source?.key === itemKey ? source : null
+  // 현재 항목 blob — ViewerBody 가 보고하고, 다른 항목으로 넘기면 자동으로 무시된다(zoom 과 같은 useItemState).
+  const [cur, setSource] = useItemState<{ blob: Blob | null; fetches: boolean } | null>(itemKey, null)
   const blob = cur?.blob ?? null
-  // 공유할 File — blob 이 바뀔 때만 만든다(canShare 판정·공유 호출에 같은 객체를 쓴다).
-  // canShare 판정도 같은 메모에 둔다 — 플랫폼 호출을 매 렌더(끌기·바 토글마다) 반복하지 않게.
+  // 공유 시트로 넘길 File — blob 이 메모리에 있고 canShare 가 받아 주는 경우만, 아니면 null.
+  // blob 이 바뀔 때만 만든다(canShare 판정·공유 호출에 같은 객체를 쓴다) — 플랫폼 호출을 매 렌더(끌기·바 토글마다) 반복하지 않게.
   // 하단 4칸(공유·iOS 저장)은 모바일 배치에만 있으므로 데스크톱에서는 File 생성·판정을 하지 않는다.
-  const { file, fileShareable } = useMemo(() => {
-    const f = mobile && blob ? new File([blob], item.name, { type: item.mimeType || blob.type }) : null
-    return { file: f, fileShareable: f != null && canShareFile(f) }
+  const shareableFile = useMemo(() => {
+    if (!mobile || !blob) return null
+    const f = new File([blob], item.name, { type: item.mimeType || blob.type })
+    return canShareFile(f) ? f : null
   }, [mobile, blob, item.name, item.mimeType])
   // 하단 4칸의 ⤴ 상태(판정 R12). cur 가 아직 없으면 = ViewerBody 첫 보고 전 → fetches 참으로 보고 "받는 중".
   // 미지원 형식은 첫 이펙트에서 곧바로 fetches 거짓이 와서 "공유할 수 없음"이 된다.
@@ -204,8 +196,9 @@ export function AttachmentViewer({
     ? resolveShareState({
         supported: canShareApi(),
         fetches: cur?.fetches ?? true,
-        blobReady: file != null,
-        canShareFile: fileShareable,
+        // 모바일에서는 blob 이 있으면 File 도 만들어진다 — blob 유무가 곧 준비 여부.
+        blobReady: blob != null,
+        canShareFile: shareableFile != null,
       })
     : null
   const slots =
@@ -223,22 +216,22 @@ export function AttachmentViewer({
    */
   const onSlot = (id: SlotId) => {
     if (id === 'share') {
-      if (file && fileShareable) void shareFile(file)
+      if (shareableFile) void shareFile(shareableFile)
     } else if (id === 'save') {
-      const method = resolveSaveMethod({ iosStandalone: isIOSDevice() && isStandaloneDisplay(), blobReady: file != null, canShareFile: fileShareable })
-      if (method === 'share' && file) void shareFile(file)
+      const method = resolveSaveMethod({ iosStandalone: isIOSStandalone(), shareable: shareableFile != null })
+      if (method === 'share' && shareableFile) void shareFile(shareableFile)
       else void downloadViewerItem(item)
     } else if (id === 'drive') startImport()
     else if (id === 'summary') {
       // 하단 칸은 모바일 배치에만 있다 — 데스크톱 패널(과 저장된 상태)은 건드리지 않고 시트만 토글.
       sheetFocus.current = sheetOpen ? 'close' : 'open'
-      setSheet({ mobile, open: !sheetOpen })
+      setSheetPref(!sheetOpen)
     }
   }
   /** 시트의 요약 닫기 — 포커스를 연 자리(✨ 칸)로 돌려보낸다. */
   const closeSheet = () => {
     sheetFocus.current = 'close'
-    setSheet({ mobile, open: false })
+    setSheetPref(false)
   }
   const prevBtn = useRef<HTMLButtonElement>(null)
   const nextBtn = useRef<HTMLButtonElement>(null)
@@ -263,7 +256,7 @@ export function AttachmentViewer({
     const a = document.activeElement
     const inBars = [topBarRef.current, actionBarEl, prevBtn.current, nextBtn.current].some((el) => el?.contains(a))
     if (!barsHidden && inBars) return
-    setBars({ landscape, hidden: !barsHidden })
+    setBarsPref(!barsHidden)
   }
 
   // 키 연타 대응 — 부모(URL 훅)는 직전 이동이 렌더에 반영되기 전의 호출을 무시할 수 있다(낡은 위치 스냅숏 방어, 훅은 그대로 둔다).
