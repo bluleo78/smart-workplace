@@ -21,18 +21,54 @@ export interface KeyContext {
   inHorizontalScroller: boolean
   /** 현재 형식이 확대 대상인지(이미지·PDF). */
   zoomable: boolean
+  /** 현재 형식이 영상·오디오인지(WP-281) — 없으면 문서·이미지. */
+  media?: 'video' | 'audio' | null
+  /**
+   * 포커스가 미디어 요소(재생 막대 등 네이티브 컨트롤 포함) 안인가 — 컨트롤은 shadow DOM 이라 이벤트 대상이 `<video>`/`<audio>` 로 보정되어 온다.
+   */
+  inMedia?: boolean
+  /** 버튼·링크 같은 조작 요소 위인가 — Space 는 그 요소의 활성화 몫으로 남긴다. */
+  onControl?: boolean
+  /** 미디어가 전체화면 중인가(document.fullscreenElement). */
+  fullscreen?: boolean
+  /** 방금(가드 시간 안) 전체화면이 풀렸는가 — 브라우저가 전체화면 해제에 쓴 Esc 가 뒤늦게 와도 뷰어를 닫지 않게(스펙 §5.3 #7). */
+  fullscreenJustExited?: boolean
 }
 
-export type ViewerAction = 'prev' | 'next' | 'zoomIn' | 'zoomOut' | 'zoomReset' | null
+export type ViewerAction =
+  | 'prev'
+  | 'next'
+  | 'zoomIn'
+  | 'zoomOut'
+  | 'zoomReset'
+  | 'playPause'
+  | 'seekBack'
+  | 'seekForward'
+  | 'exitFullscreen'
+  | null
 
-/** 키 → 뷰어 동작. Esc 는 Radix Dialog(+useAiPanelAwareDialog)가 처리하므로 다루지 않는다. */
+/**
+ * 키 → 뷰어 동작.
+ * - Esc 는 평소 Radix Dialog(+useAiPanelAwareDialog)가 닫기로 처리하므로 null. 전체화면 중(또는 방금 해제)이면 'exitFullscreen' —
+ *   호출부는 닫기를 막고 전체화면만 푼다(스펙 §5.3 #7, 이중 닫기 방지).
+ * - ←/→: 영상·오디오에 포커스가 있거나 전체화면이면 탐색(±5초), 그 외는 파일 넘김(스펙 §5.3 #6).
+ * - Space: 영상·오디오 형식이면 재생/정지 — 단 버튼·링크 위에서는 그 요소의 활성화 몫(전체화면 중 제외). 문서는 null(브라우저 스크롤).
+ */
 export function routeKey(ctx: KeyContext): ViewerAction {
   if (ctx.ctrlOrMeta || ctx.inAiPanel || ctx.inEditable) return null
+  // 미디어 탐색 — 미디어에 포커스가 있거나 전체화면일 때만(그 밖의 ←/→ 는 파일 넘김이 우선).
+  const seeking = !!ctx.media && (!!ctx.inMedia || !!ctx.fullscreen)
   switch (ctx.key) {
+    case 'Escape':
+      return ctx.fullscreen || ctx.fullscreenJustExited ? 'exitFullscreen' : null
     case 'ArrowLeft':
+      if (seeking) return 'seekBack'
       return ctx.inHorizontalScroller ? null : 'prev'
     case 'ArrowRight':
+      if (seeking) return 'seekForward'
       return ctx.inHorizontalScroller ? null : 'next'
+    case ' ':
+      return ctx.media && (ctx.fullscreen || !ctx.onControl) ? 'playPause' : null
     case '+':
     case '=':
       return ctx.zoomable ? 'zoomIn' : null

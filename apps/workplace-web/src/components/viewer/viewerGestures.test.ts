@@ -7,6 +7,7 @@ import {
   doubleTapTarget,
   dragOffset,
   focusFraction,
+  inScrubZone,
   isDoubleTap,
   isTapDuration,
   lockGesture,
@@ -16,12 +17,22 @@ import {
   releaseVelocity,
   roundZoom,
   rubberBand,
+  SCRUB_ZONE_PX,
   stageTouchAction,
+  tapTogglesBars,
 } from './viewerGestures'
 
 const lock: LockInput = { dx: 0, dy: 0, startX: 200, viewportWidth: 390, canPanLeft: false, canPanRight: false, atTop: true, zoom: 1, pageZoomed: false }
 
 describe('lockGesture', () => {
+  it('재생 막대 구역에서 시작하면 어느 축이든 네이티브(탐색 끌기는 컨트롤 몫, WP-281)', () => {
+    expect(lockGesture({ ...lock, dx: -40, inScrubZone: true })).toBe('native')
+    expect(lockGesture({ ...lock, dy: 40, inScrubZone: true })).toBe('native')
+    // 움직이지 않은 탭은 그대로 판정 보류(탭 처리로 간다).
+    expect(lockGesture({ ...lock, dx: 2, inScrubZone: true })).toBe('pending')
+    // 구역 밖은 기존 규칙.
+    expect(lockGesture({ ...lock, dx: -40, inScrubZone: false })).toBe('swipe')
+  })
   it('흔들림(6px 미만)은 아직 판정하지 않는다', () => {
     expect(lockGesture({ ...lock, dx: -5, dy: 2 })).toBe('pending')
   })
@@ -202,6 +213,10 @@ describe('anchoredScroll', () => {
 })
 
 describe('stageTouchAction', () => {
+  it('영상·오디오는 터치 기기에서 none(핀치 확대 끔, WP-281), 마우스는 표식 없음', () => {
+    expect(stageTouchAction({ coarse: true, zoomable: false, image: false, zoom: 1, media: true })).toBe('none')
+    expect(stageTouchAction({ coarse: false, zoomable: false, image: false, zoom: 1, media: true })).toBeUndefined()
+  })
   const base = { coarse: true, zoomable: true, image: true, zoom: 1 }
   it('fine 포인터(데스크톱 마우스)면 표식 없음', () => {
     expect(stageTouchAction({ ...base, coarse: false })).toBeUndefined()
@@ -225,5 +240,35 @@ describe('roundZoom', () => {
     expect(roundZoom(1 + 0.25)).toBe(1.25)
     expect(roundZoom(1.2345)).toBe(1.23)
     expect(roundZoom(2)).toBe(2)
+  })
+})
+
+describe('inScrubZone', () => {
+  const rect = { top: 100, height: 200 } // 아래 끝 = 300
+  it('영상은 아래 48px 띠만 구역', () => {
+    expect(inScrubZone(300 - SCRUB_ZONE_PX, rect, 'video')).toBe(true)
+    expect(inScrubZone(299, rect, 'video')).toBe(true)
+    expect(inScrubZone(300 - SCRUB_ZONE_PX - 1, rect, 'video')).toBe(false)
+    expect(inScrubZone(150, rect, 'video')).toBe(false)
+    // 요소 아래(여백)는 구역 아님.
+    expect(inScrubZone(301, rect, 'video')).toBe(false)
+  })
+  it('오디오는 요소 전체가 구역', () => {
+    expect(inScrubZone(100, rect, 'audio')).toBe(true)
+    expect(inScrubZone(150, rect, 'audio')).toBe(true)
+  })
+})
+
+describe('tapTogglesBars', () => {
+  it('영상 위 탭은 컨트롤 몫 — 바 토글은 영상 밖 여백만', () => {
+    expect(tapTogglesBars({ media: 'video', onMediaElement: true })).toBe(false)
+    expect(tapTogglesBars({ media: 'video', onMediaElement: false })).toBe(true)
+  })
+  it('오디오 형식은 어디를 탭해도 바를 숨기지 않는다', () => {
+    expect(tapTogglesBars({ media: 'audio', onMediaElement: true })).toBe(false)
+    expect(tapTogglesBars({ media: 'audio', onMediaElement: false })).toBe(false)
+  })
+  it('미디어가 아니면 기존대로 토글', () => {
+    expect(tapTogglesBars({ media: null, onMediaElement: false })).toBe(true)
   })
 })

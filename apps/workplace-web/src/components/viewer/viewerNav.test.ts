@@ -37,6 +37,40 @@ describe('routeKey', () => {
   })
 })
 
+describe('routeKey — 영상·오디오(WP-281)', () => {
+  const media: KeyContext = { ...base, zoomable: false, media: 'video', inMedia: false, onControl: false, fullscreen: false }
+  it('←/→ 는 미디어 포커스·전체화면이면 탐색, 그 외 파일 넘김', () => {
+    expect(routeKey({ ...media, key: 'ArrowLeft' })).toBe('prev')
+    expect(routeKey({ ...media, key: 'ArrowRight' })).toBe('next')
+    expect(routeKey({ ...media, key: 'ArrowLeft', inMedia: true })).toBe('seekBack')
+    expect(routeKey({ ...media, key: 'ArrowRight', inMedia: true })).toBe('seekForward')
+    expect(routeKey({ ...media, key: 'ArrowRight', fullscreen: true })).toBe('seekForward')
+    expect(routeKey({ ...media, key: 'ArrowLeft', media: 'audio', inMedia: true })).toBe('seekBack')
+  })
+  it('미디어가 아닌 형식은 포커스와 무관하게 기존 넘김', () => {
+    expect(routeKey({ ...base, key: 'ArrowRight', inMedia: true, fullscreen: true })).toBe('next')
+  })
+  it('Space 는 미디어면 재생/정지 — 버튼 위에선 버튼 몫, 전체화면이면 재생/정지', () => {
+    expect(routeKey({ ...media, key: ' ' })).toBe('playPause')
+    expect(routeKey({ ...media, key: ' ', inMedia: true })).toBe('playPause')
+    expect(routeKey({ ...media, key: ' ', onControl: true })).toBeNull()
+    expect(routeKey({ ...media, key: ' ', onControl: true, fullscreen: true })).toBe('playPause')
+  })
+  it('Space 는 문서면 null(브라우저 스크롤)', () => {
+    expect(routeKey({ ...base, key: ' ' })).toBeNull()
+  })
+  it('Esc 는 전체화면 중·방금 해제면 전체화면만 해제, 그 외 null(다이얼로그 닫기)', () => {
+    expect(routeKey({ ...media, key: 'Escape' })).toBeNull()
+    expect(routeKey({ ...media, key: 'Escape', fullscreen: true })).toBe('exitFullscreen')
+    expect(routeKey({ ...media, key: 'Escape', fullscreenJustExited: true })).toBe('exitFullscreen')
+  })
+  it('입력칸·AI 패널·Ctrl 조합은 미디어여도 뷰어 몫이 아니다', () => {
+    expect(routeKey({ ...media, key: ' ', inEditable: true })).toBeNull()
+    expect(routeKey({ ...media, key: 'ArrowLeft', inMedia: true, inAiPanel: true })).toBeNull()
+    expect(routeKey({ ...media, key: 'ArrowLeft', inMedia: true, ctrlOrMeta: true })).toBeNull()
+  })
+})
+
 describe('splitName', () => {
   it('확장자 + 앞 2글자를 꼬리로 남긴다', () => {
     expect(splitName('2026_하반기_도입제안서_최종_검토반영_v3.pdf')).toEqual(['2026_하반기_도입제안서_최종_검토반영_', 'v3.pdf'])
