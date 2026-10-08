@@ -168,6 +168,11 @@ public class IssueSearchService {
 
     LocalDate dueFrom = parseDate(p.get("dueFrom"));
     LocalDate dueTo = parseDate(p.get("dueTo"));
+    // WP-307: 종료일·생성일 범위(Asia/Seoul 날짜, 양끝 포함) — AI 의 "이번 주 완료한/만든 이슈" 조회용.
+    LocalDate closedFrom = parseDate(p.get("closedFrom"));
+    LocalDate closedTo = parseDate(p.get("closedTo"));
+    LocalDate createdFrom = parseDate(p.get("createdFrom"));
+    LocalDate createdTo = parseDate(p.get("createdTo"));
 
     IssueCursor cursor = null;
     String cursorStr = trimToNull(p.get("cursor"));
@@ -275,7 +280,11 @@ public class IssueSearchService {
         excludeSubtasks,
         excludeEpics,
         hideInactiveClosed,
-        includeNoCycle);
+        includeNoCycle,
+        closedFrom,
+        closedTo,
+        createdFrom,
+        createdTo);
   }
 
   private static String trimToNull(String s) {

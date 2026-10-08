@@ -60,6 +60,23 @@ function thisWeekRange() {
   return { from: iso(mon), to: iso(sun) };
 }
 
+/** 지난주(월~일) 범위 — 이번 주에서 7일 뺀다(WP-307 생성일·종료일 케이스용). */
+function lastWeekRange(week) {
+  const shift = (s) => {
+    const x = new Date(s + 'T00:00:00Z');
+    x.setUTCDate(x.getUTCDate() - 7);
+    return x.toISOString().slice(0, 10);
+  };
+  return { from: shift(week.from), to: shift(week.to) };
+}
+
+/** 범위 기대 키 → 검증할 from/to 파라미터 쌍. dueRange 는 마감일, createdRange·closedRange 는 생성일·종료일(WP-307). */
+const RANGE_PARAMS = {
+  dueRange: ['dueFrom', 'dueTo'],
+  createdRange: ['createdFrom', 'createdTo'],
+  closedRange: ['closedFrom', 'closedTo'],
+};
+
 /**
  * SSE 응답에서 done 이벤트의 fullText(prose)와 widgets 추출.
  */
@@ -125,7 +142,7 @@ async function ask(query) {
  * 기대값과 실제 결과 비교.
  * expect 필드:
  *   - degraded: true — 필터 0~1개 필드 + "지원하지 않" 류 안내
- *   - dueRange: "thisWeek" — dueFrom/dueTo 이번 주 범위 검증
+ *   - dueRange / createdRange / closedRange: "thisWeek" | "lastWeek" — 해당 from/to 가 그 주 범위 안인지 검증
  *   - 기타 필드: 정확 일치
  */
 function checkExpect(expectObj, got, week) {
@@ -134,7 +151,7 @@ function checkExpect(expectObj, got, week) {
 
   // 1. degradation 케이스 — 필터 최소화 + 안내 prose
   if (expectObj.degraded) {
-    const hasNoDateFilter = !params.dueFrom && !params.dueTo;
+    const hasNoDateFilter = Object.values(RANGE_PARAMS).flat().every((k) => !params[k]);
     // 미지원 차원을 정직하게 안내했는지 — 동의어 허용(지원하지 않/미지원/불가/어렵).
     const hasExplanation = /지원(하지\s*않|되지\s*않|안\s*[함됨됩]|불가)|미지원|할\s*수\s*없|어렵습니다/.test(got.prose);
     const fieldCount = Object.keys(params).length;
@@ -153,15 +170,16 @@ function checkExpect(expectObj, got, week) {
   const failures = [];
 
   for (const [key, expectedValue] of Object.entries(expectObj)) {
-    // dueRange 는 special case — week 범위 검증
-    if (key === 'dueRange') {
-      const dueFrom = params.dueFrom;
-      const dueTo = params.dueTo;
-
-      if (!dueFrom || !dueTo) {
-        failures.push(`필드 누락: dueFrom=${dueFrom}, dueTo=${dueTo}`);
-      } else if (dueFrom < week.from || dueTo > week.to) {
-        failures.push(`범위 오류: dueFrom=${dueFrom}, dueTo=${dueTo} ∉ [${week.from}, ${week.to}]`);
+    // 날짜 범위 기대(dueRange·createdRange·closedRange: thisWeek|lastWeek) — 해당 from/to 가 그 주 안에 있어야 한다.
+    if (key in RANGE_PARAMS) {
+      const [fromKey, toKey] = RANGE_PARAMS[key];
+      const range = expectedValue === 'lastWeek' ? lastWeekRange(week) : week;
+      const from = params[fromKey];
+      const to = params[toKey];
+      if (!from || !to) {
+        failures.push(`필드 누락: ${fromKey}=${from}, ${toKey}=${to}`);
+      } else if (from < range.from || to > range.to) {
+        failures.push(`범위 오류: ${fromKey}=${from}, ${toKey}=${to} ∉ [${range.from}, ${range.to}]`);
       }
       continue;
     }

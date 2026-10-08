@@ -873,16 +873,32 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "blocked": {
           "type": "boolean",
         },
+        "closedFrom": {
+          "description": "종료일(DONE·CANCELED 진입) 하한 yyyy-MM-dd, Asia/Seoul 기준",
+          "type": "string",
+        },
+        "closedTo": {
+          "description": "종료일 상한 yyyy-MM-dd(포함), Asia/Seoul 기준",
+          "type": "string",
+        },
+        "createdFrom": {
+          "description": "생성일 하한 yyyy-MM-dd, Asia/Seoul 기준",
+          "type": "string",
+        },
+        "createdTo": {
+          "description": "생성일 상한 yyyy-MM-dd(포함), Asia/Seoul 기준",
+          "type": "string",
+        },
         "cycle": {
           "description": "사이클 CSV(하나라도 일치하면 매칭, OR): 사이클 이름 | "active"(진행 중 사이클) | "none"(사이클이 하나도 할당되지 않은 이슈) | "backlog"(진행 중·예정 사이클 밖 — 완료 사이클에만 남은 이슈 포함). "사이클 미할당"은 none, "백로그"는 backlog. 이름·active 는 projectKey 필요",
           "type": "string",
         },
         "dueFrom": {
-          "description": "마감일 하한 yyyy-MM-dd(생성일 아님 — 생성일 필터는 미지원)",
+          "description": "마감일 하한 yyyy-MM-dd(생성일·종료일 아님)",
           "type": "string",
         },
         "dueTo": {
-          "description": "마감일 상한 yyyy-MM-dd(생성일 아님 — 생성일 필터는 미지원)",
+          "description": "마감일 상한 yyyy-MM-dd(생성일·종료일 아님)",
           "type": "string",
         },
         "label": {

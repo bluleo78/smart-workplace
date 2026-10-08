@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.CYCLE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_CYCLE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
+import static com.workplace.jooq.Tables.MILESTONE;
 import static com.workplace.jooq.Tables.PROJECT;
 import static org.jooq.impl.DSL.count;
 import static org.jooq.impl.DSL.exists;
@@ -11,12 +12,14 @@ import static org.jooq.impl.DSL.noCondition;
 import static org.jooq.impl.DSL.notExists;
 
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,7 +28,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.SelectField;
 import org.springframework.stereotype.Repository;
@@ -36,6 +41,23 @@ import org.springframework.stereotype.Repository;
 public class IssueRepository {
 
   private final DSLContext dsl;
+
+  /**
+   * 연결된 마일스톤 이름(스칼라 서브쿼리) — AI 도구가 update_issue 에 그대로 쓸 수 있게 응답에 이름을 싣는다(WP-307). 유형·라벨처럼 서버가 이름을
+   * 주므로 클라이언트가 마일스톤 목록을 따로 조회하지 않는다. 조회·INSERT RETURNING 모두에서 평가된다.
+   */
+  private static final org.jooq.Field<String> MILESTONE_NAME =
+      org.jooq
+          .impl
+          .DSL
+          .field(
+              org.jooq
+                  .impl
+                  .DSL
+                  .select(MILESTONE.NAME)
+                  .from(MILESTONE)
+                  .where(MILESTONE.ID.eq(ISSUE.MILESTONE_ID)))
+          .as("milestone_name");
 
   /** {@link #mapToRow} 가 읽는 이슈 행 컬럼 — 조회·INSERT RETURNING 이 한 목록을 공유해 컬럼 추가 시 한 곳만 고친다. */
   private static final SelectField<?>[] ROW_FIELDS = {
@@ -55,7 +77,8 @@ public class IssueRepository {
     ISSUE.PARENT_ISSUE_ID,
     ISSUE.START_DATE,
     ISSUE.MILESTONE_ID,
-    ISSUE.VERSION
+    ISSUE.VERSION,
+    MILESTONE_NAME
   };
 
   /**
@@ -83,7 +106,9 @@ public class IssueRepository {
         r.get(ISSUE.PARENT_ISSUE_ID),
         r.get(ISSUE.START_DATE),
         r.get(ISSUE.MILESTONE_ID),
-        r.get(ISSUE.VERSION));
+        r.get(ISSUE.VERSION),
+        // INSERT RETURNING 은 테이블 컬럼만 돌려줘 이름이 없다 — 새 이슈는 마일스톤이 없으므로 null 로 둔다.
+        r.indexOf(MILESTONE_NAME) >= 0 ? r.get(MILESTONE_NAME) : null);
   }
 
   /**
@@ -400,12 +425,7 @@ public class IssueRepository {
       }
       where = where.and(cond);
     }
-    if (query.dueFrom() != null) {
-      where = where.and(ISSUE.DUE_DATE.ge(query.dueFrom()));
-    }
-    if (query.dueTo() != null) {
-      where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
-    }
+    where = where.and(dateRangeCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
@@ -510,6 +530,37 @@ public class IssueRepository {
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
         .limit(query.size())
         .fetch(this::mapToRow);
+  }
+
+  /** 날짜 범위 필터의 하루 경계 기준 — AI 비서가 "이번 주"를 Asia/Seoul 로 계산하므로 같은 기준으로 자른다(WP-307). */
+  private static final ZoneId FILTER_ZONE = ZoneId.of("Asia/Seoul");
+
+  /**
+   * 날짜 범위 조건 — 단일/횡단 검색 공용. 마감일(due_date)은 DATE 컬럼이라 그대로 비교하고, 종료일·생성일(WP-307)은 시각 컬럼이라 Asia/Seoul
+   * 하루 경계로 해석해 양끝을 포함한다. 종료일 필터는 closed_at 이 없는(미종료) 이슈를 자연히 제외한다.
+   */
+  private Condition dateRangeCondition(IssueSearchQuery query) {
+    Condition c = noCondition();
+    if (query.dueFrom() != null) {
+      c = c.and(ISSUE.DUE_DATE.ge(query.dueFrom()));
+    }
+    if (query.dueTo() != null) {
+      c = c.and(ISSUE.DUE_DATE.le(query.dueTo()));
+    }
+    return c.and(seoulDayRange(ISSUE.CLOSED_AT, query.closedFrom(), query.closedTo()))
+        .and(seoulDayRange(ISSUE.CREATED_AT, query.createdFrom(), query.createdTo()));
+  }
+
+  /** 시각 컬럼을 Asia/Seoul 날짜 범위(양끝 포함)로 자른다 — from 00:00 이상, to 다음 날 00:00 미만. null 쪽은 미적용. */
+  private static Condition seoulDayRange(Field<OffsetDateTime> col, LocalDate from, LocalDate to) {
+    Condition c = noCondition();
+    if (from != null) {
+      c = c.and(col.ge(from.atStartOfDay(FILTER_ZONE).toOffsetDateTime()));
+    }
+    if (to != null) {
+      c = c.and(col.lt(to.plusDays(1).atStartOfDay(FILTER_ZONE).toOffsetDateTime()));
+    }
+    return c;
   }
 
   /**
@@ -632,12 +683,7 @@ public class IssueRepository {
       }
       where = where.and(cond);
     }
-    if (query.dueFrom() != null) {
-      where = where.and(ISSUE.DUE_DATE.ge(query.dueFrom()));
-    }
-    if (query.dueTo() != null) {
-      where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
-    }
+    where = where.and(dateRangeCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {

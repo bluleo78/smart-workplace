@@ -24,4 +24,6 @@ public record IssueRow(
     Long parentIssueId,
     LocalDate startDate,
     Long milestoneId,
-    int version) {}
+    int version,
+    // 연결된 마일스톤 이름 — 없으면 null(WP-307).
+    String milestoneName) {}

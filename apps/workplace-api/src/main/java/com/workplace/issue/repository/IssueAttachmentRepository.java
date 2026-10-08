@@ -45,7 +45,8 @@ public class IssueAttachmentRepository {
             FILE.ORIGINAL_NAME,
             FILE.MIME_TYPE,
             FILE.SIZE_BYTES,
-            USER.NAME)
+            USER.NAME,
+            USER.USERNAME)
         .from(ISSUE_ATTACHMENT)
         .join(FILE)
         .on(FILE.ID.eq(ISSUE_ATTACHMENT.FILE_ID))
@@ -63,6 +64,7 @@ public class IssueAttachmentRepository {
                     r.get(FILE.SIZE_BYTES),
                     r.get(ISSUE_ATTACHMENT.ATTACHED_BY),
                     r.get(USER.NAME),
+                    r.get(USER.USERNAME),
                     r.get(ISSUE_ATTACHMENT.ATTACHED_AT).toInstant(),
                     null));
   }
@@ -77,7 +79,8 @@ public class IssueAttachmentRepository {
             FILE.ORIGINAL_NAME,
             FILE.MIME_TYPE,
             FILE.SIZE_BYTES,
-            USER.NAME)
+            USER.NAME,
+            USER.USERNAME)
         .from(ISSUE_ATTACHMENT)
         .join(FILE)
         .on(FILE.ID.eq(ISSUE_ATTACHMENT.FILE_ID))
@@ -94,6 +97,7 @@ public class IssueAttachmentRepository {
                     r.get(FILE.SIZE_BYTES),
                     r.get(ISSUE_ATTACHMENT.ATTACHED_BY),
                     r.get(USER.NAME),
+                    r.get(USER.USERNAME),
                     r.get(ISSUE_ATTACHMENT.ATTACHED_AT).toInstant(),
                     null));
   }

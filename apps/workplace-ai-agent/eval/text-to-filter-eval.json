@@ -51,10 +51,27 @@
       "id": 6,
       "query": "지난주에 등록한 이슈",
       "expect": {
+        "createdRange": "lastWeek"
+      },
+      "note": "생성일 범위(WP-307) — 지난주 월~일 createdFrom/createdTo"
+    },
+    {
+      "id": 7,
+      "query": "이번 주에 끝낸 이슈",
+      "expect": {
+        "status": ["DONE"],
+        "closedRange": "thisWeek"
+      },
+      "note": "종료일 범위(WP-307) + 완료 상태 — 종료일은 취소도 포함하므로 status 동반"
+    },
+    {
+      "id": 8,
+      "query": "최근에 수정된 이슈",
+      "expect": {
         "degraded": true,
         "filterEmptyOrNoDateField": true
       },
-      "note": "생성일 필터 미지원 — 안내 후 필터 비우거나 최소화. prose 에서 '지원하지 않' 류 문구 확인"
+      "note": "활동(수정) 시점 필터 미지원 — 안내 후 날짜 필터 없이. prose 에서 '지원하지 않' 류 문구 확인"
     }
   ]
 }

@@ -75,7 +75,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             new IssueSearchQuery(
                 null, List.of(), List.of(), false, List.of(), null, null, null, 30, List.of(),
                 List.of(), null, null, null, null, null, null, List.of(), false, List.of(), null,
-                null, null, false));
+                null, null, false, null, null, null, null));
 
     assertThat(result).hasSize(2);
     assertThat(result.get(0).number()).isEqualTo(2); // 가장 최근
@@ -94,7 +94,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             new IssueSearchQuery(
                 "login", List.of(), List.of(), false, List.of(), null, null, null, 30, List.of(),
                 List.of(), null, null, null, null, null, null, List.of(), false, List.of(), null,
-                null, null, false));
+                null, null, false, null, null, null, null));
 
     assertThat(result).hasSize(2);
     assertThat(result).extracting("title").contains("Login bug", "Other");
@@ -136,7 +136,11 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
-                false));
+                false,
+                null,
+                null,
+                null,
+                null));
 
     assertThat(result).hasSize(1);
     assertThat(result.get(0).id()).isEqualTo(inProgRow.id());
@@ -156,7 +160,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             new IssueSearchQuery(
                 null, List.of(), List.of(), true, List.of(), null, null, null, 30, List.of(),
                 List.of(), null, null, null, null, null, null, List.of(), false, List.of(), null,
-                null, null, false));
+                null, null, false, null, null, null, null));
 
     assertThat(result).hasSize(1);
     assertThat(result.get(0).title()).isEqualTo("unassigned");
@@ -199,7 +203,11 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
-                false));
+                false,
+                null,
+                null,
+                null,
+                null));
 
     assertThat(result).hasSize(2);
     assertThat(result).extracting("title").contains("byme", "unassigned");
@@ -242,7 +250,11 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
-                false));
+                false,
+                null,
+                null,
+                null,
+                null));
 
     assertThat(result).hasSize(1);
     assertThat(result.get(0).title()).isEqualTo("in");
@@ -261,7 +273,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             new IssueSearchQuery(
                 null, List.of(), List.of(), false, List.of(), null, null, null, 2, List.of(),
                 List.of(), null, null, null, null, null, null, List.of(), false, List.of(), null,
-                null, null, false));
+                null, null, false, null, null, null, null));
     assertThat(page1).hasSize(2);
 
     var lastRow = page1.get(page1.size() - 1);
@@ -272,7 +284,7 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
             new IssueSearchQuery(
                 null, List.of(), List.of(), false, List.of(), null, null, cursor, 2, List.of(),
                 List.of(), null, null, null, null, null, null, List.of(), false, List.of(), null,
-                null, null, false));
+                null, null, false, null, null, null, null));
 
     assertThat(page2).hasSize(2);
     assertThat(page2).extracting("id").doesNotContain(lastRow.id());
@@ -334,7 +346,11 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
-                false));
+                false,
+                null,
+                null,
+                null,
+                null));
 
     // 필터된 결과 건수(카운트) 도 milestone 매칭 이슈 1건과 정확히 일치해야 한다.
     assertThat(result).hasSize(1);

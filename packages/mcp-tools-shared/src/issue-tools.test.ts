@@ -80,6 +80,20 @@ describe('buildSharedIssueTools', () => {
     expect(c.getIssueCycles).toHaveBeenCalledWith('WP-12');
   });
 
+  it('WP-307: get_issue_detail 은 서버가 준 마일스톤 이름·작성자 username 을 쓰고 보조 조회를 하지 않는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue({
+      issueKey: 'WP-12',
+      summary: { title: 'T', status: 'TODO', priority: 'MID', assignees: [], milestoneId: 7, milestoneName: 'v1.0' },
+      comments: [{ id: 1, body: 'b', authorId: 10, authorName: 'Alice', authorKind: 'HUMAN', authorUsername: 'alice', createdAt: '2026-10-01T00:00:00Z' }],
+    });
+    const out = JSON.parse(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' }));
+    expect(out.milestone).toBe('v1.0');
+    expect(out.comments[0].author).toEqual({ username: 'alice', name: 'Alice', kind: 'HUMAN' });
+    expect(c.getProjectMilestones).not.toHaveBeenCalled();
+    expect(c.getProjectMembers).not.toHaveBeenCalled();
+  });
+
   it('add_comment 은 client.addComment 호출 후 "ok"', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'add_comment')!;

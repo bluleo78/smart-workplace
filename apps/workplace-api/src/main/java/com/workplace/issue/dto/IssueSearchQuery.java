@@ -51,4 +51,10 @@ public record IssueSearchQuery(
     Boolean hideInactiveClosed,
     // 사이클 미할당 포함 — cycle=none 토큰. 사이클 연결이 하나도 없는 이슈를 매칭하며 cycleIds·includeNoOpenCycle 과 OR 결합
     // (WP-176). 백로그(null)와 달리 완료 사이클에만 연결된 이슈는 제외한다 — "사이클이 할당되지 않은 이슈" 를 정확히 고르기 위함.
-    boolean includeNoCycle) {}
+    boolean includeNoCycle,
+    // 종료일(closed_at) 범위 — Asia/Seoul 날짜 기준 양끝 포함(WP-307). "이번 주 완료한 이슈" 같은 조회용. null 이면 미적용.
+    LocalDate closedFrom,
+    LocalDate closedTo,
+    // 생성일(created_at) 범위 — Asia/Seoul 날짜 기준 양끝 포함(WP-307). null 이면 미적용.
+    LocalDate createdFrom,
+    LocalDate createdTo) {}

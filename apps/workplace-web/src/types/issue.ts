@@ -42,9 +42,13 @@ export interface IssueResponse {
   startDate: string | null;
   // 연결된 마일스톤 id — 없으면 null (#620).
   milestoneId: number | null;
+  // 마일스톤 이름 — 없으면 null (WP-307, AI 도구용).
+  milestoneName?: string | null;
   reporterId: number;
   createdAt: string;
   updatedAt: string;
+  // 종료(DONE·CANCELED) 진입 시각 — 재오픈 시 null (WP-307). 화면은 아직 쓰지 않으며 AI 도구용으로 추가됐다.
+  closedAt?: string | null;
   // #611 낙관적 동시성 토큰 — 수정 요청에 실어 보내면 그 사이 다른 편집이 있었을 때 서버가 409 로 알린다.
   version?: number;
   // 부착된 라벨 — 백엔드가 항상 배열로 내려준다 (없으면 빈 배열).

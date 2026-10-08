@@ -4,6 +4,8 @@ import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
 import { defaultListAssignee, resolveCycleFilter } from './resolve.js';
 import { formatIssueKey } from './parse.js';
+import { dropEmpty } from './compact.js';
+import { labelNames, toChildrenView, toParentView, toPeopleView, toSeoulIso, typeName } from './issue-view.js';
 import { listIssuesInput } from './schemas.js';
 import type { IssueListQuery, IssueRow, ProjectToolClient } from './tool-client.js';
 
@@ -20,7 +22,10 @@ export const updateProjectInput = z
   })
   .refine((v) => v.name !== undefined || v.description !== undefined, { message: 'name 이나 description 중 하나는 주세요.' });
 
-/** GET /me/issues 이슈 행 → LLM 뷰. 사람은 username 으로만 노출한다(#833 — 숫자 id 를 쓰기 도구로 흘려보내지 않게). */
+/**
+ * GET /me/issues 이슈 행 → LLM 뷰. 사람은 username 으로만 노출한다(#833 — 숫자 id 를 쓰기 도구로 흘려보내지 않게).
+ * WP-307: 날짜(시작·생성·수정·종료)·라벨·마일스톤·부모·하위 진행률을 싣는다. 본문·코멘트·이력은 상세(get_issue_detail)에만 둔다.
+ */
 export function toIssueListItem(it: IssueRow) {
   const { projectKey, number } = it;
   return {
@@ -28,13 +33,17 @@ export function toIssueListItem(it: IssueRow) {
     title: it.title ?? '',
     status: it.status ?? '',
     priority: it.priority ?? '',
-    assignees: (it.assignees ?? []).map((a) => ({
-      username: a.username ?? null,
-      name: a.name ?? a.username ?? '',
-      kind: a.kind ?? 'HUMAN',
-    })),
+    type: typeName(it.type),
+    assignees: toPeopleView(it.assignees),
     dueDate: it.dueDate ?? null,
-    type: it.type ?? null,
+    startDate: it.startDate ?? null,
+    createdAt: toSeoulIso(it.createdAt),
+    updatedAt: toSeoulIso(it.updatedAt),
+    closedAt: toSeoulIso(it.closedAt),
+    labels: labelNames(it.labels),
+    milestone: it.milestoneName ?? null,
+    parent: toParentView(it.parent, projectKey),
+    children: toChildrenView(it.childCount, it.childDoneCount),
     blocked: Boolean(it.blocked),
   };
 }
@@ -93,7 +102,10 @@ export function buildProjectTools(client: ProjectToolClient): SharedTool[] {
         '이슈 목록을 JSON 배열로 반환합니다. assignee·reporter 둘 다 생략 시 내 담당("me")이고, 담당자와 무관하게 보려면 assignee="any". ' +
         'projectKey·status·priority·label·type·cycle·q·dueFrom/dueTo·blocked·topLevel 로 좁힙니다. ' +
         '사람은 username, 라벨·유형은 이름으로 지정하고(get_project 가 목록 제공), 없는 값이면 사용 가능 목록을 담은 오류가 옵니다. ' +
-        '각 항목은 issueKey·title·status·priority·assignees·dueDate 를 포함하며, 상세는 issueKey 로 get_issue_detail 을 호출하세요.',
+        'closedFrom/closedTo(종료일)·createdFrom/createdTo(생성일)는 Asia/Seoul 날짜(yyyy-MM-dd, 양끝 포함)이며, 종료일 범위는 DONE·CANCELED 모두 걸리니 ' +
+        '"완료한 이슈"는 status=DONE 을 함께 주세요. ' +
+        '각 항목은 issueKey·title·status·priority·type·assignees·dueDate·startDate·createdAt·updatedAt·closedAt(시각은 +09:00)·labels·milestone·' +
+        'parent·children(하위 진행률)·blocked 를 포함하며, 값이 없는 키(null·빈 배열)는 생략됩니다. 본문·코멘트·변경 이력은 issueKey 로 get_issue_detail 을 호출하세요.',
       inputSchema: listIssuesInput,
       async handler(args) {
         const { priority, size, cycle: cycleCsv, ...p } = listIssuesInput.parse(args);
@@ -107,7 +119,8 @@ export function buildProjectTools(client: ProjectToolClient): SharedTool[] {
         if (priority?.length) query.priority = priority.join(',');
         query.size = size ?? 30;
         const items = await client.listIssues(query);
-        return JSON.stringify(items.map(toIssueListItem));
+        // #850: 행마다 반복되는 null·빈 배열 키는 빼 토큰을 줄인다(빠진 키 = 값 없음).
+        return JSON.stringify(items.map((it) => dropEmpty(toIssueListItem(it))));
       },
     },
     {
