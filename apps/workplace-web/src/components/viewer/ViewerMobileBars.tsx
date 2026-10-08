@@ -1,11 +1,11 @@
-import { Cloud, Download, type LucideIcon, Share2, Sparkles, X } from 'lucide-react'
+import { Cloud, Download, Loader2, type LucideIcon, Share2, Sparkles, X } from 'lucide-react'
 
 import { cn } from '../../lib/utils'
 import { Button } from '../ui/button'
 import { DialogClose, DialogDescription, DialogTitle } from '../ui/dialog'
 import type { ViewerItem } from './types'
 import type { ActionSlot, ShareState, SlotId } from './viewerActions'
-import { middleEllipsis } from './viewerNav'
+import { splitName } from './viewerNav'
 
 /** 바 겹침 레이어 공통 — 본문 위에 반투명으로 뜨고, 숨김 시 inert·투명(탭으로 다시 표시, Task 6). */
 // 좌우 안전영역도 직접 — absolute inset-x-0 은 루트의 padding(safe-area)을 무시하므로 가로 모드에서 ✕·⋯ 가 노치 아래로 들어간다(시안 M5).
@@ -13,15 +13,25 @@ const barClass =
   'absolute inset-x-0 z-20 bg-background/80 pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur transition-opacity duration-200'
 
 /**
- * 뷰어 제목·설명(데스크톱 헤더·모바일 상단 바 공용) — 다이얼로그 접근 이름은 전체 파일명 + "미리보기"(스펙 §5.2),
- * 화면에는 max 글자 가운데 말줄임만 보인다. 설명(크기·순번·쪽 메타)은 preview-meta 로 다이얼로그 설명에 쓴다.
- * 감싸는 배치(정렬·폭)는 호출부가 정한다.
+ * 뷰어 제목·설명(데스크톱 헤더·모바일 상단 바 공용) — 다이얼로그 접근 이름은 전체 파일명 + "미리보기"(스펙 §5.2).
+ * 화면 이름은 [앞부분][꼬리] 두 span — 앞부분만 폭에 맞춰 CSS 말줄임하고 꼬리(확장자 포함)는 줄지 않아
+ * 360px 같은 좁은 폭에서도 확장자가 늘 보인다(가운데 말줄임, 시안 M1). 설명(크기·순번·쪽 메타)은 preview-meta 로 다이얼로그 설명에 쓴다.
+ * 감싸는 배치(정렬·폭)는 호출부가 정한다 — inline-flex 라 모바일 상단 바의 text-center 를 그대로 따른다.
  */
-export function ViewerTitle({ item, max, meta }: { item: ViewerItem; max: number; meta: string }) {
+export function ViewerTitle({ item, meta }: { item: ViewerItem; meta: string }) {
+  const [head, tail] = splitName(item.name)
   return (
     <>
-      <DialogTitle className="truncate text-sm font-medium" title={item.name}>
-        <span aria-hidden>{middleEllipsis(item.name, max)}</span>
+      <DialogTitle className="overflow-hidden text-sm font-medium" title={item.name} data-testid="viewer-title">
+        <span aria-hidden className="inline-flex max-w-full align-bottom">
+          {/* whitespace-pre — 잘리는 자리 끝의 공백("보고서 v3.pdf")이 flex 항목 끝에서 사라지지 않게. */}
+          <span className="min-w-0 overflow-hidden text-ellipsis whitespace-pre" data-testid="viewer-title-head">
+            {head}
+          </span>
+          <span className="shrink-0 whitespace-pre" data-testid="viewer-title-tail">
+            {tail}
+          </span>
+        </span>
         <span className="sr-only">{item.name} 미리보기</span>
       </DialogTitle>
       <DialogDescription className="truncate text-xs text-muted-foreground" data-testid="preview-meta">
@@ -62,7 +72,7 @@ export function ViewerMobileTopBar({
         </Button>
       </DialogClose>
       <div className="min-w-0 flex-1 text-center">
-        <ViewerTitle item={item} max={28} meta={meta} />
+        <ViewerTitle item={item} meta={meta} />
       </div>
       <div className="flex size-11 shrink-0 items-center justify-center">{more}</div>
     </header>
@@ -77,7 +87,7 @@ const SLOT_META: Record<SlotId, { label: string; icon: LucideIcon; testId: strin
   summary: { label: '요약', icon: Sparkles, testId: 'viewer-slot-summary' },
 }
 
-/** 칸 접근 이름 — 공유는 비활성 사유(받는 중/불가)를 이름에 담아 화면낭독기가 왜 못 누르는지 알게 한다. */
+/** 칸 접근 이름 — 공유는 비활성 사유(받는 중/불가)를 이름에 담아 화면낭독기가 왜 못 누르는지 알게 한다. 플랫폼 미지원('none')은 칸 자체가 비어 이름이 쓰이지 않는다. */
 function slotAriaLabel(id: SlotId, share: ShareState): string {
   if (id === 'share') return share === 'ready' ? '공유' : share === 'loading' ? '공유 (받는 중)' : '공유할 수 없음'
   if (id === 'drive') return '드라이브로 가져오기'
@@ -120,7 +130,10 @@ export function ViewerActionBar({
       <div className="grid grid-cols-4">
         {slots.map((s) => {
           const m = SLOT_META[s.id]
-          const Icon = m.icon
+          // 공유 "받는 중"은 돌아가는 아이콘 + "받는 중" 글자로 "공유할 수 없음"(흐린 공유 아이콘)과 눈으로 구분한다.
+          // 보이는 "받는 중"은 접근 이름 "공유 (받는 중)"에 포함된다(WCAG 2.5.3).
+          const loading = s.id === 'share' && share === 'loading'
+          const Icon = loading ? Loader2 : m.icon
           return (
             <div key={s.id} data-slot-id={s.id} data-state={s.state} className="flex min-h-14 items-stretch justify-center">
               {s.state !== 'empty' && (
@@ -133,8 +146,12 @@ export function ViewerActionBar({
                   data-testid={m.testId}
                   className="flex w-full flex-col items-center justify-center gap-0.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
                 >
-                  <Icon className="size-5" aria-hidden />
-                  <span aria-hidden>{m.label}</span>
+                  <Icon
+                    className={cn('size-5', loading && 'animate-spin')}
+                    aria-hidden
+                    data-testid={loading ? 'viewer-slot-share-spinner' : undefined}
+                  />
+                  <span aria-hidden>{loading ? '받는 중' : m.label}</span>
                 </button>
               )}
             </div>

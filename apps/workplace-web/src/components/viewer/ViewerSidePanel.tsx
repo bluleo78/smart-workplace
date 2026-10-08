@@ -106,13 +106,16 @@ export function ViewerSummarySheet({
       data-testid="viewer-summary-sheet"
       className={cn(
         // 좌우 안전영역 — absolute 라 루트 padding 을 받지 못한다(가로 모드 노치).
-        'absolute inset-x-0 bottom-0 z-30 flex flex-col outline-none rounded-t-xl border-t border-border bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] transition-[height] duration-200',
+        // bg-popover + 위로 드리운 그림자 — 뷰어 배경(bg-background)보다 밝은 불투명 층으로 떠 보이게(시안 M4). 다크 bg-card 는 3% 반투명이라 뒤 문서가 비친다. shadow-lg 는 아래로만 드리워 위쪽 경계에 안 보인다.
+        'absolute inset-x-0 bottom-0 z-30 flex flex-col outline-none rounded-t-xl border-t border-border bg-popover text-popover-foreground shadow-[0_-8px_24px_rgb(0_0_0/0.45)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] transition-[height] duration-200',
         // 펼침 = 상단 바(3.5rem=min-h-14 + 노치) 아래까지 — 닫기(✕)·파일명은 계속 보이게 남긴다.
         expanded ? 'h-[calc(100%-3.5rem-env(safe-area-inset-top))]' : 'h-1/2',
       )}
     >
-      <div className="flex items-center gap-1 px-4 pt-2">
-        <h2 className="flex-1 text-sm font-medium">AI 요약</h2>
+      {/* 손잡이 막대 — 시트임을 알려 주는 장식(끌기 동작은 없음, 펼치기는 버튼). */}
+      <div aria-hidden className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-muted-foreground/40" data-testid="viewer-summary-sheet-handle" />
+      {/* 보이는 제목은 아래 카드 머리글 "✨ AI 요약" 하나만 둔다 — 시트 접근 이름은 section aria-label("AI 요약"). 제목이 빠진 자리는 justify-end 로 버튼을 오른쪽에 둔다. */}
+      <div className="flex items-center justify-end gap-1 px-4">
         <Button
           variant="ghost"
           size="sm"

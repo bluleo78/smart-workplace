@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { type KeyContext, middleEllipsis, navState, resolvePending, routeKey } from './viewerNav'
+import { type KeyContext, navState, resolvePending, routeKey, splitName } from './viewerNav'
 
 const base: KeyContext = { key: 'ArrowRight', ctrlOrMeta: false, inAiPanel: false, inEditable: false, inHorizontalScroller: false, zoomable: true }
 
@@ -37,16 +37,18 @@ describe('routeKey', () => {
   })
 })
 
-describe('middleEllipsis', () => {
-  it('짧으면 그대로', () => expect(middleEllipsis('a.pdf', 20)).toBe('a.pdf'))
-  it('길면 가운데를 줄이고 확장자를 남긴다', () => {
-    const out = middleEllipsis('2026_하반기_도입제안서_최종_검토반영_v3.pdf', 20)
-    expect(out.length).toBeLessThanOrEqual(20)
-    expect(out.endsWith('v3.pdf')).toBe(true)
-    expect(out).toContain('…')
+describe('splitName', () => {
+  it('확장자 + 앞 2글자를 꼬리로 남긴다', () => {
+    expect(splitName('2026_하반기_도입제안서_최종_검토반영_v3.pdf')).toEqual(['2026_하반기_도입제안서_최종_검토반영_', 'v3.pdf'])
   })
-  it('확장자가 없어도 줄인다', () => {
-    expect(middleEllipsis('a'.repeat(40), 10)).toHaveLength(10)
+  it('짧은 이름은 앞부분을 한 글자 이상 남기고 나머지를 꼬리로', () => {
+    expect(splitName('a.pdf')).toEqual(['a', '.pdf'])
+  })
+  it('확장자가 없으면 끝 2글자가 꼬리', () => {
+    expect(splitName('README')).toEqual(['READ', 'ME'])
+  })
+  it('한 글자 이름은 꼬리 없음', () => {
+    expect(splitName('a')).toEqual(['a', ''])
   })
 })
 

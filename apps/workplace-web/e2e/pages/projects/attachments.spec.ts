@@ -518,7 +518,7 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     await expect(body.getByRole('columnheader', { name: '이름' })).toBeVisible();
   });
 
-  test('미리보기를 지원하지 않는 형식은 안내와 함께 모달에서 다운로드할 수 있다', async ({
+  test('미리 볼 수 없는 형식은 안내와 함께 모달에서 다운로드할 수 있다', async ({
     authenticatedPage: page,
   }) => {
     const requested = await stubAttachments(
@@ -529,7 +529,7 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
 
     await page.getByRole('button', { name: 'build.zip 미리보기' }).click();
-    await expect(page.getByTestId('preview-body')).toContainText('미리보기를 지원하지 않는 형식입니다.');
+    await expect(page.getByTestId('preview-body')).toContainText('이 형식은 미리 볼 수 없어요');
     // 미지원 형식은 프리뷰용 콘텐츠를 받지 않는다.
     expect(requested[7301]).toBeUndefined();
 

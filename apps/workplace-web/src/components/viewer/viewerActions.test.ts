@@ -13,8 +13,11 @@ describe('resolveShareState', () => {
   it('blob 을 받지 않는 항목(미지원 형식·10MB 동의 대기·오류)은 영원히 받는 중이 아니라 unavailable', () => {
     expect(resolveShareState({ ...ok, fetches: false, blobReady: false })).toBe('unavailable')
   })
-  it('브라우저 미지원·형식 공유 불가(canShare 거짓)는 unavailable', () => {
-    expect(resolveShareState({ ...ok, supported: false })).toBe('unavailable')
+  it('브라우저가 파일 공유를 못 하면(API 없음·시험 파일 거부) none — 받는 중·blob 유무와 무관', () => {
+    expect(resolveShareState({ ...ok, supported: false })).toBe('none')
+    expect(resolveShareState({ ...ok, supported: false, blobReady: false, canShareFile: false })).toBe('none')
+  })
+  it('파일 공유는 되지만 이 형식을 거부(canShare 거짓)하면 unavailable', () => {
     expect(resolveShareState({ ...ok, canShareFile: false })).toBe('unavailable')
   })
 })
@@ -33,6 +36,9 @@ describe('actionSlots', () => {
     expect(actionSlots({ ...base, share: 'loading' })[1].state).toBe('disabled')
     expect(actionSlots({ ...base, share: 'unavailable' })[1].state).toBe('disabled')
     expect(actionSlots({ ...base, importable: 'disabled' })[2].state).toBe('disabled')
+  })
+  it('브라우저가 파일 공유를 못 하면(none) 공유 칸은 비활성이 아니라 빈칸', () => {
+    expect(actionSlots({ ...base, share: 'none' })[1].state).toBe('empty')
   })
   it('링크 원본 삭제면 저장·공유도 빈칸', () => {
     expect(actionSlots({ ...base, unavailable: true }).map((x) => x.state)).toEqual(['empty', 'empty', 'enabled', 'enabled'])

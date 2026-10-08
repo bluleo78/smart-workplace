@@ -45,15 +45,16 @@ export function routeKey(ctx: KeyContext): ViewerAction {
   }
 }
 
-/** 파일명을 max 글자 안으로 가운데 말줄임 — 확장자(마지막 . 뒤, 5자 이하)를 남겨 형식을 알아보게 한다. */
-export function middleEllipsis(name: string, max: number): string {
-  if (name.length <= max) return name
+/**
+ * 파일명을 [앞부분, 꼬리] 로 나눈다 — 화면에서 앞부분만 CSS 말줄임(폭 기준)하고 꼬리는 늘 보이게 해 확장자를 잃지 않는다(스펙 §4.2·시안 M1).
+ * 꼬리 = 확장자(마지막 . 뒤 1~5자) + 그 앞 2글자(버전 꼬리 "v3" 등). 확장자가 없으면 끝 2글자.
+ * 글자 수로 자르면 글꼴·폭(360px 등)에 따라 CSS truncate 가 다시 끝을 잘라 확장자가 사라지므로 폭 판단은 CSS 에 맡긴다.
+ */
+export function splitName(name: string): [head: string, tail: string] {
   const m = /\.[A-Za-z0-9]{1,5}$/.exec(name)
-  // 확장자 앞 몇 글자(버전 꼬리 등)도 함께 남긴다 — "…v3.pdf".
   const tailLen = Math.min(name.length - 1, (m ? m[0].length : 0) + 2)
-  const headLen = max - 1 - tailLen
-  if (headLen < 1) return name.slice(0, max - 1) + '…'
-  return name.slice(0, headLen) + '…' + name.slice(name.length - tailLen)
+  if (tailLen <= 0) return [name, '']
+  return [name.slice(0, name.length - tailLen), name.slice(name.length - tailLen)]
 }
 
 /**

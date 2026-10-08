@@ -30,7 +30,7 @@ import { anchoredScroll, roundZoom, stageTouchAction } from './viewerGestures'
 import { ViewerActionBar, ViewerMobileTopBar, ViewerTitle } from './ViewerMobileBars'
 import { ViewerMoreMenu } from './ViewerMoreMenu'
 import { navState, resolvePending, routeKey } from './viewerNav'
-import { canShareApi, canShareFile, shareFile } from './viewerShare'
+import { canShareFile, canShareFiles, shareFile } from './viewerShare'
 import { ViewerSidePanel, ViewerSummarySheet } from './ViewerSidePanel'
 
 /** 확대 단계(25%)와 범위. */
@@ -190,11 +190,13 @@ export function AttachmentViewer({
     const f = new File([blob], item.name, { type: item.mimeType || blob.type })
     return canShareFile(f) ? f : null
   }, [mobile, blob, item.name, item.mimeType])
+  // 플랫폼 파일 공유 지원 — blob 과 무관한 시험 파일로 마운트마다 한 번만 묻는다(blob 이 오면서 빈칸↔비활성으로 깜빡이지 않게).
+  const platformShares = useMemo(() => mobile && canShareFiles(), [mobile])
   // 하단 4칸의 ⤴ 상태(판정 R12). cur 가 아직 없으면 = ViewerBody 첫 보고 전 → fetches 참으로 보고 "받는 중".
   // 미지원 형식은 첫 이펙트에서 곧바로 fetches 거짓이 와서 "공유할 수 없음"이 된다.
   const shareState = mobile
     ? resolveShareState({
-        supported: canShareApi(),
+        supported: platformShares,
         fetches: cur?.fetches ?? true,
         // 모바일에서는 blob 이 있으면 File 도 만들어진다 — blob 유무가 곧 준비 여부.
         blobReady: blob != null,
@@ -390,7 +392,7 @@ export function AttachmentViewer({
             </div>
             <div className="min-w-0 flex-1">
               {/* 크기·순번·쪽 메타를 다이얼로그 설명으로 쓴다. */}
-              <ViewerTitle item={item} max={60} meta={meta} />
+              <ViewerTitle item={item} meta={meta} />
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {!item.unavailable && (

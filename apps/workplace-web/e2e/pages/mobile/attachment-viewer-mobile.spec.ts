@@ -93,6 +93,42 @@ test.describe('모바일 배치', () => {
     })
   }
 
+  test('360px — 긴 파일명은 앞부분만 말줄임되고 확장자는 늘 보인다(넘침 없음)', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    const name = '2026_하반기_사업계획_도입제안서_최종_검토반영본_v3.png'
+    await stubDriveFiles(page, [IMG(73, name)])
+    await openViewer(page, name)
+    const title = page.getByTestId('viewer-top-bar').getByTestId('viewer-title')
+    const head = title.getByTestId('viewer-title-head')
+    const tail = title.getByTestId('viewer-title-tail')
+    // 꼬리(확장자 포함)는 줄지 않고 다 보이며 제목 상자 안에 있다.
+    await expect(tail).toHaveText('v3.png')
+    expect(await tail.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    const tb = (await title.boundingBox())!
+    const kb = (await tail.boundingBox())!
+    expect(kb.x).toBeGreaterThanOrEqual(tb.x - 0.5)
+    expect(kb.x + kb.width).toBeLessThanOrEqual(tb.x + tb.width + 0.5)
+    // 앞부분은 실제로 잘렸다(넘침을 말줄임으로 흡수) — 그래도 제목 자체는 넘치지 않는다.
+    expect(await head.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+    expect(await title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    // 접근 이름은 전체 파일명 + 미리보기 그대로.
+    await expect(page.getByRole('dialog')).toHaveAccessibleName(`${name} 미리보기`)
+  })
+
+  test('360px — ⋯ 메뉴 항목은 터치 높이 44px 이상, 메뉴는 화면 끝에서 띄운다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    await page.getByTestId('viewer-top-bar').getByRole('button', { name: '더 보기' }).tap()
+    const items = page.getByRole('menuitem')
+    await expect(items.first()).toBeVisible()
+    for (const b of await items.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))) {
+      expect(b).toBeGreaterThanOrEqual(44)
+    }
+    const menu = (await page.getByRole('menu').boundingBox())!
+    expect(menu.x + menu.width).toBeLessThanOrEqual(360 - 8 + 0.5)
+  })
+
   test('가로 모드(844×390)도 넘침 없이 전체 화면', async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 844, height: 390 })
     await stubDriveFiles(page, [IMG(70)])
@@ -160,6 +196,10 @@ test.describe('AI 요약 시트', () => {
     await page.getByTestId('viewer-slot-summary').tap()
     const sheet = page.getByTestId('viewer-summary-sheet')
     await expect(sheet.getByTestId('drive-summary-card')).toContainText('핵심 요약입니다.')
+    // 보이는 "AI 요약" 제목은 카드 머리글 하나뿐(시트 자체 제목 없음) — 시트 접근 이름은 그대로 "AI 요약".
+    await expect(sheet.getByRole('heading', { name: 'AI 요약' })).toHaveCount(0)
+    await expect(sheet).toHaveAccessibleName('AI 요약')
+    await expect(sheet.getByTestId('viewer-summary-sheet-handle')).toBeVisible()
     const vh = page.viewportSize()!.height
     const half = (await sheet.boundingBox())!.height
     expect(Math.abs(half - vh / 2)).toBeLessThan(vh * 0.08)
@@ -757,7 +797,12 @@ test.describe('공유·저장', () => {
     const share = page.getByTestId('viewer-slot-share')
     await expect(share).toBeDisabled()
     await expect(share).toHaveAccessibleName('공유 (받는 중)')
+    // 받는 중은 돌아가는 아이콘 + "받는 중" 글자 — "공유할 수 없음"(흐린 공유 아이콘)과 눈으로 구분된다.
+    await expect(share.getByTestId('viewer-slot-share-spinner')).toBeVisible()
+    await expect(share).toHaveText('받는 중')
     await expect(share).toBeEnabled({ timeout: 10_000 })
+    await expect(share.getByTestId('viewer-slot-share-spinner')).toHaveCount(0)
+    await expect(share).toHaveText('공유')
     await share.tap()
     await expect.poll(() => shared(page)).toEqual([{ name: 'site.png', type: 'image/png', size: solidPng(800, 600).length }])
   })
@@ -781,7 +826,33 @@ test.describe('공유·저장', () => {
     await expect(page.getByTestId('preview-unsupported')).toBeVisible()
     await expect(page.getByTestId('viewer-slot-share')).toHaveAccessibleName('공유할 수 없음')
     await expect(page.getByTestId('viewer-slot-share')).toBeDisabled()
+    await expect(page.getByTestId('viewer-slot-share')).toHaveText('공유')
+    await expect(page.getByTestId('viewer-slot-share-spinner')).toHaveCount(0)
   })
+
+  for (const [label, canShare] of [
+    ['canShare 가 없는', 'absent'],
+    ['파일 공유를 거부하는(canShare 거짓)', 'false'],
+  ] as const) {
+    test(`${label} 브라우저는 공유 칸을 비활성이 아니라 빈칸으로 둔다(위치 유지)`, async ({ authenticatedPage: page }) => {
+      await page.addInitScript((mode) => {
+        // 데스크톱 Chrome·Firefox 처럼 파일 공유를 못 하는 브라우저를 흉내 낸다 — 헤드리스 기본 동작에 기대지 않는다.
+        if (mode === 'absent') Object.defineProperty(navigator, 'canShare', { configurable: true, value: undefined })
+        else Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false })
+        Object.defineProperty(navigator, 'share', { configurable: true, value: async () => {} })
+      }, canShare)
+      await stubDriveFiles(page, [IMG(70)])
+      await openViewer(page, '사진70.png')
+      await expect(page.getByRole('img', { name: '사진70.png' })).toBeVisible()
+      const bar = page.getByTestId('viewer-action-bar')
+      await expect(bar.locator('[data-slot-id="share"]')).toHaveAttribute('data-state', 'empty')
+      await expect(page.getByTestId('viewer-slot-share')).toHaveCount(0)
+      // 빈칸도 자리는 차지한다 — 저장 칸 바로 오른쪽 1/4 폭.
+      const w = page.viewportSize()!.width
+      const b = (await bar.locator('[data-slot-id="share"]').boundingBox())!
+      expect(Math.abs(b.width - w / 4)).toBeLessThan(2)
+    })
+  }
 
   test('iOS 홈 화면 앱은 ⬇ 저장이 공유 시트로 간다(blob 이 있을 때) — 다운로드는 일어나지 않는다', async ({ authenticatedPage: page }) => {
     await stubWebShare(page, 'ok', { standalone: true })

@@ -1,3 +1,4 @@
+import { FileX } from 'lucide-react'
 import { memo, useEffect, useRef, useState } from 'react'
 
 import { blobToText, toVerifiedPdfBlob } from '../../api/blobContent'
@@ -198,11 +199,14 @@ export const ViewerBody = memo(function ViewerBody({
       )}
       data-testid="preview-body"
     >
-      {/* 드라이브 링크 원본이 휴지통·삭제 — 받지 않고 안내만(다운로드 없음). */}
+      {/* 드라이브 링크 원본이 휴지통·삭제 — 받지 않고 안내만(다운로드 없음).
+          미지원 형식 화면과 같은 배치(가운데 큰 아이콘·이름·문구)로 맞춰 상태 화면끼리 생김새가 같게 한다. */}
       {item.unavailable && (
-        <p className="py-12 text-center text-sm text-muted-foreground" data-testid="preview-unavailable">
-          원본 파일을 사용할 수 없습니다.
-        </p>
+        <div className="flex flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-unavailable">
+          <FileX className="h-16 w-16 text-muted-foreground" aria-hidden />
+          <p className="text-sm font-medium break-all">{item.name}</p>
+          <p className="text-sm text-muted-foreground">원본 파일을 사용할 수 없습니다.</p>
+        </div>
       )}
       {!item.unavailable && error && (
         <div className="flex flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-error">
@@ -222,7 +226,7 @@ export const ViewerBody = memo(function ViewerBody({
           <FileTypeIcon mimeType={item.mimeType} className="h-16 w-16" />
           <p className="text-sm font-medium break-all">{item.name}</p>
           {item.sizeBytes != null && <p className="text-xs text-muted-foreground">{formatFileSize(item.sizeBytes)}</p>}
-          <p className="text-sm text-muted-foreground">미리보기를 지원하지 않는 형식입니다.</p>
+          <p className="text-sm text-muted-foreground">이 형식은 미리 볼 수 없어요</p>
           <Button variant="outline" onClick={() => void source.download()}>
             다운로드
           </Button>

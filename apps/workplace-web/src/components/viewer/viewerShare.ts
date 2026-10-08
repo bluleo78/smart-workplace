@@ -2,8 +2,20 @@
 import { toast } from 'sonner'
 
 /** 파일 공유 API 가 있는가(share + canShare). 데스크톱 Firefox 등은 없다. */
-export function canShareApi(): boolean {
+function canShareApi(): boolean {
   return typeof navigator !== 'undefined' && typeof navigator.share === 'function' && typeof navigator.canShare === 'function'
+}
+
+/**
+ * 이 브라우저가 파일 공유를 지원하는가 — API 가 있어도 데스크톱 브라우저는 files 공유를 거부할 수 있어 시험 파일로 묻는다.
+ * 거짓이면 공유 칸을 비운다(비활성 버튼은 고장처럼 보임). 형식별 거부(docx 등)는 canShareFile 로 따로 본다. 예외는 거짓으로.
+ */
+export function canShareFiles(): boolean {
+  try {
+    return canShareApi() && navigator.canShare({ files: [new File([''], 'probe.txt', { type: 'text/plain' })] })
+  } catch {
+    return false
+  }
 }
 
 /** 이 파일을 공유할 수 있는가 — 플랫폼이 형식을 거부하면(Android 의 docx·xlsx 등) 거짓. 예외는 거짓으로. */

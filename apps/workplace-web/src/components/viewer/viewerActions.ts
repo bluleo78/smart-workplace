@@ -7,8 +7,11 @@ export interface ActionSlot {
   id: SlotId
   state: SlotState
 }
-/** 공유 상태 — ready(누르면 공유)·loading(blob 받는 중)·unavailable(이 항목·브라우저로는 공유 불가). */
-export type ShareState = 'ready' | 'loading' | 'unavailable'
+/**
+ * 공유 상태 — ready(누르면 공유)·loading(blob 받는 중)·unavailable(파일 공유는 되는 브라우저지만 이 항목은 불가)·
+ * none(브라우저가 파일 공유 자체를 못 함 — 칸을 비운다, 스펙 §4.2 "없는 기능은 칸을 비움").
+ */
+export type ShareState = 'ready' | 'loading' | 'unavailable' | 'none'
 
 /**
  * ⤴ 공유 상태. Web Share 는 사용자 제스처 직후에만 호출할 수 있어(await 뒤 호출 시 NotAllowedError)
@@ -16,7 +19,8 @@ export type ShareState = 'ready' | 'loading' | 'unavailable'
  * fetches = 이 항목이 지금 미리보기 blob 을 받는(받을) 상태인가 — 미지원 형식·10MB 동의 대기·오류면 거짓이라 "받는 중"이 끝나지 않는 일이 없다.
  */
 export function resolveShareState(i: { supported: boolean; fetches: boolean; blobReady: boolean; canShareFile: boolean }): ShareState {
-  if (!i.supported) return 'unavailable'
+  // supported = 플랫폼이 파일 공유를 지원하는가(시험 파일로 판정) — 아니면 영영 누를 수 없는 버튼 대신 빈칸.
+  if (!i.supported) return 'none'
   if (i.blobReady) return i.canShareFile ? 'ready' : 'unavailable'
   return i.fetches ? 'loading' : 'unavailable'
 }
@@ -30,7 +34,7 @@ export function actionSlots(i: {
 }): ActionSlot[] {
   return [
     { id: 'save', state: i.unavailable ? 'empty' : 'enabled' },
-    { id: 'share', state: i.unavailable ? 'empty' : i.share === 'ready' ? 'enabled' : 'disabled' },
+    { id: 'share', state: i.unavailable || i.share === 'none' ? 'empty' : i.share === 'ready' ? 'enabled' : 'disabled' },
     { id: 'drive', state: i.importable === 'none' ? 'empty' : i.importable === 'ready' ? 'enabled' : 'disabled' },
     { id: 'summary', state: i.summary ? 'enabled' : 'empty' },
   ]
