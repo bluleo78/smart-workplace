@@ -193,7 +193,7 @@ describe('list_issues', () => {
     ]);
     const raw = await tool(c, 'list_issues').handler({ status: 'IN_PROGRESS' });
     expect(JSON.parse(raw)).toEqual([
-      {
+      expect.objectContaining({
         issueKey: 'WP-3',
         title: '버그',
         status: 'IN_PROGRESS',
@@ -202,10 +202,61 @@ describe('list_issues', () => {
         dueDate: '2026-10-01',
         type: 'BUG',
         blocked: true,
-      },
+      }),
     ]);
     expect(raw).not.toContain('9001');
     expect(raw).not.toContain('5005');
+    // 마일스톤이 붙은 행이 없으면 마일스톤 목록을 조회하지 않는다.
+    expect(c.getProjectMilestones).not.toHaveBeenCalled();
+  });
+
+  it('WP-307: 날짜·라벨·마일스톤·부모·하위 진행률을 싣고, 시각은 KST·유형은 이름만', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectMilestones).mockResolvedValue([{ id: 7, name: 'v1.0' }]);
+    vi.mocked(c.listIssues).mockResolvedValue([
+      {
+        projectKey: 'WP',
+        number: 4,
+        title: '하위 작업',
+        status: 'DONE',
+        priority: 'MID',
+        assignees: [],
+        dueDate: '2026-10-10',
+        startDate: '2026-10-01',
+        createdAt: '2026-09-30T23:30:00Z',
+        updatedAt: '2026-10-07T15:30:00Z',
+        closedAt: '2026-10-07T15:30:00Z',
+        type: { id: 6, name: 'TASK', colorToken: 'BLUE', icon: 'Circle' },
+        labels: [{ id: 3, name: 'frontend', color: 'RED' }],
+        milestoneId: 7,
+        parent: { number: 1, title: '에픽', type: { name: 'EPIC' }, status: 'IN_PROGRESS' },
+        childCount: 3,
+        childDoneCount: 1,
+        blocked: false,
+      },
+    ]);
+    const [item] = JSON.parse(await tool(c, 'list_issues').handler({ projectKey: 'WP', closedFrom: '2026-10-08' }));
+    expect(item).toEqual({
+      issueKey: 'WP-4',
+      title: '하위 작업',
+      status: 'DONE',
+      priority: 'MID',
+      type: 'TASK',
+      assignees: [],
+      dueDate: '2026-10-10',
+      startDate: '2026-10-01',
+      createdAt: '2026-10-01T08:30:00+09:00',
+      updatedAt: '2026-10-08T00:30:00+09:00',
+      closedAt: '2026-10-08T00:30:00+09:00',
+      labels: ['frontend'],
+      milestone: 'v1.0',
+      parent: { issueKey: 'WP-1', title: '에픽', status: 'IN_PROGRESS' },
+      children: { total: 3, done: 1 },
+      blocked: false,
+    });
+    expect(c.getProjectMilestones).toHaveBeenCalledTimes(1);
+    // 종료일 필터는 그대로 서버 쿼리로 간다.
+    expect(issueQuery(c)).toMatchObject({ closedFrom: '2026-10-08' });
   });
 });
 
@@ -216,9 +267,17 @@ describe('toIssueListItem', () => {
       title: '',
       status: '',
       priority: '',
+      type: null,
       assignees: [{ username: 'bob', name: 'bob', kind: 'HUMAN' }],
       dueDate: null,
-      type: null,
+      startDate: null,
+      createdAt: null,
+      updatedAt: null,
+      closedAt: null,
+      labels: [],
+      milestone: null,
+      parent: null,
+      children: null,
       blocked: false,
     });
   });

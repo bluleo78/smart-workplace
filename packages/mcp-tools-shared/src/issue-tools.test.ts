@@ -80,6 +80,34 @@ describe('buildSharedIssueTools', () => {
     expect(c.getIssueCycles).toHaveBeenCalledWith('WP-12');
   });
 
+  it('WP-307: get_issue_detail 은 멤버로 코멘트 작성자 username 을, 마일스톤 목록으로 이름을 채운다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue({
+      issueKey: 'WP-12',
+      summary: { title: 'T', status: 'TODO', priority: 'MID', assignees: [], milestoneId: 7 },
+      comments: [{ id: 1, body: 'b', authorId: 10, authorName: 'Alice', authorKind: 'HUMAN', createdAt: '2026-10-01T00:00:00Z' }],
+    });
+    const out = JSON.parse(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' }));
+    expect(out.milestone).toBe('v1.0');
+    expect(out.comments[0].author).toEqual({ username: 'alice', name: 'Alice', kind: 'HUMAN' });
+    expect(c.getProjectMembers).toHaveBeenCalledWith('WP');
+    expect(c.getProjectMilestones).toHaveBeenCalledWith('WP');
+  });
+
+  it('WP-307: 멤버·마일스톤 조회가 실패해도 상세는 돌려준다(username·milestone 만 null)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue({
+      issueKey: 'WP-12',
+      summary: { title: 'T', status: 'TODO', priority: 'MID', assignees: [], milestoneId: 7 },
+      comments: [{ id: 1, body: 'b', authorId: 10, authorName: 'Alice', authorKind: 'HUMAN', createdAt: '2026-10-01T00:00:00Z' }],
+    });
+    vi.mocked(c.getProjectMembers).mockRejectedValue(new Error('403'));
+    vi.mocked(c.getProjectMilestones).mockRejectedValue(new Error('403'));
+    const out = JSON.parse(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' }));
+    expect(out.milestone).toBeNull();
+    expect(out.comments[0].author).toEqual({ username: null, name: 'Alice', kind: 'HUMAN' });
+  });
+
   it('add_comment 은 client.addComment 호출 후 "ok"', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'add_comment')!;

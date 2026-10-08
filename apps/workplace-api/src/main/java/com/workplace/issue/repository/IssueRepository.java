@@ -406,6 +406,7 @@ public class IssueRepository {
     if (query.dueTo() != null) {
       where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
     }
+    where = where.and(dateRangeCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
@@ -510,6 +511,35 @@ public class IssueRepository {
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
         .limit(query.size())
         .fetch(this::mapToRow);
+  }
+
+  /** 날짜 범위 필터의 하루 경계 기준 — AI 비서가 "이번 주"를 Asia/Seoul 로 계산하므로 같은 기준으로 자른다(WP-307). */
+  private static final java.time.ZoneId FILTER_ZONE = java.time.ZoneId.of("Asia/Seoul");
+
+  /**
+   * 종료일·생성일 범위 조건(WP-307). 날짜는 Asia/Seoul 하루 경계로 해석하고 양끝을 포함한다 — to 는 다음 날 00:00 미만. 단일/횡단 검색 공용.
+   * 종료일 필터는 closed_at 이 없는(미종료) 이슈를 자연히 제외한다.
+   */
+  private org.jooq.Condition dateRangeCondition(com.workplace.issue.dto.IssueSearchQuery query) {
+    org.jooq.Condition c = noCondition();
+    if (query.closedFrom() != null) {
+      c = c.and(ISSUE.CLOSED_AT.ge(dayStart(query.closedFrom())));
+    }
+    if (query.closedTo() != null) {
+      c = c.and(ISSUE.CLOSED_AT.lt(dayStart(query.closedTo().plusDays(1))));
+    }
+    if (query.createdFrom() != null) {
+      c = c.and(ISSUE.CREATED_AT.ge(dayStart(query.createdFrom())));
+    }
+    if (query.createdTo() != null) {
+      c = c.and(ISSUE.CREATED_AT.lt(dayStart(query.createdTo().plusDays(1))));
+    }
+    return c;
+  }
+
+  /** Asia/Seoul 기준 그 날짜 00:00 시각. */
+  private static OffsetDateTime dayStart(LocalDate d) {
+    return d.atStartOfDay(FILTER_ZONE).toOffsetDateTime();
   }
 
   /**
@@ -638,6 +668,7 @@ public class IssueRepository {
     if (query.dueTo() != null) {
       where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
     }
+    where = where.and(dateRangeCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {

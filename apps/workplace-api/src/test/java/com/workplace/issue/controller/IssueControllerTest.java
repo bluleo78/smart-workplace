@@ -97,6 +97,7 @@ class IssueControllerTest {
         1L,
         Instant.now(),
         Instant.now(),
+        null,
         List.of(),
         0,
         null,
