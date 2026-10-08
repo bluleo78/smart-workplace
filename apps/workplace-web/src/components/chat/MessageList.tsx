@@ -5,14 +5,16 @@
 // Phase 5: hover toolbar 에 이모지 피커 + 답글 버튼 추가. body 아래 ReactionBar + 답글수 링크.
 // Task 5(대화 Phase A): 그룹핑(Slack 패턴) — 같은 작성자·5분 이내 연속 메시지는 한 묶음.
 // #884: 좌/우 분리 — 행 렌더는 MessageRow. 이 목록은 그룹핑·구분선·편집 상태·뮤테이션·읽음 처리를 맡는다.
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 
+import { ChatAttachmentViewerHost } from '@/components/chat/ChatAttachmentViewer'
 import { DateDivider } from '@/components/chat/DateDivider'
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet'
 import { MessageRow } from '@/components/chat/MessageRow'
 import { buildMessageSheetActions, messagePreview,type MessageSheetHandlers } from '@/components/chat/messageSheetActions'
 import { UnreadDivider } from '@/components/chat/UnreadDivider'
 import type { MentionCandidate } from '@/components/mentions/types'
+import { findChatBundle, teamChatBundle } from '@/components/viewer/viewerItems'
 import { useDeleteMessage } from '@/hooks/queries/useDeleteMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useProposalActions } from '@/hooks/queries/useProposalActions'
@@ -27,6 +29,9 @@ import { deleteMessageWithUndo } from '@/lib/deleteWithUndo'
 import { getDateKey } from '@/lib/formatters'
 import { shouldStartNewGroup } from '@/lib/messageGrouping'
 import type { MessageResponse } from '@/types/messaging'
+
+/** 팀 채팅 첨부 뷰어 열림 router state 키(WP-279) — 이슈 채팅·메인 AI 채팅 키와 나눠 서로의 열림을 자기 것으로 읽지 않게. */
+const TEAM_CHAT_PREVIEW_KEY = 'teamChatPreview'
 
 interface MessageListProps {
   messages: MessageResponse[]
@@ -44,11 +49,19 @@ interface MessageListProps {
   unreadDividerBeforeId?: number | null
   // 캐치업 카드 슬롯. 구분선 위치에 같이 렌더(구분선이 로드뷰 밖이면 목록 상단). 미전달이면 안 그림.
   catchupSlot?: React.ReactNode
+  // 메시지 첫 조회가 끝났는지(WP-279) — 거짓이면 첨부 뷰어 호스트가 "그 메시지가 없다"로 판단해 열림 표식을 지우지 않는다.
+  // 미전달 = 이미 받은 목록(스레드 부모 단건 등).
+  ready?: boolean
 }
 
-export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId, catchupSlot }: MessageListProps) {
+export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId, catchupSlot, ready = true }: MessageListProps) {
   // 페이지는 DESC 로 쌓이므로 화면에는 ASC(오래된 위)로 뒤집어 보여준다.
   const ordered = [...messages].reverse()
+  // WP-279: 열린 첨부 키(msg:{메시지}:…) → 이 목록에 그린 그 메시지의 묶음. 앞으로가기·드라이브에서 돌아오기 뒤에도 키만으로 다시 연다.
+  const resolveAttachment = useCallback(
+    (key: string) => findChatBundle(key, 'msg', messages, (m) => teamChatBundle(channelId, m)),
+    [messages, channelId],
+  )
   // 현재 인라인 수정 중인 메시지 id (한 번에 하나).
   const [editingId, setEditingId] = useState<number | null>(null)
 
@@ -103,67 +116,71 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   const target = sheet.target
 
   return (
-    // 모바일(lg 미만)은 좌우 여백을 줄여 말풍선·본문 폭을 확보한다(L1).
-    // 터치 셸이면 길게 누르기를 목록 하나가 위임으로 받는다(행은 data-message-id 만 단다). 아니면 핸들러 없음.
-    <div className="flex flex-col gap-2 p-4 max-lg:px-3" data-testid="message-list" {...longPress}>
-      {ordered.length === 0 && emptyState}
-      {/* 구분선이 로드된 메시지 범위 밖(전부 미읽음)일 땐 카드를 목록 상단에 렌더.
-          래퍼 id 는 진입 스크롤 앵커(start 정렬) — 바닥에서 시작하면 카드가 화면 밖이 된다(WP-256). */}
-      {catchupSlot != null && unreadDividerBeforeId == null && (
-        <div id={CATCHUP_TOP_ANCHOR_ID}>{catchupSlot}</div>
-      )}
-      {ordered.map((m, idx) => {
-        const isLast = idx === ordered.length - 1
-        const prev = idx > 0 ? ordered[idx - 1] : null
-        const startsGroup = shouldStartNewGroup(prev, m)
-        // 날짜가 바뀌는 지점(또는 첫 메시지) 앞에 날짜 구분선 삽입.
-        const showDateDivider = !prev || getDateKey(m.createdAt) !== getDateKey(prev.createdAt)
+    // WP-279: 첨부 썸네일·카드 → 통합 뷰어. 호스트가 목록 div 바깥(형제)에 뷰어를 그려 길게 누르기 위임 핸들러로 이벤트가 새지 않는다.
+    // 채널·DM·스레드 패널(두 목록)이 같은 키를 읽어도 클릭한 목록의 호스트만 묶음을 들고 있어 뷰어는 하나다.
+    <ChatAttachmentViewerHost historyKey={TEAM_CHAT_PREVIEW_KEY} resolve={resolveAttachment} ready={ready}>
+      {/* 모바일(lg 미만)은 좌우 여백을 줄여 말풍선·본문 폭을 확보한다(L1).
+          터치 셸이면 길게 누르기를 목록 하나가 위임으로 받는다(행은 data-message-id 만 단다). 아니면 핸들러 없음. */}
+      <div className="flex flex-col gap-2 p-4 max-lg:px-3" data-testid="message-list" {...longPress}>
+        {ordered.length === 0 && emptyState}
+        {/* 구분선이 로드된 메시지 범위 밖(전부 미읽음)일 땐 카드를 목록 상단에 렌더.
+            래퍼 id 는 진입 스크롤 앵커(start 정렬) — 바닥에서 시작하면 카드가 화면 밖이 된다(WP-256). */}
+        {catchupSlot != null && unreadDividerBeforeId == null && (
+          <div id={CATCHUP_TOP_ANCHOR_ID}>{catchupSlot}</div>
+        )}
+        {ordered.map((m, idx) => {
+          const isLast = idx === ordered.length - 1
+          const prev = idx > 0 ? ordered[idx - 1] : null
+          const startsGroup = shouldStartNewGroup(prev, m)
+          // 날짜가 바뀌는 지점(또는 첫 메시지) 앞에 날짜 구분선 삽입.
+          const showDateDivider = !prev || getDateKey(m.createdAt) !== getDateKey(prev.createdAt)
 
-        return (
-          <Fragment key={m.id}>
-            {showDateDivider && <DateDivider date={m.createdAt} />}
-            {unreadDividerBeforeId != null && m.id === unreadDividerBeforeId && (
-              <>
-                <UnreadDivider />
-                {catchupSlot}
-              </>
-            )}
-            <MessageRow
-              message={m}
-              channelId={channelId}
-              currentUserId={currentUserId}
-              members={members}
-              startsGroup={startsGroup}
-              isEditing={editingId === m.id}
-              rowRef={isLast ? lastRef : undefined}
-              rowProps={toolbarRowProps(m.id)}
-              // 스크린리더용 "메시지 작업" 버튼(A1) — 길게 누르기와 같은 조건일 때만.
-              onOpenActions={touchShell && sheetOpenable(m) ? () => sheet.show(m.id) : undefined}
-              onOpenThread={onOpenThread}
-              onStartEdit={() => setEditingId(m.id)}
-              onCancelEdit={() => setEditingId(null)}
-              // #124 수정: 성공 시에만 에디터 닫기. 실패 시 에디터는 입력 내용을 유지한 채 열려 있다.
-              onSaveEdit={(next) =>
-                update.mutate({ messageId: m.id, body: next }, { onSuccess: () => setEditingId(null) })
-              }
-              onDelete={() => startDelete(m)}
-              onToggleReaction={(emoji) => toggle(m, emoji)}
-              proposalBusy={proposalActions.confirm.isPending || proposalActions.reject.isPending}
-              onConfirmProposal={(proposalId, arg) => proposalActions.confirm.mutate({ proposalId, arg })}
-              onRejectProposal={(proposalId) => proposalActions.reject.mutate(proposalId)}
-            />
-          </Fragment>
-        )
-      })}
-      {touchShell && (
-        <MessageActionSheet
-          open={sheet.open}
-          onClose={sheet.close}
-          onReact={target && target.id >= 0 ? (emoji) => toggle(target, emoji) : undefined}
-          actions={target ? buildMessageSheetActions(target, sheetHandlers) : []}
-          preview={target ? messagePreview(target.authorName, target.body, target.mentions) : undefined}
-        />
-      )}
-    </div>
+          return (
+            <Fragment key={m.id}>
+              {showDateDivider && <DateDivider date={m.createdAt} />}
+              {unreadDividerBeforeId != null && m.id === unreadDividerBeforeId && (
+                <>
+                  <UnreadDivider />
+                  {catchupSlot}
+                </>
+              )}
+              <MessageRow
+                message={m}
+                channelId={channelId}
+                currentUserId={currentUserId}
+                members={members}
+                startsGroup={startsGroup}
+                isEditing={editingId === m.id}
+                rowRef={isLast ? lastRef : undefined}
+                rowProps={toolbarRowProps(m.id)}
+                // 스크린리더용 "메시지 작업" 버튼(A1) — 길게 누르기와 같은 조건일 때만.
+                onOpenActions={touchShell && sheetOpenable(m) ? () => sheet.show(m.id) : undefined}
+                onOpenThread={onOpenThread}
+                onStartEdit={() => setEditingId(m.id)}
+                onCancelEdit={() => setEditingId(null)}
+                // #124 수정: 성공 시에만 에디터 닫기. 실패 시 에디터는 입력 내용을 유지한 채 열려 있다.
+                onSaveEdit={(next) =>
+                  update.mutate({ messageId: m.id, body: next }, { onSuccess: () => setEditingId(null) })
+                }
+                onDelete={() => startDelete(m)}
+                onToggleReaction={(emoji) => toggle(m, emoji)}
+                proposalBusy={proposalActions.confirm.isPending || proposalActions.reject.isPending}
+                onConfirmProposal={(proposalId, arg) => proposalActions.confirm.mutate({ proposalId, arg })}
+                onRejectProposal={(proposalId) => proposalActions.reject.mutate(proposalId)}
+              />
+            </Fragment>
+          )
+        })}
+        {touchShell && (
+          <MessageActionSheet
+            open={sheet.open}
+            onClose={sheet.close}
+            onReact={target && target.id >= 0 ? (emoji) => toggle(target, emoji) : undefined}
+            actions={target ? buildMessageSheetActions(target, sheetHandlers) : []}
+            preview={target ? messagePreview(target.authorName, target.body, target.mentions) : undefined}
+          />
+        )}
+      </div>
+    </ChatAttachmentViewerHost>
   )
 }

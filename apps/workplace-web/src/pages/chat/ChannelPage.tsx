@@ -288,6 +288,8 @@ export default function ChannelPage() {
         >
           <MessageList
             messages={messages}
+            // 첫 조회 전엔 첨부 뷰어 열림 표식을 지우지 않는다(새로고침 뒤 다시 열기, WP-279).
+            ready={messagesLoaded}
             channelId={channel.id}
             currentUserId={me.id}
             members={mentionMembers}

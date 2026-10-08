@@ -67,6 +67,7 @@ export function AttachmentViewer({
   onClose,
   defaultPanelOpen,
   shareable = true,
+  aboveAiSheet = false,
 }: {
   items: ViewerItem[]
   index: number
@@ -76,10 +77,18 @@ export function AttachmentViewer({
   defaultPanelOpen?: boolean
   /** URL 로 같은 뷰어를 다시 열 수 있는 호출부인지 — false 면 ⋯ "링크 복사"를 숨긴다(이슈 본문 이미지처럼 히스토리 키가 없는 곳). */
   shareable?: boolean
+  /**
+   * 모바일 AI 시트(z-[60]) 안에서 연 뷰어인지(메인 AI 채팅 첨부, WP-279) — 모바일 배치에서만 레이어를 z-[80] 으로 올린다
+   * (안 올리면 기본 z-50 이라 시트 아래에 깔려 보이지도 누를 수도 없다). 데스크톱 배치는 그대로 둔다.
+   * 올린 동안 토스트·뷰어 안 포털(z-50)은 data-viewer-above-ai 표식의 index.css 규칙이 함께 올린다.
+   */
+  aboveAiSheet?: boolean
 }) {
   const aiAware = useAiPanelAwareDialog({ open: true, size: 'lightbox' })
   // 배치는 폭(모바일 셸 기준과 동일), 제스처는 coarse 포인터로 따로 판정한다(스펙 §3.2 — Task 5).
   const mobile = useIsMobile()
+  // 모바일 AI 시트 위로 올린 뷰어인지 — 레이어(z-[80])와 index.css 표식이 같은 조건을 쓴다.
+  const lifted = mobile && aboveAiSheet
   // 제스처는 폭이 아니라 coarse 포인터 기준 — iPad 가로(≥1024px)는 데스크톱 배치 + 터치 제스처(스펙 §3.2·시안 iPad).
   const coarse = useIsCoarsePointer()
   // 무대(본문 감싸기) — 제스처 리스너·끌기 transform 대상. 콜백 ref 로 state 에 담아 훅이 붙을 시점을 안다.
@@ -356,10 +365,14 @@ export function AttachmentViewer({
           'dark fixed inset-0 top-0 left-0 flex h-[100dvh] w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 bg-transparent p-0 text-foreground sm:max-w-none',
           // 모바일: 포털이라 MobileShell 의 --vvh·안전영역 처리 밖 — 직접 적용(스펙 §4.2). 키보드가 없으면 변수 미설정 → 100dvh·0.
           mobile && 'top-[var(--vv-top,0px)] h-[var(--vvh,100dvh)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]',
+          // AI 시트(z-[60]) 위 — 다른 AI 표면 레이어(확인창·첨부 바텀시트)와 같은 z-[80].
+          lifted && 'z-[80]',
           aiAware.contentClassName,
         )}
         // 키보드 열림 다이얼로그 규칙(index.css)에서 이 전체 화면 레이어를 골라 제외하는 표식.
         data-viewer-root=""
+        // AI 시트 위 뷰어 표식 — 열린 동안 토스트·뷰어 안 포털(⋯·폴더 선택 등)을 이 레이어 위로 올린다(index.css, WP-279).
+        data-viewer-above-ai={lifted ? '' : undefined}
         style={mobile && bottomChrome != null ? ({ '--viewer-bottom-chrome': `${bottomChrome}px` } as React.CSSProperties) : undefined}
         {...aiAware.contentProps}
         // 열릴 때 첫 포커스가 다운로드 아이콘 버튼에 가면 툴팁이 바로 뜨고, 첫 Escape 를 툴팁이 먹어

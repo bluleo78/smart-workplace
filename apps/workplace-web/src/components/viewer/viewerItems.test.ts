@@ -2,20 +2,29 @@ import { describe, expect, it } from 'vitest'
 
 import type { IssueAttachment } from '../../types/attachment'
 import type { DriveFile, DriveLink, VirtualAttachment } from '../../types/drive'
+import type { HomeUploadedFile } from '../../types/home'
 import type { EmailAttachmentMeta } from '../../types/mailMessage'
+import type { MessageAttachment } from '../../types/messaging'
 import {
+  attachmentMime,
   driveFileItem,
   driveViewerKey,
   fileViewerKey,
+  findChatBundle,
+  findHomeChatBundle,
+  homeChatAttachmentItem,
   isMailViewerKey,
   issueAttachmentItem,
   issueBodyImageItem,
+  issueChatBundle,
   issueDriveLinkItem,
   mailAttachmentItem,
   mailViewerKey,
   normalizeAttachmentPreviewKey,
+  parseChatViewerKey,
   parseViewerKey,
   resolveBundle,
+  teamChatBundle,
   virtualAttachmentItem,
 } from './viewerItems'
 
@@ -172,5 +181,151 @@ describe('mailViewerKey / isMailViewerKey', () => {
 
   it('메일 키는 드라이브·이슈 호스트의 parseViewerKey 에 잡히지 않는다', () => {
     expect(parseViewerKey('mail:3')).toBeNull()
+  })
+})
+
+// ─── 채팅 3곳(WP-279) ─────────────────────────────────────────────────────────
+
+/** 메시지 묶음에서 업로드·링크 한 건씩 꺼내 보는 테스트 헬퍼 — 어댑터는 묶음 함수 하나(chatBundle)로만 노출된다. */
+const teamChatAttachmentItem = (channelId: number, a: MessageAttachment) => teamChatBundle(channelId, { id: a.messageId, attachments: [a] })[0]
+const teamChatDriveLinkItem = (channelId: number, messageId: number, l: DriveLink) => teamChatBundle(channelId, { id: messageId, driveLinks: [l] })[0]
+const issueChatAttachmentItem = (threadId: number, a: MessageAttachment) => issueChatBundle(threadId, { id: a.messageId, attachments: [a] })[0]
+const issueChatDriveLinkItem = (threadId: number, messageId: number, l: DriveLink) => issueChatBundle(threadId, { id: messageId, driveLinks: [l] })[0]
+
+const msgAtt = (o: Partial<MessageAttachment> = {}): MessageAttachment =>
+  ({ fileId: 5, messageId: 42, originalName: '사진.png', mimeType: 'image/png', sizeBytes: 10, ...o }) as MessageAttachment
+const link = (o: Partial<DriveLink> = {}): DriveLink =>
+  ({ driveFileId: 70, fileId: 200, name: '기획안.pdf', mimeType: 'application/pdf', sizeBytes: 300, spaceId: 1, availability: 'ACTIVE', ...o }) as DriveLink
+
+describe('attachmentMime', () => {
+  it('구체적인 형식은 정규화만, 범용·빈 형식이면 파일명으로 추론한다(SVG 는 추론하지 않음)', () => {
+    expect(attachmentMime('Image/PNG; x=1', 'a.pdf')).toBe('image/png')
+    expect(attachmentMime('application/octet-stream', 'r.PDF')).toBe('application/pdf')
+    expect(attachmentMime('', 'n.md')).toBe('text/markdown')
+    expect(attachmentMime(null, null)).toBe('application/octet-stream')
+    expect(attachmentMime('application/octet-stream', 'x.svg')).toBe('application/octet-stream')
+  })
+})
+
+describe('teamChatAttachmentItem / teamChatDriveLinkItem', () => {
+  it('팀 채팅 업로드는 메시지 첨부 경로·msg 키, ☁ 가져오기만 있다', () => {
+    expect(teamChatAttachmentItem(3, msgAtt())).toEqual({
+      key: 'msg:42:file:5', name: '사진.png', mimeType: 'image/png', sizeBytes: 10,
+      contentPath: '/messaging/channels/3/messages/42/attachments/5/content',
+      downloadPath: '/messaging/channels/3/messages/42/attachments/5/content',
+      importFileId: 5,
+    })
+  })
+  it('팀 채팅은 업로드 형식을 원문 저장한다 — 범용 형식이면 파일명으로 추론', () => {
+    expect(teamChatAttachmentItem(3, msgAtt({ originalName: '보고서.pdf', mimeType: 'application/octet-stream' })).mimeType).toBe('application/pdf')
+    expect(teamChatAttachmentItem(3, msgAtt({ originalName: 'logo.svg', mimeType: 'application/octet-stream' })).mimeType).toBe('application/octet-stream')
+  })
+  it('활성 드라이브 링크는 ✨·드라이브에서 열기, ☁ 없음', () => {
+    const it = teamChatDriveLinkItem(3, 42, link())
+    expect(it).toMatchObject({
+      key: 'msg:42:drive:70',
+      contentPath: '/messaging/channels/3/messages/42/drive-links/70/content',
+      downloadPath: '/messaging/channels/3/messages/42/drive-links/70/content',
+      summaryDriveFileId: 70,
+      driveOpen: { spaceId: 1, driveFileId: 70, name: '기획안.pdf' },
+      unavailable: false,
+    })
+    expect(it.importFileId).toBeUndefined()
+    expect(it.sourceLink).toBeUndefined()
+  })
+  it('원본이 휴지통·삭제된 링크는 unavailable, ✨·드라이브에서 열기 없음', () => {
+    const it = teamChatDriveLinkItem(3, 42, link({ availability: 'DELETED' }))
+    expect(it.unavailable).toBe(true)
+    expect(it.summaryDriveFileId).toBeUndefined()
+    expect(it.driveOpen).toBeUndefined()
+  })
+})
+
+describe('issueChatAttachmentItem / issueChatDriveLinkItem', () => {
+  it('이슈 채팅 업로드는 스레드 메시지 첨부 경로·cmsg 키, ☁ 만', () => {
+    expect(issueChatAttachmentItem(8, msgAtt({ mimeType: 'text/plain', originalName: 'a.txt' }))).toEqual({
+      key: 'cmsg:42:file:5', name: 'a.txt', mimeType: 'text/plain', sizeBytes: 10,
+      contentPath: '/chat/threads/8/messages/42/attachments/5/content',
+      downloadPath: '/chat/threads/8/messages/42/attachments/5/content',
+      importFileId: 5,
+    })
+  })
+  it('이슈 채팅 드라이브 링크는 링크 경로 + ✨', () => {
+    expect(issueChatDriveLinkItem(8, 42, link())).toMatchObject({
+      key: 'cmsg:42:drive:70',
+      contentPath: '/chat/threads/8/messages/42/drive-links/70/content',
+      summaryDriveFileId: 70,
+      unavailable: false,
+    })
+    expect(issueChatDriveLinkItem(8, 42, link({ availability: 'TRASHED' })).unavailable).toBe(true)
+  })
+})
+
+describe('homeChatAttachmentItem', () => {
+  it('메인 AI 채팅은 세션 첨부 경로·home:{fileId} 키, ✨·☁·원본 이동이 없다', () => {
+    const a: HomeUploadedFile = { fileId: 77, originalName: 'shot.png', mimeType: 'image/png', sizeBytes: 9 }
+    expect(homeChatAttachmentItem('s-1', a)).toEqual({
+      key: 'home:77', name: 'shot.png', mimeType: 'image/png', sizeBytes: 9,
+      contentPath: '/home/sessions/s-1/attachments/77/content',
+      downloadPath: '/home/sessions/s-1/attachments/77/content',
+    })
+  })
+})
+
+describe('채팅 키는 다른 호스트 파서에 잡히지 않는다', () => {
+  it('드라이브·이슈(parseViewerKey)·메일·첨부 모아보기 정규화가 채팅 키를 자기 키로 보지 않는다', () => {
+    const keys = [
+      teamChatAttachmentItem(3, msgAtt()).key,
+      teamChatDriveLinkItem(3, 42, link()).key,
+      issueChatAttachmentItem(8, msgAtt()).key,
+      issueChatDriveLinkItem(8, 42, link()).key,
+      homeChatAttachmentItem('s', { fileId: 1, originalName: 'a', mimeType: 'image/png', sizeBytes: 1 }).key,
+    ]
+    for (const k of keys) {
+      expect(parseViewerKey(k)).toBeNull()
+      expect(isMailViewerKey(k)).toBe(false)
+      expect(normalizeAttachmentPreviewKey(k)).toBe(k)
+    }
+    // 팀 채팅과 이슈 채팅은 같은 메시지 id·파일 id 라도 키가 다르다.
+    expect(keys[0]).not.toBe(keys[2])
+  })
+})
+
+describe('드라이브 링크 형식', () => {
+  it('링크 형식도 정규화·파일명 추론을 거친다(대소문자·파라미터·octet-stream)', () => {
+    expect(teamChatDriveLinkItem(3, 42, link({ mimeType: 'Application/PDF; x=1' })).mimeType).toBe('application/pdf')
+    expect(issueChatDriveLinkItem(8, 42, link({ name: '표.csv', mimeType: 'application/octet-stream' })).mimeType).toBe('text/csv')
+  })
+})
+
+describe('parseChatViewerKey / findChatBundle / findHomeChatBundle', () => {
+  it('키를 표면·메시지 id(또는 fileId)로 읽는다 — 다른 형식은 null', () => {
+    expect(parseChatViewerKey('msg:42:file:5')).toEqual({ surface: 'msg', messageId: 42 })
+    expect(parseChatViewerKey('cmsg:7:drive:70')).toEqual({ surface: 'cmsg', messageId: 7 })
+    expect(parseChatViewerKey('home:77')).toEqual({ surface: 'home', fileId: 77 })
+    for (const k of [null, 'file:5', 'msg:x:file:5', 'msg:1:mail:2', 'home:', 'turn:1:file:2']) expect(parseChatViewerKey(k)).toBeNull()
+  })
+
+  const m42 = { id: 42, attachments: [msgAtt()], driveLinks: [link()] }
+  it('키의 메시지를 목록에서 찾아 그 메시지 묶음을 다시 만든다(업로드 → 링크 순)', () => {
+    const b = findChatBundle('msg:42:drive:70', 'msg', [{ id: 1 }, m42], (m) => teamChatBundle(3, m))
+    expect(b?.map((i) => i.key)).toEqual(['msg:42:file:5', 'msg:42:drive:70'])
+  })
+  it('다른 표면 키·목록에 없는 메시지·삭제·미확정·묶음에 없는 항목이면 null', () => {
+    const build = (m: typeof m42) => teamChatBundle(3, m)
+    expect(findChatBundle('cmsg:42:file:5', 'msg', [m42], build)).toBeNull()
+    expect(findChatBundle('msg:43:file:5', 'msg', [m42], build)).toBeNull()
+    expect(findChatBundle('msg:42:file:5', 'msg', [{ ...m42, deleted: true }], build)).toBeNull()
+    expect(findChatBundle('msg:42:file:9', 'msg', [m42], build)).toBeNull()
+    expect(findChatBundle(null, 'msg', [m42], build)).toBeNull()
+    expect(findChatBundle('cmsg:42:file:5', 'cmsg', [m42], (m) => issueChatBundle(8, m))?.length).toBe(2)
+  })
+  it('메인 AI 는 그 fileId 가 든 턴이 묶음, 세션이 없으면 null', () => {
+    const a = (fileId: number) => ({ fileId, originalName: `f${fileId}`, mimeType: 'image/png', sizeBytes: 1 })
+    const turns = [{ attachments: [a(1), a(2)] }, {}, { attachments: [a(3)] }]
+    expect(findHomeChatBundle('home:2', 's', turns)?.map((i) => i.key)).toEqual(['home:1', 'home:2'])
+    expect(findHomeChatBundle('home:3', 's', turns)?.length).toBe(1)
+    expect(findHomeChatBundle('home:9', 's', turns)).toBeNull()
+    expect(findHomeChatBundle('home:1', null, turns)).toBeNull()
   })
 })

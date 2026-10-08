@@ -69,27 +69,6 @@ export const chatApi = {
     });
   },
 
-  // #358: 첨부 다운로드 — blob → a[download].
-  downloadAttachment: async (
-    threadId: number,
-    messageId: number,
-    fileId: number,
-    fileName: string,
-  ) => {
-    const { data } = await client.get<Blob>(
-      `/chat/threads/${threadId}/messages/${messageId}/attachments/${fileId}/content`,
-      { responseType: 'blob' },
-    );
-    const url = URL.createObjectURL(data);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  },
-
   // #358: 인라인 이미지 썸네일용 blob fetch.
   fetchAttachmentBlob: (threadId: number, messageId: number, fileId: number) =>
     client

@@ -1,4 +1,3 @@
-import { downloadBlob } from '@/lib/download';
 import { homeAttachmentContentPath } from '@/lib/homeChatAttachments';
 import type {
   ActiveChats,
@@ -89,10 +88,4 @@ export const homeApi = {
     client
       .get<Blob>(homeAttachmentContentPath(sessionId, fileId), { responseType: 'blob' })
       .then((r) => r.data),
-
-  /** WP-234: 세션 첨부 다운로드(문서 카드 클릭). */
-  downloadAttachment: async (sessionId: string, fileId: number, fileName: string) => {
-    const blob = await homeApi.fetchAttachmentBlob(sessionId, fileId);
-    downloadBlob(fileName, blob);
-  },
 };

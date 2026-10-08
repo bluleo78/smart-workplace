@@ -1,9 +1,12 @@
 // 화면별 데이터 → ViewerItem 어댑터와 묶음 해석(WP-277). 순수 함수만 둔다(vitest 대상).
 import { attachmentContentPath } from '../../api/issueAttachments'
+import { homeAttachmentContentPath } from '../../lib/homeChatAttachments'
 import { canonicalMime, isGenericMime, mimeFromFilename } from '../../lib/mimeFromFilename'
 import type { IssueAttachment } from '../../types/attachment'
 import type { DriveFile, DriveLink, VirtualAttachment } from '../../types/drive'
+import type { HomeUploadedFile } from '../../types/home'
 import type { EmailAttachmentMeta } from '../../types/mailMessage'
+import type { MessageAttachment } from '../../types/messaging'
 import type { ViewerItem } from './types'
 
 /** 묶음 키 — 드라이브 파일·링크는 `drive:{driveFileId}`, 그 외 첨부는 `file:{fileId}`(URL ?preview 값). */
@@ -39,8 +42,17 @@ export const isMailViewerKey = (key: string | null): boolean => key != null && M
  * 메일 첨부 칩의 형식 아이콘도 이 값을 써서 칩과 뷰어가 같은 형식으로 보이게 한다.
  */
 export function mailAttachmentMime(a: EmailAttachmentMeta): string {
-  if (!isGenericMime(a.contentType)) return canonicalMime(a.contentType)
-  return mimeFromFilename(a.filename) ?? 'application/octet-stream'
+  return attachmentMime(a.contentType, a.filename)
+}
+
+/**
+ * 첨부 형식 일반 규칙(WP-280 메일 → WP-279 채팅 공용) — 구체적인 형식은 정규화만, 비었거나 범용이면 파일명 확장자로 추론, 그래도 모르면 octet-stream.
+ * 왜: 팀 채팅 업로드는 브라우저가 보낸 Content-Type 을 원문 저장해(MimeNormalizer 미적용) octet-stream·파라미터가 섞일 수 있다.
+ * SVG 는 추론하지 않는다(mimeFromFilename 규칙 — 범용 바이트를 SVG 로 달지 않음).
+ */
+export function attachmentMime(contentType: string | null | undefined, filename: string | null | undefined): string {
+  if (!isGenericMime(contentType)) return canonicalMime(contentType)
+  return mimeFromFilename(filename) ?? 'application/octet-stream'
 }
 
 /** 메일 첨부 표시·저장 이름 — 첨부 칩과 뷰어(제목·접근 이름·저장 파일명)가 같은 이름을 쓰게 한 곳에 둔다. */
@@ -110,21 +122,154 @@ export function issueAttachmentItem(projectKey: string, number: number, a: Issue
  * 요약은 드라이브 권한 API 라 403 일 수 있다 → 뷰어가 403 이면 ✨ 를 숨긴다.
  */
 export function issueDriveLinkItem(projectKey: string, number: number, l: DriveLink): ViewerItem {
-  const path = `/projects/${projectKey}/issues/${number}/drive-links/${l.driveFileId}/content`
+  return driveLinkItem(driveViewerKey(l.driveFileId), `/projects/${projectKey}/issues/${number}/drive-links/${l.driveFileId}/content`, l)
+}
+
+/**
+ * 드라이브 링크 공통 항목(이슈·팀 채팅·이슈 채팅) — 화면마다 다른 것은 키와 링크 전용 콘텐츠 경로뿐이다.
+ * 활성 링크만 ✨(요약)·드라이브에서 열기를 건다. 원본이 휴지통·삭제면 unavailable — 열어도 볼 수 없는 곳(요약 없음·not-found)으로 보내지 않게.
+ * ☁(가져오기)는 없다 — 이미 드라이브 파일이다.
+ */
+function driveLinkItem(key: string, path: string, l: DriveLink): ViewerItem {
   const unavailable = l.availability !== 'ACTIVE'
   return {
-    key: driveViewerKey(l.driveFileId),
+    key,
     name: l.name,
-    mimeType: l.mimeType,
+    // 링크 형식도 업로드와 같은 규칙 — 대소문자·파라미터 정규화, 범용 형식이면 파일명으로 추론(드라이브 업로드도 형식이 범용일 수 있다).
+    mimeType: attachmentMime(l.mimeType, l.name),
     sizeBytes: l.sizeBytes,
     contentPath: path,
     downloadPath: path,
-    // 원본이 휴지통·삭제면 요약·드라이브에서 열기를 걸지 않는다 — 열어도 볼 수 없는 곳(요약 없음·not-found)으로 보내지 않게.
     ...(unavailable
       ? {}
       : { summaryDriveFileId: l.driveFileId, driveOpen: { spaceId: l.spaceId, driveFileId: l.driveFileId, name: l.name } }),
     unavailable,
   }
+}
+
+/**
+ * 채팅 업로드 첨부 공통 항목 — 콘텐츠 경로로 받고 내려받기도 같은 경로(감사 경로 없음).
+ * importable 이면 ☁ 드라이브로 가져오기(core fileId — 메시지·이슈 채팅 첨부 소스 프로바이더가 권한을 검사).
+ * 원본으로 이동(sourceLink)은 두지 않는다 — 이미 그 메시지를 보고 있는 화면에서 연다.
+ */
+function chatUploadItem(key: string, path: string, a: HomeUploadedFile, importable: boolean): ViewerItem {
+  return {
+    key,
+    name: a.originalName,
+    mimeType: attachmentMime(a.mimeType, a.originalName),
+    sizeBytes: a.sizeBytes,
+    contentPath: path,
+    downloadPath: path,
+    ...(importable ? { importFileId: a.fileId } : {}),
+  }
+}
+
+/**
+ * 채팅 묶음 키 — 팀·이슈 채팅은 `{표면}:{메시지}:{file|drive}:{id}`, 메인 AI 채팅은 `home:{fileId}`.
+ * 묶음은 한 메시지 안이지만 같은 드라이브 파일이 여러 메시지에 링크될 수 있어 메시지 id 를 넣는다.
+ * 표면 접두어(팀 `msg`·이슈 채팅 `cmsg`)를 나눠 서로 다른 테이블의 같은 메시지 id 가 겹치지 않게 하고,
+ * `file:`/`drive:`/`mail:` 로 시작하지 않아 드라이브·이슈·메일 호스트 파서(parseViewerKey·isMailViewerKey)에 잡히지 않는다.
+ * 메인 AI 턴에는 안정된 id 가 없어(렌더 위치는 대화 전환·새 턴에 바뀜) 업로드마다 고유한 core fileId 만 쓴다 — 그 파일이 든 턴이 묶음이다.
+ * 키만으로 호스트가 지금 그린 메시지에서 묶음을 다시 만들 수 있다(앞으로가기·드라이브에서 돌아오기·새로고침 뒤 다시 열기).
+ */
+const chatViewerKey = (surface: 'msg' | 'cmsg', messageId: number, itemKey: string) => `${surface}:${messageId}:${itemKey}`
+const CHAT_KEY_RE = /^(msg|cmsg):(\d+):(?:file|drive):\d+$/
+const HOME_KEY_RE = /^home:(\d+)$/
+
+/** 채팅 키 → 표면·메시지 id(팀·이슈) 또는 fileId(메인 AI). 채팅 키가 아니면 null. */
+export function parseChatViewerKey(
+  key: string | null,
+): { surface: 'msg' | 'cmsg'; messageId: number } | { surface: 'home'; fileId: number } | null {
+  if (key == null) return null
+  const c = CHAT_KEY_RE.exec(key)
+  if (c) return { surface: c[1] as 'msg' | 'cmsg', messageId: Number(c[2]) }
+  const h = HOME_KEY_RE.exec(key)
+  return h ? { surface: 'home', fileId: Number(h[1]) } : null
+}
+
+/**
+ * 메인 AI 채팅 첨부 — 세션 소유자 전용 경로. 키는 `home:{fileId}`(턴에 안정된 id 가 없음 — chatViewerKey 주석).
+ * ✨(업로드 요약 없음)·☁(세션 첨부 가져오기 API 없음)·원본 이동은 없다.
+ */
+export function homeChatAttachmentItem(sessionId: string, a: HomeUploadedFile): ViewerItem {
+  return chatUploadItem(`home:${a.fileId}`, homeAttachmentContentPath(sessionId, a.fileId), a, false)
+}
+
+/** 묶음 원본으로 쓰는 메시지 최소 필드 — 팀(MessageResponse)·이슈 채팅(ChatMessageResponse) 공통. */
+interface ChatBundleMessage {
+  id: number
+  attachments?: MessageAttachment[] | null
+  driveLinks?: DriveLink[] | null
+}
+
+/** 표면별 메시지 경로 앞부분 — 팀 채팅은 채널, 이슈 채팅은 스레드 아래 메시지. */
+const CHAT_MESSAGES_BASE: Record<'msg' | 'cmsg', (root: number) => string> = {
+  msg: (channelId) => `/messaging/channels/${channelId}/messages`,
+  cmsg: (threadId) => `/chat/threads/${threadId}/messages`,
+}
+
+/**
+ * 팀·이슈 채팅 메시지 한 건의 묶음 — 업로드(☁ 가져오기 가능) → 드라이브 링크(✨·드라이브에서 열기), 화면 표시 순서.
+ * 두 표면은 경로 앞부분(채널·스레드)과 키 접두어만 다르다. 업로드는 메시지 첨부 경로, 링크는 그 표면 권한으로 받는 링크 전용 경로.
+ * 팀 채팅은 업로드 형식을 원문 저장하므로 범용 형식이면 파일명으로 추론한다(chatUploadItem → attachmentMime).
+ * @param root 팀 채팅 = 채널 id, 이슈 채팅 = 스레드 id
+ */
+export function chatBundle(surface: 'msg' | 'cmsg', root: number, m: ChatBundleMessage): ViewerItem[] {
+  const base = `${CHAT_MESSAGES_BASE[surface](root)}/${m.id}`
+  return [
+    ...(m.attachments ?? []).map((a) =>
+      chatUploadItem(chatViewerKey(surface, m.id, fileViewerKey(a.fileId)), `${base}/attachments/${a.fileId}/content`, a, true),
+    ),
+    ...(m.driveLinks ?? []).map((l) =>
+      driveLinkItem(chatViewerKey(surface, m.id, driveViewerKey(l.driveFileId)), `${base}/drive-links/${l.driveFileId}/content`, l),
+    ),
+  ]
+}
+
+/** 팀 채팅 메시지 묶음(채널 id 기준). */
+export const teamChatBundle = (channelId: number, m: ChatBundleMessage) => chatBundle('msg', channelId, m)
+
+/** 이슈 채팅 메시지 묶음(스레드 id 기준). */
+export const issueChatBundle = (threadId: number, m: ChatBundleMessage) => chatBundle('cmsg', threadId, m)
+
+/** 메인 AI 사용자 턴 한 건의 묶음. */
+export function homeChatBundle(sessionId: string, attachments: readonly HomeUploadedFile[]): ViewerItem[] {
+  return attachments.map((a) => homeChatAttachmentItem(sessionId, a))
+}
+
+/**
+ * 열린 키 → 지금 그린 메시지 목록에서 그 키가 든 묶음(팀·이슈 채팅). 키가 다른 표면이거나, 메시지가 목록에 없거나
+ * (페이지 밖·삭제됨·미확정), 항목이 그 메시지 묶음에 없으면 null.
+ * 왜: 열림을 클릭 스냅숏이 아니라 키에 담아, 앞으로가기·드라이브에서 돌아오기·새로고침 뒤에도 같은 묶음을 다시 만든다.
+ */
+export function findChatBundle<M extends ChatBundleMessage & { deleted?: boolean }>(
+  key: string | null,
+  surface: 'msg' | 'cmsg',
+  messages: readonly M[],
+  build: (m: M) => ViewerItem[],
+): ViewerItem[] | null {
+  const p = parseChatViewerKey(key)
+  if (p == null || p.surface !== surface) return null
+  const m = messages.find((x) => x.id === p.messageId)
+  if (m == null || m.deleted || m.id < 0) return null
+  const items = build(m)
+  return items.some((i) => i.key === key) ? items : null
+}
+
+/** 열린 키 → 그 fileId 가 든 메인 AI 사용자 턴의 묶음. 세션이 없거나(첫 응답 전) 턴이 없으면 null. */
+export function findHomeChatBundle(
+  key: string | null,
+  sessionId: string | null,
+  // 턴 유니온(확인카드 결과 줄 등 첨부 없는 턴 포함)을 그대로 받는다 — 첨부가 있는 턴만 본다.
+  turns: readonly object[],
+): ViewerItem[] | null {
+  const p = parseChatViewerKey(key)
+  if (p == null || p.surface !== 'home' || sessionId == null) return null
+  for (const t of turns) {
+    const atts = (t as { attachments?: readonly HomeUploadedFile[] }).attachments
+    if (atts?.some((a) => a.fileId === p.fileId)) return homeChatBundle(sessionId, atts)
+  }
+  return null
 }
 
 /**

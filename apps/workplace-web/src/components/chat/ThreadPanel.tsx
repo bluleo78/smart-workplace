@@ -89,6 +89,8 @@ export function ThreadPanel({ channelId, channelName, parent, members, me, archi
         {/* 답글 목록 — 답글 id 로 채널 watermark 가 전진하면 안 되므로 mark-read 비활성. */}
         <MessageList
           messages={replies}
+          // 답글 첫 조회 전엔 첨부 뷰어 열림 표식을 지우지 않는다(WP-279).
+          ready={data !== undefined}
           channelId={channelId}
           currentUserId={me.id}
           members={members}

@@ -4,7 +4,7 @@
  * 버튼 노출(✨·☁·참조된 곳·드라이브에서 열기)은 뷰어가 필드 유무로만 결정한다 — 화면별 분기가 뷰어로 새지 않게.
  */
 export interface ViewerItem {
-  /** 묶음 안 고유 키 — URL ?preview 값으로도 쓴다. 드라이브 파일·링크 = `drive:{driveFileId}`, 메일 첨부 = `mail:{attachmentId}`, 그 외 = `file:{fileId}`. */
+  /** 묶음 안 고유 키 — 열림 상태(?preview·채팅은 router state) 값으로도 쓴다. 드라이브 파일·링크 = `drive:{driveFileId}`, 메일 첨부 = `mail:{attachmentId}`, 채팅 = `{msg|cmsg|turn}:{메시지}:{file|drive}:{id}`, 그 외 = `file:{fileId}`. */
   key: string
   name: string
   mimeType: string

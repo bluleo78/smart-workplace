@@ -142,27 +142,6 @@ export const messagingApi = {
     });
   },
 
-  // 첨부 다운로드 — blob 으로 받아 a[download] 트리거. Bearer 인증이라 직접 href 불가.
-  downloadAttachment: async (
-    channelId: number,
-    messageId: number,
-    fileId: number,
-    fileName: string,
-  ) => {
-    const { data } = await client.get<Blob>(
-      `/messaging/channels/${channelId}/messages/${messageId}/attachments/${fileId}/content`,
-      { responseType: 'blob' },
-    );
-    const url = URL.createObjectURL(data);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  },
-
   // #76: 채널 '파일' 탭 — 연동 드라이브 공간 보장 후 spaceId 반환.
   ensureChannelDriveSpace: (channelId: number) =>
     client.post<ChannelDriveSpaceResponse>(`/messaging/channels/${channelId}/drive-space`),
