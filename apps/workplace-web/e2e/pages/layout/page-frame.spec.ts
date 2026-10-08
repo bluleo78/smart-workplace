@@ -34,3 +34,15 @@ for (const width of DESKTOP_WIDTHS) {
     })
   })
 }
+
+// AI 칩(뷰포트 중앙 fixed)과 헤더 좌측 그룹이 겹치지 않는지 — 좌측 그룹 클램프(aiChipSafeLeftMaxW)를 Page.Header 공통으로.
+test('긴 제목도 AI 칩과 겹치지 않는다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const longName = '아주 긴 프로젝트 이름 '.repeat(8)
+  await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ key: 'WP', name: longName }))
+  await page.goto('/projects/WP')
+  const title = page.getByTestId('page-header').getByRole('heading', { level: 1 })
+  const chip = page.getByTestId('chat-launcher')
+  const [t, c] = [await boxOf(title), await boxOf(chip)]
+  expect(t.x + t.width).toBeLessThanOrEqual(c.x)
+})

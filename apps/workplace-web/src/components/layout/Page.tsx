@@ -12,6 +12,7 @@ import { useMobileDetailHeader } from '@/components/mobile/MobileDetailContext'
 import { MobileHeaderMore } from '@/components/mobile/MobileHeaderMore'
 import { useMobileSidebarSheet } from '@/components/mobile/MobileSidebarSheetContext'
 import { NotificationBell } from '@/components/mobile/NotificationBell'
+import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { isTabRoot } from '@/lib/mobile/routes'
 import { cn } from '@/lib/utils'
@@ -114,6 +115,8 @@ function PageHeaderImpl({
   const sheet = useMobileSidebarSheet()
   // 모바일 상세(ResponsiveModuleLayout 상세 분기) 안이면 등록 → 레이아웃의 뒤로가기 바 대신 이 헤더가 ‹·✦ 를 품는다(U1-1).
   const detail = useMobileDetailHeader(isMobile)
+  // AI 칩 노출 여부 — 칩이 있을 때만 데스크톱 좌측 그룹을 칩 경계 앞에서 자른다.
+  const aiAvailable = useAiAvailable()
   if (isMobile) {
     // 모바일 우측 클러스터 — [주 액션] [⋯ 메뉴(나머지 actions)] [☰ 사이드바 시트]. meta 는 모바일에서 렌더하지 않음.
     // 액션을 가로 스크롤 줄로 늘어놓지 않고 ⋯ 로 접어 제목 폭을 지킨다(U1-2).
@@ -165,7 +168,8 @@ function PageHeaderImpl({
     >
       {/* 내부 정렬 래퍼 — 본문과 같은 페이지 여백(pageGutterClass) 축. 넓은 화면에서도 가운데로 몰리지 않는다(#880). */}
       <div className={cn('flex w-full min-w-0 items-center justify-between gap-2', pageGutterClass)}>
-        <div className="flex min-w-0 items-center gap-2">
+        {/* AI 칩은 뷰포트 중앙 fixed — 좌측 그룹이 칩 좌측 경계를 넘지 않게 클램프(#830 위키 처리 일반화). */}
+        <div className={cn('flex min-w-0 items-center gap-2', aiAvailable && aiChipSafeLeftMaxW)}>
           {icon}
           {leading}
           {title != null && <h1 className={cn(appTitleTextClass, 'truncate')}>{title}</h1>}
