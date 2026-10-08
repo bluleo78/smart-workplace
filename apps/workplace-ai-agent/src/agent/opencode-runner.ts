@@ -15,6 +15,7 @@ import { attachmentRootDir } from './attachment-prep.js';
 import { resolveOpencodeModelVision, type OpencodeVision } from './opencode-vision.js';
 import type { McpProfile } from '../mcp/tools.js';
 import type { RunnerEvent, RunnerUsage } from './runner-events.js';
+import { RunnerLimitError } from './runner-limit.js';
 
 // credential 이 opencode 가 아니면 이 러너를 쓸 수 없음(팩토리가 보장하지만 방어적으로 재확인).
 // 통과하면 opencode payload 를 돌려준다(WP-241 비전 판단에 사용).
@@ -317,7 +318,8 @@ export class OpencodeRunner implements AgentRunner {
 
       if (timedOut) {
         log.error('opencode-runner', 'opencode_timeout', { requestId: i.requestId, timeoutMs: i.timeoutMs });
-        throw new Error(`${i.logTag} timeout after ${i.timeoutMs}ms`);
+        // 시간 한도 도달은 RunnerLimitError 로 — 호출자가 부분 결과로 마무리할 수 있게(Claude 러너와 동일 계약).
+        throw new RunnerLimitError('timeout', `${i.logTag} timeout after ${i.timeoutMs}ms`);
       }
       if (killed) {
         log.info('opencode-runner', 'opencode_killed', { requestId: i.requestId });

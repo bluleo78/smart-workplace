@@ -11,7 +11,7 @@ import type { ToolUseLine } from './sdk-mcp-server.js';
 import { transcriptRequest, transcriptStreamLine, transcriptResult } from './ai-transcript-log.js';
 import { runnerFor } from './agent-runner.js';
 import type { RunnerEvent } from './runner-events.js';
-import { parseChatEvents } from './chat-parser.js';
+import { parseChatEvents, type Usage } from './chat-parser.js';
 import { thinkingDirective } from './thinking.js';
 import { defaultSleep } from './sleep.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
@@ -20,6 +20,8 @@ import type { ProviderCredential } from './agent-runner.js';
 import type { HostBridge } from '../mcp/tools.js';
 import { formatScreenContext, type ScreenContext } from './screen-context.js';
 import { opencodeVisionFor } from './opencode-vision.js';
+import { FINALIZE_PROGRESS_LABEL, FINALIZE_TIMEOUT_MS, finalizeAfterLimit, ToolResultCollector } from './ai-chat-finalize.js';
+import { RunnerLimitError } from './runner-limit.js';
 import { awaitHomeExtraction, DEFAULT_ATTACHMENT_QUERY, EXTRACTION_WAIT_LABEL, formatHomeAttachmentsBlock, type HomeChatAttachment } from './home-attachments.js';
 
 /** runAiChatStream 의존성 — sleep 은 추출 대기 테스트에서 실제로 기다리지 않게 주입한다(RunChatAgentDeps 와 같은 방식). */
@@ -95,6 +97,12 @@ async function filterIssueDetailWidgets(
   return result;
 }
 
+// 라우터 실행과 한도 도달 마무리 호출의 토큰 사용량 합산(#432 비용 가시화) — 둘 다 없으면 null.
+function addUsage(a: Usage | null, b: Usage | null): Usage | null {
+  if (!a || !b) return a ?? b;
+  return { inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens };
+}
+
 // unassign_self 도구 결과(HostBridge.onUnassignResult 페이로드).
 type UnassignResult = { ok: boolean; canonical?: string };
 
@@ -135,6 +143,11 @@ function unseenResultsBlock(ctx: ContextMessage[]): string {
 // #381: 라우터/서브에이전트가 자유 prose 대신 도구로 답을 제출하지 못한 극단 케이스의 결정적 fallback.
 const ROUTER_FALLBACK_TEXT = '요청을 처리하지 못했어요. 다시 시도해 주세요.';
 
+// 한 요청의 전체 예산 — api 쪽 HTTP read·레지스트리 타임아웃(300s)보다 조금 짧게. 한도 도달 마무리 호출은 이 안에서만 한다.
+const REQUEST_BUDGET_MS = 290_000;
+// 남은 예산이 이보다 적으면 마무리 호출을 하지 않는다(답을 만들기엔 너무 짧다).
+const FINALIZE_MIN_MS = 10_000;
+
 // SSE 라우트용 스트리밍 러너 — 라우터 자유 prose 를 onDelta 로 라이브 emit 하고,
 // 서브에이전트 위임 답은 HostBridge.onSubmitResponse 콜백으로 수신한다.
 // parseChatEvents 로 위젯을 산출해 반환한다.
@@ -152,14 +165,15 @@ export async function runAiChatStream(
   onDelta?: (text: string) => void, // #463: 라우터 자유 prose 라이브 스트리밍(text_delta 단위)
 ): Promise<{ fullText: string; widgets: unknown; pendingActions: unknown[]; usage: import('./chat-parser.js').Usage | null }> {
   const agentId = input.assistantAgentId;
+  // 요청 시작 시각 — 토큰 fetch 소요와 한도 도달 마무리의 남은 예산 계산에 함께 쓴다.
+  const requestStartedAt = Date.now();
   let credential: ProviderCredential;
-  const tokenStart = Date.now();
   try {
     credential = await deps.client.getProviderCredential(agentId);
     log.info('ai-chat', 'token_fetch_ok', {
       requestId: input.requestId,
       agentId,
-      durationMs: Date.now() - tokenStart,
+      durationMs: Date.now() - requestStartedAt,
     });
   } catch (e) {
     log.error('ai-chat', 'token_fetch_fail', {
@@ -198,7 +212,8 @@ export async function runAiChatStream(
   const model = input.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
   // 요청 시점 Seoul 기준 오늘 날짜를 계산해 상대 날짜 필터 앵커로 주입한다.
   const seoulToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
-  const systemPrompt = ASSISTANT_SYSTEM_PROMPT + dateContextDirective(seoulToday) + thinkingDirective(input.thinkingDepth);
+  const dateDirective = dateContextDirective(seoulToday);
+  const systemPrompt = ASSISTANT_SYSTEM_PROMPT + dateDirective + thinkingDirective(input.thinkingDepth);
   // #376: MCP 도구(드라이브·캘린더·메일 등) 실행 주체(X-On-Behalf-Of)는 요청자(userId).
   //   stdio 서버(workplace-mcp-server.ts:36)와 동일 우선순위: userId ?? agentId.
   //   LLM 인증 자격(credential)은 여전히 getProviderCredential(agentId) — 비서 에이전트 자격 유지.
@@ -231,6 +246,12 @@ export async function runAiChatStream(
   const userMessage = buildChatUserMessage({ ...input, attachments }, imageVision);
 
   const events: RunnerEvent[] = [];
+  // 한도 도달 시 마무리 답의 근거 — 라이브 발행(onTool)과 함께 도구 결과를 모은다.
+  const toolResults = new ToolResultCollector();
+  const collectTool = (line: ToolUseLine) => {
+    toolResults.add(line);
+    onTool?.(line);
+  };
   // #463: 라우터 자유 prose 를 onDelta 로 라이브 emit 하면서 동시에 누적. 완료 후 답 결정에 사용.
   let streamedText = '';
 
@@ -253,7 +274,8 @@ export async function runAiChatStream(
   });
 
   // 인-프로세스 MCP 서버(assistant 프로파일 + hostBridge + onTool)·서브에이전트 정의는 러너 내부에서 구성.
-  const handle = runnerFor(credential).stream(
+  const runner = runnerFor(credential);
+  const handle = runner.stream(
     {
       userMessage,
       systemPrompt,
@@ -274,7 +296,7 @@ export async function runAiChatStream(
         onBehalfOfId: input.userId ?? agentId,
         profile: 'assistant',
         hostBridge,
-        onTool,
+        onTool: collectTool,
         homeSessionId: input.sessionId ?? undefined, // WP-234: read_chat_attachment 세션 바인딩
         onBehalfOfTenantId: input.tenantId ?? undefined, // WP-259: opencode stdio MCP 도 같은 테넌트로 호출
       },
@@ -306,7 +328,14 @@ export async function runAiChatStream(
   if (signal.aborted) handle.kill();
   else signal.addEventListener('abort', () => handle.kill(), { once: true });
 
-  await handle.done;
+  // 턴/시간 한도 도달은 오류로 끝내지 않고 아래에서 지금까지의 결과로 마무리한다. 그 외 오류·연결 종료는 그대로 전파.
+  let limit: RunnerLimitError | null = null;
+  try {
+    await handle.done;
+  } catch (e) {
+    if (!(e instanceof RunnerLimitError) || signal.aborted) throw e;
+    limit = e; // 러너가 cli_max_turns/cli_timeout 으로 이미 로그했다.
+  }
 
   // #351: HostBridge.onProposal 콜백이 누산한 제안 배열(proposals).
   const pendingActions: unknown[] = proposals;
@@ -324,6 +353,35 @@ export async function runAiChatStream(
   // #404: show_issue_detail 위젯 중 존재하지 않는 이슈 번호를 서버 검증으로 드롭한다.
   const filteredWidgets = await filterIssueDetailWidgets(parsed.widgets, deps.client, agentId);
   const widgets = filteredWidgets.length > 0 ? filteredWidgets : null;
+  // 한도 도달 + 위임 답 없음 → 지금까지 조회한 도구 결과로 도구 없는 마무리 답을 한 번 더 받는다.
+  //   라우터 prose(streamedText)는 보통 "확인해볼게요" 같은 머리말이라 답으로 충분하지 않다.
+  let finalizeText = '';
+  let finalizeUsage: Usage | null = null;
+  // 마무리 호출은 남은 요청 예산 안에서만 — 넘기면 api 가 SSE 를 끊어 답이 버려진다. 연결이 끊겼으면 하지 않는다.
+  const finalizeTimeoutMs = limit
+    ? Math.min(FINALIZE_TIMEOUT_MS, REQUEST_BUDGET_MS - (Date.now() - requestStartedAt))
+    : 0;
+  if (limit && subagentTexts.length === 0 && !signal.aborted && finalizeTimeoutMs >= FINALIZE_MIN_MS) {
+    onProgress?.(FINALIZE_PROGRESS_LABEL);
+    const fin = await finalizeAfterLimit({
+      runner,
+      credential,
+      model,
+      agentId,
+      userId: input.userId,
+      requestId: input.requestId,
+      kind: limit.kind,
+      originalUserMessage: userMessage,
+      results: toolResults,
+      dateDirective,
+      timeoutMs: finalizeTimeoutMs,
+    });
+    finalizeText = fin.text;
+    finalizeUsage = fin.usage;
+  }
+  // 한도 도달 후 마무리 답도 위임 답도 확인 카드·위젯도 없으면 종전처럼 오류로 끝낸다.
+  //   라우터 prose 만 있는 경우도 오류 — "확인해볼게요" 같은 머리말을 성공 답으로 저장하지 않는다.
+  if (limit && !finalizeText && subagentTexts.length === 0 && pendingActions.length === 0 && !widgets) throw limit;
   // #463/#467: 답 텍스트 결정(우선순위)
   //   1) subagentTexts — HostBridge.onSubmitResponse 로 수신한 서브에이전트 텍스트(들). 한 턴에
   //      ≥2 위임이 있으면 순서대로 결합한다(첫 답만 남기던 first-write-guard 버그 수정, #467).
@@ -336,6 +394,11 @@ export async function runAiChatStream(
     // 위임 답(들)은 onText 로 1회 emit(onDelta 미경유 — 최종 완성 텍스트). 여러 건이면 순서대로 결합.
     answerText = subagentTexts.join('\n\n');
     onText(answerText);
+  } else if (finalizeText) {
+    // 한도 도달 마무리 답 — 이미 라이브 emit 된 라우터 prose 가 있으면 그 뒤에 이어 붙인다.
+    const sep = streamedText.trim() ? '\n\n' : '';
+    onText(sep + finalizeText);
+    answerText = streamedText + sep + finalizeText;
   } else if (streamedText.trim()) {
     // 라우터 prose 는 이미 onDelta 로 라이브 emit 됨 — onText 재호출 불필요.
     answerText = streamedText;
@@ -356,6 +419,7 @@ export async function runAiChatStream(
     subagentSidecar: subagentTexts.length > 0,
     streamedChars: streamedText.length,
     widgetCount: widgets ? widgets.length : 0,
+    limit: limit?.kind ?? null,
   });
   // #458: 트랜스크립트 종료 레코드 — 최종 답·위젯·사용량·답 출처. 라인별 ts 와 합쳐 전체 분석.
   transcriptResult(input.requestId, {
@@ -363,7 +427,7 @@ export async function runAiChatStream(
     widgetCount: widgets ? widgets.length : 0,
     pendingActionCount: pendingActions.length,
     usage: parsed.usage,
-    source: subagentTexts.length > 0 ? 'subagent' : streamedText.trim() ? 'router_prose' : widgets ? 'widget' : 'fallback',
+    source: subagentTexts.length > 0 ? 'subagent' : finalizeText ? 'limit_finalize' : streamedText.trim() ? 'router_prose' : widgets ? 'widget' : 'fallback',
   });
-  return { fullText: answerText, widgets, pendingActions, usage: parsed.usage };
+  return { fullText: answerText, widgets, pendingActions, usage: addUsage(parsed.usage, finalizeUsage) };
 }

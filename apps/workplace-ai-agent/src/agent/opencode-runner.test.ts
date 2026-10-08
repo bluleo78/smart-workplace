@@ -508,6 +508,20 @@ describe('OpencodeRunner.stream', () => {
     expect(events).toEqual([{ type: 'result', ok: false, text: null, usage: null }]);
   });
 
+  it('timeout → RunnerLimitError(kind=timeout) 로 reject — 호출자가 부분 결과로 마무리할 수 있게', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    // abort 요청 시 스트림 종료(실제 opencode 가 세션 abort 로 스트림을 끊는 상황 근사)
+    sessionAbort.mockImplementation(async () => {
+      es.finish();
+      return { data: true, error: undefined };
+    });
+
+    const runner = new OpencodeRunner();
+    const handle = runner.stream(baseInput({ timeoutMs: 30 }), () => {});
+    await expect(handle.done).rejects.toMatchObject({ name: 'RunnerLimitError', kind: 'timeout' });
+  });
+
   it('kill() 은 abort 요청 후 정상 resolve', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });

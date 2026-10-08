@@ -533,6 +533,35 @@ class HomeChatServiceTest extends IntegrationTestBase {
   }
 
   /**
+   * compose 가 보내는 ChatRequest 의 maxTurns 가 compose 하한(50)으로 상향되는지 검증. 공유 기본값 8 로는 다중 조회 질문이 턴 한도에 걸려
+   * "오류로 중단됨"이 됐다(운영 실측). 실제 전송된 요청 본문을 캡처해 검증한다.
+   */
+  @Test
+  void compose_요청_maxTurns_를_50_하한으로_상향한다() throws Exception {
+    long uid = user("turnfloor" + System.nanoTime());
+    // 기본 비서: maxTurns=8 (공유 기본값).
+    stubAssistant();
+
+    CountDownLatch latch = new CountDownLatch(1);
+    doAnswer(
+            inv -> {
+              java.util.function.BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              onDone.accept("처리했어요", null);
+              latch.countDown();
+              return null;
+            })
+        .when(chatClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+
+    composeService.startChat(uid, null, "어제~오늘 완료된 이슈 에픽 중심으로");
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    ArgumentCaptor<ChatRequest> reqCaptor = ArgumentCaptor.forClass(ChatRequest.class);
+    verify(chatClient).composeStream(reqCaptor.capture(), any(), any(), any(), any(), any(), any());
+    assertThat(reqCaptor.getValue().maxTurns()).isEqualTo(50);
+  }
+
+  /**
    * pending_action 콜백이 raw 배열이 아니라 { correlationId, actions } 봉투로 fanOut 되는지 검증(공통 payload 봉투 규약,
    * #593).
    */

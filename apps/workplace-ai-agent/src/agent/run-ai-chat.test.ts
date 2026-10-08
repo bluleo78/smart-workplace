@@ -5,9 +5,9 @@ import type { RunnerInput } from './agent-runner.js';
 // Task 6: stream 경로 RunnerEvent 이관. runSdkStream/buildInProcessWorkplaceMcpServer mock 대신
 // agent-runner(runnerFor().stream) 를 mock 하고 RunnerEvent 픽스처를 onEvent 로 흘린다.
 // hostBridge/onTool 는 stream 입력의 i.mcp 로 전달되므로, mock impl 이 거기서 콜백을 구동한다.
-const { streamSpy } = vi.hoisted(() => ({ streamSpy: vi.fn() }));
+const { streamSpy, collectSpy } = vi.hoisted(() => ({ streamSpy: vi.fn(), collectSpy: vi.fn() }));
 vi.mock('./agent-runner.js', () => ({
-  runnerFor: vi.fn(() => ({ stream: streamSpy, collect: vi.fn() })),
+  runnerFor: vi.fn(() => ({ stream: streamSpy, collect: collectSpy })),
 }));
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 vi.mock('../logger.js', () => ({ log: logMock }));
@@ -18,6 +18,7 @@ const { opencodeVisionFor } = vi.hoisted(() => ({
 vi.mock('./opencode-vision.js', () => ({ opencodeVisionFor }));
 
 import { runAiChatStream, type ChatInput } from './run-ai-chat.js';
+import { RunnerLimitError } from './runner-limit.js';
 
 // #846: 이슈 상세 조회는 공유 도구용 클라이언트(toolClient(agentId)) 경유 — 테스트가 getIssueDetail 을 교체·단언한다.
 const fakeTools: { getIssueDetail: ReturnType<typeof vi.fn> } = {
@@ -81,6 +82,7 @@ function makeRunnerImpl(events: RunnerEvent[], spec: SidecarSpec = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   streamSpy.mockReset();
+  collectSpy.mockReset();
   opencodeVisionFor.mockReset().mockResolvedValue(undefined);
   (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
     vi.fn().mockResolvedValue({ provider: 'anthropic', token: 'tok', model: null });
@@ -1267,18 +1269,24 @@ describe('runAiChatStream — onTool passthrough (#462)', () => {
     });
     const onTool = vi.fn();
     await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal, undefined, onTool);
-    // 동일 참조 확인: mcp.onTool === onTool
-    expect(streamSpy.mock.calls[0][0].mcp.onTool).toBe(onTool);
+    // mcp.onTool 은 한도 도달 마무리용 결과 수집을 겸한 래퍼 — caller onTool 로 그대로 위임되는지 이벤트로 확인.
+    expect(typeof streamSpy.mock.calls[0][0].mcp.onTool).toBe('function');
     // 이벤트 흐름 확인: tool_use_start → tool_result 순서로 2건 수신.
     expect(onTool).toHaveBeenCalledTimes(2);
     expect(onTool.mock.calls[0][0]).toMatchObject({ seq: 1, event: 'tool_use_start', toolName: 'list_issues' });
     expect(onTool.mock.calls[1][0]).toMatchObject({ seq: 1, event: 'tool_result', toolName: 'list_issues', isError: false });
   });
 
-  it('onTool 미전달 시 mcp.onTool 은 undefined', async () => {
-    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
-    await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(streamSpy.mock.calls[0][0].mcp.onTool).toBeUndefined();
+  it('onTool 미전달이어도 결과 수집 래퍼는 전달되고 호출해도 안전하다', async () => {
+    streamSpy.mockImplementation((i: RunnerInput, onEvent: (e: RunnerEvent) => void) => {
+      i.mcp?.onTool?.({ seq: 1, event: 'tool_result', toolName: 'list_issues', result: '[]' });
+      onEvent(result(''));
+      return { done: Promise.resolve(), kill: () => {} };
+    });
+    await expect(
+      runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
+    ).resolves.toBeDefined();
+    expect(typeof streamSpy.mock.calls[0][0].mcp.onTool).toBe('function');
   });
 });
 
@@ -1477,5 +1485,108 @@ describe('runAiChatStream — 메인 AI 채팅 첨부 (WP-234)', () => {
     await run({});
     expect(runnerInput().userMessage).toBe('내 할 일');
     expect(runnerInput().mcp?.homeSessionId).toBeUndefined();
+  });
+});
+
+// 턴/시간 한도 도달 시 "오류로 중단됨" 대신 지금까지 조회한 결과로 마무리 답을 만든다.
+describe('runAiChatStream — 한도 도달 마무리', () => {
+  // 도구 결과를 onTool 로 흘린 뒤 done 을 RunnerLimitError 로 reject 하는 stream 구현.
+  function limitRunner(events: RunnerEvent[], opts: { kind?: 'max_turns' | 'timeout'; subagent?: string; toolResult?: string } = {}) {
+    return (i: RunnerInput, onEvent: (e: RunnerEvent) => void) => {
+      if (opts.toolResult) {
+        i.mcp?.onTool?.({ seq: 1, event: 'tool_use_start', toolName: 'list_issues', args: {} });
+        i.mcp?.onTool?.({ seq: 1, event: 'tool_result', toolName: 'list_issues', result: opts.toolResult });
+      }
+      if (opts.subagent) i.mcp?.hostBridge?.onSubmitResponse(opts.subagent);
+      for (const ev of events) onEvent(ev);
+      const done = Promise.reject(new RunnerLimitError(opts.kind ?? 'max_turns', 'Reached maximum number of turns (8)'));
+      done.catch(() => {}); // 미처리 rejection 경고 방지(호출자가 await 시 처리)
+      return { done, kill: () => {} };
+    };
+  }
+
+  it('턴 한도 + 위임 답 없음 → 조회 결과로 도구 없는 마무리 호출, 답을 이어 emit', async () => {
+    streamSpy.mockImplementation(limitRunner([textDelta('확인해볼게요.')], { toolResult: 'WP-1 완료\nWP-2 완료' }));
+    collectSpy.mockResolvedValue([{ type: 'result', ok: true, text: '어제~오늘 완료된 이슈는 WP-1, WP-2 입니다.', usage: null }]);
+    const got: string[] = [];
+    const outcome = await runAiChatStream(baseInput(), { client: fakeClient }, (t) => got.push(t), new AbortController().signal, undefined, vi.fn(), () => {});
+
+    expect(got).toEqual(['\n\n어제~오늘 완료된 이슈는 WP-1, WP-2 입니다.']);
+    expect(outcome.fullText).toBe('확인해볼게요.\n\n어제~오늘 완료된 이슈는 WP-1, WP-2 입니다.');
+    const fin = collectSpy.mock.calls[0][0] as RunnerInput;
+    expect(fin.mcp).toBeUndefined(); // 도구 없이
+    expect(fin.allowSubagents).toBe(false);
+    expect(fin.maxTurns).toBe(1);
+    expect(fin.userMessage).toContain('내 할 일'); // 원래 요청 포함
+    expect(fin.userMessage).toContain('WP-1 완료');
+  });
+
+  it('도구 결과 라이브 발행(onTool)은 그대로 유지', async () => {
+    streamSpy.mockImplementation(limitRunner([], { toolResult: 'x' }));
+    collectSpy.mockResolvedValue([{ type: 'result', ok: true, text: '답', usage: null }]);
+    const onTool = vi.fn();
+    await runAiChatStream(baseInput({ recentContext: [{ role: 'USER', content: 'a' }] }), { client: fakeClient }, () => {}, new AbortController().signal, undefined, onTool);
+    expect(onTool).toHaveBeenCalledTimes(2);
+  });
+
+  it('위임 답이 이미 있으면 마무리 호출 없이 그 답으로 완료', async () => {
+    streamSpy.mockImplementation(limitRunner([], { subagent: '위임 답' }));
+    const outcome = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(collectSpy).not.toHaveBeenCalled();
+    expect(outcome.fullText).toBe('위임 답');
+  });
+
+  it('시간 한도도 같은 방식으로 마무리', async () => {
+    streamSpy.mockImplementation(limitRunner([], { kind: 'timeout', toolResult: 'r' }));
+    // result 텍스트가 없으면 assistant 텍스트 블록을 답으로 쓴다(공용 finalText 규칙).
+    collectSpy.mockResolvedValue([{ type: 'assistant_text', text: '부분 답' }, { type: 'result', ok: true, text: null, usage: null }]);
+    const outcome = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(outcome.fullText).toBe('부분 답');
+  });
+
+  it('마무리도 실패하고 보여줄 결과가 없으면 종전처럼 오류 전파', async () => {
+    streamSpy.mockImplementation(limitRunner([]));
+    collectSpy.mockRejectedValue(new Error('finalize boom'));
+    await expect(
+      runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
+    ).rejects.toBeInstanceOf(RunnerLimitError);
+  });
+
+  it('마무리 실패 + 라우터 머리말(prose)만 있으면 성공 답으로 저장하지 않고 오류 전파', async () => {
+    streamSpy.mockImplementation(limitRunner([textDelta('확인해볼게요.')]));
+    collectSpy.mockResolvedValue([]);
+    await expect(
+      runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal, undefined, undefined, () => {}),
+    ).rejects.toBeInstanceOf(RunnerLimitError);
+  });
+
+  it('연결이 끊긴 뒤면 마무리 호출을 하지 않는다', async () => {
+    const ac = new AbortController();
+    streamSpy.mockImplementation((i: RunnerInput, onEvent: (e: RunnerEvent) => void) => {
+      const h = limitRunner([])(i, onEvent);
+      ac.abort();
+      return h;
+    });
+    await expect(runAiChatStream(baseInput(), { client: fakeClient }, () => {}, ac.signal)).rejects.toBeInstanceOf(RunnerLimitError);
+    expect(collectSpy).not.toHaveBeenCalled();
+  });
+
+  it('마무리 호출의 토큰 사용량을 라우터 사용량에 합산', async () => {
+    streamSpy.mockImplementation(limitRunner([{ type: 'result', ok: false, text: null, usage: { inputTokens: 100, outputTokens: 10 } }], { toolResult: 'r' }));
+    collectSpy.mockResolvedValue([{ type: 'result', ok: true, text: '답', usage: { inputTokens: 20, outputTokens: 5 } }]);
+    const outcome = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect(outcome.usage).toEqual({ inputTokens: 120, outputTokens: 15 });
+  });
+
+  it('한도가 아닌 일반 오류는 마무리하지 않고 그대로 전파', async () => {
+    streamSpy.mockImplementation(() => {
+      const done = Promise.reject(new Error('spawn fail'));
+      done.catch(() => {});
+      return { done, kill: () => {} };
+    });
+    await expect(
+      runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal),
+    ).rejects.toThrow('spawn fail');
+    expect(collectSpy).not.toHaveBeenCalled();
   });
 });
