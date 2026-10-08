@@ -1,6 +1,6 @@
 // 화면별 데이터 → ViewerItem 어댑터와 묶음 해석(WP-277). 순수 함수만 둔다(vitest 대상).
 import { attachmentContentPath } from '../../api/issueAttachments'
-import { mimeFromFilename } from '../../lib/mimeFromFilename'
+import { canonicalMime, isGenericMime, mimeFromFilename } from '../../lib/mimeFromFilename'
 import type { IssueAttachment } from '../../types/attachment'
 import type { DriveFile, DriveLink, VirtualAttachment } from '../../types/drive'
 import type { EmailAttachmentMeta } from '../../types/mailMessage'
@@ -31,19 +31,17 @@ const MAIL_KEY_RE = /^mail:\d+$/
 /** ?preview 값이 메일 첨부 키인지 — 메일 화면이 다른 용도의 ?preview 를 "찾을 수 없음"으로 안내하지 않게. */
 export const isMailViewerKey = (key: string | null): boolean => key != null && MAIL_KEY_RE.test(key)
 
-const OCTET_STREAM = 'application/octet-stream'
-
 /**
- * 메일 첨부 형식 정규화 — `;` 뒤 파라미터를 떼고 소문자로 맞춘다.
+ * 메일 첨부 형식 — 파라미터·대소문자·별칭(application/x-pdf·image/jpg 등)을 정규화한다.
  * 왜: IMAP 경로는 파라미터를 떼서 저장하지만 Graph 경로는 원문 그대로라, resolvePreviewKind 의 정확 일치가 빗나가지 않게.
- * 비었거나 octet-stream 이면 파일명 확장자로 추론한다 — 메일 클라이언트가 PDF·이미지도 octet-stream 으로 보내는 일이 많아
- * 그대로 두면 미리보기가 안 된다. 서버가 준 구체적인 형식은 그대로 믿는다. 추론도 안 되면 octet-stream.
+ * 비었거나 범용 형식(octet-stream·force-download 등)이면 파일명 확장자로 추론한다 — 메일 클라이언트가 PDF·이미지도
+ * 범용 형식으로 보내는 일이 많아 그대로 두면 미리보기가 안 된다. 서버가 준 구체적인 형식은 그대로 믿는다. 추론도 안 되면 octet-stream.
  */
 function mailAttachmentMime(a: EmailAttachmentMeta): string {
-  const base = (a.contentType ?? '').split(';')[0].trim().toLowerCase()
-  if (base && base !== OCTET_STREAM) return base
-  return mimeFromFilename(a.filename) ?? OCTET_STREAM
+  if (!isGenericMime(a.contentType)) return canonicalMime(a.contentType)
+  return mimeFromFilename(a.filename) ?? 'application/octet-stream'
 }
+
 /** 메일 첨부 표시·저장 이름 — 첨부 칩과 뷰어(제목·접근 이름·저장 파일명)가 같은 이름을 쓰게 한 곳에 둔다. */
 export const mailAttachmentName = (a: EmailAttachmentMeta) => a.filename || `attachment-${a.id}`
 

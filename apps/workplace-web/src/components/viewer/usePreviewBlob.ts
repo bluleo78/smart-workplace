@@ -41,7 +41,8 @@ export function usePreviewBlob(item: ViewerItem, enabled: boolean) {
     error,
     confirmSize,
     confirm: () => setConsentedKey(item.key),
-    download: () => downloadViewerItem(item),
+    // 이미 받은 blob 이 있으면 다시 받지 않는다(감사 경로가 따로 없는 항목) — 판단은 downloadViewerItem.
+    download: () => downloadViewerItem(item, blob),
     retry: () => setAttempt((n) => n + 1),
   }
 }

@@ -1,15 +1,15 @@
 // 미리보기 blob 형식 보정(WP-280) — 순수 함수(vitest 대상).
-
-const OCTET_STREAM = 'application/octet-stream'
+import { isGenericMime } from '../../lib/mimeFromFilename'
 
 /**
- * 응답 blob 형식이 비었거나 octet-stream 인데 항목 형식(파일명 추론 등)을 알면 그 형식으로 다시 감싼다.
- * 왜: 메일 첨부처럼 서버가 octet-stream 으로 주면 blob URL 의 형식도 octet-stream 이라 SVG 이미지가 그려지지 않고,
- *     모바일 ⤴ 공유·저장 File 의 형식도 틀린다. slice 는 바이트를 복사하지 않는다.
+ * 응답 blob 형식이 비었거나 범용(octet-stream 등, 파라미터 포함)인데 항목 형식(파일명 추론 등)을 알면 그 형식으로 다시 감싼다.
+ * 왜: 메일 첨부처럼 서버가 octet-stream 으로 주면 모바일 ⤴ 공유·저장 File 의 형식이 틀린다. slice 는 바이트를 복사하지 않는다.
  * 서버가 구체적인 형식을 줬으면 그대로 둔다(항목 형식보다 실제 응답이 우선).
+ * SVG 로는 절대 올리지 않는다(보안) — 범용 바이트를 image/svg+xml 로 달면 blob URL 을 새 탭으로 열 때 같은 출처에서 스크립트가 돈다.
  */
 export function withItemType(blob: Blob, itemMime: string): Blob {
-  const generic = !blob.type || blob.type === OCTET_STREAM
-  if (!generic || !itemMime || itemMime === OCTET_STREAM || itemMime === blob.type) return blob
-  return blob.slice(0, blob.size, itemMime)
+  if (!isGenericMime(blob.type) || isGenericMime(itemMime)) return blob
+  const target = itemMime.split(';')[0].trim().toLowerCase()
+  if (target === 'image/svg+xml' || target === blob.type) return blob
+  return blob.slice(0, blob.size, target)
 }

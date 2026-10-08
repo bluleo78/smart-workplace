@@ -316,7 +316,7 @@ function MessageDetailPanel({
   )
   // WP-280 첨부 뷰어 — 묶음은 목록에 보이는 첨부(인라인 이미지 제외). 상세 조회가 끝났거나(실패 포함) 열린 메일이 없으면
   // "찾을 수 없음"을 판정한다 — 메일 없이·조회 실패로 남은 ?preview 가 뷰어도 안내도 없이 URL 에 남지 않게(다른 호스트와 같은 규칙).
-  const attachmentViewer = useMailAttachmentViewer(listedAttachments, messageId == null || detail != null || isError)
+  const attachmentViewer = useMailAttachmentViewer(messageId, listedAttachments, messageId == null || detail != null || isError)
   // 모든 분기(빈 상태·로딩·오류·상세)를 같은 Fragment 의 같은 자리에 뷰어 노드와 함께 그린다 — 분기가 바뀌어도 뷰어가 리마운트되지 않게.
   const withViewer = (body: ReactNode) => (
     <>
@@ -1173,8 +1173,6 @@ export function MailInboxPage() {
             />
           )}
           <MessageDetailPanel
-            // 메일마다 새로 그린다 — 앞 메일의 첨부 뷰어 스냅숏이 남아 다른 메일 URL 에서 앞 메일 첨부를 보여 주지 않게(WP-280).
-            key={selectedId ?? 'none'}
             messageId={selectedId}
             aiEnabled={aiEnabled}
             aiDraftPending={replyDraft.isPending}

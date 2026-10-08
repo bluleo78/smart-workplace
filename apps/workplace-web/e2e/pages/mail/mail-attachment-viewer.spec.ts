@@ -1,12 +1,14 @@
 // 메일 첨부 → 통합 첨부 뷰어(WP-280, 데스크톱). 모바일 배치·뒤로가기는 e2e/pages/mobile/mail-attachment-viewer-mobile.spec.ts.
 // 묶음 = 한 메일의 목록 첨부(본문 인라인 이미지 제외), 다운로드는 뷰어 ⬇, ✨·☁·⋯ 없음.
 import { expect, test } from '../../fixtures/auth.fixture'
+import { detail } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { MEMO_TEXT, stubMailWithAttachments } from '../../fixtures/mail-viewer-mock'
+import { trackRequests } from '../../fixtures/requests'
 
 test.describe('메일 첨부 뷰어', () => {
   test('상세에서 첨부를 열고 묶음 안에서 넘긴 뒤 ⬇ 로 받는다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-    await stubMailWithAttachments(page)
+    const contents = await stubMailWithAttachments(page)
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-10').click()
 
@@ -37,10 +39,12 @@ test.describe('메일 첨부 뷰어', () => {
     await expect(page).toHaveURL(/preview=mail%3A7$/)
     await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0)
 
-    // ⬇ — 첨부 콘텐츠 경로로 받아 메타 파일명으로 저장한다.
+    // ⬇ — 미리보기로 이미 받은 blob 을 메타 파일명으로 저장한다(같은 파일을 다시 받지 않는다).
+    const fetchedBefore = contents.count()
     const download = page.waitForEvent('download')
     await page.getByTestId('preview-download').click()
     expect((await download).suggestedFilename()).toBe('memo.txt')
+    expect(contents.count()).toBe(fetchedBefore)
 
     // 이전으로 돌아가 PDF 를 다시 본다.
     await page.getByRole('button', { name: '이전 파일' }).click()
@@ -139,5 +143,35 @@ test.describe('메일 첨부 뷰어', () => {
     await page.goto('/mail/1?messageId=13&preview=mail:7')
     await expect(page.getByText('메일을 불러오지 못했습니다')).toBeVisible()
     await expect(page.getByTestId('preview-not-found')).toBeVisible()
+  })
+
+  test('다운로드가 실패하면 토스트로 알리고, 받는 중 연타는 한 번만 요청한다', async ({ authenticatedPage: page }) => {
+    await stubMailWithAttachments(page)
+    // 미리보기가 없는 형식(zip)이라 ⬇ 가 서버에서 다시 받는다 — 그 요청이 500.
+    await mockApi(page, 'GET', '/api/v1/mail/messages/14', detail({
+      id: 14,
+      attachments: [{ id: 20, filename: 'archive.zip', contentType: 'application/zip', sizeBytes: 10, contentId: null }],
+    }))
+    const downloads = trackRequests(page, 'GET', '/api/v1/mail/attachments/20/content')
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => (release = r))
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/attachments/20/content',
+      async (route) => {
+        await gate
+        await route.fulfill({ status: 500, contentType: 'application/json', body: '{"message":"오류"}' })
+      },
+    )
+    await page.goto('/mail/1?messageId=14&preview=mail:20')
+    await expect(page.getByTestId('preview-body')).toContainText('이 형식은 미리 볼 수 없어요')
+
+    // 응답 전 헤더 ⬇ 두 번 + 본문 다운로드 한 번 → 요청은 한 번.
+    await page.getByTestId('preview-download').click()
+    await page.getByTestId('preview-download').click()
+    await page.getByTestId('preview-body').getByRole('button', { name: /다운로드/ }).click()
+    await downloads.waitFor(1)
+    release()
+    await expect(page.getByText('파일을 내려받지 못했습니다')).toBeVisible()
+    expect(downloads.count()).toBe(1)
   })
 })

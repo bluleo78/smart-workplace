@@ -140,6 +140,15 @@ describe('mailAttachmentItem', () => {
     expect(mailAttachmentItem(att({ filename: 'page.htm', contentType: 'Application/Octet-Stream; name=page.htm' })).mimeType).toBe('text/html')
     expect(mailAttachmentItem(att({ filename: 'a.tar.gz', contentType: 'application/octet-stream' })).mimeType).toBe('application/octet-stream')
     expect(mailAttachmentItem(att({ filename: 'a.pdf', contentType: 'image/png' })).mimeType).toBe('image/png')
+    expect(mailAttachmentItem(att({ filename: 'a.pdf', contentType: 'application/force-download' })).mimeType).toBe('application/pdf')
+    expect(mailAttachmentItem(att({ filename: 'b.jpg', contentType: 'binary/octet-stream' })).mimeType).toBe('image/jpeg')
+    // svg 는 파일명으로 추론하지 않는다(보안).
+    expect(mailAttachmentItem(att({ filename: 'x.svg', contentType: 'application/octet-stream' })).mimeType).toBe('application/octet-stream')
+  })
+
+  it('형식 별칭은 표준 이름으로 맞춘다', () => {
+    expect(mailAttachmentItem(att({ contentType: 'application/x-pdf' })).mimeType).toBe('application/pdf')
+    expect(mailAttachmentItem(att({ filename: 'p.jpg', contentType: 'image/pjpeg' })).mimeType).toBe('image/jpeg')
   })
 
   it('형식·파일명이 없으면 octet-stream·attachment-{id} 로 채운다(예전 다운로드 파일명 규칙)', () => {
