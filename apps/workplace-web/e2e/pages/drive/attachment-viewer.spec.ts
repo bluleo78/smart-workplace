@@ -501,3 +501,24 @@ test('데스크톱(마우스)은 모바일 하단 바 없이 헤더·확대 툴�
   await expect(page.getByRole('button', { name: '확대' })).toBeVisible()
   await expect(page.getByTestId('preview-download')).toBeVisible()
 })
+
+test('좁은 창(900px) + 마우스는 모바일 배치여도 확대 툴바를 쓰고, 툴바는 하단 액션 바 위에 뜬다', async ({ authenticatedPage: page }) => {
+  // 1920 화면 반쪽 분할 같은 좁은 데스크톱 창 — 핀치·두 번 탭이 없으니 툴바가 유일하게 보이는 확대 수단이다(판정 R8 수정).
+  await page.setViewportSize({ width: 900, height: 800 })
+  await stubDriveFiles(page, [{ id: 96, name: 'narrow.png', mimeType: 'image/png', sizeBytes: 100 }], { 96: solidPng(800, 600) })
+  await openPreview(page, 'narrow.png')
+  const bar = page.getByTestId('viewer-action-bar')
+  await expect(bar).toBeVisible()
+  const zoomIn = page.getByRole('button', { name: '확대' })
+  await expect(zoomIn).toBeVisible()
+  // 툴바 아래끝이 액션 바 위끝보다 위 — 겹치지 않는다.
+  await expect
+    .poll(async () => {
+      const t = (await page.getByTestId('viewer-zoom-bar').boundingBox())!
+      const b = (await bar.boundingBox())!
+      return t.y + t.height <= b.y
+    })
+    .toBe(true)
+  await zoomIn.click()
+  await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('125%')
+})

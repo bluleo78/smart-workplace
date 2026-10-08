@@ -24,7 +24,10 @@ export const DOUBLE_TAP_DIST_PX = 30
  * 500ms 는 브라우저 길게 누르기(문맥 메뉴) 판정 시작점과 같은 값 — 그 이상은 사용자가 탭이 아닌 다른 의도를 가진 것으로 본다.
  */
 export const TAP_MAX_MS = 500
-/** 터치 확대 범위 — 맞춤(1) 아래로는 줄이지 않는다. PDF 1~3×(스펙 §5.1), 이미지도 같은 상한(판정 R9). */
+/**
+ * 터치 확대 범위 — 맞춤(1) 아래로는 줄이지 않는다. PDF 1~3×(스펙 §5.1), 이미지도 같은 상한(판정 R9).
+ * 단 iPad 처럼 툴바·키보드로 이미 1 미만(0.5·0.75)에 있으면 하한은 그 시작 배율 — 모으는 핀치가 오히려 1 로 튀어 확대되지 않게(pinchZoom).
+ */
 export const TOUCH_ZOOM_MIN = 1
 export const TOUCH_ZOOM_MAX = 3
 /** 두 번 탭 확대 배율(스펙 §5.1: 1× ↔ 2×). */
@@ -56,6 +59,11 @@ export interface LockInput {
   /** 손가락 아래 세로 스크롤 영역이 맨 위인가(세로 스크롤 영역이 없으면 참). */
   atTop: boolean
   zoom: number
+  /**
+   * 브라우저 자체 확대(visualViewport.scale > 1) 중인가 — 확대 대상이 아닌 문서는 페이지 핀치를 허용하므로(WCAG 1.4.4)
+   * 그 상태의 한 손가락 끌기는 확대된 페이지 팬이다. 넘김·닫기로 가로채지 않고 네이티브에 맡긴다.
+   */
+  pageZoomed: boolean
 }
 
 /**
@@ -69,6 +77,8 @@ export function lockGesture(i: LockInput): GestureLock {
   const ax = Math.abs(i.dx)
   const ay = Math.abs(i.dy)
   if (Math.max(ax, ay) < LOCK_SLOP_PX) return 'pending'
+  // 페이지가 브라우저 확대 중이면 끌기는 확대 화면 팬 — 넘김·닫기 없음(움직이지 않은 탭은 위 pending 으로 그대로 탭).
+  if (i.pageZoomed) return 'native'
   if (ax > ay) {
     // 손가락이 왼쪽(dx<0) = 내용은 오른쪽을 보려는 것 → 오른쪽 여유가 있으면 내용이 먼저 움직인다.
     const room = i.dx < 0 ? i.canPanRight : i.canPanLeft
@@ -129,10 +139,28 @@ export function isDoubleTap(prev: Sample | null, cur: Sample): boolean {
   return cur.t - prev.t <= DOUBLE_TAP_MS && Math.hypot(cur.x - prev.x, cur.y - prev.y) <= DOUBLE_TAP_DIST_PX
 }
 
-/** 두 손가락 거리 비율로 새 배율 — 터치 범위(1~3)로 자른다. 시작 거리가 0 이하면 그대로. */
+/**
+ * 두 손가락 거리 비율로 새 배율 — 터치 범위(1~3)로 자른다. 시작 거리가 0 이하면 그대로.
+ * 하한은 min(1, 시작 배율) — 이미 1 미만에서 시작했으면 그보다 아래로만 막는다(모으는데 확대되는 역전 방지).
+ */
 export function pinchZoom(startZoom: number, startDist: number, dist: number): number {
   if (startDist <= 0) return startZoom
-  return Math.min(TOUCH_ZOOM_MAX, Math.max(TOUCH_ZOOM_MIN, startZoom * (dist / startDist)))
+  return Math.min(TOUCH_ZOOM_MAX, Math.max(Math.min(TOUCH_ZOOM_MIN, startZoom), startZoom * (dist / startDist)))
+}
+
+/** 무대 touch-action 표식 — index.css 의 [data-viewer-stage] 규칙과 짝(판정 R2, WP-278 최종 수정). */
+export type StageTouch = 'none' | 'pan' | 'manipulation'
+
+/**
+ * 무대 터치 동작 결정. fine 포인터면 표식 없음(데스크톱에 터치 규칙이 닿지 않게).
+ * - 확대 대상이 아닌 형식(마크다운·텍스트·CSV·안내 문구 등) = manipulation: 뷰어 배율이 없으니 브라우저 핀치 확대를 살린다(WCAG 1.4.4). 두 번 탭 확대만 끈다.
+ * - 맞춤(1×) 이미지 = none: 스크롤할 것이 없어 스와이프·닫기·핀치를 전부 JS 가 받는다.
+ * - 그 외(확대한 이미지·PDF) = pan: 네이티브 스크롤은 두고 브라우저 핀치는 끈다 — 확대는 뷰어 배율로.
+ */
+export function stageTouchAction(i: { coarse: boolean; zoomable: boolean; image: boolean; zoom: number }): StageTouch | undefined {
+  if (!i.coarse) return undefined
+  if (!i.zoomable) return 'manipulation'
+  return i.image && i.zoom === 1 ? 'none' : 'pan'
 }
 
 /** 두 번 탭 목표 배율 — 맞춤이면 2배, 확대 중이면 맞춤. */

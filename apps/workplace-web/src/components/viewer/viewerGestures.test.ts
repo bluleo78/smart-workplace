@@ -13,9 +13,10 @@ import {
   pinchZoom,
   releaseVelocity,
   rubberBand,
+  stageTouchAction,
 } from './viewerGestures'
 
-const lock: LockInput = { dx: 0, dy: 0, startX: 200, viewportWidth: 390, canPanLeft: false, canPanRight: false, atTop: true, zoom: 1 }
+const lock: LockInput = { dx: 0, dy: 0, startX: 200, viewportWidth: 390, canPanLeft: false, canPanRight: false, atTop: true, zoom: 1, pageZoomed: false }
 
 describe('lockGesture', () => {
   it('흔들림(6px 미만)은 아직 판정하지 않는다', () => {
@@ -43,6 +44,11 @@ describe('lockGesture', () => {
     expect(lockGesture({ ...lock, dy: 20, atTop: false })).toBe('native')
     expect(lockGesture({ ...lock, dy: 20, zoom: 2 })).toBe('native')
     expect(lockGesture({ ...lock, dy: -20 })).toBe('native')
+  })
+  it('브라우저 자체 확대 중이면 끌기는 확대 페이지 팬(네이티브) — 넘김·닫기 없음, 움직이지 않은 탭은 그대로 판정 대기', () => {
+    expect(lockGesture({ ...lock, pageZoomed: true, dx: -100 })).toBe('native')
+    expect(lockGesture({ ...lock, pageZoomed: true, dy: 40 })).toBe('native')
+    expect(lockGesture({ ...lock, pageZoomed: true, dx: 3, dy: 2 })).toBe('pending')
   })
 })
 
@@ -129,6 +135,12 @@ describe('pinchZoom / doubleTapTarget', () => {
     expect(pinchZoom(2, 100, 400)).toBe(3)
     expect(pinchZoom(1.5, 0, 100)).toBe(1.5)
   })
+  it('1 미만(iPad 툴바 축소)에서 시작하면 하한은 시작 배율 — 모아도 확대로 튀지 않는다', () => {
+    expect(pinchZoom(0.5, 100, 50)).toBe(0.5)
+    expect(pinchZoom(0.5, 100, 150)).toBe(0.75)
+    expect(pinchZoom(0.5, 100, 400)).toBe(2)
+    expect(pinchZoom(0.75, 100, 10)).toBe(0.75)
+  })
   it('두 번 탭은 맞춤 ↔ 2배', () => {
     expect(doubleTapTarget(1)).toBe(2)
     expect(doubleTapTarget(2)).toBe(1)
@@ -146,5 +158,23 @@ describe('anchorScroll', () => {
   })
   it('잘못된 기준 배율(0 이하)이면 그대로', () => {
     expect(anchorScroll({ scrollLeft: 7, scrollTop: 9, focusX: 1, focusY: 1, from: 0, to: 2 })).toEqual({ left: 7, top: 9 })
+  })
+})
+
+describe('stageTouchAction', () => {
+  const base = { coarse: true, zoomable: true, image: true, zoom: 1 }
+  it('fine 포인터(데스크톱 마우스)면 표식 없음', () => {
+    expect(stageTouchAction({ ...base, coarse: false })).toBeUndefined()
+    expect(stageTouchAction({ ...base, coarse: false, zoomable: false })).toBeUndefined()
+  })
+  it('확대 대상이 아닌 형식은 manipulation — 브라우저 핀치 확대를 살린다(WCAG 1.4.4)', () => {
+    expect(stageTouchAction({ ...base, zoomable: false, image: false })).toBe('manipulation')
+    // 사용 불가 이미지(원본 삭제 안내)도 뷰어 배율이 없으니 같은 규칙.
+    expect(stageTouchAction({ ...base, zoomable: false })).toBe('manipulation')
+  })
+  it('맞춤 이미지는 none, 확대한 이미지·PDF 는 pan', () => {
+    expect(stageTouchAction(base)).toBe('none')
+    expect(stageTouchAction({ ...base, zoom: 2 })).toBe('pan')
+    expect(stageTouchAction({ ...base, image: false })).toBe('pan')
   })
 })

@@ -23,7 +23,7 @@ import { useViewerGestures } from './useViewerGestures'
 import { actionSlots, resolveSaveMethod, resolveShareState, type SlotId } from './viewerActions'
 import { ViewerBacklinks } from './ViewerBacklinks'
 import { ViewerBody } from './ViewerBody'
-import { anchorScroll } from './viewerGestures'
+import { anchorScroll, stageTouchAction } from './viewerGestures'
 import { ViewerActionBar, ViewerMobileTopBar } from './ViewerMobileBars'
 import { ViewerMoreMenu } from './ViewerMoreMenu'
 import { middleEllipsis, navState, resolvePending, routeKey } from './viewerNav'
@@ -187,11 +187,11 @@ export function AttachmentViewer({
   const cur = source?.key === itemKey ? source : null
   const blob = cur?.blob ?? null
   // 공유할 File — blob 이 바뀔 때만 만든다(canShare 판정·공유 호출에 같은 객체를 쓴다).
-  const file = useMemo(
-    () => (blob ? new File([blob], item.name, { type: item.mimeType || blob.type }) : null),
-    [blob, item.name, item.mimeType],
-  )
-  const fileShareable = file != null && canShareFile(file)
+  // canShare 판정도 같은 메모에 둔다 — 플랫폼 호출을 매 렌더(끌기·바 토글마다) 반복하지 않게.
+  const { file, fileShareable } = useMemo(() => {
+    const f = blob ? new File([blob], item.name, { type: item.mimeType || blob.type }) : null
+    return { file: f, fileShareable: f != null && canShareFile(f) }
+  }, [blob, item.name, item.mimeType])
   // 하단 4칸의 ⤴ 상태(판정 R12). cur 가 아직 없으면 = ViewerBody 첫 보고 전 → fetches 참으로 보고 "받는 중".
   // 미지원 형식은 첫 이펙트에서 곧바로 fetches 거짓이 와서 "공유할 수 없음"이 된다.
   const shareState = resolveShareState({
@@ -307,8 +307,11 @@ export function AttachmentViewer({
     zoomable,
     onZoom: zoomAt,
   })
-  // 맞춤 이미지는 스크롤할 것이 없어 터치를 전부 받고(none), 그 외는 네이티브 스크롤을 남긴다(pan) — 판정 R2.
-  const stageTouch = !coarse ? undefined : kind === 'IMAGE' && zoom === 1 ? 'none' : 'pan'
+  // 무대 touch-action — 맞춤 이미지 none, 확대 가능 형식 pan, 그 외 문서는 브라우저 핀치를 살리는 manipulation(판정 R2 + 최종 수정, WCAG 1.4.4).
+  const stageTouch = stageTouchAction({ coarse, zoomable, image: kind === 'IMAGE', zoom })
+  // 플로팅 확대 툴바 — 핀치·두 번 탭이 있는 "모바일 배치 + 터치"에서만 숨긴다(판정 R8 수정).
+  // 좁은 창 + 마우스(1920 화면 반쪽 분할 등)는 제스처가 꺼져 있어 툴바가 유일하게 보이는 확대 수단이다.
+  const showZoomBar = zoomable && !(mobile && coarse)
 
   // 키보드 — 판정은 routeKey(순수), 여기서는 DOM 맥락만 계산한다.
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -462,7 +465,15 @@ export function AttachmentViewer({
               data-zoom={zoom}
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
-              <ViewerBody key={item.key} item={item} zoom={zoom} onPage={onPage} chromeInset={mobile} onSource={setSource} />
+              <ViewerBody
+                key={item.key}
+                item={item}
+                zoom={zoom}
+                onPage={onPage}
+                chromeInset={mobile}
+                barsHidden={barsHidden}
+                onSource={setSource}
+              />
             </div>
             {nav.hasPrev && (
               <button
@@ -489,9 +500,14 @@ export function AttachmentViewer({
                 <ChevronRight />
               </button>
             )}
-            {/* 모바일은 하단 액션 바와 겹치고 확대는 핀치·두 번 탭으로 하므로 플로팅 툴바를 숨긴다(판정 R8). */}
-            {zoomable && !mobile && (
-              <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-black/60 px-1 text-white">
+            {/* 모바일 배치 + 터치는 확대를 핀치·두 번 탭으로 하므로 숨긴다(판정 R8 수정 — showZoomBar). */}
+            {/* 모바일 배치(좁은 창 + 마우스)에서는 하단 겹침 액션 바 위로 띄운다 — 실측 높이(--viewer-bottom-chrome), 재기 전엔 4칸 바 + 안전영역. */}
+            {showZoomBar && (
+              <div
+                data-testid="viewer-zoom-bar"
+                className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-black/60 px-1 text-white"
+                style={mobile ? { bottom: 'calc(var(--viewer-bottom-chrome, calc(3.5rem + env(safe-area-inset-bottom))) + 0.75rem)' } : undefined}
+              >
                 <Button variant="ghost" size="icon" aria-label="축소" disabled={zoom <= ZOOM_MIN} onClick={zoomOut}>
                   <Minus />
                 </Button>

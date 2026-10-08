@@ -51,6 +51,7 @@ export function ViewerBody({
   zoom,
   onPage,
   chromeInset,
+  barsHidden,
   onSource,
 }: {
   item: ViewerItem
@@ -63,6 +64,8 @@ export function ViewerBody({
    * 이미지는 사진 앱처럼 화면 전체에 맞추고 반투명 바가 위에 겹친다.
    */
   chromeInset?: boolean
+  /** 모바일 바가 숨겨진 상태 — 본문 밖 스크롤러를 가진 형식(PDF·HTML·DOCX)은 여백을 거둬 전체 높이를 쓴다. */
+  barsHidden?: boolean
   /**
    * 원본 blob 상태 보고(WP-278) — 모바일 ⤴ 공유는 제스처 직후 동기 호출이 필요해 뷰어가 blob 을 미리 들고 있어야 한다.
    * fetches = 이 항목이 지금 blob 을 받는(받을) 상태인가 — 미지원·사용 불가·10MB 동의 대기·오류면 거짓.
@@ -182,8 +185,12 @@ export function ViewerBody({
         zoomScroll && SCROLL_REGION_RING_INSET,
         // 상단 바(3.5rem=min-h-14 + 노치)·하단 겹침 바 높이 + 여유 1rem 만큼 비켜선다.
         // 하단은 AttachmentViewer 가 잰 실제 높이(--viewer-bottom-chrome — "참조된 곳" 띠·홈 인디케이터 포함), 재기 전엔 4칸 바(3.5rem)+안전영역.
+        // 단 바를 숨기면(가로 기본·탭) PDF·HTML·DOCX 처럼 본문 밖에 스크롤러를 가진(fillsFrame) 형식은 여백을 거둔다 —
+        // 여백이 스크롤 영역 밖 고정 띠가 되어 가로 화면의 4할 가까이를 비우기 때문. 텍스트류는 여백이 내용과 함께 스크롤되므로
+        // 그대로 둔다(토글 때 글이 들썩이지 않게).
         chromeInset &&
           kind !== 'IMAGE' &&
+          !(fillsFrame && barsHidden) &&
           'pt-[calc(3.5rem+env(safe-area-inset-top))] pb-[calc(var(--viewer-bottom-chrome,calc(3.5rem+env(safe-area-inset-bottom)))+1rem)]',
       )}
       data-testid="preview-body"

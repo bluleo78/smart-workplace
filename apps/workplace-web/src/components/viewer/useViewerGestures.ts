@@ -164,6 +164,12 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       stage.style.transform = ''
       if (backdrop) backdrop.style.opacity = ''
     }
+    /** 핀치 미리보기(scale·기준점)를 확정 없이 걷어낸다 — 세 번째 손가락·touchcancel 로 핀치가 끊길 때. */
+    const clearPinchPreview = () => {
+      stage.style.transition = ''
+      stage.style.transform = ''
+      stage.style.transformOrigin = ''
+    }
     /** 무대를 움직이는 중인 제스처인가 — 취소(두 번째 손가락·touchcancel) 때 원위치가 필요한 상태. */
     const moving = (t: Track) => t?.kind === 'one' && (t.lock === 'swipe' || t.lock === 'dismiss')
     const onStart = (e: TouchEvent) => {
@@ -194,6 +200,9 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       if (e.touches.length !== 1 || target.closest(INTERACTIVE)) {
         // 두 번째 손가락이 닿으면(확대 대상이 아니거나 세 손가락 이상) 진행 중이던 넘김·닫기를 원위치하고 이번 묶음은 무시한다.
         if (moving(track)) settle()
+        // 핀치 중 세 번째 손가락(손바닥 오접촉 등) — 이후 묶음은 무시라 손을 떼도 확정·정리가 없으므로 미리보기를 지금 걷는다.
+        // 남겨 두면 data-zoom 과 다른 배율로 확대된 채 다음 파일까지 따라간다(무대는 항목별 key 가 없다).
+        if (track?.kind === 'pinch') clearPinchPreview()
         track = { kind: 'ignore' }
         return
       }
@@ -237,6 +246,8 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
           canPanRight: track.canPanRight,
           atTop: track.atTop,
           zoom: o.zoom,
+          // 1.01 — scale 은 1.0000001 같은 부동소수로 올 수 있어 여유를 둔다.
+          pageZoomed: (window.visualViewport?.scale ?? 1) > 1.01,
         })
       }
       if (track.lock === 'swipe') {
@@ -291,10 +302,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
     const onCancel = () => {
       if (moving(track)) settle()
       // 취소된 핀치는 확정하지 않고 미리보기만 걷어낸다.
-      if (track?.kind === 'pinch') {
-        stage.style.transform = ''
-        stage.style.transformOrigin = ''
-      }
+      if (track?.kind === 'pinch') clearPinchPreview()
       track = null
       lastTap = null
     }

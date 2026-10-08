@@ -10,7 +10,7 @@ import { createSpace, personalSpace } from '../../factories/drive.factory'
 import { json } from '../../fixtures/mobile-chat'
 import { expect, test } from '../../fixtures/mobile.fixture'
 import { solidPng } from '../../fixtures/png'
-import { centerOf, pausePageClock, touchDoubleTap, touchDrag, touchHold, touchPinch, touchSwipeThenSecondFinger, touchTap } from '../../fixtures/touch'
+import { centerOf, pausePageClock, touchDoubleTap, touchDrag, touchHold, touchPinch, touchPinchThenThirdFinger, touchSwipeThenSecondFinger, touchTap } from '../../fixtures/touch'
 
 const SPACE_ID = 1
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -216,6 +216,25 @@ test.describe('참조된 곳 띠', () => {
         return lastBox.y + lastBox.height <= barBox.y
       })
       .toBe(true)
+  })
+})
+
+test.describe('바 숨김과 본문 여백', () => {
+  test('가로 모드(바 기본 숨김) PDF 는 위아래 빈 띠 없이 화면 높이를 다 쓰고, 탭해 바를 보이면 여백이 돌아온다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 844, height: 390 })
+    await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
+    await openViewer(page, 'doc.pdf')
+    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expect(page.getByTestId('viewer-top-bar')).toHaveAttribute('inert', '')
+    const body = page.getByTestId('preview-body')
+    const pad = () => body.evaluate((el) => [getComputedStyle(el).paddingTop, getComputedStyle(el).paddingBottom])
+    // 바가 숨은 동안 본문(pdf-document 바깥)에는 여백이 없고, PDF 스크롤러가 화면 높이를 거의 다 쓴다.
+    await expect.poll(pad).toEqual(['0px', '0px'])
+    await expect.poll(async () => (await page.getByTestId('pdf-document').boundingBox())!.height).toBeGreaterThanOrEqual(388)
+    // 탭해서 바를 보이면 끝줄이 바에 가리지 않도록 여백이 다시 붙는다.
+    await touchTap(page, await centerOf(page.getByTestId('viewer-stage')))
+    await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
+    await expect.poll(async () => (await pad())[0]).not.toBe('0px')
   })
 })
 
@@ -546,12 +565,72 @@ test.describe('핀치·두 번 탭 확대', () => {
     await expect.poll(async () => Math.abs((await doc.evaluate((el) => el.scrollTop / el.scrollHeight)) - ratioBefore)).toBeLessThan(0.08)
   })
 
-  test('확대 대상이 아닌 문서(마크다운)는 핀치·두 번 탭에 반응하지 않는다', async ({ authenticatedPage: page }) => {
+  test('확대 대상이 아닌 문서(마크다운)는 뷰어 배율이 그대로이고, 핀치는 브라우저 페이지 확대로 간다(WCAG 1.4.4)', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [MD(72)])
     await openViewer(page, '메모72.md')
     const stage = page.getByTestId('viewer-stage')
     await touchPinch(page, await centerOf(stage), 80, 240)
     await expect(stage).toHaveAttribute('data-zoom', '1')
+    // touch-action: manipulation 이라 브라우저가 페이지를 확대한다(pan-x pan-y 였을 땐 1 그대로 — 글자를 키울 수단이 없었다).
+    await expect.poll(() => page.evaluate(() => window.visualViewport!.scale)).toBeGreaterThan(1)
+  })
+
+  test('형식별 무대 touch-action — 맞춤 이미지 none, PDF pan, 확대 대상이 아닌 문서는 브라우저 핀치를 살리는 manipulation', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), { id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }, MD(72)])
+    const touchAction = () =>
+      page.getByTestId('viewer-stage').evaluate((el) => [getComputedStyle(el).touchAction, getComputedStyle(el.querySelector('[data-testid="preview-body"]')!).touchAction])
+    await openViewer(page, '사진70.png')
+    await expect.poll(touchAction).toEqual(['none', 'none'])
+    await page.getByRole('button', { name: '다음 파일' }).tap()
+    await expect(page.getByTestId('pdf-document')).toBeVisible()
+    await expect.poll(touchAction).toEqual(['pan-x pan-y', 'pan-x pan-y'])
+    await page.getByRole('button', { name: '다음 파일' }).tap()
+    await expect(page.getByTestId('preview-body')).toContainText('본문')
+    await expect.poll(touchAction).toEqual(['manipulation', 'manipulation'])
+  })
+
+  test('브라우저 자체 확대 중(visualViewport.scale > 1)에는 한 손가락 끌기가 넘김이 아니라 페이지 팬', async ({ authenticatedPage: page }) => {
+    // chromium 에뮬레이션은 CDP 핀치로 페이지 배율을 바꾸지 않으므로 scale 만 흉내 낸다 — 판정 입력은 이 값 하나다.
+    await page.addInitScript(() => {
+      const vv = window.visualViewport
+      if (vv) Object.defineProperty(vv, 'scale', { configurable: true, get: () => (window as unknown as { __vvScale?: number }).__vvScale ?? 1 })
+    })
+    await stubDriveFiles(page, [MD(72), MD(73)])
+    await openViewer(page, '메모72.md')
+    const stage = page.getByTestId('viewer-stage')
+    const c = await centerOf(stage)
+    await page.evaluate(() => ((window as unknown as { __vvScale: number }).__vvScale = 2))
+    // 손을 떼기 전 무대가 손가락을 따라 움직이지 않았다(넘김으로 잠기지 않음) — 넘김 판정이 비동기로 늦게 반영돼도 결정적인 확인.
+    let transformWhileDragging = ''
+    await touchDrag(page, c, { x: c.x - 200, y: c.y }, {
+      beforeEnd: async () => {
+        transformWhileDragging = await stage.evaluate((el) => el.style.transform)
+      },
+    })
+    expect(transformWhileDragging).toBe('')
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+    // 같은 끌기도 배율이 1 로 돌아오면 다시 넘김이다(가드가 확대 상태에만 걸린다는 대조).
+    await page.evaluate(() => ((window as unknown as { __vvScale: number }).__vvScale = 1))
+    await touchDrag(page, c, { x: c.x - 200, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
+  })
+
+  test('핀치 중 세 번째 손가락이 닿으면 확정 없이 미리보기 배율을 걷어낸다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    const stage = page.getByTestId('viewer-stage')
+    await expect(page.getByRole('img', { name: '사진70.png' })).toBeVisible()
+    await touchPinchThenThirdFinger(page, await centerOf(stage), 80, 240)
+    await expect.poll(() => stage.evaluate((el) => getComputedStyle(el).transform)).toBe('none')
+    await expect(stage).toHaveAttribute('data-zoom', '1')
+  })
+
+  test('모바일 배치 + 터치에서는 플로팅 확대 툴바가 없다(확대는 핀치·두 번 탭)', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    await expect(page.getByRole('img', { name: '사진70.png' })).toBeVisible()
+    await expect(page.getByTestId('viewer-zoom-bar')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '확대' })).toHaveCount(0)
   })
 })
 
@@ -611,12 +690,39 @@ test.describe('공유·저장', () => {
     await expect(page.getByTestId('viewer-slot-share')).toBeDisabled()
   })
 
-  test('iOS 홈 화면 앱은 ⬇ 저장이 공유 시트로 간다(blob 이 있을 때)', async ({ authenticatedPage: page }) => {
+  test('iOS 홈 화면 앱은 ⬇ 저장이 공유 시트로 간다(blob 이 있을 때) — 다운로드는 일어나지 않는다', async ({ authenticatedPage: page }) => {
     await stubWebShare(page, 'ok', { standalone: true })
     await stubDriveFiles(page, [MD(72, 'note.md')])
+    // 다운로드 경로(/download 요청·브라우저 다운로드 이벤트)를 세어 공유 시트 경로만 탔는지 본다.
+    let downloadRequests = 0
+    let downloads = 0
+    page.on('request', (r) => {
+      if (new URL(r.url()).pathname === '/api/v1/drive/files/72/download') downloadRequests++
+    })
+    page.on('download', () => downloads++)
     await openViewer(page, 'note.md')
     await expect(page.getByTestId('preview-body')).toContainText('본문')
     await page.getByTestId('preview-download').tap()
     await expect.poll(() => shared(page)).toEqual([expect.objectContaining({ name: 'note.md' })])
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 다운로드가 "일어나지 않음" 부재 확인이라 조건 대기로 바꿀 수 없다
+    await page.waitForTimeout(500)
+    expect(downloadRequests).toBe(0)
+    expect(downloads).toBe(0)
+  })
+
+  test('다른 파일로 넘기면 이전 파일 blob 으로 공유하지 않는다 — 새 파일이 올 때까지 받는 중, 오면 그 파일', async ({ authenticatedPage: page }) => {
+    await stubWebShare(page)
+    await stubDriveFiles(page, [IMG(70, 'first.png'), { ...MD(71, 'second.md'), delayMs: 1500 }])
+    await openViewer(page, 'first.png')
+    const share = page.getByTestId('viewer-slot-share')
+    await expect(share).toBeEnabled()
+    await page.getByRole('button', { name: '다음 파일' }).tap()
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
+    // 첫 파일 blob 이 메모리에 있어도 둘째 파일의 공유 칸은 받는 중(비활성)이다.
+    await expect(share).toBeDisabled()
+    await expect(share).toHaveAccessibleName('공유 (받는 중)')
+    await expect(share).toBeEnabled({ timeout: 10_000 })
+    await share.tap()
+    await expect.poll(() => shared(page)).toEqual([expect.objectContaining({ name: 'second.md' })])
   })
 })

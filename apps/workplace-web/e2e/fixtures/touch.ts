@@ -162,3 +162,26 @@ export async function touchSwipeThenSecondFinger(page: Page, from: Pt, dx: numbe
     await s.detach()
   }
 }
+
+/**
+ * 두 손가락으로 fromDist → toDist 만큼 벌리다가 세 번째 손가락을 얹고 모두 뗀다 — "핀치 중 손바닥 오접촉" 재현.
+ * 세 번째 손가락이 닿은 뒤에는 핀치를 확정하지 않고 미리보기만 걷혀야 한다.
+ */
+export async function touchPinchThenThirdFinger(page: Page, center: Pt, fromDist: number, toDist: number) {
+  const pts = (d: number) => [
+    { x: center.x - d / 2, y: center.y, id: 0 },
+    { x: center.x + d / 2, y: center.y, id: 1 },
+  ]
+  const s = await page.context().newCDPSession(page)
+  try {
+    const t0 = gestureStart()
+    await send(s, 'touchStart', pts(fromDist), t0)
+    for (let k = 1; k <= 6; k++) {
+      await send(s, 'touchMove', pts(fromDist + ((toDist - fromDist) * k) / 6), t0 + STEP_S * k)
+    }
+    await send(s, 'touchStart', [...pts(toDist), { x: center.x, y: center.y + 120, id: 2 }], t0 + STEP_S * 7)
+    await send(s, 'touchEnd', [], t0 + STEP_S * 8)
+  } finally {
+    await s.detach()
+  }
+}
