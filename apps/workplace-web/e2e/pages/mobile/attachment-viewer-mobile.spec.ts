@@ -6,8 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import type { Locator, Page } from '@playwright/test'
 
-import { createSpace, personalSpace } from '../../factories/drive.factory'
-import { json } from '../../fixtures/mobile-chat'
+import { type DriveStubFile, stubDriveFiles as stubDrive } from '../../fixtures/drive-mock'
 import { expect, test } from '../../fixtures/mobile.fixture'
 import { solidPng } from '../../fixtures/png'
 import {
@@ -28,47 +27,9 @@ const SPACE_ID = 1
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PDF = fs.readFileSync(path.join(HERE, '../../fixtures/sample-3p.pdf'))
 
-interface StubFile {
-  id: number
-  name: string
-  mimeType: string
-  body: string | Buffer
-  /** 요약 응답 — 숫자면 그 HTTP 상태(403 = ✨ 숨김), 없으면 DONE 요약. */
-  summary?: number | { summary: string | null; status: string }
-  /** 콘텐츠 응답 지연(ms) — 공유 "받는 중" 확인용. */
-  delayMs?: number
-  /** 참조된 곳 응답 — 없으면 빈 목록. */
-  backlinks?: unknown[]
-}
-
-/** 드라이브 공간·목록·파일별 콘텐츠/썸네일/요약/참조된 곳을 막는다. */
-async function stubDriveFiles(page: Page, files: StubFile[]) {
-  await page.route((u) => u.pathname === '/api/v1/drive/spaces', (r) =>
-    r.request().method() === 'GET' ? r.fulfill(json([personalSpace(), createSpace()])) : r.fallback())
-  await page.route((u) => u.pathname === '/api/v1/drive/quota', (r) => r.fulfill(json({ usedBytes: 0, quotaBytes: 10737418240 })))
-  await page.route((u) => u.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`, (r) =>
-    r.fulfill(json({
-      folders: [],
-      files: files.map((f) => ({
-        id: f.id, folderId: null, fileId: f.id + 1000, name: f.name, mimeType: f.mimeType,
-        sizeBytes: Buffer.byteLength(f.body), category: 'TEXT', createdAt: '2026-01-01T00:00:00Z',
-      })),
-    })))
-  for (const f of files) {
-    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/content`, async (r) => {
-      if (f.delayMs) await new Promise((res) => setTimeout(res, f.delayMs))
-      await r.fulfill({ status: 200, contentType: f.mimeType, body: f.body }).catch(() => {})
-    })
-    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/download`, (r) =>
-      r.fulfill({ status: 200, contentType: f.mimeType, body: f.body }))
-    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/thumbnail`, (r) => r.fulfill({ status: 404 }))
-    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/summary`, (r) =>
-      typeof f.summary === 'number'
-        ? r.fulfill({ status: f.summary, body: '' })
-        : r.fulfill(json(f.summary ?? { summary: '핵심 요약입니다.', status: 'DONE' })))
-    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/backlinks`, (r) => r.fulfill(json(f.backlinks ?? [])))
-  }
-}
+/** 이 spec 의 드라이브 모킹 — 요약 기본은 DONE(✨ 보임), ⬇ 저장 확인용 /download 도 막는다. */
+const stubDriveFiles = (page: Page, files: DriveStubFile[]) =>
+  stubDrive(page, files, { spaceId: SPACE_ID, download: true, defaultSummary: { summary: '핵심 요약입니다.', status: 'DONE' } })
 
 /** 목록에서 파일명을 탭해 뷰어를 연다. */
 async function openViewer(page: Page, name: string) {
@@ -103,8 +64,8 @@ async function pointOnLastPdfPage(page: Page): Promise<Pt> {
   return { x: b.x + b.width * 0.7, y: top + (bottom - top) * 0.4 }
 }
 
-const IMG = (id: number, name = `사진${id}.png`): StubFile => ({ id, name, mimeType: 'image/png', body: solidPng(800, 600) })
-const MD = (id: number, name = `메모${id}.md`, body = '# 제목\n\n본문'): StubFile => ({ id, name, mimeType: 'text/markdown', body })
+const IMG = (id: number, name = `사진${id}.png`): DriveStubFile => ({ id, name, mimeType: 'image/png', body: solidPng(800, 600) })
+const MD = (id: number, name = `메모${id}.md`, body = '# 제목\n\n본문'): DriveStubFile => ({ id, name, mimeType: 'text/markdown', body })
 
 test.describe('모바일 배치', () => {
   for (const width of [360, 390]) {

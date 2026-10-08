@@ -1,14 +1,14 @@
 // 통합 첨부 뷰어(WP-277) — 드라이브 단건 E2E: 긴 파일명 헤더 보존·0 바이트 텍스트.
-// 드라이브 stub 은 drive-preview-formats.spec.ts 의 공간·목록 route 패턴을 따른다.
+// 드라이브 route 모킹은 공용 fixture(e2e/fixtures/drive-mock.ts) — 모바일 뷰어 spec 과 같이 쓴다.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { Page } from '@playwright/test'
 
-import { createSpace, personalSpace } from '../../factories/drive.factory'
 import { createUser } from '../../factories/auth.factory'
 import { mockApi } from '../../fixtures/api-mock'
+import { type DriveSummaryStub, stubDriveFiles as stubDrive } from '../../fixtures/drive-mock'
 import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { solidPng } from '../../fixtures/png'
@@ -27,67 +27,36 @@ interface StubFile {
 /** stubDriveFiles 가 등록한 id → 파일명. */
 const NAMES: Record<number, string> = {}
 
-/** 공간·목록·콘텐츠·썸네일(404)·요약(PENDING)·참조된 곳([]) 을 route 로 막는다. */
+/**
+ * 공간·목록·콘텐츠·썸네일(404)·요약(PENDING)·참조된 곳([]) 을 route 로 막는다 — 실제 route 는 공용 fixture(drive-mock).
+ * 이 spec 은 목록 크기(sizeBytes)와 본문을 따로 주는 호출이 많아 그 모양(파일 목록 + id → 본문·옵션)을 그대로 받아 넘긴다.
+ */
 async function stubDriveFiles(
   page: Page,
   files: StubFile[],
   bodies: Record<number, string | Buffer>,
   opts: {
+    /** 파일 id → 콘텐츠 응답 지연(ms) — 늦게 도착한 응답이 현재 파일 자리에 그려지지 않는지 보려는 용도. */
     delayMs?: Record<number, number>
     /** 파일 id → 요약 응답(기본 PENDING). */
-    summary?: Record<number, { summary: string | null; status: string; reason?: string }>
+    summary?: Record<number, DriveSummaryStub>
     /** 파일 id → 참조된 곳 목록(기본 []). */
     backlinks?: Record<number, unknown[]>
   } = {},
 ) {
   // openPreview 가 id 로 파일명을 찾도록 기억한다.
   for (const f of files) NAMES[f.id] = f.name
-  await page.route(
-    (u) => u.pathname === '/api/v1/drive/spaces',
-    (r) => (r.request().method() === 'GET' ? r.fulfill({ json: [personalSpace(), createSpace()] }) : r.fallback()),
+  await stubDrive(
+    page,
+    files.map((f) => ({
+      ...f,
+      body: bodies[f.id] ?? '',
+      delayMs: opts.delayMs?.[f.id],
+      summary: opts.summary?.[f.id],
+      backlinks: opts.backlinks?.[f.id],
+    })),
+    { spaceId: SPACE_ID },
   )
-  await page.route(
-    (u) => u.pathname === '/api/v1/drive/quota',
-    (r) => r.fulfill({ json: { usedBytes: 0, quotaBytes: 10737418240 } }),
-  )
-  await page.route(
-    (u) => u.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
-    (r) =>
-      r.fulfill({
-        json: {
-          folders: [],
-          files: files.map((f) => ({
-            id: f.id,
-            folderId: null,
-            fileId: f.id + 1000,
-            name: f.name,
-            mimeType: f.mimeType,
-            sizeBytes: f.sizeBytes,
-            category: 'TEXT',
-            createdAt: '2026-01-01T00:00:00Z',
-          })),
-        },
-      }),
-  )
-  for (const f of files) {
-    await page.route(
-      (u) => u.pathname === `/api/v1/drive/files/${f.id}/content`,
-      async (r) => {
-        // 지연 옵션 — 늦게 도착한 응답이 현재 파일 자리에 그려지지 않는지 보려는 용도.
-        const delay = opts.delayMs?.[f.id]
-        if (delay) await new Promise((res) => setTimeout(res, delay))
-        await r.fulfill({ status: 200, contentType: f.mimeType, body: bodies[f.id] ?? '' }).catch(() => {})
-      },
-    )
-    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/thumbnail`, (r) => r.fulfill({ status: 404 }))
-    await page.route(
-      (u) => u.pathname === `/api/v1/drive/files/${f.id}/summary`,
-      (r) => r.fulfill({ json: opts.summary?.[f.id] ?? { summary: null, status: 'PENDING' } }),
-    )
-    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/backlinks`, (r) =>
-      r.fulfill({ json: opts.backlinks?.[f.id] ?? [] }),
-    )
-  }
 }
 
 /** 드라이브 목록에서 파일명(또는 id 로 찾은 파일명) 버튼을 눌러 뷰어를 연다. */
