@@ -16,6 +16,7 @@ import { MessageList } from '@/components/chat/MessageList'
 import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
 import { RenameChannelModal } from '@/components/chat/RenameChannelModal'
 import { ThreadPanel } from '@/components/chat/ThreadPanel'
+import { Page } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { Button } from '@/components/ui/button'
@@ -269,78 +270,85 @@ export default function ChannelPage() {
   }
 
   const channel = detail.data
+  // 모바일 스레드는 전체폭 상세 — 채널 헤더·채널 컬럼을 함께 숨기고 스레드 자체 헤더(‹)만 보인다(WP-207).
+  const hideChannel = isMobile && threadShown
   return (
-    <div className="flex h-full min-h-0">
-      {/* 채널 본문 컬럼 — 스레드 패널과 가로 분할.
-          min-w-0: flex 자식의 기본 min-width:auto 때문에 긴 첨부 파일명의 min-content 폭만큼 컬럼이 부모를 넘어 커지는 것을 막는다. */}
-      <div
-        data-testid="channel-column"
-        className={cn('flex h-full min-h-0 min-w-0 flex-1 flex-col', isMobile && threadShown && 'hidden')}
-      >
-        <ChannelHeader
-          channel={channel}
-          onOpenMembers={() => setMembersOpen(true)}
-          onOpenRename={() => setRenameOpen(true)}
-        />
-        <MessageScrollArea
-          depKey={`${messages.length}:${messages[0]?.id ?? 0}`}
-          initialAnchor={chatEntryAnchor(unreadDividerBeforeId, catchupSlot != null)}
+    // 페이지 틀 — 채널 헤더는 전체 폭(스레드 칸 위까지), 그 아래 본문이 [채널 컬럼 | 스레드 칸] 으로 나뉜다.
+    // 스레드 칸이 헤더 옆 화면 맨 위까지 올라가 앱 사이드 패널처럼 보이지 않게 헤더를 가로 분할 밖으로 꺼냈다.
+    <Page>
+      <ChannelHeader
+        channel={channel}
+        onOpenMembers={() => setMembersOpen(true)}
+        onOpenRename={() => setRenameOpen(true)}
+        className={cn(hideChannel && 'hidden')}
+      />
+      <Page.Body padded={false}>
+        {/* 채널 본문 컬럼 — 스레드 칸과 가로 분할.
+            min-w-0: flex 자식의 기본 min-width:auto 때문에 긴 첨부 파일명의 min-content 폭만큼 컬럼이 부모를 넘어 커지는 것을 막는다. */}
+        <div
+          data-testid="channel-column"
+          className={cn('flex h-full min-h-0 min-w-0 flex-1 flex-col', hideChannel && 'hidden')}
         >
-          <MessageList
-            messages={messages}
-            // 첫 조회 전엔 첨부 뷰어 열림 표식을 지우지 않는다(새로고침 뒤 다시 열기, WP-279).
-            ready={messagesLoaded}
+          <MessageScrollArea
+            depKey={`${messages.length}:${messages[0]?.id ?? 0}`}
+            initialAnchor={chatEntryAnchor(unreadDividerBeforeId, catchupSlot != null)}
+          >
+            <MessageList
+              messages={messages}
+              // 첫 조회 전엔 첨부 뷰어 열림 표식을 지우지 않는다(새로고침 뒤 다시 열기, WP-279).
+              ready={messagesLoaded}
+              channelId={channel.id}
+              currentUserId={me.id}
+              members={mentionMembers}
+              onOpenThread={(id) => threadParam.open(String(id))}
+              unreadDividerBeforeId={unreadDividerBeforeId}
+              catchupSlot={catchupSlot}
+              emptyState={
+                data ? (
+                  <ChatEmptyState
+                    icon={<Hash className="h-8 w-8" />}
+                    title={`#${channel.name}`}
+                    description={`이것은 #${channel.name} 채널의 시작입니다.`}
+                  />
+                ) : undefined
+              }
+            />
+          </MessageScrollArea>
+          {/* AI 작업 중 유령 버블 — progress 이벤트 발생 시 메시지 목록 하단에 렌더 */}
+          {working.size > 0 && (
+            <ul className="px-4 pb-1">
+              {[...working.values()].map((w) => (
+                <AiWorkingBubble key={w.streamId} agentName={w.agentName} steps={w.steps} />
+              ))}
+            </ul>
+          )}
+          {/* 아카이브 채널이면 composer 비활성. */}
+          <MessageComposer
             channelId={channel.id}
-            currentUserId={me.id}
             members={mentionMembers}
-            onOpenThread={(id) => threadParam.open(String(id))}
-            unreadDividerBeforeId={unreadDividerBeforeId}
-            catchupSlot={catchupSlot}
-            emptyState={
-              data ? (
-                <ChatEmptyState
-                  icon={<Hash className="h-8 w-8" />}
-                  title={`#${channel.name}`}
-                  description={`이것은 #${channel.name} 채널의 시작입니다.`}
-                />
-              ) : undefined
+            archived={channel.archived}
+            onSend={(body, fileIds, driveFileIds) =>
+              create.mutateAsync({
+                body,
+                fileIds: fileIds.length ? fileIds : undefined,
+                driveFileIds: driveFileIds.length ? driveFileIds : undefined,
+              })
             }
           />
-        </MessageScrollArea>
-        {/* AI 작업 중 유령 버블 — progress 이벤트 발생 시 메시지 목록 하단에 렌더 */}
-        {working.size > 0 && (
-          <ul className="px-4 pb-1">
-            {[...working.values()].map((w) => (
-              <AiWorkingBubble key={w.streamId} agentName={w.agentName} steps={w.steps} />
-            ))}
-          </ul>
+        </div>
+        {/* 스레드 칸 — 루트를 찾았을 때만 렌더(헤더 아래 본문 안 보조 칸). 닫기(✕·‹)는 히스토리 닫기 하나로 통일(WP-207). */}
+        {openThreadParent && (
+          <ThreadPanel
+            channelId={channel.id}
+            channelName={channel.name}
+            parent={openThreadParent}
+            members={mentionMembers}
+            me={me}
+            archived={channel.archived}
+            onClose={threadParam.close}
+          />
         )}
-        {/* 아카이브 채널이면 composer 비활성. */}
-        <MessageComposer
-          channelId={channel.id}
-          members={mentionMembers}
-          archived={channel.archived}
-          onSend={(body, fileIds, driveFileIds) =>
-            create.mutateAsync({
-              body,
-              fileIds: fileIds.length ? fileIds : undefined,
-              driveFileIds: driveFileIds.length ? driveFileIds : undefined,
-            })
-          }
-        />
-      </div>
-      {/* 스레드 패널 — 루트를 찾았을 때만 렌더. 닫기(✕·‹)는 히스토리 닫기 하나로 통일(WP-207). */}
-      {openThreadParent && (
-        <ThreadPanel
-          channelId={channel.id}
-          channelName={channel.name}
-          parent={openThreadParent}
-          members={mentionMembers}
-          me={me}
-          archived={channel.archived}
-          onClose={threadParam.close}
-        />
-      )}
+      </Page.Body>
       <RenameChannelModal
         channelId={channel.id}
         currentName={channel.name}
@@ -353,6 +361,6 @@ export default function ChannelPage() {
         open={membersOpen}
         onOpenChange={setMembersOpen}
       />
-    </div>
+    </Page>
   )
 }

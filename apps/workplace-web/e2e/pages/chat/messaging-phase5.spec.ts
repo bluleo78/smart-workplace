@@ -10,6 +10,7 @@ import {
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
+import { boxOf, expectBelowHeader, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import { trackRequests } from '../../fixtures/requests'
 
 // auth.fixture 의 createUser() 기본 id = 1 → "본인" 메시지 판정 기준.
@@ -572,5 +573,51 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     expect(cls).not.toContain('bg-blue-100')
     expect(cls).not.toContain('text-blue-700')
     expect(cls).not.toContain('border-blue-400')
+  })
+
+  // 레이아웃 회귀: 채널 헤더는 스레드 칸 위까지 전체 폭으로 덮고, 스레드는 헤더 아래 본문 안 보조 칸이다
+  // (스레드 칸이 헤더 옆 화면 맨 위까지 올라가 앱 사이드 패널처럼 보이던 것 방지). ?thread= 딥링크 + ✕ 닫기.
+  test('?thread= 딥링크 — 채널 헤더가 스레드 칸 위까지 덮고 스레드는 헤더 아래 칸, ✕ 로 닫힌다', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const CHANNEL_ID = 512
+    const PARENT_ID = 9900
+    const channel = createChannel({ id: CHANNEL_ID, name: '레이아웃채널' })
+    const parent = createMessage({ id: PARENT_ID, channelId: CHANNEL_ID, body: '부모글', replyCount: 0 })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [parent])
+    await stubReplies(page, PARENT_ID, [])
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}?thread=${PARENT_ID}`)
+    const header = page.getByTestId('channel-header')
+    const panel = page.getByTestId('thread-panel')
+    await expect(panel).toBeVisible()
+
+    // 헤더 하단선 56px, 헤더 폭 = 채널 칸 + 스레드 칸(좌단은 채널 칸, 우단은 스레드 칸과 일치).
+    await expectHeaderBottomAt56(header)
+    const [hb, cb, pb] = [await boxOf(header), await boxOf(page.getByTestId('channel-column')), await boxOf(panel)]
+    expect(Math.abs(hb.x - cb.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(hb.x + hb.width - (pb.x + pb.width))).toBeLessThanOrEqual(1)
+
+    // 스레드 칸은 헤더 아래에서 시작하고, 상단 소제목 줄은 보조 칸 규격(34px).
+    await expectBelowHeader(panel)
+    expect((await boxOf(page.getByTestId('thread-panel-header'))).height).toBe(34)
+
+    // 헤더 제목 · 첫 메시지 · 입력창이 같은 16px 축에서 시작한다.
+    const title = page.getByTestId('channel-header-name')
+    const column = page.getByTestId('channel-column')
+    await expectStartAligned(title, column.getByTestId(`message-${PARENT_ID}`))
+    await expectStartAligned(title, column.getByTestId('message-composer-input-wrap'))
+
+    // ✕ 닫기 → 패널 사라지고 URL 에서 thread 제거.
+    await page.getByTestId('thread-close').click()
+    await expect(panel).toHaveCount(0)
+    await expect(page).not.toHaveURL(/[?&]thread=/)
   })
 })
