@@ -15,11 +15,11 @@ import {
   dragOffset,
   type GestureLock,
   isDoubleTap,
+  isTapDuration,
   lockGesture,
   pinchZoom,
   releaseVelocity,
   type Sample,
-  TAP_MAX_MS,
 } from './viewerGestures'
 
 export interface ViewerGestureOptions {
@@ -61,6 +61,9 @@ interface Pinch {
   startZoom: number
   midX: number
   midY: number
+  /** 미리보기 scale 의 기준점(무대 왼쪽 위 기준 px) — 시작 때 한 번 잰다. 이동마다 재면 이미 걸린 scale 이 섞인 rect 로 기준점이 떠다닌다. */
+  originX: number
+  originY: number
   /** 시작 배율 대비 미리보기 배율(1 = 그대로) — 손을 뗄 때 startZoom × scale 로 확정한다. */
   scale: number
 }
@@ -173,7 +176,18 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         // 스와이프·닫기 중 두 번째 손가락이 닿았으면 무대를 즉시 원위치하고 핀치로 이어간다(Review Focus 3).
         if (moving(track)) paint(0, 0)
         const f = twoFinger(e)
-        track = { kind: 'pinch', startDist: f.dist, startZoom: o.zoom, midX: f.midX, midY: f.midY, scale: 1 }
+        // 무대 transform 을 비운 상태(위 원위치 포함)에서 기준점을 한 번만 잰다.
+        const r = stage.getBoundingClientRect()
+        track = {
+          kind: 'pinch',
+          startDist: f.dist,
+          startZoom: o.zoom,
+          midX: f.midX,
+          midY: f.midY,
+          originX: f.midX - r.left,
+          originY: f.midY - r.top,
+          scale: 1,
+        }
         lastTap = null
         return
       }
@@ -201,9 +215,8 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         if (e.cancelable) e.preventDefault()
         const f = twoFinger(e)
         track.scale = pinchZoom(track.startZoom, track.startDist, f.dist) / track.startZoom
-        const r = stage.getBoundingClientRect()
         stage.style.transition = ''
-        stage.style.transformOrigin = `${track.midX - r.left}px ${track.midY - r.top}px`
+        stage.style.transformOrigin = `${track.originX}px ${track.originY}px`
         stage.style.transform = `scale(${track.scale})`
         return
       }
@@ -267,7 +280,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         // 확정이면 무대·배경은 그대로 두고 닫는다(언마운트로 사라짐) — 원위치 애니메이션이 닫힘 위로 보이지 않게.
         if (decideDismiss({ dy, vy, height: stage.clientHeight })) o.onDismiss()
         else settle()
-      } else if (cur.lock === 'pending' && e.touches.length === 0 && e.timeStamp - cur.samples[0].t < TAP_MAX_MS) {
+      } else if (cur.lock === 'pending' && e.touches.length === 0 && isTapDuration(cur.samples[0].t, e.timeStamp)) {
         // 판정 임계(6px) 안에서 짧게(500ms 미만) 끝난 터치 = 탭. 길게 누르기는 탭이 아니다.
         handleTap({ t: e.timeStamp, x: t.clientX, y: t.clientY })
         return
@@ -285,15 +298,57 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       track = null
       lastTap = null
     }
-    stage.addEventListener('touchstart', onStart, { passive: true })
+    // 터치 도중 시작 대상이 DOM 에서 빠지는 경우(넘긴 직후 로딩 뼈대가 이미지로 바뀌는 등) — 이후 touchmove/end 는
+    // 떨어져 나간 그 요소로만 가고 무대까지 버블링되지 않아 탭·스와이프를 잃는다(끝난 줄 모르고 track 도 남음).
+    // 그래서 시작 대상에도 리스너를 걸되, 그 요소가 문서에서 빠진 뒤의 이벤트만 처리한다(붙어 있으면 무대 리스너가 받으므로 중복 없음).
+    const watched = new Set<EventTarget>()
+    const whenDetached =
+      <E extends TouchEvent>(fn: (e: E) => void) =>
+      (e: E) => {
+        if (!(e.currentTarget as Node).isConnected) fn(e)
+      }
+    /** 손을 모두 떼면 이번 묶음의 시작 대상 감시를 푼다. */
+    const onEndWatched = (e: TouchEvent) => {
+      onEnd(e)
+      if (e.touches.length === 0) unwatchAll()
+    }
+    const onCancelWatched = (e: TouchEvent) => {
+      onCancel()
+      if (e.touches.length === 0) unwatchAll()
+    }
+    const detachedMove = whenDetached(onMove)
+    const detachedEnd = whenDetached(onEndWatched)
+    const detachedCancel = whenDetached(onCancelWatched)
+    function unwatchAll() {
+      for (const t of watched) {
+        t.removeEventListener('touchmove', detachedMove as EventListener)
+        t.removeEventListener('touchend', detachedEnd as EventListener)
+        t.removeEventListener('touchcancel', detachedCancel as EventListener)
+      }
+      watched.clear()
+    }
+    const onStartWatched = (e: TouchEvent) => {
+      // 손을 모두 뗀 상태에서 새로 시작하면 지난 묶음의 감시는 버린다.
+      if (e.touches.length === 1) unwatchAll()
+      const t = e.target
+      if (t && t !== stage && !watched.has(t)) {
+        watched.add(t)
+        t.addEventListener('touchmove', detachedMove as EventListener, { passive: false })
+        t.addEventListener('touchend', detachedEnd as EventListener)
+        t.addEventListener('touchcancel', detachedCancel as EventListener)
+      }
+      onStart(e)
+    }
+    stage.addEventListener('touchstart', onStartWatched, { passive: true })
     stage.addEventListener('touchmove', onMove, { passive: false })
-    stage.addEventListener('touchend', onEnd)
-    stage.addEventListener('touchcancel', onCancel)
+    stage.addEventListener('touchend', onEndWatched)
+    stage.addEventListener('touchcancel', onCancelWatched)
     return () => {
-      stage.removeEventListener('touchstart', onStart)
+      stage.removeEventListener('touchstart', onStartWatched)
       stage.removeEventListener('touchmove', onMove)
-      stage.removeEventListener('touchend', onEnd)
-      stage.removeEventListener('touchcancel', onCancel)
+      stage.removeEventListener('touchend', onEndWatched)
+      stage.removeEventListener('touchcancel', onCancelWatched)
+      unwatchAll()
       stage.style.transform = ''
       stage.style.transition = ''
       stage.style.transformOrigin = ''

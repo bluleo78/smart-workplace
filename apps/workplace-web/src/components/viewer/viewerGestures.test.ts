@@ -7,6 +7,7 @@ import {
   doubleTapTarget,
   dragOffset,
   isDoubleTap,
+  isTapDuration,
   lockGesture,
   type LockInput,
   pinchZoom,
@@ -108,6 +109,15 @@ describe('isDoubleTap', () => {
     expect(isDoubleTap({ t: 0, x: 100, y: 100 }, { t: 350, x: 100, y: 100 })).toBe(false)
     expect(isDoubleTap({ t: 0, x: 100, y: 100 }, { t: 100, x: 200, y: 100 })).toBe(false)
     expect(isDoubleTap(null, { t: 0, x: 0, y: 0 })).toBe(false)
+  })
+})
+
+describe('isTapDuration', () => {
+  it('500ms 미만으로 눌렀다 뗀 것만 탭 — 그 이상은 길게 누르기', () => {
+    expect(isTapDuration(1000, 1040)).toBe(true)
+    expect(isTapDuration(1000, 1499)).toBe(true)
+    expect(isTapDuration(1000, 1500)).toBe(false)
+    expect(isTapDuration(1000, 1600)).toBe(false)
   })
 })
 

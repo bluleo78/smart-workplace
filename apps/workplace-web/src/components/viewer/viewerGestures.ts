@@ -118,6 +118,11 @@ export function releaseVelocity(samples: Sample[], windowMs = VELOCITY_WINDOW_MS
   return { vx: (last.x - first.x) / dt, vy: (last.y - first.y) / dt }
 }
 
+/** 누른 시각(startT)과 뗀 시각(endT, ms)으로 본 탭 여부 — TAP_MAX_MS 이상 누른 채 뗀 것(길게 누르기)은 탭이 아니다. 이동 판정은 lockGesture(6px) 몫. */
+export function isTapDuration(startT: number, endT: number): boolean {
+  return endT - startT < TAP_MAX_MS
+}
+
 /** 직전 탭과 이번 탭이 두 번 탭인가(시간·거리 모두 안). */
 export function isDoubleTap(prev: Sample | null, cur: Sample): boolean {
   if (!prev) return false

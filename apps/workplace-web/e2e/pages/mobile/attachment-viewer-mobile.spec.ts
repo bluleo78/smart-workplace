@@ -10,7 +10,7 @@ import { createSpace, personalSpace } from '../../factories/drive.factory'
 import { json } from '../../fixtures/mobile-chat'
 import { expect, test } from '../../fixtures/mobile.fixture'
 import { solidPng } from '../../fixtures/png'
-import { centerOf, touchDoubleTap, touchDrag, touchPinch, touchSwipeThenSecondFinger, touchTap } from '../../fixtures/touch'
+import { centerOf, pausePageClock, touchDoubleTap, touchDrag, touchHold, touchPinch, touchSwipeThenSecondFinger, touchTap } from '../../fixtures/touch'
 
 const SPACE_ID = 1
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -399,11 +399,13 @@ test.describe('아래로 닫기·탭 바 토글', () => {
     await stubDriveFiles(page, [IMG(70), IMG(71)])
     await openViewer(page, '사진70.png')
     const c = await centerOf(page.getByTestId('viewer-stage'))
+    // 타이머를 멈춰 둔다 — 탭과 스와이프 사이 CDP 왕복이 벽시계 300ms 를 넘어도 토글 타이머가 먼저 터지지 않게(결정적).
+    await pausePageClock(page)
     await touchTap(page, c)
     await touchDrag(page, c, { x: c.x - 180, y: c.y })
     await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- "탭 판정 지연(300ms)이 지나도 바가 숨지 않음" 부재 확인이라 조건 대기로 바꿀 수 없다
-    await page.waitForTimeout(400)
+    // 탭 판정 지연(300ms)을 넘겨 흘려도 취소된 토글은 터지지 않는다.
+    await page.clock.runFor(400)
     await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
   })
 
@@ -411,10 +413,10 @@ test.describe('아래로 닫기·탭 바 토글', () => {
     await stubDriveFiles(page, [IMG(70)])
     await openViewer(page, '사진70.png')
     const c = await centerOf(page.getByTestId('viewer-stage'))
-    // 제자리에서 6 × 100ms = 600ms 누른 뒤 뗀다(이동 0px).
-    await touchDrag(page, c, c, { steps: 6, stepDelayMs: 100 })
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- "탭 판정 지연(300ms)이 지나도 바가 숨지 않음" 부재 확인이라 조건 대기로 바꿀 수 없다
-    await page.waitForTimeout(400)
+    await pausePageClock(page)
+    // 제자리에서 600ms 누른 뒤 뗀다 — 멈춘 페이지 시계를 누른 동안 600ms 흘린다(실제로 기다리지 않음).
+    await touchHold(page, c, 600, { pageClock: true })
+    await page.clock.runFor(400)
     await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
   })
 
@@ -432,9 +434,10 @@ test.describe('아래로 닫기·탭 바 토글', () => {
     // 상단 바(약 56px) 아래 ~ 시트 위 사이의 본문 지점.
     const y = sb.y + 80
     expect(y).toBeLessThan(top)
+    await pausePageClock(page)
     await touchTap(page, { x: sb.x + sb.width / 2, y })
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- "탭 판정 지연(300ms) 동안 바가 숨지 않음" 부재 확인이라 조건 대기로 바꿀 수 없다
-    await page.waitForTimeout(400)
+    // 탭 판정 지연(300ms)을 흘려 토글 타이머가 실제로 돈 뒤에도 sheetOpen 가드로 바가 그대로다.
+    await page.clock.runFor(400)
     await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
   })
 
@@ -462,13 +465,15 @@ test.describe('핀치·두 번 탭 확대', () => {
     await expect(img).toBeVisible()
     const w1 = (await img.boundingBox())!.width
     const b = (await stage.boundingBox())!
+    // 이미지는 rAF 가 필요 없어 타이머를 멈춰 둔다 — 두 탭 사이에 단일 탭 토글(300ms)이 벽시계로 터지는 경합 제거.
+    await pausePageClock(page)
     await touchDoubleTap(page, { x: b.x + b.width * 0.8, y: b.y + b.height / 2 })
     await expect(stage).toHaveAttribute('data-zoom', '2')
     await expect.poll(async () => (await img.boundingBox())!.width).toBeGreaterThan(w1 * 1.8)
     // 오른쪽을 두 번 탭했으니 그 지점이 제자리에 남도록 오른쪽으로 스크롤돼 있다.
     await expect.poll(() => page.getByTestId('preview-body').evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- "두 번 탭 뒤 단일 탭 판정 지연(300ms) 동안 바가 토글되지 않음" 부재 확인
-    await page.waitForTimeout(400)
+    // 두 번 탭 뒤 단일 탭 판정 지연(300ms)을 흘려도 바가 토글되지 않는다.
+    await page.clock.runFor(400)
     await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
     await touchDoubleTap(page, { x: b.x + b.width / 2, y: b.y + b.height / 2 })
     await expect(stage).toHaveAttribute('data-zoom', '1')
