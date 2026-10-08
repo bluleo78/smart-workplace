@@ -7,6 +7,7 @@ import type { Page } from '@playwright/test'
 
 import { createDm, createDmParticipant, createMessage } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import { trackRequests } from '../../fixtures/requests'
 
 // auth.fixture createUser() 기본 id=1, name='테스트 사용자'.
@@ -87,6 +88,19 @@ test.describe('messaging 인라인 compose + self-DM', () => {
       await expect(page.getByTestId('member-search-row-2')).toBeVisible()
     },
   )
+
+  // 레이아웃 회귀: 데스크톱 새 메시지도 페이지 표준 헤더(h-14, 하단선 56) — 받는 사람 입력은 본문 첫 줄로 헤더 제목과 같은 축.
+  test('데스크톱 새 메시지 — 헤더 하단선 56, 받는 사람 입력이 헤더 제목과 같은 시작선', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await stubSidebarLists(page)
+    await stubUserSearch(page, [])
+
+    await page.goto('/chat/new')
+    const header = page.getByTestId('new-message-page').getByTestId('page-header')
+    await expect(header.locator('h1')).toHaveText('새 메시지')
+    await expectHeaderBottomAt56(header)
+    await expectStartAligned(header.locator('h1'), page.getByTestId('new-message-recipients'))
+  })
 
   // (F) 회귀: /chat/new 받는사람 검색은 AGENT 사용자도 포함해야 한다 (#691)
   test(

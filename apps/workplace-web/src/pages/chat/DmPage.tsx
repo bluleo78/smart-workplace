@@ -13,6 +13,7 @@ import { DmHeader } from '@/components/chat/DmHeader'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
 import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
+import { Page } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
 import { useChannelCatchup } from '@/hooks/queries/useChannelCatchup'
@@ -221,52 +222,55 @@ export default function DmPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    // 페이지 틀 — DM 헤더(Page.Header) + 자체 레이아웃 본문(메시지 스크롤·입력창이 각자 16px 축을 쓴다).
+    <Page>
       <DmHeader dm={dm} currentUserId={me.id} />
-      <MessageScrollArea
-        depKey={`${messages.length}:${messages[0]?.id ?? 0}`}
-        initialAnchor={chatEntryAnchor(unreadDividerBeforeId, catchupSlot != null)}
-        anchorPending={detail.isPending}
-      >
-        <MessageList
-          messages={messages}
-          // 첫 조회 전엔 첨부 뷰어 열림 표식을 지우지 않는다(새로고침 뒤 다시 열기, WP-279).
-          ready={messagesLoaded}
+      <Page.Body padded={false} className="flex-col">
+        <MessageScrollArea
+          depKey={`${messages.length}:${messages[0]?.id ?? 0}`}
+          initialAnchor={chatEntryAnchor(unreadDividerBeforeId, catchupSlot != null)}
+          anchorPending={detail.isPending}
+        >
+          <MessageList
+            messages={messages}
+            // 첫 조회 전엔 첨부 뷰어 열림 표식을 지우지 않는다(새로고침 뒤 다시 열기, WP-279).
+            ready={messagesLoaded}
+            channelId={dm.id}
+            currentUserId={me.id}
+            members={mentionMembers}
+            unreadDividerBeforeId={unreadDividerBeforeId}
+            catchupSlot={catchupSlot}
+            emptyState={
+              data ? (
+                <ChatEmptyState
+                  icon={<MessageSquare className="h-8 w-8" />}
+                  title={dmDisplayName(dm, me.id)}
+                  description={dmEmptyDescription(dm, me.id)}
+                />
+              ) : undefined
+            }
+          />
+        </MessageScrollArea>
+        {/* AI 작업 중 유령 버블 — progress 이벤트 발생 시 메시지 목록 하단에 렌더 */}
+        {working.size > 0 && (
+          <ul className="px-4 pb-1">
+            {[...working.values()].map((w) => (
+              <AiWorkingBubble key={w.streamId} agentName={w.agentName} steps={w.steps} />
+            ))}
+          </ul>
+        )}
+        <MessageComposer
           channelId={dm.id}
-          currentUserId={me.id}
           members={mentionMembers}
-          unreadDividerBeforeId={unreadDividerBeforeId}
-          catchupSlot={catchupSlot}
-          emptyState={
-            data ? (
-              <ChatEmptyState
-                icon={<MessageSquare className="h-8 w-8" />}
-                title={dmDisplayName(dm, me.id)}
-                description={dmEmptyDescription(dm, me.id)}
-              />
-            ) : undefined
+          onSend={(body, fileIds, driveFileIds) =>
+            create.mutateAsync({
+              body,
+              fileIds: fileIds.length ? fileIds : undefined,
+              driveFileIds: driveFileIds.length ? driveFileIds : undefined,
+            })
           }
         />
-      </MessageScrollArea>
-      {/* AI 작업 중 유령 버블 — progress 이벤트 발생 시 메시지 목록 하단에 렌더 */}
-      {working.size > 0 && (
-        <ul className="px-4 pb-1">
-          {[...working.values()].map((w) => (
-            <AiWorkingBubble key={w.streamId} agentName={w.agentName} steps={w.steps} />
-          ))}
-        </ul>
-      )}
-      <MessageComposer
-        channelId={dm.id}
-        members={mentionMembers}
-        onSend={(body, fileIds, driveFileIds) =>
-          create.mutateAsync({
-            body,
-            fileIds: fileIds.length ? fileIds : undefined,
-            driveFileIds: driveFileIds.length ? driveFileIds : undefined,
-          })
-        }
-      />
-    </div>
+      </Page.Body>
+    </Page>
   )
 }

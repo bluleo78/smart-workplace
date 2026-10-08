@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom'
 import { messagingApi } from '@/api/messaging'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { RecipientInput } from '@/components/chat/RecipientInput'
-import { PageHeader } from '@/components/layout/PageHeader'
+import { Page, pageGutterClass } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { useCreateDm } from '@/hooks/queries/useCreateDm'
 import type { MemberPickerCandidate } from '@/hooks/queries/useUserSearch'
@@ -15,6 +15,7 @@ import type { PendingFile } from '@/hooks/useAttachmentDraft'
 import { useAuth } from '@/hooks/useAuth'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { handleApiError } from '@/lib/api-error'
+import { cn } from '@/lib/utils'
 
 // 본인 포함 최대 8명 → 타겟 최대 7명.
 const MAX_TARGETS = 7
@@ -112,14 +113,15 @@ export default function NewMessagePage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="new-message-page">
-      {/* 모바일: 병합 상세 헤더에 "새 메시지" 를 등록해 레이아웃의 모듈 제목("채팅") 바를 대신한다(M1).
-          액션이 없으므로 ⋯ 는 두지 않는다. 데스크톱은 헤더 바 없이 아래 본문 라벨 그대로. */}
-      {isMobile && <PageHeader title="새 메시지" mobileActions={null} />}
-      <header className="border-b px-4 py-2">
-        {/* 모바일은 위 헤더가 제목을 보이므로 시각적으로 숨기되 스크린리더에는 남긴다. */}
-        <div className="text-sm font-semibold max-lg:sr-only" data-testid="new-message-label">새 메시지</div>
-        <div className="mt-2 max-lg:mt-0">
+    <Page data-testid="new-message-page">
+      {/* 페이지 표준 헤더 "새 메시지" — 데스크톱은 h-14 바, 모바일은 병합 상세 헤더로 레이아웃의 모듈 제목("채팅") 바를 대신한다(M1).
+          액션이 없으므로 모바일 ⋯ 는 두지 않는다. */}
+      <Page.Header title="새 메시지" mobileActions={null} />
+      <Page.Body padded={false} className="flex-col">
+        {/* 받는 사람 줄 — 본문 첫 줄. 페이지 여백(pageGutterClass) 축으로 헤더 제목과 시작선을 맞춘다. */}
+        <div className={cn('border-b py-2', pageGutterClass)}>
+          {/* 모바일 전용 스크린리더 라벨(기존 유지) — 데스크톱은 헤더 제목이 같은 역할. */}
+          {isMobile && <div className="sr-only" data-testid="new-message-label">새 메시지</div>}
           {/* 진입 즉시 상대를 고를 수 있게 자동 포커스 — 포커스되면 후보 목록이 바로 열린다(#883). */}
           <RecipientInput
             selected={selected}
@@ -131,27 +133,27 @@ export default function NewMessagePage() {
             onTabOut={focusComposer}
           />
         </div>
-      </header>
 
-      {/* 수신자 없으면 안내 문구, 있으면 첫 메시지 작성 안내 */}
-      <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">
-        {selected.length === 0
-          ? '받는 사람을 추가하면 대화를 시작할 수 있어요.'
-          : '첫 메시지를 입력해 대화를 시작하세요.'}
-      </div>
+        {/* 수신자 없으면 안내 문구, 있으면 첫 메시지 작성 안내 */}
+        <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">
+          {selected.length === 0
+            ? '받는 사람을 추가하면 대화를 시작할 수 있어요.'
+            : '첫 메시지를 입력해 대화를 시작하세요.'}
+        </div>
 
-      {/* channelId=0: DM 이 아직 없으므로 첨부는 holdFiles 로 보관만 하고 전송 시 업로드한다(WP-99). */}
-      <div ref={composerRef} className="contents">
-        <MessageComposer
-          channelId={0}
-          uploadFn={holdFiles}
-          members={members}
-          // sending 은 disabled 에 넣지 않는다 — 넣으면 전송 중 입력기가 언마운트돼 실패 시 본문이 사라진다.
-          // 중복 전송은 handleSend 의 sending 가드와 RichInput 의 제출 중 가드가 막는다.
-          disabled={selected.length === 0}
-          onSend={handleSend}
-        />
-      </div>
-    </div>
+        {/* channelId=0: DM 이 아직 없으므로 첨부는 holdFiles 로 보관만 하고 전송 시 업로드한다(WP-99). */}
+        <div ref={composerRef} className="contents">
+          <MessageComposer
+            channelId={0}
+            uploadFn={holdFiles}
+            members={members}
+            // sending 은 disabled 에 넣지 않는다 — 넣으면 전송 중 입력기가 언마운트돼 실패 시 본문이 사라진다.
+            // 중복 전송은 handleSend 의 sending 가드와 RichInput 의 제출 중 가드가 막는다.
+            disabled={selected.length === 0}
+            onSend={handleSend}
+          />
+        </div>
+      </Page.Body>
+    </Page>
   )
 }

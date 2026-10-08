@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { createDm, createDmParticipant, createMessage } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 
 // 채널·DM 사이드바 목록 + SSE 스트림 stub.
 // AppLayout 이 useEventStream() 으로 /api/v1/events 를 항상 구독하므로 함께 stub (#506).
@@ -655,4 +656,27 @@ test.describe('messaging DM', () => {
     // hover 시 전체 이름 확인 가능하도록 title 속성 보강.
     await expect(title).toHaveAttribute('title', longName)
   })
+
+  // 레이아웃 회귀: DM 헤더는 페이지 표준 헤더(Page.Header) — 하단선 56px, 제목·첫 메시지·입력창이 같은 16px 축.
+  for (const width of DESKTOP_WIDTHS) {
+    test(`DM 헤더 제목·첫 메시지·입력창이 같은 시작선에 있다 (${width}px)`, async ({ authenticatedPage: page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      const dm = createDm({
+        id: 104,
+        participants: [
+          createDmParticipant({ userId: 1, name: '나' }),
+          createDmParticipant({ userId: 2, name: '밥' }),
+        ],
+      })
+      await stubLists(page, [dm])
+      await stubMessages(page, 104, [createMessage({ id: 8800, channelId: 104, authorId: 2, authorName: '밥', body: '첫 메시지' })])
+      await stubMarkRead(page, 104)
+      await page.goto('/chat/dms/104')
+
+      const title = page.getByTestId('dm-title')
+      await expectHeaderBottomAt56(page.getByTestId('dm-header'))
+      await expectStartAligned(title, page.getByTestId('message-8800'))
+      await expectStartAligned(title, page.getByTestId('message-composer-input-wrap'))
+    })
+  }
 })

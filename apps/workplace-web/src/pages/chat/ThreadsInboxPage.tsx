@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
-import { PageHeader } from '@/components/layout/PageHeader'
+import { Page } from '@/components/layout/Page'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { useThreadsInbox } from '@/hooks/queries/useThreadsInbox'
 import { buildThreadsInboxContext } from '@/lib/aiScreenContext/builders/messaging'
@@ -39,19 +39,21 @@ export default function ThreadsInboxPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="threads-inbox-page">
-      <PageHeader title="스레드" icon={<Inbox className="h-5 w-5 text-muted-foreground" />} />
+    // 읽기 폭(reading) 페이지 — 카드 목록이 헤더 시작선에서 왼쪽 정렬로 768px 까지만 펼쳐진다.
+    <Page width="reading" data-testid="threads-inbox-page">
+      <Page.Header title="스레드" icon={<Inbox className="h-5 w-5 text-muted-foreground" />} />
       {!isLoading && items.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center">
+        <Page.Body padded={false} className="items-center justify-center">
           <ChatEmptyState
             icon={<Inbox className="h-10 w-10" />}
             title="새 스레드 답글이 없어요"
             description="내가 시작했거나 참여한 스레드에 새 답글이 달리면 여기에 모입니다."
           />
-        </div>
+        </Page.Body>
       ) : (
-        <div ref={setScrollEl} className="flex-1 overflow-y-auto p-3">
-          <ul className="mx-auto flex max-w-2xl flex-col gap-2">
+        // 본문 스크롤 요소를 무한 스크롤 sentinel 의 root 로 넘긴다(WP-182).
+        <Page.Body scrollRef={setScrollEl}>
+          <ul className="flex flex-col gap-2">
             {items.map((item) => (
               <li key={item.rootMessage.id}>
                 <button
@@ -76,8 +78,8 @@ export default function ThreadsInboxPage() {
           </ul>
           {/* WP-182: 끝에 닿으면 자동 로드 — 실패했을 때만 다시 시도 버튼 */}
           <LoadMoreFooter query={threadsQuery} root={scrollEl} data-testid="threads-inbox-more" />
-        </div>
+        </Page.Body>
       )}
-    </div>
+    </Page>
   )
 }
