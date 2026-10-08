@@ -24,6 +24,8 @@ interface StubFile {
   summary?: number | { summary: string | null; status: string }
   /** 콘텐츠 응답 지연(ms) — 공유 "받는 중" 확인용. */
   delayMs?: number
+  /** 참조된 곳 응답 — 없으면 빈 목록. */
+  backlinks?: unknown[]
 }
 
 /** 드라이브 공간·목록·파일별 콘텐츠/썸네일/요약/참조된 곳을 막는다. */
@@ -51,7 +53,7 @@ async function stubDriveFiles(page: Page, files: StubFile[]) {
       typeof f.summary === 'number'
         ? r.fulfill({ status: f.summary, body: '' })
         : r.fulfill(json(f.summary ?? { summary: '핵심 요약입니다.', status: 'DONE' })))
-    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/backlinks`, (r) => r.fulfill(json([])))
+    await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/backlinks`, (r) => r.fulfill(json(f.backlinks ?? [])))
   }
 }
 
@@ -136,5 +138,63 @@ test.describe('모바일 배치', () => {
     await page.getByTestId('viewer-top-bar').getByRole('button', { name: '닫기' }).tap()
     await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
     await expect.poll(color).toBe(original)
+  })
+})
+
+test.describe('AI 요약 시트', () => {
+  test('✨ 요약 → 반 높이 다크 시트, ⤢ 펼치기로 거의 전체, 요약 닫기로 닫힘', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(80, 'plan.md')])
+    await openViewer(page, 'plan.md')
+    // 모바일은 저장된 패널 상태와 무관하게 닫힌 채 연다(판정 R10).
+    await expect(page.getByTestId('viewer-summary-sheet')).toHaveCount(0)
+    await page.getByTestId('viewer-slot-summary').tap()
+    const sheet = page.getByTestId('viewer-summary-sheet')
+    await expect(sheet.getByTestId('drive-summary-card')).toContainText('핵심 요약입니다.')
+    const vh = page.viewportSize()!.height
+    const half = (await sheet.boundingBox())!.height
+    expect(Math.abs(half - vh / 2)).toBeLessThan(vh * 0.08)
+    const expand = sheet.getByRole('button', { name: '펼치기' })
+    await expect(expand).toHaveAttribute('aria-expanded', 'false')
+    await expand.tap()
+    await expect(sheet.getByRole('button', { name: '접기' })).toHaveAttribute('aria-expanded', 'true')
+    await expect.poll(async () => (await sheet.boundingBox())!.height).toBeGreaterThan(vh * 0.8)
+    // 시트는 뷰어 다크 토큰 안에 있다(.dark 루트의 자손 — 하드코딩 색 없이 다크).
+    expect(await sheet.evaluate((el) => el.closest('.dark') != null)).toBe(true)
+    await sheet.getByRole('button', { name: '요약 닫기' }).tap()
+    await expect(sheet).toHaveCount(0)
+  })
+
+  test('모바일에서 열고 닫은 상태는 저장하지 않는다 — 데스크톱 마지막 상태를 덮지 않음', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(80, 'plan.md')])
+    await page.addInitScript(() => localStorage.setItem('attachment-viewer:summary-panel', '1'))
+    await openViewer(page, 'plan.md')
+    await expect(page.getByTestId('viewer-summary-sheet')).toHaveCount(0)
+    await page.getByTestId('viewer-slot-summary').tap()
+    await page.getByTestId('viewer-summary-sheet').getByRole('button', { name: '요약 닫기' }).tap()
+    expect(await page.evaluate(() => localStorage.getItem('attachment-viewer:summary-panel'))).toBe('1')
+  })
+})
+
+test.describe('참조된 곳 띠', () => {
+  test('바 위에 띠가 얹혀도 문서 끝줄이 띠에 가려지지 않는다', async ({ authenticatedPage: page }) => {
+    // ✨ 불가(403) + 참조 여러 건 → 띠가 하단 바 위에 얹힌다(판정 R11).
+    const lines = Array.from({ length: 80 }, (_, i) => `줄 ${i + 1}`).join('\n\n')
+    const backlinks = [1, 2, 3].map((n) => ({ sourceType: 'ISSUE', sourceId: n, label: `WP-${n} 검토`, deepLink: `/projects/WP/issues/${n}` }))
+    await stubDriveFiles(page, [{ ...MD(85, 'long.md', `${lines}\n\n마지막 줄`), summary: 403, backlinks }])
+    await openViewer(page, 'long.md')
+    const strip = page.getByTestId('viewer-action-bar').getByTestId('file-backlinks')
+    await expect(strip).toBeVisible()
+    const body = page.getByTestId('preview-body')
+    const last = body.getByText('마지막 줄')
+    await expect(last).toBeAttached()
+    // 띠 높이까지 반영된 여백으로 맨 끝까지 스크롤한 뒤, 끝줄이 하단 겹침 바(띠 포함) 위에 있어야 한다.
+    await expect
+      .poll(async () => {
+        await body.evaluate((el) => el.scrollTo(0, el.scrollHeight))
+        const lastBox = (await last.boundingBox())!
+        const barBox = (await page.getByTestId('viewer-action-bar').boundingBox())!
+        return lastBox.y + lastBox.height <= barBox.y
+      })
+      .toBe(true)
   })
 })

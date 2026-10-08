@@ -434,8 +434,10 @@ test('좁은 화면(lg 미만)에서는 드라이브여도 요약 패널을 접�
   // ✨ 는 보이되(요약 가능) 패널은 접힘 — 본문 아래로 쌓여 본문을 가리지 않게.
   await expect(page.getByRole('button', { name: 'AI 요약' })).toBeVisible()
   await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0)
+  await expect(page.getByTestId('viewer-summary-sheet')).toHaveCount(0)
   await page.getByRole('button', { name: 'AI 요약' }).click()
-  await expect(page.getByTestId('viewer-side-panel').getByTestId('drive-summary-card')).toContainText('좁은 화면 요약')
+  // lg 미만은 모바일 배치(WP-278) — 요약은 본문 아래 패널 대신 바텀시트로 열린다.
+  await expect(page.getByTestId('viewer-summary-sheet').getByTestId('drive-summary-card')).toContainText('좁은 화면 요약')
 })
 
 test('요약 응답 전에는 ✨·패널을 띄우지 않고 응답이 성공하면 보인다', async ({ authenticatedPage: page }) => {

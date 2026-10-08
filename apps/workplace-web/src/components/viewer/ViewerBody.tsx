@@ -165,8 +165,11 @@ export function ViewerBody({
         !fillsFrame && 'p-4',
         kind === 'IMAGE' && 'flex',
         zoomScroll && SCROLL_REGION_RING_INSET,
-        // 상단 바(3.5rem=min-h-14)·하단 4칸 바(min-h-14 + 여유) 높이만큼 + 노치/홈 인디케이터 안전영역.
-        chromeInset && kind !== 'IMAGE' && 'pt-[calc(3.5rem+env(safe-area-inset-top))] pb-[calc(4.5rem+env(safe-area-inset-bottom))]',
+        // 상단 바(3.5rem=min-h-14 + 노치)·하단 겹침 바 높이 + 여유 1rem 만큼 비켜선다.
+        // 하단은 AttachmentViewer 가 잰 실제 높이(--viewer-bottom-chrome — "참조된 곳" 띠·홈 인디케이터 포함), 재기 전엔 4칸 바(3.5rem)+안전영역.
+        chromeInset &&
+          kind !== 'IMAGE' &&
+          'pt-[calc(3.5rem+env(safe-area-inset-top))] pb-[calc(var(--viewer-bottom-chrome,calc(3.5rem+env(safe-area-inset-bottom)))+1rem)]',
       )}
       data-testid="preview-body"
     >

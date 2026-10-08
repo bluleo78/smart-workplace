@@ -22,7 +22,7 @@ import { ViewerBody } from './ViewerBody'
 import { ViewerActionBar, ViewerMobileTopBar } from './ViewerMobileBars'
 import { ViewerMoreMenu } from './ViewerMoreMenu'
 import { middleEllipsis, navState, resolvePending, routeKey } from './viewerNav'
-import { ViewerSidePanel } from './ViewerSidePanel'
+import { ViewerSidePanel, ViewerSummarySheet } from './ViewerSidePanel'
 
 /** 확대 단계(25%)와 범위. */
 const ZOOM_STEP = 0.25
@@ -75,6 +75,18 @@ export function AttachmentViewer({
   useThemeColor('#000000', mobile)
   // 바 숨김(탭 토글·가로 모드) — Task 6 에서 상태로 바뀐다. 지금은 항상 보임.
   const barsHidden = false
+  // 하단 겹침 바의 실제 높이(px) — "참조된 곳" 띠가 바 위에 얹히면(판정 R11) 고정 4.5rem 으론 본문 끝줄이 가려진다.
+  // 측정값을 루트 CSS 변수 --viewer-bottom-chrome 로 내려 ViewerBody 아래 여백이 띠까지 비켜서게 한다(안전영역 포함 값).
+  // 바 요소는 콜백 ref 로 상태에 담는다 — Dialog 포털이 내용을 첫 커밋 뒤에 붙여, useRef + 마운트 effect 로는 요소를 놓친다.
+  const [actionBarEl, setActionBarEl] = useState<HTMLDivElement | null>(null)
+  const [bottomChrome, setBottomChrome] = useState<number | null>(null)
+  useEffect(() => {
+    if (!actionBarEl) return
+    // 띠는 참조 목록이 늦게 도착해 나중에 생기므로 한 번 재지 않고 크기 변화를 계속 따라간다.
+    const ro = new ResizeObserver(() => setBottomChrome(actionBarEl.offsetHeight))
+    ro.observe(actionBarEl)
+    return () => ro.disconnect()
+  }, [actionBarEl])
   // 범위 밖 index(목록 재조회 직후 등)에도 죽지 않게 묶음 안으로 맞춘다 — 렌더 시 items 는 비어 있지 않다.
   const idx = Math.min(Math.max(index, 0), items.length - 1)
   const item = items[idx]
@@ -101,11 +113,12 @@ export function AttachmentViewer({
     .join(' · ')
   // 모바일 상단 2줄째는 순번·쪽만(시안 M1) — 크기는 데스크톱 헤더에만.
   const mobileMeta = [nav.label || null, pageLabel].filter(Boolean).join(' · ')
-  // 사이드 패널 — 초기값 = 저장된 마지막 상태, 없으면 호출부 기본값(드라이브는 펼침, 단 lg 이상에서만). 묶음 안에서 넘겨도 유지된다.
-  // 좁은 화면(모바일 폭 — 앱 공용 기준 MOBILE_MEDIA_QUERY)에선 패널이 본문 아래로 쌓여 본문을 가리므로, 사용자가 직접 연 적이 없으면 접힌 채 연다.
-  const [panelOpen, setPanelOpen] = useState(() => readPanelPref() ?? (!!defaultPanelOpen && !getIsMobile()))
+  // 사이드 패널 — 초기값 = 저장된 마지막 상태, 없으면 호출부 기본값(드라이브는 펼침). 묶음 안에서 넘겨도 유지된다.
+  // 모바일 배치는 시트가 본문 절반을 가리므로 항상 닫힌 채 열고, 모바일에서 바꾼 상태는 저장하지 않는다(판정 R10 — 데스크톱 마지막 상태 보존).
+  const [panelOpen, setPanelOpen] = useState(() => (getIsMobile() ? false : (readPanelPref() ?? !!defaultPanelOpen)))
   const togglePanel = (open: boolean) => {
     setPanelOpen(open)
+    if (getIsMobile()) return
     try {
       localStorage.setItem(PANEL_STORAGE_KEY, open ? '1' : '0')
     } catch {
@@ -214,6 +227,7 @@ export function AttachmentViewer({
         )}
         // 키보드 열림 다이얼로그 규칙(index.css)에서 이 전체 화면 레이어를 골라 제외하는 표식.
         data-viewer-root=""
+        style={mobile && bottomChrome != null ? ({ '--viewer-bottom-chrome': `${bottomChrome}px` } as React.CSSProperties) : undefined}
         {...aiAware.contentProps}
         // 열릴 때 첫 포커스가 다운로드 아이콘 버튼에 가면 툴팁이 바로 뜨고, 첫 Escape 를 툴팁이 먹어
         // 뷰어가 닫히지 않는다 — 포커스는 다이얼로그 자체에 둔다. AI 패널 공존 훅의 처리를 먼저 돌리고, 막지 않았을 때만 바꾼다.
@@ -343,7 +357,7 @@ export function AttachmentViewer({
               {items.length > 1 ? `${item.name}, ${items.length}개 중 ${idx + 1}번째` : ''}
             </p>
           </div>
-          {showPanel && <ViewerSidePanel item={item} onClose={() => togglePanel(false)} />}
+          {showPanel && !mobile && <ViewerSidePanel item={item} onClose={() => togglePanel(false)} />}
         </div>
         {/* ✨ 를 쓸 수 없어도(AI 꺼짐·요약 403) 참조된 곳은 얇은 띠로 보인다 — 비어 있으면 아무것도 그리지 않는다. */}
         {/* 요약 판정 중('loading')에는 띠도 그리지 않는다 — 곧 패널로 옮겨 갈 수 있어 띠→패널 깜빡임을 막는다. */}
@@ -354,7 +368,14 @@ export function AttachmentViewer({
         )}
         {/* 모바일 하단 4칸 바 — 참조된 곳 띠는 바 위 같은 겹침 레이어에 얹는다(판정 R11). */}
         {mobile && (
-          <ViewerActionBar slots={slots} share={shareState} summaryOpen={showPanel} hidden={barsHidden} onAction={onSlot}>
+          <ViewerActionBar
+            barRef={setActionBarEl}
+            slots={slots}
+            share={shareState}
+            summaryOpen={showPanel}
+            hidden={barsHidden}
+            onAction={onSlot}
+          >
             {(summary === 'hidden' || summary === 'none') && item.backlinksDriveFileId != null && (
               <div className="max-h-24 overflow-y-auto border-b border-border px-4 py-2">
                 <ViewerBacklinks driveFileId={item.backlinksDriveFileId} />
@@ -362,6 +383,8 @@ export function AttachmentViewer({
             )}
           </ViewerActionBar>
         )}
+        {/* 모바일 AI 요약 — 본문 아래 쌓는 대신 하단 바 위에 겹치는 반 높이 시트(스펙 §4.2). */}
+        {showPanel && mobile && <ViewerSummarySheet item={item} onClose={() => togglePanel(false)} />}
         {/* 폴더 선택 모달 — 뷰어 Dialog 안에 그려 포커스 트랩 안에 둔다. */}
         {importer.picker}
       </DialogContent>
