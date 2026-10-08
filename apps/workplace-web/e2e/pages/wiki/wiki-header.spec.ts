@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
+import { DESKTOP_WIDTHS, boxOf, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import { measureBox } from '../../fixtures/wait'
 
 const SPACE_ID = 1
@@ -142,7 +143,7 @@ test('노트 헤더 — AI 이력이 없는 페이지는 attribution 배지가 �
 })
 
 // #830: 제목이 길어 브레드크럼이 truncate 폭 전체를 채워도, 뷰포트 중앙에 fixed 로 떠 있는
-// 전역 AI 어시스턴트 런처(AIChip)와 겹치지 않아야 한다 — nav 의 max-width 클램프 회귀 검증.
+// 전역 AI 어시스턴트 런처(AIChip)와 겹치지 않아야 한다 — Page.Header 좌측 그룹 공통 클램프(aiChipSafeLeftMaxW) 회귀 검증.
 test('노트 헤더 — 긴 제목의 브레드크럼이 전역 AI 어시스턴트 런처와 겹치지 않는다 (#830)', async ({
   authenticatedPage: page,
 }) => {
@@ -180,6 +181,70 @@ test('노트 헤더 — 긴 제목의 브레드크럼이 전역 AI 어시스턴�
     const navBox = await measureBox(nav, 'nav')
     const launcherBox = await measureBox(launcher, 'launcher')
     // 브레드크럼 nav 의 우측 끝이 AI 런처의 좌측 끝을 넘지 않아야 한다(= 겹치지 않음).
+    expect(navBox.x + navBox.width).toBeLessThanOrEqual(launcherBox.x)
+  }).toPass()
+})
+
+// 페이지 틀(Page) 통합: 경로 nav 첫 크럼과 본문 제목이 같은 16px 축(왼쪽 정렬 reading 폭, 넓은 화면에서도 가운데로 몰리지 않음).
+for (const width of DESKTOP_WIDTHS) {
+  test(`노트 헤더 — 경로 첫 크럼과 본문 제목이 같은 x, 본문 폭 ≤ 768 @${width}px`, async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await setupRoutes(page)
+
+    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/2`)
+    const header = page.getByTestId('wiki-page-header')
+    await expectHeaderBottomAt56(header)
+    // 첫 크럼(조상 버튼) ↔ 본문 제목 입력. page-body-content 자신은 여백 포함이라 내용 요소로 비교한다.
+    await expectStartAligned(
+      header.getByRole('navigation', { name: '페이지 경로' }).getByRole('button', { name: '제품 문서' }),
+      page.getByPlaceholder('제목 없음'),
+    )
+    expect((await boxOf(page.getByTestId('page-body-content'))).width).toBeLessThanOrEqual(768)
+  })
+}
+
+// 긴 경로(크럼 6개)도 경로 nav 가 AI 칩 좌측 경계를 넘지 않는다 — Page.Header 공통 클램프(aiChipSafeLeftMaxW).
+test('노트 헤더 — 크럼 6개인 긴 경로도 AI 어시스턴트 런처와 겹치지 않는다', async ({
+  authenticatedPage: page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const deep: WikiPageSummary[] = Array.from({ length: 6 }, (_, i) => ({
+    id: i + 1,
+    parentId: i === 0 ? null : i,
+    title: `아주 긴 단계 이름 ${i + 1} 번째 노트`,
+    position: 0,
+    aiLastUsedAt: null,
+  }))
+  await page.route('**/api/v1/wiki/spaces', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([space]) }),
+  )
+  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(deep) }),
+  )
+  await page.route('**/api/v1/wiki/pages/*/backlinks', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  )
+  await page.route('**/api/v1/wiki/pages/*/mentions', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  )
+  await page.route('**/api/v1/wiki/pages/*', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...detail(6, deep[5].title), parentId: 5 }),
+    }),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/6`)
+  const nav = page.getByTestId('wiki-page-header').getByRole('navigation', { name: '페이지 경로' })
+  const launcher = page.getByTestId('chat-launcher')
+  await expect(nav.getByRole('button')).toHaveCount(5)
+  await expect(launcher).toBeVisible()
+  await expect(async () => {
+    const navBox = await measureBox(nav, 'nav')
+    const launcherBox = await measureBox(launcher, 'launcher')
     expect(navBox.x + navBox.width).toBeLessThanOrEqual(launcherBox.x)
   }).toPass()
 })
