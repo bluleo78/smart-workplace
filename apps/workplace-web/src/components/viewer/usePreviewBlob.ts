@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { driveApi } from '../../api/drive'
 import { needsPreviewConfirm } from '../../lib/previewContent'
@@ -34,6 +34,11 @@ export function usePreviewBlob(item: ViewerItem, enabled: boolean, { trackProgre
   const active = enabled && !item.unavailable
   const confirmSize = active && needsPreviewConfirm(item.sizeBytes, consentedKey === item.key) ? item.sizeBytes : null
   const waiting = confirmSize != null
+  // 진행 분모 폴백(항목 메타 크기) — 받기 이펙트 의존성 밖에서 최신값으로 읽는다(같은 항목 안에서는 바뀌지 않는다).
+  const sizeRef = useRef(item.sizeBytes)
+  useEffect(() => {
+    sizeRef.current = item.sizeBytes
+  })
 
   useEffect(() => {
     let alive = true
@@ -46,15 +51,15 @@ export function usePreviewBlob(item: ViewerItem, enabled: boolean, { trackProgre
     const onProgress = trackProgress
       ? ({ loaded, total }: { loaded: number; total: number | undefined }) => {
           if (!alive) return
-          const percent = progressPercent(loaded, total, item.sizeBytes)
+          const percent = progressPercent(loaded, total, sizeRef.current)
           const step = percent ?? Math.floor(loaded / UNKNOWN_TOTAL_STEP)
           if (step === lastStep) return
           lastStep = step
-          setProgress({ loaded, total: total ?? item.sizeBytes ?? null, percent })
+          setProgress({ loaded, total: total ?? sizeRef.current ?? null, percent })
         }
       : undefined
     // 받기 시작 전에도 0% 를 보여 준다(첫 진행 이벤트는 응답 헤더 뒤에야 온다).
-    if (trackProgress) setProgress({ loaded: 0, total: item.sizeBytes ?? null, percent: item.sizeBytes ? 0 : null })
+    if (trackProgress) setProgress({ loaded: 0, total: sizeRef.current ?? null, percent: sizeRef.current ? 0 : null })
     // 넘기거나 닫으면 받던 요청을 끊는다 — 영상·오디오는 최대 25MB 라 버려질 다운로드가 여러 개 겹치면 지금 항목이 느려지고 데이터를 낭비한다.
     const controller = new AbortController()
     driveApi
@@ -66,7 +71,7 @@ export function usePreviewBlob(item: ViewerItem, enabled: boolean, { trackProgre
       alive = false
       controller.abort()
     }
-  }, [item.contentPath, item.mimeType, item.sizeBytes, active, waiting, attempt, trackProgress])
+  }, [item.contentPath, item.mimeType, active, waiting, attempt, trackProgress])
 
   return {
     blob,

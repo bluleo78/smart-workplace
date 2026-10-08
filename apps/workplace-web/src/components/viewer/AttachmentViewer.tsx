@@ -32,7 +32,7 @@ import { ViewerBody } from './ViewerBody'
 import { anchoredScroll, roundZoom, stageTouchAction } from './viewerGestures'
 import { ViewerActionBar, ViewerMobileTopBar, ViewerTitle } from './ViewerMobileBars'
 import { ViewerMoreMenu } from './ViewerMoreMenu'
-import { navState, resolvePending, routeKey } from './viewerNav'
+import { isControl, navState, resolvePending, routeKey } from './viewerNav'
 import { canShareFile, canShareFiles, shareFile } from './viewerShare'
 import { ViewerSidePanel, ViewerSummarySheet } from './ViewerSidePanel'
 
@@ -54,15 +54,9 @@ function readPanelPref(): boolean | null {
   }
 }
 
-/**
- * Space 를 그 요소의 활성화로 남겨 둘 조작 요소(WP-281) — 버튼·링크·입력·위젯 역할·label·포커스 가능(tabindex ≥ 0) 요소.
- * 뷰어 루트(role=dialog, tabindex=-1)는 해당하지 않는다.
- */
-const CONTROL_SELECTOR =
-  'button, a[href], input, select, textarea, summary, label, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="checkbox"], [role="switch"], [role="slider"], [role="option"], [role="radio"], [tabindex]:not([tabindex="-1"])'
-
 const edgeBtnClass =
-  'absolute top-1/2 z-10 flex size-11 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-ring'
+  // 다크 배경 위 반투명 밝은 채움 + 테두리(시안 .nav) — 전경 토큰(.dark 에서 밝은색) 기준이라 하드코딩 색 없이 경계 대비 3:1 이상.
+  'absolute top-1/2 z-10 flex size-11 -translate-y-1/2 items-center justify-center rounded-full border border-foreground/40 bg-foreground/15 text-foreground backdrop-blur-sm hover:bg-foreground/25 focus-visible:ring-2 focus-visible:ring-ring'
 
 /**
  * 통합 첨부 뷰어(WP-276) — 다크 라이트박스. 묶음(items) 안에서 ‹ ›·←/→ 로 넘기고 이미지·PDF 는 확대한다(WP-277).
@@ -319,11 +313,14 @@ export function AttachmentViewer({
    * - 포커스가 바(‹ › 포함) 안 — inert 로 빠질 요소 안에 포커스가 갇히지 않게(스펙 §5.1).
    * - 요약 시트가 열림 — 시트를 닫으면 ✨ 칸으로 포커스를 돌려야 하는데 그 칸이 숨김(inert)이면 포커스가 길을 잃는다.
    */
+  /** 포커스가 바(‹ › 포함) 안인가 — 숨기면 inert 로 빠질 요소라 탭 토글·자동 숨김 모두 이때는 숨기지 않는다. */
+  const focusInBars = () => {
+    const a = document.activeElement
+    return [topBarRef.current, actionBarEl, prevBtn.current, nextBtn.current].some((el) => el?.contains(a))
+  }
   const toggleBars = () => {
     if (sheetOpen) return
-    const a = document.activeElement
-    const inBars = [topBarRef.current, actionBarEl, prevBtn.current, nextBtn.current].some((el) => el?.contains(a))
-    if (!barsHidden && inBars) return
+    if (!barsHidden && focusInBars()) return
     // 보이기면 자동 숨김도 거둔다(재생 중이면 3초 뒤 다시 숨는다 — 사진 앱 동작).
     if (barsHidden) setAutoHidden(false)
     setBarsPref(!barsHidden)
@@ -332,16 +329,19 @@ export function AttachmentViewer({
   // 영상 재생 시작 3초 뒤 바 자동 숨김(모바일 배치 + 터치, 스펙 §5.3 #2 — 사진 앱 동작).
   // 일시정지·넘김(플레이어 정리가 재생 거짓을 보고)·언마운트면 타이머를 거둔다. 탭 토글과 같은 규칙으로 시트가 열렸거나
   // 포커스가 바 안이면 숨기지 않는다(inert 로 빠질 요소 안에 포커스가 갇히지 않게).
+  // 타이머 안에서 최신 판정을 쓰려고 ref 로(이펙트 의존성에 매 렌더 새 함수를 넣지 않게).
+  const focusInBarsRef = useRef(focusInBars)
+  useEffect(() => {
+    focusInBarsRef.current = focusInBars
+  })
   const autoHide = mobile && coarse && media === 'video' && mediaPlaying && !barsHidden && !sheetOpen
   useEffect(() => {
     if (!autoHide) return
     const t = setTimeout(() => {
-      const a = document.activeElement
-      const inBars = [topBarRef.current, actionBarEl, prevBtn.current, nextBtn.current].some((el) => el?.contains(a))
-      if (!inBars) setAutoHidden(true)
+      if (!focusInBarsRef.current()) setAutoHidden(true)
     }, AUTO_HIDE_BARS_MS)
     return () => clearTimeout(t)
-  }, [autoHide, actionBarEl, setAutoHidden])
+  }, [autoHide, setAutoHidden])
 
   // 키 연타 대응 — 부모(URL 훅)는 직전 이동이 렌더에 반영되기 전의 호출을 무시할 수 있다(낡은 위치 스냅숏 방어, 훅은 그대로 둔다).
   // 그래서 "요청했지만 아직 반영 안 된 목표"를 항목 key 로 들고(목록이 바뀌어도 파일 자체를 가리키도록),
@@ -422,9 +422,9 @@ export function AttachmentViewer({
       zoomable,
       media,
       // 네이티브 컨트롤(재생 막대 등)은 shadow DOM 이라 대상이 미디어 요소 자신으로 보정되어 온다.
-      inMedia: !!t.closest('video, audio'),
+      inMedia: !!t.closest(MEDIA_ELEMENT_SELECTOR),
       // 미디어 요소 자신은 조작 요소로 치지 않는다(inMedia 가 따로 다룬다). 포커스 가능한 위젯 역할·label·tabindex 요소 위의 Space 는 그 요소 몫.
-      onControl: !!t.closest(CONTROL_SELECTOR),
+      onControl: isControl(t),
       fullscreen: !!document.fullscreenElement,
       repeat: e.repeat,
     })
@@ -434,7 +434,7 @@ export function AttachmentViewer({
       // 아직 받는 중(플레이어 없음)이면 아무것도 하지 않으므로 기본 동작도 막지 않는다.
       if (!player) return
       const delta = action === 'seekBack' ? -MEDIA_SEEK_SECONDS : MEDIA_SEEK_SECONDS
-      if (action !== 'playPause' && t.closest('video, audio')) {
+      if (action !== 'playPause' && t.closest(MEDIA_ELEMENT_SELECTOR)) {
         // 미디어 요소 포커스 — 그 안 네이티브 컨트롤(재생 막대·음량 막대)이 포커스를 가졌으면 브라우저가 처리한다(음량 막대를 탐색으로 빼앗지 않게).
         // 요소 자체 포커스는 브라우저가 처리하지 않으므로 그때만 우리가 탐색한다 — 판정은 기본 동작 뒤(seekUnlessNativeHandled).
         seekUnlessNativeHandled(player, delta)
@@ -449,9 +449,7 @@ export function AttachmentViewer({
       return
     }
     e.preventDefault()
-    if (action === 'exitFullscreen') {
-      // Esc 는 위에서 걸러 여기 오지 않는다(onEscapeKeyDown 처리).
-    } else if (action === 'prev') go(-1)
+    if (action === 'prev') go(-1)
     else if (action === 'next') go(1)
     else if (action === 'zoomIn') zoomIn()
     else if (action === 'zoomOut') zoomOut()
@@ -485,17 +483,7 @@ export function AttachmentViewer({
           aiAware.contentProps.onEscapeKeyDown(e)
           if (e.defaultPrevented) return
           const fs = document.fullscreenElement
-          const action = routeKey({
-            key: 'Escape',
-            ctrlOrMeta: false,
-            inAiPanel: false,
-            inEditable: false,
-            inHorizontalScroller: false,
-            zoomable,
-            fullscreen: !!fs,
-            fullscreenJustExited: fullscreenJustExited(fullscreenExitAt.current, performance.now()),
-          })
-          if (action !== 'exitFullscreen') return
+          if (!fs && !fullscreenJustExited(fullscreenExitAt.current, performance.now())) return
           e.preventDefault()
           if (fs) {
             // 뷰어가 Esc 로 직접 푼 해제 — 이어 오는 같은 Esc(늦은 keydown)도 가드 대상이 되게 표시한다.
@@ -614,6 +602,7 @@ export function AttachmentViewer({
                 barsHidden={barsHidden}
                 onSource={setSource}
                 media={mediaSession}
+                sideInset={mobile && items.length > 1}
               />
             </div>
             {nav.hasPrev && (

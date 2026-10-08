@@ -7,6 +7,7 @@
 // 끌기 중 이동은 React 상태가 아니라 무대 style 에 직접 쓴다 — 프레임마다 뷰어 전체가 다시 그려지지 않게.
 import { useEffect, useRef } from 'react'
 
+import { MEDIA_ELEMENT_SELECTOR } from './MediaPlayer'
 import {
   decideDismiss,
   decideSwipe,
@@ -300,7 +301,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       }
       const t = e.touches[0]
       // 시작점 아래 미디어 요소 — 네이티브 컨트롤은 shadow DOM 이라 대상이 요소 자신으로 보정되어 온다.
-      const mediaEl = target.closest('video, audio')
+      const mediaEl = target.closest(MEDIA_ELEMENT_SELECTOR)
       track = {
         kind: 'one',
         onMedia: !!mediaEl,

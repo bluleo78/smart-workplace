@@ -3,6 +3,7 @@
 import type { Page } from '@playwright/test'
 
 import { createSpace, personalSpace } from '../factories/drive.factory'
+import { SAMPLE_MP3, SAMPLE_WEBM } from './samples'
 
 /** 요약 응답 본문. */
 export interface DriveSummaryStub {
@@ -91,3 +92,14 @@ export async function stubDriveFiles(page: Page, files: DriveStubFile[], opts: S
     await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/backlinks`, (r) => r.fulfill({ json: f.backlinks ?? [] }))
   }
 }
+
+/** 실제 webm 영상 드라이브 파일(WP-281) — extra 로 크기·지연 등을 덮는다. */
+export const videoFile = (id: number, name: string, extra: Partial<DriveStubFile> = {}): DriveStubFile => ({
+  id,
+  name,
+  mimeType: 'video/webm',
+  body: SAMPLE_WEBM,
+  ...extra,
+})
+/** 실제 mp3 오디오 드라이브 파일(WP-281). */
+export const audioFile = (id: number, name: string): DriveStubFile => ({ id, name, mimeType: 'audio/mpeg', body: SAMPLE_MP3 })

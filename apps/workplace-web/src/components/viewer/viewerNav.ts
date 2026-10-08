@@ -31,8 +31,6 @@ export interface KeyContext {
   onControl?: boolean
   /** 미디어가 전체화면 중인가(document.fullscreenElement). */
   fullscreen?: boolean
-  /** 방금(가드 시간 안) 전체화면이 풀렸는가 — 브라우저가 전체화면 해제에 쓴 Esc 가 뒤늦게 와도 뷰어를 닫지 않게(스펙 §5.3 #7). */
-  fullscreenJustExited?: boolean
   /** 키를 누르고 있어 반복되는 keydown 인가 — Space 반복으로 재생/정지가 계속 뒤집히지 않게. */
   repeat?: boolean
 }
@@ -46,13 +44,11 @@ export type ViewerAction =
   | 'playPause'
   | 'seekBack'
   | 'seekForward'
-  | 'exitFullscreen'
   | null
 
 /**
  * 키 → 뷰어 동작.
- * - Esc 는 평소 Radix Dialog(+useAiPanelAwareDialog)가 닫기로 처리하므로 null. 전체화면 중(또는 방금 해제)이면 'exitFullscreen' —
- *   호출부는 닫기를 막고 전체화면만 푼다(스펙 §5.3 #7, 이중 닫기 방지).
+ * - Esc 는 다루지 않는다 — Radix Dialog(+useAiPanelAwareDialog)가 닫고, 전체화면 가드(스펙 §5.3 #7)는 뷰어의 onEscapeKeyDown 이 한다.
  * - ←/→: 영상·오디오에 포커스가 있거나 전체화면이면 탐색(±5초), 그 외는 파일 넘김(스펙 §5.3 #6).
  * - Space: 영상·오디오 형식이면 재생/정지 — 단 버튼·링크 위에서는 그 요소의 활성화 몫(전체화면 중 제외),
  *   미디어 요소 자신에 포커스가 있으면 네이티브 컨트롤 몫(null). 문서는 null(브라우저 스크롤).
@@ -62,8 +58,6 @@ export function routeKey(ctx: KeyContext): ViewerAction {
   // 미디어 탐색 — 미디어에 포커스가 있거나 전체화면일 때만(그 밖의 ←/→ 는 파일 넘김이 우선).
   const seeking = !!ctx.media && (!!ctx.inMedia || !!ctx.fullscreen)
   switch (ctx.key) {
-    case 'Escape':
-      return ctx.fullscreen || ctx.fullscreenJustExited ? 'exitFullscreen' : null
     case 'ArrowLeft':
       if (seeking) return 'seekBack'
       return ctx.inHorizontalScroller ? null : 'prev'
@@ -113,4 +107,15 @@ export function resolvePending(
   if (pendingKey == null || pendingKey === currentKey) return { kind: 'clear' }
   const index = items.findIndex((i) => i.key === pendingKey)
   return index < 0 ? { kind: 'clear' } : { kind: 'request', index }
+}
+
+/**
+ * Space 를 그 요소의 활성화로 남겨 둘 조작 요소인가(WP-281) — 버튼·링크·입력·위젯 역할·label·포커스 가능(tabindex ≥ 0) 요소 안.
+ * 뷰어 루트(role=dialog, tabindex=-1)와 미디어 요소 자신은 해당하지 않는다(미디어는 routeKey 의 inMedia 가 따로 다룬다).
+ */
+const CONTROL_SELECTOR =
+  'button, a[href], input, select, textarea, summary, label, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="checkbox"], [role="switch"], [role="slider"], [role="option"], [role="radio"], [tabindex]:not([tabindex="-1"])'
+
+export function isControl(el: Element): boolean {
+  return el.closest(CONTROL_SELECTOR) != null
 }

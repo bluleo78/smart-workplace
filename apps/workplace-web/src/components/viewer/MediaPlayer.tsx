@@ -3,6 +3,8 @@
 import { FileAudio, Play } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
+import { useObservedBox } from '../../hooks/useObservedBox'
+import { cn } from '../../lib/utils'
 import { fitMediaSize } from './mediaPlayback'
 
 /**
@@ -37,6 +39,7 @@ export function MediaPlayer({
   name,
   session,
   onError,
+  sideInset = false,
 }: {
   kind: 'VIDEO' | 'AUDIO'
   url: string
@@ -44,6 +47,8 @@ export function MediaPlayer({
   name: string
   session?: MediaSession
   onError: () => void
+  /** 영상·오디오 좌우를 ‹ › 폭만큼 비울지(모바일 + 넘길 항목 있음). */
+  sideInset?: boolean
 }) {
   // 미디어 요소 — 두 갈래(영상·오디오) 모두 첫 렌더에 붙으므로 ref 로 충분하다(이펙트에서 src·이벤트를 직접 다룬다).
   const mediaRef = useRef<HTMLMediaElement>(null)
@@ -51,7 +56,6 @@ export function MediaPlayer({
   const [blocked, setBlocked] = useState(false)
   // 영상 맞춤 크기 — 상자(플레이어 영역)와 원본 크기로 계산(fitMediaSize). 요소를 영상 크기로 줄여야 레터박스가 요소 밖 여백이 된다.
   const [wrap, setWrap] = useState<HTMLDivElement | null>(null)
-  const [box, setBox] = useState<{ w: number; h: number } | null>(null)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   // 콜백은 최신값 ref 로 읽는다 — 이펙트를 url 단위로만 다시 돌리려고(세션·onError 정체성과 무관하게).
   const latest = useRef({ session, onError, itemKey })
@@ -59,12 +63,7 @@ export function MediaPlayer({
     latest.current = { session, onError, itemKey }
   })
 
-  useEffect(() => {
-    if (!wrap || kind !== 'VIDEO') return
-    const ro = new ResizeObserver(([e]) => setBox({ w: e.contentRect.width, h: e.contentRect.height }))
-    ro.observe(wrap)
-    return () => ro.disconnect()
-  }, [wrap, kind])
+  const box = useObservedBox(wrap, kind === 'VIDEO')
 
   useEffect(() => {
     const el = mediaRef.current
@@ -112,41 +111,19 @@ export function MediaPlayer({
     }
   }, [url, kind])
 
-  /**
-   * 자동재생 거부 폴백 — 사용자 탭(제스처)으로 다시 play() 를 부르면 허용된다. 접근 가능한 이름 "{이름} 재생".
-   * 포커스는 옮기지 않는다(키보드 사용자는 Space 로도 재생 가능) — 대신 아래 live 영역이 막혔다고 알린다.
-   * 영상은 화면 가운데 겹침, 오디오는 이름·컨트롤을 가리지 않게 흐름 안(이름 아래)에 둔다.
-   */
-  const fallback = (overlay: boolean) =>
-    blocked && (
-      <button
-        type="button"
-        aria-label={`${name} 재생`}
-        data-testid="media-play-fallback"
-        onClick={() => void mediaRef.current?.play().catch(() => {})}
-        className={
-          overlay
-            ? 'absolute top-1/2 left-1/2 z-10 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-ring'
-            : 'flex size-12 shrink-0 items-center justify-center rounded-full border border-border bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-ring'
-        }
-      >
-        <Play className={overlay ? 'size-7' : 'size-5'} aria-hidden />
-      </button>
-    )
-  // 스크린리더 알림 — 자동재생이 막혔을 때만(재생 버튼 안내). 플레이어 준비 알림은 ViewerBody 가 한다.
-  const blockedNotice = (
-    <p className="sr-only" aria-live="polite" data-testid="media-blocked-live">
-      {blocked ? '자동 재생이 막혔습니다. 재생 버튼을 누르세요.' : ''}
-    </p>
-  )
+  // 자동재생이 막혔을 때 안내 문구 — 오디오는 보이는 힌트로, 영상은 가운데 버튼과 함께 스크린리더에만(polite).
+  const blockedText = '자동 재생이 막혀 있어요 — 재생을 눌러 주세요'
 
   if (kind === 'AUDIO') {
     // 오디오 — 큰 아이콘 + 이름 + 기본 플레이어(시안). 탭으로 바를 숨기지 않는다(tapTogglesBars).
     return (
-      <div className="relative m-auto flex w-full max-w-md flex-col items-center gap-4 px-2 text-center" data-testid="media-audio-view">
+      // sideInset — 모바일 ‹ › 가 플레이어 끝(음량·메뉴)을 덮지 않게 좌우를 화살표 폭만큼 비운다(영상과 같은 규칙).
+      <div
+        className={cn('relative m-auto flex w-full max-w-md flex-col items-center gap-4 text-center', sideInset ? 'px-10' : 'px-2')}
+        data-testid="media-audio-view"
+      >
         <FileAudio className="h-20 w-20 text-muted-foreground" aria-hidden />
         <p className="text-sm font-medium break-all">{name}</p>
-        {fallback(false)}
         <audio
           ref={mediaRef as React.RefObject<HTMLAudioElement>}
           controls
@@ -156,14 +133,22 @@ export function MediaPlayer({
           data-testid="media-audio"
           className="w-full"
         />
-        {blockedNotice}
+        {/* 자동재생이 막히면 — 기본 플레이어의 재생 버튼이 이미 보이므로 버튼을 겹쳐 더하지 않고 짧은 안내만(polite 알림 겸용). */}
+        <p className="min-h-5 text-xs text-muted-foreground" aria-live="polite" data-testid="media-blocked-hint">
+          {blocked ? blockedText : ''}
+        </p>
       </div>
     )
   }
   const fit = natural && box ? fitMediaSize(natural.w, natural.h, box.w, box.h) : null
   return (
     // 플레이어 영역 — 본문 내용 영역을 가득 채우고 영상은 그 안 가운데. 영역 밖 여백 탭 = 바 토글(스펙 §5.3 #2).
-    <div ref={setWrap} className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center" data-testid="media-video-view">
+    // sideInset — 모바일에서 ‹ › 가 있으면 그 폭만큼 좌우를 비워 영상(과 네이티브 컨트롤)을 화살표가 덮지 않게 한다.
+    <div
+      ref={setWrap}
+      className={cn('relative flex min-h-0 min-w-0 flex-1 items-center justify-center', sideInset && 'px-10')}
+      data-testid="media-video-view"
+    >
       <video
         ref={mediaRef as React.RefObject<HTMLVideoElement>}
         controls
@@ -173,12 +158,27 @@ export function MediaPlayer({
         aria-label={name}
         data-media-player=""
         data-testid="media-video"
-        // 크기를 재기 전엔 영역 안에 두고(max), 재면 비율 맞춤 크기로 — object-contain 은 경계 반올림 오차 보정용.
-        className={fit ? 'block bg-black object-contain' : 'block max-h-full max-w-full bg-black object-contain'}
+        // 크기를 재기 전엔 영역 안에 두되 숨긴다(invisible) — 원본 크기로 한 번 그렸다 맞춤 크기로 커지면 Chromium 기본 컨트롤이
+        // 작은 폭 배치(시간 "0:00 0:10")로 잠깐 남아 막대가 영상 폭보다 짧게 보인다(UI 리뷰 m11). 처음 보이는 크기가 최종 크기가 되게.
+        // object-contain 은 경계 반올림 오차 보정용.
+        className={fit ? 'block bg-black object-contain' : 'invisible block max-h-full max-w-full bg-black object-contain'}
         style={fit ? { width: fit.w, height: fit.h } : undefined}
       />
-      {fallback(true)}
-      {blockedNotice}
+      {blocked && (
+        // 자동재생 거부 폴백(영상) — 사용자 탭(제스처)으로 다시 play() 를 부르면 허용된다. 포커스는 옮기지 않는다(Space 로도 재생 가능).
+        <button
+          type="button"
+          aria-label={`${name} 재생`}
+          data-testid="media-play-fallback"
+          onClick={() => void mediaRef.current?.play().catch(() => {})}
+          className="absolute top-1/2 left-1/2 z-10 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Play className="size-7" aria-hidden />
+        </button>
+      )}
+      <p className="sr-only" aria-live="polite" data-testid="media-blocked-live">
+        {blocked ? blockedText : ''}
+      </p>
     </div>
   )
 }

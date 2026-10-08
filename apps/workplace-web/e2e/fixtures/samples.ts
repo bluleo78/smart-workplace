@@ -7,3 +7,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 
 /** 3쪽짜리 실제 PDF — pdf.js 렌더(쪽 수·캔버스)를 확인할 때 쓴다. */
 export const SAMPLE_PDF = fs.readFileSync(path.join(HERE, 'sample-3p.pdf'))
+
+/** 10초 실제 영상(VP8+Opus 160×120) — 뷰어 영상 재생 E2E(WP-281). */
+export const SAMPLE_WEBM = fs.readFileSync(path.join(HERE, 'sample-10s.webm'))
+/** 10초 실제 오디오(MP3) — 뷰어 오디오 재생 E2E(WP-281). */
+export const SAMPLE_MP3 = fs.readFileSync(path.join(HERE, 'sample-10s.mp3'))

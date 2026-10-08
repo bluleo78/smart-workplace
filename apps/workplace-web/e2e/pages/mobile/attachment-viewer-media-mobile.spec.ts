@@ -1,23 +1,15 @@
 // 통합 첨부 뷰어 영상·오디오 모바일(WP-281) — iPhone 13 뷰포트 + chromium(coarse 포인터). 터치는 CDP(e2e/fixtures/touch.ts)로만 만든다.
 // 확인: 영상 위 탭 = 바 유지(컨트롤 몫)·영상 밖 여백 탭 = 바 토글, 재생 막대 구역 가로 끌기 = 넘기지 않음,
 // 오디오 탭 = 바 유지, 재생 3초 뒤 바 자동 숨김, 영상은 하단 액션 바 위 영역에 놓인다.
-import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 import type { Locator, Page } from '@playwright/test'
 
-import { type DriveStubFile, stubDriveFiles } from '../../fixtures/drive-mock'
+import { audioFile, type DriveStubFile, stubDriveFiles, videoFile } from '../../fixtures/drive-mock'
 import { expect, test } from '../../fixtures/mobile.fixture'
 import { centerOf, pausePageClock, touchDrag, touchTap } from '../../fixtures/touch'
 
 const SPACE_ID = 1
-const HERE = path.dirname(fileURLToPath(import.meta.url))
-const WEBM = fs.readFileSync(path.join(HERE, '../../fixtures/sample-10s.webm'))
-const MP3 = fs.readFileSync(path.join(HERE, '../../fixtures/sample-10s.mp3'))
 
-const VID = (id: number, name: string): DriveStubFile => ({ id, name, mimeType: 'video/webm', body: WEBM })
-const AUD = (id: number, name: string): DriveStubFile => ({ id, name, mimeType: 'audio/mpeg', body: MP3 })
 
 /** 목록에서 파일명을 탭해 뷰어를 연다(직접 연 항목 = 자동재생). */
 async function openViewer(page: Page, name: string) {
@@ -39,7 +31,7 @@ async function playedThenPaused(el: Locator) {
 const topBar = (page: Page) => page.getByTestId('viewer-top-bar')
 
 test('영상은 하단 액션 바 위 영역에 맞춰 놓이고 확대 툴바가 없다', async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [VID(80, 'clip-a.webm')], { spaceId: SPACE_ID })
+  await stubDriveFiles(page, [videoFile(80, 'clip-a.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
   await expect.poll(async () => (await media(video)).ready).toBeGreaterThanOrEqual(1)
@@ -55,7 +47,7 @@ test('영상은 하단 액션 바 위 영역에 맞춰 놓이고 확대 툴바�
 })
 
 test('영상 위 탭은 바를 숨기지 않고, 영상 밖 여백 탭은 바를 토글한다', async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [VID(80, 'clip-a.webm'), VID(81, 'clip-b.webm')], { spaceId: SPACE_ID })
+  await stubDriveFiles(page, [videoFile(80, 'clip-a.webm'), videoFile(81, 'clip-b.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
   await playedThenPaused(video)
@@ -76,7 +68,7 @@ test('영상 위 탭은 바를 숨기지 않고, 영상 밖 여백 탭은 바를
 })
 
 test('재생 막대 구역(영상 아래 48px)에서 가로로 끌면 넘기지 않고, 영상 위쪽에서 끌면 넘긴다', async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [VID(80, 'clip-a.webm'), VID(81, 'clip-b.webm')], { spaceId: SPACE_ID })
+  await stubDriveFiles(page, [videoFile(80, 'clip-a.webm'), videoFile(81, 'clip-b.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
   await playedThenPaused(video)
@@ -100,7 +92,7 @@ test('재생 막대 구역(영상 아래 48px)에서 가로로 끌면 넘기지 
 })
 
 test('오디오는 어디를 탭해도 바를 숨기지 않는다', async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [AUD(82, 'voice.mp3')], { spaceId: SPACE_ID })
+  await stubDriveFiles(page, [audioFile(82, 'voice.mp3')], { spaceId: SPACE_ID })
   await openViewer(page, 'voice.mp3')
   const audio = page.getByTestId('media-audio')
   await playedThenPaused(audio)
@@ -116,7 +108,7 @@ test('오디오는 어디를 탭해도 바를 숨기지 않는다', async ({ aut
 })
 
 test('영상 재생이 시작되고 3초 뒤 바가 자동으로 숨는다', async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [VID(80, 'clip-a.webm')], { spaceId: SPACE_ID })
+  await stubDriveFiles(page, [videoFile(80, 'clip-a.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
   await expect.poll(async () => (await media(video)).paused).toBe(false)
@@ -131,7 +123,7 @@ test('영상 재생이 시작되고 3초 뒤 바가 자동으로 숨는다', asy
 
 test('가로 모드에서도 오디오는 바가 보인다(탭으로 되살릴 수 없으므로 숨기지 않음)', async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 844, height: 390 })
-  await stubDriveFiles(page, [AUD(82, 'voice.mp3')], { spaceId: SPACE_ID })
+  await stubDriveFiles(page, [audioFile(82, 'voice.mp3')], { spaceId: SPACE_ID })
   await openViewer(page, 'voice.mp3')
   await expect(page.getByTestId('media-audio')).toBeVisible()
   await expect(topBar(page)).not.toHaveAttribute('inert', '')
@@ -150,7 +142,7 @@ test('재생할 수 없는 영상은 미디어로 다루지 않는다 — 무대
 
 test('가로 모드 — 넘침 없이 영상이 화면 안에 들어온다(영상 높이 비율 기록)', async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 844, height: 390 })
-  await stubDriveFiles(page, [VID(80, 'clip-a.webm')], { spaceId: SPACE_ID })
+  await stubDriveFiles(page, [videoFile(80, 'clip-a.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
   await expect.poll(async () => (await media(video)).ready).toBeGreaterThanOrEqual(1)
@@ -167,4 +159,40 @@ test('가로 모드 — 넘침 없이 영상이 화면 안에 들어온다(영�
   })
   expect(overflow).toEqual({ doc: false, body: false })
   test.info().annotations.push({ type: 'landscape-video-height-ratio', description: (v.height / 390).toFixed(2) })
+})
+
+for (const width of [360, 390]) {
+  test(`폭 ${width}px — 영상 요소가 맞춤 상자와 같고(변형 없음) ‹ › 가 영상을 덮지 않는다`, async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width, height: 780 })
+    await stubDriveFiles(page, [videoFile(80, 'clip-a.webm'), videoFile(81, 'clip-b.webm')], { spaceId: SPACE_ID })
+    await openViewer(page, 'clip-a.webm')
+    const video = page.getByTestId('media-video')
+    await expect(video).toBeVisible()
+    const m = await video.evaluate((v: HTMLVideoElement) => {
+      const p = v.parentElement!
+      const cs = getComputedStyle(p)
+      const cw = p.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+      const ch = p.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+      const scale = Math.min(cw / v.videoWidth, ch / v.videoHeight)
+      const r = v.getBoundingClientRect()
+      return { w: r.width, h: r.height, ew: Math.floor(v.videoWidth * scale), eh: Math.floor(v.videoHeight * scale), tr: getComputedStyle(v).transform }
+    })
+    expect(m.tr).toBe('none')
+    expect(Math.abs(m.w - m.ew)).toBeLessThanOrEqual(1)
+    expect(Math.abs(m.h - m.eh)).toBeLessThanOrEqual(1)
+    const v = (await video.boundingBox())!
+    const next = (await page.getByRole('button', { name: '다음 파일' }).boundingBox())!
+    expect(next.width).toBeGreaterThanOrEqual(44)
+    // 화살표는 영상 오른쪽 바깥(겹치지 않음).
+    expect(next.x).toBeGreaterThanOrEqual(v.x + v.width)
+  })
+}
+
+test('오디오도 ‹ › 가 플레이어를 덮지 않는다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 360, height: 780 })
+  await stubDriveFiles(page, [audioFile(82, 'voice.mp3'), videoFile(80, 'clip-a.webm')], { spaceId: SPACE_ID })
+  await openViewer(page, 'voice.mp3')
+  const a = (await page.getByTestId('media-audio').boundingBox())!
+  const next = (await page.getByRole('button', { name: '다음 파일' }).boundingBox())!
+  expect(next.x).toBeGreaterThanOrEqual(a.x + a.width)
 })

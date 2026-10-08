@@ -2,6 +2,7 @@ import { FileX } from 'lucide-react'
 import { memo, useEffect, useRef, useState } from 'react'
 
 import { blobToText, toVerifiedPdfBlob } from '../../api/blobContent'
+import { useObservedBox } from '../../hooks/useObservedBox'
 import { formatFileSize } from '../../lib/formatters'
 import { resolvePreviewKind } from '../../lib/previewKind'
 import { SCROLL_REGION_RING_INSET, scrollRegionProps } from '../../lib/scrollRegion'
@@ -112,6 +113,7 @@ export const ViewerBody = memo(function ViewerBody({
   barsHidden,
   onSource,
   media: mediaSession,
+  sideInset,
 }: {
   item: ViewerItem
   /** 이미지·PDF 확대 배율(1 = 폭 맞춤). */
@@ -133,6 +135,8 @@ export const ViewerBody = memo(function ViewerBody({
   onSource?: (s: { blob: Blob | null; fetches: boolean; unplayable?: boolean }) => void
   /** 영상·오디오 재생 세션(WP-281) — 자동재생 대상·위치 기억·재생 상태 보고. 뷰어가 열린 동안 고정된 객체. */
   media?: MediaSession
+  /** 모바일에서 ‹ › 가 있을 때 영상 좌우를 그 폭만큼 비운다(화살표가 영상·컨트롤을 덮지 않게). */
+  sideInset?: boolean
 }) {
   const kind = resolvePreviewKind(item.mimeType)
   const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
@@ -149,14 +153,8 @@ export const ViewerBody = memo(function ViewerBody({
   const [unplayable, setUnplayable] = useState(false)
   // 이미지 확대 계산용 — 본문 내용 영역 크기(패딩 제외)와 이미지 원본 크기.
   const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null)
-  const [box, setBox] = useState<{ w: number; h: number } | null>(null)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
-  useEffect(() => {
-    if (!bodyEl || kind !== 'IMAGE') return
-    const ro = new ResizeObserver(([e]) => setBox({ w: e.contentRect.width, h: e.contentRect.height }))
-    ro.observe(bodyEl)
-    return () => ro.disconnect()
-  }, [bodyEl, kind])
+  const box = useObservedBox(bodyEl, kind === 'IMAGE')
   const fitWidth = natural && box ? fitImageWidth(natural.w, natural.h, box.w, box.h) : null
   const error = source.error || convertError
   // 부모(뷰어)에 blob 상태를 알린다 — 콜백은 최신값 ref 로 읽어 이펙트가 콜백 정체성에 흔들리지 않게.
@@ -324,6 +322,7 @@ export const ViewerBody = memo(function ViewerBody({
           name={item.name}
           session={mediaSession}
           onError={() => setUnplayable(true)}
+          sideInset={sideInset}
         />
       )}
       {!error && kind === 'PDF' && content?.k === 'pdf' && (

@@ -64,11 +64,6 @@ describe('routeKey — 영상·오디오(WP-281)', () => {
   it('Space 는 문서면 null(브라우저 스크롤)', () => {
     expect(routeKey({ ...base, key: ' ' })).toBeNull()
   })
-  it('Esc 는 전체화면 중·방금 해제면 전체화면만 해제, 그 외 null(다이얼로그 닫기)', () => {
-    expect(routeKey({ ...media, key: 'Escape' })).toBeNull()
-    expect(routeKey({ ...media, key: 'Escape', fullscreen: true })).toBe('exitFullscreen')
-    expect(routeKey({ ...media, key: 'Escape', fullscreenJustExited: true })).toBe('exitFullscreen')
-  })
   it('입력칸·AI 패널·Ctrl 조합은 미디어여도 뷰어 몫이 아니다', () => {
     expect(routeKey({ ...media, key: ' ', inEditable: true })).toBeNull()
     expect(routeKey({ ...media, key: 'ArrowLeft', inMedia: true, inAiPanel: true })).toBeNull()
