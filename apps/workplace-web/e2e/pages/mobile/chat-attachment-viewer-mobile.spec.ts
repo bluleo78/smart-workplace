@@ -115,7 +115,19 @@ test('이슈 채팅 드로워: 카드 탭 → 드로워 위 뷰어(‹ › ✕ �
   await page.getByTestId('viewer-top-bar').getByRole('button', { name: '닫기' }).tap()
   await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
   await expect(page).toHaveURL(/[?&]chat=1$/)
-  await expect(page.getByTestId('attachment-card-802')).toBeVisible()
+  // 닫으면 연 카드로 포커스가 돌아온다(터치로 열어도 같다).
+  await expect(page.getByTestId('attachment-card-802')).toBeFocused()
+
+  // 썸네일 탭으로도 열리고, 링크(3 / 4)로 넘기면 요약 칸이 찬다(드라이브 칸은 빈다).
+  await page.getByTestId('attachment-image-open-801').tap()
+  await expect(page.getByTestId('preview-meta')).toContainText('1 / 4')
+  const bar = page.getByTestId('viewer-action-bar')
+  await expect(bar.locator('[data-slot-id="summary"]')).toHaveAttribute('data-state', 'empty')
+  await page.getByRole('button', { name: '다음 파일' }).tap()
+  await page.getByRole('button', { name: '다음 파일' }).tap()
+  await expect(page.getByTestId('preview-body')).toContainText(LINK_TEXT)
+  await expect(bar.locator('[data-slot-id="summary"]')).not.toHaveAttribute('data-state', 'empty')
+  await expect(bar.locator('[data-slot-id="drive"]')).toHaveAttribute('data-state', 'empty')
 })
 
 test('AI 시트: 복원한 대화 썸네일 탭 → 시트 위 뷰어, 뒤로가기는 뷰어만 닫고 시트는 남는다', async ({ authenticatedPage: page }) => {
@@ -143,4 +155,17 @@ test('AI 시트: 복원한 대화 썸네일 탭 → 시트 위 뷰어, 뒤로가
   await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
   await expect(page.getByTestId('ai-sheet')).toBeVisible()
   await expect(turn.getByTestId('attachment-image-77')).toBeVisible()
+
+  // 문서 카드도 시트 위 뷰어로 열고 하단 ⬇ 로 받는다. ✕ 로 닫으면 카드로 포커스.
+  await turn.getByTestId('attachment-card-78').tap()
+  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expect(page.getByTestId('preview-meta')).toContainText('2 / 2')
+  await expectViewerOnTop(page)
+  const download = page.waitForEvent('download')
+  await bar.getByTestId('preview-download').tap()
+  expect((await download).suggestedFilename()).toBe('spec.pdf')
+  await page.getByTestId('viewer-top-bar').getByRole('button', { name: '닫기' }).tap()
+  await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
+  await expect(page.getByTestId('ai-sheet')).toBeVisible()
+  await expect(turn.getByTestId('attachment-card-78')).toBeFocused()
 })
