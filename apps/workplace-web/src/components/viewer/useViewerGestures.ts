@@ -11,11 +11,15 @@ import {
   decideDismiss,
   decideSwipe,
   DOUBLE_TAP_MS,
+  doubleTapTarget,
   dragOffset,
   type GestureLock,
+  isDoubleTap,
   lockGesture,
+  pinchZoom,
   releaseVelocity,
   type Sample,
+  TAP_MAX_MS,
 } from './viewerGestures'
 
 export interface ViewerGestureOptions {
@@ -33,6 +37,10 @@ export interface ViewerGestureOptions {
   onDismiss: () => void
   /** 단일 탭(움직임 없는 터치) — 모바일 배치에서 바 토글(판정 R5). 없으면 탭은 무시. */
   onTap?: () => void
+  /** 핀치·두 번 탭 확대 대상 형식인가(이미지·PDF, 사용 가능 항목). */
+  zoomable: boolean
+  /** 확대 확정 — focus 는 확대 스크롤 영역([data-hscroll]) 왼쪽 위 기준 좌표(px). 이 점이 제자리에 남게 호출부가 스크롤을 맞춘다. */
+  onZoom: (next: number, focus: { x: number; y: number }) => void
 }
 
 /** 한 손가락 추적 상태 — 시작 시점의 스크롤 여유를 함께 들고 있어 첫 이동 판정에 쓴다. */
@@ -46,8 +54,18 @@ interface OneFinger {
   canPanRight: boolean
   atTop: boolean
 }
-/** ignore = 이번 터치 묶음은 손을 모두 뗄 때까지 무시(버튼 위 시작·두 번째 손가락 등). */
-type Track = OneFinger | { kind: 'ignore' } | null
+/** 두 손가락 핀치 — 시작 거리·배율·중점(화면 좌표). 진행 중엔 무대 scale 미리보기만(판정 R1). */
+interface Pinch {
+  kind: 'pinch'
+  startDist: number
+  startZoom: number
+  midX: number
+  midY: number
+  /** 시작 배율 대비 미리보기 배율(1 = 그대로) — 손을 뗄 때 startZoom × scale 로 확정한다. */
+  scale: number
+}
+/** ignore = 이번 터치 묶음은 손을 모두 뗄 때까지 무시(버튼 위 시작·확대 대상이 아닌 두 손가락 등). */
+type Track = OneFinger | Pinch | { kind: 'ignore' } | null
 
 /** 제스처를 받지 않는 대상 — 본문 안 버튼·링크·입력(마크다운 링크·다시 시도 등)은 그 요소의 탭·스크롤에 맡긴다. */
 const INTERACTIVE = 'button, a[href], input, textarea, select, [role="button"], [contenteditable="true"]'
@@ -101,11 +119,35 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
     const backdrop = backdropEl ?? null
     /** 단일 탭 지연 타이머 — 두 번 탭과 구분하고, 탭으로 옮겨간 포커스를 본 뒤 바를 토글하려고 기다린다(판정 R6). */
     let tapTimer: ReturnType<typeof setTimeout> | undefined
-    /** 움직임 없이 끝난 터치 — 지연 뒤 onTap. (Task 7 이 두 번 탭 분기를 이 함수 맨 앞에 더한다.) */
+    /** 직전 단일 탭 — 다음 탭이 두 번 탭인지 가린다. 탭이 아닌 제스처가 끼면 비운다. */
+    let lastTap: Sample | null = null
+    /** 두 손가락 거리·중점(화면 좌표). */
+    const twoFinger = (e: TouchEvent) => {
+      const [a, b] = [e.touches[0], e.touches[1]]
+      return { dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), midX: (a.clientX + b.clientX) / 2, midY: (a.clientY + b.clientY) / 2 }
+    }
+    /** 화면 좌표 → 확대 스크롤 영역([data-hscroll]) 왼쪽 위 기준 좌표(없으면 무대 기준) — 판정 R4. */
+    const toScrollerPoint = (x: number, y: number) => {
+      const el = stage.querySelector<HTMLElement>('[data-hscroll]') ?? stage
+      const r = el.getBoundingClientRect()
+      return { x: x - r.left, y: y - r.top }
+    }
+    /** 움직임 없이 짧게 끝난 터치 — 두 번 탭이면 확대 전환, 아니면 지연 뒤 onTap(판정 R6). */
     const handleTap = (s: Sample) => {
-      void s
+      const o = latest.current
+      if (o.zoomable && isDoubleTap(lastTap, s)) {
+        // 두 번 탭 — 대기 중인 단일 탭(바 토글)을 취소하고 1× ↔ 2×(탭 지점 기준, 판정 R9).
+        clearTimeout(tapTimer)
+        lastTap = null
+        o.onZoom(doubleTapTarget(o.zoom), toScrollerPoint(s.x, s.y))
+        return
+      }
+      lastTap = s
       clearTimeout(tapTimer)
-      tapTimer = setTimeout(() => latest.current.onTap?.(), DOUBLE_TAP_MS)
+      tapTimer = setTimeout(() => {
+        lastTap = null
+        latest.current.onTap?.()
+      }, DOUBLE_TAP_MS)
     }
     /** 끌기 중 위치 — 전환 없이 즉시. 아래로 끌면 배경이 옅어진다(시안 M2, 최소 0.2 — 완전히 투명해져 뒤 화면이 튀지 않게). */
     const paint = (x: number, y: number) => {
@@ -123,8 +165,20 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
     const moving = (t: Track) => t?.kind === 'one' && (t.lock === 'swipe' || t.lock === 'dismiss')
     const onStart = (e: TouchEvent) => {
       const target = e.target as Element
+      const o = latest.current
+      // 새 터치가 시작되면 대기 중인 단일 탭(바 토글)을 취소한다 — 탭 직후 300ms 안의 스와이프·핀치가 바를 토글하지 않게.
+      // 이 터치가 다시 탭으로 끝나면 handleTap 이 두 번 탭 판정 또는 새 지연 토글을 건다(lastTap 은 그대로 둔다).
+      clearTimeout(tapTimer)
+      if (e.touches.length === 2 && o.zoomable && !target.closest(INTERACTIVE)) {
+        // 스와이프·닫기 중 두 번째 손가락이 닿았으면 무대를 즉시 원위치하고 핀치로 이어간다(Review Focus 3).
+        if (moving(track)) paint(0, 0)
+        const f = twoFinger(e)
+        track = { kind: 'pinch', startDist: f.dist, startZoom: o.zoom, midX: f.midX, midY: f.midY, scale: 1 }
+        lastTap = null
+        return
+      }
       if (e.touches.length !== 1 || target.closest(INTERACTIVE)) {
-        // 두 번째 손가락이 닿으면 진행 중이던 넘김·닫기를 원위치하고 이번 묶음은 무시한다(Review Focus 3).
+        // 두 번째 손가락이 닿으면(확대 대상이 아니거나 세 손가락 이상) 진행 중이던 넘김·닫기를 원위치하고 이번 묶음은 무시한다.
         if (moving(track)) settle()
         track = { kind: 'ignore' }
         return
@@ -141,6 +195,18 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       }
     }
     const onMove = (e: TouchEvent) => {
+      if (track?.kind === 'pinch') {
+        if (e.touches.length !== 2) return
+        // 브라우저 페이지 확대를 막고 무대에 scale 미리보기만 건다 — PDF 캔버스는 손을 뗄 때 한 번만 다시 그린다(판정 R1).
+        if (e.cancelable) e.preventDefault()
+        const f = twoFinger(e)
+        track.scale = pinchZoom(track.startZoom, track.startDist, f.dist) / track.startZoom
+        const r = stage.getBoundingClientRect()
+        stage.style.transition = ''
+        stage.style.transformOrigin = `${track.midX - r.left}px ${track.midY - r.top}px`
+        stage.style.transform = `scale(${track.scale})`
+        return
+      }
       if (track?.kind !== 'one' || e.touches.length !== 1) return
       const o = latest.current
       const t = e.touches[0]
@@ -172,6 +238,16 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
     }
     const onEnd = (e: TouchEvent) => {
       const cur = track
+      if (cur?.kind === 'pinch') {
+        // 한 손가락이라도 떼면 확정 — 남은 손가락은 다 뗄 때까지 무시(팬·넘김으로 튀지 않게).
+        track = e.touches.length === 0 ? null : { kind: 'ignore' }
+        stage.style.transform = ''
+        stage.style.transformOrigin = ''
+        // 배율은 둘째 자리에서 자른다(데스크톱 ＋/－ 단계와 같은 규칙 — data-zoom·표시가 긴 소수가 되지 않게).
+        const next = +(cur.startZoom * cur.scale).toFixed(2)
+        if (next !== cur.startZoom) latest.current.onZoom(next, toScrollerPoint(cur.midX, cur.midY))
+        return
+      }
       if (e.touches.length === 0) track = null
       if (cur?.kind !== 'one') return
       const o = latest.current
@@ -191,14 +267,23 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         // 확정이면 무대·배경은 그대로 두고 닫는다(언마운트로 사라짐) — 원위치 애니메이션이 닫힘 위로 보이지 않게.
         if (decideDismiss({ dy, vy, height: stage.clientHeight })) o.onDismiss()
         else settle()
-      } else if (cur.lock === 'pending' && e.touches.length === 0) {
-        // 판정 임계(6px) 안에서 끝난 터치 = 탭.
+      } else if (cur.lock === 'pending' && e.touches.length === 0 && e.timeStamp - cur.samples[0].t < TAP_MAX_MS) {
+        // 판정 임계(6px) 안에서 짧게(500ms 미만) 끝난 터치 = 탭. 길게 누르기는 탭이 아니다.
         handleTap({ t: e.timeStamp, x: t.clientX, y: t.clientY })
+        return
       }
+      // 탭이 아닌 제스처(넘김·닫기·스크롤·길게 누르기)가 끼면 두 번 탭 판정을 끊는다.
+      lastTap = null
     }
     const onCancel = () => {
       if (moving(track)) settle()
+      // 취소된 핀치는 확정하지 않고 미리보기만 걷어낸다.
+      if (track?.kind === 'pinch') {
+        stage.style.transform = ''
+        stage.style.transformOrigin = ''
+      }
       track = null
+      lastTap = null
     }
     stage.addEventListener('touchstart', onStart, { passive: true })
     stage.addEventListener('touchmove', onMove, { passive: false })
@@ -211,6 +296,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       stage.removeEventListener('touchcancel', onCancel)
       stage.style.transform = ''
       stage.style.transition = ''
+      stage.style.transformOrigin = ''
       clearTimeout(tapTimer)
       if (backdrop) backdrop.style.opacity = ''
     }

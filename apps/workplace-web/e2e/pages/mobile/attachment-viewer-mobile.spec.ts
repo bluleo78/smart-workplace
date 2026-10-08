@@ -10,7 +10,7 @@ import { createSpace, personalSpace } from '../../factories/drive.factory'
 import { json } from '../../fixtures/mobile-chat'
 import { expect, test } from '../../fixtures/mobile.fixture'
 import { solidPng } from '../../fixtures/png'
-import { centerOf, touchDrag, touchSwipeThenSecondFinger, touchTap } from '../../fixtures/touch'
+import { centerOf, touchDoubleTap, touchDrag, touchPinch, touchSwipeThenSecondFinger, touchTap } from '../../fixtures/touch'
 
 const SPACE_ID = 1
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -395,13 +395,44 @@ test.describe('아래로 닫기·탭 바 토글', () => {
     await expect(page.getByTestId('viewer-top-bar')).toHaveAttribute('inert', '')
   })
 
-  test('요약 시트 위 탭은 바를 숨기지 않는다', async ({ authenticatedPage: page }) => {
+  test('탭 직후(300ms 안) 스와이프하면 대기 중이던 바 토글이 취소된다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchTap(page, c)
+    await touchDrag(page, c, { x: c.x - 180, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- "탭 판정 지연(300ms)이 지나도 바가 숨지 않음" 부재 확인이라 조건 대기로 바꿀 수 없다
+    await page.waitForTimeout(400)
+    await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
+  })
+
+  test('길게 누르기(500ms 이상)는 탭이 아니다 — 바를 숨기지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    // 제자리에서 6 × 100ms = 600ms 누른 뒤 뗀다(이동 0px).
+    await touchDrag(page, c, c, { steps: 6, stepDelayMs: 100 })
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- "탭 판정 지연(300ms)이 지나도 바가 숨지 않음" 부재 확인이라 조건 대기로 바꿀 수 없다
+    await page.waitForTimeout(400)
+    await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
+  })
+
+  test('요약 시트가 열린 동안 본문을 탭해도 바를 숨기지 않는다', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [MD(80, 'plan.md')])
     await openViewer(page, 'plan.md')
     await page.getByTestId('viewer-slot-summary').tap()
     const sheet = page.getByTestId('viewer-summary-sheet')
     await expect(sheet.getByTestId('drive-summary-card')).toBeVisible()
-    await touchTap(page, await centerOf(sheet.getByTestId('drive-summary-card')))
+    // 시트는 무대 밖이라 시트 위 탭은 애초에 제스처를 타지 않는다 — 시트가 열린 채 "무대"(시트에 가리지 않은 위쪽 본문)를 탭해
+    // toggleBars 의 sheetOpen 가드가 실제로 막는지 확인한다.
+    const stage = page.getByTestId('viewer-stage')
+    const sb = (await stage.boundingBox())!
+    const top = (await sheet.boundingBox())!.y
+    // 상단 바(약 56px) 아래 ~ 시트 위 사이의 본문 지점.
+    const y = sb.y + 80
+    expect(y).toBeLessThan(top)
+    await touchTap(page, { x: sb.x + sb.width / 2, y })
     // eslint-disable-next-line playwright/no-wait-for-timeout -- "탭 판정 지연(300ms) 동안 바가 숨지 않음" 부재 확인이라 조건 대기로 바꿀 수 없다
     await page.waitForTimeout(400)
     await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
@@ -419,5 +450,102 @@ test.describe('아래로 닫기·탭 바 토글', () => {
     await page.setViewportSize({ width: 844, height: 390 })
     await expect(page.getByTestId('viewer-top-bar')).toHaveAttribute('inert', '')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+})
+
+test.describe('핀치·두 번 탭 확대', () => {
+  test('이미지 두 번 탭 = 2배(탭 지점 기준), 다시 두 번 탭 = 맞춤 — 바는 토글되지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    const stage = page.getByTestId('viewer-stage')
+    const img = page.getByRole('img', { name: '사진70.png' })
+    await expect(img).toBeVisible()
+    const w1 = (await img.boundingBox())!.width
+    const b = (await stage.boundingBox())!
+    await touchDoubleTap(page, { x: b.x + b.width * 0.8, y: b.y + b.height / 2 })
+    await expect(stage).toHaveAttribute('data-zoom', '2')
+    await expect.poll(async () => (await img.boundingBox())!.width).toBeGreaterThan(w1 * 1.8)
+    // 오른쪽을 두 번 탭했으니 그 지점이 제자리에 남도록 오른쪽으로 스크롤돼 있다.
+    await expect.poll(() => page.getByTestId('preview-body').evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- "두 번 탭 뒤 단일 탭 판정 지연(300ms) 동안 바가 토글되지 않음" 부재 확인
+    await page.waitForTimeout(400)
+    await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
+    await touchDoubleTap(page, { x: b.x + b.width / 2, y: b.y + b.height / 2 })
+    await expect(stage).toHaveAttribute('data-zoom', '1')
+  })
+
+  test('이미지 핀치로 벌리면 확대(최대 3배), 모으면 맞춤 아래로 내려가지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    const stage = page.getByTestId('viewer-stage')
+    await expect(page.getByRole('img', { name: '사진70.png' })).toBeVisible()
+    const c = await centerOf(stage)
+    await touchPinch(page, c, 80, 200)
+    await expect.poll(async () => Number(await stage.getAttribute('data-zoom'))).toBeGreaterThan(1.5)
+    await touchPinch(page, c, 60, 600)
+    await expect(stage).toHaveAttribute('data-zoom', '3')
+    await touchPinch(page, c, 300, 40)
+    await expect(stage).toHaveAttribute('data-zoom', '1')
+    await expect.poll(() => stage.evaluate((el) => getComputedStyle(el).transform)).toBe('none')
+  })
+
+  test('확대한 이미지는 가로 끌기가 넘김이 아니라 팬', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    const stage = page.getByTestId('viewer-stage')
+    await expect(page.getByRole('img', { name: '사진70.png' })).toBeVisible()
+    const c = await centerOf(stage)
+    await touchDoubleTap(page, c)
+    await expect(stage).toHaveAttribute('data-zoom', '2')
+    await touchDrag(page, c, { x: c.x - 120, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+  })
+
+  test('PDF 핀치 확대는 페이지를 그 배율로 다시 그린다(1~3배), 두 번 탭은 2배', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
+    await openViewer(page, 'doc.pdf')
+    const page1 = page.getByTestId('pdf-page-1')
+    await expect(page1).toBeVisible()
+    const stage = page.getByTestId('viewer-stage')
+    const w1 = (await page1.boundingBox())!.width
+    // 맞춤 상태의 캔버스 백킹 폭(= CSS 폭 × DPR) — 렌더가 끝날 때까지 기다린 뒤 잰다.
+    await expect.poll(() => page1.evaluate((el: HTMLCanvasElement) => el.width)).toBeGreaterThan(0)
+    const backing1 = await page1.evaluate((el: HTMLCanvasElement) => el.width)
+    const c = await centerOf(stage)
+    await touchPinch(page, c, 80, 200)
+    await expect.poll(async () => Number(await stage.getAttribute('data-zoom'))).toBeGreaterThan(1.5)
+    await expect.poll(async () => (await page1.boundingBox())!.width).toBeGreaterThan(w1 * 1.5)
+    // 캔버스 백킹 해상도도 커졌다(CSS 확대가 아니라 그 배율로 재렌더 — 글자 선명).
+    await expect.poll(() => page1.evaluate((el: HTMLCanvasElement) => el.width)).toBeGreaterThan(backing1 * 1.3)
+    await touchDoubleTap(page, c)
+    await expect(stage).toHaveAttribute('data-zoom', '1')
+    await touchDoubleTap(page, c)
+    await expect(stage).toHaveAttribute('data-zoom', '2')
+  })
+
+  test('PDF 축소(3배 → 맞춤 쪽)에서도 보던 위치가 비례해 유지된다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
+    await openViewer(page, 'doc.pdf')
+    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    const stage = page.getByTestId('viewer-stage')
+    const doc = page.getByTestId('pdf-document')
+    const c = await centerOf(stage)
+    await touchPinch(page, c, 60, 600)
+    await expect(stage).toHaveAttribute('data-zoom', '3')
+    // 문서 중간쯤으로 스크롤해 둔 뒤(최대값 근처가 아닌 위치) 반쯤 모은다.
+    await doc.evaluate((el) => (el.scrollTop = Math.round(el.scrollHeight * 0.4)))
+    const ratioBefore = await doc.evaluate((el) => el.scrollTop / el.scrollHeight)
+    await touchPinch(page, c, 300, 200)
+    await expect.poll(async () => Number(await stage.getAttribute('data-zoom'))).toBeLessThan(3)
+    // 축소 뒤 스크롤 비율이 크게 어긋나지 않는다(브라우저가 잘라 낸 값을 기준으로 쓰면 맨 끝/맨 앞으로 튄다).
+    await expect.poll(async () => Math.abs((await doc.evaluate((el) => el.scrollTop / el.scrollHeight)) - ratioBefore)).toBeLessThan(0.08)
+  })
+
+  test('확대 대상이 아닌 문서(마크다운)는 핀치·두 번 탭에 반응하지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(72)])
+    await openViewer(page, '메모72.md')
+    const stage = page.getByTestId('viewer-stage')
+    await touchPinch(page, await centerOf(stage), 80, 240)
+    await expect(stage).toHaveAttribute('data-zoom', '1')
   })
 })

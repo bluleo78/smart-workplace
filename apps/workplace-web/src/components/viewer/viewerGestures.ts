@@ -19,6 +19,11 @@ export const DISMISS_RATIO = 0.2
 /** 두 번 탭 판정 간격(ms)·거리(px) — 단일 탭도 이만큼 기다렸다 처리한다(판정 R6). */
 export const DOUBLE_TAP_MS = 300
 export const DOUBLE_TAP_DIST_PX = 30
+/**
+ * 탭으로 치는 최대 누름 시간(ms) — 이보다 오래 누른 채 뗀 것(길게 누르기·천천히 뗀 터치)은 탭이 아니다.
+ * 500ms 는 브라우저 길게 누르기(문맥 메뉴) 판정 시작점과 같은 값 — 그 이상은 사용자가 탭이 아닌 다른 의도를 가진 것으로 본다.
+ */
+export const TAP_MAX_MS = 500
 /** 터치 확대 범위 — 맞춤(1) 아래로는 줄이지 않는다. PDF 1~3×(스펙 §5.1), 이미지도 같은 상한(판정 R9). */
 export const TOUCH_ZOOM_MIN = 1
 export const TOUCH_ZOOM_MAX = 3

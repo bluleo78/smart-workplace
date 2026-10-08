@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Cloud, Download, Minus, Plus, Sparkles, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { useIsCoarsePointer } from '../../hooks/useIsCoarsePointer'
 import { useIsLandscape } from '../../hooks/useIsLandscape'
@@ -22,6 +22,7 @@ import { useViewerGestures } from './useViewerGestures'
 import { actionSlots, type SlotId } from './viewerActions'
 import { ViewerBacklinks } from './ViewerBacklinks'
 import { ViewerBody } from './ViewerBody'
+import { anchorScroll } from './viewerGestures'
 import { ViewerActionBar, ViewerMobileTopBar } from './ViewerMobileBars'
 import { ViewerMoreMenu } from './ViewerMoreMenu'
 import { middleEllipsis, navState, resolvePending, routeKey } from './viewerNav'
@@ -119,6 +120,30 @@ export function AttachmentViewer({
   const zoomIn = () => setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
   const zoomOut = () => setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))
   const zoomReset = () => setZoom(() => 1)
+  // 터치 확대 기준점 — 커밋 직후(레이아웃 반영 뒤) 그 점이 제자리에 남도록 스크롤을 맞춘다(판정 R1).
+  const zoomAnchor = useRef<{ key: string; from: number; to: number; focus: { x: number; y: number }; left: number; top: number } | null>(null)
+  /**
+   * 핀치·두 번 탭 확정 — 배율을 바꾸고 기준점과 "바뀌기 전" 스크롤 위치를 기억한다.
+   * 왜 전 위치를 미리 재나: 축소하면 내용이 먼저 줄어 브라우저가 scrollLeft/Top 을 새 최대값으로 잘라 버려, 레이아웃 뒤에 읽으면 틀린 기준이 된다.
+   */
+  const zoomAt = (next: number, focus: { x: number; y: number }) => {
+    if (next === zoom) return
+    const el = stage?.querySelector<HTMLElement>('[data-hscroll]')
+    zoomAnchor.current = { key: itemKey, from: zoom, to: next, focus, left: el?.scrollLeft ?? 0, top: el?.scrollTop ?? 0 }
+    setZoom(() => next)
+  }
+  useLayoutEffect(() => {
+    const a = zoomAnchor.current
+    // 확정 직후 다른 항목으로 넘어갔으면(배율이 1 로 초기화) 그 항목에 엉뚱한 스크롤을 걸지 않는다.
+    if (!a || a.key !== itemKey || a.to !== zoom || !stage) return
+    zoomAnchor.current = null
+    // 이미지 = 본문 자신, PDF = pdf-document — 둘 다 확대 스크롤 영역 표식(data-hscroll)을 단다(판정 R4).
+    const el = stage.querySelector<HTMLElement>('[data-hscroll]')
+    if (!el) return
+    const s = anchorScroll({ scrollLeft: a.left, scrollTop: a.top, focusX: a.focus.x, focusY: a.focus.y, from: a.from, to: a.to })
+    el.scrollLeft = s.left
+    el.scrollTop = s.top
+  }, [zoom, stage, itemKey])
   const [pdfPage, setPdfPage] = useState<{ key: string; current: number; total: number } | null>(null)
   const onPage = useCallback(
     (current: number, total: number) => setPdfPage({ key: itemKey, current, total }),
@@ -252,6 +277,8 @@ export function AttachmentViewer({
     backdrop,
     onDismiss: onClose,
     onTap: mobile ? toggleBars : undefined,
+    zoomable,
+    onZoom: zoomAt,
   })
   // 맞춤 이미지는 스크롤할 것이 없어 터치를 전부 받고(none), 그 외는 네이티브 스크롤을 남긴다(pan) — 판정 R2.
   const stageTouch = !coarse ? undefined : kind === 'IMAGE' && zoom === 1 ? 'none' : 'pan'
