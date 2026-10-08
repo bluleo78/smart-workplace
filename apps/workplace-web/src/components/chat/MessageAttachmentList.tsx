@@ -2,6 +2,7 @@ import { Cloud, FileText } from 'lucide-react'
 
 import { useOpenChatAttachment } from '@/components/chat/chatAttachmentViewerContext'
 import type { ViewerItem } from '@/components/viewer/types'
+import { attachmentMime } from '@/components/viewer/viewerItems'
 import { isInlineImageType } from '@/lib/imageUpload'
 import { cn } from '@/lib/utils'
 import type { DriveLink } from '@/types/drive'
@@ -12,6 +13,18 @@ function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** 파일·링크 카드 공통 모양 — 열 수 없으면(disabled) hover 강조를 끈다. */
+const CARD_CLASS =
+  'flex max-w-full min-w-0 items-center gap-2 rounded-md border bg-card px-2 py-1 text-left text-sm enabled:hover:bg-accent/40 disabled:cursor-default'
+
+/**
+ * 카드 버튼 속성 — 열 수 있으면 "{이름} 미리보기" 버튼, 없으면 비활성(포커스·클릭 불가, 접근 이름은 보이는 글자 그대로).
+ * 왜: 동작하지 않는 "미리보기" 버튼이 스크린리더·키보드 사용자에게 노출되지 않게(썸네일 ThumbnailButton 과 같은 규칙).
+ */
+function cardOpenProps(name: string, onOpen: (() => void) | undefined) {
+  return onOpen ? { 'aria-label': `${name} 미리보기`, onClick: onOpen } : { disabled: true }
 }
 
 /** 목록이 쓰는 최소 필드 — 팀·이슈 채팅 MessageAttachment 와 메인 AI 채팅 TurnAttachment(WP-234)가 함께 만족한다. */
@@ -25,48 +38,48 @@ type AttachmentLike = Pick<MessageAttachment, 'fileId' | 'originalName' | 'mimeT
  *
  * WP-279: 썸네일·카드를 누르면 새 탭·바로 다운로드 대신 통합 뷰어를 연다(다운로드는 뷰어 ⬇).
  * 묶음 = 이 메시지 한 건의 업로드 첨부 + 드라이브 링크(화면 표시 순서 그대로). 열기는 가장 가까운 ChatAttachmentViewerHost 가 맡는다.
- * toItem 이 없으면(미확정 메시지·세션 전 메인 AI 턴 — 콘텐츠 경로가 아직 없음) 열지 않는다. */
+ * bundle 이 없으면(미확정 메시지·세션 전 메인 AI 턴 — 콘텐츠 경로가 아직 없음) 열지 않고, 카드는 비활성으로 그린다.
+ * 썸네일·카드 분기는 뷰어와 같은 추론 형식(attachmentMime)으로 한다 — octet-stream 으로 저장된 PNG 도 썸네일로 보이게. */
 export function MessageAttachmentList<A extends AttachmentLike>({
   attachments,
   driveLinks = [],
-  toItem,
-  toDriveLinkItem,
+  bundle,
   renderImage,
   className,
 }: {
   attachments: A[]
   driveLinks?: DriveLink[]
-  /** 업로드 첨부 → 뷰어 항목. 없으면 열 수 없는 상태(카드·썸네일을 눌러도 아무 일 없음). */
-  toItem?: (a: A) => ViewerItem
-  /** 드라이브 링크 → 뷰어 항목 — driveLinks 를 넘길 때 함께 넘긴다(메인 AI 채팅은 둘 다 생략, WP-234). */
-  toDriveLinkItem?: (dl: DriveLink) => ViewerItem
+  /**
+   * 이 메시지의 뷰어 묶음(업로드 → 드라이브 링크, 화면 순서)을 만드는 함수 — 누를 때만 부른다(대부분 메시지는 열리지 않는다).
+   * 없으면 열 수 없는 상태(미확정 메시지·세션 전 AI 턴).
+   */
+  bundle?: () => ViewerItem[]
   /** 썸네일 렌더 — onOpen 이 있으면 썸네일을 눌러 뷰어를 연다. */
   renderImage: (a: A, onOpen?: () => void) => React.ReactNode
   className?: string
 }) {
   const openViewer = useOpenChatAttachment()
   if ((!attachments || attachments.length === 0) && driveLinks.length === 0) return null
-  // 묶음은 업로드 → 드라이브 링크 순(화면 순서). 열 수 없는 상태면(호스트·어댑터 없음) 만들지 않는다.
-  // 드라이브 링크 어댑터가 없으면 링크는 묶음에서 빠지고 열 수도 없다(넘김 순서가 화면과 어긋나지 않게 업로드만 묶는다).
-  const items =
-    openViewer && toItem
-      ? [...attachments.map(toItem), ...(toDriveLinkItem ? driveLinks.map(toDriveLinkItem) : [])]
-      : null
-  /** i 번째 항목(묶음 기준)을 여는 핸들러 — 열 수 없으면 undefined. */
-  const opener = (i: number) => (items && items[i] ? () => openViewer?.(items, items[i].key) : undefined)
+  /** 묶음 i 번째 항목을 여는 핸들러 — 열 수 없으면 undefined. 묶음은 누를 때 만든다. */
+  const opener = (i: number) =>
+    openViewer && bundle
+      ? () => {
+          const key = bundle()[i]?.key
+          if (key) openViewer(key)
+        }
+      : undefined
   return (
     <div className={cn('mt-1 flex flex-col gap-1', className)} data-testid="message-attachments">
       {attachments.map((a, i) =>
-        isInlineImageType(a.mimeType) ? (
+        isInlineImageType(attachmentMime(a.mimeType, a.originalName)) ? (
           <span key={a.fileId}>{renderImage(a, opener(i))}</span>
         ) : (
           <button
             key={a.fileId}
             type="button"
             data-testid={`attachment-card-${a.fileId}`}
-            aria-label={`${a.originalName} 미리보기`}
-            onClick={opener(i)}
-            className="flex max-w-full min-w-0 items-center gap-2 rounded-md border bg-card px-2 py-1 text-left text-sm hover:bg-accent/40"
+            {...cardOpenProps(a.originalName, opener(i))}
+            className={CARD_CLASS}
           >
             <FileText className="h-4 w-4 shrink-0" />
             <span className="min-w-0 truncate">{a.originalName}</span>
@@ -80,9 +93,8 @@ export function MessageAttachmentList<A extends AttachmentLike>({
           key={dl.driveFileId}
           type="button"
           data-testid={`message-drive-link-${dl.driveFileId}`}
-          aria-label={`${dl.name} 미리보기`}
-          onClick={opener(attachments.length + j)}
-          className="flex max-w-full min-w-0 items-center gap-2 rounded-md border bg-card px-2 py-1 text-left text-sm hover:bg-accent/40"
+          {...cardOpenProps(dl.name, opener(attachments.length + j))}
+          className={CARD_CLASS}
         >
           <Cloud className="h-4 w-4 shrink-0 text-info" />
           <span className="min-w-0 truncate">{dl.name}</span>

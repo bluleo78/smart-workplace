@@ -2,10 +2,8 @@
 // 컴포넌트 파일과 나눈 이유: 컴포넌트 파일이 훅·컨텍스트를 함께 내보내면 Fast Refresh 가 깨진다(react-refresh/only-export-components).
 import { createContext, useContext } from 'react'
 
-import type { ViewerItem } from '@/components/viewer/types'
-
-/** 메시지 한 건의 묶음(표시 순서)과 누른 항목 키로 뷰어를 연다. */
-export type OpenChatAttachment = (items: ViewerItem[], key: string) => void
+/** 누른 항목 키로 뷰어를 연다 — 묶음은 호스트가 키의 메시지에서 다시 만든다. */
+export type OpenChatAttachment = (key: string) => void
 
 export const ChatAttachmentViewerContext = createContext<OpenChatAttachment | null>(null)
 

@@ -10,19 +10,24 @@ import {
   driveFileItem,
   driveViewerKey,
   fileViewerKey,
+  findChatBundle,
+  findHomeChatBundle,
   homeChatAttachmentItem,
   isMailViewerKey,
   issueAttachmentItem,
   issueBodyImageItem,
   issueChatAttachmentItem,
+  issueChatBundle,
   issueChatDriveLinkItem,
   issueDriveLinkItem,
   mailAttachmentItem,
   mailViewerKey,
   normalizeAttachmentPreviewKey,
+  parseChatViewerKey,
   parseViewerKey,
   resolveBundle,
   teamChatAttachmentItem,
+  teamChatBundle,
   teamChatDriveLinkItem,
   virtualAttachmentItem,
 } from './viewerItems'
@@ -255,10 +260,10 @@ describe('issueChatAttachmentItem / issueChatDriveLinkItem', () => {
 })
 
 describe('homeChatAttachmentItem', () => {
-  it('메인 AI 채팅은 세션 첨부 경로·turn 키, ✨·☁·원본 이동이 없다', () => {
+  it('메인 AI 채팅은 세션 첨부 경로·home:{fileId} 키, ✨·☁·원본 이동이 없다', () => {
     const a: HomeUploadedFile = { fileId: 77, originalName: 'shot.png', mimeType: 'image/png', sizeBytes: 9 }
-    expect(homeChatAttachmentItem('s-1', 4, a)).toEqual({
-      key: 'turn:4:file:77', name: 'shot.png', mimeType: 'image/png', sizeBytes: 9,
+    expect(homeChatAttachmentItem('s-1', a)).toEqual({
+      key: 'home:77', name: 'shot.png', mimeType: 'image/png', sizeBytes: 9,
       contentPath: '/home/sessions/s-1/attachments/77/content',
       downloadPath: '/home/sessions/s-1/attachments/77/content',
     })
@@ -272,7 +277,7 @@ describe('채팅 키는 다른 호스트 파서에 잡히지 않는다', () => {
       teamChatDriveLinkItem(3, 42, link()).key,
       issueChatAttachmentItem(8, msgAtt()).key,
       issueChatDriveLinkItem(8, 42, link()).key,
-      homeChatAttachmentItem('s', 0, { fileId: 1, originalName: 'a', mimeType: 'image/png', sizeBytes: 1 }).key,
+      homeChatAttachmentItem('s', { fileId: 1, originalName: 'a', mimeType: 'image/png', sizeBytes: 1 }).key,
     ]
     for (const k of keys) {
       expect(parseViewerKey(k)).toBeNull()
@@ -281,5 +286,44 @@ describe('채팅 키는 다른 호스트 파서에 잡히지 않는다', () => {
     }
     // 팀 채팅과 이슈 채팅은 같은 메시지 id·파일 id 라도 키가 다르다.
     expect(keys[0]).not.toBe(keys[2])
+  })
+})
+
+describe('드라이브 링크 형식', () => {
+  it('링크 형식도 정규화·파일명 추론을 거친다(대소문자·파라미터·octet-stream)', () => {
+    expect(teamChatDriveLinkItem(3, 42, link({ mimeType: 'Application/PDF; x=1' })).mimeType).toBe('application/pdf')
+    expect(issueChatDriveLinkItem(8, 42, link({ name: '표.csv', mimeType: 'application/octet-stream' })).mimeType).toBe('text/csv')
+  })
+})
+
+describe('parseChatViewerKey / findChatBundle / findHomeChatBundle', () => {
+  it('키를 표면·메시지 id(또는 fileId)로 읽는다 — 다른 형식은 null', () => {
+    expect(parseChatViewerKey('msg:42:file:5')).toEqual({ surface: 'msg', messageId: 42 })
+    expect(parseChatViewerKey('cmsg:7:drive:70')).toEqual({ surface: 'cmsg', messageId: 7 })
+    expect(parseChatViewerKey('home:77')).toEqual({ surface: 'home', fileId: 77 })
+    for (const k of [null, 'file:5', 'msg:x:file:5', 'msg:1:mail:2', 'home:', 'turn:1:file:2']) expect(parseChatViewerKey(k)).toBeNull()
+  })
+
+  const m42 = { id: 42, attachments: [msgAtt()], driveLinks: [link()] }
+  it('키의 메시지를 목록에서 찾아 그 메시지 묶음을 다시 만든다(업로드 → 링크 순)', () => {
+    const b = findChatBundle('msg:42:drive:70', 'msg', [{ id: 1 }, m42], (m) => teamChatBundle(3, m))
+    expect(b?.map((i) => i.key)).toEqual(['msg:42:file:5', 'msg:42:drive:70'])
+  })
+  it('다른 표면 키·목록에 없는 메시지·삭제·미확정·묶음에 없는 항목이면 null', () => {
+    const build = (m: typeof m42) => teamChatBundle(3, m)
+    expect(findChatBundle('cmsg:42:file:5', 'msg', [m42], build)).toBeNull()
+    expect(findChatBundle('msg:43:file:5', 'msg', [m42], build)).toBeNull()
+    expect(findChatBundle('msg:42:file:5', 'msg', [{ ...m42, deleted: true }], build)).toBeNull()
+    expect(findChatBundle('msg:42:file:9', 'msg', [m42], build)).toBeNull()
+    expect(findChatBundle(null, 'msg', [m42], build)).toBeNull()
+    expect(findChatBundle('cmsg:42:file:5', 'cmsg', [m42], (m) => issueChatBundle(8, m))?.length).toBe(2)
+  })
+  it('메인 AI 는 그 fileId 가 든 턴이 묶음, 세션이 없으면 null', () => {
+    const a = (fileId: number) => ({ fileId, originalName: `f${fileId}`, mimeType: 'image/png', sizeBytes: 1 })
+    const turns = [{ attachments: [a(1), a(2)] }, {}, { attachments: [a(3)] }]
+    expect(findHomeChatBundle('home:2', 's', turns)?.map((i) => i.key)).toEqual(['home:1', 'home:2'])
+    expect(findHomeChatBundle('home:3', 's', turns)?.length).toBe(1)
+    expect(findHomeChatBundle('home:9', 's', turns)).toBeNull()
+    expect(findHomeChatBundle('home:1', null, turns)).toBeNull()
   })
 })

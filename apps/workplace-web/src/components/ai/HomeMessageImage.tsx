@@ -1,4 +1,5 @@
 import { ThumbnailButton } from '@/components/chat/ThumbnailButton';
+import { attachmentMime } from '@/components/viewer/viewerItems';
 import { useHomeAttachmentBlob } from '@/hooks/useHomeAttachmentBlob';
 import { isInlineImageType } from '@/lib/imageUpload';
 import type { TurnAttachment } from '@/types/home';
@@ -21,7 +22,8 @@ export function HomeMessageImage({
   /** 썸네일을 눌러 뷰어를 연다 — 세션이 정해진 뒤에만 넘어온다. */
   onOpen?: () => void;
 }) {
-  const inline = isInlineImageType(attachment.mimeType);
+  // 목록 분기와 같은 추론 형식으로 판정한다(범용 형식으로 저장된 PNG 도 썸네일).
+  const inline = isInlineImageType(attachmentMime(attachment.mimeType, attachment.originalName));
   // 미리보기가 있거나 4종 밖이면 서버 요청을 하지 않는다(세션 id 를 null 로 넘겨 훅을 멈춘다 — 훅은 조건부로 부를 수 없다).
   const remote = useHomeAttachmentBlob(attachment.previewUrl || !inline ? null : sessionId, attachment.fileId);
   if (!inline) return <span className="text-xs text-muted-foreground">{attachment.originalName}</span>;

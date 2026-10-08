@@ -741,6 +741,23 @@
   z-index: 55 !important;
 }
 
+/* 모바일 AI 시트 위에 연 첨부 뷰어(z-[80], WP-279) — 뷰어가 열린 동안에만 토스트와 뷰어 안에서 연 포털 층
+   (⋯ 메뉴·팝오버·툴팁, ☁ 폴더 선택 다이얼로그, 바텀시트)을 뷰어 위로 올린다. 평소 층 정책(토스트 55 등)은 그대로다.
+   전용 표식(data-viewer-above-ai)을 쓰는 이유: AI 표면 표식(data-ai-layer)에 걸리면 Esc 가 AI 패널을 닫고 ←/→·확대 키가 꺼진다.
+   뷰어 자신(dialog-content)은 :not 으로 빼 z-[80] 을 유지하고, 뒤에 붙는 다이얼로그(폴더 선택)만 위로 온다. */
+body:has([data-viewer-above-ai]) [data-sonner-toaster] {
+  z-index: 90 !important;
+}
+body:has([data-viewer-above-ai]) [data-slot='dropdown-menu-content'],
+body:has([data-viewer-above-ai]) [data-slot='popover-content'],
+body:has([data-viewer-above-ai]) [data-slot='tooltip-content'],
+body:has([data-viewer-above-ai]) [data-slot='dialog-overlay'],
+body:has([data-viewer-above-ai]) [data-slot='dialog-content']:not([data-viewer-above-ai]),
+body:has([data-viewer-above-ai]) [data-slot='sheet-overlay'],
+body:has([data-viewer-above-ai]) [data-slot='sheet-content'] {
+  z-index: 85;
+}
+
 /* 헤더가 토스트 위에 그려지므로 토스트를 헤더 아래 8px 에서 시작시켜 잘림을 막는다 (WP-95).
    <lg 는 햄버거 영역(AppLayout pt-12) + PageHeader(h-14), lg 이상은 헤더만. Sonner offset prop 은
    600px 에서 모바일 값이 갈려 레이아웃 기준(lg)과 어긋나므로 CSS 에서 lg 기준으로 지정한다. */

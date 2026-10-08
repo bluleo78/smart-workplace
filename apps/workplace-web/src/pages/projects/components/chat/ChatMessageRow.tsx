@@ -18,7 +18,7 @@ import {
   TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar';
 import { messagePlainText, parseMessageSegments } from '@/components/mentions/parseMessageSegments';
-import { issueChatAttachmentItem, issueChatDriveLinkItem } from '@/components/viewer/viewerItems';
+import { issueChatBundle } from '@/components/viewer/viewerItems';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
 import { useToolbarReveal } from '@/hooks/useToolbarReveal';
 
@@ -144,8 +144,7 @@ export function ChatMessageRow({
       <MessageAttachmentList
         attachments={message.attachments}
         driveLinks={message.driveLinks}
-        toItem={isPending ? undefined : (att) => issueChatAttachmentItem(message.threadId, att)}
-        toDriveLinkItem={isPending ? undefined : (dl) => issueChatDriveLinkItem(message.threadId, message.id, dl)}
+        bundle={isPending ? undefined : () => issueChatBundle(message.threadId, message)}
         renderImage={(att, onOpen) => <ChatMessageImage threadId={message.threadId} attachment={att} onOpen={onOpen} />}
       />
     );

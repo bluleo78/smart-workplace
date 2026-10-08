@@ -135,7 +135,8 @@ function driveLinkItem(key: string, path: string, l: DriveLink): ViewerItem {
   return {
     key,
     name: l.name,
-    mimeType: l.mimeType,
+    // 링크 형식도 업로드와 같은 규칙 — 대소문자·파라미터 정규화, 범용 형식이면 파일명으로 추론(드라이브 업로드도 형식이 범용일 수 있다).
+    mimeType: attachmentMime(l.mimeType, l.name),
     sizeBytes: l.sizeBytes,
     contentPath: path,
     downloadPath: path,
@@ -164,12 +165,27 @@ function chatUploadItem(key: string, path: string, a: HomeUploadedFile, importab
 }
 
 /**
- * 채팅 묶음 키 — `{표면}:{메시지}:{file|drive}:{id}`.
+ * 채팅 묶음 키 — 팀·이슈 채팅은 `{표면}:{메시지}:{file|drive}:{id}`, 메인 AI 채팅은 `home:{fileId}`.
  * 묶음은 한 메시지 안이지만 같은 드라이브 파일이 여러 메시지에 링크될 수 있어 메시지 id 를 넣는다.
- * 표면 접두어(팀 `msg`·이슈 채팅 `cmsg`·메인 AI `turn`)를 나눠 서로 다른 테이블의 같은 메시지 id 가 겹치지 않게 하고,
+ * 표면 접두어(팀 `msg`·이슈 채팅 `cmsg`)를 나눠 서로 다른 테이블의 같은 메시지 id 가 겹치지 않게 하고,
  * `file:`/`drive:`/`mail:` 로 시작하지 않아 드라이브·이슈·메일 호스트 파서(parseViewerKey·isMailViewerKey)에 잡히지 않는다.
+ * 메인 AI 턴에는 안정된 id 가 없어(렌더 위치는 대화 전환·새 턴에 바뀜) 업로드마다 고유한 core fileId 만 쓴다 — 그 파일이 든 턴이 묶음이다.
+ * 키만으로 호스트가 지금 그린 메시지에서 묶음을 다시 만들 수 있다(앞으로가기·드라이브에서 돌아오기·새로고침 뒤 다시 열기).
  */
-const chatViewerKey = (surface: 'msg' | 'cmsg' | 'turn', messageId: number, itemKey: string) => `${surface}:${messageId}:${itemKey}`
+const chatViewerKey = (surface: 'msg' | 'cmsg', messageId: number, itemKey: string) => `${surface}:${messageId}:${itemKey}`
+const CHAT_KEY_RE = /^(msg|cmsg):(\d+):(?:file|drive):\d+$/
+const HOME_KEY_RE = /^home:(\d+)$/
+
+/** 채팅 키 → 표면·메시지 id(팀·이슈) 또는 fileId(메인 AI). 채팅 키가 아니면 null. */
+export function parseChatViewerKey(
+  key: string | null,
+): { surface: 'msg' | 'cmsg'; messageId: number } | { surface: 'home'; fileId: number } | null {
+  if (key == null) return null
+  const c = CHAT_KEY_RE.exec(key)
+  if (c) return { surface: c[1] as 'msg' | 'cmsg', messageId: Number(c[2]) }
+  const h = HOME_KEY_RE.exec(key)
+  return h ? { surface: 'home', fileId: Number(h[1]) } : null
+}
 
 /** 팀 채팅 업로드 첨부 — 채널 멤버 권한 메시지 첨부 경로. 형식은 원문 저장이라 범용이면 파일명으로 추론한다. */
 export function teamChatAttachmentItem(channelId: number, a: MessageAttachment): ViewerItem {
@@ -210,11 +226,74 @@ export function issueChatDriveLinkItem(threadId: number, messageId: number, l: D
 }
 
 /**
- * 메인 AI 채팅 첨부 — 세션 소유자 전용 경로. 턴에는 메시지 id 가 없어 턴 위치를 키에 넣는다.
+ * 메인 AI 채팅 첨부 — 세션 소유자 전용 경로. 키는 `home:{fileId}`(턴에 안정된 id 가 없음 — chatViewerKey 주석).
  * ✨(업로드 요약 없음)·☁(세션 첨부 가져오기 API 없음)·원본 이동은 없다.
  */
-export function homeChatAttachmentItem(sessionId: string, turnIndex: number, a: HomeUploadedFile): ViewerItem {
-  return chatUploadItem(chatViewerKey('turn', turnIndex, fileViewerKey(a.fileId)), homeAttachmentContentPath(sessionId, a.fileId), a, false)
+export function homeChatAttachmentItem(sessionId: string, a: HomeUploadedFile): ViewerItem {
+  return chatUploadItem(`home:${a.fileId}`, homeAttachmentContentPath(sessionId, a.fileId), a, false)
+}
+
+/** 묶음 원본으로 쓰는 메시지 최소 필드 — 팀(MessageResponse)·이슈 채팅(ChatMessageResponse) 공통. */
+interface ChatBundleMessage {
+  id: number
+  attachments?: MessageAttachment[] | null
+  driveLinks?: DriveLink[] | null
+}
+
+/** 팀 채팅 메시지 한 건의 묶음 — 업로드 → 드라이브 링크(화면 표시 순서). */
+export function teamChatBundle(channelId: number, m: ChatBundleMessage): ViewerItem[] {
+  return [
+    ...(m.attachments ?? []).map((a) => teamChatAttachmentItem(channelId, a)),
+    ...(m.driveLinks ?? []).map((l) => teamChatDriveLinkItem(channelId, m.id, l)),
+  ]
+}
+
+/** 이슈 채팅 메시지 한 건의 묶음 — 업로드 → 드라이브 링크(화면 표시 순서). */
+export function issueChatBundle(threadId: number, m: ChatBundleMessage): ViewerItem[] {
+  return [
+    ...(m.attachments ?? []).map((a) => issueChatAttachmentItem(threadId, a)),
+    ...(m.driveLinks ?? []).map((l) => issueChatDriveLinkItem(threadId, m.id, l)),
+  ]
+}
+
+/** 메인 AI 사용자 턴 한 건의 묶음. */
+export function homeChatBundle(sessionId: string, attachments: readonly HomeUploadedFile[]): ViewerItem[] {
+  return attachments.map((a) => homeChatAttachmentItem(sessionId, a))
+}
+
+/**
+ * 열린 키 → 지금 그린 메시지 목록에서 그 키가 든 묶음(팀·이슈 채팅). 키가 다른 표면이거나, 메시지가 목록에 없거나
+ * (페이지 밖·삭제됨·미확정), 항목이 그 메시지 묶음에 없으면 null.
+ * 왜: 열림을 클릭 스냅숏이 아니라 키에 담아, 앞으로가기·드라이브에서 돌아오기·새로고침 뒤에도 같은 묶음을 다시 만든다.
+ */
+export function findChatBundle<M extends ChatBundleMessage & { deleted?: boolean }>(
+  key: string | null,
+  surface: 'msg' | 'cmsg',
+  messages: readonly M[],
+  build: (m: M) => ViewerItem[],
+): ViewerItem[] | null {
+  const p = parseChatViewerKey(key)
+  if (p == null || p.surface !== surface) return null
+  const m = messages.find((x) => x.id === p.messageId)
+  if (m == null || m.deleted || m.id < 0) return null
+  const items = build(m)
+  return items.some((i) => i.key === key) ? items : null
+}
+
+/** 열린 키 → 그 fileId 가 든 메인 AI 사용자 턴의 묶음. 세션이 없거나(첫 응답 전) 턴이 없으면 null. */
+export function findHomeChatBundle(
+  key: string | null,
+  sessionId: string | null,
+  // 턴 유니온(확인카드 결과 줄 등 첨부 없는 턴 포함)을 그대로 받는다 — 첨부가 있는 턴만 본다.
+  turns: readonly object[],
+): ViewerItem[] | null {
+  const p = parseChatViewerKey(key)
+  if (p == null || p.surface !== 'home' || sessionId == null) return null
+  for (const t of turns) {
+    const atts = (t as { attachments?: readonly HomeUploadedFile[] }).attachments
+    if (atts?.some((a) => a.fileId === p.fileId)) return homeChatBundle(sessionId, atts)
+  }
+  return null
 }
 
 /**

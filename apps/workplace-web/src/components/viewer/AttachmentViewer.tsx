@@ -79,7 +79,8 @@ export function AttachmentViewer({
   shareable?: boolean
   /**
    * 모바일 AI 시트(z-[60]) 안에서 연 뷰어인지(메인 AI 채팅 첨부, WP-279) — 모바일 배치에서만 레이어를 z-[80] 으로 올린다
-   * (안 올리면 기본 z-50 이라 시트 아래에 깔려 보이지도 누를 수도 없다). 데스크톱 배치는 그대로 둔다 — 올리면 헤더 아이콘 툴팁(z-50)이 뷰어에 가린다.
+   * (안 올리면 기본 z-50 이라 시트 아래에 깔려 보이지도 누를 수도 없다). 데스크톱 배치는 그대로 둔다.
+   * 올린 동안 토스트·뷰어 안 포털(z-50)은 data-viewer-above-ai 표식의 index.css 규칙이 함께 올린다.
    */
   aboveAiSheet?: boolean
 }) {
@@ -368,6 +369,8 @@ export function AttachmentViewer({
         )}
         // 키보드 열림 다이얼로그 규칙(index.css)에서 이 전체 화면 레이어를 골라 제외하는 표식.
         data-viewer-root=""
+        // AI 시트 위 뷰어 표식 — 열린 동안 토스트·뷰어 안 포털(⋯·폴더 선택 등)을 이 레이어 위로 올린다(index.css, WP-279).
+        data-viewer-above-ai={mobile && aboveAiSheet ? '' : undefined}
         style={mobile && bottomChrome != null ? ({ '--viewer-bottom-chrome': `${bottomChrome}px` } as React.CSSProperties) : undefined}
         {...aiAware.contentProps}
         // 열릴 때 첫 포커스가 다운로드 아이콘 버튼에 가면 툴팁이 바로 뜨고, 첫 Escape 를 툴팁이 먹어

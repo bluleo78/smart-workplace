@@ -2,7 +2,7 @@
 // AI 어시스턴트 공유 채팅 본문 — 세션 스위처 헤더 + 메시지 이력 + 입력바.
 // side(AISidePanel) / fullscreen(AIFullscreen) 모두 재사용. 컨테이너(폭/포지션)는 호출측 책임.
 import { ArrowUp, ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square } from 'lucide-react';
-import { Fragment, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ActionResultLine } from '@/components/ai/ActionResultLine';
 import { AiLabel } from '@/components/ai/AiLabel';
@@ -28,7 +28,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-import { homeChatAttachmentItem } from '@/components/viewer/viewerItems';
+import { findHomeChatBundle, homeChatBundle } from '@/components/viewer/viewerItems';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
 import { useComposerFileDrop } from '@/hooks/useComposerFileDrop';
 import { useHomeChatAttachments } from '@/hooks/useHomeChatAttachments';
@@ -154,6 +154,11 @@ export function AIChatPanel({
 
   // WP-234: 첨부 초안 — 개수 상한(메시지 10·세션 30)·이미지 축소·25MB·로컬 미리보기는 훅이 맡는다.
   const sessionAttachmentCount = useMemo(() => countSessionAttachments(turns), [turns]);
+  // WP-279: 열린 첨부 키(home:{fileId}) → 그 파일이 든 사용자 턴의 묶음. 앞으로가기·패널 전환 뒤에도 키만으로 다시 연다.
+  const resolveHomeAttachment = useCallback(
+    (key: string) => findHomeChatBundle(key, currentSessionId, turns),
+    [currentSessionId, turns],
+  );
   const attach = useHomeChatAttachments({ sessionAttachmentCount, resetNonce: attachmentResetNonce });
   // 입력창 영역 파일 드롭 → 사전 업로드(WP-235 부품 재사용).
   const { isDragging, dropProps } = useComposerFileDrop((files) => void attach.addFiles(files));
@@ -251,16 +256,24 @@ export function AIChatPanel({
         </div>
       )}
 
-      <div ref={scrollRef} data-testid="chat-scroll" className="flex-1 overflow-auto p-3">
-        {turns.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-            <Sparkles className="h-9 w-9 text-muted-foreground/60" />
-            <p className="text-base font-medium text-foreground">AI 어시스턴트에게 물어보세요</p>
-            <p className="text-sm text-muted-foreground">무엇이든 질문해 보세요</p>
-          </div>
-        ) : (
-          // WP-279: 사용자 턴 첨부 썸네일·카드 → 통합 뷰어. 사이드 패널·전체화면·모바일 시트가 같은 키를 읽어도 누른 패널의 호스트만 묶음을 든다.
-          <ChatAttachmentViewerHost historyKey={HOME_CHAT_PREVIEW_KEY} aboveAiSheet>
+      {/* WP-279: 사용자 턴 첨부 썸네일·카드 → 통합 뷰어. 대화 내용 분기(빈 대화·턴 목록) 바깥에 둬 새 대화·대화 전환에도 호스트가 남아
+          열린 뷰어를 정상 닫기로 되돌린다(resetKey). 사이드·전체화면·모바일 시트가 같은 키를 읽어도 등록부가 하나만 그리게 한다. */}
+      <ChatAttachmentViewerHost
+        historyKey={HOME_CHAT_PREVIEW_KEY}
+        resolve={resolveHomeAttachment}
+        // 세션이 있는데 턴이 아직 없으면 이력을 읽는 중 — "못 그림"으로 판단해 열림 표식을 지우지 않는다.
+        ready={!(currentSessionId && turns.length === 0)}
+        resetKey={currentSessionId}
+        aboveAiSheet
+      >
+        <div ref={scrollRef} data-testid="chat-scroll" className="flex-1 overflow-auto p-3">
+          {turns.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+              <Sparkles className="h-9 w-9 text-muted-foreground/60" />
+              <p className="text-base font-medium text-foreground">AI 어시스턴트에게 물어보세요</p>
+              <p className="text-sm text-muted-foreground">무엇이든 질문해 보세요</p>
+            </div>
+          ) : (
             <ul className="space-y-2">
               {turns.map((t, i) => (
                 <Fragment key={i}>
@@ -362,8 +375,8 @@ export function AIChatPanel({
                           attachments={t.attachments}
                           className="max-w-full items-end"
                           // 새 대화 첫 메시지는 응답이 끝나 세션이 정해지기 전까지 원본 경로가 없어 열지 않는다(썸네일은 로컬 미리보기로 보임).
-                          // 메인 AI 채팅은 드라이브 링크를 받지 않아 driveLinks·toDriveLinkItem 을 넘기지 않는다.
-                          toItem={currentSessionId ? (a) => homeChatAttachmentItem(currentSessionId, i, a) : undefined}
+                          // 메인 AI 채팅은 드라이브 링크를 받지 않아 driveLinks 를 넘기지 않는다.
+                          bundle={currentSessionId && t.attachments ? () => homeChatBundle(currentSessionId, t.attachments!) : undefined}
                           renderImage={(a, onOpen) => <HomeMessageImage sessionId={currentSessionId} attachment={a} onOpen={onOpen} />}
                         />
                       </div>
@@ -480,9 +493,9 @@ export function AIChatPanel({
                 </li>
               )}
             </ul>
-          </ChatAttachmentViewerHost>
-        )}
-      </div>
+          )}
+        </div>
+      </ChatAttachmentViewerHost>
 
       <form
         onSubmit={(e) => {

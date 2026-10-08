@@ -24,7 +24,7 @@ import { parseMessageSegments } from '@/components/mentions/parseMessageSegments
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
-import { teamChatAttachmentItem, teamChatDriveLinkItem } from '@/components/viewer/viewerItems'
+import { teamChatBundle } from '@/components/viewer/viewerItems'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import type { ToolbarRowProps } from '@/hooks/useToolbarReveal'
 import { formatClockTime, formatClockTimeCompact } from '@/lib/formatters'
@@ -247,8 +247,7 @@ export function MessageRow({
       <MessageAttachmentList
         attachments={m.attachments ?? []}
         driveLinks={m.driveLinks ?? []}
-        toItem={isPending ? undefined : (a) => teamChatAttachmentItem(channelId, a)}
-        toDriveLinkItem={isPending ? undefined : (dl) => teamChatDriveLinkItem(channelId, m.id, dl)}
+        bundle={isPending ? undefined : () => teamChatBundle(channelId, m)}
         renderImage={(a, onOpen) => <MessageImage channelId={channelId} attachment={a} onOpen={onOpen} />}
       />
     )
