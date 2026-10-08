@@ -36,7 +36,7 @@ class WorkerClientTest {
             "tok",
             true,
             new WorkerProperties.Embed("BAAI/bge-m3", 1024, 8000, true));
-    var client = new WorkerClient(props);
+    var client = new WorkerClientConfig().workerClient(props);
 
     client.dispatchExtract(10L, "uploads/file.pdf", "application/pdf", 3L, true);
 
@@ -71,7 +71,7 @@ class WorkerClientTest {
             "tok",
             true,
             new WorkerProperties.Embed("BAAI/bge-m3", 1024, 8000, true));
-    var client = new WorkerClient(props);
+    var client = new WorkerClientConfig().workerClient(props);
 
     client.dispatchEmbed(42L, "hello", 7L);
 

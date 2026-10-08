@@ -23,15 +23,6 @@ public class WorkerClient {
   }
 
   /**
-   * 테스트용 편의 생성자 — WorkerProperties 로 RestClient 를 내부 구성한다.
-   *
-   * <p>단위 테스트에서 로컬 HttpServer 스텁을 직접 지정하기 위해 사용한다.
-   */
-  WorkerClient(WorkerProperties props) {
-    this(RestClient.builder().baseUrl(props.baseUrl()).build(), props.internalToken());
-  }
-
-  /**
    * 텍스트 추출 작업을 워커에 디스패치한다.
    *
    * @param jobId worker_job.id (워커가 콜백 시 사용)

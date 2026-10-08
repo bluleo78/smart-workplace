@@ -3,6 +3,7 @@ package com.workplace.drive.outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.outbound.AiAgentProperties;
+import com.workplace.global.outbound.InternalHttp;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -33,12 +34,8 @@ public class DriveOverviewStreamClient {
   @Autowired
   public DriveOverviewStreamClient(AiAgentProperties props) {
     this.props = props;
-    // uvicorn(FastAPI)은 H2C 업그레이드를 거부하므로 HTTP/1.1 고정(WorkerEmbedClient 동일 패턴).
-    this.http =
-        HttpClient.newBuilder()
-            .connectTimeout(CONNECT_TIMEOUT)
-            .version(HttpClient.Version.HTTP_1_1)
-            .build();
+    // HTTP/1.1 고정 — InternalHttp 참조
+    this.http = InternalHttp.httpClientBuilder().connectTimeout(CONNECT_TIMEOUT).build();
   }
 
   /** 테스트용 — HttpClient 주입(로컬 HttpServer 스텁 대상). */

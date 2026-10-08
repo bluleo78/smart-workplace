@@ -3,6 +3,7 @@ package com.workplace.wiki.outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.outbound.AiAgentProperties;
+import com.workplace.global.outbound.InternalHttp;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -36,7 +37,8 @@ public class WikiAiAgentStreamClient {
   @Autowired
   public WikiAiAgentStreamClient(AiAgentProperties props) {
     this.props = props;
-    this.http = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
+    // HTTP/1.1 고정 — InternalHttp 참조
+    this.http = InternalHttp.httpClientBuilder().connectTimeout(CONNECT_TIMEOUT).build();
   }
 
   /** 테스트용 — HttpClient 주입(로컬 HttpServer 스텁 대상). */

@@ -6,17 +6,19 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.web.client.RestClient;
 
 /** ai-agent 발사 관련 Bean 등록. @EnableAsync 로 dispatcher 핸들러를 별도 executor 에서 실행. */
 @Configuration
 @EnableAsync
 public class OutboundConfig {
 
-  /** ai-agent 전용 RestClient 를 구성한 client bean. production 백오프 1초. 테스트는 생성자 직접 호출로 override. */
+  /**
+   * ai-agent 전용 RestClient 를 구성한 client bean. production 백오프 1초. 테스트는 생성자 직접 호출로 override. 요청 팩토리는
+   * HTTP/1.1 고정({@link InternalHttp}, WP-305). 타임아웃은 이전(팩토리 미지정 = JDK 기본, 무제한)과 같게 둔다.
+   */
   @Bean
   public AiAgentEventClient aiAgentEventClient(AiAgentProperties props) {
-    var builder = RestClient.builder().baseUrl(props.baseUrl());
+    var builder = InternalHttp.restClient(props.baseUrl());
     return new AiAgentEventClient(builder, props.internalToken(), 1000L);
   }
 

@@ -1,14 +1,11 @@
 package com.workplace.wiki.outbound;
 
-import java.net.http.HttpClient;
+import com.workplace.global.outbound.InternalHttp;
 import java.time.Duration;
 import java.util.concurrent.Executor;
-import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.web.client.RestClient;
 
 /** 노트 동기화 서버 연동 빈 — {@link CollabClient} 와 재검증 알림 전용 executor(WP-285). */
 @Configuration
@@ -18,23 +15,13 @@ public class CollabClientConfig {
    * connect 3s / read 30s. apply-markdown 은 동기화 서버가 문서를 메모리에 올리고(필요 시 API 에서 로드) 잠금 대기·적용 직전
    * 저장·3-way 병합·적용·즉시 저장까지 마친 뒤 응답한다(WP-289). 동기화 서버는 적용 직전까지를 전체 기한 20s(workplace-collab server.ts
    * 의 APPLY_DEADLINE_MS)로 끊어 503(아무것도 적용 안 함)으로 답하므로, 남은 10s 가 적용 뒤 즉시 저장 한 번의 여유다 — 이 read 30s 를
-   * 줄이면 그 기한도 함께 줄여야 한다. 타임아웃은 결과를 모르는 실패라 503. 요청 팩토리는 JDK HttpClient 를 HTTP/1.1 로 고정한다(h2c 업그레이드
-   * 404 방지).
+   * 줄이면 그 기한도 함께 줄여야 한다. 타임아웃은 결과를 모르는 실패라 503.
    */
   @Bean
   public CollabClient collabClient(CollabProperties props) {
-    var settings =
-        ClientHttpRequestFactorySettings.defaults()
-            .withConnectTimeout(Duration.ofSeconds(3))
-            .withReadTimeout(Duration.ofSeconds(30));
-    // HTTP/1.1 고정 — JDK HttpClient 기본(HTTP/2)은 평문 http 요청에 Connection: Upgrade, HTTP2-Settings /
-    // Upgrade: h2c 를 붙인다. 동기화 서버(Node)는 WebSocket upgrade 리스너가 있어 이를 업그레이드 요청으로 보고 404 로
-    // 거절했다(모든 apply-markdown·revalidate 실패). 내부 호출에 HTTP/2 이득도 없으므로 업그레이드 시도 자체를 끈다.
-    var factory =
-        ClientHttpRequestFactoryBuilder.jdk()
-            .withHttpClientCustomizer(b -> b.version(HttpClient.Version.HTTP_1_1))
-            .build(settings);
-    var builder = RestClient.builder().baseUrl(props.baseUrl()).requestFactory(factory);
+    // HTTP/1.1 고정 — InternalHttp 참조
+    var builder =
+        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(3), Duration.ofSeconds(30));
     return new CollabClient(builder, props.internalToken());
   }
 

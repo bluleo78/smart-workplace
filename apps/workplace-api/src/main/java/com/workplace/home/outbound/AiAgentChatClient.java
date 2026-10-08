@@ -3,6 +3,7 @@ package com.workplace.home.outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.outbound.AiAgentProperties;
+import com.workplace.global.outbound.InternalHttp;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import java.io.InterruptedIOException;
 import java.net.URI;
@@ -45,7 +46,8 @@ public class AiAgentChatClient {
   /** 프로덕션 생성자 — props 에서 baseUrl/internalToken 을 읽는다. */
   public AiAgentChatClient(AiAgentProperties props) {
     this.props = props;
-    this.http = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
+    // HTTP/1.1 고정 — InternalHttp 참조
+    this.http = InternalHttp.httpClientBuilder().connectTimeout(CONNECT_TIMEOUT).build();
   }
 
   /** 테스트용 — HttpClient 주입(로컬 HttpServer 스텁 대상). */

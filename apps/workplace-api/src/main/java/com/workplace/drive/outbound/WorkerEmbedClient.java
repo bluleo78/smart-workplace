@@ -3,6 +3,7 @@ package com.workplace.drive.outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.fileai.outbound.WorkerProperties;
+import com.workplace.global.outbound.InternalHttp;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -44,13 +45,8 @@ public class WorkerEmbedClient {
 
   @Autowired
   public WorkerEmbedClient(WorkerProperties props) {
-    // uvicorn(FastAPI)은 H2C(cleartext HTTP/2) 업그레이드를 거부해 400 을 반환하므로 HTTP/1.1 고정.
-    this(
-        props,
-        HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(2))
-            .version(HttpClient.Version.HTTP_1_1)
-            .build());
+    // HTTP/1.1 고정 — InternalHttp 참조
+    this(props, InternalHttp.httpClientBuilder().connectTimeout(Duration.ofSeconds(2)).build());
   }
 
   /** 테스트용 — HttpClient 주입(게이트 off 시 HTTP 미호출 검증). */

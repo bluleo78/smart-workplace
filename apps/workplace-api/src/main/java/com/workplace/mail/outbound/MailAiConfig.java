@@ -1,12 +1,10 @@
 package com.workplace.mail.outbound;
 
 import com.workplace.global.outbound.AiAgentProperties;
+import com.workplace.global.outbound.InternalHttp;
 import java.time.Duration;
-import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.client.RestClient;
 
 /** 메일 AI 전용 RestClient 빈 — connect 5s / read 90s(ai-agent CLI 예산 초과 보장), 무재시도. */
 @Configuration
@@ -21,12 +19,8 @@ public class MailAiConfig {
    */
   @Bean
   public AiAgentMailClient aiAgentMailClient(AiAgentProperties props) {
-    var settings =
-        ClientHttpRequestFactorySettings.defaults()
-            .withConnectTimeout(Duration.ofSeconds(5))
-            .withReadTimeout(Duration.ofSeconds(90));
-    var factory = ClientHttpRequestFactoryBuilder.detect().build(settings);
-    var builder = RestClient.builder().baseUrl(props.baseUrl()).requestFactory(factory);
+    var builder =
+        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(90));
     return new AiAgentMailClient(builder, props.internalToken());
   }
 }

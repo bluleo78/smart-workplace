@@ -109,6 +109,13 @@ describe('buildWikiTools', () => {
     );
   });
 
+  // WP-309: body 는 전체 대체라 모델이 범위 밖 블록을 다시 쓰거나 정규화하면 사람이 쓴 텍스트가 지워진다 — 설명이 이를 막는 문구를 유지해야 한다.
+  it('update_wiki_page 설명은 body 전체 대체·범위 밖 블록 원문 복사를 명시한다 (WP-309)', () => {
+    const d = tool(mockClient(), 'update_wiki_page').description;
+    expect(d).toContain('문서 전체를 대체');
+    expect(d).toContain('바이트 단위');
+  });
+
   it('update_wiki_page 는 version 누락 시 zod 파싱을 거부한다', async () => {
     const c = mockClient();
     await expect(tool(c, 'update_wiki_page').handler({ pageId: 1, title: '가이드', body: '수정본' })).rejects.toThrow();

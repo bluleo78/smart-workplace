@@ -1,12 +1,10 @@
 package com.workplace.fileai.outbound;
 
 import com.workplace.global.outbound.AiAgentProperties;
+import com.workplace.global.outbound.InternalHttp;
 import java.time.Duration;
-import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.client.RestClient;
 
 /**
  * 드라이브 AI 요약 전용 RestClient 빈. connect 5s / read 200s — ai-agent 드라이브 요약은 최대 180s 예산이므로 read timeout
@@ -25,12 +23,9 @@ public class AiAgentDriveConfig {
    */
   @Bean
   public AiAgentDriveClient aiAgentDriveClient(AiAgentProperties props) {
-    var settings =
-        ClientHttpRequestFactorySettings.defaults()
-            .withConnectTimeout(Duration.ofSeconds(5))
-            .withReadTimeout(Duration.ofSeconds(200));
-    var factory = ClientHttpRequestFactoryBuilder.detect().build(settings);
-    var restClient = RestClient.builder().baseUrl(props.baseUrl()).requestFactory(factory).build();
+    var restClient =
+        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(200))
+            .build();
     return new AiAgentDriveClient(restClient, props.internalToken());
   }
 }

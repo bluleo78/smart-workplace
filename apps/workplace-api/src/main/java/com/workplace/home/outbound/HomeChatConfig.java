@@ -1,12 +1,10 @@
 package com.workplace.home.outbound;
 
 import com.workplace.global.outbound.AiAgentProperties;
+import com.workplace.global.outbound.InternalHttp;
 import java.time.Duration;
-import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.client.RestClient;
 
 /**
  * 홈 채팅 전용 AiAgentChatClient Bean — JDK HttpClient 기반 SSE 스트리밍 (B2).
@@ -28,12 +26,8 @@ public class HomeChatConfig {
    */
   @Bean
   public AiAgentContextSummaryClient aiAgentContextSummaryClient(AiAgentProperties props) {
-    var settings =
-        ClientHttpRequestFactorySettings.defaults()
-            .withConnectTimeout(Duration.ofSeconds(5))
-            .withReadTimeout(Duration.ofSeconds(90));
-    var factory = ClientHttpRequestFactoryBuilder.detect().build(settings);
-    var builder = RestClient.builder().baseUrl(props.baseUrl()).requestFactory(factory);
+    var builder =
+        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(90));
     return new AiAgentContextSummaryClient(builder, props.internalToken());
   }
 }

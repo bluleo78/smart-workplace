@@ -134,7 +134,9 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       name: 'update_wiki_page',
       kind: 'write',
       description:
-        '노트 페이지 제목·본문을 저장합니다. 바꿀 필드만 넣으면 나머지는 유지됩니다. version 은 get_wiki_page 로 읽었거나 직전 update_wiki_page 응답에서 받은 version 을 넣으세요 — ' +
+        '노트 페이지 제목·본문을 저장합니다. title·body 중 바꿀 필드만 넣으면 넣지 않은 필드는 유지됩니다. ' +
+        'body 는 문서 전체를 대체합니다 — body 에서 빠진 텍스트는 삭제됩니다. 일부만 고칠 때도 읽은 본문 전체를 넣되, 요청 범위 밖 블록은 get_wiki_page 로 읽은 그대로 바이트 단위로 복사하세요: ' +
+        '다시 쓰기·공백/빈 줄/목록 기호/강조·제목 표기 정규화·요청받지 않은 텍스트 삭제 금지. version 은 get_wiki_page 로 읽었거나 직전 update_wiki_page 응답에서 받은 version 을 넣으세요 — ' +
         '그 사이 다른 사람이 고친 부분은 서버가 자동으로 합칩니다(같은 곳을 함께 고쳤으면 이 요청의 내용이 우선). ' +
         '409 는 그 version 의 기준본을 쓸 수 없는 경우입니다(읽은 지 1시간이 지나 만료·기록 없음·현재보다 새 version) — 오류 문구에 사유가 있습니다. get_wiki_page 로 다시 읽고 최신 본문에 수정을 반영해 다시 저장하세요.',
       inputSchema: updateWikiPageInput,
