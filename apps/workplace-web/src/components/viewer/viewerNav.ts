@@ -33,6 +33,8 @@ export interface KeyContext {
   fullscreen?: boolean
   /** 방금(가드 시간 안) 전체화면이 풀렸는가 — 브라우저가 전체화면 해제에 쓴 Esc 가 뒤늦게 와도 뷰어를 닫지 않게(스펙 §5.3 #7). */
   fullscreenJustExited?: boolean
+  /** 키를 누르고 있어 반복되는 keydown 인가 — Space 반복으로 재생/정지가 계속 뒤집히지 않게. */
+  repeat?: boolean
 }
 
 export type ViewerAction =
@@ -71,7 +73,7 @@ export function routeKey(ctx: KeyContext): ViewerAction {
     case ' ':
       // 미디어 요소에 포커스가 있으면 브라우저 기본 컨트롤이 Space 로 재생/정지한다 — keydown 을 막아도 네이티브 처리가 따로 돌아
       // 우리도 뒤집으면 두 번 뒤집혀 제자리가 된다(E2E 로 확인). 그래서 그때는 null(네이티브 몫).
-      if (!ctx.media || ctx.inMedia) return null
+      if (!ctx.media || ctx.inMedia || ctx.repeat) return null
       return ctx.fullscreen || !ctx.onControl ? 'playPause' : null
     case '+':
     case '=':

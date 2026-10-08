@@ -114,6 +114,21 @@ test('받는 동안 % 진행률을 보이고 다 받으면 플레이어로 바�
   await expect(page.getByTestId('media-progress-label')).toHaveText('영상 받는 중… 0%')
   await expect(page.getByTestId('media-video')).toBeVisible()
   await expect(bar).toHaveCount(0)
+  // 받는 중 → 재생 준비 전환을 스크린리더에 알린다(매 % 가 아니라 전환 때만).
+  await expect(page.getByTestId('media-status-live')).toHaveText('slow.webm 재생 준비됨')
+})
+
+test('받는 중에 넘기면 받던 요청을 끊는다', async ({ authenticatedPage: page }) => {
+  await stubDriveFiles(page, [VID(80, 'slow-a.webm', { delayMs: 4000 }), VID(81, 'clip-b.webm')], { spaceId: SPACE_ID })
+  const failed: string[] = []
+  page.on('requestfailed', (r) => {
+    if (r.url().includes('/drive/files/80/content')) failed.push(r.failure()?.errorText ?? '')
+  })
+  await openViewer(page, 'slow-a.webm')
+  await expect(page.getByRole('progressbar')).toBeVisible()
+  await page.getByRole('button', { name: '다음 파일' }).click()
+  await expect(page.getByTestId('media-video')).toBeVisible()
+  await expect.poll(() => failed.length).toBeGreaterThan(0)
 })
 
 test('10MB 초과 영상은 먼저 확인을 받고, 미리보기를 누르면 받아서 재생한다', async ({ authenticatedPage: page }) => {
@@ -142,6 +157,11 @@ test('재생할 수 없는 영상은 미지원 화면과 다운로드로 바뀐�
   await expect(notice).toContainText('이 형식은 미리 볼 수 없어요')
   await expect(notice.getByRole('button', { name: '다운로드' })).toBeVisible()
   await expect(page.locator('video')).toHaveCount(0)
+  // 안내는 본문 가운데(미디어 본문은 flex — m-auto 없으면 왼쪽 위에 붙는다).
+  const n = (await notice.boundingBox())!
+  const b = (await page.getByTestId('preview-body').boundingBox())!
+  expect(Math.abs(n.x + n.width / 2 - (b.x + b.width / 2))).toBeLessThan(4)
+  expect(n.y).toBeGreaterThan(b.y + 40)
 })
 
 test('오디오는 큰 아이콘·이름·기본 플레이어로 재생된다', async ({ authenticatedPage: page }) => {
@@ -151,6 +171,7 @@ test('오디오는 큰 아이콘·이름·기본 플레이어로 재생된다', 
   await expect(view).toContainText('voice.mp3')
   const audio = page.getByTestId('media-audio')
   await expect(audio).toHaveAttribute('controls', '')
+  await expect(audio).toHaveAttribute('aria-label', 'voice.mp3')
   await expect.poll(async () => (await state(audio)).paused).toBe(false)
   await expect(page.getByTestId('viewer-zoom-bar')).toHaveCount(0)
 })
@@ -172,11 +193,29 @@ test('자동재생이 거부되면 가운데 재생 버튼으로 폴백한다', 
   await expect(play).toBeVisible()
   const video = page.getByTestId('media-video')
   expect((await state(video)).paused).toBe(true)
+  await expect(play).toHaveAccessibleName('clip-a.webm 재생')
+  await expect(page.getByTestId('media-blocked-live')).toHaveText('자동 재생이 막혔습니다. 재생 버튼을 누르세요.')
   // 사용자가 누르면(제스처) 재생 — 버튼은 사라진다.
   await page.evaluate(() => ((window as unknown as { __blockPlay: boolean }).__blockPlay = false))
   await play.click()
   await expect.poll(async () => (await state(video)).paused).toBe(false)
   await expect(play).toHaveCount(0)
+})
+
+test('오디오 자동재생이 거부되면 재생 버튼은 이름 아래 흐름 안에 — 이름·플레이어를 가리지 않는다', async ({ authenticatedPage: page }) => {
+  await page.addInitScript(() => {
+    HTMLMediaElement.prototype.play = () => Promise.reject(new DOMException('blocked', 'NotAllowedError'))
+  })
+  await stubDriveFiles(page, [AUD(82, 'voice.mp3')], { spaceId: SPACE_ID })
+  await openViewer(page, 'voice.mp3')
+  const play = page.getByTestId('media-play-fallback')
+  await expect(play).toBeVisible()
+  const p = (await play.boundingBox())!
+  const a = (await page.getByTestId('media-audio').boundingBox())!
+  const name = (await page.getByTestId('media-audio-view').getByText('voice.mp3', { exact: true }).boundingBox())!
+  // 겹치지 않는다 — 버튼은 이름 아래, 플레이어 위.
+  expect(p.y).toBeGreaterThanOrEqual(name.y + name.height)
+  expect(p.y + p.height).toBeLessThanOrEqual(a.y)
 })
 
 test.describe('키보드(스펙 §5.3 #6·#7)', () => {
@@ -254,5 +293,41 @@ test.describe('키보드(스펙 §5.3 #6·#7)', () => {
     await page.clock.runFor(600)
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
+  })
+
+  test('네이티브 버튼으로 전체화면을 풀었으면 바로 누른 Esc 는 뷰어를 닫는다(가드는 Esc 해제에만)', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [VID(80, 'clip-a.webm')], { spaceId: SPACE_ID })
+    await openViewer(page, 'clip-a.webm')
+    const video = page.getByTestId('media-video')
+    await waitReady(video)
+    await pausePageClock(page)
+    // 전체화면 진입 → (Esc 없이) 해제 — 컨트롤의 전체화면 해제 버튼 흉내.
+    await video.evaluate((v) => {
+      let fs: Element | null = v
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => fs })
+      document.dispatchEvent(new Event('fullscreenchange'))
+      fs = null
+      document.dispatchEvent(new Event('fullscreenchange'))
+    })
+    await page.getByTestId('attachment-viewer').focus()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
+  })
+
+  test('재생할 수 없는 영상에서는 Space 를 가로채지 않는다(미디어로 다루지 않음)', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [BROKEN], { spaceId: SPACE_ID })
+    await openViewer(page, 'broken.mov')
+    await expect(page.getByTestId('preview-unsupported')).toBeVisible()
+    await page.getByTestId('attachment-viewer').focus()
+    const prevented = await page.evaluate(
+      () =>
+        new Promise<boolean>((res) => {
+          window.addEventListener('keydown', (e) => res(e.defaultPrevented), { once: true })
+          document.querySelector<HTMLElement>('[data-testid="attachment-viewer"]')!.dispatchEvent(
+            new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+          )
+        }),
+    )
+    expect(prevented).toBe(false)
   })
 })

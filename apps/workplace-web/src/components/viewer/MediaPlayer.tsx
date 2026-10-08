@@ -112,17 +112,32 @@ export function MediaPlayer({
     }
   }, [url, kind])
 
-  const fallback = blocked && (
-    // 자동재생 거부 폴백 — 사용자 탭(제스처)으로 다시 play() 를 부르면 허용된다.
-    <button
-      type="button"
-      aria-label="재생"
-      data-testid="media-play-fallback"
-      onClick={() => void mediaRef.current?.play().catch(() => {})}
-      className="absolute top-1/2 left-1/2 z-10 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <Play className="size-7" aria-hidden />
-    </button>
+  /**
+   * 자동재생 거부 폴백 — 사용자 탭(제스처)으로 다시 play() 를 부르면 허용된다. 접근 가능한 이름 "{이름} 재생".
+   * 포커스는 옮기지 않는다(키보드 사용자는 Space 로도 재생 가능) — 대신 아래 live 영역이 막혔다고 알린다.
+   * 영상은 화면 가운데 겹침, 오디오는 이름·컨트롤을 가리지 않게 흐름 안(이름 아래)에 둔다.
+   */
+  const fallback = (overlay: boolean) =>
+    blocked && (
+      <button
+        type="button"
+        aria-label={`${name} 재생`}
+        data-testid="media-play-fallback"
+        onClick={() => void mediaRef.current?.play().catch(() => {})}
+        className={
+          overlay
+            ? 'absolute top-1/2 left-1/2 z-10 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-ring'
+            : 'flex size-12 shrink-0 items-center justify-center rounded-full border border-border bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-ring'
+        }
+      >
+        <Play className={overlay ? 'size-7' : 'size-5'} aria-hidden />
+      </button>
+    )
+  // 스크린리더 알림 — 자동재생이 막혔을 때만(재생 버튼 안내). 플레이어 준비 알림은 ViewerBody 가 한다.
+  const blockedNotice = (
+    <p className="sr-only" aria-live="polite" data-testid="media-blocked-live">
+      {blocked ? '자동 재생이 막혔습니다. 재생 버튼을 누르세요.' : ''}
+    </p>
   )
 
   if (kind === 'AUDIO') {
@@ -131,8 +146,17 @@ export function MediaPlayer({
       <div className="relative m-auto flex w-full max-w-md flex-col items-center gap-4 px-2 text-center" data-testid="media-audio-view">
         <FileAudio className="h-20 w-20 text-muted-foreground" aria-hidden />
         <p className="text-sm font-medium break-all">{name}</p>
-        <audio ref={mediaRef as React.RefObject<HTMLAudioElement>} controls preload="metadata" data-media-player="" data-testid="media-audio" className="w-full" />
-        {fallback}
+        {fallback(false)}
+        <audio
+          ref={mediaRef as React.RefObject<HTMLAudioElement>}
+          controls
+          preload="metadata"
+          aria-label={name}
+          data-media-player=""
+          data-testid="media-audio"
+          className="w-full"
+        />
+        {blockedNotice}
       </div>
     )
   }
@@ -153,7 +177,8 @@ export function MediaPlayer({
         className={fit ? 'block bg-black object-contain' : 'block max-h-full max-w-full bg-black object-contain'}
         style={fit ? { width: fit.w, height: fit.h } : undefined}
       />
-      {fallback}
+      {fallback(true)}
+      {blockedNotice}
     </div>
   )
 }

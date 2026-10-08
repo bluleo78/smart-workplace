@@ -58,6 +58,9 @@ describe('routeKey — 영상·오디오(WP-281)', () => {
     expect(routeKey({ ...media, key: ' ', onControl: true })).toBeNull()
     expect(routeKey({ ...media, key: ' ', onControl: true, fullscreen: true })).toBe('playPause')
   })
+  it('Space 를 누르고 있어 반복되는 keydown 은 무시', () => {
+    expect(routeKey({ ...media, key: ' ', repeat: true })).toBeNull()
+  })
   it('Space 는 문서면 null(브라우저 스크롤)', () => {
     expect(routeKey({ ...base, key: ' ' })).toBeNull()
   })

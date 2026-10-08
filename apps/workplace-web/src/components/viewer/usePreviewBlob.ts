@@ -55,13 +55,16 @@ export function usePreviewBlob(item: ViewerItem, enabled: boolean, { trackProgre
       : undefined
     // 받기 시작 전에도 0% 를 보여 준다(첫 진행 이벤트는 응답 헤더 뒤에야 온다).
     if (trackProgress) setProgress({ loaded: 0, total: item.sizeBytes ?? null, percent: item.sizeBytes ? 0 : null })
+    // 넘기거나 닫으면 받던 요청을 끊는다 — 영상·오디오는 최대 25MB 라 버려질 다운로드가 여러 개 겹치면 지금 항목이 느려지고 데이터를 낭비한다.
+    const controller = new AbortController()
     driveApi
-      .fetchBlobByPath(item.contentPath, { onProgress })
+      .fetchBlobByPath(item.contentPath, { onProgress, signal: controller.signal })
       // octet-stream 응답은 항목 형식(메일 첨부의 파일명 추론 등)으로 다시 감싸 렌더러·공유 File 이 맞는 형식을 보게 한다.
       .then((b) => alive && setBlob(withItemType(b, item.mimeType)))
       .catch(() => alive && setError(true))
     return () => {
       alive = false
+      controller.abort()
     }
   }, [item.contentPath, item.mimeType, item.sizeBytes, active, waiting, attempt, trackProgress])
 

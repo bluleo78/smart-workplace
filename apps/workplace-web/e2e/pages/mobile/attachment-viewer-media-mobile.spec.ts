@@ -124,6 +124,28 @@ test('영상 재생이 시작되고 3초 뒤 바가 자동으로 숨는다', asy
   await expect(topBar(page)).not.toHaveAttribute('inert', '')
   await expect(topBar(page)).toHaveAttribute('inert', '', { timeout: 8000 })
   await expect(page.getByTestId('viewer-action-bar')).toHaveAttribute('inert', '')
+  // 재생 중에만 숨는다 — 일시정지하면 바가 돌아온다(사용자 선호를 바꾸지 않음).
+  await video.evaluate((m: HTMLMediaElement) => m.pause())
+  await expect(topBar(page)).not.toHaveAttribute('inert', '')
+})
+
+test('가로 모드에서도 오디오는 바가 보인다(탭으로 되살릴 수 없으므로 숨기지 않음)', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 844, height: 390 })
+  await stubDriveFiles(page, [AUD(82, 'voice.mp3')], { spaceId: SPACE_ID })
+  await openViewer(page, 'voice.mp3')
+  await expect(page.getByTestId('media-audio')).toBeVisible()
+  await expect(topBar(page)).not.toHaveAttribute('inert', '')
+  await expect(page.getByTestId('viewer-action-bar')).not.toHaveAttribute('inert', '')
+  await expect(topBar(page).getByRole('button', { name: '닫기' })).toBeVisible()
+})
+
+test('재생할 수 없는 영상은 미디어로 다루지 않는다 — 무대가 문서 규칙(manipulation)', async ({ authenticatedPage: page }) => {
+  await stubDriveFiles(page, [{ id: 89, name: 'broken.mov', mimeType: 'video/quicktime', body: Buffer.from('garbage bytes, not a movie') }], {
+    spaceId: SPACE_ID,
+  })
+  await openViewer(page, 'broken.mov')
+  await expect(page.getByTestId('preview-unsupported')).toBeVisible()
+  await expect(page.getByTestId('viewer-stage')).toHaveAttribute('data-viewer-stage', 'manipulation')
 })
 
 test('가로 모드 — 넘침 없이 영상이 화면 안에 들어온다(영상 높이 비율 기록)', async ({ authenticatedPage: page }) => {

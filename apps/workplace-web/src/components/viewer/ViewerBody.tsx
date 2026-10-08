@@ -43,7 +43,8 @@ type BodyContent =
  */
 function UnsupportedNotice({ item, onDownload }: { item: ViewerItem; onDownload: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-unsupported">
+    // m-auto·w-full — 이미지·영상·오디오 본문은 flex 라 이것이 없으면 내용 폭만큼 왼쪽 위에 붙는다.
+    <div className="m-auto flex w-full flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-unsupported">
       <FileTypeIcon mimeType={item.mimeType} className="h-16 w-16" />
       <p className="text-sm font-medium break-all">{item.name}</p>
       {item.sizeBytes != null && <p className="text-xs text-muted-foreground">{formatFileSize(item.sizeBytes)}</p>}
@@ -129,7 +130,7 @@ export const ViewerBody = memo(function ViewerBody({
    * fetches = 이 항목이 지금 blob 을 받는(받을) 상태인가 — 미지원·사용 불가·10MB 동의 대기·오류면 거짓.
    * 항목 구분은 호출부 몫 — 이 컴포넌트는 key={item.key} 로 항목마다 새로 붙으므로 보고는 늘 지금 항목의 것이다.
    */
-  onSource?: (s: { blob: Blob | null; fetches: boolean }) => void
+  onSource?: (s: { blob: Blob | null; fetches: boolean; unplayable?: boolean }) => void
   /** 영상·오디오 재생 세션(WP-281) — 자동재생 대상·위치 기억·재생 상태 보고. 뷰어가 열린 동안 고정된 객체. */
   media?: MediaSession
 }) {
@@ -164,9 +165,10 @@ export const ViewerBody = memo(function ViewerBody({
     onSourceRef.current = onSource
   })
   const fetches = renderable && !item.unavailable && confirmSize == null && !error
+  // unplayable — 재생 불가로 미지원 화면이 된 영상·오디오. 뷰어가 이 항목을 미디어로 다루지 않게(키·터치 규칙) 함께 알린다.
   useEffect(() => {
-    onSourceRef.current?.({ blob, fetches })
-  }, [item.key, blob, fetches])
+    onSourceRef.current?.({ blob, fetches, unplayable })
+  }, [item.key, blob, fetches, unplayable])
   // #775: 에러도 아니고 콘텐츠도 아직 없는 렌더 가능 상태 = 비동기 페치 진행 중 — 빈 화면 대신 스켈레톤.
   const loading =
     !item.unavailable &&
@@ -264,14 +266,14 @@ export const ViewerBody = memo(function ViewerBody({
       {/* 드라이브 링크 원본이 휴지통·삭제 — 받지 않고 안내만(다운로드 없음).
           미지원 형식 화면과 같은 배치(가운데 큰 아이콘·이름·문구)로 맞춰 상태 화면끼리 생김새가 같게 한다. */}
       {item.unavailable && (
-        <div className="flex flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-unavailable">
+        <div className="m-auto flex w-full flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-unavailable">
           <FileX className="h-16 w-16 text-muted-foreground" aria-hidden />
           <p className="text-sm font-medium break-all">{item.name}</p>
           <p className="text-sm text-muted-foreground">원본 파일을 사용할 수 없습니다.</p>
         </div>
       )}
       {!item.unavailable && error && (
-        <div className="flex flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-error">
+        <div className="m-auto flex w-full flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-error">
           <p className="text-sm text-destructive">미리보기를 불러오지 못했습니다.</p>
           <div className="flex gap-2">
             <Button variant="outline" onClick={source.retry}>
@@ -287,6 +289,12 @@ export const ViewerBody = memo(function ViewerBody({
         <UnsupportedNotice item={item} onDownload={() => void source.download()} />
       )}
       {/* #775: 콘텐츠 페치 중(로딩) — AI 요약 카드와 같은 animate-pulse 스켈레톤 패턴 재사용. */}
+      {/* 영상·오디오 상태 알림 — 받는 중 → 재생 준비(매 % 가 아니라 전환 때만, polite). 재생 불가는 미지원 화면이 그대로 읽힌다. */}
+      {isMedia && (
+        <p className="sr-only" aria-live="polite" data-testid="media-status-live">
+          {loading ? `${item.name} 받는 중` : !error && !unplayable && content?.k === 'url' ? `${item.name} 재생 준비됨` : ''}
+        </p>
+      )}
       {loading && isMedia && <MediaProgress item={item} video={kind === 'VIDEO'} progress={source.progress} />}
       {loading && !isMedia && (
         <div className="m-auto w-full max-w-md space-y-2" data-testid="preview-loading">
@@ -348,7 +356,7 @@ export const ViewerBody = memo(function ViewerBody({
       {/* WP-203 후속: 10MB 초과 — 크기를 보여주고 미리볼지 묻는다(동의 전엔 받지 않음). */}
       {!error && confirmSize != null && (
         <div
-          className="flex flex-col items-center gap-3 px-4 py-12 text-center break-keep"
+          className="m-auto flex w-full flex-col items-center gap-3 px-4 py-12 text-center break-keep"
           data-testid="preview-size-confirm"
         >
           <p className="text-sm">
