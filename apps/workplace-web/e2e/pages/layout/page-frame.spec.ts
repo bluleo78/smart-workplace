@@ -1,6 +1,6 @@
 // 페이지 틀(Page) 정렬 E2E — 헤더 제목과 본문 첫 요소가 같은 16px 축에서 시작하는지, reading 폭이 왼쪽 정렬·768px 이하인지.
 import { createChatThread } from '../../factories/chat.factory'
-import { createIssue, createIssueDetail } from '../../factories/issue.factory'
+import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory'
 import { createProject } from '../../factories/project.factory'
 import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -48,6 +48,29 @@ for (const width of DESKTOP_WIDTHS) {
       await expectHeaderBottomAt56(header)
       // 본문은 @container 스크롤 div 를 화면이 소유(padded=false)하지만 여백은 같은 pageGutterClass 축.
       await expectStartAligned(page.getByTestId('issue-back'), page.getByTestId('issue-title-heading'))
+    })
+
+    test('프로젝트 상세(팀, 자체 레이아웃 본문) — 헤더 제목과 툴바 첫 요소가 같은 x', async ({ authenticatedPage: page }) => {
+      await mockApi(page, 'GET', '/api/v1/projects/WP', createProject())
+      await page.goto('/projects/WP')
+      const header = page.getByTestId('page-header')
+      await expectHeaderBottomAt56(header)
+      // 본문(보드/목록)은 화면이 소유(padded=false)하지만 행 여백은 같은 pageGutterClass 축.
+      await expectStartAligned(header.getByRole('heading', { level: 1 }), page.getByTestId('view-chip-bar').locator('> *').first())
+    })
+
+    test('타임라인 — 헤더 ← 버튼과 일정 미정 섹션이 같은 x', async ({ authenticatedPage: page }) => {
+      await mockApi(page, 'GET', '/api/v1/projects/WP', createProject())
+      // 일정 없는 이슈 1건 — 간트 막대 대신 일정 미정 섹션에 노출된다.
+      await mockApi(page, 'GET', '/api/v1/projects/WP/issues', createIssueSearchResponse([createIssue({ number: 1, projectKey: 'WP', title: '일정 없음' })]))
+      await page.goto('/projects/WP/timeline?period=all')
+      const header = page.getByTestId('page-header')
+      await expectHeaderBottomAt56(header)
+      // 헤더 첫 요소(←, icon 슬롯)와 일정 미정 summary 시작 x 가 같은 16px 축.
+      await expectStartAligned(
+        header.getByRole('button', { name: '프로젝트로 돌아가기' }),
+        page.getByTestId('unscheduled-section').locator('summary'),
+      )
     })
   })
 }

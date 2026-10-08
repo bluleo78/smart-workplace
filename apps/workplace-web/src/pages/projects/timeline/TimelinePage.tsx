@@ -5,7 +5,7 @@ import { ArrowLeft, Diamond } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { PageHeader } from '@/components/layout/PageHeader';
+import { Page } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
@@ -90,8 +90,8 @@ export default function TimelinePage() {
   const issuesLoading = search.isLoading || search.isFetchingNextPage || search.hasNextPage === true;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden" data-testid="timeline-page">
-      <PageHeader
+    <Page data-testid="timeline-page">
+      <Page.Header
         icon={
           <Button
             variant="ghost"
@@ -155,38 +155,41 @@ export default function TimelinePage() {
           </div>
         }
       />
-      {!periodCtl.ready ? (
-        <div data-testid="timeline-period-loading" className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          불러오는 중…
-        </div>
-      ) : isMobile ? (
-        <TimelineAgendaList
-          projectKey={key}
-          issues={issues}
-          milestones={milestones.data ?? []}
-          loading={issuesLoading}
-          onOpenIssue={(n) => navigate(`/projects/${key}/issues/${n}`)}
-          view={view}
-          onShowAllPeriods={() => changePeriod({ kind: 'all' })}
-          periodChip={<TimelinePeriodChip param={periodCtl.param} period={periodCtl.period} cycles={periodCtl.cycles} onChange={changePeriod} />}
-        />
-      ) : (
-        <TimelineGanttBody
-          projectKey={key}
-          issues={issues}
-          milestones={milestones.data}
-          zoom={zoom}
-          readOnly={readOnly}
-          scrollToDate={scrollToDate}
-          onMilestoneClick={(milestone, anchorRect) => setMilestoneEditState({ milestone, anchorRect })}
-          onLaneClick={(date) => setMilestoneDialogState({ defaultDueDate: date })}
-          view={view}
-          periodPicker={periodPicker}
-          loading={issuesLoading}
-          cycles={periodCtl.cycles}
-          onShowAllPeriods={() => changePeriod({ kind: 'all' })}
-        />
-      )}
+      {/* 본문은 자체 레이아웃(padded=false) — 간트는 필터 줄·간트·일정 미정 섹션이 각자 pageGutterClass 로 헤더 축에 맞춘다. */}
+      <Page.Body padded={false} className="flex-col overflow-hidden">
+        {!periodCtl.ready ? (
+          <div data-testid="timeline-period-loading" className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            불러오는 중…
+          </div>
+        ) : isMobile ? (
+          <TimelineAgendaList
+            projectKey={key}
+            issues={issues}
+            milestones={milestones.data ?? []}
+            loading={issuesLoading}
+            onOpenIssue={(n) => navigate(`/projects/${key}/issues/${n}`)}
+            view={view}
+            onShowAllPeriods={() => changePeriod({ kind: 'all' })}
+            periodChip={<TimelinePeriodChip param={periodCtl.param} period={periodCtl.period} cycles={periodCtl.cycles} onChange={changePeriod} />}
+          />
+        ) : (
+          <TimelineGanttBody
+            projectKey={key}
+            issues={issues}
+            milestones={milestones.data}
+            zoom={zoom}
+            readOnly={readOnly}
+            scrollToDate={scrollToDate}
+            onMilestoneClick={(milestone, anchorRect) => setMilestoneEditState({ milestone, anchorRect })}
+            onLaneClick={(date) => setMilestoneDialogState({ defaultDueDate: date })}
+            view={view}
+            periodPicker={periodPicker}
+            loading={issuesLoading}
+            cycles={periodCtl.cycles}
+            onShowAllPeriods={() => changePeriod({ kind: 'all' })}
+          />
+        )}
+      </Page.Body>
       <MilestoneFormDialog
         projectKey={key}
         defaultDueDate={milestoneDialogState?.defaultDueDate}
@@ -204,6 +207,6 @@ export default function TimelinePage() {
           onClose={() => setMilestoneEditState(null)}
         />
       )}
-    </div>
+    </Page>
   );
 }

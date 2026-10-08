@@ -7,7 +7,9 @@ import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { pageGutterClass } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import type { CycleResponse } from '@/types/cycle';
 
 import { useProjectDependencies } from '../../../hooks/queries/useProjectDependencies';
@@ -86,10 +88,10 @@ export function TimelineGanttBody({
 
   return (
     <>
-      <div className="border-b px-4 py-1">
+      <div className={cn('border-b py-1', pageGutterClass)}>
         <TimelineFilterBar projectKey={key} leading={periodPicker} />
       </div>
-      <div className="min-h-0 flex-1 px-4 py-6" data-testid="timeline-gantt">
+      <div className={cn('min-h-0 flex-1 py-6', pageGutterClass)} data-testid="timeline-gantt">
         {!loading && periodIsCause ? (
           <div data-testid="timeline-period-empty" className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center">
             <CalendarRange className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
