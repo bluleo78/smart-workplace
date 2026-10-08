@@ -82,6 +82,7 @@ export function ViewerActionBar({
   share,
   summaryOpen,
   hidden,
+  covered = false,
   barRef,
   onAction,
   children,
@@ -90,6 +91,8 @@ export function ViewerActionBar({
   share: ShareState
   summaryOpen: boolean
   hidden: boolean
+  /** 요약 시트가 위를 덮음 — 보이는 그대로 두되 inert 로 빼 Tab·화면낭독기가 시트 뒤 칸으로 새지 않게. */
+  covered?: boolean
   barRef?: React.Ref<HTMLDivElement>
   onAction: (id: SlotId) => void
   children?: React.ReactNode
@@ -97,7 +100,7 @@ export function ViewerActionBar({
   return (
     <div
       ref={barRef}
-      inert={hidden}
+      inert={hidden || covered}
       data-testid="viewer-action-bar"
       className={cn(barClass, 'bottom-0 pb-[env(safe-area-inset-bottom)]', hidden && 'pointer-events-none opacity-0')}
     >

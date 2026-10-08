@@ -7,7 +7,16 @@
 // 끌기 중 이동은 React 상태가 아니라 무대 style 에 직접 쓴다 — 프레임마다 뷰어 전체가 다시 그려지지 않게.
 import { useEffect, useRef } from 'react'
 
-import { decideSwipe, dragOffset, type GestureLock, lockGesture, releaseVelocity, type Sample } from './viewerGestures'
+import {
+  decideDismiss,
+  decideSwipe,
+  DOUBLE_TAP_MS,
+  dragOffset,
+  type GestureLock,
+  lockGesture,
+  releaseVelocity,
+  type Sample,
+} from './viewerGestures'
 
 export interface ViewerGestureOptions {
   /** 터치 제스처 사용 — coarse 포인터일 때만(스펙 §3.2: 폭이 아니라 pointer: coarse). */
@@ -18,6 +27,12 @@ export interface ViewerGestureOptions {
   zoom: number
   /** 스와이프로 확정된 넘김. */
   onNav: (dir: -1 | 1) => void
+  /** 아래로 닫기 중 옅어질 배경 레이어(없으면 무대만 움직인다). */
+  backdrop?: HTMLElement | null
+  /** 아래로 쓸어 닫기 확정. */
+  onDismiss: () => void
+  /** 단일 탭(움직임 없는 터치) — 모바일 배치에서 바 토글(판정 R5). 없으면 탭은 무시. */
+  onTap?: () => void
 }
 
 /** 한 손가락 추적 상태 — 시작 시점의 스크롤 여유를 함께 들고 있어 첫 이동 판정에 쓴다. */
@@ -78,25 +93,39 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
   useEffect(() => {
     latest.current = opts
   })
-  const { enabled } = opts
+  // 배경 레이어는 콜백 ref 로 늦게 들어오므로 의존성에 넣어 마운트된 뒤 리스너를 다시 단다.
+  const { enabled, backdrop: backdropEl } = opts
   useEffect(() => {
     if (!stage || !enabled) return
     let track: Track = null
-    /** 끌기 중 위치 — 전환 없이 즉시. */
+    const backdrop = backdropEl ?? null
+    /** 단일 탭 지연 타이머 — 두 번 탭과 구분하고, 탭으로 옮겨간 포커스를 본 뒤 바를 토글하려고 기다린다(판정 R6). */
+    let tapTimer: ReturnType<typeof setTimeout> | undefined
+    /** 움직임 없이 끝난 터치 — 지연 뒤 onTap. (Task 7 이 두 번 탭 분기를 이 함수 맨 앞에 더한다.) */
+    const handleTap = (s: Sample) => {
+      void s
+      clearTimeout(tapTimer)
+      tapTimer = setTimeout(() => latest.current.onTap?.(), DOUBLE_TAP_MS)
+    }
+    /** 끌기 중 위치 — 전환 없이 즉시. 아래로 끌면 배경이 옅어진다(시안 M2, 최소 0.2 — 완전히 투명해져 뒤 화면이 튀지 않게). */
     const paint = (x: number, y: number) => {
       stage.style.transition = ''
       stage.style.transform = x || y ? `translate3d(${x}px, ${y}px, 0)` : ''
+      if (backdrop) backdrop.style.opacity = y > 0 ? String(Math.max(0.2, 1 - y / stage.clientHeight)) : ''
     }
-    /** 제자리로 부드럽게 돌아간다(넘김 취소). */
+    /** 제자리로 부드럽게 돌아간다(넘김·닫기 취소). */
     const settle = () => {
       stage.style.transition = 'transform 200ms ease-out'
       stage.style.transform = ''
+      if (backdrop) backdrop.style.opacity = ''
     }
+    /** 무대를 움직이는 중인 제스처인가 — 취소(두 번째 손가락·touchcancel) 때 원위치가 필요한 상태. */
+    const moving = (t: Track) => t?.kind === 'one' && (t.lock === 'swipe' || t.lock === 'dismiss')
     const onStart = (e: TouchEvent) => {
       const target = e.target as Element
       if (e.touches.length !== 1 || target.closest(INTERACTIVE)) {
-        // 두 번째 손가락이 닿으면 진행 중이던 넘김을 원위치하고 이번 묶음은 무시한다(Review Focus 3).
-        if (track?.kind === 'one' && track.lock === 'swipe') settle()
+        // 두 번째 손가락이 닿으면 진행 중이던 넘김·닫기를 원위치하고 이번 묶음은 무시한다(Review Focus 3).
+        if (moving(track)) settle()
         track = { kind: 'ignore' }
         return
       }
@@ -135,6 +164,10 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         // 우리 제스처 — 브라우저 스크롤·뒤로가기 제스처를 막고 무대를 손가락에 붙인다(끝이면 러버밴드).
         if (e.cancelable) e.preventDefault()
         paint(dragOffset(dx, stage.clientWidth, o.hasPrev, o.hasNext), 0)
+      } else if (track.lock === 'dismiss') {
+        // 아래로 닫기 — 당겨서 새로고침·스크롤 바운스를 막고 무대를 손가락에 붙인다(위로는 따라가지 않음).
+        if (e.cancelable) e.preventDefault()
+        paint(0, Math.max(0, dy))
       }
     }
     const onEnd = (e: TouchEvent) => {
@@ -152,10 +185,19 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
           paint(0, 0)
           o.onNav(d === 'next' ? 1 : -1)
         }
+      } else if (cur.lock === 'dismiss') {
+        const dy = t.clientY - cur.startY
+        const { vy } = releaseVelocity([...cur.samples, { t: e.timeStamp, x: t.clientX, y: t.clientY }])
+        // 확정이면 무대·배경은 그대로 두고 닫는다(언마운트로 사라짐) — 원위치 애니메이션이 닫힘 위로 보이지 않게.
+        if (decideDismiss({ dy, vy, height: stage.clientHeight })) o.onDismiss()
+        else settle()
+      } else if (cur.lock === 'pending' && e.touches.length === 0) {
+        // 판정 임계(6px) 안에서 끝난 터치 = 탭.
+        handleTap({ t: e.timeStamp, x: t.clientX, y: t.clientY })
       }
     }
     const onCancel = () => {
-      if (track?.kind === 'one' && track.lock === 'swipe') settle()
+      if (moving(track)) settle()
       track = null
     }
     stage.addEventListener('touchstart', onStart, { passive: true })
@@ -169,6 +211,8 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       stage.removeEventListener('touchcancel', onCancel)
       stage.style.transform = ''
       stage.style.transition = ''
+      clearTimeout(tapTimer)
+      if (backdrop) backdrop.style.opacity = ''
     }
-  }, [stage, enabled])
+  }, [stage, enabled, backdropEl])
 }

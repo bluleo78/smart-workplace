@@ -17,8 +17,14 @@ export async function centerOf(target: Locator): Promise<Pt> {
 /**
  * 한 손가락 끌기 — from → to 를 steps 번에 나눠 움직인다.
  * stepDelayMs 를 주면 느린 끌기(플링 아님), 생략하면 빠른 끌기.
+ * beforeEnd 는 손을 떼기 직전(손가락이 아직 닿은 상태)에 불린다 — 끌기 중 무대가 실제로 움직였는지 확인할 때.
  */
-export async function touchDrag(page: Page, from: Pt, to: Pt, opts: { steps?: number; stepDelayMs?: number } = {}) {
+export async function touchDrag(
+  page: Page,
+  from: Pt,
+  to: Pt,
+  opts: { steps?: number; stepDelayMs?: number; beforeEnd?: () => Promise<void> } = {},
+) {
   const steps = opts.steps ?? 8
   const s = await page.context().newCDPSession(page)
   try {
@@ -29,6 +35,7 @@ export async function touchDrag(page: Page, from: Pt, to: Pt, opts: { steps?: nu
       // eslint-disable-next-line playwright/no-wait-for-timeout -- 느린 끌기 제스처 자체의 속도(손가락 이동 시간)라 조건 대기로 바꿀 수 없다
       if (opts.stepDelayMs) await page.waitForTimeout(opts.stepDelayMs)
     }
+    await opts.beforeEnd?.()
     await s.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   } finally {
     await s.detach()

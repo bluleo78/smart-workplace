@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight, Cloud, Download, Minus, Plus, Sparkles, X } 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useIsCoarsePointer } from '../../hooks/useIsCoarsePointer'
+import { useIsLandscape } from '../../hooks/useIsLandscape'
 import { getIsMobile, useIsMobile } from '../../hooks/useIsMobile'
 import { useThemeColor } from '../../hooks/useThemeColor'
 import { formatFileSize } from '../../lib/formatters'
@@ -79,8 +80,18 @@ export function AttachmentViewer({
   const [stage, setStage] = useState<HTMLDivElement | null>(null)
   // 모바일 몰입형 화면 — 열린 동안 상태바를 검정으로(스펙 §4.2, 판정 R15). 값은 CSS 가 아닌 브라우저 크롬 색이라 리터럴.
   useThemeColor('#000000', mobile)
-  // 바 숨김(탭 토글·가로 모드) — Task 6 에서 상태로 바뀐다. 지금은 항상 보임.
-  const barsHidden = false
+  // 바 숨김 — 가로 모드는 기본 숨김(시안 M5), 탭으로 토글(모바일 배치만, 판정 R5).
+  // 회전할 때마다 그 방향의 기본값으로 되돌린다 — 렌더 중 상태 갱신(useViewerBundle 의 스냅숏과 같은 수렴 패턴, 이펙트 setState 아님).
+  // 주의: "저장된 방향과 다를 때만 기본값" 식의 파생으로 두면 가로→(탭으로 표시)→세로→가로 에서 낡은 '표시'가 되살아난다(Review Focus 4).
+  const landscape = useIsLandscape()
+  const [bars, setBars] = useState({ landscape, hidden: landscape })
+  if (bars.landscape !== landscape) setBars({ landscape, hidden: landscape })
+  // 갱신이 반영되는 재렌더 전 한 번은 새 방향 기본값으로 본다.
+  // 숨김은 모바일 배치 + 터치(coarse)에서만 — 좁은 창 + 마우스는 다시 보이게 할 탭이 없으므로 바 항상 표시(판정 R5), 데스크톱 배치도 항상 표시.
+  const barsHidden = mobile && coarse && (bars.landscape === landscape ? bars.hidden : landscape)
+  const topBarRef = useRef<HTMLElement>(null)
+  // 아래로 닫기 때 옅어지는 배경 — 루트 배경을 이 레이어로 옮겨 투명도만 바꾼다(하드코딩 색 없이 토큰 유지).
+  const [backdrop, setBackdrop] = useState<HTMLDivElement | null>(null)
   // 하단 겹침 바의 실제 높이(px) — "참조된 곳" 띠가 바 위에 얹히면(판정 R11) 고정 4.5rem 으론 본문 끝줄이 가려진다.
   // 측정값을 루트 CSS 변수 --viewer-bottom-chrome 로 내려 ViewerBody 아래 여백이 띠까지 비켜서게 한다(안전영역 포함 값).
   // 바 요소는 콜백 ref 로 상태에 담는다 — Dialog 포털이 내용을 첫 커밋 뒤에 붙여, useRef + 마운트 effect 로는 요소를 놓친다.
@@ -133,6 +144,11 @@ export function AttachmentViewer({
   }
   const summary = useSummaryAvailability(item)
   const showPanel = summary === 'show' && panelOpen
+  // 모바일 요약 시트 — 열면 포커스를 시트로, 닫으면 ✨ 칸으로 돌린다(시트가 덮는 액션 바는 그동안 inert).
+  // 사용자가 직접 열고 닫을 때만 옮긴다 — 넘김 중 요약 판정(loading↔show)으로 시트가 잠깐 사라졌다 생겨도 포커스를 흔들지 않게.
+  const sheetOpen = showPanel && mobile
+  const [sheetEl, setSheetEl] = useState<HTMLElement | null>(null)
+  const sheetFocus = useRef<'open' | 'close' | null>(null)
   // ☁ 가져오기 — 업로드 첨부(importFileId)에서만 공간 조회를 켠다.
   const importer = useImportToDrive(item.importFileId != null)
   const canImport = item.importFileId != null && importer.ready
@@ -151,10 +167,41 @@ export function AttachmentViewer({
   const onSlot = (id: SlotId) => {
     if (id === 'save') void downloadViewerItem(item)
     else if (id === 'drive') startImport()
-    else if (id === 'summary') togglePanel(!panelOpen)
+    else if (id === 'summary') {
+      if (getIsMobile()) sheetFocus.current = panelOpen ? 'close' : 'open'
+      togglePanel(!panelOpen)
+    }
+  }
+  /** 시트의 요약 닫기 — 포커스를 연 자리(✨ 칸)로 돌려보낸다. */
+  const closeSheet = () => {
+    sheetFocus.current = 'close'
+    togglePanel(false)
   }
   const prevBtn = useRef<HTMLButtonElement>(null)
   const nextBtn = useRef<HTMLButtonElement>(null)
+  // 시트 포커스 이동은 커밋 뒤(effect) — 열 땐 시트가 붙은 뒤, 닫을 땐 액션 바의 inert 가 풀린 뒤라야 focus() 가 먹는다.
+  useEffect(() => {
+    const intent = sheetFocus.current
+    if (intent === 'open' && sheetOpen && sheetEl) {
+      sheetEl.focus()
+      sheetFocus.current = null
+    } else if (intent === 'close' && !sheetOpen) {
+      actionBarEl?.querySelector<HTMLElement>('[data-testid="viewer-slot-summary"]')?.focus()
+      sheetFocus.current = null
+    }
+  }, [sheetOpen, sheetEl, actionBarEl])
+  /**
+   * 탭 = 바 토글(모바일 배치만). 숨기지 않는 경우:
+   * - 포커스가 바(‹ › 포함) 안 — inert 로 빠질 요소 안에 포커스가 갇히지 않게(스펙 §5.1).
+   * - 요약 시트가 열림 — 시트를 닫으면 ✨ 칸으로 포커스를 돌려야 하는데 그 칸이 숨김(inert)이면 포커스가 길을 잃는다.
+   */
+  const toggleBars = () => {
+    if (sheetOpen) return
+    const a = document.activeElement
+    const inBars = [topBarRef.current, actionBarEl, prevBtn.current, nextBtn.current].some((el) => el?.contains(a))
+    if (!barsHidden && inBars) return
+    setBars({ landscape, hidden: !barsHidden })
+  }
 
   // 키 연타 대응 — 부모(URL 훅)는 직전 이동이 렌더에 반영되기 전의 호출을 무시할 수 있다(낡은 위치 스냅숏 방어, 훅은 그대로 둔다).
   // 그래서 "요청했지만 아직 반영 안 된 목표"를 항목 key 로 들고(목록이 바뀌어도 파일 자체를 가리키도록),
@@ -202,6 +249,9 @@ export function AttachmentViewer({
     hasNext: nav.hasNext,
     zoom,
     onNav: (dir) => go(dir, { moveFocus: false }),
+    backdrop,
+    onDismiss: onClose,
+    onTap: mobile ? toggleBars : undefined,
   })
   // 맞춤 이미지는 스크롤할 것이 없어 터치를 전부 받고(none), 그 외는 네이티브 스크롤을 남긴다(pan) — 판정 R2.
   const stageTouch = !coarse ? undefined : kind === 'IMAGE' && zoom === 1 ? 'none' : 'pan'
@@ -240,7 +290,7 @@ export function AttachmentViewer({
         // 기본 DialogContent 의 가운데 정렬·max-w·테두리를 덮어 전체 화면으로 — 기본의 w-full 은 w-auto 로 덮는다(width 100% 고정이 inset 을 과제약해 lg:right 패널 비움이 무시됨).
         // — 다크 토큰 강제(.dark).
         className={cn(
-          'dark fixed inset-0 top-0 left-0 flex h-[100dvh] w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 bg-background p-0 text-foreground sm:max-w-none',
+          'dark fixed inset-0 top-0 left-0 flex h-[100dvh] w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 bg-transparent p-0 text-foreground sm:max-w-none',
           // 모바일: 포털이라 MobileShell 의 --vvh·안전영역 처리 밖 — 직접 적용(스펙 §4.2). 키보드가 없으면 변수 미설정 → 100dvh·0.
           mobile && 'top-[var(--vv-top,0px)] h-[var(--vvh,100dvh)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]',
           aiAware.contentClassName,
@@ -260,12 +310,15 @@ export function AttachmentViewer({
         onKeyDown={onKeyDown}
         data-testid="attachment-viewer"
       >
+        {/* 배경 레이어 — 루트는 투명, 배경색은 여기. 아래로 닫기 중 이 레이어만 옅어진다. */}
+        <div ref={setBackdrop} aria-hidden data-testid="viewer-backdrop" className="pointer-events-none absolute inset-0 -z-10 bg-background" />
         {/* 모바일: 본문 위에 겹치는 상단 바(✕·이름·순번·⋯) — 데스크톱 헤더 대신. */}
         {mobile && (
           <ViewerMobileTopBar
             item={item}
             meta={mobileMeta}
             hidden={barsHidden}
+            barRef={topBarRef}
             more={<ViewerMoreMenu item={item} onImport={canImport ? startImport : undefined} shareable={shareable} />}
           />
         )}
@@ -358,12 +411,27 @@ export function AttachmentViewer({
               <ViewerBody key={item.key} item={item} zoom={zoom} onPage={onPage} chromeInset={mobile} />
             </div>
             {nav.hasPrev && (
-              <button ref={prevBtn} type="button" aria-label="이전 파일" onClick={() => go(-1)} className={cn(edgeBtnClass, 'left-3')}>
+              <button
+                ref={prevBtn}
+                type="button"
+                aria-label="이전 파일"
+                // 바와 함께 숨김 — inert 로 접근성 트리·Tab 순서에서도 뺀다.
+                inert={barsHidden}
+                onClick={() => go(-1)}
+                className={cn(edgeBtnClass, 'left-3', barsHidden && 'pointer-events-none opacity-0')}
+              >
                 <ChevronLeft />
               </button>
             )}
             {nav.hasNext && (
-              <button ref={nextBtn} type="button" aria-label="다음 파일" onClick={() => go(1)} className={cn(edgeBtnClass, 'right-3')}>
+              <button
+                ref={nextBtn}
+                type="button"
+                aria-label="다음 파일"
+                inert={barsHidden}
+                onClick={() => go(1)}
+                className={cn(edgeBtnClass, 'right-3', barsHidden && 'pointer-events-none opacity-0')}
+              >
                 <ChevronRight />
               </button>
             )}
@@ -403,6 +471,7 @@ export function AttachmentViewer({
             share={shareState}
             summaryOpen={showPanel}
             hidden={barsHidden}
+            covered={sheetOpen}
             onAction={onSlot}
           >
             {(summary === 'hidden' || summary === 'none') && item.backlinksDriveFileId != null && (
@@ -413,7 +482,7 @@ export function AttachmentViewer({
           </ViewerActionBar>
         )}
         {/* 모바일 AI 요약 — 본문 아래 쌓는 대신 하단 바 위에 겹치는 반 높이 시트(스펙 §4.2). */}
-        {showPanel && mobile && <ViewerSummarySheet item={item} onClose={() => togglePanel(false)} />}
+        {sheetOpen && <ViewerSummarySheet item={item} sheetRef={setSheetEl} onClose={closeSheet} />}
         {/* 폴더 선택 모달 — 뷰어 Dialog 안에 그려 포커스 트랩 안에 둔다. */}
         {importer.picker}
       </DialogContent>

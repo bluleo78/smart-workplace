@@ -85,16 +85,28 @@ export function ViewerSidePanel({ item, onClose }: { item: ViewerItem; onClose: 
  * 끌어 올리기 대신 버튼인 이유: 끌기만 되는 조작은 WCAG 2.5.7(끌기 동작 대안) 위반.
  * 뷰어 다이얼로그 안에 그려 포커스 트랩·다크 토큰을 그대로 받는다. 하단 액션 바 위(z-30)에 겹친다.
  */
-export function ViewerSummarySheet({ item, onClose }: { item: ViewerItem; onClose: () => void }) {
+export function ViewerSummarySheet({
+  item,
+  onClose,
+  sheetRef,
+}: {
+  item: ViewerItem
+  onClose: () => void
+  /** 시트 루트 — 열 때 호출부가 포커스를 시트로 옮긴다(아래 액션 바는 inert 로 덮이므로). */
+  sheetRef?: React.Ref<HTMLElement>
+}) {
   // 펼침 여부 — 시트를 닫았다 다시 열면(언마운트) 반 높이로 돌아간다.
   const [expanded, setExpanded] = useState(false)
   return (
     <section
+      ref={sheetRef}
+      // 프로그램 포커스만 받는다(Tab 순서에는 넣지 않음) — 열린 직후 화면낭독기가 "AI 요약" 영역부터 읽게.
+      tabIndex={-1}
       aria-label="AI 요약"
       data-testid="viewer-summary-sheet"
       className={cn(
         // 좌우 안전영역 — absolute 라 루트 padding 을 받지 못한다(가로 모드 노치).
-        'absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-xl border-t border-border bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] transition-[height] duration-200',
+        'absolute inset-x-0 bottom-0 z-30 flex flex-col outline-none rounded-t-xl border-t border-border bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] transition-[height] duration-200',
         // 펼침 = 상단 바(3.5rem=min-h-14 + 노치) 아래까지 — 닫기(✕)·파일명은 계속 보이게 남긴다.
         expanded ? 'h-[calc(100%-3.5rem-env(safe-area-inset-top))]' : 'h-1/2',
       )}
