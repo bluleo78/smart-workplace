@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
 import { defaultListAssignee, resolveCycleFilter } from './resolve.js';
 import { formatIssueKey } from './parse.js';
-import { labelNames, toChildrenView, toParentView, toPersonView, toSeoulIso, typeName } from './issue-view.js';
+import { labelNames, milestoneView, toChildrenView, toParentView, toPersonView, toSeoulIso, typeName } from './issue-view.js';
 import { listIssuesInput } from './schemas.js';
 import type { IssueListQuery, IssueRow, ProjectToolClient } from './tool-client.js';
 
@@ -41,7 +41,7 @@ export function toIssueListItem(it: IssueRow, milestoneNameById: ReadonlyMap<num
     updatedAt: toSeoulIso(it.updatedAt),
     closedAt: toSeoulIso(it.closedAt),
     labels: labelNames(it.labels),
-    milestone: it.milestoneId != null ? (milestoneNameById.get(it.milestoneId) ?? null) : null,
+    milestone: milestoneView(it.milestoneId, milestoneNameById),
     parent: toParentView(it.parent, projectKey),
     children: toChildrenView(it.childCount, it.childDoneCount),
     blocked: Boolean(it.blocked),

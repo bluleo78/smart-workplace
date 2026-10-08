@@ -31,7 +31,8 @@ public class IssueCommentRepository {
         r.get(USER.KIND),
         r.get(ISSUE_COMMENT.BODY),
         created != null ? created.toInstant() : null,
-        updated != null ? updated.toInstant() : null);
+        updated != null ? updated.toInstant() : null,
+        r.get(USER.USERNAME));
   }
 
   /** id 로 활성 코멘트 조회 (user JOIN). */
@@ -42,6 +43,7 @@ public class IssueCommentRepository {
             ISSUE_COMMENT.AUTHOR_ID,
             USER.NAME,
             USER.KIND,
+            USER.USERNAME,
             ISSUE_COMMENT.BODY,
             ISSUE_COMMENT.CREATED_AT,
             ISSUE_COMMENT.UPDATED_AT)
@@ -60,6 +62,7 @@ public class IssueCommentRepository {
             ISSUE_COMMENT.AUTHOR_ID,
             USER.NAME,
             USER.KIND,
+            USER.USERNAME,
             ISSUE_COMMENT.BODY,
             ISSUE_COMMENT.CREATED_AT,
             ISSUE_COMMENT.UPDATED_AT)

@@ -21,17 +21,21 @@ export function toPersonView(u: Raw | null | undefined): PersonView | null {
 }
 
 /**
- * 표시 이름만 오는 작성자(코멘트·이력) → 사람 뷰. userId 로 프로젝트 멤버에서 username 을 찾고, 없으면 null 로 둔다.
- * 표시 이름을 username 자리에 넣으면 LLM 이 그 값을 담당자 지정에 써서 실패한다(WP-307).
+ * 평평한 작성자 필드(코멘트 author*·이력 actor*·첨부 attachedBy*) → 사람 뷰. username 이 없으면 null 로 두고 표시 이름으로 채우지 않는다 —
+ * 표시 이름을 username 자리에 넣으면 LLM 이 그 값을 담당자 지정에 써서 실패한다(WP-307). 종류를 모르는 작성자(첨부자)는 kind null.
  */
-export function toAuthorView(
-  userId: unknown,
-  name: unknown,
-  kind: unknown,
-  usernameById: ReadonlyMap<number, string>,
-): PersonView {
-  const username = typeof userId === 'number' ? (usernameById.get(userId) ?? null) : null;
-  return { username, name: typeof name === 'string' ? name : (username ?? ''), kind: typeof kind === 'string' ? kind : null };
+export function toAuthorView(username: unknown, name: unknown, kind: unknown): PersonView {
+  const u = typeof username === 'string' && username ? username : null;
+  return { username: u, name: typeof name === 'string' ? name : (u ?? ''), kind: typeof kind === 'string' ? kind : null };
+}
+
+/** 마일스톤 id 는 있는데 이름을 조회하지 못했을 때의 표시 — "마일스톤 없음"(null)과 구분한다. */
+export const MILESTONE_UNRESOLVED = '(이름 조회 실패)';
+
+/** 마일스톤 id → 이름 뷰. 미지정이면 null, 이름을 못 찾으면 MILESTONE_UNRESOLVED. */
+export function milestoneView(milestoneId: unknown, nameById: ReadonlyMap<number, string>): string | null {
+  if (typeof milestoneId !== 'number') return null;
+  return nameById.get(milestoneId) ?? MILESTONE_UNRESOLVED;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { MILESTONE_UNRESOLVED } from './issue-view.js';
 import { buildSharedIssueTools } from './issue-tools.js';
 import type { IssueToolClient } from './tool-client.js';
 
@@ -80,32 +81,31 @@ describe('buildSharedIssueTools', () => {
     expect(c.getIssueCycles).toHaveBeenCalledWith('WP-12');
   });
 
-  it('WP-307: get_issue_detail 은 멤버로 코멘트 작성자 username 을, 마일스톤 목록으로 이름을 채운다', async () => {
+  it('WP-307: get_issue_detail 은 마일스톤이 붙은 이슈만 마일스톤 이름을 조회하고, 작성자 username 은 응답 값을 쓴다', async () => {
     const c = mockClient();
     vi.mocked(c.getIssueDetail).mockResolvedValue({
       issueKey: 'WP-12',
       summary: { title: 'T', status: 'TODO', priority: 'MID', assignees: [], milestoneId: 7 },
-      comments: [{ id: 1, body: 'b', authorId: 10, authorName: 'Alice', authorKind: 'HUMAN', createdAt: '2026-10-01T00:00:00Z' }],
+      comments: [{ id: 1, body: 'b', authorId: 10, authorName: 'Alice', authorKind: 'HUMAN', authorUsername: 'alice', createdAt: '2026-10-01T00:00:00Z' }],
     });
     const out = JSON.parse(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' }));
     expect(out.milestone).toBe('v1.0');
     expect(out.comments[0].author).toEqual({ username: 'alice', name: 'Alice', kind: 'HUMAN' });
-    expect(c.getProjectMembers).toHaveBeenCalledWith('WP');
     expect(c.getProjectMilestones).toHaveBeenCalledWith('WP');
+    // 작성자 username 은 백엔드가 주므로 멤버 목록을 조회하지 않는다.
+    expect(c.getProjectMembers).not.toHaveBeenCalled();
   });
 
-  it('WP-307: 멤버·마일스톤 조회가 실패해도 상세는 돌려준다(username·milestone 만 null)', async () => {
+  it('WP-307: 마일스톤이 없으면 조회하지 않고, 조회가 실패하면 이름 조회 실패로 표시한다', async () => {
     const c = mockClient();
-    vi.mocked(c.getIssueDetail).mockResolvedValue({
-      issueKey: 'WP-12',
-      summary: { title: 'T', status: 'TODO', priority: 'MID', assignees: [], milestoneId: 7 },
-      comments: [{ id: 1, body: 'b', authorId: 10, authorName: 'Alice', authorKind: 'HUMAN', createdAt: '2026-10-01T00:00:00Z' }],
-    });
-    vi.mocked(c.getProjectMembers).mockRejectedValue(new Error('403'));
-    vi.mocked(c.getProjectMilestones).mockRejectedValue(new Error('403'));
-    const out = JSON.parse(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' }));
-    expect(out.milestone).toBeNull();
-    expect(out.comments[0].author).toEqual({ username: null, name: 'Alice', kind: 'HUMAN' });
+    vi.mocked(c.getIssueDetail).mockResolvedValue({ issueKey: 'WP-12', summary: { title: 'T', status: 'TODO', priority: 'MID', assignees: [] } });
+    const tool = buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!;
+    expect(JSON.parse(await tool.handler({ issueKey: 'WP-12' })).milestone).toBeNull();
+    expect(c.getProjectMilestones).not.toHaveBeenCalled();
+
+    vi.mocked(c.getIssueDetail).mockResolvedValue({ issueKey: 'WP-12', summary: { title: 'T', status: 'TODO', priority: 'MID', assignees: [], milestoneId: 7 } });
+    vi.mocked(c.getProjectMilestones).mockRejectedValue(new Error('500'));
+    expect(JSON.parse(await tool.handler({ issueKey: 'WP-12' })).milestone).toBe(MILESTONE_UNRESOLVED);
   });
 
   it('add_comment 은 client.addComment 호출 후 "ok"', async () => {

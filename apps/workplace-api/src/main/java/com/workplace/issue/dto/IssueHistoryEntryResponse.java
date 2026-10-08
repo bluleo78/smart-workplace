@@ -11,4 +11,6 @@ public record IssueHistoryEntryResponse(
     String eventType,
     String fromValue,
     String toValue,
-    Instant createdAt) {}
+    Instant createdAt,
+    // 행위자 username — AI 도구가 표시 이름 대신 이 값으로 사람을 가리킨다(WP-307).
+    String actorUsername) {}

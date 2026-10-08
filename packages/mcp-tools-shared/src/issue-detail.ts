@@ -4,6 +4,7 @@
 // AI 가 판단에 쓰는 정보(날짜·분류·계층·작성자·커스텀 필드·첨부·변경 이력)를 모두 싣는다.
 import {
   labelNames,
+  milestoneView,
   toAuthorView,
   toChildrenView,
   toParentView,
@@ -58,14 +59,24 @@ export interface IssueDetail {
 
 /** 정규화 보조 정보 — 응답만으로는 알 수 없는 이름을 채운다. */
 export interface IssueDetailContext {
-  /** 프로젝트 멤버 userId → username. 코멘트·이력 작성자는 표시 이름만 와서 이것으로 username 을 찾는다. */
-  usernameById?: ReadonlyMap<number, string>;
   /** 마일스톤 id → 이름. 응답엔 milestoneId 만 있고 update_issue 는 이름을 받는다. */
   milestoneNameById?: ReadonlyMap<number, string>;
 }
 
 /** 이력 payload 에서 뺄 키 — 숫자 id 는 쓰기 도구로 흘려보내지 않고(#833), 색·아이콘은 LLM 에 쓸모없는 토큰이다. */
-const HISTORY_DROP_KEYS = new Set(['id', 'defId', 'colorToken', 'icon']);
+const HISTORY_DROP_KEYS = new Set(['id', 'defId', 'fileId', 'colorToken', 'icon']);
+
+/** payload 를 JSON 으로 저장하는 이력 이벤트(IssueHistoryRecorder). 그 밖(제목·상태 등)의 값은 '{'·'[' 로 시작해도 평문이다. */
+const JSON_PAYLOAD_EVENTS = new Set([
+  'LABELS_CHANGED',
+  'ASSIGNEES_CHANGED',
+  'ATTACHMENTS_CHANGED',
+  'TYPE_CHANGED',
+  'PARENT_CHANGED',
+  'DEPENDENCY_ADDED',
+  'DEPENDENCY_REMOVED',
+  'CUSTOM_FIELD_CHANGED',
+]);
 
 function stripHistoryKeys(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(stripHistoryKeys);
@@ -79,13 +90,12 @@ function stripHistoryKeys(v: unknown): unknown {
   return v;
 }
 
-/** 이력 값 — 집합 변경(라벨·담당자 등)은 JSON 문자열로 저장돼 있어 객체로 풀어 이중 이스케이프를 없애고 id 류를 뺀다. */
-function historyValue(v: unknown): unknown {
+/** 이력 값 — JSON payload 이벤트만 객체로 풀어 이중 이스케이프를 없애고 id 류를 뺀다. 평문 이벤트 값은 그대로 둔다. */
+function historyValue(event: unknown, v: unknown): unknown {
   if (typeof v !== 'string') return v ?? null;
-  const t = v.trim();
-  if (!t.startsWith('{') && !t.startsWith('[')) return v;
+  if (!JSON_PAYLOAD_EVENTS.has(String(event))) return v;
   try {
-    return stripHistoryKeys(JSON.parse(t));
+    return stripHistoryKeys(JSON.parse(v));
   } catch {
     return v;
   }
@@ -94,12 +104,10 @@ function historyValue(v: unknown): unknown {
 const links = (arr: unknown): IssueLinkView[] =>
   ((arr ?? []) as Raw[]).map((l) => ({ number: l.number as number, title: l.title as string, status: l.status as string }));
 
-/** summary 중첩을 풀고, 사람은 사람 뷰로, 시각은 KST 로, 이름이 필요한 id(마일스톤·작성자)는 context 로 바꾼다. */
+/** summary 중첩을 풀고, 사람은 사람 뷰로, 시각은 KST 로, 마일스톤 id 는 context 로 이름을 찾는다. */
 export function normalizeIssueDetail(raw: unknown, ctx: IssueDetailContext = {}): IssueDetail {
   const r = (raw ?? {}) as Raw;
   const s = (r.summary ?? {}) as Raw;
-  const usernameById = ctx.usernameById ?? new Map<number, string>();
-  const milestoneId = s.milestoneId;
   const history = ((r.history ?? []) as Raw[]).slice(-ISSUE_DETAIL_HISTORY_LIMIT);
   return {
     issueKey: String(r.issueKey ?? r.key ?? (s.projectKey && `${s.projectKey}-${s.number}`) ?? ''),
@@ -116,7 +124,7 @@ export function normalizeIssueDetail(raw: unknown, ctx: IssueDetailContext = {})
     updatedAt: toSeoulIso(s.updatedAt),
     closedAt: toSeoulIso(s.closedAt),
     labels: labelNames(s.labels),
-    milestone: typeof milestoneId === 'number' ? (ctx.milestoneNameById?.get(milestoneId) ?? null) : null,
+    milestone: milestoneView(s.milestoneId, ctx.milestoneNameById ?? new Map()),
     parent: toParentView(s.parent, s.projectKey),
     children: toChildrenView(s.childCount, s.childDoneCount),
     blockedBy: links(s.blockedBy),
@@ -132,22 +140,22 @@ export function normalizeIssueDetail(raw: unknown, ctx: IssueDetailContext = {})
       name: String(a.originalName ?? ''),
       mimeType: (a.mimeType as string | null) ?? null,
       sizeBytes: (a.sizeBytes as number | null) ?? null,
-      attachedBy: toAuthorView(a.attachedById, a.attachedByName, undefined, usernameById),
+      attachedBy: toAuthorView(a.attachedByUsername, a.attachedByName, undefined),
       attachedAt: toSeoulIso(a.attachedAt),
     })),
     comments: ((r.comments ?? []) as Raw[]).map((c) => ({
       id: c.id as number,
       body: String(c.body ?? ''),
-      author: toAuthorView(c.authorId, c.authorName, c.authorKind, usernameById),
+      author: toAuthorView(c.authorUsername, c.authorName, c.authorKind),
       createdAt: toSeoulIso(c.createdAt),
       updatedAt: toSeoulIso(c.updatedAt),
     })),
     history: history.map((h) => ({
       at: toSeoulIso(h.createdAt),
-      actor: toAuthorView(h.actorId, h.actorName, h.actorKind, usernameById),
+      actor: toAuthorView(h.actorUsername, h.actorName, h.actorKind),
       event: String(h.eventType ?? ''),
-      from: historyValue(h.fromValue),
-      to: historyValue(h.toValue),
+      from: historyValue(h.eventType, h.fromValue),
+      to: historyValue(h.eventType, h.toValue),
     })),
   };
 }

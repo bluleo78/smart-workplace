@@ -400,12 +400,6 @@ public class IssueRepository {
       }
       where = where.and(cond);
     }
-    if (query.dueFrom() != null) {
-      where = where.and(ISSUE.DUE_DATE.ge(query.dueFrom()));
-    }
-    if (query.dueTo() != null) {
-      where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
-    }
     where = where.and(dateRangeCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
@@ -517,11 +511,17 @@ public class IssueRepository {
   private static final java.time.ZoneId FILTER_ZONE = java.time.ZoneId.of("Asia/Seoul");
 
   /**
-   * 종료일·생성일 범위 조건(WP-307). 날짜는 Asia/Seoul 하루 경계로 해석하고 양끝을 포함한다 — to 는 다음 날 00:00 미만. 단일/횡단 검색 공용.
-   * 종료일 필터는 closed_at 이 없는(미종료) 이슈를 자연히 제외한다.
+   * 날짜 범위 조건 — 단일/횡단 검색 공용. 마감일(due_date)은 DATE 컬럼이라 그대로 비교하고, 종료일·생성일(WP-307)은 시각 컬럼이라 Asia/Seoul
+   * 하루 경계로 해석해 양끝을 포함한다(to 는 다음 날 00:00 미만). 종료일 필터는 closed_at 이 없는(미종료) 이슈를 자연히 제외한다.
    */
   private org.jooq.Condition dateRangeCondition(com.workplace.issue.dto.IssueSearchQuery query) {
     org.jooq.Condition c = noCondition();
+    if (query.dueFrom() != null) {
+      c = c.and(ISSUE.DUE_DATE.ge(query.dueFrom()));
+    }
+    if (query.dueTo() != null) {
+      c = c.and(ISSUE.DUE_DATE.le(query.dueTo()));
+    }
     if (query.closedFrom() != null) {
       c = c.and(ISSUE.CLOSED_AT.ge(dayStart(query.closedFrom())));
     }
@@ -661,12 +661,6 @@ public class IssueRepository {
                         .where(com.workplace.jooq.Tables.ISSUE_ASSIGNEE.ISSUE_ID.eq(ISSUE.ID))));
       }
       where = where.and(cond);
-    }
-    if (query.dueFrom() != null) {
-      where = where.and(ISSUE.DUE_DATE.ge(query.dueFrom()));
-    }
-    if (query.dueTo() != null) {
-      where = where.and(ISSUE.DUE_DATE.le(query.dueTo()));
     }
     where = where.and(dateRangeCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));

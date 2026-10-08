@@ -5,8 +5,10 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.dto.CreateCommentRequest;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.service.IssueCommentService;
 import com.workplace.issue.service.IssueSearchService;
 import com.workplace.issue.service.IssueService;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -30,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 class IssueClosedAtTest extends IntegrationTestBase {
 
   @Autowired private IssueService issueService;
+  @Autowired private IssueCommentService commentService;
   @Autowired private IssueSearchService searchService;
   @Autowired private IssueRepository issueRepository;
   @Autowired private ProjectService projectService;
@@ -113,6 +116,21 @@ class IssueClosedAtTest extends IntegrationTestBase {
         searchService.searchMine(userId, Map.of("reporter", "me", "createdFrom", "2026-10-08"));
 
     assertThat(res.items()).extracting(IssueResponse::id).containsExactly(newIssue);
+  }
+
+  /** 코멘트·이력 응답이 작성자 username 을 싣는다 — AI 도구가 표시 이름 대신 쓰는 식별자(WP-307). */
+  @Test
+  void commentAndHistory_carryAuthorUsername() {
+    long issueId = issueRepository.insert(projectId, 1, "작성자 확인", null, "MID", null, userId).id();
+    String username =
+        baseDsl.select(USER.USERNAME).from(USER).where(USER.ID.eq(userId)).fetchOne(USER.USERNAME);
+
+    var comment = commentService.create(userId, issueId, new CreateCommentRequest("확인"));
+    var detail = issueService.updateStatus(userId, projKey, 1, "IN_PROGRESS");
+
+    assertThat(comment.authorUsername()).isEqualTo(username);
+    assertThat(detail.comments()).extracting(c -> c.authorUsername()).containsExactly(username);
+    assertThat(detail.history()).extracting(h -> h.actorUsername()).containsOnly(username);
   }
 
   // ── 헬퍼 ────────────────────────────────────────────────────────────────────────

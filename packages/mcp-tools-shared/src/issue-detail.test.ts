@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
+import { MILESTONE_UNRESOLVED } from './issue-view.js';
 
 // 백엔드 IssueDetailResponse 형태(요약은 summary 중첩, comment 는 flat author 필드).
 const raw = {
@@ -16,7 +17,7 @@ const raw = {
   },
   body: '재현 절차...',
   comments: [
-    { id: 1, body: '확인함', createdAt: '2026-07-10T00:00:00Z', authorId: 10, authorName: 'alice', authorKind: 'HUMAN' },
+    { id: 1, body: '확인함', createdAt: '2026-07-10T00:00:00Z', authorId: 10, authorName: 'alice', authorKind: 'HUMAN', authorUsername: 'alice.k' },
   ],
   history: [],
   attachments: [],
@@ -41,9 +42,9 @@ describe('normalizeIssueDetail', () => {
     expect(d.blocks).toEqual([{ number: 13, title: '후속작업', status: 'TODO' }]);
   });
 
-  it('comment 의 flat author 필드를 nested author 로 변환 — username 은 멤버 목록에서 찾고 없으면 null', () => {
+  it('comment 의 flat author 필드를 nested author 로 변환 — username 은 authorUsername, 없으면 null', () => {
     // authorName 은 표시 이름이라 username 자리에 넣지 않는다(WP-307).
-    const known = normalizeIssueDetail(raw, { usernameById: new Map([[10, 'alice.k']]) });
+    const known = normalizeIssueDetail(raw);
     expect(known.comments).toEqual([
       {
         id: 1,
@@ -53,7 +54,8 @@ describe('normalizeIssueDetail', () => {
         author: { username: 'alice.k', name: 'alice', kind: 'HUMAN' },
       },
     ]);
-    expect(normalizeIssueDetail(raw).comments[0].author).toEqual({ username: null, name: 'alice', kind: 'HUMAN' });
+    const noUsername = { ...raw, comments: [{ ...raw.comments[0], authorUsername: undefined }] };
+    expect(normalizeIssueDetail(noUsername).comments[0].author).toEqual({ username: null, name: 'alice', kind: 'HUMAN' });
   });
 
   it('WP-307: 날짜·유형·라벨·마일스톤·부모·하위·작성자·커스텀 필드·첨부·이력을 싣는다', () => {
@@ -80,14 +82,14 @@ describe('normalizeIssueDetail', () => {
         },
         reporter: { id: 3, username: 'bob', name: 'Bob', kind: 'AGENT' },
         attachments: [
-          { fileId: 11, issueId: 5, originalName: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 100, attachedById: 3, attachedByName: 'Bob', attachedAt: '2026-10-01T00:00:00Z' },
+          { fileId: 11, issueId: 5, originalName: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 100, attachedById: 3, attachedByName: 'Bob', attachedByUsername: 'bob', attachedAt: '2026-10-01T00:00:00Z' },
         ],
         history: [
-          { id: 1, actorId: 3, actorName: 'Bob', actorKind: 'AGENT', eventType: 'STATUS_CHANGED', fromValue: 'TODO', toValue: 'CANCELED', createdAt: '2026-10-07T15:30:00Z' },
-          { id: 2, actorId: 3, actorName: 'Bob', actorKind: 'AGENT', eventType: 'LABELS_CHANGED', fromValue: null, toValue: '{"added":[{"id":1,"name":"긴급","colorToken":"RED"}],"removed":[]}', createdAt: '2026-10-07T15:31:00Z' },
+          { id: 1, actorId: 3, actorName: 'Bob', actorKind: 'AGENT', actorUsername: 'bob', eventType: 'STATUS_CHANGED', fromValue: 'TODO', toValue: 'CANCELED', createdAt: '2026-10-07T15:30:00Z' },
+          { id: 2, actorId: 3, actorName: 'Bob', actorKind: 'AGENT', actorUsername: 'bob', eventType: 'LABELS_CHANGED', fromValue: null, toValue: '{"added":[{"id":1,"name":"긴급","colorToken":"RED"}],"removed":[]}', createdAt: '2026-10-07T15:31:00Z' },
         ],
       },
-      { milestoneNameById: new Map([[9, 'v1.0']]), usernameById: new Map([[3, 'bob']]) },
+      { milestoneNameById: new Map([[9, 'v1.0']]) },
     );
     expect(d).toMatchObject({
       issueKey: 'WP-5',
@@ -109,6 +111,27 @@ describe('normalizeIssueDetail', () => {
         { at: '2026-10-08T00:31:00+09:00', actor: { username: 'bob', name: 'Bob', kind: 'AGENT' }, event: 'LABELS_CHANGED', from: null, to: { added: [{ name: '긴급' }], removed: [] } },
       ],
     });
+  });
+
+  it('평문 이벤트(제목 등) 값은 { 나 [ 로 시작해도 JSON 으로 풀지 않는다', () => {
+    const d = normalizeIssueDetail({
+      summary: { title: 't' },
+      history: [{ eventType: 'TITLE_CHANGED', actorName: 'x', fromValue: '{"id":3}', toValue: '["a"]' }],
+    });
+    expect(d.history[0]).toMatchObject({ from: '{"id":3}', to: '["a"]' });
+  });
+
+  it('첨부 이력 payload 의 fileId 도 뺀다', () => {
+    const d = normalizeIssueDetail({
+      summary: { title: 't' },
+      history: [{ eventType: 'ATTACHMENTS_CHANGED', actorName: 'x', toValue: '{"added":[{"fileId":42,"originalName":"a.pdf"}],"removed":[]}' }],
+    });
+    expect(d.history[0].to).toEqual({ added: [{ originalName: 'a.pdf' }], removed: [] });
+  });
+
+  it('마일스톤 id 가 있는데 이름을 못 찾으면 미지정(null)과 구분해 표시한다', () => {
+    expect(normalizeIssueDetail({ summary: { title: 't', milestoneId: 9 } }).milestone).toBe(MILESTONE_UNRESOLVED);
+    expect(normalizeIssueDetail({ summary: { title: 't' } }).milestone).toBeNull();
   });
 
   it('이력은 최근 것만 싣는다', () => {

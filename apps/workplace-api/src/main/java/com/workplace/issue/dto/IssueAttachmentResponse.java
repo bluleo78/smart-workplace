@@ -18,6 +18,8 @@ public record IssueAttachmentResponse(
     long sizeBytes,
     Long attachedById,
     String attachedByName,
+    // 첨부자 username — AI 도구가 표시 이름 대신 이 값으로 사람을 가리킨다(WP-307). 업로드 응답 등 모르는 경로는 null.
+    @JsonInclude(JsonInclude.Include.NON_NULL) String attachedByUsername,
     Instant attachedAt,
     @JsonInclude(JsonInclude.Include.NON_NULL) ExtractionInfo extraction) {
 
@@ -31,6 +33,7 @@ public record IssueAttachmentResponse(
         sizeBytes,
         attachedById,
         attachedByName,
+        attachedByUsername,
         attachedAt,
         e);
   }
