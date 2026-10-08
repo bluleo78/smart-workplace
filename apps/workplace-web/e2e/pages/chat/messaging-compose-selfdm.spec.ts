@@ -102,6 +102,21 @@ test.describe('messaging 인라인 compose + self-DM', () => {
     await expectStartAligned(header.locator('h1'), page.getByTestId('new-message-recipients'))
   })
 
+  // 접근성 회귀: 데스크톱에서 본문 "새 메시지" 라벨이 헤더 제목(h1)으로 옮겨 간 뒤에도 받는 사람 입력은
+  // 스크린리더가 이름으로 찾을 수 있어야 한다 — 역할+이름으로 찾아 입력하면 후보가 뜨는 데까지 확인.
+  test('데스크톱 새 메시지 — 받는 사람 입력을 접근 가능한 이름으로 찾아 검색할 수 있다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await stubSidebarLists(page)
+    await stubUserSearch(page, [{ userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' }])
+
+    await page.goto('/chat/new')
+    const input = page.getByRole('combobox', { name: '받는 사람 검색' })
+    await expect(input).toBeVisible()
+    await expect(page.getByLabel('받는 사람 검색')).toHaveCount(1)
+    await input.fill('밥')
+    await expect(page.getByTestId('member-search-row-2')).toBeVisible()
+  })
+
   // (F) 회귀: /chat/new 받는사람 검색은 AGENT 사용자도 포함해야 한다 (#691)
   test(
     '받는사람 검색이 kind=ALL 로 요청되어 AGENT 사용자도 검색 결과에 노출된다',

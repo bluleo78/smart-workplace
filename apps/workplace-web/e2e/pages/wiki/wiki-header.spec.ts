@@ -143,7 +143,7 @@ test('노트 헤더 — AI 이력이 없는 페이지는 attribution 배지가 �
 })
 
 // #830: 제목이 길어 브레드크럼이 truncate 폭 전체를 채워도, 뷰포트 중앙에 fixed 로 떠 있는
-// 전역 AI 어시스턴트 런처(AIChip)와 겹치지 않아야 한다 — Page.Header 좌측 그룹 공통 클램프(aiChipSafeLeftMaxW) 회귀 검증.
+// 전역 AI 어시스턴트 런처(AIChip)와 겹치지 않아야 한다 — Page.Header 좌측 그룹 공통 클램프(useAiChipClamp — 칩 위치 실측) 회귀 검증.
 test('노트 헤더 — 긴 제목의 브레드크럼이 전역 AI 어시스턴트 런처와 겹치지 않는다 (#830)', async ({
   authenticatedPage: page,
 }) => {
@@ -205,7 +205,7 @@ for (const width of DESKTOP_WIDTHS) {
   })
 }
 
-// 긴 경로(크럼 6개)도 경로 nav 가 AI 칩 좌측 경계를 넘지 않는다 — Page.Header 공통 클램프(aiChipSafeLeftMaxW).
+// 긴 경로(크럼 6개)도 경로 nav 가 AI 칩 좌측 경계를 넘지 않는다 — Page.Header 공통 클램프(useAiChipClamp — 칩 위치 실측).
 test('노트 헤더 — 크럼 6개인 긴 경로도 AI 어시스턴트 런처와 겹치지 않는다', async ({
   authenticatedPage: page,
 }) => {

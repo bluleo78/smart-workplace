@@ -22,9 +22,24 @@ const srcDocIframeRule = {
     'srcDoc iframe 은 직접 쓰지 말고 SandboxedHtmlFrame(src/components/SandboxedHtmlFrame.tsx)을 사용하세요 — sandbox 격리와 슬림 스크롤바 주입을 함께 맡습니다.',
 }
 // 페이지 헤더 바를 화면에서 직접 만들면 높이·여백·폭이 다시 갈라진다 — Page.Header / PanelHeader / subPaneHeaderClass 를 쓴다.
+// 헤더 바(h-14 + border-b) 직접 생성 금지 — 한 className 속성 안이면 문자열·템플릿 조각이 나뉘어 있어도 잡는다.
+// 예) className="flex h-14 border-b" · cn('flex h-14', 'border-b') · `h-14 ${x} border-b` · cn(`h-14`, 'border-b').
+const H14 = '/(^|\\s)h-14(\\s|$)/'
+const BORDER_B = '/(^|\\s)border-b(\\s|$)/'
+const headerBarMessage =
+  '헤더 바(h-14 + border-b)는 직접 만들지 말고 Page.Header(src/components/layout/Page.tsx) 또는 PanelHeader 를 사용하세요.'
 const headerBarRule = {
-  selector: "JSXAttribute[name.name='className'] Literal[value=/(^|\\s)h-14(\\s|$)/][value=/(^|\\s)border-b(\\s|$)/]",
-  message: '헤더 바(h-14 + border-b)는 직접 만들지 말고 Page.Header(src/components/layout/Page.tsx) 또는 PanelHeader 를 사용하세요.',
+  selector: [
+    `Literal[value=${H14}]`,
+    `TemplateElement[value.raw=${H14}]`,
+  ]
+    .flatMap((h) =>
+      [`Literal[value=${BORDER_B}]`, `TemplateElement[value.raw=${BORDER_B}]`].map(
+        (b) => `JSXAttribute[name.name='className']:has(${h}):has(${b})`,
+      ),
+    )
+    .join(', '),
+  message: headerBarMessage,
 }
 
 export default defineConfig([

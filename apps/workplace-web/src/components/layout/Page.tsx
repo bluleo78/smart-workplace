@@ -1,10 +1,11 @@
 // 페이지 틀 — 헤더(Page.Header)와 본문(Page.Body)이 같은 여백(16px)·폭 기준을 공유한다.
 // 왜: 헤더·본문 여백/폭을 화면마다 따로 정해 넓은 화면·읽기 폭 화면에서 좌우 축이 어긋났다(이슈 상세 372px 등).
 import { Menu } from 'lucide-react'
-import { createContext, type ReactNode, type Ref, useContext } from 'react'
+import { createContext, type ReactNode, type Ref, useContext, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { appTitleTextClass } from '@/components/layout/sidebar-link'
+import { useAiChipClamp } from '@/components/layout/useAiChipClamp'
 import { mobileRootHeaderClass, mobileRootTitleClass } from '@/components/mobile/headerClass'
 import { useMobileChrome } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
@@ -25,9 +26,6 @@ export const pageGutterClass = 'px-4'
 /** 본문 안 보조 칸(스레드·개인 작업 패널) 상단 소제목 줄 — 페이지 헤더가 아니므로 낮고 옅은 선. */
 export const subPaneHeaderClass =
   'flex h-[34px] shrink-0 items-center justify-between gap-2 border-b border-border/60 px-4 text-xs font-semibold'
-
-/** AI 칩(뷰포트 중앙 고정, 반폭 70px) 좌측 경계를 넘지 않도록 헤더 좌측 그룹 최대 폭(#830 위키 클램프 일반화). */
-export const aiChipSafeLeftMaxW = 'max-w-[max(120px,calc(50vw-360px))]'
 
 /** 페이지 폭 기준 — Page 가 정하고 Page.Body 가 읽는다(reading = 왼쪽 정렬 768px 제한). */
 const PageWidthContext = createContext<PageWidth>('full')
@@ -115,8 +113,10 @@ function PageHeaderImpl({
   const sheet = useMobileSidebarSheet()
   // 모바일 상세(ResponsiveModuleLayout 상세 분기) 안이면 등록 → 레이아웃의 뒤로가기 바 대신 이 헤더가 ‹·✦ 를 품는다(U1-1).
   const detail = useMobileDetailHeader(isMobile)
-  // AI 칩 노출 여부 — 칩이 있을 때만 데스크톱 좌측 그룹을 칩 경계 앞에서 자른다.
+  // AI 칩 노출 여부 — 칩이 있을 때만 데스크톱 좌측 그룹을 칩 경계 앞에서 자른다(칩 위치 실측, 모바일 제외).
   const aiAvailable = useAiAvailable()
+  const leftGroupRef = useRef<HTMLDivElement>(null)
+  useAiChipClamp(leftGroupRef, aiAvailable && !isMobile)
   if (isMobile) {
     // 모바일 우측 클러스터 — [주 액션] [⋯ 메뉴(나머지 actions)] [☰ 사이드바 시트]. meta 는 모바일에서 렌더하지 않음.
     // 액션을 가로 스크롤 줄로 늘어놓지 않고 ⋯ 로 접어 제목 폭을 지킨다(U1-2).
@@ -168,9 +168,10 @@ function PageHeaderImpl({
     >
       {/* 내부 정렬 래퍼 — 본문과 같은 페이지 여백(pageGutterClass) 축. 넓은 화면에서도 가운데로 몰리지 않는다(#880). */}
       <div className={cn('flex w-full min-w-0 items-center justify-between gap-2', pageGutterClass)}>
-        {/* AI 칩은 뷰포트 중앙 fixed — 좌측 그룹이 칩 좌측 경계를 넘지 않게 클램프(#830 위키 처리 일반화). */}
-        <div className={cn('flex min-w-0 items-center gap-2', aiAvailable && aiChipSafeLeftMaxW)}>
-          {icon}
+        {/* AI 칩은 fixed(레일·옆 패널 폭에 따라 이동) — 좌측 그룹이 칩 좌측 경계를 넘지 않게 useAiChipClamp 가 max-width 를 실측해 둔다.
+            줄어드는 것은 제목·위치 표시(truncate/min-w-0)이고, icon 슬롯(캘린더 이동 버튼 등)은 shrink-0 로 온전히 남긴다. */}
+        <div ref={leftGroupRef} className="flex min-w-0 items-center gap-2">
+          {icon != null && <div className="flex shrink-0 items-center">{icon}</div>}
           {leading}
           {title != null && <h1 className={cn(appTitleTextClass, 'truncate')}>{title}</h1>}
           {meta}
@@ -181,24 +182,35 @@ function PageHeaderImpl({
   )
 }
 
+interface PageBodyCommon {
+  children: ReactNode
+  'data-testid'?: string
+}
+
+/**
+ * Page.Body props — padded 여부로 갈리는 판별 유니온.
+ * padded=false 는 스크롤 요소를 화면이 소유하므로 scrollRef 를 받지 않는다(넘기면 조용히 무시되던 것을 타입 오류로 막음).
+ */
+export type PageBodyProps =
+  | (PageBodyCommon & {
+      padded?: true
+      /** 스크롤 영역(바깥 div) ref — 무한 스크롤 sentinel root 등. */
+      scrollRef?: Ref<HTMLDivElement>
+      /** 안쪽 내용 div(page-body-content)에 붙는다. */
+      className?: string
+    })
+  | (PageBodyCommon & {
+      padded: false
+      scrollRef?: never
+      /** 바깥 flex 컨테이너에 붙는다. */
+      className?: string
+    })
+
 /**
  * 페이지 본문 — padded(기본)면 스크롤 영역 + pageGutterClass 여백, reading 폭이면 왼쪽 정렬 max-w-3xl.
  * padded=false 는 자체 레이아웃 본문(마스터-디테일·그리드·채팅) — 스크롤·여백은 화면이 소유하고 행은 pageGutterClass 를 쓴다.
  */
-function PageBody({
-  padded = true,
-  scrollRef,
-  className,
-  children,
-  ...rest
-}: {
-  padded?: boolean
-  scrollRef?: Ref<HTMLDivElement>
-  /** padded(기본)면 안쪽 내용 div(page-body-content)에, padded=false 면 바깥 flex 컨테이너에 붙는다. */
-  className?: string
-  children: ReactNode
-  'data-testid'?: string
-}) {
+function PageBody({ padded = true, scrollRef, className, children, ...rest }: PageBodyProps) {
   const width = useContext(PageWidthContext)
   if (!padded) {
     return <div data-testid={rest['data-testid']} className={cn('flex min-h-0 flex-1', className)}>{children}</div>

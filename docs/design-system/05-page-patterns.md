@@ -72,7 +72,7 @@ Smart Workplace 프론트엔드(`apps/workplace-web`)에서 실제로 반복되�
 - **폭은 full / reading 2종**: reading 은 왼쪽 정렬 `max-w-3xl`(768px) — 가운데 정렬(`mx-auto`)은 쓰지 않는다(헤더 시작선과 맞추기 위해).
 - **헤더 바는 직접 만들지 않는다**: `h-14` + `border-b` 조합은 ESLint `headerBarRule` 이 막는다(예외는 layout·mobile 구현부). 사이드바 헤더(`sidebarTitleClass`)와 같은 `h-14` 로 한 선 정렬된다.
 - **본문 안 보조 칸**(채널 스레드 칼럼·개인 작업 패널 등)은 페이지 헤더 **아래**에 놓이므로 56px 헤더를 또 두지 않고 `subPaneHeaderClass`(`h-[34px]`·옅은 `border-border/60`·`text-xs font-semibold`) 소제목 줄을 쓴다. **앱 공통 패널(AI 옆 패널)만** `PanelHeader`(`h-14`)를 쓴다.
-- **AI 칩 클램프는 헤더가 처리**한다: AI 칩이 뷰포트 중앙에 고정되므로 `Page.Header` 가 좌측 그룹에 `aiChipSafeLeftMaxW` 를 적용한다 — 화면별 우회 코드를 두지 않는다.
+- **AI 칩 클램프는 헤더가 처리**한다: AI 칩(fixed)은 레일 폭·AI 옆 패널 폭에 따라 움직이므로 `Page.Header` 가 칩의 실제 좌측 경계를 재서(`useAiChipClamp`) 좌측 그룹 max-width 를 `칩 좌측 − 그룹 좌측 − 16px`(최소 120px)로 둔다. 제목·위치 표시가 먼저 잘리고 icon 슬롯은 줄지 않는다 — 화면별 우회 코드를 두지 않는다.
 - **헤더 바를 두지 않을 때**(문서/설정·가운데 컬럼형): 인-플로우 `<h1>` 제목을 `pageTitleClass`(`text-[28px] leading-[36px] font-semibold tracking-tight`)로 통일한다.
 - 모바일(`lg` 미만) 헤더 동작은 바뀌지 않았다. 내 작업·AI 위임 작업·드라이브 첨부는 `Page.Header` 를 데스크톱에서만 쓰고 모바일은 기존 렌더를 유지한다.
 - props 상세는 [04-components.md](./04-components.md) §A-3, 토큰은 [03-spacing-layout.md](./03-spacing-layout.md) Zone 3 참조.

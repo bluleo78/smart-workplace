@@ -1,4 +1,6 @@
 // 페이지 틀(Page) 정렬 E2E — 헤더 제목과 본문 첫 요소가 같은 16px 축에서 시작하는지, reading 폭이 왼쪽 정렬·768px 이하인지.
+import type { Page } from '@playwright/test'
+
 import { createChatThread } from '../../factories/chat.factory'
 import { external, externalDetail, page as contactPage } from '../../factories/contacts.factory'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory'
@@ -7,6 +9,7 @@ import { createProject } from '../../factories/project.factory'
 import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { DESKTOP_WIDTHS, boxOf, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
+import { measureBox } from '../../fixtures/wait'
 
 for (const width of DESKTOP_WIDTHS) {
   test.describe(`Page 정렬 @${width}px`, () => {
@@ -126,14 +129,84 @@ for (const width of DESKTOP_WIDTHS) {
   })
 }
 
-// AI 칩(뷰포트 중앙 fixed)과 헤더 좌측 그룹이 겹치지 않는지 — 좌측 그룹 클램프(aiChipSafeLeftMaxW)를 Page.Header 공통으로.
-test('긴 제목도 AI 칩과 겹치지 않는다', async ({ authenticatedPage: page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
+// AI 칩(fixed) 과 헤더 좌측 그룹 — 칩 위치(레일 펼침·AI 옆 패널 폭에 따라 이동)를 실측해 좌측 그룹 폭을 클램프한다.
+// 겹치지 않을 것(제목 우측 ≤ 칩 좌측) + 과하게 자르지 않을 것(남는 자리보다 24px 넘게 좁지 않음)을 함께 본다.
+const CHIP_GAP = 16
+
+async function expectHeaderFitsBeforeChip(page: Page) {
+  const title = page.getByTestId('page-header').getByRole('heading', { level: 1 })
+  const group = title.locator('..')
+  // 우측 액션 그룹 — 좌측 그룹은 칩뿐 아니라 액션 앞(gap 8px)에서도 멈추므로 남는 자리는 둘 중 좁은 쪽.
+  const actions = group.locator('xpath=following-sibling::div[1]')
+  const chip = page.getByTestId('chat-launcher')
+  await expect(title).toBeVisible()
+  await expect(chip).toBeVisible()
+  // 레일·패널 변경 직후엔 관찰자 콜백 전일 수 있어 측정+단언을 재시도한다(WP-225).
+  await expect(async () => {
+    const [t, g, c, a] = [await measureBox(title), await measureBox(group), await measureBox(chip), await measureBox(actions)]
+    expect(t.x + t.width, '제목 우측 ≤ 칩 좌측').toBeLessThanOrEqual(c.x)
+    expect(g.x + g.width, '좌측 그룹 우측 ≤ 칩 좌측').toBeLessThanOrEqual(c.x)
+    const room = Math.min(c.x - CHIP_GAP, a.x - 8)
+    expect(g.x + g.width, '남는 자리 대비 과도한 자름 없음').toBeGreaterThanOrEqual(room - 24)
+  }).toPass()
+}
+
+async function gotoLongProject(page: Page) {
   const longName = '아주 긴 프로젝트 이름 '.repeat(8)
   await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ key: 'WP', name: longName }))
+  await mockApi(page, 'GET', '/api/v1/home/sessions', { items: [], nextCursor: null })
   await page.goto('/projects/WP')
-  const title = page.getByTestId('page-header').getByRole('heading', { level: 1 })
+}
+
+test.describe('긴 제목도 AI 칩과 겹치지 않고 남는 자리까지 보인다', () => {
+  test('1440 — 레일 접힘', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await gotoLongProject(page)
+    await expectHeaderFitsBeforeChip(page)
+  })
+
+  test('1440 — 레일 펼침(152px)', async ({ authenticatedPage: page }) => {
+    await page.addInitScript(() => window.localStorage.setItem('app-rail-expanded', 'true'))
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await gotoLongProject(page)
+    await expect(page.getByTestId('app-rail')).toHaveCSS('width', '152px')
+    await expectHeaderFitsBeforeChip(page)
+  })
+
+  test('레일 토글 중에도 다시 맞춘다(접힘 → 펼침)', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await gotoLongProject(page)
+    await expectHeaderFitsBeforeChip(page)
+    await page.getByTestId('app-rail').getByRole('button', { name: '사이드바 펼치기' }).click()
+    await expect(page.getByTestId('app-rail')).toHaveCSS('width', '152px')
+    await expectHeaderFitsBeforeChip(page)
+  })
+
+  test('1440 — AI 옆 패널(600px) 열림', async ({ authenticatedPage: page }) => {
+    await page.addInitScript(() => window.localStorage.setItem('ai-side-width', '600'))
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await gotoLongProject(page)
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+    await expectHeaderFitsBeforeChip(page)
+  })
+})
+
+// 캘린더 @1024 — 헤더 icon 슬롯의 이동 컨트롤(오늘·‹·›)은 줄지 않고 모두 보이며 칩과 겹치지 않는다(제목이 먼저 잘린다).
+test('캘린더 1024 — 오늘·이전·다음 버튼이 다 보이고 AI 칩과 겹치지 않는다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1024, height: 800 })
+  await mockApi(page, 'GET', '/api/v1/calendar/events', [])
+  await page.goto('/calendar')
   const chip = page.getByTestId('chat-launcher')
-  const [t, c] = [await boxOf(title), await boxOf(chip)]
-  expect(t.x + t.width).toBeLessThanOrEqual(c.x)
+  await expect(chip).toBeVisible()
+  for (const id of ['calendar-today', 'calendar-prev', 'calendar-next']) {
+    const btn = page.getByTestId(id)
+    await expect(btn).toBeVisible()
+    await expect(async () => {
+      const [b, c] = [await measureBox(btn), await measureBox(chip)]
+      expect(b.x + b.width, `${id} 우측 ≤ 칩 좌측`).toBeLessThanOrEqual(c.x)
+      // 줄어 잘리지 않음 — 자기 내용 폭(scrollWidth) 그대로.
+      expect(await btn.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    }).toPass()
+  }
 })

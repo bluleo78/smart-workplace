@@ -1,6 +1,7 @@
 import { expect, test } from '../../fixtures/auth.fixture'
 import { boxOf, DESKTOP_WIDTHS, expectBelowHeader, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import { trackRequests } from '../../fixtures/requests'
+import { measureBox } from '../../fixtures/wait'
 
 function page2() {
   return {
@@ -116,22 +117,23 @@ test('1440x900 데스크톱에서 AI 어시스턴트 칩이 출처 필터 버튼
   await expect(page.getByTestId('drive-attachment-filter-issue')).toHaveClass(/border-primary/)
 })
 
-// 페이지 레이아웃 통합(Page) — 첨부 모아보기도 56px 헤더 바(제목 + 검색)를 갖고, 출처 필터칩은 헤더 아래 본문 첫 줄에 선다.
+// 페이지 레이아웃 통합(Page) — 첨부 모아보기도 56px 헤더 바(제목)를 갖고, 출처 필터칩·검색은 헤더 아래 본문 첫 줄에 선다.
 // 예전엔 AI 칩을 피하려 필터 바에 lg:pt-12 를 더해 헤더가 ~93px 로 두꺼웠다(#576) — 이제 헤더 좌측 클램프가 칩 충돌을 막는다.
 for (const width of DESKTOP_WIDTHS) {
   test.describe(`첨부 모아보기 헤더 바 @${width}px`, () => {
     test.use({ viewport: { width, height: 900 } })
 
-    test('제목·검색은 56px 헤더 안, 필터칩은 헤더 아래 같은 시작선', async ({ authenticatedPage: page }) => {
+    test('제목은 56px 헤더 안, 필터칩·검색은 헤더 아래 같은 시작선', async ({ authenticatedPage: page }) => {
       await stubAttachments(page)
       await page.goto('/drive/attachments')
       const header = page.getByTestId('page-header')
       const title = header.getByRole('heading', { level: 1, name: '첨부 모아보기' })
       await expect(title).toBeVisible()
       await expectHeaderBottomAt56(header)
-      // 검색 입력은 헤더 안(우측 액션) — 본문 필터 줄에 중복으로 그려지지 않는다.
-      await expect(header.getByRole('textbox', { name: '파일 이름 검색' })).toBeVisible()
+      // 검색 입력은 헤더가 아닌 필터 줄(AI 칩이 닿지 않는 헤더 아래) — 한 번만 그려진다.
+      await expect(header.getByRole('textbox', { name: '파일 이름 검색' })).toHaveCount(0)
       await expect(page.getByRole('textbox', { name: '파일 이름 검색' })).toHaveCount(1)
+      await expectBelowHeader(page.getByRole('textbox', { name: '파일 이름 검색' }))
       const chip = page.getByTestId('drive-attachment-filter-all')
       await expectBelowHeader(chip)
       await expectStartAligned(title, chip)
@@ -141,12 +143,25 @@ for (const width of DESKTOP_WIDTHS) {
   })
 }
 
-// 헤더 우측 검색 입력은 AI 칩(뷰포트 중앙 fixed) 영역과 겹치지 않는다 — 우측 그룹은 클램프 대상이 아니라 별도 확인.
-test('1440px — 헤더 검색 입력이 AI 칩과 겹치지 않는다', async ({ authenticatedPage: page }) => {
+// 검색 입력은 헤더가 아니라 헤더 아래 필터 줄(칩이 닿지 않는 자리)에 둔다 — 옆 패널이 열려 칩이 콘텐츠 오른쪽 끝으로
+// 밀려도(헤더 우측 액션 자리) 검색이 칩에 가려지지 않고, 실제로 입력해 검색 쿼리(q)까지 반영되는지 본다.
+test('1440px · AI 옆 패널 열림 — 검색 입력이 AI 칩과 겹치지 않고 입력이 검색에 반영된다', async ({ authenticatedPage: page }) => {
+  await page.addInitScript(() => window.localStorage.setItem('ai-side-width', '600'))
   await page.setViewportSize({ width: 1440, height: 900 })
   await stubAttachments(page)
+  await page.route('**/api/v1/home/sessions**', (r) => r.fulfill({ json: { items: [], nextCursor: null } }))
+  const lists = trackRequests(page, 'ANY', /^\/api\/v1\/drive\/attachments/)
   await page.goto('/drive/attachments')
-  const search = page.getByTestId('page-header').getByRole('textbox', { name: '파일 이름 검색' })
-  const [s, c] = [await boxOf(search), await boxOf(page.getByTestId('chat-launcher'))]
-  expect(s.x).toBeGreaterThanOrEqual(c.x + c.width)
+  const chip = page.getByTestId('chat-launcher')
+  await chip.click()
+  await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+  const search = page.getByRole('textbox', { name: '파일 이름 검색' })
+  await expect(async () => {
+    const [s, c] = [await measureBox(search), await measureBox(chip)]
+    const overlap = s.x < c.x + c.width && c.x < s.x + s.width && s.y < c.y + c.height && c.y < s.y + s.height
+    expect(overlap, `검색 ${JSON.stringify(s)} ↔ 칩 ${JSON.stringify(c)}`).toBe(false)
+  }).toPass()
+  // force 없이 채움 — 칩이 가로채면 실패한다.
+  await search.fill('design')
+  await expect.poll(() => lists.lastUrl()?.searchParams.get('q')).toBe('design')
 })
