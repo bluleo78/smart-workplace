@@ -554,3 +554,69 @@ test.describe('핀치·두 번 탭 확대', () => {
     await expect(stage).toHaveAttribute('data-zoom', '1')
   })
 })
+
+/** Web Share 를 흉내 낸다 — 호출된 파일을 window.__shared 에 기록. mode='abort' 면 사용자가 취소한 것처럼 AbortError. */
+async function stubWebShare(page: Page, mode: 'ok' | 'abort' = 'ok', opts: { standalone?: boolean } = {}) {
+  await page.addInitScript(
+    ([m, standalone]) => {
+      const w = window as unknown as { __shared: { name: string; type: string; size: number }[] }
+      w.__shared = []
+      Object.defineProperty(navigator, 'canShare', { configurable: true, value: (d?: { files?: File[] }) => !!d?.files?.length })
+      Object.defineProperty(navigator, 'share', {
+        configurable: true,
+        value: async (d: { files: File[] }) => {
+          w.__shared.push(...d.files.map((f) => ({ name: f.name, type: f.type, size: f.size })))
+          if (m === 'abort') throw new DOMException('cancel', 'AbortError')
+        },
+      })
+      if (standalone) Object.defineProperty(navigator, 'standalone', { configurable: true, value: true })
+    },
+    [mode, !!opts.standalone] as const,
+  )
+}
+const shared = (page: Page) => page.evaluate(() => (window as unknown as { __shared: unknown[] }).__shared)
+
+test.describe('공유·저장', () => {
+  test('blob 이 오기 전엔 "받는 중" 비활성, 오면 공유 시트에 그 파일을 넘긴다', async ({ authenticatedPage: page }) => {
+    await stubWebShare(page)
+    await stubDriveFiles(page, [{ ...IMG(70, 'site.png'), delayMs: 1500 }])
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await page.getByRole('button', { name: 'site.png', exact: true }).tap()
+    const share = page.getByTestId('viewer-slot-share')
+    await expect(share).toBeDisabled()
+    await expect(share).toHaveAccessibleName('공유 (받는 중)')
+    await expect(share).toBeEnabled({ timeout: 10_000 })
+    await share.tap()
+    await expect.poll(() => shared(page)).toEqual([{ name: 'site.png', type: 'image/png', size: solidPng(800, 600).length }])
+  })
+
+  test('공유 시트를 취소해도 오류 토스트가 뜨지 않는다', async ({ authenticatedPage: page }) => {
+    await stubWebShare(page, 'abort')
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    await page.getByTestId('viewer-slot-share').tap()
+    await expect.poll(async () => (await shared(page)).length).toBe(1)
+    // eslint-disable-next-line playwright/no-wait-for-timeout -- 취소 뒤 토스트가 "뜨지 않음" 부재 확인이라 조건 대기로 바꿀 수 없다
+    await page.waitForTimeout(500)
+    await expect(page.getByText('공유하지 못했습니다')).toHaveCount(0)
+  })
+
+  test('blob 을 받지 않는 형식(미지원 zip)은 받는 중이 아니라 "공유할 수 없음"', async ({ authenticatedPage: page }) => {
+    await stubWebShare(page)
+    await stubDriveFiles(page, [{ id: 79, name: 'pack.zip', mimeType: 'application/zip', body: 'PK' }])
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await page.getByRole('button', { name: 'pack.zip', exact: true }).tap()
+    await expect(page.getByTestId('preview-unsupported')).toBeVisible()
+    await expect(page.getByTestId('viewer-slot-share')).toHaveAccessibleName('공유할 수 없음')
+    await expect(page.getByTestId('viewer-slot-share')).toBeDisabled()
+  })
+
+  test('iOS 홈 화면 앱은 ⬇ 저장이 공유 시트로 간다(blob 이 있을 때)', async ({ authenticatedPage: page }) => {
+    await stubWebShare(page, 'ok', { standalone: true })
+    await stubDriveFiles(page, [MD(72, 'note.md')])
+    await openViewer(page, 'note.md')
+    await expect(page.getByTestId('preview-body')).toContainText('본문')
+    await page.getByTestId('preview-download').tap()
+    await expect.poll(() => shared(page)).toEqual([expect.objectContaining({ name: 'note.md' })])
+  })
+})

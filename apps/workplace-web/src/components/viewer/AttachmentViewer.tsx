@@ -1,11 +1,12 @@
 import { ChevronLeft, ChevronRight, Cloud, Download, Minus, Plus, Sparkles, X } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useIsCoarsePointer } from '../../hooks/useIsCoarsePointer'
 import { useIsLandscape } from '../../hooks/useIsLandscape'
 import { getIsMobile, useIsMobile } from '../../hooks/useIsMobile'
 import { useThemeColor } from '../../hooks/useThemeColor'
 import { formatFileSize } from '../../lib/formatters'
+import { isIOSDevice, isStandaloneDisplay } from '../../lib/platform'
 import { resolvePreviewKind } from '../../lib/previewKind'
 import { cn } from '../../lib/utils'
 import { isInAiPanelDom } from '../ai/aiPanelSurface'
@@ -19,13 +20,14 @@ import type { ViewerItem } from './types'
 import { useImportToDrive } from './useImportToDrive'
 import { useSummaryAvailability } from './useSummaryAvailability'
 import { useViewerGestures } from './useViewerGestures'
-import { actionSlots, type SlotId } from './viewerActions'
+import { actionSlots, resolveSaveMethod, resolveShareState, type SlotId } from './viewerActions'
 import { ViewerBacklinks } from './ViewerBacklinks'
 import { ViewerBody } from './ViewerBody'
 import { anchorScroll } from './viewerGestures'
 import { ViewerActionBar, ViewerMobileTopBar } from './ViewerMobileBars'
 import { ViewerMoreMenu } from './ViewerMoreMenu'
 import { middleEllipsis, navState, resolvePending, routeKey } from './viewerNav'
+import { canShareApi, canShareFile, shareFile } from './viewerShare'
 import { ViewerSidePanel, ViewerSummarySheet } from './ViewerSidePanel'
 
 /** 확대 단계(25%)와 범위. */
@@ -180,18 +182,43 @@ export function AttachmentViewer({
   const startImport = () => {
     if (item.importFileId != null) importer.begin(item.importFileId)
   }
-  // 하단 4칸 — 공유는 Task 8 에서 blob 상태로 바뀐다(지금은 공유할 수 없음 비활성).
-  const shareState = 'unavailable' as const
+  // 현재 항목 blob — 항목 key 와 함께 들어 다른 항목으로 넘기면 자동으로 무시된다(zoomState 와 같은 방식).
+  const [source, setSource] = useState<{ key: string; blob: Blob | null; fetches: boolean } | null>(null)
+  const cur = source?.key === itemKey ? source : null
+  const blob = cur?.blob ?? null
+  // 공유할 File — blob 이 바뀔 때만 만든다(canShare 판정·공유 호출에 같은 객체를 쓴다).
+  const file = useMemo(
+    () => (blob ? new File([blob], item.name, { type: item.mimeType || blob.type }) : null),
+    [blob, item.name, item.mimeType],
+  )
+  const fileShareable = file != null && canShareFile(file)
+  // 하단 4칸의 ⤴ 상태(판정 R12). cur 가 아직 없으면 = ViewerBody 첫 보고 전 → fetches 참으로 보고 "받는 중".
+  // 미지원 형식은 첫 이펙트에서 곧바로 fetches 거짓이 와서 "공유할 수 없음"이 된다.
+  const shareState = resolveShareState({
+    supported: canShareApi(),
+    fetches: cur?.fetches ?? true,
+    blobReady: file != null,
+    canShareFile: fileShareable,
+  })
   const slots = actionSlots({
     unavailable: !!item.unavailable,
     share: shareState,
     importable: item.importFileId == null ? 'none' : canImport ? 'ready' : 'disabled',
     summary: summary === 'show',
   })
-  /** 하단 칸 누름 — 저장은 기존 다운로드(감사 로그 경로), 드라이브는 ☁ 와 같은 가져오기, 요약은 패널(모바일은 시트) 토글. */
+  /**
+   * 하단 칸 누름. 공유·iOS 저장은 클릭 핸들러 안에서 await 없이 바로 공유 시트를 연다(제스처 직후 호출 규칙, 스펙 §5.4).
+   * 저장 기본은 downloadPath(드라이브 = 감사 로그 경로)로 다시 받는다 — iOS 홈 화면 앱만 메모리 blob 을 공유 시트로(판정 R13).
+   * 드라이브는 ☁ 와 같은 가져오기, 요약은 패널(모바일은 시트) 토글.
+   */
   const onSlot = (id: SlotId) => {
-    if (id === 'save') void downloadViewerItem(item)
-    else if (id === 'drive') startImport()
+    if (id === 'share') {
+      if (file && fileShareable) void shareFile(file)
+    } else if (id === 'save') {
+      const method = resolveSaveMethod({ iosStandalone: isIOSDevice() && isStandaloneDisplay(), blobReady: file != null, canShareFile: fileShareable })
+      if (method === 'share' && file) void shareFile(file)
+      else void downloadViewerItem(item)
+    } else if (id === 'drive') startImport()
     else if (id === 'summary') {
       if (getIsMobile()) sheetFocus.current = panelOpen ? 'close' : 'open'
       togglePanel(!panelOpen)
@@ -435,7 +462,7 @@ export function AttachmentViewer({
               data-zoom={zoom}
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
-              <ViewerBody key={item.key} item={item} zoom={zoom} onPage={onPage} chromeInset={mobile} />
+              <ViewerBody key={item.key} item={item} zoom={zoom} onPage={onPage} chromeInset={mobile} onSource={setSource} />
             </div>
             {nav.hasPrev && (
               <button

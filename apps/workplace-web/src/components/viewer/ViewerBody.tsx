@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { blobToText, toVerifiedPdfBlob } from '../../api/blobContent'
 import { formatFileSize } from '../../lib/formatters'
@@ -51,6 +51,7 @@ export function ViewerBody({
   zoom,
   onPage,
   chromeInset,
+  onSource,
 }: {
   item: ViewerItem
   /** 이미지·PDF 확대 배율(1 = 폭 맞춤). */
@@ -62,6 +63,11 @@ export function ViewerBody({
    * 이미지는 사진 앱처럼 화면 전체에 맞추고 반투명 바가 위에 겹친다.
    */
   chromeInset?: boolean
+  /**
+   * 원본 blob 상태 보고(WP-278) — 모바일 ⤴ 공유는 제스처 직후 동기 호출이 필요해 뷰어가 blob 을 미리 들고 있어야 한다.
+   * fetches = 이 항목이 지금 blob 을 받는(받을) 상태인가 — 미지원·사용 불가·10MB 동의 대기·오류면 거짓.
+   */
+  onSource?: (s: { key: string; blob: Blob | null; fetches: boolean }) => void
 }) {
   const kind = resolvePreviewKind(item.mimeType)
   const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
@@ -85,6 +91,15 @@ export function ViewerBody({
   }, [bodyEl, kind])
   const fitWidth = natural && box ? fitImageWidth(natural.w, natural.h, box.w, box.h) : null
   const error = source.error || convertError
+  // 부모(뷰어)에 blob 상태를 알린다 — 콜백은 최신값 ref 로 읽어 이펙트가 콜백 정체성에 흔들리지 않게.
+  const onSourceRef = useRef(onSource)
+  useEffect(() => {
+    onSourceRef.current = onSource
+  })
+  const fetches = renderable && !item.unavailable && confirmSize == null && !error
+  useEffect(() => {
+    onSourceRef.current?.({ key: item.key, blob, fetches })
+  }, [item.key, blob, fetches])
   // #775: 에러도 아니고 콘텐츠도 아직 없는 렌더 가능 상태 = 비동기 페치 진행 중 — 빈 화면 대신 스켈레톤.
   const loading =
     !item.unavailable &&
