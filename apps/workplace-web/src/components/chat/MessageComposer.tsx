@@ -7,12 +7,17 @@ import { messagingApi } from '@/api/messaging'
 import { ComposerAttachmentChips } from '@/components/chat/ComposerAttachmentChips'
 import { ComposerAttachMenu } from '@/components/chat/ComposerAttachMenu'
 import { ComposerDropOverlay } from '@/components/chat/ComposerDropOverlay'
+import { pageGutterClass } from '@/components/layout/Page'
 import { convertPlaintextMentions } from '@/components/mentions/mentionSerialize'
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { type PendingFile, useAttachmentDraft } from '@/hooks/useAttachmentDraft'
 import { useComposerFileDrop } from '@/hooks/useComposerFileDrop'
 import { MESSAGE_PLACEHOLDER } from '@/lib/submitEnter'
+import { cn } from '@/lib/utils'
+
+/** 입력창 좌우 여백 — 데스크톱은 페이지 여백(16px) 축으로 헤더 제목·메시지와 시작선을 맞추고, 모바일은 메시지 목록(max-lg:px-3)과 같은 12px 유지. */
+const composerGutterClass = cn(pageGutterClass, 'max-lg:px-3')
 
 export function MessageComposer({
   channelId,
@@ -60,7 +65,7 @@ export function MessageComposer({
   // 보관된 채널은 입력기를 띄우지 않고 안내만 표시(전송 자체를 차단).
   if (archived) {
     return (
-      <div className="border-t p-3">
+      <div className={cn('border-t py-3', composerGutterClass)}>
         <p className="text-sm text-muted-foreground">이 채널은 보관되었습니다</p>
       </div>
     )
@@ -83,7 +88,7 @@ export function MessageComposer({
   }
 
   return (
-    <div className="relative border-t p-3" data-testid="message-composer" {...dropProps}>
+    <div className={cn('relative border-t py-3', composerGutterClass)} data-testid="message-composer" {...dropProps}>
       {isDragging && <ComposerDropOverlay />}
       <ComposerAttachmentChips
         testIdPrefix="composer"

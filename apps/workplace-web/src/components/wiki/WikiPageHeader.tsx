@@ -13,6 +13,7 @@ import { Fragment } from 'react'
 import { AiLabel } from '@/components/ai/AiLabel'
 import { aiSignalBadgeClass } from '@/components/ai/aiMarker'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
+import { Page } from '@/components/layout/Page'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { useMobileDetailHeader } from '@/components/mobile/MobileDetailContext'
 import { Button } from '@/components/ui/button'
@@ -48,7 +49,7 @@ const AI_DISABLED_REASON: Record<Exclude<WikiAiState, 'ready'>, string> = {
 
 /**
  * 노트 페이지 뷰 헤더 — 브레드크럼(조상 경로) + 저장상태 + AI 액션 버튼 + 더보기(삭제).
- * PageHeader 와 동일한 셸(h-14·border-b)을 쓰되, 브레드크럼은 nav 시맨틱이 필요해 직접 구성한다.
+ * 데스크톱은 공용 Page.Header(h-14·border-b) 셸에 브레드크럼 nav(시맨틱 필요)를 leading 으로 넣는다.
  *
  * AI 버튼 상시 노출이 핵심 — 이전엔 ⋯ 드롭다운 안에 "AI 초안 작성" 하나만 묻혀 있어
  * 노트 화면에 보이는 AI 어피던스가 사실상 0개였다(#733).
@@ -265,64 +266,57 @@ export function WikiPageHeader({
     )
   }
 
+  // 데스크톱: 공용 Page.Header 의 leading 슬롯에 경로 nav 를 둔다 — 여백(본문 제목과 같은 16px 축)과
+  // AI 칩 클램프(#830 — 예전엔 이 nav 에 max-w-[max(120px,calc(50vw-360px))] 를 직접 걸었다)는 Page.Header 가 소유한다.
   return (
-    <header
+    <Page.Header
       data-testid="wiki-page-header"
-      className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4"
-    >
-      {/*
-        #830: 전역 AI 어시스턴트 런처(AIChip.tsx)는 뷰포트 중앙(lg 이상에서 +28px AppRail 보정,
-        50vw+28px)에 fixed 로 고정되고 최소 폭 140px(중심 기준 ±70px)를 갖는다. 제목이 길어
-        truncate 폭을 다 채우면 이 nav 가 헤더 우측 액션 그룹 직전까지 늘어나며 런처와 겹친다.
-        헤더 레이아웃 통합 재설계는 스코프 밖 — 최소 조치로 nav 자체에 버튼 폭+여백을 고려한
-        max-width 클램프를 걸어 런처 좌측 경계를 침범하지 않도록 한다(120px 는 클램프가 0 에
-        가까워지는 좁은 뷰포트에서도 경로가 완전히 사라지지 않게 하는 하한선).
-      */}
-      <nav
-        className="flex min-w-0 max-w-[max(120px,calc(50vw-360px))] items-center gap-1 text-sm"
-        aria-label="페이지 경로"
-      >
-        {crumbs.map((c, i) => {
-          const last = i === crumbs.length - 1
-          return (
-            <Fragment key={c.id}>
-              {i > 0 && (
-                <ChevronRight
-                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50"
-                  aria-hidden="true"
-                />
-              )}
-              {last ? (
-                <span className="truncate font-semibold text-foreground">{c.title}</span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => onNavigate(c.id)}
-                  className="truncate text-muted-foreground hover:text-foreground"
-                >
-                  {c.title}
-                </button>
-              )}
-            </Fragment>
-          )
-        })}
-        {/* #736: 콘텐츠 출처 신호 — 우측 AI 액션 버튼(기능 트리거)과는 다른 클러스터에 둔다. */}
-        {aiAttributed && (
-          <AiSignalBadge
-            variant="info"
-            reason="AI가 생성한 콘텐츠를 포함합니다"
-            data-testid="wiki-page-ai-attribution-badge"
-            className="ml-1 shrink-0"
-          >
-            AI 생성 포함
-          </AiSignalBadge>
-        )}
-      </nav>
-      <div className="flex shrink-0 items-center gap-2">
-        {saveBadge}
-        {aiControl}
-        {pageMenu}
-      </div>
-    </header>
+      leading={
+        <nav className="flex min-w-0 items-center gap-1 text-sm" aria-label="페이지 경로">
+          {crumbs.map((c, i) => {
+            const last = i === crumbs.length - 1
+            return (
+              <Fragment key={c.id}>
+                {i > 0 && (
+                  <ChevronRight
+                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50"
+                    aria-hidden="true"
+                  />
+                )}
+                {last ? (
+                  <span className="truncate font-semibold text-foreground">{c.title}</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(c.id)}
+                    className="truncate text-muted-foreground hover:text-foreground"
+                  >
+                    {c.title}
+                  </button>
+                )}
+              </Fragment>
+            )
+          })}
+          {/* #736: 콘텐츠 출처 신호 — 우측 AI 액션 버튼(기능 트리거)과는 다른 클러스터에 둔다. */}
+          {aiAttributed && (
+            <AiSignalBadge
+              variant="info"
+              reason="AI가 생성한 콘텐츠를 포함합니다"
+              data-testid="wiki-page-ai-attribution-badge"
+              className="ml-1 shrink-0"
+            >
+              AI 생성 포함
+            </AiSignalBadge>
+          )}
+        </nav>
+      }
+      actions={
+        <>
+          {saveBadge}
+          {aiControl}
+          {pageMenu}
+        </>
+      }
+    />
   )
 }

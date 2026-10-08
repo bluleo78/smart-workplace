@@ -8,7 +8,7 @@ import { ArrowLeft, ChevronRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
-import { PageHeader } from '@/components/layout/PageHeader';
+import { Page } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
@@ -53,9 +53,9 @@ export function IssueBreadcrumbHeader({
   if (isMobile) {
     // 모바일: 브레드크럼 대신 병합 상세 헤더(‹ + 이슈 키 + ⋯ + ✦) 한 줄 — 레이아웃 뒤로가기 바와 두 줄로 쌓이지 않는다(U1-1).
     // 채팅은 자주 쓰고 미읽음 신호가 있어 ⋯ 밖 아이콘으로(M5), 구독·삭제는 ⋯ 메뉴로(파괴적 액션은 인라인에 두지 않음, U1-2).
-    // 데스크톱 마크업은 아래 그대로.
+    // 데스크톱은 아래에서 Page.Header 의 leading 슬롯에 ← + 브레드크럼을 둔다.
     return (
-      <PageHeader
+      <Page.Header
         title={
           <span className="inline-flex items-center gap-1" data-testid="breadcrumb-current">
             {type && <BreadcrumbTypeIcon type={type} />}
@@ -72,14 +72,13 @@ export function IssueBreadcrumbHeader({
       />
     );
   }
+  // 데스크톱: 공용 Page.Header 의 leading 슬롯에 ← + 브레드크럼을 둔다 — 자체 header/container 를 두면
+  // 넓은 화면에서 헤더만 가운데로 몰려 본문 제목과 372px 어긋났다. 여백·AI 칩 클램프는 Page.Header 가 소유.
   return (
-    <header
-      data-testid="page-header"
-      className="flex h-14 shrink-0 items-center border-b"
-    >
-      <div className="container mx-auto flex w-full min-w-0 items-center justify-between gap-2 px-6">
-        {/* ← 는 "경로"가 아니라 동작이므로 nav 밖에 둔다. 고정폭(shrink-0)이라 크럼 길이에 흔들리지 않는다. */}
-        <div className="flex min-w-0 items-center gap-2">
+    <Page.Header
+      leading={
+        <>
+          {/* ← 는 "경로"가 아니라 동작이므로 nav 밖에 둔다. 고정폭(shrink-0)이라 크럼 길이에 흔들리지 않는다. */}
           <Button
             variant="ghost"
             size="icon"
@@ -123,9 +122,9 @@ export function IssueBreadcrumbHeader({
               </span>
             </span>
           </nav>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">{actions}</div>
-      </div>
-    </header>
+        </>
+      }
+      actions={actions}
+    />
   );
 }

@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
-import { PageHeader } from '@/components/layout/PageHeader';
+import { Page, pageGutterClass } from '@/components/layout/Page';
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { Button } from '@/components/ui/button';
@@ -70,8 +70,8 @@ export default function ProjectDetailPage() {
   const canDragStatus = isMember && !isMobile;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <PageHeader
+    <Page>
+      <Page.Header
         title={project.data?.name ?? ''}
         meta={<span className="text-muted-foreground">{project.data?.key}</span>}
         actions={
@@ -103,19 +103,19 @@ export default function ProjectDetailPage() {
           </>
         }
       />
-      {/* 본문 래퍼는 스크롤하지 않고 남은 높이만 고정한다. 스크롤은 IssueArea 안에서
+      {/* 본문 래퍼(자체 레이아웃 — padded=false)는 스크롤하지 않고 남은 높이만 고정한다. 스크롤은 IssueArea 안에서
           에픽 패널(자체 목록 스크롤)과 우측 목록/보드 영역이 각자 독립적으로 담당한다.
-          (래퍼가 스크롤하면 패널과 목록이 한 덩어리로 같이 스크롤된다.) */}
-      <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden px-4', isMobile ? 'pt-1 pb-0' : 'py-6')}>
+          (래퍼가 스크롤하면 패널과 목록이 한 덩어리로 같이 스크롤된다.) 좌우 여백은 헤더와 같은 pageGutterClass 축. */}
+      <Page.Body padded={false} className={cn('flex-col overflow-hidden', pageGutterClass, isMobile ? 'pt-1 pb-0' : 'py-6')}>
         <IssueArea
           projectKey={key}
           onOpenCreate={canCreateIssue ? () => setOpen(true) : undefined}
           canDragStatus={canDragStatus}
           canEdit={isMember}
         />
-      </div>
+      </Page.Body>
       <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} />
-    </div>
+    </Page>
   );
 }
 

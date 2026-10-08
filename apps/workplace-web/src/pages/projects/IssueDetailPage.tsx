@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
+import { Page, pageGutterClass } from '@/components/layout/Page';
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import {
   AlertDialog,
@@ -652,7 +653,7 @@ export default function IssueDetailPage() {
   );
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <Page>
       <IssueBreadcrumbHeader
         projectKey={key}
         projectName={project.data?.name ?? ''}
@@ -673,132 +674,136 @@ export default function IssueDetailPage() {
       {/* #354: @container 로 "행이 들어갈 실제 너비"를 기준 삼아 3분할↔세로스택을 전환한다(아래 @min-[1032px]).
           뷰포트 기준 lg 는 AI 사이드패널이 main 을 좁혀도 3분할을 유지해, 좁아진 영역에서 본문이 붕괴되고
           채팅·레일이 AI 패널 뒤로 밀려 가려졌다(오버레이 증상). */}
-      <div className="@container flex-1 overflow-y-auto">
-        {/* 3구역 flex: [메인 본문][채팅 패널][속성 레일] — 컨테이너 폭 1032px(본문360+채팅320+레일280+gap/padding) 이상에서 가로 배치 (#343 Task 4, #354). */}
-        <div className={cn('w-full flex flex-col', isMobile ? 'gap-4 p-4' : 'gap-6 p-6', '@min-[1032px]:flex-row')}>
-          {/* 메인 본문 — #355: 가로 배치(@1032px↑)에서만 채팅/레일 고정폭에 밀려 360px 이하로 압축되지 않도록 min-w 적용.
-              세로 스택(컨테이너 좁음)에서는 본문이 어차피 full-width 라 min-w 가 narrow 컨테이너에서 오버플로우를 유발하므로 미적용 (#354). */}
-          {/* 메인 컬럼 — 섹션(설명·하위 태스크·코멘트)을 Separator 바로 명확히 구분. space-y-6 으로 바 주변 여백 확보. */}
-          <div className="flex-1 space-y-6 @min-[1032px]:min-w-[360px]">
-            {/* 제목 + 유형/차단 배지 — 헤더는 브레드크럼만 담당하므로 본문 상단으로 이동(Jira 패턴). */}
-            <div className="space-y-2" data-testid="issue-title-heading">
-              {/* aria-label 명시 — 없으면 자식 편집 버튼의 aria-label("제목 편집")까지
-                  heading accessible name에 concatenate 되어 스크린리더가 "{제목} 제목 편집"으로
-                  읽는다 (#791, WCAG 1.3.1). */}
-              <h1 className="text-2xl leading-8 font-semibold tracking-tight" aria-label={summary.title}>
-                <InlineEditableTitle
-                  title={summary.title}
-                  onSave={(t) => patch({ title: t, version: titleBaseVersion.current })}
+      {/* padded=false — @container 쿼리 기준이 이 스크롤 div 여야 하므로 스크롤·여백은 화면이 소유한다.
+          데스크톱 여백은 헤더와 같은 pageGutterClass 축(← 버튼과 제목 시작선 일치), 모바일 p-4 는 그대로. */}
+      <Page.Body padded={false}>
+        <div className="@container min-w-0 flex-1 overflow-y-auto">
+          {/* 3구역 flex: [메인 본문][채팅 패널][속성 레일] — 컨테이너 폭 1032px(본문360+채팅320+레일280+gap/padding) 이상에서 가로 배치 (#343 Task 4, #354). */}
+          <div className={cn('w-full flex flex-col', isMobile ? 'gap-4 p-4' : cn('gap-6 py-4', pageGutterClass), '@min-[1032px]:flex-row')}>
+            {/* 메인 본문 — #355: 가로 배치(@1032px↑)에서만 채팅/레일 고정폭에 밀려 360px 이하로 압축되지 않도록 min-w 적용.
+                세로 스택(컨테이너 좁음)에서는 본문이 어차피 full-width 라 min-w 가 narrow 컨테이너에서 오버플로우를 유발하므로 미적용 (#354). */}
+            {/* 메인 컬럼 — 섹션(설명·하위 태스크·코멘트)을 Separator 바로 명확히 구분. space-y-6 으로 바 주변 여백 확보. */}
+            <div className="flex-1 space-y-6 @min-[1032px]:min-w-[360px]">
+              {/* 제목 + 유형/차단 배지 — 헤더는 브레드크럼만 담당하므로 본문 상단으로 이동(Jira 패턴). */}
+              <div className="space-y-2" data-testid="issue-title-heading">
+                {/* aria-label 명시 — 없으면 자식 편집 버튼의 aria-label("제목 편집")까지
+                    heading accessible name에 concatenate 되어 스크린리더가 "{제목} 제목 편집"으로
+                    읽는다 (#791, WCAG 1.3.1). */}
+                <h1 className="text-2xl leading-8 font-semibold tracking-tight" aria-label={summary.title}>
+                  <InlineEditableTitle
+                    title={summary.title}
+                    onSave={(t) => patch({ title: t, version: titleBaseVersion.current })}
+                    onEditStart={() => {
+                      titleBaseVersion.current = summary.version;
+                      setLastEditor('title');
+                    }}
+                    disabled={!canEditContent || update.isPending}
+                    commitOnBlur={!isMobile}
+                    onEditingChange={isMobile ? setTitleControls : undefined}
+                  />
+                </h1>
+                {isMobile ? (
+                  <IssueMobilePropertyChips
+                    projectKey={key}
+                    issue={summary}
+                    canEditWorkflow={canEditWorkflow}
+                    updatePending={update.isPending}
+                    onPatch={(c) => void patch(c)}
+                    onOpenMore={() => setMoreOpen(true)}
+                  />
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {summary.type && (
+                      <IssueTypeSelectPopover
+                        projectKey={key}
+                        issueNumber={issueNumber}
+                        current={summary.type}
+                        disabled={!canEditWorkflow}
+                      />
+                    )}
+                    {/* Phase 4b — blockedBy 중 미완료 존재 시 차단됨 배지 노출. */}
+                    {summary.blocked && (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-destructive/15 text-destructive text-xs"
+                        data-testid="issue-blocked-badge"
+                      >
+                        ⛔ 차단됨
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+              {/* AI 즉각 컨텍스트 카드 — 비서 있을 때만 렌더(#517). 자체 아우라 박스라 바 없이 분리. */}
+              {aiAvailable && (
+                <IssueInstantContextCard
+                  aiContext={data.aiContext}
+                  onGenerate={() => genSummary.mutate()}
+                  isGenerating={genSummary.isPending}
+                />
+              )}
+              {/* 본문 섹션 — 본문 + 첨부. 섹션 레이블 "본문" = 디자인 시스템 heading-group(H4) 토큰. */}
+              <section aria-label="본문" className="space-y-2">
+                <h2 className="text-base leading-6 font-medium">본문</h2>
+                <InlineEditableBody
+                  body={body}
+                  onSave={(b) => patch({ body: b, version: bodyBaseVersion.current })}
                   onEditStart={() => {
-                    titleBaseVersion.current = summary.version;
-                    setLastEditor('title');
+                    bodyBaseVersion.current = summary.version;
+                    setLastEditor('body');
                   }}
                   disabled={!canEditContent || update.isPending}
-                  commitOnBlur={!isMobile}
-                  onEditingChange={isMobile ? setTitleControls : undefined}
-                />
-              </h1>
-              {isMobile ? (
-                <IssueMobilePropertyChips
                   projectKey={key}
-                  issue={summary}
-                  canEditWorkflow={canEditWorkflow}
-                  updatePending={update.isPending}
-                  onPatch={(c) => void patch(c)}
-                  onOpenMore={() => setMoreOpen(true)}
+                  issueNumber={issueNumber}
+                  hideActions={isMobile}
+                  mobile={isMobile}
+                  onEditingChange={isMobile ? setBodyControls : undefined}
                 />
-              ) : (
-                <div className="flex flex-wrap items-center gap-2">
-                  {summary.type && (
-                    <IssueTypeSelectPopover
-                      projectKey={key}
-                      issueNumber={issueNumber}
-                      current={summary.type}
-                      disabled={!canEditWorkflow}
-                    />
-                  )}
-                  {/* Phase 4b — blockedBy 중 미완료 존재 시 차단됨 배지 노출. */}
-                  {summary.blocked && (
-                    <span
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-destructive/15 text-destructive text-xs"
-                      data-testid="issue-blocked-badge"
-                    >
-                      ⛔ 차단됨
-                    </span>
-                  )}
-                </div>
+                {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
+                <IssueAttachmentStrip
+                  projectKey={key}
+                  number={issueNumber}
+                  attachmentCount={summary.attachmentCount}
+                  currentUserId={user?.id ?? null}
+                  isOwner={isOwner}
+                  canEditContent={canEditContent}
+                />
+              </section>
+
+              {/* 설명 ↔ 다음 섹션 구분 바 */}
+              <Separator />
+
+              {/* 하위 태스크 — 비SUBTASK 만(#343 Phase 4a). 뒤에 구분 바를 함께 묶어 subtask 일 때 dangling 바 방지. */}
+              {!isSubtask && (
+                <>
+                  <IssueChildrenSection
+                    projectKey={key}
+                    parentNumber={issueNumber}
+                    parentTypeName={summary.type?.name ?? ''}
+                    childCount={summary.childCount}
+                    childDoneCount={summary.childDoneCount}
+                  />
+                  <Separator />
+                </>
               )}
-            </div>
-            {/* AI 즉각 컨텍스트 카드 — 비서 있을 때만 렌더(#517). 자체 아우라 박스라 바 없이 분리. */}
-            {aiAvailable && (
-              <IssueInstantContextCard
-                aiContext={data.aiContext}
-                onGenerate={() => genSummary.mutate()}
-                isGenerating={genSummary.isPending}
-              />
-            )}
-            {/* 본문 섹션 — 본문 + 첨부. 섹션 레이블 "본문" = 디자인 시스템 heading-group(H4) 토큰. */}
-            <section aria-label="본문" className="space-y-2">
-              <h2 className="text-base leading-6 font-medium">본문</h2>
-              <InlineEditableBody
-                body={body}
-                onSave={(b) => patch({ body: b, version: bodyBaseVersion.current })}
-                onEditStart={() => {
-                  bodyBaseVersion.current = summary.version;
-                  setLastEditor('body');
-                }}
-                disabled={!canEditContent || update.isPending}
+
+              {/* 코멘트 / 활동 */}
+              <IssueBodyTabs
                 projectKey={key}
                 issueNumber={issueNumber}
-                hideActions={isMobile}
-                mobile={isMobile}
-                onEditingChange={isMobile ? setBodyControls : undefined}
+                issueId={summary.id}
+                comments={comments}
+                history={history}
+                hideComposer={isMobile}
               />
-              {/* 본문 설명 바로 아래 — 첨부 가로 칩 스트립 (#343 Task 2). */}
-              <IssueAttachmentStrip
-                projectKey={key}
-                number={issueNumber}
-                attachmentCount={summary.attachmentCount}
-                currentUserId={user?.id ?? null}
-                isOwner={isOwner}
-                canEditContent={canEditContent}
-              />
-            </section>
-
-            {/* 설명 ↔ 다음 섹션 구분 바 */}
-            <Separator />
-
-            {/* 하위 태스크 — 비SUBTASK 만(#343 Phase 4a). 뒤에 구분 바를 함께 묶어 subtask 일 때 dangling 바 방지. */}
-            {!isSubtask && (
-              <>
-                <IssueChildrenSection
-                  projectKey={key}
-                  parentNumber={issueNumber}
-                  parentTypeName={summary.type?.name ?? ''}
-                  childCount={summary.childCount}
-                  childDoneCount={summary.childDoneCount}
-                />
-                <Separator />
-              </>
+            </div>
+            {/* 채팅은 헤더 버튼 → 드로워(IssueChatDrawer)로 분리(구 인라인 패널 제거). */}
+            {/* 속성 레일 — data-testid 은 IssuePropertyRail 내부에 있음. #354: 뷰포트 lg → 컨테이너 1032px 기준. */}
+            {!isMobile && (
+              <aside className="w-full shrink-0 @min-[1032px]:w-[280px]">{renderRail('rail')}</aside>
             )}
-
-            {/* 코멘트 / 활동 */}
-            <IssueBodyTabs
-              projectKey={key}
-              issueNumber={issueNumber}
-              issueId={summary.id}
-              comments={comments}
-              history={history}
-              hideComposer={isMobile}
-            />
           </div>
-          {/* 채팅은 헤더 버튼 → 드로워(IssueChatDrawer)로 분리(구 인라인 패널 제거). */}
-          {/* 속성 레일 — data-testid 은 IssuePropertyRail 내부에 있음. #354: 뷰포트 lg → 컨테이너 1032px 기준. */}
-          {!isMobile && (
-            <aside className="w-full shrink-0 @min-[1032px]:w-[280px]">{renderRail('rail')}</aside>
-          )}
         </div>
-      </div>
+      </Page.Body>
       {/* 모바일 하단 줄(WP-196) — 스크롤 영역 아래 in-flow. MobileShell 이 --vvh 로 줄어 키보드 바로 위에 붙고(R1),
           bottom safe-area 는 셸 <main> 이 준다. 제목·본문 편집 중엔 코멘트 입력 대신 [취소·저장] 바. */}
       {isMobile && (
@@ -870,6 +875,6 @@ export default function IssueDetailPage() {
         open={chatOpen}
         onClose={closeChat}
       />
-    </div>
+    </Page>
   );
 }

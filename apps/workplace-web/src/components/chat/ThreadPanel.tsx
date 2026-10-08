@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
+import { subPaneHeaderClass } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { Button } from '@/components/ui/button'
@@ -43,7 +44,7 @@ export function ThreadPanel({ channelId, channelName, parent, members, me, archi
 
   return (
     // 모바일: 채널 컬럼을 숨기고 전체폭(메일·연락처 상세와 같은 "목록 숨김 + 전체폭 상세" 규칙, WP-207).
-    // 데스크톱(≥1024px)은 기존 w-96 우측 패널 그대로.
+    // 데스크톱(≥1024px)은 채널 헤더 아래 본문 안 w-96 보조 칸(헤더 옆 화면 맨 위로 올라가지 않음).
     <div
       className={cn('flex h-full min-h-0 flex-col', isMobile ? 'w-full' : 'w-96 border-l')}
       data-testid="thread-panel"
@@ -62,8 +63,9 @@ export function ThreadPanel({ channelId, channelName, parent, members, me, archi
           onBack={onClose}
         />
       ) : (
-        <div className="flex items-center justify-between border-b px-3 py-2">
-          <span className="text-sm font-semibold">스레드</span>
+        // 데스크톱: 보조 칸 소제목 줄(34px) — 페이지 헤더가 아니라 채널 헤더 아래 본문 안 칸임을 드러낸다.
+        <div data-testid="thread-panel-header" className={subPaneHeaderClass}>
+          <span>스레드</span>
           <Button
             size="icon"
             variant="ghost"

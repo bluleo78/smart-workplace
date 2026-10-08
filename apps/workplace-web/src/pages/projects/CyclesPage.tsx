@@ -3,14 +3,13 @@ import { ArrowLeft, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
-import { PageHeader } from '@/components/layout/PageHeader';
+import { Page } from '@/components/layout/Page';
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { MobileActionSheet } from '@/components/mobile/MobileActionSheet';
 import { TOUCH_ROW_TRIGGER } from '@/components/mobile/TouchRowActionsMenu';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { cn } from '@/lib/utils';
 
 import { CycleFormDialog } from '../../components/cycle/CycleFormDialog';
 import { CycleProgressBar } from '../../components/cycle/CycleProgressBar';
@@ -40,9 +39,8 @@ export default function CyclesPage() {
   }, [progress.data]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden" data-testid="cycles-page">
-      <PageHeader
-        contained
+    <Page width="reading" data-testid="cycles-page">
+      <Page.Header
         icon={
           <Button
             variant="ghost"
@@ -84,9 +82,7 @@ export default function CyclesPage() {
         }
         mobileActions={null}
       />
-      <div className="flex-1 overflow-y-auto">
-      <div className={cn('mx-auto max-w-3xl', isMobile ? 'p-4' : 'p-6')}>
-
+      <Page.Body>
       <ul className="space-y-3">
         {(cycles.data ?? []).map((c) =>
           isMobile ? (
@@ -158,8 +154,7 @@ export default function CyclesPage() {
           </li>
         )}
       </ul>
-      </div>
-      </div>
+      </Page.Body>
 
       <CycleFormDialog projectKey={key} cycle={editing} open={open} onOpenChange={setOpen} />
       {isMobile && (
@@ -173,7 +168,7 @@ export default function CyclesPage() {
           onDelete={(c) => del.mutate(c.id)}
         />
       )}
-    </div>
+    </Page>
   );
 }
 

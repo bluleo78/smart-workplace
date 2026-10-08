@@ -44,12 +44,37 @@ Smart Workplace 프론트엔드(`apps/workplace-web`)에서 실제로 반복되�
 > `ProfileSettingsPage` 는 `mx-auto max-w-2xl ... p-6` 를 쓴다.
 > 신규 페이지는 "리스트/상세 = `p-6 space-y-*`", "폼 = `max-w-2xl`" 규칙으로 통일을 권장한다.
 
-### 컨텐츠 헤더 — 옵션 · `PageHeader` · `h-14` 정렬
+### 페이지 틀(Page) — 헤더 + 본문이 여백·폭을 공유
 
-페이지 상단의 컨텐츠 헤더는 **필수가 아니라 옵션**이다. 두는 경우와 두지 않는 경우의 규칙을 통일한다.
+페이지 상단의 컨텐츠 헤더는 **필수가 아니라 옵션**이다. 두는 경우 공용 `Page`(`src/components/layout/Page.tsx`)로 헤더·본문을 한 틀에 묶어, 화면마다 여백·폭을 따로 정해 좌우 축이 어긋나던 문제(이슈 상세 등)를 없앤다.
 
-- **헤더 바를 둘 때**: 공용 `PageHeader`(`src/components/layout/PageHeader.tsx`)를 쓴다. 컨테이너가 `flex h-14 shrink-0 ... border-b px-4` 이므로, 2차 사이드바 타이틀 헤더(`sidebarTitleClass`)·홈 헤더와 **같은 `h-14` 로 한 선 정렬**된다. 제목은 사이드바 헤더와 동일한 `appTitleTextClass` 무게를 쓴다. 풀폭 페이지(목록·마스터-디테일·상세)에 적합하다.
+```tsx
+// 풀폭 목록/상세 — 헤더 + 스크롤 본문
+<Page>
+  <Page.Header title="프로젝트" actions={<Button>새 프로젝트</Button>} />
+  <Page.Body>{/* px-4 py-4 */}</Page.Body>
+</Page>
+
+// 읽기 폭(문서·폼) — 본문만 왼쪽 정렬 768px
+<Page width="reading">
+  <Page.Header title="…" />
+  <Page.Body>…</Page.Body>
+</Page>
+
+// 자체 레이아웃(마스터-디테일·그리드·채팅) — 스크롤·여백은 화면이 소유
+<Page>
+  <Page.Header leading={<Breadcrumb />} actions={…} />
+  <Page.Body padded={false}>…</Page.Body>
+</Page>
+```
+
+- **여백은 16px 단일 값**: 헤더·본문·자체 레이아웃 행 모두 `pageGutterClass`(`px-4`). 본문 시작 x 는 콘텐츠 기준으로 헤더와 맞고, `Page.Body` 안쪽 `page-body-content` 래퍼가 `px-4 py-4` 를 갖는다.
+- **폭은 full / reading 2종**: reading 은 왼쪽 정렬 `max-w-3xl`(768px) — 가운데 정렬(`mx-auto`)은 쓰지 않는다(헤더 시작선과 맞추기 위해).
+- **헤더 바는 직접 만들지 않는다**: `h-14` + `border-b` 조합은 ESLint `headerBarRule` 이 막는다(예외는 layout·mobile 구현부). 사이드바 헤더(`sidebarTitleClass`)와 같은 `h-14` 로 한 선 정렬된다.
+- **본문 안 보조 칸**(채널 스레드 칼럼·개인 작업 패널 등)은 페이지 헤더 **아래**에 놓이므로 56px 헤더를 또 두지 않고 `subPaneHeaderClass`(`h-[34px]`·옅은 `border-border/60`·`text-xs font-semibold`) 소제목 줄을 쓴다. **앱 공통 패널(AI 옆 패널)만** `PanelHeader`(`h-14`)를 쓴다.
+- **AI 칩 클램프는 헤더가 처리**한다: AI 칩(fixed)은 레일 폭·AI 옆 패널 폭에 따라 움직이므로 `Page.Header` 가 칩의 실제 좌측 경계를 재서(`useAiChipClamp`) 좌측 그룹 max-width 를 `칩 좌측 − 그룹 좌측 − 16px`(최소 120px)로 둔다. 제목·위치 표시가 먼저 잘리고 icon 슬롯은 줄지 않는다 — 화면별 우회 코드를 두지 않는다.
 - **헤더 바를 두지 않을 때**(문서/설정·가운데 컬럼형): 인-플로우 `<h1>` 제목을 `pageTitleClass`(`text-[28px] leading-[36px] font-semibold tracking-tight`)로 통일한다.
+- 모바일(`lg` 미만) 헤더 동작은 바뀌지 않았다. 내 작업·AI 위임 작업·드라이브 첨부는 `Page.Header` 를 데스크톱에서만 쓰고 모바일은 기존 렌더를 유지한다.
 - props 상세는 [04-components.md](./04-components.md) §A-3, 토큰은 [03-spacing-layout.md](./03-spacing-layout.md) Zone 3 참조.
 
 ---
@@ -210,7 +235,7 @@ export default function ProjectListPage() {
 
 - 생성은 **별도 페이지가 아니라 Dialog**(`ProjectCreateDialog` / `IssueCreateDialog`)로 띄운다 — 워크플레이스의 지배적 생성 패턴. F. 폼 페이지 참고.
 - 카드 항목 간격 `space-y-2`, 카드 내부 패딩 `p-4`.
-- 헤더: 풀폭 목록은 제목+우측 버튼을 옵션 `<PageHeader title="프로젝트" actions={<Button …/>} />`(`h-14` 정렬)로 두는 것을 권장한다. 헤더 바를 쓰지 않으면 인-플로우 제목은 `pageTitleClass` 로 통일(위 "컨텐츠 헤더" 절). 프로젝트 목록/상세는 이미 적용됨.
+- 헤더: 풀폭 목록은 제목+우측 버튼을 `<Page.Header title="프로젝트" actions={<Button …/>} />`(`h-14` 정렬)로 두는 것을 권장한다. 헤더 바를 쓰지 않으면 인-플로우 제목은 `pageTitleClass` 로 통일(위 "페이지 틀(Page)" 절). 프로젝트 목록/상세는 이미 적용됨.
 
 > **As-Is 주의**: A-1(테이블)은 `space-y-6` + 패딩 없음, A-2(카드)는 `container mx-auto p-6 space-y-4` 로 간격 스케일이 다르다.
 > 같은 "리스트" 의미인데 토큰이 갈리므로 신규 페이지는 한쪽으로 맞추는 것을 권장한다.
@@ -348,9 +373,10 @@ export default function ChannelPage() {
 - 반응형: 좁은 화면(`lg` 미만)에선 디테일 패널을 `hidden` 처리하고 목록만 보인다. 보조 패널(스레드)은 조건부 렌더(없으면 본문이 전체폭).
   - 메일·연락처·드라이브의 마스터-디테일은 **`lg` 미만에서 제자리 전환**(목록 표시 중 항목 선택 → 목록 숨김 + 상세 전체폭, 상세에 `‹ 목록` 뒤로가기 버튼 노출)을 추가로 적용한다.
 - 선택 없음/로딩/에러 빈 상태는 디테일 패널 내부에서 안내 문구로 처리(메일 "메일을 선택하세요"). [06-feedback-states.md](./06-feedback-states.md) 참고.
-- 풀폭 페이지이므로 각 컬럼 상단 헤더(예: `ChannelHeader`, 목록 툴바)는 옵션 `PageHeader`(`h-14`·`border-b`)로 두면 사이드바 헤더와 한 선 정렬된다(위 "컨텐츠 헤더" 절). **메일·연락처·드라이브·채팅 헤더 표준화 완료**(#113, 2026-06-06).
-  - 드라이브: 전폭 `PageHeader`(**title 없음** — 사이드바 앱 이름 + 아래 브레드크럼이 위치 표시자 역할, actions=통합 검색·새 폴더·업로드·휴지통) 아래 **폴더명 breadcrumb 행**을 별도로 둔다(`GET /drive/folders/{id}/path`로 폴더 경로 조회, 깊으면 `…` 접기). 검색 입력 1개가 파일명 검색(space-scoped)과 콘텐츠 검색(하이브리드, 동일하게 현재 공간으로 스코프)을 동시 실행하고, 결과를 "파일명 일치"/"내용 일치" 두 그룹으로 나눠 보여준다(그룹 소제목은 `text-xs font-semibold text-muted-foreground`). AI Overview 진입 버튼(`bg-ai-accent-subtle text-ai-accent`)은 콘텐츠 일치가 있을 때만, 풀페이지에서만 노출(embedded 드로워는 공간 협소로 숨김).
-  - 채팅 `ChannelHeader`/`DmHeader`: 내부 높이·타이포를 `h-14`·`appTitleTextClass`로 정렬(기능 무변).
+- 풀폭 페이지이므로 페이지 헤더는 `Page.Header`(`h-14`·`border-b`)로 두면 사이드바 헤더와 한 선 정렬된다(위 "페이지 틀(Page)" 절). **메일·연락처·드라이브·채팅 헤더 표준화 완료**(#113, 2026-06-06).
+  - 드라이브: 전폭 `Page.Header`(**title 없음** — 사이드바 앱 이름 + 아래 브레드크럼이 위치 표시자 역할, actions=통합 검색·새 폴더·업로드·휴지통) 아래 **폴더명 breadcrumb 행**을 별도로 둔다(`GET /drive/folders/{id}/path`로 폴더 경로 조회, 깊으면 `…` 접기). 검색 입력 1개가 파일명 검색(space-scoped)과 콘텐츠 검색(하이브리드, 동일하게 현재 공간으로 스코프)을 동시 실행하고, 결과를 "파일명 일치"/"내용 일치" 두 그룹으로 나눠 보여준다(그룹 소제목은 `text-xs font-semibold text-muted-foreground`). AI Overview 진입 버튼(`bg-ai-accent-subtle text-ai-accent`)은 콘텐츠 일치가 있을 때만, 풀페이지에서만 노출(embedded 드로워는 공간 협소로 숨김).
+  - 채팅 `ChannelHeader`/`DmHeader`: `Page.Header` 로 이전 — 본문 안 스레드 칼럼은 `subPaneHeaderClass`(34px) 소제목 줄을 쓴다. 메시지 입력창(composer) 좌우 여백은 데스크톱 16px, 모바일은 기존 12px 유지.
+  - 위키: 경로는 `Page.Header` 의 `leading` 으로 두고, AI 칩 클램프는 헤더가 처리한다(위키 개별 우회 제거).
 
 ---
 
@@ -414,7 +440,7 @@ export default function IssueDetailPage() {
 - 메인/aside 내부 모두 `space-y-4`.
 - aside 의 메타 항목은 `<div className="space-y-1"><label .../> <Control/></div>` 패턴으로 라벨+컨트롤을 1쌍씩 쌓는다.
 - **인라인 편집(즉시 저장)**: 필드 변경마다 `patch()`(단일 필드 `mutateAsync`) → 성공 토스트 → invalidate 로 재조회. "저장" 버튼 없는 낙관적 UX.
-- 헤더 메타 줄은 `flex items-center gap-3 flex-wrap` 로 제목+배지+액션을 한 줄에 흘려놓는다. 풀폭 상세는 이 헤더를 옵션 `PageHeader`(`h-14`·`border-b`, `meta`/`actions` 슬롯)로 표준화해 사이드바 헤더와 정렬할 수 있다(위 "컨텐츠 헤더" 절). 이슈 상세는 이미 적용됨.
+- 헤더 메타 줄은 `flex items-center gap-3 flex-wrap` 로 제목+배지+액션을 한 줄에 흘려놓는다. 풀폭 상세는 이 헤더를 `Page.Header`(`h-14`·`border-b`, `leading`/`meta`/`actions` 슬롯)로 표준화해 사이드바 헤더와 정렬할 수 있다(위 "페이지 틀(Page)" 절). 이슈 상세는 이미 적용됨.
 - 상태 배지(차단됨 등)는 `bg-destructive/15 text-destructive` 형태의 인라인 칩. 공통 Badge 사용은 [04-components.md](./04-components.md) 참고.
 
 > **As-Is 주의 — 삭제 확인**
@@ -500,7 +526,7 @@ export default function ProfileSettingsPage() {
 
 구조/간격 노트:
 
-- 컨테이너: `mx-auto max-w-2xl space-y-6 p-6` — 폼은 화면 가운데 정렬 + 가독 폭 제한.
+- 컨테이너(설정 영역(후속 이전 전) 현행): 위 예시의 `mx-auto max-w-2xl space-y-6 p-6` 는 설정 영역 기존 코드 기준이다. 새 폼 페이지는 `<Page width="reading">`(왼쪽 정렬 `max-w-3xl`, `mx-auto` 금지)을 쓰고, 설정 영역도 `Page` 로 옮길 예정이다([13-migration-backlog.md](./13-migration-backlog.md)).
 - 섹션 단위로 `Card`(`CardHeader > CardTitle` + `CardContent`)를 쓰고, 섹션 사이는 `Separator`.
 - **관심사가 다른 폼은 각각 별도 `useForm`** 으로 분리(프로필 폼 / 비밀번호 폼). 한 폼에 섞지 않는다.
 - 모든 입력은 `FormField`(`label`/`htmlFor`/`error` props)로 감싼다 — `Input` 옆에 수동으로 에러 `<p>` 를 붙이지 말 것.
@@ -593,7 +619,7 @@ export function HomeCanvas({ pages, activeIndex, onSelectPage }: Props) {
 
 | 현재 문제 | 권장 개선 방향 |
 |-----------|---------------|
-| 최상위 컨테이너가 `container mx-auto p-6` / `space-y-6` / `mx-auto max-w-2xl` 로 갈림 | 리스트·상세=`p-6 space-y-6`, 폼=`max-w-2xl`, 분할형=`flex h-full min-h-0` 으로 역할별 통일 |
+| 최상위 컨테이너가 `container mx-auto p-6` / `space-y-6` / `mx-auto max-w-2xl` 로 갈림 | `Page` 로 통일 — 리스트·보드=`<Page>`(full), 문서·상세·폼=`<Page width="reading">`(왼쪽 정렬 `max-w-3xl`, `mx-auto` 금지), 분할형=`<Page.Body padded={false}>`. 설정 영역은 후속 이전 전까지 `SettingsPage` 현행 |
 | 로딩 표현이 `<p>로딩 중…</p>` / `TableSkeletonRows` / `Skeleton` 으로 혼재 | 테이블=`TableSkeletonRows`, 단일 리소스=`Skeleton`, 단순 텍스트 폴백 지양 ([06-feedback-states.md](./06-feedback-states.md)) |
 | 제목 타이포가 `text-2xl font-semibold`(projects) vs `text-[28px] leading-[36px] ...`(settings) 로 다름 | 인-플로우 제목 토큰 `pageTitleClass`로 통일(설정·어드민·누락 페이지 적용 완료, #113). 나머지 `text-2xl` 페이지는 기회 있을 때 정리. ([03-spacing-layout.md](./03-spacing-layout.md)) |
 | 삭제 확인이 브라우저 `confirm()` (이슈/프로젝트 설정) | 공통 확인 다이얼로그(AlertDialog) 컴포넌트로 통일 |

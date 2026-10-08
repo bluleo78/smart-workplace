@@ -7,6 +7,7 @@ import { createLabel, toLabelSummary } from '../../factories/label.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { boxOf, expectBelowHeader, expectHeaderBottomAt56 } from '../../fixtures/layout';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import type { IssueStatus } from '../../../src/types/issue';
@@ -128,6 +129,25 @@ test('행 클릭 → 우측 패널 오픈 + URL ?task 반영 + 새로고침 유�
   await expect(page).toHaveURL(/[?&]task=1/);
   await page.reload();
   await expect(page.getByTestId('personal-task-panel')).toBeVisible();
+  await expectPanelBelowHeader(page);
+});
+
+// 작업 패널은 페이지 헤더 옆(화면 맨 위)이 아니라 헤더 아래 본문 안 보조 칸이다 — 앱 사이드 패널처럼 보이지 않게.
+async function expectPanelBelowHeader(page: import('@playwright/test').Page) {
+  await expectHeaderBottomAt56(page.getByTestId('page-header'));
+  await expectBelowHeader(page.getByTestId('personal-task-panel'));
+  // 패널 상단 소제목 줄 — 보조 칸 규격(34px).
+  expect((await boxOf(page.getByTestId('personal-task-panel-header'))).height).toBe(34);
+}
+
+test('?task= 딥링크 직접 진입 — 작업 패널이 페이지 헤더 아래 보조 칸으로 열린다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  await expectPanelBelowHeader(page);
+  // 편집 가능한 제목은 소제목 줄 아래 본문에 그대로 있다.
+  await expect(page.getByTestId('personal-task-panel-title')).toContainText('블로그 초안');
 });
 
 test('패널은 라벨·AI 대화 노출 / 사이클·의존성·커스텀필드·watch 미노출', async ({ authenticatedPage: page }) => {

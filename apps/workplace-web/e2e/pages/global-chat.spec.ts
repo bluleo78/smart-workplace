@@ -2,6 +2,7 @@ import type { Locator, Page } from '@playwright/test'
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { measureBox, stableBox } from '../fixtures/wait'
+import { expectHeaderBottomAt56 } from '../fixtures/layout'
 import { createUser } from '../factories/auth.factory'
 import { type HomeChatStartBody, mockHomeChatGeneration, mockHomeProposals, mockStreamingHomeChat, proposal } from '../fixtures/home-chat-mock'
 import type { HomeMessage, HomeSessionPage } from '../../src/types/home'
@@ -344,6 +345,17 @@ test('사이드 패널 헤더 닫기 버튼으로 패널이 닫히고 본문이 
   // 기존 열기 방법(칩)으로 다시 열 수 있다.
   await page.getByTestId('chat-launcher').click()
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+})
+
+test('사이드 패널 헤더 하단선이 페이지 헤더 하단선(56px)과 한 선에 놓인다', async ({ authenticatedPage: page }) => {
+  // 앱 공통 패널(PanelHeader)은 페이지 헤더(Page.Header h-14)와 같은 높이 — 두 하단선이 이어져야 한다.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click() // → side
+  const header = page.getByTestId('ai-side-panel').getByTestId('ai-panel-header')
+  await expectHeaderBottomAt56(header)
+  // 홈의 페이지 헤더(Page.Header)는 기존 testid 'canvas-header' 를 유지한다.
+  await expectHeaderBottomAt56(page.getByTestId('canvas-header'))
 })
 
 test('헤더 모드 버튼으로 사이드 ↔ 전체 화면을 전환한다 (WP-111)', async ({ authenticatedPage: page }) => {

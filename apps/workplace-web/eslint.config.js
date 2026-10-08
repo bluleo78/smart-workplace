@@ -7,6 +7,41 @@ import playwright from 'eslint-plugin-playwright'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
+// no-restricted-syntax 항목 — 예외 블록이 일부만 다시 켤 수 있도록 상수로 둔다.
+// 날짜/시간 표시는 공용 포매터(src/lib/formatters.ts)로만 — 화면마다 toLocale* 직접 호출이
+// 난립해 표기 불일치(#617)가 반복됐다. 문서만으로는 재발을 못 막아 린트로 강제한다(#632).
+const toLocaleRule = {
+  selector: 'CallExpression[callee.property.name=/^toLocale(Date|Time)?String$/]',
+  message:
+    '날짜/시간 표시는 toLocale*String 직접 호출 대신 공용 포매터(src/lib/formatters.ts)를 사용하세요. 필요한 포맷이 없으면 포매터를 추가하세요. (docs/CODING_CONVENTION.md "날짜/시간 표시 포맷" 참조)',
+}
+// srcDoc iframe 은 sandbox 격리·슬림 스크롤바 주입을 빠뜨리기 쉽다 — 드라이브만 고치고 메일이 남았던 일(WP-274→275).
+const srcDocIframeRule = {
+  selector: "JSXOpeningElement[name.name='iframe'] > JSXAttribute[name.name='srcDoc']",
+  message:
+    'srcDoc iframe 은 직접 쓰지 말고 SandboxedHtmlFrame(src/components/SandboxedHtmlFrame.tsx)을 사용하세요 — sandbox 격리와 슬림 스크롤바 주입을 함께 맡습니다.',
+}
+// 페이지 헤더 바를 화면에서 직접 만들면 높이·여백·폭이 다시 갈라진다 — Page.Header / PanelHeader / subPaneHeaderClass 를 쓴다.
+// 헤더 바(h-14 + border-b) 직접 생성 금지 — 한 className 속성 안이면 문자열·템플릿 조각이 나뉘어 있어도 잡는다.
+// 예) className="flex h-14 border-b" · cn('flex h-14', 'border-b') · `h-14 ${x} border-b` · cn(`h-14`, 'border-b').
+const H14 = '/(^|\\s)h-14(\\s|$)/'
+const BORDER_B = '/(^|\\s)border-b(\\s|$)/'
+const headerBarMessage =
+  '헤더 바(h-14 + border-b)는 직접 만들지 말고 Page.Header(src/components/layout/Page.tsx) 또는 PanelHeader 를 사용하세요.'
+const headerBarRule = {
+  selector: [
+    `Literal[value=${H14}]`,
+    `TemplateElement[value.raw=${H14}]`,
+  ]
+    .flatMap((h) =>
+      [`Literal[value=${BORDER_B}]`, `TemplateElement[value.raw=${BORDER_B}]`].map(
+        (b) => `JSXAttribute[name.name='className']:has(${h}):has(${b})`,
+      ),
+    )
+    .join(', '),
+  message: headerBarMessage,
+}
+
 export default defineConfig([
   globalIgnores(['dist', 'src/components/ui', 'playwright-report', 'test-results']),
   {
@@ -33,20 +68,7 @@ export default defineConfig([
       'react-hooks/set-state-in-effect': 'warn',
       // 날짜/시간 표시는 공용 포매터(src/lib/formatters.ts)로만 — 화면마다 toLocale* 직접 호출이
       // 난립해 표기 불일치(#617)가 반복됐다. 문서만으로는 재발을 못 막아 린트로 강제한다(#632).
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector: 'CallExpression[callee.property.name=/^toLocale(Date|Time)?String$/]',
-          message:
-            '날짜/시간 표시는 toLocale*String 직접 호출 대신 공용 포매터(src/lib/formatters.ts)를 사용하세요. 필요한 포맷이 없으면 포매터를 추가하세요. (docs/CODING_CONVENTION.md "날짜/시간 표시 포맷" 참조)',
-        },
-        // srcDoc iframe 은 sandbox 격리·슬림 스크롤바 주입을 빠뜨리기 쉽다 — 드라이브만 고치고 메일이 남았던 일(WP-274→275).
-        {
-          selector: "JSXOpeningElement[name.name='iframe'] > JSXAttribute[name.name='srcDoc']",
-          message:
-            'srcDoc iframe 은 직접 쓰지 말고 SandboxedHtmlFrame(src/components/SandboxedHtmlFrame.tsx)을 사용하세요 — sandbox 격리와 슬림 스크롤바 주입을 함께 맡습니다.',
-        },
-      ],
+      'no-restricted-syntax': ['error', toLocaleRule, srcDocIframeRule, headerBarRule],
     },
   },
   {
@@ -54,6 +76,13 @@ export default defineConfig([
     files: ['src/lib/formatters.ts'],
     rules: {
       'no-restricted-syntax': 'off',
+    },
+  },
+  {
+    // 헤더 틀 구현부(layout)와 모바일 헤더는 h-14 + border-b 를 직접 쓴다 — 헤더 규칙만 해제하고 나머지 두 규칙은 유지.
+    files: ['src/components/layout/**', 'src/components/mobile/**', 'src/**/mobile/**'],
+    rules: {
+      'no-restricted-syntax': ['error', toLocaleRule, srcDocIframeRule],
     },
   },
   // 서비스워커 — clients·registration 등 SW 전역 사용. React 규칙 무관.

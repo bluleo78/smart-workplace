@@ -8,6 +8,7 @@ import {
   createThreadInboxItem,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { boxOf, DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import { trackRequests } from '../../fixtures/requests'
 
 const ME_ID = 1
@@ -207,3 +208,22 @@ test('스레드 인박스는 끝까지 스크롤하면 다음 묶음을 자동�
   await page.getByTestId('thread-inbox-card-7029').scrollIntoViewIfNeeded()
   await expect(page.getByTestId('thread-inbox-card-7999')).toBeVisible()
 })
+
+// 레이아웃 회귀: 스레드 인박스는 읽기 폭(reading) 페이지 — 헤더 아이콘과 첫 카드가 같은 시작선, 목록은 왼쪽 정렬 768px 이하.
+for (const width of DESKTOP_WIDTHS) {
+  test(`스레드 인박스 — 헤더 아이콘·첫 카드 시작선 일치, 목록 폭 768 이하 (${width}px)`, async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await stubChannelsList(page, [createChannel({ id: 903, name: '정렬채널' })])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubInboxCount(page, 1)
+    await stubInbox(page, [createThreadInboxItem({ rootMessage: { id: 7100, channelId: 903, body: '정렬 스레드' } })])
+
+    await page.goto('/chat/threads/inbox')
+    const header = page.getByTestId('threads-inbox-page').getByTestId('page-header')
+    const card = page.getByTestId('thread-inbox-card-7100')
+    await expectHeaderBottomAt56(header)
+    await expectStartAligned(header.locator('svg').first(), card)
+    expect((await boxOf(card)).width).toBeLessThanOrEqual(768)
+  })
+}

@@ -1,10 +1,8 @@
 // DM 헤더 — 참여자 기반 표시명. AGENT 배지·인원수는 그룹(3명+)일 때만 표시.
-import { PageHeader } from '@/components/layout/PageHeader'
-import { appTitleTextClass } from '@/components/layout/sidebar-link'
+import { Page } from '@/components/layout/Page'
 import { AgentBadge } from '@/components/users/AgentBadge'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { dmDisplayName } from '@/lib/dm'
-import { cn } from '@/lib/utils'
 import type { DmResponse } from '@/types/messaging'
 
 interface DmHeaderProps {
@@ -20,7 +18,7 @@ export function DmHeader({ dm, currentUserId }: DmHeaderProps) {
   if (isMobile) {
     // 모바일: 병합 상세 헤더(‹ + 이름 + ✦) 한 줄 — 레이아웃 뒤로가기 바와 두 줄로 쌓이지 않는다(U1-1).
     return (
-      <PageHeader
+      <Page.Header
         data-testid="dm-header"
         title={
           <span className="flex min-w-0 items-center gap-1">
@@ -31,19 +29,24 @@ export function DmHeader({ dm, currentUserId }: DmHeaderProps) {
       />
     )
   }
+  // 데스크톱: 페이지 표준 헤더(Page.Header) — 채널 헤더와 같은 h-14 바·16px 축으로 메시지·입력창과 시작선을 맞춘다.
+  // 제목 슬롯 안 span 이 말줄임 대상(block truncate) — 긴 표시명 #797 회귀 테스트가 이 요소의 넘침을 본다.
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4" data-testid="dm-header">
-      <h1
-        className={cn(appTitleTextClass, 'min-w-0 truncate')}
-        title={displayName}
-        data-testid="dm-title"
-      >
-        {displayName}
-      </h1>
-      {hasAgent && <AgentBadge size="xs" />}
-      {dm.participants.length > 2 && (
-        <span className="text-xs text-muted-foreground">{dm.participants.length}명</span>
-      )}
-    </header>
+    <Page.Header
+      data-testid="dm-header"
+      title={
+        <span className="block truncate" title={displayName} data-testid="dm-title">
+          {displayName}
+        </span>
+      }
+      meta={
+        <>
+          {hasAgent && <AgentBadge size="xs" />}
+          {dm.participants.length > 2 && (
+            <span className="shrink-0 text-xs text-muted-foreground">{dm.participants.length}명</span>
+          )}
+        </>
+      }
+    />
   )
 }

@@ -48,6 +48,9 @@ Smart Workplace 디자인 시스템의 간격(spacing)과 레이아웃(layout) �
 | Form — 필드 간 | `space-y-4` |
 | Form — label + input 간 | `space-y-2` |
 | Page section 간 | `space-y-6` |
+| 페이지 여백(헤더·본문 공통) | `px-4` 16px 단일 값 — `pageGutterClass`(`layout/Page.tsx`). 본문 콘텐츠는 `page-body-content` 래퍼가 `px-4 py-4` 를 갖는다 |
+| 페이지 폭 | `full`(기본) / `reading`(왼쪽 정렬 `max-w-3xl` 768px, `mx-auto` 금지) — 2종뿐 |
+| 본문 안 보조 칸 소제목 | `h-[34px]` `border-b border-border/60` `px-4` — `subPaneHeaderClass` |
 
 ---
 
@@ -102,7 +105,7 @@ Smart Workplace 디자인 시스템의 간격(spacing)과 레이아웃(layout) �
 - 사이드바를 갖는 모듈(작업 관리·대화·메일·연락처·드라이브·설정)은 동일 패턴: `*ModuleLayout` 이 `flex h-full min-h-0 flex-1` 안에 사이드바 + `min-w-0 flex-1 overflow-y-auto` 콘텐츠를 둔다.
 - **홈(`/`)은 예외** — 2차 사이드바 없이 AI 캔버스만 콘텐츠 전체에 렌더한다(`HomeModuleLayout` 없음). 챗 도크가 홈의 주 진입점이다.
 - 사이드바: `w-56`(224px) `shrink-0`, `border-r`, `bg-sidebar/40`.
-- 상단 앱 타이틀 헤더: `sidebarTitleClass` = `h-14 border-b px-4` + 앱 타이틀 텍스트(`appTitleTextClass`, 레일 마크 헤더와 높이 정렬). 콘텐츠 영역의 옵션 헤더 바(`PageHeader`)와 인-플로우 제목(`pageTitleClass`)도 같은 `src/components/layout/sidebar-link.ts` 토큰을 공유한다.
+- 상단 앱 타이틀 헤더: `sidebarTitleClass` = `h-14 border-b px-4` + 앱 타이틀 텍스트(`appTitleTextClass`, 레일 마크 헤더와 높이 정렬). 콘텐츠 영역의 옵션 헤더 바(`Page.Header`)와 인-플로우 제목(`pageTitleClass`)도 같은 `src/components/layout/sidebar-link.ts` 토큰을 공유한다.
 - 본문: `flex-1 overflow-y-auto p-3`, nav `space-y-1`, 항목 `px-3 py-2 gap-2`.
 - 그룹 라벨: `text-xs font-semibold uppercase tracking-wider text-muted-foreground` (또는 `GroupLabel`: `px-3 pt-3 pb-1`).
 - 예: 설정(개인 설정 / 워크스페이스 관리 2그룹, 어드민 게이팅), 메일(계정 목록), 이슈/대화/연락처/드라이브 각각의 사이드바.
@@ -110,8 +113,8 @@ Smart Workplace 디자인 시스템의 간격(spacing)과 레이아웃(layout) �
 **Zone 3 — Main Content (`<main>` in AppLayout)**
 - `relative flex min-w-0 flex-1 flex-col overflow-hidden pt-12 lg:pt-0`.
 - `pt-12`는 모바일 햄버거(`top-3`) 공간 확보용 — 데스크톱(lg)에서는 0.
-- 페이지가 자체 헤더 + 본문을 렌더한다(전역 상단 GNB 없음). 표준 본문 padding `p-6`, 섹션 간격 `space-y-6`.
-- **컨텐츠 헤더는 옵션이다.** 두는 경우 공용 `PageHeader`(`src/components/layout/PageHeader.tsx`)를 사용해 `h-14 border-b` 고정 바로 사이드바 헤더(`sidebarTitleClass`)와 한 선 정렬한다(같은 `h-14`). 헤더 바를 쓰지 않는 문서/설정형 페이지의 인-플로우 제목은 `pageTitleClass`(`text-[28px] leading-[36px] font-semibold tracking-tight`)로 통일한다.
+- 페이지가 자체 헤더 + 본문을 렌더한다(전역 상단 GNB 없음). 표준 본문 padding 은 `Page.Body` 의 `px-4 py-4`(설정 영역은 아직 `p-6` — [13-migration-backlog.md](./13-migration-backlog.md) 후속 과제), 섹션 간격 `space-y-6`.
+- **페이지 틀은 `Page`**(`src/components/layout/Page.tsx`)다: `<Page width="full|reading">` 안에 `Page.Header`(`h-14 border-b` 고정 바로 사이드바 헤더 `sidebarTitleClass` 와 한 선 정렬, 옵션) + `Page.Body`. 헤더·본문은 **좌우 여백 16px 단일 값(`pageGutterClass` = `px-4`)** 을 공유하고, 폭은 **full / reading(왼쪽 정렬 768px, `mx-auto` 금지) 2종**만 쓴다. 본문 시작 x 는 콘텐츠 기준으로 헤더 시작선과 맞춘다(본문 안쪽 `page-body-content` 래퍼가 `px-4 py-4`). 헤더 바(`h-14` + `border-b`)를 화면에서 직접 만들지 않는다(ESLint `headerBarRule`, [04-components.md](./04-components.md) 참조). 헤더 바를 쓰지 않는 문서/설정형 페이지의 인-플로우 제목은 `pageTitleClass`(`text-[28px] leading-[36px] font-semibold tracking-tight`)로 통일한다.
 
 **AI 챗 도크 (`GlobalChatDock` → `FloatingChat`)** — 우측 패널 아님, 전역 오버레이.
 - 런처 칩: `createPortal`로 body 에. `fixed top-2 z-[70]`, 가로 중앙(`left-1/2 -translate-x-1/2`), 데스크톱은 레일 56px 절반만큼 보정해 콘텐츠 중앙(`lg:left-[calc(50%+28px)]`). 활성 시 `border-ai-accent` 강조.
@@ -251,37 +254,38 @@ export function IssueModuleLayout() {
 
 ## Content Area 최대 너비
 
-페이지 유형에 따라 콘텐츠 영역의 최대 너비를 다르게 적용한다. 폼/상세는 `mx-auto`로 가운데 정렬. (실측: `max-w-2xl` 8곳, `max-w-3xl` 2곳, `max-w-md` 3곳.)
+앱 셸 안 페이지의 본문 폭은 `Page` 의 `width` 로 **2종만** 쓴다 — 개별 화면이 `max-w-*`/`mx-auto` 를 직접 두지 않는다.
+읽기 폭(reading)은 **왼쪽 정렬** `max-w-3xl` 이다 — 가운데 정렬(`mx-auto`)은 헤더 시작선과 본문 시작선을 어긋나게 하므로 쓰지 않는다.
 
-| 페이지 유형 | 클래스 | 최대 너비 |
-|------------|--------|-----------|
-| 인증(로그인/가입) | `max-w-md mx-auto` | 448px |
-| Forms / Settings | `max-w-2xl mx-auto` | 672px |
-| Detail pages | `max-w-3xl mx-auto` | 768px |
-| Tables / Boards / Lists | `w-full` | 제한 없음 |
+| 페이지 유형 | 지정 | 최대 너비 |
+|------------|------|-----------|
+| Tables / Boards / Lists / 분할형 | `<Page>`(기본 `width="full"`) | 제한 없음 |
+| 문서·상세·폼(읽기 폭) | `<Page width="reading">` → `Page.Body` 안쪽이 왼쪽 정렬 `max-w-3xl` | 768px |
+| 설정 영역(후속 이전 전) 현행 | `SettingsPage width="form"` → 왼쪽 정렬 `max-w-2xl` + `p-6` | 672px |
+| 인증(로그인/가입) — 앱 셸 밖 | `max-w-md mx-auto` (화면 가운데 카드, `Page` 대상 아님) | 448px |
+
+> 설정 영역(`SettingsPage`·설정/관리자 라우트·`ProjectSettingsPage`)은 아직 `Page` 로 옮기기 전이라 672px·`p-6` 이 현행이다.
+> `Page`(reading 768px·`px-4`)로의 이전은 [13-migration-backlog.md](./13-migration-backlog.md) 후속 과제.
 
 ```tsx
-{/* 인증 페이지 */}
+{/* 칸반 보드 / 이슈 목록 — 전체 너비 */}
+<Page>
+  <Page.Header title="이슈" />
+  <Page.Body><IssueTable /></Page.Body>
+</Page>
+
+{/* 문서·상세·폼 — 왼쪽 정렬 읽기 폭(max-w-3xl, mx-auto 금지) */}
+<Page width="reading">
+  <Page.Header title="문서 제목" />
+  <Page.Body className="space-y-6">
+    <DetailBody />
+  </Page.Body>
+</Page>
+
+{/* 인증 페이지 — 앱 셸 밖이라 예외적으로 가운데 정렬 */}
 <div className="max-w-md mx-auto space-y-6">
   <h1 className="text-2xl font-semibold tracking-tight">로그인</h1>
   <form className="space-y-4">{/* ... */}</form>
-</div>
-
-{/* Form / Settings 페이지 */}
-<div className="max-w-2xl mx-auto space-y-6 p-6">
-  <h2 className="text-2xl font-semibold tracking-tight">프로필 설정</h2>
-  <form className="space-y-4">{/* ... */}</form>
-</div>
-
-{/* Detail 페이지 */}
-<div className="max-w-3xl mx-auto space-y-6 p-6">
-  <DetailHeader />
-  <DetailBody />
-</div>
-
-{/* 칸반 보드 / 이슈 목록 — 전체 너비 */}
-<div className="w-full space-y-4 p-6">
-  <IssueTable />
 </div>
 ```
 
@@ -308,6 +312,6 @@ export function IssueModuleLayout() {
 |------|------------|------------|
 | 임의 간격 값 | 페이지 padding 이 `p-6`/`p-4`/`p-8` 혼용 | 표준 `p-6`, compact 만 `p-4`, 넓은 화면만 `p-8` |
 | Card padding | shadcn 기본 `p-6` 일관 | 유지, compact 변형만 `p-4` |
-| 콘텐츠 최대 너비 | `max-w-md`/`2xl`/`3xl` 혼재 | 위 표의 4가지 패턴으로 표준화 |
+| 콘텐츠 최대 너비 | `max-w-md`/`2xl`/`3xl` 혼재 | `Page` 폭 full / reading(왼쪽 정렬 `max-w-3xl`) 2종 — 설정 영역은 후속 이전 |
 | 그리드 패턴 | 페이지마다 임의 grid | 위 5가지 패턴 재사용 |
-| 페이지 헤더 | 전역 GNB 없이 페이지마다 자체 헤더 | 헤더 컴포넌트 공통화 검토(높이/간격 표준) |
+| 페이지 헤더 | 전역 GNB 없이 페이지마다 자체 헤더 | 완료 — `Page`/`Page.Header`/`Page.Body` 로 공통화(높이 `h-14`·여백 16px·폭 full/reading) |

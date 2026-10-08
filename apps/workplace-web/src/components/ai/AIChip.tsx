@@ -18,6 +18,8 @@ export function AIChip() {
       data-testid="chat-launcher"
       // WP-54: AI 표면 표식 — non-modal 다이얼로그가 열린 채 칩을 눌러도 다이얼로그가 닫히지 않게(useAiPanelAwareDialog).
       data-ai-panel
+      // 페이지 헤더 좌측 그룹이 이 칩의 실제 위치를 재서 겹치지 않게 자른다(useAiChipClamp).
+      data-ai-chip
       data-mode={mode}
       data-ai-activity={triggerActivity}
       aria-label={aiTriggerLabel('AI 어시스턴트', triggerActivity)}

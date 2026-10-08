@@ -2,7 +2,9 @@
 // 접이식 목록으로 노출한다. 멤버는 [타임라인에 배치] 로 기본 기간(오늘~+7일)을 부여해 막대로 승격시킬 수 있다.
 import { ChevronRight } from 'lucide-react';
 
+import { pageGutterClass } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import type { IssueResponse } from '@/types/issue';
 
 import { IssueStatusBadge } from '../components/IssueStatusBadge';
@@ -18,7 +20,8 @@ export function UnscheduledSection({ issues, readOnly, onSchedule }: Unscheduled
 
   return (
     // group 으로 details[open] 상태를 chevron 회전에 전달 (AiContent 접이식 관례 미러).
-    <details className="group border-t px-6 py-2" data-testid="unscheduled-section">
+    // 좌우 여백은 페이지 공통 축(pageGutterClass) — 헤더 ← 버튼·간트와 같은 x 에서 시작한다.
+    <details className={cn('group border-t py-2', pageGutterClass)} data-testid="unscheduled-section">
       <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-medium">
         <ChevronRight
           className="h-3 w-3 shrink-0 transition-transform group-open:rotate-90"

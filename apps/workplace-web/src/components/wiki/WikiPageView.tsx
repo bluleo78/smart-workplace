@@ -4,10 +4,12 @@ import { useNavigate } from 'react-router-dom'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
+import { pageBodyInsetClass, pageReadingWidthClass } from '@/components/layout/Page'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { buildWikiContext } from '@/lib/aiScreenContext/builders/wiki'
+import { cn } from '@/lib/utils'
 
 import { useWikiPage } from '../../hooks/queries/useWikiPage'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
@@ -99,7 +101,7 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
   if (isLoading || !page || flushPending) {
     /** 페이지 콘텐츠 형태를 미러하는 skeleton — DS §2.5 */
     return (
-      <div className="mx-auto max-w-3xl px-8 py-6" data-testid="wiki-page-skeleton">
+      <div className={cn(pageBodyInsetClass, pageReadingWidthClass)} data-testid="wiki-page-skeleton">
         <Skeleton className="mb-4 h-9 w-64" />
         <Skeleton className="mb-2 h-4 w-full" />
         <Skeleton className="mb-2 h-4 w-5/6" />

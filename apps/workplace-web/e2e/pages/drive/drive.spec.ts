@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 import { createFile, createFolder, createSpace, makeTrashList, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
+import { expectStartAligned } from '../../fixtures/layout'
 import { dismissByOutsideClick, measureBox } from '../../fixtures/wait'
 
 const SPACE_ID = 1
@@ -1284,4 +1285,19 @@ test('사이드바는 채널 공간을 노출하지 않는다(진입은 채널 �
   await expect(page.getByTestId('drive-channel-space-list')).toHaveCount(0)
   // 사이드바 전체에도 채널 공간명이 등장하지 않는다.
   await expect(page.getByTestId('drive-sidebar')).not.toContainText('마케팅')
+})
+
+// 페이지 레이아웃 통합(Page) — 폴더 행·파일 행·열 헤더의 "이름" 칸이 같은 x 에서 시작한다(폴더 행만 px-1 이 빠져 4px 어긋나던 것).
+test('데스크톱 — 폴더 행 이름·파일 행 이름·열 헤더 이름 칸이 같은 x', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await stubSpaces(page)
+  await stubItems(page, () => ({
+    folders: [createFolder({ id: 10, name: '문서함' })],
+    files: [createFile({ id: 20, name: 'report.pdf' })],
+  }))
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  const folderName = page.getByTestId('drive-row-folder-10').getByText('문서함', { exact: true })
+  const fileName = page.getByTestId('drive-row-file-20').getByText('report.pdf', { exact: true })
+  await expectStartAligned(folderName, fileName)
+  await expectStartAligned(page.getByTestId('drive-column-header').getByText('이름', { exact: true }), fileName)
 })

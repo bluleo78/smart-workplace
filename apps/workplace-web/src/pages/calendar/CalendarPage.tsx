@@ -11,7 +11,7 @@ import { RecurrenceScopeDialog } from '@/components/calendar/RecurrenceScopeDial
 import { AgendaView } from '@/components/calendar/views/AgendaView'
 import { MonthView } from '@/components/calendar/views/MonthView'
 import { DayView, WeekView } from '@/components/calendar/views/WeekView'
-import { PageHeader } from '@/components/layout/PageHeader'
+import { Page } from '@/components/layout/Page'
 import { MobileSidebarSheet } from '@/components/mobile/MobileSidebarSheet'
 import {
   AlertDialog,
@@ -438,9 +438,10 @@ export function CalendarPage() {
           />
         }
       >
-        <div className="flex min-w-0 flex-1 flex-col">
+        {/* 데스크톱은 사이드바 옆 나머지 폭(flex-1)을 차지하는 Page 틀. */}
+        <Page className="min-w-0 flex-1">
           {/* 상단 네비게이션 바 — 오늘/이전/다음 + 뷰 전환. 모바일은 헤더에 제목만, 이동·뷰 전환은 아래 도구 줄(U2-5). */}
-          <PageHeader
+          <Page.Header
             icon={isMobile ? undefined : navControls}
             title={<span data-testid="calendar-title">{format(anchor, 'yyyy년 M월')}</span>}
             actions={isMobile ? undefined : CALENDAR_VIEWS.map((v) => (
@@ -476,12 +477,14 @@ export function CalendarPage() {
             </div>
           )}
 
-          {/* 뷰 렌더링 */}
-          {view === 'month' && <MonthView {...viewProps} />}
-          {view === 'week' && <WeekView {...viewProps} />}
-          {view === 'day' && <DayView {...viewProps} />}
-          {view === 'agenda' && <AgendaView {...viewProps} />}
-        </div>
+          {/* 뷰 렌더링 — 월/주/일 그리드가 자체 스크롤·여백을 가져 padded=false(세로 쌓기). */}
+          <Page.Body padded={false} className="flex-col">
+            {view === 'month' && <MonthView {...viewProps} />}
+            {view === 'week' && <WeekView {...viewProps} />}
+            {view === 'day' && <DayView {...viewProps} />}
+            {view === 'agenda' && <AgendaView {...viewProps} />}
+          </Page.Body>
+        </Page>
       </MobileSidebarSheet>
 
       {/* 일정 생성/편집 다이얼로그 */}

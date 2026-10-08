@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react'
 import { driveApi } from '@/api/drive'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { DriveThumbnail } from '@/components/drive/DriveThumbnail'
+import { Page, pageGutterClass } from '@/components/layout/Page'
 import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { SearchInput } from '@/components/ui/search-input'
@@ -17,6 +18,7 @@ import { fileViewerKey, normalizeAttachmentPreviewKey, virtualAttachmentItem } f
 import { ViewerNotFound } from '@/components/viewer/ViewerNotFound'
 import { useDriveAttachments } from '@/hooks/queries/useDriveAttachments'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { mimeToCategory } from '@/lib/fileCategory'
 import { formatFileSize } from '@/lib/formatters'
 import { LABEL_COLORS } from '@/lib/labelColors'
@@ -78,21 +80,26 @@ export function DriveAttachmentsView() {
     openKey: previewParam.open,
   })
   const isLoading = query.isLoading
+  // 모바일은 헤더 바 없이(Page.Header mobile="hidden") 필터 줄 맨 앞에 검색을 두던 기존 모양 그대로.
+  const isMobile = useIsMobile()
+  // 검색은 데스크톱에서도 헤더가 아닌 필터 줄에 둔다 — AI 옆 패널이 열리면 칩이 콘텐츠 오른쪽 끝(헤더 우측 액션 자리)으로
+  // 밀려 헤더 검색을 가렸다. 헤더 아래 줄은 칩(top-2, 높이 32px)이 닿지 않는다. 데스크톱은 필터칩 뒤 오른쪽 끝(ml-auto).
+  const search = (
+    <SearchInput
+      value={q}
+      onChange={setQ}
+      placeholder="파일 이름 검색…"
+      aria-label="파일 이름 검색"
+      className={isMobile ? undefined : 'ml-auto'}
+    />
+  )
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden" data-testid="drive-attachments-view">
-      {/* 상단 바 — 검색 + 출처 필터칩.
-          lg:pt-12: 전역 AIChip(fixed left-1/2 top-2, 높이 32px, bottom≈40px)이 데스크톱(lg+)에서
-          AppLayout main 의 pt-0 로 인해 콘텐츠 최상단과 그대로 겹친다(#576). 모바일은 AppLayout 이
-          이미 pt-12 를 둬 안전하므로(main lg:pt-0 대비 breakpoint 일치), lg 에서만 동일한 48px 여백을
-          더해 칩 아래로 필터 바를 내린다. */}
-      <div className="flex items-center gap-2 border-b px-4 py-2 lg:pt-12">
-        <SearchInput
-          value={q}
-          onChange={setQ}
-          placeholder="파일 이름 검색…"
-          aria-label="파일 이름 검색"
-        />
+    <Page data-testid="drive-attachments-view">
+      <Page.Header title="첨부 모아보기" mobile="hidden" />
+      {/* 출처 필터칩 + 검색 — 헤더 아래 본문 첫 줄. 목록을 스크롤해도 남도록 스크롤 영역 밖에 둔다. */}
+      <div className={cn('flex shrink-0 items-center gap-2 border-b py-2', pageGutterClass)}>
+        {isMobile && search}
         {(['ALL', 'ISSUE', 'MESSAGE'] as const).map((s) => (
           <button
             key={s}
@@ -109,10 +116,12 @@ export function DriveAttachmentsView() {
             {SOURCE_LABELS[s]}
           </button>
         ))}
+        {!isMobile && search}
       </div>
 
-      {/* 본문 — 로딩/빈상태/목록 */}
-      <div ref={setScrollEl} className="flex-1 overflow-y-auto">
+      {/* 본문 — 로딩/빈상태/목록. 그룹 띠(배경·구분선)가 끝까지 닿도록 본문 여백을 비우고 행이 pageGutterClass 를 갖는다.
+          스크롤 요소는 무한 스크롤 sentinel 의 root(scrollRef). */}
+      <Page.Body scrollRef={setScrollEl} inset={false}>
         {isLoading ? (
           <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
             불러오는 중…
@@ -131,7 +140,7 @@ export function DriveAttachmentsView() {
               return (
                 <div key={g.key} data-testid="drive-attachment-group" data-group-key={g.key}>
                   {/* 그룹 헤더 — 셰브론(토글) + 유형 배지 + 출처 라벨(딥링크) */}
-                  <div className="flex items-center gap-2 border-b bg-muted/30 px-4 py-1.5">
+                  <div className={cn('flex items-center gap-2 border-b bg-muted/30 py-1.5', pageGutterClass)}>
                     <button
                       type="button"
                       onClick={() => toggleGroup(g.key)}
@@ -168,7 +177,7 @@ export function DriveAttachmentsView() {
                         <li
                           key={`${a.sourceType}-${a.fileId}`}
                           data-testid={`drive-attachment-row-${a.fileId}`}
-                          className="group flex items-center gap-3 px-4 py-2 pl-10 text-sm hover:bg-accent/40"
+                          className={cn('group flex items-center gap-3 py-2 pl-10 text-sm hover:bg-accent/40', pageGutterClass)}
                         >
                           <DriveThumbnail fileId={a.fileId} category={mimeToCategory(a.mimeType)} />
 
@@ -221,7 +230,7 @@ export function DriveAttachmentsView() {
 
         {/* 다음 묶음 — cursor 페이징. WP-182: 끝에 닿으면 자동 로드, 실패했을 때만 다시 시도 버튼 */}
         <LoadMoreFooter query={query} root={scrollEl} data-testid="drive-attachments-more" />
-      </div>
+      </Page.Body>
 
       {/* 폴더 선택 모달 — 저장 버튼 클릭 시 열림 */}
       {importer.picker}
@@ -237,6 +246,6 @@ export function DriveAttachmentsView() {
       )}
       {/* 삭제됐거나 볼 수 없게 된 첨부 딥링크 — 드라이브와 같은 안내 후 닫으면 ?preview 를 지운다. */}
       {viewer.missing && <ViewerNotFound onClose={previewParam.close} description="삭제되었거나 더 이상 볼 수 없는 첨부입니다." />}
-    </div>
+    </Page>
   )
 }

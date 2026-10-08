@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 import { Markdown } from 'tiptap-markdown'
 
 import { AiLabel } from '@/components/ai/AiLabel'
+import { Page } from '@/components/layout/Page'
 import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import { RenameDialog } from '@/components/ui/rename-dialog'
@@ -684,8 +685,10 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     return () => window.removeEventListener('keydown', onKey)
   }, [aiBusy, cancelAi])
 
+  // 페이지 틀(Page) reading 폭 — 본문은 헤더 경로 nav 와 같은 16px 축에서 왼쪽 정렬로 시작해 768px 로 제한된다
+  // (예전 mx-auto 가운데 정렬은 넓은 화면에서 헤더와 본문 시작선이 수백 px 어긋났다).
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <Page width="reading">
       <WikiPageHeader
         crumbs={crumbs}
         saveState={saveState}
@@ -697,144 +700,142 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         onDelete={() => setConfirmDelete(true)}
         onViewSource={onViewSource}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-3xl flex-col px-8 py-6">
-          {/* 선택 텍스트 변형 툴바(톤/번역/확장/축약/다듬기) — 뷰어·생성 중엔 비노출.
-              canUseAi(EDITOR/OWNER)일 때만 onCreateIssue 를 전달해 "이슈로 만들기" 버튼을 노출한다.
+      <Page.Body className="flex flex-col">
+        {/* 선택 텍스트 변형 툴바(톤/번역/확장/축약/다듬기) — 뷰어·생성 중엔 비노출.
+            canUseAi(EDITOR/OWNER)일 때만 onCreateIssue 를 전달해 "이슈로 만들기" 버튼을 노출한다.
 
-              형제 목록의 **맨 앞**에 둔다(시각 위치와 무관): BubbleMenu 는 마운트 시 자기 DOM 노드를
-              트리에서 떼어내(element.remove()) tippy 에 넘기므로, 그 앞에 조건부 형제가 있으면 해당
-              형제가 언마운트될 때 React 가 사라진 앵커에 insertBefore 를 시도해 NotFoundError 로
-              페이지 전체가 죽는다. 맨 앞에 두면 뒤따르는 조건부 노드(충돌 배너·빈 CTA 등)가 안전하다. */}
-          <WikiAiBubbleToolbar
-            editor={editor}
-            disabled={!canUseAi || aiBusy}
-            onAction={runTransform}
-            onCreateIssue={canUseAi ? onCreateIssue : undefined}
-          />
-          <WikiTableToolbar editor={editor} disabled={!canEdit} />
-          <WikiTableContextMenu editor={editor} disabled={!canEdit} />
-          {remoteStale ? (
-            <div
-              data-testid="wiki-remote-stale"
-              className="mb-3 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-foreground"
+            형제 목록의 **맨 앞**에 둔다(시각 위치와 무관): BubbleMenu 는 마운트 시 자기 DOM 노드를
+            트리에서 떼어내(element.remove()) tippy 에 넘기므로, 그 앞에 조건부 형제가 있으면 해당
+            형제가 언마운트될 때 React 가 사라진 앵커에 insertBefore 를 시도해 NotFoundError 로
+            페이지 전체가 죽는다. 맨 앞에 두면 뒤따르는 조건부 노드(충돌 배너·빈 CTA 등)가 안전하다. */}
+        <WikiAiBubbleToolbar
+          editor={editor}
+          disabled={!canUseAi || aiBusy}
+          onAction={runTransform}
+          onCreateIssue={canUseAi ? onCreateIssue : undefined}
+        />
+        <WikiTableToolbar editor={editor} disabled={!canEdit} />
+        <WikiTableContextMenu editor={editor} disabled={!canEdit} />
+        {remoteStale ? (
+          <div
+            data-testid="wiki-remote-stale"
+            className="mb-3 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-foreground"
+          >
+            다른 곳에서 이 노트가 수정되었습니다. 최신 내용을 불러오면 저장하지 않은 내 수정은 사라집니다.{' '}
+            <button type="button" className="underline" onClick={applyRemote}>
+              최신 내용 불러오기
+            </button>
+          </div>
+        ) : saveState === 'conflict' && (
+          <div className="mb-3 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.{' '}
+            <button type="button" className="underline" onClick={() => window.location.reload()}>
+              새로고침
+            </button>
+          </div>
+        )}
+        <input
+          value={title}
+          onChange={(e) => {
+            setTitle(e.target.value)
+            scheduleSave(e.target.value)
+          }}
+          onKeyDown={(e) => {
+            // Enter 로 폼 submit(줄바꿈 없음)되며 이후 타이핑이 제목에 이어붙는 것을 막고
+            // 본문 에디터로 포커스를 넘긴다(#786).
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              // commands.focus 는 다음 animation frame 에 포커스를 옮겨, Enter 직후 빠른 타이핑의 앞 글자가
+              // 제목에 붙는다 → view.focus() 로 동기 이동 후 커서만 시작으로 둔다.
+              editor?.view.focus()
+              editor?.commands.focus('start')
+            }
+          }}
+          placeholder="제목 없음"
+          className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
+        />
+        {/* WP-301 노트 상단 AI 요약 — 제목 아래·본문 위(시안 A). 본문을 바꾸지 않는 읽기 보조라 뷰어에게도 보인다. */}
+        <WikiSummaryCard pageId={page.id} />
+        {/* 빈 페이지 AI CTA — 초안 작성이 가장 유효한 순간(#733). 본문이 채워지면 사라진다.
+            에디터 아래가 아니라 제목 바로 밑에 둔다: 본문 클릭영역(min-h 300px) 뒤에 두면
+            placeholder 와 300px 떨어져 시각적 연결이 끊긴다.
+            점선 테두리는 디자인시스템에 규정이 없어 일반 border + bg-muted 표면을 쓴다. */}
+        {bodyEmpty && aiState === 'ready' && !aiBusy && (
+          <div
+            data-testid="wiki-ai-empty-cta"
+            className="mb-4 flex w-fit max-w-full flex-wrap items-center gap-2 rounded-lg border bg-muted px-3 py-2"
+          >
+            <AiLabel>AI</AiLabel>
+            {/* bg-muted 표면 위라 text-muted-foreground 는 대비 마진이 좁다(다크에서 muted 는
+                흰색 5% 알파로 표면 명도가 거의 오르지 않음) → 본문색을 쓴다. AI 강조는 AiLabel 담당. */}
+            <span className="text-sm leading-5 text-foreground">
+              빈 페이지예요. 주제만 알려주면 AI 가 초안을 작성합니다.
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDraftOpen(true)}
+              data-testid="wiki-ai-empty-draft"
             >
-              다른 곳에서 이 노트가 수정되었습니다. 최신 내용을 불러오면 저장하지 않은 내 수정은 사라집니다.{' '}
-              <button type="button" className="underline" onClick={applyRemote}>
-                최신 내용 불러오기
-              </button>
-            </div>
-          ) : saveState === 'conflict' && (
-            <div className="mb-3 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.{' '}
-              <button type="button" className="underline" onClick={() => window.location.reload()}>
-                새로고침
-              </button>
-            </div>
-          )}
-          <input
-            value={title}
-            onChange={(e) => {
-              setTitle(e.target.value)
-              scheduleSave(e.target.value)
-            }}
-            onKeyDown={(e) => {
-              // Enter 로 폼 submit(줄바꿈 없음)되며 이후 타이핑이 제목에 이어붙는 것을 막고
-              // 본문 에디터로 포커스를 넘긴다(#786).
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                // commands.focus 는 다음 animation frame 에 포커스를 옮겨, Enter 직후 빠른 타이핑의 앞 글자가
-                // 제목에 붙는다 → view.focus() 로 동기 이동 후 커서만 시작으로 둔다.
-                editor?.view.focus()
-                editor?.commands.focus('start')
-              }
-            }}
-            placeholder="제목 없음"
-            className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
-          />
-          {/* WP-301 노트 상단 AI 요약 — 제목 아래·본문 위(시안 A). 본문을 바꾸지 않는 읽기 보조라 뷰어에게도 보인다. */}
-          <WikiSummaryCard pageId={page.id} />
-          {/* 빈 페이지 AI CTA — 초안 작성이 가장 유효한 순간(#733). 본문이 채워지면 사라진다.
-              에디터 아래가 아니라 제목 바로 밑에 둔다: 본문 클릭영역(min-h 300px) 뒤에 두면
-              placeholder 와 300px 떨어져 시각적 연결이 끊긴다.
-              점선 테두리는 디자인시스템에 규정이 없어 일반 border + bg-muted 표면을 쓴다. */}
-          {bodyEmpty && aiState === 'ready' && !aiBusy && (
-            <div
-              data-testid="wiki-ai-empty-cta"
-              className="mb-4 flex w-fit max-w-full flex-wrap items-center gap-2 rounded-lg border bg-muted px-3 py-2"
-            >
-              <AiLabel>AI</AiLabel>
-              {/* bg-muted 표면 위라 text-muted-foreground 는 대비 마진이 좁다(다크에서 muted 는
-                  흰색 5% 알파로 표면 명도가 거의 오르지 않음) → 본문색을 쓴다. AI 강조는 AiLabel 담당. */}
-              <span className="text-sm leading-5 text-foreground">
-                빈 페이지예요. 주제만 알려주면 AI 가 초안을 작성합니다.
-              </span>
+              AI 초안 작성
+            </Button>
+          </div>
+        )}
+        {/* 멘션 칩 클릭 내비게이션은 래퍼 onClick 에서 위임 처리(closest[data-mtype]).
+            wiki-editor 클래스는 placeholder CSS 의 스코프(wiki-editor.css). */}
+        <EditorContent
+          editor={editor}
+          onClick={onChipClick}
+          className="wiki-editor [&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
+        />
+        {/* 슬래시 메뉴 '이미지' 항목(#751) 전용 숨은 file input. accept 는 서버 매직바이트
+            판정과 동일 집합(SVG 제외 — 서버가 거부한다). 같은 파일을 연속 선택해도 onChange
+            가 다시 발화하도록 선택 직후 value 를 비운다. */}
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          className="hidden"
+          data-testid="wiki-image-slash-input"
+          onChange={(e) => {
+            insertImagesAtCursor(e.target.files)
+            e.target.value = ''
+          }}
+        />
+        {/* 노트→이슈 생성 다이얼로그 — canUseAi 게이트는 onCreateIssue 전달 여부로 이미 처리됨. */}
+        <WikiCreateIssueDialog
+          open={issueDialog.open}
+          initialTitle={issueDialog.title}
+          initialBody={issueDialog.body}
+          onCreated={onIssueCreated}
+          onClose={() => setIssueDialog((s) => ({ ...s, open: false }))}
+        />
+        {/* 백링크 패널 — 이 페이지를 참조하는 다른 위키 페이지(빈 배열이면 자체적으로 숨김). */}
+        <WikiBacklinksPanel pageId={page.id} />
+        {/* 스크린리더용 라이브 리전 — 상시 렌더하고 내부 텍스트만 토글한다.
+            조건부로 노드째 삽입하면 라이브 리전이 등록되기 전에 내용이 들어가 공지가 누락된다. */}
+        <div aria-live="polite" aria-atomic="true" className="sr-only">
+          {aiBusy ? 'AI 생성 중' : ''}
+        </div>
+        {/* AI 생성 중 시각 표시 + 취소 — 결과는 완료 시 한 번에 삽입되므로 그동안 헤더 스피너와 함께 진행을 알린다(WP-255). */}
+        {aiBusy && (
+          <div className="flex items-center gap-2 pt-2 text-xs leading-4 text-muted-foreground">
+            <span className="flex items-center gap-2" data-testid="wiki-ai-busy">
+              <AiLabel>생성 중…</AiLabel>
               <Button
                 type="button"
-                variant="outline"
                 size="sm"
-                onClick={() => setDraftOpen(true)}
-                data-testid="wiki-ai-empty-draft"
+                variant="ghost"
+                onClick={cancelAi}
+                data-testid="wiki-ai-cancel"
               >
-                AI 초안 작성
+                취소
               </Button>
-            </div>
-          )}
-          {/* 멘션 칩 클릭 내비게이션은 래퍼 onClick 에서 위임 처리(closest[data-mtype]).
-              wiki-editor 클래스는 placeholder CSS 의 스코프(wiki-editor.css). */}
-          <EditorContent
-            editor={editor}
-            onClick={onChipClick}
-            className="wiki-editor [&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
-          />
-          {/* 슬래시 메뉴 '이미지' 항목(#751) 전용 숨은 file input. accept 는 서버 매직바이트
-              판정과 동일 집합(SVG 제외 — 서버가 거부한다). 같은 파일을 연속 선택해도 onChange
-              가 다시 발화하도록 선택 직후 value 를 비운다. */}
-          <input
-            ref={imageInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
-            className="hidden"
-            data-testid="wiki-image-slash-input"
-            onChange={(e) => {
-              insertImagesAtCursor(e.target.files)
-              e.target.value = ''
-            }}
-          />
-          {/* 노트→이슈 생성 다이얼로그 — canUseAi 게이트는 onCreateIssue 전달 여부로 이미 처리됨. */}
-          <WikiCreateIssueDialog
-            open={issueDialog.open}
-            initialTitle={issueDialog.title}
-            initialBody={issueDialog.body}
-            onCreated={onIssueCreated}
-            onClose={() => setIssueDialog((s) => ({ ...s, open: false }))}
-          />
-          {/* 백링크 패널 — 이 페이지를 참조하는 다른 위키 페이지(빈 배열이면 자체적으로 숨김). */}
-          <WikiBacklinksPanel pageId={page.id} />
-          {/* 스크린리더용 라이브 리전 — 상시 렌더하고 내부 텍스트만 토글한다.
-              조건부로 노드째 삽입하면 라이브 리전이 등록되기 전에 내용이 들어가 공지가 누락된다. */}
-          <div aria-live="polite" aria-atomic="true" className="sr-only">
-            {aiBusy ? 'AI 생성 중' : ''}
+            </span>
           </div>
-          {/* AI 생성 중 시각 표시 + 취소 — 결과는 완료 시 한 번에 삽입되므로 그동안 헤더 스피너와 함께 진행을 알린다(WP-255). */}
-          {aiBusy && (
-            <div className="flex items-center gap-2 pt-2 text-xs leading-4 text-muted-foreground">
-              <span className="flex items-center gap-2" data-testid="wiki-ai-busy">
-                <AiLabel>생성 중…</AiLabel>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={cancelAi}
-                  data-testid="wiki-ai-cancel"
-                >
-                  취소
-                </Button>
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
+        )}
+      </Page.Body>
       {/* draft 토픽 입력 — 확인 시 prompt 로 draft 액션 실행. */}
       <RenameDialog
         open={draftOpen}
@@ -856,6 +857,6 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         title={title}
         markdown={sourceMarkdown}
       />
-    </div>
+    </Page>
   )
 }

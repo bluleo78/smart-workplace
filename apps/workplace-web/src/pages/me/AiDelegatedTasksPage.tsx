@@ -6,9 +6,11 @@ import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { InfiniteIssueList } from '@/components/issue/InfiniteIssueList'
+import { Page } from '@/components/layout/Page'
 import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { useMeIssues } from '@/hooks/queries/useMeIssues'
 import { buildAiTasksContext } from '@/lib/aiScreenContext/builders/issue'
+import { cn } from '@/lib/utils'
 import type { IssueResponse } from '@/types/issue'
 
 import { meFacetParams } from './meFacetParams'
@@ -28,18 +30,22 @@ export default function AiDelegatedTasksPage() {
     : undefined
   useRegisterAiScreenContext(useMemo(() => buildAiTasksContext({ facets, count }), [facets, count]))
   return (
-    <div className="container mx-auto p-6 space-y-4">
-      <h1 className={pageTitleClass}>AI 위임 작업</h1>
-      <MeTaskFilterBar />
-      <InfiniteIssueList
-        query={query}
-        rowTestIdPrefix="ai-row"
-        emptyText="AI에게 맡긴 작업이 아직 없어요"
-        emptyIcon={Bot}
-        emptyDescription="이슈를 만들 때 담당자를 AI로 지정하면 여기에 표시됩니다."
-        filter={isAiDelegated}
-        showAssignees
-      />
-    </div>
+    <Page>
+      {/* 모바일은 모듈 레이아웃의 뒤로가기 바(‹ 작업 ✦)가 헤더 — 헤더 바는 데스크톱에서만(내 작업과 동일). */}
+      <Page.Header title="AI 위임 작업" mobile="hidden" />
+      <Page.Body className="space-y-4">
+        <h1 className={cn(pageTitleClass, 'lg:hidden')}>AI 위임 작업</h1>
+        <MeTaskFilterBar />
+        <InfiniteIssueList
+          query={query}
+          rowTestIdPrefix="ai-row"
+          emptyText="AI에게 맡긴 작업이 아직 없어요"
+          emptyIcon={Bot}
+          emptyDescription="이슈를 만들 때 담당자를 AI로 지정하면 여기에 표시됩니다."
+          filter={isAiDelegated}
+          showAssignees
+        />
+      </Page.Body>
+    </Page>
   )
 }
