@@ -114,3 +114,28 @@ test('상세를 닫으면 목록 스크롤 위치가 유지된다', async ({ aut
   await expect(page.getByTestId('mail-list')).toBeVisible()
   await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(before - 5)
 })
+
+// iOS PWA 는 앱 전환 스냅숏을 찍을 때 테마를 라이트↔다크로 잠깐 뒤집는다 → 다크 변환 본문이 다시 만들어진다.
+// 같은 iframe 의 srcDoc 을 바꾸면 iframe 안 이동이라 상위 창 기록에 칸이 쌓여, ‹(go -1)가 그 칸만 되돌리고
+// 화면은 그대로였다(닫기 가드까지 잠겨 먹통). 본문이 다시 그려져도 기록이 늘지 않고 ‹ 한 번에 목록으로 가야 한다.
+test('HTML 본문이 다시 그려져도(테마 전환) 기록이 늘지 않고 ‹ 한 번에 목록으로 간다', async ({ authenticatedPage: page }) => {
+  await stubMail(page)
+  await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail({ bodyText: null, bodyHtml: '<p style="color:#000">본문</p>' }))
+  await page.goto('/mail/1')
+  await page.getByTestId('mail-row-10').click()
+  const frame = page.getByTestId('mail-body-html')
+  await expect(frame).toBeVisible()
+  const before = await page.evaluate(() => history.length)
+
+  // 앱 전환 때의 테마 뒤집기 재현 — 다크 판정은 <html class="dark"> 를 따른다(useMailDarkHtml).
+  for (let i = 0; i < 2; i++) {
+    const prev = await frame.getAttribute('srcdoc')
+    await page.locator('html').evaluate((el) => el.classList.toggle('dark'))
+    await expect.poll(() => frame.getAttribute('srcdoc')).not.toBe(prev)
+  }
+  expect(await page.evaluate(() => history.length)).toBe(before)
+
+  await page.getByTestId('mail-back').getByTestId('mobile-back').click()
+  await expect(page).toHaveURL(/\/mail\/1$/)
+  await expect(page.getByTestId('mail-list')).toBeVisible()
+})
