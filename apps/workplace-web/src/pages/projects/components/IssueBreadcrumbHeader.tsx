@@ -53,7 +53,7 @@ export function IssueBreadcrumbHeader({
   if (isMobile) {
     // 모바일: 브레드크럼 대신 병합 상세 헤더(‹ + 이슈 키 + ⋯ + ✦) 한 줄 — 레이아웃 뒤로가기 바와 두 줄로 쌓이지 않는다(U1-1).
     // 채팅은 자주 쓰고 미읽음 신호가 있어 ⋯ 밖 아이콘으로(M5), 구독·삭제는 ⋯ 메뉴로(파괴적 액션은 인라인에 두지 않음, U1-2).
-    // 데스크톱 마크업은 아래 그대로.
+    // 데스크톱은 아래에서 Page.Header 의 leading 슬롯에 ← + 브레드크럼을 둔다.
     return (
       <Page.Header
         title={

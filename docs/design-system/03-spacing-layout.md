@@ -254,37 +254,38 @@ export function IssueModuleLayout() {
 
 ## Content Area 최대 너비
 
-페이지 유형에 따라 콘텐츠 영역의 최대 너비를 다르게 적용한다. 폼/상세는 `mx-auto`로 가운데 정렬. (실측: `max-w-2xl` 8곳, `max-w-3xl` 2곳, `max-w-md` 3곳.)
+앱 셸 안 페이지의 본문 폭은 `Page` 의 `width` 로 **2종만** 쓴다 — 개별 화면이 `max-w-*`/`mx-auto` 를 직접 두지 않는다.
+읽기 폭(reading)은 **왼쪽 정렬** `max-w-3xl` 이다 — 가운데 정렬(`mx-auto`)은 헤더 시작선과 본문 시작선을 어긋나게 하므로 쓰지 않는다.
 
-| 페이지 유형 | 클래스 | 최대 너비 |
-|------------|--------|-----------|
-| 인증(로그인/가입) | `max-w-md mx-auto` | 448px |
-| Forms / Settings | `max-w-2xl mx-auto` | 672px |
-| Detail pages | `max-w-3xl mx-auto` | 768px |
-| Tables / Boards / Lists | `w-full` | 제한 없음 |
+| 페이지 유형 | 지정 | 최대 너비 |
+|------------|------|-----------|
+| Tables / Boards / Lists / 분할형 | `<Page>`(기본 `width="full"`) | 제한 없음 |
+| 문서·상세·폼(읽기 폭) | `<Page width="reading">` → `Page.Body` 안쪽이 왼쪽 정렬 `max-w-3xl` | 768px |
+| 설정 영역(후속 이전 전) 현행 | `SettingsPage width="form"` → 왼쪽 정렬 `max-w-2xl` + `p-6` | 672px |
+| 인증(로그인/가입) — 앱 셸 밖 | `max-w-md mx-auto` (화면 가운데 카드, `Page` 대상 아님) | 448px |
+
+> 설정 영역(`SettingsPage`·설정/관리자 라우트·`ProjectSettingsPage`)은 아직 `Page` 로 옮기기 전이라 672px·`p-6` 이 현행이다.
+> `Page`(reading 768px·`px-4`)로의 이전은 [13-migration-backlog.md](./13-migration-backlog.md) 후속 과제.
 
 ```tsx
-{/* 인증 페이지 */}
+{/* 칸반 보드 / 이슈 목록 — 전체 너비 */}
+<Page>
+  <Page.Header title="이슈" />
+  <Page.Body><IssueTable /></Page.Body>
+</Page>
+
+{/* 문서·상세·폼 — 왼쪽 정렬 읽기 폭(max-w-3xl, mx-auto 금지) */}
+<Page width="reading">
+  <Page.Header title="문서 제목" />
+  <Page.Body className="space-y-6">
+    <DetailBody />
+  </Page.Body>
+</Page>
+
+{/* 인증 페이지 — 앱 셸 밖이라 예외적으로 가운데 정렬 */}
 <div className="max-w-md mx-auto space-y-6">
   <h1 className="text-2xl font-semibold tracking-tight">로그인</h1>
   <form className="space-y-4">{/* ... */}</form>
-</div>
-
-{/* Form / Settings 페이지 */}
-<div className="max-w-2xl mx-auto space-y-6 p-6">
-  <h2 className="text-2xl font-semibold tracking-tight">프로필 설정</h2>
-  <form className="space-y-4">{/* ... */}</form>
-</div>
-
-{/* Detail 페이지 */}
-<div className="max-w-3xl mx-auto space-y-6 p-6">
-  <DetailHeader />
-  <DetailBody />
-</div>
-
-{/* 칸반 보드 / 이슈 목록 — 전체 너비 */}
-<div className="w-full space-y-4 p-6">
-  <IssueTable />
 </div>
 ```
 
@@ -311,6 +312,6 @@ export function IssueModuleLayout() {
 |------|------------|------------|
 | 임의 간격 값 | 페이지 padding 이 `p-6`/`p-4`/`p-8` 혼용 | 표준 `p-6`, compact 만 `p-4`, 넓은 화면만 `p-8` |
 | Card padding | shadcn 기본 `p-6` 일관 | 유지, compact 변형만 `p-4` |
-| 콘텐츠 최대 너비 | `max-w-md`/`2xl`/`3xl` 혼재 | 위 표의 4가지 패턴으로 표준화 |
+| 콘텐츠 최대 너비 | `max-w-md`/`2xl`/`3xl` 혼재 | `Page` 폭 full / reading(왼쪽 정렬 `max-w-3xl`) 2종 — 설정 영역은 후속 이전 |
 | 그리드 패턴 | 페이지마다 임의 grid | 위 5가지 패턴 재사용 |
 | 페이지 헤더 | 전역 GNB 없이 페이지마다 자체 헤더 | 완료 — `Page`/`Page.Header`/`Page.Body` 로 공통화(높이 `h-14`·여백 16px·폭 full/reading) |

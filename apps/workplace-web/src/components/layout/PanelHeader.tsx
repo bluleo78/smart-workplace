@@ -5,6 +5,11 @@ import type { ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
 
+/**
+ * 앱 공통 패널 헤더(AI 옆 패널 등) — 제목 + 오른쪽 액션 한 줄.
+ * 페이지 헤더(Page.Header)와 같은 56px(h-14)·하단선이라 나란히 놓여도 한 선으로 정렬된다.
+ * 페이지 본문 안 보조 칸(스레드 등)은 페이지 헤더 아래에 놓이므로 이것 대신 subPaneHeaderClass 를 쓴다.
+ */
 export function PanelHeader({ title, actions, className, ...rest }: {
   title: ReactNode; actions?: ReactNode; className?: string; 'data-testid'?: string
 }) {

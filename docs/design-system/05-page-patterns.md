@@ -526,7 +526,7 @@ export default function ProfileSettingsPage() {
 
 구조/간격 노트:
 
-- 컨테이너: `mx-auto max-w-2xl space-y-6 p-6` — 폼은 화면 가운데 정렬 + 가독 폭 제한.
+- 컨테이너(설정 영역(후속 이전 전) 현행): 위 예시의 `mx-auto max-w-2xl space-y-6 p-6` 는 설정 영역 기존 코드 기준이다. 새 폼 페이지는 `<Page width="reading">`(왼쪽 정렬 `max-w-3xl`, `mx-auto` 금지)을 쓰고, 설정 영역도 `Page` 로 옮길 예정이다([13-migration-backlog.md](./13-migration-backlog.md)).
 - 섹션 단위로 `Card`(`CardHeader > CardTitle` + `CardContent`)를 쓰고, 섹션 사이는 `Separator`.
 - **관심사가 다른 폼은 각각 별도 `useForm`** 으로 분리(프로필 폼 / 비밀번호 폼). 한 폼에 섞지 않는다.
 - 모든 입력은 `FormField`(`label`/`htmlFor`/`error` props)로 감싼다 — `Input` 옆에 수동으로 에러 `<p>` 를 붙이지 말 것.
@@ -619,7 +619,7 @@ export function HomeCanvas({ pages, activeIndex, onSelectPage }: Props) {
 
 | 현재 문제 | 권장 개선 방향 |
 |-----------|---------------|
-| 최상위 컨테이너가 `container mx-auto p-6` / `space-y-6` / `mx-auto max-w-2xl` 로 갈림 | 리스트·상세=`p-6 space-y-6`, 폼=`max-w-2xl`, 분할형=`flex h-full min-h-0` 으로 역할별 통일 |
+| 최상위 컨테이너가 `container mx-auto p-6` / `space-y-6` / `mx-auto max-w-2xl` 로 갈림 | `Page` 로 통일 — 리스트·보드=`<Page>`(full), 문서·상세·폼=`<Page width="reading">`(왼쪽 정렬 `max-w-3xl`, `mx-auto` 금지), 분할형=`<Page.Body padded={false}>`. 설정 영역은 후속 이전 전까지 `SettingsPage` 현행 |
 | 로딩 표현이 `<p>로딩 중…</p>` / `TableSkeletonRows` / `Skeleton` 으로 혼재 | 테이블=`TableSkeletonRows`, 단일 리소스=`Skeleton`, 단순 텍스트 폴백 지양 ([06-feedback-states.md](./06-feedback-states.md)) |
 | 제목 타이포가 `text-2xl font-semibold`(projects) vs `text-[28px] leading-[36px] ...`(settings) 로 다름 | 인-플로우 제목 토큰 `pageTitleClass`로 통일(설정·어드민·누락 페이지 적용 완료, #113). 나머지 `text-2xl` 페이지는 기회 있을 때 정리. ([03-spacing-layout.md](./03-spacing-layout.md)) |
 | 삭제 확인이 브라우저 `confirm()` (이슈/프로젝트 설정) | 공통 확인 다이얼로그(AlertDialog) 컴포넌트로 통일 |

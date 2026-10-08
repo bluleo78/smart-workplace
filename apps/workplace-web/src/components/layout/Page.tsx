@@ -194,6 +194,7 @@ function PageBody({
 }: {
   padded?: boolean
   scrollRef?: Ref<HTMLDivElement>
+  /** padded(기본)면 안쪽 내용 div(page-body-content)에, padded=false 면 바깥 flex 컨테이너에 붙는다. */
   className?: string
   children: ReactNode
   'data-testid'?: string
