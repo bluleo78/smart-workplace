@@ -7,7 +7,8 @@ import type { SyncStatus } from '../../lib/collab/collabStatus'
  * 노트 동기화 상태 칩(예전 "저장 중/저장됨" 대체, WP-287) — 저장 버튼·저장 표시 없이 자동 동기화되므로
  * 연결 상태만 알린다. 색은 상태 토큰만 쓴다(success·warning·destructive·muted), 아이콘은 lucide.
  * 경고·오류 칩은 아이콘만 상태색이고 글자는 본문 계열 토큰 — 옅은 상태색 바탕 위 상태색 글자는 라이트에서 WCAG AA 미달.
- * StatusBadge 를 쓰지 않는 이유: warning 변형이 같은 대비 결함(text-warning)을 갖고, error 는 시안의 옅은 칩이 아닌 꽉 찬 빨강이다.
+ * StatusBadge 를 쓰지 않는 이유: error 변형이 시안의 옅은 칩이 아닌 꽉 찬 빨강이고, 경고 칩은 글자를 본문색·아이콘만 상태색으로
+ * 두는 시안이라 Badge warning(글자 --warning-text, WP-303 에서 AA 로 수정됨)과 모양이 다르다.
  *
  * - 정상(live): 데스크톱은 초록 점 + "실시간"(시안 ①), 모바일(compact)은 헤더 폭을 지키려 점 하나만.
  * - 문제 상태는 짧은 글자 칩으로 커진다 — 모바일은 말줄임표 없이 짧게.

@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test'
 
 import type { TenantDetail, TenantMember } from '../../src/types/platform'
+import { expectTheme, textContrast, withTheme } from '../fixtures/contrast'
 import { expect, test } from '../fixtures/platform-auth.fixture'
 
 // 테넌트 상세/멤버/정지·활성화 E2E.
@@ -152,6 +153,22 @@ test.describe('테넌트 상세', () => {
     await expect(page.getByTestId('activate-button')).toBeVisible()
     await expect(page.getByTestId('suspend-button')).toHaveCount(0)
   })
+
+  // WP-303: "정지됨" 경고 배지(Badge warning) 글자 대비가 라이트·다크 모두 AA(4.5:1) 이상.
+  for (const theme of ['light', 'dark'] as const) {
+    test(`정지됨 배지 글자 대비가 AA 이상이다 — ${theme} (WP-303)`, async ({ authenticatedPage: page }) => {
+      await withTheme(page, theme)
+      await stubTenantDetail(page, tenantDetail({ status: 'SUSPENDED' }))
+      await stubMembers(page, [member()])
+
+      await page.goto('/tenants/1')
+      const badge = page.getByTestId('tenant-status')
+      await expect(badge).toHaveText('정지됨')
+      await expectTheme(page, theme)
+      // 배지는 color 트랜지션이 있어 테마 적용 직후 값이 중간색일 수 있다 — 조건 대기로 잰다.
+      await expect.poll(() => textContrast(badge)).toBeGreaterThanOrEqual(4.5)
+    })
+  }
 
   // (d) 드라이브 한도 수정 → PATCH 호출 + 성공 토스트
   test('드라이브 한도를 수정하면 PATCH 가 호출된다', async ({ authenticatedPage: page }) => {

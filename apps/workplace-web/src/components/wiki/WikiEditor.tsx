@@ -630,7 +630,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {/* 미전송·접근 불가 안내 — 스크롤 영역 맨 위 sticky 띠(칼럼 밖·BubbleMenu 형제 목록 밖에 둔다). */}
         <WikiSyncNotice status={syncStatus} scrollRef={scrollRef} />
-        <div className={cn('flex flex-col', pageBodyInsetClass, pageReadingWidthClass)}>
+        <div data-testid="page-body-content" className={cn('flex flex-col', pageBodyInsetClass, pageReadingWidthClass)}>
           {/* 선택 텍스트 변형 툴바(톤/번역/확장/축약/다듬기) — 뷰어·생성 중엔 비노출.
               roleCanEdit(EDITOR/OWNER)일 때만 onCreateIssue 를 전달해 "이슈로 만들기" 버튼을 노출한다.
 

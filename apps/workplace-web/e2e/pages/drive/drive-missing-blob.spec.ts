@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 
 import { createFile, createSpace, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectTheme, textContrast, withTheme } from '../../fixtures/contrast'
 
 const SPACE_ID = 1
 
@@ -110,3 +111,23 @@ test('유실 파일의 오버플로 메뉴 — 다운로드 항목 disabled', as
   await expect(page.getByRole('menuitem', { name: '복사' })).toBeDisabled()
   await expect(page.getByRole('menuitem', { name: '이동' })).toBeEnabled()
 })
+
+// WP-303: 경고 배지(Badge warning) 글자가 옅은 앰버 배경 위 앰버 글자라 라이트에서 1.5:1 이던 회귀.
+// 작은 글자(text-xs)이므로 WCAG AA 4.5:1 이상을 라이트·다크 모두에서 실측으로 지킨다.
+for (const theme of ['light', 'dark'] as const) {
+  test(`"원본 유실" 경고 배지 글자 대비가 AA(4.5:1) 이상이다 — ${theme} (WP-303)`, async ({
+    authenticatedPage: page,
+  }) => {
+    await withTheme(page, theme)
+    const file = createFile({ id: 22, name: 'lost.txt', category: 'TEXT', available: false })
+    await stubSpaces(page)
+    await stubItems(page, [file])
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    const badge = page.getByTestId('missing-blob-badge')
+    await expect(badge).toBeVisible()
+    await expectTheme(page, theme)
+    // 배지는 color 트랜지션이 있어 테마 적용 직후 값이 중간색일 수 있다 — 조건 대기로 잰다.
+    await expect.poll(() => textContrast(badge)).toBeGreaterThanOrEqual(4.5)
+  })
+}

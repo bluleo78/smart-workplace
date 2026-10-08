@@ -8,6 +8,7 @@ import { createProject } from '../../factories/project.factory';
 import { createUser } from '../../factories/auth.factory';
 import { mockApi } from '../../fixtures/api-mock';
 import { trackRequests } from '../../fixtures/requests';
+import { textContrast } from '../../fixtures/contrast';
 import type { IssueAiContext, IssueDetailResponse } from '../../../src/types/issue';
 
 const PROJECT_KEY = 'PROJ';
@@ -111,6 +112,8 @@ test.describe('이슈 Instant Context 카드 (#517 온디맨드)', () => {
       // 블로커 배지 컨테이너와 OVERDUE 배지가 노출된다.
       await expect(page.getByTestId('issue-blocker-badges')).toBeVisible();
       await expect(page.getByTestId('blocker-OVERDUE')).toBeVisible();
+      // WP-303: 경고 톤(action) 블로커 배지 글자가 AI 카드 배경 위에서도 AA(4.5:1) 이상.
+      await expect.poll(() => textContrast(page.getByTestId('blocker-OVERDUE'))).toBeGreaterThanOrEqual(4.5);
 
       // 다음 액션 텍스트가 issue-next-action 요소에 포함된다.
       await expect(page.getByTestId('issue-next-action')).toContainText('리뷰어 지정');

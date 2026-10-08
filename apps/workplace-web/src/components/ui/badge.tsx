@@ -20,8 +20,10 @@ const badgeVariants = cva(
         link: "text-primary underline-offset-4 [a&]:hover:underline",
         success:
           "bg-success/10 text-success border-success/20 [a&]:hover:bg-success/15",
+        // 글자는 --warning-text: --warning(밝은 앰버)은 채움·아이콘용이라 bg-warning/10 위 글자로는
+        // 라이트 대비가 1.5:1 에 그친다(WP-303). --warning-text 는 라이트 AA(약 5.6:1), 다크는 --warning 과 같다.
         warning:
-          "bg-warning/10 text-warning border-warning/20 [a&]:hover:bg-warning/15",
+          "bg-warning/10 text-warning-text border-warning/20 [a&]:hover:bg-warning/15",
         info:
           "bg-info/10 text-info border-info/20 [a&]:hover:bg-info/15",
       },
