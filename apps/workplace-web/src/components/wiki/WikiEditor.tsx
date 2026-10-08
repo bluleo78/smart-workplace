@@ -46,6 +46,7 @@ import { anchorPosition, toRelative } from './wikiCollabPosition'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { WikiImage } from './wikiImageNode'
+import { wikiLinkHrefToOpen } from './wikiLinkClick'
 import { WikiMarkdownSourceDialog } from './WikiMarkdownSourceDialog'
 import { rememberMentionLabel, WikiMentionLabelsProvider } from './wikiMentionLabels'
 import { WikiMention } from './wikiMentionNode'
@@ -547,6 +548,24 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     [navigate, pageMentions],
   )
 
+  // 본문 클릭 위임 — 편집 모드의 Ctrl/⌘+클릭 링크 열기(WP-300)를 먼저 보고, 아니면 멘션 칩 내비게이션.
+  // 새 탭은 noopener·noreferrer 로 연다(열린 페이지가 window.opener 로 이 탭을 조작하지 못하게).
+  const onBodyClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const href = wikiLinkHrefToOpen(e.target as Element, {
+        editable: canEdit,
+        modKey: e.metaKey || e.ctrlKey,
+      })
+      if (href) {
+        e.preventDefault()
+        window.open(href, '_blank', 'noopener,noreferrer')
+        return
+      }
+      onChipClick(e)
+    },
+    [canEdit, onChipClick],
+  )
+
   // 생성 취소 — ESC 또는 버튼. abort 후 상태 복귀. 결과는 완료 시에만 삽입하므로 받은 부분 결과는 버려진다(WP-255).
   const cancelAi = useCallback(() => {
     abortRef.current?.()
@@ -705,7 +724,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
               </Button>
             </div>
           )}
-          {/* 멘션 칩 클릭 내비게이션은 래퍼 onClick 에서 위임 처리(closest[data-mtype]).
+          {/* 멘션 칩 클릭 내비게이션·링크 Ctrl/⌘+클릭은 래퍼 onClick 에서 위임 처리(closest[data-mtype] / closest a).
               wiki-editor 클래스는 placeholder CSS 의 스코프(wiki-editor.css).
               칩 NodeView 는 EditorContent 가 렌더하는 포털이라 라벨 Provider 로 여기만 감싸면 된다(WP-294).
               클릭 위임은 EditorContent 가 아니라 바깥 div 에 둔다 — 포털은 EditorContent 의 div 형제로 렌더돼
@@ -714,7 +733,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
               첫 연결이 끝내 안 되면 skeleton 대신 연결 못 함 안내(붙으면 본문으로). */}
           {ready ? (
             <WikiMentionLabelsProvider pageId={page.id}>
-              <div onClick={onChipClick}>
+              <div onClick={onBodyClick}>
                 <EditorContent
                   editor={editor}
                   className="wiki-editor [&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"

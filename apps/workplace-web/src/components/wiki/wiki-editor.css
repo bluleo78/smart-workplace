@@ -107,3 +107,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 본문 링크(WP-300) — Tailwind preflight 가 a 의 색·밑줄을 상속으로 지워서 링크가 평문과 구분되지 않는다.
+   색은 --primary 시맨틱 토큰(AI 채팅 MarkdownMessage 링크와 같은 text-primary + 밑줄, 다크 모드는 토큰이 처리).
+   편집 모드에선 클릭이 커서 배치라 기본 텍스트 커서를 두고, 보기 전용(contenteditable=false)에서만 손가락 커서. */
+.wiki-editor .ProseMirror a[href] {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wiki-editor .ProseMirror[contenteditable='false'] a[href] {
+  cursor: pointer;
+}

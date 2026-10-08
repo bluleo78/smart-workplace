@@ -103,3 +103,48 @@ test('평문 HTML 은 렌더된다 (수용된 동작 고정)', async ({ authenti
 
   await expect(page.locator('.ProseMirror strong')).toHaveText('굵게')
 })
+
+test('마크다운 링크를 붙여넣으면 링크로 들어가고 저장본에 그대로 남는다 (WP-300)', async ({ authenticatedPage: page }) => {
+  await setup(page, '')
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+
+  await page.locator('.ProseMirror').click()
+  await pastePlainText(page, '참고: [설계 문서](https://example.com/spec)')
+
+  await expect(page.locator('.ProseMirror a', { hasText: '설계 문서' })).toHaveAttribute('href', 'https://example.com/spec')
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain('참고: [설계 문서](https://example.com/spec)')
+})
+
+test('맨 URL 을 붙여넣으면 자동 링크가 되지 않고 글자로 남는다 (WP-300)', async ({ authenticatedPage: page }) => {
+  // 링크 마크를 들이면서 저장 마크다운이 `<url>` 로 바뀌지 않게 자동 링크(autolink·붙여넣기 규칙)를 껐다.
+  await setup(page, '')
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+
+  await page.locator('.ProseMirror').click()
+  await pastePlainText(page, 'https://example.com/plain')
+
+  await expect(page.locator('.ProseMirror p')).toHaveText('https://example.com/plain')
+  await expect(page.locator('.ProseMirror a')).toHaveCount(0)
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe('https://example.com/plain')
+})
+
+test('HTML 로 붙여넣은 링크의 공백 든 주소가 인코딩돼 링크로 저장된다 (WP-300)', async ({ authenticatedPage: page }) => {
+  // 브라우저에서 복사한 링크(text/html)는 markdown-it 을 거치지 않아 주소가 정규화되지 않았다 — 공백이 그대로면
+  // 저장본의 [t](a b) 가 링크 문법이 아니라 다음에 열 때 평문이 된다.
+  await setup(page, '')
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+
+  await page.locator('.ProseMirror').click()
+  await page.locator('.ProseMirror').evaluate((el) => {
+    const dt = new DataTransfer()
+    dt.setData('text/html', '<a href="https://example.com/my doc">내 문서</a>')
+    dt.setData('text/plain', '내 문서')
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+  })
+
+  await expect(page.locator('.ProseMirror a', { hasText: '내 문서' })).toHaveAttribute('href', 'https://example.com/my%20doc')
+  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe('[내 문서](https://example.com/my%20doc)')
+})
