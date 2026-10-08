@@ -169,3 +169,33 @@ test('AI 시트: 복원한 대화 썸네일 탭 → 시트 위 뷰어, 뒤로가
   await expect(page.getByTestId('ai-sheet')).toBeVisible()
   await expect(turn.getByTestId('attachment-card-78')).toBeFocused()
 })
+
+test('이슈 채팅: 첨부 위에서 길게 누르면 작업 시트만 열리고 뷰어는 열리지 않는다', async ({ authenticatedPage: page }) => {
+  await stubIssueChatAttachments(page)
+  await page.goto(`/projects/${KEY}/issues/1?chat=1`)
+  await longPress(page, page.getByTestId('attachment-card-802'))
+  await expect(page.getByTestId('message-action-sheet')).toBeVisible()
+  await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
+})
+
+test('AI 시트 위 뷰어에서 받기 실패 토스트가 뷰어 위에 보인다', async ({ authenticatedPage: page }) => {
+  await stubHomeChatAttachments(page)
+  // 78(PDF) 원본을 받지 못하게 한다 — 미리보기 실패 화면의 다운로드도 다시 받으러 가서 실패한다(나중 라우트 우선).
+  await page.route((u) => u.pathname === '/api/v1/home/sessions/s-v/attachments/78/content', (r) => r.fulfill({ status: 500, body: '' }))
+  await page.goto('/chat')
+  await page.getByTestId('mobile-tab-ai').click()
+  await page.getByTestId('ai-sheet-session-switcher').click()
+  await page.getByTestId('chat-session-select').first().click()
+  const turn = page.getByTestId('chat-turn').first()
+  await turn.getByTestId('attachment-card-78').tap()
+  await expect(page.getByTestId('preview-error')).toBeVisible()
+
+  await page.getByTestId('viewer-action-bar').getByTestId('preview-download').tap()
+  const toast = page.locator('[data-sonner-toast]').filter({ hasText: '파일을 내려받지 못했습니다' })
+  await expect(toast).toBeVisible()
+  await expect(toast).toBeInViewport()
+  // 가려지지 않은 최상단인지(elementFromPoint) — 평소 토스트 층(55)은 AI 시트 위 뷰어(80) 아래라 뷰어가 열린 동안만 올린다.
+  // fixture 의 에러 토스트 포인터 통과 규칙이 있으면 elementFromPoint 가 토스트를 건너뛰므로 걷어내고 판정한다(메일 뷰어 spec 과 같다).
+  await page.evaluate(() => document.querySelector('style[data-test-toast-passthrough]')?.remove())
+  await expectOnTop(page, toast, '[data-sonner-toast]')
+})

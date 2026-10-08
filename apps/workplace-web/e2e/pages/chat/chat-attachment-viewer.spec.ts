@@ -70,8 +70,9 @@ test.describe('팀 채팅 첨부 뷰어', () => {
     const contents = await stubTeamChatAttachments(page)
     await page.goto('/chat/channels/1')
     await expect(page.getByTestId('attachment-image-801')).toBeVisible()
-    // 파일 카드·링크는 그리기만 해서는 받지 않는다(썸네일 801 만 받는다).
-    expect([...new Set(contents.urls().map((u) => u.pathname.split('/').at(-2)))]).toEqual(['801'])
+    // 파일 카드·링크는 그리기만 해서는 받지 않는다(썸네일 801·804 만 받는다).
+    await expect(page.getByTestId('attachment-image-804')).toBeVisible()
+    expect([...new Set(contents.urls().map((u) => u.pathname.split('/').at(-2)))].sort()).toEqual(['801', '804'])
 
     await page.getByTestId('attachment-image-open-801').click()
     await walkBundle(page)
@@ -210,5 +211,110 @@ test.describe('메인 AI 채팅 첨부 뷰어', () => {
     await expect(viewer).toHaveCount(0)
     await expect(page.getByTestId('chat-panel')).toBeVisible()
     await expect(turn.getByTestId('attachment-card-78')).toBeFocused()
+  })
+})
+
+// ── 수정 라운드(WP-279 리뷰): 열림 항목 자립·호스트 단일화·겹침 방지·형식 추론 ─────────────────────────
+
+/** 지금 히스토리 항목의 router state 에 남은 채팅 열림 키(없으면 null) — 보이지 않는 열림 항목(헛도는 뒤로가기) 검사용. */
+const liveChatKey = (page: Page, key: string) =>
+  page.evaluate((k) => (window.history.state?.usr?.[k] as string | undefined) ?? null, key)
+
+test.describe('채팅 뷰어 히스토리', () => {
+  test('닫은 뒤 앞으로가기·새로고침이면 열림 항목이 그 메시지 묶음으로 다시 열린다', async ({ authenticatedPage: page }) => {
+    await stubTeamChatAttachments(page)
+    await page.goto('/chat/channels/1')
+    await page.getByTestId('message-drive-link-70').click()
+    await expect(page.getByTestId('preview-body')).toContainText(LINK_TEXT)
+
+    await page.goBack()
+    await expect(viewerOf(page)).toHaveCount(0)
+    await page.goForward()
+    await expect(page.getByTestId('preview-body')).toContainText(LINK_TEXT)
+    await expect(page.getByTestId('preview-meta')).toContainText('3 / 4')
+    await expect(viewerOf(page)).toHaveCount(1)
+
+    // 새로고침해도 같은 항목(history.state)이 남아 목록이 그려지면 다시 연다.
+    await page.reload()
+    await expect(page.getByTestId('preview-body')).toContainText(LINK_TEXT)
+    await expect(viewerOf(page)).toHaveCount(1)
+    // 그 뒤 뒤로가기는 뷰어만 닫는다(헛돌지 않음).
+    await page.goBack()
+    await expect(viewerOf(page)).toHaveCount(0)
+    await expect(page).toHaveURL(/\/chat\/channels\/1$/)
+    expect(await liveChatKey(page, 'teamChatPreview')).toBeNull()
+  })
+
+  test('그릴 메시지가 없는 낡은 열림 표식은 지운다 — 뷰어 없이 뒤로가기가 헛돌지 않게', async ({ authenticatedPage: page }) => {
+    await stubTeamChatAttachments(page)
+    await page.goto('/chat/channels/1')
+    await expect(page.getByTestId('attachment-image-801')).toBeVisible()
+    // 목록에 없는 메시지(999) 키가 남은 항목을 재현 — 같은 화면 인스턴스가 popstate 로 받는다.
+    await page.evaluate(() => {
+      const st = window.history.state
+      window.history.pushState({ ...st, usr: { ...(st?.usr ?? {}), teamChatPreview: 'msg:999:file:1' } }, '')
+      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+    })
+    await expect.poll(() => liveChatKey(page, 'teamChatPreview')).toBeNull()
+    await expect(viewerOf(page)).toHaveCount(0)
+  })
+
+  test('형식이 octet-stream 으로 저장된 PNG 도 썸네일로 보이고 뷰어에서 이미지로 열린다', async ({ authenticatedPage: page }) => {
+    await stubTeamChatAttachments(page)
+    await page.goto('/chat/channels/1')
+    await expect(page.getByTestId('attachment-image-804')).toBeVisible()
+    await expect(page.getByTestId('attachment-card-804')).toHaveCount(0)
+    await page.getByTestId('attachment-image-open-804').click()
+    await expect(page.getByTestId('preview-body').locator('img')).toBeVisible()
+  })
+})
+
+test.describe('메인 AI 사이드 패널과 뷰어', () => {
+  /** 홈에서 AI 사이드 패널을 열고 첨부 대화(s-v)를 복원한다. */
+  async function openRestoredPanel(page: Page, path = '/') {
+    await page.goto(path)
+    await page.getByTestId('chat-launcher').click()
+    await page.getByTestId('chat-session-switcher').click()
+    await page.getByTestId('chat-session-select').first().click()
+    await expect(page.getByTestId('chat-turn').first().getByTestId('attachment-image-77')).toHaveAttribute('src', /^blob:/)
+  }
+
+  test('새 대화를 누르면 열린 뷰어를 정상 닫기로 되돌린다(보이지 않는 열림 항목 없음)', async ({ authenticatedPage: page }) => {
+    await stubHomeChatAttachments(page)
+    await openRestoredPanel(page)
+    await page.getByTestId('chat-turn').first().getByTestId('attachment-card-78').click()
+    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    expect(await liveChatKey(page, 'homeChatPreview')).toBe('home:78')
+
+    // side 모드라 뷰어 옆 AI 패널을 그대로 조작할 수 있다.
+    await page.getByTestId('chat-new-session').click()
+    await expect(viewerOf(page)).toHaveCount(0)
+    await expect.poll(() => liveChatKey(page, 'homeChatPreview')).toBeNull()
+  })
+
+  test('다른 대화로 바꾸면 열린 뷰어를 닫는다', async ({ authenticatedPage: page }) => {
+    await stubHomeChatAttachments(page)
+    await openRestoredPanel(page)
+    await page.getByTestId('chat-turn').first().getByTestId('attachment-image-open-77').click()
+    await expect(viewerOf(page)).toBeVisible()
+
+    await page.getByTestId('chat-session-switcher').click()
+    await page.getByTestId('chat-session-select').nth(1).click()
+    await expect(page.getByTestId('chat-turn').first()).toContainText('다른 질문')
+    await expect(viewerOf(page)).toHaveCount(0)
+    await expect.poll(() => liveChatKey(page, 'homeChatPreview')).toBeNull()
+  })
+
+  test('팀 채팅 뷰어가 열린 채 AI 패널 첨부를 눌러도 뷰어를 겹쳐 열지 않는다', async ({ authenticatedPage: page }) => {
+    await stubTeamChatAttachments(page)
+    await stubHomeChatAttachments(page)
+    await openRestoredPanel(page, '/chat/channels/1')
+    await page.getByTestId('attachment-image-open-801').click()
+    await expect(viewerOf(page)).toHaveAccessibleName('shot.png 미리보기')
+
+    await page.getByTestId('chat-panel').getByTestId('attachment-card-78').click()
+    await expect(viewerOf(page)).toHaveCount(1)
+    await expect(viewerOf(page)).toHaveAccessibleName('shot.png 미리보기')
+    expect(await liveChatKey(page, 'homeChatPreview')).toBeNull()
   })
 })

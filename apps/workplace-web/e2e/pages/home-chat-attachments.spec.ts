@@ -434,6 +434,8 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     const img = page.getByTestId('chat-turn').first().getByTestId('attachment-image-7000')
     await expect(img).toHaveAttribute('src', /^blob:/)
     await expect(img).toHaveAttribute('alt', 'shot.png')
+    // WP-279: 세션이 정해지기 전엔 원본 경로가 없어 뷰어로 열 수 없다(누를 수 있는 버튼이 아니다).
+    await expect(page.getByTestId('chat-turn').first().getByTestId('attachment-image-open-7000')).toHaveCount(0)
     release()
     // 응답이 끝나 세션이 정해져도 미리보기를 그대로 쓰고 서버 원본을 다시 받지 않는다.
     await expect(img).toHaveAttribute('src', /^blob:/)

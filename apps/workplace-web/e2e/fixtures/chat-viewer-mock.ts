@@ -61,6 +61,8 @@ const UPLOAD_CONTENT: Record<number, { type: string; body: Buffer }> = {
   801: { type: 'image/png', body: PNG },
   802: { type: 'application/octet-stream', body: PDF },
   803: { type: 'text/plain; charset=utf-8', body: Buffer.from(MEMO_TEXT, 'utf-8') },
+  // 브라우저가 형식을 모를 때처럼 octet-stream 으로 저장된 PNG — 파일명으로 추론해 썸네일로 그려야 한다.
+  804: { type: 'application/octet-stream', body: PNG },
 }
 
 /**
@@ -96,7 +98,7 @@ export interface ChatViewerStubOptions {
 }
 
 /**
- * 팀 채팅 채널 1 — 메시지 10(동료, 묶음 4개, 답글 1개)·11(본인, memo 803).
+ * 팀 채팅 채널 1 — 메시지 10(동료, 묶음 4개, 답글 1개)·11(본인, memo 803)·12(동료, octet-stream 으로 저장된 photo.png 804).
  * 스레드(?thread=10)도 열 수 있게 답글을 모킹한다 — 스레드 패널에도 부모 메시지 10 이 다시 그려진다(같은 묶음이 두 목록에).
  */
 export async function stubTeamChatAttachments(page: Page, opts: ChatViewerStubOptions = {}) {
@@ -109,8 +111,12 @@ export async function stubTeamChatAttachments(page: Page, opts: ChatViewerStubOp
     id: 11, channelId: 1, authorId: 1, authorName: 'me', body: '메모 첨부',
     createdAt: '2026-10-08T03:10:00Z', attachments: [att(803, 11, 'memo.txt', 'text/plain', 40)],
   })
+  const octet = createMessage({
+    id: 12, channelId: 1, authorId: 20, authorName: '동료', body: '형식 없는 사진',
+    createdAt: '2026-10-08T03:20:00Z', attachments: [att(804, 12, 'photo.png', 'application/octet-stream', PNG.length)],
+  })
   await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/messages', (r) =>
-    r.request().method() === 'GET' ? r.fulfill(json({ items: [own, peer], nextCursor: null, hasMore: false })) : r.fallback())
+    r.request().method() === 'GET' ? r.fulfill(json({ items: [octet, own, peer], nextCursor: null, hasMore: false })) : r.fallback())
   await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/members', (r) =>
     r.fulfill(json([createChannelMember({ userId: 1, name: 'me' }), createChannelMember({ userId: 20, name: '동료' })])))
   await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/read', (r) => r.fulfill({ status: 204, body: '' }))
@@ -145,10 +151,13 @@ export async function stubIssueChatAttachments(page: Page, opts: ChatViewerStubO
   return stubContents(page, '/api/v1/chat/threads/100/messages')
 }
 
-/** 메인 AI 채팅 세션 s-v — 사용자 턴 [이미지 77·PDF 78], 답변, 사용자 턴 [memo 79]. */
+/** 메인 AI 채팅 세션 s-v — 사용자 턴 [이미지 77·PDF 78], 답변, 사용자 턴 [memo 79]. 대화 전환용 s-w(첨부 없음)도 둔다. */
 export async function stubHomeChatAttachments(page: Page) {
   await mockApi(page, 'GET', '/api/v1/home/sessions', {
-    items: [{ id: 's-v', title: '첨부 대화', lastMessageAt: '2026-10-08T00:00:00Z', widgetCount: 0 }],
+    items: [
+      { id: 's-v', title: '첨부 대화', lastMessageAt: '2026-10-08T00:00:00Z', widgetCount: 0 },
+      { id: 's-w', title: '다른 대화', lastMessageAt: '2026-10-07T00:00:00Z', widgetCount: 0 },
+    ],
     nextCursor: null,
   } satisfies HomeSessionPage)
   await mockApi(page, 'GET', '/api/v1/home/sessions/s-v/messages', [
@@ -164,6 +173,9 @@ export async function stubHomeChatAttachments(page: Page) {
       id: 3, role: 'USER', content: '메모도요', widgets: null, toolCalls: null, createdAt: '2026-10-08T00:00:02Z',
       attachments: [createHomeAttachment({ fileId: 79, messageId: 3, originalName: 'memo.txt', mimeType: 'text/plain', sizeBytes: 40 })],
     },
+  ] satisfies HomeMessage[])
+  await mockApi(page, 'GET', '/api/v1/home/sessions/s-w/messages', [
+    { id: 9, role: 'USER', content: '다른 질문', widgets: null, toolCalls: null, createdAt: '2026-10-07T00:00:00Z' },
   ] satisfies HomeMessage[])
   const re = /^\/api\/v1\/home\/sessions\/s-v\/attachments\/(\d+)\/content$/
   const tracker = trackRequests(page, 'GET', re)
