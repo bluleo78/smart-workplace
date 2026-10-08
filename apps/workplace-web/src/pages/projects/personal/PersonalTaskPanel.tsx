@@ -5,6 +5,7 @@ import { useEffect, useRef } from 'react';
 
 import { LabelChip } from '@/components/labels/LabelChip';
 import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
+import { subPaneHeaderClass } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { useHistoryParam } from '@/hooks/useHistoryParam';
@@ -101,7 +102,7 @@ function PersonalTaskPanelDesktop({
     );
   }
 
-  // 리스트·체크리스트 뷰 → 인플로우 사이드 패널. md+ 는 콘텐츠를 밀어 공존(툴바 비가림),
+  // 리스트·체크리스트 뷰 → 페이지 헤더 아래 본문 안 보조 칸. md+ 는 목록 칸을 밀어 공존(툴바 비가림),
   // < md 는 좁은 화면 보호용 fixed 오버레이. dim 없음(목록 계속 클릭 가능). 닫힘 시 미렌더.
   if (number == null) return null;
   return (
@@ -117,12 +118,30 @@ function PersonalTaskPanelDesktop({
         'md:relative md:w-[400px] md:shrink-0',
       )}
     >
+      {/* 보조 칸 소제목 줄(34px) — 페이지 헤더가 아니라 본문 안 칸임을 드러낸다. 편집 가능한 제목(input h-8)은
+          낮은 text-xs 줄에 맞지 않아 이 줄 바로 아래 본문 첫머리에 둔다. */}
+      <div data-testid="personal-task-panel-header" className={subPaneHeaderClass}>
+        <span>작업 상세</span>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="닫기"
+          data-testid="personal-task-panel-close"
+          className="size-7"
+          onClick={close}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
       <PersonalTaskDetail key={number} projectKey={projectKey} number={number} onClose={close} />
     </aside>
   );
 }
 
-/** 실제 이슈 단건 로드 및 필드 렌더. asModal=true 면 헤더 제목을 DialogTitle 로(Radix a11y), 닫기 버튼은 DialogContent 자체 사용. */
+/**
+ * 실제 이슈 단건 로드 및 필드 렌더. asModal=true 면 제목 줄(border-b)을 DialogTitle 과 함께 두고 닫기는 DialogContent 자체 사용.
+ * 패널은 닫기가 상위 소제목 줄에 있으므로 제목을 본문 첫머리에 둔다.
+ */
 export function PersonalTaskDetail({
   projectKey,
   number,
@@ -140,8 +159,8 @@ export function PersonalTaskDetail({
   return (
     // 스크롤 컨테이너 — 외부 wrapper가 h-full flex flex-col이므로 flex-1로 남은 높이 채움.
     <div className="flex flex-1 flex-col overflow-y-auto">
-      {/* 헤더 — 제목 + (패널일 때만) 닫기 버튼. 모달은 DialogContent 자체 닫기 사용. */}
-      <div className="flex items-center justify-between border-b p-3">
+      {/* 제목 줄 — 모달은 기존 헤더 줄(border-b p-3), 패널은 소제목 줄 바로 아래 본문 첫머리. */}
+      <div className={asModal ? 'flex items-center justify-between border-b p-3' : 'px-4 pt-4'}>
         {/* 제목 인라인 편집 — 패널·모달 공통(#718). 개인 이슈는 상세 페이지가 리다이렉트로 막혀
             드로어가 유일한 편집 경로이므로 여기에서 직접 편집한다. 모달은 Radix a11y 상 DialogTitle
             이 필수라 접근성용 텍스트만 sr-only 로 유지하고 편집 UI 를 시각적으로 노출한다. */}
@@ -158,17 +177,6 @@ export function PersonalTaskDetail({
             onSave={(t) => update.mutate({ title: t })}
           />
         </div>
-        {!asModal && (
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="닫기"
-            data-testid="personal-task-panel-close"
-            onClick={onClose}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        )}
       </div>
 
       {/* 로딩 중 */}
