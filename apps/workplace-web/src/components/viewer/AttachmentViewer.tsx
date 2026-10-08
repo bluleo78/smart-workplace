@@ -18,6 +18,8 @@ import { Button } from '../ui/button'
 import { Dialog, DialogClose, DialogContent } from '../ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
 import { downloadViewerItem } from './downloadViewerItem'
+import { AUTO_HIDE_BARS_MS, fullscreenJustExited, MEDIA_SEEK_SECONDS, seekTarget, shouldAutoplay } from './mediaPlayback'
+import { MEDIA_ELEMENT_SELECTOR, type MediaSession } from './MediaPlayer'
 import type { ViewerItem } from './types'
 import { useImportToDrive } from './useImportToDrive'
 import { useItemState } from './useItemState'
@@ -121,7 +123,35 @@ export function AttachmentViewer({
   const nav = navState(idx, items.length)
   const kind = resolvePreviewKind(item.mimeType)
   const zoomable = !item.unavailable && (kind === 'IMAGE' || kind === 'PDF')
+  // 영상·오디오(WP-281) — 키보드(Space·←/→ 탐색)·제스처(재생 막대 구역·탭)·바 자동 숨김 판정에 쓴다.
+  const media = item.unavailable ? null : kind === 'VIDEO' ? 'video' : kind === 'AUDIO' ? 'audio' : null
   const itemKey = item.key
+  // 재생 세션 — 직접 연 항목(뷰어를 연 순간의 항목)만 자동재생하고, 그 항목을 한 번 떠나면 다시 자동재생하지 않는다(스펙 §5.3 #5).
+  // 재생 위치는 항목 key 별로 기억(넘기면 본문이 리마운트되며 플레이어가 남긴다). 뷰어가 열린 동안 고정 객체 — ViewerBody memo 를 흔들지 않게.
+  const [openedKey] = useState(itemKey)
+  const leftOpened = useRef(false)
+  useEffect(() => {
+    if (itemKey !== openedKey) leftOpened.current = true
+  }, [itemKey, openedKey])
+  const [mediaPlaying, setMediaPlaying] = useState(false)
+  const mediaSession = useMemo<MediaSession>(() => {
+    const positions = new Map<string, number>()
+    return {
+      autoplay: (key) => shouldAutoplay({ key, openedKey, leftOpened: leftOpened.current }),
+      position: (key) => positions.get(key),
+      savePosition: (key, seconds) => void positions.set(key, seconds),
+      onPlaying: setMediaPlaying,
+    }
+  }, [openedKey])
+  // 전체화면이 마지막으로 풀린 시각 — 브라우저가 해제에 쓴 Esc 가 뒤늦게 와도 뷰어를 닫지 않게(스펙 §5.3 #7).
+  const fullscreenExitAt = useRef<number | null>(null)
+  useEffect(() => {
+    const onChange = () => {
+      if (!document.fullscreenElement) fullscreenExitAt.current = performance.now()
+    }
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
   // 확대·PDF 현재 페이지·원본 blob — 항목 key 와 함께 들어(useItemState) 다른 항목으로 넘어가면 자동으로 초기화(무시)된다.
   const [zoom, setZoom] = useItemState(itemKey, 1)
   // 확대 단계 — 키보드(+/-/0)와 하단 확대 툴바가 같은 규칙을 쓴다(소수 오차는 둘째 자리에서 자른다).
@@ -270,6 +300,20 @@ export function AttachmentViewer({
     setBarsPref(!barsHidden)
   }
 
+  // 영상 재생 시작 3초 뒤 바 자동 숨김(모바일 배치 + 터치, 스펙 §5.3 #2 — 사진 앱 동작).
+  // 일시정지·넘김(플레이어 정리가 재생 거짓을 보고)·언마운트면 타이머를 거둔다. 탭 토글과 같은 규칙으로 시트가 열렸거나
+  // 포커스가 바 안이면 숨기지 않는다(inert 로 빠질 요소 안에 포커스가 갇히지 않게).
+  const autoHide = mobile && coarse && media === 'video' && mediaPlaying && !barsHidden && !sheetOpen
+  useEffect(() => {
+    if (!autoHide) return
+    const t = setTimeout(() => {
+      const a = document.activeElement
+      const inBars = [topBarRef.current, actionBarEl, prevBtn.current, nextBtn.current].some((el) => el?.contains(a))
+      if (!inBars) setBarsPref(true)
+    }, AUTO_HIDE_BARS_MS)
+    return () => clearTimeout(t)
+  }, [autoHide, actionBarEl, setBarsPref])
+
   // 키 연타 대응 — 부모(URL 훅)는 직전 이동이 렌더에 반영되기 전의 호출을 무시할 수 있다(낡은 위치 스냅숏 방어, 훅은 그대로 둔다).
   // 그래서 "요청했지만 아직 반영 안 된 목표"를 항목 key 로 들고(목록이 바뀌어도 파일 자체를 가리키도록),
   // 현재 항목이 바뀔 때마다 현재 목록에서 다시 해석해 이어서 요청한다(resolvePending). 사라진 목표는 버린다.
@@ -321,9 +365,10 @@ export function AttachmentViewer({
     onTap: mobile ? toggleBars : undefined,
     zoomable,
     onZoom: zoomAt,
+    media,
   })
   // 무대 touch-action — 맞춤 이미지 none, 확대 가능 형식 pan, 그 외 문서는 브라우저 핀치를 살리는 manipulation(판정 R2 + 최종 수정, WCAG 1.4.4).
-  const stageTouch = stageTouchAction({ coarse, zoomable, image: kind === 'IMAGE', zoom })
+  const stageTouch = stageTouchAction({ coarse, zoomable, image: kind === 'IMAGE', zoom, media: media != null })
   // 플로팅 확대 툴바 — 핀치·두 번 탭이 있는 "모바일 배치 + 터치"에서만 숨긴다(판정 R8 수정).
   // 좁은 창 + 마우스(1920 화면 반쪽 분할 등)는 제스처가 꺼져 있어 툴바가 유일하게 보이는 확대 수단이다.
   const showZoomBar = zoomable && !(mobile && coarse)
@@ -333,6 +378,8 @@ export function AttachmentViewer({
     // 포털로 그려진 자식(⋯ 드롭다운·폴더 선택 모달)의 키 이벤트도 React 트리를 따라 여기로 올라온다.
     // 뷰어 DOM 밖에서 난 키는 그 자식의 것이므로(메뉴 안 ←/→ 등) 넘김·확대로 쓰지 않는다.
     if (!e.currentTarget.contains(e.target as Node)) return
+    // Esc 는 Radix(onEscapeKeyDown)가 먼저 처리한다 — 전체화면 가드도 거기서(아래).
+    if (e.key === 'Escape') return
     const t = e.target as HTMLElement
     const scroller = t.closest<HTMLElement>('[data-hscroll]')
     const action = routeKey({
@@ -344,10 +391,24 @@ export function AttachmentViewer({
       // preventDefault 하지 않으므로 브라우저 기본 동작으로 그 영역이 가로 스크롤된다.
       inHorizontalScroller: !!scroller && scroller.scrollWidth > scroller.clientWidth,
       zoomable,
+      media,
+      // 네이티브 컨트롤(재생 막대 등)은 shadow DOM 이라 대상이 미디어 요소 자신으로 보정되어 온다.
+      inMedia: !!t.closest('video, audio'),
+      onControl: !!t.closest('button, a[href], input, select, textarea, summary, [role="button"], [role="menuitem"]'),
+      fullscreen: !!document.fullscreenElement,
     })
     if (!action) return
+    // 우리가 처리한 키는 기본 동작을 막는다 — 미디어 요소의 네이티브 키 처리와 겹쳐 두 번 탐색·재생 전환되지 않게.
     e.preventDefault()
-    if (action === 'prev') go(-1)
+    const player = stage?.querySelector<HTMLMediaElement>(MEDIA_ELEMENT_SELECTOR) ?? null
+    if (action === 'playPause') {
+      if (player?.paused) void player.play().catch(() => {})
+      else player?.pause()
+    } else if (action === 'seekBack' || action === 'seekForward') {
+      if (player) player.currentTime = seekTarget(player.currentTime, action === 'seekBack' ? -MEDIA_SEEK_SECONDS : MEDIA_SEEK_SECONDS, player.duration)
+    } else if (action === 'exitFullscreen') {
+      // Esc 는 위에서 걸러 여기 오지 않는다(onEscapeKeyDown 처리).
+    } else if (action === 'prev') go(-1)
     else if (action === 'next') go(1)
     else if (action === 'zoomIn') zoomIn()
     else if (action === 'zoomOut') zoomOut()
@@ -375,6 +436,26 @@ export function AttachmentViewer({
         data-viewer-above-ai={lifted ? '' : undefined}
         style={mobile && bottomChrome != null ? ({ '--viewer-bottom-chrome': `${bottomChrome}px` } as React.CSSProperties) : undefined}
         {...aiAware.contentProps}
+        // Esc — AI 패널 공존 처리를 먼저 돌리고, 막지 않았을 때 전체화면 가드(스펙 §5.3 #7).
+        // 전체화면 중이거나 방금 풀렸으면 뷰어는 닫지 않고 전체화면만 해제한다(브라우저가 해제에 쓴 Esc 가 페이지에도 와서 이중 닫힘 방지).
+        onEscapeKeyDown={(e) => {
+          aiAware.contentProps.onEscapeKeyDown(e)
+          if (e.defaultPrevented) return
+          const fs = document.fullscreenElement
+          const action = routeKey({
+            key: 'Escape',
+            ctrlOrMeta: false,
+            inAiPanel: false,
+            inEditable: false,
+            inHorizontalScroller: false,
+            zoomable,
+            fullscreen: !!fs,
+            fullscreenJustExited: fullscreenJustExited(fullscreenExitAt.current, performance.now()),
+          })
+          if (action !== 'exitFullscreen') return
+          e.preventDefault()
+          if (fs) void document.exitFullscreen().catch(() => {})
+        }}
         // 열릴 때 첫 포커스가 다운로드 아이콘 버튼에 가면 툴팁이 바로 뜨고, 첫 Escape 를 툴팁이 먹어
         // 뷰어가 닫히지 않는다 — 포커스는 다이얼로그 자체에 둔다. AI 패널 공존 훅의 처리를 먼저 돌리고, 막지 않았을 때만 바꾼다.
         onOpenAutoFocus={(e) => {
@@ -485,6 +566,7 @@ export function AttachmentViewer({
                 chromeInset={mobile}
                 barsHidden={barsHidden}
                 onSource={setSource}
+                media={mediaSession}
               />
             </div>
             {nav.hasPrev && (

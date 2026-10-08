@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  FULLSCREEN_ESC_GUARD_MS,
   fitMediaSize,
+  FULLSCREEN_ESC_GUARD_MS,
   fullscreenJustExited,
   progressPercent,
   seekTarget,
