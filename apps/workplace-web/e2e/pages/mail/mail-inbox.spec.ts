@@ -325,8 +325,8 @@ test.describe('받은편지함', () => {
     await expect(sidebar.getByText('메일', { exact: true })).toBeVisible()
   })
 
-  // #180 — 첨부 파일 다운로드 버튼이 렌더링되고 클릭 시 GET /mail/attachments/{id}/content 를 호출한다.
-  test('첨부 파일 다운로드 버튼 → API 호출 + 파일 수신', async ({ authenticatedPage: page }) => {
+  // #180·WP-280 — 첨부 칩은 뷰어를 열고, 뷰어 ⬇ 가 GET /mail/attachments/{id}/content 로 받아 첨부 파일명으로 저장한다.
+  test('첨부 칩 → 뷰어 ⬇ 다운로드 → API 호출 + 파일 수신', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
     await stubMessages(page)
     await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
@@ -350,9 +350,10 @@ test.describe('받은편지함', () => {
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-10').click()
 
-    // 다운로드 버튼이 첨부마다 존재해야 한다.
-    const downloadBtn = page.getByTestId('mail-attachment-download-1')
-    await expect(downloadBtn).toBeVisible()
+    // 첨부 칩을 누르면 뷰어가 열린다(다운로드는 뷰어 ⬇ 가 맡는다).
+    await page.getByTestId('mail-attachment-open-1').click()
+    await expect(page.getByTestId('attachment-viewer')).toBeVisible()
+    const downloadBtn = page.getByTestId('preview-download')
 
     // 다운로드 이벤트 대기 후 버튼 클릭 — 파이프라인: 클릭 → API 호출 → Blob download
     const [download] = await Promise.all([
@@ -412,8 +413,8 @@ test.describe('받은편지함', () => {
     await expect(frame.locator('#missing')).toHaveAttribute('src', 'cid:none.png')
     expect(attachments.urls().map((u) => u.pathname)).toEqual(['/api/v1/mail/attachments/5/content'])
     // WP-70 본문에 표시된 인라인 이미지는 첨부 목록에서 빠지고 일반 첨부만 남는다
-    await expect(page.getByTestId('mail-attachment-download-6')).toBeVisible()
-    await expect(page.getByTestId('mail-attachment-download-5')).toHaveCount(0)
+    await expect(page.getByTestId('mail-attachment-open-6')).toBeVisible()
+    await expect(page.getByTestId('mail-attachment-open-5')).toHaveCount(0)
   })
 
   // WP-70 — 인라인 이미지 조회가 실패하면 본문엔 표시할 수 없으므로 첨부 목록에 남겨 다운로드라도 가능해야 한다.
@@ -442,7 +443,7 @@ test.describe('받은편지함', () => {
     await page.getByTestId('mail-row-10').click()
 
     // 재시도(1회)까지 실패 확정 후 목록에 다시 노출, 본문 참조는 원문 유지
-    await expect(page.getByTestId('mail-attachment-download-5')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByTestId('mail-attachment-open-5')).toBeVisible({ timeout: 10_000 })
     const frame = page.frameLocator('[data-testid="mail-body-html"]')
     await expect(frame.locator('#inline')).toHaveAttribute('src', 'cid:7dc8b642.png')
     expect(contents.count()).toBeGreaterThanOrEqual(1)
@@ -588,7 +589,7 @@ test.describe('받은편지함', () => {
     await page.getByTestId('mail-row-10').click()
 
     await expect(page.getByText('안내 본문')).toBeVisible()
-    await expect(page.getByTestId('mail-attachment-download-5')).toBeVisible()
+    await expect(page.getByTestId('mail-attachment-open-5')).toBeVisible()
     expect(attachments.count()).toBe(0)
   })
 

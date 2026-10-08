@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, CheckCheck, Download, Forward, Inbox, Loader2, Mail, MailOpen, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
+import { Check, CheckCheck, Forward, Inbox, Loader2, Mail, MailOpen, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -32,7 +32,7 @@ import { buildQuote, escapeHtml } from '@/lib/mailQuote'
 import { mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
 import { cn } from '@/lib/utils'
 
-import { downloadMailAttachment, getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
+import { getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDialog'
 import { SandboxedHtmlFrame } from '../../components/SandboxedHtmlFrame'
@@ -55,8 +55,9 @@ import {
   useToggleRead,
   useUnreadCounts,
 } from '../../hooks/queries/useMailMessages'
-import type { EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
+import type { EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
 import { MailToIssueDialog } from './MailToIssueDialog'
+import { useMailAttachmentViewer } from './useMailAttachmentViewer'
 
 // 목록 로딩 중 시트·길게 누르기에 넘길 빈 목록 — 렌더마다 새 배열을 만들지 않게 모듈에 하나만 둔다.
 const EMPTY_MESSAGES: EmailMessageSummary[] = []
@@ -223,44 +224,27 @@ function extractEmail(token: string): string {
   return m ? m[1].trim() : token.trim()
 }
 
-// 첨부 파일 목록 — 파일명·아이콘 + 다운로드 버튼. Bearer 인증이 필요해 단순 <a href> 대신 axios 를 사용한다.
+// 첨부 파일 목록 — 칩을 누르면 통합 첨부 뷰어로 연다(WP-280). 다운로드는 뷰어의 ⬇ 가 맡는다.
 function AttachmentList({
   attachments,
+  onPreview,
 }: {
-  attachments: { id: number; filename: string | null; contentType: string | null; sizeBytes: number; contentId: string | null }[]
+  attachments: EmailAttachmentMeta[]
+  onPreview: (a: EmailAttachmentMeta) => void
 }) {
-  const [downloadingId, setDownloadingId] = useState<number | null>(null)
-
-  const handleDownload = async (attachmentId: number, filename: string | null) => {
-    if (downloadingId !== null) return
-    setDownloadingId(attachmentId)
-    try {
-      await downloadMailAttachment(attachmentId, filename || `attachment-${attachmentId}`)
-    } catch {
-      toast.error('첨부 파일 다운로드에 실패했습니다')
-    } finally {
-      setDownloadingId(null)
-    }
-  }
-
   return (
     <ul data-testid="mail-attachments" className="mt-2 flex flex-wrap gap-2">
       {attachments.map((a) => (
-        <li
-          key={a.id}
-          className="flex items-center gap-1 rounded border bg-muted px-2 py-1 text-xs"
-        >
-          <Paperclip className="h-3 w-3 shrink-0" />
-          <span>{a.filename || '첨부파일'}</span>
+        <li key={a.id}>
           <button
             type="button"
-            data-testid={`mail-attachment-download-${a.id}`}
-            aria-label={`${a.filename || '첨부파일'} 다운로드`}
-            disabled={downloadingId === a.id}
-            onClick={() => handleDownload(a.id, a.filename)}
-            className="ml-1 rounded p-0.5 hover:bg-accent disabled:opacity-50"
+            data-testid={`mail-attachment-open-${a.id}`}
+            aria-label={`${a.filename || '첨부파일'} 미리보기`}
+            onClick={() => onPreview(a)}
+            className="flex items-center gap-1 rounded border bg-muted px-2 py-1 text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11"
           >
-            <Download className="h-3 w-3" />
+            <Paperclip className="h-3 w-3 shrink-0" />
+            <span>{a.filename || '첨부파일'}</span>
           </button>
         </li>
       ))}
@@ -328,6 +312,9 @@ function MessageDetailPanel({
     () => (attachments ?? []).filter((a) => !inlinedIds.has(a.id)),
     [attachments, inlinedIds],
   )
+  // WP-280 첨부 뷰어 — 묶음은 목록에 보이는 첨부(인라인 이미지 제외). 상세를 받은 뒤에만 "찾을 수 없음"을 판정한다
+  // (뷰어 노드는 상세 성공 트리에만 그리므로 조회 실패 중엔 낡은 ?preview 를 두고, 다시 시도로 받으면 그대로 열린다).
+  const attachmentViewer = useMailAttachmentViewer(listedAttachments, detail != null)
 
   if (!messageId) {
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 (CTA는 단순 안내이므로 생략) */
@@ -496,7 +483,7 @@ function MessageDetailPanel({
           )}
         </div>
         {listedAttachments.length > 0 && (
-          <AttachmentList attachments={listedAttachments} />
+          <AttachmentList attachments={listedAttachments} onPreview={attachmentViewer.onPreview} />
         )}
       </div>
       <div className="flex-1 p-4">
@@ -528,6 +515,8 @@ function MessageDetailPanel({
           <div className="text-sm text-muted-foreground">본문이 없습니다</div>
         )}
       </div>
+      {/* 첨부 뷰어(포털) — 상세 트리 루트에 한 번만 둬 인라인 이미지 판정·재조회로 목록이 바뀌어도 리마운트되지 않게 한다. */}
+      {attachmentViewer.viewerNode}
     </div>
   )
 }
@@ -568,7 +557,8 @@ export function MailInboxPage() {
   }, [searchDraft])
   // 열린 메일 = URL ?messageId(상태의 단일 원천, WP-206). 행 클릭은 push 라 시스템 뒤로가기가 상세만 닫는다.
   // 홈 위젯 딥링크(#447)·푸시 알림도 같은 키 — 마운트 1회 읽기가 아니라 URL 실시간 파생이라 forward 재열림도 자연스럽다.
-  const mailParam = useHistoryParam('messageId')
+  // clear: 다른 메일로 바꿀 때 앞 메일의 첨부 뷰어 키(?preview, WP-280)가 남아 "찾을 수 없음"으로 뜨지 않게 함께 지운다.
+  const mailParam = useHistoryParam('messageId', { clear: ['preview'] })
   const selectedId = parseId(mailParam.value)
   // 모바일: 본문(상세)이 열려 있으면 하단 탭바를 숨긴다(WP-125).
   useHideTabBar(selectedId != null)
