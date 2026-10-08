@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { WikiPageSummary } from '../../types/wiki'
-import { buildBreadcrumb } from './wikiBreadcrumb'
+import { breadcrumbOrSelf, buildBreadcrumb } from './wikiBreadcrumb'
 
 const p = (id: number, parentId: number | null, title: string): WikiPageSummary => ({
   id,
@@ -40,5 +40,23 @@ describe('buildBreadcrumb', () => {
 
   it('자기참조 순환도 무한루프 없이 종료', () => {
     expect(buildBreadcrumb([p(1, 1, 'A')], 1)).toEqual([{ id: 1, title: 'A' }])
+  })
+})
+
+// 트리에서 빠진 현재 노트(삭제 SSE 뒤 트리 재조회 등) — 헤더 제목이 비거나 일반 "노트"로 바뀌지 않게 자기 제목으로 채운다(WP-296).
+describe('breadcrumbOrSelf', () => {
+  it('트리에 경로가 있으면 그대로', () => {
+    const crumbs = [{ id: 1, title: '제품 문서' }]
+    expect(breadcrumbOrSelf(crumbs, { id: 1, title: '다른 제목' }, true)).toBe(crumbs)
+  })
+  it('트리를 불러왔는데 경로가 비면 현재 노트 제목 하나', () => {
+    expect(breadcrumbOrSelf([], { id: 9, title: '지운 회의록' }, true)).toEqual([{ id: 9, title: '지운 회의록' }])
+  })
+  it('제목이 비어 있으면 "제목 없음"', () => {
+    expect(breadcrumbOrSelf([], { id: 9, title: '' }, true)).toEqual([{ id: 9, title: '제목 없음' }])
+  })
+  // 처음 열 때 트리가 오기 전 한 칸짜리 경로가 잠깐 그려졌다가 바뀌는 깜빡임을 막는다(WP-296).
+  it('트리를 불러오는 중이면 채우지 않는다', () => {
+    expect(breadcrumbOrSelf([], { id: 9, title: '회의록' }, false)).toEqual([])
   })
 })

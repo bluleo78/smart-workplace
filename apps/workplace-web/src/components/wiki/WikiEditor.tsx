@@ -28,7 +28,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useCollabSession } from '../../hooks/useCollabSession'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import { handleApiError } from '../../lib/api-error'
-import { isEditRole } from '../../lib/collab/collabStatus'
+import { isAccessLost, isEditRole } from '../../lib/collab/collabStatus'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
 import { registerWikiEditorView, useWikiImageUpload } from './useWikiImageUpload'
 import { type GenerateActionKey, type TransformActionKey } from './wikiAiActions'
@@ -37,12 +37,13 @@ import { insertAiMarkdown } from './wikiAiInsert'
 import { announceAiWriting } from './wikiAiPresence'
 import { stripLeadingTitleHeading } from './wikiAiTitleHeading'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
-import { buildBreadcrumb } from './wikiBreadcrumb'
+import { breadcrumbOrSelf, buildBreadcrumb } from './wikiBreadcrumb'
 import { anchorPosition, toRelative } from './wikiCollabPosition'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { wikiEditorExtensions } from './wikiEditorExtensions'
 import { wikiLinkHrefToOpen } from './wikiLinkClick'
+import { wikiListPath } from './wikiListPath'
 import { WikiMarkdownSourceDialog } from './WikiMarkdownSourceDialog'
 import { rememberMentionLabel, WikiMentionLabelsProvider } from './wikiMentionLabels'
 import { createWikiMentionExtension } from './wikiMentionSuggestion'
@@ -70,8 +71,6 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   const saveTitle = useSaveTitle(spaceId)
   const del = useDeletePage(spaceId)
   const { data: tree } = useWikiTree(spaceId)
-  // 브레드크럼 — 이미 로드된 전체 트리에서 파생(추가 API 없음).
-  const crumbs = useMemo(() => buildBreadcrumb(tree ?? [], page.id), [tree, page.id])
   // 현재 페이지의 하위 페이지 존재 여부 — 트리에서 parentId 가 일치하는 항목 유무로 판단.
   const pageHasChildren = useMemo(
     () => (tree ?? []).some((p) => p.parentId === page.id),
@@ -85,6 +84,11 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // 제목 — 입력 중엔 내 입력을, 아니면 원격(캐시) 제목을 보인다. 판정 규칙은 wikiTitleSync 참조.
   const [titleSync, dispatchTitle] = useReducer(titleSyncReducer, page.title, initTitleSync)
   const title = titleSync.local
+  // 브레드크럼 — 이미 로드된 전체 트리에서 파생(추가 API 없음). 트리에서 빠진 노트(삭제 직후 등)는 자기 제목으로 채운다(WP-296).
+  const crumbs = useMemo(
+    () => breadcrumbOrSelf(buildBreadcrumb(tree ?? [], page.id), { id: page.id, title }, tree != null),
+    [tree, page.id, title],
+  )
   // 원격 제목(SSE·저장 응답이 캐시에 쓴 값) 변화를 판정기에 알린다.
   useEffect(() => {
     dispatchTitle({ type: 'remote', title: page.title, now: Date.now() })
@@ -607,6 +611,13 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     return () => window.removeEventListener('keydown', onKey)
   }, [aiBusy, cancelAi])
 
+  // 접근 불가가 되면 스페이스 목록을 다시 받는다 — 멤버에서 빠졌다면 그 스페이스가 목록에서 사라져 아래 목적지가 /wiki 로 바뀐다.
+  useEffect(() => {
+    if (syncStatus === 'forbidden') void queryClient.invalidateQueries({ queryKey: wikiKeys.spaces() })
+  }, [syncStatus, queryClient])
+  // 종료 안내의 "노트 목록으로" 목적지 — 아직 열 수 있는 스페이스면 그 목록, 아니면 /wiki.
+  const listPath = wikiListPath(spaceId, spaces)
+
   // 본문 스크롤 영역 — 동기화 안내 띠가 sticky 로 붙고, 띠 높이만큼 scrollTop 을 보정하는 기준(WikiSyncNotice).
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -627,8 +638,8 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         onViewSource={onViewSource}
       />
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-        {/* 미전송·접근 불가 안내 — 스크롤 영역 맨 위 sticky 띠(칼럼 밖·BubbleMenu 형제 목록 밖에 둔다). */}
-        <WikiSyncNotice status={syncStatus} scrollRef={scrollRef} />
+        {/* 미전송·접근 불가·삭제됨 등 동기화 안내 — 스크롤 영역 맨 위 sticky 띠(칼럼 밖·BubbleMenu 형제 목록 밖에 둔다). */}
+        <WikiSyncNotice status={syncStatus} listPath={listPath} scrollRef={scrollRef} />
         <div data-testid="page-body-content" className={cn('flex flex-col', pageBodyInsetClass, pageReadingWidthClass)}>
           {/* 선택 텍스트 변형 툴바(톤/번역/확장/축약/다듬기) — 뷰어·생성 중엔 비노출.
               roleCanEdit(EDITOR/OWNER)일 때만 onCreateIssue 를 전달해 "이슈로 만들기" 버튼을 노출한다.
@@ -676,7 +687,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
             className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
           />
           {/* WP-301 노트 상단 AI 요약 — 제목 아래·본문 위(시안 A). 본문을 바꾸지 않는 읽기 보조라 뷰어에게도 보인다. */}
-          <WikiSummaryCard pageId={page.id} />
+          <WikiSummaryCard pageId={page.id} accessLost={isAccessLost(syncStatus)} />
           {/* 빈 페이지 AI CTA — 초안 작성이 가장 유효한 순간(#733). 본문이 채워지면 사라진다.
               동기화 연결(live) 뒤에만 보인다 — 처음 열 때 서버 본문이 오기 전 빈 에디터에 잠깐 깜빡이지 않게(WP-287).
               에디터 아래가 아니라 제목 바로 밑에 둔다: 본문 클릭영역(min-h 300px) 뒤에 두면

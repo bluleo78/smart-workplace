@@ -6,7 +6,7 @@
 
 import type { QueryClient } from '@tanstack/react-query';
 
-import { wikiKeys } from './queries/wikiKeys';
+import { dropInactiveWikiPage, wikiKeys } from './queries/wikiKeys';
 
 interface WikiPagePayload {
   spaceId?: number;
@@ -28,7 +28,10 @@ export function handleWikiEvent(qc: QueryClient, eventName: string, data: unknow
     qc.invalidateQueries({ queryKey: wikiKeys.tree(p.spaceId) });
   }
   if (typeof p?.pageId === 'number' && Number.isFinite(p.pageId)) {
-    // 열린 단건 페이지 — 제목·AI 사용 이력(aiLastUsedAt)·updatedAt 등 본문 밖 필드를 다시 불러온다. 삭제면 오류 화면.
+    // 열린 화면(observer 있음)은 아래 무효화로 재조회하고(404), 에디터는 그대로 둔 채 동기화 세션이 삭제됨을 알린다.
+    if (eventName === 'wiki.page.deleted') dropInactiveWikiPage(qc, p.pageId);
+    // 열린 단건 페이지 — 제목·AI 사용 이력(aiLastUsedAt)·updatedAt 등 본문 밖 필드를 다시 불러온다.
+    // 삭제면 재조회가 404 지만 열린 에디터는 그대로 둔다(WP-296, wikiPageViewMode) — 삭제됨 안내는 동기화 세션의 종료 상태가 띄운다.
     // 본문은 동기화 서버(Yjs)가 에디터에 넣으며 에디터는 page.body 를 읽지 않아(WP-287) 재조회가 편집을 건드리지 않는다.
     // 제목은 에디터의 판정기(wikiTitleSync)가 입력 중 덮어쓰기·늦은 메아리를 거른다.
     qc.invalidateQueries({ queryKey: wikiKeys.page(p.pageId) });

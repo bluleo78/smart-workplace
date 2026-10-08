@@ -138,6 +138,12 @@ describe('useCollabSession', () => {
     expect(last).toMatchObject({ status: 'forbidden', readOnly: true })
   })
 
+  it('reports deleted as terminal and read-only', () => {
+    render(7)
+    act(() => fake(last.session).emit('disconnect', { event: { code: 4404, reason: 'deleted' } }))
+    expect(last).toMatchObject({ status: 'deleted', readOnly: true })
+  })
+
   it('reuses the same session across a remount within the grace period', () => {
     render(4)
     const first = last.session

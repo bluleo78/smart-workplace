@@ -89,3 +89,19 @@ export async function pasteImageFile(page: Page, mimeType: string, name: string)
     { mimeType, name },
   )
 }
+
+/**
+ * 노트가 첫 스페이스가 아닌 팀 스페이스에 있게 한다 — 스페이스 목록을 [개인(1), 팀(spaceId)] 순으로 바꾼다(mockWikiPageEditor 뒤에 부른다,
+ * 나중에 등록한 라우트가 이긴다). "노트 목록으로"가 /wiki(첫 스페이스로 리다이렉트)가 아니라 노트의 스페이스로 가는지 가르는 데 쓴다.
+ * 개인 스페이스의 트리·멤버도 빈 목록으로 막아 둔다 — 잘못 그쪽으로 가도 모킹 안 된 요청이 나가지 않게.
+ */
+export async function mockNoteInTeamSpace(page: Page, { spaceId, name, role = 'OWNER' }: { spaceId: number; name: string; role?: WikiRole }) {
+  const spaces = [
+    { id: 1, type: 'PERSONAL', name: '내 노트', ownerId: 1, role: 'OWNER', createdAt: '2026-06-01T00:00:00Z' },
+    { id: spaceId, type: 'TEAM', name, ownerId: 1, role, createdAt: '2026-06-01T00:00:00Z' },
+  ]
+  await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>
+    r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(spaces) }) : r.fallback())
+  await page.route((u) => u.pathname === '/api/v1/wiki/spaces/1/pages' || u.pathname === '/api/v1/wiki/spaces/1/members', (r) =>
+    r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())
+}

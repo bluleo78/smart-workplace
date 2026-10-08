@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net'
 import * as Y from 'yjs'
 
 import {
+  CLOSE_DELETED,
   CLOSE_FORBIDDEN,
   CLOSE_TOKEN_EXPIRED,
   COLLAB_AI_MARKER_MS,
@@ -13,6 +14,7 @@ import {
   COLLAB_SCHEMA_PARAM,
   type CollabAiMarker,
   isCollabEditRole,
+  REVALIDATE_REASON_DELETED,
   WIKI_SCHEMA_VERSION,
 } from '@smart-workplace/wiki-editor-schema'
 
@@ -90,7 +92,7 @@ export interface Who {
 
 /**
  * 연결 인증 — 운영은 API collab-access, 테스트 모드는 스텁(testMode.ts).
- * null = 확정된 권한 없음(거부·4403). 토큰 자체가 거절되면 TokenRejectedError 를 던진다(만료 처리·4401).
+ * null = 확정된 권한 없음(거부·4403, 삭제 재검증이면 4404). 토큰 자체가 거절되면 TokenRejectedError 를 던진다(만료 처리·4401).
  */
 export interface Authenticator {
   authenticate(docName: string, pageId: number, token: string): Promise<Who | null>
@@ -108,7 +110,7 @@ export interface ConnectionContext extends Who {
 export type CollabContext = Partial<ConnectionContext>
 
 // 웹과의 통신 규약(편집 역할·종료 코드·역할 변경 메시지)은 공용 스키마 패키지의 collabProtocol 에 있다.
-// 4403 은 만료(4401)와 같은 소켓 종료 방식 — provider 는 자동 재접속하고, 재접속 판정에서 onAuthenticationFailed({reason:'forbidden'}) 를 받는다.
+// 4403(권한 회수)·4404(삭제)는 만료(4401)와 같은 소켓 종료 방식 — provider 는 자동 재접속하고, 재접속 판정에서 onAuthenticationFailed({reason:'forbidden'}) 를 받는다.
 // 서버가 로드 시 body 로 맞춘 변경의 Yjs 출처 표시.
 export const RECONCILE_ORIGIN = { system: 'reconcile' } as const
 /**
@@ -217,7 +219,7 @@ export interface CollabServer {
   readonly address: AddressInfo
   /** API 위임 본문을 문서에 적용(replace 또는 3-way merge)하고 즉시 저장 — 그 저장의 version 과 저장된 body. */
   applyMarkdown(req: ApplyRequest): Promise<ApplyResult>
-  /** 대상 연결의 권한 재판정 — 접근 없음은 소켓 4403 종료, 역할 변경은 readOnly 전환. */
+  /** 대상 연결의 권한 재판정 — 접근 없음은 소켓 4403 종료(삭제 사유면 4404), 역할 변경은 readOnly 전환. */
   revalidate(req: RevalidateRequest): Promise<void>
   /** 문서의 연결을 모두 닫고(저장 후) 메모리에서 내려갈 때까지 기다린다. 로드돼 있지 않으면 바로 끝. */
   closeDocument(name: string, timeoutMs?: number): Promise<void>
@@ -319,7 +321,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
 
   /**
    * 페이지가 없어졌다(저장·로드가 404·410) — 영구 실패. 미저장 표시를 지우고 재시도를 멈추고,
-   * 남은 연결은 권한 회수와 같은 4403 소켓 종료로 닫아 문서가 내려가게 한다. 한 번만 경고 로그.
+   * 남은 연결은 삭제(4404) 소켓 종료로 닫아 문서가 내려가게 한다 — 내부 저장·로드는 사용자 권한과 무관하므로 404 는 페이지가 없어졌다는 뜻이다. 한 번만 경고 로그.
    * 일시 장애로 취급하면 문서가 메모리에 남아 30초마다 영원히 재시도하고, 종료 때마다 20초를 기다린 뒤 거짓 UNSAVED 를 남긴다.
    */
   function dropGone(doc: Document, e: DocGoneError): void {
@@ -330,7 +332,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     meta.failures = 0
     clearRetry(doc)
     console.warn(`[collab] page gone ${doc.name} (API ${e.status}) — dropping unsaved changes and closing connections`)
-    for (const conn of doc.getConnections()) conn.webSocket.close(CLOSE_FORBIDDEN.code, CLOSE_FORBIDDEN.reason)
+    for (const conn of doc.getConnections()) conn.webSocket.close(CLOSE_DELETED.code, CLOSE_DELETED.reason)
   }
 
   function clearRetry(doc: Document): void {
@@ -628,7 +630,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
    * 권한 재판정 — 대상 연결마다 보관한 사용자 토큰으로 다시 판정한다.
    * - 대상: 같은 테넌트 + (pageIds 있으면 그 페이지들, 없으면 spaceId) + (userId 있으면 그 사용자).
    * - 토큰 거절(401, JWT 만료) → 4401(만료와 같은 경로) — 권한 회수로 오판해 웹이 미전송 입력을 버리지 않게.
-   * - 확정된 접근 없음(판정 null = collab-access 404·403) → 소켓을 4403 으로 닫는다. Connection.close() 는 provider 에 코드 1000 만 보내고 재접속도 하지 않아
+   * - 확정된 접근 없음(판정 null = collab-access 404·403) → 소켓을 4403 으로 닫는다(요청 사유가 deleted 면 4404 — 웹이 삭제 안내를 보인다). Connection.close() 는 provider 에 코드 1000 만 보내고 재접속도 하지 않아
    *   웹이 회수를 구분할 수 없다(4401 과 같은 이유). 소켓의 다른 문서도 함께 끊기지만 provider 가 재접속해 권한 있는 문서는 다시 붙는다.
    * - 역할 변경 → readOnly 전환 + stateless 로 새 역할 통지(VIEWER 강등 시 이후 수정 메시지는 서버가 버린다).
    * - 판정 자체가 실패(API 장애) → 그 연결은 유지하고 503 으로 알린다(일시 장애로 모두를 끊지 않음 — 다음 재접속·만료 때 다시 판정).
@@ -675,7 +677,9 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
           return
         }
         if (!who || who.tenantId !== c.tenantId) {
-          conn.webSocket.close(CLOSE_FORBIDDEN.code, CLOSE_FORBIDDEN.reason)
+          // 삭제 재검증이면 "삭제되었습니다"로 알리고(4404), 그 밖(멤버 제거 등)은 권한 회수(4403).
+          const close = req.reason === REVALIDATE_REASON_DELETED ? CLOSE_DELETED : CLOSE_FORBIDDEN
+          conn.webSocket.close(close.code, close.reason)
           return
         }
         const readOnly = !isCollabEditRole(who.role)

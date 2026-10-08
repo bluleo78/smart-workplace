@@ -189,9 +189,19 @@ public class CollabClient {
   }
 
   /**
-   * revalidate 요청 본문. spaceId·pageIds·userId 는 선택 — null 이면 키를 생략한다. 의미: pageIds 가 있으면 그 페이지 연결,
-   * 없으면 spaceId 의 모든 연결; userId 가 있으면 그 사용자 연결로 한정.
+   * revalidate 요청 본문. spaceId·pageIds·userId·reason 은 선택 — null 이면 키를 생략한다. 의미: pageIds 가 있으면 그 페이지
+   * 연결, 없으면 spaceId 의 모든 연결; userId 가 있으면 그 사용자 연결로 한정. reason 이 {@link #REASON_DELETED} 면 접근을 잃은
+   * 연결을 권한 회수(4403)가 아닌 삭제(4404)로 닫아 웹이 "이 노트가 삭제되었습니다"를 보인다(WP-296).
    */
   @JsonInclude(JsonInclude.Include.NON_NULL)
-  public record RevalidateRequest(long tenantId, Long spaceId, List<Long> pageIds, Long userId) {}
+  public record RevalidateRequest(
+      long tenantId, Long spaceId, List<Long> pageIds, Long userId, String reason) {
+    /** 페이지 삭제 재검증 사유 — collab-protocol 의 REVALIDATE_REASON_DELETED 와 같은 값. */
+    public static final String REASON_DELETED = "deleted";
+
+    /** 사유 없는 재검증(멤버 변경 등) — 접근을 잃은 연결은 권한 회수(4403)로 닫힌다. */
+    public RevalidateRequest(long tenantId, Long spaceId, List<Long> pageIds, Long userId) {
+      this(tenantId, spaceId, pageIds, userId, null);
+    }
+  }
 }

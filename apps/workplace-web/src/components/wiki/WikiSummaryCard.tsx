@@ -15,8 +15,10 @@ import { useGenerateWikiSummary, useWikiSummary } from '../../hooks/queries/useW
  * - 낡음은 캐시의 status(STALE)만 본다 — 다른 사람의 저장은 서버가, 내 저장 직후는 편집기가 syncWikiSummaryVersion 으로 캐시에
  *   반영하므로 카드가 따로 버전을 비교하지 않는다(짧은 노트가 길어졌을 때의 재조회도 그쪽에서 한다).
  * - TOO_SHORT·조회 실패·AI 불가(쿼리 비활성)면 아무것도 그리지 않는다.
+ * - accessLost(노트 삭제·접근 불가 종료 상태)면 다시 만들 수 없으므로 다시 시도·다시 요약 버튼을 거둔다(WP-296).
+ *   실패·낡음 문구는 남긴다 — 카드를 접으면 그 높이만큼 본문이 튀어 읽던 자리를 잃는다.
  */
-export function WikiSummaryCard({ pageId }: { pageId: number }) {
+export function WikiSummaryCard({ pageId, accessLost = false }: { pageId: number; accessLost?: boolean }) {
   const { data } = useWikiSummary(pageId)
   const generate = useGenerateWikiSummary()
   // 노트별 자동 생성 1회 가드 — 같은 노트로 다시 렌더돼도 재요청하지 않는다.
@@ -58,15 +60,19 @@ export function WikiSummaryCard({ pageId }: { pageId: number }) {
                   <AlertCircle className="h-3 w-3 shrink-0 text-destructive" aria-hidden="true" />
                   요약하지 못했어요
                 </span>
-                <RegenerateButton testId="wiki-ai-summary-retry" label="다시 시도" onClick={regenerate} />
+                {!accessLost && <RegenerateButton testId="wiki-ai-summary-retry" label="다시 시도" onClick={regenerate} />}
               </>
             ) : stale ? (
               <>
                 <span data-testid="wiki-ai-summary-stale" className="text-warning-text">
                   ⚠ 요약 이후 노트가 바뀌었어요
                 </span>
-                <span aria-hidden="true">·</span>
-                <RegenerateButton testId="wiki-ai-summary-refresh" label="다시 요약" onClick={regenerate} />
+                {!accessLost && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <RegenerateButton testId="wiki-ai-summary-refresh" label="다시 요약" onClick={regenerate} />
+                  </>
+                )}
               </>
             ) : (
               data.summarizedAt && <span>{`${formatMonthDayClock(data.summarizedAt)} 요약`}</span>

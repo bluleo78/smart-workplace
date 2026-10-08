@@ -724,13 +724,16 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
                     r.tenantId() == 1L
                         && r.spaceId() == spaceId
                         && r.userId() == otherUserId
-                        && r.pageIds() == null));
+                        && r.pageIds() == null
+                        && r.reason() == null));
     clearInvocations(collab);
 
     tenant1();
     spaceService.changeRole(userId, spaceId, otherUserId, "VIEWER");
     verify(collab, timeout(2000))
-        .revalidate(argThat(r -> r.spaceId() == spaceId && r.userId() == otherUserId));
+        .revalidate(
+            argThat(
+                r -> r.spaceId() == spaceId && r.userId() == otherUserId && r.reason() == null));
     clearInvocations(collab);
 
     tenant1();
@@ -738,7 +741,11 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
     verify(collab, timeout(2000))
         .revalidate(
             argThat(
-                r -> r.tenantId() == 1L && r.spaceId() == spaceId && r.userId() == otherUserId));
+                r ->
+                    r.tenantId() == 1L
+                        && r.spaceId() == spaceId
+                        && r.userId() == otherUserId
+                        && r.reason() == null));
   }
 
   @Test
@@ -771,7 +778,8 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
                         && r.userId() == null
                         && r.pageIds() != null
                         && r.pageIds().containsAll(List.of(parentId, childId))
-                        && r.pageIds().size() == 2));
+                        && r.pageIds().size() == 2
+                        && CollabClient.RevalidateRequest.REASON_DELETED.equals(r.reason())));
     verify(collab, never())
         .applyMarkdown(
             anyLong(),

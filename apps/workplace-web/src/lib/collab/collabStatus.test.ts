@@ -26,6 +26,8 @@ describe('deriveSyncStatus', () => {
     expect(deriveSyncStatus({ ...base, connected: false, unsynced: true, readOnly: true, terminal: 'forbidden' })).toBe(
       'forbidden',
     ))
+  it('deleted is terminal and wins over readonly and unsent', () =>
+    expect(deriveSyncStatus({ ...base, connected: false, unsynced: true, readOnly: true, terminal: 'deleted' })).toBe('deleted'))
   it('a lost login is terminal and wins over the first connection', () =>
     expect(
       deriveSyncStatus({ ...base, connected: false, unsynced: true, readOnly: true, everSynced: false, terminal: 'authLost' }),
@@ -100,6 +102,8 @@ describe('effectiveReadOnly', () => {
     expect(effectiveReadOnly({ propReadOnly: false, serverReadOnly: false, terminal: 'schemaStale' })).toBe(true))
   it('a forbidden document is never editable', () =>
     expect(effectiveReadOnly({ propReadOnly: false, serverReadOnly: false, terminal: 'forbidden' })).toBe(true))
+  it('a deleted document is never editable', () =>
+    expect(effectiveReadOnly({ propReadOnly: false, serverReadOnly: false, terminal: 'deleted' })).toBe(true))
 })
 
 // 본문 자리 — 첫 동기화 전 skeleton 이 영영 남지 않게, 연결을 못 한 채 오프라인이 되면 안내로 바꾼다.
@@ -118,7 +122,7 @@ describe('deriveBodyState', () => {
   })
 
   it('leaves every terminal state to its own notice', () => {
-    for (const status of ['forbidden', 'signed-out', 'outdated'] as const)
+    for (const status of ['forbidden', 'deleted', 'signed-out', 'outdated'] as const)
       expect(deriveBodyState({ everSynced: false, status })).toBe('ready')
   })
 })

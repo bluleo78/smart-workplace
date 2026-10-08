@@ -5,6 +5,7 @@ import type { BrowserContext, Page, WebSocketRoute } from '@playwright/test'
 import {
   COLLAB_NS_STORAGE_KEY,
   collabDocName,
+  REVALIDATE_REASON_DELETED,
   WIKI_SCHEMA_VERSION,
 } from '@smart-workplace/wiki-editor-schema/collab-protocol'
 
@@ -46,10 +47,18 @@ export async function readCollabMarkdown(ns: string, pageId: number): Promise<st
 /**
  * 세션 도중 역할을 바꾼다 — 문서를 닫지 않고 역할만 바꾼 뒤 내부 revalidate 를 불러, 서버가 접속자를 다시 인증하게 한다.
  * 편집→VIEWER 는 collab:role 알림(에디터 잠금), NONE 은 4403 종료(삭제·권한 없음 안내)가 실제 경로 그대로 간다.
+ * reason 에 REVALIDATE_REASON_DELETED 를 주면 API 가 노트 삭제 뒤 부르는 재검증과 같다(WP-296) — role 'NONE' 과 함께 쓰면
+ * 접근을 잃은 접속자가 4404(삭제)로 닫힌다. 같은 페이지 번호의 다른 네임스페이스 문서는 재판정이 접근 가능이라 끊기지 않는다.
  */
-export async function changeCollabRole(ns: string, pageId: number, role: CollabRole): Promise<void> {
+export async function changeCollabRole(
+  ns: string,
+  pageId: number,
+  role: CollabRole,
+  reason?: typeof REVALIDATE_REASON_DELETED,
+): Promise<void> {
   await post('/__test/role', { docName: collabDocName(ns, pageId), role })
-  await post('/internal/docs/revalidate', { tenantId: 1, pageIds: [pageId] }, { Authorization: `Internal ${internalToken()}` })
+  // reason 이 없으면 JSON.stringify 가 키를 생략한다(사유 없는 재검증).
+  await post('/internal/docs/revalidate', { tenantId: 1, pageIds: [pageId], reason }, { Authorization: `Internal ${internalToken()}` })
 }
 
 /**

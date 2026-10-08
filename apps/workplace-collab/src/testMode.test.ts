@@ -1,6 +1,7 @@
 import './dom-install'
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { CLOSE_FORBIDDEN } from '@smart-workplace/wiki-editor-schema'
 
 import { buildCollabServer } from './app'
 import type { CollabConfig } from './config'
@@ -190,7 +191,7 @@ describe('test mode', () => {
       // 접근 회수(NONE) → revalidate 가 4403 으로 닫는다.
       expect((await post('/__test/role', { docName: doc, role: 'NONE' })).status).toBe(204)
       expect((await post('/internal/docs/revalidate', { tenantId: 1, pageIds: [7] }, internal)).status).toBe(204)
-      await expect.poll(() => c.disconnects.map((d) => d.code)).toContain(4403)
+      await expect.poll(() => c.disconnects.map((d) => d.code)).toContain(CLOSE_FORBIDDEN.code)
       // 시드 없는 문서는 404, 이름이 틀리면 400.
       expect((await post('/__test/role', { docName: 'e2e-h/wiki-page:8', role: 'VIEWER' })).status).toBe(404)
       expect((await post('/__test/role', { docName: 'bad', role: 'VIEWER' })).status).toBe(400)

@@ -23,18 +23,20 @@ public class WikiCollabRevalidator {
   private final CollabClient collab;
   private final CollabProperties props;
 
-  /** 스페이스 멤버 추가·역할 변경·제거 — 그 사용자의 그 스페이스 연결을 재판정. */
+  /** 스페이스 멤버 추가·역할 변경·제거 — 그 사용자의 그 스페이스 연결을 재판정(접근을 잃으면 권한 회수 4403). */
   @Async("wikiCollabRevalidateExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onMembership(WikiSpaceMembershipChangedEvent e) {
     send(new RevalidateRequest(e.tenantId(), e.spaceId(), null, e.userId()));
   }
 
-  /** 페이지 삭제(서브트리) — 그 페이지들에 열린 모든 연결을 재판정(404 → 끊김). */
+  /** 페이지 삭제(서브트리) — 그 페이지들에 열린 모든 연결을 재판정한다. 삭제 사유를 실어 웹이 "삭제됨"으로 안내하게 한다. */
   @Async("wikiCollabRevalidateExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onPageAccessRevoked(WikiPageAccessRevokedEvent e) {
-    send(new RevalidateRequest(e.tenantId(), e.spaceId(), e.pageIds(), null));
+    send(
+        new RevalidateRequest(
+            e.tenantId(), e.spaceId(), e.pageIds(), null, RevalidateRequest.REASON_DELETED));
   }
 
   private void send(RevalidateRequest r) {

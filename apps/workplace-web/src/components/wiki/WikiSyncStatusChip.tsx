@@ -1,4 +1,4 @@
-import { Ban, CloudUpload, Eye, Loader2, LogIn, RefreshCw, RotateCw, WifiOff } from 'lucide-react'
+import { Ban, CloudUpload, Eye, Loader2, LogIn, RefreshCw, RotateCw, Trash2, WifiOff } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { reloadPage, type SyncStatus } from '../../lib/collab/collabStatus'
@@ -13,7 +13,8 @@ import { reloadPage, type SyncStatus } from '../../lib/collab/collabStatus'
  * - 정상(live): 데스크톱은 초록 점 + "실시간"(시안 ①), 모바일(compact)은 헤더 폭을 지키려 점 하나만.
  * - 문제 상태는 짧은 글자 칩으로 커진다 — 모바일은 말줄임표 없이 짧게.
  * - connecting(새로 연 노트의 첫 연결 중)은 경고가 아닌 중립(muted) — 끊긴 적이 없으니 '재연결'이 아니다.
- * - forbidden(삭제되었거나 권한 회수 — 웹은 둘을 구분할 수 없다)은 재연결하지 않는 종료 상태라 스피너 없이 표시.
+ * - forbidden(권한 회수, 또는 삭제 여부를 모르는 거절)은 재연결하지 않는 종료 상태라 스피너 없이 표시.
+ * - deleted(서버가 확실히 알린 삭제, 4404)도 재연결하지 않는 종료 상태 — 스피너 없이 표시(WP-296).
  * - signed-out(로그인 상실)도 재연결하지 않는 종료 상태 — 다시 로그인해야 한다.
  * - outdated(동기화 서버가 새 스키마로 배포됨, WP-313)도 종료 상태 — 칩 자체가 새로고침 버튼이다(다른 종료 상태처럼 DANGER tone).
  */
@@ -64,6 +65,12 @@ const CHIPS: Record<SyncStatus, ChipSpec> = {
     tone: DANGER,
     icon: <Ban className="h-3 w-3 text-destructive" aria-hidden="true" />,
     title: '삭제되었거나 접근 권한이 없습니다',
+  },
+  deleted: {
+    label: '삭제됨',
+    tone: DANGER,
+    icon: <Trash2 className="h-3 w-3 text-destructive" aria-hidden="true" />,
+    title: '이 노트가 삭제되었습니다',
   },
   'signed-out': {
     label: '로그인 필요',

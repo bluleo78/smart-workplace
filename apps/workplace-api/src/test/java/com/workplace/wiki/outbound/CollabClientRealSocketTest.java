@@ -26,8 +26,8 @@ import org.junit.jupiter.api.Test;
  */
 class CollabClientRealSocketTest {
 
-  /** 받은 요청 한 건 — 경로와 헤더. */
-  private record Captured(String path, Headers headers) {}
+  /** 받은 요청 한 건 — 경로·헤더·본문. 본문까지 담아 직렬화 계약(키 생략 포함)을 단언한다. */
+  private record Captured(String path, Headers headers, String body) {}
 
   private HttpServer server;
   private final List<Captured> captured = new CopyOnWriteArrayList<>();
@@ -51,10 +51,13 @@ class CollabClientRealSocketTest {
     server.stop(0);
   }
 
-  /** 요청을 기록하고(본문은 끝까지 읽어 소켓을 비운다) JSON 으로 응답한다. */
+  /** 요청을 기록하고 JSON 으로 응답한다. 본문은 한 번만 끝까지 읽어(소켓을 비움) 그대로 기록한다 — 두 번 읽으면 빈 값이 된다. */
   private void respond(HttpExchange ex, int status, String json) throws IOException {
-    ex.getRequestBody().readAllBytes();
-    captured.add(new Captured(ex.getRequestURI().getPath(), ex.getRequestHeaders()));
+    captured.add(
+        new Captured(
+            ex.getRequestURI().getPath(),
+            ex.getRequestHeaders(),
+            new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
     byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
     ex.getResponseHeaders().add("Content-Type", "application/json");
     ex.sendResponseHeaders(status, bytes.length);
@@ -91,5 +94,22 @@ class CollabClientRealSocketTest {
     assertThat(captured).hasSize(1);
     assertThat(captured.get(0).path()).isEqualTo("/internal/docs/revalidate");
     assertPlainHttp1(captured.get(0));
+  }
+
+  @Test
+  void revalidate는_삭제_사유를_싣고_없는_키는_생략한다() {
+    client.revalidate(
+        new CollabClient.RevalidateRequest(
+            1L, 2L, List.of(7L, 8L), null, CollabClient.RevalidateRequest.REASON_DELETED));
+    client.revalidate(new CollabClient.RevalidateRequest(1L, 2L, null, 5L));
+
+    assertThat(captured).hasSize(2);
+    // 삭제 재검증 — collab 이 4404(삭제)로 닫도록 사유를 싣는다.
+    assertThat(captured.get(0).body())
+        .contains("\"reason\":\"deleted\"")
+        .contains("\"pageIds\":[7,8]");
+    assertThat(captured.get(0).body()).doesNotContain("userId");
+    // 멤버 변경 — 사유 키 자체가 없어야 구버전 collab 도 그대로 받는다.
+    assertThat(captured.get(1).body()).doesNotContain("reason").contains("\"userId\":5");
   }
 }

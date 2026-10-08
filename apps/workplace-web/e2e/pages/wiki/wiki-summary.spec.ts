@@ -4,6 +4,7 @@
 // 낡음은 요약 캐시의 status 로 그린다 — 본문은 동기화 서버(Yjs)가 파생 저장하며 version 을 올리고(WP-287), 편집기는
 // wiki.page.updated SSE → 페이지 재조회로 새 version 을 알게 되면 캐시를 STALE 로 맞춘다. 제목만 저장은 version 을 올리지 않는다.
 import type { Page } from '@playwright/test'
+import { REVALIDATE_REASON_DELETED } from '@smart-workplace/wiki-editor-schema/collab-protocol'
 import type {
   WikiPageDetail,
   WikiPageSummary,
@@ -15,7 +16,7 @@ import type {
 import { createUser } from '../../factories/auth.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { seedCollabFor } from '../../fixtures/collab'
+import { changeCollabRole, collabNsOf, seedCollabFor } from '../../fixtures/collab'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { expectStays } from '../../fixtures/wait'
 
@@ -311,6 +312,20 @@ test('요약 생성에 실패하면 한 번만 시도하고 다시 시도 버튼
 
   await page.getByTestId('wiki-ai-summary-retry').click()
   await expect.poll(() => calls.post).toBe(2)
+})
+
+// WP-296 — 지워졌거나 접근을 잃은 노트에서는 요약을 다시 만들 수 없다 — 다시 시도를 거둬 헛된 행동을 권하지 않는다.
+// 실패 문구는 남긴다 — 카드를 접으면 그 높이만큼 본문이 튀어 읽던 자리를 잃는다.
+test('요약 실패 뒤 노트가 삭제되면 다시 시도 버튼을 거두고 카드 높이는 유지한다', async ({ authenticatedPage: page }) => {
+  await setupWikiMocks(page)
+  await mockSummary(page, { initial: missing(), post: 'fail' })
+  await openPage(page)
+  await expect(page.getByTestId('wiki-ai-summary-retry')).toBeVisible()
+
+  await changeCollabRole(collabNsOf(page), PAGE_ID, 'NONE', REVALIDATE_REASON_DELETED)
+  await expect(page.getByTestId('wiki-sync-status')).toHaveAttribute('data-status', 'deleted')
+  await expect(page.getByTestId('wiki-ai-summary-retry')).toHaveCount(0)
+  await expect(page.getByTestId('wiki-ai-summary-failed')).toBeVisible()
 })
 
 test('생성 중 다른 노트로 이동하면 이전 노트의 요약·로딩이 새 노트에 새지 않는다', async ({ authenticatedPage: page }) => {

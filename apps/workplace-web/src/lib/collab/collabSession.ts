@@ -1,5 +1,6 @@
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import {
+  CLOSE_DELETED,
   CLOSE_FORBIDDEN,
   CLOSE_TOKEN_EXPIRED,
   COLLAB_NS_STORAGE_KEY,
@@ -38,7 +39,7 @@ export interface CollabSessionState {
   unsynced: boolean
   /** 서버가 알려 준 읽기 전용 여부(인증 scope·역할 변경 알림). 아직 모르면 null. */
   serverReadOnly: boolean | null
-  /** 재연결하지 않는 종단 상태(삭제·권한 없음 / 로그인 상실 / 스키마 판 불일치). 아니면 null. 종류는 CollabTerminal 참조. */
+  /** 재연결하지 않는 종단 상태(권한 없음 / 삭제 / 로그인 상실 / 스키마 판 불일치). 아니면 null. 종류는 CollabTerminal 참조. */
   terminal: CollabTerminal | null
 }
 
@@ -89,7 +90,13 @@ interface Entry {
   destroyed: boolean
 }
 
-/** 페이지별 현재 세션(재사용 대상). 종단(forbidden) 세션은 여기서 빠진다. */
+/** 종단으로 닫는 종료 코드 → 종단 상태, 우선순위 순(삭제가 권한 회수보다 먼저). */
+const CLOSE_TERMINAL: readonly (readonly [{ code: number; reason: string }, CollabTerminal])[] = [
+  [CLOSE_DELETED, 'deleted'],
+  [CLOSE_FORBIDDEN, 'forbidden'],
+]
+
+/** 페이지별 현재 세션(재사용 대상). 종단 세션은 여기서 빠진다. */
 const current = new Map<number, Entry>()
 /** 살아 있는 모든 세션 — 캐시에서 빠졌지만 아직 화면이 쥔 종단 세션 포함. */
 const entries = new Map<CollabSession, Entry>()
@@ -122,17 +129,18 @@ function collabUrl(): string {
 }
 
 /**
- * 서버가 다 받기 전에 놓으면 안 되는 입력이 있는지 — 읽기 전용·삭제(forbidden) 세션의 입력은 영원히 확인되지 않으므로 제외.
+ * 서버가 다 받기 전에 놓으면 안 되는 입력이 있는지 — 읽기 전용·권한 없음(forbidden)·삭제(deleted) 세션의 입력은 영원히 확인되지 않으므로 제외.
  * 로그인 상실(authLost)은 포함한다 — 다시 로그인하러 떠날 때(axios 인터셉터의 /login 이동·안내의 "다시 로그인") 탭 이탈 경고로
  * 미전송 입력이 있음을 알려야 한다. 보유자가 없는 종단 세션의 정리는 onStateChanged 가 isTerminal 로 먼저 판단한다.
  */
 function isPending(entry: Entry): boolean {
   const { unsynced, serverReadOnly, terminal } = entry.state
   // 스키마 판이 달라진 세션(schemaStale)도 입력이 영원히 확인되지 않는다 — 새로고침 안내가 그 사실을 함께 알린다.
+  // 삭제(deleted)는 보낼 문서가 없어 탭 이탈 경고 대상이 아니다.
   return unsynced && serverReadOnly !== true && (terminal === null || terminal === 'authLost')
 }
 
-/** 재연결하지 않는 종단 상태(삭제·권한 없음, 로그인 상실, 스키마 판 불일치). */
+/** 재연결하지 않는 종단 상태(권한 없음, 삭제, 로그인 상실, 스키마 판 불일치). */
 function isTerminal(entry: Entry): boolean {
   return entry.state.terminal !== null
 }
@@ -168,7 +176,8 @@ function syncUnsynced(entry: Entry): void {
 /**
  * 종단 상태로 멈춘다 — 재시도 타이머를 끄고, 동기로 끊어 provider 의 자동 재연결을 막고, 캐시에서 뺀다(다시 열면 새 세션으로 처음부터 판정).
  * disconnect() 는 동기로 불러야 provider 가 소켓 종료 처리 중 예약하는 자동 재연결을 막는다.
- * - forbidden: 삭제·권한 없음.
+ * - forbidden: 권한 없음, 또는 삭제 여부를 모르는 거절.
+ * - deleted: 페이지 삭제(4404) — 다시 붙을 문서가 없다.
  * - authLost: 로그인 상실(refresh 쿠키 거절) — 다시 로그인하기 전엔 어떤 토큰으로도 붙을 수 없다. 계속 재시도하면 /auth/refresh 와
  *   collab-access 를 끝없이 두드린다. 앱의 다른 곳(axios 인터셉터·SSE)도 refresh 실패 뒤엔 재시도하지 않는다.
  * - schemaStale: 동기화 서버의 스키마 판이 다름(WP-313) — 새로고침해 새 에디터를 받기 전엔 몇 번을 다시 붙어도 거절된다.
@@ -355,16 +364,19 @@ function createEntry(pageId: number): Entry {
     markConnectedIfReady(entry)
   })
   provider.on('synced', () => markConnectedIfReady(entry))
-  // 소켓 종료 — 4401 은 다음 재접속(provider 자동)에 새 토큰, 4403 은 종단.
+  // 소켓 종료 — 4401 은 다음 재접속(provider 자동)에 새 토큰, 4403(권한 회수)·4404(삭제)는 종단.
   provider.on('disconnect', ({ event }: { event: { code: number } }) => {
     markDisconnected(entry)
     if (event.code === CLOSE_TOKEN_EXPIRED.code) entry.needsRefresh = true
-    if (event.code === CLOSE_FORBIDDEN.code) stopTerminal(entry, 'forbidden')
+    const hit = CLOSE_TERMINAL.find(([c]) => c.code === event.code)
+    if (hit) stopTerminal(entry, hit[1])
   })
   // 문서 단위 종료(CLOSE 메시지, 코드 1000)는 소켓이 열린 채 남고 provider 가 다시 붙지 않는다 — 직접 다시 붙인다.
   provider.on('close', ({ event }: { event: { code: number; reason?: string } }) => {
     markDisconnected(entry)
-    if (event.code === CLOSE_FORBIDDEN.code || event.reason === 'forbidden') stopTerminal(entry, 'forbidden')
+    // 문서 단위 종료는 코드가 1000 이라 사유로도 맞춘다.
+    const hit = CLOSE_TERMINAL.find(([c]) => c.code === event.code || c.reason === event.reason)
+    if (hit) stopTerminal(entry, hit[1])
     else if (provider.configuration.websocketProvider?.status === 'connected') scheduleAuthRetry(entry)
   })
   provider.on('authenticationFailed', ({ reason }: { reason: string }) => {

@@ -37,7 +37,8 @@ public final class WikiDomainEvents {
 
   /**
    * 페이지 접근이 사라짐(삭제 — 자식 CASCADE 포함) — 동기화 서버 연결 재검증용(WP-285). pageIds 는 삭제 직전에 모은 서브트리 전체다(삭제 후에는
-   * 자식을 조회할 수 없다). SSE 용 {@link WikiPageDeletedEvent} 와 분리해 기존 페이로드를 바꾸지 않는다.
+   * 자식을 조회할 수 없다). SSE 용 {@link WikiPageDeletedEvent} 와 분리해 기존 페이로드를 바꾸지 않는다. 삭제 전용 — 수신기가 사유
+   * "deleted"(4404)로 재검증하므로, 삭제가 아닌 접근 회수(제한·이동 등)에 재사용하려면 사유 필드를 먼저 추가할 것(WP-296).
    */
   public record WikiPageAccessRevokedEvent(
       long tenantId, long spaceId, List<Long> pageIds, Instant occurredAt) {}

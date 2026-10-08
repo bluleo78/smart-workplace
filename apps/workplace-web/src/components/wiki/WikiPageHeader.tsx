@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { cn } from '@/lib/utils'
 
-import type { SyncStatus } from '../../lib/collab/collabStatus'
+import { isAccessLost, type SyncStatus } from '../../lib/collab/collabStatus'
 import { GENERATE_ACTIONS, type GenerateActionKey } from './wikiAiActions'
 import { WikiSyncStatusChip } from './WikiSyncStatusChip'
 
@@ -202,10 +202,19 @@ export function WikiPageHeader({
         >
           <FileCode className="mr-2 h-4 w-4" aria-hidden="true" /> 마크다운 소스
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onSelect={() => setTimeout(onDelete, 0)}>
-          <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" /> 페이지 삭제
-        </DropdownMenuItem>
+        {/* 이미 지워졌거나 접근을 잃은 노트(종료 상태)는 지울 수 없다 — 눌러도 404 뿐이라 항목(과 구분선)을 감춘다. */}
+        {!isAccessLost(syncStatus) && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              data-testid="wiki-menu-delete"
+              onSelect={() => setTimeout(onDelete, 0)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" /> 페이지 삭제
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

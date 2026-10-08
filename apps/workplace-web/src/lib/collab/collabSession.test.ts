@@ -296,6 +296,34 @@ describe('collab session cache', () => {
     expect(acquireCollabSession(11)).toBe(b)
   })
 
+  // 4404 — 페이지가 삭제됐다. 4403 과 같이 재연결을 멈추되 종단을 'deleted' 로 둬 화면이 "삭제되었습니다"를 고른다.
+  it('stops reconnecting on 4404 as deleted and never reuses that session', () => {
+    const a = acquireCollabSession(12)
+    goLive(a)
+    setUnsynced(a, 1)
+    fake(a).emit('disconnect', { event: { code: 4404, reason: 'deleted' } })
+    expect(fake(a).disconnectCalls).toBe(1)
+    expect(a.getState().terminal).toBe('deleted')
+    // 보낼 곳이 사라진 입력으로 탭 닫기를 막지 않는다
+    expect(hasUnsentCollabChanges()).toBe(false)
+    const b = acquireCollabSession(12)
+    expect(b).not.toBe(a)
+    expect(b.getState().terminal).toBeNull()
+    releaseCollabSession(a)
+    releaseCollabSession(b)
+  })
+
+  // 먼저 닿은 종단이 남는다 — 4404 뒤 provider 재접속의 인증 거절(forbidden)로 '삭제됨'이 흐려지지 않는다.
+  it('keeps deleted when a later forbidden arrives', () => {
+    const a = acquireCollabSession(13)
+    goLive(a)
+    fake(a).emit('close', { event: { code: 1000, reason: 'deleted' } })
+    expect(a.getState().terminal).toBe('deleted')
+    fake(a).emit('disconnect', { event: { code: 4403, reason: 'forbidden' } })
+    expect(a.getState().terminal).toBe('deleted')
+    releaseCollabSession(a)
+  })
+
   // WP-313 — 동기화 서버가 다른 스키마 판이면 몇 번을 다시 붙어도 거절된다. 재연결을 멈추고 새로고침 안내 상태로 둔다.
   it('stops reconnecting on a schema mismatch, even mid-session, and never reuses the stale session', async () => {
     const a = acquireCollabSession(12)

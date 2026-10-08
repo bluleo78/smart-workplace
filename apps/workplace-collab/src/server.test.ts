@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
 import type { CollabConfig } from './config'
-import { COLLAB_SCHEMA_MISMATCH, WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema'
+import { CLOSE_DELETED, COLLAB_SCHEMA_MISMATCH, WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema'
 
 import { FRAGMENT, yDocToMarkdown } from './markdownCodec'
 import { apiAuthenticator, createCollabServer, SCHEMA_MISMATCH_LOG_MS, type CollabServer } from './server'
@@ -453,7 +453,7 @@ describe('collab server', () => {
       }
     })
 
-    it('closes remaining connections with 4403 when a debounced store finds the page gone', async () => {
+    it('closes remaining connections with 4404 (deleted) when a debounced store finds the page gone', async () => {
       const a = connect('editor-token')
       await synced(a)
       await expect.poll(() => api.stores.length).toBe(1)
@@ -461,7 +461,7 @@ describe('collab server', () => {
       const warns = vi.spyOn(console, 'warn').mockImplementation(() => {})
       try {
         typeAt(a.doc, 1, '수정 ') // 접속 중 지연 저장 → 404
-        await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(4403)
+        await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_DELETED.code)
         await unloaded()
         await new Promise((r) => setTimeout(r, 400))
         expect(api.storeNotFound).toBe(1)

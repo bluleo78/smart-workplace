@@ -7,7 +7,8 @@ import { COLLAB_ROLE_CHANGED_TYPE, isCollabEditRole } from '@smart-workplace/wik
 
 /**
  * 헤더 동기화 상태 — 정상은 'live'(점 하나), 문제 있을 때만 글자 칩.
- * 'forbidden' 은 페이지가 삭제됐거나 접근 권한이 사라진 종단 상태다(서버가 둘을 구분해 주지 않는다).
+ * 'forbidden' 은 접근 권한이 사라졌거나, 삭제 여부를 모르는 채 거절된 종단 상태다.
+ * 'deleted' 는 이 노트가 삭제된 종단 상태다(서버가 삭제임을 확실히 알 때만 — 4404).
  * 'signed-out' 은 로그인이 풀려(refresh 거절) 다시 로그인하기 전엔 붙을 수 없는 종단 상태다.
  * 'outdated' 는 동기화 서버가 다른 스키마 판으로 배포돼(WP-313) 새로고침 전엔 붙을 수 없는 종단 상태다.
  * 'connecting' 은 새 세션이 아직 한 번도 동기화되지 않은 처음 연결 중(중립) — 끊김 경고(재연결 중)도, 권한 로딩 중의
@@ -21,29 +22,37 @@ export type SyncStatus =
   | 'unsent'
   | 'readonly'
   | 'forbidden'
+  | 'deleted'
   | 'signed-out'
   | 'outdated'
+
+/** 이 노트에 더 접근할 수 없는 종료 상태(삭제됨·접근 불가) — 노트를 바꾸는 동작·재시도 대신 나갈 길만 남긴다. */
+export function isAccessLost(s: SyncStatus): boolean {
+  return s === 'deleted' || s === 'forbidden'
+}
 
 // 잠깐 끊김(재연결 중)과 오프라인을 가르는 기준 — 짧은 네트워크 흔들림에 '오프라인'을 띄우지 않는다.
 export const OFFLINE_AFTER_MS = 5000
 
 /**
  * 재연결하지 않는 종단 상태 — 세션에 하나만 있다(먼저 닿은 것).
- * - forbidden: 페이지 삭제·접근 권한 사라짐(4403 등).
+ * - forbidden: 접근 권한 사라짐, 또는 삭제 여부를 모르는 거절(4403·연결 시 인증 거절 등).
+ * - deleted: 페이지 삭제(4404) — 남은 입력을 보낼 곳이 없다.
  * - authLost: 로그인 풀림(refresh 쿠키 거절) — 다시 로그인하기 전엔 붙을 수 없다.
  * - schemaStale: 동기화 서버가 다른 스키마 판으로 배포됨(WP-313) — 새로고침 전엔 붙을 수 없고, 아직 못 보낸 입력은 저장되지 않는다.
  */
-export type CollabTerminal = 'forbidden' | 'authLost' | 'schemaStale'
+export type CollabTerminal = 'forbidden' | 'deleted' | 'authLost' | 'schemaStale'
 
 /** 종단 → 칩 상태. */
 const TERMINAL_STATUS: Record<CollabTerminal, SyncStatus> = {
   forbidden: 'forbidden',
+  deleted: 'deleted',
   authLost: 'signed-out',
   schemaStale: 'outdated',
 }
 
 /**
- * 상태 판정. 우선순위: 종단(outdated·signed-out·forbidden) → 첫 동기화 전이면 connecting(5초 넘으면 offline) → readonly → 연결됨이면 live → 미전송 있으면 unsent
+ * 상태 판정. 우선순위: 종단(outdated·signed-out·forbidden·deleted) → 첫 동기화 전이면 connecting(5초 넘으면 offline) → readonly → 연결됨이면 live → 미전송 있으면 unsent
  * → 끊긴 지 5초 미만 reconnecting → 그 외 offline.
  * 연결된 동안의 미전송(서버 확인 대기 중인 방금 입력)은 정상 흐름이라 live 로 본다.
  */

@@ -1,6 +1,7 @@
 import './dom-install'
 
 import {
+  CLOSE_DELETED,
   CLOSE_FORBIDDEN,
   CLOSE_TOKEN_EXPIRED,
   COLLAB_AI_MARKERS_FIELD,
@@ -377,14 +378,15 @@ describe('internal routes', () => {
       expect(app.hocuspocus.documents.has(DOC)).toBe(false)
     })
 
-    it('answers 404 when the page is gone at store, closes connections with 4403 and drops the document', async () => {
+    it('answers 404 when the page is gone at store, closes connections with 4404 (deleted) and drops the document', async () => {
       const a = connect('editor-token')
       await synced(a)
       await expect.poll(() => api.stores.length).toBe(1)
       api.remove(1)
       const res = await apply('삭제 뒤 적용')
       expect(res.status).toBe(404)
-      await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_FORBIDDEN.code)
+      // 내부 저장은 사용자 권한과 무관(Internal 토큰) — 404 는 페이지가 없어졌다는 뜻이라 삭제로 알린다.
+      await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_DELETED.code)
       await unloaded()
       await new Promise((r) => setTimeout(r, 400))
       expect(api.storeNotFound).toBe(1)
@@ -930,7 +932,8 @@ describe('internal routes', () => {
       await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('계속 첫 문단')
     })
 
-    it('closes every connection to deleted pages and leaves other pages alone', async () => {
+    it('closes every connection that lost access to the listed pages with 4403 when no reason is given, and leaves other pages alone', async () => {
+      // 사유 없는 재검증은 삭제인지 권한 회수인지 모른다(판정 404 는 둘 다) — 기존 권한 회수 코드(4403)로 닫는다.
       const a = connect('editor-token')
       const b = connect('editor2-token')
       const elsewhere = connect('editor-token', 'wiki-page:2')
@@ -944,6 +947,46 @@ describe('internal routes', () => {
       await expect.poll(() => b.disconnects.map((d) => d.code)).toContain(CLOSE_FORBIDDEN.code)
       expect(elsewhere.disconnects).toEqual([])
       expect(elsewhere.provider.isSynced).toBe(true)
+    })
+
+    it('closes connections to a deleted page with 4404 when the API says the page was deleted', async () => {
+      const a = connect('editor-token')
+      const b = connect('editor2-token')
+      const elsewhere = connect('editor-token', 'wiki-page:2')
+      await synced(a)
+      await synced(b)
+      await synced(elsewhere)
+      api.page(1, { tenantId: 99, body: BODY, version: 9 }) // 삭제 흉내 — 판정 404
+      const res = await postInternal('/internal/docs/revalidate', { tenantId: TENANT, spaceId: 2, pageIds: [1], reason: 'deleted' })
+      expect(res.status).toBe(204)
+      await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_DELETED.code)
+      await expect.poll(() => b.disconnects.map((d) => d.code)).toContain(CLOSE_DELETED.code)
+      expect(a.disconnects.find((d) => d.code === CLOSE_DELETED.code)?.reason).toBe(CLOSE_DELETED.reason)
+      // 삭제는 권한 회수(4403)로 알리지 않는다 — 웹이 "삭제되었습니다"와 "권한 없음"을 가른다.
+      expect(a.disconnects.map((d) => d.code)).not.toContain(CLOSE_FORBIDDEN.code)
+      expect(elsewhere.disconnects).toEqual([])
+    })
+
+    it('keeps a connection that still has access even when told the page was deleted', async () => {
+      // 늦게 도착한 재검증·같은 번호의 다른 문서 — 사유만 믿고 끊지 않고 재판정 결과를 따른다.
+      const a = connect('editor-token')
+      await synced(a)
+      const res = await postInternal('/internal/docs/revalidate', { tenantId: TENANT, pageIds: [1], reason: 'deleted' })
+      expect(res.status).toBe(204)
+      typeAt(a.doc, 1, '그대로 ')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('그대로 첫 문단')
+      expect(a.disconnects).toEqual([])
+    })
+
+    it('treats an unknown revalidate reason as no reason and still closes connections that lost access with 4403', async () => {
+      // 버전이 섞인 배포(새 API·옛 동기화 서버) — 모르는 사유로 요청 전체를 400 으로 거절하면 접근을 잃은 연결이 열린 채 남는다.
+      const a = connect('editor-token')
+      await synced(a)
+      api.page(1, { tenantId: 99, body: BODY, version: 9 }) // 접근 상실 흉내 — 판정 404
+      const res = await postInternal('/internal/docs/revalidate', { tenantId: TENANT, pageIds: [1], reason: 'moved' })
+      expect(res.status).toBe(204)
+      await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_FORBIDDEN.code)
+      expect(a.disconnects.map((d) => d.code)).not.toContain(CLOSE_DELETED.code)
     })
 
     it('closes with 4401 (not 4403) when the stored token is rejected (401), so the client refreshes and reconnects', async () => {

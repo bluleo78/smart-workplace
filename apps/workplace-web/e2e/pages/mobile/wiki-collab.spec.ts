@@ -1,4 +1,5 @@
-import { WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema/collab-protocol'
+import type { Page } from '@playwright/test'
+import { REVALIDATE_REASON_DELETED, WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema/collab-protocol'
 
 import {
   applyCollabMarkdown,
@@ -8,14 +9,27 @@ import {
   setCollabSchemaVersion,
   typeAtEnd,
 } from '../../fixtures/collab'
+import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
-import { mockWikiPageEditor } from '../../fixtures/wiki-mock'
+import { mockNoteInTeamSpace, mockWikiPageEditor } from '../../fixtures/wiki-mock'
 
 // 모바일 셸(390px)의 노트 동시 편집(WP-172) — 테스트 모드 동기화 서버에 실제로 붙는다.
 // 정상(live)은 헤더 폭을 지키려 점 하나만, 문제 상태는 짧은 글자 칩. 데스크톱 시나리오는 pages/wiki/wiki-collab.spec.ts.
 
 const SPACE_ID = 1
-const pagePath = (pageId: number) => `/wiki/spaces/${SPACE_ID}/pages/${pageId}`
+const pagePath = (pageId: number, spaceId = SPACE_ID) => `/wiki/spaces/${spaceId}/pages/${pageId}`
+// 첫 스페이스(개인)가 아닌 팀 스페이스 — 종료 안내의 "노트 목록으로"가 노트의 스페이스 목록으로 가는지 가른다.
+const TEAM_SPACE_ID = 2
+// 삭제 시나리오 본문 — 스크롤할 수 있을 만큼 길어야 띠의 스크롤 보정(제목 가림)이 실제로 일어난다.
+const DELETED_BODY = ['지울 본문', ...Array.from({ length: 40 }, (_, i) => `문단 ${i + 1}`)].join('\n\n')
+
+/** 종료 상태의 페이지 메뉴 — 없는 노트를 지우는 항목은 없고, 마크다운 소스는 남는다. */
+async function expectNoDeleteInPageMenu(page: Page) {
+  await page.getByTestId('wiki-page-header').getByRole('button', { name: '페이지 메뉴' }).click()
+  await expect(page.getByTestId('wiki-menu-source')).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '페이지 삭제' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+}
 
 test.describe('모바일 노트 동시 편집', () => {
   test('정상 연결은 점 하나 칩이고, 다른 사람 입력이 실시간으로 들어온다', async ({
@@ -74,8 +88,9 @@ test.describe('모바일 노트 동시 편집', () => {
     authenticatedPage: a,
     collabNs,
   }) => {
-    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 23, title: '노트', body: '본문' })
-    await a.goto(pagePath(23))
+    await mockWikiPageEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 23, title: '노트', body: '본문' })
+    await mockNoteInTeamSpace(a, { spaceId: TEAM_SPACE_ID, name: '제품팀' })
+    await a.goto(pagePath(23, TEAM_SPACE_ID))
     const chip = a.getByTestId('wiki-sync-status')
     const editor = a.locator('.ProseMirror')
     await expect(chip).toHaveAttribute('data-status', 'live')
@@ -86,10 +101,72 @@ test.describe('모바일 노트 동시 편집', () => {
     await expect(editor).toHaveAttribute('contenteditable', 'false')
 
     await changeCollabRole(collabNs, 23, 'NONE')
-    await expect(a.getByTestId('wiki-forbidden-notice')).toHaveText('삭제되었거나 접근 권한이 없습니다')
+    await expect(a.getByTestId('wiki-forbidden-notice')).toContainText('삭제되었거나 접근 권한이 없습니다')
     await expect(chip).toHaveAttribute('data-status', 'forbidden')
     await expect(chip).toHaveText('접근 불가')
+    await expect(a.getByRole('alert')).toHaveText('삭제되었거나 접근 권한이 없습니다')
     await expectNoHorizontalOverflow(a)
+    await expectNoDeleteInPageMenu(a)
+
+    // 나갈 길 — 이 노트의 스페이스 목록으로. 글줄 링크라도 터치 영역은 24px 이상.
+    const toList = a.getByTestId('wiki-forbidden-to-list')
+    await expect(toList).toHaveAttribute('href', `/wiki/spaces/${TEAM_SPACE_ID}`)
+    expect((await toList.boundingBox())!.height).toBeGreaterThanOrEqual(24)
+    await toList.click()
+    await expect(a).toHaveURL(new RegExp(`/wiki/spaces/${TEAM_SPACE_ID}$`))
+  })
+
+  // WP-296 — 모바일도 삭제됨은 짧은 칩 + 안내 띠(목록으로 가는 링크)로 알리고, 띠가 접혀도 화면 폭을 넘지 않는다.
+  // 실제 순서대로 삭제 SSE 의 재조회(404)·트리 갱신이 동기화 서버 종료(4404)보다 먼저 온다.
+  test('편집 중 노트가 삭제되면 짧은 삭제됨 칩과 안내를 보이고 화면 폭을 넘지 않는다', async ({
+    authenticatedPage: a,
+    collabNs,
+  }) => {
+    await mockWikiPageEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 28, title: '지울 회의록', body: DELETED_BODY })
+    await mockNoteInTeamSpace(a, { spaceId: TEAM_SPACE_ID, name: '제품팀' })
+    const events = await mockGatedEvents(a)
+    await a.goto(pagePath(28, TEAM_SPACE_ID))
+    const chip = a.getByTestId('wiki-sync-status')
+    await expect(chip).toHaveAttribute('data-status', 'live')
+
+    await a.route(
+      (u) => u.pathname === '/api/v1/wiki/pages/28',
+      (r) =>
+        r.request().method() === 'GET'
+          ? r.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: '페이지를 찾을 수 없습니다' }) })
+          : r.fallback(),
+    )
+    await a.route(
+      (u) => u.pathname === `/api/v1/wiki/spaces/${TEAM_SPACE_ID}/pages`,
+      (r) => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback()),
+    )
+    const refetch = a.waitForResponse(
+      (r) => new URL(r.url()).pathname === '/api/v1/wiki/pages/28' && r.status() === 404,
+    )
+    events.deliver(`event: wiki.page.deleted\ndata: ${JSON.stringify({ spaceId: TEAM_SPACE_ID, pageId: 28, actorId: 2 })}\n\n`)
+    await refetch
+
+    await changeCollabRole(collabNs, 28, 'NONE', REVALIDATE_REASON_DELETED)
+    await expect(a.getByTestId('wiki-deleted-notice')).toContainText('이 노트가 삭제되었습니다')
+    await expect(chip).toHaveAttribute('data-status', 'deleted')
+    await expect(chip).toHaveText('삭제됨')
+    await expect(a.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'false')
+    await expect(a.locator('.ProseMirror')).toContainText('지울 본문')
+    // 트리에서 빠져도 헤더 제목은 일반 "노트"가 아니라 지운 노트의 제목, 띠는 본문 제목을 가리지 않는다.
+    await expect(a.getByTestId('mobile-back-title')).toHaveText('지울 회의록')
+    const notice = await a.getByTestId('wiki-deleted-notice').boundingBox()
+    const title = await a.getByPlaceholder('제목 없음').boundingBox()
+    expect(notice && title && title.y >= notice.y + notice.height).toBe(true)
+    await expectNoHorizontalOverflow(a)
+    await expectNoDeleteInPageMenu(a)
+
+    // 목록으로 → 이 노트의 스페이스 목록(모바일도 /wiki/spaces/:id 가 목록) — /wiki 면 첫 스페이스(개인 노트)로 간다.
+    const toList = a.getByTestId('wiki-deleted-to-list')
+    await expect(toList).toHaveAttribute('href', `/wiki/spaces/${TEAM_SPACE_ID}`)
+    // 띠 안의 글줄 링크라도 터치 영역은 24px 이상(10-accessibility 최소 기준) — 글줄 높이(17px)만으론 미달이었다.
+    expect((await toList.boundingBox())!.height).toBeGreaterThanOrEqual(24)
+    await toList.click()
+    await expect(a).toHaveURL(new RegExp(`/wiki/spaces/${TEAM_SPACE_ID}$`))
   })
 
   // WP-313 — 모바일은 칩 title(툴팁)이 안 보이므로 안내 띠가 미전송 입력 손실을 알리고, 칩을 탭하면 새로고침한다.

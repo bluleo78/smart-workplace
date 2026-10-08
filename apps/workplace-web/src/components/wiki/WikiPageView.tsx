@@ -1,5 +1,5 @@
 import { BookOpen, FileQuestion } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { AiLabel } from '@/components/ai/AiLabel'
@@ -20,10 +20,16 @@ import {
 import { useCreateWikiPageAndOpen } from './useCreateWikiPageAndOpen'
 import { WikiEditor } from './WikiEditor'
 import { WikiPageSkeleton } from './WikiPageSkeleton'
+import { type ConfirmedLoadState, trackConfirmedLoad, wikiPageViewMode } from './wikiPageViewMode'
 
 /** 선택된 페이지를 로드해 에디터를 마운트. 미선택 시 DS §2.5 빈 상태(4요소) 표시. */
 export function WikiPageView({ pageId, spaceId }: { pageId: number | null; spaceId: number }) {
-  const { data: page, isLoading, isError, error } = useWikiPage(pageId)
+  const { data: page, isLoading, isError, error, isSuccess, isFetching } = useWikiPage(pageId)
+  // 이번 방문에서 조회 성공을 확인했는지 — 캐시만으로는 확인하지 않고, 노트가 바뀌면(노트 없음 포함) 버린다(WP-296).
+  // 렌더 중 상태 갱신(바뀌었을 때만)으로 같은 렌더에 반영한다 — effect 로 미루면 한 프레임 동안 예전 확인으로 그린다.
+  const [confirmState, setConfirmState] = useState<ConfirmedLoadState>({ pageId: null, confirmed: false })
+  const nextConfirm = trackConfirmedLoad(confirmState, { pageId, dataId: page?.id, isSuccess, isFetching })
+  if (nextConfirm !== confirmState) setConfirmState(nextConfirm)
   const { create: createPage, isPending: createPending } = useCreateWikiPageAndOpen(spaceId)
   const navigate = useNavigate()
   const lastVisitedKey = useWikiLastVisitedKey()
@@ -55,7 +61,9 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
     else if (gone && pageId != null && readWikiLastVisited(lastVisitedKey) === pageId) clearWikiLastVisited(lastVisitedKey)
   }, [lastVisitedKey, loadedPageId, gone, pageId])
 
-  if (pageId == null) {
+  // 본문 자리 분기 — 이 화면에서 불러온 노트는 재조회가 실패해도(삭제 SSE 뒤 404) 에디터를 유지한다(WP-296).
+  const mode = wikiPageViewMode({ pageId, isLoading, isError, dataId: page?.id, loadedInThisView: nextConfirm.confirmed })
+  if (mode === 'empty') {
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 + CTA 버튼 4요소(데스크톱 본문. 모바일 목록은 WikiNoPages, WP-179) */
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center" data-testid="wiki-empty-state">
@@ -81,7 +89,7 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
       </div>
     )
   }
-  if (isError || (!isLoading && !page)) {
+  if (mode === 'error') {
     /** #788: 존재하지 않는 페이지 ID 등 로드 실패 — 무한 skeleton 대신 ResourceErrorState(4요소) 표시. */
     return (
       <ResourceErrorState
@@ -93,11 +101,10 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
       />
     )
   }
-  if (isLoading || !page) {
+  // !page 는 타입 좁히기용 — 모드가 'editor' 면 page 가 있다.
+  if (mode === 'loading' || !page) {
     /** 페이지 콘텐츠 형태를 미러하는 skeleton — DS §2.5 */
-    return (
-      <WikiPageSkeleton testId="wiki-page-skeleton" />
-    )
+    return <WikiPageSkeleton testId="wiki-page-skeleton" />
   }
   return <WikiEditor key={page.id} page={page} spaceId={spaceId} />
 }

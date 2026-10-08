@@ -177,6 +177,34 @@ class WikiCollabInternalIntegrationTest extends IntegrationTestBase {
   }
 
   /**
+   * WP-295 — 동시 편집에선 본문 저장이 동기화 서버의 파생 저장으로만 일어난다. 업로드 직후 임시(만료 예정) 첨부는 그 이미지를 담은 파생 저장에서 영구화되고, 이후
+   * 파생 저장에서 참조가 빠지면 강등(만료 재무장)되며, 유예 안에 참조가 돌아오면 다시 영구화돼야 한다. 안 그러면 동시 편집 노트의 이미지가 임시 만료로 지워지거나, 지운
+   * 이미지가 영원히 남는다.
+   */
+  @Test
+  void derivedStorePromotesReferencedAttachmentAndDemotesItWhenDropped() throws Exception {
+    long pageId = seedPage("본문");
+    tenant1();
+    var file = new MockMultipartFile("file", "a.png", "image/png", png());
+    WikiAttachmentResponse att = attachmentService.upload(userId, pageId, file);
+    seededFileIds.add(att.fileId());
+    assertThat(expiresAtOf(att.fileId())).as("셋업: 업로드 직후엔 임시(만료 예정)").isNotNull();
+    String image = "![a](" + WikiAttachmentResponse.urlOf(pageId, att.fileId()) + ")";
+
+    storeBody(pageId, "본문 " + image);
+    assertThat(expiresAtOf(att.fileId())).as("이미지를 담은 파생 저장이 영구화").isNull();
+    assertThat(demotedAtOf(att.fileId())).isNull();
+
+    storeBody(pageId, "본문");
+    assertThat(expiresAtOf(att.fileId())).as("참조가 빠진 파생 저장이 만료를 다시 건다").isNotNull();
+    assertThat(demotedAtOf(att.fileId())).as("강등 시각 기록").isNotNull();
+
+    storeBody(pageId, "본문 다시 " + image);
+    assertThat(expiresAtOf(att.fileId())).as("유예 안에 참조가 돌아오면 다시 영구화").isNull();
+    assertThat(demotedAtOf(att.fileId())).isNull();
+  }
+
+  /**
    * 본문이 그대로인 파생 저장(커서 이동·서식 왕복·같은 글자 쳤다 지움 등) — 상태만 기록하고 version·updated_*·백링크·첨부·SSE 는 건드리지 않는다. 안
    * 그러면 열어 두기만 해도 version 이 계속 올라 낙관적 잠금·요약 낡음·최근 수정 순서가 흔들린다.
    */

@@ -1,35 +1,64 @@
-import { Ban, CloudOff, CloudUpload, LogIn, RotateCw } from 'lucide-react'
-import { type RefObject, useEffect, useRef } from 'react'
+import { Ban, CloudOff, CloudUpload, LogIn, RotateCw, Trash2 } from 'lucide-react'
+import { type RefObject, useEffect, useLayoutEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
 
-import { reloadPage, type SyncStatus } from '../../lib/collab/collabStatus'
+import { pageGutterClass, pageReadingWidthClass } from '@/components/layout/Page'
+import { cn } from '@/lib/utils'
+
+import { isAccessLost, reloadPage, type SyncStatus } from '../../lib/collab/collabStatus'
 
 /**
- * 동기화 안내 띠(WP-287 디자이너 리뷰) — 미전송(unsent)·접근 불가(forbidden)·로그인 필요(signed-out)·새 버전(outdated)일 때 본문 스크롤 영역 맨 위에 붙는다.
+ * 동기화 안내 띠(WP-287 디자이너 리뷰) — 미전송(unsent)·접근 불가(forbidden)·삭제됨(deleted)·로그인 필요(signed-out)·새 버전(outdated)일 때 본문 스크롤 영역 맨 위에 붙는다.
  *
  * - sticky 라 긴 문서 아래쪽에서 입력 중이어도 화면에서 사라지지 않는다(예전엔 제목 위 일반 흐름이라 스크롤로 밀려 안 보였다).
  * - 띠가 나타나거나 사라질 때 본문이 밀려 커서 줄이 튀지 않게 그만큼 scrollTop 을 보정한다 — 결과적으로 띠는
  *   본문 위에 겹쳐 뜨고, 맨 위로 스크롤하면 제목 위(시안 ④ 위치)에 그대로 놓인다.
  * - 글자는 본문색(text-foreground)·아이콘만 빨강 — 연한 빨강 바탕 위 빨강 글자는 라이트에서 대비 3.15:1 로 AA 미달이었다.
  * - 바깥 래퍼는 항상 마운트한다(안내 없으면 높이 0) — 높이 변화를 ResizeObserver 로 지켜보며 보정하기 위해서.
+ * - 예외: 삭제됨·접근 불가 띠가 맨 위(scrollTop≈0)에서 나타나면 보정하지 않고 본문을 밀어 낸다(WP-296) — 보정하면 띠가 제목을
+ *   덮어 무엇이 지워졌는지 안 보인다. 편집이 막힌 종료 상태라 커서 줄이 튈 걱정도 없다. 중간까지 내려 읽던 중이면 그대로 보정한다.
  */
 export function WikiSyncNotice({
   status,
+  listPath,
   scrollRef,
 }: {
   status: SyncStatus
+  /** 종료 안내(삭제됨·접근 불가)의 "노트 목록으로" 목적지 — wikiListPath 가 정한다. */
+  listPath: string
   scrollRef: RefObject<HTMLDivElement | null>
 }) {
   const stripRef = useRef<HTMLDivElement>(null)
-  useKeepContentOnStripResize(scrollRef, stripRef)
+  useKeepContentOnStripResize(scrollRef, stripRef, isAccessLost(status))
 
   return (
     <div ref={stripRef} className="sticky top-0 z-10">
       {status === 'forbidden' && (
         <NoticeBox>
           <Ban className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
-          {/* 종료 상태 — 삭제됐거나 접근 권한을 잃었다(웹은 둘을 구분할 수 없다). 재연결하지 않으므로 스피너 없이 알린다. */}
-          <span role="alert" data-testid="wiki-forbidden-notice">
-            삭제되었거나 접근 권한이 없습니다
+          {/* 종료 상태 — 접근 권한을 잃었거나, 삭제 여부를 모르는 거절(접속 시점에 이미 지워진 노트 등)이다.
+              편집 중 삭제는 서버가 삭제 코드로 따로 알려 아래 deleted 로 간다. 재연결하지 않으므로 스피너 없이 알리고,
+              삭제됨과 같은 모양으로 나갈 길(노트 목록)을 준다 — 경고(alert)는 문구만, 링크는 같은 줄에 이어 둔다. */}
+          <span data-testid="wiki-forbidden-notice">
+            <span role="alert">삭제되었거나 접근 권한이 없습니다</span>{' '}
+            <Link to={listPath} className="py-1 font-semibold underline underline-offset-2" data-testid="wiki-forbidden-to-list">
+              노트 목록으로
+            </Link>
+          </span>
+        </NoticeBox>
+      )}
+      {status === 'deleted' && (
+        <NoticeBox>
+          <Trash2 className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+          {/* 종료 상태(WP-296) — 다른 사람이 이 노트를 지웠다. 화면의 내용은 그대로 둬 아직 옮기지 못한 글을 복사할 수 있게 하고,
+              나갈 길(노트 목록)을 준다. 재연결하지 않으므로 스피너 없이 알린다.
+              경고(alert)는 문구만 — 링크까지 넣으면 낭독이 "링크, 노트 목록으로"까지 이어진다. 링크는 같은 줄에 이어 둔다.
+              링크의 py-1 — 글줄(inline) 요소라 줄 높이·띠 높이는 그대로 두고 터치 영역만 24px 이상으로 넓힌다(10-accessibility). */}
+          <span data-testid="wiki-deleted-notice">
+            <span role="alert">이 노트가 삭제되었습니다. 화면의 내용은 이 화면을 닫기 전까지 볼 수 있어요.</span>{' '}
+            <Link to={listPath} className="py-1 font-semibold underline underline-offset-2" data-testid="wiki-deleted-to-list">
+              노트 목록으로
+            </Link>
           </span>
         </NoticeBox>
       )}
@@ -39,7 +68,7 @@ export function WikiSyncNotice({
           {/* 종료 상태 — 로그인이 풀려(refresh 거절) 재연결하지 않는다. 앱의 다른 곳처럼 다시 로그인하도록 안내한다. */}
           <span role="alert" data-testid="wiki-signed-out-notice">
             로그인이 필요합니다.{' '}
-            <a href="/login" className="font-semibold underline underline-offset-2">
+            <a href="/login" className="py-1 font-semibold underline underline-offset-2">
               다시 로그인
             </a>
           </span>
@@ -85,7 +114,8 @@ const NOTICE_CLASS =
 function NoticeBox({ children }: { children: React.ReactNode }) {
   return (
     <div className="border-b bg-background">
-      <div className="mx-auto max-w-3xl px-8 py-2">
+      {/* 본문 칼럼(Page reading 폭 — 왼쪽 정렬·같은 페이지 여백)과 같은 축. */}
+      <div className={cn(pageGutterClass, pageReadingWidthClass, 'py-2')}>
         <div className={NOTICE_CLASS}>{children}</div>
       </div>
     </div>
@@ -118,23 +148,35 @@ export function WikiSyncUnreachable() {
 function useKeepContentOnStripResize(
   scrollRef: RefObject<HTMLDivElement | null>,
   stripRef: RefObject<HTMLDivElement | null>,
+  pushAtTop: boolean,
 ) {
+  // 맨 위에서는 보정하지 않고 밀어 낼지(삭제됨·접근 불가 띠) — 관찰자를 다시 걸지 않도록 ref 로 최신 값만 읽는다.
+  // 레이아웃 effect 로 커밋 직후 동기 갱신한다 — 수동 effect 는 띠 높이 변화의 ResizeObserver 콜백보다 늦을 수 있다.
+  const pushAtTopRef = useRef(pushAtTop)
+  useLayoutEffect(() => {
+    pushAtTopRef.current = pushAtTop
+  }, [pushAtTop])
   useEffect(() => {
     const scroller = scrollRef.current
     const strip = stripRef.current
     if (!scroller || !strip) return
     const contentTop = () => (strip.nextElementSibling as HTMLElement | null)?.getBoundingClientRect().top ?? 0
     let lastTop = contentTop()
+    // 띠가 바뀌기 직전의 스크롤 위치 — 맨 위(≈0)였는지로 밀어 낼지 판단한다.
+    let lastScrollTop = scroller.scrollTop
     // 사용자가 스크롤하면 본문 위치가 바뀌는 게 정상이다 — 기준값만 갱신한다.
     const onScroll = () => {
       lastTop = contentTop()
+      lastScrollTop = scroller.scrollTop
     }
     scroller.addEventListener('scroll', onScroll, { passive: true })
     // ResizeObserver 콜백은 레이아웃 뒤·페인트 전에 돈다 → 밀린 본문이 한 프레임도 그려지지 않는다.
     const ro = new ResizeObserver(() => {
       const shift = contentTop() - lastTop
-      if (shift !== 0) scroller.scrollTop += shift
+      const atTop = lastScrollTop <= 1
+      if (shift !== 0 && !(pushAtTopRef.current && atTop)) scroller.scrollTop += shift
       lastTop = contentTop()
+      lastScrollTop = scroller.scrollTop
     })
     ro.observe(strip)
     return () => {

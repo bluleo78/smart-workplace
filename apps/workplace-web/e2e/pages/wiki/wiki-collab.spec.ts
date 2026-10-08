@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema/collab-protocol'
+import { REVALIDATE_REASON_DELETED, WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema/collab-protocol'
 
 import { expect, test } from '../../fixtures/auth.fixture'
 import {
@@ -11,18 +11,65 @@ import {
   setCollabSchemaVersion,
   typeAtEnd,
 } from '../../fixtures/collab'
+import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { expectStays, resizeAndSettle } from '../../fixtures/wait'
 import { solidPng } from '../../fixtures/png'
-import { buildWikiAiSse, mockWikiPageEditor, pasteImageFile } from '../../fixtures/wiki-mock'
+import { buildWikiAiSse, mockNoteInTeamSpace, mockWikiPageEditor, pasteImageFile } from '../../fixtures/wiki-mock'
 
 // 노트 실시간 동시 편집(WP-172) — 테스트 모드 동기화 서버(playwright.config webServer)에 실제로 붙는다.
 // 문서는 테스트마다 네임스페이스(collabNs)로 격리되고, 서버 문서 결과는 /__test/markdown 으로 읽는다.
-// 모바일 셸(점 하나 칩·읽기 전용·접근 불가)은 pages/mobile/wiki-collab.spec.ts 가 다룬다.
+// 모바일 셸(점 하나 칩·읽기 전용·접근 불가·삭제됨)은 pages/mobile/wiki-collab.spec.ts 가 다룬다.
 
 const SPACE_ID = 1
-const pagePath = (pageId: number) => `/wiki/spaces/${SPACE_ID}/pages/${pageId}`
+const pagePath = (pageId: number, spaceId = SPACE_ID) => `/wiki/spaces/${spaceId}/pages/${pageId}`
+// 첫 스페이스(개인)가 아닌 팀 스페이스 — 종료 안내의 "노트 목록으로"가 노트의 스페이스로 가는지 가른다(mockNoteInTeamSpace).
+const TEAM_SPACE_ID = 2
+// 삭제 시나리오 본문 — 스크롤할 수 있을 만큼 길어야 띠의 스크롤 보정(제목 가림)이 실제로 일어난다.
+const DELETED_BODY = ['지울 본문', ...Array.from({ length: 40 }, (_, i) => `문단 ${i + 1}`)].join('\n\n')
 
 const syncStatus = (page: Page) => page.getByTestId('wiki-sync-status')
+
+/** 페이지 삭제 이후의 API — 상세 조회 404, 스페이스 트리에서 빠짐(나중에 등록한 라우트가 이긴다). */
+async function mockDeletedPage(page: Page, pageId: number, spaceId = SPACE_ID) {
+  await page.route(
+    (u) => u.pathname === `/api/v1/wiki/pages/${pageId}`,
+    (r) =>
+      r.request().method() === 'GET'
+        ? r.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: '페이지를 찾을 수 없습니다' }) })
+        : r.fallback(),
+  )
+  await mockTree(page, [], spaceId)
+}
+
+/** 스페이스 트리 응답을 바꾼다 — 여러 노트를 오가는 시나리오용. */
+async function mockTree(page: Page, pages: { id: number; title: string }[], spaceId = SPACE_ID) {
+  await page.route(
+    (u) => u.pathname === `/api/v1/wiki/spaces/${spaceId}/pages`,
+    (r) =>
+      r.request().method() === 'GET'
+        ? r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(pages.map((p, i) => ({ ...p, parentId: null, position: i, aiLastUsedAt: null }))),
+          })
+        : r.fallback(),
+  )
+}
+
+/** 종료 상태(삭제됨·접근 불가)의 페이지 메뉴 — 없는 노트를 지우는 항목은 없고, 읽기만 하는 마크다운 소스는 남는다. */
+async function expectNoDeleteInPageMenu(page: Page) {
+  await page.getByTestId('wiki-page-header').getByRole('button', { name: '페이지 메뉴' }).click()
+  await expect(page.getByTestId('wiki-menu-source')).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '페이지 삭제' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+}
+
+/** 맨 위에서 띠가 나타나면 제목을 덮지 않고 밀어 내야 한다 — 제목 입력의 위쪽이 안내 띠 아래쪽보다 아래다. */
+async function expectTitleBelowNotice(page: Page) {
+  const notice = await page.getByTestId('wiki-deleted-notice').boundingBox()
+  const title = await page.getByPlaceholder('제목 없음').boundingBox()
+  expect(notice && title && title.y >= notice.y + notice.height).toBe(true)
+}
 
 /** ✦ 이름표들의 배치 — 개수, 서로 겹치지 않는지(1px 허용), 말줄임으로 잘린 이름 수. */
 async function tagLayout(page: Page): Promise<{ count: number; disjoint: boolean; truncated: number }> {
@@ -205,14 +252,157 @@ test.describe('노트 동시 편집', () => {
     authenticatedPage: a,
     collabNs,
   }) => {
-    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 15, title: '노트', body: '본문' })
-    await a.goto(pagePath(15))
+    await mockWikiPageEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 15, title: '노트', body: '본문' })
+    await mockNoteInTeamSpace(a, { spaceId: TEAM_SPACE_ID, name: '제품팀' })
+    await a.goto(pagePath(15, TEAM_SPACE_ID))
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
 
     await changeCollabRole(collabNs, 15, 'NONE')
-    await expect(a.getByTestId('wiki-forbidden-notice')).toHaveText('삭제되었거나 접근 권한이 없습니다')
+    await expect(a.getByTestId('wiki-forbidden-notice')).toContainText('삭제되었거나 접근 권한이 없습니다')
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'forbidden')
     await expect(a.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'false')
+    // 경고(alert)는 안내 문구만 — 나갈 링크는 낭독 대상에 섞지 않는다.
+    await expect(a.getByRole('alert')).toHaveText('삭제되었거나 접근 권한이 없습니다')
+    await expectNoDeleteInPageMenu(a)
+
+    // 나갈 길 — 첫 스페이스(/wiki 리다이렉트)가 아니라 이 노트의 스페이스 목록으로.
+    const toList = a.getByTestId('wiki-forbidden-to-list')
+    await expect(toList).toHaveAttribute('href', `/wiki/spaces/${TEAM_SPACE_ID}`)
+    await toList.click()
+    await expect(a).toHaveURL(new RegExp(`/wiki/spaces/${TEAM_SPACE_ID}$`))
+  })
+
+  // WP-296 — 팀 스페이스에서 빠져 접근을 잃으면 그 스페이스는 더 열 수 없다 — "노트 목록으로"는 /wiki(첫 스페이스)로 간다.
+  test('스페이스에서 빠져 접근을 잃으면 노트 목록으로가 열 수 있는 첫 스페이스로 간다', async ({
+    authenticatedPage: a,
+    collabNs,
+  }) => {
+    await mockWikiPageEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 16, title: '노트', body: '본문' })
+    await mockNoteInTeamSpace(a, { spaceId: TEAM_SPACE_ID, name: '제품팀' })
+    await a.goto(pagePath(16, TEAM_SPACE_ID))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+
+    // 멤버에서 제거됐다 — 이후 스페이스 목록엔 개인 스페이스만 남는다(나중에 등록한 라우트가 이긴다).
+    const spacesRefetch = a.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/wiki/spaces')
+    await a.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>
+      r.request().method() === 'GET'
+        ? r.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([{ id: 1, type: 'PERSONAL', name: '내 노트', ownerId: 1, role: 'OWNER', createdAt: '2026-06-01T00:00:00Z' }]),
+          })
+        : r.fallback())
+    // 노트 조회도 403 — /wiki 가 마지막 방문 기록(이 노트)을 복원하지 않고 기록을 지운 뒤 첫 스페이스로 간다.
+    await a.route((u) => u.pathname === '/api/v1/wiki/pages/16', (r) =>
+      r.request().method() === 'GET'
+        ? r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ message: '접근 권한이 없습니다' }) })
+        : r.fallback())
+    await changeCollabRole(collabNs, 16, 'NONE')
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'forbidden')
+    // 접근을 잃은 순간 스페이스 목록을 다시 받아 링크 목적지를 정한다.
+    await spacesRefetch
+
+    const toList = a.getByTestId('wiki-forbidden-to-list')
+    await expect(toList).toHaveAttribute('href', '/wiki')
+    await toList.click()
+    await expect(a).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}$`))
+  })
+
+  // WP-296 — 편집 중인 노트가 삭제되면 내용은 그대로 둔 채(복사할 수 있게) 삭제됨 칩·안내를 보이고 편집을 막는다.
+  // 삭제 SSE 의 재조회(404)가 동기화 서버 종료보다 먼저 와도 에디터가 오류 화면으로 바뀌지 않아야 한다 — 그 순서로 재현한다.
+  test('편집 중 노트가 삭제되면 내용을 남긴 채 삭제됨 칩·안내를 보이고, 노트 목록으로 나갈 수 있다', async ({
+    authenticatedPage: a,
+    collabNs,
+  }) => {
+    await mockWikiPageEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 19, title: '지울 회의록', body: DELETED_BODY })
+    await mockNoteInTeamSpace(a, { spaceId: TEAM_SPACE_ID, name: '제품팀' })
+    const events = await mockGatedEvents(a)
+    await a.goto(pagePath(19, TEAM_SPACE_ID))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    await expect(a.locator('.ProseMirror')).toContainText('지울 본문')
+
+    // 다른 사람이 지웠다 — 이후 상세 조회는 404, 트리에서도 빠진다(나중에 등록한 라우트가 이긴다).
+    await mockDeletedPage(a, 19, TEAM_SPACE_ID)
+    const refetch = a.waitForResponse(
+      (r) => new URL(r.url()).pathname === '/api/v1/wiki/pages/19' && r.status() === 404,
+    )
+    events.deliver(`event: wiki.page.deleted\ndata: ${JSON.stringify({ spaceId: TEAM_SPACE_ID, pageId: 19, actorId: 2 })}\n\n`)
+    await refetch
+    // 재조회 실패만으로 에디터를 오류 화면으로 바꾸지 않는다.
+    await expectStays(a, () => a.locator('.ProseMirror').count(), 1, { ms: 500 })
+
+    await changeCollabRole(collabNs, 19, 'NONE', REVALIDATE_REASON_DELETED)
+    await expect(a.getByTestId('wiki-deleted-notice')).toContainText('이 노트가 삭제되었습니다')
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'deleted')
+    await expect(syncStatus(a)).toHaveText('삭제됨')
+    await expect(a.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'false')
+    await expect(a.locator('.ProseMirror')).toContainText('지울 본문')
+    await expect(a.getByText('페이지를 불러올 수 없습니다')).toHaveCount(0)
+    // 트리에서 빠져도 헤더는 지운 노트의 제목을 유지하고, 맨 위에서 뜬 띠는 제목을 가리지 않고 밀어 낸다.
+    await expect(a.getByTestId('wiki-breadcrumb-current')).toHaveText('지울 회의록')
+    await expectTitleBelowNotice(a)
+    // 경고(alert)는 안내 문구만 — 나갈 링크는 낭독 대상에 섞지 않는다.
+    await expect(a.getByRole('alert')).not.toContainText('노트 목록으로')
+    await expectNoDeleteInPageMenu(a)
+
+    // 목록으로 → 이 노트의 스페이스 첫 화면 — /wiki 로 보내면 첫 스페이스(개인 노트)가 열려 엉뚱한 곳에 선다.
+    const toList = a.getByTestId('wiki-deleted-to-list')
+    await expect(toList).toHaveAttribute('href', `/wiki/spaces/${TEAM_SPACE_ID}`)
+    await toList.click()
+    await expect(a).toHaveURL(new RegExp(`/wiki/spaces/${TEAM_SPACE_ID}$`))
+  })
+
+  // WP-296 — 열어 둔 채 지워진(화면이 붙어 있어 캐시가 남는) 노트에서 스페이스 첫 화면(노트 없음)으로 갔다가 뒤로 돌아오면,
+  // 같은 화면 인스턴스라도 예전 확인을 되살리지 않고 #788 오류 화면을 보인다.
+  test('열어 둔 채 지워진 노트로 스페이스 첫 화면을 거쳐 돌아오면 페이지를 불러올 수 없음 화면을 보인다', async ({
+    authenticatedPage: a,
+  }) => {
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 22, title: '지울 회의록', body: '지울 본문' })
+    const events = await mockGatedEvents(a)
+    await a.goto(pagePath(22))
+    await expect(a.locator('.ProseMirror')).toHaveText('지울 본문')
+
+    await mockDeletedPage(a, 22)
+    const refetch = a.waitForResponse(
+      (r) => new URL(r.url()).pathname === '/api/v1/wiki/pages/22' && r.status() === 404,
+    )
+    events.deliver(`event: wiki.page.deleted\ndata: ${JSON.stringify({ spaceId: SPACE_ID, pageId: 22, actorId: 2 })}\n\n`)
+    await refetch
+    await expect(a.locator('.ProseMirror')).toHaveCount(1)
+
+    // 앱 안에서 스페이스 첫 화면으로(같은 WikiPageView 가 pageId 없이 남는다) — 라우터가 듣는 popstate 로 이동한다.
+    await a.evaluate((path) => {
+      window.history.pushState({}, '', path)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }, `/wiki/spaces/${SPACE_ID}`)
+    await expect(a.getByTestId('wiki-empty-state')).toBeVisible()
+
+    await a.goBack()
+    await expect(a).toHaveURL(new RegExp(`/pages/22$`))
+    await expect(a.getByText('페이지를 불러올 수 없습니다')).toBeVisible()
+    await expect(a.locator('.ProseMirror')).toHaveCount(0)
+  })
+
+  // WP-296 — 다른 노트에 가 있는 사이 지워진 노트로 돌아오면, 캐시만 남은 노트는 #788 오류 화면으로 간다
+  // (예전처럼 낡은 제목·빈 본문·접근 불가 띠에 갇히지 않는다).
+  test('다른 노트에 간 사이 지워진 노트로 돌아오면 페이지를 불러올 수 없음 화면을 보인다', async ({ authenticatedPage: a }) => {
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 20, title: '먼저 본 노트', body: '먼저 본 본문' })
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 21, title: '다음 노트', body: '다음 본문' })
+    await mockTree(a, [
+      { id: 20, title: '먼저 본 노트' },
+      { id: 21, title: '다음 노트' },
+    ])
+    await a.goto(pagePath(20))
+    await expect(a.locator('.ProseMirror')).toHaveText('먼저 본 본문')
+
+    // 앱 안에서 이동해 노트 20 의 조회 캐시를 남긴다.
+    await a.getByTestId('wiki-tree-row-21').getByText('다음 노트').click()
+    await expect(a.locator('.ProseMirror')).toHaveText('다음 본문')
+
+    await mockDeletedPage(a, 20)
+    await a.goBack()
+    await expect(a.getByText('페이지를 불러올 수 없습니다')).toBeVisible()
+    await expect(a.locator('.ProseMirror')).toHaveCount(0)
   })
 
   // WP-313 — 동기화 서버가 다른 스키마 판이면(배포) 옛 탭이 붙어 모르는 서식 글자를 지우지 않도록 문서를 주기 전에 거부된다.
@@ -406,6 +596,128 @@ test.describe('노트 동시 편집', () => {
     const expected = '맨 위 B편집\n\n첫 문단 A![a.png](/api/v1/wiki/pages/18/attachments/1/content)\n\n둘째 문단 B![b.png](/api/v1/wiki/pages/18/attachments/2/content)'
     await expect.poll(() => readCollabMarkdown(collabNs, 18)).toBe(expected)
     for (const p of [a, b]) await expect.poll(() => placeholdersOn(p)).toBe(0)
+  })
+
+  // WP-295 — 상대 화면에는 업로드 중 아무것도 보이지 않다가, 완료되면 실제 이미지(blob 으로 불러온 img)가 그려진다.
+  test('업로드가 끝나면 상대 화면에도 이미지가 실제로 그려지고, 그 전엔 아무 표시도 없다', async ({
+    authenticatedPage: a,
+    newAuthedPage,
+    collabNs,
+  }) => {
+    const opts = { spaceId: SPACE_ID, pageId: 61, title: '회의록', body: '첫 문단\n\n둘째 문단' }
+    await mockWikiPageEditor(a, opts)
+    const releaseA = await holdUpload(a, 61, 7)
+    const b = await newAuthedPage()
+    await mockWikiPageEditor(b, { ...opts, seed: false })
+    // B 는 업로드하지 않는다 — A 가 올린 파일의 내용만 받아 그린다.
+    await b.route(
+      (u) => u.pathname === '/api/v1/wiki/pages/61/attachments/7/content',
+      (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
+    )
+    await a.goto(pagePath(61))
+    await b.goto(pagePath(61))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
+
+    await typeAtEnd(a, '첫 문단', ' A')
+    await pasteImageFile(a, 'image/png', 'a.png')
+    await expect.poll(() => placeholdersOn(a)).toBe(1)
+    // B 화면에는 자리표시자도 이미지도 없다.
+    await expect(b.locator('.ProseMirror')).toContainText('첫 문단 A')
+    // 공유 문서에도 업로드 흔적이 없어야 한다 — 화면만 보면 동기화가 늦은 것과 구분되지 않는다.
+    await expectStays(
+      b,
+      async () => [await placeholdersOn(b), await b.getByTestId('wiki-image').count(), await readCollabMarkdown(collabNs, 61)],
+      [0, 0, '첫 문단 A\n\n둘째 문단'],
+      { ms: 500, reach: true },
+    )
+
+    releaseA()
+    for (const p of [a, b]) {
+      await expect(p.getByTestId('wiki-image')).toHaveCount(1)
+      await expect(p.getByTestId('wiki-image')).toHaveAttribute('src', /^blob:/)
+      await expect.poll(() => placeholdersOn(p)).toBe(0)
+    }
+    await expect.poll(() => readCollabMarkdown(collabNs, 61)).toBe(
+      '첫 문단 A![a.png](/api/v1/wiki/pages/61/attachments/7/content)\n\n둘째 문단',
+    )
+  })
+
+  // 스펙 §8 의 원래 동기 — 예전 자리표시자는 문서 노드라 업로더가 나가면 노트에 영영 남았다.
+  test('업로드 중 업로더가 나가도 상대 화면과 노트 본문에 아무것도 남지 않는다', async ({
+    authenticatedPage: a,
+    newAuthedPage,
+    collabNs,
+  }) => {
+    // 업로더는 두 번째 컨텍스트(u) — 픽스처의 기본 page(a)는 정리 단계가 쓰므로 닫지 않고 관찰자로 둔다.
+    const opts = { spaceId: SPACE_ID, pageId: 62, title: '회의록', body: '첫 문단\n\n둘째 문단' }
+    await mockWikiPageEditor(a, opts)
+    const u = await newAuthedPage()
+    await mockWikiPageEditor(u, { ...opts, seed: false })
+    await holdUpload(u, 62, 8) // 끝내 풀지 않는다 — 업로드 중에 나간다.
+    await a.goto(pagePath(62))
+    await u.goto(pagePath(62))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    await expect(syncStatus(u)).toHaveAttribute('data-status', 'live')
+
+    await typeAtEnd(u, '첫 문단', ' U')
+    await pasteImageFile(u, 'image/png', 'u.png')
+    await expect.poll(() => placeholdersOn(u)).toBe(1)
+    await expect(a.locator('.ProseMirror')).toContainText('첫 문단 U')
+
+    await u.close()
+    // 나간 뒤에도 a 가 계속 편집할 수 있고, 화면·본문엔 업로드 흔적이 없다.
+    await typeAtEnd(a, '둘째 문단', ' A')
+    // 화면 textContent 엔 문단 사이 빈 줄이 없으므로 화면·서버를 각자의 모양으로 함께 지켜본다.
+    await expectStays(
+      a,
+      async () => [((await a.locator('.ProseMirror').textContent()) ?? '').trim(), await readCollabMarkdown(collabNs, 62)],
+      ['첫 문단 U둘째 문단 A', '첫 문단 U\n\n둘째 문단 A'],
+      { ms: 1000, reach: true },
+    )
+    expect(await placeholdersOn(a)).toBe(0)
+  })
+
+  test('동시 편집 중 업로드가 실패하면 내 자리표시자만 걷히고 상대 화면·본문은 그대로다', async ({
+    authenticatedPage: a,
+    newAuthedPage,
+    collabNs,
+  }) => {
+    const opts = { spaceId: SPACE_ID, pageId: 63, title: '회의록', body: '첫 문단\n\n둘째 문단' }
+    await mockWikiPageEditor(a, opts)
+    // 실패 응답을 release 전까지 붙잡는다 — 자리표시자가 실제로 떴다가 실패로 걷히는지 보려면 업로드 중 상태가 필요하다.
+    let failUpload!: () => void
+    const failed = new Promise<void>((r) => (failUpload = r))
+    await a.route(
+      (u) => u.pathname === '/api/v1/wiki/pages/63/attachments',
+      async (r) => {
+        if (r.request().method() !== 'POST') return r.fallback()
+        await failed
+        return r.fulfill({ status: 500, body: '{}' })
+      },
+    )
+    const b = await newAuthedPage()
+    await mockWikiPageEditor(b, { ...opts, seed: false })
+    await a.goto(pagePath(63))
+    await b.goto(pagePath(63))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
+
+    await typeAtEnd(a, '첫 문단', ' A')
+    await pasteImageFile(a, 'image/png', 'a.png')
+    await expect.poll(() => placeholdersOn(a)).toBe(1)
+
+    failUpload()
+    await expect(a.locator('[data-sonner-toast]').first()).toContainText('이미지 업로드에 실패했습니다.')
+    await expect.poll(() => placeholdersOn(a)).toBe(0)
+    // 깨진 이미지 노드가 남으면 wiki-image 가 아니라 로딩·오류 모양으로 그려지므로 셋 다 없어야 한다.
+    for (const id of ['wiki-image', 'wiki-image-loading', 'wiki-image-error']) await expect(a.getByTestId(id)).toHaveCount(0)
+    await expectStays(
+      b,
+      async () => [((await b.locator('.ProseMirror').textContent()) ?? '').trim(), await readCollabMarkdown(collabNs, 63)],
+      ['첫 문단 A둘째 문단', '첫 문단 A\n\n둘째 문단'],
+      { ms: 1000, reach: true },
+    )
   })
 })
 

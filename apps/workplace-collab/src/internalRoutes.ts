@@ -1,6 +1,8 @@
 import { timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
+import { REVALIDATE_REASON_DELETED } from '@smart-workplace/wiki-editor-schema'
+
 import { pageIdOf } from './docRegistry'
 
 /** HTTP 처리기 — 응답했으면 true(이후 처리기·기본 응답 생략), 자기 경로가 아니면 false. */
@@ -55,6 +57,8 @@ export interface RevalidateRequest {
   spaceId?: number
   pageIds?: number[]
   userId?: number
+  /** 'deleted' = 페이지 삭제 재검증 — 접근을 잃은 연결을 4403 대신 4404(삭제)로 닫는다. */
+  reason?: typeof REVALIDATE_REASON_DELETED
 }
 
 /**
@@ -170,6 +174,11 @@ function parseRevalidate(raw: unknown): RevalidateRequest {
   if (b.userId != null) {
     if (!isPosInt(b.userId)) throw bad('invalid userId')
     out.userId = b.userId
+  }
+  if (b.reason === REVALIDATE_REASON_DELETED) out.reason = REVALIDATE_REASON_DELETED
+  else if (b.reason != null) {
+    // 모르는 사유(새 API·옛 동기화 서버가 섞인 배포)는 사유 없음으로 본다 — 400 으로 거절하면 접근을 잃은 연결이 열린 채 남는다(fail-open).
+    console.warn(`[collab] unknown revalidate reason ${JSON.stringify(b.reason)} — treating as no reason (4403)`)
   }
   if (out.spaceId == null && out.pageIds == null) throw bad('spaceId or pageIds required')
   return out

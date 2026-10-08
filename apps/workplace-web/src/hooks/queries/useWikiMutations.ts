@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { wikiApi } from '../../api/wiki'
 import { handleApiError } from '../../lib/api-error'
 import type { WikiPageDetail } from '../../types/wiki'
-import { wikiKeys } from './wikiKeys'
+import { dropInactiveWikiPage, wikiKeys } from './wikiKeys'
 
 export function useCreatePage(spaceId: number) {
   const qc = useQueryClient()
@@ -37,7 +37,11 @@ export function useDeletePage(spaceId: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (pageId: number) => wikiApi.deletePage(pageId).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) }),
+    onSuccess: (_, pageId) => {
+      // 사이드바에서 다른 노트를 지운 경우처럼 보는 화면이 없는 노트의 캐시는 버린다.
+      dropInactiveWikiPage(qc, pageId)
+      return qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) })
+    },
   })
 }
 

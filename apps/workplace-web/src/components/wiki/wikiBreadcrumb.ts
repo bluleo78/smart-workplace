@@ -20,3 +20,17 @@ export function buildBreadcrumb(
   }
   return path
 }
+
+/**
+ * 트리를 불러왔는데 경로가 비면(현재 노트가 트리에 없음 — 삭제 SSE 뒤 트리 재조회 등) 현재 노트 하나로 채운다(WP-296).
+ * 데스크톱 브레드크럼이 비거나 모바일 헤더가 일반 "노트"로 바뀌어 무엇을 보고 있는지 잃지 않게 한다.
+ * 트리를 불러오는 중에는 채우지 않는다 — 처음 열 때 한 칸짜리 경로가 잠깐 그려졌다 바뀌는 깜빡임을 막는다.
+ */
+export function breadcrumbOrSelf(
+  crumbs: { id: number; title: string }[],
+  self: { id: number; title: string },
+  treeLoaded: boolean,
+): { id: number; title: string }[] {
+  if (crumbs.length > 0 || !treeLoaded) return crumbs
+  return [{ id: self.id, title: self.title || '제목 없음' }]
+}

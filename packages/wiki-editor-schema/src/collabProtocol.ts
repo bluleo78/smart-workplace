@@ -35,8 +35,22 @@ export const COLLAB_ROLE_CHANGED_TYPE = 'collab:role'
 /** 토큰 만료로 끊는 WebSocket 종료 코드 — 웹은 토큰을 갱신하고 다시 붙는다. */
 export const CLOSE_TOKEN_EXPIRED = { code: 4401, reason: 'token expired' } as const
 
-/** 권한 회수(멤버 제거·페이지 삭제)로 끊는 WebSocket 종료 코드 — 웹은 종단(재연결 안 함)으로 본다. */
+/**
+ * 권한 회수(멤버 제거 등)로 끊는 WebSocket 종료 코드 — 웹은 종단(재연결 안 함)으로 본다.
+ * 서버가 삭제임을 확신하지 못한 경우(사유 없는 재검증에서 판정 404 — 비멤버와 없는 페이지가 같다)도 이 코드다.
+ * 확실한 삭제는 CLOSE_DELETED(4404)로 따로 알린다.
+ */
 export const CLOSE_FORBIDDEN = { code: 4403, reason: 'forbidden' } as const
+
+/**
+ * 페이지 삭제로 끊는 WebSocket 종료 코드(WP-296) — 웹은 종단 'deleted'(재연결 안 함)로 보고 "이 노트가 삭제되었습니다"를 보인다.
+ * 4403(권한 회수)과 나눈 이유: 서버 판정(collab-access)은 비멤버와 없는 페이지를 같은 404 로 돌려줘, 사유를 모르는 끊김은 둘을 가를 수 없다.
+ * 그래서 확실히 삭제임을 아는 경우(API 의 삭제 재검증, 내부 저장 404)에만 이 코드를 쓴다. 접속·재접속 시 로드 404 는 인증 거부(forbidden)로 나간다.
+ */
+export const CLOSE_DELETED = { code: 4404, reason: 'deleted' } as const
+
+/** revalidate 요청의 삭제 사유 — API 가 페이지 삭제(서브트리) 재검증에 싣는다. 접근을 잃은 연결은 CLOSE_DELETED 로 닫힌다. */
+export const REVALIDATE_REASON_DELETED = 'deleted' as const
 
 /** E2E 네임스페이스를 심는 localStorage 키 — 병렬 테스트끼리 문서가 섞이지 않게 문서 이름 앞에 붙인다. */
 export const COLLAB_NS_STORAGE_KEY = 'e2e:collabNs'
