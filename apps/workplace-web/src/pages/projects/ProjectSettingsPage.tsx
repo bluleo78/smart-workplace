@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
-import { PageHeader } from '@/components/layout/PageHeader';
+import { Page } from '@/components/layout/Page';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -90,7 +90,7 @@ export default function ProjectSettingsPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="project-settings-page">
-      <PageHeader
+      <Page.Header
         icon={
           <Button
             variant="ghost"

@@ -214,5 +214,3 @@ function PageBody({
 
 /** 페이지 틀 — `<Page width>` + `Page.Header` + `Page.Body`. */
 export const Page = Object.assign(PageRoot, { Header: PageHeaderImpl, Body: PageBody })
-/** 이전 기간 별칭 — Task 13 에서 삭제. */
-export const PageHeader = PageHeaderImpl
