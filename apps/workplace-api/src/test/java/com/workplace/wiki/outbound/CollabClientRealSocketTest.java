@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.workplace.wiki.outbound.CollabClient.MergeBase;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -73,7 +74,8 @@ class CollabClientRealSocketTest {
 
   @Test
   void apply_markdown은_h2c_업그레이드_없이_HTTP1로_보내고_응답을_받는다() {
-    var res = client.applyMarkdown(1L, 7L, "본문", 3L, "협업자", false);
+    var res =
+        client.applyMarkdown(1L, 7L, new MergeBase("기준", null), "본문", 3L, "협업자", false, false);
 
     assertThat(res.version()).isEqualTo(4);
     assertThat(res.body()).isEqualTo("본문");

@@ -114,7 +114,7 @@ describe('createPatApiClient', () => {
     expect(scope.isDone()).toBe(true);
   });
 
-  it('updateWikiPage 는 409(버전 충돌) 응답을 에러로 전파한다', async () => {
+  it('updateWikiPage 는 409(기준본 만료) 응답을 에러로 전파한다', async () => {
     nock(BASE).put('/wiki/pages/1').reply(409, { message: 'conflict' });
     const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
     await expect(

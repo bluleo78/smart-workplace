@@ -1,4 +1,5 @@
 import type { Editor } from '@tiptap/core'
+import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorState } from '@tiptap/pm/state'
 import {
   absolutePositionToRelativePosition,
@@ -20,6 +21,11 @@ export interface YSyncState {
 /** 에디터 상태의 동기화 플러그인 상태. 플러그인이 없으면 undefined. */
 export function ySyncOf(state: EditorState): YSyncState | undefined {
   return ySyncPluginKey.getState(state) as YSyncState | undefined
+}
+
+/** 위치를 문서 범위 [0, content.size] 안으로 자른다 — 풀어 낸 위치·매핑한 위치가 그사이 줄어든 문서를 넘지 않게. */
+export function clampPos(pos: number, doc: PMNode): number {
+  return Math.max(0, Math.min(pos, doc.content.size))
 }
 
 /** 절대 위치 → Yjs 상대 위치(y-prosemirror 기본: 오른쪽에 붙음). 바인딩이 없으면 null. */

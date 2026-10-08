@@ -7,12 +7,16 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./collab-protocol": "./src/collabProtocol.ts"
+    "./collab-protocol": "./src/collabProtocol.ts",
+    "./merge": "./src/merge/blockMerge.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint ."
+  },
+  "dependencies": {
+    "diff-match-patch": "1.0.5"
   },
   "peerDependencies": {
     "@tiptap/core": "2.27.2",
@@ -39,6 +43,7 @@
     "@tiptap/extension-text": "2.27.2",
     "tiptap-markdown": "0.8.10",
     "markdown-it": "14.2.0",
+    "@types/diff-match-patch": "1.0.36",
     "@types/markdown-it": "13.0.9",
     "@types/node": "^22.19.19",
     "happy-dom": "^20.0.0",

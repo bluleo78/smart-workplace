@@ -21,9 +21,15 @@ import java.util.List;
  * @param editorIds 이번 저장 구간의 편집자들(순서대로). 마지막 값이 updated_by 가 된다. 비면 직전 수정자를 유지(파생 저장만)
  * @param bodyVersion 상태만 저장할 때, 상태를 만든 body 의 version(로드 시 받은 값). 그사이 body 가 바뀌었으면 더 낮게 남아 다음 로드가
  *     stale 로 반영한다
+ * @param snapshot 이 저장 직전 판을 리비전으로 남긴다(AI 적용 저장 — 동기화 서버가 적용 직전 미저장분을 먼저 저장한 뒤 실어 보낸다, 스펙 §6.1).
+ *     없으면 false
  */
 public record StoreCollabDocRequest(
-    @NotNull String state, String body, List<Long> editorIds, Integer bodyVersion) {
+    @NotNull String state,
+    String body,
+    List<Long> editorIds,
+    Integer bodyVersion,
+    boolean snapshot) {
 
   /** 상태만 저장인가(body 없음). */
   public boolean stateOnly() {

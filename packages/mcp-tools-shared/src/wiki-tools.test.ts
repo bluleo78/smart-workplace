@@ -101,7 +101,7 @@ describe('buildWikiTools', () => {
     expect(body).not.toHaveProperty('body');
   });
 
-  it('update_wiki_page 는 버전 충돌(409) 에러를 그대로 전파한다', async () => {
+  it('update_wiki_page 는 기준본 만료(409) 에러를 그대로 전파한다', async () => {
     const c = mockClient();
     vi.mocked(c.updateWikiPage).mockRejectedValue(Object.assign(new Error('conflict'), { status: 409 }));
     await expect(tool(c, 'update_wiki_page').handler({ pageId: 1, body: '수정본', version: 1 })).rejects.toThrow(

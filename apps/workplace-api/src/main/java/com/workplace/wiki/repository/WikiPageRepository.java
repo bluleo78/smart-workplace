@@ -15,6 +15,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Record;
 import org.springframework.stereotype.Repository;
 
 /** wiki_page 접근. 트리는 (space_id, parent_id, position) 기준. */
@@ -80,19 +81,41 @@ public class WikiPageRepository {
             WIKI_PAGE.AI_LAST_ACTION)
         .from(WIKI_PAGE)
         .where(WIKI_PAGE.ID.eq(pageId))
-        .fetchOptional(
-            r ->
-                new WikiPageDetail(
-                    r.get(WIKI_PAGE.ID),
-                    r.get(WIKI_PAGE.SPACE_ID),
-                    r.get(WIKI_PAGE.PARENT_ID),
-                    r.get(WIKI_PAGE.TITLE),
-                    r.get(WIKI_PAGE.BODY),
-                    r.get(WIKI_PAGE.VERSION),
-                    r.get(WIKI_PAGE.UPDATED_BY),
-                    r.get(WIKI_PAGE.UPDATED_AT),
-                    r.get(WIKI_PAGE.AI_LAST_USED_AT),
-                    r.get(WIKI_PAGE.AI_LAST_ACTION)));
+        .fetchOptional(r -> detailOf(r, r.get(WIKI_PAGE.BODY), r.get(WIKI_PAGE.VERSION)));
+  }
+
+  /**
+   * 상세 조회 — body·version 은 호출자가 이미 아는 값으로 채운다(본문 TEXT 를 읽지 않는다). 동기화 서버 위임 저장의 응답처럼 저장된
+   * body·version 을 따로 받아 두었을 때 쓴다.
+   */
+  public Optional<WikiPageDetail> findDetailWithBody(long pageId, String body, int version) {
+    return dsl.select(
+            WIKI_PAGE.ID,
+            WIKI_PAGE.SPACE_ID,
+            WIKI_PAGE.PARENT_ID,
+            WIKI_PAGE.TITLE,
+            WIKI_PAGE.UPDATED_BY,
+            WIKI_PAGE.UPDATED_AT,
+            WIKI_PAGE.AI_LAST_USED_AT,
+            WIKI_PAGE.AI_LAST_ACTION)
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.ID.eq(pageId))
+        .fetchOptional(r -> detailOf(r, body, version));
+  }
+
+  /** 상세 행 → DTO(body·version 은 인자로). */
+  private static WikiPageDetail detailOf(Record r, String body, int version) {
+    return new WikiPageDetail(
+        r.get(WIKI_PAGE.ID),
+        r.get(WIKI_PAGE.SPACE_ID),
+        r.get(WIKI_PAGE.PARENT_ID),
+        r.get(WIKI_PAGE.TITLE),
+        body,
+        version,
+        r.get(WIKI_PAGE.UPDATED_BY),
+        r.get(WIKI_PAGE.UPDATED_AT),
+        r.get(WIKI_PAGE.AI_LAST_USED_AT),
+        r.get(WIKI_PAGE.AI_LAST_ACTION));
   }
 
   /** 공간 id 만 빠르게(인가 해석용). */

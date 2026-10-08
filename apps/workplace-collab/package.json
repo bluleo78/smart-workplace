@@ -32,6 +32,7 @@
     "@tiptap/extension-text": "2.27.2",
     "@tiptap/pm": "2.27.2",
     "@tiptap/starter-kit": "2.27.2",
+    "diff-match-patch": "1.0.5",
     "dotenv": "^16.4.7",
     "happy-dom": "^20.0.0",
     "markdown-it": "14.2.0",

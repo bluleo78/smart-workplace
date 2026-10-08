@@ -7,10 +7,13 @@ import * as Y from 'yjs'
 import {
   CLOSE_FORBIDDEN,
   CLOSE_TOKEN_EXPIRED,
+  COLLAB_AI_MARKER_MS,
   COLLAB_ROLE_CHANGED_TYPE,
+  type CollabAiMarker,
   isCollabEditRole,
 } from '@smart-workplace/wiki-editor-schema'
 
+import { AiMarkerBoard } from './aiMarkers'
 import { ApiClient, DocGoneError, TokenRejectedError } from './apiClient'
 import type { CollabConfig } from './config'
 import { DocRegistry, pageIdOf, type DocMeta } from './docRegistry'
@@ -20,9 +23,17 @@ import {
   pathOf,
   send,
   type ApplyRequest,
+  type ApplyResult,
   type RevalidateRequest,
 } from './internalRoutes'
-import { markdownToYUpdate, replaceWithMarkdown, yDocToMarkdown } from './markdownCodec'
+import { applyKeepLivePlan, markdownToYUpdate, replaceWithMarkdown, yDocToMarkdown } from './markdownCodec'
+import {
+  createMergeRunner,
+  MergeFailedError,
+  MergeTimeoutError,
+  type LiveMergeResult,
+  type MergeRunner,
+} from './mergeRunner'
 
 /** 저장소 호출에 필요한 문서 식별 — tenantId 는 모든 내부 호출의 X-Tenant-Id. */
 export interface DocCtx {
@@ -42,11 +53,20 @@ export interface LoadedDoc {
   stale: boolean
 }
 
+/**
+ * 파생 저장 옵션 — snapshot: 저장 직전 판을 리비전으로 남긴다(AI 적용 저장, 스펙 §6.1).
+ * timeoutMs: 저장 호출 시간 상한(넘으면 실패로 끝나 재시도가 예약된다) — apply-markdown 의 적용 저장이 API read 타임아웃 안에 답하게.
+ */
+export interface StoreOptions {
+  snapshot?: boolean
+  timeoutMs?: number
+}
+
 /** 문서 상태 저장소 — 운영은 API, E2E 테스트 모드는 메모리(testMode.ts). */
 export interface DocStore {
   load(ctx: DocCtx): Promise<LoadedDoc>
   /** 상태 + 파생 body 저장 후 새 version 을 돌려준다(apply-markdown 이 즉시 저장 결과로 응답). */
-  store(ctx: DocCtx, state: Uint8Array, body: string, editorIds: number[]): Promise<number>
+  store(ctx: DocCtx, state: Uint8Array, body: string, editorIds: number[], opts?: StoreOptions): Promise<number>
   /**
    * 상태만 저장 — 편집 없이 저장된 body(bodyVersion 판)로 만든 상태(최초 이관·body 앞섬 반영).
    * body·version·백링크·첨부는 그대로 두고 상태와 bodyVersion 만 기록한다 — 재직렬화 body 는 원문과 다를 수 있어
@@ -88,6 +108,17 @@ export type CollabContext = Partial<ConnectionContext>
 // 4403 은 만료(4401)와 같은 소켓 종료 방식 — provider 는 자동 재접속하고, 재접속 판정에서 onAuthenticationFailed({reason:'forbidden'}) 를 받는다.
 // 서버가 로드 시 body 로 맞춘 변경의 Yjs 출처 표시.
 export const RECONCILE_ORIGIN = { system: 'reconcile' } as const
+/**
+ * apply-markdown 한 요청의 전체 기한(ms) — 문서 로드·저장 잠금 대기·적용 직전 저장 왕복·워커 계산(정규화·병합)까지, 적용(실시간 문서 변경)
+ * 직전까지를 모두 덮는다. API 의 동기화 서버 read 타임아웃 30s(CollabClientConfig)보다 넉넉히 짧게 — 적용 뒤의 즉시 저장 한 번이
+ * 남은 시간 안에 끝나도록. 기한이 적용 전에 지나면 503 이고 아무것도 적용하지 않는다(API 가 503 을 받았는데 변경은 적용된 일이 없게).
+ */
+export const APPLY_DEADLINE_MS = 20_000
+/**
+ * 적용 뒤 즉시 저장의 최소 대기(ms) — 저장 시간 상한은 요청 기한의 남은 시간이되 이보다 짧게 끊지 않는다(적용 직후 기한이 거의 다 됐어도
+ * 정상 저장 한 번은 기다린다). 기한 20s + 3s 도 API read 30s 안이다. 넘기면 적용은 된 채 persisted:false 로 답하고 재시도가 저장한다.
+ */
+export const APPLY_STORE_MIN_MS = 3_000
 // setTimeout 최대 지연(약 24.8일) — 넘기면 즉시 실행되므로 나눠서 건다.
 const MAX_TIMER_MS = 2 ** 31 - 1
 
@@ -106,8 +137,13 @@ export function apiDocStore(api: ApiClient): DocStore {
         stale: state != null && (p.bodyVersion ?? 0) < p.version,
       }
     },
-    store({ tenantId, pageId }, state, body, editorIds) {
-      return api.storeDoc(tenantId, pageId, { state, body, editorIds })
+    store({ tenantId, pageId }, state, body, editorIds, opts) {
+      return api.storeDoc(
+        tenantId,
+        pageId,
+        { state, body, editorIds, ...(opts?.snapshot ? { snapshot: true } : {}) },
+        { timeoutMs: opts?.timeoutMs },
+      )
     },
     storeState({ tenantId, pageId }, state, bodyVersion) {
       return api.storeDocState(tenantId, pageId, { state, bodyVersion })
@@ -147,6 +183,10 @@ export interface CollabDeps {
   auth?: Authenticator
   /** cfg.testMode 일 때만 연결된다(플래그 없이 넘겨도 404). */
   testRoutes?: TestRoutes
+  /** 병합 실행기(워커 스레드) — 테스트가 시간 제한·인위 지연을 바꿔 넣는다. 기본은 MERGE_TIMEOUT_MS 의 실행기. */
+  merger?: MergeRunner
+  /** AI 적용 위치 ✦ 표식판 — 테스트가 넣어 남은 타이머·문서를 들여다본다. 기본은 cfg.aiMarkerMs 의 표식판. */
+  markers?: AiMarkerBoard
 }
 
 /** createCollabServer 가 돌려주는 얇은 래퍼 — hocuspocus(테스트 경로가 열린 문서를 읽음)와 내부 HTTP 동작. */
@@ -154,8 +194,8 @@ export interface CollabServer {
   hocuspocus: Hocuspocus<CollabContext>
   listen(): Promise<void>
   readonly address: AddressInfo
-  /** API 위임 본문을 문서에 replace 로 적용하고 즉시 저장 — 그 저장의 version 과 저장된 body. */
-  applyReplace(req: ApplyRequest): Promise<{ version: number; body: string }>
+  /** API 위임 본문을 문서에 적용(replace 또는 3-way merge)하고 즉시 저장 — 그 저장의 version 과 저장된 body. */
+  applyMarkdown(req: ApplyRequest): Promise<ApplyResult>
   /** 대상 연결의 권한 재판정 — 접근 없음은 소켓 4403 종료, 역할 변경은 readOnly 전환. */
   revalidate(req: RevalidateRequest): Promise<void>
   /** 문서의 연결을 모두 닫고(저장 후) 메모리에서 내려갈 때까지 기다린다. 로드돼 있지 않으면 바로 끝. */
@@ -181,6 +221,10 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
   const registry = new DocRegistry()
   const expiryTimers = new Set<NodeJS.Timeout>()
   const unloadWaiters = new Map<string, Array<() => void>>()
+  // 워커 스레드는 첫 병합 때 뜬다(replace 만 쓰거나 병합이 없으면 띄우지 않음).
+  const merger = deps.merger ?? createMergeRunner()
+  // AI 적용 위치 ✦ 표식(서버 awareness) — 스펙 §5.1-5. 문서가 내려가면 그 문서의 표식·타이머도 함께 정리된다.
+  const markers = deps.markers ?? new AiMarkerBoard(cfg.aiMarkerMs ?? COLLAB_AI_MARKER_MS)
 
   /**
    * 저장소에서 문서를 불러와 Hocuspocus 문서에 적용한다(최초 이관·body 앞섬 반영 포함).
@@ -200,7 +244,8 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
       replaceWithMarkdown(document, loaded.body, RECONCILE_ORIGIN)
       persistNow = true
     }
-    registry.remember(document, ctx.tenantId, ctx.pageId)
+    // 상태만 저장(이관·reconcile)은 version 을 바꾸지 않는다 — 로드한 판이 곧 지금 version.
+    registry.remember(document, ctx.tenantId, ctx.pageId, loaded.version)
     // 이관·reconcile 결과는 로드 직후 1회 즉시 저장한다(R4) — 편집이 아니므로 상태만(body·version·백링크·첨부 그대로). Hocuspocus 4.7 은 onLoadDocument 중의 변경으로
     // 저장을 예약하지 않는다(onUpdate 리스너가 로드 뒤에 붙음). 저장하지 않으면 편집 없이 내려간 문서가
     // 다음 로드에서 새 clientID 로 재이관되고, 캐시된 Y.Doc 을 가진 클라이언트가 붙을 때 블록이 통째로 중복된다.
@@ -282,6 +327,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
    */
   async function shutdown(): Promise<void> {
     shuttingDown = true
+    markers.destroy()
     for (const t of expiryTimers) clearTimeout(t)
     expiryTimers.clear()
     for (const t of retryTimers) clearTimeout(t)
@@ -300,6 +346,8 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
       }),
     ])
     clearTimeout(timer)
+    // 진행 중 병합이 끝날 기회를 준 뒤(문서 언로드 대기 동안) 워커 스레드를 내린다.
+    await merger.destroy()
     if (timedOut) {
       const unsaved = [...server.hocuspocus.documents.values()].filter((d) => registry.isDirty(d)).map((d) => d.name)
       console.error(
@@ -323,13 +371,20 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     docName: string,
     label: string,
     withEditors: (taken: number[]) => number[] = (taken) => taken,
+    opts: StoreOptions = {},
   ): Promise<{ version: number; body: string }> {
     const seq = meta.seq
     const editors = withEditors(registry.takeEditors(doc))
     const body = yDocToMarkdown(doc)
     let version: number
     try {
-      version = await store.store({ tenantId: meta.tenantId, pageId: meta.pageId, docName }, Y.encodeStateAsUpdate(doc), body, editors)
+      version = await store.store(
+        { tenantId: meta.tenantId, pageId: meta.pageId, docName },
+        Y.encodeStateAsUpdate(doc),
+        body,
+        editors,
+        opts,
+      )
     } catch (e) {
       if (e instanceof DocGoneError) {
         dropGone(doc, e)
@@ -345,23 +400,76 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
       throw e
     }
     meta.savedSeq = Math.max(meta.savedSeq, seq)
+    // 늦게 끝난 옛 저장이 더 새 body 를 덮지 않게 순번이 앞서거나 같을 때만 기록한다.
+    if (!meta.persistedBody || seq >= meta.persistedBody.seq) meta.persistedBody = { seq, body }
+    meta.version = version
     meta.failures = 0
     clearRetry(doc)
     return { version, body }
   }
 
+  /** AI 적용 직전 미저장분 저장 시도 상한 — 쉬지 않고 입력이 들어와도 적용이 끝없이 밀리지 않게. */
+  const PRE_APPLY_FLUSH_TRIES = 3
+  /** 병합 도중 문서가 또 바뀌어 다시 병합하는 횟수 상한 — 요청 기한 안에서만 돈다. */
+  const MAX_MERGE_ROUNDS = 5
+
+  const applyDeadlineMs = cfg.applyDeadlineMs ?? APPLY_DEADLINE_MS
+
   /**
-   * apply-markdown(replace) — 본문을 문서에 최소 변경으로 적용하고 디바운스 없이 즉시 저장해 그 version 으로 응답한다(스펙 §5.1-4).
-   * - 문서가 열려 있으면 그 문서에, 아니면 내부 직접 연결로 로드해 적용한다(접속자에게 즉시 방송).
-   * - 적용은 출처가 서버(local)인 한 트랜잭션. skipStoreHooks 로 Hocuspocus 의 지연 저장을 예약하지 않고 여기서 한 번만 저장한다.
-   *   출처 컨텍스트의 userId 로 registry 가 actor 를 가장 최근 편집자(editorIds 마지막 = updated_by)로 동기 기록한다.
-   * - 저장은 Hocuspocus 저장 뮤텍스 안에서 해 진행 중인 지연 저장과 겹치지 않는다. 저장 후엔 문서가 깨끗해져
-   *   내부 연결 해제가 부르는 저장은 onStoreDocument 의 미변경 생략으로 건너뛴다(같은 상태 두 번 저장 없음).
-   * - 저장 실패 → 503. 변경은 이미 문서에 들어가 있으므로 재시도 예약으로 결국 저장된다(유실 없음).
+   * apply-markdown — 본문을 문서에 최소 변경으로 적용하고 디바운스 없이 즉시 저장해 그 version 으로 응답한다(스펙 §5.1).
+   * - merge: 잠금 안에서 AI본·기준본을 정규화하고(현재본과 같은 표기로) 현재본과 3-way 병합한다. 정규화·병합 계산은 모두 워커
+   *   스레드에서 돈다(merger) — 큰 노트에선 각각 수백 ms~수 초라, 그동안 이벤트 루프는 다른 접속자의 실시간 동기화를 계속 처리한다.
+   * - 기한(APPLY_DEADLINE_MS): 요청 하나의 로드·잠금 대기·적용 직전 저장·워커 계산이 모두 그 안에 끝나야 한다. 적용 전에 지나면 그 자리에서
+   *   503 으로 답하고, 늦게 잠금을 얻은 작업은 아무것도 적용하지 않고 끝난다. 적용(실시간 문서 변경)을 시작했으면 기한과 무관하게 저장까지 마친다.
+   *   워커 계산 한 번은 추가로 merger.timeoutMs 를 넘지 못한다.
+   * - 빈 AI본(공백뿐 포함)·파싱 실패는 병합하지 않는다 — "AI 가 거의 모두 지움"이 되므로 400(code: empty_body·unparseable_body).
+   *   기준본·현재본도 비었을 때만 허용.
+   * - AI 적용(ai=true)은 ① 미저장 사람 입력을 먼저 저장해 둔다 — API 가 ①의 판(= 적용 직전 판)을 리비전으로 남겨, 정책상 AI 쪽으로 덮인
+   *   사람 수정도 되돌릴 수 있다. ③ 적용 저장의 snapshot 은 req.snapshot(AI 적용 또는 사람의 명시 요청). 구버전 웹(ai=false)은 ①을 하지
+   *   않는다(세션 간격 규칙).
+   * - 잠금은 Hocuspocus 저장 뮤텍스 — ①~③(워커 왕복 포함)이 진행 중 지연 저장·같은 문서의 다른 apply 와 직렬이다.
+   *   그래서 두 병합이 같은 낡은 현재본으로 계산되는 일이 없다.
+   * - 적용은 출처가 서버(local)인 한 트랜잭션. skipStoreHooks 로 지연 저장을 예약하지 않고 여기서 한 번만 저장한다.
+   * - ✦ 표식은 적용 저장이 성공한 뒤에만 보인다(저장 실패 503 인데 표식만 보이는 일이 없게).
+   * - 병합 시간 초과·기한 초과 → 503, 아무것도 적용하지 않는다(부분 결과 없음). 사전 저장 실패면 적용 전이라 문서는 바뀌지 않는다(503).
+   * - 적용 뒤 즉시 저장은 남은 기한(최소 APPLY_STORE_MIN_MS)으로 끊는다. 시간 초과·실패면 503 이 아니라 200 persisted:false —
+   *   변경은 실시간 문서에 들어갔고 재시도가 저장한다(API 가 503 을 보고 같은 변경을 다시 보내지 않게). ✦ 표식은 올리지 않는다.
    */
-  async function applyReplace(req: ApplyRequest): Promise<{ version: number; body: string }> {
+  async function applyMarkdown(req: ApplyRequest): Promise<ApplyResult> {
+    const deadline = Date.now() + applyDeadlineMs
+    // committed: 실시간 문서를 바꾸기 시작했다(이후엔 끝까지 간다). abandoned: 기한이 먼저 와 이미 503 으로 답했다(적용 금지).
+    // 둘 다 같은 이벤트 루프에서만 바뀌므로 "기한 확인 → committed" 사이에 타이머가 끼어들 수 없다.
+    const state = { committed: false, abandoned: false }
+    let timer: NodeJS.Timeout | undefined
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        if (state.committed) return
+        state.abandoned = true
+        reject(new HttpError(503, `apply deadline exceeded (${applyDeadlineMs}ms)`))
+      }, applyDeadlineMs)
+    })
+    const work = applyWithin(req, deadline, state)
+    // 기한으로 먼저 답한 뒤 늦게 끝나는 작업의 실패가 처리되지 않은 거부로 남지 않게.
+    work.catch(() => {})
+    try {
+      return await Promise.race([work, expired])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /** applyMarkdown 의 본체 — state 로 기한(abandoned)과 적용 시작(committed)을 호출자와 주고받는다. */
+  async function applyWithin(
+    req: ApplyRequest,
+    deadline: number,
+    state: { committed: boolean; abandoned: boolean },
+  ): Promise<ApplyResult> {
     const docName = req.docName ?? `wiki-page:${req.pageId}`
     const { tenantId, pageId, actor } = req
+    /** 적용 전 단계마다 — 기한이 지났으면 아무것도 적용하지 않고 끝낸다. */
+    const checkDeadline = () => {
+      if (state.abandoned || Date.now() >= deadline) throw new HttpError(503, 'apply deadline exceeded')
+    }
     let conn
     try {
       conn = await server.hocuspocus.openDirectConnection(docName, { tenantId, pageId })
@@ -370,6 +478,8 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
       if ((e as { reason?: string }).reason === 'forbidden') throw new HttpError(404, 'page not found')
       throw new HttpError(503, `load failed: ${(e as Error).message}`)
     }
+    // 적용 저장이 끝나지 못했다 — 연결 해제가 기다리는 재시도 저장을 응답이 기다리지 않게 한다.
+    let unpersisted = false
     try {
       const doc = conn.document!
       const meta = registry.get(doc)
@@ -378,23 +488,119 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
       const origin: LocalTransactionOrigin = {
         source: 'local',
         skipStoreHooks: true,
-        context: { userId: actor.userId, actor, ai: req.ai, tenantId, pageId, apply: 'replace' },
+        context: { userId: actor.userId, actor, ai: req.ai, tenantId, pageId, apply: req.mode },
       }
-      replaceWithMarkdown(doc, req.body, origin)
+      // ① AI 적용 직전 판을 저장해 둔다(리비전 대상) — 미저장 사람 입력이 있으면(상한까지) 저장. 구버전 웹(ai=false)은 하지 않는다.
+      const flushBeforeApply = async () => {
+        for (let i = 0; req.ai && i < PRE_APPLY_FLUSH_TRIES && registry.isDirty(doc); i++) {
+          checkDeadline()
+          await persist(doc, meta, docName, 'pre-apply store')
+        }
+      }
       return await doc.saveMutex.runExclusive(async () => {
-        // API 는 editorIds 의 마지막 값을 updated_by 로 쓴다(스펙 §5.1-4). 적용이 방금의 변경이라 actor 가 마지막이다
-        // (그사이 들어온 사람 입력이 있으면 그 사람이 더 최근). 본문이 같아 변경이 없었으면 actor 를 덧붙인다.
         try {
-          return await persist(doc, meta, docName, 'apply store', (taken) =>
-            taken.includes(actor.userId) ? taken : [...taken, actor.userId],
-          )
+          // 잠금을 기다리는 동안 기한이 지났다 — 이미 503 으로 답했으니 손대지 않고 잠금을 넘긴다.
+          checkDeadline()
+          /** ② 적용 시작(동기) — 기한을 마지막으로 확인하고, 여기서부터는 기한과 무관하게 저장까지 마친다. */
+          // ✦ 표식 위치 — 적용과 같은 동기 구간에서 바뀐 블록 인덱스를 상대 위치로 굳힌다(저장 왕복 동안 위쪽 편집으로 어긋나지 않게).
+          let anchor: CollabAiMarker['anchor'] | null = null
+          const commit = (apply: () => number | null): number | null => {
+            checkDeadline()
+            state.committed = true
+            const c = apply()
+            if (req.ai && c != null) anchor = markers.anchorAt(doc, c)
+            return c
+          }
+          let changed: number | null
+          if (req.mode === 'merge') {
+            // 워커 계산 기한 — 요청 기한과 워커 한 번의 상한 중 이른 쪽.
+            const workerDeadline = Math.min(deadline, Date.now() + merger.timeoutMs)
+            // ⓪ 정규화 + 빈 본문·파싱 실패 거부(아무것도 저장·적용하기 전에).
+            const bases = [req.baseBody ?? '', ...(req.altBaseBody == null ? [] : [req.altBaseBody])]
+            const p = await merger.prepare({ body: req.body, bases, current: yDocToMarkdown(doc) }, workerDeadline - Date.now())
+            if ('rejected' in p) throw new HttpError(400, p.rejected, p.code)
+            // ①+② 병합 회차마다 먼저 적용 직전 판을 저장하고 실시간 상태를 워커로 보낸다 → 그 상태가 그대로일 때만 계획을 적용한다.
+            changed = await mergeAgainstLive(doc, meta, p.bases, p.ai, workerDeadline, flushBeforeApply, (r) =>
+              commit(() => applyKeepLivePlan(doc, r.plan, origin)),
+            )
+          } else {
+            await flushBeforeApply()
+            changed = commit(() => replaceWithMarkdown(doc, req.body, origin))
+          }
+          // 바뀐 것 없는 AI 적용 — 새 판·스냅샷을 만들지 않고 지금 판으로 답한다(미저장분은 위에서 이미 저장했다).
+          if (changed == null && req.ai && !registry.isDirty(doc) && meta.version != null) {
+            // 마지막 저장 뒤로 문서가 안 바뀌었으면(순번 그대로) 그때 직렬화한 body 가 곧 지금 문서다 — 다시 직렬화하지 않는다.
+            const cached = meta.persistedBody
+            return { version: meta.version, body: cached?.seq === meta.seq ? cached.body : yDocToMarkdown(doc), persisted: true }
+          }
+          // ③ 즉시 저장. API 는 editorIds 의 마지막 값을 updated_by 로 쓴다 — 변경이 없었어도 actor 를 덧붙인다.
+          //    적용은 이미 됐다 — 저장이 남은 기한(최소 APPLY_STORE_MIN_MS) 안에 끝나지 않거나 실패해도 503 이 아니라 persisted:false 로
+          //    답한다(503 이면 호출자가 적용된 변경을 다시 보낸다). persist 가 재시도를 예약해 결국 저장한다. 페이지 삭제(404)만 예외.
+          let saved: { version: number; body: string }
+          try {
+            saved = await persist(
+              doc,
+              meta,
+              docName,
+              'apply store',
+              (taken) => (taken.includes(actor.userId) ? taken : [...taken, actor.userId]),
+              { snapshot: req.snapshot, timeoutMs: Math.max(APPLY_STORE_MIN_MS, deadline - Date.now()) },
+            )
+          } catch (e) {
+            if (e instanceof DocGoneError) throw e
+            console.warn(`[collab] apply store did not finish for ${docName} — applied, answering persisted:false (retry scheduled)`)
+            unpersisted = true
+            return { version: meta.version ?? 0, body: yDocToMarkdown(doc), persisted: false }
+          }
+          // AI 적용이 실제로 바꾼 자리에 "✦ 요청한 사람" 표식 — 저장이 성공한 뒤에만(구버전 웹 = 사람 저장은 표식 없음, 스펙 Q3·§5.1-5).
+          // 위치는 commit 에서 잡아 둔 상대 위치 — 저장을 기다리는 동안 들어온 편집을 따라간다.
+          if (anchor) markers.showAt(doc, actor, anchor)
+          return { ...saved, persisted: true }
         } catch (e) {
+          if (e instanceof HttpError) throw e
+          if (e instanceof MergeTimeoutError) throw new HttpError(503, `merge timed out: ${e.message}`)
+          if (e instanceof MergeFailedError) throw new HttpError(500, `merge failed: ${e.message}`)
           throw e instanceof DocGoneError ? new HttpError(404, 'page not found') : new HttpError(503, 'store failed')
         }
       })
     } finally {
-      await conn.disconnect()
+      const closing = conn.disconnect()
+      if (unpersisted) closing.catch(() => {})
+      else await closing
     }
+  }
+
+  /**
+   * 실시간 상태를 워커로 보내 병합·keepLive 계획을 받고, 그사이 문서가 바뀌지 않았을 때만 그 자리에서(동기로) commit 해 적용한다.
+   * 회차마다 먼저 flush(적용 직전 판 저장)를 한 뒤 seq·상태를 뜬다 — 그래서 받아들인 회차의 현재본은 모두 저장돼 있고
+   * (저장 시도 상한 안에서), 정책상 AI 쪽으로 덮인 사람 입력도 snapshot 저장 바로 앞 판에서 되돌릴 수 있다(스펙 §5.1-3-2·§6.1).
+   * 워커를 기다리는 동안 이벤트 루프가 풀려 사람 입력이 문서에 들어올 수 있다 — 낡은 상태로 만든 결과·계획(실시간 블록 인덱스)을 적용하면
+   * 그 입력이 지워지거나 엉뚱한 블록을 가리킨다. 변경 순번(seq)이 달라졌으면 바뀐 상태로 처음부터 다시 병합한다(같은 기준본·AI본).
+   * seq 확인과 commit 사이에 await 가 없어 확인한 문서가 곧 적용하는 문서다.
+   * 기한(deadline) 안에 끝나지 않거나 MAX_MERGE_ROUNDS 를 넘기면 MergeTimeoutError — 호출자는 아무것도 적용하지 않는다.
+   * 정책상 AI 쪽으로 정한 블록 수는 로그로 남긴다(운영에서 사람 수정이 덮인 빈도를 본다 — 본문은 남기지 않는다).
+   */
+  async function mergeAgainstLive(
+    doc: Document,
+    meta: DocMeta,
+    bases: string[],
+    target: string,
+    deadline: number,
+    flush: () => Promise<void>,
+    commit: (r: LiveMergeResult) => number | null,
+  ): Promise<number | null> {
+    for (let round = 0; round < MAX_MERGE_ROUNDS; round++) {
+      await flush()
+      const left = deadline - Date.now()
+      if (left <= 0) break
+      const seq = meta.seq
+      const r = await merger.merge({ bases, live: Y.encodeStateAsUpdate(doc), ai: target }, left)
+      if (meta.seq === seq) {
+        if (r.conflicts > 0) console.info(`[collab] merge ${doc.name}: ${r.conflicts} block(s) resolved to the AI side`)
+        return commit(r)
+      }
+    }
+    throw new MergeTimeoutError(`document kept changing during merge (${doc.name})`)
   }
 
   /**
@@ -462,7 +668,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     if (failed > 0) throw new HttpError(503, `revalidate failed for ${failed} connection(s)`)
   }
 
-  const internal = makeInternalHandler({ internalToken: cfg.internalToken, testMode: cfg.testMode, applyReplace, revalidate })
+  const internal = makeInternalHandler({ internalToken: cfg.internalToken, testMode: cfg.testMode, applyMarkdown, revalidate })
   // 테스트 경로는 플래그가 켜졌을 때만 — 주입돼도 운영 설정이면 연결하지 않는다(R2).
   const testRoutes = cfg.testMode ? deps.testRoutes : undefined
 
@@ -497,7 +703,9 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
       } catch (e) {
         const status = e instanceof HttpError ? e.status : 500
         if (status >= 500) console.error(`[collab] ${request.method} ${request.url} failed:`, (e as Error).message)
-        if (!response.headersSent) send(response, status, { error: (e as Error).message })
+        // code = 기계 판독 사유(본문 거부·계약 위반) — API 가 상태 매핑에 쓴다(internalRoutes 의 HttpErrorCode).
+        const code = e instanceof HttpError ? e.code : undefined
+        if (!response.headersSent) send(response, status, { error: (e as Error).message, ...(code ? { code } : {}) })
         else response.end()
       }
       return Promise.reject()
@@ -629,7 +837,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     get address() {
       return server.address
     },
-    applyReplace,
+    applyMarkdown,
     revalidate,
     async closeDocument(name, timeoutMs = 10000) {
       const doc: Document | undefined = hocuspocus.documents.get(name)

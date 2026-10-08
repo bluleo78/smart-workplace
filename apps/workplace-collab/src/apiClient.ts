@@ -77,9 +77,18 @@ export class ApiClient {
     return (await res.json()) as DocPayload
   }
 
-  /** 문서 상태 + 파생 body 저장(버전 검사 없음) → 새 version. */
-  async storeDoc(tenantId: number, pageId: number, doc: { state: Uint8Array; body: string; editorIds: number[] }): Promise<number> {
-    const res = await this.putDoc('storeDoc', tenantId, pageId, doc)
+  /**
+   * 문서 상태 + 파생 body 저장(버전 검사 없음) → 새 version.
+   * snapshot=true 면 API 가 저장 직전 판을 리비전으로 남긴다(AI 적용 직전 — 스펙 §6.1). 그 밖엔 필드를 싣지 않는다.
+   */
+  async storeDoc(
+    tenantId: number,
+    pageId: number,
+    doc: { state: Uint8Array; body: string; editorIds: number[]; snapshot?: boolean },
+    opts: { timeoutMs?: number } = {},
+  ): Promise<number> {
+    const signal = opts.timeoutMs == null ? undefined : AbortSignal.timeout(opts.timeoutMs)
+    const res = await this.putDoc('storeDoc', tenantId, pageId, doc, signal)
     return ((await res.json()) as { version: number }).version
   }
 
@@ -88,10 +97,17 @@ export class ApiClient {
     await this.putDoc('storeDocState', tenantId, pageId, doc)
   }
 
-  /** 문서 저장 PUT 공통 — 상태는 base64 로 싣고, 나머지 필드는 그대로 JSON 에 넣는다. 실패는 failDoc 으로 매핑. */
-  private async putDoc(op: string, tenantId: number, pageId: number, doc: { state: Uint8Array } & Record<string, unknown>): Promise<Response> {
+  /** 문서 저장 PUT 공통 — 상태는 base64 로 싣고, 나머지 필드는 그대로 JSON 에 넣는다. 실패는 failDoc 으로 매핑. signal 은 시간 상한(중단 시 예외). */
+  private async putDoc(
+    op: string,
+    tenantId: number,
+    pageId: number,
+    doc: { state: Uint8Array } & Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<Response> {
     const res = await fetch(`${this.baseUrl}/internal/wiki/pages/${pageId}/doc`, {
       method: 'PUT',
+      signal,
       headers: { ...this.internalHeaders(tenantId), 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...doc, state: Buffer.from(doc.state).toString('base64') }),
     })

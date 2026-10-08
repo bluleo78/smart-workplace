@@ -136,7 +136,7 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       return (await http.post(`/wiki/spaces/${spaceId}/pages`, body)).data;
     },
     async updateWikiPage(pageId, body) {
-      // 낙관적 동시성 — 409(버전 충돌)는 호출자(도구)에 그대로 전파한다. 도구 저장은 스냅샷을 남기지 않는다.
+      // version = 병합 기준(읽은 판). 409(기준본 만료)는 호출자(도구)에 그대로 전파한다. 직전 판 스냅샷은 동기화 서버가 AI 적용 때 남기므로 요청하지 않는다(WP-289).
       return (await http.put(`/wiki/pages/${pageId}`, { ...body, snapshot: false })).data;
     },
     async listWikiPages(spaceId) {

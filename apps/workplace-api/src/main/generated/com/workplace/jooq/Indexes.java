@@ -87,6 +87,7 @@ import com.workplace.jooq.tables.UserPriorityItem;
 import com.workplace.jooq.tables.UserRole;
 import com.workplace.jooq.tables.WikiPage;
 import com.workplace.jooq.tables.WikiPageAttachment;
+import com.workplace.jooq.tables.WikiPageBodyHistory;
 import com.workplace.jooq.tables.WikiPageDoc;
 import com.workplace.jooq.tables.WikiReference;
 import com.workplace.jooq.tables.WikiRevision;
@@ -281,6 +282,8 @@ public class Indexes {
     public static final Index IDX_WIKI_PAGE_ATTACHMENT_DEMOTED = Internal.createIndex(DSL.name("idx_wiki_page_attachment_demoted"), WikiPageAttachment.WIKI_PAGE_ATTACHMENT, new OrderField[] { WikiPageAttachment.WIKI_PAGE_ATTACHMENT.DEMOTED_AT }, false);
     public static final Index IDX_WIKI_PAGE_ATTACHMENT_PAGE = Internal.createIndex(DSL.name("idx_wiki_page_attachment_page"), WikiPageAttachment.WIKI_PAGE_ATTACHMENT, new OrderField[] { WikiPageAttachment.WIKI_PAGE_ATTACHMENT.PAGE_ID }, false);
     public static final Index IDX_WIKI_PAGE_ATTACHMENT_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_attachment_tenant"), WikiPageAttachment.WIKI_PAGE_ATTACHMENT, new OrderField[] { WikiPageAttachment.WIKI_PAGE_ATTACHMENT.TENANT_ID }, false);
+    public static final Index IDX_WIKI_PAGE_BODY_HISTORY_READ_AT = Internal.createIndex(DSL.name("idx_wiki_page_body_history_read_at"), WikiPageBodyHistory.WIKI_PAGE_BODY_HISTORY, new OrderField[] { WikiPageBodyHistory.WIKI_PAGE_BODY_HISTORY.READ_AT }, false);
+    public static final Index IDX_WIKI_PAGE_BODY_HISTORY_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_body_history_tenant"), WikiPageBodyHistory.WIKI_PAGE_BODY_HISTORY, new OrderField[] { WikiPageBodyHistory.WIKI_PAGE_BODY_HISTORY.TENANT_ID }, false);
     public static final Index IDX_WIKI_PAGE_DOC_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_doc_tenant"), WikiPageDoc.WIKI_PAGE_DOC, new OrderField[] { WikiPageDoc.WIKI_PAGE_DOC.TENANT_ID }, false);
     public static final Index IDX_WIKI_PAGE_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_tenant"), WikiPage.WIKI_PAGE, new OrderField[] { WikiPage.WIKI_PAGE.TENANT_ID }, false);
     public static final Index IDX_WIKI_PAGE_TREE = Internal.createIndex(DSL.name("idx_wiki_page_tree"), WikiPage.WIKI_PAGE, new OrderField[] { WikiPage.WIKI_PAGE.SPACE_ID, WikiPage.WIKI_PAGE.PARENT_ID, WikiPage.WIKI_PAGE.POSITION }, false);

@@ -42,3 +42,12 @@ export function typeAt(doc: Y.Doc, index: number, text: string): void {
   const block = doc.getXmlFragment(FRAGMENT).get(index) as Y.XmlElement
   ;(block.get(0) as Y.XmlText).insert(0, text)
 }
+
+/** 문단(index) 글자를 통째로 바꾼다 — 사람이 문장을 고쳐 쓴 흉내(AI 와 같은 글자를 건드리는 충돌 재현). */
+export function replaceTextAt(doc: Y.Doc, index: number, text: string): void {
+  const t = (doc.getXmlFragment(FRAGMENT).get(index) as Y.XmlElement).get(0) as Y.XmlText
+  doc.transact(() => {
+    t.delete(0, t.length)
+    t.insert(0, text)
+  })
+}

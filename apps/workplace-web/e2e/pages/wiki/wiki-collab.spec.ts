@@ -1,7 +1,14 @@
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
-import { changeCollabRole, controlCollabSocket, readCollabMarkdown, seedCollabDoc, typeAtEnd } from '../../fixtures/collab'
+import {
+  applyCollabMarkdown,
+  changeCollabRole,
+  controlCollabSocket,
+  readCollabMarkdown,
+  seedCollabDoc,
+  typeAtEnd,
+} from '../../fixtures/collab'
 import { expectStays, resizeAndSettle } from '../../fixtures/wait'
 import { solidPng } from '../../fixtures/png'
 import { buildWikiAiSse, mockWikiPageEditor, pasteImageFile } from '../../fixtures/wiki-mock'
@@ -14,6 +21,22 @@ const SPACE_ID = 1
 const pagePath = (pageId: number) => `/wiki/spaces/${SPACE_ID}/pages/${pageId}`
 
 const syncStatus = (page: Page) => page.getByTestId('wiki-sync-status')
+
+/** ✦ 이름표들의 배치 — 개수, 서로 겹치지 않는지(1px 허용), 말줄임으로 잘린 이름 수. */
+async function tagLayout(page: Page): Promise<{ count: number; disjoint: boolean; truncated: number }> {
+  return page.evaluate(() => {
+    const tags = [...document.querySelectorAll('.wiki-ai-marker__tag')]
+    const rects = tags.map((t) => t.getBoundingClientRect())
+    const hit = (p: DOMRect, q: DOMRect) =>
+      p.left < q.right - 1 && q.left < p.right - 1 && p.top < q.bottom - 1 && q.top < p.bottom - 1
+    const disjoint = rects.every((r, i) => rects.every((q, j) => j <= i || !hit(r, q)))
+    const truncated = tags.filter((t) => {
+      const name = t.querySelector<HTMLElement>('.wiki-ai-marker__name')!
+      return name.scrollWidth > name.clientWidth
+    }).length
+    return { count: tags.length, disjoint, truncated }
+  })
+}
 
 /**
  * 입력이 새지 않는다 — 화면 본문과 서버 문서가 일정 시간 동안 expected 그대로인지 함께 지켜본다.
@@ -322,5 +345,357 @@ test.describe('노트 동시 편집', () => {
     const expected = '맨 위 B편집\n\n첫 문단 A![a.png](/api/v1/wiki/pages/18/attachments/1/content)\n\n둘째 문단 B![b.png](/api/v1/wiki/pages/18/attachments/2/content)'
     await expect.poll(() => readCollabMarkdown(collabNs, 18)).toBe(expected)
     for (const p of [a, b]) await expect.poll(() => placeholdersOn(p)).toBe(0)
+  })
+})
+
+// WP-289·291 — 실시간 편집 중 AI(MCP·채팅 비서)의 본문 저장이 도착하는 경우. API 는 본문 PUT 을 동기화 서버의 3-way 병합
+// (apply-markdown merge, 기준본 = AI 가 읽은 판)으로 넘긴다. 웹 E2E 는 API 가 모킹이라 그 내부 경로를 직접 부른다(applyCollabMarkdown).
+// 사람이 치고 있는 입력과 AI 수정이 둘 다 남아야 하고(덮어쓰기 금지), AI 가 고친 자리에는 서버가 ✦ 이름표를 약 3초 보인다.
+// 서버 표식은 3초 뒤 사라지므로 표식 단언·스크린샷을 먼저 하고, 본문 단언은 표식이 사라진 뒤에 한다(위젯 글자가 섞이지 않게).
+test.describe('노트 편집 중 AI 본문 병합', () => {
+  test('편집 중 AI 가 다른 문단을 고쳐도 내 입력과 AI 수정이 함께 남고, AI 가 고친 자리에 ✦ 이름표가 잠깐 보인다', async ({
+    authenticatedPage: a,
+    collabNs,
+  }) => {
+    const body = '첫 문단\n\n둘째 문단'
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 31, title: '회의록', body })
+    await a.goto(pagePath(31))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    // 내가 둘째 문단을 고치는 중 — AI 는 그 전에 읽은 판(body)을 기준으로 첫 문단을 고쳐 전체 본문을 보낸다.
+    await typeAtEnd(a, '둘째 문단', ' 내입력')
+    await expect.poll(() => readCollabMarkdown(collabNs, 31)).toBe('첫 문단\n\n둘째 문단 내입력')
+    const out = await applyCollabMarkdown(collabNs, 31, { baseBody: body, body: '첫 문단 AI수정\n\n둘째 문단' })
+    expect(out.body).toBe('첫 문단 AI수정\n\n둘째 문단 내입력')
+
+    const marker = a.getByTestId('wiki-ai-marker')
+    await expect(marker).toHaveText('김에이아이')
+    await expect(marker.locator('svg')).toHaveCount(1)
+    // 표식은 AI 가 고친 블록(첫 문단) 맨 앞에 붙는다.
+    await expect(a.locator('.ProseMirror p').first().getByTestId('wiki-ai-marker')).toHaveCount(1)
+    await a.screenshot({ path: 'test-results/tc/wiki-collab/ai-marker-desktop.png' })
+    // ~3초 뒤 사라진다.
+    await expect(marker).toHaveCount(0, { timeout: 8000 })
+    await expect(a.locator('.ProseMirror p')).toHaveText(['첫 문단 AI수정', '둘째 문단 내입력'])
+    // 내 커서는 그대로 — 이어 치면 내 문단 끝에 들어간다.
+    await a.keyboard.type('!')
+    await expect.poll(() => readCollabMarkdown(collabNs, 31)).toBe('첫 문단 AI수정\n\n둘째 문단 내입력!')
+  })
+
+  test('AI 가 내가 쓰던 문단의 다른 곳을 고치면 글자 단위로 합쳐진다', async ({ authenticatedPage: a, collabNs }) => {
+    const body = '회의 안건을 정리합니다'
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 32, title: '회의록', body })
+    await a.goto(pagePath(32))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    await typeAtEnd(a, '회의 안건을 정리합니다', ' — 내 메모')
+    await expect.poll(() => readCollabMarkdown(collabNs, 32)).toBe('회의 안건을 정리합니다 — 내 메모')
+    await applyCollabMarkdown(collabNs, 32, { baseBody: body, body: '다음 회의 안건을 정리합니다' })
+    await expect.poll(() => readCollabMarkdown(collabNs, 32)).toBe('다음 회의 안건을 정리합니다 — 내 메모')
+    await expect(a.getByTestId('wiki-ai-marker')).toHaveCount(0, { timeout: 8000 })
+    await expect(a.locator('.ProseMirror')).toHaveText('다음 회의 안건을 정리합니다 — 내 메모')
+  })
+
+  // 위 두 테스트는 내 입력이 서버에 닿은 뒤 병합이 온다. 여기선 병합이 도착할 때 내가 친 글자가 아직 서버로 가는 중이다 —
+  // 브라우저 → 서버 메시지를 붙잡아 둔 채 치고(서버 → 브라우저는 흐름), 병합을 적용한 뒤 놓는다. 그래서 병합과 입력이 항상 겹친다.
+  // 직전에 친 띄어쓰기(' 내입력 ' 끝 공백)는 이미 서버에 있다 — 병합 적용이 그걸 지우면 이어 친 글자가 앞 단어에 붙는다(WP-289 버그).
+  for (const c of [
+    {
+      name: '다른 문단',
+      pageId: 33,
+      body: '첫 문단\n\n둘째 문단',
+      at: '둘째 문단',
+      ai: '첫 문단 AI수정\n\n둘째 문단',
+      aiSeen: '첫 문단 AI수정',
+      expected: '첫 문단 AI수정\n\n둘째 문단 내입력 계속 쓰는 중',
+    },
+    {
+      name: '같은 문단의 다른 곳',
+      pageId: 34,
+      body: '회의 안건을 정리합니다',
+      at: '회의 안건을 정리합니다',
+      ai: '다음 회의 안건을 정리합니다',
+      aiSeen: '다음 회의',
+      expected: '다음 회의 안건을 정리합니다 내입력 계속 쓰는 중',
+    },
+  ]) {
+    test(`내가 친 글자가 서버로 가는 중에 AI 가 ${c.name}을 고친 병합이 도착해도 내 글자와 AI 수정이 모두 남는다`, async ({
+      authenticatedPage: a,
+      collabNs,
+    }) => {
+      await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: c.pageId, title: '회의록', body: c.body })
+      const socket = await controlCollabSocket(a)
+      await a.goto(pagePath(c.pageId))
+      await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+      await typeAtEnd(a, c.at, ' 내입력 ')
+      await expect.poll(() => readCollabMarkdown(collabNs, c.pageId)).toMatch(/ 내입력 $/)
+
+      socket.hold()
+      await a.keyboard.type('계속 쓰는 중')
+      await expect(a.locator('.ProseMirror')).toContainText('내입력 계속 쓰는 중')
+      // 서버는 아직 이 글자를 모른다 — 그 상태에서 병합이 적용되고 결과가 내 화면에 들어온다.
+      expect(await readCollabMarkdown(collabNs, c.pageId)).not.toContain('계속')
+      await applyCollabMarkdown(collabNs, c.pageId, { baseBody: c.body, body: c.ai })
+      await expect(a.locator('.ProseMirror')).toContainText(c.aiSeen)
+      socket.release()
+
+      await expect.poll(() => readCollabMarkdown(collabNs, c.pageId)).toBe(c.expected)
+      await expect(a.getByTestId('wiki-ai-marker')).toHaveCount(0, { timeout: 8000 })
+      await expect(a.locator('.ProseMirror p')).toHaveText(c.expected.split('\n\n'))
+    })
+  }
+
+  // WP-291 디자이너 리뷰 I-1 — 두 사람의 AI 가 같은 블록을 잇달아 고치면 서버 표식 둘이 같은 자리에 붙는다.
+  // 겹쳐 그리면 뒤 태그가 앞 태그를 가리므로(이름 하나가 사라짐) 비켜 쌓아 둘 다 온전히 보여야 한다. 표식은 약 3초라 바로 잰다.
+  test('두 사람의 AI 표식이 같은 자리에 붙어도 이름표가 겹치지 않고 둘 다 온전히 보인다', async ({ authenticatedPage: a, collabNs }) => {
+    const body = '첫 문단\n\n둘째 문단'
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 37, title: '회의록', body })
+    await a.goto(pagePath(37))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    const first = '첫 문단 이영희AI'
+    await applyCollabMarkdown(collabNs, 37, { baseBody: body, body: `${first}\n\n둘째 문단`, actor: { userId: 7, name: '이영희' } })
+    await applyCollabMarkdown(collabNs, 37, {
+      baseBody: `${first}\n\n둘째 문단`,
+      body: `${first} 김철수AI\n\n둘째 문단`,
+      actor: { userId: 8, name: '김철수' },
+    })
+    const markers = a.locator('.ProseMirror p').first().getByTestId('wiki-ai-marker')
+    await expect(markers).toHaveCount(2)
+    // 같은 자리 위젯의 DOM 순서는 정해져 있지 않다 — 이름 집합만 본다.
+    expect((await markers.allTextContents()).sort()).toEqual(['김철수', '이영희'])
+    await expect.poll(() => tagLayout(a), { timeout: 2000 }).toMatchObject({ count: 2, disjoint: true, truncated: 0 })
+    await a.screenshot({ path: 'test-results/tc/wiki-collab/ai-marker-stacked.png' })
+  })
+
+  // WP-291 디자이너 리뷰 I-2 — 표 첫 행(머리글 칸)의 표식은 위로 펼치면 표 감싸개(overflow:auto)에 잘린다 → 캐럿 아래로 펼친다.
+  test('표 첫 행에 붙은 AI 표식의 이름표는 표 감싸개에 잘리지 않게 캐럿 아래로 펼친다', async ({ authenticatedPage: a, collabNs }) => {
+    const body = '표 위 문단\n\n| 이름 | 역할 |\n| --- | --- |\n| 홍길동 | 개발 |\n| 김영희 | 기획 |'
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 38, title: '회의록', body })
+    await a.goto(pagePath(38))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    await applyCollabMarkdown(collabNs, 38, { baseBody: body, body: body.replace('| 이름 |', '| 성명 |') })
+    const marker = a.locator('.tableWrapper th').first().getByTestId('wiki-ai-marker')
+    await expect(marker).toHaveText('김에이아이')
+    await expect(marker).toHaveClass(/wiki-ai-marker--below/, { timeout: 2000 })
+    const inside = await marker.evaluate((el) => {
+      const tag = el.querySelector('.wiki-ai-marker__tag')!.getBoundingClientRect()
+      const wrap = el.closest('.tableWrapper')!.getBoundingClientRect()
+      return tag.top >= wrap.top && tag.bottom <= wrap.bottom && tag.right <= window.innerWidth
+    })
+    expect(inside).toBe(true)
+    await a.screenshot({ path: 'test-results/tc/wiki-collab/ai-marker-table-first-row.png' })
+  })
+
+  test('구버전 웹(사람)의 본문 저장이 합쳐질 때는 ✦ 표식이 없다', async ({ authenticatedPage: a, collabNs }) => {
+    const body = '첫 문단\n\n둘째 문단'
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 35, title: '회의록', body })
+    await a.goto(pagePath(35))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    await applyCollabMarkdown(collabNs, 35, { baseBody: body, body: '첫 문단 웹\n\n둘째 문단', ai: false })
+    await expect(a.locator('.ProseMirror')).toContainText('첫 문단 웹')
+    await expectStays(a, () => a.getByTestId('wiki-ai-marker').count(), 0, { ms: 800 })
+  })
+
+  test('내가 /ai 로 생성하는 동안 다른 사람 화면에 ✦ 내 이름표가 고정되고, 내가 끊기면 사라졌다가 다시 붙으면 돌아오며, 끝나면 사라진다', async ({
+    authenticatedPage: a,
+    newAuthedPage,
+    collabNs,
+  }) => {
+    const opts = { spaceId: SPACE_ID, pageId: 36, title: '회의록', body: '첫 문단\n\n둘째 문단' }
+    await mockWikiPageEditor(a, opts)
+    await a.route('**/api/v1/wiki/pages/*/ai', (route) =>
+      route.request().method() === 'POST' ? route.fulfill({ json: { correlationId: 'corr-marker' } }) : route.fallback(),
+    )
+    let release!: () => void
+    const released = new Promise<void>((r) => (release = r))
+    await a.route('**/api/v1/events', async (route) => {
+      await released
+      return route.fulfill({ status: 200, contentType: 'text/event-stream', body: buildWikiAiSse(['AI 결과'], 'corr-marker') })
+    })
+    const socket = await controlCollabSocket(a)
+    const b = await newAuthedPage()
+    await mockWikiPageEditor(b, { ...opts, seed: false })
+    await a.goto(pagePath(36))
+    await b.goto(pagePath(36))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
+
+    await typeAtEnd(a, '둘째 문단', '/')
+    await a.getByTestId('wiki-slash-option-continue').click()
+    await expect(a.getByTestId('wiki-ai-busy')).toBeVisible()
+
+    const onB = b.getByTestId('wiki-ai-marker')
+    await expect(onB).toHaveText('테스트 사용자')
+    // 내 화면엔 내 표식이 없다. 상대 화면 표식은 서버 표식(3초)과 달리 생성 내내 고정.
+    await expect(a.getByTestId('wiki-ai-marker')).toHaveCount(0)
+    await expectStays(b, () => onB.count(), 1, { ms: 3500 })
+    await b.screenshot({ path: 'test-results/tc/wiki-collab/ai-writing-marker-desktop.png' })
+
+    // A 가 끊기면 서버가 A 의 awareness 를 지워 상대 화면에서 사라지고, 다시 붙으면 돌아온다.
+    // (재접속 때 표식을 다시 올리는 우리 코드는 provider 도 재연결 때 로컬 awareness 를 다시 보내 E2E 로는 가려지지 않는다 —
+    //  wikiAiPresence.test.ts 가 지킨다. 여기선 사용자가 보는 결과만 본다.)
+    await socket.drop()
+    await expect(onB).toHaveCount(0)
+    socket.restore()
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live', { timeout: 30_000 })
+    await expect(onB).toHaveText('테스트 사용자')
+
+    release()
+    await expect(a.getByTestId('wiki-ai-busy')).toHaveCount(0)
+    await expect(onB).toHaveCount(0)
+    await expect.poll(() => readCollabMarkdown(collabNs, 36)).toContain('AI 결과')
+  })
+})
+
+// WP-291 — 내 /ai 생성 중 ✦ 표식(awareness)이 생성이 끝나는 모든 갈래에서 내려가는지 본다. 남으면 상대 화면에 "✦ 내 이름 작성 중" 이
+// 계속 고정된다.
+// (재접속 뒤 표식을 다시 올리는 동작은 provider 가 재연결 때 로컬 awareness 를 다시 보내기도 해서 E2E 로는 가려지지 않는다 — wikiAiPresence.test.ts 가 지킨다.)
+test.describe('노트 /ai 생성 중 ✦ 표식 정리', () => {
+  const corr = 'corr-presence'
+
+  /**
+   * A 가 둘째 문단 끝에서 /ai 이어쓰기를 시작해 생성 중인 채로 두고, 같은 문서에 붙은 B 에서 A 의 표식이 보일 때까지 간다.
+   * /events 는 finish(sse) 전까지 붙잡는다. 반환한 finish 는 테스트 끝에 꼭 불러 붙잡힌 라우트를 푼다.
+   */
+  async function startWritingSeenByB(
+    a: Page,
+    newAuthedPage: () => Promise<Page>,
+    pageId: number,
+  ): Promise<{ b: Page; onB: ReturnType<Page['getByTestId']>; finish: (sse: string) => void }> {
+    const opts = { spaceId: SPACE_ID, pageId, title: '회의록', body: '첫 문단\n\n둘째 문단' }
+    await mockWikiPageEditor(a, opts)
+    await a.route('**/api/v1/wiki/pages/*/ai', (route) =>
+      route.request().method() === 'POST' ? route.fulfill({ json: { correlationId: corr } }) : route.fallback(),
+    )
+    let finish!: (sse: string) => void
+    const finished = new Promise<string>((r) => (finish = r))
+    await a.route('**/api/v1/events', async (route) =>
+      route.fulfill({ status: 200, contentType: 'text/event-stream', body: await finished }),
+    )
+    const b = await newAuthedPage()
+    await mockWikiPageEditor(b, { ...opts, seed: false })
+    await a.goto(pagePath(pageId))
+    await b.goto(pagePath(pageId))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
+
+    await typeAtEnd(a, '둘째 문단', '/')
+    await a.getByTestId('wiki-slash-option-continue').click()
+    await expect(a.getByTestId('wiki-ai-busy')).toBeVisible()
+    const onB = b.getByTestId('wiki-ai-marker')
+    await expect(onB).toHaveText('테스트 사용자')
+    return { b, onB, finish }
+  }
+
+  test('생성이 끝나면 상대 화면의 ✦ 표식이 사라지고 결과가 들어간다', async ({ authenticatedPage: a, newAuthedPage }) => {
+    const { b, onB, finish } = await startWritingSeenByB(a, newAuthedPage, 40)
+    finish(buildWikiAiSse(['AI 결과'], corr))
+    await expect(a.getByTestId('wiki-ai-busy')).toHaveCount(0)
+    await expect(onB).toHaveCount(0)
+    await expect(b.locator('.ProseMirror')).toContainText('AI 결과')
+  })
+
+  test('생성을 취소하면 상대 화면의 ✦ 표식이 사라진다', async ({ authenticatedPage: a, newAuthedPage }) => {
+    const { onB, finish } = await startWritingSeenByB(a, newAuthedPage, 41)
+    await a.getByTestId('wiki-ai-cancel').click()
+    await expect(a.getByTestId('wiki-ai-busy')).toHaveCount(0)
+    await expect(onB).toHaveCount(0)
+    finish('')
+  })
+
+  test('생성이 오류로 끝나면 상대 화면의 ✦ 표식이 사라진다', async ({ authenticatedPage: a, newAuthedPage }) => {
+    const { onB, finish } = await startWritingSeenByB(a, newAuthedPage, 42)
+    finish(`event: wiki.ai.error\ndata: ${JSON.stringify({ correlationId: corr, message: '생성 실패' })}\n\n`)
+    await expect(a.getByTestId('wiki-ai-busy')).toHaveCount(0)
+    await expect(onB).toHaveCount(0)
+  })
+
+  test('생성 중 다른 노트로 옮겨 가면 상대 화면의 ✦ 표식이 사라진다', async ({ authenticatedPage: a, newAuthedPage }) => {
+    const { onB, finish } = await startWritingSeenByB(a, newAuthedPage, 43)
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 44, title: '다른 노트', body: '다른 본문' })
+    // 앱 안 이동(새로고침 없음) — 떠난 노트의 동기화 세션은 캐시라 잠시(GRACE 5초) 연결된 채 남는다. 그 안에 사라져야
+    // 언마운트 정리가 내린 것이다(세션 파기로 사라진 것이 아니다).
+    await a.evaluate((path) => {
+      history.pushState(null, '', path)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }, pagePath(44))
+    await expect(a.locator('.ProseMirror')).toContainText('다른 본문')
+    await expect(onB).toHaveCount(0, { timeout: 2500 })
+    finish('')
+  })
+
+  // latest action wins — 생성 중 다시 /ai 를 시작하면 앞 생성은 취소된다. 그 앞 생성의 결과(델타·done)가 뒤늦게 도착해도
+  // 새 생성의 표식을 내리거나 결과를 넣으면 안 된다. 지금은 취소 때 앞 생성의 구독이 풀려(useWikiAiStream abort→teardown)
+  // 늦은 이벤트가 콜백까지 오지 않는다 — 이 테스트는 그 결과(새 표식 유지·늦은 결과 미삽입·표식 자리 교체)를 사용자 화면으로 본다.
+  // 구독이 남는 회귀가 생기면 실행별 stop(WikiEditor)이 표식을 지키지만 늦은 결과가 들어가 여기서 걸린다.
+  test('생성 중 다시 /ai 를 시작한 뒤 앞 생성의 늦은 완료가 와도 새 생성의 ✦ 표식은 남고, 새 생성이 끝나야 사라진다', async ({
+    authenticatedPage: a,
+    newAuthedPage,
+  }) => {
+    const opts = { spaceId: SPACE_ID, pageId: 45, title: '회의록', body: '첫 문단\n\n둘째 문단' }
+    await mockWikiPageEditor(a, opts)
+    // 시작 요청마다 다른 correlationId — 첫 번째는 corr-old, 두 번째는 corr-new.
+    const corrs = ['corr-old', 'corr-new']
+    await a.route('**/api/v1/wiki/pages/*/ai', (route) =>
+      route.request().method() === 'POST' ? route.fulfill({ json: { correlationId: corrs.shift() } }) : route.fallback(),
+    )
+    // /events 는 deliver(sse) 때까지 붙잡는다. 한 번 흘리면 스트림이 닫히고 클라이언트가 다시 붙는데, 그 새 연결은 다음 deliver 를
+    // 기다린다. connects 는 지금까지 들어온 연결 수 — 흘린 뒤 다시 붙었다는 건 흘린 이벤트를 다 읽었다는 뜻이다.
+    let connects = 0
+    const held = () => {
+      let resolve!: (sse: string) => void
+      const promise = new Promise<string>((r) => (resolve = r))
+      return { promise, resolve }
+    }
+    let current = held()
+    const deliver = (sse: string) => {
+      current.resolve(sse)
+      current = held()
+    }
+    await a.route('**/api/v1/events', async (route) => {
+      connects += 1
+      const body = await current.promise
+      // 그새 닫힌 연결(개발 모드 이중 마운트 등)은 응답할 곳이 없다 — 무시한다.
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body }).catch(() => {})
+    })
+    const b = await newAuthedPage()
+    await mockWikiPageEditor(b, { ...opts, seed: false })
+    await a.goto(pagePath(45))
+    await b.goto(pagePath(45))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
+
+    // 앞 생성: 둘째 문단 끝.
+    await typeAtEnd(a, '둘째 문단', '/')
+    await a.getByTestId('wiki-slash-option-continue').click()
+    await expect(a.getByTestId('wiki-ai-busy')).toBeVisible()
+    const onB = b.getByTestId('wiki-ai-marker')
+    await expect(b.locator('.ProseMirror p').nth(1).getByTestId('wiki-ai-marker')).toHaveText('테스트 사용자')
+
+    // 새 생성: 첫 문단 끝 — 표식 자리가 달라 B 화면에서 교체가 끝났는지 알 수 있다.
+    await typeAtEnd(a, '첫 문단', '/')
+    await a.getByTestId('wiki-slash-option-continue').click()
+    await expect(a.getByTestId('wiki-ai-busy')).toBeVisible()
+    await expect(b.locator('.ProseMirror p').first().getByTestId('wiki-ai-marker')).toHaveText('테스트 사용자')
+    await expect(onB).toHaveCount(1)
+
+    // 앞 생성의 늦은 결과·완료를 흘리고, 클라이언트가 그걸 다 읽고 다시 붙을 때까지 기다린다.
+    const before = connects
+    deliver(buildWikiAiSse(['늦은 결과'], 'corr-old'))
+    await expect.poll(() => connects).toBeGreaterThan(before)
+    // 새 생성은 그대로 진행 중 — 표식은 첫 문단에 하나로 남고, 늦은 결과는 들어가지 않는다.
+    await expectStays(
+      b,
+      async () => [await onB.count(), await b.locator('.ProseMirror p').first().getByTestId('wiki-ai-marker').count()],
+      [1, 1],
+      { ms: 800 },
+    )
+    await expect(a.getByTestId('wiki-ai-busy')).toBeVisible()
+    await expect(a.locator('.ProseMirror')).not.toContainText('늦은 결과')
+
+    // 새 생성이 끝나야 표식이 사라지고 그 결과만 들어간다.
+    deliver(buildWikiAiSse(['새 결과'], 'corr-new'))
+    await expect(a.getByTestId('wiki-ai-busy')).toHaveCount(0)
+    await expect(onB).toHaveCount(0)
+    await expect(b.locator('.ProseMirror')).toContainText('새 결과')
+    await expect(b.locator('.ProseMirror')).not.toContainText('늦은 결과')
   })
 })

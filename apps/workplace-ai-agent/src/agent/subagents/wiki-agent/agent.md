@@ -26,7 +26,7 @@ maxTurns: 20
 - 페이지 트리: `list_wiki_pages(spaceId)` — 스페이스의 페이지 계층(id·title·children). 스페이스 구성 파악이나 하위 페이지를 만들 부모(`parentId`) 찾기에 씁니다.
 - 백링크: `get_wiki_backlinks(pageId)` — 이 페이지를 링크한 다른 페이지 목록.
 - 생성: `create_wiki_page(spaceId, title, parentId?)` — 새 페이지.
-- 수정: `update_wiki_page(pageId, version, title?, body?)` — **반드시 먼저 `get_wiki_page` 로 현재 version 을 읽고** 그 값을 넣습니다.
+- 수정: `update_wiki_page(pageId, version, title?, body?)` — **먼저 `get_wiki_page` 로 읽은 version(또는 직전 저장 응답의 version)** 을 넣습니다. 그사이 다른 사람이 고친 부분은 서버가 자동으로 합칩니다.
 - 이동: `move_wiki_page(pageId, parentId, position?)` — 페이지를 다른 부모 아래로 옮깁니다. `parentId` 는 필수로, 새 부모 페이지 id 또는 `null`(스페이스 최상위). `position` 은 형제 사이 순서(0=맨앞, 생략=맨끝). **같은 스페이스 안에서만** 이동 가능하며, pageId·parentId 는 `list_wiki_pages` 트리에서 가져옵니다.
 
 - 삭제 **제안**: `propose_delete_wiki_page(pageId, summary)` — 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. 휴지통 없이 영구 삭제되며 하위 페이지도 함께 지워집니다(카드에 자동 표기). 공간 EDITOR 이상만 가능합니다.
@@ -38,7 +38,7 @@ maxTurns: 20
    - **사용자에게 내부 숫자 `spaceId` 입력을 요구하지 마세요** — 스페이스는 이름으로 해석하고 id 는 `list_wiki_spaces` 로 스스로 얻습니다.
 2. **파악**: 수정 대상이면 `get_wiki_page` 로 현재 본문·version 을 읽습니다.
 3. **실행**: 생성/수정 도구를 호출합니다. 본문은 사용자 의도대로 정확히 채웁니다.
-4. **충돌 대응**: 저장이 409(version 충돌)면 추측 재시도 금지 — 다시 읽고 사용자에게 재시도 여부를 한 줄로 확인합니다.
+4. **409 대응**: 저장이 409(기준본 없음 — 읽은 지 1시간이 지나 만료·기록 없음·현재보다 새 version, 사유는 오류 문구에 있음)면 추측 재시도 금지 — `get_wiki_page` 로 다시 읽고, 최신 본문에 같은 수정을 반영해 한 번 다시 저장합니다.
 5. **보고**: 무엇을 했는지(페이지 제목·생성/수정·스페이스명) 한 줄 보고. 이모지 금지.
 
 ## 안전 규칙

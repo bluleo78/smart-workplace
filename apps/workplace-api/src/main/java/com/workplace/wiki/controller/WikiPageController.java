@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 위키 단건 페이지 API. */
@@ -37,10 +38,13 @@ public class WikiPageController {
   private final WikiCollabDocService collabService;
   private final JwtTokenProvider jwtTokenProvider;
 
+  /** 단건 상세. base=false 면 AI 병합 기준본을 남기지 않는다(새 웹 에디터 — 본문은 동기화 서버로 저장). */
   @GetMapping("/{id}")
   public ResponseEntity<WikiPageDetail> get(
-      @AuthenticationPrincipal Long callerId, @PathVariable("id") long pageId) {
-    return ResponseEntity.ok(pageService.get(callerId, pageId));
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @RequestParam(value = "base", defaultValue = "true") boolean base) {
+    return ResponseEntity.ok(pageService.read(callerId, pageId, base));
   }
 
   /**

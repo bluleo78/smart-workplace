@@ -15,6 +15,13 @@ export interface DocMeta {
   retryTimer?: NodeJS.Timeout
   /** 페이지가 없어졌다(API 404·410) — 더는 저장하지 않고 미저장으로 보지 않는다(언로드 허용). */
   gone?: boolean
+  /** 마지막으로 아는 저장 version(로드한 판·이후 저장 응답) — 바뀐 것 없는 AI 적용이 새 판 없이 지금 version 으로 답할 때 쓴다. */
+  version?: number
+  /**
+   * 마지막으로 저장에 성공한 파생 body 와 그것을 직렬화한 시점의 변경 순번. seq 가 그대로면 문서가 그 뒤로 안 바뀐 것이라 다시 직렬화하지 않고
+   * 이 body 를 쓴다(바뀐 것 없는 AI 적용의 응답). 로드만 한 문서엔 없다.
+   */
+  persistedBody?: { seq: number; body: string }
 }
 
 /**
@@ -42,9 +49,9 @@ function touch(editors: Set<number>, id: number): void {
 export class DocRegistry {
   private readonly meta = new WeakMap<Document, DocMeta>()
 
-  /** 로드 시 1회 등록. */
-  remember(doc: Document, tenantId: number, pageId: number): void {
-    const meta: DocMeta = { tenantId, pageId, editors: new Set(), seq: 0, savedSeq: 0, failures: 0 }
+  /** 로드 시 1회 등록. version = 로드한 판(상태만 저장하는 이관·reconcile 은 version 을 바꾸지 않으므로 곧 지금 version). */
+  remember(doc: Document, tenantId: number, pageId: number, version: number): void {
+    const meta: DocMeta = { tenantId, pageId, editors: new Set(), seq: 0, savedSeq: 0, failures: 0, version }
     this.meta.set(doc, meta)
     // 모든 출처의 변경을 동기적으로 센다(onChange 훅은 비동기 체인이라 저장 시점과 순서가 보장되지 않음).
     // 작성자도 여기서 기록한다 — 동기라 저장 직전 takeEditors 와의 순서가 정확하고, 최근 변경 순서가 유지된다.

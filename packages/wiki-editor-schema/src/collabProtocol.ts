@@ -34,3 +34,41 @@ export const COLLAB_NS_STORAGE_KEY = 'e2e:collabNs'
 export function collabDocName(ns: string, pageId: number): string {
   return `${ns ? `${ns}/` : ''}wiki-page:${pageId}`
 }
+
+/**
+ * awareness 의 ✦ AI 표식 필드(WP-291, 스펙 §5.1-5·§5.2) — 값은 CollabAiMarker[] 또는 null.
+ * 서버는 MCP·채팅 비서 적용 위치에 잠깐(COLLAB_AI_MARKER_MS), 웹은 `/ai` 생성 동안 삽입 위치에 고정해 올린다.
+ * 둘이 같은 모양이라 그리는 쪽(웹)은 출처를 구분하지 않는다. 접속자 아바타 ✦ 배지(WP-173)도 이 필드로 판단한다.
+ * 서버 상태는 이 필드만 있고 user·cursor 가 없다 — 접속자 목록·커서는 user 없는 상태를 건너뛰어야 한다.
+ */
+export const COLLAB_AI_MARKERS_FIELD = 'aiMarkers'
+
+/** 서버가 AI 적용 위치에 ✦ 표식을 보이는 시간(ms) — 스펙 "~3초". */
+export const COLLAB_AI_MARKER_MS = 3000
+
+/**
+ * ✦ 표식 하나 — name 은 AI 에게 시킨 사람(스펙 Q3, 빈 문자열이면 받는 쪽이 userId 로 이름을 찾는다).
+ * anchor 는 Y.relativePositionToJSON 결과(받는 쪽이 자기 문서에서 위치로 푼다).
+ */
+export interface CollabAiMarker {
+  id: string
+  userId: number
+  name: string
+  anchor: unknown
+}
+
+/** awareness 값 → 표식 목록. 모양이 틀린 항목은 버린다(자기 신고 값이라 믿지 않음). */
+export function parseAiMarkers(value: unknown): CollabAiMarker[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((m): m is CollabAiMarker => {
+    if (m == null || typeof m !== 'object') return false
+    const o = m as Record<string, unknown>
+    return (
+      typeof o.id === 'string' &&
+      typeof o.userId === 'number' &&
+      typeof o.name === 'string' &&
+      o.anchor != null &&
+      typeof o.anchor === 'object'
+    )
+  })
+}

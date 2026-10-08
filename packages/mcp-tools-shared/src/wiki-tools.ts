@@ -1,6 +1,6 @@
 // src/wiki-tools.ts — 노트(위키) 도구. 두 앱 공유(#846, #850, #854).
 // 쓰기는 스페이스 멤버십 가드를 서버가 강제하므로 확인 카드 없이 직접 실행한다.
-// update_wiki_page 의 버전 충돌(409)은 그대로 throw — 자동 재시도·머지는 하지 않는다.
+// update_wiki_page 의 409(기준본 없음 — 만료·기록 없음·현재보다 새 version)는 그대로 throw — 자동 재시도는 하지 않는다. 동시 편집은 서버가 3-way 병합한다(WP-289).
 import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
 import type { WikiPageRow, WikiToolClient } from './tool-client.js';
@@ -13,7 +13,7 @@ export const createWikiPageInput = z.object({
   title: z.string().min(1).max(255),
   parentId: z.number().int().positive().optional(),
 });
-// 서버가 부분 수정을 지원한다(title/body 생략 = 현재 값 유지). version 만 필수(낙관적 동시성).
+// 서버가 부분 수정을 지원한다(title/body 생략 = 현재 값 유지). version 은 병합 기준(읽은 판)이라 필수.
 export const updateWikiPageInput = z.object({
   pageId: z.number().int().positive(),
   version: z.number().int().min(1),
@@ -134,8 +134,9 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       name: 'update_wiki_page',
       kind: 'write',
       description:
-        '노트 페이지 제목·본문을 저장합니다. 바꿀 필드만 넣으면 나머지는 유지됩니다. version 은 반드시 get_wiki_page 로 읽은 현재 version 을 넣어야 합니다(낙관적 동시성). ' +
-        '충돌(409)이면 다시 읽고 재시도 여부를 사용자에게 확인하세요.',
+        '노트 페이지 제목·본문을 저장합니다. 바꿀 필드만 넣으면 나머지는 유지됩니다. version 은 get_wiki_page 로 읽었거나 직전 update_wiki_page 응답에서 받은 version 을 넣으세요 — ' +
+        '그 사이 다른 사람이 고친 부분은 서버가 자동으로 합칩니다(같은 곳을 함께 고쳤으면 이 요청의 내용이 우선). ' +
+        '409 는 그 version 의 기준본을 쓸 수 없는 경우입니다(읽은 지 1시간이 지나 만료·기록 없음·현재보다 새 version) — 오류 문구에 사유가 있습니다. get_wiki_page 로 다시 읽고 최신 본문에 수정을 반영해 다시 저장하세요.',
       inputSchema: updateWikiPageInput,
       async handler(args) {
         const { pageId, ...body } = updateWikiPageInput.parse(args);

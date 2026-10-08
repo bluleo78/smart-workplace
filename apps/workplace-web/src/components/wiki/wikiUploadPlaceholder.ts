@@ -4,7 +4,7 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import { ySyncPluginKey } from 'y-prosemirror'
 import * as Y from 'yjs'
 
-import { resolveRelative, toRelative, ySyncOf } from './wikiCollabPosition'
+import { clampPos, resolveRelative, toRelative, ySyncOf } from './wikiCollabPosition'
 
 /**
  * 노트 이미지 업로드 자리표시자(WP-295) — 공유 문서(Yjs)가 아니라 내 화면에만 그리는 ProseMirror 위젯 데코레이션.
@@ -35,12 +35,10 @@ type Meta = { add: UploadSpot } | { remove: string }
 
 const key = new PluginKey<UploadSpot[]>('wikiUploadPlaceholder')
 
-const clamp = (pos: number, state: EditorState) => Math.max(0, Math.min(pos, state.doc.content.size))
-
 /** 상대 위치 → 이 상태의 절대 위치. 동기화 플러그인이 없거나 풀 수 없으면 null. */
 function resolveRel(state: EditorState, rel: Y.RelativePosition | null): number | null {
   const abs = rel == null ? null : resolveRelative(state, rel)
-  return abs == null ? null : clamp(abs, state)
+  return abs == null ? null : clampPos(abs, state.doc)
 }
 
 /** 트랜잭션마다 자리를 옮긴다 — 원격 변경(동기화 플러그인 출처)은 상대 위치로, 내 편집은 매핑으로. */
@@ -50,7 +48,7 @@ function applySpots(tr: Transaction, spots: UploadSpot[], newState: EditorState)
     const remote = (tr.getMeta(ySyncPluginKey) as { isChangeOrigin?: boolean } | undefined)?.isChangeOrigin === true
     next = spots.map((s) => {
       const fromRel = remote ? resolveRel(newState, s.rel) : null
-      return { ...s, pos: fromRel ?? clamp(tr.mapping.map(s.pos, -1), newState) }
+      return { ...s, pos: fromRel ?? clampPos(tr.mapping.map(s.pos, -1), newState.doc) }
     })
   }
   const meta = tr.getMeta(key) as Meta | undefined
@@ -100,7 +98,7 @@ export const WikiUploadPlaceholder = Extension.create({
             // key 로 같은 업로드의 DOM 을 재사용한다(원격 변경마다 깜빡이지 않게). side -1: 그 자리에 친 글자 앞에 그린다.
             return DecorationSet.create(
               state.doc,
-              spots.map((s) => Decoration.widget(clamp(s.pos, state), widget, { key: s.id, side: -1 })),
+              spots.map((s) => Decoration.widget(clampPos(s.pos, state.doc), widget, { key: s.id, side: -1 })),
             )
           },
         },
@@ -132,7 +130,7 @@ export function startUploadPlaceholder(view: EditorView, pos: number): UploadPla
     position(current) {
       // 시작한 뷰면 플러그인이 따라온 위치, 재마운트된 새 뷰면 Yjs 상대 위치로 푼다(새 뷰엔 이 자리 상태가 없다).
       const spot = current === startView ? key.getState(current.state)?.find((s) => s.id === id) : undefined
-      if (spot) return clamp(spot.pos, current.state)
+      if (spot) return clampPos(spot.pos, current.state.doc)
       return resolveRel(current.state, rel)
     },
     removeIn(tr) {

@@ -9,22 +9,28 @@ import com.workplace.wiki.dto.WikiAiAction;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
+import com.workplace.wiki.exception.WikiBaseExpiredException;
 import com.workplace.wiki.exception.WikiConflictException;
 import com.workplace.wiki.exception.WikiInvalidMoveException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.outbound.CollabClient;
 import com.workplace.wiki.outbound.CollabClient.CollabApplyResult;
+import com.workplace.wiki.outbound.CollabClient.MergeBase;
 import com.workplace.wiki.outbound.CollabProperties;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageAccessRevokedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageCreatedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageDeletedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageMovedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageUpdatedEvent;
+import com.workplace.wiki.repository.WikiBodyHistoryRepository;
 import com.workplace.wiki.repository.WikiPageRepository;
 import com.workplace.wiki.repository.WikiRevisionRepository;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -35,9 +41,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 /** 위키 페이지 트리 + 저장. 인가는 페이지의 공간 역할로 해석. 동시 편집 도입 후 본문 저장은 동기화 서버로 위임한다(WP-285, {@link #save}). */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class WikiPageService {
   private final WikiPageRepository pages;
   private final WikiRevisionRepository revisions;
+  // WP-289 AI 병합 기준본 — 읽은 판·쓴 판을 기록한다.
+  private final WikiBodyHistoryRepository bodies;
   private final WikiPermissions perms;
   private final WikiBodyEffects bodyEffects;
   private final WikiAttachmentService attachments;
@@ -61,6 +70,8 @@ public class WikiPageService {
     long id = pages.insert(spaceId, req.parentId(), req.title(), pos);
     WikiPageDetail detail =
         pages.findDetail(id).orElseThrow(() -> new WikiPageNotFoundException(id));
+    // 생성 응답의 version 으로 곧바로 본문을 저장하는 흐름(create_wiki_page → update_wiki_page)도 기준본이 있게 한다.
+    bodies.recordRead(id, detail.version(), detail.body());
     // #724: 생성 사실을 스페이스 멤버에게 SSE 로 알려 열린 노트 화면이 즉시 갱신되도록 한다(AFTER_COMMIT fan-out).
     publisher.publishEvent(
         new WikiPageCreatedEvent(
@@ -84,6 +95,19 @@ public class WikiPageService {
     return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
   }
 
+  /**
+   * 페이지 상세 조회 + AI 병합 기준본 기록(스펙 §3.3). 기본은 기록한다 — 쿼리를 모르는 구버전 웹(캐시된 PWA)·MCP 가 이 version 으로 본문을 저장할
+   * 때 병합 기준이 있어야 409 없이 합쳐진다. 새 웹 에디터는 본문을 REST 로 저장하지 않으므로 {@code recordBase=false}.
+   */
+  @Transactional
+  public WikiPageDetail read(long callerId, long pageId, boolean recordBase) {
+    WikiPageDetail detail = get(callerId, pageId);
+    if (recordBase) {
+      bodies.recordRead(detail.id(), detail.version(), detail.body());
+    }
+    return detail;
+  }
+
   /** 사람(웹) 저장 — {@link #save(long, long, SavePageRequest, boolean)} 의 ai=false. */
   public WikiPageDetail save(long callerId, long pageId, SavePageRequest req) {
     return save(callerId, pageId, req, false);
@@ -94,17 +118,17 @@ public class WikiPageService {
    *
    * <ul>
    *   <li>제목만(body null): 버전 검사 없이 나중 값 우선(WP-290) — 파생 저장으로 version 이 수 초마다 올라 검사하면 409 가 잦다.
-   *   <li>본문 포함 + 동기화 서버 켜짐: 실시간 문서가 원본이므로 DB 를 직접 덮지 않고 동기화 서버에 적용을 위임한다(WP-285). DB 를 덮으면 다음 파생
-   *       저장이 그 변경을 지운다. 지금은 mode=replace 라 version 이 현재와 같을 때만 위임하고 다르면 기존처럼 409 — 3-way 병합은
-   *       WP-289(운영 배포는 그와 함께).
+   *   <li>본문 포함 + 동기화 서버 켜짐: 실시간 문서가 원본이므로 DB 를 직접 덮지 않고, 요청 version 의 기준본 후보({@link
+   *       #resolveBase})로 동기화 서버에 3-way 병합을 맡긴다(WP-289). 기준본이 만료됐고 현재 version 도 아니면 409. 응답 version
+   *       에는 병합본과 제출 본문을 함께 기준본으로 남긴다. AI 적용 직전 스냅샷은 동기화 서버의 snapshot 저장이 남긴다.
    *   <li>본문 포함 + 동기화 서버 꺼짐(테스트·비상): 기존 낙관적 저장(version 필수, snapshot 지원).
    * </ul>
    *
    * <p><b>트랜잭션 경계가 load-bearing 이다.</b> 이 메서드는 의도적으로 {@code @Transactional} 이 아니다. 위임 경로에서 동기화 서버는
    * 응답 전에 이 API 의 {@code PUT /internal/wiki/pages/{id}/doc} 로 같은 wiki_page 행을 갱신한다. 제목 저장과 위임을 한
    * 트랜잭션에 두면 제목 UPDATE 의 행 잠금을 쥔 채 그 콜백을 기다려 매 저장이 타임아웃까지 막힌다(구버전 웹·MCP 는 제목과 본문을 늘 함께 보낸다). 그래서 ①
-   * 권한 확인·제목 저장을 자기 트랜잭션으로 먼저 커밋하고 ② 트랜잭션 밖에서 위임한 뒤 ③ 읽기 트랜잭션으로 응답을 만든다. 위임이 실패하면 제목은 이미 커밋된 채 남고
-   * 본문 저장만 503 으로 실패한다(본문을 조용히 버리지 않는다).
+   * 권한 확인·기준본 해석·제목 저장을 자기 트랜잭션으로 먼저 커밋하고 ② 트랜잭션 밖에서 위임한 뒤 ③ 짧은 트랜잭션으로 응답 판의 기준본을 남기고 응답을 만든다. 위임이
+   * 실패하면 제목은 이미 커밋된 채 남고 본문 저장만 503 으로 실패한다(본문을 조용히 버리지 않는다).
    *
    * @param ai MCP·채팅 비서 등 AI 경로면 true — 동기화 서버가 ✦ 표시·스냅샷 귀속에 쓴다
    */
@@ -119,40 +143,114 @@ public class WikiPageService {
     if (TransactionSynchronizationManager.isActualTransactionActive()) {
       throw new IllegalStateException("동기화 서버 본문 위임은 트랜잭션 밖에서 호출해야 합니다: page=" + pageId);
     }
-    // ① 권한 확인 + 제목 커밋. 작성자 표시 이름도 여기서(트랜잭션 안 — RLS GUC 필요) 구해 둔다.
-    String actorName =
+    // ① 권한 확인 + 기준본 해석 + 제목 커밋. 기준본이 없으면(만료) 여기서 409 — 제목 커밋·위임 전이라 아무것도 남기지 않는다.
+    //    작성자 표시 이름도 여기서(트랜잭션 안 — RLS GUC 필요) 구해 둔다. AGENT 주체(MCP·비서 계정)면 에이전트 자신의 이름이다.
+    Delegation d =
         tx.execute(
             s -> {
               WikiPageDetail current = loadForEdit(callerId, pageId);
-              // 3-way 병합(WP-289) 전까지의 임시 규칙 — 기존 낙관적 저장과 같은 판정·같은 오류. 낡은 읽기로 만든 본문이 실시간 문서를
-              // 통째로 덮지 않게 version 이 현재와 다르면 409, 없으면 400. 제목 커밋·위임 전에 판정해 거절 시 아무것도 남기지 않는다.
-              requireCurrentVersion(current, req);
-              // AI(MCP·채팅 비서) 덮어쓰기는 편집 세션 간격과 무관하게 직전 본문을 남긴다 — 결과가 틀려도 되돌릴 수 있게. 명시
-              // snapshot 요청도 기존 경로처럼 따른다. 동기화 서버가 저장하기 전에 남겨야 덮이기 전 본문이 된다.
-              if (ai || req.snapshot()) {
-                revisions.snapshot(current);
-              }
+              requireVersionPresent(req, pageId);
+              MergeBase base = resolveBase(current, req.version());
               saveTitleIfPresent(current, req, callerId);
-              return users.summaryOf(callerId).name();
+              return new Delegation(base, users.summaryOf(callerId).name(), current);
             });
 
-    // ② 트랜잭션 밖에서 위임.
+    // ② 트랜잭션 밖에서 병합 위임(동기화 서버가 이 API 의 PUT /doc 으로 같은 행을 갱신한다 — 잠금 금지). 실패·타임아웃이면 예외로
+    //    끝나 ③의 기준본 기록도 하지 않는다(결과를 모르는 판을 기준으로 남기지 않는다). snapshot 은 AI 적용이거나 사람(구버전 웹)이
+    //    명시로 요청했을 때 — 동기화 서버의 적용 저장이 직전 판을 리비전으로 남긴다.
     CollabApplyResult applied =
-        collab.applyMarkdown(TenantContext.require(), pageId, req.body(), callerId, actorName, ai);
+        collab.applyMarkdown(
+            TenantContext.require(),
+            pageId,
+            d.base(),
+            req.body(),
+            callerId,
+            d.actorName(),
+            ai,
+            ai || req.snapshot());
 
-    // ③ 응답 — version·body 는 동기화 서버가 저장한 값(재조회는 그 사이 다른 파생 저장으로 앞설 수 있다).
-    tx.setReadOnly(true);
-    return tx.execute(
-            s -> pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId)))
-        .withBody(applied.body(), applied.version());
+    // ③ 여기부터 본문은 이미 저장됐다 — 무엇이 실패해도 저장 성공(동기화 서버 version)으로 답한다(거짓 500 이면 호출자가 재시도해 중복 적용).
+    //    응답 판 기준본 기록은 최선 노력: 자기 트랜잭션으로 시도하고(실패한 SQL 은 트랜잭션을 깨므로 응답 조회와 분리) 실패하면 경고만 남긴다.
+    //    persisted=false(적용은 됐지만 동기화 서버의 즉시 저장이 시간 안에 끝나지 않음 — 재시도가 저장한다)도 성공이다. 돌려받은 version 은
+    //    적용분이 없는 판이라 이 본문의 기준본으로 남기지 않는다.
+    if (!applied.isPersisted()) {
+      log.warn("동기화 서버 적용 저장 미완료(적용됨, 재시도 저장 예정): page={} version={}", pageId, applied.version());
+    } else {
+      try {
+        tx.executeWithoutResult(
+            s -> bodies.recordApplied(pageId, applied.version(), applied.body(), req.body()));
+      } catch (RuntimeException e) {
+        log.warn("기준본 기록 실패(저장은 성공): page={} version={}", pageId, applied.version(), e);
+      }
+    }
+    return appliedDetail(tx, pageId, d, req, callerId, applied);
   }
 
-  /** 본문 저장의 기준 version 검사 — 없으면 400, 현재와 다르면 409(기존 낙관적 저장과 같은 오류). */
-  private static void requireCurrentVersion(WikiPageDetail current, SavePageRequest req) {
-    requireVersionPresent(req, current.id());
-    if (req.version() != current.version()) {
-      throw new WikiConflictException(current.id());
+  /**
+   * 위임 저장의 응답 상세 — 재조회에 동기화 서버가 저장한 body·version 을 덮는다. 재조회가 실패하면(DB 일시 장애·그새 삭제) ①에서 읽은 상세에 이번
+   * 제목·본문을 얹어 답한다 — 이미 저장된 변경을 500·404 로 보이지 않게.
+   */
+  private WikiPageDetail appliedDetail(
+      TransactionTemplate tx,
+      long pageId,
+      Delegation d,
+      SavePageRequest req,
+      long callerId,
+      CollabApplyResult applied) {
+    try {
+      return tx.execute(
+          s ->
+              pages
+                  .findDetailWithBody(pageId, applied.body(), applied.version())
+                  .orElseThrow(() -> new WikiPageNotFoundException(pageId)));
+    } catch (RuntimeException e) {
+      log.warn("저장 응답 재조회 실패 — ① 상세로 답한다(저장은 성공): page={}", pageId, e);
+      WikiPageDetail c = d.current();
+      return new WikiPageDetail(
+          c.id(),
+          c.spaceId(),
+          c.parentId(),
+          req.title() != null ? req.title() : c.title(),
+          applied.body(),
+          applied.version(),
+          callerId,
+          OffsetDateTime.now(),
+          c.aiLastUsedAt(),
+          c.aiLastAction());
     }
+  }
+
+  /** 위임 ①의 결과 — 병합 기준본 후보, 적용 주체 표시 이름, ①에서 읽은 상세(응답 재조회 실패 시 대체). */
+  private record Delegation(MergeBase base, String actorName, WikiPageDetail current) {}
+
+  /**
+   * 요청 version 의 병합 기준본 후보(스펙 §5.1-1).
+   *
+   * <ol>
+   *   <li>기록이 있고 1시간 안이면 그 행(실제 본문 + 있으면 제출 본문). 현재 version 의 기록은 오래돼도 쓴다 — 제출 본문 후보를 잃으면 자기 본문에서
+   *       이어 쓰는 구버전 웹의 다음 저장이 남의 수정을 지운다.
+   *   <li>기록이 없어도 현재 version 이면 현재 본문이 곧 그 판이다(배포 전에 페이지를 연 구버전 웹).
+   *   <li>그 밖 — 409. 무엇을 기준으로 고쳤는지 모르는 본문으로 실시간 문서를 덮지 않는다. 문구는 사유별로 — 현재보다 새 판(잘못된 version), 기록
+   *       없음(이 API 로 읽지 않은 판·정리됨), 만료(읽은 지 1시간 초과).
+   * </ol>
+   */
+  private MergeBase resolveBase(WikiPageDetail current, int version) {
+    long pageId = current.id();
+    boolean isCurrent = version == current.version();
+    if (version > current.version()) {
+      throw WikiBaseExpiredException.newerThanCurrent(pageId, version, current.version());
+    }
+    Optional<WikiBodyHistoryRepository.BaseRow> row = bodies.find(pageId, version);
+    OffsetDateTime cutoff = OffsetDateTime.now().minus(WikiBodyHistoryRepository.TTL);
+    if (row.isPresent() && (isCurrent || row.get().readAt().isAfter(cutoff))) {
+      return new MergeBase(row.get().body(), row.get().submittedBody());
+    }
+    if (isCurrent) {
+      return new MergeBase(current.body(), null);
+    }
+    throw row.isPresent()
+        ? WikiBaseExpiredException.expired(pageId, version)
+        : WikiBaseExpiredException.notFound(pageId, version);
   }
 
   /** 본문 저장에는 기준 version 이 필요하다 — 없으면 400(위임·기존 낙관적 저장 공통). */
@@ -185,6 +283,7 @@ public class WikiPageService {
   private WikiPageDetail saveInTx(WikiPageDetail current, long callerId, SavePageRequest req) {
     long pageId = current.id();
     if (req.body() == null) {
+      // 제목만 — 기준본을 남기지 않는다(제목 저장마다 본문 전체 사본을 쓰지 않게). 응답 version 이 현재인 동안은 현재 본문이 곧 기준이다.
       saveTitleIfPresent(current, req, callerId);
       return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     }
@@ -202,7 +301,15 @@ public class WikiPageService {
     }
     // 백링크 교체·첨부 영구화/강등·SSE — 동기화 서버 파생 저장과 같은 후처리(WikiBodyEffects).
     bodyEffects.afterBodySaved(current.spaceId(), pageId, title, body, callerId);
-    return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    return detailRecordingBase(pageId);
+  }
+
+  /** 응답으로 돌려줄 상세를 읽고 그 판을 기준본으로 남긴다(기존 낙관적 본문 저장 — 응답 version 으로 이어 저장할 수 있게). */
+  private WikiPageDetail detailRecordingBase(long pageId) {
+    WikiPageDetail detail =
+        pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    bodies.recordRead(detail.id(), detail.version(), detail.body());
+    return detail;
   }
 
   /** #724: 저장 사실을 스페이스 멤버에게 SSE 로 알린다(AFTER_COMMIT) — 다른 탭/AI 편집이 즉시 반영되도록. 트랜잭션 안에서 호출. */

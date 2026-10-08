@@ -478,6 +478,22 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), null, request));
   }
 
+  /** 동기화 서버가 제출 본문을 거부(빈 AI 본문·해석 불가 등, WP-289) → 400. 호출자가 본문을 고쳐야 하는 오류라 사유를 그대로 보인다. */
+  @ExceptionHandler(com.workplace.wiki.exception.CollabBodyRejectedException.class)
+  public ResponseEntity<ErrorResponse> handleCollabBodyRejected(
+      com.workplace.wiki.exception.CollabBodyRejectedException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 동기화 서버의 병합 계산 실패(WP-289) → 502. 아무것도 적용되지 않았고 일시 장애(503)와 구분한다. */
+  @ExceptionHandler(com.workplace.wiki.exception.CollabMergeFailedException.class)
+  public ResponseEntity<ErrorResponse> handleCollabMergeFailed(
+      com.workplace.wiki.exception.CollabMergeFailedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+        .body(buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request));
+  }
+
   /** 위키 TEAM 공간 이름 중복 — 409(컨테이너류 이름 하드 차단 정책, #696). */
   @ExceptionHandler(com.workplace.wiki.exception.WikiSpaceNameDuplicatedException.class)
   public ResponseEntity<ErrorResponse> handleWikiSpaceNameDuplicated(

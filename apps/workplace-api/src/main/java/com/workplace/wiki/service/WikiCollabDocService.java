@@ -80,7 +80,12 @@ public class WikiCollabDocService {
       docs.upsert(pageId, state, current.version());
       return current.version();
     }
-    snapshotIfNewSession(current);
+    // AI 적용 저장은 항상 직전 판을 남긴다(되돌리기 대비). 그 밖은 편집 세션 간격 규칙(WP-297 전 임시).
+    if (req.snapshot()) {
+      revisions.snapshot(current);
+    } else {
+      snapshotIfNewSession(current);
+    }
     // 편집자 없이 저장되는 경우(서버 내부 적용)는 updated_by 를 건드리지 않아 직전 수정자를 유지한다.
     // 갓 생성된 페이지는 updated_by 자체가 NULL 이라 long 으로 언박싱하면 NPE — null 을 그대로 전달한다.
     Long editorId = lastEditor(req.editorIds());

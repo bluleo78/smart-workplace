@@ -9,6 +9,7 @@ import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../../factories/wiki
 import { expect, test } from '../../fixtures/auth.fixture'
 import { seedCollabFor } from '../../fixtures/collab'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
+import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 
 const SPACE_ID = 1
@@ -65,6 +66,7 @@ test('위키 — 제목 입력 중이 아닐 때 다른 곳에서 제목을 바�
   const server: FakeServer = { title: '원래 제목' }
   await mockWiki(page, server)
   const events = await mockGatedEvents(page)
+  const gets = trackRequests(page, 'GET', `/api/v1/wiki/pages/${PAGE_ID}`)
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   const editor = page.locator('.ProseMirror')
@@ -82,6 +84,9 @@ test('위키 — 제목 입력 중이 아닐 때 다른 곳에서 제목을 바�
   // 재조회한 REST 본문은 에디터를 건드리지 않는다 — 본문은 동기화 문서가 정한다. 새는 일이 있다면 재조회 뒤 비동기로
   // 일어나므로 한 번만 읽지 않고 일정 시간 그대로인지 지켜본다.
   await expectStays(page, async () => (await editor.textContent()) ?? '', '원래 본문', { ms: 500 })
+  // 웹은 본문을 동기화 서버로 저장하므로 조회 때마다 AI 병합 기준본을 남기지 않게 base=false 를 보낸다(WP-289·291).
+  expect(gets.urls().map((u) => u.searchParams.get('base'))).toEqual(gets.urls().map(() => 'false'))
+  expect(gets.count()).toBeGreaterThanOrEqual(2)
 })
 
 test('위키 — 제목 입력란에 포커스가 있는 동안엔 원격 제목이 덮지 않고, 포커스를 떠나면 반영된다', async ({

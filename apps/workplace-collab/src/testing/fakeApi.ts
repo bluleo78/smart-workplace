@@ -34,6 +34,8 @@ export interface StoreCall {
   bodyVersion?: number
   editorIds: number[]
   state: string
+  /** 이 저장 직전 판을 리비전으로 남기라는 요청(AI 적용 저장). 파생 저장만. */
+  snapshot?: boolean
 }
 
 export interface FakeApi {
@@ -141,11 +143,16 @@ export async function startFakeApi(internalToken = 'test-token'): Promise<FakeAp
           self.storeFailures += 1
           return send(res, 503)
         }
-        const payload = JSON.parse(await readBody(req)) as {
+        // 호출자가 시간 상한으로 끊은 요청(중단된 소켓)은 저장하지 않고 버린다 — 실제 API 도 응답을 못 보낸다.
+        if (req.destroyed || res.destroyed) return
+        const raw = await readBody(req).catch(() => null)
+        if (raw == null) return
+        const payload = JSON.parse(raw) as {
           state: string
           body?: string
           editorIds?: number[]
           bodyVersion?: number
+          snapshot?: boolean
         }
         if (payload.body == null) {
           if (payload.bodyVersion == null) return send(res, 400)
@@ -163,6 +170,7 @@ export async function startFakeApi(internalToken = 'test-token'): Promise<FakeAp
           body: payload.body,
           editorIds: payload.editorIds ?? [],
           state: payload.state,
+          snapshot: payload.snapshot === true,
         })
         return send(res, 200, { version })
       }

@@ -8,6 +8,7 @@ import { type Editor, EditorContent, useEditor } from '@tiptap/react'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useLocation,useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
+import * as Y from 'yjs'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { Page, pageBodyInsetClass, pageReadingWidthClass } from '@/components/layout/Page'
@@ -26,6 +27,7 @@ import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { syncWikiSummaryVersion } from '../../hooks/queries/useWikiSummary'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import { wikiKeys } from '../../hooks/queries/wikiKeys'
+import { useAuth } from '../../hooks/useAuth'
 import { useCollabSession } from '../../hooks/useCollabSession'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import { handleApiError } from '../../lib/api-error'
@@ -35,10 +37,12 @@ import { registerWikiEditorView, useWikiImageUpload } from './useWikiImageUpload
 import { type GenerateActionKey, type TransformActionKey } from './wikiAiActions'
 import { WikiAiBubbleToolbar } from './WikiAiBubbleToolbar'
 import { insertAiMarkdown } from './wikiAiInsert'
+import { WikiAiMarkers } from './wikiAiMarkers'
+import { announceAiWriting } from './wikiAiPresence'
 import { stripLeadingTitleHeading } from './wikiAiTitleHeading'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
 import { buildBreadcrumb } from './wikiBreadcrumb'
-import { anchorPosition } from './wikiCollabPosition'
+import { anchorPosition, toRelative } from './wikiCollabPosition'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { WikiImage } from './wikiImageNode'
@@ -181,6 +185,28 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     void queryClient.invalidateQueries({ queryKey: wikiKeys.page(page.id) })
   }, [queryClient, page.id])
 
+  // /ai 생성 중 ✦ 표식(WP-291) — 다른 접속자 화면의 삽입 위치에 "✦ 내 이름" 을 고정한다. 한 번에 하나(latest action wins).
+  // 각 실행은 startAiPresence 가 돌려준 자기 stop 으로만 내린다 — 공유 ref 로 내리면 이미 대체된 이전 스트림의 늦은 onDone/onError 가
+  // 새 스트림의 표식을 지워 버린다(abortRef 와 같은 함정). 취소·다음 액션·언마운트는 track 이 abortRef 에 묶은 stop 으로 내린다
+  // (동기화 세션은 페이지별 캐시라 연결이 남아, 화면을 떠날 때 내리지 않으면 상대 화면에 계속 고정된다).
+  const { user } = useAuth()
+  const startAiPresence = useCallback(
+    (ed: Editor, pos: number): (() => void) => {
+      // 상대 위치로 올려야 생성 중 누가 위쪽을 고쳐도 받는 쪽이 삽입 위치를 따라 그린다(결과는 done 때 한 번에 넣으므로 그 사이 움직일 일은 원격·로컬 편집뿐).
+      const rel = toRelative(ed.state, pos)
+      if (!user || !rel) return () => {}
+      return announceAiWriting(session.provider, { userId: user.id, name: user.name }, Y.relativePositionToJSON(rel))
+    },
+    [session.provider, user],
+  )
+  /** 진행 중 스트림을 abortRef 에 건다 — 취소(ESC·버튼)·다음 액션·언마운트는 모두 이 abort 를 거치며 표식도 함께 내린다. */
+  const track = useCallback((handle: { abort: () => void }, stopPresence: () => void) => {
+    abortRef.current = () => {
+      handle.abort()
+      stopPresence()
+    }
+  }, [])
+
   // WP-301 요약 캐시를 노트의 새 버전에 맞춘다(낡음 표시·짧던 노트가 길어지면 재조회). 예전엔 자동저장 응답·원격 반영에서 맞췄지만
   // 이제 본문은 동기화 서버가 파생 저장(version+1)하고 에디터는 wiki.page.updated → 페이지 재조회로만 새 version 을 안다(WP-287).
   // 제목만 저장·상태만 저장은 version 을 올리지 않아 요약을 낡게 만들지 않는다. 같은/옛 version 은 sync 가 무시하므로 마운트·self-echo 는 무해하다.
@@ -206,6 +232,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       const { from, to } = ed.state.selection
       const fromAt = anchorPosition(ed, from)
       const toAt = anchorPosition(ed, to)
+      const stopPresence = startAiPresence(ed, from)
       setAiBusy(true)
       let buffer = ''
       const handle = startWikiAiStream({
@@ -216,6 +243,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           buffer += text
         },
         onDone: () => {
+          stopPresence()
           setAiBusy(false)
           abortRef.current = null
           refreshAiAttribution()
@@ -228,14 +256,15 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           insertAiMarkdown(e2, fromAt(e2), toAt(e2), content)
         },
         onError: (message) => {
+          stopPresence()
           setAiBusy(false)
           abortRef.current = null
           toast.error(message)
         },
       })
-      abortRef.current = handle.abort
+      track(handle, stopPresence)
     },
-    [page.id, refreshAiAttribution],
+    [page.id, refreshAiAttribution, startAiPresence, track],
   )
 
   // 변형 액션(선택영역 제자리 교체) — 스트림을 버퍼링했다가 done 시 1회 교체(단일 undo).
@@ -252,6 +281,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       const toAt = anchorPosition(ed, to)
       abortRef.current?.()
       abortRef.current = null
+      const stopPresence = startAiPresence(ed, from)
       setAiBusy(true)
       let buffer = ''
       const handle = startWikiAiStream({
@@ -263,6 +293,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           buffer += text
         },
         onDone: () => {
+          stopPresence()
           setAiBusy(false)
           abortRef.current = null
           refreshAiAttribution()
@@ -272,14 +303,15 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
           insertAiMarkdown(e2, fromAt(e2), toAt(e2), buffer)
         },
         onError: (message) => {
+          stopPresence()
           setAiBusy(false)
           abortRef.current = null
           toast.error(message)
         },
       })
-      abortRef.current = handle.abort
+      track(handle, stopPresence)
     },
-    [page.id, refreshAiAttribution],
+    [page.id, refreshAiAttribution, startAiPresence, track],
   )
 
   // "이슈로 만들기" — 선택 텍스트를 제목(첫 줄)/본문으로, 삽입 위치(선택 끝)를 캡처해 다이얼로그를 연다.
@@ -408,6 +440,8 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         tableShortcutsExtension,
         // 이미지 업로드 자리표시자 — 공유 문서가 아니라 내 화면에만 그리는 데코레이션(WP-295).
         WikiUploadPlaceholder,
+        // 다른 사람의 AI 가 쓰는 자리 ✦ 표식(WP-291) — awareness(서버·다른 접속자의 /ai)에서 읽어 내 화면에만 그린다.
+        WikiAiMarkers.configure({ awareness: session.provider.awareness }),
       ],
       // 이미지 붙여넣기·드래그드롭 업로드. 업로드 완료 시 image 노드로 교체된다.
       editorProps: { handlePaste, handleDrop },

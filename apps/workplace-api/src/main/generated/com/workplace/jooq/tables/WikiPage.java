@@ -10,6 +10,7 @@ import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.WikiPage.WikiPagePath;
 import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
+import com.workplace.jooq.tables.WikiPageBodyHistory.WikiPageBodyHistoryPath;
 import com.workplace.jooq.tables.WikiPageDoc.WikiPageDocPath;
 import com.workplace.jooq.tables.WikiReference.WikiReferencePath;
 import com.workplace.jooq.tables.WikiRevision.WikiRevisionPath;
@@ -280,6 +281,19 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
             _wikiPageAttachment = new WikiPageAttachmentPath(this, null, Keys.WIKI_PAGE_ATTACHMENT__WIKI_PAGE_ATTACHMENT_PAGE_ID_FKEY.getInverseKey());
 
         return _wikiPageAttachment;
+    }
+
+    private transient WikiPageBodyHistoryPath _wikiPageBodyHistory;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_body_history</code> table
+     */
+    public WikiPageBodyHistoryPath wikiPageBodyHistory() {
+        if (_wikiPageBodyHistory == null)
+            _wikiPageBodyHistory = new WikiPageBodyHistoryPath(this, null, Keys.WIKI_PAGE_BODY_HISTORY__WIKI_PAGE_BODY_HISTORY_PAGE_ID_FKEY.getInverseKey());
+
+        return _wikiPageBodyHistory;
     }
 
     private transient WikiPageDocPath _wikiPageDoc;

@@ -48,6 +48,31 @@ export async function changeCollabRole(ns: string, pageId: number, role: CollabR
   await post('/internal/docs/revalidate', { tenantId: 1, pageIds: [pageId] }, { Authorization: `Internal ${internalToken()}` })
 }
 
+/**
+ * 본문 적용을 테스트 모드 동기화 서버에 직접 부른다 — MCP·채팅 비서(ai)나 구버전 웹(ai:false)의 본문 PUT 이 API 를 거쳐 도착한 것과 같다
+ * (웹 E2E 는 API 가 모킹이라 내부 경로를 직접 친다). baseBody 가 있으면 3-way 병합, 없으면 replace.
+ */
+export async function applyCollabMarkdown(
+  ns: string,
+  pageId: number,
+  opts: { body: string; baseBody?: string; ai?: boolean; actor?: { userId: number; name: string } },
+): Promise<{ version: number; body: string }> {
+  const res = await post(
+    `/internal/docs/${pageId}/apply-markdown`,
+    {
+      tenantId: 1,
+      docName: collabDocName(ns, pageId),
+      mode: opts.baseBody == null ? 'replace' : 'merge',
+      ...(opts.baseBody == null ? {} : { baseBody: opts.baseBody }),
+      body: opts.body,
+      actor: opts.actor ?? { userId: 9, name: '김에이아이' },
+      ai: opts.ai ?? true,
+    },
+    { Authorization: `Internal ${internalToken()}` },
+  )
+  return (await res.json()) as { version: number; body: string }
+}
+
 // 컨텍스트 → 네임스페이스. auth.fixture 가 테스트 컨텍스트(와 newAuthedPage 컨텍스트)에 등록한다 —
 // 헬퍼(mockWikiPageEditor·spec 별 모킹)가 collabNs 를 일일이 넘겨받지 않고 page 만으로 시드할 수 있게.
 const nsByContext = new WeakMap<BrowserContext, string>()
@@ -72,20 +97,40 @@ export function seedCollabFor(page: Page, pageId: number, body: string, role: Co
  * 동기화 웹소켓을 테스트가 끊었다 붙였다 한다(goto 전에 호출). Chromium 의 context.setOffline 은 이미 열린 웹소켓을
  * 끊지 않으므로 오프라인은 이렇게 흉내 낸다 — drop() 은 열린 소켓을 닫고 재접속도 바로 닫아 거부하며,
  * restore() 뒤 provider 의 다음 재접속부터 다시 서버로 잇는다.
+ * hold()/release() 는 연결은 둔 채 브라우저 → 서버 방향 메시지만 붙잡았다 순서대로 보낸다 — "내가 친 글자가 아직 서버로 가는 중"
+ * (서버 → 브라우저는 그대로 흐른다)을 결정적으로 만들 때 쓴다.
  */
-export async function controlCollabSocket(page: Page): Promise<{ drop: () => Promise<void>; restore: () => void }> {
+export async function controlCollabSocket(
+  page: Page,
+): Promise<{ drop: () => Promise<void>; restore: () => void; hold: () => void; release: () => void }> {
   let blocked = false
+  let holding = false
+  const held: Array<() => void> = []
   const open = new Set<{ page: WebSocketRoute; server: WebSocketRoute }>()
   await page.routeWebSocket(/\/collab/, (ws) => {
     if (blocked) {
       void ws.close()
       return
     }
-    const pair = { page: ws, server: ws.connectToServer() }
+    const server = ws.connectToServer()
+    // 브라우저 → 서버를 직접 넘긴다(onMessage 를 걸면 자동 전달이 꺼진다) — 붙잡는 동안은 쌓아 둔다.
+    ws.onMessage((m) => {
+      const send = () => server.send(m)
+      if (holding) held.push(send)
+      else send()
+    })
+    const pair = { page: ws, server }
     open.add(pair)
     ws.onClose(() => open.delete(pair))
   })
   return {
+    hold: () => {
+      holding = true
+    },
+    release: () => {
+      holding = false
+      for (const send of held.splice(0)) send()
+    },
     drop: async () => {
       blocked = true
       for (const { page: p, server } of [...open]) {

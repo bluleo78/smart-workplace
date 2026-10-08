@@ -1,3 +1,5 @@
+import { nearestClippingAncestor } from '@/lib/nearestClippingAncestor'
+
 // 메시지 작업 툴바(반응·스레드·수정·삭제)의 공용 외형·노출 클래스.
 // 팀 채팅(MessageList)과 이슈 채팅(ChatMessageRow)이 같은 규칙을 쓰도록 한곳에 둔다.
 // 위치(absolute 좌표)는 호출처가 메시지 종류에 따라 붙인다.
@@ -51,13 +53,8 @@ export function flipToolbarIfClipped(row: HTMLElement) {
   if (!toolbar) return
   // 이전 판정을 지우고 기본 위치에서 잰다(뒤집힌 채로 재면 항상 "안 잘림"으로 보인다).
   row.removeAttribute('data-toolbar-flip')
-  let clipTop = 0
-  for (let n = row.parentElement; n; n = n.parentElement) {
-    if (getComputedStyle(n).overflowY !== 'visible') {
-      clipTop = Math.max(clipTop, n.getBoundingClientRect().top)
-      break
-    }
-  }
+  const clipper = nearestClippingAncestor(row, null, 'y')
+  const clipTop = clipper ? Math.max(0, clipper.getBoundingClientRect().top) : 0
   if (toolbar.getBoundingClientRect().top < clipTop) row.setAttribute('data-toolbar-flip', 'true')
 }
 

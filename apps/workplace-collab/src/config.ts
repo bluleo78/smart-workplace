@@ -23,6 +23,10 @@ export interface CollabConfig {
   storeRetryMaxMs?: number
   /** 종료 시 미저장 문서의 최종 저장을 기다리는 최대 시간(ms) — K8S 종료 유예(기본 30초) 안에 끝나게. 기본 20000. */
   shutdownTimeoutMs?: number
+  /** AI 적용 위치 ✦ 표식을 보이는 시간(ms). 기본 COLLAB_AI_MARKER_MS(3000). 테스트가 줄인다. */
+  aiMarkerMs?: number
+  /** apply-markdown 한 요청의 전체 기한(ms) — 기본 APPLY_DEADLINE_MS(server.ts). 테스트가 줄인다. */
+  applyDeadlineMs?: number
 }
 
 /**

@@ -33,7 +33,8 @@ export const wikiApi = {
   createPage: (spaceId: number, parentId: number | null, title: string) =>
     client.post<WikiPageDetail>(`/wiki/spaces/${spaceId}/pages`, { parentId, title }),
 
-  getPage: (pageId: number) => client.get<WikiPageDetail>(`/wiki/pages/${pageId}`),
+  // base=false: 새 웹은 본문을 동기화 서버로 저장하므로 AI 병합 기준본을 남길 필요가 없다(WP-289 — 기본값은 구버전 웹·MCP 용 기록).
+  getPage: (pageId: number) => client.get<WikiPageDetail>(`/wiki/pages/${pageId}`, { params: { base: false } }),
   // 제목만 저장 — 본문은 동기화 서버(Yjs)가 원본이라 웹은 본문을 REST 로 보내지 않는다(WP-287). body:null 은 서버 계약상 "본문 유지".
   savePageTitle: (pageId: number, title: string) =>
     client.put<WikiPageDetail>(`/wiki/pages/${pageId}`, { title, body: null }),

@@ -6,23 +6,45 @@ import { pageIdOf } from './docRegistry'
 /** HTTP 처리기 — 응답했으면 true(이후 처리기·기본 응답 생략), 자기 경로가 아니면 false. */
 export type RequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>
 
-/** 상태 코드를 실어 던지는 오류 — 처리기가 그 코드로 응답한다. */
+/**
+ * 오류 응답의 기계 판독 코드 — API 가 상태 매핑에 쓴다(사람용 문구 error 는 바뀔 수 있다).
+ * - empty_body·unparseable_body: 제출 본문 문제 → API 가 호출자에게 400.
+ * - invalid_request: API 가 보낸 요청이 계약에 어긋남(우리 쪽 버그) → API 는 500 으로 기록한다.
+ */
+export type HttpErrorCode = 'empty_body' | 'unparseable_body' | 'invalid_request'
+
+/** 상태 코드(와 기계 판독 코드)를 실어 던지는 오류 — 처리기가 그 코드로 응답한다. */
 export class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: HttpErrorCode,
   ) {
     super(message)
   }
 }
 
-/** apply-markdown 요청(검증 후) — API(Task 4) 계약 + 테스트 모드 전용 docName. */
+/** apply-markdown 요청(검증 후) — API 계약 + 테스트 모드 전용 docName. */
 export interface ApplyRequest {
   tenantId: number
   pageId: number
+  /**
+   * replace = 문서를 body 와 같게, merge = baseBody·현재본·body 3-way 병합(AI·구버전 웹 본문 PUT, 스펙 §5.1).
+   * API 는 merge 만 보낸다 — replace 는 웹 E2E 픽스처(테스트 모드)와 이후 버전 복원(WP-297)이 쓴다.
+   */
+  mode: 'replace' | 'merge'
+  /** merge 일 때 쓴 쪽이 읽은 판의 본문(API 가 기준본 테이블에서 찾아 싣는다). */
+  baseBody?: string
+  /**
+   * merge 기준본 후보 둘째 — 그 version 이 누군가의 본문 저장 응답이었으면 그때 제출된 본문. baseBody(그 판의 실제 본문)와
+   * 둘 중 AI본에 가까운 쪽을 기준으로 쓴다(closestBase — 응답 본문에서 이어 썼는지, 자기 본문에서 이어 썼는지).
+   */
+  altBaseBody?: string
   body: string
   actor: { userId: number; name: string }
   ai: boolean
+  /** 적용 저장에 snapshot(직전 판을 리비전으로)을 싣는다 — AI 적용이거나 사람이 명시로 요청. 없으면 ai 와 같다(구버전 API 호환). */
+  snapshot: boolean
   /** 테스트 모드에서만 허용 — E2E 의 네임스페이스 문서(`{ns}/wiki-page:{id}`)를 겨눈다. */
   docName?: string
 }
@@ -35,10 +57,20 @@ export interface RevalidateRequest {
   userId?: number
 }
 
+/**
+ * apply-markdown 응답 — persisted=false 면 적용(실시간 문서 변경)은 됐지만 그 즉시 저장이 시간 안에 끝나지 않았다(재시도가 저장한다).
+ * 그때 version 은 마지막으로 저장된 판(적용분 미포함), body 는 적용 후 문서 본문이다.
+ */
+export interface ApplyResult {
+  version: number
+  body: string
+  persisted: boolean
+}
+
 export interface InternalDeps {
   internalToken: string
   testMode: boolean
-  applyReplace(req: ApplyRequest): Promise<{ version: number; body: string }>
+  applyMarkdown(req: ApplyRequest): Promise<ApplyResult>
   revalidate(req: RevalidateRequest): Promise<void>
 }
 
@@ -48,7 +80,7 @@ const APPLY_PATH = /^\/internal\/docs\/(\d+)\/apply-markdown$/
 
 /**
  * 동기화 서버 내부 HTTP — API 만 호출한다(인그레스는 /collab 만 외부로 연다).
- * - POST /internal/docs/{pageId}/apply-markdown (replace): API 가 위임한 본문을 실시간 문서에 반영·즉시 저장(merge 는 WP-289)
+ * - POST /internal/docs/{pageId}/apply-markdown (replace|merge): API 가 위임한 본문을 실시간 문서에 반영(merge 는 3-way 병합)·즉시 저장
  * - POST /internal/docs/revalidate: 권한 변화(멤버 제거·강등·페이지 삭제) 시 열린 연결 재판정
  * 모든 /internal/* 는 `Authorization: Internal <token>` 필수.
  */
@@ -61,7 +93,7 @@ export function makeInternalHandler(deps: InternalDeps): RequestHandler {
     const apply = APPLY_PATH.exec(path)
     if (req.method === 'POST' && apply) {
       const parsed = parseApply(await readJson(req), Number(apply[1]), deps.testMode)
-      return send(res, 200, await deps.applyReplace(parsed))
+      return send(res, 200, await deps.applyMarkdown(parsed))
     }
     if (req.method === 'POST' && path === '/internal/docs/revalidate') {
       await deps.revalidate(parseRevalidate(await readJson(req)))
@@ -85,12 +117,14 @@ function validInternal(header: string | undefined, token: string): boolean {
 }
 
 const isPosInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0
-const bad = (msg: string) => new HttpError(400, msg)
+const bad = (msg: string) => new HttpError(400, msg, 'invalid_request')
 
-/** apply-markdown 본문 검증 — mode 는 replace 만(merge 는 WP-289 전까지 400). */
+/** apply-markdown 본문 검증 — mode 는 replace|merge, merge 는 baseBody 필수. */
 function parseApply(raw: unknown, pageId: number, testMode: boolean): ApplyRequest {
   const b = (raw ?? {}) as Record<string, unknown>
-  if (b.mode !== 'replace') throw bad('unsupported mode')
+  if (b.mode !== 'replace' && b.mode !== 'merge') throw bad('unsupported mode')
+  if (b.mode === 'merge' && typeof b.baseBody !== 'string') throw bad('invalid baseBody')
+  if (b.altBaseBody != null && typeof b.altBaseBody !== 'string') throw bad('invalid altBaseBody')
   if (!isPosInt(pageId)) throw bad('invalid pageId')
   if (!isPosInt(b.tenantId)) throw bad('invalid tenantId')
   if (typeof b.body !== 'string') throw bad('invalid body')
@@ -98,12 +132,19 @@ function parseApply(raw: unknown, pageId: number, testMode: boolean): ApplyReque
   // 이름은 표시용(✦ 이름표, WP-289)일 뿐이라 비어 있어도 본문 저장을 막지 않는다(collab 400 은 API 에서 500 이 된다).
   if (!actor || !isPosInt(actor.userId) || (actor.name != null && typeof actor.name !== 'string')) throw bad('invalid actor')
   if (typeof b.ai !== 'boolean') throw bad('invalid ai')
+  if (b.snapshot != null && typeof b.snapshot !== 'boolean') throw bad('invalid snapshot')
   const out: ApplyRequest = {
     tenantId: b.tenantId,
     pageId,
+    mode: b.mode,
     body: b.body,
     actor: { userId: actor.userId, name: (actor.name as string | null | undefined) ?? '' },
     ai: b.ai,
+    snapshot: typeof b.snapshot === 'boolean' ? b.snapshot : b.ai,
+  }
+  if (b.mode === 'merge') {
+    out.baseBody = b.baseBody as string
+    if (typeof b.altBaseBody === 'string') out.altBaseBody = b.altBaseBody
   }
   if (b.docName !== undefined) {
     // 운영에서는 문서 이름을 항상 pageId 로 만든다 — 다른 이름을 겨누는 요청은 거부.
