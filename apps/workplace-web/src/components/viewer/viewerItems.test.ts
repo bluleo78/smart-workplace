@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest'
 
 import type { IssueAttachment } from '../../types/attachment'
 import type { DriveFile, DriveLink, VirtualAttachment } from '../../types/drive'
+import type { EmailAttachmentMeta } from '../../types/mailMessage'
 import {
   driveFileItem,
   driveViewerKey,
   fileViewerKey,
+  isMailViewerKey,
   issueAttachmentItem,
   issueBodyImageItem,
   issueDriveLinkItem,
+  mailAttachmentItem,
+  mailViewerKey,
   normalizeAttachmentPreviewKey,
   parseViewerKey,
   resolveBundle,
@@ -111,5 +115,45 @@ describe('parseViewerKey', () => {
     for (const v of [null, '', '70', 'mail:1', 'drive:', 'drive:abc', 'drive:1x', ' file:1', 'file:-1']) {
       expect(parseViewerKey(v)).toBeNull()
     }
+  })
+})
+
+describe('mailAttachmentItem', () => {
+  const att = (o: Partial<EmailAttachmentMeta> = {}): EmailAttachmentMeta => ({
+    id: 7, filename: '안건.pdf', contentType: 'application/pdf', sizeBytes: 1234, contentId: null, ...o,
+  })
+
+  it('메일 첨부는 mail: 키·첨부 콘텐츠 경로로 받고 ✨·☁·참조·원본 이동은 없다', () => {
+    expect(mailAttachmentItem(att())).toEqual({
+      key: 'mail:7', name: '안건.pdf', mimeType: 'application/pdf', sizeBytes: 1234,
+      contentPath: '/mail/attachments/7/content', downloadPath: '/mail/attachments/7/content',
+    })
+  })
+
+  it('형식은 파라미터를 떼고 소문자로 맞춘다(Graph 경로는 원문 그대로 저장)', () => {
+    expect(mailAttachmentItem(att({ contentType: ' Image/PNG; name="a.png"' })).mimeType).toBe('image/png')
+  })
+
+  it('형식·파일명이 없으면 octet-stream·attachment-{id} 로 채운다(예전 다운로드 파일명 규칙)', () => {
+    const it = mailAttachmentItem(att({ filename: null, contentType: null }))
+    expect(it.mimeType).toBe('application/octet-stream')
+    expect(it.name).toBe('attachment-7')
+    expect(mailAttachmentItem(att({ filename: '', contentType: '  ' }))).toMatchObject({
+      name: 'attachment-7', mimeType: 'application/octet-stream',
+    })
+  })
+})
+
+describe('mailViewerKey / isMailViewerKey', () => {
+  it('mail:{숫자} 만 메일 키로 본다 — 다른 화면 키·잘못된 값은 아니다', () => {
+    expect(mailViewerKey(3)).toBe('mail:3')
+    expect(isMailViewerKey('mail:3')).toBe(true)
+    expect(isMailViewerKey('file:3')).toBe(false)
+    expect(isMailViewerKey('mail:x')).toBe(false)
+    expect(isMailViewerKey(null)).toBe(false)
+  })
+
+  it('메일 키는 드라이브·이슈 호스트의 parseViewerKey 에 잡히지 않는다', () => {
+    expect(parseViewerKey('mail:3')).toBeNull()
   })
 })
