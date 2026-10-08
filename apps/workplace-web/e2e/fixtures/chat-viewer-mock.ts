@@ -2,10 +2,6 @@
 // 팀 채팅·이슈 채팅은 한 메시지에 [이미지 801 · PDF 802(형식 octet-stream — 파일명 추론) · 활성 드라이브 링크 70(텍스트) · 삭제된 링크 71] 을 둔다
 // → 묶음 "n / 4". 다른(본인) 메시지에는 memo 803 하나만 둔다 → 묶음이 메시지 밖으로 넘어가지 않는지(1 / 1) 확인용.
 // 메인 AI 채팅은 한 사용자 턴에 [이미지 77 · PDF 78], 다음 사용자 턴에 [memo 79].
-import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-
 import type { Page } from '@playwright/test'
 
 import type { DriveLink } from '../../src/types/drive'
@@ -19,10 +15,10 @@ import { mockApi } from './api-mock'
 import { json, KEY, stubIssue } from './mobile-chat'
 import { stubChat } from './mobile.fixture'
 import { solidPng } from './png'
+import { SAMPLE_PDF } from './samples'
 import { type RequestTracker, trackRequests } from './requests'
 
-const HERE = path.dirname(fileURLToPath(import.meta.url))
-const PDF = fs.readFileSync(path.join(HERE, 'sample-3p.pdf'))
+const PDF = SAMPLE_PDF
 const PNG = solidPng(40, 30)
 /** 드라이브 링크(텍스트) 본문 — 뷰어 본문에 그대로 보이는지 확인용. */
 export const LINK_TEXT = '링크로 공유한 회의록입니다'

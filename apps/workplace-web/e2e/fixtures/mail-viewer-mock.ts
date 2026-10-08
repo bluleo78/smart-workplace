@@ -2,19 +2,15 @@
 // 10번 메일: HTML 본문에 cid 인라인 이미지(5) 1개 + 일반 첨부 PDF(6)·텍스트(7).
 // 인라인 이미지는 본문에 표시되므로 첨부 목록·뷰어 묶음에서 빠져야 한다(묶음 = 6·7, "n / 2").
 // 12번 메일: 메일 클라이언트가 형식을 octet-stream·빈 값으로 보낸 PDF(8)·Markdown(9) — 파일명 확장자로 추론해 미리 봐야 한다.
-import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-
 import type { Page } from '@playwright/test'
 
 import { detail, mailAccount, summary } from '../factories/mail.factory'
 import { mockApi } from './api-mock'
 import { solidPng } from './png'
+import { SAMPLE_PDF } from './samples'
 import { trackRequests } from './requests'
 
-const HERE = path.dirname(fileURLToPath(import.meta.url))
-const PDF = fs.readFileSync(path.join(HERE, 'sample-3p.pdf'))
+const PDF = SAMPLE_PDF
 const PNG = solidPng(8, 8)
 /** 텍스트 첨부 본문 — 뷰어 본문에 그대로 보이는지 확인용. */
 export const MEMO_TEXT = '회의 메모 본문입니다'

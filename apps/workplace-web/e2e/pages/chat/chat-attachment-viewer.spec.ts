@@ -122,6 +122,18 @@ test.describe('팀 채팅 첨부 뷰어', () => {
     await expect(panel.getByTestId('attachment-card-802')).toBeFocused()
   })
 
+  test('원본이 삭제된 드라이브 링크는 목록에서 흐린 이름과 "원본 삭제됨"으로 보인다', async ({ authenticatedPage: page }) => {
+    await stubTeamChatAttachments(page)
+    await page.goto('/chat/channels/1')
+    const gone = page.getByTestId('message-drive-link-71').first()
+    await expect(gone).toHaveAttribute('data-availability', 'DELETED')
+    await expect(gone.getByTestId('message-drive-link-gone-71')).toHaveText('원본 삭제됨')
+    await expect(page.getByTestId('message-drive-link-70').first()).not.toContainText('원본 삭제됨')
+    // 열면 안내만 보인다(다운로드 없음).
+    await gone.click()
+    await expect(page.getByTestId('preview-unavailable')).toBeVisible()
+  })
+
   test('드라이브 링크 요약이 403 이면 ✨ 를 숨긴다', async ({ authenticatedPage: page }) => {
     await stubTeamChatAttachments(page, { summary: 'forbidden' })
     await page.goto('/chat/channels/1')
@@ -303,6 +315,41 @@ test.describe('메인 AI 사이드 패널과 뷰어', () => {
     await expect(page.getByTestId('chat-turn').first()).toContainText('다른 질문')
     await expect(viewerOf(page)).toHaveCount(0)
     await expect.poll(() => liveChatKey(page, 'homeChatPreview')).toBeNull()
+  })
+
+  test('뷰어가 열린 채 AI 패널을 닫으면 뷰어도 정상 닫기로 되돌린다 — 다시 열어도 되살아나지 않는다', async ({ authenticatedPage: page }) => {
+    await stubHomeChatAttachments(page)
+    await openRestoredPanel(page)
+    await page.getByTestId('chat-turn').first().getByTestId('attachment-image-open-77').click()
+    await expect(viewerOf(page)).toBeVisible()
+
+    // side 모드 뷰어는 패널과 공존하므로 패널 닫기(X)를 그대로 누를 수 있다.
+    await page.getByTestId('ai-panel-close').click()
+    await expect(viewerOf(page)).toHaveCount(0)
+    await expect.poll(() => liveChatKey(page, 'homeChatPreview')).toBeNull()
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('chat-panel')).toBeVisible()
+    await expect(viewerOf(page)).toHaveCount(0)
+  })
+
+  test('같은 AI 패널의 뷰어가 열린 채 다른 첨부를 누르면 그 첨부로 바꾼다(히스토리는 늘지 않음)', async ({ authenticatedPage: page }) => {
+    await stubHomeChatAttachments(page)
+    await openRestoredPanel(page)
+    const panel = page.getByTestId('chat-panel')
+    await panel.getByTestId('attachment-image-open-77').click()
+    await expect(viewerOf(page)).toHaveAccessibleName('board.png 미리보기')
+
+    await panel.getByTestId('attachment-card-78').click()
+    await expect(viewerOf(page)).toHaveAccessibleName('spec.pdf 미리보기')
+    await expect(page.getByTestId('preview-meta')).toContainText('2 / 2')
+    // 다른 턴(memo)으로도 바꾼다 — 그 턴만 묶음.
+    await panel.getByTestId('attachment-card-79').click()
+    await expect(viewerOf(page)).toHaveAccessibleName('memo.txt 미리보기')
+    await expect(viewerOf(page)).toHaveCount(1)
+    // 바꿔 연 것은 replace 라 뒤로가기 한 번이면 뷰어가 닫힌다.
+    await page.goBack()
+    await expect(viewerOf(page)).toHaveCount(0)
+    expect(await liveChatKey(page, 'homeChatPreview')).toBeNull()
   })
 
   test('팀 채팅 뷰어가 열린 채 AI 패널 첨부를 눌러도 뷰어를 겹쳐 열지 않는다', async ({ authenticatedPage: page }) => {

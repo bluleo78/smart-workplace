@@ -194,8 +194,26 @@ test('AI 시트 위 뷰어에서 받기 실패 토스트가 뷰어 위에 보인
   const toast = page.locator('[data-sonner-toast]').filter({ hasText: '파일을 내려받지 못했습니다' })
   await expect(toast).toBeVisible()
   await expect(toast).toBeInViewport()
+  // 모바일 뷰어가 열린 동안 토스트는 하단 액션 바 바로 위 — 본문 실패 안내(문구·다시 시도·다운로드)를 가리지 않는다.
+  const tb = (await toast.boundingBox())!
+  const bar = (await page.getByTestId('viewer-action-bar').boundingBox())!
+  expect(tb.y + tb.height).toBeLessThanOrEqual(bar.y + 1)
+  for (const b of await page.getByTestId('preview-error').getByRole('button').all()) {
+    const bb = (await b.boundingBox())!
+    expect(bb.y + bb.height <= tb.y || bb.y >= tb.y + tb.height).toBe(true)
+  }
   // 가려지지 않은 최상단인지(elementFromPoint) — 평소 토스트 층(55)은 AI 시트 위 뷰어(80) 아래라 뷰어가 열린 동안만 올린다.
   // fixture 의 에러 토스트 포인터 통과 규칙이 있으면 elementFromPoint 가 토스트를 건너뛰므로 걷어내고 판정한다(메일 뷰어 spec 과 같다).
   await page.evaluate(() => document.querySelector('style[data-test-toast-passthrough]')?.remove())
   await expectOnTop(page, toast, '[data-sonner-toast]')
+})
+
+test('터치 대상 — 파일·링크 카드와 썸네일은 44px 이상', async ({ authenticatedPage: page }) => {
+  await stubTeamChatAttachments(page)
+  await page.goto('/chat/channels/1')
+  for (const id of ['attachment-card-802', 'message-drive-link-70', 'attachment-card-803', 'attachment-image-open-801']) {
+    const b = (await page.getByTestId(id).first().boundingBox())!
+    expect(b.height, id).toBeGreaterThanOrEqual(44)
+    if (id.startsWith('attachment-image-open')) expect(b.width, id).toBeGreaterThanOrEqual(44)
+  }
 })
