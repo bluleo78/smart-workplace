@@ -1,5 +1,7 @@
 import { Cloud, FileText } from 'lucide-react'
 
+import { useOpenChatAttachment } from '@/components/chat/chatAttachmentViewerContext'
+import type { ViewerItem } from '@/components/viewer/types'
 import { isInlineImageType } from '@/lib/imageUpload'
 import { cn } from '@/lib/utils'
 import type { DriveLink } from '@/types/drive'
@@ -16,38 +18,54 @@ function humanSize(bytes: number): string {
 type AttachmentLike = Pick<MessageAttachment, 'fileId' | 'originalName' | 'mimeType' | 'sizeBytes'>
 
 /** 메시지 본문 아래 첨부 목록. 카드는 max-w-full min-w-0 로 부모 폭에 묶이고, 파일명(truncate)만 줄어든다 —
- * 크기·링크 배지는 shrink-0 whitespace-nowrap 으로 좁은 카드에서도 한 줄을 유지한다. 이미지는 renderImage 로 위임, 그 외는 다운로드 카드.
- * 도메인(팀/이슈/메인 AI 채팅) 무관 — 다운로드 핸들러·이미지 렌더를 주입받는다. (#80, #358, WP-234)
+ * 크기·링크 배지는 shrink-0 whitespace-nowrap 으로 좁은 카드에서도 한 줄을 유지한다. 이미지는 renderImage 로 위임, 그 외는 파일 카드.
+ * 도메인(팀/이슈/메인 AI 채팅) 무관 — 뷰어 항목 어댑터·이미지 렌더를 주입받는다. (#80, #358, WP-234)
  * className 은 정렬 등 배치만 덧붙인다(예: 메인 AI 채팅 사용자 말풍선의 오른쪽 정렬). 기본값은 기존 동작.
- * 썸네일(renderImage)은 isInlineImageType 4종만 — SVG·HEIC 등 그 외 image/* 는 다운로드 카드로 그린다(SVG blob 새 탭 스크립트 실행 방지, WP-260). */
+ * 썸네일(renderImage)은 isInlineImageType 4종만 — SVG·HEIC 등 그 외 image/* 는 파일 카드로 그린다(썸네일로 원본을 미리 받지 않게, WP-260).
+ *
+ * WP-279: 썸네일·카드를 누르면 새 탭·바로 다운로드 대신 통합 뷰어를 연다(다운로드는 뷰어 ⬇).
+ * 묶음 = 이 메시지 한 건의 업로드 첨부 + 드라이브 링크(화면 표시 순서 그대로). 열기는 가장 가까운 ChatAttachmentViewerHost 가 맡는다.
+ * toItem 이 없으면(미확정 메시지·세션 전 메인 AI 턴 — 콘텐츠 경로가 아직 없음) 열지 않는다. */
 export function MessageAttachmentList<A extends AttachmentLike>({
   attachments,
   driveLinks = [],
-  onDownloadAttachment,
-  onDownloadDriveLink,
+  toItem,
+  toDriveLinkItem,
   renderImage,
   className,
 }: {
   attachments: A[]
   driveLinks?: DriveLink[]
-  onDownloadAttachment: (a: A) => void
-  /** 드라이브 링크 다운로드 — driveLinks 를 넘길 때만 필요하다(메인 AI 채팅은 둘 다 생략, WP-234). */
-  onDownloadDriveLink?: (dl: DriveLink) => void
-  renderImage: (a: A) => React.ReactNode
+  /** 업로드 첨부 → 뷰어 항목. 없으면 열 수 없는 상태(카드·썸네일을 눌러도 아무 일 없음). */
+  toItem?: (a: A) => ViewerItem
+  /** 드라이브 링크 → 뷰어 항목 — driveLinks 를 넘길 때 함께 넘긴다(메인 AI 채팅은 둘 다 생략, WP-234). */
+  toDriveLinkItem?: (dl: DriveLink) => ViewerItem
+  /** 썸네일 렌더 — onOpen 이 있으면 썸네일을 눌러 뷰어를 연다. */
+  renderImage: (a: A, onOpen?: () => void) => React.ReactNode
   className?: string
 }) {
+  const openViewer = useOpenChatAttachment()
   if ((!attachments || attachments.length === 0) && driveLinks.length === 0) return null
+  // 묶음은 업로드 → 드라이브 링크 순(화면 순서). 열 수 없는 상태면(호스트·어댑터 없음) 만들지 않는다.
+  // 드라이브 링크 어댑터가 없으면 링크는 묶음에서 빠지고 열 수도 없다(넘김 순서가 화면과 어긋나지 않게 업로드만 묶는다).
+  const items =
+    openViewer && toItem
+      ? [...attachments.map(toItem), ...(toDriveLinkItem ? driveLinks.map(toDriveLinkItem) : [])]
+      : null
+  /** i 번째 항목(묶음 기준)을 여는 핸들러 — 열 수 없으면 undefined. */
+  const opener = (i: number) => (items && items[i] ? () => openViewer?.(items, items[i].key) : undefined)
   return (
     <div className={cn('mt-1 flex flex-col gap-1', className)} data-testid="message-attachments">
-      {attachments.map((a) =>
+      {attachments.map((a, i) =>
         isInlineImageType(a.mimeType) ? (
-          <span key={a.fileId}>{renderImage(a)}</span>
+          <span key={a.fileId}>{renderImage(a, opener(i))}</span>
         ) : (
           <button
             key={a.fileId}
             type="button"
             data-testid={`attachment-card-${a.fileId}`}
-            onClick={() => onDownloadAttachment(a)}
+            aria-label={`${a.originalName} 미리보기`}
+            onClick={opener(i)}
             className="flex max-w-full min-w-0 items-center gap-2 rounded-md border bg-card px-2 py-1 text-left text-sm hover:bg-accent/40"
           >
             <FileText className="h-4 w-4 shrink-0" />
@@ -56,13 +74,14 @@ export function MessageAttachmentList<A extends AttachmentLike>({
           </button>
         ),
       )}
-      {/* #80: 드라이브 연결 파일 — 업로드 첨부와 같은 행 스타일 + info 배지. */}
-      {driveLinks.map((dl) => (
+      {/* #80: 드라이브 연결 파일 — 업로드 첨부와 같은 행 스타일 + info 배지. 묶음에서 업로드 뒤 순서. */}
+      {driveLinks.map((dl, j) => (
         <button
           key={dl.driveFileId}
           type="button"
           data-testid={`message-drive-link-${dl.driveFileId}`}
-          onClick={() => onDownloadDriveLink?.(dl)}
+          aria-label={`${dl.name} 미리보기`}
+          onClick={opener(attachments.length + j)}
           className="flex max-w-full min-w-0 items-center gap-2 rounded-md border bg-card px-2 py-1 text-left text-sm hover:bg-accent/40"
         >
           <Cloud className="h-4 w-4 shrink-0 text-info" />

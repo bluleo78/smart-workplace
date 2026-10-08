@@ -442,7 +442,7 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
 
   // 첨부만 보낸 메시지의 content — api 는 "" 로 저장·응답하지만 타입상 null 도 올 수 있어 둘 다 고정한다.
   for (const emptyContent of [null, ''] as const) {
-    test(`세션 복원: 첨부만 보낸 메시지(content ${JSON.stringify(emptyContent)})도 썸네일·문서 카드로 다시 그리고, 카드는 내려받는다`, async ({ authenticatedPage: page }) => {
+    test(`세션 복원: 첨부만 보낸 메시지(content ${JSON.stringify(emptyContent)})도 썸네일·문서 카드로 다시 그리고, 카드는 뷰어로 열어 ⬇ 로 받는다`, async ({ authenticatedPage: page }) => {
       await mockApi(page, 'GET', '/api/v1/home/sessions', {
         items: [{ id: 's-r', title: '첨부 대화', lastMessageAt: '2026-10-06T00:00:00Z', widgetCount: 0 }],
         nextCursor: null,
@@ -481,8 +481,11 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
       // 썸네일이 늦게 로드돼 높이가 커져도 맨 아래에 붙어 있다(useStickToBottom 의 ResizeObserver).
       await expect.poll(() => page.getByTestId('chat-scroll').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(2)
 
-      const download = page.waitForEvent('download')
+      // WP-279: 카드는 바로 받지 않고 통합 뷰어로 연다 — 받기는 뷰어 ⬇.
       await userTurn.getByTestId('attachment-card-78').click()
+      await expect(page.getByTestId('attachment-viewer')).toHaveAccessibleName('spec.pdf 미리보기')
+      const download = page.waitForEvent('download')
+      await page.getByTestId('preview-download').click()
       expect((await download).suggestedFilename()).toBe('spec.pdf')
     })
   }
@@ -566,7 +569,7 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     expect(blobTypes.filter((t) => t === 'image/svg+xml' || t === 'image/heic')).toEqual([])
   })
 
-  test('세션 복원: 4종 밖 이미지(SVG·HEIC)는 원본을 미리 받지 않고 문서 카드로 그리며, 카드는 내려받는다', async ({ authenticatedPage: page }) => {
+  test('세션 복원: 4종 밖 이미지(SVG·HEIC)는 원본을 미리 받지 않고 문서 카드로 그리며, 카드는 뷰어로 열어 ⬇ 로 받는다', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/home/sessions', {
       items: [{ id: 's-v', title: '벡터 대화', lastMessageAt: '2026-10-06T00:00:00Z', widgetCount: 0 }],
       nextCursor: null,
@@ -589,11 +592,14 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     await expect(atts.getByTestId('attachment-card-96')).toContainText('IMG_0001.heic')
     await expect(atts.locator('img')).toHaveCount(0)
     await expect(atts.locator('a[target="_blank"]')).toHaveCount(0)
-    // 썸네일용 원본 요청이 나가지 않는다 — 카드를 누를 때만 내려받는다.
+    // 썸네일용 원본 요청이 나가지 않는다 — 카드를 눌러 뷰어를 열 때만 받는다.
     await expectStays(page, contents.count, 0)
 
-    const download = page.waitForEvent('download')
+    // WP-279: 카드 = 통합 뷰어(서버가 SVG 로 명시한 형식이라 <img> 로만 그린다), 받기는 뷰어 ⬇.
     await atts.getByTestId('attachment-card-95').click()
+    await expect(page.getByTestId('attachment-viewer')).toHaveAccessibleName('logo.svg 미리보기')
+    const download = page.waitForEvent('download')
+    await page.getByTestId('preview-download').click()
     expect((await download).suggestedFilename()).toBe('logo.svg')
   })
 

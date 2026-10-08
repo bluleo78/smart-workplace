@@ -5,8 +5,6 @@
 import { Bot, MessageSquare, Pencil, Trash2 } from 'lucide-react'
 import type { ComponentProps, Ref } from 'react'
 
-import { downloadMessageDriveLink } from '@/api/driveLinks'
-import { messagingApi } from '@/api/messaging'
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
 import { EmojiPicker } from '@/components/chat/EmojiPicker'
@@ -26,6 +24,7 @@ import { parseMessageSegments } from '@/components/mentions/parseMessageSegments
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
+import { teamChatAttachmentItem, teamChatDriveLinkItem } from '@/components/viewer/viewerItems'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import type { ToolbarRowProps } from '@/hooks/useToolbarReveal'
 import { formatClockTime, formatClockTimeCompact } from '@/lib/formatters'
@@ -241,17 +240,16 @@ export function MessageRow({
     </div>
   )
 
-  // #80: driveLinks 도 MessageAttachmentList 에서 함께 렌더. 팀 채팅 도메인 핸들러·이미지 렌더 주입.
+  // #80: driveLinks 도 MessageAttachmentList 에서 함께 렌더. 팀 채팅 뷰어 어댑터·이미지 렌더 주입(WP-279).
+  // 미확정 메시지(id<0)는 서버 경로가 없어 열지 않는다(어댑터를 넘기지 않음).
   const attachments = !m.deleted &&
     ((m.attachments?.length ?? 0) > 0 || (m.driveLinks?.length ?? 0) > 0) && (
       <MessageAttachmentList
         attachments={m.attachments ?? []}
         driveLinks={m.driveLinks ?? []}
-        onDownloadAttachment={(a) =>
-          messagingApi.downloadAttachment(channelId, a.messageId, a.fileId, a.originalName)
-        }
-        onDownloadDriveLink={(dl) => void downloadMessageDriveLink(channelId, m.id, dl.driveFileId, dl.name)}
-        renderImage={(a) => <MessageImage channelId={channelId} attachment={a} />}
+        toItem={isPending ? undefined : (a) => teamChatAttachmentItem(channelId, a)}
+        toDriveLinkItem={isPending ? undefined : (dl) => teamChatDriveLinkItem(channelId, m.id, dl)}
+        renderImage={(a, onOpen) => <MessageImage channelId={channelId} attachment={a} onOpen={onOpen} />}
       />
     )
 

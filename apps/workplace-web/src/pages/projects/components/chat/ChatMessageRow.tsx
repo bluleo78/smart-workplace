@@ -7,8 +7,6 @@
 
 import { Pencil, Trash2 } from 'lucide-react';
 
-import { chatApi } from '@/api/chat';
-import { downloadChatDriveLink } from '@/api/driveLinks';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
 import { MessageActionsButton } from '@/components/chat/MessageActionsButton';
@@ -20,6 +18,7 @@ import {
   TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar';
 import { messagePlainText, parseMessageSegments } from '@/components/mentions/parseMessageSegments';
+import { issueChatAttachmentItem, issueChatDriveLinkItem } from '@/components/viewer/viewerItems';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
 import { useToolbarReveal } from '@/hooks/useToolbarReveal';
 
@@ -139,18 +138,15 @@ export function ChatMessageRow({
   );
 
   // #358: 삭제되지 않은 메시지의 첨부·드라이브 링크 렌더 — 이미지는 ChatMessageImage 위임.
+  // WP-279: 썸네일·카드 → 통합 뷰어(이슈 채팅 어댑터). 미확정 메시지는 서버 경로가 없어 열지 않는다.
   const attachments = !message.deleted &&
     ((message.attachments?.length ?? 0) > 0 || (message.driveLinks?.length ?? 0) > 0) && (
       <MessageAttachmentList
         attachments={message.attachments}
         driveLinks={message.driveLinks}
-        onDownloadAttachment={(att) =>
-          void chatApi.downloadAttachment(message.threadId, att.messageId, att.fileId, att.originalName)
-        }
-        onDownloadDriveLink={(dl) =>
-          void downloadChatDriveLink(message.threadId, message.id, dl.driveFileId, dl.name)
-        }
-        renderImage={(att) => <ChatMessageImage threadId={message.threadId} attachment={att} />}
+        toItem={isPending ? undefined : (att) => issueChatAttachmentItem(message.threadId, att)}
+        toDriveLinkItem={isPending ? undefined : (dl) => issueChatDriveLinkItem(message.threadId, message.id, dl)}
+        renderImage={(att, onOpen) => <ChatMessageImage threadId={message.threadId} attachment={att} onOpen={onOpen} />}
       />
     );
 

@@ -4,6 +4,7 @@
 
 import { Fragment, useEffect, useMemo, useRef } from 'react';
 
+import { ChatAttachmentViewerHost } from '@/components/chat/ChatAttachmentViewer';
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet';
 import {
   buildMessageSheetActions,
@@ -21,6 +22,9 @@ import { ScrollArea } from '../../../../components/ui/scroll-area';
 import { getDateKey } from '../../../../lib/formatters';
 import type { ChatMessageResponse } from '../../../../types/chat';
 import { ChatMessageRow } from './ChatMessageRow';
+
+/** 이슈 채팅 첨부 뷰어 열림 router state 키(WP-279) — 팀 채팅·메인 AI 채팅 키와 나눈다(이슈 상세의 ?preview 첨부 뷰어와도 별개). */
+const ISSUE_CHAT_PREVIEW_KEY = 'issueChatPreview';
 
 interface ChatMessageListProps {
   messages: ChatMessageResponse[];
@@ -124,79 +128,82 @@ export function ChatMessageList({
   }
 
   return (
-    <ScrollArea
-      ref={scrollRootRef}
-      className={`pr-2 ${fill ? 'h-full' : 'h-[min(60vh,480px)]'}`}
-      data-testid="chat-message-list"
-    >
-      {/* 터치 셸이면 길게 누르기를 이 컨테이너가 위임으로 받는다(행은 data-message-id). 아니면 핸들러 없음. */}
-      <div className="flex flex-col" {...longPress}>
-        {hasMore && (
-          <div className="flex justify-center py-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={onLoadMore}
-              disabled={isFetchingMore}
-              data-testid="chat-load-more"
-            >
-              {isFetchingMore ? '불러오는 중...' : '이전 메시지 더 보기'}
-            </Button>
-          </div>
-        )}
-        <ul>
-          {sorted.map((m, idx) => {
-            const isLast = idx === sorted.length - 1;
-            const isEditing = editingMessageId === m.id;
-            const isPending = m.id < 0;
-            const canEdit = m.authorId === currentUserId;
+    // WP-279: 첨부 썸네일·카드 → 통합 뷰어. 뷰어는 ScrollArea 의 형제로 그려 길게 누르기 위임 핸들러로 이벤트가 새지 않게 한다.
+    <ChatAttachmentViewerHost historyKey={ISSUE_CHAT_PREVIEW_KEY}>
+      <ScrollArea
+        ref={scrollRootRef}
+        className={`pr-2 ${fill ? 'h-full' : 'h-[min(60vh,480px)]'}`}
+        data-testid="chat-message-list"
+      >
+        {/* 터치 셸이면 길게 누르기를 이 컨테이너가 위임으로 받는다(행은 data-message-id). 아니면 핸들러 없음. */}
+        <div className="flex flex-col" {...longPress}>
+          {hasMore && (
+            <div className="flex justify-center py-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onLoadMore}
+                disabled={isFetchingMore}
+                data-testid="chat-load-more"
+              >
+                {isFetchingMore ? '불러오는 중...' : '이전 메시지 더 보기'}
+              </Button>
+            </div>
+          )}
+          <ul>
+            {sorted.map((m, idx) => {
+              const isLast = idx === sorted.length - 1;
+              const isEditing = editingMessageId === m.id;
+              const isPending = m.id < 0;
+              const canEdit = m.authorId === currentUserId;
 
-            // 날짜가 바뀌는 지점(또는 첫 메시지) 앞에 날짜 구분선 삽입.
-            const prev = idx > 0 ? sorted[idx - 1] : null;
-            const showDateDivider = !prev || getDateKey(m.createdAt) !== getDateKey(prev.createdAt);
+              // 날짜가 바뀌는 지점(또는 첫 메시지) 앞에 날짜 구분선 삽입.
+              const prev = idx > 0 ? sorted[idx - 1] : null;
+              const showDateDivider = !prev || getDateKey(m.createdAt) !== getDateKey(prev.createdAt);
 
-            if (isEditing) {
+              if (isEditing) {
+                return (
+                  <Fragment key={m.id}>
+                    {showDateDivider && <DateDivider date={m.createdAt} />}
+                    <li
+                      ref={isLast ? lastRef : undefined}
+                      data-testid={`chat-message-${m.id}`}
+                    >
+                      {renderEditor(m)}
+                    </li>
+                  </Fragment>
+                );
+              }
               return (
                 <Fragment key={m.id}>
                   {showDateDivider && <DateDivider date={m.createdAt} />}
-                  <li
-                    ref={isLast ? lastRef : undefined}
-                    data-testid={`chat-message-${m.id}`}
-                  >
-                    {renderEditor(m)}
-                  </li>
+                  <div ref={isLast ? (lastRef as unknown as React.Ref<HTMLDivElement>) : undefined}>
+                    <ChatMessageRow
+                      message={m}
+                      // canEdit 은 "작성자 본인" 과 같은 조건 — 정렬(우측 말풍선)에도 같은 값을 쓴다.
+                      isOwn={canEdit}
+                      canEdit={canEdit}
+                      isPending={isPending}
+                      onEdit={onEdit}
+                      onDelete={onDelete}
+                      // 스크린리더용 "메시지 작업" 버튼(A1) — 길게 누르기와 같은 조건일 때만.
+                      onOpenActions={touchShell && sheetOpenable(m) ? () => sheet.show(m.id) : undefined}
+                    />
+                  </div>
                 </Fragment>
               );
-            }
-            return (
-              <Fragment key={m.id}>
-                {showDateDivider && <DateDivider date={m.createdAt} />}
-                <div ref={isLast ? (lastRef as unknown as React.Ref<HTMLDivElement>) : undefined}>
-                  <ChatMessageRow
-                    message={m}
-                    // canEdit 은 "작성자 본인" 과 같은 조건 — 정렬(우측 말풍선)에도 같은 값을 쓴다.
-                    isOwn={canEdit}
-                    canEdit={canEdit}
-                    isPending={isPending}
-                    onEdit={onEdit}
-                    onDelete={onDelete}
-                    // 스크린리더용 "메시지 작업" 버튼(A1) — 길게 누르기와 같은 조건일 때만.
-                    onOpenActions={touchShell && sheetOpenable(m) ? () => sheet.show(m.id) : undefined}
-                  />
-                </div>
-              </Fragment>
-            );
-          })}
-        </ul>
-      </div>
-      {touchShell && (
-        <MessageActionSheet
-          open={sheet.open}
-          onClose={sheet.close}
-          actions={target ? buildMessageSheetActions(target, sheetHandlers) : []}
-          preview={target ? messagePreview(target.authorName, target.body, target.mentions) : undefined}
-        />
-      )}
-    </ScrollArea>
+            })}
+          </ul>
+        </div>
+        {touchShell && (
+          <MessageActionSheet
+            open={sheet.open}
+            onClose={sheet.close}
+            actions={target ? buildMessageSheetActions(target, sheetHandlers) : []}
+            preview={target ? messagePreview(target.authorName, target.body, target.mentions) : undefined}
+          />
+        )}
+      </ScrollArea>
+    </ChatAttachmentViewerHost>
   );
 }
