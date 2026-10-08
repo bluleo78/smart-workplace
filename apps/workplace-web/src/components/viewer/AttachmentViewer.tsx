@@ -67,6 +67,7 @@ export function AttachmentViewer({
   onClose,
   defaultPanelOpen,
   shareable = true,
+  aboveAiSheet = false,
 }: {
   items: ViewerItem[]
   index: number
@@ -76,6 +77,11 @@ export function AttachmentViewer({
   defaultPanelOpen?: boolean
   /** URL 로 같은 뷰어를 다시 열 수 있는 호출부인지 — false 면 ⋯ "링크 복사"를 숨긴다(이슈 본문 이미지처럼 히스토리 키가 없는 곳). */
   shareable?: boolean
+  /**
+   * 모바일 AI 시트(z-[60]) 안에서 연 뷰어인지(메인 AI 채팅 첨부, WP-279) — 모바일 배치에서만 레이어를 z-[80] 으로 올린다
+   * (안 올리면 기본 z-50 이라 시트 아래에 깔려 보이지도 누를 수도 없다). 데스크톱 배치는 그대로 둔다 — 올리면 헤더 아이콘 툴팁(z-50)이 뷰어에 가린다.
+   */
+  aboveAiSheet?: boolean
 }) {
   const aiAware = useAiPanelAwareDialog({ open: true, size: 'lightbox' })
   // 배치는 폭(모바일 셸 기준과 동일), 제스처는 coarse 포인터로 따로 판정한다(스펙 §3.2 — Task 5).
@@ -356,6 +362,8 @@ export function AttachmentViewer({
           'dark fixed inset-0 top-0 left-0 flex h-[100dvh] w-auto max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 bg-transparent p-0 text-foreground sm:max-w-none',
           // 모바일: 포털이라 MobileShell 의 --vvh·안전영역 처리 밖 — 직접 적용(스펙 §4.2). 키보드가 없으면 변수 미설정 → 100dvh·0.
           mobile && 'top-[var(--vv-top,0px)] h-[var(--vvh,100dvh)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]',
+          // AI 시트(z-[60]) 위 — 다른 AI 표면 레이어(확인창·첨부 바텀시트)와 같은 z-[80].
+          mobile && aboveAiSheet && 'z-[80]',
           aiAware.contentClassName,
         )}
         // 키보드 열림 다이얼로그 규칙(index.css)에서 이 전체 화면 레이어를 골라 제외하는 표식.

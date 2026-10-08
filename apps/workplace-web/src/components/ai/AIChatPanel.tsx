@@ -260,7 +260,7 @@ export function AIChatPanel({
           </div>
         ) : (
           // WP-279: 사용자 턴 첨부 썸네일·카드 → 통합 뷰어. 사이드 패널·전체화면·모바일 시트가 같은 키를 읽어도 누른 패널의 호스트만 묶음을 든다.
-          <ChatAttachmentViewerHost historyKey={HOME_CHAT_PREVIEW_KEY}>
+          <ChatAttachmentViewerHost historyKey={HOME_CHAT_PREVIEW_KEY} aboveAiSheet>
             <ul className="space-y-2">
               {turns.map((t, i) => (
                 <Fragment key={i}>

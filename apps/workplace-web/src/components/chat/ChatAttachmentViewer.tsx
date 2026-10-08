@@ -22,7 +22,16 @@ import { useHistoryParam, useStripStaleStateMark } from '@/hooks/useHistoryParam
  *
  * @param historyKey router state 키 — 표면마다 고유(팀·이슈·메인 AI 채팅이 서로의 열림을 자기 것으로 읽지 않게).
  */
-export function ChatAttachmentViewerHost({ historyKey, children }: { historyKey: string; children: ReactNode }) {
+export function ChatAttachmentViewerHost({
+  historyKey,
+  aboveAiSheet = false,
+  children,
+}: {
+  historyKey: string
+  /** 모바일 AI 시트 안 목록(메인 AI 채팅)인지 — 뷰어를 시트 위 레이어로 올린다(AttachmentViewer 참조). */
+  aboveAiSheet?: boolean
+  children: ReactNode
+}) {
   const param = useHistoryParam(historyKey, { mode: 'state' })
   // 새로고침 뒤 history.state 에 남은 표식은 지운다 — 스냅숏이 없어 뷰어가 안 보이는데 back 이 한 번 헛돌지 않게.
   useStripStaleStateMark(historyKey)
@@ -57,6 +66,7 @@ export function ChatAttachmentViewerHost({ historyKey, children }: { historyKey:
           }}
           onClose={param.close}
           shareable={false}
+          aboveAiSheet={aboveAiSheet}
         />
       )}
     </>
