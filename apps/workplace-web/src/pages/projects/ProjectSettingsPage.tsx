@@ -91,7 +91,6 @@ export default function ProjectSettingsPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="project-settings-page">
       <PageHeader
-        contained
         icon={
           <Button
             variant="ghost"

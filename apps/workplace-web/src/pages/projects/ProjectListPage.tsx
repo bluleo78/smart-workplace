@@ -2,7 +2,7 @@
 import { ArrowUpDown, FolderOpen, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
-import { PageHeader } from '@/components/layout/PageHeader'
+import { Page } from '@/components/layout/Page'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -42,70 +42,67 @@ export default function ProjectListPage() {
   }, [data, sort, favs])
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <PageHeader
-        contained
+    <Page>
+      <Page.Header
         title="프로젝트"
         actions={<Button onClick={() => setOpen(true)}>+ 새 프로젝트</Button>}
         // 모바일: 단일 주 액션은 ＋ 아이콘으로 인라인(⋯ 없음).
         mobilePrimaryAction={<HeaderIconAction label="새 프로젝트" onClick={() => setOpen(true)}><Plus /></HeaderIconAction>}
         mobileActions={null}
       />
-      <div className="flex-1 overflow-y-auto">
-        <div className="container mx-auto space-y-4 p-6">
-          {isLoading ? (
-            // 로딩 중 — 스켈레톤 카드 3개로 레이아웃 시프트 최소화
-            <div className="space-y-2" data-testid="projects-loading">
-              {[0, 1, 2].map((i) => (
-                <Skeleton key={i} className="h-14 w-full rounded-lg" />
-              ))}
+      <Page.Body className="space-y-4">
+        {isLoading ? (
+          // 로딩 중 — 스켈레톤 카드 3개로 레이아웃 시프트 최소화
+          <div className="space-y-2" data-testid="projects-loading">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-14 w-full rounded-lg" />
+            ))}
+          </div>
+        ) : isError ? (
+          <div className="p-6 text-center">
+            <p className="mb-2 text-sm text-destructive">프로젝트 목록을 불러오지 못했습니다.</p>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
+          </div>
+        ) : data && data.content.length === 0 ? (
+          // 빈 상태 — 디자인 시스템 §2.5: 아이콘 + 제목 + 설명 + CTA 4요소
+          <div className="flex flex-col items-center gap-3 py-16 text-center" data-testid="projects-empty">
+            <FolderOpen className="h-10 w-10 text-muted-foreground" />
+            <p className="text-sm font-semibold">아직 프로젝트가 없어요</p>
+            <p className="text-xs text-muted-foreground">팀원과 함께 작업할 프로젝트를 만들어 보세요.</p>
+            <Button onClick={() => setOpen(true)}>새 프로젝트 만들기</Button>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border bg-card" role="list" aria-label="프로젝트 목록">
+            {/* 헤더 — 정렬 토글만(페이지 타이틀이 이미 "프로젝트"라 라벨 중복 제거) */}
+            <div className="flex items-center justify-end border-b bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
+              <button
+                type="button"
+                data-testid="project-sort-toggle"
+                className={cn('flex items-center gap-1 hover:text-foreground', isMobile && '-my-3 min-h-11')}
+                onClick={() => setSort((s) => (s === 'recent' ? 'name' : 'recent'))}
+              >
+                정렬: {sort === 'recent' ? '최근 활동순' : '이름순'}
+                <ArrowUpDown className="h-3 w-3" />
+              </button>
             </div>
-          ) : isError ? (
-            <div className="p-6 text-center">
-              <p className="mb-2 text-sm text-destructive">프로젝트 목록을 불러오지 못했습니다.</p>
-              <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
-            </div>
-          ) : data && data.content.length === 0 ? (
-            // 빈 상태 — 디자인 시스템 §2.5: 아이콘 + 제목 + 설명 + CTA 4요소
-            <div className="flex flex-col items-center gap-3 py-16 text-center" data-testid="projects-empty">
-              <FolderOpen className="h-10 w-10 text-muted-foreground" />
-              <p className="text-sm font-semibold">아직 프로젝트가 없어요</p>
-              <p className="text-xs text-muted-foreground">팀원과 함께 작업할 프로젝트를 만들어 보세요.</p>
-              <Button onClick={() => setOpen(true)}>새 프로젝트 만들기</Button>
-            </div>
-          ) : (
-            <div className="overflow-hidden rounded-xl border bg-card" role="list" aria-label="프로젝트 목록">
-              {/* 헤더 — 정렬 토글만(페이지 타이틀이 이미 "프로젝트"라 라벨 중복 제거) */}
-              <div className="flex items-center justify-end border-b bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
-                <button
-                  type="button"
-                  data-testid="project-sort-toggle"
-                  className={cn('flex items-center gap-1 hover:text-foreground', isMobile && '-my-3 min-h-11')}
-                  onClick={() => setSort((s) => (s === 'recent' ? 'name' : 'recent'))}
-                >
-                  정렬: {sort === 'recent' ? '최근 활동순' : '이름순'}
-                  <ArrowUpDown className="h-3 w-3" />
-                </button>
-              </div>
 
-              {/* 즐겨찾기 핀 그룹 */}
-              {sorted.pinned.length > 0 && (
-                <>
-                  <div data-testid="fav-group" className="px-4 pt-2 text-xs font-bold text-muted-foreground">★ 즐겨찾기</div>
-                  {sorted.pinned.map((p) => (
-                    <ProjectListRow key={p.id} project={p} fav onToggleFav={toggle} />
-                  ))}
-                  <div className="px-4 pt-2 text-xs font-bold text-muted-foreground">전체</div>
-                </>
-              )}
-              {sorted.rest.map((p) => (
-                <ProjectListRow key={p.id} project={p} fav={isFav(p.key)} onToggleFav={toggle} />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+            {/* 즐겨찾기 핀 그룹 */}
+            {sorted.pinned.length > 0 && (
+              <>
+                <div data-testid="fav-group" className="px-4 pt-2 text-xs font-bold text-muted-foreground">★ 즐겨찾기</div>
+                {sorted.pinned.map((p) => (
+                  <ProjectListRow key={p.id} project={p} fav onToggleFav={toggle} />
+                ))}
+                <div className="px-4 pt-2 text-xs font-bold text-muted-foreground">전체</div>
+              </>
+            )}
+            {sorted.rest.map((p) => (
+              <ProjectListRow key={p.id} project={p} fav={isFav(p.key)} onToggleFav={toggle} />
+            ))}
+          </div>
+        )}
+      </Page.Body>
       <ProjectCreateDialog open={open} onOpenChange={setOpen} />
-    </div>
+    </Page>
   )
 }
