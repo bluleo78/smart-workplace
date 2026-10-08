@@ -16,7 +16,7 @@ import { chatViewerRegistry } from '@/components/chat/chatViewerRegistry'
 import { AttachmentViewer } from '@/components/viewer/AttachmentViewer'
 import type { ViewerItem } from '@/components/viewer/types'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
-import { currentHistoryState, hasLiveStateMark, readHistoryParam, stripHistoryKey } from '@/lib/historyParam'
+import { currentHistoryState, hasLiveStateMark, liveHistoryKey, readHistoryParam, stripHistoryKey } from '@/lib/historyParam'
 
 /** 지금 브라우저 항목의 열림 키 — 라우터 갱신 전에도 history.state 로 바로 읽는다. */
 const liveValue = (historyKey: string) => readHistoryParam({ search: '', state: currentHistoryState() }, historyKey, 'state')
@@ -57,9 +57,13 @@ export function ChatAttachmentViewerHost({
   const [hostId] = useState(() => chatViewerRegistry.newHostId())
   const owner = useSyncExternalStore(chatViewerRegistry.subscribe, () => chatViewerRegistry.owner(historyKey))
   const value = param.value
-  const items = useMemo(() => (value != null ? resolve(value) : null), [value, resolve])
-  const index = items && value != null ? items.findIndex((i) => i.key === value) : -1
-  const resolvable = items != null && index >= 0
+  // 열린 키가 든 묶음과 그 안 위치 — 키가 묶음 밖이면(항목이 빠짐) 그릴 수 없음과 같다.
+  const { bundle, index } = useMemo(() => {
+    const items = value != null ? resolve(value) : null
+    const i = items ? items.findIndex((it) => it.key === value) : -1
+    return i >= 0 ? { bundle: items, index: i } : { bundle: null, index: -1 }
+  }, [value, resolve])
+  const resolvable = bundle != null
 
   // 콜백·이펙트가 최신 open/close 를 쓰게 ref 에 둔다 — param 함수는 위치가 바뀔 때마다 새로 만들어진다.
   const latest = useRef({ open: param.open, close: param.close })
@@ -67,7 +71,7 @@ export function ChatAttachmentViewerHost({
     latest.current = { open: param.open, close: param.close }
   })
 
-  // 매 커밋: 상태 보고 → 소유자 없으면 가져가기 → 내 묶음이 사라졌으면 닫기 → 아무도 못 그리면 낡은 표식 지우기.
+  // 상태가 바뀔 때마다: 상태 보고 → 소유자 없으면 가져가기 → 내 묶음이 사라졌으면 닫기 → 아무도 못 그리면 낡은 표식 지우기.
   useEffect(() => {
     chatViewerRegistry.report(historyKey, hostId, { resolvable, ready })
     if (value == null) return
@@ -90,7 +94,7 @@ export function ChatAttachmentViewerHost({
       void navigate({ pathname, search, hash }, { replace: true, state: stripHistoryKey(currentHistoryState(), historyKey, 'state') })
     }, 0)
     return () => clearTimeout(t)
-  })
+  }, [historyKey, hostId, resolvable, ready, value, owner, navigate])
 
   // 닫힘(값 있음 → 없음)에서 소유권을 내려놓는다 — 다음 열림(앞으로가기 등)은 다시 그릴 수 있는 호스트가 가져간다.
   const prevValue = useRef(value)
@@ -108,12 +112,35 @@ export function ChatAttachmentViewerHost({
   }, [resetKey, historyKey, hostId])
 
   // 언마운트 — 보고·소유권 해제(다른 호스트가 이어받을 수 있게).
-  useEffect(() => () => chatViewerRegistry.unregister(historyKey, hostId), [historyKey, hostId])
+  // 연 뷰어가 열린 채 호스트만 사라지면(데스크톱 AI 사이드 패널을 X·Esc·⌘K 로 닫음) 같은 항목에 열림 표식이 남아
+  // 뒤로가기가 헛돌고 패널을 다시 열면 뷰어가 갑자기 되살아난다. 그래서 이어받을 호스트가 없으면 정상 닫기로 항목을 되돌린다.
+  // 바로 닫지 않고 한 틱 미루는 이유: 사이드↔전체화면 전환처럼 같은 커밋에 새 호스트가 마운트돼 이어받는 경우를 먼저 기다린다.
+  useEffect(
+    () => () => {
+      const wasOwner = chatViewerRegistry.owner(historyKey) === hostId
+      chatViewerRegistry.unregister(historyKey, hostId)
+      const openKey = liveValue(historyKey)
+      if (!wasOwner || openKey == null) return
+      const entry = liveHistoryKey()
+      const close = latest.current.close
+      setTimeout(() => {
+        // 그 사이 다른 호스트가 이어받았거나, 위치가 바뀌었거나(라우트 이동·뒤로가기), 이미 닫혔으면 손대지 않는다.
+        if (chatViewerRegistry.owner(historyKey) != null || liveHistoryKey() !== entry || liveValue(historyKey) !== openKey) return
+        close()
+      }, 0)
+    },
+    [historyKey, hostId],
+  )
 
   const open = useCallback<OpenChatAttachment>(
     (key) => {
-      // 다른 첨부 뷰어(다른 채팅·?preview 호스트)가 이미 열려 있으면 겹쳐 열지 않는다 — 데스크톱 AI 사이드 패널은 뷰어 옆에서도 눌린다.
-      if (document.querySelector('[data-viewer-root]')) return
+      // 첨부 뷰어가 이미 열려 있을 때(데스크톱 AI 사이드 패널은 뷰어 옆에서도 눌린다):
+      // 이 호스트가 연 뷰어면 그 자리에서 누른 첨부로 바꾸고(replace — 히스토리가 늘지 않음),
+      // 다른 뷰어(다른 채팅·?preview 호스트)면 겹쳐 열지 않는다.
+      if (document.querySelector('[data-viewer-root]')) {
+        if (chatViewerRegistry.owner(historyKey) === hostId && liveValue(historyKey) != null) latest.current.open(key)
+        return
+      }
       chatViewerRegistry.claim(historyKey, hostId)
       latest.current.open(key)
       // 내비게이션이 무동작이었으면(낡은 위치 콜백 등) 소유권을 바로 돌려놓는다 — 열리지 않은 클릭이 소유권을 쥐고 남지 않게.
@@ -125,13 +152,13 @@ export function ChatAttachmentViewerHost({
   return (
     <>
       <ChatAttachmentViewerContext.Provider value={open}>{children}</ChatAttachmentViewerContext.Provider>
-      {resolvable && owner === hostId && (
+      {bundle != null && owner === hostId && (
         <AttachmentViewer
-          items={items}
+          items={bundle}
           index={index}
           // 넘김은 열린 상태에서 값만 바꾼다(replace — 히스토리가 늘지 않음).
           onIndexChange={(i) => {
-            const next = items[i]
+            const next = bundle[i]
             if (next) param.open(next.key)
           }}
           onClose={param.close}

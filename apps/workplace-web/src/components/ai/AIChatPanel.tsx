@@ -155,9 +155,14 @@ export function AIChatPanel({
   // WP-234: 첨부 초안 — 개수 상한(메시지 10·세션 30)·이미지 축소·25MB·로컬 미리보기는 훅이 맡는다.
   const sessionAttachmentCount = useMemo(() => countSessionAttachments(turns), [turns]);
   // WP-279: 열린 첨부 키(home:{fileId}) → 그 파일이 든 사용자 턴의 묶음. 앞으로가기·패널 전환 뒤에도 키만으로 다시 연다.
+  // 답변 스트리밍은 토큰마다 turns 를 바꾸지만 첨부 구성은 그대로다 — 첨부 fileId 서명이 같으면 같은 원본·resolve 를 유지해
+  // 뷰어가 열린 동안 토큰마다 턴을 다시 훑고 묶음을 새로 만들지 않게 한다.
+  const attachmentSig = turns.map((t) => ('attachments' in t ? (t.attachments?.map((a) => a.fileId).join(',') ?? '') : '')).join('|');
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- attachmentSig 가 turns 의 첨부 구성 서명
+  const attachmentTurns = useMemo(() => turns.filter((t) => 'attachments' in t && t.attachments?.length), [attachmentSig]);
   const resolveHomeAttachment = useCallback(
-    (key: string) => findHomeChatBundle(key, currentSessionId, turns),
-    [currentSessionId, turns],
+    (key: string) => findHomeChatBundle(key, currentSessionId, attachmentTurns),
+    [currentSessionId, attachmentTurns],
   );
   const attach = useHomeChatAttachments({ sessionAttachmentCount, resetNonce: attachmentResetNonce });
   // 입력창 영역 파일 드롭 → 사전 업로드(WP-235 부품 재사용).

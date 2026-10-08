@@ -29,7 +29,11 @@ export function ThumbnailButton({
       aria-label={`${name} 미리보기`}
       data-testid={`attachment-image-open-${fileId}`}
       // 버튼 기본 여백·배경을 없애 예전 링크 썸네일과 같은 모양을 유지하고, 키보드 포커스만 링으로 보인다.
-      className={cn('inline-block cursor-zoom-in rounded-md p-0 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none', className)}
+      // 터치(coarse)에선 그림이 작아도 누르는 영역이 44px 이상이 되게 최소 크기를 둔다(작은 그림은 가운데).
+      className={cn(
+        'inline-flex cursor-zoom-in items-center justify-center rounded-md p-0 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none pointer-coarse:min-h-11 pointer-coarse:min-w-11',
+        className,
+      )}
     >
       {children}
     </button>

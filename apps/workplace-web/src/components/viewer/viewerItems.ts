@@ -187,44 +187,6 @@ export function parseChatViewerKey(
   return h ? { surface: 'home', fileId: Number(h[1]) } : null
 }
 
-/** 팀 채팅 업로드 첨부 — 채널 멤버 권한 메시지 첨부 경로. 형식은 원문 저장이라 범용이면 파일명으로 추론한다. */
-export function teamChatAttachmentItem(channelId: number, a: MessageAttachment): ViewerItem {
-  return chatUploadItem(
-    chatViewerKey('msg', a.messageId, fileViewerKey(a.fileId)),
-    `/messaging/channels/${channelId}/messages/${a.messageId}/attachments/${a.fileId}/content`,
-    a,
-    true,
-  )
-}
-
-/** 팀 채팅 메시지에 링크된 드라이브 파일 — 채널 권한으로 받는 링크 전용 경로. */
-export function teamChatDriveLinkItem(channelId: number, messageId: number, l: DriveLink): ViewerItem {
-  return driveLinkItem(
-    chatViewerKey('msg', messageId, driveViewerKey(l.driveFileId)),
-    `/messaging/channels/${channelId}/messages/${messageId}/drive-links/${l.driveFileId}/content`,
-    l,
-  )
-}
-
-/** 이슈 채팅 업로드 첨부 — 스레드 메시지 첨부 경로. */
-export function issueChatAttachmentItem(threadId: number, a: MessageAttachment): ViewerItem {
-  return chatUploadItem(
-    chatViewerKey('cmsg', a.messageId, fileViewerKey(a.fileId)),
-    `/chat/threads/${threadId}/messages/${a.messageId}/attachments/${a.fileId}/content`,
-    a,
-    true,
-  )
-}
-
-/** 이슈 채팅 메시지에 링크된 드라이브 파일 — 이슈 권한으로 받는 링크 전용 경로. */
-export function issueChatDriveLinkItem(threadId: number, messageId: number, l: DriveLink): ViewerItem {
-  return driveLinkItem(
-    chatViewerKey('cmsg', messageId, driveViewerKey(l.driveFileId)),
-    `/chat/threads/${threadId}/messages/${messageId}/drive-links/${l.driveFileId}/content`,
-    l,
-  )
-}
-
 /**
  * 메인 AI 채팅 첨부 — 세션 소유자 전용 경로. 키는 `home:{fileId}`(턴에 안정된 id 가 없음 — chatViewerKey 주석).
  * ✨(업로드 요약 없음)·☁(세션 첨부 가져오기 API 없음)·원본 이동은 없다.
@@ -240,21 +202,35 @@ interface ChatBundleMessage {
   driveLinks?: DriveLink[] | null
 }
 
-/** 팀 채팅 메시지 한 건의 묶음 — 업로드 → 드라이브 링크(화면 표시 순서). */
-export function teamChatBundle(channelId: number, m: ChatBundleMessage): ViewerItem[] {
+/** 표면별 메시지 경로 앞부분 — 팀 채팅은 채널, 이슈 채팅은 스레드 아래 메시지. */
+const CHAT_MESSAGES_BASE: Record<'msg' | 'cmsg', (root: number) => string> = {
+  msg: (channelId) => `/messaging/channels/${channelId}/messages`,
+  cmsg: (threadId) => `/chat/threads/${threadId}/messages`,
+}
+
+/**
+ * 팀·이슈 채팅 메시지 한 건의 묶음 — 업로드(☁ 가져오기 가능) → 드라이브 링크(✨·드라이브에서 열기), 화면 표시 순서.
+ * 두 표면은 경로 앞부분(채널·스레드)과 키 접두어만 다르다. 업로드는 메시지 첨부 경로, 링크는 그 표면 권한으로 받는 링크 전용 경로.
+ * 팀 채팅은 업로드 형식을 원문 저장하므로 범용 형식이면 파일명으로 추론한다(chatUploadItem → attachmentMime).
+ * @param root 팀 채팅 = 채널 id, 이슈 채팅 = 스레드 id
+ */
+export function chatBundle(surface: 'msg' | 'cmsg', root: number, m: ChatBundleMessage): ViewerItem[] {
+  const base = `${CHAT_MESSAGES_BASE[surface](root)}/${m.id}`
   return [
-    ...(m.attachments ?? []).map((a) => teamChatAttachmentItem(channelId, a)),
-    ...(m.driveLinks ?? []).map((l) => teamChatDriveLinkItem(channelId, m.id, l)),
+    ...(m.attachments ?? []).map((a) =>
+      chatUploadItem(chatViewerKey(surface, m.id, fileViewerKey(a.fileId)), `${base}/attachments/${a.fileId}/content`, a, true),
+    ),
+    ...(m.driveLinks ?? []).map((l) =>
+      driveLinkItem(chatViewerKey(surface, m.id, driveViewerKey(l.driveFileId)), `${base}/drive-links/${l.driveFileId}/content`, l),
+    ),
   ]
 }
 
-/** 이슈 채팅 메시지 한 건의 묶음 — 업로드 → 드라이브 링크(화면 표시 순서). */
-export function issueChatBundle(threadId: number, m: ChatBundleMessage): ViewerItem[] {
-  return [
-    ...(m.attachments ?? []).map((a) => issueChatAttachmentItem(threadId, a)),
-    ...(m.driveLinks ?? []).map((l) => issueChatDriveLinkItem(threadId, m.id, l)),
-  ]
-}
+/** 팀 채팅 메시지 묶음(채널 id 기준). */
+export const teamChatBundle = (channelId: number, m: ChatBundleMessage) => chatBundle('msg', channelId, m)
+
+/** 이슈 채팅 메시지 묶음(스레드 id 기준). */
+export const issueChatBundle = (threadId: number, m: ChatBundleMessage) => chatBundle('cmsg', threadId, m)
 
 /** 메인 AI 사용자 턴 한 건의 묶음. */
 export function homeChatBundle(sessionId: string, attachments: readonly HomeUploadedFile[]): ViewerItem[] {

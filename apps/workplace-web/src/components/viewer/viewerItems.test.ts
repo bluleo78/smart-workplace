@@ -16,9 +16,7 @@ import {
   isMailViewerKey,
   issueAttachmentItem,
   issueBodyImageItem,
-  issueChatAttachmentItem,
   issueChatBundle,
-  issueChatDriveLinkItem,
   issueDriveLinkItem,
   mailAttachmentItem,
   mailViewerKey,
@@ -26,9 +24,7 @@ import {
   parseChatViewerKey,
   parseViewerKey,
   resolveBundle,
-  teamChatAttachmentItem,
   teamChatBundle,
-  teamChatDriveLinkItem,
   virtualAttachmentItem,
 } from './viewerItems'
 
@@ -189,6 +185,12 @@ describe('mailViewerKey / isMailViewerKey', () => {
 })
 
 // ─── 채팅 3곳(WP-279) ─────────────────────────────────────────────────────────
+
+/** 메시지 묶음에서 업로드·링크 한 건씩 꺼내 보는 테스트 헬퍼 — 어댑터는 묶음 함수 하나(chatBundle)로만 노출된다. */
+const teamChatAttachmentItem = (channelId: number, a: MessageAttachment) => teamChatBundle(channelId, { id: a.messageId, attachments: [a] })[0]
+const teamChatDriveLinkItem = (channelId: number, messageId: number, l: DriveLink) => teamChatBundle(channelId, { id: messageId, driveLinks: [l] })[0]
+const issueChatAttachmentItem = (threadId: number, a: MessageAttachment) => issueChatBundle(threadId, { id: a.messageId, attachments: [a] })[0]
+const issueChatDriveLinkItem = (threadId: number, messageId: number, l: DriveLink) => issueChatBundle(threadId, { id: messageId, driveLinks: [l] })[0]
 
 const msgAtt = (o: Partial<MessageAttachment> = {}): MessageAttachment =>
   ({ fileId: 5, messageId: 42, originalName: '사진.png', mimeType: 'image/png', sizeBytes: 10, ...o }) as MessageAttachment

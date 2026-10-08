@@ -49,9 +49,12 @@ interface MessageListProps {
   unreadDividerBeforeId?: number | null
   // 캐치업 카드 슬롯. 구분선 위치에 같이 렌더(구분선이 로드뷰 밖이면 목록 상단). 미전달이면 안 그림.
   catchupSlot?: React.ReactNode
+  // 메시지 첫 조회가 끝났는지(WP-279) — 거짓이면 첨부 뷰어 호스트가 "그 메시지가 없다"로 판단해 열림 표식을 지우지 않는다.
+  // 미전달 = 이미 받은 목록(스레드 부모 단건 등).
+  ready?: boolean
 }
 
-export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId, catchupSlot }: MessageListProps) {
+export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId, catchupSlot, ready = true }: MessageListProps) {
   // 페이지는 DESC 로 쌓이므로 화면에는 ASC(오래된 위)로 뒤집어 보여준다.
   const ordered = [...messages].reverse()
   // WP-279: 열린 첨부 키(msg:{메시지}:…) → 이 목록에 그린 그 메시지의 묶음. 앞으로가기·드라이브에서 돌아오기 뒤에도 키만으로 다시 연다.
@@ -115,7 +118,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   return (
     // WP-279: 첨부 썸네일·카드 → 통합 뷰어. 호스트가 목록 div 바깥(형제)에 뷰어를 그려 길게 누르기 위임 핸들러로 이벤트가 새지 않는다.
     // 채널·DM·스레드 패널(두 목록)이 같은 키를 읽어도 클릭한 목록의 호스트만 묶음을 들고 있어 뷰어는 하나다.
-    <ChatAttachmentViewerHost historyKey={TEAM_CHAT_PREVIEW_KEY} resolve={resolveAttachment}>
+    <ChatAttachmentViewerHost historyKey={TEAM_CHAT_PREVIEW_KEY} resolve={resolveAttachment} ready={ready}>
       {/* 모바일(lg 미만)은 좌우 여백을 줄여 말풍선·본문 폭을 확보한다(L1).
           터치 셸이면 길게 누르기를 목록 하나가 위임으로 받는다(행은 data-message-id 만 단다). 아니면 핸들러 없음. */}
       <div className="flex flex-col gap-2 p-4 max-lg:px-3" data-testid="message-list" {...longPress}>

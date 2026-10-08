@@ -1,8 +1,8 @@
-import { Cloud, FileText } from 'lucide-react'
-
 import { useOpenChatAttachment } from '@/components/chat/chatAttachmentViewerContext'
+import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
 import type { ViewerItem } from '@/components/viewer/types'
 import { attachmentMime } from '@/components/viewer/viewerItems'
+import { splitName } from '@/components/viewer/viewerNav'
 import { isInlineImageType } from '@/lib/imageUpload'
 import { cn } from '@/lib/utils'
 import type { DriveLink } from '@/types/drive'
@@ -15,9 +15,14 @@ function humanSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-/** 파일·링크 카드 공통 모양 — 열 수 없으면(disabled) hover 강조를 끈다. */
+/**
+ * 파일·링크 카드 공통 모양(WP-279 UI 리뷰).
+ * - 터치(coarse)·모바일 폭에선 높이 44px 이상(터치 대상 기준).
+ * - 열 수 있으면 손가락 커서·뚜렷한 hover(배경+테두리), 키보드 포커스 링은 썸네일(ThumbnailButton)과 같은 ring-2.
+ * - 열 수 없으면(disabled) 흐리게(opacity-60) — 눌러도 반응 없는 이유가 보이게.
+ */
 const CARD_CLASS =
-  'flex max-w-full min-w-0 items-center gap-2 rounded-md border bg-card px-2 py-1 text-left text-sm enabled:hover:bg-accent/40 disabled:cursor-default'
+  'flex max-w-full min-w-0 items-center gap-2 rounded-md border bg-card px-2 py-1 text-left text-sm outline-none transition-colors max-md:min-h-11 pointer-coarse:min-h-11 enabled:cursor-pointer enabled:hover:border-foreground/30 enabled:hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60'
 
 /**
  * 카드 버튼 속성 — 열 수 있으면 "{이름} 미리보기" 버튼, 없으면 비활성(포커스·클릭 불가, 접근 이름은 보이는 글자 그대로).
@@ -25,6 +30,20 @@ const CARD_CLASS =
  */
 function cardOpenProps(name: string, onOpen: (() => void) | undefined) {
   return onOpen ? { 'aria-label': `${name} 미리보기`, onClick: onOpen } : { disabled: true }
+}
+
+/**
+ * 파일 이름 — 확장자를 잃지 않게 앞부분만 말줄임하고 꼬리(확장자 포함)는 늘 보인다(메일 첨부 칩·뷰어 제목과 같은 splitName 규칙).
+ * whitespace-pre: 잘리는 자리 끝 공백이 flex 항목 끝에서 사라지지 않게.
+ */
+function CardName({ name, muted }: { name: string; muted?: boolean }) {
+  const [head, tail] = splitName(name)
+  return (
+    <span className={cn('flex min-w-0', muted && 'text-muted-foreground line-through')}>
+      <span className="min-w-0 truncate whitespace-pre">{head}</span>
+      <span className="shrink-0 whitespace-pre">{tail}</span>
+    </span>
+  )
 }
 
 /** 목록이 쓰는 최소 필드 — 팀·이슈 채팅 MessageAttachment 와 메인 AI 채팅 TurnAttachment(WP-234)가 함께 만족한다. */
@@ -81,27 +100,39 @@ export function MessageAttachmentList<A extends AttachmentLike>({
             {...cardOpenProps(a.originalName, opener(i))}
             className={CARD_CLASS}
           >
-            <FileText className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 truncate">{a.originalName}</span>
+            {/* 형식 아이콘 — 메일·이슈 첨부 칩과 같은 FileTypeIcon(뷰어와 같은 추론 형식). */}
+            <FileTypeIcon mimeType={attachmentMime(a.mimeType, a.originalName)} />
+            <CardName name={a.originalName} />
             <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">{humanSize(a.sizeBytes)}</span>
           </button>
         ),
       )}
-      {/* #80: 드라이브 연결 파일 — 업로드 첨부와 같은 행 스타일 + info 배지. 묶음에서 업로드 뒤 순서. */}
-      {driveLinks.map((dl, j) => (
-        <button
-          key={dl.driveFileId}
-          type="button"
-          data-testid={`message-drive-link-${dl.driveFileId}`}
-          {...cardOpenProps(dl.name, opener(attachments.length + j))}
-          className={CARD_CLASS}
-        >
-          <Cloud className="h-4 w-4 shrink-0 text-info" />
-          <span className="min-w-0 truncate">{dl.name}</span>
-          <span className="shrink-0 whitespace-nowrap rounded px-1 py-0.5 text-xs bg-info-subtle text-info">☁ 링크</span>
-          <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">{humanSize(dl.sizeBytes)}</span>
-        </button>
-      ))}
+      {/* #80: 드라이브 연결 파일 — 업로드 첨부와 같은 행 스타일 + 링크 배지. 묶음에서 업로드 뒤 순서.
+          원본이 휴지통·삭제면 흐린 이름(취소선)과 "원본 삭제됨" 표시 — 열어 보기 전에 쓸 수 없음을 알린다(뷰어는 안내만 보인다). */}
+      {driveLinks.map((dl, j) => {
+        const gone = dl.availability !== 'ACTIVE'
+        return (
+          <button
+            key={dl.driveFileId}
+            type="button"
+            data-testid={`message-drive-link-${dl.driveFileId}`}
+            data-availability={dl.availability}
+            {...cardOpenProps(dl.name, opener(attachments.length + j))}
+            className={CARD_CLASS}
+          >
+            <FileTypeIcon mimeType={attachmentMime(dl.mimeType, dl.name)} />
+            <CardName name={dl.name} muted={gone} />
+            <span className="shrink-0 whitespace-nowrap rounded px-1 py-0.5 text-xs bg-info-subtle text-info">☁ 링크</span>
+            {gone ? (
+              <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground" data-testid={`message-drive-link-gone-${dl.driveFileId}`}>
+                원본 삭제됨
+              </span>
+            ) : (
+              <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">{humanSize(dl.sizeBytes)}</span>
+            )}
+          </button>
+        )
+      })}
     </div>
   )
 }
