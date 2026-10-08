@@ -125,3 +125,24 @@ test('영상 재생이 시작되고 3초 뒤 바가 자동으로 숨는다', asy
   await expect(topBar(page)).toHaveAttribute('inert', '', { timeout: 8000 })
   await expect(page.getByTestId('viewer-action-bar')).toHaveAttribute('inert', '')
 })
+
+test('가로 모드 — 넘침 없이 영상이 화면 안에 들어온다(영상 높이 비율 기록)', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 844, height: 390 })
+  await stubDriveFiles(page, [VID(80, 'clip-a.webm')], { spaceId: SPACE_ID })
+  await openViewer(page, 'clip-a.webm')
+  const video = page.getByTestId('media-video')
+  await expect.poll(async () => (await media(video)).ready).toBeGreaterThanOrEqual(1)
+  // 가로는 바 기본 숨김(WP-278) — 여백(M8)은 유지하므로 영상은 바 자리를 비운 높이에 맞춰진다.
+  await expect(topBar(page)).toHaveAttribute('inert', '')
+  await expect.poll(async () => (await video.boundingBox())!.height).toBeGreaterThan(100)
+  const v = (await video.boundingBox())!
+  expect(v.y).toBeGreaterThanOrEqual(0)
+  expect(v.y + v.height).toBeLessThanOrEqual(390)
+  // 가로 넘침 없음(문서·본문 모두).
+  const overflow = await page.evaluate(() => {
+    const b = document.querySelector('[data-testid="preview-body"]') as HTMLElement
+    return { doc: document.documentElement.scrollWidth > window.innerWidth, body: b.scrollWidth > b.clientWidth || b.scrollHeight > b.clientHeight }
+  })
+  expect(overflow).toEqual({ doc: false, body: false })
+  test.info().annotations.push({ type: 'landscape-video-height-ratio', description: (v.height / 390).toFixed(2) })
+})

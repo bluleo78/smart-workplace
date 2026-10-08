@@ -50,9 +50,11 @@ describe('routeKey — 영상·오디오(WP-281)', () => {
   it('미디어가 아닌 형식은 포커스와 무관하게 기존 넘김', () => {
     expect(routeKey({ ...base, key: 'ArrowRight', inMedia: true, fullscreen: true })).toBe('next')
   })
-  it('Space 는 미디어면 재생/정지 — 버튼 위에선 버튼 몫, 전체화면이면 재생/정지', () => {
+  it('Space 는 미디어면 재생/정지 — 버튼 위에선 버튼 몫, 미디어 요소 포커스면 네이티브 몫, 전체화면이면 재생/정지', () => {
     expect(routeKey({ ...media, key: ' ' })).toBe('playPause')
-    expect(routeKey({ ...media, key: ' ', inMedia: true })).toBe('playPause')
+    // 네이티브 컨트롤이 Space 를 처리하므로 우리가 또 뒤집지 않는다(이중 전환 방지).
+    expect(routeKey({ ...media, key: ' ', inMedia: true })).toBeNull()
+    expect(routeKey({ ...media, key: ' ', inMedia: true, fullscreen: true })).toBeNull()
     expect(routeKey({ ...media, key: ' ', onControl: true })).toBeNull()
     expect(routeKey({ ...media, key: ' ', onControl: true, fullscreen: true })).toBe('playPause')
   })

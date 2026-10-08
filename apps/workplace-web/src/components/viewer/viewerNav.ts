@@ -52,7 +52,8 @@ export type ViewerAction =
  * - Esc 는 평소 Radix Dialog(+useAiPanelAwareDialog)가 닫기로 처리하므로 null. 전체화면 중(또는 방금 해제)이면 'exitFullscreen' —
  *   호출부는 닫기를 막고 전체화면만 푼다(스펙 §5.3 #7, 이중 닫기 방지).
  * - ←/→: 영상·오디오에 포커스가 있거나 전체화면이면 탐색(±5초), 그 외는 파일 넘김(스펙 §5.3 #6).
- * - Space: 영상·오디오 형식이면 재생/정지 — 단 버튼·링크 위에서는 그 요소의 활성화 몫(전체화면 중 제외). 문서는 null(브라우저 스크롤).
+ * - Space: 영상·오디오 형식이면 재생/정지 — 단 버튼·링크 위에서는 그 요소의 활성화 몫(전체화면 중 제외),
+ *   미디어 요소 자신에 포커스가 있으면 네이티브 컨트롤 몫(null). 문서는 null(브라우저 스크롤).
  */
 export function routeKey(ctx: KeyContext): ViewerAction {
   if (ctx.ctrlOrMeta || ctx.inAiPanel || ctx.inEditable) return null
@@ -68,7 +69,10 @@ export function routeKey(ctx: KeyContext): ViewerAction {
       if (seeking) return 'seekForward'
       return ctx.inHorizontalScroller ? null : 'next'
     case ' ':
-      return ctx.media && (ctx.fullscreen || !ctx.onControl) ? 'playPause' : null
+      // 미디어 요소에 포커스가 있으면 브라우저 기본 컨트롤이 Space 로 재생/정지한다 — keydown 을 막아도 네이티브 처리가 따로 돌아
+      // 우리도 뒤집으면 두 번 뒤집혀 제자리가 된다(E2E 로 확인). 그래서 그때는 null(네이티브 몫).
+      if (!ctx.media || ctx.inMedia) return null
+      return ctx.fullscreen || !ctx.onControl ? 'playPause' : null
     case '+':
     case '=':
       return ctx.zoomable ? 'zoomIn' : null

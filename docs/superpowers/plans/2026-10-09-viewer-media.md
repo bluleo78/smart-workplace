@@ -16,12 +16,12 @@ WP-278 계획의 R3 — `inScrubZone` 은 WP-281 이 `lockGesture` 입력에 더
 
 - **M1 `routeKey` 는 기존 `KeyContext` 객체를 넓힌다** — 스펙의 `routeKey(key, focusZone, isFullscreen, kind)` 를 위치 인자로 바꾸지 않고 `media`·`inMedia`·`onControl`·`fullscreen`·`fullscreenJustExited` 필드로 받는다(기존 호출·테스트 유지).
 - **M2 Esc** — Radix 의 Esc 닫기(`onEscapeKeyDown`)에서 전체화면 중이거나 직전(500ms) `fullscreenchange` 로 해제됐으면 닫지 않고 전체화면만 해제(`routeKey` → `exitFullscreen`). aiAware 의 Esc 처리를 먼저 부른다.
-- **M3 ←/→·Space** — 미디어 요소(네이티브 컨트롤은 shadow DOM 이라 대상이 `<video>`/`<audio>` 로 보정됨)에 포커스가 있거나 전체화면이면 ±5초 탐색, 그 외 파일 넘김. Space 는 미디어 형식에서 버튼·링크 등 조작 요소 위가 아니면 재생/정지, 문서 형식이면 null(스크롤). 우리가 처리한 키는 preventDefault 해 네이티브 기본 동작과 겹쳐 두 번 움직이지 않게 한다.
+- **M3 ←/→·Space** — 미디어 요소(네이티브 컨트롤은 shadow DOM 이라 대상이 `<video>`/`<audio>` 로 보정됨)에 포커스가 있거나 전체화면이면 ±5초 탐색, 그 외 파일 넘김. Space 는 미디어 형식에서 버튼·링크 등 조작 요소 위가 아니면 재생/정지, 문서 형식이면 null(스크롤). **단 미디어 요소 자신에 포커스가 있으면 Space 는 null** — Chromium 은 keydown 을 막아도 네이티브 컨트롤이 Space 로 따로 재생/정지해 이중 전환(제자리)이 됐다(구현 중 E2E 로 발견). 우리가 처리한 키는 preventDefault 해 네이티브 기본 동작과 겹쳐 두 번 움직이지 않게 한다.
 - **M4 자동재생** — 뷰어를 연 순간의 항목(openedKey)만, 그 항목을 한 번도 떠나지 않은 동안만 자동재생(`shouldAutoplay`). 넘겨 온 항목·되돌아온 항목은 정지 상태(위치 기억). `autoplay` 속성 대신 `el.play()` 를 불러 거부(NotAllowedError, iOS)되면 가운데 재생 버튼으로 폴백. StrictMode 이중 마운트에도 같은 답이 나오게 "소비" 방식이 아니라 "떠난 적 있음" 표식으로 판정.
 - **M5 위치 기억·정지·해제** — 본문은 항목 key 로 리마운트되므로 넘기면 요소가 사라진다. 언마운트 때 `currentTime` 을 뷰어의 Map ref 에 저장하고 `pause()`→`src` 제거→`load()` 후 object URL 을 해제한다. 돌아오면 다시 받고 `loadedmetadata` 에서 위치 복원(blob 캐시는 하지 않는다 — 다른 형식과 같은 규칙).
 - **M6 제스처** — `lockGesture` 에 `inScrubZone` 추가(참이면 어느 축이든 native). 영상은 요소 아래 48px, 오디오는 요소 전체. 탭: 영상 요소 위 탭은 바 토글 없음(네이티브 컨트롤 표시 몫), 오디오 형식은 탭으로 바를 숨기지 않음(`tapTogglesBars`). 무대 touch-action 은 미디어면 `none`(브라우저 핀치 확대 끔 — 스펙 "핀치 끔"). 네이티브 재생 막대 끌기가 살아 있는지는 E2E 로 확인.
 - **M7 바 자동 숨김** — 모바일 배치 + 터치에서 영상 재생 시작 3초 뒤 바를 숨긴다. 일시정지·넘김·언마운트 시 타이머 취소, 포커스가 바 안이거나 요약 시트가 열려 있으면 숨기지 않는다(탭 토글과 같은 규칙).
-- **M8 배치** — 영상은 하단 액션 바 위 영역(기존 `chromeInset` 여백)에 `object-contain` + `playsinline`. 바가 숨겨져도 여백을 유지한다 — 재생 3초 뒤 바가 사라질 때 영상이 들썩이지 않게(가로 화면에서 조금 작아지는 비용).
+- **M8 배치** — 영상은 하단 액션 바 위 영역(기존 `chromeInset` 여백)에 `object-contain` + `playsinline`. 바가 숨겨져도 여백을 유지한다 — 재생 3초 뒤 바가 사라질 때 영상이 들썩이지 않게(가로 화면에서 작아지는 비용 — 844×390 실측 영상 높이 262px = 화면의 67%. 엄격한 #3(재생 막대가 바에 안 가림) vs WP-278 가로 면적 우선의 제품 판단 거리).
 - **M9 진행률** — 영상·오디오만 `preview-loading` 안에 `role=progressbar` 와 `%`·받은/전체 크기. 분모 = 응답 Content-Length, 없으면 항목 크기, 둘 다 없으면 % 없이 "받는 중". 정수 %가 바뀔 때만 상태 갱신.
 - **M10 재생 불가** — `error` 이벤트 → 기존 미지원 화면(`preview-unsupported`, 다운로드 포함)으로.
 

@@ -116,6 +116,25 @@ test('받는 동안 % 진행률을 보이고 다 받으면 플레이어로 바�
   await expect(bar).toHaveCount(0)
 })
 
+test('10MB 초과 영상은 먼저 확인을 받고, 미리보기를 누르면 받아서 재생한다', async ({ authenticatedPage: page }) => {
+  await stubDriveFiles(page, [VID(80, 'big.webm', { sizeBytes: 11 * 1024 * 1024 })], { spaceId: SPACE_ID })
+  const contentRequests: string[] = []
+  page.on('request', (r) => {
+    if (r.url().includes('/drive/files/80/content')) contentRequests.push(r.url())
+  })
+  await openViewer(page, 'big.webm')
+  await expect(page.getByTestId('preview-size-confirm')).toBeVisible()
+  // 동의 전엔 받지 않는다 — 진행률·플레이어 없음, 콘텐츠 요청 0회.
+  await expect(page.getByRole('progressbar')).toHaveCount(0)
+  await expect(page.locator('video')).toHaveCount(0)
+  expect(contentRequests).toHaveLength(0)
+  await page.getByRole('button', { name: '미리보기' }).click()
+  const video = page.getByTestId('media-video')
+  // 확인 클릭 뒤에도 직접 연 항목이라 자동재생된다.
+  await expect.poll(async () => (await state(video)).paused).toBe(false)
+  expect(contentRequests.length).toBeGreaterThan(0)
+})
+
 test('재생할 수 없는 영상은 미지원 화면과 다운로드로 바뀐다', async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [BROKEN], { spaceId: SPACE_ID })
   await openViewer(page, 'broken.mov')
@@ -190,6 +209,10 @@ test.describe('키보드(스펙 §5.3 #6·#7)', () => {
     await expect.poll(async () => (await state(video)).paused).toBe(true)
     await page.keyboard.press(' ')
     await expect.poll(async () => (await state(video)).paused).toBe(false)
+    // 영상 자체에 포커스(클릭으로 들어간 흔한 경로) — 네이티브 Space 처리와 겹치면 두 번 뒤집혀 그대로 재생 중일 것.
+    await video.focus()
+    await page.keyboard.press(' ')
+    await expect.poll(async () => (await state(video)).paused).toBe(true)
     // 다음 파일 버튼 위 Space = 버튼 활성화(넘김), 재생 전환이 아니다.
     await page.getByRole('button', { name: '다음 파일' }).focus()
     await page.keyboard.press(' ')
