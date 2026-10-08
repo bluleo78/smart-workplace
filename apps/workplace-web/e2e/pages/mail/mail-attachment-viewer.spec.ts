@@ -171,7 +171,26 @@ test.describe('메일 첨부 뷰어', () => {
     await page.getByTestId('preview-body').getByRole('button', { name: /다운로드/ }).click()
     await downloads.waitFor(1)
     release()
-    await expect(page.getByText('파일을 내려받지 못했습니다')).toBeVisible()
+    // 토스트가 뷰어(z-50) 위에 실제로 보여야 한다 — toBeVisible 은 가림을 보지 않으므로 화면 안·최상단까지 확인한다.
+    const toast = page.locator('[data-sonner-toast]', { hasText: '파일을 내려받지 못했습니다' })
+    await expect(toast).toBeInViewport()
+    // fixture 의 에러 토스트 포인터 통과 규칙과 모달의 body pointer-events:none 이 있으면 elementFromPoint 가 토스트를 건너뛴다 —
+    // 규칙을 걷어내고 판정 순간만 body 를 되돌려 쌓임 순서 그대로 읽는다(auth.fixture.ts·mobile.fixture.ts expectOnTop).
+    await page.evaluate(() => document.querySelector('style[data-test-toast-passthrough]')?.remove())
+    await expect
+      .poll(() =>
+        toast.evaluate((el) => {
+          const r = el.getBoundingClientRect()
+          const prev = document.body.style.pointerEvents
+          document.body.style.pointerEvents = 'auto'
+          try {
+            return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))
+          } finally {
+            document.body.style.pointerEvents = prev
+          }
+        }),
+      )
+      .toBe(true)
     expect(downloads.count()).toBe(1)
   })
 })
