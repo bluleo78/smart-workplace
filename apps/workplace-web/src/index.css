@@ -750,3 +750,19 @@
     top: calc(3.5rem + 0.5rem) !important;
   }
 }
+
+/* 통합 뷰어 무대 터치 동작(WP-278, 판정 R2). 스크롤 컨테이너마다 touch-action 이 따로 계산되므로 무대 자손 전체에 같은 값을 건다.
+   none = 맞춤 이미지(스크롤할 것이 없어 스와이프·닫기·핀치를 전부 JS 가 받는다).
+   pan  = 그 외(가로·세로 네이티브 스크롤은 유지하고 브라우저 핀치 확대·두 번 탭 확대만 끈다 — 확대는 뷰어 배율로).
+   overscroll-behavior 는 문서 맨 위에서 당길 때 Android 당겨서 새로고침·스크롤 체이닝이 페이지로 새지 않게. */
+[data-viewer-stage="none"],
+[data-viewer-stage="none"] * {
+  touch-action: none;
+}
+[data-viewer-stage="pan"],
+[data-viewer-stage="pan"] * {
+  touch-action: pan-x pan-y;
+}
+[data-viewer-stage] * {
+  overscroll-behavior: contain;
+}

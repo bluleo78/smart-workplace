@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, Cloud, Download, Minus, Plus, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { useIsCoarsePointer } from '../../hooks/useIsCoarsePointer'
 import { getIsMobile, useIsMobile } from '../../hooks/useIsMobile'
 import { useThemeColor } from '../../hooks/useThemeColor'
 import { formatFileSize } from '../../lib/formatters'
@@ -16,6 +17,7 @@ import { downloadViewerItem } from './downloadViewerItem'
 import type { ViewerItem } from './types'
 import { useImportToDrive } from './useImportToDrive'
 import { useSummaryAvailability } from './useSummaryAvailability'
+import { useViewerGestures } from './useViewerGestures'
 import { actionSlots, type SlotId } from './viewerActions'
 import { ViewerBacklinks } from './ViewerBacklinks'
 import { ViewerBody } from './ViewerBody'
@@ -71,6 +73,10 @@ export function AttachmentViewer({
   const aiAware = useAiPanelAwareDialog({ open: true, size: 'lightbox' })
   // 배치는 폭(모바일 셸 기준과 동일), 제스처는 coarse 포인터로 따로 판정한다(스펙 §3.2 — Task 5).
   const mobile = useIsMobile()
+  // 제스처는 폭이 아니라 coarse 포인터 기준 — iPad 가로(≥1024px)는 데스크톱 배치 + 터치 제스처(스펙 §3.2·시안 iPad).
+  const coarse = useIsCoarsePointer()
+  // 무대(본문 감싸기) — 제스처 리스너·끌기 transform 대상. 콜백 ref 로 state 에 담아 훅이 붙을 시점을 안다.
+  const [stage, setStage] = useState<HTMLDivElement | null>(null)
   // 모바일 몰입형 화면 — 열린 동안 상태바를 검정으로(스펙 §4.2, 판정 R15). 값은 CSS 가 아닌 브라우저 크롬 색이라 리터럴.
   useThemeColor('#000000', mobile)
   // 바 숨김(탭 토글·가로 모드) — Task 6 에서 상태로 바뀐다. 지금은 항상 보임.
@@ -175,16 +181,30 @@ export function AttachmentViewer({
       focusEdge.current = null
     } else if (pendingKey.current == null) focusEdge.current = null
   }, [idx, nav.hasPrev, nav.hasNext])
-  /** 이전/다음으로 이동 — 끝에서는 아무것도 하지 않는다(순환 없음). */
-  const go = (dir: -1 | 1) => {
+  /**
+   * 이전/다음으로 이동 — 끝에서는 아무것도 하지 않는다(순환 없음).
+   * moveFocus=false(제스처 넘김)면 끝에 닿아도 반대쪽 ‹ › 로 포커스를 옮기지 않는다 —
+   * 숨김 대상인 ‹ › 안에 포커스가 생기면 다음 탭이 바를 숨기지 못한다(판정 R7). 키보드·버튼 넘김은 기존 규칙(WCAG 2.4.3).
+   */
+  const go = (dir: -1 | 1, opts?: { moveFocus?: boolean }) => {
     // 기준 위치 = 대기 중인 목표가 현재 목록에 있으면 그 위치, 없으면 현재 위치.
     const pend = pendingKey.current != null ? items.findIndex((i) => i.key === pendingKey.current) : -1
     const next = (pend >= 0 ? pend : idx) + dir
     if (next < 0 || next >= items.length) return
     pendingKey.current = items[next].key
-    focusEdge.current = dir
+    focusEdge.current = opts?.moveFocus === false ? null : dir
     onIndexChange(next)
   }
+  // 연타 보호(pendingKey)를 그대로 타도록 넘김은 go 로 보낸다.
+  useViewerGestures(stage, {
+    enabled: coarse,
+    hasPrev: nav.hasPrev,
+    hasNext: nav.hasNext,
+    zoom,
+    onNav: (dir) => go(dir, { moveFocus: false }),
+  })
+  // 맞춤 이미지는 스크롤할 것이 없어 터치를 전부 받고(none), 그 외는 네이티브 스크롤을 남긴다(pan) — 판정 R2.
+  const stageTouch = !coarse ? undefined : kind === 'IMAGE' && zoom === 1 ? 'none' : 'pan'
 
   // 키보드 — 판정은 routeKey(순수), 여기서는 DOM 맥락만 계산한다.
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -327,7 +347,16 @@ export function AttachmentViewer({
         <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {/* 항목별로 상태가 초기화되도록 key. */}
-            <ViewerBody key={item.key} item={item} zoom={zoom} onPage={onPage} chromeInset={mobile} />
+            {/* 무대 — 터치 제스처·끌기 이동·핀치 미리보기의 대상. 바·‹ ›·시트는 무대 밖이라 그 위의 터치는 제스처가 아니다. */}
+            <div
+              ref={setStage}
+              data-testid="viewer-stage"
+              data-viewer-stage={stageTouch}
+              data-zoom={zoom}
+              className="flex min-h-0 min-w-0 flex-1 flex-col"
+            >
+              <ViewerBody key={item.key} item={item} zoom={zoom} onPage={onPage} chromeInset={mobile} />
+            </div>
             {nav.hasPrev && (
               <button ref={prevBtn} type="button" aria-label="이전 파일" onClick={() => go(-1)} className={cn(edgeBtnClass, 'left-3')}>
                 <ChevronLeft />

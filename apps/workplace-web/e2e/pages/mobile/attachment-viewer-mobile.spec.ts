@@ -10,6 +10,7 @@ import { createSpace, personalSpace } from '../../factories/drive.factory'
 import { json } from '../../fixtures/mobile-chat'
 import { expect, test } from '../../fixtures/mobile.fixture'
 import { solidPng } from '../../fixtures/png'
+import { centerOf, touchDrag, touchSwipeThenSecondFinger } from '../../fixtures/touch'
 
 const SPACE_ID = 1
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -196,5 +197,111 @@ test.describe('참조된 곳 띠', () => {
         return lastBox.y + lastBox.height <= barBox.y
       })
       .toBe(true)
+  })
+})
+
+const LONG_MD = `# 긴 문서\n\n${Array.from({ length: 120 }, (_, k) => `${k + 1}번째 줄 내용입니다.`).join('\n\n')}`
+/** 열이 많은 CSV — 390px 에서 가로로 넘친다. */
+const WIDE_CSV = [
+  Array.from({ length: 14 }, (_, k) => `열${k + 1}`).join(','),
+  ...Array.from({ length: 6 }, (_, r) => Array.from({ length: 14 }, (_, k) => `값${r}-${k}`).join(',')),
+].join('\n')
+
+test.describe('스와이프 넘김', () => {
+  test('왼쪽으로 폭 25% 넘게 밀면 다음, 오른쪽이면 이전', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71), IMG(72)])
+    await openViewer(page, '사진70.png')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchDrag(page, c, { x: c.x - 180, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 3')
+    await touchDrag(page, c, { x: c.x + 180, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 3')
+  })
+
+  test('짧고 느린 끌기는 제자리 — 무대도 원위치', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchDrag(page, c, { x: c.x - 60, y: c.y }, { steps: 6, stepDelayMs: 40 })
+    await expect.poll(() => page.getByTestId('viewer-stage').evaluate((el) => getComputedStyle(el).transform)).toBe('none')
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+  })
+
+  test('처음에서 오른쪽으로 밀어도 넘어가지 않는다(러버밴드, 순환 없음)', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchDrag(page, c, { x: c.x + 250, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+    await expect.poll(() => page.getByTestId('viewer-stage').evaluate((el) => getComputedStyle(el).transform)).toBe('none')
+  })
+
+  test('화면 가장자리 20px 안에서 시작한 스와이프는 무시(iOS 뒤로가기 보호)', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    const vw = page.viewportSize()!.width
+    const y = (await centerOf(page.getByTestId('viewer-stage'))).y
+    await touchDrag(page, { x: vw - 8, y }, { x: vw - 250, y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+  })
+
+  test('넓은 표는 내용이 먼저 — 가장자리에 닿은 뒤 다시 밀어야 다음 파일', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [{ id: 75, name: 'wide.csv', mimeType: 'text/csv', body: WIDE_CSV }, IMG(76)])
+    await openViewer(page, 'wide.csv')
+    const table = page.getByTestId('csv-table')
+    await expect(table).toBeVisible()
+    const c = await centerOf(table)
+    await touchDrag(page, { x: c.x + 100, y: c.y }, { x: c.x - 100, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+    // 오른쪽 끝까지 스크롤된 상태에서 다시 밀면 넘어간다.
+    await table.evaluate((el) => (el.scrollLeft = el.scrollWidth))
+    await touchDrag(page, { x: c.x + 100, y: c.y }, { x: c.x - 100, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
+  })
+
+  test('세로 끌기는 문서 스크롤(네이티브) — 넘기지 않는다, 가로 스와이프는 스크롤을 건드리지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(77, 'long.md', LONG_MD), IMG(78)])
+    await openViewer(page, 'long.md')
+    const body = page.getByTestId('preview-body')
+    await expect(body).toContainText('1번째 줄')
+    const c = await centerOf(body)
+    await touchDrag(page, { x: c.x, y: c.y + 150 }, { x: c.x, y: c.y - 150 })
+    await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+    // 스크롤된 문서 위에서도 가로 스와이프는 넘김(가로 스크롤 영역이 없으므로).
+    await touchDrag(page, c, { x: c.x - 180, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('2 / 2')
+  })
+
+  test('본문 안 버튼(다시 시도) 위에서 시작한 스와이프는 넘기지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await page.route((u) => u.pathname === '/api/v1/drive/files/70/content', (r) => r.fulfill({ status: 500, body: '' }))
+    await openViewer(page, '사진70.png')
+    const retry = page.getByRole('button', { name: '다시 시도' })
+    await expect(retry).toBeVisible()
+    const c = await centerOf(retry)
+    await touchDrag(page, c, { x: c.x - 200, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+  })
+
+  test('스와이프 도중 두 번째 손가락이 닿으면 넘기지 않는다', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(72), IMG(73)])
+    await openViewer(page, '메모72.md')
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchSwipeThenSecondFinger(page, c, -180)
+    await expect(page.getByTestId('preview-meta')).toHaveText('1 / 2')
+    await expect.poll(() => page.getByTestId('viewer-stage').evaluate((el) => getComputedStyle(el).transform)).toBe('none')
+  })
+
+  test('iPad 가로(1180px, 터치) — 데스크톱 배치에서도 스와이프가 동작한다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1180, height: 820 })
+    await stubDriveFiles(page, [IMG(70), IMG(71)])
+    await openViewer(page, '사진70.png')
+    // 데스크톱 배치 — 하단 바 없음, 헤더 다운로드 있음.
+    await expect(page.getByTestId('viewer-action-bar')).toHaveCount(0)
+    await expect(page.getByTestId('preview-download')).toBeVisible()
+    const c = await centerOf(page.getByTestId('viewer-stage'))
+    await touchDrag(page, c, { x: c.x - 400, y: c.y })
+    await expect(page.getByTestId('preview-meta')).toContainText('2 / 2')
   })
 })
