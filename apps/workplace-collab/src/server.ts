@@ -9,8 +9,11 @@ import {
   CLOSE_TOKEN_EXPIRED,
   COLLAB_AI_MARKER_MS,
   COLLAB_ROLE_CHANGED_TYPE,
+  COLLAB_SCHEMA_MISMATCH,
+  COLLAB_SCHEMA_PARAM,
   type CollabAiMarker,
   isCollabEditRole,
+  WIKI_SCHEMA_VERSION,
 } from '@smart-workplace/wiki-editor-schema'
 
 import { AiMarkerBoard } from './aiMarkers'
@@ -121,6 +124,19 @@ export const APPLY_DEADLINE_MS = 20_000
 export const APPLY_STORE_MIN_MS = 3_000
 // setTimeout 최대 지연(약 24.8일) — 넘기면 즉시 실행되므로 나눠서 건다.
 const MAX_TIMER_MS = 2 ** 31 - 1
+/**
+ * 스키마 판 불일치 로그 간격(ms) — 인증 전 거부라 누구나(미인증 클라이언트) 유발할 수 있어, 한 간격에 한 줄만 남기고
+ * 나머지는 다음 줄에 건수로 합친다(로그 범람 방지). 배포 직후 옛 탭이 몰려도 간격당 한 줄.
+ */
+export const SCHEMA_MISMATCH_LOG_MS = 10_000
+/** 로그에 싣는 클라이언트 값 상한(글자) — 위조된 긴 값·개행으로 로그 줄을 꾸미지 못하게 JSON 으로 감싸고 자른다. */
+const LOG_VALUE_MAX = 32
+
+/** 클라이언트가 보낸 값을 로그용으로 — JSON 문자열(개행·따옴표 이스케이프)로 바꾸고 LOG_VALUE_MAX 에서 자른다. */
+function clipForLog(value: unknown): string {
+  const json = JSON.stringify(value) ?? 'undefined'
+  return json.length > LOG_VALUE_MAX ? `${json.slice(0, LOG_VALUE_MAX)}…` : json
+}
 
 /** API 기반 문서 저장소. */
 export function apiDocStore(api: ApiClient): DocStore {
@@ -187,6 +203,11 @@ export interface CollabDeps {
   merger?: MergeRunner
   /** AI 적용 위치 ✦ 표식판 — 테스트가 넣어 남은 타이머·문서를 들여다본다. 기본은 cfg.aiMarkerMs 의 표식판. */
   markers?: AiMarkerBoard
+  /**
+   * 문서별로 받아들일 스키마 판(WP-313) — 기본은 이 서버가 빌드된 WIKI_SCHEMA_VERSION. cfg.testMode 일 때만 쓴다.
+   * 테스트 모드가 문서별로 바꿔 '동기화 서버만 새 스키마로 배포됨'을 E2E 에서 실제 거부 경로로 재현한다.
+   */
+  schemaVersion?: (docName: string) => number
 }
 
 /** createCollabServer 가 돌려주는 얇은 래퍼 — hocuspocus(테스트 경로가 열린 문서를 읽음)와 내부 HTTP 동작. */
@@ -671,6 +692,24 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
   const internal = makeInternalHandler({ internalToken: cfg.internalToken, testMode: cfg.testMode, applyMarkdown, revalidate })
   // 테스트 경로는 플래그가 켜졌을 때만 — 주입돼도 운영 설정이면 연결하지 않는다(R2).
   const testRoutes = cfg.testMode ? deps.testRoutes : undefined
+  // 문서별 스키마 판 바꾸기도 테스트 모드에서만 — 운영은 항상 빌드된 판.
+  const schemaVersionOf = (cfg.testMode && deps.schemaVersion) || (() => WIKI_SCHEMA_VERSION)
+  // 스키마 판 불일치 로그 간격 제한 상태 — 마지막으로 남긴 시각과 그 뒤 건너뛴 건수.
+  const mismatchLog = { at: -Infinity, skipped: 0 }
+  /** 판 불일치 거부를 로그로 남긴다 — 간격(SCHEMA_MISMATCH_LOG_MS)당 한 줄, 클라이언트 값은 잘라서 JSON 으로. */
+  const logSchemaMismatch = (documentName: string, sent: string | null, expected: number): void => {
+    const now = Date.now()
+    if (now - mismatchLog.at < SCHEMA_MISMATCH_LOG_MS) {
+      mismatchLog.skipped += 1
+      return
+    }
+    const skipped = mismatchLog.skipped ? ` (+${mismatchLog.skipped} more since last log)` : ''
+    mismatchLog.at = now
+    mismatchLog.skipped = 0
+    console.warn(
+      `[collab] schema mismatch ${clipForLog(documentName)}: client ${clipForLog(sent)}, server ${expected} — rejected${skipped}`,
+    )
+  }
 
   const server = new Server<CollabContext>({
     port: cfg.port,
@@ -711,7 +750,15 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
       return Promise.reject()
     },
 
-    async onAuthenticate({ token, documentName, connectionConfig }): Promise<ConnectionContext> {
+    async onAuthenticate({ token, documentName, connectionConfig, requestParameters }): Promise<ConnectionContext> {
+      // 스키마 판 확인이 맨 먼저(WP-313) — 판이 다른 클라이언트는 모르는 서식의 글자를 지우고 그 삭제를 퍼뜨리므로,
+      // 인증 API 호출·문서 로드·동기화 전에 거부한다. 없는 판(배포 전 웹)·옛 판·새 판 모두 거부.
+      const expected = schemaVersionOf(documentName)
+      const sent = requestParameters.get(COLLAB_SCHEMA_PARAM)
+      if (sent !== String(expected)) {
+        logSchemaMismatch(documentName, sent, expected)
+        throw deny(COLLAB_SCHEMA_MISMATCH)
+      }
       const pageId = pageIdOf(documentName, cfg.testMode)
       if (pageId == null) throw deny('invalid-document')
       let who: Who | null

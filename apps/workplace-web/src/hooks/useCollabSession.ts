@@ -58,20 +58,18 @@ export function useCollabSession(
   const readOnly = effectiveReadOnly({
     propReadOnly: opts.readOnly,
     serverReadOnly: state.serverReadOnly,
-    forbidden: state.forbidden,
-    authLost: state.authLost,
+    terminal: state.terminal,
   })
   const status = deriveSyncStatus({
     connected: state.connected,
     disconnectedForMs: since !== null && offlineSince === since ? OFFLINE_AFTER_MS : 0,
     unsynced: state.unsynced,
     readOnly,
-    forbidden: state.forbidden,
-    authLost: state.authLost,
+    terminal: state.terminal,
     everSynced: state.everSynced,
   })
   // 본문 자리 — 첫 동기화 전 빈 문서(입력 유도 placeholder)를 보이지 않고, 첫 연결이 안 되면 안내로 바꾼다.
-  // 'ready' 면 본문을 보여도 된다. 종단(삭제·권한 없음·로그인 상실)은 본문 위 자기 안내를 쓴다.
-  const body = deriveBodyState({ everSynced: state.everSynced, forbidden: state.forbidden || state.authLost, status })
+  // 'ready' 면 본문을 보여도 된다. 종단(삭제·권한 없음·로그인 상실·스키마 판 불일치)은 본문 위 자기 안내를 쓴다.
+  const body = deriveBodyState({ everSynced: state.everSynced, status })
   return { session, status, readOnly, body }
 }

@@ -1,4 +1,9 @@
 // @vitest-environment jsdom
+import {
+  COLLAB_SCHEMA_MISMATCH,
+  COLLAB_SCHEMA_PARAM,
+  WIKI_SCHEMA_VERSION,
+} from '@smart-workplace/wiki-editor-schema/collab-protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // 실제 웹소켓 없이 캐시·상태 규칙만 검증한다 — provider 는 이벤트만 흉내 내는 가짜로 바꾸고 destroy 여부를 기록한다.
@@ -275,13 +280,13 @@ describe('collab session cache', () => {
     setUnsynced(a, 1)
     fake(a).emit('disconnect', { event: { code: 4403, reason: 'forbidden' } })
     expect(fake(a).disconnectCalls).toBe(1)
-    expect(a.getState().forbidden).toBe(true)
+    expect(a.getState().terminal).toBe('forbidden')
     // 다시 보낼 길이 없는 입력으로 탭 닫기를 막지 않는다
     expect(hasUnsentCollabChanges()).toBe(false)
 
     const b = acquireCollabSession(11)
     expect(b).not.toBe(a)
-    expect(b.getState().forbidden).toBe(false)
+    expect(b.getState().terminal).not.toBe('forbidden')
 
     // 옛 세션의 보유자가 놓으면 유예 없이 바로 정리되고, 새 세션은 그대로 남는다
     releaseCollabSession(a)
@@ -289,6 +294,30 @@ describe('collab session cache', () => {
     vi.advanceTimersByTime(10_000)
     expect(destroyed).toEqual(['wiki-page:11'])
     expect(acquireCollabSession(11)).toBe(b)
+  })
+
+  // WP-313 — 동기화 서버가 다른 스키마 판이면 몇 번을 다시 붙어도 거절된다. 재연결을 멈추고 새로고침 안내 상태로 둔다.
+  it('stops reconnecting on a schema mismatch, even mid-session, and never reuses the stale session', async () => {
+    const a = acquireCollabSession(12)
+    goLive(a)
+    setUnsynced(a, 1)
+    // 세션 도중 서버가 새 판으로 재시작 — 끊긴 뒤 재접속이 schema-mismatch 로 거절된다.
+    fake(a).emit('disconnect', { event: { code: 1006, reason: '' } })
+    fake(a).emit('authenticationFailed', { reason: COLLAB_SCHEMA_MISMATCH })
+    expect(a.getState().terminal).toBe('schemaStale')
+    expect(fake(a).disconnectCalls).toBe(1)
+    // 토큰 갱신·재시도 없이 멈춘다.
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fake(a).connectCalls).toBe(0)
+    expect(auth.refreshed).toBe(0)
+    // 저장될 길이 없는 입력으로 탭 닫기·새로고침을 막지 않는다(새로고침 안내가 그 사실을 알린다).
+    expect(hasUnsentCollabChanges()).toBe(false)
+    expect(acquireCollabSession(12)).not.toBe(a)
+  })
+
+  it('sends its schema version on connect', () => {
+    const a = acquireCollabSession(13)
+    expect((fake(a).configuration as unknown as { url: string }).url).toMatch(new RegExp(`/collab\\?${COLLAB_SCHEMA_PARAM}=${WIKI_SCHEMA_VERSION}$`))
   })
 
   // 4403 으로 바뀐 뒤 옛 세션을 쥔 화면이 놓아도, 같은 페이지의 새 세션(다른 화면이 쥔)을 대신 놓지 않는다 — 세션 식별로 놓는다.
@@ -323,13 +352,13 @@ describe('collab session cache', () => {
     const a = acquireCollabSession(12)
     await fake(a).configuration.token() // 메모리의 기존 토큰
     fake(a).emit('authenticationFailed', { reason: 'forbidden' })
-    expect(a.getState().forbidden).toBe(false)
+    expect(a.getState().terminal).not.toBe('forbidden')
     vi.advanceTimersByTime(0)
     expect(fake(a).connectCalls).toBe(1) // 곧바로 다시 붙는다
 
     await expect(fake(a).configuration.token()).resolves.toBe('fresh-1')
     fake(a).emit('authenticationFailed', { reason: 'forbidden' })
-    expect(a.getState().forbidden).toBe(true)
+    expect(a.getState().terminal).toBe('forbidden')
     vi.advanceTimersByTime(10_000)
     expect(fake(a).connectCalls).toBe(1)
   })
@@ -356,7 +385,7 @@ describe('collab session cache', () => {
     releaseCollabSession(a)
     await fake(a).configuration.token()
     fake(a).emit('authenticationFailed', { reason: 'forbidden' })
-    expect(a.getState().forbidden).toBe(false)
+    expect(a.getState().terminal).not.toBe('forbidden')
     expect(destroyed).toEqual([])
     expect(hasUnsentCollabChanges()).toBe(true)
     await expect(fake(a).configuration.token()).resolves.toBe('fresh-1')
@@ -369,7 +398,7 @@ describe('collab session cache', () => {
     fake(a).emit('disconnect', { event: { code: 4401, reason: 'token expired' } })
     await expect(fake(a).configuration.token()).resolves.toBe('')
     fake(a).emit('authenticationFailed', { reason: 'forbidden' })
-    expect(a.getState().forbidden).toBe(false)
+    expect(a.getState().terminal).not.toBe('forbidden')
     vi.advanceTimersByTime(2999)
     expect(fake(a).connectCalls).toBe(0)
     vi.advanceTimersByTime(1)
@@ -384,8 +413,8 @@ describe('collab session cache', () => {
     fake(a).emit('disconnect', { event: { code: 4401, reason: 'token expired' } })
     await expect(fake(a).configuration.token()).resolves.toBe('')
     fake(a).emit('authenticationFailed', { reason: 'forbidden' })
-    expect(a.getState().authLost).toBe(true)
-    expect(a.getState().forbidden).toBe(false)
+    expect(a.getState().terminal).toBe('authLost')
+    expect(a.getState().terminal).not.toBe('forbidden')
     vi.advanceTimersByTime(10 * 60_000)
     expect(fake(a).connectCalls).toBe(0)
     expect(auth.refreshed).toBe(1)
@@ -403,7 +432,7 @@ describe('collab session cache', () => {
     setUnsynced(a, 1)
     await fake(a).configuration.token()
     fake(a).emit('authenticationFailed', { reason: 'token-expired' })
-    expect(a.getState().authLost).toBe(true)
+    expect(a.getState().terminal).toBe('authLost')
     expect(hasUnsentCollabChanges()).toBe(true)
   })
 
@@ -453,7 +482,7 @@ describe('collab session cache', () => {
     expect(auth.refreshed).toBe(0)
 
     fake(a).emit('disconnect', { event: { code: 4401, reason: 'token expired' } })
-    expect(a.getState().forbidden).toBe(false)
+    expect(a.getState().terminal).not.toBe('forbidden')
     expect(fake(a).disconnectCalls).toBe(0) // 재연결은 provider 에 맡긴다
     await expect(fake(a).configuration.token()).resolves.toBe('fresh-1')
     // 한 번 갱신했으면 다음 재접속은 그 토큰을 그대로 쓴다
@@ -471,7 +500,7 @@ describe('collab session cache', () => {
   it('reconnects with a fresh token after a token-expired auth failure', async () => {
     const a = acquireCollabSession(16)
     fake(a).emit('authenticationFailed', { reason: 'token-expired' })
-    expect(a.getState().forbidden).toBe(false)
+    expect(a.getState().terminal).not.toBe('forbidden')
     expect(fake(a).disconnectCalls).toBe(1)
     expect(fake(a).connectCalls).toBe(0)
     vi.advanceTimersByTime(3000)
@@ -507,7 +536,7 @@ describe('collab session cache', () => {
   it('treats a document-level close with reason forbidden as terminal', () => {
     const a = acquireCollabSession(21)
     fake(a).emit('close', { event: { code: 1000, reason: 'forbidden' } })
-    expect(a.getState().forbidden).toBe(true)
+    expect(a.getState().terminal).toBe('forbidden')
   })
 
   // 소켓이 닫힐 때의 close 는 provider 자동 재연결에 맡긴다(이중 재접속 금지).

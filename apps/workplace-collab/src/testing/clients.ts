@@ -1,4 +1,5 @@
 import { HocuspocusProvider } from '@hocuspocus/provider'
+import { COLLAB_SCHEMA_PARAM, WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema'
 import * as Y from 'yjs'
 
 import { FRAGMENT } from '../markdownCodec'
@@ -15,9 +16,16 @@ export interface TestClient {
 /**
  * 실제 provider(Node 전역 WebSocket)로 동기화 서버의 /collab 에 붙는다 — server·internalRoutes·testMode 테스트 공용.
  * doc 을 넘기면 그 Y.Doc(캐시된 문서 흉내)으로 붙는다.
+ * 웹과 같이 스키마 판을 URL 쿼리로 보낸다(WP-313). schemaVersion 을 넘기면 그 값(null 이면 쿼리 없음 — 배포 전 웹 흉내,
+ * 문자열이면 위조 값 그대로 — 로그 방어 검증용).
  */
-export function connectClient(port: number, name: string, token: string, opts: { doc?: Y.Doc } = {}): TestClient {
-  const doc = opts.doc ?? new Y.Doc()
+export function connectClient(
+  port: number,
+  name: string,
+  token: string,
+  { doc = new Y.Doc(), schemaVersion = WIKI_SCHEMA_VERSION }: { doc?: Y.Doc; schemaVersion?: number | string | null } = {},
+): TestClient {
+  const query = schemaVersion === null ? '' : `?${COLLAB_SCHEMA_PARAM}=${encodeURIComponent(schemaVersion)}`
   const c: TestClient = {
     doc,
     provider: undefined as unknown as HocuspocusProvider,
@@ -26,7 +34,7 @@ export function connectClient(port: number, name: string, token: string, opts: {
     statelessMessages: [],
   }
   c.provider = new HocuspocusProvider({
-    url: `ws://127.0.0.1:${port}/collab`,
+    url: `ws://127.0.0.1:${port}/collab${query}`,
     name,
     token,
     document: doc,

@@ -3,13 +3,16 @@ import {
   CLOSE_FORBIDDEN,
   CLOSE_TOKEN_EXPIRED,
   COLLAB_NS_STORAGE_KEY,
+  COLLAB_SCHEMA_MISMATCH,
+  COLLAB_SCHEMA_PARAM,
   collabDocName,
+  WIKI_SCHEMA_VERSION,
 } from '@smart-workplace/wiki-editor-schema/collab-protocol'
 import * as Y from 'yjs'
 
 import { getAccessToken, refreshAccessTokenOutcome } from '../../api/client'
 import { backoffDelay } from '../backoff'
-import { isEditRole, parseRoleMessage } from './collabStatus'
+import { type CollabTerminal, isEditRole, parseRoleMessage } from './collabStatus'
 
 /**
  * 노트별 동기화 세션(Y.Doc + provider) 캐시.
@@ -35,10 +38,8 @@ export interface CollabSessionState {
   unsynced: boolean
   /** 서버가 알려 준 읽기 전용 여부(인증 scope·역할 변경 알림). 아직 모르면 null. */
   serverReadOnly: boolean | null
-  /** 페이지가 삭제됐거나 접근 권한이 사라짐(4403 등) — 재연결하지 않는 종단 상태. */
-  forbidden: boolean
-  /** 로그인이 풀림(refresh 쿠키 거절 — 로그아웃·만료) — 다시 로그인하기 전엔 붙을 수 없어 재연결하지 않는 종단 상태. */
-  authLost: boolean
+  /** 재연결하지 않는 종단 상태(삭제·권한 없음 / 로그인 상실 / 스키마 판 불일치). 아니면 null. 종류는 CollabTerminal 참조. */
+  terminal: CollabTerminal | null
 }
 
 export interface CollabSession {
@@ -111,9 +112,13 @@ function docNameFor(pageId: number): string {
   return collabDocName(ns, pageId)
 }
 
-/** 동기화 서버 주소 — 같은 출처의 /collab(개발은 vite 프록시, 운영은 nginx 가 넘긴다). */
+/**
+ * 동기화 서버 주소 — 같은 출처의 /collab(개발은 vite 프록시, 운영은 nginx 가 넘긴다).
+ * 이 탭이 빌드된 스키마 판을 쿼리로 싣는다(WP-313) — 서버는 판이 다르면 문서를 주기 전에 거부한다.
+ * Hocuspocus 4 provider 엔 접속 파라미터 옵션이 없어 URL 쿼리로 보낸다(토큰에 섞으면 API 인증 토큰 규약이 흐려진다).
+ */
 function collabUrl(): string {
-  return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/collab`
+  return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/collab?${COLLAB_SCHEMA_PARAM}=${WIKI_SCHEMA_VERSION}`
 }
 
 /**
@@ -122,13 +127,14 @@ function collabUrl(): string {
  * 미전송 입력이 있음을 알려야 한다. 보유자가 없는 종단 세션의 정리는 onStateChanged 가 isTerminal 로 먼저 판단한다.
  */
 function isPending(entry: Entry): boolean {
-  const { unsynced, serverReadOnly, forbidden } = entry.state
-  return unsynced && serverReadOnly !== true && !forbidden
+  const { unsynced, serverReadOnly, terminal } = entry.state
+  // 스키마 판이 달라진 세션(schemaStale)도 입력이 영원히 확인되지 않는다 — 새로고침 안내가 그 사실을 함께 알린다.
+  return unsynced && serverReadOnly !== true && (terminal === null || terminal === 'authLost')
 }
 
-/** 재연결하지 않는 종단 상태(삭제·권한 없음 또는 로그인 상실). */
+/** 재연결하지 않는 종단 상태(삭제·권한 없음, 로그인 상실, 스키마 판 불일치). */
 function isTerminal(entry: Entry): boolean {
-  return entry.state.forbidden || entry.state.authLost
+  return entry.state.terminal !== null
 }
 
 /**
@@ -165,14 +171,15 @@ function syncUnsynced(entry: Entry): void {
  * - forbidden: 삭제·권한 없음.
  * - authLost: 로그인 상실(refresh 쿠키 거절) — 다시 로그인하기 전엔 어떤 토큰으로도 붙을 수 없다. 계속 재시도하면 /auth/refresh 와
  *   collab-access 를 끝없이 두드린다. 앱의 다른 곳(axios 인터셉터·SSE)도 refresh 실패 뒤엔 재시도하지 않는다.
+ * - schemaStale: 동기화 서버의 스키마 판이 다름(WP-313) — 새로고침해 새 에디터를 받기 전엔 몇 번을 다시 붙어도 거절된다.
  */
-function stopTerminal(entry: Entry, flag: 'forbidden' | 'authLost'): void {
-  if (entry.state[flag]) return
+function stopTerminal(entry: Entry, terminal: CollabTerminal): void {
+  if (entry.state.terminal) return
   if (entry.retryTimer) clearTimeout(entry.retryTimer)
   entry.retryTimer = null
   entry.session.provider.disconnect()
   if (current.get(entry.pageId) === entry) current.delete(entry.pageId)
-  patch(entry, { [flag]: true })
+  patch(entry, { terminal })
 }
 
 /** 일시적 인증 거절 — 소켓을 끊었다가 잠시 뒤 다시 붙는다(provider 는 인증 실패 뒤 스스로 재시도하지 않는다). */
@@ -203,6 +210,7 @@ function scheduleAuthRetry(entry: Entry, delayMs = AUTH_RETRY_MS): void {
 
 /**
  * 인증 거절 처리.
+ * - schema-mismatch: 동기화 서버의 스키마 판이 이 탭과 다름(배포) → 종단(새로고침 안내).
  * - invalid-document: 문서 이름 자체가 틀림 → 종단.
  * - forbidden: 갓 갱신한 토큰으로도 거절됐을 때만 종단. API 는 만료 토큰도 401 → 'forbidden' 으로 돌려주므로,
  *   토큰 수명보다 긴 오프라인 뒤 재접속(4401 을 못 받은 경우)을 '삭제·권한 없음'으로 오판하면 미전송 입력까지 버리게 된다.
@@ -212,6 +220,11 @@ function scheduleAuthRetry(entry: Entry, delayMs = AUTH_RETRY_MS): void {
  * - token-expired·그 밖(불러오기 실패·갱신 일시 실패 등): 일시적 → 갱신 표시 후 간격을 두고 재시도. 간격은 연속 실패마다 두 배(상한 있음).
  */
 function onAuthFailed(entry: Entry, reason: string): void {
+  // 스키마 판 불일치는 토큰과 무관한 맨 앞 판정(서버가 인증 전에 거부) — 토큰 출처보다 먼저 본다.
+  if (reason === COLLAB_SCHEMA_MISMATCH) {
+    stopTerminal(entry, 'schemaStale')
+    return
+  }
   if (entry.lastToken === 'refresh-rejected') {
     stopTerminal(entry, 'authLost')
     return
@@ -314,8 +327,7 @@ function createEntry(pageId: number): Entry {
       disconnectedSince: Date.now(),
       unsynced: false,
       serverReadOnly: null,
-      forbidden: false,
-      authLost: false,
+      terminal: null,
     },
     listeners: new Set(),
     needsRefresh: false,

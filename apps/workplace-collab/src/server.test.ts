@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
 import type { CollabConfig } from './config'
+import { COLLAB_SCHEMA_MISMATCH, WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema'
+
 import { FRAGMENT, yDocToMarkdown } from './markdownCodec'
-import { apiAuthenticator, createCollabServer, type CollabServer } from './server'
+import { apiAuthenticator, createCollabServer, SCHEMA_MISMATCH_LOG_MS, type CollabServer } from './server'
 import { ApiClient } from './apiClient'
 import { connectClient, typeAt, type TestClient as Client } from './testing/clients'
 import { startFakeApi, type FakeApi } from './testing/fakeApi'
@@ -49,8 +51,14 @@ describe('collab server', () => {
     ...over,
   })
 
-  const connect = (token: string, opts: { name?: string; doc?: Y.Doc; target?: CollabServer } = {}): Client => {
-    const c = connectClient((opts.target ?? app).address.port, opts.name ?? DOC, token, { doc: opts.doc })
+  const connect = (
+    token: string,
+    opts: { name?: string; doc?: Y.Doc; target?: CollabServer; schemaVersion?: number | string | null } = {},
+  ): Client => {
+    const c = connectClient((opts.target ?? app).address.port, opts.name ?? DOC, token, {
+      doc: opts.doc,
+      schemaVersion: opts.schemaVersion,
+    })
     clients.push(c)
     return c
   }
@@ -211,6 +219,73 @@ describe('collab server', () => {
     await synced(a)
     expect(yDocToMarkdown(a.doc)).toBe(BODY)
     expect(api.accessCalls).toEqual([{ pageId: 1, token: 'editor-token' }])
+  })
+
+  // WP-313 — 스키마 판이 다른 클라이언트는 모르는 서식의 글자를 지우고 그 삭제를 퍼뜨린다. 문서를 주기 전에 거부해야 한다.
+  describe('schema version handshake', () => {
+    // console.warn 감시를 다음 테스트로 새지 않게 되돌린다(다른 테스트가 경고 횟수를 센다).
+    afterEach(() => vi.restoreAllMocks())
+
+    it.each([
+      ['missing', null],
+      ['older', WIKI_SCHEMA_VERSION - 1],
+      ['newer', WIKI_SCHEMA_VERSION + 1],
+    ])('rejects a %s schema version before auth, load or sync', async (_label, version) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const a = connect('editor-token', { schemaVersion: version })
+      await expect.poll(() => a.authFailures).toEqual([COLLAB_SCHEMA_MISMATCH])
+      expect(a.provider.isSynced).toBe(false)
+      expect(yDocToMarkdown(a.doc)).toBe('')
+      // 인증 API 도 문서 로드도 일어나지 않고, 서버 메모리에 문서가 열리지 않는다.
+      expect(api.accessCalls).toEqual([])
+      expect(api.loads).toEqual([])
+      expect(serverDoc()).toBeUndefined()
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('schema mismatch'))
+    })
+
+    // 인증 전 거부라 미인증 클라이언트가 유발한다 — 위조 값으로 로그 줄을 꾸미거나 대량 접속으로 로그를 채우지 못하게.
+    it('logs forged values clipped as JSON and at most once per interval', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const forged = `1\n[collab] FAKE ${'x'.repeat(200)}`
+      // 위조 값이 먼저 로그에 남도록 거부를 기다린 뒤 나머지를 붙인다.
+      const first = connect('editor-token', { schemaVersion: forged })
+      await expect.poll(() => first.authFailures).toEqual([COLLAB_SCHEMA_MISMATCH])
+      const rest = [1, 2, 3].map(() => connect('editor-token', { schemaVersion: null }))
+      for (const c of rest) await expect.poll(() => c.authFailures).toEqual([COLLAB_SCHEMA_MISMATCH])
+      const lines = warn.mock.calls.map(([m]) => String(m)).filter((m) => m.includes('schema mismatch'))
+      expect(lines).toHaveLength(1)
+      // JSON 으로 감싸 개행이 이스케이프되고(가짜 로그 줄 불가), 긴 값은 잘린다.
+      expect(lines[0]).toContain('client "1\\n[collab] FAKE')
+      expect(lines[0]).not.toContain('\n')
+      expect(lines[0]).not.toContain('x'.repeat(40))
+      // 간격이 지나면 다시 한 줄 — 그사이 건너뛴 건수를 함께 남긴다.
+      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + SCHEMA_MISMATCH_LOG_MS + 1)
+      const late = connect('editor-token', { schemaVersion: null })
+      await expect.poll(() => late.authFailures).toEqual([COLLAB_SCHEMA_MISMATCH])
+      const after = warn.mock.calls.map(([m]) => String(m)).filter((m) => m.includes('schema mismatch'))
+      expect(after).toHaveLength(2)
+      expect(after[1]).toContain('(+3 more since last log)')
+    })
+
+    it('connects and syncs with the matching schema version', async () => {
+      const a = connect('editor-token', { schemaVersion: WIKI_SCHEMA_VERSION })
+      await synced(a)
+      expect(a.authFailures).toEqual([])
+      expect(yDocToMarkdown(a.doc)).toBe(BODY)
+    })
+
+    it('honours a per-document schema version only in test mode', async () => {
+      const testApp = createCollabServer(cfg(0, { testMode: true }), { schemaVersion: () => WIKI_SCHEMA_VERSION + 1 })
+      const prodApp = createCollabServer(cfg(), { schemaVersion: () => WIKI_SCHEMA_VERSION + 1 })
+      extraApps.push(testApp, prodApp)
+      await Promise.all([testApp.listen(), prodApp.listen()])
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const stale = connect('editor-token', { name: 'e2e-1/wiki-page:1', target: testApp })
+      await expect.poll(() => stale.authFailures).toEqual([COLLAB_SCHEMA_MISMATCH])
+      // 운영 모드는 주입된 판을 무시하고 빌드된 판으로 판정한다.
+      const ok = connect('editor-token', { target: prodApp })
+      await synced(ok)
+    })
   })
 
   it('drops updates from read-only connection', async () => {

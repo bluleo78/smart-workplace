@@ -12,6 +12,6 @@ export function buildCollabServer(cfg: CollabConfig): CollabServer {
   const tm = createTestMode()
   return createCollabServer(
     { ...cfg, internalToken: cfg.internalToken || TEST_MODE_INTERNAL_TOKEN },
-    { store: tm.store, auth: tm.auth, testRoutes: tm.routes },
+    { store: tm.store, auth: tm.auth, testRoutes: tm.routes, schemaVersion: tm.schemaVersion },
   )
 }

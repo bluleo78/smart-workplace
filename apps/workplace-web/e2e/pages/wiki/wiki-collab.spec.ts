@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test'
+import { WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema/collab-protocol'
 
 import { expect, test } from '../../fixtures/auth.fixture'
 import {
@@ -7,6 +8,7 @@ import {
   controlCollabSocket,
   readCollabMarkdown,
   seedCollabDoc,
+  setCollabSchemaVersion,
   typeAtEnd,
 } from '../../fixtures/collab'
 import { expectStays, resizeAndSettle } from '../../fixtures/wait'
@@ -211,6 +213,65 @@ test.describe('노트 동시 편집', () => {
     await expect(a.getByTestId('wiki-forbidden-notice')).toHaveText('삭제되었거나 접근 권한이 없습니다')
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'forbidden')
     await expect(a.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'false')
+  })
+
+  // WP-313 — 동기화 서버가 다른 스키마 판이면(배포) 옛 탭이 붙어 모르는 서식 글자를 지우지 않도록 문서를 주기 전에 거부된다.
+  test('동기화 서버의 스키마 판이 다르면 새 버전 칩·안내를 보이고 편집을 막으며, 새로고침하면 다시 붙는다', async ({
+    authenticatedPage: a,
+    collabNs,
+  }) => {
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 40, title: '노트', body: '서버 본문' })
+    await setCollabSchemaVersion(collabNs, 40, WIKI_SCHEMA_VERSION + 1)
+    await a.goto(pagePath(40))
+
+    const chip = syncStatus(a)
+    await expect(chip).toHaveAttribute('data-status', 'outdated')
+    await expect(chip).toHaveText('새 버전 — 새로고침')
+    await expect(chip).toHaveAttribute('title', /아직 저장되지 않은 입력은 저장되지 않습니다/)
+    await expect(a.getByTestId('wiki-outdated-notice')).toContainText('새 버전이 배포되었어요')
+    // 문서를 받지 못했다 — 빈 에디터는 읽기 전용이고, 거부된 뒤 다시 붙지 않는다(서버 본문이 끝내 들어오지 않는다).
+    const editor = a.locator('.ProseMirror')
+    await expect(editor).toHaveAttribute('contenteditable', 'false')
+    await expectStays(a, async () => [await chip.getAttribute('data-status'), (await editor.textContent())?.trim()], ['outdated', ''], {
+      ms: 1500,
+    })
+    await expect.poll(() => readCollabMarkdown(collabNs, 40)).toBe('서버 본문')
+
+    // 새 웹이 배포된 상황 — 서버 판을 웹과 맞춘 뒤 칩(새로고침)을 누르면 다시 불러와 붙는다.
+    await setCollabSchemaVersion(collabNs, 40)
+    await Promise.all([a.waitForEvent('load'), chip.click()])
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    await expect(editor).toHaveText('서버 본문')
+    await expect(editor).toHaveAttribute('contenteditable', 'true')
+  })
+
+  test('편집 중 동기화 서버가 새 스키마 판으로 재시작하면 재접속이 거부되어 새 버전 칩을 보이고 편집을 막는다', async ({
+    authenticatedPage: a,
+    collabNs,
+  }) => {
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 41, title: '노트', body: '본문' })
+    const socket = await controlCollabSocket(a)
+    await a.goto(pagePath(41))
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
+    await typeAtEnd(a, '본문', ' 배포 전')
+    await expect.poll(() => readCollabMarkdown(collabNs, 41)).toBe('본문 배포 전')
+
+    // 서버 재시작(새 판) — 소켓이 끊기고 provider 의 재접속이 schema-mismatch 로 거절된다.
+    await setCollabSchemaVersion(collabNs, 41, WIKI_SCHEMA_VERSION + 1)
+    await socket.drop()
+    socket.restore()
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'outdated', { timeout: 30_000 })
+    await expect(a.getByTestId('wiki-outdated-notice')).toBeVisible()
+    const editor = a.locator('.ProseMirror')
+    await expect(editor).toHaveAttribute('contenteditable', 'false')
+    // 끊기기 전 내용은 화면과 서버에 그대로 남는다.
+    await expect(editor).toHaveText('본문 배포 전')
+    await expect.poll(() => readCollabMarkdown(collabNs, 41)).toBe('본문 배포 전')
+
+    // 안내 띠의 새로고침도 같은 동작이다.
+    await setCollabSchemaVersion(collabNs, 41)
+    await Promise.all([a.waitForEvent('load'), a.getByTestId('wiki-outdated-reload').click()])
+    await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
   })
 
   test('문서 이름에 테스트 네임스페이스가 붙어 같은 페이지 번호의 다른 문서와 섞이지 않는다', async ({

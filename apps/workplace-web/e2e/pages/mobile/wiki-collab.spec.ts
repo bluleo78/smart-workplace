@@ -1,4 +1,13 @@
-import { applyCollabMarkdown, changeCollabRole, controlCollabSocket, readCollabMarkdown, typeAtEnd } from '../../fixtures/collab'
+import { WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema/collab-protocol'
+
+import {
+  applyCollabMarkdown,
+  changeCollabRole,
+  controlCollabSocket,
+  readCollabMarkdown,
+  setCollabSchemaVersion,
+  typeAtEnd,
+} from '../../fixtures/collab'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
 import { mockWikiPageEditor } from '../../fixtures/wiki-mock'
 
@@ -81,6 +90,27 @@ test.describe('모바일 노트 동시 편집', () => {
     await expect(chip).toHaveAttribute('data-status', 'forbidden')
     await expect(chip).toHaveText('접근 불가')
     await expectNoHorizontalOverflow(a)
+  })
+
+  // WP-313 — 모바일은 칩 title(툴팁)이 안 보이므로 안내 띠가 미전송 입력 손실을 알리고, 칩을 탭하면 새로고침한다.
+  test('동기화 서버의 스키마 판이 다르면 짧은 새로고침 칩과 안내를 보이고, 칩을 탭하면 다시 붙는다', async ({
+    authenticatedPage: a,
+    collabNs,
+  }) => {
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 42, title: '노트', body: '서버 본문' })
+    await setCollabSchemaVersion(collabNs, 42, WIKI_SCHEMA_VERSION + 1)
+    await a.goto(pagePath(42))
+    const chip = a.getByTestId('wiki-sync-status')
+    await expect(chip).toHaveAttribute('data-status', 'outdated')
+    await expect(chip).toHaveText('새로고침')
+    await expect(a.getByTestId('wiki-outdated-notice')).toContainText('아직 저장되지 않은 입력은 저장되지 않습니다')
+    await expect(a.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'false')
+    await expectNoHorizontalOverflow(a)
+
+    await setCollabSchemaVersion(collabNs, 42)
+    await Promise.all([a.waitForEvent('load'), chip.tap()])
+    await expect(chip).toHaveAttribute('data-status', 'live')
+    await expect(a.locator('.ProseMirror')).toHaveText('서버 본문')
   })
 
   // WP-289 — 모바일에서도 편집 중 도착한 AI 본문 병합이 내 입력을 지우지 않는다(데스크톱 시나리오는 pages/wiki/wiki-collab.spec.ts).

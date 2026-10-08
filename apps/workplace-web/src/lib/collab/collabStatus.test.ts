@@ -23,15 +23,27 @@ describe('deriveSyncStatus', () => {
   it('unsent stays unsent long after the drop', () =>
     expect(deriveSyncStatus({ ...base, connected: false, disconnectedForMs: 60_000, unsynced: true })).toBe('unsent'))
   it('forbidden is terminal and wins over readonly', () =>
-    expect(deriveSyncStatus({ ...base, connected: false, unsynced: true, readOnly: true, forbidden: true })).toBe(
+    expect(deriveSyncStatus({ ...base, connected: false, unsynced: true, readOnly: true, terminal: 'forbidden' })).toBe(
       'forbidden',
     ))
-  it('a lost login is terminal and wins over everything', () =>
+  it('a lost login is terminal and wins over the first connection', () =>
     expect(
-      deriveSyncStatus({ ...base, connected: false, unsynced: true, readOnly: true, everSynced: false, authLost: true }),
+      deriveSyncStatus({ ...base, connected: false, unsynced: true, readOnly: true, everSynced: false, terminal: 'authLost' }),
     ).toBe('signed-out'))
-  it('forbidden=false behaves as omitted', () =>
-    expect(deriveSyncStatus({ ...base, forbidden: false })).toBe('live'))
+  // WP-313 — 스키마 판 불일치(새 버전 배포)는 새로고침 말곤 풀리지 않는 종단이라 다른 모든 상태보다 먼저.
+  it('a schema mismatch is terminal and shows the reload state', () =>
+    expect(
+      deriveSyncStatus({
+        ...base,
+        connected: false,
+        unsynced: true,
+        readOnly: true,
+        everSynced: false,
+        terminal: 'schemaStale',
+      }),
+    ).toBe('outdated'))
+  it('terminal=null behaves as omitted', () =>
+    expect(deriveSyncStatus({ ...base, terminal: null })).toBe('live'))
   // 처음 붙는 중(첫 동기화 전) — 중립 '연결 중'. 권한 로딩 중의 화면 readOnly 나 '재연결 중' 경고를 띄우지 않는다.
   it('connecting before the first sync, even while the UI role is still read-only', () =>
     expect(
@@ -40,7 +52,7 @@ describe('deriveSyncStatus', () => {
   it('offline when the first sync has not happened for 5s', () =>
     expect(deriveSyncStatus({ ...base, connected: false, disconnectedForMs: 5000, everSynced: false })).toBe('offline'))
   it('forbidden wins over connecting', () =>
-    expect(deriveSyncStatus({ ...base, connected: false, everSynced: false, forbidden: true })).toBe('forbidden'))
+    expect(deriveSyncStatus({ ...base, connected: false, everSynced: false, terminal: 'forbidden' })).toBe('forbidden'))
   it('a drop after the first sync is reconnecting, not connecting', () =>
     expect(deriveSyncStatus({ ...base, connected: false, disconnectedForMs: 1000, everSynced: true })).toBe(
       'reconnecting',
@@ -83,27 +95,30 @@ describe('effectiveReadOnly', () => {
   it('EDITOR promotion re-enables editing even when the prop said read-only', () =>
     expect(effectiveReadOnly({ propReadOnly: true, serverReadOnly: false })).toBe(false))
   it('a session that lost its login is never editable', () =>
-    expect(effectiveReadOnly({ propReadOnly: false, serverReadOnly: false, authLost: true })).toBe(true))
+    expect(effectiveReadOnly({ propReadOnly: false, serverReadOnly: false, terminal: 'authLost' })).toBe(true))
+  it('a session rejected for its schema version is never editable', () =>
+    expect(effectiveReadOnly({ propReadOnly: false, serverReadOnly: false, terminal: 'schemaStale' })).toBe(true))
   it('a forbidden document is never editable', () =>
-    expect(effectiveReadOnly({ propReadOnly: false, serverReadOnly: false, forbidden: true })).toBe(true))
+    expect(effectiveReadOnly({ propReadOnly: false, serverReadOnly: false, terminal: 'forbidden' })).toBe(true))
 })
 
 // 본문 자리 — 첫 동기화 전 skeleton 이 영영 남지 않게, 연결을 못 한 채 오프라인이 되면 안내로 바꾼다.
 describe('deriveBodyState', () => {
   it('shows the body once synced, even while offline later', () => {
-    expect(deriveBodyState({ everSynced: true, forbidden: false, status: 'live' })).toBe('ready')
-    expect(deriveBodyState({ everSynced: true, forbidden: false, status: 'offline' })).toBe('ready')
+    expect(deriveBodyState({ everSynced: true, status: 'live' })).toBe('ready')
+    expect(deriveBodyState({ everSynced: true, status: 'offline' })).toBe('ready')
   })
 
   it('keeps the skeleton while the first connection is still in progress', () => {
-    expect(deriveBodyState({ everSynced: false, forbidden: false, status: 'connecting' })).toBe('loading')
+    expect(deriveBodyState({ everSynced: false, status: 'connecting' })).toBe('loading')
   })
 
   it('explains instead of a skeleton once the first connection has gone offline', () => {
-    expect(deriveBodyState({ everSynced: false, forbidden: false, status: 'offline' })).toBe('unreachable')
+    expect(deriveBodyState({ everSynced: false, status: 'offline' })).toBe('unreachable')
   })
 
-  it('leaves forbidden to its own notice', () => {
-    expect(deriveBodyState({ everSynced: false, forbidden: true, status: 'forbidden' })).toBe('ready')
+  it('leaves every terminal state to its own notice', () => {
+    for (const status of ['forbidden', 'signed-out', 'outdated'] as const)
+      expect(deriveBodyState({ everSynced: false, status })).toBe('ready')
   })
 })

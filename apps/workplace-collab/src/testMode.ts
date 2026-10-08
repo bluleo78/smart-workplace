@@ -1,3 +1,5 @@
+import { WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema'
+
 import { pageIdOf } from './docRegistry'
 import { pathOf, readJson, send, HttpError } from './internalRoutes'
 import { markdownToYUpdate, yDocToMarkdown, yUpdateToMarkdown } from './markdownCodec'
@@ -26,9 +28,17 @@ interface TestDoc {
  * 인증 토큰 = URLSearchParams 형식 `uid=2&name=김철수&role=VIEWER`(모두 선택) — 테스트가 사용자를 구분한다.
  * uid 기본 1, name 기본 `사용자 {uid}`, role 은 토큰 → 시드 roles[uid] → 시드 role → OWNER 순. role=NONE 이면 거부(권한 없음 시나리오).
  * 테넌트·스페이스는 항상 1.
+ * 스키마 판(WP-313)은 /__test/schema-version 으로 문서별로 바꾼다 — '동기화 서버만 새 스키마로 배포됨'을 재현(웹의 판은 그대로).
  */
-export function createTestMode(): { store: DocStore; auth: Authenticator; routes: TestRoutes } {
+export function createTestMode(): {
+  store: DocStore
+  auth: Authenticator
+  routes: TestRoutes
+  schemaVersion: (docName: string) => number
+} {
   const docs = new Map<string, TestDoc>()
+  /** 문서별 서버 기대 스키마 판 — 없으면 빌드된 판. 시드·초기화와 무관하게 테스트가 지정한 동안 유지된다(reset 이 지운다). */
+  const schemaVersions = new Map<string, number>()
   /** 메모리 문서 가져오기(없으면 기본값으로 만들어 둔다) — 시드 없이 저장된 문서의 기본값을 한곳에 둔다. */
   const docOf = (name: string): TestDoc => {
     let d = docs.get(name)
@@ -112,6 +122,15 @@ export function createTestMode(): { store: DocStore; auth: Authenticator; routes
       return send(res, 204)
     }
 
+    // 스키마 판 바꾸기 — 열린 연결은 그대로 두고 다음 인증부터 적용된다. 세션 도중 배포는 테스트가 소켓을 끊어 재접속시켜 재현한다.
+    if (req.method === 'POST' && path === '/__test/schema-version') {
+      const b = (await readJson(req)) as { docName?: unknown; version?: unknown }
+      const docName = requireDocName(b)
+      if (!Number.isSafeInteger(b.version)) throw new HttpError(400, 'invalid version')
+      schemaVersions.set(docName, b.version as number)
+      return send(res, 204)
+    }
+
     // 결과 읽기 — 열린 문서가 있으면 실시간 문서, 없으면 저장된 상태.
     if (req.method === 'GET' && path === '/__test/markdown') {
       const name = new URL(req.url ?? '/', 'http://collab').searchParams.get('docName') ?? ''
@@ -131,11 +150,14 @@ export function createTestMode(): { store: DocStore; auth: Authenticator; routes
         await app.closeDocument(name)
         docs.delete(name)
       }
+      for (const name of [...schemaVersions.keys()].filter(match)) schemaVersions.delete(name)
       return send(res, 204)
     }
 
     return send(res, 404, { error: 'not found' })
   }
 
-  return { store, auth, routes }
+  const schemaVersion = (docName: string): number => schemaVersions.get(docName) ?? WIKI_SCHEMA_VERSION
+
+  return { store, auth, routes, schemaVersion }
 }

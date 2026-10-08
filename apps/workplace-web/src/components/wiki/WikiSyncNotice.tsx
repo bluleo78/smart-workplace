@@ -1,10 +1,10 @@
-import { Ban, CloudOff, CloudUpload, LogIn } from 'lucide-react'
+import { Ban, CloudOff, CloudUpload, LogIn, RotateCw } from 'lucide-react'
 import { type RefObject, useEffect, useRef } from 'react'
 
-import type { SyncStatus } from '../../lib/collab/collabStatus'
+import { reloadPage, type SyncStatus } from '../../lib/collab/collabStatus'
 
 /**
- * 동기화 안내 띠(WP-287 디자이너 리뷰) — 미전송(unsent)·접근 불가(forbidden)일 때 본문 스크롤 영역 맨 위에 붙는다.
+ * 동기화 안내 띠(WP-287 디자이너 리뷰) — 미전송(unsent)·접근 불가(forbidden)·로그인 필요(signed-out)·새 버전(outdated)일 때 본문 스크롤 영역 맨 위에 붙는다.
  *
  * - sticky 라 긴 문서 아래쪽에서 입력 중이어도 화면에서 사라지지 않는다(예전엔 제목 위 일반 흐름이라 스크롤로 밀려 안 보였다).
  * - 띠가 나타나거나 사라질 때 본문이 밀려 커서 줄이 튀지 않게 그만큼 scrollTop 을 보정한다 — 결과적으로 띠는
@@ -42,6 +42,24 @@ export function WikiSyncNotice({
             <a href="/login" className="font-semibold underline underline-offset-2">
               다시 로그인
             </a>
+          </span>
+        </NoticeBox>
+      )}
+      {status === 'outdated' && (
+        <NoticeBox>
+          <RotateCw className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+          {/* 종료 상태(WP-313) — 동기화 서버가 새 스키마로 배포돼 이 탭으론 붙지 않는다. 칩 title 은 모바일에서 안 보이므로
+              미전송 입력이 저장되지 않는다는 사실을 여기서도 알린다. */}
+          <span role="alert" data-testid="wiki-outdated-notice">
+            새 버전이 배포되었어요. 아직 저장되지 않은 입력은 저장되지 않습니다.{' '}
+            <button
+              type="button"
+              className="font-semibold underline underline-offset-2"
+              onClick={reloadPage}
+              data-testid="wiki-outdated-reload"
+            >
+              새로고침
+            </button>
           </span>
         </NoticeBox>
       )}

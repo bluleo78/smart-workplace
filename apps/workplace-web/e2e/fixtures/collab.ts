@@ -2,7 +2,11 @@
 // 서버는 playwright.config.ts 의 webServer 가 E2E_COLLAB_PORT 로 띄운다. 문서 이름에 테스트별 네임스페이스(collabNs)를
 // 붙여 병렬 worker 가 한 서버를 같이 써도 서로의 문서가 섞이지 않게 한다(문서 이름 규약은 웹과 같은 collab-protocol).
 import type { BrowserContext, Page, WebSocketRoute } from '@playwright/test'
-import { COLLAB_NS_STORAGE_KEY, collabDocName } from '@smart-workplace/wiki-editor-schema/collab-protocol'
+import {
+  COLLAB_NS_STORAGE_KEY,
+  collabDocName,
+  WIKI_SCHEMA_VERSION,
+} from '@smart-workplace/wiki-editor-schema/collab-protocol'
 
 import type { WikiRole } from '../../src/types/wiki'
 
@@ -46,6 +50,14 @@ export async function readCollabMarkdown(ns: string, pageId: number): Promise<st
 export async function changeCollabRole(ns: string, pageId: number, role: CollabRole): Promise<void> {
   await post('/__test/role', { docName: collabDocName(ns, pageId), role })
   await post('/internal/docs/revalidate', { tenantId: 1, pageIds: [pageId] }, { Authorization: `Internal ${internalToken()}` })
+}
+
+/**
+ * 동기화 서버가 이 문서에 기대하는 스키마 판을 바꾼다(WP-313) — '동기화 서버만 새 스키마로 배포됨'(웹 탭은 옛 판)을 재현한다.
+ * 열린 연결은 그대로고 다음 인증부터 적용된다(세션 도중 배포는 controlCollabSocket 으로 끊었다 붙여 재현). 판을 생략하면 웹과 같은 판으로 되돌린다.
+ */
+export async function setCollabSchemaVersion(ns: string, pageId: number, version = WIKI_SCHEMA_VERSION): Promise<void> {
+  await post('/__test/schema-version', { docName: collabDocName(ns, pageId), version })
 }
 
 /**

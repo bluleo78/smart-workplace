@@ -4,6 +4,17 @@
  * 의존성 없는 모듈이라 웹은 subpath(`@smart-workplace/wiki-editor-schema/collab-protocol`)로 tiptap 없이 가져간다.
  */
 
+export { WIKI_SCHEMA_VERSION } from './schemaVersion'
+
+/** 웹이 스키마 판을 실어 보내는 접속 URL 쿼리 이름 — `/collab?schema=1`. 서버는 onAuthenticate 의 requestParameters 로 읽는다. */
+export const COLLAB_SCHEMA_PARAM = 'schema'
+
+/**
+ * 스키마 판이 없거나 다를 때의 인증 거부 사유(provider onAuthenticationFailed 의 reason).
+ * 웹은 이것을 인증 실패와 구분해 재연결을 멈추고 새로고침을 안내한다.
+ */
+export const COLLAB_SCHEMA_MISMATCH = 'schema-mismatch'
+
 /** TipTap Collaboration 의 Yjs 조각(field) 이름 — 웹 에디터와 서버 코덱이 같아야 한다. */
 export const COLLAB_FRAGMENT = 'default'
 

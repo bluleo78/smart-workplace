@@ -1,9 +1,6 @@
 import './wiki-editor.css'
 
-import { COLLAB_FRAGMENT, wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
 import { useQueryClient } from '@tanstack/react-query'
-import Collaboration from '@tiptap/extension-collaboration'
-import Placeholder from '@tiptap/extension-placeholder'
 import { type Editor, EditorContent, useEditor } from '@tiptap/react'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useLocation,useNavigate } from 'react-router-dom'
@@ -37,7 +34,6 @@ import { registerWikiEditorView, useWikiImageUpload } from './useWikiImageUpload
 import { type GenerateActionKey, type TransformActionKey } from './wikiAiActions'
 import { WikiAiBubbleToolbar } from './WikiAiBubbleToolbar'
 import { insertAiMarkdown } from './wikiAiInsert'
-import { WikiAiMarkers } from './wikiAiMarkers'
 import { announceAiWriting } from './wikiAiPresence'
 import { stripLeadingTitleHeading } from './wikiAiTitleHeading'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
@@ -45,11 +41,10 @@ import { buildBreadcrumb } from './wikiBreadcrumb'
 import { anchorPosition, toRelative } from './wikiCollabPosition'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
-import { WikiImage } from './wikiImageNode'
+import { wikiEditorExtensions } from './wikiEditorExtensions'
 import { wikiLinkHrefToOpen } from './wikiLinkClick'
 import { WikiMarkdownSourceDialog } from './WikiMarkdownSourceDialog'
 import { rememberMentionLabel, WikiMentionLabelsProvider } from './wikiMentionLabels'
-import { WikiMention } from './wikiMentionNode'
 import { createWikiMentionExtension } from './wikiMentionSuggestion'
 import { type WikiAiState, WikiPageHeader } from './WikiPageHeader'
 import { WikiPageSkeleton } from './WikiPageSkeleton'
@@ -61,7 +56,6 @@ import { WikiTableContextMenu } from './WikiTableContextMenu'
 import { createWikiTableShortcuts } from './wikiTableShortcuts'
 import { WikiTableToolbar } from './WikiTableToolbar'
 import { createTitleSaver, initTitleSync, needsTitleSave, type TitleSaver, titleSyncReducer } from './wikiTitleSync'
-import { WikiUploadPlaceholder } from './wikiUploadPlaceholder'
 
 /** 제목 저장 디바운스 — 제목은 짧은 REST 저장(나중 값 우선)이라 타이핑마다 보내지 않고 잠깐 모아 보낸다. */
 const TITLE_SAVE_DEBOUNCE_MS = 400
@@ -423,27 +417,13 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
       // Placeholder — 빈 본문에서 '/' AI 진입점을 알리는 상시 힌트(미등록이면 빈 페이지에 아무
       // 안내도 없어 AI 기능이 발견 불가였다, #733). showOnlyCurrent=false 여야 포커스 없는
       // 상태에서도 보인다(기본 true 는 커서가 있는 노드에만 표시).
-      extensions: [
-        // 문서 스키마(텍스트·마크다운·멘션·이미지·표)는 동기화 서버와 공유하는 공용 묶음(WP-284).
-        // 이미지·멘션은 웹 NodeView 를 붙인 버전을 주입한다 — 스키마 자체는 패키지와 동일.
-        // 실행 취소는 Yjs 가 맡으므로(내 편집만 되돌림) 기본 history 는 끈다 — 켜 두면 남의 편집까지 되돌린다.
-        ...wikiSchemaExtensions({ image: WikiImage, mention: WikiMention }),
-        // 본문 실시간 동기화(WP-287) — 동기화 서버와 같은 조각 이름(COLLAB_FRAGMENT)을 쓴다. 본문은 서버 문서가 원본이라
-        // content 로 초기화하지 않는다(넣으면 동기화 때 본문이 두 벌이 된다).
-        Collaboration.configure({ document: session.doc, field: COLLAB_FRAGMENT }),
-        mentionExtension,
-        slashExtension,
-        Placeholder.configure({
-          placeholder: "내용을 입력하거나 '/' 를 눌러 AI 사용",
-          showOnlyCurrent: false,
-        }),
-        // 행·열 삽입 단축키(Ctrl-Alt-화살표). 표 밖이거나 뷰어 권한이면 false 를 반환해 기본 동작을 유지한다.
-        tableShortcutsExtension,
-        // 이미지 업로드 자리표시자 — 공유 문서가 아니라 내 화면에만 그리는 데코레이션(WP-295).
-        WikiUploadPlaceholder,
-        // 다른 사람의 AI 가 쓰는 자리 ✦ 표식(WP-291) — awareness(서버·다른 접속자의 /ai)에서 읽어 내 화면에만 그린다.
-        WikiAiMarkers.configure({ awareness: session.provider.awareness }),
-      ],
+      extensions: wikiEditorExtensions({
+        doc: session.doc,
+        awareness: session.provider.awareness,
+        mention: mentionExtension,
+        slash: slashExtension,
+        tableShortcuts: tableShortcutsExtension,
+      }),
       // 이미지 붙여넣기·드래그드롭 업로드. 업로드 완료 시 image 노드로 교체된다.
       editorProps: { handlePaste, handleDrop },
       // 권한 게이트 — VIEWER 는 본문을 입력할 수 없다(#756). 미설정 시 tiptap 기본값이 true 라

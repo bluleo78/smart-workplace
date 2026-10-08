@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./collab-protocol": "./src/collabProtocol.ts",
-    "./merge": "./src/merge/blockMerge.ts"
+    "./merge": "./src/merge/blockMerge.ts",
+    "./schema-fingerprint": "./src/schemaFingerprint.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

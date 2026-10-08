@@ -1,7 +1,7 @@
-import { Ban, CloudUpload, Eye, Loader2, LogIn, RefreshCw, WifiOff } from 'lucide-react'
+import { Ban, CloudUpload, Eye, Loader2, LogIn, RefreshCw, RotateCw, WifiOff } from 'lucide-react'
 import type { ReactNode } from 'react'
 
-import type { SyncStatus } from '../../lib/collab/collabStatus'
+import { reloadPage, type SyncStatus } from '../../lib/collab/collabStatus'
 
 /**
  * 노트 동기화 상태 칩(예전 "저장 중/저장됨" 대체, WP-287) — 저장 버튼·저장 표시 없이 자동 동기화되므로
@@ -15,20 +15,25 @@ import type { SyncStatus } from '../../lib/collab/collabStatus'
  * - connecting(새로 연 노트의 첫 연결 중)은 경고가 아닌 중립(muted) — 끊긴 적이 없으니 '재연결'이 아니다.
  * - forbidden(삭제되었거나 권한 회수 — 웹은 둘을 구분할 수 없다)은 재연결하지 않는 종료 상태라 스피너 없이 표시.
  * - signed-out(로그인 상실)도 재연결하지 않는 종료 상태 — 다시 로그인해야 한다.
+ * - outdated(동기화 서버가 새 스키마로 배포됨, WP-313)도 종료 상태 — 칩 자체가 새로고침 버튼이다(다른 종료 상태처럼 DANGER tone).
  */
 const COMMON = 'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs leading-4 whitespace-nowrap'
 const MUTED = 'bg-muted text-muted-foreground'
 // 경고·오류 칩 — 아이콘만 상태색, 글자는 본문 계열(옅은 상태색 바탕 위 상태색 글자는 라이트 대비 미달).
 const DANGER = 'bg-destructive/10 text-foreground'
+// 누를 수 있는 칩 — hover 때 살짝 옅게, 키보드 포커스 링.
+const CLICKABLE = 'cursor-pointer hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none'
 const LIVE_DOT = <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
 
-/** 상태별 칩 모양 — label(데스크톱)·compactLabel(모바일, 없으면 label)·바탕/글자 tone·아이콘·title. */
+/** 상태별 칩 모양 — label(데스크톱)·compactLabel(모바일, 없으면 label)·바탕/글자 tone·아이콘·title, 누를 수 있으면 onClick. */
 interface ChipSpec {
   label: string
   compactLabel?: string
   tone: string
   icon: ReactNode
   title?: string
+  /** 있으면 칩이 같은 모양의 버튼이 된다(hover 없는 모바일도 탭 한 번으로 동작). */
+  onClick?: () => void
 }
 
 const CHIPS: Record<SyncStatus, ChipSpec> = {
@@ -66,6 +71,14 @@ const CHIPS: Record<SyncStatus, ChipSpec> = {
     icon: <LogIn className="h-3 w-3 text-destructive" aria-hidden="true" />,
     title: '로그인이 필요합니다',
   },
+  outdated: {
+    label: '새 버전 — 새로고침',
+    compactLabel: '새로고침',
+    tone: DANGER,
+    icon: <RotateCw className="h-3 w-3 text-destructive" aria-hidden="true" />,
+    title: '새 버전이 배포되었습니다. 새로고침하면 다시 편집할 수 있어요. 아직 저장되지 않은 입력은 저장되지 않습니다.',
+    onClick: reloadPage,
+  },
 }
 
 export function WikiSyncStatusChip({ status, compact }: { status: SyncStatus; compact: boolean }) {
@@ -84,10 +97,27 @@ export function WikiSyncStatusChip({ status, compact }: { status: SyncStatus; co
     )
   }
   const chip = CHIPS[status]
+  const label = compact ? (chip.compactLabel ?? chip.label) : chip.label
+  // 누를 수 있는 칩(새 버전 → 새로고침)은 같은 모양의 버튼 — 접근 가능한 이름은 보이는 라벨, 설명은 title.
+  if (chip.onClick) {
+    return (
+      <button
+        type="button"
+        data-testid="wiki-sync-status"
+        data-status={status}
+        className={`${COMMON} ${chip.tone} ${CLICKABLE}`}
+        title={chip.title}
+        onClick={chip.onClick}
+      >
+        {chip.icon}
+        {label}
+      </button>
+    )
+  }
   return (
     <span data-testid="wiki-sync-status" data-status={status} className={`${COMMON} ${chip.tone}`} title={chip.title}>
       {chip.icon}
-      {compact ? (chip.compactLabel ?? chip.label) : chip.label}
+      {label}
     </span>
   )
 }
