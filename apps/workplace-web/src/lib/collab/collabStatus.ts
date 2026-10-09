@@ -51,6 +51,14 @@ const TERMINAL_STATUS: Record<CollabTerminal, SyncStatus> = {
   schemaStale: 'outdated',
 }
 
+/** 종단 칩 상태 모음 — TERMINAL_STATUS 의 값. */
+const TERMINAL_STATUSES: ReadonlySet<SyncStatus> = new Set(Object.values(TERMINAL_STATUS))
+
+/** 다시 붙지 않는 종단 상태인지 — 접속자 아바타·원격 커서·✦ 를 즉시 숨긴다(WP-173, awareness 30초 만료를 기다리지 않음). */
+export function isTerminalStatus(s: SyncStatus): boolean {
+  return TERMINAL_STATUSES.has(s)
+}
+
 /**
  * 상태 판정. 우선순위: 종단(outdated·signed-out·forbidden·deleted) → 첫 동기화 전이면 connecting(5초 넘으면 offline) → readonly → 연결됨이면 live → 미전송 있으면 unsent
  * → 끊긴 지 5초 미만 reconnecting → 그 외 offline.

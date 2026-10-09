@@ -1,12 +1,12 @@
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
-import type { EditorState } from '@tiptap/pm/state'
+import type { EditorState, Transaction } from '@tiptap/pm/state'
 import {
   absolutePositionToRelativePosition,
   relativePositionToAbsolutePosition,
   ySyncPluginKey,
 } from 'y-prosemirror'
-import type * as Y from 'yjs'
+import * as Y from 'yjs'
 
 /**
  * y-prosemirror 동기화 플러그인 상태 중 위치 변환에 필요한 부분 — 라이브러리가 내보내지 않는 내부 모양이라
@@ -21,6 +21,25 @@ export interface YSyncState {
 /** 에디터 상태의 동기화 플러그인 상태. 플러그인이 없으면 undefined. */
 export function ySyncOf(state: EditorState): YSyncState | undefined {
   return ySyncPluginKey.getState(state) as YSyncState | undefined
+}
+
+/**
+ * 이 트랜잭션이 남의 변경을 반영한 것인지 — y-prosemirror 메타(ySyncPluginKey)의 isChangeOrigin(Yjs → PM 반영)이면서
+ * 내 실행 취소·다시 실행(isUndoRedoOperation)이 아닐 때(판정 R10). 내 실행 취소도 같은 경로로 오지만 내 입력이다 —
+ * 선택 위치로 스크롤하고, 접속자 커서의 활동 횟수(seq)도 올린다. 원격 판정은 이 한곳에서만 한다(WikiRemoteScrollAnchor·WikiPresenceCursors).
+ */
+export function isRemoteSync(meta: unknown): boolean {
+  const m = meta as { isChangeOrigin?: boolean; isUndoRedoOperation?: boolean } | undefined
+  return m?.isChangeOrigin === true && m.isUndoRedoOperation !== true
+}
+
+/**
+ * 트랜잭션 단위 원격 판정 — 다른 플러그인의 appendTransaction(링크 자동 감지·표 보정 등)이 원격 반영 뒤에 덧붙인 트랜잭션도
+ * 원래 트랜잭션(ProseMirror 가 'appendedTransaction' 메타로 단다)을 따라 원격으로 본다.
+ */
+export function isRemoteSyncTr(tr: Transaction): boolean {
+  const root = tr.getMeta('appendedTransaction') as Transaction | undefined
+  return isRemoteSync((root ?? tr).getMeta(ySyncPluginKey))
 }
 
 /** 위치를 문서 범위 [0, content.size] 안으로 자른다 — 풀어 낸 위치·매핑한 위치가 그사이 줄어든 문서를 넘지 않게. */
@@ -38,6 +57,19 @@ export function toRelative(state: EditorState, pos: number): Y.RelativePosition 
 export function resolveRelative(state: EditorState, rel: Y.RelativePosition): number | null {
   const ys = ySyncOf(state)
   return ys?.binding ? relativePositionToAbsolutePosition(ys.doc, ys.type, rel, ys.binding.mapping) : null
+}
+
+/**
+ * 상대 위치 JSON(awareness 의 자기 신고 값) → 이 상태의 절대 위치(문서 범위로 자름). 모양이 틀렸거나 풀 수 없으면 null.
+ * 원격 커서(WikiPresenceCursors)·✦ 표식(WikiAiMarkers)이 같이 쓴다.
+ */
+export function resolveJson(state: EditorState, json: unknown): number | null {
+  try {
+    const pos = resolveRelative(state, Y.createRelativePositionFromJSON(json))
+    return pos == null ? null : clampPos(pos, state.doc)
+  } catch {
+    return null
+  }
 }
 
 /**

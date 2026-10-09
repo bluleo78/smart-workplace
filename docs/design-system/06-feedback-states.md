@@ -311,6 +311,8 @@ icons={{
 ```
 
 > fire-hub 와 달리 `position`/`richColors` 를 호출부에서 지정하지 않는다 — 스타일은 `sonner.tsx` 의 CSS 변수(`--normal-bg` 등)로 통일되어 있다.
+>
+> **승인된 예외(WP-173, 2026-10-09)**: 노트 복귀 토스트 "자리를 비운 동안 N명이 수정했어요"(`wikiAwayToast.ts`)만 모바일(lg 미만)에서 `position: 'bottom-center'` 로 띄운다 — 위쪽 전체 폭 토스트가 알리는 바로 그 따라잡기 하이라이트(짧은 노트의 첫 블록)를 가리기 때문. 아래 여백은 `main.tsx` Toaster 의 bottom 오프셋(safe-area·`--kb-inset` 중 큰 쪽 + 기본값)이 맡는다.
 
 ---
 

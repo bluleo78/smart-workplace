@@ -97,3 +97,51 @@ export function parseAiMarkers(value: unknown): CollabAiMarker[] {
     )
   })
 }
+
+/**
+ * awareness 의 접속자 필드(WP-173) — 값 {id, name}. 웹이 노트에 붙어 있는 동안 올리고 재동기화(synced)마다 다시 올린다
+ * (provider 가 pagehide·파기 때 내 상태를 지우므로). 색은 싣지 않는다 — 받는 쪽이 id 로 토큰 팔레트에서 정한다
+ * (자기 신고 색을 믿지 않고, 같은 사람은 어디서나 같은 색). 서버 상태(aiMarkers 만)엔 이 필드가 없다.
+ * 이름은 y-prosemirror 관례와 같다 — 스키마가 아니므로 WIKI_SCHEMA_VERSION 과 무관하다.
+ */
+export const COLLAB_USER_FIELD = 'user'
+
+/**
+ * awareness 의 커서 필드(WP-173) — 값 {anchor, head, seq?}(anchor·head 는 각각 Y.relativePositionToJSON) 또는 null.
+ * seq 는 올린 사람의 "자기 편집·선택 활동" 횟수 — 문단 중간에서 타이핑하면 캐럿의 상대 위치(오른쪽 글자 기준)가 그대로라 받는 쪽이
+ * 움직임을 알 수 없어서 둔다. 선택 사항이라 seq 없는 옛 클라이언트 값도 그대로 읽힌다(awareness 전용 — 스키마 판과 무관).
+ * 편집 가능하고 에디터에 포커스가 있을 때만 올린다 — VIEWER·종단·포커스 없음이면 null(스펙 §7.1 ④ "내 커서는 비공개").
+ */
+export const COLLAB_CURSOR_FIELD = 'cursor'
+
+/** 접속자 — 자기 신고 값(스펙 §4.1: 테넌트 내부 노출이라 위험 낮음, 수용). */
+export interface CollabPresenceUser {
+  id: number
+  name: string
+}
+
+/** 원격 커서 — 받는 쪽이 자기 문서에서 위치로 푼다. */
+export interface CollabCursor {
+  anchor: object
+  head: object
+  /** 올린 사람의 자기 활동 횟수(편집·선택 변경) — 바뀌면 움직인 것이다. 없으면(옛 클라이언트) anchor·head 변화로만 판단. */
+  seq?: number
+}
+
+/** awareness 값 → 접속자. id 가 유한한 숫자이고 name 이 문자열일 때만(그 밖의 키는 버린다). */
+export function parseCollabUser(value: unknown): CollabPresenceUser | null {
+  if (value == null || typeof value !== 'object') return null
+  const o = value as Record<string, unknown>
+  if (typeof o.id !== 'number' || !Number.isFinite(o.id) || typeof o.name !== 'string') return null
+  return { id: o.id, name: o.name }
+}
+
+/** awareness 값 → 커서. anchor·head 둘 다 객체일 때만. seq 는 유한한 숫자일 때만 남긴다(깨진 seq 때문에 커서를 버리지 않는다). */
+export function parseCollabCursor(value: unknown): CollabCursor | null {
+  if (value == null || typeof value !== 'object') return null
+  const o = value as Record<string, unknown>
+  if (o.anchor == null || typeof o.anchor !== 'object' || o.head == null || typeof o.head !== 'object') return null
+  const cursor: CollabCursor = { anchor: o.anchor, head: o.head }
+  if (typeof o.seq === 'number' && Number.isFinite(o.seq)) cursor.seq = o.seq
+  return cursor
+}

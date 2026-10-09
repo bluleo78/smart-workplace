@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiRole, WikiSpace } from '../../src/types/wiki'
 import { wikiSpace } from '../factories/wiki.factory'
-import { collabNsOf, readCollabMarkdown, seedCollabDoc } from './collab'
+import { type CollabRole, collabNsOf, readCollabMarkdown, seedCollabDoc } from './collab'
 import { trackRequests } from './requests'
 
 /**
@@ -52,10 +52,20 @@ export const savedMarkdown = (page: Page, pageId: number) => readCollabMarkdown(
 export async function mockWikiPageEditor(
   page: Page,
   {
-    spaceId, pageId, title, body, role = 'OWNER', collabNs, seed = true,
-  }: { spaceId: number; pageId: number; title: string; body: string; role?: WikiRole; collabNs?: string; seed?: boolean },
+    spaceId, pageId, title, body, role = 'OWNER', collabNs, seed = true, collabRoles,
+  }: {
+    spaceId: number
+    pageId: number
+    title: string
+    body: string
+    role?: WikiRole
+    collabNs?: string
+    seed?: boolean
+    /** 동기화 서버의 userId → 역할(같은 문서에 편집자·뷰어를 함께 둘 때, WP-173) — seedCollabDoc 의 roles. */
+    collabRoles?: Record<string, CollabRole>
+  },
 ) {
-  if (seed) await seedCollabDoc(collabNs ?? collabNsOf(page), pageId, body, role)
+  if (seed) await seedCollabDoc(collabNs ?? collabNsOf(page), pageId, body, role, collabRoles)
   const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${pageId}`)
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>
     r.request().method() === 'GET'

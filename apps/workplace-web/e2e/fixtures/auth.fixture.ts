@@ -4,7 +4,7 @@ import type { TokenResponse, UserResponse } from '../../src/types/auth'
 import type { RoleResponse } from '../../src/types/role'
 import { createTokenResponse, createUser } from '../factories/auth.factory'
 import { mockApi } from './api-mock'
-import { injectCollabNamespace } from './collab'
+import { collabTestToken, injectCollabNamespace } from './collab'
 
 // 인증 모킹 fixture.
 // - 실제 백엔드 없이 인증된 상태 / 관리자 권한 상태의 page 를 제공.
@@ -248,8 +248,12 @@ type AuthFixtures = {
    * (localStorage 'e2e:collabNs') 병렬 worker·프로젝트·재시도가 동기화 서버의 같은 문서를 공유하지 않는다.
    */
   collabNs: string
-  /** 같은 사용자로 로그인된 두 번째 브라우저 컨텍스트의 page — 같은 collabNs 문서에 붙는다(동시 편집 시나리오). */
-  newAuthedPage: () => Promise<Page>
+  /**
+   * 두 번째 브라우저 컨텍스트의 page — 같은 collabNs 문서에 붙는다(동시 편집 시나리오).
+   * user 를 주면 그 사람으로 로그인한다: /users/me 와 동기화 서버 토큰(uid·name)을 함께 바꿔, 접속자 목록이 다른 사람으로 본다(WP-173).
+   * 주지 않으면 기존처럼 같은 사용자(id 1).
+   */
+  newAuthedPage: (opts?: { user?: Partial<UserResponse> }) => Promise<Page>
 }
 
 export const test = base.extend<AuthFixtures>({
@@ -265,13 +269,16 @@ export const test = base.extend<AuthFixtures>({
   ],
   newAuthedPage: async ({ browser, collabNs }, use) => {
     const contexts: BrowserContext[] = []
-    await use(async () => {
+    await use(async (opts) => {
       // browser.newContext() 는 테스트 러너가 config 의 use(baseURL·뷰포트·serviceWorkers 등)를 기본값으로 넣어 준다.
       const ctx = await browser.newContext()
       contexts.push(ctx)
       await injectCollabNamespace(ctx, collabNs)
       const page = await ctx.newPage()
-      await setupAuthMocks(page, createUser({ aiAvailable: true }), [MOCK_USER_ROLE], createTokenResponse())
+      const user = createUser({ aiAvailable: true, ...opts?.user })
+      // 다른 사람으로 열면 동기화 서버도 그 사람으로 보도록 토큰에 uid·name 을 싣는다(테스트 모드 인증 스텁 규약).
+      const token = opts?.user ? createTokenResponse({ accessToken: collabTestToken(user) }) : createTokenResponse()
+      await setupAuthMocks(page, user, [MOCK_USER_ROLE], token)
       return page
     })
     for (const ctx of contexts) await ctx.close()

@@ -1,13 +1,17 @@
-import type { HocuspocusProvider } from '@hocuspocus/provider'
 import { COLLAB_FRAGMENT, wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
 import type { Extension, Extensions } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import Placeholder from '@tiptap/extension-placeholder'
 import type * as Y from 'yjs'
 
+import type { PresenceAwareness } from '@/lib/collab/presenceAwareness'
+
 import { WikiAiMarkers } from './wikiAiMarkers'
+import { WikiCatchUpHighlight } from './wikiCatchUpHighlight'
 import { WikiImage } from './wikiImageNode'
 import { WikiMention } from './wikiMentionNode'
+import { WikiPresenceCursors } from './wikiPresenceCursors'
+import { WikiRemoteScrollAnchor } from './wikiRemoteScrollAnchor'
 import { WikiUploadPlaceholder } from './wikiUploadPlaceholder'
 
 /**
@@ -17,7 +21,12 @@ import { WikiUploadPlaceholder } from './wikiUploadPlaceholder'
  */
 export function wikiEditorExtensions(o: {
   doc: Y.Doc
-  awareness: HocuspocusProvider['awareness']
+  /** 접속자 awareness — WikiEditor 는 presenceAwarenessOf 덮개를 넘긴다(끊긴 동안 ✦·원격 커서의 마지막 상태를 흐리게 남김, 판정 11). 동기화 꺼짐이면 null. */
+  awareness: PresenceAwareness | null
+  /** 접속자·커서를 숨길지(종단 상태) — WikiEditor 가 상태 변화 때 바꾸고 메타로 다시 그린다. */
+  presenceHiddenRef?: { current: boolean }
+  /** 로그인 사용자 id — 원격 커서에서 내 다른 탭을 빼는 기준(헤더 접속자 목록과 같은 기준). */
+  selfUserIdRef?: { current: number | null }
   mention: Extension
   slash: Extension
   tableShortcuts: Extension
@@ -42,5 +51,15 @@ export function wikiEditorExtensions(o: {
     WikiUploadPlaceholder,
     // 다른 사람의 AI 가 쓰는 자리 ✦ 표식(WP-291) — awareness(서버·다른 접속자의 /ai)에서 읽어 내 화면에만 그린다.
     WikiAiMarkers.configure({ awareness: o.awareness }),
+    // 다른 사람 커서·이름표(WP-292) — awareness 의 user·cursor 를 읽어 내 화면에만 그리고, 내 커서를 알린다.
+    WikiPresenceCursors.configure({
+      awareness: o.awareness,
+      hiddenRef: o.presenceHiddenRef ?? null,
+      selfUserIdRef: o.selfUserIdRef ?? null,
+    }),
+    // 원격 반영에도 내 커서·화면 고정(WP-293) — 스크롤-투-커서는 내 입력일 때만.
+    WikiRemoteScrollAnchor,
+    // 돌아와 따라잡은 변경 잠깐 하이라이트(WP-293) — 내 화면 전용 데코레이션.
+    WikiCatchUpHighlight,
   ]
 }

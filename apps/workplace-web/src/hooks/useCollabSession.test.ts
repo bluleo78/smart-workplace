@@ -181,6 +181,19 @@ describe('useCollabSession', () => {
     expect(last).toMatchObject({ status: 'live', body: 'ready' })
   })
 
+  // WP-173 — 원격 커서·아바타 흐림은 "한 번 동기화된 뒤 끊겨 있는 동안"만. 첫 연결 전·종단은 흐림이 아니다.
+  it('reports stale only while a synced session is disconnected', () => {
+    render(31)
+    const s = last.session
+    expect(last.stale).toBe(false)
+    goLive(s)
+    expect(last.stale).toBe(false)
+    act(() => fake(s).emit('disconnect', { event: { code: 1006, reason: '' } }))
+    expect(last.stale).toBe(true)
+    act(() => fake(s).emit('disconnect', { event: { code: 4403, reason: 'forbidden' } }))
+    expect(last).toMatchObject({ status: 'forbidden', stale: false })
+  })
+
   // 첫 동기화를 못 한 채(동기화 서버 장애·인증 불러오기 실패) 5초가 지나면 skeleton 대신 안내 — 붙으면 본문으로.
   it('turns a never-synced body into the unreachable notice after 5s, then shows the body on sync', () => {
     render(9)

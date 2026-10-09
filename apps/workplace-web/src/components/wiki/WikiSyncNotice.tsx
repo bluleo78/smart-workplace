@@ -141,8 +141,7 @@ export function WikiSyncUnreachable() {
  * 스크롤 영역 맨 앞의 띠 높이가 바뀌면(등장·사라짐·줄바꿈·종류 전환) 본문이 화면에서 밀린 만큼 scrollTop 을 되돌려 제자리에 둔다.
  *
  * 기준은 띠 바로 뒤 본문 칼럼의 화면상 top — 스크롤 영역 안에서 그 위에 있는 건 띠뿐이라, 스크롤 없이 바뀌었다면 띠 때문이다.
- * 브라우저 스크롤 앵커링이 이미 되돌렸으면 밀린 양이 0 이라 이중 보정이 없다(Chromium 은 앵커링, iOS Safari 는 미지원이라 여기서 보정).
- * 스크롤러의 overflow-anchor 는 건드리지 않는다(원격 편집이 화면 위쪽에 들어올 때 앵커링이 필요하다).
+ * 스크롤러는 overflow-anchor:none 이라(WP-293 — 원격 삽입 화면 고정은 WikiRemoteScrollAnchor 가 직접 보정) 브라우저 앵커링이 끼어들지 않는다 — 띠 때문에 밀린 양은 이 훅이 전부 되돌린다(iOS Safari 도 같은 경로).
  * 짧은 문서처럼 더 내릴 여유가 없으면 브라우저가 scrollTop 을 잘라 일부만 보정된다.
  */
 function useKeepContentOnStripResize(

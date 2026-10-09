@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 
+import { type CollabResume } from '@/lib/collab/collabResume'
 import {
   type CollabSession,
   openCollabSession,
   releaseCollabSession,
   retainCollabSession,
+  setCollabSelfUser,
 } from '@/lib/collab/collabSession'
 import {
   type BodyState,
@@ -25,8 +27,16 @@ import {
  */
 export function useCollabSession(
   pageId: number,
-  opts: { readOnly: boolean },
-): { session: CollabSession; status: SyncStatus; readOnly: boolean; body: BodyState } {
+  opts: { readOnly: boolean; userId?: number | null },
+): {
+  session: CollabSession
+  status: SyncStatus
+  readOnly: boolean
+  body: BodyState
+  stale: boolean
+  /** 돌아와 동기화를 마친 마지막 결과(자리 비운 시간·그사이 고친 사람 수) — 토스트·하이라이트용(WP-293). */
+  resume: CollabResume | null
+} {
   // 렌더 중 세션 확보(보유 등록 없음) — 등록·해제는 effect 가 해서 StrictMode 이중 실행에도 수가 맞는다.
   // renewal: 쥐려던 세션이 이미 정리돼 있었을 때 다시 여는 트리거(아래 effect).
   const [renewal, setRenewal] = useState(0)
@@ -42,6 +52,10 @@ export function useCollabSession(
     if (held !== session) setRenewal((n) => n + 1)
     return () => releaseCollabSession(held)
   }, [session])
+
+  // 로그인 사용자 — 돌아와 "N명이 수정" 을 셀 때 내 다른 탭을 빼는 기준(awareness 에 내 상태가 늦게 와도 맞게).
+  const userId = opts.userId ?? null
+  useEffect(() => setCollabSelfUser(session, userId), [session, userId])
 
   const state = useSyncExternalStore(session.subscribe, session.getState)
 
@@ -71,5 +85,9 @@ export function useCollabSession(
   // 본문 자리 — 첫 동기화 전 빈 문서(입력 유도 placeholder)를 보이지 않고, 첫 연결이 안 되면 안내로 바꾼다.
   // 'ready' 면 본문을 보여도 된다. 종단(삭제·권한 없음·로그인 상실·스키마 판 불일치)은 본문 위 자기 안내를 쓴다.
   const body = deriveBodyState({ everSynced: state.everSynced, status })
-  return { session, status, readOnly, body }
+  // 한 번 동기화된 뒤 끊겨 있는 동안 — 원격 커서·접속자 아바타를 흐리게(스펙 §7.1 ② "재연결 중 원격 커서 흐리게").
+  // 칩 상태가 아니라 연결 사실로 본다: VIEWER 는 칩이 'readonly' 라 재연결 중이 칩에 드러나지 않는다.
+  // 흐리게 보일 대상(끊기기 직전 접속자)은 presenceAwarenessOf 덮개가 붙잡아 둔다(판정 11).
+  const stale = state.everSynced && !state.connected && state.terminal === null
+  return { session, status, readOnly, body, stale, resume: state.resume }
 }
