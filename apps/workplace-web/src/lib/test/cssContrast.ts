@@ -19,6 +19,18 @@ export const THEMES = {
   dark: block(/^\.dark \{([\s\S]*?)^\}/m),
 }
 
+/**
+ * 브랜드 테마(ocean·sunset)까지 포함한 6조합 — 브랜드 블록은 일부 토큰만 덮으므로 덮는 블록을 앞에 붙여(oklchOf 는 첫 일치를 쓴다)
+ * 나머지는 기본 라이트/다크 값으로 떨어지게 한다(WP-322).
+ */
+export const BRAND_THEMES = {
+  ...THEMES,
+  'ocean-light': block(/^\.theme-ocean \{([\s\S]*?)^\}/m) + THEMES.light,
+  'ocean-dark': block(/^\.theme-ocean\.dark, \.dark \.theme-ocean \{([\s\S]*?)^\}/m) + THEMES.dark,
+  'sunset-light': block(/^\.theme-sunset \{([\s\S]*?)^\}/m) + THEMES.light,
+  'sunset-dark': block(/^\.theme-sunset\.dark, \.dark \.theme-sunset \{([\s\S]*?)^\}/m) + THEMES.dark,
+}
+
 /** 블록 안 토큰의 oklch(L C h). 줄 시작(공백 뒤)에서만 찾는다 — 다른 토큰 이름의 꼬리와 섞이지 않게. */
 export function oklchOf(body: string, name: string): [number, number, number] {
   const m = new RegExp(`(?:^|\\s)--${name}:\\s*oklch\\(([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)\\)`, 'm').exec(body)
@@ -26,18 +38,39 @@ export function oklchOf(body: string, name: string): [number, number, number] {
   return [Number(m[1]), Number(m[2]), Number(m[3])]
 }
 
-/** oklch → WCAG 상대 휘도(선형 sRGB 가중합). 색역 밖 성분은 0..1 로 자른다(브라우저와 같은 방향). */
-export function luminance([L, C, h]: [number, number, number]): number {
+/** oklch → 선형 sRGB [r,g,b](OKLab 표준 행렬, 색역 밖 성분은 0..1 로 자른다 — 브라우저와 같은 방향). */
+function linearSrgbOf([L, C, h]: [number, number, number]): [number, number, number] {
   const a = C * Math.cos((h * Math.PI) / 180)
   const b = C * Math.sin((h * Math.PI) / 180)
   const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
   const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
   const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3
   const clamp = (v: number) => Math.min(1, Math.max(0, v))
-  const r = clamp(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s)
-  const g = clamp(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s)
-  const bl = clamp(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s)
-  return 0.2126 * r + 0.7152 * g + 0.0722 * bl
+  return [
+    clamp(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+    clamp(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+    clamp(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s),
+  ]
+}
+
+/** 선형 sRGB → WCAG 상대 휘도(가중합). */
+const luminanceOfLinear = ([r, g, b]: number[]) => 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+/** oklch → WCAG 상대 휘도. */
+export const luminance = (lch: [number, number, number]) => luminanceOfLinear(linearSrgbOf(lch))
+
+/** 선형 sRGB 성분 → 감마 인코딩 sRGB(0..1). 반투명 합성은 브라우저처럼 인코딩된 sRGB 에서 한다. */
+const encode = (v: number) => (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055)
+const decode = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+
+/**
+ * 반투명 채움(bg-x/90 등)을 바탕 토큰 위에 합성한 색의 상대 휘도 — hover 처럼 투명도로 칠한 바탕 위 글자 대비를 잴 때 쓴다.
+ * fill 을 alpha 만큼 under 위에 sRGB 로 섞는다(브라우저 합성과 같은 방식).
+ */
+export function compositeLuminance(body: string, fill: string, alpha: number, under: string): number {
+  const f = linearSrgbOf(oklchOf(body, fill)).map(encode)
+  const u = linearSrgbOf(oklchOf(body, under)).map(encode)
+  return luminanceOfLinear(f.map((v, i) => decode(v * alpha + u[i] * (1 - alpha))))
 }
 
 /** 두 상대 휘도의 WCAG 대비. */

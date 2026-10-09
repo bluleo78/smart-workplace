@@ -61,3 +61,18 @@ export async function textContrast(locator: Locator): Promise<number> {
     return (hi + 0.05) / (lo + 0.05)
   })
 }
+
+/**
+ * CSS 변수(디자인 토큰)를 브라우저가 해석한 실제 색 문자열로 푼다 — 요소의 계산값(toHaveCSS·getComputedStyle)과 비교할 때 쓴다.
+ * 토큰 원문(oklch 표기)과 계산값은 표기가 달라 직접 비교하지 않고, 같은 토큰을 칠한 탐침의 계산값을 쓴다(지금 테마 기준).
+ */
+export async function tokenColor(page: Page, token: string): Promise<string> {
+  return page.evaluate((t) => {
+    const probe = document.createElement('span')
+    probe.style.color = `var(${t})`
+    document.body.appendChild(probe)
+    const c = getComputedStyle(probe).color
+    probe.remove()
+    return c
+  }, token)
+}

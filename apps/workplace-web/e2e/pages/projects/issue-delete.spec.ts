@@ -2,6 +2,7 @@
 // window.confirm() 대신 shadcn AlertDialog가 표시되고, 확인/취소가 올바르게 동작하는지 검증.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectTheme, textContrast, withTheme } from '../../fixtures/contrast';
 import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
@@ -129,3 +130,27 @@ test.describe('IssueDetailPage 삭제 확인 AlertDialog (#161)', () => {
     },
   );
 });
+
+// 채움 버튼 글자 대비(WP-322) — 다크 기본 버튼(밝은 primary 위 흰 글자 3.25:1)·라이트 삭제 버튼(밝은 빨강 위 흰 글자 3.6:1)이 AA 미달이던 회귀 방지.
+// 브라우저가 실제로 칠한 색(반투명 다크 삭제 버튼 bg-destructive/60 포함)으로 잰다.
+for (const theme of ['light', 'dark'] as const) {
+  test(`기본·삭제 버튼 글자가 4.5:1 대비를 지킨다 (${theme}) (WP-322)`, async ({ authenticatedPage: page }) => {
+    await withTheme(page, theme);
+    await setupDeleteStubs(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await expectTheme(page, theme);
+
+    // 기본(primary) 버튼 — 본문 편집의 「저장」.
+    await page.getByRole('button', { name: '본문 편집' }).click();
+    const save = page.getByTestId('issue-body-save');
+    await expect(save).toBeVisible();
+    expect(await textContrast(save)).toBeGreaterThanOrEqual(4.5);
+    await page.getByTestId('issue-body-cancel').click();
+
+    // 삭제(destructive) 버튼 — 삭제 확인 다이얼로그의 「삭제」.
+    await page.getByTestId('issue-delete').click();
+    const confirm = page.getByRole('alertdialog').getByRole('button', { name: '삭제' });
+    await expect(confirm).toBeVisible();
+    expect(await textContrast(confirm)).toBeGreaterThanOrEqual(4.5);
+  });
+}

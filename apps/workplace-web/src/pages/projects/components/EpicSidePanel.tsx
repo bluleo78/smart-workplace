@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
 import { useProjectEpics } from '../../../hooks/queries/useProjectEpics';
-import { avatarColorClass } from '../../../lib/avatarColor';
+import { presenceStyle } from '../../../lib/collab/presence';
 import {
   EPIC_DROP_NONE_ID,
   EPIC_PANEL_ZONE_ID,
@@ -263,8 +263,8 @@ function EpicItemButton({
     clip,
   );
   const pct = ep.childCount > 0 ? Math.round((ep.childDoneCount / ep.childCount) * 100) : 0;
-  // avatarColorClass 는 "bg-x-500 text-white" 복합 문자열 — 색점/진행바에는 bg-* 만 사용.
-  const colorBg = avatarColorClass(ep.number).split(' ')[0];
+  // 에픽 색점 — 사람 색 토큰을 번호 기준으로 빌려 쓴다(이전 Tailwind 팔레트 시절부터 아바타 팔레트를 공유, WP-318). 바탕만 쓴다.
+  const colorStyle = presenceStyle(ep.number);
   // 드래그 중에는 상세 링크를 감춘다 — 드롭 상태 표시가 우선이고, 링크가 드롭 대상 위를 가리지 않게.
   const showDetailLink = !activeIssue;
   return (
@@ -285,7 +285,7 @@ function EpicItemButton({
         )}
       >
         <span className="flex items-center gap-2">
-          <span className={cn('h-2 w-2 shrink-0 rounded-full', colorBg)} aria-hidden="true" />
+          <span className="h-2 w-2 shrink-0 rounded-full bg-presence" style={colorStyle} aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate" title={ep.title}>{ep.title}</span>
           {/* 드래그 중인 이슈가 이미 속한 에픽 — 놓아도 변화가 없음을 알린다. */}
           {dropState === 'current' && <span className="text-xs text-muted-foreground">현재</span>}
@@ -307,7 +307,7 @@ function EpicItemButton({
           aria-valuemax={100}
           className="mt-1.5 ml-4 block h-1 overflow-hidden rounded-full bg-muted"
         >
-          <span className={cn('block h-full rounded-full', colorBg)} style={{ width: `${pct}%` }} />
+          <span className="block h-full rounded-full bg-presence" style={{ ...colorStyle, width: `${pct}%` }} />
         </span>
       </button>
       {showDetailLink && (

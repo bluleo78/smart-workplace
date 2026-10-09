@@ -8,6 +8,7 @@
 import type { Page } from '@playwright/test'
 
 import { createPageResponse } from '../../fixtures/api-mock'
+import { tokenColor } from '../../fixtures/contrast'
 import {
   createChannel,
   createChannelMember,
@@ -199,6 +200,14 @@ test.describe('messaging 메시지 본문 기본기', () => {
       await expect(page.getByTestId('message-time-2')).toHaveCount(0)
     },
   )
+
+  test('사람 아바타는 노트 접속자와 같은 색 토큰을 칠한다 (WP-318)', async ({ authenticatedPage: page }) => {
+    // userId 10 → presenceColorIndex 3. 같은 사람이 노트 커서·아바타와 같은 --presence-3 바탕 + --presence-foreground 글자여야 한다.
+    const avatar = page.getByTestId('chat-avatar-10')
+    await expect(avatar).toHaveClass(/bg-presence/)
+    await expect(avatar).toHaveCSS('background-color', await tokenColor(page, '--presence-3'))
+    await expect(avatar).toHaveCSS('color', await tokenColor(page, '--presence-foreground'))
+  })
 
   test(
     'AGENT 메시지는 새 그룹 시작 + 봇 배지 노출',

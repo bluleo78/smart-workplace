@@ -1,10 +1,11 @@
 // 사용자 이니셜 아바타 — 이름/유저명에서 첫 글자 1자를 뽑아 배경색으로 식별.
-// 색·이니셜은 공용 avatarColor 유틸을 재사용한다(중복 팔레트 제거). userId 기반
-// 결정적 매핑이라 같은 사용자는 chat/user 아바타 어디서나 같은 색이 나온다.
+// 색은 사람 색 토큰(bg-presence + presenceStyle, WP-318) — userId 기반 결정적 매핑이라
+// 같은 사용자는 chat/user 아바타·노트 접속자 어디서나 같은 색이 나온다.
 
 import { Bot } from 'lucide-react';
 
-import { avatarColorClass, avatarInitials } from '@/lib/avatarColor';
+import { avatarInitials } from '@/lib/avatarColor';
+import { presenceStyle } from '@/lib/collab/presence';
 
 import type { UserSummary } from '../../types/user';
 
@@ -48,7 +49,8 @@ export function UserAvatar({
       : '';
   return (
     <span
-      className={`relative inline-flex shrink-0 items-center justify-center rounded-full font-medium ${SIZE_CLASS[size]} ${avatarColorClass(user.id)} ${ringClass}`}
+      className={`relative inline-flex shrink-0 items-center justify-center rounded-full font-medium ${SIZE_CLASS[size]} bg-presence text-presence-foreground ${ringClass}`}
+      style={presenceStyle(user.id)}
       title={label}
       aria-label={label}
       data-testid={`user-avatar-${user.id}`}

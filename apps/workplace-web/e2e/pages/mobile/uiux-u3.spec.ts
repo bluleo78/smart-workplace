@@ -9,6 +9,7 @@ import { createIssue, createIssueDetail } from '../../factories/issue.factory'
 import { mailAccount, summary } from '../../factories/mail.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
+import { tokenColor } from '../../fixtures/contrast'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
 const KEY = 'WP'
@@ -33,18 +34,6 @@ async function stubIssueDetail(page: Page, watchers: { userId: number }[] = []) 
   for (const sub of ['labels', 'attachments', 'children']) {
     await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues/${NUM}/${sub}`, (r) => r.fulfill({ json: [] }))
   }
-}
-
-/** CSS 변수(디자인 토큰)를 실제 색으로 풀어 비교용 문자열을 얻는다. */
-async function tokenColor(page: Page, token: string) {
-  return page.evaluate((t) => {
-    const probe = document.createElement('span')
-    probe.style.color = `var(${t})`
-    document.body.appendChild(probe)
-    const c = getComputedStyle(probe).color
-    probe.remove()
-    return c
-  }, token)
 }
 
 function wikiSpace(role: WikiRole): WikiSpace {

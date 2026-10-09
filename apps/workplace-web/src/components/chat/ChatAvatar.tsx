@@ -2,7 +2,8 @@
 // 이미지 URL 이 DTO 에 없으므로 항상 이니셜 폴백을 렌더한다.
 import { Bot } from 'lucide-react'
 
-import { avatarColorClass, avatarInitials } from '@/lib/avatarColor'
+import { avatarInitials } from '@/lib/avatarColor'
+import { presenceStyle } from '@/lib/collab/presence'
 import { cn } from '@/lib/utils'
 import type { UserKind } from '@/types/messaging'
 
@@ -20,9 +21,10 @@ export function ChatAvatar({ userId, name, kind, className }: ChatAvatarProps) {
       data-kind={kind}
       className={cn(
         'relative flex size-8 shrink-0 select-none items-center justify-center rounded-full text-sm font-medium',
-        avatarColorClass(userId),
+        'bg-presence text-presence-foreground',
         className,
       )}
+      style={presenceStyle(userId)}
       aria-hidden
     >
       {avatarInitials(name)}

@@ -1,5 +1,6 @@
 import { createMembership } from '../factories/auth.factory'
 import { expect, test } from '../fixtures/auth.fixture'
+import { tokenColor } from '../fixtures/contrast'
 
 test('홈에 앱 레일이 보이고 상단 GNB는 없다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await page.goto('/')
@@ -78,6 +79,17 @@ test('앱 레일 하단 — 유저 아이콘 hover 시 툴팁 "내 계정" 표�
   const trigger = page.getByTestId('rail-user-menu')
   await trigger.hover()
   await expect(page.getByRole('tooltip', { name: '내 계정' })).toBeVisible()
+})
+
+test('앱 레일 하단 — 내 아바타는 다른 사람 아바타와 같은 사람 색 토큰 + 이니셜이다 (WP-318)', async ({
+  authenticatedPage: page,
+}) => {
+  await page.goto('/')
+  // 기본 로그인 사용자 id=1 → presenceColorIndex 2. 예전 bg-primary/10 아이콘 원 대신 --presence-2 바탕 + --presence-foreground 이니셜.
+  const avatar = page.getByTestId('rail-user-avatar')
+  await expect(avatar).toHaveClass(/bg-presence/)
+  await expect(avatar).toHaveText('테')
+  await expect(avatar).toHaveCSS('background-color', await tokenColor(page, '--presence-2'))
 })
 
 // #120 — 데스크톱(lg) 레일에서 라벨 span 이 lg:hidden 이라 모듈 링크 8개의 accessible name 이

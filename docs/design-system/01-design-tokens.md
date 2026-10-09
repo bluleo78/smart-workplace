@@ -58,7 +58,7 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 | `--muted-foreground` | `oklch(0.5 0 0)` | 중간 회색 | 플레이스홀더, 부가 설명 텍스트 |
 | `--accent` | `oklch(0.955 0.01 264)` | 연한 한색 회색 | hover·active 상태 배경 |
 | `--accent-foreground` | `oklch(0.25 0 0)` | 어두운 회색 | Accent 위 텍스트 |
-| `--destructive` | `oklch(0.577 0.245 27.325)` | 빨간색 | 위험·삭제 액션, 에러 상태 |
+| `--destructive` | `oklch(0.55 0.245 27.325)` | 빨간색 | 위험·삭제 액션, 에러 상태. 삭제 버튼 흰 글자(`--destructive-foreground`) 평소 4.93:1·hover(`/90` 합성) 4.63:1 (WP-322) |
 
 #### Structural Tokens
 
@@ -105,7 +105,7 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 | Token | OKLch 값 | 근사 색상 |
 |-------|----------|-----------|
 | `--primary` | `oklch(0.65 0.2 264)` | 밝은 인디고 |
-| `--primary-foreground` | `oklch(0.985 0 0)` | Near-white |
+| `--primary-foreground` | `oklch(0.18 0 0)` | 거의 검정 — 밝은 primary 위 글자 5.54:1(흰 글자는 3.25:1 로 미달, WP-322) |
 | `--secondary` | `oklch(1 0 0 / 5%)` | 흰색 5% 알파 |
 | `--secondary-foreground` | `oklch(0.93 0 0)` | Near-white |
 | `--muted` | `oklch(1 0 0 / 5%)` | 흰색 5% 알파 |
@@ -113,6 +113,7 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 | `--accent` | `oklch(1 0 0 / 7%)` | 흰색 7% 알파 |
 | `--accent-foreground` | `oklch(0.93 0 0)` | Near-white |
 | `--destructive` | `oklch(0.704 0.191 22.216)` | 밝은 빨간색 |
+| `--destructive-foreground` | `oklch(0.18 0 0)` | 거의 검정 — 밝은 빨강 채움(삭제 버튼·미읽음 배지) 위 6.5:1, hover 5.38:1(흰 글자는 2.77:1, WP-322). 삭제 버튼·배지는 다크에서도 반투명(`/60`) 없이 채운다 |
 
 #### Structural Tokens (Dark)
 
@@ -129,7 +130,7 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 | `--sidebar` | `oklch(0.14 0.02 280)` | 한색 매우 어두운 색 |
 | `--sidebar-foreground` | `oklch(0.93 0 0)` | Near-white |
 | `--sidebar-primary` | `oklch(0.65 0.2 264)` | 밝은 인디고 |
-| `--sidebar-primary-foreground` | `oklch(0.985 0 0)` | Near-white |
+| `--sidebar-primary-foreground` | `oklch(0.18 0 0)` | 거의 검정 (`--primary-foreground` 와 같은 이유, WP-322) |
 | `--sidebar-accent` | `oklch(1 0 0 / 7%)` | 흰색 7% 알파 |
 | `--sidebar-accent-foreground` | `oklch(0.93 0 0)` | Near-white |
 | `--sidebar-border` | `oklch(1 0 0 / 10%)` | 흰색 10% 알파 |
@@ -194,11 +195,11 @@ Smart Workplace의 색상 시스템은 **인디고(h≈264) 계열을 브랜드 
 |-----------|------|---------|
 | `--{status}` | 진한 상태 색상 (아이콘, 배지 배경) | `bg-success text-success-foreground` |
 | `--{status}-foreground` | 상태 배경 위 텍스트 | `<Badge variant="success">` |
-| `--{status}-subtle` | 연한 상태 배경 (알림 박스, 배너) | `bg-success-subtle text-success` |
+| `--{status}-subtle` | 연한 상태 배경 (알림 박스, 배너) | `bg-success-subtle text-success-text` |
 
 ```tsx
 {/* 이슈 상태 배지 */}
-<Badge className="bg-success-subtle text-success">완료</Badge>
+<Badge className="bg-success-subtle text-success-text">완료</Badge>
 
 {/* 메일 동기화 진행 안내 */}
 <div className="bg-info-subtle text-info border border-info/20">동기화 중…</div>
@@ -257,6 +258,7 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 #### 접속자 색 (`--presence-1` … `--presence-8`, `--presence-foreground`) — WP-173
 
 노트 동시 편집에서 "누구인지" 를 구분하는 사람 색. 접속자 아바타 바탕·원격 커서 캐럿·커서 이름표가 같은 색을 쓴다.
+앱 전체 사용자 아바타(`UserAvatar`·`ChatAvatar`·담당자 아바타 스택)와 에픽 색점도 같은 토큰을 쓴다(WP-318 — 같은 `presenceStyle` + `bg-presence text-presence-foreground`, 별칭 없음; 현재 사용자 아바타(앱 헤더·계정 시트·레일 메뉴) 포함). 그래서 같은 사람은 이슈·채팅·노트 어디서나 같은 색이다.
 ✦ AI 표식(본문 ✦ 태그·아바타 ✦ 배지)은 사람 색이 아니라 AI 마커 토큰(`ai-accent`, [07 §7.2](07-iconography.md))을 그대로 쓴다.
 
 | 규칙 | 값 |
@@ -264,7 +266,7 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 | 배정 | `userId` 결정적(`lib/collab/presence.ts` `presenceColorIndex` — 1..8) · awareness 에 색을 싣지 않는다 |
 | 라이트 | 명도 0.5, 색상 25·60·95·140·180·220·255·335°, 글자 `--presence-foreground`(흰색) ≥ 5.4:1 |
 | 다크 | 명도 0.8, 같은 색상, 글자 `--presence-foreground`(oklch 0.18) ≥ 9.5:1, 캐럿/배경 ≥ 10:1 |
-| 금지 | 보라 계열(ai-accent 293° 와 혼동), 하드코딩 hex, 임의 값 클래스(`bg-[var(...)]`), 기존 `avatarColorClass`(Tailwind 500 + 흰 글자, 일부 4.5:1 미달) |
+| 금지 | 보라 계열(ai-accent 293° 와 혼동), 하드코딩 hex, 임의 값 클래스(`bg-[var(...)]`), Tailwind 500 팔레트 + 흰 글자(옛 `avatarColorClass` — 일부 4.5:1 미달, WP-318 에서 제거) |
 | 검증 | `src/lib/collab/presenceTokens.test.ts`(글자 4.5:1·캐럿 3:1) |
 
 요소에는 `presenceStyle(userId)`(React) 또는 `presenceColorVar(userId)`(위젯 DOM)로 `--presence-color` 를 넣는다. React 는 `@theme inline` 에 등록한
@@ -301,14 +303,13 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 | 사용처 | 파일 | 방식 |
 |--------|------|------|
 | 이슈/프로젝트 라벨 색 | `src/lib/labelColors.ts` | `ColorToken`(사용자 선택값, 백엔드 저장) → Tailwind 팔레트 정적 매핑(`bg`/`text`/`dot`, light+dark) |
-| 사용자 아바타 배경색 | `src/lib/avatarColor.ts` | **단일 출처**. `userId` 해시 → 9색 팔레트(`-500 text-white`). `ChatAvatar`·`UserAvatar` 가 공통 사용 |
-| 노트 접속자 색(아바타·원격 커서) | `src/index.css` `--presence-1..8` · `src/lib/collab/presence.ts` | `userId` → 8색 **토큰**(Tailwind 팔레트 아님). 라이트/다크 값이 따로 있고 대비를 테스트로 고정(§1-5 "접속자 색" 소절) |
+| 사용자 아바타·노트 접속자 색(아바타·원격 커서)·에픽 색점 | `src/index.css` `--presence-1..8` · `src/lib/collab/presence.ts` | `userId`(에픽은 번호 — 옛 팔레트 시절부터 아바타 팔레트를 공유) → 8색 **토큰**(Tailwind 팔레트 아님). 리터럴 `bg-presence text-presence-foreground` + `presenceStyle(id)`. 라이트/다크 값이 따로 있고 대비를 테스트로 고정(§1-5 "접속자 색" 소절, WP-318) |
 | 프로젝트 컬러 사각형 | `src/lib/project-color.ts` | key 해시 → `hsl(hue 60% 45%)`(고정 채도/명도, 흰 텍스트) |
 
 **설계 원칙**:
 
-- **테마 무관 고정**: 식별색은 식별 신호이므로 브랜드 테마(Indigo/Ocean/Sunset)나 다크 전환에 **반응하지 않는다**(고정). 따라서 `.theme-*`/`--primary` 에 묶지 않는다. 다크 대응이 필요한 곳(`labelColors`)은 `dark:` 변형으로 명시 처리한다. **예외 — 노트 접속자 색(`--presence-*`)** 은 이름표 글자 대비(4.5:1)를 지키려고 다크에서 밝은 색 + 어두운 글자로 바뀐다(브랜드 테마에는 반응하지 않는다).
-- **단일 출처**: 아바타 색은 `avatarColor.ts` 한 곳에서만 정의한다(과거 `UserAvatar` 내 중복 팔레트는 제거됨, #DS-categorical). **예외 — 노트 동시 편집의 접속자 아바타·원격 커서**는 `--presence-*` 토큰을 쓴다(WP-173 — `avatarColor` 일부 색이 흰 글자 4.5:1 미달). 앱 전체 아바타를 이 토큰으로 통일하는 일은 후속 이슈로 남긴다.
+- **테마 무관 고정**: 식별색은 식별 신호이므로 브랜드 테마(Indigo/Ocean/Sunset)나 다크 전환에 **반응하지 않는다**(고정). 따라서 `.theme-*`/`--primary` 에 묶지 않는다. 다크 대응이 필요한 곳(`labelColors`)은 `dark:` 변형으로 명시 처리한다. **예외 — 사람 색(`--presence-*`, 아바타·노트 접속자)** 은 이름표·이니셜 글자 대비(4.5:1)를 지키려고 다크에서 밝은 색 + 어두운 글자로 바뀐다(브랜드 테마에는 반응하지 않는다).
+- **단일 출처**: 사람 색은 `--presence-*` 토큰 하나다. 앱 아바타·노트 접속자·커서 모두 `collab/presence.ts`(`presenceStyle`·`presenceColorVar`) 하나로 토큰을 고른다(`avatarColor.ts` 는 이니셜만)(WP-318 에서 옛 Tailwind 9색 팔레트 제거 — 일부 색이 흰 글자 4.5:1 미달이었다).
 - **정적 문자열 필수**: Tailwind purge 가 추출하도록 클래스는 인라인 리터럴로 둔다(동적 조립 금지).
 
 > 즉 "컴포넌트엔 시맨틱 토큰만" 규칙의 **유일한 예외가 이 categorical 팔레트**다. 새 식별색이 필요하면 위 유틸 중 하나를 재사용하거나 같은 패턴(정적 팔레트 + 결정적 해시)으로 추가한다.
@@ -436,3 +437,4 @@ Workplace는 Tailwind v4를 사용하며 `tailwind.config.js`가 없다. 대신 
 |------|------|------|
 | 2026-06-06 | v1.0 | 최초 작성 — Workplace `index.css` 기준 Color/테마변형/Radius/Z-Index/Shadow/Tailwind v4 매핑 토큰 정리 |
 | 2026-10-08 | v1.1 | 노트 접속자 색 토큰 `--presence-1..8`·`--presence-foreground`(§1-5) 추가, Tailwind `presence`·`presence-foreground` 색 등록, §1-7 단일 출처·테마 무관 원칙에 접속자 색 예외 명시 (WP-173) |
+| 2026-10-09 | v1.2 | 다크 `--primary-foreground`·`--sidebar-primary-foreground` → `oklch(0.18 0 0)`(5.54:1), 라이트 `--destructive` → `oklch(0.55 0.245 27.325)`(평소 4.93·hover 4.63:1), 다크 `--destructive-foreground` → `oklch(0.18 0 0)`(6.5:1, 삭제 버튼·배지 `dark:bg-destructive/60` 제거), 모바일 AI 캡슐 글리프 `text-primary-foreground`, 다크 스위치 thumb `bg-foreground`, 성공 배지 예시를 `text-success-text` 로 (WP-322). 앱 전체 아바타·에픽 색점을 `--presence-*` 로 통일 (WP-318) |

@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useAuth } from '@/hooks/useAuth'
 import { useLongPress } from '@/hooks/useLongPress'
+import { presenceStyle } from '@/lib/collab/presence'
 import { replaceSlot } from '@/lib/mobile/tabConfig'
 import { ALL_TAB_IDS, MOBILE_TABS, type MobileTabId } from '@/lib/mobile/tabs'
 import { cn, displayNameOf, eulReul, initialOf } from '@/lib/utils'
@@ -160,8 +161,9 @@ export default function AppsPage() {
       // 원 가장자리를 다른 헤더 글리프와 같은 우측 약 16px 선에 맞춘다.
       className="mr-1.5 flex h-11 w-11 shrink-0 items-center justify-center"
     >
-      <Avatar>
-        <AvatarFallback className="bg-primary/10 font-semibold text-primary">{initialOf(displayNameOf(user))}</AvatarFallback>
+      {/* 내 아바타 — 다른 사람 아바타와 같은 사람 색(WP-318). */}
+      <Avatar style={user ? presenceStyle(user.id) : undefined}>
+        <AvatarFallback className="bg-presence font-semibold text-presence-foreground">{initialOf(displayNameOf(user))}</AvatarFallback>
       </Avatar>
     </button>
   )
