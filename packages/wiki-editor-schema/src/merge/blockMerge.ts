@@ -25,8 +25,10 @@ dmp.Diff_Timeout = 0.2
 const EQUAL = 0
 const DELETE = -1
 
-/** 목록 항목 첫 줄 — 0~3칸 들여쓰기 + 글머리(-+*) 또는 번호(1. 1)) + 공백/끝. */
-const LIST_ITEM = /^ {0,3}([-+*]|\d{1,9}[.)])(?:[ \t]|$)/
+/** 목록 글머리 — 글머리(-+*) 또는 번호(1. 1)). LIST_ITEM·ITEM_HEAD 가 함께 쓴다. */
+const MARKER = String.raw`[-+*]|\d{1,9}[.)]`
+/** 목록 항목 첫 줄 — 0~3칸 들여쓰기 + 글머리 + 공백/끝. */
+const LIST_ITEM = new RegExp(String.raw`^ {0,3}(${MARKER})(?:[ \t]|$)`)
 /**
  * 정확 일치 LCS 표 크기 상한(같은 자리 삽입 블록 중복 제거용) — 넘으면 짝 없이 둘 다 남긴다(메모리·시간 보호).
  * 동기화 서버 keepLive 짝짓기(trimmedLcsPairs)도 같은 상한을 쓴다.
@@ -60,14 +62,37 @@ const MAX_MARGIN = 256
  * 빠뜨리면 병합 결과에서 조용히 사라진다(WP-289 리뷰).
  */
 export function splitBlocks(src: string): string[] {
-  const lines = src.split('\n')
+  return splitParsed(src).blocks.map((b) => b.text)
+}
+
+/** splitBlocks + 파싱 토큰 — 병합은 최상위 목록 항목·인용의 토큰 자리를 컨테이너 병합에 넘겨 다시 파싱하지 않는다(seedOf). */
+function splitParsed(src: string): { blocks: SplitBlock[]; tokens: Token[] } {
   const tokens = md.parse(src, {})
-  const out: string[] = []
+  return { blocks: collectBlocks(src.split('\n'), tokens, 0, tokens.length, 0, 0), tokens }
+}
+
+/** markdown-it 토큰 (번역 없이 구조만 쓴다). */
+type Token = ReturnType<typeof md.parse>[number]
+
+/** 나눈 블록 하나 — 원문과 그 여는 토큰 인덱스(토큰 없는 줄 덩어리는 -1). 컨테이너 안을 다시 파싱하지 않고 열 때 쓴다. */
+interface SplitBlock {
+  text: string
+  open: number
+}
+
+/**
+ * splitBlocks 의 핵심 — 이미 파싱한 토큰 범위 [from,to) 에서 level 단계의 블록을 모은다. lines[k] 는 토큰 map 줄 offset + k 에 해당한다.
+ * 컨테이너(목록 항목·인용) 안쪽 자식을 나눌 때, 컨테이너를 연 파싱의 토큰을 그대로 써서 안쪽을 다시 파싱하지 않는다(WP-326 성능 —
+ * 병합은 실시간 문서 잠금 안에서 돈다). 최상위(splitBlocks)는 from 0·level 0·offset 0.
+ */
+function collectBlocks(lines: string[], tokens: Token[], from: number, to: number, level: number, offset: number): SplitBlock[] {
+  const out: SplitBlock[] = []
   const slice = (map: [number, number]) =>
     lines
-      .slice(map[0], map[1])
+      .slice(map[0] - offset, map[1] - offset)
       .join('\n')
-      .replace(/\s+$/, '')
+      // trimEnd 는 정규식 \s 와 같은 공백 집합이다 — /\s+$/ 는 깊게 들여쓴 큰 블록에서 공백 구간마다 되짚어 매우 느렸다(WP-326 성능).
+      .trimEnd()
   // covered 이전 줄은 이미 블록에 들어갔다. 다음 토큰 시작 전까지 남은 줄을 빈 줄 기준으로 끊어 블록으로 싣는다.
   let covered = 0
   const flushUncovered = (until: number) => {
@@ -76,28 +101,28 @@ export function splitBlocks(src: string): string[] {
       const blank = k === until || lines[k].trim() === ''
       if (!blank && start < 0) start = k
       if (blank && start >= 0) {
-        out.push(slice([start, k]))
+        out.push({ text: slice([start + offset, k + offset]), open: -1 })
         start = -1
       }
     }
     covered = Math.max(covered, until)
   }
-  for (let i = 0; i < tokens.length; i++) {
+  for (let i = from; i < to; i++) {
     const t = tokens[i]
-    if (t.level !== 0 || !t.map || t.nesting === -1) continue
-    flushUncovered(t.map[0])
-    covered = Math.max(covered, t.map[1])
+    if (t.level !== level || !t.map || t.nesting === -1) continue
+    flushUncovered(Math.min(t.map[0] - offset, lines.length))
+    covered = Math.max(covered, t.map[1] - offset)
     if (t.type === 'bullet_list_open' || t.type === 'ordered_list_open') {
       const close = t.type.replace('_open', '_close')
       let j = i + 1
-      for (; j < tokens.length && !(tokens[j].level === 0 && tokens[j].type === close); j++) {
+      for (; j < to && !(tokens[j].level === level && tokens[j].type === close); j++) {
         const item = tokens[j]
-        if (item.type === 'list_item_open' && item.level === 1 && item.map) out.push(slice(item.map as [number, number]))
+        if (item.type === 'list_item_open' && item.level === level + 1 && item.map) out.push({ text: slice(item.map as [number, number]), open: j })
       }
       i = j // 다음 반복의 i++ 가 목록 닫힘 토큰을 건너뛴다
       continue
     }
-    out.push(slice(t.map as [number, number]))
+    out.push({ text: slice(t.map as [number, number]), open: i })
   }
   flushUncovered(lines.length)
   return out
@@ -147,6 +172,20 @@ function dice(a: Profile, b: Profile): number {
   let hit = 0
   for (const [g, c] of small) hit += Math.min(c, large.get(g) ?? 0)
   return (2 * hit) / (a.size + b.size)
+}
+
+/**
+ * Dice 유사도가 min 이상임이 공통 앞·뒤만으로 확실한지 — 공통 앞 p 글자·뒤 q 글자(겹치지 않게)는 각각 p-1·q-1 개의 같은 2-gram 을
+ * 양쪽에 준다(다중집합 교집합의 하한). false 는 "모름"이다(실제 유사도는 더 높을 수 있다).
+ */
+function similarityAtLeast(a: string, b: string, min: number): boolean {
+  const limit = Math.min(a.length, b.length)
+  let p = 0
+  while (p < limit && a.charCodeAt(p) === b.charCodeAt(p)) p++
+  let q = 0
+  while (q < limit - p && a.charCodeAt(a.length - 1 - q) === b.charCodeAt(b.length - 1 - q)) q++
+  const size = Math.max(0, a.length - 1) + Math.max(0, b.length - 1)
+  return size > 0 && (2 * (Math.max(0, p - 1) + Math.max(0, q - 1))) / size >= min
 }
 
 /** 두 블록의 글자 2-gram Dice 유사도(0~1) — 같은 블록을 고친 것인지 판단용(가볍고 결정적). */
@@ -447,6 +486,12 @@ export function alignBlocks(base: string[], other: string[]): number[] {
       split(exact)
       continue
     }
+    // 1:1 틈은 짝지을지(유사도 ≥ MIN_SIMILARITY)만 정하면 된다 — 공통 앞·뒤 길이로 유사도 하한을 재서 넘으면 2-gram 프로필 없이 짝짓는다
+    // (결과는 같다). 큰 목록 항목·인용(하위 트리 통째)을 단계마다 프로필로 만드는 비용을 던다(WP-326 성능).
+    if (be - bs === 1 && oe - os === 1 && similarityAtLeast(base[bs], other[os], MIN_SIMILARITY)) {
+      match[bs] = os
+      continue
+    }
     const P = base.slice(bs, be).map(profileOf)
     const Q = other.slice(os, oe).map(profileOf)
     if (P.length * Q.length <= MAX_GAP_CELLS) {
@@ -548,20 +593,42 @@ export interface MergeResult {
   conflicts: number
 }
 
-/** 기준 블록 하나의 결과 — block null 은 결과에서 빠짐(삭제). conflicts 는 AI 쪽으로 정한 단위 수(표는 행 단위로 셀 수 있다). */
-function resolveBlock(base: string, cur: string | null, ai: string | null): { block: string | null; conflicts: number } {
+/** 3-way 해소 결과 — block null 은 결과에서 빠짐(삭제). conflicts 는 AI 쪽으로 정한 단위 수(표는 행 단위로 셀 수 있다). */
+interface Resolved {
+  block: string | null
+  conflicts: number
+}
+
+/** 사람·AI 가 둘 다, 서로 다르게 바꿨는지 — 아니면 한쪽 것을 그대로 쓰면 된다(구조·글자 병합이 필요 없다). */
+function bothChanged(base: string, cur: string | null, ai: string | null): boolean {
+  return cur != null && ai != null && ai !== base && ai !== cur && cur !== base
+}
+
+/**
+ * 글자 조각 하나의 3-way — 구조(표·목록 항목·인용)를 보지 않고 한쪽만 바꿨으면 그쪽, 둘 다 바꿨으면 정확 문맥 글자 패치(실패하면 AI 쪽).
+ * 표 행·칸·구분 줄이 직접 쓴다 — 칸 ` - x ` 가 목록 항목처럼 보여도 목록으로 풀면 안 된다. resolveBlock 의 마지막 길이기도 하다.
+ */
+function resolveText(base: string, cur: string | null, ai: string | null): Resolved {
+  if (bothChanged(base, cur, ai)) {
+    const merged = applyExactPatch(base, ai!, cur!) // 둘 다 바꿈 → 글자 단위
+    return merged == null ? { block: ai, conflicts: 1 } : { block: merged, conflicts: 0 }
+  }
   if (cur == null && ai == null) return { block: null, conflicts: 0 } // 둘 다 지움
   // 사람이 지웠다 — AI 가 그대로 뒀으면 삭제 유지, AI 가 고쳤으면 AI 쪽.
   if (cur == null) return ai === base ? { block: null, conflicts: 0 } : { block: ai, conflicts: 1 }
   // AI 가 지웠다 — 사람이 고쳤어도 AI 쪽(삭제). 적용 직전 리비전으로 되돌릴 수 있다(스펙 §5.1).
   if (ai == null) return { block: null, conflicts: cur !== base ? 1 : 0 }
   if (ai === base || ai === cur) return { block: cur, conflicts: 0 } // AI 가 안 바꿨거나 똑같이 바꿈 → 사람 버전
-  if (cur === base) return { block: ai, conflicts: 0 } // 사람이 안 바꿈 → AI
-  // 둘 다 바꾼 표 — 행 단위로 다시 3-way 병합(다른 셀·다른 행 동시 수정 보존).
-  const table = mergeTable(base, cur, ai)
-  if (table) return table
-  const merged = applyExactPatch(base, ai, cur) // 둘 다 바꿈 → 글자 단위
-  return merged == null ? { block: ai, conflicts: 1 } : { block: merged, conflicts: 0 }
+  return { block: ai, conflicts: 0 } // 사람이 안 바꿈 → AI
+}
+
+/**
+ * 기준 블록 하나의 3-way — 둘 다 바꿨으면 표(행·칸 단위) → 목록 항목·인용(자식 단위, WP-326) 순으로 구조 병합을 해 보고,
+ * 안 되면 글자 단위(resolveText). prev 는 기준본에서 바로 앞 블록(첫 항목 판단 — mergeHead), ctx 는 컨테이너 병합 문맥.
+ */
+function resolveBlock(base: string, cur: string | null, ai: string | null, prev: string | null, ctx: MergeCtx): Resolved {
+  if (!bothChanged(base, cur, ai)) return resolveText(base, cur, ai)
+  return mergeTable(base, cur!, ai!) ?? mergeContainer(base, cur!, ai!, prev, ctx) ?? resolveText(base, cur, ai)
 }
 
 /** GFM 표 구분 줄(| --- | :-: |) — 파이프가 있어야 한다(`---` 만 있는 줄은 setext 제목·구분선). */
@@ -586,15 +653,15 @@ function cellCount(row: string): number {
  * 표 행 하나의 3-way 결과 — 셋 다 있고 둘 다 바꿨으며 칸 수가 같으면 칸마다 따로 합친다(같은 행의 다른 셀 동시 수정 보존).
  * 행 전체 글자 패치는 짧은 셀에서 문맥(앞뒤 8자)이 옆 셀 수정과 겹쳐 실패하기 쉽다. 같은 칸을 둘 다 고쳐 못 합치면 그 칸만 AI 쪽(충돌 1).
  */
-function resolveRow(base: string, cur: string | null, ai: string | null): { block: string | null; conflicts: number } {
-  if (cur == null || ai == null || ai === base || ai === cur || cur === base) return resolveBlock(base, cur, ai)
+function resolveRow(base: string, cur: string | null, ai: string | null): Resolved {
+  if (!bothChanged(base, cur, ai)) return resolveText(base, cur, ai)
   const b = base.split(CELL_PIPE)
-  const c = cur.split(CELL_PIPE)
-  const a = ai.split(CELL_PIPE)
-  if (c.length !== b.length || a.length !== b.length) return resolveBlock(base, cur, ai)
+  const c = cur!.split(CELL_PIPE)
+  const a = ai!.split(CELL_PIPE)
+  if (c.length !== b.length || a.length !== b.length) return resolveText(base, cur, ai)
   let conflicts = 0
   const cells = b.map((cell, k) => {
-    const r = resolveBlock(cell, c[k], a[k])
+    const r = resolveText(cell, c[k], a[k])
     conflicts += r.conflicts
     return r.block!
   })
@@ -616,12 +683,243 @@ function mergeTable(base: string, cur: string, ai: string): { block: string; con
   if (cellCount(c[1]) !== cols || cellCount(a[1]) !== cols) return { block: ai, conflicts: 1 }
   // 머리 줄·구분 줄은 셋 다 있으므로 결과가 늘 있다(양쪽이 다 있으면 null 을 내지 않는다).
   const head = resolveRow(b[0], c[0], a[0])
-  const delimiter = resolveBlock(b[1], c[1], a[1])
+  const delimiter = resolveText(b[1], c[1], a[1])
   const rows = mergeSequence(b.slice(2), c.slice(2), a.slice(2), resolveRow)
   const lines = [head.block!, delimiter.block!, ...rows.blocks]
   // 글자 병합이 셀 경계(|)를 건드려 열 수가 어긋나면 표가 깨진다 — 표 전체를 AI 쪽으로.
   if (!tableLines(lines.join('\n')) || lines.some((r) => cellCount(r) !== cols)) return { block: ai, conflicts: 1 }
   return { block: lines.join('\n'), conflicts: head.conflicts + delimiter.conflicts + rows.conflicts }
+}
+
+/**
+ * 목록 항목 머리 — 0~3칸 들여쓰기 + 글머리 + 공백 1~4칸, 바로 뒤는 공백이 아닌 글자.
+ * 머리 길이가 곧 이어지는 줄의 들여쓰기다(직렬화기는 10번 이상 번호 목록에서 ` 1. ` 처럼 앞을 채워 폭을 맞춘다).
+ * 첫 줄이 비었거나 공백 5칸 이상(들여쓴 코드)이면 맞지 않는다 — 모호하므로 오늘의 길로 둔다.
+ */
+const ITEM_HEAD = new RegExp(String.raw`^( {0,3}(?:${MARKER}) {1,4})(?=\S)`)
+/** 번호 글머리(1. 1)) — 번호 다시 매기기 판단용(mergeHead). */
+const ORDERED_HEAD = /^ {0,3}\d{1,9}[.)] /
+/** 코드 울타리 줄인지(어느 깊이든) — 울타리 안 빈 줄·`>` 는 접두를 다시 붙일 때 표기가 달라져 컨테이너 병합에서 뺀다. */
+function isFenceLine(line: string): boolean {
+  const t = line.trimStart()
+  return t.startsWith('```') || t.startsWith('~~~')
+}
+/**
+ * 컨테이너 재귀 병합 깊이 상한 — 넘으면 그 안쪽 컨테이너는 오늘의 글자 패치로 합친다. 단계마다 합친 블록을 다시 파싱해 검증하므로
+ * 깊이 × 크기 비용이 든다(병합은 실시간 문서 잠금 안에서 돈다 — 깊이 60 중첩 3000줄에서 수 초가 걸렸다). 실제 노트 중첩은 이보다 얕다.
+ */
+const MAX_CONTAINER_DEPTH = 8
+
+/**
+ * 이미 파싱한 컨테이너 자리 — 토큰 배열, 여는 토큰 인덱스, 블록 0번째 줄의 토큰 map 줄 번호.
+ * fenceFree 는 바깥 컨테이너가 이미 울타리 코드 없음을 확인한 자식이라는 뜻(안쪽 줄은 바깥 줄의 부분이라 다시 훑지 않는다).
+ */
+interface Parsed {
+  tokens: Token[]
+  open: number
+  offset: number
+  fenceFree?: boolean
+}
+
+/** 컨테이너 종류 → 그 여는 토큰 종류(markdown-it). */
+const OPEN_TYPE = { item: 'list_item_open', quote: 'blockquote_open' } as const
+
+/**
+ * 병합 한 번(mergeWithSide) 동안의 컨테이너 문맥 — 블록 원문 → 그 블록을 담은 파싱 자리. seed 는 기준본·AI본 최상위(MergeSide 공유,
+ * 읽기 전용), cache 는 현재본 최상위 + 컨테이너를 열며 넣은 자식 자리. 같은 원문은 같은 구조로 읽히므로 원문으로 찾아 다시 파싱하지 않는다.
+ * depth 는 지금 몇 겹 안쪽 컨테이너를 합치는 중인지(MAX_CONTAINER_DEPTH).
+ */
+interface MergeCtx {
+  seed: ReadonlyMap<string, Parsed>
+  cache: Map<string, Parsed>
+  depth: number
+}
+
+/** 나눈 블록 중 목록 항목·인용의 자리를 map 에 넣는다(돌려주는 것도 그 map). */
+function seedOf(split: { blocks: SplitBlock[]; tokens: Token[] }, map: Map<string, Parsed>, fenceFree = false): Map<string, Parsed> {
+  const { tokens } = split
+  for (const b of split.blocks) {
+    const t = b.open >= 0 ? tokens[b.open] : null
+    if (t?.map && (t.type === OPEN_TYPE.item || t.type === OPEN_TYPE.quote)) map.set(b.text, { tokens, open: b.open, offset: t.map[0], fenceFree })
+  }
+  return map
+}
+
+/** 열어 본 컨테이너 — 종류, 머리(목록 글머리 또는 `> `), 걷어 낸 안쪽, 안쪽의 직속 자식 블록과 자식 사이 구분(줄바꿈 1·2개). */
+interface Opened {
+  kind: 'item' | 'quote'
+  head: string
+  content: string
+  kids: string[]
+  seps: string[]
+}
+
+/** 블록 원문의 줄을 걷어 낸다 — 인용은 모든 줄이 `>`·`> …`, 목록 항목은 이어지는 줄이 빈 줄이거나 머리 폭만큼 들여써야 한다(지연 이어짐 금지). */
+function stripContainer(lines: string[]): { kind: Opened['kind']; head: string; inner: string[] } | null {
+  if (lines[0].startsWith('>')) {
+    const inner: string[] = []
+    for (const l of lines) {
+      if (l === '>') inner.push('')
+      else if (l.startsWith('> ')) inner.push(l.slice(2))
+      else return null
+    }
+    return { kind: 'quote', head: '> ', inner }
+  }
+  const m = ITEM_HEAD.exec(lines[0])
+  if (!m) return null
+  const head = m[1]
+  const pad = ' '.repeat(head.length)
+  const inner = [lines[0].slice(head.length)]
+  for (const l of lines.slice(1)) {
+    if (l.trim() === '') inner.push('')
+    else if (l.startsWith(pad)) inner.push(l.slice(pad.length))
+    else return null
+  }
+  return { kind: 'item', head, inner }
+}
+
+/** 여는 토큰과 짝인 닫는 토큰 인덱스. */
+function closeOf(tokens: Token[], open: number): number {
+  const level = tokens[open].level
+  let k = open + 1
+  while (k < tokens.length && !(tokens[k].level === level && tokens[k].nesting === -1)) k++
+  return k
+}
+
+/**
+ * 블록을 단독 파싱해 컨테이너 하나(목록 항목 하나 또는 인용 하나)로만 읽히는지 보고 그 자리를 돌려준다. 구분선 `- - -` 같은 닮은꼴,
+ * 항목이 둘 이상이거나 뒤에 다른 블록이 붙은 경우는 null.
+ */
+function parseContainer(block: string, kind: Opened['kind'], lineCount: number): Parsed | null {
+  const tokens = md.parse(block, {})
+  const top = tokens[0]
+  if (!top?.map || top.map[0] !== 0 || top.map[1] < lineCount) return null
+  const topClose = closeOf(tokens, 0)
+  if (topClose !== tokens.length - 1) return null
+  if (kind === 'quote') return top.type === OPEN_TYPE.quote ? { tokens, open: 0, offset: 0 } : null
+  if (top.type !== 'bullet_list_open' && top.type !== 'ordered_list_open') return null
+  if (tokens[1]?.type !== OPEN_TYPE.item || closeOf(tokens, 1) !== topClose - 1) return null
+  return { tokens, open: 1, offset: 0 }
+}
+
+/**
+ * 목록 항목·인용 블록을 연다(아니거나 모호하면 null). 걷어 낸 안쪽은 원문으로 정확히 되돌릴 수 있어야 하고(stripContainer), 울타리 코드가
+ * 있으면 null(울타리 안 빈 줄을 직렬화기는 `> ` 로 쓰고, 다시 붙일 때 `>` 가 된다). 자식은 컨테이너 파싱 토큰에서 바로 나눈다 — 안쪽을
+ * 따로 파싱하지 않고, 문맥(ctx)에 이 원문의 자리가 있으면 블록 자체도 파싱하지 않는다. register 면 자식 컨테이너 자리를 문맥에 넣는다
+ * (검사용으로만 연 합친 블록은 넣지 않는다). 안쪽이 자식 + 구분(줄바꿈 1·2개)으로 정확히 이어지지 않으면 null.
+ */
+function openContainer(block: string, ctx: MergeCtx, register: boolean): Opened | null {
+  const lines = block.split('\n')
+  const stripped = stripContainer(lines)
+  if (!stripped) return null
+  const { kind, head, inner } = stripped
+  const known = ctx.cache.get(block) ?? ctx.seed.get(block)
+  const cached = known && known.tokens[known.open].type === OPEN_TYPE[kind] ? known : null
+  if (!cached?.fenceFree && inner.some(isFenceLine)) return null
+  const at = cached ?? parseContainer(block, kind, lines.length)
+  if (!at) return null
+  const { tokens, open, offset } = at
+  const found = collectBlocks(inner, tokens, open + 1, closeOf(tokens, open), tokens[open].level + 1, offset)
+  if (found.length === 0) return null
+  if (register) seedOf({ blocks: found, tokens }, ctx.cache, true)
+  const content = inner.join('\n')
+  const kids = found.map((f) => f.text)
+  // 안쪽 = 자식0 + 구분 + 자식1 + … — 구분은 줄바꿈 하나(촘촘) 또는 둘(빈 줄)만.
+  if (!content.startsWith(kids[0])) return null
+  const seps: string[] = []
+  let pos = kids[0].length
+  for (const kid of kids.slice(1)) {
+    const sep = content.startsWith(`\n\n${kid}`, pos) ? '\n\n' : content.startsWith(`\n${kid}`, pos) ? '\n' : null
+    if (sep == null) return null
+    seps.push(sep)
+    pos += sep.length + kid.length
+  }
+  return pos === content.length ? { kind, head, content, kids, seps } : null
+}
+
+/** 안쪽 마크다운을 컨테이너로 다시 감싼다 — stripContainer 의 역. 빈 줄은 인용 `>`, 목록 항목은 빈 줄 그대로. */
+function closeContainer(kind: Opened['kind'], head: string, content: string): string {
+  const pad = kind === 'quote' ? '> ' : ' '.repeat(head.length)
+  return content
+    .split('\n')
+    .map((l, i) => {
+      if (i === 0) return head + l
+      if (l === '') return kind === 'quote' ? '>' : ''
+      return pad + l
+    })
+    .join('\n')
+}
+
+/**
+ * 목록 글머리 3-way — 한쪽만 바꿨으면 그쪽, 둘 다 다르게 바꿨으면 AI 쪽·충돌 1(기존 정책).
+ * 예외: 첫 항목이 아니고 셋 다 같은 구분자(. 또는 ))의 번호면 번호 다시 매기기(항목 넣기·빼기로 밀림)라 AI 쪽으로 두되 충돌로 세지 않는다
+ * — 둘째 이후 번호는 표시용(직렬화기가 다시 매긴다). 첫 항목 번호는 목록 시작 번호라 뜻이 있고, 구분자·글머리 문자가 바뀌면 다른 목록이 된다.
+ */
+function mergeHead(base: string, cur: string, ai: string, first: boolean): { text: string; conflicts: number } {
+  if (cur === base || ai === cur) return { text: ai, conflicts: 0 }
+  if (ai === base) return { text: cur, conflicts: 0 }
+  const delimiter = (h: string) => h.trimEnd().slice(-1)
+  const renumbered =
+    !first && [base, cur, ai].every((h) => ORDERED_HEAD.test(h)) && delimiter(cur) === delimiter(base) && delimiter(ai) === delimiter(base)
+  return { text: ai, conflicts: renumbered ? 0 : 1 }
+}
+
+/** 자식 사이 구분 종류 — 같은 종류 목록 항목끼리(하위 목록 안)는 'list', 그 밖(문단 ↔ 하위 목록 등)은 'item'. */
+function sepCategory(prev: string, next: string): 'list' | 'item' {
+  const k = listKind(prev)
+  return k != null && k === listKind(next) ? 'list' : 'item'
+}
+
+/**
+ * 셋 다 같은 종류 컨테이너(목록 항목 또는 인용)인 블록의 자식 단위 3-way 병합(WP-326). 왜: 컨테이너 전체를 글자 패치하면 한 항목 안
+ * 다른 하위 항목·인용 안 다른 문단을 고쳐도 고친 자리가 가까우면(정확 문맥 8자) 패치가 실패해 AI 쪽이 이겨 사람 수정이 사라졌다.
+ * 안쪽을 열어(openContainer) 직속 자식으로 나누고 mergeSequence(resolveBlock) 로 합친다 — 자식이 다시 목록 항목·인용·표면 재귀한다
+ * (MAX_CONTAINER_DEPTH 까지). 목록 글머리는 따로 3-way(mergeHead) — AI 가 앞에 항목을 넣어 번호가 밀려도(9. → 10. 폭 변화 포함) 사람 수정이 산다.
+ * prev 는 기준본에서 바로 앞 블록(첫 항목 판단). 기준본부터 열어 아니면 바로 null(현재본·AI본은 열지 않는다). 모호하면 null(호출자가 오늘의
+ * 글자 패치 → AI 쪽으로).
+ */
+function mergeContainer(base: string, cur: string, ai: string, prev: string | null, ctx: MergeCtx): Resolved | null {
+  if (ctx.depth >= MAX_CONTAINER_DEPTH) return null
+  const b = openContainer(base, ctx, true)
+  if (!b) return null
+  const c = openContainer(cur, ctx, true)
+  if (!c || c.kind !== b.kind) return null
+  const a = openContainer(ai, ctx, true)
+  if (!a || a.kind !== b.kind) return null
+  // 자식 사이 구분 정책 — 하위 목록 항목 사이(list)와 그 밖(item)을 따로 본다. 그래야 촘촘한 항목 안의 느슨한 하위 목록
+  // (`- a\n  - b\n\n  - c`)도 연다. 같은 범주에서 셋 중 하나라도 구분이 다르면(촘촘함 불일치) null.
+  const policy = new Map<string, string>()
+  for (const o of [b, c, a]) {
+    for (let k = 0; k < o.seps.length; k++) {
+      const cat = sepCategory(o.kids[k], o.kids[k + 1])
+      const known = policy.get(cat)
+      if (known != null && known !== o.seps[k]) return null
+      policy.set(cat, o.seps[k])
+    }
+  }
+  // 기준본 목록의 첫 항목인지(앞 블록과 목록 종류가 다르면 새 목록의 시작) — 시작 번호 판단용.
+  const head = mergeHead(b.head, c.head, a.head, prev == null || listKind(prev) !== listKind(base))
+  const inner: MergeCtx = { ...ctx, depth: ctx.depth + 1 }
+  const merged = mergeSequence(b.kids, c.kids, a.kids, (x, y, z, before) => resolveBlock(x, y, z, before, inner))
+  if (merged.blocks.length === 0) return null
+  let content = merged.blocks[0]
+  for (let k = 1; k < merged.blocks.length; k++) {
+    // 어느 쪽에도 없던 범주의 이웃이 생기면 어떻게 이을지 모른다 — 오늘의 길로.
+    const sep = policy.get(sepCategory(merged.blocks[k - 1], merged.blocks[k]))
+    if (sep == null) return null
+    content += sep + merged.blocks[k]
+  }
+  const block = closeContainer(b.kind, head.text, content)
+  // 합친 자식·머리가 어느 한쪽 그대로면 그쪽 원문을 이미 열어 봤다(같은 구분 정책이라 안쪽도 같다) — 다시 검사하지 않는다.
+  const asSide = [b, c, a].some((o) => o.head === head.text && sameRange(o.kids, 0, o.kids.length, merged.blocks, 0, merged.blocks.length))
+  if (!asSide) {
+    // 한 번 파싱해 검사 — 같은 종류 컨테이너 하나로 읽히고, 같은 머리·안쪽이며, 직속 자식이 합친 자식 그대로여야 한다
+    // (자식이 붙어 한 문단이 되거나 목록이 쪼개지면 다르다). 아니면 오늘의 길로.
+    const back = openContainer(block, ctx, false)
+    if (!back || back.kind !== b.kind || back.head !== head.text || back.content !== content) return null
+    if (!sameRange(back.kids, 0, back.kids.length, merged.blocks, 0, merged.blocks.length)) return null
+  }
+  return { block, conflicts: head.conflicts + merged.conflicts }
 }
 
 /** to[j] 가 j 이후 처음으로 짝지어진 other 인덱스(없으면 len) — 새로 넣은 블록을 어느 기준 블록 앞에 둘지 정한다. */
@@ -711,6 +1009,8 @@ export interface MergeSide {
   B: string[]
   A: string[]
   toA: number[]
+  /** 기준본·AI본 최상위 목록 항목·인용의 파싱 자리 — 컨테이너 병합이 다시 파싱하지 않고 연다(읽기 전용, 재병합 사이 공유). */
+  seed: ReadonlyMap<string, Parsed>
 }
 
 /**
@@ -718,9 +1018,14 @@ export interface MergeSide {
  * 입력은 정규화본·직렬화기 출력이어야 한다(모듈 머리의 입력 규칙).
  */
 export function prepareMergeSide(base: string, ai: string): MergeSide {
-  const B = splitBlocks(base)
-  const A = splitBlocks(ai)
-  return { ai, B, A, toA: alignBlocks(B, A) }
+  const b = splitParsed(base)
+  const a = splitParsed(ai)
+  const B = b.blocks.map((x) => x.text)
+  const A = a.blocks.map((x) => x.text)
+  const seed = new Map<string, Parsed>()
+  seedOf(b, seed)
+  seedOf(a, seed)
+  return { ai, B, A, toA: alignBlocks(B, A), seed }
 }
 
 /**
@@ -729,7 +1034,16 @@ export function prepareMergeSide(base: string, ai: string): MergeSide {
  */
 export function mergeWithSide(side: MergeSide, current: string): MergeResult {
   if (current === side.ai) return { markdown: current, conflicts: 0 }
-  const r = mergeSequence(side.B, splitBlocks(current), side.A, resolveBlock, side.toA)
+  const c = splitParsed(current)
+  // 병합 한 번 동안 사는 컨테이너 문맥 — 현재본 최상위 컨테이너 자리로 시작한다(기준본·AI본 것은 side.seed).
+  const ctx: MergeCtx = { seed: side.seed, cache: seedOf(c, new Map()), depth: 0 }
+  const r = mergeSequence(
+    side.B,
+    c.blocks.map((x) => x.text),
+    side.A,
+    (b, cur, a, prev) => resolveBlock(b, cur, a, prev, ctx),
+    side.toA,
+  )
   return { markdown: joinBlocks(r.blocks), conflicts: r.conflicts }
 }
 
@@ -741,7 +1055,7 @@ function mergeSequence(
   B: string[],
   C: string[],
   A: string[],
-  resolve = resolveBlock,
+  resolve: (base: string, cur: string | null, ai: string | null, prev: string | null) => Resolved,
   toA = alignBlocks(B, A),
 ): { blocks: string[]; conflicts: number } {
   const toC = alignBlocks(B, C)
@@ -764,7 +1078,7 @@ function mergeSequence(
     if (j === B.length) break
     if (toC[j] >= 0) ci = toC[j] + 1
     if (toA[j] >= 0) ak = toA[j] + 1
-    const r = resolve(B[j], toC[j] >= 0 ? C[toC[j]] : null, toA[j] >= 0 ? A[toA[j]] : null)
+    const r = resolve(B[j], toC[j] >= 0 ? C[toC[j]] : null, toA[j] >= 0 ? A[toA[j]] : null, j > 0 ? B[j - 1] : null)
     conflicts += r.conflicts
     if (r.block != null) out.push(r.block)
   }

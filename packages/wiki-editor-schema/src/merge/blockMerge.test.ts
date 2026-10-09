@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import MarkdownIt from 'markdown-it'
+import { describe, expect, it, vi } from 'vitest'
 
 import { alignBlocks, applyExactPatch, closestBase, joinBlocks, mergeMarkdown3, similarity, splitBlocks } from './blockMerge'
+import { docToMarkdown, markdownToDoc } from '../markdown'
 
 // 3-way 블록 병합(WP-289, 스펙 §5.1-3) — 입력은 모두 공용 스키마로 정규화된 마크다운이라고 가정한다(정규화는 collab 이 한다).
 const doc = (...blocks: string[]) => blocks.join('\n\n')
@@ -722,5 +724,218 @@ describe('mergeMarkdown3 — 줄 안 강제 줄바꿈 표기(Task 8 후속)', ()
   // 여기 남은 것은 다른 블록의 사람 수정 옆에서 원문 기준본(줄 끝 공백 둘)을 그대로 넣어도 문단이 두 번 나오지 않는 사례다.
   it('does not duplicate it when the current is the raw base either', () => {
     expect(mergeMarkdown3('앞 문단\n\n가  \n나', '앞 문단 사람\n\n가  \n나', '앞 문단\n\n가\n나').markdown).toBe('앞 문단 사람\n\n가\n나')
+  })
+})
+
+describe('mergeMarkdown3 — 목록 항목·인용 안 자식 단위 병합(WP-326)', () => {
+  // 사람은 한 자식(하위 항목·문단·표 칸)을, AI 는 같은 컨테이너의 다른 자식을 고친다. 고친 자리가 8자 안쪽이라 컨테이너 전체 글자 패치는
+  // 문맥이 겹쳐 실패하고 AI 쪽이 이겼다 — 자식 단위로 다시 3-way 병합해 둘 다 남아야 한다.
+  const normalize = (s: string) => docToMarkdown(markdownToDoc(s)).replace(/\s+$/, '')
+  // 손으로 만든 입력도 운영 입력 규칙(직렬화기 표기)을 지키는지 함께 확인한다.
+  const around = (t: string) => {
+    const s = doc('앞 문단', t, '뒤 문단')
+    expect(normalize(s)).toBe(s)
+    return s
+  }
+
+  it('keeps the person edit to one sub-item and the AI edit to its sibling (nested list)', () => {
+    const base = around('- 준비\n  - 가\n  - 나\n- 다음')
+    const cur = around('- 준비\n  - 가 사람\n  - 나\n- 다음')
+    const ai = around('- 준비\n  - 가\n  - 나 AI\n- 다음')
+    expect(mergeMarkdown3(base, cur, ai)).toEqual({ markdown: around('- 준비\n  - 가 사람\n  - 나 AI\n- 다음'), conflicts: 0 })
+  })
+
+  it('keeps both edits to repeated checklist sub-items whose text repeats', () => {
+    const item = (a: string, b: string) => around(`- 회의 준비\n  - \\[ \\] 확인${a}\n  - \\[ \\] 확인${b}`)
+    expect(mergeMarkdown3(item('', ''), item(' 함', ''), item('', ' 끝'))).toEqual({ markdown: item(' 함', ' 끝'), conflicts: 0 })
+  })
+
+  it('keeps edits to different paragraphs of the same quote', () => {
+    const q = (a: string, b: string) => around(`> 가${a}\n>\n> 나${b}`)
+    expect(mergeMarkdown3(q('', ''), q(' 사람', ''), q('', ' AI'))).toEqual({ markdown: q(' 사람', ' AI'), conflicts: 0 })
+  })
+
+  it('keeps edits to different items of a list inside a quote', () => {
+    const q = (a: string, b: string) => around(`> 메모\n>\n> - 가${a}\n> - 나${b}`)
+    expect(mergeMarkdown3(q('', ''), q(' 사람', ''), q('', ' AI'))).toEqual({ markdown: q(' 사람', ' AI'), conflicts: 0 })
+  })
+
+  it('keeps edits to different cells of a table inside a list item', () => {
+    const t = (x: string, y: string) => around(`- 표\n\n  | 참석 | 발표 |\n  | --- | --- |\n  | ${x} | ${y} |\n\n- 끝`)
+    // 최상위 목록 항목 사이 구분(줄바꿈 하나)은 joinBlocks 정책이라 블록 단위로 비교한다.
+    const out = mergeMarkdown3(t('O', 'X'), t('X', 'X'), t('O', 'O'))
+    expect(out.conflicts).toBe(0)
+    expect(splitBlocks(out.markdown)).toEqual(splitBlocks(t('X', 'O')))
+  })
+
+  it('keeps edits to different cells of a table inside a quote', () => {
+    const t = (x: string, y: string) => around(`> | 참석 | 발표 |\n> | --- | --- |\n> | ${x} | ${y} |`)
+    expect(mergeMarkdown3(t('O', 'X'), t('X', 'X'), t('O', 'O'))).toEqual({ markdown: t('X', 'O'), conflicts: 0 })
+  })
+
+  it('keeps the person edit near the start of an item the AI renumbered', () => {
+    // AI 가 2번 앞에 항목을 넣어 뒤 번호가 밀렸다. 사람은 밀린 짧은 항목 앞쪽을 고쳤다 — 번호와 사람 수정이 겹쳐 글자 패치가 실패했다.
+    const base = around('1. 첫째 항목입니다\n2. 짧음\n3. 마지막 항목입니다')
+    const cur = around('1. 첫째 항목입니다\n2. 꼭 짧음\n3. 마지막 항목입니다')
+    const ai = around('1. 첫째 항목입니다\n2. AI 가 넣은 새 항목\n3. 짧음\n4. 마지막 항목입니다')
+    expect(mergeMarkdown3(base, cur, ai)).toEqual({ markdown: around('1. 첫째 항목입니다\n2. AI 가 넣은 새 항목\n3. 꼭 짧음\n4. 마지막 항목입니다'), conflicts: 0 })
+  })
+
+  it('keeps continuation lines aligned when the AI renumbering widens the marker (9. → 10.)', () => {
+    const items = (n: number, pad: boolean, last: string) =>
+      Array.from({ length: n }, (_, i) => `${pad && i + 1 < 10 ? ' ' : ''}${i + 1}. 항목${i}${i === 8 ? last : ''}`).join('\n')
+    const withSub = (s: string, sub: string) => s.replace(/(\d+\. 항목8[^\n]*)/, `$1\n${sub}`)
+    const base = around(withSub(items(9, false, ''), '   - 가\n   - 나'))
+    const cur = around(withSub(items(9, false, ''), '   - 가 사람\n   - 나'))
+    // AI 가 앞에 항목을 넣어 9번 항목이 10번이 되고 번호 폭이 넓어졌다(직렬화기는 1~9 번에 앞 공백을 붙인다).
+    const aiItems = [' 1. 새 항목', ...items(9, true, '').split('\n').map((l, i) => l.replace(/^ ?\d+\./, `${i + 2 < 10 ? ' ' : ''}${i + 2}.`))].join('\n')
+    const ai = around(withSub(aiItems, '    - 가\n    - 나 AI'))
+    const out = mergeMarkdown3(base, cur, ai)
+    expect(out.conflicts).toBe(0)
+    expect(out.markdown).toBe(around(withSub(aiItems, '    - 가 사람\n    - 나 AI')))
+  })
+
+  it('takes the AI number without a conflict when both sides renumbered an item differently', () => {
+    // 사람은 위에 하나, AI 는 위에 둘을 넣어 같은 항목 번호가 3·4 로 갈렸다 — 둘째 이후 번호는 표시용이라 AI 번호, 충돌 아님.
+    const base = around('1. 가\n2. 짧음\n3. 끝')
+    const cur = around('1. 가\n2. 사람 새\n3. 꼭 짧음\n4. 끝')
+    const ai = around('1. AI 새 하나\n2. AI 새 둘\n3. 가\n4. 짧음 AI\n5. 끝')
+    const out = mergeMarkdown3(base, cur, ai)
+    expect(out.conflicts).toBe(0)
+    expect(splitBlocks(out.markdown)).toContain('4. 꼭 짧음 AI')
+    expect(out.markdown).toContain('사람 새')
+  })
+
+  it('takes the AI start number and counts a conflict when both changed the first item number differently', () => {
+    // 첫 항목 번호는 목록 시작 번호라 뜻이 있다 — 표시용 번호 다시 매기기로 보지 않는다.
+    const base = around('1. 가 항목입니다\n2. 나')
+    const cur = around('3. 가 항목입니다 사람\n4. 나')
+    const ai = around('5. AI 가 항목입니다\n6. 나')
+    expect(mergeMarkdown3(base, cur, ai)).toEqual({ markdown: around('5. AI 가 항목입니다 사람\n6. 나'), conflicts: 1 })
+  })
+
+  it('counts a conflict when the AI changed the number delimiter while the person renumbered', () => {
+    // 구분자(. ↔ ))가 바뀌면 다른 목록이 된다 — 번호 다시 매기기가 아니다(직렬화기는 .만 쓰므로 원문 그대로 넣는다).
+    const out = mergeMarkdown3('1. 가\n2. 나 항목입니다', '1. 가\n3. 나 항목입니다 사람', '1. 가\n4) AI 나 항목입니다')
+    expect(out.conflicts).toBe(1)
+    expect(out.markdown).toContain('4) AI 나 항목입니다 사람')
+  })
+
+  it('keeps edits in a tight item that holds a loose sub-list', () => {
+    // 항목 자신의 자식(문단 ↔ 하위 목록)은 촘촘하고 하위 목록만 느슨하다 — 안쪽의 빈 줄 하나로 항목 전체를 느슨하다고 보면 안 된다.
+    // 공용 직렬화기는 이 모양을 `- a\n\n  - b\n\n  - c` 로 쓰므로(운영 입력엔 안 나온다) 원문 그대로 넣는다.
+    const t = (a: string, c: string) => doc('앞 문단', `- a${a}\n  - b\n\n  - c${c}`, '뒤 문단')
+    const out = mergeMarkdown3(t('', ''), t(' 사람', ''), t('', ' AI'))
+    expect(out.conflicts).toBe(0)
+    expect(splitBlocks(out.markdown)).toEqual(splitBlocks(t(' 사람', ' AI')))
+  })
+
+  it('merges a 60-deep ~3000-line nested list with bounded parsing work (depth cap, no per-level reparse)', () => {
+    // 병합은 실시간 문서 잠금 안에서 돈다 — 깊은 중첩에서 단계마다 하위 트리를 다시 파싱하면 수 초가 걸렸다.
+    // 시계 대신 작업량(markdown-it 파싱 횟수·파싱한 줄 수)을 본다 — 모듈의 파서 인스턴스도 원형 메서드를 쓰므로 원형을 엿본다.
+    const nested = (depth: number, mark: (d: number, k: number) => string) => {
+      const per = Math.floor(3000 / depth) - 1
+      const lines: string[] = []
+      for (let d = 0; d < depth; d++) {
+        lines.push(`${'  '.repeat(d)}- 단계 ${d} 머리`)
+        for (let k = 0; k < per; k++) lines.push(`${'  '.repeat(d + 1)}- 잎 ${d}-${k}${mark(d, k)}`)
+      }
+      return lines.join('\n')
+    }
+    const base = nested(60, () => '')
+    const cur = nested(60, (d, k) => (d === 59 && k === 1 ? ' 사람' : ''))
+    const ai = nested(60, (d, k) => (d === 59 && k === 30 ? ' AI' : ''))
+    const parse = vi.spyOn(MarkdownIt.prototype, 'parse')
+    let out: ReturnType<typeof mergeMarkdown3>
+    let calls: string[]
+    try {
+      out = mergeMarkdown3(base, cur, ai)
+      calls = parse.mock.calls.map(([src]) => String(src))
+    } finally {
+      parse.mockRestore() // 기록도 지워지므로 위에서 먼저 옮겨 둔다
+    }
+    const lines = calls.reduce((n, src) => n + src.split('\n').length, 0)
+    expect(out.markdown).toContain('잎 59-1 사람')
+    expect(out.markdown).toContain('잎 59-30 AI')
+    expect(calls.length).toBeLessThanOrEqual(20)
+    expect(lines).toBeLessThanOrEqual(15 * 3000)
+    // 거친 안전망(시계) — 작업량이 같아도 다른 곳이 크게 느려지면 잡는다. 셋 중 가장 빠른 값만 본다.
+    const times = [0, 1, 2].map(() => {
+      const started = performance.now()
+      mergeMarkdown3(base, cur, ai)
+      return performance.now() - started
+    })
+    expect(Math.min(...times)).toBeLessThan(1500)
+  })
+
+  it('preserves a tight item with a sub-list and a loose item with two paragraphs', () => {
+    const loose = (a: string, b: string) => around(`- 가${a}\n\n  나${b}\n\n- 다`)
+    const out = mergeMarkdown3(loose('', ''), loose(' 사람', ''), loose('', ' AI'))
+    expect(out.conflicts).toBe(0)
+    expect(splitBlocks(out.markdown)).toEqual(splitBlocks(loose(' 사람', ' AI')))
+    expect(splitBlocks(out.markdown)[1]).toBe('- 가 사람\n\n  나 AI')
+  })
+
+  it('falls back to the AI side when the person wrote a lazy continuation line', () => {
+    const base = around('> 가\n>\n> 나')
+    const cur = doc('앞 문단', '> 가 사람\n지연 줄\n>\n> 나', '뒤 문단')
+    const ai = around('> 가\n>\n> 나 AI')
+    expect(mergeMarkdown3(base, cur, ai)).toEqual({ markdown: ai, conflicts: 1 })
+  })
+
+  it('takes the AI child and counts one conflict when both rewrote the same sub-item', () => {
+    // 같은 낱말을 양쪽이 다르게 바꿈 — 그 하위 항목만 AI 쪽(충돌 1), 다른 자식의 사람 수정은 남는다.
+    const base = around('- 준비\n  - 가 항목\n  - 나')
+    const out = mergeMarkdown3(base, around('- 준비 사람\n  - 사람 항목\n  - 나'), around('- 준비\n  - AI 항목\n  - 나'))
+    expect(out).toEqual({ markdown: around('- 준비 사람\n  - AI 항목\n  - 나'), conflicts: 1 })
+  })
+
+  // 무작위 컨테이너(목록·번호 목록·하위 목록·인용)에서 양쪽이 서로 다른 자식을 고치면 둘 다 남고, 결과는 같은 블록 구성으로 다시 읽혀야 한다.
+  const rng = (seed: number) => () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  const WORDS = ['가', '나', '다', '확인', '자료', '보고', 'x', 'ok', '정리']
+  it('keeps both non-overlapping child edits in random small lists and quotes (seeded)', () => {
+    for (let seed = 1; seed <= 300; seed++) {
+      const r = rng(seed)
+      const pick = () => WORDS[Math.floor(r() * WORDS.length)]
+      // 0 글머리+하위, 1 번호+하위, 2 인용 문단, 3 인용 안 목록, 4 인용 안 번호 목록(AI 삽입 시 번호 밀림), 5 느슨한 항목(문단 여럿)
+      const kind = Math.floor(r() * 6)
+      const n = 2 + Math.floor(r() * 4)
+      // 번호 목록(4)은 자식 글이 겹치지 않게 한다 — 번호가 블록 글자에 들어 있어, 같은 글 항목이 번호 밀림 뒤 엉뚱한 사본과 짝지어지는 것은
+      // 최상위 번호 목록에도 있는 기존 짝짓기 한계(WP-326 범위 밖, 보고서 참고)다.
+      const kids = Array.from({ length: n }, (_, i) => `${pick()} ${pick()}${kind === 4 ? ` ${i}` : ''}`)
+      const p = Math.floor(r() * n)
+      let a = Math.floor(r() * (n - 1))
+      if (a >= p) a++
+      const aiInsert = r() < 0.3
+      const build = (ks: string[]) => {
+        if (kind === 0) return `- 머리\n${ks.map((k) => `  - ${k}`).join('\n')}`
+        if (kind === 1) return `1. 머리\n${ks.map((k) => `   - ${k}`).join('\n')}\n2. 꼬리`
+        if (kind === 2) return ks.map((k) => `> ${k}`).join('\n>\n')
+        if (kind === 3) return `> 머리\n>\n${ks.map((k) => `> - ${k}`).join('\n')}`
+        if (kind === 4) return ks.map((k, i) => `> ${i + 1}. ${k}`).join('\n')
+        return `- 머리\n\n${ks.map((k) => `  ${k}`).join('\n\n')}\n\n- 꼬리`
+      }
+      const curKids = kids.map((k, i) => (i === p ? `${k} 사람ZQ` : k))
+      const aiKids = kids.map((k, i) => (i === a ? `${k} AIZQ` : k))
+      if (aiInsert) aiKids.splice(Math.floor(r() * (n + 1)), 0, '새 자식 AINEW')
+      const wrap = (s: string) => doc('앞 문단', s, '뒤 문단')
+      const [base, cur, ai] = [kids, curKids, aiKids].map((ks) => normalize(wrap(build(ks))))
+      const msg = `seed ${seed} kind ${kind}\n${base}\n---\n${cur}\n---\n${ai}`
+      const out = mergeMarkdown3(base, cur, ai)
+      expect(out.markdown, msg).toContain('사람ZQ')
+      expect(out.markdown, msg).toContain('AIZQ')
+      if (aiInsert) expect(out.markdown, msg).toContain('AINEW')
+      expect(out.conflicts, msg).toBe(0)
+      // 다시 읽어도 같은 블록 구성(컨테이너 종류·개수)이어야 한다 — 목록이 쪼개지거나 인용이 풀리면 안 된다.
+      const shape = (s: string) => splitBlocks(s).map((b) => b[0])
+      expect(shape(out.markdown), msg).toEqual(shape(ai))
+      // 직렬화기를 거쳐도 블록이 그대로여야 한다(최상위 느슨한 목록 항목 사이 빈 줄은 joinBlocks 정책상 줄바꿈 하나라 블록으로 비교).
+      expect(splitBlocks(normalize(out.markdown)), msg).toEqual(splitBlocks(out.markdown))
+    }
   })
 })
