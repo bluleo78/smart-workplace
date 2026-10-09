@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
+import { pressMacChromeImeEnter } from '../../fixtures/ime';
 import { installFakeViewport, setKeyboard } from '../../fixtures/keyboard';
 import { expect, expectNoHorizontalOverflow, historyMarks, stubChat, test } from '../../fixtures/mobile.fixture';
 import { trackRequests } from '../../fixtures/requests';
@@ -79,6 +80,19 @@ test.describe('생성 시트', () => {
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('issue-create-body')).toBeFocused();
     expect(await title.inputValue()).not.toContain('\n');
+  });
+
+  test('한글 IME — 조합 Enter 와 확정 직후 꼬리 Enter 로는 설명으로 넘어가지 않고, 다음 Enter 에 이동(WP-331)', async ({ authenticatedPage: page }) => {
+    await mockCreate(page);
+    await openSheet(page);
+    const title = page.getByTestId('issue-create-title');
+    await title.fill('결제 오류');
+    await pressMacChromeImeEnter(title, '류');
+    // 마지막 글자 확정만 — 제목 칸에 머물고 개행도 들어가지 않는다.
+    await expect(title).toBeFocused();
+    await expect(title).toHaveValue('결제 오류');
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('issue-create-body')).toBeFocused();
   });
 
   test('내용이 있으면 취소·Esc 모두 버림 확인 — 계속 작성/버리기', async ({ authenticatedPage: page }) => {

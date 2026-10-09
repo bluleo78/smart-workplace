@@ -15,7 +15,7 @@ import { RenameDialog } from '@/components/ui/rename-dialog'
 import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
-import { isImeComposing } from '@/lib/imeKey'
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { normalizeSingleLineInput } from '@/lib/singleLine'
 import { cn } from '@/lib/utils'
 
@@ -82,13 +82,6 @@ import { createTitleSaver, initTitleSync, needsTitleSave, type TitleSaver, title
 /** 제목 저장 디바운스 — 제목은 짧은 REST 저장(나중 값 우선)이라 타이핑마다 보내지 않고 잠깐 모아 보낸다. */
 const TITLE_SAVE_DEBOUNCE_MS = 400
 
-/**
- * 조합 확정 직후 따라오는 Enter 를 무시하는 시간(ms) — macOS Chrome 한글 IME 는 조합 중 Enter 를 isComposing keydown 으로 보낸 뒤
- * compositionend 와 함께 조합이 아닌 Enter keydown 을 한 번 더 보낸다(같은 키 입력이라 몇 ms 안). 시간으로 거르는 이유:
- * Windows Chrome·Firefox 는 뒤따르는 Enter 를 보내지 않으므로 기한 없이 "다음 Enter 무시"를 걸면 사용자의 진짜 Enter 를 삼킨다.
- */
-const IME_TRAILING_ENTER_MS = 100
-
 /** 접속자 없음(종단) — 렌더마다 새 배열을 만들지 않게 고정. */
 const NO_PEOPLE: PresencePerson[] = []
 
@@ -138,8 +131,8 @@ export function WikiEditor({
   // 제목 입력란 — 긴 제목이 글자 중간에서 잘리지 않게 여러 줄로 감싸고, 값·폭이 바뀌면 높이를 다시 맞춘다(WP-315·317).
   const titleFieldRef = useRef<HTMLTextAreaElement>(null)
   useAutoGrowTextarea(titleFieldRef, title)
-  // 마지막 compositionend 시각(이벤트 timeStamp) — 확정 직후 따라오는 Enter 한 번을 본문 이동으로 보지 않는다(IME_TRAILING_ENTER_MS).
-  const titleCompositionEndRef = useRef(Number.NEGATIVE_INFINITY)
+  // 제목 Enter → 본문 이동. 한글 IME 조합 Enter·확정 직후 꼬리 Enter 는 이동으로 보지 않는다(WP-331 공용 훅).
+  const titleEnter = useSingleLineEnter()
 
   // 역할 게이트 — OWNER|EDITOR 만 /ai 슬래시 사용. VIEWER 면 메뉴 미노출.
   const { data: spaces, isPending: spacesPending } = useWikiSpaces()
@@ -934,26 +927,16 @@ export function WikiEditor({
                 titleSaverRef.current?.flush()
                 dispatchTitle({ type: 'blur' })
               }}
-              onCompositionEnd={(e) => {
-                titleCompositionEndRef.current = e.timeStamp
-              }}
+              onCompositionEnd={titleEnter.onCompositionEnd}
               onKeyDown={(e) => {
                 // Enter 는 제목에 줄바꿈을 넣지 않고(이후 타이핑이 제목에 이어붙는 것도 막고)
                 // 본문 에디터로 포커스를 넘긴다(#786).
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  // 한글 IME 조합 중 Enter 는 글자 확정용 — 본문으로 옮기지 않는다(Safari 는 확정 뒤 keyCode 229 로 온다).
-                  if (isImeComposing(e.nativeEvent)) return
-                  // macOS Chrome 은 확정 직후 조합 아닌 Enter 를 한 번 더 보낸다 — 그 한 번만 무시한다(한 번 쓰면 지운다).
-                  if (e.timeStamp - titleCompositionEndRef.current < IME_TRAILING_ENTER_MS) {
-                    titleCompositionEndRef.current = Number.NEGATIVE_INFINITY
-                    return
-                  }
+                titleEnter.handleEnter(e, () => {
                   // commands.focus 는 다음 animation frame 에 포커스를 옮겨, Enter 직후 빠른 타이핑의 앞 글자가
                   // 제목에 붙는다 → view.focus() 로 동기 이동 후 커서만 시작으로 둔다.
                   editor?.view.focus()
                   editor?.commands.focus('start')
-                }
+                })
               }}
               placeholder="제목 없음"
               className={`mb-4 block w-full resize-none overflow-hidden border-0 bg-transparent p-0 break-words break-keep outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}

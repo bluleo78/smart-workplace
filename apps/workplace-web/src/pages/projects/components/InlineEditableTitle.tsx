@@ -8,7 +8,7 @@ import { useRef, useState } from 'react';
 
 import { Input } from '@/components/ui/input';
 import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
-import { isImeComposing } from '@/lib/imeKey';
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 import { toSingleLine } from '@/lib/singleLine';
 import { cn } from '@/lib/utils';
 
@@ -72,6 +72,9 @@ export function InlineEditableTitle({
 
   const cancel = () => setEditing(false);
 
+  // Enter 저장 — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 저장으로 보지 않는다(WP-331).
+  const enterKey = useSingleLineEnter();
+
   // 모바일 하단 편집 바 — 편집 중에만 저장(commit)·취소 컨트롤을 올린다(최신 draft 의 commit 은 훅이 ref 로 부름).
   useEditBarControls(editing, { save: commit, cancel, disabled }, onEditingChange);
 
@@ -99,7 +102,7 @@ export function InlineEditableTitle({
   }
 
   if (!commitOnBlur) {
-    // 모바일 — 자동 확장 textarea(rows=1). Enter 는 줄바꿈이 아니라 저장(R5), Esc 취소. 한글 조합 중 Enter 는 조합 확정이라 무시.
+    // 모바일 — 자동 확장 textarea(rows=1). Enter 는 줄바꿈이 아니라 저장(R5), Esc 취소. 한글 조합·확정 꼬리 Enter 는 무시.
     // 제목은 한 줄 값이라 붙여넣은 줄바꿈은 공백으로 바꾼다. 글자 크기는 표시 모드(h1 text-2xl)와 같게 — 터치 16px 강제 규칙(index.css)은
     // 16px 미만 확대 방지용이라 24px 는 important 로 덮어도 안전하다.
     return (
@@ -113,13 +116,10 @@ export function InlineEditableTitle({
         value={draft}
         disabled={disabled}
         onChange={(e) => setDraft(toSingleLine(e.target.value))}
+        onCompositionEnd={enterKey.onCompositionEnd}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !isImeComposing(e.nativeEvent)) {
-            e.preventDefault();
-            commit();
-          } else if (e.key === 'Escape') {
-            cancel();
-          }
+          if (enterKey.handleEnter(e, commit)) return;
+          if (e.key === 'Escape') cancel();
         }}
       />
     );
@@ -134,12 +134,12 @@ export function InlineEditableTitle({
       disabled={disabled}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
+      onCompositionEnd={enterKey.onCompositionEnd}
       onKeyDown={(e) => {
-        // 데스크톱 — Enter 는 blur 로 단일 저장 경로에 합류, Esc 는 다음 blur 저장을 1회 건너뛴다.
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          e.currentTarget.blur();
-        } else if (e.key === 'Escape') {
+        // 데스크톱 — Enter 는 blur 로 단일 저장 경로에 합류(한글 조합·확정 꼬리 Enter 제외), Esc 는 다음 blur 저장을 1회 건너뛴다.
+        const input = e.currentTarget;
+        if (enterKey.handleEnter(e, () => input.blur())) return;
+        if (e.key === 'Escape') {
           skipCommitRef.current = true;
           e.currentTarget.blur();
         }

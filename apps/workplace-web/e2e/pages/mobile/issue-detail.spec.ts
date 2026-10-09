@@ -6,6 +6,7 @@ import { createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
+import { pressMacChromeImeEnter } from '../../fixtures/ime';
 import { installFakeViewport, setKeyboard } from '../../fixtures/keyboard';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 import { bodyOf, trackRequests } from '../../fixtures/requests';
@@ -439,6 +440,22 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
     await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ title: '짧은 제목' });
+  });
+
+  test('한글 IME — 조합 Enter 와 확정 직후 꼬리 Enter 로는 저장하지 않고, 다음 Enter 에 저장(WP-331)', async ({ authenticatedPage: page }) => {
+    const calls = await mockDetail(page);
+    await openDetail(page);
+    await page.getByTestId('issue-title-edit').click();
+    const input = page.getByTestId('issue-title-input');
+    await input.fill('새 제목');
+    await pressMacChromeImeEnter(input, '목');
+    // 마지막 글자 확정만 — 편집 바가 그대로이고 PATCH 도 없다. 꼬리 Enter 로 개행이 들어가지도 않는다.
+    await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
+    await expect(input).toHaveValue('새 제목');
+    await expectStays(page, () => calls().filter((c) => c.method === 'PATCH').length, 0);
+    await input.press('Enter');
+    await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
+    await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ title: '새 제목' });
   });
 
   test('제목 편집 취소는 PATCH 없음', async ({ authenticatedPage: page }) => {

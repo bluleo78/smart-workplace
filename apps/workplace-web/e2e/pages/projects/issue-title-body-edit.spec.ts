@@ -4,6 +4,7 @@
 // GET 스텁이 currentTitle/currentBody 를 추적해야 변경 후 새 값이 렌더된다.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { pressMacChromeImeEnter } from '../../fixtures/ime';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
@@ -119,6 +120,25 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await expect.poll(() => stub.patches().length).toBeGreaterThanOrEqual(1);
     expect(stub.patches().at(-1)).toEqual({ title: '수정된 제목' });
     await expect(page.getByTestId('issue-title-heading').getByText('수정된 제목')).toBeVisible();
+  });
+
+  test('macOS Chrome 한글 IME — 조합 Enter 와 확정 직후 꼬리 Enter 로는 저장하지 않고, 다음 Enter 에 저장(WP-331)', async ({
+    authenticatedPage: page,
+  }) => {
+    const stub = await setupStubs(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await expect(page.getByTestId('issue-title-heading').getByText('원본 제목')).toBeVisible();
+
+    await page.getByRole('button', { name: '제목 편집' }).click();
+    const input = page.getByTestId('issue-title-input');
+    await input.fill('수정된 제목');
+    await pressMacChromeImeEnter(input, '목');
+    // 마지막 글자 확정만 — 편집이 그대로 열려 있고 PATCH 도 없다.
+    await expect(input).toBeFocused();
+    await expectStays(page, () => stub.patches().length, 0);
+    // 무시는 한 번뿐 — 이어 누른 Enter 는 저장한다.
+    await input.press('Enter');
+    await expect.poll(() => stub.patches().at(-1)).toEqual({ title: '수정된 제목' });
   });
 
   test('제목을 공백으로 비우면 저장 차단(PATCH 없음) + 원본 복귀', async ({ authenticatedPage: page }) => {
