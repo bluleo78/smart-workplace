@@ -29,6 +29,18 @@ const EXT_MIME: Record<string, string> = {
   htm: 'text/html',
   xlsx: XLSX_MIME,
   docx: DOCX_MIME,
+  // 영상·오디오(WP-281) — resolvePreviewKind 가 video/·audio/ 계열로 받는다. 재생 가능 여부는 브라우저 코덱 몫(못 틀면 미지원 화면).
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
 }
 
 /** 내용을 말해 주지 않는 범용 형식 — 이 형식이면 파일명으로 추론한다. */
@@ -45,6 +57,10 @@ const MIME_ALIASES: Record<string, string> = {
   'application/x-pdf': 'application/pdf',
   'image/jpg': 'image/jpeg',
   'image/pjpeg': 'image/jpeg',
+  // 오디오 비표준 이름(일부 메일 클라이언트·구형 브라우저 업로드) — 공유 File 형식도 표준 이름이 되게(WP-281).
+  'audio/x-wav': 'audio/wav',
+  'audio/mp3': 'audio/mpeg',
+  'audio/x-m4a': 'audio/mp4',
 }
 
 /** `;` 뒤 파라미터를 떼고 소문자·별칭 정규화. 비면 ''. */

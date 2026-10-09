@@ -13,6 +13,8 @@ export type PreviewKind =
   | 'CSV'
   | 'XLSX'
   | 'DOCX'
+  | 'VIDEO'
+  | 'AUDIO'
   | 'UNSUPPORTED'
 
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -28,6 +30,10 @@ export function resolvePreviewKind(mimeType: string): PreviewKind {
   if (mimeType === 'text/csv' || mimeType === 'application/csv') return 'CSV'
   if (mimeType === XLSX_MIME) return 'XLSX'
   if (mimeType === DOCX_MIME) return 'DOCX'
+  // 영상·오디오는 형식 계열 전체를 받는다(WP-281) — 실제 재생 가능 여부(코덱)는 브라우저만 알므로
+  // .avi·.mkv·HEVC .mov 처럼 못 트는 것은 플레이어의 error 이벤트에서 미지원 화면으로 바꾼다.
+  if (mimeType.startsWith('video/')) return 'VIDEO'
+  if (mimeType.startsWith('audio/')) return 'AUDIO'
   if (
     mimeType.startsWith('text/') ||
     mimeType === 'application/json' ||

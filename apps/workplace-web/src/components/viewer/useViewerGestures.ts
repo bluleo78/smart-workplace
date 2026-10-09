@@ -7,6 +7,7 @@
 // 끌기 중 이동은 React 상태가 아니라 무대 style 에 직접 쓴다 — 프레임마다 뷰어 전체가 다시 그려지지 않게.
 import { useEffect, useRef } from 'react'
 
+import { MEDIA_ELEMENT_SELECTOR } from './MediaPlayer'
 import {
   decideDismiss,
   decideSwipe,
@@ -15,14 +16,17 @@ import {
   dragOffset,
   focusFraction,
   type GestureLock,
+  inScrubZone,
   isDoubleTap,
   isTapDuration,
   lockGesture,
+  type MediaElementKind,
   pickAnchorIndex,
   pinchZoom,
   releaseVelocity,
   roundZoom,
   type Sample,
+  tapTogglesBars,
   type ZoomFocus,
 } from './viewerGestures'
 
@@ -50,6 +54,8 @@ export interface ViewerGestureOptions {
   zoomable: boolean
   /** 확대 확정 — anchor 의 기준 비율 지점이 화면의 같은 자리(anchor.x·y)에 남게 호출부가 레이아웃 뒤 스크롤을 맞춘다. */
   onZoom: (next: number, anchor: ZoomAnchor | null) => void
+  /** 현재 형식이 영상·오디오인가(WP-281) — 재생 막대 구역 제외·탭 규칙(tapTogglesBars)에 쓴다. */
+  media?: MediaElementKind | null
 }
 
 /** 한 손가락 추적 상태 — 시작 시점의 스크롤 여유를 함께 들고 있어 첫 이동 판정에 쓴다. */
@@ -68,6 +74,10 @@ interface OneFinger {
    */
   width: number
   height: number
+  /** 미디어 요소(<video>/<audio>) 위에서 시작했는가 — 그 위 탭은 네이티브 컨트롤 몫(tapTogglesBars). */
+  onMedia: boolean
+  /** 재생 막대 구역에서 시작했는가 — 끌기를 넘김·닫기로 쓰지 않는다(lockGesture). */
+  inScrubZone: boolean
   /**
    * 브라우저가 이미 스크롤을 가져갔는가 — 취소할 수 없는(cancelable=false) touchmove 가 왔으면 참.
    * 이 상태에서 두 번째 손가락이 닿아도 핀치 미리보기를 걸지 않는다(네이티브 팬 위에 scale 이 겹치고, 확정 기준점도 이미 밀려 있다).
@@ -189,8 +199,11 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       const [a, b] = [e.touches[0], e.touches[1]]
       return { dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), midX: (a.clientX + b.clientX) / 2, midY: (a.clientY + b.clientY) / 2 }
     }
-    /** 움직임 없이 짧게 끝난 터치 — 두 번 탭이면 확대 전환, 아니면 지연 뒤 onTap(판정 R6). */
-    const handleTap = (s: Sample) => {
+    /**
+     * 움직임 없이 짧게 끝난 터치 — 두 번 탭이면 확대 전환, 아니면 지연 뒤 onTap(판정 R6).
+     * onMedia — 미디어 요소 위 탭은 컨트롤 표시 몫이라 바를 토글하지 않는다(오디오 형식은 어디든, tapTogglesBars).
+     */
+    const handleTap = (s: Sample, onMedia: boolean) => {
       const o = latest.current
       if (o.zoomable && isDoubleTap(lastTap, s)) {
         // 두 번 탭 — 대기 중인 단일 탭(바 토글)을 취소하고 1× ↔ 2×(탭 지점 기준, 판정 R9).
@@ -201,6 +214,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
       }
       lastTap = s
       clearTimeout(tapTimer)
+      if (!tapTogglesBars({ media: o.media ?? null, onMediaElement: onMedia })) return
       tapTimer = setTimeout(() => {
         lastTap = null
         latest.current.onTap?.()
@@ -286,8 +300,12 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         return
       }
       const t = e.touches[0]
+      // 시작점 아래 미디어 요소 — 네이티브 컨트롤은 shadow DOM 이라 대상이 요소 자신으로 보정되어 온다.
+      const mediaEl = target.closest(MEDIA_ELEMENT_SELECTOR)
       track = {
         kind: 'one',
+        onMedia: !!mediaEl,
+        inScrubZone: !!mediaEl && inScrubZone(t.clientY, mediaEl.getBoundingClientRect(), mediaEl.tagName === 'AUDIO' ? 'audio' : 'video'),
         lock: 'pending',
         startX: t.clientX,
         startY: t.clientY,
@@ -332,6 +350,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
           zoom: o.zoom,
           // 1.01 — scale 은 1.0000001 같은 부동소수로 올 수 있어 여유를 둔다.
           pageZoomed: (window.visualViewport?.scale ?? 1) > 1.01,
+          inScrubZone: track.inScrubZone,
         })
       }
       if (track.lock === 'swipe') {
@@ -378,7 +397,7 @@ export function useViewerGestures(stage: HTMLElement | null, opts: ViewerGesture
         else settle()
       } else if (cur.lock === 'pending' && e.touches.length === 0 && isTapDuration(cur.samples[0].t, e.timeStamp)) {
         // 판정 임계(6px) 안에서 짧게(500ms 미만) 끝난 터치 = 탭. 길게 누르기는 탭이 아니다.
-        handleTap({ t: e.timeStamp, x: t.clientX, y: t.clientY })
+        handleTap({ t: e.timeStamp, x: t.clientX, y: t.clientY }, cur.onMedia)
         return
       }
       // 탭이 아닌 제스처(넘김·닫기·스크롤·길게 누르기)가 끼면 두 번 탭 판정을 끊는다.

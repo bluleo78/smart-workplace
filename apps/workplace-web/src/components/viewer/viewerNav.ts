@@ -21,18 +21,54 @@ export interface KeyContext {
   inHorizontalScroller: boolean
   /** 현재 형식이 확대 대상인지(이미지·PDF). */
   zoomable: boolean
+  /** 현재 형식이 영상·오디오인지(WP-281) — 없으면 문서·이미지. */
+  media?: 'video' | 'audio' | null
+  /**
+   * 포커스가 미디어 요소(재생 막대 등 네이티브 컨트롤 포함) 안인가 — 컨트롤은 shadow DOM 이라 이벤트 대상이 `<video>`/`<audio>` 로 보정되어 온다.
+   */
+  inMedia?: boolean
+  /** 버튼·링크 같은 조작 요소 위인가 — Space 는 그 요소의 활성화 몫으로 남긴다. */
+  onControl?: boolean
+  /** 미디어가 전체화면 중인가(document.fullscreenElement). */
+  fullscreen?: boolean
+  /** 키를 누르고 있어 반복되는 keydown 인가 — Space 반복으로 재생/정지가 계속 뒤집히지 않게. */
+  repeat?: boolean
 }
 
-export type ViewerAction = 'prev' | 'next' | 'zoomIn' | 'zoomOut' | 'zoomReset' | null
+export type ViewerAction =
+  | 'prev'
+  | 'next'
+  | 'zoomIn'
+  | 'zoomOut'
+  | 'zoomReset'
+  | 'playPause'
+  | 'seekBack'
+  | 'seekForward'
+  | null
 
-/** 키 → 뷰어 동작. Esc 는 Radix Dialog(+useAiPanelAwareDialog)가 처리하므로 다루지 않는다. */
+/**
+ * 키 → 뷰어 동작.
+ * - Esc 는 다루지 않는다 — Radix Dialog(+useAiPanelAwareDialog)가 닫고, 전체화면 가드(스펙 §5.3 #7)는 뷰어의 onEscapeKeyDown 이 한다.
+ * - ←/→: 영상·오디오에 포커스가 있거나 전체화면이면 탐색(±5초), 그 외는 파일 넘김(스펙 §5.3 #6).
+ * - Space: 영상·오디오 형식이면 재생/정지 — 단 버튼·링크 위에서는 그 요소의 활성화 몫(전체화면 중 제외),
+ *   미디어 요소 자신에 포커스가 있으면 네이티브 컨트롤 몫(null). 문서는 null(브라우저 스크롤).
+ */
 export function routeKey(ctx: KeyContext): ViewerAction {
   if (ctx.ctrlOrMeta || ctx.inAiPanel || ctx.inEditable) return null
+  // 미디어 탐색 — 미디어에 포커스가 있거나 전체화면일 때만(그 밖의 ←/→ 는 파일 넘김이 우선).
+  const seeking = !!ctx.media && (!!ctx.inMedia || !!ctx.fullscreen)
   switch (ctx.key) {
     case 'ArrowLeft':
+      if (seeking) return 'seekBack'
       return ctx.inHorizontalScroller ? null : 'prev'
     case 'ArrowRight':
+      if (seeking) return 'seekForward'
       return ctx.inHorizontalScroller ? null : 'next'
+    case ' ':
+      // 미디어 요소에 포커스가 있으면 브라우저 기본 컨트롤이 Space 로 재생/정지한다 — keydown 을 막아도 네이티브 처리가 따로 돌아
+      // 우리도 뒤집으면 두 번 뒤집혀 제자리가 된다(E2E 로 확인). 그래서 그때는 null(네이티브 몫).
+      if (!ctx.media || ctx.inMedia || ctx.repeat) return null
+      return ctx.fullscreen || !ctx.onControl ? 'playPause' : null
     case '+':
     case '=':
       return ctx.zoomable ? 'zoomIn' : null
@@ -71,4 +107,15 @@ export function resolvePending(
   if (pendingKey == null || pendingKey === currentKey) return { kind: 'clear' }
   const index = items.findIndex((i) => i.key === pendingKey)
   return index < 0 ? { kind: 'clear' } : { kind: 'request', index }
+}
+
+/**
+ * Space 를 그 요소의 활성화로 남겨 둘 조작 요소인가(WP-281) — 버튼·링크·입력·위젯 역할·label·포커스 가능(tabindex ≥ 0) 요소 안.
+ * 뷰어 루트(role=dialog, tabindex=-1)와 미디어 요소 자신은 해당하지 않는다(미디어는 routeKey 의 inMedia 가 따로 다룬다).
+ */
+const CONTROL_SELECTOR =
+  'button, a[href], input, select, textarea, summary, label, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="checkbox"], [role="switch"], [role="slider"], [role="option"], [role="radio"], [tabindex]:not([tabindex="-1"])'
+
+export function isControl(el: Element): boolean {
+  return el.closest(CONTROL_SELECTOR) != null
 }

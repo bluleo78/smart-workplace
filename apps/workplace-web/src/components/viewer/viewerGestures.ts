@@ -66,6 +66,11 @@ export interface LockInput {
    * 그 상태의 한 손가락 끌기는 확대된 페이지 팬이다. 넘김·닫기로 가로채지 않고 네이티브에 맡긴다.
    */
   pageZoomed: boolean
+  /**
+   * 미디어 재생 막대 구역에서 시작했는가(WP-281, WP-278 판정 R3 의 후속) — 막대를 좌우로 끄는 탐색이 파일 넘김·닫기로 바뀌지 않게
+   * 어느 축이든 네이티브(컨트롤)에 맡긴다. 계산은 inScrubZone.
+   */
+  inScrubZone?: boolean
 }
 
 /**
@@ -81,12 +86,42 @@ export function lockGesture(i: LockInput): GestureLock {
   if (Math.max(ax, ay) < LOCK_SLOP_PX) return 'pending'
   // 페이지가 브라우저 확대 중이면 끌기는 확대 화면 팬 — 넘김·닫기 없음(움직이지 않은 탭은 위 pending 으로 그대로 탭).
   if (i.pageZoomed) return 'native'
+  // 재생 막대 구역 — 탐색 끌기는 컨트롤 몫(스펙 §5.3 #1). 움직이지 않은 탭은 위 pending 으로 남아 탭 판정을 그대로 탄다.
+  if (i.inScrubZone) return 'native'
   if (ax > ay) {
     // 손가락이 왼쪽(dx<0) = 내용은 오른쪽을 보려는 것 → 오른쪽 여유가 있으면 내용이 먼저 움직인다.
     const room = i.dx < 0 ? i.canPanRight : i.canPanLeft
     return room ? 'native' : 'swipe'
   }
   return i.dy > 0 && i.zoom === 1 && i.atTop ? 'dismiss' : 'native'
+}
+
+/** 영상 재생 막대(네이티브 컨트롤) 높이 — 영상 요소 아래 이만큼은 스와이프에서 뺀다(스펙 §5.3 #1, 약 48px). */
+export const SCRUB_ZONE_PX = 48
+
+/** 뷰어가 다루는 미디어 요소 종류. */
+export type MediaElementKind = 'video' | 'audio'
+
+/**
+ * 터치 시작점(화면 y)이 재생 막대 구역인가.
+ * - 오디오: 요소 전체가 컨트롤(재생 막대 포함 한 줄)이라 어디서 시작하든 구역.
+ * - 영상: 요소 아래 SCRUB_ZONE_PX 띠(네이티브 컨트롤이 그려지는 자리). 그 위 영상 면적은 넘김 가능.
+ */
+export function inScrubZone(y: number, rect: { top: number; height: number }, el: MediaElementKind): boolean {
+  if (el === 'audio') return true
+  const bottom = rect.top + rect.height
+  return y >= bottom - SCRUB_ZONE_PX && y <= bottom
+}
+
+/**
+ * 단일 탭이 상·하단 바를 토글하는가(스펙 §5.3 #2·오디오).
+ * - 오디오 형식: 토글하지 않는다 — 화면이 작은 플레이어 하나라 바를 숨길 이유가 없고, 플레이어 조작 탭이 바를 흔들지 않게.
+ * - 영상 요소 위 탭: 네이티브 컨트롤 표시 몫 — 바 토글은 영상 밖 여백 탭으로만.
+ * - 그 외(이미지·문서·영상 밖 여백): 토글.
+ */
+export function tapTogglesBars(i: { media: MediaElementKind | null; onMediaElement: boolean }): boolean {
+  if (i.media === 'audio') return false
+  return !i.onMediaElement
 }
 
 /** 손을 뗄 때 넘김 확정 — 폭 25% 초과 또는 같은 방향 플링. 끝에서는 그 방향으로 넘기지 않는다(순환 없음). */
@@ -155,12 +190,21 @@ export type StageTouch = 'none' | 'pan' | 'manipulation'
 
 /**
  * 무대 터치 동작 결정. fine 포인터면 표식 없음(데스크톱에 터치 규칙이 닿지 않게).
+ * - 영상·오디오 = none: 브라우저 핀치 확대를 끄고(스펙 §5.3) 스와이프·닫기는 JS 가, 재생 막대 끌기는 네이티브 컨트롤이 받는다.
  * - 확대 대상이 아닌 형식(마크다운·텍스트·CSV·안내 문구 등) = manipulation: 뷰어 배율이 없으니 브라우저 핀치 확대를 살린다(WCAG 1.4.4). 두 번 탭 확대만 끈다.
  * - 맞춤(1×) 이미지 = none: 스크롤할 것이 없어 스와이프·닫기·핀치를 전부 JS 가 받는다.
  * - 그 외(확대한 이미지·PDF) = pan: 네이티브 스크롤은 두고 브라우저 핀치는 끈다 — 확대는 뷰어 배율로.
  */
-export function stageTouchAction(i: { coarse: boolean; zoomable: boolean; image: boolean; zoom: number }): StageTouch | undefined {
+export function stageTouchAction(i: {
+  coarse: boolean
+  zoomable: boolean
+  image: boolean
+  zoom: number
+  /** 영상·오디오(WP-281) — 핀치 확대를 끈다(스펙 §5.3 "줌 끔"). 스크롤할 내용도 없어 스와이프·닫기를 JS 가 받는다. */
+  media?: boolean
+}): StageTouch | undefined {
   if (!i.coarse) return undefined
+  if (i.media) return 'none'
   if (!i.zoomable) return 'manipulation'
   return i.image && i.zoom === 1 ? 'none' : 'pan'
 }

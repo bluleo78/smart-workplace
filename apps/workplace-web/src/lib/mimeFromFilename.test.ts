@@ -28,6 +28,19 @@ describe('mimeFromFilename', () => {
     for (const [name, kind] of cases) expect([name, resolvePreviewKind(mimeFromFilename(name)!)]).toEqual([name, kind])
   })
 
+  it('영상·오디오 확장자는 VIDEO·AUDIO 로 판정되는 형식을 돌려준다(WP-281)', () => {
+    const cases: [string, string, string][] = [
+      ['a.mp4', 'video/mp4', 'VIDEO'], ['a.M4V', 'video/mp4', 'VIDEO'], ['a.webm', 'video/webm', 'VIDEO'],
+      ['a.mov', 'video/quicktime', 'VIDEO'], ['a.mp3', 'audio/mpeg', 'AUDIO'], ['a.m4a', 'audio/mp4', 'AUDIO'],
+      ['a.wav', 'audio/wav', 'AUDIO'], ['a.ogg', 'audio/ogg', 'AUDIO'], ['a.oga', 'audio/ogg', 'AUDIO'],
+      ['a.aac', 'audio/aac', 'AUDIO'], ['a.flac', 'audio/flac', 'AUDIO'],
+    ]
+    for (const [name, mime, kind] of cases) {
+      const m = mimeFromFilename(name)
+      expect([name, m, resolvePreviewKind(m!)]).toEqual([name, mime, kind])
+    }
+  })
+
   it('svg 는 파일명으로 추론하지 않는다(보안 — 범용 형식 바이트를 SVG 로 바꿔 달지 않게)', () => {
     expect(mimeFromFilename('x.svg')).toBeNull()
     expect(mimeFromFilename('LOGO.SVG')).toBeNull()
@@ -39,6 +52,9 @@ describe('canonicalMime / isGenericMime', () => {
     expect(canonicalMime('Application/X-PDF; name=a.pdf')).toBe('application/pdf')
     expect(canonicalMime('image/jpg')).toBe('image/jpeg')
     expect(canonicalMime('image/pjpeg')).toBe('image/jpeg')
+    expect(canonicalMime('audio/x-wav')).toBe('audio/wav')
+    expect(canonicalMime('Audio/MP3')).toBe('audio/mpeg')
+    expect(canonicalMime('audio/x-m4a')).toBe('audio/mp4')
     expect(canonicalMime(null)).toBe('')
   })
 

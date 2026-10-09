@@ -1,11 +1,13 @@
-// 파일 mime → 유형 아이콘(이미지/표/문서/압축/기타). 이슈 첨부 칩과 이슈 드라이브 링크 행이 함께 쓴다.
+// 파일 mime → 유형 아이콘(이미지/표/문서/영상/오디오/압축/기타). 이슈 첨부 칩과 이슈 드라이브 링크 행이 함께 쓴다.
 // 왜: 같은 이슈 화면에서 같은 파일 유형이 행마다 다른 아이콘으로 보이지 않게 한 곳에서 정한다(WP-203).
 
 import {
   File as FileIcon,
   FileArchive,
+  FileAudio,
   FileSpreadsheet,
   FileText,
+  FileVideo,
   Image as ImageIcon,
 } from 'lucide-react'
 
@@ -33,6 +35,11 @@ export function FileTypeIcon({ mimeType, className }: { mimeType: string; classN
     case 'CSV':
     case 'XLSX':
       return <FileSpreadsheet className={cls} aria-hidden />
+    // 영상·오디오(WP-281) — 기본(문서 아이콘)으로 떨어지지 않게 따로 둔다.
+    case 'VIDEO':
+      return <FileVideo className={cls} aria-hidden />
+    case 'AUDIO':
+      return <FileAudio className={cls} aria-hidden />
     case 'UNSUPPORTED':
       return <FileIcon className={cls} aria-hidden />
     default:

@@ -29,6 +29,14 @@ describe('resolvePreviewKind', () => {
       resolvePreviewKind('application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
     ).toBe('DOCX')
   })
+  it('영상·오디오 계열은 VIDEO·AUDIO(WP-281) — 코덱과 무관하게 계열로 받는다', () => {
+    for (const t of ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska']) {
+      expect([t, resolvePreviewKind(t)]).toEqual([t, 'VIDEO'])
+    }
+    for (const t of ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/ogg', 'audio/aac', 'audio/flac']) {
+      expect([t, resolvePreviewKind(t)]).toEqual([t, 'AUDIO'])
+    }
+  })
   it('미지원/공백은 UNSUPPORTED', () => {
     expect(resolvePreviewKind('application/zip')).toBe('UNSUPPORTED')
     expect(resolvePreviewKind('')).toBe('UNSUPPORTED')

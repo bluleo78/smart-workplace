@@ -2,6 +2,7 @@ import { FileX } from 'lucide-react'
 import { memo, useEffect, useRef, useState } from 'react'
 
 import { blobToText, toVerifiedPdfBlob } from '../../api/blobContent'
+import { useObservedBox } from '../../hooks/useObservedBox'
 import { formatFileSize } from '../../lib/formatters'
 import { resolvePreviewKind } from '../../lib/previewKind'
 import { SCROLL_REGION_RING_INSET, scrollRegionProps } from '../../lib/scrollRegion'
@@ -14,9 +15,10 @@ import { SheetPreview } from '../drive/preview/SheetPreview'
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
 import { Button } from '../ui/button'
 import { fitImageWidth } from './imageFit'
+import { MediaPlayer, type MediaSession } from './MediaPlayer'
 import { PdfPages } from './PdfPages'
 import type { ViewerItem } from './types'
-import { usePreviewBlob } from './usePreviewBlob'
+import { type PreviewProgress, usePreviewBlob } from './usePreviewBlob'
 
 /** 텍스트 미리보기 최대 길이(과대 파일 보호). */
 const TEXT_PREVIEW_LIMIT = 200_000
@@ -37,6 +39,60 @@ type BodyContent =
   | { k: 'text'; text: string }
   | { k: 'buffer'; buffer: ArrayBuffer }
 
+/**
+ * 미지원 형식 안내 — 큰 형식 아이콘·이름·크기·문구·다운로드. 재생 불가 코덱(영상·오디오 error 이벤트, WP-281)도 같은 화면을 쓴다.
+ */
+function UnsupportedNotice({ item, onDownload }: { item: ViewerItem; onDownload: () => void }) {
+  return (
+    // m-auto·w-full — 이미지·영상·오디오 본문은 flex 라 이것이 없으면 내용 폭만큼 왼쪽 위에 붙는다.
+    <div className="m-auto flex w-full flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-unsupported">
+      <FileTypeIcon mimeType={item.mimeType} className="h-16 w-16" />
+      <p className="text-sm font-medium break-all">{item.name}</p>
+      {item.sizeBytes != null && <p className="text-xs text-muted-foreground">{formatFileSize(item.sizeBytes)}</p>}
+      <p className="text-sm text-muted-foreground">이 형식은 미리 볼 수 없어요</p>
+      <Button variant="outline" onClick={onDownload}>
+        다운로드
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * 영상·오디오 받는 중 — 통째로 받아야 재생되므로 스켈레톤 대신 % 진행률(스펙 §4.3·§5.3 #4, 시안 "영상 받는 중… 62%").
+ * 분모를 모르면 % 없이 "받는 중"과 받은 크기만, 진행 막대는 맥박 애니메이션.
+ */
+function MediaProgress({ item, video, progress }: { item: ViewerItem; video: boolean; progress: PreviewProgress | null }) {
+  const percent = progress?.percent ?? null
+  return (
+    <div className="m-auto flex w-full max-w-xs flex-col items-center gap-3 text-center" data-testid="preview-loading">
+      <FileTypeIcon mimeType={item.mimeType} className="h-12 w-12" />
+      <p className="text-sm" data-testid="media-progress-label">
+        {video ? '영상' : '오디오'} 받는 중…{percent != null && ` ${percent}%`}
+      </p>
+      <div
+        role="progressbar"
+        aria-label={`${item.name} 받는 중`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent ?? undefined}
+        data-testid="media-progress"
+        className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+      >
+        <div
+          className={cn('h-full rounded-full bg-primary transition-[width]', percent == null && 'w-full animate-pulse')}
+          style={percent != null ? { width: `${percent}%` } : undefined}
+        />
+      </div>
+      {progress != null && progress.loaded > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {formatFileSize(progress.loaded)}
+          {progress.total != null && ` / ${formatFileSize(progress.total)}`}
+        </p>
+      )}
+    </div>
+  )
+}
+
 /** 문서형(종이 카드 안에 그리는) 형식 — 다크 캔버스 위에서 읽기 편하도록 밝은 카드에 둔다. */
 function PaperCard({ children }: { children: React.ReactNode }) {
   return <div className="mx-auto max-w-4xl rounded-md bg-card p-6 text-card-foreground">{children}</div>
@@ -56,6 +112,8 @@ export const ViewerBody = memo(function ViewerBody({
   chromeInset,
   barsHidden,
   onSource,
+  media: mediaSession,
+  sideInset,
 }: {
   item: ViewerItem
   /** 이미지·PDF 확대 배율(1 = 폭 맞춤). */
@@ -74,28 +132,29 @@ export const ViewerBody = memo(function ViewerBody({
    * fetches = 이 항목이 지금 blob 을 받는(받을) 상태인가 — 미지원·사용 불가·10MB 동의 대기·오류면 거짓.
    * 항목 구분은 호출부 몫 — 이 컴포넌트는 key={item.key} 로 항목마다 새로 붙으므로 보고는 늘 지금 항목의 것이다.
    */
-  onSource?: (s: { blob: Blob | null; fetches: boolean }) => void
+  onSource?: (s: { blob: Blob | null; fetches: boolean; unplayable?: boolean }) => void
+  /** 영상·오디오 재생 세션(WP-281) — 자동재생 대상·위치 기억·재생 상태 보고. 뷰어가 열린 동안 고정된 객체. */
+  media?: MediaSession
+  /** 모바일에서 ‹ › 가 있을 때 영상 좌우를 그 폭만큼 비운다(화살표가 영상·컨트롤을 덮지 않게). */
+  sideInset?: boolean
 }) {
   const kind = resolvePreviewKind(item.mimeType)
   const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
   const parsed = kind === 'XLSX' || kind === 'DOCX'
-  const renderable = kind === 'IMAGE' || kind === 'PDF' || textLike || parsed
-  // 원본 blob 받기·10MB 초과 확인은 훅이 맡고, 여기서는 종류별 변환만 한다.
-  const source = usePreviewBlob(item, renderable)
+  const isMedia = kind === 'VIDEO' || kind === 'AUDIO'
+  const renderable = kind === 'IMAGE' || kind === 'PDF' || textLike || parsed || isMedia
+  // 원본 blob 받기·10MB 초과 확인은 훅이 맡고, 여기서는 종류별 변환만 한다. 영상·오디오는 받는 중 % 를 보여 주려고 진행도 든다.
+  const source = usePreviewBlob(item, renderable, { trackProgress: isMedia })
   const { blob, confirmSize } = source
   // 변환 결과(없으면 아직 변환 전). WP-203: pdf 는 toVerifiedPdfBlob 을 통과한 blob 만 담아 pdf.js 로 넘긴다.
   const [content, setContent] = useState<BodyContent | null>(null)
   const [convertError, setConvertError] = useState(false)
+  // 재생 불가(코덱 미지원 등 플레이어 error 이벤트) — 실패 화면이 아니라 미지원 화면 + 다운로드로 바꾼다(스펙 §5.3).
+  const [unplayable, setUnplayable] = useState(false)
   // 이미지 확대 계산용 — 본문 내용 영역 크기(패딩 제외)와 이미지 원본 크기.
   const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null)
-  const [box, setBox] = useState<{ w: number; h: number } | null>(null)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
-  useEffect(() => {
-    if (!bodyEl || kind !== 'IMAGE') return
-    const ro = new ResizeObserver(([e]) => setBox({ w: e.contentRect.width, h: e.contentRect.height }))
-    ro.observe(bodyEl)
-    return () => ro.disconnect()
-  }, [bodyEl, kind])
+  const box = useObservedBox(bodyEl, kind === 'IMAGE')
   const fitWidth = natural && box ? fitImageWidth(natural.w, natural.h, box.w, box.h) : null
   const error = source.error || convertError
   // 부모(뷰어)에 blob 상태를 알린다 — 콜백은 최신값 ref 로 읽어 이펙트가 콜백 정체성에 흔들리지 않게.
@@ -104,9 +163,10 @@ export const ViewerBody = memo(function ViewerBody({
     onSourceRef.current = onSource
   })
   const fetches = renderable && !item.unavailable && confirmSize == null && !error
+  // unplayable — 재생 불가로 미지원 화면이 된 영상·오디오. 뷰어가 이 항목을 미디어로 다루지 않게(키·터치 규칙) 함께 알린다.
   useEffect(() => {
-    onSourceRef.current?.({ blob, fetches })
-  }, [item.key, blob, fetches])
+    onSourceRef.current?.({ blob, fetches, unplayable })
+  }, [item.key, blob, fetches, unplayable])
   // #775: 에러도 아니고 콘텐츠도 아직 없는 렌더 가능 상태 = 비동기 페치 진행 중 — 빈 화면 대신 스켈레톤.
   const loading =
     !item.unavailable &&
@@ -146,7 +206,8 @@ export const ViewerBody = memo(function ViewerBody({
         }
         throw new Error('empty blob')
       }
-      if (kind === 'IMAGE') showUrl(blob)
+      // 이미지·영상·오디오는 object URL 로 그린다(해제는 아래 정리 — 언마운트 = 닫기·넘김 때).
+      if (kind === 'IMAGE' || isMedia) showUrl(blob)
       // PDF 는 시그니처 검증 + application/pdf 재래핑을 통과해야만 뷰어로 넘긴다.
       else if (kind === 'PDF') {
         const verified = await toVerifiedPdfBlob(blob)
@@ -166,7 +227,7 @@ export const ViewerBody = memo(function ViewerBody({
       alive = false
       if (created) URL.revokeObjectURL(created)
     }
-  }, [blob, kind, textLike])
+  }, [blob, kind, textLike, isMedia])
 
   // 이미지는 확대하면 본문 자체가 가로로 넘친다 — 표와 같은 규칙으로 포커스 가능한 스크롤 영역이 되어,
   // 클릭·Tab 으로 들어온 채 실제로 넘치면 ←/→ 가 파일 넘김 대신 스크롤에 쓰인다.
@@ -185,7 +246,8 @@ export const ViewerBody = memo(function ViewerBody({
       className={cn(
         'min-h-0 flex-1 overflow-auto',
         !fillsFrame && 'p-4',
-        kind === 'IMAGE' && 'flex',
+        // 영상·오디오도 flex — 플레이어가 내용 영역 높이를 가득 받아(영상 맞춤) 가운데 선다.
+        (kind === 'IMAGE' || isMedia) && 'flex',
         zoomScroll && SCROLL_REGION_RING_INSET,
         // 상단 바(3.5rem=min-h-14 + 노치)·하단 겹침 바 높이 + 여유 1rem 만큼 비켜선다.
         // 하단은 AttachmentViewer 가 잰 실제 높이(--viewer-bottom-chrome — "참조된 곳" 띠·홈 인디케이터 포함), 재기 전엔 4칸 바(3.5rem)+안전영역.
@@ -202,14 +264,14 @@ export const ViewerBody = memo(function ViewerBody({
       {/* 드라이브 링크 원본이 휴지통·삭제 — 받지 않고 안내만(다운로드 없음).
           미지원 형식 화면과 같은 배치(가운데 큰 아이콘·이름·문구)로 맞춰 상태 화면끼리 생김새가 같게 한다. */}
       {item.unavailable && (
-        <div className="flex flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-unavailable">
+        <div className="m-auto flex w-full flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-unavailable">
           <FileX className="h-16 w-16 text-muted-foreground" aria-hidden />
           <p className="text-sm font-medium break-all">{item.name}</p>
           <p className="text-sm text-muted-foreground">원본 파일을 사용할 수 없습니다.</p>
         </div>
       )}
       {!item.unavailable && error && (
-        <div className="flex flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-error">
+        <div className="m-auto flex w-full flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-error">
           <p className="text-sm text-destructive">미리보기를 불러오지 못했습니다.</p>
           <div className="flex gap-2">
             <Button variant="outline" onClick={source.retry}>
@@ -221,19 +283,18 @@ export const ViewerBody = memo(function ViewerBody({
           </div>
         </div>
       )}
-      {!item.unavailable && !error && !renderable && (
-        <div className="flex flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-unsupported">
-          <FileTypeIcon mimeType={item.mimeType} className="h-16 w-16" />
-          <p className="text-sm font-medium break-all">{item.name}</p>
-          {item.sizeBytes != null && <p className="text-xs text-muted-foreground">{formatFileSize(item.sizeBytes)}</p>}
-          <p className="text-sm text-muted-foreground">이 형식은 미리 볼 수 없어요</p>
-          <Button variant="outline" onClick={() => void source.download()}>
-            다운로드
-          </Button>
-        </div>
+      {!item.unavailable && !error && (!renderable || unplayable) && (
+        <UnsupportedNotice item={item} onDownload={() => void source.download()} />
       )}
       {/* #775: 콘텐츠 페치 중(로딩) — AI 요약 카드와 같은 animate-pulse 스켈레톤 패턴 재사용. */}
-      {loading && (
+      {/* 영상·오디오 상태 알림 — 받는 중 → 재생 준비(매 % 가 아니라 전환 때만, polite). 재생 불가는 미지원 화면이 그대로 읽힌다. */}
+      {isMedia && (
+        <p className="sr-only" aria-live="polite" data-testid="media-status-live">
+          {loading ? `${item.name} 받는 중` : !error && !unplayable && content?.k === 'url' ? `${item.name} 재생 준비됨` : ''}
+        </p>
+      )}
+      {loading && isMedia && <MediaProgress item={item} video={kind === 'VIDEO'} progress={source.progress} />}
+      {loading && !isMedia && (
         <div className="m-auto w-full max-w-md space-y-2" data-testid="preview-loading">
           <div className="h-3 w-full animate-pulse rounded bg-muted" />
           <div className="h-3 w-5/6 animate-pulse rounded bg-muted" />
@@ -251,6 +312,17 @@ export const ViewerBody = memo(function ViewerBody({
           data-zoom-content=""
           className={cn('m-auto shrink-0', fitWidth == null ? 'max-h-full max-w-full object-contain' : 'h-auto max-h-none max-w-none')}
           style={fitWidth == null ? undefined : { width: fitWidth * zoom }}
+        />
+      )}
+      {!error && isMedia && !unplayable && content?.k === 'url' && (
+        <MediaPlayer
+          kind={kind}
+          url={content.url}
+          itemKey={item.key}
+          name={item.name}
+          session={mediaSession}
+          onError={() => setUnplayable(true)}
+          sideInset={sideInset}
         />
       )}
       {!error && kind === 'PDF' && content?.k === 'pdf' && (
@@ -283,7 +355,7 @@ export const ViewerBody = memo(function ViewerBody({
       {/* WP-203 후속: 10MB 초과 — 크기를 보여주고 미리볼지 묻는다(동의 전엔 받지 않음). */}
       {!error && confirmSize != null && (
         <div
-          className="flex flex-col items-center gap-3 px-4 py-12 text-center break-keep"
+          className="m-auto flex w-full flex-col items-center gap-3 px-4 py-12 text-center break-keep"
           data-testid="preview-size-confirm"
         >
           <p className="text-sm">
