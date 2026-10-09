@@ -22,6 +22,7 @@ import {
   touchSwipeThenSecondFinger,
   touchTap,
 } from '../../fixtures/touch'
+import { nextFrame } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -535,6 +536,10 @@ test.describe('아래로 닫기·탭 바 토글', () => {
     await touchTap(page, await centerOf(page.getByTestId('viewer-stage')))
     await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
     await page.setViewportSize({ width: 390, height: 844 })
+    // 페이지가 세로를 실제로 한 프레임 겪게 한다 — 방향 미디어 쿼리 change 는 다음 렌더링 단계에서야 발화한다.
+    // 바로 아래 단언은 이미 표시 상태라 즉시 통과하므로, 이 동기화 없이 곧장 가로로 돌리면 부하 중엔 세로 프레임이 한 번도
+    // 돌지 않아 뷰어가 회전을 못 본 채(가로→가로) 낡은 '표시'를 유지한다 — 실제 회전(세로를 거침)을 재현하지 못한 것(WP-319).
+    await nextFrame(page)
     await expect(page.getByTestId('viewer-top-bar')).not.toHaveAttribute('inert', '')
     await page.setViewportSize({ width: 844, height: 390 })
     await expect(page.getByTestId('viewer-top-bar')).toHaveAttribute('inert', '')
