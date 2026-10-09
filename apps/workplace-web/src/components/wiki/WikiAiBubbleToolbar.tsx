@@ -1,7 +1,7 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import { type Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
-import { Bold, ChevronDown, Heading1, Heading2, Italic, List, Quote } from 'lucide-react'
+import { Bold, ChevronDown, Heading1, Heading2, Italic, Link, List, Quote } from 'lucide-react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { EditorFloatingToolbar } from '@/components/editor/EditorFloatingToolbar'
@@ -31,17 +31,23 @@ const FORMAT_ACTIONS = [
 /** 선택 텍스트 변형 툴바 — 비어있지 않은 선택에서 선택영역 위에 표시(tiptap BubbleMenu).
  *  param 액션(톤/번역)은 드롭다운으로 프리셋을 고른 뒤, 그 외는 즉시 onAction 을 호출한다.
  *  disabled(뷰어/생성 중)면 아예 렌더하지 않는다.
- *  onCreateIssue: EDITOR 권한 사용자가 선택 텍스트를 이슈로 만들 때 호출된다. */
+ *  onCreateIssue: EDITOR 권한 사용자가 선택 텍스트를 이슈로 만들 때 호출된다.
+ *  onLink: 선택 텍스트에 링크를 걸거나 고치는 주소 입력을 연다(WP-312). 입력이 열린 동안엔 suppressed 로 툴바를 숨긴다. */
 export function WikiAiBubbleToolbar({
   editor,
   disabled,
   onAction,
   onCreateIssue,
+  onLink,
+  suppressed = false,
 }: {
   editor: Editor | null
   disabled: boolean
   onAction: (action: TransformActionKey, param?: string) => void
   onCreateIssue?: () => void
+  onLink?: () => void
+  /** 링크 주소 입력이 열린 동안 표면을 감춘다(WP-312). */
+  suppressed?: boolean
 }) {
   if (!editor) return null
 
@@ -62,6 +68,7 @@ export function WikiAiBubbleToolbar({
       }
       ariaLabel="AI 텍스트 변형"
       testId="wiki-ai-toolbar"
+      suppressed={suppressed}
     >
       {/* 서식 그룹 — 굵게/기울임/제목1/제목2/불릿목록/인용. AI 그룹과 독립적으로 항상 노출. */}
       {FORMAT_ACTIONS.map(({ key, label, icon: Icon, isActive, run }) => (
@@ -81,6 +88,22 @@ export function WikiAiBubbleToolbar({
           <Icon aria-hidden="true" />
         </Button>
       ))}
+      {/* 링크 — 서식 그룹 끝. 선택 범위에 링크를 걸고(이미 링크면 주소를 고친다) ⌘K/Ctrl+K 와 같은 입력을 연다(WP-312). */}
+      {onLink && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="링크"
+          aria-pressed={editor.isActive('link')}
+          data-testid="wiki-format-tb-link"
+          className={cn(editor.isActive('link') && 'bg-accent text-foreground')}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onLink}
+        >
+          <Link aria-hidden="true" />
+        </Button>
+      )}
       <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
       {/* AI 마커는 컨테이너 레벨에서 1회만 — 내부 버튼에 Sparkles 를 반복하지 않는다(마커 중첩 금지). */}
       <AiLabel className="px-1">AI</AiLabel>

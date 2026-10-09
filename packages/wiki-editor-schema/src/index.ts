@@ -2,6 +2,7 @@
 export * from './collabProtocol'
 export { wikiSchemaExtensions } from './extensions'
 export { WikiImageSchema } from './imageNode'
+export { normalizeHref as normalizeLinkHref } from './linkMark'
 export { docToMarkdown, getMarkdownSchema, markdownToDoc } from './markdown'
 export { WikiMention, type WikiMentionAttrs } from './mentionNode'
 export { type WikiMentionType } from './mentionTokens'

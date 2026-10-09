@@ -19,6 +19,9 @@ export function EditorFloatingToolbar({
   ariaLabel,
   testId,
   getReferenceClientRect,
+  placement = 'top',
+  boundary,
+  suppressed = false,
   children,
 }: {
   editor: Editor | null
@@ -29,6 +32,16 @@ export function EditorFloatingToolbar({
   /** 앵커를 선택 좌표가 아닌 다른 요소로 바꿀 때 사용(표 툴바는 표 상단에 붙인다).
    *  null 을 반환하면 tippy 가 기본 앵커(선택 좌표)를 쓰도록 둔다. */
   getReferenceClientRect?: () => DOMRect | null
+  /** 위치(기본 'top'). 마운트 때 tippyOptions 로 굳어 이후 바꿔도 반영되지 않는다. */
+  placement?: 'top' | 'top-start'
+  /**
+   * 넘치지 않을 경계(예: 에디터 본문) — 위에 자리가 없으면 아래로 뒤집고 가로로는 경계 안에 머문다.
+   * placement 와 같이 마운트 때 굳는다(tiptap BubbleMenu 가 플러그인을 한 번만 등록) — 바꿔도 무시된다.
+   */
+  boundary?: Element
+  /** 지금 떠 있어도 숨긴다(다른 입력 UI 가 열린 동안 등). shouldShow 는 선택·문서가 바뀔 때만 다시 판정되고, 툴바 버튼을 누른 직후의
+   *  blur 는 tiptap 이 숨기지 않으므로(mousedown 의 preventHide), 화면 상태로 숨길 땐 표면을 직접 감춘다. */
+  suppressed?: boolean
   children: ReactNode
 }) {
   // tiptap BubbleMenu 는 플러그인을 마운트 때 한 번만 등록해(effect deps=[editor, element]) 넘긴
@@ -49,7 +62,17 @@ export function EditorFloatingToolbar({
       // 기본 250ms 는 빠른 드래그·클릭에서 툴바가 안 뜬 것처럼 느껴진다.
       updateDelay={0}
       tippyOptions={{
-        placement: 'top',
+        placement,
+        ...(boundary
+          ? {
+              popperOptions: {
+                modifiers: [
+                  { name: 'flip', options: { boundary, fallbackPlacements: [placement.replace('top', 'bottom')] } },
+                  { name: 'preventOverflow', options: { boundary, altAxis: false } },
+                ],
+              },
+            }
+          : {}),
         appendTo: () => document.getElementById('root') ?? document.body,
         // 가로 flex 행이라 tippy 기본 350px 이면 줄바꿈된다. 다만 상한을 없애면 좁은
         // 뷰포트에서 화면을 넘치므로 뷰포트 폭으로 가드한다.
@@ -67,6 +90,7 @@ export function EditorFloatingToolbar({
           약속하는데 내부에 Radix 트리거(자체 포커스 관리)가 섞이면 충돌한다. */}
       <div
         data-testid={testId}
+        hidden={suppressed}
         role="group"
         aria-label={ariaLabel}
         // flex-wrap — 좁은 뷰포트에서 버튼 수가 많은 툴바(서식 6 + AI 6, #687)가 maxWidth 를
