@@ -8,6 +8,8 @@ import { useRef, useState } from 'react';
 
 import { Input } from '@/components/ui/input';
 import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
+import { isImeComposing } from '@/lib/imeKey';
+import { toSingleLine } from '@/lib/singleLine';
 import { cn } from '@/lib/utils';
 
 import { HIT_EXPAND } from './mobile/chipStyles';
@@ -110,9 +112,9 @@ export function InlineEditableTitle({
         className="block w-full resize-none overflow-hidden rounded-md border border-input bg-transparent px-3 py-1 text-2xl! leading-8 outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         value={draft}
         disabled={disabled}
-        onChange={(e) => setDraft(e.target.value.replace(/\r?\n/g, ' '))}
+        onChange={(e) => setDraft(toSingleLine(e.target.value))}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+          if (e.key === 'Enter' && !isImeComposing(e.nativeEvent)) {
             e.preventDefault();
             commit();
           } else if (e.key === 'Escape') {

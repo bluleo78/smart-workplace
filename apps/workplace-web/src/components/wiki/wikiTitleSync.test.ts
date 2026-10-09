@@ -21,6 +21,16 @@ describe('titleSyncReducer', () => {
     expect(run('회의록', { type: 'remote', title: '주간 회의록', now: 0 }).local).toBe('주간 회의록')
   })
 
+  it('개행이 든 원격 제목은 한 줄로 보이고, 열기만 해서는 저장 대상이 아니다(WP-315)', () => {
+    // API·MCP 가 개행을 넣어 저장한 제목 — 처음 열 때와 원격 반영 때 모두 한 줄로 맞춘다.
+    const opened = initTitleSync('첫 줄\r\n둘째 줄')
+    expect(opened.local).toBe('첫 줄 둘째 줄')
+    expect(needsTitleSave(opened, opened.local)).toBe(false)
+    const synced = titleSyncReducer(opened, { type: 'remote', title: '바뀐\n제목', now: 0 })
+    expect(synced.local).toBe('바뀐 제목')
+    expect(needsTitleSave(synced, synced.local)).toBe(false)
+  })
+
   it('입력 포커스 중엔 원격 제목이 내 입력을 덮지 않고, blur 때 반영한다', () => {
     const typing = run('회의록', { type: 'focus' }, { type: 'remote', title: '남이 바꾼 제목', now: 0 })
     expect(typing.local).toBe('회의록')

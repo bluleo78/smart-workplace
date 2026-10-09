@@ -13,7 +13,7 @@ import {
 import { KIM } from '../../fixtures/presence'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { expectStays } from '../../fixtures/wait'
-import { mockWikiPageEditor, mockWikiRevisions } from '../../fixtures/wiki-mock'
+import { mockWikiMentions, mockWikiPageEditor, mockWikiRevisions } from '../../fixtures/wiki-mock'
 import {
   CHOI,
   REVISION_DETAILS as DETAILS,
@@ -152,6 +152,57 @@ test.describe('노트 버전 기록', () => {
     await expect(a.getByTestId('wiki-editor-scroll')).not.toHaveAttribute('inert', /.*/)
     await expect(a.getByTestId('wiki-ai-header-button')).toHaveAttribute('aria-disabled', 'false')
     await expect(a.locator('.ProseMirror')).toContainText('배포 체크리스트에 인그레스 타임아웃을 추가한다.')
+  })
+
+  test('표 셀 하나만 바뀐 판은 그 셀 안만 강조하고 표 통째 지움·추가는 없다(WP-324)', async ({ authenticatedPage: a }) => {
+    // v5 → v6(라이브): 둘째 행 "상태" 칸의 낱말만 바뀌었다. 다른 셀·행·열은 그대로.
+    const table = (status: string) =>
+      [
+        '## 일정',
+        '| 단계 | 담당 | 상태 |',
+        '| --- | --- | --- |',
+        '| 서버 스냅샷 정책 정리 | 박민수 | 완료 |',
+        `| 데스크톱 버전 기록 패널 | 이영희 | ${status} |`,
+      ].join('\n')
+    const live = table('디자이너 리뷰 진행 중')
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: live })
+    await mockWikiRevisions(a, { pageId: PAGE_ID, list: LIST, details: { ...DETAILS, 6: live, 5: table('디자이너 리뷰 예정') } })
+    await a.clock.install({ time: NOW })
+    await a.goto(pagePath)
+    await openHistory(a)
+    await revItem(a, 5).click()
+
+    const p = preview(a)
+    await expect(p.locator('table')).toHaveCount(1)
+    // 지운 낱말·새 낱말은 그 셀(td) 안에만 있다.
+    const cell = p.locator('tr').nth(2).locator('td').nth(2)
+    await expect(cell.locator('.wiki-diff-removed')).toHaveText('예정')
+    await expect(cell.locator('.wiki-diff-added')).toHaveText('진행 중')
+    await expect(p.locator('.wiki-diff-removed, .wiki-diff-added')).toHaveCount(2)
+    // 표·행 통째 표시는 없다(예전엔 표 전체 취소선 + 새 표가 나란히 보였다).
+    await expect(p.locator('table.wiki-diff-removed, table.wiki-diff-added, tr.wiki-diff-removed, tr.wiki-diff-added')).toHaveCount(0)
+    await expect(p.locator('tr').nth(1)).toHaveText('서버 스냅샷 정책 정리박민수완료')
+  })
+
+  test('대상만 바뀐 멘션은 새 멘션을 칩과 같은 라벨로 보이고, 모르는 대상은 칩과 같은 대체 라벨이다(WP-324)', async ({
+    authenticatedPage: a,
+  }) => {
+    // v5 → 라이브: 첫 문단 멘션은 라벨을 아는 사람(7)으로, 둘째 문단 멘션은 라벨 목록에 없는 사람(99)으로 바뀌었다.
+    const live = '담당 <@7> 이 정리했다.\n\n검토 <@99> 이 확인했다.'
+    const v5 = '담당 <@11> 이 정리했다.\n\n검토 <@7> 이 확인했다.'
+    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: live })
+    await mockWikiRevisions(a, { pageId: PAGE_ID, list: LIST, details: { ...DETAILS, 6: live, 5: v5 } })
+    await mockWikiMentions(a, PAGE_ID, [{ type: 'USER', id: 7, label: '앨리스 (제품기획)', spaceId: null, projectKey: null, number: null }])
+    await a.clock.install({ time: NOW })
+    await a.goto(pagePath)
+    await openHistory(a)
+    await revItem(a, 5).click()
+
+    const p = preview(a)
+    // 추가 글자 위젯 — 예전엔 멘션이 "@" 한 글자로만 보였다. 라벨 조회가 늦게 와도 실제 라벨로 다시 그린다.
+    await expect(p.locator('span.wiki-diff-added')).toHaveText(['@앨리스 (제품기획)', '@사용자 99'])
+    // 지운 멘션은 보는 판의 칩 그대로(취소선) — 칩도 같은 라벨 규칙이다.
+    await expect(p.locator('[data-mtype].wiki-diff-removed, .wiki-diff-removed [data-mtype]')).toHaveText(['@사용자 11', '@앨리스 (제품기획)'])
   })
 
   test('복원하면 토스트 후 미리보기가 닫히고, 같은 노트를 연 다른 화면에도 복원 본문이 바로 보인다', async ({

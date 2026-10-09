@@ -2,7 +2,7 @@
 // 소스: ① 페이지 멘션 해소 API(useWikiMentions) ② 이 탭에서 방금 삽입한 멘션(제안 목록·이슈 생성에서 고른 라벨).
 // ②는 저장 → 멘션 재조회 전까지의 공백을 메운다. 둘 다 없으면 id 기반 대체 라벨.
 
-import { createContext, type ReactNode, useContext, useMemo } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useMemo } from 'react'
 
 import { useWikiMentions } from '../../hooks/queries/useWikiMentions'
 import type { WikiMentionType } from '../../types/wiki'
@@ -30,12 +30,32 @@ export function WikiMentionLabelsProvider({ pageId, children }: { pageId: number
   return <LabelsContext.Provider value={map}>{children}</LabelsContext.Provider>
 }
 
-/** 칩에 보일 라벨 — 해소 결과 > 로컬 기억 > 대체 라벨. */
-// eslint-disable-next-line react-refresh/only-export-components
-export function useMentionLabel(mtype: WikiMentionType, id: number): string {
-  const map = useContext(LabelsContext)
+/** 라벨 해소 — 해소 결과 > 로컬 기억 > 대체 라벨. 칩과 버전 비교 위젯이 같은 규칙을 쓴다. */
+function resolveMentionLabel(map: Map<string, string>, mtype: WikiMentionType, id: number): string {
   const k = key(mtype, id)
   const found = map.get(k) ?? localLabels.get(k)
   if (found) return found
   return mtype === 'USER' ? `사용자 ${id}` : mtype === 'PAGE' ? `페이지 #${id}` : `이슈 #${id}`
+}
+
+/** 칩에 보일 글자 — USER 는 채팅 칩과 같은 "@" 접두, PAGE/ISSUE 는 참조 링크라 접두 없음(#703). */
+// eslint-disable-next-line react-refresh/only-export-components
+export function mentionChipText(mtype: WikiMentionType, label: string): string {
+  return mtype === 'USER' ? `@${label}` : label
+}
+
+/** 칩에 보일 라벨 — 해소 결과 > 로컬 기억 > 대체 라벨. */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useMentionLabel(mtype: WikiMentionType, id: number): string {
+  return resolveMentionLabel(useContext(LabelsContext), mtype, id)
+}
+
+/**
+ * 멘션 대상 → 칩과 같은 글자를 돌려주는 함수(버전 비교의 추가 글자 위젯용, WP-324).
+ * 위젯은 NodeView 가 아니라 훅을 못 쓰므로 함수로 넘긴다. 해소 결과가 도착하면 새 함수가 되어 호출자가 다시 그린다.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useMentionChipTextOf(): (mtype: WikiMentionType, id: number) => string {
+  const map = useContext(LabelsContext)
+  return useCallback((mtype, id) => mentionChipText(mtype, resolveMentionLabel(map, mtype, id)), [map])
 }

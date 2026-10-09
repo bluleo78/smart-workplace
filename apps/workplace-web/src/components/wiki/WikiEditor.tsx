@@ -12,7 +12,10 @@ import { Page, pageBodyInsetClass, pageReadingWidthClass } from '@/components/la
 import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import { RenameDialog } from '@/components/ui/rename-dialog'
+import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { isImeComposing } from '@/lib/imeKey'
+import { normalizeSingleLineInput } from '@/lib/singleLine'
 import { cn } from '@/lib/utils'
 
 import {
@@ -74,6 +77,13 @@ import { createTitleSaver, initTitleSync, needsTitleSave, type TitleSaver, title
 /** 제목 저장 디바운스 — 제목은 짧은 REST 저장(나중 값 우선)이라 타이핑마다 보내지 않고 잠깐 모아 보낸다. */
 const TITLE_SAVE_DEBOUNCE_MS = 400
 
+/**
+ * 조합 확정 직후 따라오는 Enter 를 무시하는 시간(ms) — macOS Chrome 한글 IME 는 조합 중 Enter 를 isComposing keydown 으로 보낸 뒤
+ * compositionend 와 함께 조합이 아닌 Enter keydown 을 한 번 더 보낸다(같은 키 입력이라 몇 ms 안). 시간으로 거르는 이유:
+ * Windows Chrome·Firefox 는 뒤따르는 Enter 를 보내지 않으므로 기한 없이 "다음 Enter 무시"를 걸면 사용자의 진짜 Enter 를 삼킨다.
+ */
+const IME_TRAILING_ENTER_MS = 100
+
 /** 접속자 없음(종단) — 렌더마다 새 배열을 만들지 않게 고정. */
 const NO_PEOPLE: PresencePerson[] = []
 
@@ -120,6 +130,11 @@ export function WikiEditor({
   useEffect(() => {
     titleRef.current = title
   })
+  // 제목 입력란 — 긴 제목이 글자 중간에서 잘리지 않게 여러 줄로 감싸고, 값·폭이 바뀌면 높이를 다시 맞춘다(WP-315·317).
+  const titleFieldRef = useRef<HTMLTextAreaElement>(null)
+  useAutoGrowTextarea(titleFieldRef, title)
+  // 마지막 compositionend 시각(이벤트 timeStamp) — 확정 직후 따라오는 Enter 한 번을 본문 이동으로 보지 않는다(IME_TRAILING_ENTER_MS).
+  const titleCompositionEndRef = useRef(Number.NEGATIVE_INFINITY)
 
   // 역할 게이트 — OWNER|EDITOR 만 /ai 슬래시 사용. VIEWER 면 메뉴 미노출.
   const { data: spaces, isPending: spacesPending } = useWikiSpaces()
@@ -843,11 +858,19 @@ export function WikiEditor({
             />
             <WikiTableToolbar editor={editor} disabled={!editable} />
             <WikiTableContextMenu editor={editor} disabled={!editable} />
-            <input
+            {/* 제목 — 한 줄 값이지만 화면에선 줄바꿈해 보이도록 rows=1 자동 높이 textarea(WP-315·317).
+                개행은 넣지 않는다: Enter 는 아래 핸들러가 본문 이동으로 쓰고, 붙여넣기 등으로 들어온 개행은 공백으로 바꾼다
+                (제목에 개행이 남으면 트리·탭·검색 표시가 깨진다). */}
+            <textarea
+              ref={titleFieldRef}
+              rows={1}
+              // 가상 키보드 Enter 는 본문으로 넘어가는 "다음" — 줄바꿈이 아니다.
+              enterKeyHint="next"
               value={title}
               readOnly={readOnly}
               onChange={(e) => {
-                const next = e.target.value
+                // 개행 → 공백(커서 유지).
+                const next = normalizeSingleLineInput(e.target)
                 // 원격(서버) 제목으로 되돌렸고 응답 대기도 없으면 보낼 것이 없다 — 실패 재시도도 버리고 원격 제목을 다시 따른다.
                 if (needsTitleSave(titleSync, next)) titleSaverRef.current?.schedule(next)
                 else titleSaverRef.current?.cancel()
@@ -859,11 +882,21 @@ export function WikiEditor({
                 titleSaverRef.current?.flush()
                 dispatchTitle({ type: 'blur' })
               }}
+              onCompositionEnd={(e) => {
+                titleCompositionEndRef.current = e.timeStamp
+              }}
               onKeyDown={(e) => {
-                // Enter 로 폼 submit(줄바꿈 없음)되며 이후 타이핑이 제목에 이어붙는 것을 막고
+                // Enter 는 제목에 줄바꿈을 넣지 않고(이후 타이핑이 제목에 이어붙는 것도 막고)
                 // 본문 에디터로 포커스를 넘긴다(#786).
                 if (e.key === 'Enter') {
                   e.preventDefault()
+                  // 한글 IME 조합 중 Enter 는 글자 확정용 — 본문으로 옮기지 않는다(Safari 는 확정 뒤 keyCode 229 로 온다).
+                  if (isImeComposing(e.nativeEvent)) return
+                  // macOS Chrome 은 확정 직후 조합 아닌 Enter 를 한 번 더 보낸다 — 그 한 번만 무시한다(한 번 쓰면 지운다).
+                  if (e.timeStamp - titleCompositionEndRef.current < IME_TRAILING_ENTER_MS) {
+                    titleCompositionEndRef.current = Number.NEGATIVE_INFINITY
+                    return
+                  }
                   // commands.focus 는 다음 animation frame 에 포커스를 옮겨, Enter 직후 빠른 타이핑의 앞 글자가
                   // 제목에 붙는다 → view.focus() 로 동기 이동 후 커서만 시작으로 둔다.
                   editor?.view.focus()
@@ -871,7 +904,7 @@ export function WikiEditor({
                 }
               }}
               placeholder="제목 없음"
-              className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
+              className={`mb-4 block w-full resize-none overflow-hidden border-0 bg-transparent p-0 break-words break-keep outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
             />
             {/* WP-301 노트 상단 AI 요약 — 제목 아래·본문 위(시안 A). 본문을 바꾸지 않는 읽기 보조라 뷰어에게도 보인다. */}
             <WikiSummaryCard pageId={page.id} accessLost={isAccessLost(syncStatus)} />

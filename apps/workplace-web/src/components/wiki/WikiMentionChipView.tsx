@@ -1,7 +1,7 @@
 import type { WikiMentionAttrs } from '@smart-workplace/wiki-editor-schema'
 import { type NodeViewProps,NodeViewWrapper } from '@tiptap/react'
 
-import { useMentionLabel } from './wikiMentionLabels'
+import { mentionChipText, useMentionLabel } from './wikiMentionLabels'
 
 // 칩 스타일 — 디자인 시스템 시맨틱 토큰만(hex/임의색 금지). accent 토큰으로 라이트/다크 테마에 자동 대응.
 // cursor-pointer 는 내비 가능한 칩(PAGE/ISSUE)에만 — USER 칩은 클릭 무동작이라 거짓 affordance 를 피한다.
@@ -25,8 +25,8 @@ export function WikiMentionChipView({ node }: NodeViewProps) {
       data-id={String(id)}
       className={isUser ? BASE_CHIP_CLASS : NAV_CHIP_CLASS}
     >
-      {/* USER 는 채팅 칩과 동일하게 "@" 프리픽스 — PAGE/ISSUE 는 참조 링크라 제외(#703). */}
-      {isUser ? `@${label}` : label}
+      {/* USER 는 채팅 칩과 동일하게 "@" 프리픽스 — PAGE/ISSUE 는 참조 링크라 제외(#703). 버전 비교 위젯도 같은 규칙. */}
+      {mentionChipText(mtype, label)}
     </NodeViewWrapper>
   )
 }
