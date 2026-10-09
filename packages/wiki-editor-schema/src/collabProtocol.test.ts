@@ -4,9 +4,13 @@ import {
   CLOSE_DELETED,
   CLOSE_FORBIDDEN,
   CLOSE_TOKEN_EXPIRED,
+  COLLAB_AI_APPLY_ACK_TYPE,
+  COLLAB_AI_APPLY_TYPE,
+  COLLAB_AI_CANCEL_TYPE,
   COLLAB_CURSOR_FIELD,
   COLLAB_USER_FIELD,
   parseAiMarkers,
+  parseCollabAiMessage,
   parseCollabCursor,
   parseCollabUser,
   REVALIDATE_REASON_DELETED,
@@ -68,5 +72,29 @@ describe('presence awareness fields (WP-173)', () => {
     expect(parseCollabCursor({ anchor: rel, head: rel })).toEqual({ anchor: rel, head: rel })
     expect(parseCollabCursor({ anchor: rel, head: rel, seq: '7' })).toEqual({ anchor: rel, head: rel })
     expect(parseCollabCursor({ anchor: rel, head: rel, seq: Number.NaN })).toEqual({ anchor: rel, head: rel })
+  })
+})
+
+// AI 적용 stateless(WP-323)도 상대가 보낸 값이라 모양을 믿지 않는다 — 서버·웹·E2E 가 같은 판정을 쓴다.
+describe('parseCollabAiMessage', () => {
+  it('세 type 과 비지 않은 requestId 만 받는다(키 순서·여분 필드 무관)', () => {
+    for (const type of [COLLAB_AI_APPLY_TYPE, COLLAB_AI_APPLY_ACK_TYPE, COLLAB_AI_CANCEL_TYPE]) {
+      expect(parseCollabAiMessage(JSON.stringify({ type, requestId: 'r1' }))).toEqual({ type, requestId: 'r1' })
+    }
+    expect(parseCollabAiMessage(JSON.stringify({ requestId: 'r1', x: 1, type: COLLAB_AI_APPLY_TYPE }))).toEqual({
+      type: COLLAB_AI_APPLY_TYPE,
+      requestId: 'r1',
+    })
+  })
+
+  it('깨진 JSON·null·모르는 type·빈/긴/문자열 아닌 requestId 는 null', () => {
+    expect(parseCollabAiMessage('not json')).toBeNull()
+    expect(parseCollabAiMessage('null')).toBeNull()
+    expect(parseCollabAiMessage(JSON.stringify({ type: 'collab:role', requestId: 'r1' }))).toBeNull()
+    expect(parseCollabAiMessage(JSON.stringify({ type: COLLAB_AI_APPLY_TYPE }))).toBeNull()
+    expect(parseCollabAiMessage(JSON.stringify({ type: COLLAB_AI_APPLY_TYPE, requestId: '' }))).toBeNull()
+    expect(parseCollabAiMessage(JSON.stringify({ type: COLLAB_AI_APPLY_TYPE, requestId: 7 }))).toBeNull()
+    expect(parseCollabAiMessage(JSON.stringify({ type: COLLAB_AI_APPLY_TYPE, requestId: 'x'.repeat(128) }))).not.toBeNull()
+    expect(parseCollabAiMessage(JSON.stringify({ type: COLLAB_AI_APPLY_TYPE, requestId: 'x'.repeat(129) }))).toBeNull()
   })
 })

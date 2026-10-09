@@ -30,6 +30,7 @@ import { useCollabSession } from '../../hooks/useCollabSession'
 import { usePresence } from '../../hooks/usePresence'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import { handleApiError } from '../../lib/api-error'
+import { requestAiApply } from '../../lib/collab/aiApplyHandshake'
 import { acceptResume, type ResumeGate, shouldShowAwayToast } from '../../lib/collab/collabResume'
 import { isAccessLost, isEditRole, isTerminalStatus } from '../../lib/collab/collabStatus'
 import { type AwarenessStates, jumpAnchor, type PresencePerson } from '../../lib/collab/presence'
@@ -240,6 +241,11 @@ export function WikiEditor({
     },
     [session.provider, user],
   )
+  // 지금 세션의 provider — AI 적용 알림의 기다림(≤3초)이 끝난 뒤 취소를 보낼 때 그사이 바뀐 세션도 따라가게 한다.
+  const providerRef = useRef(session.provider)
+  useEffect(() => {
+    providerRef.current = session.provider
+  }, [session.provider])
   /** 진행 중 스트림을 abortRef 에 건다 — 취소(ESC·버튼)·다음 액션·언마운트는 모두 이 abort 를 거치며 표식도 함께 내린다. */
   const track = useCallback((handle: { abort: () => void }, stopPresence: () => void) => {
     abortRef.current = () => {
@@ -247,6 +253,49 @@ export function WikiEditor({
       stopPresence()
     }
   }, [])
+
+  /**
+   * AI 실행 하나를 끝낸다 — ✦ 표식을 내리고, owner 가 아직 현재 작업이면(없으면 무조건) '생성 중' 상태를 내린다.
+   * 이미 취소·대체된 실행의 늦은 정리가 새 실행의 상태를 지우지 않게 owner 로 확인한다.
+   */
+  const endAiRun = useCallback((stopPresence: () => void, owner?: () => void) => {
+    stopPresence()
+    if (owner && abortRef.current !== owner) return
+    abortRef.current = null
+    setAiBusy(false)
+  }, [])
+
+  /**
+   * AI 결과를 문서에 넣는다(WP-323) — 넣기 직전에 동기화 서버에 ai-apply 를 보내 AI 직전 판을 ✦ 버전으로 남기게 하고,
+   * ack(최대 3초)를 기다린 뒤 넣는다. 넣을지·취소를 보낼지는 핸드셰이크(commit)가 정한다 — 여기는 UI 상태만 다룬다.
+   * 기다리는 동안에도 '생성 중'(aiBusy·✦ 표식)을 유지하고 abortRef 에 이 대기의 중단을 걸어 둔다 — ESC·다음 액션·언마운트가
+   * 끝난 스트림 대신 이 대기를 끊는다(끝난 스트림의 handle.abort 를 부르면 이미 끝난 생성에 취소 요청이 나간다).
+   * text 가 비었거나 에디터가 없거나 읽기 전용이면(생성 중 VIEWER 강등 — 서버가 받지 않는 편집이라 내 화면만 어긋남) 보내지도 넣지도 않는다.
+   * 미연결이면 핸드셰이크가 즉시 끝나 기존처럼 바로 넣는다(✦ 없음).
+   */
+  const commitAiResult = useCallback(
+    (stopPresence: () => void, fromAt: (ed: Editor) => number, toAt: (ed: Editor) => number, text: string) => {
+      const waiting = new AbortController()
+      const abortWait = () => {
+        waiting.abort()
+        stopPresence()
+      }
+      abortRef.current = abortWait
+      const canInsert = () => {
+        const ed = editorRef.current
+        return text !== '' && !!ed && !ed.isDestroyed && canEditRef.current
+      }
+      void requestAiApply(() => providerRef.current, { canInsert, signal: waiting.signal }).then((apply) => {
+        endAiRun(stopPresence, abortWait)
+        // 단일 트랜잭션 → 단일 undo. 로컬 편집이라 동기화로 모두에게 전파된다.
+        apply.commit(() => {
+          const ed = editorRef.current!
+          insertAiMarkdown(ed, fromAt(ed), toAt(ed), text)
+        })
+      })
+    },
+    [endAiRun],
+  )
 
   // WP-301 요약 캐시를 노트의 새 버전에 맞춘다(낡음 표시·짧던 노트가 길어지면 재조회). 예전엔 자동저장 응답·원격 반영에서 맞췄지만
   // 이제 본문은 동기화 서버가 파생 저장(version+1)하고 에디터는 wiki.page.updated → 페이지 재조회로만 새 version 을 안다(WP-287).
@@ -284,28 +333,20 @@ export function WikiEditor({
           buffer += text
         },
         onDone: () => {
-          stopPresence()
-          setAiBusy(false)
-          abortRef.current = null
           refreshAiAttribution()
-          const e2 = editorRef.current
-          // 모델이 페이지 제목을 H1 으로 반복하면 본문 밖 제목 입력란과 이중으로 보인다 — 삽입 전에 걷어낸다.
+          // 모델이 페이지 제목을 H1 으로 반복하면 본문 밖 제목 입력란과 이중으로 보인다 — 삽입 전에 걷어낸다. 공백뿐이면 넣지 않는다.
           const content = stripLeadingTitleHeading(buffer, titleRef.current)
-          // 생성 중 읽기 전용으로 바뀌었으면(VIEWER 강등) 넣지 않는다 — 서버가 받지 않는 편집이라 내 화면만 어긋난다.
-          if (!e2 || !content.trim() || !canEditRef.current) return
-          // 전체 결과를 한 번에 마크다운 파싱·삽입(단일 트랜잭션 → 단일 undo). 로컬 편집이라 동기화로 모두에게 전파된다.
-          insertAiMarkdown(e2, fromAt(e2), toAt(e2), content)
+          // 전체 결과를 한 번에 마크다운 파싱·삽입한다.
+          commitAiResult(stopPresence, fromAt, toAt, content.trim() ? content : '')
         },
         onError: (message) => {
-          stopPresence()
-          setAiBusy(false)
-          abortRef.current = null
+          endAiRun(stopPresence)
           toast.error(message)
         },
       })
       track(handle, stopPresence)
     },
-    [page.id, refreshAiAttribution, startAiPresence, track],
+    [commitAiResult, endAiRun, page.id, refreshAiAttribution, startAiPresence, track],
   )
 
   // 변형 액션(선택영역 제자리 교체) — 스트림을 버퍼링했다가 done 시 1회 교체(단일 undo).
@@ -334,25 +375,18 @@ export function WikiEditor({
           buffer += text
         },
         onDone: () => {
-          stopPresence()
-          setAiBusy(false)
-          abortRef.current = null
           refreshAiAttribution()
-          const e2 = editorRef.current
-          if (!e2 || !buffer || !canEditRef.current) return
-          // 캡처한 범위를 결과로 1회 교체(삭제+삽입 단일 트랜잭션 → 단일 undo).
-          insertAiMarkdown(e2, fromAt(e2), toAt(e2), buffer)
+          // 캡처한 범위를 결과로 1회 교체(삭제+삽입).
+          commitAiResult(stopPresence, fromAt, toAt, buffer)
         },
         onError: (message) => {
-          stopPresence()
-          setAiBusy(false)
-          abortRef.current = null
+          endAiRun(stopPresence)
           toast.error(message)
         },
       })
       track(handle, stopPresence)
     },
-    [page.id, refreshAiAttribution, startAiPresence, track],
+    [commitAiResult, endAiRun, page.id, refreshAiAttribution, startAiPresence, track],
   )
 
   // "이슈로 만들기" — 선택 텍스트를 제목(첫 줄)/본문으로, 삽입 위치(선택 끝)를 캡처해 다이얼로그를 연다.

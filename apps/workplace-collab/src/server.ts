@@ -8,17 +8,21 @@ import {
   CLOSE_DELETED,
   CLOSE_FORBIDDEN,
   CLOSE_TOKEN_EXPIRED,
+  COLLAB_AI_APPLY_ACK_TYPE,
+  COLLAB_AI_CANCEL_TYPE,
   COLLAB_AI_MARKER_MS,
   COLLAB_ROLE_CHANGED_TYPE,
   COLLAB_SCHEMA_MISMATCH,
   COLLAB_SCHEMA_PARAM,
   type CollabAiMarker,
   isCollabEditRole,
+  parseCollabAiMessage,
   REVALIDATE_REASON_DELETED,
   WIKI_SCHEMA_VERSION,
 } from '@smart-workplace/wiki-editor-schema'
 
 import { AiMarkerBoard } from './aiMarkers'
+import { AiTagBoard } from './aiTagBoard'
 import { ApiClient, DocGoneError, TokenRejectedError } from './apiClient'
 import type { CollabConfig } from './config'
 import { DocRegistry, pageIdOf, type DocMeta } from './docRegistry'
@@ -129,6 +133,11 @@ export const APPLY_DEADLINE_MS = 20_000
  * 정상 저장 한 번은 기다린다). 기한 20s + 3s 도 API read 30s 안이다. 넘기면 적용은 된 채 persisted:false 로 답하고 재시도가 저장한다.
  */
 export const APPLY_STORE_MIN_MS = 3_000
+/**
+ * 에디터 안 AI 적용 태그의 수명(ms, WP-323) — 웹은 ack 를 받고 곧바로 삽입하므로 넉넉하다. 이 안에 삽입(저장)이 없으면 태그는 버려진다
+ * (취소가 유실돼도 다음 사람 저장에 거짓 ✦ 가 붙지 않게).
+ */
+export const AI_TAG_TTL_MS = 5_000
 // setTimeout 최대 지연(약 24.8일) — 넘기면 즉시 실행되므로 나눠서 건다.
 const MAX_TIMER_MS = 2 ** 31 - 1
 /**
@@ -294,6 +303,8 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
   const shutdownTimeoutMs = cfg.shutdownTimeoutMs ?? 20000
   const retryTimers = new Set<NodeJS.Timeout>()
   let shuttingDown = false
+  // 에디터 안 AI 적용 태그(WP-323) — 수명·한계는 aiTagBoard.ts 머리말.
+  const aiTags = new AiTagBoard(cfg.aiTagTtlMs ?? AI_TAG_TTL_MS)
 
   /** 문서를 지금 저장한다(Hocuspocus 저장 경로 — 저장 뮤텍스·성공 후 언로드 판단을 그대로 탄다). */
   function storeNow(doc: Document): Promise<unknown> {
@@ -341,6 +352,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     if (!meta || meta.gone) return
     meta.gone = true
     meta.editors.clear()
+    aiTags.dispose(doc)
     meta.failures = 0
     clearRetry(doc)
     console.warn(`[collab] page gone ${doc.name} (API ${e.status}) — dropping unsaved changes and closing connections`)
@@ -367,6 +379,8 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     expiryTimers.clear()
     for (const t of retryTimers) clearTimeout(t)
     retryTimers.clear()
+    // AI 태그는 만료 타이머만 지우고 남겨 아래 마지막 저장이 싣게 한다.
+    aiTags.shutdown()
     for (const doc of server.hocuspocus.documents.values()) {
       const meta = registry.get(doc)
       if (meta) meta.retryTimer = undefined
@@ -399,6 +413,12 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
    * - DocGoneError(페이지 없음): dropGone 후 그대로 던진다(영구 실패 — 재시도 없음).
    * - 그 밖 실패: 편집자를 되돌리고 실패 횟수를 올려 재시도를 예약한 뒤 그대로 던진다(편집 유실 방지).
    * withEditors 로 저장할 편집자 목록을 덧붙일 수 있다(apply-markdown 의 actor). 응답 매핑은 호출자가 한다.
+   * - AI 태그(WP-323): 사유가 정해지지 않은 저장은 인코딩과 같은 동기 구간(호출자가 잡은 저장 뮤텍스 안)에서 태그를 꺼내 'AI' 사유 +
+   *   요청자로 저장한다 — "태그가 달린 뒤 처음 상태를 인코딩하는 저장"이 소비한다(큐에 넣는 시점이 아니라). 지연 저장·ai-apply 의 flush·
+   *   apply-markdown 의 적용 직전 저장(flushBeforeApply, 사유 없음) 모두 같다 — 그 판의 직전 저장 판이 곧 AI 직전 판이다.
+   *   이미 사유가 정해진 저장(apply-markdown 의 적용 저장 — AI·RESTORE)은 그 사유가 우선이고 태그를 소비하지 않는다: 서버 적용은
+   *   자기 직전 판을 스스로 남기므로, 태그는 그 뒤 들어올 에디터 AI 삽입의 저장이 소비하게 남겨 둔다.
+   *   실패(페이지 삭제 제외)하면 되돌린다(AiTagBoard.restore) — 재시도 저장이 다시 싣는다. 감수한 한계는 aiTagBoard.ts 머리말.
    */
   async function persist(
     doc: Document,
@@ -411,6 +431,9 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     const seq = meta.seq
     const editors = withEditors(registry.takeEditors(doc))
     const body = yDocToMarkdown(doc)
+    // 태그 소비 — 아래 인코딩과 같은 동기 구간(await 전)이라 꺼낸 태그와 저장되는 상태가 정확히 대응한다.
+    const tag = opts.snapshotReason == null ? aiTags.take(doc) : undefined
+    const storeOpts: StoreOptions = tag ? { ...opts, snapshotReason: 'AI', aiActorId: tag.actorId } : opts
     let version: number
     try {
       version = await store.store(
@@ -418,13 +441,15 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
         Y.encodeStateAsUpdate(doc),
         body,
         editors,
-        opts,
+        storeOpts,
       )
     } catch (e) {
       if (e instanceof DocGoneError) {
         dropGone(doc, e)
         throw e
       }
+      // 소비한 태그를 되돌린다(더 새 태그가 없을 때만, 만료는 새로) — 백오프 뒤 재시도가 같은 판을 다시 실을 때도 AI 사유가 남게.
+      if (tag) aiTags.restore(doc, tag)
       registry.restoreEditors(doc, editors)
       meta.failures += 1
       const delay = scheduleRetry(doc)
@@ -716,6 +741,39 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     if (failed > 0) throw new HttpError(503, `revalidate failed for ${failed} connection(s)`)
   }
 
+  /**
+   * 에디터 안 AI 적용(WP-323) stateless 처리 — ai-apply·ai-cancel 외의 메시지는 무시한다.
+   * ai-apply: 편집 권한 연결만(VIEWER·강등된 연결은 flush·태그·ack 모두 없음 — Hocuspocus 는 읽기 전용 연결의 stateless 도 통과시킨다).
+   *   ① 미저장 사람 편집이 있으면 사유 없이 먼저 저장(storeNow — 저장 뮤텍스·디바운스 정리·dirty 재확인을 그대로 탄다. 앞선 태그가 있으면
+   *   이 저장이 소비한다). ② 이 요청의 태그를 달고 다음 변경을 즉시 저장하도록 예약. ③ 요청 연결에만 ack.
+   *   ack 는 ① 이 끝난 뒤 — 저장이 실패해도 ack 한다(storeNow 는 오류를 삼킨다. 태그는 유지되어 재시도 저장이 싣는다).
+   * ai-cancel: 같은 사용자·같은 요청의 태그만 지운다(다른 사람·옛 요청의 취소가 새 태그를 지우지 않게). flush 를 기다리는 중인 요청이면
+   *   대기 표시를 지워, flush 가 끝난 뒤 태그·ack 를 하지 않게 한다(웹은 이미 시간 초과로 포기한 요청).
+   */
+  async function handleAiMessage(connection: Connection<CollabContext>, doc: Document, payload: string): Promise<void> {
+    const msg = parseCollabAiMessage(payload)
+    // ack 는 서버가 보내는 것 — 클라이언트가 보낸 ack 는 무시한다.
+    if (!msg || msg.type === COLLAB_AI_APPLY_ACK_TYPE) return
+    const userId = connection.context.userId
+    const canEdit = () => !connection.readOnly && isCollabEditRole(connection.context.role ?? '')
+    if (typeof userId !== 'number' || !canEdit()) return
+    const meta = registry.get(doc)
+    if (!meta || meta.gone) return
+    if (msg.type === COLLAB_AI_CANCEL_TYPE) {
+      aiTags.cancel(doc, userId, msg.requestId)
+      return
+    }
+    aiTags.begin(doc, userId, msg.requestId)
+    // storeNow 는 저장 오류를 삼키므로(storeDocumentHooks) 여기서 던지지 않는다 — 대기 표시는 아래에서 항상 꺼낸다.
+    if (registry.isDirty(doc)) await storeNow(doc)
+    // 대기 표시를 꺼내며 취소 여부를 본다 — false 면 flush 도중 취소된 요청이다.
+    if (!aiTags.settle(doc, userId, msg.requestId)) return
+    // 저장을 기다리는 동안 권한 회수·페이지 삭제가 있었으면 태그·ack 없이 끝낸다(웹은 시간 초과 뒤 ✦ 없이 삽입하거나 포기한다).
+    if (!canEdit() || meta.gone || doc.isDestroyed) return
+    aiTags.set(doc, userId, msg.requestId)
+    connection.sendStateless(JSON.stringify({ type: COLLAB_AI_APPLY_ACK_TYPE, requestId: msg.requestId }))
+  }
+
   const internal = makeInternalHandler({ internalToken: cfg.internalToken, testMode: cfg.testMode, applyMarkdown, revalidate })
   // 테스트 경로는 플래그가 켜졌을 때만 — 주입돼도 운영 설정이면 연결하지 않는다(R2).
   const testRoutes = cfg.testMode ? deps.testRoutes : undefined
@@ -844,6 +902,25 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
       }
     },
 
+    // 에디터 안 AI 적용 알림(WP-323) — Hocuspocus 는 이 콜백을 기다리지 않고, 던진 오류는 처리되지 않은 거부가 되므로 여기서 모두 삼킨다.
+    async onStateless({ connection, document, payload }) {
+      try {
+        await handleAiMessage(connection as Connection<CollabContext>, document, payload)
+      } catch (e) {
+        console.error(`[collab] stateless handling failed ${document.name}:`, (e as Error).message)
+      }
+    },
+
+    // ai-apply 뒤 첫 연결 변경(= AI 결과 삽입)은 디바운스 없이 저장한다 — 태그가 만료(AI_TAG_TTL_MS)되기 전에 그 저장이 소비하게.
+    // 서버 내부 변경(apply-markdown 등 connection 없음)은 스스로 저장하므로 건너뛴다.
+    // setImmediate: Hocuspocus 가 이 변경으로 디바운스 저장을 건 뒤에 즉시 저장을 불러, 걸린 디바운스를 지우고 한 번만 저장한다.
+    async onChange({ document, connection }) {
+      if (!connection || !aiTags.shouldStoreNow(document)) return
+      setImmediate(() => {
+        if (!document.isDestroyed && registry.isDirty(document)) void storeNow(document)
+      })
+    },
+
     async onStoreDocument({ document, documentName }) {
       const meta = registry.get(document)
       // 메모 없이 저장하면 테넌트 없이 호출하게 된다 — 조용히 넘기지 않고 실패시켜 문서를 메모리에 남긴다.
@@ -871,6 +948,8 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
         throw new Error(`unsaved changes, keeping ${documentName} in memory`)
       }
       clearRetry(document)
+      // 내려가는 문서의 AI 태그는 버린다(만료 타이머 정리) — 다시 로드되면 새 Document 라 태그가 없다.
+      aiTags.dispose(document)
     },
 
     async afterUnloadDocument({ documentName }) {
