@@ -139,6 +139,11 @@ public class WikiPageService {
    * @param ai MCP·채팅 비서 등 AI 경로면 true — 동기화 서버가 ✦ 표시·스냅샷 귀속에 쓴다
    */
   public WikiPageDetail save(long callerId, long pageId, SavePageRequest req, boolean ai) {
+    // WP-327: 새 웹은 본문을 PUT 하지 않으므로(동기화 서버로 저장) 사람(ai=false)의 본문 PUT 은 캐시된 구버전 PWA 뿐이다.
+    // 이 로그가 끊기면 구버전이 사라진 것 — 제출 본문 기준본 후보(submitted_body)를 걷어낼 시점을 판단하는 근거. id 만 남긴다.
+    if (req.body() != null && !ai) {
+      log.info("wiki.legacy_body_save page={} user={}", pageId, callerId);
+    }
     boolean delegate = req.body() != null && collabProps.enabled();
     TransactionTemplate tx = new TransactionTemplate(txManager);
     if (!delegate) {

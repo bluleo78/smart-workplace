@@ -63,7 +63,10 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -78,6 +81,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * {@code @AfterEach} 에서 직접 정리한다(공간 삭제 → page·doc CASCADE).
  */
 @TestPropertySource(properties = "workplace.collab.enabled=true")
+@ExtendWith(OutputCaptureExtension.class)
 class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
@@ -700,6 +704,53 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
     verify(collab)
         .applyMarkdown(
             eq(1L), eq(pageId), any(), eq("x"), eq(userId), anyString(), eq(true), eq(true));
+  }
+
+  /**
+   * WP-327 구버전 웹 본문 저장 기록 — 사람(브라우저 JWT)의 본문 PUT 만 남기고, AI 경로(Internal on-behalf-of)·제목만 저장은 남기지
+   * 않는다. 이 로그가 끊기는 시점이 제출 본문 기준본 후보를 걷어낼 근거다.
+   */
+  @Test
+  void legacyBodySaveIsLoggedOnlyForHumanBodyPut(CapturedOutput output) throws Exception {
+    long pageId = seedPage("본문");
+    when(collab.applyMarkdown(
+            anyLong(),
+            anyLong(),
+            any(),
+            anyString(),
+            anyLong(),
+            anyString(),
+            anyBoolean(),
+            anyBoolean()))
+        .thenReturn(new CollabApplyResult(5, "x"));
+    String marker = "wiki.legacy_body_save page=" + pageId + " user=" + userId;
+    String humanToken = "Bearer " + jwt.generateAccessToken(userId, "u", 1L);
+
+    // AI 경로(채팅 비서 Internal on-behalf-of) 본문 PUT — 기록하지 않는다.
+    mvc.perform(
+            put("/api/v1/wiki/pages/{id}", pageId)
+                .header("Authorization", "Internal test-token")
+                .header("X-On-Behalf-Of", String.valueOf(userId))
+                .contentType(APPLICATION_JSON)
+                .content("{\"body\":\"x\",\"version\":1,\"snapshot\":false}"))
+        .andExpect(status().isOk());
+    // 사람의 제목만 저장 — 본문이 없으니 기록하지 않는다.
+    mvc.perform(
+            put("/api/v1/wiki/pages/{id}", pageId)
+                .header("Authorization", humanToken)
+                .contentType(APPLICATION_JSON)
+                .content("{\"title\":\"새 제목\",\"snapshot\":false}"))
+        .andExpect(status().isOk());
+    assertThat(output.getOut()).doesNotContain(marker);
+
+    // 사람(브라우저 JWT)의 본문 PUT — 구버전 PWA 저장으로 한 번 기록한다.
+    mvc.perform(
+            put("/api/v1/wiki/pages/{id}", pageId)
+                .header("Authorization", humanToken)
+                .contentType(APPLICATION_JSON)
+                .content("{\"body\":\"y\",\"version\":1,\"snapshot\":false}"))
+        .andExpect(status().isOk());
+    assertThat(output.getOut().split(java.util.regex.Pattern.quote(marker), -1)).hasSize(2);
   }
 
   @Test
