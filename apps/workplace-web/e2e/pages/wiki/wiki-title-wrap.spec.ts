@@ -9,6 +9,7 @@ import { wikiPageDetail } from '../../factories/wiki.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { envShot, leaveAllCollabPeers } from '../../fixtures/collab'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
+import { pressMacChromeImeEnter } from '../../fixtures/ime'
 import { expectStays, resizeAndSettle } from '../../fixtures/wait'
 import { mockWikiPageEditor } from '../../fixtures/wiki-mock'
 
@@ -105,14 +106,7 @@ test.describe('데스크톱 1440', () => {
     await openNote(page, '회의록')
     const field = titleField(page)
     await field.click()
-    // 실제 순서 그대로 한 번에 보낸다(조합 Enter → compositionend → 조합 아닌 Enter) — 나눠 보내면 왕복 지연이 무시 창을 넘을 수 있다.
-    await field.evaluate((el) => {
-      const enter = (init: KeyboardEventInit & { keyCode: number }) =>
-        el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init }))
-      enter({ isComposing: true, keyCode: 229 })
-      el.dispatchEvent(new CompositionEvent('compositionend', { data: '록', bubbles: true }))
-      enter({ keyCode: 13 })
-    })
+    await pressMacChromeImeEnter(field, '록')
     await expect(field).toBeFocused()
     await expect(field).toHaveValue('회의록')
     // 무시는 한 번뿐 — 이어 누른 Enter 는 본문으로 옮긴다.

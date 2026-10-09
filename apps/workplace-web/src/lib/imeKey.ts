@@ -5,3 +5,18 @@
 export function isImeComposing(event: KeyboardEvent): boolean {
   return event.isComposing || event.keyCode === 229;
 }
+
+/**
+ * 조합 확정 직후 따라오는 Enter 를 무시하는 시간(ms) — macOS Chrome 한글 IME 는 조합 중 Enter 를 isComposing keydown 으로 보낸 뒤
+ * compositionend 와 함께 조합이 아닌 Enter keydown 을 한 번 더 보낸다(같은 키 입력이라 몇 ms 안). 시간으로 거르는 이유:
+ * Windows Chrome·Firefox 는 뒤따르는 Enter 를 보내지 않으므로 기한 없이 "다음 Enter 무시"를 걸면 사용자의 진짜 Enter 를 삼킨다.
+ */
+export const IME_TRAILING_ENTER_MS = 100;
+
+/**
+ * 두 이벤트가 같은 키 입력에 딸린 것으로 볼 만큼 가까운지(IME_TRAILING_ENTER_MS 안) — 둘 다 event.timeStamp.
+ * 꼬리 Enter 판정에 쓴다: 조합 Enter → compositionend, compositionend → 꼬리 Enter 가 각각 이 창 안에 온다.
+ */
+export function isTrailingImeEnter(enterTimeStamp: number, lastCompositionEnd: number): boolean {
+  return enterTimeStamp - lastCompositionEnd < IME_TRAILING_ENTER_MS;
+}

@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
 import { useFocusReturn } from '@/hooks/useFocusReturn';
 import { useSheetHistory } from '@/hooks/useSheetHistory';
-import { isImeComposing } from '@/lib/imeKey';
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 import { normalizeSingleLineInput } from '@/lib/singleLine';
 
 import { formatDateMonthDay } from '../../../../lib/formatters';
@@ -54,6 +54,8 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const titleField = register('title');
   useAutoGrowTextarea(titleRef, title, open);
+  // 제목 Enter → 설명으로 이동. 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 이동으로 보지 않는다(WP-331).
+  const titleEnter = useSingleLineEnter();
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
@@ -92,11 +94,9 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                   normalizeSingleLineInput(e.target);
                   void titleField.onChange(e);
                 }}
+                onCompositionEnd={titleEnter.onCompositionEnd}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !isImeComposing(e.nativeEvent)) {
-                    e.preventDefault();
-                    bodyRef.current?.focus();
-                  }
+                  titleEnter.handleEnter(e, () => bodyRef.current?.focus());
                 }}
                 className="block w-full resize-none overflow-hidden bg-transparent text-xl! leading-7 font-semibold outline-none placeholder:text-muted-foreground"
               />
