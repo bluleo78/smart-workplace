@@ -44,8 +44,8 @@ export interface LiveMergeResult extends MergeResult {
   plan: KeepLivePlan
 }
 
-/** 워커 메시지 규약(mergeWorker.ts 와 공유). delayMs 는 테스트 전용 동기 블로킹, fault 는 테스트 전용 워커 고장(예외·종료). */
-export type MergeJobMessage = { id: number; delayMs?: number; fault?: 'throw' | 'exit' } & (
+/** 워커 메시지 규약 — 처리는 mergeJob.ts(handleJob). */
+export type MergeJobMessage = { id: number } & (
   | ({ kind: 'prepare' } & PrepareJob)
   | ({ kind: 'merge' } & MergeJob)
 )
@@ -74,12 +74,20 @@ export interface MergeRunner {
   destroy(): Promise<void>
 }
 
-/** 실행기 옵션 — testDelayMs 는 테스트 전용(워커 안 동기 블로킹, 작업마다 다시 읽는다). 운영 조립 경로는 넘기지 않는다. */
+/** 실행기 옵션 — spawnWorker 는 워커를 띄우는 방법(기본 = mergeWorker, execArgv = 소스 실행이면 tsx 로더). */
 export interface MergeRunnerOptions {
   timeoutMs?: number
-  testDelayMs?: number | (() => number)
-  /** 테스트 전용 — 작업마다 불러 'throw'(처리 밖 예외)·'exit'(스레드 종료)면 워커를 고장 낸다. */
-  testFault?: () => 'throw' | 'exit' | undefined
+  spawnWorker?: (execArgv: string[] | undefined) => Worker
+}
+
+/** 소스 실행(vitest·tsx)인가 — 그러면 워커 진입점도 .ts 소스이고 tsx 로더가 필요하다. */
+const fromSource = import.meta.url.endsWith('.ts')
+
+/** 소스 실행이면 워커에 tsx 로더를 건다 — tsx 로 띄운 프로세스는 이미 execArgv 에 있어 그대로 물려받고, vitest 는 없다. */
+function workerExecArgv(): string[] | undefined {
+  if (!fromSource || process.execArgv.some((a) => a.includes('tsx'))) return undefined
+  const loader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
+  return [...process.execArgv, '--import', loader]
 }
 
 interface Pending {
@@ -101,20 +109,12 @@ interface Pending {
  */
 export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
   const timeoutMs = opts.timeoutMs ?? MERGE_TIMEOUT_MS
-  const fromSource = import.meta.url.endsWith('.ts')
   const workerUrl = new URL(fromSource ? './mergeWorker.ts' : './mergeWorker.js', import.meta.url)
   const queue: Pending[] = []
   let worker: Worker | null = null
   let running: { p: Pending; timer: NodeJS.Timeout } | null = null
   let nextId = 1
   let destroyed = false
-
-  /** 소스 실행이면 워커에 tsx 로더를 건다 — tsx 로 띄운 프로세스는 이미 execArgv 에 있어 그대로 물려받고, vitest 는 없다. */
-  function workerExecArgv(): string[] | undefined {
-    if (!fromSource || process.execArgv.some((a) => a.includes('tsx'))) return undefined
-    const loader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
-    return [...process.execArgv, '--import', loader]
-  }
 
   /** 현재 작업을 끝내고(성공·실패) 다음 작업을 보낸다. */
   function finish(outcome: { value: WorkerValue } | { error: Error }): void {
@@ -137,7 +137,8 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
   }
 
   function spawn(): Worker {
-    const w = new Worker(workerUrl, { execArgv: workerExecArgv() })
+    const execArgv = workerExecArgv()
+    const w = opts.spawnWorker?.(execArgv) ?? new Worker(workerUrl, { execArgv })
     // 대기 작업이 없을 때 프로세스 종료를 붙잡지 않게(테스트·종료 신호).
     w.unref()
     w.on('message', (msg: MergeReply) => {
@@ -173,8 +174,7 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
         finish({ error: new MergeTimeoutError(`merge timed out after ${left}ms`) })
       }, left)
       running = { p, timer }
-      const delayMs = typeof opts.testDelayMs === 'function' ? opts.testDelayMs() : opts.testDelayMs
-      w.postMessage({ ...p.msg, delayMs, fault: opts.testFault?.() } satisfies MergeJobMessage, transferOf(p.msg))
+      w.postMessage(p.msg, transferOf(p.msg))
     }
   }
 

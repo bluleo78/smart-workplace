@@ -4,8 +4,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { markdownToYUpdate } from './markdownCodec'
 import { createMergeRunner, MergeFailedError, MergeTimeoutError, type MergeRunner } from './mergeRunner'
+import { createTestMergeRunner } from './testing/testMergeRunner'
 
-// 병합 실행기 — 실제 워커 스레드(src/mergeWorker.ts)로 정규화·병합·시간 제한·재기동을 확인한다.
+// 병합 실행기 — 실제 워커 스레드로 정규화·병합·시간 제한·재기동을 확인한다. 정상 경로는 운영 진입점(src/mergeWorker.ts),
+// 지연·고장이 필요한 시간 초과·고장 경로는 같은 handleJob 을 감싼 테스트 워커(testing/faultyMergeWorker.ts)로 돈다.
 describe('mergeRunner', () => {
   let runner: MergeRunner | undefined
 
@@ -36,7 +38,7 @@ describe('mergeRunner', () => {
 
   it('terminates a timed-out worker and serves the next job from a fresh one', async () => {
     let jobs = 0
-    runner = createMergeRunner({ timeoutMs: 300, testDelayMs: () => (jobs++ === 0 ? 5000 : 0) })
+    runner = createTestMergeRunner({ timeoutMs: 300, testDelayMs: () => (jobs++ === 0 ? 5000 : 0) })
     // 실시간 상태 버퍼는 보낼 때 워커로 옮겨진다(떼어 감) — 작업마다 새로 만든다.
     const job = () => ({ bases: ['가'], live: markdownToYUpdate('가'), ai: '가 AI' })
     const started = performance.now()
@@ -46,7 +48,7 @@ describe('mergeRunner', () => {
   })
 
   it('times out a queued job whose deadline passes behind a slow one, without delaying the slow one', async () => {
-    runner = createMergeRunner({ timeoutMs: 5000, testDelayMs: 800 })
+    runner = createTestMergeRunner({ timeoutMs: 5000, testDelayMs: 800 })
     // 실시간 상태 버퍼는 보낼 때 워커로 옮겨진다(떼어 감) — 작업마다 새로 만든다.
     const job = () => ({ bases: ['가'], live: markdownToYUpdate('가'), ai: '가 AI' })
     const slow = runner.merge(job())
@@ -63,7 +65,7 @@ describe('mergeRunner', () => {
   for (const fault of ['throw', 'exit'] as const) {
     it(`fails the job when the worker crashes (${fault}) and serves the next job from a fresh worker`, async () => {
       let jobs = 0
-      runner = createMergeRunner({ testFault: () => (jobs++ === 0 ? fault : undefined) })
+      runner = createTestMergeRunner({ testFault: () => (jobs++ === 0 ? fault : undefined) })
       // 실시간 상태 버퍼는 보낼 때 워커로 옮겨진다(떼어 감) — 작업마다 새로 만든다.
     const job = () => ({ bases: ['가'], live: markdownToYUpdate('가'), ai: '가 AI' })
       await expect(runner.merge(job())).rejects.toBeInstanceOf(MergeFailedError)
@@ -72,7 +74,7 @@ describe('mergeRunner', () => {
   }
 
   it('reports the time actually left on a timeout', async () => {
-    runner = createMergeRunner({ timeoutMs: 5000, testDelayMs: 3000 })
+    runner = createTestMergeRunner({ timeoutMs: 5000, testDelayMs: 3000 })
     const err = await runner.merge({ bases: ['가'], live: markdownToYUpdate('가'), ai: '가 AI' }, 250).catch((e: Error) => e)
     // 보낼 때 남은 시간(≤ 250ms) — 기본 상한(5000ms)이 아니다.
     const ms = Number(/after (\d+)ms/.exec((err as Error).message)?.[1])

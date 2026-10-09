@@ -41,28 +41,21 @@ public class WikiBodyHistoryRepository {
   public record BaseRow(String body, String submittedBody, OffsetDateTime readAt) {}
 
   /**
-   * 읽은 판 기록 — 단일 UPSERT. 이미 있으면 본문은 두고 read_at 만 갱신한다(다시 읽으면 보관 연장만, 저장 응답의 제출 본문 보존). 직전 갱신이
-   * {@link #REFRESH_THROTTLE} 안이면 행을 건드리지 않는다.
+   * 직전 갱신이 {@link #REFRESH_THROTTLE} 보다 오래됐다 — 다시 읽기·위임 저장 기록이 이미 있는 행의 read_at 을 갱신하는 조건(UPSERT 의
+   * DO UPDATE WHERE). 상세 조회의 기준본 기록({@link WikiPageRepository#findDetailRecordingBase})과 같은 규칙을 쓰도록
+   * 패키지 공개.
    */
-  public void recordRead(long pageId, int version, String body) {
-    dsl.insertInto(WIKI_PAGE_BODY_HISTORY)
-        .set(WIKI_PAGE_BODY_HISTORY.PAGE_ID, pageId)
-        .set(WIKI_PAGE_BODY_HISTORY.VERSION, version)
-        .set(WIKI_PAGE_BODY_HISTORY.BODY, body)
-        .onConflict(WIKI_PAGE_BODY_HISTORY.PAGE_ID, WIKI_PAGE_BODY_HISTORY.VERSION)
-        .doUpdate()
-        .set(WIKI_PAGE_BODY_HISTORY.READ_AT, DSL.currentOffsetDateTime())
-        .where(WIKI_PAGE_BODY_HISTORY.READ_AT.lt(OffsetDateTime.now().minus(REFRESH_THROTTLE)))
-        .execute();
+  static Condition readAtStale() {
+    return WIKI_PAGE_BODY_HISTORY.READ_AT.lt(OffsetDateTime.now().minus(REFRESH_THROTTLE));
   }
 
   /**
    * 위임 저장 결과 판 기록 — 단일 UPSERT. 없으면 실제 본문(병합본)·제출 본문을 넣는다. 이미 있으면:
    *
    * <ul>
-   *   <li>그 판에 다른 저장의 제출 본문이 있으면(taken) 덮지 않고 {@link #recordRead} 처럼 read_at 만 갱신한다(직전 갱신이 {@link
-   *       #REFRESH_THROTTLE} 안이면 건드리지 않음). 바뀐 것 없는 병합은 현재 판을 돌려주는데, 그 판이 구버전 웹 저장의 응답이었다면 제출 본문을 덮는
-   *       순간 그 웹의 다음 저장(자기 본문에서 이어 씀)이 기준을 잃는다.
+   *   <li>그 판에 다른 저장의 제출 본문이 있으면(taken) 덮지 않고 {@link WikiPageRepository#findDetailRecordingBase} 의
+   *       기록처럼 read_at 만 갱신한다(직전 갱신이 {@link #REFRESH_THROTTLE} 안이면 건드리지 않음). 바뀐 것 없는 병합은 현재 판을
+   *       돌려주는데, 그 판이 구버전 웹 저장의 응답이었다면 제출 본문을 덮는 순간 그 웹의 다음 저장(자기 본문에서 이어 씀)이 기준을 잃는다.
    *   <li>아니면 제출 본문·read_at 을 갱신한다(저장 응답 기록).
    * </ul>
    *
@@ -86,7 +79,7 @@ public class WikiBodyHistoryRepository {
             h.SUBMITTED_BODY,
             DSL.when(taken, h.SUBMITTED_BODY).otherwise(DSL.excluded(h.SUBMITTED_BODY)))
         .set(h.READ_AT, DSL.currentOffsetDateTime())
-        .where(taken.not().or(h.READ_AT.lt(OffsetDateTime.now().minus(REFRESH_THROTTLE))))
+        .where(taken.not().or(readAtStale()))
         .execute();
   }
 

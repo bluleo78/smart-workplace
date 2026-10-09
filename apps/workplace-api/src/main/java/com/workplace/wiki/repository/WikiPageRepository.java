@@ -1,6 +1,7 @@
 package com.workplace.wiki.repository;
 
 import static com.workplace.jooq.Tables.WIKI_PAGE;
+import static com.workplace.jooq.Tables.WIKI_PAGE_BODY_HISTORY;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
@@ -12,10 +13,14 @@ import com.workplace.wiki.dto.WikiSearchResult;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
+import org.jooq.CommonTableExpression;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /** wiki_page 접근. 트리는 (space_id, parent_id, position) 기준. */
@@ -67,21 +72,70 @@ public class WikiPageRepository {
                     r.get(WIKI_PAGE.AI_LAST_USED_AT)));
   }
 
+  /** 상세 응답의 본문·version 밖 컬럼 — {@link #findDetailWithBody} 처럼 본문 TEXT 를 읽지 않는 조회가 쓴다. */
+  private static final List<Field<?>> DETAIL_META_FIELDS =
+      List.of(
+          WIKI_PAGE.ID,
+          WIKI_PAGE.SPACE_ID,
+          WIKI_PAGE.PARENT_ID,
+          WIKI_PAGE.TITLE,
+          WIKI_PAGE.UPDATED_BY,
+          WIKI_PAGE.UPDATED_AT,
+          WIKI_PAGE.AI_LAST_USED_AT,
+          WIKI_PAGE.AI_LAST_ACTION);
+
+  /** 상세 응답 컬럼 — {@link #findDetail} 과 {@link #findDetailRecordingBase} 가 공유한다. */
+  private static final List<Field<?>> DETAIL_FIELDS =
+      Stream.concat(DETAIL_META_FIELDS.stream(), Stream.of(WIKI_PAGE.BODY, WIKI_PAGE.VERSION))
+          .toList();
+
   public Optional<WikiPageDetail> findDetail(long pageId) {
-    return dsl.select(
-            WIKI_PAGE.ID,
-            WIKI_PAGE.SPACE_ID,
-            WIKI_PAGE.PARENT_ID,
-            WIKI_PAGE.TITLE,
-            WIKI_PAGE.BODY,
-            WIKI_PAGE.VERSION,
-            WIKI_PAGE.UPDATED_BY,
-            WIKI_PAGE.UPDATED_AT,
-            WIKI_PAGE.AI_LAST_USED_AT,
-            WIKI_PAGE.AI_LAST_ACTION)
+    return dsl.select(DETAIL_FIELDS)
         .from(WIKI_PAGE)
         .where(WIKI_PAGE.ID.eq(pageId))
         .fetchOptional(r -> detailOf(r, r.get(WIKI_PAGE.BODY), r.get(WIKI_PAGE.VERSION)));
+  }
+
+  /**
+   * 페이지 상세 조회 + 그 판의 기준본 기록을 한 SQL 문(데이터 변경 CTE)으로 한다. 한 문장은 한 스냅샷이라 응답의 (version, body) 와 기록되는
+   * (version, body) 가 동시 저장과 겹쳐도 같은 판이고, 읽은 본문 TEXT 를 DB 로 되보내지 않으며 왕복도 한 번이다. 기록은 UPSERT: 이미 있으면
+   * 본문은 두고 read_at 만 갱신한다(다시 읽으면 보관 연장만, 저장 응답의 제출 본문 보존). 직전 갱신이 {@link
+   * WikiBodyHistoryRepository#REFRESH_THROTTLE} 안이면 행을 건드리지 않는다. 페이지가 없으면(또는 RLS 로 안 보이면) 아무것도 기록하지
+   * 않고 빈 값.
+   *
+   * <pre>
+   * WITH p AS (SELECT 상세 10컬럼 FROM wiki_page WHERE id = :pageId),
+   *      rec AS (INSERT INTO wiki_page_body_history (page_id, version, body) SELECT id, version, body FROM p
+   *              ON CONFLICT (page_id, version) DO UPDATE SET read_at = now() WHERE read_at < :cutoff RETURNING page_id)
+   * SELECT * FROM p
+   * </pre>
+   */
+  public Optional<WikiPageDetail> findDetailRecordingBase(long pageId) {
+    var h = WIKI_PAGE_BODY_HISTORY;
+    CommonTableExpression<Record> p =
+        DSL.name("p").as(DSL.select(DETAIL_FIELDS).from(WIKI_PAGE).where(WIKI_PAGE.ID.eq(pageId)));
+    // tenant_id 는 넣지 않는다 — 기존 기록처럼 GUC 기본값으로 채워지고 RLS WITH CHECK 를 받는다.
+    CommonTableExpression<?> rec =
+        DSL.name("rec")
+            .as(
+                DSL.insertInto(h, h.PAGE_ID, h.VERSION, h.BODY)
+                    .select(
+                        DSL.select(
+                                p.field(WIKI_PAGE.ID),
+                                p.field(WIKI_PAGE.VERSION),
+                                p.field(WIKI_PAGE.BODY))
+                            .from(p))
+                    .onConflict(h.PAGE_ID, h.VERSION)
+                    .doUpdate()
+                    .set(h.READ_AT, DSL.currentOffsetDateTime())
+                    .where(WikiBodyHistoryRepository.readAtStale())
+                    .returning(h.PAGE_ID));
+    return dsl.with(p)
+        .with(rec)
+        .select(p.fields())
+        .from(p)
+        .fetchOptional(
+            r -> detailOf(r, r.get(p.field(WIKI_PAGE.BODY)), r.get(p.field(WIKI_PAGE.VERSION))));
   }
 
   /**
@@ -89,21 +143,16 @@ public class WikiPageRepository {
    * body·version 을 따로 받아 두었을 때 쓴다.
    */
   public Optional<WikiPageDetail> findDetailWithBody(long pageId, String body, int version) {
-    return dsl.select(
-            WIKI_PAGE.ID,
-            WIKI_PAGE.SPACE_ID,
-            WIKI_PAGE.PARENT_ID,
-            WIKI_PAGE.TITLE,
-            WIKI_PAGE.UPDATED_BY,
-            WIKI_PAGE.UPDATED_AT,
-            WIKI_PAGE.AI_LAST_USED_AT,
-            WIKI_PAGE.AI_LAST_ACTION)
+    return dsl.select(DETAIL_META_FIELDS)
         .from(WIKI_PAGE)
         .where(WIKI_PAGE.ID.eq(pageId))
         .fetchOptional(r -> detailOf(r, body, version));
   }
 
-  /** 상세 행 → DTO(body·version 은 인자로). */
+  /**
+   * 상세 행 → DTO(body·version 은 인자로). {@link #findDetailRecordingBase} 는 CTE 행을 넘기므로 {@code
+   * WIKI_PAGE.*} 필드는 jOOQ 의 비한정 이름 폴백으로 찾는다 — CTE 에 같은 이름 컬럼이 둘 생기면(조인 등) 모호해져 깨진다.
+   */
   private static WikiPageDetail detailOf(Record r, String body, int version) {
     return new WikiPageDetail(
         r.get(WIKI_PAGE.ID),

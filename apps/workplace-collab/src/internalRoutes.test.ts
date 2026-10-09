@@ -19,6 +19,7 @@ import { apiAuthenticator, createCollabServer, type CollabDeps, type CollabServe
 import { ApiClient } from './apiClient'
 import { connectClient, replaceTextAt, typeAt, type TestClient } from './testing/clients'
 import { startFakeApi, type FakeApi } from './testing/fakeApi'
+import { createTestMergeRunner } from './testing/testMergeRunner'
 
 // 내부 HTTP — API 의 본문 저장 위임(apply-markdown replace)과 권한 회수(revalidate)를 실제 서버·provider 로 검증한다.
 // 테넌트는 일부러 7 — 기본값으로 우연히 통과하지 않게.
@@ -106,7 +107,7 @@ describe('internal routes', () => {
     let jobs = 0
     await startApp(
       { ...cfg(), ...over },
-      { merger: createMergeRunner({ timeoutMs, testDelayMs: () => (jobs++ === 0 ? 0 : mergeDelayMs) }) },
+      { merger: createTestMergeRunner({ timeoutMs, testDelayMs: () => (jobs++ === 0 ? 0 : mergeDelayMs) }) },
     )
     // 데우기 작업이 순번 0 을 썼다 — 요청의 첫 작업(정규화)이 다시 0 이 되게.
     jobs = 0
@@ -658,7 +659,7 @@ describe('internal routes', () => {
       await app.destroy()
       // 적용 전 단계(워커 기동·정규화·병합)는 부하가 걸리면 수백 ms 가 걸린다 — 작업마다 300ms 지연으로 그 상황을 고정한다.
       // 기한은 그 준비가 끝나고도 남게 잡아, 이 테스트가 보려는 "적용 뒤 저장이 기한을 넘김"만 기한에 걸리게 한다.
-      await startApp({ ...cfg(), applyDeadlineMs: 2500 }, { merger: createMergeRunner({ testDelayMs: 300 }) })
+      await startApp({ ...cfg(), applyDeadlineMs: 2500 }, { merger: createTestMergeRunner({ testDelayMs: 300 }) })
       const a = connect('editor-token')
       await synced(a)
       await expect.poll(() => api.stores.length).toBe(1)
@@ -782,7 +783,7 @@ describe('internal routes', () => {
       await app.destroy()
       let jobs = 0
       // 둘째 워커 작업(첫 요청의 병합)에서 워커가 죽는다.
-      await startApp(cfg(), { merger: createMergeRunner({ testFault: () => (jobs++ === 1 ? 'exit' : undefined) }) })
+      await startApp(cfg(), { merger: createTestMergeRunner({ testFault: () => (jobs++ === 1 ? 'exit' : undefined) }) })
       // 데우기 작업이 순번 0 을 썼다 — 첫 요청의 병합이 다시 순번 1 이 되게.
       jobs = 0
       const a = connect('editor-token')
