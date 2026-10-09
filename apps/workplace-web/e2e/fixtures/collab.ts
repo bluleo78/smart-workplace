@@ -325,11 +325,16 @@ export async function setPageVisibility(page: Page, state: 'hidden' | 'visible')
 }
 
 /**
- * 시각 검증 스크린샷(WP-173) — PRESENCE_SHOTS 환경변수(절대 경로)가 있을 때만 `<프로젝트>-<name>.png` 로 남긴다.
- * 평소 회귀 실행에선 아무것도 하지 않는다.
+ * 시각 검증 스크린샷 — 환경변수 envVar(절대 경로)가 있을 때만 그 아래 `<file>.png` 로 남긴다. 평소 회귀 실행에선 아무것도 하지 않는다.
+ * 기능별 env(PRESENCE_SHOTS·REVISION_SHOTS)로 필요한 화면만 골라 찍는다.
  */
-export async function presenceShot(page: Page, name: string): Promise<void> {
-  const dir = process.env.PRESENCE_SHOTS
+export async function envShot(page: Page, envVar: string, file: string): Promise<void> {
+  const dir = process.env[envVar]
   if (!dir) return
-  await page.screenshot({ path: path.join(dir, `${test.info().project.name}-${name}.png`) })
+  await page.screenshot({ path: path.join(dir, `${file}.png`) })
+}
+
+/** 노트 접속자 시각 검증(WP-173) — PRESENCE_SHOTS 아래 `<프로젝트>-<name>.png`. */
+export function presenceShot(page: Page, name: string): Promise<void> {
+  return envShot(page, 'PRESENCE_SHOTS', `${test.info().project.name}-${name}`)
 }

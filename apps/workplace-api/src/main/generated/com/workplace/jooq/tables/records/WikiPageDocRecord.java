@@ -90,6 +90,34 @@ public class WikiPageDocRecord extends UpdatableRecordImpl<WikiPageDocRecord> {
         return (OffsetDateTime) get(4);
     }
 
+    /**
+     * Setter for <code>public.wiki_page_doc.body_changed_at</code>.
+     */
+    public void setBodyChangedAt(OffsetDateTime value) {
+        set(5, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_page_doc.body_changed_at</code>.
+     */
+    public OffsetDateTime getBodyChangedAt() {
+        return (OffsetDateTime) get(5);
+    }
+
+    /**
+     * Setter for <code>public.wiki_page_doc.pending_editor_ids</code>.
+     */
+    public void setPendingEditorIds(Long[] value) {
+        set(6, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_page_doc.pending_editor_ids</code>.
+     */
+    public Long[] getPendingEditorIds() {
+        return (Long[]) get(6);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -113,7 +141,7 @@ public class WikiPageDocRecord extends UpdatableRecordImpl<WikiPageDocRecord> {
     /**
      * Create a detached, initialised WikiPageDocRecord
      */
-    public WikiPageDocRecord(Long pageId, Long tenantId, byte[] state, Integer bodyVersion, OffsetDateTime updatedAt) {
+    public WikiPageDocRecord(Long pageId, Long tenantId, byte[] state, Integer bodyVersion, OffsetDateTime updatedAt, OffsetDateTime bodyChangedAt, Long[] pendingEditorIds) {
         super(WikiPageDoc.WIKI_PAGE_DOC);
 
         setPageId(pageId);
@@ -121,6 +149,8 @@ public class WikiPageDocRecord extends UpdatableRecordImpl<WikiPageDocRecord> {
         setState(state);
         setBodyVersion(bodyVersion);
         setUpdatedAt(updatedAt);
+        setBodyChangedAt(bodyChangedAt);
+        setPendingEditorIds(pendingEditorIds);
         resetChangedOnNotNull();
     }
 }

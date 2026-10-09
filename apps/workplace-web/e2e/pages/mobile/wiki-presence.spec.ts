@@ -231,8 +231,8 @@ test.describe('모바일 복귀', () => {
     await setPageVisibility(a, 'visible')
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(a.getByText('자리를 비운 동안 1명이 수정했어요')).toBeVisible()
-    // "변경 보기" 는 버전 기록 비교(WP-282)가 생기기 전까지 달지 않는다.
-    await expect(a.getByRole('button', { name: '변경 보기' })).toHaveCount(0)
+    // "변경 보기" — 모바일 버전 기록 전체화면으로 연다(누른 뒤 동작은 mobile/wiki-revisions.spec.ts).
+    await expect(a.getByRole('button', { name: '변경 보기' })).toBeVisible()
     await expect(a.locator('.wiki-catchup-highlight')).toHaveText('둘째 문단 — 김철수가 고침')
     // 모바일에선 이 토스트만 화면 아래에 뜬다(06 §D 승인 예외) — 알리는 하이라이트 문단을 가리지 않는다.
     const toastBox = a.locator('[data-sonner-toast]', { hasText: '자리를 비운 동안' })

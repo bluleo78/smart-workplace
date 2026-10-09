@@ -430,6 +430,43 @@ describe('internal routes', () => {
     })
   })
 
+  describe('apply-markdown (replace) — version restore (WP-297)', () => {
+    it("stores the person's unsaved edit first, then the restored body flagged RESTORE", async () => {
+      await restartWithLongDebounce()
+      const b = connect('editor2-token')
+      await synced(b)
+      await expect.poll(() => api.stores.length).toBe(1) // 처음 열 때의 상태만 저장
+      typeAt(b.doc, 2, '사람 ')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('사람 둘째 문단')
+      const restored = '# 제목\n\n복원된 문단'
+      const res = await apply(restored, { ai: false, snapshot: true, actor: { userId: 7, name: '복원자' } })
+      expect(res.status).toBe(200)
+      const out = (await res.json()) as { version: number; body: string }
+      expect(out.body).toBe(restored)
+      expect(out.version).toBe(api.get(1).version)
+      expect(api.stores).toHaveLength(3)
+      const [flush, applied] = api.stores.slice(-2)
+      // ① 복원 직전 판 = 사람의 마지막 입력(이 판이 스냅샷으로 남아 복원도 되돌릴 수 있다).
+      expect(flush).toMatchObject({ stateOnly: false, body: '# 제목\n\n첫 문단\n\n사람 둘째 문단', editorIds: [8], snapshot: false })
+      expect(flush.snapshotReason).toBeUndefined()
+      // ② 복원 본문 저장 — 사유 RESTORE, 사람 복원이라 AI 귀속 없음.
+      expect(applied).toMatchObject({ body: restored, editorIds: [7], snapshot: true, snapshotReason: 'RESTORE' })
+      expect(applied.aiActorId).toBeUndefined()
+      await expect.poll(() => yDocToMarkdown(b.doc)).toBe(restored)
+    })
+
+    it('does not store when the document already equals the restored body and answers the current version', async () => {
+      await restartWithLongDebounce()
+      const b = connect('editor2-token')
+      await synced(b)
+      await expect.poll(() => api.stores.length).toBe(1)
+      const res = await apply(BODY, { ai: false, snapshot: true, actor: { userId: 7, name: '복원자' } })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ version: api.get(1).version, body: BODY, persisted: true })
+      expect(api.stores).toHaveLength(1)
+    })
+  })
+
   describe('apply-markdown (merge)', () => {
     it("merges a person's edit in the same paragraph the AI rewrites (character level)", async () => {
       const a = connect('editor-token')
@@ -461,7 +498,16 @@ describe('internal routes', () => {
       const [flush, applied] = api.stores.slice(-2)
       // 적용 직전 저장 = API 가 리비전으로 남길 "직전 판" — 사람의 마지막 입력을 담는다.
       expect(flush).toMatchObject({ stateOnly: false, body: '# 제목\n\n첫 문장\n\n둘째 문단', editorIds: [8], snapshot: false })
-      expect(applied).toMatchObject({ body: '# 제목\n\n첫 문단입니다\n\n둘째 문단', editorIds: [5], snapshot: true })
+      // AI 적용 저장은 사유 AI + 요청자(✦ 귀속) — API 가 직전 판 스냅샷에 ai_actor_id 로 단다(WP-297).
+      expect(applied).toMatchObject({
+        body: '# 제목\n\n첫 문단입니다\n\n둘째 문단',
+        editorIds: [5],
+        snapshot: true,
+        snapshotReason: 'AI',
+        aiActorId: 5,
+      })
+      expect(flush.snapshotReason).toBeUndefined()
+      expect(flush.aiActorId).toBeUndefined()
       await expect.poll(() => yDocToMarkdown(b.doc)).toBe('# 제목\n\n첫 문단입니다\n\n둘째 문단')
     })
 
@@ -561,7 +607,9 @@ describe('internal routes', () => {
       expect(api.stores[1]).toMatchObject({ body: '# 제목\n\n첫 문단 웹\n\n사람 둘째 문단', snapshot: false })
     })
 
-    it('honors an explicit snapshot from a person (old web) merge without pre-storing', async () => {
+    it('treats a non-AI snapshot merge like an old-web merge: no pre-store and no snapshot (no reason to record)', async () => {
+      // API 는 사람 merge 에 snapshot 을 싣지 않는다(R8). 그래도 오면 사유(AI·RESTORE)가 없으니 스냅샷을 싣지 않는다 —
+      // 사유 없는 snapshot 은 API 가 AI 로 기록해(R7) 사람 병합이 ✦ 행으로 남는다. 복원은 replace 일 때만이다.
       await restartWithLongDebounce()
       const b = connect('editor2-token')
       await synced(b)
@@ -569,9 +617,10 @@ describe('internal routes', () => {
       typeAt(b.doc, 2, '사람 ')
       await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('사람 둘째 문단')
       expect((await merge(BODY, '# 제목\n\n첫 문단 웹\n\n둘째 문단', { ai: false, snapshot: true })).status).toBe(200)
-      // 사전 저장은 AI 만 — 적용 저장 한 번에 snapshot 을 싣는다(API 가 직전 판을 리비전으로 남긴다).
       expect(api.stores).toHaveLength(2)
-      expect(api.stores[1]).toMatchObject({ body: '# 제목\n\n첫 문단 웹\n\n사람 둘째 문단', snapshot: true })
+      expect(api.stores[1]).toMatchObject({ body: '# 제목\n\n첫 문단 웹\n\n사람 둘째 문단', snapshot: false })
+      expect(api.stores[1].snapshotReason).toBeUndefined()
+      expect(api.stores[1].aiActorId).toBeUndefined()
     })
 
     it('answers 503 within the apply deadline while the document lock is held, and applies nothing', async () => {

@@ -8,9 +8,12 @@ import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.WikiBacklinksResponse;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageDetail;
+import com.workplace.wiki.dto.WikiRevisionDetail;
+import com.workplace.wiki.dto.WikiRevisionListResponse;
 import com.workplace.wiki.service.WikiCollabDocService;
 import com.workplace.wiki.service.WikiHydrationService;
 import com.workplace.wiki.service.WikiPageService;
+import com.workplace.wiki.service.WikiRevisionService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +24,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -36,6 +40,7 @@ public class WikiPageController {
   private final WikiPageService pageService;
   private final WikiHydrationService hydrationService;
   private final WikiCollabDocService collabService;
+  private final WikiRevisionService revisionService;
   private final JwtTokenProvider jwtTokenProvider;
 
   /** 단건 상세. base=false 면 AI 병합 기준본을 남기지 않는다(새 웹 에디터 — 본문은 동기화 서버로 저장). */
@@ -105,6 +110,31 @@ public class WikiPageController {
       Authentication authentication) {
     boolean ai = AuthDetails.methodOf(authentication) == null;
     return ResponseEntity.ok(pageService.save(callerId, pageId, req, ai));
+  }
+
+  /** 버전 기록 목록(WP-297) — 현재 판 + 저장된 판 최신순(최대 200). VIEWER 이상, 비멤버·없는 페이지 404. */
+  @GetMapping("/{id}/revisions")
+  public ResponseEntity<WikiRevisionListResponse> revisions(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long pageId) {
+    return ResponseEntity.ok(revisionService.list(callerId, pageId));
+  }
+
+  /** 버전 기록 단건(본문 포함, WP-297). VIEWER 이상, 없는 판 404. */
+  @GetMapping("/{id}/revisions/{version}")
+  public ResponseEntity<WikiRevisionDetail> revision(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @PathVariable("version") int version) {
+    return ResponseEntity.ok(revisionService.get(callerId, pageId, version));
+  }
+
+  /** 그 판의 본문으로 복원(WP-297, 제목은 그대로). EDITOR 이상, 없는 판 404, 동기화 서버 장애 503. 응답은 PUT 저장과 같은 페이지 상세. */
+  @PostMapping("/{id}/revisions/{version}/restore")
+  public ResponseEntity<WikiPageDetail> restore(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @PathVariable("version") int version) {
+    return ResponseEntity.ok(revisionService.restore(callerId, pageId, version));
   }
 
   @PatchMapping("/{id}/move")

@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_PAGE_ATTACHMENT;
+import static com.workplace.jooq.Tables.WIKI_PAGE_DOC;
 import static com.workplace.jooq.Tables.WIKI_REVISION;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,10 +33,15 @@ import com.workplace.wiki.service.WikiHydrationService;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record5;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -236,38 +242,214 @@ class WikiCollabInternalIntegrationTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.bodyVersion").value(version));
   }
 
+  // ── 버전 기록 스냅샷 정책(WP-297, 스펙 §6.1) ─────────────────────────────────────────────
+  // 시간 규칙은 DB 에 남은 시각으로 판단하므로, 시간 경과는 body_changed_at·리비전 created_at 을 과거로 당겨 흉내 낸다.
+
+  /** 빈 본문(막 만든 노트)의 첫 본문 저장은 복원할 게 없어 리비전을 남기지 않는다(판정 R6). */
+  @Test
+  void firstBodyOnEmptyPageLeavesNoRevision() throws Exception {
+    tenant1();
+    long spaceId = spaceService.ensurePersonalSpace(userId).id();
+    long pageId = pageService.create(userId, spaceId, new CreatePageRequest(null, "빈")).id();
+    storeBody(pageId, "첫 본문");
+    assertThat(revisions(pageId)).isEmpty();
+  }
+
   /**
-   * 동시 편집에선 웹이 snapshot=true 저장을 보내지 않으므로 파생 저장이 리비전을 남긴다 — 본문이 바뀌고 마지막 리비전이 편집 세션 간격보다 오래됐으면(없으면
-   * 포함) 바뀌기 전 본문을 적재한다. 간격 안의 연속 저장은 리비전을 늘리지 않는다.
+   * 막 만든 노트 — 첫 저장(빈 본문이라 스냅샷 생략) 몇 초 뒤의 둘째 저장이 거의 빈 판을 PERIODIC 으로 남기지 않는다(리비전이 없으면 주기 규칙도 해당 없음).
+   * 첫 판은 조용했다 다시 시작할 때 SESSION 으로 남는다.
    */
   @Test
-  void derivedStoreSnapshotsPreviousBodyOncePerEditingSession() throws Exception {
-    long pageId = seedPage("첫 본문");
-    int v1 = currentVersion(pageId);
+  void newNoteDoesNotSnapshotNearEmptyBodyPeriodically() throws Exception {
+    tenant1();
+    long spaceId = spaceService.ensurePersonalSpace(userId).id();
+    long pageId = pageService.create(userId, spaceId, new CreatePageRequest(null, "새")).id();
+    storeBody(pageId, "a");
+    storeBody(pageId, "ab");
+    assertThat(revisions(pageId)).isEmpty();
+    backdateBodyChangedAt(pageId, 6);
+    storeBody(pageId, "abc");
+    var revs = revisions(pageId);
+    assertThat(revs).hasSize(1);
+    assertThat(revs.getFirst().get(WIKI_REVISION.BODY)).isEqualTo("ab");
+    assertThat(revs.getFirst().get(WIKI_REVISION.REASON)).isEqualTo("SESSION");
+  }
+
+  /** snapshotReason 은 AI·RESTORE(또는 생략)만 — 그 밖의 값은 잘못된 요청이고 아무것도 저장하지 않는다. */
+  @Test
+  void unknownSnapshotReasonIsBadRequest() throws Exception {
+    long pageId = seedPage("본문");
+    mvc.perform(
+            internal(put("/internal/wiki/pages/{id}/doc", pageId))
+                .contentType(APPLICATION_JSON)
+                .content(
+                    "{\"state\":\"AQ==\",\"body\":\"x\",\"editorIds\":[],\"snapshot\":true,"
+                        + "\"snapshotReason\":\"MANUAL\"}"))
+        .andExpect(status().isBadRequest());
+    tenant1();
+    assertThat(pageService.get(userId, pageId).body()).isEqualTo("본문");
+    assertThat(revisions(pageId)).isEmpty();
+  }
+
+  /**
+   * 기준 시각이 없는(동기화 서버 저장이 처음인) 기존 페이지는 첫 본문 저장에서 SESSION 1회 — 이관 직후 판을 남긴다. 그 판의 본문 변경 시각은
+   * wiki_page.updated_at, 편집자는 직전 수정자.
+   */
+  @Test
+  void firstCollabStoreOfExistingPageSnapshotsSession() throws Exception {
+    long pageId = seedPage("기존 본문");
+    var updatedAt = updatedAtOf(pageId);
+    storeBody(pageId, "새 본문");
+    var revs = revisions(pageId);
+    assertThat(revs).hasSize(1);
+    assertThat(revs.getFirst().get(WIKI_REVISION.BODY)).isEqualTo("기존 본문");
+    assertThat(revs.getFirst().get(WIKI_REVISION.REASON)).isEqualTo("SESSION");
+    assertThat(revs.getFirst().get(WIKI_REVISION.EDITED_AT)).isEqualTo(updatedAt);
+    assertThat(revs.getFirst().get(WIKI_REVISION.EDITOR_IDS)).containsExactly(userId);
+  }
+
+  /** 5분 넘게 조용했다가 다시 저장되면 바뀌기 직전 판을 SESSION 으로 — 본문 변경 시각은 당겨 둔 body_changed_at, 편집자는 누적분. */
+  @Test
+  void storeAfterQuietGapSnapshotsSession() throws Exception {
+    long pageId = primedPage("첫 본문");
+    var changedAt = backdateBodyChangedAt(pageId, 6);
+    storeBody(pageId, "다음 본문");
+    var revs = revisions(pageId);
+    assertThat(revs).hasSize(2);
+    var last = revs.getLast();
+    assertThat(last.get(WIKI_REVISION.BODY)).isEqualTo("첫 본문");
+    assertThat(last.get(WIKI_REVISION.REASON)).isEqualTo("SESSION");
+    assertThat(last.get(WIKI_REVISION.EDITED_AT)).isEqualTo(changedAt);
+    assertThat(last.get(WIKI_REVISION.EDITOR_IDS)).containsExactly(userId);
+    assertThat(last.get(WIKI_REVISION.AI_ACTOR_ID)).isNull();
+  }
+
+  /** 쉬지 않는 편집 — 마지막 리비전이 30분 넘으면 PERIODIC, 10분이면 남기지 않는다. */
+  @Test
+  void continuousEditingSnapshotsPeriodicallyEvery30Minutes() throws Exception {
+    long pageId = primedPage("첫 본문");
+    backdateBodyChangedAt(pageId, 1);
+    backdateRevisions(pageId, 10);
     storeBody(pageId, "둘째 본문");
-    assertThat(revisionBodies(pageId)).containsExactly("첫 본문");
-    int v2 = currentVersion(pageId);
+    assertThat(revisions(pageId)).hasSize(1);
 
-    // 같은 세션(간격 안) — 리비전을 늘리지 않는다.
+    backdateBodyChangedAt(pageId, 1);
+    backdateRevisions(pageId, 31);
     storeBody(pageId, "셋째 본문");
-    assertThat(revisionBodies(pageId)).containsExactly("첫 본문");
+    var revs = revisions(pageId);
+    assertThat(revs).hasSize(2);
+    assertThat(revs.getLast().get(WIKI_REVISION.BODY)).isEqualTo("둘째 본문");
+    assertThat(revs.getLast().get(WIKI_REVISION.REASON)).isEqualTo("PERIODIC");
+  }
 
-    // 마지막 리비전을 세션 간격보다 오래전으로 돌리면 다음 변경이 새 세션의 첫 저장 — 직전 본문을 남긴다.
+  /** 스냅샷 사이 편집자는 처음 등장 순·중복 없이 누적되고, 스냅샷 때 그 판으로 옮겨진 뒤 이번 저장 편집자로 다시 시작한다(판정 R4). */
+  @Test
+  void editorsAccumulateUntilSnapshotThenRestartWithCurrentEditor() throws Exception {
+    long a = seedUser();
+    long b = seedUser();
+    long pageId = seedPage("첫 본문");
+    store(pageId, "a1", List.of(a), "");
+    store(pageId, "b1", List.of(b), "");
+    store(pageId, "a2", List.of(a), "");
+    assertThat(pendingEditors(pageId)).containsExactly(a, b);
+    backdateBodyChangedAt(pageId, 6);
+    store(pageId, "c1", List.of(userId), "");
+    var last = revisions(pageId).getLast();
+    assertThat(last.get(WIKI_REVISION.BODY)).isEqualTo("a2");
+    assertThat(last.get(WIKI_REVISION.EDITOR_IDS)).containsExactly(a, b);
+    assertThat(pendingEditors(pageId)).containsExactly(userId);
+  }
+
+  /** AI 적용 저장은 시간과 무관하게 직전 판을 AI 로, ✦ 귀속은 실어 보낸 요청자. */
+  @Test
+  void aiApplySnapshotsWithActorRegardlessOfTime() throws Exception {
+    long actor = seedUser();
+    long pageId = primedPage("사람 본문");
+    store(
+        pageId,
+        "AI 본문",
+        List.of(userId),
+        ",\"snapshot\":true,\"snapshotReason\":\"AI\",\"aiActorId\":" + actor);
+    var last = revisions(pageId).getLast();
+    assertThat(revisions(pageId)).hasSize(2);
+    assertThat(last.get(WIKI_REVISION.BODY)).isEqualTo("사람 본문");
+    assertThat(last.get(WIKI_REVISION.REASON)).isEqualTo("AI");
+    assertThat(last.get(WIKI_REVISION.AI_ACTOR_ID)).isEqualTo(actor);
+  }
+
+  /** 복원 적용 저장은 RESTORE — AI 귀속 없음. */
+  @Test
+  void restoreApplySnapshotsRestoreWithoutAiActor() throws Exception {
+    long pageId = primedPage("복원 전 본문");
+    store(
+        pageId,
+        "복원 본문",
+        List.of(userId),
+        ",\"snapshot\":true,\"snapshotReason\":\"RESTORE\",\"aiActorId\":" + userId);
+    var last = revisions(pageId).getLast();
+    assertThat(last.get(WIKI_REVISION.BODY)).isEqualTo("복원 전 본문");
+    assertThat(last.get(WIKI_REVISION.REASON)).isEqualTo("RESTORE");
+    assertThat(last.get(WIKI_REVISION.AI_ACTOR_ID)).isNull();
+  }
+
+  /** 사유를 싣지 않는 구버전 동기화 서버의 snapshot 은 AI 적용 — ✦ 귀속은 저장 편집자의 마지막 값(판정 R7). */
+  @Test
+  void legacySnapshotWithoutReasonIsAiAttributedToLastEditor() throws Exception {
+    long other = seedUser();
+    long pageId = primedPage("사람 본문");
+    store(pageId, "AI 본문", List.of(userId, other), ",\"snapshot\":true");
+    var last = revisions(pageId).getLast();
+    assertThat(last.get(WIKI_REVISION.REASON)).isEqualTo("AI");
+    assertThat(last.get(WIKI_REVISION.AI_ACTOR_ID)).isEqualTo(other);
+  }
+
+  /** 제목만 바꾸는 사용자 저장은 본문 기준 시각을 리셋하지 않는다 — 조용했던 뒤의 다음 본문 저장이 그대로 SESSION 을 남긴다. */
+  @Test
+  void titleOnlySaveDoesNotResetQuietReference() throws Exception {
+    long pageId = primedPage("첫 본문");
+    var changedAt = backdateBodyChangedAt(pageId, 6);
     tenant1();
-    dsl.update(WIKI_REVISION)
-        .set(WIKI_REVISION.CREATED_AT, java.time.OffsetDateTime.now().minusMinutes(11))
-        .where(WIKI_REVISION.PAGE_ID.eq(pageId))
+    pageService.save(userId, pageId, new SavePageRequest("새 제목", null, null, false));
+    assertThat(bodyChangedAt(pageId)).isEqualTo(changedAt);
+    storeBody(pageId, "다음 본문");
+    var last = revisions(pageId).getLast();
+    assertThat(revisions(pageId)).hasSize(2);
+    assertThat(last.get(WIKI_REVISION.REASON)).isEqualTo("SESSION");
+  }
+
+  /** 본문이 같은 저장(상태만 바뀜)은 리비전·기준 시각·누적 편집자를 건드리지 않는다. */
+  @Test
+  void unchangedBodyStoreLeavesRevisionPolicyStateAlone() throws Exception {
+    long other = seedUser();
+    long pageId = primedPage("그대로");
+    var changedAt = backdateBodyChangedAt(pageId, 6);
+    store(pageId, "그대로", List.of(other), "");
+    assertThat(revisions(pageId)).hasSize(1);
+    assertThat(bodyChangedAt(pageId)).isEqualTo(changedAt);
+    assertThat(pendingEditors(pageId)).containsExactly(userId);
+  }
+
+  /** 동기화 서버가 꺼진 저장 경로도 같은 시간 규칙 — 기준 시각은 wiki_page.updated_at, 편집자는 직전 수정자. snapshot 플래그는 무시. */
+  @Test
+  void nonCollabSaveUsesSameTimeRules() throws Exception {
+    long pageId = seedPage("첫 본문");
+    tenant1();
+    dsl.update(WIKI_PAGE)
+        .set(WIKI_PAGE.UPDATED_AT, minutesAgo(6))
+        .where(WIKI_PAGE.ID.eq(pageId))
         .execute();
-    storeBody(pageId, "넷째 본문");
-    assertThat(revisionBodies(pageId)).containsExactly("첫 본문", "셋째 본문");
+    var updatedAt = updatedAtOf(pageId);
+    pageService.save(
+        userId, pageId, new SavePageRequest(null, "둘째", currentVersion(pageId), false));
+    var revs = revisions(pageId);
+    assertThat(revs).hasSize(1);
+    assertThat(revs.getFirst().get(WIKI_REVISION.REASON)).isEqualTo("SESSION");
+    assertThat(revs.getFirst().get(WIKI_REVISION.EDITED_AT)).isEqualTo(updatedAt);
+    assertThat(revs.getFirst().get(WIKI_REVISION.EDITOR_IDS)).containsExactly(userId);
+    // 이어지는 저장(방금 리비전·방금 수정) — snapshot=true 여도 남기지 않는다(판정 R8).
     tenant1();
-    assertThat(
-            dsl.select(WIKI_REVISION.VERSION)
-                .from(WIKI_REVISION)
-                .where(WIKI_REVISION.PAGE_ID.eq(pageId))
-                .orderBy(WIKI_REVISION.VERSION)
-                .fetch(WIKI_REVISION.VERSION))
-        .containsExactly(v1, v2 + 1);
+    pageService.save(userId, pageId, new SavePageRequest(null, "셋째", currentVersion(pageId), true));
+    assertThat(revisions(pageId)).hasSize(1);
   }
 
   @Test
@@ -450,6 +632,13 @@ class WikiCollabInternalIntegrationTest extends IntegrationTestBase {
 
   /** 편집자 userId 의 파생 저장(본문 변경). */
   private void storeBody(long pageId, String body) throws Exception {
+    store(pageId, body, List.of(userId), "");
+  }
+
+  /** 파생 저장 — extraJson 은 추가 필드(앞에 쉼표 포함, 예: {@code ,"snapshot":true}). */
+  private void store(long pageId, String body, List<Long> editorIds, String extraJson)
+      throws Exception {
+    String editors = editorIds.stream().map(String::valueOf).collect(Collectors.joining(","));
     mvc.perform(
             internal(put("/internal/wiki/pages/{id}/doc", pageId))
                 .contentType(APPLICATION_JSON)
@@ -457,19 +646,78 @@ class WikiCollabInternalIntegrationTest extends IntegrationTestBase {
                     "{\"state\":\"AQ==\",\"body\":\""
                         + body
                         + "\",\"editorIds\":["
-                        + userId
-                        + "]}"))
+                        + editors
+                        + "]"
+                        + extraJson
+                        + "}"))
         .andExpect(status().isOk());
   }
 
-  /** 페이지 리비전 본문들(version 순). */
-  private List<String> revisionBodies(long pageId) {
+  /**
+   * 동기화 서버로 한 번 저장된 페이지 — 그 첫 저장이 기준 시각 없는 SESSION 리비전(이관 직후 판) 1개를 남기고 body_changed_at·누적
+   * 편집자({userId})를 심는다. 반환 시점의 본문은 {@code body}.
+   */
+  private long primedPage(String body) throws Exception {
+    long pageId = seedPage("이관 전 본문");
+    storeBody(pageId, body);
+    assertThat(revisions(pageId)).as("셋업: 이관 직후 판 1개").hasSize(1);
+    return pageId;
+  }
+
+  /** 페이지 리비전(version 순). */
+  private List<Record5<String, String, Long[], Long, OffsetDateTime>> revisions(long pageId) {
     tenant1();
-    return dsl.select(WIKI_REVISION.BODY)
+    return dsl.select(
+            WIKI_REVISION.BODY,
+            WIKI_REVISION.REASON,
+            WIKI_REVISION.EDITOR_IDS,
+            WIKI_REVISION.AI_ACTOR_ID,
+            WIKI_REVISION.EDITED_AT)
         .from(WIKI_REVISION)
         .where(WIKI_REVISION.PAGE_ID.eq(pageId))
         .orderBy(WIKI_REVISION.VERSION)
-        .fetch(WIKI_REVISION.BODY);
+        .fetch();
+  }
+
+  /** body_changed_at 을 지금보다 minutes 분 전으로 당기고 저장된 값을 돌려준다(DB 정밀도 그대로 비교하려고). */
+  private OffsetDateTime backdateBodyChangedAt(long pageId, int minutes) {
+    tenant1();
+    dsl.update(WIKI_PAGE_DOC)
+        .set(WIKI_PAGE_DOC.BODY_CHANGED_AT, minutesAgo(minutes))
+        .where(WIKI_PAGE_DOC.PAGE_ID.eq(pageId))
+        .execute();
+    return bodyChangedAt(pageId);
+  }
+
+  /** 페이지의 모든 리비전 적재 시각을 지금보다 minutes 분 전으로 당긴다. */
+  private void backdateRevisions(long pageId, int minutes) {
+    tenant1();
+    dsl.update(WIKI_REVISION)
+        .set(WIKI_REVISION.CREATED_AT, minutesAgo(minutes))
+        .where(WIKI_REVISION.PAGE_ID.eq(pageId))
+        .execute();
+  }
+
+  /** DB 시계 기준 minutes 분 전 — 비교 대상 시각을 DB 정밀도·시계로 맞춘다. */
+  private static Field<OffsetDateTime> minutesAgo(int minutes) {
+    return DSL.field("now() - make_interval(mins => {0})", OffsetDateTime.class, DSL.val(minutes));
+  }
+
+  private OffsetDateTime bodyChangedAt(long pageId) {
+    tenant1();
+    return dsl.select(WIKI_PAGE_DOC.BODY_CHANGED_AT)
+        .from(WIKI_PAGE_DOC)
+        .where(WIKI_PAGE_DOC.PAGE_ID.eq(pageId))
+        .fetchOne(WIKI_PAGE_DOC.BODY_CHANGED_AT);
+  }
+
+  private List<Long> pendingEditors(long pageId) {
+    tenant1();
+    return List.of(
+        dsl.select(WIKI_PAGE_DOC.PENDING_EDITOR_IDS)
+            .from(WIKI_PAGE_DOC)
+            .where(WIKI_PAGE_DOC.PAGE_ID.eq(pageId))
+            .fetchOne(WIKI_PAGE_DOC.PENDING_EDITOR_IDS));
   }
 
   private int currentVersion(long pageId) {
@@ -485,7 +733,7 @@ class WikiCollabInternalIntegrationTest extends IntegrationTestBase {
     return new byte[] {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0, 0, 0, 0};
   }
 
-  private java.time.OffsetDateTime updatedAtOf(long pageId) {
+  private OffsetDateTime updatedAtOf(long pageId) {
     tenant1();
     return dsl.select(WIKI_PAGE.UPDATED_AT)
         .from(WIKI_PAGE)
@@ -493,7 +741,7 @@ class WikiCollabInternalIntegrationTest extends IntegrationTestBase {
         .fetchOne(WIKI_PAGE.UPDATED_AT);
   }
 
-  private java.time.OffsetDateTime expiresAtOf(long fileId) {
+  private OffsetDateTime expiresAtOf(long fileId) {
     tenant1();
     return dsl.select(FILE.EXPIRES_AT)
         .from(FILE)
@@ -501,7 +749,7 @@ class WikiCollabInternalIntegrationTest extends IntegrationTestBase {
         .fetchOne(FILE.EXPIRES_AT);
   }
 
-  private java.time.OffsetDateTime demotedAtOf(long fileId) {
+  private OffsetDateTime demotedAtOf(long fileId) {
     tenant1();
     return dsl.select(WIKI_PAGE_ATTACHMENT.DEMOTED_AT)
         .from(WIKI_PAGE_ATTACHMENT)

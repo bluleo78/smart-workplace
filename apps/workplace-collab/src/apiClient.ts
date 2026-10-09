@@ -1,3 +1,5 @@
+import type { SnapshotReason } from './server'
+
 /**
  * collab-access 응답(Task 3 계약) — tokenExp 는 epoch 초. 키는 항상 있고 JWT 가 아닌 인증(PAT·API 키)이면 null.
  */
@@ -79,12 +81,20 @@ export class ApiClient {
 
   /**
    * 문서 상태 + 파생 body 저장(버전 검사 없음) → 새 version.
-   * snapshot=true 면 API 가 저장 직전 판을 리비전으로 남긴다(AI 적용 직전 — 스펙 §6.1). 그 밖엔 필드를 싣지 않는다.
+   * snapshot=true 면 API 가 저장 직전 판을 리비전으로 남긴다(AI 적용·버전 복원 직전 — 스펙 §6.1). 그 밖엔 필드를 싣지 않는다.
+   * snapshotReason('AI'|'RESTORE')·aiActorId(AI 요청자, ✦ 귀속)는 실렸을 때만 보낸다(WP-297).
    */
   async storeDoc(
     tenantId: number,
     pageId: number,
-    doc: { state: Uint8Array; body: string; editorIds: number[]; snapshot?: boolean },
+    doc: {
+      state: Uint8Array
+      body: string
+      editorIds: number[]
+      snapshot?: boolean
+      snapshotReason?: SnapshotReason
+      aiActorId?: number
+    },
     opts: { timeoutMs?: number } = {},
   ): Promise<number> {
     const signal = opts.timeoutMs == null ? undefined : AbortSignal.timeout(opts.timeoutMs)

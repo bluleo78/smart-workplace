@@ -185,3 +185,45 @@
       var(--wiki-catchup-bleed) 0 0 transparent;
   }
 }
+
+/* 버전 기록 차이 표시(WP-298) — 읽기 전용 미리보기에서 다음 판 대비 추가는 초록(success 계열), 삭제는 빨강 취소선(destructive 계열).
+   같은 클래스가 글자 범위(inline span)·추가 글자 위젯(span)·블록 통째(노드 데코 — p·li·table·img 래퍼 등)에 붙는다.
+   바탕·글자 모두 시맨틱 토큰(success-subtle/-text, destructive-subtle/-text)이라 라이트·다크에서 글자 대비 4.5:1 이상이다.
+   연한 바탕이 불투명이라 코드 블록·표 머리 칸 위에서도 같은 대비가 유지된다.
+   블록 바탕은 패딩 대신 좌우 그림자로 넓힌다(wiki-catchup-highlight 와 같은 이유 — 목록 들여쓰기·글자 흐름을 바꾸지 않게). */
+.wiki-editor .ProseMirror .wiki-diff-added {
+  --wiki-diff-bleed: 0.25rem;
+  --wiki-diff-bg: var(--success-subtle);
+  border-radius: 0.25rem;
+  background: var(--wiki-diff-bg);
+  color: var(--success-text);
+}
+.wiki-editor .ProseMirror .wiki-diff-removed {
+  --wiki-diff-bleed: 0.25rem;
+  --wiki-diff-bg: var(--destructive-subtle);
+  border-radius: 0.25rem;
+  background: var(--wiki-diff-bg);
+  color: var(--destructive-text);
+  text-decoration: line-through;
+  text-decoration-color: var(--destructive);
+}
+/* 블록 통째 표시 — 좌우로 조금 더 칠하고, 취소선이 닿지 않는 안쪽 inline-block(이미지 래퍼·표 셀 등)은 흐리게 해 지워졌음을 보인다. */
+.wiki-editor .ProseMirror :is(p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, table, ul, ol):is(.wiki-diff-added, .wiki-diff-removed) {
+  box-shadow:
+    calc(-1 * var(--wiki-diff-bleed)) 0 0 var(--wiki-diff-bg),
+    var(--wiki-diff-bleed) 0 0 var(--wiki-diff-bg);
+}
+.wiki-editor .ProseMirror .wiki-diff-removed :is(img, table, [data-mtype]),
+.wiki-editor .ProseMirror :is(img, [data-mtype]).wiki-diff-removed {
+  opacity: 0.55;
+}
+.wiki-editor .ProseMirror :is(table, img).wiki-diff-removed,
+.wiki-editor .ProseMirror .wiki-diff-removed img {
+  outline: 2px solid var(--destructive);
+  outline-offset: 2px;
+}
+.wiki-editor .ProseMirror :is(table, img).wiki-diff-added,
+.wiki-editor .ProseMirror .wiki-diff-added img {
+  outline: 2px solid var(--success);
+  outline-offset: 2px;
+}

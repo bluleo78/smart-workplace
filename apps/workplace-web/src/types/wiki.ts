@@ -99,3 +99,34 @@ export interface WikiPageSummaryState {
   pageVersion: number
   summarizedAt: string | null
 }
+
+/** WP-282 버전 기록 — 스냅샷을 남긴 까닭(백엔드 RevisionReason). 옛 행은 null. */
+export type WikiRevisionReason = 'SESSION' | 'PERIODIC' | 'AI' | 'RESTORE'
+
+/** 버전 기록에 보이는 사람 — 편집자·AI 요청자(백엔드 WikiRevisionItem.Person). */
+export interface WikiRevisionPerson {
+  id: number
+  name: string
+}
+
+/** 버전 기록 목록의 한 판(백엔드 WikiRevisionItem). aiActor 는 AI 적용 직전 스냅샷일 때만 요청자. */
+export interface WikiRevisionItem {
+  version: number
+  title: string
+  editedAt: string
+  createdAt: string
+  reason: WikiRevisionReason | null
+  editors: WikiRevisionPerson[]
+  aiActor: WikiRevisionPerson | null
+}
+
+/** 버전 기록 목록 응답(백엔드 WikiRevisionListResponse) — current 는 지금 판, items 는 최신순(최대 200). */
+export interface WikiRevisionList {
+  current: { version: number; editedAt: string; editors: WikiRevisionPerson[] }
+  items: WikiRevisionItem[]
+}
+
+/** 한 판 본문(백엔드 WikiRevisionDetail) — body 는 마크다운. */
+export interface WikiRevisionDetail extends WikiRevisionItem {
+  body: string
+}

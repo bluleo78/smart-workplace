@@ -8,6 +8,9 @@ export const wikiKeys = {
   members: (spaceId: number) => ['wiki', 'members', spaceId] as const,
   mentions: (pageId: number) => ['wiki', 'mentions', pageId] as const,
   backlinks: (pageId: number) => ['wiki', 'backlinks', pageId] as const,
+  // 버전 기록(WP-282). 한 판 키는 목록 키의 접두가 아니다 — 복원 뒤 목록만 무효화할 때 바뀌지 않는 판 본문 캐시까지 다시 받지 않게.
+  revisions: (pageId: number) => ['wiki', 'revisions', pageId] as const,
+  revision: (pageId: number, version: number) => ['wiki', 'revision', pageId, version] as const,
 }
 
 /**

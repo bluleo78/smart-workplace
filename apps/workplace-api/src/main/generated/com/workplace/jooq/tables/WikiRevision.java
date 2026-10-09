@@ -16,6 +16,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import org.jooq.Check;
 import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.ForeignKey;
@@ -35,6 +36,7 @@ import org.jooq.TableField;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -94,6 +96,26 @@ public class WikiRevision extends TableImpl<WikiRevisionRecord> {
      * The column <code>public.wiki_revision.created_at</code>.
      */
     public final TableField<WikiRevisionRecord, OffsetDateTime> CREATED_AT = createField(DSL.name("created_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
+
+    /**
+     * The column <code>public.wiki_revision.editor_ids</code>.
+     */
+    public final TableField<WikiRevisionRecord, Long[]> EDITOR_IDS = createField(DSL.name("editor_ids"), SQLDataType.BIGINT.array().nullable(false).defaultValue(DSL.field(DSL.raw("'{}'::bigint[]"), SQLDataType.BIGINT.array())), this, "");
+
+    /**
+     * The column <code>public.wiki_revision.ai_actor_id</code>.
+     */
+    public final TableField<WikiRevisionRecord, Long> AI_ACTOR_ID = createField(DSL.name("ai_actor_id"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column <code>public.wiki_revision.reason</code>.
+     */
+    public final TableField<WikiRevisionRecord, String> REASON = createField(DSL.name("reason"), SQLDataType.VARCHAR(16), this, "");
+
+    /**
+     * The column <code>public.wiki_revision.edited_at</code>.
+     */
+    public final TableField<WikiRevisionRecord, OffsetDateTime> EDITED_AT = createField(DSL.name("edited_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
     private WikiRevision(Name alias, Table<WikiRevisionRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
@@ -164,7 +186,7 @@ public class WikiRevision extends TableImpl<WikiRevisionRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_WIKI_REVISION_TENANT);
+        return Arrays.asList(Indexes.IDX_WIKI_REVISION_PAGE_CREATED, Indexes.IDX_WIKI_REVISION_TENANT);
     }
 
     @Override
@@ -199,6 +221,13 @@ public class WikiRevision extends TableImpl<WikiRevisionRecord> {
             _tenant = new TenantPath(this, Keys.WIKI_REVISION__WIKI_REVISION_TENANT_ID_FKEY, null);
 
         return _tenant;
+    }
+
+    @Override
+    public List<Check<WikiRevisionRecord>> getChecks() {
+        return Arrays.asList(
+            Internal.createCheck(this, DSL.name("wiki_revision_reason_check"), "(((reason)::text = ANY ((ARRAY['SESSION'::character varying, 'PERIODIC'::character varying, 'AI'::character varying, 'RESTORE'::character varying])::text[])))", true)
+        );
     }
 
     @Override

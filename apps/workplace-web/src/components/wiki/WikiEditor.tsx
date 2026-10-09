@@ -36,6 +36,7 @@ import { type AwarenessStates, jumpAnchor, type PresencePerson } from '../../lib
 import { presenceAwarenessOf } from '../../lib/collab/presenceAwareness'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
 import { registerWikiEditorView, useWikiImageUpload } from './useWikiImageUpload'
+import { useWikiRevisionHistory } from './useWikiRevisionHistory'
 import { type GenerateActionKey, type TransformActionKey } from './wikiAiActions'
 import { WikiAiBubbleToolbar } from './WikiAiBubbleToolbar'
 import { insertAiMarkdown } from './wikiAiInsert'
@@ -59,6 +60,7 @@ import { WikiPageSkeleton } from './WikiPageSkeleton'
 import { WikiPresence } from './WikiPresence'
 import { announcePresence } from './wikiPresenceAnnounce'
 import { revealPresence, scrollToRelative, wikiPresenceCursorsKey } from './wikiPresenceCursors'
+import { WikiRevisionLayer } from './WikiRevisionLayer'
 import type { WikiAiAction } from './WikiSlashMenu'
 import { createWikiSlashExtension } from './wikiSlashSuggestion'
 import { WikiSummaryCard } from './WikiSummaryCard'
@@ -81,12 +83,9 @@ const NO_PEOPLE: PresencePerson[] = []
 export function WikiEditor({
   page,
   spaceId,
-  onViewChanges,
 }: {
   page: WikiPageDetail
   spaceId: number
-  /** TODO(WP-282): 버전 기록 비교가 생기면 WikiPageView 가 넘긴다 — 복귀 토스트의 "변경 보기" 액션. 없으면 버튼을 달지 않는다. */
-  onViewChanges?: () => void
 }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -490,12 +489,6 @@ export function WikiEditor({
     [page.id, session.doc],
   )
 
-  // 권한이 나중에 확정되거나 바뀌어도 반영 — useEditor 는 [page.id, session.doc] 로만 재생성되므로
-  // 위 options 의 editable 은 최초 1회 값이다. 서버가 알린 VIEWER 강등이면 즉시 잠그고, 승격이면 다시 연다.
-  useEffect(() => {
-    editor?.setEditable(canEdit)
-  }, [editor, canEdit])
-
   // 업로드 중 에디터가 재마운트돼도(셸 전환) 새 뷰에서 업로드를 마무리하도록 살아 있는 뷰를 등록한다.
   useEffect(() => {
     if (!editor) return
@@ -553,10 +546,40 @@ export function WikiEditor({
       if (hiddenDocRef.current === watcher) hiddenDocRef.current = null
     }
   }, [editor, ready, session])
-  // "변경 보기" 동작은 최신 값을 ref 로 읽는다 — prop 이 바뀌었다고 같은 복귀 결과로 토스트를 다시 띄우지 않게.
-  const onViewChangesRef = useRef(onViewChanges)
+  // 버전 기록(WP-282) — 열림·선택은 URL 쿼리(?history·?rev). 맨 위 판의 비교 대상은 고른 순간의 라이브 문서 스냅샷이다.
+  const getLiveDoc = useCallback(() => editorRef.current?.state.doc ?? null, [])
+  // 노트가 지워지거나 접근을 잃으면(accessLost) 열린 버전 기록을 닫는다 — 기록도 더는 받을 수 없다.
+  const revisions = useWikiRevisionHistory(page.id, getLiveDoc, {
+    liveReady: ready,
+    selectionBlocked: aiBusy,
+    accessLost: isAccessLost(syncStatus),
+  })
+  // 미리보기 중인지(데스크톱 덮개·모바일 전체화면 공통) — 헤더 AI 작성을 막는 기준.
+  const previewing = revisions.selectedVersion != null
+  // 에디터가 가려졌는지 — 미리보기 중, 또는 모바일에서 버전 기록 전체화면(목록)이 노트를 덮은 동안.
+  // 이때 에디터는 마운트된 채 가린다(동기화 연결·미전송 입력·스크롤 위치 유지).
+  const editorCovered = previewing || (isMobile && revisions.isOpen)
+  // 본문을 지금 편집할 수 있는지 — 편집 권한(canEdit)이 있고 가려지지 않았을 때. 툴바·표 메뉴도 이 값으로 끈다
+  // (#root 에 붙어 inert 밖이라, 원격 입력이 shouldShow 를 다시 돌리면 덮개 위로 뜬다).
+  const editable = canEdit && !editorCovered
+  // 권한이 나중에 확정되거나 바뀌어도 반영 — useEditor 는 [page.id, session.doc] 로만 재생성되므로
+  // 위 options 의 editable 은 최초 1회 값이다. 서버가 알린 VIEWER 강등이면 즉시 잠그고, 승격이면 다시 연다. 가려진 동안도 잠근다.
   useEffect(() => {
-    onViewChangesRef.current = onViewChanges
+    editor?.setEditable(editable)
+  }, [editor, editable])
+  // 가려지면 에디터 영역에서 포커스를 뺀다 — 숨은 contenteditable·제목 입력으로 타이핑·버블 메뉴가 가지 않게(모바일은 키보드도 내려간다).
+  // 본문(ProseMirror)은 tiptap blur, 그 밖의 가려진 영역 안 포커스(제목 input 등)는 그 요소를 직접 blur 한다.
+  useEffect(() => {
+    if (!editorCovered) return
+    editorRef.current?.commands.blur()
+    const active = document.activeElement
+    if (active instanceof HTMLElement && scrollRef.current?.contains(active)) active.blur()
+  }, [editorCovered])
+  // 복귀 토스트 "변경 보기" — 버전 기록(데스크톱 패널·모바일 전체화면)을 열고 최신 판을 변경 표시로 고른다.
+  // 동작은 최신 값을 ref 로 읽는다 — 값이 바뀌었다고 같은 복귀 결과로 토스트를 다시 띄우지 않게.
+  const openLatestRef = useRef(revisions.openLatest)
+  useEffect(() => {
+    openLatestRef.current = revisions.openLatest
   })
   // 이미 처리한 복귀(세션·순번) — 세션은 페이지별 캐시라 셸 전환·재방문으로 다시 마운트돼도 마지막 resume 이 남아 있다.
   // 마운트 때(또는 세션이 바뀐 순간) 있던 것은 이미 지난 복귀이므로 다시 알리지 않는다. 순번은 세션마다 1부터라 세션별로 비교한다(acceptResume).
@@ -567,7 +590,9 @@ export function WikiEditor({
     resumeGateRef.current = gate
     if (!fire || !resume || !editor) return
     const before = hiddenDocRef.current?.take() ?? null
-    if (shouldShowAwayToast(resume)) showAwayToast(resume.editors, onViewChangesRef.current)
+    // 액션은 누를 때의 최신 함수를 읽는다 — 토스트가 뜬 뒤 URL 이 바뀌면(패널을 손으로 연 경우 등) 그때 함수의 history.open 은 버려진다.
+    if (shouldShowAwayToast(resume))
+      showAwayToast(resume.editors, () => openLatestRef.current())
     return before ? highlightCatchUp(editor.view, before) : undefined
   }, [resume, editor, session])
 
@@ -743,163 +768,176 @@ export function WikiEditor({
       <WikiPageHeader
         crumbs={crumbs}
         syncStatus={syncStatus}
-        aiState={aiState}
+        // 미리보기 중엔 AI 작성을 막는다 — 결과가 가려진 라이브 노트에 보이지 않게 들어간다.
+        aiState={previewing ? 'previewing' : aiState}
         aiBusy={aiBusy}
         aiAttributed={page.aiLastUsedAt != null}
         onNavigate={(id) => navigate(`/wiki/spaces/${spaceId}/pages/${id}`)}
         onAiAction={onHeaderAiAction}
         onDelete={() => setConfirmDelete(true)}
         onViewSource={onViewSource}
+        onViewHistory={revisions.open}
         presence={<WikiPresence people={visiblePeople} compact={isMobile} stale={stale} onJump={jumpToPerson} />}
       />
-      {/* 본문 스크롤 영역 — 원격 삽입 화면 고정은 WikiRemoteScrollAnchor 가 직접 보정하므로 브라우저 스크롤 앵커링은 끈다(이중 보정 방지, WP-293). */}
-      <div ref={scrollRef} data-testid="wiki-editor-scroll" className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]">
-        {/* 미전송·접근 불가·삭제됨 등 동기화 안내 — 스크롤 영역 맨 위 sticky 띠(칼럼 밖·BubbleMenu 형제 목록 밖에 둔다). */}
-        <WikiSyncNotice status={syncStatus} listPath={listPath} scrollRef={scrollRef} />
-        <div data-testid="page-body-content" className={cn('flex flex-col', pageBodyInsetClass, pageReadingWidthClass)}>
-          {/* 선택 텍스트 변형 툴바(톤/번역/확장/축약/다듬기) — 뷰어·생성 중엔 비노출.
-              roleCanEdit(EDITOR/OWNER)일 때만 onCreateIssue 를 전달해 "이슈로 만들기" 버튼을 노출한다.
+      {/* 본문 줄 + 버전 기록(WP-282) — 에디터 스크롤 영역은 레이어 안 고정 자리에 늘 마운트된다(WikiRevisionLayer).
+          미리보기 중엔 버블 툴바·표 메뉴도 끈다 — #root 에 붙어 inert 밖이라, 원격 입력이 shouldShow 를 다시 돌리면 덮개 위로 뜬다. */}
+      <WikiRevisionLayer revisions={revisions} pageId={page.id} isMobile={isMobile} canRestore={canEdit}>
+        {/* 본문 스크롤 영역 — 원격 삽입 화면 고정은 WikiRemoteScrollAnchor 가 직접 보정하므로 브라우저 스크롤 앵커링은 끈다(이중 보정 방지, WP-293).
+            미리보기 중엔 inert 로 가린다(덮개 아래에 그대로 두어 스크롤 위치·동기화·미전송 입력이 남는다). */}
+        <div
+          ref={scrollRef}
+          data-testid="wiki-editor-scroll"
+          inert={editorCovered}
+          aria-hidden={editorCovered || undefined}
+          className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+        >
+          {/* 미전송·접근 불가·삭제됨 등 동기화 안내 — 스크롤 영역 맨 위 sticky 띠(칼럼 밖·BubbleMenu 형제 목록 밖에 둔다). */}
+          <WikiSyncNotice status={syncStatus} listPath={listPath} scrollRef={scrollRef} />
+          <div data-testid="page-body-content" className={cn('flex flex-col', pageBodyInsetClass, pageReadingWidthClass)}>
+            {/* 선택 텍스트 변형 툴바(톤/번역/확장/축약/다듬기) — 뷰어·생성 중엔 비노출.
+                roleCanEdit(EDITOR/OWNER)일 때만 onCreateIssue 를 전달해 "이슈로 만들기" 버튼을 노출한다.
 
-              형제 목록의 **맨 앞**에 둔다(시각 위치와 무관): BubbleMenu 는 마운트 시 자기 DOM 노드를
-              트리에서 떼어내(element.remove()) tippy 에 넘기므로, 그 앞에 조건부 형제가 있으면 해당
-              형제가 언마운트될 때 React 가 사라진 앵커에 insertBefore 를 시도해 NotFoundError 로
-              페이지 전체가 죽는다. 맨 앞에 두면 뒤따르는 조건부 노드(충돌 배너·빈 CTA 등)가 안전하다. */}
-          <WikiAiBubbleToolbar
-            editor={editor}
-            disabled={!roleCanEdit || !canEdit || aiBusy}
-            onAction={runTransform}
-            onCreateIssue={roleCanEdit && canEdit ? onCreateIssue : undefined}
-          />
-          <WikiTableToolbar editor={editor} disabled={!canEdit} />
-          <WikiTableContextMenu editor={editor} disabled={!canEdit} />
-          <input
-            value={title}
-            readOnly={readOnly}
-            onChange={(e) => {
-              const next = e.target.value
-              // 원격(서버) 제목으로 되돌렸고 응답 대기도 없으면 보낼 것이 없다 — 실패 재시도도 버리고 원격 제목을 다시 따른다.
-              if (needsTitleSave(titleSync, next)) titleSaverRef.current?.schedule(next)
-              else titleSaverRef.current?.cancel()
-              dispatchTitle({ type: 'change', title: next })
-            }}
-            onFocus={() => dispatchTitle({ type: 'focus' })}
-            // 떠날 때 대기 중인 제목을 바로 보낸다 — 그 뒤 원격 제목 반영은 저장이 끝난 다음(wikiTitleSync).
-            onBlur={() => {
-              titleSaverRef.current?.flush()
-              dispatchTitle({ type: 'blur' })
-            }}
-            onKeyDown={(e) => {
-              // Enter 로 폼 submit(줄바꿈 없음)되며 이후 타이핑이 제목에 이어붙는 것을 막고
-              // 본문 에디터로 포커스를 넘긴다(#786).
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                // commands.focus 는 다음 animation frame 에 포커스를 옮겨, Enter 직후 빠른 타이핑의 앞 글자가
-                // 제목에 붙는다 → view.focus() 로 동기 이동 후 커서만 시작으로 둔다.
-                editor?.view.focus()
-                editor?.commands.focus('start')
-              }
-            }}
-            placeholder="제목 없음"
-            className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
-          />
-          {/* WP-301 노트 상단 AI 요약 — 제목 아래·본문 위(시안 A). 본문을 바꾸지 않는 읽기 보조라 뷰어에게도 보인다. */}
-          <WikiSummaryCard pageId={page.id} accessLost={isAccessLost(syncStatus)} />
-          {/* 빈 페이지 AI CTA — 초안 작성이 가장 유효한 순간(#733). 본문이 채워지면 사라진다.
-              동기화 연결(live) 뒤에만 보인다 — 처음 열 때 서버 본문이 오기 전 빈 에디터에 잠깐 깜빡이지 않게(WP-287).
-              에디터 아래가 아니라 제목 바로 밑에 둔다: 본문 클릭영역(min-h 300px) 뒤에 두면
-              placeholder 와 300px 떨어져 시각적 연결이 끊긴다.
-              점선 테두리는 디자인시스템에 규정이 없어 일반 border + bg-muted 표면을 쓴다. */}
-          {bodyEmpty && aiState === 'ready' && !aiBusy && syncStatus === 'live' && (
-            <div
-              data-testid="wiki-ai-empty-cta"
-              className="mb-4 flex w-fit max-w-full flex-wrap items-center gap-2 rounded-lg border bg-muted px-3 py-2"
-            >
-              <AiLabel>AI</AiLabel>
-              {/* bg-muted 표면 위라 text-muted-foreground 는 대비 마진이 좁다(다크에서 muted 는
-                  흰색 5% 알파로 표면 명도가 거의 오르지 않음) → 본문색을 쓴다. AI 강조는 AiLabel 담당. */}
-              <span className="text-sm leading-5 text-foreground">
-                빈 페이지예요. 주제만 알려주면 AI 가 초안을 작성합니다.
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setDraftOpen(true)}
-                data-testid="wiki-ai-empty-draft"
+                형제 목록의 **맨 앞**에 둔다(시각 위치와 무관): BubbleMenu 는 마운트 시 자기 DOM 노드를
+                트리에서 떼어내(element.remove()) tippy 에 넘기므로, 그 앞에 조건부 형제가 있으면 해당
+                형제가 언마운트될 때 React 가 사라진 앵커에 insertBefore 를 시도해 NotFoundError 로
+                페이지 전체가 죽는다. 맨 앞에 두면 뒤따르는 조건부 노드(충돌 배너·빈 CTA 등)가 안전하다. */}
+            <WikiAiBubbleToolbar
+              editor={editor}
+              disabled={!roleCanEdit || !editable || aiBusy}
+              onAction={runTransform}
+              onCreateIssue={roleCanEdit && canEdit ? onCreateIssue : undefined}
+            />
+            <WikiTableToolbar editor={editor} disabled={!editable} />
+            <WikiTableContextMenu editor={editor} disabled={!editable} />
+            <input
+              value={title}
+              readOnly={readOnly}
+              onChange={(e) => {
+                const next = e.target.value
+                // 원격(서버) 제목으로 되돌렸고 응답 대기도 없으면 보낼 것이 없다 — 실패 재시도도 버리고 원격 제목을 다시 따른다.
+                if (needsTitleSave(titleSync, next)) titleSaverRef.current?.schedule(next)
+                else titleSaverRef.current?.cancel()
+                dispatchTitle({ type: 'change', title: next })
+              }}
+              onFocus={() => dispatchTitle({ type: 'focus' })}
+              // 떠날 때 대기 중인 제목을 바로 보낸다 — 그 뒤 원격 제목 반영은 저장이 끝난 다음(wikiTitleSync).
+              onBlur={() => {
+                titleSaverRef.current?.flush()
+                dispatchTitle({ type: 'blur' })
+              }}
+              onKeyDown={(e) => {
+                // Enter 로 폼 submit(줄바꿈 없음)되며 이후 타이핑이 제목에 이어붙는 것을 막고
+                // 본문 에디터로 포커스를 넘긴다(#786).
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  // commands.focus 는 다음 animation frame 에 포커스를 옮겨, Enter 직후 빠른 타이핑의 앞 글자가
+                  // 제목에 붙는다 → view.focus() 로 동기 이동 후 커서만 시작으로 둔다.
+                  editor?.view.focus()
+                  editor?.commands.focus('start')
+                }
+              }}
+              placeholder="제목 없음"
+              className={`mb-4 w-full border-0 bg-transparent outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
+            />
+            {/* WP-301 노트 상단 AI 요약 — 제목 아래·본문 위(시안 A). 본문을 바꾸지 않는 읽기 보조라 뷰어에게도 보인다. */}
+            <WikiSummaryCard pageId={page.id} accessLost={isAccessLost(syncStatus)} />
+            {/* 빈 페이지 AI CTA — 초안 작성이 가장 유효한 순간(#733). 본문이 채워지면 사라진다.
+                동기화 연결(live) 뒤에만 보인다 — 처음 열 때 서버 본문이 오기 전 빈 에디터에 잠깐 깜빡이지 않게(WP-287).
+                에디터 아래가 아니라 제목 바로 밑에 둔다: 본문 클릭영역(min-h 300px) 뒤에 두면
+                placeholder 와 300px 떨어져 시각적 연결이 끊긴다.
+                점선 테두리는 디자인시스템에 규정이 없어 일반 border + bg-muted 표면을 쓴다. */}
+            {bodyEmpty && aiState === 'ready' && !aiBusy && syncStatus === 'live' && (
+              <div
+                data-testid="wiki-ai-empty-cta"
+                className="mb-4 flex w-fit max-w-full flex-wrap items-center gap-2 rounded-lg border bg-muted px-3 py-2"
               >
-                AI 초안 작성
-              </Button>
-            </div>
-          )}
-          {/* 멘션 칩 클릭 내비게이션·링크 Ctrl/⌘+클릭은 래퍼 onClick 에서 위임 처리(closest[data-mtype] / closest a).
-              wiki-editor 클래스는 placeholder CSS 의 스코프(wiki-editor.css).
-              칩 NodeView 는 EditorContent 가 렌더하는 포털이라 라벨 Provider 로 여기만 감싸면 된다(WP-294).
-              클릭 위임은 EditorContent 가 아니라 바깥 div 에 둔다 — 포털은 EditorContent 의 div 형제로 렌더돼
-              React 합성 이벤트가 그 div 의 onClick 까지 버블되지 않는다(바깥 div 는 DOM·React 트리 모두 조상). */}
-          {/* 첫 동기화 전엔 본문 대신 skeleton(WP-287) — 빈 문서와 입력 안내가 잠깐 보였다가 서버 본문으로 바뀌지 않게.
-              첫 연결이 끝내 안 되면 skeleton 대신 연결 못 함 안내(붙으면 본문으로). */}
-          {ready ? (
-            <WikiMentionLabelsProvider pageId={page.id}>
-              <div onClick={onBodyClick} data-presence-stale={stale ? '' : undefined}>
-                <EditorContent
-                  editor={editor}
-                  className="wiki-editor [&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
-                />
-              </div>
-            </WikiMentionLabelsProvider>
-          ) : body === 'unreachable' ? (
-            <WikiSyncUnreachable />
-          ) : (
-            <WikiPageSkeleton withTitle={false} testId="wiki-body-skeleton" />
-          )}
-          {/* 슬래시 메뉴 '이미지' 항목(#751) 전용 숨은 file input. accept 는 서버 매직바이트
-              판정과 동일 집합(SVG 제외 — 서버가 거부한다). 같은 파일을 연속 선택해도 onChange
-              가 다시 발화하도록 선택 직후 value 를 비운다. */}
-          <input
-            ref={imageInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
-            className="hidden"
-            data-testid="wiki-image-slash-input"
-            onChange={(e) => {
-              insertImagesAtCursor(e.target.files)
-              e.target.value = ''
-            }}
-          />
-          {/* 노트→이슈 생성 다이얼로그 — AI 역할 게이트는 onCreateIssue 전달 여부로 이미 처리됨. */}
-          <WikiCreateIssueDialog
-            open={issueDialog.open}
-            initialTitle={issueDialog.title}
-            initialBody={issueDialog.body}
-            onCreated={onIssueCreated}
-            onClose={() => setIssueDialog((s) => ({ ...s, open: false }))}
-          />
-          {/* 백링크 패널 — 이 페이지를 참조하는 다른 위키 페이지(빈 배열이면 자체적으로 숨김). */}
-          <WikiBacklinksPanel pageId={page.id} />
-          {/* 스크린리더용 라이브 리전 — 상시 렌더하고 내부 텍스트만 토글한다.
-              조건부로 노드째 삽입하면 라이브 리전이 등록되기 전에 내용이 들어가 공지가 누락된다. */}
-          <div aria-live="polite" aria-atomic="true" className="sr-only">
-            {aiBusy ? 'AI 생성 중' : ''}
-          </div>
-          {/* AI 생성 중 시각 표시 + 취소 — 결과는 완료 시 한 번에 삽입되므로 그동안 헤더 스피너와 함께 진행을 알린다(WP-255). */}
-          {aiBusy && (
-            <div className="flex items-center gap-2 pt-2 text-xs leading-4 text-muted-foreground">
-              <span className="flex items-center gap-2" data-testid="wiki-ai-busy">
-                <AiLabel>생성 중…</AiLabel>
+                <AiLabel>AI</AiLabel>
+                {/* bg-muted 표면 위라 text-muted-foreground 는 대비 마진이 좁다(다크에서 muted 는
+                    흰색 5% 알파로 표면 명도가 거의 오르지 않음) → 본문색을 쓴다. AI 강조는 AiLabel 담당. */}
+                <span className="text-sm leading-5 text-foreground">
+                  빈 페이지예요. 주제만 알려주면 AI 가 초안을 작성합니다.
+                </span>
                 <Button
                   type="button"
+                  variant="outline"
                   size="sm"
-                  variant="ghost"
-                  onClick={cancelAi}
-                  data-testid="wiki-ai-cancel"
+                  onClick={() => setDraftOpen(true)}
+                  data-testid="wiki-ai-empty-draft"
                 >
-                  취소
+                  AI 초안 작성
                 </Button>
-              </span>
+              </div>
+            )}
+            {/* 멘션 칩 클릭 내비게이션·링크 Ctrl/⌘+클릭은 래퍼 onClick 에서 위임 처리(closest[data-mtype] / closest a).
+                wiki-editor 클래스는 placeholder CSS 의 스코프(wiki-editor.css).
+                칩 NodeView 는 EditorContent 가 렌더하는 포털이라 라벨 Provider 로 여기만 감싸면 된다(WP-294).
+                클릭 위임은 EditorContent 가 아니라 바깥 div 에 둔다 — 포털은 EditorContent 의 div 형제로 렌더돼
+                React 합성 이벤트가 그 div 의 onClick 까지 버블되지 않는다(바깥 div 는 DOM·React 트리 모두 조상). */}
+            {/* 첫 동기화 전엔 본문 대신 skeleton(WP-287) — 빈 문서와 입력 안내가 잠깐 보였다가 서버 본문으로 바뀌지 않게.
+                첫 연결이 끝내 안 되면 skeleton 대신 연결 못 함 안내(붙으면 본문으로). */}
+            {ready ? (
+              <WikiMentionLabelsProvider pageId={page.id}>
+                <div onClick={onBodyClick} data-presence-stale={stale ? '' : undefined}>
+                  <EditorContent
+                    editor={editor}
+                    className="wiki-editor [&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"
+                  />
+                </div>
+              </WikiMentionLabelsProvider>
+            ) : body === 'unreachable' ? (
+              <WikiSyncUnreachable />
+            ) : (
+              <WikiPageSkeleton withTitle={false} testId="wiki-body-skeleton" />
+            )}
+            {/* 슬래시 메뉴 '이미지' 항목(#751) 전용 숨은 file input. accept 는 서버 매직바이트
+                판정과 동일 집합(SVG 제외 — 서버가 거부한다). 같은 파일을 연속 선택해도 onChange
+                가 다시 발화하도록 선택 직후 value 를 비운다. */}
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              className="hidden"
+              data-testid="wiki-image-slash-input"
+              onChange={(e) => {
+                insertImagesAtCursor(e.target.files)
+                e.target.value = ''
+              }}
+            />
+            {/* 노트→이슈 생성 다이얼로그 — AI 역할 게이트는 onCreateIssue 전달 여부로 이미 처리됨. */}
+            <WikiCreateIssueDialog
+              open={issueDialog.open}
+              initialTitle={issueDialog.title}
+              initialBody={issueDialog.body}
+              onCreated={onIssueCreated}
+              onClose={() => setIssueDialog((s) => ({ ...s, open: false }))}
+            />
+            {/* 백링크 패널 — 이 페이지를 참조하는 다른 위키 페이지(빈 배열이면 자체적으로 숨김). */}
+            <WikiBacklinksPanel pageId={page.id} />
+            {/* 스크린리더용 라이브 리전 — 상시 렌더하고 내부 텍스트만 토글한다.
+                조건부로 노드째 삽입하면 라이브 리전이 등록되기 전에 내용이 들어가 공지가 누락된다. */}
+            <div aria-live="polite" aria-atomic="true" className="sr-only">
+              {aiBusy ? 'AI 생성 중' : ''}
             </div>
-          )}
+            {/* AI 생성 중 시각 표시 + 취소 — 결과는 완료 시 한 번에 삽입되므로 그동안 헤더 스피너와 함께 진행을 알린다(WP-255). */}
+            {aiBusy && (
+              <div className="flex items-center gap-2 pt-2 text-xs leading-4 text-muted-foreground">
+                <span className="flex items-center gap-2" data-testid="wiki-ai-busy">
+                  <AiLabel>생성 중…</AiLabel>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={cancelAi}
+                    data-testid="wiki-ai-cancel"
+                  >
+                    취소
+                  </Button>
+                </span>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </WikiRevisionLayer>
       {/* draft 토픽 입력 — 확인 시 prompt 로 draft 액션 실행. */}
       <RenameDialog
         open={draftOpen}

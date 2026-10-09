@@ -20,6 +20,37 @@ const INVALIDATING_EVENTS = new Set([
   'wiki.page.moved',
 ]);
 
+/** 버전 기록 목록 재조회 최소 간격 — 누가 계속 타이핑하면 SSE 가 2~10초마다 오므로 그보다 자주 다시 받지 않는다(WP-282). */
+export const REVISIONS_REFETCH_INTERVAL_MS = 5000
+
+/** 페이지별 버전 기록 무효화 상태 — 마지막으로 무효화한 시각과 예약된 뒤늦은(trailing) 무효화. QueryClient 마다 따로 둔다. */
+type RevisionThrottle = { last: number; timer?: ReturnType<typeof setTimeout> }
+const revisionThrottles = new WeakMap<QueryClient, Map<number, RevisionThrottle>>()
+
+/**
+ * 버전 기록 목록(WP-282)을 페이지당 REVISIONS_REFETCH_INTERVAL_MS 에 한 번만 무효화한다(첫 이벤트는 바로, 간격 안의 이벤트는 간격 끝에 한 번).
+ * 다른 사람 편집·복원·AI 적용으로 새 판이 생기거나 "현재 버전"(편집자·시각)이 바뀌어도 열린 목록이 갱신되게 한다.
+ * refetchType 'active' — 목록을 보고 있을 때(패널·모바일 목록이 열림)만 다시 받고, 아니면 낡음 표시만 한다(열 때 staleTime 0 으로 받는다).
+ * 최신 판 비교 대상(라이브 문서 스냅샷)은 선택 시점에 고정이라 여기서 건드리지 않는다.
+ * 그 페이지 목록이 캐시에 없으면(버전 기록을 연 적 없음) 무효화할 것이 없으니 간격 상태·타이머도 만들지 않는다 — 편집 이벤트마다 쌓이지 않게.
+ */
+function invalidateRevisionsThrottled(qc: QueryClient, pageId: number) {
+  if (!qc.getQueryCache().find({ queryKey: wikiKeys.revisions(pageId), exact: true })) return
+  let byPage = revisionThrottles.get(qc)
+  if (!byPage) revisionThrottles.set(qc, (byPage = new Map()))
+  const state = byPage.get(pageId) ?? { last: -Infinity }
+  byPage.set(pageId, state)
+  if (state.timer) return // 간격 끝 무효화가 이미 예약돼 있다 — 이번 변경도 그때 함께 반영된다.
+  const invalidate = () => {
+    state.last = Date.now()
+    state.timer = undefined
+    void qc.invalidateQueries({ queryKey: wikiKeys.revisions(pageId), refetchType: 'active' })
+  }
+  const wait = state.last + REVISIONS_REFETCH_INTERVAL_MS - Date.now()
+  if (wait <= 0) invalidate()
+  else state.timer = setTimeout(invalidate, wait)
+}
+
 export function handleWikiEvent(qc: QueryClient, eventName: string, data: unknown) {
   if (!INVALIDATING_EVENTS.has(eventName)) return;
   const p = data as WikiPagePayload;
@@ -39,6 +70,8 @@ export function handleWikiEvent(qc: QueryClient, eventName: string, data: unknow
     qc.invalidateQueries({ queryKey: wikiKeys.backlinks(p.pageId) });
     // 멘션 칩 라벨 — 다른 접속자·AI 가 넣은 멘션은 이 탭에 라벨 기억이 없어 해소 결과로만 채워진다(WP-294).
     qc.invalidateQueries({ queryKey: wikiKeys.mentions(p.pageId) });
+    // 버전 기록 목록 — 열린 목록만, 페이지당 일정 간격으로 다시 받는다(WP-282).
+    invalidateRevisionsThrottled(qc, p.pageId);
   }
   // 스페이스 목록(페이지 수 등 파생 정보)도 갱신될 수 있어 함께 무효화.
   qc.invalidateQueries({ queryKey: wikiKeys.spaces() });

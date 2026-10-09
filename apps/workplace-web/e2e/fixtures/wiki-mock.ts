@@ -1,8 +1,15 @@
 // 노트 스페이스 0개 → 생성 흐름 모킹(WP-143) — 데스크톱·모바일 빈 상태 spec 이 공유한다.
 import type { Page } from '@playwright/test'
 
-import type { WikiPageDetail, WikiRole, WikiSpace } from '../../src/types/wiki'
-import { wikiSpace } from '../factories/wiki.factory'
+import type {
+  WikiPageDetail,
+  WikiRevisionDetail,
+  WikiRevisionItem,
+  WikiRevisionList,
+  WikiRole,
+  WikiSpace,
+} from '../../src/types/wiki'
+import { wikiPageDetail, wikiSpace } from '../factories/wiki.factory'
 import { type CollabRole, collabNsOf, readCollabMarkdown, seedCollabDoc } from './collab'
 import { trackRequests } from './requests'
 
@@ -114,4 +121,79 @@ export async function mockNoteInTeamSpace(page: Page, { spaceId, name, role = 'O
     r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(spaces) }) : r.fallback())
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces/1/pages' || u.pathname === '/api/v1/wiki/spaces/1/members', (r) =>
     r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())
+}
+
+/**
+ * 노트 버전 기록 API 모킹(WP-282) — 목록·판 본문·복원. 목록은 상태가 있다: 복원하면 "복원 직전" 판을 맨 위에 더해
+ * (서버가 복원 전에 지금 본문을 스냅샷으로 남기는 것과 같게) 다음 목록 조회에 보인다.
+ * onRestore 는 복원 POST 를 받을 때 부른다 — 실서버처럼 동기화 서버에 복원 본문을 적용하는 데 쓴다(applyCollabMarkdown).
+ * 복원 POST 기록(restores)과, 목록을 바꿔 서버 쪽 새 판을 흉내 내는 setList 를 돌려준다.
+ */
+export async function mockWikiRevisions(
+  page: Page,
+  {
+    pageId,
+    list,
+    details,
+    status,
+    onRestore,
+  }: {
+    pageId: number
+    list: WikiRevisionList
+    /** version → 본문. 목록 항목의 메타와 합쳐 상세로 돌려준다. */
+    details: Record<number, string>
+    /** 복원 응답 상태(기본 200) — 403 등 실패를 흉내 낸다. */
+    status?: number
+    onRestore?: (version: number, body: string) => Promise<void>
+  },
+) {
+  let current = list
+  const restores = trackRequests(page, 'POST', new RegExp(`/api/v1/wiki/pages/${pageId}/revisions/\\d+/restore$`))
+  await page.route(
+    (u) => new RegExp(`^/api/v1/wiki/pages/${pageId}/revisions(/\\d+(/restore)?)?$`).test(u.pathname),
+    async (r) => {
+      const m = new URL(r.request().url()).pathname.match(/\/revisions(?:\/(\d+))?(\/restore)?$/)!
+      const version = m[1] ? Number(m[1]) : null
+      const method = r.request().method()
+      if (version == null && method === 'GET') return r.fulfill({ json: current })
+      const item = current.items.find((i) => i.version === version)
+      if (version != null && !m[2] && method === 'GET') {
+        if (!item) return r.fulfill({ status: 404, json: { message: '버전을 찾을 수 없습니다' } })
+        const detail: WikiRevisionDetail = { ...item, body: details[version] ?? '' }
+        return r.fulfill({ json: detail })
+      }
+      if (version != null && m[2] && method === 'POST') {
+        if (status && status >= 400) return r.fulfill({ status, json: { message: '권한이 없습니다' } })
+        await onRestore?.(version, details[version] ?? '')
+        // 복원 직전 판(지금 판)이 새 스냅샷으로 맨 위에 생긴다.
+        const before: WikiRevisionItem = {
+          version: current.current.version,
+          title: item?.title ?? '',
+          editedAt: current.current.editedAt,
+          createdAt: current.current.editedAt,
+          reason: 'RESTORE',
+          editors: current.current.editors,
+          aiActor: null,
+        }
+        current = { current: { ...current.current, version: current.current.version + 1 }, items: [before, ...current.items] }
+        return r.fulfill({
+          json: wikiPageDetail({
+            id: pageId,
+            title: item?.title ?? '',
+            body: details[version] ?? '',
+            version: current.current.version,
+            updatedAt: current.current.editedAt,
+          }),
+        })
+      }
+      return r.fallback()
+    },
+  )
+  return {
+    restores,
+    /** 목록을 바꾼다 — 다음 목록 조회부터 보인다(다른 사람의 편집·복원으로 서버에 새 판이 생긴 것처럼). */
+    setList: (next: WikiRevisionList) => {
+      current = next
+    },
+  }
 }

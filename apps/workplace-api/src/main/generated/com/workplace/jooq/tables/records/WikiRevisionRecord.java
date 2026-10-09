@@ -118,6 +118,62 @@ public class WikiRevisionRecord extends UpdatableRecordImpl<WikiRevisionRecord> 
         return (OffsetDateTime) get(6);
     }
 
+    /**
+     * Setter for <code>public.wiki_revision.editor_ids</code>.
+     */
+    public void setEditorIds(Long[] value) {
+        set(7, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_revision.editor_ids</code>.
+     */
+    public Long[] getEditorIds() {
+        return (Long[]) get(7);
+    }
+
+    /**
+     * Setter for <code>public.wiki_revision.ai_actor_id</code>.
+     */
+    public void setAiActorId(Long value) {
+        set(8, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_revision.ai_actor_id</code>.
+     */
+    public Long getAiActorId() {
+        return (Long) get(8);
+    }
+
+    /**
+     * Setter for <code>public.wiki_revision.reason</code>.
+     */
+    public void setReason(String value) {
+        set(9, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_revision.reason</code>.
+     */
+    public String getReason() {
+        return (String) get(9);
+    }
+
+    /**
+     * Setter for <code>public.wiki_revision.edited_at</code>.
+     */
+    public void setEditedAt(OffsetDateTime value) {
+        set(10, value);
+    }
+
+    /**
+     * Getter for <code>public.wiki_revision.edited_at</code>.
+     */
+    public OffsetDateTime getEditedAt() {
+        return (OffsetDateTime) get(10);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -141,7 +197,7 @@ public class WikiRevisionRecord extends UpdatableRecordImpl<WikiRevisionRecord> 
     /**
      * Create a detached, initialised WikiRevisionRecord
      */
-    public WikiRevisionRecord(Long tenantId, Long pageId, Integer version, String title, String body, Long authorId, OffsetDateTime createdAt) {
+    public WikiRevisionRecord(Long tenantId, Long pageId, Integer version, String title, String body, Long authorId, OffsetDateTime createdAt, Long[] editorIds, Long aiActorId, String reason, OffsetDateTime editedAt) {
         super(WikiRevision.WIKI_REVISION);
 
         setTenantId(tenantId);
@@ -151,6 +207,10 @@ public class WikiRevisionRecord extends UpdatableRecordImpl<WikiRevisionRecord> 
         setBody(body);
         setAuthorId(authorId);
         setCreatedAt(createdAt);
+        setEditorIds(editorIds);
+        setAiActorId(aiActorId);
+        setReason(reason);
+        setEditedAt(editedAt);
         resetChangedOnNotNull();
     }
 }
