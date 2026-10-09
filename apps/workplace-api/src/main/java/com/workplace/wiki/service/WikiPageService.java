@@ -70,10 +70,8 @@ public class WikiPageService {
     }
     int pos = pages.nextPosition(spaceId, req.parentId());
     long id = pages.insert(spaceId, req.parentId(), req.title(), pos);
-    WikiPageDetail detail =
-        pages.findDetail(id).orElseThrow(() -> new WikiPageNotFoundException(id));
     // 생성 응답의 version 으로 곧바로 본문을 저장하는 흐름(create_wiki_page → update_wiki_page)도 기준본이 있게 한다.
-    bodies.recordRead(id, detail.version(), detail.body());
+    WikiPageDetail detail = detailRecordingBase(id);
     // #724: 생성 사실을 스페이스 멤버에게 SSE 로 알려 열린 노트 화면이 즉시 갱신되도록 한다(AFTER_COMMIT fan-out).
     publisher.publishEvent(
         new WikiPageCreatedEvent(
@@ -91,9 +89,7 @@ public class WikiPageService {
   /** 단건 상세(본문 + version). VIEWER 이상. */
   @Transactional(readOnly = true)
   public WikiPageDetail get(long callerId, long pageId) {
-    long spaceId =
-        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-    perms.requireRole(spaceId, callerId, "VIEWER");
+    requireViewer(callerId, pageId);
     return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
   }
 
@@ -103,11 +99,19 @@ public class WikiPageService {
    */
   @Transactional
   public WikiPageDetail read(long callerId, long pageId, boolean recordBase) {
-    WikiPageDetail detail = get(callerId, pageId);
-    if (recordBase) {
-      bodies.recordRead(detail.id(), detail.version(), detail.body());
+    if (!recordBase) {
+      return get(callerId, pageId);
     }
-    return detail;
+    // 권한 검사(없는 페이지 404·권한 없음 403)를 기록보다 먼저 — 실패하면 아무것도 남기지 않는다.
+    requireViewer(callerId, pageId);
+    return detailRecordingBase(pageId);
+  }
+
+  /** 페이지 조회 권한 — 없는 페이지면 404, 공간 VIEWER 미만이면 403. */
+  private void requireViewer(long callerId, long pageId) {
+    long spaceId =
+        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    perms.requireRole(spaceId, callerId, "VIEWER");
   }
 
   /** 사람(웹) 저장 — {@link #save(long, long, SavePageRequest, boolean)} 의 ai=false. */
@@ -353,12 +357,11 @@ public class WikiPageService {
     }
   }
 
-  /** 응답으로 돌려줄 상세를 읽고 그 판을 기준본으로 남긴다(기존 낙관적 본문 저장 — 응답 version 으로 이어 저장할 수 있게). */
+  /** 응답으로 돌려줄 상세를 읽고 그 판을 기준본으로 남긴다 — 한 SQL 문(응답 version 으로 이어 저장할 수 있게). 권한 검사는 호출자 몫. */
   private WikiPageDetail detailRecordingBase(long pageId) {
-    WikiPageDetail detail =
-        pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-    bodies.recordRead(detail.id(), detail.version(), detail.body());
-    return detail;
+    return pages
+        .findDetailRecordingBase(pageId)
+        .orElseThrow(() -> new WikiPageNotFoundException(pageId));
   }
 
   /** #724: 저장 사실을 스페이스 멤버에게 SSE 로 알린다(AFTER_COMMIT) — 다른 탭/AI 편집이 즉시 반영되도록. 트랜잭션 안에서 호출. */
