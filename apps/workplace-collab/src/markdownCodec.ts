@@ -19,6 +19,33 @@ export function yDocToMarkdown(doc: Y.Doc): string {
   return docToMarkdown(yXmlFragmentToProseMirrorRootNode(doc.getXmlFragment(FRAGMENT), getMarkdownSchema()))
 }
 
+/**
+ * 문서에 보이는 내용이 있는가 — `yDocToMarkdown(doc).trim() !== ''` 과 같은 답을 문서 전체 직렬화 없이 낸다(WP-330, 빈 AI본 거부 판정).
+ * 최상위 블록을 앞에서부터 보고 확실한 것에서 바로 끝낸다(보통 첫 블록):
+ *  - 문단이 아닌 블록(제목·목록·인용·코드·표·구분선·이미지)은 비어 있어도 직렬화에 글머리·틀이 남는다 → 있음.
+ *  - 문단 안에 공백 아닌 글자, 또는 강제 줄바꿈이 아닌 인라인 노드(멘션·이미지) → 있음.
+ *  - 빈 문단 → 없음.
+ * 공백뿐인 글자·강제 줄바꿈만 있는 문단은 서식(링크·코드 표기)과 이웃(공백 사이 줄바꿈의 `\`)에 따라 직렬화가 비기도 안 비기도 해서,
+ * 확실한 블록이 하나도 없을 때만 직렬화해 판정한다(빈 줄·공백만 있는 노트 — 드물고 작다).
+ */
+export function hasVisibleContent(doc: Y.Doc): boolean {
+  let unsure = false
+  for (const block of doc.getXmlFragment(FRAGMENT).toArray()) {
+    if (!(block instanceof Y.XmlElement) || block.nodeName !== 'paragraph') return true
+    for (const child of block.toArray()) {
+      if (child instanceof Y.XmlText) {
+        // 글 조각의 델타는 빈 문자열이 아닌 글자뿐이다 — 인라인 노드(멘션·이미지·강제 줄바꿈)는 y-prosemirror 가 XmlElement 로 둔다(실측).
+        for (const op of child.toDelta() as Array<{ insert: string }>) {
+          if (op.insert.trim() !== '') return true
+          unsure = true
+        }
+      } else if (child instanceof Y.XmlElement && child.nodeName !== 'hardBreak') return true
+      else unsure = true
+    }
+  }
+  return unsure && yDocToMarkdown(doc).trim() !== ''
+}
+
 /** Yjs 업데이트(저장된 상태) → 마크다운 — 새 Y.Doc 에 적용해 파생 body 를 만든다(드라이런·테스트 모드 저장본 읽기). */
 export function yUpdateToMarkdown(update: Uint8Array): string {
   return docToMarkdown(yUpdateToRoot(update))

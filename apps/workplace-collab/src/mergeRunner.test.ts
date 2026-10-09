@@ -18,12 +18,12 @@ describe('mergeRunner', () => {
 
   it('normalizes the bodies and rejects an empty AI body against a non-empty base', async () => {
     runner = createMergeRunner()
-    expect(await runner.prepare({ body: '|a|b|\n|-|-|\n|1|2|', bases: ['_강조_'], current: '' })).toEqual({
+    expect(await runner.prepare({ body: '|a|b|\n|-|-|\n|1|2|', bases: ['_강조_'] })).toEqual({
       ai: '| a | b |\n| --- | --- |\n| 1 | 2 |\n',
       bases: ['*강조*'],
     })
-    expect(await runner.prepare({ body: ' \n ', bases: ['본문'], current: '' })).toMatchObject({ rejected: expect.stringMatching(/^empty body/) })
-    expect(await runner.prepare({ body: '', bases: [''], current: '' })).toEqual({ ai: '', bases: [''] })
+    expect(await runner.prepare({ body: ' \n ', bases: ['본문'] })).toMatchObject({ rejected: expect.stringMatching(/^empty body/) })
+    expect(await runner.prepare({ body: '', bases: [''] })).toEqual({ ai: '', bases: [''] })
   })
 
   it('merges in the worker', async () => {

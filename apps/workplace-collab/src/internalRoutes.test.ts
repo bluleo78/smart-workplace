@@ -48,7 +48,7 @@ describe('internal routes', () => {
   })
 
   /** 데운 병합 워커에 첫 작업을 보낸다 — 워커 기동(부하 시 700ms+)이 끝날 때까지 기다린다. */
-  const warm = (m: MergeRunner) => m.prepare({ body: 'warm', bases: ['warm'], current: 'warm' }, 60_000)
+  const warm = (m: MergeRunner) => m.prepare({ body: 'warm', bases: ['warm'] }, 60_000)
   /**
    * 기본 병합 실행기 — 파일 전체가 데운 워커 하나를 함께 쓴다(WP-311). 테스트마다 서버를 새로 띄우면 첫 병합이 워커를 띄우는데,
    * 그 기동 시간이 짧은 기한(applyDeadlineMs)·표식 대기 같은 시간 창 안에 끼어 부하 때 간헐 실패했다.
@@ -711,6 +711,27 @@ describe('internal routes', () => {
       // 기준본·현재본·AI본이 모두 비면 허용(빈 노트에 빈 저장).
       api.page(5, { tenantId: TENANT, body: '', version: 1 })
       expect((await merge('', '  ', {}, 5)).status).toBe(200)
+    })
+
+    it('rejects an empty AI body before storing the unsaved person edit (dirty document)', async () => {
+      // 미저장 사람 입력이 있으면 AI 적용은 먼저 그 판을 저장한다(사전 저장) — 빈 본문 거절은 그보다 먼저여야 한다(WP-330).
+      // 저장을 실패하게 해 둔다: 사전 저장을 먼저 하면 503(store failed), 거절이 먼저면 400. (연결 해제 때의 지연 저장 시도는 별개라
+      // 저장 횟수로는 가를 수 없다.)
+      await restartWithLongDebounce()
+      const b = connect('editor2-token')
+      await synced(b)
+      await expect.poll(() => api.stores.length).toBe(1)
+      typeAt(b.doc, 2, '사람 ')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('사람 둘째 문단')
+      api.failStores = true
+      // 기준본이 있든(워커가 거절) 비었든(메인 스레드가 현재본을 보고 거절) 같은 400 empty_body.
+      for (const base of [BODY, '']) {
+        const res = await merge(base, ' \n ')
+        expect(res.status).toBe(400)
+        expect(((await res.json()) as { code?: string }).code).toBe('empty_body')
+      }
+      api.failStores = false
+      expect(yDocToMarkdown(serverDoc()!)).toContain('사람 둘째 문단')
     })
 
     it('keeps other clients syncing while a slow merge runs off the event loop, and keeps their edits', async () => {
