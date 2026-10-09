@@ -58,12 +58,17 @@ export interface LoadedDoc {
   stale: boolean
 }
 
+/** API 저장 PUT 의 snapshotReason — AI 적용 직전 / 버전 복원 직전(WP-297). 시간 규칙 스냅샷은 API 가 스스로 판단한다. */
+export type SnapshotReason = 'AI' | 'RESTORE'
+
 /**
- * 파생 저장 옵션 — snapshot: 저장 직전 판을 리비전으로 남긴다(AI 적용 저장, 스펙 §6.1).
+ * 파생 저장 옵션 — snapshotReason: 있으면 저장 직전 판을 그 사유(AI 적용 / 버전 복원, WP-297)의 리비전으로 남긴다(스펙 §6.1 —
+ * API 저장 요청엔 snapshot:true 와 함께 싣는다). aiActorId: AI 적용을 요청한 사람(✦ 귀속) — AI 적용일 때만.
  * timeoutMs: 저장 호출 시간 상한(넘으면 실패로 끝나 재시도가 예약된다) — apply-markdown 의 적용 저장이 API read 타임아웃 안에 답하게.
  */
 export interface StoreOptions {
-  snapshot?: boolean
+  snapshotReason?: SnapshotReason
+  aiActorId?: number
   timeoutMs?: number
 }
 
@@ -159,7 +164,14 @@ export function apiDocStore(api: ApiClient): DocStore {
       return api.storeDoc(
         tenantId,
         pageId,
-        { state, body, editorIds, ...(opts?.snapshot ? { snapshot: true } : {}) },
+        {
+          state,
+          body,
+          editorIds,
+          // 스냅샷·사유·AI 귀속은 실렸을 때만 보낸다(없으면 키 생략 — 사유 없는 snapshot 은 API 가 AI 로 본다, R7).
+          ...(opts?.snapshotReason ? { snapshot: true, snapshotReason: opts.snapshotReason } : {}),
+          ...(opts?.aiActorId != null ? { aiActorId: opts.aiActorId } : {}),
+        },
         { timeoutMs: opts?.timeoutMs },
       )
     },
@@ -447,9 +459,12 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
    *   워커 계산 한 번은 추가로 merger.timeoutMs 를 넘지 못한다.
    * - 빈 AI본(공백뿐 포함)·파싱 실패는 병합하지 않는다 — "AI 가 거의 모두 지움"이 되므로 400(code: empty_body·unparseable_body).
    *   기준본·현재본도 비었을 때만 허용.
-   * - AI 적용(ai=true)은 ① 미저장 사람 입력을 먼저 저장해 둔다 — API 가 ①의 판(= 적용 직전 판)을 리비전으로 남겨, 정책상 AI 쪽으로 덮인
-   *   사람 수정도 되돌릴 수 있다. ③ 적용 저장의 snapshot 은 req.snapshot(AI 적용 또는 사람의 명시 요청). 구버전 웹(ai=false)은 ①을 하지
-   *   않는다(세션 간격 규칙).
+   * - AI 적용(ai=true)·버전 복원(replace + snapshot, WP-297)은 ① 미저장 사람 입력을 먼저 저장해 둔다 — API 가 ①의 판(= 적용 직전 판)을
+   *   리비전으로 남겨, 정책상 AI 쪽으로 덮인 사람 수정도, 복원으로 덮인 최근 입력도 되돌릴 수 있다.
+   * - 스냅샷 사유는 요청에서 명시적으로 정한다(snapshotReasonOf): snapshot + ai → 'AI'(+ 요청자 aiActorId),
+   *   snapshot + 사람 + replace → 'RESTORE'. 그 밖(사람 merge + snapshot)은 사유가 없어 스냅샷을 아예 싣지 않는다 — 사유 없는
+   *   snapshot 은 API 가 AI 로 기록하므로(R7) 잘못된 ✦ 행이 생긴다. API 는 사람 merge 에 snapshot 을 싣지 않으니(R8) 구버전 웹 사람
+   *   적용과 같게 ①도 하지 않는다(그 판은 API 의 시간 규칙이 맡는다).
    * - 잠금은 Hocuspocus 저장 뮤텍스 — ①~③(워커 왕복 포함)이 진행 중 지연 저장·같은 문서의 다른 apply 와 직렬이다.
    *   그래서 두 병합이 같은 낡은 현재본으로 계산되는 일이 없다.
    * - 적용은 출처가 서버(local)인 한 트랜잭션. skipStoreHooks 로 지연 저장을 예약하지 않고 여기서 한 번만 저장한다.
@@ -513,9 +528,12 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
         skipStoreHooks: true,
         context: { userId: actor.userId, actor, ai: req.ai, tenantId, pageId, apply: req.mode },
       }
-      // ① AI 적용 직전 판을 저장해 둔다(리비전 대상) — 미저장 사람 입력이 있으면(상한까지) 저장. 구버전 웹(ai=false)은 하지 않는다.
+      // ① 스냅샷을 남길 적용(AI·버전 복원)의 직전 판을 저장해 둔다(리비전 대상) — 미저장 사람 입력이 있으면(상한까지) 저장.
+      //    사유 없는 사람 적용(구버전 웹·사람 merge)은 하지 않는다 — 그 판은 API 의 시간 규칙이 맡는다.
+      const snapshotReason = snapshotReasonOf(req)
+      const preStore = req.ai || snapshotReason != null
       const flushBeforeApply = async () => {
-        for (let i = 0; req.ai && i < PRE_APPLY_FLUSH_TRIES && registry.isDirty(doc); i++) {
+        for (let i = 0; preStore && i < PRE_APPLY_FLUSH_TRIES && registry.isDirty(doc); i++) {
           checkDeadline()
           await persist(doc, meta, docName, 'pre-apply store')
         }
@@ -550,8 +568,8 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
             await flushBeforeApply()
             changed = commit(() => replaceWithMarkdown(doc, req.body, origin))
           }
-          // 바뀐 것 없는 AI 적용 — 새 판·스냅샷을 만들지 않고 지금 판으로 답한다(미저장분은 위에서 이미 저장했다).
-          if (changed == null && req.ai && !registry.isDirty(doc) && meta.version != null) {
+          // 바뀐 것 없는 AI 적용·복원(이미 그 본문) — 새 판·스냅샷을 만들지 않고 지금 판으로 답한다(미저장분은 위에서 이미 저장했다).
+          if (changed == null && preStore && !registry.isDirty(doc) && meta.version != null) {
             // 마지막 저장 뒤로 문서가 안 바뀌었으면(순번 그대로) 그때 직렬화한 body 가 곧 지금 문서다 — 다시 직렬화하지 않는다.
             const cached = meta.persistedBody
             return { version: meta.version, body: cached?.seq === meta.seq ? cached.body : yDocToMarkdown(doc), persisted: true }
@@ -567,7 +585,12 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
               docName,
               'apply store',
               (taken) => (taken.includes(actor.userId) ? taken : [...taken, actor.userId]),
-              { snapshot: req.snapshot, timeoutMs: Math.max(APPLY_STORE_MIN_MS, deadline - Date.now()) },
+              {
+                // 사유가 정해진 적용만 스냅샷을 싣는다(사유 없는 snapshot 은 API 가 AI 로 오인한다, R7).
+                snapshotReason,
+                aiActorId: snapshotReason === 'AI' ? actor.userId : undefined,
+                timeoutMs: Math.max(APPLY_STORE_MIN_MS, deadline - Date.now()),
+              },
             )
           } catch (e) {
             if (e instanceof DocGoneError) throw e
@@ -909,6 +932,17 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     },
   }
   return self
+}
+
+/**
+ * 적용 요청의 스냅샷 사유(WP-297) — 요청 필드로 명시적으로 정한다(추론하지 않는다).
+ * snapshot + AI → 'AI', snapshot + 사람 + replace → 'RESTORE'(버전 복원). 그 밖(snapshot 없음, 사람 merge + snapshot)은 사유 없음 →
+ * 스냅샷도 싣지 않는다: 사유 없는 snapshot 은 API 가 AI 로 기록해(R7) 사람 병합이 ✦ 행으로 남기 때문이다.
+ */
+export function snapshotReasonOf(req: Pick<ApplyRequest, 'mode' | 'ai' | 'snapshot'>): SnapshotReason | undefined {
+  if (!req.snapshot) return undefined
+  if (req.ai) return 'AI'
+  return req.mode === 'replace' ? 'RESTORE' : undefined
 }
 
 /** Upgrade 헤더가 websocket(대소문자 무시)인 요청만 진짜 WebSocket 업그레이드로 본다 — h2c 등은 일반 HTTP 로 처리. */

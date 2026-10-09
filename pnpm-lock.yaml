@@ -532,6 +532,9 @@ importers:
       date-fns:
         specifier: ^4.4.0
         version: 4.4.0
+      diff-match-patch:
+        specifier: 1.0.5
+        version: 1.0.5
       lucide-react:
         specifier: ^1.16.0
         version: 1.16.0(react@19.2.6)
@@ -611,6 +614,9 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.3.0(vite@7.3.3(@types/node@24.12.4)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.22.3)(yaml@2.9.0))
+      '@types/diff-match-patch':
+        specifier: 1.0.36
+        version: 1.0.36
       '@types/node':
         specifier: ^24.10.1
         version: 24.12.4

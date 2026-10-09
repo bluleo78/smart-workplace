@@ -85,6 +85,16 @@ public class WikiPageDoc extends TableImpl<WikiPageDocRecord> {
      */
     public final TableField<WikiPageDocRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column <code>public.wiki_page_doc.body_changed_at</code>.
+     */
+    public final TableField<WikiPageDocRecord, OffsetDateTime> BODY_CHANGED_AT = createField(DSL.name("body_changed_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column <code>public.wiki_page_doc.pending_editor_ids</code>.
+     */
+    public final TableField<WikiPageDocRecord, Long[]> PENDING_EDITOR_IDS = createField(DSL.name("pending_editor_ids"), SQLDataType.BIGINT.array().nullable(false).defaultValue(DSL.field(DSL.raw("'{}'::bigint[]"), SQLDataType.BIGINT.array())), this, "");
+
     private WikiPageDoc(Name alias, Table<WikiPageDocRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

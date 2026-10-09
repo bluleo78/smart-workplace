@@ -2,6 +2,7 @@ package com.workplace.wiki.dto;
 
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import java.util.List;
 
 /**
@@ -21,15 +22,21 @@ import java.util.List;
  * @param editorIds 이번 저장 구간의 편집자들(순서대로). 마지막 값이 updated_by 가 된다. 비면 직전 수정자를 유지(파생 저장만)
  * @param bodyVersion 상태만 저장할 때, 상태를 만든 body 의 version(로드 시 받은 값). 그사이 body 가 바뀌었으면 더 낮게 남아 다음 로드가
  *     stale 로 반영한다
- * @param snapshot 이 저장 직전 판을 리비전으로 남긴다(AI 적용 저장 — 동기화 서버가 적용 직전 미저장분을 먼저 저장한 뒤 실어 보낸다, 스펙 §6.1).
- *     없으면 false
+ * @param snapshot 이 저장 직전 판을 시간 규칙과 무관하게 리비전으로 남긴다(AI·복원 적용 저장 — 동기화 서버가 적용 직전 미저장분을 먼저 저장한 뒤 실어
+ *     보낸다, 스펙 §6.1). 없으면 false — 시간 규칙(5분 정적·30분)만 적용
+ * @param snapshotReason snapshot 의 사유 — {@code "AI"}·{@code "RESTORE"}. null 이면(사유를 싣지 않는 구버전 동기화
+ *     서버) AI 로 본다(판정 R7 — 구버전이 snapshot 을 싣는 경우는 AI 적용뿐). 그 밖의 값은 400
+ * @param aiActorId AI 적용을 요청한 사용자 — 스냅샷 행의 ✦ 귀속. null 이면 editorIds 의 마지막 값
  */
 public record StoreCollabDocRequest(
     @NotNull String state,
     String body,
     List<Long> editorIds,
     Integer bodyVersion,
-    boolean snapshot) {
+    boolean snapshot,
+    @Pattern(regexp = "AI|RESTORE", message = "snapshotReason 은 AI 또는 RESTORE 여야 합니다")
+        String snapshotReason,
+    Long aiActorId) {
 
   /** 상태만 저장인가(body 없음). */
   public boolean stateOnly() {

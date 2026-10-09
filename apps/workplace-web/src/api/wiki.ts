@@ -8,6 +8,8 @@ import type {
   WikiPageDetail,
   WikiPageSummary,
   WikiPageSummaryState,
+  WikiRevisionDetail,
+  WikiRevisionList,
   WikiSearchResult,
   WikiSpace,
 } from '../types/wiki'
@@ -66,6 +68,13 @@ export const wikiApi = {
   getSummary: (pageId: number) => client.get<WikiPageSummaryState>(`/wiki/pages/${pageId}/summary`),
   generateSummary: (pageId: number) =>
     client.post<WikiPageSummaryState>(`/wiki/pages/${pageId}/summary`),
+
+  // WP-282 버전 기록 — 목록(최신순)·한 판 본문·복원(본문만, 응답은 페이지 상세).
+  listRevisions: (pageId: number) => client.get<WikiRevisionList>(`/wiki/pages/${pageId}/revisions`),
+  getRevision: (pageId: number, version: number) =>
+    client.get<WikiRevisionDetail>(`/wiki/pages/${pageId}/revisions/${version}`),
+  restoreRevision: (pageId: number, version: number) =>
+    client.post<WikiPageDetail>(`/wiki/pages/${pageId}/revisions/${version}/restore`),
 
   // #751: 본문 이미지 업로드. 응답 url 을 그대로 마크다운에 삽입한다(클라이언트가 경로를 조립하지 않는다).
   uploadAttachment: (pageId: number, file: File) => {

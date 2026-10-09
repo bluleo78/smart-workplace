@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import type { SnapshotReason } from '../server'
 
 /** 가짜 API 의 노트 한 건 — state 는 base64(실 API 응답과 같은 형식). */
 export interface FakePage {
@@ -34,8 +35,12 @@ export interface StoreCall {
   bodyVersion?: number
   editorIds: number[]
   state: string
-  /** 이 저장 직전 판을 리비전으로 남기라는 요청(AI 적용 저장). 파생 저장만. */
+  /** 이 저장 직전 판을 리비전으로 남기라는 요청(AI·복원 적용 저장). 파생 저장만. */
   snapshot?: boolean
+  /** 스냅샷 사유(AI·RESTORE) — 실렸을 때만 기록(없음 = undefined). */
+  snapshotReason?: SnapshotReason
+  /** AI 적용을 요청한 사람(✦ 귀속) — 실렸을 때만 기록. */
+  aiActorId?: number
 }
 
 export interface FakeApi {
@@ -161,6 +166,8 @@ export async function startFakeApi(internalToken = 'test-token'): Promise<FakeAp
           editorIds?: number[]
           bodyVersion?: number
           snapshot?: boolean
+          snapshotReason?: SnapshotReason
+          aiActorId?: number
         }
         if (payload.body == null) {
           if (payload.bodyVersion == null) return send(res, 400)
@@ -179,6 +186,9 @@ export async function startFakeApi(internalToken = 'test-token'): Promise<FakeAp
           editorIds: payload.editorIds ?? [],
           state: payload.state,
           snapshot: payload.snapshot === true,
+          // 키가 아예 없을 때와 구분되게 실린 것만 남긴다(테스트가 "안 실림"을 단언).
+          ...(payload.snapshotReason === undefined ? {} : { snapshotReason: payload.snapshotReason }),
+          ...(payload.aiActorId === undefined ? {} : { aiActorId: payload.aiActorId }),
         })
         return send(res, 200, { version })
       }

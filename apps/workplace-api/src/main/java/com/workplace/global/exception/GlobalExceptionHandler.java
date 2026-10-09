@@ -405,7 +405,8 @@ public class GlobalExceptionHandler {
   // 위키 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400) / 낙관적 충돌(409)
   @ExceptionHandler({
     com.workplace.wiki.exception.WikiSpaceNotFoundException.class,
-    com.workplace.wiki.exception.WikiPageNotFoundException.class
+    com.workplace.wiki.exception.WikiPageNotFoundException.class,
+    com.workplace.wiki.exception.WikiRevisionNotFoundException.class
   })
   public ResponseEntity<ErrorResponse> handleWikiNotFound(
       RuntimeException ex, HttpServletRequest request) {

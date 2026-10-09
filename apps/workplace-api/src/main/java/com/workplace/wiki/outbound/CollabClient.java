@@ -68,22 +68,41 @@ public class CollabClient {
       boolean ai,
       boolean snapshot) {
     Objects.requireNonNull(base, "base");
+    return post(
+        pageId,
+        new ApplyMarkdownRequest(
+            tenantId,
+            "merge",
+            base.body(),
+            base.submittedBody(),
+            body,
+            new Actor(actorId, actorName),
+            ai,
+            snapshot));
+  }
+
+  /**
+   * 버전 복원(WP-297) — 실시간 문서 본문을 통째로 body 로 바꾼다(mode=replace, 기준본 없음). 사람의 복원이라 ai=false,
+   * snapshot=true: 동기화 서버가 미저장 입력을 먼저 저장한 뒤 복원 본문을 RESTORE 사유로 저장해, API 저장 경로가 복원 직전 판을 리비전으로 남긴다.
+   * 본문이 현재와 같으면 동기화 서버는 저장 없이 현재 version 을 돌려준다. 오류 매핑은 {@link #applyMarkdown} 과 같다.
+   */
+  public CollabApplyResult replaceMarkdown(
+      long tenantId, long pageId, String body, long actorId, String actorName) {
+    return post(
+        pageId,
+        new ApplyMarkdownRequest(
+            tenantId, "replace", null, null, body, new Actor(actorId, actorName), false, true));
+  }
+
+  /** apply-markdown 호출 + 실패 매핑(클래스 주석의 WP-289 계약) — merge·replace 공용. */
+  private CollabApplyResult post(long pageId, ApplyMarkdownRequest request) {
     try {
       CollabApplyResult res =
           restClient
               .post()
               .uri("/internal/docs/{pageId}/apply-markdown", pageId)
               .contentType(MediaType.APPLICATION_JSON)
-              .body(
-                  new ApplyMarkdownRequest(
-                      tenantId,
-                      "merge",
-                      base.body(),
-                      base.submittedBody(),
-                      body,
-                      new Actor(actorId, actorName),
-                      ai,
-                      snapshot))
+              .body(request)
               .retrieve()
               .body(CollabApplyResult.class);
       if (res == null) {
@@ -155,8 +174,8 @@ public class CollabClient {
   }
 
   /**
-   * apply-markdown 요청 본문. pageId 는 경로에 싣는다. null 인 altBaseBody 키는 생략한다. API 는 늘 merge 를 보낸다 — 동기화
-   * 서버의 replace 모드는 E2E 테스트 픽스처와 이후 버전 복원(WP-297)용이다.
+   * apply-markdown 요청 본문. pageId 는 경로에 싣는다. null 인 baseBody·altBaseBody 키는 생략한다. 본문 저장 위임은 merge,
+   * 버전 복원(WP-297)은 replace(기준본 없음)를 보낸다.
    */
   @JsonInclude(JsonInclude.Include.NON_NULL)
   record ApplyMarkdownRequest(

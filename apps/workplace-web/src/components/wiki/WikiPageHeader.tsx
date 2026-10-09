@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, FileCode, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileCode, History, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
@@ -34,13 +34,15 @@ const crumbSep = <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foregr
  * AI 사용 가능 상태 3분기 — 예전엔 boolean(canUseAi) 하나였고 false 면 메뉴 자체를 숨겨서
  * "기능 없음"·"권한 없음"·"아직 로딩 중"이 사용자에게 전부 동일하게 보였다(#733).
  * 이제 버튼은 항상 렌더하고 상태에 따라 비활성 + 사유를 텍스트로 노출한다(색·시각 단독 의존 금지).
+ * 'previewing' 은 버전 미리보기 중(WP-282) — 가려진 라이브 노트에 AI 결과가 보이지 않게 쓰이지 않도록 막는다.
  */
-export type WikiAiState = 'loading' | 'denied' | 'ready'
+export type WikiAiState = 'loading' | 'denied' | 'ready' | 'previewing'
 
 /** aiState 별 비활성 사유 툴팁 문구. ready 면 툴팁 없이 활성. */
 const AI_DISABLED_REASON: Record<Exclude<WikiAiState, 'ready'>, string> = {
   loading: '권한을 확인하는 중입니다',
   denied: '읽기 전용 권한이라 AI 작성을 사용할 수 없습니다',
+  previewing: '버전 미리보기 중에는 AI 작성을 사용할 수 없습니다',
 }
 
 /**
@@ -60,6 +62,7 @@ export function WikiPageHeader({
   onAiAction,
   onDelete,
   onViewSource,
+  onViewHistory,
   presence,
 }: {
   crumbs: { id: number; title: string }[]
@@ -75,6 +78,8 @@ export function WikiPageHeader({
   onDelete: () => void
   /** 마크다운 소스 모달 열기(#753). 읽기 권한만 있으면 되므로 canEdit 과 무관하게 노출한다. */
   onViewSource: () => void
+  /** 버전 기록 열기(WP-282). 읽기 권한만 있으면 볼 수 있다 — 복원 버튼만 편집 권한으로 가린다. 없으면 항목을 두지 않는다. */
+  onViewHistory?: () => void
   /** 접속자 아바타(WP-173) — WikiEditor 가 만든 요소. 다른 접속자가 없으면 null. 동기화 칩 앞에 둔다(시안 collab-overview). */
   presence?: ReactNode
 }) {
@@ -160,7 +165,7 @@ export function WikiPageHeader({
       )}
     </>
   )
-  // 페이지 메뉴(마크다운 소스·삭제).
+  // 페이지 메뉴(마크다운 소스·버전 기록·삭제).
   const pageMenu = (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -206,6 +211,15 @@ export function WikiPageHeader({
         >
           <FileCode className="mr-2 h-4 w-4" aria-hidden="true" /> 마크다운 소스
         </DropdownMenuItem>
+        {/* 버전 기록(WP-282) — 지워졌거나 접근을 잃은 노트는 기록을 받을 수 없어(404/403) 감춘다. */}
+        {onViewHistory && !isAccessLost(syncStatus) && (
+          <DropdownMenuItem
+            data-testid="wiki-menu-history"
+            onSelect={() => setTimeout(onViewHistory, 0)}
+          >
+            <History className="mr-2 h-4 w-4" aria-hidden="true" /> 버전 기록
+          </DropdownMenuItem>
+        )}
         {/* 이미 지워졌거나 접근을 잃은 노트(종료 상태)는 지울 수 없다 — 눌러도 404 뿐이라 항목(과 구분선)을 감춘다. */}
         {!isAccessLost(syncStatus) && (
           <>

@@ -31,6 +31,7 @@ import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.service.WikiCollabDocService;
 import com.workplace.wiki.service.WikiHydrationService;
 import com.workplace.wiki.service.WikiPageService;
+import com.workplace.wiki.service.WikiRevisionService;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
@@ -59,6 +60,8 @@ class WikiPageControllerTest {
   @MockitoBean private WikiHydrationService hydrationService;
   // WP-286 collab-access 엔드포인트가 주입받는 서비스 — 이 슬라이스 테스트는 다루지 않으므로 목으로 채운다.
   @MockitoBean private WikiCollabDocService collabService;
+  // WP-297 버전 기록 엔드포인트가 주입받는 서비스 — 통합 테스트(WikiRevisionIntegrationTest)가 다룬다.
+  @MockitoBean private WikiRevisionService revisionService;
   @MockitoBean private JwtTokenProvider jwtTokenProvider;
   @MockitoBean private JwtProperties jwtProperties;
   @MockitoBean private PermissionService permissionService;

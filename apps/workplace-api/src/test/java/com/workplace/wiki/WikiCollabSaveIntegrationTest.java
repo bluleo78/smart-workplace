@@ -203,7 +203,13 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
                                     return docService.store(
                                         pageId,
                                         new StoreCollabDocRequest(
-                                            "AQ==", body, List.of(userId), null, false));
+                                            "AQ==",
+                                            body,
+                                            List.of(userId),
+                                            null,
+                                            false,
+                                            null,
+                                            null));
                                   });
                             } finally {
                               TenantContext.clear();
@@ -408,9 +414,12 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
     assertThat(bases(pageId)).isEmpty();
   }
 
-  /** 사람(구버전 웹)의 명시 snapshot 요청은 위임 경로에서도 버리지 않는다 — 동기화 서버 적용 저장이 리비전을 남기도록 싣는다. */
+  /**
+   * 사람(구버전 웹)의 명시 snapshot 요청은 무시한다(판정 R8) — 사람 편집의 리비전은 시간 규칙이 판단하고, 동기화 서버에 snapshot 을 싣는 건 AI
+   * 적용뿐이다(실으면 AI 적용으로 기록돼 ✦ 귀속이 틀린다).
+   */
   @Test
-  void explicitHumanSnapshotIsForwardedToCollab() {
+  void explicitHumanSnapshotIsNotForwardedToCollab() {
     long pageId = seedPage("본문");
     when(collab.applyMarkdown(
             anyLong(),
@@ -425,7 +434,7 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
     pageService.save(userId, pageId, new SavePageRequest(null, "새 본문", 1, true), false);
     verify(collab)
         .applyMarkdown(
-            eq(1L), eq(pageId), any(), eq("새 본문"), eq(userId), anyString(), eq(false), eq(true));
+            eq(1L), eq(pageId), any(), eq("새 본문"), eq(userId), anyString(), eq(false), eq(false));
   }
 
   /** 기준본 409 문구는 사유별로 정확하다 — 없는/현재보다 새 판, 기록 없음, 만료. 모두 다시 읽기 안내. */
@@ -528,7 +537,8 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
                     .execute());
     tenant1();
     docService.store(
-        pageId, new StoreCollabDocRequest("AQ==", "AI 적용 본문", List.of(userId), null, true));
+        pageId,
+        new StoreCollabDocRequest("AQ==", "AI 적용 본문", List.of(userId), null, true, null, null));
     tenant1();
     String snapshotted =
         new TransactionTemplate(txManager)

@@ -4,6 +4,7 @@ import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.wiki.dto.CollabAccessResponse;
 import com.workplace.wiki.dto.CollabDocResponse;
+import com.workplace.wiki.dto.RevisionReason;
 import com.workplace.wiki.dto.StoreCollabDocRequest;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
@@ -13,7 +14,11 @@ import com.workplace.wiki.repository.WikiRevisionRepository;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Base64;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,11 +34,13 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class WikiCollabDocService {
   /**
-   * 리비전 편집 세션 간격 — 마지막 리비전이 이보다 오래됐으면 다음 본문 변경을 새 편집 세션의 첫 저장으로 보고 직전 본문을 리비전으로 남긴다. 동시 편집 전에는 웹이
-   * "에디터를 연 뒤 첫 저장"에 snapshot=true 를 실어 보냈지만(시간 간격 없음), 이제 본문은 동기화 서버가 2초마다 파생 저장하므로 서버가 시간 간격으로 대신
-   * 판정한다. 동시 편집용 스냅샷 정책(WP-297) 전까지의 임시 규칙.
+   * 정적 간격(WP-297, 스펙 §6.1) — 마지막 본문 저장 뒤 이만큼 조용했다가 다시 저장되면 새 편집 묶음의 시작으로 보고 바뀌기 직전 판을 남긴다. 동기화 서버의
+   * 저장 디바운스(2초·최대 10초)라 저장 시각 ≈ 편집 시각이다.
    */
-  public static final Duration REVISION_SESSION_GAP = Duration.ofMinutes(10);
+  public static final Duration QUIET_GAP = Duration.ofMinutes(5);
+
+  /** 주기 간격 — 쉬지 않는 긴 편집 중에도 마지막 리비전 뒤 이만큼 지나면 중간 판을 남긴다(한 번에 너무 많은 변경이 한 판으로 묶이지 않게). */
+  public static final Duration PERIODIC_GAP = Duration.ofMinutes(30);
 
   private final WikiPageRepository pages;
   private final WikiRevisionRepository revisions;
@@ -80,17 +87,35 @@ public class WikiCollabDocService {
       docs.upsert(pageId, state, current.version());
       return current.version();
     }
-    // AI 적용 저장은 항상 직전 판을 남긴다(되돌리기 대비). 그 밖은 편집 세션 간격 규칙(WP-297 전 임시).
-    if (req.snapshot()) {
-      revisions.snapshot(current);
-    } else {
-      snapshotIfNewSession(current);
+    // 버전 기록 스냅샷(스펙 §6.1, 판정 R1): AI·복원 적용은 항상, 사람 편집은 5분 넘게 조용했다가 다시 시작될 때와 연속 편집 30분마다.
+    // 스냅샷은 "바뀌기 직전" 판 — 그 판을 만든 편집자(마지막 스냅샷 이후 누적)를 함께 남기고 누적을 이번 저장 편집자로 다시 시작한다.
+    OffsetDateTime now = OffsetDateTime.now();
+    WikiPageDocRepository.RevisionBasis basis = docs.revisionBasis(pageId);
+    RevisionReason reason =
+        req.snapshot()
+            ? (req.snapshotReason() != null
+                ? RevisionReason.valueOf(req.snapshotReason())
+                : RevisionReason.AI)
+            : timedReason(now, basis.bodyChangedAt(), () -> revisions.latestCreatedAt(pageId));
+    List<Long> pending = basis.pendingEditorIds();
+    // 빈 본문(막 만든 노트)은 복원할 게 없어 남기지 않는다(판정 R6).
+    if (reason != null && !current.body().isBlank()) {
+      Long aiActor = reason == RevisionReason.AI ? aiActorOf(req) : null;
+      // 같은 version 행이 이미 있어 적재가 무시됐으면 누적 편집자를 비우지 않는다(그 편집자들이 어느 판에도 남지 않게 되므로).
+      if (revisions.snapshot(
+          current,
+          reason,
+          basis.editorsOr(current.updatedBy()),
+          aiActor,
+          basis.editedAtOr(current.updatedAt()))) {
+        pending = List.of();
+      }
     }
     // 편집자 없이 저장되는 경우(서버 내부 적용)는 updated_by 를 건드리지 않아 직전 수정자를 유지한다.
     // 갓 생성된 페이지는 updated_by 자체가 NULL 이라 long 으로 언박싱하면 NPE — null 을 그대로 전달한다.
     Long editorId = lastEditor(req.editorIds());
     int version = pages.saveDerivedBody(pageId, req.body(), editorId);
-    docs.upsert(pageId, state, version);
+    docs.upsertBodyChanged(pageId, state, version, now, union(pending, req.editorIds()));
     // WikiPageService.save 와 같은 후처리(백링크·첨부·SSE). actorId 는 이번 편집자, 없으면 직전 수정자(그마저 없으면 null).
     bodyEffects.afterBodySaved(
         current.spaceId(),
@@ -137,16 +162,43 @@ public class WikiCollabDocService {
   }
 
   /**
-   * 본문이 바뀌기 직전 — 마지막 리비전이 없거나 {@link #REVISION_SESSION_GAP} 보다 오래됐으면 지금(바뀌기 전) 상태를 리비전으로 남긴다. 같은
-   * version 이 이미 있으면 저장소가 무시한다(AI 덮어쓰기 전 스냅샷과 겹칠 때).
+   * 시간 규칙의 스냅샷 사유(스펙 §6.1) — collab 저장과 동기화 서버가 꺼진 저장 경로({@link WikiPageService})가 같은 규칙을 쓰도록 공유한다.
+   *
+   * <ol>
+   *   <li>기준 시각이 없거나 {@link #QUIET_GAP} 이상 조용했으면 SESSION — 기준 시각이 없는 기존 페이지는 이관 직후 첫 저장에서 1회 남는다.
+   *   <li>아니면(이어지는 편집) 마지막 리비전이 {@link #PERIODIC_GAP} 이상 지났으면 PERIODIC. 리비전이 아직 없으면 PERIODIC 도 아니다
+   *       — 막 만든 노트(빈 본문이라 첫 저장 스냅샷을 건너뜀)의 둘째 저장이 몇 초 만에 거의 빈 판을 남기지 않게. 첫 판은 다음 SESSION 이 남긴다.
+   *   <li>그 밖은 null(남기지 않음).
+   * </ol>
+   *
+   * @param lastBodyChange 마지막 본문 변경 시각(collab: wiki_page_doc.body_changed_at, 꺼진 경로:
+   *     wiki_page.updated_at). null 허용
+   * @param latestRevision 마지막 리비전 적재 시각 — SESSION 이 아닐 때만 조회한다(저장마다 쿼리하지 않게)
    */
-  private void snapshotIfNewSession(WikiPageDetail current) {
-    OffsetDateTime cutoff = OffsetDateTime.now().minus(REVISION_SESSION_GAP);
-    boolean recent =
-        revisions.latestCreatedAt(current.id()).filter(t -> t.isAfter(cutoff)).isPresent();
-    if (!recent) {
-      revisions.snapshot(current);
+  static RevisionReason timedReason(
+      OffsetDateTime now,
+      OffsetDateTime lastBodyChange,
+      Supplier<Optional<OffsetDateTime>> latestRevision) {
+    if (lastBodyChange == null || !lastBodyChange.plus(QUIET_GAP).isAfter(now)) {
+      return RevisionReason.SESSION;
     }
+    boolean periodicDue =
+        latestRevision.get().map(t -> !t.plus(PERIODIC_GAP).isAfter(now)).orElse(false);
+    return periodicDue ? RevisionReason.PERIODIC : null;
+  }
+
+  /** AI 적용 스냅샷의 ✦ 귀속 — 동기화 서버가 실어 보낸 요청자, 없으면(구버전 동기화 서버, 판정 R7) 저장 편집자의 마지막 값. */
+  private static Long aiActorOf(StoreCollabDocRequest req) {
+    return req.aiActorId() != null ? req.aiActorId() : lastEditor(req.editorIds());
+  }
+
+  /** 누적 편집자에 이번 저장 편집자를 덧붙인다 — 처음 등장 순, 중복 없음. */
+  private static List<Long> union(List<Long> pending, List<Long> editorIds) {
+    LinkedHashSet<Long> all = new LinkedHashSet<>(pending);
+    if (editorIds != null) {
+      editorIds.stream().filter(Objects::nonNull).forEach(all::add);
+    }
+    return List.copyOf(all);
   }
 
   /** 편집자 목록의 마지막 값(가장 최근 편집자). 비었으면 null. */

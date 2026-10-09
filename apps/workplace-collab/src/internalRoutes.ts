@@ -45,7 +45,11 @@ export interface ApplyRequest {
   body: string
   actor: { userId: number; name: string }
   ai: boolean
-  /** 적용 저장에 snapshot(직전 판을 리비전으로)을 싣는다 — AI 적용이거나 사람이 명시로 요청. 없으면 ai 와 같다(구버전 API 호환). */
+  /**
+   * 적용 저장에 snapshot(직전 판을 리비전으로)을 싣는다 — AI 적용이거나 버전 복원(replace, ai=false, WP-297). 없으면 ai 와 같다(구버전 API 호환).
+   * 사유는 `snapshotReasonOf`(server.ts)가 정한다 — AI 적용은 AI, 사람 replace(복원)는 RESTORE 이고 그때만 미저장 사람 입력을 먼저 저장한다.
+   * 사람 merge 에 snapshot 이 와도 사유가 없어 스냅샷을 싣지 않는다.
+   */
   snapshot: boolean
   /** 테스트 모드에서만 허용 — E2E 의 네임스페이스 문서(`{ns}/wiki-page:{id}`)를 겨눈다. */
   docName?: string

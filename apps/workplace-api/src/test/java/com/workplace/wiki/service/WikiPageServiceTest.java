@@ -335,8 +335,12 @@ class WikiPageServiceTest extends IntegrationTestBase {
     assertThat(saved.version()).isEqualTo(p.version() + 1);
   }
 
+  /**
+   * snapshot 플래그는 무시한다(판정 R8) — 빈 본문(막 만든 노트)에서의 첫 저장은 복원할 게 없어 명시 요청이 있어도 리비전을 남기지 않는다(판정 R6). 시간
+   * 규칙 스냅샷은 WikiCollabInternalIntegrationTest 가 검증.
+   */
   @Test
-  void save_withSnapshot_writesRevisionOfPriorVersion() {
+  void save_ignoresSnapshotFlagAndSkipsEmptyPriorBody() {
     long u = seedUser();
     WikiSpaceResponse sp = spaceService.ensurePersonalSpace(u);
     WikiPageDetail p = pageService.create(u, sp.id(), new CreatePageRequest(null, "제목"));
@@ -345,6 +349,6 @@ class WikiPageServiceTest extends IntegrationTestBase {
 
     int revCount =
         dsl.fetchCount(dsl.selectFrom(WIKI_REVISION).where(WIKI_REVISION.PAGE_ID.eq(p.id())));
-    assertThat(revCount).isEqualTo(1);
+    assertThat(revCount).isZero();
   }
 }

@@ -207,4 +207,32 @@ class CollabClientTest {
     server.expect(requestTo(URL)).andRespond(withException(new IOException("connection refused")));
     assertThatThrownBy(this::apply).isInstanceOf(CollabUnavailableException.class);
   }
+
+  /** 버전 복원(WP-297) — replace 모드, 사람(ai=false)·snapshot=true, 기준본 키 없이 보낸다. 오류 매핑은 merge 와 공유한다. */
+  @Test
+  void 복원은_replace_로_기준본_없이_snapshot_을_싣는다() {
+    server
+        .expect(requestTo(URL))
+        .andExpect(method(HttpMethod.POST))
+        .andExpect(jsonPath("$.tenantId").value(1))
+        .andExpect(jsonPath("$.mode").value("replace"))
+        .andExpect(jsonPath("$.body").value("복원 본문"))
+        .andExpect(jsonPath("$.actor.userId").value(3))
+        .andExpect(jsonPath("$.actor.name").value("협업자"))
+        .andExpect(jsonPath("$.ai").value(false))
+        .andExpect(jsonPath("$.snapshot").value(true))
+        .andExpect(jsonPath("$.baseBody").doesNotExist())
+        .andExpect(jsonPath("$.altBaseBody").doesNotExist())
+        .andRespond(withSuccess("{\"version\":12,\"body\":\"복원 본문\"}", MediaType.APPLICATION_JSON));
+    var res = client.replaceMarkdown(1L, 7L, "복원 본문", 3L, "협업자");
+    assertThat(res.version()).isEqualTo(12);
+    server.verify();
+  }
+
+  @Test
+  void 복원도_같은_오류_매핑을_쓴다() {
+    server.expect(requestTo(URL)).andRespond(withStatus(HttpStatus.NOT_FOUND));
+    assertThatThrownBy(() -> client.replaceMarkdown(1L, 7L, "본문", 3L, "협업자"))
+        .isInstanceOf(WikiPageNotFoundException.class);
+  }
 }

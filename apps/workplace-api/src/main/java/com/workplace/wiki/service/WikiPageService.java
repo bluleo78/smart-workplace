@@ -4,6 +4,7 @@ import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.wiki.dto.CreatePageRequest;
 import com.workplace.wiki.dto.MovePageRequest;
+import com.workplace.wiki.dto.RevisionReason;
 import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.WikiAiAction;
 import com.workplace.wiki.dto.WikiPageDetail;
@@ -23,6 +24,7 @@ import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageDeletedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageMovedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageUpdatedEvent;
 import com.workplace.wiki.repository.WikiBodyHistoryRepository;
+import com.workplace.wiki.repository.WikiPageDocRepository.RevisionBasis;
 import com.workplace.wiki.repository.WikiPageRepository;
 import com.workplace.wiki.repository.WikiRevisionRepository;
 import java.time.Instant;
@@ -121,7 +123,7 @@ public class WikiPageService {
    *   <li>본문 포함 + 동기화 서버 켜짐: 실시간 문서가 원본이므로 DB 를 직접 덮지 않고, 요청 version 의 기준본 후보({@link
    *       #resolveBase})로 동기화 서버에 3-way 병합을 맡긴다(WP-289). 기준본이 만료됐고 현재 version 도 아니면 409. 응답 version
    *       에는 병합본과 제출 본문을 함께 기준본으로 남긴다. AI 적용 직전 스냅샷은 동기화 서버의 snapshot 저장이 남긴다.
-   *   <li>본문 포함 + 동기화 서버 꺼짐(테스트·비상): 기존 낙관적 저장(version 필수, snapshot 지원).
+   *   <li>본문 포함 + 동기화 서버 꺼짐(테스트·비상): 기존 낙관적 저장(version 필수). 리비전은 collab 경로와 같은 시간 규칙.
    * </ul>
    *
    * <p><b>트랜잭션 경계가 load-bearing 이다.</b> 이 메서드는 의도적으로 {@code @Transactional} 이 아니다. 위임 경로에서 동기화 서버는
@@ -156,19 +158,31 @@ public class WikiPageService {
             });
 
     // ② 트랜잭션 밖에서 병합 위임(동기화 서버가 이 API 의 PUT /doc 으로 같은 행을 갱신한다 — 잠금 금지). 실패·타임아웃이면 예외로
-    //    끝나 ③의 기준본 기록도 하지 않는다(결과를 모르는 판을 기준으로 남기지 않는다). snapshot 은 AI 적용이거나 사람(구버전 웹)이
-    //    명시로 요청했을 때 — 동기화 서버의 적용 저장이 직전 판을 리비전으로 남긴다.
+    //    끝나 ③의 기준본 기록도 하지 않는다(결과를 모르는 판을 기준으로 남기지 않는다). snapshot 은 AI 적용일 때만(판정 R8) — 동기화
+    //    서버의 적용 저장이 직전 판을 리비전으로 남긴다. 사람 저장은 시간 규칙(5분 정적·30분)이 판단하므로 req.snapshot 은 무시한다.
     CollabApplyResult applied =
         collab.applyMarkdown(
-            TenantContext.require(),
-            pageId,
-            d.base(),
-            req.body(),
-            callerId,
-            d.actorName(),
-            ai,
-            ai || req.snapshot());
+            TenantContext.require(), pageId, d.base(), req.body(), callerId, d.actorName(), ai, ai);
 
+    return finishDelegation(tx, pageId, d.current(), req.title(), req.body(), callerId, applied);
+  }
+
+  /**
+   * 위임 ③ — 동기화 서버 적용이 끝난 뒤 응답 판의 기준본을 남기고 응답 상세를 만든다. 본문 저장 위임과 버전 복원(WP-297, {@link
+   * WikiRevisionService#restore})이 공유한다.
+   *
+   * @param current ①에서 읽은 상세(응답 재조회 실패 시 대체)
+   * @param newTitle 이번 요청이 바꾼 제목(없으면 null — 대체 응답에 ①의 제목을 쓴다)
+   * @param submittedBody 이번에 제출한 본문 — 응답 판의 제출 본문 기준본 후보
+   */
+  WikiPageDetail finishDelegation(
+      TransactionTemplate tx,
+      long pageId,
+      WikiPageDetail current,
+      String newTitle,
+      String submittedBody,
+      long callerId,
+      CollabApplyResult applied) {
     // ③ 여기부터 본문은 이미 저장됐다 — 무엇이 실패해도 저장 성공(동기화 서버 version)으로 답한다(거짓 500 이면 호출자가 재시도해 중복 적용).
     //    응답 판 기준본 기록은 최선 노력: 자기 트랜잭션으로 시도하고(실패한 SQL 은 트랜잭션을 깨므로 응답 조회와 분리) 실패하면 경고만 남긴다.
     //    persisted=false(적용은 됐지만 동기화 서버의 즉시 저장이 시간 안에 끝나지 않음 — 재시도가 저장한다)도 성공이다. 돌려받은 version 은
@@ -178,12 +192,12 @@ public class WikiPageService {
     } else {
       try {
         tx.executeWithoutResult(
-            s -> bodies.recordApplied(pageId, applied.version(), applied.body(), req.body()));
+            s -> bodies.recordApplied(pageId, applied.version(), applied.body(), submittedBody));
       } catch (RuntimeException e) {
         log.warn("기준본 기록 실패(저장은 성공): page={} version={}", pageId, applied.version(), e);
       }
     }
-    return appliedDetail(tx, pageId, d, req, callerId, applied);
+    return appliedDetail(tx, pageId, current, newTitle, callerId, applied);
   }
 
   /**
@@ -193,8 +207,8 @@ public class WikiPageService {
   private WikiPageDetail appliedDetail(
       TransactionTemplate tx,
       long pageId,
-      Delegation d,
-      SavePageRequest req,
+      WikiPageDetail c,
+      String newTitle,
       long callerId,
       CollabApplyResult applied) {
     try {
@@ -205,12 +219,11 @@ public class WikiPageService {
                   .orElseThrow(() -> new WikiPageNotFoundException(pageId)));
     } catch (RuntimeException e) {
       log.warn("저장 응답 재조회 실패 — ① 상세로 답한다(저장은 성공): page={}", pageId, e);
-      WikiPageDetail c = d.current();
       return new WikiPageDetail(
           c.id(),
           c.spaceId(),
           c.parentId(),
-          req.title() != null ? req.title() : c.title(),
+          newTitle != null ? newTitle : c.title(),
           applied.body(),
           applied.version(),
           callerId,
@@ -269,7 +282,7 @@ public class WikiPageService {
   }
 
   /** 페이지를 읽고 EDITOR 이상인지 확인한다. 트랜잭션 안에서 호출. */
-  private WikiPageDetail loadForEdit(long callerId, long pageId) {
+  WikiPageDetail loadForEdit(long callerId, long pageId) {
     WikiPageDetail current =
         pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     perms.requireRole(current.spaceId(), callerId, "EDITOR");
@@ -277,10 +290,22 @@ public class WikiPageService {
   }
 
   /**
-   * 위임하지 않는 저장(트랜잭션 안). 제목만이면 버전 무관 저장, 본문이 있으면 기존 낙관적 저장. snapshot=true 면 직전 상태를 wiki_revision 에
-   * 적재(명시 저장/세션 첫 편집).
+   * 위임하지 않는 저장(트랜잭션 안). 제목만이면 버전 무관 저장, 본문이 있으면 기존 낙관적 저장. 본문이 바뀌면 동기화 서버 경로와 같은 시간 규칙({@link
+   * WikiCollabDocService#timedReason})으로 직전 판을 리비전으로 남긴다 — 기준 시각은 wiki_page.updated_at(이 경로엔
+   * wiki_page_doc 이 없다). req.snapshot 은 무시한다(판정 R8).
    */
-  private WikiPageDetail saveInTx(WikiPageDetail current, long callerId, SavePageRequest req) {
+  WikiPageDetail saveInTx(WikiPageDetail current, long callerId, SavePageRequest req) {
+    return saveInTx(current, callerId, req, null);
+  }
+
+  /**
+   * {@link #saveInTx(WikiPageDetail, long, SavePageRequest)} 에 스냅샷 사유를 강제한다 — 버전 복원(WP-297, {@link
+   * WikiRevisionService#restore} 의 꺼진 경로)이 시간 규칙과 무관하게 직전 판을 RESTORE 로 남길 때.
+   *
+   * @param forcedReason 시간 규칙 대신 쓸 스냅샷 사유, null 이면 시간 규칙
+   */
+  WikiPageDetail saveInTx(
+      WikiPageDetail current, long callerId, SavePageRequest req, RevisionReason forcedReason) {
     long pageId = current.id();
     if (req.body() == null) {
       // 제목만 — 기준본을 남기지 않는다(제목 저장마다 본문 전체 사본을 쓰지 않게). 응답 version 이 현재인 동안은 현재 본문이 곧 기준이다.
@@ -289,9 +314,7 @@ public class WikiPageService {
     }
     requireVersionPresent(req, pageId);
 
-    if (req.snapshot()) {
-      revisions.snapshot(current);
-    }
+    snapshotIfDue(current, req.body(), forcedReason);
 
     String title = req.title() != null ? req.title() : current.title();
     String body = req.body();
@@ -302,6 +325,32 @@ public class WikiPageService {
     // 백링크 교체·첨부 영구화/강등·SSE — 동기화 서버 파생 저장과 같은 후처리(WikiBodyEffects).
     bodyEffects.afterBodySaved(current.spaceId(), pageId, title, body, callerId);
     return detailRecordingBase(pageId);
+  }
+
+  /**
+   * 동기화 서버가 꺼진 경로의 스냅샷 — 강제 사유(복원)가 있으면 그것, 없으면 시간 규칙. 본문이 그대로거나 비었으면(판정 R6) 남기지 않는다. 누적 편집자를 따로
+   * 기록하지 않는 경로라 그 판의 편집자는 직전 수정자 하나, 본문이 바뀐 시각은 wiki_page.updated_at 이다.
+   *
+   * <p>한계: wiki_page.updated_at 은 제목만 바꾸는 저장도 갱신하므로, 이 경로에선 제목 저장이 정적 간격의 기준 시각을 리셋한다(collab 경로의
+   * body_changed_at 과 다름). 동기화 서버가 꺼진 테스트·비상 경로 전용이라 감수한다.
+   *
+   * <p>한계: 이 경로의 AI(MCP) 본문 저장도 시간 규칙만 따른다 — AI 사유 리비전(✦)과 AI 귀속을 남기지 않는다(AI 스냅샷은 동기화 서버 경로 전용).
+   */
+  private void snapshotIfDue(WikiPageDetail current, String newBody, RevisionReason forcedReason) {
+    if (newBody.equals(current.body()) || current.body().isBlank()) {
+      return;
+    }
+    RevisionReason reason =
+        forcedReason != null
+            ? forcedReason
+            : WikiCollabDocService.timedReason(
+                OffsetDateTime.now(),
+                current.updatedAt(),
+                () -> revisions.latestCreatedAt(current.id()));
+    if (reason != null) {
+      revisions.snapshot(
+          current, reason, RevisionBasis.editorsOf(current.updatedBy()), null, current.updatedAt());
+    }
   }
 
   /** 응답으로 돌려줄 상세를 읽고 그 판을 기준본으로 남긴다(기존 낙관적 본문 저장 — 응답 version 으로 이어 저장할 수 있게). */
