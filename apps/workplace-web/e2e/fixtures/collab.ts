@@ -7,13 +7,16 @@ import { HocuspocusProvider } from '@hocuspocus/provider'
 import type { BrowserContext, Page, WebSocketRoute } from '@playwright/test'
 import { test } from '@playwright/test'
 import {
+  COLLAB_AI_APPLY_ACK_TYPE,
   COLLAB_AI_MARKERS_FIELD,
   COLLAB_CURSOR_FIELD,
   COLLAB_FRAGMENT,
   COLLAB_NS_STORAGE_KEY,
   COLLAB_SCHEMA_PARAM,
   COLLAB_USER_FIELD,
+  type CollabAiApplyMessage,
   collabDocName,
+  parseCollabAiMessage,
   parseCollabUser,
   REVALIDATE_REASON_DELETED,
   WIKI_SCHEMA_VERSION,
@@ -144,9 +147,16 @@ export function seedCollabFor(
  * restore() 뒤 provider 의 다음 재접속부터 다시 서버로 잇는다.
  * hold()/release() 는 연결은 둔 채 브라우저 → 서버 방향 메시지만 붙잡았다 순서대로 보낸다 — "내가 친 글자가 아직 서버로 가는 중"
  * (서버 → 브라우저는 그대로 흐른다)을 결정적으로 만들 때 쓴다.
+ * hooks — onSend 는 브라우저 → 서버 메시지를 엿본다(전달은 그대로). onReceive 를 주면 서버 → 브라우저 전달을 맡긴다:
+ * deliver() 를 부르면(나중에 불러도 됨) 넘기고, 부르지 않으면 버린다. 주지 않으면 서버 → 브라우저는 Playwright 가 자동 전달한다
+ * (server.onMessage 를 걸면 자동 전달이 꺼지므로 그때만 건다).
  */
 export async function controlCollabSocket(
   page: Page,
+  hooks: {
+    onSend?: (m: string | Buffer) => void
+    onReceive?: (m: string | Buffer, deliver: () => void) => void
+  } = {},
 ): Promise<{ drop: () => Promise<void>; restore: () => void; hold: () => void; release: () => void }> {
   let blocked = false
   let holding = false
@@ -160,10 +170,13 @@ export async function controlCollabSocket(
     const server = ws.connectToServer()
     // 브라우저 → 서버를 직접 넘긴다(onMessage 를 걸면 자동 전달이 꺼진다) — 붙잡는 동안은 쌓아 둔다.
     ws.onMessage((m) => {
+      hooks.onSend?.(m)
       const send = () => server.send(m)
       if (holding) held.push(send)
       else send()
     })
+    const { onReceive } = hooks
+    if (onReceive) server.onMessage((m) => onReceive(m, () => ws.send(m)))
     const pair = { page: ws, server }
     open.add(pair)
     ws.onClose(() => open.delete(pair))
@@ -186,6 +199,77 @@ export async function controlCollabSocket(
     },
     restore: () => {
       blocked = false
+    },
+  }
+}
+
+/**
+ * Hocuspocus 프레임 안의 AI 적용 stateless 메시지 — stateless 프레임은 [문서 이름][종류][페이로드] 순이라 페이로드(JSON)가 프레임 끝까지다.
+ * 'collab:ai-' 가 없는 프레임(문서 동기화·awareness 등 대부분)은 풀어 보지 않고 거른다. 판정은 서버·웹과 같은 공용 파서로.
+ */
+function aiApplyMessageIn(frame: string | Buffer): CollabAiApplyMessage | null {
+  const buf = typeof frame === 'string' ? Buffer.from(frame) : frame
+  if (!buf.includes('collab:ai-')) return null
+  const text = buf.toString('utf8')
+  // 길이 접두 바이트가 '{'(123)일 수 있어 '{"' 로 찾는다.
+  const start = text.indexOf('{"')
+  return start < 0 ? null : parseCollabAiMessage(text.slice(start))
+}
+
+/**
+ * 에디터 안 AI 적용 알림(WP-323)을 지켜본다(goto 전에 호출) — 웹이 보낸 ai-apply·ai-cancel 과 서버가 보낸 ack 를 모은다.
+ * ack: 'pass' 는 그대로 전달, 'hold' 는 releaseAck() 까지 붙잡고(ack 를 기다리는지 확인), 'drop' 은 버린다(서버가 답하지 않는 옛 collab·끊김 흉내).
+ * controlCollabSocket 의 훅으로 엿보고 전달한다.
+ */
+export async function watchCollabAiApply(
+  page: Page,
+  { ack = 'pass' }: { ack?: 'pass' | 'hold' | 'drop' } = {},
+): Promise<{
+  sent: () => CollabAiApplyMessage[]
+  /** 첫 ai-apply 가 지나간 시각(Date.now) — 시간 초과 경로가 실제로 ack 상한만큼 기다렸는지 잴 때 쓴다. */
+  firstSentAt: () => number | null
+  acks: () => CollabAiApplyMessage[]
+  /** 브라우저로 넘긴 ack 수 — 늦은 ack 가 실제로 브라우저에 닿은 뒤를 기다릴 때 쓴다. */
+  deliveredAcks: () => number
+  releaseAck: () => void
+}> {
+  const sent: CollabAiApplyMessage[] = []
+  let firstSentAt: number | null = null
+  const acks: CollabAiApplyMessage[] = []
+  let delivered = 0
+  const held: Array<() => void> = []
+  let holding = ack === 'hold'
+  await controlCollabSocket(page, {
+    onSend: (m) => {
+      const msg = aiApplyMessageIn(m)
+      if (!msg) return
+      firstSentAt ??= Date.now()
+      sent.push(msg)
+    },
+    onReceive: (m, deliver) => {
+      const msg = aiApplyMessageIn(m)
+      if (msg?.type !== COLLAB_AI_APPLY_ACK_TYPE) {
+        deliver()
+        return
+      }
+      acks.push(msg)
+      if (ack === 'drop') return
+      const send = () => {
+        deliver()
+        delivered += 1
+      }
+      if (holding) held.push(send)
+      else send()
+    },
+  })
+  return {
+    sent: () => [...sent],
+    firstSentAt: () => firstSentAt,
+    acks: () => [...acks],
+    deliveredAcks: () => delivered,
+    releaseAck: () => {
+      holding = false
+      for (const send of held.splice(0)) send()
     },
   }
 }

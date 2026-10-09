@@ -27,6 +27,8 @@ export interface CollabConfig {
   aiMarkerMs?: number
   /** apply-markdown 한 요청의 전체 기한(ms) — 기본 APPLY_DEADLINE_MS(server.ts). 테스트가 줄인다. */
   applyDeadlineMs?: number
+  /** 에디터 안 AI 적용 태그의 수명(ms, WP-323) — 기본 AI_TAG_TTL_MS(server.ts). 테스트가 줄인다. */
+  aiTagTtlMs?: number
 }
 
 /**

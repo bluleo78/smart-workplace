@@ -145,3 +145,44 @@ export function parseCollabCursor(value: unknown): CollabCursor | null {
   if (typeof o.seq === 'number' && Number.isFinite(o.seq)) cursor.seq = o.seq
   return cursor
 }
+
+/**
+ * 에디터 안 AI 적용 직전 알림(WP-323) — 웹이 AI 결과를 문서에 넣기 직전에 보내는 stateless 메시지 type.
+ * 동기화 서버는 미저장 사람 편집을 먼저 저장(사유 없음)하고, 이 문서에 AI 태그를 단 뒤 COLLAB_AI_APPLY_ACK_TYPE 으로 답한다.
+ * 태그가 달린 뒤 처음 저장되는 판이 'AI' 사유 + 요청자(aiActorId)로 저장돼 API 가 AI 직전 판에 ✦ 리비전을 남긴다.
+ */
+export const COLLAB_AI_APPLY_TYPE = 'collab:ai-apply'
+
+/** ai-apply 처리 완료 응답(서버 → 요청한 연결에만) — 웹은 이것(또는 시간 초과)을 기다린 뒤 삽입한다. */
+export const COLLAB_AI_APPLY_ACK_TYPE = 'collab:ai-apply-ack'
+
+/** AI 삽입 포기(중단·권한 회수 등) — 같은 사용자·같은 요청의 AI 태그를 지워 다음 사람 저장에 거짓 ✦ 가 붙지 않게 한다. */
+export const COLLAB_AI_CANCEL_TYPE = 'collab:ai-cancel'
+
+/** ai-apply·ai-apply-ack·ai-cancel 의 공통 페이로드 — requestId 로 요청과 응답·취소를 짝짓는다. */
+export interface CollabAiApplyMessage {
+  type: typeof COLLAB_AI_APPLY_TYPE | typeof COLLAB_AI_APPLY_ACK_TYPE | typeof COLLAB_AI_CANCEL_TYPE
+  requestId: string
+}
+
+/** ai-apply·ai-cancel·ack 의 requestId 길이 상한 — 서버가 자기 신고 값을 그대로 되돌려 보내므로 긴 값은 받지 않는다. */
+export const COLLAB_AI_REQUEST_ID_MAX = 128
+
+/**
+ * stateless 페이로드 → AI 적용 메시지(ai-apply·ack·cancel). JSON 이 아니거나 type 이 셋 중 하나가 아니거나
+ * requestId 가 비었거나 너무 길면 null — 상대가 보낸 값이라 믿지 않는다. 서버·웹·E2E 가 같은 판정을 쓰게 한곳에 둔다
+ * (어느 type 을 받을지는 쓰는 쪽이 고른다 — 서버는 ack 를 버리고, 웹은 ack 만 본다).
+ */
+export function parseCollabAiMessage(raw: string): CollabAiApplyMessage | null {
+  let o: unknown
+  try {
+    o = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (o == null || typeof o !== 'object') return null
+  const { type, requestId } = o as Record<string, unknown>
+  if (type !== COLLAB_AI_APPLY_TYPE && type !== COLLAB_AI_APPLY_ACK_TYPE && type !== COLLAB_AI_CANCEL_TYPE) return null
+  if (typeof requestId !== 'string' || requestId.length === 0 || requestId.length > COLLAB_AI_REQUEST_ID_MAX) return null
+  return { type, requestId }
+}

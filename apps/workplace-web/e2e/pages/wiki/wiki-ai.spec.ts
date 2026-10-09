@@ -10,9 +10,14 @@
 // 최종 합쳐진 텍스트가 에디터에 삽입되는지 + POST payload 의 action 을 파이프라인 전체로 검증한다.
 // 토큰 경계로 쪼갠 서식 렌더·생성 중 표시는 wiki-ai-draft-markdown.spec.ts 가 담당한다.
 import type { Page } from '@playwright/test'
+import {
+  COLLAB_AI_APPLY_TYPE,
+  COLLAB_AI_CANCEL_TYPE,
+} from '@smart-workplace/wiki-editor-schema/collab-protocol'
+
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { seedCollabFor } from '../../fixtures/collab'
+import { collabNsOf, readCollabMarkdown, seedCollabFor, watchCollabAiApply } from '../../fixtures/collab'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays, measureBox, stableBox } from '../../fixtures/wait'
 import { buildWikiAiSse, savedMarkdown } from '../../fixtures/wiki-mock'
@@ -1044,4 +1049,122 @@ test('위키 /ai 슬래시 메뉴 — 구분선 삽입 시 hr 이 생성된다 (
   await page.getByTestId('wiki-slash-option-horizontalRule').click()
 
   await expect(page.locator('.ProseMirror hr')).toHaveCount(1)
+})
+
+// ── AI 적용 직전 판 ✦ 알림 (WP-323) ─────────────────────────────────────────
+// 에디터 안 AI 결과를 넣기 직전 웹이 동기화 서버(테스트 모드 — 실제 서버 코드)에 ai-apply 를 보내고, ack(최대 3초)를 기다린 뒤 넣는다.
+// 동기화 웹소켓을 가로채 보낸 메시지·서버 ack 를 보고, ack 를 붙잡거나 버려 기다림·시간 초과 경로를 결정적으로 만든다.
+// 사유(AI)·aiActorId 저장은 E2E 메모리 저장소가 기록하지 않아 collab vitest 가 맡는다.
+
+/** 본문을 눌러 슬래시 메뉴를 열고 '이어 쓰기' 를 고른다. */
+async function openSlashContinue(page: Page) {
+  const editor = page.locator('.ProseMirror')
+  await expect(editor).toBeVisible()
+  await editor.click()
+  await page.keyboard.type('/')
+  await page.getByTestId('wiki-slash-option-continue').click()
+}
+
+/** text 가 본문에 들어오지 않은 채 머무는지 — 부재 확인이라 짧게(ms) 머문다. */
+async function expectNotInserted(page: Page, text: string, ms: number) {
+  const editor = page.locator('.ProseMirror')
+  await expectStays(page, async () => (await editor.textContent())?.includes(text) ?? false, false, { ms })
+}
+
+test('위키 AI 적용 — 슬래시 이어쓰기는 ai-apply 의 ack 를 받은 뒤에 넣는다 (WP-323)', async ({ authenticatedPage: page }) => {
+  await setupWikiMocks(page, 'EDITOR')
+  const watch = await watchCollabAiApply(page, { ack: 'hold' })
+  await mockWikiAiGeneration(page, { deltas: ['확인 후 ', '삽입된 결과'] })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  const editor = page.locator('.ProseMirror')
+  await openSlashContinue(page)
+
+  // 서버가 이 요청에 답했다(붙잡아 둠) — 보낸 ai-apply 와 같은 requestId.
+  await expect.poll(() => watch.acks().length).toBe(1)
+  expect(watch.sent()).toEqual([{ type: COLLAB_AI_APPLY_TYPE, requestId: watch.acks()[0].requestId }])
+  // ack 를 받기 전엔 넣지 않는다(부재 확인이라 짧게 머문다 — 3초 상한보다 충분히 짧게).
+  await expectNotInserted(page, '삽입된 결과', 500)
+  await expect(page.getByTestId('wiki-ai-busy')).toBeVisible()
+
+  // ack 를 풀면 곧바로 들어간다 — 시간 초과(3초)가 아니라 ack 로 넣었다.
+  watch.releaseAck()
+  await expect(editor).toContainText('확인 후 삽입된 결과', { timeout: 1500 })
+  await expect(page.getByTestId('wiki-ai-busy')).toHaveCount(0)
+  // 로컬 삽입이 동기화 서버 문서에 반영됐고, 넣었으므로 취소는 보내지 않았다.
+  await expect.poll(() => readCollabMarkdown(collabNsOf(page), PAGE_ID)).toContain('확인 후 삽입된 결과')
+  expect(watch.sent().map((m) => m.type)).toEqual([COLLAB_AI_APPLY_TYPE])
+})
+
+test('위키 AI 적용 — 버블 다듬기도 ai-apply 의 ack 를 받고 선택영역을 바꾼다 (WP-323)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+  const watch = await watchCollabAiApply(page)
+  await mockWikiAiGeneration(page, { deltas: ['다듬은 ', '결과 문장'] })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await typeAndSelectAll(page, '다듬을 문장')
+  await page.getByTestId('wiki-ai-tb-polish').click()
+
+  await expect(page.locator('.ProseMirror')).toContainText('다듬은 결과 문장')
+  await expect(page.locator('.ProseMirror')).not.toContainText('다듬을 문장')
+  // 넣기 전에 알렸고 서버가 같은 요청에 답했다.
+  expect(watch.acks()).toHaveLength(1)
+  expect(watch.sent()).toEqual([{ type: COLLAB_AI_APPLY_TYPE, requestId: watch.acks()[0].requestId }])
+  await expect.poll(() => readCollabMarkdown(collabNsOf(page), PAGE_ID)).toContain('다듬은 결과 문장')
+})
+
+test('위키 AI 적용 — 서버 ack 가 오지 않아도 3초 상한 뒤 넣고, 늦은 태그를 ai-cancel 로 지운다 (WP-323)', async ({ authenticatedPage: page }) => {
+  await setupWikiMocks(page, 'EDITOR')
+  // 서버는 답하지만 브라우저엔 전달하지 않는다 — 옛 동기화 서버·응답 유실과 같다.
+  const watch = await watchCollabAiApply(page, { ack: 'drop' })
+  await mockWikiAiGeneration(page, { deltas: ['응답 없어도 ', '들어간 결과'] })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  const editor = page.locator('.ProseMirror')
+  await openSlashContinue(page)
+
+  await expect(editor).toContainText('응답 없어도 들어간 결과', { timeout: 8000 })
+  // 실제로 상한만큼 기다렸다(보낸 시각부터 3초 — 측정 여유로 2.5초).
+  const sentAt = watch.firstSentAt()
+  expect(sentAt).not.toBeNull()
+  expect(Date.now() - sentAt!).toBeGreaterThanOrEqual(2500)
+  // ack 없이 넣었으니 서버가 늦게 달았을 태그를 같은 요청으로 지운다 — 이 삽입과 무관한 다음 사람 저장에 거짓 ✦ 가 붙지 않게.
+  const requestId = watch.sent()[0].requestId
+  await expect
+    .poll(() => watch.sent())
+    .toEqual([
+      { type: COLLAB_AI_APPLY_TYPE, requestId },
+      { type: COLLAB_AI_CANCEL_TYPE, requestId },
+    ])
+})
+
+test('위키 AI 적용 — ack 를 기다리는 중 ESC 로 취소하면 넣지 않고 ai-cancel 을 보낸다 (WP-323)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupWikiMocks(page, 'EDITOR')
+  const watch = await watchCollabAiApply(page, { ack: 'hold' })
+  await mockWikiAiGeneration(page, { deltas: ['취소될 ', '결과'] })
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await openSlashContinue(page)
+
+  await expect.poll(() => watch.acks().length).toBe(1)
+  const requestId = watch.acks()[0].requestId
+  await page.keyboard.press('Escape')
+
+  // 기다림을 바로 끊고 같은 요청의 태그를 지운다 — 다음 사람 저장에 거짓 ✦ 가 붙지 않게.
+  await expect
+    .poll(() => watch.sent())
+    .toEqual([
+      { type: COLLAB_AI_APPLY_TYPE, requestId },
+      { type: COLLAB_AI_CANCEL_TYPE, requestId },
+    ])
+  await expect(page.getByTestId('wiki-ai-busy')).toHaveCount(0)
+  // 늦게 ack 가 와도 넣지 않는다 — ack 가 브라우저에 닿은 뒤 처리될 짧은 틈만 머문다.
+  watch.releaseAck()
+  await expect.poll(() => watch.deliveredAcks()).toBe(1)
+  await expectNotInserted(page, '취소될 결과', 200)
 })
