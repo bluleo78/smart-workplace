@@ -9,6 +9,7 @@ import { useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
+import { isImeComposing } from '@/lib/imeKey';
 import { toSingleLine } from '@/lib/singleLine';
 import { cn } from '@/lib/utils';
 
@@ -118,8 +119,10 @@ export function InlineEditableTitle({
         onChange={(e) => setDraft(toSingleLine(e.target.value))}
         onCompositionEnd={enterKey.onCompositionEnd}
         onKeyDown={(e) => {
-          if (enterKey.handleEnter(e, commit)) return;
-          if (e.key === 'Escape') cancel();
+          // 조합 중 Esc 는 조합 글자만 버리는 IME 동작 — 편집을 취소하지 않는다.
+          if (e.key === 'Escape') {
+            if (!isImeComposing(e.nativeEvent)) cancel();
+          } else enterKey.handleEnter(e, commit);
         }}
       />
     );
@@ -137,11 +140,13 @@ export function InlineEditableTitle({
       onCompositionEnd={enterKey.onCompositionEnd}
       onKeyDown={(e) => {
         // 데스크톱 — Enter 는 blur 로 단일 저장 경로에 합류(한글 조합·확정 꼬리 Enter 제외), Esc 는 다음 blur 저장을 1회 건너뛴다.
-        const input = e.currentTarget;
-        if (enterKey.handleEnter(e, () => input.blur())) return;
         if (e.key === 'Escape') {
+          // 조합 중 Esc 는 조합 글자만 버리는 IME 동작 — 편집을 취소하지 않는다.
+          if (isImeComposing(e.nativeEvent)) return;
           skipCommitRef.current = true;
           e.currentTarget.blur();
+        } else {
+          enterKey.handleEnter(e, () => e.currentTarget.blur());
         }
       }}
     />

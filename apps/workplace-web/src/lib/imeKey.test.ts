@@ -15,13 +15,13 @@ describe('isImeComposing', () => {
   });
 });
 
-// macOS Chrome 꼬리 Enter(WP-331) — compositionend 직후 짧은 창 안의 Enter 만 꼬리로 본다.
+// macOS Chrome 꼬리 Enter(WP-331) — 같은 키 입력에 딸린 이벤트로 볼 만큼 가까운지(짧은 창 안)만 본다.
 describe('isTrailingImeEnter', () => {
-  it('compositionend 직후(창 안) Enter 는 꼬리 Enter 다', () => {
+  it('창 안이면 같은 키 입력에 딸린 이벤트다', () => {
     expect(isTrailingImeEnter(1000, 1000)).toBe(true);
     expect(isTrailingImeEnter(1000 + IME_TRAILING_ENTER_MS - 1, 1000)).toBe(true);
   });
-  it('창이 지난 Enter·조합 이력이 없는 Enter 는 사용자의 진짜 Enter 다', () => {
+  it('창이 지났거나 기준 이벤트가 없으면 별개 입력이다', () => {
     expect(isTrailingImeEnter(1000 + IME_TRAILING_ENTER_MS, 1000)).toBe(false);
     expect(isTrailingImeEnter(1000, Number.NEGATIVE_INFINITY)).toBe(false);
   });

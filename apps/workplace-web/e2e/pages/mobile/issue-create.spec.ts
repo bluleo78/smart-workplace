@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
-import { pressMacChromeImeEnter } from '../../fixtures/ime';
+import { pressEnterAfterComposition, pressMacChromeImeEnter } from '../../fixtures/ime';
 import { installFakeViewport, setKeyboard } from '../../fixtures/keyboard';
 import { expect, expectNoHorizontalOverflow, historyMarks, stubChat, test } from '../../fixtures/mobile.fixture';
 import { trackRequests } from '../../fixtures/requests';
@@ -93,6 +93,16 @@ test.describe('생성 시트', () => {
     await expect(title).toHaveValue('결제 오류');
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('issue-create-body')).toBeFocused();
+  });
+
+  test('모바일 키보드처럼 조합을 끝내며 Enter 를 한 번만 보내면 바로 설명으로 이동(WP-331 회귀 방지)', async ({ authenticatedPage: page }) => {
+    await mockCreate(page);
+    await openSheet(page);
+    const title = page.getByTestId('issue-create-title');
+    await title.fill('결제 오류');
+    await pressEnterAfterComposition(title, '류');
+    await expect(page.getByTestId('issue-create-body')).toBeFocused();
+    await expect(title).toHaveValue('결제 오류');
   });
 
   test('내용이 있으면 취소·Esc 모두 버림 확인 — 계속 작성/버리기', async ({ authenticatedPage: page }) => {

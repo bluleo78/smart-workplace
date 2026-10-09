@@ -4,42 +4,39 @@
 // 왜: 첫 키(조합 Enter)만 거르면 macOS Chrome 에서 마지막 글자 확정과 동시에 저장·이동이 일어났다.
 //     노트 제목(WikiEditor)에만 있던 compositionend 가드를 공용화해 세 곳에 같이 건다.
 import type { CompositionEvent, KeyboardEvent } from 'react';
-import { useCallback, useMemo, useRef } from 'react';
+import { useRef } from 'react';
 
 import { isImeComposing, isTrailingImeEnter } from '@/lib/imeKey';
 
-export interface SingleLineEnter {
-  /** 입력란 onCompositionEnd 에 건다 — 꼬리 Enter 판정 기준 시각을 남긴다. */
-  onCompositionEnd: (e: CompositionEvent) => void;
-  /**
-   * 입력란 onKeyDown 에서 부른다. Enter 면 줄바꿈을 막고(true 반환), 조합·꼬리 Enter 가 아닐 때만 action 을 부른다.
-   * Enter 가 아니면 아무것도 하지 않고 false — 호출부가 Esc 등 다른 키를 이어서 처리한다.
-   */
-  handleEnter: (e: KeyboardEvent, action: () => void) => boolean;
-}
+export function useSingleLineEnter() {
+  // 마지막 조합 중 Enter keydown 시각 — 이 Enter 로 조합이 끝났는지(compositionend 가 바로 뒤따르는지) 판정한다.
+  const composingEnterRef = useRef(Number.NEGATIVE_INFINITY);
+  // 꼬리 Enter 를 기다리는 기준 시각(compositionend). 조합 Enter 로 끝난 조합일 때만 건다 — 모바일 키보드처럼
+  // compositionend 뒤 진짜 Enter 한 번만 보내는 경우나 Safari(compositionend → 229 Enter)는 걸리지 않게.
+  // 한 번 거르면 지워 다음 Enter 는 그대로 동작한다.
+  const trailingFromRef = useRef(Number.NEGATIVE_INFINITY);
 
-export function useSingleLineEnter(): SingleLineEnter {
-  // 마지막 compositionend 시각(이벤트 timeStamp). 꼬리 Enter 를 한 번 거르면 지워 다음 Enter 는 그대로 동작한다.
-  const lastCompositionEndRef = useRef(Number.NEGATIVE_INFINITY);
-
-  const onCompositionEnd = useCallback((e: CompositionEvent) => {
-    lastCompositionEndRef.current = e.timeStamp;
-  }, []);
-
-  const handleEnter = useCallback((e: KeyboardEvent, action: () => void) => {
-    if (e.key !== 'Enter') return false;
-    // 한 줄 값 — 어떤 Enter 든 줄바꿈은 넣지 않는다(Safari 는 확정 뒤 keyCode 229 Enter 를 보내 기본 동작이 개행을 넣는다).
-    e.preventDefault();
-    // 조합 중 Enter 는 글자 확정용(Safari 는 확정 뒤 keyCode 229 로 온다).
-    if (isImeComposing(e.nativeEvent)) return true;
-    // macOS Chrome 은 확정 직후 조합 아닌 Enter 를 한 번 더 보낸다 — 그 한 번만 무시한다.
-    if (isTrailingImeEnter(e.timeStamp, lastCompositionEndRef.current)) {
-      lastCompositionEndRef.current = Number.NEGATIVE_INFINITY;
-      return true;
-    }
-    action();
-    return true;
-  }, []);
-
-  return useMemo(() => ({ onCompositionEnd, handleEnter }), [onCompositionEnd, handleEnter]);
+  return {
+    /** 입력란 onCompositionEnd 에 건다 — 조합 Enter 직후의 compositionend 면 꼬리 Enter 를 한 번 거르도록 시각을 남긴다. */
+    onCompositionEnd: (e: CompositionEvent) => {
+      if (isTrailingImeEnter(e.timeStamp, composingEnterRef.current)) trailingFromRef.current = e.timeStamp;
+    },
+    /** 입력란 onKeyDown 에서 Enter 일 때 부른다 — 줄바꿈을 막고, 조합·꼬리 Enter 가 아닐 때만 action 을 부른다. */
+    handleEnter: (e: KeyboardEvent, action: () => void) => {
+      if (e.key !== 'Enter') return;
+      // 한 줄 값 — 어떤 Enter 든 줄바꿈은 넣지 않는다(Safari 는 확정 뒤 keyCode 229 Enter 를 보내 기본 동작이 개행을 넣는다).
+      e.preventDefault();
+      // 조합 중 Enter 는 글자 확정용(Safari 는 확정 뒤 keyCode 229 로 온다).
+      if (isImeComposing(e.nativeEvent)) {
+        composingEnterRef.current = e.timeStamp;
+        return;
+      }
+      // macOS Chrome 은 조합 Enter → compositionend 뒤 조합 아닌 Enter 를 한 번 더 보낸다 — 그 한 번만 무시한다.
+      if (isTrailingImeEnter(e.timeStamp, trailingFromRef.current)) {
+        trailingFromRef.current = Number.NEGATIVE_INFINITY;
+        return;
+      }
+      action();
+    },
+  };
 }

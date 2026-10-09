@@ -14,8 +14,8 @@ export function isImeComposing(event: KeyboardEvent): boolean {
 export const IME_TRAILING_ENTER_MS = 100;
 
 /**
- * 이 Enter keydown 이 조합 확정에 딸려 온 "꼬리 Enter" 인지 — 마지막 compositionend 의 이벤트 시각과 견준다(둘 다 event.timeStamp).
- * 조합 중 Enter(isImeComposing)는 따로 거른다. 여기선 조합이 끝난 뒤 바로 오는 한 번만 본다.
+ * 두 이벤트가 같은 키 입력에 딸린 것으로 볼 만큼 가까운지(IME_TRAILING_ENTER_MS 안) — 둘 다 event.timeStamp.
+ * 꼬리 Enter 판정에 쓴다: 조합 Enter → compositionend, compositionend → 꼬리 Enter 가 각각 이 창 안에 온다.
  */
 export function isTrailingImeEnter(enterTimeStamp: number, lastCompositionEnd: number): boolean {
   return enterTimeStamp - lastCompositionEnd < IME_TRAILING_ENTER_MS;

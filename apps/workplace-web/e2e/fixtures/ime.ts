@@ -15,3 +15,20 @@ export async function pressMacChromeImeEnter(field: Locator, composed: string): 
     enter({ keyCode: 13 });
   }, composed);
 }
+
+/**
+ * 조합을 끝내며 진짜 Enter 를 한 번만 보내는 순서 — 모바일 키보드(compositionend → Enter 13),
+ * Safari(compositionend → 조합 Enter 229 → 사용자가 다시 누른 Enter 13). 마지막 Enter 는 동작(저장·이동)해야 한다.
+ */
+export async function pressEnterAfterComposition(field: Locator, composed: string, opts: { safari?: boolean } = {}): Promise<void> {
+  await field.evaluate(
+    (el, { data, safari }) => {
+      const enter = (init: KeyboardEventInit & { keyCode: number }) =>
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init }));
+      el.dispatchEvent(new CompositionEvent('compositionend', { data, bubbles: true }));
+      if (safari) enter({ keyCode: 229 });
+      enter({ keyCode: 13 });
+    },
+    { data: composed, safari: opts.safari ?? false },
+  );
+}
