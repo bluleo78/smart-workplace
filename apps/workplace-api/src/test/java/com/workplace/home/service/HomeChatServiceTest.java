@@ -533,8 +533,8 @@ class HomeChatServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * compose 가 보내는 ChatRequest 의 maxTurns 가 compose 하한(50)으로 상향되는지 검증. 공유 기본값 8 로는 다중 조회 질문이 턴 한도에 걸려
-   * "오류로 중단됨"이 됐다(운영 실측). 실제 전송된 요청 본문을 캡처해 검증한다.
+   * compose 가 보내는 ChatRequest 의 maxTurns 가 compose 하한(50)으로 상향되는지 검증. 공유 기본값 8 로는 다중 조회 질문이 턴 한도에
+   * 걸려 "오류로 중단됨"이 됐다(운영 실측). 실제 전송된 요청 본문을 캡처해 검증한다.
    */
   @Test
   void compose_요청_maxTurns_를_50_하한으로_상향한다() throws Exception {
