@@ -12,6 +12,7 @@ import { Page, pageBodyInsetClass, pageReadingWidthClass } from '@/components/la
 import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import { RenameDialog } from '@/components/ui/rename-dialog'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { cn } from '@/lib/utils'
 
 import {
@@ -26,9 +27,13 @@ import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import { wikiKeys } from '../../hooks/queries/wikiKeys'
 import { useAuth } from '../../hooks/useAuth'
 import { useCollabSession } from '../../hooks/useCollabSession'
+import { usePresence } from '../../hooks/usePresence'
 import { startWikiAiStream } from '../../hooks/useWikiAiStream'
 import { handleApiError } from '../../lib/api-error'
-import { isAccessLost, isEditRole } from '../../lib/collab/collabStatus'
+import { acceptResume, type ResumeGate, shouldShowAwayToast } from '../../lib/collab/collabResume'
+import { isAccessLost, isEditRole, isTerminalStatus } from '../../lib/collab/collabStatus'
+import { type AwarenessStates, jumpAnchor, type PresencePerson } from '../../lib/collab/presence'
+import { presenceAwarenessOf } from '../../lib/collab/presenceAwareness'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
 import { registerWikiEditorView, useWikiImageUpload } from './useWikiImageUpload'
 import { type GenerateActionKey, type TransformActionKey } from './wikiAiActions'
@@ -36,8 +41,10 @@ import { WikiAiBubbleToolbar } from './WikiAiBubbleToolbar'
 import { insertAiMarkdown } from './wikiAiInsert'
 import { announceAiWriting } from './wikiAiPresence'
 import { stripLeadingTitleHeading } from './wikiAiTitleHeading'
+import { showAwayToast } from './wikiAwayToast'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
 import { breadcrumbOrSelf, buildBreadcrumb } from './wikiBreadcrumb'
+import { highlightCatchUp, watchHiddenDoc } from './wikiCatchUpHighlight'
 import { anchorPosition, toRelative } from './wikiCollabPosition'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
@@ -49,6 +56,9 @@ import { rememberMentionLabel, WikiMentionLabelsProvider } from './wikiMentionLa
 import { createWikiMentionExtension } from './wikiMentionSuggestion'
 import { type WikiAiState, WikiPageHeader } from './WikiPageHeader'
 import { WikiPageSkeleton } from './WikiPageSkeleton'
+import { WikiPresence } from './WikiPresence'
+import { announcePresence } from './wikiPresenceAnnounce'
+import { revealPresence, scrollToRelative, wikiPresenceCursorsKey } from './wikiPresenceCursors'
 import type { WikiAiAction } from './WikiSlashMenu'
 import { createWikiSlashExtension } from './wikiSlashSuggestion'
 import { WikiSummaryCard } from './WikiSummaryCard'
@@ -61,11 +71,23 @@ import { createTitleSaver, initTitleSync, needsTitleSave, type TitleSaver, title
 /** 제목 저장 디바운스 — 제목은 짧은 REST 저장(나중 값 우선)이라 타이핑마다 보내지 않고 잠깐 모아 보낸다. */
 const TITLE_SAVE_DEBOUNCE_MS = 400
 
+/** 접속자 없음(종단) — 렌더마다 새 배열을 만들지 않게 고정. */
+const NO_PEOPLE: PresencePerson[] = []
+
 /**
  * 위키 에디터 — 본문은 동기화 서버와 실시간으로 주고받고(Yjs, WP-287), 제목은 짧은 REST 저장 + 인에디터 /ai 스트리밍.
  * 예전의 0.8초 자동저장·버전 충돌 배너·"최신 내용 불러오기"는 실시간 동기화로 대체돼 없다.
  */
-export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: number }) {
+export function WikiEditor({
+  page,
+  spaceId,
+  onViewChanges,
+}: {
+  page: WikiPageDetail
+  spaceId: number
+  /** TODO(WP-282): 버전 기록 비교가 생기면 WikiPageView 가 넘긴다 — 복귀 토스트의 "변경 보기" 액션. 없으면 버튼을 달지 않는다. */
+  onViewChanges?: () => void
+}) {
   const navigate = useNavigate()
   const location = useLocation()
   const saveTitle = useSaveTitle(spaceId)
@@ -111,7 +133,11 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // ready=false 는 새 세션의 첫 동기화 전 — 문서가 아직 비어 있어 본문 대신 skeleton 을 보이고 본문 편집을 막는다
   // (빈 에디터의 "내용을 입력하거나…" 안내가 동기화 전 입력을 유도하지 않게). 이미 동기화된 캐시 세션은 처음부터 ready.
   // body='unreachable' 은 첫 연결이 끝내 안 된 경우 — skeleton 대신 안내를 보이고(재시도는 계속), 여전히 본문 편집은 막는다.
-  const { session, status: syncStatus, readOnly, body } = useCollabSession(page.id, { readOnly: !roleCanEdit })
+  const { user } = useAuth()
+  const { session, status: syncStatus, readOnly, body, stale, resume } = useCollabSession(page.id, {
+    readOnly: !roleCanEdit,
+    userId: user?.id ?? null,
+  })
   const ready = body === 'ready'
   // 본문 편집 가능 — 권한(readOnly)과 첫 동기화(ready) 둘 다. 제목은 REST 라 readOnly 만 본다.
   const canEdit = !readOnly && ready
@@ -184,11 +210,28 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     void queryClient.invalidateQueries({ queryKey: wikiKeys.page(page.id) })
   }, [queryClient, page.id])
 
+  // 이 노트를 보고 있다고 알린다(WP-173) — 세션은 페이지별 캐시라 화면을 떠날 때 내려야 상대 헤더에서 내가 사라진다.
+  // 재동기화마다 다시 올리는 규칙은 announcePresence 가 맡는다.
+  const userId = user?.id
+  const userName = user?.name
+  useEffect(() => {
+    if (userId == null || userName == null) return
+    return announcePresence(session.provider, { id: userId, name: userName })
+  }, [session.provider, userId, userName])
+  // 접속자 화면(헤더·원격 커서·✦)은 끊긴 동안 마지막 접속자를 붙잡는 덮개를 읽는다(판정 11). provider 별 하나라 렌더마다 불러도 같다.
+  const presence = presenceAwarenessOf(session.provider)
+  // 헤더 접속자(WP-292) — 종단(삭제·권한 없음·로그인 상실·새 버전)에선 즉시 숨긴다(awareness 만료를 기다리지 않음).
+  const isMobile = useIsMobile()
+  const people = usePresence(presence, userId ?? null)
+  const visiblePeople: PresencePerson[] = isTerminalStatus(syncStatus) ? NO_PEOPLE : people
+  // 종단이면 붙잡아 둔 접속자도 버린다 — stopTerminal 의 disconnect 가 만든 일괄 제거도 붙잡히고, 종단은 다시 동기화되지 않아 놓일 때가 없다.
+  useEffect(() => {
+    if (isTerminalStatus(syncStatus)) presence?.drop()
+  }, [presence, syncStatus])
   // /ai 생성 중 ✦ 표식(WP-291) — 다른 접속자 화면의 삽입 위치에 "✦ 내 이름" 을 고정한다. 한 번에 하나(latest action wins).
   // 각 실행은 startAiPresence 가 돌려준 자기 stop 으로만 내린다 — 공유 ref 로 내리면 이미 대체된 이전 스트림의 늦은 onDone/onError 가
   // 새 스트림의 표식을 지워 버린다(abortRef 와 같은 함정). 취소·다음 액션·언마운트는 track 이 abortRef 에 묶은 stop 으로 내린다
   // (동기화 세션은 페이지별 캐시라 연결이 남아, 화면을 떠날 때 내리지 않으면 상대 화면에 계속 고정된다).
-  const { user } = useAuth()
   const startAiPresence = useCallback(
     (ed: Editor, pos: number): (() => void) => {
       // 상대 위치로 올려야 생성 중 누가 위쪽을 고쳐도 받는 쪽이 삽입 위치를 따라 그린다(결과는 done 때 한 번에 넣으므로 그 사이 움직일 일은 원격·로컬 편집뿐).
@@ -415,15 +458,24 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
   // canEditRef 를 넘겨 VIEWER 는 서버 403 전에 클라이언트에서 조용히 막는다(UX 전용, 서버가 최종 판정).
   const { handlePaste, handleDrop, uploadFilesAtCursor } = useWikiImageUpload(page.id, canEditRef)
 
+  // 종단 상태면 원격 커서를 숨긴다(WP-292) — 확장은 마운트 시 1회 만들어지므로 ref 로 넘기고, 바뀔 때 메타로 다시 그린다.
+  const presenceHiddenRef = useRef(isTerminalStatus(syncStatus))
+  // 로그인 사용자 id — 원격 커서에서 내 다른 탭을 빼는 기준(헤더 usePresence 와 같은 값). 확장은 1회 만들어지므로 ref 로 넘긴다.
+  const selfUserIdRef = useRef(userId ?? null)
+
   const editor = useEditor(
     {
       // '@'(멘션) 과 '/'(AI) 는 char 가 달라 충돌하지 않는다. WikiMention 노드 + 두 suggestion 확장.
       // Placeholder — 빈 본문에서 '/' AI 진입점을 알리는 상시 힌트(미등록이면 빈 페이지에 아무
       // 안내도 없어 AI 기능이 발견 불가였다, #733). showOnlyCurrent=false 여야 포커스 없는
       // 상태에서도 보인다(기본 true 는 커서가 있는 노드에만 표시).
+      // presenceHiddenRef 는 커서 플러그인이 트랜잭션 때 읽는다(렌더 중 역참조 아님 — 멘션·슬래시 확장과 같은 react-hooks/refs false positive).
+      // eslint-disable-next-line react-hooks/refs
       extensions: wikiEditorExtensions({
         doc: session.doc,
-        awareness: session.provider.awareness,
+        awareness: presence,
+        presenceHiddenRef,
+        selfUserIdRef,
         mention: mentionExtension,
         slash: slashExtension,
         tableShortcuts: tableShortcutsExtension,
@@ -456,6 +508,68 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
     // eslint-disable-next-line react-hooks/immutability
     editorRef.current = editor
   })
+
+  useEffect(() => {
+    // 숨김 여부가 그대로면 다시 그릴 것이 없다 — 새 에디터는 만들 때 이 ref 를 읽는다.
+    const hidden = isTerminalStatus(syncStatus)
+    if (presenceHiddenRef.current === hidden) return
+    presenceHiddenRef.current = hidden
+    const view = editor?.view
+    if (view && !view.isDestroyed) view.dispatch(view.state.tr.setMeta(wikiPresenceCursorsKey, true))
+  }, [editor, syncStatus])
+
+  // 로그인 사용자가 바뀌면(인증 복원 등) 커서를 다시 걸러 그린다.
+  useEffect(() => {
+    if (selfUserIdRef.current === (userId ?? null)) return
+    selfUserIdRef.current = userId ?? null
+    const view = editor?.view
+    if (view && !view.isDestroyed) view.dispatch(view.state.tr.setMeta(wikiPresenceCursorsKey, true))
+  }, [editor, userId])
+
+  // 목록에서 이름을 누르면 그 사람 커서(없으면 그 사람 AI 표식) 위치로 스크롤하고 이름표를 보인다(스펙 §7.1).
+  const jumpToPerson = useCallback(
+    (p: PresencePerson) => {
+      const view = editorRef.current?.view
+      // 헤더 목록과 같은 덮개에서 찾는다 — 끊긴 동안 붙잡힌 사람도 마지막 커서 위치로 갈 수 있다.
+      if (!view || view.isDestroyed || !presence) return
+      const anchor = jumpAnchor(presence.getStates() as AwarenessStates, p)
+      if (anchor == null || !scrollToRelative(view, anchor)) return
+      revealPresence(view, p.clientIds)
+    },
+    [presence],
+  )
+
+  // 숨길 때의 본문 — 돌아와 따라잡은 변경을 잠깐 표시할 비교 기준(WP-293). 세션 쪽 숨김 처리와 같은 이벤트를 듣는다.
+  // 세션이 기준을 잡을 때(첫 동기화를 마쳤을 때)만 잡는다 — 그러지 않으면 resume 이 오지 않는 자리 비움의 스냅샷이 남아 다음 복귀에 쓰인다.
+  // ready 게이트가 곧 세션 armAwayBaseline 의 조건(everSynced)이다. 예외는 첫 동기화 전 종단(본문은 ready)뿐인데, 종단은 다시 붙지 않아
+  // resume 이 오지 않으므로 스냅샷이 쓰일 일이 없고, 세션이 바뀌면 이 effect 가 감시를 새로 만든다.
+  const hiddenDocRef = useRef<ReturnType<typeof watchHiddenDoc> | null>(null)
+  useEffect(() => {
+    if (!editor || !ready) return
+    const watcher = watchHiddenDoc(() => editor.state.doc)
+    hiddenDocRef.current = watcher
+    return () => {
+      watcher.dispose()
+      if (hiddenDocRef.current === watcher) hiddenDocRef.current = null
+    }
+  }, [editor, ready, session])
+  // "변경 보기" 동작은 최신 값을 ref 로 읽는다 — prop 이 바뀌었다고 같은 복귀 결과로 토스트를 다시 띄우지 않게.
+  const onViewChangesRef = useRef(onViewChanges)
+  useEffect(() => {
+    onViewChangesRef.current = onViewChanges
+  })
+  // 이미 처리한 복귀(세션·순번) — 세션은 페이지별 캐시라 셸 전환·재방문으로 다시 마운트돼도 마지막 resume 이 남아 있다.
+  // 마운트 때(또는 세션이 바뀐 순간) 있던 것은 이미 지난 복귀이므로 다시 알리지 않는다. 순번은 세션마다 1부터라 세션별로 비교한다(acceptResume).
+  const resumeGateRef = useRef<ResumeGate>({ owner: session, seq: resume?.seq ?? 0 })
+  // 돌아와 동기화를 마칠 때마다(resume 이 새 순번) — 2분 넘게 비웠고 남이 고쳤으면 토스트, 바뀐 블록은 잠깐 하이라이트.
+  useEffect(() => {
+    const { gate, fire } = acceptResume(resumeGateRef.current, session, resume, editor != null)
+    resumeGateRef.current = gate
+    if (!fire || !resume || !editor) return
+    const before = hiddenDocRef.current?.take() ?? null
+    if (shouldShowAwayToast(resume)) showAwayToast(resume.editors, onViewChangesRef.current)
+    return before ? highlightCatchUp(editor.view, before) : undefined
+  }, [resume, editor, session])
 
   // 슬래시 메뉴 '이미지' 항목이 연 file input 의 onChange 에서 호출된다. useWikiImageUpload 의
   // uploadFilesAtCursor 는 현재 커서 위치에 바로 올리는 전용 진입점이라(#751 C4), 좌표를 역산해
@@ -636,8 +750,10 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
         onAiAction={onHeaderAiAction}
         onDelete={() => setConfirmDelete(true)}
         onViewSource={onViewSource}
+        presence={<WikiPresence people={visiblePeople} compact={isMobile} stale={stale} onJump={jumpToPerson} />}
       />
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+      {/* 본문 스크롤 영역 — 원격 삽입 화면 고정은 WikiRemoteScrollAnchor 가 직접 보정하므로 브라우저 스크롤 앵커링은 끈다(이중 보정 방지, WP-293). */}
+      <div ref={scrollRef} data-testid="wiki-editor-scroll" className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]">
         {/* 미전송·접근 불가·삭제됨 등 동기화 안내 — 스크롤 영역 맨 위 sticky 띠(칼럼 밖·BubbleMenu 형제 목록 밖에 둔다). */}
         <WikiSyncNotice status={syncStatus} listPath={listPath} scrollRef={scrollRef} />
         <div data-testid="page-body-content" className={cn('flex flex-col', pageBodyInsetClass, pageReadingWidthClass)}>
@@ -724,7 +840,7 @@ export function WikiEditor({ page, spaceId }: { page: WikiPageDetail; spaceId: n
               첫 연결이 끝내 안 되면 skeleton 대신 연결 못 함 안내(붙으면 본문으로). */}
           {ready ? (
             <WikiMentionLabelsProvider pageId={page.id}>
-              <div onClick={onBodyClick}>
+              <div onClick={onBodyClick} data-presence-stale={stale ? '' : undefined}>
                 <EditorContent
                   editor={editor}
                   className="wiki-editor [&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none"

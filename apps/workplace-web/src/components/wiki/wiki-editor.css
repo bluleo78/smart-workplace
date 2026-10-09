@@ -16,10 +16,12 @@
   user-select: none;
 }
 
-/* ✦ AI 표식(WP-291) — 다른 사람의 AI 가 쓰는 자리. 폭 0 의 캐럿 + 위쪽 태그(시안 collab-overview: 캐럿 위 "✦ 이름").
-   색은 AI 마커 시맨틱 토큰(ai-accent — 디자인시스템 07 §7.2, 하드코딩색 금지). 사람별 색은 접속자·커서(WP-173)에서 바뀐다.
-   태그는 긴 이름을 말줄임하고 본문 클릭을 가로채지 않는다. 폭 상한 40vw — 좁은 화면에서도 캐럿 왼쪽·오른쪽 중 한쪽엔 늘 들어간다(flip 과 짝). */
-.wiki-editor .ProseMirror .wiki-ai-marker {
+/* 본문 이름표 위젯 — ✦ AI 표식(WP-291)과 원격 커서(WP-292). 폭 0 의 캐럿 + 위쪽 태그(시안 collab-overview: 캐럿 위 "✦ 이름" · 이름표 B안).
+   모양·배치는 둘이 같고 색만 다르다: ✦ 는 AI 마커 시맨틱 토큰(ai-accent — 디자인시스템 07 §7.2, 하드코딩색 금지, WP-173 판정 4),
+   원격 커서는 그 사람 색(--presence-color — 위젯이 style 로 넣는다, 토큰 --presence-N). 배치 수정 클래스(--flip·--below·--inline)와
+   쌓기 변수(--wiki-tag-stack)는 wikiTagLayout fitTags 가 둘을 한 번에 계산해 단다. 태그는 긴 이름을 말줄임하고 본문 클릭을 가로채지 않는다.
+   폭 상한 40vw — 좁은 화면에서도 캐럿 왼쪽·오른쪽 중 한쪽엔 늘 들어간다(flip 과 짝). */
+.wiki-editor .ProseMirror :is(.wiki-ai-marker, .wiki-presence-cursor) {
   position: relative;
   display: inline-block;
   width: 0;
@@ -28,69 +30,72 @@
   pointer-events: none;
   user-select: none;
 }
-.wiki-editor .ProseMirror .wiki-ai-marker__caret {
+.wiki-editor .ProseMirror :is(.wiki-ai-marker__caret, .wiki-presence-cursor__caret) {
   position: absolute;
   left: -1px;
   top: -0.1em;
   bottom: -0.15em;
   width: 2px;
   border-radius: 1px;
-  background: var(--ai-accent);
 }
-.wiki-editor .ProseMirror .wiki-ai-marker__tag {
+.wiki-editor .ProseMirror :is(.wiki-ai-marker__tag, .wiki-presence-cursor__tag) {
   position: absolute;
   left: -1px;
   bottom: calc(100% + 0.15em);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
   max-width: min(12rem, 40vw);
   padding: 0.125rem 0.375rem;
-  border: 1px solid var(--ai-accent);
   border-radius: 0.375rem 0.375rem 0.375rem 0;
-  background: var(--ai-accent);
-  color: var(--ai-accent-foreground);
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
+  /* 다른 이름표와 겹치는 자리 — --wiki-tag-stack 칸만큼 위로 비켜 쌓는다. 한 칸 = 이름표 높이 + 3px(wikiTagLayout TAG_STACK_GAP 과 짝). */
+  transform: translateY(calc(var(--wiki-tag-stack, 0) * (-100% - 3px)));
 }
-/* 줄 끝 가까운 표식 — 태그가 에디터 오른쪽을 넘으면(wikiAiMarkers fitTags) 캐럿 왼쪽으로 펼친다. 꼬리 모서리도 오른쪽으로. */
-.wiki-editor .ProseMirror .wiki-ai-marker--flip .wiki-ai-marker__tag {
+/* 줄 끝 가까운 이름표 — 에디터 오른쪽을 넘으면 캐럿 왼쪽으로 펼친다. 꼬리 모서리도 오른쪽으로. */
+.wiki-editor .ProseMirror :is(.wiki-ai-marker--flip .wiki-ai-marker__tag, .wiki-presence-cursor--flip .wiki-presence-cursor__tag) {
   left: auto;
   right: -1px;
   border-radius: 0.375rem 0.375rem 0 0.375rem;
 }
-/* 표 첫 행·코드 블록 첫 줄처럼 overflow 조상(표 감싸개 overflow:auto 등) 위로 잘리는 자리 — 캐럿 아래로 펼친다(fitTags).
-   꼬리 모서리도 위쪽으로 옮긴다. */
-.wiki-editor .ProseMirror .wiki-ai-marker--below .wiki-ai-marker__tag {
+/* 표 첫 행·코드 블록 첫 줄처럼 overflow 조상 위로 잘리는 자리 — 캐럿 아래로 펼치고 아래로 쌓는다. 꼬리 모서리도 위쪽으로. */
+.wiki-editor .ProseMirror :is(.wiki-ai-marker--below .wiki-ai-marker__tag, .wiki-presence-cursor--below .wiki-presence-cursor__tag) {
   bottom: auto;
   top: calc(100% + 0.15em);
   border-radius: 0 0.375rem 0.375rem 0.375rem;
+  transform: translateY(calc(var(--wiki-tag-stack, 0) * (100% + 3px)));
 }
-.wiki-editor .ProseMirror .wiki-ai-marker--below.wiki-ai-marker--flip .wiki-ai-marker__tag {
+.wiki-editor
+  .ProseMirror
+  :is(.wiki-ai-marker--below.wiki-ai-marker--flip .wiki-ai-marker__tag, .wiki-presence-cursor--below.wiki-presence-cursor--flip .wiki-presence-cursor__tag) {
   border-radius: 0.375rem 0 0.375rem 0.375rem;
 }
-/* 위아래 모두 overflow 조상에 잘리는 자리(머리글만 있는 한 행짜리 표 등) — 캐럿 옆 줄 안에 놓는다(fitTags). 글자를 잠시 가리지만
-   이름은 읽힌다. 왼쪽으로 펼칠 땐 캐럿 왼쪽에. */
-.wiki-editor .ProseMirror .wiki-ai-marker--inline .wiki-ai-marker__tag {
+/* 위아래 모두 잘리는 자리(머리글만 있는 한 행짜리 표 등) — 캐럿 옆 줄 안에 놓는다(쌓지 않음). 글자를 잠시 가리지만 이름은 읽힌다. */
+.wiki-editor .ProseMirror :is(.wiki-ai-marker--inline .wiki-ai-marker__tag, .wiki-presence-cursor--inline .wiki-presence-cursor__tag) {
   top: 50%;
   bottom: auto;
   left: 3px;
   transform: translateY(-50%);
   border-radius: 0.375rem;
 }
-.wiki-editor .ProseMirror .wiki-ai-marker--inline.wiki-ai-marker--flip .wiki-ai-marker__tag {
+.wiki-editor
+  .ProseMirror
+  :is(.wiki-ai-marker--inline.wiki-ai-marker--flip .wiki-ai-marker__tag, .wiki-presence-cursor--inline.wiki-presence-cursor--flip .wiki-presence-cursor__tag) {
   left: auto;
   right: 3px;
 }
-/* 다른 사람 태그와 겹치는 자리(같은 자리·몇 글자 차이) — --wiki-ai-stack 칸만큼 비켜 쌓는다(fitTags). 한 칸 = 태그 높이 + 3px
-   (wikiAiMarkers TAG_STACK_GAP 과 짝). 위 태그는 위로, 아래 태그는 아래로. */
-.wiki-editor .ProseMirror .wiki-ai-marker__tag {
-  transform: translateY(calc(var(--wiki-ai-stack, 0) * (-100% - 3px)));
+
+/* ✦ 색 — AI 마커 토큰(사람 색 아님). 태그 안 lucide Sparkles + 이름. */
+.wiki-editor .ProseMirror .wiki-ai-marker__caret {
+  background: var(--ai-accent);
 }
-.wiki-editor .ProseMirror .wiki-ai-marker--below .wiki-ai-marker__tag {
-  transform: translateY(calc(var(--wiki-ai-stack, 0) * (100% + 3px)));
+.wiki-editor .ProseMirror .wiki-ai-marker__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--ai-accent);
+  background: var(--ai-accent);
+  color: var(--ai-accent-foreground);
 }
 /* 다크: 밝은 ai-accent 위 흰 글자는 2.5:1 로 본문 대비(4.5:1) 미달 — 옅은 배경(ai-accent-subtle) + ai-accent 글자(7.0:1)로 바꾸고
    테두리(ai-accent)로 어두운 본문 배경과 경계를 둔다. */
@@ -108,6 +113,41 @@
   text-overflow: ellipsis;
 }
 
+/* 원격 커서 색·이름표(WP-292) — 사람 색 캐럿 + 이름표. 이름표는 움직일 때만(data-label-visible, wikiPresenceCursors) 보이고
+   글자는 data-name 을 ::before 로 그린다(본문 textContent 에 섞이지 않게). AI 작성 중인 사람(data-ai)은 이름표를 켜지 않는다(✦ 태그가 이름표). */
+.wiki-editor .ProseMirror .wiki-presence-cursor__caret {
+  background: var(--presence-color);
+}
+/* AI 작성 중인 사람은 사람 캐럿도 감춘다(R13 + user decision 2026-10-09: caret hidden too) — 그 자리엔 ✦ 캐럿(ai-accent)+✦ 태그만.
+   같은 x 의 사람 색 캐럿이 ✦ 캐럿을 덮어 태그와 캐럿 색이 어긋나 보였다. 위젯 상자는 남겨 목록 이동·이름표 배치 기준은 그대로다. */
+.wiki-editor .ProseMirror .wiki-presence-cursor[data-ai] .wiki-presence-cursor__caret {
+  display: none;
+}
+.wiki-editor .ProseMirror .wiki-presence-cursor__tag {
+  display: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--presence-color);
+  color: var(--presence-foreground);
+}
+.wiki-editor .ProseMirror .wiki-presence-cursor__tag::before {
+  content: attr(data-name);
+}
+.wiki-editor .ProseMirror .wiki-presence-cursor[data-label-visible] .wiki-presence-cursor__tag {
+  display: block;
+}
+/* 원격 선택 영역 — 사람 색을 옅게. */
+.wiki-editor .ProseMirror .wiki-presence-selection {
+  background: color-mix(in oklch, var(--presence-color) 22%, transparent);
+}
+/* 재연결 중(한 번 동기화된 뒤 끊긴 동안) — 덮개(presenceAwarenessOf)가 붙잡아 둔 원격 커서·선택·✦ 표식을 흐리게(스펙 §7.1 ②,
+   시안 collab-states ②). 붙잡지 않으면 provider 가 끊기는 순간 지워 흐릴 대상이 없다(판정 11). */
+[data-presence-stale] .wiki-editor .wiki-presence-cursor,
+[data-presence-stale] .wiki-editor .wiki-presence-selection,
+[data-presence-stale] .wiki-editor .wiki-ai-marker {
+  opacity: 0.4;
+}
+
 /* 본문 링크(WP-300) — Tailwind preflight 가 a 의 색·밑줄을 상속으로 지워서 링크가 평문과 구분되지 않는다.
    색은 --primary 시맨틱 토큰(AI 채팅 MarkdownMessage 링크와 같은 text-primary + 밑줄, 다크 모드는 토큰이 처리).
    편집 모드에선 클릭이 커서 배치라 기본 텍스트 커서를 두고, 보기 전용(contenteditable=false)에서만 손가락 커서. */
@@ -118,4 +158,30 @@
 }
 .wiki-editor .ProseMirror[contenteditable='false'] a[href] {
   cursor: pointer;
+}
+
+/* 돌아와 따라잡은 변경(WP-293) — 잠깐(2초 = CATCHUP_HIGHLIGHT_MS (collabResume.ts)) 옅은 정보색 바탕. 내 화면 전용 노드 데코레이션. 모션 줄이기면 서서히 사라지지 않고 바로 꺼진다.
+   바탕이 글자 끝에 딱 붙지 않게 좌우로 0.375rem 더 칠한다 — 패딩·음수 마진은 목록(ul/ol) 들여쓰기를 지우고 글자를 다시 흘리므로,
+   레이아웃에 영향 없는 좌우 그림자(같은 색)로 넓힌다(Task 11 디자인 리뷰). 페이드도 그림자 색까지 함께 뺀다. */
+.wiki-editor .ProseMirror .wiki-catchup-highlight {
+  --wiki-catchup-bleed: 0.375rem;
+  border-radius: 0.25rem;
+  background: var(--info-subtle);
+  box-shadow:
+    calc(-1 * var(--wiki-catchup-bleed)) 0 0 var(--info-subtle),
+    var(--wiki-catchup-bleed) 0 0 var(--info-subtle);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .wiki-editor .ProseMirror .wiki-catchup-highlight {
+    /* 1.2초 그대로 두었다가 0.8초 동안 뺀다 — 합 2초. */
+    animation: wiki-catchup-fade 0.8s ease-out 1.2s forwards;
+  }
+}
+@keyframes wiki-catchup-fade {
+  to {
+    background: transparent;
+    box-shadow:
+      calc(-1 * var(--wiki-catchup-bleed)) 0 0 transparent,
+      var(--wiki-catchup-bleed) 0 0 transparent;
+  }
 }

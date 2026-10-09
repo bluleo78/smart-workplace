@@ -107,3 +107,11 @@ export async function expectStays<T>(
     await page.waitForTimeout(Math.min(50, left));
   }
 }
+
+/**
+ * 한 프레임을 온전히 넘긴다(두 번의 rAF) — 크기 변화 보정(ResizeObserver)은 레이아웃 뒤·페인트 전에 돌아 화면엔 밀린 모습이 그려지지 않지만,
+ * 테스트가 DOM 삽입 직후 boundingBox 로 강제 레이아웃을 하면 보정 전 값을 읽는다. 페인트된 결과를 재려면 이 뒤에 잰다.
+ */
+export function nextFrame(page: Page): Promise<void> {
+  return page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+}

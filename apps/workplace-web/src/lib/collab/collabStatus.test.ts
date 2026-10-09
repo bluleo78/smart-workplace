@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { deriveBodyState, deriveSyncStatus, effectiveReadOnly, isEditRole, parseRoleMessage } from './collabStatus'
+import {
+  deriveBodyState,
+  deriveSyncStatus,
+  effectiveReadOnly,
+  isEditRole,
+  isTerminalStatus,
+  parseRoleMessage,
+  type SyncStatus,
+} from './collabStatus'
 
 // 헤더 상태 칩 판정 — 시안 collab-states/mobile-ux 의 ①~④.
 describe('deriveSyncStatus', () => {
@@ -124,5 +132,12 @@ describe('deriveBodyState', () => {
   it('leaves every terminal state to its own notice', () => {
     for (const status of ['forbidden', 'deleted', 'signed-out', 'outdated'] as const)
       expect(deriveBodyState({ everSynced: false, status })).toBe('ready')
+  })
+})
+
+describe('isTerminalStatus', () => {
+  it('is true only for states that never reconnect', () => {
+    expect(['forbidden', 'deleted', 'signed-out', 'outdated'].every((s) => isTerminalStatus(s as SyncStatus))).toBe(true)
+    expect(['connecting', 'live', 'reconnecting', 'offline', 'unsent', 'readonly'].some((s) => isTerminalStatus(s as SyncStatus))).toBe(false)
   })
 })

@@ -4,7 +4,11 @@ import {
   CLOSE_DELETED,
   CLOSE_FORBIDDEN,
   CLOSE_TOKEN_EXPIRED,
+  COLLAB_CURSOR_FIELD,
+  COLLAB_USER_FIELD,
   parseAiMarkers,
+  parseCollabCursor,
+  parseCollabUser,
   REVALIDATE_REASON_DELETED,
 } from './collabProtocol'
 
@@ -29,5 +33,40 @@ describe('종료 코드', () => {
     expect(new Set(codes).size).toBe(3)
     for (const c of codes) expect(c >= 4000 && c <= 4999).toBe(true)
     expect(CLOSE_DELETED.reason).toBe(REVALIDATE_REASON_DELETED)
+  })
+})
+
+describe('presence awareness fields (WP-173)', () => {
+  it('uses the y-prosemirror names so other Yjs tools read them the same way', () => {
+    expect(COLLAB_USER_FIELD).toBe('user')
+    expect(COLLAB_CURSOR_FIELD).toBe('cursor')
+  })
+
+  it('parses a user with a numeric id and a string name, and rejects anything else', () => {
+    expect(parseCollabUser({ id: 2, name: '김철수' })).toEqual({ id: 2, name: '김철수' })
+    // 자기 신고 값이라 색 등 다른 키는 버린다
+    expect(parseCollabUser({ id: 2, name: '김철수', color: '#f00' })).toEqual({ id: 2, name: '김철수' })
+    expect(parseCollabUser({ id: '2', name: '김철수' })).toBeNull()
+    expect(parseCollabUser({ id: Number.NaN, name: 'x' })).toBeNull()
+    expect(parseCollabUser({ id: 2 })).toBeNull()
+    expect(parseCollabUser(null)).toBeNull()
+    expect(parseCollabUser('김철수')).toBeNull()
+  })
+
+  it('parses a cursor only when both anchor and head are objects', () => {
+    const rel = { type: null, tname: 'default', item: null, assoc: 0 }
+    expect(parseCollabCursor({ anchor: rel, head: rel })).toEqual({ anchor: rel, head: rel })
+    expect(parseCollabCursor({ anchor: rel })).toBeNull()
+    expect(parseCollabCursor({ anchor: rel, head: 3 })).toBeNull()
+    expect(parseCollabCursor(null)).toBeNull()
+  })
+
+  it('keeps an optional activity counter (seq) and stays compatible with cursors that have none', () => {
+    const rel = { type: null, tname: 'default', item: null, assoc: 0 }
+    expect(parseCollabCursor({ anchor: rel, head: rel, seq: 7 })).toEqual({ anchor: rel, head: rel, seq: 7 })
+    // 옛 클라이언트(seq 없음)·깨진 seq 는 커서는 살리고 seq 만 버린다
+    expect(parseCollabCursor({ anchor: rel, head: rel })).toEqual({ anchor: rel, head: rel })
+    expect(parseCollabCursor({ anchor: rel, head: rel, seq: '7' })).toEqual({ anchor: rel, head: rel })
+    expect(parseCollabCursor({ anchor: rel, head: rel, seq: Number.NaN })).toEqual({ anchor: rel, head: rel })
   })
 })

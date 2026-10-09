@@ -251,6 +251,22 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 | `--caution-foreground` | `oklch(0.2 0 0)` | `oklch(0.985 0 0)` |
 | `--caution-subtle` | `oklch(0.96 0.04 55)` | `oklch(0.2 0.04 55)` |
 
+#### 접속자 색 (`--presence-1` … `--presence-8`, `--presence-foreground`) — WP-173
+
+노트 동시 편집에서 "누구인지" 를 구분하는 사람 색. 접속자 아바타 바탕·원격 커서 캐럿·커서 이름표가 같은 색을 쓴다.
+✦ AI 표식(본문 ✦ 태그·아바타 ✦ 배지)은 사람 색이 아니라 AI 마커 토큰(`ai-accent`, [07 §7.2](07-iconography.md))을 그대로 쓴다.
+
+| 규칙 | 값 |
+|---|---|
+| 배정 | `userId` 결정적(`lib/collab/presence.ts` `presenceColorIndex` — 1..8) · awareness 에 색을 싣지 않는다 |
+| 라이트 | 명도 0.5, 색상 25·60·95·140·180·220·255·335°, 글자 `--presence-foreground`(흰색) ≥ 5.4:1 |
+| 다크 | 명도 0.8, 같은 색상, 글자 `--presence-foreground`(oklch 0.18) ≥ 9.5:1, 캐럿/배경 ≥ 10:1 |
+| 금지 | 보라 계열(ai-accent 293° 와 혼동), 하드코딩 hex, 임의 값 클래스(`bg-[var(...)]`), 기존 `avatarColorClass`(Tailwind 500 + 흰 글자, 일부 4.5:1 미달) |
+| 검증 | `src/lib/collab/presenceTokens.test.ts`(글자 4.5:1·캐럿 3:1) |
+
+요소에는 `presenceStyle(userId)`(React) 또는 `presenceColorVar(userId)`(위젯 DOM)로 `--presence-color` 를 넣는다. React 는 `@theme inline` 에 등록한
+`bg-presence`·`text-presence-foreground` 클래스, 위젯 CSS 는 `var(--presence-color)`·`var(--presence-foreground)` 를 쓴다(동적 클래스 생성 금지).
+
 ---
 
 ### 1-6. 정의됨·미사용 토큰 (chart / dtype)
@@ -283,15 +299,16 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 |--------|------|------|
 | 이슈/프로젝트 라벨 색 | `src/lib/labelColors.ts` | `ColorToken`(사용자 선택값, 백엔드 저장) → Tailwind 팔레트 정적 매핑(`bg`/`text`/`dot`, light+dark) |
 | 사용자 아바타 배경색 | `src/lib/avatarColor.ts` | **단일 출처**. `userId` 해시 → 9색 팔레트(`-500 text-white`). `ChatAvatar`·`UserAvatar` 가 공통 사용 |
+| 노트 접속자 색(아바타·원격 커서) | `src/index.css` `--presence-1..8` · `src/lib/collab/presence.ts` | `userId` → 8색 **토큰**(Tailwind 팔레트 아님). 라이트/다크 값이 따로 있고 대비를 테스트로 고정(§1-5 "접속자 색" 소절) |
 | 프로젝트 컬러 사각형 | `src/lib/project-color.ts` | key 해시 → `hsl(hue 60% 45%)`(고정 채도/명도, 흰 텍스트) |
 
 **설계 원칙**:
 
-- **테마 무관 고정**: 식별색은 식별 신호이므로 브랜드 테마(Indigo/Ocean/Sunset)나 다크 전환에 **반응하지 않는다**(고정). 따라서 `.theme-*`/`--primary` 에 묶지 않는다. 다크 대응이 필요한 곳(`labelColors`)은 `dark:` 변형으로 명시 처리한다.
-- **단일 출처**: 아바타 색은 `avatarColor.ts` 한 곳에서만 정의한다(과거 `UserAvatar` 내 중복 팔레트는 제거됨, #DS-categorical).
+- **테마 무관 고정**: 식별색은 식별 신호이므로 브랜드 테마(Indigo/Ocean/Sunset)나 다크 전환에 **반응하지 않는다**(고정). 따라서 `.theme-*`/`--primary` 에 묶지 않는다. 다크 대응이 필요한 곳(`labelColors`)은 `dark:` 변형으로 명시 처리한다. **예외 — 노트 접속자 색(`--presence-*`)** 은 이름표 글자 대비(4.5:1)를 지키려고 다크에서 밝은 색 + 어두운 글자로 바뀐다(브랜드 테마에는 반응하지 않는다).
+- **단일 출처**: 아바타 색은 `avatarColor.ts` 한 곳에서만 정의한다(과거 `UserAvatar` 내 중복 팔레트는 제거됨, #DS-categorical). **예외 — 노트 동시 편집의 접속자 아바타·원격 커서**는 `--presence-*` 토큰을 쓴다(WP-173 — `avatarColor` 일부 색이 흰 글자 4.5:1 미달). 앱 전체 아바타를 이 토큰으로 통일하는 일은 후속 이슈로 남긴다.
 - **정적 문자열 필수**: Tailwind purge 가 추출하도록 클래스는 인라인 리터럴로 둔다(동적 조립 금지).
 
-> 즉 "컴포넌트엔 시맨틱 토큰만" 규칙의 **유일한 예외가 이 categorical 팔레트**다. 새 식별색이 필요하면 위 세 유틸 중 하나를 재사용하거나 같은 패턴(정적 팔레트 + 결정적 해시)으로 추가한다.
+> 즉 "컴포넌트엔 시맨틱 토큰만" 규칙의 **유일한 예외가 이 categorical 팔레트**다. 새 식별색이 필요하면 위 유틸 중 하나를 재사용하거나 같은 패턴(정적 팔레트 + 결정적 해시)으로 추가한다.
 
 ---
 
@@ -415,3 +432,4 @@ Workplace는 Tailwind v4를 사용하며 `tailwind.config.js`가 없다. 대신 
 | 날짜 | 버전 | 내용 |
 |------|------|------|
 | 2026-06-06 | v1.0 | 최초 작성 — Workplace `index.css` 기준 Color/테마변형/Radius/Z-Index/Shadow/Tailwind v4 매핑 토큰 정리 |
+| 2026-10-08 | v1.1 | 노트 접속자 색 토큰 `--presence-1..8`·`--presence-foreground`(§1-5) 추가, Tailwind `presence`·`presence-foreground` 색 등록, §1-7 단일 출처·테마 무관 원칙에 접속자 색 예외 명시 (WP-173) |

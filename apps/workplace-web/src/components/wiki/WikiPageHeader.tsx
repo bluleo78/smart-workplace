@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronRight, FileCode, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { aiSignalBadgeClass } from '@/components/ai/aiMarker'
@@ -59,6 +60,7 @@ export function WikiPageHeader({
   onAiAction,
   onDelete,
   onViewSource,
+  presence,
 }: {
   crumbs: { id: number; title: string }[]
   /** 실시간 동기화 상태(WP-287) — 예전 저장 상태(저장 중/저장됨/충돌)를 대체한다. */
@@ -73,6 +75,8 @@ export function WikiPageHeader({
   onDelete: () => void
   /** 마크다운 소스 모달 열기(#753). 읽기 권한만 있으면 되므로 canEdit 과 무관하게 노출한다. */
   onViewSource: () => void
+  /** 접속자 아바타(WP-173) — WikiEditor 가 만든 요소. 다른 접속자가 없으면 null. 동기화 칩 앞에 둔다(시안 collab-overview). */
+  presence?: ReactNode
 }) {
   const isMobile = useIsMobile()
   // 모바일 상세 분기 안이면 등록(→ 레이아웃 뒤로가기 바 숨김) 후 병합 헤더로 그린다(U2-8).
@@ -244,6 +248,7 @@ export function WikiPageHeader({
             {aiBusy && (
               <Loader2 data-testid="wiki-ai-header-busy" className="h-4 w-4 animate-spin text-ai-accent motion-reduce:animate-none" aria-hidden="true" />
             )}
+            {presence}
             {syncChip}
             {pageMenu}
           </div>
@@ -357,6 +362,7 @@ export function WikiPageHeader({
       }
       actions={
         <>
+          {presence}
           {syncChip}
           {aiControl}
           {pageMenu}

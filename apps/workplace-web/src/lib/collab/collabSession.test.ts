@@ -7,8 +7,10 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // 실제 웹소켓 없이 캐시·상태 규칙만 검증한다 — provider 는 이벤트만 흉내 내는 가짜로 바꾸고 destroy 여부를 기록한다.
-const { destroyed, providers, auth } = vi.hoisted(() => ({
+const { destroyed, providers, auth, mobile } = vi.hoisted(() => ({
   destroyed: [] as string[],
+  /** 모바일 셸 폭인지(mobileWidthStore) — 백그라운드 자가 해제는 모바일에서만(WP-293). */
+  mobile: { value: true },
   providers: [] as FakeProviderLike[],
   auth: { token: 'old' as string | null, refreshed: 0, refreshOutcome: 'ok' as 'ok' | 'rejected' | 'error' },
 }))
@@ -33,7 +35,32 @@ vi.mock('@hocuspocus/provider', () => {
       this.statusListeners.forEach((fn) => fn({ status }))
     }
   }
+  class FakeAwareness {
+    clientID = 0
+    states = new Map<number, Record<string, unknown>>()
+    private fns = new Set<(changes: { added: number[]; updated: number[]; removed: number[] }) => void>()
+    getStates() {
+      return this.states
+    }
+    getLocalState() {
+      return this.states.get(this.clientID) ?? null
+    }
+    on(_e: string, fn: (changes: { added: number[]; updated: number[]; removed: number[] }) => void) {
+      this.fns.add(fn)
+    }
+    off(_e: string, fn: (changes: { added: number[]; updated: number[]; removed: number[] }) => void) {
+      this.fns.delete(fn)
+    }
+    /** 실제 y-protocols 처럼 바뀐 접속자 목록(added·updated)을 함께 알린다. */
+    set(id: number, s: Record<string, unknown>) {
+      const isNew = !this.states.has(id)
+      this.states.set(id, s)
+      const changes = { added: isNew ? [id] : [], updated: isNew ? [] : [id], removed: [] }
+      this.fns.forEach((f) => f(changes))
+    }
+  }
   class FakeProvider {
+    awareness = new FakeAwareness()
     configuration: { name: string; token: () => Promise<string>; websocketProvider: FakeSocket }
     unsyncedChanges = 0
     isAuthenticated = false
@@ -41,9 +68,10 @@ vi.mock('@hocuspocus/provider', () => {
     disconnectCalls = 0
     connectCalls = 0
     private listeners = new Map<string, Set<(...args: unknown[]) => void>>()
-    constructor(config: { name: string; token: () => Promise<string> }) {
+    constructor(config: { name: string; token: () => Promise<string>; document: { clientID: number } }) {
       this.configuration = { ...config, websocketProvider: new FakeSocket() }
       providers.push(this)
+      this.awareness.clientID = config.document.clientID
     }
     get hasUnsyncedChanges() {
       return this.unsyncedChanges > 0
@@ -74,6 +102,11 @@ vi.mock('@hocuspocus/provider', () => {
   return { HocuspocusProvider: FakeProvider }
 })
 
+vi.mock('../mobile/mediaQueryStore', () => ({
+  mobileWidthStore: { get: () => mobile.value, subscribe: () => () => {} },
+  coarsePointerStore: { get: () => false, subscribe: () => () => {} },
+}))
+
 vi.mock('../../api/client', () => ({
   getAccessToken: () => auth.token,
   refreshAccessTokenOutcome: async () => {
@@ -86,6 +119,7 @@ vi.mock('../../api/client', () => ({
 
 import * as Y from 'yjs'
 
+import { AWAY_TOAST_MS, BACKGROUND_DISCONNECT_MS, shouldShowAwayToast } from './collabResume'
 import {
   type CollabSession,
   hasUnsentCollabChanges,
@@ -93,6 +127,7 @@ import {
   releaseCollabSession,
   resetCollabSessionsForTest,
   retainCollabSession,
+  setCollabSelfUser,
 } from './collabSession'
 
 /** 세션을 얻고 보유자로 등록한다 — 화면이 렌더 중 열고(open) 마운트 후 잡는(retain) 순서를 한 번에. */
@@ -608,5 +643,367 @@ describe('collab session cache', () => {
     expect(leave()).toBe(true)
     setUnsynced(a, 0)
     expect(leave()).toBe(false)
+  })
+})
+
+describe('collab session — 복귀·백그라운드(WP-293)', () => {
+  type Aw = { set: (id: number, s: Record<string, unknown>) => void }
+  const awareness = (s: CollabSession) => (s.provider as unknown as { awareness: Aw }).awareness
+  const ws = (s: CollabSession) => fake(s).configuration.websocketProvider
+  /** 보이기 상태를 바꾸고 visibilitychange 를 쏜다(jsdom). */
+  function setVisibility(state: 'hidden' | 'visible') {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+  /** 다른 Y.Doc 의 편집을 서버에서 받은 것처럼 넣는다(origin = provider → 내 입력 아님). */
+  function remoteEdit(s: CollabSession, from: Y.Doc) {
+    from.getText('t').insert(0, 'x')
+    Y.applyUpdate(s.doc, Y.encodeStateAsUpdate(from), s.provider)
+  }
+  function liveSession(pageId: number) {
+    const s = acquireCollabSession(pageId)
+    goLive(s)
+    ws(s).setStatus('connected')
+    awareness(s).set(s.doc.clientID, { user: { id: 1, name: '나' } })
+    return s
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    mobile.value = true
+    setVisibility('visible')
+  })
+  afterEach(() => {
+    resetCollabSessionsForTest()
+    setVisibility('visible')
+    vi.useRealTimers()
+  })
+
+  it('모바일에서 2분 넘게 백그라운드면 스스로 끊고, 돌아오면 기다리지 않고 다시 붙는다', () => {
+    const s = liveSession(81)
+    setVisibility('hidden')
+    vi.advanceTimersByTime(BACKGROUND_DISCONNECT_MS - 1)
+    expect(fake(s).disconnectCalls).toBe(0)
+    vi.advanceTimersByTime(1)
+    expect(fake(s).disconnectCalls).toBe(1)
+    ws(s).setStatus('disconnected')
+    setVisibility('visible')
+    expect(fake(s).connectCalls).toBe(1)
+  })
+
+  it('자가 해제 전에 provider 가 예약해 둔 재연결이 숨겨진 동안 돌면 다시 끊는다 — 백그라운드에서 다시 붙지 않는다', () => {
+    const s = liveSession(99)
+    setVisibility('hidden')
+    vi.advanceTimersByTime(BACKGROUND_DISCONNECT_MS)
+    expect(fake(s).disconnectCalls).toBe(1)
+    // 실제 provider: 자가 해제 직전 무응답 검사가 소켓을 닫아 onClose 가 connect 를 1초 뒤로 예약했고,
+    // disconnect() 는 그 타이머를 취소하지 못한다 — 타이머가 돌면 connect() 가 다시 붙기 시작한다(status connecting).
+    ws(s).setStatus('disconnected')
+    fake(s).emit('status', { status: 'connecting' })
+    expect(fake(s).disconnectCalls).toBe(2)
+    fake(s).emit('status', { status: 'connected' })
+    expect(fake(s).disconnectCalls).toBe(3)
+  })
+
+  it('숨겨진 동안 재연결을 막았어도 돌아오면 다시 붙고, 그 뒤 연결은 막지 않는다', () => {
+    const s = liveSession(100)
+    setVisibility('hidden')
+    vi.advanceTimersByTime(BACKGROUND_DISCONNECT_MS)
+    ws(s).setStatus('disconnected')
+    fake(s).emit('status', { status: 'connecting' })
+    const held = fake(s).disconnectCalls
+    setVisibility('visible')
+    expect(fake(s).connectCalls).toBe(1)
+    fake(s).emit('status', { status: 'connecting' })
+    fake(s).emit('status', { status: 'connected' })
+    expect(fake(s).disconnectCalls).toBe(held)
+  })
+
+  it('스스로 끊었다 돌아오면 끊긴 시각을 지금으로 새로 잡는다 — 재연결 중 칩이 오프라인으로 보이지 않게', () => {
+    const s = liveSession(90)
+    setVisibility('hidden')
+    vi.advanceTimersByTime(BACKGROUND_DISCONNECT_MS)
+    // 실제 provider 처럼 소켓이 닫히면 disconnect 를 알린다(가짜 소켓은 provider 이벤트를 내지 않는다).
+    ws(s).setStatus('disconnected')
+    fake(s).emit('disconnect', { event: { code: 1000 } })
+    vi.advanceTimersByTime(60_000)
+    expect(s.getState().disconnectedSince).toBe(Date.now() - 60_000)
+    setVisibility('visible')
+    expect(s.getState().disconnectedSince).toBe(Date.now())
+  })
+
+  it('스스로 끊지 않은 끊김은 돌아와도 끊긴 시각을 그대로 둔다 — 정직한 오프라인 유지', () => {
+    mobile.value = false
+    const s = liveSession(91)
+    setVisibility('hidden')
+    ws(s).setStatus('disconnected')
+    fake(s).emit('disconnect', { event: { code: 1006 } })
+    const since = Date.now()
+    vi.advanceTimersByTime(60_000)
+    setVisibility('visible')
+    expect(s.getState().disconnectedSince).toBe(since)
+  })
+
+  it('데스크톱 셸은 백그라운드여도 끊지 않는다', () => {
+    mobile.value = false
+    const s = liveSession(82)
+    setVisibility('hidden')
+    vi.advanceTimersByTime(BACKGROUND_DISCONNECT_MS * 3)
+    expect(fake(s).disconnectCalls).toBe(0)
+  })
+
+  it('못 보낸 입력이 있으면 다 보낼 때까지 끊지 않는다', () => {
+    const s = liveSession(83)
+    setUnsynced(s, 1)
+    setVisibility('hidden')
+    vi.advanceTimersByTime(BACKGROUND_DISCONNECT_MS + 1)
+    expect(fake(s).disconnectCalls).toBe(0)
+    setUnsynced(s, 0)
+    expect(fake(s).disconnectCalls).toBe(1)
+  })
+
+  it('종단 상태 세션은 보이기 변화·online 을 무시한다', () => {
+    const s = liveSession(84)
+    fake(s).emit('disconnect', { event: { code: 4403, reason: 'forbidden' } })
+    const before = { c: fake(s).connectCalls, d: fake(s).disconnectCalls }
+    ws(s).setStatus('disconnected')
+    setVisibility('hidden')
+    vi.advanceTimersByTime(BACKGROUND_DISCONNECT_MS + 1)
+    setVisibility('visible')
+    window.dispatchEvent(new Event('online'))
+    expect({ c: fake(s).connectCalls, d: fake(s).disconnectCalls }).toEqual(before)
+  })
+
+  it('online 이 오면 보이는 동안엔 바로 다시 붙고, 숨겨진 동안엔 붙지 않는다', () => {
+    const s = liveSession(85)
+    ws(s).setStatus('disconnected')
+    window.dispatchEvent(new Event('online'))
+    expect(fake(s).connectCalls).toBe(1)
+    setVisibility('hidden')
+    window.dispatchEvent(new Event('online'))
+    expect(fake(s).connectCalls).toBe(1)
+  })
+
+  it('2분 넘게 비웠다 돌아와 동기화되면 다른 사람 수를 resume 으로 알린다 — 같은 사람 여러 탭은 한 명, 내 다른 탭은 빼고', () => {
+    const s = liveSession(86)
+    const kim1 = new Y.Doc()
+    const kim2 = new Y.Doc()
+    const myTab = new Y.Doc()
+    const unknown = new Y.Doc()
+    awareness(s).set(kim1.clientID, { user: { id: 2, name: '김철수' } })
+    awareness(s).set(kim2.clientID, { user: { id: 2, name: '김철수' } })
+    awareness(s).set(myTab.clientID, { user: { id: 1, name: '나' } })
+    setVisibility('hidden')
+    for (const d of [kim1, kim2, myTab, unknown]) remoteEdit(s, d)
+    vi.advanceTimersByTime(BACKGROUND_DISCONNECT_MS + 1000)
+    ws(s).setStatus('disconnected')
+    setVisibility('visible')
+    expect(s.getState().resume).toBeNull()
+    fake(s).emit('synced', { state: true })
+    expect(s.getState().resume).toEqual({ seq: 1, awayMs: BACKGROUND_DISCONNECT_MS + 1000, editors: 2 })
+  })
+
+  it('살아 있는 연결로 잠깐 비웠다 돌아오면 다시 붙지 않고 바로 resume 을 알린다', () => {
+    mobile.value = false
+    const s = liveSession(87)
+    setVisibility('hidden')
+    vi.advanceTimersByTime(30_000)
+    setVisibility('visible')
+    expect(fake(s).disconnectCalls).toBe(0)
+    expect(fake(s).connectCalls).toBe(0)
+    expect(s.getState().resume).toEqual({ seq: 1, awayMs: 30_000, editors: 0 })
+  })
+
+  it('데스크톱에서 2분 넘게 비웠어도 살아 있는 연결이면 다시 붙지 않고 바로 resume 을 알린다', () => {
+    mobile.value = false
+    const s = liveSession(89)
+    setVisibility('hidden')
+    vi.advanceTimersByTime(AWAY_TOAST_MS + 1)
+    setVisibility('visible')
+    expect(fake(s).disconnectCalls).toBe(0)
+    expect(fake(s).connectCalls).toBe(0)
+    expect(s.getState().resume).toEqual({ seq: 1, awayMs: AWAY_TOAST_MS + 1, editors: 0 })
+  })
+
+  it('모바일에서 2분 넘게 비웠는데 연결이 살아 있어 보이면(OS 가 타이머를 재운 얼었던 소켓) 끊었다 다시 붙어 확실히 따라잡는다', () => {
+    const s = liveSession(88)
+    setVisibility('hidden')
+    // 타이머를 돌리지 않고 시계만 넘긴다 — 백그라운드에서 자가 해제 타이머가 못 돈 상황.
+    vi.setSystemTime(Date.now() + AWAY_TOAST_MS + 1)
+    setVisibility('visible')
+    expect(fake(s).disconnectCalls).toBe(1)
+    vi.advanceTimersByTime(0)
+    ws(s).setStatus('disconnected')
+    expect(fake(s).connectCalls).toBe(1)
+    fake(s).emit('synced', { state: true })
+    expect(s.getState().resume?.seq).toBe(1)
+  })
+
+  // ── 리뷰 수정 1회차 ──
+
+  it('첫 동기화 전에 숨겨진 채 받은 문서 이력은 자리 비운 동안의 편집으로 세지 않는다', () => {
+    mobile.value = false
+    setVisibility('hidden')
+    const s = acquireCollabSession(92)
+    // 서버의 기존 이력 — 첫 동기화(SyncStep2)로 들어온다.
+    remoteEdit(s, new Y.Doc())
+    goLive(s)
+    ws(s).setStatus('connected')
+    vi.advanceTimersByTime(AWAY_TOAST_MS + 1)
+    setVisibility('visible')
+    const r = s.getState().resume
+    expect(r?.editors ?? 0).toBe(0)
+    expect(shouldShowAwayToast(r)).toBe(false)
+  })
+
+  it('첫 동기화가 숨겨진 동안 끝나면 그때부터의 원격 편집만 센다', () => {
+    mobile.value = false
+    setVisibility('hidden')
+    const s = acquireCollabSession(93)
+    remoteEdit(s, new Y.Doc())
+    goLive(s)
+    ws(s).setStatus('connected')
+    remoteEdit(s, new Y.Doc())
+    vi.advanceTimersByTime(AWAY_TOAST_MS + 1)
+    setVisibility('visible')
+    expect(s.getState().resume?.editors).toBe(1)
+  })
+
+  it('지우기만 한 원격 편집도 한 명으로 센다 — 지운 쪽의 clock 은 늘지 않는다', () => {
+    mobile.value = false
+    const s = liveSession(94)
+    const kim = new Y.Doc()
+    remoteEdit(s, kim)
+    setVisibility('hidden')
+    kim.getText('t').delete(0, 1)
+    Y.applyUpdate(s.doc, Y.encodeStateAsUpdate(kim), s.provider)
+    vi.advanceTimersByTime(AWAY_TOAST_MS + 1)
+    setVisibility('visible')
+    expect(s.getState().resume?.editors).toBe(1)
+  })
+
+  it('내가 숨겨진 채 지운 것은 세지 않는다', () => {
+    mobile.value = false
+    const s = liveSession(95)
+    remoteEdit(s, new Y.Doc())
+    setVisibility('hidden')
+    s.doc.getText('t').delete(0, 1)
+    setVisibility('visible')
+    expect(s.getState().resume?.editors).toBe(0)
+  })
+
+  it('보이는 동안 실제로 끊긴 채 숨겨져 자가 해제가 돌아도 돌아올 때 오프라인 시각을 그대로 둔다(모바일)', () => {
+    const s = liveSession(96)
+    ws(s).setStatus('disconnected')
+    fake(s).emit('disconnect', { event: { code: 1006 } })
+    const since = Date.now()
+    setVisibility('hidden')
+    vi.advanceTimersByTime(BACKGROUND_DISCONNECT_MS + 1)
+    setVisibility('visible')
+    expect(s.getState().disconnectedSince).toBe(since)
+  })
+
+  it('얼었던 소켓 재시작이 소켓 닫힘을 기다리는 중 다시 숨겨져 자가 해제되면, 소켓이 닫혀도 다시 붙지 않는다', () => {
+    const s = liveSession(97)
+    setVisibility('hidden')
+    vi.setSystemTime(Date.now() + AWAY_TOAST_MS + 1)
+    setVisibility('visible')
+    vi.advanceTimersByTime(0) // 재시작이 소켓 닫힘(status)을 기다리기 시작
+    setVisibility('hidden')
+    vi.advanceTimersByTime(BACKGROUND_DISCONNECT_MS)
+    expect(fake(s).disconnectCalls).toBe(2)
+    ws(s).setStatus('disconnected')
+    expect(fake(s).connectCalls).toBe(0)
+  })
+
+  it('얼었던 소켓 재시작 대기 중 종단이 되면 소켓이 닫혀도 다시 붙지 않는다', () => {
+    const s = liveSession(98)
+    setVisibility('hidden')
+    vi.setSystemTime(Date.now() + AWAY_TOAST_MS + 1)
+    setVisibility('visible')
+    vi.advanceTimersByTime(0)
+    fake(s).emit('disconnect', { event: { code: 4403, reason: 'forbidden' } })
+    ws(s).setStatus('disconnected')
+    expect(fake(s).connectCalls).toBe(0)
+  })
+
+  it('돌아와 붙는 중 다시 숨겨지면 숨겨진 동안엔 resume 을 내지 않고, 다시 보일 때 비운 시간을 합쳐 낸다', () => {
+    mobile.value = false
+    const s = liveSession(99)
+    setVisibility('hidden')
+    vi.advanceTimersByTime(10_000)
+    ws(s).setStatus('disconnected')
+    fake(s).emit('disconnect', { event: { code: 1006 } })
+    fake(s).isSynced = false
+    setVisibility('visible')
+    setVisibility('hidden')
+    vi.advanceTimersByTime(5_000)
+    ws(s).setStatus('connected')
+    fake(s).isSynced = true
+    fake(s).emit('synced', { state: true })
+    expect(s.getState().resume).toBeNull()
+    setVisibility('visible')
+    expect(s.getState().resume).toEqual({ seq: 1, awayMs: 15_000, editors: 0 })
+  })
+
+  it('내 다른 탭은 awareness 에 내 상태가 아직 없어도 로그인 사용자 id 로 뺀다', () => {
+    mobile.value = false
+    const s = acquireCollabSession(100)
+    setCollabSelfUser(s, 1)
+    goLive(s)
+    ws(s).setStatus('connected')
+    const myTab = new Y.Doc()
+    awareness(s).set(myTab.clientID, { user: { id: 1, name: '나' } })
+    setVisibility('hidden')
+    remoteEdit(s, myTab)
+    setVisibility('visible')
+    expect(s.getState().resume?.editors).toBe(0)
+  })
+
+  it('못 보낸 입력 때문에 미룬 자가 해제는 확인 전에 다시 보이면 취소된다', () => {
+    const s = liveSession(101)
+    setUnsynced(s, 1)
+    setVisibility('hidden')
+    vi.advanceTimersByTime(BACKGROUND_DISCONNECT_MS + 1)
+    expect(fake(s).disconnectCalls).toBe(0)
+    setVisibility('visible')
+    // 2분 넘게 비운 모바일 복귀라 살아 보이는 소켓은 새로 붙는다(얼었던 소켓 대비) — 그 재시작 말고 미룬 해제가 더 일어나면 안 된다.
+    const afterReturn = fake(s).disconnectCalls
+    setUnsynced(s, 0)
+    expect(fake(s).disconnectCalls).toBe(afterReturn)
+  })
+
+  it('숨겨진 동안 내가 한 편집은 세지 않는다', () => {
+    mobile.value = false
+    const s = liveSession(102)
+    setVisibility('hidden')
+    s.doc.getText('t').insert(0, '내 입력')
+    setVisibility('visible')
+    expect(s.getState().resume?.editors).toBe(0)
+  })
+
+  // ── 최종 리뷰 F1 ──
+
+  it('첫 동기화 전에 숨겨져 자가 해제됐어도 돌아오면 다시 붙는다 — 기준이 없으니 resume 은 내지 않는다', () => {
+    setVisibility('hidden')
+    const s = acquireCollabSession(103)
+    vi.advanceTimersByTime(BACKGROUND_DISCONNECT_MS)
+    expect(fake(s).disconnectCalls).toBe(1)
+    ws(s).setStatus('disconnected')
+    setVisibility('visible')
+    expect(fake(s).connectCalls).toBe(1)
+    // 숨겨진 2분은 끊김으로 세지 않는다 — 칩이 곧바로 '오프라인' 이 아닌 '재연결 중' 으로 보이게 지금부터 센다.
+    expect(s.getState().disconnectedSince).toBe(Date.now())
+    goLive(s)
+    expect(s.getState().resume).toBeNull()
+  })
+
+  it('첫 동기화 전에 잠깐 숨겼다 돌아오면(자가 해제 없음) 진행 중인 첫 연결을 건드리지 않는다', () => {
+    setVisibility('hidden')
+    const s = acquireCollabSession(104)
+    ws(s).setStatus('connecting')
+    setVisibility('visible')
+    expect(fake(s).connectCalls).toBe(0)
+    expect(fake(s).disconnectCalls).toBe(0)
   })
 })
