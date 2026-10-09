@@ -2,6 +2,7 @@
 import type { Page } from '@playwright/test'
 
 import type {
+  WikiMentionRef,
   WikiPageDetail,
   WikiRevisionDetail,
   WikiRevisionItem,
@@ -92,6 +93,12 @@ export async function mockWikiPageEditor(
     return r.fallback()
   })
   return puts
+}
+
+/** 노트 멘션 칩 라벨 해소(GET /pages/{id}/mentions) 응답을 고정한다. */
+export async function mockWikiMentions(page: Page, pageId: number, list: WikiMentionRef[]) {
+  await page.route((u) => u.pathname === `/api/v1/wiki/pages/${pageId}/mentions`, (r) =>
+    r.request().method() === 'GET' ? r.fulfill({ json: list }) : r.fallback())
 }
 
 /** 클립보드에 이미지 파일을 담아 .ProseMirror 에 paste 이벤트를 디스패치한다(handlePaste 진입점) — 노트 이미지 업로드 spec 공용. */

@@ -1,5 +1,6 @@
 import { isPermanentClientStatus } from '@/lib/api-error'
 import { backoffDelay } from '@/lib/backoff'
+import { toSingleLine } from '@/lib/singleLine'
 
 /**
  * 노트 제목 입력의 동기화 판정(WP-287) — 본문은 실시간 동기화(Yjs)지만 제목은 짧은 REST 저장(나중 값 우선)이다.
@@ -14,6 +15,8 @@ import { backoffDelay } from '@/lib/backoff'
  * - 저장이 일시 실패하면 입력을 되돌리지 않는다(dirty 로 남기고 createTitleSaver 가 간격을 두고 다시 보낸다).
  * - 다시 보내도 소용없는 실패(권한 없음·페이지 없음 등 4xx)면 내 입력을 포기하고(abandoned) 원격 제목을 다시 따른다.
  * - 보내기 대기 중 원격 제목으로 되돌리면(revert) 보낼 것이 없다 — 원격 제목을 다시 따른다.
+ * - 원격 제목은 한 줄로 맞춰 받는다(WP-315) — API·MCP 로 개행이 든 제목이 저장돼 있어도 입력란엔 한 줄로 보인다.
+ *   정규화한 값을 원격 기준으로 삼으므로 열기만 해서는 저장하지 않고, 사용자가 고치면 한 줄 값이 저장된다.
  */
 export interface TitleSyncState {
   /** 입력란에 보이는 제목. */
@@ -47,7 +50,8 @@ export const ECHO_WINDOW_MS = 10_000
 
 const sentIncludes = (s: TitleSyncState, title: string) => s.sent.some((e) => e.title === title)
 
-export function initTitleSync(remote: string): TitleSyncState {
+export function initTitleSync(remoteTitle: string): TitleSyncState {
+  const remote = toSingleLine(remoteTitle)
   return { local: remote, remote, focused: false, dirty: false, pending: 0, sent: [] }
 }
 
@@ -81,12 +85,13 @@ export function titleSyncReducer(s: TitleSyncState, a: TitleSyncAction): TitleSy
     case 'abandoned':
       return settle({ ...s, pending: Math.max(0, s.pending - 1), dirty: false })
     case 'remote': {
+      const remote = toSingleLine(a.title)
       // 메아리로 볼 수 있는 최근 기록만 남긴다. 마지막에 보낸 제목은 판정 기준이라 시간과 무관하게 유지한다.
       const last = s.sent[s.sent.length - 1]
       const recent = s.sent.filter((e) => e === last || a.now - e.at <= ECHO_WINDOW_MS)
       // 최근에 보낸 적 없는 제목 = 진짜 원격 변경 → 보낸 기록은 더 이상 메아리 판별에 쓸 수 없다.
-      const sent = recent.some((e) => e.title === a.title) ? recent : []
-      return settle({ ...s, remote: a.title, sent })
+      const sent = recent.some((e) => e.title === remote) ? recent : []
+      return settle({ ...s, remote, sent })
     }
   }
 }

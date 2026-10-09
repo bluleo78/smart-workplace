@@ -109,9 +109,9 @@ test('새 페이지 생성 직후 제목 입력 — placeholder 위에 이어붙
   // 생성 요청 자체가 빈 문자열 title 이어야 한다(리터럴 "제목 없음" 전송 금지).
   expect(creates.lastBody<CreateBody>()?.title).toBe('')
 
-  // 새 페이지 진입 시 제목 input 은 실제 값이 비어 있어 placeholder 만 노출되고,
+  // 새 페이지 진입 시 제목 입력란은 실제 값이 비어 있어 placeholder 만 노출되고,
   // 클릭 후 바로 입력하면 접합 없이 입력값만 남아야 한다.
-  const titleInput = page.locator('input[placeholder="제목 없음"]')
+  const titleInput = page.getByPlaceholder('제목 없음')
   await expect(titleInput).toHaveValue('')
   await titleInput.click()
   await titleInput.pressSequentially('탐색 테스트 문서')

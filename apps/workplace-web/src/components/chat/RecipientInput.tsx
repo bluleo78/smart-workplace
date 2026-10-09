@@ -20,6 +20,7 @@ import { AgentBadge } from '@/components/users/AgentBadge'
 import type { MemberPickerCandidate } from '@/hooks/queries/useUserSearch'
 import { useUserSearch } from '@/hooks/queries/useUserSearch'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
+import { isImeComposing } from '@/lib/imeKey'
 import type { UserKind } from '@/types/user'
 
 type KindFilter = 'ALL' | UserKind
@@ -99,7 +100,7 @@ export function RecipientInput({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // 한글 조합 중의 Backspace/Esc 는 조합 편집용 — 칩 제거·닫기로 해석하지 않는다.
     // (Safari 는 조합 확정 직후 keydown 을 isComposing=false, keyCode=229 로 보낸다.)
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return
+    if (isImeComposing(e.nativeEvent)) return
     if (e.key === 'Enter') {
       // 이전 검색어의 목록이 남아 있는 동안 Enter 를 누르면 엉뚱한 상대가 추가된다 — 결과가 올 때까지 무시.
       // (cmdk 는 defaultPrevented 인 키 입력을 건너뛴다.)

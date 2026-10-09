@@ -213,6 +213,10 @@
     calc(-1 * var(--wiki-diff-bleed)) 0 0 var(--wiki-diff-bg),
     var(--wiki-diff-bleed) 0 0 var(--wiki-diff-bg);
 }
+/* 표 행 통째 추가·삭제(WP-324) — 데코가 tr 에 붙는데 머리 칸(th)은 자기 바탕(--muted)이 tr 바탕을 덮으므로 칸에 직접 칠한다. */
+.wiki-editor .ProseMirror tr:is(.wiki-diff-added, .wiki-diff-removed) > :is(td, th) {
+  background: var(--wiki-diff-bg);
+}
 .wiki-editor .ProseMirror .wiki-diff-removed :is(img, table, [data-mtype]),
 .wiki-editor .ProseMirror :is(img, [data-mtype]).wiki-diff-removed {
   opacity: 0.55;

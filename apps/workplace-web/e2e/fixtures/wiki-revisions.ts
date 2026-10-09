@@ -4,6 +4,7 @@ import type { WikiRevisionItem, WikiRevisionList } from '../../src/types/wiki'
 import { envShot } from './collab'
 import { solidPng } from './png'
 import { KIM } from './presence'
+import { mockWikiMentions } from './wiki-mock'
 
 // 노트 버전 기록(WP-282) E2E 공용 데이터 — 데스크톱(pages/wiki/wiki-revisions)과 모바일(pages/mobile/wiki-revisions) spec 이 함께 쓴다.
 // 날짜 묶음("오늘"·"어제")과 HH:mm 이 실행 시각에 흔들리지 않게 spec 은 시간대(Asia/Seoul)를 고정하고 시계를 REVISION_NOW 에서 시작한다.
@@ -107,6 +108,7 @@ export const LONG_IMAGE_PATH = `/api/v1/wiki/pages/${LONG_PAGE_ID}/attachments/9
 /** 멘션 칩 라벨(GET /pages/{id}/mentions). */
 export const LONG_MENTIONS = [
   { type: 'USER' as const, id: 7, label: '앨리스 (제품기획)', spaceId: null, projectKey: null, number: null },
+  { type: 'USER' as const, id: 11, label: '윤서연 (QA)', spaceId: null, projectKey: null, number: null },
   { type: 'PAGE' as const, id: 55, label: '노트 동시 편집 설계 문서', spaceId: REVISION_SPACE_ID, projectKey: null, number: null },
 ]
 
@@ -117,16 +119,18 @@ const SIX = [LONG_NAME, KIM, PARK, LEE, CHOI, { id: 10, name: '한지민' }]
 /** 본문 조각 — 판마다 일부를 바꿔 블록·글자 단위 차이(표 행·목록 항목·이미지·코드 줄·문단 낱말)를 모두 만든다. */
 function longBody(v: {
   decision1: string
+  stage2: string
   status2: string
   reviewRow: boolean
   image: boolean
   idle: number
   extraRisk: boolean
   intro: string
+  owner: number
 }): string {
   return [
     '## 배경',
-    `${v.intro} 이번 분기 목표는 여러 사람이 같은 노트를 동시에 열어도 서로의 입력을 잃지 않고, 실수로 지운 내용을 언제든 되돌릴 수 있게 하는 것이다. 지난 분기까지는 마지막 저장이 이기는 방식이라 회의 중 두 사람이 같은 문단을 고치면 한쪽 입력이 조용히 사라졌고, 실제로 스프린트 회고 노트에서 30분 분량의 정리가 덮어써진 사고가 두 번 있었다. 담당 <@7> 이 사고 경위와 재현 절차를 <#page:55> 에 정리했다.`,
+    `${v.intro} 이번 분기 목표는 여러 사람이 같은 노트를 동시에 열어도 서로의 입력을 잃지 않고, 실수로 지운 내용을 언제든 되돌릴 수 있게 하는 것이다. 지난 분기까지는 마지막 저장이 이기는 방식이라 회의 중 두 사람이 같은 문단을 고치면 한쪽 입력이 조용히 사라졌고, 실제로 스프린트 회고 노트에서 30분 분량의 정리가 덮어써진 사고가 두 번 있었다. 담당 <@${v.owner}> 이 사고 경위와 재현 절차를 <#page:55> 에 정리했다.`,
     '## 결정 사항',
     [
       `1. ${v.decision1}`,
@@ -138,7 +142,7 @@ function longBody(v: {
       '| 단계 | 담당 | 마감 | 상태 |',
       '| --- | --- | --- | --- |',
       '| 서버 스냅샷 정책 | 박민수 | 10월 8일 | 완료 |',
-      `| 데스크톱 버전 기록 패널 | 이영희 | 10월 9일 | ${v.status2} |`,
+      `| ${v.stage2} | 이영희 | 10월 9일 | ${v.status2} |`,
       '| 모바일 전체화면 목록·미리보기 | 김철수 | 10월 10일 | 예정 |',
       ...(v.reviewRow ? ['| 디자이너 리뷰·실데이터 시각 검증 | 최수진 | 10월 11일 | 예정 |'] : []),
     ].join('\n'),
@@ -158,12 +162,15 @@ function longBody(v: {
 
 const BASE = {
   decision1: '노트 동시 편집은 Yjs + Hocuspocus 로 간다. 배포는 API → collab → 웹 순서로 하고, 롤백 시에는 본문 기준본을 비교해 밖에서 바뀐 본문을 반영한다.',
+  // 셀 안 낱말 차이(WP-324)를 긴 한글 셀 글자로 보도록 — 옛 판은 앞부분만 같다.
+  stage2: '데스크톱 버전 기록 패널과 미리보기 변경 표시(표는 행·셀 단위로 강조)',
   status2: '진행 중',
   reviewRow: true,
   image: true,
   idle: 5,
   extraRisk: false,
   intro: '노트 동시 편집(WP-171)과 버전 기록(WP-282)을 함께 검토했다.',
+  owner: 7,
 }
 /** 지금(라이브) 본문 — 맨 위 판(v12, AI 적용 직전)과 비교하면 AI 가 바꾼 내용이 보인다. */
 export const LONG_LIVE = longBody(BASE)
@@ -171,11 +178,14 @@ export const LONG_LIVE = longBody(BASE)
 const LONG_V12 = longBody({
   ...BASE,
   decision1: '노트 동시 편집은 CRDT 없이 자체 병합으로 간다. 배포 순서는 아직 정하지 않았다.',
+  stage2: '데스크톱 버전 기록 패널과 미리보기(표는 통째로 비교)',
   status2: '예정',
   reviewRow: false,
   image: false,
   idle: 10,
   extraRisk: true,
+  // 같은 자리 멘션이 다른 사람으로 — 대상만 바뀐 멘션 표시(WP-324) 확인용.
+  owner: 11,
 })
 /** v11 이하 — 결정 전 초안(첫 결정·배경 첫 문장이 다르다). */
 const LONG_V11 = longBody({ ...BASE, decision1: '아직 정하지 않았다. 다음 회의에서 CRDT 라이브러리 후보를 비교한다.', status2: '예정', reviewRow: false, image: false, idle: 10, extraRisk: true, intro: '노트 동시 편집을 검토했다.' })
@@ -211,6 +221,5 @@ export const LONG_LIST: WikiRevisionList = {
 export async function mockLongNoteExtras(p: Page) {
   const png = solidPng(640, 280, [120, 144, 200])
   await p.route((u) => u.pathname === LONG_IMAGE_PATH, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: png }))
-  await p.route((u) => u.pathname === `/api/v1/wiki/pages/${LONG_PAGE_ID}/mentions`, (r) =>
-    r.request().method() === 'GET' ? r.fulfill({ json: LONG_MENTIONS }) : r.fallback())
+  await mockWikiMentions(p, LONG_PAGE_ID, LONG_MENTIONS)
 }

@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
 import { useFocusReturn } from '@/hooks/useFocusReturn';
 import { useSheetHistory } from '@/hooks/useSheetHistory';
+import { isImeComposing } from '@/lib/imeKey';
+import { normalizeSingleLineInput } from '@/lib/singleLine';
 
 import { formatDateMonthDay } from '../../../../lib/formatters';
 import { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
@@ -87,11 +89,11 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                 maxLength={200}
                 data-testid="issue-create-title"
                 onChange={(e) => {
-                  if (/[\r\n]/.test(e.target.value)) e.target.value = e.target.value.replace(/\r?\n/g, ' ');
+                  normalizeSingleLineInput(e.target);
                   void titleField.onChange(e);
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                  if (e.key === 'Enter' && !isImeComposing(e.nativeEvent)) {
                     e.preventDefault();
                     bodyRef.current?.focus();
                   }

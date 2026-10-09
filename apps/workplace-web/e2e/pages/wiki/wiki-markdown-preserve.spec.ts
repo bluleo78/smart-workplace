@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
 import { seedCollabFor, typeAtEnd } from '../../fixtures/collab'
-import { mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import { mockWikiMentions, mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 330
@@ -23,8 +23,7 @@ const PNG = Buffer.from(
 /** 노트 에디터 라우트 + 이미지 콘텐츠·멘션 해소 스텁. */
 async function setup(page: Page, body: string, role: 'OWNER' | 'VIEWER' = 'OWNER') {
   await page.route(CONTENT_PATH, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
-  await page.route((u) => u.pathname === `/api/v1/wiki/pages/${PAGE_ID}/mentions`, (r) =>
-    r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }) : r.fallback())
+  await mockWikiMentions(page, PAGE_ID, [])
   await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '보존 확인', body, role })
 }
 
