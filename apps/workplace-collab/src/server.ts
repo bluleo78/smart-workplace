@@ -35,7 +35,8 @@ import {
   type ApplyResult,
   type RevalidateRequest,
 } from './internalRoutes'
-import { applyKeepLivePlan, markdownToYUpdate, replaceWithMarkdown, yDocToMarkdown } from './markdownCodec'
+import { applyKeepLivePlan, hasVisibleContent, markdownToYUpdate, replaceWithMarkdown, yDocToMarkdown } from './markdownCodec'
+import { EMPTY_BODY_REJECTION } from './mergeConstants'
 import {
   createMergeRunner,
   MergeFailedError,
@@ -583,8 +584,12 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
             const workerDeadline = Math.min(deadline, Date.now() + merger.timeoutMs)
             // ⓪ 정규화 + 빈 본문·파싱 실패 거부(아무것도 저장·적용하기 전에).
             const bases = [req.baseBody ?? '', ...(req.altBaseBody == null ? [] : [req.altBaseBody])]
-            const p = await merger.prepare({ body: req.body, bases, current: yDocToMarkdown(doc) }, workerDeadline - Date.now())
+            const p = await merger.prepare({ body: req.body, bases }, workerDeadline - Date.now())
             if ('rejected' in p) throw new HttpError(400, p.rejected, p.code)
+            // 빈 AI본이 워커를 통과했으면 기준본도 모두 비었다 — 현재본에 보이는 내용이 있으면 같은 이유·코드로 거부한다(WP-330).
+            // 현재본을 워커로 보내지 않는 이유: 이 판정에 현재본이 필요한 건 AI본·기준본이 모두 빈 드문 경우뿐인데, 보내려면 매 요청
+            // 메인 스레드에서 문서 전체를 직렬화해야 했다. 여기서도 직렬화 대신 Y 문서 구조로 본다(hasVisibleContent). 사전 저장(①)보다 먼저다.
+            if (p.ai.trim() === '' && hasVisibleContent(doc)) throw new HttpError(400, EMPTY_BODY_REJECTION, 'empty_body')
             // ①+② 병합 회차마다 먼저 적용 직전 판을 저장하고 실시간 상태를 워커로 보낸다 → 그 상태가 그대로일 때만 계획을 적용한다.
             changed = await mergeAgainstLive(doc, meta, p.bases, p.ai, workerDeadline, flushBeforeApply, (r) =>
               commit(() => applyKeepLivePlan(doc, r.plan, origin)),

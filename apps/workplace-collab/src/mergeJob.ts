@@ -5,6 +5,7 @@ import { docToMarkdown } from '@smart-workplace/wiki-editor-schema'
 import { closestBase, type MergeSide, mergeWithSide, prepareMergeSide } from '@smart-workplace/wiki-editor-schema/merge'
 
 import { normalizeMarkdown, planKeepLive, yUpdateToRoot } from './markdownCodec'
+import { EMPTY_BODY_REJECTION } from './mergeConstants'
 import type { LiveMergeResult, MergeJob, MergeJobMessage, MergeReply, PrepareResult, WorkerValue } from './mergeRunner'
 
 /**
@@ -27,7 +28,13 @@ function mergeSideOf(bases: string[], ai: string): MergeSide {
   return lastSide!.side
 }
 
-/** 병합 + 계획 — 실시간 상태 하나에서 현재본(직렬화)과 계획을 함께 만든다(둘이 같은 문서를 가리키게). */
+/**
+ * 병합 + 계획 — 실시간 상태 하나에서 현재본(직렬화)과 계획을 함께 만든다(둘이 같은 문서를 가리키게).
+ * 현재본은 다시 정규화하지 않는다(WP-329) — 공용 직렬화기 출력이라 강제 줄바꿈 표기는 이미 기준본·AI본과 같고, 문서 전체 재파싱은
+ * 큰 노트에서 회차마다 수 초(10000 블록 ≈ 4s)라 워커 시간 상한을 잡아먹는다. 남는 차이(사람이 친 앞 공백 등)는 충돌 수에만 영향이 있다 —
+ * 그런 공백만 고친 블록이 "resolved to the AI side" 로그 수에 섞이거나 현재본 = AI본 지름길을 놓칠 수 있다. 보이는 결과는 keepLive 가
+ * 실시간 노드로 지킨다.
+ */
 function merge(job: MergeJob): LiveMergeResult {
   const live = yUpdateToRoot(job.live)
   const current = docToMarkdown(live)
@@ -36,8 +43,8 @@ function merge(job: MergeJob): LiveMergeResult {
   return { ...merged, plan: planKeepLive(live, merged.markdown) }
 }
 
-/** 정규화 + 빈 본문 판정. 빈 AI본은 기준본·현재본도 모두 비었을 때만 허용(아니면 병합이 "AI 가 거의 모두 지움"이 된다). */
-function prepare(body: string, bases: string[], current: string): PrepareResult {
+/** 정규화 + 빈 본문 판정(기준본까지만 — 현재본은 server 의 빈 본문 판정, WP-330). 파싱 실패가 먼저다. */
+function prepare(body: string, bases: string[]): PrepareResult {
   let ai: string
   let normBases: string[]
   try {
@@ -46,8 +53,8 @@ function prepare(body: string, bases: string[], current: string): PrepareResult 
   } catch (e) {
     return { rejected: `unparseable body: ${(e as Error).message}`, code: 'unparseable_body' }
   }
-  if (ai.trim() === '' && (normBases.some((b) => b.trim() !== '') || current.trim() !== '')) {
-    return { rejected: 'empty body: refusing to merge an empty body into a non-empty note', code: 'empty_body' }
+  if (ai.trim() === '' && normBases.some((b) => b.trim() !== '')) {
+    return { rejected: EMPTY_BODY_REJECTION, code: 'empty_body' }
   }
   return { ai, bases: normBases }
 }
@@ -55,7 +62,7 @@ function prepare(body: string, bases: string[], current: string): PrepareResult 
 /** 작업 하나를 처리해 답을 만든다 — 계산 예외는 실패 답으로(워커는 산 채로 다음 작업을 받는다). 테스트 워커도 이것을 부른다. */
 export function handleJob(job: MergeJobMessage): MergeReply {
   try {
-    const value: WorkerValue = job.kind === 'prepare' ? prepare(job.body, job.bases, job.current) : merge(job)
+    const value: WorkerValue = job.kind === 'prepare' ? prepare(job.body, job.bases) : merge(job)
     return { id: job.id, ok: true, value }
   } catch (e) {
     return { id: job.id, ok: false, error: (e as Error).message }

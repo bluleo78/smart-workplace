@@ -18,13 +18,12 @@ export class MergeTimeoutError extends Error {}
 /** 계산 자체가 실패했다(워커 예외·비정상 종료·실행기 종료). */
 export class MergeFailedError extends Error {}
 
-/** 정규화 요청 — AI본·기준본 후보(원문)와 현재본(이미 정규화된 Yjs 직렬화). */
+/** 정규화 요청 — AI본·기준본 후보(원문). 현재본은 싣지 않는다(server 의 빈 본문 판정, WP-330). */
 export interface PrepareJob {
   body: string
   bases: string[]
-  current: string
 }
-/** 정규화 결과 — 정규화된 AI본·기준본 후보, 또는 병합하면 안 되는 본문(빈 본문·파싱 실패)의 거부 사유. */
+/** 정규화 결과 — 정규화된 AI본·기준본 후보, 또는 병합하면 안 되는 본문(빈 본문·파싱 실패)의 거부 사유. ai 가 비면 기준본도 모두 비었다. */
 export type PrepareResult = { ai: string; bases: string[] } | { rejected: string; code: Exclude<HttpErrorCode, 'invalid_request'> }
 
 /**
@@ -66,7 +65,7 @@ function transferOf(msg: MergeJobMessage): ArrayBuffer[] {
 export interface MergeRunner {
   /** 기본 시간 상한(ms) — 호출자가 요청 하나의 전체 기한을 잡는 데도 쓴다. */
   readonly timeoutMs: number
-  /** 정규화 + 빈 본문 판정. */
+  /** 정규화 + 빈 본문 판정(기준본 기준 — 현재본은 호출자). */
   prepare(job: PrepareJob, timeoutMs?: number): Promise<PrepareResult>
   /** 3-way 병합 + keepLive 적용 계획. */
   merge(job: MergeJob, timeoutMs?: number): Promise<LiveMergeResult>

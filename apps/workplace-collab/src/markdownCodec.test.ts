@@ -9,6 +9,7 @@ import * as Y from 'yjs'
 import {
   applyKeepLivePlan,
   FRAGMENT,
+  hasVisibleContent,
   markdownToYUpdate,
   normalizeMarkdown,
   planKeepLive,
@@ -16,6 +17,7 @@ import {
   yDocToMarkdown,
   yUpdateToRoot,
 } from './markdownCodec'
+import { liveDoc, rootOf, typeIn } from './testing/liveDoc'
 
 /** md → Y.Doc → md 한 바퀴. */
 function viaYjs(md: string): string {
@@ -117,6 +119,41 @@ describe('normalizeMarkdown', () => {
   })
 })
 
+// WP-330 — 빈 AI본 거부의 "현재본에 내용이 있나"를 직렬화 없이 판정한다. 직렬화(trim) 결과와 늘 같아야 한다.
+describe('hasVisibleContent', () => {
+  const P = (content?: unknown[]) => ({ type: 'paragraph', ...(content ? { content } : {}) })
+  const T = (text: string, marks?: unknown[]) => ({ type: 'text', text, ...(marks ? { marks } : {}) })
+  /** ProseMirror JSON 블록들로 Y 문서를 만든다(빈 배열 = 아무 블록도 없는 새 문서). */
+  const docOf = (blocks: unknown[]) => {
+    const doc = new Y.Doc()
+    if (blocks.length > 0) prosemirrorToYXmlFragment(getMarkdownSchema().nodeFromJSON({ type: 'doc', content: blocks }), doc.getXmlFragment(FRAGMENT))
+    return doc
+  }
+  it.each<[string, unknown[], boolean]>([
+    ['an empty document', [], false],
+    ['a single empty paragraph', [P()], false],
+    ['two empty paragraphs', [P(), P()], false],
+    ['a paragraph with spaces only', [P([T('   ')])], false],
+    ['a paragraph with a no-break space only', [P([T('\u00a0')])], false],
+    ['a paragraph with a hard break only', [P([{ type: 'hardBreak' }])], false],
+    ['spaces around a hard break (serialized as a backslash)', [P([T(' '), { type: 'hardBreak' }, T(' ')])], true],
+    ['a linked space', [P([T(' ', [{ type: 'link', attrs: { href: 'http://x' } }])])], true],
+    ['a space in code', [P([T(' ', [{ type: 'code' }])])], true],
+    ['a bold space', [P([T(' ', [{ type: 'bold' }])])], false],
+    ['text after an empty paragraph', [P(), P([T('글')])], true],
+    ['a mention only', [P([{ type: 'wikiMention', attrs: { id: '1', type: 'user', label: 'a' } }])], true],
+    ['a horizontal rule only', [{ type: 'horizontalRule' }], true],
+    ['an image only', [{ type: 'image', attrs: { src: 'http://x/a.png' } }], true],
+    ['an empty list item', [{ type: 'bulletList', content: [{ type: 'listItem', content: [P()] }] }], true],
+    ['an empty heading', [{ type: 'heading', attrs: { level: 2 } }], true],
+    ['an empty table', [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableHeader', content: [P()] }] }] }], true],
+  ])('agrees with the serializer for %s', (_label, blocks, want) => {
+    const doc = docOf(blocks)
+    expect(yDocToMarkdown(doc).trim() !== '').toBe(want)
+    expect(hasVisibleContent(doc)).toBe(want)
+  })
+})
+
 describe('replaceWithMarkdown', () => {
   it('returns the first changed top-level block and makes no transaction when nothing changed', () => {
     const doc = new Y.Doc()
@@ -135,29 +172,19 @@ describe('replaceWithMarkdown', () => {
 // WP-289 — 병합 적용(keepLive)은 병합이 손대지 않은 사람 입력을 마크다운 왕복으로 잃지 않는다. 실제 경로처럼 현재본을 직렬화해
 // mergeMarkdown3 에 넣고 그 결과를 적용한다.
 describe('keepLive plan (merge apply)', () => {
-  /** md 로 문서를 만들고 edit 로 실시간 편집(Y 직접 조작)을 흉내 낸다. */
-  function liveDoc(md: string, edit?: (frag: Y.XmlFragment) => void): Y.Doc {
-    const doc = new Y.Doc()
-    Y.applyUpdate(doc, markdownToYUpdate(md))
-    edit?.(doc.getXmlFragment(FRAGMENT))
-    return doc
-  }
-  /** 블록 i 의 글자 끝에 text 를 친다. */
-  const typeAt = (frag: Y.XmlFragment, i: number, text: string) => {
-    const t = (frag.get(i) as Y.XmlElement).get(0) as Y.XmlText
-    t.insert(t.length, text)
-  }
   /**
    * 실제 경로 그대로 — 워커 쪽(planKeepLive)은 실시간 상태 사본(Y 업데이트)으로 계획을 만들고, 계획은 스레드 경계(structuredClone)를 건너
    * 메인 쪽(applyKeepLivePlan)이 적용한다. 그래서 colwidth 같은 속성도 실제 경계를 지나 살아남는지 본다.
    */
   const keepLive = (doc: Y.Doc, merged: string) =>
     applyKeepLivePlan(doc, structuredClone(planKeepLive(yUpdateToRoot(Y.encodeStateAsUpdate(doc)), merged)), 'ai')
-  const applyMerge = (doc: Y.Doc, base: string, ai: string) => keepLive(doc, mergeMarkdown3(base, yDocToMarkdown(doc), ai).markdown)
+  /** 운영처럼 기준본·AI본은 정규화(prepare), 현재본은 직렬화기 출력 그대로 넣는다 — 원문 표기가 섞이면 블록 병합이 문단을 두 번 낼 수 있다. */
+  const applyMerge = (doc: Y.Doc, base: string, ai: string) =>
+    keepLive(doc, mergeMarkdown3(normalizeMarkdown(base), yDocToMarkdown(doc), normalizeMarkdown(ai)).markdown)
 
   it('keeps the trailing space typed in another block (and that block’s Y node)', () => {
     const base = '첫 문단\n\n둘째 문단'
-    const doc = liveDoc(base, (f) => typeAt(f, 1, ' 내입력 '))
+    const doc = liveDoc(base, (f) => typeIn(f, [1], ' 내입력 '))
     const second = doc.getXmlFragment(FRAGMENT).get(1)
     expect(applyMerge(doc, base, '첫 문단 AI\n\n둘째 문단')).toBe(0)
     expect(yDocToMarkdown(doc)).toBe('첫 문단 AI\n\n둘째 문단 내입력 ')
@@ -166,7 +193,7 @@ describe('keepLive plan (merge apply)', () => {
 
   it('keeps the trailing space when the AI changed another part of the same block', () => {
     const base = '회의 안건을 정리합니다'
-    const doc = liveDoc(base, (f) => typeAt(f, 0, ' 내입력 '))
+    const doc = liveDoc(base, (f) => typeIn(f, [0], ' 내입력 '))
     applyMerge(doc, base, '다음 회의 안건을 정리합니다')
     expect(yDocToMarkdown(doc)).toBe('다음 회의 안건을 정리합니다 내입력 ')
   })
@@ -209,7 +236,7 @@ describe('keepLive plan (merge apply)', () => {
 
   it('still deletes and inserts the blocks the merge changed', () => {
     const base = '하나\n\n둘\n\n셋'
-    const doc = liveDoc(base, (f) => typeAt(f, 2, ' 끝 '))
+    const doc = liveDoc(base, (f) => typeIn(f, [2], ' 끝 '))
     applyMerge(doc, base, '하나\n\n새 블록\n\n셋')
     expect(yDocToMarkdown(doc)).toBe('하나\n\n새 블록\n\n셋 끝 ')
   })
@@ -223,13 +250,6 @@ describe('keepLive plan (merge apply)', () => {
   })
 
   /** 경로(최상위부터 자식 인덱스)를 따라 내려간 글 블록의 글자 끝(at='end') 또는 처음(at=0)에 text 를 친다. */
-  const typeIn = (frag: Y.XmlFragment, path: number[], text: string, at: 'end' | 0 = 'end', attrs?: Record<string, unknown>) => {
-    let el: Y.XmlFragment | Y.XmlElement = frag
-    for (const i of path) el = el.get(i) as Y.XmlElement
-    const t = el.get(0) as Y.XmlText
-    t.insert(at === 'end' ? t.length : 0, text, attrs)
-  }
-  const rootOf = (doc: Y.Doc) => yXmlFragmentToProseMirrorRootNode(doc.getXmlFragment(FRAGMENT), getMarkdownSchema())
 
   it.each([
     ['list item', '- a\n- b\n- c', [0, 2, 0], '- a AI\n- b\n- c'],
@@ -292,7 +312,7 @@ describe('keepLive plan (merge apply)', () => {
   })
 
   it('without keepLive (version restore) the document becomes the body exactly as before', () => {
-    const doc = liveDoc('첫 문단', (f) => typeAt(f, 0, ' '))
+    const doc = liveDoc('첫 문단', (f) => typeIn(f, [0], ' '))
     replaceWithMarkdown(doc, '첫 문단', 'o')
     expect(yDocToMarkdown(doc)).toBe('첫 문단')
   })

@@ -540,6 +540,34 @@ describe('mergeMarkdown3 — 반복 블록을 공통 앞뒤 떼기로 짝짓지 
   })
 })
 
+describe('alignBlocks — 근접 동점은 작은 틈·큰 틈 모두 앞쪽(WP-325)', () => {
+  // 고유 블록이 없는 채움(양쪽 같은 수) — 앞에 붙이면 틈이 MAX_GAP_CELLS(300k 칸)를 넘어 큰 틈(내용 사슬) 경로로 간다.
+  const FILL = 600
+  const filler = () => Array.from({ length: FILL }, () => '채움 문단은 계속 같은 말을 되풀이합니다')
+  const X = P(7)
+  const X2 = P(7, ' 다듬음')
+  const T = '- [ ] 후속 확인'
+  const cases: Array<[string, string[], string[], number[]]> = [
+    // 기준 [X,X,X] ↔ [X′] — 앞 사본(기준 0)과 짝.
+    ['three equal base copies vs one edited copy', [X, X, X], [X2], [0, -1, -1]],
+    // 기준 [X] ↔ [X′,X′] — 앞 사본(상대 0)과 짝.
+    ['one base copy vs two equal edited copies', [X], [X2, X2], [0]],
+    // 리뷰 4차(525) 큰 틈 판 — 사람이 고친 T 바로 뒤부터 다음 T 까지 지웠다. 뒤 T 가 상대 위치로는 더 가깝다.
+    ['a deletion starting right after the edited copy', [T, '---', '---', T, '---'], [T, '---'], [0, 1, -1, -1, -1]],
+  ]
+
+  it.each(cases)('small gap: %s', (_label, base, other, want) => {
+    expect(alignBlocks(base, other)).toEqual(want)
+  })
+
+  it.each(cases)('large gap: %s', (_label, base, other, want) => {
+    const b = [...filler(), ...base]
+    const o = [...filler(), ...other]
+    expect(b.length * o.length).toBeGreaterThan(300_000)
+    expect(alignBlocks(b, o).slice(FILL)).toEqual(want.map((k) => (k < 0 ? k : FILL + k)))
+  })
+})
+
 describe('reference definitions (리뷰 fix)', () => {
   it('keeps reference-definition lines as their own blocks', () => {
     expect(splitBlocks('[r]: http://a\n문단 [링크][r]\n\n[s]: http://b')).toEqual(['[r]: http://a', '문단 [링크][r]', '[s]: http://b'])
@@ -689,46 +717,10 @@ describe('mergeMarkdown3 — 표 행·칸 단위 병합(Task 8 후속)', () => {
 })
 
 describe('mergeMarkdown3 — 줄 안 강제 줄바꿈 표기(Task 8 후속)', () => {
-  it('does not duplicate a paragraph whose hard break is written with trailing spaces in the base and a backslash in the current', () => {
-    const r = mergeMarkdown3('가  \n나', '가\\\n나', '가\n나')
-    expect(r.markdown).toBe('가\n나')
-    expect(r.markdown.match(/가/g)).toHaveLength(1)
-  })
-
+  // 운영 입력은 모두 `\` + 줄바꿈 표기라(기준본·AI본 정규화, 현재본은 직렬화기 출력) 블록 병합은 표기를 맞추지 않는다(WP-329,
+  // canonicalBreaks 제거). 표기가 섞인 운영 경로는 collab mergeJob.test.ts, 줄 끝 공백 뒤 역슬래시는 markdownCodec.test.ts(keepLive)가 본다.
+  // 여기 남은 것은 다른 블록의 사람 수정 옆에서 원문 기준본(줄 끝 공백 둘)을 그대로 넣어도 문단이 두 번 나오지 않는 사례다.
   it('does not duplicate it when the current is the raw base either', () => {
     expect(mergeMarkdown3('앞 문단\n\n가  \n나', '앞 문단 사람\n\n가  \n나', '앞 문단\n\n가\n나').markdown).toBe('앞 문단 사람\n\n가\n나')
-  })
-
-  it('keeps a person edit next to a hard break written in the other notation', () => {
-    const r = mergeMarkdown3('첫 줄 내용입니다  \n둘째 줄 내용입니다', '첫 줄 내용입니다\\\n둘째 줄 내용입니다 사람', '첫 줄 내용입니다 AI\\\n둘째 줄 내용입니다')
-    expect(r).toEqual({ markdown: '첫 줄 내용입니다 AI\\\n둘째 줄 내용입니다 사람', conflicts: 0 })
-  })
-
-  // 끝 공백이 강제 줄바꿈이 아닌 곳(다음 줄이 같은 문단을 잇지 않음)에 역슬래시를 만들면 글자 `\` 가 남는다(리뷰 5차).
-  it.each([
-    ['a nested list item', '- 안건\n  - 하위\n\n끝 문단', '- 안건  \n  - 하위\n\n끝 문단'],
-    ['a blockquote paragraph break', '> 첫\n>\n> 둘\n\n끝 문단', '> 첫  \n>\n> 둘\n\n끝 문단'],
-    ['a setext underline', '제목\n===\n\n끝 문단', '제목  \n===\n\n끝 문단'],
-  ])('does not turn trailing spaces before %s into a backslash', (_n, base, cur) => {
-    const r = mergeMarkdown3(base, cur, base.replace('끝 문단', '끝 문단 AI'))
-    expect(r.conflicts).toBe(0)
-    expect(r.markdown).not.toContain('\\')
-    expect(r.markdown).toBe(cur.replace('끝 문단', '끝 문단 AI'))
-  })
-
-  it('still canonicalizes real hard breaks inside a list item and a blockquote', () => {
-    expect(mergeMarkdown3('- 가  \n  나\n\n끝', '- 가\\\n  나\n\n끝', '- 가\n  나\n\n끝').markdown).toBe('- 가\n  나\n\n끝')
-    expect(mergeMarkdown3('> 가  \n> 나', '> 가\\\n> 나', '> 가\n> 나').markdown).toBe('> 가\n> 나')
-  })
-
-  it('canonicalizes only the real hard break when one block has both kinds', () => {
-    const base = '- 가  \n  나  \n  - 하위'
-    const r = mergeMarkdown3(base, '- 가\\\n  나  \n  - 하위', '- 가\\\n  나 AI\n  - 하위')
-    expect(r).toEqual({ markdown: '- 가\\\n  나 AI\n  - 하위', conflicts: 0 })
-  })
-
-  it('leaves trailing spaces inside code alone', () => {
-    const code = '```\na  \nb\n```'
-    expect(mergeMarkdown3(code, code, `${code}\n\n추가`).markdown).toBe(`${code}\n\n추가`)
   })
 })

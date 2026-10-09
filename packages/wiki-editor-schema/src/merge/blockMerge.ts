@@ -7,8 +7,10 @@ import MarkdownIt from 'markdown-it'
  * 왜 블록 단위인가: 사람은 실시간 문서에서 글자 단위로 고치고, AI 는 전체 본문을 다시 써서 보낸다. 통째로 덮으면 그사이 사람 입력이
  * 사라진다. 블록(문단·표·코드·목록 항목)마다 "누가 바꿨나"를 보고 한쪽만 바꿨으면 그쪽을, 둘 다 바꿨으면 글자 단위로 합친다.
  *
- * 입력은 모두 공용 스키마로 정규화된 마크다운이어야 한다(호출자 collab 책임) — 표기 차이만으로 블록이 "바뀐" 것으로 보이면
- * 손대지 않은 블록의 사람 수정을 AI 가 덮는다(WP-283 스파이크).
+ * 입력 규칙: 기준본·AI본은 공용 스키마 정규화본(collab normalizeMarkdown), 현재본은 공용 직렬화기 출력(docToMarkdown)이어야 한다
+ * (호출자 collab 책임). 표기 차이만으로 블록이 "바뀐" 것으로 보이면 손대지 않은 블록의 사람 수정을 AI 가 덮거나(WP-283 스파이크) 같은
+ * 내용이 두 번 나온다. 강제 줄바꿈은 직렬화기가 늘 `\` + 줄바꿈으로 쓰므로 세 입력이 이미 같은 표기다 — 블록 병합은 표기를 맞추지
+ * 않으므로, 원문을 그대로 넣으면(줄 끝 공백 둘 ↔ `\` + 줄바꿈이 섞임) 같은 문단이 두 번 나올 수 있다.
  *
  * 순수 함수(DOM·Yjs 없음) — WP-298 변경 표시가 같은 분할·정렬을 재사용한다(스펙 §6.3).
  */
@@ -42,8 +44,8 @@ const CANDIDATE_SCAN_BUDGET = 2_000
 const MAX_CANDIDATES = 8
 /**
  * 유사도가 같거나 거의 같을 때 쓰는 작은 감점(유사도 1 당 1e-6 규모) — 반복되는 같은 블록(### 액션 아이템, ---, 같은 표)이
- * 엉뚱한 회차 사본과 짝지어지지 않게 한다(WP-289 리뷰 3·4차). 작은 틈 DP 는 틈 앞 앵커에 가까운 짝(앞쪽)을, 큰 틈 후보 고르기는
- * 틈 안 상대 위치가 가까운 사본을 고른다.
+ * 엉뚱한 회차 사본과 짝지어지지 않게 한다(WP-289 리뷰 3·4차). 작은 틈 DP 와 큰 틈 내용 사슬 모두 틈 앞 앵커에 가까운 짝(앞쪽)을
+ * 고른다(WP-325 — 둘이 다르면 틈 크기에 따라 같은 입력의 짝이 달라졌다). 큰 틈 후보 가지치기(MAX_CANDIDATES)만 상대 위치를 쓴다.
  */
 const PROXIMITY_WEIGHT = 1e-6
 /** 이 유사도 미만이면 "같은 블록을 고친 것"이 아니라 삭제 + 새 블록으로 본다. */
@@ -214,9 +216,17 @@ export function trimmedLcsPairs(a: string[], b: string[]): Array<[number, number
   return pairs
 }
 
-/** 틈 안 상대 위치 거리(0~1) — i 는 n 개 중, j 는 m 개 중. */
+/** 틈 안 상대 위치 거리(0~1) — i 는 n 개 중, j 는 m 개 중. 큰 틈 후보 가지치기에만 쓴다(동점 규칙은 frontPenalty). */
 function relDistance(i: number, n: number, j: number, m: number): number {
   return Math.abs((i + 0.5) / n - (j + 0.5) / m)
+}
+
+/**
+ * 근접 동점 감점 — 작은 틈 DP 와 큰 틈 내용 사슬이 함께 쓰는 하나의 규칙(WP-325). 틈 앞 앵커에 가까운 짝(앞쪽)일수록 작다.
+ * 유사도 1 당 PROXIMITY_WEIGHT 규모라 유사도가 실제로 다르면 뒤집지 못하고, 같거나 거의 같을 때만 앞쪽 사본을 고르게 한다.
+ */
+function frontPenalty(i: number, n: number, j: number, m: number): number {
+  return PROXIMITY_WEIGHT * ((i + 0.5) / n + (j + 0.5) / m)
 }
 
 /**
@@ -276,7 +286,7 @@ function pairSmallGap(P: Profile[], Q: Profile[], bs: number, os: number, match:
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
       const s = dice(P[i], Q[j])
-      const v = s >= MIN_SIMILARITY ? s - PROXIMITY_WEIGHT * ((i + 0.5) / n + (j + 0.5) / m) : -1
+      const v = s >= MIN_SIMILARITY ? s - frontPenalty(i, n, j, m) : -1
       sim[i * m + j] = v
       const take = v >= 0 ? v + dp[(i + 1) * w + j + 1] : -Infinity
       dp[i * w + j] = Math.max(take, dp[(i + 1) * w + j], dp[i * w + j + 1])
@@ -298,7 +308,8 @@ function pairSmallGap(P: Profile[], Q: Profile[], bs: number, os: number, match:
 /**
  * 큰 틈의 내용 기반 짝 사슬 — 위치와 무관하게 내용으로 후보를 찾고, 순서를 지키는 후보 쌍 중 가중치 합이 최대인 부분열.
  * 1) Q 의 2-gram 역색인(useJ 인 블록만). 2) useI 인 P 블록마다 드문 2-gram 부터 예산만큼 훑어, 공유 수가 많고(같으면 상대 위치가 가까운)
- * 상위 MAX_CANDIDATES 개의 실제 유사도를 잰다(문턱 이상만). 3) i·j 모두 증가하는 최대 가중 부분열(펜윅 접두 최대). 결과는 지역 인덱스 쌍.
+ * 상위 MAX_CANDIDATES 개의 실제 유사도를 잰다(문턱 이상만). 3) i·j 모두 증가하는 최대 가중 부분열(펜윅 접두 최대) — 가중치는
+ * 유사도에서 작은 틈과 같은 앞쪽 감점을 뺀 값. 결과는 지역 인덱스 쌍.
  */
 function contentChain(P: Profile[], Q: Profile[], useI: (i: number) => boolean, useJ: (j: number) => boolean): Array<[number, number]> {
   const n = P.length
@@ -332,6 +343,9 @@ function contentChain(P: Profile[], Q: Profile[], useI: (i: number) => boolean, 
       for (const j of list) if (hits[j]++ === 0) touched.push(j)
     }
     // 공유 수 상위 MAX_CANDIDATES 개 — 동점이면 상대 위치가 가까운 쪽(반복 사본은 제자리 근처가 후보에 든다).
+    // 이건 동점 규칙이 아니라 가지치기다: 앞쪽 우선으로 고르면 3000 블록 노트의 --- 사본이 모두 처음 8개만 후보가 돼 사슬이 끊긴다.
+    // 받아들인 한계: 공유 수가 같은 사본이 MAX_CANDIDATES(8)개보다 많으면 앞쪽 규칙(frontPenalty)은 상대 위치가 가까운 8개 안에서만
+    // 고른다 — 그 밖의 더 앞쪽 사본은 후보에 없으므로, 그런 경우엔 작은 틈(전체 DP)과 큰 틈의 짝이 여전히 다를 수 있다.
     const better = (a: number, b: number) => hits[a] > hits[b] || (hits[a] === hits[b] && relDistance(i, n, a, m) < relDistance(i, n, b, m))
     const top: number[] = []
     for (const j of touched) {
@@ -348,7 +362,8 @@ function contentChain(P: Profile[], Q: Profile[], useI: (i: number) => boolean, 
       if (s >= MIN_SIMILARITY) {
         pi.push(i)
         pj.push(j)
-        pw.push(s - PROXIMITY_WEIGHT * relDistance(i, n, j, m))
+        // 근접 동점은 작은 틈과 같은 앞쪽 우선(WP-325) — 틈 앞 앵커에 붙은 사본을 고른다(pairSmallGap 주석 참고).
+        pw.push(s - frontPenalty(i, n, j, m))
       }
     }
   })
@@ -680,6 +695,7 @@ export function closestBase(candidates: string[], ai: string): string {
 
 /**
  * 3-way 병합. 기준 블록 순서를 뼈대로, 사람·AI 가 새로 넣은 블록은 다음 기준 블록 앞에 둔다(사람 것 순서를 뼈대로, 같은 블록은 한 번 — mergeInserts).
+ * 입력은 정규화본·직렬화기 출력이어야 한다(모듈 머리의 입력 규칙).
  */
 export function mergeMarkdown3(base: string, current: string, ai: string): MergeResult {
   if (current === ai) return { markdown: current, conflicts: 0 }
@@ -687,7 +703,7 @@ export function mergeMarkdown3(base: string, current: string, ai: string): Merge
 }
 
 /**
- * 3-way 병합에서 현재본과 무관한 기준본·AI본 쪽 계산(블록 나누기·줄바꿈 표기 통일·기준↔AI 짝짓기).
+ * 3-way 병합에서 현재본과 무관한 기준본·AI본 쪽 계산(블록 나누기·기준↔AI 짝짓기).
  * 동기화 서버는 병합 도중 문서가 바뀌면 같은 기준본·AI본으로 현재본만 바꿔 다시 병합한다 — 이 결과를 재사용해 현재본 쪽만 다시 계산한다.
  */
 export interface MergeSide {
@@ -697,40 +713,24 @@ export interface MergeSide {
   toA: number[]
 }
 
-/** 기준본·AI본 쪽 준비물 만들기 — mergeWithSide 와 짝. */
+/**
+ * 기준본·AI본 쪽 준비물 만들기 — mergeWithSide 와 짝.
+ * 입력은 정규화본·직렬화기 출력이어야 한다(모듈 머리의 입력 규칙).
+ */
 export function prepareMergeSide(base: string, ai: string): MergeSide {
-  const B = splitBlocks(base).map(canonicalBreaks)
-  const A = splitBlocks(ai).map(canonicalBreaks)
+  const B = splitBlocks(base)
+  const A = splitBlocks(ai)
   return { ai, B, A, toA: alignBlocks(B, A) }
 }
 
-/** 미리 만든 기준본·AI본 쪽으로 현재본과 3-way 병합 — mergeMarkdown3 과 같은 결과. */
+/**
+ * 미리 만든 기준본·AI본 쪽으로 현재본과 3-way 병합 — mergeMarkdown3 과 같은 결과.
+ * 입력은 정규화본·직렬화기 출력이어야 한다(모듈 머리의 입력 규칙).
+ */
 export function mergeWithSide(side: MergeSide, current: string): MergeResult {
   if (current === side.ai) return { markdown: current, conflicts: 0 }
-  const r = mergeSequence(side.B, splitBlocks(current).map(canonicalBreaks), side.A, resolveBlock, side.toA)
+  const r = mergeSequence(side.B, splitBlocks(current), side.A, resolveBlock, side.toA)
   return { markdown: joinBlocks(r.blocks), conflicts: r.conflicts }
-}
-
-/**
- * 줄 안 강제 줄바꿈 표기를 하나로 — 줄 끝 공백 둘 이상(`가␠␠\n나`)을 공용 직렬화기 표기(`가\\\n나`)로 바꾼다.
- * 왜: 같은 블록이 두 표기로 오면 짧은 블록은 유사도 문턱 아래로 떨어져 "사람이 지우고 새로 씀 + AI 가 지우고 새로 씀"이 되어
- * 내용이 두 번 나온다(WP-289 Task 8 리뷰).
- * 실제 강제 줄바꿈일 때만 바꾼다 — 다음 줄이 같은 문단을 잇지 않으면(하위 목록·인용 빈 줄·setext 밑줄·코드·인라인 코드 안 등)
- * 끝 공백은 그냥 버려지는 공백이라, 역슬래시로 바꾸면 글자 `\` 가 생긴다(리뷰 5차 — 현재본은 Yjs 직렬화라 끝 공백이 그대로 온다).
- * CommonMark 규칙을 흉내 내지 않고 markdown-it 렌더 결과가 같은지로 판정한다: `␠␠\n` 과 `\\\n` 는 강제 줄바꿈일 때만 같은 HTML 이다.
- */
-function canonicalBreaks(block: string): string {
-  if (!block.includes('  \n')) return block
-  const html = md.render(block)
-  const all = block.replace(/ {2,}\n/g, '\\\n')
-  if (md.render(all) === html) return all
-  // 일부만 강제 줄바꿈 — 하나씩 바꿔 보고 렌더가 같은 것만 남긴다(뒤에서부터 바꿔 앞 위치가 밀리지 않게).
-  let out = block
-  for (const m of [...block.matchAll(/ {2,}\n/g)].reverse()) {
-    const next = out.slice(0, m.index) + '\\\n' + out.slice(m.index + m[0].length)
-    if (md.render(next) === html) out = next
-  }
-  return out
 }
 
 /**
