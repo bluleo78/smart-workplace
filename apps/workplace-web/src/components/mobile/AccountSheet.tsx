@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useSignOut } from '@/hooks/useSignOut'
 import { useThemeToggle } from '@/hooks/useThemeToggle'
 import { useWorkspaceOptions } from '@/hooks/useWorkspaceOptions'
+import { presenceStyle } from '@/lib/collab/presence'
 import { cn, displayNameOf, initialOf } from '@/lib/utils'
 
 /** 시트의 한 줄 동작(프로필·테마·로그아웃) — 위 구분선 + 44px 전폭 버튼. */
@@ -98,8 +99,9 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
       >
         <div aria-hidden className="mx-auto h-1 w-8 rounded-full bg-muted-foreground/30" />
         <div className="flex items-center gap-3 py-2 pr-8">
-          <Avatar size="lg">
-            <AvatarFallback className="bg-primary/10 font-semibold text-primary">{initialOf(displayName)}</AvatarFallback>
+          {/* 내 아바타 — 다른 사람 아바타와 같은 사람 색(WP-318). */}
+          <Avatar size="lg" style={user ? presenceStyle(user.id) : undefined}>
+            <AvatarFallback className="bg-presence font-semibold text-presence-foreground">{initialOf(displayName)}</AvatarFallback>
           </Avatar>
           <div className="min-w-0">
             <SheetTitle className="truncate text-base">{displayName}</SheetTitle>

@@ -16,7 +16,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useAuth } from '@/hooks/useAuth'
 import { useSignOut } from '@/hooks/useSignOut'
 import { useThemeToggle } from '@/hooks/useThemeToggle'
-import { cn } from '@/lib/utils'
+import { presenceStyle } from '@/lib/collab/presence'
+import { cn, displayNameOf, initialOf } from '@/lib/utils'
 
 export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
   const navigate = useNavigate()
@@ -40,8 +41,16 @@ export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
                 'lg:p-1',
               )}
             >
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <UserIcon className="h-4 w-4" />
+              {/* 내 아바타 — 다른 사람 아바타와 같은 사람 색(bg-presence + presenceStyle, WP-318) + 이니셜. 사용자 로드 전엔 아이콘. */}
+              <span
+                data-testid="rail-user-avatar"
+                className={cn(
+                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+                  user ? 'bg-presence text-presence-foreground' : 'bg-muted text-muted-foreground',
+                )}
+                style={user ? presenceStyle(user.id) : undefined}
+              >
+                {user ? initialOf(displayNameOf(user)) : <UserIcon className="h-4 w-4" />}
               </span>
               {/* 모바일 드로어에서는 항상, 데스크톱은 max-width+opacity 전환으로 부드럽게 숨김/표시. */}
               <span

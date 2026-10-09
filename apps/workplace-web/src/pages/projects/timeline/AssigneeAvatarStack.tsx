@@ -2,7 +2,8 @@
 // Jira 타임라인의 아바타 필터 미러. 최대 5명 + 초과분은 +N 팝오버로 폴백.
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { avatarColorClass, avatarInitials } from '@/lib/avatarColor';
+import { avatarInitials } from '@/lib/avatarColor';
+import { presenceStyle } from '@/lib/collab/presence';
 import { cn } from '@/lib/utils';
 import type { MemberResponse } from '@/types/project';
 
@@ -33,12 +34,13 @@ export function AssigneeAvatarStack({ members, selectedIds, onToggle }: Assignee
           onClick={() => onToggle(m.userId)}
           className={cn(
             'flex size-7 items-center justify-center rounded-full border-2 border-background text-xs font-medium transition-opacity',
-            avatarColorClass(m.userId),
+            'bg-presence text-presence-foreground',
             i > 0 && '-ml-2',
             isSelected(m.userId) && 'ring-2 ring-primary',
             // 하나라도 선택되면 비선택 아바타는 흐리게 — 활성 필터를 시각적으로 강조.
             selectedIds.length > 0 && !isSelected(m.userId) && 'opacity-50',
           )}
+          style={presenceStyle(m.userId)}
         >
           {avatarInitials(m.name)}
         </button>
@@ -68,8 +70,9 @@ export function AssigneeAvatarStack({ members, selectedIds, onToggle }: Assignee
                     <span
                       className={cn(
                         'flex size-5 items-center justify-center rounded-full text-xs',
-                        avatarColorClass(m.userId),
+                        'bg-presence text-presence-foreground',
                       )}
+                      style={presenceStyle(m.userId)}
                     >
                       {avatarInitials(m.name)}
                     </span>

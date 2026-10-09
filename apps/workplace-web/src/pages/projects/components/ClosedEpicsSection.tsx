@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 
 import { ClosedStatusBadge } from '../../../components/issues/ClosedStatusBadge';
 import { useClosedEpics } from '../../../hooks/queries/useProjectEpics';
-import { avatarColorClass } from '../../../lib/avatarColor';
+import { presenceStyle } from '../../../lib/collab/presence';
 
 export function ClosedEpicsSection({
   projectKey, selectedEpic, onSelect, hidden = false,
@@ -52,7 +52,7 @@ export function ClosedEpicsSection({
                 >
                   {/* 흐림은 제목·색점에만 — 배지는 또렷하게 둬 상태를 읽을 수 있게 한다. */}
                   <span className="flex items-center gap-2">
-                    <span className={cn('h-2 w-2 shrink-0 rounded-full opacity-50 dark:opacity-70', avatarColorClass(ep.number).split(' ')[0])} aria-hidden="true" />
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-presence opacity-50 dark:opacity-70" style={presenceStyle(ep.number)} aria-hidden="true" />
                     <span
                       className={cn('min-w-0 flex-1 truncate', selected ? 'text-foreground' : 'text-muted-foreground', ep.status === 'CANCELED' && 'line-through')}
                       title={ep.title}

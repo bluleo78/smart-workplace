@@ -27,7 +27,7 @@
 | `--muted` | `oklch(0.965 0.005 264)` | `oklch(1 0 0 / 5%)` | secondary와 동일 |
 | `--muted-foreground` | `oklch(0.5 0 0)` | `oklch(0.6 0 0)` | 다크 배경에서 더 밝게 |
 | `--accent` | `oklch(0.955 0.01 264)` | `oklch(1 0 0 / 7%)` | 솔리드 → 흰색 7% 알파 |
-| `--destructive` | `oklch(0.577 0.245 27.325)` | `oklch(0.704 0.191 22.216)` | 다크에서 더 밝고 채도 낮게 |
+| `--destructive` | `oklch(0.55 0.245 27.325)` | `oklch(0.704 0.191 22.216)` | 다크에서 더 밝고 채도 낮게 — 그래서 다크 `--destructive-foreground`·`--primary-foreground` 는 어두운 글자 `oklch(0.18 0 0)` (WP-322) |
 | `--border` | `oklch(0.94 0.005 264)` | `oklch(1 0 0 / 10%)` | 솔리드 → 흰색 10% 알파 |
 | `--input` | `oklch(0.92 0.005 264)` | `oklch(1 0 0 / 12%)` | 솔리드 → 흰색 12% 알파 |
 | `--ring` | `oklch(0.55 0.15 264)` | `oklch(0.65 0.2 264)` | 인디고 — 다크에서 더 밝게 |

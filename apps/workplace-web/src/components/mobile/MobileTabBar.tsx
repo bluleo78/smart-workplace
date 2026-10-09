@@ -147,13 +147,14 @@ export function MobileTabBar() {
           {/* 다른 탭과 같은 선상 — 위로 돌출시키면 탭 루트 화면 본문 하단(목록 끝·입력창)을 가리므로,
               높이는 아이콘(20px)과 같게 두고(-my-0.5 로 24px 캡슐의 여분 상쇄) 그라데이션 캡슐로만 1급 액션을 강조한다. */}
           {/* 비활성 = 옅은 AI 틴트(다른 탭과 무게를 맞춤), 활성(AI 열림) = 그라데이션으로 "지금 여기"를 강조(U2-3).
-              ai-accent 토큰이라 다크 모드에서도 대응 색으로 바뀐다. */}
+              ai-accent 토큰이라 다크 모드에서도 대응 색으로 바뀐다. 글리프는 primary-foreground(라이트 흰·다크 어두운) — 그라데이션 양 끝
+              (ai-accent·primary, 기본·ocean·sunset) 모두 4.5:1 이상(WP-322; 다크에서 흰 글리프는 ai-accent 위 2.49:1). */}
           <span
             data-testid="mobile-tab-ai-capsule"
             data-active={aiOpen ? 'true' : undefined}
             className={cn(
               'relative -my-0.5 flex h-6 w-11 items-center justify-center rounded-full',
-              aiOpen ? 'bg-gradient-to-br from-ai-accent to-primary text-white shadow-sm' : 'bg-ai-accent-subtle text-ai-accent',
+              aiOpen ? 'bg-gradient-to-br from-ai-accent to-primary text-primary-foreground shadow-sm' : 'bg-ai-accent-subtle text-ai-accent',
               triggerActivity === 'pending' && 'ai-ring',
             )}
           >
