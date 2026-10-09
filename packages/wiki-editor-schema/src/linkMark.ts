@@ -19,8 +19,9 @@ const normalizer = new MarkdownIt()
  * markdown-it 은 [t](url) 의 주소를 normalizeLink 로 인코딩해 <a href> 를 만들지만, HTML 붙여넣기·raw HTML 의 href 는
  * 그 과정을 거치지 않는다. 그대로 두면 공백 든 주소는 저장 후 링크 문법이 깨져 평문이 되고, | < 비ASCII 는 다시 열 때
  * 인코딩돼 저장할 때마다 본문이 바뀐다. 이미 인코딩된 %XX 는 유지되므로 두 번 적용해도 같다.
+ * 웹의 링크 넣기 UI(WP-312)도 setLink 직전에 같은 정규화를 쓴다 — setLink 는 parseHTML 을 거치지 않아서다.
  */
-function normalizeHref(href: string | null): string | null {
+export function normalizeHref(href: string | null): string | null {
   return href == null ? null : normalizer.normalizeLink(href.trim())
 }
 

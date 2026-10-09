@@ -175,6 +175,8 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
     if (!hotkeysEnabled) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        // 화면이 먼저 ⌘K 를 쓴 경우(노트 본문의 링크 넣기, WP-312)는 AI 를 토글하지 않는다.
+        if (e.defaultPrevented) return;
         e.preventDefault();
         toggle();
       } else if (e.key === 'Escape' && !e.defaultPrevented) {

@@ -89,3 +89,14 @@ export function anchorPosition(editor: Editor, pos: number): (current: Editor) =
     return Math.min(resolveRelative(current.state, rel) ?? pos, size)
   }
 }
+
+/**
+ * 범위 끝(pos)의 Yjs 상대 위치 — 마지막 글자(pos-1)에 왼쪽 결합(assoc=-1)으로 붙인다(링크 걸기, WP-312).
+ * 기본(오른쪽 글자에 붙음)이면 범위 바로 뒤에 남이 친 글자가 범위로 끌려 들어온다.
+ * 끝이 블록 맨 앞(parentOffset 0 — 다음 문단 시작까지 고른 선택)이면 pos-1 은 블록 경계라 글자가 아니므로 기본 방식을 쓴다.
+ */
+export function toRelativeEnd(state: EditorState, pos: number): Y.RelativePosition | null {
+  if (state.doc.resolve(pos).parentOffset === 0) return toRelative(state, pos)
+  const base = toRelative(state, pos - 1)
+  return base ? new Y.RelativePosition(base.type, base.tname, base.item, -1) : null
+}

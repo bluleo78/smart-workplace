@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import { isImeComposing } from '@/lib/imeKey'
 import { normalizeSingleLineInput } from '@/lib/singleLine'
 import { cn } from '@/lib/utils'
@@ -40,6 +41,7 @@ import { type AwarenessStates, jumpAnchor, type PresencePerson } from '../../lib
 import { presenceAwarenessOf } from '../../lib/collab/presenceAwareness'
 import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
 import { registerWikiEditorView, useWikiImageUpload } from './useWikiImageUpload'
+import { useWikiLinkUi } from './useWikiLinkUi'
 import { useWikiRevisionHistory } from './useWikiRevisionHistory'
 import { type GenerateActionKey, type TransformActionKey } from './wikiAiActions'
 import { WikiAiBubbleToolbar } from './WikiAiBubbleToolbar'
@@ -54,7 +56,10 @@ import { anchorPosition, toRelative } from './wikiCollabPosition'
 import { type CreatedIssue,WikiCreateIssueDialog } from './WikiCreateIssueDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { wikiEditorExtensions } from './wikiEditorExtensions'
+import { WikiLinkActionSheet } from './WikiLinkActionSheet'
+import { focusLinkBubble, WikiLinkBubble } from './WikiLinkBubble'
 import { wikiLinkHrefToOpen } from './wikiLinkClick'
+import { WikiLinkInput } from './WikiLinkInput'
 import { wikiListPath } from './wikiListPath'
 import { WikiMarkdownSourceDialog } from './WikiMarkdownSourceDialog'
 import { rememberMentionLabel, WikiMentionLabelsProvider } from './wikiMentionLabels'
@@ -510,6 +515,8 @@ export function WikiEditor({
   const presenceHiddenRef = useRef(isTerminalStatus(syncStatus))
   // 로그인 사용자 id — 원격 커서에서 내 다른 탭을 빼는 기준(헤더 usePresence 와 같은 값). 확장은 1회 만들어지므로 ref 로 넘긴다.
   const selfUserIdRef = useRef(userId ?? null)
+  // ⌘K 링크 넣기(WP-312) — 에디터는 마운트 때 한 번 만들어지므로 최신 열기 함수를 ref 로 읽는다.
+  const openLinkInputRef = useRef<() => boolean>(() => false)
 
   const editor = useEditor(
     {
@@ -529,7 +536,17 @@ export function WikiEditor({
         tableShortcuts: tableShortcutsExtension,
       }),
       // 이미지 붙여넣기·드래그드롭 업로드. 업로드 완료 시 image 노드로 교체된다.
-      editorProps: { handlePaste, handleDrop },
+      // ⌘K — 링크 주소 입력. 열었을 때만 true(preventDefault)라 전역 AI 토글은 건너뛰고, 못 열면(노드 선택) AI 가 받는다.
+      // Alt+F10 — 떠 있는 링크 버블로 포커스(툴바 진입 관례 키).
+      editorProps: {
+        handlePaste,
+        handleDrop,
+        handleKeyDown: (view, e) => {
+          if (e.altKey && e.key === 'F10') return focusLinkBubble()
+          if (!view.editable || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'k') return false
+          return openLinkInputRef.current()
+        },
+      },
       // 권한 게이트 — VIEWER 는 본문을 입력할 수 없다(#756). 미설정 시 tiptap 기본값이 true 라
       // 뷰어도 자유롭게 타이핑할 수 있었고, 서버가 편집을 버리므로 입력이 조용히 사라졌다.
       // 스페이스 목록 로딩 중(role undefined)에는 fail-closed 로 false 였다가 아래 effect 가 뒤집는다.
@@ -550,6 +567,14 @@ export function WikiEditor({
     // eslint-disable-next-line react-hooks/immutability
     editorRef.current = editor
   })
+
+  // 링크 넣기·고치기·해제·열기(WP-312) — 데스크톱은 버블+팝오버, 터치 셸은 바텀시트.
+  const isTouchShell = useIsTouchShell()
+  const linkUi = useWikiLinkUi(editorRef)
+  const { openInput: openLinkInput, closeInput: closeLinkInput } = linkUi
+  useEffect(() => {
+    openLinkInputRef.current = () => openLinkInput()
+  }, [openLinkInput])
 
   useEffect(() => {
     // 숨김 여부가 그대로면 다시 그릴 것이 없다 — 새 에디터는 만들 때 이 ref 를 읽는다.
@@ -616,6 +641,11 @@ export function WikiEditor({
   useEffect(() => {
     editor?.setEditable(editable)
   }, [editor, editable])
+  // 편집할 수 없게 되면(보기 권한 강등·버전 미리보기로 가려짐) 열린 링크 주소 입력을 닫는다 — 문서는 바꾸지 않는다.
+  const linkInputOpen = linkUi.input != null
+  useEffect(() => {
+    if (!editable && linkInputOpen) closeLinkInput(false)
+  }, [editable, linkInputOpen, closeLinkInput])
   // 가려지면 에디터 영역에서 포커스를 뺀다 — 숨은 contenteditable·제목 입력으로 타이핑·버블 메뉴가 가지 않게(모바일은 키보드도 내려간다).
   // 본문(ProseMirror)은 tiptap blur, 그 밖의 가려진 영역 안 포커스(제목 input 등)는 그 요소를 직접 blur 한다.
   useEffect(() => {
@@ -722,8 +752,18 @@ export function WikiEditor({
 
   // 본문 클릭 위임 — 편집 모드의 Ctrl/⌘+클릭 링크 열기(WP-300)를 먼저 보고, 아니면 멘션 칩 내비게이션.
   // 새 탭은 noopener·noreferrer 로 연다(열린 페이지가 window.opener 로 이 탭을 조작하지 못하게).
+  const { openSheetFromAnchor } = linkUi
   const onBodyClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      // 터치 셸 편집 중 링크 탭 → 링크 시트(WP-312). 보기 전용이면 렌더된 <a target=_blank> 가 그대로 열린다.
+      if (isTouchShell && editorRef.current?.isEditable) {
+        const anchor = (e.target as Element).closest('.ProseMirror a[href]')
+        if (anchor) {
+          e.preventDefault()
+          openSheetFromAnchor(anchor)
+          return
+        }
+      }
       const href = wikiLinkHrefToOpen(e.target as Element, {
         editable: canEdit,
         modKey: e.metaKey || e.ctrlKey,
@@ -735,7 +775,7 @@ export function WikiEditor({
       }
       onChipClick(e)
     },
-    [canEdit, onChipClick],
+    [canEdit, onChipClick, isTouchShell, openSheetFromAnchor],
   )
 
   // 생성 취소 — ESC 또는 버튼. abort 후 상태 복귀. 결과는 완료 시에만 삽입하므로 받은 부분 결과는 버려진다(WP-255).
@@ -853,10 +893,22 @@ export function WikiEditor({
             <WikiAiBubbleToolbar
               editor={editor}
               disabled={!roleCanEdit || !editable || aiBusy}
+              // 링크 주소 입력이 열린 동안은 감춘다.
+              suppressed={linkInputOpen}
               onAction={runTransform}
               onCreateIssue={roleCanEdit && canEdit ? onCreateIssue : undefined}
+              onLink={() => openLinkInput()}
             />
             <WikiTableToolbar editor={editor} disabled={!editable} />
+            {/* 링크 버블(WP-312). BubbleMenu 라 조건부 형제(표 우클릭 메뉴의 인라인 트리거)보다 앞에 둔다(insertBefore 함정). */}
+            <WikiLinkBubble
+              editor={editor}
+              disabled={!editable || isTouchShell}
+              suppressed={linkInputOpen}
+              canModify={editable}
+              onEdit={() => openLinkInput()}
+              onUnlink={linkUi.unlink}
+            />
             <WikiTableContextMenu editor={editor} disabled={!editable} />
             {/* 제목 — 한 줄 값이지만 화면에선 줄바꿈해 보이도록 rows=1 자동 높이 textarea(WP-315·317).
                 개행은 넣지 않는다: Enter 는 아래 핸들러가 본문 이동으로 쓰고, 붙여넣기 등으로 들어온 개행은 공백으로 바꾼다
@@ -1020,6 +1072,18 @@ export function WikiEditor({
         hasChildren={pageHasChildren}
         onConfirm={handleDeleteCurrent}
       />
+      {/* 링크 주소 입력(데스크톱 팝오버·터치 시트)과 터치 링크 시트(WP-312). */}
+      <WikiLinkInput ui={linkUi} touch={isTouchShell} />
+      {linkUi.sheet && (
+        <WikiLinkActionSheet
+          open
+          href={linkUi.sheet.href}
+          canModify={editable}
+          onClose={linkUi.closeSheet}
+          onEdit={linkUi.editFromSheet}
+          onUnlink={linkUi.unlinkFromSheet}
+        />
+      )}
       <WikiMarkdownSourceDialog
         open={sourceOpen}
         onOpenChange={setSourceOpen}
