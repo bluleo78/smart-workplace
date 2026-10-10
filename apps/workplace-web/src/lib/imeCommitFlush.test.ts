@@ -18,72 +18,54 @@ afterEach(() => {
   view = null;
 });
 
-/** "가나" 문단 끝에 커서를 둔 편집기 — Enter 키맵은 그 순간 문서에 보이는 글자를 기록만 한다. */
-function mount(withFix: boolean) {
-  const seenAtEnter: string[] = [];
+/** "가나" 문단 끝에 커서를 둔 편집기 — key 키맵은 그 순간 문서에 보이는 글자를 기록만 한다. */
+function mount(withFix: boolean, key = 'Enter') {
+  const seen: string[] = [];
   const doc = schema.node('doc', null, [schema.node('paragraph', null, [schema.text('가나')])]);
   const plugins = [
-    ...(withFix ? [new Plugin({ props: { handleKeyDown: flushBeforeComposedKey } })] : []),
-    keymap({
-      Enter: (state) => {
-        seenAtEnter.push(state.doc.textContent);
-        return true;
-      },
-    }),
+    ...(withFix ? [new Plugin({ props: { handleDOMEvents: { keydown: flushBeforeComposedKey } } })] : []),
+    keymap({ [key]: (state) => (seen.push(state.doc.textContent), true) }),
   ];
   const place = document.createElement('div');
   document.body.append(place);
   view = new EditorView(place, { state: EditorState.create({ doc, selection: TextSelection.create(doc, 3), plugins }) });
-  return { view, seenAtEnter };
+  return seen;
 }
+
+const keydown = (key: string, keyCode: number) =>
+  view!.dom.dispatchEvent(new KeyboardEvent('keydown', { key, keyCode, bubbles: true, cancelable: true }));
 
 /**
  * macOS Chrome 순서를 한 태스크 안에서 재현 — 조합 시작 → 마지막 글자 "다" 를 DOM 에 씀(아직 ProseMirror 가 읽지 않음)
- * → compositionend → 곧바로 조합 아닌 Enter keydown. 사이에 마이크로태스크가 돌지 않아 DOM 변경이 밀린 채로 남는다.
+ * → compositionend → 곧바로 조합 아닌 keydown. 사이에 마이크로태스크가 돌지 않아 DOM 변경이 밀린 채로 남는다.
  */
-function composeLastSyllableThenEnter(v: EditorView) {
-  const dom = v.dom;
+function composeLastSyllableThen(key: string, keyCode: number) {
+  const dom = view!.dom;
   dom.dispatchEvent(new CompositionEvent('compositionstart', { data: '', bubbles: true }));
-  const text = dom.querySelector('p')!.firstChild as Text;
-  text.appendData('다');
+  (dom.querySelector('p')!.firstChild as Text).appendData('다');
   dom.dispatchEvent(new CompositionEvent('compositionend', { data: '다', bubbles: true }));
-  dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+  keydown(key, keyCode);
 }
 
 describe('flushBeforeComposedKey — 조합 종료 직후 키 입력이 확정 글자를 읽고 처리되게 한다(WP-333)', () => {
-  it('Enter 키맵이 돌 때 마지막 조합 글자가 이미 문서에 들어가 있다', () => {
-    const { view: v, seenAtEnter } = mount(true);
-    composeLastSyllableThenEnter(v);
-    expect(seenAtEnter).toEqual(['가나다']);
-  });
-
-  it('(대조) 플러그인이 없으면 Enter 가 확정 글자 없는 문서로 처리된다 — 이 차이가 글자가 사라지던 원인', () => {
-    const { view: v, seenAtEnter } = mount(false);
-    composeLastSyllableThenEnter(v);
-    expect(seenAtEnter).toEqual(['가나']);
-  });
-
-  it('조합을 끝내는 다른 키(Tab 등)도 키맵이 돌기 전에 확정 글자가 반영된다', () => {
-    const seen: string[] = [];
-    const doc = schema.node('doc', null, [schema.node('paragraph', null, [schema.text('가나')])]);
-    const place = document.createElement('div');
-    document.body.append(place);
-    const plugins = [
-      new Plugin({ props: { handleKeyDown: flushBeforeComposedKey } }),
-      keymap({ Tab: (state) => (seen.push(state.doc.textContent), true) }),
-    ];
-    view = new EditorView(place, { state: EditorState.create({ doc, selection: TextSelection.create(doc, 3), plugins }) });
-    const dom = view.dom;
-    dom.dispatchEvent(new CompositionEvent('compositionstart', { data: '', bubbles: true }));
-    (dom.querySelector('p')!.firstChild as Text).appendData('다');
-    dom.dispatchEvent(new CompositionEvent('compositionend', { data: '다', bubbles: true }));
-    dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', keyCode: 9, bubbles: true, cancelable: true }));
+  it.each([
+    ['Enter', 13],
+    ['Tab', 9],
+  ])('%s 키맵이 돌 때 마지막 조합 글자가 이미 문서에 들어가 있다', (key, keyCode) => {
+    const seen = mount(true, key);
+    composeLastSyllableThen(key, keyCode);
     expect(seen).toEqual(['가나다']);
   });
 
+  it('(대조) 플러그인이 없으면 Enter 가 확정 글자 없는 문서로 처리된다 — 이 차이가 글자가 사라지던 원인', () => {
+    const seen = mount(false);
+    composeLastSyllableThen('Enter', 13);
+    expect(seen).toEqual(['가나']);
+  });
+
   it('조합과 무관한 평소 Enter 는 건드리지 않고 그대로 처리된다', () => {
-    const { view: v, seenAtEnter } = mount(true);
-    v.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
-    expect(seenAtEnter).toEqual(['가나']);
+    const seen = mount(true);
+    keydown('Enter', 13);
+    expect(seen).toEqual(['가나']);
   });
 });

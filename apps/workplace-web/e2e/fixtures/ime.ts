@@ -50,20 +50,21 @@ export async function commitImeThenEnterInSameTask(
     await cdp.send('Input.imeSetComposition', { text: composing, selectionStart: composing.length, selectionEnd: composing.length });
     // 편집기의 compositionend 처리 뒤(문서 버블 단계)에 같은 태스크로 — 마이크로태스크가 끼어들 틈이 없다.
     await field.evaluate((el, last) => {
-      (window as unknown as { __imeRewrite?: string }).__imeRewrite = 'pending';
+      el.dataset.imeRewrite = 'pending';
       document.addEventListener(
         'compositionend',
         () => {
-          const node = getSelection()?.anchorNode;
+          const sel = getSelection();
+          const node = sel?.anchorNode;
           // 다시 쓸 글자 노드가 없으면 재현이 안 된 채 Enter 만 보내 테스트가 거짓 통과한다 — 표시를 남겨 아래에서 실패시킨다.
           if (!(node instanceof Text)) {
-            (window as unknown as { __imeRewrite?: string }).__imeRewrite = 'no-text-node';
+            el.dataset.imeRewrite = 'no-text-node';
             return;
           }
           node.replaceData(node.length - last.length, last.length, last);
           // 다시 쓰기는 커서를 글자 앞으로 당긴다(DOM Range 규칙) — 실제 확정처럼 커서는 확정 글자 뒤에 둔다.
-          getSelection()?.collapse(node, node.length);
-          (window as unknown as { __imeRewrite?: string }).__imeRewrite = 'done';
+          sel?.collapse(node, node.length);
+          el.dataset.imeRewrite = 'done';
           el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
         },
         { once: true },
@@ -73,6 +74,6 @@ export async function commitImeThenEnterInSameTask(
   } finally {
     await cdp.detach();
   }
-  const rewrite = await page.evaluate(() => (window as unknown as { __imeRewrite?: string }).__imeRewrite);
+  const rewrite = await field.getAttribute('data-ime-rewrite');
   if (rewrite !== 'done') throw new Error(`IME 확정 재현 실패: ${rewrite}`);
 }

@@ -4,95 +4,15 @@
 // ProseMirror 가 확정 글자를 문서에 반영하기 전에 줄 나누기가 돈다. 같은 순서를 만들어 수정(ImeCommitFlush) 뒤 동작을 지킨다.
 // 한계: 실제 macOS 입력기의 글자 소실 자체는 합성 이벤트로 재현되지 않는다(이 경로에선 ProseMirror 가 늦은 변경을 맞춰 넣음) —
 // 원인 메커니즘은 src/lib/imeCommitFlush.test.ts 가, 실제 소실 해소는 실기기 진단으로 확인했다.
-import type { Page } from '@playwright/test'
-import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { seedCollabFor } from '../../fixtures/collab'
 import { commitImeThenEnterInSameTask } from '../../fixtures/ime'
+import { mockWikiPageEditor } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 300
 
-function space(role: WikiRole): WikiSpace {
-  return {
-    id: SPACE_ID,
-    type: 'TEAM',
-    name: '팀 위키',
-    ownerId: 1,
-    role,
-    createdAt: '2026-06-01T00:00:00Z',
-  }
-}
-
-function pageDetail(body: string): WikiPageDetail {
-  return {
-    id: PAGE_ID,
-    spaceId: SPACE_ID,
-    parentId: null,
-    title: 'IME 페이지',
-    body,
-    version: 1,
-    updatedBy: 1,
-    updatedAt: '2026-06-01T00:00:00Z',
-    aiLastUsedAt: null,
-    aiLastAction: null,
-  }
-}
-
-async function setupWikiMocks(page: Page, body: string) {
-  // 에디터 본문·역할은 동기화 서버 문서에서 온다(WP-172) — 모킹한 상세 본문·스페이스 역할과 같게 시드한다.
-  await seedCollabFor(page, PAGE_ID, body, 'EDITOR')
-  await page.route(
-    (url) => url.pathname === '/api/v1/wiki/spaces',
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([space('EDITOR')]) })
-        : route.fallback(),
-  )
-
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([
-              { id: PAGE_ID, parentId: null, title: 'IME 페이지', position: 0 } as WikiPageSummary,
-            ]),
-          })
-        : route.fallback(),
-  )
-
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/members`,
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
-        : route.fallback(),
-  )
-
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/pages/${PAGE_ID}`,
-    (route) => {
-      const method = route.request().method()
-      if (method === 'GET') {
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pageDetail(body)) })
-      }
-      if (method === 'PUT') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ...pageDetail(body), version: 2 }),
-        })
-      }
-      return route.fallback()
-    },
-  )
-}
-
 test('마지막 글자 조합 중 Enter — 글자는 남고 다음 줄로 넘어가 이어 쓸 수 있다', async ({ authenticatedPage: page }) => {
-  await setupWikiMocks(page, '첫 줄')
+  await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: 'IME 페이지', body: '첫 줄', role: 'EDITOR' })
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
   const editor = page.locator('.ProseMirror').first()
   await expect(editor).toContainText('첫 줄')

@@ -5,7 +5,7 @@
 // 밀린 DOM 변경을 반영하려고 forceFlush 를 부르지만, 그건 "반영이 예약된" 경우에만 동작한다 — 이 순간엔 MutationObserver
 // 콜백(마이크로태스크)이 아직 돌지 않아 예약조차 없어서, 줄 나누기가 확정 글자를 읽기 전 문서로 실행되고 그 글자가 사라진다.
 // (ProseMirror 는 같은 순서를 Safari 에서만 대비해 둔다 — inOrNearComposition.)
-// 여기서는 조합 종료 직후의 키 입력이면 키맵보다 먼저 밀린 변경을 직접 가져와(flush) 문서에 넣고, 처리는 평소대로 넘긴다.
+// 여기서는 조합 종료 직후의 키 입력이면 키 처리보다 먼저 밀린 변경을 직접 가져와(flush) 문서에 넣고, 처리는 평소대로 넘긴다.
 // Enter 뿐 아니라 조합을 끝내는 다른 키(Tab·⌘B·⌘K 등)도 같은 순서로 오므로 키는 가리지 않는다 — 밀린 변경 반영은 어느 키에나 무해하다.
 import { Extension } from '@tiptap/core';
 import { Plugin } from '@tiptap/pm/state';
@@ -19,7 +19,7 @@ interface ViewInternals {
   domObserver?: { flush?: () => void };
 }
 
-/** 조합 종료 직후의 키 입력이면 밀린 DOM 변경을 먼저 문서에 반영한다. 키 처리 자체는 뒤 키맵에 맡긴다(항상 false). */
+/** 조합 종료 직후의 키 입력이면 밀린 DOM 변경을 먼저 문서에 반영한다. 키 처리 자체는 평소대로 넘긴다(항상 false). */
 export function flushBeforeComposedKey(view: EditorView, event: KeyboardEvent): boolean {
   if (view.composing || isImeComposing(event)) return false;
   const internals = view as unknown as ViewInternals;
@@ -30,14 +30,12 @@ export function flushBeforeComposedKey(view: EditorView, event: KeyboardEvent): 
 }
 
 /**
- * Tiptap 확장 — 다른 확장의 키맵(줄 나누기·목록·서식)보다 먼저 돌도록 우선순위를 가장 높게 둔다.
- * 노트 본문·메일이 extensions 에 넣는다. editorProps.handleKeyDown 은 플러그인보다 먼저 돌므로 거기서 키를 처리하는 편집기(채팅 입력)는
- * 그 맨 앞에서 flushBeforeComposedKey 를 직접 부른다.
+ * Tiptap 확장 — 키 처리 전체(ProseMirror 의 forceFlush, editorProps·플러그인의 handleKeyDown, 키맵)보다 먼저 돌도록
+ * handleKeyDown 이 아니라 handleDOMEvents.keydown 에 건다(이쪽이 ProseMirror 키 처리 앞에서 불린다). 노트 본문·메일·채팅 입력이 쓴다.
  */
 export const ImeCommitFlush = Extension.create({
   name: 'imeCommitFlush',
-  priority: 10000,
   addProseMirrorPlugins() {
-    return [new Plugin({ props: { handleKeyDown: flushBeforeComposedKey } })];
+    return [new Plugin({ props: { handleDOMEvents: { keydown: flushBeforeComposedKey } } })];
   },
 });
