@@ -3,6 +3,7 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createChannel, createMessage } from '../../factories/messaging.factory';
+import { commitImeThenEnterInSameTask } from '../../fixtures/ime';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 
@@ -167,6 +168,28 @@ test.describe('messaging 채팅 E2E', () => {
     await expect(page.getByTestId('message-body-500')).toHaveText('보낼 메시지');
     await expect(page.getByTestId('message-body-500')).toHaveCount(1);
     expect(posts.bodies()).toEqual([{ body: '보낼 메시지' }]);
+  });
+
+  // WP-333 — macOS Chrome 은 한글 마지막 글자 조합 중 Enter 에 "확정(DOM 변경) → compositionend → Enter" 를 한 번에 보낸다.
+  // 확정 글자가 문서에 반영되기 전에 전송하면 마지막 글자("작")가 빠지거나 조합 중 글자("자")로 나간다.
+  test('한글 조합을 끝내는 Enter 로 전송해도 마지막 글자까지 보낸다 (Mac Chrome 순서)', async ({
+    authenticatedPage: page,
+  }) => {
+    const channel = createChannel({ id: CHANNEL_ID, member: true });
+    await setupChannelStubs(page, [channel], `:\n\n`);
+    const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`);
+    await stubEmptyHistoryWithPost(page, 502);
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`);
+    const input = page.getByTestId('message-composer-input');
+    await input.click();
+    await page.keyboard.insertText('시');
+    await commitImeThenEnterInSameTask(input, { composing: '자', committed: '작' });
+
+    await expect(page.getByTestId('message-body-502')).toHaveText('시작');
+    expect(posts.bodies()).toEqual([{ body: '시작' }]);
+    // 전송 뒤 입력창에 확정 글자가 남지 않는다(늦게 반영된 글자가 빈 입력창에 되살아나지 않음).
+    await expect(input).toHaveText('');
   });
 
   // 팀 채팅도 이슈 채팅(#357)과 같은 RichInput — Shift+Enter 는 줄바꿈, Enter 는 전송이어야 한다.

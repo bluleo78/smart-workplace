@@ -5,6 +5,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import type * as Y from 'yjs'
 
 import type { PresenceAwareness } from '@/lib/collab/presenceAwareness'
+import { ImeEnterFlush } from '@/lib/imeEnterFlush'
 
 import { WikiAiMarkers } from './wikiAiMarkers'
 import { WikiCatchUpHighlight } from './wikiCatchUpHighlight'
@@ -61,5 +62,7 @@ export function wikiEditorExtensions(o: {
     WikiRemoteScrollAnchor,
     // 돌아와 따라잡은 변경 잠깐 하이라이트(WP-293) — 내 화면 전용 데코레이션.
     WikiCatchUpHighlight,
+    // macOS Chrome 에서 한글 조합을 끝내는 Enter 가 마지막 글자를 지우지 않게(WP-333) — 줄 나누기 전에 확정 글자를 먼저 반영.
+    ImeEnterFlush,
   ]
 }

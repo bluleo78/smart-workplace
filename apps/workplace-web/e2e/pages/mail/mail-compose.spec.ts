@@ -2,6 +2,7 @@
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { commitImeThenEnterInSameTask } from '../../fixtures/ime'
 import { trackRequests } from '../../fixtures/requests'
 
 test.describe('메일 작성·발송', () => {
@@ -56,6 +57,33 @@ test.describe('메일 작성·발송', () => {
 
     // 발송 성공 시 도크 닫힘.
     await expect(page.getByTestId('mail-compose-dock')).toBeHidden()
+  })
+
+  // WP-333 — macOS Chrome 에서 한글 마지막 글자 조합 중 Enter 를 쳐도 그 글자가 남고 다음 문단으로 넘어간다.
+  test('본문에서 마지막 글자 조합 중 Enter — 글자가 남고 문단이 나뉘어 발송된다 (Mac Chrome 순서)', async ({
+    authenticatedPage: page,
+  }) => {
+    const sends = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/send')
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/send',
+      (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ localMessageId: 11, messageId: 'y@test.local' }) }),
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-compose-new').click()
+    await page.getByTestId('mail-compose-to').fill('rcpt@test.local')
+    await page.getByTestId('mail-compose-subject').fill('조합')
+    const bodyEditor = page.getByTestId('mail-composer-body')
+    await bodyEditor.click()
+    await page.keyboard.insertText('가나')
+    await commitImeThenEnterInSameTask(bodyEditor, { composing: '다', committed: '다' })
+    await page.keyboard.insertText('둘째')
+    await expect(bodyEditor.locator('p')).toHaveText(['가나다', '둘째'])
+
+    await page.getByTestId('mail-compose-send').click()
+    await sends.waitFor()
+    expect(sends.lastBody<{ bodyHtml: string }>()!.bodyHtml).toContain('<p>가나다</p><p>둘째</p>')
   })
 
   // #802 — 도크가 role/label 없는 평범한 div였고, 열릴 때 포커스가 본문 에디터로 가버리던 문제 회귀 방지.
