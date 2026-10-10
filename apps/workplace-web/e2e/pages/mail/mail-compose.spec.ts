@@ -59,7 +59,8 @@ test.describe('메일 작성·발송', () => {
     await expect(page.getByTestId('mail-compose-dock')).toBeHidden()
   })
 
-  // WP-333 — macOS Chrome 에서 한글 마지막 글자 조합 중 Enter 를 쳐도 그 글자가 남고 다음 문단으로 넘어간다.
+  // WP-333 — macOS Chrome 에서 한글 마지막 글자 조합 중 Enter 를 쳐도 그 글자가 남고 다음 문단으로 넘어간다(수정 뒤 동작 회귀 방지 —
+  // 실제 입력기의 글자 소실은 합성 이벤트로 재현되지 않는다. wiki-ime-enter.spec.ts 참고).
   test('본문에서 마지막 글자 조합 중 Enter — 글자가 남고 문단이 나뉘어 발송된다 (Mac Chrome 순서)', async ({
     authenticatedPage: page,
   }) => {
@@ -77,7 +78,7 @@ test.describe('메일 작성·발송', () => {
     const bodyEditor = page.getByTestId('mail-composer-body')
     await bodyEditor.click()
     await page.keyboard.insertText('가나')
-    await commitImeThenEnterInSameTask(bodyEditor, { composing: '다', committed: '다' })
+    await commitImeThenEnterInSameTask(bodyEditor, { composing: '닥', committed: '다' })
     await page.keyboard.insertText('둘째')
     await expect(bodyEditor.locator('p')).toHaveText(['가나다', '둘째'])
 

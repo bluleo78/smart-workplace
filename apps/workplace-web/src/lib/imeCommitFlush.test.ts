@@ -10,7 +10,7 @@ import { schema } from '@tiptap/pm/schema-basic';
 import { EditorState, Plugin, TextSelection } from '@tiptap/pm/state';
 import { EditorView } from '@tiptap/pm/view';
 
-import { flushBeforeImeEnter } from './imeEnterFlush';
+import { flushBeforeComposedKey } from './imeCommitFlush';
 
 let view: EditorView | null = null;
 afterEach(() => {
@@ -23,7 +23,7 @@ function mount(withFix: boolean) {
   const seenAtEnter: string[] = [];
   const doc = schema.node('doc', null, [schema.node('paragraph', null, [schema.text('가나')])]);
   const plugins = [
-    ...(withFix ? [new Plugin({ props: { handleKeyDown: flushBeforeImeEnter } })] : []),
+    ...(withFix ? [new Plugin({ props: { handleKeyDown: flushBeforeComposedKey } })] : []),
     keymap({
       Enter: (state) => {
         seenAtEnter.push(state.doc.textContent);
@@ -50,7 +50,7 @@ function composeLastSyllableThenEnter(v: EditorView) {
   dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
 }
 
-describe('flushBeforeImeEnter — 조합 종료 직후 Enter 가 확정 글자를 읽고 처리되게 한다(WP-333)', () => {
+describe('flushBeforeComposedKey — 조합 종료 직후 키 입력이 확정 글자를 읽고 처리되게 한다(WP-333)', () => {
   it('Enter 키맵이 돌 때 마지막 조합 글자가 이미 문서에 들어가 있다', () => {
     const { view: v, seenAtEnter } = mount(true);
     composeLastSyllableThenEnter(v);
@@ -61,6 +61,24 @@ describe('flushBeforeImeEnter — 조합 종료 직후 Enter 가 확정 글자�
     const { view: v, seenAtEnter } = mount(false);
     composeLastSyllableThenEnter(v);
     expect(seenAtEnter).toEqual(['가나']);
+  });
+
+  it('조합을 끝내는 다른 키(Tab 등)도 키맵이 돌기 전에 확정 글자가 반영된다', () => {
+    const seen: string[] = [];
+    const doc = schema.node('doc', null, [schema.node('paragraph', null, [schema.text('가나')])]);
+    const place = document.createElement('div');
+    document.body.append(place);
+    const plugins = [
+      new Plugin({ props: { handleKeyDown: flushBeforeComposedKey } }),
+      keymap({ Tab: (state) => (seen.push(state.doc.textContent), true) }),
+    ];
+    view = new EditorView(place, { state: EditorState.create({ doc, selection: TextSelection.create(doc, 3), plugins }) });
+    const dom = view.dom;
+    dom.dispatchEvent(new CompositionEvent('compositionstart', { data: '', bubbles: true }));
+    (dom.querySelector('p')!.firstChild as Text).appendData('다');
+    dom.dispatchEvent(new CompositionEvent('compositionend', { data: '다', bubbles: true }));
+    dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', keyCode: 9, bubbles: true, cancelable: true }));
+    expect(seen).toEqual(['가나다']);
   });
 
   it('조합과 무관한 평소 Enter 는 건드리지 않고 그대로 처리된다', () => {

@@ -18,7 +18,7 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
 import { Button } from '@/components/ui/button';
 import { filesFromPaste, isFileDrag } from '@/lib/clipboardFiles';
-import { flushBeforeImeEnter } from '@/lib/imeEnterFlush';
+import { flushBeforeComposedKey } from '@/lib/imeCommitFlush';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { isSubmitEnter } from '@/lib/submitEnter';
 
@@ -271,9 +271,10 @@ export function RichInput({
       // useComposerFileDrop 이 업로드한다 — 에디터 밖(칩 영역 등) 드롭과 한 경로로 처리하려고.
       handleDrop: (_view, event) => !!onFilesRef.current && isFileDrag(event.dataTransfer),
       handleKeyDown: (view, event) => {
-        // macOS Chrome 은 한글 조합을 끝내는 Enter 를 확정 글자가 문서에 반영되기 전에 보낸다(WP-333) — 전송·멘션 선택이
+        // macOS Chrome 은 한글 조합을 끝내는 Enter 를 확정 글자가 문서에 반영되기 전에 보낸다(WP-333) — 전송이
         // 마지막 글자 없는 본문을 읽지 않게 먼저 반영한다. editorProps 는 플러그인보다 먼저 돌아 확장으로는 늦다.
-        flushBeforeImeEnter(view, event);
+        // (멘션 팝업의 후보 목록은 비동기로 갱신돼 이 순간엔 확정 전 검색어 기준이다 — 알려진 한계.)
+        flushBeforeComposedKey(view, event);
         // suggestion 팝업이 열려있으면 Enter 는 mention 플러그인이 먼저 처리(키 위임)하므로 여기선 무시.
         if (isSubmitEnter(event)) {
           // 이 인스턴스의 팝업이 열려있으면 mention 처리에 양보 (인스턴스-로컬 플래그).

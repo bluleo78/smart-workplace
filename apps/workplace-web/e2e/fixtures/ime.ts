@@ -46,23 +46,33 @@ export async function commitImeThenEnterInSameTask(
 ): Promise<void> {
   const page = field.page();
   const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Input.imeSetComposition', { text: composing, selectionStart: composing.length, selectionEnd: composing.length });
-  // 편집기의 compositionend 처리 뒤(문서 버블 단계)에 같은 태스크로 — 마이크로태스크가 끼어들 틈이 없다.
-  await field.evaluate((el, last) => {
-    document.addEventListener(
-      'compositionend',
-      () => {
-        const node = getSelection()?.anchorNode;
-        if (node instanceof Text) {
+  try {
+    await cdp.send('Input.imeSetComposition', { text: composing, selectionStart: composing.length, selectionEnd: composing.length });
+    // 편집기의 compositionend 처리 뒤(문서 버블 단계)에 같은 태스크로 — 마이크로태스크가 끼어들 틈이 없다.
+    await field.evaluate((el, last) => {
+      (window as unknown as { __imeRewrite?: string }).__imeRewrite = 'pending';
+      document.addEventListener(
+        'compositionend',
+        () => {
+          const node = getSelection()?.anchorNode;
+          // 다시 쓸 글자 노드가 없으면 재현이 안 된 채 Enter 만 보내 테스트가 거짓 통과한다 — 표시를 남겨 아래에서 실패시킨다.
+          if (!(node instanceof Text)) {
+            (window as unknown as { __imeRewrite?: string }).__imeRewrite = 'no-text-node';
+            return;
+          }
           node.replaceData(node.length - last.length, last.length, last);
           // 다시 쓰기는 커서를 글자 앞으로 당긴다(DOM Range 규칙) — 실제 확정처럼 커서는 확정 글자 뒤에 둔다.
           getSelection()?.collapse(node, node.length);
-        }
-        el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
-      },
-      { once: true },
-    );
-  }, committed);
-  await cdp.send('Input.insertText', { text: composing });
-  await cdp.detach();
+          (window as unknown as { __imeRewrite?: string }).__imeRewrite = 'done';
+          el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+        },
+        { once: true },
+      );
+    }, committed);
+    await cdp.send('Input.insertText', { text: composing });
+  } finally {
+    await cdp.detach();
+  }
+  const rewrite = await page.evaluate(() => (window as unknown as { __imeRewrite?: string }).__imeRewrite);
+  if (rewrite !== 'done') throw new Error(`IME 확정 재현 실패: ${rewrite}`);
 }
