@@ -18,6 +18,7 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
 import { Button } from '@/components/ui/button';
 import { filesFromPaste, isFileDrag } from '@/lib/clipboardFiles';
+import { ImeCommitFlush } from '@/lib/imeCommitFlush';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { isSubmitEnter } from '@/lib/submitEnter';
 
@@ -178,6 +179,9 @@ export function RichInput({
       Text,
       // Shift+Enter 줄바꿈(<br>) 처리. StarterKit 포함 패키지이므로 별도 설치 불필요.
       HardBreak,
+      // macOS Chrome 한글 조합을 끝내는 Enter 로 전송해도 마지막 글자가 빠지지 않게(WP-333) — 전송 판정보다 먼저 확정 글자를 반영.
+      // (멘션 팝업의 후보 목록은 비동기로 갱신돼 이 순간엔 확정 전 검색어 기준이다 — 알려진 한계.)
+      ImeCommitFlush,
       Placeholder.configure({ placeholder }),
       // membersRef 는 suggestion items/render 콜백에서만 역참조된다. 이 콜백들은
       // 사용자가 '@' 를 입력할 때 ProseMirror 가 호출하며 렌더 시점에 동기 실행되지 않으므로

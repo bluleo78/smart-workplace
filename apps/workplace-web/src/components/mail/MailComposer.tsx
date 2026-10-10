@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { ImeCommitFlush } from '@/lib/imeCommitFlush';
 import { cn } from '@/lib/utils';
 
 interface MailComposerProps {
@@ -73,6 +74,8 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
     extensions: [
       StarterKit,
       Link.configure({ openOnClick: false, autolink: true }),
+      // macOS Chrome 한글 조합을 끝내는 Enter 가 마지막 글자를 지우지 않게(WP-333).
+      ImeCommitFlush,
     ],
     content: initialHtml,
     // 도크가 열리면 "받는사람"으로 포커스를 명시적으로 보낸다(#802) — 에디터가 자동으로
