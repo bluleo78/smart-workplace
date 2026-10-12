@@ -52,10 +52,15 @@ export function IssueChatSection({
 
   const threadQ = useChatThread(projectKey, issueNumber);
 
+  // 스레드 응답의 최근 메시지를 다음 페이지 정보와 함께 첫 페이지로 시드한다(WP-365).
   const initialFirstPage = useMemo(
     () =>
       threadQ.data
-        ? { items: threadQ.data.recentMessages, nextCursor: null, hasMore: false }
+        ? {
+            items: threadQ.data.recentMessages,
+            nextCursor: threadQ.data.recentNextCursor ?? null,
+            hasMore: threadQ.data.recentHasMore ?? false,
+          }
         : undefined,
     [threadQ.data],
   );
@@ -63,6 +68,7 @@ export function IssueChatSection({
   const messagesQ = useChatMessages({
     threadId: threadQ.data?.threadId,
     initialFirstPage,
+    initialDataUpdatedAt: threadQ.dataUpdatedAt,
   });
 
   const messages = useMemo(

@@ -126,4 +126,34 @@ class ChatDriveBacklinkIntegrationTest extends IntegrationTestBase {
     assertThat(chatBacklink.deepLink())
         .isEqualTo("/projects/" + s.projectKey() + "/issues/" + s.issueNumber());
   }
+
+  /** WP-102: 스레드를 다시 열 때 recentMessages 에도 드라이브 링크가 실려야 다시 연 화면에서 링크가 사라지지 않는다. */
+  @Test
+  void 스레드를_다시_열면_최근_메시지에_드라이브_링크가_하이드레이트된다() throws Exception {
+    // given: 드라이브 파일을 링크한 메시지를 보낸 스레드.
+    ChatFixtures.Setup s = fx.setup();
+    long callerId = s.reporterId();
+    var space = spaceService.createTeamSpace(callerId, "test-backlink-" + s.projectKey());
+    MockMultipartFile mf =
+        new MockMultipartFile("file", "doc.txt", "text/plain", "hello".getBytes());
+    long driveFileId = driveFileService.upload(callerId, space.id(), null, mf).id();
+    long threadId = threadService.getOrCreate(callerId, s.projectKey(), s.issueNumber()).threadId();
+    var sent =
+        chatMessageService.create(
+            callerId,
+            threadId,
+            new CreateChatMessageRequest("공유", List.of(), List.of(driveFileId)));
+
+    // when: 스레드를 다시 연다.
+    var reopened = threadService.getOrCreate(callerId, s.projectKey(), s.issueNumber());
+
+    // then: 최근 메시지의 그 메시지에 드라이브 링크가 실려 있다.
+    var recent =
+        reopened.recentMessages().stream()
+            .filter(m -> sent.id().equals(m.id()))
+            .findFirst()
+            .orElseThrow();
+    assertThat(recent.driveLinks()).hasSize(1);
+    assertThat(recent.driveLinks().get(0).driveFileId()).isEqualTo(driveFileId);
+  }
 }
