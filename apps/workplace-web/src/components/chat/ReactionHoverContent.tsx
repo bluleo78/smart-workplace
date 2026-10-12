@@ -28,8 +28,13 @@ export function ReactionHoverContent({
             names: othersOf(first, currentUserId).map((r) => r.name),
           })}
         </p>
+      ) : q.isError ? (
+        // 조회 실패(4xx 는 재시도하지 않음) — 스켈레톤이 계속 돌지 않게 한 줄로 알린다. 모두 보기는 그대로 둔다.
+        <p className="mt-2 text-xs text-muted-foreground" data-testid={`reaction-hover-error-${messageId}`}>
+          불러오지 못했습니다
+        </p>
       ) : (
-        // 불러오는 중(또는 실패) — 자리만 잡아 카드 크기가 튀지 않게.
+        // 불러오는 중 — 자리만 잡아 카드 크기가 튀지 않게.
         <div className="mt-2 space-y-1.5" aria-label="반응한 사람 불러오는 중">
           <div className="h-2.5 w-4/5 rounded bg-muted" />
           <div className="h-2.5 w-1/2 rounded bg-muted" />

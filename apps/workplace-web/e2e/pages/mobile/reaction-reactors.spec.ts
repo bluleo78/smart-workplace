@@ -43,6 +43,9 @@ test.describe('WP-106 반응자 — 모바일 길게 누르기', () => {
     await setup(page)
     const toggles = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG}/reactions`)
     await page.goto('/chat/channels/1')
+    // 터치 셸엔 툴바가 없으므로 툴바의 "반응한 사람 보기" 버튼도 없다 — 길게 누르기가 그 경로를 맡는다.
+    await expect(page.getByTestId(`reaction-pill-${MSG}-👍`)).toBeVisible()
+    await expect(page.getByTestId(`message-reactors-${MSG}`)).toHaveCount(0)
     await longPress(page, page.getByTestId(`reaction-pill-${MSG}-👍`))
 
     const sheet = page.getByTestId('reactors-sheet')

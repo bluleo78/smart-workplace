@@ -11,7 +11,7 @@ import {
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { trackRequests } from '../../fixtures/requests'
-import { expectStays } from '../../fixtures/wait'
+import { expectStays, stableBox } from '../../fixtures/wait'
 
 const ME_ID = 1
 const CHANNEL_ID = 610
@@ -162,8 +162,8 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     const gets = trackRequests(page, 'GET', `/api/v1/messaging/messages/${MSG_ID}/reactions/users`)
     await page.goto(`/chat/channels/${CHANNEL_ID}`)
     await expect(page.getByTestId(`reaction-pill-${MSG_ID}-👍`)).toBeVisible()
-    // 목록 로딩만으로는 반응자 API 를 부르지 않는다(지연 로딩).
-    expect(gets.count()).toBe(0)
+    // 목록 로딩만으로는 반응자 API 를 부르지 않는다(지연 로딩) — 잠깐 지켜봐도 요청이 없어야 한다.
+    await expectStays(page, () => gets.count(), 0)
 
     await page.getByTestId(`reaction-pill-${MSG_ID}-👍`).hover()
     await expect(page.getByTestId(`reaction-hover-summary-${MSG_ID}`)).toHaveText(
@@ -190,11 +190,61 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     await expect(dialog.getByTestId(`reactor-row-${ME_ID}`)).toHaveCount(0)
     await expect(dialog.getByTestId('reactor-row-6')).toContainText('Genia')
     await expect(dialog.locator('[data-testid^="reactor-row-"]')).toHaveCount(5)
+    // 폭은 sm 이상에서도 max-w-sm(24rem) — 기본 DialogContent 의 sm:max-w-lg 를 덮어야 한다.
+    expect((await stableBox(dialog)).width).toBeLessThanOrEqual(384)
 
     await dialog.getByTestId('reactors-tab-🎉').click()
     await expect(dialog.getByTestId('reactors-tab-🎉')).toHaveAttribute('aria-selected', 'true')
     await expect(dialog.getByTestId('reactor-row-me')).toHaveCount(0)
     await expect(dialog.locator('[data-testid^="reactor-row-"]')).toHaveCount(2)
+  })
+
+  test('반응자 조회가 실패하면 호버 카드에 스켈레톤 대신 실패 문구를 보여준다', async ({ authenticatedPage: page }) => {
+    await setup(page)
+    // 나중에 등록한 route 가 먼저 매칭된다 — setup 의 성공 stub 을 403 으로 덮는다(4xx 는 재시도하지 않음).
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}/reactions/users`,
+      (route) =>
+        route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ message: 'forbidden' }) }),
+    )
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    await page.getByTestId(`reaction-pill-${MSG_ID}-👍`).hover()
+    await expect(page.getByTestId(`reaction-hover-error-${MSG_ID}`)).toHaveText('불러오지 못했습니다')
+    await expect(page.getByLabel('반응한 사람 불러오는 중')).toHaveCount(0)
+    // 모두 보기는 그대로 남는다(다이얼로그에서 다시 시도할 수 있게).
+    await expect(page.getByTestId(`reaction-hover-all-${MSG_ID}`)).toBeVisible()
+  })
+
+  test('키보드만으로 툴바의 반응한 사람 보기 버튼에 도달해 전체 목록을 연다', async ({ authenticatedPage: page }) => {
+    await setup(page)
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    const toolbar = page.getByTestId(`message-toolbar-${MSG_ID}`)
+    await expect(toolbar).toHaveCSS('opacity', '0')
+    // 행 안 툴바 첫 버튼(반응 추가)에 키보드 포커스 → 툴바가 드러나고 Tab 으로 다음 버튼에 간다.
+    await page.getByTestId(`message-${MSG_ID}-react`).focus()
+    await expect(toolbar).toHaveCSS('opacity', '1')
+    await page.keyboard.press('Tab')
+    const button = page.getByTestId(`message-reactors-${MSG_ID}`)
+    await expect(button).toBeFocused()
+    await expect(button).toHaveAccessibleName('반응한 사람 보기')
+    await page.keyboard.press('Enter')
+
+    const dialog = page.getByTestId('reactors-dialog')
+    await expect(dialog).toBeVisible()
+    // 첫 이모지 탭이 선택된 채 열린다.
+    await expect(dialog.getByTestId('reactors-tab-👍')).toHaveAttribute('aria-selected', 'true')
+    await expect(dialog.locator('[data-testid^="reactor-row-"]')).toHaveCount(5)
+  })
+
+  test('반응이 없는 메시지의 툴바엔 반응한 사람 보기 버튼이 없다', async ({ authenticatedPage: page }) => {
+    await setup(page)
+    // 반응 없는 같은 id 메시지로 히스토리 stub 을 덮는다.
+    await stubMessages(page, CHANNEL_ID, [
+      createMessage({ id: MSG_ID, channelId: CHANNEL_ID, authorId: 2, authorName: '김민수', body: '반응 없음', reactions: [] }),
+    ])
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    await expect(page.getByTestId(`message-toolbar-${MSG_ID}`)).toHaveCount(1)
+    await expect(page.getByTestId(`message-reactors-${MSG_ID}`)).toHaveCount(0)
   })
 
   test('칩 클릭은 여전히 토글이다(호버 카드가 있어도)', async ({ authenticatedPage: page }) => {
@@ -256,5 +306,28 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     await posts.waitFor()
     await expect(page.getByTestId(`reaction-pill-${MSG_ID}-👍`)).toBeVisible()
     await expectStays(page, () => dialog.count(), 0)
+  })
+})
+
+// 넓은 화면의 터치 기기(태블릿 가로·터치 노트북)는 터치 셸이 아니라 호버 카드·길게 누르기 시트가 없다 —
+// 행을 탭해 드러난 툴바의 버튼이 유일한 반응자 확인 경로다.
+test.describe('WP-106 반응자 확인 — 넓은 터치 기기(터치 셸 아님)', () => {
+  test.use({ hasTouch: true, viewport: { width: 1280, height: 800 } })
+
+  test('행을 탭해 툴바를 드러내고 반응한 사람 보기를 탭하면 전체 목록 다이얼로그가 열린다', async ({
+    authenticatedPage: page,
+  }) => {
+    await setup(page)
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    // 에뮬레이션이 coarse 포인터로 잡혀야 "넓은 터치 기기" 조건이 성립한다.
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
+
+    await page.getByTestId(`message-body-${MSG_ID}`).tap()
+    await expect(page.getByTestId(`message-${MSG_ID}`)).toHaveAttribute('data-tap-active', 'true')
+    await page.getByTestId(`message-reactors-${MSG_ID}`).tap()
+
+    const dialog = page.getByTestId('reactors-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByTestId('reactors-tab-👍')).toHaveAttribute('aria-selected', 'true')
   })
 })

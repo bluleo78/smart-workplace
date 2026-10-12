@@ -55,7 +55,7 @@ export function ReactorsOverlay({
   }
   return (
     <Dialog open={visible} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="reactors-dialog" className="max-w-sm gap-3">
+      <DialogContent data-testid="reactors-dialog" className="gap-3 sm:max-w-sm">
         <DialogTitle>반응</DialogTitle>
         <DialogDescription className="sr-only">이 메시지에 반응한 사람</DialogDescription>
         {panel}

@@ -2,7 +2,7 @@
 //   타인·AGENT: 좌측 거터(아바타 또는 hover 시각) + 전폭 평문.
 //   본인: 우측 말풍선(최대 75%, 아바타·이름 없음). 수정 중에는 전폭 에디터.
 // 뮤테이션·편집 상태는 목록(MessageList)이 갖고, 이 컴포넌트는 콜백만 받아 그린다.
-import { Bot, MessageSquare, Pencil, Trash2 } from 'lucide-react'
+import { Bot, MessageSquare, Pencil, Trash2, Users } from 'lucide-react'
 import type { ComponentProps, Ref } from 'react'
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
@@ -56,7 +56,7 @@ interface MessageRowProps {
   onSaveEdit: (body: string) => void
   onDelete: () => void
   onToggleReaction: (emoji: string) => void
-  // 반응자 전체 보기 열기(WP-106) — 호버 카드의 모두 보기. 목록(MessageList)이 오버레이 상태를 가진다.
+  // 반응자 전체 보기 열기(WP-106) — 호버 카드의 모두 보기·툴바의 반응한 사람 보기. 목록(MessageList)이 오버레이 상태를 가진다.
   onOpenReactors: (emoji: string) => void
   proposalBusy: boolean
   onConfirmProposal: (proposalId: number, arg: ProposalConfirmArg) => void
@@ -122,6 +122,21 @@ export function MessageRow({
           testIdPrefix={`message-${m.id}`}
           onPick={onToggleReaction}
         />
+      )}
+      {/* 반응한 사람 보기(WP-106) — 호버 카드 안 링크는 키보드로 닿지 않고(Radix 가 tabindex=-1), 넓은 터치 기기엔 호버가 없어
+          툴바(키보드 포커스·터치 탭으로 드러남)에 같은 경로를 둔다. 첫 이모지 탭으로 연다. 반응이 있는 확정 메시지만. */}
+      {!isPending && m.reactions.length > 0 && (
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-6 w-6"
+          aria-label="반응한 사람 보기"
+          title="반응한 사람 보기"
+          data-testid={`message-reactors-${m.id}`}
+          onClick={() => onOpenReactors(m.reactions[0].emoji)}
+        >
+          <Users className="h-3 w-3" />
+        </Button>
       )}
       {onOpenThread && !isPending && (
         <Button
