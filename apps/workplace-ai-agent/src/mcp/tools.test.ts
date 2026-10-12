@@ -124,6 +124,11 @@ function sharedMock(): MockedShared {
     renameDriveFolder: vi.fn().mockResolvedValue({}),
     moveDriveFolder: vi.fn().mockResolvedValue(undefined),
     moveDriveFile: vi.fn().mockResolvedValue(undefined),
+    renameDriveFile: vi.fn().mockResolvedValue({ id: 5, fileId: 812, name: '새이름.pdf' }),
+    copyDriveFile: vi.fn().mockResolvedValue({ id: 6, fileId: 813, name: '보고서.pdf' }),
+    copyDriveFolder: vi.fn().mockResolvedValue({ id: 11, name: '자료' }),
+    listDriveFileBacklinks: vi.fn().mockResolvedValue([]),
+    importAttachmentToDrive: vi.fn().mockResolvedValue({ id: 7, fileId: 900, name: 'a.png' }),
     // 알림
     listNotifications: vi.fn().mockResolvedValue([]),
     countUnreadNotifications: vi.fn().mockResolvedValue(0),
@@ -279,6 +284,8 @@ describe('프로필 구성', () => {
       // 메인 AI 채팅 첨부(WP-234) + 이슈 첨부·드라이브 파일 읽기(WP-346)
       'read_chat_attachment', 'read_attachment',
       'create_drive_folder', 'rename_drive_folder', 'move_drive_folder', 'move_drive_file', 'propose_delete_file', 'propose_delete_folder',
+      // WP-354
+      'rename_drive_file', 'copy_drive_item', 'import_attachment_to_drive',
       // #856 확인카드 제안
       'propose_add_attendees', 'propose_remove_attendee', 'propose_update_project_member_role', 'propose_remove_project_member',
       'propose_add_channel_member', 'propose_leave_channel', 'propose_delete_issue', 'propose_delete_comment', 'propose_delete_wiki_page',
@@ -1375,6 +1382,17 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     const c = client();
     expect(await find(buildTools(c, 7, 'assistant'), 'move_drive_folder').handler({ folderId: 4 })).toBe('ok');
     expect(c.sc.moveDriveFolder).toHaveBeenCalledWith(4, null);
+  });
+
+  // WP-354: 공유 도구를 그대로 쓴다 — 파일 이름변경·복사·첨부 가져오기가 요청자 신원의 클라이언트(sc)로 나간다.
+  it('rename_drive_file·copy_drive_item·import_attachment_to_drive 는 공유 클라이언트(sc)로 호출된다', async () => {
+    const c = client();
+    await find(buildTools(c, 7, 'assistant'), 'rename_drive_file').handler({ driveFileId: 5, name: '새이름.pdf' });
+    expect(c.sc.renameDriveFile).toHaveBeenCalledWith(5, '새이름.pdf');
+    await find(buildTools(c, 7, 'assistant'), 'copy_drive_item').handler({ folderId: 8, targetFolderId: 3 });
+    expect(c.sc.copyDriveFolder).toHaveBeenCalledWith(8, 3);
+    await find(buildTools(c, 7, 'assistant'), 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 900 });
+    expect(c.sc.importAttachmentToDrive).toHaveBeenCalledWith(2, null, 900);
   });
 
   it('move_drive_file 은 driveFileId 를 sc.moveDriveFile 에 넘기고, 옛 fileId 파라미터는 거부한다', async () => {

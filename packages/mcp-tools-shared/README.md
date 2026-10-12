@@ -58,7 +58,7 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 | `issue` | `list_issues` `get_issue_detail` `create_issue` `update_issue` `add_comment` `update_comment` `add_issue_dependency` `remove_issue_dependency` `watch_issue` `unwatch_issue` + 겹침: `list_projects` `get_project` `read_attachment` |
 | `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` + 겹침: `search_members` |
 | `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` |
-| `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_folder` `move_drive_folder` `move_drive_file` + 겹침: `read_attachment` |
+| `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_folder` `move_drive_folder` `rename_drive_file` `move_drive_file` `copy_drive_item` `import_attachment_to_drive` + 겹침: `read_attachment` (15개 — 앱당 상한에 닿았다) |
 | `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` |
 | `messaging` | `list_channels` `discover_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `add_channel_member` + 겹침: `search_members` |
 | `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` + 겹침: `search_members` |
@@ -99,6 +99,21 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 
 서버가 상한을 조용히 거는 검색은 "상한에 닿음 = 잘렸을 수 있음" 으로 본다(정확히 상한만큼이 전부일 수도 있다). 이어 조회할 수단이 없어 검색어를 좁히라고 안내한다. 서버 상한을 바꾸면 도구 상수(`SEARCH_SERVER_CAP`)도 맞춘다.
 
+
+### 드라이브 보강 (WP-354)
+
+앱당 15개 상한에 닿았으므로(drive 15개) 새 도구는 쓰기 셋뿐이고 나머지는 기존 도구의 옵션·응답으로 처리했다.
+
+| 기능 | 처리 | 근거 |
+|---|---|---|
+| 파일 이름 변경 | `rename_drive_file`(`PATCH /drive/files/{id}`, WP-335 의 UI 와 같은 API). `hints` 는 `rename_drive_folder` 와 같다(덮어씀·멱등) | 같은 폴더에 같은 이름의 활성 파일이 있으면 서버가 409 |
+| 파일·폴더 복사 | `copy_drive_item`(`driveFileId` 또는 `folderId` 중 하나, `restore_drive_item` 과 같은 이유). 새 항목을 만들고 같은 이름이 있으면 409 라 비멱등이다 | 서버가 같은 스페이스 안으로만 복사하고 이름을 그대로 둔다 — 같은 폴더로 복사하면 항상 충돌이라 다른 폴더를 지정해야 한다 |
+| 이슈·채팅 첨부를 드라이브로 | `import_attachment_to_drive`(`POST /drive/spaces/{id}[/folders/{folderId}]/import-attachment`). `attachmentId` 는 `get_issue_detail` 의 `attachments[].attachmentId` 또는 `list_channel_messages` 의 `attachments[].fileId`(둘 다 core file id) | 같은 바이트를 공유해 쿼터를 쓰지 않는다. 서버는 대상 폴더가 같은 스페이스인지와 같은 이름이 없는지 확인한다(409) |
+| 버전 목록·백링크 | 별도 도구 없이 `get_drive_file_summary` 의 `includeVersions`·`includeBacklinks` 옵션 | 옵션이 꺼져 있으면 추가 요청이 없다. 버전 뷰는 업로더 숫자 ID(`uploadedBy`)와 blob 의 core `fileId` 를, 백링크 뷰는 내부 `sourceId` 를 뺀다 |
+| 롤백 | 도구로 두지 않는다 | 새 버전을 만드는 변경이라 확인 카드 대상이다(AI Chat 에서도 미지원 안내) |
+| 폴더 경로 | 두지 않는다 | `/folders/{id}/path` 는 폴더 하나의 breadcrumb 이다. 목록·검색 응답에 넣으면 행마다 요청이 필요하고(검색은 최대 400행), 목록은 모델이 이미 그 폴더 id 를 알고 있다. 휴지통은 서버가 `originalPath` 를 준다 |
+
+이슈 첨부와 채팅 첨부 두 갈래 중 한쪽 출처만 있어도 쓸 수 있어, `import_attachment_to_drive` 설명이 가리키는 `get_issue_detail`·`list_channel_messages` 는 `tool-apps.test.ts` 의 `CROSS_REF_ALLOWED` 에 이유와 함께 올렸다(`read_attachment` 와 같은 구조). 도구는 drive 에만 태그했다.
 
 ### 응답 크기 — 정리 뷰
 

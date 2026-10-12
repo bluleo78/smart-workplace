@@ -18,6 +18,12 @@ function mockClient(): DriveToolClient {
     renameDriveFolder: vi.fn().mockResolvedValue({ id: 4, name: '새이름' }),
     moveDriveFolder: vi.fn().mockResolvedValue(undefined),
     moveDriveFile: vi.fn().mockResolvedValue(undefined),
+    renameDriveFile: vi.fn().mockResolvedValue({ id: 5, fileId: 812, name: '새이름.pdf' }),
+    copyDriveFile: vi.fn().mockResolvedValue({ id: 6, fileId: 813, folderId: 3, name: '보고서.pdf' }),
+    copyDriveFolder: vi.fn().mockResolvedValue({ id: 11, parentId: 3, name: '자료' }),
+    listDriveFileVersions: vi.fn().mockResolvedValue([]),
+    listDriveFileBacklinks: vi.fn().mockResolvedValue([]),
+    importAttachmentToDrive: vi.fn().mockResolvedValue({ id: 7, fileId: 900, folderId: null, name: 'a.png' }),
   };
 }
 
@@ -174,6 +180,40 @@ describe('buildDriveTools', () => {
     expect(JSON.parse(resultText(out))).toEqual({ summary: null, status: 'FAILED', reason: '암호화된 PDF' });
   });
 
+  // WP-354: 버전·백링크는 별도 도구가 아니라 옵션 — 켜지 않으면 추가 요청이 없고 응답 모양도 그대로다.
+  it('get_drive_file_summary → 옵션이 없으면 버전·백링크를 요청하지 않는다', async () => {
+    const c = mockClient();
+    await tool(c, 'get_drive_file_summary').handler({ driveFileId: 5 });
+    expect(c.listDriveFileVersions).not.toHaveBeenCalled();
+    expect(c.listDriveFileBacklinks).not.toHaveBeenCalled();
+  });
+
+  it('get_drive_file_summary → includeVersions 는 업로더 숫자 ID·core fileId 를 지운 버전 목록을 싣는다 (WP-354)', async () => {
+    const c = mockClient();
+    vi.mocked(c.listDriveFileVersions).mockResolvedValue([
+      { versionNo: 2, fileId: 901, sizeBytes: 200, uploadedBy: 7, uploadedByName: '김하나', createdAt: 't2', comment: null, current: true },
+      { versionNo: 1, fileId: 900, sizeBytes: 100, uploadedBy: 7, uploadedByName: '김하나', createdAt: 't1', comment: '최초', current: false },
+    ]);
+    const out = JSON.parse(resultText(await tool(c, 'get_drive_file_summary').handler({ driveFileId: 5, includeVersions: true, includeBacklinks: null })));
+    expect(c.listDriveFileVersions).toHaveBeenCalledWith(5);
+    expect(c.listDriveFileBacklinks).not.toHaveBeenCalled();
+    expect(out.versions).toEqual([
+      { versionNo: 2, sizeBytes: 200, uploadedByName: '김하나', createdAt: 't2', current: true },
+      { versionNo: 1, sizeBytes: 100, uploadedByName: '김하나', createdAt: 't1', comment: '최초' },
+    ]);
+    expect(out.backlinks).toBeUndefined();
+  });
+
+  it('get_drive_file_summary → includeBacklinks 는 내부 sourceId 를 뺀 백링크를 싣고, 요약 필드와 함께 돌려준다 (WP-354)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getDriveFileSummary).mockResolvedValue({ summary: '요약', status: 'DONE' });
+    vi.mocked(c.listDriveFileBacklinks).mockResolvedValue([
+      { sourceType: 'ISSUE', sourceId: 41, label: 'WP-12 제목', deepLink: '/projects/WP/issues/12' },
+    ]);
+    const out = JSON.parse(resultText(await tool(c, 'get_drive_file_summary').handler({ driveFileId: 5, includeBacklinks: true })));
+    expect(out).toEqual({ summary: '요약', status: 'DONE', backlinks: [{ sourceType: 'ISSUE', label: 'WP-12 제목', deepLink: '/projects/WP/issues/12' }] });
+  });
+
   it('search_drive_content → query 를 q 로 옮기고 limit 기본 10, hit 의 core fileId 는 제거 (#840, #850)', async () => {
     const c = mockClient();
     vi.mocked(c.searchDriveContent).mockResolvedValue({
@@ -267,5 +307,44 @@ describe('폴더·파일 정리 (#333 M4, #840, WP-343)', () => {
     await tool(c, 'move_drive_file').handler({ driveFileId: 5 });
     expect(c.moveDriveFile).toHaveBeenLastCalledWith(5, null);
     await expect(tool(c, 'move_drive_file').handler({ fileId: 812, targetFolderId: 3 })).rejects.toThrow();
+  });
+
+  it('rename_drive_file → client.renameDriveFile(driveFileId, name) 결과를 driveFileId 뷰(core fileId 제거)로 반환 (WP-354)', async () => {
+    const c = mockClient();
+    const out = await tool(c, 'rename_drive_file').handler({ driveFileId: 5, name: '새이름.pdf' });
+    expect(c.renameDriveFile).toHaveBeenCalledWith(5, '새이름.pdf');
+    expect(JSON.parse(resultText(out))).toEqual({ driveFileId: 5, name: '새이름.pdf' });
+    await expect(tool(c, 'rename_drive_file').handler({ driveFileId: 5, name: '' })).rejects.toThrow();
+    await expect(tool(c, 'rename_drive_file').handler({ folderId: 5, name: 'x' })).rejects.toThrow();
+  });
+
+  it('copy_drive_item → driveFileId 면 파일 복사, folderId 면 폴더 복사, 대상 생략·null 은 루트(null) (WP-354)', async () => {
+    const c = mockClient();
+    const file = await tool(c, 'copy_drive_item').handler({ driveFileId: 5, targetFolderId: 3 });
+    expect(c.copyDriveFile).toHaveBeenCalledWith(5, 3);
+    expect(JSON.parse(resultText(file))).toEqual({ driveFileId: 6, folderId: 3, name: '보고서.pdf' });
+    const folder = await tool(c, 'copy_drive_item').handler({ folderId: 8 });
+    expect(c.copyDriveFolder).toHaveBeenCalledWith(8, null);
+    expect(JSON.parse(resultText(folder))).toEqual({ folderId: 11, parentId: 3, name: '자료' });
+    await tool(c, 'copy_drive_item').handler({ folderId: 8, targetFolderId: null });
+    expect(c.copyDriveFolder).toHaveBeenLastCalledWith(8, null);
+  });
+
+  it('copy_drive_item → 둘 다 주거나 둘 다 없으면 거절(시퀀스가 달라 모호하다)', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'copy_drive_item').handler({ driveFileId: 5, folderId: 8 })).rejects.toThrow();
+    await expect(tool(c, 'copy_drive_item').handler({ targetFolderId: 3 })).rejects.toThrow();
+    expect(c.copyDriveFile).not.toHaveBeenCalled();
+    expect(c.copyDriveFolder).not.toHaveBeenCalled();
+  });
+
+  it('import_attachment_to_drive → 폴더 생략·null 은 루트(null)로 넘기고 가져온 파일을 driveFileId 뷰로 반환 (WP-354)', async () => {
+    const c = mockClient();
+    const out = await tool(c, 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 900 });
+    expect(c.importAttachmentToDrive).toHaveBeenCalledWith(2, null, 900);
+    expect(JSON.parse(resultText(out))).toEqual({ driveFileId: 7, folderId: null, name: 'a.png' });
+    await tool(c, 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 900, folderId: 4 });
+    expect(c.importAttachmentToDrive).toHaveBeenLastCalledWith(2, 4, 900);
+    await expect(tool(c, 'import_attachment_to_drive').handler({ spaceId: 2 })).rejects.toThrow();
   });
 });

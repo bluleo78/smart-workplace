@@ -403,6 +403,23 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async moveDriveFile(driveFileId, targetFolderId) {
       await http.patch(`/drive/files/${driveFileId}/move`, { targetFolderId });
     },
+    async renameDriveFile(driveFileId, name) {
+      return (await http.patch(`/drive/files/${driveFileId}`, { name })).data;
+    },
+    async copyDriveFile(driveFileId, targetFolderId) {
+      return (await http.post(`/drive/files/${driveFileId}/copy`, { targetFolderId })).data;
+    },
+    async copyDriveFolder(folderId, targetParentId) {
+      return (await http.post(`/drive/folders/${folderId}/copy`, { targetParentId })).data;
+    },
+    async listDriveFileBacklinks(driveFileId) {
+      const data = (await http.get(`/drive/files/${driveFileId}/backlinks`)).data;
+      return Array.isArray(data) ? data : [];
+    },
+    async importAttachmentToDrive(spaceId, folderId, fileId) {
+      const base = `/drive/spaces/${spaceId}`;
+      return (await http.post(folderId == null ? `${base}/import-attachment` : `${base}/folders/${folderId}/import-attachment`, { fileId })).data;
+    },
 
     // ── 첨부·파일 내용 읽기(WP-346) ── 이슈 첨부는 프로젝트 멤버, 드라이브는 스페이스 VIEWER 를 서버가 확인한다.
     async readIssueAttachmentText(issueKey, fileId, range) {

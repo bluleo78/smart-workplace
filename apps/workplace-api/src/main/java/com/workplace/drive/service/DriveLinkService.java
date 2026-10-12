@@ -9,11 +9,15 @@ import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.DriveLinkResponse;
 import com.workplace.drive.dto.VirtualAttachmentPage;
 import com.workplace.drive.dto.VirtualAttachmentResponse;
+import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.exception.DriveFileNotFoundException;
+import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.exception.DriveForbiddenException;
+import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRefRepository;
 import com.workplace.drive.repository.DriveFileRepository;
+import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.global.util.SafeFileNames;
 import java.time.Instant;
@@ -37,6 +41,7 @@ public class DriveLinkService {
 
   private final DriveFileRefRepository refRepo;
   private final DriveFileRepository fileRepo;
+  private final DriveFolderRepository folderRepo;
   private final DrivePermissions perms;
   private final FileUploadService fileUpload;
 
@@ -52,6 +57,7 @@ public class DriveLinkService {
   public DriveLinkService(
       DriveFileRefRepository refRepo,
       DriveFileRepository fileRepo,
+      DriveFolderRepository folderRepo,
       DrivePermissions perms,
       FileUploadService fileUpload,
       DriveChangeNotifier notifier,
@@ -59,6 +65,7 @@ public class DriveLinkService {
       List<AttachmentSourceProvider> providerList) {
     this.refRepo = refRepo;
     this.fileRepo = fileRepo;
+    this.folderRepo = folderRepo;
     this.perms = perms;
     this.fileUpload = fileUpload;
     this.notifier = notifier;
@@ -291,6 +298,18 @@ public class DriveLinkService {
     //     — 원본 이슈/메시지의 첨부가 보호된다.
     // 첨부 저장소는 원본 파일명을 그대로 저장하므로, 드라이브 이름이 될 때 경로·제어·양방향 문자를 "_" 로 바꾼다(WP-339).
     String name = SafeFileNames.sanitize(fileRepo.findFileOriginalName(fileId), "file");
+    // 대상 폴더는 같은 스페이스여야 하고(다른 스페이스 폴더에 넣으면 행이 어긋난다), 같은 폴더에 같은 이름의 활성 파일이 있으면
+    // DB 부분 유니크 인덱스(uq_drive_file_active_name) 위반이 500 으로 번지기 전에 409 로 알린다(WP-354).
+    if (folderId != null) {
+      long folderSpace =
+          folderRepo.findSpaceId(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
+      if (folderSpace != spaceId) {
+        throw new DriveInvalidTargetException("다른 공간의 폴더에는 가져올 수 없습니다.");
+      }
+    }
+    if (fileRepo.findActiveByName(spaceId, folderId, name).isPresent()) {
+      throw new DriveDuplicateNameException(name);
+    }
     long driveFileId = fileRepo.insert(spaceId, folderId, fileId, name);
     fileRepo.promoteFile(fileId); // expires_at = NULL(영구화)
     notifier.itemsChanged(OP_CREATED, spaceId, List.of(driveFileId), callerId);

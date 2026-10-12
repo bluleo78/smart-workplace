@@ -1165,6 +1165,8 @@ export function buildTools(
       // #850: 알림 인박스 — AI Chat 은 요청자(userId) 신원으로 호출하므로 사람의 알림을 본다(에이전트 신원 프로필엔 두지 않는다).
       sharedTool('list_notifications'), sharedTool('mark_notification_read'), sharedTool('mark_all_notifications_read'),
       sharedTool('create_drive_folder'), sharedTool('rename_drive_folder'), sharedTool('move_drive_folder'), sharedTool('move_drive_file'), // #333 M4: 드라이브 쓰기(직접 실행)
+      // WP-354: 파일 이름변경·복사·첨부 가져오기 — 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행(공유). 롤백은 확인 카드 대상이라 도구로 두지 않는다.
+      sharedTool('rename_drive_file'), sharedTool('copy_drive_item'), sharedTool('import_attachment_to_drive'),
       proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
       // #856: 참석자·프로젝트 멤버·채널 초대·이슈/코멘트/노트 삭제 제안(confirm 필요)
       proposeAddAttendeesTool, proposeRemoveAttendeeTool,

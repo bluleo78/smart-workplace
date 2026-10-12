@@ -58,6 +58,10 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   mark_all_notifications_read: ['write', true, true, false],
   mark_mail_read: ['write', true, true, true],
   mark_notification_read: ['write', true, true, false],
+  // WP-354: 복사·첨부 가져오기는 새 항목을 만든다 — 같은 이름이 있으면 409 라 다시 부르면 오류(비멱등). 파일 이름변경은 폴더 이름변경과 같다.
+  copy_drive_item: ['write', false, false, false],
+  import_attachment_to_drive: ['write', false, false, false],
+  rename_drive_file: ['write', true, true, false],
   move_drive_file: ['write', true, true, false],
   move_drive_folder: ['write', true, true, false],
   move_wiki_page: ['write', true, true, false],

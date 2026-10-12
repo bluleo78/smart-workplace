@@ -285,6 +285,26 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/drive/folders/6/restore');
   });
 
+  // WP-354: 파일 이름변경·복사·백링크·첨부 가져오기 경로 — 첨부 가져오기는 폴더 유무로 경로가 갈린다.
+  it('WP-354 드라이브 파일 이름변경·복사·백링크·첨부 가져오기 경로', async () => {
+    const { http, client } = mockHttp();
+    await client.renameDriveFile(5, '새이름.pdf');
+    expect(http.patch).toHaveBeenCalledWith('/drive/files/5', { name: '새이름.pdf' });
+    await client.copyDriveFile(5, 3);
+    expect(http.post).toHaveBeenCalledWith('/drive/files/5/copy', { targetFolderId: 3 });
+    await client.copyDriveFolder(8, null);
+    expect(http.post).toHaveBeenCalledWith('/drive/folders/8/copy', { targetParentId: null });
+    http.get.mockResolvedValueOnce({ data: [{ sourceType: 'ISSUE' }] });
+    expect(await client.listDriveFileBacklinks(5)).toEqual([{ sourceType: 'ISSUE' }]);
+    expect(http.get).toHaveBeenLastCalledWith('/drive/files/5/backlinks');
+    http.get.mockResolvedValueOnce({ data: null });
+    expect(await client.listDriveFileBacklinks(5)).toEqual([]);
+    await client.importAttachmentToDrive(2, null, 900);
+    expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/2/import-attachment', { fileId: 900 });
+    await client.importAttachmentToDrive(2, 4, 900);
+    expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/2/folders/4/import-attachment', { fileId: 900 });
+  });
+
   it('WP-147: getMail 은 AI 조회라 항상 markSeen=false 로 부른다(읽음 처리 안 함)', async () => {
     const { http, client } = mockHttp();
     await client.getMail(3);

@@ -376,6 +376,18 @@ export interface DriveToolClient {
   moveDriveFolder(folderId: number, targetParentId: number | null): Promise<void>;
   /** PATCH /drive/files/{id}/move — targetFolderId null=스페이스 루트. 같은 이름 충돌이면 409. 204. */
   moveDriveFile(driveFileId: number, targetFolderId: number | null): Promise<void>;
+  /** PATCH /drive/files/{id} — 파일 이름 변경(WP-335). 같은 폴더에 같은 이름의 활성 파일이 있으면 409. 변경된 파일 행 반환. */
+  renameDriveFile(driveFileId: number, name: string): Promise<unknown>;
+  /** POST /drive/files/{id}/copy — 같은 스페이스의 targetFolderId(null=루트)로 복사. 같은 이름이 있으면 409. 새 파일 행 반환. */
+  copyDriveFile(driveFileId: number, targetFolderId: number | null): Promise<unknown>;
+  /** POST /drive/folders/{id}/copy — 폴더와 하위 전부를 같은 스페이스의 targetParentId(null=루트) 밑으로 복사. 새 폴더 행 반환. */
+  copyDriveFolder(folderId: number, targetParentId: number | null): Promise<unknown>;
+  /** GET /drive/files/{id}/versions — 최신 버전이 먼저 온다(version_no DESC). read_attachment 의 이미지 크기 확인과 같은 호출. */
+  listDriveFileVersions(driveFileId: number): Promise<DriveFileVersionRow[]>;
+  /** GET /drive/files/{id}/backlinks — 파일을 링크한 이슈·메시지 중 호출자가 볼 수 있는 것만. */
+  listDriveFileBacklinks(driveFileId: number): Promise<DriveBacklinkRow[]>;
+  /** POST /drive/spaces/{id}[/folders/{folderId}]/import-attachment — 이슈·채팅 첨부(core file id)를 드라이브 파일로 가져온다. 생성된 파일 행 반환. */
+  importAttachmentToDrive(spaceId: number, folderId: number | null, fileId: number): Promise<unknown>;
 }
 
 /**
@@ -424,6 +436,14 @@ export interface DriveFileVersionRow {
   versionNo: number;
   sizeBytes: number;
   current: boolean;
+  [key: string]: unknown;
+}
+
+/** 드라이브 파일 백링크 행(BacklinkResponse) — sourceType 은 ISSUE·MESSAGE 등. */
+export interface DriveBacklinkRow {
+  sourceType: string;
+  label: string;
+  deepLink: string;
   [key: string]: unknown;
 }
 

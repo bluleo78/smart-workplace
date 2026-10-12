@@ -9,6 +9,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "add_issue_dependency": "write",
   "add_project_member": "write",
   "add_user_group_member": "write",
+  "copy_drive_item": "write",
   "create_channel": "write",
   "create_drive_folder": "write",
   "create_event": "write",
@@ -33,6 +34,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "get_project": "read",
   "get_user_group": "read",
   "get_wiki_page": "read",
+  "import_attachment_to_drive": "write",
   "leave_channel": "write",
   "list_channel_messages": "read",
   "list_channels": "read",
@@ -62,6 +64,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "remove_contact_favorite": "write",
   "remove_issue_dependency": "write",
   "remove_user_group_member": "write",
+  "rename_drive_file": "write",
   "rename_drive_folder": "write",
   "restore_drive_item": "write",
   "rsvp_event": "write",
@@ -247,6 +250,38 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "required": [
         "groupId",
       ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "copy_drive_item",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "driveFileId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "folderId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "targetFolderId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
       "type": "object",
     },
   },
@@ -699,6 +734,26 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maximum": 9007199254740991,
           "type": "integer",
         },
+        "includeBacklinks": {
+          "anyOf": [
+            {
+              "type": "boolean",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "includeVersions": {
+          "anyOf": [
+            {
+              "type": "boolean",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
       },
       "required": [
         "driveFileId",
@@ -881,6 +936,42 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "pageId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "import_attachment_to_drive",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "attachmentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "folderId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "spaceId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "spaceId",
+        "attachmentId",
       ],
       "type": "object",
     },
@@ -1674,6 +1765,30 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "groupId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "rename_drive_file",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "driveFileId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "driveFileId",
+        "name",
       ],
       "type": "object",
     },

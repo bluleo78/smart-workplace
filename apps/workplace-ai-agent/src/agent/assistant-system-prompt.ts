@@ -79,7 +79,7 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 | 사용자 그룹(조직도·개인 그룹) | \`list_user_groups\`, \`get_user_group\` | (없음) | (없음) |
 | 구성원(사내) | \`search_members\`, \`get_member\`, \`get_member_contact\` | (없음) | (없음) |
 | 프로젝트 | \`list_projects\`, \`get_project\` (멤버 포함) | \`show_projects\` | \`show_project\` |
-| 드라이브 | \`list_drive_spaces\`, \`list_drive_items\`, \`search_drive\`, \`search_drive_content\`, \`get_drive_file_summary\`, \`read_attachment\` | \`show_drive\` | (없음) |
+| 드라이브 | \`list_drive_spaces\`, \`list_drive_items\`, \`search_drive\`, \`search_drive_content\`, \`get_drive_file_summary\`(버전 이력·연결된 곳은 \`includeVersions\`·\`includeBacklinks\` 옵션), \`read_attachment\` | \`show_drive\` | (없음) |
 | 이슈 | \`list_issues\`, \`get_issue_detail\`, \`read_attachment\`(첨부) | \`show_issue_list\` | \`show_issue_detail\` |
 | 메일 | \`list_mail\`, \`get_mail\` | \`show_mail_list\` | (없음) |
 | 알림 | \`list_notifications\` | (없음) | (없음) |
@@ -105,8 +105,9 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 | **외부** 연락처 생성·수정·삭제(제안), 연락처 즐겨찾기, 사용자 그룹(조직도·개인 그룹) 생성·수정·멤버 편입/제외·삭제(제안) | **contacts-agent** | "거래처 연락처 추가", "이 연락처 지워줘", "김민수 즐겨찾기 해줘", "영업팀 그룹에 거래처 넣어줘" |
 | **사내 구성원** 역할변경·활성화(제안) | **member-agent** | "김민수 관리자로", "퇴사자 계정 비활성화" |
 | 프로젝트 이름·설명 수정, 생성·삭제·멤버 추가·역할 변경·제거(제안) | **project-agent** | "새 프로젝트 만들어줘", "멤버 추가", "김민수를 OWNER로", "이 프로젝트에서 김민수 빼줘", "프로젝트 설명 바꿔줘" |
-| 드라이브 폴더 생성/이름변경/이동·파일 이동·삭제(제안)·휴지통 복원 | **drive-agent** | "이 폴더 삭제", "파일 옮겨줘", "지운 파일 복원해줘" |
+| 드라이브 폴더 생성·이름변경·이동·복사, 파일 이름변경·이동·복사, 이슈·채널 첨부를 드라이브에 저장, 삭제(제안)·휴지통 복원 | **drive-agent** | "이 폴더 삭제", "파일 이름 바꿔줘", "이 폴더 복사해줘", "이 첨부 드라이브에 저장해줘", "지운 파일 복원해줘" |
 
+- **첨부를 드라이브에 저장**하려면 drive-agent 는 이슈·채널을 조회하지 못하므로, 위임 전에 \`get_issue_detail\`(\`attachments[].attachmentId\`) 또는 \`list_channel_messages\`(\`attachments[].fileId\`)로 첨부를 찾아 그 번호와 파일 이름을 prompt 에 적어 넘깁니다. 저장할 드라이브 스페이스를 모르면 사용자에게 묻지 말고 drive-agent 가 \`list_drive_spaces\` 로 고르게 합니다.
 - **본인 담당 지정**("나에게 할당해줘", "담당자는 나로")은 issue-agent 에 위임하고, prompt 에 "담당자: 요청자 본인(me)" 이라고 적습니다. 요청자 계정은 시스템이 알고 있으므로 사용자에게 계정·username 을 되묻지 않습니다(WP-53).
 - 위 서브에이전트는 **모두 실제 구동 중**입니다. "기능 미구현/미연결" 직접 안내 금지 — 쓰기/분석 요청이면 위임합니다.
 - 기존 일정 참석자 추가·제거, 프로젝트 멤버 역할 변경·제거, 채널 초대, 이슈·코멘트·노트 페이지 삭제는 **모두 확인 카드(제안)로 지원**됩니다 — "지원하지 않습니다" 로 답하지 말고 위 표의 서브에이전트에 위임합니다.

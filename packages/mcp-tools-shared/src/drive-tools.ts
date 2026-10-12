@@ -1,8 +1,16 @@
-// src/drive-tools.ts — 드라이브 읽기 도구 + 폴더·파일 정리(생성·이름변경·이동) + 휴지통 복원. 두 앱 공유(#846, #850, #854).
+// src/drive-tools.ts — 드라이브 읽기 도구 + 폴더·파일 정리(생성·이름변경·이동·복사) + 첨부 가져오기 + 휴지통 복원. 두 앱 공유(#846, #850, #854, WP-354).
 // 파일 행은 toDriveItemsView 로 core fileId 를 지우고 driveFileId 로만 노출한다(#840).
 import { z } from 'zod';
 import { omitKeys } from './compact.js';
-import { toDriveContentHitsView, toDriveFolderView, toDriveItemsView, toDriveTrashView } from './drive-view.js';
+import {
+  toDriveBacklinksView,
+  toDriveContentHitsView,
+  toDriveFileView,
+  toDriveFolderView,
+  toDriveItemsView,
+  toDriveTrashView,
+  toDriveVersionsView,
+} from './drive-view.js';
 import type { SharedTool } from './mcp-tool.js';
 import { nullAsOmitted } from './tool-definitions.js';
 import type { DriveToolClient } from './tool-client.js';
@@ -28,7 +36,12 @@ export const searchDriveInput = z.object({
  * 서버가 잘렸는지는 알리지 않아, 이 수에 닿으면 더 있을 수 있다고 본다. 서버 상한을 바꾸면 이 값도 맞춘다.
  */
 const SEARCH_SERVER_CAP = 200;
-export const getDriveFileSummaryInput = z.object({ driveFileId: z.number().int().positive() });
+// WP-354: 버전 목록·백링크는 별도 도구가 아니라 파일 상세 도구의 옵션이다(앱당 도구 상한). 모델이 쓰지 않는 옵션을 null 로 채워 보내도 받는다.
+export const getDriveFileSummaryInput = z.object({
+  driveFileId: z.number().int().positive(),
+  includeVersions: nullAsOmitted(z.boolean()),
+  includeBacklinks: nullAsOmitted(z.boolean()),
+});
 export const searchDriveContentInput = z.object({
   query: z.string().min(1),
   spaceId: z.number().int().positive().optional(),
@@ -51,6 +64,22 @@ export const moveDriveFileInput = z.object({
   driveFileId: z.number().int().positive(),
   targetFolderId: nullAsOmitted(z.number().int().positive()),
 });
+export const renameDriveFileInput = z.object({ driveFileId: z.number().int().positive(), name: z.string().min(1).max(255) });
+// 복사 원본은 파일·폴더 중 하나다(restore_drive_item 과 같은 이유로 둘 다 오면 모호). 대상 폴더는 생략과 null 이 모두 스페이스 루트.
+export const copyDriveItemInput = z
+  .object({
+    driveFileId: z.number().int().positive().optional(),
+    folderId: z.number().int().positive().optional(),
+    targetFolderId: nullAsOmitted(z.number().int().positive()),
+  })
+  .refine((v) => (v.driveFileId === undefined) !== (v.folderId === undefined), {
+    message: 'driveFileId 와 folderId 중 정확히 하나만 주세요.',
+  });
+export const importAttachmentToDriveInput = z.object({
+  spaceId: z.number().int().positive(),
+  attachmentId: z.number().int().positive(),
+  folderId: nullAsOmitted(z.number().int().positive()),
+});
 
 export const listDriveTrashInput = z.object({ spaceId: z.number().int().positive() });
 // 파일과 폴더는 id 시퀀스가 달라 한쪽만 받는다 — 둘 다 오면 어느 것을 복원할지 모호하다.
@@ -60,7 +89,7 @@ export const restoreDriveItemInput = z
     message: 'driveFileId 와 folderId 중 정확히 하나만 주세요.',
   });
 
-/** 드라이브 도구(읽기 + 폴더 생성·이름변경·이동 + 파일 이동 + 휴지통 목록·복원). 영구 삭제·휴지통 비우기는 되돌릴 수 없어 두지 않는다(삭제는 propose_* 확인 카드). */
+/** 드라이브 도구(읽기 + 폴더 생성·이름변경·이동 + 파일 이름변경·이동 + 복사 + 첨부 가져오기 + 휴지통 목록·복원). 영구 삭제·휴지통 비우기는 되돌릴 수 없어 두지 않는다(삭제는 propose_* 확인 카드). */
 export function buildDriveTools(client: DriveToolClient): SharedTool[] {
   return [
     {
@@ -125,11 +154,22 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       description:
         'Returns the AI summary of a drive file (driveFileId from list_drive_items, search_drive or search_drive_content) as {summary, status, ' +
         'reason}. Only status DONE has a summary; PENDING, EXTRACTING, TEXT_READY, SUMMARIZING = not ready; FAILED, SKIPPED = not summarizable (see ' +
-        'reason). Report the status; never guess content.',
+        'reason). Report the status; never guess content. includeVersions adds versions (newest first, current marked); includeBacklinks adds the ' +
+        'issues and chat messages linking the file (sourceType, label, deepLink).',
       inputSchema: getDriveFileSummaryInput,
       async handler(args) {
-        const { driveFileId } = getDriveFileSummaryInput.parse(args);
-        return JSON.stringify(await client.getDriveFileSummary(driveFileId));
+        const { driveFileId, includeVersions, includeBacklinks } = getDriveFileSummaryInput.parse(args);
+        // 옵션이 켜진 조회만 병렬로 보낸다 — 요약만 필요한 일반 호출은 요청 수가 그대로다.
+        const [summary, versions, backlinks] = await Promise.all([
+          client.getDriveFileSummary(driveFileId),
+          includeVersions ? client.listDriveFileVersions(driveFileId) : undefined,
+          includeBacklinks ? client.listDriveFileBacklinks(driveFileId) : undefined,
+        ]);
+        return JSON.stringify({
+          ...(summary as Record<string, unknown>),
+          ...(versions && { versions: toDriveVersionsView(versions) }),
+          ...(backlinks && { backlinks: toDriveBacklinksView(backlinks) }),
+        });
       },
     },
     {
@@ -151,7 +191,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       kind: 'read',
       description:
         'Lists the trash of a drive space: type, name, originalPath, trashedAt, autoPurgeAt (permanently deleted after it), plus driveFileId for ' +
-        'files or folderId for folders. Restore with restore_drive_item.',
+        'files or folderId for folders.',
       inputSchema: listDriveTrashInput,
       async handler(args) {
         const { spaceId } = listDriveTrashInput.parse(args);
@@ -226,13 +266,62 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       // move_drive_folder 와 같다 — 위치를 바꾸고(destructive), 이미 그 폴더면 서버가 no-op(멱등).
       hints: { destructive: true, idempotent: true },
       description:
-        'Moves a file (driveFileId from list_drive_items or search_drive) into the folder targetFolderId (a folderId), or to the space root when ' +
-        'omitted; needs EDITOR.',
+        'Moves a file (driveFileId) into the folder targetFolderId (a folderId), or to the space root when omitted; needs EDITOR.',
       inputSchema: moveDriveFileInput,
       async handler(args) {
         const { driveFileId, targetFolderId } = moveDriveFileInput.parse(args);
         await client.moveDriveFile(driveFileId, targetFolderId ?? null);
         return 'ok';
+      },
+    },
+    {
+      name: 'rename_drive_file',
+      app: 'drive',
+      kind: 'write',
+      // rename_drive_folder 와 같다 — 이전 이름을 덮어쓰고(destructive), 같은 이름이면 서버가 no-op 이라 다시 불러도 같은 결과(멱등).
+      hints: { destructive: true, idempotent: true },
+      description:
+        'Renames a file (driveFileId) and returns it; needs EDITOR. Fails if the folder already has a file with that name.',
+      inputSchema: renameDriveFileInput,
+      async handler(args) {
+        const { driveFileId, name } = renameDriveFileInput.parse(args);
+        return JSON.stringify(toDriveFileView((await client.renameDriveFile(driveFileId, name)) as { id: number; fileId: number }));
+      },
+    },
+    {
+      name: 'copy_drive_item',
+      app: 'drive',
+      kind: 'write',
+      // 새 항목을 만든다(destructive 아님). 같은 이름이 이미 있으면 서버가 409 라 다시 부르면 오류 — 멱등이 아니다.
+      hints: { destructive: false, idempotent: false },
+      description:
+        'Copies a file (driveFileId) or a folder with its contents (folderId); give exactly one. The copy keeps its name and goes into targetFolderId ' +
+        '(a folderId) of the same space, or the root when omitted; fails if the name is taken there (always, in its own folder). Needs EDITOR.',
+      inputSchema: copyDriveItemInput,
+      async handler(args) {
+        const { driveFileId, folderId, targetFolderId } = copyDriveItemInput.parse(args);
+        if (driveFileId !== undefined) {
+          return JSON.stringify(toDriveFileView((await client.copyDriveFile(driveFileId, targetFolderId ?? null)) as { id: number; fileId: number }));
+        }
+        return JSON.stringify(toDriveFolderView((await client.copyDriveFolder(folderId!, targetFolderId ?? null)) as { id: number }));
+      },
+    },
+    {
+      name: 'import_attachment_to_drive',
+      app: 'drive',
+      kind: 'write',
+      // 새 drive 파일을 만든다(destructive 아님). 같은 첨부를 같은 위치에 다시 가져오면 이름이 겹쳐 409 — 멱등이 아니다.
+      hints: { destructive: false, idempotent: false },
+      description:
+        'Saves an issue or chat attachment into a drive space, in folderId (a folderId) or at the root when omitted; needs EDITOR. attachmentId: ' +
+        'attachments[].attachmentId from get_issue_detail, or attachments[].fileId from list_channel_messages. Keeps the attachment name; fails if ' +
+        'taken there.',
+      inputSchema: importAttachmentToDriveInput,
+      async handler(args) {
+        const { spaceId, attachmentId, folderId } = importAttachmentToDriveInput.parse(args);
+        return JSON.stringify(
+          toDriveFileView((await client.importAttachmentToDrive(spaceId, folderId ?? null, attachmentId)) as { id: number; fileId: number }),
+        );
       },
     },
   ];

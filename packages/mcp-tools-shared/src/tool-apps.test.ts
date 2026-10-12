@@ -61,6 +61,9 @@ const CROSS_REF_ALLOWED: Record<string, string> = {
   'read_attachment@issue -> list_drive_items': '드라이브 갈래의 id 출처(이슈 갈래에는 불필요)',
   'read_attachment@issue -> search_drive': '드라이브 갈래의 id 출처(이슈 갈래에는 불필요)',
   'read_attachment@issue -> search_drive_content': '드라이브 갈래의 id 출처(이슈 갈래에는 불필요)',
+  // 첨부 가져오기는 이슈 첨부·채팅 첨부 두 출처 — 어느 쪽 id 든 가져올 수 있고, 출처 도구는 각 갈래의 안내일 뿐이다(read_attachment 와 같은 구조).
+  'import_attachment_to_drive@drive -> get_issue_detail': '이슈 첨부 갈래의 id 출처(채팅 첨부 갈래에는 불필요)',
+  'import_attachment_to_drive@drive -> list_channel_messages': '채팅 첨부 갈래의 id 출처(이슈 첨부 갈래에는 불필요)',
 };
 
 /** 도구의 설명과 입력 스키마의 필드 설명(JSON Schema 변환 결과)을 합친 텍스트 — 도구 이름 언급을 찾는 대상. */
