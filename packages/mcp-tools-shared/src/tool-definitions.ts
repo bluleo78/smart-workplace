@@ -19,7 +19,7 @@ const SAFE_INT = Number.MAX_SAFE_INTEGER;
  */
 const NULL_AS_OMITTED = new WeakSet<z.ZodType>();
 
-/** 선택 입력을 "null 도 생략으로 받는" 입력으로 만든다. 설명(.describe)은 넘기기 전에 붙인다 — 결과에 다시 붙이면 복제본이라 표식이 사라진다. */
+/** 선택 입력을 "null 도 생략으로 받는" 입력으로 만든다. 결과에 `.describe()` 를 다시 붙여도 복제본이 부모를 따라 표식을 찾으므로(isNullAsOmitted) 유지된다. */
 export function nullAsOmitted<T extends z.ZodType>(schema: T) {
   const wrapped = schema.nullish();
   NULL_AS_OMITTED.add(wrapped);

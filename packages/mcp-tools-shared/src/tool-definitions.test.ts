@@ -95,7 +95,7 @@ describe('estimateTokens', () => {
 /**
  * null 허용 고정(WP-346 → WP-340 웨이브 5). 모델은 쓰지 않는 인자를 null 로 채워 보내기도 한다. 정의에서 null 갈래를 숨겼어도 검증은 받아야 한다.
  * MCP SDK 는 registerTool 에 넘긴 shape 로 객체를 다시 만들어 검증하므로(z.object(shape)) 같은 방식으로 확인하고, 핸들러까지 태워 본다.
- * SDK 실제 왕복은 workplace-mcp server.test.ts 가 확인한다.
+ * SDK 실제 왕복은 workplace-mcp integration.test.ts 가 확인한다.
  */
 describe('null 을 생략으로 받는다', () => {
   const sdkParse = (name: string, args: unknown) => z.object((tool(name).inputSchema as z.ZodObject).shape).safeParse(args);

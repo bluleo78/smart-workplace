@@ -30,7 +30,7 @@ export function buildMcpServer(apiBaseUrl: string, token: string, scope: McpScop
     server.registerTool(
       t.name,
       {
-        // 표시 이름 — 클라이언트 도구 목록에는 top-level title 이 쓰이고, annotations.title 은 구버전 클라이언트용이다.
+        // 표시 이름 — tools/list 는 아래 toolDefinition 으로 바꿔 끼우므로 top-level title 만 나간다(annotations.title 은 중복이라 뺀다).
         title: annotations.title,
         description: t.description,
         inputSchema: (t.inputSchema as z.ZodObject<z.ZodRawShape>).shape,
@@ -51,6 +51,7 @@ export function buildMcpServer(apiBaseUrl: string, token: string, scope: McpScop
   // 곧 나가는 값이 되고, SDK 가 도구마다 붙이던 `$schema`·안전 정수 경계·execution 과 null 허용 표시가 빠진다. 호출(tools/call)과 입력 검증은
   // 위 registerTool 그대로다(SDK 가 zod shape 로 검증). 도구 핸들러 초기화는 첫 registerTool 에서만 일어나 이 교체를 덮어쓰지 않는다.
   // 도구가 하나도 없으면 SDK 가 tools 기능 자체를 등록하지 않아 교체할 대상도 없다.
+  // 등록 시점 스냅샷이다 — 등록 도구의 disable()/update() 는 반영하지 않는다(현재 호출처 없음, 서버는 요청마다 새로 만든다).
   if (tools.length > 0) {
     const definitions = tools.map(toolDefinition);
     server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: definitions }));

@@ -86,7 +86,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Partially updates an issue (이슈); only given fields change. assignees, labels and cycles replace the whole set ([] clears). type, labels, ' +
+        'Partially updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels and cycles replace the whole set ([] clears). type, labels, ' +
         'milestone and cycles are names from get_project. Names are resolved before any write (unknown = error, nothing saved); then each part saves ' +
         'on its own, reported as {ok, results}. Status and priority changes notify assignees and watchers; new assignees are notified.',
       inputSchema: updateIssueInput,
