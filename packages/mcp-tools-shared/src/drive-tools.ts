@@ -79,7 +79,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        '드라이브 스페이스(또는 parentId 폴더 하위)의 폴더/파일 목록을 JSON({folders, files, hasMore?, nextOffset?})으로 반환합니다. parentId 생략 시 최상위. ' +
+        '드라이브 스페이스(또는 parentId 폴더 하위)의 폴더/파일 목록을 JSON({folders, files, hasMore?, nextOffset?})으로 반환합니다. parentId 생략 시 최상위(parentId 는 폴더 행의 folderId — 행의 parentId 필드가 아닙니다). ' +
         '폴더는 folderId, 파일은 driveFileId 로 가리킵니다. 폴더 먼저·파일 다음(각각 이름순)으로 한 번에 limit 개(기본 200, 최대 500)만 담기며, ' +
         '더 있으면 hasMore:true 와 nextOffset 이 옵니다 — nextOffset 을 offset 으로 넘겨 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 본 것이라고 밝히세요' +
         '(개수 집계·"전부 …" 단정을 하지 마세요). 이 키들이 없으면 전부 담긴 것입니다.',
@@ -183,7 +183,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       // 같은 위치에 같은 이름이 있으면 서버가 409(DriveDuplicateNameException) — 다시 부르면 오류라 멱등이 아니다.
       hints: { destructive: false, idempotent: false },
       description:
-        '드라이브 스페이스에 새 폴더를 생성합니다. parentId 를 주면 그 하위에 만들고, 생략하면 스페이스 루트에 생성합니다. 생성된 폴더를 JSON 으로 반환합니다.',
+        '드라이브 스페이스에 새 폴더를 생성합니다. parentId 에 상위 폴더의 folderId 를 주면 그 하위에 만들고, 생략하면 스페이스 루트에 생성합니다. 생성된 폴더를 JSON 으로 반환합니다.',
       inputSchema: createDriveFolderInput,
       async handler(args) {
         const { spaceId, parentId, name } = createDriveFolderInput.parse(args);
@@ -209,7 +209,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       kind: 'write',
       // 상위 폴더를 바꾼다(destructive, move_wiki_page 와 같은 기준). 이미 그 위치면 서버가 no-op 이라 다시 불러도 같은 결과(멱등).
       hints: { destructive: true, idempotent: true },
-      description: '폴더를 다른 상위 폴더로 이동합니다. targetParentId 를 생략하면 스페이스 루트로 이동합니다.',
+      description: '폴더를 다른 상위 폴더로 이동합니다. targetParentId 는 대상 상위 폴더의 folderId 이고(행의 parentId 필드가 아님), 생략하면 스페이스 루트로 이동합니다.',
       inputSchema: moveDriveFolderInput,
       async handler(args) {
         const { folderId, targetParentId } = moveDriveFolderInput.parse(args);
@@ -224,7 +224,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       // move_drive_folder 와 같다 — 위치를 바꾸고(destructive), 이미 그 폴더면 서버가 no-op(멱등).
       hints: { destructive: true, idempotent: true },
       description:
-        '파일을 다른 폴더로 이동합니다. driveFileId 는 list_drive_items/search_drive 파일 항목의 driveFileId 입니다. targetFolderId 를 생략하면 스페이스 루트로 이동합니다.',
+        '파일을 다른 폴더로 이동합니다. driveFileId 는 list_drive_items/search_drive 파일 항목의 driveFileId 입니다. targetFolderId 는 대상 폴더의 folderId 이고, 생략하면 스페이스 루트로 이동합니다.',
       inputSchema: moveDriveFileInput,
       async handler(args) {
         const { driveFileId, targetFolderId } = moveDriveFileInput.parse(args);
