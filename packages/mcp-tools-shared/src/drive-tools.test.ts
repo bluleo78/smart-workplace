@@ -45,10 +45,10 @@ describe('buildDriveTools', () => {
   // WP-353: 폴더 행은 자기 folderId 와 상위 폴더 parentId 를 함께 가진다 — 하위로 내려갈 때 어느 값을 넘기는지 설명이 못 박는다.
   it('폴더를 입력으로 받는 도구 설명이 그 폴더의 folderId 를 쓰라고 안내한다', () => {
     const c = mockClient();
-    expect(tool(c, 'list_drive_items').description).toContain('parentId 는 폴더 행의 folderId');
-    expect(tool(c, 'create_drive_folder').description).toContain('상위 폴더의 folderId');
-    expect(tool(c, 'move_drive_folder').description).toContain('상위 폴더의 folderId');
-    expect(tool(c, 'move_drive_file').description).toContain('대상 폴더의 folderId');
+    expect(tool(c, 'list_drive_items').description).toContain('parentId (a folderId, not a row parentId)');
+    expect(tool(c, 'create_drive_folder').description).toContain('parentId (a folderId)');
+    expect(tool(c, 'move_drive_folder').description).toContain('the folderId of the new parent, not a row parentId');
+    expect(tool(c, 'move_drive_file').description).toContain('targetFolderId (a folderId)');
   });
 
   it('list_drive_items → parentId·offset 지정 시 그대로 전달', async () => {

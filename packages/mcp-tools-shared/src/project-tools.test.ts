@@ -58,7 +58,7 @@ describe('list_projects', () => {
   it('WP-352: 설명이 이어 조회하거나 잘렸다고 알리라고 안내한다', () => {
     const d = tool(mockClient(), 'list_projects').description;
     expect(d).toContain('nextPage');
-    expect(d).toContain('일부만 담겼다고 밝히세요');
+    expect(d).toContain('say the list is partial');
   });
 });
 
@@ -368,8 +368,8 @@ describe('list_issues 페이지 (WP-352)', () => {
   it('설명이 이어 조회하거나 잘렸다고 알리라고 안내한다(전부로 오해 금지)', () => {
     const d = tool(mockClient(), 'list_issues').description;
     expect(d).toContain('nextCursor');
-    expect(d).toContain('cursor 로 넘겨');
-    expect(d).toContain('일부만 담겼다고 밝히세요');
+    expect(d).toContain('pass nextCursor as cursor');
+    expect(d).toContain('say the list is partial');
   });
 });
 

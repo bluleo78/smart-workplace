@@ -17,7 +17,7 @@ export const listNotificationsInput = z.object({
   unreadOnly: z.boolean().default(false),
   limit: z.number().int().min(1).max(PAGE_SIZE).default(20),
   // WP-352: 서버 GET /notifications 의 offset(NotificationController). 이전 호출이 돌려준 nextOffset 을 그대로 넘긴다.
-  offset: z.number().int().min(0).default(0).describe('이어 읽을 위치 — 이전 호출 결과의 nextOffset 을 그대로(직접 계산하지 마세요)'),
+  offset: z.number().int().min(0).default(0).describe('nextOffset from the previous call; do not compute it'),
 });
 export const markNotificationReadInput = z.object({ notificationId: z.number().int().positive() });
 
@@ -76,11 +76,9 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
       app: 'notify',
       kind: 'read',
       description:
-        '내 알림 인박스를 최신순으로 JSON({unreadCount, items, hasMore?, nextOffset?})으로 반환합니다. unreadCount 는 전체 안 읽은 알림 수입니다. ' +
-        'type: ASSIGNED(담당 지정)·COMMENTED(코멘트)·STATUS_CHANGED·PRIORITY_CHANGED·REMINDER(일정 알림)·CALENDAR_INVITED(일정 초대)·CALENDAR_RSVP_CHANGED(참석 응답 변경). ' +
-        '이슈 알림은 issueKey, 일정 알림은 eventId 를 담습니다. unreadOnly=true 면 안 읽은 알림만 돌려줍니다. limit 기본 20(최대 100). ' +
-        '더 오래된 알림이 있을 수 있으면 hasMore:true 와 nextOffset 이 오니, nextOffset 을 offset 으로 넘겨 이어 조회하거나(같은 unreadOnly·limit 으로), ' +
-        '이어 조회하지 않고 답한다면 일부만 본 것이라고 밝히세요. 서버가 총 개수를 주지 않아 마지막 페이지가 꽉 차면 다음 페이지가 비어 있을 수 있고, 그러면 끝입니다.',
+        'Lists my notification inbox (인박스) newest first as {unreadCount (total), items, hasMore?, nextOffset?}. type: ASSIGNED, COMMENTED, ' +
+        'STATUS_CHANGED, PRIORITY_CHANGED, REMINDER, CALENDAR_INVITED, CALENDAR_RSVP_CHANGED; issue items carry issueKey, event items eventId. If ' +
+        'hasMore, pass nextOffset as offset with the same unreadOnly and limit, or say the list is partial; that page may be empty.',
       inputSchema: listNotificationsInput,
       async handler(args) {
         const { unreadOnly, limit, offset } = listNotificationsInput.parse(args);
@@ -111,7 +109,8 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
       app: 'notify',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
-      description: '알림 하나를 읽음 처리합니다. notificationId 는 list_notifications 결과의 값입니다. 이미 읽은 알림이어도 오류 없이 성공합니다.',
+      description:
+        'Marks one notification read (notificationId from list_notifications); already read is fine.',
       inputSchema: markNotificationReadInput,
       async handler(args) {
         const { notificationId } = markNotificationReadInput.parse(args);
@@ -124,7 +123,8 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
       app: 'notify',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
-      description: '내 알림을 모두 읽음 처리합니다. 사용자가 "알림 다 읽음으로" 처럼 전체 처리를 요청했을 때만 호출하세요.',
+      description:
+        'Marks all my notifications read; only when the user asks for all of them.',
       inputSchema: z.object({}),
       async handler() {
         await client.markAllNotificationsRead();

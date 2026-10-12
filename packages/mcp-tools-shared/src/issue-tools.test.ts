@@ -75,7 +75,7 @@ describe('buildSharedIssueTools', () => {
     expect(all).not.toHaveProperty('commentsOmitted');
     expect(detail.description).toMatch(/commentsOmitted/);
     expect(detail.description).toMatch(/allComments/);
-    expect(detail.description).toMatch(/200건/);
+    expect(detail.description).toMatch(/up to 200 comments/);
   });
 
   it('WP-176: get_issue_detail 은 이슈의 사이클을 name·status 로 동봉한다(숫자 id 없음)', async () => {
@@ -138,8 +138,8 @@ describe('buildSharedIssueTools', () => {
   it('create_issue·update_issue 의 parent 입력 설명이 이슈 키(예: WP-12, 같은 프로젝트)를 안내한다', () => {
     for (const name of ['create_issue', 'update_issue']) {
       const schema = z.toJSONSchema(buildSharedIssueTools(mockClient()).find((x) => x.name === name)!.inputSchema as z.ZodType) as unknown as { properties: { parent: { description?: string } } };
-      expect(schema.properties.parent.description, name).toContain('부모 이슈 키(예: WP-12)');
-      expect(schema.properties.parent.description, name).toContain('같은 프로젝트만');
+      expect(schema.properties.parent.description, name).toContain('Parent issue key');
+      expect(schema.properties.parent.description, name).toContain('same project');
     }
   });
 

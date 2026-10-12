@@ -125,8 +125,8 @@ describe('buildWikiTools', () => {
   // WP-309: body 는 전체 대체라 모델이 범위 밖 블록을 다시 쓰거나 정규화하면 사람이 쓴 텍스트가 지워진다 — 설명이 이를 막는 문구를 유지해야 한다.
   it('update_wiki_page 설명은 body 전체 대체·범위 밖 블록 원문 복사를 명시한다 (WP-309)', () => {
     const d = tool(mockClient(), 'update_wiki_page').description;
-    expect(d).toContain('문서 전체를 대체');
-    expect(d).toContain('바이트 단위');
+    expect(d).toContain('replaces the whole Markdown document');
+    expect(d).toContain('byte-for-byte');
   });
 
   it('update_wiki_page 는 version 누락 시 zod 파싱을 거부한다', async () => {
@@ -206,8 +206,8 @@ describe('buildWikiTools', () => {
   // WP-352 최종 리뷰: total 은 parentId 를 주면 하위 트리 노드 수고, 한 부모 아래 500 초과 자식은 parentId 로도 못 펼친다.
   it('list_wiki_pages 설명이 total 의 하위 트리 의미와 한 부모 아래 상한 한계를 밝힌다', () => {
     const { description } = tool(mockClient(), 'list_wiki_pages');
-    expect(description).toContain('parentId 를 주면 그 아래 하위 트리의 노드 수');
-    expect(description).toContain('한 부모 바로 아래 자식이');
+    expect(description).toContain('total counts all nodes (under parentId if given)');
+    expect(description).toContain('If a parent has too many direct children');
   });
 
   it('list_wiki_pages 는 스페이스에 없는 parentId 를 오류로 거절한다', async () => {

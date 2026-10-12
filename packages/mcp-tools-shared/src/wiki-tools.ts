@@ -11,7 +11,7 @@ export const getWikiPageInput = z.object({ pageId: z.number().int().positive() }
 export const listWikiPagesInput = z.object({
   spaceId: z.number().int().positive(),
   // WP-352: 큰 스페이스의 트리가 잘렸을 때 그 페이지의 하위만 따로 펼쳐 보는 용도.
-  parentId: z.number().int().positive().optional().describe('이 페이지의 하위 트리만 — 잘린 노드(hiddenChildren)를 펼칠 때'),
+  parentId: z.number().int().positive().optional().describe('Return only the subtree under this page (to expand hiddenChildren)'),
 });
 
 /** 한 번에 돌려줄 트리 노드 수 상한 — 넘으면 위쪽 계층부터 이 수만큼만 담고 truncated 로 알린다(수천 페이지 스페이스의 토큰 폭주 방지). */
@@ -110,8 +110,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        '내가 접근 가능한 노트 스페이스 목록을 JSON 배열(id·name·type·role)로 반환합니다. 노트를 생성하려면 먼저 이 도구로 대상 스페이스의 id 를 확인하세요. ' +
-        '개인 노트는 type="PERSONAL"(이름 "내 노트")입니다. search_wiki 는 페이지 내용만 검색하므로, 스페이스 자체를 찾을 때는 이 도구를 쓰세요.',
+        'Lists wiki spaces (노트 스페이스) I can access: id (the spaceId of other wiki tools), name, type, role. My personal space is type PERSONAL ("내 ' +
+        '노트"). Use it to find a space; search_wiki searches pages only.',
       inputSchema: z.object({}),
       async handler() {
         // 스페이스 소유자 ownerId 는 숫자 사용자 ID 라 내보내지 않는다(#833, WP-353) — 내 역할은 role 로 알 수 있다.
@@ -123,11 +123,10 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        '노트 스페이스의 페이지 트리를 JSON({items, total, truncated?})으로 반환합니다. items 의 각 노드는 id·title 과 하위 페이지 children 을 가지며 사이드바 순서대로 정렬됩니다. ' +
-        '스페이스 구성을 파악하거나 제목으로 페이지 위치를 찾을 때 쓰세요. spaceId 는 list_wiki_spaces 결과의 id 입니다. ' +
-        `total 은 전체 페이지 수(parentId 를 주면 그 아래 하위 트리의 노드 수)이고, 담을 노드가 ${MAX_WIKI_TREE_NODES}개를 넘으면 위쪽 계층부터 ${MAX_WIKI_TREE_NODES}개만 담고 truncated:true 가 옵니다. ` +
-        '이때 하위가 다 담기지 못한 노드에는 hiddenChildren(못 담은 직계 자식 수)이 붙으니, 그 노드의 id 를 parentId 로 다시 호출해 하위를 펼치세요. ' +
-        '한 부모 바로 아래 자식이 한 번에 담을 수 있는 수를 넘으면 parentId 로도 다 펼칠 수 없으니 그때는 search_wiki 로 찾으세요. 특정 제목은 search_wiki 가 빠릅니다. 펼치지 않고 답한다면 일부 계층만 본 것이라고 밝히세요(개수 집계·"없다" 단정 금지). truncated 가 없으면 전부 담긴 것입니다.',
+        'Returns the page tree of a wiki space as {items, total, truncated?}; nodes {id (pageId), title, children?} in sidebar order. ' +
+        `Beyond ${MAX_WIKI_TREE_NODES} nodes only the top ${MAX_WIKI_TREE_NODES} (breadth-first) come back with truncated:true; nodes with hiddenChildren expand by ` +
+        'calling again with their id as parentId. total counts all nodes (under parentId if given). If a parent has too many direct children, use ' +
+        'search_wiki. Without expanding, say only part was seen.',
       inputSchema: listWikiPagesInput,
       async handler(args) {
         const { spaceId, parentId } = listWikiPagesInput.parse(args);
@@ -144,9 +143,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        '노트 페이지를 제목·본문으로 검색합니다. 접근 가능한 스페이스만 대상이며, 결과 JSON({items, truncated?})의 items 는 최근 수정순 최대 ' +
-        `${SEARCH_SERVER_CAP}건(id·spaceName·title·snippet)입니다. 더 있을 수 있으면 truncated:true 가 옵니다 — 이어 조회하는 방법은 없으니 검색어를 더 구체적으로 바꿔 다시 검색하거나, ` +
-        '그대로 답한다면 일부만 본 것이라고 밝히세요(개수 집계 금지). 근거가 필요하면 먼저 검색하세요.',
+        `Searches wiki pages (노트) by title and body substring in spaces I can access: {items, truncated?}, newest edit first, at most ${SEARCH_SERVER_CAP} ` +
+        'items {id, spaceName, title, snippet}. truncated:true means more may exist and there is no next page: refine the query, or say the result is partial.',
       inputSchema: searchWikiInput,
       async handler(args) {
         const { query } = searchWikiInput.parse(args);
@@ -159,7 +157,9 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       name: 'get_wiki_page',
       app: 'wiki',
       kind: 'read',
-      description: '노트 페이지 본문 전체를 JSON(title·body·version 등)으로 반환합니다. search_wiki 결과의 id 로 호출하세요.',
+      description:
+        'Returns a wiki page (노트) by pageId (id from search_wiki or list_wiki_pages): title, Markdown body, version (needed by update_wiki_page), ' +
+        'spaceId, parentId, updatedAt.',
       inputSchema: getWikiPageInput,
       async handler(args) {
         const { pageId } = getWikiPageInput.parse(args);
@@ -171,7 +171,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        '이 노트 페이지를 링크한 다른 페이지 목록(백링크)을 JSON 배열(pageId·spaceName·title·updatedAt)로 반환합니다. 내가 볼 수 있는 페이지만 포함됩니다.',
+        'Lists the pages that link to this wiki page (backlinks): {pageId, spaceName, title, updatedAt}, only pages I can see.',
       inputSchema: getWikiPageInput,
       async handler(args) {
         const { pageId } = getWikiPageInput.parse(args);
@@ -184,7 +184,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        '노트 스페이스에 새 페이지를 생성합니다. parentId 를 주면 그 하위에, 생략하면 최상위에 만듭니다. 생성된 페이지(id·version)를 JSON 으로 반환합니다.',
+        'Creates an empty wiki page (노트) in spaceId (from list_wiki_spaces), under parentId or at the top level. Returns it with id and version; ' +
+        'write the body with update_wiki_page.',
       inputSchema: createWikiPageInput,
       async handler(args) {
         const { spaceId, title, parentId } = createWikiPageInput.parse(args);
@@ -198,11 +199,11 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       // 본문 전체 대체(3-way 병합). AI 적용은 매번 이전 판 스냅샷을 남기고, 기준본이 만료되면 409 라 멱등으로 보지 않는다.
       hints: { destructive: true, idempotent: false },
       description:
-        '노트 페이지 제목·본문을 저장합니다. title·body 중 바꿀 필드만 넣으면 넣지 않은 필드는 유지됩니다. ' +
-        'body 는 문서 전체를 대체합니다 — body 에서 빠진 텍스트는 삭제됩니다. 일부만 고칠 때도 읽은 본문 전체를 넣되, 요청 범위 밖 블록은 get_wiki_page 로 읽은 그대로 바이트 단위로 복사하세요: ' +
-        '다시 쓰기·공백/빈 줄/목록 기호/강조·제목 표기 정규화·요청받지 않은 텍스트 삭제 금지. version 은 get_wiki_page 로 읽었거나 직전 update_wiki_page 응답에서 받은 version 을 넣으세요 — ' +
-        '그 사이 다른 사람이 고친 부분은 서버가 자동으로 합칩니다(같은 곳을 함께 고쳤으면 이 요청의 내용이 우선). ' +
-        '409 는 그 version 의 기준본을 쓸 수 없는 경우입니다(읽은 지 1시간이 지나 만료·기록 없음·현재보다 새 version) — 오류 문구에 사유가 있습니다. get_wiki_page 로 다시 읽고 최신 본문에 수정을 반영해 다시 저장하세요.',
+        'Saves a wiki page (노트) title and/or body; omitted fields stay. body replaces the whole Markdown document and anything left out is deleted, ' +
+        'so for a partial edit send the full body, copying untouched blocks byte-for-byte from get_wiki_page (no rewording, no whitespace, list, ' +
+        'emphasis or heading normalization). version: from get_wiki_page or the last update_wiki_page result; edits by others since then are merged ' +
+        '(this request wins on overlap). 409: that version is unusable as the base (read over 1 hour ago, unknown, or newer than current); re-read ' +
+        'and reapply.',
       inputSchema: updateWikiPageInput,
       async handler(args) {
         const { pageId, ...body } = updateWikiPageInput.parse(args);
@@ -215,8 +216,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        '노트 페이지를 같은 스페이스 안에서 옮깁니다(하위 페이지도 함께). parentId 는 새 부모 페이지 id(null=최상위), ' +
-        'position 은 새 부모 아래 순서(0=맨 앞, 생략=맨 끝)입니다. id 는 list_wiki_pages 트리에서 확인하세요. 다른 스페이스나 자기 하위로는 옮길 수 없습니다.',
+        'Moves a wiki page with its subpages inside its space. parentId: new parent pageId, or null for the top level. position: index among the new ' +
+        'siblings (0 = first, omit = last). Cannot move to another space or under itself.',
       inputSchema: moveWikiPageInput,
       async handler(args) {
         const { pageId, parentId, position } = moveWikiPageInput.parse(args);

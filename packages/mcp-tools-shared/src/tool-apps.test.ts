@@ -56,11 +56,6 @@ const CROSS_REF_ALLOWED: Record<string, string> = {
   // 구성원 연락처 vs 외부 연락처 — 서로 "이쪽이 아니라 저쪽" 이라는 대비 언급(식별자 혼동 방지).
   'get_member_contact@member -> get_external_contact': '구성원용이 아니라 외부 연락처용이라는 대비 언급',
   'get_external_contact@contacts -> get_member_contact': '외부 연락처용이 아니라 구성원용이라는 대비 언급',
-  // search_members 를 다른 앱에 실으면서 따라온 것 — 설명의 "get_member 등 사람을 가리키는 도구" 는 username 을 쓰는 곳의 예시일 뿐 필수 후속 조회가 아니다.
-  'search_members@calendar -> get_member': 'username 을 쓰는 도구의 예시 언급',
-  'search_members@project -> get_member': 'username 을 쓰는 도구의 예시 언급',
-  'search_members@messaging -> get_member': 'username 을 쓰는 도구의 예시 언급',
-  'search_members@contacts -> get_member': 'username 을 쓰는 도구의 예시 언급',
   // 첨부 읽기는 이슈 첨부·드라이브 파일 두 갈래 — 각 갈래의 id 출처를 모두 적었을 뿐, 한쪽 앱만 골라도 자기 갈래는 닫힌다.
   'read_attachment@drive -> get_issue_detail': '이슈 첨부 갈래의 id 출처(드라이브 갈래에는 불필요)',
   'read_attachment@issue -> list_drive_items': '드라이브 갈래의 id 출처(이슈 갈래에는 불필요)',

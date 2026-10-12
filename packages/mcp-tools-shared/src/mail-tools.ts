@@ -9,7 +9,7 @@ import type { MailToolClient } from './tool-client.js';
 
 export const listMailInput = z.object({
   accountId: z.number().int().positive(),
-  folder: z.string().default('INBOX'),
+  folder: z.string().default('INBOX').describe('INBOX or SENT'),
   query: z.string().optional(),
   // #466: 안 읽은 메일만. 검색어("is:unread")로 흉내 내면 서버가 본문 검색으로 처리해 결과가 틀린다.
   unreadOnly: z.boolean().optional(),
@@ -77,7 +77,8 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       name: 'list_mail_accounts',
       app: 'mail',
       kind: 'read',
-      description: '내 메일 계정 목록을 JSON 으로 반환합니다. 메일 도구에 넘길 accountId 를 모를 때 먼저 호출해 확인하세요.',
+      description:
+        'Lists my mail (메일) accounts; id is the accountId of other mail tools.',
       inputSchema: z.object({}),
       async handler() {
         return JSON.stringify(await client.listMailAccounts());
@@ -88,10 +89,10 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       app: 'mail',
       kind: 'read',
       description:
-        '메일 계정의 폴더 메시지 목록을 JSON 배열로 반환합니다(항목: id·fromAddress·fromName·subject·snippet·receivedAt·seen·hasAttachment·aiCategory·aiNeedsReply). ' +
-        'folder 기본 INBOX, limit 기본 20, query 로 내용 검색(제목/발신/스니펫). 값이 없는 키(분류 전 메일의 aiCategory·aiNeedsReply)는 생략되고, ' +
-        '"분류 전" 인 메일만 categoryPending:true 가 붙습니다. 회신 필요는 aiNeedsReply 가 true 이고 seen 이 false 인 메일입니다. ' +
-        '안 읽은 메일만 보려면 query 에 "is:unread" 같은 검색어를 쓰지 말고 unreadOnly:true 를 사용하세요. accountId 는 list_mail_accounts 의 id 입니다.',
+        'Lists mail in a folder of an account (accountId from list_mail_accounts), newest first, up to limit with no further pages. Items: id ' +
+        '(messageId), fromName, fromAddress, subject, snippet, receivedAt, seen, hasAttachment, aiCategory, aiNeedsReply; categoryPending:true while ' +
+        'unclassified. query matches sender (substring) and subject/body words; for unread mail use unreadOnly, not "is:unread". Needs reply = ' +
+        'aiNeedsReply and not seen.',
       inputSchema: listMailInput,
       async handler(args) {
         const { accountId, folder, limit, query, unreadOnly } = listMailInput.parse(args);
@@ -104,8 +105,8 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       app: 'mail',
       kind: 'read',
       description:
-        '단일 메일을 JSON 으로 반환합니다. 본문은 평문 bodyText 하나로 옵니다(HTML 전용 메일은 HTML 을 평문으로 바꿔 채우며, 서식·링크 주소·이미지는 없습니다). ' +
-        '조회만으로는 읽음 처리되지 않습니다(읽음 처리는 mark_mail_read). messageId 는 list_mail 결과 항목의 id 입니다.',
+        'Returns one mail by messageId (id from list_mail) with plain-text bodyText (HTML-only mail is converted, without formatting, link URLs or ' +
+        'images) and attachments. Does not mark it read.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
@@ -118,8 +119,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       app: 'mail',
       kind: 'read',
       description:
-        '메일 한 통의 AI 요약을 JSON({summary})으로 반환합니다. 긴 메일·스레드를 빠르게 파악할 때 get_mail 대신 쓰세요. ' +
-        'AI 가 설정되지 않았으면 오류가 납니다.',
+        'Returns an AI summary of one mail as {summary}; quicker than get_mail for long mail. Errors if AI is not configured.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
@@ -131,7 +131,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       app: 'mail',
       kind: 'read',
       description:
-        '메일에 대한 AI 답장 초안 본문을 JSON({draftBody})으로 반환합니다. 저장하거나 보내지 않습니다 — 보내려면 사용자에게 보여주고 발송은 따로 요청받으세요.',
+        'Returns an AI-drafted reply body as {draftBody}. Nothing is saved or sent, and sending is not available here: show the draft to the user.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
@@ -143,8 +143,8 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       app: 'mail',
       kind: 'read',
       description:
-        '메일 내용으로 이슈 초안(title·body·priority)과 추천 프로젝트(suggestedProjectKey·candidateProjects)를 JSON 으로 반환합니다. 이슈는 만들지 않습니다 — ' +
-        '사용자와 내용을 확정한 뒤 create_issue_from_mail 로 만드세요.',
+        'Drafts an issue from a mail: {title, body, priority, suggestedProjectKey, candidateProjects}. Creates nothing; confirm with the user, then ' +
+        'call create_issue_from_mail.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
@@ -158,8 +158,8 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       // 이미 이 메일로 만든 이슈가 있으면 새로 만들지 않고 기존 키를 돌려준다 — 멱등.
       hints: { destructive: false, idempotent: true },
       description:
-        '메일을 이슈로 등록하고 메일과 이슈를 서로 연결합니다. assignees 는 프로젝트 멤버 username 배열입니다("me"=나, 호출자 본인). ' +
-        '이미 이 메일로 만든 이슈가 있으면 새로 만들지 않고 그 issueKey 를 알려줍니다. 결과 { issueKey, created } 를 반환합니다.',
+        'Creates an issue (이슈) from a mail and links the two. assignees are project member usernames ("me" = caller) and are notified. If the mail ' +
+        'already has an issue, nothing is created and that issueKey returns. Returns {issueKey, created}.',
       inputSchema: createIssueFromMailInput,
       async handler(args) {
         const { messageId, assignees, ...rest } = createIssueFromMailInput.parse(args);
@@ -183,9 +183,8 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       // 읽음 상태가 원본 메일 서버(Graph/IMAP)로 역동기화된다 — 워크스페이스 밖에 닿으므로 openWorld.
       hints: { destructive: true, idempotent: true, openWorld: true },
       description:
-        '메일을 읽음으로 표시합니다(원본 메일 서버에도 반영). 사용자가 읽음 처리를 명시적으로 요청할 때만 호출하세요. ' +
-        '읽으면 "회신 필요" 목록·건수에서도 빠지며, 이 도구 묶음에는 안 읽음으로 되돌리는 도구가 없어 사용자가 메일 화면에서 직접 안 읽음으로 바꿔야 합니다' +
-        '(안 읽음이 되면 회신 필요로 다시 잡힙니다). messageId 는 list_mail 결과 항목의 id 입니다.',
+        'Marks a mail read, also on the mail server; only when the user asks. It leaves the needs-reply list, and no tool here marks it unread again ' +
+        '(the user must, in the mail app).',
       inputSchema: markMailReadInput,
       async handler(args) {
         const { messageId } = markMailReadInput.parse(args);
@@ -202,13 +201,10 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       // 호출마다 last_synced_at 이 갱신되고 그 사이 도착한 메일 때문에 같은 인자도 결과가 달라지므로 멱등이 아니다(true 는 자동 재시도를 부른다).
       hints: { destructive: true, idempotent: false, openWorld: true },
       description:
-        '지정 메일 계정의 받은편지함을 연결된 외부 메일 서버(M365 Graph/IMAP)와 수동 동기화합니다. 새 메일을 가져올 뿐 아니라 ' +
-        '이미 가져온 메일의 읽음 상태를 서버 값으로 덮어쓰고(IMAP 은 최근 14일·500건까지), M365 는 서버에서 지워진 메일을 로컬에서도 지웁니다. ' +
-        '결과는 JSON({fetched, saved, seenChanged})입니다 — saved 는 새로 가져온 메일 수, seenChanged 는 서버 읽음 상태를 따라 바뀐 기존 메일 수, ' +
-        'fetched 는 처리한 항목 수입니다. 셋 다 0 이면 새로 들어온 것도 바뀐 것도 없다는 뜻입니다. ' +
-        '이미 이 계정을 동기화 중이면 새로 시작하지 않고 { alreadySyncing: true, phase, done, total } 을 돌려주니, 잠시 뒤 다시 호출하거나 list_mail 로 확인하세요. ' +
-        '이 감지는 최선의 노력입니다 — 확인 직후 다른 동기화가 시작되면 셋 다 0 으로 와서 "새것 없음" 처럼 보일 수 있으니, 중요한 판단은 list_mail 로 확인하세요. ' +
-        'accountId 는 list_mail_accounts 로 확인하세요.',
+        'Syncs an account inbox with its server (M365 Graph or IMAP) now: fetches new mail, overwrites stored read states with the server values ' +
+        '(IMAP: last 14 days, 500 items), and on M365 deletes mail removed there. Returns {fetched, saved (new), seenChanged}; all 0 = no change. If ' +
+        'a sync is already running it returns {alreadySyncing:true, phase, done, total}: retry later or use list_mail. That check is best effort; a ' +
+        'sync starting right after it can also yield all 0.',
       inputSchema: syncMailInput,
       async handler(args) {
         const { accountId } = syncMailInput.parse(args);

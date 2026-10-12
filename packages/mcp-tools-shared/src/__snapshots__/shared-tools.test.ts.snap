@@ -443,7 +443,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "parent": {
-          "description": "부모 이슈 키(예: WP-12) — 같은 프로젝트만",
+          "description": "Parent issue key (e.g. WP-12), same project",
           "minLength": 1,
           "type": "string",
         },
@@ -749,7 +749,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "allComments": {
-          "description": "true 면 코멘트를 최근 200건까지 반환(기본은 최근 30건)",
           "type": "boolean",
         },
         "issueKey": {
@@ -916,7 +915,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "integer",
         },
         "cursor": {
-          "description": "더 오래된 메시지 커서 — 이전 호출 결과의 nextCursor 를 그대로",
+          "description": "nextCursor from the previous call",
           "type": "string",
         },
         "limit": {
@@ -947,7 +946,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "offset": {
           "default": 0,
-          "description": "건너뛸 채널 수 — 이전 호출 결과의 nextOffset 을 그대로",
+          "description": "nextOffset from the previous call",
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer",
@@ -1015,7 +1014,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "offset": {
           "default": 0,
-          "description": "건너뛸 항목 수 — 이전 호출 결과의 nextOffset 을 그대로",
+          "description": "nextOffset from the previous call",
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer",
@@ -1095,46 +1094,44 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "assignee": {
-          "description": "담당자 CSV: "me"(나) | "null"(담당 없음) | username | "any"(담당자 무관 — 프로젝트 전체 이슈). 표시 이름이 아닌 username. assignee·reporter 모두 생략 시 "me"",
+          "description": "CSV: "me", "null" (unassigned), usernames, or "any" (any assignee). Defaults to "me" when assignee and reporter are both omitted",
           "type": "string",
         },
         "blocked": {
+          "description": "true: only issues with an unfinished blocker",
           "type": "boolean",
         },
         "closedFrom": {
-          "description": "종료일(DONE·CANCELED 진입) 하한 yyyy-MM-dd, Asia/Seoul 기준",
+          "description": "Closed (DONE/CANCELED) date range, yyyy-MM-dd KST, inclusive",
           "type": "string",
         },
         "closedTo": {
-          "description": "종료일 상한 yyyy-MM-dd(포함), Asia/Seoul 기준",
           "type": "string",
         },
         "createdFrom": {
-          "description": "생성일 하한 yyyy-MM-dd, Asia/Seoul 기준",
+          "description": "Created date range, yyyy-MM-dd KST, inclusive",
           "type": "string",
         },
         "createdTo": {
-          "description": "생성일 상한 yyyy-MM-dd(포함), Asia/Seoul 기준",
           "type": "string",
         },
         "cursor": {
-          "description": "다음 페이지 커서 — 이전 호출 결과의 nextCursor 를 그대로(필터·size 는 같게)",
+          "description": "nextCursor from the previous call (same filters and size)",
           "type": "string",
         },
         "cycle": {
-          "description": "사이클 CSV(하나라도 일치하면 매칭, OR): 사이클 이름 | "active"(진행 중 사이클) | "none"(사이클이 하나도 할당되지 않은 이슈) | "backlog"(진행 중·예정 사이클 밖 — 완료 사이클에만 남은 이슈 포함). "사이클 미할당"은 none, "백로그"는 backlog. 이름·active 는 projectKey 필요",
+          "description": "CSV, any match: cycle (사이클) name, "active", "none" (no cycle) or "backlog" (in no active or planned cycle). Names and "active" need projectKey",
           "type": "string",
         },
         "dueFrom": {
-          "description": "마감일 하한 yyyy-MM-dd(생성일·종료일 아님)",
+          "description": "Due date range, yyyy-MM-dd",
           "type": "string",
         },
         "dueTo": {
-          "description": "마감일 상한 yyyy-MM-dd(생성일·종료일 아님)",
           "type": "string",
         },
         "label": {
-          "description": "라벨 이름 CSV(예: "버그,문서"). 여러 개면 모두 붙은 이슈만(AND). 대소문자 무시",
+          "description": "CSV of label names; issue must have all (AND)",
           "type": "string",
         },
         "priority": {
@@ -1149,14 +1146,15 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "array",
         },
         "projectKey": {
-          "description": "특정 프로젝트로 한정(예: "WP"). 생략 시 내가 속한 모든 프로젝트",
+          "description": "Omit for all my projects",
           "type": "string",
         },
         "q": {
+          "description": "Substring of title or body",
           "type": "string",
         },
         "reporter": {
-          "description": "작성자 CSV: "me" | username",
+          "description": "CSV: "me" or usernames",
           "type": "string",
         },
         "size": {
@@ -1165,14 +1163,15 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "integer",
         },
         "status": {
-          "description": "상태 CSV: TODO,IN_PROGRESS,DONE,CANCELED",
+          "description": "CSV of TODO,IN_PROGRESS,DONE,CANCELED",
           "type": "string",
         },
         "topLevel": {
+          "description": "true: only issues without a parent",
           "type": "boolean",
         },
         "type": {
-          "description": "유형 이름 CSV(예: "BUG,STORY"). 하나라도 일치하면 매칭(OR)",
+          "description": "CSV of type names; any match (OR)",
           "type": "string",
         },
       },
@@ -1192,6 +1191,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "folder": {
           "default": "INBOX",
+          "description": "INBOX or SENT",
           "type": "string",
         },
         "limit": {
@@ -1238,7 +1238,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "offset": {
           "default": 0,
-          "description": "이어 읽을 위치 — 이전 호출 결과의 nextOffset 을 그대로(직접 계산하지 마세요)",
+          "description": "nextOffset from the previous call; do not compute it",
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer",
@@ -1334,7 +1334,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "parentId": {
-          "description": "이 페이지의 하위 트리만 — 잘린 노드(hiddenChildren)를 펼칠 때",
+          "description": "Return only the subtree under this page (to expand hiddenChildren)",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
@@ -2170,9 +2170,11 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "clearDueDate": {
+          "description": "true clears dueDate",
           "type": "boolean",
         },
         "clearStartDate": {
+          "description": "true clears startDate",
           "type": "boolean",
         },
         "cycles": {
@@ -2205,6 +2207,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
               "type": "null",
             },
           ],
+          "description": "null clears",
         },
         "parent": {
           "anyOf": [
@@ -2216,7 +2219,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
               "type": "null",
             },
           ],
-          "description": "부모 이슈 키(예: WP-12) — 같은 프로젝트만. null 이면 해제",
+          "description": "Parent issue key, same project; null clears",
         },
         "priority": {
           "enum": [

@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { baseMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, READ_ATTACHMENT_DEFAULT_LIMIT, readRangeShape, resolveRange, toBase64 } from './attachment-read.js';
 import type { McpToolResult } from './mcp-content.js';
 import type { SharedTool } from './mcp-tool.js';
+import { nullAsOmitted } from './tool-definitions.js';
 import type { AttachmentToolClient, ExtractedTextSlice, FileBytes } from './tool-client.js';
 
 /**
@@ -18,10 +19,10 @@ export const readAttachmentInput = z
   .object({
     source: z.enum(['issue', 'drive']),
     // 쓰지 않는 source 의 식별자를 모델이 null 로 채워 보내는 경우가 있어 nullish — null 은 "없음"으로 본다(범위 인자와 같은 이유).
-    issueKey: z.string().min(1).nullish(),
+    issueKey: nullAsOmitted(z.string().min(1)),
     // WP-353: 이슈 첨부의 id. 서버는 core file id 로 가리키지만 도구 표면에서는 드라이브 driveFileId·채팅 첨부 fileId 와 섞이지 않게 attachmentId 로 부른다.
-    attachmentId: z.number().int().positive().nullish(),
-    driveFileId: z.number().int().positive().nullish(),
+    attachmentId: nullAsOmitted(z.number().int().positive()),
+    driveFileId: nullAsOmitted(z.number().int().positive()),
     ...readRangeShape,
   })
   .superRefine((v, ctx) => {
@@ -105,12 +106,12 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
       app: ['issue', 'drive'],
       kind: 'read',
       description:
-        '이슈 첨부나 드라이브 파일의 내용을 읽습니다. 이슈 첨부는 source:"issue" + issueKey + attachmentId(get_issue_detail 의 attachments[].attachmentId), ' +
-        '드라이브 파일은 source:"drive" + driveFileId(list_drive_items·search_drive·search_drive_content 결과의 값)로 부릅니다. ' +
-        `문서는 업로드 때 추출한 텍스트를 구간 단위로 JSON({status, offset, totalChars, truncated, nextOffset, text, reasonCode, reason})으로 돌려줍니다 — limit 생략 시 ${READ_ATTACHMENT_DEFAULT_LIMIT}자(최대 32000), ` +
-        'nextOffset 이 있으면 offset 으로 넘겨 이어 읽고, truncated 가 true 면 추출 상한에서 잘린 것입니다. 위치는 글자(코드포인트) 단위입니다. ' +
-        'status 가 READY 가 아니면 text 가 없습니다: PENDING 은 추출 중(잠시 후 다시), SKIPPED·FAILED 는 읽을 수 없는 파일(reason 을 그대로 알리기), NONE 은 추출 기록이 없는 파일입니다. 내용을 추측하지 마세요. ' +
-        `이미지(JPEG·PNG·GIF·WebP, ${IMAGE_MAX_BYTES}B 이하)는 이미지 그대로 돌려주고, 그 밖의 이미지는 사유만 돌려줍니다. 원본 파일 자체는 돌려주지 않습니다.`,
+        'Reads an issue attachment (source "issue", issueKey + attachmentId from get_issue_detail) or a drive file (source "drive", driveFileId from ' +
+        'list_drive_items, search_drive or search_drive_content). Documents return a slice of the text extracted at upload: {status, offset, totalChars, ' +
+        `truncated, nextOffset, text, reasonCode, reason}; limit defaults to ${READ_ATTACHMENT_DEFAULT_LIMIT} code points; pass nextOffset as offset to continue; ` +
+        'truncated:true = extraction was capped. Only READY has text: PENDING = extracting (retry later), SKIPPED/FAILED = unreadable (relay reason), ' +
+        `NONE = never extracted; never guess content. Images (JPEG, PNG, GIF, WebP up to ${IMAGE_MAX_BYTES} bytes) come back as images, other images as a ` +
+        'reason only. The original file is never returned.',
       inputSchema: readAttachmentInput,
       async handler(args) {
         const p = readAttachmentInput.parse(args);

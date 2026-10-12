@@ -40,7 +40,7 @@ describe('buildMemberTools (#833)', () => {
     vi.mocked(c.searchMembersPage).mockResolvedValue({ items: [{ userId: 3, username: 'minsu', name: '김민수' }], total: 45, hasMore: true, page: 0 });
     const out = JSON.parse(resultText(await tool(c, 'search_members').handler({ search: '김', size: 20 })));
     expect(out).toEqual({ items: [{ username: 'minsu', name: '김민수' }], total: 45, hasMore: true, nextPage: 1 });
-    expect(tool(c, 'search_members').description).toContain('일부만 본 것이라고 밝히세요');
+    expect(tool(c, 'search_members').description).toContain('say the list is partial');
   });
 
   it('get_member 는 username 정확일치 항목을 돌려준다(비활성 포함·ALL 로 조회)', async () => {

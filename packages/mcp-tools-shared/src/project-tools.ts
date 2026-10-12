@@ -105,10 +105,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        '접근 가능한 프로젝트 목록을 JSON({items, total, hasMore?, nextPage?})으로 반환합니다(항목: projectKey·name·description·type·issueTotal·issueDone·memberCount·viewerIsMember 등, 값이 없는 키는 생략). ' +
-        'total 은 전체 프로젝트 수입니다. ' +
-        'page/size 로 페이지네이션합니다(기본 0/50, size 최대 100). hasMore 가 있으면(true) 뒤에 더 있다는 뜻이니 nextPage 를 page 로 넘겨 이어 조회하거나, ' +
-        '이어 조회하지 않고 답한다면 목록이 일부만 담겼다고 밝히세요.',
+        'Lists projects (프로젝트) I can access as {items, total, hasMore?, nextPage?}; items carry projectKey, name, type, issue counts, memberCount and ' +
+        'viewerIsMember (empty keys omitted). If hasMore, pass nextPage as page to continue, or say the list is partial.',
       inputSchema: listProjectsInput,
       async handler(args) {
         const { page, size } = listProjectsInput.parse(args);
@@ -121,9 +119,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        '프로젝트 상세(projectKey·name·description·type)와 이 프로젝트에서 쓸 수 있는 이슈 유형(issueTypes)·라벨(labels)·마일스톤(milestones) 이름, ' +
-        '사이클(cycles: name·status), 멤버(members: username·name·role)를 JSON 으로 반환합니다. ' +
-        'create_issue/update_issue 의 type·labels·milestone·cycles 는 이 목록의 이름만, assignees 는 members 의 username 만 사용하세요.',
+        'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, milestones, cycles {name, status}, members {username, name, ' +
+        'role}. Use only these in create_issue and update_issue.',
       inputSchema: projectKeyInput,
       async handler(args) {
         const { projectKey } = projectKeyInput.parse(args);
@@ -151,16 +148,11 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: 'issue',
       kind: 'read',
       description:
-        '이슈 목록을 JSON({items, hasMore?, nextCursor?})으로 반환합니다. 한 번에 size 건(기본 30, 최대 100)만 담기므로, 끝이 아니면 hasMore:true 와 nextCursor 가 옵니다 — ' +
-        '그 값을 cursor 로 넘겨(필터·size 는 같게) 이어 조회하거나, 이어 조회하지 않고 답한다면 목록이 일부만 담겼다고 밝히세요(전부로 오해해 집계하지 마세요). ' +
-        'hasMore 가 있어도 다음 페이지가 비어 있을 수 있고, 그러면 끝입니다. 이 키들이 없으면 전부 담긴 것입니다. ' +
-        'assignee·reporter 둘 다 생략 시 내 담당("me")이고, 담당자와 무관하게 보려면 assignee="any". ' +
-        'projectKey·status·priority·label·type·cycle·q·dueFrom/dueTo·blocked·topLevel 로 좁힙니다. ' +
-        '사람은 username, 라벨·유형은 이름으로 지정하고(get_project 가 목록 제공), 없는 값이면 사용 가능 목록을 담은 오류가 옵니다. ' +
-        'closedFrom/closedTo(종료일)·createdFrom/createdTo(생성일)는 Asia/Seoul 날짜(yyyy-MM-dd, 양끝 포함)이며, 종료일 범위는 DONE·CANCELED 모두 걸리니 ' +
-        '"완료한 이슈"는 status=DONE 을 함께 주세요. ' +
-        '각 항목은 issueKey·title·status·priority·type·assignees·dueDate·startDate·createdAt·updatedAt·closedAt(시각은 +09:00)·labels·milestone·' +
-        'parent·children(하위 진행률)·blocked 를 포함하며, 값이 없는 키(null·빈 배열)는 생략됩니다. 본문·코멘트·변경 이력은 issueKey 로 get_issue_detail 을 호출하세요.',
+        'Lists issues (이슈) as {items, hasMore?, nextCursor?}, size per page (default 30). If hasMore, pass nextCursor as cursor with the same ' +
+        'filters, or say the list is partial; never count it as complete. A next page may be empty. With neither assignee nor reporter it lists my ' +
+        'issues. Unknown label, type or user names fail with the allowed values. closed ranges match DONE and CANCELED; add status=DONE for finished ' +
+        'work. Items: issueKey, title, status, priority, type, assignees, dates (+09:00), labels, milestone, parent, children, blocked; empty keys ' +
+        'omitted. Body, comments, history: get_issue_detail.',
       inputSchema: listIssuesInput,
       async handler(args) {
         const { priority, size, cycle: cycleCsv, ...p } = listIssuesInput.parse(args);
@@ -185,7 +177,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        '프로젝트 이름·설명을 바꿉니다. 준 필드만 바뀌고 나머지는 유지됩니다(description: null 은 설명 비우기). 프로젝트 OWNER 만 할 수 있습니다.',
+        'Changes a project name and/or description; omitted fields stay (description:null clears it). Project OWNER only. Returns the project.',
       inputSchema: updateProjectInput,
       async handler(args) {
         const { projectKey, name, description } = updateProjectInput.parse(args);
@@ -205,10 +197,9 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       // PERSONAL 은 키를 서버가 정해 하나 더 생기므로 멱등이 아니다. 워크스페이스 밖에 닿지 않는다.
       hints: { destructive: false, idempotent: false },
       description:
-        '새 프로젝트를 만들고 내가 OWNER 가 됩니다. 프로젝트 생성 권한이 있어야 합니다. projectKey 는 대문자로 시작하는 대문자·숫자 2~10자이며' +
-        '(이슈 키의 접두, 예: WP) 이미 쓰이는 키면 충돌 오류가 납니다. type 은 TEAM(기본)·OPEN(공개 접수함)·PERSONAL(나만 보는 개인 프로젝트, ' +
-        'projectKey 는 무시되고 키를 자동으로 정함)입니다. 다른 사람에게 알림은 가지 않습니다. 만든 프로젝트를 JSON 으로 반환합니다. ' +
-        '다시 부르면 같은 키는 충돌 오류가 나고, PERSONAL 은 프로젝트가 하나 더 생깁니다.',
+        'Creates a project (프로젝트) with me as OWNER (needs project write permission). projectKey is the issue key prefix: 2-10 uppercase ' +
+        'letters/digits, letter first; a taken key is a conflict. type: TEAM (default), OPEN (visible to all, for intake) or PERSONAL (only me; key ' +
+        'assigned automatically, so each call creates another). Nobody is notified.',
       inputSchema: createProjectInput,
       async handler(args) {
         return JSON.stringify(toProjectView((await client.createProject(toCreateProjectBody(createProjectInput.parse(args)))) as Record<string, unknown>));
@@ -222,10 +213,9 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       // 멱등이 아니다. 워크스페이스 밖에 닿지 않는다.
       hints: { destructive: false, idempotent: false },
       description:
-        '프로젝트에 구성원을 MEMBER(이슈 보기·쓰기) 역할로 추가합니다. 프로젝트 OWNER 만 할 수 있습니다. username 은 search_members 결과의 값입니다(활성 구성원만). ' +
-        'OWNER 로 추가하거나 역할을 바꾸는 것, 멤버 제거는 이 도구로 할 수 없습니다(권한 변경은 사용자가 웹에서 직접 합니다). ' +
-        '이미 멤버이거나 개인 프로젝트에 사람을 넣으면 오류가 납니다(개인 프로젝트에는 AI 에이전트만 추가됩니다). ' +
-        '추가된 사람에게 인박스·푸시 알림은 가지 않고, 그 사람의 프로젝트 목록에 바로 나타납니다. 결과는 { projectKey, member: { username, name, role } } 입니다.',
+        'Adds an active member (username from search_members) to a project as MEMBER; project OWNER only. Cannot grant OWNER, change roles or remove. ' +
+        'Errors if already a member or for a PERSONAL project (AI agents only). No notification; the project just appears in their list. Returns ' +
+        '{projectKey, member}.',
       inputSchema: addProjectMemberInput,
       async handler(args) {
         const { projectKey, username } = addProjectMemberInput.parse(args);

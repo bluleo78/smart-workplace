@@ -1,5 +1,6 @@
 // src/mcp/instructions.ts — MCP 서버 `instructions` 생성(WP-350).
 // 클라이언트(Claude Code 의 tool search 등)는 이 문자열의 앞쪽 2,048자까지만 쓰므로, 앱별 도구 안내를 맨 앞에 두고 전체를 그 안에 맞춘다.
+// 도구 설명과 같이 영어로 쓴다(WP-340 웨이브 5) — 앱 이름에는 한국어 화면 이름을 괄호로 함께 적는다(TOOL_APP_GUIDES.label).
 // 로드된 도구만 설명한다 — 앱을 좁히거나 읽기 전용으로 연결했을 때 없는 도구(생성·수정 등)를 안내하면 모델이 없는 도구를 부르려 한다.
 import { TOOL_APP_GUIDES, TOOL_APPS, toolApps, type SharedTool } from '@smart-workplace/mcp-tools-shared';
 
@@ -23,20 +24,22 @@ export function buildInstructions(tools: readonly SharedTool[], scope: McpScope)
     const hasWrite = guide.write !== '' && inApp.some((t) => t.kind !== 'read');
     const what = hasWrite ? `${guide.read} / ${guide.write}` : guide.read;
     const entry = guide.entry.filter((n) => loaded.has(n));
-    lines.push(`- ${guide.label}: ${what}${entry.length > 0 ? ` (시작: ${entry.join(', ')})` : ''}`);
+    lines.push(`- ${guide.label}: ${what}${entry.length > 0 ? ` (start: ${entry.join(', ')})` : ''}`);
   }
 
-  const mode = scope.readOnly ? '읽기 전용 연결입니다 — 조회 도구만 있고 생성·수정은 할 수 없습니다.' : '조회와 되돌릴 수 있는 쓰기를 제공합니다.';
-  const range = scope.apps === null ? '전체 앱' : scope.apps.map((a) => TOOL_APP_GUIDES[a].label).join('·');
+  const mode = scope.readOnly ? 'Read-only connection: lookup tools only, no creating or updating.' : 'Lookups and reversible writes.';
+  const range = scope.apps === null ? 'all apps' : scope.apps.map((a) => TOOL_APP_GUIDES[a].label).join(', ');
   const parts = [
-    `Gen:iA Works 업무 도구입니다. 연결 범위: ${range}. ${mode}`,
-    '앱별 안내:',
+    `Gen:iA Works workplace tools. Scope: ${range}. ${mode}`,
+    'Apps:',
     ...lines,
-    '이슈는 키(예: WP-12), 사람은 username 으로 가리킵니다. 삭제·메일 발송처럼 되돌릴 수 없는 작업은 제공하지 않습니다.',
+    'Issues are referenced by key (e.g. WP-12) and people by username. Irreversible actions such as deleting or sending mail are not provided.',
+    // 목록 도구의 페이지·잘림 규칙(WP-352)을 한 번 더 요약한다 — 도구 설명에도 있지만 일부만 보고 전부처럼 답하는 실수가 가장 흔하다.
+    'Lists: hasMore means another page (pass the returned next value); truncated means partial with no next page. Never present a partial list as complete.',
   ];
   // 범위를 좁혔을 때만 넓히는 방법을 알린다 — 전체 연결에서는 군더더기다.
   if (scope.apps !== null || scope.readOnly) {
-    parts.push('다른 앱이나 쓰기가 필요하면 연결 URL 을 바꾸세요: /mcp(전체), /mcp/x/issue,wiki(앱 선택), /mcp/readonly(읽기 전용).');
+    parts.push('For other apps or writes, change the connection URL: /mcp (all), /mcp/x/issue,wiki (chosen apps), /mcp/readonly (read-only).');
   }
   return parts.join('\n');
 }

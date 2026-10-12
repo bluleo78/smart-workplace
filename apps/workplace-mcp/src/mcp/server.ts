@@ -2,8 +2,9 @@
 // 세션을 유지하지 않는다: 매 POST 마다 새 McpServer + Transport (수평 확장·재기동 내성).
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { Request, Response } from 'express';
-import { describeApiError, toMcpContent, toolAnnotations } from '@smart-workplace/mcp-tools-shared';
+import { describeApiError, toMcpContent, toolAnnotations, toolDefinition } from '@smart-workplace/mcp-tools-shared';
 import type { z } from 'zod';
 
 import { createPatApiClient } from '../clients/workplace-api.js';
@@ -45,6 +46,14 @@ export function buildMcpServer(apiBaseUrl: string, token: string, scope: McpScop
         }
       },
     );
+  }
+  // WP-340 웨이브 5: tools/list 응답을 공유 패키지의 toolDefinition 출력으로 바꿔 끼운다 — 도구 정의 크기 상한(tool-naming.test.ts)이 재는 값이
+  // 곧 나가는 값이 되고, SDK 가 도구마다 붙이던 `$schema`·안전 정수 경계·execution 과 null 허용 표시가 빠진다. 호출(tools/call)과 입력 검증은
+  // 위 registerTool 그대로다(SDK 가 zod shape 로 검증). 도구 핸들러 초기화는 첫 registerTool 에서만 일어나 이 교체를 덮어쓰지 않는다.
+  // 도구가 하나도 없으면 SDK 가 tools 기능 자체를 등록하지 않아 교체할 대상도 없다.
+  if (tools.length > 0) {
+    const definitions = tools.map(toolDefinition);
+    server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: definitions }));
   }
   return server;
 }

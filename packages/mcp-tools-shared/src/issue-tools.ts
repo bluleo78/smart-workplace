@@ -37,13 +37,11 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       app: 'issue',
       kind: 'read',
       description:
-        '이슈 전체 컨텍스트를 JSON 으로 반환합니다. issueKey 예: WP-12. ' +
-        '본문·상태·우선순위·유형·담당자·작성자(reporter), 날짜(dueDate·startDate, createdAt·updatedAt·closedAt — 시각은 +09:00), ' +
-        '라벨·마일스톤·사이클(cycles: name·status)·부모(parent)·하위 진행률(children), 의존성(blockedBy·blocks), 커스텀 필드, 첨부, ' +
-        `최근 코멘트(comments, 최대 ${ISSUE_DETAIL_COMMENT_LIMIT}건), 최근 변경 이력(history, 최대 ${ISSUE_DETAIL_HISTORY_LIMIT}건 — 상태가 언제 바뀌었는지 등)을 포함합니다. ` +
-        '코멘트·이력이 상한을 넘어 오래된 것이 빠졌으면 commentsOmitted·historyOmitted(빠진 개수)가 옵니다 — 이 키가 없으면 전부 담긴 것입니다. ' +
-        `오래된 코멘트까지 읽어야 하면 allComments:true 로 다시 호출하세요(코멘트를 최근 ${ISSUE_DETAIL_COMMENT_HARD_LIMIT}건까지, 그보다 오래된 것은 여전히 commentsOmitted 로만 알립니다. 이력은 항상 최근 것만). ` +
-        'closedAt 은 완료(DONE)·취소(CANCELED) 모두에 기록되므로 둘의 구분은 status 로 하세요. 사람(담당자·작성자·코멘트/이력 작성자·첨부자)은 username(쓰기 도구용 — 모르면 null)과 name(표시 이름)으로 옵니다.',
+        'Returns one issue (이슈) by issueKey (e.g. WP-12): Markdown body, status, priority, type, people, dates (+09:00), labels, milestone, cycles, ' +
+        'parent, children, blockedBy/blocks, custom fields, attachments (attachmentId for read_attachment), ' +
+        `the latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments and ${ISSUE_DETAIL_HISTORY_LIMIT} history entries. commentsOmitted/historyOmitted count older ones left out ` +
+        `(absent = complete); allComments:true returns up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments. closedAt is set for DONE and CANCELED alike. ` +
+        'People are {username, name, kind}; username is null when unknown.',
       inputSchema: getIssueDetailInput,
       async handler(args) {
         const { issueKey, allComments } = getIssueDetailInput.parse(args);
@@ -59,8 +57,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        '프로젝트에 새 이슈를 등록합니다. type 은 유형 이름(예: BUG), assignees 는 username 배열("me"=나, 호출자 본인), ' +
-        'parent 는 부모 이슈 키(예: WP-12, 같은 프로젝트)입니다. type/assignees 이름이 유효하지 않으면 오류에 사용 가능한 값 목록이 포함됩니다.',
+        'Creates an issue (이슈) in projectKey and returns it. type and assignees (usernames, "me" = caller) must be names from get_project; an unknown ' +
+        'name fails before creating, listing the allowed values. New assignees are notified; assigning an AI agent starts it working.',
       inputSchema: createIssueInput,
       async handler(args) {
         const { projectKey, type, assignees, parent, ...rest } = createIssueInput.parse(args);
@@ -88,10 +86,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        '이슈를 부분 수정합니다. 전달한 필드만 변경됩니다. status/priority 는 enum, type 은 유형 이름, ' +
-        'assignees 는 username 배열("me"=나, 집합 교체), labels 는 라벨명 배열(집합 교체), parent 는 부모 이슈 키(예: WP-12, 같은 프로젝트, null=해제)입니다. ' +
-        'milestone 은 마일스톤 이름(null=해제), cycles 는 사이클 이름 배열(집합 교체, []=전부 해제)입니다. ' +
-        'clearDueDate/clearStartDate 로 날짜를 비웁니다. 각 항목은 독립 저장되며 결과를 { ok, results } 로 보고합니다.',
+        'Partially updates an issue (이슈); only given fields change. assignees, labels and cycles replace the whole set ([] clears). type, labels, ' +
+        'milestone and cycles are names from get_project. Names are resolved before any write (unknown = error, nothing saved); then each part saves ' +
+        'on its own, reported as {ok, results}. Status and priority changes notify assignees and watchers; new assignees are notified.',
       inputSchema: updateIssueInput,
       async handler(args) {
         const { issueKey, type, parent, assignees, labels, milestone, cycles, ...rest } = updateIssueInput.parse(args);
@@ -145,7 +142,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       app: 'issue',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
-      description: '이슈에 코멘트를 작성합니다. 본문은 마크다운을 지원합니다.',
+      description:
+        'Adds a Markdown comment to an issue (이슈). The caller starts watching the issue; assignees and watchers are notified, and an assigned AI ' +
+        'agent may reply.',
       inputSchema: addCommentInput,
       async handler(args) {
         const { issueKey, body } = addCommentInput.parse(args);
@@ -159,7 +158,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        `이슈의 기존 코멘트를 수정합니다. commentId 는 get_issue_detail 의 comments 에서 확인하세요(최근 ${ISSUE_DETAIL_COMMENT_LIMIT}건만 오므로 대상이 안 보이면 allComments:true, 최근 ${ISSUE_DETAIL_COMMENT_HARD_LIMIT}건까지).`,
+        `Replaces the body of an issue comment (only its author or a project OWNER may). commentId is comments[].id from get_issue_detail ` +
+        `(latest ${ISSUE_DETAIL_COMMENT_LIMIT}; allComments:true for up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT}).`,
       inputSchema: editCommentInput,
       async handler(args) {
         const { issueKey, commentId, body } = editCommentInput.parse(args);
@@ -174,9 +174,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       // 이미 있는 관계를 다시 추가하면 서버가 no-op 으로 처리한다 — 멱등.
       hints: { destructive: false, idempotent: true },
       description:
-        '이슈 간 의존성(차단 관계)을 추가합니다. direction="blocks" 면 issueKey 이슈가 ' +
-        'otherIssueKey 이슈를 차단하고, "blockedBy" 면 반대로 otherIssueKey 에 의해 차단됩니다. ' +
-        '두 이슈는 같은 프로젝트여야 합니다. 순환 관계가 되면 에러가 발생합니다. 결과는 갱신된 { issueKey, blockedBy, blocks, blocked } 입니다.',
+        'Adds a blocking link between two issues of the same project. direction "blocks": issueKey blocks otherIssueKey; "blockedBy": issueKey is ' +
+        'blocked by otherIssueKey. An existing link is a no-op; a cycle is an error. Returns {issueKey, blockedBy, blocks, blocked}.',
       inputSchema: dependencyInput,
       async handler(args) {
         const { issueKey, otherIssueKey, direction } = dependencyInput.parse(args);
@@ -195,7 +194,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       app: 'issue',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
-      description: '이슈 간 의존성을 제거합니다. 존재하지 않아도 에러 없이 성공합니다(멱등).',
+      description:
+        'Removes a blocking link (same arguments as add_issue_dependency). Succeeds when the link does not exist.',
       inputSchema: dependencyInput,
       async handler(args) {
         const { issueKey, otherIssueKey, direction } = dependencyInput.parse(args);
@@ -214,7 +214,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: true },
       description:
-        '이슈를 워치해 이후 변경 알림을 받습니다. 이미 워치 중이면 아무것도 바뀌지 않습니다. 프로젝트 멤버만 할 수 있습니다.',
+        'Watches an issue so the caller is notified of its comments and status/priority changes. Project members only; already watching is a no-op.',
       inputSchema: issueKeyInput,
       async handler(args) {
         const { issueKey } = issueKeyInput.parse(args);
@@ -227,7 +227,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       app: 'issue',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
-      description: '이슈 워치를 해제해 변경 알림을 그만 받습니다. 워치 중이 아니어도 에러 없이 성공합니다.',
+      description:
+        'Stops watching an issue. Succeeds when not watching.',
       inputSchema: issueKeyInput,
       async handler(args) {
         const { issueKey } = issueKeyInput.parse(args);

@@ -7,6 +7,7 @@ import { dropEmpty, omitKeys } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import { findMemberByUsername } from './member-tools.js';
 import { errText } from './parse.js';
+import { nullAsOmitted } from './tool-definitions.js';
 import type { CurrentUserClient } from './resolve.js';
 import type { CalendarEventBody, CalendarToolClient, MemberRow, MemberToolClient } from './tool-client.js';
 
@@ -178,22 +179,23 @@ export const createEventInput = z.object({
 
 // WP-348: 일정 수정 + 참석자 추가·제거(도구 수 원칙으로 한 도구에 합쳤다). 일정 필드는 부분 수정이다:
 // 생략(또는 title·startsAt·endsAt·allDay 의 null)은 현재 값 유지, 비울 수 있는 필드의 null 은 비움(update_issue 의 parent 와 같은 규칙).
+// null 이 "유지" 인 입력은 nullAsOmitted — 외부 MCP 정의에서는 null 갈래를 숨긴다(WP-340 웨이브 5). 비움에 쓰는 null 은 그대로 보인다.
 const nullableToClear = <T extends z.ZodTypeAny>(t: T) => t.nullable().optional();
 export const updateEventInput = z.object({
   eventId: z.number().int().positive(),
   scope: z.enum(['THIS', 'THIS_AND_FOLLOWING', 'ALL']).default('ALL'),
-  occurrenceDate: z.string().min(1).nullish(), // ISO-8601, 반복 일정의 대상 회차 시작시각
-  title: z.string().min(1).max(200).nullish(),
+  occurrenceDate: nullAsOmitted(z.string().min(1)), // ISO-8601, 반복 일정의 대상 회차 시작시각
+  title: nullAsOmitted(z.string().min(1).max(200)),
   description: nullableToClear(z.string()),
-  startsAt: z.string().min(1).nullish(),
-  endsAt: z.string().min(1).nullish(),
-  allDay: z.boolean().nullish(),
+  startsAt: nullAsOmitted(z.string().min(1)),
+  endsAt: nullAsOmitted(z.string().min(1)),
+  allDay: nullAsOmitted(z.boolean()),
   location: nullableToClear(z.string().max(200)),
   color: nullableToClear(z.string().max(32)),
   reminderMinutes: nullableToClear(z.number().int().min(0)),
   recurrenceRule: nullableToClear(z.string().max(500)),
-  addAttendees: z.array(z.string().min(1)).nullish(), // 초대할 구성원 username
-  removeAttendees: z.array(z.string().min(1)).nullish(), // 뺄 참석자 username
+  addAttendees: nullAsOmitted(z.array(z.string().min(1))), // 초대할 구성원 username
+  removeAttendees: nullAsOmitted(z.array(z.string().min(1))), // 뺄 참석자 username
   notify: z.boolean().default(true), // 새 참석자에게 초대 알림을 보낼지
 });
 
@@ -204,7 +206,9 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       name: 'list_events',
       app: 'calendar',
       kind: 'read',
-      description: '[from,to) 기간(ISO-8601)의 내 일정 목록을 JSON 으로 반환합니다. 일정 충돌 확인·요약에 사용하세요.',
+      description:
+        'Lists my calendar (캘린더) events overlapping [from, to) (ISO-8601; no offset = +09:00). Recurring events appear once per occurrence, with ' +
+        'masterEventId and occurrenceDate. id is the eventId of other calendar tools.',
       inputSchema: listEventsInput,
       async handler(args) {
         const { from, to } = listEventsInput.parse(args);
@@ -216,9 +220,8 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       app: 'calendar',
       kind: 'read',
       description:
-        '단일 일정 상세를 JSON 으로 반환합니다(값이 없는 키는 생략됩니다). 내가 만들었거나 참석자로 초대된 일정만 볼 수 있고(그 외에는 찾을 수 없음 오류), ' +
-        'list_events 에는 없는 전체 참석자 목록(attendees: username·name·role·rsvpStatus·invitedBy — 숫자 사용자 ID 는 없고 사람은 username 으로 가리킵니다)·내 응답(myRsvpStatus)·내 역할(myRole)·외부 캘린더 동기화 여부(external)가 담깁니다. ' +
-        'eventId 는 list_events 결과 항목의 id 입니다.',
+        'Returns one event by eventId that I organize or am invited to (otherwise not found), adding what list_events lacks: attendees {username, ' +
+        'name, role, rsvpStatus, invitedBy}, myRsvpStatus, myRole, and external (synced from an external calendar).',
       inputSchema: getEventInput,
       async handler(args) {
         const { eventId } = getEventInput.parse(args);
@@ -232,8 +235,8 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       // 응답을 덮어쓰고, 다시 불러도 주최자 알림이 또 쌓이므로 멱등이 아니다.
       hints: { destructive: true, idempotent: false },
       description:
-        '내가 초대받은 일정에 참석 응답을 합니다(ACCEPTED 참석 / DECLINED 불참 / TENTATIVE 미정). 주최자에게 알림이 갑니다. ' +
-        '내 초대에만 응답할 수 있고(아니면 찾을 수 없음 오류), 외부 캘린더에서 동기화된 일정은 그 캘린더에서 응답해야 합니다. 응답은 다시 바꿀 수 있습니다.',
+        'Answers my invitation to an event: ACCEPTED, DECLINED or TENTATIVE; can be changed later. Not found if I am not invited; events synced from ' +
+        'an external calendar must be answered there. Notifies the organizer.',
       inputSchema: rsvpEventInput,
       async handler(args) {
         const { eventId, status } = rsvpEventInput.parse(args);
@@ -249,10 +252,9 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       // 생성은 늘 로컬 기본 캘린더라 외부 캘린더(M365)에 닿지 않는다.
       hints: { destructive: false, idempotent: false },
       description:
-        '내 기본 캘린더에 일정을 만듭니다. startsAt/endsAt 은 타임존 오프셋을 포함한 ISO-8601(예: 2026-06-20T14:00:00+09:00)로 주세요(오프셋이 없으면 +09:00 으로 봅니다). ' +
-        'attendees 는 초대할 구성원 username 목록입니다(search_members 로 확인, 본인은 넣지 않음, 외부 이메일은 지원하지 않음). ' +
-        'notify=false 면 참석자에게 초대 알림을 보내지 않습니다(기본 true). recurrenceRule 은 RFC5545 RRULE(예: FREQ=WEEKLY). ' +
-        '결과는 { event, conflicts? } 이고, conflicts 는 같은 시간대에 이미 있던 내 일정입니다(생성은 막지 않음). 다시 부르면 일정이 또 생깁니다.',
+        'Creates an event in my default calendar (캘린더). startsAt/endsAt: ISO-8601 with offset (none = +09:00). attendees: member usernames from ' +
+        'search_members (not me, no emails); notify:false skips their invitation notifications. recurrenceRule: RFC 5545 RRULE (e.g. FREQ=WEEKLY). ' +
+        'Returns {event, conflicts?}, conflicts being my events already in that slot (not blocking). Each call creates a new event.',
       inputSchema: createEventInput,
       async handler(args) {
         const { attendees, notify, ...fields } = createEventInput.parse(args);
@@ -286,13 +288,12 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       // 참석자 추가는 오류가 나므로 멱등이 아니다. M365 에서 동기화된 내 일정은 수정·참석자 변경이 그 캘린더로 전송된다(openWorld).
       hints: { destructive: true, idempotent: false, openWorld: true },
       description:
-        '내가 만든 일정을 수정하고 참석자를 추가·제거합니다. 일정 필드는 준 것만 바뀝니다(생략=현재 값 유지). ' +
-        'description·location·color·reminderMinutes·recurrenceRule 은 null 로 비웁니다(recurrenceRule=null 이면 반복이 풀립니다). ' +
-        '반복 일정은 scope 로 범위를 정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체, 기본 ALL). THIS·THIS_AND_FOLLOWING 은 ' +
-        'occurrenceDate(대상 회차 시작시각)가 필요하고, 일정 필드를 바꿀 때는 그 회차의 startsAt·endsAt 도 주세요(생략한 다른 필드는 시리즈 값으로 채워집니다). ' +
-        'addAttendees·removeAttendees 는 구성원 username 목록입니다(외부 이메일 불가, 주최자 본인은 뺄 수 없음). 참석자 변경은 scope 와 상관없이 일정(반복이면 시리즈) 전체에 적용됩니다. notify=false 면 새 참석자에게 인앱 초대 알림을 보내지 않습니다(M365 등 외부 동기화 일정이면 그 캘린더가 보내는 초대 메일은 막지 못합니다). ' +
-        'M365 등에서 동기화된 일정은 그 캘린더에도 반영됩니다. eventId 는 list_events/get_event 결과의 id 입니다. ' +
-        '결과는 단계별 { ok, results } 입니다. 단계별로 따로 저장되며 앞 단계는 되돌리지 않습니다. 일정 필드 수정이 실패하면 참석자 변경은 하지 않습니다(skipped).',
+        'Updates an event I organize and/or its attendees; only given fields change. description, location, color, reminderMinutes and recurrenceRule ' +
+        'take null to clear (recurrenceRule:null ends recurrence). Recurring events: scope THIS, THIS_AND_FOLLOWING or ALL (default); the first two ' +
+        'need occurrenceDate (from list_events), plus the startsAt and endsAt of that occurrence when changing fields. addAttendees/removeAttendees: ' +
+        'member usernames (not the organizer, no emails), applied to the whole series; notify:false skips in-app invitations (an external calendar ' +
+        'may still email). M365-synced events change there too. Steps save independently into {ok, results}; attendee steps are skipped if the field ' +
+        'update fails.',
       inputSchema: updateEventInput,
       async handler(args) {
         const p = updateEventInput.parse(args);

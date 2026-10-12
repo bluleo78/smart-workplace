@@ -130,7 +130,7 @@ describe('buildMessagingTools', () => {
     expect(out).toEqual({ items: [{ id: 9 }], hasMore: true, nextCursor: 'next==' });
     const d = tool(c, 'list_channel_messages').description;
     expect(d).toContain('nextCursor');
-    expect(d).toContain('일부만 본 것이라고 밝히세요');
+    expect(d).toContain('say the list is partial');
   });
 
   it('옛 이름 get_channel_messages 는 더 이상 없다(WP-352)', () => {

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { omitKeys } from './compact.js';
 import { toDriveContentHitsView, toDriveFolderView, toDriveItemsView, toDriveTrashView } from './drive-view.js';
 import type { SharedTool } from './mcp-tool.js';
+import { nullAsOmitted } from './tool-definitions.js';
 import type { DriveToolClient } from './tool-client.js';
 
 type DriveItems = Parameters<typeof toDriveItemsView>[0];
@@ -13,7 +14,7 @@ export const listDriveItemsInput = z.object({
   parentId: z.number().int().positive().optional(),
   // WP-352: 폴더 하나에 항목이 수천 개일 수 있어 서버가 limit·offset 페이지를 지원한다(서버 상한 1000 — 다음 페이지 확인용 +1 을 보내므로 500).
   limit: z.number().int().min(1).max(500).default(200),
-  offset: z.number().int().min(0).default(0).describe('건너뛸 항목 수 — 이전 호출 결과의 nextOffset 을 그대로'),
+  offset: z.number().int().min(0).default(0).describe('nextOffset from the previous call'),
 });
 export const searchDriveInput = z.object({
   spaceId: z.number().int().positive(),
@@ -35,19 +36,20 @@ export const searchDriveContentInput = z.object({
 });
 
 // 폴더·파일 쓰기 — 폴더는 rename/move 와 같은 folderId, 파일은 driveFileId 로 통일한다(#840: 목록 응답의 core fileId 와 혼동 방지).
+// 상위·대상 폴더는 생략과 null 이 모두 "스페이스 루트" 라(핸들러가 ?? null) nullAsOmitted — 외부 MCP 정의에는 null 갈래를 숨긴다(WP-340 웨이브 5).
 export const createDriveFolderInput = z.object({
   spaceId: z.number().int().positive(),
-  parentId: z.number().int().positive().nullable().optional(),
+  parentId: nullAsOmitted(z.number().int().positive()),
   name: z.string().min(1).max(255),
 });
 export const renameDriveFolderInput = z.object({ folderId: z.number().int().positive(), name: z.string().min(1).max(255) });
 export const moveDriveFolderInput = z.object({
   folderId: z.number().int().positive(),
-  targetParentId: z.number().int().positive().nullable().optional(),
+  targetParentId: nullAsOmitted(z.number().int().positive()),
 });
 export const moveDriveFileInput = z.object({
   driveFileId: z.number().int().positive(),
-  targetFolderId: z.number().int().positive().nullable().optional(),
+  targetFolderId: nullAsOmitted(z.number().int().positive()),
 });
 
 export const listDriveTrashInput = z.object({ spaceId: z.number().int().positive() });
@@ -66,8 +68,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        '내가 멤버인 드라이브 스페이스(내 드라이브 + 팀 스페이스 + 채널 드라이브) 목록을 JSON 으로 반환합니다. 내 드라이브가 먼저, 나머지는 이름순이며 ' +
-        '각 항목은 id(= 다른 드라이브 도구의 spaceId)·type(PERSONAL=내 드라이브 / TEAM=팀 스페이스 / CHANNEL=메시징 채널에 연결된 드라이브)·name·role(내 역할 OWNER/EDITOR/VIEWER)·archived(true 면 읽기 전용)를 가집니다.',
+        'Lists drive (드라이브) spaces I belong to: id (the spaceId of other drive tools), type (PERSONAL = my drive, TEAM, CHANNEL = linked to a ' +
+        'channel), name, role (OWNER, EDITOR, VIEWER), archived (true = read-only).',
       inputSchema: z.object({}),
       async handler() {
         // 스페이스 소유자 ownerId 는 숫자 사용자 ID 라 내보내지 않는다(#833, WP-353) — 내 역할은 role 로 알 수 있다.
@@ -79,10 +81,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        '드라이브 스페이스(또는 parentId 폴더 하위)의 폴더/파일 목록을 JSON({folders, files, hasMore?, nextOffset?})으로 반환합니다. parentId 생략 시 최상위(parentId 는 폴더 행의 folderId — 행의 parentId 필드가 아닙니다). ' +
-        '폴더는 folderId, 파일은 driveFileId 로 가리킵니다. 폴더 먼저·파일 다음(각각 이름순)으로 한 번에 limit 개(기본 200, 최대 500)만 담기며, ' +
-        '더 있으면 hasMore:true 와 nextOffset 이 옵니다 — nextOffset 을 offset 으로 넘겨 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 본 것이라고 밝히세요' +
-        '(개수 집계·"전부 …" 단정을 하지 마세요). 이 키들이 없으면 전부 담긴 것입니다.',
+        'Lists folders then files (each by name) at a drive space root or in folder parentId (a folderId, not a row parentId) as {folders, files, ' +
+        'hasMore?, nextOffset?}; folders carry folderId, files driveFileId. If hasMore, pass nextOffset as offset, or say the list is partial.',
       inputSchema: listDriveItemsInput,
       async handler(args) {
         const { spaceId, parentId, limit, offset } = listDriveItemsInput.parse(args);
@@ -103,9 +103,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        '드라이브 스페이스에서 파일/폴더를 이름으로 검색해 JSON({folders, files, truncated?})으로 반환합니다. 폴더는 folderId, 파일은 driveFileId 로 가리킵니다. ' +
-        '폴더·파일 각각 이름순으로 limit 개(기본 50, 최대 200)만 담기고, 더 있을 수 있으면 truncated:true 가 옵니다 — 이어 조회하는 방법은 없으니 q 를 더 구체적으로 바꿔 다시 검색하거나, ' +
-        '그대로 답한다면 일부만 본 것이라고 밝히세요(개수 집계·"전부 …" 단정 금지). truncated 가 없으면 검색된 전부입니다.',
+        'Searches a drive space for folders and files by name substring: {folders, files, truncated?}, each by name, up to limit each. truncated:true ' +
+        'means more may exist and there is no next page: refine q, or say the result is partial.',
       inputSchema: searchDriveInput,
       async handler(args) {
         const { spaceId, q, limit } = searchDriveInput.parse(args);
@@ -124,9 +123,9 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        '드라이브 파일 내용의 AI 요약을 JSON({summary, status, reason})으로 반환합니다. "이 파일 뭐라고 써 있어?" 류 질문에 사용하세요. ' +
-        'status 가 DONE 일 때만 summary 가 있습니다. PENDING·EXTRACTING·TEXT_READY·SUMMARIZING 이면 아직 준비 중, FAILED·SKIPPED 면 요약할 수 없는 파일이므로(reason 참고) ' +
-        '내용을 추측하지 말고 그 상태를 그대로 알리세요. driveFileId 는 list_drive_items·search_drive·search_drive_content 결과의 값입니다.',
+        'Returns the AI summary of a drive file (driveFileId from list_drive_items, search_drive or search_drive_content) as {summary, status, ' +
+        'reason}. Only status DONE has a summary; PENDING, EXTRACTING, TEXT_READY, SUMMARIZING = not ready; FAILED, SKIPPED = not summarizable (see ' +
+        'reason). Report the status; never guess content.',
       inputSchema: getDriveFileSummaryInput,
       async handler(args) {
         const { driveFileId } = getDriveFileSummaryInput.parse(args);
@@ -138,8 +137,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        '접근 가능한 드라이브 파일을 **내용**(추출 텍스트, 의미 검색 포함)으로 검색해 JSON({hits, semantic})으로 반환합니다. 각 hit 은 driveFileId·name·spaceName·snippet 을 담습니다. ' +
-        '파일 이름으로 찾을 때는 search_drive 를 쓰세요. spaceId 로 한 스페이스만 좁힐 수 있고 limit 기본 10(최대 50).',
+        'Searches the content (extracted text, incl. semantic matching) of drive files I can access: {hits, semantic}, hits carrying driveFileId, ' +
+        'name, spaceName and snippet. spaceId narrows to one space. To search by file name use search_drive.',
       inputSchema: searchDriveContentInput,
       async handler(args) {
         const { query, spaceId, limit } = searchDriveContentInput.parse(args);
@@ -151,8 +150,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        '드라이브 스페이스 휴지통의 항목을 JSON 배열(type·name·originalPath·trashedAt·autoPurgeAt, 파일은 driveFileId·폴더는 folderId)로 반환합니다. ' +
-        'autoPurgeAt 이 지나면 영구 삭제됩니다. 복원은 restore_drive_item 을 쓰세요.',
+        'Lists the trash of a drive space: type, name, originalPath, trashedAt, autoPurgeAt (permanently deleted after it), plus driveFileId for ' +
+        'files or folderId for folders. Restore with restore_drive_item.',
       inputSchema: listDriveTrashInput,
       async handler(args) {
         const { spaceId } = listDriveTrashInput.parse(args);
@@ -166,8 +165,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       // 다시 부르면 휴지통에 없다는 오류가 난다(DriveNotInTrashException) — 멱등이 아니다.
       hints: { destructive: false, idempotent: false },
       description:
-        '휴지통의 파일(driveFileId) 또는 폴더(folderId)를 원래 위치로 복원합니다. 둘 중 하나만 주세요(list_drive_trash 결과의 값). ' +
-        '함께 삭제된 항목은 같이 복원되고, 원래 폴더가 없으면 최상위로, 같은 이름이 있으면 이름을 바꿔 복원됩니다.',
+        'Restores a trashed file (driveFileId) or folder (folderId) from list_drive_trash; give exactly one. Items deleted together return together; ' +
+        'if the original folder is gone it goes to the root, and a name clash gets a new name.',
       inputSchema: restoreDriveItemInput,
       async handler(args) {
         const { driveFileId, folderId } = restoreDriveItemInput.parse(args);
@@ -183,7 +182,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       // 같은 위치에 같은 이름이 있으면 서버가 409(DriveDuplicateNameException) — 다시 부르면 오류라 멱등이 아니다.
       hints: { destructive: false, idempotent: false },
       description:
-        '드라이브 스페이스에 새 폴더를 생성합니다. parentId 에 상위 폴더의 folderId 를 주면 그 하위에 만들고, 생략하면 스페이스 루트에 생성합니다. 생성된 폴더를 JSON 으로 반환합니다.',
+        'Creates a folder in a drive space, inside parentId (a folderId) or at the root when omitted; needs EDITOR. Returns it with folderId.',
       inputSchema: createDriveFolderInput,
       async handler(args) {
         const { spaceId, parentId, name } = createDriveFolderInput.parse(args);
@@ -196,7 +195,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       kind: 'write',
       // 이전 이름을 덮어쓴다(destructive). 같은 이름으로 다시 불러도 저장 상태가 그대로이고 이력·알림이 쌓이지 않는다(멱등).
       hints: { destructive: true, idempotent: true },
-      description: '폴더 이름을 변경합니다. 변경된 폴더를 JSON 으로 반환합니다.',
+      description:
+        'Renames a folder (folderId) and returns it; needs EDITOR.',
       inputSchema: renameDriveFolderInput,
       async handler(args) {
         const { folderId, name } = renameDriveFolderInput.parse(args);
@@ -209,7 +209,9 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       kind: 'write',
       // 상위 폴더를 바꾼다(destructive, move_wiki_page 와 같은 기준). 이미 그 위치면 서버가 no-op 이라 다시 불러도 같은 결과(멱등).
       hints: { destructive: true, idempotent: true },
-      description: '폴더를 다른 상위 폴더로 이동합니다. targetParentId 는 대상 상위 폴더의 folderId 이고(행의 parentId 필드가 아님), 생략하면 스페이스 루트로 이동합니다.',
+      description:
+        'Moves a folder (folderId) into targetParentId (the folderId of the new parent, not a row parentId), or to the space root when omitted; needs ' +
+        'EDITOR.',
       inputSchema: moveDriveFolderInput,
       async handler(args) {
         const { folderId, targetParentId } = moveDriveFolderInput.parse(args);
@@ -224,7 +226,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       // move_drive_folder 와 같다 — 위치를 바꾸고(destructive), 이미 그 폴더면 서버가 no-op(멱등).
       hints: { destructive: true, idempotent: true },
       description:
-        '파일을 다른 폴더로 이동합니다. driveFileId 는 list_drive_items/search_drive 파일 항목의 driveFileId 입니다. targetFolderId 는 대상 폴더의 folderId 이고, 생략하면 스페이스 루트로 이동합니다.',
+        'Moves a file (driveFileId from list_drive_items or search_drive) into the folder targetFolderId (a folderId), or to the space root when ' +
+        'omitted; needs EDITOR.',
       inputSchema: moveDriveFileInput,
       async handler(args) {
         const { driveFileId, targetFolderId } = moveDriveFileInput.parse(args);

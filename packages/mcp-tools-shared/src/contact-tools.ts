@@ -119,8 +119,7 @@ export function toUserGroupDetailView(g: UserGroupDetailRow) {
 }
 
 /** 대상 지정 설명(여러 도구 공통). */
-const TARGET_HINT =
-  '대상은 username(사내 구성원 — search_members 가 주는 값) 또는 externalId(외부 연락처 — list_contacts 의 EXTERNAL 항목) 중 정확히 하나로 지정합니다.';
+const TARGET_HINT = 'Give exactly one of username (member, from search_members) or externalId (external contact, from list_contacts).';
 
 /** 연락처 facets·즐겨찾기·사용자 그룹 도구. */
 export function buildContactTools(client: ContactToolClient & Pick<MemberToolClient, 'searchMembers'>): SharedTool[] {
@@ -130,8 +129,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       app: 'contacts',
       kind: 'read',
       description:
-        '외부 연락처에 쓰인 조직(organizations)·직책(titles) 목록을 JSON 으로 반환합니다. ' +
-        'list_contacts 의 organization/title 필터는 정확일치이므로, 값을 추측하지 말고 이 목록에서 고르세요.',
+        'Returns the organizations and titles used by external contacts. list_contacts filters on these exact values, so pick from this list rather ' +
+        'than guessing.',
       inputSchema: z.object({}),
       async handler() {
         return JSON.stringify(await client.getContactFacets());
@@ -142,7 +141,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       app: 'contacts',
       kind: 'write',
       hints: { destructive: false, idempotent: true },
-      description: `연락처를 내 즐겨찾기에 추가합니다(이미 있으면 그대로). ${TARGET_HINT}`,
+      description:
+        `Adds a contact to my favorites (no-op if already there). ${TARGET_HINT}`,
       inputSchema: contactTargetInput,
       async handler(args) {
         const target = await resolveContactTarget(client, contactTargetInput.parse(args));
@@ -155,7 +155,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       app: 'contacts',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
-      description: `연락처를 내 즐겨찾기에서 뺍니다(없어도 그대로). ${TARGET_HINT}`,
+      description:
+        `Removes a contact from my favorites (no-op if absent). ${TARGET_HINT}`,
       inputSchema: contactTargetInput,
       async handler(args) {
         const target = await resolveContactTarget(client, contactTargetInput.parse(args));
@@ -168,8 +169,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       app: 'contacts',
       kind: 'read',
       description:
-        '사용자 그룹 트리를 JSON 으로 반환합니다. shared 는 모두가 보는 공유 조직도, personal 은 내 개인 그룹입니다. ' +
-        '각 노드의 groupId 를 get_user_group·그룹 수정/멤버 도구에 넘기세요(children 은 하위 그룹).',
+        'Returns the user group (그룹) trees: shared (the org chart everyone sees) and personal (my own groups). Nodes are {groupId, name, code, ' +
+        'visibility, children}.',
       inputSchema: z.object({}),
       async handler() {
         const { shared = [], personal = [] } = (await client.listUserGroups()) ?? {};
@@ -181,8 +182,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       app: 'contacts',
       kind: 'read',
       description:
-        '사용자 그룹 상세와 직속 멤버를 JSON 으로 반환합니다. 멤버 중 구성원은 username, 외부 연락처는 externalId 로 표시됩니다. ' +
-        'groupId 는 list_user_groups 로 확보하세요.',
+        'Returns a user group by groupId (from list_user_groups) with its direct members: members by username, external contacts by externalId.',
       inputSchema: groupIdInput,
       async handler(args) {
         const { groupId } = groupIdInput.parse(args);
@@ -195,8 +195,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        '사용자 그룹을 만듭니다. visibility 기본은 PERSONAL(나만 보는 개인 그룹)이고, SHARED(공유 조직도)는 조직도 관리 권한이 있어야 합니다. ' +
-        'parentGroupId 를 주면 그 그룹의 하위로 만듭니다(같은 공개 범위의 그룹만, 개인 그룹은 내 것만). 같은 상위 아래 같은 이름은 만들 수 없습니다.',
+        'Creates a user group. visibility PERSONAL (default, only me) or SHARED (org chart; needs org-chart management permission). parentGroupId ' +
+        'nests it under a group of the same visibility (personal: mine only). Sibling names must be unique. Returns the group.',
       inputSchema: createUserGroupInput,
       async handler(args) {
         const { parentGroupId, ...rest } = createUserGroupInput.parse(args);
@@ -209,10 +209,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        '사용자 그룹의 이름·상위 그룹·코드·정렬 순서를 바꿉니다. 준 필드만 바뀌고 나머지는 유지됩니다. ' +
-        '최상위로 옮기려면 moveToRoot: true, 코드를 비우려면 clearCode: true 를 주세요(parentGroupId·code 와 함께 줄 수 없음). ' +
-        '공개 범위(visibility)는 바꿀 수 없습니다. ' +
-        '개인 그룹은 소유자만, 공유 그룹은 조직도 관리 권한이 있어야 합니다.',
+        'Updates a user group: name, parent, code, sort order; omitted fields stay. moveToRoot:true moves it to the top and clearCode:true clears the ' +
+        'code (not together with parentGroupId or code). visibility cannot change. Personal groups: owner only; shared: org-chart managers only.',
       inputSchema: updateUserGroupInput,
       async handler(args) {
         const { groupId, parentGroupId, ...rest } = updateUserGroupInput.parse(args);
@@ -229,7 +227,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       app: 'contacts',
       kind: 'write',
       hints: { destructive: false, idempotent: true },
-      description: `사용자 그룹에 구성원 또는 외부 연락처를 넣습니다(이미 있으면 그대로). ${TARGET_HINT} 갱신된 그룹 상세를 반환합니다.`,
+      description:
+        `Adds a member or external contact to a user group (no-op if present). ${TARGET_HINT} Returns the updated group.`,
       inputSchema: userGroupMemberInput,
       async handler(args) {
         const { groupId, ...who } = userGroupMemberInput.parse(args);
@@ -242,7 +241,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       app: 'contacts',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
-      description: `사용자 그룹에서 구성원 또는 외부 연락처를 뺍니다(사람·연락처 자체는 지워지지 않음). ${TARGET_HINT}`,
+      description:
+        `Removes a member or external contact from a user group; the person or contact itself is kept. ${TARGET_HINT}`,
       inputSchema: userGroupMemberInput,
       async handler(args) {
         const { groupId, ...who } = userGroupMemberInput.parse(args);
@@ -257,8 +257,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        '외부 연락처를 생성합니다. visibility 는 SHARED(공유)/PERSONAL(개인). 생성 결과를 JSON 으로 반환합니다. ' +
-        '같은 이름+이메일의 연락처가 이미 있으면 중복 경고 오류가 납니다 — 사용자에게 알리고, 그래도 만들라고 확인받은 경우에만 force: true 로 다시 호출하세요.',
+        'Creates an external contact (외부 연락처), SHARED or PERSONAL, and returns it. If one with the same name and email exists it fails with a ' +
+        'duplicate warning: tell the user, and retry with force:true only after they confirm.',
       inputSchema: createExternalContactInput,
       async handler(args) {
         const { force, ...input } = createExternalContactInput.parse(args);
@@ -272,9 +272,9 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       // 준 필드로 현재 값을 덮어쓴다(destructive). 병합 후 같은 값이면 저장 상태가 그대로이고, 중복 판정은 자기 자신을 제외해 다시 불러도 같은 결과(멱등).
       hints: { destructive: true, idempotent: true },
       description:
-        '외부 연락처를 수정합니다. 준 필드만 바뀌고 나머지는 유지됩니다(빈 문자열 "" 은 그 값 비우기, 이름은 비울 수 없음). ' +
-        '수정 결과 이름+이메일이 다른 연락처와 겹치면 중복 경고 오류가 납니다 — 사용자 확인 후에만 force: true 로 다시 호출하세요. ' +
-        'externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원(MEMBER) 항목에는 없으며, 추측한 숫자를 넣으면 엉뚱한 사람의 연락처가 바뀝니다.',
+        'Updates an external contact by externalId (from list_contacts EXTERNAL items; never a guessed number). Omitted fields stay; "" clears a ' +
+        'field (not name). Only its owner or an ADMIN may edit. A name+email clash with another contact fails with a duplicate warning: retry with ' +
+        'force:true only after the user confirms.',
       inputSchema: updateExternalContactInput,
       async handler(args) {
         const { externalId, force, ...patch } = updateExternalContactInput.parse(args);

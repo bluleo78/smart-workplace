@@ -34,7 +34,8 @@ export function toolApps(tool: { app: ToolAppTag }): readonly ToolApp[] {
 
 /**
  * 서버 `instructions` 를 만들 때 쓰는 앱별 안내. 로드된 도구만 말하도록 읽기·쓰기 문구를 나눠 둔다(읽기 전용 연결에 "생성·수정"을 말하지 않는다).
- * - label: 화면 이름
+ * instructions 는 도구 설명과 같이 영어로 쓰고 한국어 제품 이름을 괄호로 함께 적는다(WP-340 웨이브 5).
+ * - label: 앱 이름(영어 + 한국어 화면 이름)
  * - read / write: 읽기·쓰기로 할 수 있는 일 한 줄 요약
  * - entry: 먼저 부를 도구(실제 로드된 것만 안내에 싣는다)
  */
@@ -46,16 +47,16 @@ export interface ToolAppGuide {
 }
 
 export const TOOL_APP_GUIDES: Record<ToolApp, ToolAppGuide> = {
-  issue: { label: '이슈', read: '이슈·프로젝트 조회, 첨부 읽기', write: '이슈 생성·수정·댓글·의존·관심', entry: ['list_issues', 'get_issue_detail'] },
-  project: { label: '프로젝트', read: '프로젝트·멤버·마일스톤 조회', write: '프로젝트 생성·수정·멤버 추가', entry: ['list_projects', 'get_project'] },
-  wiki: { label: '위키(노트)', read: '페이지 검색·조회·백링크', write: '페이지 생성·수정·이동', entry: ['search_wiki', 'get_wiki_page'] },
-  drive: { label: '드라이브', read: '파일 검색·요약·내용 읽기·휴지통 조회', write: '폴더 생성·이름 변경·이동·휴지통 복원', entry: ['list_drive_items', 'search_drive'] },
-  mail: { label: '메일', read: '메일 조회·요약·답장·이슈 초안', write: '읽음 처리·동기화·메일로 이슈 생성(발송은 불가)', entry: ['list_mail_accounts', 'list_mail'] },
-  messaging: { label: '채널·DM', read: '채널·메시지·스레드 조회', write: '메시지 작성·채널 생성·초대·DM', entry: ['list_channels', 'list_channel_messages'] },
-  calendar: { label: '캘린더', read: '일정 조회', write: '일정 생성·수정·참석자 변경·참석 응답', entry: ['list_events', 'get_event'] },
-  contacts: { label: '연락처', read: '연락처·그룹 조회', write: '즐겨찾기·그룹·외부 연락처 관리', entry: ['list_contacts', 'list_user_groups'] },
-  notify: { label: '알림', read: '알림 조회', write: '읽음 처리', entry: ['list_notifications'] },
-  member: { label: '구성원', read: '구성원 검색·연락처 조회', write: '', entry: ['search_members', 'get_member'] },
+  issue: { label: 'Issues (이슈)', read: 'find and read issues, read attachments', write: 'create and update issues, comment, link, watch', entry: ['list_issues', 'get_issue_detail'] },
+  project: { label: 'Projects (프로젝트)', read: 'projects, members, issue types, labels, milestones, cycles', write: 'create and rename projects, add members', entry: ['list_projects', 'get_project'] },
+  wiki: { label: 'Wiki (노트)', read: 'search and read pages, backlinks', write: 'create, edit and move pages', entry: ['search_wiki', 'get_wiki_page'] },
+  drive: { label: 'Drive (드라이브)', read: 'find, summarize and read files, view trash', write: 'create, rename and move folders, move files, restore from trash', entry: ['list_drive_items', 'search_drive'] },
+  mail: { label: 'Mail (메일)', read: 'read and summarize mail, draft replies and issues', write: 'mark read, sync, create issues from mail (no sending)', entry: ['list_mail_accounts', 'list_mail'] },
+  messaging: { label: 'Channels and DMs (채널·DM)', read: 'channels, messages, threads', write: 'post messages, create channels, invite, open DMs, leave', entry: ['list_channels', 'list_channel_messages'] },
+  calendar: { label: 'Calendar (캘린더)', read: 'events', write: 'create and update events and attendees, RSVP', entry: ['list_events', 'get_event'] },
+  contacts: { label: 'Contacts (연락처)', read: 'contacts and user groups', write: 'favorites, user groups, external contacts', entry: ['list_contacts', 'list_user_groups'] },
+  notify: { label: 'Notifications (알림)', read: 'inbox notifications', write: 'mark read', entry: ['list_notifications'] },
+  member: { label: 'Members (구성원)', read: 'find members and their contact cards', write: '', entry: ['search_members', 'get_member'] },
 };
 
 /** 앱 이름 문자열이 유효한 앱인지(타입 가드). */

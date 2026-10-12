@@ -207,7 +207,7 @@ describe('메일 AI·처리 (#855)', () => {
   it('sync_mail 설명은 결과 필드와 이미 동기화 중인 경우를 안내한다', () => {
     expect(tool(mockClient(), 'sync_mail').description).toMatch(/saved/);
     expect(tool(mockClient(), 'sync_mail').description).toMatch(/alreadySyncing/);
-    expect(tool(mockClient(), 'sync_mail').description).toMatch(/최선의 노력/); // 확인-호출 사이 경쟁 구간을 밝힌다
+    expect(tool(mockClient(), 'sync_mail').description).toMatch(/best effort/); // 확인-호출 사이 경쟁 구간을 밝힌다
   });
 
   it('sync_mail 은 원본 메일 서버에 닿으므로 openWorld 이고, 읽음 상태 덮어쓰기·삭제 반영이 있어 destructive, 멱등은 아니다', () => {
