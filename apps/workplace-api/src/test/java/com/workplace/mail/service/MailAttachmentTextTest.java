@@ -19,15 +19,25 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.chat.exception.InvalidChatAttachmentException;
+import com.workplace.chat.service.ChatMessageAttachmentService;
+import com.workplace.file.exception.FileNotFoundException;
+import com.workplace.file.service.FileUploadService;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.home.exception.HomeAttachmentInvalidException;
+import com.workplace.home.service.HomeAttachmentService;
 import com.workplace.mail.MailTestPorts;
 import com.workplace.mail.exception.EmailAttachmentNotFoundException;
 import com.workplace.mail.repository.ContentAttachmentRepository;
+import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
+import com.workplace.messaging.exception.InvalidMessageAttachmentException;
+import com.workplace.messaging.service.MessageAttachmentService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
+import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,6 +62,12 @@ class MailAttachmentTextTest extends IntegrationTestBase {
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
   @Autowired JwtTokenProvider jwtTokenProvider;
+  @Autowired FileUploadService fileUploadService;
+  @Autowired MessageAttachmentService messageAttachmentService;
+  @Autowired ChatMessageAttachmentService chatAttachmentService;
+  @Autowired HomeAttachmentService homeAttachmentService;
+  @Autowired AccountPurgeService accountPurgeService;
+  @Autowired EmailContentRepository contentRepo;
 
   private static final long T = 1L;
 
@@ -63,6 +79,7 @@ class MailAttachmentTextTest extends IntegrationTestBase {
   private long contentId;
   private long fldA;
   private long accA;
+  private long accB;
 
   @BeforeEach
   void setUp() {
@@ -71,7 +88,7 @@ class MailAttachmentTextTest extends IntegrationTestBase {
     userB = TestFixtures.createHuman(dsl);
     long nano = System.nanoTime();
     accA = account(userA, "a-" + nano);
-    long accB = account(userB, "b-" + nano);
+    accB = account(userB, "b-" + nano);
     fldA = folder(accA);
     long fldB = folder(accB);
     String msgId = "<text-" + nano + "@test.local>";
@@ -184,6 +201,7 @@ class MailAttachmentTextTest extends IntegrationTestBase {
     // 만료가 달린 사본 — FileCleanupService 가 회수한다. 메일 blob GC 고아 스윕(tenant-*/mail) 밖에 저장한다.
     assertThat(file.get(FILE.EXPIRES_AT)).isAfter(OffsetDateTime.now().plusDays(6));
     assertThat(file.get(FILE.STORAGE_PATH)).startsWith("tenant-1/mail-extract/");
+    assertThat(categoryOf(fileId)).isEqualTo("MAIL_EXTRACT");
     verify(attachmentService, times(1)).download(userA, attA);
   }
 
@@ -256,6 +274,99 @@ class MailAttachmentTextTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.status").value("PENDING"));
     mvc.perform(get(url).header("Authorization", "Bearer " + tokenFor(userB)))
         .andExpect(status().isNotFound());
+  }
+
+  private String categoryOf(long fileId) {
+    return dsl.select(FILE.CATEGORY).from(FILE).where(FILE.ID.eq(fileId)).fetchOne(FILE.CATEGORY);
+  }
+
+  /** 사본이 지금 만료 처리됐는지(FileCleanupService 회수 대상). */
+  private boolean expiredNow(long fileId) {
+    OffsetDateTime exp =
+        dsl.select(FILE.EXPIRES_AT).from(FILE).where(FILE.ID.eq(fileId)).fetchOne(FILE.EXPIRES_AT);
+    return exp != null && !exp.isAfter(OffsetDateTime.now());
+  }
+
+  @Test
+  void 사본은_만료가_읽기로_연장되지_않는다() {
+    textService.readText(userA, attA, 0, 10);
+    long fileId = extractFileId();
+    OffsetDateTime first =
+        dsl.select(FILE.EXPIRES_AT).from(FILE).where(FILE.ID.eq(fileId)).fetchOne(FILE.EXPIRES_AT);
+    textService.readText(userA, attA, 0, 10);
+    assertThat(
+            dsl.select(FILE.EXPIRES_AT)
+                .from(FILE)
+                .where(FILE.ID.eq(fileId))
+                .fetchOne(FILE.EXPIRES_AT))
+        .isEqualTo(first);
+  }
+
+  @Test
+  void 만료된_사본은_새로_만든다() {
+    textService.readText(userA, attA, 0, 10);
+    long old = extractFileId();
+    dsl.update(FILE)
+        .set(FILE.EXPIRES_AT, OffsetDateTime.now().minusMinutes(1))
+        .where(FILE.ID.eq(old))
+        .execute();
+    var s = textService.readText(userA, attA, 0, 10);
+    assertThat(s.status()).isEqualTo("PENDING");
+    assertThat(extractFileId()).isNotEqualTo(old);
+    verify(attachmentService, times(2)).download(userA, attA);
+  }
+
+  @Test
+  void 사본은_코어_업로더_경로로_내려받을_수_없다() {
+    textService.readText(userA, attA, 0, 10);
+    long copy = extractFileId();
+    assertThatThrownBy(() -> fileUploadService.getFileContent(copy, userA))
+        .isInstanceOf(FileNotFoundException.class);
+    assertThatThrownBy(() -> fileUploadService.getFileInfo(copy, userA))
+        .isInstanceOf(FileNotFoundException.class);
+  }
+
+  @Test
+  void 사본은_메시징_챗_홈_첨부로_바인딩할_수_없다() {
+    textService.readText(userA, attA, 0, 10);
+    long copy = extractFileId();
+    assertThatThrownBy(() -> messageAttachmentService.bindToMessage(userA, 1L, List.of(copy)))
+        .isInstanceOf(InvalidMessageAttachmentException.class);
+    assertThatThrownBy(() -> chatAttachmentService.bindToMessage(userA, 1L, List.of(copy)))
+        .isInstanceOf(InvalidChatAttachmentException.class);
+    assertThatThrownBy(() -> homeAttachmentService.precheck(userA, null, List.of(copy), true))
+        .isInstanceOf(HomeAttachmentInvalidException.class);
+    // 바인딩 시도가 사본을 영구화하지 않았다
+    assertThat(
+            dsl.select(FILE.EXPIRES_AT)
+                .from(FILE)
+                .where(FILE.ID.eq(copy))
+                .fetchOne(FILE.EXPIRES_AT))
+        .isNotNull();
+  }
+
+  @Test
+  void 계정_purge_로_원본_content_가_사라지면_사본을_즉시_만료한다() {
+    textService.readText(userA, attA, 0, 10);
+    long copy = extractFileId();
+    // A 만 purge — 같은 메일을 받은 B 가 남아 content 가 살아 있으므로 사본도 유지된다.
+    accountPurgeService.purgeAccount(userA, accA);
+    assertThat(expiredNow(copy)).isFalse();
+    // B 까지 purge — content 가 고아가 되어 삭제되고, 사본은 지금 만료(FileCleanupService 회수)된다.
+    accountPurgeService.purgeAccount(userB, accB);
+    assertThat(expiredNow(copy)).isTrue();
+  }
+
+  @Test
+  void content_GC_스윕이_고아_content_를_지우면_사본을_즉시_만료한다() {
+    textService.readText(userA, attA, 0, 10);
+    long copy = extractFileId();
+    dsl.deleteFrom(EMAIL_ATTACHMENT)
+        .where(EMAIL_ATTACHMENT.CONTENT_ATTACHMENT_ID.eq(caId))
+        .execute();
+    dsl.deleteFrom(EMAIL_MESSAGE).where(EMAIL_MESSAGE.CONTENT_ID.eq(contentId)).execute();
+    assertThat(contentRepo.deleteAllOrphans()).isGreaterThanOrEqualTo(1);
+    assertThat(expiredNow(copy)).isTrue();
   }
 
   private String tokenFor(long uid) {

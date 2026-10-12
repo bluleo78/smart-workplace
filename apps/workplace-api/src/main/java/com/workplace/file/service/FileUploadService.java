@@ -2,6 +2,7 @@ package com.workplace.file.service;
 
 import static com.workplace.jooq.Tables.FILE;
 
+import com.workplace.file.api.InternalFileCategories;
 import com.workplace.file.dto.FileUploadResponse;
 import com.workplace.file.exception.FileBlobMissingException;
 import com.workplace.file.exception.FileNotFoundException;
@@ -193,7 +194,12 @@ public class FileUploadService {
   @Transactional(readOnly = true)
   public FileUploadResponse getFileInfo(Long fileId, Long userId) {
     var record =
-        dsl.selectFrom(FILE).where(FILE.ID.eq(fileId)).and(FILE.UPLOADED_BY.eq(userId)).fetchOne();
+        dsl.selectFrom(FILE)
+            .where(FILE.ID.eq(fileId))
+            .and(FILE.UPLOADED_BY.eq(userId))
+            // 내부 처리용 사본(메일 추출 평문 등)은 업로더 키만으로 열 수 없다(WP-358) — 원본 권한을 우회하게 된다.
+            .and(InternalFileCategories.notInternal())
+            .fetchOne();
 
     if (record == null) {
       throw new FileNotFoundException(fileId);
@@ -224,7 +230,12 @@ public class FileUploadService {
   @Transactional(readOnly = true)
   public FileContentResult getFileContent(Long fileId, Long userId) throws IOException {
     var record =
-        dsl.selectFrom(FILE).where(FILE.ID.eq(fileId)).and(FILE.UPLOADED_BY.eq(userId)).fetchOne();
+        dsl.selectFrom(FILE)
+            .where(FILE.ID.eq(fileId))
+            .and(FILE.UPLOADED_BY.eq(userId))
+            // 내부 처리용 사본(메일 추출 평문 등)은 업로더 키만으로 열 수 없다(WP-358) — 원본 권한을 우회하게 된다.
+            .and(InternalFileCategories.notInternal())
+            .fetchOne();
 
     if (record == null) {
       throw new FileNotFoundException(fileId);

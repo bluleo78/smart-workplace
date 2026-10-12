@@ -48,8 +48,8 @@ public class MailAttachmentTextService {
   /**
    * 첨부 추출 텍스트 구간 읽기. 권한은 /content 다운로드와 같다 — 본인 소유(활성 계정)의 첨부가 아니면 404(존재 은닉).
    *
-   * <p>readOnly 가 아닌 이유: 첫 요청에 사본 file·추출 행 생성, 이후 요청에 사본 만료 연장(UPDATE)이 일어난다. 첫 요청은 첨부 캐시 miss 면
-   * /content 와 똑같이 provider fetch 를 동기로 기다린다(추출 자체는 비동기).
+   * <p>readOnly 가 아닌 이유: 첫 요청에 사본 file·추출 행 생성, 만료된 사본의 재생성이 일어난다. 첫 요청은 첨부 캐시 miss 면 /content 와
+   * 똑같이 provider fetch 를 동기로 기다린다(추출 자체는 비동기).
    *
    * @throws InvalidTextRangeException offset &lt; 0 또는 limit &lt; 1
    */
@@ -69,8 +69,8 @@ public class MailAttachmentTextService {
     ExtractTarget target = contentAttachmentRepo.findExtractTarget(caId).orElse(null);
     if (target == null) return status(attachmentId, offset, ExtractionInfo.NONE);
 
-    // 1) 이미 사본이 있으면 만료만 미루고 읽는다(빠른 경로 — 잠금·fetch 없음).
-    if (target.extractFileId() != null && copyStore.touch(target.extractFileId())) {
+    // 1) 유효한 사본이 있으면 바로 읽는다(빠른 경로 — 잠금·fetch 없음). 만료는 연장하지 않는다(생성 기준 고정 수명).
+    if (target.extractFileId() != null && copyStore.isLive(target.extractFileId())) {
       return read(attachmentId, target.extractFileId(), offset, limit);
     }
 
@@ -91,7 +91,7 @@ public class MailAttachmentTextService {
             .findExtractTarget(caId)
             .map(ExtractTarget::extractFileId)
             .orElse(null);
-    if (linked != null && copyStore.touch(linked)) {
+    if (linked != null && copyStore.isLive(linked)) {
       return read(attachmentId, linked, offset, limit);
     }
     // 바이트 확보는 /content 와 같은 경로 — 캐시 hit 이면 blob 복호화, miss 면 provider fetch 후 캐시 등록. 소유 검증도 다시 거친다.

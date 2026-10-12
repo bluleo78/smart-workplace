@@ -44,6 +44,9 @@ public class MessageAttachmentRepository {
             .leftJoin(MESSAGE_ATTACHMENT)
             .on(MESSAGE_ATTACHMENT.FILE_ID.eq(FILE.ID))
             .where(FILE.ID.eq(fileId))
+            // 첨부 선업로드(ATTACHMENT)만 바인딩 후보 — 내부 사본(MAIL_EXTRACT 등)이 메시지에 붙어 영구 파일이 되는 것을
+            // 막는다(WP-358).
+            .and(FILE.CATEGORY.eq("ATTACHMENT"))
             .fetchOne();
     if (r == null) return Optional.empty();
     return Optional.of(
