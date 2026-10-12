@@ -1,6 +1,7 @@
 package com.workplace.drive.service;
 
 import static com.workplace.jooq.Tables.FILE;
+import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,6 +15,7 @@ import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.repository.DriveFileVersionRepository;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.fileai.repository.WorkerJobRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.awt.image.BufferedImage;
@@ -37,6 +39,7 @@ class DriveFileServiceTest extends IntegrationTestBase {
   @Autowired DriveFolderService folderService;
   @Autowired DriveQuotaService quotaService;
   @Autowired DriveFileVersionRepository versionsRepo;
+  @Autowired WorkerJobRepository jobRepo;
 
   /** drive 복사(copyFile)는 TenantContext 를 요구한다 — 테스트에선 tenant#1 로 고정. */
   @BeforeEach
@@ -465,6 +468,44 @@ class DriveFileServiceTest extends IntegrationTestBase {
           .isInstanceOf(IllegalArgumentException.class);
     }
     assertThat(fileService.rename(u, f.id(), "..a.b.txt").name()).isEqualTo("..a.b.txt");
+  }
+
+  /**
+   * API·MCP 로 경로·양방향 문자가 든 파일명이 와도 막지 않고 "_" 로 바꿔 저장한다(WP-339). 잘라 내지 않으므로 같은 폴더의 다른 파일과 겹쳐 새 버전으로
+   * 합쳐지지 않는다.
+   */
+  @Test
+  void upload_pathLikeName_isSanitized() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    String[][] cases = {
+      {"../../evil.txt", ".._.._evil.txt"},
+      {"a\\b\\c.txt", "a_b_c.txt"},
+      {"invoice\u202Efdp.exe", "invoice_fdp.exe"},
+      {"..", "file"}
+    };
+    for (String[] c : cases) {
+      MockMultipartFile mf = new MockMultipartFile("file", c[0], "text/plain", "x".getBytes());
+      DriveFileResponse f = fileService.upload(u, sp.id(), null, mf);
+      assertThat(f.name()).as(c[0]).isEqualTo(c[1]);
+    }
+  }
+
+  /** 요약 문맥은 드라이브 이름을 쓴다 — 이름을 바꾼 뒤 재시도·재요약에도 새 이름이 AI 에 간다(WP-339). */
+  @Test
+  void summaryContext_usesRenamedDriveName() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+    fileService.rename(u, f.id(), "보고서.txt");
+    dsl.insertInto(FILE_EXTRACTION)
+        .set(FILE_EXTRACTION.FILE_ID, f.fileId())
+        .set(FILE_EXTRACTION.TENANT_ID, 1L)
+        .set(FILE_EXTRACTION.EXTRACTED_TEXT, "본문")
+        .onConflictDoNothing()
+        .execute();
+
+    assertThat(jobRepo.findSummaryContext(f.fileId()).fileName()).isEqualTo("보고서.txt");
   }
 
   /** VIEWER 는 이름을 바꿀 수 없다. */

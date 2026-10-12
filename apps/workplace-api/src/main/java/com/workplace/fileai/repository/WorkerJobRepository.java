@@ -1,5 +1,6 @@
 package com.workplace.fileai.repository;
 
+import static com.workplace.jooq.Tables.DRIVE_FILE;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import static com.workplace.jooq.Tables.WORKER_JOB;
@@ -14,6 +15,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.JSONB;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -307,14 +309,22 @@ public class WorkerJobRepository {
    * 요약 컨텍스트 조회(요약 단계에서 ai-agent 에 전달할 정보).
    *
    * @param fileId 대상 파일 id
-   * @return {extracted_text, original_name, mime_type, tenant_id}
+   * @return {extracted_text, 이름(드라이브 이름 우선), mime_type, tenant_id}
    */
   public SummaryContext findSummaryContext(long fileId) {
+    // 드라이브 파일이면 지금 드라이브 이름(이름 변경 반영), 아니면 업로드 당시 이름(WP-339). 같은 core 파일을 가리키는 드라이브 파일이 여럿이면 휴지통
+    // 밖·최신 것.
+    Field<String> name =
+        DSL.coalesce(
+            DSL.field(
+                DSL.select(DRIVE_FILE.NAME)
+                    .from(DRIVE_FILE)
+                    .where(DRIVE_FILE.FILE_ID.eq(FILE.ID))
+                    .orderBy(DRIVE_FILE.TRASHED_AT.desc().nullsFirst(), DRIVE_FILE.ID.desc())
+                    .limit(1)),
+            FILE.ORIGINAL_NAME);
     return dsl.select(
-            FILE_EXTRACTION.EXTRACTED_TEXT,
-            FILE.ORIGINAL_NAME,
-            FILE.MIME_TYPE,
-            FILE_EXTRACTION.TENANT_ID)
+            FILE_EXTRACTION.EXTRACTED_TEXT, name, FILE.MIME_TYPE, FILE_EXTRACTION.TENANT_ID)
         .from(FILE_EXTRACTION)
         .join(FILE)
         .on(FILE.ID.eq(FILE_EXTRACTION.FILE_ID))
@@ -323,7 +333,7 @@ public class WorkerJobRepository {
             r ->
                 new SummaryContext(
                     r.get(FILE_EXTRACTION.EXTRACTED_TEXT),
-                    r.get(FILE.ORIGINAL_NAME),
+                    r.get(name),
                     r.get(FILE.MIME_TYPE),
                     r.get(FILE_EXTRACTION.TENANT_ID)));
   }

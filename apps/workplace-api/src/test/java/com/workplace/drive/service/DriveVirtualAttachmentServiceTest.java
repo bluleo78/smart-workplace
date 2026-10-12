@@ -311,6 +311,20 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
     assertThat(expiresAt).isNull();
   }
 
+  /** 첨부 원본 이름에 경로·양방향 문자가 있어도 드라이브 이름이 될 때 "_" 로 바뀐다(WP-339) — 첨부 저장소는 원본 이름을 그대로 저장한다. */
+  @Test
+  void importAttachment_pathLikeName_isSanitized() {
+    long caller = seedUser("editor");
+    long spaceId = seedSpace(caller, "EDITOR");
+    ProjectResponse proj = newProject(caller, "IS");
+    IssueRow issue = issueRepo.insert(proj.id(), 1, "import 이슈", null, "MID", null, caller);
+    long fileId = seedFile(caller, "../a\u202Etxt.exe", null);
+    bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
+
+    assertThat(service.importAttachment(caller, spaceId, null, fileId).name())
+        .isEqualTo(".._a_txt.exe");
+  }
+
   /** VIEWER → DriveForbiddenException. */
   @Test
   void importAttachment_viewer_forbidden() {
