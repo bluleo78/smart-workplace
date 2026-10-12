@@ -20,7 +20,7 @@ const DESIGN = 22
 type MoveBody = { fileIds: number[]; folderIds: number[]; targetFolderId: number | null }
 
 // 공간·경로·목록·이동 API 를 모킹한다. 목록은 이동 요청을 반영하는 가변 상태(옮겨진 항목은 기획 폴더에서 빠진다).
-async function setup(page: Page, opts: { moveStatus?: number } = {}) {
+async function setup(page: Page, opts: { moveStatus?: number; archived?: boolean } = {}) {
   const state: { folders: DriveFolder[]; files: DriveFile[] } = {
     folders: [
       createFolder({ id: MEETING, parentId: PLAN, name: '회의록' }),
@@ -41,7 +41,7 @@ async function setup(page: Page, opts: { moveStatus?: number } = {}) {
   )
   await page.route(
     (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}`,
-    (route) => route.fulfill(json(createSpace())),
+    (route) => route.fulfill(json(createSpace({ archived: opts.archived ?? false }))),
   )
   await page.route(
     (url) => url.pathname === `/api/v1/drive/folders/${PLAN}/path`,
@@ -227,6 +227,12 @@ test.describe('드라이브 끌어 옮기기', () => {
     await page.keyboard.press('Enter')
     await moves.waitFor(1)
     expect(moves.lastBody<MoveBody>()).toEqual({ fileIds: [DESIGN], folderIds: [], targetFolderId: null })
+  })
+
+  test('보관된 채널의 공간(읽기 전용)에서는 끌어 옮기기를 켜지 않는다', async ({ authenticatedPage: page }) => {
+    await setup(page, { archived: true })
+    await expect(page.getByTestId('drive-readonly-banner')).toBeVisible()
+    await expect(page.getByTestId(`drive-row-file-${SPEC}`)).not.toHaveAttribute('aria-roledescription')
   })
 
   test('휴대폰 폭에서는 끌어 옮기기를 켜지 않는다(길게 누르기 선택 유지)', async ({ authenticatedPage: page }) => {

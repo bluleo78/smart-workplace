@@ -21,7 +21,7 @@ import {
 
 const file = (id: number, name = `f${id}.txt`): DriveDragItem => ({ kind: 'file', id, name })
 const folder = (id: number, name = `d${id}`): DriveDragItem => ({ kind: 'folder', id, name })
-const drag = (...items: DriveDragItem[]): DriveActiveDrag => ({ lead: items[0], items })
+const drag = (...items: DriveDragItem[]): DriveActiveDrag => items
 
 describe('dragItemsFor', () => {
   it('선택 밖 행을 끌면 그 항목 하나만', () => {
@@ -178,7 +178,7 @@ describe('driveKeyboardCoordinates', () => {
 })
 
 describe('driveDndAnnouncements', () => {
-  const activeArg = { id: 'drive-drag-file-1', data: { current: { lead: file(1, 'a.pdf') } } } as never
+  const activeArg = { id: 'drive-drag-file-1', data: { current: file(1, 'a.pdf') } } as never
   const over = (data: unknown) => ({ id: 'o', data: { current: data } }) as never
 
   it('집는 순간에는 잡은 항목 이름으로 읽는다', () => {

@@ -52,7 +52,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
-import { dragItemsFor, type DriveDragItem, type DriveDropData, moveToastMessage } from '@/lib/driveDnd'
+import { driveDragItem, dragItemsFor, type DriveDragItem, type DriveDropData, moveToastMessage } from '@/lib/driveDnd'
 import { fileStemLength } from '@/lib/fileName'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 import { parseId } from '@/lib/historyParam'
@@ -928,55 +928,65 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     })
   }
 
-  async function onBulkMoveTarget(targetId: number | null) {
+  // 일괄 이동 공통 — 벌크 picker·끌어 옮기기·되돌리기가 함께 쓴다. 실패는 표준 토스트로 알리고 false.
+  // 목록 재조회는 호출측이 정한다(picker 는 선택 해제까지, 끌기는 토스트 먼저).
+  async function moveItems(
+    body: { fileIds: number[]; folderIds: number[] },
+    targetFolderId: number | null,
+    errorMessage = '이동할 수 없는 위치입니다.',
+  ): Promise<boolean> {
     try {
-      await driveApi.bulkMove(sid, { ...selectionBody(), targetFolderId: targetId })
+      await driveApi.bulkMove(sid, { ...body, targetFolderId })
+      return true
     } catch (e) {
-      handleApiError(e, '이동할 수 없는 위치입니다.')
-    } finally {
-      setBulkPicker(false)
-      await reloadAndClear()
+      handleApiError(e, errorMessage)
+      return false
     }
+  }
+
+  async function onBulkMoveTarget(targetId: number | null) {
+    await moveItems(selectionBody(), targetId)
+    setBulkPicker(false)
+    await reloadAndClear()
   }
 
   // WP-364: 끌어 옮기기 묶음 — 잡은 행이 선택돼 있으면 보이는 선택 전체(폴더 먼저), 아니면 그 항목 하나.
   function resolveDragItems(lead: DriveDragItem): DriveDragItem[] {
     const selected: DriveDragItem[] = [
-      ...viewItems.folders.filter((f) => visibleSelFolders.has(f.id)).map((f) => ({ kind: 'folder' as const, id: f.id, name: f.name })),
-      ...viewItems.files.filter((f) => visibleSelFiles.has(f.id)).map((f) => ({ kind: 'file' as const, id: f.id, name: f.name })),
+      ...viewItems.folders.filter((f) => visibleSelFolders.has(f.id)).map((f) => driveDragItem('folder', f)),
+      ...viewItems.files.filter((f) => visibleSelFiles.has(f.id)).map((f) => driveDragItem('file', f)),
     ]
     return dragItemsFor(lead, selected)
   }
 
   // WP-364: 끌어 놓은 항목을 bulkMove 한 번으로 옮긴다(서버가 검증·전체 롤백). 성공하면 에픽 연결과 같은 결의 토스트 + 되돌리기.
   // 선택은 지우지 않는다 — 옮겨진 항목은 보이는 선택(visibleSel*)에서 저절로 빠지고, 선택 밖 행을 끌었을 땐 기존 선택을 지키는 게 맞다.
+  // 끌어 옮기기 요청~재조회 동안 true — 그 사이 옛 행을 다시 끌어 두 이동이 경쟁하지 않도록 끌기를 잠시 끈다.
+  const [dragMoving, setDragMoving] = useState(false)
   async function onDragMove(dragged: DriveDragItem[], target: DriveDropData) {
     const body = {
       fileIds: dragged.filter((i) => i.kind === 'file').map((i) => i.id),
       folderIds: dragged.filter((i) => i.kind === 'folder').map((i) => i.id),
     }
-    // 되돌리기 목적지 — 끈 항목은 모두 지금 보고 있는 폴더에 있다.
+    // 되돌리기 목적지 — 끈 항목은 모두 지금 보고 있는 폴더에 있다(placeholder 목록은 끌 수 없게 막았다).
     const from = folderId ?? null
-    try {
-      await driveApi.bulkMove(sid, { ...body, targetFolderId: target.folderId })
-    } catch (e) {
-      handleApiError(e, '이동할 수 없는 위치입니다.')
-      return
-    } finally {
-      await reload()
-    }
-    toast.success(moveToastMessage(dragged.length, target.name), {
-      action: {
-        label: '되돌리기',
-        onClick: () => {
-          void driveApi
-            .bulkMove(sid, { ...body, targetFolderId: from })
-            .then(() => toast.success('되돌렸습니다'))
-            .catch((e: unknown) => handleApiError(e, '되돌리지 못했습니다.'))
-            .finally(() => void reload())
+    setDragMoving(true)
+    if (await moveItems(body, target.folderId)) {
+      // 재조회를 기다리지 않고 바로 알린다 — 느린 재조회 동안 결과·되돌리기가 늦게 뜨지 않게.
+      toast.success(moveToastMessage(dragged.length, target.name), {
+        action: {
+          label: '되돌리기',
+          onClick: () => {
+            void moveItems(body, from, '되돌리지 못했습니다.').then((ok) => {
+              if (ok) toast.success('되돌렸습니다')
+              return reload()
+            })
+          },
         },
-      },
-    })
+      })
+    }
+    await reload()
+    setDragMoving(false)
   }
 
   async function openTrash() {
@@ -1213,7 +1223,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       {/* WP-364: 끌어 옮기기 — 경로와 목록이 같은 DndContext 안이어야 행을 경로로 끌어 놓을 수 있다.
           데스크톱(마우스)·쓰기 가능한 공간에서만. 모바일·터치 태블릿은 ⋯/시트의 「이동」을 쓴다(스크롤 제스처와 충돌). */}
       <DriveDndProvider
-        enabled={!isMobile && !isCoarse && !space?.archived}
+        // 공간 정보가 오기 전(null)엔 보관 여부를 몰라 켜지 않는다. 폴더 전환 중 이전 폴더 목록(placeholder)·이동 처리 중에도 끈다 —
+        // 옛 행을 끌면 현재 폴더 기준의 판정·되돌리기 목적지가 어긋난다.
+        enabled={!isMobile && !isCoarse && space != null && !space.archived && !itemsQuery.isPlaceholderData && !dragMoving}
         currentFolderId={folderId ?? null}
         resolveItems={resolveDragItems}
         onMove={(dragged, target) => void onDragMove(dragged, target)}
@@ -1539,7 +1551,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               <DrivePressRow
                 key={`folder-${f.id}`}
                 {...rowPress('folder', f.id)}
-                dragItem={{ kind: 'folder', id: f.id, name: f.name }}
+                dragItem={driveDragItem('folder', f)}
                 data-testid={`drive-row-folder-${f.id}`}
                 className={cn(
                   // 파일 행·열 헤더(px-1)와 같은 안쪽 여백 — 이름 칸이 같은 x 에서 시작하고 모바일 아이콘·⋮ 세로줄도 맞는다.
@@ -1577,7 +1589,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               <DrivePressRow
                 key={`file-${f.id}`}
                 {...rowPress('file', f.id)}
-                dragItem={{ kind: 'file', id: f.id, name: f.name }}
+                dragItem={driveDragItem('file', f)}
                 data-testid={`drive-row-file-${f.id}`}
                 className={cn(
                   'group flex items-center gap-2 rounded px-1 py-2 hover:bg-accent/40 max-lg:min-h-14',

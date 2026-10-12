@@ -3,7 +3,7 @@
 import type { ClientRect } from '@dnd-kit/core';
 import { describe, expect, it } from 'vitest';
 
-import { snapRowChipToPointer } from './dndRowChip';
+import { CHIP_BESIDE_POINTER_OFFSET, chipBesidePointer, snapRowChipToPointer } from './dndRowChip';
 
 describe('snapRowChipToPointer', () => {
   // 넓은 행(1000×40) 과 좁은 칩(300×32). transform 은 드래그 이동량.
@@ -45,6 +45,34 @@ describe('snapRowChipToPointer', () => {
     // 행이 300px 위로 스크롤돼 다시 측정됨 — DragOverlay 는 처음 사각형에 고정이므로 결과가 같아야 한다.
     const scrolled = { ...row, top: row.top - 300, bottom: row.bottom - 300 };
     expect(run(ev, scrolled)).toEqual(first);
+  });
+
+  it('키보드 드래그(포인터 좌표 없음)는 그대로', () => {
+    expect(run(new KeyboardEvent('keydown'))).toMatchObject({ x: 30, y: 10 });
+  });
+});
+
+describe('chipBesidePointer', () => {
+  const row = { left: 100, top: 200, width: 1000, height: 40, right: 1100, bottom: 240 } as ClientRect;
+  const run = (activatorEvent: Event) =>
+    chipBesidePointer({
+      transform: { x: 30, y: 10, scaleX: 1, scaleY: 1 },
+      activatorEvent,
+      activeNodeRect: row,
+      overlayNodeRect: null,
+      active: null,
+      draggingNodeRect: null,
+      containerNodeRect: null,
+      over: null,
+      scrollableAncestors: [],
+      scrollableAncestorRects: [],
+      windowRect: null,
+    });
+
+  it('칩 왼쪽 위가 현재 포인터 + 여유에 온다', () => {
+    // 잡은 지점(300,220) + 이동량(30,10) = 포인터(330,230). 칩 왼쪽 위 = 행 왼쪽 위(100,200) + 결과 → (344,244).
+    const t = run(new MouseEvent('pointerdown', { clientX: 300, clientY: 220 }));
+    expect({ x: 100 + t.x, y: 200 + t.y }).toEqual({ x: 330 + CHIP_BESIDE_POINTER_OFFSET, y: 230 + CHIP_BESIDE_POINTER_OFFSET });
   });
 
   it('키보드 드래그(포인터 좌표 없음)는 그대로', () => {

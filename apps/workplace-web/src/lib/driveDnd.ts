@@ -15,11 +15,14 @@ import { euroRo } from './utils'
 // 끄는 항목 하나 — 이름은 칩·안내 문구용.
 export type DriveDragItem = { kind: 'file' | 'folder'; id: number; name: string }
 
-// 드래그 소스(행)가 싣는 데이터 — 잡은 행만. 함께 옮길 묶음(선택 포함)은 드래그 시작 시 provider 가 계산한다.
-export type DriveDragData = { lead: DriveDragItem }
+// 진행 중인 드래그 — 실제로 옮길 항목 전체. 맨 앞이 잡은 항목(칩·안내에 이름이 나오는 항목).
+// 드래그 소스(행)는 잡은 항목(DriveDragItem)만 싣고, 묶음(선택 포함)은 드래그 시작 시 provider 가 계산한다.
+export type DriveActiveDrag = DriveDragItem[]
 
-// 진행 중인 드래그 — lead=잡은 항목, items=실제로 옮길 항목 전체(lead 가 맨 앞).
-export type DriveActiveDrag = { lead: DriveDragItem; items: DriveDragItem[] }
+// 목록 항목(폴더·파일) → 끄는 항목.
+export function driveDragItem(kind: DriveDragItem['kind'], entry: { id: number; name: string }): DriveDragItem {
+  return { kind, id: entry.id, name: entry.name }
+}
 
 // 드롭 대상 데이터 — folderId=null 이면 공간 루트. name 은 토스트·안내 문구용.
 export type DriveDropData = { folderId: number | null; name: string }
@@ -48,7 +51,7 @@ export function dragItemsFor(lead: DriveDragItem, selected: DriveDragItem[]): Dr
 
 // 끌고 있는 항목인지 — 원본 행을 흐리게(opacity-40) 그릴 때 쓴다.
 export function isDragged(active: DriveActiveDrag | null, item: Pick<DriveDragItem, 'kind' | 'id'>): boolean {
-  return active != null && active.items.some((i) => sameItem(i, item))
+  return active != null && active.some((i) => sameItem(i, item))
 }
 
 // 한 대상(폴더 id, null=루트)의 드롭 상태.
@@ -61,14 +64,14 @@ export function driveDropState(
 ): DriveDropState {
   if (!active) return 'idle'
   if (targetFolderId === currentFolderId) return 'blocked'
-  if (targetFolderId != null && active.items.some((i) => i.kind === 'folder' && i.id === targetFolderId)) return 'blocked'
+  if (targetFolderId != null && active.some((i) => i.kind === 'folder' && i.id === targetFolderId)) return 'blocked'
   return 'allowed'
 }
 
 // 칩·안내용 항목 이름 — 「a.pdf」 또는 「a.pdf」 외 2개.
-export function dragLabel(active: Pick<DriveActiveDrag, 'lead' | 'items'>): string {
-  const rest = active.items.length - 1
-  return rest > 0 ? `「${active.lead.name}」 외 ${rest}개` : `「${active.lead.name}」`
+export function dragLabel(active: DriveActiveDrag): string {
+  const rest = active.length - 1
+  return rest > 0 ? `「${active[0].name}」 외 ${rest}개` : `「${active[0].name}」`
 }
 
 // 이동 완료 토스트 — 에픽 연결 토스트(「…」에 연결했습니다)와 같은 결. 예: 3개 항목을 「드라이브」로 옮겼습니다.
@@ -166,7 +169,7 @@ function describeTarget(data: unknown): string | null {
 export function driveDndAnnouncements(current: DriveActiveDrag | null): Announcements {
   const label = (a: { data: { current?: unknown } }) => {
     if (current) return `${dragLabel(current)} 항목`
-    const lead = (a.data.current as DriveDragData | undefined)?.lead
+    const lead = a.data.current as DriveDragItem | undefined
     return lead ? `「${lead.name}」 항목` : '항목'
   }
   return {

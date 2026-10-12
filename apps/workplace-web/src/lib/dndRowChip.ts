@@ -10,7 +10,7 @@ type Coordinates = { x: number; y: number };
 //     행 오른쪽(담당자·마감 쪽)을 잡으면 칩이 포인터에서 수백 px 왼쪽에 뜬다.
 // 어떻게: 잡은 지점의 행 안 오프셋을 칩 안으로 끌어와(가장자리 여유 ROW_CHIP_POINTER_INSET 만큼 안쪽) 칩이 항상 포인터 밑에 오게 한다.
 //        행 왼쪽을 잡아 오프셋이 이미 칩 안이면 이동 없음(기존과 같음). 키보드 드래그는 포인터 좌표가 없어 그대로 둔다.
-// 드롭 판정은 포인터 좌표만 보므로(issueCollision) 칩 위치를 옮겨도 판정은 바뀌지 않는다.
+// 드롭 판정은 포인터 좌표만 보므로(각 provider 의 충돌 판정) 칩 위치를 옮겨도 판정은 바뀌지 않는다.
 const ROW_CHIP_POINTER_INSET = 12;
 // 칩 크기 안 [여유, 크기-여유] 로 자른다(칩이 여유의 두 배보다 작으면 여유 지점).
 const clampInto = (v: number, size: number) =>
@@ -32,5 +32,22 @@ export const snapRowChipToPointer: Modifier = ({ transform, activatorEvent, acti
     ...transform,
     x: transform.x + grab.x - clampInto(grab.x, overlayNodeRect.width),
     y: transform.y + grab.y - clampInto(grab.y, overlayNodeRect.height),
+  };
+};
+
+// 칩을 포인터 오른쪽 아래에 띄우는 DragOverlay modifier(드라이브 행, WP-364).
+// 왜: snapRowChipToPointer 는 칩을 포인터 밑에 깔아, 경로(breadcrumb)처럼 작은 드롭 대상 위에서는 칩이 대상의 「여기에 놓임」 강조를 가린다.
+//     칩을 포인터에서 비켜 두면 놓을 곳이 늘 보인다(파일 관리자의 끌기 고스트와 같은 위치).
+// 키보드 드래그는 포인터 좌표가 없어 그대로 둔다(DragOverlay 기본 — 원본 자리에서 이동량만큼).
+export const CHIP_BESIDE_POINTER_OFFSET = 14;
+export const chipBesidePointer: Modifier = ({ transform, activatorEvent, activeNodeRect }) => {
+  if (!activatorEvent || !activeNodeRect) return transform;
+  const start = getEventCoordinates(activatorEvent);
+  if (!start) return transform;
+  // 오버레이는 원본 행 왼쪽 위 + transform 에 그려진다. 포인터 = 시작점 + transform 이므로 칩 왼쪽 위를 포인터 + 여유로 맞춘다.
+  return {
+    ...transform,
+    x: transform.x + start.x - activeNodeRect.left + CHIP_BESIDE_POINTER_OFFSET,
+    y: transform.y + start.y - activeNodeRect.top + CHIP_BESIDE_POINTER_OFFSET,
   };
 };
