@@ -44,6 +44,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { RenameDialog } from '@/components/ui/rename-dialog'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
@@ -51,6 +52,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
+import { fileStemLength } from '@/lib/fileName'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 import { parseId } from '@/lib/historyParam'
 import { cn } from '@/lib/utils'
@@ -60,7 +62,6 @@ import { driveApi } from '../../api/drive'
 import { DriveOverviewCard } from '../../components/drive/DriveOverviewCard'
 import { DrivePressRow } from '../../components/drive/DrivePressRow'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
-import { FileRenameDialog } from '../../components/drive/FileRenameDialog'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
 import { RowOverflowMenu } from '../../components/drive/RowOverflowMenu'
 import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
@@ -1672,14 +1673,23 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           testId="drive-row-sheet"
         />
         {shareFile && <ShareLinkModal file={shareFile} onClose={() => setShareFile(null)} />}
-        <FileRenameDialog
-          file={renameFile}
-          onSubmit={async (id, name) => {
-            await driveApi.renameFile(id, name)
+        {/* 파일 이름 변경(WP-335) — 확장자 앞까지만 선택해 바로 타이핑하면 이름만 바뀐다(확장자도 직접 고칠 수 있음).
+            실패(이름 중복 409 등)는 다이얼로그를 유지한 채 인라인으로 보인다. */}
+        <RenameDialog
+          open={renameFile != null}
+          title="파일 이름 변경"
+          initialValue={renameFile?.name ?? ''}
+          confirmLabel="이름 변경"
+          maxLength={255}
+          initialSelection={(v) => [0, fileStemLength(v)]}
+          onConfirm={async (name) => {
+            if (!renameFile || name === renameFile.name) return
+            await driveApi.renameFile(renameFile.id, name)
             // 목록 재조회는 기다리지 않는다 — 이름은 이미 바뀌었으니 재조회 실패를 이름 변경 실패로 보이지 않게(선택도 유지).
             void reload()
           }}
           onClose={() => setRenameFile(null)}
+          extractError={(e) => extractApiError(e, '파일 이름을 변경하지 못했습니다.')}
         />
         {versionFile && (
           <VersionHistoryModal

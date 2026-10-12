@@ -331,10 +331,7 @@ public class DriveFileService {
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
     String newName = UnicodeNames.toNfc(name.strip());
     if (!newName.equals(row.name())) {
-      // 같은 폴더에 새 이름의 활성 파일이 있으면 충돌(#79 부분 유니크 인덱스 대응)
-      if (files.findActiveByName(row.spaceId(), row.folderId(), newName).isPresent()) {
-        throw new DriveDuplicateNameException(newName);
-      }
+      requireNameFree(row.spaceId(), row.folderId(), newName);
       files.rename(driveFileId, newName);
       auditLogService.log(
           callerId,
@@ -375,10 +372,7 @@ public class DriveFileService {
     if (java.util.Objects.equals(row.folderId(), targetFolderId)) {
       return row.spaceId();
     }
-    // 대상 폴더에 동명 활성 파일이 있으면 충돌(#79 부분 유니크 인덱스 대응)
-    if (files.findActiveByName(row.spaceId(), targetFolderId, row.name()).isPresent()) {
-      throw new DriveDuplicateNameException(row.name());
-    }
+    requireNameFree(row.spaceId(), targetFolderId, row.name());
     files.updateFolder(driveFileId, targetFolderId);
     if (notify) {
       notifier.itemsChanged(OP_UPDATED, row.spaceId(), List.of(driveFileId), callerId);
@@ -406,10 +400,7 @@ public class DriveFileService {
             .where(com.workplace.jooq.Tables.FILE.ID.eq(row.fileId()))
             .fetchOne(com.workplace.jooq.Tables.FILE.SIZE_BYTES);
     quota.assertWithinQuota(copiedSizeBytes == null ? 0L : copiedSizeBytes);
-    // 대상 폴더에 동명 활성 파일이 있으면 충돌(#79 부분 유니크 인덱스 대응)
-    if (files.findActiveByName(row.spaceId(), targetFolderId, row.name()).isPresent()) {
-      throw new DriveDuplicateNameException(row.name());
-    }
+    requireNameFree(row.spaceId(), targetFolderId, row.name());
     long newFileId = fileUpload.copyFile(row.fileId(), callerId);
     // insertWithInitialVersion 으로 복사본도 v1 버전 행을 즉시 생성(#79 불변식 — copy 도 quota 집계·purge 대상)
     long newDriveFileId =
@@ -437,6 +428,13 @@ public class DriveFileService {
         .findById(userId)
         .map(com.workplace.user.dto.UserResponse::username)
         .orElse(String.valueOf(userId));
+  }
+
+  /** 폴더에 같은 이름의 활성 파일이 있으면 409(#79 부분 유니크 인덱스 대응) — 이름 변경·이동·복사 공용. */
+  private void requireNameFree(long spaceId, Long folderId, String name) {
+    if (files.findActiveByName(spaceId, folderId, name).isPresent()) {
+      throw new DriveDuplicateNameException(name);
+    }
   }
 
   /** 대상 폴더(있으면)가 같은 공간인지 검증. null = 공간 루트(항상 같은 공간). */

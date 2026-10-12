@@ -116,11 +116,11 @@ test.describe('모바일 드라이브 행 액션', () => {
 
     await page.getByTestId('drive-row-more-file-70').tap()
     await page.getByTestId('mobile-action-rename').tap()
-    const input = page.getByTestId('file-rename-input')
+    const input = page.getByTestId('rename-dialog-input')
     await expect(input).toHaveValue(LONG_FILE)
     expect(await input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, LONG_FILE.length - '.pdf'.length])
     await page.keyboard.type('도입제안서')
-    await page.getByTestId('file-rename-confirm').tap()
+    await page.getByTestId('rename-dialog-confirm').tap()
     await patches.waitFor()
     expect(patches.lastBody<{ name: string }>()).toEqual({ name: '도입제안서.pdf' })
     await expect(input).toBeHidden()

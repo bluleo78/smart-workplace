@@ -30,7 +30,7 @@ async function stubRename(page: Page, state: { files: DriveFile[] }, id: number,
     const { name } = r.request().postDataJSON() as { name: string }
     const status = respond(name)
     if (status !== 200) {
-      return r.fulfill(json({ status, error: 'Conflict', message: `같은 폴더에 이미 같은 이름이 있습니다 (name: ${name})` }, status))
+      return r.fulfill(json({ status, error: 'Conflict', message: `같은 폴더에 이미 '${name}' 이름이 있습니다.` }, status))
     }
     state.files = state.files.map((f) => (f.id === id ? { ...f, name } : f))
     return r.fulfill(json(state.files.find((f) => f.id === id)))
@@ -53,7 +53,7 @@ test('⋯ → 이름 변경 — 확장자 앞까지 선택된 채 열리고, 타
   await page.goto(`/drive/spaces/${SPACE_ID}`)
 
   await openRename(page, '2026 사업계획서_최종.pdf')
-  const input = page.getByTestId('file-rename-input')
+  const input = page.getByTestId('rename-dialog-input')
   await expect(input).toHaveValue('2026 사업계획서_최종.pdf')
   await expect(input).toBeFocused()
   // 확장자(.pdf) 앞까지만 선택돼 있다.
@@ -61,7 +61,7 @@ test('⋯ → 이름 변경 — 확장자 앞까지 선택된 채 열리고, 타
 
   await page.keyboard.type('사업계획서_v2')
   await expect(input).toHaveValue('사업계획서_v2.pdf')
-  await page.getByTestId('file-rename-confirm').click()
+  await page.getByTestId('rename-dialog-confirm').click()
 
   await patches.waitFor()
   expect(patches.lastBody<{ name: string }>()).toEqual({ name: '사업계획서_v2.pdf' })
@@ -76,16 +76,16 @@ test('같은 이름이 있으면(409) 다이얼로그를 유지한 채 인라인
   await page.goto(`/drive/spaces/${SPACE_ID}`)
 
   await openRename(page, 'memo.txt')
-  const input = page.getByTestId('file-rename-input')
+  const input = page.getByTestId('rename-dialog-input')
   await input.fill('notes.txt')
-  await page.getByTestId('file-rename-confirm').click()
-  await expect(page.getByTestId('file-rename-error')).toHaveText('같은 폴더에 같은 이름의 파일이 있습니다.')
+  await page.getByTestId('rename-dialog-confirm').click()
+  await expect(page.getByTestId('rename-dialog-error')).toHaveText("같은 폴더에 이미 'notes.txt' 이름이 있습니다.")
   await expect(input).toHaveAttribute('aria-invalid', 'true')
 
   // 입력하면 에러가 사라지고, 다른 이름으로는 저장된다.
   await input.fill('notes-2.txt')
-  await expect(page.getByTestId('file-rename-error')).toBeHidden()
-  await page.getByTestId('file-rename-confirm').click()
+  await expect(page.getByTestId('rename-dialog-error')).toBeHidden()
+  await page.getByTestId('rename-dialog-confirm').click()
   await expect(page.getByRole('dialog')).toBeHidden()
   await expect(page.getByTestId('drive-row-file-70')).toContainText('notes-2.txt')
 })
@@ -100,13 +100,13 @@ test('중복이 아닌 다른 실패는 서버 문구를 그대로 인라인으�
   await page.goto(`/drive/spaces/${SPACE_ID}`)
 
   await openRename(page, 'memo.txt')
-  await page.getByTestId('file-rename-input').fill('..')
-  await page.getByTestId('file-rename-confirm').click()
-  await expect(page.getByTestId('file-rename-error')).toContainText('제어 문자는 쓸 수 없고')
+  await page.getByTestId('rename-dialog-input').fill('..')
+  await page.getByTestId('rename-dialog-confirm').click()
+  await expect(page.getByTestId('rename-dialog-error')).toContainText('제어 문자는 쓸 수 없고')
   await expect(page.getByRole('dialog')).toBeVisible()
 })
 
-test('빈 이름은 요청 없이 인라인 에러, 이름 그대로면 요청 없이 닫힌다', async ({ authenticatedPage: page }) => {
+test('빈 이름이면 이름 변경 버튼이 비활성, 이름 그대로면 요청 없이 닫힌다', async ({ authenticatedPage: page }) => {
   const state = { files: [createFile({ id: 70, name: 'memo.txt' })] }
   await stubDrive(page, state)
   await stubRename(page, state, 70)
@@ -114,12 +114,12 @@ test('빈 이름은 요청 없이 인라인 에러, 이름 그대로면 요청 �
   await page.goto(`/drive/spaces/${SPACE_ID}`)
 
   await openRename(page, 'memo.txt')
-  await page.getByTestId('file-rename-input').fill('   ')
-  await page.getByTestId('file-rename-confirm').click()
-  await expect(page.getByTestId('file-rename-error')).toHaveText('파일 이름을 입력해주세요.')
+  await expect(page.getByTestId('rename-dialog-confirm')).toHaveText('이름 변경')
+  await page.getByTestId('rename-dialog-input').fill('   ')
+  await expect(page.getByTestId('rename-dialog-confirm')).toBeDisabled()
 
-  await page.getByTestId('file-rename-input').fill('memo.txt')
-  await page.getByTestId('file-rename-confirm').click()
+  await page.getByTestId('rename-dialog-input').fill('memo.txt')
+  await page.getByTestId('rename-dialog-confirm').click()
   await expect(page.getByRole('dialog')).toBeHidden()
   await expectStays(page, patches.count, 0)
 })
@@ -132,7 +132,7 @@ test('한글 조합을 끝내는 Enter 는 저장하지 않고, 그 다음 Enter
   await page.goto(`/drive/spaces/${SPACE_ID}`)
 
   await openRename(page, 'memo.txt')
-  const input = page.getByTestId('file-rename-input')
+  const input = page.getByTestId('rename-dialog-input')
   await input.fill('회의록.txt')
   await pressMacChromeImeEnter(input, '록')
   await expect(page.getByRole('dialog')).toBeVisible()
