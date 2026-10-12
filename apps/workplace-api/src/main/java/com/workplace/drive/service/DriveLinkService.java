@@ -15,6 +15,7 @@ import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRefRepository;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.file.service.FileUploadService;
+import com.workplace.global.util.SafeFileNames;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -288,7 +289,8 @@ public class DriveLinkService {
     //     이로 인해 trash-purge 가 이 드라이브 파일을 삭제해도 원본 첨부의 blob 은
     //     drive_file_version 기반 fileIdsForDriveFile 에 포함되지 않아 만료 처리되지 않는다
     //     — 원본 이슈/메시지의 첨부가 보호된다.
-    String name = fileRepo.findFileOriginalName(fileId);
+    // 첨부 저장소는 원본 파일명을 그대로 저장하므로, 드라이브 이름이 될 때 경로·제어·양방향 문자를 "_" 로 바꾼다(WP-339).
+    String name = SafeFileNames.sanitize(fileRepo.findFileOriginalName(fileId), "file");
     long driveFileId = fileRepo.insert(spaceId, folderId, fileId, name);
     fileRepo.promoteFile(fileId); // expires_at = NULL(영구화)
     notifier.itemsChanged(OP_CREATED, spaceId, List.of(driveFileId), callerId);

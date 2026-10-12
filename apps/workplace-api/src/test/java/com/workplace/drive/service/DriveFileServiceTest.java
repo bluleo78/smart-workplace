@@ -15,6 +15,7 @@ import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.repository.DriveFileVersionRepository;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.fileai.repository.WorkerJobRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.awt.image.BufferedImage;
@@ -38,7 +39,7 @@ class DriveFileServiceTest extends IntegrationTestBase {
   @Autowired DriveFolderService folderService;
   @Autowired DriveQuotaService quotaService;
   @Autowired DriveFileVersionRepository versionsRepo;
-  @Autowired com.workplace.fileai.repository.WorkerJobRepository jobRepo;
+  @Autowired WorkerJobRepository jobRepo;
 
   /** drive 복사(copyFile)는 TenantContext 를 요구한다 — 테스트에선 tenant#1 로 고정. */
   @BeforeEach

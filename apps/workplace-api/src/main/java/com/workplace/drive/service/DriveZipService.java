@@ -22,8 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
  * ZIP 다운로드용 엔트리 수집 + 단건 콘텐츠 오픈. collectEntries 는 경로·coreFileId 메타데이터만 모으고(트랜잭션 안), 실제 바이트는 컨트롤러가
  * 스트리밍 스레드에서 엔트리마다 openContent 로 한 파일씩 lazy 하게 연다(fd 1개 제한).
  *
- * <p>엔트리 경로는 이름 조각마다 {@link DriveNames#zipSegment} 로 정리하고 ZIP 폴더 단위로 {@link DriveNames#uniqueIn} 으로
- * 겹치지 않게 만든다(WP-339) — 경로 문자가 든 옛 이름이 압축 밖으로 나가거나, 같은 이름의 파일·폴더가 항목을 빠뜨리거나 ZIP 을 깨뜨리지 않게.
+ * <p>엔트리 경로는 이름 조각마다 {@link DriveNames#zipName} 으로 정리하고 ZIP 폴더 단위로 겹치지 않게 만든다(WP-339) — 경로 문자가 든 옛
+ * 이름이 압축 밖으로 나가거나, 같은 이름의 파일·폴더가 항목을 빠뜨리거나 ZIP 을 깨뜨리지 않게.
  */
 @Service
 @RequiredArgsConstructor
@@ -52,7 +52,7 @@ public class DriveZipService {
         if (row.spaceId() != spaceId) {
           throw new DriveInvalidTargetException("다른 공간의 파일은 포함할 수 없습니다.");
         }
-        String path = DriveNames.uniqueIn(rootTaken, DriveNames.zipSegment(row.name()), true);
+        String path = DriveNames.zipName(rootTaken, row.name(), true);
         entries.add(new ZipEntrySource(path, row.fileId(), false));
       }
     }
@@ -69,7 +69,7 @@ public class DriveZipService {
             folders
                 .findById(folderId)
                 .orElseThrow(() -> new DriveFolderNotFoundException(folderId));
-        String prefix = DriveNames.uniqueIn(rootTaken, DriveNames.zipSegment(f.name()), false);
+        String prefix = DriveNames.zipName(rootTaken, f.name(), false);
         collectFolder(spaceId, folderId, prefix, entries);
       }
     }
@@ -89,11 +89,11 @@ public class DriveZipService {
     }
     Set<String> taken = new HashSet<>();
     for (DriveFileResponse cf : childFiles) {
-      String name = DriveNames.uniqueIn(taken, DriveNames.zipSegment(cf.name()), true);
+      String name = DriveNames.zipName(taken, cf.name(), true);
       out.add(new ZipEntrySource(prefix + "/" + name, cf.fileId(), false));
     }
     for (DriveFolderResponse cd : childFolders) {
-      String name = DriveNames.uniqueIn(taken, DriveNames.zipSegment(cd.name()), false);
+      String name = DriveNames.zipName(taken, cd.name(), false);
       collectFolder(spaceId, cd.id(), prefix + "/" + name, out);
     }
   }

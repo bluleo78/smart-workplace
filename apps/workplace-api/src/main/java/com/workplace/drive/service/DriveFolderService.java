@@ -16,7 +16,6 @@ import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.global.util.SafeFileNames;
-import com.workplace.global.util.UnicodeNames;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -45,7 +44,7 @@ public class DriveFolderService {
   public DriveFolderResponse create(long callerId, long spaceId, Long parentId, String name) {
     perms.requireRole(spaceId, callerId, "EDITOR");
     // 폴더명 정규화·검사 — NFC(중복검사·검색 일관) + 경로 문자·"."·".." 차단(ZIP 경로 안전, WP-339).
-    name = DriveNames.valid(name, "폴더");
+    name = SafeFileNames.validate(name, "폴더");
     if (folders.existsInSpace(spaceId, parentId, name)) {
       throw new DriveDuplicateNameException(name);
     }
@@ -64,7 +63,7 @@ public class DriveFolderService {
     perms.requireRole(spaceId, callerId, "EDITOR");
     // 폴더명 NFC 정규화(merge 키 일관) + 경로·제어 문자는 "_" 로(WP-339). 업로드하는 폴더 이름은 사용자가 고칠 수 없어, 거절하면 트리가
     // 반쯤 올라간 채 멈추므로 바꿔 받는다. 람다 캡처 위해 별도 final 지역변수.
-    String nfcName = UnicodeNames.toNfc(SafeFileNames.sanitize(name, "_"));
+    String nfcName = SafeFileNames.sanitize(name, "_");
     return folders
         .findIdInSpace(spaceId, parentId, nfcName)
         .flatMap(folders::findById)
@@ -80,7 +79,7 @@ public class DriveFolderService {
   @Transactional
   public DriveFolderResponse rename(long callerId, long folderId, String name) {
     long spaceId = requireFolderSpace(callerId, folderId, "EDITOR");
-    name = DriveNames.valid(name, "폴더"); // 폴더명 정규화·검사(검색 일관 + 경로 문자 차단, WP-339).
+    name = SafeFileNames.validate(name, "폴더"); // 폴더명 정규화·검사(검색 일관 + 경로 문자 차단, WP-339).
     folders.rename(folderId, name);
     notifier.itemsChanged(OP_UPDATED, spaceId, List.of(folderId), callerId);
     return folders.findById(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
