@@ -48,6 +48,8 @@ export function buildCalendarTools(client: CalendarToolClient): SharedTool[] {
     {
       name: 'rsvp_event',
       kind: 'write',
+      // 응답을 덮어쓰고, 다시 불러도 주최자 알림이 또 쌓이므로 멱등이 아니다.
+      hints: { destructive: true, idempotent: false },
       description:
         '내가 초대받은 일정에 참석 응답을 합니다(ACCEPTED 참석 / DECLINED 불참 / TENTATIVE 미정). 주최자에게 알림이 갑니다. ' +
         '내 초대에만 응답할 수 있고(아니면 찾을 수 없음 오류), 외부 캘린더에서 동기화된 일정은 그 캘린더에서 응답해야 합니다. 응답은 다시 바꿀 수 있습니다.',

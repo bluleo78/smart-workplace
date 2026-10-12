@@ -23,13 +23,10 @@ describe('buildUserTools', () => {
 
   // #853: PAT 는 스코프 없이 사용자 권한을 그대로 갖는다 — 되돌릴 수 없는 도구는 확인 카드 없이 열리면 안 된다.
   it('destructive 도구는 노출하지 않는다', () => {
-    const fake = (name: string, kind: SharedTool['kind']): SharedTool => ({
-      name,
-      kind,
-      description: name,
-      inputSchema: z.object({}),
-      handler: async () => '',
-    });
+    const base = (name: string) => ({ name, description: name, inputSchema: z.object({}), handler: async () => '' });
+    const hints = { destructive: false, idempotent: true };
+    const fake = (name: string, kind: SharedTool['kind']): SharedTool =>
+      kind === 'read' ? { ...base(name), kind } : { ...base(name), kind, hints };
     const exposed = exposableTools([fake('r', 'read'), fake('w', 'write'), fake('d', 'destructive')]);
     expect(exposed.map((t) => t.name)).toEqual(['r', 'w']);
     expect(buildUserTools(client).filter((t) => t.kind === 'destructive')).toEqual([]);

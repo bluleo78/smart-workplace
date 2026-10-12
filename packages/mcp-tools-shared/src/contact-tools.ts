@@ -120,6 +120,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     {
       name: 'add_contact_favorite',
       kind: 'write',
+      hints: { destructive: false, idempotent: true },
       description: `연락처를 내 즐겨찾기에 추가합니다(이미 있으면 그대로). ${TARGET_HINT}`,
       inputSchema: contactTargetInput,
       async handler(args) {
@@ -131,6 +132,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     {
       name: 'remove_contact_favorite',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description: `연락처를 내 즐겨찾기에서 뺍니다(없어도 그대로). ${TARGET_HINT}`,
       inputSchema: contactTargetInput,
       async handler(args) {
@@ -166,6 +168,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     {
       name: 'create_user_group',
       kind: 'write',
+      hints: { destructive: false, idempotent: false },
       description:
         '사용자 그룹을 만듭니다. visibility 기본은 PERSONAL(나만 보는 개인 그룹)이고, SHARED(공유 조직도)는 조직도 관리 권한이 있어야 합니다. ' +
         'parentGroupId 를 주면 그 그룹의 하위로 만듭니다(같은 공개 범위의 그룹만, 개인 그룹은 내 것만). 같은 상위 아래 같은 이름은 만들 수 없습니다.',
@@ -178,6 +181,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     {
       name: 'update_user_group',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description:
         '사용자 그룹의 이름·상위 그룹·코드·정렬 순서를 바꿉니다. 준 필드만 바뀌고 나머지는 유지됩니다. ' +
         '최상위로 옮기려면 moveToRoot: true, 코드를 비우려면 clearCode: true 를 주세요(parentGroupId·code 와 함께 줄 수 없음). ' +
@@ -197,6 +201,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     {
       name: 'add_user_group_member',
       kind: 'write',
+      hints: { destructive: false, idempotent: true },
       description: `사용자 그룹에 구성원 또는 외부 연락처를 넣습니다(이미 있으면 그대로). ${TARGET_HINT} 갱신된 그룹 상세를 반환합니다.`,
       inputSchema: userGroupMemberInput,
       async handler(args) {
@@ -208,6 +213,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     {
       name: 'remove_user_group_member',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description: `사용자 그룹에서 구성원 또는 외부 연락처를 뺍니다(사람·연락처 자체는 지워지지 않음). ${TARGET_HINT}`,
       inputSchema: userGroupMemberInput,
       async handler(args) {

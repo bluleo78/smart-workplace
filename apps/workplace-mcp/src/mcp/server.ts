@@ -3,7 +3,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Request, Response } from 'express';
-import { describeApiError, toMcpContent } from '@smart-workplace/mcp-tools-shared';
+import { describeApiError, toMcpContent, toolAnnotations } from '@smart-workplace/mcp-tools-shared';
 import type { z } from 'zod';
 
 import { createPatApiClient } from '../clients/workplace-api.js';
@@ -16,13 +16,17 @@ export function buildMcpServer(apiBaseUrl: string, token: string): McpServer {
   // 브랜드 표기(콜론·공백 포함)는 표시용 title 로 둔다(WP-334).
   const server = new McpServer({ name: 'genia-works', title: 'Gen:iA Works', version: '0.1.0' });
   for (const t of buildUserTools(client)) {
+    // WP-342: 힌트는 kind(노출 여부)가 아니라 연산 성격(추가/덮어쓰기·제거, 멱등, 외부 접근)으로 계산한다.
+    // 클라이언트(Claude·ChatGPT)는 이 값으로 읽기는 자동 승인하고, 덮어쓰기·제거는 확인을 받는다.
+    const annotations = toolAnnotations(t);
     server.registerTool(
       t.name,
       {
+        // 표시 이름 — 클라이언트 도구 목록에는 top-level title 이 쓰이고, annotations.title 은 구버전 클라이언트용이다.
+        title: annotations.title,
         description: t.description,
         inputSchema: (t.inputSchema as z.ZodObject<z.ZodRawShape>).shape,
-        // #853: 클라이언트(Claude Desktop 등)가 읽기 도구는 자동 승인하고 쓰기는 확인을 받도록 등급을 힌트로 알린다.
-        annotations: { readOnlyHint: t.kind === 'read', destructiveHint: t.kind === 'destructive' },
+        annotations,
       },
       async (args: unknown) => {
         try {

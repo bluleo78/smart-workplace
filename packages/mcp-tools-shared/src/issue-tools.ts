@@ -37,6 +37,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     {
       name: 'create_issue',
       kind: 'write',
+      hints: { destructive: false, idempotent: false },
       description:
         '프로젝트에 새 이슈를 등록합니다. type 은 유형 이름(예: BUG), assignees 는 username 배열("me"=나, 호출자 본인), ' +
         'parent 는 부모 이슈 번호입니다. type/assignees 이름이 유효하지 않으면 오류에 사용 가능한 값 목록이 포함됩니다.',
@@ -63,6 +64,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     {
       name: 'update_issue',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description:
         '이슈를 부분 수정합니다. 전달한 필드만 변경됩니다. status/priority 는 enum, type 은 유형 이름, ' +
         'assignees 는 username 배열("me"=나, 집합 교체), labels 는 라벨명 배열(집합 교체), parent 는 부모 이슈 번호(null=해제)입니다. ' +
@@ -118,6 +120,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     {
       name: 'add_comment',
       kind: 'write',
+      hints: { destructive: false, idempotent: false },
       description: '이슈에 코멘트를 작성합니다. 본문은 마크다운을 지원합니다.',
       inputSchema: addCommentInput,
       async handler(args) {
@@ -129,6 +132,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     {
       name: 'edit_comment',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description:
         '이슈의 기존 코멘트를 수정합니다. commentId 는 get_issue_detail 의 comments 에서 확인하세요.',
       inputSchema: editCommentInput,
@@ -141,6 +145,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     {
       name: 'add_issue_dependency',
       kind: 'write',
+      // 이미 있는 관계를 다시 추가하면 서버가 no-op 으로 처리한다 — 멱등.
+      hints: { destructive: false, idempotent: true },
       description:
         '이슈 간 의존성(차단 관계)을 추가합니다. direction="blocks" 면 issueKey 이슈가 ' +
         'otherIssueKey 이슈를 차단하고, "blockedBy" 면 반대로 otherIssueKey 에 의해 차단됩니다. ' +
@@ -159,6 +165,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     {
       name: 'remove_issue_dependency',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description: '이슈 간 의존성을 제거합니다. 존재하지 않아도 에러 없이 성공합니다(멱등).',
       inputSchema: dependencyInput,
       async handler(args) {
@@ -175,6 +182,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     {
       name: 'watch_issue',
       kind: 'write',
+      hints: { destructive: false, idempotent: true },
       description:
         '이슈를 워치해 이후 변경 알림을 받습니다. 이미 워치 중이면 아무것도 바뀌지 않습니다. 프로젝트 멤버만 할 수 있습니다.',
       inputSchema: issueKeyInput,
@@ -187,6 +195,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     {
       name: 'unwatch_issue',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description: '이슈 워치를 해제해 변경 알림을 그만 받습니다. 워치 중이 아니어도 에러 없이 성공합니다.',
       inputSchema: issueKeyInput,
       async handler(args) {

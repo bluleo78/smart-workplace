@@ -126,6 +126,7 @@ export function buildProjectTools(client: ProjectToolClient): SharedTool[] {
     {
       name: 'update_project',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description:
         '프로젝트 이름·설명을 바꿉니다. 준 필드만 바뀌고 나머지는 유지됩니다(description: null 은 설명 비우기). 프로젝트 OWNER 만 할 수 있습니다.',
       inputSchema: updateProjectInput,

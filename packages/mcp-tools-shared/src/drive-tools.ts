@@ -100,6 +100,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
     {
       name: 'restore_drive_item',
       kind: 'write',
+      // 다시 부르면 휴지통에 없다는 오류가 난다(DriveNotInTrashException) — 멱등이 아니다.
+      hints: { destructive: false, idempotent: false },
       description:
         '휴지통의 파일(driveFileId) 또는 폴더(folderId)를 원래 위치로 복원합니다. 둘 중 하나만 주세요(list_drive_trash 결과의 값). ' +
         '함께 삭제된 항목은 같이 복원되고, 원래 폴더가 없으면 최상위로, 같은 이름이 있으면 이름을 바꿔 복원됩니다.',

@@ -205,6 +205,23 @@ describe('registerStdioTool', () => {
     }
   }
 
+  it('annotations·title 을 tools/list 로 알린다(WP-342)', async () => {
+    const server = new McpServer({ name: 'workplace', version: '1.0.0' });
+    const annotations = { title: '이슈 수정', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false };
+    registerStdioTool(server, { name: 't', description: 'd', inputSchema: z.object({}), handler: async () => 'x', annotations });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverT);
+    const client = new Client({ name: 'test', version: '0.0.1' });
+    await client.connect(clientT);
+    try {
+      const [t] = (await client.listTools()).tools;
+      expect(t.title).toBe('이슈 수정');
+      expect(t.annotations).toEqual(annotations);
+    } finally {
+      await client.close();
+    }
+  });
+
   it('문자열 반환은 text 블록 하나(기존 동작)', async () => {
     const res = await callVia(async () => '{"ok":true}');
     expect(res.content).toEqual([{ type: 'text', text: '{"ok":true}' }]);

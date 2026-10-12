@@ -102,6 +102,8 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
     {
       name: 'create_issue_from_mail',
       kind: 'write',
+      // 이미 이 메일로 만든 이슈가 있으면 새로 만들지 않고 기존 키를 돌려준다 — 멱등.
+      hints: { destructive: false, idempotent: true },
       description:
         '메일을 이슈로 등록하고 메일과 이슈를 서로 연결합니다. assignees 는 프로젝트 멤버 username 배열입니다("me"=나, 호출자 본인). ' +
         '이미 이 메일로 만든 이슈가 있으면 새로 만들지 않고 그 issueKey 를 알려줍니다. 결과 { issueKey, created } 를 반환합니다.',
@@ -124,6 +126,8 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
     {
       name: 'mark_mail_read',
       kind: 'write',
+      // 읽음 상태가 원본 메일 서버(Graph/IMAP)로 역동기화된다 — 워크스페이스 밖에 닿으므로 openWorld.
+      hints: { destructive: true, idempotent: true, openWorld: true },
       description:
         '메일을 읽음으로 표시합니다. 사용자가 읽음 처리를 명시적으로 요청할 때만 호출하세요. 읽으면 "회신 필요"에서도 빠집니다. messageId 는 list_mail 결과 항목의 id 입니다.',
       inputSchema: markMailReadInput,

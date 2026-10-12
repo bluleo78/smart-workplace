@@ -8,6 +8,7 @@ import {
   normalizeTimezone,
   parseIssueKey,
   projectKeyInput,
+  toolAnnotations,
   toProjectMemberView,
   type McpTool,
 } from '@smart-workplace/mcp-tools-shared';
@@ -336,7 +337,8 @@ export function buildTools(
     if (!t) throw new Error(`공유 도구 없음: ${name}`);
     // #853: 되돌릴 수 없는 공유 도구를 직접 실행으로 노출하지 않는다 — 그런 작업은 propose_* 확인 카드로만 한다.
     if (t.kind === 'destructive') throw new Error(`destructive 공유 도구는 직접 노출할 수 없습니다: ${name}`);
-    return t;
+    // WP-342: 연산 성격 힌트를 실어 보낸다 — Claude Code 가 readOnlyHint 로 읽기 도구를 병렬 실행한다. 로컬 전용 도구는 힌트가 없다.
+    return { ...t, annotations: toolAnnotations(t) };
   };
 
   /**

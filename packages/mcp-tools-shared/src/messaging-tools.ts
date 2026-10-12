@@ -155,6 +155,7 @@ export function buildMessagingTools(
     {
       name: 'add_channel_message',
       kind: 'write',
+      hints: { destructive: false, idempotent: false },
       description:
         '채널/DM 에 메시지를 작성합니다. 본문은 마크다운 지원. 정확히 한 번만 호출하세요. ' +
         '사람을 멘션하려면 본문에 `@username` 을 쓰세요(username 은 search_members 결과) — 멘션 알림으로 변환됩니다.',
@@ -168,6 +169,7 @@ export function buildMessagingTools(
     {
       name: 'create_channel',
       kind: 'write',
+      hints: { destructive: false, idempotent: false },
       description:
         '새 채널을 만들고 내가 OWNER 가 됩니다. visibility 기본 PUBLIC(누구나 참여), PRIVATE 는 초대받은 사람만 봅니다. ' +
         '이름이 이미 있으면 충돌 오류가 납니다. 만든 채널(id·name·visibility)을 JSON 으로 반환합니다.',
@@ -179,6 +181,8 @@ export function buildMessagingTools(
     {
       name: 'open_dm',
       kind: 'write',
+      // 같은 참여자 DM 이 있으면 그것을 돌려준다(find-or-create) — 추가만 하고 멱등.
+      hints: { destructive: false, idempotent: true },
       description:
         'username 목록의 사람들과의 DM 을 엽니다(나는 자동 포함, 나 포함 최대 8명). 같은 참여자 DM 이 이미 있으면 그것을 돌려줍니다. ' +
         '결과 { channelId, participants } 의 channelId 로 add_channel_message 를 호출하세요. username 은 search_members 로 확인합니다.',
@@ -200,6 +204,7 @@ export function buildMessagingTools(
     {
       name: 'leave_channel',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description:
         '공개 채널에서 나갑니다(다시 참여 가능). 비공개 채널은 나가면 스스로 돌아올 수 없어 이 도구로 나갈 수 없습니다 — ' +
         'propose_leave_channel 도구가 있으면 그것으로 확인 카드를 제안하고, 없으면 사용자가 직접 나가도록 안내하세요. ' +

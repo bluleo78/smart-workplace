@@ -82,6 +82,7 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
     {
       name: 'mark_notification_read',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description: '알림 하나를 읽음 처리합니다. notificationId 는 list_notifications 결과의 값입니다. 이미 읽은 알림이어도 오류 없이 성공합니다.',
       inputSchema: markNotificationReadInput,
       async handler(args) {
@@ -93,6 +94,7 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
     {
       name: 'mark_all_notifications_read',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description: '내 알림을 모두 읽음 처리합니다. 사용자가 "알림 다 읽음으로" 처럼 전체 처리를 요청했을 때만 호출하세요.',
       inputSchema: z.object({}),
       async handler() {

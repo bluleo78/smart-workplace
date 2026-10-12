@@ -37,6 +37,14 @@ describe('adaptMcpTool', () => {
     expect(res).toEqual({ isError: true, content: [{ type: 'text', text: 'boom' }] });
   });
 
+  it('McpTool.annotations 를 SDK 도구 정의에 그대로 싣는다(WP-342)', () => {
+    const annotations = { title: '이슈 수정', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false };
+    const adapted = adaptMcpTool({ name: 't', description: 'd', inputSchema: z.object({}), handler: async () => 'x', annotations });
+    expect(adapted.annotations).toEqual(annotations);
+    // 로컬 전용 도구는 힌트가 없다.
+    expect(adaptMcpTool({ name: 't', description: 'd', inputSchema: z.object({}), handler: async () => 'x' }).annotations).toBeUndefined();
+  });
+
   it('inputSchema 를 ZodObject.shape 로 추출', () => {
     const shape = { issueKey: z.string() };
     const adapted = adaptMcpTool({

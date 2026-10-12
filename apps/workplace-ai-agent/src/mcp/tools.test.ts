@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { buildSharedTools, isDisplayableTool, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
+import { buildSharedTools, isDisplayableTool, toolAnnotations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
@@ -347,6 +347,17 @@ describe('공유 도구 패리티 (#846)', () => {
     const names = new Set(buildTools(c, AGENT_ID, 'assistant').map((t) => t.name));
     const missing = buildSharedTools(c.sc).map((t) => t.name).filter((n) => !names.has(n));
     expect(missing).toEqual([]);
+  });
+
+  // WP-342: 공유 도구는 workplace-mcp 와 같은 annotations 를 싣고, 로컬 전용 도구에는 없다.
+  it('assistant 프로필의 공유 도구는 공유 함수가 계산한 annotations 를 갖고 로컬 도구는 갖지 않는다', () => {
+    const c = client();
+    const shared = new Map(buildSharedTools(c.sc).map((t) => [t.name, t]));
+    for (const t of buildTools(c, AGENT_ID, 'assistant')) {
+      const s = shared.get(t.name);
+      if (s) expect(t.annotations, t.name).toEqual(toolAnnotations(s));
+      else expect(t.annotations, t.name).toBeUndefined();
+    }
   });
 
   // 알림 API 는 호출자 본인 알림만 돌려준다. 에이전트 신원으로 도는 프로필에 두면 사람이 아닌 에이전트의 알림을 답하게 된다(#850).
