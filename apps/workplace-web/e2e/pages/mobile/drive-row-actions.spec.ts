@@ -6,6 +6,7 @@ import { createFile, createFolder, createSpace, personalSpace } from '../../fact
 import { json, longPress, stubChannelMessages } from '../../fixtures/mobile-chat'
 import { expect, test } from '../../fixtures/mobile.fixture'
 import { trackRequests } from '../../fixtures/requests'
+import { pausePageClock } from '../../fixtures/touch'
 
 const SPACE_ID = 1
 // 실데이터 폭 검증용 긴 이름.
@@ -127,6 +128,36 @@ test.describe('모바일 드라이브 행 액션', () => {
     await patches.waitFor()
     expect(patches.lastBody<{ name: string }>()).toEqual({ name: '도입제안서.pdf' })
     await expect(input).toBeHidden()
+  })
+
+  // 다이얼로그의 50ms 포커스 타이머를 멈춰 두고 연다 — 부하가 걸린 전체 스위트에서만 드물게 나던 "타이머보다 먼저 손대는" 순서를 고정한다.
+  async function openRenameWithPausedClock(page: Page) {
+    await stubDrive(page)
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await page.getByTestId('drive-row-more-file-70').tap()
+    await pausePageClock(page)
+    await page.getByTestId('mobile-action-rename').tap()
+    const input = page.getByTestId('rename-dialog-input')
+    await expect(input).toHaveValue(LONG_FILE)
+    await page.clock.runFor(20) // 포커스 때 거는 확장자 앞 선택(requestAnimationFrame)만 지나간다
+    await expect.poll(() => input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, LONG_FILE.length - '.pdf'.length])
+    return input
+  }
+
+  test('이름 변경 — 열자마자 치기 시작해도 뒤늦은 포커스 타이머가 친 글자를 다시 선택해 덮어쓰지 않는다', async ({ authenticatedPage: page }) => {
+    const input = await openRenameWithPausedClock(page)
+    await page.keyboard.type('도')
+    await page.clock.runFor(100) // 이제 포커스 타이머가 돈다
+    await page.keyboard.type('입제안서')
+    await expect(input).toHaveValue('도입제안서.pdf')
+  })
+
+  test('이름 변경 — 열자마자 옮긴 커서도 뒤늦은 포커스 타이머가 처음 선택으로 되돌리지 않는다', async ({ authenticatedPage: page }) => {
+    const input = await openRenameWithPausedClock(page)
+    await page.keyboard.press('End')
+    await page.clock.runFor(100)
+    await page.keyboard.type('x')
+    await expect(input).toHaveValue(`${LONG_FILE}x`)
   })
 
   test('보관된 공간 — 폴더 시트의 쓰기 작업이 모두 비활성', async ({ authenticatedPage: page }) => {
