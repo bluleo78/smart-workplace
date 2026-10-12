@@ -42,9 +42,9 @@ export function buildSdkOptions(i: SdkRunInput): Options {
   env.CLAUDE_CODE_OAUTH_TOKEN = i.token;
   env.ACTING_AGENT_ID = String(i.agentId);
   if (i.userId !== undefined) env.ACTING_USER_ID = String(i.userId);
-  // WP-351: 백그라운드 작업 끔. SDK 0.3.x 는 Agent 위임을 기본으로 백그라운드(비동기)로 띄워, 라우터가 서브에이전트 결과를 받기 전에
-  // 턴을 끝내고 "완료되면 알려드리겠습니다" 같은 말을 먼저 흘린다(실측). 우리 러너는 위임 결과를 같은 실행 안에서 받아 답을 정하므로 동기로 돌린다.
-  env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = '1';
+  // WP-351: 위임하는 실행은 백그라운드 작업을 끈다. SDK 0.3.x 는 Agent 위임을 기본으로 백그라운드(비동기)로 띄워, 라우터가 서브에이전트
+  // 결과를 받기 전에 턴을 끝내고 "완료되면 알려드리겠습니다" 같은 말을 먼저 흘린다(실측). 우리 러너는 위임 결과를 같은 실행 안에서 받아 답을 정하므로 동기로 돌린다.
+  if (i.allowSubagents) env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = '1';
 
   const options: Options = {
     model: i.model,

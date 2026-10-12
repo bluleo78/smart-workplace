@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ASSISTANT_SYSTEM_PROMPT, dateContextDirective, delegationLabel } from './assistant-system-prompt.js';
+import { ASSISTANT_SYSTEM_PROMPT, assistantSystemPrompt, dateContextDirective, delegationLabel } from './assistant-system-prompt.js';
 import { ASSISTANT_ROUTER_TOOLS } from '../mcp/tools.js';
 
 describe('ASSISTANT_SYSTEM_PROMPT', () => {
@@ -250,5 +250,31 @@ describe('라우터 도구 집합과 프롬프트 정합 (WP-351)', () => {
   it('확인 카드 실패(#842)·승인 실패 재시도(#843)는 서브에이전트에 다시 맡기도록 안내한다', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('확인 카드는 서브에이전트가 만든다');
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/실패 사유와 고칠 내용을 위임 prompt 에 적어 담당 서브에이전트에 다시 맡긴다/);
+  });
+});
+
+// WP-351: opencode primary 는 위임 도구(task)가 꺼져 workplace 쓰기·propose_* 를 직접 쓴다 — subagent agent.md 규칙을 보지 못하므로
+// 직접 제안 규칙(#351·#842·#843)을 그대로 받아야 한다. Claude 라우터 전용 문구는 들어가지 않는다.
+describe('러너별 라우터 규칙 (WP-351)', () => {
+  const oc = assistantSystemPrompt('opencode');
+  it('Claude 라우터 프롬프트는 ASSISTANT_SYSTEM_PROMPT 와 같다', () => {
+    expect(assistantSystemPrompt('claude')).toBe(ASSISTANT_SYSTEM_PROMPT);
+  });
+  it('opencode: 쓰기 도구가 없다고 하지 않는다', () => {
+    expect(oc).not.toContain('라우터에는 쓰기·확인 카드');
+    expect(oc).not.toContain('확인 카드는 서브에이전트가 만든다');
+  });
+  it('opencode: #842 오류 시 고쳐 재제안, #843 승인 실패 후 직접 재제안, #351 직접 다건 제안 규칙을 담는다', () => {
+    expect(oc).toContain('propose_* 가 오류를 반환하면 확인 카드는 만들어지지 않은 것이다');
+    expect(oc).toContain('오류 문구에 담긴 사유를 읽고 파라미터를 고쳐 다시 제안');
+    expect(oc).toContain('사유를 반영해 파라미터를 고친 뒤 새로 제안한다');
+    expect(oc).toMatch(/같은 종류의 비가역 작업은 한 턴에 여러 건 제안 가능/);
+  });
+  it('공통 부분(읽기 직접 처리·위임 표·화면 맥락)은 두 러너가 같다', () => {
+    for (const p of [ASSISTANT_SYSTEM_PROMPT, oc]) {
+      expect(p).toContain('읽기 조회 직접 처리');
+      expect(p).toContain('issue-agent');
+      expect(p).toContain('## 현재 화면 맥락');
+    }
   });
 });

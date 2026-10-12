@@ -65,8 +65,15 @@ describe('buildSdkOptions', () => {
   });
 
   // WP-351: 위임(Agent)이 백그라운드로 떠 라우터가 결과 전에 턴을 끝내지 않게 동기로 돌린다.
-  it('env: 백그라운드 작업을 끈다(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1)', () => {
-    expect(buildSdkOptions(baseInput()).env!.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe('1');
+  it('env: 위임하는 실행만 백그라운드 작업을 끈다(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1)', () => {
+    expect(buildSdkOptions(baseInput({ allowSubagents: true })).env!.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe('1');
+    const prev = process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS;
+    delete process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS;
+    try {
+      expect(buildSdkOptions(baseInput()).env!.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBeUndefined();
+    } finally {
+      if (prev !== undefined) process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = prev;
+    }
   });
 
   it('userId 지정 시 ACTING_USER_ID 주입, 미지정 시 미설정', () => {

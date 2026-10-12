@@ -100,7 +100,8 @@ AGENT 자격으로 workplace-api 를 직접 호출할 때만 사용.
 - assistant 프로필 MCP 서버는 전 도구 union 을 등록한다(서브에이전트가 같은 서버를 쓴다). 라우터(메인 스레드)는 `ASSISTANT_ROUTER_TOOLS`(`mcp/tools.ts` — 읽기·`show_*`·알림·첨부 읽기)만 싣고, 쓰기·`propose_*`·`submit_response` 는 담당 서브에이전트 frontmatter 에만 있다.
 - Claude: 메인 스레드를 `Options.agent`(`ROUTER_AGENT_NAME`, `toRouterAgentDefinition`)로 돌려 그 `tools` 로 좁힌다. SDK 는 서브에이전트 도구를 메인 스레드 tools 가 아니라 서버 전체에서 고른다(실측). 위임은 `Agent(issue-agent, …)` 로 우리 서브에이전트만 허용한다 — 내장 에이전트(general-purpose 등)는 서버 전 도구를 상속해 경계를 우회한다. 자기 위임은 `Agent(<이름>)` 거부로도 막는다.
 - opencode 는 좁히지 않는다: primary `tools` 의 `'*': false` 가 위임 도구 `task` 까지 꺼서(`opencode debug agent` 실측 `task:false`) opencode 라우터는 쓰기를 직접 한다.
-- SDK 0.3.x 주의(실측): 위임 도구가 `Task` 로도 불려 `Task` 거부가 Agent 를 숨긴다 → `allowSubagents` 면 Task 도 푼다(`tool-allowlist`). Agent 위임은 기본 백그라운드라 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` 로 동기 실행한다(`sdk-runner`).
+- SDK 0.3.x 주의(실측): 위임 도구가 `Task` 로도 불려 `Task` 거부가 Agent 를 숨긴다 → `allowSubagents` 면 Task 도 푼다(`tool-allowlist`). Agent 위임은 기본 백그라운드라 위임하는 실행은 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` 로 동기 실행한다(`sdk-runner`).
+- 라우터 프롬프트는 러너별(`assistantSystemPrompt('claude'|'opencode')`): Claude 는 위임 전용 규칙, opencode primary 는 직접 제안 규칙(#842 고쳐 재제안·#843 재제안)을 받는다.
 
 ## 메인 AI 채팅 첨부 (WP-234)
 

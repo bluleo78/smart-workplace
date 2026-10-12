@@ -6,7 +6,7 @@
 //   runClaudeCliStream → runSdkStream, MCP stdio child → buildInProcessWorkplaceMcpServer,
 //   사이드카 파일 읽기 → HostBridge 인메모리 콜백.
 import { log } from '../logger.js';
-import { ASSISTANT_SYSTEM_PROMPT, dateContextDirective, delegationLabel } from './assistant-system-prompt.js';
+import { assistantSystemPrompt, dateContextDirective, delegationLabel } from './assistant-system-prompt.js';
 import type { ToolUseLine } from './sdk-mcp-server.js';
 import { transcriptRequest, transcriptStreamLine, transcriptResult } from './ai-transcript-log.js';
 import { runnerFor } from './agent-runner.js';
@@ -213,7 +213,9 @@ export async function runAiChatStream(
   // 요청 시점 Seoul 기준 오늘 날짜를 계산해 상대 날짜 필터 앵커로 주입한다.
   const seoulToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
   const dateDirective = dateContextDirective(seoulToday);
-  const systemPrompt = ASSISTANT_SYSTEM_PROMPT + dateDirective + thinkingDirective(input.thinkingDepth);
+  // WP-351: Claude 라우터는 쓰기 도구 없이 위임만 하고, opencode primary 는 위임 도구가 꺼져 직접 쓰기·제안하므로 규칙이 다르다.
+  const runnerKind = credential.provider === 'anthropic' ? 'claude' : 'opencode';
+  const systemPrompt = assistantSystemPrompt(runnerKind) + dateDirective + thinkingDirective(input.thinkingDepth);
   // #376: MCP 도구(드라이브·캘린더·메일 등) 실행 주체(X-On-Behalf-Of)는 요청자(userId).
   //   stdio 서버(workplace-mcp-server.ts:36)와 동일 우선순위: userId ?? agentId.
   //   LLM 인증 자격(credential)은 여전히 getProviderCredential(agentId) — 비서 에이전트 자격 유지.

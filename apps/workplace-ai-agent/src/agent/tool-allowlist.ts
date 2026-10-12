@@ -1,7 +1,7 @@
 // sdk-runner 도구 정책 — allow-list 모델. built-in 도구(Bash/Edit/Write 등)를 화이트리스트로 차단한다.
 // (과거 cli-runner 와 공용이었으나 #462 슬라이스6 에서 cli-runner 제거 → 현재 sdk-runner 전용.)
 
-// 기본 차단 도구 — Read 는 allowFileRead, Agent 는 allowSubagents 시 제외된다.
+// 기본 차단 도구 — Read 는 allowFileRead, Agent·Task(SDK 0.3.x 의 Agent 별칭) 는 allowSubagents 시 제외된다.
 // SlashCommand 는 --disable-slash-commands(또는 settingSources:[])로 이미 비활성이라 목록에 두지 않는다(#457).
 export const BASE_DISALLOWED: string[] = [
   'Bash', 'BashOutput', 'KillShell',
