@@ -14,6 +14,8 @@ interface MobileMiniCalendarPanelProps {
   onMonthChange: (month: Date) => void
   /** 날짜를 고름 — 호출부가 anchor 를 옮기고 패널을 접는다. */
   onSelect: (day: Date) => void
+  /** Esc — 호출부가 패널을 접고 포커스를 제목 버튼으로 돌려준다. */
+  onEscape: () => void
   /** 표시 중인 달(6주 그리드)에서 일정·마감이 있는 날 — 점을 찍는다. */
   markedDates: Date[]
 }
@@ -25,10 +27,19 @@ export function MobileMiniCalendarPanel({
   month,
   onMonthChange,
   onSelect,
+  onEscape,
   markedDates,
 }: MobileMiniCalendarPanelProps) {
   return (
-    <div id={id} data-testid="calendar-mobile-mini" className="shrink-0 border-b bg-background shadow-sm">
+    <div
+      id={id}
+      data-testid="calendar-mobile-mini"
+      className="shrink-0 border-b bg-background shadow-sm"
+      // 패널 안(날짜 칸·‹ ›)에 포커스가 있을 때 Esc 로 접는다.
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onEscape()
+      }}
+    >
       <Calendar
         mode="single"
         // required — 이미 고른 날을 다시 눌러도 선택이 풀리지 않고 onSelect 가 와서(그 날로 다시 이동 + 접힘) 패널이 남지 않는다.

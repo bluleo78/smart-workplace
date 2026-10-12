@@ -1,6 +1,6 @@
 import { addDays, addMonths, format, startOfDay } from 'date-fns'
 import { ChevronDown } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -92,6 +92,14 @@ export function CalendarPage() {
   // 모바일 헤더 미니 달력(WP-136) — 펼침 여부와 패널이 보여 주는 달(패널 안 ‹ › 는 본문 anchor 를 움직이지 않는다).
   const [miniOpen, setMiniOpen] = useState(false)
   const [panelMonth, setPanelMonth] = useState(anchor)
+  // anchor 가 바뀌면(스와이프·‹ ›·[오늘]·딥링크) 패널 달도 그 달로 맞춘다 — 펼친 채 본문이 움직여도 패널이 옛 달에 남지 않게(렌더 중 조정).
+  const [panelSyncKey, setPanelSyncKey] = useState(anchor.getTime())
+  if (panelSyncKey !== anchor.getTime()) {
+    setPanelSyncKey(anchor.getTime())
+    setPanelMonth(anchor)
+  }
+  // 패널을 닫을 때 포커스를 돌려줄 제목 버튼 — 날짜 선택·Esc 로 패널(포커스가 있던 곳)이 사라져도 포커스가 body 로 빠지지 않게.
+  const titleToggleRef = useRef<HTMLButtonElement>(null)
   // 목록 맨 위에 보이는 날짜(헤더 월 표시용) — 그 값을 받았을 때의 anchor 와 함께 둔다. anchor 가 바뀌면(날짜 선택·[오늘]·딥링크)
   // 새 목록이 맨 위 날을 알려 오기 전까지(새 범위에 일정이 없으면 끝내 알리지 않는다) 낡은 달 대신 anchor 의 달을 보이게 한다.
   const [listTop, setListTop] = useState<{ anchorKey: number; day: Date } | null>(null)
@@ -268,10 +276,16 @@ export function CalendarPage() {
     setMiniOpen(!miniOpen)
   }
 
+  // 패널 접기(날짜 선택·Esc) — 포커스를 제목 버튼으로 돌려준다.
+  const closeMini = () => {
+    setMiniOpen(false)
+    titleToggleRef.current?.focus()
+  }
+
   // 미니 달력에서 날짜 선택 — 그 날로 이동하고 접는다. 목록은 그 날부터 다시(같은 날이어도 맨 위로), 월·주·일은 그 날이 든 기간으로.
   const pickMiniDate = (d: Date) => {
     setAnchor(startOfDay(d))
-    setMiniOpen(false)
+    closeMini()
     if (mobileAgenda) {
       agenda.reset()
       setListTop(null)
@@ -497,15 +511,21 @@ export function CalendarPage() {
 
   // 모바일 헤더 제목 — 「10월 ▾」 버튼. 누르면 헤더 아래 미니 달력이 펼쳐진다(시안 ③). 같은 해면 'M월', 다른 해면 'yyyy년 M월'.
   // ▾ 는 글자가 아닌 아이콘(aria-hidden) — 제목 텍스트(calendar-title·h1)에 섞이지 않게. 데스크톱 제목은 'yyyy년 M월' 그대로.
+  // 접근성 이름 = 보이는 달("10월") 그대로 — h1 이름도 "10월"로 남는다. 동작(날짜 선택 달력)은 aria-expanded 와
+  // 헤더 밖의 숨긴 설명(aria-describedby)으로 알린다. aria-controls 는 패널이 그려져 있을 때만 건다.
   const headerLabel = headerMonthLabel(headerMonth, new Date())
   const title = isMobile ? (
     <button
+      ref={titleToggleRef}
       type="button"
       data-testid="calendar-title-toggle"
       aria-expanded={miniOpen}
-      aria-controls="calendar-mobile-mini"
-      aria-label={`${headerLabel}, 날짜 선택`}
+      aria-controls={miniOpen ? 'calendar-mobile-mini' : undefined}
+      aria-describedby="calendar-title-hint"
       onClick={toggleMini}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && miniOpen) closeMini()
+      }}
       className="inline-flex max-w-full items-center gap-1"
     >
       <span data-testid="calendar-title" className="truncate">{headerLabel}</span>
@@ -568,6 +588,12 @@ export function CalendarPage() {
               </Button>
             ))}
           />
+          {isMobile && (
+            // 제목 버튼 설명(aria-describedby 대상) — h1 밖에 두어 제목 텍스트·이름에 섞이지 않게 한다. 화면엔 보이지 않는다.
+            <span id="calendar-title-hint" hidden>
+              날짜를 골라 이동하는 달력
+            </span>
+          )}
           {isMobile && miniOpen && (
             <MobileMiniCalendarPanel
               id="calendar-mobile-mini"
@@ -575,6 +601,7 @@ export function CalendarPage() {
               month={panelMonth}
               onMonthChange={setPanelMonth}
               onSelect={pickMiniDate}
+              onEscape={closeMini}
               markedDates={markedDates}
             />
           )}

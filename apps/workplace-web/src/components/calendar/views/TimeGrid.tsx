@@ -4,9 +4,11 @@ import { format, isToday } from 'date-fns'
 import { ko } from 'date-fns/locale'
 
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { eventsOnDay, HOURS, issueDuesOnDay } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatClockTimePadded } from '@/lib/formatters'
+import { cn } from '@/lib/utils'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 // ─────────────────────────────────────────────────────────────
@@ -54,6 +56,10 @@ export function TimeGrid({
   days,
   testid,
 }: TimeGridProps) {
+  // 모바일은 CalendarPage 가 주·일 본문에 좌우 스와이프를 건다(WP-136). 이 시간 그리드는 자체 스크롤(overflow-auto) 요소라
+  // 브라우저가 터치 패닝을 다시 켜서(touch-action auto) 가로 끌기를 가로채고 pointercancel 을 보내 스와이프가 끊긴다 —
+  // 스크롤 요소 자체에 pan-y 를 걸어 세로 스크롤만 브라우저에 맡긴다(MobileBoard 와 같은 방식). 데스크톱은 그대로.
+  const isMobile = useIsMobile()
   return (
     <div data-testid={testid} className="flex flex-col h-full overflow-hidden">
       {/* ── 날짜 헤더 ── */}
@@ -115,7 +121,7 @@ export function TimeGrid({
       </div>
 
       {/* ── 시간 그리드 ── */}
-      <div className="flex flex-1 overflow-auto">
+      <div className={cn('flex flex-1 overflow-auto', isMobile && 'touch-pan-y')}>
         {/* 시간 거터 */}
         <div className="w-12 shrink-0">
           {HOURS.map((h) => (

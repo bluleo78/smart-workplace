@@ -56,24 +56,28 @@ test('설정 딥링크: /settings/notifications → ‹ → /settings → ‹ �
 })
 
 test('캘린더 헤더: 390px 에서 제목이 읽히고 뷰 전환이 가능하다', async ({ authenticatedPage: page }) => {
-  // 가장 긴 제목('yyyy년 MM월' 두 자리 월)으로 고정 — 실행 월에 따라 결과가 달라지지 않게.
-  await page.clock.setFixedTime(new Date('2026-12-15T10:00:00'))
+  // 모바일 제목은 같은 해면 'M월', 다른 해면 'yyyy년 M월'(WP-136 — 「10월 ▾」 버튼, ▾ 는 아이콘).
+  // 가장 긴 제목('yyyy년 12월' + ▾)을 만들려고 오늘을 2027-01 로 두고 월 보기에서 지난해 12월로 이동한다 — 실행 월과 무관.
+  await page.clock.setFixedTime(new Date('2027-01-15T10:00:00'))
   await mockApi(page, 'GET', '/api/v1/calendars', [])
   await mockApi(page, 'GET', '/api/v1/calendar/events', [])
   await page.goto('/calendar')
   const title = page.getByTestId('calendar-title')
-  // 모바일 헤더 제목은 같은 해면 'M월'(WP-136 — 「12월 ▾」 버튼). ▾ 는 아이콘이라 제목 텍스트에 섞이지 않는다.
-  await expect(title).toHaveText('12월')
-  // 헤더가 제목에 내준 폭(h1 은 flex-1 — 텍스트 길이와 무관)이 충분하다.
-  const h1 = page.getByTestId('page-header').locator('h1')
-  expect((await h1.boundingBox())!.width).toBeGreaterThan(80)
-  // 제목이 잘리지 않는다(스크롤 폭 ≤ 표시 폭).
-  expect(await h1.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false)
+  await expect(title).toHaveText('1월')
   // 뷰 전환 select 는 제목 폭(22px 탭 루트 제목)을 지키려 헤더 아래 도구 줄에 있다(U2-5).
   const select = page.getByTestId('calendar-view-select')
   await expect(select).toBeVisible()
   // 모바일 첫 보기는 일정 목록(WP-136).
   await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
+  await select.selectOption('month')
+  await page.getByTestId('calendar-prev').click()
+  await expect(title).toHaveText('2026년 12월')
+  // 헤더가 제목에 내준 폭(h1 은 flex-1 — 텍스트 길이와 무관)이 충분하다.
+  const h1 = page.getByTestId('page-header').locator('h1')
+  expect((await h1.boundingBox())!.width).toBeGreaterThan(80)
+  // 제목이 잘리지 않는다(스크롤 폭 ≤ 표시 폭) — h1 과 그 안 제목 버튼의 달 글자(truncate) 모두.
+  expect(await h1.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false)
+  expect(await title.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false)
   // 선택 → 실제 뷰가 바뀐다(상태만이 아니라 화면 반영).
   await select.selectOption('month')
   await expect(page.getByTestId('calendar-view-month')).toBeVisible()

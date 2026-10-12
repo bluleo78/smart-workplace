@@ -100,16 +100,22 @@ async function scrollToDay(page: Page, key: string) {
   }, key)
 }
 
-/** 본문 좌우 끌기 — pointer 이벤트(마우스)로 dx 만큼(board.spec 과 같은 방식). */
-async function swipe(page: Page, dx: number) {
+/**
+ * 본문 좌우 끌기 — 실제 터치 입력(CDP Input.dispatchTouchEvent). 마우스 pointer 이벤트는 touch-action 을 무시해
+ * "브라우저가 가로 끌기를 패닝으로 가로채 pointercancel" 하는 실제 기기 동작을 재현하지 못한다(주·일 그리드 회귀).
+ * yRatio — 스와이프 영역 안 세로 위치(0~1). 기본은 가운데(월 그리드 셀·주/일 시간 그리드 스크롤 영역 안).
+ */
+async function swipe(page: Page, dx: number, yRatio = 0.6) {
   const box = (await page.getByTestId('calendar-swipe-area').boundingBox())!
-  const y = box.y + box.height / 2
-  const x0 = box.x + box.width / 2 - dx / 2
-  await page.mouse.move(x0, y)
-  await page.mouse.down()
-  await page.mouse.move(x0 + dx / 2, y, { steps: 4 })
-  await page.mouse.move(x0 + dx, y, { steps: 4 })
-  await page.mouse.up()
+  const y = Math.round(box.y + box.height * yRatio)
+  const x0 = Math.round(box.x + box.width / 2 - dx / 2)
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y }] })
+  for (let i = 1; i <= 8; i++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: Math.round(x0 + (dx * i) / 8), y }] })
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await cdp.detach()
 }
 
 test('① ② 진입 — 목록이 기본, 오늘부터 날짜별 묶음·건수, 첫 요청은 오늘 00:00 부터 30일 하나뿐', async ({ authenticatedPage: page }) => {
@@ -278,6 +284,77 @@ test('⑤ 월 보기로 바꾸면 ‹ › 가 돌아오고, 좌우 스와이프�
   await expect(page.getByTestId('calendar-form-title')).toHaveValue('11월 하순 회고')
 })
 
+test('⑤-2 주 보기 — 시간 그리드(자체 세로 스크롤) 위에서 터치로 좌우 스와이프해도 다음·이전 주로 넘어간다', async ({ authenticatedPage: page }) => {
+  const requests = await stubCalendar(page)
+  await page.goto('/calendar')
+  await expect(agendaList(page).getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
+  await page.getByTestId('calendar-view-select').selectOption('week')
+  const week = page.getByTestId('calendar-view-week')
+  await expect(week).toBeVisible()
+  // 이번 주(10/11~10/17) — 10/13 일정은 있고 10/20 일정은 없다.
+  await expect(week.getByTestId('calendar-event-2')).toBeVisible()
+  await expect(week.getByTestId('calendar-event-7')).toHaveCount(0)
+
+  // 시간 그리드 스크롤 영역 안에서 왼쪽으로 밀기 → 다음 주(10/18~) 범위 조회·10/20 일정 표시.
+  await swipe(page, -150)
+  await expect.poll(() => requests.map((r) => r.from)).toContain('2026-10-17T15:00:00.000Z')
+  await expect(week.getByTestId('calendar-event-7')).toBeVisible()
+  await expect(week.getByTestId('calendar-event-2')).toHaveCount(0)
+  // 오른쪽으로 밀기 → 이전 주로 복귀.
+  await swipe(page, 150)
+  await expect(week.getByTestId('calendar-event-2')).toBeVisible()
+  await expect(week.getByTestId('calendar-event-7')).toHaveCount(0)
+  // 세로 스크롤은 그대로 된다(pan-y 는 세로 패닝을 브라우저에 남긴다).
+  await expect(page.getByTestId('calendar-title')).toHaveText('10월')
+})
+
+test('미니 달력 접근성 — 제목 이름은 달 그대로, 펼침 상태·설명, 닫히면 포커스가 제목으로, Esc 로 접힘, 본문 이동에 패널 달이 따라간다', async ({ authenticatedPage: page }) => {
+  await stubCalendar(page)
+  await page.goto('/calendar')
+  await expect(agendaList(page).getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
+  const toggle = page.getByTestId('calendar-title-toggle')
+  const mini = page.getByTestId('calendar-mobile-mini')
+
+  // 제목(h1)·버튼 이름은 보이는 달 그대로, 동작은 설명으로. 닫혀 있으면 aria-controls 없음.
+  await expect(page.getByRole('heading', { level: 1, name: '10월', exact: true })).toBeVisible()
+  await expect(toggle).toHaveAccessibleName('10월')
+  await expect(toggle).toHaveAccessibleDescription('날짜를 골라 이동하는 달력')
+  await expect(toggle).not.toHaveAttribute('aria-controls')
+
+  // 펼침 → aria-controls 가 패널을 가리킨다. 날짜 선택으로 접히면 포커스가 제목 버튼으로 돌아온다.
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-controls', 'calendar-mobile-mini')
+  await expect(page.locator('#calendar-mobile-mini')).toBeVisible()
+  await mini.getByRole('button', { name: '2026년 10월 15일 목요일' }).click()
+  await expect(mini).toHaveCount(0)
+  await expect(toggle).toBeFocused()
+  await expect(toggle).not.toHaveAttribute('aria-controls')
+
+  // 패널 안(‹ › 버튼)에 포커스가 있을 때 Esc → 접히고 포커스는 제목 버튼.
+  await toggle.click()
+  await mini.getByRole('button', { name: '다음 달' }).focus()
+  await page.keyboard.press('Escape')
+  await expect(mini).toHaveCount(0)
+  await expect(toggle).toBeFocused()
+  // 제목 버튼에 포커스가 있을 때 Esc 도 접는다.
+  await toggle.click()
+  await expect(mini).toBeVisible()
+  await toggle.focus()
+  await page.keyboard.press('Escape')
+  await expect(mini).toHaveCount(0)
+
+  // 펼친 채 본문 달이 바뀌면(월 보기 › / [오늘]) 패널 달도 따라간다.
+  await page.getByTestId('calendar-view-select').selectOption('month')
+  await toggle.click()
+  await expect(mini).toContainText('2026년 10월')
+  await page.getByTestId('calendar-next').click()
+  await expect(page.getByTestId('calendar-title')).toHaveText('11월')
+  await expect(mini).toContainText('2026년 11월')
+  await expect(mini.locator('td[data-day="2026-11-20"]')).toHaveClass(/day-has-items/)
+  await page.getByTestId('calendar-today').click()
+  await expect(mini).toContainText('2026년 10월')
+})
+
 test('목록 재진입 — 월 보기에 갔다 오면 불러 둔 뒤 청크 없이 첫 청크부터 다시 보인다', async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page)
   await page.goto('/calendar')
@@ -346,7 +423,8 @@ test('⑦ [오늘] — 멀리 스크롤했거나 다른 날로 옮겼어도 오�
   await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(0)
   await expect(page.getByTestId('calendar-title')).toHaveText('10월')
   await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toContainText('오늘 · 10월 13일 (화)')
-  await expect(list.getByTestId('calendar-event-300')).toHaveCount(0)
+  // (청크가 1개로 돌아가는 것은 '목록 재진입' 테스트가 본다 — 여기서는 청크가 줄며 스크롤이 끝으로 눌린 한 프레임에
+  //  끝 센티널이 보여 둘째 청크를 다시 부를 수 있어(맨 위 이동 effect 가 그 뒤에 돈다) 행 부재로 단언하지 않는다.)
 
   // 다른 날(10/20)로 옮긴 뒤 [오늘] → 다시 오늘부터.
   await page.getByTestId('calendar-title-toggle').click()
