@@ -5,6 +5,7 @@
 // 외부 연락처 생성·수정·삭제와 구성원 역할·활성 변경은 ai-agent 쪽에만 있다(삭제·구성원 변경은 확인 카드).
 // 즐겨찾기·facets·사용자 그룹(#839)은 contact-tools.ts — 사용자 본인 범위의 되돌릴 수 있는 쓰기라 공유 도구로 둔다.
 import { z } from 'zod';
+import { numberedPageView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import type { MemberRow, MemberToolClient } from './tool-client.js';
 
@@ -122,10 +123,13 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       description:
         '우리 워크스페이스의 구성원을 검색해 JSON 으로 반환합니다. 사람을 찾을 때 쓰는 표준 도구입니다. ' +
         '각 항목의 username 을 담당자(assignees)·멤버 추가·get_member 등 사람을 가리키는 도구에 그대로 넘기세요(숫자 userId 가 아님). ' +
-        'search 로 이름·아이디·이메일 검색, kind 로 HUMAN(사람, 기본)/AGENT(AI)/ALL 한정. 기본은 활성 구성원만이며 includeInactive=true 로 비활성까지 봅니다.',
+        'search 로 이름·아이디·이메일 검색, kind 로 HUMAN(사람, 기본)/AGENT(AI)/ALL 한정. 기본은 활성 구성원만이며 includeInactive=true 로 비활성까지 봅니다. ' +
+        '결과는 JSON({items, total, hasMore?, nextPage?})이고 한 번에 size 명(기본 20, 최대 100)만 담깁니다. hasMore 가 있으면(true) 뒤에 더 있으니 ' +
+        'nextPage 를 page 로 넘겨 이어 조회하거나, search 를 더 좁히거나, 일부만 본 것이라고 밝히세요.',
       inputSchema: searchMembersInput,
       async handler(args) {
-        return JSON.stringify(await client.searchMembers(searchMembersInput.parse(args)));
+        const result = await client.searchMembersPage(searchMembersInput.parse(args));
+        return JSON.stringify(numberedPageView(result.items, result));
       },
     },
     {

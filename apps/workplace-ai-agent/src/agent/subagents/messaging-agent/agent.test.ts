@@ -12,7 +12,7 @@ describe('messaging-agent 정의', () => {
   });
   it('tools 는 채널 읽기+쓰기+목록/탐색+채널 생성·DM 열기·나가기 + 채널 초대 제안(#856)', () => {
     expect(loaded['messaging-agent'].tools).toEqual([
-      'mcp__workplace__get_channel_messages',
+      'mcp__workplace__list_channel_messages',
       'mcp__workplace__list_thread_replies', // #850: 스레드 답글
       'mcp__workplace__add_channel_message',
       'mcp__workplace__list_channels',
@@ -30,5 +30,14 @@ describe('messaging-agent 정의', () => {
   it('maxTurns 설정 + 본문에 채널 안내', () => {
     expect(loaded['messaging-agent'].maxTurns).toBeGreaterThan(0);
     expect(loaded['messaging-agent'].prompt).toMatch(/채널|메시지/);
+  });
+  // WP-352: 이름이 list_channel_messages 로 바뀌었고, 더 오래된 메시지는 nextCursor 로 이어 읽을 수 있다.
+  it('list_channel_messages 안내 — nextCursor 로 이어 읽거나 일부만 봤다고 밝히고, 옛 이름은 없다', () => {
+    const prompt = loaded['messaging-agent'].prompt;
+    expect(prompt).toContain('list_channel_messages');
+    expect(prompt).not.toContain('get_channel_messages');
+    expect(prompt).toContain('`nextCursor` 를 `cursor` 로 넘겨');
+    expect(prompt).toContain('일부만 본 것임을 밝힙니다');
+    expect(prompt).not.toContain('더 오래된 메시지는 가져올 수 없습니다');
   });
 });

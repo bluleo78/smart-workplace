@@ -23,6 +23,8 @@ export const LEGACY_TOOL_LABELS: Record<string, ToolLabel> = {
   get_thread_replies: { label: '스레드 답글 조회', icon: '🧵' },
   get_wiki_backlinks: { label: '노트 백링크 조회', icon: '🔗' },
   get_chat_thread: { label: '대화 조회', icon: '💬' },
+  // WP-352: 목록인데 get_ 이던 이름을 list_channel_messages 로 바꿈(옛 라벨 값 그대로).
+  get_channel_messages: { label: '채널 메시지 조회', icon: '💬' },
   // WP-346: 이슈 챗 첨부 읽기 — 공유 read_attachment 와 헷갈리지 않게 read_chat_thread_attachment 로 바뀜.
   read_attachment_text: { label: '첨부 읽기', icon: '📎' },
 };

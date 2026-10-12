@@ -14,14 +14,15 @@ describe('createPatApiClient', () => {
     expect(scope.isDone()).toBe(true);
   });
 
-  it('listProjects 는 GET /projects 를 호출하고 content 를 추출한다', async () => {
+  it('listProjects 는 GET /projects 를 호출하고 content·total·hasMore 를 돌려준다', async () => {
     const scope = nock(BASE)
       .get('/projects')
       .query({ page: '0', size: '50' })
-      .reply(200, { content: [{ key: 'WP' }] });
+      .reply(200, { content: [{ key: 'WP' }], page: 0, size: 50, totalElements: 80, totalPages: 2 });
     const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
     const res = await client.listProjects(0, 50);
-    expect(res).toEqual([{ key: 'WP' }]);
+    // WP-352: 전체 건수·다음 페이지 여부를 버리지 않는다.
+    expect(res).toEqual({ items: [{ key: 'WP' }], total: 80, hasMore: true, page: 0 });
     expect(scope.isDone()).toBe(true);
   });
 
@@ -33,14 +34,15 @@ describe('createPatApiClient', () => {
     expect(scope.isDone()).toBe(true);
   });
 
-  it('listIssues 는 GET /me/issues 에 쿼리를 그대로 전달하고 items 를 추출한다', async () => {
+  it('listIssues 는 GET /me/issues 에 쿼리를 그대로 전달하고 items·nextCursor·hasMore 를 돌려준다', async () => {
     const scope = nock(BASE)
       .get('/me/issues')
       .query({ status: 'TODO', size: '30' })
-      .reply(200, { items: [{ number: 1 }] });
+      .reply(200, { items: [{ number: 1 }], nextCursor: 'c2', hasMore: true });
     const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
     const res = await client.listIssues({ status: 'TODO', size: 30 });
-    expect(res).toEqual([{ number: 1 }]);
+    // WP-352: 래퍼의 nextCursor·hasMore 를 버리지 않는다.
+    expect(res).toEqual({ items: [{ number: 1 }], nextCursor: 'c2', hasMore: true });
     expect(scope.isDone()).toBe(true);
   });
 
@@ -130,14 +132,14 @@ describe('createPatApiClient', () => {
     expect(scope.isDone()).toBe(true);
   });
 
-  it('getChannelMessages 는 GET /messaging/channels/{id}/messages 를 호출하고 items 를 추출한다', async () => {
+  it('listChannelMessages 는 GET /messaging/channels/{id}/messages 에 limit·cursor 를 싣고 items·nextCursor·hasMore 를 돌려준다', async () => {
     const scope = nock(BASE)
       .get('/messaging/channels/7/messages')
-      .query({ limit: '30' })
-      .reply(200, { items: [{ id: 1 }] });
+      .query({ limit: '30', cursor: 'c1' })
+      .reply(200, { items: [{ id: 1 }], nextCursor: 'c2', hasMore: true });
     const client = createPatApiClient({ baseURL: BASE, token: 'swp_abc' });
-    const res = await client.getChannelMessages(7, 30);
-    expect(res).toEqual([{ id: 1 }]);
+    const res = await client.listChannelMessages(7, { limit: 30, cursor: 'c1' });
+    expect(res).toEqual({ items: [{ id: 1 }], nextCursor: 'c2', hasMore: true });
     expect(scope.isDone()).toBe(true);
   });
 

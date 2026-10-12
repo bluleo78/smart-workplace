@@ -67,12 +67,13 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 - 사용자가 목록 표시("보여줘/목록/열어줘")를 원하면 → **먼저 대응 읽기 도구(\`list_*\`/\`search_*\`)를 호출해 결과 유무를 확인**합니다. 결과가 **있으면** 해당 \`show_*\` 위젯을 호출(데이터는 프론트가 가져옴)하고, **없으면 \`show_*\` 를 호출하지 말고** "오늘 일정이 없어요" 처럼 한두 문장 prose 로 안내합니다(빈 위젯 카드를 띄우지 않습니다).
 - 사용자가 콕 집은 질문(유무·특정 값)을 하면 → 읽기 도구로 직접 조회 후 자연 한국어 한두 문장 답변.
 - 읽기 결과가 비었으면 되묻지 말고 "해당 조건의 결과가 없습니다." 류로 그대로 안내(빈 위젯 대신 prose).
+- **목록이 잘렸는지 확인**(WP-352): 읽기 결과에 \`hasMore\`(다음 값 \`nextCursor\`·\`nextPage\`·\`nextOffset\`)가 있으면 뒤에 더 있다는 뜻입니다. 그 값을 \`cursor\`·\`page\`·\`offset\` 으로 넘겨 이어 조회하거나, 이어 조회하지 않고 답한다면 "일부만 확인했다"고 알립니다 — 받은 만큼을 전체인 양 세거나 요약하지 마세요.
 - **여러 도메인을 한 번에 요청**받으면(예: "일정이랑 메일 보여줘") 도메인별로 **독립 판단**합니다 — 데이터 있는 도메인만 \`show_*\`, 빈 도메인은 prose 로 함께 안내합니다.
 
 | 도메인 | 직접 읽기 도구 | 표시 위젯(목록) | 표시 위젯(상세) |
 |---|---|---|---|
 | 캘린더 | \`list_events\`, \`get_event\` | \`show_calendar\` | \`show_event\` |
-| 메시징 | \`list_channels\`, \`discover_channels\`, \`get_channel_messages\`, \`list_thread_replies\` | \`show_channels\` | (없음) |
+| 메시징 | \`list_channels\`, \`discover_channels\`, \`list_channel_messages\`, \`list_thread_replies\` | \`show_channels\` | (없음) |
 | 노트 | \`search_wiki\`, \`get_wiki_page\`, \`list_wiki_pages\`, \`list_wiki_backlinks\` | \`show_wiki\` | \`show_wiki_page\` |
 | 연락처(사외) | \`list_contacts\`, \`get_external_contact\`, \`get_contact_facets\` | \`show_contacts\` | \`show_contact\` |
 | 사용자 그룹(조직도·개인 그룹) | \`list_user_groups\`, \`get_user_group\` | (없음) | (없음) |

@@ -7,6 +7,7 @@ import { resultText } from './mcp-content.js';
 function mockClient(): MemberToolClient {
   return {
     searchMembers: vi.fn().mockResolvedValue([]),
+    searchMembersPage: vi.fn().mockResolvedValue({ items: [], hasMore: false, page: 0 }),
     getMemberContact: vi.fn().mockResolvedValue({}),
     listContacts: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     getExternalContact: vi.fn().mockResolvedValue({}),
@@ -24,12 +25,21 @@ describe('buildMemberTools (#833)', () => {
     expect(names.some((n) => n.startsWith('propose_'))).toBe(false);
   });
 
-  it('search_members → kind 기본값 HUMAN, page 0, size 20 으로 client.searchMembers 호출', async () => {
+  it('search_members → kind 기본값 HUMAN, page 0, size 20 으로 client.searchMembersPage 호출', async () => {
     const c = mockClient();
-    vi.mocked(c.searchMembers).mockResolvedValue([{ userId: 3, username: 'minsu', name: '김민수' }]);
+    vi.mocked(c.searchMembersPage).mockResolvedValue({ items: [{ userId: 3, username: 'minsu', name: '김민수' }], total: 1, hasMore: false, page: 0 });
     const out = await tool(c, 'search_members').handler({ search: '김' });
-    expect(c.searchMembers).toHaveBeenCalledWith({ search: '김', kind: 'HUMAN', page: 0, size: 20 });
-    expect(JSON.parse(resultText(out))).toEqual([{ userId: 3, username: 'minsu', name: '김민수' }]);
+    expect(c.searchMembersPage).toHaveBeenCalledWith({ search: '김', kind: 'HUMAN', page: 0, size: 20 });
+    // 마지막 페이지면 total 만 싣고 hasMore·nextPage 는 생략한다(WP-352).
+    expect(JSON.parse(resultText(out))).toEqual({ items: [{ userId: 3, username: 'minsu', name: '김민수' }], total: 1 });
+  });
+
+  it('WP-352: search_members 는 다음 페이지가 있으면 hasMore:true·nextPage·total 을 싣는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchMembersPage).mockResolvedValue({ items: [{ userId: 3, username: 'minsu', name: '김민수' }], total: 45, hasMore: true, page: 0 });
+    const out = JSON.parse(resultText(await tool(c, 'search_members').handler({ search: '김', size: 20 })));
+    expect(out).toEqual({ items: [{ userId: 3, username: 'minsu', name: '김민수' }], total: 45, hasMore: true, nextPage: 1 });
+    expect(tool(c, 'search_members').description).toContain('일부만 본 것이라고 밝히세요');
   });
 
   it('get_member 는 username 정확일치 항목을 돌려준다(비활성 포함·ALL 로 조회)', async () => {

@@ -9,7 +9,7 @@ type Client = MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>;
 function mockClient(): Client {
   return {
     listChannels: vi.fn().mockResolvedValue([]),
-    getChannelMessages: vi.fn().mockResolvedValue([]),
+    listChannelMessages: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
     getThreadReplies: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
     addChannelMessage: vi.fn().mockResolvedValue(undefined),
     searchMembers: vi.fn().mockResolvedValue([]),
@@ -96,18 +96,32 @@ describe('buildMessagingTools', () => {
     expect(JSON.parse(resultText(out))).toEqual([{ id: 1, name: '일반' }]);
   });
 
-  it('get_channel_messages → limit 기본값 50 으로 client.getChannelMessages 호출', async () => {
+  it('list_channel_messages → limit 기본값 50 으로 client.listChannelMessages 호출, 다음 페이지가 없으면 { items } 만', async () => {
     const c = mockClient();
-    vi.mocked(c.getChannelMessages).mockResolvedValue([{ id: 1, body: 'hi' }]);
-    const out = await tool(c, 'get_channel_messages').handler({ channelId: 7 });
-    expect(c.getChannelMessages).toHaveBeenCalledWith(7, 50);
-    expect(JSON.parse(resultText(out))).toEqual([{ id: 1, body: 'hi' }]);
+    vi.mocked(c.listChannelMessages).mockResolvedValue({ items: [{ id: 1, body: 'hi' }], nextCursor: null, hasMore: false });
+    const out = await tool(c, 'list_channel_messages').handler({ channelId: 7 });
+    expect(c.listChannelMessages).toHaveBeenCalledWith(7, { limit: 50, cursor: undefined });
+    expect(JSON.parse(resultText(out))).toEqual({ items: [{ id: 1, body: 'hi' }] });
   });
 
-  it('get_channel_messages → limit 지정 시 그대로 전달', async () => {
+  it('list_channel_messages → limit·cursor 지정 시 그대로 전달', async () => {
     const c = mockClient();
-    await tool(c, 'get_channel_messages').handler({ channelId: 7, limit: 5 });
-    expect(c.getChannelMessages).toHaveBeenCalledWith(7, 5);
+    await tool(c, 'list_channel_messages').handler({ channelId: 7, limit: 5, cursor: 'c1' });
+    expect(c.listChannelMessages).toHaveBeenCalledWith(7, { limit: 5, cursor: 'c1' });
+  });
+
+  it('WP-352: list_channel_messages → 더 오래된 메시지가 있으면 hasMore:true 와 nextCursor 를 싣는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listChannelMessages).mockResolvedValue({ items: [{ id: 9 }], nextCursor: 'next==', hasMore: true });
+    const out = JSON.parse(resultText(await tool(c, 'list_channel_messages').handler({ channelId: 7 })));
+    expect(out).toEqual({ items: [{ id: 9 }], hasMore: true, nextCursor: 'next==' });
+    const d = tool(c, 'list_channel_messages').description;
+    expect(d).toContain('nextCursor');
+    expect(d).toContain('일부만 본 것이라고 밝히세요');
+  });
+
+  it('옛 이름 get_channel_messages 는 더 이상 없다(WP-352)', () => {
+    expect(buildMessagingTools(mockClient()).map((t) => t.name)).not.toContain('get_channel_messages');
   });
 
   it('add_channel_message → 멘션 없는 본문은 그대로, 옵션 없으면 parentMessageId undefined 로 호출 후 ok', async () => {

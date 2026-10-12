@@ -59,13 +59,31 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 | `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` |
 | `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_folder` `move_drive_folder` `move_drive_file` + 겹침: `read_attachment` |
 | `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` |
-| `messaging` | `list_channels` `discover_channels` `get_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `add_channel_member` + 겹침: `search_members` |
+| `messaging` | `list_channels` `discover_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `add_channel_member` + 겹침: `search_members` |
 | `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` + 겹침: `search_members` |
 | `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` + 겹침: `search_members` |
 | `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` |
 | `member` | `search_members` `get_member` `get_member_contact` |
 
 workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸러낸다(`apps/workplace-mcp/CLAUDE.md` "연결 범위"). 앱 선택은 노출 기준(`kind`)과 별개다 — destructive 는 어느 연결에서도 노출하지 않는다. AI Chat(ai-agent)은 `app` 을 쓰지 않는다.
+
+## 목록 도구의 페이지 출력 (WP-352)
+
+서버가 페이지를 지원하는 목록 도구는 잘렸다는 사실과 이어 읽을 값을 출력에 싣는다. 페이지를 버리고 첫 페이지만 주면 LLM 이 일부를 전부로 오해해 집계·요약한다. 출력은 `{ items, ... }` 객체이고 **다음 페이지가 없으면 `hasMore`·다음 값 키를 생략한다**(null·false 를 싣지 않는다 — 빠진 키 = 끝). 헬퍼는 `compact.ts` 의 `cursorPageView`·`numberedPageView` 다.
+
+| 도구 | 입력 | 출력 | 서버 근거 |
+|---|---|---|---|
+| `list_issues` | `cursor`, `size`(기본 30·최대 100) | `{ items, hasMore?, nextCursor? }` | `IssueSearchResponse`(`MeIssuesController`) |
+| `list_channel_messages` | `cursor`, `limit`(기본 50·최대 100) | `{ items, hasMore?, nextCursor? }` | `MessagePage`(`MessageController`) |
+| `list_projects` | `page`, `size` | `{ items, total, hasMore?, nextPage? }` | `PageResponse`(`ProjectController`) |
+| `search_members` | `page`, `size` | `{ items, total, hasMore?, nextPage? }` | `PageResponse`(`MemberController`) |
+| `list_notifications` | `offset`, `limit` | `{ unreadCount, items, hasMore?, nextOffset? }` | 평면 목록 + offset(`NotificationController`) |
+
+- 서버 `PageResponse` 에는 `last` 가 없어 다음 페이지 여부를 `page + 1 < totalPages` 로 계산한다.
+- 서버가 총 개수를 안 주는 곳(커서 목록의 마지막 페이지가 꽉 찬 경우, 알림)은 `hasMore` 가 true 여도 다음 페이지가 비어 있을 수 있다. 설명이 이를 안내한다.
+- `list_notifications` 의 `nextOffset` 은 서버 목록 기준 위치다. `unreadOnly` 에서는 마지막으로 담은 행 바로 뒤를 가리킨다.
+- 서버에 페이지가 없는 목록은 이 규칙 대상이 아니다. limit 과 `truncated` 로 알린다(`list_thread_replies` 가 모범).
+- 설명에는 "`hasMore` 가 있으면 `nextCursor` 로 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 담겼다고 밝히라"를 적는다. AI Chat 의 subagent `agent.md` 와 라우터 프롬프트에도 같은 안내가 있다.
 
 ## 노출 기준 (WP-347)
 
@@ -115,7 +133,7 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 ### 강제 방식
 
 - 공유 도구는 `tool-naming.test.ts`, ai-agent 전용 도구는 ai-agent `tools.test.ts` 가 모든 이름에 `toolNameViolations` 를 돌린다.
-- 아직 따르지 않는 기존 이름은 두 테스트 파일의 예외 배열(`SHARED_NAMING_EXCEPTIONS`, `LOCAL_NAMING_EXCEPTIONS`)에 적혀 있고, 항목마다 바꿀 이슈가 주석으로 달려 있다. WP-360 이 `get_channel_messages` 를 뺀 나머지를 바꿨고, 이 이름은 WP-352 가 `list_channel_messages` 로 바꾸며 배열을 비운다(`LOCAL_NAMING_EXCEPTIONS` 는 이미 비어 있다). 예외 이름이 더는 존재하지 않으면 테스트가 실패해 낡은 항목을 지우게 한다.
+- 아직 따르지 않는 기존 이름은 두 테스트 파일의 예외 배열(`SHARED_NAMING_EXCEPTIONS`, `LOCAL_NAMING_EXCEPTIONS`)에 적혀 있고, 항목마다 바꿀 이슈가 주석으로 달려 있다. 지금은 둘 다 비어 있다(마지막 항목 `get_channel_messages` 는 WP-352 가 `list_channel_messages` 로 바꾸며 비웠다). 예외 이름이 더는 존재하지 않으면 테스트가 실패해 낡은 항목을 지우게 한다.
 - `get_` 이 여러 건을 돌려주는지는 기계로 가릴 수 없어, 알려진 도구를 예외 배열에 직접 적는다. 새 도구는 만들 때 `list_` 를 고른다.
 
 ## 파라미터 명명 규칙

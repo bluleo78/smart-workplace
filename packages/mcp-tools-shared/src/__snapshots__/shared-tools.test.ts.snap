@@ -21,7 +21,6 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "discover_channels": "read",
   "draft_issue_from_mail": "read",
   "draft_mail_reply": "read",
-  "get_channel_messages": "read",
   "get_contact_facets": "read",
   "get_drive_file_summary": "read",
   "get_event": "read",
@@ -35,6 +34,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "get_user_group": "read",
   "get_wiki_page": "read",
   "leave_channel": "write",
+  "list_channel_messages": "read",
   "list_channels": "read",
   "list_contacts": "read",
   "list_drive_items": "read",
@@ -680,31 +680,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
-    "name": "get_channel_messages",
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "channelId": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer",
-        },
-        "limit": {
-          "default": 50,
-          "maximum": 100,
-          "minimum": 1,
-          "type": "integer",
-        },
-      },
-      "required": [
-        "channelId",
-        "limit",
-      ],
-      "type": "object",
-    },
-  },
-  {
     "name": "get_contact_facets",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -926,6 +901,35 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "list_channel_messages",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "channelId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "cursor": {
+          "description": "더 오래된 메시지 커서 — 이전 호출 결과의 nextCursor 를 그대로",
+          "type": "string",
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "channelId",
+        "limit",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "list_channels",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1076,6 +1080,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "description": "생성일 상한 yyyy-MM-dd(포함), Asia/Seoul 기준",
           "type": "string",
         },
+        "cursor": {
+          "description": "다음 페이지 커서 — 이전 호출 결과의 nextCursor 를 그대로(필터·size 는 같게)",
+          "type": "string",
+        },
         "cycle": {
           "description": "사이클 CSV(하나라도 일치하면 매칭, OR): 사이클 이름 | "active"(진행 중 사이클) | "none"(사이클이 하나도 할당되지 않은 이슈) | "backlog"(진행 중·예정 사이클 밖 — 완료 사이클에만 남은 이슈 포함). "사이클 미할당"은 none, "백로그"는 backlog. 이름·active 는 projectKey 필요",
           "type": "string",
@@ -1191,6 +1199,13 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "minimum": 1,
           "type": "integer",
         },
+        "offset": {
+          "default": 0,
+          "description": "이어 읽을 위치 — 이전 호출 결과의 nextOffset 을 그대로(직접 계산하지 마세요)",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
         "unreadOnly": {
           "default": false,
           "type": "boolean",
@@ -1199,6 +1214,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "required": [
         "unreadOnly",
         "limit",
+        "offset",
       ],
       "type": "object",
     },

@@ -27,6 +27,14 @@ describe('buildMessagingUserMessage', () => {
     expect(msg).toContain('채널');
   });
 
+  it('WP-352: 더 과거 대화는 list_channel_messages 의 nextCursor 로 이어 읽도록 안내하고 옛 이름·"100건까지만" 은 없다', () => {
+    const msg = buildMessagingUserMessage(payload, recent);
+    expect(msg).toContain('list_channel_messages(42)');
+    expect(msg).toContain('nextCursor 를 cursor 로 넘기면');
+    expect(msg).not.toContain('get_channel_messages');
+    expect(msg).not.toContain('100건까지만');
+  });
+
   it('DM 이면 1:1 DM 표기', () => {
     const dm = { ...payload, channelKind: 'DM' };
     expect(buildMessagingUserMessage(dm, recent)).toContain('1:1 DM');

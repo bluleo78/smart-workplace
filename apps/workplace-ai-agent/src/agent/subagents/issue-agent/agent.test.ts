@@ -71,4 +71,12 @@ describe('issue-agent 정의', () => {
     expect(prompt).toContain('나에게 할당해줘');
     expect(prompt).toContain('assignees 에 `"me"`');
   });
+
+  // WP-352: size 를 안 줘도 기본 30건에서 잘리므로, 잘렸는지 보고 이어 조회하거나 일부만이라고 밝히게 한다.
+  it('list_issues 가 잘리면(hasMore·nextCursor) 이어 조회하거나 일부만이라고 밝히도록 안내한다', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('`hasMore`·`nextCursor`');
+    expect(prompt).toContain('`cursor` 로 넘겨');
+    expect(prompt).toContain('일부만이라고 밝히세요');
+  });
 });

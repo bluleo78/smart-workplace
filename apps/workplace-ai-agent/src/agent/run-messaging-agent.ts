@@ -56,7 +56,7 @@ export async function runMessagingAgent(
 
   // 최근 채널 메시지 PREFETCH 개 조회 → 대화 컨텍스트 구성
   // 경로 매핑은 공유 도구 클라이언트(#846) — 응답 항목은 서버 ChannelMessage 경량 형태다.
-  const recent = (await deps.client.toolClient(agentId).getChannelMessages(p.channelId, PREFETCH)) as ChannelMessageItem[];
+  const recent = (await deps.client.toolClient(agentId).listChannelMessages(p.channelId, { limit: PREFETCH })).items as ChannelMessageItem[];
   // L3 위임 후보 프로젝트 — AI 가 이슈 라우팅을 맥락으로 추측할 소스(실패해도 빈 배열로 진행).
   let candidates: { key: string; name: string }[] = [];
   try {

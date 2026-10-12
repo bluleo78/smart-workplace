@@ -8,12 +8,11 @@ const names = tools.map((t) => t.name);
 
 /**
  * 명명 규칙(README "도구 명명 규칙", WP-347)을 아직 따르지 않는 기존 공유 도구 이름.
- * WP-360 이 나머지를 새 이름으로 바꿨고, 남은 `get_channel_messages` 는 WP-352 가 바꾸면서 이 배열을 **비운다** — 비우면 이 테스트가 규칙을 전면 강제한다.
+ * WP-360 이 `get_channel_messages` 를 뺀 나머지를 바꿨고, 마지막 하나도 WP-352 가 `list_channel_messages` 로 바꾸면서 배열이 **비었다** —
+ * 지금은 이 테스트가 규칙을 전면 강제한다. 새 예외는 여기에 이유와 바꿀 이슈를 주석으로 적어 넣는다(메커니즘은 유지).
  * `get_` 이 여러 건을 돌려주는 도구는 기계로 가릴 수 없어 손으로 적는다(규칙: 여러 건은 `list_`, 한 건만 `get_`).
  */
-const SHARED_NAMING_EXCEPTIONS: string[] = [
-  'get_channel_messages', // get_ 인데 여러 건 → list_channel_messages (WP-352 에서 개편하며 변경)
-];
+const SHARED_NAMING_EXCEPTIONS: string[] = [];
 
 describe('공유 도구 명명 규칙 (WP-347)', () => {
   it('예외 목록 밖의 공유 도구 이름은 규칙(snake_case·46자 이하·edit_/save_/set_ 금지)을 지킨다', () => {

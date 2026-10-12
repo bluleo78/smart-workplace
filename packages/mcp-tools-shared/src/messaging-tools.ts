@@ -3,7 +3,7 @@
 // 확인 카드로 한다(경로마다 도구 하나 — ai-agent 프로필에는 싣지 않는다). 두 경로가 입력 스키마(addChannelMemberInput)와 대상 해석
 // (requireActiveMember)을 같이 쓴다. 비공개 채널 나가기는 계속 확인 카드(propose_leave_channel)만 한다.
 import { z } from 'zod';
-import { dropEmpty } from './compact.js';
+import { cursorPageView, dropEmpty } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import { findMemberByUsername, requireActiveMember, searchMembersByTerm } from './member-tools.js';
 import type { MemberRow, MemberToolClient, MessagingToolClient } from './tool-client.js';
@@ -49,10 +49,12 @@ export async function linkMentions(client: Pick<MemberToolClient, 'searchMembers
   });
 }
 
-export const getChannelMessagesInput = z.object({
+export const listChannelMessagesInput = z.object({
   channelId: z.number().int().positive(),
   // 서버(MessageRepository.MAX_LIMIT)가 100 으로 자른다 — 그 이상을 받는 것처럼 보이지 않게 맞춘다.
   limit: z.number().int().min(1).max(100).default(50),
+  // WP-352: 이전 호출이 돌려준 nextCursor 를 그대로 넘기면 한 페이지 더 오래된 메시지다(서버 MessageController 의 cursor).
+  cursor: z.string().optional().describe('더 오래된 메시지 커서 — 이전 호출 결과의 nextCursor 를 그대로'),
 });
 export const getThreadRepliesInput = z.object({ messageId: z.number().int().positive() });
 export const discoverChannelsInput = z.object({ q: z.string().min(1) });
@@ -122,7 +124,7 @@ export interface MessagingToolOptions {
   parentMessageIdFor?(channelId: number): number | undefined;
 }
 
-/** 메시징 도구(list_channels/get_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/add_channel_member). */
+/** 메시징 도구(list_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/add_channel_member). */
 export function buildMessagingTools(
   client: MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>,
   opts: MessagingToolOptions = {},
@@ -133,7 +135,7 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        '내가 속한 채널·DM 목록을 JSON 배열로 반환합니다(id·name·kind·visibility 포함). 채널 이름만 알 때 channelId 를 확보한 뒤 get_channel_messages / add_channel_message 에 사용하세요.',
+        '내가 속한 채널·DM 목록을 JSON 배열로 반환합니다(id·name·kind·visibility 포함). 채널 이름만 알 때 channelId 를 확보한 뒤 list_channel_messages / add_channel_message 에 사용하세요.',
       inputSchema: z.object({}),
       async handler() {
         return JSON.stringify(await client.listChannels());
@@ -152,17 +154,19 @@ export function buildMessagingTools(
       },
     },
     {
-      name: 'get_channel_messages',
+      name: 'list_channel_messages',
       app: 'messaging',
       kind: 'read',
       description:
-        '채널/DM 의 최근 메시지 목록을 최신순(최신 → 오래된 순)으로 JSON 배열로 반환합니다(대화 흐름 확인용). 스레드 답글은 빠지고 최상위 메시지만 담기며, ' +
-        '답글이 있으면 replyCount 로 알 수 있습니다(list_thread_replies 로 조회). limit 기본 50·최대 100 이고, 그보다 오래된 메시지는 ' +
-        '다음 페이지가 없어 이 도구로 가져올 수 없습니다 — 요약할 때 최근 일부만 본 것이라고 밝히세요. 삭제된 메시지는 본문이 "(삭제됨)" 으로 옵니다.',
-      inputSchema: getChannelMessagesInput,
+        '채널/DM 의 메시지를 최신순(최신 → 오래된 순)으로 JSON({items, hasMore?, nextCursor?})으로 반환합니다(대화 흐름 확인용). 스레드 답글은 빠지고 최상위 메시지만 담기며, ' +
+        '답글이 있으면 replyCount 로 알 수 있습니다(list_thread_replies 로 조회). limit 기본 50·최대 100 이고, 더 오래된 메시지가 있으면 hasMore:true 와 ' +
+        'nextCursor 가 옵니다 — nextCursor 를 cursor 로 넘겨 이어 조회하거나, 이어 조회하지 않고 답한다면 최근 일부만 본 것이라고 밝히세요(요약·집계를 전체인 양 하지 마세요). ' +
+        'hasMore 가 있어도 다음 페이지가 비어 있을 수 있고, 이 키들이 없으면 채널의 처음까지 다 담긴 것입니다. 삭제된 메시지는 본문이 "(삭제됨)" 으로 옵니다.',
+      inputSchema: listChannelMessagesInput,
       async handler(args) {
-        const { channelId, limit } = getChannelMessagesInput.parse(args);
-        return JSON.stringify(await client.getChannelMessages(channelId, limit));
+        const { channelId, limit, cursor } = listChannelMessagesInput.parse(args);
+        const page = await client.listChannelMessages(channelId, { limit, cursor });
+        return JSON.stringify(cursorPageView(page.items, page));
       },
     },
     {
@@ -171,7 +175,7 @@ export function buildMessagingTools(
       kind: 'read',
       description:
         '채널 메시지 하나에 달린 스레드 답글 전체를 오래된 순으로 JSON({items, truncated})으로 반환합니다(스레드 요약·확인용). ' +
-        'messageId 는 get_channel_messages 결과에서 replyCount 가 1 이상인 메시지의 id 입니다. ' +
+        'messageId 는 list_channel_messages 결과에서 replyCount 가 1 이상인 메시지의 id 입니다. ' +
         'truncated 가 true 면 답글이 500개를 넘어 앞부분 500개만 담긴 것이니, 요약할 때 뒷부분이 빠졌다고 밝히세요.',
       inputSchema: getThreadRepliesInput,
       async handler(args) {

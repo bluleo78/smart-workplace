@@ -286,7 +286,7 @@ export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
   // 캘린더
   'list_events', 'get_event',
   // 메시징
-  'list_channels', 'discover_channels', 'get_channel_messages', 'list_thread_replies',
+  'list_channels', 'discover_channels', 'list_channel_messages', 'list_thread_replies',
   // 메일
   'list_mail', 'get_mail',
   // 연락처·사용자 그룹·구성원
@@ -454,7 +454,7 @@ export function buildTools(
 
   if (profile === 'messaging') {
     const tools: McpTool[] = [
-      sharedTool('get_channel_messages'),
+      sharedTool('list_channel_messages'),
       sharedTool('list_thread_replies'), // #850: 스레드 답글 조회(스레드 요약)
       sharedTool('add_channel_message'),
       sharedTool('list_channels'),
@@ -1143,7 +1143,7 @@ export function buildTools(
       sharedTool('get_event'),              // #333 M2: 캘린더 읽기
       proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
       proposeUpdateEventTool, proposeDeleteEventTool, // #333 M4: 일정 수정/삭제 제안
-      sharedTool('get_channel_messages'), // #333 M3: 메시징 읽기
+      sharedTool('list_channel_messages'), // #333 M3: 메시징 읽기
       sharedTool('list_thread_replies'),   // #850: 스레드 답글 조회
       sharedTool('add_channel_message'),  // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
       sharedTool('list_channels'), sharedTool('discover_channels'), // #350: 채널 목록/탐색(이름→channelId 해석)

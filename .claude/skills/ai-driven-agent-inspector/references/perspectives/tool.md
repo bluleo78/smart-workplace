@@ -27,6 +27,7 @@
 - `[12]` 에러 응답 (isError: true)을 무시하고 success인 척 응답하는가
 - `[13]` 부분 성공 시 어느 부분이 실패했는지 사용자에게 전달
 - `[14]` 동일 도구 3회 이상 반복 호출 (불필요한 polling)
+- `[17]` 목록 도구 결과에 `hasMore`(+`nextCursor`/`nextPage`/`nextOffset`)가 있는데, 이어 조회하지도 않고 "일부만 확인했다"고 밝히지도 않은 채 전체인 양 집계·요약하는가 (`list_issues`·`list_channel_messages`·`list_projects`·`search_members`·`list_notifications`, WP-352)
 
 ### 6. 순서 위반
 - `[15]` propose → pending_action → (사용자 confirm 없이) 실제 변경 도구 자동 호출
@@ -72,7 +73,7 @@ unassign: get_issue_detail → (propose?) → unassign_self
 ### messaging-agent
 ```
 채널 메시지: list_channels (채널 확인) → add_channel_message
-채널 탐색: discover_channels → get_channel_messages
+채널 탐색: discover_channels → list_channel_messages
 ```
 
 ### wiki-agent

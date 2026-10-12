@@ -397,16 +397,17 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       expect(out).toEqual(raw);
     });
 
-    it('listIssues 는 쿼리 파라미터를 붙여 GET /me/issues 를 호출하고 items 를 반환한다', async () => {
+    it('listIssues 는 쿼리 파라미터를 붙여 GET /me/issues 를 호출하고 items·hasMore 를 반환한다', async () => {
       const scope = nock(BASE)
         .matchHeader('authorization', 'Internal tk-internal')
         .matchHeader('x-on-behalf-of', String(AGENT_ID))
         .get(`${PREFIX}/me/issues`)
         .query({ assignee: 'me', size: '30' })
         .reply(200, { items: [{ projectKey: 'WP', number: 7, title: '버그' }], hasMore: false });
-      const items = await newClient().toolClient(AGENT_ID).listIssues({ assignee: 'me', size: 30 });
+      const page = await newClient().toolClient(AGENT_ID).listIssues({ assignee: 'me', size: 30 });
       expect(scope.isDone()).toBe(true);
-      expect(items).toEqual([{ projectKey: 'WP', number: 7, title: '버그' }]);
+      // WP-352: 래퍼(nextCursor·hasMore)를 벗기지 않고 돌려준다.
+      expect(page).toEqual({ items: [{ projectKey: 'WP', number: 7, title: '버그' }], nextCursor: undefined, hasMore: false });
     });
 
     it('searchMembers 는 구성원 디렉터리(/members)를 헤더와 함께 조회한다', async () => {

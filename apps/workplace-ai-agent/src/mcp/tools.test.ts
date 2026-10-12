@@ -50,9 +50,9 @@ function sharedMock(): MockedShared {
     updateProject: vi.fn().mockResolvedValue({}),
     createProject: vi.fn().mockResolvedValue({}),
     addProjectMember: vi.fn().mockResolvedValue({ userId: 0, username: '' }),
-    listProjects: vi.fn().mockResolvedValue([]),
+    listProjects: vi.fn().mockResolvedValue({ items: [], hasMore: false, page: 0 }),
     getProject: vi.fn().mockResolvedValue({}),
-    listIssues: vi.fn().mockResolvedValue([]),
+    listIssues: vi.fn().mockResolvedValue({ items: [] }),
     // 노트
     listWikiSpaces: vi.fn().mockResolvedValue([]),
     searchWikiPages: vi.fn().mockResolvedValue([]),
@@ -83,6 +83,7 @@ function sharedMock(): MockedShared {
     syncMail: vi.fn().mockResolvedValue({}),
     // 구성원·연락처
     searchMembers: vi.fn().mockResolvedValue([]),
+    searchMembersPage: vi.fn().mockResolvedValue({ items: [], hasMore: false, page: 0 }),
     getMemberContact: vi.fn().mockResolvedValue({}),
     listContacts: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     getExternalContact: vi.fn().mockResolvedValue({}),
@@ -100,7 +101,7 @@ function sharedMock(): MockedShared {
     updateExternalContact: vi.fn().mockResolvedValue({}),
     // 메시징
     listChannels: vi.fn().mockResolvedValue([]),
-    getChannelMessages: vi.fn().mockResolvedValue([]),
+    listChannelMessages: vi.fn().mockResolvedValue({ items: [] }),
     getThreadReplies: vi.fn().mockResolvedValue([]),
     addChannelMessage: vi.fn().mockResolvedValue(undefined),
     getChannel: vi.fn().mockResolvedValue({ id: 1, visibility: 'PUBLIC' }),
@@ -237,7 +238,7 @@ describe('프로필 구성', () => {
 
   it('messaging 프로필: 위임 컨텍스트가 없으면 채널 도구 5종만', () => {
     const names = buildTools(client(), AGENT_ID, 'messaging').map((t) => t.name).sort();
-    expect(names).toEqual(['add_channel_message', 'discover_channels', 'get_channel_messages', 'list_channels', 'list_thread_replies']);
+    expect(names).toEqual(['add_channel_message', 'discover_channels', 'list_channel_messages', 'list_channels', 'list_thread_replies']);
   });
 
   it('messaging 프로필 + delegationContext: propose_create_issue/propose_create_event + 참석자 조회용 search_members 추가', () => {
@@ -258,7 +259,7 @@ describe('프로필 구성', () => {
       // 캘린더
       'list_events', 'get_event', 'propose_create_event', 'propose_update_event', 'propose_delete_event',
       // 메시징
-      'get_channel_messages', 'list_thread_replies', 'add_channel_message', 'list_channels', 'discover_channels',
+      'list_channel_messages', 'list_thread_replies', 'add_channel_message', 'list_channels', 'discover_channels',
       // 메일
       'list_mail', 'get_mail', 'propose_send_mail', 'list_mail_accounts', 'sync_mail',
       // 연락처·구성원(#833)
@@ -433,6 +434,30 @@ describe('공유 도구 패리티 (#846)', () => {
       const names = buildTools(client(), AGENT_ID, p, undefined, { actorId: 7, channelId: 9 }).map((t) => t.name);
       expect(names.filter((n) => n.includes('notification')), p).toEqual([]);
     }
+  });
+
+  // WP-352: 래퍼는 설명만 덧붙이고 공유 핸들러를 그대로 쓰므로 페이지 정보(hasMore·nextCursor)가 AI Chat 에도 그대로 전달돼야 한다.
+  it('WP-352: list_issues 래퍼는 다음 페이지가 있으면 hasMore·nextCursor 를, 없으면 생략해 돌려주고 cursor 를 서버에 넘긴다', async () => {
+    const c = client();
+    c.sc.listIssues.mockResolvedValueOnce({ items: [{ projectKey: 'WP', number: 1, title: 'a' }], nextCursor: 'n==', hasMore: true });
+    const tool = find(buildTools(c, AGENT_ID, 'assistant'), 'list_issues');
+    const more = JSON.parse((await tool.handler({ projectKey: 'WP' })) as string);
+    expect(more).toMatchObject({ hasMore: true, nextCursor: 'n==' });
+    expect(more.items.map((i: { issueKey: string }) => i.issueKey)).toEqual(['WP-1']);
+    // 래퍼 설명에도 이어 조회/잘림 안내가 남는다(공유본 설명으로 끝남).
+    expect(tool.description).toContain('nextCursor');
+
+    c.sc.listIssues.mockResolvedValueOnce({ items: [], nextCursor: null, hasMore: false });
+    const last = JSON.parse((await tool.handler({ projectKey: 'WP', cursor: 'n==' })) as string);
+    expect(last).toEqual({ items: [] });
+    expect(c.sc.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'n==' }));
+  });
+
+  it('WP-352: messaging 프로필의 list_channel_messages 가 hasMore·nextCursor 를 돌려준다', async () => {
+    const c = client();
+    c.sc.listChannelMessages.mockResolvedValueOnce({ items: [{ id: 5 }], nextCursor: 'old==', hasMore: true });
+    const tool = find(buildTools(c, AGENT_ID, 'messaging', { channelId: 9, parentMessageId: 1 }), 'list_channel_messages');
+    expect(JSON.parse((await tool.handler({ channelId: 9 })) as string)).toEqual({ items: [{ id: 5 }], hasMore: true, nextCursor: 'old==' });
   });
 
   it('list_issues 설명은 show_issue_list 안내를 앞에 붙이고 공유본 설명으로 끝난다', () => {

@@ -90,6 +90,8 @@ export const issueListFilterShape = {
  */
 export const listIssuesInput = z.object({
   ...issueListFilterShape,
+  // WP-352: 이전 호출이 돌려준 nextCursor 를 그대로 넘기면 다음 페이지다. 웹이 params 를 서버에 직접 넘기는 show_issue_list 의 shape 에는 넣지 않는다.
+  cursor: z.string().optional().describe('다음 페이지 커서 — 이전 호출 결과의 nextCursor 를 그대로(필터·size 는 같게)'),
   assignee: z.string().optional().describe(assigneeDescription(' | "any"(담당자 무관 — 프로젝트 전체 이슈)')),
   cycle: z
     .string()

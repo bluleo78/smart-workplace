@@ -17,14 +17,14 @@ function mockClient(): Client {
     searchMembers: vi.fn(async ({ search }: { search?: string }) => DIRECTORY.filter((m) => m.username === search)),
     createProject: vi.fn().mockResolvedValue({ key: 'NEW', name: '새 프로젝트' }),
     addProjectMember: vi.fn().mockResolvedValue({ userId: 5, username: 'minsu', name: '김민수', role: 'MEMBER', kind: 'HUMAN' }),
-    listProjects: vi.fn().mockResolvedValue([{ key: 'WP' }]),
+    listProjects: vi.fn().mockResolvedValue({ items: [{ key: 'WP' }], total: 1, hasMore: false, page: 0 }),
     getProject: vi.fn().mockResolvedValue({ key: 'WP' }),
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectLabels: vi.fn().mockResolvedValue([]),
     getProjectMembers: vi.fn().mockResolvedValue([]),
     getProjectMilestones: vi.fn().mockResolvedValue([]),
     getProjectCycles: vi.fn().mockResolvedValue([]),
-    listIssues: vi.fn().mockResolvedValue([]),
+    listIssues: vi.fn().mockResolvedValue({ items: [] }),
     updateProject: vi.fn().mockResolvedValue({ key: 'WP' }),
   };
 }
@@ -38,13 +38,27 @@ describe('list_projects', () => {
     const c = mockClient();
     const out = await tool(c, 'list_projects').handler({});
     expect(c.listProjects).toHaveBeenCalledWith(0, 50);
-    expect(JSON.parse(resultText(out))).toEqual([{ key: 'WP' }]);
+    // 마지막 페이지면 total 만 싣고 hasMore·nextPage 는 생략한다(WP-352).
+    expect(JSON.parse(resultText(out))).toEqual({ items: [{ key: 'WP' }], total: 1 });
   });
 
   it('page/size 지정 시 그대로 전달', async () => {
     const c = mockClient();
     await tool(c, 'list_projects').handler({ page: 2, size: 10 });
     expect(c.listProjects).toHaveBeenCalledWith(2, 10);
+  });
+
+  it('WP-352: 다음 페이지가 있으면 hasMore:true 와 nextPage(다음 page 인자)·total 을 싣는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listProjects).mockResolvedValue({ items: [{ key: 'WP' }], total: 120, hasMore: true, page: 1 });
+    const out = JSON.parse(resultText(await tool(c, 'list_projects').handler({ page: 1, size: 50 })));
+    expect(out).toEqual({ items: [{ key: 'WP' }], total: 120, hasMore: true, nextPage: 2 });
+  });
+
+  it('WP-352: 설명이 이어 조회하거나 잘렸다고 알리라고 안내한다', () => {
+    const d = tool(mockClient(), 'list_projects').description;
+    expect(d).toContain('nextPage');
+    expect(d).toContain('일부만 담겼다고 밝히세요');
   });
 });
 
@@ -189,7 +203,7 @@ describe('list_issues', () => {
 
   it('응답 항목은 toIssueListItem 형태 — assignees 는 username/name/kind 만, 숫자 id 없음', async () => {
     const c = mockClient();
-    vi.mocked(c.listIssues).mockResolvedValue([
+    vi.mocked(c.listIssues).mockResolvedValue({ items: [
       {
         id: 9001,
         projectKey: 'WP',
@@ -202,10 +216,10 @@ describe('list_issues', () => {
         type: { id: 7, name: 'BUG', colorToken: 'RED', icon: 'Bug' },
         blocked: true,
       },
-    ]);
+    ] });
     const raw = await tool(c, 'list_issues').handler({ status: 'IN_PROGRESS' });
-    // #850: 값이 없는 키(null·빈 배열)는 생략된다.
-    expect(JSON.parse(resultText(raw))).toEqual([
+    // #850: 값이 없는 키(null·빈 배열)는 생략된다. 다음 페이지가 없으면 hasMore·nextCursor 도 없다(WP-352).
+    expect(JSON.parse(resultText(raw))).toEqual({ items: [
       {
         issueKey: 'WP-3',
         title: '버그',
@@ -216,14 +230,14 @@ describe('list_issues', () => {
         type: 'BUG',
         blocked: true,
       },
-    ]);
+    ] });
     expect(raw).not.toContain('9001');
     expect(raw).not.toContain('5005');
   });
 
   it('WP-307: 날짜·라벨·마일스톤·부모·하위 진행률을 싣고, 시각은 KST·유형은 이름만', async () => {
     const c = mockClient();
-    vi.mocked(c.listIssues).mockResolvedValue([
+    vi.mocked(c.listIssues).mockResolvedValue({ items: [
       {
         projectKey: 'WP',
         number: 4,
@@ -244,8 +258,10 @@ describe('list_issues', () => {
         childDoneCount: 1,
         blocked: false,
       },
-    ]);
-    const [item] = JSON.parse(resultText(await tool(c, 'list_issues').handler({ projectKey: 'WP', closedFrom: '2026-10-08' })));
+    ] });
+    const {
+      items: [item],
+    } = JSON.parse(resultText(await tool(c, 'list_issues').handler({ projectKey: 'WP', closedFrom: '2026-10-08' })));
     expect(item).toEqual({
       issueKey: 'WP-4',
       title: '하위 작업',
@@ -266,6 +282,46 @@ describe('list_issues', () => {
     expect(c.getProjectMilestones).not.toHaveBeenCalled();
     // 종료일 필터는 그대로 서버 쿼리로 간다.
     expect(issueQuery(c)).toMatchObject({ closedFrom: '2026-10-08' });
+  });
+});
+
+describe('list_issues 페이지 (WP-352)', () => {
+  const row = (number: number) => ({ projectKey: 'WP', number, title: `이슈 ${number}`, status: 'TODO', priority: 'MID', assignees: [] });
+
+  it('다음 페이지가 없으면 { items } 만 — hasMore·nextCursor 키는 생략한다(null 도 싣지 않는다)', async () => {
+    const c = mockClient();
+    vi.mocked(c.listIssues).mockResolvedValue({ items: [row(1)], nextCursor: null, hasMore: false });
+    const out = JSON.parse(resultText(await tool(c, 'list_issues').handler({})));
+    expect(Object.keys(out)).toEqual(['items']);
+    expect(out.items).toHaveLength(1);
+  });
+
+  it('size 를 안 줘도 기본 30건에서 잘리면 hasMore:true·nextCursor 로 알린다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listIssues).mockResolvedValue({ items: [row(1), row(2)], nextCursor: 'abc==', hasMore: true });
+    const out = JSON.parse(resultText(await tool(c, 'list_issues').handler({ projectKey: 'WP' })));
+    expect(issueQuery(c)).toMatchObject({ size: 30 });
+    expect(out).toMatchObject({ hasMore: true, nextCursor: 'abc==' });
+    expect(out.items.map((i: { issueKey: string }) => i.issueKey)).toEqual(['WP-1', 'WP-2']);
+  });
+
+  it('cursor 입력은 서버 쿼리의 cursor 로 그대로 전달한다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', cursor: 'abc==', size: 100 });
+    expect(issueQuery(c)).toMatchObject({ projectKey: 'WP', cursor: 'abc==', size: 100 });
+  });
+
+  it('cursor 를 안 주면 쿼리에 cursor 키가 없다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({});
+    expect(issueQuery(c)).not.toHaveProperty('cursor');
+  });
+
+  it('설명이 이어 조회하거나 잘렸다고 알리라고 안내한다(전부로 오해 금지)', () => {
+    const d = tool(mockClient(), 'list_issues').description;
+    expect(d).toContain('nextCursor');
+    expect(d).toContain('cursor 로 넘겨');
+    expect(d).toContain('일부만 담겼다고 밝히세요');
   });
 });
 

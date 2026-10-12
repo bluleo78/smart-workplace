@@ -8,7 +8,7 @@ import type { SharedTool } from './mcp-tool.js';
 import { requireActiveMember } from './member-tools.js';
 import { defaultListAssignee, resolveCycleFilter } from './resolve.js';
 import { formatIssueKey } from './parse.js';
-import { dropEmpty } from './compact.js';
+import { cursorPageView, dropEmpty, numberedPageView } from './compact.js';
 import { labelNames, toChildrenView, toParentView, toPeopleView, toSeoulIso, typeName } from './issue-view.js';
 import { listIssuesInput } from './schemas.js';
 import type { CreateProjectBody, IssueListQuery, IssueRow, MemberToolClient, ProjectToolClient } from './tool-client.js';
@@ -92,11 +92,15 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       name: 'list_projects',
       app: ['project', 'issue'],
       kind: 'read',
-      description: '접근 가능한 프로젝트 목록을 JSON 으로 반환합니다. page/size 로 페이지네이션합니다(기본 0/50).',
+      description:
+        '접근 가능한 프로젝트 목록을 JSON({items, total, hasMore?, nextPage?})으로 반환합니다. total 은 전체 프로젝트 수입니다. ' +
+        'page/size 로 페이지네이션합니다(기본 0/50, size 최대 100). hasMore 가 있으면(true) 뒤에 더 있다는 뜻이니 nextPage 를 page 로 넘겨 이어 조회하거나, ' +
+        '이어 조회하지 않고 답한다면 목록이 일부만 담겼다고 밝히세요.',
       inputSchema: listProjectsInput,
       async handler(args) {
         const { page, size } = listProjectsInput.parse(args);
-        return JSON.stringify(await client.listProjects(page, size));
+        const result = await client.listProjects(page, size);
+        return JSON.stringify(numberedPageView(result.items, result));
       },
     },
     {
@@ -134,7 +138,10 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: 'issue',
       kind: 'read',
       description:
-        '이슈 목록을 JSON 배열로 반환합니다. assignee·reporter 둘 다 생략 시 내 담당("me")이고, 담당자와 무관하게 보려면 assignee="any". ' +
+        '이슈 목록을 JSON({items, hasMore?, nextCursor?})으로 반환합니다. 한 번에 size 건(기본 30, 최대 100)만 담기므로, 끝이 아니면 hasMore:true 와 nextCursor 가 옵니다 — ' +
+        '그 값을 cursor 로 넘겨(필터·size 는 같게) 이어 조회하거나, 이어 조회하지 않고 답한다면 목록이 일부만 담겼다고 밝히세요(전부로 오해해 집계하지 마세요). ' +
+        'hasMore 가 있어도 다음 페이지가 비어 있을 수 있고, 그러면 끝입니다. 이 키들이 없으면 전부 담긴 것입니다. ' +
+        'assignee·reporter 둘 다 생략 시 내 담당("me")이고, 담당자와 무관하게 보려면 assignee="any". ' +
         'projectKey·status·priority·label·type·cycle·q·dueFrom/dueTo·blocked·topLevel 로 좁힙니다. ' +
         '사람은 username, 라벨·유형은 이름으로 지정하고(get_project 가 목록 제공), 없는 값이면 사용 가능 목록을 담은 오류가 옵니다. ' +
         'closedFrom/closedTo(종료일)·createdFrom/createdTo(생성일)는 Asia/Seoul 날짜(yyyy-MM-dd, 양끝 포함)이며, 종료일 범위는 DONE·CANCELED 모두 걸리니 ' +
@@ -153,9 +160,10 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         );
         if (priority?.length) query.priority = priority.join(',');
         query.size = size ?? 30;
-        const items = await client.listIssues(query);
+        const page = await client.listIssues(query);
         // #850: 행마다 반복되는 null·빈 배열 키는 빼 토큰을 줄인다(빠진 키 = 값 없음).
-        return JSON.stringify(items.map((it) => dropEmpty(toIssueListItem(it))));
+        // WP-352: size 를 안 줘도 기본 30건에서 잘리므로, 다음 페이지가 있으면 hasMore·nextCursor 로 알린다(없으면 생략).
+        return JSON.stringify(cursorPageView(page.items.map((it) => dropEmpty(toIssueListItem(it))), page));
       },
     },
     {
