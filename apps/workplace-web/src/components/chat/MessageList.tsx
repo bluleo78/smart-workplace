@@ -127,6 +127,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
     touchShell,
     (id) => ordered.some((m) => m.id === id && sheetOpenable(m)),
     sheet.show,
+    openReactors,
   )
   const target = sheet.target
 
