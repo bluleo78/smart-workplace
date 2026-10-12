@@ -19,6 +19,7 @@ import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, 
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { useMoveIssueCycle } from '../../../hooks/queries/useMoveIssueCycle';
 import { useMoveIssueEpic } from '../../../hooks/queries/useMoveIssueEpic';
+import { snapRowChipToPointer } from '../../../lib/dndRowChip';
 import {
   epicDropState,
   isCycleDropData,
@@ -29,7 +30,6 @@ import {
   type IssueDragData,
   issueKeyboardCoordinates,
   sameCycleSection,
-  snapRowChipToPointer,
 } from '../../../lib/epicDnd';
 import type { IssueResponse } from '../../../types/issue';
 import { IssueCard } from './IssueCard';
