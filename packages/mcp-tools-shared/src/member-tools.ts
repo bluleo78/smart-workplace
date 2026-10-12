@@ -115,6 +115,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
   return [
     {
       name: 'search_members',
+      app: 'member',
       kind: 'read',
       description:
         '우리 워크스페이스의 구성원을 검색해 JSON 으로 반환합니다. 사람을 찾을 때 쓰는 표준 도구입니다. ' +
@@ -127,6 +128,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
     },
     {
       name: 'get_member',
+      app: 'member',
       kind: 'read',
       description: '구성원 단건(아이디·이메일·직책·활성여부·멤버십 역할)을 JSON 으로 반환합니다. username 은 search_members 로 확보하세요.',
       inputSchema: memberInput,
@@ -140,6 +142,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
     },
     {
       name: 'get_member_contact',
+      app: 'member',
       kind: 'read',
       description:
         '사내 구성원의 연락처 상세(직책·소속 그룹·즐겨찾기 여부)를 JSON 으로 반환합니다. 조직/소속을 묻는 질문에 적합합니다. ' +
@@ -156,6 +159,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
     },
     {
       name: 'list_contacts',
+      app: 'contacts',
       kind: 'read',
       description:
         '연락처 목록을 JSON 으로 반환합니다. type=EXTERNAL 은 외부 연락처(거래처·고객 등), type=MEMBER 는 사내 구성원입니다. ' +
@@ -174,6 +178,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
     },
     {
       name: 'get_external_contact',
+      app: 'contacts',
       kind: 'read',
       description:
         '외부 연락처 단건 상세를 JSON 으로 반환합니다. externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다. ' +

@@ -93,6 +93,24 @@ export function TokenIssueDialog({
             >
               명령 복사
             </Button>
+            {/* WP-350: 기본 주소는 전체 도구를 싣는다 — Claude·ChatGPT 는 도구 정의를 전부 읽으므로 필요한 앱만, 또는 읽기 전용으로 좁히는 방법을 알린다. */}
+            <div className="space-y-1 pt-2 text-xs text-muted-foreground" data-testid="token-connect-scope-guide">
+              <p>
+                기본 주소(<code className="font-mono">/mcp</code>)는 모든 앱의 도구를 연결합니다. 주소 끝을 바꾸면 범위를 좁힐 수 있습니다.
+              </p>
+              <ul className="list-disc space-y-0.5 pl-4">
+                <li>
+                  <code className="font-mono">/mcp/x/issue,wiki</code> — 이슈·위키 도구만
+                </li>
+                <li>
+                  <code className="font-mono">/mcp/readonly</code> — 조회 도구만(읽기 전용)
+                </li>
+                <li>
+                  <code className="font-mono">/mcp/x/issue,wiki/readonly</code> — 앱 선택 + 읽기 전용
+                </li>
+              </ul>
+              <p>앱: issue, project, wiki, drive, mail, messaging, calendar, contacts, notify, member</p>
+            </div>
           </div>
 
           <DialogFooter>

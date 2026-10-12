@@ -100,6 +100,7 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
   return [
     {
       name: 'read_attachment',
+      app: ['issue', 'drive'],
       kind: 'read',
       description:
         '이슈 첨부나 드라이브 파일의 내용을 읽습니다. 이슈 첨부는 source:"issue" + issueKey + fileId(get_issue_detail 의 attachments[].fileId), ' +

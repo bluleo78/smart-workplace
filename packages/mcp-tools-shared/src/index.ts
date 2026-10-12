@@ -1,6 +1,7 @@
 // src/index.ts — 패키지 공개 API. 앱이 쓰는 것만 내보낸다(도구 내부 헬퍼·스키마는 각 모듈이 직접 import).
 export { parseIssueKey, describeApiError } from './parse.js';
 export type { McpTool, McpToolAnnotations, SharedTool, ToolHints, ToolKind } from './mcp-tool.js';
+export { TOOL_APPS, TOOL_APP_GUIDES, isToolApp, toolApps, type ToolApp, type ToolAppGuide, type ToolAppTag } from './tool-apps.js';
 export { toolAnnotations } from './tool-annotations.js';
 export { toMcpContent, summarizeToolResult, resultText, replaceImagesWithNotice, type McpContent, type McpToolResult } from './mcp-content.js';
 export { issueListFilterShape } from './schemas.js';

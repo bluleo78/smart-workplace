@@ -130,6 +130,7 @@ export function buildMessagingTools(
   return [
     {
       name: 'list_channels',
+      app: 'messaging',
       kind: 'read',
       description:
         '내가 속한 채널·DM 목록을 JSON 배열로 반환합니다(id·name·kind·visibility 포함). 채널 이름만 알 때 channelId 를 확보한 뒤 get_channel_messages / add_channel_message 에 사용하세요.',
@@ -140,6 +141,7 @@ export function buildMessagingTools(
     },
     {
       name: 'discover_channels',
+      app: 'messaging',
       kind: 'read',
       description:
         '공개 채널을 이름·키워드로 검색해 JSON 배열로 반환합니다(id·name·kind 포함). list_channels 에 없는 공개 채널을 찾아 channelId 를 확보한 뒤 메시지 조회/작성에 사용하세요.',
@@ -151,6 +153,7 @@ export function buildMessagingTools(
     },
     {
       name: 'get_channel_messages',
+      app: 'messaging',
       kind: 'read',
       description:
         '채널/DM 의 최근 메시지 목록을 최신순(최신 → 오래된 순)으로 JSON 배열로 반환합니다(대화 흐름 확인용). 스레드 답글은 빠지고 최상위 메시지만 담기며, ' +
@@ -164,6 +167,7 @@ export function buildMessagingTools(
     },
     {
       name: 'list_thread_replies',
+      app: 'messaging',
       kind: 'read',
       description:
         '채널 메시지 하나에 달린 스레드 답글 전체를 오래된 순으로 JSON({items, truncated})으로 반환합니다(스레드 요약·확인용). ' +
@@ -178,6 +182,7 @@ export function buildMessagingTools(
     },
     {
       name: 'add_channel_message',
+      app: 'messaging',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
@@ -192,6 +197,7 @@ export function buildMessagingTools(
     },
     {
       name: 'create_channel',
+      app: 'messaging',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
@@ -204,6 +210,7 @@ export function buildMessagingTools(
     },
     {
       name: 'open_dm',
+      app: 'messaging',
       kind: 'write',
       // 같은 참여자 DM 이 있으면 그것을 돌려준다(find-or-create) — 추가만 하고 멱등.
       hints: { destructive: false, idempotent: true },
@@ -227,6 +234,7 @@ export function buildMessagingTools(
     },
     {
       name: 'leave_channel',
+      app: 'messaging',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
@@ -251,6 +259,7 @@ export function buildMessagingTools(
     },
     {
       name: 'add_channel_member',
+      app: 'messaging',
       kind: 'write',
       // 멤버를 추가만 한다. 서버가 이미 멤버면 아무것도 바꾸지 않고 성공한다(ChannelMemberRepository.add 의 ON CONFLICT DO NOTHING,
       // 기존 역할 유지)라 다시 불러도 같은 결과 — 멱등. 확인 카드 사전검증(validateAdd)만 "이미 멤버" 를 거절하는데, 효과 없는 카드를

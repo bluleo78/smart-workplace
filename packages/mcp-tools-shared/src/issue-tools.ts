@@ -18,6 +18,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
   return [
     {
       name: 'get_issue_detail',
+      app: 'issue',
       kind: 'read',
       description:
         '이슈 전체 컨텍스트를 JSON 으로 반환합니다. issueKey 예: WP-12. ' +
@@ -36,6 +37,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     },
     {
       name: 'create_issue',
+      app: 'issue',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
@@ -63,6 +65,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     },
     {
       name: 'update_issue',
+      app: 'issue',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
@@ -119,6 +122,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     },
     {
       name: 'add_comment',
+      app: 'issue',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description: '이슈에 코멘트를 작성합니다. 본문은 마크다운을 지원합니다.',
@@ -131,6 +135,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     },
     {
       name: 'update_comment',
+      app: 'issue',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
@@ -144,6 +149,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     },
     {
       name: 'add_issue_dependency',
+      app: 'issue',
       kind: 'write',
       // 이미 있는 관계를 다시 추가하면 서버가 no-op 으로 처리한다 — 멱등.
       hints: { destructive: false, idempotent: true },
@@ -164,6 +170,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     },
     {
       name: 'remove_issue_dependency',
+      app: 'issue',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description: '이슈 간 의존성을 제거합니다. 존재하지 않아도 에러 없이 성공합니다(멱등).',
@@ -181,6 +188,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     },
     {
       name: 'watch_issue',
+      app: 'issue',
       kind: 'write',
       hints: { destructive: false, idempotent: true },
       description:
@@ -194,6 +202,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
     },
     {
       name: 'unwatch_issue',
+      app: 'issue',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description: '이슈 워치를 해제해 변경 알림을 그만 받습니다. 워치 중이 아니어도 에러 없이 성공합니다.',

@@ -5,7 +5,11 @@ import type { Express } from 'express';
 import nock from 'nock';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { buildSharedTools, TOOL_APPS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
+
 import { createApp } from '../index.js';
+import { exposableTools } from '../tools/index.js';
+import { INSTRUCTIONS_MAX_LENGTH } from './instructions.js';
 
 const API = 'http://api.test';
 let server: ReturnType<Express['listen']>;
@@ -149,5 +153,128 @@ describe('/mcp', () => {
       expect(res.isError).toBe(true);
       expect(JSON.stringify(res.content)).toContain('driveFileId 가 필요');
     });
+  });
+});
+
+// WP-350: 연결 범위(앱 선택·읽기 전용). 같은 서버·같은 인증 위에서 URL 경로·헤더만 달라진다.
+describe('/mcp 연결 범위 (WP-350)', () => {
+  const origin = () => baseUrl.replace(/\/mcp$/, '');
+  const meOk = () => nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+  /** 경로·헤더를 지정해 연결하고 도구 목록·instructions 를 돌려준다. */
+  async function open(path: string, headers: Record<string, string> = {}) {
+    meOk();
+    const transport = new StreamableHTTPClientTransport(new URL(origin() + path), {
+      requestInit: { headers: { Authorization: 'Bearer swp_valid', ...headers } },
+    });
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await client.connect(transport);
+    const { tools } = await client.listTools();
+    const instructions = client.getInstructions() ?? '';
+    await client.close();
+    return { tools, names: tools.map((t) => t.name), instructions };
+  }
+  const allNames = exposableTools(buildSharedTools({} as unknown as SharedToolClient)).map((t) => t.name);
+
+  it('기본 /mcp 는 지금처럼 노출 가능한 도구 전부를 싣고, instructions 는 앱별 안내가 앞에 온다', async () => {
+    const r = await open('/mcp');
+    expect([...r.names].sort()).toEqual([...allNames].sort());
+    expect(r.instructions.length).toBeLessThanOrEqual(INSTRUCTIONS_MAX_LENGTH);
+    expect(r.instructions.split('\n')[1]).toBe('앱별 안내:');
+    expect(r.instructions).not.toContain('읽기 전용 연결');
+  });
+
+  it('/mcp/x/issue,wiki 는 두 앱 도구만 싣고 instructions 도 두 앱만 설명한다', async () => {
+    const r = await open('/mcp/x/issue,wiki');
+    expect(r.names).toEqual(expect.arrayContaining(['create_issue', 'update_wiki_page', 'read_attachment']));
+    expect(r.names).not.toContain('list_mail');
+    expect(r.names).not.toContain('list_events');
+    expect(r.instructions).toContain('- 이슈:');
+    expect(r.instructions).toContain('- 위키(노트):');
+    expect(r.instructions).not.toContain('- 메일:');
+  });
+
+  it('/mcp/readonly 는 읽기 도구만 싣고 모두 readOnlyHint 다', async () => {
+    const r = await open('/mcp/readonly');
+    expect(r.names).toContain('list_issues');
+    expect(r.names).not.toContain('create_issue');
+    expect(r.tools.every((t) => t.annotations?.readOnlyHint === true)).toBe(true);
+    expect(r.instructions).toContain('읽기 전용 연결');
+  });
+
+  it('/mcp/x/{apps}/readonly 는 앱 선택과 읽기 전용의 교집합', async () => {
+    const r = await open('/mcp/x/calendar/readonly');
+    expect([...r.names].sort()).toEqual(['get_event', 'list_events']);
+  });
+
+  it('X-MCP-Toolsets 헤더는 경로에 앱 선택이 없을 때 앱 선택으로 쓰이고, /readonly 와도 합쳐진다', async () => {
+    expect([...(await open('/mcp', { 'X-MCP-Toolsets': 'notify' })).names].sort()).toEqual([
+      'list_notifications',
+      'mark_all_notifications_read',
+      'mark_notification_read',
+    ]);
+    expect((await open('/mcp/readonly', { 'X-MCP-Toolsets': 'notify' })).names).toEqual(['list_notifications']);
+  });
+
+  it('경로에 앱 선택이 있으면 헤더는 무시한다', async () => {
+    const r = await open('/mcp/x/notify', { 'X-MCP-Toolsets': 'issue' });
+    expect(r.names).not.toContain('create_issue');
+    expect(r.names).toContain('list_notifications');
+  });
+
+  it('읽기 전용 연결은 쓰기 도구 호출을 받아 주지 않는다(도구 자체가 없다)', async () => {
+    meOk();
+    const transport = new StreamableHTTPClientTransport(new URL(origin() + '/mcp/readonly'), {
+      requestInit: { headers: { Authorization: 'Bearer swp_valid' } },
+    });
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await client.connect(transport);
+    const res = await client.callTool({ name: 'create_issue', arguments: { projectKey: 'WP', title: 't' } }).catch((e: unknown) => e);
+    await client.close();
+    // SDK 는 모르는 도구를 isError 결과 또는 예외로 돌려준다 — 어느 쪽이든 API 호출은 일어나지 않았다(nock 에 POST 를 등록하지 않았다).
+    expect(res instanceof Error || (res as { isError?: boolean }).isError === true).toBe(true);
+  });
+
+  describe('잘못된 앱 이름', () => {
+    const initBody = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '0' } } };
+    const post = (path: string, headers: Record<string, string> = {}) =>
+      fetch(origin() + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: 'Bearer swp_valid', ...headers },
+        body: JSON.stringify(initBody),
+      });
+
+    it('경로의 모르는 앱은 400 + JSON-RPC 오류 + 사용 가능한 앱 목록이고 /auth/me 는 부르지 않는다', async () => {
+      const res = await post('/mcp/x/issue,foo');
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { jsonrpc: string; error: { code: number; message: string; data: { availableApps: string[] } }; id: null };
+      expect(body.jsonrpc).toBe('2.0');
+      expect(body.error.message).toContain("'foo'");
+      expect(body.error.message).toContain(TOOL_APPS.join(', '));
+      expect(body.error.data.availableApps).toEqual([...TOOL_APPS]);
+    });
+
+    it('헤더의 모르는 앱도 400', async () => {
+      const res = await post('/mcp', { 'X-MCP-Toolsets': 'nope' });
+      expect(res.status).toBe(400);
+    });
+
+    it('/mcp/x/readonly 처럼 앱 자리에 readonly 를 쓰면 400 — 앱 이름이 아니다', async () => {
+      expect((await post('/mcp/x/readonly')).status).toBe(400);
+    });
+
+    it('인증이 없으면 앱 이름이 틀려도 401 이 먼저다', async () => {
+      const res = await post('/mcp/x/foo', { Authorization: '' });
+      expect(res.status).toBe(401);
+    });
+  });
+
+  it('범위 경로의 GET·DELETE 는 기본 /mcp 처럼 405(stateless)', async () => {
+    for (const path of ['/mcp/readonly', '/mcp/x/issue', '/mcp/x/issue/readonly']) {
+      for (const method of ['GET', 'DELETE']) {
+        const res = await fetch(origin() + path, { method });
+        expect(res.status, `${method} ${path}`).toBe(405);
+        expect(res.headers.get('allow')).toBe('POST');
+      }
+    }
   });
 });

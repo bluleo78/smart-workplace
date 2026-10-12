@@ -254,7 +254,7 @@ describe('registerStdioTool', () => {
   // WP-345: 공유 도구가 이미지를 돌려줘도 opencode 비전 미지원 모델에는 같은 안내 치환이 적용된다(경로는 도구 출처와 무관).
   it('공유 도구(SharedTool)가 돌려준 이미지도 비전 미지원이면 안내 문구로 바꾼다(WP-345)', async () => {
     const shared: SharedTool = {
-      name: 't', description: 'd', inputSchema: z.object({}), kind: 'read',
+      name: 't', description: 'd', inputSchema: z.object({}), app: 'drive', kind: 'read',
       handler: async () => [{ type: 'text', text: '첨부:' }, { type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/png' }],
     };
     const server = new McpServer({ name: 'workplace', version: '1.0.0' });

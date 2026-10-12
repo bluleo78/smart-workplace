@@ -112,6 +112,12 @@ test.describe('/settings/tokens', () => {
         /^claude mcp add -s user --transport http genia-works "http:\/\/localhost:6090\/mcp" --header "Authorization: Bearer swp_PLAINTEXT_[^"]+"$/,
       );
 
+      // 범위 선택 안내(WP-350) — 앱 선택·읽기 전용 주소 예시. 위 명령(전체 연결)은 그대로다.
+      const scopeGuide = page.getByTestId('token-connect-scope-guide');
+      await expect(scopeGuide).toContainText('/mcp/x/issue,wiki');
+      await expect(scopeGuide).toContainText('/mcp/readonly');
+      await expect(scopeGuide).toContainText('issue, project, wiki, drive, mail, messaging, calendar, contacts, notify, member');
+
       // ④ 모달 닫으면 목록에 새 행 추가(prefix만, 평문 없음) — 만료일도 반영
       await page.keyboard.press('Escape');
       await expect(dialog).not.toBeVisible();

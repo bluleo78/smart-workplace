@@ -90,6 +90,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
   return [
     {
       name: 'list_projects',
+      app: ['project', 'issue'],
       kind: 'read',
       description: '접근 가능한 프로젝트 목록을 JSON 으로 반환합니다. page/size 로 페이지네이션합니다(기본 0/50).',
       inputSchema: listProjectsInput,
@@ -100,6 +101,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
     },
     {
       name: 'get_project',
+      app: ['project', 'issue'],
       kind: 'read',
       description:
         '프로젝트 상세(key·name·description·type)와 이 프로젝트에서 쓸 수 있는 이슈 유형(issueTypes)·라벨(labels)·마일스톤(milestones) 이름, ' +
@@ -129,6 +131,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
     },
     {
       name: 'list_issues',
+      app: 'issue',
       kind: 'read',
       description:
         '이슈 목록을 JSON 배열로 반환합니다. assignee·reporter 둘 다 생략 시 내 담당("me")이고, 담당자와 무관하게 보려면 assignee="any". ' +
@@ -157,6 +160,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
     },
     {
       name: 'update_project',
+      app: 'project',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
@@ -175,6 +179,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
     },
     {
       name: 'create_project',
+      app: 'project',
       kind: 'write',
       // 새 프로젝트를 추가만 한다. 같은 키로 다시 부르면 409(이미 사용 중인 key — ProjectService.validateCreatable),
       // PERSONAL 은 키를 서버가 정해 하나 더 생기므로 멱등이 아니다. 워크스페이스 밖에 닿지 않는다.
@@ -191,6 +196,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
     },
     {
       name: 'add_project_member',
+      app: 'project',
       kind: 'write',
       // 멤버를 추가만 한다. 이미 멤버면 409(이미 멤버입니다 — ProjectService.checkAddMember)라 같은 결과를 오류 없이 돌려주지 않으므로
       // 멱등이 아니다. 워크스페이스 밖에 닿지 않는다.

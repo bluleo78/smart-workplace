@@ -8,14 +8,21 @@ import type { z } from 'zod';
 
 import { createPatApiClient } from '../clients/workplace-api.js';
 import { buildUserTools } from '../tools/index.js';
+import { buildInstructions } from './instructions.js';
+import { FULL_SCOPE, InvalidScopeError, resolveScope, type McpRoute, type McpScope } from './scope.js';
 
 /** 도구 배열을 McpServer 에 등록. 핸들러 반환 → content(문자열은 text 블록, 블록 배열은 그대로 — WP-240), 예외 → isError. */
-export function buildMcpServer(apiBaseUrl: string, token: string): McpServer {
+export function buildMcpServer(apiBaseUrl: string, token: string, scope: McpScope = FULL_SCOPE): McpServer {
   const client = createPatApiClient({ baseURL: apiBaseUrl, token });
   // serverInfo — name 은 설정 키가 없을 때 도구 이름 접두사로 쓰는 클라이언트가 있어 영문·숫자·-·_ 만 쓰고,
   // 브랜드 표기(콜론·공백 포함)는 표시용 title 로 둔다(WP-334).
-  const server = new McpServer({ name: 'genia-works', title: 'Gen:iA Works', version: '0.1.0' });
-  for (const t of buildUserTools(client)) {
+  // WP-350: 연결 범위에 맞춰 도구를 추리고, instructions 도 로드된 도구만 설명하도록 같은 목록으로 만든다.
+  const tools = buildUserTools(client, scope);
+  const server = new McpServer(
+    { name: 'genia-works', title: 'Gen:iA Works', version: '0.1.0' },
+    { instructions: buildInstructions(tools, scope) },
+  );
+  for (const t of tools) {
     // WP-342: 힌트는 kind(노출 여부)가 아니라 연산 성격(추가/덮어쓰기·제거, 멱등, 외부 접근)으로 계산한다.
     // 클라이언트(Claude·ChatGPT)는 이 값으로 읽기는 자동 승인하고, 덮어쓰기·제거는 확인을 받는다.
     const annotations = toolAnnotations(t);
@@ -57,8 +64,16 @@ function axiosLike(e: unknown): e is { response?: { status?: number; data?: unkn
   return typeof e === 'object' && e !== null && 'response' in e;
 }
 
-/** POST /mcp 핸들러 — Bearer swp_ 추출 → (initialize 면 /auth/me 로 조기 검증) → stateless 처리. */
-export async function handleMcpPost(apiBaseUrl: string, req: Request, res: Response): Promise<void> {
+/**
+ * POST /mcp 계열 핸들러 — Bearer swp_ 추출 → 연결 범위 검증 → (initialize 면 /auth/me 로 조기 검증) → stateless 처리.
+ * route 는 라우터가 URL 에서 읽은 범위(WP-350)이고, 기본 `/mcp` 는 생략한다(= 전체 노출, 헤더 없으면 기존과 동일).
+ */
+export async function handleMcpPost(
+  apiBaseUrl: string,
+  req: Request,
+  res: Response,
+  route: McpRoute = { readOnly: false },
+): Promise<void> {
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer swp_')) {
     res
@@ -67,6 +82,17 @@ export async function handleMcpPost(apiBaseUrl: string, req: Request, res: Respo
     return;
   }
   const token = auth.slice('Bearer '.length);
+
+  // 앱 이름이 틀리면 도구를 일부만 싣지 않고 400 + 사용 가능한 목록으로 거절한다. 인증 뒤·/auth/me 앞에서 해 불필요한 API 호출을 피한다.
+  // 본문은 이 서버의 다른 사전 거절(401)과 같은 JSON-RPC 오류 모양이다 — Streamable HTTP 클라이언트는 비 2xx 본문을 오류 메시지로 보여 준다.
+  let scope: McpScope;
+  try {
+    scope = resolveScope(route, req.headers['x-mcp-toolsets']);
+  } catch (e) {
+    if (!(e instanceof InvalidScopeError)) throw e;
+    res.status(400).json({ jsonrpc: '2.0', error: { code: -32602, message: e.message, data: { availableApps: e.available } }, id: null });
+    return;
+  }
 
   // initialize 요청이면 workplace-api 로 토큰을 조기 검증해 연결 시점에 401 을 돌려준다 (UX).
   const isInit = Array.isArray(req.body)
@@ -85,7 +111,7 @@ export async function handleMcpPost(apiBaseUrl: string, req: Request, res: Respo
     }
   }
 
-  const server = buildMcpServer(apiBaseUrl, token);
+  const server = buildMcpServer(apiBaseUrl, token, scope);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on('close', () => {
     void transport.close();

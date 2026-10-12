@@ -14,6 +14,7 @@ workplace-mcp(사용자 PAT 원격 MCP)와 workplace-ai-agent(AI 비서 인-프�
 | `*-tools.ts` | 도메인별 도구 정의(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·메시징·드라이브·알림·첨부(`attachment-tools.ts`)) |
 | `attachment-read.ts` | 첨부·파일 내용 읽기의 공통 계약 — 구간 범위(`readRangeShape`)·기본 길이·이미지 형식/크기 판정. 공유 `read_attachment` 와 ai-agent 전용 채팅 첨부 읽기 도구가 같이 쓴다 |
 | `shared-tools.ts` | `buildSharedTools(client, opts)` — 공유 도구 전체 |
+| `tool-apps.ts` | `TOOL_APPS`·`ToolApp`·`toolApps()` — 도구를 앱으로 묶는 분류(WP-350, 아래 "앱 분류")와 서버 `instructions` 에 쓰는 앱별 안내(`TOOL_APP_GUIDES`) |
 | `tool-naming.ts` | `toolNameViolations(name)` — 도구 이름 규칙 검사(아래 "도구 명명 규칙"). 두 앱의 테스트가 쓴다 |
 
 LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는다. 식별자 이름 바꾸기나 숫자 id 제거가 여기에 해당한다. 클라이언트에 가공을 두면 앱마다 규칙이 달라진다.
@@ -38,6 +39,31 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 `kind` 는 **노출 여부**만 정한다. MCP 클라이언트에 알리는 연산 성격(`destructiveHint`·`idempotentHint`·`openWorldHint`)은 `kind` 가 아니라 write·destructive 도구의 `hints`(`ToolHints`)에서 `toolAnnotations()` 가 만든다(WP-342, read 는 `readOnlyHint` 만). 기준은 `mcp-tool.ts` 의 `ToolHints` 주석이고, 도구별 전체 값은 `tool-annotations.test.ts` 가 고정한다. 그래서 `kind: 'write'` 여도 덮어쓰거나 지우는 도구는 `destructiveHint` 가 true 다.
 
 등급과 노출 목록은 `shared-tools.test.ts` 와 workplace-mcp `tools/index.test.ts` 의 스냅샷이 고정한다.
+
+## 앱 분류 (WP-350)
+
+외부 MCP 클라이언트(Claude.ai·ChatGPT)는 연결한 서버의 도구 정의를 전부 싣는다. 그래서 연결할 때 앱을 고를 수 있도록 공유 도구마다 `app` 태그를 둔다. `SharedTool.app` 은 **필수**라 빠뜨리면 타입 오류가 나고, `tool-apps.test.ts` 가 값의 유효성·앱별 도구 존재·도구별 분류 스냅샷을 확인한다.
+
+- 앱 이름은 URL·헤더에 쓰는 값이라 소문자 영문이다: `issue`·`project`·`wiki`·`drive`·`mail`·`messaging`·`calendar`·`contacts`·`notify`·`member`. 새 앱은 `TOOL_APPS` 와 `TOOL_APP_GUIDES` 에 함께 추가한다.
+- 분류는 파일이 아니라 **도구 단위**다. `list_issues` 는 `project-tools.ts` 에 있지만 `issue`, `list_contacts`·`get_external_contact` 는 `member-tools.ts` 에 있지만 `contacts` 다.
+- **한 도구가 여러 앱에 속할 수 있다**(`app: ['issue', 'drive']`). 그 앱 중 하나만 골라도 도구가 보여야 그 앱 안에서 일이 끊기기 때문이다. 꼭 필요한 선행 조회만 겹치고, "있으면 편한" 수준으로는 퍼뜨리지 않는다.
+  - `read_attachment`: 이슈 첨부와 드라이브 파일을 모두 읽는다 → `issue`, `drive`.
+  - `list_projects`·`get_project`: 이슈 작업의 출발점(projectKey·담당자·라벨·마일스톤 목록)이다 → `project`, `issue`.
+
+| 앱 | 도구 |
+|---|---|
+| `issue` | `list_issues` `get_issue_detail` `create_issue` `update_issue` `add_comment` `update_comment` `add_issue_dependency` `remove_issue_dependency` `watch_issue` `unwatch_issue` + 겹침: `list_projects` `get_project` `read_attachment` |
+| `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` |
+| `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` |
+| `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_folder` `move_drive_folder` `move_drive_file` + 겹침: `read_attachment` |
+| `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` |
+| `messaging` | `list_channels` `discover_channels` `get_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `add_channel_member` |
+| `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` |
+| `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` |
+| `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` |
+| `member` | `search_members` `get_member` `get_member_contact` |
+
+workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸러낸다(`apps/workplace-mcp/CLAUDE.md` "연결 범위"). 앱 선택은 노출 기준(`kind`)과 별개다 — destructive 는 어느 연결에서도 노출하지 않는다. AI Chat(ai-agent)은 `app` 을 쓰지 않는다.
 
 ## 노출 기준 (WP-347)
 

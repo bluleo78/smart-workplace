@@ -151,7 +151,7 @@ describe('toolAnnotations', () => {
 // 타입 강제 — write·destructive 가 hints 를 빠뜨리면 typecheck 가 실패해야 한다(tsc 가 이 파일도 검사한다).
 describe('SharedTool 타입', () => {
   it('hints 없는 write/destructive 와 hints 가 붙은 read 는 컴파일되지 않는다', () => {
-    const base = { name: 'x', description: 'x', inputSchema: tools[0].inputSchema, handler: async () => 'ok' };
+    const base = { name: 'x', description: 'x', app: 'issue' as const, inputSchema: tools[0].inputSchema, handler: async () => 'ok' };
     // @ts-expect-error write 는 hints 필수
     const noHints: SharedTool = { ...base, kind: 'write' };
     // @ts-expect-error destructive 도 hints 필수
@@ -159,6 +159,8 @@ describe('SharedTool 타입', () => {
     // @ts-expect-error read 는 hints 를 가질 수 없다
     const readWithHints: SharedTool = { ...base, kind: 'read', hints: { destructive: false, idempotent: true } };
     const ok: SharedTool = { ...base, kind: 'write', hints: { destructive: false, idempotent: true } };
-    expect([noHints, noHints2, readWithHints, ok]).toHaveLength(4);
+    // @ts-expect-error app 태그도 필수(WP-350) — 빠뜨리면 앱 선택 연결에서 도구가 어디에도 안 나온다
+    const noApp: SharedTool = { name: 'x', description: 'x', inputSchema: tools[0].inputSchema, handler: async () => 'ok', kind: 'read' };
+    expect([noHints, noHints2, readWithHints, ok, noApp]).toHaveLength(5);
   });
 });

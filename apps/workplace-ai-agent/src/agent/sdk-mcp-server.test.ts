@@ -107,7 +107,7 @@ describe('adaptMcpTool onTool emit (#462 슬라이스4)', () => {
     let seq = 0;
     const image = { type: 'image' as const, data: 'A'.repeat(8192), mimeType: 'image/png' };
     const shared: SharedTool = {
-      name: 'fake_shared_image', description: 'd', inputSchema: z.object({}), kind: 'read',
+      name: 'fake_shared_image', description: 'd', inputSchema: z.object({}), app: 'drive', kind: 'read',
       handler: async () => [{ type: 'text', text: '첨부:' }, image],
     };
     // tools.ts 의 sharedTool() 이 하는 것과 같다 — 핸들러는 그대로 두고 annotations 만 얹는다.

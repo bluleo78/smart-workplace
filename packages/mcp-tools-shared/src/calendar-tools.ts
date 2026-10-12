@@ -165,6 +165,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
   return [
     {
       name: 'list_events',
+      app: 'calendar',
       kind: 'read',
       description: '[from,to) 기간(ISO-8601)의 내 일정 목록을 JSON 으로 반환합니다. 일정 충돌 확인·요약에 사용하세요.',
       inputSchema: listEventsInput,
@@ -175,6 +176,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
     },
     {
       name: 'get_event',
+      app: 'calendar',
       kind: 'read',
       description:
         '단일 일정 상세를 JSON 으로 반환합니다. 내가 만들었거나 참석자로 초대된 일정만 볼 수 있고(그 외에는 찾을 수 없음 오류), ' +
@@ -188,6 +190,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
     },
     {
       name: 'rsvp_event',
+      app: 'calendar',
       kind: 'write',
       // 응답을 덮어쓰고, 다시 불러도 주최자 알림이 또 쌓이므로 멱등이 아니다.
       hints: { destructive: true, idempotent: false },
@@ -203,6 +206,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
     },
     {
       name: 'create_event',
+      app: 'calendar',
       kind: 'write',
       // 새 일정을 추가만 한다. 같은 인자로 다시 부르면 일정이 하나 더 생기고 초대 알림도 다시 가므로 멱등이 아니다(중복 방지 키 없음).
       // 생성은 늘 로컬 기본 캘린더라 외부 캘린더(M365)에 닿지 않는다.
@@ -238,6 +242,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
     },
     {
       name: 'update_event',
+      app: 'calendar',
       kind: 'write',
       // 기존 값을 덮어쓰고 참석자를 뺄 수 있다. 같은 인자로 다시 불러도 이후 회차 수정(THIS_AND_FOLLOWING)은 시리즈를 또 나누고
       // 참석자 추가는 오류가 나므로 멱등이 아니다. M365 에서 동기화된 내 일정은 수정·참석자 변경이 그 캘린더로 전송된다(openWorld).

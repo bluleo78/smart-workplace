@@ -127,6 +127,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
   return [
     {
       name: 'get_contact_facets',
+      app: 'contacts',
       kind: 'read',
       description:
         '외부 연락처에 쓰인 조직(organizations)·직책(titles) 목록을 JSON 으로 반환합니다. ' +
@@ -138,6 +139,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     },
     {
       name: 'add_contact_favorite',
+      app: 'contacts',
       kind: 'write',
       hints: { destructive: false, idempotent: true },
       description: `연락처를 내 즐겨찾기에 추가합니다(이미 있으면 그대로). ${TARGET_HINT}`,
@@ -150,6 +152,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     },
     {
       name: 'remove_contact_favorite',
+      app: 'contacts',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description: `연락처를 내 즐겨찾기에서 뺍니다(없어도 그대로). ${TARGET_HINT}`,
@@ -162,6 +165,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     },
     {
       name: 'list_user_groups',
+      app: 'contacts',
       kind: 'read',
       description:
         '사용자 그룹 트리를 JSON 으로 반환합니다. shared 는 모두가 보는 공유 조직도, personal 은 내 개인 그룹입니다. ' +
@@ -174,6 +178,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     },
     {
       name: 'get_user_group',
+      app: 'contacts',
       kind: 'read',
       description:
         '사용자 그룹 상세와 직속 멤버를 JSON 으로 반환합니다. 멤버 중 구성원은 username, 외부 연락처는 externalId 로 표시됩니다. ' +
@@ -186,6 +191,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     },
     {
       name: 'create_user_group',
+      app: 'contacts',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
@@ -199,6 +205,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     },
     {
       name: 'update_user_group',
+      app: 'contacts',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
@@ -219,6 +226,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     },
     {
       name: 'add_user_group_member',
+      app: 'contacts',
       kind: 'write',
       hints: { destructive: false, idempotent: true },
       description: `사용자 그룹에 구성원 또는 외부 연락처를 넣습니다(이미 있으면 그대로). ${TARGET_HINT} 갱신된 그룹 상세를 반환합니다.`,
@@ -231,6 +239,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     },
     {
       name: 'remove_user_group_member',
+      app: 'contacts',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description: `사용자 그룹에서 구성원 또는 외부 연락처를 뺍니다(사람·연락처 자체는 지워지지 않음). ${TARGET_HINT}`,
@@ -244,6 +253,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     },
     {
       name: 'create_external_contact',
+      app: 'contacts',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
@@ -257,6 +267,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
     },
     {
       name: 'update_external_contact',
+      app: 'contacts',
       kind: 'write',
       // 준 필드로 현재 값을 덮어쓴다(destructive). 병합 후 같은 값이면 저장 상태가 그대로이고, 중복 판정은 자기 자신을 제외해 다시 불러도 같은 결과(멱등).
       hints: { destructive: true, idempotent: true },
