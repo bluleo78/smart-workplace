@@ -43,6 +43,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -370,7 +371,10 @@ class MailReadSyncOrderingTest extends IntegrationTestBase {
 
     EmailMessageRecord r = row(id);
     assertThat(r.getSeenPushAttempts()).isZero();
-    assertThat(r.getSeenPushNextAt()).isBeforeOrEqualTo(OffsetDateTime.now().plusSeconds(1));
+    // 다음 시도 시각은 DB 시계(current_timestamp)로 찍히므로 DB 시각과 비교한다 — JVM 시계와 비교하면
+    // Docker VM 시계가 호스트보다 앞설 때(수 초) 실패한다.
+    OffsetDateTime dbNow = dsl.select(DSL.currentOffsetDateTime()).fetchOne().value1();
+    assertThat(r.getSeenPushNextAt()).isBeforeOrEqualTo(dbNow);
     assertThat(inTx(() -> messageRepo.findAccountsWithDueSeenPush()))
         .contains(new DueSeenPushAccount(seededAccount, seededUser));
   }
