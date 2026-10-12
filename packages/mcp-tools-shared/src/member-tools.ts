@@ -154,9 +154,9 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       kind: 'read',
       description:
         'Searches workspace members (구성원) by name, username or email. Pass username to tools that take a person (no numeric ids). kind HUMAN ' +
-        '(default), AGENT (AI) or ALL; active only unless includeInactive. With channelId (a channel I belong to), lists its members instead, with ' +
-        'role; search matches name or username, includeInactive is ignored. Returns {items, total, hasMore?, ' +
-        'nextPage?}; if hasMore, pass nextPage as page, narrow search, or say the list is partial.',
+        '(default), AGENT (AI) or ALL; active only unless includeInactive. With channelId (a channel I belong to), lists its members with ' +
+        'role; search matches name or username, includeInactive is ignored. Returns {items, total, hasMore?, nextPage?}; if hasMore, pass ' +
+        'nextPage as page, narrow search, or say the list is partial.',
       inputSchema: searchMembersInput,
       async handler(args) {
         const { channelId, ...query } = searchMembersInput.parse(args);
@@ -203,8 +203,8 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: 'contacts',
       kind: 'read',
       description:
-        'Lists contacts (연락처): MEMBER items (workspace members, by username) and EXTERNAL items (customers, partners; externalId, only for ' +
-        'external-contact tools). For members search_members is more complete. search matches name or email; organization and title take exact values ' +
+        'Lists contacts (연락처): MEMBER items (workspace members, by username) and EXTERNAL items (customers, partners; externalId for ' +
+        'external-contact tools only); for members search_members is more complete. search: name or email; organization and title: exact values ' +
         'from get_contact_facets. Returns {items, hasMore?, nextCursor?}; if hasMore, pass nextCursor as cursor, or say the list is partial.',
       inputSchema: listContactsInput,
       async handler(args) {
@@ -221,8 +221,8 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: 'contacts',
       kind: 'read',
       description:
-        'Returns an external contact by externalId (from list_contacts EXTERNAL items) with all fields, incl. editable and isFavorite. Members have ' +
-        'no externalId; use get_member_contact for them.',
+        'Returns an external contact by externalId (from list_contacts EXTERNAL items), all fields incl. editable and isFavorite. Members have ' +
+        'no externalId: use get_member_contact.',
       inputSchema: externalContactInput,
       async handler(args) {
         const { externalId } = externalContactInput.parse(args);

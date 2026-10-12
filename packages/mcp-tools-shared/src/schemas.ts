@@ -49,7 +49,7 @@ export const updateIssueInput = z.object({
     .describe('Custom field values by name (string[] for MULTI_SELECT, null clears)')
     .optional(),
   // WP-356: 드라이브 파일 연결(POST .../drive-links). 이미 연결돼 있으면 서버가 무시한다.
-  driveFileId: z.number().int().positive().describe('Links this drive (드라이브) file to the issue').optional(),
+  driveFileId: z.number().int().positive().describe('Drive (드라이브) file to link').optional(),
 });
 
 /** 코멘트 작성 입력. */
@@ -81,10 +81,10 @@ const assigneeDescription = (extra: string) =>
 
 export const issueListFilterShape = {
   projectKey: z.string().optional().describe('Omit for all my projects'),
-  status: z.string().optional().describe('CSV of TODO,IN_PROGRESS,DONE,CANCELED'),
+  status: z.string().optional().describe('CSV: TODO,IN_PROGRESS,DONE,CANCELED'),
   priority: z.array(z.enum(['LOW', 'MID', 'HIGH'])).optional(),
-  label: z.string().optional().describe('CSV of label names; issue must have all (AND)'),
-  type: z.string().optional().describe('CSV of type names; any match (OR)'),
+  label: z.string().optional().describe('Label names CSV; all must match'),
+  type: z.string().optional().describe('Type names CSV; any matches'),
   dueFrom: z.string().optional().describe('Due date range, yyyy-MM-dd'),
   dueTo: z.string().optional(),
   // WP-307: 종료일·생성일 범위 — 서버가 Asia/Seoul 하루 경계로 자른다. 값을 그대로 서버에 넘기므로 show_issue_list 도 공유한다.
@@ -93,8 +93,8 @@ export const issueListFilterShape = {
   createdFrom: z.string().optional().describe('Created date range, yyyy-MM-dd KST, inclusive'),
   createdTo: z.string().optional(),
   q: z.string().optional().describe('Substring of title or body'),
-  blocked: z.boolean().optional().describe('true: only issues with an unfinished blocker'),
-  topLevel: z.boolean().optional().describe('true: only issues without a parent'),
+  blocked: z.boolean().optional().describe('Only issues with an unfinished blocker'),
+  topLevel: z.boolean().optional().describe('Only issues without a parent'),
   assignee: z.string().optional().describe(assigneeDescription('')),
   reporter: z.string().optional().describe('CSV: "me" or usernames'),
   size: z.number().int().min(1).max(100).optional(),
@@ -109,26 +109,26 @@ export const listIssuesInput = z.object({
   // WP-352: 이전 호출이 돌려준 nextCursor 를 그대로 넘기면 다음 페이지다. 웹이 params 를 서버에 직접 넘기는 show_issue_list 의 shape 에는 넣지 않는다.
   // 쓰는 법(같은 필터로 nextCursor 를 넘김)은 도구 설명에 있어 여기서 되풀이하지 않는다(WP-356 크기 정리).
   cursor: z.string().optional(),
-  // WP-356 크기 정리: 날짜 범위 형식(yyyy-MM-dd·양끝 포함·종료/생성은 KST)은 list_issues 도구 설명에 한 번만 적는다.
+  // WP-356 크기 정리: 날짜 범위(…From/…To, yyyy-MM-dd·양끝 포함·종료/생성은 KST)는 list_issues 도구 설명에 한 번만 적고 파라미터 설명은 뺀다.
   // 공유 필터(show_issue_list)의 설명은 그대로 두고 여기서만 덮어쓴다 — 그쪽은 크기 상한 대상이 아니다.
-  dueFrom: z.string().optional().describe('Due date range'),
-  closedFrom: z.string().optional().describe('Closed (DONE/CANCELED) date range'),
-  createdFrom: z.string().optional().describe('Created date range'),
+  dueFrom: z.string().optional(),
+  closedFrom: z.string().optional(),
+  createdFrom: z.string().optional(),
   assignee: z
     .string()
     .optional()
     .describe(
-      'CSV: "me", "null" (unassigned), usernames, or "any". Defaults to "me" unless reporter, watching or parent is given',
+      'CSV: "me", "null" (unassigned), usernames or "any"; default "me" unless reporter, watching or parent is set',
     ),
   cycle: z
     .string()
     .optional()
     .describe(
-      'CSV, any match: cycle (사이클) name, "active", "none" (no cycle) or "backlog" (in no active or planned cycle). Names and "active" need projectKey',
+      'CSV, any match: cycle (사이클) names, "active", "none" (no cycle), "backlog" (no active/planned cycle); names and "active" need projectKey',
     ),
   // WP-356: 아래 넷은 핸들러가 서버 쿼리로 바꾼다(마일스톤 이름→id, 부모 키→번호+projectKey, 필드 이름→fieldId+JSON 값, 워치=호출자).
   milestone: z.string().optional().describe('Milestone names CSV, any match; needs projectKey'),
-  parent: z.string().optional().describe("Parent issue key: only its children"),
-  field: z.string().optional().describe('"name=value": custom field equals value (not MULTI_SELECT); needs projectKey'),
-  watching: z.boolean().optional().describe('true: only issues I watch'),
+  parent: z.string().optional().describe('Only children of this issue key'),
+  field: z.string().optional().describe('"name=value" custom field match (not MULTI_SELECT); needs projectKey'),
+  watching: z.boolean().optional().describe('Only issues I watch'),
 });

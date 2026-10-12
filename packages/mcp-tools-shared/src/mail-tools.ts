@@ -100,10 +100,10 @@ export function buildMailTools(
       app: 'mail',
       kind: 'read',
       description:
-        'Lists mail in a folder of an account (accountId from list_mail_accounts), newest first, up to limit with no further pages. Items: id ' +
-        '(messageId), sender, subject, snippet, receivedAt, seen, hasAttachment, aiCategory, aiNeedsReply (categoryPending:true while unclassified). ' +
-        'query matches sender (substring) and subject/body words; for unread mail use unreadOnly, not "is:unread". Needs reply = aiNeedsReply and not ' +
-        'seen.',
+        'Lists mail in an account folder (accountId from list_mail_accounts), newest first, up to limit, no further pages. Items: id ' +
+        '(messageId), sender, subject, snippet, receivedAt, seen, hasAttachment, aiCategory, aiNeedsReply (categoryPending:true while ' +
+        'unclassified). query matches sender (substring) and subject/body words; for unread mail use unreadOnly, not "is:unread". Needs reply = ' +
+        'aiNeedsReply and not seen.',
       inputSchema: listMailInput,
       async handler(args) {
         const { accountId, folder, limit, query, unreadOnly } = listMailInput.parse(args);
@@ -116,7 +116,7 @@ export function buildMailTools(
       app: 'mail',
       kind: 'read',
       description:
-        'Returns one mail by messageId (id from list_mail) with plain-text bodyText (HTML-only mail is converted, without formatting, link URLs or ' +
+        'Returns one mail by messageId (id from list_mail): plain-text bodyText (HTML-only mail converted, without formatting, link URLs or ' +
         'images) and attachments. Does not mark it read.',
       inputSchema: getMailInput,
       async handler(args) {
@@ -170,8 +170,8 @@ export function buildMailTools(
       hints: { destructive: false, idempotent: true },
       description:
         'Creates an issue (이슈) from a mail and links the two. assignees are project member usernames ("me" = caller) and are notified; type and ' +
-        'labels are project names (unknown ones fail, listing the allowed values). If the mail already has an issue, nothing is created and that ' +
-        'issueKey returns. Returns {issueKey, created}.',
+        'labels are project names (unknown ones fail, listing allowed values). If the mail already has an issue, that issueKey returns: ' +
+        '{issueKey, created}.',
       inputSchema: createIssueFromMailInput,
       async handler(args) {
         const { messageId, assignees, type, labels, ...rest } = createIssueFromMailInput.parse(args);
@@ -217,10 +217,10 @@ export function buildMailTools(
       // 호출마다 last_synced_at 이 갱신되고 그 사이 도착한 메일 때문에 같은 인자도 결과가 달라지므로 멱등이 아니다(true 는 자동 재시도를 부른다).
       hints: { destructive: true, idempotent: false, openWorld: true },
       description:
-        'Syncs an account inbox with its server (M365 Graph or IMAP) now: fetches new mail, overwrites stored read states with the server values ' +
-        '(IMAP: last 14 days, 500 items), and on M365 deletes mail removed there. Returns {fetched, saved (new), seenChanged}; all 0 = no change. If ' +
-        'a sync is already running it returns {alreadySyncing:true, phase, done, total}: retry later or use list_mail. That check is best effort; a ' +
-        'sync starting right after it can also yield all 0.',
+        'Syncs an account inbox with its server (M365 Graph or IMAP): fetches new mail, overwrites stored read states with server values (IMAP: ' +
+        'last 14 days, 500 items), and on M365 deletes mail removed there. Returns {fetched, saved (new), seenChanged}; all 0 = no change. If a ' +
+        'sync is already running: {alreadySyncing:true, phase, done, total}; retry later or use list_mail. That check is best effort; a sync ' +
+        'starting right after it can also yield all 0.',
       inputSchema: syncMailInput,
       async handler(args) {
         const { accountId } = syncMailInput.parse(args);

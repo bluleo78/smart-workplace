@@ -97,7 +97,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        'Lists drive (드라이브) spaces I belong to: id (the spaceId of other drive tools), type (PERSONAL = my drive, TEAM, CHANNEL = linked to a ' +
+        'Lists drive (드라이브) spaces I belong to: id (spaceId of other drive tools), type (PERSONAL = my drive, TEAM, CHANNEL = linked to a ' +
         'channel), role (OWNER, EDITOR, VIEWER), archived (true = read-only).',
       inputSchema: z.object({}),
       async handler() {
@@ -110,7 +110,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        'Lists folders then files (each by name) at a drive space root or in folder parentId (a folderId, not a row parentId) as {folders, files, ' +
+        'Lists folders then files (by name) at a drive space root or in folder parentId (a folderId, not a row parentId) as {folders, files, ' +
         'hasMore?, nextOffset?}; folders carry folderId, files driveFileId. If hasMore, pass nextOffset as offset, or say the list is partial.',
       inputSchema: listDriveItemsInput,
       async handler(args) {
@@ -132,8 +132,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        'Searches a drive space for folders and files by name substring: {folders, files, truncated?}, each by name, up to limit each. truncated:true ' +
-        'means more may exist and there is no next page: refine q, or say the result is partial.',
+        'Searches a drive space for folders and files by name substring: {folders, files, truncated?}, up to limit each. truncated:true means ' +
+        'more may exist and there is no next page: refine q, or say the result is partial.',
       inputSchema: searchDriveInput,
       async handler(args) {
         const { spaceId, q, limit } = searchDriveInput.parse(args);
@@ -153,8 +153,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       kind: 'read',
       description:
         'Returns the AI summary of a drive file (driveFileId from list_drive_items, search_drive or search_drive_content) as {summary, status, ' +
-        'reason}. Only status DONE has a summary; PENDING, EXTRACTING, TEXT_READY, SUMMARIZING = not ready; FAILED, SKIPPED = not summarizable (see ' +
-        'reason). Report the status; never guess content. includeVersions adds versions (newest first, current marked); includeBacklinks adds the ' +
+        'reason}. Only DONE has a summary; PENDING, EXTRACTING, TEXT_READY, SUMMARIZING = not ready; FAILED, SKIPPED = not summarizable (see ' +
+        'reason). Report the status; never guess content. includeVersions adds versions (newest first, current marked); includeBacklinks adds ' +
         'issues and chat messages linking the file.',
       inputSchema: getDriveFileSummaryInput,
       async handler(args) {
@@ -177,8 +177,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        'Searches the content (extracted text, incl. semantic matching) of drive files I can access: {hits, semantic}, hits carrying driveFileId, ' +
-        'name, spaceName and snippet. spaceId narrows to one space. To search by file name use search_drive.',
+        'Searches drive file content (extracted text, incl. semantic matching) I can access: {hits, semantic}; hits carry driveFileId, name, ' +
+        'spaceName, snippet. spaceId narrows to one space. For file names use search_drive.',
       inputSchema: searchDriveContentInput,
       async handler(args) {
         const { query, spaceId, limit } = searchDriveContentInput.parse(args);
@@ -205,8 +205,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       // 다시 부르면 휴지통에 없다는 오류가 난다(DriveNotInTrashException) — 멱등이 아니다.
       hints: { destructive: false, idempotent: false },
       description:
-        'Restores a trashed file (driveFileId) or folder (folderId) from list_drive_trash; give exactly one. Items deleted together return together; ' +
-        'if the original folder is gone it goes to the root, and a name clash gets a new name.',
+        'Restores a trashed file (driveFileId) or folder (folderId) from list_drive_trash; give exactly one. Items deleted together return ' +
+        'together; if the original folder is gone it goes to the root; a name clash gets a new name.',
       inputSchema: restoreDriveItemInput,
       async handler(args) {
         const { driveFileId, folderId } = restoreDriveItemInput.parse(args);
@@ -295,8 +295,9 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       // 새 항목을 만든다(destructive 아님). 같은 이름이 이미 있으면 서버가 409 라 다시 부르면 오류 — 멱등이 아니다.
       hints: { destructive: false, idempotent: false },
       description:
-        'Copies a file (driveFileId) or a folder with its contents (folderId); give exactly one. The copy keeps its name and goes into targetFolderId ' +
-        '(a folderId) of the same space, or the root when omitted; fails if the name is taken there (always, in its own folder). Needs EDITOR.',
+        'Copies a file (driveFileId) or a folder with its contents (folderId); give exactly one. The copy keeps its name and goes into ' +
+        'targetFolderId (a folderId) of the same space, or the root when omitted; fails if the name is taken there (always so in its own ' +
+        'folder). Needs EDITOR.',
       inputSchema: copyDriveItemInput,
       async handler(args) {
         const { driveFileId, folderId, targetFolderId } = copyDriveItemInput.parse(args);
@@ -313,9 +314,9 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       // 새 drive 파일을 만든다(destructive 아님). 같은 첨부를 같은 위치에 다시 가져오면 이름이 겹쳐 409 — 멱등이 아니다.
       hints: { destructive: false, idempotent: false },
       description:
-        'Saves an issue or chat attachment into a drive space, in folderId (a folderId) or at the root when omitted; needs EDITOR. attachmentId: ' +
-        'attachments[].attachmentId from get_issue_detail, or attachments[].fileId from list_channel_messages. Keeps the attachment name; fails if ' +
-        'taken there.',
+        'Saves an issue or chat attachment into a drive space, in folderId or at the root when omitted; needs EDITOR. attachmentId: ' +
+        'attachments[].attachmentId from get_issue_detail, or attachments[].fileId from list_channel_messages. Keeps the attachment name; fails ' +
+        'if taken there.',
       inputSchema: importAttachmentToDriveInput,
       async handler(args) {
         const { spaceId, attachmentId, folderId } = importAttachmentToDriveInput.parse(args);

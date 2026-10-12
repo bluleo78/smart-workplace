@@ -1365,22 +1365,20 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "assignee": {
-          "description": "CSV: "me", "null" (unassigned), usernames, or "any". Defaults to "me" unless reporter, watching or parent is given",
+          "description": "CSV: "me", "null" (unassigned), usernames or "any"; default "me" unless reporter, watching or parent is set",
           "type": "string",
         },
         "blocked": {
-          "description": "true: only issues with an unfinished blocker",
+          "description": "Only issues with an unfinished blocker",
           "type": "boolean",
         },
         "closedFrom": {
-          "description": "Closed (DONE/CANCELED) date range",
           "type": "string",
         },
         "closedTo": {
           "type": "string",
         },
         "createdFrom": {
-          "description": "Created date range",
           "type": "string",
         },
         "createdTo": {
@@ -1390,22 +1388,21 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "cycle": {
-          "description": "CSV, any match: cycle (사이클) name, "active", "none" (no cycle) or "backlog" (in no active or planned cycle). Names and "active" need projectKey",
+          "description": "CSV, any match: cycle (사이클) names, "active", "none" (no cycle), "backlog" (no active/planned cycle); names and "active" need projectKey",
           "type": "string",
         },
         "dueFrom": {
-          "description": "Due date range",
           "type": "string",
         },
         "dueTo": {
           "type": "string",
         },
         "field": {
-          "description": ""name=value": custom field equals value (not MULTI_SELECT); needs projectKey",
+          "description": ""name=value" custom field match (not MULTI_SELECT); needs projectKey",
           "type": "string",
         },
         "label": {
-          "description": "CSV of label names; issue must have all (AND)",
+          "description": "Label names CSV; all must match",
           "type": "string",
         },
         "milestone": {
@@ -1413,7 +1410,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "parent": {
-          "description": "Parent issue key: only its children",
+          "description": "Only children of this issue key",
           "type": "string",
         },
         "priority": {
@@ -1445,19 +1442,19 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "integer",
         },
         "status": {
-          "description": "CSV of TODO,IN_PROGRESS,DONE,CANCELED",
+          "description": "CSV: TODO,IN_PROGRESS,DONE,CANCELED",
           "type": "string",
         },
         "topLevel": {
-          "description": "true: only issues without a parent",
+          "description": "Only issues without a parent",
           "type": "boolean",
         },
         "type": {
-          "description": "CSV of type names; any match (OR)",
+          "description": "Type names CSV; any matches",
           "type": "string",
         },
         "watching": {
-          "description": "true: only issues I watch",
+          "description": "Only issues I watch",
           "type": "boolean",
         },
       },
@@ -1620,7 +1617,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "parentId": {
-          "description": "Return only the subtree under this page (to expand hiddenChildren)",
+          "description": "Subtree root page (to expand hiddenChildren)",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
@@ -2566,7 +2563,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "array",
         },
         "driveFileId": {
-          "description": "Links this drive (드라이브) file to the issue",
+          "description": "Drive (드라이브) file to link",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",

@@ -168,8 +168,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       app: 'contacts',
       kind: 'read',
       description:
-        'Returns the user group (그룹) trees: shared (the org chart everyone sees) and personal (my own groups), nodes {groupId, name, code, ' +
-        'visibility, children}.',
+        'Returns the user group (그룹) trees: shared (the org chart everyone sees) and personal (mine), nodes {groupId, name, code, visibility, ' +
+        'children}.',
       inputSchema: z.object({}),
       async handler() {
         const { shared = [], personal = [] } = (await client.listUserGroups()) ?? {};
@@ -194,8 +194,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates a user group. visibility PERSONAL (default, only me) or SHARED (org chart; needs org-chart management permission). parentGroupId ' +
-        'nests it under a group of the same visibility (personal: mine only). Sibling names must be unique.',
+        'Creates a user group. visibility PERSONAL (default, only me) or SHARED (org chart; needs org-chart management permission). ' +
+        'parentGroupId nests it under a group of the same visibility (personal: mine only). Sibling names must be unique.',
       inputSchema: createUserGroupInput,
       async handler(args) {
         const { parentGroupId, ...rest } = createUserGroupInput.parse(args);
@@ -208,8 +208,9 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Updates a user group: name, parent, code, sort order; omitted fields stay. moveToRoot:true moves it to the top and clearCode:true clears the ' +
-        'code (not together with parentGroupId or code). visibility cannot change. Personal groups: owner only; shared: org-chart managers (ADMIN: any).',
+        'Updates a user group: name, parent, code, sort order; omitted fields stay. moveToRoot:true moves it to the top, clearCode:true clears ' +
+        'the code (not with parentGroupId or code). visibility cannot change. Personal groups: owner only; shared: org-chart managers (ADMIN: ' +
+        'any).',
       inputSchema: updateUserGroupInput,
       async handler(args) {
         const { groupId, parentGroupId, ...rest } = updateUserGroupInput.parse(args);
@@ -241,7 +242,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        `Removes a member or external contact from a user group; the person or contact itself is kept. ${TARGET_HINT}`,
+        `Removes a member or external contact from a user group (the person or contact is kept). ${TARGET_HINT}`,
       inputSchema: userGroupMemberInput,
       async handler(args) {
         const { groupId, ...who } = userGroupMemberInput.parse(args);
@@ -256,8 +257,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates an external contact (외부 연락처), SHARED or PERSONAL, and returns it. If one with the same name and email exists it fails with a ' +
-        'duplicate warning: tell the user, and retry with force:true only after they confirm.',
+        'Creates an external contact (외부 연락처), SHARED or PERSONAL, and returns it. If the same name and email exist it fails with a duplicate ' +
+        'warning: tell the user; retry with force:true only after they confirm.',
       inputSchema: createExternalContactInput,
       async handler(args) {
         const { force, ...input } = createExternalContactInput.parse(args);
@@ -271,9 +272,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       // 준 필드로 현재 값을 덮어쓴다(destructive). 병합 후 같은 값이면 저장 상태가 그대로이고, 중복 판정은 자기 자신을 제외해 다시 불러도 같은 결과(멱등).
       hints: { destructive: true, idempotent: true },
       description:
-        'Updates an external contact by externalId (from list_contacts EXTERNAL items). Omitted fields stay; "" clears a ' +
-        'field (not name). Only its owner or an ADMIN may edit. A name+email clash with another contact fails with a duplicate warning: retry with ' +
-        'force:true only after the user confirms.',
+        'Updates an external contact by externalId (from list_contacts EXTERNAL items); omitted fields stay, "" clears one (not name). Owner or ' +
+        'ADMIN only. A name+email clash with another contact fails with a duplicate warning: retry with force:true only after the user confirms.',
       inputSchema: updateExternalContactInput,
       async handler(args) {
         const { externalId, force, ...patch } = updateExternalContactInput.parse(args);

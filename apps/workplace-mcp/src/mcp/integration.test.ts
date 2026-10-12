@@ -48,8 +48,9 @@ describe('/mcp', () => {
     expect(byName.get('get_issue_detail')?.annotations).toEqual({ readOnlyHint: true, openWorldHint: false });
     // 추가만 하는 쓰기 — destructive 아님. 스펙 기본값과 같은 readOnlyHint:false·idempotentHint:false 는 정의에서 뺀다(WP-340 웨이브 5; 안 싣는 것이 기본값 false 의 뜻).
     expect(byName.get('create_issue')?.annotations).toEqual({ destructiveHint: false, openWorldHint: false });
-    // 덮어쓰기(집합 교체 포함)는 write 여도 destructive 로 알린다 — kind 와 분리된 hint (WP-342). 기본값과 같은 destructiveHint:true 도 안전 쪽이라 명시를 유지한다.
-    expect(byName.get('update_issue')?.annotations).toEqual({ destructiveHint: true, idempotentHint: true, openWorldHint: false });
+    // 덮어쓰기(집합 교체 포함)는 write 여도 destructive 다 — kind 와 분리된 hint (WP-342). destructiveHint:true 는 스펙 기본값이라 정의에서 뺀다
+    // (WP-340 웨이브 5 — 힌트가 없으면 클라이언트는 파괴적일 수 있다고 본다. 보수적인 쪽이라 덜 보호되는 도구가 없다).
+    expect(byName.get('update_issue')?.annotations).toEqual({ idempotentHint: true, openWorldHint: false });
     // 표시 이름은 top-level title 하나로 나간다 — annotations.title 은 같은 값의 옛 클라이언트용 중복이라 tools/list 에서 뺐다(WP-340 웨이브 5).
     expect(byName.get('update_issue')?.title).toBe('이슈 수정');
     expect(byName.get('update_issue')?.annotations).not.toHaveProperty('title');

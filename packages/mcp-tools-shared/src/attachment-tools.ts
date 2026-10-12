@@ -107,11 +107,11 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
       kind: 'read',
       description:
         'Reads an issue attachment (source "issue": issueKey + attachmentId from get_issue_detail) or a drive file (source "drive": driveFileId from ' +
-        'list_drive_items, search_drive or search_drive_content). Documents return a slice of the text extracted at upload: {status, text, ' +
-        `totalChars, nextOffset, truncated, reason}; limit defaults to ${READ_ATTACHMENT_DEFAULT_LIMIT} code points; pass nextOffset as offset to ` +
+        'list_drive_items, search_drive or search_drive_content). Documents: a slice of the text extracted at upload, {status, text, ' +
+        `totalChars, nextOffset, truncated, reason} (limit default ${READ_ATTACHMENT_DEFAULT_LIMIT} code points); pass nextOffset as offset to ` +
         'continue; truncated:true = extraction was capped. Only READY has text: PENDING = extracting (retry later), SKIPPED/FAILED = unreadable ' +
-        `(relay reason), NONE = never extracted; never guess content. Images (JPEG, PNG, GIF, WebP up to ${IMAGE_MAX_BYTES} bytes) come back as ` +
-        'images, other images as a reason only. The original file is never returned.',
+        `(relay reason), NONE = never extracted; never guess content. JPEG/PNG/GIF/WebP images up to ${IMAGE_MAX_BYTES} bytes return as images, ` +
+        'others only a reason. Never the original file.',
       inputSchema: readAttachmentInput,
       async handler(args) {
         const p = readAttachmentInput.parse(args);

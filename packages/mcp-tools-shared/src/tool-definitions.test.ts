@@ -67,17 +67,44 @@ describe('wireInputSchema — tools/list 로 내보내는 입력 스키마 (WP-3
   });
 });
 
+// WP-340 웨이브 5: 직렬화만 바꾼다 — 날짜 정규식은 같은 뜻의 format:"date" 로, 정보 없는 propertyNames:{type:"string"} 은 뺀다. 검증은 zod 그대로다.
+describe('wireInputSchema 날짜·레코드 키', () => {
+  it('yyyy-MM-dd 정규식 pattern 은 format:"date" 로 바꾸고 다른 pattern 은 그대로 둔다(검증은 zod 정규식 그대로)', () => {
+    const schema = z.object({
+      due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      key: z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/),
+    });
+    const p = wireInputSchema(schema).properties as Props;
+    expect(p.due).toEqual({ type: 'string', format: 'date' });
+    expect(p.key).toEqual({ type: 'string', pattern: '^[A-Z][A-Z0-9]{1,9}$' });
+    expect(schema.safeParse({ key: 'WP', due: '2026/10/13' }).success).toBe(false);
+  });
+
+  it('z.record(z.string(), …) 의 propertyNames:{type:"string"} 은 빼고 나머지는 둔다', () => {
+    const p = wireInputSchema(z.object({ fields: z.record(z.string(), z.unknown()).describe('d') })).properties as Props;
+    expect(p.fields).toEqual({ type: 'object', additionalProperties: {}, description: 'd' });
+  });
+
+  it('실제 공유 도구 정의에 날짜 정규식·propertyNames 가 남지 않는다', () => {
+    const text = JSON.stringify(tools.map(toolDefinition));
+    expect(text).not.toContain('propertyNames');
+    expect(text).not.toContain('\\d{4}-');
+    expect(text).toContain('"format":"date"');
+  });
+});
+
 describe('toolDefinition', () => {
   it('표시 이름은 최상위 title 하나만 싣고(annotations.title 중복 제거) 스펙 기본값과 다른 힌트는 그대로 둔다', () => {
     const def = toolDefinition(tool('update_issue'));
     expect(def.title).toBe('이슈 수정');
-    // readOnlyHint:false 는 스펙 기본값이라 빠지고, destructiveHint(true)·idempotentHint(true)·openWorldHint(false)는 남는다.
-    expect(def.annotations).toEqual({ destructiveHint: true, idempotentHint: true, openWorldHint: false });
+    // readOnlyHint:false·destructiveHint:true 는 스펙 기본값이라 빠지고, idempotentHint(true)·openWorldHint(false)는 남는다.
+    expect(def.annotations).toEqual({ idempotentHint: true, openWorldHint: false });
     expect(Object.keys(def)).toEqual(['name', 'title', 'description', 'inputSchema', 'annotations']);
   });
 
-  // 스펙 기본값과 같은 값만 뺀다: readOnlyHint:false·idempotentHint:false 는 빠지고, destructiveHint·openWorldHint:false 는 기본값과 달라(또는 안전 쪽이라) 남는다.
-  it('쓰기 도구의 readOnlyHint:false·idempotentHint:false 는 빼고, destructiveHint·openWorldHint:false 는 남긴다', () => {
+  // 스펙 기본값과 같은 값만 뺀다: readOnlyHint:false·idempotentHint:false·destructiveHint:true 는 빠지고(빠진 destructiveHint 는 스펙상 true —
+  // 클라이언트는 파괴적일 수 있다고 보수적으로 다룬다), 기본값과 다른 destructiveHint:false·openWorldHint:false 는 남는다(WP-340 웨이브 5).
+  it('쓰기 도구의 readOnlyHint:false·idempotentHint:false·destructiveHint:true 는 빼고, destructiveHint:false·openWorldHint:false 는 남긴다', () => {
     const defs = tools.map((t) => ({ t, annotations: toolDefinition(t).annotations }));
     // 빼는 값이 실제로 존재해야(비어 있지 않아야) 아래 단언이 의미가 있다.
     expect(defs.some(({ t }) => t.kind !== 'read' && toolAnnotations(t).idempotentHint === false)).toBe(true);
@@ -87,10 +114,13 @@ describe('toolDefinition', () => {
       expect(annotations.idempotentHint, t.name).not.toBe(false);
       // openWorldHint 는 항상 명시한다(우리 기본 false 가 스펙 기본 true 와 다르다). update_event 처럼 외부 동기화가 있으면 true.
       expect(annotations.openWorldHint, t.name).toBe(toolAnnotations(t).openWorldHint);
-      if (t.kind !== 'read') expect(typeof annotations.destructiveHint, t.name).toBe('boolean');
+      expect(annotations.destructiveHint, t.name).not.toBe(true);
+      // 파괴적이지 않은 쓰기는 반드시 false 를 명시한다 — 빠지면 스펙 기본값(true)으로 읽힌다.
+      if (t.kind !== 'read' && toolAnnotations(t).destructiveHint === false) expect(annotations.destructiveHint, t.name).toBe(false);
     }
     expect(defs.some(({ annotations }) => annotations.destructiveHint === false)).toBe(true);
-    expect(defs.some(({ annotations }) => annotations.destructiveHint === true)).toBe(true);
+    // 빼는 값(destructiveHint:true)이 실제로 존재한다.
+    expect(tools.some((t) => toolAnnotations(t).destructiveHint === true)).toBe(true);
   });
 
   // 의미 원본은 toolAnnotations() 다. 정의에서 뺀 값을 스펙 기본값으로 되채우면 원본(title 제외)이 가진 모든 키가 같은 값이어야 한다 — 의미가 바뀌지 않았다는 증거.

@@ -50,9 +50,6 @@ describe('도구 앱 태그 (WP-350)', () => {
  * 언급된 도구의 앱 태그를 넓힌다(search_members 가 그 예). 목록에서 이유 없이 항목을 늘리지 않는다.
  */
 const CROSS_REF_ALLOWED: Record<string, string> = {
-  // 이슈 작업 안내 — project 앱 연결만 골라도 프로젝트 조회는 되고, create/update_issue 는 이슈 앱의 몫이다(분류 표 참조).
-  'get_project@project -> create_issue': '프로젝트 정보를 어디에 쓰는지 알리는 안내(이슈 앱의 도구)',
-  'get_project@project -> update_issue': '프로젝트 정보를 어디에 쓰는지 알리는 안내(이슈 앱의 도구)',
   // 구성원 연락처 vs 외부 연락처 — 서로 "이쪽이 아니라 저쪽" 이라는 대비 언급(식별자 혼동 방지).
   'get_member_contact@member -> get_external_contact': '구성원용이 아니라 외부 연락처용이라는 대비 언급',
   'get_external_contact@contacts -> get_member_contact': '외부 연락처용이 아니라 구성원용이라는 대비 언급',

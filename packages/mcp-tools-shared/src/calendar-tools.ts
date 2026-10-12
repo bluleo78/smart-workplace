@@ -207,8 +207,8 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       app: 'calendar',
       kind: 'read',
       description:
-        'Lists my calendar (캘린더) events overlapping [from, to) (ISO-8601; no offset = +09:00). Recurring events appear once per occurrence, with ' +
-        'masterEventId and occurrenceDate. id is the eventId of other calendar tools.',
+        'Lists my calendar (캘린더) events overlapping [from, to) (ISO-8601; no offset = +09:00). Recurring events appear per occurrence, with ' +
+        'masterEventId and occurrenceDate. id = eventId of other calendar tools.',
       inputSchema: listEventsInput,
       async handler(args) {
         const { from, to } = listEventsInput.parse(args);
@@ -220,7 +220,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       app: 'calendar',
       kind: 'read',
       description:
-        'Returns one event by eventId that I organize or am invited to (otherwise not found), adding what list_events lacks: attendees {username, ' +
+        'Returns one event by eventId that I organize or am invited to (else not found), adding what list_events lacks: attendees {username, ' +
         'name, role, rsvpStatus, invitedBy}, myRsvpStatus, myRole, external (synced from an external calendar).',
       inputSchema: getEventInput,
       async handler(args) {
@@ -235,8 +235,8 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       // 응답을 덮어쓰고, 다시 불러도 주최자 알림이 또 쌓이므로 멱등이 아니다.
       hints: { destructive: true, idempotent: false },
       description:
-        'Answers my invitation to an event; can be changed later. Not found if I am not invited; events synced from an external calendar must be ' +
-        'answered there. Notifies the organizer.',
+        'Answers my event invitation (changeable later). Not found if I am not invited; externally synced events must be answered there. ' +
+        'Notifies the organizer.',
       inputSchema: rsvpEventInput,
       async handler(args) {
         const { eventId, status } = rsvpEventInput.parse(args);
@@ -252,9 +252,9 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       // 생성은 늘 로컬 기본 캘린더라 외부 캘린더(M365)에 닿지 않는다.
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates an event in my default calendar (캘린더). startsAt/endsAt: ISO-8601 with offset (none = +09:00). attendees: member usernames from ' +
-        'search_members (not me, no emails); notify:false skips their invitation notifications. recurrenceRule: RFC 5545 RRULE (e.g. FREQ=WEEKLY). ' +
-        'Returns {event, conflicts?}, conflicts being my events already in that slot (not blocking). Each call creates a new event.',
+        'Creates an event in my default calendar (캘린더); each call creates a new one. startsAt/endsAt: ISO-8601 with offset (none = +09:00). ' +
+        'attendees: member usernames from search_members (not me, no emails); notify:false skips their invitation notifications. recurrenceRule: ' +
+        'RFC 5545 RRULE (e.g. FREQ=WEEKLY). Returns {event, conflicts?}; conflicts are my events already in that slot (not blocking).',
       inputSchema: createEventInput,
       async handler(args) {
         const { attendees, notify, ...fields } = createEventInput.parse(args);
@@ -288,11 +288,11 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       // 참석자 추가는 오류가 나므로 멱등이 아니다. M365 에서 동기화된 내 일정은 수정·참석자 변경이 그 캘린더로 전송된다(openWorld).
       hints: { destructive: true, idempotent: false, openWorld: true },
       description:
-        'Updates an event I organize and/or its attendees; only given fields change; on the nullable fields null clears (recurrenceRule:null ends ' +
-        'recurrence). Recurring events: scope ALL (default), or THIS / THIS_AND_FOLLOWING, which need occurrenceDate (from list_events) plus that ' +
-        'occurrence\'s startsAt and endsAt when changing fields. addAttendees/removeAttendees: member usernames (not the organizer, no emails) for the ' +
-        'whole series; notify:false skips in-app invitations (an external calendar may still email). M365-synced events change there too. Steps save ' +
-        'independently into {ok, results}; attendee steps are skipped if the field update fails.',
+        'Updates an event I organize and/or its attendees; only given fields change; null clears a nullable field (recurrenceRule:null ends ' +
+        'recurrence). Recurring: scope ALL (default), THIS or THIS_AND_FOLLOWING; the latter need occurrenceDate (from list_events), plus that ' +
+        'occurrence\'s startsAt and endsAt when changing fields. addAttendees/removeAttendees: member usernames (not the organizer, no emails), ' +
+        'whole series; notify:false skips in-app invitations (external calendars may still email). M365-synced events change there too. Steps ' +
+        'save independently ({ok, results}); attendee steps are skipped if the field update fails.',
       inputSchema: updateEventInput,
       async handler(args) {
         const p = updateEventInput.parse(args);

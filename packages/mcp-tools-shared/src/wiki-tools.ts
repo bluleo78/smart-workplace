@@ -11,7 +11,7 @@ export const getWikiPageInput = z.object({ pageId: z.number().int().positive() }
 export const listWikiPagesInput = z.object({
   spaceId: z.number().int().positive(),
   // WP-352: 큰 스페이스의 트리가 잘렸을 때 그 페이지의 하위만 따로 펼쳐 보는 용도.
-  parentId: z.number().int().positive().optional().describe('Return only the subtree under this page (to expand hiddenChildren)'),
+  parentId: z.number().int().positive().optional().describe('Subtree root page (to expand hiddenChildren)'),
 });
 
 /** 한 번에 돌려줄 트리 노드 수 상한 — 넘으면 위쪽 계층부터 이 수만큼만 담고 truncated 로 알린다(수천 페이지 스페이스의 토큰 폭주 방지). */
@@ -110,7 +110,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        'Lists wiki spaces (노트 스페이스) I can access: id (the spaceId of other wiki tools), name, type, role. My personal space is type PERSONAL ("내 ' +
+        'Lists wiki spaces (노트 스페이스) I can access: id (spaceId of other wiki tools), name, type, role; my personal space is type PERSONAL ("내 ' +
         '노트"). Use it to find a space; search_wiki searches pages only.',
       inputSchema: z.object({}),
       async handler() {
@@ -123,9 +123,9 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        'Returns the page tree of a wiki space as {items, total, truncated?}; nodes {id (pageId), title, children?} in sidebar order. Beyond ' +
-        `${MAX_WIKI_TREE_NODES} nodes only the top ${MAX_WIKI_TREE_NODES} (breadth-first) come back with truncated:true; nodes with hiddenChildren ` +
-        'expand by calling again with their id as parentId. total counts all nodes (under parentId if given). If a parent has too many direct ' +
+        'Returns the page tree of a wiki space as {items, total, truncated?}; nodes {id (pageId), title, children?} in sidebar order. Over ' +
+        `${MAX_WIKI_TREE_NODES} nodes only the first ${MAX_WIKI_TREE_NODES} (breadth-first) return, truncated:true; expand nodes with hiddenChildren ` +
+        'by calling again with their id as parentId. total counts all nodes (under parentId if given). If a parent has too many direct ' +
         'children, use search_wiki. Without expanding, say only part was seen.',
       inputSchema: listWikiPagesInput,
       async handler(args) {
@@ -200,11 +200,11 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       // 본문 전체 대체(3-way 병합). AI 적용은 매번 이전 판 스냅샷을 남기고, 기준본이 만료되면 409 라 멱등으로 보지 않는다.
       hints: { destructive: true, idempotent: false },
       description:
-        'Saves a wiki page (노트) title and/or body; omitted fields stay. body replaces the whole Markdown document and anything left out is deleted, ' +
-        'so for a partial edit send the full body, copying untouched blocks byte-for-byte from get_wiki_page (no rewording, no whitespace, list, ' +
-        'emphasis or heading normalization). version: from get_wiki_page or the last update_wiki_page result; edits by others since then are merged ' +
-        '(this request wins on overlap). 409: that version is unusable as the base (read over 1 hour ago, unknown, or newer than current); re-read ' +
-        'and reapply.',
+        'Saves a wiki page (노트) title and/or body; omitted fields stay. body replaces the whole Markdown document, deleting anything left out: ' +
+        'for a partial edit send the full body, copying untouched blocks byte-for-byte from get_wiki_page (no rewording or whitespace, list, ' +
+        'emphasis or heading normalization). version: from get_wiki_page or the last update_wiki_page result; others\' edits since then are ' +
+        'merged (this request wins on overlap). 409: the version is unusable as base (read over 1 hour ago, unknown, or newer than current); ' +
+        're-read and reapply.',
       inputSchema: updateWikiPageInput,
       async handler(args) {
         const { pageId, ...body } = updateWikiPageInput.parse(args);
@@ -217,8 +217,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Moves a wiki page with its subpages inside its space. parentId: new parent pageId, or null for the top level. position: index among the new ' +
-        'siblings (0 = first, omit = last). Cannot move to another space or under itself.',
+        'Moves a wiki page with its subpages within its space (not under itself). parentId: new parent pageId, null = top level. position: index ' +
+        'among the new siblings (0 = first, omit = last).',
       inputSchema: moveWikiPageInput,
       async handler(args) {
         const { pageId, parentId, position } = moveWikiPageInput.parse(args);
