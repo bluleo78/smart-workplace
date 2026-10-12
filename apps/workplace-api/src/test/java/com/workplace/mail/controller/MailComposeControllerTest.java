@@ -24,6 +24,7 @@ import com.workplace.mail.dto.SendResult;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.service.MailComposeService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
@@ -42,6 +43,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @SuppressWarnings("null")
 @WebMvcTest(controllers = MailComposeController.class)
 @Import({
+  AlwaysActiveTenantStatusChecker.class,
   SecurityConfig.class,
   JwtAuthenticationFilter.class,
   ApiKeyAuthenticationFilter.class,
@@ -59,6 +61,7 @@ class MailComposeControllerTest {
   @MockitoBean PermissionService permissionService;
 
   @MockitoBean MembershipRepository membershipRepository;
+
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserApiTokenRepository userApiTokenRepository;
   @MockitoBean UserRepository userRepository;

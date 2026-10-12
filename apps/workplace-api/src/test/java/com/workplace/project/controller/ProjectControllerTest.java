@@ -30,6 +30,7 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
+import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
@@ -47,6 +48,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @SuppressWarnings("null")
 @WebMvcTest(ProjectController.class)
 @Import({
+  AlwaysActiveTenantStatusChecker.class,
   SecurityConfig.class,
   JwtAuthenticationFilter.class,
   ApiKeyAuthenticationFilter.class,

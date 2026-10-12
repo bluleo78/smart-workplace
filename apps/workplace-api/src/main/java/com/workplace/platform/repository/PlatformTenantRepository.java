@@ -11,10 +11,13 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.jooq.impl.DSL.select;
 import static org.jooq.impl.DSL.val;
 
+import com.workplace.global.tenant.DefaultTenant;
 import com.workplace.platform.dto.TenantDetailResponse;
 import com.workplace.platform.dto.TenantMemberResponse;
 import com.workplace.platform.dto.TenantSummaryResponse;
 import com.workplace.tenant.repository.MembershipRepository;
+import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -190,7 +193,9 @@ public class PlatformTenantRepository {
             TENANT.NAME,
             TENANT.STATUS,
             DSL.count(MEMBERSHIP.ID).as("member_count"),
-            TENANT.CREATED_AT)
+            TENANT.CREATED_AT,
+            TENANT.DELETED_AT,
+            TENANT.PURGE_ERROR)
         .from(TENANT)
         .leftJoin(MEMBERSHIP)
         .on(MEMBERSHIP.TENANT_ID.eq(TENANT.ID))
@@ -204,7 +209,9 @@ public class PlatformTenantRepository {
                     r.get(TENANT.NAME),
                     r.get(TENANT.STATUS),
                     r.get("member_count", Integer.class).longValue(),
-                    r.get(TENANT.CREATED_AT)));
+                    r.get(TENANT.CREATED_AT),
+                    r.get(TENANT.DELETED_AT),
+                    r.get(TENANT.PURGE_ERROR)));
   }
 
   /** 단일 테넌트 상세 + 멤버 수 + 드라이브 한도(#81). */
@@ -217,7 +224,9 @@ public class PlatformTenantRepository {
             TENANT.STATUS,
             DSL.count(MEMBERSHIP.ID).as("member_count"),
             TENANT.CREATED_AT,
-            TENANT.QUOTA_BYTES)
+            TENANT.QUOTA_BYTES,
+            TENANT.DELETED_AT,
+            TENANT.PURGE_ERROR)
         .from(TENANT)
         .leftJoin(MEMBERSHIP)
         .on(MEMBERSHIP.TENANT_ID.eq(TENANT.ID))
@@ -232,7 +241,10 @@ public class PlatformTenantRepository {
                     r.get(TENANT.STATUS),
                     r.get("member_count", Integer.class).longValue(),
                     r.get(TENANT.CREATED_AT),
-                    r.get(TENANT.QUOTA_BYTES)));
+                    r.get(TENANT.QUOTA_BYTES),
+                    r.get(TENANT.DELETED_AT),
+                    r.get(TENANT.PURGE_ERROR),
+                    r.get(TENANT.ID) != DefaultTenant.ID));
   }
 
   /**
@@ -245,10 +257,96 @@ public class PlatformTenantRepository {
     dsl.update(TENANT).set(TENANT.QUOTA_BYTES, quotaBytes).where(TENANT.ID.eq(id)).execute();
   }
 
-  /** 테넌트 상태를 갱신하고 영향 행 수를 반환(0 = 미존재). */
+  /**
+   * 조건부 상태 전환 — 현재 상태가 {@code from} 중 하나일 때만 {@code to} 로 바꾸고 영향 행 수를 반환한다(0 = 미존재 또는 상태 불일치).
+   *
+   * <p>경합하는 두 요청 중 하나만 성공하도록 WHERE 에 현재 상태를 건다. 전환에 딸린 컬럼도 함께 정리한다: DELETED 는 삭제 시각을 찍고, ACTIVE(복원)
+   * 는 삭제 시각·실패 사유를 지운다(PURGING 전환은 {@link #requestPurge}).
+   */
   @Transactional
-  public int updateStatus(Long id, String status) {
-    return dsl.update(TENANT).set(TENANT.STATUS, status).where(TENANT.ID.eq(id)).execute();
+  public int transition(Long id, Collection<String> from, String to) {
+    var update = dsl.update(TENANT).set(TENANT.STATUS, to);
+    // DELETED/ACTIVE 외 목적지(SUSPENDED 등)는 부수 컬럼 변경이 없다.
+    if ("DELETED".equals(to)) {
+      update = update.set(TENANT.DELETED_AT, DSL.currentLocalDateTime());
+    } else if ("ACTIVE".equals(to)) {
+      update =
+          update
+              .set(TENANT.DELETED_AT, (LocalDateTime) null)
+              .set(TENANT.PURGE_ERROR, (String) null);
+    }
+    return update.where(TENANT.ID.eq(id)).and(TENANT.STATUS.in(from)).execute();
+  }
+
+  /**
+   * 영구 삭제 요청 — DELETED 이고 저장명(앞뒤 공백 제거)이 확인 이름과 같을 때만 PURGING 으로 전환한다. 상태·이름 검사와 전환이 한 문장이라 경합에
+   * 안전하다. 0행이면 호출자가 404/409/400 을 가른다.
+   */
+  @Transactional
+  public int requestPurge(Long id, String trimmedConfirmName) {
+    return dsl.update(TENANT)
+        .set(TENANT.STATUS, "PURGING")
+        .set(TENANT.PURGE_ERROR, (String) null)
+        .where(TENANT.ID.eq(id))
+        .and(TENANT.STATUS.eq("DELETED"))
+        .and(DSL.trim(TENANT.NAME).eq(trimmedConfirmName))
+        .execute();
+  }
+
+  /** 테넌트 현재 상태 — 없으면 empty. 전환 실패 시 404/409 를 가르는 데 쓴다. */
+  @Transactional(readOnly = true)
+  public Optional<String> findStatus(Long id) {
+    return dsl.select(TENANT.STATUS)
+        .from(TENANT)
+        .where(TENANT.ID.eq(id))
+        .fetchOptional(TENANT.STATUS);
+  }
+
+  /** 영구 삭제 대기(PURGING) 테넌트 id — 잡이 하나씩 처리한다. tenant 는 RLS 비대상. */
+  @Transactional(readOnly = true)
+  public List<Long> findPurgingTenantIds() {
+    return dsl.select(TENANT.ID)
+        .from(TENANT)
+        .where(TENANT.STATUS.eq("PURGING"))
+        .orderBy(TENANT.ID)
+        .fetch(TENANT.ID);
+  }
+
+  /**
+   * 영구 삭제 단계 1 실패(전체 롤백됨) — PURGING 이면 DELETED 로 되돌리고 사유를 남긴다(운영자가 콘솔에서 보고 재시도). 데이터가 그대로이므로 복원 가능한
+   * DELETED 로 돌리는 것이 안전하다.
+   */
+  @Transactional
+  public int markPurgeFailed(Long id, String reason) {
+    return updatePurging(id, "DELETED", reason);
+  }
+
+  /**
+   * 영구 삭제 단계 2·3 실패 — 데이터는 이미 커밋으로 지워졌으므로 DELETED(복원 가능)로 되돌리지 않는다. PURGING 을 유지해 잡이 재시도하게 하고 사유만
+   * 남긴다(콘솔 진행 배너에 표시).
+   */
+  @Transactional
+  public int recordPurgeError(Long id, String reason) {
+    return updatePurging(id, "PURGING", reason);
+  }
+
+  /**
+   * PURGING 인 테넌트만 {@code newStatus} 로(같은 값이면 유지) 두고 실패 사유를 기록한다 — markPurgeFailed/recordPurgeError
+   * 공통.
+   */
+  private int updatePurging(Long id, String newStatus, String reason) {
+    return dsl.update(TENANT)
+        .set(TENANT.STATUS, newStatus)
+        .set(TENANT.PURGE_ERROR, truncateReason(reason))
+        .where(TENANT.ID.eq(id))
+        .and(TENANT.STATUS.eq("PURGING"))
+        .execute();
+  }
+
+  /** 사유를 최대 1000자로 자른다(purge_error 는 TEXT 지만 스택 메시지가 콘솔을 덮지 않도록). null 이면 기본 문구. */
+  private static String truncateReason(String reason) {
+    if (reason == null) return "알 수 없는 오류";
+    return reason.length() > 1000 ? reason.substring(0, 1000) : reason;
   }
 
   /** 해당 사용자가 플랫폼 운영자(platform_user_role 보유)인지 — 이메일 조회·기존 사용자 추가 응답 조립에 사용. */

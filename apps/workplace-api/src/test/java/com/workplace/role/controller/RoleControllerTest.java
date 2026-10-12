@@ -18,6 +18,7 @@ import com.workplace.permission.dto.PermissionResponse;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.role.dto.*;
 import com.workplace.role.service.RoleService;
+import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
@@ -33,6 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @SuppressWarnings("null")
 @WebMvcTest(RoleController.class)
 @Import({
+  AlwaysActiveTenantStatusChecker.class,
   SecurityConfig.class,
   JwtAuthenticationFilter.class,
   ApiKeyAuthenticationFilter.class,

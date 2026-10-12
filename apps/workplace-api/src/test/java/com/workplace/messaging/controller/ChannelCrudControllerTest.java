@@ -22,6 +22,7 @@ import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.service.ChannelMemberService;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.Set;
@@ -38,6 +39,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @SuppressWarnings("null")
 @WebMvcTest(controllers = {ChannelController.class, ChannelMemberController.class})
 @Import({
+  AlwaysActiveTenantStatusChecker.class,
   SecurityConfig.class,
   JwtAuthenticationFilter.class,
   ApiKeyAuthenticationFilter.class,
@@ -55,6 +57,7 @@ class ChannelCrudControllerTest {
   @MockitoBean PermissionService permissionService;
 
   @MockitoBean MembershipRepository membershipRepository;
+
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserApiTokenRepository userApiTokenRepository;
   @MockitoBean UserRepository userRepository;

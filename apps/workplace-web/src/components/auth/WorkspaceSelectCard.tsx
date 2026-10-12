@@ -9,7 +9,10 @@ import type { Membership } from '../../types/auth';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 
-export function WorkspaceSelectCard({ options }: { options: Membership[] }) {
+/**
+ * @param notice 선택 화면 위에 띄울 안내(예: 쓰던 워크스페이스를 잃어 다시 골라야 할 때 — WP-341 후속). 없으면 기본 설명만.
+ */
+export function WorkspaceSelectCard({ options, notice }: { options: Membership[]; notice?: string | null }) {
   const { selectTenant } = useAuth();
   // 선택 진행 중인 tenantId(중복 클릭 방지 + 진행 표시)
   const [pendingId, setPendingId] = useState<number | null>(null);
@@ -34,6 +37,11 @@ export function WorkspaceSelectCard({ options }: { options: Membership[] }) {
           <p className="mt-1 text-sm text-muted-foreground">
             접속할 워크스페이스를 선택하세요.
           </p>
+          {notice && (
+            <p role="status" data-testid="workspace-select-notice" className="mt-2 text-sm font-medium text-foreground">
+              {notice}
+            </p>
+          )}
         </CardHeader>
         <CardContent className="space-y-2">
           {options.map((m) => (

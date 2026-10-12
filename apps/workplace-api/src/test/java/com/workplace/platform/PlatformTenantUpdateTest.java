@@ -168,6 +168,19 @@ class PlatformTenantUpdateTest extends IntegrationTestBase {
     update(id, "Valid Inc", "Upper_Case").andExpect(status().isBadRequest());
   }
 
+  /** 삭제된 테넌트는 이름·slug 를 바꿀 수 없다 — 409, 이름은 그대로(WP-341, 영구 삭제 이름 확인 보호). */
+  @Test
+  void 삭제된_테넌트_수정은_409() throws Exception {
+    long id = createTenant("Deleted Inc", uniq("deleted"));
+    mvc.perform(post("/api/platform/tenants/" + id + "/delete").header("Authorization", auth))
+        .andExpect(status().isNoContent());
+
+    update(id, "Renamed Inc", uniq("renamed")).andExpect(status().isConflict());
+
+    mvc.perform(get("/api/platform/tenants/" + id).header("Authorization", auth))
+        .andExpect(jsonPath("$.name").value("Deleted Inc"));
+  }
+
   /** 없는 테넌트는 404. */
   @Test
   void 없는_테넌트는_404() throws Exception {

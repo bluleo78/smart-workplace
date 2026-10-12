@@ -120,6 +120,38 @@ public class TenantRecord extends UpdatableRecordImpl<TenantRecord> {
         return (Boolean) get(6);
     }
 
+    /**
+     * Setter for <code>public.tenant.deleted_at</code>. 삭제(DELETED) 전환 시각. 복원 시
+     * NULL.
+     */
+    public void setDeletedAt(LocalDateTime value) {
+        set(7, value);
+    }
+
+    /**
+     * Getter for <code>public.tenant.deleted_at</code>. 삭제(DELETED) 전환 시각. 복원 시
+     * NULL.
+     */
+    public LocalDateTime getDeletedAt() {
+        return (LocalDateTime) get(7);
+    }
+
+    /**
+     * Setter for <code>public.tenant.purge_error</code>. 마지막 영구 삭제 실패 사유. 재시도
+     * 시작·성공 시 NULL.
+     */
+    public void setPurgeError(String value) {
+        set(8, value);
+    }
+
+    /**
+     * Getter for <code>public.tenant.purge_error</code>. 마지막 영구 삭제 실패 사유. 재시도
+     * 시작·성공 시 NULL.
+     */
+    public String getPurgeError() {
+        return (String) get(8);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -143,7 +175,7 @@ public class TenantRecord extends UpdatableRecordImpl<TenantRecord> {
     /**
      * Create a detached, initialised TenantRecord
      */
-    public TenantRecord(Long id, String slug, String name, String status, LocalDateTime createdAt, Long quotaBytes, Boolean ssoEnabled) {
+    public TenantRecord(Long id, String slug, String name, String status, LocalDateTime createdAt, Long quotaBytes, Boolean ssoEnabled, LocalDateTime deletedAt, String purgeError) {
         super(Tenant.TENANT);
 
         setId(id);
@@ -153,6 +185,8 @@ public class TenantRecord extends UpdatableRecordImpl<TenantRecord> {
         setCreatedAt(createdAt);
         setQuotaBytes(quotaBytes);
         setSsoEnabled(ssoEnabled);
+        setDeletedAt(deletedAt);
+        setPurgeError(purgeError);
         resetChangedOnNotNull();
     }
 }

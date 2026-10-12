@@ -90,7 +90,13 @@ class PlatformTenantControllerTest extends IntegrationTestBase {
     // 상세 → 200
     mvc.perform(get("/api/platform/tenants/" + tenantId).header("Authorization", auth))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.status").value("ACTIVE"));
+        .andExpect(jsonPath("$.status").value("ACTIVE"))
+        .andExpect(jsonPath("$.deletable").value(true));
+
+    // 기본 테넌트(id=1)는 deletable=false
+    mvc.perform(get("/api/platform/tenants/1").header("Authorization", auth))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.deletable").value(false));
 
     // 정지 → 204, 이후 상세 status=SUSPENDED
     mvc.perform(

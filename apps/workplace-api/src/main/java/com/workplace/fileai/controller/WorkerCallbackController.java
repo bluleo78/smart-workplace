@@ -6,6 +6,7 @@ import com.workplace.fileai.service.FileEmbeddingPipeline;
 import com.workplace.fileai.service.FileExtractionPipeline;
 import com.workplace.fileai.service.FileExtractionPipeline.ExtractResult;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.TenantStatusChecker;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -33,14 +34,18 @@ public class WorkerCallbackController {
   private final FileExtractionPipeline pipeline;
   private final FileEmbeddingPipeline embeddingPipeline;
   private final WorkerProperties workerProperties;
+  // WP-341: 정지·삭제된 테넌트로 돌아온 콜백은 반영하지 않는다.
+  private final TenantStatusChecker tenantStatusChecker;
 
   public WorkerCallbackController(
       FileExtractionPipeline pipeline,
       FileEmbeddingPipeline embeddingPipeline,
-      WorkerProperties workerProperties) {
+      WorkerProperties workerProperties,
+      TenantStatusChecker tenantStatusChecker) {
     this.pipeline = pipeline;
     this.embeddingPipeline = embeddingPipeline;
     this.workerProperties = workerProperties;
+    this.tenantStatusChecker = tenantStatusChecker;
   }
 
   /**
@@ -57,6 +62,11 @@ public class WorkerCallbackController {
       @PathVariable long jobId, @RequestBody ExtractResult result, HttpServletRequest request) {
     if (!validateInternalToken(request)) {
       return ResponseEntity.status(401).build();
+    }
+    // WP-341: 비활성 테넌트 콜백은 200 으로 조용히 버린다(4xx/5xx 면 워커가 재시도를 반복한다).
+    if (result.tenantId() != null && !tenantStatusChecker.isActive(result.tenantId())) {
+      log.info("비활성 테넌트 추출 콜백 무시: jobId={}, tenantId={}", jobId, result.tenantId());
+      return ResponseEntity.ok().build();
     }
     // 워커가 에코한 tenantId 로 TenantContext 복원 → @Transactional 진입 시 RLS GUC 주입
     if (result.tenantId() != null) {
@@ -84,6 +94,11 @@ public class WorkerCallbackController {
     if (result.tenantId() == null) {
       log.warn("embed-result tenantId 없음 — 400 반환: jobId={}", jobId);
       return ResponseEntity.badRequest().build();
+    }
+    // WP-341: 비활성 테넌트 콜백은 200 으로 조용히 버린다(워커 재시도 폭주 방지).
+    if (!tenantStatusChecker.isActive(result.tenantId())) {
+      log.info("비활성 테넌트 임베딩 콜백 무시: jobId={}, tenantId={}", jobId, result.tenantId());
+      return ResponseEntity.ok().build();
     }
     // 워커가 에코한 tenantId 로 TenantContext 복원 → @Transactional 진입 시 RLS GUC 주입(C1 패턴)
     TenantContext.set(result.tenantId());

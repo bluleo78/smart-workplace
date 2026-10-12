@@ -30,8 +30,8 @@ export interface ErrorResponse {
   errors?: Record<string, string>
 }
 
-/** 테넌트 상태 — 활성/정지. */
-export type TenantStatus = 'ACTIVE' | 'SUSPENDED'
+/** 테넌트 상태 — 활성/정지/삭제됨(복원 가능)/영구 삭제 중. */
+export type TenantStatus = 'ACTIVE' | 'SUSPENDED' | 'DELETED' | 'PURGING'
 
 /** 테넌트 목록 항목 요약. */
 export interface TenantSummary {
@@ -41,11 +41,17 @@ export interface TenantSummary {
   status: TenantStatus
   memberCount: number
   createdAt: string
+  /** 삭제(DELETED) 시각. 운영 중이면 null. */
+  deletedAt: string | null
+  /** 마지막 영구 삭제 실패 사유. 없으면 null. */
+  purgeError: string | null
 }
 
 /** 테넌트 상세 — 목록 항목에 드라이브 용량 한도(quotaBytes) 를 추가. */
 export interface TenantDetail extends TenantSummary {
   quotaBytes: number
+  /** 삭제·영구 삭제 가능 여부 — 기본 테넌트만 false(서버가 판단). */
+  deletable: boolean
 }
 
 /** 테넌트 생성 요청 — name 필수, slug 선택, ownerUserId 선택(#496).

@@ -1,6 +1,7 @@
 package com.workplace.wiki.controller;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.wiki.dto.CollabDocResponse;
 import com.workplace.wiki.dto.StoreCollabDocRequest;
 import com.workplace.wiki.outbound.CollabProperties;
@@ -40,6 +41,7 @@ public class WikiCollabInternalController {
 
   private final CollabProperties props;
   private final WikiCollabDocService service;
+  private final TenantStatusChecker tenantStatusChecker;
 
   /** 문서 로드 — 저장된 Yjs 상태(있으면)와 현재 body·version. */
   @GetMapping("/{id}/doc")
@@ -76,6 +78,10 @@ public class WikiCollabInternalController {
     Long tenantId = parseTenant(tenantHeader);
     if (tenantId == null) {
       return ResponseEntity.badRequest().build();
+    }
+    // WP-341: 정지·삭제된 테넌트의 문서는 동기화 서버에도 "없음"으로 보인다(지연 저장이 삭제된 테넌트에 쓰지 못하게).
+    if (!tenantStatusChecker.isActive(tenantId)) {
+      return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
     TenantContext.set(tenantId);
     try {

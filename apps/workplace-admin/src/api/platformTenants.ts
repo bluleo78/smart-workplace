@@ -35,6 +35,13 @@ export const platformTenants = {
   suspend: (id: number) => client.post<void>(`/tenants/${id}/suspend`).then(() => undefined),
   /** 테넌트 활성화. 백엔드는 204 No Content(바디 없음). */
   activate: (id: number) => client.post<void>(`/tenants/${id}/activate`).then(() => undefined),
+  /** 테넌트 삭제(DELETED, 복원 가능). 204. `delete` 는 예약어라 remove. */
+  remove: (id: number) => client.post<void>(`/tenants/${id}/delete`).then(() => undefined),
+  /** 삭제된 테넌트 복원(ACTIVE). 204. */
+  restore: (id: number) => client.post<void>(`/tenants/${id}/restore`).then(() => undefined),
+  /** 영구 삭제 요청 — 이름 확인. 202(백그라운드 처리). */
+  purge: (id: number, confirmName: string) =>
+    client.post<void>(`/tenants/${id}/purge`, { confirmName }).then(() => undefined),
   // 테넌트 드라이브 한도 변경.
   updateQuota: (id: number, quotaBytes: number) =>
     client.patch<TenantDetail>(`/tenants/${id}/quota`, { quotaBytes }).then((res) => res.data),

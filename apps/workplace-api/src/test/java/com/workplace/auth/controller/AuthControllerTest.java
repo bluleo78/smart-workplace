@@ -24,6 +24,7 @@ import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
@@ -41,6 +42,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @SuppressWarnings("null")
 @WebMvcTest(AuthController.class)
 @Import({
+  AlwaysActiveTenantStatusChecker.class,
   SecurityConfig.class,
   JwtAuthenticationFilter.class,
   ApiKeyAuthenticationFilter.class,

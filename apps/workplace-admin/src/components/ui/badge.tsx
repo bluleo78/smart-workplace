@@ -24,8 +24,9 @@ const badgeVariants = cva(
         // 라이트 대비가 1.5:1 에 그친다(WP-303). --warning-text 는 라이트 AA(약 5.6:1), 다크는 --warning 과 같다.
         warning:
           "bg-warning/10 text-warning-text border-warning/20 [a&]:hover:bg-warning/15",
+        // 글자는 --info-text: --info 는 채움용이라 bg-info/10 위 라이트 대비가 약 3.9:1 (WP-341).
         info:
-          "bg-info/10 text-info border-info/20 [a&]:hover:bg-info/15",
+          "bg-info/10 text-info-text border-info/20 [a&]:hover:bg-info/15",
       },
     },
     defaultVariants: {

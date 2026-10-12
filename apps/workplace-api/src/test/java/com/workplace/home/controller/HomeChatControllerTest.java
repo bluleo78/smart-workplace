@@ -28,6 +28,7 @@ import com.workplace.home.exception.HomeChatConcurrencyLimitException;
 import com.workplace.home.exception.HomeChatSessionBusyException;
 import com.workplace.home.service.HomeChatService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
@@ -50,6 +51,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @SuppressWarnings("null")
 @WebMvcTest(HomeChatController.class)
 @Import({
+  AlwaysActiveTenantStatusChecker.class,
   SecurityConfig.class,
   JwtAuthenticationFilter.class,
   ApiKeyAuthenticationFilter.class,
@@ -65,6 +67,7 @@ class HomeChatControllerTest {
   @MockitoBean PermissionService permissionService;
 
   @MockitoBean MembershipRepository membershipRepository;
+
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserApiTokenRepository userApiTokenRepository;
   @MockitoBean UserRepository userRepository;
