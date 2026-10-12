@@ -85,9 +85,12 @@ class DriveFolderServiceTest extends IntegrationTestBase {
         .isInstanceOf(DriveDuplicateNameException.class);
   }
 
-  /** 폴더 이름도 파일 이름과 같은 규칙 — 경로 문자·"."·".."·제어 문자는 만들기·이름 변경·폴더 업로드 모두 400(WP-339, ZIP 경로 안전). */
+  /**
+   * 폴더 이름도 파일 이름과 같은 규칙 — 경로 문자·"."·".."·제어 문자는 만들기·이름 변경에서 400(WP-339, ZIP 경로 안전). 폴더 업로드는 사용자가
+   * 이름을 고칠 수 없어 트리가 반쯤 올라간 채 멈추지 않게 "_" 로 바꿔 받는다.
+   */
   @Test
-  void createRenameResolve_invalidNames_areRejected() {
+  void createRename_invalidNames_areRejected_resolveSanitizes() {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
     DriveFolderResponse f = folderService.create(u, sp.id(), null, "ok");
@@ -98,12 +101,12 @@ class DriveFolderServiceTest extends IntegrationTestBase {
       assertThatThrownBy(() -> folderService.rename(u, f.id(), bad))
           .as("rename " + bad)
           .isInstanceOf(IllegalArgumentException.class);
-      assertThatThrownBy(() -> folderService.resolveOrCreate(u, sp.id(), null, bad))
-          .as("resolve " + bad)
-          .isInstanceOf(IllegalArgumentException.class);
     }
     // 앞뒤 공백은 지우고 저장
     assertThat(folderService.rename(u, f.id(), "  새 폴더 ").name()).isEqualTo("새 폴더");
+    assertThat(folderService.resolveOrCreate(u, sp.id(), null, "a/b\u202E").name())
+        .isEqualTo("a_b_");
+    assertThat(folderService.resolveOrCreate(u, sp.id(), null, "..").name()).isEqualTo("_");
   }
 
   @Test
