@@ -23,7 +23,7 @@ export function buildUserMessage(env: IssueEventEnvelope): string {
         `이슈키: ${p.issueKey}\n` +
         `제목: ${p.issueTitle}\n` +
         `지정자: @${p.actor.username}\n\n` +
-        `get_issue_detail 로 컨텍스트 파악 후 작업 시작. update_status('IN_PROGRESS') 와 시작 코멘트.`
+        `get_issue_detail 로 컨텍스트 파악 후 작업 시작. update_issue 의 status 를 'IN_PROGRESS' 로 바꾸고 시작 코멘트.`
       );
     }
     case 'issue.commented': {

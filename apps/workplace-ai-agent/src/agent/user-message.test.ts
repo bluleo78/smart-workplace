@@ -29,7 +29,8 @@ describe('buildUserMessage', () => {
       payload: { ...common, added: common.assignees, removed: [] },
     } as IssueEventEnvelope);
     expect(m).toContain('[이벤트: issue.assigned]');
-    expect(m).toContain('update_status');
+    expect(m).toContain("update_issue 의 status 를 'IN_PROGRESS'");
+    expect(m).not.toContain('update_status');
   });
 
   it('issue.commented', () => {

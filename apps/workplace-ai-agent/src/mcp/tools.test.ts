@@ -134,7 +134,6 @@ function client(): TestClient {
     withOnBehalfOfTenant: () => c,
     // #842: 확인카드 사전검증 — propose_* 는 카드 등록 전에 반드시 이 호출을 통과해야 한다.
     validateAction: vi.fn().mockResolvedValue(undefined),
-    updateIssueStatus: vi.fn().mockResolvedValue(undefined),
     unassignSelf: vi.fn().mockResolvedValue(undefined),
     getProviderCredential: vi.fn(),
     getChatMessages: vi.fn().mockResolvedValue([]),
@@ -201,7 +200,6 @@ describe('프로필 구성', () => {
       'search_wiki',
       'unassign_self',
       'update_issue',
-      'update_status',
     ]);
   });
 
@@ -238,7 +236,7 @@ describe('프로필 구성', () => {
     const names = buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name);
     for (const n of [
       // 이슈
-      'get_issue_detail', 'list_issues', 'add_comment', 'edit_comment', 'update_status', 'create_issue', 'update_issue',
+      'get_issue_detail', 'list_issues', 'add_comment', 'edit_comment', 'create_issue', 'update_issue',
       'unassign_self', 'add_issue_dependency', 'remove_issue_dependency',
       // 노트
       'list_wiki_spaces', 'search_wiki', 'get_wiki_page', 'create_wiki_page', 'update_wiki_page',
@@ -256,7 +254,7 @@ describe('프로필 구성', () => {
       'get_contact_facets', 'add_contact_favorite', 'remove_contact_favorite', 'list_user_groups', 'get_user_group',
       'create_user_group', 'update_user_group', 'add_user_group_member', 'remove_user_group_member', 'propose_delete_user_group',
       // 프로젝트
-      'list_projects', 'get_project', 'list_project_members',
+      'list_projects', 'get_project',
       'propose_create_project', 'propose_delete_project', 'propose_add_project_member',
       // 드라이브
       'list_drive_spaces', 'list_drive_items', 'search_drive', 'get_drive_file_summary', 'search_drive_content',
@@ -279,6 +277,23 @@ describe('프로필 구성', () => {
     // 미구현 경계(search_issues)·제거된 도구(respond_chat, #463)는 없어야 한다.
     expect(names).not.toContain('search_issues');
     expect(names).not.toContain('respond_chat');
+  });
+
+  // WP-343: update_status(→ update_issue 의 status)·list_project_members(→ get_project.members)는 폐지 — 어느 프로필에도 없어야 한다.
+  it('폐지된 update_status·list_project_members 는 어느 프로필에도 노출되지 않는다', () => {
+    for (const profile of ['issue', 'chat', 'home', 'messaging', 'assistant'] as const) {
+      const names = buildTools(client(), AGENT_ID, profile).map((t) => t.name);
+      expect(names).not.toContain('update_status');
+      expect(names).not.toContain('list_project_members');
+    }
+  });
+
+  it('상태 변경은 공유 update_issue 의 status 로 가능하다(issue·assistant 프로필 모두 update_issue 노출)', () => {
+    for (const profile of ['issue', 'assistant'] as const) {
+      const tool = find(buildTools(client(), AGENT_ID, profile), 'update_issue');
+      expect(tool.inputSchema.parse({ issueKey: 'WP-1', status: 'IN_PROGRESS' })).toMatchObject({ status: 'IN_PROGRESS' });
+      expect(() => tool.inputSchema.parse({ issueKey: 'WP-1', status: 'WRONG' })).toThrow();
+    }
   });
 
   it('home 표시 도구는 {displayed:true} 만 반환한다(데이터 조회 X)', async () => {
@@ -433,19 +448,7 @@ describe('read_chat_attachment 프로필·바인딩 (WP-234)', () => {
 // ---------------------------------------------------------------------------
 // ai-agent 전용 이슈 도구
 // ---------------------------------------------------------------------------
-describe('update_status / unassign_self', () => {
-  it('update_status → client.updateIssueStatus(agentId, key, status)', async () => {
-    const c = client();
-    expect(await find(buildTools(c, AGENT_ID), 'update_status').handler({ issueKey: 'WP-1', status: 'DONE' })).toBe('ok');
-    expect(c.updateIssueStatus).toHaveBeenCalledWith(AGENT_ID, 'WP-1', 'DONE');
-  });
-
-  it('update_status — 잘못된 status 는 zod reject', async () => {
-    const c = client();
-    await expect(find(buildTools(c, AGENT_ID), 'update_status').handler({ issueKey: 'WP-1', status: 'WRONG' })).rejects.toThrow();
-    expect(c.updateIssueStatus).not.toHaveBeenCalled();
-  });
-
+describe('unassign_self', () => {
   it('unassign_self → client.unassignSelf(agentId, key)', async () => {
     const c = client();
     expect(await find(buildTools(c, AGENT_ID), 'unassign_self').handler({ issueKey: 'WP-1' })).toBe('ok');
@@ -986,19 +989,6 @@ describe('프로젝트 제안 — projectKey → params.key 매핑 (#846)', () =
     await expect(
       find(tools, 'propose_add_project_member').handler({ key: 'WP', username: 'u', role: 'MEMBER', summary: 's' }),
     ).rejects.toThrow();
-    await expect(find(tools, 'list_project_members').handler({ key: 'WP' })).rejects.toThrow();
-  });
-});
-
-describe('list_project_members (#846)', () => {
-  it('userId 없이 username·name·role 만 반환한다', async () => {
-    const c = client();
-    c.sc.getProjectMembers.mockResolvedValue([
-      { userId: 5, username: 'minsu', name: '김민수', role: 'OWNER' } as never,
-    ]);
-    const out = JSON.parse((await find(buildTools(c, 7, 'assistant'), 'list_project_members').handler({ projectKey: 'WP' })) as string);
-    expect(c.sc.getProjectMembers).toHaveBeenCalledWith('WP');
-    expect(out).toEqual([{ username: 'minsu', name: '김민수', role: 'OWNER' }]);
   });
 });
 

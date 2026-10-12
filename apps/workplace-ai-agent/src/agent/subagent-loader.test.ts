@@ -7,7 +7,7 @@ import { buildTools } from '../mcp/tools.js';
 
 const issueDef: SubagentDefinition = {
   description: '이슈 조회·상태변경·코멘트',
-  tools: ['mcp__workplace__get_issue_detail', 'mcp__workplace__update_status'],
+  tools: ['mcp__workplace__get_issue_detail', 'mcp__workplace__update_issue'],
   maxTurns: 20,
   prompt: '# 역할\n이슈 전문가입니다.\n',
 };
@@ -17,7 +17,7 @@ describe('serializeSubagent', () => {
     const md = serializeSubagent('issue-agent', issueDef);
     expect(md).toContain('---\nname: issue-agent\n');
     expect(md).toContain('description: "이슈 조회·상태변경·코멘트"');
-    expect(md).toContain('tools:\n  - mcp__workplace__get_issue_detail\n  - mcp__workplace__update_status');
+    expect(md).toContain('tools:\n  - mcp__workplace__get_issue_detail\n  - mcp__workplace__update_issue');
     expect(md).toContain('maxTurns: 20');
     expect(md.endsWith('# 역할\n이슈 전문가입니다.\n')).toBe(true);
   });

@@ -49,7 +49,7 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Gen:iA Works 홈 화면 "AI �
 | 연락처(사외) | \`list_contacts\`, \`get_external_contact\`, \`get_contact_facets\` | \`show_contacts\` | \`show_contact\` |
 | 사용자 그룹(조직도·개인 그룹) | \`list_user_groups\`, \`get_user_group\` | (없음) | (없음) |
 | 구성원(사내) | \`search_members\`, \`get_member\`, \`get_member_contact\` | (없음) | (없음) |
-| 프로젝트 | \`list_projects\`, \`get_project\`, \`list_project_members\` | \`show_projects\` | \`show_project\` |
+| 프로젝트 | \`list_projects\`, \`get_project\` (멤버 포함) | \`show_projects\` | \`show_project\` |
 | 드라이브 | \`list_drive_spaces\`, \`list_drive_items\`, \`search_drive\`, \`search_drive_content\`, \`get_drive_file_summary\` | \`show_drive\` | (없음) |
 | 이슈 | \`list_issues\`, \`get_issue_detail\` | \`show_issue_list\` | \`show_issue_detail\` |
 | 메일 | \`list_mail\`, \`get_mail\` | \`show_mail_list\` | (없음) |

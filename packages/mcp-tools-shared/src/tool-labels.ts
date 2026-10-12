@@ -14,7 +14,6 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   get_issue_detail: { label: '이슈 상세 조회', icon: '🔍' },
   create_issue: { label: '이슈 생성', icon: '📝' },
   update_issue: { label: '이슈 수정', icon: '✏️' },
-  update_status: { label: '상태 변경', icon: '✏️' },
   unassign_self: { label: '담당 해제', icon: '🙅' },
   add_comment: { label: '코멘트 작성', icon: '💬' },
   edit_comment: { label: '코멘트 수정', icon: '✏️' },
@@ -26,7 +25,6 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   list_projects: { label: '프로젝트 목록', icon: '🗂️' },
   get_project: { label: '프로젝트 조회', icon: '🗂️' },
   update_project: { label: '프로젝트 수정', icon: '✏️' },
-  list_project_members: { label: '멤버 조회', icon: '👥' },
   // 노트
   search_wiki: { label: '노트 검색', icon: '🔍' },
   list_wiki_spaces: { label: '노트 공간 조회', icon: '📚' },
@@ -101,7 +99,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
 
 /**
  * MCP 프리픽스 제거 → 도구 이름. 런타임마다 도구 이름 형식이 다르다:
- * Claude SDK 는 `mcp__workplace__update_status`, opencode 는 `workplace_update_status`('<서버명>_<도구명>').
+ * Claude SDK 는 `mcp__workplace__update_issue`, opencode 는 `workplace_update_issue`('<서버명>_<도구명>').
  */
 export function stripMcpPrefix(name: string): string {
   const m = /^(?:mcp__[^_]+__|workplace_)(.+)$/.exec(name);

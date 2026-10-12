@@ -103,8 +103,7 @@ export interface WorkplaceApiClient {
   // #846: 공유 도구(이슈·프로젝트·노트·캘린더·메일·구성원·메시징·드라이브 읽기 등)용 클라이언트.
   //   경로 매핑은 공유 패키지(createSharedToolClient)에 있고, 여기서는 이 에이전트 신원 헤더가 붙은 HTTP 만 넘긴다.
   toolClient(agentId: number): SharedToolClient;
-  // 아래는 ai-agent 전용 도구·흐름(상태 변경·담당 해제·chat·위임 제안 등)이 쓰는 메서드.
-  updateIssueStatus(agentId: number, issueKey: string, statusKey: string): Promise<void>;
+  // 아래는 ai-agent 전용 도구·흐름(담당 해제·chat·위임 제안 등)이 쓰는 메서드.
   unassignSelf(agentId: number, issueKey: string): Promise<void>;
   // Task 7: getOAuthToken → getProviderCredential 일반화. GET /users/me/provider-credential.
   // anthropic(OAuth 토큰)·opencode(공급자 설정 payload) 양쪽을 ProviderCredential 유니온으로 반환.
@@ -219,16 +218,6 @@ export function createWorkplaceApiClient(opts: {
       return createWorkplaceApiClient({ ...opts, onBehalfOfTenantId: tenantId });
     },
 
-
-
-    async updateIssueStatus(agentId, issueKey, statusKey) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      await http.patch(
-        `/projects/${projectKey}/issues/${number}/status`,
-        { status: statusKey },
-        onBehalfOf(agentId),
-      );
-    },
 
 
     async unassignSelf(agentId, issueKey) {

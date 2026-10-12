@@ -11,6 +11,15 @@ describe('TOOL_LABELS', () => {
       .filter((n) => !TOOL_LABELS[n]);
     expect(missing).toEqual([]);
   });
+
+  // WP-343: update_status(→ update_issue 의 status)·list_project_members(→ get_project.members)는 폐지 — 공유 도구·라벨 어디에도 없어야 한다.
+  it('폐지된 update_status·list_project_members 는 공유 도구 목록과 라벨에 없다', () => {
+    const names = buildSharedTools({} as unknown as SharedToolClient).map((t) => t.name);
+    for (const removed of ['update_status', 'list_project_members']) {
+      expect(names).not.toContain(removed);
+      expect(TOOL_LABELS[removed]).toBeUndefined();
+    }
+  });
 });
 
 describe('stripMcpPrefix / isDisplayableTool', () => {

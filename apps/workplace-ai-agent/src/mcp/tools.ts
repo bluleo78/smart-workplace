@@ -7,9 +7,7 @@ import {
   issueListFilterShape,
   normalizeTimezone,
   parseIssueKey,
-  projectKeyInput,
   toolAnnotations,
-  toProjectMemberView,
   type McpTool,
 } from '@smart-workplace/mcp-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -20,10 +18,6 @@ import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
 export type { McpTool };
 
 const issueKey = z.object({ issueKey: z.string().min(1) });
-const updateStatusInput = z.object({
-  issueKey: z.string().min(1),
-  status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']),
-});
 // 6c: chat 프로필 도구 입력.
 const addChatMessageInput = z.object({
   threadId: z.number().int().positive(),
@@ -558,18 +552,8 @@ export function buildTools(
     ];
   };
 
-  // 기존 이슈 쓰기 도구 중 add_comment/edit_comment 는 공유본(sharedTool)으로 대체됨.
-  const updateStatusTool: McpTool = {
-    name: 'update_status',
-    description: '이슈의 상태를 변경합니다. 허용값: TODO / IN_PROGRESS / DONE / CANCELED.',
-    inputSchema: updateStatusInput,
-    async handler(args) {
-      const { issueKey: k, status } = updateStatusInput.parse(args);
-      await client.updateIssueStatus(agentId, k, status);
-      return 'ok';
-    },
-  };
-  // create_issue/update_issue/add_issue_dependency/remove_issue_dependency 는 공유본(sharedTool)으로 대체됨.
+  // 이슈 쓰기 도구(add_comment/edit_comment/create_issue/update_issue/add_issue_dependency/remove_issue_dependency)는 공유본(sharedTool)이다.
+  // 상태 변경은 update_issue 의 status 로 한다(update_status 도구는 WP-343 에서 폐지).
   // #378: unassign_self 실패 시 고정 안내 문구를 반환해 LLM 재해석을 차단한다.
   // 동시에 WORKPLACE_UNASSIGN_ERROR_PATH 사이드카에 오류를 기록해,
   // run-ai-compose 가 최종 메시지를 결정론적으로 override 한다(이중 방어).
@@ -838,17 +822,6 @@ export function buildTools(
       const { member, error } = await requireMemberFor(username);
       if (error) return error;
       return await writeProposal('user.set_active', summary, { userId: member!.userId, active });
-    },
-  };
-
-  // #333 M3: 프로젝트 멤버 조회. #846: 사람은 username 으로만 노출한다(get_project 의 members 와 같은 형태 — #833).
-  const listProjectMembersTool: McpTool = {
-    name: 'list_project_members',
-    description: '프로젝트 멤버 목록(username·name·role)을 JSON 으로 반환합니다.',
-    inputSchema: projectKeyInput,
-    async handler(args) {
-      const { projectKey } = projectKeyInput.parse(args);
-      return JSON.stringify((await sc.getProjectMembers(projectKey)).map(toProjectMemberView));
     },
   };
 
@@ -1136,7 +1109,6 @@ export function buildTools(
       sharedTool('update_wiki_page'),        // #333 M3: 위키 쓰기(내부)
       sharedTool('add_comment'),
       sharedTool('edit_comment'),
-      updateStatusTool,
       sharedTool('create_issue'),
       sharedTool('update_issue'),
       unassignSelfTool,
@@ -1160,7 +1132,7 @@ export function buildTools(
       sharedTool('add_user_group_member'), sharedTool('remove_user_group_member'), proposeDeleteUserGroupTool,
       sharedTool('search_members'), sharedTool('get_member'), sharedTool('get_member_contact'), // #833: 구성원(설정>구성원) 조회 — 연락처와 분리된 도메인
       proposeSetMemberRoleTool, proposeSetMemberActiveTool, // #833: 구성원 쓰기 제안(확인 카드 경유)
-      sharedTool('list_projects'), sharedTool('get_project'), listProjectMembersTool,
+      sharedTool('list_projects'), sharedTool('get_project'), // 멤버는 get_project.members 로 함께 온다(list_project_members 폐지, WP-343)
       proposeCreateProjectTool, proposeDeleteProjectTool, proposeAddProjectMemberTool, // #333 M3: 프로젝트
       sharedTool('list_drive_spaces'), sharedTool('list_drive_items'), sharedTool('search_drive'), // #333 M3: 드라이브 읽기
       sharedTool('get_drive_file_summary'), sharedTool('search_drive_content'), // #850: 파일 요약·내용 검색
@@ -1209,7 +1181,6 @@ export function buildTools(
     sharedTool('get_wiki_page'),
     sharedTool('add_comment'),
     sharedTool('edit_comment'),
-    updateStatusTool,
     sharedTool('create_issue'),
     sharedTool('update_issue'),
     unassignSelfTool,

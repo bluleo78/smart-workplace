@@ -1072,11 +1072,11 @@ describe('runAiChatStream — 이슈 enum 답은 사이드카 그대로 (#381, e
 
   it('streamedText 에 도구명 류 텍스트가 있으면 그대로 보존(sanitize 없음)', async () => {
     streamSpy.mockImplementation(makeRunnerImpl([
-      textDelta('update_status(DONE) 호출합니다.'),
+      textDelta('update_issue(status=DONE) 호출합니다.'),
       result(''),
     ]));
     const out = await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal);
-    expect(out.fullText).toBe('update_status(DONE) 호출합니다.');
+    expect(out.fullText).toBe('update_issue(status=DONE) 호출합니다.');
   });
 });
 

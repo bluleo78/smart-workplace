@@ -53,16 +53,6 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     ).rejects.toThrow('이미 멤버입니다');
   });
 
-  it('updateIssueStatus → PATCH + 헤더', async () => {
-    const scope = nock(BASE)
-      .matchHeader('authorization', 'Internal tk-internal')
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .patch(`${PREFIX}/projects/WP/issues/1/status`, { status: 'DONE' })
-      .reply(200, {});
-    await newClient().updateIssueStatus(AGENT_ID, 'WP-1', 'DONE');
-    expect(scope.isDone()).toBe(true);
-  });
-
   // #373: flat author 필드(authorId/authorName/authorKind) → nested author 객체 변환은
   // 공유 도구 핸들러(normalizeIssueDetail)의 책임 — toolClient 는 raw comments 를 그대로 반환.
   it('toolClient.getIssueDetail → comments 를 포함한 raw 응답을 변형 없이 그대로 반환', async () => {

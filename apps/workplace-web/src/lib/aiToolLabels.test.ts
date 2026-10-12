@@ -14,6 +14,6 @@ describe('widgetTypeFromToolName', () => {
   it('show_ 가 아니면 null', () => {
     expect(widgetTypeFromToolName('list_events')).toBeNull();
     expect(widgetTypeFromToolName('mcp__workplace__respond_chat')).toBeNull();
-    expect(widgetTypeFromToolName('mcp__workplace__update_status')).toBeNull();
+    expect(widgetTypeFromToolName('mcp__workplace__update_issue')).toBeNull();
   });
 });

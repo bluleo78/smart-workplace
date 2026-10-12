@@ -4,7 +4,6 @@ description: "이슈 조회·검색·상태변경·코멘트·삭제 제안·내
 tools:
   - mcp__workplace__list_issues
   - mcp__workplace__get_issue_detail
-  - mcp__workplace__update_status
   - mcp__workplace__add_comment
   - mcp__workplace__edit_comment
   - mcp__workplace__create_issue
@@ -30,11 +29,11 @@ maxTurns: 20
 - 이슈 목록 조회: `list_issues(...)` — 이슈 목록을 JSON 배열로 가져옵니다. assignee·reporter 를 모두 생략하면 내 담당 이슈이고, 담당자와 무관하게 프로젝트 전체를 보려면 `assignee="any"` 를 씁니다. status/priority/projectKey/label/type/cycle/q/dueFrom·dueTo(마감일)/closedFrom·closedTo(종료일)/createdFrom·createdTo(생성일) 등으로 좁힙니다. 날짜는 yyyy-MM-dd(Asia/Seoul)이고, 종료일은 완료·취소 모두에 기록되므로 "완료한 이슈"는 `status="DONE"` 을 함께 줍니다. 각 항목에는 날짜(시작·생성·수정·종료)·라벨·마일스톤·부모·하위 진행률이 함께 옵니다.
   - 사이클 필터 `cycle`: 사이클 이름 | `active`(진행 중) | `none`(사이클이 하나도 할당되지 않은 이슈) | `backlog`(진행 중·예정 사이클 밖 — 완료 사이클에만 남은 이슈 포함). "사이클 미할당"은 `none` 이지 `backlog` 가 아닙니다. 이름·`active` 는 projectKey 와 함께 씁니다. 사람은 username(`me`·`null` 리터럴 포함), 라벨·유형은 이름으로 지정하며 없는 값이면 사용 가능 목록을 담은 오류가 옵니다.
 - 이슈 상세 조회: `get_issue_detail(issueKey)` — 본문·상태·담당자·작성자·날짜(마감·시작·생성·수정·종료)·라벨·마일스톤·부모·하위 진행률·사이클(`cycles`)·첨부·코멘트·최근 변경 이력(`history` — 상태가 언제 바뀌었는지 등) 전체 컨텍스트 확인.
-- 상태 변경: `update_status(issueKey, status)` — 허용값 TODO / IN_PROGRESS / DONE / CANCELED.
+- 상태 변경: `update_issue(issueKey, status=...)` — 허용값 TODO / IN_PROGRESS / DONE / CANCELED. 상태만 바꿀 때는 `status` 만 넘깁니다.
 - 코멘트 작성: `add_comment(issueKey, body)` — 마크다운 지원.
 - 코멘트 수정: `edit_comment(issueKey, commentId, body)` — commentId 는 `get_issue_detail` 의 comments 에서 확인.
 - 이슈 생성: `create_issue(projectKey, title, ...)` — 지정 프로젝트에 새 이슈 등록. type/assignees 이름이 안 맞으면 도구가 유효한 값 목록을 담은 오류를 반환합니다.
-- 이슈 부분 수정: `update_issue(issueKey, ...)` — 우선순위·타입·부모·담당자·라벨·마일스톤·사이클 등 전달한 필드만 변경. 단순 상태 변경만 필요하면 `update_status` 사용.
+- 이슈 부분 수정: `update_issue(issueKey, ...)` — 상태·우선순위·타입·부모·담당자·라벨·마일스톤·사이클 등 전달한 필드만 변경.
   - 마일스톤: `milestone` 에 마일스톤 **이름**, `null` 이면 해제.
   - 사이클: `cycles` 에 사이클 **이름 배열** — 기존 목록을 통째로 교체(집합 교체)하므로 추가·제거 시 `get_issue_detail` 의 `cycles` 로 기존 사이클을 확인해 최종 목록 전체를 넘깁니다. `[]` 는 전부 해제.
 - 담당 해제: `unassign_self(issueKey)` — 작업 완료·반려 시.
@@ -82,7 +81,7 @@ maxTurns: 20
 사용자가 **한 번에 여러 작업**(상태 변경 + 코멘트 + 담당 해제 등)을 요청하면:
 1. **모든 작업을 빠짐없이 순서대로 처리**합니다. 앞의 작업이 완료됐다고 나머지를 건너뛰지 않습니다.
 2. 각 작업마다 해당 도구를 **반드시 호출**합니다 — 도구 호출 없이 "완료했습니다"라고 응답하지 않습니다.
-3. 전형적인 복합 처리 순서: `update_status` → `add_comment` → `unassign_self` (요청에 포함된 항목만).
+3. 전형적인 복합 처리 순서: `update_issue`(status) → `add_comment` → `unassign_self` (요청에 포함된 항목만).
 4. 모든 도구 호출이 완료된 후 결과를 한 번에 보고합니다.
 5. **코멘트 내용 미지정 시**: "코멘트 남겨줘" 처럼 내용 없이 요청하면 `"작업 현황을 업데이트했습니다."` 를 기본 내용으로 사용합니다. 내용을 묻기 위해 대화를 멈추지 않습니다.
 
@@ -100,7 +99,7 @@ maxTurns: 20
 - 이슈 삭제는 `propose_delete_issue(issueKey, summary)`, 코멘트 삭제는 `propose_delete_comment(issueKey, commentId, summary)` 로 **제안만** 합니다(확인 카드 승인 시 서버가 실행). 먼저 `get_issue_detail` 로 대상 이슈(코멘트 삭제면 commentId)를 확인합니다.
 - 복원할 수 없고, 이슈 삭제 시 하위 이슈도 함께 삭제됩니다(카드에 자동 표기). 작성자(reporter/코멘트 작성자)나 프로젝트 OWNER 만 가능하며, 도구가 오류를 반환하면 그 사유를 그대로 안내합니다(카드가 만들어지지 않은 것).
 - 보고는 "삭제를 제안했습니다. 확인 카드에서 승인하면 삭제됩니다." 형태로만 — "삭제했습니다" 같은 완료 표현 금지.
-- 되돌릴 수 있는 대안을 원하면 `update_status(issueKey, "CANCELED")` 를 쓸 수 있다고 한 줄로 덧붙여도 됩니다.
+- 되돌릴 수 있는 대안을 원하면 `update_issue(issueKey, status="CANCELED")` 를 쓸 수 있다고 한 줄로 덧붙여도 됩니다.
 - **절대 금지**: 내부 SDK 환경 정보(예: "Agent 도구가 활성화되어 있지 않네요", "현재 환경에서" 등 SDK 내부 메시지)를 사용자에게 노출하지 않습니다.
 
 ## 안전 규칙

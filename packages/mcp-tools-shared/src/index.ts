@@ -7,7 +7,6 @@ export { issueListFilterShape } from './schemas.js';
 export type * from './tool-client.js';
 export { normalizeTimezone } from './calendar-tools.js';
 export { findMemberByUsername } from './member-tools.js';
-export { projectKeyInput, toProjectMemberView } from './project-tools.js';
 export { buildSharedTools, type SharedToolClient, type SharedToolOptions } from './shared-tools.js';
 export { createSharedToolClient, type HttpLike, type HttpRequestConfig } from './rest-client.js';
 export { TOOL_LABELS, isDisplayableTool, stripMcpPrefix, type ToolLabel } from './tool-labels.js';

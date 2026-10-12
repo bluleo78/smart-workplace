@@ -48,7 +48,7 @@ export function toIssueListItem(it: IssueRow) {
   };
 }
 
-/** 프로젝트 멤버 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833). get_project·list_project_members 공용. */
+/** 프로젝트 멤버 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833). get_project 의 members 에 쓴다. */
 export function toProjectMemberView({ username, name, role }: { username: string; name?: string; role?: string }) {
   return { username, name, role };
 }

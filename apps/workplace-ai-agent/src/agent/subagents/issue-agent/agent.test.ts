@@ -16,7 +16,6 @@ describe('issue-agent 정의', () => {
     expect(loaded['issue-agent'].tools).toEqual([
       'mcp__workplace__list_issues',
       'mcp__workplace__get_issue_detail',
-      'mcp__workplace__update_status',
       'mcp__workplace__add_comment',
       'mcp__workplace__edit_comment',
       'mcp__workplace__create_issue',
@@ -35,6 +34,14 @@ describe('issue-agent 정의', () => {
       'mcp__workplace__search_members',
       'mcp__workplace__submit_response',
     ]);
+  });
+
+  // WP-343: update_status 폐지 — 상태 변경은 update_issue 의 status 로 지시한다.
+  it('폐지된 update_status 를 tools·본문 어디에도 두지 않고 update_issue 의 status 로 안내한다', () => {
+    expect(loaded['issue-agent'].tools).not.toContain('mcp__workplace__update_status');
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).not.toContain('update_status');
+    expect(prompt).toContain('update_issue(issueKey, status=...)');
   });
 
   it('maxTurns=20, description·본문이 비어있지 않다', () => {
