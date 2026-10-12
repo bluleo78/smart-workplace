@@ -172,7 +172,8 @@ public class DriveLinkService {
         fileRepo
             .findLinkMeta(driveFileId)
             .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    return fileUpload.getFileContentTrusted(meta.fileId());
+    // 이름을 바꾼 파일도 바뀐 이름으로 내려받게 드라이브 이름을 쓴다(WP-335).
+    return fileUpload.getFileContentTrusted(meta.fileId()).withName(meta.name());
   }
 
   /** 소스 삭제 시 모든 ref 정리. */

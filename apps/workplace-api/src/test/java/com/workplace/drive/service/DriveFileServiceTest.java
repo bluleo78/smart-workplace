@@ -347,4 +347,148 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(versions.get(0).versionNo()).isEqualTo(1);
     assertThat(versions.get(0).sizeBytes()).isEqualTo(copiedSize);
   }
+
+  // ── WP-335: 파일 이름 변경 ──
+
+  /** 이름을 바꾸면 목록·다운로드 파일명에 새 이름이 반영된다(앞뒤 공백 제거). 감사 로그 FILE_RENAME 기록. */
+  @Test
+  void rename_updatesListAndDownloadName() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+
+    DriveFileResponse renamed = fileService.rename(u, f.id(), "  회의록.txt ");
+
+    assertThat(renamed.name()).isEqualTo("회의록.txt");
+    assertThat(fileService.download(u, f.id()).originalName()).isEqualTo("회의록.txt");
+    assertThat(fileService.downloadViaShareLink(f.id()).originalName()).isEqualTo("회의록.txt");
+    // 지난 버전은 올릴 때 이름 그대로(확장자를 바꿔도 옛 형식 버전이 새 확장자로 내려가지 않게).
+    assertThat(fileService.downloadVersion(u, f.id(), 1).originalName()).isEqualTo("memo.txt");
+    assertThat(
+            dsl.fetchCount(
+                com.workplace.jooq.Tables.AUDIT_LOG,
+                com.workplace.jooq.Tables.AUDIT_LOG
+                    .ACTION_TYPE
+                    .eq("FILE_RENAME")
+                    .and(
+                        com.workplace.jooq.Tables.AUDIT_LOG.RESOURCE_ID.eq(
+                            String.valueOf(f.id())))))
+        .isEqualTo(1);
+  }
+
+  /** 같은 폴더에 같은 이름의 활성 파일이 있으면 409(DriveDuplicateNameException). */
+  @Test
+  void rename_toExistingNameInSameFolder_conflicts() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse a = fileService.upload(u, sp.id(), null, txt());
+    fileService.upload(u, sp.id(), null, png());
+
+    assertThatThrownBy(() -> fileService.rename(u, a.id(), "pic.png"))
+        .isInstanceOf(DriveDuplicateNameException.class);
+  }
+
+  /** 다른 폴더의 동명 파일·휴지통의 동명 파일은 충돌이 아니다. */
+  @Test
+  void rename_sameNameInOtherFolderOrTrash_isAllowed() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFolderResponse sub = folderService.create(u, sp.id(), null, "하위");
+    fileService.upload(u, sp.id(), sub.id(), png());
+    DriveFileResponse trashed =
+        fileService.upload(
+            u,
+            sp.id(),
+            null,
+            new MockMultipartFile("file", "old.png", "image/png", "x".getBytes()));
+    fileService.delete(u, trashed.id());
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+
+    assertThat(fileService.rename(u, f.id(), "pic.png").name()).isEqualTo("pic.png");
+    assertThat(fileService.rename(u, f.id(), "old.png").name()).isEqualTo("old.png");
+  }
+
+  /** 현재 이름 그대로면 자기 자신과의 충돌 없이 그대로 돌려준다. */
+  @Test
+  void rename_toSameName_isNoop() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+
+    assertThat(fileService.rename(u, f.id(), "memo.txt").name()).isEqualTo("memo.txt");
+  }
+
+  /** 이름을 바꾼 뒤 새 이름으로 다시 올리면 같은 파일의 새 버전으로 흡수된다(#79 동명 자동 버전화와 일관). */
+  @Test
+  void rename_thenUploadWithNewName_becomesNewVersion() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+    fileService.rename(u, f.id(), "report.txt");
+
+    DriveFileResponse again =
+        fileService.upload(
+            u,
+            sp.id(),
+            null,
+            new MockMultipartFile("file", "report.txt", "text/plain", "v2".getBytes()));
+
+    assertThat(again.id()).isEqualTo(f.id());
+    assertThat(again.versionCount()).isEqualTo(2);
+  }
+
+  /**
+   * 앞뒤 공백(유니코드 공백 포함)을 지운 뒤 빈 이름·"."·".."·경로 구분자·제어 문자·줄 구분자·양방향 제어 문자는
+   * 400(IllegalArgumentException).
+   */
+  @Test
+  void rename_invalidNames_areRejected() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+
+    for (String bad :
+        new String[] {
+          "\u3000",
+          "\u3000..\u3000",
+          " . ",
+          "a/b.txt",
+          "a\\b.txt",
+          "a\u0000b.txt",
+          "a\nb.txt",
+          "a\u0085b.txt",
+          "a\u2028b.txt",
+          "invoice\u202Efdp.exe"
+        }) {
+      assertThatThrownBy(() -> fileService.rename(u, f.id(), bad))
+          .as(bad)
+          .isInstanceOf(IllegalArgumentException.class);
+    }
+    assertThat(fileService.rename(u, f.id(), "..a.b.txt").name()).isEqualTo("..a.b.txt");
+  }
+
+  /** VIEWER 는 이름을 바꿀 수 없다. */
+  @Test
+  void rename_byViewer_isForbidden() throws Exception {
+    long owner = seedUser();
+    long viewer = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(owner, "팀");
+    spaceService.addMember(owner, sp.id(), viewer, "VIEWER");
+    DriveFileResponse f = fileService.upload(owner, sp.id(), null, txt());
+
+    assertThatThrownBy(() -> fileService.rename(viewer, f.id(), "x.txt"))
+        .isInstanceOf(com.workplace.drive.exception.DriveForbiddenException.class);
+  }
+
+  /** 휴지통에 있는 파일은 이름 변경 대상이 아니다(NotFound). */
+  @Test
+  void rename_trashedFile_isNotFound() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+    fileService.delete(u, f.id());
+
+    assertThatThrownBy(() -> fileService.rename(u, f.id(), "x.txt"))
+        .isInstanceOf(DriveFileNotFoundException.class);
+  }
 }

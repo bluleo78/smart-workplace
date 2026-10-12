@@ -50,7 +50,7 @@ test.describe('모바일 드라이브 행 액션', () => {
     await page.getByTestId('drive-row-more-file-70').tap()
     const sheet = page.getByTestId('drive-row-sheet')
     await expect(sheet).toContainText(LONG_FILE)
-    for (const key of ['download', 'share', 'move', 'copy', 'versions', 'delete']) {
+    for (const key of ['download', 'share', 'rename', 'move', 'copy', 'versions', 'delete']) {
       await expect(sheet.getByTestId(`mobile-action-${key}`)).toBeEnabled()
     }
     const req = page.waitForRequest('**/api/v1/drive/files/70/download')
@@ -105,6 +105,25 @@ test.describe('모바일 드라이브 행 액션', () => {
     await expect(sheet.getByTestId('mobile-action-copy')).toBeDisabled()
     await expect(sheet.getByTestId('mobile-action-move')).toBeEnabled()
     await expect(sheet.getByTestId('mobile-action-delete')).toBeEnabled()
+  })
+
+  test('파일 ⋮ → 이름 변경 — 확장자 앞까지 선택된 다이얼로그에서 바꾸면 PATCH 가 나간다(WP-335)', async ({ authenticatedPage: page }) => {
+    await stubDrive(page)
+    const patches = trackRequests(page, 'PATCH', '/api/v1/drive/files/70')
+    await page.route('**/api/v1/drive/files/70', (r) =>
+      r.request().method() === 'PATCH' ? r.fulfill(json({ ...FILE, name: '도입제안서.pdf' })) : r.fallback())
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+
+    await page.getByTestId('drive-row-more-file-70').tap()
+    await page.getByTestId('mobile-action-rename').tap()
+    const input = page.getByTestId('rename-dialog-input')
+    await expect(input).toHaveValue(LONG_FILE)
+    expect(await input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, LONG_FILE.length - '.pdf'.length])
+    await page.keyboard.type('도입제안서')
+    await page.getByTestId('rename-dialog-confirm').tap()
+    await patches.waitFor()
+    expect(patches.lastBody<{ name: string }>()).toEqual({ name: '도입제안서.pdf' })
+    await expect(input).toBeHidden()
   })
 
   test('보관된 공간 — 폴더 시트의 쓰기 작업이 모두 비활성', async ({ authenticatedPage: page }) => {
@@ -234,8 +253,8 @@ test.describe('드라이브 행 액션 — 터치 태블릿(≥1024px)', () => {
     await expect(page.getByTestId('drive-row-sheet')).toHaveCount(0)
     const menu = page.getByRole('menu')
     await expect(menu).toBeVisible()
-    // 휴대폰 시트와 같은 작업 목록(다운로드·공유·이동·복사·버전·삭제).
-    await expect(menu.getByRole('menuitem')).toHaveCount(6)
+    // 휴대폰 시트와 같은 작업 목록(다운로드·공유·이름 변경·이동·복사·버전·삭제).
+    await expect(menu.getByRole('menuitem')).toHaveCount(7)
     const req = page.waitForRequest('**/api/v1/drive/files/70/download')
     await page.getByTestId('drive-row-action-download').click()
     await req

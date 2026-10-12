@@ -151,6 +151,10 @@ export const driveApi = {
 
   deleteFile: (driveFileId: number) => client.delete<void>(`/drive/files/${driveFileId}`),
 
+  // 파일 이름 변경(WP-335) — 같은 폴더 동명 활성 파일이 있으면 409.
+  renameFile: (driveFileId: number, name: string) =>
+    client.patch<DriveFile>(`/drive/files/${driveFileId}`, { name }),
+
   moveFile: (driveFileId: number, targetFolderId: number | null) =>
     client.patch<void>(`/drive/files/${driveFileId}/move`, { targetFolderId }),
 

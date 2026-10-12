@@ -140,6 +140,20 @@ class DriveLinkServiceTest extends IntegrationTestBase {
     assertThat(content.originalName()).isEqualTo("a.txt");
   }
 
+  /** 이름을 바꾼 드라이브 파일은 채팅·이슈 링크로 내려받아도 바뀐 이름으로 내려간다(WP-335). */
+  @Test
+  void getLinkContent_usesRenamedDriveName() throws Exception {
+    long owner = user("owner");
+    long df = driveFile(owner, null);
+    service.createLink(owner, df, "ISSUE", 100L);
+    dsl.update(com.workplace.jooq.Tables.DRIVE_FILE)
+        .set(com.workplace.jooq.Tables.DRIVE_FILE.NAME, "최종.txt")
+        .where(com.workplace.jooq.Tables.DRIVE_FILE.ID.eq(df))
+        .execute();
+
+    assertThat(service.getLinkContent("ISSUE", 100L, df).originalName()).isEqualTo("최종.txt");
+  }
+
   @Test
   void removeLink_onlyCreatorOrManager() {
     long owner = user("owner");

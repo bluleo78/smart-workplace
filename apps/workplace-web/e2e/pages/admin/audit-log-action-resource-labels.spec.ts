@@ -48,6 +48,15 @@ test.describe('/settings/audit-logs — 신규 액션/리소스 한글 라벨', 
         resourceId: '20',
         description: '구성원 계정 생성: newmember (역할 MEMBER)',
       }),
+      // WP-335: 드라이브 파일 이름 변경
+      createAuditLog({
+        id: 4,
+        username: 'editor',
+        actionType: 'FILE_RENAME',
+        resource: 'drive',
+        resourceId: '11',
+        description: '드라이브 파일 이름 변경: 초안.pdf → 최종.pdf',
+      }),
     ];
 
     await mockApi(page, 'GET', '/api/v1/admin/audit-logs', createPageResponse(logs));
@@ -57,7 +66,7 @@ test.describe('/settings/audit-logs — 신규 액션/리소스 한글 라벨', 
     await expect(page.getByRole('heading', { name: '감사 로그' })).toBeVisible();
 
     const rows = page.locator('tbody tr');
-    await expect(rows).toHaveCount(3);
+    await expect(rows).toHaveCount(4);
 
     // 한글 라벨 표시 확인
     await expect(rows.nth(0)).toContainText('파일 업로드');
@@ -65,11 +74,13 @@ test.describe('/settings/audit-logs — 신규 액션/리소스 한글 라벨', 
     await expect(rows.nth(1)).toContainText('PAT 발급');
     await expect(rows.nth(1)).toContainText('API 토큰');
     await expect(rows.nth(2)).toContainText('구성원 계정 생성');
+    await expect(rows.nth(3)).toContainText('파일 이름 변경');
 
     // raw enum 값이 그대로 노출되지 않음
     await expect(page.getByText('FILE_UPLOAD', { exact: true })).toHaveCount(0);
     await expect(page.getByText('USER_TOKEN_ISSUED', { exact: true })).toHaveCount(0);
     await expect(page.getByText('MEMBER_CREATED', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('FILE_RENAME', { exact: true })).toHaveCount(0);
     await expect(page.getByText('user_api_token', { exact: true })).toHaveCount(0);
 
     // "매핑 없음" 콘솔 경고가 발생하지 않아야 함

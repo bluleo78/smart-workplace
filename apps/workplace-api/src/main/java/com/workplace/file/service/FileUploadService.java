@@ -209,7 +209,15 @@ public class FileUploadService {
 
   /** 파일 다운로드 결과 레코드. byte[] 대신 Resource를 사용하여 대용량 파일(최대 256MB)을 스트리밍으로 전송하고 힙 메모리 과소비를 방지한다. */
   public record FileContentResult(
-      Resource resource, String mimeType, String originalName, long size) {}
+      Resource resource, String mimeType, String originalName, long size) {
+    /**
+     * 내려받을 파일명만 바꾼 사본. 드라이브는 이름을 바꿀 수 있어(WP-335) file.original_name(업로드 당시 이름) 대신 drive_file.name
+     * 으로 내려보낸다.
+     */
+    public FileContentResult withName(String name) {
+      return new FileContentResult(resource, mimeType, name, size);
+    }
+  }
 
   // RLS GUC 주입 위해 @Transactional 필요 — 없으면 SELECT 가 빈 결과 → 거짓 404(local/prod fail-closed).
   @Transactional(readOnly = true)

@@ -22,6 +22,7 @@ import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.ExtractionReasons;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.UnicodeNames;
 import com.workplace.user.repository.UserRepository;
 import java.io.IOException;
 import java.util.List;
@@ -143,7 +144,7 @@ public class DriveFileService {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "VIEWER");
-    return fileUpload.getFileContentTrusted(row.fileId());
+    return fileUpload.getFileContentTrusted(row.fileId()).withName(row.name());
   }
 
   /**
@@ -170,7 +171,7 @@ public class DriveFileService {
   public FileContentResult downloadViaShareLink(long driveFileId) throws IOException {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    return fileUpload.getFileContentTrusted(row.fileId());
+    return fileUpload.getFileContentTrusted(row.fileId()).withName(row.name());
   }
 
   /** 썸네일. drive 권한(VIEWER+)으로 인가한 뒤 file core 신뢰 read. 없으면 빈 Optional → 컨트롤러 404. */
@@ -266,6 +267,7 @@ public class DriveFileService {
         versions
             .findVersion(driveFileId, versionNo)
             .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    // 지난 버전은 올릴 때 이름 그대로 — 확장자를 바꿔 이름을 고친 뒤에도 옛 형식 버전이 새 확장자로 내려가지 않게.
     return fileUpload.getFileContentTrusted(v.fileId());
   }
 
@@ -319,6 +321,38 @@ public class DriveFileService {
         .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
   }
 
+  /**
+   * 이름 변경(WP-335). EDITOR 이상·보관되지 않은 공간만(requireRole 이 보관 공간 쓰기를 막는다). 이름은 NFC 정규화·앞뒤 공백 제거 후 저장하고,
+   * 같은 폴더의 다른 활성 파일과 겹치면 409. 현재 이름과 같으면 쓰기·발행 없이 그대로 돌려준다.
+   */
+  @Transactional
+  public DriveFileResponse rename(long callerId, long driveFileId, String name) {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    String newName = validFileName(name);
+    if (!newName.equals(row.name())) {
+      requireNameFree(row.spaceId(), row.folderId(), newName);
+      files.rename(driveFileId, newName);
+      auditLogService.log(
+          callerId,
+          usernameOf(callerId),
+          "FILE_RENAME",
+          "drive",
+          String.valueOf(driveFileId),
+          "드라이브 파일 이름 변경: " + row.name() + " → " + newName,
+          null,
+          null,
+          "SUCCESS",
+          null,
+          Map.of("spaceId", row.spaceId(), "fileName", newName, "previousName", row.name()));
+      notifier.itemsChanged(OP_UPDATED, row.spaceId(), List.of(driveFileId), callerId);
+    }
+    return files
+        .findResponse(driveFileId)
+        .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+  }
+
   /** 이동 — 같은 공간 다른 폴더로 folder_id 변경. 같은 폴더면 no-op. 동명 충돌 시 409. */
   @Transactional
   public void move(long callerId, long driveFileId, Long targetFolderId) {
@@ -339,10 +373,7 @@ public class DriveFileService {
     if (java.util.Objects.equals(row.folderId(), targetFolderId)) {
       return row.spaceId();
     }
-    // 대상 폴더에 동명 활성 파일이 있으면 충돌(#79 부분 유니크 인덱스 대응)
-    if (files.findActiveByName(row.spaceId(), targetFolderId, row.name()).isPresent()) {
-      throw new DriveDuplicateNameException(row.name());
-    }
+    requireNameFree(row.spaceId(), targetFolderId, row.name());
     files.updateFolder(driveFileId, targetFolderId);
     if (notify) {
       notifier.itemsChanged(OP_UPDATED, row.spaceId(), List.of(driveFileId), callerId);
@@ -370,10 +401,7 @@ public class DriveFileService {
             .where(com.workplace.jooq.Tables.FILE.ID.eq(row.fileId()))
             .fetchOne(com.workplace.jooq.Tables.FILE.SIZE_BYTES);
     quota.assertWithinQuota(copiedSizeBytes == null ? 0L : copiedSizeBytes);
-    // 대상 폴더에 동명 활성 파일이 있으면 충돌(#79 부분 유니크 인덱스 대응)
-    if (files.findActiveByName(row.spaceId(), targetFolderId, row.name()).isPresent()) {
-      throw new DriveDuplicateNameException(row.name());
-    }
+    requireNameFree(row.spaceId(), targetFolderId, row.name());
     long newFileId = fileUpload.copyFile(row.fileId(), callerId);
     // insertWithInitialVersion 으로 복사본도 v1 버전 행을 즉시 생성(#79 불변식 — copy 도 quota 집계·purge 대상)
     long newDriveFileId =
@@ -401,6 +429,33 @@ public class DriveFileService {
         .findById(userId)
         .map(com.workplace.user.dto.UserResponse::username)
         .orElse(String.valueOf(userId));
+  }
+
+  /**
+   * 파일 이름 정규화·검사(WP-335) — 앞뒤 공백(유니코드 공백 포함)을 지우고 NFC 로 맞춘 뒤, 빈 이름·"."·".."·경로 구분자(/, \\)·제어 문자와
+   * 줄/문단 구분자·양방향 제어 문자는 400. 폴더 ZIP 이 이름을 엔트리 경로로 이어 붙여 구조가 깨지거나 경로를 벗어나지 않게 하고, 확장자를 뒤집어 보이게 하는
+   * 이름(예: "invoice\u202Efdp.exe")을 막는다.
+   */
+  private static String validFileName(String raw) {
+    String name = UnicodeNames.toNfc(raw.strip());
+    if (name.isEmpty() || name.equals(".") || name.equals("..")) {
+      throw new IllegalArgumentException("파일 이름을 입력해주세요. \".\" 이나 \"..\" 만으로는 지을 수 없습니다.");
+    }
+    if (FORBIDDEN_FILE_NAME_CHARS.matcher(name).find()) {
+      throw new IllegalArgumentException("파일 이름에 / \\ 나 제어 문자는 쓸 수 없습니다.");
+    }
+    return name;
+  }
+
+  /** 파일 이름 금지 문자 — 경로 구분자, 제어 문자(C0·C1), 줄/문단 구분자, 양방향 제어 문자. */
+  private static final java.util.regex.Pattern FORBIDDEN_FILE_NAME_CHARS =
+      java.util.regex.Pattern.compile("[/\\\\\\p{Cc}\\u2028\\u2029\\u202A-\\u202E\\u2066-\\u2069]");
+
+  /** 폴더에 같은 이름의 활성 파일이 있으면 409(#79 부분 유니크 인덱스 대응) — 이름 변경·이동·복사 공용. */
+  private void requireNameFree(long spaceId, Long folderId, String name) {
+    if (files.findActiveByName(spaceId, folderId, name).isPresent()) {
+      throw new DriveDuplicateNameException(name);
+    }
   }
 
   /** 대상 폴더(있으면)가 같은 공간인지 검증. null = 공간 루트(항상 같은 공간). */

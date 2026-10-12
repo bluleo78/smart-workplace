@@ -2,6 +2,8 @@
 // 걸리지 않도록 긴 변 2048px·JPEG 로 줄인다. 서버 측 축소는 하지 않으므로 여기서 한 번만 한다.
 // 판단(순수 함수)은 vitest, canvas 변환은 E2E(큰 PNG → image/jpeg 업로드)로 검증한다.
 
+import { fileStemLength } from './fileName';
+
 /** 축소 후 긴 변(px). */
 export const DOWNSCALE_MAX_EDGE = 2048;
 /**
@@ -38,8 +40,7 @@ export function downscaleTarget(width: number, height: number, sizeBytes: number
 
 /** JPEG 로 바뀐 파일 이름 — 확장자만 .jpg 로 바꾼다(없으면 붙인다). */
 export function toJpegName(name: string): string {
-  const dot = name.lastIndexOf('.');
-  return `${dot > 0 ? name.slice(0, dot) : name}.jpg`;
+  return `${name.slice(0, fileStemLength(name))}.jpg`;
 }
 
 /**

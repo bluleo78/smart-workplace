@@ -3,9 +3,11 @@ package com.workplace.drive.controller;
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.DriveFileVersionResponse;
 import com.workplace.drive.dto.FileSummaryResponse;
+import com.workplace.drive.dto.RenameFileRequest;
 import com.workplace.drive.dto.TargetFolderRequest;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import jakarta.validation.Valid;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
@@ -28,7 +30,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 드라이브 파일 업로드/다운로드/삭제 API. */
+/** 드라이브 파일 업로드/다운로드/이름 변경/삭제 API. */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/drive")
@@ -94,6 +96,15 @@ public class DriveFileController {
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId) {
     fileService.delete(callerId, driveFileId);
     return ResponseEntity.noContent().build();
+  }
+
+  /** 파일 이름 변경(WP-335) — 같은 폴더 동명 활성 파일이 있으면 409. */
+  @PatchMapping("/files/{id}")
+  public ResponseEntity<DriveFileResponse> rename(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long driveFileId,
+      @Valid @RequestBody RenameFileRequest req) {
+    return ResponseEntity.ok(fileService.rename(callerId, driveFileId, req.name()));
   }
 
   @PatchMapping("/files/{id}/move")

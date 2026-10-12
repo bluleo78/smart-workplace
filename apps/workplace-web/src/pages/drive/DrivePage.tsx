@@ -44,12 +44,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { RenameDialog } from '@/components/ui/rename-dialog'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
+import { fileStemLength } from '@/lib/fileName'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 import { parseId } from '@/lib/historyParam'
 import { cn } from '@/lib/utils'
@@ -185,6 +188,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const previewParam = useHistoryParam('preview')
   // 공유 링크 모달 대상 파일 — null 이면 닫힘.
   const [shareFile, setShareFile] = useState<DriveFile | null>(null)
+  // 이름 변경 대상 파일(WP-335) — null 이면 다이얼로그 닫힘.
+  const [renameFile, setRenameFile] = useState<DriveFile | null>(null)
   // 버전 이력 모달 대상 파일 — null 이면 닫힘.
   const [versionFile, setVersionFile] = useState<DriveFile | null>(null)
 
@@ -230,6 +235,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const [nameInput, setNameInput] = useState('')
   // 빈값 확인 클릭 시 에러 메시지 — 무음 실패 대신 인라인 안내 (#360).
   const [nameError, setNameError] = useState('')
+  // 폴더 이름 Enter 저장 — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 저장으로 보지 않는다(WP-331, WP-335 에서 함께 적용).
+  const folderNameEnter = useSingleLineEnter()
 
   // 파일 업로드 진행 상태 — 업로드 중 버튼 비활성화·텍스트 변경으로 중복 업로드 방지 (#170).
   const [uploading, setUploading] = useState(false)
@@ -761,6 +768,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     return [
       { key: 'download', label: '다운로드', icon: <Download />, onSelect: () => driveApi.downloadFile(f.id, f.name), disabled: missing },
       { key: 'share', label: '공유 링크', icon: <Link2 />, onSelect: () => setShareFile(f), disabled: missing },
+      { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => setRenameFile(f), disabled: archived },
       { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }), disabled: archived },
       { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }), disabled: archived || missing },
       { key: 'versions', label: '버전 이력', icon: <History />, onSelect: () => setVersionFile(f) },
@@ -1547,7 +1555,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 ) : tabletRowMenu ? (
                   renderTabletRowMenu(f.name, `file-${f.id}`, rowActionsFor({ kind: 'file', item: f }))
                 ) : (
-                  <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-kbd:flex">
+                  // ⋯ 메뉴가 열린 동안에도 묶음을 보인다(has-data-[state=open]) — 메뉴가 열리면 바깥 포인터가 막혀 hover 가 풀리는데,
+                  // 그때 트리거가 숨으면 메뉴가 기준점을 잃고 화면 왼쪽 위로 튄다(WP-335).
+                  <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-kbd:flex has-data-[state=open]:flex">
                     <Button
                       variant="ghost"
                       size="xs"
@@ -1580,6 +1590,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                     <RowOverflowMenu
                       triggerAriaLabel={`${f.name} 더보기`}
                       items={[
+                        { label: '이름 변경', onSelect: () => setRenameFile(f), disabled: !!space?.archived },
                         { label: '버전 이력', onSelect: () => setVersionFile(f) },
                         {
                           label: '이동',
@@ -1662,6 +1673,24 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           testId="drive-row-sheet"
         />
         {shareFile && <ShareLinkModal file={shareFile} onClose={() => setShareFile(null)} />}
+        {/* 파일 이름 변경(WP-335) — 확장자 앞까지만 선택해 바로 타이핑하면 이름만 바뀐다(확장자도 직접 고칠 수 있음).
+            실패(이름 중복 409 등)는 다이얼로그를 유지한 채 인라인으로 보인다. */}
+        <RenameDialog
+          open={renameFile != null}
+          title="파일 이름 변경"
+          initialValue={renameFile?.name ?? ''}
+          confirmLabel="이름 변경"
+          maxLength={255}
+          initialSelection={(v) => [0, fileStemLength(v)]}
+          onConfirm={async (name) => {
+            if (!renameFile || name === renameFile.name) return
+            await driveApi.renameFile(renameFile.id, name)
+            // 목록 재조회는 기다리지 않는다 — 이름은 이미 바뀌었으니 재조회 실패를 이름 변경 실패로 보이지 않게(선택도 유지).
+            void reload()
+          }}
+          onClose={() => setRenameFile(null)}
+          extractError={(e) => extractApiError(e, '파일 이름을 변경하지 못했습니다.')}
+        />
         {versionFile && (
           <VersionHistoryModal
             file={versionFile}
@@ -1704,9 +1733,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               // 입력 시 에러 메시지 즉시 제거 — 피드백 루프 개선 (#360)
               if (nameError) setNameError('')
             }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void submitNameDialog()
-            }}
+            onCompositionEnd={folderNameEnter.onCompositionEnd}
+            onKeyDown={(e) => folderNameEnter.handleEnter(e, () => void submitNameDialog())}
             placeholder="폴더 이름"
             autoFocus
             aria-invalid={nameError ? 'true' : undefined}
