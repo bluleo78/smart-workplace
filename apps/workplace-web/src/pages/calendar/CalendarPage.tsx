@@ -1,4 +1,5 @@
 import { addDays, addMonths, format, startOfDay } from 'date-fns'
+import { ChevronDown } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -7,8 +8,10 @@ import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAi
 import { CalendarEditDialog } from '@/components/calendar/CalendarEditDialog'
 import { CalendarSidebar } from '@/components/calendar/CalendarSidebar'
 import { EventDialog } from '@/components/calendar/EventDialog'
+import { MobileMiniCalendarPanel } from '@/components/calendar/MobileMiniCalendarPanel'
 import { RecurrenceScopeDialog } from '@/components/calendar/RecurrenceScopeDialog'
 import { AgendaView } from '@/components/calendar/views/AgendaView'
+import { MobileAgendaView } from '@/components/calendar/views/MobileAgendaView'
 import { MonthView } from '@/components/calendar/views/MonthView'
 import { DayView, WeekView } from '@/components/calendar/views/WeekView'
 import { Page } from '@/components/layout/Page'
@@ -24,6 +27,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { useAgendaChunks } from '@/hooks/queries/useAgendaChunks'
 import { useCalendarEvent, useCalendarEvents } from '@/hooks/queries/useCalendarEvents'
 import {
   useCreateEvent,
@@ -33,7 +37,8 @@ import {
 import { useCalendars, useCreateCalendar, useDeleteCalendar, useResetCalendarEvents, useUpdateCalendar } from '@/hooks/queries/useCalendars'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
-import { useIsMobile } from '@/hooks/useIsMobile'
+import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe'
+import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile'
 import { buildCalendarContext } from '@/lib/aiScreenContext/builders/calendar'
 import {
   CALENDAR_VIEWS,
@@ -47,7 +52,9 @@ import {
   toggleCalendar,
   visibleRange,
 } from '@/lib/calendar'
+import { headerMonthLabel } from '@/lib/calendarAgenda'
 import { parseId } from '@/lib/historyParam'
+import { cn } from '@/lib/utils'
 import type {
   Calendar,
   CalendarEvent,
@@ -70,7 +77,9 @@ export function CalendarPage() {
   const eventIdParam = parseId(eventParam.value)
   // 새 일정 딥링크(?new=true) — 홈 대시보드 "오늘 일정" 위젯 빈 상태 CTA(#653) 등에서 진입.
   const deepLinkNew = searchParams.get('new') === 'true'
-  const [view, setView] = useState<CalendarViewType>('month')
+  // 첫 보기 — 모바일은 일정 목록(WP-136: 월 칩이 두세 글자로 잘려 읽히지 않음), 데스크톱은 월.
+  // 마운트 시점에 한 번만 정하고 이후 폭 변화(회전 등)로 바꾸지 않는다. 아래 isMobile 은 아직 선언 전이라 동기 판정(getIsMobile)을 쓴다.
+  const [view, setView] = useState<CalendarViewType>(() => (getIsMobile() ? 'agenda' : 'month'))
   // 모바일(<lg): 오늘/‹/› 와 뷰 전환(단일 select)을 헤더 아래 도구 줄로 내린다(U2-5).
   // 390px 헤더에 44×44 이동 버튼 3개(≈152px)와 ☰·🔔 를 함께 두면 22px 제목('2026년 12월' ≈120px)에 ~100px 만 남아 잘린다.
   const isMobile = useIsMobile()
@@ -78,6 +87,14 @@ export function CalendarPage() {
   const navBtnClass = isMobile ? 'h-11 min-w-11 px-3' : undefined
   const arrowBtnClass = isMobile ? 'h-11 w-11 px-0 text-lg' : undefined
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()))
+  // 모바일 목록 보기 = 일정 목록(MobileAgendaView, 무한 불러오기). 데스크톱 목록은 기존 AgendaView 그대로.
+  const mobileAgenda = isMobile && view === 'agenda'
+  // 모바일 헤더 미니 달력(WP-136) — 펼침 여부와 패널이 보여 주는 달(패널 안 ‹ › 는 본문 anchor 를 움직이지 않는다).
+  const [miniOpen, setMiniOpen] = useState(false)
+  const [panelMonth, setPanelMonth] = useState(anchor)
+  // 목록 맨 위에 보이는 날짜(헤더 월 표시용) — 그 값을 받았을 때의 anchor 와 함께 둔다. anchor 가 바뀌면(날짜 선택·[오늘]·딥링크)
+  // 새 목록이 맨 위 날을 알려 오기 전까지(새 범위에 일정이 없으면 끝내 알리지 않는다) 낡은 달 대신 anchor 의 달을 보이게 한다.
+  const [listTop, setListTop] = useState<{ anchorKey: number; day: Date } | null>(null)
   // 새 일정 다이얼로그는 로컬 상태(?new 는 이번 범위 밖). 기존 일정은 URL 이 열림을 정한다.
   const [creating, setCreating] = useState(false)
   // 마지막으로 연 일정 스냅숏 — 반복 회차는 마스터 id 를 공유해 URL(eventId)만으로는 회차 날짜를 알 수 없다.
@@ -120,15 +137,18 @@ export function CalendarPage() {
 
   // anchor·view 변경 시에만 from/to 재계산
   const { from, to } = useMemo(() => visibleRange(view, anchor), [view, anchor])
-  const { data: events = [], isSuccess: eventsLoaded } = useCalendarEvents(from, to)
+  // 모바일 목록은 청크 조회(useAgendaChunks)가 따로 하므로 본문 범위 조회를 끈다(일요일 시작 30일 범위를 헛되이 받지 않게).
+  const { data: events = [], isSuccess: eventsLoaded } = useCalendarEvents(from, to, { enabled: !mobileAgenda })
   // 내게 할당된 이슈 마감일을 같은 가시 범위로 조회해 읽기전용 오버레이.
-  const { data: issueDues = [] } = useMyIssueDues(from, to)
+  const { data: issueDues = [] } = useMyIssueDues(from, to, { enabled: !mobileAgenda })
 
-  // 미니 캘린더는 항상 anchor 의 한 달(6주 그리드)을 보여주므로, 본문 범위와 별개로
-  // 그 그리드 범위의 일정/마감을 조회한다. 월 보기에선 from/to 가 본문과 같아 자동 dedup.
-  const miniRange = useMemo(() => visibleRange('month', anchor), [anchor])
-  const { data: miniEvents = [] } = useCalendarEvents(miniRange.from, miniRange.to)
-  const { data: miniDues = [] } = useMyIssueDues(miniRange.from, miniRange.to)
+  // 미니 캘린더는 한 달(6주 그리드)을 보여주므로, 본문 범위와 별개로 그 그리드 범위의 일정/마감을 조회한다(월 보기에선 본문과 같아 자동 dedup).
+  // 데스크톱 사이드바는 anchor 의 달, 모바일 헤더 패널은 패널이 보여 주는 달 — 모바일은 패널이 펼쳐졌을 때만 조회한다(☰ 시트엔 미니 달력이 없다).
+  const miniMonth = isMobile ? panelMonth : anchor
+  const miniRange = useMemo(() => visibleRange('month', miniMonth), [miniMonth])
+  const miniEnabled = !isMobile || miniOpen
+  const { data: miniEvents = [] } = useCalendarEvents(miniRange.from, miniRange.to, { enabled: miniEnabled })
+  const { data: miniDues = [] } = useMyIssueDues(miniRange.from, miniRange.to, { enabled: miniEnabled })
 
   // 캘린더 표시 토글 + 초대받은 일정 토글 존중.
   // 내 캘린더(myCalendarIds) 면 캘린더별 토글, 아니면 invited 토글.
@@ -140,16 +160,31 @@ export function CalendarPage() {
 
   const visibleEvents = useMemo(() => events.filter(filterByCalendar), [events, filterByCalendar])
 
+  // 모바일 헤더에 보일 달 — 목록 보기에선 맨 위에 보이는 날짜 묶음의 달(받은 뒤 anchor 가 바뀌었으면 anchor), 그 밖엔 anchor 의 달.
+  const headerMonth = mobileAgenda && listTop?.anchorKey === anchor.getTime() ? listTop.day : anchor
+
+  // 모바일 일정 목록 — anchor(기본 오늘)부터 30일 청크를 이어 조회. 목록 보기가 아니면 조회하지 않는다.
+  const agenda = useAgendaChunks(anchor, {
+    enabled: mobileAgenda,
+    filter: filterByCalendar,
+    showIssueDues: layers.issueDues,
+  })
+
   // WP-54: 캘린더 화면 컨텍스트 — 보기·기간·일정 수 + 열린 일정(다이얼로그).
   // 일정 수는 조회 성공 후에만 싣는다(로딩 중 0건으로 오인 방지). 다이얼로그가 닫히면 editing 이 남아 있어도 focus 를 뺀다.
   const openEditing = dialogOpen && !creating ? editing : null
+  // 모바일 목록 보기는 실제로 불러온 범위(첫 청크 시작 ~ 마지막 청크 끝)와 그 범위의 일정 수를 싣는다.
+  // loadedRange 는 렌더마다 새 객체라 원시값으로 풀어 memo 의존성에 넣는다(안 그러면 매 렌더 컨텍스트를 다시 등록).
+  const ctxFrom = mobileAgenda ? agenda.loadedRange.from : from
+  const ctxTo = mobileAgenda ? agenda.loadedRange.to : to
+  const ctxCount = mobileAgenda ? agenda.count : eventsLoaded ? visibleEvents.length : undefined
   const screenContext = useMemo(
     () =>
       buildCalendarContext({
         view,
-        from,
-        to,
-        count: eventsLoaded ? visibleEvents.length : undefined,
+        from: ctxFrom,
+        to: ctxTo,
+        count: ctxCount,
         creating,
         editing: openEditing
           ? {
@@ -166,19 +201,19 @@ export function CalendarPage() {
             }
           : null,
       }),
-    [view, from, to, eventsLoaded, visibleEvents.length, creating, openEditing],
+    [view, ctxFrom, ctxTo, ctxCount, creating, openEditing],
   )
   useRegisterAiScreenContext(screenContext)
 
-  // 점 찍을 날 — 표시 토글을 존중.
+  // 점 찍을 날 — 미니 캘린더가 보여 주는 달 기준, 표시 토글을 존중.
   const markedDates = useMemo(
     () =>
-      monthMatrix(anchor).filter(
+      monthMatrix(miniMonth).filter(
         (day) =>
           eventsOnDay(miniEvents.filter(filterByCalendar), day).length > 0 ||
           (layers.issueDues && issueDuesOnDay(miniDues, day).length > 0),
       ),
-    [anchor, layers, miniEvents, miniDues, filterByCalendar],
+    [miniMonth, layers, miniEvents, miniDues, filterByCalendar],
   )
 
   const create = useCreateEvent()
@@ -204,6 +239,44 @@ export function CalendarPage() {
     setAnchor((a) =>
       view === 'month' ? addMonths(a, dir) : addDays(a, view === 'day' ? dir : 7 * dir),
     )
+
+  // 모바일 월·주·일 본문 좌우 스와이프(WP-136) — 왼쪽으로 밀면 다음 기간, 오른쪽이면 이전 기간. 목록 보기에는 걸지 않는다(무한 스크롤).
+  const swipe = useHorizontalSwipe((dir) => step(dir === 'next' ? 1 : -1))
+
+  // [오늘] — anchor 를 오늘로. 모바일 목록은 청크를 1개로 되돌리고 맨 위로(이미 오늘부터 보고 있었어도 — anchor 가 같으면 훅이 스스로 되돌리지 않는다),
+  // 헤더 월도 목록이 새 맨 위 날을 알려 올 때까지 오늘의 달로 둔다.
+  const goToday = () => {
+    setAnchor(startOfDay(new Date()))
+    if (mobileAgenda) {
+      agenda.reset()
+      setListTop(null)
+    }
+  }
+
+  // 보기 전환(모바일 select). 목록으로 다시 들어오면 청크를 1개로 되돌린다 — 예전에 불러 둔 뒤 청크를 전부 다시 받지 않게.
+  const changeView = (next: CalendarViewType) => {
+    setView(next)
+    if (isMobile && next === 'agenda') {
+      agenda.reset()
+      setListTop(null)
+    }
+  }
+
+  // 헤더 미니 달력 펼침/접힘 — 펼칠 때 패널은 헤더에 보이는 달부터 보여 준다.
+  const toggleMini = () => {
+    if (!miniOpen) setPanelMonth(headerMonth)
+    setMiniOpen(!miniOpen)
+  }
+
+  // 미니 달력에서 날짜 선택 — 그 날로 이동하고 접는다. 목록은 그 날부터 다시(같은 날이어도 맨 위로), 월·주·일은 그 날이 든 기간으로.
+  const pickMiniDate = (d: Date) => {
+    setAnchor(startOfDay(d))
+    setMiniOpen(false)
+    if (mobileAgenda) {
+      agenda.reset()
+      setListTop(null)
+    }
+  }
 
   // 새 일정 다이얼로그 열기 (시작 시각 선택 시 전달)
   const openNew = (start?: Date) => {
@@ -387,35 +460,71 @@ export function CalendarPage() {
         size="sm"
         data-testid="calendar-today"
         className={navBtnClass}
-        onClick={() => setAnchor(startOfDay(new Date()))}
+        onClick={goToday}
       >
         오늘
       </Button>
-      <Button
-        // 모바일 도구 줄에선 [오늘]·보기 선택과 같은 테두리 버튼(U3-R10). 데스크톱은 기존 ghost.
-        variant={isMobile ? 'outline' : 'ghost'}
-        size="sm"
-        data-testid="calendar-prev"
-        className={arrowBtnClass}
-        // 글리프(‹)만으로는 accessible name이 무의미해 뷰별 구체적 라벨 지정 (#818).
-        // step() 은 month=한달, day=하루, 그 외(week/agenda)=7일 단위로 이동한다.
-        aria-label={view === 'month' ? '이전 달' : view === 'day' ? '이전 날' : '이전 주'}
-        onClick={() => step(-1)}
-      >
-        ‹
-      </Button>
-      <Button
-        variant={isMobile ? 'outline' : 'ghost'}
-        size="sm"
-        data-testid="calendar-next"
-        className={arrowBtnClass}
-        aria-label={view === 'month' ? '다음 달' : view === 'day' ? '다음 날' : '다음 주'}
-        onClick={() => step(1)}
-      >
-        ›
-      </Button>
+      {/* ‹ › — 모바일 목록 보기에선 숨긴다(아래로 스크롤하면 이어서 불러온다, 시안 ①). */}
+      {!mobileAgenda && (
+        <>
+          <Button
+            // 모바일 도구 줄에선 [오늘]·보기 선택과 같은 테두리 버튼(U3-R10). 데스크톱은 기존 ghost.
+            variant={isMobile ? 'outline' : 'ghost'}
+            size="sm"
+            data-testid="calendar-prev"
+            className={arrowBtnClass}
+            // 글리프(‹)만으로는 accessible name이 무의미해 뷰별 구체적 라벨 지정 (#818).
+            // step() 은 month=한달, day=하루, 그 외(week/agenda)=7일 단위로 이동한다.
+            aria-label={view === 'month' ? '이전 달' : view === 'day' ? '이전 날' : '이전 주'}
+            onClick={() => step(-1)}
+          >
+            ‹
+          </Button>
+          <Button
+            variant={isMobile ? 'outline' : 'ghost'}
+            size="sm"
+            data-testid="calendar-next"
+            className={arrowBtnClass}
+            aria-label={view === 'month' ? '다음 달' : view === 'day' ? '다음 날' : '다음 주'}
+            onClick={() => step(1)}
+          >
+            ›
+          </Button>
+        </>
+      )}
     </div>
   )
+
+  // 모바일 헤더 제목 — 「10월 ▾」 버튼. 누르면 헤더 아래 미니 달력이 펼쳐진다(시안 ③). 같은 해면 'M월', 다른 해면 'yyyy년 M월'.
+  // ▾ 는 글자가 아닌 아이콘(aria-hidden) — 제목 텍스트(calendar-title·h1)에 섞이지 않게. 데스크톱 제목은 'yyyy년 M월' 그대로.
+  const headerLabel = headerMonthLabel(headerMonth, new Date())
+  const title = isMobile ? (
+    <button
+      type="button"
+      data-testid="calendar-title-toggle"
+      aria-expanded={miniOpen}
+      aria-controls="calendar-mobile-mini"
+      aria-label={`${headerLabel}, 날짜 선택`}
+      onClick={toggleMini}
+      className="inline-flex max-w-full items-center gap-1"
+    >
+      <span data-testid="calendar-title" className="truncate">{headerLabel}</span>
+      <ChevronDown
+        aria-hidden="true"
+        className={cn('size-5 shrink-0 text-muted-foreground', miniOpen && 'rotate-180 text-primary')}
+      />
+    </button>
+  ) : (
+    <span data-testid="calendar-title">{format(anchor, 'yyyy년 M월')}</span>
+  )
+
+  // 월·주·일 본문 — 모바일은 좌우 스와이프 영역으로 감싼다(pan-y: 세로 스크롤은 브라우저, 수평 제스처는 훅이 받는다).
+  // 스와이프 뒤 click 은 훅이 한 번 막고, 그냥 탭(일정·날짜 칸)은 그대로 전달된다. 데스크톱 DOM 은 그대로.
+  const gridView =
+    view === 'month' ? <MonthView {...viewProps} />
+    : view === 'week' ? <WeekView {...viewProps} />
+    : view === 'day' ? <DayView {...viewProps} />
+    : null
 
   return (
     <>
@@ -435,6 +544,7 @@ export function CalendarPage() {
             onEditCalendar={openEditCalendar}
             onResetCalendar={openResetCalendar}
             markedDates={markedDates}
+            hideMiniCalendar={isMobile}
           />
         }
       >
@@ -443,7 +553,7 @@ export function CalendarPage() {
           {/* 상단 네비게이션 바 — 오늘/이전/다음 + 뷰 전환. 모바일은 헤더에 제목만, 이동·뷰 전환은 아래 도구 줄(U2-5). */}
           <Page.Header
             icon={isMobile ? undefined : navControls}
-            title={<span data-testid="calendar-title">{format(anchor, 'yyyy년 M월')}</span>}
+            title={title}
             actions={isMobile ? undefined : CALENDAR_VIEWS.map((v) => (
               <Button
                 key={v.key}
@@ -458,6 +568,16 @@ export function CalendarPage() {
               </Button>
             ))}
           />
+          {isMobile && miniOpen && (
+            <MobileMiniCalendarPanel
+              id="calendar-mobile-mini"
+              selected={anchor}
+              month={panelMonth}
+              onMonthChange={setPanelMonth}
+              onSelect={pickMiniDate}
+              markedDates={markedDates}
+            />
+          )}
           {isMobile && (
             <div data-testid="calendar-mobile-toolbar" className="flex h-12 shrink-0 items-center gap-1 border-b px-2">
               {navControls}
@@ -467,7 +587,7 @@ export function CalendarPage() {
                 data-testid="calendar-view-select"
                 aria-label="보기 전환"
                 value={view}
-                onChange={(e) => setView(e.target.value as CalendarViewType)}
+                onChange={(e) => changeView(e.target.value as CalendarViewType)}
                 className="h-11 shrink-0 rounded-md border bg-background px-2 text-sm"
               >
                 {CALENDAR_VIEWS.map((v) => (
@@ -479,10 +599,22 @@ export function CalendarPage() {
 
           {/* 뷰 렌더링 — 월/주/일 그리드가 자체 스크롤·여백을 가져 padded=false(세로 쌓기). */}
           <Page.Body padded={false} className="flex-col">
-            {view === 'month' && <MonthView {...viewProps} />}
-            {view === 'week' && <WeekView {...viewProps} />}
-            {view === 'day' && <DayView {...viewProps} />}
-            {view === 'agenda' && <AgendaView {...viewProps} />}
+            {gridView && isMobile ? (
+              <div data-testid="calendar-swipe-area" className="flex min-h-0 flex-1 touch-pan-y flex-col" {...swipe}>
+                {gridView}
+              </div>
+            ) : (
+              gridView
+            )}
+            {mobileAgenda && (
+              <MobileAgendaView
+                agenda={agenda}
+                onSelectEvent={openEdit}
+                onSelectIssue={openIssue}
+                onTopDayChange={(day) => setListTop({ anchorKey: anchor.getTime(), day })}
+              />
+            )}
+            {view === 'agenda' && !isMobile && <AgendaView {...viewProps} />}
           </Page.Body>
         </Page>
       </MobileSidebarSheet>
