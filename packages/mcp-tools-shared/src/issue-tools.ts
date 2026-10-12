@@ -37,11 +37,11 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       app: 'issue',
       kind: 'read',
       description:
-        'Returns one issue (이슈) by issueKey (e.g. WP-12): Markdown body, status, priority, type, people, dates (+09:00), labels, milestone, cycles, ' +
-        'parent, children, blockedBy/blocks, custom fields, attachments (attachmentId for read_attachment), ' +
-        `the latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments and ${ISSUE_DETAIL_HISTORY_LIMIT} history entries. commentsOmitted/historyOmitted count older ones left out ` +
-        `(absent = complete); allComments:true returns up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments. closedAt is set for DONE and CANCELED alike. ` +
-        'People are {username, name, kind}; username is null when unknown.',
+        'Returns one issue (이슈) by issueKey (e.g. WP-12): Markdown body, all fields (dates +09:00), cycles, parent, children, blockedBy/blocks, ' +
+        `custom fields, attachments (attachmentId for read_attachment), the latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments and ` +
+        `${ISSUE_DETAIL_HISTORY_LIMIT} history entries. commentsOmitted/historyOmitted count older ones left out (absent = complete); ` +
+        `allComments:true returns up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments. closedAt is set for DONE and CANCELED alike. People are ` +
+        '{username, name, kind}; username is null when unknown.',
       inputSchema: getIssueDetailInput,
       async handler(args) {
         const { issueKey, allComments } = getIssueDetailInput.parse(args);
@@ -86,9 +86,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Partially updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels and cycles replace the whole set ([] clears). type, labels, ' +
-        'milestone and cycles are names from get_project. Names are resolved before any write (unknown = error, nothing saved); then each part saves ' +
-        'on its own, reported as {ok, results}. Status and priority changes notify assignees and watchers; new assignees are notified.',
+        'Partially updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels and cycles replace the whole set ([] ' +
+        'clears); type, labels, milestone and cycles are names from get_project. Unknown names fail before any write; then each part saves on its ' +
+        'own, reported as {ok, results}. Status and priority changes notify assignees and watchers; new assignees are notified too.',
       inputSchema: updateIssueInput,
       async handler(args) {
         const { issueKey, type, parent, assignees, labels, milestone, cycles, ...rest } = updateIssueInput.parse(args);
@@ -175,7 +175,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: false, idempotent: true },
       description:
         'Adds a blocking link between two issues of the same project. direction "blocks": issueKey blocks otherIssueKey; "blockedBy": issueKey is ' +
-        'blocked by otherIssueKey. An existing link is a no-op; a cycle is an error. Returns {issueKey, blockedBy, blocks, blocked}.',
+        'blocked by otherIssueKey. An existing link is a no-op; a cycle is an error. Returns the issue\'s links {blockedBy, blocks, blocked}.',
       inputSchema: dependencyInput,
       async handler(args) {
         const { issueKey, otherIssueKey, direction } = dependencyInput.parse(args);

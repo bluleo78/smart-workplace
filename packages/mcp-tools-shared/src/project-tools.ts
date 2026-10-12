@@ -105,7 +105,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        'Lists projects (프로젝트) I can access as {items, total, hasMore?, nextPage?}; items carry projectKey, name, type, issue counts, memberCount and ' +
+        'Lists projects (프로젝트) I can access as {items, total, hasMore?, nextPage?}; items carry projectKey, name, type, issue counts and ' +
         'viewerIsMember (empty keys omitted). If hasMore, pass nextPage as page to continue, or say the list is partial.',
       inputSchema: listProjectsInput,
       async handler(args) {
@@ -148,11 +148,10 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: 'issue',
       kind: 'read',
       description:
-        'Lists issues (이슈) as {items, hasMore?, nextCursor?}, size per page (default 30). If hasMore, pass nextCursor as cursor with the same ' +
-        'filters, or say the list is partial; never count it as complete. A next page may be empty. With neither assignee nor reporter it lists my ' +
-        'issues. Unknown label, type or user names fail with the allowed values. closed ranges match DONE and CANCELED; add status=DONE for finished ' +
-        'work. Items: issueKey, title, status, priority, type, assignees, dates (+09:00), labels, milestone, parent, children, blocked; empty keys ' +
-        'omitted. Body, comments, history: get_issue_detail.',
+        'Lists issues (이슈) as {items, hasMore?, nextCursor?} (size default 30). If hasMore, pass nextCursor as cursor with the same filters, or say ' +
+        'the list is partial; a next page may be empty. Unknown label, type or user names fail with the allowed values. Add status=DONE for finished ' +
+        'work (a closed range also matches CANCELED). Items: issueKey plus the main fields, parent, children, blocked (dates +09:00; empty keys ' +
+        'omitted). Body, comments, history: get_issue_detail.',
       inputSchema: listIssuesInput,
       async handler(args) {
         const { priority, size, cycle: cycleCsv, ...p } = listIssuesInput.parse(args);
@@ -177,7 +176,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Changes a project name and/or description; omitted fields stay (description:null clears it). Project OWNER only. Returns the project.',
+        'Changes a project name and/or description; omitted fields stay (description:null clears it). Project OWNER only.',
       inputSchema: updateProjectInput,
       async handler(args) {
         const { projectKey, name, description } = updateProjectInput.parse(args);
@@ -197,9 +196,9 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       // PERSONAL 은 키를 서버가 정해 하나 더 생기므로 멱등이 아니다. 워크스페이스 밖에 닿지 않는다.
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates a project (프로젝트) with me as OWNER (needs project write permission). projectKey is the issue key prefix: 2-10 uppercase ' +
-        'letters/digits, letter first; a taken key is a conflict. type: TEAM (default), OPEN (visible to all, for intake) or PERSONAL (only me; key ' +
-        'assigned automatically, so each call creates another). Nobody is notified.',
+        'Creates a project (프로젝트) with me as OWNER (needs project write permission). projectKey is the issue key prefix; a taken key is a conflict. ' +
+        'type: TEAM (default), OPEN (visible to all, for intake) or PERSONAL (only me; key assigned automatically, so each call creates another). ' +
+        'Nobody is notified.',
       inputSchema: createProjectInput,
       async handler(args) {
         return JSON.stringify(toProjectView((await client.createProject(toCreateProjectBody(createProjectInput.parse(args)))) as Record<string, unknown>));
@@ -213,9 +212,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       // 멱등이 아니다. 워크스페이스 밖에 닿지 않는다.
       hints: { destructive: false, idempotent: false },
       description:
-        'Adds an active member (username from search_members) to a project as MEMBER; project OWNER only. Cannot grant OWNER, change roles or remove. ' +
-        'Errors if already a member or for a PERSONAL project (AI agents only). No notification; the project just appears in their list. Returns ' +
-        '{projectKey, member}.',
+        'Adds an active member (username from search_members) to a project as MEMBER; project OWNER only. Errors if already a member or for a ' +
+        'PERSONAL project (AI agents only). No notification; the project just appears in their list.',
       inputSchema: addProjectMemberInput,
       async handler(args) {
         const { projectKey, username } = addProjectMemberInput.parse(args);

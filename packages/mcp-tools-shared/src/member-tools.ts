@@ -134,9 +134,9 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: ['member', 'calendar', 'project', 'messaging', 'contacts'],
       kind: 'read',
       description:
-        'Searches workspace members (구성원) by name, username or email; the standard way to find a person. Pass username to tools that take a person ' +
-        '(no numeric ids). kind defaults to HUMAN (AGENT = AI); active only unless includeInactive. Returns {items, total, hasMore?, nextPage?}; if ' +
-        'hasMore, pass nextPage as page, narrow search, or say the list is partial.',
+        'Searches workspace members (구성원) by name, username or email. Pass username to tools that take a person (no numeric ids). kind HUMAN ' +
+        '(default), AGENT (AI) or ALL; active only unless includeInactive. Returns {items, total, hasMore?, nextPage?}; if hasMore, pass nextPage as ' +
+        'page, narrow search, or say the list is partial.',
       inputSchema: searchMembersInput,
       async handler(args) {
         const result = await client.searchMembersPage(searchMembersInput.parse(args));
@@ -164,7 +164,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: 'member',
       kind: 'read',
       description:
-        'Returns the contact card of a member by username: email, title, kind, groups (user group names) and isFavorite. For external contacts use ' +
+        'Returns the contact card of a member by username: email, title, kind, groups (names) and isFavorite. For external contacts use ' +
         'get_external_contact.',
       inputSchema: memberInput,
       async handler(args) {
@@ -199,8 +199,8 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: 'contacts',
       kind: 'read',
       description:
-        'Returns an external contact by externalId (from list_contacts EXTERNAL items): phone, organization, title, notes, visibility, editable, ' +
-        'isFavorite and more. Members have no externalId; use get_member_contact for them.',
+        'Returns an external contact by externalId (from list_contacts EXTERNAL items) with all fields, incl. editable and isFavorite. Members have ' +
+        'no externalId; use get_member_contact for them.',
       inputSchema: externalContactInput,
       async handler(args) {
         const { externalId } = externalContactInput.parse(args);

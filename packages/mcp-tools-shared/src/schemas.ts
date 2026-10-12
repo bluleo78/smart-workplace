@@ -31,8 +31,8 @@ export const updateIssueInput = z.object({
   status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']).optional(),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  clearDueDate: z.boolean().optional().describe('true clears dueDate'),
-  clearStartDate: z.boolean().optional().describe('true clears startDate'),
+  clearDueDate: z.boolean().optional(),
+  clearStartDate: z.boolean().optional(),
   type: z.string().optional(), // 유형 이름 → typeId
   parent: z.string().min(1).nullable().describe('Parent issue key, same project; null clears').optional(), // 이슈 키(WP-12)=설정, null=해제, 생략=변경없음. 같은 프로젝트만(WP-353)
   assignees: z.array(z.string()).optional(), // username[] → 집합 교체
@@ -96,7 +96,7 @@ export const issueListFilterShape = {
 export const listIssuesInput = z.object({
   ...issueListFilterShape,
   // WP-352: 이전 호출이 돌려준 nextCursor 를 그대로 넘기면 다음 페이지다. 웹이 params 를 서버에 직접 넘기는 show_issue_list 의 shape 에는 넣지 않는다.
-  cursor: z.string().optional().describe('nextCursor from the previous call (same filters and size)'),
+  cursor: z.string().optional().describe('nextCursor (same filters and size)'),
   assignee: z.string().optional().describe(assigneeDescription(', or "any" (any assignee)')),
   cycle: z
     .string()

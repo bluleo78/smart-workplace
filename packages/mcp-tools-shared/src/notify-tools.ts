@@ -17,7 +17,7 @@ export const listNotificationsInput = z.object({
   unreadOnly: z.boolean().default(false),
   limit: z.number().int().min(1).max(PAGE_SIZE).default(20),
   // WP-352: 서버 GET /notifications 의 offset(NotificationController). 이전 호출이 돌려준 nextOffset 을 그대로 넘긴다.
-  offset: z.number().int().min(0).default(0).describe('nextOffset from the previous call; do not compute it'),
+  offset: z.number().int().min(0).default(0).describe('nextOffset; do not compute it'),
 });
 export const markNotificationReadInput = z.object({ notificationId: z.number().int().positive() });
 
@@ -76,9 +76,8 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
       app: 'notify',
       kind: 'read',
       description:
-        'Lists my notification inbox (인박스) newest first as {unreadCount (total), items, hasMore?, nextOffset?}. type: ASSIGNED, COMMENTED, ' +
-        'STATUS_CHANGED, PRIORITY_CHANGED, REMINDER, CALENDAR_INVITED, CALENDAR_RSVP_CHANGED; issue items carry issueKey, event items eventId. If ' +
-        'hasMore, pass nextOffset as offset with the same unreadOnly and limit, or say the list is partial; that page may be empty.',
+        'Lists my notification inbox (인박스) newest first as {unreadCount (total), items, hasMore?, nextOffset?}; issue items carry issueKey, event ' +
+        'items eventId. If hasMore, pass nextOffset as offset with the same unreadOnly and limit, or say the list is partial; that page may be empty.',
       inputSchema: listNotificationsInput,
       async handler(args) {
         const { unreadOnly, limit, offset } = listNotificationsInput.parse(args);

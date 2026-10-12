@@ -22,7 +22,7 @@ export const listDriveItemsInput = z.object({
   parentId: z.number().int().positive().optional(),
   // WP-352: 폴더 하나에 항목이 수천 개일 수 있어 서버가 limit·offset 페이지를 지원한다(서버 상한 1000 — 다음 페이지 확인용 +1 을 보내므로 500).
   limit: z.number().int().min(1).max(500).default(200),
-  offset: z.number().int().min(0).default(0).describe('nextOffset from the previous call'),
+  offset: z.number().int().min(0).default(0),
 });
 export const searchDriveInput = z.object({
   spaceId: z.number().int().positive(),
@@ -98,7 +98,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       kind: 'read',
       description:
         'Lists drive (드라이브) spaces I belong to: id (the spaceId of other drive tools), type (PERSONAL = my drive, TEAM, CHANNEL = linked to a ' +
-        'channel), name, role (OWNER, EDITOR, VIEWER), archived (true = read-only).',
+        'channel), role (OWNER, EDITOR, VIEWER), archived (true = read-only).',
       inputSchema: z.object({}),
       async handler() {
         // 스페이스 소유자 ownerId 는 숫자 사용자 ID 라 내보내지 않는다(#833, WP-353) — 내 역할은 role 로 알 수 있다.
@@ -155,7 +155,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
         'Returns the AI summary of a drive file (driveFileId from list_drive_items, search_drive or search_drive_content) as {summary, status, ' +
         'reason}. Only status DONE has a summary; PENDING, EXTRACTING, TEXT_READY, SUMMARIZING = not ready; FAILED, SKIPPED = not summarizable (see ' +
         'reason). Report the status; never guess content. includeVersions adds versions (newest first, current marked); includeBacklinks adds the ' +
-        'issues and chat messages linking the file (sourceType, label, deepLink).',
+        'issues and chat messages linking the file.',
       inputSchema: getDriveFileSummaryInput,
       async handler(args) {
         const { driveFileId, includeVersions, includeBacklinks } = getDriveFileSummaryInput.parse(args);
@@ -190,8 +190,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        'Lists the trash of a drive space: type, name, originalPath, trashedAt, autoPurgeAt (permanently deleted after it), plus driveFileId for ' +
-        'files or folderId for folders.',
+        'Lists the trash of a drive space: originalPath, trashedAt, autoPurgeAt (permanently deleted after it), plus driveFileId for files or ' +
+        'folderId for folders.',
       inputSchema: listDriveTrashInput,
       async handler(args) {
         const { spaceId } = listDriveTrashInput.parse(args);

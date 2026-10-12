@@ -119,7 +119,7 @@ export function toUserGroupDetailView(g: UserGroupDetailRow) {
 }
 
 /** 대상 지정 설명(여러 도구 공통). */
-const TARGET_HINT = 'Give exactly one of username (member, from search_members) or externalId (external contact, from list_contacts).';
+const TARGET_HINT = 'Give exactly one of username (member, from search_members) or externalId (from list_contacts).';
 
 /** 연락처 facets·즐겨찾기·사용자 그룹 도구. */
 export function buildContactTools(client: ContactToolClient & Pick<MemberToolClient, 'searchMembers'>): SharedTool[] {
@@ -129,8 +129,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       app: 'contacts',
       kind: 'read',
       description:
-        'Returns the organizations and titles used by external contacts. list_contacts filters on these exact values, so pick from this list rather ' +
-        'than guessing.',
+        'Returns the organizations and titles used by external contacts. list_contacts filters on these exact values; pick from this list.',
       inputSchema: z.object({}),
       async handler() {
         return JSON.stringify(await client.getContactFacets());
@@ -169,7 +168,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       app: 'contacts',
       kind: 'read',
       description:
-        'Returns the user group (그룹) trees: shared (the org chart everyone sees) and personal (my own groups). Nodes are {groupId, name, code, ' +
+        'Returns the user group (그룹) trees: shared (the org chart everyone sees) and personal (my own groups), nodes {groupId, name, code, ' +
         'visibility, children}.',
       inputSchema: z.object({}),
       async handler() {
@@ -196,7 +195,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       hints: { destructive: false, idempotent: false },
       description:
         'Creates a user group. visibility PERSONAL (default, only me) or SHARED (org chart; needs org-chart management permission). parentGroupId ' +
-        'nests it under a group of the same visibility (personal: mine only). Sibling names must be unique. Returns the group.',
+        'nests it under a group of the same visibility (personal: mine only). Sibling names must be unique.',
       inputSchema: createUserGroupInput,
       async handler(args) {
         const { parentGroupId, ...rest } = createUserGroupInput.parse(args);
@@ -228,7 +227,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: false, idempotent: true },
       description:
-        `Adds a member or external contact to a user group (no-op if present). ${TARGET_HINT} Returns the updated group.`,
+        `Adds a member or external contact to a user group (no-op if present). ${TARGET_HINT}`,
       inputSchema: userGroupMemberInput,
       async handler(args) {
         const { groupId, ...who } = userGroupMemberInput.parse(args);
@@ -272,7 +271,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       // 준 필드로 현재 값을 덮어쓴다(destructive). 병합 후 같은 값이면 저장 상태가 그대로이고, 중복 판정은 자기 자신을 제외해 다시 불러도 같은 결과(멱등).
       hints: { destructive: true, idempotent: true },
       description:
-        'Updates an external contact by externalId (from list_contacts EXTERNAL items; never a guessed number). Omitted fields stay; "" clears a ' +
+        'Updates an external contact by externalId (from list_contacts EXTERNAL items). Omitted fields stay; "" clears a ' +
         'field (not name). Only its owner or an ADMIN may edit. A name+email clash with another contact fails with a duplicate warning: retry with ' +
         'force:true only after the user confirms.',
       inputSchema: updateExternalContactInput,

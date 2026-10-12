@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import { buildSharedTools, type SharedToolClient } from './shared-tools.js';
+import { toolAnnotations } from './tool-annotations.js';
 import { estimateTokens, nullAsOmitted, toolDefinition, toolDefinitionsSize, wireInputSchema } from './tool-definitions.js';
 
 // 도구 구성 시점에는 클라이언트 메서드를 부르지 않으므로 빈 객체로 충분하다.
@@ -67,11 +68,39 @@ describe('wireInputSchema — tools/list 로 내보내는 입력 스키마 (WP-3
 });
 
 describe('toolDefinition', () => {
-  it('표시 이름은 최상위 title 하나만 싣고(annotations.title 중복 제거) 힌트는 그대로 둔다', () => {
+  it('표시 이름은 최상위 title 하나만 싣고(annotations.title 중복 제거) 스펙 기본값과 다른 힌트는 그대로 둔다', () => {
     const def = toolDefinition(tool('update_issue'));
     expect(def.title).toBe('이슈 수정');
-    expect(def.annotations).toEqual({ readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false });
+    // readOnlyHint:false 는 스펙 기본값이라 빠지고, destructiveHint(true)·idempotentHint(true)·openWorldHint(false)는 남는다.
+    expect(def.annotations).toEqual({ destructiveHint: true, idempotentHint: true, openWorldHint: false });
     expect(Object.keys(def)).toEqual(['name', 'title', 'description', 'inputSchema', 'annotations']);
+  });
+
+  // 스펙 기본값과 같은 값만 뺀다: readOnlyHint:false·idempotentHint:false 는 빠지고, destructiveHint·openWorldHint:false 는 기본값과 달라(또는 안전 쪽이라) 남는다.
+  it('쓰기 도구의 readOnlyHint:false·idempotentHint:false 는 빼고, destructiveHint·openWorldHint:false 는 남긴다', () => {
+    const defs = tools.map((t) => ({ t, annotations: toolDefinition(t).annotations }));
+    // 빼는 값이 실제로 존재해야(비어 있지 않아야) 아래 단언이 의미가 있다.
+    expect(defs.some(({ t }) => t.kind !== 'read' && toolAnnotations(t).idempotentHint === false)).toBe(true);
+    for (const { t, annotations } of defs) {
+      expect(annotations, t.name).not.toHaveProperty('title');
+      expect(annotations.readOnlyHint, t.name).not.toBe(false);
+      expect(annotations.idempotentHint, t.name).not.toBe(false);
+      // openWorldHint 는 항상 명시한다(우리 기본 false 가 스펙 기본 true 와 다르다). update_event 처럼 외부 동기화가 있으면 true.
+      expect(annotations.openWorldHint, t.name).toBe(toolAnnotations(t).openWorldHint);
+      if (t.kind !== 'read') expect(typeof annotations.destructiveHint, t.name).toBe('boolean');
+    }
+    expect(defs.some(({ annotations }) => annotations.destructiveHint === false)).toBe(true);
+    expect(defs.some(({ annotations }) => annotations.destructiveHint === true)).toBe(true);
+  });
+
+  // 의미 원본은 toolAnnotations() 다. 정의에서 뺀 값을 스펙 기본값으로 되채우면 원본(title 제외)이 가진 모든 키가 같은 값이어야 한다 — 의미가 바뀌지 않았다는 증거.
+  it('정의의 annotations 를 스펙 기본값으로 채우면 toolAnnotations() 와 같다(모든 도구)', () => {
+    const specDefaults = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true };
+    for (const t of tools) {
+      const { title: _title, ...original } = toolAnnotations(t);
+      const restored: Record<string, unknown> = { ...specDefaults, ...toolDefinition(t).annotations };
+      for (const [k, v] of Object.entries(original)) expect(restored[k], `${t.name}.${k}`).toBe(v);
+    }
   });
 });
 

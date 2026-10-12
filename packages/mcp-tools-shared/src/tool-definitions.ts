@@ -97,8 +97,25 @@ export interface ToolDefinition {
 }
 
 /**
+ * MCP 스펙의 annotations 기본값(클라이언트가 힌트를 못 받았을 때 가정하는 값). 정의에 같은 값을 또 적어도 정보가 없어 직렬화에서 뺀다.
+ * destructiveHint(기본 true)는 일부러 목록에 없다 — true 여도 명시를 유지한다: 클라이언트가 실행 전 확인을 받는 근거이고, 빠지면 "힌트 없음"과 구분이 안 된다(안전 쪽).
+ * openWorldHint(기본 true)도 우리 값(false)과 달라 항상 남는다.
+ */
+const SPEC_DEFAULT_ANNOTATIONS = { readOnlyHint: false, idempotentHint: false } as const satisfies McpToolAnnotations;
+
+/** annotations 에서 스펙 기본값과 같은 값만 뺀다. 의미 원본은 toolAnnotations() 이고, 이 함수는 직렬화 단계에서만 쓴다(정의를 기본값으로 채우면 원본과 같다 — 테스트가 고정). */
+function omitSpecDefaults(annotations: McpToolAnnotations): McpToolAnnotations {
+  const out: McpToolAnnotations = { ...annotations };
+  for (const key of ['readOnlyHint', 'idempotentHint'] as const) {
+    if (out[key] === SPEC_DEFAULT_ANNOTATIONS[key]) delete out[key];
+  }
+  return out;
+}
+
+/**
  * 공유 도구 → tools/list 항목. 표시 이름은 최상위 title 하나로 둔다 — annotations.title 은 title 이 생기기 전(MCP 2025-03-26) 클라이언트용 중복이라 뺀다.
  * `execution`(작업 지원 여부)은 싣지 않는다 — 스펙 기본값이 "forbidden" 으로 SDK 가 붙이던 값과 같다.
+ * annotations 는 스펙 기본값과 같은 값(readOnlyHint:false·idempotentHint:false)을 뺀다 — 안전 쪽 값(destructiveHint)과 기본값과 다른 값(openWorldHint:false)은 남긴다.
  */
 export function toolDefinition(tool: SharedTool): ToolDefinition {
   const { title, ...annotations } = toolAnnotations(tool);
@@ -107,7 +124,7 @@ export function toolDefinition(tool: SharedTool): ToolDefinition {
     ...(title !== undefined && { title }),
     description: tool.description,
     inputSchema: wireInputSchema(tool.inputSchema),
-    annotations,
+    annotations: omitSpecDefaults(annotations),
   };
 }
 

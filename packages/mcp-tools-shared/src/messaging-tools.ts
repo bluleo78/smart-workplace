@@ -77,7 +77,7 @@ export const listChannelMessagesInput = z.object({
   // 서버(MessageRepository.MAX_LIMIT)가 100 으로 자른다 — 그 이상을 받는 것처럼 보이지 않게 맞춘다.
   limit: z.number().int().min(1).max(100).default(50),
   // WP-352: 이전 호출이 돌려준 nextCursor 를 그대로 넘기면 한 페이지 더 오래된 메시지다(서버 MessageController 의 cursor).
-  cursor: z.string().optional().describe('nextCursor from the previous call'),
+  cursor: z.string().optional(),
 });
 /**
  * 내 채널 목록 입력(WP-352). 서버는 내 채널 전체를 한 번에 주므로(페이지 없음 — 웹 사이드바가 전체를 쓴다) 도구가 한 번에 보여 줄 수를
@@ -85,7 +85,7 @@ export const listChannelMessagesInput = z.object({
  */
 export const listChannelsInput = z.object({
   limit: z.number().int().min(1).max(200).default(100),
-  offset: z.number().int().min(0).default(0).describe('nextOffset from the previous call'),
+  offset: z.number().int().min(0).default(0),
 });
 export const getThreadRepliesInput = z.object({ messageId: z.number().int().positive() });
 export const discoverChannelsInput = z.object({ q: z.string().min(1) });
@@ -282,9 +282,8 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        'Lists my channels and DMs (채널·DM) by name as {items, total, hasMore?, nextOffset?}: channelId, name, kind, visibility, memberCount, ' +
-        'lastMessage; unreadCount and hasUnreadThreads only when set. If hasMore, pass nextOffset as offset, or say the list is partial (never ' +
-        'conclude a channel is missing).',
+        'Lists my channels and DMs (채널·DM) by name as {items, total, hasMore?, nextOffset?}: channelId, kind, lastMessage, memberCount; unreadCount ' +
+        'and hasUnreadThreads only when set. If hasMore, pass nextOffset as offset, or say the list is partial.',
       inputSchema: listChannelsInput,
       async handler(args) {
         const { limit, offset } = listChannelsInput.parse(args);
@@ -299,8 +298,8 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        'Searches public channels by name substring, joined or not (member tells which), returning channelId, name, kind. Messages can only be read ' +
-        'or posted in joined channels and no tool here joins one: ask the user to join in the app.',
+        'Searches public channels by name substring, joined or not (member tells which). Messages can only be read or posted in joined channels and ' +
+        'no tool here joins one: ask the user to join in the app.',
       inputSchema: discoverChannelsInput,
       async handler(args) {
         const { q } = discoverChannelsInput.parse(args);
@@ -313,9 +312,8 @@ export function buildMessagingTools(
       kind: 'read',
       description:
         'Lists top-level messages of a channel or DM I belong to, newest first, as {items, hasMore?, nextCursor?}. Replies are left out; messages ' +
-        'with replies carry replyCount (see list_thread_replies). Items: authorName, authorKind, Markdown body with mentions as "@name(username)", ' +
-        'reactions {emoji: count}, attachments; deleted ones read "(삭제됨)". If hasMore, pass nextCursor as cursor for older messages, or say the list ' +
-        'is partial.',
+        'with replies carry replyCount (see list_thread_replies). Markdown body with mentions as "@name(username)", reactions {emoji: count}; deleted ' +
+        'ones read "(삭제됨)". If hasMore, pass nextCursor as cursor for older messages, or say the list is partial.',
       inputSchema: listChannelMessagesInput,
       async handler(args) {
         const { channelId, limit, cursor } = listChannelMessagesInput.parse(args);
@@ -360,7 +358,7 @@ export function buildMessagingTools(
       hints: { destructive: false, idempotent: false },
       description:
         'Creates a channel (채널) with me as OWNER. visibility PUBLIC (default, anyone can join) or PRIVATE (invited people only). A name already in ' +
-        'use is a conflict error. Returns the channel with channelId.',
+        'use is a conflict error.',
       inputSchema: createChannelInput,
       async handler(args) {
         return JSON.stringify(toChannelView((await client.createChannel(createChannelInput.parse(args))) as Raw));
@@ -423,8 +421,7 @@ export function buildMessagingTools(
       hints: { destructive: false, idempotent: true },
       description:
         'Invites an active member (username from search_members) to a channel as MEMBER; channel OWNER or ADMIN only, not DMs. Existing members are ' +
-        'left as is. No notification; the channel just appears in their list. Also joins the channel drive space, if any. Returns {channelId, ' +
-        'member}. Cannot remove members or change roles.',
+        'left as is. No notification; the channel just appears in their list. Also joins the channel drive space, if any.',
       inputSchema: addChannelMemberInput,
       async handler(args) {
         const { channelId, username } = addChannelMemberInput.parse(args);

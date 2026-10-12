@@ -123,10 +123,10 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        'Returns the page tree of a wiki space as {items, total, truncated?}; nodes {id (pageId), title, children?} in sidebar order. ' +
-        `Beyond ${MAX_WIKI_TREE_NODES} nodes only the top ${MAX_WIKI_TREE_NODES} (breadth-first) come back with truncated:true; nodes with hiddenChildren expand by ` +
-        'calling again with their id as parentId. total counts all nodes (under parentId if given). If a parent has too many direct children, use ' +
-        'search_wiki. Without expanding, say only part was seen.',
+        'Returns the page tree of a wiki space as {items, total, truncated?}; nodes {id (pageId), title, children?} in sidebar order. Beyond ' +
+        `${MAX_WIKI_TREE_NODES} nodes only the top ${MAX_WIKI_TREE_NODES} (breadth-first) come back with truncated:true; nodes with hiddenChildren ` +
+        'expand by calling again with their id as parentId. total counts all nodes (under parentId if given). If a parent has too many direct ' +
+        'children, use search_wiki. Without expanding, say only part was seen.',
       inputSchema: listWikiPagesInput,
       async handler(args) {
         const { spaceId, parentId } = listWikiPagesInput.parse(args);
@@ -143,8 +143,9 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        `Searches wiki pages (노트) by title and body substring in spaces I can access: {items, truncated?}, newest edit first, at most ${SEARCH_SERVER_CAP} ` +
-        'items {id, spaceName, title, snippet}. truncated:true means more may exist and there is no next page: refine the query, or say the result is partial.',
+        'Searches wiki pages (노트) by title and body substring in spaces I can access, newest edit first: {items {id, spaceName, title, snippet}, ' +
+        `truncated?}, at most ${SEARCH_SERVER_CAP}. truncated:true means more may exist and there is no next page: refine the query, or say the ` +
+        'result is partial.',
       inputSchema: searchWikiInput,
       async handler(args) {
         const { query } = searchWikiInput.parse(args);
@@ -158,8 +159,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       app: 'wiki',
       kind: 'read',
       description:
-        'Returns a wiki page (노트) by pageId (id from search_wiki or list_wiki_pages): title, Markdown body, version (needed by update_wiki_page), ' +
-        'spaceId, parentId, updatedAt.',
+        'Returns a wiki page (노트) by pageId (id from search_wiki or list_wiki_pages): Markdown body, version (needed by update_wiki_page), spaceId, ' +
+        'parentId.',
       inputSchema: getWikiPageInput,
       async handler(args) {
         const { pageId } = getWikiPageInput.parse(args);

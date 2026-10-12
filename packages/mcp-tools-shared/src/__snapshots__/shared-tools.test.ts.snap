@@ -1006,7 +1006,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "integer",
         },
         "cursor": {
-          "description": "nextCursor from the previous call",
           "type": "string",
         },
         "limit": {
@@ -1037,7 +1036,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "offset": {
           "default": 0,
-          "description": "nextOffset from the previous call",
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer",
@@ -1105,7 +1103,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "offset": {
           "default": 0,
-          "description": "nextOffset from the previous call",
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer",
@@ -1207,7 +1204,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "cursor": {
-          "description": "nextCursor from the previous call (same filters and size)",
+          "description": "nextCursor (same filters and size)",
           "type": "string",
         },
         "cycle": {
@@ -1329,7 +1326,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "offset": {
           "default": 0,
-          "description": "nextOffset from the previous call; do not compute it",
+          "description": "nextOffset; do not compute it",
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer",
@@ -2285,11 +2282,9 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "clearDueDate": {
-          "description": "true clears dueDate",
           "type": "boolean",
         },
         "clearStartDate": {
-          "description": "true clears startDate",
           "type": "boolean",
         },
         "cycles": {

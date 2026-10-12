@@ -90,9 +90,9 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       kind: 'read',
       description:
         'Lists mail in a folder of an account (accountId from list_mail_accounts), newest first, up to limit with no further pages. Items: id ' +
-        '(messageId), fromName, fromAddress, subject, snippet, receivedAt, seen, hasAttachment, aiCategory, aiNeedsReply; categoryPending:true while ' +
-        'unclassified. query matches sender (substring) and subject/body words; for unread mail use unreadOnly, not "is:unread". Needs reply = ' +
-        'aiNeedsReply and not seen.',
+        '(messageId), sender, subject, snippet, receivedAt, seen, hasAttachment, aiCategory, aiNeedsReply (categoryPending:true while unclassified). ' +
+        'query matches sender (substring) and subject/body words; for unread mail use unreadOnly, not "is:unread". Needs reply = aiNeedsReply and not ' +
+        'seen.',
       inputSchema: listMailInput,
       async handler(args) {
         const { accountId, folder, limit, query, unreadOnly } = listMailInput.parse(args);
@@ -131,7 +131,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       app: 'mail',
       kind: 'read',
       description:
-        'Returns an AI-drafted reply body as {draftBody}. Nothing is saved or sent, and sending is not available here: show the draft to the user.',
+        'Returns an AI-drafted reply body as {draftBody}. Nothing is saved or sent (no send tool here): show the draft to the user.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
@@ -183,8 +183,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       // 읽음 상태가 원본 메일 서버(Graph/IMAP)로 역동기화된다 — 워크스페이스 밖에 닿으므로 openWorld.
       hints: { destructive: true, idempotent: true, openWorld: true },
       description:
-        'Marks a mail read, also on the mail server; only when the user asks. It leaves the needs-reply list, and no tool here marks it unread again ' +
-        '(the user must, in the mail app).',
+        'Marks a mail read, also on the mail server; only when the user asks. It leaves the needs-reply list, and no tool here marks it unread again.',
       inputSchema: markMailReadInput,
       async handler(args) {
         const { messageId } = markMailReadInput.parse(args);
