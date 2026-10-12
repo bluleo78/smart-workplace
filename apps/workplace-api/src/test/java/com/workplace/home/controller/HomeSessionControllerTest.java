@@ -18,6 +18,7 @@ import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.home.dto.HomeSessionResponse;
 import com.workplace.home.service.HomeSessionService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
@@ -35,6 +36,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @SuppressWarnings("null")
 @WebMvcTest(HomeSessionController.class)
 @Import({
+  AlwaysActiveTenantStatusChecker.class,
   SecurityConfig.class,
   JwtAuthenticationFilter.class,
   ApiKeyAuthenticationFilter.class,
@@ -49,6 +51,7 @@ class HomeSessionControllerTest {
   @MockitoBean PermissionService permissionService;
 
   @MockitoBean MembershipRepository membershipRepository;
+
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserApiTokenRepository userApiTokenRepository;
   @MockitoBean UserRepository userRepository;

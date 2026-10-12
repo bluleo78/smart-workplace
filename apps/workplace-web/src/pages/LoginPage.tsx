@@ -15,12 +15,13 @@ import { PasswordInput } from '../components/ui/password-input';
 import { useSignupAvailable } from '../hooks/queries/useSignupAvailable';
 import { useSsoStatus } from '../hooks/queries/useSsoStatus';
 import { useAuth } from '../hooks/useAuth';
+import { NO_WORKSPACE_MESSAGE } from '../lib/activeTenant';
 import type { LoginFormData } from '../lib/validations/auth';
 import { loginSchema } from '../lib/validations/auth';
 import type { ErrorResponse } from '../types/auth';
 
 export default function LoginPage() {
-  const { login, isAuthenticated, tenantOptions } = useAuth();
+  const { login, isAuthenticated, tenantOptions, authNotice } = useAuth();
   const [serverError, setServerError] = useState('');
   // 가입이 잠긴 상태면 회원가입 링크를 숨긴다(부트스트랩 이후).
   const { data: signupAvailable } = useSignupAvailable();
@@ -42,7 +43,7 @@ export default function LoginPage() {
 
   // 다중소속 로그인 직후 — 폼 대신 워크스페이스 선택 카드를 렌더.
   if (tenantOptions) {
-    return <WorkspaceSelectCard options={tenantOptions} />;
+    return <WorkspaceSelectCard options={tenantOptions} notice={authNotice} />;
   }
 
   const onSubmit = async (data: LoginFormData) => {
@@ -52,7 +53,7 @@ export default function LoginPage() {
     } catch (error) {
       // 자격증명은 맞지만 소속 워크스페이스가 없는 경우(백엔드 0-membership) — 전용 안내
       if (error instanceof Error && error.message === 'NO_WORKSPACE') {
-        setServerError('접속 가능한 워크스페이스가 없습니다. 관리자에게 문의하세요.');
+        setServerError(NO_WORKSPACE_MESSAGE);
         return;
       }
       if (axios.isAxiosError(error) && error.response?.data) {
@@ -105,8 +106,9 @@ export default function LoginPage() {
                 <p className="text-sm text-destructive">{errors.password.message}</p>
               )}
             </div>
-            {serverError && (
-              <p className="text-sm text-destructive">{serverError}</p>
+            {/* 제출 오류가 우선, 없으면 세션 안내(예: refresh 후 남은 워크스페이스 없음 — WP-341 후속) */}
+            {(serverError || authNotice) && (
+              <p className="text-sm text-destructive">{serverError || authNotice}</p>
             )}
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? '로그인 중...' : '로그인'}

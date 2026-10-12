@@ -23,6 +23,7 @@ import com.workplace.issue.exception.IssueBodyImageRejectedException;
 import com.workplace.issue.service.IssueAttachmentStorage;
 import com.workplace.issue.service.IssueBodyImageService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.nio.file.Files;
@@ -44,6 +45,7 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @WebMvcTest(IssueBodyImageController.class)
 @Import({
+  AlwaysActiveTenantStatusChecker.class,
   SecurityConfig.class,
   JwtAuthenticationFilter.class,
   ApiKeyAuthenticationFilter.class,

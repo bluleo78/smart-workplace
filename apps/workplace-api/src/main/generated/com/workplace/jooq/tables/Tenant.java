@@ -174,6 +174,18 @@ public class Tenant extends TableImpl<TenantRecord> {
      */
     public final TableField<TenantRecord, Boolean> SSO_ENABLED = createField(DSL.name("sso_enabled"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
 
+    /**
+     * The column <code>public.tenant.deleted_at</code>. 삭제(DELETED) 전환 시각. 복원 시
+     * NULL.
+     */
+    public final TableField<TenantRecord, LocalDateTime> DELETED_AT = createField(DSL.name("deleted_at"), SQLDataType.LOCALDATETIME(6), this, "삭제(DELETED) 전환 시각. 복원 시 NULL.");
+
+    /**
+     * The column <code>public.tenant.purge_error</code>. 마지막 영구 삭제 실패 사유. 재시도
+     * 시작·성공 시 NULL.
+     */
+    public final TableField<TenantRecord, String> PURGE_ERROR = createField(DSL.name("purge_error"), SQLDataType.CLOB, this, "마지막 영구 삭제 실패 사유. 재시도 시작·성공 시 NULL.");
+
     private Tenant(Name alias, Table<TenantRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -1276,7 +1288,7 @@ public class Tenant extends TableImpl<TenantRecord> {
     @Override
     public List<Check<TenantRecord>> getChecks() {
         return Arrays.asList(
-            Internal.createCheck(this, DSL.name("tenant_status_check"), "(((status)::text = ANY ((ARRAY['ACTIVE'::character varying, 'SUSPENDED'::character varying])::text[])))", true)
+            Internal.createCheck(this, DSL.name("tenant_status_check"), "(((status)::text = ANY ((ARRAY['ACTIVE'::character varying, 'SUSPENDED'::character varying, 'DELETED'::character varying, 'PURGING'::character varying])::text[])))", true)
         );
     }
 

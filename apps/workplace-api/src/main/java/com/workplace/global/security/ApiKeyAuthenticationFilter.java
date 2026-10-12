@@ -2,6 +2,7 @@ package com.workplace.global.security;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.UserKind;
@@ -41,16 +42,20 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
   private final UserRepository userRepository;
   private final PermissionService permissionService;
   private final MembershipRepository membershipRepository;
+  // 정지·삭제된 테넌트로는 키/토큰이 유효해도 인증하지 않는다(WP-341) — JwtAuthenticationFilter 와 같은 기준.
+  private final TenantStatusChecker tenantStatusChecker;
 
   public ApiKeyAuthenticationFilter(
       AgentApiKeyRepository agentApiKeyRepository,
       UserRepository userRepository,
       @Lazy PermissionService permissionService,
-      MembershipRepository membershipRepository) {
+      MembershipRepository membershipRepository,
+      TenantStatusChecker tenantStatusChecker) {
     this.agentApiKeyRepository = agentApiKeyRepository;
     this.userRepository = userRepository;
     this.permissionService = permissionService;
     this.membershipRepository = membershipRepository;
+    this.tenantStatusChecker = tenantStatusChecker;
   }
 
   @Override
@@ -88,6 +93,10 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                                   AgentTenantResolver.resolve(
                                       memberships,
                                       request.getHeader(AgentTenantResolver.TENANT_HEADER));
+                              // 해석된 테넌트가 비활성(정지·삭제·영구 삭제 중)이면 인증하지 않는다 — fail-closed(401).
+                              if (resolved != null && !tenantStatusChecker.isActive(resolved)) {
+                                return;
+                              }
                               if (resolved != null) {
                                 TenantContext.set(resolved);
                               }

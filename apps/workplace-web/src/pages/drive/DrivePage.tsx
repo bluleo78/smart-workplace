@@ -52,6 +52,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
+import { dragItemsFor, type DriveDragItem, driveDragItem, type DriveDropData, moveToastMessage } from '@/lib/driveDnd'
 import { fileStemLength } from '@/lib/fileName'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 import { parseId } from '@/lib/historyParam'
@@ -59,6 +60,7 @@ import { cn } from '@/lib/utils'
 
 import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
 import { driveApi } from '../../api/drive'
+import { DriveCrumbCurrent, DriveCrumbDropButton, DriveDndProvider } from '../../components/drive/DriveDnd'
 import { DriveOverviewCard } from '../../components/drive/DriveOverviewCard'
 import { DrivePressRow } from '../../components/drive/DrivePressRow'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
@@ -87,6 +89,26 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 function isUploadAborted(err: unknown): boolean {
   return axios.isCancel(err)
 }
+
+// 데스크톱 행 hover 액션 묶음(폴더·파일 공용) — 평소엔 숨기고 hover·키보드 포커스(group-kbd)일 때만 보인다.
+// ⋯ 메뉴가 열린 동안에도 보인다(has-data-[state=open]) — 메뉴가 열리면 바깥 포인터가 막혀 hover 가 풀리는데,
+// 그때 트리거가 숨으면 메뉴가 기준점을 잃고 화면 왼쪽 위로 튄다(WP-335).
+const ROW_HOVER_ACTIONS = 'hidden items-center gap-0.5 group-hover:flex group-kbd:flex has-data-[state=open]:flex'
+
+/** 행 작업 대상 — 파일 또는 폴더 행. */
+type RowTarget = { kind: 'file'; item: DriveFile } | { kind: 'folder'; item: DriveFolder }
+
+// WP-363: 데스크톱 hover 묶음에 버튼으로 꺼내 둘 작업(rowActionsFor 의 key) — 나머지는 ⋯ 메뉴로 간다. label 은 인라인용 짧은 이름.
+const ROW_INLINE_ACTIONS: Record<RowTarget['kind'], { key: string; label: string; testId?: string }[]> = {
+  folder: [{ key: 'move', label: '이동' }],
+  file: [
+    { key: 'download', label: '다운로드' },
+    { key: 'share', label: '공유', testId: 'share-link-btn' },
+  ],
+}
+
+// WP-364: 끌어 옮기기 완료 토스트 id — 이동마다 같은 자리를 갈아 끼워 되돌리기는 늘 마지막 이동만 가리킨다.
+const DRAG_MOVE_TOAST_ID = 'drive-drag-move'
 
 // WP-63: 폴더 목록 미로드(조회 전·실패) 시 쓰는 빈 목록 — 매 렌더 새 객체를 만들지 않도록 모듈 상수로 둔다.
 const EMPTY_ITEMS: DriveItemList = { folders: [], files: [] }
@@ -308,7 +330,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 태블릿은 데스크톱처럼 체크박스가 상시 보여 선택 진입 경로가 이미 있고, 두 경로가 겹치면 탭 의미가 흔들린다.
   const isCoarse = useIsCoarsePointer()
   const tabletRowMenu = !isMobile && isCoarse
-  const [rowSheet, setRowSheet] = useState<{ kind: 'file'; item: DriveFile } | { kind: 'folder'; item: DriveFolder } | null>(
+  const [rowSheet, setRowSheet] = useState<RowTarget | null>(
     null,
   )
 
@@ -346,6 +368,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         type="checkbox"
         checked={selected.has(id)}
         onChange={() => setSel((s) => toggleSel(s, id))}
+        // 체크박스에서 시작한 포인터가 행 끌어 옮기기(WP-364)로 이어지지 않게 한다(IssueListRow 와 동일).
+        onPointerDown={(e) => e.stopPropagation()}
         data-testid={`select-${kind}-${id}`}
         aria-label={`${name} 선택`}
         className={cn('h-4 w-4 shrink-0', isMobile && 'pointer-events-none h-5 w-5')}
@@ -749,10 +773,45 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     )
   }
 
-  // WP-216: 모바일 행 ⋮ 시트의 작업 목록 — 데스크톱 행 액션(인라인 버튼 + ⋯ 메뉴)과 같은 작업·같은 비활성 조건.
+  // 데스크톱 행 hover 묶음 — rowActionsFor 목록을 인라인 버튼(ROW_INLINE_ACTIONS)과 ⋯ 메뉴로 나눠 그린다.
+  // 같은 목록에서 나누므로 비활성 조건이 한곳에만 있고, 삭제는 ⋯ 맨 아래 구분선 밑에 놓인다(WP-363).
+  // 호버 또는 키보드 포커스(focus-visible)일 때만 노출 — focus-within 이면 터치 탭으로도 열려 좁은 폭에서 이름 버튼이 접힌다(WP-207/208).
+  function renderHoverActions(target: RowTarget) {
+    const name = target.item.name
+    const actions = rowActionsFor(target)
+    const inline = ROW_INLINE_ACTIONS[target.kind]
+    return (
+      <div
+        className={ROW_HOVER_ACTIONS}
+        {...(target.kind === 'file' ? { 'data-file-actions': '' } : { 'data-folder-actions': '' })}
+      >
+        {inline.map(({ key, label, testId }) => {
+          const a = actions.find((x) => x.key === key)
+          return a && (
+            <Button
+              key={key}
+              variant="ghost"
+              size="xs"
+              onClick={a.onSelect}
+              disabled={a.disabled}
+              aria-label={`${name} ${a.label}`}
+              data-testid={testId}
+            >
+              {label}
+            </Button>
+          )
+        })}
+        <RowOverflowMenu
+          triggerAriaLabel={`${name} 더보기`}
+          items={actions.filter((a) => !inline.some((i) => i.key === a.key))}
+        />
+      </div>
+    )
+  }
+
+  // 행 작업 목록 — 휴대폰 ⋮ 시트(WP-216)·터치 태블릿 ⋯(WP-237)·데스크톱 hover 묶음(WP-363)이 모두 이 목록 하나를 쓴다.
   // 보관된 공간은 쓰기 작업, 원본 유실 파일은 바이트가 필요한 작업(다운로드·공유·복사)을 막는다.
-  // WP-237: 대상 행을 인자로 받아 터치 태블릿 드롭다운(TouchRowActionsMenu)도 같은 목록을 쓴다.
-  function rowActionsFor(target: { kind: 'file'; item: DriveFile } | { kind: 'folder'; item: DriveFolder }): MobileSheetAction[] {
+  function rowActionsFor(target: RowTarget): MobileSheetAction[] {
     const archived = !!space?.archived
     if (target.kind === 'folder') {
       const f = target.item
@@ -872,15 +931,68 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     })
   }
 
-  async function onBulkMoveTarget(targetId: number | null) {
+  // 일괄 이동 공통 — 벌크 picker·끌어 옮기기·되돌리기가 함께 쓴다. 실패는 표준 토스트로 알리고 false.
+  // 목록 재조회는 호출측이 정한다(picker 는 선택 해제까지, 끌기는 토스트 먼저).
+  async function moveItems(
+    body: { fileIds: number[]; folderIds: number[] },
+    targetFolderId: number | null,
+    errorMessage = '이동할 수 없는 위치입니다.',
+  ): Promise<boolean> {
     try {
-      await driveApi.bulkMove(sid, { ...selectionBody(), targetFolderId: targetId })
+      await driveApi.bulkMove(sid, { ...body, targetFolderId })
+      return true
     } catch (e) {
-      handleApiError(e, '이동할 수 없는 위치입니다.')
-    } finally {
-      setBulkPicker(false)
-      await reloadAndClear()
+      handleApiError(e, errorMessage)
+      return false
     }
+  }
+
+  async function onBulkMoveTarget(targetId: number | null) {
+    await moveItems(selectionBody(), targetId)
+    setBulkPicker(false)
+    await reloadAndClear()
+  }
+
+  // WP-364: 끌어 옮기기 묶음 — 잡은 행이 선택돼 있으면 보이는 선택 전체(폴더 먼저), 아니면 그 항목 하나.
+  function resolveDragItems(lead: DriveDragItem): DriveDragItem[] {
+    const selected: DriveDragItem[] = [
+      ...viewItems.folders.filter((f) => visibleSelFolders.has(f.id)).map((f) => driveDragItem('folder', f)),
+      ...viewItems.files.filter((f) => visibleSelFiles.has(f.id)).map((f) => driveDragItem('file', f)),
+    ]
+    return dragItemsFor(lead, selected)
+  }
+
+  // WP-364: 끌어 놓은 항목을 bulkMove 한 번으로 옮긴다(서버가 검증·전체 롤백). 성공하면 에픽 연결과 같은 결의 토스트 + 되돌리기.
+  // 선택은 지우지 않는다 — 옮겨진 항목은 보이는 선택(visibleSel*)에서 저절로 빠지고, 선택 밖 행을 끌었을 땐 기존 선택을 지키는 게 맞다.
+  // 끌어 옮기기 요청~재조회 동안 true — 그 사이 옛 행을 다시 끌어 두 이동이 경쟁하지 않도록 끌기를 잠시 끈다.
+  const [dragMoving, setDragMoving] = useState(false)
+  async function onDragMove(dragged: DriveDragItem[], target: DriveDropData) {
+    const body = {
+      fileIds: dragged.filter((i) => i.kind === 'file').map((i) => i.id),
+      folderIds: dragged.filter((i) => i.kind === 'folder').map((i) => i.id),
+    }
+    // 되돌리기 목적지 — 끈 항목은 모두 지금 보고 있는 폴더에 있다(placeholder 목록은 끌 수 없게 막았다).
+    const from = folderId ?? null
+    setDragMoving(true)
+    if (await moveItems(body, target.folderId)) {
+      // 재조회를 기다리지 않고 바로 알린다 — 느린 재조회 동안 결과·되돌리기가 늦게 뜨지 않게.
+      toast.success(moveToastMessage(dragged.length, target.name), {
+        // 고정 id — 새 이동 토스트가 이전 것을 대체한다. 이전 토스트의 되돌리기가 남아 있으면 그 뒤에 다시 옮긴 항목을
+        // 옛 폴더로 되돌려 최신 이동을 조용히 잃는다(에픽 이동의 「이후에 다시 옮겨져 되돌릴 수 없습니다」와 같은 보호).
+        id: DRAG_MOVE_TOAST_ID,
+        action: {
+          label: '되돌리기',
+          onClick: () => {
+            void moveItems(body, from, '되돌리지 못했습니다.').then((ok) => {
+              if (ok) toast.success('되돌렸습니다')
+              return reload()
+            })
+          },
+        },
+      })
+    }
+    await reload()
+    setDragMoving(false)
   }
 
   async function openTrash() {
@@ -1114,20 +1226,31 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           잘린다(좁은 드로워·모바일). 넘치면 세그먼트가 min-w-0·truncate 로 말줄임된다. */}
       {/* 본문 — 브레드크럼 줄 + 드롭존 스크롤. 행 여백은 페이지 여백(pageGutterClass) 축. */}
       <Page.Body padded={false} className="flex-col">
+      {/* WP-364: 끌어 옮기기 — 경로와 목록이 같은 DndContext 안이어야 행을 경로로 끌어 놓을 수 있다.
+          데스크톱(마우스)·쓰기 가능한 공간에서만. 모바일·터치 태블릿은 ⋯/시트의 「이동」을 쓴다(스크롤 제스처와 충돌). */}
+      <DriveDndProvider
+        // 공간 정보가 오기 전(null)엔 보관 여부를 몰라 켜지 않는다. 폴더 전환 중 이전 폴더 목록(placeholder)·이동 처리 중에도 끈다 —
+        // 옛 행을 끌면 현재 폴더 기준의 판정·되돌리기 목적지가 어긋난다.
+        enabled={!isMobile && !isCoarse && space != null && !space.archived && !itemsQuery.isPlaceholderData && !dragMoving}
+        currentFolderId={folderId ?? null}
+        resolveItems={resolveDragItems}
+        onMove={(dragged, target) => void onDragMove(dragged, target)}
+      >
       {trash == null && !searching && (
         <nav
           aria-label="폴더 경로"
           className={cn('flex h-11 min-w-0 shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap border-b text-sm lg:h-9', pageGutterClass)}
           data-testid="drive-breadcrumb"
         >
-          <button
-            type="button"
+          <DriveCrumbDropButton
+            folderId={null}
+            name="드라이브"
             onClick={goRoot}
             data-testid="drive-root"
             className={cn('shrink-0 self-stretch', folderId == null ? 'font-semibold' : 'text-primary hover:underline')}
           >
             드라이브
-          </button>
+          </DriveCrumbDropButton>
           {collapseCrumbs(crumbs).map((c, i, arr) =>
             c == null ? (
               <span key="ellipsis" className="flex shrink-0 items-center gap-1 text-muted-foreground">
@@ -1138,23 +1261,24 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               // 현재 폴더 — 조상(shrink-[4])보다 덜 줄어들어(shrink 1) 이름을 최대한 지킨다. 전체 이름은 title 로.
               <span key={c.id} className="flex min-w-0 items-center gap-1">
                 <span className="shrink-0 text-muted-foreground">/</span>
-                <span className="truncate font-semibold" title={c.name} data-testid={`drive-crumb-${c.id}`}>
+                <DriveCrumbCurrent className="truncate font-semibold" title={c.name} data-testid={`drive-crumb-${c.id}`}>
                   {c.name}
-                </span>
+                </DriveCrumbCurrent>
               </span>
             ) : (
               // 조상 폴더 — 먼저 줄어들고 모바일에선 최대 폭(max-w-40)도 제한해 현재 폴더에 자리를 양보한다(데스크톱은 넘칠 때만 줄어듦).
               <span key={c.id} className="flex min-w-0 max-w-40 shrink-[4] items-center gap-1 self-stretch lg:max-w-none">
                 <span className="shrink-0 text-muted-foreground">/</span>
-                <button
-                  type="button"
+                <DriveCrumbDropButton
+                  folderId={c.id}
+                  name={c.name}
                   onClick={() => openFolder(c.id)}
                   data-testid={`drive-crumb-${c.id}`}
                   title={c.name}
                   className="self-stretch truncate text-primary hover:underline"
                 >
                   {c.name}
-                </button>
+                </DriveCrumbDropButton>
               </span>
             ),
           )}
@@ -1433,6 +1557,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               <DrivePressRow
                 key={`folder-${f.id}`}
                 {...rowPress('folder', f.id)}
+                dragItem={driveDragItem('folder', f)}
                 data-testid={`drive-row-folder-${f.id}`}
                 className={cn(
                   // 파일 행·열 헤더(px-1)와 같은 안쪽 여백 — 이름 칸이 같은 x 에서 시작하고 모바일 아이콘·⋮ 세로줄도 맞는다.
@@ -1462,42 +1587,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 ) : tabletRowMenu ? (
                   renderTabletRowMenu(f.name, `folder-${f.id}`, rowActionsFor({ kind: 'folder', item: f }))
                 ) : (
-                  <>
-                    {/* 행 액션 — 호버 또는 키보드 포커스(focus-visible)일 때만 노출. focus-within 이면 터치 탭의 포인터 포커스로도 열려
-                        좁은 폭(모바일 드로워)에서 이름 버튼이 0폭으로 접히고 클릭이 <li> 로 빠져 폴더가 열리지 않는다(WP-207). */}
-                    <button
-                      type="button"
-                      onClick={() => onRenameFolder(f.id, f.name)}
-                      disabled={!!space?.archived}
-                      className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
-                    >
-                      이름변경
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
-                      disabled={!!space?.archived}
-                      className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
-                    >
-                      이동
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
-                      disabled={!!space?.archived}
-                      className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
-                    >
-                      복사
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteFolder(f.id)}
-                      disabled={!!space?.archived}
-                      className="hidden text-xs text-destructive group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
-                    >
-                      삭제
-                    </button>
-                  </>
+                  renderHoverActions({ kind: 'folder', item: f })
                 )}
               </DrivePressRow>
             ))}
@@ -1505,6 +1595,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               <DrivePressRow
                 key={`file-${f.id}`}
                 {...rowPress('file', f.id)}
+                dragItem={driveDragItem('file', f)}
                 data-testid={`drive-row-file-${f.id}`}
                 className={cn(
                   'group flex items-center gap-2 rounded px-1 py-2 hover:bg-accent/40 max-lg:min-h-14',
@@ -1547,65 +1638,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <span className="w-24 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
                   {formatDateOnly(f.updatedAt)}
                 </span>
-                {/* 행 액션 — 데스크톱은 호버 또는 키보드 포커스(focus-visible)일 때만 노출. 주요 3개 인라인 + 더보기(⋯).
-                    focus-within 이면 터치 탭의 포인터 포커스로 열려 모바일에서 이름 버튼이 접히고 미리보기가 안 열린다(WP-208).
-                    모바일은 ⋮ 시트(WP-216), 터치 태블릿은 ⋯ 드롭다운(WP-237)으로 대신한다. */}
+                {/* 행 액션 — 휴대폰은 ⋮ 시트(WP-216), 터치 태블릿은 ⋯ 드롭다운(WP-237), 데스크톱은 hover 묶음(WP-363). */}
                 {isMobile ? (
                   !mobileSelecting && renderRowMore(f.name, `file-${f.id}`, () => setRowSheet({ kind: 'file', item: f }))
                 ) : tabletRowMenu ? (
                   renderTabletRowMenu(f.name, `file-${f.id}`, rowActionsFor({ kind: 'file', item: f }))
                 ) : (
-                  // ⋯ 메뉴가 열린 동안에도 묶음을 보인다(has-data-[state=open]) — 메뉴가 열리면 바깥 포인터가 막혀 hover 가 풀리는데,
-                  // 그때 트리거가 숨으면 메뉴가 기준점을 잃고 화면 왼쪽 위로 튄다(WP-335).
-                  <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-kbd:flex has-data-[state=open]:flex">
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => driveApi.downloadFile(f.id, f.name)}
-                      disabled={isMissingBlob(f)}
-                      aria-label={`${f.name} 다운로드`}
-                    >
-                      다운로드
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => setShareFile(f)}
-                      disabled={isMissingBlob(f)}
-                      aria-label={`${f.name} 공유 링크`}
-                      data-testid="share-link-btn"
-                    >
-                      공유
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => onDeleteFile(f.id)}
-                      disabled={!!space?.archived}
-                      className="text-destructive hover:text-destructive"
-                      aria-label={`${f.name} 삭제`}
-                    >
-                      삭제
-                    </Button>
-                    <RowOverflowMenu
-                      triggerAriaLabel={`${f.name} 더보기`}
-                      items={[
-                        { label: '이름 변경', onSelect: () => setRenameFile(f), disabled: !!space?.archived },
-                        { label: '버전 이력', onSelect: () => setVersionFile(f) },
-                        {
-                          label: '이동',
-                          onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }),
-                          disabled: !!space?.archived,
-                        },
-                        {
-                          // #739: 원본 유실 파일은 복제할 바이트가 없어 서버가 404(유실)를 반환하므로 미리 차단.
-                          label: '복사',
-                          onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }),
-                          disabled: !!space?.archived || isMissingBlob(f),
-                        },
-                      ]}
-                    />
-                  </div>
+                  renderHoverActions({ kind: 'file', item: f })
                 )}
               </DrivePressRow>
             ))}
@@ -1704,6 +1743,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           />
         )}
       </div>
+      </DriveDndProvider>
       </Page.Body>
       {renderMobileBulkBar()}
 

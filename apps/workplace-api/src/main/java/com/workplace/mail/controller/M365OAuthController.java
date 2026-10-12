@@ -2,6 +2,7 @@ package com.workplace.mail.controller;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.mail.config.M365GraphProperties;
 import com.workplace.mail.service.M365OAuthService;
 import com.workplace.mail.service.OAuthStateStore;
@@ -47,6 +48,8 @@ public class M365OAuthController {
   private final M365GraphProperties props;
   private final OAuthStateStore stateStore;
   private final M365OAuthService oauthService;
+  // 공개 경로라 JWT 필터의 테넌트 상태 검사를 타지 않으므로 직접 확인한다(WP-341).
+  private final TenantStatusChecker tenantStatusChecker;
 
   /**
    * M365 OAuth2 인가 흐름을 시작한다.
@@ -132,6 +135,11 @@ public class M365OAuthController {
     }
 
     StateData sd = stateData.get();
+    // 정지·삭제·영구 삭제 중인 테넌트로는 메일 계정을 연결하지 않는다(WP-341) — state 가 만료된 것과 같이 거부한다.
+    if (!tenantStatusChecker.isActive(sd.tenantId())) {
+      log.warn("M365 OAuth complete: 비활성 테넌트 거부: tenantId={}", sd.tenantId());
+      return ResponseEntity.badRequest().body(new M365CompleteResponse(false, "invalid_request"));
+    }
     // ⚠️ 핵심: JWT 없는 공개 경로 → TenantContext 수동 설정 → GUC 주입 → RLS 통과
     TenantContext.set(sd.tenantId());
     try {

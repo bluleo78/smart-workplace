@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 
 import { useProjectEpics } from '../../../hooks/queries/useProjectEpics';
 import { presenceStyle } from '../../../lib/collab/presence';
+import { DROP_TARGET_CLASS } from '../../../lib/dndDropClass';
 import {
   EPIC_DROP_NONE_ID,
   EPIC_PANEL_ZONE_ID,
@@ -209,14 +210,13 @@ function useEpicDroppable(
   return { setNodeRef, dropState, dropClass: DROP_CLASS[dropState] };
 }
 
-// 드롭 상태별 항목 스타일 — 점선=놓을 수 있음, 실선+진한 배경=지금 놓으면 여기로, 흐림=현재/차단.
-// 점선은 알파 없는 outline-primary — /60 은 비텍스트 대비 3:1 미달(라이트 ~2.96, 다크 ~2.76). 오버와는 선 모양·두께·배경으로 구분.
+// 드롭 상태별 항목 스타일 — 공용 규칙(DROP_TARGET_CLASS). 현재 에픽·차단 유형은 둘 다 흐림.
 const DROP_CLASS: Record<EpicDropState | 'over', string> = {
   idle: '',
-  allowed: 'outline-dashed outline-1 -outline-offset-1 outline-primary bg-primary/5',
-  over: 'outline outline-2 -outline-offset-2 outline-primary bg-primary/15',
-  current: 'opacity-50',
-  blocked: 'opacity-50',
+  allowed: DROP_TARGET_CLASS.allowed,
+  over: DROP_TARGET_CLASS.over,
+  current: DROP_TARGET_CLASS.dimmed,
+  blocked: DROP_TARGET_CLASS.dimmed,
 };
 
 // 드롭 대상 항목(미할당·에픽) 공통 클래스 — 드래그 중에는 선택 배경보다 드롭 상태 표시가 우선.

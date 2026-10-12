@@ -70,7 +70,8 @@ export function DriveThumbnail({
   if (available && category === 'IMAGE' && url) {
     return (
       <div ref={elRef} className="h-8 w-8 shrink-0">
-        <img src={url} alt="" className="h-8 w-8 rounded object-cover" />
+        {/* 브라우저 기본 이미지 드래그 금지 — 행 끌어 옮기기(WP-364) 포인터를 가로채고 업로드 드롭존 외곽선을 켠다. */}
+        <img src={url} alt="" draggable={false} className="h-8 w-8 rounded object-cover" />
       </div>
     )
   }

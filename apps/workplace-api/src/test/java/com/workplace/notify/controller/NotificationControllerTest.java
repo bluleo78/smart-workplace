@@ -20,6 +20,7 @@ import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.service.NotificationService;
 import com.workplace.permission.service.PermissionService;
+import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
@@ -37,6 +38,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @SuppressWarnings("null")
 @WebMvcTest(controllers = NotificationController.class)
 @Import({
+  AlwaysActiveTenantStatusChecker.class,
   SecurityConfig.class,
   JwtAuthenticationFilter.class,
   ApiKeyAuthenticationFilter.class,
@@ -53,6 +55,7 @@ class NotificationControllerTest {
   @MockitoBean PermissionService permissionService;
 
   @MockitoBean MembershipRepository membershipRepository;
+
   @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
   @MockitoBean UserApiTokenRepository userApiTokenRepository;
   @MockitoBean UserRepository userRepository;

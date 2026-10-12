@@ -1,12 +1,14 @@
 package com.workplace.global.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.dto.MembershipResponse;
 import com.workplace.tenant.repository.MembershipRepository;
@@ -47,14 +49,23 @@ class ApiKeyAuthenticationFilterTenantTest {
   @Mock private UserRepository userRepository;
   @Mock private PermissionService permissionService;
   @Mock private MembershipRepository membershipRepository;
+  @Mock private TenantStatusChecker tenantStatusChecker;
 
   private ApiKeyAuthenticationFilter filter;
 
   @BeforeEach
   void setUp() {
+    // 같은 스레드에서 먼저 돈 다른 테스트의 인증이 남아 있을 수 있어 비운 채로 시작한다.
+    org.springframework.security.core.context.SecurityContextHolder.clearContext();
     filter =
         new ApiKeyAuthenticationFilter(
-            agentApiKeyRepository, userRepository, permissionService, membershipRepository);
+            agentApiKeyRepository,
+            userRepository,
+            permissionService,
+            membershipRepository,
+            tenantStatusChecker);
+    // 기본은 모든 테넌트가 ACTIVE — 비활성 시나리오 테스트만 개별 스텁한다.
+    lenient().when(tenantStatusChecker.isActive(anyLong())).thenReturn(true);
     // 해시 재계산을 피하려고 모든 해시에 동일 활성 키 반환 (lenient — JWT 경로 미사용 테스트가 없으므로 사실상 항상 히트).
     lenient()
         .when(agentApiKeyRepository.findActiveByHash(anyString()))
@@ -67,6 +78,7 @@ class ApiKeyAuthenticationFilterTenantTest {
 
   @AfterEach
   void tearDown() {
+    org.springframework.security.core.context.SecurityContextHolder.clearContext();
     TenantContext.clear();
   }
 
@@ -102,6 +114,29 @@ class ApiKeyAuthenticationFilterTenantTest {
     assertThat(captured.get()).as("API 키 경로 → 단일 멤버십 → TenantContext 설정 확인").isEqualTo(TENANT_ID);
     // finally 블록 실행 후 ThreadLocal 은 정리돼야 함
     assertThat(TenantContext.get()).as("요청 완료 후 TenantContext 정리 확인 (스레드 풀 오염 방지)").isNull();
+  }
+
+  /** 해석된 테넌트가 비활성(정지·삭제·영구 삭제 중)이면 키가 유효해도 인증하지 않는다(WP-341) — TenantContext 도 설정하지 않는다. */
+  @Test
+  void apiKey_inactiveTenant_notAuthenticated() throws Exception {
+    when(membershipRepository.findActiveByUser(USER_ID))
+        .thenReturn(List.of(new MembershipResponse(TENANT_ID, "Acme", "acme")));
+    when(tenantStatusChecker.isActive(TENANT_ID)).thenReturn(false);
+
+    AtomicReference<Long> captured = new AtomicReference<>(Long.MIN_VALUE);
+    AtomicReference<Object> auth = new AtomicReference<>();
+    FilterChain chain =
+        (req, res) -> {
+          captured.set(TenantContext.get());
+          auth.set(
+              org.springframework.security.core.context.SecurityContextHolder.getContext()
+                  .getAuthentication());
+        };
+
+    filter.doFilter(apiKeyRequest(), new MockHttpServletResponse(), chain);
+
+    assertThat(captured.get()).as("비활성 테넌트 → TenantContext 미설정").isNull();
+    assertThat(auth.get()).as("비활성 테넌트 → 인증 미설정(401)").isNull();
   }
 
   /** 멀티 멤버십 + 명시 헤더(멤버) → 요청 테넌트 채택. */

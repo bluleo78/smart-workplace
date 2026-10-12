@@ -11,6 +11,7 @@ import com.workplace.auth.exception.TenantAccessDeniedException;
 import com.workplace.auth.service.AuthService;
 import com.workplace.auth.web.RefreshTokenCookies;
 import com.workplace.global.security.AuthDetails;
+import com.workplace.global.tenant.DefaultTenant;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.dto.MembershipResponse;
@@ -66,7 +67,7 @@ public class AuthController {
     // 동작하도록). @Transactional 인 AuthService.signup 안에서 설정하면 TenantAwareTransactionManager
     // 가 tx-start(doBegin) 시점에 TenantContext 를 읽으므로 이미 늦다 → 비-트랜잭션 컨트롤러 경계에서 설정.
     // 멀티테넌트 셀프-가입/초대 흐름은 후속(P3/§8).
-    TenantContext.set(1L);
+    TenantContext.set(DefaultTenant.ID);
     try {
       UserResponse user = authService.signup(request);
       return ResponseEntity.status(HttpStatus.CREATED).body(user);

@@ -2,6 +2,7 @@ package com.workplace.global.security;
 
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.UserKind;
@@ -42,16 +43,20 @@ public class UserTokenAuthenticationFilter extends OncePerRequestFilter {
   private final UserRepository userRepository;
   private final PermissionService permissionService;
   private final MembershipRepository membershipRepository;
+  // 정지·삭제된 테넌트로는 키/토큰이 유효해도 인증하지 않는다(WP-341) — JwtAuthenticationFilter 와 같은 기준.
+  private final TenantStatusChecker tenantStatusChecker;
 
   public UserTokenAuthenticationFilter(
       UserApiTokenRepository userApiTokenRepository,
       UserRepository userRepository,
       @Lazy PermissionService permissionService,
-      MembershipRepository membershipRepository) {
+      MembershipRepository membershipRepository,
+      TenantStatusChecker tenantStatusChecker) {
     this.userApiTokenRepository = userApiTokenRepository;
     this.userRepository = userRepository;
     this.permissionService = permissionService;
     this.membershipRepository = membershipRepository;
+    this.tenantStatusChecker = tenantStatusChecker;
   }
 
   @Override
@@ -86,6 +91,8 @@ public class UserTokenAuthenticationFilter extends OncePerRequestFilter {
                                   memberships.stream()
                                       .anyMatch(m -> m.tenantId().equals(tok.tenantId()));
                               if (!member) return; // fail-closed: 인증 미설정 → 401
+                              // 토큰의 테넌트가 비활성(정지·삭제·영구 삭제 중)이어도 인증하지 않는다.
+                              if (!tenantStatusChecker.isActive(tok.tenantId())) return;
 
                               // 반드시 getUserPermissions 전에 설정 — GUC 주입 후 권한 조회.
                               TenantContext.set(tok.tenantId());

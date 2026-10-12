@@ -456,6 +456,158 @@ class AuthServiceTest extends IntegrationTestBase {
   }
 
   /**
+   * WP-341 후속 테스트 픽스처: 사용자를 만들고 signup 이 붙이는 tenant#1 멤버십을 SUSPENDED 로 돌린 뒤, 주어진 상태의 테넌트를 하나씩 만들어
+   * ACTIVE 멤버십으로 연결한다. 반환 배열의 0번은 userId, 이후는 생성 순서대로 tenantId.
+   */
+  private long[] userWithTenants(String prefix, String... tenantStatuses) {
+    String username =
+        prefix + "-" + java.util.UUID.randomUUID().toString().substring(0, 8) + "@example.com";
+    UserResponse user =
+        authService.signup(new SignupRequest(username, username, "Password123", prefix));
+    baseDsl
+        .update(MEMBERSHIP)
+        .set(MEMBERSHIP.STATUS, "SUSPENDED")
+        .where(MEMBERSHIP.USER_ID.eq(user.id()).and(MEMBERSHIP.TENANT_ID.eq(1L)))
+        .execute();
+    long[] ids = new long[tenantStatuses.length + 1];
+    ids[0] = user.id();
+    for (int i = 0; i < tenantStatuses.length; i++) {
+      Long tenantId =
+          baseDsl
+              .insertInto(TENANT)
+              .set(TENANT.NAME, prefix + " " + i)
+              .set(TENANT.SLUG, prefix + "-" + i + "-" + user.id())
+              .set(TENANT.STATUS, tenantStatuses[i])
+              .returning(TENANT.ID)
+              .fetchOne()
+              .getId();
+      baseDsl
+          .insertInto(MEMBERSHIP)
+          .set(MEMBERSHIP.USER_ID, user.id())
+          .set(MEMBERSHIP.TENANT_ID, tenantId)
+          .set(MEMBERSHIP.STATUS, "ACTIVE")
+          .execute();
+      ids[i + 1] = tenantId;
+    }
+    return ids;
+  }
+
+  /** 테넌트 상태를 바꾼다(정지·삭제·영구 삭제 진행 시뮬레이션). */
+  private void setTenantStatus(long tenantId, String status) {
+    baseDsl.update(TENANT).set(TENANT.STATUS, status).where(TENANT.ID.eq(tenantId)).execute();
+  }
+
+  /**
+   * (1) 2개 소속 중 쓰던 테넌트가 삭제되면 refresh 는 예외(로그아웃) 대신 남은 테넌트 하나로 이어 간다 — 로그인 자동 선택과 같은 규칙. 새 refresh
+   * 토큰에도 죽은 테넌트가 남지 않고, 같은 family 로 회전이 계속된다.
+   */
+  @Test
+  void refresh_whenActiveTenantDeleted_withOneRemaining_switchesToRemainingTenant() {
+    long[] ids = userWithTenants("refresh-fallback-one", "ACTIVE", "ACTIVE");
+    long userId = ids[0];
+    long dead = ids[1];
+    long alive = ids[2];
+    TokenResponse scoped = authService.selectTenant(userId, dead, null);
+    setTenantStatus(dead, "DELETED");
+
+    TokenResponse rotated = authService.refresh(scoped.refreshToken());
+
+    assertThat(jwtTokenProvider.getTenantIdFromToken(rotated.accessToken())).isEqualTo(alive);
+    assertThat(jwtTokenProvider.getTenantIdFromToken(rotated.refreshToken())).isEqualTo(alive);
+    // 회전한 토큰은 그대로 이어서 쓸 수 있고(대체 테넌트 유지), 쓰고 난 원래 토큰은 폐기돼 grace 밖 재사용이면 family 전체가 폐기된다.
+    TokenResponse again = authService.refresh(rotated.refreshToken());
+    assertThat(jwtTokenProvider.getTenantIdFromToken(again.accessToken())).isEqualTo(alive);
+    expireRefreshGrace();
+    assertThatThrownBy(() -> authService.refresh(scoped.refreshToken()))
+        .isInstanceOf(InvalidTokenException.class);
+    assertThatThrownBy(() -> authService.refresh(again.refreshToken()))
+        .isInstanceOf(InvalidTokenException.class);
+  }
+
+  /** (2) 3개 소속 중 쓰던 테넌트 1개가 삭제되면 남은 후보가 2개라 자동 선택하지 않고 tenant-less 로 발급한다(웹이 선택 화면으로). */
+  @Test
+  void refresh_whenActiveTenantDeleted_withManyRemaining_issuesTenantlessTokens() {
+    long[] ids = userWithTenants("refresh-fallback-many", "ACTIVE", "ACTIVE", "ACTIVE");
+    TokenResponse scoped = authService.selectTenant(ids[0], ids[1], null);
+    setTenantStatus(ids[1], "DELETED");
+
+    TokenResponse rotated = authService.refresh(scoped.refreshToken());
+
+    assertThat(jwtTokenProvider.getTenantIdFromToken(rotated.accessToken())).isNull();
+    assertThat(jwtTokenProvider.getTenantIdFromToken(rotated.refreshToken())).isNull();
+  }
+
+  /** (3) 유일한 소속 테넌트가 삭제되면 후보 0개 — 로그인 직후와 같은 tenant-less 상태로 발급한다(예외로 끊지 않는다). */
+  @Test
+  void refresh_whenOnlyTenantDeleted_issuesTenantlessTokens() {
+    long[] ids = userWithTenants("refresh-fallback-none", "ACTIVE");
+    TokenResponse scoped = authService.selectTenant(ids[0], ids[1], null);
+    setTenantStatus(ids[1], "DELETED");
+
+    TokenResponse rotated = authService.refresh(scoped.refreshToken());
+
+    assertThat(jwtTokenProvider.getTenantIdFromToken(rotated.accessToken())).isNull();
+    assertThat(jwtTokenProvider.getTenantIdFromToken(rotated.refreshToken())).isNull();
+  }
+
+  /**
+   * 정지(SUSPENDED)·영구 삭제 중(PURGING)과 멤버십 비활성도 같은 대체 규칙을 탄다 — 이전에는 InvalidTokenException 으로 로그아웃시켰다.
+   */
+  @Test
+  void refresh_whenTenantSuspendedPurgingOrMembershipInactive_fallsBackToRemainingTenant() {
+    long[] ids = userWithTenants("refresh-fallback-states", "ACTIVE", "ACTIVE", "ACTIVE", "ACTIVE");
+    long userId = ids[0];
+    long alive = ids[4];
+    TokenResponse suspended = authService.selectTenant(userId, ids[1], null);
+    TokenResponse purging = authService.selectTenant(userId, ids[2], null);
+    TokenResponse left = authService.selectTenant(userId, ids[3], null);
+    setTenantStatus(ids[1], "SUSPENDED");
+    setTenantStatus(ids[2], "PURGING");
+    baseDsl
+        .update(MEMBERSHIP)
+        .set(MEMBERSHIP.STATUS, "SUSPENDED")
+        .where(MEMBERSHIP.USER_ID.eq(userId).and(MEMBERSHIP.TENANT_ID.eq(ids[3])))
+        .execute();
+
+    for (TokenResponse t : new TokenResponse[] {suspended, purging, left}) {
+      TokenResponse rotated = authService.refresh(t.refreshToken());
+      assertThat(jwtTokenProvider.getTenantIdFromToken(rotated.accessToken())).isEqualTo(alive);
+      assertThat(jwtTokenProvider.getTenantIdFromToken(rotated.refreshToken())).isEqualTo(alive);
+    }
+  }
+
+  /**
+   * (4) 로그인 자동 선택과 멤버십 목록(GET /auth/memberships 의 서비스)은 DELETED·PURGING·SUSPENDED 테넌트를 제외한다 — 죽은
+   * 테넌트로 자동 선택되거나 선택 목록에 보이지 않아야 한다.
+   */
+  @Test
+  void loginAndMemberships_excludeDeletedPurgingSuspendedTenants() {
+    long[] ids = userWithTenants("login-filter", "ACTIVE", "DELETED", "PURGING", "SUSPENDED");
+    long userId = ids[0];
+    String username = userRepository.findById(userId).orElseThrow().username();
+
+    var login = authService.login(new LoginRequest(username, "Password123"));
+
+    assertThat(login.memberships()).extracting(m -> m.tenantId()).containsExactly(ids[1]);
+    assertThat(jwtTokenProvider.getTenantIdFromToken(login.accessToken())).isEqualTo(ids[1]);
+    assertThat(authService.membershipsOf(userId, null))
+        .extracting(m -> m.tenantId())
+        .containsExactly(ids[1]);
+  }
+
+  /** 삭제된 테넌트 하나뿐인 사용자는 로그인 시 그 테넌트로 자동 선택되지 않고 선택 목록도 비어 있다(tenant-less). */
+  @Test
+  void login_whenOnlyTenantDeleted_isTenantlessWithNoMemberships() {
+    long[] ids = userWithTenants("login-only-deleted", "DELETED");
+    String username = userRepository.findById(ids[0]).orElseThrow().username();
+
+    var login = authService.login(new LoginRequest(username, "Password123"));
+
+    assertThat(login.memberships()).isEmpty();
+    assertThat(jwtTokenProvider.getTenantIdFromToken(login.accessToken())).isNull();
+  }
+
+  /**
    * refresh grace period(테스트 설정 2초) 만료를 sleep 없이 재현한다 — 방금 폐기된 토큰의 revoked_at 을 grace 밖(1시간 전)으로
    * 당긴다. 클래스 {@code @Transactional} 이라 테스트 종료 시 롤백된다. "방금 폐기" 조건으로 이 테스트가 만든 행만 건드린다.
    */

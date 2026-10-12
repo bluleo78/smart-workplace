@@ -2,6 +2,8 @@ package com.workplace.platform.service;
 
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
+import com.workplace.global.tenant.DefaultTenant;
+import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.platform.dto.AddExistingTenantMemberRequest;
 import com.workplace.platform.dto.AddTenantMemberRequest;
 import com.workplace.platform.dto.CreateTenantRequest;
@@ -11,11 +13,13 @@ import com.workplace.platform.dto.TenantSummaryResponse;
 import com.workplace.platform.dto.UpdateTenantRequest;
 import com.workplace.platform.exception.PlatformTenantNotFoundException;
 import com.workplace.platform.exception.TenantMemberAlreadyExistsException;
+import com.workplace.platform.exception.TenantStateConflictException;
 import com.workplace.platform.repository.PlatformTenantRepository;
 import com.workplace.platform.util.IdentityMasking;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.text.Normalizer;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +28,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 운영자 콘솔 — 테넌트 생성/목록/상세/정지/활성화/멤버 조회.
+ * 운영자 콘솔 — 테넌트 생성/목록/상세/정지/활성화/삭제/복원/영구 삭제 요청/멤버 조회.
+ *
+ * <p>상태 전환(WP-341): ACTIVE ⇄ SUSPENDED, ACTIVE·SUSPENDED → DELETED(삭제), DELETED → ACTIVE(복원),
+ * DELETED → PURGING(영구 삭제 요청 — 실제 삭제는 백그라운드 잡). 모든 전환은 현재 상태를 WHERE 에 거는 조건부 UPDATE 라 경합 시 하나만
+ * 성공한다.
  *
  * <p>⚠️ {@link #createTenant} 만 {@code @Transactional}(단일 트랜잭션)이다. tenant + OWNER 멤버십 + 기본 RBAC 시드를
  * 한 트랜잭션·한 커넥션으로 원자 처리해야 한다(Task 6). 이렇게 해야 role.tenant_id FK 가 같은 트랜잭션의 미커밋 tenant 행을 보고, 트랜잭션-로컬
@@ -35,11 +43,16 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class PlatformTenantService {
 
+  /** 운영 중(구성원 접근·편집 가능) 상태 — 삭제 가능한 출발 상태이자 편집 가드 기준. */
+  private static final List<String> LIVE = List.of("ACTIVE", "SUSPENDED");
+
   private final PlatformTenantRepository platformTenantRepository;
   private final TenantProvisioningService tenantProvisioningService;
   private final UserRepository userRepository;
   // 멤버 추가(#497) 시 계정 비밀번호를 인코딩한다 — 로그인이 검증하는 PasswordEncoder 빈과 동일해야 한다.
   private final PasswordEncoder passwordEncoder;
+  // WP-341: 상태 전환 직후 이 파드의 테넌트 상태 캐시를 비워 기존 토큰 차단/해제를 즉시 반영한다.
+  private final TenantStatusChecker tenantStatusChecker;
 
   /**
    * 테넌트 생성 — slug 중복·owner 존재 검증 후 tenant + OWNER 멤버십 + 기본 RBAC 시드를 단일 트랜잭션으로 처리. 생성된 상세를 반환.
@@ -154,9 +167,13 @@ public class PlatformTenantService {
    * 테넌트 이름·slug 수정 후 갱신된 상세를 반환한다(WP-336).
    *
    * <p>slug 를 비우면 이름에서 자동 생성하고(생성과 동일), 지정했으면 자기 자신을 제외한 다른 테넌트와 겹칠 때 400. 없는 테넌트면 404.
+   *
+   * <p>삭제됨·영구 삭제 중인 테넌트는 409(WP-341) — 영구 삭제 확인이 테넌트 이름을 대조하므로 그 사이 이름이 바뀌면 안 되고, 삭제된 테넌트는 복원 전까지
+   * 편집 대상이 아니다. slug 중복 검사보다 먼저 막아 상태 충돌을 우선 알린다.
    */
   @Transactional
   public TenantDetailResponse updateTenant(Long id, UpdateTenantRequest req) {
+    requireLive(id);
     String name = req.name().trim();
     String slug = resolveSlug(req.slug(), name, id);
     if (platformTenantRepository.updateInfo(id, name, slug) == 0) {
@@ -165,17 +182,73 @@ public class PlatformTenantService {
     return getTenant(id);
   }
 
-  /** 테넌트 정지(SUSPENDED) — 없으면 404. */
-  public void suspend(Long id) {
-    if (platformTenantRepository.updateStatus(id, "SUSPENDED") == 0) {
-      throw new PlatformTenantNotFoundException("테넌트를 찾을 수 없습니다: " + id);
+  /** 기본 테넌트면 409 — 삭제되면 신규 가입자가 접근할 수 없는 테넌트에 귀속된다. */
+  private static void rejectDefaultTenant(Long id) {
+    if (id == DefaultTenant.ID) {
+      throw new TenantStateConflictException("기본 테넌트는 삭제할 수 없습니다.");
     }
   }
 
-  /** 테넌트 활성화(ACTIVE) — 없으면 404. */
+  /** 현재 상태를 반환한다 — 없는 테넌트면 404(PlatformTenantNotFoundException). */
+  private String statusOrThrow(Long id) {
+    return platformTenantRepository
+        .findStatus(id)
+        .orElseThrow(() -> new PlatformTenantNotFoundException("테넌트를 찾을 수 없습니다: " + id));
+  }
+
+  /** 조건부 전환 공통 — 0행이면 존재 여부로 404(테넌트 없음)/409(상태 불일치)를 가른다. */
+  private void transitionOrThrow(Long id, Collection<String> from, String to, String conflictMsg) {
+    if (platformTenantRepository.transition(id, from, to) == 0) {
+      statusOrThrow(id); // 없으면 404, 있으면 상태 불일치 409
+      throw new TenantStateConflictException(conflictMsg);
+    }
+    // 전환 UPDATE 는 이 메서드가 트랜잭션 밖이라 이미 커밋됐다 — 무효화 후 첫 조회가 새 상태를 읽는다.
+    tenantStatusChecker.invalidate(id);
+  }
+
+  /** 테넌트 정지 — ACTIVE 에서만(삭제된 테넌트는 409). */
+  public void suspend(Long id) {
+    transitionOrThrow(id, List.of("ACTIVE"), "SUSPENDED", "활성 상태의 테넌트만 정지할 수 있습니다.");
+  }
+
+  /** 테넌트 활성화 — SUSPENDED 에서만(삭제된 테넌트는 복원을 써야 한다). */
   public void activate(Long id) {
-    if (platformTenantRepository.updateStatus(id, "ACTIVE") == 0) {
-      throw new PlatformTenantNotFoundException("테넌트를 찾을 수 없습니다: " + id);
+    transitionOrThrow(id, List.of("SUSPENDED"), "ACTIVE", "정지된 테넌트만 활성화할 수 있습니다.");
+  }
+
+  /** 테넌트 삭제 — ACTIVE/SUSPENDED → DELETED. 데이터는 남고 구성원 접근만 막힌다(복원 가능). */
+  public void delete(Long id) {
+    rejectDefaultTenant(id);
+    transitionOrThrow(id, LIVE, "DELETED", "이미 삭제된 테넌트입니다.");
+  }
+
+  /** 삭제된 테넌트 복원 — DELETED → ACTIVE. 영구 삭제 진행 중(PURGING)이면 409. */
+  public void restore(Long id) {
+    transitionOrThrow(id, List.of("DELETED"), "ACTIVE", "삭제된 테넌트만 복원할 수 있습니다.");
+  }
+
+  /**
+   * 영구 삭제 요청 — 이름 확인 후 DELETED → PURGING. 실제 삭제는 TenantPurgeJob 이 비동기로 수행한다.
+   *
+   * <p>이름 비교는 입력·저장명 모두 앞뒤 공백을 무시하고 대소문자는 구분한다(콘솔 입력 검증과 동일). 불일치는 400(IllegalArgumentException).
+   */
+  public void requestPurge(Long id, String confirmName) {
+    rejectDefaultTenant(id);
+    String confirm = confirmName == null ? "" : confirmName.trim();
+    // 상태·이름 검사와 전환을 한 UPDATE 로 원자 처리한다(조회 후 전환 사이의 경합 제거).
+    if (platformTenantRepository.requestPurge(id, confirm) == 0) {
+      if (!"DELETED".equals(statusOrThrow(id))) {
+        throw new TenantStateConflictException("삭제된 테넌트만 영구 삭제할 수 있습니다.");
+      }
+      throw new IllegalArgumentException("테넌트 이름이 일치하지 않습니다.");
+    }
+    tenantStatusChecker.invalidate(id);
+  }
+
+  /** 편집(멤버 추가·쿼터) 가드 — 없으면 404, 삭제·영구 삭제 중인 테넌트는 409. */
+  private void requireLive(Long id) {
+    if (!LIVE.contains(statusOrThrow(id))) {
+      throw new TenantStateConflictException("삭제된 테넌트는 변경할 수 없습니다.");
     }
   }
 
@@ -186,6 +259,8 @@ public class PlatformTenantService {
    */
   @Transactional
   public TenantDetailResponse updateQuota(Long id, long quotaBytes) {
+    // 삭제·영구 삭제 중인 테넌트는 한도를 바꿀 수 없다(없으면 404).
+    requireLive(id);
     platformTenantRepository.updateQuota(id, quotaBytes);
     return getTenant(id);
   }
@@ -232,10 +307,8 @@ public class PlatformTenantService {
    */
   @Transactional
   public TenantMemberResponse addMember(Long tenantId, AddTenantMemberRequest req) {
-    // 대상 테넌트가 존재해야 한다(없으면 404).
-    if (platformTenantRepository.findTenant(tenantId).isEmpty()) {
-      throw new PlatformTenantNotFoundException("테넌트를 찾을 수 없습니다: " + tenantId);
-    }
+    // 대상 테넌트가 존재하고(없으면 404) 삭제되지 않았어야 한다(삭제·영구 삭제 중이면 409).
+    requireLive(tenantId);
     // 로그인 아이디 = 이메일. 아이디/이메일 중복은 409.
     String email = req.email();
     if (userRepository.existsByUsername(email)) {
@@ -274,9 +347,8 @@ public class PlatformTenantService {
    */
   @Transactional
   public TenantMemberResponse addExistingMember(Long tenantId, AddExistingTenantMemberRequest req) {
-    if (platformTenantRepository.findTenant(tenantId).isEmpty()) {
-      throw new PlatformTenantNotFoundException("테넌트를 찾을 수 없습니다: " + tenantId);
-    }
+    // 대상 테넌트가 존재하고(없으면 404) 삭제되지 않았어야 한다(삭제·영구 삭제 중이면 409).
+    requireLive(tenantId);
     var user =
         userRepository
             .findById(req.userId())

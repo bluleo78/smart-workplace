@@ -27,6 +27,7 @@ import com.workplace.issue.dto.UpdateCommentRequest;
 import com.workplace.issue.service.IssueCommentService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
@@ -44,6 +45,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @SuppressWarnings("null")
 @WebMvcTest(IssueCommentController.class)
 @Import({
+  AlwaysActiveTenantStatusChecker.class,
   SecurityConfig.class,
   JwtAuthenticationFilter.class,
   ApiKeyAuthenticationFilter.class,

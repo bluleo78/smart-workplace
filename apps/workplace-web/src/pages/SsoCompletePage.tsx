@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 
+import { NO_WORKSPACE_MESSAGE } from '@/lib/activeTenant'
+
 import { WorkspaceSelectCard } from '../components/auth/WorkspaceSelectCard'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { useAuth } from '../hooks/useAuth'
@@ -37,7 +39,7 @@ export default function SsoCompletePage() {
             <CardTitle className="text-xl">로그인할 수 없습니다</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-center text-sm">
-            <p>접속 가능한 워크스페이스가 없습니다. 관리자에게 문의하세요.</p>
+            <p>{NO_WORKSPACE_MESSAGE}</p>
             <Link to="/login" className="text-primary underline-offset-4 hover:underline">로그인 화면으로</Link>
           </CardContent>
         </Card>

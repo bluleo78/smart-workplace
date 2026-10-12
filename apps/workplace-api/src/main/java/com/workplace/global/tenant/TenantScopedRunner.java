@@ -56,4 +56,19 @@ public class TenantScopedRunner {
       }
     }
   }
+
+  /**
+   * 지정한 테넌트 하나에 대해 상태와 무관하게 {@link TenantContext} 를 설정하고 새 트랜잭션에서 {@code action} 을 실행한다.
+   *
+   * <p>{@link #forEachActiveTenant} 와 달리 ACTIVE 필터가 없고(삭제·영구 삭제 중 테넌트도 대상) 예외를 삼키지 않고 호출자에게 전파한다 —
+   * 영구 삭제는 실패를 기록하고 상태를 되돌려야 하기 때문이다. 성공·실패와 무관하게 끝나면 컨텍스트를 비운다.
+   */
+  public void runForTenant(long tenantId, Consumer<Long> action) {
+    TenantContext.set(tenantId);
+    try {
+      txTemplate.executeWithoutResult(status -> action.accept(tenantId));
+    } finally {
+      TenantContext.clear();
+    }
+  }
 }
