@@ -92,6 +92,14 @@ export interface PlatformUserLookup {
   isPlatformAdmin: boolean
 }
 
+/** 사용자 자동완성 검색 결과 한 건(WP-337). 이메일이 없는 사용자도 있다. */
+export interface PlatformUserSearchItem {
+  id: number
+  name: string
+  username: string
+  email: string | null
+}
+
 /** 기존(전역) 사용자를 테넌트 멤버로 추가하는 요청. 계정 생성 없이 membership 만 부여한다. */
 export interface AddExistingTenantMemberRequest {
   userId: number

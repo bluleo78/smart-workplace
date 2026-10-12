@@ -123,6 +123,24 @@ class PlatformTenantServiceTest extends IntegrationTestBase {
         .isInstanceOf(IllegalArgumentException.class);
   }
 
+  /** WP-337 — 에이전트·비활성 계정은 API 를 직접 호출해도 소유자로 지정할 수 없다. */
+  @Test
+  void createTenant_agentOrInactiveOwner_throws() {
+    long agent = createHumanUser("agent-owner");
+    dsl.update(USER).set(USER.KIND, "AGENT").where(USER.ID.eq(agent)).execute();
+    long inactive = createHumanUser("inactive-owner");
+    dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(inactive)).execute();
+
+    assertThatThrownBy(
+            () -> service.createTenant(new CreateTenantRequest("A", uniqueSlug(), agent)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("소유자로 지정할 수 없습니다");
+    assertThatThrownBy(
+            () -> service.createTenant(new CreateTenantRequest("I", uniqueSlug(), inactive)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("소유자로 지정할 수 없습니다");
+  }
+
   @Test
   void createTenant_duplicateSlug_throws() {
     long owner = createHumanUser("owner");
