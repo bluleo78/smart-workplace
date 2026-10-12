@@ -83,6 +83,12 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   const [reactorsTarget, setReactorsTarget] = useState<{ id: number; emoji: string; open: boolean } | null>(null)
   const openReactors = useCallback((id: number, emoji: string) => setReactorsTarget({ id, emoji, open: true }), [])
   const reactorsMessage = reactorsTarget ? ordered.find((m) => m.id === reactorsTarget.id) : undefined
+  // 반응이 모두 사라지거나 메시지가 목록을 떠나 오버레이가 자동으로 숨겨지면 open 도 같이 내린다 — onOpenChange 가 불리지 않아
+  // 그대로 두면 나중에 같은 메시지에 다시 반응이 달릴 때 사용자 조작 없이 저절로 다시 열린다. 대상은 남겨 닫힘 애니메이션을 유지한다.
+  // 렌더 중 상태 조정(React 권장 패턴) — 효과로 미루면 한 프레임 동안 다시 열린 상태가 그려질 수 있다.
+  if (reactorsTarget?.open && !reactorsMessage?.reactions.length) {
+    setReactorsTarget({ ...reactorsTarget, open: false })
+  }
   // 내 이름 — 채널 멤버 목록에서 찾고, 없으면 "나".
   const meName = members.find((mb) => mb.userId === currentUserId)?.name ?? '나'
 

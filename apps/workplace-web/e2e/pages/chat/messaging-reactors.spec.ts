@@ -9,7 +9,9 @@ import {
   createReaction,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { trackRequests } from '../../fixtures/requests'
+import { expectStays } from '../../fixtures/wait'
 
 const ME_ID = 1
 const CHANNEL_ID = 610
@@ -167,6 +169,9 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     await expect(page.getByTestId(`reaction-hover-summary-${MSG_ID}`)).toHaveText(
       '나, 이영희, 박지훈 외 2명이 반응했습니다',
     )
+    // 첫 카드가 완전히 닫힌 뒤 다른 칩으로 — 두 카드가 겹치는 구간(같은 testid 둘)을 피한다.
+    await page.mouse.move(0, 0)
+    await expect(page.getByTestId(`reaction-hover-${MSG_ID}`)).toHaveCount(0)
     // 받침 없는 마지막 이름 + 외 없음
     await page.getByTestId(`reaction-pill-${MSG_ID}-🎉`).hover()
     await expect(page.getByTestId(`reaction-hover-summary-${MSG_ID}`)).toHaveText('이영희, 박지훈이 반응했습니다')
@@ -203,5 +208,53 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     await page.getByTestId(`reaction-pill-${MSG_ID}-👍`).click()
     await deletes.waitFor()
     await expect(page.getByTestId(`reaction-count-${MSG_ID}-👍`)).toHaveText('4')
+  })
+
+  test('열린 동안 마지막 반응이 사라져 닫힌 다이얼로그는 나중에 반응이 달려도 저절로 다시 열리지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    const channel = createChannel({ id: CHANNEL_ID, name: '반응자채널' })
+    const msg = createMessage({
+      id: MSG_ID,
+      channelId: CHANNEL_ID,
+      authorId: 2,
+      authorName: '김민수',
+      body: '배포 끝났습니다',
+      reactions: [createReaction({ emoji: '🎉', count: 1, reacted: false })],
+    })
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    const events = await mockGatedEvents(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '양동희' })])
+    await stubMessages(page, CHANNEL_ID, [msg])
+    await stubReactors(page, { '🎉': [{ userId: 3, name: '이영희' }] })
+    const posts = trackRequests(page, 'POST', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}/reactions`,
+      (route) => (route.request().method() === 'POST' ? route.fulfill({ status: 204, body: '' }) : route.fallback()),
+    )
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    await page.getByTestId(`reaction-pill-${MSG_ID}-🎉`).hover()
+    await page.getByTestId(`reaction-hover-all-${MSG_ID}`).click()
+    const dialog = page.getByTestId('reactors-dialog')
+    await expect(dialog).toBeVisible()
+
+    // 다른 사람(3)이 마지막 반응을 거두면 반응이 0 이 되어 다이얼로그가 닫힌다.
+    events.deliver(
+      `event: messaging.reaction.removed\n` +
+        `data: ${JSON.stringify({ channelId: CHANNEL_ID, messageId: MSG_ID, emoji: '🎉', userId: 3 })}\n\n`,
+    )
+    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🎉`)).toHaveCount(0)
+    await expect(dialog).toHaveCount(0)
+
+    // 이후 같은 메시지에 반응이 다시 달려도 사용자가 열기 전에는 닫혀 있어야 한다.
+    await page.getByTestId(`message-${MSG_ID}`).hover()
+    await page.getByTestId(`message-${MSG_ID}-react`).click()
+    await page.getByTestId(`message-${MSG_ID}-quick-👍`).click()
+    await posts.waitFor()
+    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-👍`)).toBeVisible()
+    await expectStays(page, () => dialog.count(), 0)
   })
 })
