@@ -1,7 +1,9 @@
 package com.workplace.platform.controller;
 
 import com.workplace.platform.dto.PlatformUserLookupResponse;
+import com.workplace.platform.dto.PlatformUserSearchItem;
 import com.workplace.platform.service.PlatformUserService;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -28,5 +30,12 @@ public class PlatformUserController {
   public ResponseEntity<PlatformUserLookupResponse> lookup(@RequestParam String email) {
     Optional<PlatformUserLookupResponse> found = platformUserService.lookupByEmail(email);
     return found.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+  }
+
+  /** 이메일·이름·아이디 부분일치 자동완성 검색(WP-337) — 테넌트 생성의 소유자 선택에 쓴다. 2글자 미만이면 빈 목록. */
+  @GetMapping("/search")
+  public List<PlatformUserSearchItem> search(
+      @RequestParam(defaultValue = "") String q, @RequestParam(defaultValue = "20") int limit) {
+    return platformUserService.search(q, limit);
   }
 }
