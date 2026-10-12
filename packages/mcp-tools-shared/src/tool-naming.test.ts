@@ -8,13 +8,10 @@ const names = tools.map((t) => t.name);
 
 /**
  * 명명 규칙(README "도구 명명 규칙", WP-347)을 아직 따르지 않는 기존 공유 도구 이름.
- * WP-360 이 새 이름으로 바꾸면서 이 배열을 **비운다** — 비우면 이 테스트가 규칙을 전면 강제한다.
+ * WP-360 이 나머지를 새 이름으로 바꿨고, 남은 `get_channel_messages` 는 WP-352 가 바꾸면서 이 배열을 **비운다** — 비우면 이 테스트가 규칙을 전면 강제한다.
  * `get_` 이 여러 건을 돌려주는 도구는 기계로 가릴 수 없어 손으로 적는다(규칙: 여러 건은 `list_`, 한 건만 `get_`).
  */
-const SHARED_NAMING_EXCEPTIONS = [
-  'edit_comment', // 금지 접두 edit_ → update_comment (WP-360)
-  'get_thread_replies', // get_ 인데 여러 건 → list_thread_replies (WP-360)
-  'get_wiki_backlinks', // get_ 인데 여러 건 → list_wiki_backlinks (WP-360)
+const SHARED_NAMING_EXCEPTIONS: string[] = [
   'get_channel_messages', // get_ 인데 여러 건 → list_channel_messages (WP-352 에서 개편하며 변경)
 ];
 

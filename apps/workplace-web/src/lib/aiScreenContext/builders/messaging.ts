@@ -1,4 +1,4 @@
-// 채팅 화면 컨텍스트 builder(WP-54). DM 도 channelId(get_channel_messages 인자). 스레드는 루트 메시지 id(get_thread_replies 인자).
+// 채팅 화면 컨텍스트 builder(WP-54). DM 도 channelId(get_channel_messages 인자). 스레드는 루트 메시지 id(list_thread_replies 인자).
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
 import { buildFacts, buildRefs, clip, LIMITS, withListState } from '../common';
@@ -20,7 +20,7 @@ export function buildChannelContext(input: {
     },
   };
   if (input.thread) {
-    // 본문 첫 줄만 라벨로 — 전체 본문은 AI 가 get_thread_replies 로 조회.
+    // 본문 첫 줄만 라벨로 — 전체 본문은 AI 가 list_thread_replies 로 조회.
     const firstLine = input.thread.body.split('\n').find((l) => l.trim()) ?? '';
     ctx.focus = {
       type: '스레드',

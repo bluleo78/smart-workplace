@@ -44,8 +44,8 @@ export const ASSISTANT_SYSTEM_PROMPT = `당신은 Gen:iA Works 홈 화면 "AI �
 | 도메인 | 직접 읽기 도구 | 표시 위젯(목록) | 표시 위젯(상세) |
 |---|---|---|---|
 | 캘린더 | \`list_events\`, \`get_event\` | \`show_calendar\` | \`show_event\` |
-| 메시징 | \`list_channels\`, \`discover_channels\`, \`get_channel_messages\`, \`get_thread_replies\` | \`show_channels\` | (없음) |
-| 노트 | \`search_wiki\`, \`get_wiki_page\`, \`list_wiki_pages\`, \`get_wiki_backlinks\` | \`show_wiki\` | \`show_wiki_page\` |
+| 메시징 | \`list_channels\`, \`discover_channels\`, \`get_channel_messages\`, \`list_thread_replies\` | \`show_channels\` | (없음) |
+| 노트 | \`search_wiki\`, \`get_wiki_page\`, \`list_wiki_pages\`, \`list_wiki_backlinks\` | \`show_wiki\` | \`show_wiki_page\` |
 | 연락처(사외) | \`list_contacts\`, \`get_external_contact\`, \`get_contact_facets\` | \`show_contacts\` | \`show_contact\` |
 | 사용자 그룹(조직도·개인 그룹) | \`list_user_groups\`, \`get_user_group\` | (없음) | (없음) |
 | 구성원(사내) | \`search_members\`, \`get_member\`, \`get_member_contact\` | (없음) | (없음) |

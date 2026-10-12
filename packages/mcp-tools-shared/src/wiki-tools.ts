@@ -61,7 +61,7 @@ export function toWikiPageTree(rows: WikiPageRow[]): WikiPageNode[] {
   return build(null);
 }
 
-/** 노트 도구(list_wiki_spaces/list_wiki_pages/search_wiki/get_wiki_page/get_wiki_backlinks/create_wiki_page/update_wiki_page/move_wiki_page). */
+/** 노트 도구(list_wiki_spaces/list_wiki_pages/search_wiki/get_wiki_page/list_wiki_backlinks/create_wiki_page/update_wiki_page/move_wiki_page). */
 export function buildWikiTools(client: WikiToolClient): SharedTool[] {
   return [
     {
@@ -109,7 +109,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       },
     },
     {
-      name: 'get_wiki_backlinks',
+      name: 'list_wiki_backlinks',
       kind: 'read',
       description:
         '이 노트 페이지를 링크한 다른 페이지 목록(백링크)을 JSON 배열(pageId·spaceName·title·updatedAt)로 반환합니다. 내가 볼 수 있는 페이지만 포함됩니다.',

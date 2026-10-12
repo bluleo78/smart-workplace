@@ -5,7 +5,7 @@ describe('SYSTEM_PROMPT', () => {
   it('필수 키워드 포함 (도구 이름 6개 + 톤·언어)', () => {
     expect(SYSTEM_PROMPT).toContain('get_issue_detail');
     expect(SYSTEM_PROMPT).toContain('add_comment');
-    expect(SYSTEM_PROMPT).toContain('edit_comment');
+    expect(SYSTEM_PROMPT).toContain('update_comment');
     expect(SYSTEM_PROMPT).toContain('create_issue');
     expect(SYSTEM_PROMPT).toContain('update_issue');
     expect(SYSTEM_PROMPT).toContain('unassign_self');

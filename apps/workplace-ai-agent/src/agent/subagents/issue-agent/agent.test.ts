@@ -12,12 +12,12 @@ describe('issue-agent 정의', () => {
     expect(loaded['issue-agent']).toBeDefined();
   });
 
-  it('tools 는 이슈 MCP 도구 + #371 list_issues + 신규 create/update_issue/edit_comment + watch/unwatch_issue + 이슈·코멘트 삭제 제안(#856) 을 포함한다', () => {
+  it('tools 는 이슈 MCP 도구 + #371 list_issues + 신규 create/update_issue/update_comment + watch/unwatch_issue + 이슈·코멘트 삭제 제안(#856) 을 포함한다', () => {
     expect(loaded['issue-agent'].tools).toEqual([
       'mcp__workplace__list_issues',
       'mcp__workplace__get_issue_detail',
       'mcp__workplace__add_comment',
-      'mcp__workplace__edit_comment',
+      'mcp__workplace__update_comment',
       'mcp__workplace__create_issue',
       'mcp__workplace__update_issue',
       'mcp__workplace__unassign_self',

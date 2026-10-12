@@ -47,7 +47,7 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 | R | 읽기 | `kind: 'read'` | 노출 |
 | W | 되돌릴 수 있는 쓰기 | `kind: 'write'` + `hints`. 덮어쓰거나 지우면 `hints.destructive: true` | 노출. 확인은 annotation 을 읽는 클라이언트에 맡긴다 |
 | I | 되돌릴 수 없음(영구 삭제)·워크스페이스 밖으로 나감(메일 발송·외부 공유 링크) | `kind: 'destructive'` | **노출하지 않는다.** AI Chat 에서만 `propose_*` 확인 카드로 한다 |
-| N | 다른 사람에게 알림이 간다 | 별도 필드 없음. R/W 등급 위에 얹는 표시다 | 알림 수준(알림을 보낼지 끌지)을 **입력**으로 받는다. 해당 도구를 만들 때 적용하며, 지금 코드에는 없다 |
+| N | 다른 사람에게 알림이 간다 | 별도 필드 없음. R/W 등급 위에 얹는 표시다 | 알림 수준을 **입력**으로 받는다. 해당 도구를 만들 때 적용하며, 지금 코드에는 없다 |
 
 - `kind`(노출 여부)와 `hints`(연산 성격)는 별개 축이다(WP-342). I 는 `kind` 로 막고, W 가 덮어쓴다는 사실은 `hints` 로 알린다.
 - **elicitation 에 기대지 않는다.** Claude.ai 지원이 확인되지 않았고 2026-07-28 스펙에서 MRTR 로 바뀐다. 확인은 클라이언트의 annotation 처리와 `propose_*` 확인 카드가 맡는다.
@@ -85,14 +85,14 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 ### 강제 방식
 
 - 공유 도구는 `tool-naming.test.ts`, ai-agent 전용 도구는 ai-agent `tools.test.ts` 가 모든 이름에 `toolNameViolations` 를 돌린다.
-- 아직 따르지 않는 기존 이름은 두 테스트 파일의 예외 배열(`SHARED_NAMING_EXCEPTIONS`, `LOCAL_NAMING_EXCEPTIONS`)에 적혀 있고, 항목마다 바꿀 이슈가 주석으로 달려 있다. WP-360 이 이름을 바꾸며 배열을 비운다. 예외 이름이 더는 존재하지 않으면 테스트가 실패해 낡은 항목을 지우게 한다.
+- 아직 따르지 않는 기존 이름은 두 테스트 파일의 예외 배열(`SHARED_NAMING_EXCEPTIONS`, `LOCAL_NAMING_EXCEPTIONS`)에 적혀 있고, 항목마다 바꿀 이슈가 주석으로 달려 있다. WP-360 이 `get_channel_messages` 를 뺀 나머지를 바꿨고, 이 이름은 WP-352 가 `list_channel_messages` 로 바꾸며 배열을 비운다(`LOCAL_NAMING_EXCEPTIONS` 는 이미 비어 있다). 예외 이름이 더는 존재하지 않으면 테스트가 실패해 낡은 항목을 지우게 한다.
 - `get_` 이 여러 건을 돌려주는지는 기계로 가릴 수 없어, 알려진 도구를 예외 배열에 직접 적는다. 새 도구는 만들 때 `list_` 를 고른다.
 
 ## 파라미터 명명 규칙
 
 1. **도메인 접두 id**: 숫자 식별자는 무엇의 id 인지 이름에 드러낸다.
    - 예: `eventId`, `pageId`, `spaceId`, `channelId`, `accountId`, `messageId`, `folderId`, `driveFileId`, `externalId`, `commentId`, `notificationId`
-   - `messageId` 는 메일(`get_mail`)과 채팅 메시지(`get_thread_replies`)에서 같이 쓴다. 도구 이름이 도메인을 정하므로 설명에 어느 결과의 id 인지 적는다.
+   - `messageId` 는 메일(`get_mail`)과 채팅 메시지(`list_thread_replies`)에서 같이 쓴다. 도구 이름이 도메인을 정하므로 설명에 어느 결과의 id 인지 적는다.
    - 맨 이름 `id` 는 입력 파라미터로 쓰지 않는다. 실행기나 서버가 `id` 를 읽는다면 핸들러가 옮겨 담는다. 예: `propose_update_event` 는 `{ id: eventId }` 로 옮긴다.
 2. **같은 것은 같은 이름**: 조회 도구와 쓰기 도구, 표시 위젯이 같은 대상을 같은 이름으로 가리킨다.
    - 프로젝트는 어디서나 `projectKey`, 이슈는 `issueKey`(`WP-12`) 다.

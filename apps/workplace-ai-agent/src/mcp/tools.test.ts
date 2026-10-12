@@ -192,13 +192,13 @@ describe('프로필 구성', () => {
       'add_comment',
       'add_issue_dependency',
       'create_issue',
-      'edit_comment',
       'get_issue_detail',
       'get_wiki_page',
       'list_wiki_spaces',
       'remove_issue_dependency',
       'search_wiki',
       'unassign_self',
+      'update_comment',
       'update_issue',
     ]);
   });
@@ -207,9 +207,9 @@ describe('프로필 구성', () => {
     const names = buildTools(client(), AGENT_ID, 'chat').map((t) => t.name).sort();
     expect(names).toEqual([
       'add_chat_message',
-      'get_chat_thread',
       'get_issue_detail',
       'get_wiki_page',
+      'list_chat_messages',
       'list_wiki_spaces',
       'read_attachment_text',
       'search_wiki',
@@ -223,7 +223,7 @@ describe('프로필 구성', () => {
 
   it('messaging 프로필: 위임 컨텍스트가 없으면 채널 도구 5종만', () => {
     const names = buildTools(client(), AGENT_ID, 'messaging').map((t) => t.name).sort();
-    expect(names).toEqual(['add_channel_message', 'discover_channels', 'get_channel_messages', 'get_thread_replies', 'list_channels']);
+    expect(names).toEqual(['add_channel_message', 'discover_channels', 'get_channel_messages', 'list_channels', 'list_thread_replies']);
   });
 
   it('messaging 프로필 + delegationContext: propose_create_issue/propose_create_event + 참석자 조회용 search_members 추가', () => {
@@ -236,20 +236,20 @@ describe('프로필 구성', () => {
     const names = buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name);
     for (const n of [
       // 이슈
-      'get_issue_detail', 'list_issues', 'add_comment', 'edit_comment', 'create_issue', 'update_issue',
+      'get_issue_detail', 'list_issues', 'add_comment', 'update_comment', 'create_issue', 'update_issue',
       'unassign_self', 'add_issue_dependency', 'remove_issue_dependency',
       // 노트
       'list_wiki_spaces', 'search_wiki', 'get_wiki_page', 'create_wiki_page', 'update_wiki_page',
-      'list_wiki_pages', 'get_wiki_backlinks',
+      'list_wiki_pages', 'list_wiki_backlinks',
       // 캘린더
       'list_events', 'get_event', 'propose_create_event', 'propose_update_event', 'propose_delete_event',
       // 메시징
-      'get_channel_messages', 'get_thread_replies', 'add_channel_message', 'list_channels', 'discover_channels',
+      'get_channel_messages', 'list_thread_replies', 'add_channel_message', 'list_channels', 'discover_channels',
       // 메일
       'list_mail', 'get_mail', 'propose_send_mail', 'list_mail_accounts', 'sync_mail',
       // 연락처·구성원(#833)
       'list_contacts', 'get_external_contact', 'create_external_contact', 'update_external_contact', 'propose_delete_contact',
-      'search_members', 'get_member', 'get_member_contact', 'propose_set_member_role', 'propose_set_member_active',
+      'search_members', 'get_member', 'get_member_contact', 'propose_update_member_role', 'propose_update_member_active',
       // 연락처 부가 기능(#839)
       'get_contact_facets', 'add_contact_favorite', 'remove_contact_favorite', 'list_user_groups', 'get_user_group',
       'create_user_group', 'update_user_group', 'add_user_group_member', 'remove_user_group_member', 'propose_delete_user_group',
@@ -425,14 +425,10 @@ describe('도구 표시 라벨 (#879)', () => {
 describe('ai-agent 전용 도구 명명 규칙 (WP-347)', () => {
   /**
    * 명명 규칙(packages/mcp-tools-shared README "도구 명명 규칙")을 아직 따르지 않는 기존 ai-agent 전용 도구 이름.
-   * WP-360 이 새 이름으로 바꾸면서 이 배열을 **비운다**. 공유 도구 쪽 예외는 mcp-tools-shared tool-naming.test.ts.
+   * WP-360 이 새 이름으로 바꿔 지금은 **비어 있다**(같은 장치를 남겨 두어 새 위반을 예외로 가릴 수 있다). 공유 도구 쪽 예외는 mcp-tools-shared tool-naming.test.ts.
    * propose_ 는 유효한 전용 접두이고, 그 뒤의 원 도구명에도 금지 접두(edit_·save_·set_)가 적용된다.
    */
-  const LOCAL_NAMING_EXCEPTIONS = [
-    'propose_set_member_role', // propose_set_* 금지 → propose_update_member_role (WP-360, 승인 시 실행 actionType user.set_roles 는 서버 계약이라 유지)
-    'propose_set_member_active', // propose_set_* 금지 → propose_update_member_active (WP-360, actionType user.set_active 유지)
-    'get_chat_thread', // get_ 인데 최근 메시지 여러 건 → list_chat_messages (WP-360)
-  ];
+  const LOCAL_NAMING_EXCEPTIONS: string[] = [];
 
   // 모든 프로필 × 선택 인자 전부를 채워 조건부 도구까지 포함한 전체 도구에서 공유 도구를 뺀 ai-agent 전용 이름.
   const c = client();
@@ -570,11 +566,11 @@ describe('chat 도구', () => {
   describe('실행 스레드 바인딩(chatThreadId)', () => {
     const bound = (c: WorkplaceApiClient) => buildTools(c, AGENT_ID, 'chat', undefined, undefined, undefined, 5);
 
-    it('다른 threadId 의 read_attachment_text·get_chat_thread·add_chat_message 는 한국어 오류, API 미호출', async () => {
+    it('다른 threadId 의 read_attachment_text·list_chat_messages·add_chat_message 는 한국어 오류, API 미호출', async () => {
       const c = client();
       const tools = bound(c);
       await expect(find(tools, 'read_attachment_text').handler({ threadId: 6, fileId: 3 })).rejects.toThrow(/스레드만 사용할 수 있습니다/);
-      await expect(find(tools, 'get_chat_thread').handler({ threadId: 6 })).rejects.toThrow(/스레드만 사용할 수 있습니다/);
+      await expect(find(tools, 'list_chat_messages').handler({ threadId: 6 })).rejects.toThrow(/스레드만 사용할 수 있습니다/);
       await expect(find(tools, 'add_chat_message').handler({ threadId: 6, body: 'x' })).rejects.toThrow(/스레드만 사용할 수 있습니다/);
       expect(c.readChatAttachmentText).not.toHaveBeenCalled();
       expect(c.getChatMessages).not.toHaveBeenCalled();
@@ -593,18 +589,18 @@ describe('chat 도구', () => {
       const c = client();
       vi.mocked(c.readChatAttachmentText).mockResolvedValue({ fileId: 3, status: 'PENDING' } as never);
       await find(bound(c), 'read_attachment_text').handler({ threadId: 5, fileId: 3 });
-      await find(bound(c), 'get_chat_thread').handler({ threadId: 5 });
+      await find(bound(c), 'list_chat_messages').handler({ threadId: 5 });
       expect(c.readChatAttachmentText).toHaveBeenCalledWith(AGENT_ID, 5, 3, undefined, 12000);
       expect(c.getChatMessages).toHaveBeenCalledWith(AGENT_ID, 5, 50);
     });
   });
 
-  it('get_chat_thread → client.getChatMessages(agentId, threadId, 50)', async () => {
+  it('list_chat_messages → client.getChatMessages(agentId, threadId, 50)', async () => {
     const c = client();
     vi.mocked(c.getChatMessages).mockResolvedValue([
       { id: 1, authorName: 'A', authorKind: 'HUMAN', body: 'hi', createdAt: 't', deleted: false },
     ]);
-    const out = await find(buildTools(c, AGENT_ID, 'chat'), 'get_chat_thread').handler({ threadId: 5 });
+    const out = await find(buildTools(c, AGENT_ID, 'chat'), 'list_chat_messages').handler({ threadId: 5 });
     expect(c.getChatMessages).toHaveBeenCalledWith(AGENT_ID, 5, 50);
     expect(out).toContain('hi');
   });
@@ -1087,11 +1083,11 @@ describe('#833 구성원 해석이 쓰이는 제안', () => {
     });
   });
 
-  it('propose_set_member_role 은 역할명을 그대로 실행기에 넘긴다(roleId 해석은 서버 몫)', async () => {
+  it('propose_update_member_role 은 역할명을 그대로 실행기에 넘긴다(roleId 해석은 서버 몫)', async () => {
     const c = client();
     c.sc.searchMembers.mockResolvedValue([member({})]);
     const sink: Parameters<HostBridge['onProposal']>[0][] = [];
-    await find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, collectingBridge(sink)), 'propose_set_member_role')
+    await find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, collectingBridge(sink)), 'propose_update_member_role')
       .handler({ username: 'minsu', roles: ['ADMIN'], summary: '관리자로 승격' });
     expect(sink[0]).toMatchObject({ actionType: 'user.set_roles', params: { userId: 5, roles: ['ADMIN'] } });
   });
@@ -1100,25 +1096,25 @@ describe('#833 구성원 해석이 쓰이는 제안', () => {
     const c = client();
     c.sc.searchMembers.mockResolvedValue([member({ userId: 9, username: 'assistant', name: '개인 비서', kind: 'AGENT' })]);
     const sink: Parameters<HostBridge['onProposal']>[0][] = [];
-    const out = await find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, collectingBridge(sink)), 'propose_set_member_role')
+    const out = await find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, collectingBridge(sink)), 'propose_update_member_role')
       .handler({ username: 'assistant', roles: ['USER'], summary: 's' });
     expect(out).toContain('AI 에이전트');
     expect(sink).toHaveLength(0);
   });
 
-  it('propose_set_member_active 는 해석된 userId 와 active 로 제안을 만든다', async () => {
+  it('propose_update_member_active 는 해석된 userId 와 active 로 제안을 만든다', async () => {
     const c = client();
     c.sc.searchMembers.mockResolvedValue([member({})]);
     const sink: Parameters<HostBridge['onProposal']>[0][] = [];
-    await find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, collectingBridge(sink)), 'propose_set_member_active')
+    await find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, collectingBridge(sink)), 'propose_update_member_active')
       .handler({ username: 'minsu', active: false, summary: '퇴사 처리' });
     expect(sink[0]).toMatchObject({ actionType: 'user.set_active', params: { userId: 5, active: false } });
   });
 
-  it('propose_set_member_active — 없는 username 이면 제안을 만들지 않는다', async () => {
+  it('propose_update_member_active — 없는 username 이면 제안을 만들지 않는다', async () => {
     const c = client();
     const sink: Parameters<HostBridge['onProposal']>[0][] = [];
-    const out = await find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, collectingBridge(sink)), 'propose_set_member_active')
+    const out = await find(buildTools(c, AGENT_ID, 'assistant', undefined, undefined, collectingBridge(sink)), 'propose_update_member_active')
       .handler({ username: 'ghost', active: false, summary: 's' });
     expect(out).toContain('찾을 수 없습니다');
     expect(sink).toHaveLength(0);

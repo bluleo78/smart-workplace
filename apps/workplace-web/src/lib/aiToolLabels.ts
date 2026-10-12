@@ -18,6 +18,11 @@ export const LEGACY_TOOL_LABELS: Record<string, ToolLabel> = {
   rename_folder: { label: '폴더 이름변경', icon: '✏️' },
   move_folder: { label: '폴더 이동', icon: '📦' },
   move_file: { label: '파일 이동', icon: '📦' },
+  // WP-360: 명명 규칙에 맞춰 바뀐 이름(옛 라벨 값 그대로).
+  edit_comment: { label: '코멘트 수정', icon: '✏️' },
+  get_thread_replies: { label: '스레드 답글 조회', icon: '🧵' },
+  get_wiki_backlinks: { label: '노트 백링크 조회', icon: '🔗' },
+  get_chat_thread: { label: '대화 조회', icon: '💬' },
 };
 
 export function getToolDisplay(toolName: string): ToolLabel {

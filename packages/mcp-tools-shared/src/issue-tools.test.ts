@@ -38,7 +38,7 @@ describe('buildSharedIssueTools', () => {
         'add_comment',
         'add_issue_dependency',
         'create_issue',
-        'edit_comment',
+        'update_comment',
         'get_issue_detail',
         'remove_issue_dependency',
         'unwatch_issue',

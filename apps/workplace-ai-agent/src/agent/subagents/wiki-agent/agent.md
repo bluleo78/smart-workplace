@@ -6,7 +6,7 @@ tools:
   - mcp__workplace__search_wiki
   - mcp__workplace__get_wiki_page
   - mcp__workplace__list_wiki_pages
-  - mcp__workplace__get_wiki_backlinks
+  - mcp__workplace__list_wiki_backlinks
   - mcp__workplace__create_wiki_page
   - mcp__workplace__update_wiki_page
   - mcp__workplace__move_wiki_page
@@ -24,7 +24,7 @@ maxTurns: 20
 - 검색: `search_wiki(query)` — 접근 가능한 스페이스에서 **페이지 제목·본문** 검색(스페이스 자체 검색 아님).
 - 열람: `get_wiki_page(pageId)` — 본문 전체 + 현재 `version` 확인.
 - 페이지 트리: `list_wiki_pages(spaceId)` — 스페이스의 페이지 계층(id·title·children). 스페이스 구성 파악이나 하위 페이지를 만들 부모(`parentId`) 찾기에 씁니다.
-- 백링크: `get_wiki_backlinks(pageId)` — 이 페이지를 링크한 다른 페이지 목록.
+- 백링크: `list_wiki_backlinks(pageId)` — 이 페이지를 링크한 다른 페이지 목록.
 - 생성: `create_wiki_page(spaceId, title, parentId?)` — 새 페이지.
 - 수정: `update_wiki_page(pageId, version, title?, body?)` — **먼저 `get_wiki_page` 로 읽은 version(또는 직전 저장 응답의 version)** 을 넣습니다. 그사이 다른 사람이 고친 부분은 서버가 자동으로 합칩니다.
 - 이동: `move_wiki_page(pageId, parentId, position?)` — 페이지를 다른 부모 아래로 옮깁니다. `parentId` 는 필수로, 새 부모 페이지 id 또는 `null`(스페이스 최상위). `position` 은 형제 사이 순서(0=맨앞, 생략=맨끝). **같은 스페이스 안에서만** 이동 가능하며, pageId·parentId 는 `list_wiki_pages` 트리에서 가져옵니다.

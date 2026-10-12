@@ -130,7 +130,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       },
     },
     {
-      name: 'edit_comment',
+      name: 'update_comment',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:

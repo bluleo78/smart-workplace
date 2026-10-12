@@ -24,7 +24,7 @@ describe('buildWikiTools', () => {
     expect(buildWikiTools(mockClient()).map((t) => t.name).sort()).toEqual(
       [
         'create_wiki_page',
-        'get_wiki_backlinks',
+        'list_wiki_backlinks',
         'get_wiki_page',
         'list_wiki_pages',
         'list_wiki_spaces',
@@ -143,10 +143,10 @@ describe('buildWikiTools', () => {
     expect(toWikiPageTree([{ id: 7, parentId: 99, title: '고아', position: 0 }])).toEqual([{ id: 7, title: '고아' }]);
   });
 
-  it('get_wiki_backlinks → client.getWikiBacklinks(pageId)', async () => {
+  it('list_wiki_backlinks → client.getWikiBacklinks(pageId)', async () => {
     const c = mockClient();
     vi.mocked(c.getWikiBacklinks).mockResolvedValue([{ pageId: 5, spaceName: '팀', title: '참조', updatedAt: 't' }]);
-    const out = await tool(c, 'get_wiki_backlinks').handler({ pageId: 3 });
+    const out = await tool(c, 'list_wiki_backlinks').handler({ pageId: 3 });
     expect(c.getWikiBacklinks).toHaveBeenCalledWith(3);
     expect(JSON.parse(resultText(out))).toEqual([{ pageId: 5, spaceName: '팀', title: '참조', updatedAt: 't' }]);
   });

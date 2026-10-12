@@ -368,7 +368,7 @@ export function buildTools(
       sharedTool('search_wiki'),
       sharedTool('get_wiki_page'),
       {
-        name: 'get_chat_thread',
+        name: 'list_chat_messages',
         description: '현재 chat thread 의 최근 메시지 목록을 JSON 으로 반환합니다(과거 흐름 확인용).',
         inputSchema: getChatThreadInput,
         async handler(args) {
@@ -418,7 +418,7 @@ export function buildTools(
   if (profile === 'messaging') {
     const tools: McpTool[] = [
       sharedTool('get_channel_messages'),
-      sharedTool('get_thread_replies'), // #850: 스레드 답글 조회(스레드 요약)
+      sharedTool('list_thread_replies'), // #850: 스레드 답글 조회(스레드 요약)
       sharedTool('add_channel_message'),
       sharedTool('list_channels'),
       sharedTool('discover_channels'), // #350: 공개 채널 탐색(이름 → channelId)
@@ -552,7 +552,7 @@ export function buildTools(
     ];
   };
 
-  // 이슈 쓰기 도구(add_comment/edit_comment/create_issue/update_issue/add_issue_dependency/remove_issue_dependency)는 공유본(sharedTool)이다.
+  // 이슈 쓰기 도구(add_comment/update_comment/create_issue/update_issue/add_issue_dependency/remove_issue_dependency)는 공유본(sharedTool)이다.
   // 상태 변경은 update_issue 의 status 로 한다(update_status 도구는 WP-343 에서 폐지).
   // #378: unassign_self 실패 시 고정 안내 문구를 반환해 LLM 재해석을 차단한다.
   // 동시에 WORKPLACE_UNASSIGN_ERROR_PATH 사이드카에 오류를 기록해,
@@ -794,7 +794,7 @@ export function buildTools(
   // #833: 구성원 쓰기 제안 2종 — 실행은 확인 카드 승인 후 서버(사람 권한)가 수행한다.
   // 계정 생성(POST /users)은 초기 비밀번호를 에이전트가 정하게 되는 문제가 있어 제외했다.
   const proposeSetMemberRoleTool: McpTool = {
-    name: 'propose_set_member_role',
+    name: 'propose_update_member_role',
     description:
       '사내 구성원의 역할 변경을 제안합니다. 직접 변경하지 않고 확인 카드용 제안만 만듭니다. roles 는 ADMIN(관리자) 또는 USER(일반). ' +
       'summary 에 누구를 어떤 역할로 바꾸는지 한 줄로 넣으세요. username 은 search_members 로 확보하세요. 승인 시 서버가 변경합니다.',
@@ -812,7 +812,7 @@ export function buildTools(
     },
   };
   const proposeSetMemberActiveTool: McpTool = {
-    name: 'propose_set_member_active',
+    name: 'propose_update_member_active',
     description:
       '사내 구성원 계정의 활성/비활성 전환을 제안합니다(비활성화는 사실상 퇴사 처리). 직접 변경하지 않고 확인 카드용 제안만 만듭니다. ' +
       'active=false 면 비활성화, true 면 재활성화. summary 에 대상과 이유를 한 줄로 넣으세요. username 은 search_members 로 확보하세요.',
@@ -1104,11 +1104,11 @@ export function buildTools(
       sharedTool('list_wiki_spaces'),
       sharedTool('search_wiki'),
       sharedTool('get_wiki_page'),
-      sharedTool('list_wiki_pages'), sharedTool('get_wiki_backlinks'), // #850: 페이지 트리·백링크
+      sharedTool('list_wiki_pages'), sharedTool('list_wiki_backlinks'), // #850: 페이지 트리·백링크
       sharedTool('create_wiki_page'),        // #333 M3: 위키 쓰기(내부)
       sharedTool('update_wiki_page'),        // #333 M3: 위키 쓰기(내부)
       sharedTool('add_comment'),
-      sharedTool('edit_comment'),
+      sharedTool('update_comment'),
       sharedTool('create_issue'),
       sharedTool('update_issue'),
       unassignSelfTool,
@@ -1119,7 +1119,7 @@ export function buildTools(
       proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
       proposeUpdateEventTool, proposeDeleteEventTool, // #333 M4: 일정 수정/삭제 제안
       sharedTool('get_channel_messages'), // #333 M3: 메시징 읽기
-      sharedTool('get_thread_replies'),   // #850: 스레드 답글 조회
+      sharedTool('list_thread_replies'),   // #850: 스레드 답글 조회
       sharedTool('add_channel_message'),  // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
       sharedTool('list_channels'), sharedTool('discover_channels'), // #350: 채널 목록/탐색(이름→channelId 해석)
       sharedTool('list_mail'), sharedTool('get_mail'), proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안
@@ -1180,7 +1180,7 @@ export function buildTools(
     sharedTool('search_wiki'),
     sharedTool('get_wiki_page'),
     sharedTool('add_comment'),
-    sharedTool('edit_comment'),
+    sharedTool('update_comment'),
     sharedTool('create_issue'),
     sharedTool('update_issue'),
     unassignSelfTool,

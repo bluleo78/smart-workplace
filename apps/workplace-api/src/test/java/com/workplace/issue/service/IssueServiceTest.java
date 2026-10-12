@@ -253,7 +253,7 @@ class IssueServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void update_statusToDone_setsClosedAt() {
+  void update_toDoneStatus_setsClosedAt() {
     IssueResponse created =
         issueService.create(
             ownerId,
@@ -283,7 +283,7 @@ class IssueServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void update_statusFromDoneToTodo_clearsClosedAt() {
+  void update_doneToTodoStatus_clearsClosedAt() {
     IssueResponse created =
         issueService.create(
             ownerId,

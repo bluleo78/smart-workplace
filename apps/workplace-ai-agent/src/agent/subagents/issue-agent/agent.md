@@ -5,7 +5,7 @@ tools:
   - mcp__workplace__list_issues
   - mcp__workplace__get_issue_detail
   - mcp__workplace__add_comment
-  - mcp__workplace__edit_comment
+  - mcp__workplace__update_comment
   - mcp__workplace__create_issue
   - mcp__workplace__update_issue
   - mcp__workplace__unassign_self
@@ -31,7 +31,7 @@ maxTurns: 20
 - 이슈 상세 조회: `get_issue_detail(issueKey)` — 본문·상태·담당자·작성자·날짜(마감·시작·생성·수정·종료)·라벨·마일스톤·부모·하위 진행률·사이클(`cycles`)·첨부·코멘트·최근 변경 이력(`history` — 상태가 언제 바뀌었는지 등) 전체 컨텍스트 확인.
 - 상태 변경: `update_issue(issueKey, status=...)` — 허용값 TODO / IN_PROGRESS / DONE / CANCELED. 상태만 바꿀 때는 `status` 만 넘깁니다. 결과의 `ok` 가 false 이거나 `results.content` 가 `failed` 로 시작하면 상태가 **바뀌지 않은 것**입니다 — 바뀌었다고 보고하지 말고 실패 사유를 그대로 알립니다(아래 "update_issue 부분 실패 처리" 참조).
 - 코멘트 작성: `add_comment(issueKey, body)` — 마크다운 지원.
-- 코멘트 수정: `edit_comment(issueKey, commentId, body)` — commentId 는 `get_issue_detail` 의 comments 에서 확인.
+- 코멘트 수정: `update_comment(issueKey, commentId, body)` — commentId 는 `get_issue_detail` 의 comments 에서 확인.
 - 이슈 생성: `create_issue(projectKey, title, ...)` — 지정 프로젝트에 새 이슈 등록. type/assignees 이름이 안 맞으면 도구가 유효한 값 목록을 담은 오류를 반환합니다.
 - 이슈 부분 수정: `update_issue(issueKey, ...)` — 상태·우선순위·타입·부모·담당자·라벨·마일스톤·사이클 등 전달한 필드만 변경.
   - 마일스톤: `milestone` 에 마일스톤 **이름**, `null` 이면 해제.

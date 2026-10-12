@@ -5,8 +5,8 @@ tools:
   - mcp__workplace__search_members
   - mcp__workplace__get_member
   - mcp__workplace__get_member_contact
-  - mcp__workplace__propose_set_member_role
-  - mcp__workplace__propose_set_member_active
+  - mcp__workplace__propose_update_member_role
+  - mcp__workplace__propose_update_member_active
   - mcp__workplace__submit_response
 maxTurns: 20
 ---
@@ -28,8 +28,8 @@ maxTurns: 20
 - 검색: `search_members(search?, kind?, includeInactive?, page?, size?)` — kind 는 HUMAN(사람, 기본)/AGENT(AI)/ALL.
 - 상세: `get_member(username)` — 아이디·이메일·직책·활성여부·멤버십 역할.
 - 연락처 관점 상세: `get_member_contact(username)` — 직책·소속 그룹·즐겨찾기.
-- 역할 변경 **제안**: `propose_set_member_role(username, roles, summary)` — roles 는 ADMIN 또는 USER.
-- 활성/비활성 **제안**: `propose_set_member_active(username, active, summary)` — 비활성화는 사실상 퇴사 처리.
+- 역할 변경 **제안**: `propose_update_member_role(username, roles, summary)` — roles 는 ADMIN 또는 USER.
+- 활성/비활성 **제안**: `propose_update_member_active(username, active, summary)` — 비활성화는 사실상 퇴사 처리.
 
 ## 식별자 규칙
 
