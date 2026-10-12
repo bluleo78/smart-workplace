@@ -16,6 +16,7 @@ function mockClient(): Client {
     createChannel: vi.fn().mockResolvedValue({ id: 12, name: 'new', visibility: 'PUBLIC' }),
     openDm: vi.fn().mockResolvedValue({ id: 20, participants: [] }),
     leaveChannel: vi.fn().mockResolvedValue(undefined),
+    discoverChannels: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -43,6 +44,15 @@ describe('buildMessagingTools', () => {
     unreadReplyCount: 0,
     followed: false,
     proposal: null,
+  });
+
+  it('discover_channels → client.discoverChannels(q) 결과를 JSON 으로 반환하고 빈 q 는 거절한다 (#350)', async () => {
+    const c = mockClient();
+    vi.mocked(c.discoverChannels).mockResolvedValue([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
+    const out = await tool(c, 'discover_channels').handler({ q: '공지' });
+    expect(c.discoverChannels).toHaveBeenCalledWith('공지');
+    expect(JSON.parse(out)).toEqual([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
+    await expect(tool(c, 'discover_channels').handler({ q: '' })).rejects.toThrow();
   });
 
   it('get_thread_replies → nextCursor 를 따라 끝까지 모으고 행의 반복·빈 필드를 지운다 (#850)', async () => {

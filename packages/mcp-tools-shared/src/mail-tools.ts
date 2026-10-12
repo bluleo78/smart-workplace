@@ -24,10 +24,11 @@ export const createIssueFromMailInput = z.object({
 });
 // WP-146: 처리완료 도구를 대신하는 명시적 읽음 처리 입력
 export const markMailReadInput = z.object({ messageId: z.number().int().positive() });
+export const syncMailInput = z.object({ accountId: z.number().int().positive() });
 
 /**
  * 메일 도구(list_mail_accounts/list_mail/get_mail/get_mail_summary/draft_mail_reply/draft_issue_from_mail/
- * create_issue_from_mail/mark_mail_read). 모두 내 메일만 다룬다(남의 메일이면 서버가 404).
+ * create_issue_from_mail/mark_mail_read/sync_mail). 모두 내 메일만 다룬다(남의 메일이면 서버가 404).
  */
 export function buildMailTools(client: MailToolClient & AssigneeResolverClient): SharedTool[] {
   return [
@@ -135,6 +136,22 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
         const { messageId } = markMailReadInput.parse(args);
         await client.markMailRead(messageId);
         return 'ok';
+      },
+    },
+    {
+      name: 'sync_mail',
+      kind: 'write',
+      // 원본 메일 서버(IMAP/Graph)에 접속하므로 openWorld. 새 메일을 적재하는 데 그치지 않고 기존 로컬 메일의 읽음 상태를 서버 값으로
+      // 덮어쓰며(WP-148, mark_mail_read 와 같은 이유로 destructive) Graph 는 서버에서 지워진 항목을 로컬에서도 지운다.
+      // 호출마다 last_synced_at 이 갱신되고 그 사이 도착한 메일 때문에 같은 인자도 결과가 달라지므로 멱등이 아니다(true 는 자동 재시도를 부른다).
+      hints: { destructive: true, idempotent: false, openWorld: true },
+      description:
+        '지정 메일 계정의 새 메일을 수동으로 가져옵니다(받은편지함 동기화). accountId 는 list_mail_accounts 로 확인하세요.',
+      inputSchema: syncMailInput,
+      async handler(args) {
+        const { accountId } = syncMailInput.parse(args);
+        await client.syncMail(accountId);
+        return '동기화를 완료했습니다.';
       },
     },
   ];

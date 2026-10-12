@@ -16,10 +16,13 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   add_issue_dependency: ['write', false, true, false],
   add_user_group_member: ['write', false, true, false],
   create_channel: ['write', false, false, false],
+  create_drive_folder: ['write', false, false, false],
+  create_external_contact: ['write', false, false, false],
   create_issue: ['write', false, false, false],
   create_issue_from_mail: ['write', false, true, false],
   create_user_group: ['write', false, false, false],
   create_wiki_page: ['write', false, false, false],
+  discover_channels: ['read', R, R, R],
   draft_issue_from_mail: ['read', R, R, R],
   draft_mail_reply: ['read', R, R, R],
   edit_comment: ['write', true, true, false],
@@ -56,18 +59,23 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   mark_all_notifications_read: ['write', true, true, false],
   mark_mail_read: ['write', true, true, true],
   mark_notification_read: ['write', true, true, false],
+  move_drive_file: ['write', true, true, false],
+  move_drive_folder: ['write', true, true, false],
   move_wiki_page: ['write', true, true, false],
   open_dm: ['write', false, true, false],
   remove_contact_favorite: ['write', true, true, false],
   remove_issue_dependency: ['write', true, true, false],
   remove_user_group_member: ['write', true, true, false],
+  rename_drive_folder: ['write', true, true, false],
   restore_drive_item: ['write', false, false, false],
   rsvp_event: ['write', true, false, false],
   search_drive: ['read', R, R, R],
   search_drive_content: ['read', R, R, R],
   search_members: ['read', R, R, R],
   search_wiki: ['read', R, R, R],
+  sync_mail: ['write', true, false, true],
   unwatch_issue: ['write', true, true, false],
+  update_external_contact: ['write', true, true, false],
   update_issue: ['write', true, true, false],
   update_project: ['write', true, true, false],
   update_user_group: ['write', true, true, false],
@@ -122,9 +130,9 @@ describe('toolAnnotations', () => {
     });
   });
 
-  it('원본 메일 서버에 닿는 mark_mail_read 만 openWorld=true 다', () => {
+  it('원본 메일 서버에 닿는 mark_mail_read·sync_mail 만 openWorld=true 다', () => {
     const open = tools.filter((t) => toolAnnotations(t).openWorldHint).map((t) => t.name);
-    expect(open).toEqual(['mark_mail_read']);
+    expect(open.sort()).toEqual(['mark_mail_read', 'sync_mail']);
   });
 
   it('모든 공유 도구가 title 을 가진다', () => {

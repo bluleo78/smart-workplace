@@ -26,13 +26,15 @@ function mockClient(): Client {
     updateUserGroup: vi.fn().mockResolvedValue({ id: 10, name: '영업1팀', visibility: 'SHARED' }),
     addUserGroupMember: vi.fn().mockResolvedValue({ id: 10, name: '영업팀', visibility: 'SHARED', members: [] }),
     removeUserGroupMember: vi.fn().mockResolvedValue(undefined),
+    createExternalContact: vi.fn().mockResolvedValue({ id: 3, name: '김거래' }),
+    updateExternalContact: vi.fn().mockResolvedValue({ id: 9, name: '김거래' }),
   };
 }
 
 const tool = (c: Client, name: string) => buildContactTools(c).find((x) => x.name === name)!;
 
 describe('buildContactTools (#839)', () => {
-  it('9종을 등급과 함께 노출하고 그룹 삭제(파괴적)는 두지 않는다', () => {
+  it('11종을 등급과 함께 노출하고 그룹 삭제(파괴적)는 두지 않는다', () => {
     const kinds = Object.fromEntries(buildContactTools(mockClient()).map((t) => [t.name, t.kind]));
     expect(kinds).toEqual({
       get_contact_facets: 'read',
@@ -44,6 +46,8 @@ describe('buildContactTools (#839)', () => {
       update_user_group: 'write',
       add_user_group_member: 'write',
       remove_user_group_member: 'write',
+      create_external_contact: 'write',
+      update_external_contact: 'write',
     });
   });
 
@@ -175,5 +179,38 @@ describe('buildContactTools (#839)', () => {
     const c = mockClient();
     vi.mocked(c.searchMembers).mockResolvedValue([{ userId: 4, username: 'minsu2', name: '김민수2' }]);
     await expect(resolveContactTarget(c, { username: 'minsu' })).rejects.toThrow('찾을 수 없습니다');
+  });
+});
+
+describe('외부 연락처 쓰기 (#333 M3, #839, WP-343)', () => {
+  it('create_external_contact → force 는 본문이 아니라 별도 인자로 넘기고 결과를 JSON 으로 반환', async () => {
+    const c = mockClient();
+    const input = { name: '김거래', email: 'k@x.com', visibility: 'SHARED' as const };
+    const out = await tool(c, 'create_external_contact').handler(input);
+    expect(c.createExternalContact).toHaveBeenLastCalledWith(input, undefined);
+    expect(JSON.parse(out)).toEqual({ id: 3, name: '김거래' });
+    await tool(c, 'create_external_contact').handler({ ...input, force: true });
+    expect(c.createExternalContact).toHaveBeenLastCalledWith(input, true);
+  });
+
+  it('create_external_contact → visibility 누락은 스키마가 거부한다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'create_external_contact').handler({ name: 'x' })).rejects.toThrow();
+    expect(c.createExternalContact).not.toHaveBeenCalled();
+  });
+
+  it('update_external_contact → externalId 를 경로 id 로 분리하고 준 필드(부분 수정)·force 만 넘긴다', async () => {
+    const c = mockClient();
+    await tool(c, 'update_external_contact').handler({ externalId: 9, name: '김거래', visibility: 'PERSONAL' });
+    expect(c.updateExternalContact).toHaveBeenLastCalledWith(9, { name: '김거래', visibility: 'PERSONAL' }, undefined);
+    await tool(c, 'update_external_contact').handler({ externalId: 9, phone: '010-1', force: true });
+    expect(c.updateExternalContact).toHaveBeenLastCalledWith(9, { phone: '010-1' }, true);
+  });
+
+  it('update_external_contact → 바꿀 필드가 없으면 호출하지 않고 거절한다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'update_external_contact').handler({ externalId: 9 })).rejects.toThrow('하나 이상');
+    await expect(tool(c, 'update_external_contact').handler({ externalId: 9, force: true })).rejects.toThrow('하나 이상');
+    expect(c.updateExternalContact).not.toHaveBeenCalled();
   });
 });

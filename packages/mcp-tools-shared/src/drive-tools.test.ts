@@ -13,6 +13,10 @@ function mockClient(): DriveToolClient {
     listDriveTrash: vi.fn().mockResolvedValue([]),
     restoreDriveFile: vi.fn().mockResolvedValue(undefined),
     restoreDriveFolder: vi.fn().mockResolvedValue(undefined),
+    createDriveFolder: vi.fn().mockResolvedValue({ id: 10, name: '신규폴더' }),
+    renameDriveFolder: vi.fn().mockResolvedValue({ id: 4, name: '새이름' }),
+    moveDriveFolder: vi.fn().mockResolvedValue(undefined),
+    moveDriveFile: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -152,5 +156,46 @@ describe('휴지통 (#854)', () => {
     await expect(tool(c, 'restore_drive_item').handler({})).rejects.toThrow();
     expect(c.restoreDriveFile).not.toHaveBeenCalled();
     expect(c.restoreDriveFolder).not.toHaveBeenCalled();
+  });
+});
+
+describe('폴더·파일 정리 (#333 M4, #840, WP-343)', () => {
+  it('create_drive_folder → parentId 생략 시 null(루트)로 넘기고 생성된 폴더를 JSON 으로 반환', async () => {
+    const c = mockClient();
+    const out = await tool(c, 'create_drive_folder').handler({ spaceId: 1, name: '신규폴더' });
+    expect(c.createDriveFolder).toHaveBeenCalledWith(1, null, '신규폴더');
+    expect(JSON.parse(out)).toEqual({ id: 10, name: '신규폴더' });
+  });
+
+  it('create_drive_folder → parentId 지정 시 그대로, 빈 이름·비양수 id 는 거절', async () => {
+    const c = mockClient();
+    await tool(c, 'create_drive_folder').handler({ spaceId: 1, parentId: 5, name: '하위' });
+    expect(c.createDriveFolder).toHaveBeenCalledWith(1, 5, '하위');
+    await expect(tool(c, 'create_drive_folder').handler({ spaceId: 1, name: '' })).rejects.toThrow();
+    await expect(tool(c, 'create_drive_folder').handler({ spaceId: 0, name: 'x' })).rejects.toThrow();
+  });
+
+  it('rename_drive_folder → client.renameDriveFolder(folderId, name) 결과를 JSON 으로 반환', async () => {
+    const c = mockClient();
+    const out = await tool(c, 'rename_drive_folder').handler({ folderId: 4, name: '새이름' });
+    expect(c.renameDriveFolder).toHaveBeenCalledWith(4, '새이름');
+    expect(JSON.parse(out)).toEqual({ id: 4, name: '새이름' });
+  });
+
+  it('move_drive_folder → targetParentId 생략 시 루트(null)로 이동하고 ok', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'move_drive_folder').handler({ folderId: 4 })).toBe('ok');
+    expect(c.moveDriveFolder).toHaveBeenCalledWith(4, null);
+    await tool(c, 'move_drive_folder').handler({ folderId: 4, targetParentId: 9 });
+    expect(c.moveDriveFolder).toHaveBeenLastCalledWith(4, 9);
+  });
+
+  it('move_drive_file → driveFileId 를 넘기고, 옛 fileId 파라미터는 거부한다(#840)', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'move_drive_file').handler({ driveFileId: 5, targetFolderId: 3 })).toBe('ok');
+    expect(c.moveDriveFile).toHaveBeenCalledWith(5, 3);
+    await tool(c, 'move_drive_file').handler({ driveFileId: 5 });
+    expect(c.moveDriveFile).toHaveBeenLastCalledWith(5, null);
+    await expect(tool(c, 'move_drive_file').handler({ fileId: 812, targetFolderId: 3 })).rejects.toThrow();
   });
 });

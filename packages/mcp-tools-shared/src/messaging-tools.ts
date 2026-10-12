@@ -51,6 +51,7 @@ export const getChannelMessagesInput = z.object({
   limit: z.number().int().min(1).max(200).default(50),
 });
 export const getThreadRepliesInput = z.object({ messageId: z.number().int().positive() });
+export const discoverChannelsInput = z.object({ q: z.string().min(1) });
 
 /** 서버 스레드 페이지 상한(MessageRepository.MAX_LIMIT). */
 const THREAD_PAGE_SIZE = 100;
@@ -126,6 +127,17 @@ export function buildMessagingTools(
       inputSchema: z.object({}),
       async handler() {
         return JSON.stringify(await client.listChannels());
+      },
+    },
+    {
+      name: 'discover_channels',
+      kind: 'read',
+      description:
+        '공개 채널을 이름·키워드로 검색해 JSON 배열로 반환합니다(id·name·kind 포함). list_channels 에 없는 공개 채널을 찾아 channelId 를 확보한 뒤 메시지 조회/작성에 사용하세요.',
+      inputSchema: discoverChannelsInput,
+      async handler(args) {
+        const { q } = discoverChannelsInput.parse(args);
+        return JSON.stringify(await client.discoverChannels(q));
       },
     },
     {

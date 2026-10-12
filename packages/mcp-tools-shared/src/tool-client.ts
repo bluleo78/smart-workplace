@@ -153,6 +153,8 @@ export interface MailToolClient {
   ): Promise<{ issueKey: string }>;
   /** POST /mail/messages/{id}/read — 명시적 읽음 처리(WP-146). 사용자가 요청할 때만 쓴다. */
   markMailRead(messageId: number): Promise<void>;
+  /** POST /mail/accounts/{id}/sync — INBOX 증분 동기화(원본 메일 서버에 접속). 소유 계정만(아니면 404), 이미 진행 중이면 서버가 빈 결과. */
+  syncMail(accountId: number): Promise<unknown>;
 }
 
 export interface MemberToolClient {
@@ -236,6 +238,24 @@ export interface ContactToolClient {
   ): Promise<UserGroupDetailRow>;
   addUserGroupMember(groupId: number, target: ContactTarget): Promise<UserGroupDetailRow>;
   removeUserGroupMember(groupId: number, target: ContactTarget): Promise<void>;
+  /**
+   * POST /contacts/external — 외부 연락처 생성(owner=호출자). 이름+이메일이 겹치면 서버가 409 경고를 주고 force=true 면 강행한다(#790).
+   * force 는 쿼리 파라미터이며 미지정/false 면 붙이지 않는다.
+   */
+  createExternalContact(body: ExternalContactBody, force?: boolean): Promise<unknown>;
+  /** PATCH /contacts/external/{id} — 부분 수정(생략=유지, 빈 문자열=비우기). force 의미는 생성과 같다. */
+  updateExternalContact(externalId: number, body: Partial<ExternalContactBody>, force?: boolean): Promise<unknown>;
+}
+
+/** 외부 연락처 본문 — 서버 ExternalContactRequest 와 1:1. */
+export interface ExternalContactBody {
+  name: string;
+  email?: string;
+  phone?: string;
+  organization?: string;
+  title?: string;
+  notes?: string;
+  visibility: 'SHARED' | 'PERSONAL';
 }
 
 export interface MessagingToolClient {
@@ -256,6 +276,8 @@ export interface MessagingToolClient {
   openDm(userIds: number[]): Promise<{ id: number; participants?: { name: string; [key: string]: unknown }[] }>;
   /** POST /messaging/channels/{id}/leave — 이미 비멤버면 no-op, OWNER 는 409. */
   leaveChannel(channelId: number): Promise<void>;
+  /** GET /messaging/channels/discover — 공개·비아카이브 채널을 이름·키워드로 검색한 배열(비배열 응답은 빈 배열). */
+  discoverChannels(q: string): Promise<unknown[]>;
 }
 
 export interface DriveToolClient {
@@ -272,6 +294,14 @@ export interface DriveToolClient {
   /** POST /drive/files|folders/{id}/restore — 같은 삭제 묶음이 함께 복원된다. */
   restoreDriveFile(driveFileId: number): Promise<void>;
   restoreDriveFolder(folderId: number): Promise<void>;
+  /** POST /drive/spaces/{id}/folders — parentId null=스페이스 루트. 같은 위치에 같은 이름이 있으면 서버가 409. 생성된 폴더 반환. */
+  createDriveFolder(spaceId: number, parentId: number | null, name: string): Promise<unknown>;
+  /** PATCH /drive/folders/{id} — 이름 변경. 변경된 폴더 반환. */
+  renameDriveFolder(folderId: number, name: string): Promise<unknown>;
+  /** PATCH /drive/folders/{id}/move — targetParentId null=스페이스 루트. 같은 공간 안에서만, 자신·하위로는 거부. 204. */
+  moveDriveFolder(folderId: number, targetParentId: number | null): Promise<void>;
+  /** PATCH /drive/files/{id}/move — targetFolderId null=스페이스 루트. 같은 이름 충돌이면 409. 204. */
+  moveDriveFile(driveFileId: number, targetFolderId: number | null): Promise<void>;
 }
 
 /** 휴지통 항목 — type 에 따라 id 가 drive_file.id(FILE) 또는 폴더 id(FOLDER)다. 뷰가 이름을 나눠 붙이므로 그 필드를 고정한다. */

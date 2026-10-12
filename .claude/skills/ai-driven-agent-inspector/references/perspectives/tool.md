@@ -50,7 +50,7 @@ unassign: get_issue_detail → (propose?) → unassign_self
 
 ### drive-agent
 ```
-폴더 생성: list_drive_spaces → create_folder (propose 불필요인지 agent.md 확인)
+폴더 생성: list_drive_spaces → create_drive_folder (propose 불필요인지 agent.md 확인)
 파일 삭제: list_drive_items → propose_delete_drive_item → [pending_action]
 폴더 이동: list_drive_items → propose_move_folder → [pending_action]
 ```

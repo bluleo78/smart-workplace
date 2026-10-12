@@ -8,10 +8,10 @@ tools:
   - mcp__workplace__get_drive_file_summary
   - mcp__workplace__search_drive_content
   - mcp__workplace__list_drive_trash
-  - mcp__workplace__create_folder
-  - mcp__workplace__rename_folder
-  - mcp__workplace__move_folder
-  - mcp__workplace__move_file
+  - mcp__workplace__create_drive_folder
+  - mcp__workplace__rename_drive_folder
+  - mcp__workplace__move_drive_folder
+  - mcp__workplace__move_drive_file
   - mcp__workplace__restore_drive_item
   - mcp__workplace__propose_delete_file
   - mcp__workplace__propose_delete_folder
@@ -34,10 +34,10 @@ maxTurns: 20
 - 휴지통 조회: `list_drive_trash(spaceId)` — 삭제된 항목 목록. 파일은 `driveFileId`, 폴더는 `folderId` 로 나옵니다.
 
 ### 쓰기 (직접 실행)
-- 폴더 생성: `create_folder(spaceId, name, parentId?)` — parentId 생략 시 루트에 생성.
-- 폴더 이름 변경: `rename_folder(folderId, name)`.
-- 폴더 이동: `move_folder(folderId, targetParentId?)` — targetParentId 생략 시 루트로 이동.
-- 파일 이동: `move_file(driveFileId, targetFolderId?)` — targetFolderId 생략 시 루트로 이동.
+- 폴더 생성: `create_drive_folder(spaceId, name, parentId?)` — parentId 생략 시 루트에 생성.
+- 폴더 이름 변경: `rename_drive_folder(folderId, name)`.
+- 폴더 이동: `move_drive_folder(folderId, targetParentId?)` — targetParentId 생략 시 루트로 이동.
+- 파일 이동: `move_drive_file(driveFileId, targetFolderId?)` — targetFolderId 생략 시 루트로 이동.
 - 휴지통 복원: `restore_drive_item(driveFileId | folderId)` — 둘 중 **정확히 하나만** 넘깁니다. 값은 `list_drive_trash` 결과에서 가져옵니다.
 
 ### 삭제 (제안 → 확인)

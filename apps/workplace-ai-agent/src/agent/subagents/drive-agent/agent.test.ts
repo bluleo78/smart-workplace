@@ -18,10 +18,10 @@ describe('drive-agent 정의', () => {
       'mcp__workplace__get_drive_file_summary',
       'mcp__workplace__search_drive_content',
       'mcp__workplace__list_drive_trash', // #855: 휴지통 조회
-      'mcp__workplace__create_folder',
-      'mcp__workplace__rename_folder',
-      'mcp__workplace__move_folder',
-      'mcp__workplace__move_file',
+      'mcp__workplace__create_drive_folder',
+      'mcp__workplace__rename_drive_folder',
+      'mcp__workplace__move_drive_folder',
+      'mcp__workplace__move_drive_file',
       'mcp__workplace__restore_drive_item', // #855: 휴지통 복원
       'mcp__workplace__propose_delete_file',
       'mcp__workplace__propose_delete_folder',

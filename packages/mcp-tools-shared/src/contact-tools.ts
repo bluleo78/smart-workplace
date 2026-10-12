@@ -44,6 +44,25 @@ export const updateUserGroupInput = z.object({
   clearCode: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
 });
+// 외부 연락처 필드 — 서버 ExternalContactRequest 와 1:1(#839).
+const externalContactFields = {
+  name: z.string().min(1).max(120),
+  email: z.string().max(255).optional(),
+  phone: z.string().max(40).optional(),
+  organization: z.string().max(120).optional(),
+  title: z.string().max(100).optional(),
+  notes: z.string().optional(),
+  visibility: z.enum(['SHARED', 'PERSONAL']),
+};
+// 이름+이메일이 겹치는 연락처가 이미 있으면 서버가 409 경고를 준다 — 사용자가 그래도 저장하라고 확인했을 때만 true.
+const forceField = { force: z.boolean().optional() };
+export const createExternalContactInput = z.object({ ...externalContactFields, ...forceField });
+// 수정은 부분 수정(서버 PATCH 가 null=유지) — 모든 필드 optional. 빈 문자열은 비우기(이름 제외).
+export const updateExternalContactInput = z.object({
+  externalId: z.number().int().positive(),
+  ...z.object(externalContactFields).partial().shape,
+  ...forceField,
+});
 export const userGroupMemberInput = z.object({ groupId: z.number().int().positive(), ...targetShape });
 
 /**
@@ -221,6 +240,38 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
         const target = await resolveContactTarget(client, who);
         await client.removeUserGroupMember(groupId, target);
         return JSON.stringify({ groupId, removed: true });
+      },
+    },
+    {
+      name: 'create_external_contact',
+      kind: 'write',
+      hints: { destructive: false, idempotent: false },
+      description:
+        '외부 연락처를 생성합니다. visibility 는 SHARED(공유)/PERSONAL(개인). 생성 결과를 JSON 으로 반환합니다. ' +
+        '같은 이름+이메일의 연락처가 이미 있으면 중복 경고 오류가 납니다 — 사용자에게 알리고, 그래도 만들라고 확인받은 경우에만 force: true 로 다시 호출하세요.',
+      inputSchema: createExternalContactInput,
+      async handler(args) {
+        const { force, ...input } = createExternalContactInput.parse(args);
+        return JSON.stringify(await client.createExternalContact(input, force));
+      },
+    },
+    {
+      name: 'update_external_contact',
+      kind: 'write',
+      // 준 필드로 현재 값을 덮어쓴다(destructive). 병합 후 같은 값이면 저장 상태가 그대로이고, 중복 판정은 자기 자신을 제외해 다시 불러도 같은 결과(멱등).
+      hints: { destructive: true, idempotent: true },
+      description:
+        '외부 연락처를 수정합니다. 준 필드만 바뀌고 나머지는 유지됩니다(빈 문자열 "" 은 그 값 비우기, 이름은 비울 수 없음). ' +
+        '수정 결과 이름+이메일이 다른 연락처와 겹치면 중복 경고 오류가 납니다 — 사용자 확인 후에만 force: true 로 다시 호출하세요. ' +
+        'externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원의 userId 를 넣으면 엉뚱한 사람의 연락처가 바뀝니다.',
+      inputSchema: updateExternalContactInput,
+      async handler(args) {
+        const { externalId, force, ...patch } = updateExternalContactInput.parse(args);
+        // 생략 필드는 JSON 에서 빠져 서버가 유지한다. 아무것도 안 바꾸는 호출은 LLM 의 실수라 조용히 성공시키지 않는다.
+        if (Object.values(patch).every((v) => v === undefined)) {
+          throw new Error('바꿀 필드(name·email·phone·organization·title·notes·visibility) 중 하나 이상을 지정하세요.');
+        }
+        return JSON.stringify(await client.updateExternalContact(externalId, patch, force));
       },
     },
   ];

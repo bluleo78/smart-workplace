@@ -17,6 +17,7 @@ function mockClient(): Client {
     getMailLinkedIssue: vi.fn().mockResolvedValue(null),
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-9' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
+    syncMail: vi.fn().mockResolvedValue({ saved: 2 }),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
     getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
   };
@@ -126,6 +127,20 @@ describe('메일 AI·처리 (#855)', () => {
     const out = await tool(c, 'mark_mail_read').handler({ messageId: 3 });
     expect(out).toBe('ok');
     expect(c.markMailRead).toHaveBeenCalledWith(3);
+  });
+
+  it('sync_mail → client.syncMail(accountId) 호출 후 완료 문자열 반환(서버 결과는 노출하지 않는다)', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'sync_mail').handler({ accountId: 5 })).toBe('동기화를 완료했습니다.');
+    expect(c.syncMail).toHaveBeenCalledWith(5);
+    await expect(tool(c, 'sync_mail').handler({ accountId: 0 })).rejects.toThrow();
+  });
+
+  it('sync_mail 은 원본 메일 서버에 닿으므로 openWorld 이고, 읽음 상태 덮어쓰기·삭제 반영이 있어 destructive, 멱등은 아니다', () => {
+    expect(tool(mockClient(), 'sync_mail')).toMatchObject({
+      kind: 'write',
+      hints: { destructive: true, idempotent: false, openWorld: true },
+    });
   });
 
   it('set_mail_needs_reply_done 도구는 더 이상 없다(WP-146)', () => {

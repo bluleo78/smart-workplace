@@ -1,4 +1,4 @@
-// src/drive-tools.ts — 드라이브 읽기 도구 + 휴지통 복원. 두 앱 공유(#846, #850, #854).
+// src/drive-tools.ts — 드라이브 읽기 도구 + 폴더·파일 정리(생성·이름변경·이동) + 휴지통 복원. 두 앱 공유(#846, #850, #854).
 // 파일 행은 toDriveItemsView 로 core fileId 를 지우고 driveFileId 로만 노출한다(#840).
 import { z } from 'zod';
 import { toDriveContentHitsView, toDriveItemsView, toDriveTrashView } from './drive-view.js';
@@ -19,6 +19,22 @@ export const searchDriveContentInput = z.object({
   limit: z.number().int().min(1).max(50).default(10),
 });
 
+// 폴더·파일 쓰기 — 폴더는 rename/move 와 같은 folderId, 파일은 driveFileId 로 통일한다(#840: 목록 응답의 core fileId 와 혼동 방지).
+export const createDriveFolderInput = z.object({
+  spaceId: z.number().int().positive(),
+  parentId: z.number().int().positive().nullable().optional(),
+  name: z.string().min(1).max(255),
+});
+export const renameDriveFolderInput = z.object({ folderId: z.number().int().positive(), name: z.string().min(1).max(255) });
+export const moveDriveFolderInput = z.object({
+  folderId: z.number().int().positive(),
+  targetParentId: z.number().int().positive().nullable().optional(),
+});
+export const moveDriveFileInput = z.object({
+  driveFileId: z.number().int().positive(),
+  targetFolderId: z.number().int().positive().nullable().optional(),
+});
+
 export const listDriveTrashInput = z.object({ spaceId: z.number().int().positive() });
 // 파일과 폴더는 id 시퀀스가 달라 한쪽만 받는다 — 둘 다 오면 어느 것을 복원할지 모호하다.
 export const restoreDriveItemInput = z
@@ -27,7 +43,7 @@ export const restoreDriveItemInput = z
     message: 'driveFileId 와 folderId 중 정확히 하나만 주세요.',
   });
 
-/** 드라이브 도구(읽기 + 휴지통 목록·복원). 영구 삭제·휴지통 비우기는 되돌릴 수 없어 두지 않는다. */
+/** 드라이브 도구(읽기 + 폴더 생성·이름변경·이동 + 파일 이동 + 휴지통 목록·복원). 영구 삭제·휴지통 비우기는 되돌릴 수 없어 두지 않는다(삭제는 propose_* 확인 카드). */
 export function buildDriveTools(client: DriveToolClient): SharedTool[] {
   return [
     {
@@ -110,6 +126,58 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
         const { driveFileId, folderId } = restoreDriveItemInput.parse(args);
         if (driveFileId !== undefined) await client.restoreDriveFile(driveFileId);
         else await client.restoreDriveFolder(folderId!);
+        return 'ok';
+      },
+    },
+    {
+      name: 'create_drive_folder',
+      kind: 'write',
+      // 같은 위치에 같은 이름이 있으면 서버가 409(DriveDuplicateNameException) — 다시 부르면 오류라 멱등이 아니다.
+      hints: { destructive: false, idempotent: false },
+      description:
+        '드라이브 스페이스에 새 폴더를 생성합니다. parentId 를 주면 그 하위에 만들고, 생략하면 스페이스 루트에 생성합니다. 생성된 폴더를 JSON 으로 반환합니다.',
+      inputSchema: createDriveFolderInput,
+      async handler(args) {
+        const { spaceId, parentId, name } = createDriveFolderInput.parse(args);
+        return JSON.stringify(await client.createDriveFolder(spaceId, parentId ?? null, name));
+      },
+    },
+    {
+      name: 'rename_drive_folder',
+      kind: 'write',
+      // 이전 이름을 덮어쓴다(destructive). 같은 이름으로 다시 불러도 저장 상태가 그대로이고 이력·알림이 쌓이지 않는다(멱등).
+      hints: { destructive: true, idempotent: true },
+      description: '폴더 이름을 변경합니다. 변경된 폴더를 JSON 으로 반환합니다.',
+      inputSchema: renameDriveFolderInput,
+      async handler(args) {
+        const { folderId, name } = renameDriveFolderInput.parse(args);
+        return JSON.stringify(await client.renameDriveFolder(folderId, name));
+      },
+    },
+    {
+      name: 'move_drive_folder',
+      kind: 'write',
+      // 상위 폴더를 바꾼다(destructive, move_wiki_page 와 같은 기준). 이미 그 위치면 서버가 no-op 이라 다시 불러도 같은 결과(멱등).
+      hints: { destructive: true, idempotent: true },
+      description: '폴더를 다른 상위 폴더로 이동합니다. targetParentId 를 생략하면 스페이스 루트로 이동합니다.',
+      inputSchema: moveDriveFolderInput,
+      async handler(args) {
+        const { folderId, targetParentId } = moveDriveFolderInput.parse(args);
+        await client.moveDriveFolder(folderId, targetParentId ?? null);
+        return 'ok';
+      },
+    },
+    {
+      name: 'move_drive_file',
+      kind: 'write',
+      // move_drive_folder 와 같다 — 위치를 바꾸고(destructive), 이미 그 폴더면 서버가 no-op(멱등).
+      hints: { destructive: true, idempotent: true },
+      description:
+        '파일을 다른 폴더로 이동합니다. driveFileId 는 list_drive_items/search_drive 파일 항목의 driveFileId 입니다. targetFolderId 를 생략하면 스페이스 루트로 이동합니다.',
+      inputSchema: moveDriveFileInput,
+      async handler(args) {
+        const { driveFileId, targetFolderId } = moveDriveFileInput.parse(args);
+        await client.moveDriveFile(driveFileId, targetFolderId ?? null);
         return 'ok';
       },
     },
