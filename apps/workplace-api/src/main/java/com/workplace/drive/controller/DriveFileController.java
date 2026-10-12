@@ -7,6 +7,7 @@ import com.workplace.drive.dto.RenameFileRequest;
 import com.workplace.drive.dto.TargetFolderRequest;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.fileai.dto.ExtractedTextSlice;
 import jakarta.validation.Valid;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -121,6 +122,19 @@ public class DriveFileController {
   public ResponseEntity<FileSummaryResponse> summary(
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId) {
     return ResponseEntity.ok(fileService.fileSummary(callerId, driveFileId));
+  }
+
+  /**
+   * 파일 추출 텍스트 구간 읽기(WP-346) — 이슈 첨부 /text 와 같은 요청·응답 형식. 에이전트가 PDF·오피스 파일을 글자로 나눠 읽는다. limit 상한
+   * 32,000자(초과분은 클램프). download 와 동일 게이트.
+   */
+  @GetMapping("/files/{id}/text")
+  public ResponseEntity<ExtractedTextSlice> readText(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long driveFileId,
+      @RequestParam(defaultValue = "0") int offset,
+      @RequestParam(defaultValue = "32000") int limit) {
+    return ResponseEntity.ok(fileService.readText(callerId, driveFileId, offset, limit));
   }
 
   /** 버전 이력 목록(#79). */
