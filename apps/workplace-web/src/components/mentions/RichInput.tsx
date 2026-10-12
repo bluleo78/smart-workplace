@@ -14,16 +14,21 @@ import { EditorContent, ReactRenderer, useEditor } from '@tiptap/react';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
 import { ArrowUp } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
 import { Button } from '@/components/ui/button';
+import { extractApiError } from '@/lib/api-error';
 import { filesFromPaste, isFileDrag } from '@/lib/clipboardFiles';
+import { INVALID_IMAGE_MSG, isValidImageFile } from '@/lib/imageUpload';
 import { ImeCommitFlush } from '@/lib/imeCommitFlush';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { isSubmitEnter } from '@/lib/submitEnter';
 
 import { MentionList, type MentionListHandle } from './MentionList';
 import { bodyToDoc, serializeToBody } from './mentionSerialize';
+import { RichImageButton } from './RichImageButton';
+import { hasImage, hasPendingImage, removePendingImage, resolvePendingImage, RichImage } from './richImageNode';
 import type { MentionCandidate, MentionUser } from './types';
 
 interface RichInputProps {
@@ -54,6 +59,9 @@ interface RichInputProps {
    *  ① 클립보드 파일(스크린샷 등) 붙여넣기를 본문 대신 여기로 넘긴다(텍스트가 함께 오면 텍스트 우선, lib/clipboardFiles).
    *  ② 에디터 위 파일 드롭은 ProseMirror 기본 처리를 막고 버블링만 시킨다 — 업로드는 호출처 래퍼의 useComposerFileDrop 이 받는다. */
   onFiles?: (files: File[]) => void;
+  /** 입력창 안 이미지(WP-362, 이슈 코멘트). 전달하면 붙여넣기·드롭·이미지 버튼으로 넣은 이미지가 커서 자리에 썸네일로 들어가고,
+   *  이 함수로 올린 결과(url·이름)를 본문에 `![이름](url)` 로 저장한다. 업로드 중엔 전송이 막힌다. 마운트 시점 기준(에디터 스키마가 1회 생성). */
+  imageUpload?: (file: File) => Promise<{ url: string; name: string }>;
   inputTestId: string;
   submitTestId: string;
   cancelTestId?: string;
@@ -91,10 +99,14 @@ export function RichInput({
   editorMaxHeightClass = 'max-h-40',
   inlineSubmit = false,
   onFiles,
+  imageUpload,
 }: RichInputProps) {
   // 에디터 본문 공백 여부 — disableWhenEmpty 가 true 일 때 전송 버튼 비활성화에 사용.
   // initialBody 가 있으면 비어있지 않은 상태로 초기화.
   const [isEmpty, setIsEmpty] = useState(!initialBody || initialBody.trim().length === 0);
+  // 업로드 중 이미지가 남아 있는지 — 전송 버튼·Enter 양쪽을 막는다(WP-362).
+  const [imageUploading, setImageUploading] = useState(false);
+  const imageUploadingRef = useRef(false);
   // maxLength 가 설정된 경우 실시간 글자 수 추적. 직렬화 본문 기준(serializeToBody)으로 서버 검증과 일치.
   const [charCount, setCharCount] = useState(initialBody ? initialBody.trim().length : 0);
 
@@ -149,6 +161,17 @@ export function RichInput({
     onFilesRef.current = onFiles;
   });
 
+  // 이미지 스키마는 에디터 생성 시 1회만 정해진다 — 마운트 시점 값으로 고정. 업로드 함수는 최신값을 ref 로.
+  const [imagesEnabled] = useState(() => imageUpload != null);
+  const imageUploadRef = useRef(imageUpload);
+  useEffect(() => {
+    imageUploadRef.current = imageUpload;
+  });
+  // 자리표시 노드 식별자 순번 — 인스턴스마다 독립.
+  const uploadSeq = useRef(0);
+  // handlePaste/handleDrop(useEditor 1회 생성 클로저)이 최신 insertImages 를 부르도록 — 위 ref 패턴 동일.
+  const insertImagesRef = useRef<(files: File[], at?: number) => void>(() => {});
+
   // 동기적 in-flight 가드(#586) — ref 는 즉시(리렌더 없이) 반영되므로 같은 이벤트 루프 틱
   // 내에 버튼이 여러 번 클릭되거나 Enter+클릭이 겹쳐도(pending prop 갱신 전) 두 번째 이후
   // 호출을 차단한다. WikiCreateSpaceDialog(#581)와 동일 패턴 — RichInput 은 여러 소비처
@@ -169,7 +192,12 @@ export function RichInput({
     // charCount 도 갱신 — maxLength 초과 시 버튼 비활성화 및 카운터 표시에 사용.
     // serializeToBody 기준으로 서버 @Size(max) 검증과 동일한 길이를 측정한다.
     onUpdate: ({ editor }) => {
-      setIsEmpty(editor.getText().trim().length === 0);
+      // 글 없이 이미지만 있어도 비어 있지 않다(WP-362).
+      setIsEmpty(editor.getText().trim().length === 0 && !(imagesEnabled && hasImage(editor)));
+      if (imagesEnabled) {
+        imageUploadingRef.current = hasPendingImage(editor);
+        setImageUploading(imageUploadingRef.current);
+      }
       setCharCount(serializeToBody(editor.getJSON()).trim().length);
       onChangeRef.current?.();
     },
@@ -183,6 +211,7 @@ export function RichInput({
       // (멘션 팝업의 후보 목록은 비동기로 갱신돼 이 순간엔 확정 전 검색어 기준이다 — 알려진 한계.)
       ImeCommitFlush,
       Placeholder.configure({ placeholder }),
+      ...(imagesEnabled ? [RichImage] : []),
       // membersRef 는 suggestion items/render 콜백에서만 역참조된다. 이 콜백들은
       // 사용자가 '@' 를 입력할 때 ProseMirror 가 호출하며 렌더 시점에 동기 실행되지 않으므로
       // 안전하다 (react-hooks/refs 의 보수적 false positive).
@@ -252,7 +281,7 @@ export function RichInput({
         },
       }),
     ],
-    content: initialBody ? bodyToDoc(initialBody, initialMentions) : undefined,
+    content: initialBody ? bodyToDoc(initialBody, initialMentions, { images: imagesEnabled }) : undefined,
     editorProps: {
       attributes: {
         'data-testid': inputTestId,
@@ -263,6 +292,14 @@ export function RichInput({
       },
       // 클립보드 파일(스크린샷 등)은 본문에 넣지 않고 첨부로 넘긴다. 텍스트가 함께 있으면 텍스트 붙여넣기(filesFromPaste).
       handlePaste: (_view, event) => {
+        // 이미지 입력창이면 클립보드 이미지는 커서 자리에 넣는다(텍스트가 함께 오면 텍스트 우선 — filesFromPaste).
+        if (imagesEnabled) {
+          const images = filesFromPaste(event.clipboardData).filter((f) => f.type.startsWith('image/'));
+          if (images.length > 0) {
+            insertImagesRef.current(images);
+            return true;
+          }
+        }
         const handler = onFilesRef.current;
         if (!handler) return false;
         const files = filesFromPaste(event.clipboardData);
@@ -272,7 +309,18 @@ export function RichInput({
       },
       // 파일 드롭은 ProseMirror 가 처리하지 않게만 막는다(true → preventDefault). 이벤트는 래퍼로 버블링돼
       // useComposerFileDrop 이 업로드한다 — 에디터 밖(칩 영역 등) 드롭과 한 경로로 처리하려고.
-      handleDrop: (_view, event) => !!onFilesRef.current && isFileDrag(event.dataTransfer),
+      handleDrop: (view, event) => {
+        // 이미지 입력창이면 떨어뜨린 자리에 넣는다. 비이미지가 섞여도 insertImages 가 걸러 한 번만 안내한다.
+        if (imagesEnabled && isFileDrag(event.dataTransfer)) {
+          const files = Array.from(event.dataTransfer?.files ?? []);
+          if (files.length > 0) {
+            const at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+            insertImagesRef.current(files, at);
+          }
+          return true;
+        }
+        return !!onFilesRef.current && isFileDrag(event.dataTransfer);
+      },
       handleKeyDown: (_view, event) => {
         // suggestion 팝업이 열려있으면 Enter 는 mention 플러그인이 먼저 처리(키 위임)하므로 여기선 무시.
         if (isSubmitEnter(event)) {
@@ -292,8 +340,47 @@ export function RichInput({
     },
   });
 
+  /**
+   * 이미지 파일을 at(없으면 현재 커서) 자리에 각자 한 줄로 넣고 병렬 업로드한다(WP-362). 업로드 중엔 자리표시 노드로 보이고,
+   * 끝나면 그 노드에 src 를 채우고, 실패하면 노드를 지우고 알린다. 형식·크기가 틀린 파일이 섞이면 한 번만 안내한다.
+   */
+  function insertImages(files: File[], at?: number) {
+    const upload = imageUploadRef.current;
+    if (!editor || !upload) return;
+    const valid = files.filter(isValidImageFile);
+    if (valid.length < files.length) toast.error(INVALID_IMAGE_MSG);
+    if (valid.length === 0) return;
+    const items = valid.map((file) => ({ file, uploadId: `u${++uploadSeq.current}` }));
+    // 이미지마다 문단 하나 — 글 중간이면 문단이 나뉘어 이미지가 독립 줄에 온다(본문 이미지와 같은 배치).
+    const nodes = items.map(({ uploadId }) => ({
+      type: 'paragraph',
+      content: [{ type: 'image', attrs: { uploadId, src: null, alt: '' } }],
+    }));
+    const chain = editor.chain().focus();
+    (at != null ? chain.insertContentAt(at, nodes) : chain.insertContent(nodes)).run();
+    // 삽입 직후 커서는 마지막 이미지 바로 뒤(같은 문단)라, 이어 쓰면 글이 이미지 줄에 붙는다 — 다음 줄로 옮긴다.
+    // 뒤에 문단이 있으면(글 중간에 넣은 경우) 그 문단 처음으로, 없으면 새 빈 문단을 만든다.
+    const afterImage = editor.state.selection.$from.after();
+    if (afterImage < editor.state.doc.content.size) editor.commands.setTextSelection(afterImage + 1);
+    else editor.commands.splitBlock();
+    for (const { file, uploadId } of items) {
+      upload(file)
+        .then((res) => resolvePendingImage(editor, uploadId, res.url, res.name))
+        .catch((e) => {
+          removePendingImage(editor, uploadId);
+          toast.error(extractApiError(e, '이미지를 올리지 못했습니다'));
+        });
+    }
+  }
+
+  useEffect(() => {
+    insertImagesRef.current = insertImages;
+  });
+
   function submit() {
     if (!editor) return;
+    // 업로드 중 이미지가 있으면 버튼·Enter 모두 막는다 — 자리표시가 빈 이미지로 저장되지 않게(WP-362).
+    if (imageUploadingRef.current) return;
     // 인플라이트 가드(#586) — 이미 전송 중이면 재호출 무시. 버튼 onClick·Enter 키 두 경로가
     // 모두 이 함수를 거치므로 여기 하나로 양쪽 다 차단된다.
     if (submittingRef.current) return;
@@ -352,6 +439,7 @@ export function RichInput({
   // submitting 은 인플라이트 가드(#586)의 시각적 반영 — 실제 중복 제출 차단은 submittingRef 가 담당.
   const submitBlocked =
     submitDisabled ||
+    imageUploading ||
     submitting ||
     (disableWhenEmpty ? isEmpty && !allowEmptySubmit : false) ||
     (maxLength != null && charCount > maxLength);
@@ -363,6 +451,7 @@ export function RichInput({
     return (
       <div className="flex flex-col gap-1" data-testid={`${inputTestId}-wrap`}>
         <div className="flex flex-row items-end gap-2">
+          {imagesEnabled && <RichImageButton compact onFiles={insertImages} testId={`${inputTestId}-image`} />}
           {leftActions && <div className="flex shrink-0 items-center">{leftActions}</div>}
           <div className="relative min-w-0 flex-1">
             <EditorContent editor={editor} />
@@ -400,8 +489,13 @@ export function RichInput({
         <EditorContent editor={editor} />
       </div>
       {/* leftActions 가 있으면 justify-between 으로 좌우 분리, 없으면 justify-end 로 우측 정렬. */}
-      <div className={`flex items-center gap-2 ${leftActions ? 'justify-between' : 'justify-end'}`}>
-        {leftActions && <div className="flex items-center gap-1">{leftActions}</div>}
+      <div className={`flex items-center gap-2 ${leftActions || imagesEnabled ? 'justify-between' : 'justify-end'}`}>
+        {(leftActions || imagesEnabled) && (
+          <div className="flex items-center gap-1">
+            {imagesEnabled && <RichImageButton onFiles={insertImages} testId={`${inputTestId}-image`} />}
+            {leftActions}
+          </div>
+        )}
         <div className="flex items-center gap-2">
           {/* maxLength 설정 시 글자 수 카운터 표시. charCount > 0 일 때만 노출해 빈 입력 노이즈 방지. */}
           {/* 초과 시 text-destructive(빨간색)로 강조. */}

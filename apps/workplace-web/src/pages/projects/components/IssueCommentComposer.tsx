@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { RichInput } from '@/components/mentions/RichInput';
 import type { MentionCandidate } from '@/components/mentions/types';
 
+import { uploadIssueImage } from '../../../api/issueImages';
 import { useCreateComment } from '../../../hooks/queries/useIssueComments';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
@@ -81,6 +82,8 @@ export function IssueCommentComposer({
       submitTestId="issue-comment-submit"
       editorMaxHeightClass={editorMaxHeightClass}
       inlineSubmit={inlineSubmit}
+      // WP-362: 붙여넣기·드롭·버튼 이미지를 입력창 안 커서 자리에 — 본문 이미지와 같은 업로드 API·저장 형식.
+      imageUpload={(file) => uploadIssueImage(projectKey, file)}
     />
   );
 }
