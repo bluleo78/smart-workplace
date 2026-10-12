@@ -7,10 +7,12 @@
 // 이름/종류로 역매핑한다(읽기 렌더·수정 폼 초기값 공용).
 
 import { Pencil, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
+import { IssueBodyImage } from '@/components/issue/IssueBodyImage';
+import { countApiImages, splitApiImages, withImagePlaceholders } from '@/components/mentions/apiImageSegments';
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
 import { RichInput } from '@/components/mentions/RichInput';
 import type { MentionCandidate, MentionUser } from '@/components/mentions/types';
@@ -22,6 +24,7 @@ import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
+import { uploadIssueImage } from '../../../api/issueImages';
 import { useDeleteComment, useUpdateComment } from '../../../hooks/queries/useIssueComments';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useAuth } from '../../../hooks/useAuth';
@@ -100,7 +103,21 @@ function CommentItem({
     }
   };
 
-  const itemName = comment.body.slice(0, 20) + (comment.body.length > 20 ? '…' : '');
+  // 미리보기는 이미지 마크다운을 '[이미지]' 로 줄여 보여 준다 — 긴 URL 이 20자를 다 차지하지 않게(WP-362).
+  const preview = withImagePlaceholders(comment.body, projectKey);
+  const itemName = preview.slice(0, 20) + (preview.length > 20 ? '…' : '');
+  // 코멘트에 넣은 이미지도 지워질 수 있다는 안내 — 본문·다른 코멘트에서도 쓰는 이미지는 서버가 남기므로 조건을 함께 적는다.
+  const imageCount = countApiImages(comment.body, projectKey);
+  const deleteDescription =
+    imageCount > 0
+      ? `"${itemName}" 코멘트를 정말 삭제하시겠습니까? 코멘트에 넣은 이미지 ${imageCount}개도 본문이나 다른 코멘트에서 쓰지 않으면 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`
+      : undefined;
+  // AGENT 코멘트 마크다운의 이미지 렌더러 — MarkdownMessage 가 이 함수로 img 컴포넌트를 memo 하므로 렌더마다 새로 만들지 않는다
+  // (새로 만들면 이미지가 리마운트돼 열린 뷰어가 닫히고 썸네일이 다시 깜빡인다).
+  const renderImage = useCallback(
+    (p: { src?: string; alt?: string }) => <IssueBodyImage projectKey={projectKey} {...p} />,
+    [projectKey],
+  );
 
   return (
     <li
@@ -155,6 +172,7 @@ function CommentItem({
             <DeleteConfirmDialog
               entityName="코멘트"
               itemName={itemName}
+              description={deleteDescription}
               onConfirm={handleDelete}
               trigger={
                 <Button
@@ -175,6 +193,7 @@ function CommentItem({
         <DeleteConfirmDialog
           entityName="코멘트"
           itemName={itemName}
+          description={deleteDescription}
           onConfirm={handleDelete}
           open={confirmOpen}
           onOpenChange={setConfirmOpen}
@@ -196,13 +215,18 @@ function CommentItem({
             inputTestId="issue-comment-edit-input"
             submitTestId="issue-comment-edit-save"
             cancelTestId="issue-comment-edit-cancel"
+            // WP-362: 기존 이미지는 원래 자리에 썸네일로 복원되고, 새로 붙여넣을 수도 있다.
+            imageUpload={(file) => uploadIssueImage(projectKey, file)}
           />
         </div>
       ) : isAgent ? (
         /* WP-254: AI(에이전트) 코멘트는 체크리스트·제목·표 등 마크다운을 쓰므로 MarkdownMessage 로 렌더
            (이슈 채팅 ChatMessageRow 와 동일 패턴 — 사람 코멘트는 아래 멘션 칩 평문 유지). 원시 HTML 은 여전히 비허용.
            whitespace-pre-wrap 은 빼야 한다 — 블록 사이 개행 텍스트 노드가 빈 줄로 보인다(p 가 자체로 줄바꿈 보존). */
-        <MarkdownMessage className="mt-1 leading-6 text-foreground">
+        <MarkdownMessage
+          className="mt-1 leading-6 text-foreground"
+          renderImage={renderImage}
+        >
           {mentionsToMarkdown(comment.body, mentionUsers)}
         </MarkdownMessage>
       ) : (
@@ -212,7 +236,14 @@ function CommentItem({
         <div className="whitespace-pre-wrap mt-1 text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
           {parseMessageSegments(comment.body, mentionUsers).map((seg, i) =>
             seg.type === 'text' ? (
-              <span key={i}>{seg.value}</span>
+              // WP-362: 글 속 이미지 마크다운은 넣은 자리에 본문 이미지와 같은 렌더러로(클릭 시 뷰어).
+              splitApiImages(seg.value, projectKey).map((part, j) =>
+                part.type === 'text' ? (
+                  <span key={`${i}-${j}`}>{part.value}</span>
+                ) : (
+                  <IssueBodyImage key={`${i}-${j}`} projectKey={projectKey} src={part.src} alt={part.alt} />
+                ),
+              )
             ) : (
               <span
                 key={i}

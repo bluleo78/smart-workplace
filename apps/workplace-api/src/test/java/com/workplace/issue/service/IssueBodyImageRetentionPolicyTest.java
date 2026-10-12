@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.dto.CreateCommentRequest;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.project.dto.AddMemberRequest;
@@ -39,6 +40,7 @@ class IssueBodyImageRetentionPolicyTest extends IntegrationTestBase {
   @Autowired IssueBodyImageRetentionPolicy policy;
   @Autowired ProjectService projectService;
   @Autowired IssueService issueService;
+  @Autowired IssueCommentService commentService;
 
   /** FilePathBuilder 가 TenantContext 를 쓰므로 테스트 시작 전 테넌트를 설정한다. */
   @BeforeEach
@@ -192,5 +194,19 @@ class IssueBodyImageRetentionPolicyTest extends IntegrationTestBase {
   @Test
   void non_issue_files_are_ignored() {
     assertThat(policy.retain(List.of(Long.MAX_VALUE))).isEmpty();
+  }
+
+  @Test
+  void image_copied_into_comment_of_other_issue_is_retained() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "RC");
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+    var a = issueService.create(owner, p.key(), createReq("원본", ref(p.key(), fileId)));
+    var b = issueService.create(owner, p.key(), createReq("다른 이슈", "본문"));
+    // WP-362: 다른 이슈의 코멘트에 복사된 참조도 보존 근거가 된다.
+    commentService.create(owner, b.id(), new CreateCommentRequest("복사 " + ref(p.key(), fileId)));
+    issueService.update(owner, p.key(), a.number(), bodyOnly("원본에서 지움"));
+
+    assertThat(policy.retain(List.of(fileId))).containsExactly(fileId);
   }
 }

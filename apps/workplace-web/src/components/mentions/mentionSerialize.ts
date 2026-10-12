@@ -2,9 +2,12 @@
 
 import type { JSONContent } from '@tiptap/core';
 
+import { imageMarkdown } from '../../lib/markdownImageInsert';
+import { API_IMAGE_MD } from './apiImageSegments';
 import type { MentionUser, UserKind } from './types';
 
 // TipTap JSON(doc) → 본문 문자열. mention 노드는 <@id>, 문단 경계는 \n, hardBreak 노드도 \n.
+// image 노드(WP-362)는 마크다운 `![이름](src)` — 업로드 중(src 없음) 노드는 빈 문자열(전송은 RichInput 이 막는다).
 export function serializeToBody(doc: JSONContent): string {
   const paragraphs = (doc.content ?? []).map((para) => {
     const inline = (para.content ?? [])
@@ -12,6 +15,10 @@ export function serializeToBody(doc: JSONContent): string {
         if (node.type === 'mention') return `<@${node.attrs?.id}>`;
         // Shift+Enter 로 삽입된 hardBreak 노드 → \n 변환 (#357)
         if (node.type === 'hardBreak') return '\n';
+        if (node.type === 'image') {
+          const src = node.attrs?.src as string | null | undefined;
+          return src ? imageMarkdown(String(node.attrs?.alt ?? ''), src) : '';
+        }
         return node.text ?? '';
       })
       .join('');
@@ -45,18 +52,29 @@ export function convertPlaintextMentions(
 }
 
 // 본문 문자열 → TipTap JSON(doc). <@id> 는 mention 노드(label=이름)로 복원.
-export function bodyToDoc(body: string, mentions: MentionUser[]): JSONContent {
+// images 가 켜진 입력창(이슈 코멘트, WP-362)만 `![이름](/api/v1/...)` 을 image 노드로 복원한다 — 그 밖의 입력창은 스키마에 image 가 없다.
+export function bodyToDoc(
+  body: string,
+  mentions: MentionUser[],
+  options: { images?: boolean } = {},
+): JSONContent {
   const nameById = new Map(mentions.map((m) => [m.id, m.name]));
   const lines = body.split('\n');
+  // 멘션 토큰과 (켜져 있으면) 이미지 마크다운을 한 정규식으로 왼쪽부터 훑는다 — 줄마다 lastIndex 만 되돌려 재사용.
+  const re = options.images ? new RegExp(`<@(\\d+)>|${API_IMAGE_MD.source}`, 'g') : /<@(\d+)>/g;
   const content: JSONContent[] = lines.map((line) => {
     const inline: JSONContent[] = [];
-    const re = /<@(\d+)>/g;
+    re.lastIndex = 0;
     let last = 0;
     let m: RegExpExecArray | null;
     while ((m = re.exec(line)) !== null) {
       if (m.index > last) inline.push({ type: 'text', text: line.slice(last, m.index) });
-      const id = Number(m[1]);
-      inline.push({ type: 'mention', attrs: { id, label: nameById.get(id) ?? '알 수 없음' } });
+      if (m[1] !== undefined) {
+        const id = Number(m[1]);
+        inline.push({ type: 'mention', attrs: { id, label: nameById.get(id) ?? '알 수 없음' } });
+      } else {
+        inline.push({ type: 'image', attrs: { src: m[3], alt: m[2] } });
+      }
       last = m.index + m[0].length;
     }
     if (last < line.length) inline.push({ type: 'text', text: line.slice(last) });
