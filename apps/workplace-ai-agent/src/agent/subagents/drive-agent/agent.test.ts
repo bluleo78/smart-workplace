@@ -40,4 +40,13 @@ describe('drive-agent 정의', () => {
     expect(loaded['drive-agent'].maxTurns).toBeGreaterThan(0);
     expect(loaded['drive-agent'].prompt).toMatch(/드라이브|파일/);
   });
+
+  // WP-352: 목록·검색이 한 번에 일부만 줄 수 있으므로 이어 조회하거나 일부만 봤다고 밝히도록 안내한다.
+  it('list_drive_items 의 hasMore·nextOffset 과 search_drive 의 truncated 안내가 있다', () => {
+    const prompt = loaded['drive-agent'].prompt;
+    expect(prompt).toContain('`hasMore`·`nextOffset`');
+    expect(prompt).toContain('`nextOffset` 을 `offset` 으로 넘겨');
+    expect(prompt).toContain('`truncated`');
+    expect(prompt).toContain('일부만 봤다고 밝힙니다');
+  });
 });

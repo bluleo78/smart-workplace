@@ -56,6 +56,14 @@ export const listChannelMessagesInput = z.object({
   // WP-352: 이전 호출이 돌려준 nextCursor 를 그대로 넘기면 한 페이지 더 오래된 메시지다(서버 MessageController 의 cursor).
   cursor: z.string().optional().describe('더 오래된 메시지 커서 — 이전 호출 결과의 nextCursor 를 그대로'),
 });
+/**
+ * 내 채널 목록 입력(WP-352). 서버는 내 채널 전체를 한 번에 주므로(페이지 없음 — 웹 사이드바가 전체를 쓴다) 도구가 한 번에 보여 줄 수를
+ * 정하고, offset 으로 이어 읽는다(이름순이라 두 호출 사이에 채널이 늘지 않는 한 안정적).
+ */
+export const listChannelsInput = z.object({
+  limit: z.number().int().min(1).max(200).default(100),
+  offset: z.number().int().min(0).default(0).describe('건너뛸 채널 수 — 이전 호출 결과의 nextOffset 을 그대로'),
+});
 export const getThreadRepliesInput = z.object({ messageId: z.number().int().positive() });
 export const discoverChannelsInput = z.object({ q: z.string().min(1) });
 
@@ -135,10 +143,18 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        '내가 속한 채널·DM 목록을 JSON 배열로 반환합니다(id·name·kind·visibility 포함). 채널 이름만 알 때 channelId 를 확보한 뒤 list_channel_messages / add_channel_message 에 사용하세요.',
-      inputSchema: z.object({}),
-      async handler() {
-        return JSON.stringify(await client.listChannels());
+        '내가 속한 채널·DM 목록을 JSON({items, total, truncated?, nextOffset?})으로 반환합니다(items 는 id·name·kind·visibility 포함, 이름순). ' +
+        '채널 이름만 알 때 channelId 를 확보한 뒤 list_channel_messages / add_channel_message 에 사용하세요. ' +
+        'total 은 내 채널 전체 수이고 한 번에 limit 개(기본 100, 최대 200)만 담기므로, 더 있으면 truncated:true 와 nextOffset 이 옵니다 — ' +
+        'nextOffset 을 offset 으로 넘겨 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 본 것이라고 밝히세요(목록에 없다는 단정·개수 집계 금지). ' +
+        '이 키들이 없으면 전부 담긴 것입니다.',
+      inputSchema: listChannelsInput,
+      async handler(args) {
+        const { limit, offset } = listChannelsInput.parse(args);
+        const all = (await client.listChannels()) as unknown[];
+        const items = all.slice(offset, offset + limit);
+        const next = offset + items.length;
+        return JSON.stringify({ items, total: all.length, ...(next < all.length && { truncated: true, nextOffset: next }) });
       },
     },
     {
@@ -161,7 +177,7 @@ export function buildMessagingTools(
         '채널/DM 의 메시지를 최신순(최신 → 오래된 순)으로 JSON({items, hasMore?, nextCursor?})으로 반환합니다(대화 흐름 확인용). 스레드 답글은 빠지고 최상위 메시지만 담기며, ' +
         '답글이 있으면 replyCount 로 알 수 있습니다(list_thread_replies 로 조회). limit 기본 50·최대 100 이고, 더 오래된 메시지가 있으면 hasMore:true 와 ' +
         'nextCursor 가 옵니다 — nextCursor 를 cursor 로 넘겨 이어 조회하거나, 이어 조회하지 않고 답한다면 최근 일부만 본 것이라고 밝히세요(요약·집계를 전체인 양 하지 마세요). ' +
-        'hasMore 가 있어도 다음 페이지가 비어 있을 수 있고, 이 키들이 없으면 채널의 처음까지 다 담긴 것입니다. 삭제된 메시지는 본문이 "(삭제됨)" 으로 옵니다.',
+        '이 키들이 없으면 채널의 처음까지 다 담긴 것입니다. 삭제된 메시지는 본문이 "(삭제됨)" 으로 옵니다.',
       inputSchema: listChannelMessagesInput,
       async handler(args) {
         const { channelId, limit, cursor } = listChannelMessagesInput.parse(args);

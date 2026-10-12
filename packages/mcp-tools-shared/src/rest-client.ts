@@ -365,9 +365,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async listDriveSpaces() {
       return (await http.get('/drive/spaces')).data ?? [];
     },
-    async listDriveItems(spaceId, parentId) {
-      return (await http.get(`/drive/spaces/${spaceId}/items`, { params: parentId != null ? { parentId } : undefined }))
-        .data;
+    async listDriveItems(spaceId, parentId, page) {
+      // 파라미터는 있을 때만 싣는다 — 생략하면 서버가 전체를 돌려주는 기존 동작이다.
+      const params = { ...(parentId != null && { parentId }), ...(page && { limit: page.limit, offset: page.offset }) };
+      return (await http.get(`/drive/spaces/${spaceId}/items`, { params: Object.keys(params).length ? params : undefined })).data;
     },
     async searchDrive(spaceId, q) {
       return (await http.get(`/drive/spaces/${spaceId}/search`, { params: { q } })).data;

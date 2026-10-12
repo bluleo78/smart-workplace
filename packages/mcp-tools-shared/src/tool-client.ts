@@ -134,6 +134,7 @@ export interface WikiPageRow {
 
 export interface WikiToolClient {
   listWikiSpaces(): Promise<unknown>;
+  /** GET /wiki/search — 서버가 최근 수정순 최대 50건으로 자른다(상한을 알리는 일은 핸들러). 배열 원형. */
   searchWikiPages(query: string): Promise<unknown>;
   getWikiPage(pageId: number): Promise<unknown>;
   createWikiPage(spaceId: number, body: { parentId: number | null; title: string }): Promise<unknown>;
@@ -319,6 +320,7 @@ export interface ExternalContactBody {
 }
 
 export interface MessagingToolClient {
+  /** GET /messaging/channels — 서버가 내 채널 전체를 한 번에 준다(페이지 없음 — 자르는 일은 핸들러). */
   listChannels(): Promise<unknown>;
   /** GET /messaging/channels/{id}/messages — 최신순 커서 페이지. cursor 는 이전 응답의 nextCursor(WP-352). */
   listChannelMessages(channelId: number, params: { limit: number; cursor?: string }): Promise<CursorPage<unknown>>;
@@ -348,8 +350,12 @@ export interface MessagingToolClient {
 
 export interface DriveToolClient {
   listDriveSpaces(): Promise<unknown>;
-  /** 응답 { folders, files } 원형 — 파일 행 식별자 가공은 toDriveItemsView(핸들러). */
-  listDriveItems(spaceId: number, parentId?: number): Promise<unknown>;
+  /**
+   * 응답 { folders, files } 원형 — 파일 행 식별자 가공은 toDriveItemsView(핸들러). page 를 주면 서버가 폴더 먼저·파일 다음 순서에서
+   * offset 부터 limit 개만 돌려주고(WP-352), 생략하면 전체다.
+   */
+  listDriveItems(spaceId: number, parentId?: number, page?: { limit: number; offset: number }): Promise<unknown>;
+  /** GET /drive/spaces/{id}/search — 서버가 폴더·파일 각각 최대 200건으로 자른다(상한을 알리는 일은 핸들러). */
   searchDrive(spaceId: number, q: string): Promise<unknown>;
   /** GET /drive/files/{id}/summary — { summary, status, reason } 원형(#850). */
   getDriveFileSummary(driveFileId: number): Promise<unknown>;

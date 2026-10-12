@@ -29,3 +29,11 @@ export function numberedPageView<T>(items: T[], page: { total?: number; hasMore:
     ...(page.hasMore && { hasMore: true as const, nextPage: page.page + 1 }),
   };
 }
+
+/**
+ * 도구·서버 상한에 걸려 잘렸을 수 있는 목록 → { items, truncated? }(WP-352). 잘리지 않았으면 truncated 를 **생략**한다
+ * (cursorPageView·numberedPageView 와 같은 규칙 — 빠진 키 = 끝). 서버에 페이지가 없는 목록이 쓴다.
+ */
+export function truncatedView<T>(items: T[], truncated: boolean) {
+  return { items, ...(truncated && { truncated: true as const }) };
+}

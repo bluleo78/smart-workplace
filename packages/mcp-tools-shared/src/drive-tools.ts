@@ -10,8 +10,22 @@ type DriveItems = Parameters<typeof toDriveItemsView>[0];
 export const listDriveItemsInput = z.object({
   spaceId: z.number().int().positive(),
   parentId: z.number().int().positive().optional(),
+  // WP-352: 폴더 하나에 항목이 수천 개일 수 있어 서버가 limit·offset 페이지를 지원한다(서버 상한 1000 — 다음 페이지 확인용 +1 을 보내므로 500).
+  limit: z.number().int().min(1).max(500).default(200),
+  offset: z.number().int().min(0).default(0).describe('건너뛸 항목 수 — 이전 호출 결과의 nextOffset 을 그대로'),
 });
-export const searchDriveInput = z.object({ spaceId: z.number().int().positive(), q: z.string().min(1) });
+export const searchDriveInput = z.object({
+  spaceId: z.number().int().positive(),
+  q: z.string().min(1),
+  // 서버는 폴더·파일을 각각 최대 SEARCH_SERVER_CAP 건까지만 준다 — 그 안에서 도구가 한 번에 보여 줄 수를 정한다.
+  limit: z.number().int().min(1).max(200).default(50),
+});
+
+/**
+ * 서버 이름 검색이 폴더·파일 각각에 거는 상한(DriveFolderRepository.searchByName·DriveFileRepository.searchByName 의 .limit(200)).
+ * 서버가 잘렸는지는 알리지 않아, 이 수에 닿으면 더 있을 수 있다고 본다. 서버 상한을 바꾸면 이 값도 맞춘다.
+ */
+const SEARCH_SERVER_CAP = 200;
 export const getDriveFileSummaryInput = z.object({ driveFileId: z.number().int().positive() });
 export const searchDriveContentInput = z.object({
   query: z.string().min(1),
@@ -63,22 +77,44 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       app: 'drive',
       kind: 'read',
       description:
-        '드라이브 스페이스(또는 parentId 폴더 하위)의 폴더/파일 목록을 JSON 으로 반환합니다. parentId 생략 시 최상위. 폴더는 id(= folderId), 파일은 driveFileId 로 가리킵니다.',
+        '드라이브 스페이스(또는 parentId 폴더 하위)의 폴더/파일 목록을 JSON({folders, files, hasMore?, nextOffset?})으로 반환합니다. parentId 생략 시 최상위. ' +
+        '폴더는 id(= folderId), 파일은 driveFileId 로 가리킵니다. 폴더 먼저·파일 다음(각각 이름순)으로 한 번에 limit 개(기본 200, 최대 500)만 담기며, ' +
+        '더 있으면 hasMore:true 와 nextOffset 이 옵니다 — nextOffset 을 offset 으로 넘겨 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 본 것이라고 밝히세요' +
+        '(개수 집계·"전부 …" 단정을 하지 마세요). 이 키들이 없으면 전부 담긴 것입니다.',
       inputSchema: listDriveItemsInput,
       async handler(args) {
-        const { spaceId, parentId } = listDriveItemsInput.parse(args);
-        return JSON.stringify(toDriveItemsView((await client.listDriveItems(spaceId, parentId)) as DriveItems));
+        const { spaceId, parentId, limit, offset } = listDriveItemsInput.parse(args);
+        // 한 건 더 달라고 해 다음 페이지가 있는지 확인한다(서버는 총 개수를 주지 않는다). 폴더 먼저·파일 다음 순서라 넘친 한 건은 항상 끝에 있다.
+        const view = toDriveItemsView((await client.listDriveItems(spaceId, parentId, { limit: limit + 1, offset })) as DriveItems);
+        const hasMore = view.folders.length + view.files.length > limit;
+        const folders = view.folders.slice(0, limit);
+        const files = view.files.slice(0, limit - folders.length);
+        return JSON.stringify({
+          folders,
+          files,
+          ...(hasMore && { hasMore: true, nextOffset: offset + folders.length + files.length }),
+        });
       },
     },
     {
       name: 'search_drive',
       app: 'drive',
       kind: 'read',
-      description: '드라이브 스페이스에서 파일/폴더를 이름으로 검색해 JSON 으로 반환합니다. 폴더는 id(= folderId), 파일은 driveFileId 로 가리킵니다.',
+      description:
+        '드라이브 스페이스에서 파일/폴더를 이름으로 검색해 JSON({folders, files, truncated?})으로 반환합니다. 폴더는 id(= folderId), 파일은 driveFileId 로 가리킵니다. ' +
+        '폴더·파일 각각 이름순으로 limit 개(기본 50, 최대 200)만 담기고, 더 있을 수 있으면 truncated:true 가 옵니다 — 이어 조회하는 방법은 없으니 q 를 더 구체적으로 바꿔 다시 검색하거나, ' +
+        '그대로 답한다면 일부만 본 것이라고 밝히세요(개수 집계·"전부 …" 단정 금지). truncated 가 없으면 검색된 전부입니다.',
       inputSchema: searchDriveInput,
       async handler(args) {
-        const { spaceId, q } = searchDriveInput.parse(args);
-        return JSON.stringify(toDriveItemsView((await client.searchDrive(spaceId, q)) as DriveItems));
+        const { spaceId, q, limit } = searchDriveInput.parse(args);
+        const view = toDriveItemsView((await client.searchDrive(spaceId, q)) as DriveItems);
+        // 도구 limit 으로 잘렸거나(원본이 limit 보다 많음) 서버 상한에 닿았으면(서버가 더 자른 것일 수 있음) 잘림으로 알린다.
+        const truncated = [view.folders, view.files].some((rows) => rows.length > limit || rows.length >= SEARCH_SERVER_CAP);
+        return JSON.stringify({
+          folders: view.folders.slice(0, limit),
+          files: view.files.slice(0, limit),
+          ...(truncated && { truncated: true }),
+        });
       },
     },
     {

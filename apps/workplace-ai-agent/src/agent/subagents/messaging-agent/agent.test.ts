@@ -40,4 +40,12 @@ describe('messaging-agent 정의', () => {
     expect(prompt).toContain('일부만 본 것임을 밝힙니다');
     expect(prompt).not.toContain('더 오래된 메시지는 가져올 수 없습니다');
   });
+
+  // WP-352: 채널 목록이 잘리면 nextOffset 으로 이어 찾고, 목록에 없다고 단정하지 않게 한다.
+  it('list_channels 의 truncated·nextOffset 안내가 있다', () => {
+    const prompt = loaded['messaging-agent'].prompt;
+    expect(prompt).toContain('list_channels(limit?, offset?)');
+    expect(prompt).toContain('`nextOffset` 을 `offset` 으로 넘겨 이어 조회하세요');
+    expect(prompt).toContain('목록에 없다고 단정하기 전에');
+  });
 });

@@ -169,28 +169,39 @@ public class DriveFileRepository {
   }
 
   public List<DriveFileResponse> listInFolder(long spaceId, Long folderId) {
+    return listInFolder(spaceId, folderId, null, 0);
+  }
+
+  /**
+   * 폴더 안 파일 한 페이지(이름순). limit 이 null 이면 전체(offset 무시) — 페이지 파라미터가 없는 기존 호출이 같은 결과를 받도록 한다(WP-352).
+   * 파일 행마다 저장소 존재 확인(toResponse)이 있어 SQL 에서 자르는 것이 비용을 줄인다.
+   */
+  public List<DriveFileResponse> listInFolder(
+      long spaceId, Long folderId, Integer limit, int offset) {
     Condition folderCond =
         folderId == null ? DRIVE_FILE.FOLDER_ID.isNull() : DRIVE_FILE.FOLDER_ID.eq(folderId);
-    return dsl.select(
-            DRIVE_FILE.ID,
-            DRIVE_FILE.FOLDER_ID,
-            DRIVE_FILE.FILE_ID,
-            DRIVE_FILE.NAME,
-            FILE.MIME_TYPE,
-            FILE.SIZE_BYTES,
-            FILE.CATEGORY,
-            DRIVE_FILE.CREATED_AT,
-            DRIVE_FILE.UPDATED_AT,
-            DRIVE_FILE.VERSION_COUNT,
-            FILE.STORAGE_PATH)
-        .from(DRIVE_FILE)
-        .join(FILE)
-        .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
-        .where(DRIVE_FILE.SPACE_ID.eq(spaceId))
-        .and(folderCond)
-        .and(DRIVE_FILE.TRASHED_AT.isNull())
-        .orderBy(DRIVE_FILE.NAME.asc())
-        .fetch(this::toResponse);
+    var query =
+        dsl.select(
+                DRIVE_FILE.ID,
+                DRIVE_FILE.FOLDER_ID,
+                DRIVE_FILE.FILE_ID,
+                DRIVE_FILE.NAME,
+                FILE.MIME_TYPE,
+                FILE.SIZE_BYTES,
+                FILE.CATEGORY,
+                DRIVE_FILE.CREATED_AT,
+                DRIVE_FILE.UPDATED_AT,
+                DRIVE_FILE.VERSION_COUNT,
+                FILE.STORAGE_PATH)
+            .from(DRIVE_FILE)
+            .join(FILE)
+            .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
+            .where(DRIVE_FILE.SPACE_ID.eq(spaceId))
+            .and(folderCond)
+            .and(DRIVE_FILE.TRASHED_AT.isNull())
+            .orderBy(DRIVE_FILE.NAME.asc(), DRIVE_FILE.ID.asc());
+    return (limit == null ? query.fetch() : query.limit(limit).offset(offset).fetch())
+        .map(this::toResponse);
   }
 
   /** 공간 전체에서 이름에 q 를 포함(대소문자 무시)하는 파일 — LIKE 와일드카드(%, _)는 리터럴로 이스케이프. */

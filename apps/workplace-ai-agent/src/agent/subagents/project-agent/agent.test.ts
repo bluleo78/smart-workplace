@@ -56,4 +56,11 @@ describe('project-agent 정의', () => {
     expect(prompt).toMatch(/수락하지 마|수락 금지|그대로 수락/);
     expect(prompt).toMatch(/ABC/); // abc → ABC 변환 예시
   });
+
+  // WP-352: list_projects 가 번호 페이지라 hasMore·nextPage 로 이어 조회하게 한다.
+  it('list_projects 의 hasMore·nextPage 안내가 있다', () => {
+    const prompt = loaded['project-agent'].prompt;
+    expect(prompt).toContain('`hasMore`·`nextPage`');
+    expect(prompt).toContain('`nextPage` 를 `page` 로 넘겨');
+  });
 });

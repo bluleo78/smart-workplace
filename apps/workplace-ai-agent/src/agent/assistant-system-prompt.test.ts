@@ -289,6 +289,13 @@ describe('목록 잘림 안내 (WP-352)', () => {
       expect(p).toContain('"일부만 확인했다"고 알립니다');
     }
   });
+  it('서버 페이지가 없는 목록의 truncated·hiddenChildren 안내가 두 러너에 있다', () => {
+    for (const p of [ASSISTANT_SYSTEM_PROMPT, assistantSystemPrompt('opencode')]) {
+      expect(p).toContain('또는 `truncated`');
+      expect(p).toContain('`hiddenChildren`');
+      expect(p).toContain('검색어를 좁혀 다시 검색');
+    }
+  });
   it('메시징 직접 읽기 표는 바뀐 이름 list_channel_messages 를 쓰고 옛 이름은 없다', () => {
     for (const p of [ASSISTANT_SYSTEM_PROMPT, assistantSystemPrompt('opencode')]) {
       expect(p).toContain('list_channel_messages');

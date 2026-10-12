@@ -76,6 +76,78 @@ class DriveFolderServiceTest extends IntegrationTestBase {
     assertThat(f.parentId()).isNull();
   }
 
+  /** 폴더 2개 + 파일 3개가 있는 루트를 만든다 — 페이지 경계가 폴더·파일 구간에 걸치는지 확인하는 시나리오(WP-352). */
+  private long[] seedPagedRoot() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    folderService.create(u, sp.id(), null, "a폴더");
+    folderService.create(u, sp.id(), null, "b폴더");
+    for (String n : new String[] {"c.txt", "d.txt", "e.txt"}) {
+      fileService.upload(
+          u, sp.id(), null, new MockMultipartFile("file", n, "text/plain", n.getBytes()));
+    }
+    return new long[] {u, sp.id()};
+  }
+
+  /** limit 이 없으면 폴더·파일 전체 — 웹 브라우즈가 기존 응답 그대로 받는다(offset 만 줘도 페이지 아님). */
+  @Test
+  void listItems_withoutLimit_returnsEverything() throws Exception {
+    long[] seed = seedPagedRoot();
+    long u = seed[0];
+    long spaceId = seed[1];
+    var all = folderService.listItems(u, spaceId, null, null, null);
+    assertThat(all.folders()).hasSize(2);
+    assertThat(all.files()).hasSize(3);
+    var offsetOnly = folderService.listItems(u, spaceId, null, null, 4);
+    assertThat(offsetOnly.folders()).hasSize(2);
+    assertThat(offsetOnly.files()).hasSize(3);
+  }
+
+  /** 한 페이지가 폴더 구간과 파일 구간에 걸친다 — 폴더 먼저, 그다음 파일(각각 이름순). */
+  @Test
+  void listItems_pageCrossesFolderToFileBoundary() throws Exception {
+    long[] seed = seedPagedRoot();
+    long u = seed[0];
+    long spaceId = seed[1];
+    var page = folderService.listItems(u, spaceId, null, 3, 1);
+    assertThat(page.folders()).extracting(DriveFolderResponse::name).containsExactly("b폴더");
+    assertThat(page.files()).extracting(DriveFileResponse::name).containsExactly("c.txt", "d.txt");
+  }
+
+  /** 페이지를 이어 읽으면 겹침·누락 없이 전체 5건이 나오고, 폴더 구간을 지난 offset 은 파일만 돌려준다. */
+  @Test
+  void listItems_pagesCoverAllItemsWithoutOverlap() throws Exception {
+    long[] seed = seedPagedRoot();
+    long u = seed[0];
+    long spaceId = seed[1];
+    var names = new java.util.ArrayList<String>();
+    for (int off = 0; off < 5; off += 2) {
+      var page = folderService.listItems(u, spaceId, null, 2, off);
+      page.folders().forEach(f -> names.add(f.name()));
+      page.files().forEach(f -> names.add(f.name()));
+    }
+    assertThat(names).containsExactly("a폴더", "b폴더", "c.txt", "d.txt", "e.txt");
+    var filesOnly = folderService.listItems(u, spaceId, null, 5, 3);
+    assertThat(filesOnly.folders()).isEmpty();
+    assertThat(filesOnly.files())
+        .extracting(DriveFileResponse::name)
+        .containsExactly("d.txt", "e.txt");
+  }
+
+  /** 끝을 넘은 offset 은 빈 페이지이고, 항목 수보다 큰 limit 은 전부를 돌려준다(1000 상한 clamp 는 코드로 강제하되 이 테스트가 고정하지는 않는다). */
+  @Test
+  void listItems_offsetPastEndIsEmpty_andLargeLimitReturnsAll() throws Exception {
+    long[] seed = seedPagedRoot();
+    long u = seed[0];
+    long spaceId = seed[1];
+    var past = folderService.listItems(u, spaceId, null, 10, 5);
+    assertThat(past.folders()).isEmpty();
+    assertThat(past.files()).isEmpty();
+    var clamped = folderService.listItems(u, spaceId, null, 5000, 0);
+    assertThat(clamped.folders()).hasSize(2);
+    assertThat(clamped.files()).hasSize(3);
+  }
+
   @Test
   void create_duplicateNameSameParent_throws() {
     long u = seedUser();

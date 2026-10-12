@@ -213,6 +213,14 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenNthCalledWith(2, '/drive/spaces/3/items', { params: { parentId: 8 } });
   });
 
+  it('listDriveItems 는 page 를 주면 limit·offset 을 params 로 싣고(WP-352), 안 주면 싣지 않는다', async () => {
+    const { http, client } = mockHttp();
+    await client.listDriveItems(3, undefined, { limit: 201, offset: 0 });
+    expect(http.get).toHaveBeenNthCalledWith(1, '/drive/spaces/3/items', { params: { limit: 201, offset: 0 } });
+    await client.listDriveItems(3, 8, { limit: 11, offset: 20 });
+    expect(http.get).toHaveBeenNthCalledWith(2, '/drive/spaces/3/items', { params: { parentId: 8, limit: 11, offset: 20 } });
+  });
+
   it('searchDrive 는 q 를 params 로 보낸다', async () => {
     const { http, client } = mockHttp();
     await client.searchDrive(3, '보고서');

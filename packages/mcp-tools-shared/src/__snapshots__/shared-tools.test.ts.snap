@@ -934,7 +934,25 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "properties": {},
+      "properties": {
+        "limit": {
+          "default": 100,
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "offset": {
+          "default": 0,
+          "description": "건너뛸 채널 수 — 이전 호출 결과의 nextOffset 을 그대로",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "limit",
+        "offset",
+      ],
       "type": "object",
     },
   },
@@ -985,6 +1003,19 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "limit": {
+          "default": 200,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "offset": {
+          "default": 0,
+          "description": "건너뛸 항목 수 — 이전 호출 결과의 nextOffset 을 그대로",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
         "parentId": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
@@ -998,6 +1029,8 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "spaceId",
+        "limit",
+        "offset",
       ],
       "type": "object",
     },
@@ -1296,6 +1329,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "parentId": {
+          "description": "이 페이지의 하위 트리만 — 잘린 노드(hiddenChildren)를 펼칠 때",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
         "spaceId": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
@@ -1712,6 +1751,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer",
+        },
         "q": {
           "minLength": 1,
           "type": "string",
@@ -1725,6 +1770,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "required": [
         "spaceId",
         "q",
+        "limit",
       ],
       "type": "object",
     },

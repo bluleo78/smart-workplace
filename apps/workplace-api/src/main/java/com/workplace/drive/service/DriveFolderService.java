@@ -112,9 +112,35 @@ public class DriveFolderService {
 
   @Transactional(readOnly = true)
   public DriveItemListResponse listItems(long callerId, long spaceId, Long parentId) {
+    return listItems(callerId, spaceId, parentId, null, null);
+  }
+
+  /** 한 번에 돌려줄 항목 수 상한 — 파일 행마다 저장소 존재 확인이 있어 한 번에 너무 많이 읽지 않게 한다. */
+  static final int MAX_ITEMS_PAGE = 1000;
+
+  /**
+   * 폴더 항목 한 페이지(WP-352). limit 이 null 이면 페이지 없이 전체를 돌려줘 기존 호출(웹 브라우즈)이 그대로 동작한다. limit 이 있으면 폴더
+   * 먼저·파일 다음(각각 이름순)인 합본 순서에서 offset 부터 limit 개를 돌려준다 — 폴더 구간과 파일 구간의 경계를 폴더 수로 계산해 한 페이지가 두 구간에 걸칠
+   * 수 있다. 더 있는지는 호출자가 limit+1 을 요청해 확인한다.
+   */
+  @Transactional(readOnly = true)
+  public DriveItemListResponse listItems(
+      long callerId, long spaceId, Long parentId, Integer limit, Integer offset) {
     perms.requireRole(spaceId, callerId, "VIEWER");
-    List<DriveFolderResponse> fl = folders.listChildFolders(spaceId, parentId);
-    List<DriveFileResponse> fi = files.listInFolder(spaceId, parentId);
+    if (limit == null) {
+      return new DriveItemListResponse(
+          folders.listChildFolders(spaceId, parentId), files.listInFolder(spaceId, parentId));
+    }
+    int lim = Math.min(Math.max(limit, 1), MAX_ITEMS_PAGE);
+    int off = offset == null ? 0 : Math.max(offset, 0);
+    int folderCount = folders.countChildFolders(spaceId, parentId);
+    List<DriveFolderResponse> fl =
+        off < folderCount ? folders.listChildFolders(spaceId, parentId, lim, off) : List.of();
+    int rest = lim - fl.size();
+    List<DriveFileResponse> fi =
+        rest > 0
+            ? files.listInFolder(spaceId, parentId, rest, Math.max(off - folderCount, 0))
+            : List.of();
     return new DriveItemListResponse(fl, fi);
   }
 

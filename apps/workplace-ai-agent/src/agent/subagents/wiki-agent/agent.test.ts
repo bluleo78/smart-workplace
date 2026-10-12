@@ -34,4 +34,14 @@ describe('wiki-agent 정의', () => {
     expect(loaded['wiki-agent'].maxTurns).toBeGreaterThan(0);
     expect(loaded['wiki-agent'].prompt).toContain('노트');
   });
+
+  // WP-352: 트리·검색이 잘릴 수 있으므로 hiddenChildren 을 parentId 로 펼치거나 일부만 봤다고 밝히도록 안내한다.
+  it('list_wiki_pages 의 truncated·hiddenChildren(parentId 로 펼치기)과 search_wiki 의 truncated 안내가 있다', () => {
+    const prompt = loaded['wiki-agent'].prompt;
+    expect(prompt).toContain('list_wiki_pages(spaceId, parentId?)');
+    expect(prompt).toContain('`hiddenChildren`');
+    expect(prompt).toContain('`parentId` 로 다시 호출해 펼치거나');
+    expect(prompt).toContain('{items, truncated?}');
+    expect(prompt).toContain('일부만 봤다고 밝힙니다');
+  });
 });

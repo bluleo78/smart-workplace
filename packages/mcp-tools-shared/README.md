@@ -80,10 +80,22 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 | `list_notifications` | `offset`, `limit` | `{ unreadCount, items, hasMore?, nextOffset? }` | 평면 목록 + offset(`NotificationController`) |
 
 - 서버 `PageResponse` 에는 `last` 가 없어 다음 페이지 여부를 `page + 1 < totalPages` 로 계산한다.
-- 서버가 총 개수를 안 주는 곳(커서 목록의 마지막 페이지가 꽉 찬 경우, 알림)은 `hasMore` 가 true 여도 다음 페이지가 비어 있을 수 있다. 설명이 이를 안내한다.
+- `list_issues`(서버가 `size` 건을 채우면 `hasMore` — 마지막 페이지가 정확히 `size` 건이면 빈 다음 페이지가 올 수 있다)와 `list_notifications`(총 개수를 안 줘 한 페이지가 꽉 차면 `hasMore`)만 `hasMore` 가 true 여도 다음 페이지가 비어 있을 수 있다. 설명이 이를 안내한다. `list_channel_messages`(서버가 limit+1 로 조회)와 번호 페이지 도구(`totalPages` 로 계산)는 정확하다.
 - `list_notifications` 의 `nextOffset` 은 서버 목록 기준 위치다. `unreadOnly` 에서는 마지막으로 담은 행 바로 뒤를 가리킨다.
-- 서버에 페이지가 없는 목록은 이 규칙 대상이 아니다. limit 과 `truncated` 로 알린다(`list_thread_replies` 가 모범).
+- 서버에 페이지가 없는 목록은 위 표 대상이 아니다. 아래 표처럼 도구가 limit 과 `truncated` 로 잘림을 알린다(`list_thread_replies` 가 모범 — 다만 그 도구는 `truncated:false` 도 싣는다. 새 도구는 위와 같이 **잘렸을 때만 `truncated:true` 를 싣고 아니면 생략**한다. 헬퍼 `truncatedView`).
 - 설명에는 "`hasMore` 가 있으면 `nextCursor` 로 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 담겼다고 밝히라"를 적는다. AI Chat 의 subagent `agent.md` 와 라우터 프롬프트에도 같은 안내가 있다.
+
+### 서버 페이지가 없는 목록 (WP-352)
+
+| 도구 | 입력 | 출력 | 방식 · 근거 |
+|---|---|---|---|
+| `list_drive_items` | `limit`(기본 200·최대 500), `offset` | `{ folders, files, hasMore?, nextOffset? }` | **서버 페이지 추가** — `DriveFolderController` `/spaces/{id}/items` 에 선택 `limit`·`offset`(폴더 먼저·파일 다음 합본 순서, SQL 에서 자름). 파라미터가 없으면 전체(웹 브라우즈 그대로). 폴더 하나에 수천 항목이 있을 수 있고 파일 행마다 저장소 존재 확인이 있다. 도구는 `limit+1` 로 다음 페이지를 확인한다 |
+| `list_wiki_pages` | `parentId?` | `{ items(트리), total, truncated? }` | 도구 상한 500노드(너비 우선). 평면 목록을 잘라 트리를 만들면 고아가 최상위로 올라 계층이 거짓이 되므로 서버 페이지는 두지 않았다. 잘린 노드의 `hiddenChildren` + `parentId` 로 하위를 펼친다 |
+| `list_channels` | `limit`(기본 100·최대 200), `offset` | `{ items, total, truncated?, nextOffset? }` | 도구 상한. 내 채널 수라 유계이고 웹 사이드바(`useMyChannels`)가 전체를 쓰므로 서버는 그대로. 이름순 offset 으로 이어 읽는다 |
+| `search_drive` | `limit`(기본 50·최대 200, 폴더·파일 각각) | `{ folders, files, truncated? }` | 서버가 각각 200건에서 조용히 자른다(`searchByName` `.limit(200)`) — 도구 limit 을 넘거나 서버 상한 200 에 닿으면 `truncated` |
+| `search_wiki` | — | `{ items, truncated? }` | 서버가 최근 수정순 50건에서 조용히 자른다(`WikiPageService.search`) — 50건에 닿으면 `truncated` |
+
+서버가 상한을 조용히 거는 검색은 "상한에 닿음 = 잘렸을 수 있음" 으로 본다(정확히 상한만큼이 전부일 수도 있다). 이어 조회할 수단이 없어 검색어를 좁히라고 안내한다. 서버 상한을 바꾸면 도구 상수(`SEARCH_SERVER_CAP`)도 맞춘다.
 
 ## 노출 기준 (WP-347)
 
