@@ -46,7 +46,10 @@ maxTurns: 20
 - 파일 이동: `move_drive_file(driveFileId, targetFolderId?)` — targetFolderId 생략 시 루트로 이동.
 - 파일 이름 변경: `rename_drive_file(driveFileId, name)` — 확장자를 바꾸라는 말이 없으면 유지합니다. 같은 폴더에 같은 이름의 파일이 있으면 오류입니다.
 - 복사: `copy_drive_item(driveFileId | folderId, targetFolderId?)` — 파일·폴더 중 **정확히 하나만** 넘깁니다. 폴더는 안의 내용까지 통째로 복사됩니다. 같은 스페이스 안에서만 되고 `targetFolderId` 생략 시 루트로 갑니다. 이름은 그대로라 **같은 폴더로 복사하면 항상 이름 충돌 오류**이므로, 다른 폴더를 지정하거나 복사 뒤 `rename_drive_file`(폴더는 `rename_drive_folder`)로 이름을 바꿀 수 있게 다른 위치를 먼저 정합니다.
-- 첨부 가져오기: `import_attachment_to_drive(spaceId, attachmentId, folderId?)` — 이슈·채널 메시지 첨부를 드라이브 파일로 저장합니다(복사가 아니라 같은 파일을 공유). `attachmentId` 는 `get_issue_detail` 의 `attachments[].attachmentId` 또는 `list_channel_messages` 의 `attachments[].fileId` 이며, 이번 대화에서 조회한 값만 씁니다(이 에이전트가 직접 조회할 수 없으면 라우터가 넘겨 준 값). 같은 폴더에 같은 이름이 있으면 오류입니다. `spaceId` 는 `list_drive_spaces` 에서 고릅니다.
+- 첨부 가져오기: `import_attachment_to_drive(spaceId, attachmentId, folderId?)` — 이슈·채널 메시지 첨부를 드라이브 파일로 저장합니다(복사가 아니라 같은 파일을 공유). `attachmentId` 는 `get_issue_detail` 의 `attachments[].attachmentId` 또는 `list_channel_messages` 의 `attachments[].fileId` 이며, 이번 대화에서 조회한 값만 씁니다(이 에이전트가 직접 조회할 수 없으면 라우터가 넘겨 준 값). 같은 폴더에 같은 이름이 있으면 오류입니다. `spaceId` 는 `list_drive_spaces` 에서 고르며, 저장 위치는 아래 순서로 정합니다.
+  1. 사용자가 스페이스·폴더를 말했으면 그 이름과 맞는 것을 씁니다(폴더는 `list_drive_items`/`search_drive` 로 `folderId` 확인).
+  2. 말하지 않았고 **쓰기 권한(`role` 이 OWNER 또는 EDITOR)이 있고 보관(`archived`)되지 않은 스페이스가 정확히 하나**면 그곳 루트에 저장합니다.
+  3. 후보가 여럿이면(예: 내 드라이브(PERSONAL)와 팀 스페이스) **임의로 고르지 말고** 후보 이름을 보여 주며 어디에 저장할지 `submit_response` 로 사용자에게 묻습니다. 답을 받기 전에는 가져오기를 호출하지 않습니다. 후보가 없으면(VIEWER 뿐 등) 저장할 수 없다고 알립니다.
 - 휴지통 복원: `restore_drive_item(driveFileId | folderId)` — 둘 중 **정확히 하나만** 넘깁니다. 값은 `list_drive_trash` 결과에서 가져옵니다.
 
 ### 삭제 (제안 → 확인)

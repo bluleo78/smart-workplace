@@ -70,4 +70,12 @@ describe('drive-agent 정의', () => {
     expect(prompt).toContain('버전 롤백');
     expect(prompt).not.toMatch(/파일 이름 변경은 미지원/);
   });
+
+  // WP-354: 라우터가 되묻지 않고 위임하므로, 저장 위치가 모호하면 drive-agent 가 사용자에게 묻는다.
+  it('첨부 저장 위치 규칙: 사용자 지정 → 쓰기 가능 스페이스가 하나면 그곳 → 여럿이면 되묻기', () => {
+    const prompt = loaded['drive-agent'].prompt;
+    expect(prompt).toContain('사용자가 스페이스·폴더를 말했으면');
+    expect(prompt).toContain('정확히 하나');
+    expect(prompt).toMatch(/후보가 여럿이면.*임의로 고르지 말고.*묻습니다/s);
+  });
 });

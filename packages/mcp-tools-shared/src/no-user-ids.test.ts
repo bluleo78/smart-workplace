@@ -14,6 +14,8 @@ import { buildWikiTools } from './wiki-tools.js';
 /** 사용자 ID 를 담는 서버 필드 이름. 응답 어디에도 없어야 한다. */
 const USER_ID_KEYS = new Set([
   'userId', 'ownerId', 'authorId', 'updatedBy', 'invitedBy', 'invitedByUserId', 'actorId', 'reporterId', 'attachedById', 'createdById', 'proposedByUserId',
+  // WP-354: 드라이브 파일 버전의 업로더(DriveFileVersionResponse.uploadedBy) — 이름은 uploadedByName 으로만 둔다.
+  'uploadedBy',
 ]);
 
 /** 본문 문자열에 남은 멘션 토큰 `<@123>` — 숫자 사용자 ID 가 문자열 안에 숨은 모양이다. */
@@ -220,6 +222,47 @@ describe('드라이브', () => {
     const body = out(await find(buildDriveTools(client as never) as never, 'list_drive_spaces').handler({}));
     expect(userIdLeaks(body)).toEqual([]);
     expect(body[0]).toMatchObject({ id: 2, role: 'EDITOR' });
+  });
+
+  // WP-354: 서버 DriveFileVersionResponse(uploadedBy 숫자 ID)·BacklinkResponse(sourceId) 필드 그대로.
+  it('get_drive_file_summary: includeVersions·includeBacklinks 응답에 업로더 숫자 ID·core fileId 가 없다', async () => {
+    const client = {
+      getDriveFileSummary: vi.fn().mockResolvedValue({ summary: '요약', status: 'DONE', reason: null }),
+      listDriveFileVersions: vi.fn().mockResolvedValue([
+        { versionNo: 2, fileId: 901, sizeBytes: 200, uploadedBy: 9, uploadedByName: '김하나', createdAt: 't2', comment: null, current: true },
+        { versionNo: 1, fileId: 900, sizeBytes: 100, uploadedBy: 9, uploadedByName: '김하나', createdAt: 't1', comment: '최초', current: false },
+      ]),
+      listDriveFileBacklinks: vi.fn().mockResolvedValue([{ sourceType: 'ISSUE', sourceId: 41, label: 'WP-12 제목', deepLink: '/projects/WP/issues/12' }]),
+    };
+    const body = out(await find(buildDriveTools(client as never) as never, 'get_drive_file_summary').handler({ driveFileId: 5, includeVersions: true, includeBacklinks: true }));
+    expect(userIdLeaks(body)).toEqual([]);
+    expect(body.versions[0]).toMatchObject({ versionNo: 2, uploadedByName: '김하나' });
+    expect(body.versions[0]).not.toHaveProperty('fileId');
+    expect(body.backlinks[0]).not.toHaveProperty('sourceId');
+  });
+
+  it('rename_drive_file·copy_drive_item·import_attachment_to_drive: 파일·폴더 행에 core fileId·사용자 ID 가 없다', async () => {
+    // 서버 DriveFileResponse / DriveFolderResponse 필드 그대로.
+    const fileRow = { id: 5, folderId: 3, fileId: 812, name: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 5, category: 'DOCUMENT', createdAt: 't', updatedAt: 't', versionCount: 1, available: true };
+    const client = {
+      renameDriveFile: vi.fn().mockResolvedValue(fileRow),
+      copyDriveFile: vi.fn().mockResolvedValue(fileRow),
+      copyDriveFolder: vi.fn().mockResolvedValue({ id: 11, parentId: 3, name: '자료', createdAt: 't', updatedAt: 't' }),
+      importAttachmentToDrive: vi.fn().mockResolvedValue(fileRow),
+    };
+    const tools = buildDriveTools(client as never) as never;
+    const outs = [
+      out(await find(tools, 'rename_drive_file').handler({ driveFileId: 5, name: 'a.pdf' })),
+      out(await find(tools, 'copy_drive_item').handler({ driveFileId: 5, targetFolderId: 3 })),
+      out(await find(tools, 'copy_drive_item').handler({ folderId: 8 })),
+      out(await find(tools, 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 812 })),
+    ];
+    for (const body of outs) expect(userIdLeaks(body)).toEqual([]);
+    for (const body of [outs[0], outs[1], outs[3]]) {
+      expect(body).toMatchObject({ driveFileId: 5 });
+      expect(body).not.toHaveProperty('fileId');
+    }
+    expect(outs[2]).toMatchObject({ folderId: 11 });
   });
 });
 
