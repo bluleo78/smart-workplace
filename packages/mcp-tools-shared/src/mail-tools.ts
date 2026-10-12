@@ -207,11 +207,14 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
         '결과는 JSON({fetched, saved, seenChanged})입니다 — saved 는 새로 가져온 메일 수, seenChanged 는 서버 읽음 상태를 따라 바뀐 기존 메일 수, ' +
         'fetched 는 처리한 항목 수입니다. 셋 다 0 이면 새로 들어온 것도 바뀐 것도 없다는 뜻입니다. ' +
         '이미 이 계정을 동기화 중이면 새로 시작하지 않고 { alreadySyncing: true, phase, done, total } 을 돌려주니, 잠시 뒤 다시 호출하거나 list_mail 로 확인하세요. ' +
+        '이 감지는 최선의 노력입니다 — 확인 직후 다른 동기화가 시작되면 셋 다 0 으로 와서 "새것 없음" 처럼 보일 수 있으니, 중요한 판단은 list_mail 로 확인하세요. ' +
         'accountId 는 list_mail_accounts 로 확인하세요.',
       inputSchema: syncMailInput,
       async handler(args) {
         const { accountId } = syncMailInput.parse(args);
         // 서버는 이미 동기화 중이면 건수 0·0·0 을 돌려줘 "새 메일 없음" 과 구분되지 않는다 — 진행 상태를 먼저 보고 구분해 알린다.
+        // best-effort: 확인과 호출 사이에 다른 동기화가 시작되면 서버가 0·0·0 을 돌려 "새것 없음" 으로 읽힌다. 호출 뒤에 다시 확인하지 않는 이유는
+        // 본문 백필이 BODIES 단계에서 running 을 남겨 우리 자신의 동기화를 "이미 동기화 중" 으로 오판하기 때문이다.
         const status = await client.getMailSyncStatus(accountId);
         if (status.running) {
           return JSON.stringify({ alreadySyncing: true, phase: status.phase, done: status.done, total: status.total });

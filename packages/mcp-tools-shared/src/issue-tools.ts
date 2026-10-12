@@ -2,7 +2,7 @@
 import { dropEmpty } from './compact.js';
 import { errText, parseIssueKey } from './parse.js';
 import type { SharedTool } from './mcp-tool.js';
-import { ISSUE_DETAIL_COMMENT_LIMIT, ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
+import { ISSUE_DETAIL_COMMENT_HARD_LIMIT, ISSUE_DETAIL_COMMENT_LIMIT, ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
 import { toIssueListItem } from './project-tools.js';
 import { resolveAssigneeIds, resolveCycleIds, resolveLabelIds, resolveMilestoneId, resolveTypeId } from './resolve.js';
 import {
@@ -42,7 +42,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         '라벨·마일스톤·사이클(cycles: name·status)·부모(parent)·하위 진행률(children), 의존성(blockedBy·blocks), 커스텀 필드, 첨부, ' +
         `최근 코멘트(comments, 최대 ${ISSUE_DETAIL_COMMENT_LIMIT}건), 최근 변경 이력(history, 최대 ${ISSUE_DETAIL_HISTORY_LIMIT}건 — 상태가 언제 바뀌었는지 등)을 포함합니다. ` +
         '코멘트·이력이 상한을 넘어 오래된 것이 빠졌으면 commentsOmitted·historyOmitted(빠진 개수)가 옵니다 — 이 키가 없으면 전부 담긴 것입니다. ' +
-        '오래된 코멘트까지 읽어야 하면 allComments:true 로 다시 호출하세요(코멘트 전체, 이력은 여전히 최근 것만). ' +
+        `오래된 코멘트까지 읽어야 하면 allComments:true 로 다시 호출하세요(코멘트를 최근 ${ISSUE_DETAIL_COMMENT_HARD_LIMIT}건까지, 그보다 오래된 것은 여전히 commentsOmitted 로만 알립니다. 이력은 항상 최근 것만). ` +
         'closedAt 은 완료(DONE)·취소(CANCELED) 모두에 기록되므로 둘의 구분은 status 로 하세요. 사람(담당자·작성자·코멘트/이력 작성자·첨부자)은 username(쓰기 도구용 — 모르면 null)과 name(표시 이름)으로 옵니다.',
       inputSchema: getIssueDetailInput,
       async handler(args) {
@@ -159,7 +159,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        `이슈의 기존 코멘트를 수정합니다. commentId 는 get_issue_detail 의 comments 에서 확인하세요(최근 ${ISSUE_DETAIL_COMMENT_LIMIT}건만 오므로 대상이 안 보이면 allComments:true).`,
+        `이슈의 기존 코멘트를 수정합니다. commentId 는 get_issue_detail 의 comments 에서 확인하세요(최근 ${ISSUE_DETAIL_COMMENT_LIMIT}건만 오므로 대상이 안 보이면 allComments:true, 최근 ${ISSUE_DETAIL_COMMENT_HARD_LIMIT}건까지).`,
       inputSchema: editCommentInput,
       async handler(args) {
         const { issueKey, commentId, body } = editCommentInput.parse(args);

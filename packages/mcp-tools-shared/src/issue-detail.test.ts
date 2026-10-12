@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ISSUE_DETAIL_COMMENT_LIMIT, ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
+import { ISSUE_DETAIL_COMMENT_HARD_LIMIT, ISSUE_DETAIL_COMMENT_LIMIT, ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
 
 // 백엔드 IssueDetailResponse 형태(요약은 summary 중첩, comment 는 flat author 필드).
 const raw = {
@@ -160,7 +160,17 @@ describe('normalizeIssueDetail', () => {
     }
   });
 
-  it('allComments 면 코멘트 상한을 풀어 전부 싣는다(이력 상한은 그대로)', () => {
+  it('allComments 로도 하드 상한(200)을 넘으면 최근 것만 싣고 commentsOmitted 로 알린다', () => {
+    const d = normalizeIssueDetail({ summary: { title: 't' }, comments: manyComments(ISSUE_DETAIL_COMMENT_HARD_LIMIT + 25) }, { allComments: true });
+    expect(d.comments).toHaveLength(ISSUE_DETAIL_COMMENT_HARD_LIMIT);
+    expect(d.comments[0].id).toBe(26);
+    expect(d.comments.at(-1)!.id).toBe(ISSUE_DETAIL_COMMENT_HARD_LIMIT + 25);
+    expect(d.commentsOmitted).toBe(25);
+    // 하드 상한 이하는 전부 싣는다.
+    expect(normalizeIssueDetail({ summary: { title: 't' }, comments: manyComments(ISSUE_DETAIL_COMMENT_HARD_LIMIT) }, { allComments: true })).not.toHaveProperty('commentsOmitted');
+  });
+
+  it('allComments 면 코멘트 상한을 30 에서 풀어 더 싣는다(이력 상한은 그대로)', () => {
     const history = Array.from({ length: ISSUE_DETAIL_HISTORY_LIMIT + 2 }, (_, i) => ({ eventType: `E${i}`, actorName: 'x' }));
     const d = normalizeIssueDetail({ summary: { title: 't' }, comments: manyComments(ISSUE_DETAIL_COMMENT_LIMIT + 20), history }, { allComments: true });
     expect(d.comments).toHaveLength(ISSUE_DETAIL_COMMENT_LIMIT + 20);

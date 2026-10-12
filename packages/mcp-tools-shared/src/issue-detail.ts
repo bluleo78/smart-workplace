@@ -26,6 +26,12 @@ export const ISSUE_DETAIL_HISTORY_LIMIT = 30;
  */
 export const ISSUE_DETAIL_COMMENT_LIMIT = 30;
 
+/**
+ * allComments:true 의 하드 상한(WP-353). 상한을 아주 풀어도 무제한은 아니다 — 코멘트가 수백 건인 이슈에서 토큰 폭주가 되살아나지 않게
+ * 최근 200건까지만 싣고, 더 오래된 것은 commentsOmitted 로 알린다.
+ */
+export const ISSUE_DETAIL_COMMENT_HARD_LIMIT = 200;
+
 /** 의존성 링크 요약 — 백엔드 IssueLinkSummary(number,title,status,type) 중 LLM 필요분만. 이슈는 어디서나 issueKey 로 가리킨다(WP-353). */
 interface IssueLinkView {
   issueKey: string;
@@ -60,7 +66,7 @@ export interface IssueDetail {
   customFields: { name: string; type: string; value: unknown }[];
   attachments: { attachmentId: number; name: string; mimeType: string | null; sizeBytes: number | null; attachedBy: PersonView; attachedAt: string | null }[];
   comments: { id: number; body: string; author: PersonView; createdAt: string | null; updatedAt: string | null }[];
-  /** 코멘트가 상한에 걸려 잘렸을 때만: 빠진 오래된 코멘트 수. 없으면 전부 담긴 것(allComments 로 호출하면 항상 없다). */
+  /** 코멘트가 상한에 걸려 잘렸을 때만: 빠진 오래된 코멘트 수. 없으면 전부 담긴 것(allComments 로도 200건이 넘으면 생긴다). */
   commentsOmitted?: number;
   /** 최근 변경 이력(오래된→최신). from/to 는 상태값 같은 문자열이거나, 집합 변경이면 객체(숫자 id·색 토큰 제외). */
   history: { at: string | null; actor: PersonView; event: string; from: unknown; to: unknown }[];
@@ -114,13 +120,13 @@ const links = (arr: unknown, projectKey: unknown): IssueLinkView[] =>
     status: l.status as string,
   }));
 
-/** 뒤에서 limit 개만(최근 것) 남기고 빠진 개수를 함께 돌려준다. limit 이 undefined 면 자르지 않는다. */
-function keepRecent<T>(list: T[], limit: number | undefined): { kept: T[]; omitted: number } {
-  if (limit === undefined || list.length <= limit) return { kept: list, omitted: 0 };
+/** 뒤에서 limit 개만(최근 것) 남기고 빠진 개수를 함께 돌려준다. */
+function keepRecent<T>(list: T[], limit: number): { kept: T[]; omitted: number } {
+  if (list.length <= limit) return { kept: list, omitted: 0 };
   return { kept: list.slice(-limit), omitted: list.length - limit };
 }
 
-/** 정규화 옵션 — allComments 는 코멘트 상한을 풀어 전부 싣는다(get_issue_detail 의 allComments). */
+/** 정규화 옵션 — allComments 는 코멘트 상한을 30 에서 하드 상한 200 으로 늘린다(get_issue_detail 의 allComments). */
 export interface NormalizeIssueDetailOptions {
   allComments?: boolean;
 }
@@ -132,7 +138,7 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
   const { kept: history, omitted: historyOmitted } = keepRecent((r.history ?? []) as Raw[], ISSUE_DETAIL_HISTORY_LIMIT);
   const { kept: comments, omitted: commentsOmitted } = keepRecent(
     (r.comments ?? []) as Raw[],
-    options.allComments ? undefined : ISSUE_DETAIL_COMMENT_LIMIT,
+    options.allComments ? ISSUE_DETAIL_COMMENT_HARD_LIMIT : ISSUE_DETAIL_COMMENT_LIMIT,
   );
   const issueKey = String(r.issueKey ?? r.key ?? (s.projectKey && `${s.projectKey}-${s.number}`) ?? '');
   // 의존성 링크는 같은 프로젝트라 이 이슈의 프로젝트 키로 링크의 issueKey 를 만든다.

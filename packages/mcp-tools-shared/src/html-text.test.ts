@@ -50,4 +50,13 @@ describe('htmlToText (WP-353)', () => {
       expect(Date.now() - t0, html.slice(0, 12)).toBeLessThan(1000);
     }
   });
+
+  it('닫히지 않은 head·style 이 본문을 통째로 삼켜 결과가 비면, 내용 제거 없이 태그만 걷어 본문을 살린다', () => {
+    expect(htmlToText('<html><head><title>제목</title><body><p>본문입니다</p></body></html>')).toContain('본문입니다');
+    expect(htmlToText('<style>p{color:red}<p>본문입니다</p>')).toContain('본문입니다');
+    // 정상적으로 닫힌 head 는 여전히 버린다(재시도는 결과가 빌 때만).
+    expect(htmlToText('<head><title>제목</title></head><p>본문</p>')).toBe('본문');
+    // 닫히지 않은 head 뒤에 텍스트뿐이어도 잃지 않는다.
+    expect(htmlToText('<head>제목만')).toBe('제목만');
+  });
 });

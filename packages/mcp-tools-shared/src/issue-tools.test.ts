@@ -74,6 +74,7 @@ describe('buildSharedIssueTools', () => {
     expect(all).not.toHaveProperty('commentsOmitted');
     expect(detail.description).toMatch(/commentsOmitted/);
     expect(detail.description).toMatch(/allComments/);
+    expect(detail.description).toMatch(/200건/);
   });
 
   it('WP-176: get_issue_detail 은 이슈의 사이클을 name·status 로 동봉한다(숫자 id 없음)', async () => {

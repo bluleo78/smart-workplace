@@ -17,18 +17,18 @@ const USER_ID_KEYS = new Set([
 
 /**
  * 파싱한 응답을 훑어 숫자 사용자 ID 의 흔적을 모은다: (1) USER_ID_KEYS 에 드는 키, (2) username 과 숫자 id 를 함께 가진 객체(사람 객체에 실린 id).
- * `invitedBy` 는 {username,name} 객체일 때만 허용한다. allow 는 아직 남겨 두기로 한 경로(점 표기, 배열은 [])다.
+ * `invitedBy` 는 {username,name} 객체일 때만 허용한다. 허용 목록은 없다(WP-353 에서 모두 정리됨).
  */
-function userIdLeaks(value: unknown, allow: string[] = [], path = ''): string[] {
-  if (Array.isArray(value)) return value.flatMap((v) => userIdLeaks(v, allow, `${path}[]`));
+function userIdLeaks(value: unknown, path = ''): string[] {
+  if (Array.isArray(value)) return value.flatMap((v) => userIdLeaks(v, `${path}[]`));
   if (!value || typeof value !== 'object') return [];
   const obj = value as Record<string, unknown>;
   const leaks: string[] = [];
-  if (typeof obj.username === 'string' && typeof obj.id === 'number' && !allow.includes(path)) leaks.push(`${path || '$'}: username+id`);
+  if (typeof obj.username === 'string' && typeof obj.id === 'number') leaks.push(`${path || '$'}: username+id`);
   for (const [k, v] of Object.entries(obj)) {
     const p = path ? `${path}.${k}` : k;
     if (USER_ID_KEYS.has(k) && !(k === 'invitedBy' && v && typeof v === 'object')) leaks.push(p);
-    leaks.push(...userIdLeaks(v, allow, p));
+    leaks.push(...userIdLeaks(v, p));
   }
   return leaks;
 }

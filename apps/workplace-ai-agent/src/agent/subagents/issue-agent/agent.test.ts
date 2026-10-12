@@ -85,5 +85,6 @@ describe('issue-agent 정의', () => {
     const prompt = loaded['issue-agent'].prompt;
     expect(prompt).toContain('commentsOmitted');
     expect(prompt).toContain('allComments=true');
+    expect(prompt).toContain('최근 200건');
   });
 });

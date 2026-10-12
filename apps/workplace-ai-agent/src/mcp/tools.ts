@@ -1031,7 +1031,7 @@ export function buildTools(
     name: 'propose_delete_comment',
     description:
       '이슈 코멘트 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. 복원 기능이 없습니다. 작성자나 프로젝트 OWNER 만 삭제할 수 있습니다. ' +
-      'commentId 는 get_issue_detail 의 comments 에서 확인하세요(최근 30건만 오므로 대상이 안 보이면 allComments:true).',
+      'commentId 는 get_issue_detail 의 comments 에서 확인하세요(최근 30건만 오므로 대상이 안 보이면 allComments:true, 최근 200건까지).',
     inputSchema: proposeDeleteCommentInput,
     async handler(args) {
       const { issueKey, commentId, summary } = proposeDeleteCommentInput.parse(args);

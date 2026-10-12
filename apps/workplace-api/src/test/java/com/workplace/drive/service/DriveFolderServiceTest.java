@@ -134,7 +134,9 @@ class DriveFolderServiceTest extends IntegrationTestBase {
         .containsExactly("d.txt", "e.txt");
   }
 
-  /** 끝을 넘은 offset 은 빈 페이지이고, 항목 수보다 큰 limit 은 전부를 돌려준다(1000 상한 clamp 는 코드로 강제하되 이 테스트가 고정하지는 않는다). */
+  /**
+   * 끝을 넘은 offset 은 빈 페이지이고, 항목 수보다 큰 limit 은 전부를 돌려준다(1000 상한 clamp 는 코드로 강제하되 이 테스트가 고정하지는 않는다).
+   */
   @Test
   void listItems_offsetPastEndIsEmpty_andLargeLimitReturnsAll() throws Exception {
     long[] seed = seedPagedRoot();

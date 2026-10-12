@@ -39,9 +39,18 @@ function decodeEntities(s: string): string {
  * 나머지 태그를 걷어낸다. 연속 공백은 한 칸, 연속 빈 줄은 한 줄로 접는다. 링크 주소(href)와 이미지는 버린다 — 본문 요지에 쓸모가 적다.
  */
 export function htmlToText(html: string): string {
-  const text = html
-    .replace(/<!--[\s\S]*?(?:-->|$)/g, '')
-    .replace(/<(script|style|head)\b[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
+  const text = convert(html, true);
+  // 닫히지 않은 <head>·<style>·<script> 는 끝까지 삼켜 본문이 통째로 사라진다 — 내용이 있던 입력에서 결과가 비면 내용 제거 없이 태그만 걷어 다시 만든다.
+  // (제목·스타일 문구가 섞여도 본문을 잃는 것보다 낫다. 이 재시도도 선형이다.)
+  return text === '' && html.trim() !== '' ? convert(html, false) : text;
+}
+
+/** stripContent=true 면 script·style·head·주석을 내용째 버린다. false 면 태그 표지만 걷어낸다(재시도용). */
+function convert(html: string, stripContent: boolean): string {
+  const body = stripContent
+    ? html.replace(/<!--[\s\S]*?(?:-->|$)/g, '').replace(/<(script|style|head)\b[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
+    : html;
+  const text = body
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/t[dh]\s*>/gi, ' ')
     .replace(/<\/(p|div|tr|li|h[1-6]|table|blockquote|ul|ol|header|footer|section|article|pre)\s*>/gi, '\n')

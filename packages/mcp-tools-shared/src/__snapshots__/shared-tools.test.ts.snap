@@ -748,7 +748,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "allComments": {
-          "description": "true 면 코멘트를 상한 없이 전부 반환(기본은 최근 30건)",
+          "description": "true 면 코멘트를 최근 200건까지 반환(기본은 최근 30건)",
           "type": "boolean",
         },
         "issueKey": {

@@ -4,9 +4,9 @@ import { z } from 'zod';
 /** issueKey 만 받는 최소 입력. */
 export const issueKeyInput = z.object({ issueKey: z.string().min(1) });
 
-/** get_issue_detail 입력 — issueKey 에 코멘트 전체 읽기(allComments)를 더했다(WP-353: 기본은 최근 30건만). */
+/** get_issue_detail 입력 — issueKey 에 코멘트 전체 읽기(allComments)를 더했다(WP-353: 기본은 최근 30건, allComments 는 최근 200건까지). */
 export const getIssueDetailInput = issueKeyInput.extend({
-  allComments: z.boolean().optional().describe('true 면 코멘트를 상한 없이 전부 반환(기본은 최근 30건)'),
+  allComments: z.boolean().optional().describe('true 면 코멘트를 최근 200건까지 반환(기본은 최근 30건)'),
 });
 
 /** 이슈 생성 입력 — projectKey 필수(위임 컨텍스트 없이 대상 프로젝트 명시). */
