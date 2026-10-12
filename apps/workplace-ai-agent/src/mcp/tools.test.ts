@@ -11,7 +11,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { buildTools, type HostBridge, type McpProfile } from './tools.js';
+import { ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
 
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
 function apiError(status: number, message: string): Error {
@@ -48,6 +48,8 @@ function sharedMock(): MockedShared {
     getProjectMilestones: vi.fn().mockResolvedValue([]),
     getProjectCycles: vi.fn().mockResolvedValue([]),
     updateProject: vi.fn().mockResolvedValue({}),
+    createProject: vi.fn().mockResolvedValue({}),
+    addProjectMember: vi.fn().mockResolvedValue({ userId: 0, username: '' }),
     listProjects: vi.fn().mockResolvedValue([]),
     getProject: vi.fn().mockResolvedValue({}),
     listIssues: vi.fn().mockResolvedValue([]),
@@ -64,6 +66,10 @@ function sharedMock(): MockedShared {
     listEvents: vi.fn().mockResolvedValue([]),
     getEvent: vi.fn().mockResolvedValue({}),
     rsvpEvent: vi.fn().mockResolvedValue(undefined),
+    createEvent: vi.fn().mockResolvedValue({ id: 100 }),
+    updateEvent: vi.fn().mockResolvedValue({ id: 100 }),
+    addEventAttendees: vi.fn().mockResolvedValue(undefined),
+    removeEventAttendee: vi.fn().mockResolvedValue(undefined),
     // 메일
     listMailAccounts: vi.fn().mockResolvedValue([]),
     listMail: vi.fn().mockResolvedValue([]),
@@ -101,6 +107,7 @@ function sharedMock(): MockedShared {
     createChannel: vi.fn().mockResolvedValue({}),
     openDm: vi.fn().mockResolvedValue({ id: 1, participants: [] }),
     leaveChannel: vi.fn().mockResolvedValue(undefined),
+    addChannelMember: vi.fn().mockResolvedValue(undefined),
     discoverChannels: vi.fn().mockResolvedValue([]),
     // 드라이브
     listDriveSpaces: vi.fn().mockResolvedValue([]),
@@ -286,6 +293,29 @@ describe('프로필 구성', () => {
     expect(names).not.toContain('respond_chat');
   });
 
+  // WP-351: 라우터(assistant 메인 스레드)는 직접 쓰는 도구만 싣는다 — 쓰기·확인 카드·답 제출은 서브에이전트에만.
+  it('assistant 라우터 도구: 읽기·표시·알림·첨부만 — 쓰기는 알림 읽음 처리뿐, propose_*·submit_response·unassign_self 없음', () => {
+    const tools = buildTools(client(), AGENT_ID, 'assistant');
+    const router = tools.filter((t) => ASSISTANT_ROUTER_TOOLS.includes(t.name));
+    expect(router.map((t) => t.name).sort()).toEqual([...ASSISTANT_ROUTER_TOOLS].sort()); // 전부 프로필에 있다
+    expect(new Set(ASSISTANT_ROUTER_TOOLS).size).toBe(ASSISTANT_ROUTER_TOOLS.length); // 중복 없음
+    // 공유 도구는 kind 에서 계산한 readOnlyHint 를 싣는다(로컬 show_*·read_chat_attachment 는 힌트 없음 — 데이터를 바꾸지 않는다).
+    const writes = router.filter((t) => t.annotations && t.annotations.readOnlyHint !== true).map((t) => t.name);
+    expect(writes.sort()).toEqual(['mark_all_notifications_read', 'mark_notification_read']);
+    for (const n of ASSISTANT_ROUTER_TOOLS) {
+      expect(n.startsWith('propose_'), n).toBe(false);
+      expect(['submit_response', 'unassign_self']).not.toContain(n);
+    }
+    // 표시 위젯은 전부 라우터에 있다
+    for (const t of tools.filter((x) => x.name.startsWith('show_'))) expect(ASSISTANT_ROUTER_TOOLS).toContain(t.name);
+  });
+
+  it('routerToolsFor: assistant 만 라우터 도구로 좁히고 나머지 프로필은 undefined', () => {
+    expect(routerToolsFor('assistant')).toBe(ASSISTANT_ROUTER_TOOLS);
+    for (const p of ['issue', 'chat', 'home', 'messaging'] as const) expect(routerToolsFor(p)).toBeUndefined();
+    expect(routerToolsFor(undefined)).toBeUndefined();
+  });
+
   // WP-343: update_status(→ update_issue 의 status)·list_project_members(→ get_project.members)는 폐지 — 어느 프로필에도 없어야 한다.
   it('폐지된 update_status·list_project_members 는 어느 프로필에도 노출되지 않는다', () => {
     for (const profile of ['issue', 'chat', 'home', 'messaging', 'assistant'] as const) {
@@ -364,11 +394,26 @@ describe('공유 도구 패리티 (#846)', () => {
   }
 
   // 공유 패키지에 도구를 추가하고 ai-agent 에 연결하지 않으면 AI Chat 에서 조용히 못 쓰는 도구가 된다(#850).
-  it('assistant 프로필은 공유 도구를 전부 노출한다', () => {
+  // WP-348: 확인 카드가 있는 작업의 직접 실행 도구(CARD_ONLY_SHARED_TOOLS)만 예외 — 경로마다 도구 하나.
+  it('assistant 프로필은 공유 도구를 전부 노출한다(확인 카드 전용 작업 제외)', () => {
     const c = client();
     const names = new Set(buildTools(c, AGENT_ID, 'assistant').map((t) => t.name));
-    const missing = buildSharedTools(c.sc).map((t) => t.name).filter((n) => !names.has(n));
+    const missing = buildSharedTools(c.sc)
+      .map((t) => t.name)
+      .filter((n) => !names.has(n) && !(n in CARD_ONLY_SHARED_TOOLS));
     expect(missing).toEqual([]);
+  });
+
+  it('WP-348: 확인 카드 전용 작업의 직접 실행 도구는 어느 프로필에도 없고, 대응 확인 카드는 assistant 에 있다', () => {
+    const c = client();
+    const shared = new Set(buildSharedTools(c.sc).map((t) => t.name));
+    for (const name of Object.keys(CARD_ONLY_SHARED_TOOLS)) expect(shared.has(name), name).toBe(true); // 낡은 항목 방지
+    for (const v of variants) {
+      const names = v.build(c).map((t) => t.name);
+      for (const name of Object.keys(CARD_ONLY_SHARED_TOOLS)) expect(names, `${v.label}:${name}`).not.toContain(name);
+    }
+    const assistant = buildTools(c, AGENT_ID, 'assistant').map((t) => t.name);
+    for (const cards of Object.values(CARD_ONLY_SHARED_TOOLS)) expect(assistant).toEqual(expect.arrayContaining([...cards]));
   });
 
   // WP-342: 공유 도구는 workplace-mcp 와 같은 annotations 를 싣고, 로컬 전용 도구에는 없다.
@@ -1433,5 +1478,158 @@ describe('#856 propose 도구', () => {
       }),
     ).rejects.toThrow('소유자가 최소 1명');
     expect(sink).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-348: 확인 카드와 외부 MCP 직접 실행 도구가 같은 해석 결과를 내는지(공유 헬퍼 패리티)
+// ---------------------------------------------------------------------------
+describe('WP-348 확인 카드 ↔ create_event·update_event 해석 패리티', () => {
+  const ORGANIZER = 7;
+  const directory = [
+    { userId: 5, username: 'minsu', name: '김민수', active: true },
+    { userId: 6, username: 'jiyoung', name: '이지영', active: true },
+    { userId: 7, username: 'me', name: '나', active: true },
+    { userId: 9, username: 'retired', name: '퇴사자', active: false },
+  ];
+  /** 같은 디렉터리·같은 기존 일정·같은 주최자(카드=agentId, 직접 실행=getMe)를 쓰는 두 경로를 만든다. */
+  function setup(eventDetail: Record<string, unknown> = {}) {
+    const c = client();
+    c.sc.searchMembers.mockImplementation(async ({ search }: { search?: string }) => directory.filter((m) => m.username === search));
+    c.sc.getMe.mockResolvedValue({ id: ORGANIZER, username: 'me' });
+    c.sc.listEvents.mockResolvedValue([{ id: 3, title: '기존 회의', startsAt: 'a', endsAt: 'b', location: '3층' }]);
+    c.sc.getEvent.mockResolvedValue({
+      title: 't', description: null, startsAt: 's', endsAt: 'e', allDay: false, location: null, color: null,
+      reminderMinutes: null, recurrenceRule: null,
+      attendees: [{ userId: ORGANIZER, username: 'me' }, { userId: 6, username: 'jiyoung' }],
+      ...eventDetail,
+    });
+    const proposals: { actionType: string; summary: string; params: Record<string, unknown> }[] = [];
+    const cards = buildTools(c, ORGANIZER, 'assistant', undefined, undefined, collectingBridge(proposals));
+    const direct = buildSharedTools(c.sc);
+    const tool = (name: string) => direct.find((t) => t.name === name)!;
+    return { c, proposals, card: (n: string) => find(cards, n), tool };
+  }
+
+  it('같은 입력 → 같은 참석자 id·보정된 시간대·충돌 목록', async () => {
+    const { c, proposals, card, tool } = setup();
+    const input = { title: '회의', startsAt: '2026-06-20T14:00:00', endsAt: '2026-06-20T15:00:00', attendees: ['minsu', 'me', 'jiyoung', 'minsu'] };
+    await card('propose_create_event').handler({ ...input, summary: '회의' });
+    const out = JSON.parse((await tool('create_event').handler(input)) as string);
+
+    const [p] = proposals;
+    const [body] = c.sc.createEvent.mock.calls[0];
+    expect(body.attendeeUserIds).toEqual(p.params.attendeeUserIds);
+    expect(body.attendeeUserIds).toEqual([5, 6]);
+    expect([body.startsAt, body.endsAt]).toEqual([p.params.startsAt, p.params.endsAt]);
+    expect(body.startsAt).toBe('2026-06-20T14:00:00+09:00');
+    expect(out.conflicts).toEqual(p.params.conflicts);
+    expect(out.conflicts).toEqual([{ id: 3, title: '기존 회의', startsAt: 'a', endsAt: 'b' }]);
+  });
+
+  it('참석자를 확정 못 하면 두 경로가 같은 사유로 멈춘다', async () => {
+    const { c, proposals, card, tool } = setup();
+    const input = { title: '회의', startsAt: '2026-06-20T14:00:00+09:00', endsAt: '2026-06-20T15:00:00+09:00', attendees: ['ghost', 'retired'] };
+    const cardOut = await card('propose_create_event').handler({ ...input, summary: '회의' });
+    await expect(tool('create_event').handler(input)).rejects.toThrow(cardOut as string);
+    expect(proposals).toHaveLength(0);
+    expect(c.sc.createEvent).not.toHaveBeenCalled();
+  });
+
+  it('참석자 추가·제거: propose_add_attendees·propose_remove_attendee 와 update_event 가 같은 user id 를 고른다', async () => {
+    const { c, proposals, card, tool } = setup();
+    await card('propose_add_attendees').handler({ eventId: 1, attendees: ['minsu', 'me'], summary: 's' });
+    await card('propose_remove_attendee').handler({ eventId: 1, username: 'jiyoung', summary: 's' });
+    await tool('update_event').handler({ eventId: 1, addAttendees: ['minsu', 'me'], removeAttendees: ['jiyoung'] });
+
+    expect(proposals.map((p) => p.params)).toEqual([{ id: 1, userIds: [5] }, { id: 1, userId: 6 }]);
+    expect(c.sc.addEventAttendees).toHaveBeenCalledWith(1, [5], { notify: true });
+    expect(c.sc.removeEventAttendee).toHaveBeenCalledWith(1, 6);
+  });
+
+  it('주최자뿐인 추가·주최자 제거는 두 경로가 같은 문구로 거절한다', async () => {
+    const { card, tool } = setup();
+    const addCard = await card('propose_add_attendees').handler({ eventId: 1, attendees: ['me'], summary: 's' });
+    await expect(tool('update_event').handler({ eventId: 1, addAttendees: ['me'] })).rejects.toThrow(addCard as string);
+    const removeCard = await card('propose_remove_attendee').handler({ eventId: 1, username: 'me', summary: 's' });
+    await expect(tool('update_event').handler({ eventId: 1, removeAttendees: ['me'] })).rejects.toThrow(removeCard as string);
+  });
+});
+
+// WP-349: 프로젝트 생성·멤버 추가·채널 초대의 확인 카드와 외부 MCP 직접 실행 도구가 같은 입력·본문·대상 판정을 쓰는지(공유 헬퍼 패리티)
+describe('WP-349 확인 카드 ↔ create_project·add_project_member·add_channel_member 패리티', () => {
+  const directory = [
+    { userId: 5, username: 'minsu', name: '김민수', active: true },
+    { userId: 9, username: 'retired', name: '퇴사자', active: false },
+  ];
+  function setup() {
+    const c = client();
+    c.sc.searchMembers.mockImplementation(async ({ search }: { search?: string }) => directory.filter((m) => m.username === search));
+    c.sc.addProjectMember.mockResolvedValue({ userId: 5, username: 'minsu', name: '김민수', role: 'MEMBER' });
+    const proposals: { actionType: string; summary: string; params: Record<string, unknown> }[] = [];
+    const cards = buildTools(c, AGENT_ID, 'assistant', undefined, undefined, collectingBridge(proposals));
+    const direct = buildSharedTools(c.sc);
+    const tool = (name: string) => direct.find((t) => t.name === name)!;
+    return { c, proposals, card: (n: string) => find(cards, n), tool };
+  }
+
+  it('카드 입력 스키마는 직접 실행 도구 스키마에 정해진 필드만 더한 것이다(add_project_member 의 role 은 카드만)', () => {
+    const { card, tool } = setup();
+    const summary = { type: 'string', minLength: 1 };
+    // OWNER 부여는 권한 변경이라 확인 카드에만 있다 — 직접 실행 도구에 role 이 새로 생기면 이 표가 깨진다.
+    const role = { type: 'string', enum: ['OWNER', 'MEMBER'] };
+    for (const [direct, cardName, extra] of [
+      ['create_project', 'propose_create_project', { summary }],
+      ['add_project_member', 'propose_add_project_member', { role, summary }],
+      ['add_channel_member', 'propose_add_channel_member', { summary }],
+    ] as const) {
+      const d = z.toJSONSchema(tool(direct).inputSchema) as { properties: Record<string, unknown>; required: string[] };
+      const k = z.toJSONSchema(card(cardName).inputSchema) as { properties: Record<string, unknown>; required: string[] };
+      expect(k.properties, cardName).toEqual({ ...d.properties, ...extra });
+      expect(k.required, cardName).toEqual([...d.required, ...Object.keys(extra)]);
+    }
+    expect(Object.keys((z.toJSONSchema(tool('add_project_member').inputSchema) as { properties: object }).properties)).toEqual([
+      'projectKey',
+      'username',
+    ]);
+  });
+
+  it('프로젝트 생성: 카드 실행기 params 와 POST /projects 본문이 같다', async () => {
+    const { c, proposals, card, tool } = setup();
+    const input = { projectKey: 'NEW', name: '새 프로젝트', description: '설명', type: 'OPEN' };
+    await card('propose_create_project').handler({ ...input, summary: 's' });
+    await tool('create_project').handler(input);
+    expect(proposals[0].actionType).toBe('project.create_project');
+    expect(c.sc.createProject).toHaveBeenCalledWith(proposals[0].params);
+    expect(proposals[0].params).toEqual({ key: 'NEW', name: '새 프로젝트', description: '설명', type: 'OPEN' });
+  });
+
+  it('멤버 추가·채널 초대: 같은 username 에서 같은 user id 를 고른다(직접 실행 멤버 추가는 MEMBER 고정)', async () => {
+    const { c, proposals, card, tool } = setup();
+    await card('propose_add_project_member').handler({ projectKey: 'WP', username: 'minsu', role: 'OWNER', summary: 's' });
+    await tool('add_project_member').handler({ projectKey: 'WP', username: 'minsu' });
+    await card('propose_add_channel_member').handler({ channelId: 3, username: 'minsu', summary: 's' });
+    await tool('add_channel_member').handler({ channelId: 3, username: 'minsu' });
+
+    expect(proposals.map((p) => [p.actionType, p.params])).toEqual([
+      ['project.add_member', { key: 'WP', userId: 5, role: 'OWNER' }],
+      ['messaging.add_channel_member', { id: 3, userId: 5 }],
+    ]);
+    // 카드는 OWNER 를 실을 수 있지만 직접 실행은 MEMBER 로만 추가한다(권한 부여는 카드만).
+    expect(c.sc.addProjectMember).toHaveBeenCalledWith('WP', { userId: 5, role: 'MEMBER' });
+    expect(c.sc.addChannelMember).toHaveBeenCalledWith(3, 5);
+  });
+
+  it('없는 username·비활성 계정은 두 경로가 같은 문구로 멈추고 아무것도 쓰지 않는다', async () => {
+    const { c, proposals, card, tool } = setup();
+    for (const username of ['ghost', 'retired']) {
+      const projectCard = await card('propose_add_project_member').handler({ projectKey: 'WP', username, role: 'MEMBER', summary: 's' });
+      await expect(tool('add_project_member').handler({ projectKey: 'WP', username })).rejects.toThrow(projectCard as string);
+      const channelCard = await card('propose_add_channel_member').handler({ channelId: 3, username, summary: 's' });
+      await expect(tool('add_channel_member').handler({ channelId: 3, username })).rejects.toThrow(channelCard as string);
+    }
+    expect(proposals).toHaveLength(0);
+    expect(c.sc.addProjectMember).not.toHaveBeenCalled();
+    expect(c.sc.addChannelMember).not.toHaveBeenCalled();
   });
 });

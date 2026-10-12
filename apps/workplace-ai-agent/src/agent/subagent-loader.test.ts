@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { serializeSubagent, writeSubagentDefinitions, loadSubagents, toAgentDefinitions, type SubagentDefinition } from './subagent-loader.js';
-import { buildTools } from '../mcp/tools.js';
+import {
+  serializeSubagent, writeSubagentDefinitions, loadSubagents, toAgentDefinitions, toRouterAgentDefinition, type SubagentDefinition,
+} from './subagent-loader.js';
+import { ASSISTANT_ROUTER_TOOLS, buildTools } from '../mcp/tools.js';
 
 const issueDef: SubagentDefinition = {
   description: '이슈 조회·상태변경·코멘트',
@@ -146,16 +148,50 @@ describe('toAgentDefinitions (#462 슬라이스4)', () => {
   });
 });
 
-// #844: 서브에이전트 allowlist 가 assistant 프로파일에 없는 도구를 가리키면 그 도구는 조용히 도달 불가가 된다.
+describe('toRouterAgentDefinition (WP-351)', () => {
+  it('라우터 도구에 mcp__workplace__ 접두사를 붙이고, 위임은 우리 서브에이전트만 Agent(…) 로 허용한다(prompt·model 은 그대로)', () => {
+    const def = toRouterAgentDefinition(['list_issues', 'show_drive'], {
+      prompt: 'sys', model: 'm', subagents: ['issue-agent', 'mail-agent'],
+    });
+    expect(def).toEqual({
+      description: expect.any(String),
+      prompt: 'sys',
+      model: 'm',
+      tools: ['mcp__workplace__list_issues', 'mcp__workplace__show_drive', 'Agent(issue-agent, mail-agent)'],
+    });
+    // 그냥 Agent 면 내장 에이전트(general-purpose 등)로 서브에이전트 경계를 우회한다
+    expect(def.tools).not.toContain('Agent');
+  });
+
+  it('allowFileRead 면 Read 도 싣고, 서브에이전트가 없으면 위임 도구를 싣지 않는다', () => {
+    expect(toRouterAgentDefinition([], { prompt: 'p', model: 'm', subagents: [], allowFileRead: true }).tools).toEqual(['Read']);
+  });
+});
+
+// #844·WP-351: 서브에이전트는 메인 스레드와 같은 인-프로세스 MCP 서버(assistant 프로필)를 쓰고, SDK 는 서브에이전트 도구를
+// 그 서버 전체에서 고른다. 그래서 서버(assistant 프로필)는 전 도구 union 을 유지하고 라우터만 ASSISTANT_ROUTER_TOOLS 로 좁힌다.
+// allowlist 가 서버에 없는 도구를 가리키면 그 도구는 조용히 도달 불가가 된다.
 // (에이전트별 도구 목록 자체는 각 subagents/<name>/agent.test.ts 가 고정한다.)
 describe('실제 서브에이전트 allowlist (#844)', () => {
   const defs = loadSubagents();
   // #846: buildTools 가 구성 시점에 toolClient() 를 부르므로 그것만 둔 스텁(핸들러는 실행하지 않음).
-  const assistantTools = new Set(buildTools({ toolClient: () => ({}) } as never, 1, 'assistant').map((t) => `mcp__workplace__${t.name}`));
+  const assistantNames = buildTools({ toolClient: () => ({}) } as never, 1, 'assistant').map((t) => t.name);
+  const assistantTools = new Set(assistantNames.map((n) => `mcp__workplace__${n}`));
+  const subagentTools = new Set(Object.values(defs).flatMap((d) => d.tools));
 
-  it('frontmatter 의 모든 도구는 assistant 프로파일에 실제로 존재한다', () => {
+  it('frontmatter 의 모든 도구는 assistant 프로파일(공유 MCP 서버)에 실제로 존재한다', () => {
     for (const [name, d] of Object.entries(defs)) {
       for (const tool of d.tools) expect(assistantTools.has(tool), `${name}: ${tool}`).toBe(true);
     }
+  });
+
+  it('WP-351: 라우터 도구는 모두 assistant 프로파일에 있다', () => {
+    for (const n of ASSISTANT_ROUTER_TOOLS) expect(assistantNames, n).toContain(n);
+  });
+
+  it('WP-351: assistant 프로파일의 도구는 라우터나 어느 서브에이전트에서든 닿는다(도달 불가 도구 없음)', () => {
+    const router = new Set(ASSISTANT_ROUTER_TOOLS);
+    const unreachable = assistantNames.filter((n) => !router.has(n) && !subagentTools.has(`mcp__workplace__${n}`));
+    expect(unreachable).toEqual([]);
   });
 });

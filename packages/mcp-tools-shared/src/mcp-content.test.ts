@@ -62,10 +62,11 @@ describe('SharedTool 반환 타입 (WP-345)', () => {
     name: 'read_attachment_fake',
     description: 'd',
     inputSchema: z.object({}),
+    app: 'issue',
     kind: 'read',
     handler: async () => [{ type: 'text', text: '첨부:' }, image6kb],
   };
-  const stringTool: SharedTool = { name: 's', description: 'd', inputSchema: z.object({}), kind: 'read', handler: async () => '{}' };
+  const stringTool: SharedTool = { name: 's', description: 'd', inputSchema: z.object({}), app: 'issue', kind: 'read', handler: async () => '{}' };
 
   it('블록 배열을 돌려주는 공유 도구도 toMcpContent·summarizeToolResult 를 그대로 통과한다', async () => {
     const out = await imageTool.handler({});

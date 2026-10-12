@@ -111,6 +111,12 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async updateProject(key, body) {
       return (await http.patch(project(key), body)).data;
     },
+    async createProject(body) {
+      return (await http.post('/projects', body)).data;
+    },
+    async addProjectMember(key, body) {
+      return (await http.post(`${project(key)}/members`, body)).data;
+    },
     async listIssues(query) {
       return (await http.get('/me/issues', { params: query })).data?.items ?? [];
     },
@@ -196,6 +202,20 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async rsvpEvent(eventId, status) {
       await http.patch(`/calendar/events/${eventId}/rsvp`, { status });
+    },
+    async createEvent(body, { notify }) {
+      return (await http.post('/calendar/events', body, { params: { notify } })).data;
+    },
+    async updateEvent(eventId, body, { scope, occurrenceDate }) {
+      // occurrenceDate 는 반복 일정의 THIS·THIS_AND_FOLLOWING 에서만 의미가 있다 — 없으면 싣지 않는다.
+      const params = { scope, ...(occurrenceDate !== undefined && { occurrenceDate }) };
+      return (await http.patch(`/calendar/events/${eventId}`, body, { params })).data;
+    },
+    async addEventAttendees(eventId, userIds, { notify }) {
+      await http.post(`/calendar/events/${eventId}/attendees`, { userIds }, { params: { notify } });
+    },
+    async removeEventAttendee(eventId, userId) {
+      await http.delete(`/calendar/events/${eventId}/attendees/${userId}`);
     },
 
     // ── 메일 ──
@@ -311,6 +331,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async leaveChannel(channelId) {
       await http.post(`/messaging/channels/${channelId}/leave`);
+    },
+    async addChannelMember(channelId, userId) {
+      await http.post(`/messaging/channels/${channelId}/members`, { userId });
     },
     async discoverChannels(q) {
       const data = (await http.get('/messaging/channels/discover', { params: { q } })).data;

@@ -34,6 +34,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
   return [
     {
       name: 'list_mail_accounts',
+      app: 'mail',
       kind: 'read',
       description: '내 메일 계정 목록을 JSON 으로 반환합니다. 메일 도구에 넘길 accountId 를 모를 때 먼저 호출해 확인하세요.',
       inputSchema: z.object({}),
@@ -43,6 +44,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
     },
     {
       name: 'list_mail',
+      app: 'mail',
       kind: 'read',
       description:
         '메일 계정의 폴더 메시지 목록을 JSON 으로 반환합니다. folder 기본 INBOX, limit 기본 20, query 로 내용 검색(제목/발신/스니펫). ' +
@@ -55,6 +57,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
     },
     {
       name: 'get_mail',
+      app: 'mail',
       kind: 'read',
       description:
         '단일 메일 본문(텍스트/HTML)을 JSON 으로 반환합니다. 조회만으로는 읽음 처리되지 않습니다(읽음 처리는 mark_mail_read). messageId 는 list_mail 결과 항목의 id 입니다.',
@@ -67,6 +70,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
     // AI 세 도구는 메일·사용자 데이터를 바꾸지 않아 read 다(요약은 서버 캐시만 채운다). 단 LLM 호출 비용이 든다.
     {
       name: 'get_mail_summary',
+      app: 'mail',
       kind: 'read',
       description:
         '메일 한 통의 AI 요약을 JSON({summary})으로 반환합니다. 긴 메일·스레드를 빠르게 파악할 때 get_mail 대신 쓰세요. ' +
@@ -79,6 +83,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
     },
     {
       name: 'draft_mail_reply',
+      app: 'mail',
       kind: 'read',
       description:
         '메일에 대한 AI 답장 초안 본문을 JSON({draftBody})으로 반환합니다. 저장하거나 보내지 않습니다 — 보내려면 사용자에게 보여주고 발송은 따로 요청받으세요.',
@@ -90,6 +95,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
     },
     {
       name: 'draft_issue_from_mail',
+      app: 'mail',
       kind: 'read',
       description:
         '메일 내용으로 이슈 초안(title·body·priority)과 추천 프로젝트(suggestedProjectKey·candidateProjects)를 JSON 으로 반환합니다. 이슈는 만들지 않습니다 — ' +
@@ -102,6 +108,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
     },
     {
       name: 'create_issue_from_mail',
+      app: 'mail',
       kind: 'write',
       // 이미 이 메일로 만든 이슈가 있으면 새로 만들지 않고 기존 키를 돌려준다 — 멱등.
       hints: { destructive: false, idempotent: true },
@@ -126,6 +133,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
     },
     {
       name: 'mark_mail_read',
+      app: 'mail',
       kind: 'write',
       // 읽음 상태가 원본 메일 서버(Graph/IMAP)로 역동기화된다 — 워크스페이스 밖에 닿으므로 openWorld.
       hints: { destructive: true, idempotent: true, openWorld: true },
@@ -142,6 +150,7 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
     },
     {
       name: 'sync_mail',
+      app: 'mail',
       kind: 'write',
       // 원본 메일 서버(IMAP/Graph)에 접속하므로 openWorld. 새 메일을 적재하는 데 그치지 않고 기존 로컬 메일의 읽음 상태를 서버 값으로
       // 덮어쓰며(WP-148, mark_mail_read 와 같은 이유로 destructive) Graph 는 서버에서 지워진 항목을 로컬에서도 지운다.

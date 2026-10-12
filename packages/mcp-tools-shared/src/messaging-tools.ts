@@ -1,8 +1,11 @@
 // src/messaging-tools.ts — 메시징 도구 + 멘션 변환. 두 앱 공유(#846, #850, #855).
+// 채널 초대(add_channel_member, WP-349)는 외부 MCP 에 직접 실행 도구로 노출하고, AI Chat 은 같은 작업을 propose_add_channel_member
+// 확인 카드로 한다(경로마다 도구 하나 — ai-agent 프로필에는 싣지 않는다). 두 경로가 입력 스키마(addChannelMemberInput)와 대상 해석
+// (requireActiveMember)을 같이 쓴다. 비공개 채널 나가기는 계속 확인 카드(propose_leave_channel)만 한다.
 import { z } from 'zod';
 import { dropEmpty } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
-import { findMemberByUsername, searchMembersByTerm } from './member-tools.js';
+import { findMemberByUsername, requireActiveMember, searchMembersByTerm } from './member-tools.js';
 import type { MemberRow, MemberToolClient, MessagingToolClient } from './tool-client.js';
 
 // 줄 시작·공백·여는 괄호 뒤의 @ 만 후보로 보므로 메일 주소(a@b.com)의 @ 는 건드리지 않고,
@@ -103,6 +106,11 @@ export const createChannelInput = z.object({
 // 본인은 서버가 자동 포함한다. 본인 포함 최대 8명(서버 MAX_MEMBERS).
 export const openDmInput = z.object({ usernames: z.array(z.string().min(1)).min(1).max(7) });
 export const leaveChannelInput = z.object({ channelId: z.number().int().positive() });
+/** 채널 초대 입력(WP-349) — add_channel_member 와 확인 카드 propose_add_channel_member(이 스키마 + summary)가 같이 쓴다. */
+export const addChannelMemberInput = z.object({
+  channelId: z.number().int().positive(),
+  username: z.string().min(1),
+});
 
 /** DM 응답 → LLM 뷰. 채팅 도구가 channelId 로 가리키므로 id 를 그 이름으로 주고, 참여자는 이름만 둔다(#833). */
 function toDmView(dm: { id: number; participants?: { name: string }[] }) {
@@ -114,7 +122,7 @@ export interface MessagingToolOptions {
   parentMessageIdFor?(channelId: number): number | undefined;
 }
 
-/** 메시징 도구(list_channels/get_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel). */
+/** 메시징 도구(list_channels/get_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/add_channel_member). */
 export function buildMessagingTools(
   client: MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>,
   opts: MessagingToolOptions = {},
@@ -122,6 +130,7 @@ export function buildMessagingTools(
   return [
     {
       name: 'list_channels',
+      app: 'messaging',
       kind: 'read',
       description:
         '내가 속한 채널·DM 목록을 JSON 배열로 반환합니다(id·name·kind·visibility 포함). 채널 이름만 알 때 channelId 를 확보한 뒤 get_channel_messages / add_channel_message 에 사용하세요.',
@@ -132,6 +141,7 @@ export function buildMessagingTools(
     },
     {
       name: 'discover_channels',
+      app: 'messaging',
       kind: 'read',
       description:
         '공개 채널을 이름·키워드로 검색해 JSON 배열로 반환합니다(id·name·kind 포함). list_channels 에 없는 공개 채널을 찾아 channelId 를 확보한 뒤 메시지 조회/작성에 사용하세요.',
@@ -143,6 +153,7 @@ export function buildMessagingTools(
     },
     {
       name: 'get_channel_messages',
+      app: 'messaging',
       kind: 'read',
       description:
         '채널/DM 의 최근 메시지 목록을 최신순(최신 → 오래된 순)으로 JSON 배열로 반환합니다(대화 흐름 확인용). 스레드 답글은 빠지고 최상위 메시지만 담기며, ' +
@@ -156,6 +167,7 @@ export function buildMessagingTools(
     },
     {
       name: 'list_thread_replies',
+      app: 'messaging',
       kind: 'read',
       description:
         '채널 메시지 하나에 달린 스레드 답글 전체를 오래된 순으로 JSON({items, truncated})으로 반환합니다(스레드 요약·확인용). ' +
@@ -170,6 +182,7 @@ export function buildMessagingTools(
     },
     {
       name: 'add_channel_message',
+      app: 'messaging',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
@@ -184,6 +197,7 @@ export function buildMessagingTools(
     },
     {
       name: 'create_channel',
+      app: 'messaging',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
@@ -196,6 +210,7 @@ export function buildMessagingTools(
     },
     {
       name: 'open_dm',
+      app: 'messaging',
       kind: 'write',
       // 같은 참여자 DM 이 있으면 그것을 돌려준다(find-or-create) — 추가만 하고 멱등.
       hints: { destructive: false, idempotent: true },
@@ -219,6 +234,7 @@ export function buildMessagingTools(
     },
     {
       name: 'leave_channel',
+      app: 'messaging',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
@@ -239,6 +255,29 @@ export function buildMessagingTools(
         }
         await client.leaveChannel(channelId);
         return 'ok';
+      },
+    },
+    {
+      name: 'add_channel_member',
+      app: 'messaging',
+      kind: 'write',
+      // 멤버를 추가만 한다. 서버가 이미 멤버면 아무것도 바꾸지 않고 성공한다(ChannelMemberRepository.add 의 ON CONFLICT DO NOTHING,
+      // 기존 역할 유지)라 다시 불러도 같은 결과 — 멱등. 확인 카드 사전검증(validateAdd)만 "이미 멤버" 를 거절하는데, 효과 없는 카드를
+      // 만들지 않으려는 것이고 직접 실행에는 해당하지 않는다(알림처럼 되풀이되는 부작용이 없다). 워크스페이스 밖에 닿지 않는다.
+      hints: { destructive: false, idempotent: true },
+      description:
+        '채널에 구성원을 초대합니다(MEMBER 로 추가). 채널 OWNER/ADMIN 만 초대할 수 있고 DM 에는 초대할 수 없습니다. ' +
+        'channelId 는 list_channels 결과의 id, username 은 search_members 결과의 값입니다(활성 구성원만). 이미 멤버면 역할을 그대로 두고 성공합니다. ' +
+        '초대된 사람에게 인박스·푸시 알림은 가지 않고, 그 사람의 채널 목록에 바로 나타납니다. 채널에 연결된 드라이브 공간이 있으면 그 공간 멤버로도 추가됩니다. ' +
+        '결과는 { channelId, member: { username, name } } 입니다. 멤버 제거·역할 변경은 이 도구로 하지 않습니다.',
+      inputSchema: addChannelMemberInput,
+      async handler(args) {
+        const { channelId, username } = addChannelMemberInput.parse(args);
+        // 확인 카드(propose_add_channel_member)와 같은 대상 판정·문구 — 서버는 비활성 계정을 막지 않으므로 여기서 거른다.
+        const target = await requireActiveMember(client, username);
+        if ('error' in target) throw new Error(target.error);
+        await client.addChannelMember(channelId, target.member.userId);
+        return JSON.stringify({ channelId, member: { username: target.member.username, name: target.member.name } });
       },
     },
   ];

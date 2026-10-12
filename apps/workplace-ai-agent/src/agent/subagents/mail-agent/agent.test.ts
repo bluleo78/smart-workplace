@@ -24,6 +24,8 @@ describe('mail-agent 정의', () => {
       'mcp__workplace__mark_mail_read',
       'mcp__workplace__draft_issue_from_mail',
       'mcp__workplace__create_issue_from_mail',
+      // WP-351: 담당자가 프로젝트 멤버인지 미리 확인(get_project.members)
+      'mcp__workplace__get_project',
       // #844: 참석자·수신자 이메일 조달 — 구성원 + 외부 연락처
       'mcp__workplace__search_members',
       'mcp__workplace__list_contacts',

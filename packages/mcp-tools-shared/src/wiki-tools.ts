@@ -66,6 +66,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
   return [
     {
       name: 'list_wiki_spaces',
+      app: 'wiki',
       kind: 'read',
       description:
         '내가 접근 가능한 노트 스페이스 목록을 JSON 배열(id·name·type·role)로 반환합니다. 노트를 생성하려면 먼저 이 도구로 대상 스페이스의 id 를 확인하세요. ' +
@@ -77,6 +78,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
     },
     {
       name: 'list_wiki_pages',
+      app: 'wiki',
       kind: 'read',
       description:
         '노트 스페이스의 페이지 트리를 JSON 배열로 반환합니다. 각 노드는 id·title 과 하위 페이지 children 을 가지며 사이드바 순서대로 정렬됩니다. ' +
@@ -89,6 +91,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
     },
     {
       name: 'search_wiki',
+      app: 'wiki',
       kind: 'read',
       description:
         '노트 페이지를 제목·본문으로 검색합니다. 접근 가능한 스페이스만 대상이며, 결과 JSON 배열(id·spaceName·title·snippet)을 반환합니다. 근거가 필요하면 먼저 검색하세요.',
@@ -100,6 +103,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
     },
     {
       name: 'get_wiki_page',
+      app: 'wiki',
       kind: 'read',
       description: '노트 페이지 본문 전체를 JSON(title·body·version 등)으로 반환합니다. search_wiki 결과의 id 로 호출하세요.',
       inputSchema: getWikiPageInput,
@@ -110,6 +114,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
     },
     {
       name: 'list_wiki_backlinks',
+      app: 'wiki',
       kind: 'read',
       description:
         '이 노트 페이지를 링크한 다른 페이지 목록(백링크)을 JSON 배열(pageId·spaceName·title·updatedAt)로 반환합니다. 내가 볼 수 있는 페이지만 포함됩니다.',
@@ -121,6 +126,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
     },
     {
       name: 'create_wiki_page',
+      app: 'wiki',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
@@ -133,6 +139,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
     },
     {
       name: 'update_wiki_page',
+      app: 'wiki',
       kind: 'write',
       // 본문 전체 대체(3-way 병합). AI 적용은 매번 이전 판 스냅샷을 남기고, 기준본이 만료되면 409 라 멱등으로 보지 않는다.
       hints: { destructive: true, idempotent: false },
@@ -150,6 +157,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
     },
     {
       name: 'move_wiki_page',
+      app: 'wiki',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:

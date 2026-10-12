@@ -52,6 +52,38 @@ export async function findMemberByUsername(
   return (await searchMembersByTerm(client, username, true)).find((m) => m.username === username);
 }
 
+/** 대상 구성원 확정 결과 — 구성원, 또는 에이전트가 바로 교정할 수 있는 오류 문구. */
+export type RequiredMember = { member: MemberRow } | { error: string };
+
+/**
+ * username → 대상 구성원(#833). 확인 카드(propose_*)와 직접 실행 도구(add_project_member·add_channel_member, WP-349)가 같은 판정·문구를
+ * 쓴다 — 카드는 문구를 결과로 돌려주고, 직접 실행 도구는 throw 해 isError 로 전달한다. 도구 표면은 username 만 다루고(숫자 id 미노출)
+ * 여기서 user.id 로 해석한다 — LLM 이 숫자 식별자를 만지지 않으면 "연락처 id 를 userId 로 넣는" 사고가 구조적으로 불가능해진다.
+ */
+export async function requireMember(client: Pick<MemberToolClient, 'searchMembers'>, username: string): Promise<RequiredMember> {
+  const found = await findMemberByUsername(client, username);
+  if (!found) {
+    return {
+      error: `오류: username='${username}' 인 구성원을 찾을 수 없습니다. search_members 로 대상을 다시 찾아 정확한 username 을 확인하세요.`,
+    };
+  }
+  return { member: found };
+}
+
+/**
+ * username → 활성 구성원. 없거나 비활성이면 교정 가능한 오류 문구. 멤버 추가·채널 초대처럼 새로 들이는 작업이 쓴다 —
+ * 서버 채널 초대는 비활성 계정을 막지 않으므로(ChannelMemberService.checkAdd) 두 경로 모두 여기서 거른다.
+ */
+export async function requireActiveMember(
+  client: Pick<MemberToolClient, 'searchMembers'>,
+  username: string,
+): Promise<RequiredMember> {
+  const r = await requireMember(client, username);
+  if ('error' in r) return r;
+  if (r.member.active === false) return { error: `오류: ${r.member.name}(${username}) 은 비활성 계정입니다.` };
+  return r;
+}
+
 /** username 으로 구성원을 못 찾았을 때의 오류 — isError 로 LLM 에 전달돼 search_members 로 자가교정하게 한다(contact-tools 와 같은 방식). */
 function memberNotFound(username: string): Error {
   return new Error(`구성원을 찾을 수 없습니다: ${username}. search_members 로 정확한 username 을 확인하세요.`);
@@ -83,6 +115,9 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
   return [
     {
       name: 'search_members',
+      // username 을 받는 도구(일정 참석자·프로젝트/채널 멤버·DM·멘션·그룹 멤버)가 설명에서 이 도구로 확인하라고 하므로 그 앱들에도 싣는다(README "앱 분류").
+      // mail·issue 는 제외 — create_issue(_from_mail) 의 assignees 는 선택이고("me" 가능) 안내가 get_project 의 members 를 가리킨다.
+      app: ['member', 'calendar', 'project', 'messaging', 'contacts'],
       kind: 'read',
       description:
         '우리 워크스페이스의 구성원을 검색해 JSON 으로 반환합니다. 사람을 찾을 때 쓰는 표준 도구입니다. ' +
@@ -95,6 +130,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
     },
     {
       name: 'get_member',
+      app: 'member',
       kind: 'read',
       description: '구성원 단건(아이디·이메일·직책·활성여부·멤버십 역할)을 JSON 으로 반환합니다. username 은 search_members 로 확보하세요.',
       inputSchema: memberInput,
@@ -108,6 +144,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
     },
     {
       name: 'get_member_contact',
+      app: 'member',
       kind: 'read',
       description:
         '사내 구성원의 연락처 상세(직책·소속 그룹·즐겨찾기 여부)를 JSON 으로 반환합니다. 조직/소속을 묻는 질문에 적합합니다. ' +
@@ -124,6 +161,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
     },
     {
       name: 'list_contacts',
+      app: 'contacts',
       kind: 'read',
       description:
         '연락처 목록을 JSON 으로 반환합니다. type=EXTERNAL 은 외부 연락처(거래처·고객 등), type=MEMBER 는 사내 구성원입니다. ' +
@@ -142,6 +180,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
     },
     {
       name: 'get_external_contact',
+      app: 'contacts',
       kind: 'read',
       description:
         '외부 연락처 단건 상세를 JSON 으로 반환합니다. externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다. ' +

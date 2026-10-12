@@ -16,11 +16,17 @@ describe('computeToolPolicy', () => {
     expect(disallowed).not.toContain('Read');
   });
 
-  it('allowSubagents=true: Agent 가 allowed 로 이동하고 disallowed 에서 제외(Task 는 유지)', () => {
+  // WP-351: SDK 0.3.x 는 위임 도구를 Task 로도 부르고 'Task' 거부가 Agent 도구를 숨긴다(실측) — 위임을 열면 Task 도 뺀다.
+  it('allowSubagents=true: Agent 가 allowed 로 이동하고 Agent·Task 를 disallowed 에서 제외(TaskCreate 등은 유지)', () => {
     const { allowed, disallowed } = computeToolPolicy({ allowSubagents: true });
     expect(allowed).toContain('Agent');
     expect(disallowed).not.toContain('Agent');
-    expect(disallowed).toContain('Task');
+    expect(disallowed).not.toContain('Task');
+    expect(disallowed).toEqual(expect.arrayContaining(['TaskCreate', 'TaskGet', 'TaskList', 'TaskOutput', 'TaskStop', 'TaskUpdate']));
+  });
+
+  it('위임을 열지 않으면 Task 는 계속 막는다', () => {
+    expect(computeToolPolicy({}).disallowed).toContain('Task');
   });
 
   it('BASE_DISALLOWED 는 SlashCommand 를 포함하지 않는다(#457)', () => {

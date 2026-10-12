@@ -1,11 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildProjectTools, toIssueListItem } from './project-tools.js';
-import type { ProjectToolClient } from './tool-client.js';
+import type { MemberToolClient, ProjectToolClient } from './tool-client.js';
 import { resultText } from './mcp-content.js';
 
+type Client = ProjectToolClient & Pick<MemberToolClient, 'searchMembers'>;
+
+/** 멤버 추가 대상 해석용 구성원 디렉터리(검색어와 username 이 정확히 같은 행만 돌려준다). */
+const DIRECTORY = [
+  { userId: 5, username: 'minsu', name: '김민수', active: true },
+  { userId: 9, username: 'retired', name: '퇴사자', active: false },
+];
+
 /** 프로젝트·이슈 목록 클라이언트 mock. */
-function mockClient(): ProjectToolClient {
+function mockClient(): Client {
   return {
+    searchMembers: vi.fn(async ({ search }: { search?: string }) => DIRECTORY.filter((m) => m.username === search)),
+    createProject: vi.fn().mockResolvedValue({ key: 'NEW', name: '새 프로젝트' }),
+    addProjectMember: vi.fn().mockResolvedValue({ userId: 5, username: 'minsu', name: '김민수', role: 'MEMBER', kind: 'HUMAN' }),
     listProjects: vi.fn().mockResolvedValue([{ key: 'WP' }]),
     getProject: vi.fn().mockResolvedValue({ key: 'WP' }),
     getProjectTypes: vi.fn().mockResolvedValue([]),
@@ -18,9 +29,9 @@ function mockClient(): ProjectToolClient {
   };
 }
 
-const tool = (c: ProjectToolClient, name: string) => buildProjectTools(c).find((x) => x.name === name)!;
+const tool = (c: Client, name: string) => buildProjectTools(c).find((x) => x.name === name)!;
 /** listIssues 에 실제 전달된 쿼리 객체(undefined 키 유무까지 보려고 toStrictEqual 로 비교한다). */
-const issueQuery = (c: ProjectToolClient) => vi.mocked(c.listIssues).mock.calls[0][0];
+const issueQuery = (c: Client) => vi.mocked(c.listIssues).mock.calls[0][0];
 
 describe('list_projects', () => {
   it('기본 page 0 / size 50 으로 client.listProjects 호출', async () => {
@@ -308,5 +319,49 @@ describe('update_project (#854, #858)', () => {
     const c = mockClient();
     await expect(tool(c, 'update_project').handler({ projectKey: 'WP' })).rejects.toThrow();
     expect(c.updateProject).not.toHaveBeenCalled();
+  });
+});
+
+describe('create_project (WP-349)', () => {
+  it('projectKey 를 서버 필드 key 로 옮겨 POST /projects 하고 응답을 그대로 돌려준다', async () => {
+    const c = mockClient();
+    const out = await tool(c, 'create_project').handler({ projectKey: 'NEW', name: '새 프로젝트', type: 'OPEN' });
+    expect(c.createProject).toHaveBeenCalledWith({ key: 'NEW', name: '새 프로젝트', type: 'OPEN' });
+    expect(JSON.parse(resultText(out))).toEqual({ key: 'NEW', name: '새 프로젝트' });
+  });
+
+  it('서버 key 형식(대문자 시작 대문자·숫자 2~10자)이 아니면 부르지 않는다', async () => {
+    const c = mockClient();
+    for (const projectKey of ['wp', 'W', '1WP', 'ABCDEFGHIJK']) {
+      await expect(tool(c, 'create_project').handler({ projectKey, name: 'n' }), projectKey).rejects.toThrow();
+    }
+    expect(c.createProject).not.toHaveBeenCalled();
+  });
+});
+
+describe('add_project_member (WP-349)', () => {
+  it('username 을 user id 로 해석해 추가하고, 결과에는 숫자 userId 없이 username·name·role 만 싣는다', async () => {
+    const c = mockClient();
+    const out = await tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'minsu' });
+    expect(c.addProjectMember).toHaveBeenCalledWith('WP', { userId: 5, role: 'MEMBER' });
+    expect(JSON.parse(resultText(out))).toEqual({ projectKey: 'WP', member: { username: 'minsu', name: '김민수', role: 'MEMBER' } });
+  });
+
+  it('없는 username·비활성 계정은 서버를 부르지 않고 교정 가능한 사유로 거절한다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'ghost' })).rejects.toThrow(
+      "username='ghost' 인 구성원을 찾을 수 없습니다",
+    );
+    await expect(tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'retired' })).rejects.toThrow(
+      '퇴사자(retired) 은 비활성 계정입니다',
+    );
+    expect(c.addProjectMember).not.toHaveBeenCalled();
+  });
+
+  it('OWNER 부여(권한 변경)는 확인 카드만 한다 — 입력에 role 이 없고 role 을 줘도 늘 MEMBER 로 추가한다', async () => {
+    const c = mockClient();
+    expect(Object.keys((tool(c, 'add_project_member').inputSchema as unknown as { shape: object }).shape)).toEqual(['projectKey', 'username']);
+    await tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'minsu', role: 'OWNER' });
+    expect(c.addProjectMember).toHaveBeenCalledWith('WP', { userId: 5, role: 'MEMBER' });
   });
 });

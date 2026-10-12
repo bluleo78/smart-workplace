@@ -264,6 +264,18 @@ describe('createSharedToolClient 경로 매핑', () => {
     const { http, client } = mockHttp();
     await client.rsvpEvent(7, 'TENTATIVE');
     expect(http.patch).toHaveBeenCalledWith('/calendar/events/7/rsvp', { status: 'TENTATIVE' });
+    // WP-348: 일정 생성·수정·참석자 — 알림 여부는 쿼리(notify), 반복 범위는 쿼리(scope·occurrenceDate)로 보낸다.
+    const body = { title: 't', startsAt: 'a', endsAt: 'b', allDay: false };
+    await client.createEvent({ ...body, attendeeUserIds: [2] }, { notify: false });
+    expect(http.post).toHaveBeenCalledWith('/calendar/events', { ...body, attendeeUserIds: [2] }, { params: { notify: false } });
+    await client.updateEvent(7, body, { scope: 'ALL' });
+    expect(http.patch).toHaveBeenCalledWith('/calendar/events/7', body, { params: { scope: 'ALL' } });
+    await client.updateEvent(7, body, { scope: 'THIS', occurrenceDate: 'o' });
+    expect(http.patch).toHaveBeenCalledWith('/calendar/events/7', body, { params: { scope: 'THIS', occurrenceDate: 'o' } });
+    await client.addEventAttendees(7, [2, 3], { notify: true });
+    expect(http.post).toHaveBeenCalledWith('/calendar/events/7/attendees', { userIds: [2, 3] }, { params: { notify: true } });
+    await client.removeEventAttendee(7, 3);
+    expect(http.delete).toHaveBeenCalledWith('/calendar/events/7/attendees/3');
     await client.getChannel(9);
     expect(http.get).toHaveBeenCalledWith('/messaging/channels/9');
     await client.createChannel({ name: 'c', visibility: 'PRIVATE' });
@@ -282,6 +294,19 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/mail/messages/3/issue', { projectKey: 'WP', title: 't' });
     await client.markMailRead(3);
     expect(http.post).toHaveBeenCalledWith('/mail/messages/3/read');
+  });
+
+  it('WP-349: 프로젝트 생성·멤버 추가·채널 초대 경로(확인 카드 실행기와 같은 서비스 메서드에 닿는 REST)', async () => {
+    const { http, client } = mockHttp();
+    http.post.mockResolvedValueOnce({ data: { key: 'NEW' } });
+    expect(await client.createProject({ key: 'NEW', name: 'n', type: 'TEAM' })).toEqual({ key: 'NEW' });
+    expect(http.post).toHaveBeenLastCalledWith('/projects', { key: 'NEW', name: 'n', type: 'TEAM' });
+    http.post.mockResolvedValueOnce({ data: { userId: 5, username: 'minsu', role: 'MEMBER' } });
+    expect(await client.addProjectMember('A B', { userId: 5, role: 'MEMBER' })).toEqual({ userId: 5, username: 'minsu', role: 'MEMBER' });
+    // 프로젝트 키는 경로 세그먼트라 인코딩한다(다른 프로젝트 경로와 같은 규칙).
+    expect(http.post).toHaveBeenLastCalledWith('/projects/A%20B/members', { userId: 5, role: 'MEMBER' });
+    await client.addChannelMember(9, 5);
+    expect(http.post).toHaveBeenLastCalledWith('/messaging/channels/9/members', { userId: 5 });
   });
 
   it('getMailLinkedIssue 는 서버의 { issueKey: null } 을 null 로 바꾼다', async () => {

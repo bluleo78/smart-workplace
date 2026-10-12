@@ -2,16 +2,20 @@
 
 exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
 {
+  "add_channel_member": "write",
   "add_channel_message": "write",
   "add_comment": "write",
   "add_contact_favorite": "write",
   "add_issue_dependency": "write",
+  "add_project_member": "write",
   "add_user_group_member": "write",
   "create_channel": "write",
   "create_drive_folder": "write",
+  "create_event": "write",
   "create_external_contact": "write",
   "create_issue": "write",
   "create_issue_from_mail": "write",
+  "create_project": "write",
   "create_user_group": "write",
   "create_wiki_page": "write",
   "discover_channels": "read",
@@ -68,6 +72,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "sync_mail": "write",
   "unwatch_issue": "write",
   "update_comment": "write",
+  "update_event": "write",
   "update_external_contact": "write",
   "update_issue": "write",
   "update_project": "write",
@@ -79,6 +84,29 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
 
 exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
 [
+  {
+    "name": "add_channel_member",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "channelId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "username": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "channelId",
+        "username",
+      ],
+      "type": "object",
+    },
+  },
   {
     "name": "add_channel_message",
     "schema": {
@@ -174,6 +202,28 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "add_project_member",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "username": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "projectKey",
+        "username",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "add_user_group_member",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -259,6 +309,67 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "required": [
         "spaceId",
         "name",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "create_event",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "allDay": {
+          "default": false,
+          "type": "boolean",
+        },
+        "attendees": {
+          "items": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "description": {
+          "type": "string",
+        },
+        "endsAt": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "location": {
+          "maxLength": 200,
+          "type": "string",
+        },
+        "notify": {
+          "default": true,
+          "type": "boolean",
+        },
+        "recurrenceRule": {
+          "maxLength": 500,
+          "type": "string",
+        },
+        "reminderMinutes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "startsAt": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "title",
+        "startsAt",
+        "endsAt",
+        "allDay",
+        "notify",
       ],
       "type": "object",
     },
@@ -411,6 +522,36 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "messageId",
         "projectKey",
         "title",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "create_project",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 2000,
+          "type": "string",
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string",
+        },
+        "projectKey": {
+          "pattern": "^[A-Z][A-Z0-9]{1,9}$",
+          "type": "string",
+        },
+        "type": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "projectKey",
+        "name",
       ],
       "type": "object",
     },
@@ -1719,6 +1860,177 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "issueKey",
         "commentId",
         "body",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "update_event",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "addAttendees": {
+          "anyOf": [
+            {
+              "items": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "allDay": {
+          "anyOf": [
+            {
+              "type": "boolean",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "color": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "endsAt": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "eventId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "location": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "notify": {
+          "default": true,
+          "type": "boolean",
+        },
+        "occurrenceDate": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "recurrenceRule": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "reminderMinutes": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "removeAttendees": {
+          "anyOf": [
+            {
+              "items": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "scope": {
+          "default": "ALL",
+          "enum": [
+            "THIS",
+            "THIS_AND_FOLLOWING",
+            "ALL",
+          ],
+          "type": "string",
+        },
+        "startsAt": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
+      "required": [
+        "eventId",
+        "scope",
+        "notify",
       ],
       "type": "object",
     },

@@ -48,6 +48,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
   return [
     {
       name: 'list_drive_spaces',
+      app: 'drive',
       kind: 'read',
       description:
         '내가 멤버인 드라이브 스페이스(내 드라이브 + 팀 스페이스 + 채널 드라이브) 목록을 JSON 으로 반환합니다. 내 드라이브가 먼저, 나머지는 이름순이며 ' +
@@ -59,6 +60,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
     },
     {
       name: 'list_drive_items',
+      app: 'drive',
       kind: 'read',
       description:
         '드라이브 스페이스(또는 parentId 폴더 하위)의 폴더/파일 목록을 JSON 으로 반환합니다. parentId 생략 시 최상위. 폴더는 id(= folderId), 파일은 driveFileId 로 가리킵니다.',
@@ -70,6 +72,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
     },
     {
       name: 'search_drive',
+      app: 'drive',
       kind: 'read',
       description: '드라이브 스페이스에서 파일/폴더를 이름으로 검색해 JSON 으로 반환합니다. 폴더는 id(= folderId), 파일은 driveFileId 로 가리킵니다.',
       inputSchema: searchDriveInput,
@@ -80,6 +83,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
     },
     {
       name: 'get_drive_file_summary',
+      app: 'drive',
       kind: 'read',
       description:
         '드라이브 파일 내용의 AI 요약을 JSON({summary, status, reason})으로 반환합니다. "이 파일 뭐라고 써 있어?" 류 질문에 사용하세요. ' +
@@ -93,6 +97,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
     },
     {
       name: 'search_drive_content',
+      app: 'drive',
       kind: 'read',
       description:
         '접근 가능한 드라이브 파일을 **내용**(추출 텍스트, 의미 검색 포함)으로 검색해 JSON({hits, semantic})으로 반환합니다. 각 hit 은 driveFileId·name·spaceName·snippet 을 담습니다. ' +
@@ -105,6 +110,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
     },
     {
       name: 'list_drive_trash',
+      app: 'drive',
       kind: 'read',
       description:
         '드라이브 스페이스 휴지통의 항목을 JSON 배열(type·name·originalPath·trashedAt·autoPurgeAt, 파일은 driveFileId·폴더는 folderId)로 반환합니다. ' +
@@ -117,6 +123,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
     },
     {
       name: 'restore_drive_item',
+      app: 'drive',
       kind: 'write',
       // 다시 부르면 휴지통에 없다는 오류가 난다(DriveNotInTrashException) — 멱등이 아니다.
       hints: { destructive: false, idempotent: false },
@@ -133,6 +140,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
     },
     {
       name: 'create_drive_folder',
+      app: 'drive',
       kind: 'write',
       // 같은 위치에 같은 이름이 있으면 서버가 409(DriveDuplicateNameException) — 다시 부르면 오류라 멱등이 아니다.
       hints: { destructive: false, idempotent: false },
@@ -146,6 +154,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
     },
     {
       name: 'rename_drive_folder',
+      app: 'drive',
       kind: 'write',
       // 이전 이름을 덮어쓴다(destructive). 같은 이름으로 다시 불러도 저장 상태가 그대로이고 이력·알림이 쌓이지 않는다(멱등).
       hints: { destructive: true, idempotent: true },
@@ -158,6 +167,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
     },
     {
       name: 'move_drive_folder',
+      app: 'drive',
       kind: 'write',
       // 상위 폴더를 바꾼다(destructive, move_wiki_page 와 같은 기준). 이미 그 위치면 서버가 no-op 이라 다시 불러도 같은 결과(멱등).
       hints: { destructive: true, idempotent: true },
@@ -171,6 +181,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
     },
     {
       name: 'move_drive_file',
+      app: 'drive',
       kind: 'write',
       // move_drive_folder 와 같다 — 위치를 바꾸고(destructive), 이미 그 폴더면 서버가 no-op(멱등).
       hints: { destructive: true, idempotent: true },

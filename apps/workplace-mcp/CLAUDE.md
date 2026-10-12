@@ -39,11 +39,29 @@ workplace-mcp 자신은 PAT 를 저장·검증하지 않고 그대로 전달(패
 - 401 은 그대로 클라이언트에 요약 전달(`summarizeError`) — "토큰 만료·폐기" 를 사용자가 바로 알 수
   있게 한다.
 
+## 연결 범위 (WP-350)
+
+기본 `POST /mcp` 는 노출 가능한 도구를 전부 싣는다(기존 연결 그대로). Claude.ai·ChatGPT 는 도구 정의를 전부 읽으므로, 연결 URL 이나 헤더로 범위를 좁힐 수 있다. 구현은 `src/mcp/scope.ts`(파싱·우선순위), `src/tools/index.ts` 의 `selectTools`(도구 선택), `src/mcp/instructions.ts`(서버 instructions).
+
+| 경로 | 노출 |
+|---|---|
+| `POST /mcp` | 전체 |
+| `POST /mcp/readonly` | `kind: 'read'` 도구만 |
+| `POST /mcp/x/{apps}` | 쉼표로 고른 앱의 도구 — 예: `/mcp/x/issue,wiki` |
+| `POST /mcp/x/{apps}/readonly` | 앱 선택 ∩ 읽기 전용 |
+
+- 앱 이름과 앱별 도구는 공유 패키지 README "앱 분류" 표가 기준이다: `issue` `project` `wiki` `drive` `mail` `messaging` `calendar` `contacts` `notify` `member`. 여러 앱에 걸친 도구(`read_attachment`, `list_projects`, `get_project`, `search_members`)는 고른 앱 중 하나만 속해도 실린다.
+- 헤더 `X-MCP-Toolsets: issue,wiki` 는 경로에 앱 선택이 **없을 때** 같은 의미다. 경로에 앱 선택(`/x/…`)이 있으면 헤더는 무시한다(합치지 않음). `/mcp/readonly` + 헤더는 헤더 앱 선택 + 읽기 전용이다. 빈 헤더는 없는 것으로 본다.
+- 모르는 앱 이름은 HTTP 400 + JSON-RPC 오류 본문(`error.message` 에 사용 가능한 앱 목록, `error.data.availableApps`). 일부만 싣지 않고 전부 거절한다. 인증(401)이 먼저, `/auth/me` 호출 전에 거절한다.
+- GET·DELETE 는 모든 경로에서 405(stateless). 인증·initialize 조기 검증은 모든 경로가 같다.
+- 서버 `instructions` 는 앱별 도구 안내를 앞에 두고 전체 앱에서도 2,048자 이내(테스트가 강제 — Claude Code tool search 가 그만큼만 쓴다). 고른 앱·로드된 도구만 설명하며 읽기 전용이면 쓰기 문구를 싣지 않는다.
+- 연결 안내(웹 설정 > API 토큰 발급 직후 대화상자)에 같은 예시가 있다. 앱을 추가하거나 경로를 바꾸면 그 문구(`TokenIssueDialog.tsx`)도 고친다.
+
 ## 도구 추가 방법
 
 도구 정의(스키마·설명·핸들러)와 REST 경로 매핑은 **공유 패키지 `packages/mcp-tools-shared`** 에 있다(#846). ai-agent 와 같은 정의를 쓰므로 파라미터 이름이 어긋날 수 없다. 이 앱은 인증 헤더(Bearer PAT)가 붙은 axios 인스턴스를 `createSharedToolClient` 에 넘기고, `buildSharedTools` 결과 중 destructive 를 뺀 나머지를 노출한다.
 
-1. 공유 패키지의 해당 도메인 `src/<domain>-tools.ts` 에 도구를 추가한다. 필요한 경로는 `src/tool-client.ts`(인터페이스)와 `src/rest-client.ts`(구현)에 추가한다. 파라미터 이름은 패키지 README 의 명명 규칙을 따른다.
+1. 공유 패키지의 해당 도메인 `src/<domain>-tools.ts` 에 도구를 추가한다. `app` 태그(앱 분류 — README 표)는 필수다. 필요한 경로는 `src/tool-client.ts`(인터페이스)와 `src/rest-client.ts`(구현)에 추가한다. 파라미터 이름은 패키지 README 의 명명 규칙을 따른다.
 2. PAT 컨텍스트에는 확인 카드가 없다. 공유 도구에는 `kind`(`read`/`write`/`destructive`)가 필수이고, 이 앱은 `destructive` 를 빼고 노출한다(#853, `src/tools/index.ts` 의 `exposableTools`). `kind` 는 노출 여부만 정하고, MCP annotations(`destructiveHint` 등 연산 성격)는 write·destructive 도구의 `hints` 에서 `toolAnnotations()` 가 만든다(WP-342 — 기준은 `mcp-tool.ts` 의 `ToolHints` 주석, 전체 표는 `tool-annotations.test.ts`). 파괴적이거나 대외 발송인 쓰기는 ai-agent 의 `propose_*` 로 만든다.
 3. 테스트는 공유 패키지(`<domain>-tools.test.ts`, 스키마 스냅샷 `shared-tools.test.ts`)에 추가한다. 이 앱의 `src/tools/index.test.ts` 는 노출 목록이 공유 정의와 일치하는지, destructive 가 없는지 보고, 노출 이름·kind 를 스냅샷으로 고정한다(새 공유 도구는 이 스냅샷 갱신이 필요하다).
 4. 공유 패키지를 바꾼 뒤에는 `pnpm --filter @smart-workplace/mcp-tools-shared build` 를 돌린다. 앱은 공유 패키지의 `dist` 를 import 한다.

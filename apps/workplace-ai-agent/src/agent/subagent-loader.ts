@@ -167,3 +167,31 @@ export function toAgentDefinitions(
   }
   return out;
 }
+
+// WP-351: AI Chat 라우터를 메인 스레드 에이전트(Options.agent)로 정의할 때의 이름. 라우터가 모델에 싣는 도구를
+// 이 정의의 tools 로 좁히고, MCP 서버에는 전 도구를 그대로 두어 서브에이전트가 자기 frontmatter 도구를 계속 쓴다
+// (SDK 는 서브에이전트 도구를 메인 스레드 에이전트의 tools 가 아니라 서버 전체에서 고른다 — 실측).
+// 메인 스레드 전용이라 위임 대상이 아니다 — sdk-runner 가 Agent(<이름>) 을 막는다.
+export const ROUTER_AGENT_NAME = 'assistant-router';
+
+// 라우터 메인 스레드 에이전트 정의. toolNames 는 접두사 없는 MCP 도구 이름(tools.ts 의 routerToolsFor).
+// prompt·model 은 Options 와 같은 값을 다시 적는다 — 실측상 Options.systemPrompt·model 이 이기지만, 우선순위가 바뀌어도 같게 하려고.
+// 위임은 Agent(<이름>, …) 로 우리 서브에이전트만 허용한다. 그냥 Agent 면 내장 에이전트(general-purpose·Explore·Plan 등)도
+// 고를 수 있고, 그들은 서버 전 도구(쓰기 포함)를 상속해 라우터 축소와 서브에이전트 경계를 우회한다(실측 — 목록 밖 타입은 "not found").
+// Read 는 파일 읽기를 연 실행에서만 필요하다.
+export function toRouterAgentDefinition(
+  toolNames: readonly string[],
+  opts: { prompt: string; model: string; subagents: readonly string[]; allowFileRead?: boolean },
+): AgentDefinition {
+  return {
+    description: 'AI Chat 메인 라우터(메인 스레드 전용 — 위임 대상 아님)',
+    prompt: opts.prompt,
+    model: opts.model,
+    // mcpServers 는 두지 않는다 — 메인 스레드는 Options.mcpServers 의 workplace 서버를 그대로 쓴다.
+    tools: [
+      ...toolNames.map((n) => `mcp__workplace__${n}`),
+      ...(opts.subagents.length > 0 ? [`Agent(${opts.subagents.join(', ')})`] : []),
+      ...(opts.allowFileRead ? ['Read'] : []),
+    ],
+  };
+}

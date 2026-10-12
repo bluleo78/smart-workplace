@@ -14,6 +14,7 @@ workplace-mcp(사용자 PAT 원격 MCP)와 workplace-ai-agent(AI 비서 인-프�
 | `*-tools.ts` | 도메인별 도구 정의(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·메시징·드라이브·알림·첨부(`attachment-tools.ts`)) |
 | `attachment-read.ts` | 첨부·파일 내용 읽기의 공통 계약 — 구간 범위(`readRangeShape`)·기본 길이·이미지 형식/크기 판정. 공유 `read_attachment` 와 ai-agent 전용 채팅 첨부 읽기 도구가 같이 쓴다 |
 | `shared-tools.ts` | `buildSharedTools(client, opts)` — 공유 도구 전체 |
+| `tool-apps.ts` | `TOOL_APPS`·`ToolApp`·`toolApps()` — 도구를 앱으로 묶는 분류(WP-350, 아래 "앱 분류")와 서버 `instructions` 에 쓰는 앱별 안내(`TOOL_APP_GUIDES`) |
 | `tool-naming.ts` | `toolNameViolations(name)` — 도구 이름 규칙 검사(아래 "도구 명명 규칙"). 두 앱의 테스트가 쓴다 |
 
 LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는다. 식별자 이름 바꾸기나 숫자 id 제거가 여기에 해당한다. 클라이언트에 가공을 두면 앱마다 규칙이 달라진다.
@@ -39,6 +40,33 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 
 등급과 노출 목록은 `shared-tools.test.ts` 와 workplace-mcp `tools/index.test.ts` 의 스냅샷이 고정한다.
 
+## 앱 분류 (WP-350)
+
+외부 MCP 클라이언트(Claude.ai·ChatGPT)는 연결한 서버의 도구 정의를 전부 싣는다. 그래서 연결할 때 앱을 고를 수 있도록 공유 도구마다 `app` 태그를 둔다. `SharedTool.app` 은 **필수**라 빠뜨리면 타입 오류가 나고, `tool-apps.test.ts` 가 값의 유효성·앱별 도구 존재·도구별 분류 스냅샷을 확인한다.
+
+- 앱 이름은 URL·헤더에 쓰는 값이라 소문자 영문이다: `issue`·`project`·`wiki`·`drive`·`mail`·`messaging`·`calendar`·`contacts`·`notify`·`member`. 새 앱은 `TOOL_APPS` 와 `TOOL_APP_GUIDES` 에 함께 추가한다.
+- 분류는 파일이 아니라 **도구 단위**다. `list_issues` 는 `project-tools.ts` 에 있지만 `issue`, `list_contacts`·`get_external_contact` 는 `member-tools.ts` 에 있지만 `contacts` 다.
+- **한 도구가 여러 앱에 속할 수 있다**(`app: ['issue', 'drive']`). 그 앱 중 하나만 골라도 도구가 보여야 그 앱 안에서 일이 끊기기 때문이다. 꼭 필요한 선행 조회만 겹치고, "있으면 편한" 수준으로는 퍼뜨리지 않는다.
+  - `read_attachment`: 이슈 첨부와 드라이브 파일을 모두 읽는다 → `issue`, `drive`.
+  - `list_projects`·`get_project`: 이슈 작업의 출발점(projectKey·담당자·라벨·마일스톤 목록)이다 → `project`, `issue`.
+  - `search_members`: username 을 받는 도구(일정 참석자·프로젝트/채널 멤버·DM·멘션·그룹 멤버)가 설명에서 이 도구로 확인하라고 한다 → `member`, `calendar`, `project`, `messaging`, `contacts`. `mail`·`issue` 에는 싣지 않는다 — `create_issue`(`_from_mail`)의 assignees 는 선택 입력이고("me" 가능) 안내가 `get_project` 의 members 를 가리키며, 어느 설명도 `search_members` 를 가리키지 않는다.
+  - 재발 방지: `tool-apps.test.ts` 가 도구 설명·입력 필드 설명에 나온 다른 공유 도구가 같은 앱 범위에도 있는지 대조한다. 대비·대안 언급처럼 선행 조회가 아닌 경우만 그 테스트의 `CROSS_REF_ALLOWED` 에 이유와 함께 올린다.
+
+| 앱 | 도구 |
+|---|---|
+| `issue` | `list_issues` `get_issue_detail` `create_issue` `update_issue` `add_comment` `update_comment` `add_issue_dependency` `remove_issue_dependency` `watch_issue` `unwatch_issue` + 겹침: `list_projects` `get_project` `read_attachment` |
+| `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` + 겹침: `search_members` |
+| `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` |
+| `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_folder` `move_drive_folder` `move_drive_file` + 겹침: `read_attachment` |
+| `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` |
+| `messaging` | `list_channels` `discover_channels` `get_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `add_channel_member` + 겹침: `search_members` |
+| `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` + 겹침: `search_members` |
+| `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` + 겹침: `search_members` |
+| `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` |
+| `member` | `search_members` `get_member` `get_member_contact` |
+
+workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸러낸다(`apps/workplace-mcp/CLAUDE.md` "연결 범위"). 앱 선택은 노출 기준(`kind`)과 별개다 — destructive 는 어느 연결에서도 노출하지 않는다. AI Chat(ai-agent)은 `app` 을 쓰지 않는다.
+
 ## 노출 기준 (WP-347)
 
 외부 MCP(workplace-mcp)에 어떤 작업을 도구로 내놓을지는 부작용의 등급 R/W/I/N 으로 정한다. 등급은 `kind`·`hints` 로 코드에 드러난다.
@@ -48,16 +76,17 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 | R | 읽기 | `kind: 'read'` | 노출 |
 | W | 되돌릴 수 있는 쓰기 | `kind: 'write'` + `hints`. 덮어쓰거나 지우면 `hints.destructive: true` | 노출. 확인은 annotation 을 읽는 클라이언트에 맡긴다 |
 | I | 되돌릴 수 없음(영구 삭제)·워크스페이스 밖으로 나감(메일 발송·외부 공유 링크) | `kind: 'destructive'` | **노출하지 않는다.** AI Chat 에서만 `propose_*` 확인 카드로 한다 |
-| N | 다른 사람에게 알림이 간다 | 별도 필드 없음. R/W 등급 위에 얹는 표시다 | 알림 수준을 **입력**으로 받는다. 해당 도구를 만들 때 적용하며, 지금 코드에는 없다 |
+| N | 다른 사람에게 알림이 간다 | 별도 필드 없음. R/W 등급 위에 얹는 표시다 | 알림 여부를 **입력**으로 받는다. 해당 도구를 만들 때 적용한다. 예: `create_event`·`update_event` 의 `notify`(false 면 초대 알림을 보내지 않는다, WP-348). 프로젝트 멤버 추가·채널 초대(WP-349)는 서버가 인박스·푸시 알림을 만들지 않아(상대 화면 목록 갱신 신호뿐) 입력이 없다 |
 
 - `kind`(노출 여부)와 `hints`(연산 성격)는 별개 축이다(WP-342). I 는 `kind` 로 막고, W 가 덮어쓴다는 사실은 `hints` 로 알린다.
 - **elicitation 에 기대지 않는다.** Claude.ai 지원이 확인되지 않았고 2026-07-28 스펙에서 MRTR 로 바뀐다. 확인은 클라이언트의 annotation 처리와 `propose_*` 확인 카드가 맡는다.
-- **계속 빼 둘 것**: 메일 발송, 영구 삭제, 외부 공유 링크, 구성원 권한 변경.
+- **계속 빼 둘 것**: 메일 발송, 영구 삭제, 외부 공유 링크, 구성원 권한 변경. 권한 부여도 권한 변경이라 `add_project_member` 는 MEMBER 로만 추가하고, OWNER 로 들이는 것은 확인 카드(`propose_add_project_member`)만 한다(WP-349).
 
 ### AI Chat 과의 관계
 
 - 같은 작업은 실행 경로마다 도구를 하나만 둔다. AI Chat 은 확인 카드(`propose_*`), 외부 MCP 는 직접 실행 도구다. assistant·subagent 에 둘을 함께 싣지 않는다.
 - 공유 도구를 바꾸면 subagent `agent.md`, 라우터 프롬프트, `TOOL_LABELS`(웹 `LEGACY_TOOL_LABELS` 포함), ai-driven-agent-inspector 회귀 점검까지 함께 고친다.
+- AI Chat 라우터는 직접 쓰는 도구(읽기·`show_*`·알림·첨부 읽기)만 싣는다(ai-agent `ASSISTANT_ROUTER_TOOLS`, Claude 경로, WP-351). 쓰기·`propose_*` 는 담당 subagent 에만 둔다. assistant 프로필에 도구를 더하면 라우터 목록이나 담당 subagent frontmatter 중 한 곳에 넣는다 — 어느 쪽에도 없으면 `subagent-loader.test.ts` 가 실패한다.
 
 ### 도구 수
 
