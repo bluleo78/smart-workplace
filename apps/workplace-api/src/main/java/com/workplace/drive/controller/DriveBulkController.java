@@ -76,18 +76,18 @@ public class DriveBulkController {
           }
           try (ZipOutputStream zip = new ZipOutputStream(out)) {
             for (ZipEntrySource e : entries) {
-              if (e.directory()) {
-                zip.putNextEntry(new ZipEntry(e.path()));
-                zip.closeEntry();
-                continue;
-              }
               try {
+                if (e.directory()) {
+                  zip.putNextEntry(new ZipEntry(e.path()));
+                  zip.closeEntry();
+                  continue;
+                }
                 var c = zipService.openContent(e.coreFileId());
                 zip.putNextEntry(new ZipEntry(e.path()));
                 StreamUtils.copy(c.resource().getInputStream(), zip);
                 zip.closeEntry();
               } catch (Exception ex) {
-                // 개별 파일 실패는 스킵 — 스트림은 이미 200 이라 상태코드 변경 불가.
+                // 개별 엔트리(빈 폴더 포함) 실패는 스킵 — 스트림은 이미 200 이라 상태코드 변경 불가, 한 항목 때문에 ZIP 전체가 끊기지 않게.
                 log.warn("ZIP 엔트리 스킵: {} ({})", e.path(), ex.getMessage());
               }
             }
