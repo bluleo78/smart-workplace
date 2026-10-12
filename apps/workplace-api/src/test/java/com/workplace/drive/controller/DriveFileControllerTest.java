@@ -1,13 +1,20 @@
 package com.workplace.drive.controller;
 
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
+import com.workplace.drive.dto.DriveFileResponse;
+import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.global.config.SecurityConfig;
@@ -28,6 +35,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -91,5 +99,58 @@ class DriveFileControllerTest {
   @Test
   void thumbnail_withoutAuth_returns401() throws Exception {
     mockMvc.perform(get("/api/v1/drive/files/1/thumbnail")).andExpect(status().isUnauthorized());
+  }
+
+  // ── WP-335: 파일 이름 변경 ──
+
+  /** PATCH /files/{id} → 200 + 바뀐 파일 응답. */
+  @Test
+  void rename_returnsUpdatedFile() throws Exception {
+    when(fileService.rename(eq(1L), eq(7L), eq("회의록.txt"))).thenReturn(fileResponse("회의록.txt"));
+    mockMvc
+        .perform(
+            patch("/api/v1/drive/files/7")
+                .header("Authorization", "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"회의록.txt\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.name").value("회의록.txt"));
+  }
+
+  /** 같은 폴더 동명 → 409. */
+  @Test
+  void rename_duplicate_returns409() throws Exception {
+    when(fileService.rename(anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyString()))
+        .thenThrow(new DriveDuplicateNameException("a.txt"));
+    mockMvc
+        .perform(
+            patch("/api/v1/drive/files/7")
+                .header("Authorization", "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"a.txt\"}"))
+        .andExpect(status().isConflict());
+  }
+
+  /** 빈 이름·경로 구분자 포함 이름 → 400, 서비스 미호출. */
+  @Test
+  void rename_invalidName_returns400() throws Exception {
+    for (String body :
+        new String[] {"{\"name\":\"  \"}", "{\"name\":\"a/b.txt\"}", "{\"name\":\"a\\\\b.txt\"}"}) {
+      mockMvc
+          .perform(
+              patch("/api/v1/drive/files/7")
+                  .header("Authorization", "Bearer test-token")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(body))
+          .andExpect(status().isBadRequest());
+    }
+    verify(fileService, never())
+        .rename(anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyString());
+  }
+
+  private static DriveFileResponse fileResponse(String name) {
+    java.time.OffsetDateTime now = java.time.OffsetDateTime.now();
+    return new DriveFileResponse(
+        7L, null, 70L, name, "text/plain", 5L, "DOCUMENT", now, now, 1, true);
   }
 }

@@ -48,6 +48,7 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
@@ -59,6 +60,7 @@ import { driveApi } from '../../api/drive'
 import { DriveOverviewCard } from '../../components/drive/DriveOverviewCard'
 import { DrivePressRow } from '../../components/drive/DrivePressRow'
 import { DriveThumbnail } from '../../components/drive/DriveThumbnail'
+import { FileRenameDialog } from '../../components/drive/FileRenameDialog'
 import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
 import { RowOverflowMenu } from '../../components/drive/RowOverflowMenu'
 import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
@@ -185,6 +187,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const previewParam = useHistoryParam('preview')
   // 공유 링크 모달 대상 파일 — null 이면 닫힘.
   const [shareFile, setShareFile] = useState<DriveFile | null>(null)
+  // 이름 변경 대상 파일(WP-335) — null 이면 다이얼로그 닫힘.
+  const [renameFile, setRenameFile] = useState<DriveFile | null>(null)
   // 버전 이력 모달 대상 파일 — null 이면 닫힘.
   const [versionFile, setVersionFile] = useState<DriveFile | null>(null)
 
@@ -230,6 +234,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const [nameInput, setNameInput] = useState('')
   // 빈값 확인 클릭 시 에러 메시지 — 무음 실패 대신 인라인 안내 (#360).
   const [nameError, setNameError] = useState('')
+  // 폴더 이름 Enter 저장 — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 저장으로 보지 않는다(WP-331, WP-335 에서 함께 적용).
+  const folderNameEnter = useSingleLineEnter()
 
   // 파일 업로드 진행 상태 — 업로드 중 버튼 비활성화·텍스트 변경으로 중복 업로드 방지 (#170).
   const [uploading, setUploading] = useState(false)
@@ -761,6 +767,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     return [
       { key: 'download', label: '다운로드', icon: <Download />, onSelect: () => driveApi.downloadFile(f.id, f.name), disabled: missing },
       { key: 'share', label: '공유 링크', icon: <Link2 />, onSelect: () => setShareFile(f), disabled: missing },
+      { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => setRenameFile(f), disabled: archived },
       { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }), disabled: archived },
       { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }), disabled: archived || missing },
       { key: 'versions', label: '버전 이력', icon: <History />, onSelect: () => setVersionFile(f) },
@@ -1580,6 +1587,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                     <RowOverflowMenu
                       triggerAriaLabel={`${f.name} 더보기`}
                       items={[
+                        { label: '이름 변경', onSelect: () => setRenameFile(f), disabled: !!space?.archived },
                         { label: '버전 이력', onSelect: () => setVersionFile(f) },
                         {
                           label: '이동',
@@ -1662,6 +1670,14 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           testId="drive-row-sheet"
         />
         {shareFile && <ShareLinkModal file={shareFile} onClose={() => setShareFile(null)} />}
+        <FileRenameDialog
+          file={renameFile}
+          onSubmit={async (id, name) => {
+            await driveApi.renameFile(id, name)
+            await reloadAndClear()
+          }}
+          onClose={() => setRenameFile(null)}
+        />
         {versionFile && (
           <VersionHistoryModal
             file={versionFile}
@@ -1704,9 +1720,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               // 입력 시 에러 메시지 즉시 제거 — 피드백 루프 개선 (#360)
               if (nameError) setNameError('')
             }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void submitNameDialog()
-            }}
+            onCompositionEnd={folderNameEnter.onCompositionEnd}
+            onKeyDown={(e) => folderNameEnter.handleEnter(e, () => void submitNameDialog())}
             placeholder="폴더 이름"
             autoFocus
             aria-invalid={nameError ? 'true' : undefined}
