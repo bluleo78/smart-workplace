@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { format } from 'date-fns'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Pencil } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { platformTenants } from '../api/platformTenants'
 import { AddTenantMemberDialog } from '../components/AddTenantMemberDialog'
+import { EditTenantDialog } from '../components/EditTenantDialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -95,6 +96,8 @@ export default function TenantDetailPage() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   // 멤버 추가 다이얼로그(#497) 열림 상태.
   const [addMemberOpen, setAddMemberOpen] = useState(false)
+  // 테넌트 정보 편집 다이얼로그 열림 상태(WP-336).
+  const [editOpen, setEditOpen] = useState(false)
   // 드라이브 한도 입력값(GB 단위 문자열) — tenant 로드 후 초기화.
   const [gb, setGb] = useState('')
 
@@ -208,13 +211,24 @@ export default function TenantDetailPage() {
           {isLoading ? (
             <Skeleton className="h-6 w-48" />
           ) : (
-            <div className="flex items-center justify-between gap-4">
-              <CardTitle className="text-xl" data-testid="tenant-detail-name">
+            <div className="flex items-start justify-between gap-4">
+              <CardTitle className="min-w-0 text-xl break-words" data-testid="tenant-detail-name">
                 {tenant?.name}
               </CardTitle>
-              {/* 상태 액션 — ACTIVE 면 정지(destructive), SUSPENDED 면 활성화. */}
-              {tenant &&
-                (isActive ? (
+              {tenant && (
+                <div className="flex shrink-0 items-center gap-2">
+                  {/* 정보 편집(WP-336) — 보조(outline) 버튼. */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="edit-tenant-button"
+                    onClick={() => setEditOpen(true)}
+                  >
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                    편집
+                  </Button>
+                  {/* 상태 액션 — ACTIVE 면 정지(destructive), SUSPENDED 면 활성화. */}
+                  {isActive ? (
                   <Button
                     variant="destructive"
                     size="sm"
@@ -232,7 +246,9 @@ export default function TenantDetailPage() {
                   >
                     활성화
                   </Button>
-                ))}
+                  )}
+                </div>
+              )}
             </div>
           )}
         </CardHeader>
@@ -351,6 +367,11 @@ export default function TenantDetailPage() {
       {/* 멤버 추가 다이얼로그(#497) — id 는 invalidate 키와 byte-identical 한 string 으로 넘긴다. */}
       {id && (
         <AddTenantMemberDialog tenantId={id} open={addMemberOpen} onOpenChange={setAddMemberOpen} />
+      )}
+
+      {/* 테넌트 정보 편집 다이얼로그(WP-336) — 열 때만 마운트해 그 시점 값으로 폼을 채운다. */}
+      {id && tenant && editOpen && (
+        <EditTenantDialog tenantKey={id} tenant={tenant} onOpenChange={setEditOpen} />
       )}
 
       {/* 정지/활성화 확인 다이얼로그 */}

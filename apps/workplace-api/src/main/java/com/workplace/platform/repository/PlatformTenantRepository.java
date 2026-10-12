@@ -168,10 +168,17 @@ public class PlatformTenantRepository {
     }
   }
 
-  /** 동일 slug 테넌트가 이미 존재하는지(slug != null 일 때만 의미 있음). */
+  /**
+   * 동일 slug 테넌트가 이미 존재하는지. excludeId 가 주어지면 그 테넌트 자신은 제외한다 — 정보 수정(WP-336) 시 현재 slug 유지가 중복으로 잡히지
+   * 않게 한다. 생성 시엔 null.
+   */
   @Transactional(readOnly = true)
-  public boolean slugExists(String slug) {
-    return dsl.fetchExists(dsl.selectOne().from(TENANT).where(TENANT.SLUG.eq(slug)));
+  public boolean slugExists(String slug, Long excludeId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(TENANT)
+            .where(TENANT.SLUG.eq(slug))
+            .and(excludeId == null ? DSL.noCondition() : TENANT.ID.ne(excludeId)));
   }
 
   /** 전체 테넌트 목록 + 멤버 수 집계. 0-멤버 테넌트도 보이도록 left join. */
@@ -284,5 +291,19 @@ public class PlatformTenantRepository {
                     r.get(roleField),
                     r.get(MEMBERSHIP.STATUS),
                     r.get(isOperatorField)));
+  }
+
+  /**
+   * 테넌트 이름·slug 갱신(WP-336). tenant 는 RLS 비대상이라 GUC 없이 UPDATE 가능하다.
+   *
+   * @return 갱신된 행 수(0 이면 없는 테넌트)
+   */
+  @Transactional
+  public int updateInfo(Long id, String name, String slug) {
+    return dsl.update(TENANT)
+        .set(TENANT.NAME, name)
+        .set(TENANT.SLUG, slug)
+        .where(TENANT.ID.eq(id))
+        .execute();
   }
 }

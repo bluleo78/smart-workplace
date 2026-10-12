@@ -7,6 +7,7 @@ import com.workplace.platform.dto.TenantDetailResponse;
 import com.workplace.platform.dto.TenantMemberResponse;
 import com.workplace.platform.dto.TenantSummaryResponse;
 import com.workplace.platform.dto.UpdateTenantQuotaRequest;
+import com.workplace.platform.dto.UpdateTenantRequest;
 import com.workplace.platform.service.PlatformTenantService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -51,6 +52,13 @@ public class PlatformTenantController {
   @GetMapping("/{id}")
   public ResponseEntity<TenantDetailResponse> get(@PathVariable Long id) {
     return ResponseEntity.ok(platformTenantService.getTenant(id));
+  }
+
+  /** 테넌트 이름·slug 수정(WP-336) — 200 + 갱신된 상세. slug 중복/형식 오류는 400, 없으면 404. */
+  @PatchMapping("/{id}")
+  public ResponseEntity<TenantDetailResponse> update(
+      @PathVariable Long id, @Valid @RequestBody UpdateTenantRequest req) {
+    return ResponseEntity.ok(platformTenantService.updateTenant(id, req));
   }
 
   /** 테넌트 정지(SUSPENDED). */

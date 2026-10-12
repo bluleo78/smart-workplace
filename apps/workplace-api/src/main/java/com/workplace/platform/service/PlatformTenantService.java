@@ -8,6 +8,7 @@ import com.workplace.platform.dto.CreateTenantRequest;
 import com.workplace.platform.dto.TenantDetailResponse;
 import com.workplace.platform.dto.TenantMemberResponse;
 import com.workplace.platform.dto.TenantSummaryResponse;
+import com.workplace.platform.dto.UpdateTenantRequest;
 import com.workplace.platform.exception.PlatformTenantNotFoundException;
 import com.workplace.platform.exception.TenantMemberAlreadyExistsException;
 import com.workplace.platform.repository.PlatformTenantRepository;
@@ -52,15 +53,8 @@ public class PlatformTenantService {
    */
   @Transactional
   public TenantDetailResponse createTenant(CreateTenantRequest req) {
-    // slug 결정(#695): 지정(공백 제외)했으면 전역 유일성 검증(중복이면 400), 비웠으면 이름에서 자동 생성.
-    String slug = req.slug() == null ? null : req.slug().trim();
-    if (slug != null && !slug.isEmpty()) {
-      if (platformTenantRepository.slugExists(slug)) {
-        throw new IllegalArgumentException("이미 사용 중인 slug 입니다: " + slug);
-      }
-    } else {
-      slug = generateUniqueSlug(req.name());
-    }
+    // slug 결정(#695): 지정했으면 전역 유일성 검증(중복이면 400), 비웠으면 이름에서 자동 생성.
+    String slug = resolveSlug(req.slug(), req.name(), null);
     // 초기 소유자를 지정한 경우에만 기존 사용자인지 검증한다(지정 시 없으면 400). 비우면 소유자 없는 빈 테넌트.
     if (req.ownerUserId() != null && !userRepository.existsById(req.ownerUserId())) {
       throw new IllegalArgumentException("존재하지 않는 사용자입니다: " + req.ownerUserId());
@@ -78,6 +72,9 @@ public class PlatformTenantService {
 
   /** slug 자동 생성 시 이름에서 ASCII 문자가 하나도 안 나올 때(한글 전용 이름 등) 쓰는 기본 base. */
   public static final String DEFAULT_SLUG_BASE = "tenant";
+
+  /** tenant.slug 컬럼 길이(VARCHAR(64)) — 자동 생성 slug 가 넘지 않게 자른다. */
+  private static final int MAX_SLUG_LENGTH = 64;
 
   /**
    * 테넌트 이름에서 slug base 를 만든다(#695) — 소문자 ASCII 영숫자 외 문자는 하이픈으로 접고 양끝 하이픈 제거.
@@ -98,19 +95,36 @@ public class PlatformTenantService {
   }
 
   /**
-   * 이름 기반 slug 를 전역 유일하게 만든다 — base 가 이미 쓰이면 "-2", "-3" … 순으로 suffix 를 올려 첫 빈 값을 채택.
-   *
-   * <p>createTenant 의 트랜잭션 안에서 호출되며 tenant.slug UNIQUE 제약이 최종 방어선이다(동시 생성 경합 시 한쪽은 제약 위반으로 롤백). 운영자
-   * 콘솔 단일 사용 시나리오라 재시도 루프는 두지 않는다.
+   * 요청 slug 를 확정한다 — 생성(#695)·수정(WP-336) 공통. 공백을 다듬어 비었으면 이름에서 자동 생성하고, 지정했으면 다른 테넌트와 겹칠 때
+   * 400(IllegalArgumentException). excludeId 는 수정 대상 테넌트 자신(생성 시 null)으로, 자기 현재 slug 는 사용 중으로 보지
+   * 않는다.
    */
-  private String generateUniqueSlug(String name) {
-    String base = slugify(name);
-    if (!platformTenantRepository.slugExists(base)) {
-      return base;
+  private String resolveSlug(String requested, String name, Long excludeId) {
+    String slug = requested == null ? "" : requested.trim();
+    if (slug.isEmpty()) {
+      return generateUniqueSlug(name, excludeId);
     }
-    for (int i = 2; ; i++) {
-      String candidate = base + "-" + i;
-      if (!platformTenantRepository.slugExists(candidate)) {
+    if (platformTenantRepository.slugExists(slug, excludeId)) {
+      throw new IllegalArgumentException("이미 사용 중인 slug 입니다: " + slug);
+    }
+    return slug;
+  }
+
+  /**
+   * 이름 기반 slug 를 전역 유일하게 만든다 — base 가 이미 쓰이면 "-2", "-3" … 순으로 suffix 를 올려 첫 빈 값을 채택. excludeId 테넌트
+   * 자신의 slug 는 사용 중으로 보지 않아, 이름이 그대로면 slug 도 그대로 유지된다.
+   *
+   * <p>호출자 트랜잭션 안에서 실행되며 tenant.slug UNIQUE 제약이 최종 방어선이다(동시 경합 시 한쪽은 제약 위반으로 롤백). 운영자 콘솔 단일 사용
+   * 시나리오라 재시도 루프는 두지 않는다.
+   */
+  private String generateUniqueSlug(String name, Long excludeId) {
+    String base = slugify(name);
+    for (int i = 1; ; i++) {
+      String suffix = i == 1 ? "" : "-" + i;
+      // tenant.slug VARCHAR(64) — 긴 이름에서 나온 base 는 suffix 자리를 남기고 자른다(끝 하이픈 제거).
+      String head = base.substring(0, Math.min(base.length(), MAX_SLUG_LENGTH - suffix.length()));
+      String candidate = head.replaceAll("-+$", "") + suffix;
+      if (!platformTenantRepository.slugExists(candidate, excludeId)) {
         return candidate;
       }
     }
@@ -126,6 +140,21 @@ public class PlatformTenantService {
     return platformTenantRepository
         .findTenant(id)
         .orElseThrow(() -> new PlatformTenantNotFoundException("테넌트를 찾을 수 없습니다: " + id));
+  }
+
+  /**
+   * 테넌트 이름·slug 수정 후 갱신된 상세를 반환한다(WP-336).
+   *
+   * <p>slug 를 비우면 이름에서 자동 생성하고(생성과 동일), 지정했으면 자기 자신을 제외한 다른 테넌트와 겹칠 때 400. 없는 테넌트면 404.
+   */
+  @Transactional
+  public TenantDetailResponse updateTenant(Long id, UpdateTenantRequest req) {
+    String name = req.name().trim();
+    String slug = resolveSlug(req.slug(), name, id);
+    if (platformTenantRepository.updateInfo(id, name, slug) == 0) {
+      throw new PlatformTenantNotFoundException("테넌트를 찾을 수 없습니다: " + id);
+    }
+    return getTenant(id);
   }
 
   /** 테넌트 정지(SUSPENDED) — 없으면 404. */

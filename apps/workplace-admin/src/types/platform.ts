@@ -56,6 +56,12 @@ export interface CreateTenantRequest {
   ownerUserId?: number
 }
 
+/** 테넌트 정보 수정 요청(WP-336) — slug 를 빈 문자열로 보내면 서버가 이름에서 자동 생성한다. */
+export interface UpdateTenantRequest {
+  name: string
+  slug: string
+}
+
 /** 테넌트 멤버(계정) 추가 요청(#497).
  *  email 은 로그인 아이디로도 쓰인다. role 에 따라 멤버십/RBAC 역할이 결정된다
  *  (OWNER → 멤버십 OWNER + RBAC ADMIN, MEMBER → 멤버십 MEMBER + RBAC USER). */
