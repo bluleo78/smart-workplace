@@ -103,28 +103,6 @@ public class ChatMessageRepository {
         .fetchOptional(r -> toResponse(r, resolver));
   }
 
-  /** thread 의 최근 N 개 메시지 DESC. cursor 없이. */
-  public List<ChatMessageResponse> findRecent(long threadId, int limit, MentionResolver resolver) {
-    return dsl.select(
-            CHAT_MESSAGE.ID,
-            CHAT_MESSAGE.THREAD_ID,
-            CHAT_MESSAGE.AUTHOR_ID,
-            USER.NAME,
-            USER.KIND,
-            CHAT_MESSAGE.BODY,
-            CHAT_MESSAGE.MENTIONS,
-            CHAT_MESSAGE.CREATED_AT,
-            CHAT_MESSAGE.EDITED_AT,
-            CHAT_MESSAGE.DELETED_AT)
-        .from(CHAT_MESSAGE)
-        .join(USER)
-        .on(USER.ID.eq(CHAT_MESSAGE.AUTHOR_ID))
-        .where(CHAT_MESSAGE.THREAD_ID.eq(threadId))
-        .orderBy(CHAT_MESSAGE.CREATED_AT.desc(), CHAT_MESSAGE.ID.desc())
-        .limit(Math.min(limit, MAX_LIMIT))
-        .fetch(r -> toResponse(r, resolver));
-  }
-
   /** Cursor 페이징. nextCursor 는 base64(createdAt|id). */
   public ChatMessagePage findPage(
       long threadId, String cursor, int limit, MentionResolver resolver) {

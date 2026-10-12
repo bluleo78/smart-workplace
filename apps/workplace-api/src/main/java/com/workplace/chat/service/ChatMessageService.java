@@ -1,6 +1,5 @@
 package com.workplace.chat.service;
 
-import com.workplace.chat.dto.ChatMessageAttachmentResponse;
 import com.workplace.chat.dto.ChatMessagePage;
 import com.workplace.chat.dto.ChatMessageResponse;
 import com.workplace.chat.dto.CreateChatMessageRequest;
@@ -16,19 +15,15 @@ import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadProgressEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadReadEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
-import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.chat.repository.IssueStakeholderLookup;
 import com.workplace.drive.service.DriveLinkService;
-import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.MentionParser;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -45,17 +40,16 @@ public class ChatMessageService {
   private final UserMentionHydrator userMentionHydrator;
   private final ChatThreadContextResolver contextResolver;
   private final ApplicationEventPublisher publisher;
-  // #358: 첨부 바인딩 + 하이드레이션용 서비스/레포.
+  // #358: 첨부 바인딩.
   private final ChatMessageAttachmentService attachmentService;
-  private final ChatMessageAttachmentRepository attachmentRepo;
-  // #358: 드라이브 교차링크 생성/조회. DriveLinkService 는 drive 도메인이나 messaging 과 동일하게 직접 주입.
+  // 첨부·드라이브 링크 하이드레이션(WP-102 — 스레드 최근 메시지와 공용).
+  private final ChatMessageHydrator messageHydrator;
+  // #358: 드라이브 교차링크 생성·원본 조회(목록 하이드레이션은 messageHydrator). messaging 과 동일하게 직접 주입.
   private final DriveLinkService driveLinkService;
   // #621: 스레드에 연결된 이슈가 삭제됐는지 확인하는 가드용 조회.
   private final IssueStakeholderLookup issueLookup;
   // WP-213: 이슈 토크 읽기/쓰기 접근 판정 + 보낼 때 자동 참여.
   private final ChatThreadAccess threadAccess;
-  // WP-242: 첨부 추출 상태 하이드레이션.
-  private final ExtractedTextService extractedText;
 
   /**
    * 메시지 작성. 스레드 멤버가 아니어도 댓글 작성 권한이 있으면 이 시점에 대화에 자동 참여한다(WP-213). 빈 메시지(본문도 첨부도 드라이브링크도 없음) 거부.
@@ -96,7 +90,8 @@ public class ChatMessageService {
     attachmentService.bindToMessage(callerId, messageId, req.fileIds());
     // 드라이브 파일 교차링크 — 발신자 thread 멤버 + 각 파일 ≥VIEWER 검증은 createLink 내부.
     for (Long driveFileId : req.driveFileIds()) {
-      driveLinkService.createLink(callerId, driveFileId, "CHAT_MESSAGE", messageId);
+      driveLinkService.createLink(
+          callerId, driveFileId, ChatMessageHydrator.SOURCE_TYPE, messageId);
     }
 
     // 첨부·드라이브 링크 하이드레이트 포함 응답 생성(같은 트랜잭션 내 — RLS 안전).
@@ -155,7 +150,8 @@ public class ChatMessageService {
     threadAccess.ensureCanRead(threadId, callerId);
     ChatMessagePage page =
         messageRepo.findPage(threadId, cursor, limit, userMentionHydrator::asMentionResponses);
-    return enrichAttachments(page);
+    return new ChatMessagePage(
+        messageHydrator.hydrate(page.items()), page.nextCursor(), page.hasMore());
   }
 
   @Transactional
@@ -192,49 +188,13 @@ public class ChatMessageService {
         new ChatThreadProgressEvent(threadId, callerId, name, streamId, phase, steps));
   }
 
-  /**
-   * 첨부 맵의 각 첨부에 추출 상태를 일괄로 붙인다(WP-242). RLS 트랜잭션 안에서 호출된다.
-   *
-   * <p>전체 첨부를 한 리스트로 펴서 attach 를 한 번만 호출(조회 1회)한 뒤 messageId 로 다시 묶는다. 스트림 순서가 유지돼 메시지별 첨부 순서는
-   * 그대로다.
-   */
-  private Map<Long, List<ChatMessageAttachmentResponse>> withExtraction(
-      Map<Long, List<ChatMessageAttachmentResponse>> amap) {
-    List<ChatMessageAttachmentResponse> all = amap.values().stream().flatMap(List::stream).toList();
-    return extractedText
-        .attach(
-            all,
-            ChatMessageAttachmentResponse::fileId,
-            ChatMessageAttachmentResponse::withExtraction)
-        .stream()
-        .collect(Collectors.groupingBy(ChatMessageAttachmentResponse::messageId));
-  }
-
   /** 단일 메시지 조회 + 첨부·드라이브 링크 하이드레이션. RLS 트랜잭션 내에서만 호출해야 첨부가 보인다. */
   private ChatMessageResponse findOne(long messageId) {
     ChatMessageResponse base =
         messageRepo
             .findById(messageId, userMentionHydrator::asMentionResponses)
             .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
-    var amap = withExtraction(attachmentRepo.findByMessageIds(List.of(messageId)));
-    var dlinks = driveLinkService.listLinks("CHAT_MESSAGE", messageId);
-    return base.withAttachments(amap.getOrDefault(messageId, List.of())).withDriveLinks(dlinks);
-  }
-
-  /** 페이지의 모든 메시지에 첨부·드라이브 링크를 배치 하이드레이트(N+1 회피). RLS 트랜잭션(@Transactional(readOnly)) 내에서 호출된다. */
-  private ChatMessagePage enrichAttachments(ChatMessagePage page) {
-    List<Long> ids = page.items().stream().map(ChatMessageResponse::id).toList();
-    if (ids.isEmpty()) return page;
-    var amap = withExtraction(attachmentRepo.findByMessageIds(ids));
-    var dmap = driveLinkService.listLinksBatch("CHAT_MESSAGE", ids);
-    List<ChatMessageResponse> items =
-        page.items().stream()
-            .map(
-                m ->
-                    m.withAttachments(amap.getOrDefault(m.id(), List.of()))
-                        .withDriveLinks(dmap.getOrDefault(m.id(), List.of())))
-            .toList();
-    return new ChatMessagePage(items, page.nextCursor(), page.hasMore());
+    return messageHydrator.hydrate(base);
   }
 
   /**
@@ -248,7 +208,7 @@ public class ChatMessageService {
     if (!messageRepo.belongsToThread(messageId, threadId)) {
       throw new ChatMessageNotFoundException(messageId);
     }
-    return driveLinkService.getLinkContent("CHAT_MESSAGE", messageId, driveFileId);
+    return driveLinkService.getLinkContent(ChatMessageHydrator.SOURCE_TYPE, messageId, driveFileId);
   }
 
   private void ensureMember(long threadId, long userId) {

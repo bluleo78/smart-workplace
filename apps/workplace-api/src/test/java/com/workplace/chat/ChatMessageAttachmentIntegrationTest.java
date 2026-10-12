@@ -2,7 +2,10 @@ package com.workplace.chat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
+import com.workplace.chat.dto.ChatMessageAttachmentResponse;
+import com.workplace.chat.dto.ChatMessageResponse;
 import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.EmptyChatMessageException;
@@ -93,6 +96,66 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
     // then: 응답에 첨부 1건, 파일명 일치.
     assertThat(resp.attachments()).hasSize(1);
     assertThat(resp.attachments().get(0).originalName()).isEqualTo("a.txt");
+  }
+
+  /** 스레드를 열고 이미지 하나만 붙인 메시지를 보낸다 — 붙여넣기 전송과 같은 모양(본문 없음). */
+  private ChatMessageResponse sendImage(ChatFixtures.Setup s, String name) throws Exception {
+    long callerId = s.reporterId();
+    long threadId = threadService.getOrCreate(callerId, s.projectKey(), s.issueNumber()).threadId();
+    long fileId =
+        attachmentService
+            .upload(callerId, threadId, List.of(mockMultipart(name, "image/png", "png".getBytes())))
+            .get(0)
+            .fileId();
+    return chatMessageService.create(
+        callerId, threadId, new CreateChatMessageRequest("", List.of(fileId), List.of()));
+  }
+
+  /** 목록에서 id 로 메시지를 찾는다. */
+  private static ChatMessageResponse byId(List<ChatMessageResponse> messages, Long id) {
+    return messages.stream().filter(m -> id.equals(m.id())).findFirst().orElseThrow();
+  }
+
+  /**
+   * WP-102: 챗을 다시 열 때 화면은 스레드 응답의 recentMessages 로 첫 목록을 그린다. 여기에 첨부가 빠지면 보냈던 이미지가 다시 연 화면에서
+   * 사라진다(운영 WPV-8).
+   */
+  @Test
+  void 스레드를_다시_열면_최근_메시지에_첨부가_하이드레이트된다() throws Exception {
+    // given: 이미지를 붙여 보낸 메시지.
+    ChatFixtures.Setup s = fx.setup();
+    var sent = sendImage(s, "shot.png");
+
+    // when: 스레드를 다시 연다.
+    var reopened = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+
+    // then: 최근 메시지의 그 메시지에 보낸 첨부가 그대로 실려 있다.
+    assertThat(byId(reopened.recentMessages(), sent.id()).attachments())
+        .extracting(
+            ChatMessageAttachmentResponse::fileId, ChatMessageAttachmentResponse::originalName)
+        .containsExactly(tuple(sent.attachments().get(0).fileId(), "shot.png"));
+  }
+
+  /** 소프트 삭제라 첨부 행이 남아 있어도, 삭제된 메시지로는 지운 파일 정보를 내려주지 않는다. */
+  @Test
+  void 삭제된_메시지는_첨부를_내려주지_않는다() throws Exception {
+    // given: 이미지를 붙여 보낸 뒤 지운 메시지.
+    ChatFixtures.Setup s = fx.setup();
+    long callerId = s.reporterId();
+    var sent = sendImage(s, "x.png");
+    chatMessageService.delete(callerId, sent.id());
+
+    // when: 스레드를 다시 열고, 메시지 목록도 읽는다.
+    var recent =
+        threadService.getOrCreate(callerId, s.projectKey(), s.issueNumber()).recentMessages();
+    var page = chatMessageService.list(callerId, sent.threadId(), null, 50).items();
+
+    // then: 두 경로 모두 삭제 표시만 있고 첨부는 비어 있다.
+    for (var list : List.of(recent, page)) {
+      var m = byId(list, sent.id());
+      assertThat(m.deleted()).isTrue();
+      assertThat(m.attachments()).isEmpty();
+    }
   }
 
   @Test
