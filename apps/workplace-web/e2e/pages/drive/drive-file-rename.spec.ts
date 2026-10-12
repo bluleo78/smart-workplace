@@ -43,6 +43,13 @@ async function openRename(page: Page, fileName: string) {
   await row.hover()
   await row.getByRole('button', { name: /더보기/ }).click()
   await page.getByRole('menuitem', { name: '이름 변경' }).click()
+  // 다이얼로그가 포커스 직후 다음 프레임에 「확장자 앞까지」로 선택을 좁힌다 — 그 전에 fill 하면 fill 의 전체 선택과 입력 사이에
+  // 좁히기가 끼어 확장자가 한 번 더 붙는다(notes.txt.txt). 초기 선택이 자리 잡은 뒤에 입력한다.
+  const input = page.getByTestId('rename-dialog-input')
+  await expect(input).toBeFocused()
+  await expect
+    .poll(() => input.evaluate((el: HTMLInputElement) => el.selectionStart === 0 && el.selectionEnd === el.value.lastIndexOf('.')))
+    .toBe(true)
 }
 
 test('⋯ → 이름 변경 — 확장자 앞까지 선택된 채 열리고, 타이핑하면 이름만 바뀌어 PATCH 후 목록에 반영된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
