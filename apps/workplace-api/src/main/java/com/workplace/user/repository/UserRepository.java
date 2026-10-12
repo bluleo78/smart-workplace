@@ -16,7 +16,6 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Record;
-import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -376,48 +375,15 @@ public class UserRepository {
       condition = condition.and(USER.KIND.eq(effectiveKind));
     }
     if (search != null && !search.isBlank()) {
-      condition = condition.and(textSearchCondition(search));
+      String pattern = LikePatternUtils.containsPattern(search);
+      condition =
+          condition.and(
+              USER.USERNAME
+                  .likeIgnoreCase(pattern, '\\')
+                  .or(USER.NAME.likeIgnoreCase(pattern, '\\'))
+                  .or(USER.EMAIL.likeIgnoreCase(pattern, '\\')));
     }
     return condition;
-  }
-
-  /** 아이디·이름·이메일 중 하나라도 검색어를 포함(대소문자 무시, LIKE 와일드카드 이스케이프) — 사용자 검색 공용 조건. */
-  private static Condition textSearchCondition(String search) {
-    String pattern = LikePatternUtils.containsPattern(search);
-    return USER.USERNAME
-        .likeIgnoreCase(pattern, '\\')
-        .or(USER.NAME.likeIgnoreCase(pattern, '\\'))
-        .or(USER.EMAIL.likeIgnoreCase(pattern, '\\'));
-  }
-
-  /**
-   * 전역(테넌트 무관) 활성 HUMAN 사용자 자동완성 검색 — 운영자 콘솔의 테넌트 소유자 선택용(WP-337).
-   *
-   * <p>아이디·이름·이메일 중 하나라도 검색어로 시작하면 앞에 두고(타이핑 중인 값과 가장 가까운 후보 우선), 그다음 이름·id 순. 에이전트·비활성 계정은 테넌트
-   * 소유자가 될 수 없으므로 제외한다.
-   */
-  public List<UserResponse> searchActiveHumans(String search, int limit) {
-    String prefix = LikePatternUtils.escape(search) + "%";
-    Condition startsWith =
-        USER.USERNAME
-            .likeIgnoreCase(prefix, '\\')
-            .or(USER.NAME.likeIgnoreCase(prefix, '\\'))
-            .or(USER.EMAIL.likeIgnoreCase(prefix, '\\'));
-    return dsl.select(
-            USER.ID,
-            USER.USERNAME,
-            USER.EMAIL,
-            USER.NAME,
-            USER.IS_ACTIVE,
-            USER.CREATED_AT,
-            USER.KIND)
-        .from(USER)
-        .where(USER.KIND.eq(com.workplace.user.dto.UserKind.HUMAN))
-        .and(USER.IS_ACTIVE.isTrue())
-        .and(textSearchCondition(search))
-        .orderBy(DSL.when(startsWith, 0).otherwise(1), USER.NAME, USER.ID)
-        .limit(limit)
-        .fetch(this::mapToUserResponse);
   }
 
   /** 전역 사용자 수(테넌트 무관). 가입 부트스트랩("첫 사용자") 판정 등 시스템 전역 집계에만 사용. */
@@ -425,7 +391,13 @@ public class UserRepository {
     Condition condition = trueCondition();
 
     if (search != null && !search.isBlank()) {
-      condition = condition.and(textSearchCondition(search));
+      String pattern = LikePatternUtils.containsPattern(search);
+      condition =
+          condition.and(
+              USER.USERNAME
+                  .likeIgnoreCase(pattern, '\\')
+                  .or(USER.NAME.likeIgnoreCase(pattern, '\\'))
+                  .or(USER.EMAIL.likeIgnoreCase(pattern, '\\')));
     }
 
     return dsl.select(count()).from(USER).where(condition).fetchOne(0, Long.class);

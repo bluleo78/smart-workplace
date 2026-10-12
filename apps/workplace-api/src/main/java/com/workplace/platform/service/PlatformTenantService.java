@@ -13,7 +13,6 @@ import com.workplace.platform.exception.PlatformTenantNotFoundException;
 import com.workplace.platform.exception.TenantMemberAlreadyExistsException;
 import com.workplace.platform.repository.PlatformTenantRepository;
 import com.workplace.platform.util.IdentityMasking;
-import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.text.Normalizer;
@@ -57,14 +56,14 @@ public class PlatformTenantService {
     // slug 결정(#695): 지정했으면 전역 유일성 검증(중복이면 400), 비웠으면 이름에서 자동 생성.
     String slug = resolveSlug(req.slug(), req.name(), null);
     // 초기 소유자를 지정한 경우에만 검증한다(지정 시 없으면 400). 비우면 소유자 없는 빈 테넌트.
-    // 콘솔 자동완성은 활성 HUMAN 만 보여주지만, API 를 직접 호출해도 에이전트·비활성 계정이 소유자가 되지 않게 서버에서도 막는다(WP-337).
+    // 콘솔은 이메일 정확일치로 아무 계정이나 찾을 수 있으므로, 에이전트·비활성 계정이 소유자가 되지 않게 서버에서 막는다(WP-337).
     if (req.ownerUserId() != null) {
       UserResponse ownerUser =
           userRepository
               .findById(req.ownerUserId())
               .orElseThrow(
                   () -> new IllegalArgumentException("존재하지 않는 사용자입니다: " + req.ownerUserId()));
-      if (!UserKind.HUMAN.equals(ownerUser.kind()) || !ownerUser.isActive()) {
+      if (!ownerUser.isActiveHuman()) {
         throw new IllegalArgumentException("에이전트나 비활성 계정은 소유자로 지정할 수 없습니다: " + req.ownerUserId());
       }
     }

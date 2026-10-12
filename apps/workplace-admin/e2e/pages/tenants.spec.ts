@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-import type { PlatformUserSearchItem, TenantSummary } from '../../src/types/platform'
+import type { PlatformUserLookup, TenantSummary } from '../../src/types/platform'
 import { expect, test } from '../fixtures/platform-auth.fixture'
 
 // 테넌트 목록/생성 E2E.
@@ -39,35 +39,54 @@ async function stubTenantList(page: Page, initial: TenantSummary[]) {
   return state
 }
 
-/** GET /users/search 스텁 — 검색어(q) 별 결과를 돌려주고, 받은 q 를 기록한다. */
-async function stubUserSearch(
-  page: Page,
-  resolve: (q: string) => PlatformUserSearchItem[],
-) {
-  const queries: string[] = []
-  await page.route('**/api/platform/users/search?*', (route) => {
-    const q = new URL(route.request().url()).searchParams.get('q') ?? ''
-    queries.push(q)
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(resolve(q)),
-    })
+/** GET /users/lookup 스텁 — 이메일이 users 에 있으면 200, 없으면 404. 조회된 이메일 목록을 돌려준다. */
+async function stubUserLookup(page: Page, users: PlatformUserLookup[]) {
+  const queried: string[] = []
+  await page.route('**/api/platform/users/lookup?*', (route) => {
+    const email = new URL(route.request().url()).searchParams.get('email') ?? ''
+    queried.push(email)
+    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase())
+    return user
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(user) })
+      : route.fulfill({ status: 404, contentType: 'application/json', body: '{}' })
   })
-  return queries
+  return queried
 }
 
-const KIM: PlatformUserSearchItem = {
-  id: 7,
+const KIM: PlatformUserLookup = {
+  userId: 7,
   name: '김운영',
-  username: 'kim.ops@example.com',
   email: 'kim.ops@example.com',
+  isPlatformAdmin: false,
+  ownerEligible: true,
 }
-const KIM_NO_EMAIL: PlatformUserSearchItem = {
-  id: 8,
-  name: '김운영2',
-  username: 'kimops2',
-  email: null,
+const OPERATOR: PlatformUserLookup = {
+  userId: 1,
+  name: '운영자',
+  email: 'op@example.com',
+  isPlatformAdmin: true,
+  ownerEligible: true,
+}
+const AGENT: PlatformUserLookup = {
+  userId: 9,
+  name: '봇',
+  email: 'bot@example.com',
+  isPlatformAdmin: false,
+  ownerEligible: false,
+}
+
+/** POST /tenants 201 스텁 — 받은 payload 를 기록하고 목록 상태에 새 테넌트를 넣는다. */
+async function stubCreateTenant(page: Page, state: { list: TenantSummary[] }, created: TenantSummary) {
+  const captured: { body?: Record<string, unknown> } = {}
+  await page.route('**/api/platform/tenants', (route) => {
+    if (route.request().method() === 'POST') {
+      captured.body = route.request().postDataJSON()
+      state.list = [created]
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(created) })
+    }
+    return route.fallback()
+  })
+  return captured
 }
 
 test.describe('테넌트 목록', () => {
@@ -151,7 +170,7 @@ test.describe('테넌트 목록', () => {
     await page.goto('/')
     await page.getByTestId('create-tenant-button').click()
     await page.getByTestId('create-tenant-name').fill('Ownerless')
-    // 소유자는 고르지 않는다.
+    // 소유자 이메일은 비워둔다.
     await page.getByTestId('create-tenant-submit').click()
 
     await expect(page.getByText('테넌트를 생성했습니다.')).toBeVisible()
@@ -160,145 +179,151 @@ test.describe('테넌트 목록', () => {
     expect(body && 'ownerUserId' in body).toBe(false)
   })
 
-  // (c-2) 소유자를 이메일·이름으로 검색해 고르면 payload 에 그 사용자 id(number) 가 실린다(WP-337).
-  test('소유자를 검색해 고르면 payload 에 ownerUserId 가 포함된다', async ({
+  // (c-2) 소유자 이메일을 확인하면 찾은 사용자 id(number) 가 payload 에 실린다(WP-337).
+  test('소유자 이메일을 확인하면 payload 에 ownerUserId 가 포함된다', async ({
     authenticatedPage: page,
   }) => {
     const state = await stubTenantList(page, [])
-    const queries = await stubUserSearch(page, (q) =>
-      q.toLowerCase().includes('kim') || q.includes('김') ? [KIM, KIM_NO_EMAIL] : [],
-    )
-    let body: Record<string, unknown> | undefined
-    await page.route('**/api/platform/tenants', async (route) => {
-      if (route.request().method() === 'POST') {
-        body = route.request().postDataJSON()
-        const created = tenant({ id: 12, name: 'Owned' })
-        state.list = [created]
-        return route.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: JSON.stringify(created),
-        })
-      }
-      return route.fallback()
-    })
+    await stubUserLookup(page, [KIM])
+    const captured = await stubCreateTenant(page, state, tenant({ id: 12, name: 'Owned' }))
 
     await page.goto('/')
     await page.getByTestId('create-tenant-button').click()
     await page.getByTestId('create-tenant-name').fill('Owned')
-    await page.getByTestId('create-tenant-owner').fill('kim')
+    // 숫자 ID 가 아니라 이메일을 받는다 — 글자 입력이 막히지 않아야 한다(원래 버그).
+    await page.getByTestId('create-tenant-owner').fill('KIM.ops@example.com')
+    // Enter 는 폼 제출이 아니라 확인으로 동작한다.
+    await page.getByTestId('create-tenant-owner').press('Enter')
 
-    const options = page.getByTestId('create-tenant-owner-option')
-    await expect(options).toHaveCount(2)
-    // 이메일 없는 사용자는 보조줄에 아이디 + "이메일 없음" 을 보여준다.
-    await expect(options.nth(1)).toContainText('아이디 kimops2 · 이메일 없음')
-    await options.first().click()
-
-    // 선택 카드로 바뀐다.
-    const selected = page.getByTestId('create-tenant-owner-selected')
-    await expect(selected).toContainText('김운영')
-    await expect(selected).toContainText('kim.ops@example.com')
+    const found = page.getByTestId('create-tenant-owner-found')
+    await expect(found).toContainText('김운영')
+    await expect(found).toContainText('kim.ops@example.com')
+    expect(captured.body).toBeUndefined()
 
     await page.getByTestId('create-tenant-submit').click()
     await expect(page.getByText('테넌트를 생성했습니다.')).toBeVisible()
-    expect(body).toEqual({ name: 'Owned', ownerUserId: 7 })
-    // 디바운스 — 타이핑 중간값마다 요청하지 않고 최종 검색어로만 조회한다.
-    expect(queries).toEqual(['kim'])
+    expect(captured.body).toEqual({ name: 'Owned', ownerUserId: 7 })
   })
 
-  // (c-3) 키보드 ↓/Enter 로 고르고, ✕ 로 해제하면 소유자 없이 생성된다(WP-337).
-  test('키보드로 고른 소유자를 해제하면 ownerUserId 없이 생성된다', async ({
+  // (c-3) 없는 이메일 → 안내하고 생성을 막는다(소유자 없는 테넌트가 조용히 생기지 않게).
+  test('없는 소유자 이메일이면 안내하고 생성을 막는다', async ({ authenticatedPage: page }) => {
+    const state = await stubTenantList(page, [])
+    await stubUserLookup(page, [KIM])
+    const captured = await stubCreateTenant(page, state, tenant({ id: 13 }))
+
+    await page.goto('/')
+    await page.getByTestId('create-tenant-button').click()
+    await page.getByTestId('create-tenant-name').fill('NoOwner')
+    await page.getByTestId('create-tenant-owner').fill('nobody@example.com')
+    await page.getByTestId('create-tenant-owner-check').click()
+
+    await expect(page.getByText('해당 이메일의 사용자가 없습니다.', { exact: false })).toBeVisible()
+    await page.getByTestId('create-tenant-submit').click()
+    await expect(page.getByTestId('create-tenant-submit')).toBeVisible()
+    expect(captured.body).toBeUndefined()
+  })
+
+  // (c-4) 이메일만 치고 확인하지 않음 → 확인을 요구한다. 확인 후 이메일을 고치면 결과가 초기화돼 다시 확인해야 한다.
+  test('소유자 이메일을 확인하지 않으면 생성을 막고, 고치면 다시 확인해야 한다', async ({
     authenticatedPage: page,
   }) => {
     const state = await stubTenantList(page, [])
-    await stubUserSearch(page, () => [KIM, KIM_NO_EMAIL])
-    let body: Record<string, unknown> | undefined
-    await page.route('**/api/platform/tenants', async (route) => {
-      if (route.request().method() === 'POST') {
-        body = route.request().postDataJSON()
-        const created = tenant({ id: 13, name: 'Cleared', memberCount: 0 })
-        state.list = [created]
-        return route.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: JSON.stringify(created),
-        })
-      }
-      return route.fallback()
-    })
+    await stubUserLookup(page, [KIM])
+    const captured = await stubCreateTenant(page, state, tenant({ id: 14 }))
 
     await page.goto('/')
     await page.getByTestId('create-tenant-button').click()
-    await page.getByTestId('create-tenant-name').fill('Cleared')
+    await page.getByTestId('create-tenant-name').fill('Unchecked')
     const owner = page.getByTestId('create-tenant-owner')
-    await owner.fill('김운')
-    await expect(page.getByTestId('create-tenant-owner-option')).toHaveCount(2)
-    await owner.press('ArrowDown')
+    await owner.fill('kim.ops@example.com')
+    await page.getByTestId('create-tenant-submit').click()
+    await expect(page.getByText('확인 버튼으로 이메일을 확인하세요.')).toBeVisible()
+    expect(captured.body).toBeUndefined()
+
+    await page.getByTestId('create-tenant-owner-check').click()
+    await expect(page.getByTestId('create-tenant-owner-found')).toBeVisible()
+    await owner.fill('kim.ops2@example.com')
+    await expect(page.getByTestId('create-tenant-owner-found')).toHaveCount(0)
+  })
+
+  // (c-6) 앞뒤 공백이 붙은 이메일도 공백을 걷고 조회하며, 비어 있는 소유자 칸에서 Enter 는 그대로 제출한다.
+  test('공백 붙은 소유자 이메일을 조회하고, 빈 칸 Enter 는 제출한다', async ({
+    authenticatedPage: page,
+  }) => {
+    const state = await stubTenantList(page, [])
+    const queried = await stubUserLookup(page, [KIM])
+    const captured = await stubCreateTenant(page, state, tenant({ id: 15, name: 'Trim' }))
+
+    await page.goto('/')
+    await page.getByTestId('create-tenant-button').click()
+    await page.getByTestId('create-tenant-name').fill('Trim')
+    const owner = page.getByTestId('create-tenant-owner')
+    await owner.fill(' kim.ops@example.com ')
+    await page.getByTestId('create-tenant-owner-check').click()
+    await expect(page.getByTestId('create-tenant-owner-found')).toBeVisible()
+    expect(queried).toEqual(['kim.ops@example.com'])
+
+    // 소유자를 비우고 그 칸에서 Enter → 소유자 없이 생성된다.
+    await owner.fill('')
     await owner.press('Enter')
-    await expect(page.getByTestId('create-tenant-owner-selected')).toContainText('김운영2')
-
-    await page.getByTestId('create-tenant-owner-clear').click()
-    await expect(page.getByTestId('create-tenant-owner-selected')).toHaveCount(0)
-    // 해제 후 입력창으로 포커스가 돌아온다.
-    await expect(page.getByTestId('create-tenant-owner')).toBeFocused()
-
-    await page.getByTestId('create-tenant-submit').click()
     await expect(page.getByText('테넌트를 생성했습니다.')).toBeVisible()
-    expect(body).toEqual({ name: 'Cleared' })
+    expect(captured.body).toEqual({ name: 'Trim' })
   })
 
-  // (c-4) 안내 상태 — 2글자 미만, 결과 없음. Esc 는 목록만 닫고 다이얼로그는 유지(WP-337).
-  test('소유자 검색 안내를 보여주고 Esc 는 목록만 닫는다', async ({ authenticatedPage: page }) => {
-    await stubTenantList(page, [])
-    await stubUserSearch(page, () => [])
+  // (c-7) 플랫폼 관리자는 배지와 함께 확인되고, 확인 후 소유자 칸 Enter 는 바로 제출한다.
+  test('플랫폼 관리자 소유자는 배지를 보여주고, 확인 후 Enter 로 제출된다', async ({
+    authenticatedPage: page,
+  }) => {
+    const state = await stubTenantList(page, [])
+    await stubUserLookup(page, [OPERATOR])
+    const captured = await stubCreateTenant(page, state, tenant({ id: 16, name: 'Op' }))
 
     await page.goto('/')
     await page.getByTestId('create-tenant-button').click()
+    await page.getByTestId('create-tenant-name').fill('Op')
     const owner = page.getByTestId('create-tenant-owner')
-    const list = page.getByTestId('create-tenant-owner-list')
+    await owner.fill('op@example.com')
+    await owner.press('Enter')
+    const found = page.getByTestId('create-tenant-owner-found')
+    await expect(found.getByTestId('platform-admin-badge')).toHaveText('플랫폼 관리자')
+    // 확인 중에도 포커스가 입력칸에 남아 있다(readOnly).
+    await expect(owner).toBeFocused()
 
-    await owner.fill('n')
-    await expect(list).toHaveText('2글자 이상 입력하세요')
-    await owner.fill('nobody@example.com')
-    await expect(list).toHaveText('일치하는 사용자가 없습니다')
-
-    await owner.press('Escape')
-    await expect(list).toHaveCount(0)
-    // 목록만 닫고 입력한 글자·다이얼로그는 그대로 둔다.
-    await expect(owner).toHaveValue('nobody@example.com')
-    await expect(page.getByTestId('create-tenant-submit')).toBeVisible()
+    await owner.press('Enter')
+    await expect(page.getByText('테넌트를 생성했습니다.')).toBeVisible()
+    expect(captured.body).toEqual({ name: 'Op', ownerUserId: 1 })
   })
 
-  // (c-5) 쳤지만 고르지 않고 생성 → 제출을 막고 안내한다(소유자 없는 테넌트가 조용히 생기지 않게, WP-337).
-  test('소유자를 입력만 하고 고르지 않으면 생성을 막는다', async ({ authenticatedPage: page }) => {
-    await stubTenantList(page, [])
-    await stubUserSearch(page, () => [KIM])
-    let posted = false
-    await page.route('**/api/platform/tenants', (route) => {
-      if (route.request().method() === 'POST') posted = true
-      return route.fallback()
-    })
+  // (c-8) 에이전트·비활성 계정은 확인 단계에서 바로 소유자 불가로 안내하고 생성을 막는다.
+  test('에이전트·비활성 계정은 소유자로 지정할 수 없다', async ({ authenticatedPage: page }) => {
+    const state = await stubTenantList(page, [])
+    await stubUserLookup(page, [AGENT])
+    const captured = await stubCreateTenant(page, state, tenant({ id: 17 }))
 
     await page.goto('/')
     await page.getByTestId('create-tenant-button').click()
-    await page.getByTestId('create-tenant-name').fill('Typed')
-    await page.getByTestId('create-tenant-owner').fill('kim.ops@example.com')
-    // 열린 후보 목록이 제출 버튼을 덮으므로 Esc 로 목록만 닫고 제출한다.
-    await page.getByTestId('create-tenant-owner').press('Escape')
+    await page.getByTestId('create-tenant-name').fill('Bot')
+    await page.getByTestId('create-tenant-owner').fill('bot@example.com')
+    await page.getByTestId('create-tenant-owner-check').click()
+
+    await expect(page.getByText('에이전트나 비활성 계정은 소유자로 지정할 수 없습니다.')).toBeVisible()
     await page.getByTestId('create-tenant-submit').click()
+    await expect(page.getByTestId('create-tenant-submit')).toBeVisible()
+    expect(captured.body).toBeUndefined()
+  })
 
-    await expect(
-      page.getByText('목록에서 소유자를 고르거나, 소유자 없이 만들려면 입력을 지우세요.'),
-    ).toBeVisible()
-    expect(posted).toBe(false)
+  // (c-5) 형식이 틀린 이메일은 조회하지 않고 형식 오류를 보여준다.
+  test('형식이 틀린 소유자 이메일은 조회하지 않는다', async ({ authenticatedPage: page }) => {
+    await stubTenantList(page, [])
+    const queried = await stubUserLookup(page, [KIM])
 
-    // 목록에서 고르면 안내가 사라지고, 포커스는 카드의 ✕ 버튼으로 옮겨간다.
-    await page.getByTestId('create-tenant-owner').click()
-    await page.getByTestId('create-tenant-owner-option').first().click()
-    await expect(
-      page.getByText('목록에서 소유자를 고르거나, 소유자 없이 만들려면 입력을 지우세요.'),
-    ).toHaveCount(0)
-    await expect(page.getByTestId('create-tenant-owner-clear')).toBeFocused()
+    await page.goto('/')
+    await page.getByTestId('create-tenant-button').click()
+    await page.getByTestId('create-tenant-owner').fill('kim')
+    await page.getByTestId('create-tenant-owner-check').click()
+
+    await expect(page.getByText('올바른 이메일 형식이 아닙니다')).toBeVisible()
+    expect(queried).toEqual([])
   })
 
   // (d) 생성 중복 slug(400) → 에러 메시지 표시, 다이얼로그 유지
