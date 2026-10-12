@@ -1,6 +1,7 @@
 package com.workplace.chat.service;
 
 import com.workplace.chat.dto.ChatMessageAttachmentResponse;
+import com.workplace.chat.dto.ChatMessagePage;
 import com.workplace.chat.dto.ChatMessageResponse;
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.drive.service.DriveLinkService;
@@ -46,6 +47,11 @@ public class ChatMessageHydrator {
                 m.withAttachments(amap.getOrDefault(m.id(), List.of()))
                     .withDriveLinks(dmap.getOrDefault(m.id(), List.of())))
         .toList();
+  }
+
+  /** 메시지 페이지의 항목을 채운다 — 페이징 정보(커서·더 있음)는 그대로 둔다. 목록 API 와 스레드 첫 페이지가 같이 쓴다(WP-365). */
+  public ChatMessagePage hydrate(ChatMessagePage page) {
+    return new ChatMessagePage(hydrate(page.items()), page.nextCursor(), page.hasMore());
   }
 
   /** 단건 메시지에 첨부·드라이브 링크를 채운다. */

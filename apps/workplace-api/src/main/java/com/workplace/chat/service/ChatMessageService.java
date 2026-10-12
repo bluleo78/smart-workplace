@@ -148,10 +148,8 @@ public class ChatMessageService {
   public ChatMessagePage list(long callerId, long threadId, String cursor, int limit) {
     // 읽기는 스레드 조회(getOrCreate)와 같은 권한 — 비멤버도 과거 메시지를 스크롤해 볼 수 있어야 한다(WP-213).
     threadAccess.ensureCanRead(threadId, callerId);
-    ChatMessagePage page =
-        messageRepo.findPage(threadId, cursor, limit, userMentionHydrator::asMentionResponses);
-    return new ChatMessagePage(
-        messageHydrator.hydrate(page.items()), page.nextCursor(), page.hasMore());
+    return messageHydrator.hydrate(
+        messageRepo.findPage(threadId, cursor, limit, userMentionHydrator::asMentionResponses));
   }
 
   @Transactional
