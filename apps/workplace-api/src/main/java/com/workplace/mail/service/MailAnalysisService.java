@@ -344,6 +344,7 @@ public class MailAnalysisService {
               // 공유 원본 분류를 이번에 채웠다면 같은 원본의 다른 사본(이미 분석됨)도 ⑤ 를 다시 계산해야 한다.
               if (category != null && messageRepo.fillContentCategoryIfEmpty(messageId, category)) {
                 finalizer.recomputeForContent(ctx.contentId()); // 이 사본도 포함(raw 저장됨)
+                notifyContentOwners(ctx.contentId()); // 다른 사본 소유자의 "분류 전"도 바뀐다
               } else {
                 finalizer.recompute(messageId);
               }

@@ -3,6 +3,7 @@ package com.workplace.mail.service;
 import static com.workplace.jooq.Tables.EMAIL_CONTENT;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.when;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AgentOutageGuard;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
@@ -32,10 +34,13 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
 
 /** WP-185 전체 메일 카테고리 일괄 분류 — 대상 선정·저장 규칙·실패 처리. */
 @Transactional
+@RecordApplicationEvents
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MailCategoryBackfillIT extends IntegrationTestBase {
 
@@ -47,6 +52,7 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
   @Autowired MailCategoryBackfillService service;
   @Autowired DSLContext dsl;
   @Autowired EmailContentRepository contentRepo;
+  @Autowired ApplicationEvents events;
 
   @MockitoBean AiAgentMailClient mailClient;
   @MockitoBean AssistantResolver assistantResolver;
@@ -92,6 +98,27 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
 
     assertThat(contentState(c).value1()).isEqualTo("업무");
     assertThat(contentState(c).value2()).isNotNull();
+  }
+
+  @Test
+  void filledCategory_notifiesEveryOwnerOfSharedContent() {
+    // WP-359: 분류는 공유 원본에 저장되므로 같은 원본을 가진 다른 사용자 화면도 무효화해야 한다
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    Box b = MailAnalysisFixtures.mailbox(dsl, false);
+    long c =
+        MailAnalysisFixtures.content(
+            dsl, contentRepo, MailAnalysisFixtures.SHORT_BODY, MailAnalysisFixtures.SHORT_BODY);
+    MailAnalysisFixtures.envelope(dsl, a, c, "boss@corp.com", a.address(), b.address());
+    MailAnalysisFixtures.envelope(dsl, b, c, "boss@corp.com", a.address(), b.address());
+    answerAll("업무");
+
+    service.classifyAccountNow(
+        a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
+
+    assertThat(events.stream(ResourceChangedEvent.class).filter(e -> "mail".equals(e.resource())))
+        .extracting(ResourceChangedEvent::scopeId, e -> e.attrs().get("accountId"))
+        .containsExactlyInAnyOrder(
+            tuple(a.userId(), a.accountId()), tuple(b.userId(), b.accountId()));
   }
 
   @Test

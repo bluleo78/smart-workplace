@@ -146,7 +146,7 @@ public class MailCategoryBackfillService {
         return; // 형식이 비정상인 응답 — 기록하지 않고 다음 회차에 다시 고른다
       }
       guard.recordResponse();
-      save(userId, accountId, inputs, result);
+      save(inputs, result);
       offset += ids.size();
     }
   }
@@ -222,10 +222,9 @@ public class MailCategoryBackfillService {
 
   /**
    * 결과 저장(한 트랜잭션) — 요청한 사본에 대한 결과만 쓴다(응답에 섞인 다른 id 는 무시). 분류를 새로 채운 content 는 회신필요 최종 판정을 다시 계산한다(③
-   * 의 늦은 분류와 같은 규칙). 하나라도 채웠으면 소유자 화면을 무효화한다.
+   * 의 늦은 분류와 같은 규칙). 하나라도 채웠으면 그 원본을 가진 모든 소유자 화면을 무효화한다.
    */
-  private void save(
-      long userId, long accountId, List<ClassifyInput> inputs, ClassifyBatchResult result) {
+  private void save(List<ClassifyInput> inputs, ClassifyBatchResult result) {
     Map<Long, ClassifyInput> requested =
         inputs.stream().collect(Collectors.toMap(ClassifyInput::messageId, Function.identity()));
     Set<Long> filledContents = new LinkedHashSet<>(); // 같은 content 중복 재계산 방지
@@ -253,7 +252,11 @@ public class MailCategoryBackfillService {
     txTemplate.executeWithoutResult(
         s -> {
           filledContents.forEach(finalizer::recomputeForContent);
-          notifier.mailChanged(userId, accountId, null, null);
+          // 분류는 공유 원본에 저장되므로 같은 원본을 가진 다른 사용자 화면도 무효화한다(WP-359). 백필한 계정은 원본 소유자에 이미 들어 있다.
+          filledContents.stream()
+              .flatMap(c -> messageRepo.listContentOwners(c).stream())
+              .distinct()
+              .forEach(o -> notifier.mailChanged(o.userId(), o.accountId(), null, null));
         });
   }
 }

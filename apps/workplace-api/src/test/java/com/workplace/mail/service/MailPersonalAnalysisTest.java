@@ -6,6 +6,7 @@ import static com.workplace.mail.service.MailAnalysisFixtures.LONG_BODY;
 import static com.workplace.mail.service.MailAnalysisFixtures.SHORT_BODY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
@@ -126,6 +127,25 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
               assertThat(e.attrs()).containsEntry("accountId", box.accountId());
               assertThat(e.ids()).containsExactly(env);
             });
+  }
+
+  @Test
+  void filledCategory_notifiesOtherOwnersOfSharedContent() {
+    // WP-359: 공통 비서가 없어 ④ 가 공유 원본 분류를 채우면 아직 분석 안 된 다른 사용자 사본의 "분류 전"도 바뀐다
+    Box a = MailAnalysisFixtures.mailbox(dsl, true);
+    Box b = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long envA =
+        MailAnalysisFixtures.envelope(dsl, a, content, "minsu@acme.com", a.address(), b.address());
+    MailAnalysisFixtures.envelope(dsl, b, content, "minsu@acme.com", a.address(), b.address());
+    when(mailClient.analyzePersonal(any()))
+        .thenReturn(new AnalyzePersonalResult(true, null, false, "업무"));
+
+    analysis.analyzePersonal(a.userId(), envA, analysis.newProfileCache());
+
+    assertThat(mailChanges())
+        .extracting(ResourceChangedEvent::scopeId, e -> e.attrs().get("accountId"))
+        .contains(tuple(a.userId(), a.accountId()), tuple(b.userId(), b.accountId()));
   }
 
   @Test
