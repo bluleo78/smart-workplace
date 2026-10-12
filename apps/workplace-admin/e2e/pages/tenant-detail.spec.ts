@@ -533,4 +533,84 @@ test.describe('테넌트 상세', () => {
     await page.getByTestId('add-member-email').fill('b@example.com')
     await expect(page.getByTestId('add-member-name')).toHaveCount(0)
   })
+  // WP-336: 편집 → PATCH payload 검증 → 재조회로 이름·slug 반영 + 성공 토스트.
+  test('테넌트 이름·slug 를 편집하면 PATCH 후 화면에 반영된다', async ({ authenticatedPage: page }) => {
+    const state = await stubTenantDetail(page, tenantDetail())
+    await stubMembers(page, [member()])
+    let body: unknown
+    await page.route('**/api/platform/tenants/1', (route) => {
+      if (route.request().method() === 'PATCH') {
+        body = route.request().postDataJSON()
+        state.tenant = { ...state.tenant, name: '주식회사 아이에이클라우드 솔루션즈 코리아', slug: 'iacloud-solutions-korea' }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state.tenant) })
+      }
+      return route.fallback()
+    })
+
+    await page.goto('/tenants/1')
+    await page.getByTestId('edit-tenant-button').click()
+    // 다이얼로그는 현재 값으로 채워져 열린다.
+    await expect(page.getByTestId('edit-tenant-name')).toHaveValue('Acme Corp')
+    await expect(page.getByTestId('edit-tenant-slug')).toHaveValue('acme')
+
+    await page.getByTestId('edit-tenant-name').fill('주식회사 아이에이클라우드 솔루션즈 코리아')
+    await page.getByTestId('edit-tenant-slug').fill('iacloud-solutions-korea')
+    await page.getByTestId('edit-tenant-submit').click()
+
+    await expect.poll(() => body).toEqual({
+      name: '주식회사 아이에이클라우드 솔루션즈 코리아',
+      slug: 'iacloud-solutions-korea',
+    })
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByTestId('tenant-detail-name')).toHaveText('주식회사 아이에이클라우드 솔루션즈 코리아')
+    await expect(page.getByText('iacloud-solutions-korea')).toBeVisible()
+    await expect(page.getByText('테넌트 정보를 저장했습니다.')).toBeVisible()
+  })
+
+  // WP-336: 서버 400(slug 중복)은 다이얼로그 안에 메시지로 보이고 닫히지 않는다.
+  test('slug 중복이면 다이얼로그에 서버 메시지를 보여준다', async ({ authenticatedPage: page }) => {
+    await stubTenantDetail(page, tenantDetail())
+    await stubMembers(page, [member()])
+    await page.route('**/api/platform/tenants/1', (route) => {
+      if (route.request().method() === 'PATCH') {
+        return route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 400, message: '이미 사용 중인 slug 입니다: taken' }),
+        })
+      }
+      return route.fallback()
+    })
+
+    await page.goto('/tenants/1')
+    await page.getByTestId('edit-tenant-button').click()
+    await expect(page.getByTestId('edit-tenant-slug')).toHaveValue('acme')
+    await page.getByTestId('edit-tenant-slug').fill('taken')
+    await page.getByTestId('edit-tenant-submit').click()
+
+    await expect(page.getByTestId('edit-tenant-error')).toHaveText('이미 사용 중인 slug 입니다: taken')
+    await expect(page.getByRole('dialog')).toBeVisible()
+  })
+
+  // WP-336: 이름 공백·slug 형식 위반은 요청 없이 필드 에러로 막는다.
+  test('이름이 비었거나 slug 형식이 틀리면 저장하지 않는다', async ({ authenticatedPage: page }) => {
+    await stubTenantDetail(page, tenantDetail())
+    await stubMembers(page, [member()])
+    let patched = false
+    await page.route('**/api/platform/tenants/1', (route) => {
+      if (route.request().method() === 'PATCH') patched = true
+      return route.fallback()
+    })
+
+    await page.goto('/tenants/1')
+    await page.getByTestId('edit-tenant-button').click()
+    await expect(page.getByTestId('edit-tenant-name')).toHaveValue('Acme Corp')
+    await page.getByTestId('edit-tenant-name').fill('   ')
+    await page.getByTestId('edit-tenant-slug').fill('Upper_Case')
+    await page.getByTestId('edit-tenant-submit').click()
+
+    await expect(page.getByText('이름을 입력하세요')).toBeVisible()
+    await expect(page.getByText('영문 소문자·숫자·하이픈만 사용할 수 있습니다')).toBeVisible()
+    expect(patched).toBe(false)
+  })
 })

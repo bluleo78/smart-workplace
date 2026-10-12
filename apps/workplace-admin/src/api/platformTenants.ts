@@ -5,6 +5,7 @@ import type {
   TenantDetail,
   TenantMember,
   TenantSummary,
+  UpdateTenantRequest,
 } from '../types/platform'
 import { client } from './client'
 
@@ -18,6 +19,9 @@ export const platformTenants = {
   /** 테넌트 생성(201) → TenantDetail. */
   create: (req: CreateTenantRequest) =>
     client.post<TenantDetail>('/tenants', req).then((res) => res.data),
+  /** 테넌트 이름·slug 수정(WP-336) → 갱신된 TenantDetail. slug 중복·형식 오류는 400. */
+  update: (id: number, req: UpdateTenantRequest) =>
+    client.patch<TenantDetail>(`/tenants/${id}`, req).then((res) => res.data),
   /** 테넌트 멤버 목록(상세·Task 4). */
   members: (id: number) =>
     client.get<TenantMember[]>(`/tenants/${id}/members`).then((res) => res.data),
