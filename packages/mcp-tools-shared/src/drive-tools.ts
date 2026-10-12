@@ -50,8 +50,8 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       name: 'list_drive_spaces',
       kind: 'read',
       description:
-        '내가 멤버인 드라이브 스페이스(내 드라이브 + 팀 스페이스) 목록을 JSON 으로 반환합니다. 내 드라이브가 먼저, 팀 스페이스는 이름순이며 ' +
-        '각 항목은 id(= 다른 드라이브 도구의 spaceId)·type(PERSONAL/TEAM)·name·role(내 역할 OWNER/EDITOR/VIEWER)·archived(true 면 읽기 전용)를 가집니다.',
+        '내가 멤버인 드라이브 스페이스(내 드라이브 + 팀 스페이스 + 채널 드라이브) 목록을 JSON 으로 반환합니다. 내 드라이브가 먼저, 나머지는 이름순이며 ' +
+        '각 항목은 id(= 다른 드라이브 도구의 spaceId)·type(PERSONAL=내 드라이브 / TEAM=팀 스페이스 / CHANNEL=메시징 채널에 연결된 드라이브)·name·role(내 역할 OWNER/EDITOR/VIEWER)·archived(true 면 읽기 전용)를 가집니다.',
       inputSchema: z.object({}),
       async handler() {
         return JSON.stringify(await client.listDriveSpaces());

@@ -76,8 +76,8 @@ describe('get_project', () => {
       cycles: [{ name: 'Sprint 3', status: 'ACTIVE' }],
       members: [{ username: 'alice', name: 'Alice', role: 'OWNER' }],
     });
-    expect(raw).not.toContain('userId');
-    expect(raw).not.toContain('1010');
+    expect(resultText(raw)).not.toContain('userId');
+    expect(resultText(raw)).not.toContain('1010');
     for (const fn of [c.getProjectTypes, c.getProjectLabels, c.getProjectMilestones, c.getProjectCycles, c.getProjectMembers]) {
       expect(fn).toHaveBeenCalledWith('WP');
     }

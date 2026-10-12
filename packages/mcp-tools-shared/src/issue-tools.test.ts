@@ -77,7 +77,7 @@ describe('buildSharedIssueTools', () => {
       { name: 'Sprint 2', status: 'COMPLETED' },
       { name: 'Sprint 3', status: 'ACTIVE' },
     ]);
-    expect(raw).not.toContain('3001');
+    expect(resultText(raw)).not.toContain('3001');
     expect(c.getIssueCycles).toHaveBeenCalledWith('WP-12');
   });
 

@@ -29,9 +29,11 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 
 | kind | 기준 | 예 | workplace-mcp |
 |---|---|---|---|
-| `read` | 상태를 바꾸지 않는다 | `list_issues`, `get_mail` | 노출(`readOnlyHint`) |
+| `read` | 상태를 바꾸지 않는다 | `list_issues`, `get_mail` | 노출 |
 | `write` | 바꾸지만 되돌릴 수 있다. 워크스페이스 안의 알림·메시지는 앱에서 직접 해도 생기는 정상 부작용이라 여기에 든다 | `update_issue`, `rsvp_event`, `open_dm` | 노출 |
-| `destructive` | 되돌릴 수 없거나(영구 삭제) 워크스페이스 밖으로 나간다(메일 발송·외부 공개 링크) | (없음) | **비노출**(`destructiveHint`) |
+| `destructive` | 되돌릴 수 없거나(영구 삭제) 워크스페이스 밖으로 나간다(메일 발송·외부 공개 링크) | (없음) | **비노출** |
+
+`kind` 는 **노출 여부**만 정한다. MCP 클라이언트에 알리는 연산 성격(`destructiveHint`·`idempotentHint`·`openWorldHint`)은 `kind` 가 아니라 write·destructive 도구의 `hints`(`ToolHints`)에서 `toolAnnotations()` 가 만든다(WP-342, read 는 `readOnlyHint` 만). 기준은 `mcp-tool.ts` 의 `ToolHints` 주석이고, 도구별 전체 값은 `tool-annotations.test.ts` 가 고정한다. 그래서 `kind: 'write'` 여도 덮어쓰거나 지우는 도구는 `destructiveHint` 가 true 다.
 
 되돌릴 수 없는 작업이나 대외 발송은 공유 도구보다 ai-agent 의 `propose_*` 확인 카드로 만드는 것이 원칙이다. 등급과 노출 목록은 `shared-tools.test.ts` 와 workplace-mcp `tools/index.test.ts` 의 스냅샷이 고정한다.
 

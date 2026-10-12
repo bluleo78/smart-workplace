@@ -9,8 +9,20 @@ import {
 
 import type { ToolStep } from '@/types/home';
 
+// WP-340: 이름이 바뀌거나 없어진 도구의 옛 이름 라벨 — 이전에 저장된 AI Chat 세션의 toolName 이 원래 이름 + 🔧 로 보이지 않게 하는
+// **표시 전용** 폴백이다. 공유 TOOL_LABELS 에는 옛 이름을 두지 않는다(tool-labels.test.ts 가 금지) — TOOL_LABELS 에 항목이 없을 때만 쓴다.
+export const LEGACY_TOOL_LABELS: Record<string, ToolLabel> = {
+  update_status: { label: '상태 변경', icon: '✏️' },
+  list_project_members: { label: '멤버 조회', icon: '👥' },
+  create_folder: { label: '폴더 생성', icon: '📁' },
+  rename_folder: { label: '폴더 이름변경', icon: '✏️' },
+  move_folder: { label: '폴더 이동', icon: '📦' },
+  move_file: { label: '파일 이동', icon: '📦' },
+};
+
 export function getToolDisplay(toolName: string): ToolLabel {
-  return TOOL_LABELS[strip(toolName)] ?? { label: strip(toolName), icon: '🔧' };
+  const name = strip(toolName);
+  return TOOL_LABELS[name] ?? LEGACY_TOOL_LABELS[name] ?? { label: name, icon: '🔧' };
 }
 
 // #461: show_* 도구명에서 위젯 타입 추출(점진 렌더용). 백엔드 compose-parser 와 동일 규칙.
