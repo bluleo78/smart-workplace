@@ -274,6 +274,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       // 소유권은 서버가 검증한다(남의 계정이면 404). 본문은 빈 객체 — 서버가 요청 본문을 읽지 않는다.
       return (await http.post(`/mail/accounts/${accountId}/sync`, {})).data;
     },
+    async getMailSyncStatus(accountId) {
+      return (await http.get(`/mail/accounts/${accountId}/sync-status`)).data;
+    },
 
     // ── 구성원·연락처 ──
     async searchMembers(params) {

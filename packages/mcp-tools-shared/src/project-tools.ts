@@ -83,9 +83,12 @@ export function toIssueListItem(it: IssueRow) {
 /**
  * 프로젝트 응답 → LLM 뷰. 소유자 ownerId 는 숫자 사용자 ID 라 내보내지 않는다(#833, WP-353). 서버 응답에는 소유자 이름이 없지만
  * 소유자는 get_project 의 members 에 role: OWNER 로 username·name 과 함께 나오므로(이미 함께 조회하는 값) 정보가 사라지지 않는다.
+ * 크기 정리(WP-353): 프로젝트 도구는 모두 projectKey 로 가리키므로 숫자 id 를 빼고, 상위 3명 이름(memberNames — 프론트 아바타용)과
+ * 기본 프로젝트가 아닐 때의 isDefault:false, 값이 없는 키(설명 null 등)를 뺀다. 프로젝트마다 반복되는 필드라 목록에서 효과가 크다.
  */
 export function toProjectView(project: Record<string, unknown>) {
-  return omitKeys(project, 'ownerId');
+  const { isDefault, ...rest } = omitKeys(project, 'ownerId', 'id', 'memberNames');
+  return dropEmpty({ ...rest, ...(isDefault === true && { isDefault: true }) });
 }
 
 /** 프로젝트 멤버 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833). get_project 의 members 에 쓴다. */
@@ -101,7 +104,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        '접근 가능한 프로젝트 목록을 JSON({items, total, hasMore?, nextPage?})으로 반환합니다. total 은 전체 프로젝트 수입니다. ' +
+        '접근 가능한 프로젝트 목록을 JSON({items, total, hasMore?, nextPage?})으로 반환합니다(항목: key·name·description·type·issueTotal·issueDone·memberCount·viewerIsMember 등, 값이 없는 키는 생략). ' +
+        'total 은 전체 프로젝트 수입니다. ' +
         'page/size 로 페이지네이션합니다(기본 0/50, size 최대 100). hasMore 가 있으면(true) 뒤에 더 있다는 뜻이니 nextPage 를 page 로 넘겨 이어 조회하거나, ' +
         '이어 조회하지 않고 답한다면 목록이 일부만 담겼다고 밝히세요.',
       inputSchema: listProjectsInput,

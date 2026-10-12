@@ -61,6 +61,21 @@ describe('buildSharedIssueTools', () => {
     expect(c.getIssueDetail).toHaveBeenCalledWith('WP-12');
   });
 
+  it('WP-353: get_issue_detail 은 코멘트를 최근 30건으로 자르고, allComments:true 면 전부 준다', async () => {
+    const c = mockClient();
+    const comments = Array.from({ length: 45 }, (_, i) => ({ id: i + 1, body: `c${i + 1}`, authorName: 'x', authorKind: 'HUMAN' }));
+    vi.mocked(c.getIssueDetail).mockResolvedValue({ issueKey: 'WP-12', summary: { projectKey: 'WP', number: 12, title: 'T' }, comments });
+    const detail = buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!;
+    const cut = JSON.parse(resultText(await detail.handler({ issueKey: 'WP-12' })));
+    expect(cut.comments).toHaveLength(30);
+    expect(cut.commentsOmitted).toBe(15);
+    const all = JSON.parse(resultText(await detail.handler({ issueKey: 'WP-12', allComments: true })));
+    expect(all.comments).toHaveLength(45);
+    expect(all).not.toHaveProperty('commentsOmitted');
+    expect(detail.description).toMatch(/commentsOmitted/);
+    expect(detail.description).toMatch(/allComments/);
+  });
+
   it('WP-176: get_issue_detail 은 이슈의 사이클을 name·status 로 동봉한다(숫자 id 없음)', async () => {
     const c = mockClient();
     vi.mocked(c.getIssueDetail).mockResolvedValue({

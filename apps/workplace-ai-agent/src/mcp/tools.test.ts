@@ -80,7 +80,8 @@ function sharedMock(): MockedShared {
     getMailLinkedIssue: vi.fn().mockResolvedValue(null),
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-1' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
-    syncMail: vi.fn().mockResolvedValue({}),
+    syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),
+    getMailSyncStatus: vi.fn().mockResolvedValue({ phase: 'IDLE', total: 0, done: 0, running: false }),
     // 구성원·연락처
     searchMembers: vi.fn().mockResolvedValue([]),
     searchMembersPage: vi.fn().mockResolvedValue({ items: [], hasMore: false, page: 0 }),
@@ -699,11 +700,15 @@ describe('chat 도구', () => {
   it('list_chat_messages → client.getChatMessages(agentId, threadId, 50)', async () => {
     const c = client();
     vi.mocked(c.getChatMessages).mockResolvedValue([
-      { id: 1, authorName: 'A', authorKind: 'HUMAN', body: 'hi', createdAt: 't', deleted: false },
+      { id: 1, authorId: 77, authorName: 'A', authorKind: 'HUMAN', body: 'hi', createdAt: 't', deleted: false },
     ]);
     const out = await find(buildTools(c, AGENT_ID, 'chat'), 'list_chat_messages').handler({ threadId: 5 });
     expect(c.getChatMessages).toHaveBeenCalledWith(AGENT_ID, 5, 50);
     expect(out).toContain('hi');
+    // 숫자 사용자 ID(authorId)는 출력에 없다(#833, WP-353). 이름·종류는 남는다.
+    expect(out).not.toContain('authorId');
+    expect(out).not.toContain('77');
+    expect(JSON.parse(String(out))[0]).toMatchObject({ id: 1, authorName: 'A', authorKind: 'HUMAN' });
   });
 });
 
@@ -1326,12 +1331,12 @@ describe('submit_response 사이드카', () => {
 // 노출하고 toolClient(agentId) 로 호출하는지만 본다(옛 ai-agent 전용 클라이언트 메서드는 없어졌다).
 // ---------------------------------------------------------------------------
 describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agentId))으로 실행된다 (WP-343)', () => {
-  it('sync_mail → sc.syncMail(accountId) 후 완료 문자열 반환', async () => {
+  it('sync_mail → sc.syncMail(accountId) 후 서버 결과의 건수를 반환(WP-353)', async () => {
     const c = client();
     const out = await find(buildTools(c, AGENT_ID, 'assistant'), 'sync_mail').handler({ accountId: 5 });
     expect(c.toolClient).toHaveBeenCalledWith(AGENT_ID);
     expect(c.sc.syncMail).toHaveBeenCalledWith(5);
-    expect(out).toBe('동기화를 완료했습니다.');
+    expect(JSON.parse(String(out))).toEqual({ fetched: 3, saved: 2, seenChanged: 1 });
   });
 
   it('create_external_contact → force 는 본문이 아니라 별도 인자로 넘긴다(#839 중복 경고 우회)', async () => {

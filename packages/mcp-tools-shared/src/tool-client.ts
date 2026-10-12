@@ -213,6 +213,8 @@ export interface MailToolClient {
   markMailRead(messageId: number): Promise<void>;
   /** POST /mail/accounts/{id}/sync — INBOX 증분 동기화(원본 메일 서버에 접속). 소유 계정만(아니면 404), 이미 진행 중이면 서버가 빈 결과. */
   syncMail(accountId: number): Promise<unknown>;
+  /** GET /mail/accounts/{id}/sync-status — 진행 중 여부(phase LIST/BODIES/IDLE). 서버는 이미 진행 중이면 sync 를 빈 결과로 돌려주므로 구분용(WP-353). */
+  getMailSyncStatus(accountId: number): Promise<{ phase: string; total: number; done: number; running: boolean }>;
 }
 
 export interface MemberToolClient {

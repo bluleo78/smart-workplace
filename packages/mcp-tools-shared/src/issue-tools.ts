@@ -2,7 +2,7 @@
 import { dropEmpty } from './compact.js';
 import { errText, parseIssueKey } from './parse.js';
 import type { SharedTool } from './mcp-tool.js';
-import { ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
+import { ISSUE_DETAIL_COMMENT_LIMIT, ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
 import { toIssueListItem } from './project-tools.js';
 import { resolveAssigneeIds, resolveCycleIds, resolveLabelIds, resolveMilestoneId, resolveTypeId } from './resolve.js';
 import {
@@ -10,6 +10,7 @@ import {
   createIssueInput,
   dependencyInput,
   editCommentInput,
+  getIssueDetailInput,
   issueKeyInput,
   updateIssueInput,
 } from './schemas.js';
@@ -39,14 +40,16 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         '이슈 전체 컨텍스트를 JSON 으로 반환합니다. issueKey 예: WP-12. ' +
         '본문·상태·우선순위·유형·담당자·작성자(reporter), 날짜(dueDate·startDate, createdAt·updatedAt·closedAt — 시각은 +09:00), ' +
         '라벨·마일스톤·사이클(cycles: name·status)·부모(parent)·하위 진행률(children), 의존성(blockedBy·blocks), 커스텀 필드, 첨부, ' +
-        `코멘트, 최근 변경 이력(history, 최대 ${ISSUE_DETAIL_HISTORY_LIMIT}건 — 상태가 언제 바뀌었는지 등)을 포함합니다. ` +
+        `최근 코멘트(comments, 최대 ${ISSUE_DETAIL_COMMENT_LIMIT}건), 최근 변경 이력(history, 최대 ${ISSUE_DETAIL_HISTORY_LIMIT}건 — 상태가 언제 바뀌었는지 등)을 포함합니다. ` +
+        '코멘트·이력이 상한을 넘어 오래된 것이 빠졌으면 commentsOmitted·historyOmitted(빠진 개수)가 옵니다 — 이 키가 없으면 전부 담긴 것입니다. ' +
+        '오래된 코멘트까지 읽어야 하면 allComments:true 로 다시 호출하세요(코멘트 전체, 이력은 여전히 최근 것만). ' +
         'closedAt 은 완료(DONE)·취소(CANCELED) 모두에 기록되므로 둘의 구분은 status 로 하세요. 사람(담당자·작성자·코멘트/이력 작성자·첨부자)은 username(쓰기 도구용 — 모르면 null)과 name(표시 이름)으로 옵니다.',
-      inputSchema: issueKeyInput,
+      inputSchema: getIssueDetailInput,
       async handler(args) {
-        const { issueKey } = issueKeyInput.parse(args);
+        const { issueKey, allComments } = getIssueDetailInput.parse(args);
         // WP-176: update_issue 의 cycles 는 집합 교체라, 기존 사이클을 알아야 추가·제거 시 다른 사이클을 지우지 않는다 — 함께 동봉.
         const [raw, cycles] = await Promise.all([client.getIssueDetail(issueKey), client.getIssueCycles(issueKey)]);
-        const detail = normalizeIssueDetail(raw);
+        const detail = normalizeIssueDetail(raw, { allComments });
         return JSON.stringify({ ...detail, cycles: cycles.map(({ name, status }) => ({ name, status })) });
       },
     },
@@ -156,7 +159,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        '이슈의 기존 코멘트를 수정합니다. commentId 는 get_issue_detail 의 comments 에서 확인하세요.',
+        `이슈의 기존 코멘트를 수정합니다. commentId 는 get_issue_detail 의 comments 에서 확인하세요(최근 ${ISSUE_DETAIL_COMMENT_LIMIT}건만 오므로 대상이 안 보이면 allComments:true).`,
       inputSchema: editCommentInput,
       async handler(args) {
         const { issueKey, commentId, body } = editCommentInput.parse(args);

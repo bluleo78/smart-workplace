@@ -18,7 +18,8 @@ function mockClient(): Client {
     getMailLinkedIssue: vi.fn().mockResolvedValue(null),
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-9' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
-    syncMail: vi.fn().mockResolvedValue({ saved: 2 }),
+    syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),
+    getMailSyncStatus: vi.fn().mockResolvedValue({ phase: 'IDLE', total: 0, done: 0, running: false }),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
     getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
   };
@@ -66,10 +67,60 @@ describe('buildMailTools', () => {
 
   it('get_mail → client.getMail(messageId)', async () => {
     const c = mockClient();
-    vi.mocked(c.getMail).mockResolvedValue({ id: 9, body: '본문' });
+    vi.mocked(c.getMail).mockResolvedValue({ id: 9, bodyText: '본문' });
     const out = await tool(c, 'get_mail').handler({ messageId: 9 });
     expect(c.getMail).toHaveBeenCalledWith(9);
-    expect(JSON.parse(resultText(out))).toEqual({ id: 9, body: '본문' });
+    expect(JSON.parse(resultText(out))).toEqual({ id: 9, bodyText: '본문' });
+  });
+
+  // 서버 EmailMessageDetail 형태.
+  const detail = {
+    id: 9, threadId: 't-1', messageId: '<abc@mail>', fromAddress: 'a@x.com', fromName: '앨리스', toAddresses: 'me@x.com', ccAddresses: null, bccAddresses: null,
+    subject: '견적', sentAt: '2026-10-01T00:00:00Z', receivedAt: '2026-10-01T00:00:05Z', seen: false,
+    bodyText: '안녕하세요\n견적 보냅니다.', bodyHtml: '<html><head><style>p{color:red}</style></head><body><p style="margin:0">안녕하세요</p><p>견적 보냅니다.</p></body></html>',
+    attachments: [{ id: 1, filename: 'a.pdf', contentType: 'application/pdf', sizeBytes: 10, contentId: null }],
+  };
+
+  it('WP-353: get_mail 은 bodyHtml 을 빼고 bodyText 만 주며, 내부 헤더 id·값 없는 키·첨부 contentId 를 정리한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getMail).mockResolvedValue(detail);
+    const out = JSON.parse(resultText(await tool(c, 'get_mail').handler({ messageId: 9 })));
+    expect(out).not.toHaveProperty('bodyHtml');
+    expect(out).not.toHaveProperty('threadId');
+    expect(out).not.toHaveProperty('messageId');
+    expect(out).not.toHaveProperty('ccAddresses');
+    expect(out.bodyText).toBe('안녕하세요\n견적 보냅니다.');
+    expect(out.attachments).toEqual([{ id: 1, filename: 'a.pdf', contentType: 'application/pdf', sizeBytes: 10 }]);
+    expect(out).toMatchObject({ id: 9, subject: '견적', fromAddress: 'a@x.com', seen: false });
+    expect(JSON.stringify(out).length).toBeLessThan(JSON.stringify(detail).length * 0.75);
+  });
+
+  it('WP-353: 평문이 비었거나 공백뿐이고 HTML 이 있으면 HTML 을 평문으로 바꿔 bodyText 를 채운다', async () => {
+    const c = mockClient();
+    for (const bodyText of [null, '', '   \n ']) {
+      vi.mocked(c.getMail).mockResolvedValue({ ...detail, bodyText });
+      const out = JSON.parse(resultText(await tool(c, 'get_mail').handler({ messageId: 9 })));
+      expect(out.bodyText).toBe('안녕하세요\n견적 보냅니다.');
+      expect(out).not.toHaveProperty('bodyHtml');
+    }
+  });
+
+  it('WP-353: 평문도 HTML 도 없으면 빈 bodyText 를 준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getMail).mockResolvedValue({ ...detail, bodyText: null, bodyHtml: null });
+    expect(JSON.parse(resultText(await tool(c, 'get_mail').handler({ messageId: 9 }))).bodyText).toBe('');
+  });
+
+  it('WP-353: list_mail 행은 accountId·threadId 와 값 없는 키를 빼고, categoryPending 은 true 일 때만 남긴다', async () => {
+    const c = mockClient();
+    const row = { id: 1, accountId: 2, threadId: 't', fromAddress: 'a@x.com', fromName: '앨리스', subject: '견적', snippet: '안녕', receivedAt: '2026-10-01T00:00:00Z', seen: false, hasAttachment: false, aiCategory: null, aiNeedsReply: null, categoryPending: false };
+    vi.mocked(c.listMail).mockResolvedValue([row, { ...row, id: 2, aiCategory: '업무', aiNeedsReply: true }, { ...row, id: 3, categoryPending: true }]);
+    const out = JSON.parse(resultText(await tool(c, 'list_mail').handler({ accountId: 2 })));
+    expect(out[0]).toEqual({ id: 1, fromAddress: 'a@x.com', fromName: '앨리스', subject: '견적', snippet: '안녕', receivedAt: '2026-10-01T00:00:00Z', seen: false, hasAttachment: false });
+    expect(out[1]).toMatchObject({ aiCategory: '업무', aiNeedsReply: true });
+    expect(out[1]).not.toHaveProperty('categoryPending');
+    expect(out[2].categoryPending).toBe(true);
+    expect(JSON.stringify(out[0]).length).toBeLessThan(JSON.stringify(row).length * 0.8);
   });
 
   it('get_mail 은 messageId 누락 시 zod 파싱을 거부한다', async () => {
@@ -130,11 +181,32 @@ describe('메일 AI·처리 (#855)', () => {
     expect(c.markMailRead).toHaveBeenCalledWith(3);
   });
 
-  it('sync_mail → client.syncMail(accountId) 호출 후 완료 문자열 반환(서버 결과는 노출하지 않는다)', async () => {
+  it('sync_mail → 서버 MailSyncResult 의 건수(fetched·saved·seenChanged)를 JSON 으로 돌려준다 (WP-353)', async () => {
     const c = mockClient();
-    expect(await tool(c, 'sync_mail').handler({ accountId: 5 })).toBe('동기화를 완료했습니다.');
+    expect(JSON.parse(resultText(await tool(c, 'sync_mail').handler({ accountId: 5 })))).toEqual({ fetched: 3, saved: 2, seenChanged: 1 });
     expect(c.syncMail).toHaveBeenCalledWith(5);
     await expect(tool(c, 'sync_mail').handler({ accountId: 0 })).rejects.toThrow();
+  });
+
+  it('sync_mail 은 서버 결과 필드가 빠져도 0 으로 채운다(알 수 없는 필드는 싣지 않는다)', async () => {
+    const c = mockClient();
+    vi.mocked(c.syncMail).mockResolvedValue({ saved: 4, extra: 'x' });
+    expect(JSON.parse(resultText(await tool(c, 'sync_mail').handler({ accountId: 5 })))).toEqual({ fetched: 0, saved: 4, seenChanged: 0 });
+    vi.mocked(c.syncMail).mockResolvedValue(undefined);
+    expect(JSON.parse(resultText(await tool(c, 'sync_mail').handler({ accountId: 5 })))).toEqual({ fetched: 0, saved: 0, seenChanged: 0 });
+  });
+
+  it('sync_mail 은 이미 동기화 중이면 새로 시작하지 않고 alreadySyncing 과 진행 상태를 알린다 (WP-353)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getMailSyncStatus).mockResolvedValue({ phase: 'BODIES', total: 40, done: 12, running: true });
+    expect(JSON.parse(resultText(await tool(c, 'sync_mail').handler({ accountId: 5 })))).toEqual({ alreadySyncing: true, phase: 'BODIES', done: 12, total: 40 });
+    expect(c.getMailSyncStatus).toHaveBeenCalledWith(5);
+    expect(c.syncMail).not.toHaveBeenCalled();
+  });
+
+  it('sync_mail 설명은 결과 필드와 이미 동기화 중인 경우를 안내한다', () => {
+    expect(tool(mockClient(), 'sync_mail').description).toMatch(/saved/);
+    expect(tool(mockClient(), 'sync_mail').description).toMatch(/alreadySyncing/);
   });
 
   it('sync_mail 은 원본 메일 서버에 닿으므로 openWorld 이고, 읽음 상태 덮어쓰기·삭제 반영이 있어 destructive, 멱등은 아니다', () => {

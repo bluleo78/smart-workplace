@@ -95,12 +95,12 @@ describe('buildMemberTools (#833)', () => {
     expect(c.getMemberContact).not.toHaveBeenCalled();
   });
 
-  it('list_contacts 는 MEMBER→userId, EXTERNAL→externalId 로 분리하고 공용 id 를 내보내지 않는다', async () => {
+  it('list_contacts 는 MEMBER→username, EXTERNAL→externalId 로 분리하고 공용 id·userId 를 내보내지 않는다', async () => {
     // 두 타입이 같은 숫자 id 를 갖는 상황이 정확히 오용의 원인이었다 — 같은 값으로 검증한다.
     const c = mockClient();
     vi.mocked(c.listContacts).mockResolvedValue({
       items: [
-        { id: 7, type: 'MEMBER', name: '김구성원', email: 'm@x.com', title: null, organization: null, isFavorite: false },
+        { id: 7, type: 'MEMBER', username: 'kim', name: '김구성원', email: 'm@x.com', title: null, organization: null, isFavorite: false },
         { id: 7, type: 'EXTERNAL', name: '김외부', email: 'e@x.com', title: null, organization: 'X사', isFavorite: true },
       ],
       nextCursor: 'c1',
@@ -109,8 +109,9 @@ describe('buildMemberTools (#833)', () => {
       items: Record<string, unknown>[];
       nextCursor: string | null;
     };
-    expect(out.items[0]).toMatchObject({ type: 'MEMBER', userId: 7 });
+    expect(out.items[0]).toMatchObject({ type: 'MEMBER', username: 'kim' });
     expect(out.items[0]).not.toHaveProperty('externalId');
+    expect(out.items[0]).not.toHaveProperty('userId'); // 숫자 사용자 ID 는 내보내지 않는다(WP-353)
     expect(out.items[1]).toMatchObject({ type: 'EXTERNAL', externalId: 7, organization: 'X사', isFavorite: true });
     expect(out.items[1]).not.toHaveProperty('userId');
     expect(out.items[0]).not.toHaveProperty('id');
@@ -149,7 +150,7 @@ describe('toContactView', () => {
       title: null,
       organization: null,
       isFavorite: false,
-      userId: 1,
+      username: null,
     });
   });
 });

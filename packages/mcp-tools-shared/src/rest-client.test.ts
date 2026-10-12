@@ -401,6 +401,13 @@ describe('createSharedToolClient WP-343 이동 도구 경로', () => {
     expect(http.post).toHaveBeenCalledWith('/mail/accounts/3/sync', {});
   });
 
+  it('메일 동기화 진행 상태는 GET /mail/accounts/{id}/sync-status 의 응답을 그대로 돌려준다(WP-353)', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { phase: 'LIST', total: 0, done: 0, running: true } });
+    expect(await client.getMailSyncStatus(3)).toEqual({ phase: 'LIST', total: 0, done: 0, running: true });
+    expect(http.get).toHaveBeenCalledWith('/mail/accounts/3/sync-status');
+  });
+
   it('채널 탐색은 q 를 쿼리로 보내고 비배열 응답은 빈 배열로 대체한다', async () => {
     const { http, client } = mockHttp();
     http.get.mockResolvedValueOnce({ data: [{ id: 2, name: '개발팀' }] });

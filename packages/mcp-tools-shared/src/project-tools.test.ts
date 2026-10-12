@@ -93,8 +93,7 @@ describe('get_project', () => {
     expect(JSON.parse(resultText(raw))).toEqual({
       key: 'WP',
       name: '워크플레이스',
-      description: null,
-      type: 'TEAM',
+      type: 'TEAM', // description:null 은 값이 없는 키라 생략된다(WP-353)
       issueTypes: ['TASK', 'BUG'],
       labels: ['frontend'],
       milestones: ['v1.0'],
@@ -106,6 +105,32 @@ describe('get_project', () => {
     for (const fn of [c.getProjectTypes, c.getProjectLabels, c.getProjectMilestones, c.getProjectCycles, c.getProjectMembers]) {
       expect(fn).toHaveBeenCalledWith('WP');
     }
+  });
+});
+
+describe('프로젝트 정리 뷰 (WP-353)', () => {
+  // 서버 ProjectResponse 형태 — id·ownerId·memberNames·isDefault:false·description:null 은 LLM 에 쓸모없다.
+  const row = {
+    id: 5, key: 'WP', name: '워크플레이스', description: null, ownerId: 9, type: 'TEAM', isDefault: false,
+    createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', issueTotal: 10, issueDone: 4, memberCount: 3, memberNames: ['앨리스', '밥', '캐롤'], viewerIsMember: true,
+  };
+
+  it('list_projects 는 id·ownerId·memberNames 와 값이 없는/기본값 키를 뺀다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listProjects).mockResolvedValue({ items: [row], total: 1, hasMore: false, page: 0 });
+    const out = JSON.parse(resultText(await tool(c, 'list_projects').handler({})));
+    expect(out.items[0]).toEqual({
+      key: 'WP', name: '워크플레이스', type: 'TEAM', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+      issueTotal: 10, issueDone: 4, memberCount: 3, viewerIsMember: true,
+    });
+    expect(JSON.stringify(out.items[0]).length).toBeLessThan(JSON.stringify(row).length * 0.8);
+  });
+
+  it('기본 프로젝트(isDefault:true)는 그 표시를 남긴다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listProjects).mockResolvedValue({ items: [{ ...row, isDefault: true }], total: 1, hasMore: false, page: 0 });
+    const out = JSON.parse(resultText(await tool(c, 'list_projects').handler({})));
+    expect(out.items[0].isDefault).toBe(true);
   });
 });
 

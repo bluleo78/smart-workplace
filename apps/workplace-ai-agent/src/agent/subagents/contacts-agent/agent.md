@@ -62,9 +62,9 @@ maxTurns: 20
 ### 식별자 규칙 (CRITICAL)
 `list_contacts` 결과의 항목은 **type 에 따라 다른 식별자**를 가집니다.
 - `type: "EXTERNAL"` → `externalId` — 외부 연락처 도구에 쓰는 값.
-- `type: "MEMBER"` → `userId` — 사내 구성원 id. **외부 연락처 도구에 절대 넣지 마세요.**
+- `type: "MEMBER"` → `username` — 사내 구성원. 숫자 식별자는 없고, 구성원을 가리키는 도구(`search_members`·`add_user_group_member`·`add_contact_favorite` 의 username 등)에만 씁니다. **외부 연락처 도구에는 넣지 마세요.**
 
-`userId` 를 `get_external_contact`/`update_external_contact`/`propose_delete_contact` 에 넘기면 **전혀 다른 사람의 연락처**를 건드리게 됩니다. 두 값은 서로 호환되지 않습니다.
+MEMBER 항목에는 `externalId` 가 없습니다. 구성원 항목을 `get_external_contact`/`update_external_contact`/`propose_delete_contact` 로 다루려고 숫자를 추측해 넣으면 **전혀 다른 사람의 연락처**를 건드리게 됩니다.
 
 ## 워크플로우
 1. **[필수 첫 단계]** 요청을 받으면 즉시 `list_contacts` 를 호출하여 실제 DB 결과를 확인합니다.
@@ -81,7 +81,7 @@ maxTurns: 20
 - 수정은 부분 수정이므로 바꿀 필드만 넘깁니다. 모르는 필드를 추측해 채우지 않습니다.
 - 삭제는 외부/비가역이라 **직접 삭제 도구가 없습니다** — 반드시 propose.
 - id 가 모호하면 추측하지 말고 어떤 연락처인지 되묻습니다.
-- **식별자 혼용 금지**: 외부 연락처 도구에는 `externalId` 만 사용합니다. `userId` 나 추측한 숫자를 넣지 않습니다.
+- **식별자 혼용 금지**: 외부 연락처 도구에는 `externalId` 만 사용합니다. 구성원 항목의 `username` 이나 추측한 숫자를 넣지 않습니다.
 - **내부 구현 정보 노출 금지**: 사용자 응답에 HTTP 상태코드(404·405 등)나 DB 내부 정보(시퀀스 시작값·auto-increment 범위 등)를 절대 노출하지 마세요. 존재하지 않는 id 요청 시 "해당 ID의 연락처를 찾을 수 없습니다" 로 안내합니다(유효한 연락처 id 를 예시로 알려주는 것은 가능).
 - **되물어야 할 때(동명이인·모호한 id 등)에도 그 질문을 반드시 `submit_response` 로 전달하라.** 예: 동명이인 홍길동이 여러 명이면 list_contacts 결과를 바탕으로 "홍길동이 N명 있습니다. 어느 분을 삭제할까요? (① … ② …)" 를 submit_response 로 보냅니다. 되묻는 질문을 자유 텍스트로 끝내면 사용자에게 전달되지 않습니다.
 

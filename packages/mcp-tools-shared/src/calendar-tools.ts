@@ -3,6 +3,7 @@
 // (경로마다 도구 하나 — ai-agent 프로필에는 create_event·update_event 를 싣지 않는다). 두 경로가 참석자 해석·시간대 보정·충돌 계산을
 // 이 파일의 헬퍼(resolveAttendees·resolveAttendeeToRemove·normalizeTimezone·listConflicts)로 같이 쓴다. 일정 삭제는 계속 확인 카드만 한다.
 import { z } from 'zod';
+import { dropEmpty, omitKeys } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import { findMemberByUsername } from './member-tools.js';
 import { errText } from './parse.js';
@@ -109,22 +110,30 @@ interface AttendeeRaw {
 }
 
 /**
- * 일정 응답 → LLM 뷰(#833, WP-353). 참석자의 숫자 userId·invitedByUserId 를 내보내지 않는다.
+ * 일정 상세 응답 → LLM 뷰(#833, WP-353). 참석자의 숫자 userId·invitedByUserId 를 내보내지 않는다.
  * 초대한 사람(invitedByUserId)은 같은 응답의 참석자 목록에서 username·name 을 찾아 `invitedBy` 로 바꾼다 — 추가 조회 없이 풀린다
- * (초대자는 보통 주최자라 참석자에 들어 있다). 목록에 없으면(예: 참석자에서 빠진 사람) 생략한다.
- * 참석자가 없는 응답(list_events 행·생성 직후)은 그대로 둔다.
+ * (초대자는 보통 주최자라 참석자에 들어 있다). 목록에 없으면(예: 참석자에서 빠진 사람) 생략한다. 본인이 본인을 초대한 경우(주최자)도 생략한다.
+ * 참석자가 없는 응답(생성 직후)은 참석자 가공만 건너뛴다.
+ * 크기 정리(WP-353): UI 표시용 색(color·effectiveColor)·캘린더 id(calendarId)·생성 시각·외부 동기화 식별자(iCalUid)와 참석자 총원
+ * (attendees 로 센다)를 빼고 값이 없는 키(null 설명·장소·반복 규칙·참석자의 externalEmail 등)를 지운다. 키가 없으면 값이 없는 것이다.
+ * 반복 일정 수정에 쓰는 masterEventId·occurrenceDate 와 myRsvpStatus·myRole·external 은 그대로 둔다.
  */
-export function toEventView<T extends { attendees?: AttendeeRaw[] | null }>(event: T): T {
-  if (!Array.isArray(event.attendees)) return event;
+export function toEventView<T extends { attendees?: AttendeeRaw[] | null }>(input: T): Record<string, unknown> {
+  const event = input as T & Record<string, unknown>;
+  const base = dropEmpty(omitKeys(event, 'color', 'effectiveColor', 'calendarId', 'createdAt', 'iCalUid', 'attendees', 'attendeeCount'));
+  if (!Array.isArray(event.attendees)) {
+    // 참석자 목록이 없는 응답은 총원을 알려 주는 attendeeCount 가 유일한 단서라 되돌려 둔다.
+    return event.attendeeCount !== undefined ? { ...base, attendeeCount: event.attendeeCount } : base;
+  }
   const people = new Map<number, { username: string | null; name: string | null }>();
   for (const a of event.attendees) {
     if (a.userId != null) people.set(a.userId, { username: a.username ?? null, name: a.name ?? null });
   }
-  const attendees = event.attendees.map(({ userId: _userId, invitedByUserId, ...rest }) => {
-    const inviter = invitedByUserId != null ? people.get(invitedByUserId) : undefined;
-    return inviter ? { ...rest, invitedBy: inviter } : rest;
+  const attendees = event.attendees.map(({ userId, invitedByUserId, ...rest }) => {
+    const inviter = invitedByUserId != null && invitedByUserId !== userId ? people.get(invitedByUserId) : undefined;
+    return dropEmpty(inviter ? { ...rest, invitedBy: inviter } : rest);
   });
-  return { ...event, attendees };
+  return { ...base, attendees };
 }
 
 /** 캘린더 도구가 쓰는 클라이언트 — 참석자 username 해석(searchMembers)과 주최자(호출자) 확인(getMe)이 더 필요하다. */
@@ -207,7 +216,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       app: 'calendar',
       kind: 'read',
       description:
-        '단일 일정 상세를 JSON 으로 반환합니다. 내가 만들었거나 참석자로 초대된 일정만 볼 수 있고(그 외에는 찾을 수 없음 오류), ' +
+        '단일 일정 상세를 JSON 으로 반환합니다(값이 없는 키는 생략됩니다). 내가 만들었거나 참석자로 초대된 일정만 볼 수 있고(그 외에는 찾을 수 없음 오류), ' +
         'list_events 에는 없는 전체 참석자 목록(attendees: username·name·role·rsvpStatus·invitedBy — 숫자 사용자 ID 는 없고 사람은 username 으로 가리킵니다)·내 응답(myRsvpStatus)·내 역할(myRole)·외부 캘린더 동기화 여부(external)가 담깁니다. ' +
         'eventId 는 list_events 결과 항목의 id 입니다.',
       inputSchema: getEventInput,

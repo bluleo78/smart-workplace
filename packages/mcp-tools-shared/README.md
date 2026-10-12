@@ -97,6 +97,16 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 
 서버가 상한을 조용히 거는 검색은 "상한에 닿음 = 잘렸을 수 있음" 으로 본다(정확히 상한만큼이 전부일 수도 있다). 이어 조회할 수단이 없어 검색어를 좁히라고 안내한다. 서버 상한을 바꾸면 도구 상수(`SEARCH_SERVER_CAP`)도 맞춘다.
 
+
+### 응답 크기 — 정리 뷰
+
+서버 DTO 를 그대로 내보내지 않고 LLM 이 판단에 쓰는 필드만 남긴다(WP-353). 화면(웹)이 쓰려고 서버가 실어 보내는 값(색·아바타용 이름·읽음 워터마크·내부 헤더 id)과 행마다 반복되는 값(채널 id·null·`false`·`0`)이 토큰의 대부분을 차지하기 때문이다. 원칙:
+- **허용 목록이 아니라 제거 목록**이다(`compact.ts` 의 `omitKeys`). 서버에 새 필드가 생겨도 조용히 사라지지 않는다.
+- 값이 없는 키(null·빈 배열)는 `dropEmpty` 로 생략한다. 키가 없다 = 값이 없다. 반복되는 기본값(`unreadCount:0`·`archived:false`·`deleted:false`)도 같은 뜻으로 생략하고 설명에 적는다.
+- 가공은 도구 핸들러에서만 한다(rest-client 는 raw). 같은 서버 DTO 를 내보내는 도구는 모두 같은 뷰를 쓴다.
+- 코멘트·이력처럼 길어지는 하위 목록은 최근 N건만 싣고, 잘리면 빠진 개수(`commentsOmitted`·`historyOmitted`)를 알린다. 더 읽는 방법(`allComments`)을 설명에 적는다.
+- 메일 본문은 평문 `bodyText` 하나다. 평문이 비어 있고 HTML 만 있으면 `html-text.ts` 의 `htmlToText` 로 바꿔 채운다.
+
 ## 노출 기준 (WP-347)
 
 외부 MCP(workplace-mcp)에 어떤 작업을 도구로 내놓을지는 부작용의 등급 R/W/I/N 으로 정한다. 등급은 `kind`·`hints` 로 코드에 드러난다.
@@ -152,14 +162,14 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 
 1. **도메인 접두 id**: 숫자 식별자는 무엇의 id 인지 이름에 드러낸다.
    - 예: `eventId`, `pageId`, `spaceId`, `channelId`, `accountId`, `messageId`, `folderId`, `driveFileId`, `attachmentId`, `externalId`, `commentId`, `notificationId`
-   - **출력도 같은 이름**이다(WP-353): 채널 목록·검색·생성은 `channelId`, 드라이브 폴더 목록·검색·생성·이름변경·휴지통은 `folderId`, 이슈 첨부는 `attachmentId`(서버의 core file id — 드라이브 `driveFileId`·채팅 첨부 `fileId` 와 섞이지 않게 이름을 달리했다). 입력 이름과 출력 이름이 어긋나면 모델이 `id` 를 아무 데나 넣는다.
+   - **출력도 같은 이름**이다(WP-353): 채널 목록·검색·생성은 `channelId`, 드라이브 폴더 목록·검색·생성·이름변경·휴지통은 `folderId`, 이슈 첨부는 `attachmentId`(서버의 core file id — 드라이브 `driveFileId`·채팅 첨부 `fileId` 와 섞이지 않게 이름을 달리했다. 이슈 챗 전용 `read_chat_thread_attachment` 의 `fileId` 는 같은 이슈 첨부를 가리키므로 `read_attachment` 의 `attachmentId` 와 같은 값이다). 입력 이름과 출력 이름이 어긋나면 모델이 `id` 를 아무 데나 넣는다.
    - `messageId` 는 메일(`get_mail`)과 채팅 메시지(`list_thread_replies`)에서 같이 쓴다. 도구 이름이 도메인을 정하므로 설명에 어느 결과의 id 인지 적는다.
    - 맨 이름 `id` 는 입력 파라미터로 쓰지 않는다. 실행기나 서버가 `id` 를 읽는다면 핸들러가 옮겨 담는다. 예: `propose_update_event` 는 `{ id: eventId }` 로 옮긴다.
 2. **같은 것은 같은 이름**: 조회 도구와 쓰기 도구, 표시 위젯이 같은 대상을 같은 이름으로 가리킨다.
    - 프로젝트는 어디서나 `projectKey`, 이슈는 `issueKey`(`WP-12`) 다. 부모 이슈(`create_issue`·`update_issue` 의 `parent`)와 의존성 링크(`blockedBy`·`blocks`)도 번호가 아니라 이슈 키다 — 서버는 같은 프로젝트의 번호만 받아 핸들러가 키에서 번호를 떼어 보내고, 다른 프로젝트 키는 쓰기 전에 거부한다(WP-353).
    - 서버 DTO 가 `key` 를 읽으면 핸들러가 `{ key: projectKey }` 로 옮긴다.
-3. **사람은 username**: 사람을 가리키는 입력은 `username` 이다. `assignees` 같은 목록은 username 배열이다. 숫자 `userId` 는 입력으로 받지 않고, 출력에서도 내보내지 않는다(#833). `ownerId`·`updatedBy`·`authorId`·`reporterId`·`invitedByUserId` 같은 사용자 ID 필드도 마찬가지다. 서버가 이름을 함께 주면 `{username, name}`(일정 참석자. `invitedBy` 는 같은 응답의 참석자에서 풀어 쓴다)이나 `authorName` 으로 두고, 이름이 없고 쓸 곳도 없는 값(스페이스·프로젝트 `ownerId`, 노트 `updatedBy`)은 뺀다. 남은 예외는 `list_contacts` 의 MEMBER 항목(서버 연락처 요약에 username 이 없다)과 메시지 `mentions[].id`(본문의 `<@id>` 토큰과 짝이라 토큰을 이름으로 풀 때 함께 정리한다)다. `no-user-ids.test.ts` 가 서버 DTO 모양의 목으로 도구 횡단 검사를 한다.
-4. **구성원과 외부 연락처는 네임스페이스가 다르다**: 구성원은 `userId`/`username`, 외부 연락처는 `externalId` 를 쓴다. 공용 `id` 필드로 섞어 내보내지 않는다.
+3. **사람은 username**: 사람을 가리키는 입력은 `username` 이다. `assignees` 같은 목록은 username 배열이다. 숫자 `userId` 는 입력으로 받지 않고, 출력에서도 내보내지 않는다(#833). `ownerId`·`updatedBy`·`authorId`·`reporterId`·`invitedByUserId` 같은 사용자 ID 필드도 마찬가지다. 서버가 이름을 함께 주면 `{username, name}`(일정 참석자. `invitedBy` 는 같은 응답의 참석자에서 풀어 쓴다)이나 `authorName` 으로 두고, 이름이 없고 쓸 곳도 없는 값(스페이스·프로젝트 `ownerId`, 노트 `updatedBy`)은 뺀다. `list_contacts` 의 MEMBER 항목은 서버 연락처 요약이 싣는 `username`(숫자 `userId` 는 내보내지 않는다)이고, 메시지 본문의 멘션 토큰 `<@id>` 는 `@이름(username)` 으로 풀어 `mentions[].id` 와 함께 숫자를 없앤다(풀 수 없는 토큰은 `@(알 수 없는 사용자)`). 남은 예외는 없다. `no-user-ids.test.ts` 가 서버 DTO 모양의 목으로 도구 횡단 검사를 한다(허용 목록 없음).
+4. **구성원과 외부 연락처는 네임스페이스가 다르다**: 구성원은 `username`, 외부 연락처는 `externalId` 를 쓴다. 공용 `id` 필드로 섞어 내보내지 않는다.
 5. **이름으로 지정할 수 있으면 이름으로 받는다**: 유형·라벨은 이름(`type`, `labels`)으로 받고 서버나 핸들러가 id 로 해석한다. 모르는 값이면 사용 가능 목록을 담은 오류를 돌려 LLM 이 스스로 고칠 수 있게 한다.
 6. **불리언 필터는 의미를 드러낸다**: 예를 들어 `unreadOnly` 다. 서버 쿼리 이름(`unread`)과 다르면 클라이언트가 옮겨 담는다.
 7. **자유 텍스트 검색어**: 새 도구는 `query` 를 쓴다.

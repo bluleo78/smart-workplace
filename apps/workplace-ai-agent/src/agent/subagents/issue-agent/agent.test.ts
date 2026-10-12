@@ -79,4 +79,11 @@ describe('issue-agent 정의', () => {
     expect(prompt).toContain('`cursor` 로 넘겨');
     expect(prompt).toContain('일부만이라고 밝히세요');
   });
+
+  // WP-353: get_issue_detail 의 코멘트는 최근 30건만 온다 — 수정·삭제할 오래된 코멘트는 allComments 로 찾게 한다.
+  it('코멘트 상한(commentsOmitted)과 allComments 로 더 읽는 방법을 안내한다', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('commentsOmitted');
+    expect(prompt).toContain('allComments=true');
+  });
 });

@@ -20,6 +20,12 @@ type Raw = Record<string, unknown>;
 /** 변경 이력은 최근 것만 싣는다 — 오래된 이슈의 이력이 응답을 키우지 않게. */
 export const ISSUE_DETAIL_HISTORY_LIMIT = 30;
 
+/**
+ * 코멘트도 최근 것만 싣는다(WP-353). 상한은 이력과 같은 30 — 한 곳의 규칙으로 기억하게 하고, 코멘트는 본문이 길어 이력(짧은 이벤트)보다 상한을 키우면
+ * 토큰이 빠르게 불어난다. 이슈 논의는 대개 이보다 짧고, 길어져도 판단에 쓰는 것은 최근 흐름이다. 더 읽으려면 allComments 로 호출한다.
+ */
+export const ISSUE_DETAIL_COMMENT_LIMIT = 30;
+
 /** 의존성 링크 요약 — 백엔드 IssueLinkSummary(number,title,status,type) 중 LLM 필요분만. 이슈는 어디서나 issueKey 로 가리킨다(WP-353). */
 interface IssueLinkView {
   issueKey: string;
@@ -54,8 +60,12 @@ export interface IssueDetail {
   customFields: { name: string; type: string; value: unknown }[];
   attachments: { attachmentId: number; name: string; mimeType: string | null; sizeBytes: number | null; attachedBy: PersonView; attachedAt: string | null }[];
   comments: { id: number; body: string; author: PersonView; createdAt: string | null; updatedAt: string | null }[];
+  /** 코멘트가 상한에 걸려 잘렸을 때만: 빠진 오래된 코멘트 수. 없으면 전부 담긴 것(allComments 로 호출하면 항상 없다). */
+  commentsOmitted?: number;
   /** 최근 변경 이력(오래된→최신). from/to 는 상태값 같은 문자열이거나, 집합 변경이면 객체(숫자 id·색 토큰 제외). */
   history: { at: string | null; actor: PersonView; event: string; from: unknown; to: unknown }[];
+  /** 이력이 상한에 걸려 잘렸을 때만: 빠진 오래된 이력 수. */
+  historyOmitted?: number;
 }
 
 /** 이력 payload 에서 뺄 키 — 숫자 id 는 쓰기 도구로 흘려보내지 않고(#833), 색·아이콘은 LLM 에 쓸모없는 토큰이다. */
@@ -104,11 +114,26 @@ const links = (arr: unknown, projectKey: unknown): IssueLinkView[] =>
     status: l.status as string,
   }));
 
-/** summary 중첩을 풀고, 사람은 사람 뷰로, 시각은 KST 로 바꾼다. */
-export function normalizeIssueDetail(raw: unknown): IssueDetail {
+/** 뒤에서 limit 개만(최근 것) 남기고 빠진 개수를 함께 돌려준다. limit 이 undefined 면 자르지 않는다. */
+function keepRecent<T>(list: T[], limit: number | undefined): { kept: T[]; omitted: number } {
+  if (limit === undefined || list.length <= limit) return { kept: list, omitted: 0 };
+  return { kept: list.slice(-limit), omitted: list.length - limit };
+}
+
+/** 정규화 옵션 — allComments 는 코멘트 상한을 풀어 전부 싣는다(get_issue_detail 의 allComments). */
+export interface NormalizeIssueDetailOptions {
+  allComments?: boolean;
+}
+
+/** summary 중첩을 풀고, 사람은 사람 뷰로, 시각은 KST 로 바꾼다. 코멘트·이력은 최근 것만(잘리면 …Omitted 로 알린다). */
+export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetailOptions = {}): IssueDetail {
   const r = (raw ?? {}) as Raw;
   const s = (r.summary ?? {}) as Raw;
-  const history = ((r.history ?? []) as Raw[]).slice(-ISSUE_DETAIL_HISTORY_LIMIT);
+  const { kept: history, omitted: historyOmitted } = keepRecent((r.history ?? []) as Raw[], ISSUE_DETAIL_HISTORY_LIMIT);
+  const { kept: comments, omitted: commentsOmitted } = keepRecent(
+    (r.comments ?? []) as Raw[],
+    options.allComments ? undefined : ISSUE_DETAIL_COMMENT_LIMIT,
+  );
   const issueKey = String(r.issueKey ?? r.key ?? (s.projectKey && `${s.projectKey}-${s.number}`) ?? '');
   // 의존성 링크는 같은 프로젝트라 이 이슈의 프로젝트 키로 링크의 issueKey 를 만든다.
   const projectKey = s.projectKey ?? issueKey.replace(/-\d+$/, '');
@@ -147,13 +172,14 @@ export function normalizeIssueDetail(raw: unknown): IssueDetail {
       attachedBy: toAuthorView(a.attachedByUsername, a.attachedByName, undefined),
       attachedAt: toSeoulIso(a.attachedAt),
     })),
-    comments: ((r.comments ?? []) as Raw[]).map((c) => ({
+    comments: comments.map((c) => ({
       id: c.id as number,
       body: String(c.body ?? ''),
       author: toAuthorView(c.authorUsername, c.authorName, c.authorKind),
       createdAt: toSeoulIso(c.createdAt),
       updatedAt: toSeoulIso(c.updatedAt),
     })),
+    ...(commentsOmitted > 0 && { commentsOmitted }),
     history: history.map((h) => ({
       at: toSeoulIso(h.createdAt),
       actor: toAuthorView(h.actorUsername, h.actorName, h.actorKind),
@@ -161,5 +187,6 @@ export function normalizeIssueDetail(raw: unknown): IssueDetail {
       from: historyValue(h.eventType, h.fromValue),
       to: historyValue(h.eventType, h.toValue),
     })),
+    ...(historyOmitted > 0 && { historyOmitted }),
   };
 }

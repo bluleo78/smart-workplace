@@ -51,6 +51,14 @@ describe('messaging-agent 정의', () => {
 
   // WP-353: 채널 목록 항목의 식별자 이름이 channelId 다(예전엔 id) — 쓰기·조회 도구의 입력 이름과 같다.
   it('채널 목록의 식별자를 channelId 로 안내한다', () => {
-    expect(loaded['messaging-agent'].prompt).toContain('(channelId·name 포함, 이름순)');
+    expect(loaded['messaging-agent'].prompt).toContain('(channelId·name·memberCount 포함, 이름순)');
+  });
+
+  // WP-353: 응답을 정리해 0·false·null 키가 생략되고 본문 멘션이 이름으로 풀린다 — 프롬프트가 그 규칙을 안내해야 오독하지 않는다.
+  it('생략된 키 규칙(unreadCount)과 풀린 멘션 표기를 안내한다', () => {
+    const prompt = loaded['messaging-agent'].prompt;
+    expect(prompt).toContain('키가 없으면 0·false');
+    expect(prompt).toContain('@이름(username)');
+    expect(prompt).toContain('흉내 내지 않습니다');
   });
 });

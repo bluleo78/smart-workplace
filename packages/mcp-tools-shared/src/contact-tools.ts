@@ -274,7 +274,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       description:
         '외부 연락처를 수정합니다. 준 필드만 바뀌고 나머지는 유지됩니다(빈 문자열 "" 은 그 값 비우기, 이름은 비울 수 없음). ' +
         '수정 결과 이름+이메일이 다른 연락처와 겹치면 중복 경고 오류가 납니다 — 사용자 확인 후에만 force: true 로 다시 호출하세요. ' +
-        'externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원의 userId 를 넣으면 엉뚱한 사람의 연락처가 바뀝니다.',
+        'externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원(MEMBER) 항목에는 없으며, 추측한 숫자를 넣으면 엉뚱한 사람의 연락처가 바뀝니다.',
       inputSchema: updateExternalContactInput,
       async handler(args) {
         const { externalId, force, ...patch } = updateExternalContactInput.parse(args);

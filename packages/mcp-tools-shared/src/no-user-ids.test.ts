@@ -50,16 +50,25 @@ describe('멤버', () => {
     searchMembers: vi.fn().mockResolvedValue([searchRow]),
     searchMembersPage: vi.fn().mockResolvedValue({ items: [searchRow], total: 1, hasMore: false, page: 0 }),
     getMemberContact: vi.fn().mockResolvedValue({ id: 3, username: 'minsu', name: '김민수', email: 'm@x.com', title: '팀장', kind: 'HUMAN', groups: ['팀A'], isFavorite: false }),
-    listContacts: vi.fn(),
+    // 서버 ContactPage → ContactSummary(MEMBER 행은 username 을 싣고, EXTERNAL 은 null).
+    listContacts: vi.fn().mockResolvedValue({
+      items: [
+        { type: 'MEMBER', id: 3, username: 'minsu', name: '김민수', email: 'm@x.com', title: '팀장', organization: null, isFavorite: false },
+        { type: 'EXTERNAL', id: 3, username: null, name: '김외부', email: 'e@x.com', title: null, organization: 'X사', isFavorite: true },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    }),
     getExternalContact: vi.fn(),
   };
   const tools = buildMemberTools(client as never) as never as Parameters<typeof find>[0];
 
-  it('search_members·get_member·get_member_contact 는 username 으로만 사람을 가리킨다', async () => {
+  it('search_members·get_member·get_member_contact·list_contacts 는 username 으로만 사람을 가리킨다', async () => {
     for (const [name, args] of [
       ['search_members', { search: '김' }],
       ['get_member', { username: 'minsu' }],
       ['get_member_contact', { username: 'minsu' }],
+      ['list_contacts', {}],
     ] as const) {
       const body = out(await find(tools, name).handler(args));
       expect(userIdLeaks(body), name).toEqual([]);
@@ -90,9 +99,9 @@ describe('캘린더', () => {
   it('get_event: 참석자의 userId 를 빼고, invitedByUserId 는 같은 응답의 참석자에서 풀어 invitedBy 로 준다', async () => {
     const body = out(await find(tools, 'get_event').handler({ eventId: 7 }));
     expect(userIdLeaks(body)).toEqual([]);
-    expect(body.attendees[0]).toEqual({
-      username: 'alice', name: '앨리스', kind: 'HUMAN', role: 'ORGANIZER', rsvpStatus: 'ACCEPTED', externalEmail: null, invitedBy: { username: 'alice', name: '앨리스' },
-    });
+    // 주최자 자신(본인이 본인을 초대)은 invitedBy 를 싣지 않고, 값이 없는 externalEmail 도 생략한다.
+    expect(body.attendees[0]).toEqual({ username: 'alice', name: '앨리스', kind: 'HUMAN', role: 'ORGANIZER', rsvpStatus: 'ACCEPTED' });
+    expect(body.attendees[1].invitedBy).toEqual({ username: 'alice', name: '앨리스' });
     // 목록에 없는 초대자는 풀 수 없어 생략한다(추가 조회 없음).
     expect(body.attendees[2]).not.toHaveProperty('invitedBy');
     expect(body.attendees[2]).toMatchObject({ kind: 'EXTERNAL', externalEmail: 'x@ext.com' });
@@ -108,9 +117,9 @@ describe('캘린더', () => {
     expect(userIdLeaks(event).length).toBeGreaterThan(0);
   });
 
-  it('참석자가 없는 응답(list_events 행 모양)은 그대로 둔다', async () => {
-    client.getEvent.mockResolvedValueOnce({ id: 8, title: 'x', attendees: null });
-    expect(out(await find(tools, 'get_event').handler({ eventId: 8 }))).toEqual({ id: 8, title: 'x', attendees: null });
+  it('참석자가 없는 응답(list_events 행 모양)은 참석자 가공을 건너뛰고 총원만 남긴다', async () => {
+    client.getEvent.mockResolvedValueOnce({ id: 8, title: 'x', attendeeCount: 2, attendees: null });
+    expect(out(await find(tools, 'get_event').handler({ eventId: 8 }))).toEqual({ id: 8, title: 'x', attendeeCount: 2 });
   });
 });
 
@@ -210,8 +219,6 @@ describe('메시징', () => {
     searchMembers: vi.fn(),
   };
   const tools = buildMessagingTools(client as never) as never as Parameters<typeof find>[0];
-  // 멘션(mentions[].id)은 본문 `<@id>` 토큰과 짝이라 토큰을 이름으로 푸는 후속 작업(WP-353 후속)에서 함께 정리한다.
-  const ALLOW_MENTIONS = ['items[].mentions[]'];
 
   it('채널 도구 3종은 id 를 channelId 로 바꾸고 마지막 메시지 미리보기의 authorId 를 뺀다', async () => {
     const list = out(await find(tools, 'list_channels').handler({}));
@@ -220,7 +227,8 @@ describe('메시징', () => {
     expect(list.items[0]).not.toHaveProperty('id');
     const discovered = out(await find(tools, 'discover_channels').handler({ q: '일' }));
     expect(userIdLeaks(discovered)).toEqual([]);
-    expect(discovered[0]).toMatchObject({ channelId: 5, lastMessage: null });
+    expect(discovered[0]).toMatchObject({ channelId: 5 });
+    expect(discovered[0]).not.toHaveProperty('lastMessage'); // 값이 없는 키는 생략
     const created = out(await find(tools, 'create_channel').handler({ name: '일반' }));
     expect(created).toMatchObject({ channelId: 5 });
     expect(created).not.toHaveProperty('id');
@@ -228,22 +236,28 @@ describe('메시징', () => {
 
   it('list_channel_messages·list_thread_replies 행은 작성자를 이름으로만 두고 첨부자·링크 생성자·제안 작성자의 숫자 ID 를 뺀다', async () => {
     const page = out(await find(tools, 'list_channel_messages').handler({ channelId: 5 }));
-    expect(userIdLeaks(page, ALLOW_MENTIONS)).toEqual([]);
+    expect(userIdLeaks(page)).toEqual([]);
     expect(page.items[0]).toMatchObject({ id: 40, authorName: '앨리스', authorKind: 'HUMAN', replyCount: 1 });
     expect(page.items[0].driveLinks[0]).toMatchObject({ driveFileId: 8 });
     expect(page.items[0].driveLinks[0]).not.toHaveProperty('fileId'); // 드라이브 표면에는 core fileId 를 내보내지 않는다(#840)
     expect(page.items[0].proposal.attendees).toEqual([{ name: '김민수' }]);
     const replies = out(await find(tools, 'list_thread_replies').handler({ messageId: 40 }));
-    expect(userIdLeaks(replies, ALLOW_MENTIONS)).toEqual([]);
+    expect(userIdLeaks(replies)).toEqual([]);
   });
 
   it('목 점검: 가공 전 원본 메시지에는 숫자 ID 가 실제로 들어 있다', () => {
-    expect(userIdLeaks(message, ['mentions[]'])).toEqual(expect.arrayContaining(['authorId', 'attachments[].attachedById', 'driveLinks[].createdById', 'proposal.proposedByUserId']));
+    expect(userIdLeaks(message)).toEqual(
+      expect.arrayContaining(['authorId', 'attachments[].attachedById', 'driveLinks[].createdById', 'proposal.proposedByUserId', 'mentions[]: username+id']),
+    );
   });
 
-  it('멘션 id 는 이번 범위에서 유지한다 — 본문 <@id> 토큰을 이름으로 푸는 후속 작업에서 함께 정리(범위 표시)', async () => {
+  it('멘션 토큰 <@id> 는 @이름(username) 으로 풀리고 mentions 에서 id 가 빠진다(허용 목록 없이 누수 0)', async () => {
     const page = out(await find(tools, 'list_channel_messages').handler({ channelId: 5 }));
-    expect(page.items[0].mentions).toEqual([{ id: 3, username: 'minsu', name: '김민수', kind: 'HUMAN' }]);
-    expect(page.items[0].body).toContain('<@3>');
+    expect(page.items[0].mentions).toEqual([{ username: 'minsu', name: '김민수', kind: 'HUMAN' }]);
+    expect(page.items[0].body).toBe('안녕 @김민수(minsu)');
+    expect(JSON.stringify(page)).not.toMatch(/<@\d+>/);
+    const replies = out(await find(tools, 'list_thread_replies').handler({ messageId: 40 }));
+    expect(replies.items[0].body).toBe('안녕 @김민수(minsu)');
+    expect(replies.items[0].mentions).toEqual([{ username: 'minsu', name: '김민수', kind: 'HUMAN' }]);
   });
 });
