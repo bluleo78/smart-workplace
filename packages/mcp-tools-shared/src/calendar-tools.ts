@@ -38,7 +38,10 @@ export function buildCalendarTools(client: CalendarToolClient): SharedTool[] {
     {
       name: 'get_event',
       kind: 'read',
-      description: '단일 일정 상세를 JSON 으로 반환합니다. eventId 는 list_events 결과 항목의 id 입니다.',
+      description:
+        '단일 일정 상세를 JSON 으로 반환합니다. 내가 만들었거나 참석자로 초대된 일정만 볼 수 있고(그 외에는 찾을 수 없음 오류), ' +
+        'list_events 에는 없는 전체 참석자 목록(attendees)·내 응답(myRsvpStatus)·내 역할(myRole)·외부 캘린더 동기화 여부(external)가 담깁니다. ' +
+        'eventId 는 list_events 결과 항목의 id 입니다.',
       inputSchema: getEventInput,
       async handler(args) {
         const { eventId } = getEventInput.parse(args);

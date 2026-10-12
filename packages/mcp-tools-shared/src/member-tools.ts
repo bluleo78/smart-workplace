@@ -52,6 +52,11 @@ export async function findMemberByUsername(
   return (await searchMembersByTerm(client, username, true)).find((m) => m.username === username);
 }
 
+/** username 으로 구성원을 못 찾았을 때의 오류 — isError 로 LLM 에 전달돼 search_members 로 자가교정하게 한다(contact-tools 와 같은 방식). */
+function memberNotFound(username: string): Error {
+  return new Error(`구성원을 찾을 수 없습니다: ${username}. search_members 로 정확한 username 을 확인하세요.`);
+}
+
 export const searchMembersInput = z.object({
   search: z.string().optional(),
   kind: z.enum(['HUMAN', 'AGENT', 'ALL']).default('HUMAN'),
@@ -96,7 +101,9 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       async handler(args) {
         const { username } = memberInput.parse(args);
         const found = await findMemberByUsername(client, username);
-        return found ? JSON.stringify(found) : `구성원을 찾을 수 없습니다: ${username}`;
+        // 성공 문자열로 돌려주면 "없음" 이 정상 결과로 읽힌다 — contact-tools 처럼 throw 해 isError 로 전달되게 한다.
+        if (!found) throw memberNotFound(username);
+        return JSON.stringify(found);
       },
     },
     {
@@ -109,7 +116,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       async handler(args) {
         const { username } = memberInput.parse(args);
         const found = await findMemberByUsername(client, username);
-        if (!found) return `구성원을 찾을 수 없습니다: ${username}`;
+        if (!found) throw memberNotFound(username);
         // 응답의 공용 `id` 는 user.id 다 — userId 로 이름을 바꿔 외부 연락처 id 와의 모호함을 없앤다.
         const { id, groups, ...rest } = (await client.getMemberContact(found.userId)) as { id?: number; groups?: unknown[] };
         return JSON.stringify({ userId: id, ...rest, groups: groups ?? [] });

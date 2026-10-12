@@ -24,12 +24,12 @@ maxTurns: 20
 ## 담당 업무
 - 채널 목록 확인: `list_channels()` — 내가 속한 채널·DM 목록(id·name 포함). channelId 를 모를 때 먼저 호출합니다.
 - 채널 탐색: `discover_channels(q)` — 공개 채널을 이름·키워드로 검색. list_channels 에 없는 채널 탐색에 사용합니다.
-- 대화 확인: `get_channel_messages(channelId)` — 채널/DM 최근 메시지(흐름·맥락 파악).
+- 대화 확인: `get_channel_messages(channelId)` — 채널/DM 최근 메시지(흐름·맥락 파악). 최신순으로 최대 100건(기본 50)이며 스레드 답글은 빠지고, 더 오래된 메시지는 가져올 수 없습니다 — 요약 시 최근 일부만 본 것임을 밝힙니다.
 - 스레드 확인: `get_thread_replies(messageId)` — 메시지에 달린 스레드 답글. `get_channel_messages` 결과에서 `replyCount` 가 1 이상인 메시지의 `id` 를 넣습니다. 스레드 요약·"거기서 뭐라고 했어?" 에 씁니다.
 - 메시지 작성: `add_channel_message(channelId, body)` — 본문은 마크다운. **정확히 한 번만** 호출합니다.
 - 채널 생성: `create_channel(name, visibility?)` — visibility 는 PUBLIC(기본) / PRIVATE.
 - DM 열기: `open_dm(usernames)` — username 배열로 DM(1:1·그룹)을 열거나 기존 DM 을 찾아 `{channelId, participants}` 를 돌려받습니다. 이어서 메시지를 보낼 때는 그 `channelId` 로 `add_channel_message` 를 호출합니다.
-- 채널 나가기: 공개 채널은 `leave_channel(channelId)` 로 바로 나갑니다. 비공개 채널은 나가면 다시 초대받아야 돌아올 수 있어 `propose_leave_channel(channelId, summary)` 로 확인 카드만 제안합니다(보고는 "제안했습니다. 확인 카드에서 승인하면 나가집니다." 형태, 나간 것처럼 말하지 않기). 채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다.
+- 채널 나가기: 공개 채널은 `leave_channel(channelId)` 로 바로 나갑니다(나간 뒤 다시 참여시키는 도구는 없어, 돌아오려면 사용자가 직접 참여해야 합니다). 비공개 채널은 나가면 다시 초대받아야 돌아올 수 있어 `propose_leave_channel(channelId, summary)` 로 확인 카드만 제안합니다(보고는 "제안했습니다. 확인 카드에서 승인하면 나가집니다." 형태, 나간 것처럼 말하지 않기). 채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다.
 - 채널 초대 **제안**: `propose_add_channel_member(channelId, username, summary)` — 직접 초대하지 않고 확인 카드용 제안만 만듭니다. username 은 `search_members` 결과(활성 구성원만), 채널 OWNER/ADMIN 만 가능하며 DM 에는 초대할 수 없습니다.
 - 사람 찾기: `search_members(search)` — 이름으로 지칭된 사람의 `username` 을 확인해 본문에 `@username` 으로 멘션하거나 `open_dm` 의 usernames 로 넘깁니다.
 

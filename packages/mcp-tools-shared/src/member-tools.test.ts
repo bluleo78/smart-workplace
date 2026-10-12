@@ -48,11 +48,10 @@ describe('buildMemberTools (#833)', () => {
     });
   });
 
-  it('get_member 는 username 누락을 거부하고, 없는 username 은 안내 문구를 돌려준다', async () => {
+  it('get_member 는 username 누락을 거부하고, 없는 username 은 성공 문자열이 아니라 오류로 던진다', async () => {
     const c = mockClient();
     await expect(tool(c, 'get_member').handler({})).rejects.toThrow();
-    const out = await tool(c, 'get_member').handler({ username: 'ghost' });
-    expect(out).toContain('찾을 수 없습니다');
+    await expect(tool(c, 'get_member').handler({ username: 'ghost' })).rejects.toThrow(/구성원을 찾을 수 없습니다: ghost/);
   });
 
   it('get_member_contact 는 응답의 공용 id 를 userId 로 바꿔 모호함을 없앤다', async () => {
@@ -73,10 +72,9 @@ describe('buildMemberTools (#833)', () => {
     expect(out).toEqual({ userId: 3, groups: [] });
   });
 
-  it('get_member_contact 는 없는 username 이면 연락처를 조회하지 않고 안내 문구를 돌려준다', async () => {
+  it('get_member_contact 는 없는 username 이면 연락처를 조회하지 않고 오류로 던진다', async () => {
     const c = mockClient();
-    const out = await tool(c, 'get_member_contact').handler({ username: 'ghost' });
-    expect(out).toContain('찾을 수 없습니다');
+    await expect(tool(c, 'get_member_contact').handler({ username: 'ghost' })).rejects.toThrow(/구성원을 찾을 수 없습니다: ghost/);
     expect(c.getMemberContact).not.toHaveBeenCalled();
   });
 
@@ -144,7 +142,7 @@ describe('#833 구성원 해석 (findMemberByUsername)', () => {
     const c = mockClient();
     vi.mocked(c.searchMembers).mockRejectedValue({ response: { status: 403 } });
     await expect(findMemberByUsername(c, 'minsu')).rejects.toEqual({ response: { status: 403 } });
-    // 도구 경로도 동일 — 안내 문구로 바꾸지 않는다.
+    // 도구 경로도 동일 — "찾을 수 없음" 오류로 바꾸지 않는다.
     await expect(tool(c, 'get_member').handler({ username: 'minsu' })).rejects.toBeDefined();
   });
 
@@ -154,6 +152,6 @@ describe('#833 구성원 해석 (findMemberByUsername)', () => {
       { userId: 7, username: 'minsu2', name: '김민수2', kind: 'HUMAN', active: true },
     ]);
     expect(await findMemberByUsername(c, 'minsu')).toBeUndefined();
-    expect(await tool(c, 'get_member').handler({ username: 'minsu' })).toContain('찾을 수 없습니다');
+    await expect(tool(c, 'get_member').handler({ username: 'minsu' })).rejects.toThrow('찾을 수 없습니다');
   });
 });

@@ -48,7 +48,8 @@ export async function linkMentions(client: Pick<MemberToolClient, 'searchMembers
 
 export const getChannelMessagesInput = z.object({
   channelId: z.number().int().positive(),
-  limit: z.number().int().min(1).max(200).default(50),
+  // 서버(MessageRepository.MAX_LIMIT)가 100 으로 자른다 — 그 이상을 받는 것처럼 보이지 않게 맞춘다.
+  limit: z.number().int().min(1).max(100).default(50),
 });
 export const getThreadRepliesInput = z.object({ messageId: z.number().int().positive() });
 export const discoverChannelsInput = z.object({ q: z.string().min(1) });
@@ -143,7 +144,10 @@ export function buildMessagingTools(
     {
       name: 'get_channel_messages',
       kind: 'read',
-      description: '채널/DM 의 최근 메시지 목록을 JSON 으로 반환합니다(대화 흐름 확인용). limit 기본 50.',
+      description:
+        '채널/DM 의 최근 메시지 목록을 최신순(최신 → 오래된 순)으로 JSON 배열로 반환합니다(대화 흐름 확인용). 스레드 답글은 빠지고 최상위 메시지만 담기며, ' +
+        '답글이 있으면 replyCount 로 알 수 있습니다(get_thread_replies 로 조회). limit 기본 50·최대 100 이고, 그보다 오래된 메시지는 ' +
+        '다음 페이지가 없어 이 도구로 가져올 수 없습니다 — 요약할 때 최근 일부만 본 것이라고 밝히세요. 삭제된 메시지는 본문이 "(삭제됨)" 으로 옵니다.',
       inputSchema: getChannelMessagesInput,
       async handler(args) {
         const { channelId, limit } = getChannelMessagesInput.parse(args);
@@ -218,7 +222,8 @@ export function buildMessagingTools(
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        '공개 채널에서 나갑니다(다시 참여 가능). 비공개 채널은 나가면 스스로 돌아올 수 없어 이 도구로 나갈 수 없습니다 — ' +
+        '공개 채널에서 나갑니다. 나가면 그 채널의 메시지를 읽거나 쓸 수 없고, 이 도구 묶음에는 다시 참여시키는 도구가 없어 ' +
+        '되돌리려면 사용자가 직접 참여해야 합니다(공개 채널이라 가능). 비공개 채널은 나가면 스스로 돌아올 수 없어 이 도구로 나갈 수 없습니다 — ' +
         'propose_leave_channel 도구가 있으면 그것으로 확인 카드를 제안하고, 없으면 사용자가 직접 나가도록 안내하세요. ' +
         '채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다.',
       inputSchema: leaveChannelInput,

@@ -33,7 +33,7 @@ export function buildMessagingUserMessage(
     `보낸 사람: ${actorName}\n` +
     `메시지: "${payload.body}"\n\n` +
     `## 최근 대화 흐름 (오래된→최신)\n${thread || '(이전 메시지 없음)'}\n\n` +
-    `더 과거 대화가 필요하면 get_channel_messages(${payload.channelId}). ` +
+    `더 과거 대화가 필요하면 get_channel_messages(${payload.channelId}) — 최신순 최근 100건까지만 가져올 수 있습니다. ` +
     `파악이 끝나면 add_channel_message(${payload.channelId}, 답변) 을 정확히 한 번 호출해 답하세요.\n\n` +
     `## 위임 가능 프로젝트\n${projectList}\n` +
     `사용자가 일을 이슈로 만들어 당신에게 맡기려 하면 위 목록에서 projectKey 를 골라 propose_create_issue 를 호출하세요. ` +

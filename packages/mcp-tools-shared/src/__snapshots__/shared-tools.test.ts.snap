@@ -578,7 +578,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "limit": {
           "default": 50,
-          "maximum": 200,
+          "maximum": 100,
           "minimum": 1,
           "type": "integer",
         },

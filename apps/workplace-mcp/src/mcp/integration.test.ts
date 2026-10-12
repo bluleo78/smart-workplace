@@ -93,4 +93,16 @@ describe('/mcp', () => {
     const res = await client.callTool({ name: 'get_issue_detail', arguments: { issueKey: 'WP-99' } });
     expect(res.isError).toBe(true);
   });
+
+  it('get_member·get_member_contact 는 없는 구성원을 성공 문자열이 아닌 isError 로 돌려준다 (WP-344)', async () => {
+    nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+    // 검색 결과에 정확일치 username 이 없다 — 두 도구 호출 모두 같은 조회를 한다.
+    nock(API).get('/members').query(true).times(2).reply(200, { content: [] });
+    const client = await connect('swp_valid');
+    for (const name of ['get_member', 'get_member_contact']) {
+      const res = await client.callTool({ name, arguments: { username: 'ghost' } });
+      expect(res.isError).toBe(true);
+      expect(JSON.stringify(res.content)).toContain('구성원을 찾을 수 없습니다: ghost');
+    }
+  });
 });
