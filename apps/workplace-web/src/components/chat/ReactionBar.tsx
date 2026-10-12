@@ -6,7 +6,6 @@ import { useState } from 'react'
 
 import { ReactionHoverContent } from '@/components/chat/ReactionHoverContent'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
-import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import type { MessageResponse, ReactionResponse } from '@/types/messaging'
 
 /** 호버 카드 열림 지연 — 칩 위를 스쳐 지나갈 때마다 요청하지 않게. */
@@ -20,14 +19,13 @@ interface ReactionBarProps {
   // 칩 정렬 방향. 본인 메시지(우측 말풍선) 아래에서는 'end' 로 말풍선과 같은 쪽에 붙인다.
   align?: 'start' | 'end'
   currentUserId: number
-  // 반응자 전체 보기 열기(호버 카드의 모두 보기). 미전달이면 호버 카드를 붙이지 않는다(미전송 메시지 등).
+  // 반응자 전체 보기 열기(호버 카드의 모두 보기). 미전달이면 호버 카드를 붙이지 않는다(미전송 메시지·터치 셸 등).
   onOpenReactors?: (emoji: string) => void
 }
 
 export function ReactionBar({ message, onToggle, align = 'start', currentUserId, onOpenReactors }: ReactionBarProps) {
-  const touchShell = useIsTouchShell()
   if (message.reactions.length === 0) return null
-  const hover = !touchShell && !!onOpenReactors && message.id >= 0
+  const hover = !!onOpenReactors && message.id >= 0
   return (
     <div
       className={`mt-1 flex flex-wrap gap-1 ${align === 'end' ? 'justify-end' : ''}`}

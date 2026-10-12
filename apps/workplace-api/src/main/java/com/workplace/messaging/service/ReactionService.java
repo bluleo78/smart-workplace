@@ -1,6 +1,7 @@
 package com.workplace.messaging.service;
 
 import com.workplace.messaging.dto.ReactorPage;
+import com.workplace.messaging.dto.ReactorResponse;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ReactionAddedEvent;
@@ -68,12 +69,16 @@ public class ReactionService {
     List<ReactorRow> rows = reactionRepo.findReactors(messageId, emoji, decodeCursor(cursor), size);
     boolean hasMore = rows.size() > size;
     List<ReactorRow> pageRows = hasMore ? rows.subList(0, size) : rows;
-    String next =
-        hasMore
-            ? Cursor.encode(
-                new Cursor(pageRows.getLast().reactedAt(), pageRows.getLast().reactor().userId()))
-            : null;
-    return new ReactorPage(pageRows.stream().map(ReactorRow::reactor).toList(), next, hasMore);
+    // 빈 페이지에서 getLast() 가 던지지 않게 hasMore(=다음 페이지 존재, 즉 비어 있지 않음)일 때만 꼬리를 읽는다.
+    String next = null;
+    if (hasMore) {
+      ReactorRow last = pageRows.getLast();
+      next = Cursor.encode(new Cursor(last.reactedAt(), last.userId()));
+    }
+    return new ReactorPage(
+        pageRows.stream().map(r -> new ReactorResponse(r.userId(), r.name(), r.kind())).toList(),
+        next,
+        hasMore);
   }
 
   /** cursor 문자열 해석. 비었으면 null, 깨졌으면 400(IllegalArgumentException)으로 바꾼다. */

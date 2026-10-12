@@ -277,7 +277,8 @@ export function MessageRow({
       align={isOwn ? 'end' : 'start'}
       currentUserId={currentUserId}
       onToggle={onToggleReaction}
-      onOpenReactors={onOpenReactors}
+      // 터치 셸은 호버 카드를 쓰지 않는다 — 길게 누르기 위임이 칩에서 반응자 시트를 연다.
+      onOpenReactors={touchShell ? undefined : onOpenReactors}
     />
   )
 

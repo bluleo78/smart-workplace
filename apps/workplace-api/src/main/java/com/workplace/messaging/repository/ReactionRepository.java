@@ -4,8 +4,9 @@ import static com.workplace.jooq.Tables.MESSAGE_REACTION;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.messaging.dto.ReactionResponse;
-import com.workplace.messaging.dto.ReactorResponse;
 import com.workplace.messaging.repository.MessageRepository.Cursor;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -89,7 +90,7 @@ public class ReactionRepository {
       cond =
           cond.and(
               DSL.row(MESSAGE_REACTION.CREATED_AT, MESSAGE_REACTION.USER_ID)
-                  .gt(after.createdAt().atOffset(ZoneOffset.UTC), after.id()));
+                  .gt(OffsetDateTime.ofInstant(after.createdAt(), ZoneOffset.UTC), after.id()));
     return dsl.select(MESSAGE_REACTION.USER_ID, MESSAGE_REACTION.CREATED_AT, USER.NAME, USER.KIND)
         .from(MESSAGE_REACTION)
         .join(USER)
@@ -100,11 +101,12 @@ public class ReactionRepository {
         .fetch(
             r ->
                 new ReactorRow(
-                    new ReactorResponse(
-                        r.get(MESSAGE_REACTION.USER_ID), r.get(USER.NAME), r.get(USER.KIND)),
+                    r.get(MESSAGE_REACTION.USER_ID),
+                    r.get(USER.NAME),
+                    r.get(USER.KIND),
                     r.get(MESSAGE_REACTION.CREATED_AT).toInstant()));
   }
 
   /** 반응자 1행 + 키셋 커서용 반응 시각. */
-  public record ReactorRow(ReactorResponse reactor, java.time.Instant reactedAt) {}
+  public record ReactorRow(long userId, String name, String kind, Instant reactedAt) {}
 }
