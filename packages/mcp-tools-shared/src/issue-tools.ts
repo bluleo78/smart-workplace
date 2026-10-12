@@ -61,8 +61,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         'Returns one issue (이슈) by issueKey (e.g. WP-12): Markdown body, all fields (dates +09:00), cycles, parent, children, blockedBy/blocks, ' +
         `custom fields, watchers, driveLinks {driveFileId, name}, attachments (attachmentId for read_attachment), the latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments and ` +
         `${ISSUE_DETAIL_HISTORY_LIMIT} history entries. commentsOmitted/historyOmitted count older ones left out (absent = complete); ` +
-        `allComments:true returns up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments. closedAt is set for DONE and CANCELED alike. People are ` +
-        '{username, name, kind}; username is null when unknown.',
+        `allComments:true returns up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments. closedAt: when DONE or CANCELED. People ` +
+        '{username, name, kind}, watchers lack kind; username null if unknown.',
       inputSchema: getIssueDetailInput,
       async handler(args) {
         const { issueKey, allComments } = getIssueDetailInput.parse(args);

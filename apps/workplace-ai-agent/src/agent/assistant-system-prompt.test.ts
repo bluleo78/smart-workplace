@@ -311,3 +311,19 @@ describe('목록 잘림 안내 (WP-352)', () => {
     }
   });
 });
+
+// WP-356: issue-agent 는 드라이브를 조회하지 못한다 — 라우터가 파일을 찾아 driveFileId 를 넘기고, 그 조회 도구는 라우터 목록에 있어야 한다.
+describe('드라이브 파일을 이슈에 연결 (WP-356)', () => {
+  it('라우터가 search_drive·list_drive_items 로 찾아 driveFileId 와 이름을 위임 prompt 에 넘기라고 안내한다', () => {
+    for (const runner of ['claude', 'opencode'] as const) {
+      const p = assistantSystemPrompt(runner);
+      expect(p, runner).toContain('드라이브 파일을 이슈에 연결');
+      expect(p, runner).toMatch(/search_drive.*list_drive_items.*driveFileId/s);
+    }
+    expect(ASSISTANT_ROUTER_TOOLS).toEqual(expect.arrayContaining(['search_drive', 'list_drive_items']));
+  });
+
+  it('project-agent 가 라벨·마일스톤·사이클 생성·수정을 맡는다(라우팅 표)', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('라벨·마일스톤·사이클 생성·수정');
+  });
+});

@@ -45,6 +45,8 @@ describe('issue-agent 정의', () => {
     for (const k of ['watching: true', '`parent`', '`milestone`', '`field`', '`fields`', '`driveFileId`', '`watchers`', '`driveLinks`']) {
       expect(prompt, k).toContain(k);
     }
+    // 드라이브 조회 도구가 없으므로 driveFileId 는 라우터가 위임 prompt 에 적어 준 값만 쓴다.
+    expect(prompt).toContain('위임 prompt 에 라우터가 적어 준 값');
   });
 
   // WP-346: 첨부는 get_issue_detail 의 attachments[].attachmentId 로 source "issue" 읽기(WP-353: fileId → attachmentId).

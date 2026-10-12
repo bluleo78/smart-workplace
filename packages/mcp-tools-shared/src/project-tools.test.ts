@@ -553,10 +553,13 @@ describe('create_project_meta·update_project_meta (WP-356)', () => {
     const c = mockClient();
     await tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'label', name: 'a' });
     expect(c.createProjectMeta).toHaveBeenCalledWith('WP', 'label', { name: 'a', colorToken: 'GRAY' });
+    // 빈 문자열은 생략과 같다(수정의 "" 비우기와 달리 색은 필수라 비울 수 없다).
+    await tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'label', name: 'a2', color: '' });
+    expect(c.createProjectMeta).toHaveBeenLastCalledWith('WP', 'label', { name: 'a2', colorToken: 'GRAY' });
     await expect(tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'label', name: 'b', color: 'MAGENTA' })).rejects.toThrow(
       '사용 가능: GRAY',
     );
-    expect(c.createProjectMeta).toHaveBeenCalledTimes(1);
+    expect(c.createProjectMeta).toHaveBeenCalledTimes(2);
   });
 
   it('마일스톤은 dueDate 가 필요하고, kind 에 없는 필드는 쓰기 전에 거부한다', async () => {

@@ -89,9 +89,12 @@ const META_FIELDS: Record<ProjectMetaKind, readonly string[]> = {
 };
 const META_KIND_LABEL: Record<ProjectMetaKind, string> = { label: '라벨', milestone: '마일스톤', cycle: '사이클' };
 
-/** 라벨 색 검증 — 서버 오류("허용되지 않은 색상 토큰")는 허용 값을 알려주지 않아 쓰기 전에 목록과 함께 거부한다. 대소문자는 맞춰 준다. */
+/**
+ * 라벨 색 검증 — 서버 오류("허용되지 않은 색상 토큰")는 허용 값을 알려주지 않아 쓰기 전에 목록과 함께 거부한다. 대소문자는 맞춰 준다.
+ * 빈 문자열은 생략과 같다(색은 필수라 비울 수 없다 — 생성은 GRAY, 수정은 지금 색 유지).
+ */
 function labelColor(color: string | undefined): string | undefined {
-  if (color === undefined) return undefined;
+  if (color === undefined || color.trim() === '') return undefined;
   const upper = color.trim().toUpperCase();
   if (!(LABEL_COLORS as readonly string[]).includes(upper)) {
     throw new Error(`라벨 색 '${color}' 은(는) 쓸 수 없습니다. 사용 가능: ${LABEL_COLORS.join(', ')}`);
@@ -360,7 +363,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         const { projectKey, kind, name, color, ...rest } = omitNulls(createProjectMetaInput.parse(args));
         assertMetaFields(kind, { color, ...rest });
         if (kind === 'milestone' && !rest.dueDate) throw new Error('마일스톤은 dueDate(yyyy-MM-dd)가 필요합니다.');
-        // 서버 라벨 요청은 colorToken 이 필수다 — 색을 안 주면 웹 기본값과 같은 GRAY. 빈 문자열은 생략과 같다.
+        // 서버 라벨 요청은 colorToken 이 필수다 — 색을 안 주면(빈 문자열 포함) 웹 기본값과 같은 GRAY. 다른 필드도 빈 문자열은 생략과 같다.
         const body = kind === 'label' ? { name, colorToken: labelColor(color) ?? 'GRAY' } : { name, ...blankAs(rest, undefined) };
         return JSON.stringify(toProjectMetaView(kind, (await client.createProjectMeta(projectKey, kind, body)) as Record<string, unknown>));
       },

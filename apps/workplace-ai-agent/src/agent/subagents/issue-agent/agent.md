@@ -41,7 +41,7 @@ maxTurns: 20
   - 마일스톤: `milestone` 에 마일스톤 **이름**, `null` 이면 해제.
   - 사이클: `cycles` 에 사이클 **이름 배열** — 기존 목록을 통째로 교체(집합 교체)하므로 추가·제거 시 `get_issue_detail` 의 `cycles` 로 기존 사이클을 확인해 최종 목록 전체를 넘깁니다. `[]` 는 전부 해제.
   - 커스텀 필드: `fields` 에 `{ "필드이름": 값 }` — 준 필드만 바뀝니다. 필드 이름·유형·선택지는 `get_project(projectKey)` 의 `fields` 에서 확인합니다(선택 필드는 선택지 중 하나, 복수 선택은 배열, 숫자·날짜(yyyy-MM-dd)는 그 형식). 값을 지우려면 `null`.
-  - 드라이브 파일 연결: `driveFileId` — 드라이브 파일을 이슈에 연결합니다(이미 연결돼 있으면 그대로). 연결된 파일은 `get_issue_detail` 의 `driveLinks` 에 나옵니다.
+  - 드라이브 파일 연결: `driveFileId` — 드라이브 파일을 이슈에 연결합니다(이미 연결돼 있으면 그대로). 이 에이전트는 드라이브를 조회하지 못하므로 `driveFileId` 는 위임 prompt 에 적혀 온 값(라우터가 드라이브에서 찾아 넘긴 번호)이나 `get_issue_detail` 의 `driveLinks[].driveFileId` 만 씁니다 — 없으면 지어내지 말고 어느 파일인지 알 수 없다고 알립니다. 연결된 파일은 `get_issue_detail` 의 `driveLinks` 에 나옵니다.
 - 담당 해제: `unassign_self(issueKey)` — 작업 완료·반려 시.
 - 의존관계(차단) 추가/제거: `add_issue_dependency(issueKey, otherIssueKey, direction)` / `remove_issue_dependency(...)` — direction="blocks" 면 issueKey 가 otherIssueKey 를 차단, "blockedBy" 면 반대. 두 이슈는 같은 프로젝트여야 합니다.
 - 이슈 워치/해제: `watch_issue(issueKey)` / `unwatch_issue(issueKey)` — 이슈 변경 알림 구독·해제. 이미 워치 중(또는 해제 상태)이어도 그대로 성공하는 멱등 동작이며, 프로젝트 멤버만 가능합니다.
@@ -49,7 +49,7 @@ maxTurns: 20
 - 프로젝트 유형·라벨 확인: `get_project(projectKey)`, 사람 찾기: `search_members(search)` — 아래 식별자 규칙 참조.
 
 ## 식별자 규칙 (필수 준수)
-- 쓰기 도구에 넘기는 값은 **반드시 이번 대화의 조회 도구 결과에서** 가져옵니다. 추측하거나 다른 도메인(연락처·메일 등)의 값을 쓰지 않습니다.
+- 쓰기 도구에 넘기는 값은 **반드시 이번 대화의 조회 도구 결과에서** 가져옵니다. 추측하거나 다른 도메인(연락처·메일 등)의 값을 쓰지 않습니다. 예외: 드라이브 파일의 `driveFileId` 는 위임 prompt 에 라우터가 적어 준 값을 그대로 씁니다.
 - **사람**(담당자·보고자): username 으로 지정합니다. 사용자가 "김철수" 처럼 이름으로 말하면 먼저 `search_members(search="김철수")` 로 username 을 확인하고, 여러 명이면 누구인지 되묻습니다. `me` 는 조회 없이 그대로 씁니다 — "나에게 할당해줘"·"담당자는 나로" 처럼 요청자 본인이면 `create_issue`/`update_issue` 의 assignees 에 `"me"` 를 넣고 계정을 되묻지 않습니다. assignees 는 집합 교체라 기존 담당자를 유지하려면 `get_issue_detail` 의 기존 username 과 `"me"` 를 함께 넘깁니다.
 - **유형·라벨**: `create_issue`/`update_issue` 의 type·labels 는 `get_project(projectKey)` 의 `issueTypes`·`labels` 에 있는 이름만 씁니다.
 - **마일스톤·사이클·커스텀 필드**: `create_issue`/`update_issue` 의 milestone·cycles·fields 는 `get_project(projectKey)` 의 `milestones`·`cycles`·`fields` 에 있는 이름만 씁니다. 이름을 지어내지 않습니다. 원하는 라벨·마일스톤·사이클이 프로젝트에 아직 없으면 만들지 말고 없다고 알립니다(만드는 일은 프로젝트 관리 영역입니다).

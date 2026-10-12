@@ -80,10 +80,10 @@ async function getBytes(http: HttpLike, url: string): Promise<FileBytes> {
 }
 
 /** 외부 연락처 force 쿼리 — 서버 기본값이 false 라 true 일 때만 붙인다(미지정과 같은 요청이 되도록). */
+const forceParams = (force?: boolean) => (force ? { params: { force } } : undefined);
+
 /** 프로젝트 메타 종류 → REST 경로 조각(WP-356). 서버 컨트롤러 /projects/{key}/labels·milestones·cycles. */
 const META_PATH: Record<ProjectMetaKind, string> = { label: 'labels', milestone: 'milestones', cycle: 'cycles' };
-
-const forceParams = (force?: boolean) => (force ? { params: { force } } : undefined);
 
 /** 인증된 HTTP 인스턴스로 공유 도구 클라이언트를 만든다. */
 export function createSharedToolClient(http: HttpLike): SharedToolClient {
