@@ -5,10 +5,14 @@ import {
   buildSharedTools,
   findMemberByUsername,
   issueListFilterShape,
+  listConflicts as listConflictsShared,
+  NO_ATTENDEE_TO_ADD,
   normalizeTimezone,
   parseIssueKey,
   READ_ATTACHMENT_DEFAULT_LIMIT,
   readRangeShape,
+  resolveAttendees as resolveAttendeesShared,
+  resolveAttendeeToRemove,
   resolveRange,
   toolAnnotations,
   type McpTool,
@@ -18,6 +22,16 @@ import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
 
 // sdk-mcp-server.ts / stdio-entry.ts 가 './tools.js' 에서 McpTool 을 계속 import 하므로 재-export 유지.
 export type { McpTool };
+
+/**
+ * WP-348: AI Chat 에 싣지 않는 공유 도구 → 같은 작업을 하는 확인 카드. 외부 MCP 는 직접 실행 도구를, AI Chat 은 확인 카드를 쓴다
+ * (경로마다 도구 하나 — WP-347). 둘은 참석자 해석·시간대 보정·충돌 계산을 공유 헬퍼로 같이 쓴다. sharedTool() 이 이 이름을 거부하고,
+ * tools.test.ts 의 "공유 도구 전부 노출" 검사는 이 목록만 빼고 본다.
+ */
+export const CARD_ONLY_SHARED_TOOLS: Readonly<Record<string, readonly string[]>> = {
+  create_event: ['propose_create_event'],
+  update_event: ['propose_update_event', 'propose_add_attendees', 'propose_remove_attendee'],
+};
 
 const issueKey = z.object({ issueKey: z.string().min(1) });
 // 6c: chat 프로필 도구 입력.
@@ -306,44 +320,17 @@ export function buildTools(
     if (!t) throw new Error(`공유 도구 없음: ${name}`);
     // #853: 되돌릴 수 없는 공유 도구를 직접 실행으로 노출하지 않는다 — 그런 작업은 propose_* 확인 카드로만 한다.
     if (t.kind === 'destructive') throw new Error(`destructive 공유 도구는 직접 노출할 수 없습니다: ${name}`);
+    // WP-348: 확인 카드가 있는 작업의 직접 실행 도구는 AI Chat 에 싣지 않는다.
+    if (name in CARD_ONLY_SHARED_TOOLS) throw new Error(`확인 카드로만 하는 공유 도구는 직접 노출할 수 없습니다: ${name}`);
     // WP-342: 연산 성격 힌트를 실어 보낸다 — Claude Code 가 readOnlyHint 로 읽기 도구를 병렬 실행한다. 로컬 전용 도구는 힌트가 없다.
     return { ...t, annotations: toolAnnotations(t) };
   };
 
-  /**
-   * 일정 초대 참석자 username → user id(#852). messaging 위임·assistant 공용. 구성원 조회는 테넌트 스코프라 찾히면 곧 초대 가능한
-   * 구성원이다. 못 찾거나 비활성인 이름은 한 번에 모아 돌려준다 — 하나씩 고치며 여러 번 재호출하지 않게.
-   * organizerId(요청자=주최자)는 서버가 주최자로 자동 포함하고 초대 목록에선 건너뛰므로 여기서도 뺀다 — 안 빼면 카드에만 초대로 보인다.
-   */
-  const resolveAttendees = async (
-    usernames: string[] | undefined,
-    organizerId: number,
-  ): Promise<{ ids?: number[]; names: string[] } | { error: string }> => {
-    const unique = [...new Set(usernames ?? [])];
-    const found = await Promise.all(unique.map((u) => findMemberByUsername(sc, u)));
-    const missing: string[] = [];
-    const inactive: string[] = [];
-    const members: { userId: number; label: string }[] = [];
-    found.forEach((m, i) => {
-      if (!m) missing.push(unique[i]);
-      else if (m.active === false) inactive.push(m.username);
-      else if (m.userId !== organizerId) members.push({ userId: m.userId, label: `${m.name}(${m.username})` });
-    });
-    if (missing.length > 0 || inactive.length > 0) {
-      const parts = [];
-      if (missing.length > 0) parts.push(`찾을 수 없는 username: ${missing.join(', ')}`);
-      if (inactive.length > 0) parts.push(`비활성 계정: ${inactive.join(', ')}`);
-      return {
-        error: `오류: 참석자를 확정하지 못했습니다(${parts.join(' / ')}). search_members 로 정확한 username 을 확인하세요. 외부 이메일 참석자는 지원하지 않습니다.`,
-      };
-    }
-    // 초대할 사람이 없으면 ids 를 비워(undefined) 호출부가 조건 없이 그대로 싣게 한다.
-    return { ids: members.length > 0 ? members.map((m) => m.userId) : undefined, names: members.map((m) => m.label) };
-  };
-
-  /** 겹치는 일정을 제안 카드 충돌 표시 형태로 조회한다(messaging 위임·assistant 공용이라 프로필 분기보다 먼저 선언). */
-  const listConflicts = async (from: string, to: string) =>
-    (await sc.listEvents(from, to)).map(({ id, title, startsAt, endsAt }) => ({ id, title, startsAt, endsAt }));
+  // 일정 참석자 해석·충돌 조회 — 직접 실행 도구(create_event·update_event)와 같은 공유 헬퍼를 쓴다(WP-348, 두 경로 결과가 같다).
+  // messaging 위임·assistant 공용이라 프로필 분기보다 먼저 이 실행의 클라이언트(sc)로 묶어 둔다.
+  const resolveAttendees = (usernames: string[] | undefined, organizerId: number) =>
+    resolveAttendeesShared(sc, usernames, organizerId);
+  const listConflicts = (from: string, to: string) => listConflictsShared(sc, from, to);
 
   // #371: 이슈 목록 데이터 조회(공유본). ai-agent 에는 화면 표시 위젯(show_issue_list)이 있어 둘 중 고르는 기준을 덧붙인다.
   const listIssuesTool: McpTool = {
@@ -886,7 +873,7 @@ export function buildTools(
       // 요청자(=주최자)는 이미 참석자라 뺀다 — #852 와 같은 해석(없거나 비활성인 이름은 모아서 알린다).
       const resolved = await resolveAttendees(attendees, agentId);
       if ('error' in resolved) return resolved.error;
-      if (!resolved.ids) return '오류: 초대할 참석자가 없습니다(주최자 본인은 이미 참석자입니다).';
+      if (!resolved.ids) return NO_ATTENDEE_TO_ADD;
       return await writeProposal('calendar.add_attendees', `${summary}\n초대: ${resolved.names.join(', ')}`, {
         id: eventId,
         userIds: resolved.ids,
@@ -902,13 +889,12 @@ export function buildTools(
     inputSchema: proposeRemoveAttendeeInput,
     async handler(args) {
       const { eventId, username, summary } = proposeRemoveAttendeeInput.parse(args);
-      const { member, error } = await requireMemberFor(username);
-      if (error) return error;
-      // 서버는 주최자 본인 제거를 조용히 무시한다 — 아무 효과 없는 카드를 만들지 않게 여기서 막는다.
-      if (member!.userId === agentId) return '오류: 주최자 본인은 참석자에서 제거할 수 없습니다.';
-      return await writeProposal('calendar.remove_attendee', `${summary}\n제거: ${member!.name}(${username})`, {
+      // 없는 이름·주최자 본인(서버가 조용히 무시)은 카드를 만들지 않는다 — update_event 의 removeAttendees 와 같은 공유 판정(WP-348).
+      const r = await resolveAttendeeToRemove(sc, username, agentId);
+      if ('error' in r) return r.error;
+      return await writeProposal('calendar.remove_attendee', `${summary}\n제거: ${r.member.name}(${username})`, {
         id: eventId,
-        userId: member!.userId,
+        userId: r.member.userId,
       });
     },
   };

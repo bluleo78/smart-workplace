@@ -16,7 +16,15 @@ export {
   toBase64,
 } from './attachment-read.js';
 export type * from './tool-client.js';
-export { normalizeTimezone } from './calendar-tools.js';
+export {
+  listConflicts,
+  normalizeTimezone,
+  NO_ATTENDEE_TO_ADD,
+  resolveAttendees,
+  resolveAttendeeToRemove,
+  type EventConflict,
+  type ResolvedAttendees,
+} from './calendar-tools.js';
 export { findMemberByUsername } from './member-tools.js';
 export { buildSharedTools, type SharedToolClient, type SharedToolOptions } from './shared-tools.js';
 export { createSharedToolClient, type HttpLike, type HttpRequestConfig } from './rest-client.js';

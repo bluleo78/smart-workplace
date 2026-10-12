@@ -52,6 +52,8 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   list_events: { label: '일정 조회', icon: '📅' },
   get_event: { label: '일정 상세', icon: '📅' },
   rsvp_event: { label: '일정 참석 응답', icon: '📅' },
+  create_event: { label: '일정 생성', icon: '📅' },
+  update_event: { label: '일정 수정', icon: '📅' },
   // 메일
   list_mail_accounts: { label: '메일 계정 조회', icon: '📧' },
   list_mail: { label: '메일 목록', icon: '📧' },

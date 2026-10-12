@@ -29,7 +29,7 @@ export interface McpToolAnnotations {
 
 /**
  * 도구가 일으키는 부작용의 등급(#853). 노출 범위 결정의 근거다. README "노출 기준"의 등급 R/W/I 에 대응한다(read=R, write=W, destructive=I).
- * 다른 사람에게 알림이 가는 N 은 kind 가 아니라 R/W 위에 얹는 표시다 — 알림 수준 입력은 해당 도구를 만들 때 적용하며 지금은 필드가 없다.
+ * 다른 사람에게 알림이 가는 N 은 kind 가 아니라 R/W 위에 얹는 표시다 — 알림 여부는 해당 도구의 입력으로 받는다(예: create_event 의 notify, WP-348).
  * - read: 상태를 바꾸지 않는다.
  * - write: 상태를 바꾸지만 되돌릴 수 있다(다시 쓰기·재추가·복원 API 가 있다). 워크스페이스 안의 알림·메시지
  *   (멘션·RSVP 알림·DM 생성)는 사용자가 앱에서 직접 해도 생기는 정상 부작용이라 write 다.

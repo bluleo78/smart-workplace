@@ -11,7 +11,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { buildTools, type HostBridge, type McpProfile } from './tools.js';
+import { buildTools, CARD_ONLY_SHARED_TOOLS, type HostBridge, type McpProfile } from './tools.js';
 
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
 function apiError(status: number, message: string): Error {
@@ -64,6 +64,10 @@ function sharedMock(): MockedShared {
     listEvents: vi.fn().mockResolvedValue([]),
     getEvent: vi.fn().mockResolvedValue({}),
     rsvpEvent: vi.fn().mockResolvedValue(undefined),
+    createEvent: vi.fn().mockResolvedValue({ id: 100 }),
+    updateEvent: vi.fn().mockResolvedValue({ id: 100 }),
+    addEventAttendees: vi.fn().mockResolvedValue(undefined),
+    removeEventAttendee: vi.fn().mockResolvedValue(undefined),
     // 메일
     listMailAccounts: vi.fn().mockResolvedValue([]),
     listMail: vi.fn().mockResolvedValue([]),
@@ -364,11 +368,26 @@ describe('공유 도구 패리티 (#846)', () => {
   }
 
   // 공유 패키지에 도구를 추가하고 ai-agent 에 연결하지 않으면 AI Chat 에서 조용히 못 쓰는 도구가 된다(#850).
-  it('assistant 프로필은 공유 도구를 전부 노출한다', () => {
+  // WP-348: 확인 카드가 있는 작업의 직접 실행 도구(CARD_ONLY_SHARED_TOOLS)만 예외 — 경로마다 도구 하나.
+  it('assistant 프로필은 공유 도구를 전부 노출한다(확인 카드 전용 작업 제외)', () => {
     const c = client();
     const names = new Set(buildTools(c, AGENT_ID, 'assistant').map((t) => t.name));
-    const missing = buildSharedTools(c.sc).map((t) => t.name).filter((n) => !names.has(n));
+    const missing = buildSharedTools(c.sc)
+      .map((t) => t.name)
+      .filter((n) => !names.has(n) && !(n in CARD_ONLY_SHARED_TOOLS));
     expect(missing).toEqual([]);
+  });
+
+  it('WP-348: 확인 카드 전용 작업의 직접 실행 도구는 어느 프로필에도 없고, 대응 확인 카드는 assistant 에 있다', () => {
+    const c = client();
+    const shared = new Set(buildSharedTools(c.sc).map((t) => t.name));
+    for (const name of Object.keys(CARD_ONLY_SHARED_TOOLS)) expect(shared.has(name), name).toBe(true); // 낡은 항목 방지
+    for (const v of variants) {
+      const names = v.build(c).map((t) => t.name);
+      for (const name of Object.keys(CARD_ONLY_SHARED_TOOLS)) expect(names, `${v.label}:${name}`).not.toContain(name);
+    }
+    const assistant = buildTools(c, AGENT_ID, 'assistant').map((t) => t.name);
+    for (const cards of Object.values(CARD_ONLY_SHARED_TOOLS)) expect(assistant).toEqual(expect.arrayContaining([...cards]));
   });
 
   // WP-342: 공유 도구는 workplace-mcp 와 같은 annotations 를 싣고, 로컬 전용 도구에는 없다.
@@ -1433,5 +1452,80 @@ describe('#856 propose 도구', () => {
       }),
     ).rejects.toThrow('소유자가 최소 1명');
     expect(sink).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-348: 확인 카드와 외부 MCP 직접 실행 도구가 같은 해석 결과를 내는지(공유 헬퍼 패리티)
+// ---------------------------------------------------------------------------
+describe('WP-348 확인 카드 ↔ create_event·update_event 해석 패리티', () => {
+  const ORGANIZER = 7;
+  const directory = [
+    { userId: 5, username: 'minsu', name: '김민수', active: true },
+    { userId: 6, username: 'jiyoung', name: '이지영', active: true },
+    { userId: 7, username: 'me', name: '나', active: true },
+    { userId: 9, username: 'retired', name: '퇴사자', active: false },
+  ];
+  /** 같은 디렉터리·같은 기존 일정·같은 주최자(카드=agentId, 직접 실행=getMe)를 쓰는 두 경로를 만든다. */
+  function setup(eventDetail: Record<string, unknown> = {}) {
+    const c = client();
+    c.sc.searchMembers.mockImplementation(async ({ search }: { search?: string }) => directory.filter((m) => m.username === search));
+    c.sc.getMe.mockResolvedValue({ id: ORGANIZER, username: 'me' });
+    c.sc.listEvents.mockResolvedValue([{ id: 3, title: '기존 회의', startsAt: 'a', endsAt: 'b', location: '3층' }]);
+    c.sc.getEvent.mockResolvedValue({
+      title: 't', description: null, startsAt: 's', endsAt: 'e', allDay: false, location: null, color: null,
+      reminderMinutes: null, recurrenceRule: null,
+      attendees: [{ userId: ORGANIZER, username: 'me' }, { userId: 6, username: 'jiyoung' }],
+      ...eventDetail,
+    });
+    const proposals: { actionType: string; summary: string; params: Record<string, unknown> }[] = [];
+    const cards = buildTools(c, ORGANIZER, 'assistant', undefined, undefined, collectingBridge(proposals));
+    const direct = buildSharedTools(c.sc);
+    const tool = (name: string) => direct.find((t) => t.name === name)!;
+    return { c, proposals, card: (n: string) => find(cards, n), tool };
+  }
+
+  it('같은 입력 → 같은 참석자 id·보정된 시간대·충돌 목록', async () => {
+    const { c, proposals, card, tool } = setup();
+    const input = { title: '회의', startsAt: '2026-06-20T14:00:00', endsAt: '2026-06-20T15:00:00', attendees: ['minsu', 'me', 'jiyoung', 'minsu'] };
+    await card('propose_create_event').handler({ ...input, summary: '회의' });
+    const out = JSON.parse((await tool('create_event').handler(input)) as string);
+
+    const [p] = proposals;
+    const [body] = c.sc.createEvent.mock.calls[0];
+    expect(body.attendeeUserIds).toEqual(p.params.attendeeUserIds);
+    expect(body.attendeeUserIds).toEqual([5, 6]);
+    expect([body.startsAt, body.endsAt]).toEqual([p.params.startsAt, p.params.endsAt]);
+    expect(body.startsAt).toBe('2026-06-20T14:00:00+09:00');
+    expect(out.conflicts).toEqual(p.params.conflicts);
+    expect(out.conflicts).toEqual([{ id: 3, title: '기존 회의', startsAt: 'a', endsAt: 'b' }]);
+  });
+
+  it('참석자를 확정 못 하면 두 경로가 같은 사유로 멈춘다', async () => {
+    const { c, proposals, card, tool } = setup();
+    const input = { title: '회의', startsAt: '2026-06-20T14:00:00+09:00', endsAt: '2026-06-20T15:00:00+09:00', attendees: ['ghost', 'retired'] };
+    const cardOut = await card('propose_create_event').handler({ ...input, summary: '회의' });
+    await expect(tool('create_event').handler(input)).rejects.toThrow(cardOut as string);
+    expect(proposals).toHaveLength(0);
+    expect(c.sc.createEvent).not.toHaveBeenCalled();
+  });
+
+  it('참석자 추가·제거: propose_add_attendees·propose_remove_attendee 와 update_event 가 같은 user id 를 고른다', async () => {
+    const { c, proposals, card, tool } = setup();
+    await card('propose_add_attendees').handler({ eventId: 1, attendees: ['minsu', 'me'], summary: 's' });
+    await card('propose_remove_attendee').handler({ eventId: 1, username: 'jiyoung', summary: 's' });
+    await tool('update_event').handler({ eventId: 1, addAttendees: ['minsu', 'me'], removeAttendees: ['jiyoung'] });
+
+    expect(proposals.map((p) => p.params)).toEqual([{ id: 1, userIds: [5] }, { id: 1, userId: 6 }]);
+    expect(c.sc.addEventAttendees).toHaveBeenCalledWith(1, [5], { notify: true });
+    expect(c.sc.removeEventAttendee).toHaveBeenCalledWith(1, 6);
+  });
+
+  it('주최자뿐인 추가·주최자 제거는 두 경로가 같은 문구로 거절한다', async () => {
+    const { card, tool } = setup();
+    const addCard = await card('propose_add_attendees').handler({ eventId: 1, attendees: ['me'], summary: 's' });
+    await expect(tool('update_event').handler({ eventId: 1, addAttendees: ['me'] })).rejects.toThrow(addCard as string);
+    const removeCard = await card('propose_remove_attendee').handler({ eventId: 1, username: 'me', summary: 's' });
+    await expect(tool('update_event').handler({ eventId: 1, removeAttendees: ['me'] })).rejects.toThrow(removeCard as string);
   });
 });

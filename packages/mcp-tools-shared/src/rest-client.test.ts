@@ -264,6 +264,18 @@ describe('createSharedToolClient 경로 매핑', () => {
     const { http, client } = mockHttp();
     await client.rsvpEvent(7, 'TENTATIVE');
     expect(http.patch).toHaveBeenCalledWith('/calendar/events/7/rsvp', { status: 'TENTATIVE' });
+    // WP-348: 일정 생성·수정·참석자 — 알림 여부는 쿼리(notify), 반복 범위는 쿼리(scope·occurrenceDate)로 보낸다.
+    const body = { title: 't', startsAt: 'a', endsAt: 'b', allDay: false };
+    await client.createEvent({ ...body, attendeeUserIds: [2] }, { notify: false });
+    expect(http.post).toHaveBeenCalledWith('/calendar/events', { ...body, attendeeUserIds: [2] }, { params: { notify: false } });
+    await client.updateEvent(7, body, { scope: 'ALL' });
+    expect(http.patch).toHaveBeenCalledWith('/calendar/events/7', body, { params: { scope: 'ALL' } });
+    await client.updateEvent(7, body, { scope: 'THIS', occurrenceDate: 'o' });
+    expect(http.patch).toHaveBeenCalledWith('/calendar/events/7', body, { params: { scope: 'THIS', occurrenceDate: 'o' } });
+    await client.addEventAttendees(7, [2, 3], { notify: true });
+    expect(http.post).toHaveBeenCalledWith('/calendar/events/7/attendees', { userIds: [2, 3] }, { params: { notify: true } });
+    await client.removeEventAttendee(7, 3);
+    expect(http.delete).toHaveBeenCalledWith('/calendar/events/7/attendees/3');
     await client.getChannel(9);
     expect(http.get).toHaveBeenCalledWith('/messaging/channels/9');
     await client.createChannel({ name: 'c', visibility: 'PRIVATE' });

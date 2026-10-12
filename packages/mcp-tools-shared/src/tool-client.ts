@@ -124,11 +124,45 @@ export interface WikiToolClient {
   moveWikiPage(pageId: number, body: { parentId: number | null; position: number }): Promise<void>;
 }
 
+/**
+ * 일정 생성·수정 본문 — 서버 CalendarEventRequest 와 1:1(WP-348). 수정(PATCH)도 전체 교체라 같은 모양이다:
+ * null·생략한 선택 필드는 서버에서 비워진다(reminderMinutes 생략=리마인더 제거, recurrenceRule 생략=단일 일정).
+ * calendarId 는 싣지 않는다 — 생성은 기본 캘린더(항상 로컬), 수정은 소속 캘린더를 유지한다.
+ */
+export interface CalendarEventBody {
+  title: string;
+  description?: string | null;
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  location?: string | null;
+  color?: string | null;
+  reminderMinutes?: number | null;
+  recurrenceRule?: string | null;
+  /** 초대할 참석자 user id(생성 전용). 수정에 실으면 서버가 400 으로 거절한다 — 참석자 변경은 참석자 API 로. */
+  attendeeUserIds?: number[];
+}
+
+/** 반복 일정 수정 범위 — 서버 EditScope 와 같은 값. */
+export type EventEditScope = 'THIS' | 'THIS_AND_FOLLOWING' | 'ALL';
+
 export interface CalendarToolClient {
   listEvents(from: string, to: string): Promise<EventRow[]>;
   getEvent(eventId: number): Promise<unknown>;
   /** PATCH /calendar/events/{id}/rsvp — 내가 초대받은 일정에만 응답한다(아니면 404). */
   rsvpEvent(eventId: number, status: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE'): Promise<void>;
+  /** POST /calendar/events?notify= — 생성된 일정(CalendarEventResponse). notify=false 면 초대 알림을 보내지 않는다(WP-348). */
+  createEvent(body: CalendarEventBody, opts: { notify: boolean }): Promise<unknown>;
+  /** PATCH /calendar/events/{id}?scope=&occurrenceDate= — 전체 교체. 수정된 일정을 돌려준다. */
+  updateEvent(
+    eventId: number,
+    body: CalendarEventBody,
+    opts: { scope: EventEditScope; occurrenceDate?: string },
+  ): Promise<unknown>;
+  /** POST /calendar/events/{id}/attendees?notify= — 주최자만. notify=false 면 초대 알림을 보내지 않는다. */
+  addEventAttendees(eventId: number, userIds: number[], opts: { notify: boolean }): Promise<void>;
+  /** DELETE /calendar/events/{id}/attendees/{userId} — 주최자만. */
+  removeEventAttendee(eventId: number, userId: number): Promise<void>;
 }
 
 export interface MailToolClient {

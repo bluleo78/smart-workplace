@@ -197,6 +197,20 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async rsvpEvent(eventId, status) {
       await http.patch(`/calendar/events/${eventId}/rsvp`, { status });
     },
+    async createEvent(body, { notify }) {
+      return (await http.post('/calendar/events', body, { params: { notify } })).data;
+    },
+    async updateEvent(eventId, body, { scope, occurrenceDate }) {
+      // occurrenceDate 는 반복 일정의 THIS·THIS_AND_FOLLOWING 에서만 의미가 있다 — 없으면 싣지 않는다.
+      const params = { scope, ...(occurrenceDate !== undefined && { occurrenceDate }) };
+      return (await http.patch(`/calendar/events/${eventId}`, body, { params })).data;
+    },
+    async addEventAttendees(eventId, userIds, { notify }) {
+      await http.post(`/calendar/events/${eventId}/attendees`, { userIds }, { params: { notify } });
+    },
+    async removeEventAttendee(eventId, userId) {
+      await http.delete(`/calendar/events/${eventId}/attendees/${userId}`);
+    },
 
     // ── 메일 ──
     async listMailAccounts() {
