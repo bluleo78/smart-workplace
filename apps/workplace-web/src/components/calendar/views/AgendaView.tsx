@@ -3,7 +3,7 @@ import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { Flag } from 'lucide-react'
 
-import { allDayLocalDate } from '@/lib/calendar'
+import { eventDate } from '@/lib/calendarAgenda'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatClockTimePadded } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -14,12 +14,6 @@ import type { ViewProps } from './TimeGrid'
 type Row =
   | { kind: 'event'; sortKey: number; event: CalendarEvent }
   | { kind: 'due'; sortKey: number; marker: IssueDueMarker }
-
-// 일정의 표시·정렬 기준 Date. 종일은 instant 가 아니라 복원한 캘린더 날짜(로컬 자정)를 쓴다
-// — 동기화 UTC 자정 종일이 타임존에 따라 하루 밀려 표시되던 문제를 막고 MonthView·TimeGrid 와 통일.
-function eventDate(e: CalendarEvent): Date {
-  return e.allDay ? allDayLocalDate(e.startsAt) : new Date(e.startsAt)
-}
 
 // 목록 뷰 컴포넌트
 export function AgendaView({ events, issueDues, onSelectEvent, onSelectIssue }: ViewProps) {
