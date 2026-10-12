@@ -330,12 +330,18 @@ public class MessageService {
     return new MessagePage(items, page.nextCursor(), page.hasMore());
   }
 
-  /** 페이지 내 모든 메시지의 리액션 집계 + 첨부 목록 + 드라이브 링크를 batch 로 채운다(N+1 회피). */
+  /**
+   * 페이지 내 모든 메시지의 리액션 집계 + 첨부 목록 + 드라이브 링크를 batch 로 채운다(N+1 회피).
+   *
+   * <p>삭제된 메시지는 첨부·드라이브 링크를 채우지 않는다(소프트 삭제 후에도 첨부 행이 남음, WP-366).
+   */
   private MessagePage enrichReactions(MessagePage page, long callerId) {
     java.util.List<Long> ids = page.items().stream().map(MessageResponse::id).toList();
+    java.util.List<Long> liveIds =
+        page.items().stream().filter(m -> !m.deleted()).map(MessageResponse::id).toList();
     Map<Long, java.util.List<ReactionResponse>> rmap = reactionRepo.summariesFor(ids, callerId);
-    var amap = attachmentRepo.findByMessageIds(ids);
-    var dmap = driveLinkService.listLinksBatch("MESSAGE", ids);
+    var amap = attachmentRepo.findByMessageIds(liveIds);
+    var dmap = driveLinkService.listLinksBatch("MESSAGE", liveIds);
     java.util.List<MessageResponse> enriched =
         page.items().stream()
             .map(
@@ -443,18 +449,10 @@ public class MessageService {
         messageRepo
             .findById(messageId, mentionHydrator::asMentionResponses)
             .orElseThrow(() -> new IllegalStateException("메시지를 찾을 수 없습니다 (id: " + messageId + ")"));
-    MessageResponse response =
-        m.withReactions(
-            reactionRepo
-                .summariesFor(java.util.List.of(messageId), callerId)
-                .getOrDefault(messageId, java.util.List.of()));
-    // 첨부 목록 batch hydrate (단건이라도 동일 메서드 재사용).
-    var attMap = attachmentRepo.findByMessageIds(java.util.List.of(messageId));
-    // 드라이브 링크 단건 hydrate.
-    var driveLinks = driveLinkService.listLinks("MESSAGE", messageId);
-    return response
-        .withAttachments(attMap.getOrDefault(messageId, java.util.List.of()))
-        .withDriveLinks(driveLinks);
+    // 목록과 같은 enrich 를 재사용한다 — 삭제된 메시지 규칙도 함께 따른다(WP-366).
+    return enrichReactions(new MessagePage(java.util.List.of(m), null, false), callerId)
+        .items()
+        .get(0);
   }
 
   /**

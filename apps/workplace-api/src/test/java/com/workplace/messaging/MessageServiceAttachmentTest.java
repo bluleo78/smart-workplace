@@ -8,8 +8,10 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessageResponse;
 import com.workplace.messaging.exception.EmptyMessageException;
+import com.workplace.messaging.exception.InvalidMessageAttachmentException;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
+import com.workplace.messaging.service.MessageAttachmentService;
 import com.workplace.messaging.service.MessageAttachmentStorage;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.support.IntegrationTestBase;
@@ -32,6 +34,7 @@ class MessageServiceAttachmentTest extends IntegrationTestBase {
   @Autowired ChannelService channelService;
   @Autowired MessageService messageService;
   @Autowired MessageAttachmentStorage storage;
+  @Autowired MessageAttachmentService attachmentService;
 
   /** FilePathBuilder 가 TenantContext 를 읽어 경로를 생성하므로 테스트 실행 전 테넌트(1) 세팅. */
   @BeforeEach
@@ -118,5 +121,52 @@ class MessageServiceAttachmentTest extends IntegrationTestBase {
 
     assertThat(fromList.attachments()).hasSize(1);
     assertThat(fromList.attachments().get(0).originalName()).isEqualTo("doc.pdf");
+  }
+
+  /**
+   * WP-366: 삭제된 메시지는 채널 목록·스레드 답글 어디에서도 첨부를 내려주지 않고, 내려받기도 막는다. 소프트 삭제라 첨부 행이 남아 있어, 채우면 지운 파일 정보가
+   * 노출된다.
+   */
+  @Test
+  void deletedMessage_hidesAttachmentsInListAndThread() throws Exception {
+    long userId = seedUser();
+    long channelId = seedChannel(userId, "deleted-attch-" + UUID.randomUUID());
+    Long rootFile =
+        storage.storeTemporary(
+            new MockMultipartFile("files", "root.txt", "text/plain", "r".getBytes()), userId);
+    MessageResponse root =
+        messageService.create(
+            userId, channelId, new CreateMessageRequest("root", null, List.of(rootFile)));
+    Long replyFile =
+        storage.storeTemporary(
+            new MockMultipartFile("files", "reply.txt", "text/plain", "p".getBytes()), userId);
+    MessageResponse reply =
+        messageService.create(
+            userId, channelId, new CreateMessageRequest("reply", root.id(), List.of(replyFile)));
+
+    // 삭제 전에는 첨부가 실려 있다 — 아래 빈 결과가 바인딩 실패 때문이 아님을 보장.
+    assertThat(root.attachments()).hasSize(1);
+    assertThat(reply.attachments()).hasSize(1);
+
+    messageService.delete(userId, root.id());
+    messageService.delete(userId, reply.id());
+
+    MessageResponse fromList =
+        messageService.list(userId, channelId, null, 50).items().stream()
+            .filter(m -> m.id().equals(root.id()))
+            .findFirst()
+            .orElseThrow();
+    assertThat(fromList.deleted()).isTrue();
+    assertThat(fromList.attachments()).isEmpty();
+    MessageResponse fromThread =
+        messageService.listThread(userId, root.id(), null, 50).items().stream()
+            .filter(m -> m.id().equals(reply.id()))
+            .findFirst()
+            .orElseThrow();
+    assertThat(fromThread.deleted()).isTrue();
+    assertThat(fromThread.attachments()).isEmpty();
+    // 파일 id 를 알아도 삭제된 메시지의 첨부는 내려받을 수 없다.
+    assertThatThrownBy(() -> attachmentService.download(userId, channelId, root.id(), rootFile))
+        .isInstanceOf(InvalidMessageAttachmentException.class);
   }
 }
