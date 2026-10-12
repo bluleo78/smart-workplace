@@ -80,12 +80,15 @@ describe('멤버', () => {
       hasMore: false,
     }),
     getExternalContact: vi.fn(),
+    // 서버 ChannelMemberResponse — 숫자 userId 와 username 이 함께 온다(WP-355).
+    listChannelMembers: vi.fn().mockResolvedValue([{ userId: 3, username: 'minsu', name: '김민수', kind: 'HUMAN', role: 'MEMBER', joinedAt: 't' }]),
   };
   const tools = buildMemberTools(client as never) as never as Parameters<typeof find>[0];
 
   it('search_members·get_member·get_member_contact·list_contacts 는 username 으로만 사람을 가리킨다', async () => {
     for (const [name, args] of [
       ['search_members', { search: '김' }],
+      ['search_members', { channelId: 5 }], // WP-355: 채널 멤버 — 서버 행의 숫자 userId 를 뺀다
       ['get_member', { username: 'minsu' }],
       ['get_member_contact', { username: 'minsu' }],
       ['list_contacts', {}],
@@ -322,7 +325,8 @@ describe('메시징', () => {
     createChannel: vi.fn().mockResolvedValue({ ...channel, lastMessage: null }),
     listChannelMessages: vi.fn().mockResolvedValue({ items: [message], nextCursor: null, hasMore: false }),
     getThreadReplies: vi.fn().mockResolvedValue({ items: [{ ...message, id: 41, parentMessageId: 40 }], nextCursor: null, hasMore: false }),
-    searchMembers: vi.fn(),
+    updateChannelMessage: vi.fn().mockResolvedValue(message),
+    searchMembers: vi.fn().mockResolvedValue([]),
   };
   const tools = buildMessagingTools(client as never) as never as Parameters<typeof find>[0];
 
@@ -355,6 +359,13 @@ describe('메시징', () => {
     expect(userIdLeaks(message)).toEqual(
       expect.arrayContaining(['authorId', 'attachments[].attachedById', 'driveLinks[].createdById', 'proposal.proposedByUserId', 'mentions[]: username+id']),
     );
+  });
+
+  it('update_channel_message 가 돌려주는 저장된 행도 읽기 뷰와 같다 — 작성자·첨부자·멘션의 숫자 ID 와 <@id> 토큰이 없다(WP-355)', async () => {
+    const saved = out(await find(tools, 'update_channel_message').handler({ messageId: 40, body: '안녕' }));
+    expect(userIdLeaks(saved)).toEqual([]);
+    expect(saved).toMatchObject({ id: 40, authorName: '앨리스', body: '안녕 @김민수(minsu)' });
+    expect(JSON.stringify(saved)).not.toMatch(/<@\d+>/);
   });
 
   it('멘션 토큰 <@id> 는 @이름(username) 으로 풀리고 mentions 에서 id 가 빠진다(허용 목록 없이 누수 0)', async () => {

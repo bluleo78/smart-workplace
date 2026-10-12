@@ -116,10 +116,11 @@ public class ChannelMemberRepository {
         dsl.selectOne().from(CHANNEL_MEMBER).where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId)));
   }
 
-  /** 멤버 목록 — user 조인(name, kind). joined_at 오름차순. */
+  /** 멤버 목록 — user 조인(username, name, kind). joined_at 오름차순. */
   public List<ChannelMemberResponse> listMembers(long channelId) {
     return dsl.select(
             CHANNEL_MEMBER.USER_ID,
+            USER.USERNAME,
             USER.NAME,
             USER.KIND,
             CHANNEL_MEMBER.ROLE,
@@ -134,6 +135,7 @@ public class ChannelMemberRepository {
               OffsetDateTime joined = r.get(CHANNEL_MEMBER.JOINED_AT);
               return new ChannelMemberResponse(
                   r.get(CHANNEL_MEMBER.USER_ID),
+                  r.get(USER.USERNAME),
                   r.get(USER.NAME),
                   r.get(USER.KIND),
                   r.get(CHANNEL_MEMBER.ROLE),

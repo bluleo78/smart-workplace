@@ -80,6 +80,13 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   create_project: ['write', false, false, false],
   add_project_member: ['write', false, false, false],
   add_channel_member: ['write', false, true, false],
+  // WP-355: 참여·리액션 추가는 추가만 하고 서버가 이미 있으면 그대로 둬(ON CONFLICT DO NOTHING·이벤트 없음) 멱등이다. 리액션 제거는 없던 것도 오류 없이 같은 결과,
+  // 읽음 처리는 위치가 후퇴하지 않아(GREATEST), 메시지 수정은 같은 본문을 다시 보내도 저장 상태가 같고 알림이 없어(SSE 만) 멱등이다. 제거·읽음·수정은 지우거나 덮어쓴다.
+  join_channel: ['write', false, true, false],
+  add_reaction: ['write', false, true, false],
+  remove_reaction: ['write', true, true, false],
+  update_channel_message: ['write', true, true, false],
+  mark_channel_read: ['write', true, true, false],
   search_drive: ['read', R, R, R],
   search_drive_content: ['read', R, R, R],
   search_members: ['read', R, R, R],

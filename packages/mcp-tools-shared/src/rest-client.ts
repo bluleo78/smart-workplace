@@ -292,6 +292,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async getExternalContact(externalId) {
       return (await http.get(`/contacts/external/${externalId}`)).data;
     },
+    async listChannelMembers(channelId) {
+      const data = (await http.get(`/messaging/channels/${channelId}/members`)).data;
+      return Array.isArray(data) ? data : [];
+    },
 
     // ── 연락처 부가 기능(#839) ──
     async getContactFacets() {
@@ -358,6 +362,22 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async addChannelMember(channelId, userId) {
       await http.post(`/messaging/channels/${channelId}/members`, { userId });
+    },
+    async joinChannel(channelId) {
+      await http.post(`/messaging/channels/${channelId}/join`);
+    },
+    async addReaction(messageId, emoji) {
+      await http.post(`/messaging/messages/${messageId}/reactions`, { emoji });
+    },
+    async removeReaction(messageId, emoji) {
+      // 서버가 이모지를 쿼리 파라미터로 받는다(DELETE 본문 없음) — axios 가 인코딩한다.
+      await http.delete(`/messaging/messages/${messageId}/reactions`, { params: { emoji } });
+    },
+    async updateChannelMessage(messageId, body) {
+      return (await http.patch(`/messaging/messages/${messageId}`, { body })).data;
+    },
+    async markChannelRead(channelId, uptoMessageId) {
+      await http.post(`/messaging/channels/${channelId}/read`, { uptoMessageId });
     },
     async discoverChannels(q) {
       const data = (await http.get('/messaging/channels/discover', { params: { q } })).data;

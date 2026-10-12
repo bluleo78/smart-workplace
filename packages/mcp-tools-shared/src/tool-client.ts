@@ -226,6 +226,21 @@ export interface MemberToolClient {
   /** 응답 래퍼 { items, nextCursor } 를 그대로 반환(가공은 핸들러). */
   listContacts(params: ContactListParams): Promise<unknown>;
   getExternalContact(externalId: number): Promise<unknown>;
+  /**
+   * GET /messaging/channels/{id}/members — 채널 멤버 전체(페이지 없음, 채널 멤버만 403). search_members 의 channelId 옵션이 쓴다(WP-355).
+   * 행에는 숫자 userId 와 함께 username 이 있다(서버가 싣는다) — 뷰 가공(userId 제거)은 핸들러.
+   */
+  listChannelMembers(channelId: number): Promise<ChannelMemberRow[]>;
+}
+
+/** 채널 멤버 행(ChannelMemberResponse) — 핸들러가 읽는 필드만 고정한다. */
+export interface ChannelMemberRow {
+  userId: number;
+  username: string;
+  name: string;
+  kind?: string;
+  role?: string;
+  [key: string]: unknown;
 }
 
 /** 연락처 대상(즐겨찾기·그룹 멤버) — MEMBER=user.id, EXTERNAL=contact_entry.id. 서버 FavoriteRequest/AddMemberRequest 와 1:1. */
@@ -346,6 +361,16 @@ export interface MessagingToolClient {
    * 채널 OWNER·ADMIN 또는 시스템 ADMIN 만, DM 은 거부.
    */
   addChannelMember(channelId: number, userId: number): Promise<void>;
+  /** POST /messaging/channels/{id}/join — 공개 채널만(비공개 403), 이미 멤버면 no-op(WP-355). */
+  joinChannel(channelId: number): Promise<void>;
+  /** POST /messaging/messages/{id}/reactions — 이미 눌렀으면 no-op(멱등), 채널 멤버만. emoji 1~32자(WP-355). */
+  addReaction(messageId: number, emoji: string): Promise<void>;
+  /** DELETE /messaging/messages/{id}/reactions?emoji= — 누른 적 없으면 no-op(멱등)(WP-355). */
+  removeReaction(messageId: number, emoji: string): Promise<void>;
+  /** PATCH /messaging/messages/{id} — 작성자만(403), 본문 4000자 이하. 저장된 메시지 행(MessageResponse) 원형을 돌려준다(WP-355). */
+  updateChannelMessage(messageId: number, body: string): Promise<unknown>;
+  /** POST /messaging/channels/{id}/read — 채널 멤버만. 읽음 위치를 max(기존, uptoMessageId) 로 올린다(WP-355). */
+  markChannelRead(channelId: number, uptoMessageId: number): Promise<void>;
   /** GET /messaging/channels/discover — 공개·비아카이브 채널을 이름·키워드로 검색한 배열(비배열 응답은 빈 배열). */
   discoverChannels(q: string): Promise<unknown[]>;
 }

@@ -52,7 +52,7 @@ export const TOOL_APP_GUIDES: Record<ToolApp, ToolAppGuide> = {
   wiki: { label: 'Wiki (노트)', read: 'search and read pages, backlinks', write: 'create, edit and move pages', entry: ['search_wiki', 'get_wiki_page'] },
   drive: { label: 'Drive (드라이브)', read: 'find, summarize and read files, versions and backlinks, view trash', write: 'create folders, rename, move and copy files and folders, save issue and chat attachments to drive, restore from trash', entry: ['list_drive_items', 'search_drive'] },
   mail: { label: 'Mail (메일)', read: 'read and summarize mail, draft replies and issues', write: 'mark read, sync, create issues from mail (no sending)', entry: ['list_mail_accounts', 'list_mail'] },
-  messaging: { label: 'Channels and DMs (채널·DM)', read: 'channels, messages, threads', write: 'post messages, create channels, invite, open DMs, leave', entry: ['list_channels', 'list_channel_messages'] },
+  messaging: { label: 'Channels and DMs (채널·DM)', read: 'channels, messages, threads', write: 'post and edit own messages, react, mark read, create/join/leave channels, invite, open DMs', entry: ['list_channels', 'list_channel_messages'] },
   calendar: { label: 'Calendar (캘린더)', read: 'events', write: 'create and update events and attendees, RSVP', entry: ['list_events', 'get_event'] },
   contacts: { label: 'Contacts (연락처)', read: 'contacts and user groups', write: 'favorites, user groups, external contacts', entry: ['list_contacts', 'list_user_groups'] },
   notify: { label: 'Notifications (알림)', read: 'inbox notifications', write: 'mark read', entry: ['list_notifications'] },

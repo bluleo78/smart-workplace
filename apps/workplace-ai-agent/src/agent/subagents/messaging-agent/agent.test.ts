@@ -21,6 +21,12 @@ describe('messaging-agent 정의', () => {
       'mcp__workplace__create_channel',
       'mcp__workplace__open_dm',
       'mcp__workplace__leave_channel',
+      // WP-355: 채널 참여·리액션·내 메시지 수정·읽음 처리(사용자 신원, 직접 실행)
+      'mcp__workplace__join_channel',
+      'mcp__workplace__add_reaction',
+      'mcp__workplace__remove_reaction',
+      'mcp__workplace__update_channel_message',
+      'mcp__workplace__mark_channel_read',
       'mcp__workplace__propose_add_channel_member', // #856: 채널 초대 제안
       'mcp__workplace__propose_leave_channel', // #860: 비공개 채널 나가기 제안
       'mcp__workplace__search_members', // #844: 이름 → 멘션 userId
@@ -60,5 +66,17 @@ describe('messaging-agent 정의', () => {
     expect(prompt).toContain('키가 없으면 0·false');
     expect(prompt).toContain('@이름(username)');
     expect(prompt).toContain('흉내 내지 않습니다');
+  });
+
+  // WP-355: 새 도구의 사용 규칙(내 메시지만·삭제 미지원·이모지 형식·읽음 범위·채널 멤버 보기)과 낡은 문구("다시 참여시키는 도구는 없다")가 프롬프트에 맞게 반영됐다.
+  it('채널 참여·리액션·메시지 수정·읽음 처리·채널 멤버 보기 안내가 있고 낡은 재참여 문구는 없다', () => {
+    const prompt = loaded['messaging-agent'].prompt;
+    expect(prompt).toContain('join_channel(channelId)');
+    expect(prompt).toContain('내가 쓴 메시지만');
+    expect(prompt).toContain('메시지 삭제는 지원하지 않습니다');
+    expect(prompt).toContain('유니코드 이모지 문자 하나');
+    expect(prompt).toContain('`hasUnreadThreads`');
+    expect(prompt).toContain('search_members(channelId, search?)');
+    expect(prompt).not.toContain('다시 참여시키는 도구는 없어');
   });
 });

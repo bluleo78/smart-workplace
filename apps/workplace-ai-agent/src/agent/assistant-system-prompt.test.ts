@@ -157,6 +157,14 @@ describe('ASSISTANT_SYSTEM_PROMPT — 동사 기반 라우팅(#460)', () => {
     expect(p).toContain('이동·삭제(제안)');
   });
 
+  // WP-355: 리액션·메시지 수정·읽음 처리·채널 참여는 messaging-agent 가 하고(라우터는 읽기만), 채널 멤버 목록은 라우터가 search_members 로 직접 읽는다.
+  it('WP-355: 리액션·메시지 수정·읽음 처리·채널 참여를 messaging-agent 에 위임하고, 채널 멤버는 search_members(channelId)로 직접 읽게 안내한다', () => {
+    expect(p).toContain('내 메시지 수정, 리액션, 채널 읽음 처리, 채널 생성·참여');
+    expect(p).toContain('search_members({channelId})');
+    // 쓰기 도구는 라우터 목록(읽기 전용)에 직접 있지 않다.
+    expect(ASSISTANT_ROUTER_TOOLS).not.toContain('add_reaction');
+  });
+
   it('메일 요약·이슈 분석 위임 규칙은 유지(회귀 방지)', () => {
     expect(p).toContain('mail-agent');
     expect(p).toContain('show_mail_list');

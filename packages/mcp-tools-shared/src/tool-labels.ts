@@ -50,6 +50,11 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   create_channel: { label: '채널 생성', icon: '➕' },
   leave_channel: { label: '채널 나가기', icon: '🚪' },
   add_channel_member: { label: '채널 초대', icon: '👥' },
+  join_channel: { label: '채널 참여', icon: '🚪' },
+  add_reaction: { label: '리액션 추가', icon: '👍' },
+  remove_reaction: { label: '리액션 제거', icon: '👍' },
+  update_channel_message: { label: '채널 메시지 수정', icon: '✏️' },
+  mark_channel_read: { label: '채널 읽음 처리', icon: '✅' },
   open_dm: { label: 'DM 열기', icon: '✉️' },
   // 캘린더
   list_events: { label: '일정 조회', icon: '📅' },

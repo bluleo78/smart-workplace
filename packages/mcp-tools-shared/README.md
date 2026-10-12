@@ -60,7 +60,7 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 | `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` |
 | `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_folder` `move_drive_folder` `rename_drive_file` `move_drive_file` `copy_drive_item` `import_attachment_to_drive` + 겹침: `read_attachment` (15개 — 앱당 상한에 닿았다) |
 | `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` |
-| `messaging` | `list_channels` `discover_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `add_channel_member` + 겹침: `search_members` |
+| `messaging` | `list_channels` `discover_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `join_channel` `add_reaction` `remove_reaction` `update_channel_message` `mark_channel_read` `add_channel_member` + 겹침: `search_members` (15개 — 앱당 상한에 닿았다) |
 | `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` + 겹침: `search_members` |
 | `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` + 겹침: `search_members` |
 | `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` |
@@ -114,6 +114,23 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 | 폴더 경로 | 두지 않는다 | `/folders/{id}/path` 는 폴더 하나의 breadcrumb 이다. 목록·검색 응답에 넣으면 행마다 요청이 필요하고(검색은 최대 400행), 목록은 모델이 이미 그 폴더 id 를 알고 있다. 휴지통은 서버가 `originalPath` 를 준다 |
 
 이슈 첨부와 채팅 첨부 두 갈래 중 한쪽 출처만 있어도 쓸 수 있어, `import_attachment_to_drive` 설명이 가리키는 `get_issue_detail`·`list_channel_messages` 는 `tool-apps.test.ts` 의 `CROSS_REF_ALLOWED` 에 이유와 함께 올렸다(`read_attachment` 와 같은 구조). 도구는 drive 에만 태그했다.
+
+### 메시징 보강 (WP-355)
+
+앱당 15개 상한에 닿았으므로(messaging 15개) 새 도구는 쓰기 다섯뿐이고 나머지는 기존 도구의 옵션이나 후속 홈 도구로 처리한다.
+
+| 기능 | 처리 | 근거 |
+|---|---|---|
+| 채널 참여 | `join_channel`(`POST /channels/{id}/join`). 멱등 | 공개 채널만(비공개·DM 은 403). 이미 멤버면 `ON CONFLICT DO NOTHING` 이라 그대로. 참여 시점의 최신 메시지로 읽음 위치를 잡아 이전 메시지는 안 읽음이 아니다. `discover_channels`·`leave_channel` 설명이 이 도구를 가리킨다 |
+| 리액션 | `add_reaction`·`remove_reaction`(`POST`·`DELETE /messages/{id}/reactions`). 둘 다 멱등, 제거만 destructive | 이모지는 1~32자 문자열이고 웹 선택기는 유니코드 문자를 보낸다. 제거는 읽기 출력 `reactions` 의 키와 같은 문자열이어야 한다. 이미 있는 추가·없는 제거는 서버가 이벤트 없이 무시한다. 채널 멤버만. 누가 눌렀는지는 서버도 주지 않는다 |
+| 내 메시지 수정 | `update_channel_message`(`PATCH /messages/{id}`, destructive·멱등) | 작성자만(403), 시간 제한 없음, 답글도 가능, 본문 1~4000자. 본문을 덮어쓰고 `editedAt` 이 찍힌다. 서버가 수정 때 `<@id>` 토큰을 다시 해석하므로 핸들러가 `@username` 을 토큰으로 바꿔 보낸다(`linkMentions`, 작성과 같음 — 빼먹으면 멘션이 조용히 사라진다). 수정은 SSE 만 내보내고 알림은 없다. 응답은 읽기와 같은 `toMessageView`. 메시지 id 는 읽기 출력의 `id` 다(입력 이름 `messageId` 와 어긋나지만 `list_thread_replies` 가 이미 그렇게 쓰므로 바꾸지 않았다) |
+| 채널 읽음 처리 | `mark_channel_read`(`POST /channels/{id}/read`, destructive·멱등) | 서버는 `uptoMessageId` 를 요구한다 — 핸들러가 가장 최근 최상위 메시지(`limit:1`)의 id 를 쓴다. 채널 `unreadCount` 도 최상위 메시지만 세므로 일치한다. 읽음 위치는 `GREATEST` 라 되돌아가지 않는다. 스레드 답글의 읽음(`hasUnreadThreads`)은 별도 상태(`/messages/{id}/thread/read`)라 건드리지 않는다. 메시지가 없는 채널은 서버를 부르지 않고 성공 |
+| 채널 멤버 목록 | 별도 도구 없이 `search_members` 의 `channelId` 옵션 | 서버 `/members` 에는 채널 필터가 없다. `/channels/{id}/members`(채널 멤버만, 페이지·검색 없는 전체)를 읽고 `search`(이름·username 부분일치)·`kind`(기본 HUMAN)·`page` 를 도구가 적용해 같은 `{items,total,hasMore?,nextPage?}` 로 낸다. 항목은 `{username,name,kind,role}`. 이 응답에는 username 이 없었으므로 **서버 `ChannelMemberResponse` 에 `username` 을 더했다**(숫자 userId·가입 시각은 내보내지 않는다). 활성 여부가 없어 `includeInactive` 는 적용하지 않는다 |
+| 캐치업 요약 | 두지 않는다 | `GET /channels/{id}/catchup?since=` 는 서버가 AI 요약(최대 60초)을 돌리는 호출이다. `since` 는 읽음 워터마크(`lastReadMessageId`)인데 채널 뷰가 내보내지 않는다. 모델은 `unreadCount` 만큼 `list_channel_messages` 로 읽어 직접 요약할 수 있다 |
+| 스레드 인박스·메시징 요약 | 홈 개요 도구(WP-357)로 넘긴다 | `GET /threads/inbox`(`{items:[{rootMessage,channelName,lastReplyAt}],nextCursor,hasMore}`)는 채널을 가로지르는 목록이라 읽기 출력에서 `channelId` 를 빼는 `toMessageView` 를 그대로 쓸 수 없다. `GET /me/messaging-summary` 는 홈 요약이다. 둘 다 메시징 앱 슬롯을 쓰지 않는다 |
+| 메시지 삭제 | 도구로 두지 않는다 | 되돌릴 수 없다(soft delete 이고 복원 API 없음). AI Chat 에도 확인 카드가 아직 없어 "지원하지 않는다"고 안내한다 |
+
+채널에서 멘션된 에이전트(ai-agent `messaging` 프로필, 에이전트 신원)에는 리액션·수정·읽음 처리를 싣지 않았다 — 에이전트가 자기 이름으로 리액션하거나 자기 글을 고치는 것은 제품 판단이 필요해 후속으로 남겼다. 추가하려면 프로필 목록에 `sharedTool(...)` 만 더하면 된다. 새 도구는 messaging-agent(사용자 신원)에만 있다.
 
 ### 응답 크기 — 정리 뷰
 

@@ -19,6 +19,11 @@ function mockClient(): Client {
     leaveChannel: vi.fn().mockResolvedValue(undefined),
     addChannelMember: vi.fn().mockResolvedValue(undefined),
     discoverChannels: vi.fn().mockResolvedValue([]),
+    joinChannel: vi.fn().mockResolvedValue(undefined),
+    addReaction: vi.fn().mockResolvedValue(undefined),
+    removeReaction: vi.fn().mockResolvedValue(undefined),
+    updateChannelMessage: vi.fn().mockResolvedValue({}),
+    markChannelRead: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -319,6 +324,64 @@ describe('add_channel_member (WP-349)', () => {
     await expect(tool(c, 'add_channel_member').handler({ channelId: 4, username: 'ghost' })).rejects.toThrow('찾을 수 없습니다');
     await expect(tool(c, 'add_channel_member').handler({ channelId: 4, username: 'retired' })).rejects.toThrow('비활성 계정');
     expect(c.addChannelMember).not.toHaveBeenCalled();
+  });
+});
+
+describe('메시징 보강 (WP-355)', () => {
+  it('join_channel → 채널 id 로 참여하고 discover_channels·leave_channel 설명이 이 도구를 가리킨다', async () => {
+    const c = mockClient();
+    expect(resultText(await tool(c, 'join_channel').handler({ channelId: 4 }))).toBe('ok');
+    expect(c.joinChannel).toHaveBeenCalledWith(4);
+    // 예전 문구("참여 도구가 없다 — 앱에서 사용자가 한다")가 남으면 모델이 도구가 있는데도 사용자에게 떠넘긴다.
+    expect(tool(c, 'discover_channels').description).toContain('join_channel');
+    expect(tool(c, 'discover_channels').description).not.toContain('ask the user');
+    expect(tool(c, 'leave_channel').description).toContain('join_channel');
+    expect(tool(c, 'leave_channel').description).not.toContain('no tool here rejoins');
+  });
+
+  it('add_reaction·remove_reaction → 메시지 id 와 이모지를 그대로 넘기고, 이모지는 1~32자만 받는다', async () => {
+    const c = mockClient();
+    expect(resultText(await tool(c, 'add_reaction').handler({ messageId: 40, emoji: '👍' }))).toBe('ok');
+    expect(c.addReaction).toHaveBeenCalledWith(40, '👍');
+    expect(resultText(await tool(c, 'remove_reaction').handler({ messageId: 40, emoji: '👍' }))).toBe('ok');
+    expect(c.removeReaction).toHaveBeenCalledWith(40, '👍');
+    await expect(tool(c, 'add_reaction').handler({ messageId: 40, emoji: '' })).rejects.toThrow();
+    await expect(tool(c, 'add_reaction').handler({ messageId: 40, emoji: 'x'.repeat(33) })).rejects.toThrow();
+  });
+
+  it('update_channel_message → @username 을 <@id> 로 바꿔 수정하고, 저장된 행은 읽기 뷰(숫자 사용자 ID 없음)로 돌려준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchMembers).mockResolvedValue([{ userId: 5, username: 'minsu', name: '김민수', active: true }] as MemberRow[]);
+    vi.mocked(c.updateChannelMessage).mockResolvedValue({
+      id: 40, channelId: 5, authorId: 9, authorName: '앨리스', authorKind: 'HUMAN', body: '@minsu 확인 부탁', mentions: [{ id: 5, username: 'minsu', name: '김민수' }],
+      parentMessageId: null, replyCount: 0, reactions: [], attachments: [], driveLinks: [], createdAt: 't', editedAt: '2026-10-13T00:00:00Z', deleted: false,
+      unreadReplyCount: 0, followed: false, proposal: null,
+    });
+    const out = JSON.parse(resultText(await tool(c, 'update_channel_message').handler({ messageId: 40, body: '@minsu 확인 부탁' })));
+    expect(c.updateChannelMessage).toHaveBeenCalledWith(40, '<@5> 확인 부탁');
+    expect(out).toMatchObject({ id: 40, authorName: '앨리스', editedAt: '2026-10-13T00:00:00Z' });
+    expect(out).not.toHaveProperty('authorId');
+    expect(out.mentions).toEqual([{ username: 'minsu', name: '김민수' }]);
+    await expect(tool(c, 'update_channel_message').handler({ messageId: 40, body: 'x'.repeat(4001) })).rejects.toThrow();
+  });
+
+  it('update_channel_message → 답글 행을 고쳐도 답글 뷰(replyCount 등 생략)로 돌려준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.updateChannelMessage).mockResolvedValue({ id: 41, channelId: 5, authorId: 9, authorName: '앨리스', body: 'ok', parentMessageId: 40, replyCount: 0, followed: false });
+    const out = JSON.parse(resultText(await tool(c, 'update_channel_message').handler({ messageId: 41, body: 'ok' })));
+    expect(out).toEqual({ id: 41, authorName: '앨리스', body: 'ok' });
+  });
+
+  it('mark_channel_read → 가장 최근 최상위 메시지 id 까지 읽음 처리하고, 메시지가 없으면 서버를 부르지 않는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listChannelMessages).mockResolvedValue({ items: [{ id: 99 }], nextCursor: null, hasMore: true });
+    expect(resultText(await tool(c, 'mark_channel_read').handler({ channelId: 4 }))).toBe('ok');
+    expect(c.listChannelMessages).toHaveBeenCalledWith(4, { limit: 1 });
+    expect(c.markChannelRead).toHaveBeenCalledWith(4, 99);
+
+    const empty = mockClient();
+    expect(resultText(await tool(empty, 'mark_channel_read').handler({ channelId: 4 }))).toBe('ok');
+    expect(empty.markChannelRead).not.toHaveBeenCalled();
   });
 });
 

@@ -110,6 +110,13 @@ function sharedMock(): MockedShared {
     openDm: vi.fn().mockResolvedValue({ id: 1, participants: [] }),
     leaveChannel: vi.fn().mockResolvedValue(undefined),
     addChannelMember: vi.fn().mockResolvedValue(undefined),
+    // WP-355
+    listChannelMembers: vi.fn().mockResolvedValue([]),
+    joinChannel: vi.fn().mockResolvedValue(undefined),
+    addReaction: vi.fn().mockResolvedValue(undefined),
+    removeReaction: vi.fn().mockResolvedValue(undefined),
+    updateChannelMessage: vi.fn().mockResolvedValue({}),
+    markChannelRead: vi.fn().mockResolvedValue(undefined),
     discoverChannels: vi.fn().mockResolvedValue([]),
     // 드라이브
     listDriveSpaces: vi.fn().mockResolvedValue([]),
@@ -251,6 +258,20 @@ describe('프로필 구성', () => {
     const names = buildTools(client(), AGENT_ID, 'messaging', undefined, { actorId: 7, channelId: 9 }).map((t) => t.name);
     expect(names).toEqual(expect.arrayContaining(['propose_create_issue', 'propose_create_event', 'search_members']));
     expect(names).toHaveLength(8);
+  });
+
+  // WP-355: 리액션·메시지 수정·읽음 처리·채널 참여는 사용자 신원(assistant)에만 싣는다 — 채널에서 멘션된 에이전트 신원(messaging)에는 주지 않는다(정책 보류).
+  it('WP-355: 채널 참여·리액션·메시지 수정·읽음 처리는 assistant 에만 있고 messaging 프로필·라우터 목록에는 없다', () => {
+    const added = ['join_channel', 'add_reaction', 'remove_reaction', 'update_channel_message', 'mark_channel_read'];
+    const assistant = buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name);
+    for (const n of added) {
+      expect(assistant, n).toContain(n);
+      expect(ASSISTANT_ROUTER_TOOLS, n).not.toContain(n); // 쓰기는 담당 subagent(messaging-agent)에만
+    }
+    for (const ctx of [undefined, { actorId: 7, channelId: 9 }] as const) {
+      const names = buildTools(client(), AGENT_ID, 'messaging', undefined, ctx).map((t) => t.name);
+      for (const n of added) expect(names, n).not.toContain(n);
+    }
   });
 
   it('assistant 프로필: 전 앱 도구 union 을 노출한다', () => {

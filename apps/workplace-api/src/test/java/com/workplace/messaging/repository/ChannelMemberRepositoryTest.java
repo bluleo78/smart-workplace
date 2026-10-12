@@ -70,7 +70,7 @@ class ChannelMemberRepositoryTest extends IntegrationTestBase {
   }
 
   @Test
-  void listMembers_includesNameKindRole() {
+  void listMembers_includesUsernameNameKindRole() {
     long owner = seedUser();
     long ch = channelRepo.insert("일반", "PUBLIC", owner);
     memberRepo.add(ch, owner, "OWNER");
@@ -82,5 +82,7 @@ class ChannelMemberRepositoryTest extends IntegrationTestBase {
     assertThat(only.role()).isEqualTo("OWNER");
     assertThat(only.kind()).isEqualTo("HUMAN");
     assertThat(only.name()).isNotBlank();
+    // WP-355: 외부 MCP 가 숫자 userId 없이 사람을 가리키도록 로그인 아이디를 싣는다.
+    assertThat(only.username()).isNotBlank();
   }
 }

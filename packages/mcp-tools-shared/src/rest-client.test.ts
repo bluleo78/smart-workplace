@@ -360,6 +360,27 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenLastCalledWith('/messaging/channels/9/members', { userId: 5 });
   });
 
+  it('WP-355: 메시징 보강 경로 — 참여·리액션·수정·읽음·채널 멤버', async () => {
+    const { http, client } = mockHttp();
+    await client.joinChannel(9);
+    expect(http.post).toHaveBeenLastCalledWith('/messaging/channels/9/join');
+    await client.addReaction(40, '👍');
+    expect(http.post).toHaveBeenLastCalledWith('/messaging/messages/40/reactions', { emoji: '👍' });
+    // 제거는 DELETE 쿼리 파라미터로 이모지를 보낸다(서버 @RequestParam).
+    await client.removeReaction(40, '👍');
+    expect(http.delete).toHaveBeenLastCalledWith('/messaging/messages/40/reactions', { params: { emoji: '👍' } });
+    http.patch.mockResolvedValueOnce({ data: { id: 40, body: '수정' } });
+    expect(await client.updateChannelMessage(40, '수정')).toEqual({ id: 40, body: '수정' });
+    expect(http.patch).toHaveBeenLastCalledWith('/messaging/messages/40', { body: '수정' });
+    await client.markChannelRead(9, 99);
+    expect(http.post).toHaveBeenLastCalledWith('/messaging/channels/9/read', { uptoMessageId: 99 });
+    http.get.mockResolvedValueOnce({ data: [{ userId: 1, username: 'a', name: 'A' }] });
+    expect(await client.listChannelMembers(9)).toEqual([{ userId: 1, username: 'a', name: 'A' }]);
+    expect(http.get).toHaveBeenLastCalledWith('/messaging/channels/9/members');
+    // 비배열 응답(null)은 빈 목록으로 다룬다.
+    expect(await client.listChannelMembers(9)).toEqual([]);
+  });
+
   it('getMailLinkedIssue 는 서버의 { issueKey: null } 을 null 로 바꾼다', async () => {
     const { http, client } = mockHttp();
     http.get.mockResolvedValueOnce({ data: { issueKey: null } });

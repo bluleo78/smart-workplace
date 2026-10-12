@@ -2,6 +2,8 @@
 // 채널 초대(add_channel_member, WP-349)는 외부 MCP 에 직접 실행 도구로 노출하고, AI Chat 은 같은 작업을 propose_add_channel_member
 // 확인 카드로 한다(경로마다 도구 하나 — ai-agent 프로필에는 싣지 않는다). 두 경로가 입력 스키마(addChannelMemberInput)와 대상 해석
 // (requireActiveMember)을 같이 쓴다. 비공개 채널 나가기는 계속 확인 카드(propose_leave_channel)만 한다.
+// WP-355: 채널 참여(join_channel)·리액션(add_reaction·remove_reaction)·내 메시지 수정(update_channel_message)·채널 읽음 처리(mark_channel_read)를 더했다.
+// 메시지 삭제는 되돌릴 수 없어 AI Chat 확인 카드만 하고 도구로 두지 않는다. 채널 멤버 목록은 search_members 의 channelId 옵션(member-tools.ts)이다.
 import { z } from 'zod';
 import { cursorPageView, dropEmpty, omitKeys, truncatedView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
@@ -255,6 +257,23 @@ export const createChannelInput = z.object({
 // 본인은 서버가 자동 포함한다. 본인 포함 최대 8명(서버 MAX_MEMBERS).
 export const openDmInput = z.object({ usernames: z.array(z.string().min(1)).min(1).max(7) });
 export const leaveChannelInput = z.object({ channelId: z.number().int().positive() });
+/** 채널 참여·읽음 처리 입력(WP-355) — 둘 다 channelId 하나다. */
+export const joinChannelInput = z.object({ channelId: z.number().int().positive() });
+export const markChannelReadInput = joinChannelInput;
+/**
+ * 리액션 추가·제거 입력(WP-355). 서버는 이모지를 1~32자 문자열로만 검사하고(ReactionRequest) 웹 선택기는 유니코드 문자를 보낸다.
+ * 제거는 추가한 것과 같은 문자열이어야 한다 — 읽기 출력 reactions 의 키 그대로다. messageId 는 메시지 행의 id 다(출력 이름은 id).
+ */
+const messageIdField = z.number().int().positive().describe('id of a list_channel_messages or list_thread_replies item');
+export const reactionInput = z.object({
+  messageId: messageIdField,
+  emoji: z.string().min(1).max(32).describe('Unicode emoji such as 👍, as in reactions'),
+});
+/** 내 메시지 수정 입력(WP-355) — 서버 UpdateMessageRequest 와 같은 1~4000자. */
+export const updateChannelMessageInput = z.object({
+  messageId: messageIdField,
+  body: z.string().min(1).max(4000),
+});
 /** 채널 초대 입력(WP-349) — add_channel_member 와 확인 카드 propose_add_channel_member(이 스키마 + summary)가 같이 쓴다. */
 export const addChannelMemberInput = z.object({
   channelId: z.number().int().positive(),
@@ -271,7 +290,7 @@ export interface MessagingToolOptions {
   parentMessageIdFor?(channelId: number): number | undefined;
 }
 
-/** 메시징 도구(list_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/add_channel_member). */
+/** 메시징 도구(list_channels/discover_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/join_channel/add_reaction/remove_reaction/update_channel_message/mark_channel_read/add_channel_member). */
 export function buildMessagingTools(
   client: MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>,
   opts: MessagingToolOptions = {},
@@ -298,8 +317,8 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        'Searches public channels by name substring, joined or not (member tells which). Messages can only be read or posted in joined channels and ' +
-        'no tool here joins one: ask the user to join in the app.',
+        'Searches public channels by name substring, joined or not (member tells which). Messages can only be read or posted in joined channels: ' +
+        'use join_channel.',
       inputSchema: discoverChannelsInput,
       async handler(args) {
         const { q } = discoverChannelsInput.parse(args);
@@ -394,8 +413,8 @@ export function buildMessagingTools(
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Leaves a public channel; I lose read and post access and no tool here rejoins (the user can, in the app). Private channels are refused since ' +
-        'leaving is irreversible: offer propose_leave_channel if available, else ask the user. An OWNER must hand over ownership first.',
+        'Leaves a public channel (join_channel rejoins). Private channels are refused as irreversible: ' +
+        'offer propose_leave_channel if available, else ask the user. An OWNER must hand over ownership first.',
       inputSchema: leaveChannelInput,
       async handler(args) {
         const { channelId } = leaveChannelInput.parse(args);
@@ -408,6 +427,86 @@ export function buildMessagingTools(
           );
         }
         await client.leaveChannel(channelId);
+        return 'ok';
+      },
+    },
+    {
+      name: 'join_channel',
+      app: 'messaging',
+      kind: 'write',
+      // 이미 멤버면 아무것도 바꾸지 않고 성공한다(ChannelMemberRepository.add 의 ON CONFLICT DO NOTHING) — 멱등. 알림은 없고 목록 갱신 신호뿐이다.
+      hints: { destructive: false, idempotent: true },
+      description:
+        'Joins a public channel (채널) as MEMBER (channelId from discover_channels); DMs and non-public channels are refused. Earlier messages do not ' +
+        'count as unread.',
+      inputSchema: joinChannelInput,
+      async handler(args) {
+        await client.joinChannel(joinChannelInput.parse(args).channelId);
+        return 'ok';
+      },
+    },
+    {
+      name: 'add_reaction',
+      app: 'messaging',
+      kind: 'write',
+      // 서버가 이미 있는 리액션은 이벤트 없이 무시한다(ReactionService.add) — 멱등. 누른 사람에게 알림은 가지 않는다.
+      hints: { destructive: false, idempotent: true },
+      description: 'Adds my emoji reaction to a message in a channel or DM I belong to; repeating is a no-op.',
+      inputSchema: reactionInput,
+      async handler(args) {
+        const { messageId, emoji } = reactionInput.parse(args);
+        await client.addReaction(messageId, emoji);
+        return 'ok';
+      },
+    },
+    {
+      name: 'remove_reaction',
+      app: 'messaging',
+      kind: 'write',
+      // 제거는 destructive(README 노출 기준) — 없던 리액션을 지워도 오류 없이 같은 결과(ReactionService.remove)라 멱등이다.
+      hints: { destructive: true, idempotent: true },
+      description: 'Removes my own emoji reaction from a message; no-op if absent.',
+      inputSchema: reactionInput,
+      async handler(args) {
+        const { messageId, emoji } = reactionInput.parse(args);
+        await client.removeReaction(messageId, emoji);
+        return 'ok';
+      },
+    },
+    {
+      name: 'update_channel_message',
+      app: 'messaging',
+      kind: 'write',
+      // 본문을 덮어쓴다(이전 본문은 남지 않는다)라 destructive. 같은 본문으로 다시 불러도 저장 내용은 같고 알림이 없다(MessageUpdatedEvent 는 SSE 만) — 멱등.
+      hints: { destructive: true, idempotent: true },
+      description:
+        'Replaces the body of my own message (author only, any age, replies too) with new Markdown; it shows as edited and the old text is lost. ' +
+        'Mention with @username as in add_channel_message; edits send no notification. Returns the saved message.',
+      inputSchema: updateChannelMessageInput,
+      async handler(args) {
+        const { messageId, body } = updateChannelMessageInput.parse(args);
+        // 서버가 수정 때 본문의 <@id> 토큰을 다시 해석하므로 작성과 같이 @username 을 토큰으로 바꿔 보낸다 — 안 바꾸면 멘션이 조용히 사라진다.
+        const saved = await client.updateChannelMessage(messageId, await linkMentions(client, body));
+        // 응답은 서버 MessageResponse 원형(authorId 포함) — 읽기 도구와 같은 뷰로 가공해 숫자 사용자 ID 를 내보내지 않는다.
+        return JSON.stringify(toMessageView(saved as Raw, (saved as Raw).parentMessageId != null));
+      },
+    },
+    {
+      name: 'mark_channel_read',
+      app: 'messaging',
+      kind: 'write',
+      // 읽음 위치는 GREATEST 로만 올라가 되돌아가지 않는다(ChannelMemberRepository.markRead) — 같은 인자로 다시 불러도 같은 결과(멱등). 안 읽음 표시를 지우므로 destructive.
+      hints: { destructive: true, idempotent: true },
+      description:
+        'Marks a channel or DM I belong to as read up to its newest top-level message (clears unreadCount); thread replies are tracked separately.',
+      inputSchema: markChannelReadInput,
+      async handler(args) {
+        const { channelId } = markChannelReadInput.parse(args);
+        // 서버는 "어디까지 읽었나"(uptoMessageId)를 요구한다 — 가장 최근 최상위 메시지의 id 로 채운다(채널 안 읽음 수가 세는 것도 최상위 메시지뿐이다).
+        const page = await client.listChannelMessages(channelId, { limit: 1 });
+        const newest = (page.items[0] as Raw | undefined)?.id;
+        // 메시지가 없는 채널은 읽을 것이 없다 — 서버 호출 없이 성공으로 돌려준다.
+        if (typeof newest === 'number') await client.markChannelRead(channelId, newest);
         return 'ok';
       },
     },

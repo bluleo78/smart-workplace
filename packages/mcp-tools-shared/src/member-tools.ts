@@ -110,6 +110,8 @@ export const searchMembersInput = z.object({
   includeInactive: z.boolean().optional(),
   page: z.number().int().min(0).default(0),
   size: z.number().int().min(1).max(100).default(20),
+  // WP-355: 주면 그 채널의 멤버만 본다(서버 /members 에는 채널 필터가 없어 /channels/{id}/members 를 읽는다).
+  channelId: z.number().int().positive().optional(),
 });
 export const memberInput = z.object({ username: z.string().min(1) });
 export const listContactsInput = z.object({
@@ -124,6 +126,23 @@ export const listContactsInput = z.object({
 });
 export const externalContactInput = z.object({ externalId: z.number().int().positive() });
 
+/**
+ * 채널 멤버 목록 → search_members 와 같은 출력 모양 { items, total, hasMore?, nextPage? }(WP-355). 서버 /channels/{id}/members 는 페이지·검색이 없는
+ * 전체 목록이라 search(이름·username 부분일치)·kind(기본 HUMAN, 구성원 검색과 같다)·page 를 여기서 적용한다. 숫자 userId·가입 시각은 내보내지 않고
+ * username·name·kind·role 만 싣는다. 이 목록에는 활성 여부가 없어 includeInactive 는 적용하지 않는다.
+ */
+async function channelMembersView(client: MemberToolClient, input: z.infer<typeof searchMembersInput> & { channelId: number }) {
+  const term = input.search?.trim().toLowerCase();
+  const rows = (await client.listChannelMembers(input.channelId)).filter(
+    (m) =>
+      (input.kind === 'ALL' || m.kind === input.kind) &&
+      (!term || m.name.toLowerCase().includes(term) || m.username.toLowerCase().includes(term)),
+  );
+  const start = input.page * input.size;
+  const items = rows.slice(start, start + input.size).map((m) => ({ username: m.username, name: m.name, kind: m.kind, role: m.role }));
+  return numberedPageView(items, { total: rows.length, hasMore: start + input.size < rows.length, page: input.page });
+}
+
 /** 구성원 3종 + 연락처 2종 읽기 도구. */
 export function buildMemberTools(client: MemberToolClient): SharedTool[] {
   return [
@@ -135,11 +154,14 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       kind: 'read',
       description:
         'Searches workspace members (구성원) by name, username or email. Pass username to tools that take a person (no numeric ids). kind HUMAN ' +
-        '(default), AGENT (AI) or ALL; active only unless includeInactive. Returns {items, total, hasMore?, nextPage?}; if hasMore, pass nextPage as ' +
-        'page, narrow search, or say the list is partial.',
+        '(default), AGENT (AI) or ALL; active only unless includeInactive. With channelId (a channel I belong to), lists its members instead, with ' +
+        'role; search matches name or username, includeInactive is ignored. Returns {items, total, hasMore?, ' +
+        'nextPage?}; if hasMore, pass nextPage as page, narrow search, or say the list is partial.',
       inputSchema: searchMembersInput,
       async handler(args) {
-        const result = await client.searchMembersPage(searchMembersInput.parse(args));
+        const { channelId, ...query } = searchMembersInput.parse(args);
+        if (channelId !== undefined) return JSON.stringify(await channelMembersView(client, { ...query, channelId }));
+        const result = await client.searchMembersPage(query);
         return JSON.stringify(numberedPageView(result.items.map(toMemberView), result));
       },
     },
