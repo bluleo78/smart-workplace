@@ -160,6 +160,20 @@ public class ContentAttachmentRecord extends UpdatableRecordImpl<ContentAttachme
         return (OffsetDateTime) get(9);
     }
 
+    /**
+     * Setter for <code>public.content_attachment.extract_file_id</code>.
+     */
+    public void setExtractFileId(Long value) {
+        set(10, value);
+    }
+
+    /**
+     * Getter for <code>public.content_attachment.extract_file_id</code>.
+     */
+    public Long getExtractFileId() {
+        return (Long) get(10);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -183,7 +197,7 @@ public class ContentAttachmentRecord extends UpdatableRecordImpl<ContentAttachme
     /**
      * Create a detached, initialised ContentAttachmentRecord
      */
-    public ContentAttachmentRecord(Long id, Long tenantId, Long contentId, Integer ordinal, String filename, String contentType, Long sizeBytes, String mimeContentId, String contentHash, OffsetDateTime createdAt) {
+    public ContentAttachmentRecord(Long id, Long tenantId, Long contentId, Integer ordinal, String filename, String contentType, Long sizeBytes, String mimeContentId, String contentHash, OffsetDateTime createdAt, Long extractFileId) {
         super(ContentAttachment.CONTENT_ATTACHMENT);
 
         setId(id);
@@ -196,6 +210,7 @@ public class ContentAttachmentRecord extends UpdatableRecordImpl<ContentAttachme
         setMimeContentId(mimeContentId);
         setContentHash(contentHash);
         setCreatedAt(createdAt);
+        setExtractFileId(extractFileId);
         resetChangedOnNotNull();
     }
 }

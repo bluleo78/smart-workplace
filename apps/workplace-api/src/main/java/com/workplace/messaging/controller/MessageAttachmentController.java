@@ -1,5 +1,6 @@
 package com.workplace.messaging.controller;
 
+import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.messaging.repository.MessageAttachmentRepository;
 import com.workplace.messaging.service.MessageAttachmentService;
 import java.io.IOException;
@@ -39,6 +40,22 @@ public class MessageAttachmentController {
       @RequestParam("files") List<MultipartFile> files)
       throws IOException {
     return ResponseEntity.ok(service.upload(callerId, channelId, files));
+  }
+
+  /**
+   * 첨부 추출 텍스트 구간 읽기(WP-358) — 이슈 첨부 /text 와 같은 응답({@link ExtractedTextSlice}). limit 상한 32,000자(초과는
+   * 클램프). 권한은 /content 와 같다(채널 멤버만).
+   */
+  @GetMapping("/channels/{id}/messages/{msgId}/attachments/{fileId}/text")
+  public ResponseEntity<ExtractedTextSlice> readText(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long channelId,
+      @PathVariable("msgId") long messageId,
+      @PathVariable long fileId,
+      @RequestParam(defaultValue = "0") int offset,
+      @RequestParam(defaultValue = "32000") int limit) {
+    return ResponseEntity.ok(
+        service.readText(callerId, channelId, messageId, fileId, offset, limit));
   }
 
   /** 다운로드(스트리밍). 채널 멤버만 허용. */

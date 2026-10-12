@@ -8,6 +8,7 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.ChatMessageAttachment.ChatMessageAttachmentPath;
+import com.workplace.jooq.tables.ContentAttachment.ContentAttachmentPath;
 import com.workplace.jooq.tables.DriveFile.DriveFilePath;
 import com.workplace.jooq.tables.DriveFileVersion.DriveFileVersionPath;
 import com.workplace.jooq.tables.FileExtraction.FileExtractionPath;
@@ -252,6 +253,19 @@ public class File extends TableImpl<FileRecord> {
             _chatMessageAttachment = new ChatMessageAttachmentPath(this, null, Keys.CHAT_MESSAGE_ATTACHMENT__CHAT_MESSAGE_ATTACHMENT_FILE_ID_FKEY.getInverseKey());
 
         return _chatMessageAttachment;
+    }
+
+    private transient ContentAttachmentPath _contentAttachment;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.content_attachment</code> table
+     */
+    public ContentAttachmentPath contentAttachment() {
+        if (_contentAttachment == null)
+            _contentAttachment = new ContentAttachmentPath(this, null, Keys.CONTENT_ATTACHMENT__CONTENT_ATTACHMENT_EXTRACT_FILE_ID_FKEY.getInverseKey());
+
+        return _contentAttachment;
     }
 
     private transient DriveFilePath _driveFile;

@@ -9,6 +9,7 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.EmailAttachment.EmailAttachmentPath;
 import com.workplace.jooq.tables.EmailContent.EmailContentPath;
+import com.workplace.jooq.tables.File.FilePath;
 import com.workplace.jooq.tables.records.ContentAttachmentRecord;
 
 import java.time.OffsetDateTime;
@@ -111,6 +112,11 @@ public class ContentAttachment extends TableImpl<ContentAttachmentRecord> {
      */
     public final TableField<ContentAttachmentRecord, OffsetDateTime> CREATED_AT = createField(DSL.name("created_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column <code>public.content_attachment.extract_file_id</code>.
+     */
+    public final TableField<ContentAttachmentRecord, Long> EXTRACT_FILE_ID = createField(DSL.name("extract_file_id"), SQLDataType.BIGINT, this, "");
+
     private ContentAttachment(Name alias, Table<ContentAttachmentRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -180,7 +186,7 @@ public class ContentAttachment extends TableImpl<ContentAttachmentRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_CONTENT_ATTACHMENT_CONTENT, Indexes.IDX_CONTENT_ATTACHMENT_HASH);
+        return Arrays.asList(Indexes.IDX_CONTENT_ATTACHMENT_CONTENT, Indexes.IDX_CONTENT_ATTACHMENT_EXTRACT_FILE, Indexes.IDX_CONTENT_ATTACHMENT_HASH);
     }
 
     @Override
@@ -200,7 +206,7 @@ public class ContentAttachment extends TableImpl<ContentAttachmentRecord> {
 
     @Override
     public List<ForeignKey<ContentAttachmentRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.CONTENT_ATTACHMENT__CONTENT_ATTACHMENT_CONTENT_ID_FKEY);
+        return Arrays.asList(Keys.CONTENT_ATTACHMENT__CONTENT_ATTACHMENT_CONTENT_ID_FKEY, Keys.CONTENT_ATTACHMENT__CONTENT_ATTACHMENT_EXTRACT_FILE_ID_FKEY);
     }
 
     private transient EmailContentPath _emailContent;
@@ -214,6 +220,18 @@ public class ContentAttachment extends TableImpl<ContentAttachmentRecord> {
             _emailContent = new EmailContentPath(this, Keys.CONTENT_ATTACHMENT__CONTENT_ATTACHMENT_CONTENT_ID_FKEY, null);
 
         return _emailContent;
+    }
+
+    private transient FilePath _file;
+
+    /**
+     * Get the implicit join path to the <code>public.file</code> table.
+     */
+    public FilePath file() {
+        if (_file == null)
+            _file = new FilePath(this, Keys.CONTENT_ATTACHMENT__CONTENT_ATTACHMENT_EXTRACT_FILE_ID_FKEY, null);
+
+        return _file;
     }
 
     private transient EmailAttachmentPath _emailAttachment;

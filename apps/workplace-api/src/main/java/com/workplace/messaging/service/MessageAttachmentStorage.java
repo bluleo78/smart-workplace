@@ -2,6 +2,7 @@ package com.workplace.messaging.service;
 
 import static com.workplace.jooq.tables.File.FILE;
 
+import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
@@ -64,11 +65,8 @@ public class MessageAttachmentStorage {
     // STORED_NAME 에는 경로 마지막 세그먼트(UUID 파일명)만 저장해 "저장된 파일명" 의미를 유지
     String storedName = relativePath.substring(relativePath.lastIndexOf('/') + 1);
 
-    // MIME 타입 결정 — 없으면 기본값
-    String mime =
-        mf.getContentType() != null && !mf.getContentType().isBlank()
-            ? mf.getContentType()
-            : "application/octet-stream";
+    // MIME 타입 결정 — 브라우저 값이 비었거나 octet-stream 이면 확장자로 보정(WP-358, 이슈·챗 첨부와 같은 규칙)
+    String mime = normalizedMime(mf);
 
     OffsetDateTime now = OffsetDateTime.now();
     // file 행 INSERT — CATEGORY=ATTACHMENT, EXPIRES_AT 설정으로 임시 파일 표시
@@ -85,5 +83,14 @@ public class MessageAttachmentStorage {
         .returning(FILE.ID)
         .fetchOne()
         .getId();
+  }
+
+  /**
+   * 저장·응답에 쓰는 정규화 mime(WP-358). 추출 가능 판정({@link com.workplace.fileai.ExtractableTypes})이 mime 기준이라
+   * .hwp·대문자 .PDF 처럼 브라우저가 octet-stream 으로 보내는 파일을 확장자로 보정한다. 업로드 응답과 file 행이 같은 값을 쓰도록 한 곳에 둔다.
+   */
+  public static String normalizedMime(MultipartFile mf) {
+    String originalName = mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file";
+    return MimeNormalizer.normalize(originalName, mf.getContentType());
   }
 }

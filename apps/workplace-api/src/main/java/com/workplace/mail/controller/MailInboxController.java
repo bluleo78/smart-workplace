@@ -1,5 +1,6 @@
 package com.workplace.mail.controller;
 
+import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.mail.dto.AttachmentCacheUsage;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
@@ -10,6 +11,7 @@ import com.workplace.mail.dto.MarkAllReadRequest;
 import com.workplace.mail.service.MailAttachmentMeteringService;
 import com.workplace.mail.service.MailAttachmentService;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
+import com.workplace.mail.service.MailAttachmentTextService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailSyncService;
 import java.nio.charset.StandardCharsets;
@@ -41,6 +43,7 @@ public class MailInboxController {
   private final MailMessageService messageService;
   private final MailAttachmentService attachmentService;
   private final MailAttachmentMeteringService meteringService;
+  private final MailAttachmentTextService attachmentTextService;
 
   /** 계정의 INBOX 를 증분 동기화(수동 트리거). */
   @PostMapping("/accounts/{accountId}/sync")
@@ -175,5 +178,19 @@ public class MailInboxController {
     headers.setContentLength(result.content().length);
 
     return ResponseEntity.ok().headers(headers).body(result.content());
+  }
+
+  /**
+   * 첨부 추출 텍스트 구간 읽기(WP-358) — 이슈 첨부 /text 와 같은 응답({@link ExtractedTextSlice}, 단 fileId 는 이
+   * attachmentId). 첫 요청에 바이트를 가져와 추출을 요청하므로 PENDING 이 오고, 추출이 끝나면 READY. limit 상한 32,000자(초과는 클램프).
+   * 권한은 /content 와 같다(본인 소유 아니면 404).
+   */
+  @GetMapping("/attachments/{attachmentId}/text")
+  public ExtractedTextSlice readAttachmentText(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long attachmentId,
+      @RequestParam(defaultValue = "0") int offset,
+      @RequestParam(defaultValue = "32000") int limit) {
+    return attachmentTextService.readText(callerId, attachmentId, offset, limit);
   }
 }

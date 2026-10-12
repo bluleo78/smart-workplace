@@ -23,8 +23,9 @@ public class MessageAttachmentRepository {
     this.dsl = dsl;
   }
 
-  /** 바인딩 검증용 파일 상태(소유자/만료/이미 바인딩 여부). */
-  public record Bindable(Long fileId, Long uploadedBy, OffsetDateTime expiresAt, boolean bound) {}
+  /** 바인딩 검증용 파일 상태(소유자/만료/이미 바인딩 여부) + 추출 요청용 저장 mime(WP-358). */
+  public record Bindable(
+      Long fileId, Long uploadedBy, OffsetDateTime expiresAt, boolean bound, String mimeType) {}
 
   /**
    * 파일 존재 시 바인딩 후보 정보를 반환. 없으면 empty.
@@ -33,7 +34,12 @@ public class MessageAttachmentRepository {
    */
   public Optional<Bindable> findBindable(Long fileId) {
     var r =
-        dsl.select(FILE.ID, FILE.UPLOADED_BY, FILE.EXPIRES_AT, MESSAGE_ATTACHMENT.MESSAGE_ID)
+        dsl.select(
+                FILE.ID,
+                FILE.UPLOADED_BY,
+                FILE.EXPIRES_AT,
+                MESSAGE_ATTACHMENT.MESSAGE_ID,
+                FILE.MIME_TYPE)
             .from(FILE)
             .leftJoin(MESSAGE_ATTACHMENT)
             .on(MESSAGE_ATTACHMENT.FILE_ID.eq(FILE.ID))
@@ -45,7 +51,8 @@ public class MessageAttachmentRepository {
             r.get(FILE.ID),
             r.get(FILE.UPLOADED_BY),
             r.get(FILE.EXPIRES_AT),
-            r.get(MESSAGE_ATTACHMENT.MESSAGE_ID) != null));
+            r.get(MESSAGE_ATTACHMENT.MESSAGE_ID) != null,
+            r.get(FILE.MIME_TYPE)));
   }
 
   /**
