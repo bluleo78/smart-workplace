@@ -131,11 +131,19 @@ class DriveFileControllerTest {
         .andExpect(status().isConflict());
   }
 
-  /** 빈 이름·경로 구분자 포함 이름 → 400, 서비스 미호출. */
+  /** 빈 이름·경로 구분자·"."/".."·제어 문자(NUL·개행) → 400, 서비스 미호출. */
   @Test
   void rename_invalidName_returns400() throws Exception {
     for (String body :
-        new String[] {"{\"name\":\"  \"}", "{\"name\":\"a/b.txt\"}", "{\"name\":\"a\\\\b.txt\"}"}) {
+        new String[] {
+          "{\"name\":\"  \"}",
+          "{\"name\":\"a/b.txt\"}",
+          "{\"name\":\"a\\\\b.txt\"}",
+          "{\"name\":\"..\"}",
+          "{\"name\":\" . \"}",
+          "{\"name\":\"a\\u0000b.txt\"}",
+          "{\"name\":\"a\\nb.txt\"}"
+        }) {
       mockMvc
           .perform(
               patch("/api/v1/drive/files/7")

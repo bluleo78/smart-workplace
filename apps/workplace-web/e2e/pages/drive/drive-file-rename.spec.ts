@@ -90,6 +90,22 @@ test('같은 이름이 있으면(409) 다이얼로그를 유지한 채 인라인
   await expect(page.getByTestId('drive-row-file-70')).toContainText('notes-2.txt')
 })
 
+test('중복이 아닌 다른 실패는 서버 문구를 그대로 인라인으로 보여 준다', async ({ authenticatedPage: page }) => {
+  const state = { files: [createFile({ id: 70, name: 'memo.txt' })] }
+  await stubDrive(page, state)
+  await page.route((u) => u.pathname === '/api/v1/drive/files/70', (r) =>
+    r.request().method() === 'PATCH'
+      ? r.fulfill(json({ status: 400, error: 'Bad Request', message: '파일 이름에 / \\ 나 제어 문자는 쓸 수 없고, . 이나 .. 만으로 지을 수 없습니다.' }, 400))
+      : r.fallback())
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+
+  await openRename(page, 'memo.txt')
+  await page.getByTestId('file-rename-input').fill('..')
+  await page.getByTestId('file-rename-confirm').click()
+  await expect(page.getByTestId('file-rename-error')).toContainText('제어 문자는 쓸 수 없고')
+  await expect(page.getByRole('dialog')).toBeVisible()
+})
+
 test('빈 이름은 요청 없이 인라인 에러, 이름 그대로면 요청 없이 닫힌다', async ({ authenticatedPage: page }) => {
   const state = { files: [createFile({ id: 70, name: 'memo.txt' })] }
   await stubDrive(page, state)
@@ -157,4 +173,23 @@ test('폴더 이름 칸도 한글 조합을 끝내는 Enter 로는 저장하지 
   await pressEnterAfterComposition(input, '록')
   await patches.waitFor()
   expect(patches.lastBody<{ name: string }>()).toEqual({ name: '회의록' })
+})
+
+test('⋯ 메뉴는 연 동안 트리거가 보이고 그 옆에 뜬다(왼쪽 위로 튀지 않음)', async ({ authenticatedPage: page }) => {
+  await stubDrive(page, { files: [createFile({ id: 70, name: 'memo.txt' })] })
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  const row = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
+  await row.hover()
+  await row.getByRole('button', { name: /더보기/ }).click()
+  await expect(page.getByRole('menu')).toBeVisible()
+  // 메뉴가 열리면 hover 가 풀리지만 트리거는 남아 메뉴의 기준점이 된다.
+  // (열린 동안 바깥이 aria-hidden 이라 role 대신 속성으로 찾는다.)
+  const trigger = page.getByTestId('drive-row-file-70').locator('[aria-haspopup="menu"]')
+  await expect(trigger).toBeVisible()
+  const t = (await trigger.boundingBox())!
+  await expect.poll(async () => {
+    const m = (await page.getByRole('menu').boundingBox())!
+    // align="end" — 메뉴 오른쪽 끝이 트리거 오른쪽 끝에 맞고, 트리거 바로 아래에 뜬다.
+    return Math.abs(m.x + m.width - (t.x + t.width)) < 2 && m.y >= t.y + t.height - 1
+  }).toBe(true)
 })

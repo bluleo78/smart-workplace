@@ -67,11 +67,12 @@ function RenameContent({ file, onSubmit, onClose }: { file: RenameTarget } & Omi
       await onSubmit(file.id, name)
       onClose()
     } catch (e) {
-      // 409 는 서버 문구에 내부 표기("(name: …)")가 붙어 있어 사용자 문구로 바꾼다.
+      // 이름 중복 409 는 서버 문구에 내부 표기("(name: …)")가 붙어 있어 사용자 문구로 바꾼다. 다른 원인의 409 는 서버 문구 그대로.
+      const message = extractApiError(e, '파일 이름을 변경하지 못했습니다.')
       setError(
-        axios.isAxiosError(e) && e.response?.status === 409
+        axios.isAxiosError(e) && e.response?.status === 409 && message.includes('같은 이름')
           ? '같은 폴더에 같은 이름의 파일이 있습니다.'
-          : extractApiError(e, '파일 이름을 변경하지 못했습니다.'),
+          : message,
       )
       setSubmitting(false)
     }

@@ -72,6 +72,7 @@ const ACTION_TYPES = [
   { value: 'MEMBER_CREATED', label: '구성원 계정 생성' },
   { value: 'FILE_UPLOAD', label: '파일 업로드' },
   { value: 'FILE_VERSION_CREATED', label: '파일 새 버전 생성' },
+  { value: 'FILE_RENAME', label: '파일 이름 변경' },
   { value: 'FILE_DELETE', label: '파일 삭제' },
   { value: 'FILE_ROLLBACK', label: '파일 롤백' },
   { value: 'FILE_SHARE', label: '공유 링크 생성' },

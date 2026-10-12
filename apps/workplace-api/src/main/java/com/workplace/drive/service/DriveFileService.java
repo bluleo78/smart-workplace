@@ -144,7 +144,7 @@ public class DriveFileService {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "VIEWER");
-    return withDriveName(fileUpload.getFileContentTrusted(row.fileId()), row);
+    return fileUpload.getFileContentTrusted(row.fileId()).withName(row.name());
   }
 
   /**
@@ -171,7 +171,7 @@ public class DriveFileService {
   public FileContentResult downloadViaShareLink(long driveFileId) throws IOException {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    return withDriveName(fileUpload.getFileContentTrusted(row.fileId()), row);
+    return fileUpload.getFileContentTrusted(row.fileId()).withName(row.name());
   }
 
   /** 썸네일. drive 권한(VIEWER+)으로 인가한 뒤 file core 신뢰 read. 없으면 빈 Optional → 컨트롤러 404. */
@@ -267,7 +267,7 @@ public class DriveFileService {
         versions
             .findVersion(driveFileId, versionNo)
             .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    return withDriveName(fileUpload.getFileContentTrusted(v.fileId()), row);
+    return fileUpload.getFileContentTrusted(v.fileId()).withName(row.name());
   }
 
   /** 롤백(#79) — 대상 버전 blob 을 물리 클론해 새 버전으로 append(비파괴). EDITOR. */
@@ -331,9 +331,8 @@ public class DriveFileService {
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
     String newName = UnicodeNames.toNfc(name.strip());
     if (!newName.equals(row.name())) {
-      // 대상 이름의 활성 파일이 자기 자신이 아니면 충돌(#79 부분 유니크 인덱스 대응)
-      var clash = files.findActiveByName(row.spaceId(), row.folderId(), newName);
-      if (clash.isPresent() && clash.get() != driveFileId) {
+      // 같은 폴더에 새 이름의 활성 파일이 있으면 충돌(#79 부분 유니크 인덱스 대응)
+      if (files.findActiveByName(row.spaceId(), row.folderId(), newName).isPresent()) {
         throw new DriveDuplicateNameException(newName);
       }
       files.rename(driveFileId, newName);
@@ -351,9 +350,8 @@ public class DriveFileService {
           Map.of("spaceId", row.spaceId(), "fileName", newName, "previousName", row.name()));
       notifier.itemsChanged(OP_UPDATED, row.spaceId(), List.of(driveFileId), callerId);
     }
-    return files.listInFolder(row.spaceId(), row.folderId()).stream()
-        .filter(f -> f.id() == driveFileId)
-        .findFirst()
+    return files
+        .findResponse(driveFileId)
         .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
   }
 
@@ -439,15 +437,6 @@ public class DriveFileService {
         .findById(userId)
         .map(com.workplace.user.dto.UserResponse::username)
         .orElse(String.valueOf(userId));
-  }
-
-  /**
-   * 내려받는 파일명을 드라이브 이름으로 바꾼다(WP-335). file core 의 original_name 은 업로드 당시 이름이라, 이름을 바꾼 뒤에도
-   * 다운로드·미리보기·공유 링크가 옛 이름으로 저장되지 않게 한다.
-   */
-  private static FileContentResult withDriveName(
-      FileContentResult c, DriveFileRepository.DriveFileRow row) {
-    return new FileContentResult(c.resource(), c.mimeType(), row.name(), c.size());
   }
 
   /** 대상 폴더(있으면)가 같은 공간인지 검증. null = 공간 루트(항상 같은 공간). */

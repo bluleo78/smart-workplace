@@ -1554,7 +1554,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 ) : tabletRowMenu ? (
                   renderTabletRowMenu(f.name, `file-${f.id}`, rowActionsFor({ kind: 'file', item: f }))
                 ) : (
-                  <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-kbd:flex">
+                  // ⋯ 메뉴가 열린 동안에도 묶음을 보인다(has-data-[state=open]) — 메뉴가 열리면 바깥 포인터가 막혀 hover 가 풀리는데,
+                  // 그때 트리거가 숨으면 메뉴가 기준점을 잃고 화면 왼쪽 위로 튄다(WP-335).
+                  <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-kbd:flex has-data-[state=open]:flex">
                     <Button
                       variant="ghost"
                       size="xs"
@@ -1674,7 +1676,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           file={renameFile}
           onSubmit={async (id, name) => {
             await driveApi.renameFile(id, name)
-            await reloadAndClear()
+            // 목록 재조회는 기다리지 않는다 — 이름은 이미 바뀌었으니 재조회 실패를 이름 변경 실패로 보이지 않게(선택도 유지).
+            void reload()
           }}
           onClose={() => setRenameFile(null)}
         />
