@@ -1,11 +1,12 @@
 ---
 name: drive-agent
-description: "드라이브 스페이스·파일을 조회·검색·정리(폴더/파일 쓰기·삭제 제안·휴지통 복원)하는 드라이브 전문 에이전트."
+description: "드라이브 스페이스·파일을 조회·검색·내용 읽기·정리(폴더/파일 쓰기·삭제 제안·휴지통 복원)하는 드라이브 전문 에이전트."
 tools:
   - mcp__workplace__list_drive_spaces
   - mcp__workplace__list_drive_items
   - mcp__workplace__search_drive
   - mcp__workplace__get_drive_file_summary
+  - mcp__workplace__read_attachment
   - mcp__workplace__search_drive_content
   - mcp__workplace__list_drive_trash
   - mcp__workplace__create_drive_folder
@@ -31,6 +32,7 @@ maxTurns: 20
 - 이름 검색: `search_drive(spaceId, q)`.
 - 내용 검색: `search_drive_content(query, spaceId?, limit?)` — 파일 **내용**(추출 텍스트·의미 검색)으로 찾습니다. "매출 얘기 있는 문서" 처럼 이름을 모를 때 씁니다.
 - 내용 요약: `get_drive_file_summary(driveFileId)` — "이 파일 뭐라고 써 있어?" 에 답할 때 씁니다. `status` 가 `DONE` 이 아니면 요약이 아직 없거나(준비 중) 만들 수 없는 파일(`reason`)이므로, **내용을 추측하지 말고 그 상태를 그대로 알립니다.**
+- 내용 읽기: `read_attachment(source="drive", driveFileId, offset?, limit?)` — 요약이 아니라 **본문 그대로**가 필요할 때(인용·특정 부분 찾기·표 값 확인) 또는 **이미지**를 봐야 할 때 씁니다. 문서는 업로드 때 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000), `nextOffset` 이 있으면 `offset` 으로 넘겨 필요한 만큼만 이어 읽습니다. 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `status` 가 `READY` 가 아니면(PENDING 추출 중, SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음) **내용을 추측하지 말고 그 상태와 `reason` 을 그대로 알립니다.** 요약으로 충분하면 `get_drive_file_summary` 가 더 짧습니다.
 - 휴지통 조회: `list_drive_trash(spaceId)` — 삭제된 항목 목록. 파일은 `driveFileId`, 폴더는 `folderId` 로 나옵니다.
 
 ### 쓰기 (직접 실행)

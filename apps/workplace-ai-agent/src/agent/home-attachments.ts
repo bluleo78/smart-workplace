@@ -1,11 +1,11 @@
 // WP-234: 메인 AI 채팅 첨부 — 요청 스키마(세션 전체 첨부 목록)와 매 턴 user 메시지에 고정 주입하는 "## 이 대화의 첨부" 블록.
 // 이력 윈도·누적 요약과 별개로 매 턴 세션 전체 목록을 싣는다 — 앞부분 이력이 요약으로 대체돼도 AI 가 파일을 근거로
 // 답하고 "다시 첨부해 달라"고 하지 않게 하는 연속성의 핵심이다. 읽기는 read_chat_attachment(필요할 때만)로 한다.
+import { isSendableImage } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import type { HomeAttachmentMeta, WorkplaceApiClient } from '../clients/workplace-api.js';
 import { log } from '../logger.js';
-import { isSendableImage } from '../mcp/home-attachment-tool.js';
 import { fileKind, sanitizeName } from './attachment-presenter.js';
 
 // WP-242 공통 ExtractionInfo — 서버는 nullable 필드를 null 또는 생략으로 보낼 수 있어 null 로 정규화한다.

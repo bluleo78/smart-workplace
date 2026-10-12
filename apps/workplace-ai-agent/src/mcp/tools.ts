@@ -7,11 +7,13 @@ import {
   issueListFilterShape,
   normalizeTimezone,
   parseIssueKey,
+  READ_ATTACHMENT_DEFAULT_LIMIT,
+  readRangeShape,
+  resolveRange,
   toolAnnotations,
   type McpTool,
 } from '@smart-workplace/mcp-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { READ_ATTACHMENT_DEFAULT_LIMIT, readRangeShape } from './attachment-read-schema.js';
 import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
 
 // sdk-mcp-server.ts / stdio-entry.ts 가 './tools.js' 에서 McpTool 을 계속 import 하므로 재-export 유지.
@@ -27,10 +29,12 @@ const getChatThreadInput = z.object({
   threadId: z.number().int().positive(),
 });
 
-// WP-244: 첨부 추출 텍스트 구간 읽기 입력 — 이슈 첨부·챗 메시지 첨부 모두 스레드 경유(threadId + fileId)로 읽는다.
+// WP-244: 이슈 챗 첨부 추출 텍스트 구간 읽기 입력 — 이슈 첨부·챗 메시지 첨부 모두 스레드 경유(threadId + fileId)로 읽는다.
 // (예전 issueKey 분기는 실행 스레드에 묶을 수 없고 프롬프트도 더는 쓰지 않아 제거했다.)
-// offset/limit 범위·기본 길이는 메인 채팅 read_chat_attachment 와 공유(attachment-read-schema).
-const readAttachmentTextInput = z.object({
+// WP-346: offset/limit 범위·기본 길이는 공유 read_attachment·메인 채팅 read_chat_attachment 와 같은 정의(공유 attachment-read).
+// 공유 read_attachment(source:'issue')로 대체하지 않는 이유: 이슈 챗에 멘션된 AGENT 는 프로젝트 비멤버라 이슈 첨부 API 가 403 이고,
+// 챗 메시지 첨부는 이슈 첨부도 드라이브 파일도 아니다 — 스레드 경유만 둘 다 읽는다.
+const readChatThreadAttachmentInput = z.object({
   fileId: z.number().int().positive(),
   threadId: z.number().int().positive(),
   ...readRangeShape,
@@ -378,18 +382,18 @@ export function buildTools(
         },
       },
       {
-        name: 'read_attachment_text',
+        // WP-346: 옛 이름 read_attachment_text — 공유 read_attachment 와 헷갈리지 않게 범위(이슈 챗 스레드)를 이름에 드러냈다.
+        name: 'read_chat_thread_attachment',
         description:
-          '첨부파일의 추출 텍스트를 구간 단위로 읽습니다. 프롬프트 첨부 섹션에 적힌 그대로 threadId 와 fileId 로 호출하세요(이슈 첨부·챗 첨부 공통). ' +
+          '이 이슈 챗 스레드의 첨부파일 추출 텍스트를 구간 단위로 읽습니다. 프롬프트 첨부 섹션에 적힌 그대로 threadId 와 fileId 로 호출하세요(이슈 첨부·챗 첨부 공통). ' +
           `limit 생략 시 ${READ_ATTACHMENT_DEFAULT_LIMIT}자(최대 32000). 필요한 만큼만 읽고, 결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽습니다. ` +
           'status 가 READY 가 아니면 text 없이 상태·사유만 옵니다.',
-        inputSchema: readAttachmentTextInput,
+        inputSchema: readChatThreadAttachmentInput,
         async handler(args) {
-          const parsed = readAttachmentTextInput.parse(args);
+          const parsed = readChatThreadAttachmentInput.parse(args);
           const { threadId, fileId } = parsed;
           assertBoundThread(threadId);
-          const offset = parsed.offset ?? undefined;
-          const limit = parsed.limit ?? READ_ATTACHMENT_DEFAULT_LIMIT;
+          const { offset, limit } = resolveRange(parsed);
           return JSON.stringify(await client.readChatAttachmentText(agentId, threadId, fileId, offset, limit));
         },
       },
@@ -1151,6 +1155,8 @@ export function buildTools(
       sharedTool('get_mail_summary'), sharedTool('draft_mail_reply'), sharedTool('draft_issue_from_mail'),
       sharedTool('create_issue_from_mail'), sharedTool('mark_mail_read'),
       buildReadChatAttachmentTool(client, agentId, homeSessionId), // WP-234: 메인 AI 채팅 첨부 읽기(세션 바인딩)
+      // WP-346: 이슈 첨부·드라이브 파일 내용 읽기(공유) — AI Chat 은 요청자 신원이라 사람의 권한으로 읽는다(위의 세션 첨부와 다른 대상).
+      sharedTool('read_attachment'),
       submitResponseTool,        // #381: 서브에이전트 전용 — 최종 답변 구조화 제출(사이드카 기록)
       ...buildShowTools(),
       // #460 Layer2: 도메인 단순 조회 표시 위젯 — 위임(서브에이전트 nested loop, 느림) 대신 직접 표시.

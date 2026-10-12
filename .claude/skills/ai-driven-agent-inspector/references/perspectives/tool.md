@@ -39,6 +39,7 @@
 상태 변경: get_issue_detail → update_issue(status)
 댓글 추가: get_issue_detail → add_comment
 unassign: get_issue_detail → (propose?) → unassign_self
+첨부 읽기: get_issue_detail(attachments[].fileId) → read_attachment(source="issue", issueKey, fileId) → (nextOffset 있으면 offset 이어 읽기)
 ```
 
 ### calendar-agent
@@ -53,6 +54,7 @@ unassign: get_issue_detail → (propose?) → unassign_self
 폴더 생성: list_drive_spaces → create_drive_folder (propose 불필요인지 agent.md 확인)
 파일 삭제: list_drive_items → propose_delete_drive_item → [pending_action]
 폴더 이동: list_drive_items → propose_move_folder → [pending_action]
+본문 읽기: list_drive_items/search_drive → read_attachment(source="drive", driveFileId) (요약이면 get_drive_file_summary)
 ```
 
 ### mail-agent

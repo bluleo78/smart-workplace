@@ -1,13 +1,10 @@
 // WP-234: 메인 AI 채팅 첨부 읽기 도구 — 세션 바인딩·문서 상태별·이미지 형식/크기 분기.
 import { describe, expect, it, vi } from 'vitest';
 
+import { IMAGE_MAX_BYTES, READ_ATTACHMENT_DEFAULT_LIMIT } from '@smart-workplace/mcp-tools-shared';
+
 import type { ExtractionInfo, HomeAttachmentMeta, WorkplaceApiClient } from '../clients/workplace-api.js';
-import {
-  buildReadChatAttachmentTool,
-  HOME_IMAGE_MAX_BYTES,
-  NO_HOME_SESSION_ERROR,
-} from './home-attachment-tool.js';
-import { READ_ATTACHMENT_DEFAULT_LIMIT } from './attachment-read-schema.js';
+import { buildReadChatAttachmentTool, NO_HOME_SESSION_ERROR } from './home-attachment-tool.js';
 
 const SID = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
 const USER = 42;
@@ -100,9 +97,9 @@ describe('read_chat_attachment', () => {
   });
 
   it('이미지 크기 경계 — 3,932,160B 는 블록, 1B 초과는 안내(다운로드 없음)', async () => {
-    const ok = mockClient([att(9, 'image/jpeg', ex('NONE'), HOME_IMAGE_MAX_BYTES)]);
+    const ok = mockClient([att(9, 'image/jpeg', ex('NONE'), IMAGE_MAX_BYTES)]);
     expect(Array.isArray(await tool(ok).handler({ fileId: 9 }))).toBe(true);
-    const big = mockClient([att(9, 'image/jpeg', ex('NONE'), HOME_IMAGE_MAX_BYTES + 1)]);
+    const big = mockClient([att(9, 'image/jpeg', ex('NONE'), IMAGE_MAX_BYTES + 1)]);
     const out = (await tool(big).handler({ fileId: 9 })) as string;
     expect(out).toContain('크기(3932161B)');
     expect(out).not.toContain('형식(');
@@ -119,7 +116,7 @@ describe('read_chat_attachment', () => {
   });
 
   it('형식과 크기가 모두 문제면 둘 다 말한다', async () => {
-    const c = mockClient([att(9, 'image/heic', ex('NONE'), HOME_IMAGE_MAX_BYTES + 1)]);
+    const c = mockClient([att(9, 'image/heic', ex('NONE'), IMAGE_MAX_BYTES + 1)]);
     const out = (await tool(c).handler({ fileId: 9 })) as string;
     expect(out).toContain('형식(image/heic)과 크기(3932161B)');
     expect(c.downloadHomeAttachment).not.toHaveBeenCalled();

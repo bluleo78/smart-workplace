@@ -8,7 +8,7 @@ import { fileStemLength } from './fileName';
 export const DOWNSCALE_MAX_EDGE = 2048;
 /**
  * 이 크기(3.5MiB)를 넘으면 치수가 작아도 JPEG 로 다시 인코딩한다.
- * ai-agent 이미지 블록 상한(HOME_IMAGE_MAX_BYTES 3.75MiB)보다 작게 둬야, 축소 없이 올라간 이미지가 도구에서
+ * mcp-tools-shared 이미지 블록 상한(IMAGE_MAX_BYTES 3.75MiB)보다 작게 둬야, 축소 없이 올라간 이미지가 도구에서
  * "모델에 보낼 수 없음 — 다시 올려 달라"로 막히지 않는다(여유분 256KiB).
  */
 export const DOWNSCALE_TRIGGER_BYTES = 3.5 * 1024 * 1024;

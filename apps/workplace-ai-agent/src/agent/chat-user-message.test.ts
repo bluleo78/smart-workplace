@@ -33,11 +33,11 @@ describe('buildChatUserMessage', () => {
 
   it('presenter 결과(section·guidance)를 첨부 섹션과 지시문에 넣는다', () => {
     const msg = buildChatUserMessage(payload, recent, {
-      section: '- [이슈 첨부] a.pdf (application/pdf, 5B)\n  - 텍스트: read_attachment_text({issueKey:"WP-1", fileId:3}) — 약 5자',
+      section: '- [이슈 첨부] a.pdf (application/pdf, 5B)\n  - 텍스트: read_chat_thread_attachment({issueKey:"WP-1", fileId:3}) — 약 5자',
       guidance: '첨부는 위 안내대로 읽으세요',
     });
     expect(msg).toContain('## 첨부파일');
-    expect(msg).toContain('read_attachment_text({issueKey:"WP-1", fileId:3})');
+    expect(msg).toContain('read_chat_thread_attachment({issueKey:"WP-1", fileId:3})');
     expect(msg).toContain('첨부는 위 안내대로 읽으세요');
     expect(msg).not.toContain('이미지/PDF/텍스트 모두 가능');
   });

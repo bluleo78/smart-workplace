@@ -2,31 +2,28 @@
 // 세션은 인자로 받지 않고 실행 단위로 고정(homeSessionId)한다: 모델이 다른 세션 id 를 넣어 남의 대화 첨부를 읽는
 // 경로 자체를 없애기 위해서다(서버도 소유자·세션 연결을 확인하지만 이중 방어). 매 호출 세션 목록을 먼저 받아
 // MIME·크기·추출 상태를 확인한다 — stdio(opencode) 프로세스는 프롬프트의 첨부 목록을 볼 수 없기 때문이다.
-// 문서는 추출 텍스트 구간(WP-242 계약, read_attachment_text 와 같은 표현), 이미지는 MCP image 블록(WP-240)으로 돌려준다.
+// 문서는 추출 텍스트 구간(WP-242 계약, 공유 read_attachment 와 같은 표현), 이미지는 MCP image 블록(WP-240)으로 돌려준다.
+// 범위·기본 길이·이미지 형식/크기 기준은 공유 read_attachment 와 같은 정의를 쓴다(WP-346, attachment-read.ts).
+// 세션 첨부는 이슈·드라이브 파일이 아니라 세션에 묶인 파일이라 공유 도구로 읽을 수 없다 — 그래서 이 도구만 ai-agent 전용으로 남는다.
 // opencode 비전 미지원 모델이면 stdio-entry 가 이미지 블록을 안내 문구로 바꾼다(WP-241).
-import type { McpTool } from '@smart-workplace/mcp-tools-shared';
+import {
+  imageRejectReasons,
+  READ_ATTACHMENT_DEFAULT_LIMIT,
+  readRangeShape,
+  resolveRange,
+  toBase64,
+  type McpTool,
+} from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import { fileKind } from '../agent/attachment-presenter.js';
 import type { HomeAttachmentMeta, WorkplaceApiClient } from '../clients/workplace-api.js';
-import { READ_ATTACHMENT_DEFAULT_LIMIT, readRangeShape } from './attachment-read-schema.js';
-
-/** 모델에 이미지 블록으로 보낼 수 있는 형식 — Claude·opencode 비전 모델 공통 입력 형식. */
-export const HOME_IMAGE_MIMES: ReadonlySet<string> = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
-
-/** 이미지 원본 상한 3.75MB — base64(×4/3)로 늘면 모델 이미지 한도 5MB 에 닿는다. */
-export const HOME_IMAGE_MAX_BYTES = 3_932_160;
 
 /** 세션에 묶이지 않은 실행(메인 채팅 외)에서 부르면 돌려줄 오류. */
 export const NO_HOME_SESSION_ERROR =
   'read_chat_attachment 는 메인 AI 채팅 대화에서만 쓸 수 있습니다(이 실행에 묶인 대화가 없습니다).';
 
-/** 이미지 블록으로 보낼 수 있는지 — 형식과 원본 크기 모두 만족해야 한다. 프롬프트 상태 표기(home-attachments)와 공유. */
-export function isSendableImage(a: Pick<HomeAttachmentMeta, 'mimeType' | 'sizeBytes'>): boolean {
-  return HOME_IMAGE_MIMES.has(a.mimeType) && a.sizeBytes <= HOME_IMAGE_MAX_BYTES;
-}
-
-// offset/limit 범위(nullish·상한 32000)는 이슈 챗 read_attachment_text 와 같은 계약을 공유한다.
+// offset/limit 범위(nullish·상한 32000)는 공유 read_attachment·이슈 챗 read_chat_thread_attachment 와 같은 계약이다.
 const readChatAttachmentInput = z.object({
   fileId: z.number().int().positive(),
   ...readRangeShape,
@@ -68,23 +65,20 @@ export function buildReadChatAttachmentTool(
         throw new Error(`이 대화의 첨부가 아닙니다(fileId ${p.fileId}). "이 대화의 첨부" 목록에 있는 fileId 를 쓰세요.`);
       }
       if (fileKind(a.mimeType) === 'image') {
-        if (!isSendableImage(a)) {
-          // 실제 사유만 말한다 — 형식만 문제인데 크기까지 탓하면 모델이 엉뚱한 안내를 한다.
-          const reasons: string[] = [];
-          if (!HOME_IMAGE_MIMES.has(a.mimeType)) reasons.push(`형식(${a.mimeType})`);
-          if (a.sizeBytes > HOME_IMAGE_MAX_BYTES) reasons.push(`크기(${a.sizeBytes}B)`);
+        // 실제 사유만 말한다 — 형식만 문제인데 크기까지 탓하면 모델이 엉뚱한 안내를 한다.
+        const reasons = imageRejectReasons(a.mimeType, a.sizeBytes);
+        if (reasons.length > 0) {
           return `${JSON.stringify(a.originalName)}: 이 이미지의 ${reasons.join('과 ')}는 모델에 보낼 수 없습니다. 사용자에게 JPEG·PNG(3.75MB 이하)로 다시 올려 달라고 안내하세요.`;
         }
         const { data } = await client.downloadHomeAttachment(onBehalfOfId, homeSessionId, a.fileId);
         // mimeType 은 목록 값 — 응답 Content-Type 은 파라미터(charset 등)가 붙을 수 있어 모델 입력 형식으로 부적합.
         return [
           { type: 'text', text: `첨부 이미지 ${JSON.stringify(a.originalName)} (${a.mimeType}, ${a.sizeBytes}B, fileId ${a.fileId})` },
-          { type: 'image', data: data.toString('base64'), mimeType: a.mimeType },
+          { type: 'image', data: toBase64(data), mimeType: a.mimeType },
         ];
       }
       if (a.extraction.status !== 'READY') return nonReadyNotice(a);
-      const offset = p.offset ?? undefined;
-      const limit = p.limit ?? READ_ATTACHMENT_DEFAULT_LIMIT;
+      const { offset, limit } = resolveRange(p);
       return JSON.stringify(await client.readHomeAttachmentText(onBehalfOfId, homeSessionId, a.fileId, offset, limit));
     },
   };

@@ -120,6 +120,13 @@ function sharedMock(): MockedShared {
     countUnreadNotifications: vi.fn().mockResolvedValue(0),
     markNotificationRead: vi.fn().mockResolvedValue(undefined),
     markAllNotificationsRead: vi.fn().mockResolvedValue(undefined),
+    // 첨부·파일 내용 읽기(WP-346)
+    readIssueAttachmentText: vi.fn().mockResolvedValue({ fileId: 1, status: 'NONE' }),
+    listIssueAttachments: vi.fn().mockResolvedValue([]),
+    downloadIssueAttachment: vi.fn().mockResolvedValue({ data: new Uint8Array(), mimeType: 'application/octet-stream' }),
+    readDriveFileText: vi.fn().mockResolvedValue({ fileId: 1, status: 'NONE' }),
+    listDriveFileVersions: vi.fn().mockResolvedValue([]),
+    downloadDriveFile: vi.fn().mockResolvedValue({ data: new Uint8Array(), mimeType: 'application/octet-stream' }),
   };
 }
 
@@ -211,7 +218,7 @@ describe('프로필 구성', () => {
       'get_wiki_page',
       'list_chat_messages',
       'list_wiki_spaces',
-      'read_attachment_text',
+      'read_chat_thread_attachment',
       'search_wiki',
     ]);
   });
@@ -260,8 +267,8 @@ describe('프로필 구성', () => {
       'list_drive_spaces', 'list_drive_items', 'search_drive', 'get_drive_file_summary', 'search_drive_content',
       // 알림(#850)
       'list_notifications', 'mark_notification_read', 'mark_all_notifications_read',
-      // 메인 AI 채팅 첨부(WP-234)
-      'read_chat_attachment',
+      // 메인 AI 채팅 첨부(WP-234) + 이슈 첨부·드라이브 파일 읽기(WP-346)
+      'read_chat_attachment', 'read_attachment',
       'create_drive_folder', 'rename_drive_folder', 'move_drive_folder', 'move_drive_file', 'propose_delete_file', 'propose_delete_folder',
       // #856 확인카드 제안
       'propose_add_attendees', 'propose_remove_attendee', 'propose_update_project_member_role', 'propose_remove_project_member',
@@ -482,6 +489,30 @@ describe('read_chat_attachment 프로필·바인딩 (WP-234)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// WP-346: 공유 read_attachment — assistant(요청자 신원)에만. 이슈 챗(chat)은 AGENT 가 프로젝트 비멤버라 스레드 경유 전용 도구를 쓴다.
+// ---------------------------------------------------------------------------
+describe('read_attachment 프로필 (WP-346)', () => {
+  it('assistant 의 read_attachment 는 공유 정의를 요청자 신원 클라이언트(toolClient)로 실행한다', async () => {
+    const c = client();
+    const t = find(buildTools(c, AGENT_ID, 'assistant'), 'read_attachment');
+    expect(t.annotations).toMatchObject({ readOnlyHint: true });
+    await t.handler({ source: 'drive', driveFileId: 9 });
+    expect(c.toolClient).toHaveBeenCalledWith(AGENT_ID);
+    expect(c.sc.readDriveFileText).toHaveBeenCalledWith(9, { offset: undefined, limit: 12000 });
+  });
+
+  it.each(['issue', 'chat', 'home', 'messaging'] as McpProfile[])('%s 프로필에는 없다', (p) => {
+    expect(buildTools(client(), AGENT_ID, p).map((t) => t.name)).not.toContain('read_attachment');
+  });
+
+  it('옛 이름 read_attachment_text 는 어느 프로필에도 없다(read_chat_thread_attachment 로 바뀜)', () => {
+    for (const p of ['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]) {
+      expect(buildTools(client(), AGENT_ID, p).map((t) => t.name)).not.toContain('read_attachment_text');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // ai-agent 전용 이슈 도구
 // ---------------------------------------------------------------------------
 describe('unassign_self', () => {
@@ -524,40 +555,40 @@ describe('chat 도구', () => {
     expect(c.addChatMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('read_attachment_text(threadId) → readChatAttachmentText(agentId, threadId, fileId, offset, limit)', async () => {
+  it('read_chat_thread_attachment(threadId) → readChatAttachmentText(agentId, threadId, fileId, offset, limit)', async () => {
     const c = client();
     vi.mocked(c.readChatAttachmentText).mockResolvedValue({
       fileId: 3, status: 'READY', offset: 0, totalChars: 2, truncated: false, nextOffset: null, text: '본문', reasonCode: null, reason: null,
     });
-    const out = await find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text').handler({ threadId: 5, fileId: 3, offset: 0, limit: 100 });
+    const out = await find(buildTools(c, AGENT_ID, 'chat'), 'read_chat_thread_attachment').handler({ threadId: 5, fileId: 3, offset: 0, limit: 100 });
     expect(c.readChatAttachmentText).toHaveBeenCalledWith(AGENT_ID, 5, 3, 0, 100);
     expect(JSON.parse(out as string).text).toBe('본문');
   });
 
-  it('read_attachment_text(threadId) → offset 생략 시 undefined·limit 생략 시 12000', async () => {
+  it('read_chat_thread_attachment(threadId) → offset 생략 시 undefined·limit 생략 시 12000', async () => {
     const c = client();
     vi.mocked(c.readChatAttachmentText).mockResolvedValue({ fileId: 8, status: 'PENDING' } as never);
-    await find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text').handler({ threadId: 5, fileId: 8 });
+    await find(buildTools(c, AGENT_ID, 'chat'), 'read_chat_thread_attachment').handler({ threadId: 5, fileId: 8 });
     expect(c.readChatAttachmentText).toHaveBeenCalledWith(AGENT_ID, 5, 8, undefined, 12000);
   });
 
-  it('read_attachment_text: 안 쓰는 인자를 null 로 보내도 미지정으로 처리', async () => {
+  it('read_chat_thread_attachment: 안 쓰는 인자를 null 로 보내도 미지정으로 처리', async () => {
     const c = client();
     vi.mocked(c.readChatAttachmentText).mockResolvedValue({ fileId: 3, status: 'PENDING' } as never);
-    await find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text')
+    await find(buildTools(c, AGENT_ID, 'chat'), 'read_chat_thread_attachment')
       .handler({ threadId: 5, fileId: 3, offset: null, limit: null });
     expect(c.readChatAttachmentText).toHaveBeenCalledWith(AGENT_ID, 5, 3, undefined, 12000);
   });
 
-  it('read_attachment_text: threadId 없으면 오류, API 미호출', async () => {
+  it('read_chat_thread_attachment: threadId 없으면 오류, API 미호출', async () => {
     const c = client();
-    const t = find(buildTools(c, AGENT_ID, 'chat'), 'read_attachment_text');
+    const t = find(buildTools(c, AGENT_ID, 'chat'), 'read_chat_thread_attachment');
     await expect(t.handler({ fileId: 3 })).rejects.toThrow();
     expect(c.readChatAttachmentText).not.toHaveBeenCalled();
   });
 
-  it('read_attachment_text: limit 은 1..32000', async () => {
-    const t = find(buildTools(client(), AGENT_ID, 'chat'), 'read_attachment_text');
+  it('read_chat_thread_attachment: limit 은 1..32000', async () => {
+    const t = find(buildTools(client(), AGENT_ID, 'chat'), 'read_chat_thread_attachment');
     await expect(t.handler({ threadId: 5, fileId: 3, limit: 32001 })).rejects.toThrow();
     await expect(t.handler({ threadId: 5, fileId: 3, limit: 0 })).rejects.toThrow();
   });
@@ -566,10 +597,10 @@ describe('chat 도구', () => {
   describe('실행 스레드 바인딩(chatThreadId)', () => {
     const bound = (c: WorkplaceApiClient) => buildTools(c, AGENT_ID, 'chat', undefined, undefined, undefined, 5);
 
-    it('다른 threadId 의 read_attachment_text·list_chat_messages·add_chat_message 는 한국어 오류, API 미호출', async () => {
+    it('다른 threadId 의 read_chat_thread_attachment·list_chat_messages·add_chat_message 는 한국어 오류, API 미호출', async () => {
       const c = client();
       const tools = bound(c);
-      await expect(find(tools, 'read_attachment_text').handler({ threadId: 6, fileId: 3 })).rejects.toThrow(/스레드만 사용할 수 있습니다/);
+      await expect(find(tools, 'read_chat_thread_attachment').handler({ threadId: 6, fileId: 3 })).rejects.toThrow(/스레드만 사용할 수 있습니다/);
       await expect(find(tools, 'list_chat_messages').handler({ threadId: 6 })).rejects.toThrow(/스레드만 사용할 수 있습니다/);
       await expect(find(tools, 'add_chat_message').handler({ threadId: 6, body: 'x' })).rejects.toThrow(/스레드만 사용할 수 있습니다/);
       expect(c.readChatAttachmentText).not.toHaveBeenCalled();
@@ -588,7 +619,7 @@ describe('chat 도구', () => {
     it('바인딩된 threadId 는 그대로 동작', async () => {
       const c = client();
       vi.mocked(c.readChatAttachmentText).mockResolvedValue({ fileId: 3, status: 'PENDING' } as never);
-      await find(bound(c), 'read_attachment_text').handler({ threadId: 5, fileId: 3 });
+      await find(bound(c), 'read_chat_thread_attachment').handler({ threadId: 5, fileId: 3 });
       await find(bound(c), 'list_chat_messages').handler({ threadId: 5 });
       expect(c.readChatAttachmentText).toHaveBeenCalledWith(AGENT_ID, 5, 3, undefined, 12000);
       expect(c.getChatMessages).toHaveBeenCalledWith(AGENT_ID, 5, 50);

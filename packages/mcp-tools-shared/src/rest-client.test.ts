@@ -352,3 +352,44 @@ describe('createSharedToolClient WP-343 이동 도구 경로', () => {
     expect(await client.discoverChannels('없음')).toEqual([]);
   });
 });
+
+describe('createSharedToolClient 첨부·파일 내용 읽기 경로(WP-346)', () => {
+  it('이슈 첨부 텍스트 — issueKey 경로 + offset/limit 쿼리, 생략한 값은 싣지 않는다', async () => {
+    const { http, client } = mockHttp();
+    await client.readIssueAttachmentText('WP-12', 3, { offset: 6, limit: 100 });
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/12/attachments/3/text', { params: { offset: 6, limit: 100 } });
+    await client.readIssueAttachmentText('WP-12', 3, { limit: 12000 });
+    expect(http.get).toHaveBeenLastCalledWith('/projects/WP/issues/12/attachments/3/text', { params: { limit: 12000 } });
+  });
+
+  it('드라이브 파일 텍스트 — /drive/files/{id}/text', async () => {
+    const { http, client } = mockHttp();
+    await client.readDriveFileText(9, { offset: 0, limit: 500 });
+    expect(http.get).toHaveBeenCalledWith('/drive/files/9/text', { params: { offset: 0, limit: 500 } });
+  });
+
+  it('이슈 첨부 목록·드라이브 버전 목록 — 배열이 아니면 빈 배열', async () => {
+    const { http, client } = mockHttp();
+    expect(await client.listIssueAttachments('WP-12')).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/12/attachments');
+    expect(await client.listDriveFileVersions(9)).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/drive/files/9/versions');
+    http.get.mockResolvedValue({ data: [{ versionNo: 1, sizeBytes: 4, current: true }] });
+    expect(await client.listDriveFileVersions(9)).toEqual([{ versionNo: 1, sizeBytes: 4, current: true }]);
+  });
+
+  it('원본 받기 — arraybuffer 로 요청하고 Content-Type 을 함께 돌려준다(Buffer·ArrayBuffer 모두)', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: Buffer.from([1, 2]), headers: { 'content-type': 'image/png' } });
+    const a = await client.downloadIssueAttachment('WP-12', 3);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/12/attachments/3/content', { responseType: 'arraybuffer' });
+    expect([...a.data]).toEqual([1, 2]);
+    expect(a.mimeType).toBe('image/png');
+
+    http.get.mockResolvedValueOnce({ data: new Uint8Array([7]).buffer, headers: {} });
+    const b = await client.downloadDriveFile(9);
+    expect(http.get).toHaveBeenLastCalledWith('/drive/files/9/content', { responseType: 'arraybuffer' });
+    expect([...b.data]).toEqual([7]);
+    expect(b.mimeType).toBe('application/octet-stream');
+  });
+});

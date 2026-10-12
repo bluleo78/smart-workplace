@@ -4,6 +4,17 @@ export type { McpTool, McpToolAnnotations, SharedTool, ToolHints, ToolKind } fro
 export { toolAnnotations } from './tool-annotations.js';
 export { toMcpContent, summarizeToolResult, resultText, replaceImagesWithNotice, type McpContent, type McpToolResult } from './mcp-content.js';
 export { issueListFilterShape } from './schemas.js';
+export {
+  READ_ATTACHMENT_DEFAULT_LIMIT,
+  readRangeShape,
+  resolveRange,
+  SENDABLE_IMAGE_MIMES,
+  IMAGE_MAX_BYTES,
+  baseMimeType,
+  imageRejectReasons,
+  isSendableImage,
+  toBase64,
+} from './attachment-read.js';
 export type * from './tool-client.js';
 export { normalizeTimezone } from './calendar-tools.js';
 export { findMemberByUsername } from './member-tools.js';

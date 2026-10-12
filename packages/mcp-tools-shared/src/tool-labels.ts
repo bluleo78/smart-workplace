@@ -36,7 +36,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   move_wiki_page: { label: '노트 이동', icon: '📦' },
   // 이슈 컨텍스트 대화
   list_chat_messages: { label: '대화 조회', icon: '💬' },
-  read_attachment_text: { label: '첨부 읽기', icon: '📎' },
+  read_chat_thread_attachment: { label: '첨부 읽기', icon: '📎' }, // WP-346: 이슈 챗 스레드 첨부(옛 read_attachment_text)
   read_chat_attachment: { label: '첨부 읽기', icon: '📎' }, // WP-234: 메인 AI 채팅 첨부
   add_chat_message: { label: '메시지 작성', icon: '💬' },
   // 메시징
@@ -91,6 +91,8 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   move_drive_folder: { label: '폴더 이동', icon: '📦' },
   move_drive_file: { label: '파일 이동', icon: '📦' },
   restore_drive_item: { label: '휴지통에서 복원', icon: '♻️' },
+  // 첨부·파일 내용 읽기(WP-346)
+  read_attachment: { label: '첨부·파일 읽기', icon: '📎' },
   // 알림
   list_notifications: { label: '알림 조회', icon: '🔔' },
   mark_notification_read: { label: '알림 읽음 처리', icon: '🔔' },

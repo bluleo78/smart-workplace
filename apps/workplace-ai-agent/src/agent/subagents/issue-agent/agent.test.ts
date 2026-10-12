@@ -16,6 +16,7 @@ describe('issue-agent 정의', () => {
     expect(loaded['issue-agent'].tools).toEqual([
       'mcp__workplace__list_issues',
       'mcp__workplace__get_issue_detail',
+      'mcp__workplace__read_attachment', // WP-346: 이슈 첨부 본문(추출 텍스트 구간)·이미지 읽기
       'mcp__workplace__add_comment',
       'mcp__workplace__update_comment',
       'mcp__workplace__create_issue',
@@ -34,6 +35,13 @@ describe('issue-agent 정의', () => {
       'mcp__workplace__search_members',
       'mcp__workplace__submit_response',
     ]);
+  });
+
+  // WP-346: 첨부는 get_issue_detail 의 attachments[].fileId 로 source "issue" 읽기.
+  it('본문이 read_attachment 를 source "issue" + issueKey + fileId 로 안내한다', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('read_attachment(source="issue", issueKey, fileId, offset?, limit?)');
+    expect(prompt).toContain('attachments[].fileId');
   });
 
   // WP-343: update_status 폐지 — 상태 변경은 update_issue 의 status 로 지시한다.

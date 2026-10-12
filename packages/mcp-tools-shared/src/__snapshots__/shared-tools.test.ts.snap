@@ -54,6 +54,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "move_drive_folder": "write",
   "move_wiki_page": "write",
   "open_dm": "write",
+  "read_attachment": "read",
   "remove_contact_favorite": "write",
   "remove_issue_dependency": "write",
   "remove_user_group_member": "write",
@@ -1318,6 +1319,64 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "usernames",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "read_attachment",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "driveFileId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "fileId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "maximum": 32000,
+              "minimum": 1,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "source": {
+          "enum": [
+            "issue",
+            "drive",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "source",
       ],
       "type": "object",
     },

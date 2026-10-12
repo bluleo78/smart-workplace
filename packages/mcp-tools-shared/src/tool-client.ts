@@ -304,6 +304,74 @@ export interface DriveToolClient {
   moveDriveFile(driveFileId: number, targetFolderId: number | null): Promise<void>;
 }
 
+/**
+ * 추출 텍스트 구간 읽기 응답(WP-242 서버 계약 ExtractedTextSlice) — 이슈 첨부·드라이브 파일(WP-346)·챗 첨부가 같은 모양이다.
+ * status 가 READY 가 아니면 text·totalChars·nextOffset 은 null 이고 reasonCode·reason 만 채운다.
+ * fileId 는 core file.id 다 — 드라이브 표면에는 내보내지 않는다(#840, 핸들러가 driveFileId 로 바꾼다).
+ */
+export type ExtractionStatus = 'PENDING' | 'READY' | 'SKIPPED' | 'FAILED' | 'NONE';
+export interface ExtractedTextSlice {
+  fileId: number;
+  status: ExtractionStatus;
+  offset: number;
+  totalChars: number | null;
+  /** 서버가 null 을 줄 수 있다 — 소비자는 false 로 취급한다. */
+  truncated: boolean | null;
+  nextOffset: number | null;
+  text: string | null;
+  /** SKIPPED·FAILED 사유 코드(ExtractionReasons.Code). 이미지는 'IMAGE'. */
+  reasonCode: string | null;
+  reason: string | null;
+}
+
+/** 구간 읽기 범위 — 생략한 값은 쿼리에 싣지 않아 서버 기본값(offset 0, limit 32000)을 따른다. */
+export interface TextRange {
+  offset?: number;
+  limit?: number;
+}
+
+/** 파일 원본 바이트 + 응답 Content-Type(파라미터 포함 원문 — 비교 전에 잘라 쓴다). */
+export interface FileBytes {
+  data: Uint8Array;
+  mimeType: string;
+}
+
+/** 이슈 첨부 목록 행(IssueAttachmentResponse) — 이미지 판정·안내에 쓰는 필드만 고정한다. */
+export interface IssueAttachmentRow {
+  fileId: number;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  [key: string]: unknown;
+}
+
+/** 드라이브 파일 버전 행(DriveFileVersionResponse) — 현재 버전 크기로 이미지 크기 상한을 내려받기 전에 확인한다. */
+export interface DriveFileVersionRow {
+  versionNo: number;
+  sizeBytes: number;
+  current: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * 첨부·파일 내용 읽기(WP-346) — read_attachment 가 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지만 원본을 받는다
+ * (이미지 블록으로 모델에 넘기려고). 권한은 서버가 강제한다(이슈: 프로젝트 멤버, 드라이브: 스페이스 VIEWER).
+ */
+export interface AttachmentToolClient {
+  /** GET /projects/{key}/issues/{n}/attachments/{fileId}/text. */
+  readIssueAttachmentText(issueKey: string, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
+  /** GET /projects/{key}/issues/{n}/attachments — 이미지 형식·크기 확인용. */
+  listIssueAttachments(issueKey: string): Promise<IssueAttachmentRow[]>;
+  /** GET /projects/{key}/issues/{n}/attachments/{fileId}/content — 원본 바이트. */
+  downloadIssueAttachment(issueKey: string, fileId: number): Promise<FileBytes>;
+  /** GET /drive/files/{id}/text. */
+  readDriveFileText(driveFileId: number, range: TextRange): Promise<ExtractedTextSlice>;
+  /** GET /drive/files/{id}/versions — 최신 버전이 먼저 온다(version_no DESC). */
+  listDriveFileVersions(driveFileId: number): Promise<DriveFileVersionRow[]>;
+  /** GET /drive/files/{id}/content — 원본 바이트(인라인 미리보기와 같은 게이트). */
+  downloadDriveFile(driveFileId: number): Promise<FileBytes>;
+}
+
 /** 휴지통 항목 — type 에 따라 id 가 drive_file.id(FILE) 또는 폴더 id(FOLDER)다. 뷰가 이름을 나눠 붙이므로 그 필드를 고정한다. */
 export interface DriveTrashRow {
   type: 'FILE' | 'FOLDER';

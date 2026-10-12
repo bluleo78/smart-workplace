@@ -9,27 +9,18 @@ import {
   createSharedToolClient,
   describeApiError,
   parseIssueKey,
+  type ExtractedTextSlice,
+  type ExtractionStatus,
   type HttpRequestConfig,
   type SharedToolClient,
 } from '@smart-workplace/mcp-tools-shared';
 
-// WP-244: 첨부 추출 상태·구간 읽기 응답(WP-242 서버 계약 그대로).
-export type ExtractionStatus = 'PENDING' | 'READY' | 'SKIPPED' | 'FAILED' | 'NONE';
+// WP-244: 첨부 추출 상태·구간 읽기 응답(WP-242 서버 계약 그대로). 구간 응답 타입은 공유 read_attachment 와 같은 정의를 쓴다(WP-346).
+export type { ExtractedTextSlice, ExtractionStatus };
 export interface ExtractionInfo {
   status: ExtractionStatus;
   totalChars: number | null;
   truncated: boolean | null; // 서버가 null 을 줄 수 있음 — 소비자는 false 로 취급
-  reasonCode: string | null;
-  reason: string | null;
-}
-export interface ExtractedTextSlice {
-  fileId: number;
-  status: ExtractionStatus;
-  offset: number;
-  totalChars: number | null;
-  truncated: boolean | null; // 서버가 null 을 줄 수 있음 — 소비자는 false 로 취급
-  nextOffset: number | null;
-  text: string | null;
   reasonCode: string | null;
   reason: string | null;
 }

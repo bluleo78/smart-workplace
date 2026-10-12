@@ -81,6 +81,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   update_user_group: ['write', true, true, false],
   update_wiki_page: ['write', true, false, false],
   watch_issue: ['write', false, true, false],
+  read_attachment: ['read', R, R, R],
 };
 
 describe('도구 연산 성격 표(WP-342)', () => {

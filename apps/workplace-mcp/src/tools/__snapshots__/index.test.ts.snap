@@ -54,6 +54,7 @@ exports[`buildUserTools > 노출 도구 이름·kind 스냅샷 1`] = `
   "move_drive_folder:write",
   "move_wiki_page:write",
   "open_dm:write",
+  "read_attachment:read",
   "remove_contact_favorite:write",
   "remove_issue_dependency:write",
   "remove_user_group_member:write",
