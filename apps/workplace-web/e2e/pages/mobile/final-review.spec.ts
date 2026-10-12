@@ -62,7 +62,8 @@ test('캘린더 헤더: 390px 에서 제목이 읽히고 뷰 전환이 가능하
   await mockApi(page, 'GET', '/api/v1/calendar/events', [])
   await page.goto('/calendar')
   const title = page.getByTestId('calendar-title')
-  await expect(title).toHaveText('2026년 12월')
+  // 모바일 헤더 제목은 같은 해면 'M월'(WP-136 — 「12월 ▾」 버튼). ▾ 는 아이콘이라 제목 텍스트에 섞이지 않는다.
+  await expect(title).toHaveText('12월')
   // 헤더가 제목에 내준 폭(h1 은 flex-1 — 텍스트 길이와 무관)이 충분하다.
   const h1 = page.getByTestId('page-header').locator('h1')
   expect((await h1.boundingBox())!.width).toBeGreaterThan(80)
@@ -71,13 +72,15 @@ test('캘린더 헤더: 390px 에서 제목이 읽히고 뷰 전환이 가능하
   // 뷰 전환 select 는 제목 폭(22px 탭 루트 제목)을 지키려 헤더 아래 도구 줄에 있다(U2-5).
   const select = page.getByTestId('calendar-view-select')
   await expect(select).toBeVisible()
-  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
+  // 모바일 첫 보기는 일정 목록(WP-136).
+  await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
   // 선택 → 실제 뷰가 바뀐다(상태만이 아니라 화면 반영).
+  await select.selectOption('month')
+  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
+  await expect(page.getByTestId('calendar-view-agenda')).toHaveCount(0)
   await select.selectOption('agenda')
   await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
   await expect(page.getByTestId('calendar-view-month')).toHaveCount(0)
-  await select.selectOption('month')
-  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
 

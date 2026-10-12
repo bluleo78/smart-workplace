@@ -34,6 +34,8 @@ test('메일: 계정 사이드바는 바텀시트로 연다', async ({ authentic
 
 test('캘린더: 모바일 헤더에도 오늘/이전/다음이 보이고 다음 클릭 시 제목이 바뀐다', async ({ authenticatedPage: page }) => {
   await page.goto('/calendar')
+  // 모바일 첫 보기(일정 목록)엔 ‹ › 가 없다(WP-136 — 무한 스크롤) — 이동 버튼이 있는 월 보기로 바꿔 확인한다.
+  await page.getByTestId('calendar-view-select').selectOption('month')
   await expect(page.getByTestId('calendar-today')).toBeVisible()
   await expect(page.getByTestId('calendar-prev')).toBeVisible()
   await expect(page.getByTestId('calendar-next')).toBeVisible()

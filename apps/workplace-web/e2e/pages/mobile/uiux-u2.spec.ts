@@ -231,23 +231,27 @@ test('캘린더: 헤더엔 제목만(잘림 없음), 도구 줄의 오늘·‹·
   await page.goto('/calendar')
   const header = page.getByTestId('page-header')
   const h1 = header.locator('h1')
-  await expect(h1).toHaveText('2026년 12월')
+  // 같은 해면 'M월'(WP-136 — 제목이 미니 달력 버튼「12월 ▾」, ▾ 는 아이콘).
+  await expect(h1).toHaveText('12월')
   expect(await h1.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false)
   expect(Math.round((await h1.boundingBox())!.x)).toBe(16)
   // 헤더엔 이동 버튼·⋯ 가 없다(도구 줄로 이동).
   await expect(header.getByTestId('calendar-today')).toHaveCount(0)
   await expect(header.getByTestId('mobile-header-more')).toHaveCount(0)
   const toolbar = page.getByTestId('calendar-mobile-toolbar')
+  // 모바일 첫 보기(일정 목록)는 ‹ › 를 숨긴다(WP-136) — 이동 버튼이 있는 월 보기에서 크기·동작을 본다.
+  const select = toolbar.getByTestId('calendar-view-select')
+  await select.selectOption('month')
   for (const id of ['calendar-today', 'calendar-prev', 'calendar-next']) {
     const b = (await toolbar.getByTestId(id).boundingBox())!
     expect(b.width, id).toBeGreaterThanOrEqual(44)
     expect(b.height, id).toBeGreaterThanOrEqual(44)
   }
   await toolbar.getByTestId('calendar-next').click()
+  // 다른 해로 넘어가면 'yyyy년 M월'.
   await expect(h1).toHaveText('2027년 1월')
   await toolbar.getByTestId('calendar-today').click()
-  await expect(h1).toHaveText('2026년 12월')
-  const select = toolbar.getByTestId('calendar-view-select')
+  await expect(h1).toHaveText('12월')
   await select.selectOption('agenda')
   await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
   await expectNoHorizontalOverflow(page)
